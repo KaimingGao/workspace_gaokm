@@ -74,8 +74,21 @@ class TestT0Costs(unittest.TestCase):
         self.assertEqual(trades[0]["fees"], 0.0)
         self.assertEqual(trades[0]["net_cash_delta"], gross)
 
-    def test_eod_cover_abandons_when_buy_fees_exceed_sell_net(self):
-        """反T must_cover：卖出净得不够买回（含佣金）→ abandon_cover_cash。"""
+    def test_default_research_cost_config_is_simple_cn(self):
+        from core.t0.costs import (
+            default_t0_research_cost_config,
+            resolve_t0_cost_context,
+        )
+
+        cfg = default_t0_research_cost_config()
+        self.assertGreater(float(cfg.get("commission_bps") or 0), 0)
+        self.assertGreater(float(cfg.get("stamp_duty_bps_sell") or 0), 0)
+        model, params = resolve_t0_cost_context(cost_config=cfg)
+        self.assertEqual(model, "simple_cn")
+        self.assertGreater(float(params.get("commission_rate") or 0), 0)
+
+    def test_eod_cover_abandons_when_account_cash_short(self):
+        """反T must_cover：账户余额（含卖出净得）不够买回 → abandon_cover_cash。"""
         from core.paper.costs import cost_params
         from core.t0.minute_path import _first_touch_sell_then_buy
 
@@ -87,7 +100,7 @@ class TestT0Costs(unittest.TestCase):
         ]
         bar = {"date": "2026-08-25", "open": 10.0, "high": 10.6, "low": 10.0, "close": 10.5}
         paper = {"cost_model": "simple_cn", "cost_params": {}}
-        out = _first_touch_sell_then_buy(
+        kwargs = dict(
             minute_bars=minute_bars,
             bar=bar,
             shares=1000,
@@ -105,11 +118,21 @@ class TestT0Costs(unittest.TestCase):
             range_pct=6.0,
             t0_ratio=0.4,
         )
+        # 无账户余额：卖出净得不够覆盖含费买回 → 放弃
+        out = _first_touch_sell_then_buy(**kwargs, cash=0.0)
         self.assertTrue(out.get("success"), out)
         self.assertEqual(int(out.get("sold_qty") or 0), 400)
         self.assertEqual(int(out.get("covered_qty") or 0), 0)
         self.assertEqual(out.get("exit_reason"), "abandon_cover_cash", out)
         self.assertEqual(len(out.get("trades") or []), 1)
+
+        # 账户有余额：即使卖出净得不够，也强制买回
+        out2 = _first_touch_sell_then_buy(**kwargs, cash=50.0)
+        self.assertTrue(out2.get("success"), out2)
+        self.assertEqual(int(out2.get("sold_qty") or 0), 400)
+        self.assertEqual(int(out2.get("covered_qty") or 0), 400)
+        self.assertEqual(out2.get("exit_reason"), "eod_cover", out2)
+        self.assertEqual(len(out2.get("trades") or []), 2)
 
     def test_apply_trades_skips_buy_when_shared_cash_short(self):
         """共享现金不足时买腿跳过，不把 paper.cash 打成负。"""
@@ -177,12 +200,12 @@ class TestT0Costs(unittest.TestCase):
         buy = next(t for t in out["trades"] if t.get("side") == "t0_buy")
         self.assertGreaterEqual(10399.0 + float(buy.get("net_cash_delta") or 0), -1e-6)
 
-    def test_sell_then_buy_midday_cover_skips_when_not_self_funded(self):
-        """反T盘中追价买回若使现金转负，则本根不成交（与 EOD 闸一致）。"""
+    def test_sell_then_buy_midday_cover_uses_account_cash(self):
+        """反T盘中追价买回：账户余额够则成交；不够则本根不成交。"""
         from core.paper.costs import cost_params
         from core.t0.minute_path import _first_touch_sell_then_buy
 
-        # 卖@10.5 后追价中点抬到接近/高于卖价，simple_cn 下净现金不够买回
+        # 卖@10.5 后追价中点抬到接近/高于卖价，simple_cn 下仅靠卖出净得不够买回
         minute_bars = [
             {"datetime": "2026-08-25 09:35:00", "open": 10.0, "high": 10.0, "low": 10.0, "close": 10.0},
             {"datetime": "2026-08-25 09:40:00", "open": 10.0, "high": 10.6, "low": 10.0, "close": 10.5},
@@ -192,7 +215,7 @@ class TestT0Costs(unittest.TestCase):
         ]
         bar = {"date": "2026-08-25", "open": 10.0, "high": 10.6, "low": 10.0, "close": 10.5}
         paper = {"cost_model": "simple_cn", "cost_params": {}}
-        out = _first_touch_sell_then_buy(
+        kwargs = dict(
             minute_bars=minute_bars,
             bar=bar,
             shares=1000,
@@ -216,14 +239,21 @@ class TestT0Costs(unittest.TestCase):
             range_pct=6.0,
             t0_ratio=0.4,
         )
+        # 无账户余额：不得透支完成盘中追价 / EOD
+        out = _first_touch_sell_then_buy(**kwargs, cash=0.0)
         self.assertTrue(out.get("success"), out)
         self.assertEqual(int(out.get("sold_qty") or 0), 400)
-        # 不得以透支完成盘中追价买回
         if out.get("exit_reason") == "pm_chase":
             self.assertGreaterEqual(float(out.get("cash_delta") or 0), -1e-6, out)
         else:
             self.assertIn(out.get("exit_reason"), ("eod_cover", "abandon_cover_cash"), out)
             self.assertGreaterEqual(float(out.get("cash_delta") or 0), -1e-6, out)
+
+        # 账户有余额：允许用余额补足买回
+        out2 = _first_touch_sell_then_buy(**kwargs, cash=50.0)
+        self.assertTrue(out2.get("success"), out2)
+        self.assertEqual(int(out2.get("covered_qty") or 0), 400, out2)
+        self.assertIn(out2.get("exit_reason"), ("pm_chase", "eod_cover", "trigger"), out2)
 
     def test_walk_t0_cash_topup_uses_open_not_close(self):
         """正T研究现金补足不得用 T 日 close（前视）。"""
@@ -261,6 +291,7 @@ class TestT0Costs(unittest.TestCase):
             "min_range_pct": 0.5,
             "y_prefix_segment_enabled": False,
             "lot_size": 100,
+            "t0_slots_enabled": False,
         }
         with patch("core.t0.backtest._research_cash_for_buy_then_sell", side_effect=spy):
             _walk_t0(
@@ -278,8 +309,8 @@ class TestT0Costs(unittest.TestCase):
         self.assertNotIn(15.0, captured, captured)
         self.assertTrue(all(px == 10.0 for px in captured), captured)
 
-    def test_holdings_sell_then_buy_exposure_when_shared_cash_blocks_cover(self):
-        """共享现金闸掉买回腿时，须按未回补敞口重算 exposure_pnl。"""
+    def test_holdings_sell_then_buy_exposure_when_account_cash_blocks_cover(self):
+        """账户现金不够买回时，引擎内跳过买腿，按未回补敞口记账。"""
         from core.t0.rules import simulate_t0_on_holdings
 
         bar = {"date": "2026-08-25", "open": 10.0, "high": 10.6, "low": 9.5, "close": 10.0}
@@ -308,6 +339,7 @@ class TestT0Costs(unittest.TestCase):
                     "y_path_abandon_bars": 2,
                     "must_cover_same_day": False,
                     "lot_size": 100,
+                    "t0_slots_enabled": False,
                 }
             },
         }
@@ -319,7 +351,6 @@ class TestT0Costs(unittest.TestCase):
         )
         row = (out.get("results") or [None])[0]
         self.assertIsNotNone(row, out)
-        self.assertEqual(row.get("exit_reason"), "abandon_cover_cash", row)
         self.assertGreater(int(row.get("sold_qty") or 0), 0, row)
         self.assertEqual(int(row.get("covered_qty") or 0), 0, row)
         exp = float(row.get("exposure_pnl") or 0)

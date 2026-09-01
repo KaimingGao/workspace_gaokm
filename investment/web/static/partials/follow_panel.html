@@ -16,9 +16,9 @@
   <div class="dashboard-head-actions quant-head-actions follow-head-actions">
     <label
       class="paper-t0-toggle data-offline-toggle"
-      title="开：ŷ / 日K·5m·指数只用研究枢纽本地仓（名单与现价/浮盈不受此开关；与数据中心同源）"
+      title="关：ŷ 只读本地日K·5m·指数；不触发增量补齐（名单与现价/浮盈不受此开关；与数据中心同源）"
     >
-      <input type="checkbox" id="follow-data-offline" role="switch" checked />
+      <input type="checkbox" id="follow-data-offline" role="switch" />
       <span class="paper-t0-toggle-track" aria-hidden="true"></span>
       <span class="data-offline-toggle-text paper-t0-toggle-text">仅本地仓</span>
     </label>
@@ -248,8 +248,8 @@
     <section class="dashboard-section quant-section follow-rebalance-section" id="follow-section-rebalance" aria-labelledby="follow-section-rebalance-title" aria-label="策略调仓">
       <header class="dashboard-section-head quant-section-head follow-section-head">
         <h3 id="follow-section-rebalance-title" class="dashboard-section-title">策略调仓</h3>
-        <p class="dashboard-section-desc quant-section-desc" id="follow-rebalance-data-foot" title="ŷ 受页头「仅本地仓」；落账价走行情；5m 不足请先研究枢纽增量补齐">
-          ŷ 读本地仓（页头开关）· 落账价行情 · 缺 5m→研究枢纽「增量补齐」· ≠ 做T
+        <p class="dashboard-section-desc quant-section-desc" id="follow-rebalance-data-foot" title="ŷ 只读本地；可拉远端先增量补齐；落账价走行情；仓坏用强更">
+          ŷ 只读本地仓 · 可拉远端→增量补齐 · 落账价行情 · ≠ 做T
         </p>
       </header>
       <div class="dashboard-card quant-pro-card follow-ops-card" id="follow-fold-rebalance">
@@ -431,7 +431,7 @@
               <div class="follow-path-matrix-footer" aria-label="择时操作">
                 <div class="follow-path-matrix-actions">
                   <button type="submit" class="dialog-btn secondary" id="paper-path-matrix-save">保存择时</button>
-                  <button type="button" id="paper-adjust" class="dialog-btn dialog-btn-keep-case follow-adjust" title="预演调仓：观察池现算 ŷ（受「仅本地仓」）+ path_matrix。不写日K/5m。缺分钟小包请先研究枢纽「增量补齐」。确认落账时成交价走行情。">预演调仓</button>
+                  <button type="button" id="paper-adjust" class="dialog-btn dialog-btn-keep-case follow-adjust" title="预演调仓：可拉远端时先观察池增量补齐日K/5m，再只读现算 ŷ + path_matrix。仓坏请研究枢纽「强更」。确认落账时成交价走行情。">预演调仓</button>
                   <span
                     id="paper-path-matrix-status"
                     class="follow-ops-note follow-path-matrix-status follow-holdings-load-status follow-ops-load-status"
@@ -560,7 +560,7 @@
               <form id="paper-t0-form" class="paper-t0-form" autocomplete="off">
                 <fieldset class="paper-t0-cfg-block is-shared">
                   <legend>共用</legend>
-                  <p class="paper-t0-cfg-hint quant-sub">总开关、选向与 dual_y 共用准入（trade / eod / nc / path 开关）</p>
+                  <p class="paper-t0-cfg-hint quant-sub">四轮槽位共用这一套买卖/止损（正反仍分侧）。各轮只独立选向、切 20% 仓、按本轮成交价挂止损与第二腿。不做 09:30 开盘轮。</p>
                   <div class="paper-t0-form-grid">
                   <label class="paper-t0-field">
                     <span>启用</span>
@@ -688,7 +688,7 @@
                   </label>
                   <label
                     class="paper-t0-field"
-                    title="大缺口分档：skip_opposite=跳反向T；revert=强制反向；off=关"
+                    title="大缺口分档：skip_opposite=高开跳正T（低开反T默认放行）；revert=强制反向；off=关"
                   >
                     <span>缺口分档</span>
                     <select name="y_gap_tier_mode">
@@ -727,21 +727,35 @@
                   </label>
                   <label
                     class="paper-t0-field"
-                    title="开：要求前缀窗 (H−L)/开盘% ≤ |ŷ_path| 才做T；超则跳过。缺 ŷ_path 不拦"
+                    title="开：要求前缀窗 (H−L)/开盘% ≤ |ŷ_path|×空间裕度 才做T；超则跳过。缺 ŷ_path 不拦"
                   >
-                    <span>前缀振幅&lt;|path|</span>
+                    <span>前缀振幅&lt;|path| * 空间裕度</span>
                     <input type="checkbox" name="y_prefix_vs_path_skip" checked />
                   </label>
                   <label
                     class="paper-t0-field"
-                    title="正/反T止损共用：入场后跳过 N 根 5m 再启用（默认 2≈10 分钟）"
+                    title="空间用尽阈=|ŷ_path|×空间裕度。默认1；>1放宽（如1.2）、&lt;1收紧。仅「前缀振幅&lt;|path| * 空间裕度」开启时生效"
+                  >
+                    <span>空间裕度</span>
+                    <input
+                      type="number"
+                      name="y_prefix_vs_path_mult"
+                      min="0.5"
+                      max="5"
+                      step="0.05"
+                      value="1"
+                    />
+                  </label>
+                  <label
+                    class="paper-t0-field"
+                    title="正/反T止损共用、四轮槽位也共用：入场后跳过 N 根 5m 再启用（默认 2≈10 分钟）"
                   >
                     <span>止损延迟根</span>
                     <input type="number" name="t0_stop_arm_bars" min="0" max="48" step="1" value="2" />
                   </label>
                   <label
                     class="paper-t0-field"
-                    title="正/反T止损共用：开=收盘破线才触发；关=影线刺破即触发（更易被扫）"
+                    title="正/反T止损共用、四轮槽位也共用：开=收盘破线才触发；关=影线刺破即触发（更易被扫）"
                   >
                     <span>止损收盘确认</span>
                     <input type="checkbox" name="t0_stop_on_close" checked />
@@ -759,18 +773,18 @@
                 <div class="paper-t0-cfg-sides">
                 <fieldset class="paper-t0-cfg-block is-buy-then-sell">
                   <legend>正 T</legend>
-                  <p class="paper-t0-cfg-hint quant-sub">先买后卖；固定前缀后半上涨确认后加仓，冲高卖等量旧仓；跌破止损 / 中点追价 / 收盘强平</p>
+                  <p class="paper-t0-cfg-hint quant-sub">先买后卖；ŷ_τ/path 定是否做、前缀后半上涨占比确认后加仓；第二腿按卖触发% / 止损 / 中点追价 / 收盘强平</p>
                   <div class="paper-t0-form-grid">
                   <label
                     class="paper-t0-field has-tip"
-                    title="第二腿·卖触发%（相对第一腿买价）：卖价=买价×(1+此%/100)；可中点追价 / 收盘强平。第一腿按固定前缀确认根收盘。"
+                    title="第二腿·卖触发%（相对该轮第一腿买价）：卖价=买价×(1+此%/100)；四轮共用。第一腿在确认根收盘成交（ŷ+后半占比）。"
                   >
                     <span>卖触发%</span>
                     <input type="number" name="sell_trigger_pct_buy_then_sell" min="0.1" max="20" step="0.1" value="3" />
                   </label>
                   <label
                     class="paper-t0-field has-tip"
-                    title="正T跌破止损%（相对第一腿买价）：0=关。延迟/收盘确认见共用区。止损优先于中点追价。"
+                    title="正T跌破止损%（相对该轮第一腿买价）：0=关。四轮共用此%。延迟/收盘确认见共用区。止损优先于中点追价。"
                   >
                     <span>止损%</span>
                     <input type="number" name="t0_stop_pct_buy_then_sell" min="0" max="20" step="0.1" value="1.2" />
@@ -837,18 +851,18 @@
 
                 <fieldset class="paper-t0-cfg-block is-sell-then-buy">
                   <legend>反 T</legend>
-                  <p class="paper-t0-cfg-hint quant-sub">先卖后买；固定前缀后半下跌确认后卖出，回落买回；涨破止损强制买回；默认 13:00 起中点追价（触不到则放弃回补，除非勾选当日回补）</p>
+                  <p class="paper-t0-cfg-hint quant-sub">先卖后买；ŷ_τ/path 定是否做、前缀后半下跌占比确认后卖出；第二腿按买触发% / 止损 / 中点追价（触不到则放弃回补，除非勾选当日回补）</p>
                   <div class="paper-t0-form-grid">
                   <label
                     class="paper-t0-field has-tip"
-                    title="第二腿·买触发%（相对第一腿卖价）：买价=卖价×(1−此%/100)；可中点追价；触不到则放弃回补（除非勾选当日回补）。第一腿按固定前缀确认根收盘。"
+                    title="第二腿·买触发%（相对该轮第一腿卖价）：买价=卖价×(1−此%/100)；四轮共用。第一腿在确认根收盘成交（ŷ+后半占比）。"
                   >
                     <span>买触发%</span>
                     <input type="number" name="buy_trigger_pct_sell_then_buy" min="0.1" max="20" step="0.1" value="1" />
                   </label>
                   <label
                     class="paper-t0-field has-tip"
-                    title="反T涨破止损%（相对第一腿卖价）：0=关。收盘≥卖价×(1+此%/100) 则强制买回。延迟/收盘确认见共用区。止损优先于中点追价。"
+                    title="反T涨破止损%（相对该轮第一腿卖价）：0=关。四轮共用此%。收盘≥卖价×(1+此%/100) 则强制买回。延迟/收盘确认见共用区。止损优先于中点追价。"
                   >
                     <span>止损%</span>
                     <input type="number" name="t0_stop_pct_sell_then_buy" min="0" max="20" step="0.1" value="1.2" />

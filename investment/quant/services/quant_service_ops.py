@@ -264,10 +264,14 @@ class QuantOpsMixin:
         return QUANT_DAILY_PATH
 
     def freeze_score_ledger(self, as_of: Optional[str] = None) -> Dict[str, Any]:
-        """手动冻结今日/指定日打分账本（书 + 可选横截面）。"""
-        from core.score_ledger import freeze_from_cluster_book
-
-        return freeze_from_cluster_book(as_of=as_of)
+        """分池簿冻结已停用。EOD 快照由日报 freeze_from_daily_report 写入。"""
+        _ = as_of
+        return {
+            "success": False,
+            "deprecated": True,
+            "n_rows": 0,
+            "error": "分池簿冻结已停用；账本由日报写入",
+        }
 
     def build_tau_shadow_review(
         self,
@@ -276,14 +280,13 @@ class QuantOpsMixin:
         horizon_days: int = 1,
         autofill: bool = True,
     ) -> Dict[str, Any]:
-        """A2：ŷ_τ 影子簿验收摘要（IC / 命中 / vs EOD 重叠）。"""
-        from core.score_ledger import build_tau_shadow_review, default_as_of
-
-        return build_tau_shadow_review(
-            as_of or default_as_of(),
-            horizon_days=horizon_days,
-            autofill=autofill,
-        )
+        """ŷ_τ 单日验收 HTTP 已下线；库函数 build_tau_shadow_review 仍供日报。"""
+        _ = as_of, horizon_days, autofill
+        return {
+            "success": False,
+            "deprecated": True,
+            "error": "ŷ_τ 单日验收 HTTP 已下线",
+        }
 
     def build_nowcast_shadow_review(
         self,
@@ -292,14 +295,13 @@ class QuantOpsMixin:
         horizon_days: int = 1,
         autofill: bool = True,
     ) -> Dict[str, Any]:
-        """N3：ŷ_nowcast 影子簿验收摘要（IC / 命中 / Nordhaus / vs EOD）。"""
-        from core.score_ledger import build_nowcast_shadow_review, default_as_of
-
-        return build_nowcast_shadow_review(
-            as_of or default_as_of(),
-            horizon_days=horizon_days,
-            autofill=autofill,
-        )
+        """ŷ_nowcast 单日验收 HTTP 已下线；库函数仍在。"""
+        _ = as_of, horizon_days, autofill
+        return {
+            "success": False,
+            "deprecated": True,
+            "error": "ŷ_nowcast 单日验收 HTTP 已下线",
+        }
 
     def fill_score_outcomes(
         self,
@@ -307,9 +309,13 @@ class QuantOpsMixin:
         *,
         horizon_days: int = 3,
     ) -> Dict[str, Any]:
-        from core.score_ledger import default_as_of, fill_outcomes
-
-        return fill_outcomes(as_of or default_as_of(), horizon_days=horizon_days)
+        """昨日复盘 HTTP 已下线；日更仍走 core.score_ledger.fill_outcomes。"""
+        _ = as_of, horizon_days
+        return {
+            "success": False,
+            "deprecated": True,
+            "error": "昨日复盘 HTTP 已下线；outcomes 由日更 fill_outcomes 回填",
+        }
 
     def build_score_review(
         self,
@@ -318,121 +324,46 @@ class QuantOpsMixin:
         horizon_days: int = 3,
         autofill: bool = True,
     ) -> Dict[str, Any]:
-        from core.score_ledger import build_score_review, default_as_of
+        """昨日复盘 HTTP 已下线；库函数 build_score_review 仍供日报 Y-check。"""
+        _ = as_of, horizon_days, autofill
+        return {
+            "success": False,
+            "deprecated": True,
+            "error": "昨日复盘 HTTP 已下线",
+        }
 
-        return build_score_review(
-            as_of or default_as_of(),
-            horizon_days=horizon_days,
-            autofill=autofill,
-        )
+    def fit_score_calibration(self, **_kwargs: Any) -> Dict[str, Any]:
+        return {
+            "success": False,
+            "deprecated": True,
+            "error": "校准层已下线；不再拟合或写入 live",
+        }
 
-    def fit_score_calibration(
-        self,
-        *,
-        lookback_dates: int = 90,
-        train_frac: float = 0.75,
-        sample_source: str = "panel",
-        lookback_bars: Optional[int] = None,
-        horizon_days: Optional[int] = None,
-        watching_limit: int = 100,
-    ) -> Dict[str, Any]:
-        from core.signal.score_calibration import fit_score_calibration_report
-
-        return fit_score_calibration_report(
-            lookback_dates=lookback_dates,
-            train_frac=train_frac,
-            sample_source=sample_source,
-            lookback_bars=lookback_bars,
-            horizon_days=horizon_days,
-            watching_limit=watching_limit,
-        )
-
-    def persist_score_calibration(
-        self,
-        *,
-        note: str = "",
-        enable: bool = True,
-    ) -> Dict[str, Any]:
-        from core.signal.score_calibration import persist_score_calibration
-
-        return persist_score_calibration(note=note, enable=enable)
+    def persist_score_calibration(self, **_kwargs: Any) -> Dict[str, Any]:
+        return {
+            "success": False,
+            "deprecated": True,
+            "error": "校准层已下线；不再拟合或写入 live",
+        }
 
     def get_score_calibration_model(self) -> Dict[str, Any]:
-        from core.signal.score_calibration import (
-            calibration_enabled,
-            calibration_model_path,
-            calibration_promote_safe,
-            load_calibration_last_report,
-            load_calibration_model,
-            reconcile_calibration_switch,
-        )
-
-        try:
-            reconcile_calibration_switch()
-        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-            logger.debug("catch except Exception: in quant_service_ops.py", exc_info=True)
-            pass
-        live = load_calibration_model()
-        last = load_calibration_last_report()
-        promote_ok, promote_block = True, None
-        heads = None
-        if isinstance(live, dict):
-            heads = live.get("heads")
-        elif isinstance(last, dict):
-            heads = last.get("heads")
-        if isinstance(heads, dict):
-            promote_ok, promote_block = calibration_promote_safe(heads)
         return {
-            "success": True,
-            "enabled": calibration_enabled(model_doc=live),
-            "path": calibration_model_path(),
-            "live": live,
-            "last_report": last,
-            "live_present": bool(live),
-            "promote_ok": bool(promote_ok),
-            "promote_block_reason": None if promote_ok else promote_block,
+            "success": False,
+            "deprecated": True,
+            "error": "校准层已下线",
+            "enabled": False,
+            "live": None,
+            "last_report": None,
         }
 
     def list_score_ledger_dates(self, *, limit: int = 30) -> Dict[str, Any]:
-        from core.market.calendar import prev_trading_day, resolve_session_date
-        from core.score_ledger import default_as_of, list_ledger_dates, list_ledger_entries
-
-        entries = list_ledger_entries(limit=limit)
-        dates = [str(e.get("as_of") or "") for e in entries if e.get("as_of")]
-        if not dates:
-            dates = list_ledger_dates(limit=limit)
-        cal = default_as_of()  # 上一交易日
-        sess = resolve_session_date()
-        immature_set = {
-            str(e.get("as_of") or "")
-            for e in entries
-            if e.get("immature") and e.get("as_of")
-        }
-        filled = [
-            str(e.get("as_of") or "")
-            for e in entries
-            if e.get("as_of") and int(e.get("outcomes_filled") or 0) > 0
-        ]
-        # 复盘默认：已回填日 > as_of+h 已到期日。昨收未进缓存时 as_of=昨仍薄样本
-        safe = prev_trading_day(sess, n=2) or cal or sess
-        pick = next((d for d in filled if d), None) or next(
-            (d for d in dates if d and d <= safe and d not in immature_set),
-            None,
-        ) or next(
-            (d for d in dates if d and d <= cal and d not in immature_set),
-            None,
-        ) or next(
-            (d for d in dates if d and d not in immature_set),
-            None,
-        ) or cal or (dates[0] if dates else "")
+        """昨日复盘 HTTP 已下线。"""
+        _ = limit
         return {
-            "success": True,
-            "dates": dates,
-            "entries": entries,
-            "default_as_of": pick,
-            "calendar_as_of": cal,
-            "safe_as_of": safe,
-            "session_date": sess,
+            "success": False,
+            "deprecated": True,
+            "error": "昨日复盘 HTTP 已下线",
+            "dates": [],
         }
 
     def delete_score_ledger(
@@ -442,24 +373,13 @@ class QuantOpsMixin:
         dates: Optional[List[str]] = None,
         include_outcomes: bool = True,
     ) -> Dict[str, Any]:
-        from core.score_ledger import delete_ledger, delete_ledgers
-
-        batch = [str(d).strip() for d in (dates or []) if str(d).strip()]
-        if as_of and str(as_of).strip():
-            batch.append(str(as_of).strip())
-        # 去重保序
-        seen = set()
-        uniq: List[str] = []
-        for d in batch:
-            if d in seen:
-                continue
-            seen.add(d)
-            uniq.append(d)
-        if not uniq:
-            return {"success": False, "error": "未指定 as_of / dates"}
-        if len(uniq) == 1:
-            return delete_ledger(uniq[0], include_outcomes=include_outcomes)
-        return delete_ledgers(uniq, include_outcomes=include_outcomes)
+        """昨日复盘 HTTP 已下线；库函数 delete_ledger 仍可用。"""
+        _ = as_of, dates, include_outcomes
+        return {
+            "success": False,
+            "deprecated": True,
+            "error": "昨日复盘 HTTP 已下线；不经此入口删账本",
+        }
 
     def score_ledger_code_series(self, code: str, *, limit: int = 40) -> Dict[str, Any]:
         from core.score_ledger import code_yhat_series
@@ -469,18 +389,26 @@ class QuantOpsMixin:
     def score_ledger_stock_panel(
         self, code: str, *, lookback: int = 10
     ) -> Dict[str, Any]:
-        from core.score_ledger import stock_panel_series
-
-        return stock_panel_series(code, lookback=lookback)
+        """昨日复盘 HTTP 已下线；库函数 stock_panel_series 仍可用。"""
+        _ = code, lookback
+        return {
+            "success": False,
+            "deprecated": True,
+            "error": "昨日复盘 HTTP 已下线",
+            "points": [],
+        }
 
     def score_review_hit_series(
         self, *, horizon_days: int = 3, limit: int = 20, autofill: bool = False
     ) -> Dict[str, Any]:
-        from core.score_ledger import hit_rate_series
-
-        return hit_rate_series(
-            horizon_days=horizon_days, limit=limit, autofill=autofill
-        )
+        """昨日复盘 HTTP 已下线；库函数 hit_rate_series 仍可用。"""
+        _ = horizon_days, limit, autofill
+        return {
+            "success": False,
+            "deprecated": True,
+            "error": "昨日复盘 HTTP 已下线",
+            "points": [],
+        }
 
     def save_report_exports(
         self,

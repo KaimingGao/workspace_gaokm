@@ -28,7 +28,23 @@ def _research_cash_for_buy_then_sell(
 
 
 def summarize_t0_day_legs(day: Dict[str, Any]) -> Dict[str, Any]:
-    """从单日 trades / touch_* 提炼 UI 校验字段（价必有；时仅分钟路径）。"""
+    """从单日 trades / touch_* 提炼 UI 校验字段（价必有；时仅分钟路径）。
+
+    多轮混合向或同日多槽成交时不压成一对买卖价，交给 trades 过程列。
+    """
+    if str(day.get("direction_used") or day.get("direction") or "") == "mixed":
+        return {}
+    rows = day.get("t0_slot_results") if day.get("t0_slots_enabled") else None
+    if isinstance(rows, list):
+        filled = [
+            r
+            for r in rows
+            if isinstance(r, dict)
+            and not r.get("skipped")
+            and int(r.get("trades") or 0) > 0
+        ]
+        if len(filled) > 1:
+            return {}
     trades = [t for t in (day.get("trades") or []) if isinstance(t, dict)]
     direction = str(day.get("direction_used") or day.get("direction") or "")
     sells = [t for t in trades if str(t.get("side") or "").lower().endswith("sell")]
@@ -134,6 +150,65 @@ def derive_t0_quality_metrics(report: Dict[str, Any]) -> Dict[str, Any]:
     return out
 
 
+def _slot_round_tally(day: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """多轮日：按槽位分向记账；缺槽位明细则回落单日口径。"""
+    rows = day.get("t0_slot_results")
+    if not day.get("t0_slots_enabled") or not isinstance(rows, list) or not rows:
+        return None
+    saw_stb = False
+    saw_bts = False
+    stb_pnl = 0.0
+    bts_pnl = 0.0
+    stb_complete = True
+    bts_complete = True
+    any_uncover = False
+    any_fill = False
+    for r in rows:
+        if not isinstance(r, dict) or r.get("skipped"):
+            continue
+        direction = str(r.get("direction") or "")
+        sold = int(r.get("sold_qty") or 0)
+        covered = int(r.get("covered_qty") or 0)
+        bought = int(r.get("bought_qty") or 0)
+        sold_back = int(r.get("sold_back_qty") or 0)
+        if sold <= 0 and bought <= 0:
+            continue
+        any_fill = True
+        exit_r = str(r.get("exit_reason") or "")
+        pnl = float(r.get("pnl") or 0)
+        if direction == "sell_then_buy":
+            saw_stb = True
+            stb_pnl += pnl
+            done = covered >= sold or (
+                exit_r in T0_INTENTIONAL_ABANDON_EXITS and covered < sold
+            )
+            if not done:
+                stb_complete = False
+                any_uncover = True
+        elif direction == "buy_then_sell":
+            saw_bts = True
+            bts_pnl += pnl
+            done = sold_back >= bought or (
+                exit_r in T0_INTENTIONAL_ABANDON_EXITS and sold_back < bought
+            )
+            if not done:
+                bts_complete = False
+                any_uncover = True
+    if not any_fill:
+        return None
+    return {
+        "saw_stb": saw_stb,
+        "saw_bts": saw_bts,
+        "stb_pnl": stb_pnl,
+        "bts_pnl": bts_pnl,
+        "stb_complete": (not saw_stb) or stb_complete,
+        "bts_complete": (not saw_bts) or bts_complete,
+        "all_complete": ((not saw_stb) or stb_complete) and ((not saw_bts) or bts_complete),
+        "any_uncover": any_uncover,
+        "mixed": bool(saw_stb and saw_bts),
+    }
+
+
 def backtest_t0_on_bars(
     bars: List[dict],
     *,
@@ -159,6 +234,7 @@ def backtest_t0_on_bars(
     供 dual_y / ATR 的 hist_prior，不改变评估窗长度。
     ``tau_pool_by_date``：按日截面缺口（与刷簿 ŷ_τ 特征对齐）。
     compare_daily / require_minute 形参保留兼容；require_minute=True 且无 minute_by_date 时直接失败。
+    ``cost_config`` 缺省时用 CostPort 研究费率（禁止隐式零成本抬高 PnL）。
     """
     _ = compare_daily  # 保留形参兼容旧调用
     if require_minute and not minute_by_date:
@@ -167,6 +243,10 @@ def backtest_t0_on_bars(
             "error": "做T回测已删除日线模拟，需 5 分钟 K 线；请检查分钟源/缓存",
             "task": "t0_backtest",
         }
+    if cost_config is None:
+        from core.t0.costs import default_t0_research_cost_config
+
+        cost_config = default_t0_research_cost_config()
     explicit_path = isinstance(rules, dict) and "path_mode" in rules
     explicit_dir = isinstance(rules, dict) and "direction" in rules
     # 若调用方已传入经 resolve 的规则（含 direction/path），直接用；否则走 Execution resolve
@@ -182,6 +262,18 @@ def backtest_t0_on_bars(
                 has_minute=bool(minute_by_date),
             )
         )
+    # 回测禁 live_book / ledger（当日簿与冻结账本会前视）
+    if str(cfg.get("y_score_source") or "").strip().lower() not in {
+        "compute",
+        "pit",
+        "live",
+        "realtime",
+        "on_the_fly",
+        "",
+    }:
+        cfg = dict(cfg)
+        cfg["y_score_source"] = "compute"
+        cfg["_y_score_source_forced"] = "compute"
     # 兼容：旧调用只传部分规则时，resolve 已补 direction/path
     if not bars:
         return {"success": False, "error": "日线不足"}
@@ -254,6 +346,11 @@ def backtest_t0_on_bars(
             if bars_history is not None and len(history) > len(bars)
             else ""
         )
+        + (
+            "多轮槽位（默认开）与纸面同一套 ŷ+前缀确认 / 止损；"
+            if cfg.get("t0_slots_enabled")
+            else ""
+        )
         + "T+1（反T卖旧买回 / 正T买新卖旧换仓）；非实盘、不保证收益。"
         "主指标看含敞口净PnL / 完成往返率 / 参与率 / 敞口。"
     )
@@ -275,6 +372,21 @@ def _walk_t0(
     tau_pool_by_date: Optional[Dict[str, Dict[str, Any]]] = None,
 ) -> Dict[str, Any]:
     cfg = load_t0_rules(rules)
+    # 回测禁 live_book / ledger 前视
+    if str(cfg.get("y_score_source") or "").strip().lower() not in {
+        "compute",
+        "pit",
+        "live",
+        "realtime",
+        "on_the_fly",
+        "",
+    }:
+        cfg = dict(cfg)
+        cfg["y_score_source"] = "compute"
+        cfg["_y_score_source_forced"] = "compute"
+    from core.t0.costs import resolve_t0_cost_context
+
+    _cost_model_name, _ = resolve_t0_cost_context(cost_config=cost_config)
     history = list(bars_history or bars)
     hist_index_by_date = {
         str(b.get("date") or ""): i for i, b in enumerate(history) if b.get("date")
@@ -312,6 +424,7 @@ def _walk_t0(
     buy_then_sell_pnl = 0.0
     sell_then_buy_cover = 0
     buy_then_sell_cover = 0
+    mixed_days = 0
     minute_days = 0
     missing_minute_days = 0
     atr_window = int(cfg.get("atr_window") or 14)
@@ -421,8 +534,8 @@ def _walk_t0(
                 pool_gaps=pool_day.get("pool_gaps"),
                 sector_gap_breadth=pool_day.get("sector_gap_breadth"),
                 sector_gap_median=ref_map.get(stock_code),
-                minute_bars=mins,
-                sector_ret_to_tau=pool_day.get("sector_ret_to_tau"),
+                # 选向禁分钟前缀 / 开→τ；成交仍用下方 mins
+                use_minute_tau=False,
             )
         day = simulate_t0_day(
             bar=bar_day,
@@ -480,6 +593,12 @@ def _walk_t0(
                     "prev_close": day.get("prev_close")
                     if day.get("prev_close") is not None
                     else (float(bar_day.get("prev_close") or 0) or None),
+                    # 跳过日也保留各钟因果 ŷ，供分槽画像（对齐拟合 by_tau）
+                    "t0_slots_enabled": bool(day.get("t0_slots_enabled")),
+                    "t0_slot_results": day.get("t0_slot_results") or [],
+                    "y_tau_portrait_oc": day.get("y_tau_portrait_oc"),
+                    "y_path_portrait": day.get("y_path_portrait"),
+                    "portrait_prefix_bars": day.get("portrait_prefix_bars"),
                     **_t0_range_fields(day),
                 }
             )
@@ -497,7 +616,28 @@ def _walk_t0(
 
         shares = float(day["shares_end"])
         cash += float(day.get("cash_delta") or 0)
-        if sold > 0 or bought > 0:
+        slot_tally = _slot_round_tally(day)
+        if slot_tally:
+            trade_count += 1
+            if slot_tally["saw_stb"]:
+                sell_then_buy_pnl += float(slot_tally["stb_pnl"] or 0)
+                if slot_tally["stb_complete"]:
+                    sell_then_buy_cover += 1
+            if slot_tally["saw_bts"]:
+                buy_then_sell_pnl += float(slot_tally["bts_pnl"] or 0)
+                if slot_tally["bts_complete"]:
+                    buy_then_sell_cover += 1
+            if slot_tally.get("mixed"):
+                mixed_days += 1
+            elif slot_tally["saw_stb"]:
+                sell_then_buy_days += 1
+            elif slot_tally["saw_bts"]:
+                buy_then_sell_days += 1
+            if slot_tally["all_complete"]:
+                cover_count += 1
+            if slot_tally["any_uncover"]:
+                uncover_days += 1
+        elif sold > 0 or bought > 0:
             trade_count += 1
             completed = (sold > 0 and covered >= sold) or (bought > 0 and sold_back >= bought)
             exit_r = str(day.get("exit_reason") or "")
@@ -547,6 +687,8 @@ def _walk_t0(
                 "sold_back_qty": sold_back,
                 "pnl": day_pnl,
                 "exposure_pnl": day.get("exposure_pnl") or 0,
+                "day_return_pct": day.get("day_return_pct"),
+                "leg1_notional": day.get("leg1_notional"),
                 "shares": shares,
                 "close": float(bar.get("close") or bar.get("open") or 0) or None,
                 "fill_mode": day.get("fill_mode"),
@@ -574,6 +716,8 @@ def _walk_t0(
                 "trades": day.get("trades") or [],
                 "t0_ratio_base": day.get("t0_ratio_base"),
                 "t0_ratio": day.get("t0_ratio"),
+                "t0_slots_enabled": bool(day.get("t0_slots_enabled")),
+                "t0_slot_results": day.get("t0_slot_results") or [],
                 **_t0_range_fields(day),
                 **summarize_t0_day_legs(day),
             }
@@ -627,6 +771,7 @@ def _walk_t0(
         "signal_skip_days": signal_skip_days,
         "sell_then_buy_days": sell_then_buy_days,
         "buy_then_sell_days": buy_then_sell_days,
+        "mixed_days": mixed_days,
         "sell_then_buy_pnl": round(sell_then_buy_pnl, 2),
         "buy_then_sell_pnl": round(buy_then_sell_pnl, 2),
         "sell_then_buy_cover_days": sell_then_buy_cover,
@@ -636,6 +781,7 @@ def _walk_t0(
         "t0_pnl_total": total_pnl,
         "exposure_pnl_total": exposure_total,
         "t0_pnl_with_exposure": round(total_pnl + exposure_total, 2),
+        "cost_model": _cost_model_name,
         "t0_win_rate_pct": round(win / len(pnls) * 100.0, 2) if pnls else None,
         "t0_win_days": win,
         "t0_loss_days": loss,
@@ -674,7 +820,6 @@ def _walk_t0(
             "y_on_risk": cfg.get("y_on_risk"),
             "y_on_allow": cfg.get("y_on_allow"),
             "y_block_tau_nowcast_sign": cfg.get("y_block_tau_nowcast_sign"),
-            "y_tau_nowcast_sign_eps": cfg.get("y_tau_nowcast_sign_eps"),
             "y_nc_enter": cfg.get("y_nc_enter"),
             "y_nc_strong": cfg.get("y_nc_strong") or cfg.get("y_nowcast_enter"),
             "y_nowcast_enter": cfg.get("y_nowcast_enter") or cfg.get("y_nc_strong"),
@@ -694,8 +839,8 @@ def _walk_t0(
             "y_prefix_segment_enabled_buy_then_sell": cfg.get("y_prefix_segment_enabled_buy_then_sell"),
             "y_prefix_upbar_ratio_buy_then_sell": cfg.get("y_prefix_upbar_ratio_buy_then_sell"),
             "y_prefix_downbar_ratio_sell_then_buy": cfg.get("y_prefix_downbar_ratio_sell_then_buy"),
-            "y_tau_entry_price_mult": cfg.get("y_tau_entry_price_mult"),
             "y_prefix_vs_path_skip": cfg.get("y_prefix_vs_path_skip"),
+            "y_prefix_vs_path_mult": cfg.get("y_prefix_vs_path_mult"),
             "t0_pm_degrade": cfg.get("t0_pm_degrade"),
             "t0_pm_degrade_sell_then_buy": cfg.get("t0_pm_degrade_sell_then_buy"),
             "t0_pm_degrade_buy_then_sell": cfg.get("t0_pm_degrade_buy_then_sell"),
@@ -706,9 +851,10 @@ def _walk_t0(
             "t0_stop_pct_sell_then_buy": cfg.get("t0_stop_pct_sell_then_buy"),
             "t0_stop_arm_bars": cfg.get("t0_stop_arm_bars"),
             "t0_stop_on_close": cfg.get("t0_stop_on_close"),
+            "t0_slots_enabled": cfg.get("t0_slots_enabled"),
+            "t0_slots": cfg.get("t0_slots"),
             "y_ratio_cut": cfg.get("y_ratio_cut"),
             "y_ratio_boost_cap": cfg.get("y_ratio_boost_cap"),
-            "y_ratio_tau_soft_band": cfg.get("y_ratio_tau_soft_band"),
             "y_score_source": cfg.get("y_score_source"),
         },
         "days": days[-30:],

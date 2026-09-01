@@ -2,7 +2,6 @@
 
 import { escapeText, paperFmtPct, paperMetricClass } from "./fmt.js";
 import { yTauMapShortLabel } from "./execution_ui.js";
-import { SKIP_CAT_LABEL } from "./t0_table.js";
 
 function fmtMoney(v, { signed = false, digits = 0 } = {}) {
   const n = Number(v);
@@ -23,9 +22,12 @@ function fmtPct(v, digits = 1) {
   return `${n.toFixed(digits)}%`;
 }
 
-/** 做 T 回测「累计收益%」指标卡 tooltip。 */
-const CUMRET_DEF =
-  "评估窗内做T净盈亏+敞口盈亏，÷ 期初虚拟底仓市值；多票为各票假仓合计，非账户真实收益率";
+export function fmtT0DirDays(data) {
+  const b = Number(data?.buy_then_sell_days) || 0;
+  const s = Number(data?.sell_then_buy_days) || 0;
+  const m = Number(data?.mixed_days) || 0;
+  return m > 0 ? `${b} / ${s} / ${m}` : `${b} / ${s}`;
+}
 
 export function resolveT0ScopeLabel(data) {
   if (!data) return "—";
@@ -95,20 +97,9 @@ function resolveVerdict(data) {
     };
   }
   if (Number.isFinite(net) && net < 0) {
-    return { tone: "neg", label: "亏损", hint: "净收益为负，建议对照乐观上界与跳过构成" };
+    return { tone: "neg", label: "亏损", hint: "净收益为负，建议对照跳过构成与成交明细" };
   }
   return { tone: "neutral", label: "观察", hint: "样本偏少，结论仅供参考" };
-}
-
-function topSkipInsight(data) {
-  const cats = data.viz?.skip_categories || [];
-  if (cats.length) {
-    const top = cats[0];
-    return `${top.label || SKIP_CAT_LABEL[top.id] || top.id} ${top.pct ?? 0}%`;
-  }
-  const reasons = data.skip_reason_top || [];
-  if (reasons.length) return `${reasons[0].reason} ×${reasons[0].count}`;
-  return null;
 }
 
 function metricCell(label, value, { cls = "", tip = "", hero = false } = {}) {
@@ -121,46 +112,17 @@ function metricCell(label, value, { cls = "", tip = "", hero = false } = {}) {
   );
 }
 
-function metricSection(title, cells) {
+function metricSection(title, cells, extraClass = "", footerHtml = "") {
   if (!cells.length) return "";
+  const cls = extraClass
+    ? `paper-t0-metric-section ${extraClass}`
+    : "paper-t0-metric-section";
   return (
-    `<section class="paper-t0-metric-section">` +
+    `<section class="${cls}">` +
     `<h4 class="paper-t0-metric-section-title">${escapeText(title)}</h4>` +
     `<div class="paper-t0-metric-grid">${cells.join("")}</div>` +
+    (footerHtml || "") +
     `</section>`
-  );
-}
-
-function compareStrip(data) {
-  const opt = data.optimistic_compare || {};
-  const items = [];
-  if (opt.t0_pnl_total != null) {
-    items.push({
-      label: "乐观上界",
-      val: fmtMoney(opt.t0_pnl_total, { signed: true }),
-      delta: opt.delta_pnl,
-      cls: paperMetricClass(opt.t0_pnl_total),
-    });
-  }
-  if (!items.length) return "";
-  return (
-    `<div class="paper-t0-compare-strip">` +
-    items
-      .map(
-        (it) =>
-          `<div class="paper-t0-compare-item">` +
-          `<span class="paper-t0-compare-label">${escapeText(it.label)}</span>` +
-          `<span class="paper-t0-compare-val ${it.cls}">${it.val}</span>` +
-          (it.delta != null
-            ? `<span class="paper-t0-compare-delta ${paperMetricClass(it.delta)}">Δ ${fmtMoney(
-                it.delta,
-                { signed: true }
-              )}</span>`
-            : "") +
-          `</div>`
-      )
-      .join("") +
-    `</div>`
   );
 }
 
@@ -220,7 +182,7 @@ export function buildT0MetricCards(data) {
     },
     {
       label: "正/反日",
-      value: `${data.buy_then_sell_days ?? 0} / ${data.sell_then_buy_days ?? 0}`,
+      value: fmtT0DirDays(data),
     },
     {
       label: "缺分钟跳过",
@@ -255,6 +217,368 @@ export function buildT0SummaryLine(data) {
   return bits.join(" · ");
 }
 
+function _pct1(v) {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return null;
+  return Math.round(n * 1000) / 10;
+}
+
+function _hitTone(pct) {
+  if (pct == null || !Number.isFinite(Number(pct))) return "";
+  const p = Number(pct);
+  if (p >= 70) return "is-strong";
+  if (p >= 55) return "is-ok";
+  if (p >= 45) return "is-soft";
+  return "is-weak";
+}
+
+function _signBarHtml(pack) {
+  const pos = Number(pack?.pos) || 0;
+  const neg = Number(pack?.neg) || 0;
+  const tot = pos + neg;
+  if (!tot) return "";
+  const posW = (pos / tot) * 100;
+  const negW = 100 - posW;
+  return (
+    `<div class="paper-t0-portrait-signbar" aria-hidden="true">` +
+    `<span class="is-pos" style="width:${posW.toFixed(1)}%"></span>` +
+    `<span class="is-neg" style="width:${negW.toFixed(1)}%"></span>` +
+    `</div>`
+  );
+}
+
+function _fillBarHtml(traded, total) {
+  const n = Number(total) || 0;
+  const t = Number(traded) || 0;
+  if (n <= 0) return "";
+  const pct = Math.min(100, Math.max(0, (t / n) * 100));
+  return (
+    `<div class="paper-t0-portrait-fillbar" title="成交 ${t} / 样本 ${n}" aria-hidden="true">` +
+    `<span style="width:${pct.toFixed(2)}%"></span>` +
+    `</div>`
+  );
+}
+
+function _coverBarHtml(have, total) {
+  const n = Number(total) || 0;
+  const h = Number(have) || 0;
+  if (n <= 0) return "";
+  const pct = Math.min(100, Math.max(0, (h / n) * 100));
+  const low = h > 0 && h / n < 0.25 ? " is-low" : "";
+  return (
+    `<div class="paper-t0-portrait-coverbar${low}" title="有ŷ ${h} / 样本 ${n}" aria-hidden="true">` +
+    `<span style="width:${pct.toFixed(2)}%"></span>` +
+    `</div>`
+  );
+}
+
+function _statCard(label, primary, { tip = "", sub = "", tone = "", bar = "" } = {}) {
+  const tipAttr = tip ? ` title="${escapeText(tip)}"` : "";
+  const toneCls = tone ? ` ${tone}` : "";
+  return (
+    `<div class="paper-t0-portrait-stat${toneCls}"${tipAttr}>` +
+    `<span class="paper-t0-portrait-stat-k">${escapeText(label)}</span>` +
+    `<span class="paper-t0-portrait-stat-v">${primary ?? "—"}</span>` +
+    (sub ? `<span class="paper-t0-portrait-stat-n">${sub}</span>` : "") +
+    (bar || "") +
+    `</div>`
+  );
+}
+
+/** 回测样本画像：分层宇宙 / 标签 / 预估 / 成交子集 / 分槽位 */
+function buildPortraitSectionHtml(portrait) {
+  if (!portrait || typeof portrait !== "object") return "";
+
+  const nAll = Number(portrait.n_days ?? portrait.n_traded);
+  const nTr = Number(portrait.n_traded) || 0;
+  const nSk =
+    portrait.n_skipped != null
+      ? Number(portrait.n_skipped)
+      : Number.isFinite(nAll)
+        ? Math.max(0, nAll - nTr)
+        : null;
+  const participate =
+    Number.isFinite(nAll) && nAll > 0 ? (nTr / nAll) * 100 : null;
+
+  const fmtShareParts = (pack) => {
+    if (!pack) return { primary: "—", sub: "", bar: "" };
+    const pos = pack.pos ?? 0;
+    const neg = pack.neg ?? 0;
+    const share = _pct1(pack.pos_share);
+    const primary =
+      share != null ? `+${pos}/−${neg}` : pos || neg ? `+${pos}/−${neg}` : "—";
+    const sub = share != null ? `${share}% 为正` : "";
+    return { primary, sub, bar: _signBarHtml(pack) };
+  };
+
+  const fmtHitParts = (pack) => {
+    if (!pack || pack.hit_rate_pct == null) {
+      return { primary: "—", sub: "", tone: "" };
+    }
+    const pct = Number(pack.hit_rate_pct);
+    const n = pack.n_judged;
+    return {
+      primary: `${pct.toFixed(1)}%`,
+      sub: n != null ? `n=${n}` : "",
+      tone: _hitTone(pct),
+    };
+  };
+
+  const fmtRateParts = (rate, n) => {
+    if (rate == null || !Number.isFinite(Number(rate))) {
+      return { primary: "—", sub: "", tone: "" };
+    }
+    const pct = Number(rate) * 100;
+    return {
+      primary: `${pct.toFixed(1)}%`,
+      sub: n != null ? `n=${n}` : "",
+      tone: _hitTone(pct),
+    };
+  };
+
+  const tauL = fmtShareParts(portrait.label_tau);
+  const pathL = fmtShareParts(portrait.label_path);
+  const labelSame = fmtRateParts(
+    portrait.label_joint && portrait.label_joint.same_sign_rate,
+    portrait.label_joint && portrait.label_joint.signed_n
+  );
+  const predSame = fmtRateParts(
+    portrait.pred_joint && portrait.pred_joint.same_sign_rate,
+    portrait.pred_joint && portrait.pred_joint.signed_n
+  );
+  const tauHit = fmtHitParts(portrait.tau_hit);
+  const pathHit = fmtHitParts(portrait.path_hit);
+  const eodHit = fmtHitParts(portrait.eod_hit);
+  const tradeHit = fmtHitParts(portrait.trade_hit);
+  const tradedTau = fmtHitParts(portrait.traded && portrait.traded.tau_hit);
+  const tradedPath = fmtHitParts(portrait.traded && portrait.traded.path_hit);
+
+  const universe =
+    `<div class="paper-t0-portrait-universe" title="全部回测日（含跳过）；主指标按全样本；成交为子集">` +
+    `<div class="paper-t0-portrait-universe-main">` +
+    `<span class="paper-t0-portrait-universe-n">${
+      Number.isFinite(nAll) ? escapeText(String(nAll)) : "—"
+    }</span>` +
+    `<span class="paper-t0-portrait-universe-unit">样本日</span>` +
+    `</div>` +
+    `<div class="paper-t0-portrait-universe-meta">` +
+    `<span class="is-fill">成交 <b>${escapeText(String(nTr))}</b></span>` +
+    (nSk != null
+      ? `<span class="is-skip">跳过 <b>${escapeText(String(nSk))}</b></span>`
+      : "") +
+    (participate != null
+      ? `<span class="is-rate">参与 ${escapeText(participate.toFixed(1))}%</span>`
+      : "") +
+    `</div>` +
+    _fillBarHtml(nTr, nAll) +
+    `</div>`;
+
+  const band = (title, tip, cards) =>
+    `<div class="paper-t0-portrait-band" title="${escapeText(tip)}">` +
+    `<div class="paper-t0-portrait-band-h">${escapeText(title)}</div>` +
+    `<div class="paper-t0-portrait-band-grid">${cards.join("")}</div>` +
+    `</div>`;
+
+  const labelsBand = band(
+    "标签分布",
+    "真实标签：τ=open→close；path=极值序；同号=双侧非零",
+    [
+      _statCard("τ标签", escapeText(tauL.primary), {
+        tip: "全样本 tau_realized（open→close）正/负",
+        sub: escapeText(tauL.sub),
+        bar: tauL.bar,
+      }),
+      _statCard("path标签", escapeText(pathL.primary), {
+        tip: "全样本 path_realized（极值序）正/负",
+        sub: escapeText(pathL.sub),
+        bar: pathL.bar,
+      }),
+      _statCard("标签同号", escapeText(labelSame.primary), {
+        tip: "真实 τ OC 与 path 同号率（双侧非零）",
+        sub: escapeText(labelSame.sub),
+        tone: labelSame.tone,
+      }),
+    ]
+  );
+
+  const predBand = band(
+    "预估命中 · 全样本",
+    "因果前缀 ŷ ↔ 全日标签；eod/trade ↔ 涨跌 close/prev_close−1",
+    [
+      _statCard("ŷ同号", escapeText(predSame.primary), {
+        tip: "ŷ_τ_portrait_oc 与 ŷ_path_portrait 同号（前N根因果）",
+        sub: escapeText(predSame.sub),
+        tone: predSame.tone,
+      }),
+      _statCard("τ命中", escapeText(tauHit.primary), {
+        tip: "ŷ_τ_portrait_oc vs tau_realized",
+        sub: escapeText(tauHit.sub),
+        tone: tauHit.tone,
+      }),
+      _statCard("path命中", escapeText(pathHit.primary), {
+        tip: "ŷ_path_portrait vs path_realized",
+        sub: escapeText(pathHit.sub),
+        tone: pathHit.tone,
+      }),
+      _statCard("eod命中", escapeText(eodHit.primary), {
+        tip: "ŷ_eod vs 涨跌",
+        sub: escapeText(eodHit.sub),
+        tone: eodHit.tone,
+      }),
+      _statCard("trade命中", escapeText(tradeHit.primary), {
+        tip: "ŷ_trade vs 涨跌（与 eod 同标签）",
+        sub: escapeText(tradeHit.sub),
+        tone: tradeHit.tone,
+      }),
+    ]
+  );
+
+  const tradedBand = band(
+    `成交子集${nTr ? ` · n=${nTr}` : ""}`,
+    "仅该日有做 T 成交的样本；n 小时结论仅供参考",
+    [
+      _statCard("成交τ命中", escapeText(tradedTau.primary), {
+        tip: "仅成交日；ŷ_τ vs tau_realized",
+        sub: escapeText(tradedTau.sub),
+        tone: tradedTau.tone,
+      }),
+      _statCard("成交path命中", escapeText(tradedPath.primary), {
+        tip: "仅成交日 path 预估命中",
+        sub: escapeText(tradedPath.sub),
+        tone: tradedPath.tone,
+      }),
+    ]
+  );
+
+  const slotRows = ((portrait.by_slot && portrait.by_slot.slots) || []).filter(
+    (s) => s && s.hm
+  );
+  const daySampleN = Number.isFinite(nAll) ? nAll : 0;
+  const slotSampleN = slotRows.reduce(
+    (m, s) => Math.max(m, Number(s.n_days) || 0),
+    0
+  );
+  const yhatCoverN = slotRows.reduce(
+    (m, s) => Math.max(m, Number(s.n_with_yhat) || 0),
+    0
+  );
+  const slotCoverNote =
+    slotSampleN > 0
+      ? yhatCoverN > 0 && yhatCoverN < slotSampleN
+        ? `样本 ${slotSampleN} · 有ŷ ${yhatCoverN}`
+        : daySampleN > 0
+          ? `样本 ${slotSampleN}（对齐日级）`
+          : `样本 ${slotSampleN}`
+      : "";
+  const coverWarn =
+    yhatCoverN > 0 &&
+    slotSampleN > 0 &&
+    yhatCoverN / slotSampleN < 0.25
+      ? `<p class="paper-t0-portrait-slots-warn">槽位 τ/path ŷ 覆盖偏低（最多 ${yhatCoverN}/${slotSampleN}）：缺分钟日无槽位分；有分钟的跳过日须保留各钟因果ŷ（请用最新回测引擎重跑）。</p>`
+      : "";
+
+  const fmtHitCell = (pack) => {
+    const p = fmtHitParts(pack);
+    if (p.primary === "—") return `<span class="is-empty">—</span>`;
+    return (
+      `<span class="paper-t0-portrait-cell ${p.tone}">` +
+      `<b>${escapeText(p.primary)}</b>` +
+      (p.sub ? `<small>${escapeText(p.sub)}</small>` : "") +
+      `</span>`
+    );
+  };
+
+  const fmtRateCell = (rate, n) => {
+    const p = fmtRateParts(rate, n);
+    if (p.primary === "—") return `<span class="is-empty">—</span>`;
+    return (
+      `<span class="paper-t0-portrait-cell ${p.tone}">` +
+      `<b>${escapeText(p.primary)}</b>` +
+      (p.sub ? `<small>${escapeText(p.sub)}</small>` : "") +
+      `</span>`
+    );
+  };
+
+  const slotTable =
+    slotRows.length > 0
+      ? `<div class="paper-t0-portrait-slots" title="${escapeText(
+          (portrait.by_slot && portrait.by_slot.note) ||
+            "各钟 ŷ_τ/path ↔ 天级 label；样本与日级对齐；缺该钟 ŷ 计 flat；成/跳=该钟是否成交"
+        )}">` +
+        `<div class="paper-t0-portrait-slots-head">` +
+        `<span>分槽位</span>` +
+        (slotCoverNote
+          ? `<span class="paper-t0-portrait-slots-cover">${escapeText(
+              slotCoverNote
+            )}</span>`
+          : "") +
+        `</div>` +
+        coverWarn +
+        `<table class="paper-t0-portrait-slot-table">` +
+        `<thead><tr>` +
+        `<th>槽位</th>` +
+        `<th title="与日级同样本；有ŷ=该钟带 τ/path 快照">覆盖</th>` +
+        `<th title="该钟成交 / 样本">成交</th>` +
+        `<th title="ŷ_τ ↔ ŷ_path 同号（有ŷ子集）">ŷ同号</th>` +
+        `<th title="ŷ_τ ↔ tau_realized">τ命中</th>` +
+        `<th title="ŷ_path ↔ path_realized">path命中</th>` +
+        `<th title="该钟已成交子集 · τ">成交τ</th>` +
+        `<th title="该钟已成交子集 · path">成交path</th>` +
+        `</tr></thead><tbody>` +
+        slotRows
+          .map((s) => {
+            const nSlot = Number(s.n_days) || 0;
+            const nSlotTr = Number(s.n_traded) || 0;
+            const nY = Number(s.n_with_yhat) || 0;
+            const coverLow = nSlot > 0 && nY / nSlot < 0.25;
+            const predJ = s.pred_joint || {};
+            const traded = s.traded || {};
+            return (
+              `<tr class="${coverLow ? "is-cover-low" : ""}">` +
+              `<td class="paper-t0-portrait-hm">${escapeText(s.hm)}</td>` +
+              `<td class="paper-t0-portrait-cover-cell">` +
+              `<span class="paper-t0-portrait-cover-txt">` +
+              `<b>${escapeText(String(nY))}</b>` +
+              `<small>/ ${escapeText(String(nSlot || "—"))}</small>` +
+              `</span>` +
+              _coverBarHtml(nY, nSlot) +
+              `</td>` +
+              `<td class="paper-t0-portrait-fill-cell">` +
+              `<span class="paper-t0-portrait-fill-txt">` +
+              `<b>${escapeText(String(nSlotTr))}</b>` +
+              `<small>/ ${escapeText(String(nSlot || "—"))}</small>` +
+              `</span>` +
+              _fillBarHtml(nSlotTr, nSlot) +
+              `</td>` +
+              `<td>${fmtRateCell(predJ.same_sign_rate, predJ.signed_n)}</td>` +
+              `<td>${fmtHitCell(s.tau_hit)}</td>` +
+              `<td>${fmtHitCell(s.path_hit)}</td>` +
+              `<td>${fmtHitCell(traded.tau_hit)}</td>` +
+              `<td>${fmtHitCell(traded.path_hit)}</td>` +
+              `</tr>`
+            );
+          })
+          .join("") +
+        `</tbody></table></div>`
+      : "";
+
+  return (
+    `<section class="paper-t0-metric-section is-portrait">` +
+    `<div class="paper-t0-portrait-head">` +
+    `<h4 class="paper-t0-metric-section-title">回测样本画像</h4>` +
+    `<p class="paper-t0-portrait-lead">全样本标签与因果 ŷ 命中（分槽=拟合 by_tau 口径：该钟前缀ŷ vs 全日标签；越晚通常越高）</p>` +
+    `</div>` +
+    universe +
+    `<div class="paper-t0-portrait-bands">` +
+    labelsBand +
+    predBand +
+    tradedBand +
+    `</div>` +
+    slotTable +
+    `</section>`
+  );
+}
+
 /**
  * 纸面页专业报告 HTML
  * @param {object} data
@@ -277,10 +601,7 @@ export function buildT0ReportHtml(data, opts = {}) {
       : fmtMoney(net, { signed: true });
   const heroPrimaryCls = paperMetricClass(cumRet != null ? cumRet : net);
   const sm = data.viz?.summary || {};
-  const scoreCov = sm.score_coverage_pct;
   const evalDays = data.eval_days ?? (Number(data.t0_trade_days || 0) + Number(data.skip_days || 0));
-  const rules = data.rules || {};
-  const skipInsight = topSkipInsight(data);
   const virtNote = data.virtual_sizing
     ? `虚拟仓每票 ${Number(data.virtual_shares || 10000).toLocaleString("zh-CN")} 股` +
       ` · 现金 ${(Number(data.virtual_cash || 2e6) / 10000).toFixed(0)} 万`
@@ -302,219 +623,12 @@ export function buildT0ReportHtml(data, opts = {}) {
     `</div>` +
     `</header>`;
 
-  const pnlSection = metricSection("收益", [
-    metricCell("累计收益%", fmtPct(cumRet, 3), {
-      cls: paperMetricClass(cumRet),
-      tip: CUMRET_DEF,
-    }),
-    metricCell("交易 PnL", fmtMoney(data.t0_pnl_total, { signed: true }), {
-      cls: paperMetricClass(data.t0_pnl_total),
-      tip: "不含隔夜敞口的日内做 T 盈亏",
-    }),
-    metricCell("敞口 PnL", fmtMoney(data.exposure_pnl_total, { signed: true }), {
-      cls: paperMetricClass(data.exposure_pnl_total),
-      tip: "未完成回补或底仓变动带来的敞口损益",
-    }),
-    metricCell("日均 PnL", fmtMoney(data.avg_pnl_per_trade_day, { signed: true }), {
-      cls: paperMetricClass(data.avg_pnl_per_trade_day),
-    }),
-    metricCell(
-      "正T / 反T",
-      `${fmtMoney(data.buy_then_sell_pnl, { signed: true })} / ${fmtMoney(data.sell_then_buy_pnl, { signed: true })}`,
-      { tip: `成交日 ${data.buy_then_sell_days ?? 0} 正 · ${data.sell_then_buy_days ?? 0} 反` }
-    ),
-  ]);
-
-  const execSection = metricSection("执行质量", [
-    metricCell("完成往返率", fmtPct(data.cover_rate_pct), {
-      tip: "卖出回补或买入卖回完成比例",
-    }),
-    metricCell("参与率", fmtPct(data.participate_rate_pct), {
-      tip: "做 T 成交日 / 可评估日",
-    }),
-    metricCell("胜率", fmtPct(data.win_rate_pct ?? data.t0_win_rate_pct), {
-      tip:
-        data.t0_win_days != null
-          ? `盈利 ${data.t0_win_days} 日 · 亏损 ${data.t0_loss_days ?? 0} 日`
-          : "按成交日 PnL>0 统计",
-    }),
-    metricCell("盈亏比", data.profit_factor != null ? Number(data.profit_factor).toFixed(2) : "—", {
-      tip: "总盈利 / 总亏损（绝对值）",
-    }),
-    metricCell("未完成往返", String(data.uncover_days ?? 0), {
-      tip: data.uncover_rate_pct != null ? `占比 ${fmtPct(data.uncover_rate_pct)}` : "",
-    }),
-  ]);
-
-  const signalSection = metricSection("信号与覆盖", [
-    metricCell("ŷ 覆盖", fmtPct(scoreCov), { tip: "有 y_τ 快照的评估日占比" }),
-    metricCell("信号跳过率", fmtPct(data.signal_skip_rate_pct ?? sm.signal_skip_rate_pct), {
-      tip: "dual_y 门槛 / y_check / y_trade 不足等",
-    }),
-    metricCell(
-      "τ 门槛",
-      (() => {
-        const enter =
-          rules.y_tau_enter != null
-            ? Number(rules.y_tau_enter)
-            : sm.y_tau_enter != null
-              ? Number(sm.y_tau_enter)
-              : 0.6;
-        return `|y_τ|≥${enter}%`;
-      })(),
-      { tip: "|y_τ| 低于入场则横盘跳过" }
-    ),
-    metricCell("跳过日", String(data.skip_days ?? 0), {
-      tip: skipInsight
-        ? `主因 ${skipInsight}（悬停归因区「跳过构成」看全部分类 tip）`
-        : "无跳过分类",
-    }),
-    metricCell("信号跳过", String(data.signal_skip_days ?? 0)),
-    metricCell("τ OC 命中", fmtPct(sm.tau_oc_hit_rate_pct ?? data.tau_oc_hit_rate_pct), {
-      tip: "成交日 y_τ 符号 vs 实际 open→close",
-    }),
-    metricCell(
-      "|τ|≥0.6 同号",
-      (() => {
-        const att = data.y_tau_attribution || sm.y_tau_attribution || {};
-        const buckets = (att.summary && att.summary.abs_buckets) || {};
-        const b = buckets.abs_ge_0_6 || {};
-        if (b.sign_hit == null) return "—";
-        const pct = Number(b.sign_hit) * 100;
-        return `${pct.toFixed(1)}%${b.n != null ? ` · n=${b.n}` : ""}`;
-      })(),
-      { tip: "成交日 |ŷ_τ|≥0.6 桶同号率（验收）" }
-    ),
-    metricCell(
-      "升级验收",
-      (() => {
-        const acc = data.upgrade_acceptance || sm.upgrade_acceptance || {};
-        if (acc.ok === true) return "通过";
-        if (acc.ok === false) return `未过 · ${(acc.blockers || []).join("；") || "—"}`;
-        return "—";
-      })(),
-      {
-        tip: "无弱τ/横盘成交；对照 path 横盘/否决笔",
-      }
-    ),
-    metricCell("path 一致", fmtPct(sm.path_agree_rate_pct ?? data.path_agree_rate_pct), {
-      tip: "成交日 y_path 符号与 τ 方向一致率",
-    }),
-  ]);
-
   const portrait =
     data.score_portrait ||
     sm.score_portrait ||
     (data.viz && data.viz.score_portrait) ||
     {};
-  const fmtShare = (pack) => {
-    if (!pack || pack.pos_share == null || !Number.isFinite(Number(pack.pos_share))) return "—";
-    const p = Math.round(Number(pack.pos_share) * 1000) / 10;
-    return `+${pack.pos ?? 0}/−${pack.neg ?? 0} · ${p}%+`;
-  };
-  const fmtHit = (pack) => {
-    if (!pack || pack.hit_rate_pct == null) return "—";
-    const n = pack.n_judged != null ? ` · n=${pack.n_judged}` : "";
-    return `${Number(pack.hit_rate_pct).toFixed(1)}%${n}`;
-  };
-  const fmtRatePct = (rate, n) => {
-    if (rate == null || !Number.isFinite(Number(rate))) return "—";
-    const suffix = n != null ? ` · n=${n}` : "";
-    return `${(Number(rate) * 100).toFixed(1)}%${suffix}`;
-  };
-  const pathByPred = portrait.path_by_pred_sign || {};
-  const portraitSection = metricSection("回测样本画像", [
-    metricCell(
-      "样本日",
-      (() => {
-        const nAll = portrait.n_days ?? portrait.n_traded;
-        const nTr = portrait.n_traded ?? "—";
-        const nSk = portrait.n_skipped;
-        if (nAll == null) return "—";
-        const sk = nSk != null ? ` · 跳过${nSk}` : "";
-        return `${nAll}（成交${nTr}${sk}）`;
-      })(),
-      { tip: "全部回测日（含跳过）；主指标按全样本；括号为成交子集" }
-    ),
-    metricCell("τ标签", fmtShare(portrait.label_tau), {
-      tip: "全样本 tau_realized（open→close）正/负数量",
-    }),
-    metricCell("path标签", fmtShare(portrait.label_path), {
-      tip: "全样本 path_realized（极值序）正/负数量",
-    }),
-    metricCell(
-      "标签同号",
-      fmtRatePct(
-        portrait.label_joint && portrait.label_joint.same_sign_rate,
-        portrait.label_joint && portrait.label_joint.signed_n
-      ),
-      { tip: "全样本真实 τ OC 与 path 标签同号率（双侧非零）" }
-    ),
-    metricCell(
-      "ŷ同号",
-      fmtRatePct(
-        portrait.pred_joint && portrait.pred_joint.same_sign_rate,
-        portrait.pred_joint && portrait.pred_joint.signed_n
-      ),
-      { tip: "全样本 ŷ_τ OC头 与 ŷ_path 同号率（双侧非零）" }
-    ),
-    metricCell("τ预估命中", fmtHit(portrait.tau_hit), {
-      tip: "ŷ_τ OC头（映射前）符号 vs tau_realized；与训练/Hub同口径（|·|<0.05% 不计）",
-    }),
-    metricCell("path预估命中", fmtHit(portrait.path_hit), {
-      tip: "全样本 ŷ_path 符号 vs path_realized（真实=0 不计）",
-    }),
-    metricCell(
-      "成交τ命中",
-      fmtHit(portrait.traded && portrait.traded.tau_hit),
-      { tip: "仅成交日；ŷ_τ OC头 vs tau_realized" }
-    ),
-    metricCell(
-      "成交path命中",
-      fmtHit(portrait.traded && portrait.traded.path_hit),
-      { tip: "仅成交日 path 预估命中（对照）" }
-    ),
-    metricCell(
-      "path+命中",
-      (() => {
-        const b = pathByPred.pred_pos || {};
-        if (b.hit_rate == null) return "—";
-        return `${(Number(b.hit_rate) * 100).toFixed(0)}% · n=${(b.hit || 0) + (b.miss || 0)}`;
-      })(),
-      { tip: "全样本 ŷ_path>0 时的方向命中" }
-    ),
-    metricCell(
-      "path−错误率",
-      (() => {
-        const b = pathByPred.pred_neg || {};
-        if (b.err_rate == null) return "—";
-        return `${(Number(b.err_rate) * 100).toFixed(0)}% · n=${(b.hit || 0) + (b.miss || 0)}`;
-      })(),
-      { tip: "全样本 ŷ_path<0 时的方向错误率" }
-    ),
-  ]);
-
-  const pathRules = rules.y_use_path != null ? rules : sm;
-  const pathSection = metricSection("路径与对照", [
-    metricCell("y_path选向", pathRules.y_use_path === false ? "关" : "开"),
-    metricCell(
-      "path门槛",
-      pathRules.y_path_enter != null ? `|y_p|>${pathRules.y_path_enter}` : ">0.02"
-    ),
-    metricCell("path跳过", String(sm.path_skip_days ?? data.path_skip_days ?? 0)),
-    metricCell("分钟路径日", String(data.minute_path_days ?? 0)),
-    metricCell("缺分钟跳过", String(data.missing_minute_days ?? 0), {
-      tip:
-        Number(data.missing_minute_days) > 0
-          ? "无 5m 覆盖的交易日已跳过；缺缓存票请先分钟预热，勿据此判策略盈亏"
-          : "无 5m 覆盖的交易日；已删除日线模拟",
-    }),
-    metricCell(
-      "乐观Δ占比",
-      fmtPct(data.optimistic_delta_ratio_pct ?? data.optimistic_compare?.delta_pnl_ratio_pct),
-      { tip: "相对 trigger 的乐观上界空间；成交日过少或比值爆炸时不展示" }
-    ),
-  ]);
+  const portraitSection = buildPortraitSectionHtml(portrait);
 
   const zeroHint = opts.zeroHint
     ? `<p class="quant-trades-caption paper-t0-zero-hint">${opts.zeroHint}</p>`
@@ -525,13 +639,8 @@ export function buildT0ReportHtml(data, opts = {}) {
     hero +
     zeroHint +
     `<div class="paper-t0-report-sections">` +
-    pnlSection +
-    execSection +
-    signalSection +
     portraitSection +
-    pathSection +
     `</div>` +
-    compareStrip(data) +
     `</div>`
   );
 }

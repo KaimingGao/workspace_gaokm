@@ -53,7 +53,7 @@ import {
   resolveT0BacktestScope,
   normalizeExecutionView,
   renderExecutionDiffHtml,
-} from "./paper/execution_ui.js?v=p1734";
+} from "./paper/execution_ui.js?v=p1790";
 import { buildPaperLogsView, buildPaperLogsCsv } from "./paper/logs_ui.js?v=p1658";
 import { downloadBlob } from "./shared.js";
 import {
@@ -61,11 +61,11 @@ import {
   renderPaperT0Preview as renderPaperT0PreviewUi,
   renderPaperT0WorkerTrades as renderPaperT0WorkerTradesUi,
   renderPaperT0WorkerDesk as renderPaperT0WorkerDeskUi,
-} from "./paper/t0_ui.js";
-import { buildT0SummaryLine } from "./paper/t0_report.js?v=p1734";
+} from "./paper/t0_ui.js?v=p1790";
+import { buildT0SummaryLine } from "./paper/t0_report.js?v=p1777";
 import { wireT0SkipTips } from "./paper/t0_viz.js";
-import { wireT0ProcessTips } from "./paper/t0_table.js?v=p1734";
-import { wireHoldingsChgTips } from "./paper/holding_chg_tip.js?v=p1734";
+import { wireT0ProcessTips } from "./paper/t0_table.js?v=p1790";
+import { wireHoldingsChgTips } from "./paper/holding_chg_tip.js?v=p1737";
 import { createHoldingsIslandController } from "./paper/holdings_island.js";
 import { createClusterRebalanceController } from "./paper/cluster_rebalance.js?v=p1704";
 import {
@@ -73,7 +73,8 @@ import {
   installDataOfflineToggle,
   offlineOnlyQuery,
 } from "./data_offline.js";
-import { rebalanceDataFoot, t0DataFoot } from "./data_policy.js?v=p1734";
+import { rebalanceDataFoot, t0DataFoot } from "./data_policy.js?v=p1736";
+import { ensureWarehouseTopup } from "./data_warehouse_topup.js";
 import { createRebalanceReportController } from "./paper/rebalance_report.js?v=p1662";
 import { waitPaperJob as waitPaperJobPoll } from "./paper/job_poll.js?v=p1416";
 import { renderFollowNorthStar as renderFollowNorthStarUi } from "./paper/north_star_ui.js?v=p1416";
@@ -90,7 +91,7 @@ import {
   tailAnomalyDetailFields,
   overheatDetailFields,
   createScoreTooltipController,
-} from "./score_tooltip.js?v=p1734";
+} from "./score_tooltip.js?v=p1737";
 
 import { formatDailySteps, runDaily } from "./shared.js";
 
@@ -1407,20 +1408,117 @@ export function initPaper(ctx) {
   }
 
   let holdingsScoreEnrichPromise = null;
+
+  async function fetchHoldingScoresWithRetry(maxAttempts = 4) {
+    let last = null;
+    for (let i = 0; i < maxAttempts; i += 1) {
+      const { ok, data, error } = await apiFetch(
+        `/api/paper/holding-scores?${offlineOnlyQuery()}`
+      );
+      last = { ok, data, error };
+      if (!ok) return last;
+      if (data && data.busy) {
+        if (i + 1 < maxAttempts) {
+          setHoldingsLoadStatus("补 ŷ 进行中…", { busy: true });
+          await new Promise((r) => setTimeout(r, 800 + i * 400));
+          continue;
+        }
+        return last;
+      }
+      return last;
+    }
+    return last;
+  }
+
+  async function applyHoldingsScorePack(holdings) {
+    if (!lastAccountData || !Array.isArray(holdings)) return;
+    const sm = lastAccountData.summary || {};
+    lastAccountData = {
+      ...lastAccountData,
+      summary: { ...sm, holdings },
+    };
+    if (holdingsGrid && holdingsGridReady) {
+      try {
+        const V =
+          (typeof window !== "undefined" && window.__ASSET_V__) || "p1737";
+        const mod = await import(`./holdings_table_island.js?v=${V}`);
+        const patches = {};
+        for (const h of holdings) {
+          const code = String((h && h.stock_code) || "").trim();
+          if (!code) continue;
+          patches[code] = mod.holdingToRow(h, {
+            chartMode,
+            chartStockCode,
+            selectedHoldCode,
+            pendingFocusCode,
+            sentHtml: holdingsSentimentHtmlByCode[code],
+          });
+        }
+        if (Object.keys(patches).length) {
+          holdingsGrid.patchRows(patches);
+        }
+        const holdingsScoreStatsEl = document.getElementById(
+          "paper-holdings-score-stats"
+        );
+        if (holdingsScoreStatsEl) {
+          const eod = scoreSeriesStats(holdings.map(resolveEodScore));
+          const trade = scoreSeriesStats(holdings.map(resolveTradeScore));
+          const bit = (label, pack) =>
+            pack.n
+              ? `${label} μ ${Number(pack.mean).toFixed(2)}% · med ${Number(
+                  pack.median
+                ).toFixed(2)}% · n=${pack.n}`
+              : null;
+          holdingsScoreStatsEl.textContent = [
+            bit("ŷ_EOD", eod),
+            bit("ŷ_trade", trade),
+          ]
+            .filter(Boolean)
+            .join(" · ");
+        }
+        renderT0WorkerDetail(lastAccountData);
+        return;
+      } catch (err) {
+        console.warn("[follow] patch holdings scores failed, fallback re-render", err);
+      }
+    }
+    await renderPaperAccountDetail(lastAccountData);
+    renderT0WorkerDetail(lastAccountData);
+  }
+
+  async function prepareFollowWarehouse({ force = false } = {}) {
+    if (getDataOfflineOnly()) return { ok: true, skipped: true };
+    try {
+      return await ensureWarehouseTopup({
+        force,
+        watchingLimit: 100,
+        onStatus: (msg) =>
+          setHoldingsLoadStatus(msg || "增量补齐本地仓…", { busy: true }),
+      });
+    } catch (err) {
+      const msg = String((err && err.message) || err || "增量补齐失败");
+      setHoldingsLoadStatus(msg, { error: true });
+      throw err;
+    }
+  }
+
   async function enrichHoldingsScores() {
     if (holdingsScoreEnrichPromise) return holdingsScoreEnrichPromise;
     holdingsScoreEnrichPromise = (async () => {
       setHoldingsLoadStatus("补 ŷ（缓存）…", { busy: true });
       try {
-        const { ok, data, error } = await apiFetch(
-          `/api/paper/holding-scores?${offlineOnlyQuery()}`
-        );
+        // 写仓与读分并行：topup 不挡 ŷ 展示
+        const topupPromise = getDataOfflineOnly()
+          ? Promise.resolve(null)
+          : prepareFollowWarehouse({ force: false }).catch(() => null);
+        const { ok, data, error } = await fetchHoldingScoresWithRetry();
+        await topupPromise;
         if (!ok) {
           setHoldingsLoadStatus(error || "补 ŷ 失败", { error: true });
           return;
         }
         if (data && data.busy) {
-          setHoldingsLoadStatus("补 ŷ 进行中…", { busy: true });
+          setHoldingsLoadStatus("补 ŷ 仍忙 · 请点刷新重试", { error: true });
           return;
         }
         const byCode = (data && data.by_code) || {};
@@ -1430,43 +1528,39 @@ export function initPaper(ctx) {
           return;
         }
         const sm = lastAccountData.summary || {};
-        const holdings = Array.isArray(sm.holdings) ? sm.holdings.map((h) => {
-          const code = String((h && h.stock_code) || "").trim();
-          const pack = byCode[code];
-          if (!pack || typeof pack !== "object") return h;
-          const keep = {
-            stock_code: h.stock_code,
-            stock_name: h.stock_name,
-            shares: h.shares,
-            cost: h.cost,
-            price: h.price,
-            open: h.open,
-            change_pct: h.change_pct,
-            change_asof: h.change_asof,
-            market_value: h.market_value,
-            pnl_pct: h.pnl_pct,
-            bought_at: h.bought_at,
-            bought_date: h.bought_date,
-            hold_days: h.hold_days,
-            sellable_shares: h.sellable_shares,
-            locked_shares: h.locked_shares,
-            lots: h.lots,
-            origin: h.origin,
-            origin_label: h.origin_label,
-            currency: h.currency,
-            unit: h.unit,
-            price_source: h.price_source,
-            t0_intraday: h.t0_intraday,
-          };
-          return { ...pack, ...keep };
-        }) : [];
-        lastAccountData = {
-          ...lastAccountData,
-          summary: { ...sm, holdings },
-        };
-        await renderPaperAccountDetail(lastAccountData);
-        // 持仓 ŷ 齐了再刷做 T 表，表列 y_eod 才能与持仓/调仓盖成同源
-        renderT0WorkerDetail(lastAccountData);
+        const holdings = Array.isArray(sm.holdings)
+          ? sm.holdings.map((h) => {
+              const code = String((h && h.stock_code) || "").trim();
+              const pack = byCode[code];
+              if (!pack || typeof pack !== "object") return h;
+              const keep = {
+                stock_code: h.stock_code,
+                stock_name: h.stock_name,
+                shares: h.shares,
+                cost: h.cost,
+                price: h.price,
+                open: h.open,
+                change_pct: h.change_pct,
+                change_asof: h.change_asof,
+                market_value: h.market_value,
+                pnl_pct: h.pnl_pct,
+                bought_at: h.bought_at,
+                bought_date: h.bought_date,
+                hold_days: h.hold_days,
+                sellable_shares: h.sellable_shares,
+                locked_shares: h.locked_shares,
+                lots: h.lots,
+                origin: h.origin,
+                origin_label: h.origin_label,
+                currency: h.currency,
+                unit: h.unit,
+                price_source: h.price_source,
+                t0_intraday: h.t0_intraday,
+              };
+              return { ...pack, ...keep };
+            })
+          : [];
+        await applyHoldingsScorePack(holdings);
         setHoldingsLoadStatus(`ŷ 已补 · ${codes.length} 只`, { ok: true });
       } catch (err) {
         setHoldingsLoadStatus(String((err && err.message) || err || "补 ŷ 失败"), {
@@ -1497,9 +1591,16 @@ export function initPaper(ctx) {
   syncFollowDataPolicyFoots();
 
   installDataOfflineToggle(document.getElementById("follow-data-offline"), {
-    onChange: () => {
+    onChange: (offlineOnly) => {
       syncFollowDataPolicyFoots();
-      enrichHoldingsScores().catch(() => {});
+      (async () => {
+        try {
+          if (!offlineOnly) await prepareFollowWarehouse({ force: true });
+        } catch (_) {
+          /* status already set */
+        }
+        enrichHoldingsScores().catch(() => {});
+      })();
     },
   });
 
@@ -1809,6 +1910,10 @@ export function initPaper(ctx) {
         /* ignore */
       }
     }
+    const n = ((data.summary && data.summary.holdings) || []).length;
+    if (n > 0) {
+      enrichHoldingsScores().catch(() => {});
+    }
     return data;
   }
 
@@ -1844,21 +1949,6 @@ export function initPaper(ctx) {
       if (dismissBtn) {
         e.preventDefault();
         clearHoldSelection();
-        return;
-      }
-      const scoreCell = e.target.closest(".paper-hold-score[data-score-detail]");
-      if (scoreCell) {
-        e.preventDefault();
-        e.stopPropagation();
-        if (
-          scoreTips.tipAnchor === scoreCell &&
-          scoreTips.tipEl &&
-          scoreTips.tipEl.dataset.sticky === "1"
-        ) {
-          hideScoreTooltip();
-          return;
-        }
-        showScoreTooltip(scoreCell, { sticky: true });
         return;
       }
       const sortThEl = e.target.closest("th.paper-hold-sort");
@@ -1957,22 +2047,8 @@ export function initPaper(ctx) {
         setTradeStatus(String(err.message || err), { error: true });
       }
     });
-    holdingsTableEl.addEventListener("mouseover", (e) => {
-      const scoreCell = e.target.closest(".paper-hold-score[data-score-detail]");
-      if (!scoreCell || !holdingsTableEl.contains(scoreCell)) return;
-      if (scoreTips.tipEl && scoreTips.tipEl.dataset.sticky === "1") return;
-      if (scoreTips.tipAnchor === scoreCell && scoreTips.tipEl) return;
-      showScoreTooltip(scoreCell, { sticky: false });
-    });
-    holdingsTableEl.addEventListener("mouseout", (e) => {
-      const from = e.target.closest(".paper-hold-score[data-score-detail]");
-      if (!from) return;
-      const to = e.relatedTarget;
-      if (to && from.contains(to)) return;
-      if (scoreTips.tipEl && to && scoreTips.tipEl.contains(to)) return;
-      // sticky（点击）时不因移出单元格立刻关掉
-      if (scoreTips.tipEl && scoreTips.tipEl.dataset.sticky === "1") return;
-      hideScoreTooltip();
+    scoreTips.bindHost(holdingsTableEl, {
+      scoreSelector: ".paper-hold-score[data-score-detail]",
     });
     wireHoldingsChgTips(holdingsTableEl, scoreTips, { apiFetch });
   }

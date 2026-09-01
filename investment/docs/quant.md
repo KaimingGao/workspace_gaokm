@@ -273,8 +273,8 @@ ML 视角见 [机器学习视角 · 四件套对照](#四件套对照)。
 |------|----------|----------|
 | 在问什么 | 持有什么、各占多少？ | 在既有底仓上，今天能否用日内波动做往返？ |
 | 层级 | 主策略 · 截面 Alpha · 持仓结构 | Overlay · 不改变选股主线 |
-| 信号头 | **ŷ_trade** 排序 + **ŷ_EOD** 买卖闸 + **ŷ_τ** 买入闸 | **dual_y**：\|y_trade\| 幅度闸 + **y_τ** 定方向 + 5m 触价（y_eod 略抬目标价信心） |
-| 决策频率 | 常按**日**（日更 / 手动预演→确认） | **5m** 第一触达（Worker **5 分钟** tick） |
+| 信号头 | **ŷ_trade** 排序 + **ŷ_EOD** 买卖闸 + **ŷ_τ** 买入闸 | **dual_y**：\|y_trade\| 幅度闸 + **y_τ** 定方向 + 确认根收盘第一腿（y_eod 略抬目标价信心） |
+| 决策频率 | 常按**日**（日更 / 手动预演→确认） | **4 槽确认根**（Worker **5 分钟** tick） |
 | 收益类型 | **持有期**相对收益 + 换仓带来的结构改善 | **round-trip 价差**（`t0_ratio` 可卖量上；非账户浮动盈亏） |
 | 仓位出处 | `origin=strategy` | 做 T leg（`t0_batch` / 盘中落账明细） |
 | 验证含义 | 规则能否驱动合理的持仓结构 | 在既定底仓上能否条件性增强 |
@@ -282,7 +282,7 @@ ML 视角见 [机器学习视角 · 四件套对照](#四件套对照)。
 **常见误区**
 
 - **调仓 ≠ 只赌明天涨**：含减仓、换弱留强、风控拦截；Alpha 假设偏**短～中持有期**，收益在日～周尺度累积，不是单根 K 线。
-- **做 T ≠ 浮动盈亏**：是已实现 leg 价差；振幅不足 / 未触价 / T+1 可卖量等门禁下，很多交易日 **0 成交**。
+- **做 T ≠ 浮动盈亏**：是已实现 leg 价差；ŷ 门槛 / 前缀后半占比 / 确认根未开 / T+1 可卖量等门禁下，很多交易日 **0 成交**。
 - **可独立也可耦合**：`coupling.t0_vs_stance` 默认 `independent`；也可配置为 `avoid` 时跳过做 T。
 
 **ŷ_τ 是「重复使用」吗？**
@@ -295,7 +295,7 @@ ML 视角见 [机器学习视角 · 四件套对照](#四件套对照)。
 | **ŷ_trade** | **排序键** / 持有对比（`rank_key_for_item`） | **\|y_trade\|** 幅度闸（不够则跳过） |
 | **ŷ_EOD** | **买入 EOD 闸**（`eod_gate_score_for_item`） | **目标价同向回升**（与 y_τ 同向时略抬 `t0_confidence_scale`） |
 | **ŷ_τ** | **买入 τ 闸**（`buy_passes_tau_gate`）+ 融合进 ŷ_trade | **定方向主信号**（`y_tau_map`：y_τ>0→正T / <0→反T） |
-| **之后** | 换仓、权重、风控 | **5m first_touch** 触价成交（调仓无此步） |
+| **之后** | 换仓、权重、风控 | **槽确认根收盘**开第一腿；第二腿仍 5m 触价（调仓无此步） |
 
 要点：
 
@@ -349,30 +349,31 @@ watchlist
 | 要点 | 说明 |
 |------|------|
 | 目标 | **底仓 overlay**：在既定持仓上对可卖量做日内往返，验 timing 规则；**非**独立选股 Alpha（见上节对照表） |
-| 语义 | A 股 **底仓做 T（T+1）**：**正 T** 先买后卖（低点加仓，冲高后卖等量旧仓）；**反 T** 先卖后买（高点先卖，回落后买回等量）。禁卖当日新买股 |
-| 选向 | 默认 **`direction=dual_y`** + **`y_score_source=compute`**：开盘信息集（昨收因子 + 今开缺口）即时算 ŷ；**y_τ 定正/反 T**（`y_tau_enter_sell_then_buy` / `y_tau_enter_buy_then_sell` 分侧入场，缺省回退 `y_tau_enter`；path 同理 `y_path_enter_*`），y_eod 仅同向略放大额度，\|y_trade\| 为幅度闸（与调仓 ŷ_τ **买入闸**分工不同，见上节）；批量共享截面缺口；失败回退 live 簿（**不读冻结账本**）；`ledger` 仅对照 |
-| 动仓 | **固定 100%**（`t0_ratio=1.0`，UI 已去掉动仓%）；不随 ŷ 缩放可卖量 |
-| 目标价 | **leg1=固定前缀确认根收盘**、**leg2 相对第一腿成交价**（正T `sell_trigger_pct_buy_then_sell` / 反T `buy_trigger_pct_sell_then_buy`）；**`t0_confidence_scale`** 按 \|y_trade\|、\|y_τ\|、eod 同向映射到 `[y_ratio_cut, y_ratio_boost_cap]×基准`（默认 **60%～200%**）；\|y_τ\| 刚过入场线时 soft band 视为弱信号。不做相对开盘低吸/冲高 |
-| 成交 | 默认 **`fill_mode=trigger`**；**正/反可分侧** `fill_mode_*`、第二腿触发%、`must_cover_same_day_*`、`t0_pm_degrade_*`；**正T** 默认强制卖旧、**14:00** 起中点追价；**反T** 默认不强制回补、**13:00** 起可中点追价买回；`t0_pm_degrade` **端点不含** |
-| 门禁 | **固定前缀**（回测 / Worker 同口径）：① **总量振幅** — 前缀 `(high−low)/ref ≥ min_range`（默认 0.2%，UI 不暴露）；② **固定前缀 N 根**（默认=`y_path_abandon_bars`=6≈10:00）齐窗后，正T后半上涨占比 / 反T后半下跌占比（默认 0.2）；③ **前缀 vs \|ŷ_path\|** — 前缀 `(H−L)/ref% > |ŷ_path|` 则跳过（`y_prefix_vs_path_skip`，默认开；缺 path 不拦）。τ入场价倍已下线（`y_tau_entry_price_mult=0`） |
-| 路径 | 第一触达仅在确认根；第二腿：**止损**（正T跌破/反T涨破，默认各 1.2%、延迟 2 根、收盘确认）优先于触发/追价；其后卖/买触发与中点追价；正T触不到则 `eod_cover`；反T触不到则默认 `abandon_cover`（勾选当日回补则 `eod_cover`） |
+| 语义 | A 股 **底仓做 T（T+1）**：**正 T** 先买后卖、**反 T** 先卖后买（枚举顺序，**不是**严格低吸高卖）。是否开仓看 **ŷ_τ / ŷ_path**（及 dual_y 闸）；是否在确认根成交看 **前缀后半阴阳占比**。禁卖当日新买股 |
+| 选向 | 默认 **`direction=dual_y`** + **`y_score_source=compute`**。**多轮独立**（`t0_slots_enabled`，默认开）：**10:00 / 10:30 / 11:00 / 11:30** 各算一次 ŷ_τ / ŷ_path / ŷ_trade / nowcast（用开盘起到该 τ 的前缀，禁止偷用未发生分钟）。**不做 09:30 开盘轮**。研究枢纽 τ / path **拟合网格**仍含 `09:30` 开盘 Z + 上述四钟。单轮模式（`t0_slots_enabled=false`）仍是齐 N=6≈10:00 锁一次向 |
+| 策略共用 | 四轮**共用一套**买卖/止损配方：第二腿触发%、止损%（默认 1.2%）/ 延迟根 / 收盘确认、fill、午后追价、dual_y 闸。正/反仍分侧；**不按槽位再拆一套**。各轮 ŷ + 后半占比决定是否开/开哪边；确认根收盘开第一腿。槽位 dict 只许 `id/hm/prefix_bars/ratio` |
+| 动仓 | 多轮各 **日初可卖 20%**（槽位 `ratio`，四轮合计 80%，不足 1 手则该轮跳过）；单轮仍 `t0_ratio=1.0`。不随 ŷ 缩放可卖量 |
+| 目标价 | **决策时钟 = 确认根**：齐窗后用前缀 ŷ + 后半阴阳占比锁方向；**第一腿在确认根收盘成交**（正T买 / 反T卖）。**leg2 相对该轮第一腿成交价**；**`t0_confidence_scale`** 只缩放第二腿目标价 |
+| 成交 | 默认 **`fill_mode=trigger`**；**正/反可分侧** `fill_mode_*`、第二腿触发%、`must_cover_same_day_*`、`t0_pm_degrade_*`；午后禁新开只挡**尚未决策的轮**。**正T** 默认强制卖旧、**14:00** 起中点追价；**反T** 默认不强制回补、**13:00** 起可中点追价买回；`t0_pm_degrade` **端点不含** |
+| 门禁 | 每轮独立：① 该轮前缀为唯一分钟输入；② 阴阳占比 / 前缀振幅 ≤ \|ŷ_path\|×**空间裕度**（`y_prefix_vs_path_mult`，默认 1）同看 **开盘→本钟** 整段前缀（后半占比 N=本钟 prefix_bars）；③ **确认根收盘开第一腿** |
+| 路径 | 各轮确认根开第一腿后**按同一套止损/第二腿公式**挂在本轮成交价上（止损默认 1.2%、延迟 2 根、收盘确认）。多轮可同时 `after_leg1`；任一轮未平则调仓跳过卖出 |
 | 风控 | **`y_block_tau_nowcast_sign`**（默认**开**）：nc **入场** `y_nc_enter`（默认 0.01%）+ **强同 τ** `y_nc_strong`（默认 0.5%）；**`y_nowcast_oc_gate=false`** 时比 nc 昨收口径；**`t0_pm_chase_interval_min`** 默认 10 |
 | 纸面 | `POST /api/paper/t0` 默认 **dry_run 预演**，`confirm=true` 才写账 |
 | 自动落账 | Follow Worker · **5m 盯盘触达即落账**（交易时段 **5 分钟**轮询 + 分钟缓存，不再日终整段回放） |
 | 手动补跑 | Follow「手动预演 / 手动落账」· `POST /api/paper/t0`（预演 dry_run / 确认 confirm） |
-| 回测 | **仅 5m 第一触达**（缺分钟日跳过）；**已删除日线模拟**；默认绑模拟持仓；**可卖量=日初总持仓**；dual_y 按 `dual_score_window` 决定是否 fuse ŷ_τ（`eod_next` 不 fuse）；ATR 仅用 T−1 及更早 |
+| 回测 | 与纸面同一引擎：默认 **多轮槽位**（确认根第一腿 + 共用止损/第二腿）；**仅 5m 第一触达**（缺分钟日跳过）；**已删除日线模拟**；默认绑模拟持仓；**可卖量=日初总持仓**；dual_y 按 `dual_score_window` 决定是否 fuse ŷ_τ（`eod_next` 不 fuse）；ATR 仅用 T−1 及更早；**默认 CostPort 研究费率**（禁隐式零成本）；分钟未齐至 14:55 **不强平到日线收盘**（`incomplete_session`）；`y_score_source` 强制 `compute`；开盘 hydrate / 批量算分 **`use_minute_tau=False`**，各轮确认前缀再因果重算。汇总按槽位分向记账；**同日正+反记为多轮日**（正/反日不再重叠双计）；合并日带敞口 PnL；各轮形态闸看 **09:30～当前时钟** 整段前缀 |
 | 边界 | **不接实盘**；不做日线 high/low 顺序猜测；不改变 `advice.stance_label`；正/反 T **PnL 基数**分别为卖出/买入名义（汇总 long_pnl/reverse_pnl 口径略异，量级通常很小） |
 
 ##### 正T / 反T 前缀形态（现行）
 
-A 股 T+1 下 **正 T = 先买后卖**（枚举 `buy_then_sell`），**反 T = 先卖后买**（枚举 `sell_then_buy`）。第一腿由**固定前缀**确认（默认 N=6≈10:00），不再滚动探极值：
+A 股 T+1 下 **正 T = 先买后卖**，**反 T = 先卖后买**（腿顺序，非低吸高卖）。开仓由 **ŷ_τ / ŷ_path** 定方向与是否可做；**固定前缀后半阴阳占比**过关后，在确认根收盘开第一腿：
 
 | 方向 | 确认条件 | 第二腿目标 |
 |------|----------|------------|
-| **正T** | 后半上涨 K 占比 + τ 买价上限 | `买价×(1+卖触发%)` |
-| **反T** | 后半下跌 K 占比 + τ 卖价下限 | `卖价×(1−买触发%)` |
+| **正T** | 后半上涨 K 占比 | `买价×(1+卖触发%)` |
+| **反T** | 后半下跌 K 占比 | `卖价×(1−买触发%)` |
 
-侧向配置后缀同枚举（`*_buy_then_sell` / `*_sell_then_buy`）。旧 `long_t`/`reverse_t` 与 `*_long`/`*_reverse` 已废弃，加载时丢弃。旧 N 字 / 破前高 / 滚动回落·反弹门禁已下线。总量**振幅下限%**仍生效。
+侧向配置后缀同枚举（`*_buy_then_sell` / `*_sell_then_buy`）。旧 `long_t`/`reverse_t` 与 `*_long`/`*_reverse` 已废弃，加载时丢弃。旧 N 字 / 破前高 / 滚动回落·反弹门禁已下线。总量**振幅下限%**已下线（Web 无配置；`prefix_range_gate` 仅度量、不再否决）。
 
 ```bash
 python3 research/t0_backtest_run.py --code 茅台 --json
@@ -1009,7 +1010,6 @@ y = \bigl(\mathrm{close}[t+h] / \mathrm{close}[t] - 1\bigr) \times 100
 ŷ_τ       = g(Z_≤τ; γ)                                     # ŷ_τ 头；标签 close[T]/open[T]−1（日线）
 ŷ_τ_CC    = 缺口 ∘ ŷ_τ                                     # 把开→收抬到现价对昨收；(1+缺口)(1+ŷ_τ)−1
 ŷ_trade   = (w_eod·ŷ_EOD + w_τ·ŷ_τ_CC) / (w_eod+w_τ)      # 开盘排序 / 表列「评分」
-校准         = g(ŷ_EOD)                                      # 表列 eod；不含缺口
 残差         = ŷ_trade − 涨跌                                 # 与 trade / 涨跌同一口径
 ŷ_EOD_rem = (1+ŷ_EOD/100)/(1+缺口/100)−1                   # 仅 y_state / cascade / nowcast 派生，不进 ŷ_trade
 ```
@@ -1042,9 +1042,9 @@ y = \bigl(\mathrm{close}[t+h] / \mathrm{close}[t] - 1\bigr) \times 100
 - **标签对齐**：分钟 as_of 时，ŷ_τ 为 open→close，把 ŷ_τ 几何映到剩余窗再进 blend / Kalman；仅当落盘模型仍是旧 `horizon_mode=tau_to_close` 时禁止再映（防双重扣减）。`enable_minute_tau` 或已有 `ret_open_to_tau` 时自动把当前分钟时钟并进滤波路径。
 - 字段：`predicted_score_nowcast`（昨收口径）/ `nowcast_vs=prev_close` / `nowcast_as_of` / `nowcast_K` / `nowcast_x_prior`（昨收先验=ŷ_EOD）。**不覆盖** `predicted_score`。
 - 排序：默认仍 ŷ_trade（blend）。仅当 `nowcast.use_as_rank_key=true` 才改 `rank_key`（A3 门禁）。
-- 影子簿：刷簿即写 `cluster_book_nowcast_shadow.json`（不依赖 `nowcast.enabled`）；`meta.nordhaus_revision_slope` 为截面修正效率（接近 0 才考虑升主排序）。冻结账本同步 `{as_of}.nowcast_shadow.json`。复盘：`/api/quant/score-review/nowcast-shadow` 与复盘页 N3 条。无快照时 Jaccard 按当日账本 Top-K(ŷ_nowcast) vs Top-K(ŷ) 估。
+- 影子簿：刷簿即写 `cluster_book_nowcast_shadow.json`（不依赖 `nowcast.enabled`）；`meta.nordhaus_revision_slope` 为截面修正效率（接近 0 才考虑升主排序）。冻结账本同步 `{as_of}.nowcast_shadow.json`。枢纽 N3 验收条 / HTTP 已下线；库函数 `build_nowcast_shadow_review` 仍在。无快照时 Jaccard 按当日账本 Top-K(ŷ_nowcast) vs Top-K(ŷ) 估。
 - `w_mode=kalman`：两点等价 Kalman 权（含同一套自适应 \(Q\)）；默认 `fixed`。
-- 网格：`nowcast.taus` 允许 `eod|open|09:45|10:30|14:00`；默认 `eod|open`。分钟档不叠用（只取当前已到达档）。分钟 τ：**live** 决策钟 `minute_tau_hm=10:30`（≈12×5m）；**训练**用变长前缀网格 `minute_tau_grid=[09:45,10:00,10:15,10:30]` 共享 β（非整根独立标签），仍依赖 `enable_minute_tau`。
+- 网格：`nowcast.taus` 允许 `eod|open|09:45|10:30|14:00`；默认 `eod|open`。分钟档不叠用（只取当前已到达档）。分钟 τ：**live** 调仓决策钟 `minute_tau_hm=10:30`（≈12×5m）；**训练**用变长前缀网格 `minute_tau_grid` 默认 `09:30|10:00|10:30|11:00|11:30` 共享 β（非整根独立标签；09:30 无分钟前缀只留开盘 Z，**不做T**；做T槽位为后四钟），仍依赖 `enable_minute_tau`。nowcast 网格不随做T槽位改。
 
 **Y(τ) 高维状态（校验层）**
 
@@ -1062,19 +1062,19 @@ y = \bigl(\mathrm{close}[t+h] / \mathrm{close}[t] - 1\bigr) \times 100
 | 残差叠加 ŷ_EOD_rem+Δ | **已退役**（Δ 与 ŷ_τ 不是同一对象） |
 | **正交加权（现网）** | 候选 := ŷ_EOD≥floor；排序 := ŷ_trade=w·ŷ_EOD+w·(缺口∘ŷ_τ)；另过 τ 闸 | **`fusion_mode=blend`** |
 | A2 影子簿 | 同池按 ŷ_τ 另写 `cluster_book_tau_shadow.json`；jaccard/spearman vs EOD | **已落地**（`enable_tau_shadow_book`，默认开；不驱动买入） |
-| A2 验收 | 账本 `*.tau_shadow.json` + `realized_tau`；`/api/quant/score-review/tau-shadow` | **已落地** |
+| A2 验收 | 账本 `*.tau_shadow.json` + `realized_tau`；HTTP `/tau-shadow` **已 stub** | **库保留 · 枢纽条已下线** |
 | P0 Z 齐套 | 刷簿池截面 + tip 合并 `features_tau`；启用后轻量刷簿；`features_tau_fill` | **已落地** |
 | P0 rem 满池 / 主题分层 OOS | `watching_limit` 默认 36；`oos.by_theme` | **已落地** |
 | P1 分钟 τ | 研究轨 `enable_minute_tau` + `tau_hm`；`sector_ret_to_tau`；默认仍关 | **接线已落地**（人审开开关后训） |
 | P2 融合补强 | `w_mode=theme_boost\|variance\|kalman`；`predicted_score_tau_cascade` 影子 | **研究轨已落地**（默认 `w_mode=fixed`） |
 | **Nowcast / Kalman** | 顺序滤波 EOD→open→当前分钟 τ；自适应 \(Q\)；\(R\) 走 τ OOS 分层；Nordhaus 影子诊断 | **已落地**（默认 `taus=[eod,open]`；`use_as_rank_key=false`） |
-| **校准层 g(ŷ)** | EOD=分组面板、τ=open 面板 Isotonic。**表列 eod = g(ŷ_EOD)**；残差 = ŷ_trade − 涨跌。τ 校准仅研究对照。决策仍 raw ŷ | **panel 拟合已落地（EOD+τ）** |
+| **校准层 g(ŷ)** | Isotonic 库仍在（`score_calibration.py`）。HTTP fit/persist **已 stub**（`deprecated: true`）。展示 overlay 已下线 | **库保留 · 入口已下线** |
 | **Alpha/IC 补强** | 超额分账 · 主 IC=截面 Spearman · yhat/残差 y 研究开关 | **已接线**（见 [alpha-ic-strengthen.md](archive/alpha-ic-strengthen.md)；`yhat_residual`/`excess_mode` 默认关） |
 | 分钟 τ 特征 | 缓存命中时写 `ret_open_to_tau` | **可选**（`enable_minute_tau`，默认关） |
 | F3 以后 | 盘中窗以 ŷ_τ 为主（影子簿达标） | 未做 |
 | P3 决策 bandit | 只学闸/听谁，不进 score | 未做 |
 
-**研究枢纽 UI（信息架构）**：主路径「ŷ_EOD → ŷ_τ → IC → 双层 ŷ 复盘 → 交易执行」；两块相邻；概览 KPI 并列两轴命中；ŷ_τ 为次级 CTA，不与「跑分组」并列主按钮；复盘表列 ŷ | ŷ_τ；数据中心 / 交易执行表列 eod / trade / nowcast；残差 = ŷ_trade − 涨跌；eod 列 = g(ŷ_EOD)；nowcast 列 = Kalman 权昨收口径对照，不进决策。训练：`POST /api/quant/tau-ridge` → `tau_ridge_model.json`（旧 `rem-ridge` / `rem_ridge_*` 兼容）。
+**研究枢纽 UI（信息架构）**：主路径「ŷ_EOD → ŷ_τ → IC → 交易执行」；ŷ_τ 为次级 CTA，不与「跑分组」并列主按钮；数据中心 / 交易执行表列 eod / trade / nowcast；残差 = ŷ_trade − 涨跌；eod 列 = ŷ_EOD；nowcast 列 = Kalman 权昨收口径对照，不进决策。训练：`POST /api/quant/tau-ridge` → `tau_ridge_model.json`（旧 `rem-ridge` / `rem_ridge_*` 兼容）。账本复盘页、τ/nowcast 单日验收条与校准 g(ŷ) 展示已下线（`score_ledger` IO / series 仍在；相关 HTTP 已 stub；`score_calibration.py` 库保留）。
 
 建模、训练面板、OOS 与字段细节见 [quant.md · τ 契约升级 §9](quant.md#14-决策时刻-τ-契约--双层-predicted_score--分组目标升级)；盘中落地阶段见 [quant.md · 盘中剩余收益头](quant.md#13-盘中剩余收益头intraday-residual方案)。
 
@@ -1142,7 +1142,7 @@ EOD 锚在 **收**，与 open 链 **并列**（选股主轴），不是 open 链
 
 规划字段：`predicted_score_on` / `y_spec_on` / `data/live/on_ridge_model.json`；复盘 IC(\(\hat y_{\mathrm{ON}}, y_{\mathrm{ON}}\)) 与 open 链分段单独报。训练：`POST /api/quant/on-ridge`。
 
-**做 T 路径头 \(y_{\mathrm{path}}\)**：特征与 \(y_\tau\) **对齐**（开盘 Z + 早盘前缀分钟小包）；训练默认 **多 τ 网格** `09:45|10:00|10:15|10:30` 共享 β（同日标签=全日极值序，特征≤各 τ；看 `OOS.by_tau`）；live 决策钟默认 `10:30`（路径特征截断；做T固定前缀默认 N=6≈10:00，二者可不同步）。标签：先 low→high 则 \((H-L)/\mathrm{ref}\%\)，先 high→low 则 \((L-H)/\mathrm{ref}\%\)。\(y_{\mathrm{path}}>0\)：先低后高 → 正T；\<0：先高后低 → 反T。**dual_y 准入**（顺序）：① \(|y_{\mathrm{trade}}|\ge y_{\mathrm{trade,enter}}\) ② \(y_\tau\) 方向锚：path 开且可得 ŷ_path 时 **\(y_\tau\) 与 \(y_{\mathrm{path}}\) 同号**且正侧各 **\(>y_{\tau,\mathrm{enter}}\)** / **\(>y_{\mathrm{path},\mathrm{enter}}\)**（负侧 **\(<-\)**）；path 关则 \(|y_\tau|\ge y_{\tau,\mathrm{enter}}\) ③ **强闸同号**（path/τ 入场后）：\(|y_{\mathrm{trade}}|>y_{\mathrm{trade,strong}}\)（默认 **0.5%**）或 \(|y_{\mathrm{eod}}|>y_{\mathrm{eod,strong}}\)（默认 **0.5%**）时须与 \(y_\tau\) 同号；另有 \(|y_{\mathrm{eod}}|\ge y_{\mathrm{eod,enter}}\) ④ 可选 nc 强闸与 \(y_\tau\) 异号 → 跳过。\(y_{\mathrm{eod,prior}}\) 仅抬目标价。缺 ŷ_path 默认不拦（`y_path_required` 开则拦）。规划：`path_ridge_model.json`（β 与 τ 独立，因子键与多 τ 训法对齐）。
+**做 T 路径头 \(y_{\mathrm{path}}\)**：训练侧特征可与 \(y_\tau\) **对齐**（开盘 Z + 早盘前缀分钟小包）；**做 T 选向**在齐前缀 N 根后用**前 N 根**分钟因果重算（含 `sector_ret_to_tau`）；开盘预计算仍可 `use_minute_tau=False`，禁止偷用未发生分钟。训练默认 **多 τ 网格** `09:30|10:00|10:30|11:00|11:30` 共享 β（同日标签=全日极值序，特征≤各 τ；09:30 无分钟前缀只留开盘 Z，**不做T**；做T默认 10:00–11:30 四轮；看 `OOS.by_tau`）；live 调仓决策钟默认 `10:30`（路径特征截断；做T槽位各轮用该 τ 前缀，live 调仓钟仍可独立）。标签：先 low→high 则 \((H-L)/\mathrm{ref}\%\)，先 high→low 则 \((L-H)/\mathrm{ref}\%\)。\(y_{\mathrm{path}}>0\)：先低后高 → 正T；\<0：先高后低 → 反T。**dual_y 准入**（顺序）：① \(|y_{\mathrm{trade}}|\ge y_{\mathrm{trade,enter}}\) ② \(y_\tau\) 方向锚：path 开且可得 ŷ_path 时 **\(y_\tau\) 与 \(y_{\mathrm{path}}\) 同号**且正侧各 **\(>y_{\tau,\mathrm{enter}}\)** / **\(>y_{\mathrm{path},\mathrm{enter}}\)**（负侧 **\(<-\)**）；path 关则 \(|y_\tau|\ge y_{\tau,\mathrm{enter}}\) ③ **强闸同号**（path/τ 入场后）：\(|y_{\mathrm{trade}}|>y_{\mathrm{trade,strong}}\)（默认 **0.5%**）或 \(|y_{\mathrm{eod}}|>y_{\mathrm{eod,strong}}\)（默认 **0.5%**）时须与 \(y_\tau\) 同号；另有 \(|y_{\mathrm{eod}}|\ge y_{\mathrm{eod,enter}}\) ④ 可选 nc 强闸与 \(y_\tau\) 异号 → 跳过。\(y_{\mathrm{eod,prior}}\) 仅抬目标价。缺 ŷ_path 默认不拦（`y_path_required` 开则拦）。规划：`path_ridge_model.json`（β 与 τ 独立，因子键与多 τ 训法对齐）。
 
 ---
 
@@ -1283,8 +1283,7 @@ score_stock(code) 续——
 【复盘层】
   score_ledger 冻结 ŷ_EOD + ŷ_τ
     → h 日后回填 realized (y_EOD) + realized_tau (y_τ)
-    → 分别报 IC / 方向命中 / 错票归因
-    → tau-shadow 验收 API：GET /api/quant/score-review/tau-shadow
+    → 分别报 IC / 方向命中 / 错票归因（库函数；枢纽单日验收条已下线）
 ```
 
 ### 4.4 F1 买入闸门（纸面执行）
@@ -1306,7 +1305,7 @@ score_stock(code) 续——
 - 同 EOD 入池集合（eligible），按 `predicted_score_tau` 降序截断 → tau_shadow_book
 - 缺失 ŷ_τ 的票排末尾，计入 `missing_tau_count`
 - 与 EOD 主簿对照：`jaccard`（代码重叠）、`spearman_shared`（共享代码秩相关）、`only_eod` / `only_tau`
-- 验收 API：`GET /api/quant/score-review/tau-shadow`
+- 验收：库函数 `build_tau_shadow_review`（枢纽条 / HTTP 已下线）
 
 ---
 
@@ -1480,13 +1479,11 @@ A 改进「估得准」；B 改进「做得对」。北极星乘积两者都要�
 1. **加权再拟合**：下次跑分组 / Ridge 时，对近期或高 \(|e|\) 样本提权（或对命中样本降权防过拟合噪声）。  
 2. **分层重估**：按 `factor_blame` / 行业 / 组 / regime 切片，只对「系统性偏差」切片缩短 `refit` 周期或单独估 β。  
 3. **校准层（isotonic / 分段线性）**：在 \(\hat y\) 之上学 \(g(\hat y)\approx\mathbb{E}[r_h\mid\hat y]\)，不改因子结构，专治「方向对但幅度飘」。  
-   - 实现：`core/signal/score_calibration.py`；复盘「拟合校准 / 写入 live」；产物 `data/live/score_calibration.json`。  
+   - 实现：`core/signal/score_calibration.py`。**研究枢纽与 HTTP fit/persist 已下线**（返回 `deprecated`）。库函数仍可供单测。  
    - **EOD 样本（默认）**：与分组同源——观察池 ∪ `scored_all`、日线滚动 `collect_subscore_forward_panel`、live 组/全局 β 打出历史 ŷ，对齐同一前瞻收益。  
    - **τ 样本（默认）**：与 ŷ_τ 拟合同源——`build_tau_panels_from_bars(tau_hm=open)` + live τ β，对齐 open→close。  
    - 仅 `sample_source=auto` 且 panel 不足时回退账本；默认 `panel` 不静默缩样本。  
-   - 有 live 映射即算 g（`force`）：**观察池 / 持仓 / 回测成交**在评分旁显示「校准」对照列；**第一步：排序键、τ 买入闸、分池入簿门槛仍读原始 ŷ**。  
-   - tip 分流：评分列悬停 = raw ŷ 全栈（**不含** g）；校准列悬停 = g(·)。ŷ 落在 knots 域外时提示端点钳制。  
-   - promote 须人审；`g(门槛)<门槛` 仅为**软警告**（因不进决策）。
+   - **展示 overlay 已下线**（观察池 / 持仓 / 回测不再挂 g(ŷ)）。排序键、τ 买入闸、分池入簿门槛仍读原始 ŷ。
 
 **L2 — 工况门控（何时信模型）**
 
@@ -1804,9 +1801,9 @@ curl -s 'localhost:8000/api/signal/config/diff-export?use_saved=true'
 
 [← 文档索引](README.md) · 全链路见 [quant.md · ŷ 全链路](quant.md#predicted_scoreŷ全链路)
 
-对账 **决策日 `as_of` 的 ŷ 方向** 与 **h 日实现收益**，解释错票（因子失效 / 个股特异 / 行业 / 分组）。不改权、不 promote。
+**研究枢纽不再展示此页**（分池簿冻结已停用，复盘 UI 与 τ/nowcast 单日验收条已下线）。全量复盘 HTTP（`/score-review`、dates、hit-series、freeze、delete、stock-panel、outcomes fill、tau-shadow、nowcast-shadow）已 stub。账本 IO、日更 `fill_outcomes`、日报 `freeze_from_daily_report`、`score-ledger/series` 仍保留。库函数 `build_score_review` / `build_tau_shadow_review` 仍供日报 Y-check。校准 g(ŷ) 研究段同样已下线。
 
-**产品定位**：复盘默认仍是 **分池簿（`book`）的 OOS 体检**——检验当天入选截断是否合理。账本冻结则优先写入 **`scored_all` 打分宇宙**（行上 `in_book`），供校准 g(ŷ) 全轴拟合；复盘命中率 / 表默认只看 `in_book=true`。
+对账 **决策日 `as_of` 的 ŷ 方向** 与 **h 日实现收益**，解释错票（因子失效 / 个股特异 / 行业 / 分组）。不改权、不 promote。
 
 ---
 
@@ -1884,33 +1881,27 @@ A 股日线主源 `stock_zh_a_hist`：**当日收盘价请在收盘后获取**�
 
 写入触发：
 
-1. **纸面日更** `run_paper_daily` → `run_score_ledger_daily`（收盘后按因子截止冻结 + 回填到期决策日；盘中自动冻结跳过）
-2. 集群书刷新、生成日报（经 `resolve_freeze_as_of`；刷簿附带冻结仅收盘后）
-3. UI「冻结打分」→ `freeze_from_cluster_book`（优先 **`scored_all`**，行带 `in_book`；当日未收盘则拒绝）
+1. **生成日报** → `freeze_from_daily_report`（EOD 快照；无 `book_top` / 横截面则跳过）
+2. **纸面日更** `run_paper_daily` → `run_score_ledger_daily`（只回填到期决策日 realized；不再从分池簿冻结）
 
-可选：`freeze_from_daily_report` 可从日报 `book_top` / 横截面补行；仍非持仓并集。
-
-校准默认读 **panel**（EOD=分组面板、τ=rem open）；仅 `auto`/显式 `ledger` 才用账本全量行。复盘 / hit-series 默认 `rows_for_book_review`。
+分池簿 `freeze_from_cluster_book` 与 UI「冻结打分」已下线。
 
 ---
 
 ## 5. API
 
-- `GET /api/quant/score-review?as_of=&horizon_days=&autofill=`
-- `POST /api/quant/score-ledger/freeze`
-- `POST /api/quant/score-outcomes/fill`
-- `GET /api/quant/score-review/dates`
-- `GET /api/quant/score-ledger/series?code=` — 单票 ŷ 跨日
-- `GET /api/quant/score-review/hit-series?horizon_days=&limit=` — 命中率序列
+仍可用：
 
-复盘响应含错票归因字段（`factor_blame` 等，API 仍返回）；UI 以 **复盘样本表** 展示主导因子 / 行业 / 分组，不再单独渲染聚合归因表。
+- `GET /api/quant/score-ledger/series?code=` — 单票 ŷ 跨日（watching）
+
+已 stub（`deprecated: true`，不再 404）：全量 `score-review`、dates、hit-series、stock-panel、freeze、delete、outcomes fill、`tau-shadow`、`nowcast-shadow`。库函数 `build_score_review` / `build_tau_shadow_review` / `hit_rate_series` / `stock_panel_series` / `delete_ledger` 仍在。
 
 ---
 
 ## 6. UI（研究枢纽）
 
-- **昨日复盘**：选决策日 / horizon → 刷新 · 回填 · 冻结 · **建议重估**（滚动并触发「跑分组」）
-- **ŷ 散点**：`scored_rows` → ŷ vs 实现收益（绿=方向对 / 红=错）
+- **ŷ_τ 卡**：拟合 / 启用 / 状态；单日 τ·nowcast 验收条已下线（看系数表 `OOS · 按 τ`）
+- **IC 时序**：截面 IC · ŷ残差对照 · 超额标签对照
 - **回测–纸面拟合**：`POST /api/ops/fit-gap` 常驻；启发式 hints + 同窗日 Diff
 
 ### ŷ 可视化（同轨）
@@ -1919,7 +1910,6 @@ A 股日线主源 `stock_zh_a_hist`：**当日收盘价请在收盘后获取**�
 |----|------|
 | 评分 tooltip | 因子 **贡献条**（∝\|β·z\|）+ 原拆解表 |
 | `/watching` | 观察池 ŷ **直方图** + 买/持门槛竖线；点票看 **ŷ 时间线**（账本） |
-| `/quant` 复盘 | ŷ–实现 **散点**；跨日 **命中率 sparkline** |
 | `/quant` 分组 | 组头 **ŷ strip**（组内排序分布） |
 | `/replay` IC | **零轴**参考线 |
 

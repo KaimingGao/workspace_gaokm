@@ -208,9 +208,19 @@ class TestClusterMinuteStatus(unittest.TestCase):
 
         def _snap(code: str, *, period: str = "5"):
             if code == "600519":
-                return {"span_days": 40, "date_max": "2026-08-28", "bar_count": 100}
+                return {
+                    "span_days": 40,
+                    "date_max": "2026-08-28",
+                    "bar_count": 100,
+                    "session_complete": True,
+                }
             if code == "000001":
-                return {"span_days": 40, "date_max": "2026-08-26", "bar_count": 100}
+                return {
+                    "span_days": 40,
+                    "date_max": "2026-08-26",
+                    "bar_count": 100,
+                    "session_complete": True,
+                }
             return None
 
         calls = []
@@ -248,12 +258,13 @@ class TestClusterMinuteStatus(unittest.TestCase):
 
         def _snap(code: str, *, period: str = "5"):
             if code == "600050":
-                # Short 但今日已拉过 → 应跳过，避免新浪近端空转
+                # Short 但今日已拉过且会话齐窗 → 应跳过，避免新浪近端空转
                 return {
                     "span_days": 23,
                     "date_max": "2026-08-31",
                     "bar_count": 1071,
                     "fetched_at": today,
+                    "session_complete": True,
                 }
             if code == "000001":
                 # Ready 未对齐、非今日 → 仍 topup
@@ -262,6 +273,7 @@ class TestClusterMinuteStatus(unittest.TestCase):
                     "date_max": "2026-08-26",
                     "bar_count": 100,
                     "fetched_at": "2026-08-30T10:00:00",
+                    "session_complete": True,
                 }
             return None
 
@@ -290,6 +302,56 @@ class TestClusterMinuteStatus(unittest.TestCase):
         self.assertEqual(out["bootstrapped"], 1)
         self.assertEqual(set(calls), {"000001", "300750"})
         self.assertNotIn("600050", calls)
+
+    def test_topup_refreshes_truncated_session_even_if_fetched_today(self):
+        from quant.research.cluster_minute_status import _minute_topup_core
+
+        today = datetime.now().strftime("%Y-%m-%dT10:05:00")
+        expected = datetime.now().strftime("%Y-%m-%d")
+
+        def _snap(code: str, *, period: str = "5"):
+            if code == "002415":
+                return {
+                    "span_days": 40,
+                    "date_max": expected,
+                    "bar_count": 200,
+                    "fetched_at": today,
+                    "session_complete": False,
+                    "last_bar_hm": "10:00",
+                }
+            return {
+                "span_days": 40,
+                "date_max": expected,
+                "bar_count": 400,
+                "fetched_at": today,
+                "session_complete": True,
+                "last_bar_hm": "14:55",
+            }
+
+        calls = []
+
+        def _fetch(code, **kwargs):
+            calls.append((code, kwargs.get("use_cache"), kwargs.get("skip_em")))
+            return [{"date": f"{expected} 14:55:00"}], {"ok": True}
+
+        with patch(
+            "quant.research.cluster_minute_status.expected_minute_asof",
+            return_value=expected,
+        ), patch(
+            "quant.research.cluster_minute_status._minute_snapshot_for_code",
+            side_effect=_snap,
+        ), patch("core.ports.market.fetch_minute_bars", side_effect=_fetch):
+            out = _minute_topup_core(
+                codes=["002415", "000001"],
+                topup_lookback_days=5,
+                full_lookback_days=30,
+                workers=2,
+            )
+        self.assertTrue(out["ok"])
+        self.assertEqual(out["skipped_today"], 1)
+        self.assertEqual(out["topped"], 1)
+        self.assertEqual(out.get("refreshed_truncated"), 1)
+        self.assertEqual(calls, [("002415", False, False)])
 
     def test_refresh_topup_mode_delegates(self):
         from quant.research.cluster_minute_status import refresh_cluster_minute_only

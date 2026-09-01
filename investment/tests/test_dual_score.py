@@ -232,6 +232,7 @@ class TestDualScoreFields(unittest.TestCase):
         pool = [
             {"predicted_score_tau": 0.05},
             {"predicted_score_tau": 0.08},
+            {"predicted_score_tau": 0.04},
         ]
         floor, meta = resolve_tau_buy_floor_for_pool(
             pool,
@@ -240,6 +241,7 @@ class TestDualScoreFields(unittest.TestCase):
                     "min_predicted_score_tau": 0.3,
                     "tau_freeze_breakglass": True,
                     "min_predicted_score_tau_relax": 0.0,
+                    "tau_freeze_breakglass_min_n": 3,
                 }
             },
         )
@@ -253,6 +255,7 @@ class TestDualScoreFields(unittest.TestCase):
         pool = [
             {"predicted_score_tau": 0.05},
             {"predicted_score_tau": 0.08},
+            {"predicted_score_tau": 0.02},
         ]
         floor, meta = resolve_tau_buy_floor_for_pool(
             pool,
@@ -260,6 +263,7 @@ class TestDualScoreFields(unittest.TestCase):
                 "dual_score": {
                     "min_predicted_score_tau": 0.3,
                     "tau_freeze_breakglass": True,
+                    "tau_freeze_breakglass_min_n": 3,
                 }
             },
         )
@@ -276,6 +280,7 @@ class TestDualScoreFields(unittest.TestCase):
         pool = [
             {"predicted_score_tau": 0.05},
             {"predicted_score_tau": 0.35},
+            {"predicted_score_tau": 0.10},
         ]
         floor, meta = resolve_tau_buy_floor_for_pool(
             pool,
@@ -284,6 +289,7 @@ class TestDualScoreFields(unittest.TestCase):
                     "min_predicted_score_tau": 0.3,
                     "tau_freeze_breakglass": True,
                     "min_predicted_score_tau_relax": 0.0,
+                    "tau_freeze_breakglass_min_n": 3,
                 }
             },
         )
@@ -295,6 +301,57 @@ class TestDualScoreFields(unittest.TestCase):
             floor=floor,
         )
         self.assertFalse(ok)
+
+    def test_tau_freeze_breakglass_requires_min_n(self):
+        from core.signal.dual_score import resolve_tau_buy_floor_for_pool
+
+        pool = [
+            {"predicted_score_tau": 0.05},
+            {"predicted_score_tau": 0.08},
+        ]
+        floor, meta = resolve_tau_buy_floor_for_pool(
+            pool,
+            config={
+                "dual_score": {
+                    "min_predicted_score_tau": 0.3,
+                    "tau_freeze_breakglass": True,
+                    "tau_freeze_breakglass_min_n": 3,
+                }
+            },
+        )
+        self.assertEqual(meta.get("mode"), "strict")
+        self.assertAlmostEqual(floor, 0.3)
+        self.assertIn("min_n", str(meta.get("note") or ""))
+
+    def test_eod_next_blend_never_falls_back_to_tau_cc(self):
+        from core.signal.dual_score import compute_predicted_score_blend
+
+        item = {
+            "predicted_score_eod": 0.8,
+            "predicted_score_tau": -1.2,
+            "gap_pct": 1.0,
+            "dual_score_window": "eod_next",
+        }
+        out = compute_predicted_score_blend(
+            item, config={"dual_score": {"fusion_mode": "blend", "w_eod": 0.5, "w_tau": 0.5}}
+        )
+        self.assertAlmostEqual(float(out), 0.8, places=5)
+
+    def test_heuristic_keeps_cluster_yhat_for_rank(self):
+        from core.signal.dual_score import align_trade_score_fields, rank_key_for_item
+
+        item = {
+            "score_scale": "heuristic_0_100",
+            "return_model_source": "oos_failed_heuristic",
+            "heuristic_score": 62.0,
+            "score_cluster": 0.85,
+            "score_global": 0.40,
+        }
+        align_trade_score_fields(item, write_score=True)
+        self.assertAlmostEqual(float(item["predicted_score_eod"]), 0.85, places=5)
+        self.assertAlmostEqual(float(rank_key_for_item(item)), 0.85, places=5)
+        self.assertEqual(item.get("score_scale"), "heuristic_0_100")
+        self.assertAlmostEqual(float(item["heuristic_score"]), 62.0, places=5)
 
     def test_buy_gate_allows_missing_when_disabled(self):
         from core.signal.dual_score import buy_passes_tau_gate
@@ -363,45 +420,22 @@ class TestDualScoreFields(unittest.TestCase):
         self.assertAlmostEqual(rank_key_for_item(item, config=cfg), 0.6, places=5)
         self.assertEqual(item["dual_score_fusion"], "blend")
 
-    def test_book_fields_exposes_calibration_keys(self):
-        from core.signal import score_calibration as sc
+    def test_book_fields_skips_calibration_overlay(self):
         from core.signal.dual_score import dual_score_book_fields
 
-        doc = {
-            "enabled": False,
-            "heads": {
-                "eod": {"knots_x": [0.0, 2.0], "knots_y": [0.0, 1.0]},
-                "tau": {"knots_x": [0.0, 1.0], "knots_y": [0.0, 0.5]},
-            },
-        }
-        orig_en = sc.calibration_enabled
-        orig_load = sc.load_calibration_model
-        sc.calibration_enabled = lambda model_doc=None: False  # type: ignore
-        sc.load_calibration_model = lambda: doc  # type: ignore
-        try:
-            out = dual_score_book_fields(
-                {
-                    "predicted_score": 1.0,
-                    "predicted_score_eod_rem": 1.0,
-                    "predicted_score_tau": 0.2,
-                    "predicted_score_blend": 0.6,
-                }
-            )
-        finally:
-            sc.calibration_enabled = orig_en  # type: ignore
-            sc.load_calibration_model = orig_load  # type: ignore
-        self.assertIn("predicted_score_cal", out)
-        self.assertIn("predicted_score_tau_cal", out)
-        self.assertIn("predicted_score_blend_cal", out)
-        self.assertIn("predicted_score_eod_rem_cal", out)
-        self.assertIsNotNone(out["predicted_score_cal"])
-        self.assertIsNotNone(out["predicted_score_eod_rem_cal"])
-        self.assertIn("score_calibration_applied", out)
-        self.assertFalse(out["score_calibration_applied"])
-        self.assertFalse(out.get("score_calibration_enabled"))
+        out = dual_score_book_fields(
+            {
+                "predicted_score": 1.0,
+                "predicted_score_eod_rem": 1.0,
+                "predicted_score_tau": 0.2,
+                "predicted_score_blend": 0.6,
+            }
+        )
+        self.assertNotIn("predicted_score_cal", out)
+        self.assertNotIn("score_calibration_applied", out)
 
     def test_eod_gate_and_decision_stay_raw_with_calibration(self):
-        """方案 A：闸/决策分始终 raw；启用校准只影响 tip 字段。"""
+        """闸/决策分始终 raw，即使库仍能算出 g(ŷ)。"""
         from core.signal import score_calibration as sc
         from core.signal.dual_score import (
             decision_score_for_item,

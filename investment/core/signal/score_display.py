@@ -134,6 +134,7 @@ def resolve_buy_floor(
 
 
 # 持仓卖出门槛：分池调仓仅当 ŷ < 该值才卖（默认 -1%）；与买入门槛形成滞回
+# 产品滞回：买≥+1% / 卖<-1%，中间带持仓不因微弱衰减清仓；横截面另有「不在 TopK→卖」
 DEFAULT_MIN_HOLD_PREDICTED_SCORE = -1.0
 
 

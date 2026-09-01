@@ -426,12 +426,6 @@ class TestWatchingInsights(unittest.TestCase):
         self.assertAlmostEqual(float(out["score_cluster"]), 1.25)
         self.assertAlmostEqual(float(out["score_global"]), 0.4)
         self.assertTrue(out.get("oos_failed"))
-        # 校准列应能用组 ŷ 挂上（对照，不进决策）
-        self.assertTrue(
-            out.get("predicted_score_cal") is not None
-            or out.get("predicted_score_blend_cal") is not None
-            or out.get("score_calibration_enabled") in (True, False, None)
-        )
 
 
 if __name__ == "__main__":

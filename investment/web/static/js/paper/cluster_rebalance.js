@@ -1,6 +1,7 @@
 /** Paper · 观察池 path_matrix 预演/落账（Follow 调仓主路径）。 */
 
 import { getDataOfflineOnly } from "../data_offline.js";
+import { ensureWarehouseTopup } from "../data_warehouse_topup.js";
 
 /**
  * @param {object} deps
@@ -21,25 +22,42 @@ export function createClusterRebalanceController(deps) {
 
   async function runWatchingMatrixPreview({ dryRun = true } = {}) {
     setPaperBusy(true);
+    const allowTopup = !getDataOfflineOnly();
     showProgress(
       1,
       dryRun
-        ? getDataOfflineOnly()
-          ? "观察池矩阵预演（仅本地仓）…"
-          : "观察池矩阵预演（可拉远端）…"
+        ? allowTopup
+          ? "观察池矩阵预演（增量补齐后只读）…"
+          : "观察池矩阵预演（仅本地仓）…"
         : "矩阵落账（成交）…"
     );
     try {
+      if (allowTopup && dryRun) {
+        showProgress(1, "增量补齐观察池日K·5m…");
+        try {
+          await ensureWarehouseTopup({
+            force: false,
+            watchingLimit: 100,
+            onStatus: (msg) => showProgress(1, msg || "增量补齐…"),
+          });
+        } catch (topupErr) {
+          setPaperMetaText(
+            String((topupErr && topupErr.message) || topupErr || "增量补齐失败")
+          );
+          /* 仍继续只读预演，便于看到缺仓拒分 */
+        }
+        showProgress(1, "观察池矩阵预演（只读本地仓）…");
+      }
       const res = await fetch("/api/paper/rebalance", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           matrix_mode: true,
           dry_run: !!dryRun,
-          offline_only: getDataOfflineOnly(),
+          // ŷ / 日K·5m 永远只读本地；写仓已由 ensureWarehouseTopup 显式完成
+          offline_only: true,
         }),
-      });
-      const data = await res.json().catch(() => ({}));
+      });      const data = await res.json().catch(() => ({}));
       if (!res.ok || data.success === false || data.ok === false) {
         const detail = data.detail || data.error || res.statusText;
         throw new Error(

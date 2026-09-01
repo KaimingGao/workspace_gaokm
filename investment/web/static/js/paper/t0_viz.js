@@ -1,7 +1,7 @@
 /** 做T回测可视化（canvas + CSS，无外部图表库）。 */
 
 import { paperMetricClass } from "./fmt.js";
-import { SKIP_CAT_TIP, stockCellHtml } from "./t0_table.js";
+import { SKIP_CAT_TIP, stockCellHtml } from "./t0_table.js?v=p1790";
 
 const THEME = {
   actual: "#2563eb",
@@ -39,13 +39,14 @@ const SKIP_CAT_COLORS = {
   gap_tier_skip: "#ea580c",
   path_abandon: "#a8a29e",
   prefix_segment: "#9ca3af",
+  prefix_vs_path: "#78716c",
   y_trade_weak: "#fb923c",
   eod_tau_disagree: "#b91c1c",
   trade_tau_disagree: "#c2410c",
   trade_tau_sign: "#e11d48",
   conflict: "#ef4444",
-  amplitude: "#64748b",
-  directional_amplitude: "#78716c",
+  amplitude: "#94a3b8",
+  directional_amplitude: "#a8a29e",
   lot_size: "#a78bfa",
   tplus1: "#c084fc",
   path: "#6366f1",
@@ -1093,7 +1094,11 @@ function renderStockContrib(rows) {
         `<td class="num paper-t0-col-viz-px" title="窗口首日收盘价">${fmtContribPrice(r.start_price)}</td>` +
         `<td class="paper-t0-col-viz-dt" title="评估窗口末日">${fmtContribDate(r.window_end_date)}</td>` +
         `<td class="num paper-t0-col-viz-px" title="窗口末日收盘价">${fmtContribPrice(r.end_price)}</td>` +
-        `<td class="num paper-t0-col-viz-lr" title="正T日 / 反T日">${esc(`${r.buy_then_sell_days ?? 0}/${r.sell_then_buy_days ?? 0}`)}</td>` +
+        `<td class="num paper-t0-col-viz-lr" title="正T日 / 反T日${r.mixed_days ? " / 多轮日" : ""}">${esc(
+          Number(r.mixed_days)
+            ? `${r.buy_then_sell_days ?? 0}/${r.sell_then_buy_days ?? 0}/${r.mixed_days}`
+            : `${r.buy_then_sell_days ?? 0}/${r.sell_then_buy_days ?? 0}`
+        )}</td>` +
         `<td class="num paper-t0-col-viz-days" title="成交日数">${esc(String(r.trade_days ?? 0))}</td>` +
         `<td class="num paper-t0-col-viz-days" title="跳过日数">${esc(String(r.skip_days ?? 0))}</td>` +
         skipReasonCellHtml(r) +
@@ -1284,12 +1289,12 @@ export function renderT0Viz(host, data) {
     cards.push(
       vizCard(
         "跳过构成",
-        `合计 ${total} 次` +
+        `合计 ${total} ${viz.skip_scope === "slot" ? "轮" : "次"}` +
           (top ? ` · 主因 ${top.label} ${top.pct ?? ""}%` : "") +
           ` · 悬停扇区/图例看 tip`,
         chartCanvas("skip"),
         skipLegendHtml(viz.skip_categories, total),
-        legendChips([{ color: THEME.otherSkip, label: "按跳过原因" }])
+        legendChips([{ color: THEME.otherSkip, label: viz.skip_scope === "slot" ? "按未成交轮次" : "按跳过原因" }])
       )
     );
   }
@@ -1314,12 +1319,17 @@ export function renderT0Viz(host, data) {
       ? `${viz.skip_categories[0].label} ${viz.skip_categories[0].pct ?? ""}%`
       : "—";
 
+  const skipRound = Number(viz.skip_round_count);
+  const skipHead =
+    viz.skip_scope === "slot" && Number.isFinite(skipRound)
+      ? `跳过 ${viz.skip_count ?? 0} 日 / ${skipRound} 轮`
+      : `跳过 ${viz.skip_count ?? 0}`;
   host.hidden = false;
   host.innerHTML =
     `<div class="paper-t0-viz-head">` +
     `<div class="paper-t0-viz-head-main">` +
     `<span class="paper-t0-viz-title">归因分析</span>` +
-    `<span class="quant-sub">正T ${ds.buy_then_sell ?? 0} · 反T ${ds.sell_then_buy ?? 0} · 成交 ${viz.trade_count ?? 0} · 跳过 ${viz.skip_count ?? 0}` +
+    `<span class="quant-sub">正T ${ds.buy_then_sell ?? 0} · 反T ${ds.sell_then_buy ?? 0} · 成交 ${viz.trade_count ?? 0} · ${skipHead}` +
     (viz.skip_categories && viz.skip_categories.length
       ? ` · 主因 ${esc(topSkipLabel)}`
       : "") +

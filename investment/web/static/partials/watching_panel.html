@@ -4,7 +4,7 @@
     <h2>数据中心</h2>
     <p id="watching-page-meta" class="dashboard-meta quant-meta">观察池 · ŷ 现算 · 行情独立 · 日K/5m 在研究枢纽写入</p>
     <p class="dashboard-section-desc watching-head-path">
-      本页维护名单 → ŷ 读本地仓（「仅本地仓」）→ 行情列独立 →
+      本页维护名单 → ŷ 只读本地仓 → 行情列独立 →
       <a class="watching-hero-link" href="/quant">日K·5m</a>
       ·
       <a class="watching-hero-link" href="/follow">纸面调仓/做T</a>
@@ -13,9 +13,9 @@
   <div class="dashboard-head-actions quant-head-actions watching-head-actions">
     <label
       class="paper-t0-toggle data-offline-toggle"
-      title="开：ŷ / 日K·5m·指数只用研究枢纽本地仓（名单与现价/浮盈不受此开关）"
+      title="关：ŷ 只读本地日K·5m·指数；不触发增量补齐（名单与现价/浮盈不受此开关）"
     >
-      <input type="checkbox" id="watching-data-offline" role="switch" checked />
+      <input type="checkbox" id="watching-data-offline" role="switch" />
       <span class="paper-t0-toggle-track" aria-hidden="true"></span>
       <span class="data-offline-toggle-text paper-t0-toggle-text">仅本地仓</span>
     </label>

@@ -25,6 +25,9 @@ from core.signal.nowcast_kf import (
     run_live_nowcast,
 )
 
+# 与研究 DEFAULT_MINUTE_TAU_GRID 对齐（含 09:30 开盘 Z；做T只用 10:00–11:30。勿从 t0 包导入）
+_DEFAULT_MINUTE_TAU_GRID = ["09:30", "10:00", "10:30", "11:00", "11:30"]
+
 DEFAULT_DUAL_SCORE: Dict[str, Any] = {
     # 正交加权：簿排序用 ŷ_trade=blend(ŷ_EOD, 缺口∘ŷ_τ)；买入另须 ŷ_τ≥floor
     "fusion_mode": "blend",
@@ -34,6 +37,8 @@ DEFAULT_DUAL_SCORE: Dict[str, Any] = {
     # 候选池内无人过基线门槛时，临时降至本值；None = 0.5 × 基线（不再默认 0.0）
     "tau_freeze_breakglass": True,
     "min_predicted_score_tau_relax": None,
+    # breakglass 最少有效 τ 样本；过少不放宽，避免 1–2 票噪声降全局闸
+    "tau_freeze_breakglass_min_n": 3,
     "block_buy_if_tau_missing": True,
     "w_eod": 0.5,
     "w_tau": 0.5,
@@ -50,8 +55,8 @@ DEFAULT_DUAL_SCORE: Dict[str, Any] = {
     # 有本地分钟缓存时附加 ret_open_to_tau（默认关；开后仍不拉网）
     "enable_minute_tau": False,
     "minute_tau_hm": "10:30",
-    # 变长前缀训练时钟（共享 β）；live 特征仍用 minute_tau_hm
-    "minute_tau_grid": ["09:45", "10:00", "10:15", "10:30"],
+    # 变长前缀训练时钟（共享 β）；含开盘 Z + 做T四轮；live 特征仍用 minute_tau_hm
+    "minute_tau_grid": list(_DEFAULT_MINUTE_TAU_GRID),
     # nowcast / Kalman：默认只写影子字段，不改排序键
     "nowcast": dict(DEFAULT_NOWCAST),
     # 高维 Y(τ)：校验 / 展示 / 过滤（不改 predicted_score 语义）
@@ -175,6 +180,12 @@ def get_dual_score_cfg(config: Optional[dict] = None) -> Dict[str, Any]:
     except (TypeError, ValueError):
         raw["min_predicted_score_tau_relax"] = None
     raw["tau_freeze_breakglass"] = bool(raw.get("tau_freeze_breakglass", True))
+    try:
+        raw["tau_freeze_breakglass_min_n"] = max(
+            1, int(raw.get("tau_freeze_breakglass_min_n") or 3)
+        )
+    except (TypeError, ValueError):
+        raw["tau_freeze_breakglass_min_n"] = 3
     raw["block_buy_if_tau_missing"] = bool(raw.get("block_buy_if_tau_missing", True))
     try:
         raw["w_eod"] = float(raw["w_eod"] if raw.get("w_eod") is not None else 0.5)
@@ -202,9 +213,9 @@ def get_dual_score_cfg(config: Optional[dict] = None) -> Dict[str, Any]:
                 s = f"{s[:2]}:{s[2:]}"
             if s not in grid:
                 grid.append(s)
-        raw["minute_tau_grid"] = grid or ["09:45", "10:00", "10:15", "10:30"]
+        raw["minute_tau_grid"] = grid or list(_DEFAULT_MINUTE_TAU_GRID)
     else:
-        raw["minute_tau_grid"] = ["09:45", "10:00", "10:15", "10:30"]
+        raw["minute_tau_grid"] = list(_DEFAULT_MINUTE_TAU_GRID)
     w_mode = str(raw.get("w_mode") or "fixed").strip().lower()
     if w_mode not in ("fixed", "theme_boost", "variance", "kalman"):
         w_mode = "fixed"
@@ -261,18 +272,43 @@ def dual_track_score_fields(item: Optional[dict]) -> Dict[str, Any]:
     return out
 
 
+def _yhat_pct_field(item: dict, *keys: str) -> Optional[float]:
+    """读取疑似 ŷ% 字段；排除 heuristic 0–100（|x|≥10 且无显式 ŷ 标尺时仍可能误伤，故硬上限 20）。"""
+    for k in keys:
+        v = item.get(k)
+        if v is None or v == "":
+            continue
+        try:
+            f = float(v)
+        except (TypeError, ValueError):
+            continue
+        if f != f:
+            continue
+        if abs(f) > 20.0:
+            continue
+        return f
+    return None
+
+
 def resolve_predicted_score_eod(item: Optional[dict]) -> Optional[float]:
     """读取 ŷ_EOD。
 
     优先 ``predicted_score_eod`` / ``predicted_score``。
     ``score`` 仅作启发式/遗留回退；若 ``score`` 与 ``predicted_score_blend`` 数值相同，
     视为 align 后的 ŷ_trade，不再当 EOD（避免买入闸吃到 blend）。
-    OOS 失败降级的 heuristic（0–100）不算 ŷ_EOD。
+    OOS heuristic：禁止 0–100；若仍有组/全局 ŷ% 则用作 EOD 兼容（rank / T0）。
     """
     if not isinstance(item, dict):
         return None
     if is_heuristic_score_scale(item):
-        return None
+        return _yhat_pct_field(
+            item,
+            "score_cluster",
+            "score_global",
+            "predicted_score_eod",
+            "predicted_score",
+            "score",
+        )
     for k in ("predicted_score_eod", "predicted_score"):
         v = item.get(k)
         if v is None:
@@ -392,6 +428,9 @@ def compute_predicted_score_blend(
     )
     if cc is not None:
         return cc
+    # eod_next：禁止回落 τ_cc（即使外部误写入 y_τ）
+    if eod_next:
+        return y_eod
     if tau_cc is not None:
         return tau_cc
     return y_eod
@@ -416,12 +455,8 @@ def align_trade_score_fields(
     """
     if not isinstance(item, dict):
         return item
-    # OOS→heuristic：表列 score 不得写 0–100；有组/全局 ŷ 则写入 score，否则清空
+    # OOS→heuristic：0–100 只进 heuristic_score；组/全局 ŷ% 写入 EOD/blend 兼容字段供 rank/T0
     if is_heuristic_score_scale(item):
-        item["predicted_score"] = None
-        item["predicted_score_eod"] = None
-        item["predicted_score_eod_rem"] = None
-        item["predicted_score_blend"] = None
         hs = item.get("heuristic_score")
         if hs is None:
             raw = item.get("score")
@@ -444,8 +479,22 @@ def align_trade_score_fields(
             yhat_f = float(yhat) if yhat is not None and yhat != "" else None
         except (TypeError, ValueError):
             yhat_f = None
-        if write_score:
-            item["score"] = yhat_f  # ŷ% 或 None；禁止 0–100
+        if yhat_f is not None and abs(yhat_f) > 20.0:
+            yhat_f = None
+        if yhat_f is not None:
+            item["predicted_score"] = yhat_f
+            item["predicted_score_eod"] = yhat_f
+            item["predicted_score_blend"] = yhat_f
+            item["decision_score"] = yhat_f
+            if write_score:
+                item["score"] = yhat_f
+        else:
+            item["predicted_score"] = None
+            item["predicted_score_eod"] = None
+            item["predicted_score_eod_rem"] = None
+            item["predicted_score_blend"] = None
+            if write_score:
+                item["score"] = None
         item["score_scale"] = "heuristic_0_100"
         try:
             from core.signal.y_state import stamp_y_state
@@ -504,6 +553,24 @@ def align_trade_score_fields(
                 stale_zero_w_tau = float(bw.get("w_tau") or 0.0) <= 1e-12
             except (TypeError, ValueError):
                 stale_zero_w_tau = False
+        # kalman/variance：决策层权可能已收敛到 0，但簿上仍留旧 w_τ>0 + 含 τ 的 blend
+        if not stale_zero_w_tau and blend is not None and y_eod_f is not None:
+            try:
+                cfg_w = get_dual_score_cfg(config)
+                w_mode = str(cfg_w.get("w_mode") or "fixed")
+                if w_mode in ("variance", "kalman"):
+                    feats = (
+                        item.get("features_tau")
+                        if isinstance(item.get("features_tau"), dict)
+                        else None
+                    )
+                    _we_rt, wt_rt, _note = resolve_fusion_weights(
+                        cfg_w, feats=feats, rem_model_doc=None
+                    )
+                    if float(wt_rt or 0.0) <= 1e-12 and abs(float(blend) - float(y_eod_f)) > 1e-6:
+                        stale_zero_w_tau = True
+            except Exception:  # noqa: BLE001
+                logger.debug("stale_zero_w_tau runtime check failed", exc_info=True)
     if blend is None or stale or force_recompute or unlifted or stale_zero_w_tau:
         recomputed = compute_predicted_score_blend(item, config=config)
         if recomputed is not None:
@@ -610,7 +677,6 @@ def rank_key_for_item(item: Optional[dict], *, config: Optional[dict] = None) ->
 
     ``dual_score_window=eod_next``（收盘后）：一律停用 τ 侧，避免旧簿上
     被今日已实现收益污染的 blend 直接进入 T+1 前瞻决策。
-    校准 g 仅写入 ``*_cal`` 供 tip/研究对照，不改变排序键。
     """
     if not isinstance(item, dict):
         return None
@@ -685,6 +751,7 @@ def resolve_tau_buy_floor_for_pool(
         "breakglass": bool(cfg.get("tau_freeze_breakglass", True)),
         "n_tau_valid": 0,
         "n_pass_base": 0,
+        "min_n": int(cfg.get("tau_freeze_breakglass_min_n") or 3),
         "tau_max": None,
         "note": None,
     }
@@ -710,18 +777,29 @@ def resolve_tau_buy_floor_for_pool(
     meta["n_pass_base"] = n_pass
     if tau_max is not None:
         meta["tau_max"] = round(tau_max, 6)
+    min_n = int(meta["min_n"])
     if (
         bool(cfg.get("tau_freeze_breakglass", True))
-        and n_valid > 0
+        and n_valid >= min_n
         and n_pass == 0
     ):
         meta["effective_floor"] = relax
         meta["mode"] = "freeze_breakglass"
         meta["note"] = (
-            f"τ 试验档：候选池无人过 ŷ_τ≥{base:g}（max={tau_max:.3f}%），"
-            f"临时降至 {relax:g}；可回滚 tau_freeze_breakglass / 门槛"
+            f"τ 试验档：候选池无人过 ŷ_τ≥{base:g}（n={n_valid}≥{min_n}，"
+            f"max={tau_max:.3f}%），临时降至 {relax:g}；"
+            f"可回滚 tau_freeze_breakglass / 门槛"
         )
         return relax, meta
+    if (
+        bool(cfg.get("tau_freeze_breakglass", True))
+        and n_valid > 0
+        and n_valid < min_n
+        and n_pass == 0
+    ):
+        meta["note"] = (
+            f"τ 试验档未触发：有效 τ 仅 {n_valid} < min_n={min_n}，保持基线 {base:g}"
+        )
     return base, meta
 
 
@@ -733,7 +811,7 @@ def buy_passes_tau_gate(
 ) -> Tuple[bool, Optional[str]]:
     """ŷ_τ 买入闸（τ 头的 OC 预估）。返回 (ok, skip_reason)。
 
-    始终用原始 ŷ_τ（方案 A：校准 g 只做 tip/研究对照，不进买卖闸）。
+    始终用原始 ŷ_τ。
     收盘后 ``eod_next``：不吃当日 ŷ_τ（已实现 OC，再闸会污染下一期决策）；EOD 门槛另走。
     ``floor`` 可覆盖配置门槛（买入池冻结降级时传入有效楼）。
     """
@@ -771,7 +849,7 @@ def eod_gate_score_for_item(
     *,
     config: Optional[dict] = None,
 ) -> Optional[float]:
-    """入簿 / 买卖 EOD 门槛用分：始终原始 ŷ_EOD（校准 g 不进闸）。"""
+    """入簿 / 买卖 EOD 门槛用分：始终原始 ŷ_EOD。"""
     _ = config
     return resolve_predicted_score_eod(item)
 

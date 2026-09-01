@@ -283,9 +283,6 @@ class TestScoreLedger(unittest.TestCase):
             )
 
         with self._patch_dir(), patch(
-            "core.score_ledger.series.freeze_from_cluster_book",
-            return_value={"success": True, "as_of": "2026-08-05", "n_rows": 0},
-        ), patch(
             "core.market.calendar.resolve_session_date", return_value="2026-08-05"
         ), patch(
             "core.market.calendar.prev_trading_day",
@@ -309,6 +306,7 @@ class TestScoreLedger(unittest.TestCase):
                 as_of="2026-08-05", horizon_days=1, fill_lookback=2
             )
             self.assertTrue(out["success"])
+            self.assertTrue((out.get("freeze") or {}).get("skipped"))
             self.assertGreaterEqual(out["filled_days"], 1)
             oc = load_outcomes("2026-08-04")
             self.assertFalse(oc.get("empty"))

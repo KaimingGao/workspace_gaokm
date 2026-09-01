@@ -23,6 +23,20 @@ class TestScoringHorizon(unittest.TestCase):
         ):
             self.assertEqual(get_scoring_horizon_days(), 1)
 
+    def test_insights_and_holdings_use_scoring_horizon(self):
+        """数据中心 / 持仓算分 horizon 跟 signal_config，不再写死 3。"""
+        import inspect
+
+        from core.watching import insights as insights_mod
+
+        src = inspect.getsource(insights_mod._insight_one)
+        self.assertIn("_scoring_horizon_days()", src)
+        self.assertNotIn("horizon_days=3", src)
+        with patch(
+            "core.signal.config.get_scoring_horizon_days", return_value=1
+        ):
+            self.assertEqual(insights_mod._scoring_horizon_days(), 1)
+
     def test_promote_blocks_horizon_mismatch(self):
         from core.signal.cluster.live import _validate_artifact_for_promote
 

@@ -122,9 +122,6 @@ export function withQuoteGap(it, quoteLike) {
 
 export const TRADE_TITLE = "双头融合 · 排序/卖门槛";
 
-export const EOD_CAL_TITLE =
-  "eod = g(ŷ_EOD) · 对涨跌的回归预估（现价对昨收）· 不含缺口 · 不进决策";
-
 export function formatWatchingMarketLabel(market) {
   const m = String(market || "").toUpperCase();
   if (m === "CN") return "A股";

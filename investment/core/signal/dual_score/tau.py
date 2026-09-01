@@ -294,12 +294,8 @@ def apply_tau_score_fields(
         "eod_prior_var_src": ve_src,
         "window": "intraday" if fuse else "eod_next",
     }
-    # heuristic 轨：ŷ_EOD 为空；表列 score 只用组/全局 ŷ%，0–100 只留 heuristic_score
+    # heuristic 轨：0–100 只留 heuristic_score；组/全局 ŷ% 写入 EOD/blend 兼容字段
     if is_heuristic_score_scale(signal_item):
-        signal_item["predicted_score"] = None
-        signal_item["predicted_score_eod"] = None
-        signal_item["predicted_score_eod_rem"] = None
-        signal_item["predicted_score_blend"] = None
         hs = signal_item.get("heuristic_score")
         if hs is None:
             hs = signal_item.get("score")
@@ -312,10 +308,22 @@ def apply_tau_score_fields(
         if yhat is None:
             yhat = signal_item.get("score_global")
         try:
-            signal_item["score"] = (
-                float(yhat) if yhat is not None and yhat != "" else None
-            )
+            yhat_f = float(yhat) if yhat is not None and yhat != "" else None
         except (TypeError, ValueError):
+            yhat_f = None
+        if yhat_f is not None and abs(yhat_f) > 20.0:
+            yhat_f = None
+        if yhat_f is not None:
+            signal_item["predicted_score"] = yhat_f
+            signal_item["predicted_score_eod"] = yhat_f
+            signal_item["predicted_score_blend"] = yhat_f
+            signal_item["decision_score"] = yhat_f
+            signal_item["score"] = yhat_f
+        else:
+            signal_item["predicted_score"] = None
+            signal_item["predicted_score_eod"] = None
+            signal_item["predicted_score_eod_rem"] = None
+            signal_item["predicted_score_blend"] = None
             signal_item["score"] = None
         signal_item["score_scale"] = "heuristic_0_100"
     try:
@@ -382,6 +390,8 @@ def attach_dual_score_pit(
     sector_gap_median: Optional[float] = None,
     minute_bars: Optional[Sequence[dict]] = None,
     sector_ret_to_tau: Optional[float] = None,
+    use_minute_tau: Optional[bool] = None,
+    minute_tau_hm: Optional[str] = None,
 ) -> Dict[str, Any]:
     """历史回测 / 无实时行情时：用 PIT 日线 quote·bars 挂 ŷ_τ + blend。
 
@@ -390,6 +400,8 @@ def attach_dual_score_pit(
     ``sector_ret_to_tau``：开→τ 池中位（与训练 ``attach_cross_section_breadth`` 同口径）；
     缺省时尽力从活跃簿分钟仓聚合，再写 ``ret_vs_sector``。
     ``minute_bars``：可选 ≤τ 分钟线；``enable_minute_tau`` 时并入分钟小包（亦可读本地缓存）。
+    ``minute_tau_hm``：因果 τ 钟（如固定前缀末根）；有分钟输入时优先于此，禁默默回退 10:30 截面。
+    ``use_minute_tau=False``：强制开盘 Z（做 T 开盘预计算）；不读分钟仓/缓存。
     无 ŷ_τ 模型时仍写契约字段（ŷ_τ=None，ŷ_trade 退回 ŷ_EOD）。
     ``fuse_intraday=False`` / 簿上 ``dual_score_window=eod_next``：
     - τ 买入闸不吃当日 ŷ_τ；
@@ -409,6 +421,45 @@ def attach_dual_score_pit(
     q = quote if isinstance(quote, dict) else signal_item.get("_bt_quote")
     b = bars if bars is not None else signal_item.get("_bt_bars")
     cfg = get_dual_score_cfg(config)
+    allow_minute = (
+        bool(cfg.get("enable_minute_tau"))
+        if use_minute_tau is None
+        else bool(use_minute_tau)
+    )
+
+    def _hm_from_minute_bars(raw_bars: Optional[Sequence[dict]]) -> Optional[str]:
+        last = None
+        for bar in raw_bars or []:
+            if isinstance(bar, dict):
+                last = bar
+        if not isinstance(last, dict):
+            return None
+        ts = str(last.get("datetime") or last.get("date") or "")
+        if " " in ts:
+            return ts.split(" ", 1)[1][:5] or None
+        if "T" in ts:
+            return ts.split("T", 1)[1][:5] or None
+        return None
+
+    # 因果钟：显式 > 条目标记 > 传入分钟末根 >（无分钟输入时）配置钟
+    effective_hm = str(minute_tau_hm or "").strip()[:5] or None
+    if not effective_hm:
+        raw_hm = signal_item.get("_minute_tau_hm") or signal_item.get("minute_tau_hm")
+        effective_hm = str(raw_hm or "").strip()[:5] or None
+    if not effective_hm and minute_bars:
+        effective_hm = _hm_from_minute_bars(minute_bars)
+    cfg_hm = str(cfg.get("minute_tau_hm") or "10:30").strip()[:5] or "10:30"
+    # 有显式前缀分钟时不得用配置 10:30 做截面回退
+    causal_prefix = bool(minute_bars) or bool(minute_tau_hm) or bool(
+        signal_item.get("_minute_tau_hm")
+    )
+    pack_hm = effective_hm or (None if causal_prefix else cfg_hm) or cfg_hm
+    sector_hm = effective_hm or (None if causal_prefix else cfg_hm)
+    if sector_hm is None and causal_prefix:
+        # 有前缀但解析不出钟：宁可不写截面，也不回退 10:30
+        sector_hm = None
+    elif sector_hm is None:
+        sector_hm = cfg_hm
     gap_v = None
     try:
         from core.event_prior import gap_pct_from_quote_bars, get_event_prior_cfg
@@ -515,10 +566,10 @@ def attach_dual_score_pit(
                 "gap_vs_sector"
             ) is None:
                 feats["gap_vs_sector"] = prior_ft.get("gap_vs_sector")
-    # 分钟小包（≤τ）：与 score_stock 同源；T0 回测可传入当日 minute_bars
+    # 分钟小包（≤τ）：与 score_stock 同源；T0 选向须 use_minute_tau=False 禁前瞻
     as_of_tau_override: Optional[str] = None
     y_spec_override: Optional[Dict[str, Any]] = None
-    if bool(cfg.get("enable_minute_tau")) and feats.get("ret_open_to_tau") is None:
+    if allow_minute and feats.get("ret_open_to_tau") is None:
         try:
             from core.signal.minute_tau_feats import merge_minute_tau_pack_into_feats
 
@@ -548,7 +599,8 @@ def attach_dual_score_pit(
                     prev_c = float((b[-2] or {}).get("close") or 0.0) or None
                 except (TypeError, ValueError):
                     prev_c = None
-            hm = str(cfg.get("minute_tau_hm") or "10:30")
+            hm = str(pack_hm or cfg_hm)
+            # 调用方未传分钟线时才读本地仓；做 T 开盘预计算走 use_minute_tau=False 不进本枝
             feats, as_of_tau_override, y_spec_override = merge_minute_tau_pack_into_feats(
                 feats,
                 code=str(signal_item.get("stock_code") or ""),
@@ -557,44 +609,50 @@ def attach_dual_score_pit(
                 prev_close=prev_c,
                 tau_hm=hm,
                 minute_bars=minute_bars,
-                load_cache_if_missing=True,
+                load_cache_if_missing=not minute_bars,
             )
         except Exception:  # noqa: BLE001
             logger.debug("minute tau pack attach in dual_score_pit failed", exc_info=True)
     # 截面开→τ：训练 panel 有；serve 需显式补，否则 τ/path 头 CS 键恒缺→z=0
-    try:
-        from core.signal.minute_tau_feats import (
-            apply_sector_ret_cs,
-            resolve_sector_ret_to_tau,
-            sector_ret_median,
-        )
+    # 开盘选向（use_minute_tau=False）禁开→τ 截面，避免分钟前缀前瞻
+    if allow_minute:
+        try:
+            from core.signal.minute_tau_feats import (
+                apply_sector_ret_cs,
+                resolve_sector_ret_to_tau,
+                sector_ret_median,
+            )
 
-        sret = sector_ret_to_tau
-        if sret is None and signal_item.get("_sector_ret_to_tau") is not None:
-            try:
-                sret = float(signal_item.get("_sector_ret_to_tau"))
-            except (TypeError, ValueError):
-                sret = None
-        if sret is None and isinstance(
-            signal_item.get("_peer_ret_open_to_tau"), (list, tuple)
-        ):
-            sret = sector_ret_median(signal_item.get("_peer_ret_open_to_tau") or [])
-        if sret is None and feats.get("sector_ret_to_tau") is None:
-            trade_day = ""
-            if isinstance(q, dict):
-                trade_day = str(q.get("date") or q.get("trade_date") or "")[:10]
-            if len(trade_day) < 10 and isinstance(b, (list, tuple)) and b:
-                trade_day = str((b[-1] or {}).get("date") or "")[:10]
-            hm = str(cfg.get("minute_tau_hm") or "10:30")
-            if len(trade_day) >= 10 and (
-                feats.get("ret_open_to_tau") is not None
-                or bool(cfg.get("enable_minute_tau"))
+            sret = sector_ret_to_tau
+            if sret is None and signal_item.get("_sector_ret_to_tau") is not None:
+                try:
+                    sret = float(signal_item.get("_sector_ret_to_tau"))
+                except (TypeError, ValueError):
+                    sret = None
+            if sret is None and isinstance(
+                signal_item.get("_peer_ret_open_to_tau"), (list, tuple)
             ):
-                sret = resolve_sector_ret_to_tau(trade_day, hm)
-        if sret is not None:
-            feats = apply_sector_ret_cs(feats, sret)
-    except Exception:  # noqa: BLE001
-        logger.debug("sector_ret_to_tau attach in dual_score_pit failed", exc_info=True)
+                sret = sector_ret_median(signal_item.get("_peer_ret_open_to_tau") or [])
+            if sret is None and feats.get("sector_ret_to_tau") is None:
+                trade_day = ""
+                if isinstance(q, dict):
+                    trade_day = str(q.get("date") or q.get("trade_date") or "")[:10]
+                if len(trade_day) < 10 and isinstance(b, (list, tuple)) and b:
+                    trade_day = str((b[-1] or {}).get("date") or "")[:10]
+                hm = str(sector_hm or "").strip()[:5] if sector_hm else None
+                if (
+                    hm
+                    and len(trade_day) >= 10
+                    and (
+                        feats.get("ret_open_to_tau") is not None
+                        or bool(cfg.get("enable_minute_tau"))
+                    )
+                ):
+                    sret = resolve_sector_ret_to_tau(trade_day, hm)
+            if sret is not None:
+                feats = apply_sector_ret_cs(feats, sret)
+        except Exception:  # noqa: BLE001
+            logger.debug("sector_ret_to_tau attach in dual_score_pit failed", exc_info=True)
     # 只传 τ 头 Z 特征；勿塞全日线 sub_scores（训练未用，易误导）
     rem_yhat = None
     try:
@@ -665,7 +723,8 @@ def _resolve_fuse_intraday(
         return win != "eod_next"
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
         logger.debug("catch except Exception: in dual_score.py", exc_info=True)
-        return str(signal_item.get("dual_score_window") or "") != "eod_next"
+        # 保守：异常时不融合 τ（等价 eod_next），避免空窗旧簿误 fuse 泄漏
+        return False
 
 
 def _eod_return_model_for_item(item: dict):

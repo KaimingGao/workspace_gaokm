@@ -267,6 +267,7 @@ class TestPathPanel(unittest.TestCase):
 
     def test_multi_tau_grid_expands_rows(self):
         from core.research.path_panel import build_path_panels_from_bars
+        from core.research.tau_panel import DEFAULT_MINUTE_TAU_GRID
 
         bars = _bars(25, 10.0)
         panels_1 = build_path_panels_from_bars(
@@ -275,20 +276,20 @@ class TestPathPanel(unittest.TestCase):
             tau_grid=None,
             minute_tau_hm="10:30",
         )
-        panels_4 = build_path_panels_from_bars(
+        panels_n = build_path_panels_from_bars(
             [{"code": "A", "bars": bars}],
             minute_by_code_date={"A": _minute_map_for_bars(bars, low_then_high=True)},
-            tau_grid=["09:45", "10:00", "10:15", "10:30"],
+            tau_grid=list(DEFAULT_MINUTE_TAU_GRID),
         )
         n1 = sum(len(p.get("ys") or []) for p in panels_1)
-        n4 = sum(len(p.get("ys") or []) for p in panels_4)
+        nn = sum(len(p.get("ys") or []) for p in panels_n)
         self.assertGreater(n1, 0)
-        self.assertEqual(n4, n1 * 4)
+        self.assertEqual(nn, n1 * len(DEFAULT_MINUTE_TAU_GRID))
         metas = []
-        for p in panels_4:
+        for p in panels_n:
             metas.extend(p.get("metas") or [])
         taus = {str(m.get("tau")) for m in metas}
-        self.assertEqual(taus, {"09:45", "10:00", "10:15", "10:30"})
+        self.assertEqual(taus, set(DEFAULT_MINUTE_TAU_GRID))
 
     def test_z_rows_keep_yclose_loc_key(self):
         from core.research.path_panel import PATH_Z_FEATURES, build_path_panels_from_bars
@@ -415,7 +416,8 @@ class TestPathRidgeFit(unittest.TestCase):
         self.assertEqual(rm.get("path_label_mode"), "extreme_order")
         formula = str((rm.get("y_spec") or {}).get("formula") or "")
         self.assertIn("extreme_order(low,high)", formula)
-        self.assertIn("09:45", formula)
+        self.assertIn("09:30", formula)
+        self.assertIn("11:30", formula)
         self.assertEqual((rm.get("y_spec") or {}).get("tau_grid"), report.get("tau_grid"))
         oos = report.get("oos") or {}
         self.assertIn("buckets", oos)

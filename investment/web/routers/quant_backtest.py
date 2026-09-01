@@ -85,7 +85,7 @@ def quant_t0_backtest(body: T0BacktestRequest) -> Dict[str, Any]:
             "y_prefix_upbar_ratio_buy_then_sell",
             "y_prefix_downbar_ratio_sell_then_buy",
             "y_prefix_vs_path_skip",
-            "y_tau_entry_price_mult",
+            "y_prefix_vs_path_mult",
             "must_cover_same_day_sell_then_buy",
             "must_cover_same_day_buy_then_sell",
             "t0_pm_degrade_sell_then_buy",

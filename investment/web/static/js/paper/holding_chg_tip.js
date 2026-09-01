@@ -1,7 +1,7 @@
 /** 持仓表「涨跌」列：悬停懒加载「涨跌会话日」5m K 线。 */
 
-import { escapeText, fmtPct } from "./fmt.js?v=p1734";
-import { miniKlineSvgFromBars } from "./t0_table.js?v=p1734";
+import { escapeText, fmtPct } from "./fmt.js?v=p1737";
+import { miniKlineSvgFromBars } from "./t0_table.js?v=p1790";
 
 const _cache = new Map();
 
@@ -56,7 +56,23 @@ function placeTip(tip, anchor) {
 }
 
 function parsePayload(el) {
-  const raw = el && el.getAttribute("data-hold-chg-tip");
+  if (!el) return null;
+  const codeAttr = String(el.getAttribute("data-hold-chg-code") || "").trim();
+  if (codeAttr) {
+    const chgRaw = el.getAttribute("data-hold-chg-num");
+    let chg = null;
+    if (chgRaw != null && chgRaw !== "") {
+      const n = Number(chgRaw);
+      chg = Number.isFinite(n) ? n : null;
+    }
+    return {
+      code: codeAttr,
+      name: String(el.getAttribute("data-hold-chg-name") || "").trim(),
+      asof: String(el.getAttribute("data-hold-chg-asof") || "").trim().slice(0, 10),
+      chg,
+    };
+  }
+  const raw = el.getAttribute("data-hold-chg-tip");
   if (!raw) return null;
   try {
     const p = JSON.parse(raw);

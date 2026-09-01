@@ -2,7 +2,7 @@
   <div class="dashboard-head-text quant-head-text">
     <p class="dashboard-eyebrow">Research Desk</p>
     <h2>研究枢纽</h2>
-    <p class="dashboard-meta quant-meta" id="quant-meta" aria-live="polite">分组建模 · 校准 g(ŷ) · 截面 IC · 双层 ŷ 复盘 · 只读输出不写生产配置</p>
+    <p class="dashboard-meta quant-meta" id="quant-meta" aria-live="polite">分组建模 · 截面 IC · 只读输出不写生产配置</p>
     <p class="dashboard-section-desc quant-head-path">
       <a class="quant-hero-link" href="#quant-section-bars">日线</a>
       →
@@ -10,11 +10,7 @@
       →
       <a class="quant-hero-link" href="#quant-section-tau">ŷ_τ</a>
       →
-      <a class="quant-hero-link" href="#quant-section-score-cal">校准 g(ŷ)</a>
-      →
       <a class="quant-hero-link" href="#quant-section-ic-series">IC</a>
-      →
-      <a class="quant-hero-link" href="#quant-section-score-review">双层 ŷ 复盘</a>
       →
       <a class="quant-hero-link" href="/follow">交易执行</a>
       · 不写生产配置
@@ -32,7 +28,7 @@
   <section class="dashboard-section quant-section quant-overview-section" id="quant-section-overview" aria-labelledby="quant-section-overview-title">
     <header class="dashboard-section-head quant-section-head">
       <h3 id="quant-section-overview-title" class="dashboard-section-title">概览</h3>
-      <p class="dashboard-section-desc quant-section-desc">观察池 · 聚类 · IC · ŷ_EOD 命中 · ŷ_τ · 纸面拟合</p>
+      <p class="dashboard-section-desc quant-section-desc">观察池 · 聚类 · IC · ŷ_τ · 纸面拟合</p>
     </header>
     <div class="dashboard-overview-band quant-pro-desk-top quant-overview-band">
       <div class="dashboard-kpi-row quant-pro-overview-kpis quant-kpi-row" id="quant-pro-overview-kpis" aria-label="研究全景 KPI">
@@ -52,12 +48,7 @@
             <div class="dashboard-kpi-value quant-pro-kpi-value quant-kpi-value">—</div>
             <div class="dashboard-kpi-sub quant-pro-kpi-sub quant-kpi-sub">因子 IC · 非组β</div>
           </div>
-          <div class="dashboard-kpi-card quant-pro-kpi-card quant-kpi-card is-empty" data-kpi="hit" title="跨日 ŷ_EOD 方向命中（评分复盘），不是分组正IC%">
-            <div class="dashboard-kpi-label quant-pro-kpi-label quant-kpi-label">ŷ_EOD 命中</div>
-            <div class="dashboard-kpi-value quant-pro-kpi-value quant-kpi-value">—</div>
-            <div class="dashboard-kpi-sub quant-pro-kpi-sub quant-kpi-sub">主轴 · 跨日</div>
-          </div>
-          <div class="dashboard-kpi-card quant-pro-kpi-card quant-kpi-card is-empty" data-kpi="tau" title="ŷ_τ vs open→close：复盘 IC/命中；副轴不驱动聚类">
+          <div class="dashboard-kpi-card quant-pro-kpi-card quant-kpi-card is-empty" data-kpi="tau" title="ŷ_τ vs open→close：影子簿 IC/命中；副轴不驱动聚类">
             <div class="dashboard-kpi-label quant-pro-kpi-label quant-kpi-label">ŷ_τ</div>
             <div class="dashboard-kpi-value quant-pro-kpi-value quant-kpi-value">—</div>
             <div class="dashboard-kpi-sub quant-pro-kpi-sub quant-kpi-sub">副轴 · open→收</div>
@@ -79,20 +70,12 @@
           <span class="quant-pro-path-num">2</span> ŷ_τ
         </a>
         <span class="quant-path-sep quant-pro-path-sep" aria-hidden="true">/</span>
-        <a class="quant-path-step quant-pro-path-step" href="#quant-section-score-cal" data-step="cal" data-state="idle">
-          <span class="quant-pro-path-num">3</span> 校准 g(ŷ)
-        </a>
-        <span class="quant-path-sep quant-pro-path-sep" aria-hidden="true">/</span>
         <a class="quant-path-step quant-pro-path-step" href="#quant-section-ic-series" data-step="ic" data-state="idle">
-          <span class="quant-pro-path-num">4</span> IC 时序
-        </a>
-        <span class="quant-path-sep quant-pro-path-sep" aria-hidden="true">/</span>
-        <a class="quant-path-step quant-pro-path-step" href="#quant-section-score-review" data-step="review" data-state="idle">
-          <span class="quant-pro-path-num">5</span> 双层 ŷ 复盘
+          <span class="quant-pro-path-num">3</span> IC 时序
         </a>
         <span class="quant-path-sep quant-pro-path-sep" aria-hidden="true">/</span>
         <a class="quant-path-step quant-pro-path-step" href="/follow" data-step="follow" data-state="idle">
-          <span class="quant-pro-path-num">6</span> 交易执行
+          <span class="quant-pro-path-num">4</span> 交易执行
         </a>
       </nav>
     </div>
@@ -191,7 +174,7 @@
           <span id="quant-cluster-minute-msg" class="quant-cluster-bars-msg">加载覆盖…</span>
         </div>
         <div class="dashboard-card-tools quant-pro-card-tools" role="group" aria-label="分钟线操作">
-          <button type="button" id="quant-cluster-minute-topup" class="dialog-btn secondary" title="写入 5m 仓（增量）：今日已拉过跳过；已对齐会话日跳过；跨度够只补近几日。调仓/做T/ŷ_τ 日常先点这个。不改日K、不算 ŷ。">
+          <button type="button" id="quant-cluster-minute-topup" class="dialog-btn secondary" title="写入 5m 仓（增量）：会话日齐窗且今日已拉才跳过；缺尾（如只到 10:00）强制补拉落盘。调仓/做T/ŷ_τ 日常先点这个。不改日K、不算 ŷ。">
             增量补齐
           </button>
           <button type="button" id="quant-cluster-minute-refresh" class="dialog-btn secondary" title="写入 5m 仓（全窗口重拉+merge）。仓损坏或跨度不够时用。不改日K、不算 ŷ。">
@@ -406,7 +389,8 @@
                 <strong>不进聚类、不改 ŷ_EOD</strong>。启用后只影响主题日 soft hold / τ 闸；表列主分仍是 ŷ_EOD。
                 融合权重与 τ 闸在
                 <a class="quant-hero-link" href="/strategy#strategy-dual-score">策略中心 · 融合分数</a>
-                （仅 blend）。
+                （仅 blend）。分钟训练网格含开盘 Z + 做T四轮
+                <code>09:30|10:00|10:30|11:00|11:30</code>（09:30 无前缀、不做T）；live 调仓钟仍是 10:30。
               </p>
             </div>
           </details>
@@ -478,7 +462,8 @@
             <div class="quant-help-body quant-pro-help-body">
               <p>
                 <strong>ŷ_path</strong> = 开盘 Z + 早盘前缀分钟小包 → 全日极值序 signed range%
-                （先低后高为正）。训练默认多 τ 网格 <code>09:45|10:00|10:15|10:30</code> 共享 β，看 OOS <code>by_tau</code>；live 决策钟默认 10:30。
+                （先低后高为正）。训练默认多 τ 网格 <code>09:30|10:00|10:30|11:00|11:30</code>
+                （做T从 10:00 起四轮；09:30 仅训练开盘 Z）共享 β，看 OOS <code>by_tau</code>；live 调仓决策钟默认 10:30。
                 字段 <code>y_path</code> / <code>predicted_score_path</code>。
               </p>
               <p>
@@ -502,42 +487,11 @@
     </div>
   </section>
 
-  <!-- 校准 g(ŷ)：账本 Isotonic · 人审写入 live · 独立节（在 IC 时序之上） -->
-  <section class="dashboard-section quant-section" id="quant-section-score-cal" aria-labelledby="quant-section-score-cal-title">
-    <header class="dashboard-section-head quant-section-head">
-      <h3 id="quant-section-score-cal-title" class="dashboard-section-title">校准 g(ŷ)</h3>
-      <p class="dashboard-section-desc quant-section-desc">账本 Isotonic · tip/复盘对照 · 排序与买卖闸仍用原始 ŷ</p>
-    </header>
-    <div class="dashboard-card quant-pro-card">
-      <div class="dashboard-card-head quant-pro-card-head quant-card-head--tools">
-        <div class="quant-card-tools-primary">
-          <p class="quant-attr-note quant-cal-section-lead">
-            用复盘账本拟合单调映射；先看曲线与 holdout，人审后写入 live。
-          </p>
-        </div>
-        <div class="dashboard-card-tools quant-card-tools-secondary" role="group" aria-label="校准操作">
-          <button type="button" id="quant-score-cal-fit" class="dialog-btn" title="用 panel 拟合单调 g(ŷ)≈E[r|ŷ]（EOD=分组 · τ=rem open），不自动写盘">拟合校准</button>
-          <button type="button" id="quant-score-cal-persist" class="dialog-btn secondary" title="人审写入 live；tip/校准列可读 g（闸/排序仍用 raw）">写入 live</button>
-        </div>
-      </div>
-      <div class="quant-pro-card-body">
-        <p id="quant-score-cal-status" class="quant-fingerprint">尚未加载</p>
-        <div
-          id="quant-score-cal-panel"
-          class="quant-score-cal-panel"
-          aria-label="ŷ 校准层 g(ŷ)"
-        >
-          <p class="quant-attr-note">校准层加载中…</p>
-        </div>
-      </div>
-    </div>
-  </section>
-
   <!-- IC 时序 -->
   <section class="dashboard-section quant-section quant-ic-compare" id="quant-section-ic-series" aria-labelledby="quant-section-ic-series-title">
     <header class="dashboard-section-head quant-section-head">
       <h3 id="quant-section-ic-series-title" class="dashboard-section-title">IC 时序</h3>
-      <p class="dashboard-section-desc quant-section-desc">日频截面 IC · Top 因子稳定性</p>
+      <p class="dashboard-section-desc quant-section-desc">日频截面 IC · Top 因子稳定性 · 残差/超额对照</p>
     </header>
     <div class="dashboard-card quant-pro-card">
       <div class="dashboard-card-head quant-pro-card-head quant-card-head--tools">
@@ -549,6 +503,8 @@
             <option value="120">近 120 日</option>
           </select>
           <button type="button" id="quant-ic-series-run" class="dialog-btn">计算</button>
+          <button type="button" id="quant-yhat-residual-shadow" class="dialog-btn secondary" title="ŷ 行业残差 on/off：同截面 TopK 重叠对照，不写盘">ŷ残差对照</button>
+          <button type="button" id="quant-excess-mode-shadow" class="dialog-btn secondary" title="绝对 y vs 指数超额 y：同池 holdout IC 对照，不写盘">超额标签对照</button>
         </div>
       </div>
       <div class="quant-pro-card-body">
@@ -558,92 +514,6 @@
             <div class="dashboard-chart-host factor-ic-series-host quant-ic-compare-chart" id="quant-ic-series-chart"></div>
           </div>
           <div id="quant-ic-series-stats" class="quant-ic-compare-stats quant-weight-table-wrap"></div>
-        </div>
-      </div>
-    </div>
-  </section>
-
-  <!-- 双层 ŷ 复盘：主轴 EOD + 副轴 τ 验收条 -->
-  <section class="dashboard-section quant-section" id="quant-section-score-review" aria-labelledby="quant-section-score-review-title">
-    <header class="dashboard-section-head quant-section-head">
-      <h3 id="quant-section-score-review-title" class="dashboard-section-title">双层 ŷ 复盘</h3>
-      <p class="dashboard-section-desc quant-section-desc">主轴 ŷ_EOD vs 前瞻收益 · 副轴 ŷ_τ 验收条 · 分标签对账</p>
-    </header>
-    <div class="dashboard-card quant-pro-card">
-      <div class="dashboard-card-head quant-pro-card-head quant-card-head--tools">
-        <div class="quant-card-tools-primary quant-score-review-filters">
-          <label class="quant-inline-label quant-score-review-horizon-field" title="前瞻收益天数">
-            <span class="quant-score-review-filter-label">Horizon</span>
-            <select id="quant-score-review-horizon" class="quant-inline-input" title="前瞻收益天数">
-              <option value="1">1 日</option>
-              <option value="3" selected>3 日</option>
-            </select>
-          </label>
-          <div
-            id="quant-score-review-ledgers"
-            class="quant-score-ledger-chips"
-            hidden
-            aria-label="决策日（已冻结账本）"
-          >
-            <span class="quant-score-review-filter-label quant-score-ledger-chips-label">决策日</span>
-            <div id="quant-score-review-ledger-chips" class="quant-score-ledger-chip-row" role="list"></div>
-          </div>
-        </div>
-        <div class="dashboard-card-tools quant-card-tools-secondary" role="group" aria-label="复盘操作">
-          <button type="button" id="quant-score-review-run" class="dialog-btn">刷新复盘</button>
-          <button type="button" id="quant-score-review-fill" class="dialog-btn secondary">回填收益</button>
-          <button type="button" id="quant-score-ledger-freeze" class="dialog-btn secondary" disabled title="分池簿冻结已停用">冻结打分（已停用）</button>
-          <button type="button" id="quant-yhat-residual-shadow" class="dialog-btn secondary" title="ŷ 行业残差 on/off：同截面 TopK 重叠对照，不写盘">ŷ残差对照</button>
-          <button type="button" id="quant-excess-mode-shadow" class="dialog-btn secondary" title="绝对 y vs 指数超额 y：同池 holdout IC 对照，不写盘">超额标签对照</button>
-          <button type="button" id="quant-score-review-refit" class="dialog-btn secondary" title="滚动到「跑分组」并触发重估组 β">建议重估</button>
-        </div>
-      </div>
-      <div class="quant-pro-card-body">
-        <p id="quant-score-review-status" class="quant-fingerprint">尚未加载</p>
-        <div id="quant-score-review-summary" class="quant-summary"></div>
-        <div id="quant-score-review-tau" class="quant-score-review-tau" hidden></div>
-        <div id="quant-score-review-nowcast" class="quant-score-review-tau" hidden></div>
-        <div class="yhat-viz-block quant-review-viz" id="quant-score-review-hit-wrap" hidden>
-          <p class="quant-block-cap">
-            跨日方向命中率
-            <span class="quant-sub" id="quant-score-review-hit-meta">虚线 = 50% / μ</span>
-          </p>
-          <div class="dashboard-chart-host quant-pro-spark-host">
-            <canvas id="quant-score-review-hit-spark" class="yhat-spark-canvas" width="920" height="72" aria-label="命中率 sparkline"></canvas>
-          </div>
-        </div>
-        <div class="yhat-viz-block quant-review-viz" id="quant-score-review-ydisagree-wrap" hidden>
-          <p class="quant-block-cap">
-            Y(τ) 双头分歧
-            <span class="quant-sub" id="quant-score-review-ydisagree-meta">|Δ| vs 实现收益 · 色=校验态</span>
-          </p>
-          <div class="dashboard-chart-host quant-pro-scatter-host">
-            <canvas id="quant-score-review-ydisagree" class="yhat-scatter-canvas" width="920" height="200" aria-label="Y校验分歧散点"></canvas>
-          </div>
-        </div>
-        <div class="yhat-viz-block quant-review-viz" id="quant-score-review-scatter-wrap" hidden>
-          <p class="quant-block-cap">
-            ŷ vs 实现收益
-            <span class="quant-sub" id="quant-score-review-scatter-meta">每点一只股票 · 绿=命中 / 红=失手 · 悬停看明细</span>
-          </p>
-          <div class="dashboard-chart-host quant-pro-scatter-host">
-            <canvas id="quant-score-review-scatter" class="yhat-scatter-canvas" width="920" height="240" aria-label="ŷ 与实现收益散点"></canvas>
-          </div>
-        </div>
-        <div id="quant-score-review-table" class="quant-weight-table-wrap"></div>
-        <div class="yhat-viz-block quant-review-viz" id="quant-score-review-panel-wrap" hidden>
-          <p class="quant-block-cap">
-            单票时间线
-            <span class="quant-sub" id="quant-score-review-panel-meta">点击上表行 · 收盘 / 日涨跌 / 冻结ŷ 同图</span>
-          </p>
-          <p class="quant-attr-note" id="quant-score-review-panel-note">
-            ŷ 仅来自已冻结账本；无账本日断点。左轴%（涨跌/ŷ）· 右轴收盘价。
-          </p>
-          <div
-            id="quant-score-review-panel-chart"
-            class="dashboard-chart-host quant-pro-spark-host quant-score-panel-chart"
-            aria-label="收盘价、日涨跌与冻结ŷ"
-          ></div>
         </div>
       </div>
     </div>

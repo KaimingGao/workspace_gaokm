@@ -57,6 +57,39 @@ def _resolve_watching_codes(*, watching_limit: int = 100) -> List[str]:
     return [str(c).strip() for c in (uni.get("codes") or []) if str(c).strip()]
 
 
+def _minute_bar_hm(bar: Any) -> Optional[Tuple[int, int]]:
+    if not isinstance(bar, dict):
+        return None
+    ts = bar.get("datetime") or bar.get("time") or bar.get("date")
+    s = str(ts or "").strip()
+    if len(s) >= 16 and s[13:15].isdigit():
+        try:
+            return int(s[11:13]), int(s[14:16])
+        except ValueError:
+            return None
+    if ":" in s:
+        parts = s.replace("T", " ").split()[-1].split(":")
+        if len(parts) >= 2:
+            try:
+                return int(parts[0]), int(parts[1])
+            except ValueError:
+                return None
+    return None
+
+
+def _minute_day_complete(day_bars: Optional[List[dict]]) -> bool:
+    """单日 5m 是否齐到收盘窗（末根≥14:55 或根数≥40）。"""
+    rows = [b for b in (day_bars or []) if isinstance(b, dict)]
+    if len(rows) < 2:
+        return False
+    if len(rows) >= 40:
+        return True
+    hm = _minute_bar_hm(rows[-1])
+    if not hm:
+        return False
+    return hm[0] > 14 or (hm[0] == 14 and hm[1] >= 55)
+
+
 def _minute_snapshot_for_code(code: str, *, period: str = DEFAULT_MINUTE_PERIOD) -> Optional[Dict[str, Any]]:
     try:
         from core.ports.market import group_minute_bars_by_date, resolve_market_code
@@ -82,12 +115,18 @@ def _minute_snapshot_for_code(code: str, *, period: str = DEFAULT_MINUTE_PERIOD)
             date_min = min(by_day.keys())
         if not date_max and by_day:
             date_max = max(by_day.keys())
+        date_max_s = str(date_max)[:10] if date_max else None
+        day_bars = list(by_day.get(date_max_s) or []) if date_max_s else []
+        last_hm = _minute_bar_hm(day_bars[-1]) if day_bars else None
         return {
             "span_days": span_days,
             "bar_count": int((meta or {}).get("bar_count") or len(bars or [])),
             "fetched_at": fetched_at or None,
             "date_min": str(date_min)[:10] if date_min else None,
-            "date_max": str(date_max)[:10] if date_max else None,
+            "date_max": date_max_s,
+            "date_max_bars": len(day_bars),
+            "last_bar_hm": f"{last_hm[0]:02d}:{last_hm[1]:02d}" if last_hm else None,
+            "session_complete": _minute_day_complete(day_bars) if day_bars else False,
         }
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
         logger.debug("minute snapshot failed for %s", code, exc_info=True)
@@ -483,7 +522,7 @@ def _minute_topup_core(
     workers: int = DEFAULT_TOPUP_WORKERS,
     progress_cb: Optional[Any] = None,
 ) -> Dict[str, Any]:
-    """观察池 5m 增量补齐：今日已拉过跳过；已对齐跳过；跨度够只拉近几日；缺/短才全窗口。"""
+    """观察池 5m 增量补齐：今日已拉且会话日齐窗才跳过；缺尾（如只到 10:00）强制补拉。"""
     from core.data.policy import minute_em_lookback_days
     from core.ports.market import fetch_minute_bars
 
@@ -504,6 +543,7 @@ def _minute_topup_core(
     skipped_today = 0
     topped = 0
     bootstrapped = 0
+    refreshed_truncated = 0
     warmed = 0
     errors: List[str] = []
     total = len(watch)
@@ -514,18 +554,25 @@ def _minute_topup_core(
         snap = _minute_snapshot_for_code(code, period=period_s)
         if not snap:
             return code, "full", full_lb, False
-        # 同日已拉过：增量不再打远端（含 Short 新浪近端空转）；强更 5m 不受此限
-        if _minute_fetched_today(snap.get("fetched_at"), now=now):
-            return code, "skip_today", 0, True
         span = int(snap.get("span_days") or 0)
         date_max = str(snap.get("date_max") or "")[:10]
-        if span >= min_span and expected and date_max and date_max >= expected:
+        on_expected = bool(expected and date_max and date_max >= expected)
+        # 会话日有仓但缺尾（午前残缺）：不得因「今日已拉 / date_max 对齐」跳过
+        if on_expected and not bool(snap.get("session_complete")):
+            return code, "topup", top_lb, False
+        # 同日已拉且会话齐窗：增量不再打远端（含 Short 新浪近端空转）；强更 5m 不受此限
+        if _minute_fetched_today(snap.get("fetched_at"), now=now):
+            return code, "skip_today", 0, True
+        if span >= min_span and on_expected:
             return code, "skip", 0, True
         if span >= min_span:
             return code, "topup", top_lb, True
         return code, "full", full_lb, False
 
     plans = [_plan(c) for c in watch]
+    truncated_codes = {
+        c for c, act, _lb, sem in plans if act == "topup" and not sem
+    }
     to_fetch = [
         (c, act, lb, sem)
         for c, act, lb, sem in plans
@@ -548,10 +595,12 @@ def _minute_topup_core(
             logger.debug("minute topup progress_cb failed", exc_info=True)
 
     def _fetch_one(code: str, action: str, lookback: int, skip_em: bool) -> Tuple[str, str, bool, Optional[str]]:
+        # 会话缺尾：跳过读仓强刷；其余增量仍用短 TTL 读短路
+        force = code in truncated_codes
         bars, meta = fetch_minute_bars(
             code,
             period=period_s,
-            use_cache=True,
+            use_cache=not force,
             lookback_days=lookback,
             max_age_hours=0.01,
             skip_em=skip_em,
@@ -578,6 +627,8 @@ def _minute_topup_core(
                     warmed += 1
                     if act == "topup":
                         topped += 1
+                        if code in truncated_codes:
+                            refreshed_truncated += 1
                     else:
                         bootstrapped += 1
                 elif err:
@@ -602,11 +653,12 @@ def _minute_topup_core(
         "skipped_today": skipped_today,
         "topped": topped,
         "bootstrapped": bootstrapped,
+        "refreshed_truncated": refreshed_truncated,
         "skipped_ready": skipped_aligned + skipped_today,
         "workers": n_workers,
         "errors": errors[:10],
         "note": (
-            f"5m 增量补齐 · 今日已拉跳过 · 对齐跳过 · 近 {top_lb} 日 topup（优先新浪/腾讯）· "
+            f"5m 增量补齐 · 齐窗才今日/对齐跳过 · 缺尾强刷 · 近 {top_lb} 日 topup · "
             f"缺/短全窗 {full_lb} 日 · {n_workers} 并发"
         ),
     }

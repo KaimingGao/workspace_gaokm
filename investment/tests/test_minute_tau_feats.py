@@ -151,24 +151,37 @@ class TestMinuteTauPack(unittest.TestCase):
                 {"date": d, "open": 10.0, "high": 10.5, "low": 9.5, "close": 10.0}
             )
         minutes = []
-        # 09:35 … 10:30 = 12 根
-        for i, hm in enumerate(
-            [
-                "09:35",
-                "09:40",
-                "09:45",
-                "09:50",
-                "09:55",
-                "10:00",
-                "10:05",
-                "10:10",
-                "10:15",
-                "10:20",
-                "10:25",
-                "10:30",
-                "14:55",
-            ]
+        # 09:35 … 11:30 覆盖训练网格 + 做T四轮前缀（末档 11:30）
+        hms = []
+        for hm in (
+            "09:35",
+            "09:40",
+            "09:45",
+            "09:50",
+            "09:55",
+            "10:00",
+            "10:05",
+            "10:10",
+            "10:15",
+            "10:20",
+            "10:25",
+            "10:30",
+            "10:35",
+            "10:40",
+            "10:45",
+            "10:50",
+            "10:55",
+            "11:00",
+            "11:05",
+            "11:10",
+            "11:15",
+            "11:20",
+            "11:25",
+            "11:30",
+            "14:55",
         ):
+            hms.append(hm)
+        for i, hm in enumerate(hms):
             px = 10.0 + i * 0.02
             minutes.append(
                 {
@@ -181,21 +194,55 @@ class TestMinuteTauPack(unittest.TestCase):
                     "volume": 100,
                 }
             )
+        from core.research.tau_panel import DEFAULT_MINUTE_TAU_GRID
+
         _xs, ys, _dates, metas = collect_tau_intraday_panel(
             daily,
             minutes,
             tau_hm="10:30",
-            tau_grid=["09:45", "10:00", "10:15", "10:30"],
+            tau_grid=list(DEFAULT_MINUTE_TAU_GRID),
             min_history=5,
         )
         taus = [m.get("tau") for m in metas if m.get("date") == day]
-        self.assertEqual(taus, ["09:45", "10:00", "10:15", "10:30"])
-        self.assertEqual(len(ys), 4)
+        self.assertEqual(taus, list(DEFAULT_MINUTE_TAU_GRID))
+        self.assertEqual(len(ys), 5)
         # 同日标签统一 open→close，多 τ 行 y 相同；特征（前缀）不同
         self.assertTrue(all(abs(y - ys[0]) < 1e-9 for y in ys))
-        self.assertNotEqual(_xs[0].get("ret_open_to_tau"), _xs[-1].get("ret_open_to_tau"))
+        self.assertEqual(_xs[0]["tau_elapsed_min"], 0.0)
+        self.assertEqual(_xs[-1]["tau_elapsed_min"], 120.0)
+        self.assertNotEqual(_xs[1].get("ret_open_to_tau"), _xs[-1].get("ret_open_to_tau"))
         self.assertIn("tau_elapsed_min", _xs[0])
-        self.assertEqual(_xs[-1]["tau_elapsed_min"], 60.0)
+
+    def test_default_grid_covers_t0_slots(self):
+        from core.research.tau_panel import DEFAULT_MINUTE_TAU_GRID
+        from core.t0.config import DEFAULT_T0_SLOT_CLOCKS
+
+        self.assertEqual(tuple(DEFAULT_T0_SLOT_CLOCKS), ("10:00", "10:30", "11:00", "11:30"))
+        self.assertTrue(set(DEFAULT_T0_SLOT_CLOCKS).issubset(DEFAULT_MINUTE_TAU_GRID))
+        self.assertIn("09:30", DEFAULT_MINUTE_TAU_GRID)
+
+    def test_open_clock_keeps_open_z_without_minute_pack(self):
+        """09:30 无 ≤τ 分钟根：仍留开盘 Z 行（训练网格含开盘档，不做T）。"""
+        from core.research.tau_panel import collect_tau_intraday_panel
+
+        day = "2026-08-28"
+        daily = [
+            {"date": f"2026-08-{10 + i:02d}", "open": 10.0, "high": 10.5, "low": 9.5, "close": 10.0}
+            for i in range(6)
+        ]
+        daily[-1]["date"] = day
+        minutes = _bars(day)
+        xs, ys, dates, metas = collect_tau_intraday_panel(
+            daily,
+            minutes,
+            tau_grid=["09:30"],
+            min_history=5,
+        )
+        self.assertEqual(dates, [day])
+        self.assertEqual([m.get("tau") for m in metas], ["09:30"])
+        self.assertEqual(len(ys), 1)
+        self.assertEqual(xs[0].get("tau_elapsed_min"), 0.0)
+        self.assertNotIn("range_pct", xs[0])
 
     def test_intraday_y_uses_daily_open_close(self):
         """标签用日线 open→close；分钟只供特征（可与日线复权错位）。"""
@@ -349,6 +396,130 @@ class TestMinuteTauPack(unittest.TestCase):
         self.assertIn("ret_open_to_tau", call_feats)
         self.assertNotEqual(call_feats.get("ret_open_to_tau"), 0)
         self.assertAlmostEqual(call_feats.get("sector_ret_to_tau"), 0.4, places=5)
+
+    def test_attach_dual_score_pit_use_minute_tau_false_blocks_prefix(self):
+        """做 T 选向：全日分钟不得写入 features_tau（禁前缀前瞻）。"""
+        from unittest.mock import patch
+
+        from core.signal.dual_score import attach_dual_score_pit
+
+        day = "2026-08-28"
+        item = {"stock_code": "600000", "predicted_score_eod": 0.5}
+        quote = {"date": day, "open": 10.0, "prev_close": 9.9}
+        bars = [
+            {"date": "2026-08-27", "open": 9.8, "high": 10.0, "low": 9.7, "close": 9.9},
+            {"date": day, "open": 10.0, "high": 10.5, "low": 9.8, "close": 10.2},
+        ]
+        mins = _bars(day) + [
+            {
+                "date": day,
+                "datetime": f"{day} 10:30:00",
+                "open": 10.1,
+                "high": 10.2,
+                "low": 10.0,
+                "close": 10.15,
+                "volume": 1000,
+            }
+        ]
+        with patch(
+            "core.signal.dual_score.resolve.get_dual_score_cfg",
+            return_value={
+                "enable_minute_tau": True,
+                "minute_tau_hm": "10:30",
+                "tau": "open",
+                "y_spec": {"formula": "close[T]/open[T]-1"},
+            },
+        ), patch(
+            "core.research.tau_ridge.load_tau_model", return_value=None
+        ), patch(
+            "core.research.tau_ridge.predict_tau_from_features", return_value=0.12
+        ) as pred:
+            attach_dual_score_pit(
+                item,
+                quote=quote,
+                bars=bars,
+                minute_bars=mins,
+                fuse_intraday=True,
+                sector_ret_to_tau=0.4,
+                use_minute_tau=False,
+            )
+        feats = item.get("features_tau") or {}
+        self.assertIsNone(feats.get("ret_open_to_tau"))
+        self.assertIsNone(feats.get("sector_ret_to_tau"))
+        self.assertIsNone(feats.get("ret_vs_sector"))
+        call_feats = pred.call_args[0][0]
+        self.assertIsNone(call_feats.get("ret_open_to_tau"))
+        self.assertIsNone(call_feats.get("sector_ret_to_tau"))
+
+    def test_attach_dual_score_pit_prefix_hm_blocks_1030_sector_fallback(self):
+        """有前缀分钟时截面钟跟末根，不得回退配置 10:30。"""
+        from unittest.mock import patch
+
+        from core.signal.dual_score import attach_dual_score_pit
+
+        day = "2026-08-28"
+        item = {"stock_code": "600000", "predicted_score_eod": 0.5}
+        quote = {"date": day, "open": 10.0, "prev_close": 9.9}
+        bars = [
+            {"date": "2026-08-27", "open": 9.8, "high": 10.0, "low": 9.7, "close": 9.9},
+            {"date": day, "open": 10.0, "high": 10.5, "low": 9.8, "close": 10.2},
+        ]
+        # 仅到 10:00 的前缀
+        mins = [
+            {
+                "date": day,
+                "datetime": f"{day} 09:35:00",
+                "open": 10.0,
+                "high": 10.1,
+                "low": 9.95,
+                "close": 10.05,
+                "volume": 1000,
+            },
+            {
+                "date": day,
+                "datetime": f"{day} 10:00:00",
+                "open": 10.05,
+                "high": 10.2,
+                "low": 10.0,
+                "close": 10.15,
+                "volume": 1000,
+            },
+        ]
+        seen_hm = []
+
+        def _fake_resolve(trade_date, tau_hm="10:30", **_kw):
+            seen_hm.append(str(tau_hm))
+            return None
+
+        with patch(
+            "core.signal.dual_score.resolve.get_dual_score_cfg",
+            return_value={
+                "enable_minute_tau": True,
+                "minute_tau_hm": "10:30",
+                "tau": "open",
+                "y_spec": {"formula": "close[T]/open[T]-1"},
+            },
+        ), patch(
+            "core.research.tau_ridge.load_tau_model", return_value=None
+        ), patch(
+            "core.research.tau_ridge.predict_tau_from_features", return_value=0.12
+        ), patch(
+            "core.signal.minute_tau_feats.resolve_sector_ret_to_tau",
+            side_effect=_fake_resolve,
+        ):
+            attach_dual_score_pit(
+                item,
+                quote=quote,
+                bars=bars,
+                minute_bars=mins,
+                fuse_intraday=True,
+                sector_ret_to_tau=None,
+                use_minute_tau=True,
+                minute_tau_hm="10:00",
+            )
+        self.assertTrue(seen_hm)
+        self.assertTrue(all(h.startswith("10:00") for h in seen_hm), seen_hm)
+        self.assertNotIn("10:30", seen_hm)
 
 
 if __name__ == "__main__":

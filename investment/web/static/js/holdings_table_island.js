@@ -2,7 +2,7 @@
  * 交易执行 · 持仓主表（共享 virtual_table 内核，与数据中心同方案）。
  */
 
-import { fmtPriceUnit, fmtPct, metricCls, fmtTableScore, fmtPathScore, scoreCls, resolveTradeScore, resolveEodScore, resolveTauScore, resolvePathScore, resolveOnScore, resolveNowcastScore, isHeuristicScoreScale, Y_EOD_TITLE, Y_TAU_TITLE, Y_PATH_TITLE, Y_ON_TITLE, Y_NOWCAST_TITLE } from "./paper/fmt.js?v=p1734";
+import { fmtPriceUnit, fmtPct, metricCls, fmtTableScore, fmtPathScore, scoreCls, resolveTradeScore, resolveEodScore, resolveTauScore, resolvePathScore, resolveOnScore, resolveNowcastScore, isHeuristicScoreScale, Y_EOD_TITLE, Y_TAU_TITLE, Y_PATH_TITLE, Y_ON_TITLE, Y_NOWCAST_TITLE } from "./paper/fmt.js?v=p1737";
 import { sentimentBadgeHtml, watchingScoreDetail } from "./quant/watching_render.js?v=p1734";
 import {
   isSingleHeadItem,
@@ -408,17 +408,18 @@ export async function mountHoldingsTableIsland(host, options = {}) {
         return `<span class="paper-hold-open" title="${escapeHtml(full)}">${escapeHtml(text)}</span>`;
       }
       if (col.id === "chg") {
-        const tipJson = escapeHtml(
-          JSON.stringify({
-            code: d.code || "",
-            name: d.name || "",
-            chg: d.chgNum,
-            asof: d.changeAsof || null,
-          })
-        );
+        const code = escapeHtml(d.code || "");
+        const asof = escapeHtml(String(d.changeAsof || "").slice(0, 10));
+        const name = escapeHtml(d.name || "");
+        const chgNum =
+          d.chgNum != null && Number.isFinite(Number(d.chgNum))
+            ? String(Number(d.chgNum))
+            : "";
         return (
           `<span class="paper-hold-chg has-tip ${escapeHtml(d.chgCls || "")}" ` +
-          `data-hold-chg-tip="${tipJson}" title="相对昨收 · 悬停看涨跌日5m K">${escapeHtml(
+          `data-hold-chg-code="${code}" data-hold-chg-name="${name}" ` +
+          `data-hold-chg-asof="${asof}" data-hold-chg-num="${escapeHtml(chgNum)}" ` +
+          `data-hold-chg-tip="${code}" title="相对昨收 · 悬停看涨跌日5m K">${escapeHtml(
             d.chgText || "—"
           )}</span>`
         );

@@ -20,6 +20,28 @@ def t0_fee_side(side: str) -> str:
     return "sell" if s.endswith("sell") else "buy"
 
 
+def default_t0_research_cost_config() -> Dict[str, Any]:
+    """研究/回测默认费率：CostPort simple_cn + 研究滑点（禁止隐式零成本）。"""
+    try:
+        from core.backtest.cost_port import BACKTEST_RESEARCH_DEFAULTS, SIMPLE_CN_FEE
+
+        return {
+            "commission_bps": float(SIMPLE_CN_FEE.get("commission_bps") or 2.5),
+            "commission_min": float(SIMPLE_CN_FEE.get("commission_min") or 5.0),
+            "stamp_duty_bps_sell": float(SIMPLE_CN_FEE.get("stamp_duty_bps_sell") or 5.0),
+            "base_slippage_bps": float(
+                BACKTEST_RESEARCH_DEFAULTS.get("base_slippage_bps") or 3.0
+            ),
+        }
+    except Exception:  # noqa: BLE001
+        return {
+            "commission_bps": 2.5,
+            "commission_min": 5.0,
+            "stamp_duty_bps_sell": 5.0,
+            "base_slippage_bps": 3.0,
+        }
+
+
 def resolve_t0_cost_context(
     *,
     paper: Optional[dict] = None,

@@ -12,9 +12,6 @@ from core.numbers import date_key
 from core.score_ledger.asof import (
     default_as_of,
 )
-from core.score_ledger.freeze import (
-    freeze_from_cluster_book,
-)
 from core.score_ledger.outcomes import (
     _sign_hit,
     fill_outcomes,
@@ -232,8 +229,9 @@ def run_score_ledger_daily(
     horizon_days: Optional[int] = None,
     fill_lookback: int = 5,
 ) -> Dict[str, Any]:
-    """日更钩子：按因子截止冻结账本 + 回填已到期 outcomes。
+    """日更钩子：回填已到期 outcomes（不再从分池簿冻结）。
 
+    EOD 快照由生成日报 ``freeze_from_daily_report`` 写入。
     不抛异常给调度层；失败写进返回字段。
     """
     from core.market.calendar import prev_trading_day, resolve_session_date
@@ -252,22 +250,14 @@ def run_score_ledger_daily(
             h = 3
     h = max(1, min(int(h or 3), 10))
 
-    freeze_out: Dict[str, Any]
-    try:
-        # 默认不传 as_of，由 resolve_freeze_as_of 对齐因子截止；盘中自动跳过
-        freeze_out = freeze_from_cluster_book(as_of=requested, auto=True)
-        if not freeze_out.get("success") or int(freeze_out.get("n_rows") or 0) <= 0:
-            pass
-    except Exception as exc:
-        logger.exception('unexpected error in run_score_ledger_daily')
-        freeze_out = {
-            "success": False,
-            "error": str(exc),
-            "as_of": requested or default_as_of(),
-            "n_rows": 0,
-        }
-
-    freeze_day = date_key((freeze_out or {}).get("as_of")) or default_as_of()
+    freeze_out = {
+        "success": False,
+        "skipped": True,
+        "deprecated": True,
+        "n_rows": 0,
+        "note": "分池簿冻结已停用；EOD 快照由日报 freeze_from_daily_report 写入",
+    }
+    freeze_day = requested or default_as_of()
 
     fills: List[Dict[str, Any]] = []
     look = max(1, min(int(fill_lookback or 5), 20))
@@ -301,6 +291,6 @@ def run_score_ledger_daily(
         "freeze": freeze_out,
         "fills": fills,
         "filled_days": sum(1 for f in fills if f.get("success")),
-        "note": "日更：按因子截止冻结 ŷ 账本；回填到期决策日 realized（不改权）。",
+        "note": "日更：回填到期决策日 realized（不改权；不再从分池簿冻结）。",
     }
 

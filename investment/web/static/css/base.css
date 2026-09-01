@@ -2061,7 +2061,6 @@ a.dialog-btn[aria-disabled="true"] {
 }
 
 .rebalance-score.has-tip,
-.rebalance-score-cal.has-tip,
 .rebalance-score-nowcast.has-tip {
   cursor: help;
 }
@@ -2528,17 +2527,6 @@ a.dialog-btn[aria-disabled="true"] {
   color: #64748b;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
-}
-
-.score-layer-cal {
-  background: linear-gradient(180deg, #f0fdfa 0%, #ccfbf1 100%);
-  border-color: rgba(13, 148, 136, 0.22);
-}
-
-.score-layer-cal.is-shadow {
-  background: linear-gradient(180deg, #f8fafc 0%, #f1f5f9 100%);
-  border-color: rgba(100, 116, 139, 0.28);
-  border-style: dashed;
 }
 
 .score-layer-head {
@@ -4855,22 +4843,17 @@ html[data-density="compact"] .table-pager {
   color: var(--ink);
 }
 
-.rebalance-score-cal.watching-score-cal,
 .rebalance-score-nowcast.watching-score-nowcast {
   font-weight: 500;
   opacity: 0.9;
 }
 
-.rebalance-score-cal.score-up,
 .rebalance-score-nowcast.score-up { color: var(--color-up); }
 
-.rebalance-score-cal.score-down,
 .rebalance-score-nowcast.score-down { color: var(--color-down); }
 
-.rebalance-score-cal.score-flat,
 .rebalance-score-nowcast.score-flat { color: var(--ink-2); }
 
-.rebalance-score-cal.score-na,
 .rebalance-score-nowcast.score-na { color: var(--ink-3); font-weight: 500; }
 
 .rebalance-change {
@@ -4914,7 +4897,6 @@ html[data-density="compact"] .table-pager {
 }
 
 .rebalance-score.has-tip,
-.rebalance-score-cal.has-tip,
 .rebalance-score-nowcast.has-tip {
   cursor: help;
 }

@@ -423,20 +423,17 @@ export function renderExecutionRulesHtml(execution) {
   const notes = (execution.notes || []).slice(0, 2);
 
   const enabledLbl = t0.enabled === false ? "关" : "开";
-  const headMeta = `做T ${enabledLbl} · dual_y · ${pathLbl} · ${fillLbl}${
-    pathModelWarn ? ` · ${pathModelWarn}` : ""
-  }`;
 
   return (
     `<div class="paper-t0-spec">` +
     `<header class="paper-t0-spec-head">` +
-    `<div class="paper-t0-spec-head-main">` +
     `<h4 class="paper-t0-spec-head-title">生效规格</h4>` +
-    `<p class="paper-t0-spec-head-meta">${escapeText(headMeta)}</p>` +
-    `</div>` +
+    (pathModelWarn
+      ? `<p class="paper-t0-spec-head-warn" title="${escapeText(pathModelWarn)}">${escapeText(pathModelWarn)}</p>`
+      : "") +
     `<div class="paper-t0-spec-kpi-strip" aria-label="核心参数">` +
     specKpi("启用", enabledLbl, "做 T overlay 总开关") +
-    specKpi("策略", "dual_y", "多层 ŷ 门控") +
+    specKpi("策略", "dual_y", "四轮共用 dual_y 闸与买卖/止损配方；各轮只独立选向") +
     specKpi("动仓", `${ratioPct}%`, "固定底仓比例（不随 ŷ 缩放）") +
     specKpi("路径", pathLbl, "分钟触价路径") +
     specKpi("成交", fillLbl, "撮合假设") +
@@ -451,7 +448,7 @@ export function renderExecutionRulesHtml(execution) {
         const fmt = (n) => (Number.isFinite(n) && n > 0 ? `${n}%` : "关");
         return `正${fmt(bts)}/反${fmt(stb)}·${armLbl}·${conf}`;
       })(),
-      "相对第一腿成交价；正T跌破卖旧 / 反T涨破买回；共用延迟与收盘确认"
+      "相对该轮第一腿成交价；正T跌破卖旧 / 反T涨破买回；四轮共用同一套%；延迟与收盘确认共用"
     ) +
     specKpi(
       "追价",
@@ -614,6 +611,10 @@ export function fillExecutionForm(root, execution) {
   );
   set("y_prefix_segment_enabled", t0.y_prefix_segment_enabled !== false);
   set("y_prefix_vs_path_skip", t0.y_prefix_vs_path_skip !== false);
+  set(
+    "y_prefix_vs_path_mult",
+    t0.y_prefix_vs_path_mult != null ? t0.y_prefix_vs_path_mult : 1.0
+  );
   set("y_prefix_segment_enabled_sell_then_buy", t0.y_prefix_segment_enabled_sell_then_buy !== false);
   set("y_prefix_segment_enabled_buy_then_sell", t0.y_prefix_segment_enabled_buy_then_sell !== false);
   set(
@@ -776,6 +777,10 @@ export function collectExecutionForm(root) {
     ),
     y_prefix_segment_enabled: chk("y_prefix_segment_enabled", true),
     y_prefix_vs_path_skip: chk("y_prefix_vs_path_skip", true),
+    y_prefix_vs_path_mult: Math.max(
+      0.5,
+      Math.min(num("y_prefix_vs_path_mult", 1.0), 5)
+    ),
     y_prefix_segment_enabled_sell_then_buy: chk("y_prefix_segment_enabled_sell_then_buy", true),
     y_prefix_segment_enabled_buy_then_sell: chk("y_prefix_segment_enabled_buy_then_sell", true),
     y_prefix_upbar_ratio_buy_then_sell: Math.max(
@@ -786,8 +791,6 @@ export function collectExecutionForm(root) {
       0,
       Math.min(num("y_prefix_downbar_ratio_sell_then_buy", 0.2), 1)
     ),
-    // τ入场价倍已下线；固定 0=关
-    y_tau_entry_price_mult: 0,
     y_eod_prior: Math.max(0.01, Math.min(num("y_eod_prior", 0.01), 5)),
     y_eod_enter: Math.max(0.01, Math.min(num("y_eod_enter", 0.01), 5)),
     y_eod_strong: Math.max(0.05, Math.min(num("y_eod_strong", 0.5), 5)),
@@ -818,10 +821,10 @@ export function collectExecutionForm(root) {
     t0_stop_arm_bars: Math.max(0, Math.min(Math.round(num("t0_stop_arm_bars", 2)), 48)),
     t0_stop_on_close: chk("t0_stop_on_close", true),
   };
-  // 振幅下限已从表单下线；保存时固定默认 0.2（后端 prefix_range_gate 仍用）
-  t0.min_range_pct_sell_then_buy = 0.2;
-  t0.min_range_pct_buy_then_sell = 0.2;
-  t0.min_range_pct = 0.2;
+  // 振幅下限已从表单与门禁下线（不再写入 / 强制 0.2）
+  t0.min_range_pct_sell_then_buy = 0;
+  t0.min_range_pct_buy_then_sell = 0;
+  t0.min_range_pct = 0;
   return {
     lock: true,
     t0,
@@ -1117,13 +1120,14 @@ export function collectT0BacktestBody(root, opts = {}) {
       t0.y_path_abandon_bars != null ? t0.y_path_abandon_bars : 6,
     y_prefix_segment_enabled: t0.y_prefix_segment_enabled !== false,
     y_prefix_vs_path_skip: t0.y_prefix_vs_path_skip !== false,
+    y_prefix_vs_path_mult:
+      t0.y_prefix_vs_path_mult != null ? t0.y_prefix_vs_path_mult : 1.0,
     y_prefix_segment_enabled_sell_then_buy: t0.y_prefix_segment_enabled_sell_then_buy !== false,
     y_prefix_segment_enabled_buy_then_sell: t0.y_prefix_segment_enabled_buy_then_sell !== false,
     y_prefix_upbar_ratio_buy_then_sell:
       t0.y_prefix_upbar_ratio_buy_then_sell != null ? t0.y_prefix_upbar_ratio_buy_then_sell : 0.2,
     y_prefix_downbar_ratio_sell_then_buy:
       t0.y_prefix_downbar_ratio_sell_then_buy != null ? t0.y_prefix_downbar_ratio_sell_then_buy : 0.2,
-    y_tau_entry_price_mult: 0,
     y_eod_prior: t0.y_eod_prior != null ? t0.y_eod_prior : 0.01,
     y_eod_enter: t0.y_eod_enter != null ? t0.y_eod_enter : 0.01,
     y_eod_strong:
@@ -1185,7 +1189,7 @@ export function collectT0BacktestBody(root, opts = {}) {
   if (t0.min_range_pct_sell_then_buy != null) body.min_range_pct_sell_then_buy = t0.min_range_pct_sell_then_buy;
   if (t0.min_range_pct_buy_then_sell != null) body.min_range_pct_buy_then_sell = t0.min_range_pct_buy_then_sell;
   if (t0.min_range_pct != null) body.min_range_pct = t0.min_range_pct;
-  else body.min_range_pct = 0.2;
+  else body.min_range_pct = 0;
   if (opts.onlySelected && opts.selectedCode) body.code = opts.selectedCode;
   return body;
 }

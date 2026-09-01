@@ -661,7 +661,7 @@ export function initQuant(ctx) {
     }
   })();
 
-  // 轻量预填 ŷ_τ KPI / 状态（不阻塞；复盘加载后会用 tau_shadow 覆盖命中）
+  // 轻量预填 ŷ_τ KPI / 状态（不阻塞；概览用模型 OOS，不再被单日验收覆盖）
   void (async () => {
     try {
       const res = await fetch("/api/quant/tau-ridge/model");
@@ -704,7 +704,7 @@ export function initQuant(ctx) {
       syncTauPersistBtn(gate, { hasReport: true });
       clearRemResultBox();
       await renderRemCoefTable(data.return_model || {}, { oos });
-      // 仅当概览仍空时写入，避免盖住复盘 tau_shadow
+      // 仅当概览仍空时写入（拟合/启用后再刷）
       const card = document.querySelector(
         '#quant-pro-overview-kpis .quant-pro-kpi-card[data-kpi="tau"]'
       );
@@ -1263,8 +1263,7 @@ export function initQuant(ctx) {
       );
     });
 
-  // 复盘 / 拟合 KPI 由各自 domain 在渲染时直接写概览
-  on("quant-score-review-run", "click", () => setProStatusChip("quant-pro-review-status", "busy", "复盘计算中…"));
+  // 拟合 KPI 由 fit-gap domain 在渲染时写概览
 
   const oosGateTips = createScoreTooltipController();
   cluster.wireOosGateTips(els.quantOlsClusters);

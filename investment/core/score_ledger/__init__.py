@@ -1,10 +1,11 @@
-"""打分账本：按决策日 as_of 冻结 ŷ，供「昨日复盘」对账与校准拟合。
+"""打分账本：按决策日 as_of 冻结 ŷ。
 
-写入：集群书刷新 / 日报 / 手动冻结——优先 ``scored_all``（打分宇宙），行带 ``in_book``。
-复盘默认滤簿；校准 Isotonic 用全量行。
-回填：次日或 h 日后用日线算 realized，再生成方向复盘报告。
+写入：日报 ``freeze_from_daily_report``（EOD）；τ / nowcast 影子独立文件。
+分池簿冻结、复盘 HTTP、τ/nowcast 单日验收 HTTP 已下线。
+库函数 ``build_score_review`` / ``build_tau_shadow_review`` 仍供日报 Y-check。
+回填：日更 ``fill_outcomes`` 用日线算 realized。
 
-实现按用例拆到 ``score_ledger_*``；本模块再导出，保持 ``from core.score_ledger import …``。
+实现按用例拆到子模块；本包再导出，保持 ``from core.score_ledger import …``。
 """
 
 from __future__ import annotations

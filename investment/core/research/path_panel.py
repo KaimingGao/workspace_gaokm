@@ -23,6 +23,7 @@ from core.research.tau_panel import (
     hist_bars_pit,
     mom3_pct_from_hist,
     normalize_minute_tau_grid,
+    tau_elapsed_min_from_open,
     yclose_loc_from_prev,
 )
 from core.signal.minute_tau_feats import MINUTE_TAU_ALL_KEYS, extract_minute_tau_pack
@@ -40,7 +41,7 @@ PATH_OPEN_FEATURES = (
 PATH_Z_FEATURES = PATH_OPEN_FEATURES + MINUTE_TAU_ALL_KEYS
 # 做 T 固定前缀默认齐窗 ≈10:00（与 y_path_abandon_bars=6 对齐；path live 决策钟仍可独立为 10:30）
 DEFAULT_PATH_MINUTE_TAU_HM = "10:30"
-# 训练多 τ 默认网格（与 dual_score.minute_tau_grid / τ 头一致）
+# 训练多 τ 默认网格（与做T槽位 / dual_score.minute_tau_grid / τ 头一致）
 DEFAULT_PATH_TAU_GRID = DEFAULT_MINUTE_TAU_GRID
 
 
@@ -357,8 +358,13 @@ def attach_path_minute_feats(
     open_px: Optional[float] = None,
     prev_close: Optional[float] = None,
     tau_hm: Any = None,
+    overwrite: bool = False,
 ) -> Dict[str, Optional[float]]:
-    """写入 ≤τ 分钟小包（与 ŷ_τ enable_minute_tau 同源）；已有非空键不覆盖。"""
+    """写入 ≤τ 分钟小包（与 ŷ_τ enable_minute_tau 同源）。
+
+    默认已有非空键不覆盖；``overwrite=True`` 时用当前前缀重算覆盖
+    （画像/确认根因果打分须避开开盘快照里的脏分钟键）。
+    """
     out = dict(feats or {})
     hm = _normalize_path_tau_hm(tau_hm)
     pack = extract_minute_tau_pack(
@@ -369,10 +375,15 @@ def attach_path_minute_feats(
         prev_close=prev_close,
     )
     for k in MINUTE_TAU_ALL_KEYS:
-        if out.get(k) is not None:
+        if not overwrite and out.get(k) is not None:
             continue
         if k in pack and pack.get(k) is not None:
             out[k] = _f(pack.get(k))
+        elif overwrite:
+            out.pop(k, None)
+    elapsed = tau_elapsed_min_from_open(hm)
+    if elapsed is not None and (overwrite or out.get("tau_elapsed_min") is None):
+        out["tau_elapsed_min"] = elapsed
     return out
 
 

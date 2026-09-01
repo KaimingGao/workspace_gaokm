@@ -7,7 +7,7 @@ const _V =
 const { watchingScoreDetail } = await import(
   `./watching_render.js?v=${encodeURIComponent(_V)}`
 );
-const { resolveTradeScore, resolveCalTradeScore, resolveNowcastScore } = await import(
+const { resolveTradeScore, resolveNowcastScore } = await import(
   `../paper/fmt.js?v=${encodeURIComponent(_V)}`
 );
 
@@ -16,14 +16,6 @@ export const BT_SIM_TRADE_COLS_BASE = [
   { id: "entry", label: "买入日", widthPct: 9 },
   { id: "exit", label: "卖出日", widthPct: 9 },
   { id: "name", label: "股票", flex: true },
-  {
-    id: "score_cal",
-    label: "EOD",
-    widthPct: 6.5,
-    num: true,
-    sortable: true,
-    title: "eod = g(ŷ_EOD) · 对涨跌对照 · 不进决策 · 悬停看 tip",
-  },
   {
     id: "score",
     label: "ŷ_EOD",
@@ -112,17 +104,6 @@ export function flattenTradesToSimLegs(trades) {
         predicted_score_eod_rem: l.predicted_score_eod_rem,
         predicted_score_nowcast: l.predicted_score_nowcast,
         nowcast_vs: l.nowcast_vs,
-        predicted_score_cal: l.predicted_score_cal,
-        predicted_score_eod_rem_cal: l.predicted_score_eod_rem_cal,
-        predicted_score_tau_cal: l.predicted_score_tau_cal,
-        predicted_score_blend_cal: l.predicted_score_blend_cal,
-        score_calibration_applied: !!l.score_calibration_applied,
-        score_calibration_enabled: !!l.score_calibration_enabled,
-        score_calibration_eod_oor: !!l.score_calibration_eod_oor,
-        score_calibration_eod_rem_oor: !!l.score_calibration_eod_rem_oor,
-        score_calibration_tau_oor: !!l.score_calibration_tau_oor,
-        score_calibration_note: l.score_calibration_note || null,
-        score_calibration_partial: l.score_calibration_partial || null,
         realized_t1_to_tau: l.realized_t1_to_tau,
         score_rem: l.score_rem != null ? l.score_rem : l.predicted_score_rem,
         formula_terms_tau: l.formula_terms_tau || l.score_formula_terms_tau,
@@ -289,7 +270,6 @@ export function buildSimTradeRow(r, i, deps) {
       : null;
   // 与持仓/观察池同源：修历史成交里塌成 EOD 的旧 blend
   const blendRaw = resolveTradeScore(r);
-  const blendCal = resolveCalTradeScore(r);
   const nowcastScore = resolveNowcastScore(r);
   // 表列：历史日线路径无可靠 τ → 展示/选股键均为 ŷ_EOD；有 τ 时才用 ŷ_trade
   const hasTau =
@@ -312,7 +292,6 @@ export function buildSimTradeRow(r, i, deps) {
   const scoreColTitle = singleHead
     ? `ŷ_trade 单头降级（${String(r.dual_score_head || "single")}）· 悬停看详情`
     : scoreColTitleBase;
-  const scoreCalTitleDefault = "eod = g(ŷ_EOD) · 对涨跌对照 · 不进决策";
   let gapPct =
     r.gap_pct != null && Number.isFinite(Number(r.gap_pct)) ? Number(r.gap_pct) : null;
   let realized =
@@ -363,17 +342,6 @@ export function buildSimTradeRow(r, i, deps) {
     nowcast_q: r.nowcast_q,
     nowcast_x_prior: r.nowcast_x_prior,
     predicted_score_eod: eodScore,
-    predicted_score_cal: r.predicted_score_cal,
-    predicted_score_eod_rem_cal: r.predicted_score_eod_rem_cal,
-    predicted_score_tau_cal: r.predicted_score_tau_cal,
-    predicted_score_blend_cal: blendCal != null ? blendCal : r.predicted_score_blend_cal,
-    score_calibration_applied: !!r.score_calibration_applied,
-    score_calibration_enabled: !!r.score_calibration_enabled,
-    score_calibration_eod_oor: !!r.score_calibration_eod_oor,
-    score_calibration_eod_rem_oor: !!r.score_calibration_eod_rem_oor,
-    score_calibration_tau_oor: !!r.score_calibration_tau_oor,
-    score_calibration_note: r.score_calibration_note || null,
-    score_calibration_partial: r.score_calibration_partial || null,
     realized_t1_to_tau: realized,
     score_rem: r.score_rem != null ? r.score_rem : r.predicted_score_rem,
     gap_pct: gapPct,
@@ -412,13 +380,6 @@ export function buildSimTradeRow(r, i, deps) {
     score_formula_terms: r.score_formula_terms,
     factor_coefficients: r.factor_coefficients || {},
   });
-  const scoreCalOor = !!r.score_calibration_eod_oor;
-  const scoreCalTitle =
-    blendCal == null
-      ? "暂无 g(ŷ) 映射（拟合并写入 live 后可见）"
-      : scoreCalOor
-        ? `${scoreCalTitleDefault} · 部分落在拟合域外（端点钳制）`
-        : scoreCalTitleDefault;
   return {
     code: `sim-${i}-${code}-${r.entry_date || ""}-${r.exit_date || ""}-${st}`,
     stock_code: code,
@@ -442,11 +403,6 @@ export function buildSimTradeRow(r, i, deps) {
     scoreTitle: scoreColTitle,
     scoreSingleHead: singleHead,
     dualScoreHead: r.dual_score_head || null,
-    scoreCalNum: blendCal,
-    scoreCalText: fmtScore(blendCal),
-    scoreCalCls: `${scoreCls(blendCal)}${scoreCalOor ? " is-cal-oor" : ""}`.trim(),
-    scoreCalTitle,
-    scoreCalOor,
     scoreNowcastNum: nowcastScore,
     scoreNowcastText: fmtScore(nowcastScore),
     scoreNowcastCls: scoreCls(nowcastScore),
@@ -484,7 +440,6 @@ const BT_TRADES_NUM_KEYS = {
   sell: "sellNum",
   intent: "intentNum",
   score: "scoreNum",
-  score_cal: "scoreCalNum",
   score_nowcast: "scoreNowcastNum",
 };
 
@@ -546,23 +501,6 @@ export function btTradesCellHtml(col, d, deps) {
       )}" ` +
       `data-score-detail="${escapeHtml(d.scoreDetail)}" data-score-tip="trade" ` +
       `title="${escapeHtml(title)}">${escapeHtml(d.scoreText)}${badge}</span>`
-    );
-  }
-  if (col.id === "score_cal") {
-    const title =
-      d.scoreCalTitle || "g(ŷ_EOD) 对照 · 不进决策 · 悬停看 tip";
-    const text = d.scoreCalText != null ? d.scoreCalText : "—";
-    if (!d.scoreDetail) {
-      return `<span class="bt-trade-score watching-score-cal paper-hold-score ${escapeHtml(
-        d.scoreCalCls || ""
-      )}">${escapeHtml(text)}</span>`;
-    }
-    return (
-      `<span class="bt-trade-score watching-score-cal paper-hold-score has-tip ${escapeHtml(
-        d.scoreCalCls || ""
-      )}" ` +
-      `data-score-detail="${escapeHtml(d.scoreDetail)}" data-score-tip="cal" ` +
-      `title="${escapeHtml(title)}">${escapeHtml(text)}</span>`
     );
   }
   if (col.id === "score_nowcast") {

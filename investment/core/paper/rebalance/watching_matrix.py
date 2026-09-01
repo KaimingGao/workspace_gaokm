@@ -581,6 +581,7 @@ def _apply_matrix_trades(
                     "side": "sell",
                     "reason": err or "apply_failed",
                     "path_matrix": True,
+                    "tplus1": bool(err and "T+1" in str(err)),
                 }
             )
             continue
@@ -598,10 +599,14 @@ def _apply_matrix_trades(
             )
             continue
         applied_buys.append(trade)
+    sell_match_skips = [
+        s for s in skips if str(s.get("side") or "") == "sell"
+    ]
     return {
         "sell_trades": applied_sells,
         "buy_trades": applied_buys,
         "apply_skips": skips,
+        "sell_match_skips": sell_match_skips,
     }
 
 
@@ -687,8 +692,14 @@ def simulate_watching_matrix_preview(
             "confirm_supported": True,
         }
 
-    # 与持仓表 score_one 同一 horizon，避免同票 ŷ 对不上
-    horizon = max(1, min(int(rules.get("horizon_days") or 3), 3))
+    # 与持仓表 / 数据中心同源：signal_config.scoring.horizon_days
+    try:
+        from core.signal.config import get_scoring_horizon_days
+
+        horizon = int(get_scoring_horizon_days())
+    except Exception:  # noqa: BLE001
+        logger.debug("get_scoring_horizon_days failed", exc_info=True)
+        horizon = 1
     use_offline = bool(offline_only)
     scored, rejected = _score_pool(
         codes, horizon_days=horizon, offline_only=use_offline
@@ -926,11 +937,13 @@ def simulate_watching_matrix_preview(
     )
 
     apply_skips: List[dict] = []
+    sell_match_skips: List[dict] = []
     if not dry_run and (buy_trades or sell_trades):
         applied = _apply_matrix_trades(paper, sell_trades, buy_trades)
         sell_trades = list(applied.get("sell_trades") or [])
         buy_trades = list(applied.get("buy_trades") or [])
         apply_skips = list(applied.get("apply_skips") or [])
+        sell_match_skips = list(applied.get("sell_match_skips") or [])
         if apply_skips:
             skips.extend(apply_skips)
         # 落账后刷新净值摘要
@@ -983,6 +996,7 @@ def simulate_watching_matrix_preview(
         "rebalance_report": report,
         "risk_budget_skips": skips,
         "apply_skips": apply_skips,
+        "sell_match_skips": sell_match_skips,
         "summary": summary,
         "cash_impact": {
             "buy_amount": round(buy_amt, 2),

@@ -716,6 +716,21 @@ class TestIsotonicPav(unittest.TestCase):
                 self.assertTrue(raw["scoring"]["enable_calibration"])
                 self.assertFalse(sync_enable_calibration_flag(True))
 
+    def test_quant_ops_calibration_endpoints_deprecated(self):
+        from quant.services.quant_service_ops import QuantOpsMixin
+
+        class _Ops(QuantOpsMixin):
+            pass
+
+        ops = _Ops()
+        for out in (
+            ops.fit_score_calibration(),
+            ops.persist_score_calibration(),
+            ops.get_score_calibration_model(),
+        ):
+            self.assertTrue(out.get("deprecated"))
+            self.assertFalse(out.get("success"))
+
 
 if __name__ == "__main__":
     unittest.main()

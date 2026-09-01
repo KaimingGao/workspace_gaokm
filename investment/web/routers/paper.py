@@ -35,7 +35,7 @@ def paper_status(lite: bool = False) -> Dict[str, Any]:
 
 @router.get("/api/paper/holding-scores")
 def paper_holding_scores(offline_only: bool = True) -> Dict[str, Any]:
-    """持仓 ŷ：默认仅研究枢纽缓存；``offline_only=false`` 可补远端。"""
+    """持仓 ŷ：默认仅本地仓。UI 恒传 offline_only=true；可拉远端先走增量补齐。"""
     try:
         from core.signal.score_display import json_safe
 
@@ -130,7 +130,7 @@ def paper_execution_save(body: PaperExecutionPatchRequest | None = None) -> Dict
             ("y_prefix_upbar_ratio_buy_then_sell", req.y_prefix_upbar_ratio_buy_then_sell),
             ("y_prefix_downbar_ratio_sell_then_buy", req.y_prefix_downbar_ratio_sell_then_buy),
             ("y_prefix_vs_path_skip", req.y_prefix_vs_path_skip),
-            ("y_tau_entry_price_mult", req.y_tau_entry_price_mult),
+            ("y_prefix_vs_path_mult", req.y_prefix_vs_path_mult),
             ("y_score_source", req.y_score_source),
             ("t0_pm_degrade", req.t0_pm_degrade),
             ("t0_pm_degrade_sell_then_buy", req.t0_pm_degrade_sell_then_buy),

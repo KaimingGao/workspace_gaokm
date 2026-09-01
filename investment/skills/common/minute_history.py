@@ -97,8 +97,8 @@ def _merge_save_minute_bars(
     period: str,
     data_source: str,
     adjust_policy: Optional[str],
-    use_cache: bool,
 ) -> Tuple[List[dict], Dict[str, Any]]:
+    """远端有数时与本地仓按时间合并并落盘（与入口 ``use_cache`` 读短路无关）。"""
     meta: Dict[str, Any] = {
         "market": market,
         "code": bare,
@@ -113,23 +113,22 @@ def _merge_save_minute_bars(
     if bars:
         meta["date_min"] = bars[0].get("date")
         meta["date_max"] = bars[-1].get("date")
-        if use_cache:
-            old = load_minute_cache(
-                market, bare, period, min_bars=1, max_age_hours=0, ignore_age=True
-            )
-            if old:
-                bars = merge_minute_bars_by_time(old[0], bars)
-            save_minute_cache(
-                market,
-                bare,
-                bars,
-                period=period,
-                data_source=data_source,
-                stock_code=bare,
-                adjust_policy=adjust_policy,
-            )
-            meta["bar_count"] = len(bars)
-            meta["cached"] = True
+        old = load_minute_cache(
+            market, bare, period, min_bars=1, max_age_hours=0, ignore_age=True
+        )
+        if old:
+            bars = merge_minute_bars_by_time(old[0], bars)
+        save_minute_cache(
+            market,
+            bare,
+            bars,
+            period=period,
+            data_source=data_source,
+            stock_code=bare,
+            adjust_policy=adjust_policy,
+        )
+        meta["bar_count"] = len(bars)
+        meta["cached"] = True
     return bars, meta
 
 
@@ -291,6 +290,8 @@ def fetch_a_minute_bars(
     """拉取 A 股分钟线；失败返回空列表。
 
     period: "1"|"5"|"15"|"30"|"60"
+    use_cache: True 时先读本地有效仓；False 跳过读仓直接打远端。
+      远端成功后**始终** merge+save（与 use_cache 无关），避免 force refresh 不落盘。
     skip_em: True 时跳过东财（T0 回测 / 显式 skip）；新浪/腾讯有数则不再打 BaoStock。
     远端失败时回退本地过期缓存（与日线 fetch 一致），避免做T回测整批挂死。
     """
@@ -398,7 +399,6 @@ def fetch_a_minute_bars(
         period=period,
         data_source=src,
         adjust_policy=adj or None,
-        use_cache=use_cache,
     )
     meta["em"] = em_meta if not skip_em else {"skipped": True, "reason": "skip_em"}
     if bs_meta:

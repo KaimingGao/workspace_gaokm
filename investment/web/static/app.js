@@ -152,7 +152,7 @@ async function bootWorkspace() {
   if (paperMod && PAPER_PAGES.has(page)) {
     safeInit("paper", () => paperMod.initPaper(ctx));
   }
-  // follow / dashboard 不装研究枢纽（score-review / fit-gap 进页自动拉会拖死纸面）
+  // follow / dashboard 不装研究枢纽（fit-gap 进页自动拉会拖死纸面）
   if (quantMod && QUANT_PAGES.has(page) && page !== "follow" && page !== "dashboard") {
     safeInit("quant", () => quantMod.initQuant(ctx));
   }

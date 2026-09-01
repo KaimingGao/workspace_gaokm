@@ -516,7 +516,7 @@ def rank_cluster_pools(
         if sc_f is None:
             continue
         sc_for_floor = sc_f
-        # 入簿门槛比 raw ŷ；*_cal 仅供 tip 对照（方案 A）
+        # 入簿门槛比 raw ŷ
         below = sc_for_floor < float(min_score)
         if below:
             below_min += 1
@@ -525,7 +525,6 @@ def rank_cluster_pools(
             "stock_name": item.get("stock_name"),
             "score": sc_f,
             "predicted_score": item.get("predicted_score"),
-            "predicted_score_cal": item.get("predicted_score_cal"),
             "heuristic_score": item.get("heuristic_score"),
             "score_cluster": item.get("score_cluster"),
             "score_global": item.get("score_global"),
@@ -570,7 +569,8 @@ def rank_cluster_pools(
             row.update(dual_track_score_fields(item))
             row.update(dual_score_book_fields(item))
             # 簿主分 = raw ŷ_trade；heuristic 轨 align 会把 score 写成组/全局 ŷ%
-            align_trade_score_fields(row, write_score=True)
+            # 同批刚算完：保留 PIT window
+            align_trade_score_fields(row, write_score=True, refresh_window=False)
             row.update(dual_track_score_fields(row))
         except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
             logger.debug("catch except Exception: in cluster_rank.py", exc_info=True)

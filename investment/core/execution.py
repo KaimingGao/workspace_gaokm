@@ -75,7 +75,6 @@ ALLOWED_T0_PATCH_KEYS = frozenset(
         "y_on_risk",
         "y_on_allow",
         "y_block_tau_nowcast_sign",
-        "y_tau_nowcast_sign_eps",
         "y_nc_enter",
         "y_nc_strong",
         "y_nowcast_enter",
@@ -98,12 +97,9 @@ ALLOWED_T0_PATCH_KEYS = frozenset(
         "y_prefix_upbar_ratio_buy_then_sell",
         "y_prefix_downbar_ratio_sell_then_buy",
         "y_prefix_vs_path_skip",
-        "y_tau_entry_price_mult",
+        "y_prefix_vs_path_mult",
         "y_ratio_boost_cap",
         "y_ratio_cut",
-        "y_ratio_tau_boost_cap",
-        "y_ratio_eod_align_boost",
-        "y_ratio_tau_soft_band",
         "y_score_source",
         "t0_pm_degrade",
         "t0_pm_degrade_sell_then_buy",
@@ -115,6 +111,8 @@ ALLOWED_T0_PATCH_KEYS = frozenset(
         "t0_stop_pct_sell_then_buy",
         "t0_stop_arm_bars",
         "t0_stop_on_close",
+        "t0_slots_enabled",
+        "t0_slots",
     }
 )
 
@@ -141,9 +139,9 @@ DEFAULT_T0_OVERLAY: Dict[str, Any] = {
     "must_cover_same_day": True,
     "must_cover_same_day_sell_then_buy": False,
     "must_cover_same_day_buy_then_sell": True,
-    "min_range_pct": 0.2,
-    "min_range_pct_sell_then_buy": 0.2,
-    "min_range_pct_buy_then_sell": 0.2,
+    "min_range_pct": 0.0,
+    "min_range_pct_sell_then_buy": 0.0,
+    "min_range_pct_buy_then_sell": 0.0,
     "ref": "open",
     "lot_size": 100,
     "y_tau_enter": 0.01,
@@ -169,7 +167,7 @@ DEFAULT_T0_OVERLAY: Dict[str, Any] = {
     "y_prefix_upbar_ratio_buy_then_sell": 0.2,
     "y_prefix_downbar_ratio_sell_then_buy": 0.2,
     "y_prefix_vs_path_skip": True,
-    "y_tau_entry_price_mult": 0.0,
+    "y_prefix_vs_path_mult": 1.0,
     "y_block_tau_nowcast_sign": True,
     "t0_pm_degrade": "14:00",
     "t0_pm_degrade_sell_then_buy": "13:00",
@@ -181,6 +179,7 @@ DEFAULT_T0_OVERLAY: Dict[str, Any] = {
     "t0_stop_pct_sell_then_buy": 1.2,
     "t0_stop_arm_bars": 2,
     "t0_stop_on_close": True,
+    "t0_slots_enabled": True,
     # direction / path_mode 留给 runtime_defaults，避免与 DEFAULT_T0 双轨
 }
 
@@ -653,7 +652,6 @@ def execution_public_view(bundle: Dict[str, Any]) -> Dict[str, Any]:
             "y_on_risk": t0.get("y_on_risk"),
             "y_on_allow": t0.get("y_on_allow"),
             "y_block_tau_nowcast_sign": t0.get("y_block_tau_nowcast_sign"),
-            "y_tau_nowcast_sign_eps": t0.get("y_tau_nowcast_sign_eps"),
             "y_nc_enter": t0.get("y_nc_enter"),
             "y_nc_strong": t0.get("y_nc_strong") or t0.get("y_nowcast_enter"),
             "y_nowcast_enter": t0.get("y_nowcast_enter") or t0.get("y_nc_strong"),
@@ -674,12 +672,9 @@ def execution_public_view(bundle: Dict[str, Any]) -> Dict[str, Any]:
             "y_prefix_upbar_ratio_buy_then_sell": t0.get("y_prefix_upbar_ratio_buy_then_sell"),
             "y_prefix_downbar_ratio_sell_then_buy": t0.get("y_prefix_downbar_ratio_sell_then_buy"),
             "y_prefix_vs_path_skip": t0.get("y_prefix_vs_path_skip"),
-            "y_tau_entry_price_mult": t0.get("y_tau_entry_price_mult"),
+            "y_prefix_vs_path_mult": t0.get("y_prefix_vs_path_mult"),
             "y_ratio_boost_cap": t0.get("y_ratio_boost_cap"),
             "y_ratio_cut": t0.get("y_ratio_cut"),
-            "y_ratio_tau_boost_cap": t0.get("y_ratio_tau_boost_cap"),
-            "y_ratio_eod_align_boost": t0.get("y_ratio_eod_align_boost"),
-            "y_ratio_tau_soft_band": t0.get("y_ratio_tau_soft_band"),
             "y_score_source": t0.get("y_score_source"),
             "t0_pm_degrade": t0.get("t0_pm_degrade"),
             "t0_pm_degrade_sell_then_buy": t0.get("t0_pm_degrade_sell_then_buy"),
@@ -784,10 +779,6 @@ def validate_execution_patch(raw: Any) -> Tuple[bool, Dict[str, Any], List[str]]
         t0_in["y_block_tau_nowcast_sign"] = t0_in.pop("y_block_trade_tau_sign")
     elif "y_block_trade_tau_sign" in t0_in:
         t0_in.pop("y_block_trade_tau_sign", None)
-    if "y_tau_nowcast_sign_eps" not in t0_in and "y_trade_tau_sign_eps" in t0_in:
-        t0_in["y_tau_nowcast_sign_eps"] = t0_in.pop("y_trade_tau_sign_eps")
-    elif "y_trade_tau_sign_eps" in t0_in:
-        t0_in.pop("y_trade_tau_sign_eps", None)
     # 已下线键：忽略
     t0_in.pop("y_block_conflict", None)
     drop_dead_t0_keys(t0_in)

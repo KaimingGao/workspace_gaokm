@@ -14,8 +14,8 @@ GAP_ATR_WINDOW = 14
 GAP_ATR_CLIP = 10.0
 _SECTOR_REL_MIN_N = 3
 
-# 变长前缀：少数决策时钟（对齐做T前缀窗，非整根独立标签）
-DEFAULT_MINUTE_TAU_GRID = ("09:45", "10:00", "10:15", "10:30")
+# 变长前缀：少数决策时钟（含 09:30 开盘 Z + 做T四轮 10:00–11:30，非整根独立标签）
+DEFAULT_MINUTE_TAU_GRID = ("09:30", "10:00", "10:30", "11:00", "11:30")
 
 
 def normalize_minute_tau_grid(
@@ -50,6 +50,12 @@ def tau_elapsed_min_from_open(tau_hm: str) -> Optional[float]:
         return None
     h, m = int(s[:2]), int(s[2:])
     return float(h * 60 + m - (9 * 60 + 30))
+
+
+def is_open_minute_clock(tau_hm: str) -> bool:
+    """09:30 / 已开盘 0 分钟：无 5m 前缀，训练行只保留开盘 Z。"""
+    elapsed = tau_elapsed_min_from_open(tau_hm)
+    return elapsed is not None and elapsed <= 0.0
 
 
 def _gap_pct(prev_close: float, open_px: float) -> Optional[float]:
@@ -572,7 +578,7 @@ def collect_tau_intraday_panel(
 
     与 τ=open 头同一标签口径（日线 open→close）；仅信息集多了前缀分钟路径。
     ``tau_grid`` 非空时：同一交易日在多个 τ 各采一行（共享 β，**同日 y 相同**）；
-    默认网格 ``09:45|10:00|10:15|10:30``。
+    默认网格 ``09:30|10:00|10:30|11:00|11:30``（09:30 无分钟前缀，只留开盘 Z；做T从 10:00 起）。
     """
     min_history = max(5, int(min_history or 12))
     max_window = max(min_history, int(max_window or 30))
@@ -612,9 +618,15 @@ def collect_tau_intraday_panel(
             minute_bars or [], trade_date=date_prev
         )
         for clock in clocks:
+            open_clock = is_open_minute_clock(clock)
             px_tau = price_at_tau_from_minutes(
                 minute_bars or [], trade_date=date_t, tau_hm=clock
             )
+            if (px_tau is None or px_tau <= 0) and open_clock:
+                # 当日须有分钟会话（5m 通常从 09:35 起）；无缓存日不混进 09:30
+                if not (o_min and o_min > 0):
+                    continue
+                px_tau = o_min
             if px_tau is None or px_tau <= 0:
                 continue
             pack = extract_minute_tau_pack(
@@ -625,7 +637,9 @@ def collect_tau_intraday_panel(
                 prev_close=c_prev_min if c_prev_min and c_prev_min > 0 else None,
             )
             if len(pack) < 2:
-                continue
+                if not open_clock:
+                    continue
+                pack = {}
             row: Dict[str, Optional[float]] = {
                 "gap_pct": float(gap) if gap is not None else None,
                 "open_gap": float(gap) if gap is not None else None,

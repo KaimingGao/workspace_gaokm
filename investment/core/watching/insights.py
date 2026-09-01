@@ -49,16 +49,30 @@ def _days_since(iso: Optional[str]) -> Optional[int]:
 
 
 def _finalize_insight_trade_fields(out: Dict[str, Any]) -> None:
-    """对齐表列主分：委托 ``align_trade_score_fields``。"""
+    """对齐表列主分：委托 ``align_trade_score_fields``。
+
+    ``refresh_window=False``：保留 score_one 的 PIT ``dual_score_window``，
+    避免无 quote/bars 时被沪市时钟误刷成 intradate/eod_next。
+    """
     if not isinstance(out, dict):
         return
     try:
         from core.signal.dual_score import align_trade_score_fields
 
-        align_trade_score_fields(out)
+        align_trade_score_fields(out, write_score=True, refresh_window=False)
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
         logger.debug("catch except Exception: in watching_insights.py", exc_info=True)
         pass
+
+
+def _scoring_horizon_days() -> int:
+    try:
+        from core.signal.config import get_scoring_horizon_days
+
+        return int(get_scoring_horizon_days())
+    except Exception:  # noqa: BLE001
+        logger.debug("get_scoring_horizon_days failed", exc_info=True)
+        return 1
 
 
 def _blank(code: str, *, added_at: Optional[str] = None, error: Optional[str] = None) -> Dict[str, Any]:
@@ -199,7 +213,7 @@ def _is_heuristic_score_scale(item: Optional[dict]) -> bool:
 
 
 def _sanitize_heuristic_yhat_fields(out: Dict[str, Any], item: Optional[dict] = None) -> bool:
-    """OOS→heuristic：清掉误写入的 ŷ%；``score`` 只保留 ŷ%（组/全局），0–100 只进 heuristic_score。
+    """OOS→heuristic：0–100 只进 heuristic_score；组/全局 ŷ% 写入表列与 EOD/blend 兼容字段。
 
     返回 True 表示已按启发式尺度处理（调用方应跳过 τ 融合水合）。
     """
@@ -226,7 +240,7 @@ def _sanitize_heuristic_yhat_fields(out: Dict[str, Any], item: Optional[dict] = 
             hs = cand
     if hs is not None:
         out["heuristic_score"] = hs
-    # 组/全局 ŷ 对照 → 表列 score（与 predicted 同量纲，绝不混 0–100）
+    # 组/全局 ŷ 对照 → 表列 score + EOD/blend（与 align heuristic 分支一致）
     if out.get("score_cluster") is None:
         out["score_cluster"] = _f(src.get("score_cluster"))
     if out.get("score_global") is None:
@@ -234,57 +248,22 @@ def _sanitize_heuristic_yhat_fields(out: Dict[str, Any], item: Optional[dict] = 
     yhat = out.get("score_cluster")
     if yhat is None:
         yhat = out.get("score_global")
-    out["score"] = yhat  # 可为 None → 表列「—」
-    out["predicted_score"] = None
-    out["predicted_score_eod"] = None
-    out["predicted_score_eod_rem"] = None
-    out["predicted_score_blend"] = None
-    out["decision_score"] = None
+    yhat_f = _f(yhat)
+    if yhat_f is not None and abs(yhat_f) > 20:
+        yhat_f = None
+    out["score"] = yhat_f  # 可为 None → 表列「—」
+    if yhat_f is not None:
+        out["predicted_score"] = yhat_f
+        out["predicted_score_eod"] = yhat_f
+        out["predicted_score_blend"] = yhat_f
+        out["decision_score"] = yhat_f
+    else:
+        out["predicted_score"] = None
+        out["predicted_score_eod"] = None
+        out["predicted_score_eod_rem"] = None
+        out["predicted_score_blend"] = None
+        out["decision_score"] = None
     return True
-
-
-def _attach_cal_from_yhat_proxy(out: Dict[str, Any], yhat: Optional[float]) -> None:
-    """OOS heuristic 行：用组/全局 ŷ 挂 g(ŷ) 对照，避免校准列空白。"""
-    if yhat is None:
-        return
-    try:
-        y = float(yhat)
-    except (TypeError, ValueError):
-        return
-    if abs(y) > 20:
-        return
-    try:
-        from core.signal.score_calibration import (
-            attach_calibrated_scores,
-            load_calibration_model,
-        )
-
-        proxy = {
-            "predicted_score": y,
-            "predicted_score_eod": y,
-            "predicted_score_blend": y,
-        }
-        live = load_calibration_model()
-        if isinstance(live, dict) and isinstance(live.get("heads"), dict):
-            attach_calibrated_scores(proxy, model_doc=live, force=True)
-        for k in (
-            "predicted_score_cal",
-            "predicted_score_eod_rem_cal",
-            "predicted_score_tau_cal",
-            "predicted_score_blend_cal",
-            "score_calibration_applied",
-            "score_calibration_enabled",
-            "score_calibration_eod_oor",
-            "score_calibration_eod_rem_oor",
-            "score_calibration_tau_oor",
-            "score_calibration_note",
-            "score_calibration_partial",
-        ):
-            if proxy.get(k) is not None and out.get(k) is None:
-                out[k] = proxy.get(k)
-    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in watching_insights.py", exc_info=True)
-        pass
 
 
 def _apply_excess_label(out: Dict[str, Any], excess: Optional[float], item: dict) -> None:
@@ -500,7 +479,6 @@ def _hydrate_insight_tau_fields(
         try:
             from core.signal.service import get_default_signal_service
 
-            # 回退路径也补 tip 对照字段（*_cal / OOR / note）
             merge = dict(item or {})
             merge.update(out)
             out.update(get_default_signal_service().book_fields(merge))
@@ -665,7 +643,7 @@ def _insight_from_book_row(
         # dual 拷贝可能再次带入脏 ŷ
         _sanitize_heuristic_yhat_fields(out, item)
     else:
-        # 仍保留 τ 与组 ŷ 对照；不做 EOD 融合；用组/全局 ŷ 补校准列
+        # 仍保留 τ 与组 ŷ 对照；不做 EOD 融合
         for k in (
             "predicted_score_tau",
             "score_rem",
@@ -681,9 +659,6 @@ def _insight_from_book_row(
         ):
             if item.get(k) is not None and out.get(k) is None:
                 out[k] = item.get(k)
-        _attach_cal_from_yhat_proxy(
-            out, out.get("score_cluster") or out.get("score_global")
-        )
     try:
         from core.signal.score_display import annotate_score_gate
 
@@ -744,7 +719,7 @@ def _insight_one(
         # cluster_mode=None → 读 signal_config.cluster_scoring（active 时用组 β，同持仓表）
         result = get_default_signal_service().score_one(
             code,
-            horizon_days=3,
+            horizon_days=_scoring_horizon_days(),
             skip_fundamentals=True,
             skip_sentiment=True,
             offline_only=use_offline,

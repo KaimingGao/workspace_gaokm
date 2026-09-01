@@ -245,14 +245,15 @@ export function buildPaperHoldingsTableHtml({
           h.currency
         )}</td>` +
         `<td class="num paper-hold-chg has-tip ${metricCls(h.change_pct)}" ` +
-        `data-hold-chg-tip="${escapeText(
-          JSON.stringify({
-            code,
-            name,
-            chg: h.change_pct != null ? Number(h.change_pct) : null,
-            asof: h.change_asof || h.quote_as_of || h.as_of || null,
-          })
-        )}" title="相对昨收 · 悬停看涨跌日5m K">${fmtPct(h.change_pct, {
+        `data-hold-chg-code="${escapeText(code)}" data-hold-chg-name="${escapeText(name)}" ` +
+        `data-hold-chg-asof="${escapeText(
+          String(h.change_asof || h.quote_as_of || h.as_of || "").slice(0, 10)
+        )}" data-hold-chg-num="${
+          h.change_pct != null && Number.isFinite(Number(h.change_pct))
+            ? escapeText(String(Number(h.change_pct)))
+            : ""
+        }" data-hold-chg-tip="${escapeText(code)}" ` +
+        `title="相对昨收 · 悬停看涨跌日5m K">${fmtPct(h.change_pct, {
           signed: true,
         })}</td>` +
         `<td class="num paper-hold-score watching-score-eod has-tip ${scoreCls(

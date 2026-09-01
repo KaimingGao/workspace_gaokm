@@ -35,7 +35,6 @@ export function factorCN(name) {
 const PATH_CHIP_HREF = {
   "quant-pro-cluster-status": "#quant-section-factors",
   "quant-pro-ic-status": "#quant-section-ic-series",
-  "quant-pro-review-status": "#quant-section-score-review",
   "quant-pro-tau-status": "#quant-section-tau",
 };
 
@@ -184,56 +183,6 @@ export function syncOverviewTau(value, subText, mode = "hit") {
   );
 }
 
-/** 昨日复盘整包 → 概览（含样本不足 + ŷ_τ 副轴） */
-export function syncOverviewFromScoreReview(data) {
-  if (!data) return;
-  const s = data.summary || {};
-  if (s.hit_rate != null && Number.isFinite(Number(s.hit_rate))) {
-    const n = s.n_scored != null ? Number(s.n_scored) : null;
-    syncOverviewHit(
-      s.hit_rate,
-      `as_of ${data.as_of || "—"} · μ=50%${n != null ? ` · n=${n}` : ""}`
-    );
-  } else if (data.empty) {
-    setProOverviewKpi("hit", "无账本", data.note || "尚未冻结评分账本", "is-empty");
-  } else {
-    const nLed = data.n_ledger != null ? Number(data.n_ledger) : null;
-    const thin = s.data_thin != null ? Number(s.data_thin) : null;
-    const blame = String(s.blame_line || "样本不足").trim() || "样本不足";
-    const subParts = [];
-    if (data.as_of) subParts.push(String(data.as_of));
-    if (nLed != null && Number.isFinite(nLed)) subParts.push(`账本 ${nLed}`);
-    if (thin != null && Number.isFinite(thin) && thin > 0) subParts.push(`薄样本 ${thin}`);
-    setProOverviewKpi(
-      "hit",
-      blame.length <= 6 ? blame : "暂无",
-      subParts.length ? subParts.join(" · ") : "近 N 日 / μ",
-      "is-empty"
-    );
-  }
-
-  const tau = data.tau_shadow || {};
-  if (tau.tau_sign_hit_rate != null && Number.isFinite(Number(tau.tau_sign_hit_rate))) {
-    const ic =
-      tau.tau_ic_spearman != null
-        ? `IC ${Number(tau.tau_ic_spearman).toFixed(2)}`
-        : null;
-    const n = tau.tau_n != null ? `n=${tau.tau_n}` : null;
-    syncOverviewTau(
-      tau.tau_sign_hit_rate,
-      [ic, n, "open→收"].filter(Boolean).join(" · "),
-      "hit"
-    );
-  } else if (tau.tau_ic_spearman != null && Number.isFinite(Number(tau.tau_ic_spearman))) {
-    syncOverviewTau(
-      tau.tau_ic_spearman,
-      `n=${tau.tau_n ?? "—"} · open→收`,
-      "ic"
-    );
-  } else if (data.empty) {
-    setProOverviewKpi("tau", "—", "无账本 / 未回填 τ", "is-empty");
-  }
-}
 
 /** 纸面拟合 Corr/TE → 概览 */
 export function syncOverviewFit(corr, te, subText) {

@@ -234,12 +234,20 @@ def sector_ret_median(peer_rets: Sequence[Any]) -> Optional[float]:
 def apply_sector_ret_cs(
     feats: Optional[Dict[str, Any]],
     sector_ret_to_tau: Optional[float],
+    *,
+    overwrite: bool = False,
 ) -> Dict[str, Any]:
-    """写入截面开→τ 中位，并派生 ``ret_vs_sector``（已有非空键不覆盖）。"""
+    """写入截面开→τ 中位，并派生 ``ret_vs_sector``。
+
+    默认已有非空 ``sector_ret_to_tau`` 不覆盖；``overwrite=True`` 时重写并重算
+    ``ret_vs_sector``（画像/前缀因果打分对齐训练截面）。
+    """
     out = dict(feats or {})
     sret = _f(sector_ret_to_tau)
-    if sret is not None and out.get("sector_ret_to_tau") is None:
+    if sret is not None and (overwrite or out.get("sector_ret_to_tau") is None):
         out["sector_ret_to_tau"] = round(float(sret), 6)
+    if overwrite:
+        out.pop("ret_vs_sector", None)
     attach_ret_vs_sector(out)
     return out
 

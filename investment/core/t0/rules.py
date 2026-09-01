@@ -436,12 +436,16 @@ def simulate_t0_day(
                 source=y_src,
                 fuse_intraday=resolve_fuse_intraday(cfg),
                 allow_fallback=(y_src != "compute"),
-                minute_bars=minute_bars,
+                # 选向仅开盘信息集；分钟只用于第一触达成交
+                use_minute_tau=False,
                 **tau_pool_day_score_kwargs(tau_pool_day, stock_code),
             )
 
     mins = list(minute_bars or [])
-    if len(mins) < 2:
+    from core.t0.config import t0_slots_enabled
+
+    min_need = 1 if t0_slots_enabled(cfg) else 2
+    if len(mins) < min_need:
         from core.t0.score_policy import attach_day_scores
 
         return attach_day_scores(
@@ -746,7 +750,7 @@ def simulate_t0_on_holdings(
                     day_out["uncovered_qty"] = 0
                     day_out["pnl"] = 0.0
                     day_out["skipped"] = True
-                    day_out["reason"] = "共享现金不足，跳过正T低吸"
+                    day_out["reason"] = "共享现金不足，跳过正T加仓"
                 else:
                     day_out["sold_back_qty"] = sold_back
                     uncovered = max(0, bought_q - sold_back)

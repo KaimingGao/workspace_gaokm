@@ -274,7 +274,7 @@ def finalize_cross_section_rebalance_report(
             "min_predicted_score_tau": _cfg_dual.get("min_predicted_score_tau"),
             "tau_gate": _tau_floor_meta or None,
             "note": (
-                "排序=ŷ_trade（raw）；买入门槛=ŷ_EOD≥min 且 ŷ_τ≥floor；校准 g 仅 tip 对照"
+                "排序=ŷ_trade（raw）；买入门槛=ŷ_EOD≥min 且 ŷ_τ≥floor"
                 + (
                     f"；{_tau_floor_meta.get('note')}"
                     if _tau_floor_meta.get("note")
@@ -376,5 +376,5 @@ def finalize_cross_section_rebalance_report(
         "attribution": attribution,
         "cost_assumptions": cost_assumptions,
         "exposure_style": exposure_style,
-        "note": "横截面/分池调仓为纸面模拟；排序=ŷ_trade（raw）；买入=EOD门槛且 τ 闸（均 raw）；卖出=ŷ_trade 低于 min_hold；校准 g 仅 tip。",
+        "note": "横截面/分池调仓为纸面模拟；排序=ŷ_trade（raw）；买入=EOD门槛且 τ 闸（均 raw）；卖出=ŷ_trade 低于 min_hold。",
     }

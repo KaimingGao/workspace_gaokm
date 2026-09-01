@@ -75,5 +75,37 @@ class TestMinuteStaleFallback(unittest.TestCase):
         self.assertEqual(captured.get("start_date"), expected)
 
 
+class TestMergeSaveAlwaysCaches(unittest.TestCase):
+    def test_merge_save_writes_even_without_use_cache_arg(self):
+        """远端成功后始终落盘（入口 use_cache=False 也写）。"""
+        from skills.common import minute_history as mh
+
+        bars = [
+            {
+                "datetime": "2026-09-01 10:00:00",
+                "date": "2026-09-01",
+                "open": 10,
+                "high": 11,
+                "low": 9,
+                "close": 10.5,
+                "volume": 1000,
+            }
+        ]
+        with patch("skills.common.minute_history.load_minute_cache", return_value=None), patch(
+            "skills.common.minute_history.save_minute_cache"
+        ) as save:
+            out, meta = mh._merge_save_minute_bars(
+                "CN",
+                "002415",
+                bars,
+                period="5",
+                data_source="test",
+                adjust_policy="qfq",
+            )
+        self.assertEqual(len(out), 1)
+        self.assertTrue(meta.get("cached"))
+        save.assert_called_once()
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -205,22 +205,6 @@ export function resolveTradeScore(it) {
   return null;
 }
 
-/** eod 列：g(ŷ_EOD)，就是对涨跌（现价对昨收）的回归预估。不含缺口。 */
-export function resolveCalTradeScore(it) {
-  if (!it || typeof it !== "object") return null;
-  if (isHeuristicScoreScale(it)) return null;
-  const eodCal = resolveCalEodScore(it);
-  if (eodCal != null) return eodCal;
-  return resolveEodScore(it);
-}
-
-/** g(ŷ_EOD)：与涨跌同口径（现价对昨收）；表列 eod，不进残差。 */
-export function resolveCalEodScore(it) {
-  if (!it || typeof it !== "object") return null;
-  const n = Number(it.predicted_score_cal);
-  return Number.isFinite(n) ? n : null;
-}
-
 /** 簿字段 predicted_score_nowcast（可能失真；仅 fallback）。 */
 function _nowcastFromBookField(it) {
   const n = _numField(it.predicted_score_nowcast);

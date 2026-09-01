@@ -92,9 +92,18 @@ def _lot_sellable(lot: dict, as_of: str) -> bool:
     from core.market.calendar import next_trading_day
 
     nxt = next_trading_day(bought)
-    if not nxt:
-        return as_of > bought
-    return as_of >= nxt
+    if nxt:
+        return as_of >= nxt
+    # 无交易日历时：至少隔一个日历日，不把「同日日中→收盘」放宽成可卖
+    try:
+        from datetime import datetime, timedelta
+
+        nxt_cal = (
+            datetime.strptime(str(bought)[:10], "%Y-%m-%d") + timedelta(days=1)
+        ).strftime("%Y-%m-%d")
+        return str(as_of)[:10] >= nxt_cal
+    except (TypeError, ValueError):
+        return False
 
 
 def ensure_lots(holding: dict, *, as_of: Optional[str] = None) -> List[dict]:

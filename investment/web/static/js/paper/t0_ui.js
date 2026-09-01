@@ -1,15 +1,15 @@
 /** Paper · 做T 指标与预演表渲染（从 paper.js 抽出）。 */
 
 import { yTauMapScoreTip, normalizeYTauMap } from "./execution_ui.js";
-import { renderT0Viz } from "./t0_viz.js";
-import { buildT0ReportHtml } from "./t0_report.js";
+import { renderT0Viz } from "./t0_viz.js?v=p1777";
+import { buildT0ReportHtml, fmtT0DirDays } from "./t0_report.js?v=p1777";
 import {
   buildT0TradeTableHtml,
   pickDetailDays,
   pickTradeDays,
   stockCellHtml,
   T0_TRADE_TABLE_MAX_ROWS,
-} from "./t0_table.js";
+} from "./t0_table.js?v=p1790";
 
 function escapeHtml(s) {
   return String(s ?? "")
@@ -23,7 +23,16 @@ function buildZeroTradeHint(data) {
   const reasons = data.skip_reason_top || [];
   const top = reasons[0];
   const reasonText = reasons.map((r) => String(r.reason || "")).join(" ");
-  const ampSkip = reasonText.includes("振幅");
+  const ampSkip =
+    reasonText.includes("振幅不足") ||
+    (reasonText.includes("振幅") &&
+      !reasonText.includes("空间用尽") &&
+      !reasonText.includes("ŷ_path") &&
+      !reasonText.includes("y_path"));
+  const prefixVsPathSkip =
+    reasonText.includes("空间用尽") ||
+    reasonText.includes(">|ŷ_path|") ||
+    reasonText.includes("前缀振幅");
   const tplus1Skip =
     reasonText.includes("T+1") || reasonText.includes("可卖旧仓") || reasonText.includes("可卖 0");
   const lotSkip =
@@ -33,11 +42,13 @@ function buildZeroTradeHint(data) {
   const buy = (data.rules && data.rules.buy_trigger_pct) ?? "1";
   const tips = tplus1Skip
     ? "旧仓被 T+1 锁定；需隔日可卖仓才能反T先卖 / 正T卖旧"
-    : ampSkip
-      ? "振幅门禁偏严；可调低振幅下限或关闭 ATR 自适应"
-      : lotSkip
-        ? "仓位×做T比例不足 1 手；可提高做T比例或加仓"
-        : `未触及卖 +${sell}% / 买 -${buy}% 触发；可降阈值`;
+    : prefixVsPathSkip
+      ? "前缀振幅已超过 |ŷ_path|×空间裕度（空间用尽）；可调「空间裕度」、关「前缀 vs path」或等 path 更大"
+      : ampSkip
+        ? "旧振幅下限跳过（门禁已下线）；重跑预演后应消失"
+        : lotSkip
+          ? "仓位×做T比例不足 1 手；可提高做T比例或加仓"
+          : `未触及卖 +${sell}% / 买 -${buy}% 触发；可降阈值`;
   const mm = data.minute_meta || {};
   const missingMin = Number(data.missing_minute_days) || 0;
   const minuteHint =
@@ -117,7 +128,8 @@ export function renderPaperT0(els, data) {
       : `${days.length} 笔成交`,
     `指标日 ${data.t0_trade_days ?? "—"}`,
     data.cover_rate_pct != null ? `往返 ${data.cover_rate_pct}%` : null,
-    `正${data.buy_then_sell_days ?? 0}/反${data.sell_then_buy_days ?? 0}`,
+    `向 ${fmtT0DirDays(data)}`,
+    data.rules && data.rules.t0_slots_enabled ? "仅成交槽位" : null,
     sessDate ? `会话 ${sessDate}` : null,
   ].filter(Boolean);
   const caption =
@@ -444,13 +456,17 @@ function classifyDeskNote(note, locked) {
       return { id: "lot", label: "仓/钱" };
     return { id: "locked", label: "终锁" };
   }
-  if (r.includes("振幅")) return { id: "amplitude", label: "振幅" };
+  if (r.includes("空间用尽") || (r.includes("前缀振幅") && (r.includes("ŷ_path") || r.includes("y_path"))))
+    return { id: "prefix_vs_path", label: "空间用尽" };
+  if (r.includes("振幅不足") || (r.includes("振幅") && !r.includes("前缀")))
+    return { id: "amplitude", label: "振幅" };
   if (r.includes("未触及")) return { id: "trigger", label: "未触价" };
   if (r.includes("午休")) return { id: "lunch", label: "午休" };
   if (r.includes("解锁") || r.includes("重评")) return { id: "reeval", label: "待重评" };
   if (r.includes("算分") || r.includes("对齐") || r.includes("就绪"))
     return { id: "pending", label: "待就绪" };
-  if (r.includes("已定方向") || r.includes("等待触价")) return { id: "armed", label: "待触价" };
+  if (r.includes("已定方向") || r.includes("等待确认") || r.includes("等待触价"))
+    return { id: "armed", label: "待确认" };
   return { id: "watch", label: "监视" };
 }
 
@@ -459,7 +475,7 @@ function resolveDeskNote(r) {
   if (r.reason) return r.reason;
   if (r.unlocked_from_skip) return "已解锁，等下一根 5m 重评";
   if (r.legs_written > 0) return `${r.legs_written} 腿已落账`;
-  if (r.direction) return "已定方向，等待触价 / 下一根 5m";
+  if (r.direction) return "已定方向，等待确认根 / 下一根 5m";
   return "等待下一根 5m";
 }
 
@@ -563,7 +579,7 @@ export function renderPaperT0WorkerDesk(el, desk) {
 
   const foot =
     lockedN > 0
-      ? `<p class="paper-t0-desk-foot">终锁票当日不再重评门槛；振幅 / 未触价仍可随 5m 推进。删除后 Worker 可重新监视（不改账本）。</p>`
+      ? `<p class="paper-t0-desk-foot">终锁票当日不再重评门槛；振幅 / 确认根未开仍可随 5m 推进。删除后 Worker 可重新监视（不改账本）。</p>`
       : `<p class="paper-t0-desk-foot">≥11:30 无成交腿一律终锁；有腿票继续盯盘至收盘回补。删除仅去盘中状态。</p>`;
 
   el.innerHTML =

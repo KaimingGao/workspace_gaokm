@@ -305,6 +305,18 @@ def run_buy_leg(state: RebalanceState, *, target_w: Optional[Dict[str, Any]] = N
                 and should_apply_tau_gate(it, tracks_cfg=_tracks_cfg)
             ]
             _tau_floor, _tau_floor_meta = resolve_tau_buy_floor_for_pool(_tau_pool)
+            # 回注 T0 dual_y：与主仓买腿共用有效 τ 门槛（非 breakglass 则清掉旧值）
+            try:
+                t0_rules = paper.setdefault("rules", {}).setdefault("t0", {})
+                if not isinstance(t0_rules, dict):
+                    t0_rules = {}
+                    paper.setdefault("rules", {})["t0"] = t0_rules
+                if str(_tau_floor_meta.get("mode") or "") == "freeze_breakglass":
+                    t0_rules["y_tau_enter_effective"] = float(_tau_floor)
+                else:
+                    t0_rules.pop("y_tau_enter_effective", None)
+            except Exception:  # noqa: BLE001
+                logger.debug("stamp y_tau_enter_effective failed", exc_info=True)
             if str(_tau_floor_meta.get("mode") or "") == "freeze_breakglass":
                 note = str(_tau_floor_meta.get("note") or "τ 试验档：买入闸临时放宽")
                 warns = list(risk_gate.get("warnings") or [])
@@ -316,6 +328,20 @@ def run_buy_leg(state: RebalanceState, *, target_w: Optional[Dict[str, Any]] = N
             logger.warning("resolve_tau_buy_floor_for_pool failed", exc_info=True)
             _tau_floor = None
             _tau_floor_meta = {}
+            try:
+                t0_rules = (paper.get("rules") or {}).get("t0")
+                if isinstance(t0_rules, dict):
+                    t0_rules.pop("y_tau_enter_effective", None)
+            except Exception:  # noqa: BLE001
+                pass
+    else:
+        # 买腿封锁时清掉上一轮 breakglass 回注，避免 T0 误用过期门槛
+        try:
+            t0_rules = (paper.get("rules") or {}).get("t0")
+            if isinstance(t0_rules, dict):
+                t0_rules.pop("y_tau_enter_effective", None)
+        except Exception:  # noqa: BLE001
+            pass
 
         for item in top_items:
             # 分池滞回：账户可暂时多于簿长（中间带未清仓）；买入上限只看「已持目标簿只数」

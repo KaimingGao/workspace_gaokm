@@ -587,91 +587,6 @@ export function formatRemScoreSection(raw) {
   );
 }
 
-function resolveCalNum(raw, key) {
-  if (!raw || raw[key] == null || raw[key] === "") return null;
-  const n = Number(raw[key]);
-  return Number.isFinite(n) ? n : null;
-}
-
-function calibrationActive(raw) {
-  if (raw && raw.score_calibration_applied) return true;
-  return resolveCalNum(raw, "predicted_score_cal") != null;
-}
-
-function calRowHtml(label, value) {
-  if (value == null || !Number.isFinite(Number(value))) return "";
-  const n = Number(value);
-  return `<div class="score-layer-row"><span>${escapeText(
-    label
-  )}</span><span class="num ${signCls(n)}">${escapeText(
-    fmtSigned(n, 3)
-  )}%</span></div>`;
-}
-
-/** Δ = g − ŷ：正=历史上实现偏高（模型偏保守），负=幅度常被夸大。 */
-function calDeltaRowHtml(raw, cal) {
-  const a = Number(raw);
-  const b = Number(cal);
-  if (!Number.isFinite(a) || !Number.isFinite(b)) return "";
-  const d = b - a;
-  const t =
-    Math.abs(d) < 1e-9
-      ? "0"
-      : d > 0
-        ? `+${Math.abs(d).toFixed(3)}`
-        : `−${Math.abs(d).toFixed(3)}`;
-  return `<div class="score-layer-row score-layer-row-delta"><span>Δ(g−ŷ)</span><span class="num ${signCls(
-    d
-  )}">${escapeText(t)}%</span></div>`;
-}
-
-/** eod 列 tip：g(ŷ_EOD) 对涨跌，不含缺口 / τ；对照列出原 ŷ_EOD。
- * @param {object} raw
- * @param {{ calOnly?: boolean }} [opts]
- */
-export function formatCalibrationSection(raw, opts = {}) {
-  if (!calibrationActive(raw)) return "";
-  const calOnly = !!opts.calOnly;
-  const yEod = resolveEodScore(raw);
-  const yEodCal = resolveCalNum(raw, "predicted_score_cal");
-  if (yEodCal == null) return "";
-  const heroTxt = `${fmtSigned(yEodCal, 3)}%`;
-  const rows = [];
-  const yTxt =
-    yEod == null || !Number.isFinite(Number(yEod))
-      ? "—"
-      : `${fmtSigned(Number(yEod), 3)}%`;
-  rows.push(
-    `<div class="score-layer-row"><span>原 ŷ_EOD</span><span class="num ${signCls(
-      yEod
-    )}">${escapeText(yTxt)}</span></div>`
-  );
-  rows.push(calRowHtml("g(ŷ_EOD)", yEodCal));
-  rows.push(calDeltaRowHtml(yEod, yEodCal));
-  const oorHint =
-    raw && raw.score_calibration_eod_oor
-      ? " · ŷ_EOD 落在拟合域外（端点钳制，对照弱）"
-      : "";
-  const softNote =
-    raw && raw.score_calibration_note
-      ? ` · ${String(raw.score_calibration_note).slice(0, 80)}`
-      : "";
-  const title = calOnly ? "eod · g(ŷ_EOD)" : "g(ŷ_EOD)";
-  const hint = calOnly
-    ? `对涨跌（现价对昨收）· 不含缺口 · 不进排序/闸/入簿 · Δ=g−原ŷ${oorHint}${softNote}`
-    : `单调映射 · Δ=g−原ŷ_EOD · 不含缺口 · 排序/闸/入簿仍用原 ŷ${oorHint}${softNote}`;
-  return (
-    `<div class="score-layer score-layer-cal is-on">` +
-    `<div class="score-layer-head">` +
-    `<div class="score-hero-label">${escapeText(title)}</div>` +
-    `<div class="score-hero-value ${signCls(yEodCal)}">${escapeText(heroTxt)}</div>` +
-    `</div>` +
-    `<div class="score-hero-hint">${escapeText(hint)}</div>` +
-    `<div class="score-layer-compose">${rows.join("")}</div>` +
-    `</div>`
-  );
-}
-
 /** nowcast（nc）列 tip：对照昨收，不进决策。 */
 export function formatNowcastSection(raw) {
   const ncN = resolveNowcastCcScore(raw);
@@ -1871,6 +1786,7 @@ export function createScoreTooltipController() {
     tipEl = tip;
     tipAnchor = anchor;
     place(tip, anchor);
+    attachDismiss(tip, anchor, { sticky: false });
     if (typeof onShow === "function") {
       try {
         onShow(anchor, tip);
@@ -1898,9 +1814,10 @@ export function createScoreTooltipController() {
     host.__attrTipKeys.add(key);
     // 兼容旧「单次绑定」检测
     host.dataset.attrTipWired = "1";
-    host.addEventListener("mouseover", (e) => {
+    host.addEventListener("pointerover", (e) => {
       const el = e.target.closest(selector);
       if (!el || !host.contains(el)) return;
+      cancelHide();
       if (tipAnchor === el && tipEl) return;
       let html = "";
       if (typeof buildHtml === "function") {
@@ -1911,21 +1828,20 @@ export function createScoreTooltipController() {
       if (!html) return;
       showHtml(el, html, { className, onShow });
     });
-    host.addEventListener("mouseout", (e) => {
+    host.addEventListener("pointerout", (e) => {
       const from = e.target.closest(selector);
       if (!from) return;
       const to = e.relatedTarget;
       if (to && from.contains(to)) return;
       if (tipEl && to && tipEl.contains(to)) return;
       if (tipEl && tipEl.dataset.sticky === "1") return;
-      hide();
+      scheduleHide();
     });
   }
 
   function resolveScoreTipMode(cell) {
     if (!cell) return "trade";
     const tip = String(cell.dataset.scoreTip || "").trim().toLowerCase();
-    if (tip === "cal" || tip === "calibration") return "cal";
     if (tip === "eod") return "eod";
     if (tip === "nowcast" || tip === "nc") return "nowcast";
     if (tip === "nc_oc") return "nc_oc";
@@ -1934,7 +1850,6 @@ export function createScoreTooltipController() {
     if (tip === "on") return "on";
     if (tip === "trade" || tip === "score") return "trade";
     if (cell.classList.contains("watching-score-eod")) return "eod";
-    if (cell.classList.contains("watching-score-cal")) return "cal";
     if (cell.classList.contains("watching-score-nowcast")) return "nowcast";
     if (cell.classList.contains("watching-score-tau")) return "tau";
     if (cell.classList.contains("watching-score-path")) return "path";
@@ -1990,45 +1905,6 @@ export function createScoreTooltipController() {
         formatFactorWeightsSection(raw),
       ].filter(Boolean);
       showCompactScoreTip(cell, parts.join(""), { sticky });
-      return;
-    }
-
-    // 校准列 tip：只展示 g(*)，不混 ŷ_trade 全栈
-    if (tipMode === "cal") {
-      let calHtml = formatCalibrationSection(raw, { calOnly: true });
-      if (!calHtml) {
-        const soft =
-          raw && raw.score_calibration_note
-            ? String(raw.score_calibration_note).slice(0, 100)
-            : "";
-        const hintParts = [];
-        if (soft) hintParts.push(soft);
-        if (raw && raw.score_calibration_eod_oor) {
-          hintParts.push("ŷ_EOD 落在拟合域外");
-        }
-        if (!hintParts.length) {
-          hintParts.push("暂无映射 · 研究节拟合并写入 live 后，eod 列可读 g(ŷ_EOD)");
-        }
-        calHtml =
-          `<div class="score-layer score-layer-cal is-shadow">` +
-          `<div class="score-layer-head">` +
-          `<div class="score-hero-label">eod · g(ŷ_EOD)</div>` +
-          `<div class="score-hero-value score-flat">—</div>` +
-          `</div>` +
-          `<div class="score-hero-hint">${escapeText(hintParts.join(" · "))}</div>` +
-          `</div>`;
-      }
-      const html = `<div class="score-detail">${calHtml}</div>`;
-      hide();
-      const tip = document.createElement("div");
-      tip.className = "score-tooltip";
-      tip.innerHTML = html;
-      tip.setAttribute("role", "tooltip");
-      document.body.appendChild(tip);
-      tipEl = tip;
-      tipAnchor = cell;
-      place(tip, cell);
-      attachDismiss(tip, cell, { sticky });
       return;
     }
 

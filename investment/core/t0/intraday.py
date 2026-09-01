@@ -130,6 +130,23 @@ def open_t0_leg_rebalance_block(st: Optional[dict]) -> Optional[str]:
     """未平做 T 腿 → 调仓卖出应跳过（正T防打断；反T防重复卖）。"""
     if not isinstance(st, dict):
         return None
+    rounds = st.get("rounds")
+    if isinstance(rounds, dict) and rounds:
+        open_dirs = []
+        for rnd in rounds.values():
+            if not isinstance(rnd, dict):
+                continue
+            ph = str(rnd.get("phase") or "")
+            legs = int(rnd.get("legs_written") or 0)
+            if ph == PHASE_AFTER_LEG1 or (legs > 0 and ph not in (PHASE_DONE, PHASE_SKIPPED)):
+                open_dirs.append(str(rnd.get("direction") or ""))
+        if open_dirs:
+            if all(d == "buy_then_sell" for d in open_dirs):
+                return REBALANCE_T0_BLOCK_BUY_THEN_SELL
+            if all(d == "sell_then_buy" for d in open_dirs):
+                return REBALANCE_T0_BLOCK_SELL_THEN_BUY
+            return "做T未平腿进行中，调仓跳过卖出"
+        return None
     phase = str(st.get("phase") or "").strip().lower()
     if phase in (PHASE_DONE, PHASE_SKIPPED):
         return None
@@ -193,6 +210,41 @@ def holding_t0_intraday_status(st: Optional[dict]) -> Optional[Dict[str, Any]]:
     reason = str(st.get("reason") or snap.get("reason") or wait_reason or "").strip()
 
     dir_label = "正T" if direction == "buy_then_sell" else "反T" if direction == "sell_then_buy" else None
+    rounds = st.get("rounds") if isinstance(st.get("rounds"), dict) else None
+    if rounds:
+        open_n = sum(
+            1
+            for r in rounds.values()
+            if isinstance(r, dict) and str(r.get("phase") or "") == PHASE_AFTER_LEG1
+        )
+        filled = sum(int((r or {}).get("legs_written") or 0) for r in rounds.values() if isinstance(r, dict))
+        n_slots = len(rounds)
+        if open_n:
+            phase_label = f"{open_n}轮未平"
+            title = f"做T {n_slots} 轮独立 · {open_n} 轮待第二腿 · 调仓已跳过卖出"
+            badge = f"多轮·{phase_label}"
+            return {
+                "phase": PHASE_AFTER_LEG1,
+                "direction": direction or None,
+                "legs_written": filled,
+                "label": phase_label,
+                "dir_label": dir_label,
+                "badge": badge,
+                "title": title,
+            }
+        if phase == PHASE_IDLE:
+            title = wait_reason or f"做T {n_slots} 轮独立预估，等待确认根"
+            badge = "多轮·盯"
+            return {
+                "phase": PHASE_IDLE,
+                "direction": direction or None,
+                "legs_written": filled,
+                "label": "盯",
+                "dir_label": dir_label,
+                "badge": badge,
+                "title": title,
+            }
+
     phase_label = {
         PHASE_IDLE: "盯",
         PHASE_AFTER_LEG1: "一腿",
@@ -214,7 +266,7 @@ def holding_t0_intraday_status(st: Optional[dict]) -> Optional[Dict[str, Any]]:
         else:
             title = wait_reason or "已落第一腿，等待第二触达 / 收盘回补"
     else:
-        title = wait_reason or reason or "已定方向，等待触价 / 下一根 5m"
+        title = wait_reason or reason or "已定方向，等待确认 / 下一根 5m"
 
     badge = f"{dir_label}·{phase_label}" if dir_label and phase_label else (phase_label or dir_label)
     if not badge:
@@ -533,6 +585,11 @@ def _retryable_skip(reason: str) -> bool:
             "待反弹",
             "待固定前缀",
             "固定前缀后半",
+            "待确认",
+            "确认根",
+            "待触价",
+            "待搜索窗",
+            "空间用尽",
         )
     )
 
@@ -810,6 +867,12 @@ def _intraday_setup(
     dir_res = dir_res or {}
     direction = str((out or {}).get("direction_used") or dir_res.get("direction") or "")
 
+    def _snap_for_day(day_obj: Optional[dict]) -> Optional[dict]:
+        """优先确认根因果重算分（与回测 _finish 同口径）。"""
+        if isinstance(day_obj, dict) and isinstance(day_obj.get("_t0_score_snap"), dict):
+            return day_obj.pop("_t0_score_snap")
+        return scores
+
     if out is None:
         return _skip_result(
             reason="分钟线不足，无法第一触达",
@@ -821,13 +884,14 @@ def _intraday_setup(
     if out.get("skipped"):
         from core.t0.score_policy import attach_day_scores
 
+        snap = _snap_for_day(out)
         return attach_day_scores(
             {
                 **out,
                 "direction_score": dir_res.get("direction_score"),
                 "direction_reason": dir_res.get("direction_reason"),
             },
-            scores,
+            snap,
             features=dir_res.get("features"),
         )
 
@@ -836,13 +900,14 @@ def _intraday_setup(
     if not trades:
         from core.t0.score_policy import attach_day_scores
 
+        snap = _snap_for_day(day)
         return attach_day_scores(
             {
                 **day,
                 "direction_score": dir_res.get("direction_score"),
                 "direction_reason": dir_res.get("direction_reason"),
             },
-            scores,
+            snap,
             features=dir_res.get("features"),
         )
 
@@ -864,7 +929,8 @@ def _intraday_setup(
             day["must_cover_same_day"] = bool(cover_meta.get("must_cover"))
         from core.t0.score_policy import attach_day_scores
 
-        day = attach_day_scores(day, scores, features=dir_res.get("features"))
+        snap = _snap_for_day(day)
+        day = attach_day_scores(day, snap, features=dir_res.get("features"))
 
     # 增量：只落尚未写入的腿
     return {
@@ -945,6 +1011,249 @@ def _apply_trades_to_paper(
     return legs
 
 
+def _stock_phase_from_rounds(rounds: dict) -> Tuple[str, int, Optional[str]]:
+    """汇总各轮 phase → 股票级 phase / legs / direction。"""
+    if not rounds:
+        return PHASE_IDLE, 0, None
+    legs = 0
+    dirs: List[str] = []
+    phases = []
+    for rnd in rounds.values():
+        if not isinstance(rnd, dict):
+            continue
+        phases.append(str(rnd.get("phase") or PHASE_IDLE))
+        legs += int(rnd.get("legs_written") or 0)
+        d = str(rnd.get("direction") or "")
+        if d:
+            dirs.append(d)
+    if any(p == PHASE_AFTER_LEG1 for p in phases):
+        stock_phase = PHASE_AFTER_LEG1
+    elif phases and all(p == PHASE_SKIPPED for p in phases):
+        stock_phase = PHASE_SKIPPED
+    elif phases and all(p in (PHASE_DONE, PHASE_SKIPPED) for p in phases):
+        stock_phase = PHASE_DONE if legs > 0 else PHASE_SKIPPED
+    else:
+        stock_phase = PHASE_IDLE
+    uniq = list(dict.fromkeys(dirs))
+    direction = uniq[0] if len(uniq) == 1 else ("mixed" if uniq else None)
+    return stock_phase, legs, direction
+
+
+def _process_holding_slots(
+    *,
+    code: str,
+    holding: dict,
+    stock_state: Optional[dict],
+    minute_bars: List[dict],
+    bar: dict,
+    cfg: dict,
+    sellable: float,
+    cash: float,
+    atr_pct: Optional[float],
+    hist_bars: Optional[List[dict]],
+    scores: Optional[dict],
+    stance_code: Optional[str],
+    coupling_mode: str,
+    as_of: str,
+    log_source: str,
+    paper: dict,
+    force_session_close: bool = False,
+) -> Tuple[dict, List[dict], dict]:
+    """多轮独立做 T 盘中增量。"""
+    from core.t0.costs import resolve_t0_cost_context
+    from core.t0.minute_path import _day_ohlc_from_minutes
+    from core.t0.rules import _skip_result, scale_triggers_with_atr
+    from core.t0.slots import simulate_t0_slot, slot_specs
+    from core.t0.score_policy import attach_day_scores, scores_have_any
+
+    st = dict(stock_state or {})
+    name = str(holding.get("stock_name") or st.get("stock_name") or "").strip()
+    if name:
+        st["stock_name"] = name
+
+    if coupling_mode == "skip_if_avoid" and stance_code == "avoid":
+        snap = _skip_result(reason="stance=avoid 跳过做T", shares=float(holding.get("shares") or 0), bar=bar)
+        st["phase"] = PHASE_SKIPPED
+        st["reason"] = snap.get("reason")
+        st["day_snapshot"] = snap
+        return st, [], snap
+    if coupling_mode == "only_if_hold" and stance_code not in (None, "hold", "watch"):
+        snap = _skip_result(
+            reason=f"stance={stance_code} 非持有",
+            shares=float(holding.get("shares") or 0),
+            bar=bar,
+        )
+        st["phase"] = PHASE_SKIPPED
+        st["reason"] = snap.get("reason")
+        st["day_snapshot"] = snap
+        return st, [], snap
+
+    if not minute_bars:
+        st.setdefault("phase", PHASE_IDLE)
+        st["wait_reason"] = "分钟线不足，等待下一根 5m"
+        return st, [], {}
+
+    if str(cfg.get("direction") or "") == "dual_y" and not scores_have_any(scores):
+        st.setdefault("phase", PHASE_IDLE)
+        st["wait_reason"] = "dual_y：即时算分未就绪，等待重试"
+        return st, [], {}
+
+    if st.get("shares_day_start") is None:
+        st["shares_day_start"] = float(holding.get("shares") or 0)
+        st["sellable_day_start"] = float(sellable)
+        st["cash_day_start"] = float(cash)
+    sim_shares = float(st.get("shares_day_start") or 0)
+    sim_sellable = float(st.get("sellable_day_start") if st.get("sellable_day_start") is not None else sellable)
+    sim_cash = float(st.get("cash_day_start") if st.get("cash_day_start") is not None else cash)
+
+    specs = slot_specs(cfg)
+    rounds = st.get("rounds") if isinstance(st.get("rounds"), dict) else {}
+    if not rounds:
+        rounds = {
+            str(s.get("id")): {
+                "phase": PHASE_IDLE,
+                "legs_written": 0,
+                "slot": dict(s),
+            }
+            for s in specs
+            if s.get("id")
+        }
+    lot = int(cfg.get("lot_size") or 100)
+    cost_model, cost_params = resolve_t0_cost_context(paper=paper)
+    scaled = scale_triggers_with_atr(cfg, atr_pct=atr_pct)
+    atr_use = scaled.get("atr_pct") if scaled.get("atr_pct") is not None else atr_pct
+    bar_day = _day_ohlc_from_minutes(minute_bars, bar)
+    cost = float(holding.get("cost") or 0)
+    cfg_day = dict(cfg)
+    cfg_day["sell_trigger_pct"] = float(scaled["sell_trigger_pct"])
+    cfg_day["buy_trigger_pct"] = float(scaled["buy_trigger_pct"])
+
+    reserved = 0.0
+    all_applied: List[dict] = []
+    last_snap: dict = {}
+    for i, spec in enumerate(specs):
+        sid = str(spec.get("id") or "")
+        rnd = dict(rounds.get(sid) or {"phase": PHASE_IDLE, "legs_written": 0, "slot": dict(spec)})
+        ratio = float(spec.get("ratio") or 0.20)
+        slice_qty = float(_t0_qty_from_cfg(sim_shares, ratio, lot, sim_sellable))
+        remain = max(0.0, sim_sellable - reserved)
+        if slice_qty > remain:
+            slice_qty = float(_t0_qty_from_cfg(remain, 1.0, lot, remain))
+        reserved += max(slice_qty, 0.0)
+
+        ph = str(rnd.get("phase") or PHASE_IDLE)
+        if ph in (PHASE_DONE, PHASE_SKIPPED):
+            rounds[sid] = rnd
+            continue
+        if slice_qty < lot:
+            rnd["phase"] = PHASE_SKIPPED
+            rnd["reason"] = "本轮预留不足 1 手"
+            rounds[sid] = rnd
+            continue
+
+        nxt = specs[i + 1] if i + 1 < len(specs) else None
+        out = simulate_t0_slot(
+            slot=spec,
+            next_slot=nxt,
+            minute_bars=minute_bars,
+            bar=bar,
+            shares=sim_shares,
+            cost=cost,
+            sellable_shares=slice_qty,
+            cfg_day=cfg_day,
+            cash=sim_cash,
+            stock_code=code,
+            lot=lot,
+            cost_model=cost_model,
+            cost_params=cost_params,
+            atr_pct=atr_use,
+            hist_bars=hist_bars,
+            score_snap=scores,
+            session_bar=bar_day,
+            defer_eod=not bool(force_session_close),
+        )
+        if isinstance(out.get("_t0_score_snap"), dict):
+            out = dict(out)
+            out.pop("_t0_score_snap", None)
+        direction = str(out.get("direction_used") or rnd.get("direction") or "")
+        if direction:
+            rnd["direction"] = direction
+        trades = list(out.get("trades") or [])
+        written = int(rnd.get("legs_written") or 0)
+        new_trades = trades[written:]
+        path_complete = _roundtrip_complete(out, direction)
+
+        if out.get("pending") or (
+            out.get("skipped") and _retryable_skip(str(out.get("reason") or ""))
+        ):
+            rnd["wait_reason"] = str(out.get("reason") or "")
+            rnd["phase"] = PHASE_AFTER_LEG1 if written > 0 else PHASE_IDLE
+            if out.get("direction_used"):
+                rnd["direction"] = str(out.get("direction_used"))
+            rounds[sid] = rnd
+            last_snap = attach_day_scores(out, scores) if isinstance(out, dict) else out
+            continue
+
+        if out.get("skipped") and not new_trades and written <= 0:
+            rnd["phase"] = PHASE_SKIPPED
+            rnd["reason"] = str(out.get("reason") or "")
+            rnd.pop("wait_reason", None)
+            if _dual_y_threshold_skip(str(out.get("reason") or "")):
+                rnd["score_locked"] = True
+            rounds[sid] = rnd
+            last_snap = out
+            continue
+
+        applied = []
+        if new_trades:
+            applied = _apply_trades_to_paper(
+                paper,
+                holding,
+                new_trades,
+                as_of=as_of,
+                log_source=log_source,
+            )
+            written += len(applied)
+            all_applied.extend(applied)
+        rnd["legs_written"] = written
+        if path_complete and written > 0:
+            rnd["phase"] = PHASE_DONE
+            rnd.pop("wait_reason", None)
+        elif written > 0:
+            rnd["phase"] = PHASE_AFTER_LEG1
+            rnd["wait_reason"] = "已开第一腿，等待第二触达 / 收盘回补"
+        else:
+            rnd["phase"] = PHASE_IDLE
+        rnd["day_snapshot"] = out
+        rounds[sid] = rnd
+        last_snap = out
+
+    st["rounds"] = rounds
+    stock_phase, legs_total, direction = _stock_phase_from_rounds(rounds)
+    st["phase"] = stock_phase
+    st["legs_written"] = legs_total
+    if direction:
+        st["direction"] = direction
+    if minute_bars:
+        st["last_bar_ts"] = _bar_ts(minute_bars[-1])
+    merged = last_snap if isinstance(last_snap, dict) else {}
+    if all_applied or merged:
+        st["day_snapshot"] = {
+            **merged,
+            "stock_code": code,
+            "stock_name": holding.get("stock_name"),
+            "trades": list((merged.get("trades") or [])[:legs_total]) if merged.get("trades") else all_applied,
+            "t0_slots_enabled": True,
+        }
+    return st, all_applied, st.get("day_snapshot") or {}
+
+
+def _t0_qty_from_cfg(shares: float, ratio: float, lot: int, sellable: float) -> int:
+    from core.t0.rules import _t0_qty_lots
+
+    return int(_t0_qty_lots(shares, ratio, lot, sellable))
+
+
 def process_holding_intraday(
     *,
     code: str,
@@ -968,6 +1277,29 @@ def process_holding_intraday(
     force_session_close: bool = False,
 ) -> Tuple[dict, List[dict], dict]:
     """返回 (new_stock_state, new_trades, day_snapshot)。"""
+    from core.t0.config import t0_slots_enabled
+
+    if t0_slots_enabled(cfg):
+        return _process_holding_slots(
+            code=code,
+            holding=holding,
+            stock_state=stock_state,
+            minute_bars=minute_bars,
+            bar=bar,
+            cfg=cfg,
+            sellable=sellable,
+            cash=cash,
+            atr_pct=atr_pct,
+            hist_bars=hist_bars,
+            scores=scores,
+            stance_code=stance_code,
+            coupling_mode=coupling_mode,
+            as_of=as_of,
+            log_source=log_source,
+            paper=paper,
+            force_session_close=bool(force_session_close),
+        )
+
     st = dict(stock_state or {})
     phase = str(st.get("phase") or PHASE_IDLE)
     last_ts = str(st.get("last_bar_ts") or "")
@@ -1080,7 +1412,7 @@ def process_holding_intraday(
             st["wait_reason"] = "已开第一腿，等待第二触达 / 收盘回补"
         else:
             st["phase"] = PHASE_IDLE
-            st["wait_reason"] = "已定方向，等待触价 / 下一根 5m"
+            st["wait_reason"] = "已定方向，等待确认 / 下一根 5m"
         if day_result:
             st["day_snapshot"] = {
                 **day_result,

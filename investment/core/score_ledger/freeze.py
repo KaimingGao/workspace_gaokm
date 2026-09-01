@@ -324,8 +324,11 @@ def freeze_from_daily_report(
         if isinstance(r, dict):
             rows.append(r)
     if not rows:
-        # 仍尝试刷书（走因子截止解析）
-        return freeze_from_cluster_book(as_of=d_hint)
+        return {
+            "success": False,
+            "n_rows": 0,
+            "error": "日报无 book_top / cross_section",
+        }
     codes = [
         str(r.get("stock_code") or r.get("code") or "").strip()
         for r in rows

@@ -118,7 +118,8 @@ class SignalService:
             from core.signal.dual_score import align_trade_score_fields
 
             packed.update(self.book_fields(packed))
-            align_trade_score_fields(packed, write_score=False)
+            # 保留 score_one 的 PIT dual_score_window，勿用无行情时钟覆盖
+            align_trade_score_fields(packed, write_score=False, refresh_window=False)
         except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
             logger.debug("catch except Exception: in service.py", exc_info=True)
             pass

@@ -52,8 +52,13 @@ class PaperAccountMixin:
 
             log = logging.getLogger(__name__)
             svc = get_default_signal_service()
-            rules = paper.get("rules") or {}
-            horizon = max(1, min(int(rules.get("horizon_days") or 3), 3))
+            try:
+                from core.signal.config import get_scoring_horizon_days
+
+                horizon = int(get_scoring_horizon_days())
+            except Exception:  # noqa: BLE001
+                log.debug("get_scoring_horizon_days failed", exc_info=True)
+                horizon = 1
             gate = selection_min_score(paper)
 
             def _pack_item(item: dict, *, cluster_mode=None) -> Dict[str, Any]:

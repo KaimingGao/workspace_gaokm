@@ -632,7 +632,7 @@ def _rebalance_report_from_legs(
             if (code in sell_by or code in skip_by)
             else False,
         }
-        # tip / 校准列：从打分行透传（book 已含 *_cal；缺则现场补 g）
+        # tip：从打分行透传 book_fields
         try:
             from core.signal.service import get_default_signal_service
 
@@ -663,49 +663,7 @@ def _rebalance_report_from_legs(
                 ) == "heuristic_0_100"
         except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
             logger.debug("catch except Exception: in paper_trades.py", exc_info=True)
-            # book_fields 整段失败时仍尽量补校准对照列
-            try:
-                from core.signal.score_calibration import (
-                    attach_calibrated_scores,
-                    load_calibration_model,
-                )
-
-                src = dict(rank_row) if isinstance(rank_row, dict) else {}
-                sc = score_by.get(code)
-                if sc is not None:
-                    src.setdefault("score", sc)
-                    src.setdefault("predicted_score", sc)
-                attach_calibrated_scores(
-                    src, model_doc=load_calibration_model(), force=True
-                )
-                for k in (
-                    "predicted_score_cal",
-                    "predicted_score_eod_rem_cal",
-                    "predicted_score_tau_cal",
-                    "predicted_score_blend_cal",
-                    "score_calibration_applied",
-                    "score_calibration_enabled",
-                    "score_calibration_eod_oor",
-                    "score_calibration_eod_rem_oor",
-                    "score_calibration_tau_oor",
-                    "score_calibration_note",
-                    "score_calibration_partial",
-                    "predicted_score_eod",
-                    "predicted_score_eod_rem",
-                    "predicted_score_tau",
-                    "predicted_score_blend",
-                    "predicted_score_nowcast",
-                    "nowcast_vs",
-                    "nowcast_as_of",
-                    "nowcast_K",
-                    "nowcast_q",
-                    "nowcast_x_prior",
-                ):
-                    if k in src:
-                        row_out[k] = src.get(k)
-            except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-                logger.debug("catch except Exception: in paper_trades.py", exc_info=True)
-                pass
+            pass
         rows.append(row_out)
     def _sort_key(row: dict) -> tuple:
         # 预演调仓：按分数降序；同分时买卖优先于持有
@@ -1203,6 +1161,7 @@ class PaperTradesMixin:
         period = str(eff_t0.get("minute_period") or "5")
 
         # 与 Worker 一致：按当前交易会话对齐日线/分钟，禁止用未滚日的 bars[-1] 当今日
+        _now = None
         try:
             from core.market.calendar import resolve_session_date
             from core.signal.session_pit import asof_session_final, shanghai_now
@@ -1219,6 +1178,7 @@ class PaperTradesMixin:
             session_date = None
             in_market = False
             session_closed = True
+            _now = None
         # 盘中整单：defer 收盘回补；收盘后/休市：允许 eod（与 Worker force_session_close 对齐）
         defer_eod = bool(in_market) and not session_closed
 
@@ -1234,6 +1194,8 @@ class PaperTradesMixin:
                 from core.ports.market import fetch_minute_bars, group_minute_bars_by_date
 
                 if dry_run:
+                    # 预演：先读本地仓；会话日缺 K / 明显落后盘面（如只到 10:00）则现场补拉，
+                    # 与持仓涨跌 tip、按钮文案「不足可现场拉」一致。
                     from core.ports.market import resolve_market_code
                     from skills.common.minute_history import load_minute_cache
 
@@ -1245,9 +1207,40 @@ class PaperTradesMixin:
                         if market and bare
                         else None
                     )
-                    if cached:
-                        mbars, _meta = cached
-                        by_day = group_minute_bars_by_date(mbars) if mbars else {}
+                    mbars = list(cached[0]) if cached else []
+                    by_day = group_minute_bars_by_date(mbars) if mbars else {}
+                    day_key = str(session_date or "")[:10]
+                    day_bars = list(by_day.get(day_key) or []) if day_key else []
+                    need_fetch = not bool(day_bars)
+                    if not need_fetch and day_key:
+                        try:
+                            from core.signal.tail_anomaly_view import (
+                                _session_day_needs_refresh,
+                            )
+
+                            need_fetch = bool(
+                                _session_day_needs_refresh(
+                                    day_bars,
+                                    session_asof=day_key,
+                                    now=_now,
+                                )
+                            )
+                        except Exception:  # noqa: BLE001
+                            logger.debug(
+                                "preview minute freshness check failed %s",
+                                code,
+                                exc_info=True,
+                            )
+                    if need_fetch:
+                        fresh, _mmeta = fetch_minute_bars(
+                            code,
+                            period=period,
+                            lookback_days=10,
+                            use_cache=False,
+                            max_age_hours=0.01,
+                        )
+                        if fresh:
+                            by_day = group_minute_bars_by_date(fresh)
                 else:
                     mbars, _mmeta = fetch_minute_bars(
                         code,
@@ -1417,7 +1410,7 @@ class PaperTradesMixin:
             if miss:
                 result["minute_cache_miss"] = miss
                 note = str(result.get("note") or "").strip()
-                hint = f"预演仅用本地分钟缓存，{miss} 只缺缓存已按跳过处理"
+                hint = f"预演补拉后仍缺 5m · {miss} 只已跳过"
                 result["note"] = f"{note} · {hint}" if note else hint
             return {"ok": True, **result}
 
@@ -1784,8 +1777,14 @@ class PaperTradesMixin:
                 st0 = stock_states.get(code) if isinstance(stock_states.get(code), dict) else {}
                 if not force_session_close and str(st0.get("phase") or "") in ("done", "skipped"):
                     continue
-                # ≥11:30：无成交腿一律终锁（不再等下午触价）
-                if force_dual_y_gate and needs_midday_dual_y_gate(st0):
+                # ≥11:30：单轮模式下无成交腿终锁；多轮槽位 11:30 仍要开末轮
+                from core.t0.config import t0_slots_enabled
+
+                if (
+                    force_dual_y_gate
+                    and needs_midday_dual_y_gate(st0)
+                    and not t0_slots_enabled(eff_t0)
+                ):
                     stock_states[code] = lock_zero_legs_after_morning(
                         code=code,
                         holding=h,

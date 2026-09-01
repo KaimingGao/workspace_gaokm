@@ -21,12 +21,69 @@ T0_BT_VIRTUAL_CASH = 2_000_000.0
 
 # 仅「本地无分钟缓存」才打远端；东财偶发挂死，回测走 BaoStock 并设短超时。
 _MINUTE_FETCH_TIMEOUT_SEC = 12.0
+# A股全日约 48 根 5m；≥40 或末根≥14:55 视为齐窗（缺尾缓存会触发补拉）
+_MINUTE_SESSION_MIN_BARS = 40
+_MINUTE_SESSION_END_HM = (14, 55)
 # 前端 fetch 180s 会 abort；整批须在此前返回（部分成功也好过整页超时）。
 _HOLDINGS_DEADLINE_SEC = 150.0
 _QUOTE_TIMEOUT_SEC = 4.0
 
-_T = TypeVar("_T")
 
+def _minute_bar_hm(bar: Any) -> Optional[Tuple[int, int]]:
+    if not isinstance(bar, dict):
+        return None
+    ts = bar.get("datetime") or bar.get("time") or bar.get("date")
+    s = str(ts or "").strip()
+    if len(s) >= 16 and s[13:15].isdigit():
+        try:
+            return int(s[11:13]), int(s[14:16])
+        except ValueError:
+            return None
+    if ":" in s:
+        parts = s.replace("T", " ").split()[-1].split(":")
+        if len(parts) >= 2:
+            try:
+                return int(parts[0]), int(parts[1])
+            except ValueError:
+                return None
+    return None
+
+
+def _minute_day_complete(minute_bars: Optional[List[dict]]) -> bool:
+    """历史交易日 5m 是否齐到收盘窗（末根≥14:55 或根数≥40）。"""
+    rows = [b for b in (minute_bars or []) if isinstance(b, dict)]
+    if len(rows) < 2:
+        return False
+    if len(rows) >= int(_MINUTE_SESSION_MIN_BARS):
+        return True
+    hm = _minute_bar_hm(rows[-1])
+    if not hm:
+        return False
+    end_h, end_m = _MINUTE_SESSION_END_HM
+    return hm[0] > end_h or (hm[0] == end_h and hm[1] >= end_m)
+
+
+def _local_has_truncated_history(
+    by_date: Dict[str, List[dict]],
+    *,
+    today: Optional[str] = None,
+) -> bool:
+    """本地缓存是否含「历史缺尾日」（当日盘中未齐不算）。"""
+    day0 = str(today or "").strip()[:10]
+    if not day0:
+        from datetime import date as _date
+
+        day0 = _date.today().isoformat()
+    for d, ms in (by_date or {}).items():
+        ds = str(d or "").strip()[:10]
+        if not ds or ds >= day0:
+            continue
+        if not _minute_day_complete(ms if isinstance(ms, list) else []):
+            return True
+    return False
+
+
+_T = TypeVar("_T")
 
 # 回测响应 rules / execution.t0 与纸面 ExecutionSpec 对齐的字段
 _BT_RULES_VIEW_KEYS = (
@@ -64,7 +121,6 @@ _BT_RULES_VIEW_KEYS = (
     "y_on_allow",
     "y_on_risk",
     "y_block_tau_nowcast_sign",
-    "y_tau_nowcast_sign_eps",
     "y_nc_enter",
     "y_nc_strong",
     "y_nowcast_enter",
@@ -82,6 +138,8 @@ _BT_RULES_VIEW_KEYS = (
     "y_prefix_segment_enabled",
     "y_prefix_segment_enabled_sell_then_buy",
     "y_prefix_segment_enabled_buy_then_sell",
+    "y_prefix_vs_path_skip",
+    "y_prefix_vs_path_mult",
     "t0_pm_degrade",
     "t0_pm_degrade_sell_then_buy",
     "t0_pm_degrade_buy_then_sell",
@@ -92,9 +150,10 @@ _BT_RULES_VIEW_KEYS = (
     "t0_stop_pct_sell_then_buy",
     "t0_stop_arm_bars",
     "t0_stop_on_close",
+    "t0_slots_enabled",
+    "t0_slots",
     "y_ratio_cut",
     "y_ratio_boost_cap",
-    "y_ratio_tau_soft_band",
     "y_score_source",
 )
 
@@ -187,22 +246,25 @@ def _fetch_minute_by_date(
 ) -> Tuple[Dict[str, List[dict]], Dict[str, Any]]:
     """返回 (minute_by_date, meta)；失败则 ({}, meta)。
 
-    先用本地缓存（含过期）；无缓存才短超时拉远端（跳过东财，避免 ak_lock 挂死
-    把整次「做T回测」拖过前端 180s abort）。
+    先用本地缓存（含过期）。无缓存、或历史日明显缺尾（如只到午前）时短超时补拉；
+    跳过东财，避免 ak_lock 挂死把整次「做T回测」拖过前端 180s abort。
     """
     by_date, meta = _local_minute_by_date(code, period)
-    if by_date:
+    truncated = bool(by_date) and _local_has_truncated_history(by_date)
+    if by_date and not truncated:
         return by_date, meta
     try:
         from core.ports.market import fetch_minute_bars, group_minute_bars_by_date
 
         def _load():
+            # 缺尾补拉与持仓涨跌 tip 同口径：use_cache=False，避免再读回残缺仓
             return fetch_minute_bars(
                 code,
                 period=period,
                 lookback_days=lookback_days,
-                use_cache=True,
+                use_cache=not truncated,
                 skip_em=True,
+                max_age_hours=0.01 if truncated else 48.0,
             )
 
         try:
@@ -210,6 +272,11 @@ def _fetch_minute_by_date(
                 _load, max(1.0, float(timeout_sec or 5.0))
             )
         except TimeoutError:
+            if by_date:
+                out = dict(meta or {})
+                out["truncated_days"] = True
+                out["hint"] = "本地 5m 有缺尾日且补拉超时，仍用残缺缓存"
+                return by_date, out
             return {}, {
                 "ok": False,
                 "error": f"minute fetch timeout ({timeout_sec}s)",
@@ -217,12 +284,44 @@ def _fetch_minute_by_date(
                 "hint": "无本地 5m 缓存；请先在研究页预热分钟线",
             }
         if not bars:
+            if by_date:
+                out = dict(meta or {})
+                out["truncated_days"] = True
+                out["hint"] = "本地 5m 有缺尾日且补拉无数据，仍用残缺缓存"
+                out.setdefault("error", (remote_meta or {}).get("error") or "无分钟 K")
+                return by_date, out
             out_meta = dict(remote_meta or {"ok": False})
             out_meta.setdefault("error", "无分钟 K")
             return {}, out_meta
-        return group_minute_bars_by_date(bars), remote_meta
+        remote_by = group_minute_bars_by_date(bars)
+        if not by_date:
+            return remote_by, remote_meta
+        # 合并：缺尾日优先用更长/更齐的远端；其余保留本地
+        merged = {str(k): list(v) for k, v in by_date.items() if isinstance(v, list)}
+        replaced = 0
+        for d, ms in (remote_by or {}).items():
+            key = str(d)
+            rows = list(ms) if isinstance(ms, list) else []
+            loc = merged.get(key) or []
+            if (not loc) or len(rows) > len(loc) or (
+                _minute_day_complete(rows) and not _minute_day_complete(loc)
+            ):
+                if loc and rows != loc:
+                    replaced += 1
+                merged[key] = rows
+        out_meta = dict(remote_meta or {})
+        out_meta["refreshed_truncated"] = True
+        out_meta["replaced_days"] = replaced
+        out_meta["from_cache"] = False
+        out_meta["period"] = period
+        return merged, out_meta
     except Exception as e:
         logger.exception("unexpected error in _fetch_minute_by_date")
+        if by_date:
+            out = dict(meta or {})
+            out["truncated_days"] = True
+            out["error"] = str(e)
+            return by_date, out
         return {}, {"ok": False, "error": str(e), "period": period}
 
 
@@ -250,16 +349,21 @@ def _align_daily_bars_to_minute(
 ) -> Tuple[List[dict], Dict[str, Any]]:
     """日线窗口对齐到「有可用 5m」的交易日，避免缓存偏短时大量缺分钟跳过冲掉样本。
 
-    东财分钟拉取失败、仅剩过期局部缓存时，日线 lookback 往往更长；不对齐则
-    missing_minute≈一半、成交为 0，UI 无法解读策略。有分钟日 ≥2 根才保留。
+    优先保留齐窗日（末根≥14:55 / 根数≥40）；齐窗不足 2 日时回退到 ≥2 根。
     """
     if not bars or not minute_by_date:
         return list(bars or []), {"aligned": False}
-    usable = {
+    complete = {
         str(d)
         for d, ms in minute_by_date.items()
-        if ms and len(ms) >= 2
+        if _minute_day_complete(ms if isinstance(ms, list) else [])
     }
+    any_usable = {
+        str(d)
+        for d, ms in minute_by_date.items()
+        if isinstance(ms, list) and len(ms) >= 2
+    }
+    usable = complete if len(complete) >= 2 else any_usable
     if not usable:
         return list(bars), {"aligned": False, "reason": "no_usable_minute_days"}
     aligned = [b for b in bars if str(b.get("date") or "") in usable]
@@ -270,11 +374,12 @@ def _align_daily_bars_to_minute(
         "bars_before": len(bars),
         "bars_after": len(aligned),
         "minute_days": len(usable),
+        "complete_minute_days": len(complete),
+        "prefer_complete": usable is complete or usable == complete,
         "date_min": aligned[0].get("date"),
         "date_max": aligned[-1].get("date"),
     }
     return aligned, meta
-
 
 def run_t0_backtest_for_code(
     code: str = "茅台",
@@ -404,6 +509,13 @@ def run_t0_backtest_for_code(
         require_minute=True,
         tau_pool_by_date=tau_pool,
     )
+    try:
+        from core.t0.costs import default_t0_research_cost_config, resolve_t0_cost_context
+
+        _cm, _ = resolve_t0_cost_context(cost_config=default_t0_research_cost_config())
+        report["cost_model"] = _cm
+    except Exception:  # noqa: BLE001
+        pass
     report["data_source"] = src
     report["stock_name"] = (
         (quote.get("stock_name") if quote.get("success") else None) or stock_name
@@ -616,6 +728,7 @@ def run_t0_backtest_for_holdings(
     signal_skip_days = sum(int(x.get("signal_skip_days") or 0) for x in ok)
     sell_then_buy_days = sum(int(x.get("sell_then_buy_days") or 0) for x in ok)
     buy_then_sell_days = sum(int(x.get("buy_then_sell_days") or 0) for x in ok)
+    mixed_days = sum(int(x.get("mixed_days") or 0) for x in ok)
     uncover_days = sum(int(x.get("uncover_days") or 0) for x in ok)
     win_days = sum(int(x.get("t0_win_days") or 0) for x in ok)
     loss_days = sum(int(x.get("t0_loss_days") or 0) for x in ok)
@@ -704,6 +817,7 @@ def run_t0_backtest_for_holdings(
         "signal_skip_days": signal_skip_days,
         "sell_then_buy_days": sell_then_buy_days,
         "buy_then_sell_days": buy_then_sell_days,
+        "mixed_days": mixed_days,
         "sell_then_buy_pnl": round(sell_then_buy_pnl, 2),
         "buy_then_sell_pnl": round(buy_then_sell_pnl, 2),
         "sell_then_buy_cover_days": sell_then_buy_cover,

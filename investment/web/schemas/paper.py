@@ -40,7 +40,7 @@ class PaperRebalanceRequest(BaseModel):
     )
     offline_only: bool = Field(
         default=True,
-        description="true=日线/分钟/指数只用本地仓；false=允许补远端（与数据中心开关同源）",
+        description="true=日线/分钟/指数只用本地仓；UI 恒传 true（可拉远端先走增量补齐写仓）",
     )
     strategy: Optional[str] = Field(
         default=None,
@@ -106,10 +106,10 @@ class T0BacktestRequest(BaseModel):
         description="已废弃于 dual_y；仅旧 signal 选向 |score| 门槛（约 ±1），默认 0.35",
     )
     min_range_pct: Optional[float] = Field(
-        default=None, ge=0.1, le=30.0, description="振幅下限%兜底；空=自动"
+        default=None, ge=0.0, le=30.0, description="已下线：振幅下限%（0=关）"
     )
-    min_range_pct_sell_then_buy: Optional[float] = Field(default=None, ge=0.1, le=30.0)
-    min_range_pct_buy_then_sell: Optional[float] = Field(default=None, ge=0.1, le=30.0)
+    min_range_pct_sell_then_buy: Optional[float] = Field(default=None, ge=0.0, le=30.0)
+    min_range_pct_buy_then_sell: Optional[float] = Field(default=None, ge=0.0, le=30.0)
     compare_optimistic: bool = True
     use_minute: bool = True
     compare_daily: bool = False  # 已废弃：日线模拟已删除
@@ -257,13 +257,13 @@ class T0BacktestRequest(BaseModel):
     )
     y_prefix_vs_path_skip: Optional[bool] = Field(
         default=None,
-        description="前缀窗(H−L)/ref% > |ŷ_path| 则跳过当日做T",
+        description="前缀窗(H−L)/ref% > |ŷ_path|×mult 则跳过当日做T",
     )
-    y_tau_entry_price_mult: Optional[float] = Field(
+    y_prefix_vs_path_mult: Optional[float] = Field(
         default=None,
-        ge=0.0,
-        le=50.0,
-        description="固定前缀确认根：允许带宽=|ŷ_τ|%×倍数（越大越松；正T买上限/反T卖下限）；0=关",
+        ge=0.5,
+        le=5.0,
+        description="空间裕度：阈值=|ŷ_path|×本值；默认1；>1放宽、<1收紧",
     )
     t0_pm_degrade: Optional[str] = Field(
         default=None,
@@ -440,7 +440,7 @@ class PaperExecutionPatchRequest(BaseModel):
     y_prefix_upbar_ratio_buy_then_sell: Optional[float] = None
     y_prefix_downbar_ratio_sell_then_buy: Optional[float] = None
     y_prefix_vs_path_skip: Optional[bool] = None
-    y_tau_entry_price_mult: Optional[float] = None
+    y_prefix_vs_path_mult: Optional[float] = None
     y_score_source: Optional[str] = Field(
         default=None, max_length=24, description="compute|live_book|ledger"
     )

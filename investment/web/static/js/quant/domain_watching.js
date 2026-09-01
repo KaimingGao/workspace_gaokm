@@ -1,6 +1,7 @@
 import { apiFetch } from "../api_client.js";
 import { getDataOfflineOnly, installDataOfflineToggle, offlineOnlyQuery } from "../data_offline.js";
-import { scoresPolicyLine } from "../data_policy.js?v=p1734";
+import { scoresPolicyLine } from "../data_policy.js?v=p1736";
+import { ensureWarehouseTopup } from "../data_warehouse_topup.js";
 import { renderLineChart } from "../lw_charts.js";
 import { syncOverviewUniverse } from "./factor_corr_ui.js";
 import { mountVirtualTable, colStyle } from "../virtual_table.js";
@@ -84,25 +85,50 @@ export function installWatching(q) {
     }
   } catch (_) { /* ignore */ }
 
-  installDataOfflineToggle(document.getElementById("watching-data-offline"), {
-    onChange: () => {
-      const meta = document.getElementById("watching-page-meta");
-      if (meta) {
-        meta.textContent = `观察池 · ${scoresPolicyLine(getDataOfflineOnly())} · 日K/5m 在研究枢纽`;
-      }
-      try {
-        fillWatchingInsights();
-      } catch (_) {
-        /* fill may not be ready on first tick */
-      }
-    },
-  });
-  {
+  function syncWatchingDataPolicyMeta() {
     const meta = document.getElementById("watching-page-meta");
     if (meta) {
-      meta.textContent = `观察池 · ${scoresPolicyLine(getDataOfflineOnly())} · 日K/5m 在研究枢纽`;
+      meta.textContent = `观察池 · ${scoresPolicyLine(getDataOfflineOnly())} · 写仓=增量补齐`;
     }
   }
+
+  async function prepareWatchingWarehouse({ force = false } = {}) {
+    if (getDataOfflineOnly()) return { ok: true, skipped: true };
+    try {
+      return await ensureWarehouseTopup({
+        force,
+        watchingLimit: 100,
+        onStatus: (msg) =>
+          setWatchingRefreshStatus(msg || "增量补齐本地仓…", {
+            busy: true,
+            owner: "insights",
+          }),
+      });
+    } catch (err) {
+      const msg = String((err && err.message) || err || "增量补齐失败");
+      setWatchingRefreshStatus(msg, { error: true, owner: "insights" });
+      throw err;
+    }
+  }
+
+  installDataOfflineToggle(document.getElementById("watching-data-offline"), {
+    onChange: (offlineOnly) => {
+      syncWatchingDataPolicyMeta();
+      (async () => {
+        try {
+          if (!offlineOnly) await prepareWatchingWarehouse({ force: true });
+        } catch (_) {
+          /* status already set */
+        }
+        try {
+          fillWatchingInsights();
+        } catch (_) {
+          /* fill may not be ready on first tick */
+        }
+      })();
+    },
+  });
+  syncWatchingDataPolicyMeta();
 
   function collectWatchingYhatItems() {
     const insightBy = state.watchingInsightByCode || {};
@@ -573,6 +599,14 @@ export function installWatching(q) {
     // 每批单独超时（对齐后端 batch≈90s）；勿用总时钟，否则 100 票 3 批必触发「摘要超时」
     const chunkTimeoutMs = 95000;
     const insightDeps = { fmtScore, scoreCls, parseWatchingVolume, watchingScoreDetail };
+    setWatchingRefreshStatus("正在加载评分…", { busy: true, owner: "insights" });
+    try {
+      await prepareWatchingWarehouse({ force: false });
+      if (gen !== state.watchingInsightsGen) return;
+    } catch (_) {
+      if (gen !== state.watchingInsightsGen) return;
+      /* 增量失败仍尝试只读现算，便于对照缺仓票 */
+    }
     setWatchingRefreshStatus("正在加载评分…", { busy: true, owner: "insights" });
 
     const applyInsightItems = (items) => {

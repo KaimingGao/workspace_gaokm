@@ -76,7 +76,7 @@ DEFAULT_SIGNAL_CONFIG: Dict[str, Any] = {
         # 滞回：买入/入簿 ŷ≥+1%；卖出仅 ŷ<-1%；中间带持有不因未进簿清仓
         "min_predicted_score": 1.0,
         "min_hold_predicted_score": -1.0,
-        # 有 live knots 时 tip/校准列可读 g；此标志仅镜像存在性（非决策开关）
+        # 校准层已下线；标志仅兼容旧配置，不进决策
         "enable_calibration": False,
         "horizon_days": 1,
     },
@@ -98,7 +98,7 @@ DEFAULT_SIGNAL_CONFIG: Dict[str, Any] = {
         "enable_tau_shadow_book": False,
         "enable_minute_tau": False,
         "minute_tau_hm": "10:30",
-        "minute_tau_grid": ["09:45", "10:00", "10:15", "10:30"],
+        "minute_tau_grid": ["09:30", "10:00", "10:30", "11:00", "11:30"],
         "nowcast": {
             "enabled": False,
             "write_shadow": False,

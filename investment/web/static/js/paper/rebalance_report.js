@@ -238,7 +238,7 @@ function renderRebalanceReport(
       cashImpact.min_cash_pct != null &&
       Number(cashImpact.min_cash_pct) > 0
     ) {
-      note += ` · 现金底仓≥${Number(cashImpact.min_cash_pct)}%（正T低吸）`;
+      note += ` · 现金底仓≥${Number(cashImpact.min_cash_pct)}%（正T加仓）`;
     }
     const tauGate = dualScore && dualScore.tau_gate;
     if (
@@ -566,17 +566,6 @@ function renderRebalanceReport(
       predicted_score_eod_rem: r.predicted_score_eod_rem,
       predicted_score_tau_delta: r.predicted_score_tau_delta,
       dual_score_window: r.dual_score_window || null,
-      predicted_score_cal: r.predicted_score_cal,
-      predicted_score_eod_rem_cal: r.predicted_score_eod_rem_cal,
-      predicted_score_tau_cal: r.predicted_score_tau_cal,
-      predicted_score_blend_cal: r.predicted_score_blend_cal,
-      score_calibration_applied: !!r.score_calibration_applied,
-      score_calibration_enabled: !!r.score_calibration_enabled,
-      score_calibration_eod_oor: !!r.score_calibration_eod_oor,
-      score_calibration_eod_rem_oor: !!r.score_calibration_eod_rem_oor,
-      score_calibration_tau_oor: !!r.score_calibration_tau_oor,
-      score_calibration_note: r.score_calibration_note || null,
-      score_calibration_partial: r.score_calibration_partial || null,
       realized_t1_to_tau: r.realized_t1_to_tau,
       y_spec_tau: r.y_spec_tau,
       features_tau: r.features_tau,
@@ -606,12 +595,6 @@ function renderRebalanceReport(
   }
 
   function buildScoreDetail(r) {
-    const hasCal =
-      r.predicted_score_cal != null ||
-      r.predicted_score_eod_rem_cal != null ||
-      r.predicted_score_tau_cal != null ||
-      r.predicted_score_blend_cal != null ||
-      r.score_calibration_note;
     if (
       !r.reasons &&
       !r.score_formula &&
@@ -620,8 +603,7 @@ function renderRebalanceReport(
       !r.cluster_label &&
       !r.return_model_source &&
       !(r.factor_coefficients && Object.keys(r.factor_coefficients || {}).length) &&
-      !(r.score_formula_terms && (r.score_formula_terms.terms || []).length) &&
-      !hasCal
+      !(r.score_formula_terms && (r.score_formula_terms.terms || []).length)
     ) {
       return '<div class="score-detail-empty">无评分详情</div>';
     }
@@ -1061,7 +1043,7 @@ function renderRebalanceReport(
   });
 
   scoreTips.bindHost(container, {
-    scoreSelector: ".rebalance-score[data-score-detail], .rebalance-score-cal[data-score-detail]",
+    scoreSelector: ".rebalance-score[data-score-detail]",
   });
 
   section.hidden = false;

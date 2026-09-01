@@ -26,13 +26,14 @@ def dual_score_book_fields(item: Optional[dict]) -> Dict[str, Any]:
     ``dual_score_fusion`` / ``dual_score_weights`` 一律用当前配置，
     避免簿内旧戳（如 f1 / 旧 w_*）误导 tip。
     旧簿无 ``formula_terms_tau`` 时现场补全组成表。
-    返回前对齐 ŷ_trade（修 eod_next 塌成 EOD 的旧 blend），再挂校准 g。
+    返回前对齐 ŷ_trade（修 eod_next 塌成 EOD 的旧 blend）。
     """
     if not isinstance(item, dict):
         return {}
     work = dict(item)
     try:
-        align_trade_score_fields(work, write_score=False)
+        # 调用方多为刚算完的 signal_item；保留 PIT window，勿时钟误刷
+        align_trade_score_fields(work, write_score=False, refresh_window=False)
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
         logger.debug("catch except Exception: in dual_score.py", exc_info=True)
         pass
@@ -81,27 +82,6 @@ def dual_score_book_fields(item: Optional[dict]) -> Dict[str, Any]:
     fill = work.get("features_tau_fill")
     if not isinstance(fill, dict):
         fill = features_tau_fill_diag(work.get("features_tau"))
-    # tip：有 live 模型就补 g(ŷ) 对照（force）；排序/买卖闸始终用 raw
-    cal_applied = False
-    cal_enabled = False
-    try:
-        from core.signal.score_calibration import (
-            attach_calibrated_scores,
-            calibration_enabled,
-            load_calibration_model,
-        )
-
-        live = load_calibration_model()
-        cal_enabled = calibration_enabled(model_doc=live)
-        if isinstance(live, dict) and isinstance(live.get("heads"), dict):
-            # 在已对齐的 ŷ_trade 上挂 g，避免 tip 校准列仍对塌缩 EOD
-            attach_calibrated_scores(work, model_doc=live, force=True)
-        cal_applied = bool(work.get("score_calibration_applied"))
-        cal_enabled = bool(work.get("score_calibration_enabled", cal_enabled))
-    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in dual_score.py", exc_info=True)
-        cal_applied = bool(work.get("score_calibration_applied"))
-        cal_enabled = bool(work.get("score_calibration_enabled"))
     # 权重优先簿内已算（含 theme/variance）；缺则用当前配置
     return {
         "predicted_score_eod": work.get("predicted_score_eod", work.get("predicted_score")),
@@ -120,17 +100,6 @@ def dual_score_book_fields(item: Optional[dict]) -> Dict[str, Any]:
         "nowcast_x_prior": work.get("nowcast_x_prior"),
         "nowcast_q": work.get("nowcast_q"),
         "nowcast_revisions": work.get("nowcast_revisions"),
-        "predicted_score_cal": work.get("predicted_score_cal"),
-        "predicted_score_eod_rem_cal": work.get("predicted_score_eod_rem_cal"),
-        "predicted_score_tau_cal": work.get("predicted_score_tau_cal"),
-        "predicted_score_blend_cal": work.get("predicted_score_blend_cal"),
-        "score_calibration_applied": cal_applied,
-        "score_calibration_enabled": cal_enabled,
-        "score_calibration_eod_oor": bool(work.get("score_calibration_eod_oor")),
-        "score_calibration_eod_rem_oor": bool(work.get("score_calibration_eod_rem_oor")),
-        "score_calibration_tau_oor": bool(work.get("score_calibration_tau_oor")),
-        "score_calibration_note": work.get("score_calibration_note"),
-        "score_calibration_partial": work.get("score_calibration_partial"),
         "realized_t1_to_tau": work.get("realized_t1_to_tau"),
         "score_rem": work.get("score_rem"),
         "predicted_score_rem": work.get("predicted_score_rem"),

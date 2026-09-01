@@ -308,31 +308,59 @@ class TestEodNextFusion(unittest.TestCase):
             self.assertAlmostEqual(row["score"], 1.896714, places=5)
             self.assertAlmostEqual(row["predicted_score"], 1.896714, places=5)
 
-    def test_align_repairs_unlifted_intraday_blend(self):
-        """盘中旧簿用 w·ŷ_EOD+w·ŷ_τ（未抬缺口）时，读路径重算缺口∘ŷ_τ。"""
+    def test_align_refresh_false_keeps_offline_eod_next_at_midday(self):
+        """仅本地仓 asof 昨收：score_one 标 eod_next；二次 align 不得用盘中时钟翻成 intradate。"""
+        from datetime import datetime, timedelta, timezone
         from unittest.mock import patch
 
         from core.signal.dual_score import align_trade_score_fields
-        from core.signal.nowcast_kf import compound_pct
 
-        y_eod, y_tau, gap = 2.381498, 0.236315, -0.3114
+        cn = timezone(timedelta(hours=8))
+        midday = datetime(2026, 9, 1, 10, 30, tzinfo=cn)
         item = {
-            "predicted_score": y_eod,
-            "predicted_score_eod": y_eod,
-            "predicted_score_tau": y_tau,
-            "predicted_score_blend": 0.5 * y_eod + 0.5 * y_tau,
-            "dual_score_window": "intraday",
-            "dual_score_weights": {"w_eod": 0.5, "w_tau": 0.5},
-            "gap_pct": gap,
+            "predicted_score": 0.80,
+            "predicted_score_eod": 0.80,
+            "predicted_score_tau": -0.40,
+            "predicted_score_blend": 0.80,  # eod_next 已剥离 τ
+            "dual_score_window": "eod_next",
+            "dual_score_weights": {"w_eod": 1.0, "w_tau": 0.0, "w_mode": "fixed"},
+            "gap_pct": 1.0,
         }
-        midday = datetime(2026, 8, 21, 10, 30)
         with patch("core.signal.session_pit.shanghai_now", return_value=midday):
-            align_trade_score_fields(item)
-        tau_cc = compound_pct(gap, y_tau)
-        expect = 0.5 * y_eod + 0.5 * tau_cc
-        self.assertAlmostEqual(item["predicted_score_blend"], expect, places=5)
-        self.assertAlmostEqual(item["predicted_score_blend_tau_cc"], tau_cc, places=5)
-        self.assertEqual(item["predicted_score_blend_vs"], "prev_close")
+            align_trade_score_fields(item, write_score=False, refresh_window=False)
+        self.assertEqual(item["dual_score_window"], "eod_next")
+        self.assertAlmostEqual(float(item["predicted_score_blend"]), 0.80, places=5)
+
+        # 对照：默认 refresh 会被盘中时钟改成 intradate 并可能重融 τ
+        flipped = dict(item)
+        flipped["predicted_score_blend"] = 0.80
+        flipped["dual_score_window"] = "eod_next"
+        with patch("core.signal.session_pit.shanghai_now", return_value=midday):
+            align_trade_score_fields(flipped, write_score=False, refresh_window=True)
+        self.assertEqual(flipped["dual_score_window"], "intraday")
+
+    def test_book_fields_preserves_eod_next_window(self):
+        from datetime import datetime, timedelta, timezone
+        from unittest.mock import patch
+
+        from core.signal.dual_score import dual_score_book_fields
+
+        cn = timezone(timedelta(hours=8))
+        midday = datetime(2026, 9, 1, 10, 30, tzinfo=cn)
+        src = {
+            "predicted_score": 0.80,
+            "predicted_score_eod": 0.80,
+            "predicted_score_tau": -0.40,
+            "predicted_score_blend": 0.80,
+            "score": 0.80,
+            "dual_score_window": "eod_next",
+            "dual_score_weights": {"w_eod": 1.0, "w_tau": 0.0},
+            "gap_pct": 1.0,
+        }
+        with patch("core.signal.session_pit.shanghai_now", return_value=midday):
+            fields = dual_score_book_fields(src)
+        self.assertEqual(fields.get("dual_score_window"), "eod_next")
+        self.assertAlmostEqual(float(fields["predicted_score_blend"]), 0.80, places=5)
 
     def test_intraday_repairs_stale_eod_next_zero_w_tau(self):
         """盘中：旧簿 eod_next 的 w_τ=0 残留时，读路径须恢复双头融合。"""
