@@ -7,7 +7,6 @@ import time
 from typing import Any, Callable, Dict, List, Optional, Tuple, TypeVar
 
 from core.t0.backtest import (
-    _optimistic_delta_ratio_pct,
     backtest_t0_on_bars,
     derive_t0_quality_metrics,
 )
@@ -25,8 +24,8 @@ _MINUTE_FETCH_TIMEOUT_SEC = 12.0
 # A股全日约 48 根 5m；≥40 或末根≥14:55 视为齐窗（缺尾缓存会触发补拉）
 _MINUTE_SESSION_MIN_BARS = 40
 _MINUTE_SESSION_END_HM = (14, 55)
-# 前端 fetch 180s 会 abort；整批须在此前返回（部分成功也好过整页超时）。
-_HOLDINGS_DEADLINE_SEC = 150.0
+# 前端 fetch 约 300s abort；整批须在此前返回（部分成功也好过整页超时）。
+_HOLDINGS_DEADLINE_SEC = 270.0
 _QUOTE_TIMEOUT_SEC = 4.0
 
 
@@ -132,9 +131,13 @@ _BT_RULES_VIEW_KEYS = (
     "y_nowcast_oc_gate",
     "y_path_abandon_enabled",
     "y_path_abandon_bars",
-    "y_prefix_segment_enabled",
-    "y_prefix_segment_enabled_sell_then_buy",
-    "y_prefix_segment_enabled_buy_then_sell",
+    "t0_confirm_dev_pct",
+    "t0_confirm_mom_bars",
+    "t0_confirm_vol_mult",
+    "t0_env_min_range_pct",
+    "t0_env_min_path_abs",
+    "t0_env_one_sided_tau_abs",
+    "t0_env_one_sided_path_abs",
     "y_tau_entry_price_skip",
     "y_tau_entry_price_mult",
     "y_tau_entry_price_skip_buy_then_sell",
@@ -159,6 +162,8 @@ _BT_RULES_VIEW_KEYS = (
     "t0_stop_on_close",
     "t0_slots_enabled",
     "t0_slots",
+    "t0_slots_max_rounds",
+    "y_tau_require_for_leg1",
     "y_ratio_cut",
     "y_ratio_boost_cap",
     "y_score_source",
@@ -397,7 +402,6 @@ def run_t0_backtest_for_code(
     initial_cash: float = 0.0,
     rules: Optional[dict] = None,
     paper: Optional[dict] = None,
-    compare_optimistic: bool = True,
     use_minute: bool = True,
     compare_daily: bool = False,
     compare_no_t0: bool = True,
@@ -510,7 +514,6 @@ def run_t0_backtest_for_code(
         initial_cash=float(initial_cash or 0),
         rules=bt_rules,
         stock_code=str(sym),
-        compare_optimistic=compare_optimistic,
         minute_by_date=minute_by_date,
         compare_daily=False,
         require_minute=True,
@@ -567,7 +570,6 @@ def run_t0_backtest_for_code(
             initial_cash=float(initial_cash or 0),
             rules=off_rules,
             stock_code=str(sym),
-            compare_optimistic=False,
             minute_by_date=None,
             compare_daily=False,
             require_minute=False,
@@ -589,7 +591,6 @@ def run_t0_backtest_for_holdings(
     lookback: int = T0_BT_DEFAULT_LOOKBACK,
     rules: Optional[dict] = None,
     paper: Optional[dict] = None,
-    compare_optimistic: bool = True,
     cash: float = 0.0,
     use_minute: bool = True,
     compare_daily: bool = True,
@@ -687,8 +688,7 @@ def run_t0_backtest_for_holdings(
             initial_cash=v_cash,
             rules=cfg,
             paper=paper,
-            compare_optimistic=compare_optimistic,
-            use_minute=True,
+                use_minute=True,
             compare_daily=False,
             tau_pool_by_date=tau_pool,
             stock_name=h.get("stock_name"),
@@ -741,18 +741,6 @@ def run_t0_backtest_for_holdings(
     loss_days = sum(int(x.get("t0_loss_days") or 0) for x in ok)
     pnl_day_cnt = win_days + loss_days
 
-    # 乐观对照合计
-    opt_pnl = 0.0
-    opt_trades = 0
-    opt_exposure = 0.0
-    has_opt = False
-    for x in ok:
-        opt = x.get("optimistic_compare")
-        if isinstance(opt, dict) and opt.get("t0_pnl_total") is not None:
-            has_opt = True
-            opt_pnl += float(opt.get("t0_pnl_total") or 0)
-            opt_trades += int(opt.get("t0_trade_days") or 0)
-            opt_exposure += float(opt.get("exposure_pnl_total") or 0)
 
     # 合并各票成交样本供 UI；最近按日 + 保留若干反T成交样本，避免「近一周全正T」误以为没有反T
     # 注意：trade_days_sample=[] 时勿用 `or days`，否则会把全日跳过行灌进样本
@@ -879,18 +867,6 @@ def run_t0_backtest_for_holdings(
         "t0_trade_days": total_trades,
         "note": "含T轨相对「不做T」：贡献≈做T含敞口净PnL合计",
     }
-    if has_opt:
-        delta = round(opt_pnl - total_pnl, 2)
-        out["optimistic_compare"] = {
-            "t0_pnl_total": round(opt_pnl, 2),
-            "t0_trade_days": opt_trades,
-            "exposure_pnl_total": round(opt_exposure, 2),
-            "delta_pnl": delta,
-            "delta_pnl_ratio_pct": _optimistic_delta_ratio_pct(
-                delta, total_pnl, trade_days=total_trades
-            ),
-            "note": "各票 optimistic 上界合计（卖 high / 买 low）；勿当真",
-        }
     out.update(derive_t0_quality_metrics(out))
     # 累计收益比例：含敞口净 PnL / 虚拟底仓市值
     net = float(out.get("t0_pnl_with_exposure") or contrib)
@@ -913,7 +889,6 @@ def run_t0_backtest_for_holdings(
             {
                 "stock_code": one.get("stock_code"),
                 "stock_name": one.get("stock_name"),
-                "optimistic_compare": one.get("optimistic_compare") or out.get("optimistic_compare"),
                 "days": one.get("trade_days_sample") or trade_sample,
                 "trade_days_sample": one.get("trade_days_sample") or trade_sample,
                 "rules": one.get("rules"),
@@ -945,7 +920,7 @@ def run_t0_backtest_for_holdings(
         out["virtual_sizing"] = True
         out["virtual_shares"] = v_shares
         out["virtual_cash"] = v_cash
-    from core.t0.viz import attach_compare_to_viz
+    from core.t0.viz import attach_summary_to_viz
 
-    attach_compare_to_viz(out)
+    attach_summary_to_viz(out)
     return out

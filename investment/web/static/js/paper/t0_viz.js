@@ -6,8 +6,6 @@ import { SKIP_CAT_TIP, stockCellHtml } from "./t0_table.js?v=p1814";
 const THEME = {
   actual: "#2563eb",
   actualLight: "rgba(37,99,235,0.15)",
-  optimistic: "#7c3aed",
-  optimisticLight: "rgba(124,58,237,0.12)",
   sellThenBuy: "#059669",
   sellThenBuyLight: "rgba(5,150,105,0.14)",
   buyThenSell: "#dc2626",
@@ -271,87 +269,6 @@ function drawCumulativePnl(canvas, points) {
     delta: total - first,
     max: maxV,
     min: minV,
-  };
-}
-
-/** 实际 vs 乐观 — 分组竖柱 + 兑现率 */
-function drawCompareBars(canvas, compare) {
-  if (!canvas || !compare) return null;
-  const actual = Number(compare.actual_pnl ?? 0);
-  const opt = Number(compare.optimistic_pnl ?? 0);
-  if (!Number.isFinite(actual) && !Number.isFinite(opt)) return null;
-
-  const { w, h } = getChartSize(canvas);
-  const ctx = setupCanvas(canvas, w, h);
-  ctx.clearRect(0, 0, w, h);
-
-  const pad = { l: 38, r: 12, t: 14, b: 36 };
-  const plotW = w - pad.l - pad.r;
-  const plotH = h - pad.t - pad.b;
-  const minV = Math.min(0, actual, opt);
-  const maxV = Math.max(0, actual, opt, 1);
-  const span = maxV - minV || 1;
-  const yAt = (v) => pad.t + ((maxV - v) / span) * plotH;
-  const zeroY = yAt(0);
-
-  drawHGrid(ctx, pad, w, h, [
-    { frac: 0, label: fmtMoney(maxV) },
-    { frac: 0.5, label: fmtMoney(minV + span / 2) },
-    { frac: 1, label: fmtMoney(minV) },
-  ]);
-
-  ctx.strokeStyle = THEME.zero;
-  ctx.lineWidth = 1.5;
-  ctx.beginPath();
-  ctx.moveTo(pad.l, zeroY);
-  ctx.lineTo(w - pad.r, zeroY);
-  ctx.stroke();
-
-  const barW = Math.min(48, plotW * 0.28);
-  const gap = plotW * 0.18;
-  const x0 = pad.l + (plotW - barW * 2 - gap) / 2;
-  const series = [
-    { label: "实际", val: actual, color: THEME.actual, light: THEME.actualLight },
-    { label: "乐观", val: opt, color: THEME.optimistic, light: THEME.optimisticLight },
-  ];
-
-  series.forEach((s, i) => {
-    const x = x0 + i * (barW + gap);
-    const yTop = yAt(Math.max(0, s.val));
-    const yBot = yAt(Math.min(0, s.val));
-    const bh = Math.max(2, Math.abs(yBot - yTop));
-    const y = s.val >= 0 ? yTop : yBot;
-
-    const grad = ctx.createLinearGradient(0, y, 0, y + bh);
-    grad.addColorStop(0, s.color);
-    grad.addColorStop(1, s.light);
-    roundRect(ctx, x, y, barW, bh, 4);
-    ctx.fillStyle = grad;
-    ctx.fill();
-
-    ctx.fillStyle = THEME.ink;
-    ctx.font = FONT;
-    ctx.textAlign = "center";
-    ctx.textBaseline = s.val >= 0 ? "bottom" : "top";
-    const ty = s.val >= 0 ? y - 4 : y + bh + 4;
-    ctx.fillText(fmtMoney(s.val), x + barW / 2, ty);
-
-    ctx.fillStyle = THEME.axis;
-    ctx.font = FONT_SM;
-    ctx.textBaseline = "top";
-    ctx.fillText(s.label, x + barW / 2, h - pad.b + 8);
-  });
-
-  const capture =
-    opt > 1e-9 ? Math.round((actual / opt) * 1000) / 10 : null;
-  const delta = compare.delta_pnl != null ? Number(compare.delta_pnl) : opt - actual;
-
-  return {
-    capture,
-    delta,
-    deltaRatio: compare.delta_ratio_pct,
-    actual,
-    opt,
   };
 }
 
@@ -760,7 +677,7 @@ function drawDirectionPnl(canvas, pnlByDir, split) {
   return { sellThenBuyPnl, buyThenSellPnl, net, sellThenBuyShare };
 }
 
-function renderKpiRow(summary, compare) {
+function renderKpiRow(summary) {
   const sm = summary || {};
   const chips = [
     [
@@ -804,9 +721,6 @@ function renderKpiRow(summary, compare) {
   }
   if (sm.avg_y_tau_signal_skip != null) {
     chips.push(["跳过τ̄", `${fmtNum(sm.avg_y_tau_signal_skip, 2)}%`, "信号跳过日平均 y_τ"]);
-  }
-  if (compare && compare.delta_ratio_pct != null) {
-    chips.push(["乐观Δ", `${compare.delta_ratio_pct}%`, "乐观上界未兑现空间占比"]);
   }
   const html = chips
     .filter(([, v]) => v != null)
@@ -1261,7 +1175,6 @@ export function renderT0Viz(host, data) {
     (viz.daily_activity && viz.daily_activity.length > 1) ||
     (viz.y_tau_scatter && viz.y_tau_scatter.length) ||
     (viz.stock_contrib && viz.stock_contrib.length) ||
-    viz.compare ||
     viz.pnl_by_direction;
   if (!hasContent) {
     if (host._t0VizRo) host._t0VizRo.disconnect();
@@ -1282,21 +1195,6 @@ export function renderT0Viz(host, data) {
         chartCanvas("cum"),
         `<div data-role="cum-foot"></div>`,
         legendChips([{ color: THEME.actual, label: "累计 PnL" }])
-      )
-    );
-  }
-
-  if (viz.compare) {
-    cards.push(
-      vizCard(
-        "实际 vs 乐观",
-        "上界对照 · 卖高买低",
-        chartCanvas("compare"),
-        `<div data-role="compare-foot"></div>`,
-        legendChips([
-          { color: THEME.actual, label: "实际 PnL" },
-          { color: THEME.optimistic, label: "乐观上界" },
-        ])
       )
     );
   }
@@ -1386,7 +1284,7 @@ export function renderT0Viz(host, data) {
     `</span>` +
     `</div>` +
     `</div>` +
-    renderKpiRow(sm, viz.compare) +
+    renderKpiRow(sm) +
     `<div class="paper-t0-viz-grid">${cards.join("")}</div>` +
     renderContribSection(viz.stock_contrib);
 
@@ -1406,22 +1304,6 @@ export function renderT0Viz(host, data) {
         ]
           .filter(Boolean)
           .join('<span class="sep">·</span>');
-      }
-    }
-
-    const cmp = host.querySelector('canvas[data-viz="compare"]');
-    if (cmp) {
-      const meta = drawCompareBars(cmp, viz.compare);
-      const foot = host.querySelector('[data-role="compare-foot"]');
-      if (foot && meta) {
-        const lines = [];
-        if (meta.capture != null) lines.push(`<span>兑现率 <b>${meta.capture}%</b></span>`);
-        if (meta.delta != null) {
-          const cls = meta.delta >= 0 ? "up" : "down";
-          lines.push(`<span>未捕获空间 <b class="${cls}">${fmtMoney(meta.delta)}</b></span>`);
-        }
-        if (meta.deltaRatio != null) lines.push(`<span>Δ占比 ${meta.deltaRatio}%</span>`);
-        foot.innerHTML = lines.join('<span class="sep">·</span>');
       }
     }
 

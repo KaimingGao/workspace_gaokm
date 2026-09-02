@@ -1,7 +1,8 @@
-"""多轮独立做 T：固定时钟用前缀 ŷ + 后半占比选向，确认根收盘开第一腿。
+"""多轮独立做 T：固定时钟前缀确认开第一腿；可半贪心滚仓。
 
-独立：该轮 ŷ / 方向、20% 仓、确认根成交、相对本轮成交价的止损线与第二腿。
+独立：该轮 ŷ / 方向、仓位切分、确认根成交、相对本轮成交价的止损线与第二腿。
 共用：第二腿触发%、止损%、延迟/收盘确认、fill、午后追价、dual_y 闸（正/反分侧）。
+v5：环境闸 + 复合确认（偏离×动量）+ 空轮滚仓。
 已下线：第一腿 hunt% 搜索窗触价。
 """
 
@@ -46,30 +47,55 @@ def slot_specs(cfg: dict) -> List[dict]:
     return normalize_t0_slots(None)
 
 
-def allocate_slot_slices(
-    shares: float,
-    sellable: float,
+def allocate_remaining_slot_slice(
+    remaining_sellable: float,
     slots: Sequence[dict],
+    index: int,
     lot: int,
-) -> List[float]:
-    """按 ratio 切分可卖整手，余量逐轮回补（避免 <1 手静默浪费）。"""
+) -> float:
+    """半贪心：按剩余可卖在「本轮及之后」槽位 ratio 中切本轮份额。"""
     lot_i = max(int(lot or 0), 1)
-    cap = float(_lot_floor(min(max(float(sellable), 0.0), float(shares)), lot_i))
-    if cap < lot_i or not slots:
-        return [0.0] * len(slots)
-    ratios = [max(float(s.get("ratio") or 0.15), 0.0) for s in slots]
+    rem = float(_lot_floor(max(float(remaining_sellable), 0.0), lot_i))
+    if rem < lot_i or not slots or index < 0 or index >= len(slots):
+        return 0.0
+    ratios = [max(float(s.get("ratio") or 0.15), 0.0) for s in slots[index:]]
     total_r = sum(ratios) or 1.0
-    slices = [float(_lot_floor(cap * (r / total_r), lot_i)) for r in ratios]
-    leftover = int(round(cap - sum(slices)))
-    idx = 0
-    guard = 0
-    while leftover >= lot_i and slices and guard < len(slots) * 64:
-        j = idx % len(slices)
-        slices[j] += float(lot_i)
-        leftover -= lot_i
-        idx += 1
-        guard += 1
-    return slices
+    return float(_lot_floor(rem * (ratios[0] / total_r), lot_i))
+
+
+def slot_budget_t0_ratio(
+    shares: float,
+    sellable_budget: Optional[float],
+    fallback_ratio: float,
+) -> float:
+    """槽位动仓比例：以本轮可卖预算为准（滚仓后预算可大于 slot.ratio×持仓）。"""
+    try:
+        fb = float(fallback_ratio)
+    except (TypeError, ValueError):
+        fb = 0.15
+    fb = max(0.0, min(fb, 1.0))
+    sh = max(float(shares or 0), 0.0)
+    if sellable_budget is None or sh <= 0:
+        return fb
+    try:
+        budget = float(sellable_budget)
+    except (TypeError, ValueError):
+        return fb
+    if budget <= 0:
+        return 0.0
+    return min(1.0, budget / sh)
+
+
+def _parse_max_rounds(cfg: Optional[dict], n_slots: int) -> int:
+    """``t0_slots_max_rounds``：缺省=槽位数；0=不开第一腿。"""
+    default = max(int(n_slots or 0), 1)
+    raw = (cfg or {}).get("t0_slots_max_rounds")
+    if raw is None or raw == "":
+        return min(default, 16)
+    try:
+        return max(0, min(int(raw), 16))
+    except (TypeError, ValueError):
+        return min(default, 16)
 
 
 def _open_leg1_cash_lock(out: dict) -> float:
@@ -150,9 +176,11 @@ def _score_slot(
     """返回 (plan, pending, skip)。plan 含 direction / cfg_side / 确认根参数。"""
     from core.t0.minute_path import (
         _day_ohlc_from_minutes,
+        _score_y_path,
         _score_y_tau,
         _side_exec_pack,
-        prefix_fixed_bar_ratio_entry_ok,
+        prefix_env_gate_ok,
+        prefix_leg1_confirm_ok,
         prefix_range_gate,
         tau_leg1_fill_price_ok,
     )
@@ -267,6 +295,26 @@ def _score_slot(
         )
         cfg_side["must_cover_same_day"] = bool(cover_meta.get("must_cover"))
 
+    env = prefix_env_gate_ok(
+        range_pct=range_pct if prefix_n >= 2 else None,
+        y_path=_score_y_path(live_snap if isinstance(live_snap, dict) else None),
+        y_tau=_score_y_tau(live_snap if isinstance(live_snap, dict) else None),
+        cfg=cfg_side,
+    )
+    if not bool(env.get("ok")):
+        return (
+            None,
+            None,
+            _skip_result(
+                reason=str(env.get("reason") or "环境闸未过"),
+                shares=shares,
+                bar=bar_n if isinstance(bar_n, dict) else bar,
+                extra=_slot_meta_extra(
+                    slot, direction=direction, snap=live_snap, dir_res=dir_res
+                ),
+            ),
+        )
+
     if prefix_n >= 2:
         # 后半阴阳 / τ入场价：一律用开盘→本钟整段前缀；确认根 close = 第一腿价
         prefix_win = _slot_prefix_bars(mins, prefix_n)
@@ -274,33 +322,30 @@ def _score_slot(
         # 振幅下限已下线；range_pct 仅诊断
         if gate_side.get("range_pct") is not None:
             range_pct = float(gate_side.get("range_pct") or range_pct)
-        seg_key = (
-            "y_prefix_segment_enabled_buy_then_sell"
-            if direction == "buy_then_sell"
-            else "y_prefix_segment_enabled_sell_then_buy"
+        # 后半占比相对整段前缀（N=本钟 prefix_bars），不是固定 6 根
+        seg_cfg = dict(cfg_side)
+        seg_cfg["y_path_abandon_bars"] = prefix_n
+        seg_cfg["y_path_abandon_bars_buy_then_sell"] = prefix_n
+        seg_cfg["y_path_abandon_bars_sell_then_buy"] = prefix_n
+        seg = prefix_leg1_confirm_ok(
+            prefix_win,
+            direction=direction,
+            cfg=seg_cfg,
+            ref=float(ref or 0),
         )
-        if bool(cfg_side.get(seg_key, True)):
-            # 后半占比相对整段前缀（N=本钟 prefix_bars），不是固定 6 根
-            seg_cfg = dict(cfg_side)
-            seg_cfg["y_path_abandon_bars"] = prefix_n
-            seg_cfg["y_path_abandon_bars_buy_then_sell"] = prefix_n
-            seg_cfg["y_path_abandon_bars_sell_then_buy"] = prefix_n
-            seg = prefix_fixed_bar_ratio_entry_ok(
-                prefix_win, direction=direction, cfg=seg_cfg
-            )
-            if not seg.get("ok"):
-                return (
-                    None,
-                    None,
-                    _skip_result(
-                        reason=str(seg.get("reason") or "固定前缀未过"),
-                        shares=shares,
-                        bar=bar_n if isinstance(bar_n, dict) else bar,
-                        extra=_slot_meta_extra(
-                            slot, direction=direction, snap=live_snap, dir_res=dir_res
-                        ),
+        if not seg.get("ok"):
+            return (
+                None,
+                None,
+                _skip_result(
+                    reason=str(seg.get("reason") or "第一腿确认未过"),
+                    shares=shares,
+                    bar=bar_n if isinstance(bar_n, dict) else bar,
+                    extra=_slot_meta_extra(
+                        slot, direction=direction, snap=live_snap, dir_res=dir_res
                     ),
-                )
+                ),
+            )
         confirm_bar = prefix_win[-1] if prefix_win else None
         try:
             fill_px = float((confirm_bar or {}).get("close") or 0)
@@ -439,7 +484,9 @@ def simulate_t0_slot(
         return _stamp(out)
 
     cfg_slot = dict(plan["cfg_side"])
-    ratio = float(slot.get("ratio") or 0.20)
+    ratio_slot = float(slot.get("ratio") or 0.20)
+    # 半贪心：本轮 sellable 预算可含空轮滚入份额
+    ratio = slot_budget_t0_ratio(shares, sellable_shares, ratio_slot)
     cfg_slot["t0_ratio"] = ratio
     bar_session = session_bar or _day_ohlc_from_minutes(mins, bar)
     path_kwargs = {
@@ -998,18 +1045,44 @@ def simulate_t0_day_slots(
     defer_eod: bool = False,
     tau_pool_day: Optional[dict] = None,
 ) -> Dict[str, Any]:
-    """全日：多轮独立预估 + 确认根第一腿 + 各轮第二腿。"""
+    """全日：多轮独立预估 + 确认根第一腿 + 各轮第二腿。
+
+    空轮仓位滚入后续评估点（半贪心）。
+    ``t0_slots_max_rounds``：最多完成多少轮第一腿（默认=槽位数）。
+    """
     slots = slot_specs(cfg)
     sellable_cap = float(sellable_shares if sellable_shares is not None else shares)
     sellable_cap = min(max(sellable_cap, 0.0), float(shares))
-    slices = allocate_slot_slices(shares, sellable_cap, slots, lot)
+    max_rounds = _parse_max_rounds(cfg, len(slots))
     outs: List[dict] = []
     cash_now = float(cash or 0)
     shares_now = float(shares)
     sellable_now = float(sellable_cap)
     cash_locked = 0.0
+    leg1_rounds = 0
     for i, slot in enumerate(slots):
-        slice_qty = min(float(slices[i]), sellable_now)
+        if leg1_rounds >= max_rounds:
+            skip = _skip_result(
+                reason=f"已达最大轮数 {max_rounds}",
+                shares=shares,
+                bar=bar,
+                extra={"t0_slot": slot.get("id"), "t0_slot_hm": slot.get("hm")},
+            )
+            outs.append(
+                attach_slot_fit_portrait_scores(
+                    skip,
+                    slot=slot,
+                    minute_bars=minute_bars,
+                    bar=bar if isinstance(bar, dict) else None,
+                    hist_bars=hist_bars,
+                    open_snap=score_snap if isinstance(score_snap, dict) else None,
+                    stock_code=stock_code,
+                    tau_pool_day=tau_pool_day,
+                    cfg_day=cfg,
+                )
+            )
+            continue
+        slice_qty = allocate_remaining_slot_slice(sellable_now, slots, i, lot)
         if slice_qty < lot:
             skip = _skip_result(
                 reason="本轮预留不足 1 手",
@@ -1087,6 +1160,7 @@ def simulate_t0_day_slots(
             else:
                 cash_now, shares_now, sellable_now = nc, ns, nsel
                 cash_locked += _open_leg1_cash_lock(out)
+                leg1_rounds += 1
         else:
             cash_locked += _open_leg1_cash_lock(out)
         outs.append(out)
@@ -1101,8 +1175,9 @@ def simulate_t0_day_slots(
 
 
 __all__ = [
-    "allocate_slot_slices",
+    "allocate_remaining_slot_slice",
     "simulate_t0_day_slots",
     "simulate_t0_slot",
+    "slot_budget_t0_ratio",
     "slot_specs",
 ]

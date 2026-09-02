@@ -130,8 +130,6 @@ function metricSection(title, cells, extraClass = "", footerHtml = "") {
 export function buildT0MetricCards(data) {
   if (!data || !data.success) return [];
   const net = data.t0_pnl_with_exposure ?? data.t0_pnl_total;
-  const opt = data.optimistic_compare || {};
-  const deltaRatio = data.optimistic_delta_ratio_pct ?? opt.delta_pnl_ratio_pct;
   const sm = data.viz?.summary || {};
   const scoreCov = sm.score_coverage_pct ?? data.score_coverage_pct;
   return [
@@ -160,7 +158,6 @@ export function buildT0MetricCards(data) {
       label: "信号跳过率",
       value: paperFmtPct(data.signal_skip_rate_pct ?? sm.signal_skip_rate_pct),
     },
-    { label: "乐观Δ占比", value: paperFmtPct(deltaRatio) },
     {
       label: "累计收益%",
       value: paperFmtPct(data.cumulative_return_pct ?? data.pnl_vs_hold_mv_pct),

@@ -560,11 +560,25 @@
               <form id="paper-t0-form" class="paper-t0-form" autocomplete="off">
                 <fieldset class="paper-t0-cfg-block is-shared">
                   <legend>共用</legend>
-                  <p class="paper-t0-cfg-hint quant-sub">四轮槽位（10:00–11:30，末轮第 24 根 5m）共用这一套 τ 闸/止损；午后仅 leg2 追价/EOD，不再开第一腿。各轮独立选向、切 15% 仓。</p>
+                  <p class="paper-t0-cfg-hint quant-sub">四轮槽位（10:00–11:30）共用 τ 闸/止损；选腿=阴阳占比 ∩ 开盘锚偏离+动量 + 环境闸；空轮滚仓。午后仅 leg2。做 T 回测直接读当前表单（不必先保存）。</p>
                   <div class="paper-t0-form-grid">
                   <label class="paper-t0-field">
                     <span>启用</span>
                     <input type="checkbox" name="enabled" checked />
+                  </label>
+                  <label
+                    class="paper-t0-field"
+                    title="开=10:00–11:30 多轮独立做T；关=单轮（约10:00 齐窗一次）"
+                  >
+                    <span>多轮槽位</span>
+                    <input type="checkbox" name="t0_slots_enabled" checked />
+                  </label>
+                  <label
+                    class="paper-t0-field"
+                    title="缺 ŷ_τ 时禁止开第一腿（默认开）"
+                  >
+                    <span>须有ŷ_τ</span>
+                    <input type="checkbox" name="y_tau_require_for_leg1" checked />
                   </label>
                   <label class="paper-t0-field" title="评估窗：统计做T的交易日数（默认 20）；y_τ/ATR 另用 ≥40 日因子缓冲，与窗长无关。改完会记住。">
                     <span>回测窗</span>
@@ -720,10 +734,59 @@
                   </label>
                   <label
                     class="paper-t0-field"
-                    title="正/反T固定前缀确认总开关；侧向可单独关"
+                    title="复合确认：相对开盘锚偏离%（正T须曾下探、反T须曾上冲）；默认0.3；0=仅要求曾触及开盘锚"
                   >
-                    <span>固定前缀总开关</span>
-                    <input type="checkbox" name="y_prefix_segment_enabled" checked />
+                    <span>偏离%</span>
+                    <input type="number" name="t0_confirm_dev_pct" min="0" max="20" step="0.1" value="0.3" />
+                  </label>
+                  <label
+                    class="paper-t0-field"
+                    title="复合确认：确认根前动量翻转根数；默认2"
+                  >
+                    <span>动量根</span>
+                    <input type="number" name="t0_confirm_mom_bars" min="1" max="12" step="1" value="2" />
+                  </label>
+                  <label
+                    class="paper-t0-field"
+                    title="复合确认量能：末根≥前缀均量×此值；0=不看量"
+                  >
+                    <span>量能倍</span>
+                    <input type="number" name="t0_confirm_vol_mult" min="0" max="20" step="0.1" value="0" />
+                  </label>
+                  <label
+                    class="paper-t0-field"
+                    title="环境闸：前缀振幅下限%（默认0.5）；0=不限制"
+                  >
+                    <span>环境振幅%</span>
+                    <input type="number" name="t0_env_min_range_pct" min="0" max="30" step="0.1" value="0.5" />
+                  </label>
+                  <label
+                    class="paper-t0-field"
+                    title="环境闸：|ŷ_path|下限（默认0.08）；0=不限制"
+                  >
+                    <span>环境|path|</span>
+                    <input type="number" name="t0_env_min_path_abs" min="0" max="50" step="0.05" value="0.08" />
+                  </label>
+                  <label
+                    class="paper-t0-field"
+                    title="环境闸单边：|ŷ_τ|与|ŷ_path|同号且均≥此 τ 阈值则整轮不做；默认2；0=关该项"
+                  >
+                    <span>单边|τ|</span>
+                    <input type="number" name="t0_env_one_sided_tau_abs" min="0" max="50" step="0.1" value="2" />
+                  </label>
+                  <label
+                    class="paper-t0-field"
+                    title="环境闸单边：|ŷ_path|阈值（与单边|τ|同时满足才跳过）；默认2；0=关该项"
+                  >
+                    <span>单边|path|</span>
+                    <input type="number" name="t0_env_one_sided_path_abs" min="0" max="50" step="0.1" value="2" />
+                  </label>
+                  <label
+                    class="paper-t0-field"
+                    title="半贪心：最多完成多少轮第一腿（默认4；0=不开第一腿）"
+                  >
+                    <span>最大轮数</span>
+                    <input type="number" name="t0_slots_max_rounds" min="0" max="16" step="1" value="4" />
                   </label>
                   <label
                     class="paper-t0-field"
@@ -862,7 +925,7 @@
                   </label>
                   <label
                     class="paper-t0-field"
-                    title="第一腿买价偏（百分点，可正可负，代数加在 clamp 后）：&gt;0 抬高 bound、更难买；&lt;0 压低 bound；默认0.5。与 τ/path 入场不同：此处要考虑符号"
+                    title="第一腿买价偏（百分点，可正可负，代数加在 clamp 后）：正T 须买价&lt;bound；&gt;0 抬高 bound→更易买，&lt;0 压低 bound→更难买；默认0.5。切勿与反T卖价偏符号对调"
                   >
                     <span>买价偏±</span>
                     <input
@@ -876,14 +939,7 @@
                   </label>
                   <label
                     class="paper-t0-field"
-                    title="开=正T用固定前缀+后半上涨占比开第一腿；关=不做该确认（仍受振幅等约束）"
-                  >
-                    <span>固定前缀确认</span>
-                    <input type="checkbox" name="y_prefix_segment_enabled_buy_then_sell" checked />
-                  </label>
-                  <label
-                    class="paper-t0-field"
-                    title="固定前缀后半段中 close&gt;open 的 K 线占比下限（默认 0.2）；前缀根数=前缀放弃根数"
+                    title="固定前缀后半段中 close&gt;open 的 K 线占比下限（默认 0.2）；前缀根数=前缀放弃根数；v5 选腿必过"
                   >
                     <span>后半上涨占比</span>
                     <input type="number" name="y_prefix_upbar_ratio_buy_then_sell" min="0" max="1" step="0.05" value="0.2" />
@@ -1003,7 +1059,7 @@
                   </label>
                   <label
                     class="paper-t0-field"
-                    title="第一腿卖价偏（百分点，可正可负，代数加）：&gt;0 抬高 bound；&lt;0 压低 bound（反T 入场更易卖过闸）；默认-0.5"
+                    title="第一腿卖价偏（百分点，可正可负，代数加）：反T 须卖价&gt;bound；&lt;0 压低 bound→更易卖，&gt;0 抬高 bound→更难卖；默认−0.5。切勿与正T买价偏符号对调"
                   >
                     <span>卖价偏% ±</span>
                     <input
@@ -1017,14 +1073,7 @@
                   </label>
                   <label
                     class="paper-t0-field"
-                    title="开=反T用固定前缀+后半下跌占比开第一腿；关=不做该确认（仍受振幅等约束）"
-                  >
-                    <span>固定前缀确认</span>
-                    <input type="checkbox" name="y_prefix_segment_enabled_sell_then_buy" checked />
-                  </label>
-                  <label
-                    class="paper-t0-field"
-                    title="固定前缀后半段中 close&lt;open 的 K 线占比下限（默认 0.2）；前缀根数=前缀放弃根数"
+                    title="固定前缀后半段中 close&lt;open 的 K 线占比下限（默认 0.2）；前缀根数=前缀放弃根数；v5 选腿必过"
                   >
                     <span>后半下跌占比</span>
                     <input type="number" name="y_prefix_downbar_ratio_sell_then_buy" min="0" max="1" step="0.05" value="0.2" />

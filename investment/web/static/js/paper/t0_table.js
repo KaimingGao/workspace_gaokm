@@ -2044,14 +2044,16 @@ export function buildDayDetailHtml(payload) {
       `<thead><tr>` +
       `<th rowspan="2">时钟</th>` +
       `<th rowspan="2">向</th>` +
-      `<th colspan="4">5m</th>` +
+      `<th rowspan="2" title="确认钟 5m 开盘">O</th>` +
+      `<th rowspan="2" title="确认钟 5m 最低">L</th>` +
+      `<th rowspan="2" title="确认钟 5m 最高">H</th>` +
+      `<th rowspan="2" title="确认钟 5m 收盘">C</th>` +
       `<th colspan="2">y_τ</th>` +
       `<th colspan="2">y_path</th>` +
       `<th colspan="2">y_trade</th>` +
       `<th rowspan="2">结果</th>` +
       `<th rowspan="2">说明</th>` +
       `</tr><tr>` +
-      `<th>O</th><th>L</th><th>H</th><th>C</th>` +
       `<th>分数(label)</th><th>命中</th>` +
       `<th>分数(label)</th><th>命中</th>` +
       `<th>分数(label)</th><th>命中</th>` +

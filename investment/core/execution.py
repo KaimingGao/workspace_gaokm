@@ -87,11 +87,15 @@ ALLOWED_T0_PATCH_KEYS = frozenset(
         "y_path_abandon_bars",
         "y_path_abandon_bars_sell_then_buy",
         "y_path_abandon_bars_buy_then_sell",
-        "y_prefix_segment_enabled",
-        "y_prefix_segment_enabled_sell_then_buy",
-        "y_prefix_segment_enabled_buy_then_sell",
         "y_prefix_upbar_ratio_buy_then_sell",
         "y_prefix_downbar_ratio_sell_then_buy",
+        "t0_confirm_dev_pct",
+        "t0_confirm_mom_bars",
+        "t0_confirm_vol_mult",
+        "t0_env_min_range_pct",
+        "t0_env_min_path_abs",
+        "t0_env_one_sided_tau_abs",
+        "t0_env_one_sided_path_abs",
         "y_tau_entry_price_skip",
         "y_tau_entry_price_mult",
         "y_tau_entry_price_bias",
@@ -140,6 +144,7 @@ ALLOWED_T0_PATCH_KEYS = frozenset(
         "t0_stop_on_close",
         "t0_slots_enabled",
         "t0_slots",
+        "t0_slots_max_rounds",
     }
 )
 
@@ -184,11 +189,16 @@ DEFAULT_T0_OVERLAY: Dict[str, Any] = {
     "y_path_enter_buy_then_sell": 0.01,
     "y_gap_tier_pct": 1.0,
     "y_path_abandon_bars": 6,
-    "y_prefix_segment_enabled": True,
-    "y_prefix_segment_enabled_sell_then_buy": True,
-    "y_prefix_segment_enabled_buy_then_sell": True,
     "y_prefix_upbar_ratio_buy_then_sell": 0.2,
     "y_prefix_downbar_ratio_sell_then_buy": 0.2,
+    "t0_confirm_dev_pct": 0.3,
+    "t0_confirm_mom_bars": 2,
+    "t0_confirm_vol_mult": 0.0,
+    "t0_env_min_range_pct": 0.5,
+    "t0_env_min_path_abs": 0.08,
+    "t0_env_one_sided_tau_abs": 2.0,
+    "t0_env_one_sided_path_abs": 2.0,
+    "t0_slots_max_rounds": 4,
     "y_tau_entry_price_skip": True,
     "y_tau_entry_price_mult": 0.5,
     "y_tau_entry_price_skip_buy_then_sell": True,
@@ -704,11 +714,15 @@ def execution_public_view(bundle: Dict[str, Any]) -> Dict[str, Any]:
             "y_nowcast_oc_gate": t0.get("y_nowcast_oc_gate"),
             "y_path_abandon_enabled": t0.get("y_path_abandon_enabled"),
             "y_path_abandon_bars": t0.get("y_path_abandon_bars"),
-            "y_prefix_segment_enabled": t0.get("y_prefix_segment_enabled"),
-            "y_prefix_segment_enabled_sell_then_buy": t0.get("y_prefix_segment_enabled_sell_then_buy"),
-            "y_prefix_segment_enabled_buy_then_sell": t0.get("y_prefix_segment_enabled_buy_then_sell"),
             "y_prefix_upbar_ratio_buy_then_sell": t0.get("y_prefix_upbar_ratio_buy_then_sell"),
             "y_prefix_downbar_ratio_sell_then_buy": t0.get("y_prefix_downbar_ratio_sell_then_buy"),
+            "t0_confirm_dev_pct": t0.get("t0_confirm_dev_pct"),
+            "t0_confirm_mom_bars": t0.get("t0_confirm_mom_bars"),
+            "t0_confirm_vol_mult": t0.get("t0_confirm_vol_mult"),
+            "t0_env_min_range_pct": t0.get("t0_env_min_range_pct"),
+            "t0_env_min_path_abs": t0.get("t0_env_min_path_abs"),
+            "t0_env_one_sided_tau_abs": t0.get("t0_env_one_sided_tau_abs"),
+            "t0_env_one_sided_path_abs": t0.get("t0_env_one_sided_path_abs"),
             "y_tau_entry_price_skip": t0.get("y_tau_entry_price_skip"),
             "y_tau_entry_price_mult": t0.get("y_tau_entry_price_mult"),
             "y_tau_entry_price_bias": t0.get("y_tau_entry_price_bias"),
@@ -805,6 +819,7 @@ def execution_public_view(bundle: Dict[str, Any]) -> Dict[str, Any]:
             "t0_stop_on_close": t0.get("t0_stop_on_close"),
             "t0_slots_enabled": t0.get("t0_slots_enabled"),
             "t0_slots": t0.get("t0_slots"),
+            "t0_slots_max_rounds": t0.get("t0_slots_max_rounds"),
         },
         "t0_sources": bundle.get("t0_sources") or {},
         "rebalance": bundle.get("rebalance") or {},
@@ -959,14 +974,6 @@ def validate_execution_patch(raw: Any) -> Tuple[bool, Dict[str, Any], List[str]]
         t0_out["y_path_required"] = bool(t0_in.get("y_path_required"))
     if "y_path_abandon_enabled" in t0_in:
         t0_out["y_path_abandon_enabled"] = bool(t0_in.get("y_path_abandon_enabled"))
-    if "y_prefix_segment_enabled" in t0_in:
-        t0_out["y_prefix_segment_enabled"] = bool(t0_in.get("y_prefix_segment_enabled"))
-    if "y_prefix_segment_enabled_sell_then_buy" in t0_in:
-        t0_out["y_prefix_segment_enabled_sell_then_buy"] = bool(t0_in.get("y_prefix_segment_enabled_sell_then_buy"))
-    if "y_prefix_segment_enabled_buy_then_sell" in t0_in:
-        t0_out["y_prefix_segment_enabled_buy_then_sell"] = bool(
-            t0_in.get("y_prefix_segment_enabled_buy_then_sell")
-        )
     if "y_tau_entry_price_skip" in t0_in:
         t0_out["y_tau_entry_price_skip"] = bool(t0_in.get("y_tau_entry_price_skip"))
     if "y_tau_entry_price_skip_buy_then_sell" in t0_in:

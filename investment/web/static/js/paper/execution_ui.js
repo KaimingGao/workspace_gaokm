@@ -429,6 +429,18 @@ export function renderExecutionRulesHtml(execution) {
     `<div class="paper-t0-spec-kpi-strip" aria-label="核心参数">` +
     specKpi("启用", enabledLbl, "做 T overlay 总开关") +
     specKpi("策略", "dual_y", "四轮共用 dual_y 闸与买卖/止损；各轮只独立选向；午后不开 leg1") +
+    specKpi(
+      "选腿",
+      (() => {
+        const slots = t0.t0_slots_enabled === false ? "单轮" : "多轮";
+        const mr =
+          t0.t0_slots_max_rounds != null && Number(t0.t0_slots_max_rounds) !== 4
+            ? `·≤${Number(t0.t0_slots_max_rounds)}轮`
+            : "";
+        return `${slots}·both·环境·滚仓${mr}`;
+      })(),
+      "多轮/阴阳∩偏离动量/环境闸/空轮滚仓；做T回测读当前表单"
+    ) +
     specKpi("动仓", `${ratioPct}%`, "固定底仓比例（不随 ŷ 缩放）") +
     specKpi("路径", pathLbl, "分钟触价路径") +
     specKpi("成交", fillLbl, "撮合假设") +
@@ -538,6 +550,8 @@ export function fillExecutionForm(root, execution) {
     el.value = String(val);
   };
   set("enabled", t0.enabled !== false);
+  set("t0_slots_enabled", t0.t0_slots_enabled !== false);
+  set("y_tau_require_for_leg1", t0.y_tau_require_for_leg1 !== false);
   set(
     "y_ratio_cut",
     t0.y_ratio_cut != null ? Math.round(Number(t0.y_ratio_cut) * 100) : 60
@@ -596,7 +610,20 @@ export function fillExecutionForm(root, execution) {
     "y_path_abandon_bars",
     t0.y_path_abandon_bars != null ? t0.y_path_abandon_bars : 6
   );
-  set("y_prefix_segment_enabled", t0.y_prefix_segment_enabled !== false);
+  set("t0_confirm_dev_pct", t0.t0_confirm_dev_pct != null ? t0.t0_confirm_dev_pct : 0.3);
+  set("t0_confirm_mom_bars", t0.t0_confirm_mom_bars != null ? t0.t0_confirm_mom_bars : 2);
+  set("t0_confirm_vol_mult", t0.t0_confirm_vol_mult != null ? t0.t0_confirm_vol_mult : 0);
+  set("t0_env_min_range_pct", t0.t0_env_min_range_pct != null ? t0.t0_env_min_range_pct : 0.5);
+  set("t0_env_min_path_abs", t0.t0_env_min_path_abs != null ? t0.t0_env_min_path_abs : 0.08);
+  set(
+    "t0_env_one_sided_tau_abs",
+    t0.t0_env_one_sided_tau_abs != null ? t0.t0_env_one_sided_tau_abs : 2
+  );
+  set(
+    "t0_env_one_sided_path_abs",
+    t0.t0_env_one_sided_path_abs != null ? t0.t0_env_one_sided_path_abs : 2
+  );
+  set("t0_slots_max_rounds", t0.t0_slots_max_rounds != null ? t0.t0_slots_max_rounds : 4);
   set(
     "y_tau_entry_price_skip_buy_then_sell",
     t0.y_tau_entry_price_skip_buy_then_sell !== false &&
@@ -681,8 +708,6 @@ export function fillExecutionForm(root, execution) {
         ? t0.y_tau_exit_price_bias
         : -1.0
   );
-  set("y_prefix_segment_enabled_sell_then_buy", t0.y_prefix_segment_enabled_sell_then_buy !== false);
-  set("y_prefix_segment_enabled_buy_then_sell", t0.y_prefix_segment_enabled_buy_then_sell !== false);
   set(
     "y_prefix_upbar_ratio_buy_then_sell",
     t0.y_prefix_upbar_ratio_buy_then_sell != null ? t0.y_prefix_upbar_ratio_buy_then_sell : 0.2
@@ -778,6 +803,8 @@ export function collectExecutionForm(root) {
   if (boostPct < cutPct) boostPct = cutPct;
   const t0 = {
     enabled: chk("enabled", true),
+    t0_slots_enabled: chk("t0_slots_enabled", true),
+    y_tau_require_for_leg1: chk("y_tau_require_for_leg1", true),
     t0_ratio: 1.0,
     y_ratio_cut: Math.max(0.2, Math.min(cutPct / 100, 1)),
     y_ratio_boost_cap: Math.max(1.0, Math.min(boostPct / 100, 2)),
@@ -836,7 +863,14 @@ export function collectExecutionForm(root) {
       2,
       Math.min(Math.round(num("y_path_abandon_bars", 6)), 48)
     ),
-    y_prefix_segment_enabled: chk("y_prefix_segment_enabled", true),
+    t0_confirm_dev_pct: Math.max(0, Math.min(num("t0_confirm_dev_pct", 0.3), 20)),
+    t0_confirm_mom_bars: Math.max(1, Math.min(Math.round(num("t0_confirm_mom_bars", 2)), 12)),
+    t0_confirm_vol_mult: Math.max(0, Math.min(num("t0_confirm_vol_mult", 0), 20)),
+    t0_env_min_range_pct: Math.max(0, Math.min(num("t0_env_min_range_pct", 0.5), 30)),
+    t0_env_min_path_abs: Math.max(0, Math.min(num("t0_env_min_path_abs", 0.08), 50)),
+    t0_env_one_sided_tau_abs: Math.max(0, Math.min(num("t0_env_one_sided_tau_abs", 2), 50)),
+    t0_env_one_sided_path_abs: Math.max(0, Math.min(num("t0_env_one_sided_path_abs", 2), 50)),
+    t0_slots_max_rounds: Math.max(0, Math.min(Math.round(num("t0_slots_max_rounds", 4)), 16)),
     y_tau_entry_price_skip_buy_then_sell: chk(
       "y_tau_entry_price_skip_buy_then_sell",
       true
@@ -885,8 +919,6 @@ export function collectExecutionForm(root) {
       -50,
       Math.min(num("y_tau_exit_price_bias_sell_then_buy", -1), 50)
     ),
-    y_prefix_segment_enabled_sell_then_buy: chk("y_prefix_segment_enabled_sell_then_buy", true),
-    y_prefix_segment_enabled_buy_then_sell: chk("y_prefix_segment_enabled_buy_then_sell", true),
     y_prefix_upbar_ratio_buy_then_sell: Math.max(
       0,
       Math.min(num("y_prefix_upbar_ratio_buy_then_sell", 0.2), 1)
@@ -1143,11 +1175,14 @@ export function resolveT0BacktestScope(root, evt = {}) {
 export function collectT0BacktestBody(root, opts = {}) {
   const patch = collectExecutionForm(root) || { t0: {} };
   const t0 = patch.t0 || {};
-  const lookback = persistT0Lookback(root) ?? 20;
+  let lookback = persistT0Lookback(root) ?? 20;
+  // 全持仓：回看自动封顶，否则 20 日×20+ 票易超前端超时
+  if (!opts.onlySelected) {
+    lookback = Math.min(lookback, 12);
+  }
   const body = {
     from_paper: true,
     lookback,
-    compare_optimistic: true,
     use_minute: true,
     compare_daily: false,
     t0_ratio: 1.0,
@@ -1212,7 +1247,18 @@ export function collectT0BacktestBody(root, opts = {}) {
     y_path_abandon_enabled: t0.y_path_abandon_enabled !== false,
     y_path_abandon_bars:
       t0.y_path_abandon_bars != null ? t0.y_path_abandon_bars : 6,
-    y_prefix_segment_enabled: t0.y_prefix_segment_enabled !== false,
+    t0_confirm_dev_pct: t0.t0_confirm_dev_pct != null ? t0.t0_confirm_dev_pct : 0.3,
+    t0_confirm_mom_bars: t0.t0_confirm_mom_bars != null ? t0.t0_confirm_mom_bars : 2,
+    t0_confirm_vol_mult: t0.t0_confirm_vol_mult != null ? t0.t0_confirm_vol_mult : 0,
+    t0_env_min_range_pct: t0.t0_env_min_range_pct != null ? t0.t0_env_min_range_pct : 0.5,
+    t0_env_min_path_abs: t0.t0_env_min_path_abs != null ? t0.t0_env_min_path_abs : 0.08,
+    t0_env_one_sided_tau_abs:
+      t0.t0_env_one_sided_tau_abs != null ? t0.t0_env_one_sided_tau_abs : 2,
+    t0_env_one_sided_path_abs:
+      t0.t0_env_one_sided_path_abs != null ? t0.t0_env_one_sided_path_abs : 2,
+    t0_slots_enabled: t0.t0_slots_enabled !== false,
+    y_tau_require_for_leg1: t0.y_tau_require_for_leg1 !== false,
+    t0_slots_max_rounds: t0.t0_slots_max_rounds != null ? t0.t0_slots_max_rounds : 4,
     y_tau_entry_price_skip_buy_then_sell:
       t0.y_tau_entry_price_skip_buy_then_sell !== false &&
       t0.y_tau_entry_price_skip !== false,
@@ -1273,8 +1319,6 @@ export function collectT0BacktestBody(root, opts = {}) {
         : t0.y_tau_exit_price_bias != null
           ? t0.y_tau_exit_price_bias
           : -1.0,
-    y_prefix_segment_enabled_sell_then_buy: t0.y_prefix_segment_enabled_sell_then_buy !== false,
-    y_prefix_segment_enabled_buy_then_sell: t0.y_prefix_segment_enabled_buy_then_sell !== false,
     y_prefix_upbar_ratio_buy_then_sell:
       t0.y_prefix_upbar_ratio_buy_then_sell != null ? t0.y_prefix_upbar_ratio_buy_then_sell : 0.2,
     y_prefix_downbar_ratio_sell_then_buy:

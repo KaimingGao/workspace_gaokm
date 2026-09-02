@@ -43,6 +43,33 @@ def _index_cache_get(
     }
 
 
+def peek_cached_index_bars(
+    *,
+    market: str = "CN",
+    allow_live_origin: bool = True,
+) -> Dict[str, Any]:
+    """只读进程内指数缓存，**永不打网**（做 T 回测 / 避免 ak_lock 挂死）。"""
+    from core.ports.market import default_benchmark
+
+    bench = str(default_benchmark(market) or "").strip() or "sh000300"
+    now = time.time()
+    with _INDEX_LOCK:
+        cached = _index_cache_get(
+            bench, now=now, offline_only=not bool(allow_live_origin)
+        )
+    if cached is not None:
+        return cached
+    return {
+        "ok": False,
+        "benchmark": bench,
+        "bars": [],
+        "label": "cache_peek_miss",
+        "cached": False,
+        "reason": "index_cache_miss",
+        "origin": "offline",
+    }
+
+
 def fetch_live_index_bars(
     *,
     market: str = "CN",

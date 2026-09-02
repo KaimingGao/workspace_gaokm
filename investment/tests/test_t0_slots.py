@@ -50,8 +50,14 @@ def _slot_rules(**kwargs):
             {"id": "s2", "hm": "10:30", "prefix_bars": 12, "ratio": 0.20},
         ],
         "direction": "buy_then_sell",
-        "y_prefix_segment_enabled": False,
-        "y_prefix_segment_enabled_buy_then_sell": False,
+        "t0_confirm_dev_pct": 0.0,
+        "t0_confirm_mom_bars": 1,
+        "t0_env_min_range_pct": 0.0,
+        "t0_env_min_path_abs": 0.0,
+        "t0_env_one_sided_tau_abs": 0.0,
+        "t0_env_one_sided_path_abs": 0.0,
+        "y_prefix_upbar_ratio_buy_then_sell": 0.0,
+        "y_prefix_downbar_ratio_sell_then_buy": 0.0,
         "y_tau_entry_price_skip": False,
         "min_range_pct": 0.1,
         "min_range_pct_buy_then_sell": 0.1,
@@ -68,6 +74,28 @@ def _slot_rules(**kwargs):
     }
     base.update(kwargs)
     return base
+
+
+def _px_bts_confirm_then_rally(i, hm):
+    """正T：前缀下探；10:00 确认根收阳开第一腿；其后冲高卖第二腿。"""
+    if i < 5:
+        return (100.2, 100.5, 99.0, 99.5)
+    if i == 5:
+        return (100.0, 100.6, 99.8, 100.4)
+    if i >= 8:
+        return (99.5, 104.0, 99.0, 103.0)
+    return (99.0, 100.0, 98.8, 99.5)
+
+
+def _px_stb_confirm_then_drop(i, hm):
+    """反T：前缀上冲；10:00 确认根收阴开第一腿；其后下探回补。"""
+    if i < 5:
+        return (100.2, 100.5, 100.1, 100.3)
+    if i == 5:
+        return (100.3, 100.6, 100.0, 100.0)
+    if i >= 8:
+        return (99.5, 100.0, 96.0, 97.0)
+    return (100.0, 100.5, 99.5, 100.2)
 
 
 class TestT0Slots(unittest.TestCase):
@@ -133,14 +161,8 @@ class TestT0Slots(unittest.TestCase):
         bar = _bar(date, 100, 105, 97, 101)
 
         def px(i, hm):
-            # 0-4 前缀；5=10:00 确认根收 100 → 第一腿；之后冲高卖第二腿
-            if i < 5:
-                return (100.2, 100.5, 100.1, 100.3)
-            if i == 5:
-                return (100.3, 100.6, 100.0, 100.0)
-            if i >= 8:
-                return (99.5, 104.0, 99.0, 103.0)
-            return (99.0, 100.0, 98.8, 99.5)
+            # 0-4 前缀下探；5=10:00 确认根收阳 → 第一腿；之后冲高卖第二腿
+            return _px_bts_confirm_then_rally(i, hm)
 
         mins = _am_mins(date, 14, px=px)
         out = simulate_t0_day(
@@ -159,8 +181,8 @@ class TestT0Slots(unittest.TestCase):
         self.assertTrue(buys, out)
         first_buy = buys[0]
         self.assertIn("10:00", str(first_buy.get("at") or ""), first_buy)
-        self.assertAlmostEqual(float(first_buy.get("price") or 0), 100.0, places=2)
-        self.assertEqual(int(first_buy.get("shares") or 0), 200)
+        self.assertAlmostEqual(float(first_buy.get("price") or 0), 100.4, places=2)
+        self.assertEqual(int(first_buy.get("shares") or 0), 500)
         rows = {r["id"]: r for r in (out.get("t0_slot_results") or [])}
         # 09:30 轮无前缀：确认根=首根；本夹具首根未形成可卖/可买条件时可能跳过
         self.assertGreater(int(rows.get("s2", {}).get("trades") or 0), 0)
@@ -174,16 +196,7 @@ class TestT0Slots(unittest.TestCase):
         date = "2026-03-02"
         bar = _bar(date, 100, 105, 97, 101)
 
-        def px(i, hm):
-            if i < 5:
-                return (100.2, 100.5, 100.1, 100.3)
-            if i == 5:
-                return (100.3, 100.6, 100.0, 100.0)
-            if i >= 8:
-                return (99.5, 104.0, 99.0, 103.0)
-            return (99.0, 100.0, 98.8, 99.5)
-
-        mins = _am_mins(date, 18, px=px)
+        mins = _am_mins(date, 18, px=_px_bts_confirm_then_rally)
         prev = _bar("2026-03-01", 99, 100, 98, 99.5)
         report = backtest_t0_on_bars(
             [prev, bar],
@@ -193,7 +206,6 @@ class TestT0Slots(unittest.TestCase):
             rules=_slot_rules(),
             stock_code="600519",
             minute_by_date={date: mins},
-            compare_optimistic=False,
         )
         self.assertTrue(report.get("success"), report.get("error"))
         self.assertTrue((report.get("rules") or {}).get("t0_slots_enabled"))
@@ -335,8 +347,10 @@ class TestT0Slots(unittest.TestCase):
                 ],
                 y_tau_entry_price_skip=True,
                 y_tau_entry_price_mult=1.0,
-                y_prefix_segment_enabled=False,
-                y_prefix_segment_enabled_buy_then_sell=False,
+                y_prefix_upbar_ratio_buy_then_sell=0.0,
+                y_prefix_downbar_ratio_sell_then_buy=0.0,
+                t0_confirm_dev_pct=0.0,
+                t0_confirm_mom_bars=1,
             ),
             stock_code="600519",
             minute_bars=mins,
@@ -598,7 +612,6 @@ class TestT0Slots(unittest.TestCase):
                 rules=rules,
                 stock_code="600519",
                 minute_by_date={date: mins},
-                compare_optimistic=False,
             )
         self.assertTrue(report.get("success"), report.get("error"))
         skipped = [
@@ -631,8 +644,8 @@ class TestT0Slots(unittest.TestCase):
         self.assertEqual(extra["t0_slot"], "s2")
         self.assertEqual(extra["t0_slot_hm"], "10:30")
 
-    def test_allocate_slot_slices_redistributes_remainder(self):
-        from core.t0.slots import allocate_slot_slices
+    def test_allocate_remaining_rolls_after_skip(self):
+        from core.t0.slots import allocate_remaining_slot_slice
 
         slots = [
             {"ratio": 0.20},
@@ -640,31 +653,26 @@ class TestT0Slots(unittest.TestCase):
             {"ratio": 0.20},
             {"ratio": 0.20},
         ]
-        slices = allocate_slot_slices(1000, 350, slots, 100)
-        self.assertEqual(sum(slices), 300.0)
-        self.assertTrue(all(s >= 100 for s in slices if s > 0))
+        q0 = allocate_remaining_slot_slice(400, slots, 0, 100)
+        q1 = allocate_remaining_slot_slice(400, slots, 1, 100)
+        self.assertEqual(q0, 100.0)
+        self.assertEqual(q1, 100.0)
+        self.assertGreaterEqual(q1, q0)
 
     def test_merge_respects_sellable_below_shares(self):
         date = "2026-03-02"
         bar = _bar(date, 100, 105, 97, 101)
 
-        def px(i, hm):
-            if i < 5:
-                return (100.2, 100.5, 100.1, 100.3)
-            if i == 5:
-                return (100.3, 100.6, 100.0, 100.0)
-            if i >= 8:
-                return (99.5, 104.0, 99.0, 103.0)
-            return (99.0, 100.0, 98.8, 99.5)
-
-        mins = _am_mins(date, 14, px=px)
+        mins = _am_mins(date, 14, px=_px_stb_confirm_then_drop)
         rules = _slot_rules(
             t0_slots=[
                 {"id": "s1", "hm": "10:00", "prefix_bars": 6, "ratio": 0.50},
                 {"id": "s2", "hm": "10:30", "prefix_bars": 12, "ratio": 0.50},
             ],
             direction="sell_then_buy",
-            y_prefix_segment_enabled_sell_then_buy=False,
+            y_prefix_downbar_ratio_sell_then_buy=0.0,
+            t0_confirm_dev_pct=0.0,
+            t0_confirm_mom_bars=1,
             must_cover_same_day_sell_then_buy=False,
             t0_stop_pct_sell_then_buy=0,
         )
@@ -688,10 +696,12 @@ class TestT0Slots(unittest.TestCase):
 
         def px(i, hm):
             if i < 5:
-                return (100.2, 100.5, 100.1, 100.3)
+                return (100.2, 100.5, 99.0, 99.5)
             if i == 5:
-                return (100.3, 100.6, 100.0, 100.0)
-            # 第二腿触价抬高：10:00 买后不平，10:30 第二轮不应再占用现金
+                return (100.0, 100.6, 99.8, 100.4)
+            if i == 11:
+                # 10:30 确认根仍收阳，逼出第二轮买；现金不足 → 跳过
+                return (99.8, 100.5, 99.5, 100.3)
             return (100.0, 100.15, 99.8, 99.9)
 
         mins = _am_mins(date, 14, px=px)
@@ -757,7 +767,9 @@ class TestT0Slots(unittest.TestCase):
                     direction="buy_then_sell",
                     y_tau_require_for_leg1=True,
                     y_tau_entry_price_skip=True,
-                    y_prefix_segment_enabled_buy_then_sell=False,
+                    y_prefix_upbar_ratio_buy_then_sell=0.0,
+                t0_confirm_dev_pct=0.0,
+                t0_confirm_mom_bars=1,
                 ),
                 stock_code="600519",
                 minute_bars=mins,

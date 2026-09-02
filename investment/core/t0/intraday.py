@@ -1054,7 +1054,11 @@ def _process_holding_slots(
     from core.t0.costs import resolve_t0_cost_context
     from core.t0.minute_path import _day_ohlc_from_minutes
     from core.t0.rules import _skip_result
-    from core.t0.slots import allocate_slot_slices, simulate_t0_slot, slot_specs
+    from core.t0.slots import (
+        allocate_remaining_slot_slice,
+        simulate_t0_slot,
+        slot_specs,
+    )
     from core.t0.score_policy import attach_day_scores, scores_have_any
 
     st = dict(stock_state or {})
@@ -1116,19 +1120,31 @@ def _process_holding_slots(
     cost = float(holding.get("cost") or 0)
     cfg_day = dict(cfg)
 
-    slices = allocate_slot_slices(sim_shares, sim_sellable, specs, lot)
+    from core.t0.slots import _parse_max_rounds
+
+    max_rounds = _parse_max_rounds(cfg, len(specs))
     sellable_now = float(sim_sellable)
     cash_now = float(sim_cash)
     cash_locked = 0.0
     all_applied: List[dict] = []
     last_snap: dict = {}
+    leg1_rounds = sum(
+        1
+        for r in rounds.values()
+        if isinstance(r, dict) and int((r or {}).get("legs_written") or 0) >= 1
+    )
     for i, spec in enumerate(specs):
         sid = str(spec.get("id") or "")
         rnd = dict(rounds.get(sid) or {"phase": PHASE_IDLE, "legs_written": 0, "slot": dict(spec)})
-        slice_qty = min(float(slices[i]), sellable_now)
+        slice_qty = allocate_remaining_slot_slice(sellable_now, specs, i, lot)
 
         ph = str(rnd.get("phase") or PHASE_IDLE)
         if ph in (PHASE_DONE, PHASE_SKIPPED):
+            rounds[sid] = rnd
+            continue
+        if leg1_rounds >= max_rounds and int(rnd.get("legs_written") or 0) < 1:
+            rnd["phase"] = PHASE_SKIPPED
+            rnd["skip_reason"] = f"已达最大轮数 {max_rounds}"
             rounds[sid] = rnd
             continue
         if slice_qty < lot:
@@ -1166,7 +1182,8 @@ def _process_holding_slots(
         if direction:
             rnd["direction"] = direction
         trades = list(out.get("trades") or [])
-        written = int(rnd.get("legs_written") or 0)
+        legs_before = int(rnd.get("legs_written") or 0)
+        written = legs_before
         new_trades = trades[written:]
         path_complete = _roundtrip_complete(out, direction)
 
@@ -1214,6 +1231,8 @@ def _process_holding_slots(
 
             cash_locked += _open_leg1_cash_lock(out)
         rnd["legs_written"] = written
+        if legs_before < 1 and written >= 1:
+            leg1_rounds += 1
         if path_complete and written > 0:
             rnd["phase"] = PHASE_DONE
             rnd.pop("wait_reason", None)

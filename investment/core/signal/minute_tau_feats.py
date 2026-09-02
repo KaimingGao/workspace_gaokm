@@ -254,10 +254,17 @@ def apply_sector_ret_cs(
 
 # (trade_date, tau_hm) → 池中位；做 T 回测同日多票复用
 _SECTOR_RET_CACHE: Dict[Tuple[str, str], Optional[float]] = {}
+# 同伴分钟线进程缓存：回测 20 日×4 槽会反复 load_minute_cache，未缓存时单票可卡 ~1 分钟
+_PEER_MINUTE_BARS: Dict[str, List[dict]] = {}
+_PEER_CODES_MEMO: Optional[List[str]] = None
+_SECTOR_RET_DEFAULT_CAP = 24
 
 
 def clear_sector_ret_cache() -> None:
+    global _PEER_CODES_MEMO
     _SECTOR_RET_CACHE.clear()
+    _PEER_MINUTE_BARS.clear()
+    _PEER_CODES_MEMO = None
 
 
 def resolve_sector_ret_to_tau(
@@ -266,7 +273,7 @@ def resolve_sector_ret_to_tau(
     *,
     codes: Optional[Sequence[str]] = None,
     known_rets: Optional[Sequence[Any]] = None,
-    cap: int = 80,
+    cap: int = _SECTOR_RET_DEFAULT_CAP,
     use_cache: bool = True,
 ) -> Optional[float]:
     """解析 ``sector_ret_to_tau``：优先已知同伴收益，否则读活跃簿/观察池/分钟仓宇宙。
@@ -287,7 +294,7 @@ def resolve_sector_ret_to_tau(
 
     peer_codes = [str(c).strip() for c in (codes or []) if str(c or "").strip()]
     if not peer_codes:
-        peer_codes = _peer_codes_for_sector_ret(cap=max(8, int(cap or 80)))
+        peer_codes = _peer_codes_for_sector_ret(cap=max(8, int(cap or _SECTOR_RET_DEFAULT_CAP)))
     if not peer_codes:
         if use_cache:
             _SECTOR_RET_CACHE[cache_key] = None
@@ -302,21 +309,29 @@ def resolve_sector_ret_to_tau(
             _SECTOR_RET_CACHE[cache_key] = None
         return None
 
-    for raw in peer_codes[: max(8, int(cap or 80))]:
-        try:
-            mkt, pure = resolve_market_code(str(raw))
-            packed = load_minute_cache(
-                mkt or "CN",
-                pure or str(raw),
-                period="5",
-                min_bars=2,
-                ignore_age=True,
-            )
-        except Exception:
+    for raw in peer_codes[: max(8, int(cap or _SECTOR_RET_DEFAULT_CAP))]:
+        code_key = str(raw or "").strip()
+        if not code_key:
             continue
-        if not packed:
-            continue
-        bars = list(packed[0] or [])
+        bars = _PEER_MINUTE_BARS.get(code_key)
+        if bars is None:
+            try:
+                mkt, pure = resolve_market_code(code_key)
+                packed = load_minute_cache(
+                    mkt or "CN",
+                    pure or code_key,
+                    period="5",
+                    min_bars=2,
+                    ignore_age=True,
+                )
+            except Exception:
+                _PEER_MINUTE_BARS[code_key] = []
+                continue
+            if not packed:
+                _PEER_MINUTE_BARS[code_key] = []
+                continue
+            bars = list(packed[0] or [])
+            _PEER_MINUTE_BARS[code_key] = bars
         if len(bars) < 2:
             continue
         pack = extract_minute_tau_pack(
@@ -334,15 +349,19 @@ def resolve_sector_ret_to_tau(
     return med
 
 
-def _peer_codes_for_sector_ret(*, cap: int = 80) -> List[str]:
+def _peer_codes_for_sector_ret(*, cap: int = _SECTOR_RET_DEFAULT_CAP) -> List[str]:
     """同伴宇宙：活跃簿 → 观察池 → 本地分钟仓代码。"""
-    n = max(8, int(cap or 80))
+    global _PEER_CODES_MEMO
+    n = max(8, int(cap or _SECTOR_RET_DEFAULT_CAP))
+    if _PEER_CODES_MEMO is not None:
+        return list(_PEER_CODES_MEMO[:n])
     try:
         from core.t0.score_policy import active_book_codes_for_tau_pool
 
         codes = active_book_codes_for_tau_pool(cap=n)
         if codes:
-            return list(codes)
+            _PEER_CODES_MEMO = list(codes)
+            return list(_PEER_CODES_MEMO[:n])
     except Exception:
         pass
     try:
@@ -366,9 +385,11 @@ def _peer_codes_for_sector_ret(*, cap: int = 80) -> List[str]:
                     seen.add(c)
                     out.append(c)
                     if len(out) >= n:
-                        return out
+                        _PEER_CODES_MEMO = out
+                        return list(out)
             if out:
-                return out
+                _PEER_CODES_MEMO = out
+                return list(out)
     except Exception:
         pass
     try:
@@ -387,10 +408,11 @@ def _peer_codes_for_sector_ret(*, cap: int = 80) -> List[str]:
             ).fetchall()
         finally:
             conn.close()
-        return [str(r[0]).strip() for r in rows if r and str(r[0]).strip()]
+        out = [str(r[0]).strip() for r in rows if r and str(r[0]).strip()]
+        _PEER_CODES_MEMO = out
+        return list(out)
     except Exception:
         return []
-
 
 def merge_minute_tau_pack_into_feats(
     feats: Optional[Dict[str, Any]],

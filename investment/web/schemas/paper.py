@@ -96,7 +96,6 @@ class T0BacktestRequest(BaseModel):
     )
     min_range_pct_sell_then_buy: Optional[float] = Field(default=None, ge=0.0, le=30.0)
     min_range_pct_buy_then_sell: Optional[float] = Field(default=None, ge=0.0, le=30.0)
-    compare_optimistic: bool = True
     use_minute: bool = True
     compare_daily: bool = False  # 已废弃：日线模拟已删除
     use_atr: Optional[bool] = None
@@ -226,9 +225,6 @@ class T0BacktestRequest(BaseModel):
     y_nowcast_oc_gate: Optional[bool] = None
     y_path_abandon_enabled: Optional[bool] = None
     y_path_abandon_bars: Optional[int] = Field(default=None, ge=2, le=48)
-    y_prefix_segment_enabled: Optional[bool] = None
-    y_prefix_segment_enabled_sell_then_buy: Optional[bool] = None
-    y_prefix_segment_enabled_buy_then_sell: Optional[bool] = None
     y_prefix_upbar_ratio_buy_then_sell: Optional[float] = Field(
         default=None,
         ge=0.0,
@@ -240,6 +236,20 @@ class T0BacktestRequest(BaseModel):
         ge=0.0,
         le=1.0,
         description="反T：固定前缀后半下跌K占比下限",
+    )
+    t0_confirm_dev_pct: Optional[float] = Field(default=None, ge=0.0, le=20.0)
+    t0_confirm_mom_bars: Optional[int] = Field(default=None, ge=1, le=12)
+    t0_confirm_vol_mult: Optional[float] = Field(default=None, ge=0.0, le=20.0)
+    t0_env_min_range_pct: Optional[float] = Field(default=None, ge=0.0, le=30.0)
+    t0_env_min_path_abs: Optional[float] = Field(default=None, ge=0.0, le=50.0)
+    t0_env_one_sided_tau_abs: Optional[float] = Field(default=None, ge=0.0, le=50.0)
+    t0_env_one_sided_path_abs: Optional[float] = Field(default=None, ge=0.0, le=50.0)
+    t0_slots_max_rounds: Optional[int] = Field(default=None, ge=0, le=16)
+    t0_slots_enabled: Optional[bool] = Field(
+        default=None, description="多轮槽位做T；关=单轮"
+    )
+    y_tau_require_for_leg1: Optional[bool] = Field(
+        default=None, description="缺 ŷ_τ 时禁止开第一腿"
     )
     y_tau_entry_price_skip: Optional[bool] = Field(
         default=None,
@@ -524,11 +534,18 @@ class PaperExecutionPatchRequest(BaseModel):
     y_nowcast_oc_gate: Optional[bool] = None
     y_path_abandon_enabled: Optional[bool] = None
     y_path_abandon_bars: Optional[int] = None
-    y_prefix_segment_enabled: Optional[bool] = None
-    y_prefix_segment_enabled_sell_then_buy: Optional[bool] = None
-    y_prefix_segment_enabled_buy_then_sell: Optional[bool] = None
     y_prefix_upbar_ratio_buy_then_sell: Optional[float] = None
     y_prefix_downbar_ratio_sell_then_buy: Optional[float] = None
+    t0_confirm_dev_pct: Optional[float] = None
+    t0_confirm_mom_bars: Optional[int] = None
+    t0_confirm_vol_mult: Optional[float] = None
+    t0_env_min_range_pct: Optional[float] = None
+    t0_env_min_path_abs: Optional[float] = None
+    t0_env_one_sided_tau_abs: Optional[float] = None
+    t0_env_one_sided_path_abs: Optional[float] = None
+    t0_slots_max_rounds: Optional[int] = None
+    t0_slots_enabled: Optional[bool] = None
+    y_tau_require_for_leg1: Optional[bool] = None
     y_tau_entry_price_skip: Optional[bool] = None
     y_tau_entry_price_mult: Optional[float] = None
     y_tau_entry_price_skip_buy_then_sell: Optional[bool] = None

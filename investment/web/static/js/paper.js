@@ -2748,8 +2748,8 @@ export function initPaper(ctx) {
       }
       const { onlySelected, useMinute } = scope;
       const busyLabel = onlySelected
-        ? `回测中（${selectedHoldCode}·5m）…`
-        : "回测中（全部持仓·5m）…";
+        ? `回测中（${selectedHoldCode}·5m/选向）…`
+        : "回测中（全部持仓·5m/选向）…";
       setT0ActionBusy(paperT0Bt, true, busyLabel);
       const ac = typeof AbortController !== "undefined" ? new AbortController() : null;
       const timer =
@@ -2760,7 +2760,7 @@ export function initPaper(ctx) {
           } catch (_) {
             /* ignore */
           }
-        }, 180000);
+        }, 300000);
       try {
         const body = collectT0BacktestBody(formRoot, {
           useMinute,
@@ -2795,7 +2795,9 @@ export function initPaper(ctx) {
         setT0ActionBusy(
           paperT0Bt,
           false,
-          aborted ? "回测超时（已中止）。可先预热 5 分钟线，或 Alt+点单票再试" : String(err.message || err)
+          aborted
+            ? "回测超时（已中止）。持仓多时请勾「仅选中」或缩小回看窗；也可先预热 5 分钟线"
+            : String(err.message || err)
         );
       } finally {
         if (timer) clearTimeout(timer);

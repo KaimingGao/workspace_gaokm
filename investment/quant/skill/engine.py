@@ -140,7 +140,6 @@ class QuantEngine:
                 rules=rules,
                 from_paper=from_paper,
                 codes=params.get("codes"),
-                compare_optimistic=bool(params.get("compare_optimistic", True)),
                 use_minute=True,
                 compare_daily=False,
             )

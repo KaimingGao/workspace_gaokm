@@ -92,24 +92,6 @@ def _t0_range_fields(day: Dict[str, Any]) -> Dict[str, Any]:
     return out
 
 
-def _optimistic_delta_ratio_pct(
-    delta: float,
-    primary_pnl: float,
-    *,
-    trade_days: int = 0,
-) -> Optional[float]:
-    """乐观Δ占比；样本过薄或比值爆炸时返回 None（避免 -15→+15 显示 200%）。"""
-    if int(trade_days or 0) < 3:
-        return None
-    base = abs(float(primary_pnl or 0))
-    if base < 1e-9:
-        return None
-    ratio = float(delta) / base * 100.0
-    if abs(ratio) > 150.0:
-        return None
-    return round(ratio, 2)
-
-
 def derive_t0_quality_metrics(report: Dict[str, Any]) -> Dict[str, Any]:
     """从回测汇总字段推导决策向指标（单票 / 多持仓共用）。"""
     trades = int(report.get("t0_trade_days") or 0)
@@ -122,7 +104,7 @@ def derive_t0_quality_metrics(report: Dict[str, Any]) -> Dict[str, Any]:
     hold_mv = float(report.get("hold_mv_start") or 0)
     eval_days = trades + skips
 
-    out: Dict[str, Any] = {
+    return {
         "t0_pnl_with_exposure": round(pnl + exposure, 2),
         "cover_rate_pct": round(covers / trades * 100.0, 2) if trades else None,
         "uncover_rate_pct": round(uncovers / trades * 100.0, 2) if trades else None,
@@ -138,17 +120,6 @@ def derive_t0_quality_metrics(report: Dict[str, Any]) -> Dict[str, Any]:
         "win_rate_pct": report.get("t0_win_rate_pct"),
         "profit_factor": report.get("profit_factor"),
     }
-    opt = report.get("optimistic_compare")
-    if isinstance(opt, dict) and opt.get("delta_pnl") is not None:
-        delta = float(opt.get("delta_pnl") or 0)
-        opt = dict(opt)
-        opt["delta_pnl_ratio_pct"] = _optimistic_delta_ratio_pct(
-            delta, pnl, trade_days=trades
-        )
-        out["optimistic_compare"] = opt
-        out["optimistic_delta_ratio_pct"] = opt.get("delta_pnl_ratio_pct")
-    return out
-
 
 def _slot_round_tally(day: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     """多轮日：按槽位分向记账；缺槽位明细则回落单日口径。"""
@@ -218,7 +189,6 @@ def backtest_t0_on_bars(
     rules: Optional[dict] = None,
     cost_config: Optional[dict] = None,
     stock_code: str = "",
-    compare_optimistic: bool = True,
     minute_by_date: Optional[Dict[str, List[dict]]] = None,
     compare_daily: bool = False,
     require_minute: bool = False,
@@ -228,8 +198,7 @@ def backtest_t0_on_bars(
 ) -> Dict[str, Any]:
     """Walk 底仓做 T。
 
-    默认 fill_mode=trigger；可选附带 optimistic 上界对照。
-    仅 5m 第一触达；缺分钟覆盖日跳过（已删除日线模拟）。
+    默认 fill_mode=trigger。仅 5m 第一触达；缺分钟覆盖日跳过（已删除日线模拟）。
     ``bars`` = 评估窗内交易日；``bars_history``（可选）= 含 warmup 的全量日线，
     供 dual_y / ATR 的 hist_prior，不改变评估窗长度。
     ``tau_pool_by_date``：按日截面缺口（与刷簿 ŷ_τ 特征对齐）。
@@ -296,40 +265,6 @@ def backtest_t0_on_bars(
     )
     if not primary.get("success"):
         return primary
-
-    if compare_optimistic and str(cfg.get("fill_mode") or "") != "optimistic":
-        opt_rules = dict(cfg)
-        opt_rules["fill_mode"] = "optimistic"
-        opt = _walk_t0(
-            bars,
-            initial_shares=initial_shares,
-            initial_cost=initial_cost,
-            initial_cash=initial_cash,
-            rules=opt_rules,
-            cost_config=cost_config,
-            stock_code=stock_code,
-            minute_by_date=minute_by_date,
-            require_minute=require_minute,
-            bars_history=history,
-            tau_pool_by_date=tau_pool_by_date,
-        )
-        if opt.get("success"):
-            delta = round(
-                float(opt.get("t0_pnl_total") or 0) - float(primary.get("t0_pnl_total") or 0),
-                2,
-            )
-            primary_pnl = float(primary.get("t0_pnl_total") or 0)
-            primary["optimistic_compare"] = {
-                "t0_pnl_total": opt.get("t0_pnl_total"),
-                "t0_win_rate_pct": opt.get("t0_win_rate_pct"),
-                "t0_trade_days": opt.get("t0_trade_days"),
-                "exposure_pnl_total": opt.get("exposure_pnl_total"),
-                "delta_pnl": delta,
-                "delta_pnl_ratio_pct": _optimistic_delta_ratio_pct(
-                    delta, primary_pnl, trade_days=int(opt.get("t0_trade_days") or primary.get("t0_trade_days") or 0)
-                ),
-                "note": "optimistic 为同规则上界对照（卖 high / 买 low）",
-            }
 
     primary.update(derive_t0_quality_metrics(primary))
     if bars_history is not None and len(history) > len(bars):
@@ -830,11 +765,18 @@ def _walk_t0(
             "y_nowcast_oc_gate": cfg.get("y_nowcast_oc_gate"),
             "y_path_abandon_enabled": cfg.get("y_path_abandon_enabled"),
             "y_path_abandon_bars": cfg.get("y_path_abandon_bars"),
-            "y_prefix_segment_enabled": cfg.get("y_prefix_segment_enabled"),
-            "y_prefix_segment_enabled_sell_then_buy": cfg.get("y_prefix_segment_enabled_sell_then_buy"),
-            "y_prefix_segment_enabled_buy_then_sell": cfg.get("y_prefix_segment_enabled_buy_then_sell"),
             "y_prefix_upbar_ratio_buy_then_sell": cfg.get("y_prefix_upbar_ratio_buy_then_sell"),
             "y_prefix_downbar_ratio_sell_then_buy": cfg.get("y_prefix_downbar_ratio_sell_then_buy"),
+            "t0_confirm_dev_pct": cfg.get("t0_confirm_dev_pct"),
+            "t0_confirm_mom_bars": cfg.get("t0_confirm_mom_bars"),
+            "t0_confirm_vol_mult": cfg.get("t0_confirm_vol_mult"),
+            "t0_env_min_range_pct": cfg.get("t0_env_min_range_pct"),
+            "t0_env_min_path_abs": cfg.get("t0_env_min_path_abs"),
+            "t0_env_one_sided_tau_abs": cfg.get("t0_env_one_sided_tau_abs"),
+            "t0_env_one_sided_path_abs": cfg.get("t0_env_one_sided_path_abs"),
+            "t0_slots_max_rounds": cfg.get("t0_slots_max_rounds"),
+            "t0_slots_enabled": cfg.get("t0_slots_enabled"),
+            "y_tau_require_for_leg1": cfg.get("y_tau_require_for_leg1"),
             "y_tau_entry_price_skip": cfg.get("y_tau_entry_price_skip"),
             "y_tau_entry_price_mult": cfg.get("y_tau_entry_price_mult"),
             "y_tau_entry_price_skip_buy_then_sell": cfg.get(
@@ -927,7 +869,7 @@ def _walk_t0(
         "viz": viz,
     }
     report.update(derive_t0_quality_metrics(report))
-    from core.t0.viz import attach_compare_to_viz
+    from core.t0.viz import attach_summary_to_viz
 
-    attach_compare_to_viz(report)
+    attach_summary_to_viz(report)
     return report

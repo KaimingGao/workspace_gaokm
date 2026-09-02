@@ -45,20 +45,35 @@ function buildZeroTradeHint(data) {
     reasonText.includes("T+1") || reasonText.includes("可卖旧仓") || reasonText.includes("可卖 0");
   const lotSkip =
     reasonText.includes("动仓不足") || reasonText.includes("不足1手") || reasonText.includes("不足 1 手");
+  const compositeSkip =
+    reasonText.includes("复合确认") ||
+    reasonText.includes("未达开盘锚") ||
+    reasonText.includes("动量未翻转");
+  const envSkip =
+    reasonText.includes("环境闸") ||
+    (reasonText.includes("环境") &&
+      (reasonText.includes("振幅") || reasonText.includes("path") || reasonText.includes("单边")));
+  const multiSlotMiss = reasonText.includes("多轮均未成交");
   const dir = (data.rules && data.rules.direction) || data.direction || "—";
   const tips = tplus1Skip
     ? "旧仓被 T+1 锁定；需隔日可卖仓才能反T先卖 / 正T卖旧"
-    : tauExitSkip
-      ? "第二腿出场价未过 open×(1+(clamp(ŷ_τ×裕度,min,max)+价偏)/100)；可调裕度/价偏或关 τ卖价闸/τ买价闸"
-      : tauEntrySkip
-      ? "确认根入场价未过 open×(1+(clamp(ŷ_τ×裕度,min,max)+价偏)/100)；可调「买价裕度/卖价裕度/价偏」或关闸"
-      : prefixVsPathSkip
-        ? "历史：前缀振幅>|ŷ_path|×裕度；现行已改τ入场价闸，重跑预演后应消失"
-        : ampSkip
-          ? "旧振幅下限跳过（门禁已下线）；重跑预演后应消失"
-          : lotSkip
-          ? "仓位×做T比例不足 1 手；可提高做T比例或加仓"
-          : "未过 τ 出场价闸；可调裕度/价偏或关闸";
+    : compositeSkip
+      ? "复合确认未过（开盘锚偏离/动量）；可把「偏离%」调低或 0，或减少动量根数"
+      : envSkip
+        ? "环境闸跳过（振幅/|ŷ_path|/单边）；对应阈值填 0 可关该项"
+        : multiSlotMiss
+          ? "各轮均未开仓（选向/选腿/价闸）；看明细槽位 reason，或放宽偏离%/阴阳占比"
+          : tauExitSkip
+            ? "第二腿出场价未过 open×(1+(clamp(ŷ_τ×裕度,min,max)+价偏)/100)；可调裕度/价偏或关 τ卖价闸/τ买价闸"
+            : tauEntrySkip
+              ? "确认根入场价未过τ带；正T买价偏默认+0.5、反T卖价偏默认−0.5（符号反了会几乎零成交），可调裕度/价偏或关闸"
+              : prefixVsPathSkip
+                ? "历史：前缀振幅>|ŷ_path|×裕度；现行已改τ入场价闸，重跑预演后应消失"
+                : ampSkip
+                  ? "旧振幅下限跳过（门禁已下线）；重跑预演后应消失"
+                  : lotSkip
+                    ? "仓位×做T比例不足 1 手；可提高做T比例或加仓"
+                    : "未过选向/选腿/价闸；看 skip_reason_top 与槽位明细";
   const mm = data.minute_meta || {};
   const missingMin = Number(data.missing_minute_days) || 0;
   const minuteHint =

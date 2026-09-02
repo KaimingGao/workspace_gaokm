@@ -41,6 +41,14 @@ class TestLiveIndexCacheIsolation(unittest.TestCase):
         self.assertTrue(pack_live.get("cached"))
         self.assertEqual(len(pack_live.get("bars") or []), len(fake))
 
+        # 做 T 回测路径：peek 可用 live 缓存，但不触发新拉网
+        peek = lf.peek_cached_index_bars(market="CN", allow_live_origin=True)
+        self.assertTrue(peek.get("ok"))
+        self.assertEqual(len(peek.get("bars") or []), len(fake))
+        peek_off = lf.peek_cached_index_bars(market="CN", allow_live_origin=False)
+        self.assertFalse(peek_off.get("ok"))
+        self.assertEqual(len(peek_off.get("bars") or []), 0)
+
 
 if __name__ == "__main__":
     unittest.main()

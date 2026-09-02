@@ -920,6 +920,250 @@ def _bts_chase_sell_floor_px(
     return floor_px
 
 
+def _cfg_float(cfg: Optional[dict], key: str, default: float, *, lo: float, hi: float) -> float:
+    try:
+        raw = (cfg or {}).get(key)
+        val = float(default if raw is None or raw == "" else raw)
+    except (TypeError, ValueError):
+        val = float(default)
+    return max(lo, min(float(val), hi))
+
+
+def _cfg_int(cfg: Optional[dict], key: str, default: int, *, lo: int, hi: int) -> int:
+    try:
+        raw = (cfg or {}).get(key)
+        val = int(default if raw is None or raw == "" else raw)
+    except (TypeError, ValueError):
+        val = int(default)
+    return max(lo, min(int(val), hi))
+
+
+def prefix_env_gate_ok(
+    *,
+    range_pct: Optional[float],
+    y_path: Optional[float],
+    y_tau: Optional[float],
+    cfg: Optional[dict],
+) -> Dict[str, Any]:
+    """环境闸：小波动 / 弱 path / 单边极端 → 整轮不做（v5 常开；单项阈值 0=关）。"""
+    base: Dict[str, Any] = {"segment": "env_gate"}
+
+    min_range = _cfg_float(cfg, "t0_env_min_range_pct", 0.5, lo=0.0, hi=30.0)
+    min_path = _cfg_float(cfg, "t0_env_min_path_abs", 0.08, lo=0.0, hi=50.0)
+    one_tau = _cfg_float(cfg, "t0_env_one_sided_tau_abs", 2.0, lo=0.0, hi=50.0)
+    one_path = _cfg_float(cfg, "t0_env_one_sided_path_abs", 2.0, lo=0.0, hi=50.0)
+    base.update(
+        {
+            "min_range_pct": min_range,
+            "min_path_abs": min_path,
+            "one_sided_tau_abs": one_tau,
+            "one_sided_path_abs": one_path,
+            "range_pct": None if range_pct is None else round(float(range_pct), 4),
+            "y_path": None if y_path is None else round(float(y_path), 4),
+            "y_tau": None if y_tau is None else round(float(y_tau), 4),
+        }
+    )
+    if min_range > 1e-12 and range_pct is not None and float(range_pct) + 1e-12 < min_range:
+        return {
+            **base,
+            "ok": False,
+            "reason": f"环境闸：前缀振幅 {float(range_pct):.2f}%<{min_range:.2f}%",
+        }
+    if (
+        min_path > 1e-12
+        and y_path is not None
+        and abs(float(y_path)) + 1e-12 < min_path
+    ):
+        return {
+            **base,
+            "ok": False,
+            "reason": f"环境闸：|ŷ_path|={abs(float(y_path)):.3f}<{min_path:.3f}",
+        }
+    if (
+        one_tau > 1e-12
+        and one_path > 1e-12
+        and y_tau is not None
+        and y_path is not None
+        and float(y_tau) * float(y_path) > 0
+        and abs(float(y_tau)) + 1e-12 >= one_tau
+        and abs(float(y_path)) + 1e-12 >= one_path
+    ):
+        return {
+            **base,
+            "ok": False,
+            "reason": (
+                f"环境闸：单边市 |ŷ_τ|={abs(float(y_tau)):.2f}≥{one_tau:.2f} "
+                f"且 |ŷ_path|={abs(float(y_path)):.2f}≥{one_path:.2f}"
+            ),
+        }
+    return {**base, "ok": True, "reason": "环境闸通过"}
+
+
+def prefix_composite_entry_ok(
+    minute_bars: Sequence[dict],
+    *,
+    direction: str,
+    cfg: dict,
+    ref: Optional[float] = None,
+) -> Dict[str, Any]:
+    """复合确认：开盘锚偏离 + 短窗动量翻转（可选量能放大）。
+
+    正T：前缀曾下探 ≥dev%，确认根附近动量转多；反T 对称。
+    """
+    direction = str(direction or "").strip().lower()
+    base: Dict[str, Any] = {"direction": direction, "segment": "composite"}
+    if direction not in ("buy_then_sell", "sell_then_buy"):
+        return {**base, "ok": True, "reason": "非正/反T，跳过复合确认"}
+
+    want_buy = direction == "buy_then_sell"
+    side = "正T" if want_buy else "反T"
+    bars = [b for b in (minute_bars or []) if isinstance(b, dict)]
+    fixed_n, _thr = _prefix_bar_ratio_params(cfg or {}, direction)
+    n = min(len(bars), fixed_n) if fixed_n > 0 else len(bars)
+    base["fixed_bars"] = fixed_n
+    base["prefix_bars"] = n
+    mom_n = _cfg_int(cfg, "t0_confirm_mom_bars", 2, lo=1, hi=12)
+    min_n = max(2, mom_n)
+    if n < min_n:
+        return {
+            **base,
+            "ok": False,
+            "reason": f"{side}复合确认：前缀不足 {n}/{min_n}",
+        }
+    win = bars[:n]
+    try:
+        open_px = float(ref or 0)
+    except (TypeError, ValueError):
+        open_px = 0.0
+    if open_px <= 0:
+        try:
+            open_px = float(win[0].get("open") or 0)
+        except (TypeError, ValueError):
+            open_px = 0.0
+    if open_px <= 0:
+        return {**base, "ok": False, "reason": f"{side}复合确认：无有效开盘锚"}
+
+    dev_pct = _cfg_float(cfg, "t0_confirm_dev_pct", 0.3, lo=0.0, hi=20.0)
+    vol_mult = _cfg_float(cfg, "t0_confirm_vol_mult", 0.0, lo=0.0, hi=20.0)
+    base.update({"dev_pct": dev_pct, "mom_bars": mom_n, "vol_mult": vol_mult})
+
+    lows: List[float] = []
+    highs: List[float] = []
+    for b in win:
+        try:
+            lo = float(b.get("low") or 0)
+            hi = float(b.get("high") or 0)
+        except (TypeError, ValueError):
+            continue
+        if lo > 0:
+            lows.append(lo)
+        if hi > 0:
+            highs.append(hi)
+    if want_buy:
+        if not lows:
+            return {**base, "ok": False, "reason": f"{side}复合确认：无有效 low"}
+        extreme = min(lows)
+        reached = extreme <= open_px * (1.0 - dev_pct / 100.0)
+        extreme_move = (extreme / open_px - 1.0) * 100.0
+    else:
+        if not highs:
+            return {**base, "ok": False, "reason": f"{side}复合确认：无有效 high"}
+        extreme = max(highs)
+        reached = extreme >= open_px * (1.0 + dev_pct / 100.0)
+        extreme_move = (extreme / open_px - 1.0) * 100.0
+    base["extreme_move_pct"] = round(extreme_move, 4)
+    if not reached:
+        return {
+            **base,
+            "ok": False,
+            "reason": (
+                f"{side}复合确认：未达开盘锚偏离 "
+                f"{extreme_move:.2f}%（需{'≤' if want_buy else '≥'}"
+                f"{-dev_pct if want_buy else dev_pct:.2f}%）"
+            ),
+        }
+
+    tail = win[-mom_n:]
+    hit = 0
+    valid = 0
+    for b in tail:
+        try:
+            o = float(b.get("open") or 0)
+            c = float(b.get("close") or 0)
+        except (TypeError, ValueError):
+            continue
+        if o <= 0 or c <= 0:
+            continue
+        valid += 1
+        if (c > o) if want_buy else (c < o):
+            hit += 1
+    base["mom_hits"] = hit
+    base["mom_valid"] = valid
+    if valid <= 0 or hit < max(1, (valid + 1) // 2):
+        return {
+            **base,
+            "ok": False,
+            "reason": f"{side}复合确认：动量未翻转 {hit}/{valid}",
+        }
+
+    if vol_mult > 1e-12:
+        vols: List[float] = []
+        for b in win:
+            try:
+                v = float(b.get("volume") or b.get("vol") or 0)
+            except (TypeError, ValueError):
+                v = 0.0
+            vols.append(max(0.0, v))
+        last_v = vols[-1] if vols else 0.0
+        prior = [v for v in vols[:-1] if v > 0]
+        if prior:
+            avg = sum(prior) / float(len(prior))
+            base["vol_last"] = round(last_v, 4)
+            base["vol_avg_prior"] = round(avg, 4)
+            if avg > 0 and last_v + 1e-12 < avg * vol_mult:
+                return {
+                    **base,
+                    "ok": False,
+                    "reason": (
+                        f"{side}复合确认：量能不足 "
+                        f"{last_v:.0f}<{avg:.0f}×{vol_mult:.2f}"
+                    ),
+                }
+
+    return {
+        **base,
+        "ok": True,
+        "reason": f"{side}复合确认通过（偏离{extreme_move:.2f}% · 动量{hit}/{valid}）",
+    }
+
+
+def prefix_leg1_confirm_ok(
+    minute_bars: Sequence[dict],
+    *,
+    direction: str,
+    cfg: dict,
+    ref: Optional[float] = None,
+) -> Dict[str, Any]:
+    """第一腿确认（v5）：阴阳占比 ∩ 复合确认（开盘锚偏离+动量）。"""
+    parts: List[Dict[str, Any]] = [
+        prefix_fixed_bar_ratio_entry_ok(
+            minute_bars, direction=direction, cfg=cfg
+        ),
+        prefix_composite_entry_ok(
+            minute_bars, direction=direction, cfg=cfg, ref=ref
+        ),
+    ]
+    ok = all(bool(p.get("ok")) for p in parts)
+    reasons = [str(p.get("reason") or "") for p in parts if p.get("reason")]
+    return {
+        "ok": ok,
+        "mode": "both",
+        "segment": "leg1_confirm",
+        "parts": parts,
+        "reason": " · ".join(reasons) if reasons else ("确认通过" if ok else "确认未过"),
+    }
+
+
 def prefix_fixed_bar_ratio_entry_ok(
     minute_bars: Sequence[dict],
     *,
@@ -2296,11 +2540,6 @@ def _plan_forward_leg1_gates(
 
         fixed_n, _ratio_thr = _prefix_bar_ratio_params(cfg_side, direction)
         side_label = "正T" if direction == "buy_then_sell" else "反T"
-        seg_enabled_key = (
-            "y_prefix_segment_enabled_buy_then_sell"
-            if direction == "buy_then_sell"
-            else "y_prefix_segment_enabled_sell_then_buy"
-        )
 
         # 侧向 N 可能大于共用 score_n：继续等到齐窗
         if n < fixed_n:
@@ -2370,17 +2609,20 @@ def _plan_forward_leg1_gates(
             )
             return None, early, dir_res_locked
 
-        seg = prefix_fixed_bar_ratio_entry_ok(
-            fixed_prefix, direction=direction, cfg=cfg_side
+        seg = prefix_leg1_confirm_ok(
+            fixed_prefix,
+            direction=direction,
+            cfg=cfg_side,
+            ref=float(ref) if ref is not None else None,
         )
-        # 振幅下限已下线；seg 未过走下方 entry_ready=False 分支
-        if bool(cfg_side.get(seg_enabled_key, True)) is False:
-            seg = {
-                "ok": True,
-                "segment": "fixed_prefix_off",
-                "fixed_bars": fixed_n,
-                "reason": f"{side_label}固定前缀确认关",
-            }
+        env = prefix_env_gate_ok(
+            range_pct=range_pct_side,
+            y_path=_score_y_path(live_snap),
+            y_tau=_score_y_tau(live_snap),
+            cfg=cfg_side,
+        )
+        if not bool(env.get("ok")):
+            seg = {**seg, "ok": False, "env_gate": env, "reason": env.get("reason")}
 
         entry_ready = bool(seg.get("ok"))
         dir_amp = {

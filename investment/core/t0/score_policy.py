@@ -1468,14 +1468,9 @@ def rescore_scores_at_fixed_prefix(
     if not raw or len(prefix) < 2 or not isinstance(day_bar, dict):
         return fallback
     hm = prefix_tau_hm_from_bars(prefix)
-    trade_day = str(day_bar.get("date") or (prefix[0] or {}).get("date") or "")[:10]
+    # 不做同伴 5m 截面：回测 20 日×4 槽会反复扫仓，全持仓易超前端 abort。
+    # ŷ_τ 仍用前缀分钟因果重算；缺 sector_ret 时模型走无截面路径。
     sret = None
-    try:
-        from core.signal.minute_tau_feats import resolve_sector_ret_to_tau
-
-        sret = resolve_sector_ret_to_tau(trade_day, hm)
-    except Exception:  # noqa: BLE001
-        logger.debug("resolve sector_ret at prefix failed", exc_info=True)
     try:
         sc = resolve_scores_for_code(
             raw,
@@ -2382,17 +2377,19 @@ def _t0_index_bars_for_score(
     quote: Optional[dict],
     hist: Sequence[dict],
 ) -> Optional[List[dict]]:
-    """与 score_stock 同源：基准指数日线，并裁到个股 hist 末日（开盘决策 T−1）。"""
+    """与 score_stock 同源：基准指数日线，并裁到个股 hist 末日（开盘决策 T−1）。
+
+    只读进程缓存，不打东财/新浪指数接口——远端挂死会占 ``ak_lock``，
+    把单票做 T 回测拖到前端 180s abort（UI 一直停在「xxx·5m」）。
+    """
     try:
-        from core.signal.live_features import fetch_live_index_bars
+        from core.signal.live_features import peek_cached_index_bars
         from core.signal.session_pit import prepare_eod_bars
         from core.ports.market import resolve_market_code
 
         mkt = str(resolve_market_code(str(code) or "") or "CN")
-        # 与刷簿相对强弱同口径：多取几根，避免短窗/偶发空包把 RS 打成中性
-        pack = fetch_live_index_bars(market=mkt, limit=120) or {}
+        pack = peek_cached_index_bars(market=mkt, allow_live_origin=True) or {}
         bars = list(pack.get("bars") or [])
-        # 空包时不再 use_cache=False 二次打网：回测逐日会把挂死的指数源放大成整次超时
         if not bars:
             return None
         idx_eod, _ = prepare_eod_bars(bars, quote)

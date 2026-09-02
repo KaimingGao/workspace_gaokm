@@ -18,6 +18,9 @@ SKIP_CAT_LABELS: Dict[str, str] = {
     "path_abandon": "前缀无空间放弃",
     "prefix_segment": "固定前缀待确认",
     "prefix_vs_path": "前缀>|ŷ_path|×裕度(旧)",
+    "composite_confirm": "复合确认未过",
+    "env_gate": "环境闸未过",
+    "multi_slot_miss": "多轮均未成交",
     "tau_entry_price": "入场价vs开盘×ŷ_τ",
     "tau_exit_price": "出场价vs开盘×ŷ_τ",
     "y_trade_weak": "y_trade幅度不足",
@@ -61,6 +64,9 @@ SKIP_CAT_COLORS: Dict[str, str] = {
     "path_abandon": "#3f6f68",
     "prefix_segment": "#3a6480",
     "prefix_vs_path": "#2f5370",
+    "composite_confirm": "#3a6480",
+    "env_gate": "#5a7d8c",
+    "multi_slot_miss": "#b8c0c8",
     "tau_entry_price": "#2a5f7a",
     "tau_exit_price": "#356b85",
     "gap_tier_skip": "#b07a3a",
@@ -160,6 +166,12 @@ def classify_t0_skip_reason(reason: Optional[str]) -> str:
         or "反弹确认" in r
     ):
         return "prefix_segment"
+    if "复合确认" in r or "未达开盘锚" in r or "动量未翻转" in r:
+        return "composite_confirm"
+    if "环境闸" in r:
+        return "env_gate"
+    if "多轮均未成交" in r:
+        return "multi_slot_miss"
     if "上移振幅" in r or "下移振幅" in r or "方向振幅" in r:
         return "directional_amplitude"
     if "振幅" in r:
@@ -1965,7 +1977,6 @@ def build_t0_viz_payload(
 def merge_t0_viz_payloads(
     payloads: Sequence[Optional[dict]],
     *,
-    compare: Optional[dict] = None,
     rules: Optional[dict] = None,
 ) -> Dict[str, Any]:
     """多持仓回测合并各票 viz。"""
@@ -2152,24 +2163,14 @@ def merge_t0_viz_payloads(
         "skip_round_count": int(sum(skip_counts.values())) if skip_scope_slot else int(skip_n),
         "summary": summary,
     }
-    if isinstance(compare, dict) and compare:
-        out["compare"] = compare
     return out
 
 
-def attach_compare_to_viz(report: dict) -> None:
-    """把回测报告中的对照指标写入 viz.summary / viz.compare。"""
+def attach_summary_to_viz(report: dict) -> None:
+    """把回测报告中的质量指标写入 viz.summary。"""
     viz = report.get("viz")
     if not isinstance(viz, dict):
         return
-    opt = report.get("optimistic_compare") or {}
-    if opt.get("t0_pnl_total") is not None:
-        viz["compare"] = {
-            "actual_pnl": report.get("t0_pnl_total"),
-            "optimistic_pnl": opt.get("t0_pnl_total"),
-            "delta_pnl": opt.get("delta_pnl"),
-            "delta_ratio_pct": opt.get("delta_pnl_ratio_pct") or report.get("optimistic_delta_ratio_pct"),
-        }
     sm = dict(viz.get("summary") or {})
     for k in (
         "participate_rate_pct",

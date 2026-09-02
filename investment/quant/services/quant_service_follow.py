@@ -19,7 +19,6 @@ class QuantFollowMixin:
         rules: Optional[dict] = None,
         from_paper: bool = False,
         codes: Optional[list] = None,
-        compare_optimistic: bool = True,
         use_minute: bool = True,
         compare_daily: bool = False,
     ) -> Dict[str, Any]:
@@ -37,7 +36,6 @@ class QuantFollowMixin:
                 lookback=lookback,
                 rules=rules,
                 paper=paper if from_paper else None,
-                compare_optimistic=compare_optimistic,
                 use_minute=True,
                 compare_daily=False,
             )
@@ -47,7 +45,6 @@ class QuantFollowMixin:
             lookback=lookback,
             initial_shares=initial_shares,
             rules=rules,
-            compare_optimistic=compare_optimistic,
             use_minute=True,
             compare_daily=False,
         )

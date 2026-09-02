@@ -103,6 +103,13 @@ _DEAD_T0_KEYS = (
     "buy_trigger_pct",
     "buy_trigger_pct_sell_then_buy",
     "sell_trigger_pct_buy_then_sell",
+    # v5 已钉死：both 确认 ∩ 环境闸 ∩ 半贪心滚仓；旧回退开关丢弃
+    "t0_leg_confirm_mode",
+    "t0_env_gate_enabled",
+    "t0_slots_roll_unused",
+    "y_prefix_segment_enabled",
+    "y_prefix_segment_enabled_sell_then_buy",
+    "y_prefix_segment_enabled_buy_then_sell",
 )
 
 
@@ -206,11 +213,17 @@ DEFAULT_T0_RULES: Dict[str, Any] = {
     "y_path_abandon_bars": 6,
     # 正/反T：固定前缀 N=abandon_bars；齐窗一次判定后半阴阳占比（不滚动探极值）
     # 正T：后半 close>open ≥upbar_ratio；反T：后半 close<open ≥downbar_ratio
-    "y_prefix_segment_enabled": True,
-    "y_prefix_segment_enabled_sell_then_buy": True,
-    "y_prefix_segment_enabled_buy_then_sell": True,
     "y_prefix_upbar_ratio_buy_then_sell": 0.2,
     "y_prefix_downbar_ratio_sell_then_buy": 0.2,
+    # v5 选腿：阴阳占比 ∩ 复合确认（开盘锚偏离+动量）；环境闸常开；半贪心滚仓常开
+    # 偏离默认 0.3：0.8 在低波动票上几乎 0 成交；0=不要求偏离（仍要动量）
+    "t0_confirm_dev_pct": 0.3,
+    "t0_confirm_mom_bars": 2,
+    "t0_confirm_vol_mult": 0.0,  # 0=不看量；>0 则末根≥均量×倍数
+    "t0_env_min_range_pct": 0.5,
+    "t0_env_min_path_abs": 0.08,
+    "t0_env_one_sided_tau_abs": 2.0,
+    "t0_env_one_sided_path_abs": 2.0,
     # 缺 ŷ_τ 时禁止开第一腿（τ 闸开则硬跳过，不等午后追价）
     "y_tau_require_for_leg1": True,
     # 确认根第一腿：正T买价<open×(1+ŷ_τ×裕度)；反T卖价>同式（有符号ŷ_τ，分侧可调）
@@ -257,9 +270,10 @@ DEFAULT_T0_RULES: Dict[str, Any] = {
     # dual_y 分数来源：compute=开盘信息集即时算（默认）；live_book/ledger 仅兜底或对照
     "y_score_source": "compute",
     # 多轮独立做T：10:00–11:30 四轮各 15%；确认根收盘开第一腿；午后仅 leg2 追价/EOD
-    # 不开 09:30。四轮共用一套买卖/止损配方
+    # 不开 09:30。四轮共用一套买卖/止损配方；空轮仓位滚入后续（半贪心，常开）
     "t0_slots_enabled": True,
     "t0_slots": None,
+    "t0_slots_max_rounds": 4,
     "note": "A股T+1底仓做T；仅5m first_touch（已删除日线模拟）；非实盘。",
 }
 
@@ -536,20 +550,6 @@ def load_t0_rules(override: Optional[dict] = None) -> Dict[str, Any]:
             cfg[ab_side] = max(2, min(int(raw_ab), 48))
         except (TypeError, ValueError):
             cfg[ab_side] = int(cfg["y_path_abandon_bars"])
-    cfg["y_prefix_segment_enabled"] = bool(cfg.get("y_prefix_segment_enabled", True))
-    for seg_side in (
-        "y_prefix_segment_enabled_sell_then_buy",
-        "y_prefix_segment_enabled_buy_then_sell",
-    ):
-        if seg_side in override_keys and cfg.get(seg_side) is not None:
-            cfg[seg_side] = bool(cfg.get(seg_side))
-        elif "y_prefix_segment_enabled" in override_keys:
-            # 只改总开关时，两侧跟随（避免 DEFAULT 侧向 True 盖住总关）
-            cfg[seg_side] = bool(cfg["y_prefix_segment_enabled"])
-        else:
-            cfg[seg_side] = bool(
-                cfg.get(seg_side, cfg.get("y_prefix_segment_enabled", True))
-            )
     try:
         raw_up = cfg.get("y_prefix_upbar_ratio_buy_then_sell")
         up_ratio = float(0.2 if raw_up is None or raw_up == "" else raw_up)
@@ -562,6 +562,59 @@ def load_t0_rules(override: Optional[dict] = None) -> Dict[str, Any]:
     except (TypeError, ValueError):
         dn_ratio = 0.2
     cfg["y_prefix_downbar_ratio_sell_then_buy"] = max(0.0, min(dn_ratio, 1.0))
+    try:
+        raw_dev = cfg.get("t0_confirm_dev_pct")
+        cfg["t0_confirm_dev_pct"] = max(
+            0.0, min(float(0.3 if raw_dev is None or raw_dev == "" else raw_dev), 20.0)
+        )
+    except (TypeError, ValueError):
+        cfg["t0_confirm_dev_pct"] = 0.3
+    try:
+        raw_mom = cfg.get("t0_confirm_mom_bars")
+        cfg["t0_confirm_mom_bars"] = max(
+            1, min(int(2 if raw_mom is None or raw_mom == "" else raw_mom), 12)
+        )
+    except (TypeError, ValueError):
+        cfg["t0_confirm_mom_bars"] = 2
+    try:
+        raw_vol = cfg.get("t0_confirm_vol_mult")
+        cfg["t0_confirm_vol_mult"] = max(
+            0.0, min(float(0.0 if raw_vol is None or raw_vol == "" else raw_vol), 20.0)
+        )
+    except (TypeError, ValueError):
+        cfg["t0_confirm_vol_mult"] = 0.0
+    try:
+        raw_range = cfg.get("t0_env_min_range_pct")
+        cfg["t0_env_min_range_pct"] = max(
+            0.0,
+            min(float(0.5 if raw_range is None or raw_range == "" else raw_range), 30.0),
+        )
+    except (TypeError, ValueError):
+        cfg["t0_env_min_range_pct"] = 0.5
+    try:
+        raw_path = cfg.get("t0_env_min_path_abs")
+        cfg["t0_env_min_path_abs"] = max(
+            0.0,
+            min(float(0.08 if raw_path is None or raw_path == "" else raw_path), 50.0),
+        )
+    except (TypeError, ValueError):
+        cfg["t0_env_min_path_abs"] = 0.08
+    try:
+        raw_ot = cfg.get("t0_env_one_sided_tau_abs")
+        cfg["t0_env_one_sided_tau_abs"] = max(
+            0.0,
+            min(float(2.0 if raw_ot is None or raw_ot == "" else raw_ot), 50.0),
+        )
+    except (TypeError, ValueError):
+        cfg["t0_env_one_sided_tau_abs"] = 2.0
+    try:
+        raw_op = cfg.get("t0_env_one_sided_path_abs")
+        cfg["t0_env_one_sided_path_abs"] = max(
+            0.0,
+            min(float(2.0 if raw_op is None or raw_op == "" else raw_op), 50.0),
+        )
+    except (TypeError, ValueError):
+        cfg["t0_env_one_sided_path_abs"] = 2.0
     legacy_skip = coerce_cfg_bool(cfg.get("y_tau_entry_price_skip"), True)
     try:
         raw_legacy_mult = cfg.get("y_tau_entry_price_mult")
@@ -863,6 +916,14 @@ def load_t0_rules(override: Optional[dict] = None) -> Dict[str, Any]:
             except (TypeError, ValueError):
                 cfg[mr_side] = cfg.get(base_mr)
     cfg["t0_slots_enabled"] = coerce_cfg_bool(cfg.get("t0_slots_enabled"), True)
+    raw_max_rounds = cfg.get("t0_slots_max_rounds")
+    if raw_max_rounds is None or raw_max_rounds == "":
+        cfg["t0_slots_max_rounds"] = 4
+    else:
+        try:
+            cfg["t0_slots_max_rounds"] = max(0, min(int(raw_max_rounds), 16))
+        except (TypeError, ValueError):
+            cfg["t0_slots_max_rounds"] = 4
     if isinstance(cfg.get("t0_slots"), (list, tuple)) and len(cfg.get("t0_slots") or []) == 0:
         cfg["t0_slots"] = []
     else:
