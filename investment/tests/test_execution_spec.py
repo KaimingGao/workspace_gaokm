@@ -147,10 +147,10 @@ class TestExecutionResolve(unittest.TestCase):
         defaults = load_t0_rules()
         self.assertEqual(defaults["t0_pm_degrade"], "14:00")
         self.assertEqual(defaults["t0_pm_degrade_buy_then_sell"], "14:00")
-        self.assertEqual(defaults["t0_pm_degrade_sell_then_buy"], "14:00")
-        self.assertEqual(defaults["t0_pm_chase_interval_min"], 10)
-        self.assertEqual(defaults["t0_pm_chase_interval_min_sell_then_buy"], 10)
-        self.assertEqual(defaults["t0_pm_chase_interval_min_buy_then_sell"], 10)
+        self.assertEqual(defaults["t0_pm_degrade_sell_then_buy"], "13:00")
+        self.assertEqual(defaults["t0_pm_chase_interval_min"], 5)
+        self.assertEqual(defaults["t0_pm_chase_interval_min_sell_then_buy"], 5)
+        self.assertEqual(defaults["t0_pm_chase_interval_min_buy_then_sell"], 5)
         self.assertAlmostEqual(defaults["t0_stop_pct_buy_then_sell"], 1.2)
         self.assertEqual(defaults["t0_stop_arm_bars"], 2)
         self.assertTrue(defaults["t0_stop_on_close"])
@@ -201,6 +201,29 @@ class TestExecutionResolve(unittest.TestCase):
         self.assertNotIn("sell_trigger_pct_sell_then_buy", norm_dead.get("t0") or {})
         self.assertEqual(norm_dead["t0"].get("t0_pm_degrade_buy_then_sell"), "14:00")
 
+    def test_validate_patch_accepts_price_bias_keys(self):
+        from core.execution import validate_execution_patch
+
+        ok, norm, errs = validate_execution_patch(
+            {
+                "t0": {
+                    "y_tau_exit_price_bias_buy_then_sell": 1.0,
+                    "y_tau_exit_price_bias_sell_then_buy": -1.0,
+                    "y_tau_entry_price_bias_buy_then_sell": 0.5,
+                    "y_tau_entry_price_bias_sell_then_buy": -0.5,
+                    "y_tau_require_for_leg1": True,
+                    "t0_pm_chase_cap_leg1_buy_then_sell": True,
+                }
+            }
+        )
+        self.assertTrue(ok, errs)
+        t0 = norm["t0"]
+        self.assertAlmostEqual(float(t0["y_tau_exit_price_bias_buy_then_sell"]), 1.0)
+        self.assertAlmostEqual(float(t0["y_tau_exit_price_bias_sell_then_buy"]), -1.0)
+        self.assertAlmostEqual(float(t0["y_tau_entry_price_bias_buy_then_sell"]), 0.5)
+        self.assertTrue(t0["y_tau_require_for_leg1"])
+        self.assertTrue(t0["t0_pm_chase_cap_leg1_buy_then_sell"])
+
     def test_t0_backtest_request_defaults_match_product(self):
         from core.t0.config import load_t0_rules
         from web.schemas.paper import T0BacktestRequest
@@ -208,8 +231,8 @@ class TestExecutionResolve(unittest.TestCase):
         req = T0BacktestRequest()
         d = load_t0_rules()
         self.assertEqual(req.lookback, 20)
-        self.assertAlmostEqual(float(d["y_tau_exit_price_mult_buy_then_sell"]), 2.0)
-        self.assertAlmostEqual(float(d["y_tau_exit_price_mult_sell_then_buy"]), 2.0)
+        self.assertAlmostEqual(float(d["y_tau_exit_price_mult_buy_then_sell"]), 1.0)
+        self.assertAlmostEqual(float(d["y_tau_exit_price_mult_sell_then_buy"]), 1.0)
 
     def test_validate_patch_preserves_y_nowcast_oc_gate_false(self):
         from core.execution import validate_execution_patch

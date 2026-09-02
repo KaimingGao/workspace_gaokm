@@ -11,6 +11,7 @@ from core.t0.backtest import (
     backtest_t0_on_bars,
     derive_t0_quality_metrics,
 )
+from core.t0.config import T0_TRADE_DAYS_SAMPLE_UI_LIMIT
 
 logger = logging.getLogger(__name__)
 
@@ -784,7 +785,7 @@ def run_t0_backtest_for_holdings(
             label = summarize_skip_reason_label(reason_key)
             skip_reason_counts[label] = skip_reason_counts.get(label, 0) + 1
     trade_sample.sort(key=lambda r: str(r.get("date") or ""))
-    ui_limit = 50
+    ui_limit = T0_TRADE_DAYS_SAMPLE_UI_LIMIT
     recent = trade_sample[-ui_limit:]
     seen = {(r.get("stock_code"), r.get("date"), r.get("direction")) for r in recent}
     rev_extra: List[Dict[str, Any]] = []

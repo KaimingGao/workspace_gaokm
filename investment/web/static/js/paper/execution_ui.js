@@ -153,7 +153,7 @@ function dualYGateThresholds(t0) {
   };
   return {
     tradeEnter: pick("y_trade_enter", "y_trade_floor", 0.01),
-    tradeStrong: pick("y_trade_strong", "y_trade_tau_sign_gate", 0.5),
+    tradeStrong: pick("y_trade_strong", "y_trade_tau_sign_gate", 0.2),
     tauEnter: pick("y_tau_enter", null, 0.01),
     tauEnterSellThenBuy: pick("y_tau_enter_sell_then_buy", "y_tau_enter", 0.01),
     tauEnterBuyThenSell: pick("y_tau_enter_buy_then_sell", "y_tau_enter", 0.01),
@@ -161,11 +161,11 @@ function dualYGateThresholds(t0) {
     pathEnterSellThenBuy: pick("y_path_enter_sell_then_buy", "y_path_enter", 0.01),
     pathEnterBuyThenSell: pick("y_path_enter_buy_then_sell", "y_path_enter", 0.01),
     eodEnter: pick("y_eod_enter", null, 0.01),
-    eodStrong: pick("y_eod_strong", "y_eod_tau_sign_gate", 0.5),
+    eodStrong: pick("y_eod_strong", "y_eod_tau_sign_gate", 0.2),
     pathOn: x.y_use_path !== false,
     eodPrior: pick("y_eod_prior", null, 0.01),
     ncEnter: pick("y_nc_enter", null, 0.01),
-    ncStrong: pick("y_nc_strong", "y_nowcast_enter", 0.5),
+    ncStrong: pick("y_nc_strong", "y_nowcast_enter", 0.2),
     ncBlock: x.y_block_tau_nowcast_sign !== false,
     ncOc: x.y_nowcast_oc_gate === true,
   };
@@ -428,7 +428,7 @@ export function renderExecutionRulesHtml(execution) {
       : "") +
     `<div class="paper-t0-spec-kpi-strip" aria-label="核心参数">` +
     specKpi("启用", enabledLbl, "做 T overlay 总开关") +
-    specKpi("策略", "dual_y", "六轮共用 dual_y 闸与买卖/止损配方；各轮只独立选向") +
+    specKpi("策略", "dual_y", "四轮共用 dual_y 闸与买卖/止损；各轮只独立选向；午后不开 leg1") +
     specKpi("动仓", `${ratioPct}%`, "固定底仓比例（不随 ŷ 缩放）") +
     specKpi("路径", pathLbl, "分钟触价路径") +
     specKpi("成交", fillLbl, "撮合假设") +
@@ -443,7 +443,7 @@ export function renderExecutionRulesHtml(execution) {
         const fmt = (n) => (Number.isFinite(n) && n > 0 ? `${n}%` : "关");
         return `正${fmt(bts)}/反${fmt(stb)}·${armLbl}·${conf}`;
       })(),
-      "相对该轮第一腿成交价；正T跌破卖旧 / 反T涨破买回；六轮共用同一套%；延迟与收盘确认共用"
+      "相对该轮第一腿成交价；正T跌破卖旧 / 反T涨破买回；四轮共用同一套%；延迟与收盘确认共用"
     ) +
     specKpi(
       "追价",
@@ -611,6 +611,14 @@ export function fillExecutionForm(root, execution) {
         : 0.5
   );
   set(
+    "y_tau_entry_price_bias_buy_then_sell",
+    t0.y_tau_entry_price_bias_buy_then_sell != null
+      ? t0.y_tau_entry_price_bias_buy_then_sell
+      : t0.y_tau_entry_price_bias != null
+        ? t0.y_tau_entry_price_bias
+        : 0.5
+  );
+  set(
     "y_tau_entry_price_skip_sell_then_buy",
     t0.y_tau_entry_price_skip_sell_then_buy !== false &&
       t0.y_tau_entry_price_skip !== false
@@ -621,7 +629,15 @@ export function fillExecutionForm(root, execution) {
       ? t0.y_tau_entry_price_mult_sell_then_buy
       : t0.y_tau_entry_price_mult != null
         ? t0.y_tau_entry_price_mult
-        : 1.0
+        : 0.5
+  );
+  set(
+    "y_tau_entry_price_bias_sell_then_buy",
+    t0.y_tau_entry_price_bias_sell_then_buy != null
+      ? t0.y_tau_entry_price_bias_sell_then_buy
+      : t0.y_tau_entry_price_bias != null
+        ? t0.y_tau_entry_price_bias
+        : -0.5
   );
   set(
     "y_tau_exit_price_skip_buy_then_sell",
@@ -634,7 +650,15 @@ export function fillExecutionForm(root, execution) {
       ? t0.y_tau_exit_price_mult_buy_then_sell
       : t0.y_tau_exit_price_mult != null
         ? t0.y_tau_exit_price_mult
-        : 2.0
+        : 1.0
+  );
+  set(
+    "y_tau_exit_price_bias_buy_then_sell",
+    t0.y_tau_exit_price_bias_buy_then_sell != null
+      ? t0.y_tau_exit_price_bias_buy_then_sell
+      : t0.y_tau_exit_price_bias != null
+        ? t0.y_tau_exit_price_bias
+        : 1.0
   );
   set(
     "y_tau_exit_price_skip_sell_then_buy",
@@ -648,6 +672,14 @@ export function fillExecutionForm(root, execution) {
       : t0.y_tau_exit_price_mult != null
         ? t0.y_tau_exit_price_mult
         : 1.0
+  );
+  set(
+    "y_tau_exit_price_bias_sell_then_buy",
+    t0.y_tau_exit_price_bias_sell_then_buy != null
+      ? t0.y_tau_exit_price_bias_sell_then_buy
+      : t0.y_tau_exit_price_bias != null
+        ? t0.y_tau_exit_price_bias
+        : -1.0
   );
   set("y_prefix_segment_enabled_sell_then_buy", t0.y_prefix_segment_enabled_sell_then_buy !== false);
   set("y_prefix_segment_enabled_buy_then_sell", t0.y_prefix_segment_enabled_buy_then_sell !== false);
@@ -663,11 +695,11 @@ export function fillExecutionForm(root, execution) {
   set("y_eod_enter", t0.y_eod_enter != null ? t0.y_eod_enter : 0.01);
   set(
     "y_eod_strong",
-    g.eodStrong != null && Number.isFinite(g.eodStrong) ? g.eodStrong : 0.5
+    g.eodStrong != null && Number.isFinite(g.eodStrong) ? g.eodStrong : 0.2
   );
   set(
     "y_trade_strong",
-    g.tradeStrong != null && Number.isFinite(g.tradeStrong) ? g.tradeStrong : 0.5
+    g.tradeStrong != null && Number.isFinite(g.tradeStrong) ? g.tradeStrong : 0.2
   );
   set("y_on_allow", t0.y_on_allow != null ? t0.y_on_allow : 0.01);
   set(
@@ -680,11 +712,11 @@ export function fillExecutionForm(root, execution) {
   );
   set(
     "y_nc_strong",
-    g.ncStrong != null && Number.isFinite(g.ncStrong) ? g.ncStrong : 0.5
+    g.ncStrong != null && Number.isFinite(g.ncStrong) ? g.ncStrong : 0.2
   );
   set(
     "t0_pm_degrade_sell_then_buy",
-    t0.t0_pm_degrade_sell_then_buy != null ? t0.t0_pm_degrade_sell_then_buy : "14:00"
+    t0.t0_pm_degrade_sell_then_buy != null ? t0.t0_pm_degrade_sell_then_buy : "13:00"
   );
   set(
     "t0_pm_degrade_buy_then_sell",
@@ -694,13 +726,13 @@ export function fillExecutionForm(root, execution) {
     "t0_pm_chase_interval_min_sell_then_buy",
     t0.t0_pm_chase_interval_min_sell_then_buy ??
       t0.t0_pm_chase_interval_min ??
-      10
+      5
   );
   set(
     "t0_pm_chase_interval_min_buy_then_sell",
     t0.t0_pm_chase_interval_min_buy_then_sell ??
       t0.t0_pm_chase_interval_min ??
-      10
+      5
   );
   set(
     "t0_stop_pct_buy_then_sell",
@@ -760,7 +792,7 @@ export function collectExecutionForm(root) {
     must_cover_same_day_buy_then_sell: chk("must_cover_same_day_buy_then_sell", true),
     must_cover_same_day: chk("must_cover_same_day_buy_then_sell", true),
     y_trade_enter: Math.max(0.01, Math.min(num("y_trade_enter", 0.01), 5)),
-    y_trade_strong: Math.max(0.05, Math.min(num("y_trade_strong", 0.5), 5)),
+    y_trade_strong: Math.max(0.05, Math.min(num("y_trade_strong", 0.2), 5)),
     y_trade_floor: Math.max(0.01, Math.min(num("y_trade_enter", 0.01), 5)),
     y_tau_enter_sell_then_buy: Math.max(0.01, Math.min(num("y_tau_enter_sell_then_buy", 0.01), 5)),
     y_tau_enter_buy_then_sell: Math.max(
@@ -813,13 +845,21 @@ export function collectExecutionForm(root) {
       0.5,
       Math.min(num("y_tau_entry_price_mult_buy_then_sell", 0.5), 5)
     ),
+    y_tau_entry_price_bias_buy_then_sell: Math.max(
+      -50,
+      Math.min(num("y_tau_entry_price_bias_buy_then_sell", 0.5), 50)
+    ),
     y_tau_entry_price_skip_sell_then_buy: chk(
       "y_tau_entry_price_skip_sell_then_buy",
       true
     ),
     y_tau_entry_price_mult_sell_then_buy: Math.max(
       0.5,
-      Math.min(num("y_tau_entry_price_mult_sell_then_buy", 1.0), 5)
+      Math.min(num("y_tau_entry_price_mult_sell_then_buy", 0.5), 5)
+    ),
+    y_tau_entry_price_bias_sell_then_buy: Math.max(
+      -50,
+      Math.min(num("y_tau_entry_price_bias_sell_then_buy", -0.5), 50)
     ),
     y_tau_exit_price_skip_buy_then_sell: chk(
       "y_tau_exit_price_skip_buy_then_sell",
@@ -827,7 +867,11 @@ export function collectExecutionForm(root) {
     ),
     y_tau_exit_price_mult_buy_then_sell: Math.max(
       0.5,
-      Math.min(num("y_tau_exit_price_mult_buy_then_sell", 2.0), 5)
+      Math.min(num("y_tau_exit_price_mult_buy_then_sell", 1.0), 5)
+    ),
+    y_tau_exit_price_bias_buy_then_sell: Math.max(
+      -50,
+      Math.min(num("y_tau_exit_price_bias_buy_then_sell", 1), 50)
     ),
     y_tau_exit_price_skip_sell_then_buy: chk(
       "y_tau_exit_price_skip_sell_then_buy",
@@ -836,6 +880,10 @@ export function collectExecutionForm(root) {
     y_tau_exit_price_mult_sell_then_buy: Math.max(
       0.5,
       Math.min(num("y_tau_exit_price_mult_sell_then_buy", 1.0), 5)
+    ),
+    y_tau_exit_price_bias_sell_then_buy: Math.max(
+      -50,
+      Math.min(num("y_tau_exit_price_bias_sell_then_buy", -1), 50)
     ),
     y_prefix_segment_enabled_sell_then_buy: chk("y_prefix_segment_enabled_sell_then_buy", true),
     y_prefix_segment_enabled_buy_then_sell: chk("y_prefix_segment_enabled_buy_then_sell", true),
@@ -849,28 +897,28 @@ export function collectExecutionForm(root) {
     ),
     y_eod_prior: Math.max(0.01, Math.min(num("y_eod_prior", 0.01), 5)),
     y_eod_enter: Math.max(0.01, Math.min(num("y_eod_enter", 0.01), 5)),
-    y_eod_strong: Math.max(0.05, Math.min(num("y_eod_strong", 0.5), 5)),
-    y_eod_tau_sign_gate: Math.max(0.05, Math.min(num("y_eod_strong", 0.5), 5)),
-    y_trade_tau_sign_gate: Math.max(0.05, Math.min(num("y_trade_strong", 0.5), 5)),
+    y_eod_strong: Math.max(0.05, Math.min(num("y_eod_strong", 0.2), 5)),
+    y_eod_tau_sign_gate: Math.max(0.05, Math.min(num("y_eod_strong", 0.2), 5)),
+    y_trade_tau_sign_gate: Math.max(0.05, Math.min(num("y_trade_strong", 0.2), 5)),
     y_on_allow: Math.max(0.01, Math.min(num("y_on_allow", 0.01), 10)),
     y_block_tau_nowcast_sign: chk("y_block_tau_nowcast_sign", true),
     y_nc_enter: Math.max(0.01, Math.min(num("y_nc_enter", 0.01), 10)),
-    y_nc_strong: Math.max(0.05, Math.min(num("y_nc_strong", 0.5), 10)),
-    y_nowcast_enter: Math.max(0.05, Math.min(num("y_nc_strong", 0.5), 10)),
-    t0_pm_degrade_sell_then_buy: str("t0_pm_degrade_sell_then_buy", "14:00"),
+    y_nc_strong: Math.max(0.05, Math.min(num("y_nc_strong", 0.2), 10)),
+    y_nowcast_enter: Math.max(0.05, Math.min(num("y_nc_strong", 0.2), 10)),
+    t0_pm_degrade_sell_then_buy: str("t0_pm_degrade_sell_then_buy", "13:00"),
     t0_pm_degrade_buy_then_sell: str("t0_pm_degrade_buy_then_sell", "14:00"),
     t0_pm_degrade: str("t0_pm_degrade_buy_then_sell", "14:00"),
     t0_pm_chase_interval_min_sell_then_buy: Math.max(
       1,
-      Math.min(Math.round(num("t0_pm_chase_interval_min_sell_then_buy", 10)), 60)
+      Math.min(Math.round(num("t0_pm_chase_interval_min_sell_then_buy", 5)), 60)
     ),
     t0_pm_chase_interval_min_buy_then_sell: Math.max(
       1,
-      Math.min(Math.round(num("t0_pm_chase_interval_min_buy_then_sell", 10)), 60)
+      Math.min(Math.round(num("t0_pm_chase_interval_min_buy_then_sell", 5)), 60)
     ),
     t0_pm_chase_interval_min: Math.max(
       1,
-      Math.min(Math.round(num("t0_pm_chase_interval_min_buy_then_sell", 10)), 60)
+      Math.min(Math.round(num("t0_pm_chase_interval_min_buy_then_sell", 5)), 60)
     ),
     t0_stop_pct_buy_then_sell: Math.max(0, Math.min(num("t0_stop_pct_buy_then_sell", 1.2), 20)),
     t0_stop_pct_sell_then_buy: Math.max(0, Math.min(num("t0_stop_pct_sell_then_buy", 1.2), 20)),
@@ -1123,7 +1171,7 @@ export function collectT0BacktestBody(root, opts = {}) {
         ? t0.y_trade_strong
         : t0.y_trade_tau_sign_gate != null
           ? t0.y_trade_tau_sign_gate
-          : 0.5,
+          : 0.2,
     y_trade_floor:
       t0.y_trade_enter != null
         ? t0.y_trade_enter
@@ -1174,6 +1222,12 @@ export function collectT0BacktestBody(root, opts = {}) {
         : t0.y_tau_entry_price_mult != null
           ? t0.y_tau_entry_price_mult
           : 0.5,
+    y_tau_entry_price_bias_buy_then_sell:
+      t0.y_tau_entry_price_bias_buy_then_sell != null
+        ? t0.y_tau_entry_price_bias_buy_then_sell
+        : t0.y_tau_entry_price_bias != null
+          ? t0.y_tau_entry_price_bias
+          : 0.5,
     y_tau_entry_price_skip_sell_then_buy:
       t0.y_tau_entry_price_skip_sell_then_buy !== false &&
       t0.y_tau_entry_price_skip !== false,
@@ -1182,7 +1236,13 @@ export function collectT0BacktestBody(root, opts = {}) {
         ? t0.y_tau_entry_price_mult_sell_then_buy
         : t0.y_tau_entry_price_mult != null
           ? t0.y_tau_entry_price_mult
-          : 1.0,
+          : 0.5,
+    y_tau_entry_price_bias_sell_then_buy:
+      t0.y_tau_entry_price_bias_sell_then_buy != null
+        ? t0.y_tau_entry_price_bias_sell_then_buy
+        : t0.y_tau_entry_price_bias != null
+          ? t0.y_tau_entry_price_bias
+          : -0.5,
     y_tau_exit_price_skip_buy_then_sell:
       t0.y_tau_exit_price_skip_buy_then_sell !== false &&
       t0.y_tau_exit_price_skip !== false,
@@ -1191,7 +1251,13 @@ export function collectT0BacktestBody(root, opts = {}) {
         ? t0.y_tau_exit_price_mult_buy_then_sell
         : t0.y_tau_exit_price_mult != null
           ? t0.y_tau_exit_price_mult
-          : 2.0,
+          : 1.0,
+    y_tau_exit_price_bias_buy_then_sell:
+      t0.y_tau_exit_price_bias_buy_then_sell != null
+        ? t0.y_tau_exit_price_bias_buy_then_sell
+        : t0.y_tau_exit_price_bias != null
+          ? t0.y_tau_exit_price_bias
+          : 1.0,
     y_tau_exit_price_skip_sell_then_buy:
       t0.y_tau_exit_price_skip_sell_then_buy !== false &&
       t0.y_tau_exit_price_skip !== false,
@@ -1201,6 +1267,12 @@ export function collectT0BacktestBody(root, opts = {}) {
         : t0.y_tau_exit_price_mult != null
           ? t0.y_tau_exit_price_mult
           : 1.0,
+    y_tau_exit_price_bias_sell_then_buy:
+      t0.y_tau_exit_price_bias_sell_then_buy != null
+        ? t0.y_tau_exit_price_bias_sell_then_buy
+        : t0.y_tau_exit_price_bias != null
+          ? t0.y_tau_exit_price_bias
+          : -1.0,
     y_prefix_segment_enabled_sell_then_buy: t0.y_prefix_segment_enabled_sell_then_buy !== false,
     y_prefix_segment_enabled_buy_then_sell: t0.y_prefix_segment_enabled_buy_then_sell !== false,
     y_prefix_upbar_ratio_buy_then_sell:
@@ -1214,19 +1286,19 @@ export function collectT0BacktestBody(root, opts = {}) {
         ? t0.y_eod_strong
         : t0.y_eod_tau_sign_gate != null
           ? t0.y_eod_tau_sign_gate
-          : 0.5,
+          : 0.2,
     y_eod_tau_sign_gate:
       t0.y_eod_strong != null
         ? t0.y_eod_strong
         : t0.y_eod_tau_sign_gate != null
           ? t0.y_eod_tau_sign_gate
-          : 0.5,
+          : 0.2,
     y_trade_tau_sign_gate:
       t0.y_trade_strong != null
         ? t0.y_trade_strong
         : t0.y_trade_tau_sign_gate != null
           ? t0.y_trade_tau_sign_gate
-          : 0.5,
+          : 0.2,
     y_on_allow: t0.y_on_allow != null ? t0.y_on_allow : 0.01,
     y_block_tau_nowcast_sign: t0.y_block_tau_nowcast_sign !== false,
     y_nc_enter: t0.y_nc_enter != null ? t0.y_nc_enter : 0.01,
@@ -1235,29 +1307,29 @@ export function collectT0BacktestBody(root, opts = {}) {
         ? t0.y_nc_strong
         : t0.y_nowcast_enter != null
           ? t0.y_nowcast_enter
-          : 0.5,
+          : 0.2,
     y_nowcast_enter:
       t0.y_nc_strong != null
         ? t0.y_nc_strong
         : t0.y_nowcast_enter != null
           ? t0.y_nowcast_enter
-          : 0.5,
-    t0_pm_degrade_sell_then_buy: t0.t0_pm_degrade_sell_then_buy != null ? t0.t0_pm_degrade_sell_then_buy : "14:00",
+          : 0.2,
+    t0_pm_degrade_sell_then_buy: t0.t0_pm_degrade_sell_then_buy != null ? t0.t0_pm_degrade_sell_then_buy : "13:00",
     t0_pm_degrade_buy_then_sell:
       t0.t0_pm_degrade_buy_then_sell ?? t0.t0_pm_degrade ?? "14:00",
     t0_pm_degrade: t0.t0_pm_degrade_buy_then_sell ?? t0.t0_pm_degrade ?? "14:00",
     t0_pm_chase_interval_min_sell_then_buy:
       t0.t0_pm_chase_interval_min_sell_then_buy ??
       t0.t0_pm_chase_interval_min ??
-      10,
+      5,
     t0_pm_chase_interval_min_buy_then_sell:
       t0.t0_pm_chase_interval_min_buy_then_sell ??
       t0.t0_pm_chase_interval_min ??
-      10,
+      5,
     t0_pm_chase_interval_min:
       t0.t0_pm_chase_interval_min_buy_then_sell ??
       t0.t0_pm_chase_interval_min ??
-      10,
+      5,
     t0_stop_pct_buy_then_sell:
       t0.t0_stop_pct_buy_then_sell != null ? t0.t0_stop_pct_buy_then_sell : 1.2,
     t0_stop_pct_sell_then_buy:

@@ -1,7 +1,7 @@
 /** Paper · 做T 指标与预演表渲染（从 paper.js 抽出）。 */
 
 import { yTauMapScoreTip, normalizeYTauMap } from "./execution_ui.js";
-import { renderT0Viz } from "./t0_viz.js?v=p1798";
+import { renderT0Viz } from "./t0_viz.js?v=p1814";
 import { buildT0ReportHtml, fmtT0DirDays } from "./t0_report.js?v=p1795";
 import {
   buildT0TradeTableHtml,
@@ -9,7 +9,7 @@ import {
   pickTradeDays,
   stockCellHtml,
   T0_TRADE_TABLE_MAX_ROWS,
-} from "./t0_table.js?v=p1798";
+} from "./t0_table.js?v=p1814";
 
 function escapeHtml(s) {
   return String(s ?? "")
@@ -49,16 +49,16 @@ function buildZeroTradeHint(data) {
   const tips = tplus1Skip
     ? "旧仓被 T+1 锁定；需隔日可卖仓才能反T先卖 / 正T卖旧"
     : tauExitSkip
-      ? "第二腿出场价未过 open×(1+ŷ_τ×裕度)；可调卖/买价裕度或关 τ卖价闸/τ买价闸"
+      ? "第二腿出场价未过 open×(1+(clamp(ŷ_τ×裕度,min,max)+价偏)/100)；可调裕度/价偏或关 τ卖价闸/τ买价闸"
       : tauEntrySkip
-      ? "确认根入场价未过 open×(1+ŷ_τ×裕度)；可调「买价裕度/卖价裕度」或关闸"
+      ? "确认根入场价未过 open×(1+(clamp(ŷ_τ×裕度,min,max)+价偏)/100)；可调「买价裕度/卖价裕度/价偏」或关闸"
       : prefixVsPathSkip
         ? "历史：前缀振幅>|ŷ_path|×裕度；现行已改τ入场价闸，重跑预演后应消失"
         : ampSkip
           ? "旧振幅下限跳过（门禁已下线）；重跑预演后应消失"
           : lotSkip
           ? "仓位×做T比例不足 1 手；可提高做T比例或加仓"
-          : "未过 τ 出场价闸；可调卖/买价裕度或关闸";
+          : "未过 τ 出场价闸；可调裕度/价偏或关闸";
   const mm = data.minute_meta || {};
   const missingMin = Number(data.missing_minute_days) || 0;
   const minuteHint =

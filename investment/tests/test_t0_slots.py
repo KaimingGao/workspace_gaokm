@@ -71,14 +71,15 @@ def _slot_rules(**kwargs):
 
 
 class TestT0Slots(unittest.TestCase):
-    def test_default_six_slots_from_1000(self):
+    def test_default_four_slots_until_1130(self):
         cfg = load_t0_rules()
         self.assertTrue(t0_slots_enabled(cfg))
         hms = [s["hm"] for s in cfg["t0_slots"]]
-        self.assertEqual(hms, ["10:00", "10:30", "11:00", "11:30", "13:00", "14:00"])
+        self.assertEqual(hms, ["10:00", "10:30", "11:00", "11:30"])
+        self.assertEqual(cfg["t0_slots"][-1]["prefix_bars"], 24)
         self.assertEqual(cfg["t0_slots"][0]["prefix_bars"], 6)
         self.assertAlmostEqual(float(cfg["t0_slots"][0]["ratio"]), 0.15)
-        self.assertAlmostEqual(sum(float(s["ratio"]) for s in cfg["t0_slots"]), 0.90)
+        self.assertAlmostEqual(sum(float(s["ratio"]) for s in cfg["t0_slots"]), 0.60)
 
     def test_legacy_five_open_slots_migrate(self):
         cfg = load_t0_rules(
@@ -94,9 +95,38 @@ class TestT0Slots(unittest.TestCase):
         )
         self.assertEqual(
             [s["hm"] for s in cfg["t0_slots"]],
-            ["10:00", "10:30", "11:00", "11:30", "13:00", "14:00"],
+            ["10:00", "10:30", "11:00", "11:30"],
         )
         self.assertAlmostEqual(float(cfg["t0_slots"][0]["ratio"]), 0.15)
+
+    def test_legacy_six_pm_slots_migrate(self):
+        cfg = load_t0_rules(
+            {
+                "t0_slots": [
+                    {"id": "s1", "hm": "10:00", "prefix_bars": 6, "ratio": 0.15},
+                    {"id": "s2", "hm": "10:30", "prefix_bars": 12, "ratio": 0.15},
+                    {"id": "s3", "hm": "11:00", "prefix_bars": 18, "ratio": 0.15},
+                    {"id": "s4", "hm": "11:30", "prefix_bars": 24, "ratio": 0.15},
+                    {"id": "s5", "hm": "13:00", "prefix_bars": 25, "ratio": 0.15},
+                    {"id": "s6", "hm": "14:00", "prefix_bars": 37, "ratio": 0.15},
+                ]
+            }
+        )
+        self.assertEqual(
+            [s["hm"] for s in cfg["t0_slots"]],
+            ["10:00", "10:30", "11:00", "11:30"],
+        )
+
+    def test_pm_slot_stripped_from_custom_list(self):
+        from core.t0.config import normalize_t0_slots
+
+        slots = normalize_t0_slots(
+            [
+                {"id": "s4", "hm": "11:30", "prefix_bars": 24, "ratio": 0.20},
+                {"id": "s5", "hm": "13:00", "prefix_bars": 25, "ratio": 0.20},
+            ]
+        )
+        self.assertEqual([s["hm"] for s in slots], ["11:30"])
 
     def test_buy_then_sell_fills_at_decision_confirm_close(self):
         date = "2026-03-02"

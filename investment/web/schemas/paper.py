@@ -107,7 +107,7 @@ class T0BacktestRequest(BaseModel):
         default=None,
         ge=0.05,
         le=5.0,
-        description="dual_y：|y_trade|>此值须与 y_τ 同号（默认 0.5%）",
+        description="dual_y：|y_trade|>此值须与 y_τ 同号（默认 0.2%）",
     )
     y_trade_floor: Optional[float] = Field(
         default=None, ge=0.0, le=5.0, description="已弃用：别名 y_trade_enter"
@@ -161,7 +161,7 @@ class T0BacktestRequest(BaseModel):
         default=None,
         ge=0.05,
         le=5.0,
-        description="dual_y：|y_eod|>此值须与 y_τ 同号（默认 0.5%）",
+        description="dual_y：|y_eod|>此值须与 y_τ 同号（默认 0.2%）",
     )
     y_eod_tau_sign_gate: Optional[float] = Field(
         default=None,
@@ -190,7 +190,7 @@ class T0BacktestRequest(BaseModel):
         default=None,
         ge=0.05,
         le=10.0,
-        description="dual_y：|nc|>此值须与 y_τ 同号（默认 0.5%）",
+        description="dual_y：|nc|>此值须与 y_τ 同号（默认 0.2%）",
     )
     y_nowcast_enter: Optional[float] = Field(
         default=None,
@@ -269,8 +269,42 @@ class T0BacktestRequest(BaseModel):
         default=None,
         ge=0.5,
         le=5.0,
-        description="反T 卖价裕度：bound=open×(1+ŷ_τ%×本值/100)",
+        description="反T 卖价裕度",
     )
+    y_tau_entry_price_bias: Optional[float] = Field(
+        default=None,
+        ge=-50.0,
+        le=50.0,
+        description="legacy：等同 y_tau_entry_price_bias_buy_then_sell（价偏，百分点）",
+    )
+    y_tau_entry_price_move_min: Optional[float] = Field(
+        default=None,
+        ge=-100.0,
+        le=100.0,
+        description="legacy：入场 clamp 动幅下限（百分点）",
+    )
+    y_tau_entry_price_move_max: Optional[float] = Field(
+        default=None,
+        ge=-100.0,
+        le=100.0,
+        description="legacy：入场 clamp 动幅上限（百分点）",
+    )
+    y_tau_entry_price_bias_buy_then_sell: Optional[float] = Field(
+        default=None,
+        ge=-50.0,
+        le=50.0,
+        description="正T入场价偏：bound=open×(1+(clamp(ŷ_τ×裕度,min,max)+价偏)/100)",
+    )
+    y_tau_entry_price_move_min_buy_then_sell: Optional[float] = Field(default=None, ge=-100.0, le=100.0)
+    y_tau_entry_price_move_max_buy_then_sell: Optional[float] = Field(default=None, ge=-100.0, le=100.0)
+    y_tau_entry_price_bias_sell_then_buy: Optional[float] = Field(
+        default=None,
+        ge=-50.0,
+        le=50.0,
+        description="反T入场价偏（百分点，代数可正可负）",
+    )
+    y_tau_entry_price_move_min_sell_then_buy: Optional[float] = Field(default=None, ge=-100.0, le=100.0)
+    y_tau_entry_price_move_max_sell_then_buy: Optional[float] = Field(default=None, ge=-100.0, le=100.0)
     y_tau_exit_price_skip: Optional[bool] = Field(
         default=None,
         description="legacy：等同 y_tau_exit_price_skip_buy_then_sell",
@@ -301,6 +335,30 @@ class T0BacktestRequest(BaseModel):
         le=5.0,
         description="反T第二腿买价裕度",
     )
+    y_tau_exit_price_bias: Optional[float] = Field(
+        default=None,
+        ge=-50.0,
+        le=50.0,
+        description="legacy：等同 y_tau_exit_price_bias_buy_then_sell（价偏，百分点）",
+    )
+    y_tau_exit_price_move_min: Optional[float] = Field(default=None, ge=-100.0, le=100.0)
+    y_tau_exit_price_move_max: Optional[float] = Field(default=None, ge=-100.0, le=100.0)
+    y_tau_exit_price_bias_buy_then_sell: Optional[float] = Field(
+        default=None,
+        ge=-50.0,
+        le=50.0,
+        description="正T出场价偏（百分点）",
+    )
+    y_tau_exit_price_move_min_buy_then_sell: Optional[float] = Field(default=None, ge=-100.0, le=100.0)
+    y_tau_exit_price_move_max_buy_then_sell: Optional[float] = Field(default=None, ge=-100.0, le=100.0)
+    y_tau_exit_price_bias_sell_then_buy: Optional[float] = Field(
+        default=None,
+        ge=-50.0,
+        le=50.0,
+        description="反T出场价偏（百分点，代数可正可负）",
+    )
+    y_tau_exit_price_move_min_sell_then_buy: Optional[float] = Field(default=None, ge=-100.0, le=100.0)
+    y_tau_exit_price_move_max_sell_then_buy: Optional[float] = Field(default=None, ge=-100.0, le=100.0)
     t0_pm_degrade: Optional[str] = Field(
         default=None,
         max_length=8,
@@ -326,13 +384,13 @@ class T0BacktestRequest(BaseModel):
         default=None,
         ge=1,
         le=60,
-        description="反T中点追价间隔（分钟），默认 10（买回上移）",
+        description="反T中点追价间隔（分钟），默认 5（买回上移）",
     )
     t0_pm_chase_interval_min_buy_then_sell: Optional[int] = Field(
         default=None,
         ge=1,
         le=60,
-        description="正T中点追价间隔（分钟），默认 10（卖旧目标下移）",
+        description="正T中点追价间隔（分钟），默认 5（卖旧目标下移）",
     )
     t0_stop_pct_buy_then_sell: Optional[float] = Field(
         default=None,
@@ -477,12 +535,30 @@ class PaperExecutionPatchRequest(BaseModel):
     y_tau_entry_price_mult_buy_then_sell: Optional[float] = None
     y_tau_entry_price_skip_sell_then_buy: Optional[bool] = None
     y_tau_entry_price_mult_sell_then_buy: Optional[float] = None
+    y_tau_entry_price_bias: Optional[float] = None
+    y_tau_entry_price_move_min: Optional[float] = None
+    y_tau_entry_price_move_max: Optional[float] = None
+    y_tau_entry_price_bias_buy_then_sell: Optional[float] = None
+    y_tau_entry_price_move_min_buy_then_sell: Optional[float] = None
+    y_tau_entry_price_move_max_buy_then_sell: Optional[float] = None
+    y_tau_entry_price_bias_sell_then_buy: Optional[float] = None
+    y_tau_entry_price_move_min_sell_then_buy: Optional[float] = None
+    y_tau_entry_price_move_max_sell_then_buy: Optional[float] = None
     y_tau_exit_price_skip: Optional[bool] = None
     y_tau_exit_price_mult: Optional[float] = None
     y_tau_exit_price_skip_buy_then_sell: Optional[bool] = None
     y_tau_exit_price_mult_buy_then_sell: Optional[float] = None
     y_tau_exit_price_skip_sell_then_buy: Optional[bool] = None
     y_tau_exit_price_mult_sell_then_buy: Optional[float] = None
+    y_tau_exit_price_bias: Optional[float] = None
+    y_tau_exit_price_move_min: Optional[float] = None
+    y_tau_exit_price_move_max: Optional[float] = None
+    y_tau_exit_price_bias_buy_then_sell: Optional[float] = None
+    y_tau_exit_price_move_min_buy_then_sell: Optional[float] = None
+    y_tau_exit_price_move_max_buy_then_sell: Optional[float] = None
+    y_tau_exit_price_bias_sell_then_buy: Optional[float] = None
+    y_tau_exit_price_move_min_sell_then_buy: Optional[float] = None
+    y_tau_exit_price_move_max_sell_then_buy: Optional[float] = None
     y_score_source: Optional[str] = Field(
         default=None, max_length=24, description="compute|live_book|ledger"
     )

@@ -389,8 +389,8 @@
                 <strong>不进聚类、不改 ŷ_EOD</strong>。启用后只影响主题日 soft hold / τ 闸；表列主分仍是 ŷ_EOD。
                 融合权重与 τ 闸在
                 <a class="quant-hero-link" href="/strategy#strategy-dual-score">策略中心 · 融合分数</a>
-                （仅 blend）。分钟训练网格含开盘 Z + 做T六轮
-                <code>09:30|10:00|10:30|11:00|11:30|13:00|14:00</code>（09:30 无前缀、不做T）；live 调仓钟仍是 10:30。
+                （仅 blend）。分钟**训练**网格含开盘 Z + 午后训练钟
+                <code>09:30|10:00|10:30|11:00|11:30|13:00|14:00</code>（09:30 无前缀；**做T执行仅 10:00–11:30 四轮**）；live 调仓钟仍是 10:30。
               </p>
             </div>
           </details>
@@ -463,7 +463,7 @@
               <p>
                 <strong>ŷ_path</strong> = 开盘 Z + 早盘前缀分钟小包 → 全日极值序 signed range%
                 （先低后高为正）。训练默认多 τ 网格 <code>09:30|10:00|10:30|11:00|11:30|13:00|14:00</code>
-                （做T 10:00–14:00 六轮；09:30 仅训练开盘 Z）共享 β，看 OOS <code>by_tau</code>；live 调仓决策钟默认 10:30。
+                （**做T执行 10:00–11:30 四轮**；09:30 / 13:00 / 14:00 仅训练）共享 β，看 OOS <code>by_tau</code>；live 调仓决策钟默认 10:30。
                 字段 <code>y_path</code> / <code>predicted_score_path</code>。
               </p>
               <p>

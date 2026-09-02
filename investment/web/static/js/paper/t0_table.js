@@ -28,7 +28,7 @@ import {
   adaptiveSizingDayTip,
   normalizeYTauMap,
   yTauMapScoreTip,
-} from "./execution_ui.js?v=p1790";
+} from "./execution_ui.js?v=p1814";
 import { watchingScoreDetail } from "../quant/watching_render.js?v=p1734";
 import { TRADE_TITLE } from "../quant/watching_quotes_ui.js";
 
@@ -77,9 +77,9 @@ export const SKIP_CAT_TIP = {
   y_path_disagree:
     "ŷ_τ 与 ŷ_path 异号：dual_y 准入要求两预测同号且各过门槛。",
   eod_tau_disagree:
-    "|ŷ_eod|>y_eod_strong（默认 0.5%）且 ŷ_eod 与 ŷ_τ 异号：隔夜主轴与盘中方向冲突，跳过。",
+    "|ŷ_eod|>y_eod_strong（默认 0.2%）且 ŷ_eod 与定方向 ŷ_τ（OC）异号：隔夜主轴与盘中方向冲突，跳过。",
   trade_tau_disagree:
-    "|ŷ_trade|>y_trade_strong（默认 0.5%）且 ŷ_trade 与 ŷ_τ 异号：融合幅度与盘中方向冲突，跳过。",
+    "|ŷ_trade|>y_trade_strong（默认 0.2%）且 ŷ_trade 与定方向 ŷ_τ（OC）异号：融合幅度与盘中方向冲突，跳过。",
   gap_tier_skip:
     "大缺口档位与拟做方向冲突（如大高开仍想正 T），规则直接跳过。",
   path_abandon:
@@ -87,11 +87,11 @@ export const SKIP_CAT_TIP = {
   prefix_segment:
     "固定前缀未齐或后半阴阳占比未达标：正 T 待后半上涨、反 T 待后半下跌（Worker 可重试）。",
   prefix_vs_path:
-    "历史口径：前缀窗 (H−L)/ref% 超过 |ŷ_path|×裕度（空间用尽）。现行已改为确认根入场价 vs open×(1+ŷ_τ×裕度)。",
+    "历史口径：前缀窗 (H−L)/ref% 超过 |ŷ_path|×裕度（空间用尽）。现行已改为确认根入场价 vs open×(1+(clamp(ŷ_τ×裕度,min,max)+价偏)/100)。",
   tau_entry_price:
-    "确认根第一腿：正T买价须 < open×(1+ŷ_τ×买价裕度)；反T卖价须 > open×(1+ŷ_τ×卖价裕度)。可调裕度或关闸。",
+    "确认根第一腿：正T买价须 < open×(1+(clamp(ŷ_τ×裕度,min,max)+价偏)/100)；反T卖价须 > 同式。可调裕度/价偏或关闸。",
   tau_exit_price:
-    "第二腿：正T卖价须 > open×(1+ŷ_τ×卖价裕度)；反T买价须 < open×(1+ŷ_τ×买价裕度)。止损/收盘强平不受闸。",
+    "第二腿：正T卖价须 > open×(1+(clamp(ŷ_τ×裕度,min,max)+价偏)/100)；反T买价须 < 同式。止损/收盘强平不受闸。",
   y_trade_weak:
     "|ŷ_trade| 未过入场（y_trade_enter），融合分太弱不开仓。",
   trade_tau_sign:
@@ -1582,6 +1582,26 @@ function barHmKey(hm) {
   return d;
 }
 
+function fmtBarHm(hm) {
+  const k = barHmKey(hm);
+  if (k.length >= 4) return `${k.slice(0, 2)}:${k.slice(2, 4)}`;
+  return String(hm || "").trim() || "—";
+}
+
+function fmtBarPx(n) {
+  const v = Number(n);
+  if (!Number.isFinite(v) || !(v > 0)) return "—";
+  if (v >= 1000) return v.toFixed(1);
+  if (v >= 100) return v.toFixed(2);
+  if (v >= 10) return v.toFixed(3);
+  return v.toFixed(3);
+}
+
+function barOhlcTitle(b) {
+  const hm = fmtBarHm(b[0]);
+  return `${hm}  O=${fmtBarPx(b[1])}  H=${fmtBarPx(b[2])}  L=${fmtBarPx(b[3])}  C=${fmtBarPx(b[4])}`;
+}
+
 /** 同步 SVG 迷你 K 线（tip 内用，避免悬停再拉 LW）。 */
 export function miniKlineSvgFromBars(
   bars,
@@ -1606,8 +1626,8 @@ export function miniKlineSvgFromBars(
     hi *= 1.001;
   }
   const marks = Array.isArray(markers) ? markers.filter((m) => m && barHmKey(m.hm)) : [];
-  const padL = 6;
-  const padR = 6;
+  const padL = 44;
+  const padR = 8;
   const padT = marks.length ? 34 : 14;
   const padB = 20;
   const plotW = width - padL - padR;
@@ -1619,6 +1639,18 @@ export function miniKlineSvgFromBars(
   const up = "#ef4444";
   const down = "#22c55e";
   const parts = [];
+  const mid = (hi + lo) / 2;
+  parts.push(
+    `<text x="${padL - 4}" y="${(padT + 3).toFixed(1)}" text-anchor="end" font-size="9" fill="#94a3b8" font-family="IBM Plex Mono,monospace">${escapeText(
+      fmtBarPx(hi)
+    )}</text>` +
+      `<text x="${padL - 4}" y="${(padT + plotH / 2 + 3).toFixed(1)}" text-anchor="end" font-size="9" fill="#94a3b8" font-family="IBM Plex Mono,monospace">${escapeText(
+        fmtBarPx(mid)
+      )}</text>` +
+      `<text x="${padL - 4}" y="${(padT + plotH + 3).toFixed(1)}" text-anchor="end" font-size="9" fill="#94a3b8" font-family="IBM Plex Mono,monospace">${escapeText(
+        fmtBarPx(lo)
+      )}</text>`
+  );
   const idxByHm = new Map();
   pts.forEach((b, i) => {
     const k = barHmKey(b[0]);
@@ -1659,12 +1691,17 @@ export function miniKlineSvgFromBars(
     const top = Math.min(yO, yC);
     const bot = Math.max(yO, yC);
     const bodyH = Math.max(1.5, bot - top);
+    const tip = barOhlcTitle(b);
     parts.push(
-      `<line x1="${x.toFixed(1)}" y1="${yH.toFixed(1)}" x2="${x.toFixed(1)}" y2="${yL.toFixed(1)}" stroke="${color}" stroke-width="1.25"/>` +
-        `<rect x="${(x - bodyW / 2).toFixed(1)}" y="${top.toFixed(1)}" width="${bodyW.toFixed(1)}" height="${bodyH.toFixed(1)}" fill="${color}"/>`
+      `<g>` +
+        `<title>${escapeText(tip)}</title>` +
+        `<line x1="${x.toFixed(1)}" y1="${yH.toFixed(1)}" x2="${x.toFixed(1)}" y2="${yL.toFixed(1)}" stroke="${color}" stroke-width="1.25"/>` +
+        `<rect x="${(x - bodyW / 2).toFixed(1)}" y="${top.toFixed(1)}" width="${bodyW.toFixed(1)}" height="${bodyH.toFixed(1)}" fill="${color}"/>` +
+        `</g>`
     );
     const hasBuy = !!(flag & 1);
     const hasSell = !!(flag & 2);
+    const sideDx = Math.max(14, bodyW * 0.65 + 8);
     if (hasBuy) {
       const cy = yL + 9;
       parts.push(
@@ -1680,28 +1717,68 @@ export function miniKlineSvgFromBars(
       );
     }
     if (flag & 4) {
-      const ly = hasBuy || hasSell ? yL + 22 : yL + 11;
+      const lx = hasBuy ? x - sideDx : x;
+      const ly = hasBuy ? yL + 3 : yL + 11;
+      const lAnchor = hasBuy ? "end" : "middle";
       parts.push(
-        `<text x="${x.toFixed(1)}" y="${ly.toFixed(1)}" text-anchor="middle" font-size="9" font-weight="700" fill="#0f766e" font-family="IBM Plex Mono,monospace">L</text>`
+        `<text x="${lx.toFixed(1)}" y="${ly.toFixed(1)}" text-anchor="${lAnchor}" font-size="9" font-weight="700" fill="#0f766e" font-family="IBM Plex Mono,monospace">L ${escapeText(
+          fmtBarPx(l)
+        )}</text>`
       );
     }
     if (flag & 8) {
-      const hy = hasBuy || hasSell ? yH - 16 : yH - 4;
+      const hx = hasSell ? x + sideDx : x;
+      const hy = hasSell ? yH - 2 : yH - 4;
+      const hAnchor = hasSell ? "start" : "middle";
       parts.push(
-        `<text x="${x.toFixed(1)}" y="${hy.toFixed(1)}" text-anchor="middle" font-size="9" font-weight="700" fill="#a16207" font-family="IBM Plex Mono,monospace">H</text>`
+        `<text x="${hx.toFixed(1)}" y="${hy.toFixed(1)}" text-anchor="${hAnchor}" font-size="9" font-weight="700" fill="#a16207" font-family="IBM Plex Mono,monospace">H ${escapeText(
+          fmtBarPx(h)
+        )}</text>`
       );
     }
   });
   const t0 = String(pts[0][0] || "");
   const t1 = String(pts[pts.length - 1][0] || "");
-  const fmtHm = (s) => (s.length >= 3 ? `${s.slice(0, -2)}:${s.slice(-2)}` : s);
   parts.push(
-    `<text x="${padL}" y="${height - 5}" font-size="10" fill="#94a3b8" font-family="IBM Plex Mono,monospace">${escapeText(fmtHm(t0))}</text>` +
-      `<text x="${width - padR}" y="${height - 5}" text-anchor="end" font-size="10" fill="#94a3b8" font-family="IBM Plex Mono,monospace">${escapeText(fmtHm(t1))}</text>`
+    `<text x="${padL}" y="${height - 5}" font-size="10" fill="#94a3b8" font-family="IBM Plex Mono,monospace">${escapeText(
+      fmtBarHm(t0)
+    )}</text>` +
+      `<text x="${width - padR}" y="${height - 5}" text-anchor="end" font-size="10" fill="#94a3b8" font-family="IBM Plex Mono,monospace">${escapeText(
+        fmtBarHm(t1)
+      )}</text>`
   );
   return (
     `<svg class="paper-t0-process-kline" viewBox="0 0 ${width} ${height}" width="${width}" height="${height}" role="img" aria-label="5分钟K线">${parts.join("")}</svg>`
   );
+}
+
+function findBarByHm(bars, hm) {
+  const k = barHmKey(hm);
+  if (!k) return null;
+  const rows = Array.isArray(bars) ? bars : [];
+  for (const b of rows) {
+    if (barHmKey(b[0]) === k) return b;
+  }
+  return null;
+}
+
+function slotOhlcFromBars(bars, hm) {
+  const b = findBarByHm(bars, hm);
+  if (!b) return { o: null, l: null, h: null, c: null };
+  return {
+    o: Number(b[1]),
+    l: Number(b[3]),
+    h: Number(b[2]),
+    c: Number(b[4]),
+  };
+}
+
+function fmtOhlcTd(n) {
+  const v = Number(n);
+  if (!Number.isFinite(v) || !(v > 0)) {
+    return `<td class="num paper-t0-day-yhat-ohlc is-na">—</td>`;
+  }
+  return `<td class="num paper-t0-day-yhat-ohlc">${escapeText(fmtBarPx(v))}</td>`;
 }
 
 export function buildProcessTipPayload(d, legTip) {
@@ -1755,10 +1832,10 @@ export function buildProcessTipHtml(payload) {
     markers: slotHm ? [{ hm: slotHm, label: slotHm, filled: true }] : [],
   });
   const foot = slotHm
-    ? `买/卖=本轮成交 · ${slotHm} 决策钟 · L/H=本轮前缀极值`
+    ? `悬停看 O/H/L/C · 买/卖=本轮成交 · ${slotHm} 决策钟 · L/H=本轮前缀极值价`
     : p.slots
-      ? "买/卖=各轮成交 · K 线为当日 5m（多轮共用）"
-      : "买/卖=成交腿 · L/H=前缀极值 · 数据来自 forward_trace";
+      ? "悬停看 O/H/L/C · 买/卖=各轮成交 · K 线为当日 5m（多轮共用）"
+      : "悬停看 O/H/L/C · 买/卖=成交腿 · L/H=前缀极值价";
   return (
     `<div class="paper-t0-process-tip-inner">` +
     `<header class="paper-t0-process-tip-head">` +
@@ -1801,20 +1878,27 @@ function dayLevelYNum(d, keys) {
 
 function daySlotScoreRows(d) {
   const rows = Array.isArray(d?.t0_slot_results) ? d.t0_slot_results : [];
+  // 执行末轮 11:30；旧六轮结果里的 13:00/14:00 不再展示（午后不开 leg1）
+  const lastLeg1Hm = "11:30";
   if (rows.length) {
-    return rows.map((r) => {
-      const y = slotYhat(r);
-      const skipTxt = String(r.reason || "").trim();
-      return {
-        hm: slotClock(r, rows),
-        dir: slotDirShort(r.direction),
-        y_tau: y.y_tau,
-        y_path: y.y_path,
-        y_trade: y.y_trade,
-        filled: slotFilled(r),
-        skip: r.skipped || !slotFilled(r) ? skipTxt : "",
-      };
-    });
+    return rows
+      .map((r) => {
+        const y = slotYhat(r);
+        const skipTxt = String(r.reason || "").trim();
+        return {
+          hm: slotClock(r, rows),
+          dir: slotDirShort(r.direction),
+          y_tau: y.y_tau,
+          y_path: y.y_path,
+          y_trade: y.y_trade,
+          filled: slotFilled(r),
+          skip: r.skipped || !slotFilled(r) ? skipTxt : "",
+        };
+      })
+      .filter((r) => {
+        const hm = String(r.hm || "").trim().slice(0, 5);
+        return !hm || hm <= lastLeg1Hm;
+      });
   }
   return [
     {
@@ -1839,7 +1923,15 @@ export function buildDayDetailPayload(d, { showRealized = true } = {}) {
         : dirRaw === "mixed"
           ? "多轮"
           : "";
-  const slots = daySlotScoreRows(d);
+  const bars = compactTraceBars(d && d.forward_trace, {
+    prefixBars: Number(d && d.prefix_bars) || 0,
+    dir: dirRaw,
+    markPrefix: false,
+  });
+  const slots = daySlotScoreRows(d).map((s) => {
+    const px = slotOhlcFromBars(bars, s && s.hm);
+    return { ...s, ...px };
+  });
   const tauR = pickTauRealized(d);
   const pathR = pickPathRealized(d);
   const tradeR = pickTradeRealized(d);
@@ -1932,6 +2024,10 @@ export function buildDayDetailHtml(payload) {
         `<tr class="${filled ? "is-filled" : "is-skip"}">` +
         `<td class="paper-t0-day-yhat-hm">${escapeText(s.hm || "—")}</td>` +
         `<td class="paper-t0-day-yhat-dir ${dirCls}">${escapeText(s.dir || "—")}</td>` +
+        fmtOhlcTd(s.o) +
+        fmtOhlcTd(s.l) +
+        fmtOhlcTd(s.h) +
+        fmtOhlcTd(s.c) +
         fmtYhatTd(s.y_tau, p.tau_realized, { showRealized: showR }) +
         fmtYhatTd(s.y_path, p.path_realized, { path: true, showRealized: showR }) +
         fmtYhatTd(s.y_trade, p.trade_realized, { showRealized: showR }) +
@@ -1948,12 +2044,14 @@ export function buildDayDetailHtml(payload) {
       `<thead><tr>` +
       `<th rowspan="2">时钟</th>` +
       `<th rowspan="2">向</th>` +
+      `<th colspan="4">5m</th>` +
       `<th colspan="2">y_τ</th>` +
       `<th colspan="2">y_path</th>` +
       `<th colspan="2">y_trade</th>` +
       `<th rowspan="2">结果</th>` +
       `<th rowspan="2">说明</th>` +
       `</tr><tr>` +
+      `<th>O</th><th>L</th><th>H</th><th>C</th>` +
       `<th>分数(label)</th><th>命中</th>` +
       `<th>分数(label)</th><th>命中</th>` +
       `<th>分数(label)</th><th>命中</th>` +

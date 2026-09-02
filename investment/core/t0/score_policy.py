@@ -24,10 +24,10 @@ logger = logging.getLogger(__name__)
 
 # 默认阈值（ŷ 为百分比点；可用 rules 覆盖）
 DEFAULT_TRADE_ENTER = 0.01
-DEFAULT_TRADE_STRONG = 0.1  # |y_trade|>此值时须 y_trade 与 y_τ 同号
+DEFAULT_TRADE_STRONG = 0.2  # |y_trade|>此值时须 y_trade 与 y_τ 同号
 DEFAULT_EOD_PRIOR = 0.01
 DEFAULT_EOD_ENTER = 0.01  # |y_eod| 准入下限（%点）
-DEFAULT_EOD_STRONG = 0.1  # |y_eod|>此值时须 y_eod 与 y_τ 同号
+DEFAULT_EOD_STRONG = 0.2  # |y_eod|>此值时须 y_eod 与 y_τ 同号
 DEFAULT_TAU_ENTER = 0.01
 DEFAULT_ON_RISK = 0.01
 DEFAULT_ON_ALLOW = 0.01
@@ -37,10 +37,9 @@ DEFAULT_EOD_ALIGN_BOOST = 1.10  # 写死：ŷ_eod 同向略抬目标价
 DEFAULT_RATIO_TAU_SOFT_BAND = 0.20  # 写死：|ŷ_τ| 刚过入场线时压目标价
 DEFAULT_TAU_NOWCAST_SIGN_EPS = 0.05  # 写死：τ↔nowcast 异号闸死区
 DEFAULT_NC_ENTER = 0.01
-DEFAULT_NC_STRONG = 1.0
+DEFAULT_NC_STRONG = 0.2
 DEFAULT_PATH_ENTER = 0.01  # ŷ_path 极值序 %；|ŷ|≤enter 横盘跳过；与 y_tau_enter 同尺度
 DEFAULT_GAP_TIER_PCT = 1.0
-DEFAULT_PATH_ABANDON_BARS = 12
 
 # dual_y 下 y_τ 符号 → 正/反 T（映射见 minute_path）
 # scalp / trend: y_τ>0→正T；scalp 与 trend 同义，scalp 仅兼容
@@ -1669,11 +1668,12 @@ def resolve_dual_y_direction(
     3. path 开且可得 ŷ_path：y_τ·y_path 同号且各过**侧向** enter；
        否则 |y_τ|≥侧向 y_tau_enter（反T / 正T）
     4. path 必填但缺 ŷ_path → 跳过
-    5. 有 y_trade：|y_trade|>y_trade_strong 须与 τ_cc（昨收）同号（fixed_* / eod_next 跳过）
-    6. 有 y_eod：|y_eod|≥y_eod_enter；|y_eod|>y_eod_strong 须与 τ_cc 同号（fixed_* / eod_next 跳过）
+    5. 有 y_trade：|y_trade|>y_trade_strong 须与**定方向** y_τ（OC）同号（fixed_* / eod_next 跳过）
+    6. 有 y_eod：|y_eod|≥y_eod_enter；|y_eod|>y_eod_strong 须与定方向 y_τ（OC）同号（fixed_* / eod_next 跳过）
     7. 可选 nc：|nc|≥y_nc_enter；|nc|>y_nc_strong 须与同量纲 τ 同号（异号闸关则跳过整步）
     通过后 y_τ（OC 拟合）映射正/反 T；y_eod_prior 仅抬目标价。
     定向锚见 ``resolve_direction_y_tau``（优先 y_tau_oc）。
+    说明：trade/eod 强闸必须对比方向 τ，避免大缺口下 τ_cc 与 OC 异号时「表上 trade↔τ 冲突却放行」。
     """
     from core.t0.config import coerce_cfg_bool
 
@@ -1893,19 +1893,21 @@ def resolve_dual_y_direction(
         }
 
     # eod_next：y_τ 多为已实现 OC，禁止与前瞻 ŷ_EOD/ŷ_trade 跨窗比号
+    # 强闸对照定方向 y_τ（OC），不用 τ_cc：大缺口时 τ_cc 可与 OC 异号，
+    # 若用 τ_cc 会出现「表列 trade↔τ 冲突仍开仓」。
     allow_strong_sign = (
         not eod_next
         and tau_map not in ("fixed_sell_then_buy", "fixed_buy_then_sell")
-        and y_tau_cc is not None
+        and y_tau is not None
     )
     if y_trade is not None and allow_strong_sign:
         trade_ok, trade_reason = _strong_head_tau_sign_gate(
             y_trade,
-            float(y_tau_cc),
+            float(y_tau),
             trade_strong,
             "y_trade",
             sign_eps=sign_eps,
-            tau_label="y_τ_cc",
+            tau_label="y_τ",
         )
         if not trade_ok:
             return {
@@ -1913,7 +1915,7 @@ def resolve_dual_y_direction(
                 "skip": True,
                 "direction_score": y_tau,
                 "direction_reason": trade_reason
-                or "dual_y：强 y_trade 与 y_τ_cc 异号跳过",
+                or "dual_y：强 y_trade 与 y_τ 异号跳过",
                 "features": features,
                 "signal_skip": True,
             }
@@ -1933,11 +1935,11 @@ def resolve_dual_y_direction(
         if allow_strong_sign:
             eod_ok, eod_reason = _strong_head_tau_sign_gate(
                 y_eod,
-                float(y_tau_cc),
+                float(y_tau),
                 eod_strong,
                 "y_eod",
                 sign_eps=sign_eps,
-                tau_label="y_τ_cc",
+                tau_label="y_τ",
             )
             if not eod_ok:
                 return {
@@ -1945,7 +1947,7 @@ def resolve_dual_y_direction(
                     "skip": True,
                     "direction_score": y_tau,
                     "direction_reason": eod_reason
-                    or "dual_y：强 y_eod 与 y_τ_cc 异号跳过",
+                    or "dual_y：强 y_eod 与 y_τ 异号跳过",
                     "features": features,
                     "signal_skip": True,
                 }

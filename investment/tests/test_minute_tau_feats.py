@@ -151,7 +151,7 @@ class TestMinuteTauPack(unittest.TestCase):
                 {"date": d, "open": 10.0, "high": 10.5, "low": 9.5, "close": 10.0}
             )
         minutes = []
-        # 09:35 … 14:00 覆盖训练网格 + 做T六轮前缀
+        # 09:35 … 14:00 覆盖训练网格 + 做T四轮前缀
         hms = []
         for hm in (
             "09:35",
@@ -220,7 +220,7 @@ class TestMinuteTauPack(unittest.TestCase):
 
         self.assertEqual(
             tuple(DEFAULT_T0_SLOT_CLOCKS),
-            ("10:00", "10:30", "11:00", "11:30", "13:00", "14:00"),
+            ("10:00", "10:30", "11:00", "11:30"),
         )
         self.assertTrue(set(DEFAULT_T0_SLOT_CLOCKS).issubset(DEFAULT_MINUTE_TAU_GRID))
         self.assertIn("09:30", DEFAULT_MINUTE_TAU_GRID)

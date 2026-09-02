@@ -164,6 +164,20 @@ def _score_slot(
 
     prefix_n = int(slot.get("prefix_bars") or 0)
     n_bars = len(mins)
+    from core.t0.config import T0_LAST_LEG1_PREFIX_BARS, _slot_allows_leg1
+
+    hm_slot = str(slot.get("hm") or "")
+    if not _slot_allows_leg1(hm=hm_slot, prefix_bars=prefix_n):
+        return (
+            None,
+            None,
+            _skip_result(
+                reason=f"已过末轮做T时钟（>{T0_LAST_LEG1_PREFIX_BARS}根/11:30），午后不开第一腿",
+                shares=shares,
+                bar=bar,
+                extra=_slot_meta_extra(slot, prefix_bars=prefix_n),
+            ),
+        )
     if prefix_n > 0 and n_bars < prefix_n:
         return (
             None,

@@ -6,6 +6,9 @@ import logging
 logger = logging.getLogger(__name__)
 from typing import Any, Dict, Optional
 
+# 成交明细 API 样本上限（与 web ``T0_TRADE_TABLE_MAX_ROWS`` 对齐）
+T0_TRADE_DAYS_SAMPLE_UI_LIMIT = 500
+
 
 def coerce_cfg_bool(val: Any, default: bool = True) -> bool:
     """解析纸面/请求里的 bool；避免 ``bool(\"false\")`` 误判为 True。"""
@@ -93,6 +96,8 @@ _DEAD_T0_KEYS = (
     # 已改为 τ 入场价闸
     "y_prefix_vs_path_skip",
     "y_prefix_vs_path_mult",
+    # 固定前缀：只按后半阴阳占比，不再叠最少命中根数
+    "y_prefix_min_half_hits",
     # 第二腿已改 τ 出场价闸；相对 leg1 的 % 触发下线
     "sell_trigger_pct",
     "buy_trigger_pct",
@@ -175,7 +180,7 @@ DEFAULT_T0_RULES: Dict[str, Any] = {
     "atr_buy_mult": 0.7,
     # dual_y 阈值（百分比点）：*_enter 入场下限；*_strong 超强须与 τ 同号
     "y_trade_enter": 0.01,
-    "y_trade_strong": 0.5,
+    "y_trade_strong": 0.2,
     "y_tau_enter": 0.01,
     # 反T / 正T 分侧入场；缺省与 y_tau_enter 同
     "y_tau_enter_sell_then_buy": 0.01,
@@ -184,13 +189,13 @@ DEFAULT_T0_RULES: Dict[str, Any] = {
     "y_path_enter_sell_then_buy": 0.01,
     "y_path_enter_buy_then_sell": 0.01,
     "y_eod_enter": 0.01,
-    "y_eod_strong": 0.5,
+    "y_eod_strong": 0.2,
     "y_eod_prior": 0.01,
     "y_on_risk": 0.01,
     "y_on_allow": 0.01,
     "y_block_tau_nowcast_sign": True,
     "y_nc_enter": 0.01,
-    "y_nc_strong": 0.5,
+    "y_nc_strong": 0.2,
     "y_tau_map": "trend",
     "y_use_path": True,
     "y_path_required": False,
@@ -206,35 +211,44 @@ DEFAULT_T0_RULES: Dict[str, Any] = {
     "y_prefix_segment_enabled_buy_then_sell": True,
     "y_prefix_upbar_ratio_buy_then_sell": 0.2,
     "y_prefix_downbar_ratio_sell_then_buy": 0.2,
-    # 固定前缀后半段：除占比阈值外，至少命中 K 根（跨槽位统计显著性对齐）
-    "y_prefix_min_half_hits": 2,
     # 缺 ŷ_τ 时禁止开第一腿（τ 闸开则硬跳过，不等午后追价）
     "y_tau_require_for_leg1": True,
     # 确认根第一腿：正T买价<open×(1+ŷ_τ×裕度)；反T卖价>同式（有符号ŷ_τ，分侧可调）
     "y_tau_entry_price_skip": True,
-    "y_tau_entry_price_mult": 1.0,
+    "y_tau_entry_price_mult": 0.5,
     "y_tau_entry_price_skip_buy_then_sell": True,
     "y_tau_entry_price_mult_buy_then_sell": 0.5,
     "y_tau_entry_price_skip_sell_then_buy": True,
     "y_tau_entry_price_mult_sell_then_buy": 0.5,
+    # 价闸动幅：bound=open×(1+(clamp(ŷ_τ×裕度,min,max)+price_bias)/100)；价偏代数可正可负
+    "y_tau_entry_price_bias": 0.5,
+    "y_tau_entry_price_bias_buy_then_sell": 0.5,
+    "y_tau_entry_price_bias_sell_then_buy": -0.5,
+    "y_tau_entry_price_move_min": -100.0,
+    "y_tau_entry_price_move_max": 100.0,
     "y_tau_exit_price_skip": True,
     "y_tau_exit_price_mult": 1.0,
     "y_tau_exit_price_skip_buy_then_sell": True,
-    "y_tau_exit_price_mult_buy_then_sell": 2.0,
+    "y_tau_exit_price_mult_buy_then_sell": 1.0,
     "y_tau_exit_price_skip_sell_then_buy": True,
-    "y_tau_exit_price_mult_sell_then_buy": 2.0,
+    "y_tau_exit_price_mult_sell_then_buy": 1.0,
+    "y_tau_exit_price_bias": 1.0,
+    "y_tau_exit_price_bias_buy_then_sell": 1.0,
+    "y_tau_exit_price_bias_sell_then_buy": -1.0,
+    "y_tau_exit_price_move_min": -100.0,
+    "y_tau_exit_price_move_max": 100.0,
     "y_ratio_boost_cap": 2.0,
     "y_ratio_cut": 0.60,
     # 午后闸：到点后禁新开；已开未平则第二腿中点追价（与止损并存：止损管亏、追价管软卖）
     "t0_pm_degrade": "14:00",
-    "t0_pm_degrade_sell_then_buy": "14:00",
+    "t0_pm_degrade_sell_then_buy": "13:00",
     "t0_pm_degrade_buy_then_sell": "14:00",
     # 午后追价：默认不超过/不低于 leg1 成交价（即使 must_cover=False）
     "t0_pm_chase_cap_leg1_sell_then_buy": True,
     "t0_pm_chase_cap_leg1_buy_then_sell": True,
-    "t0_pm_chase_interval_min": 10,
-    "t0_pm_chase_interval_min_sell_then_buy": 10,
-    "t0_pm_chase_interval_min_buy_then_sell": 10,
+    "t0_pm_chase_interval_min": 5,
+    "t0_pm_chase_interval_min_sell_then_buy": 5,
+    "t0_pm_chase_interval_min_buy_then_sell": 5,
     # 正/反T第二腿止损（相对第一腿成交价）；0=关；默认延迟2根+收盘确认
     "t0_stop_pct_buy_then_sell": 1.2,
     "t0_stop_pct_sell_then_buy": 1.2,
@@ -242,35 +256,54 @@ DEFAULT_T0_RULES: Dict[str, Any] = {
     "t0_stop_on_close": True,
     # dual_y 分数来源：compute=开盘信息集即时算（默认）；live_book/ledger 仅兜底或对照
     "y_score_source": "compute",
-    # 多轮独立做T：10:00–14:00 六轮各 15%；确认根收盘开第一腿（ŷ+后半占比）
-    # 不开 09:30。六轮共用一套买卖/止损配方
+    # 多轮独立做T：10:00–11:30 四轮各 15%；确认根收盘开第一腿；午后仅 leg2 追价/EOD
+    # 不开 09:30。四轮共用一套买卖/止损配方
     "t0_slots_enabled": True,
     "t0_slots": None,
     "note": "A股T+1底仓做T；仅5m first_touch（已删除日线模拟）；非实盘。",
 }
 
-# 10:00 起早盘四轮 + 13:00/14:00 午后两轮；不做 09:30 开盘轮
+# 第一腿最晚：11:30 确认根 = 第 24 根 5m（09:35 起计）；午后不再新开 leg1
+T0_LAST_LEG1_HM = "11:30"
+T0_LAST_LEG1_PREFIX_BARS = 24
+
+# 10:00–11:30 四轮；不做 09:30 开盘轮、不做 13:00/14:00 午后新开
 DEFAULT_T0_SLOTS: tuple = (
     {"id": "s1", "hm": "10:00", "prefix_bars": 6, "ratio": 0.15},
     {"id": "s2", "hm": "10:30", "prefix_bars": 12, "ratio": 0.15},
     {"id": "s3", "hm": "11:00", "prefix_bars": 18, "ratio": 0.15},
     {"id": "s4", "hm": "11:30", "prefix_bars": 24, "ratio": 0.15},
-    {"id": "s5", "hm": "13:00", "prefix_bars": 25, "ratio": 0.15},
-    {"id": "s6", "hm": "14:00", "prefix_bars": 37, "ratio": 0.15},
 )
-# 研究枢纽 τ / path 网格另含 09:30 开盘 Z；做T时钟是其中 10:00–11:30（live 调仓钟仍独立）
+# 研究枢纽 τ / path 网格仍含 13:00/14:00；做 T 执行钟仅 10:00–11:30
 DEFAULT_T0_SLOT_CLOCKS: tuple = tuple(
     str(s.get("hm") or "").strip() for s in DEFAULT_T0_SLOTS if str(s.get("hm") or "").strip()
 )
-# 纸面曾落盘的默认五轮（含 09:30 开盘）；加载时迁到现行六轮
+# 纸面曾落盘的默认五轮（含 09:30 开盘）；加载时迁到现行四轮
 _LEGACY_OPEN_FIVE_CLOCKS: tuple = ("09:30", "10:00", "10:30", "11:00", "11:30")
+# 曾短暂默认六轮（含午后 leg1）；加载时迁到现行四轮
+_LEGACY_SIX_CLOCKS: tuple = ("10:00", "10:30", "11:00", "11:30", "13:00", "14:00")
+
+
+def _slot_allows_leg1(*, hm: str, prefix_bars: int) -> bool:
+    """多轮做 T：超过 11:30 / 第 24 根前缀的槽位不允许开第一腿。"""
+    try:
+        n = int(prefix_bars or 0)
+    except (TypeError, ValueError):
+        n = 0
+    if n > T0_LAST_LEG1_PREFIX_BARS:
+        return False
+    clock = str(hm or "").strip()[:5]
+    if clock and clock > T0_LAST_LEG1_HM:
+        return False
+    return True
 
 
 def normalize_t0_slots(raw: Any) -> list:
-    """规范化槽位列表；空/缺省 → 默认六轮（10:00–14:00）。
+    """规范化槽位列表；空/缺省 → 默认四轮（10:00–11:30）。
 
     槽位只保留时钟 / 前缀根数 / 仓位切分。第二腿触发、止损、成交、dual_y 闸
     一律走账户级 ``load_t0_rules``（正/反分侧，不按槽位分套）。
+    超过 ``T0_LAST_LEG1_*`` 的午后槽位会被丢弃（午后只做 leg2 追价/EOD）。
     """
     if raw is None:
         return [dict(s) for s in DEFAULT_T0_SLOTS]
@@ -288,7 +321,9 @@ def normalize_t0_slots(raw: Any) -> list:
             prefix_bars = int(item.get("prefix_bars") if item.get("prefix_bars") is not None else 0)
         except (TypeError, ValueError):
             prefix_bars = 0
-        prefix_bars = max(0, min(prefix_bars, 48))
+        prefix_bars = max(0, min(prefix_bars, T0_LAST_LEG1_PREFIX_BARS))
+        if not _slot_allows_leg1(hm=hm, prefix_bars=prefix_bars):
+            continue
         try:
             ratio = float(item.get("ratio") if item.get("ratio") is not None else 0.15)
         except (TypeError, ValueError):
@@ -296,7 +331,7 @@ def normalize_t0_slots(raw: Any) -> list:
         ratio = max(0.05, min(ratio, 1.0))
         out.append({"id": sid, "hm": hm, "prefix_bars": prefix_bars, "ratio": ratio})
     clocks = tuple(str(s.get("hm") or "").strip() for s in out)
-    if clocks == _LEGACY_OPEN_FIVE_CLOCKS:
+    if clocks in (_LEGACY_OPEN_FIVE_CLOCKS, _LEGACY_SIX_CLOCKS):
         return [dict(s) for s in DEFAULT_T0_SLOTS]
     return out or [dict(s) for s in DEFAULT_T0_SLOTS]
 
@@ -423,9 +458,9 @@ def load_t0_rules(override: Optional[dict] = None) -> Dict[str, Any]:
     for yk, lo, hi, default in (
         ("y_eod_prior", 0.01, 5.0, 0.01),
         ("y_eod_enter", 0.01, 5.0, 0.01),
-        ("y_eod_strong", 0.05, 5.0, 0.5),
+        ("y_eod_strong", 0.05, 5.0, 0.2),
         ("y_trade_enter", 0.01, 5.0, 0.01),
-        ("y_trade_strong", 0.05, 5.0, 0.5),
+        ("y_trade_strong", 0.05, 5.0, 0.2),
         ("y_tau_enter", 0.01, 5.0, 0.01),
         ("y_tau_enter_sell_then_buy", 0.01, 5.0, 0.01),
         ("y_tau_enter_buy_then_sell", 0.01, 5.0, 0.01),
@@ -434,7 +469,7 @@ def load_t0_rules(override: Optional[dict] = None) -> Dict[str, Any]:
         ("y_ratio_boost_cap", 1.0, 2.0, 2.0),
         ("y_ratio_cut", 0.2, 1.0, 0.60),
         ("y_nc_enter", 0.01, 10.0, 0.01),
-        ("y_nc_strong", 0.05, 10.0, 0.5),
+        ("y_nc_strong", 0.05, 10.0, 0.2),
         ("y_path_enter", 0.01, 5.0, 0.01),
         ("y_path_enter_sell_then_buy", 0.01, 5.0, 0.01),
         ("y_path_enter_buy_then_sell", 0.01, 5.0, 0.01),
@@ -531,10 +566,10 @@ def load_t0_rules(override: Optional[dict] = None) -> Dict[str, Any]:
     try:
         raw_legacy_mult = cfg.get("y_tau_entry_price_mult")
         legacy_mult = float(
-            1.0 if raw_legacy_mult is None or raw_legacy_mult == "" else raw_legacy_mult
+            0.5 if raw_legacy_mult is None or raw_legacy_mult == "" else raw_legacy_mult
         )
     except (TypeError, ValueError):
-        legacy_mult = 1.0
+        legacy_mult = 0.5
     legacy_mult = max(0.5, min(legacy_mult, 5.0))
     for side in ("buy_then_sell", "sell_then_buy"):
         sk = f"y_tau_entry_price_skip_{side}"
@@ -553,6 +588,66 @@ def load_t0_rules(override: Optional[dict] = None) -> Dict[str, Any]:
         cfg[mk] = max(0.5, min(side_mult, 5.0))
     cfg["y_tau_entry_price_skip"] = cfg["y_tau_entry_price_skip_buy_then_sell"]
     cfg["y_tau_entry_price_mult"] = cfg["y_tau_entry_price_mult_buy_then_sell"]
+    try:
+        raw_legacy_entry_bias = cfg.get("y_tau_entry_price_bias")
+        legacy_entry_bias = float(
+            0.5
+            if raw_legacy_entry_bias is None or raw_legacy_entry_bias == ""
+            else raw_legacy_entry_bias
+        )
+    except (TypeError, ValueError):
+        legacy_entry_bias = 0.5
+    legacy_entry_bias = max(-50.0, min(legacy_entry_bias, 50.0))
+    try:
+        legacy_entry_move_min = float(cfg.get("y_tau_entry_price_move_min") or -100.0)
+    except (TypeError, ValueError):
+        legacy_entry_move_min = -100.0
+    try:
+        legacy_entry_move_max = float(cfg.get("y_tau_entry_price_move_max") or 100.0)
+    except (TypeError, ValueError):
+        legacy_entry_move_max = 100.0
+    legacy_entry_move_min = max(-100.0, min(legacy_entry_move_min, 100.0))
+    legacy_entry_move_max = max(-100.0, min(legacy_entry_move_max, 100.0))
+    if legacy_entry_move_min > legacy_entry_move_max:
+        legacy_entry_move_min, legacy_entry_move_max = (
+            legacy_entry_move_max,
+            legacy_entry_move_min,
+        )
+    for side in ("buy_then_sell", "sell_then_buy"):
+        bk = f"y_tau_entry_price_bias_{side}"
+        mnk = f"y_tau_entry_price_move_min_{side}"
+        mxk = f"y_tau_entry_price_move_max_{side}"
+        try:
+            raw_bias = cfg.get(bk)
+            if raw_bias is None or raw_bias == "":
+                raw_bias = legacy_entry_bias
+            side_bias = float(raw_bias)
+        except (TypeError, ValueError):
+            side_bias = legacy_entry_bias
+        cfg[bk] = max(-50.0, min(side_bias, 50.0))
+        try:
+            raw_min = cfg.get(mnk)
+            if raw_min is None or raw_min == "":
+                raw_min = legacy_entry_move_min
+            side_min = float(raw_min)
+        except (TypeError, ValueError):
+            side_min = legacy_entry_move_min
+        try:
+            raw_max = cfg.get(mxk)
+            if raw_max is None or raw_max == "":
+                raw_max = legacy_entry_move_max
+            side_max = float(raw_max)
+        except (TypeError, ValueError):
+            side_max = legacy_entry_move_max
+        side_min = max(-100.0, min(side_min, 100.0))
+        side_max = max(-100.0, min(side_max, 100.0))
+        if side_min > side_max:
+            side_min, side_max = side_max, side_min
+        cfg[mnk] = side_min
+        cfg[mxk] = side_max
+    cfg["y_tau_entry_price_bias"] = cfg["y_tau_entry_price_bias_buy_then_sell"]
+    cfg["y_tau_entry_price_move_min"] = cfg["y_tau_entry_price_move_min_buy_then_sell"]
+    cfg["y_tau_entry_price_move_max"] = cfg["y_tau_entry_price_move_max_buy_then_sell"]
     legacy_exit_skip = coerce_cfg_bool(cfg.get("y_tau_exit_price_skip"), True)
     try:
         raw_legacy_exit_mult = cfg.get("y_tau_exit_price_mult")
@@ -581,6 +676,66 @@ def load_t0_rules(override: Optional[dict] = None) -> Dict[str, Any]:
         cfg[mk] = max(0.5, min(side_mult, 5.0))
     cfg["y_tau_exit_price_skip"] = cfg["y_tau_exit_price_skip_buy_then_sell"]
     cfg["y_tau_exit_price_mult"] = cfg["y_tau_exit_price_mult_buy_then_sell"]
+    try:
+        raw_legacy_exit_bias = cfg.get("y_tau_exit_price_bias")
+        legacy_exit_bias = float(
+            1.0
+            if raw_legacy_exit_bias is None or raw_legacy_exit_bias == ""
+            else raw_legacy_exit_bias
+        )
+    except (TypeError, ValueError):
+        legacy_exit_bias = 1.0
+    legacy_exit_bias = max(-50.0, min(legacy_exit_bias, 50.0))
+    try:
+        legacy_exit_move_min = float(cfg.get("y_tau_exit_price_move_min") or -100.0)
+    except (TypeError, ValueError):
+        legacy_exit_move_min = -100.0
+    try:
+        legacy_exit_move_max = float(cfg.get("y_tau_exit_price_move_max") or 100.0)
+    except (TypeError, ValueError):
+        legacy_exit_move_max = 100.0
+    legacy_exit_move_min = max(-100.0, min(legacy_exit_move_min, 100.0))
+    legacy_exit_move_max = max(-100.0, min(legacy_exit_move_max, 100.0))
+    if legacy_exit_move_min > legacy_exit_move_max:
+        legacy_exit_move_min, legacy_exit_move_max = (
+            legacy_exit_move_max,
+            legacy_exit_move_min,
+        )
+    for side in ("buy_then_sell", "sell_then_buy"):
+        bk = f"y_tau_exit_price_bias_{side}"
+        mnk = f"y_tau_exit_price_move_min_{side}"
+        mxk = f"y_tau_exit_price_move_max_{side}"
+        try:
+            raw_bias = cfg.get(bk)
+            if raw_bias is None or raw_bias == "":
+                raw_bias = legacy_exit_bias
+            side_bias = float(raw_bias)
+        except (TypeError, ValueError):
+            side_bias = legacy_exit_bias
+        cfg[bk] = max(-50.0, min(side_bias, 50.0))
+        try:
+            raw_min = cfg.get(mnk)
+            if raw_min is None or raw_min == "":
+                raw_min = legacy_exit_move_min
+            side_min = float(raw_min)
+        except (TypeError, ValueError):
+            side_min = legacy_exit_move_min
+        try:
+            raw_max = cfg.get(mxk)
+            if raw_max is None or raw_max == "":
+                raw_max = legacy_exit_move_max
+            side_max = float(raw_max)
+        except (TypeError, ValueError):
+            side_max = legacy_exit_move_max
+        side_min = max(-100.0, min(side_min, 100.0))
+        side_max = max(-100.0, min(side_max, 100.0))
+        if side_min > side_max:
+            side_min, side_max = side_max, side_min
+        cfg[mnk] = side_min
+        cfg[mxk] = side_max
+    cfg["y_tau_exit_price_bias"] = cfg["y_tau_exit_price_bias_buy_then_sell"]
+    cfg["y_tau_exit_price_move_min"] = cfg["y_tau_exit_price_move_min_buy_then_sell"]
+    cfg["y_tau_exit_price_move_max"] = cfg["y_tau_exit_price_move_max_buy_then_sell"]
     gap_mode = str(cfg.get("y_gap_tier_mode") or "skip_opposite").strip().lower()
     if gap_mode not in {"off", "none", "false", "0", "skip_opposite", "revert"}:
         gap_mode = "skip_opposite"
@@ -603,7 +758,7 @@ def load_t0_rules(override: Optional[dict] = None) -> Dict[str, Any]:
         "t0_time_stop_underwater_only",
     ):
         cfg.pop(_dead, None)
-    drop_dead_t0_keys(cfg)  # 含旧 long/reverse 命名与已下线 N 字键
+    drop_dead_t0_keys(cfg)  # 含旧 long/reverse、y_prefix_min_half_hits 等
     def _norm_pm_degrade(raw: Any, default: str) -> str:
         if raw is None:
             return default
@@ -614,7 +769,7 @@ def load_t0_rules(override: Optional[dict] = None) -> Dict[str, Any]:
 
     pm_legacy = cfg.get("t0_pm_degrade")
     for side_key, default in (
-        ("t0_pm_degrade_sell_then_buy", "14:00"),
+        ("t0_pm_degrade_sell_then_buy", "13:00"),
         ("t0_pm_degrade_buy_then_sell", "14:00"),
     ):
         if side_key not in override_keys or cfg.get(side_key) is None:
@@ -635,9 +790,9 @@ def load_t0_rules(override: Optional[dict] = None) -> Dict[str, Any]:
         else:
             raw_iv = cfg.get(iv_key)
         try:
-            iv = int(raw_iv if raw_iv is not None and raw_iv != "" else 10)
+            iv = int(raw_iv if raw_iv is not None and raw_iv != "" else 5)
         except (TypeError, ValueError):
-            iv = 10
+            iv = 5
         cfg[iv_key] = max(1, min(iv, 60))
     cfg["t0_pm_chase_interval_min"] = cfg["t0_pm_chase_interval_min_buy_then_sell"]
     # 正T跌破止损
@@ -741,8 +896,8 @@ def apply_side_exec_params(cfg: dict, direction: Optional[str]) -> Dict[str, Any
         s = str(pm).strip()
         out["t0_pm_degrade"] = "" if s in {"", "0", "off", "none", "-"} else s
     elif "t0_pm_degrade" not in out or out.get("t0_pm_degrade") is None:
-        # 缺侧向键时回落默认：正/反 T 均为 14:00
-        out["t0_pm_degrade"] = "14:00"
+        # 缺侧向键时回落默认：正T 14:00 / 反T 13:00
+        out["t0_pm_degrade"] = "13:00" if direction == "sell_then_buy" else "14:00"
     iv = out.get(f"t0_pm_chase_interval_min{suf}")
     if iv is not None and iv != "":
         try:
@@ -752,10 +907,10 @@ def apply_side_exec_params(cfg: dict, direction: Optional[str]) -> Dict[str, Any
     elif not out.get("t0_pm_chase_interval_min"):
         side_iv = out.get(f"t0_pm_chase_interval_min{suf}")
         try:
-            raw_iv = side_iv if side_iv is not None and side_iv != "" else 10
+            raw_iv = side_iv if side_iv is not None and side_iv != "" else 5
             out["t0_pm_chase_interval_min"] = max(1, min(int(raw_iv), 60))
         except (TypeError, ValueError):
-            out["t0_pm_chase_interval_min"] = 10
+            out["t0_pm_chase_interval_min"] = 5
     return out
 
 

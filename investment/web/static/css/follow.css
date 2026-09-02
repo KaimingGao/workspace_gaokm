@@ -3368,7 +3368,7 @@ body[data-page="follow"] .follow-ops-t0 {
   color: #94a3b8;
 }
 
-/* 点击日期：展开全日 5m K + 各轮 ŷ */
+/* 点击日期：展开各轮 ŷ + 决策钟 5m OLHC */
 .paper-t0-table td.paper-t0-col-date.is-expandable {
   cursor: pointer;
   position: relative;
@@ -3410,7 +3410,7 @@ body[data-page="follow"] .follow-ops-t0 {
   flex-direction: column;
   gap: 10px;
   min-width: 0;
-  max-width: 980px;
+  max-width: 1100px;
 }
 
 .paper-t0-day-detail-head {
@@ -3455,7 +3455,7 @@ body[data-page="follow"] .follow-ops-t0 {
 
 .paper-t0-day-yhat {
   width: 100%;
-  min-width: 720px;
+  min-width: 860px;
   max-width: 100%;
   border-collapse: separate;
   border-spacing: 0;
@@ -3504,10 +3504,19 @@ body[data-page="follow"] .follow-ops-t0 {
 
 .paper-t0-day-yhat td.num,
 .paper-t0-day-yhat td.paper-t0-day-yhat-score {
+  text-align: right;
   font-variant-numeric: tabular-nums;
   font-family: var(--font-mono, ui-monospace, monospace);
-  text-align: right;
   white-space: nowrap;
+}
+
+.paper-t0-day-yhat td.paper-t0-day-yhat-ohlc {
+  font-size: 0.7rem;
+  color: var(--ink-2, #334155);
+}
+
+.paper-t0-day-yhat td.paper-t0-day-yhat-ohlc.is-na {
+  color: var(--ink-3, #94a3b8);
 }
 
 .paper-t0-y-num.up {

@@ -6,7 +6,7 @@ import logging
 logger = logging.getLogger(__name__)
 from typing import Any, Dict, List, Optional
 
-from core.t0.config import load_t0_rules
+from core.t0.config import T0_TRADE_DAYS_SAMPLE_UI_LIMIT, load_t0_rules
 from core.t0.minute_path import T0_INTENTIONAL_ABANDON_EXITS
 from core.t0.rules import _t0_qty_lots, atr_pct_from_bars, simulate_t0_day
 
@@ -849,6 +849,27 @@ def _walk_t0(
             "y_tau_entry_price_mult_sell_then_buy": cfg.get(
                 "y_tau_entry_price_mult_sell_then_buy"
             ),
+            "y_tau_entry_price_bias": cfg.get("y_tau_entry_price_bias"),
+            "y_tau_entry_price_move_min": cfg.get("y_tau_entry_price_move_min"),
+            "y_tau_entry_price_move_max": cfg.get("y_tau_entry_price_move_max"),
+            "y_tau_entry_price_bias_buy_then_sell": cfg.get(
+                "y_tau_entry_price_bias_buy_then_sell"
+            ),
+            "y_tau_entry_price_move_min_buy_then_sell": cfg.get(
+                "y_tau_entry_price_move_min_buy_then_sell"
+            ),
+            "y_tau_entry_price_move_max_buy_then_sell": cfg.get(
+                "y_tau_entry_price_move_max_buy_then_sell"
+            ),
+            "y_tau_entry_price_bias_sell_then_buy": cfg.get(
+                "y_tau_entry_price_bias_sell_then_buy"
+            ),
+            "y_tau_entry_price_move_min_sell_then_buy": cfg.get(
+                "y_tau_entry_price_move_min_sell_then_buy"
+            ),
+            "y_tau_entry_price_move_max_sell_then_buy": cfg.get(
+                "y_tau_entry_price_move_max_sell_then_buy"
+            ),
             "y_tau_exit_price_skip": cfg.get("y_tau_exit_price_skip"),
             "y_tau_exit_price_mult": cfg.get("y_tau_exit_price_mult"),
             "y_tau_exit_price_skip_buy_then_sell": cfg.get(
@@ -862,6 +883,27 @@ def _walk_t0(
             ),
             "y_tau_exit_price_mult_sell_then_buy": cfg.get(
                 "y_tau_exit_price_mult_sell_then_buy"
+            ),
+            "y_tau_exit_price_bias": cfg.get("y_tau_exit_price_bias"),
+            "y_tau_exit_price_move_min": cfg.get("y_tau_exit_price_move_min"),
+            "y_tau_exit_price_move_max": cfg.get("y_tau_exit_price_move_max"),
+            "y_tau_exit_price_bias_buy_then_sell": cfg.get(
+                "y_tau_exit_price_bias_buy_then_sell"
+            ),
+            "y_tau_exit_price_move_min_buy_then_sell": cfg.get(
+                "y_tau_exit_price_move_min_buy_then_sell"
+            ),
+            "y_tau_exit_price_move_max_buy_then_sell": cfg.get(
+                "y_tau_exit_price_move_max_buy_then_sell"
+            ),
+            "y_tau_exit_price_bias_sell_then_buy": cfg.get(
+                "y_tau_exit_price_bias_sell_then_buy"
+            ),
+            "y_tau_exit_price_move_min_sell_then_buy": cfg.get(
+                "y_tau_exit_price_move_min_sell_then_buy"
+            ),
+            "y_tau_exit_price_move_max_sell_then_buy": cfg.get(
+                "y_tau_exit_price_move_max_sell_then_buy"
             ),
             "t0_pm_degrade": cfg.get("t0_pm_degrade"),
             "t0_pm_degrade_sell_then_buy": cfg.get("t0_pm_degrade_sell_then_buy"),
@@ -881,7 +923,7 @@ def _walk_t0(
         },
         "days": days[-30:],
         # 成交样本：不限于最近 30 根日历日（避免近期全跳过时误以为全程无成交）
-        "trade_days_sample": traded_days[-50:],
+        "trade_days_sample": traded_days[-T0_TRADE_DAYS_SAMPLE_UI_LIMIT:],
         "viz": viz,
     }
     report.update(derive_t0_quality_metrics(report))
