@@ -16,10 +16,6 @@ SKIP_CAT_LABELS: Dict[str, str] = {
     "y_path_disagree": "y_τ↔y_path异号",
     "gap_tier_skip": "大缺口反向跳过",
     "path_abandon": "前缀无空间放弃",
-    "prefix_segment": "固定前缀待确认",
-    "prefix_vs_path": "前缀>|ŷ_path|×裕度(旧)",
-    "composite_confirm": "复合确认未过",
-    "env_gate": "环境闸未过",
     "multi_slot_miss": "多轮均未成交",
     "tau_entry_price": "入场价vs开盘×ŷ_τ",
     "tau_exit_price": "出场价vs开盘×ŷ_τ",
@@ -27,6 +23,7 @@ SKIP_CAT_LABELS: Dict[str, str] = {
     "eod_tau_disagree": "y_eod↔y_τ异号",
     "trade_tau_disagree": "y_trade↔y_τ异号",
     "trade_tau_sign": "异号跳过",
+    "tau_leg1_prior": "局部↔整体趋势不一致",
     "conflict": "旧冲突(已下线)",
     "amplitude": "振幅不足(旧)",
     "directional_amplitude": "方向振幅(旧)",
@@ -36,6 +33,7 @@ SKIP_CAT_LABELS: Dict[str, str] = {
     "path": "路径否决",
     "trigger_miss": "未触达",
     "intraday_legs_open": "盘中已落账",
+    "price_space_mismatch": "日分价空间错位",
     "other": "其它",
 }
 
@@ -45,6 +43,7 @@ SKIP_CAT_COLORS: Dict[str, str] = {
     "missing_minute": "#5c6b7a",
     "missing_scores": "#8b98a5",
     "y_path_missing": "#44525f",
+    "price_space_mismatch": "#6a7380",
     "trigger_miss": "#b8c0c8",
     "other": "#cbd2d9",
     "amplitude": "#6e7378",
@@ -58,14 +57,11 @@ SKIP_CAT_COLORS: Dict[str, str] = {
     "eod_tau_disagree": "#b33a3a",
     "trade_tau_disagree": "#8f3d5b",
     "trade_tau_sign": "#c45c4a",
+    "tau_leg1_prior": "#a0653a",
     "y_path_disagree": "#6b4c7a",
     "conflict": "#a04848",
     # 前缀 / 空间 / 缺口 · 海石青 + 一枚赭石
     "path_abandon": "#3f6f68",
-    "prefix_segment": "#3a6480",
-    "prefix_vs_path": "#2f5370",
-    "composite_confirm": "#3a6480",
-    "env_gate": "#5a7d8c",
     "multi_slot_miss": "#b8c0c8",
     "tau_entry_price": "#2a5f7a",
     "tau_exit_price": "#356b85",
@@ -82,6 +78,8 @@ SKIP_CAT_COLORS: Dict[str, str] = {
 
 def classify_t0_skip_reason(reason: Optional[str]) -> str:
     r = str(reason or "")
+    if "price_space_mismatch" in r or ("价空间" in r and ("错位" in r or "不一致" in r)):
+        return "price_space_mismatch"
     if "缺" in r and ("分钟" in r or "minute" in r.lower()):
         return "missing_minute"
     if "缺 y_path" in r or ("缺" in r and "y_path" in r):
@@ -100,6 +98,8 @@ def classify_t0_skip_reason(reason: Optional[str]) -> str:
         return "eod_tau_disagree"
     if "y_trade" in r and "y_τ" in r and "异号" in r and "|y_trade|" in r:
         return "trade_tau_disagree"
+    if "日线先验" in r or "趋势不一致" in r or "正T风险高" in r or "反T风险高" in r:
+        return "tau_leg1_prior"
     if "异号" in r or "trade_tau_sign" in r.lower():
         return "trade_tau_sign"
     if "y_trade" in r:
@@ -154,22 +154,6 @@ def classify_t0_skip_reason(reason: Optional[str]) -> str:
         return "prefix_vs_path"
     if "放弃" in r and ("反T" in r or "正T" in r or "前缀" in r):
         return "path_abandon"
-    # 固定前缀齐窗/后半阴阳占比（现口径）；旧「回落/反弹」文案保留兼容历史账本
-    if (
-        "待固定前缀" in r
-        or "固定前缀后半" in r
-        or "固定前缀确认关" in r
-        or "固定前缀未过" in r
-        or "待回落" in r
-        or "待反弹" in r
-        or "回落确认" in r
-        or "反弹确认" in r
-    ):
-        return "prefix_segment"
-    if "复合确认" in r or "未达开盘锚" in r or "动量未翻转" in r:
-        return "composite_confirm"
-    if "环境闸" in r:
-        return "env_gate"
     if "多轮均未成交" in r:
         return "multi_slot_miss"
     if "上移振幅" in r or "下移振幅" in r or "方向振幅" in r:
@@ -450,6 +434,121 @@ def _fill_day_eod_trade_scores(day: dict, scores: Optional[dict]) -> dict:
         if out.get(key) is None and day_sc.get(key) is not None:
             out[key] = day_sc.get(key)
     return out
+
+
+def _close_band_scan_rows(day: dict) -> List[dict]:
+    scan = day.get("close_band_scan") if isinstance(day, dict) else None
+    if not isinstance(scan, list):
+        return []
+    return [r for r in scan if isinstance(r, dict) and str(r.get("hm") or "").strip()]
+
+
+def _scores_from_scan_row(row: dict) -> Dict[str, Any]:
+    """扫描行 y_τ / y_path → 画像字段（该钟前缀，对齐拟合 by_tau）。"""
+    sc: Dict[str, Any] = {}
+    y_tau = row.get("y_tau")
+    y_path = row.get("y_path")
+    if y_tau is not None:
+        sc["y_tau_portrait_oc"] = y_tau
+        sc["y_tau_oc"] = y_tau
+        sc["y_tau"] = y_tau
+    if y_path is not None:
+        sc["y_path_portrait"] = y_path
+        sc["y_path"] = y_path
+    return sc
+
+
+def _slot_fill_by_hm(day: dict) -> Dict[str, dict]:
+    out: Dict[str, dict] = {}
+    for r in _slot_result_rows(day):
+        hm = str(r.get("hm") or "").strip()[:5]
+        if hm and _slot_row_filled(r):
+            out[hm] = r
+    return out
+
+
+def _portrait_slot_rows(day: dict) -> List[dict]:
+    """分槽样本：优先 ``close_band_scan`` 每根因果 ŷ；成交标记来自破带轮。"""
+    scan = _close_band_scan_rows(day)
+    fills = _slot_fill_by_hm(day)
+    if not scan:
+        return _slot_result_rows(day)
+    rows: List[dict] = []
+    for s in scan:
+        hm = str(s.get("hm") or "").strip()[:5]
+        if not hm:
+            continue
+        scores = _scores_from_scan_row(s)
+        filled = fills.get(hm)
+        if filled is not None:
+            sc = dict(filled.get("scores") or {}) if isinstance(filled.get("scores"), dict) else {}
+            sc.update(scores)
+            row = dict(filled)
+            row["scores"] = sc
+            row["hm"] = hm
+            rows.append(row)
+            continue
+        rows.append(
+            {
+                "id": None,
+                "hm": hm,
+                "skipped": True,
+                "scores": scores,
+                "sold_qty": 0,
+                "bought_qty": 0,
+            }
+        )
+    return rows
+
+
+def _day_with_scan_portrait(day: dict, *, hm: Optional[str] = None) -> dict:
+    """日级预估用固定钟扫描 ŷ（默认 09:35），避免跳过日用 11:00 前缀垫高命中。"""
+    from core.t0.config import T0_PORTRAIT_DAY_HM
+
+    scan = _close_band_scan_rows(day)
+    if not scan:
+        return day
+    want = str(hm or T0_PORTRAIT_DAY_HM or "").strip()[:5]
+    pick = None
+    for r in scan:
+        if str(r.get("hm") or "").strip()[:5] == want:
+            pick = r
+            break
+    if pick is None:
+        pick = scan[0]
+    extra = _scores_from_scan_row(pick)
+    if not extra:
+        return day
+    out = dict(day)
+    sc = dict(out.get("scores") or {}) if isinstance(out.get("scores"), dict) else {}
+    sc.update(extra)
+    out["scores"] = sc
+    if extra.get("y_tau_portrait_oc") is not None:
+        out["y_tau_portrait_oc"] = extra["y_tau_portrait_oc"]
+    if extra.get("y_path_portrait") is not None:
+        out["y_path_portrait"] = extra["y_path_portrait"]
+    return out
+
+
+def _portrait_clocks(days: Sequence[dict]) -> List[str]:
+    from core.t0.config import DEFAULT_T0_SLOT_CLOCKS, T0_PORTRAIT_SLOT_CLOCKS
+
+    clocks: List[str] = []
+    seen = set()
+    for hm in tuple(T0_PORTRAIT_SLOT_CLOCKS or ()) + tuple(DEFAULT_T0_SLOT_CLOCKS or ()):
+        key = str(hm or "").strip()[:5]
+        if key and key not in seen:
+            clocks.append(key)
+            seen.add(key)
+    for d in days or []:
+        if not isinstance(d, dict):
+            continue
+        for r in _portrait_slot_rows(d):
+            hm = str(r.get("hm") or "").strip()[:5]
+            if hm and hm not in seen:
+                clocks.append(hm)
+                seen.add(hm)
+    return clocks
 
 
 def _slot_as_portrait_unit(day: dict, row: dict) -> dict:
@@ -760,37 +859,31 @@ def build_score_portrait(
     τ/path 命中优先用 **前 N 根因果画像分**（``y_tau_portrait_oc`` / ``y_path_portrait``），
     与做 T 固定前缀同口径；勿用开盘选向的 open-only 决策分去对全日标签。
     """
-    units = [d for d in (days or []) if isinstance(d, dict)]
+    units = [
+        _day_with_scan_portrait(d)
+        for d in (days or [])
+        if isinstance(d, dict)
+    ]
     return _build_score_portrait_from_units(units, traded_only=traded_only)
 
 
 def build_score_portrait_by_slot(days: Sequence[dict]) -> Dict[str, Any]:
     """按做T时钟拆画像：各钟因果 ŷ vs 同一套天级 τ/path 标签（对齐拟合 by_tau）。
 
-    样本与日级画像对齐；缺该钟明细/ŷ 时仍入样，命中计 flat。
-    有分钟的回测日应在 ``t0_slot_results[].scores`` 带各钟 ``y_tau_portrait_oc`` /
-    ``y_path_portrait``；越晚钟前缀越长，命中率通常上升。
+    优先 ``close_band_scan``（11:00 前每根 5m 前缀 ŷ）；无扫描时回退破带轮
+    ``t0_slot_results``。样本与日级对齐；缺该钟 ŷ 计 flat。越晚前缀越长，命中通常上升。
     """
     from collections import OrderedDict
 
-    from core.t0.config import DEFAULT_T0_SLOT_CLOCKS
-
     eligible = [d for d in (days or []) if _portrait_day_eligible(d)]
     by_hm: "OrderedDict[str, List[dict]]" = OrderedDict()
-    for hm in DEFAULT_T0_SLOT_CLOCKS:
-        by_hm[str(hm)] = []
-
-    # 数据里多出来的时钟也保留
-    for d in eligible:
-        for r in _slot_result_rows(d):
-            hm = str(r.get("hm") or "").strip()
-            if hm and hm not in by_hm:
-                by_hm[hm] = []
+    for hm in _portrait_clocks(eligible):
+        by_hm[hm] = []
 
     for d in eligible:
-        rows = _slot_result_rows(d)
+        rows = _portrait_slot_rows(d)
         by_row_hm = {
-            str(r.get("hm") or "").strip(): r
+            str(r.get("hm") or "").strip()[:5]: r
             for r in rows
             if str(r.get("hm") or "").strip()
         }
@@ -802,12 +895,13 @@ def build_score_portrait_by_slot(days: Sequence[dict]) -> Dict[str, Any]:
                 by_hm[hm].append(_slot_placeholder_unit(d, hm))
 
     slots: List[Dict[str, Any]] = []
-    for hm, units in by_hm.items():
+    for hm in sorted(by_hm.keys()):
+        units = by_hm[hm]
         if not units:
             continue
         note = (
-            f"槽位 {hm}：本钟因果 ŷ↔全日 tau_realized/path_realized（同拟合 OOS.by_tau）；"
-            "样本=与日级同样本；缺该钟ŷ计flat；成交子集=该钟已成交；"
+            f"槽位 {hm}：本钟扫描前缀 ŷ↔全日 tau_realized/path_realized（同拟合 OOS.by_tau）；"
+            "样本=与日级同样本；缺该钟ŷ计flat；成交子集=该钟已破带成交；"
             "越晚钟前缀越长，命中通常更高"
         )
         all_port = _build_score_portrait_from_units(
@@ -836,7 +930,8 @@ def build_score_portrait_by_slot(days: Sequence[dict]) -> Dict[str, Any]:
         "n_slots": len(slots),
         "n_days": len(eligible),
         "note": (
-            "分槽位画像：各钟因果 ŷ_τ/path 对同一套天级标签（对齐拟合 by_tau 命中）；"
+            "分槽位画像：各钟因果 ŷ_τ/path 对同一套天级标签（对齐拟合 by_tau）；"
+            "优先 close_band_scan 每根 5m；无扫描才用破带开轮钟；"
             "样本与日级对齐；越晚钟信息越多、命中通常更高"
         ),
     }
@@ -1004,29 +1099,55 @@ def _merge_score_portraits(
             out["traded"].pop("by_slot", None)
             out["traded"]["scope"] = "traded"
 
-    # 分槽位：按 hm 合并各票 by_slot.slots
-    slot_parts: Dict[str, List[dict]] = {}
+    # 分槽位：按 hm 合并各票；缺钟的票用占位对齐日级样本（避免 1/10 vs 34/110）
+    slot_groups: List[tuple] = []
+    slot_seen: set = set()
     slot_order: List[str] = []
     for part in parts or []:
         if not isinstance(part, dict):
             continue
         by = part.get("by_slot") if isinstance(part.get("by_slot"), dict) else None
         rows = (by or {}).get("slots") if by else part.get("slots")
-        if not isinstance(rows, list):
+        if not isinstance(rows, list) or not rows:
             continue
+        by_hm: Dict[str, dict] = {}
         for row in rows:
             if not isinstance(row, dict):
                 continue
-            hm = str(row.get("hm") or "").strip()
+            hm = str(row.get("hm") or "").strip()[:5]
             if not hm:
                 continue
-            if hm not in slot_parts:
-                slot_parts[hm] = []
+            by_hm[hm] = row
+            if hm not in slot_seen:
+                slot_seen.add(hm)
                 slot_order.append(hm)
-            slot_parts[hm].append(row)
+        n_part = int(part.get("n_days") or 0)
+        slot_groups.append((n_part, by_hm))
+    slot_parts: Dict[str, List[dict]] = {}
+    if slot_groups:
+        for hm in slot_order:
+            bucket: List[dict] = []
+            for n_part, by_hm in slot_groups:
+                if hm in by_hm:
+                    bucket.append(by_hm[hm])
+                    continue
+                if n_part <= 0:
+                    continue
+                stub = _build_score_portrait_from_units(
+                    [{"skipped": True, "date": f"_pad_{hm}_{i}"} for i in range(n_part)],
+                    traded_only=False,
+                    scope=f"slot:{hm}",
+                )
+                stub["n_with_yhat"] = 0
+                stub["traded"] = _build_score_portrait_from_units(
+                    [], traded_only=True, scope=f"slot_traded:{hm}"
+                )
+                bucket.append(stub)
+            if bucket:
+                slot_parts[hm] = bucket
     if slot_parts:
         merged_slots = []
-        for hm in slot_order:
+        for hm in sorted(slot_order):
             merged = _merge_score_portraits(slot_parts[hm])
             if isinstance(merged, dict):
                 merged.pop("by_slot", None)
@@ -1047,7 +1168,7 @@ def _merge_score_portraits(
             "slots": merged_slots,
             "n_slots": len(merged_slots),
             "n_days": int(out.get("n_days") or 0),
-            "note": "分槽位画像（多票合并）：各钟 ŷ 对同一套天级标签；样本与日级对齐",
+            "note": "分槽位画像（多票合并）：各钟扫描 ŷ 对同一套天级标签；缺钟占位对齐样本",
         }
     return out
 

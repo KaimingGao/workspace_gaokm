@@ -2,8 +2,8 @@ import { apiFetch } from "../api_client.js";
 import { renderLineChart, renderDualLineChart, renderMultiLineChart } from "../lw_charts.js";
 import { mountVirtualTable } from "../virtual_table.js";
 import { fmtScore, scoreCls } from "../paper/fmt.js";
-import { renderT0Viz, wireT0SkipTips } from "../paper/t0_viz.js?v=p1814";
-import { wireT0ProcessTips } from "../paper/t0_table.js?v=p1814";
+import { renderT0Viz, wireT0SkipTips } from "../paper/t0_viz.js?v=p1877";
+import { wireT0ProcessTips, wireT0DayDebugExpand } from "../paper/t0_table.js?v=p1908";
 import { portfolioBtScoreFloorPayload as buildBtScoreFloorPayload, mergeScoringFloors } from "./scoring.js";
 import { truncateStockName, watchingNameSpanHtml } from "./names.js";
 import { downloadBlob } from "../shared.js";
@@ -970,6 +970,7 @@ export function installBacktest(q) {
     }
     if (els.quantT0Days && btSimScoreTips) {
       wireT0ProcessTips(els.quantT0Days, btSimScoreTips);
+      wireT0DayDebugExpand(els.quantT0Days);
       if (els.quantT0Days.dataset.scoreTipWired !== "1") {
         btSimScoreTips.bindHost(els.quantT0Days, {
           scoreSelector:

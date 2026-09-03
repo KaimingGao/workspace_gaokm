@@ -16,14 +16,7 @@ def _stb_cfg(**extra):
         "t0_ratio": 0.4,
         "must_cover_same_day": True,
         "lot_size": 100,
-        "y_prefix_upbar_ratio_buy_then_sell": 0.0,
-        "y_prefix_downbar_ratio_sell_then_buy": 0.0,
-        "t0_confirm_dev_pct": 0.0,
-        "t0_confirm_mom_bars": 1,
-        "t0_env_min_range_pct": 0.0,
-        "t0_env_min_path_abs": 0.0,
-        "t0_env_one_sided_tau_abs": 0.0,
-        "t0_env_one_sided_path_abs": 0.0,
+        "t0_close_band_delta_pct": 0.01,
         "y_tau_entry_price_skip_sell_then_buy": False,
         "y_tau_exit_price_skip_sell_then_buy": False,
     }
@@ -36,14 +29,7 @@ def _bts_cfg(**extra):
         "t0_ratio": 1.0,
         "must_cover_same_day": True,
         "lot_size": 100,
-        "y_prefix_upbar_ratio_buy_then_sell": 0.0,
-        "y_prefix_downbar_ratio_sell_then_buy": 0.0,
-        "t0_confirm_dev_pct": 0.0,
-        "t0_confirm_mom_bars": 1,
-        "t0_env_min_range_pct": 0.0,
-        "t0_env_min_path_abs": 0.0,
-        "t0_env_one_sided_tau_abs": 0.0,
-        "t0_env_one_sided_path_abs": 0.0,
+        "t0_close_band_delta_pct": 0.01,
         "y_tau_entry_price_skip_buy_then_sell": False,
         "y_tau_exit_price_skip_buy_then_sell": False,
     }
@@ -318,18 +304,10 @@ class TestT0Costs(unittest.TestCase):
             "path_mode": "first_touch",
             "use_atr": False,
             "min_range_pct": 0.5,
-            "y_prefix_upbar_ratio_buy_then_sell": 0.0,
-            "y_prefix_downbar_ratio_sell_then_buy": 0.0,
-            "t0_confirm_dev_pct": 0.0,
-            "t0_confirm_mom_bars": 1,
-            "t0_env_min_range_pct": 0.0,
-            "t0_env_min_path_abs": 0.0,
-            "t0_env_one_sided_tau_abs": 0.0,
-            "t0_env_one_sided_path_abs": 0.0,
             "y_tau_entry_price_skip_buy_then_sell": False,
             "y_tau_exit_price_skip_buy_then_sell": False,
             "lot_size": 100,
-            "t0_slots_enabled": False,
+            "t0_slots_max_rounds": 0,
         }
         with patch("core.t0.backtest._research_cash_for_buy_then_sell", side_effect=spy):
             _walk_t0(
@@ -353,13 +331,13 @@ class TestT0Costs(unittest.TestCase):
 
         bar = {"date": "2026-08-25", "open": 10.0, "high": 10.6, "low": 9.5, "close": 10.0}
         minute_bars = [
-            {"datetime": "2026-08-25 09:35:00", "open": 10.0, "high": 10.0, "low": 10.0, "close": 10.0},
-            {"datetime": "2026-08-25 09:40:00", "open": 10.0, "high": 10.6, "low": 10.0, "close": 10.5},
-            {"datetime": "2026-08-25 09:45:00", "open": 10.5, "high": 10.5, "low": 9.5, "close": 9.6},
+            {"datetime": "2026-08-25 09:35:00", "open": 10.0, "high": 10.1, "low": 9.99, "close": 10.05},
+            {"datetime": "2026-08-25 09:40:00", "open": 10.05, "high": 10.08, "low": 10.0, "close": 10.06},
+            {"datetime": "2026-08-25 09:45:00", "open": 10.06, "high": 10.08, "low": 9.5, "close": 9.6},
             {"datetime": "2026-08-25 09:50:00", "open": 9.6, "high": 9.7, "low": 9.4, "close": 9.5},
         ]
         paper = {
-            "cash": -8000.0,
+            "cash": 0.0,
             "holdings": [
                 {"stock_code": "600519", "stock_name": "茅台", "shares": 1000, "cost": 10.0}
             ],
@@ -367,25 +345,17 @@ class TestT0Costs(unittest.TestCase):
             "rules": {
                 "t0": {
                     "t0_ratio": 0.4,
+                    "t0_round_ratio": 0.4,
                     "direction": "sell_then_buy",
                     "fill_mode": "trigger",
                     "path_mode": "first_touch",
                     "use_atr": False,
                     "min_range_pct": 0.5,
-                    "y_prefix_upbar_ratio_buy_then_sell": 0.0,
-                    "y_prefix_downbar_ratio_sell_then_buy": 0.0,
-                    "t0_confirm_dev_pct": 0.0,
-                    "t0_confirm_mom_bars": 1,
-                    "t0_env_min_range_pct": 0.0,
-                    "t0_env_min_path_abs": 0.0,
-                    "t0_env_one_sided_tau_abs": 0.0,
-                    "t0_env_one_sided_path_abs": 0.0,
-                    "y_path_abandon_bars": 3,
-                    "y_path_abandon_bars_sell_then_buy": 3,
+                    "t0_close_band_delta_pct": 0.01,
                     "y_tau_entry_price_skip_sell_then_buy": False,
                     "y_tau_exit_price_skip_sell_then_buy": False,
                     "lot_size": 100,
-                    "t0_slots_enabled": False,
+                    "t0_slots_max_rounds": 1,
                 }
             },
         }

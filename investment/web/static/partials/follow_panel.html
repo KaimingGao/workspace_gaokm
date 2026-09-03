@@ -560,254 +560,134 @@
               <form id="paper-t0-form" class="paper-t0-form" autocomplete="off">
                 <fieldset class="paper-t0-cfg-block is-shared">
                   <legend>共用</legend>
-                  <p class="paper-t0-cfg-hint quant-sub">四轮槽位（10:00–11:30）共用 τ 闸/止损；选腿=阴阳占比 ∩ 开盘锚偏离+动量 + 环境闸；空轮滚仓。午后仅 leg2。做 T 回测直接读当前表单（不必先保存）。</p>
+                  <p class="paper-t0-cfg-hint quant-sub">v6 收盘带宽：<strong>ĉ = ĉ_τ</strong>（开盘×(1+y_τ%)）；收价破 ĉ±δ 涌现正/反T；|y_τ| 入场，|y_path| 校验（可关「用path」）；τ先验可平移门槛；每轮 20% 至满仓；11:00 后不开 leg1。y_trade / y_eod / y_nowcast <strong>不参与</strong>估 ĉ 与选腿。冻结 leg2 后新 ĉ 不改本轮；午后追价可改触发价。做 T 回测直接读当前表单（不必先保存）。</p>
                   <div class="paper-t0-form-grid">
                   <label class="paper-t0-field">
                     <span>启用</span>
                     <input type="checkbox" name="enabled" checked />
                   </label>
-                  <label
-                    class="paper-t0-field"
-                    title="开=10:00–11:30 多轮独立做T；关=单轮（约10:00 齐窗一次）"
-                  >
-                    <span>多轮槽位</span>
-                    <input type="checkbox" name="t0_slots_enabled" checked />
-                  </label>
-                  <label
-                    class="paper-t0-field"
-                    title="缺 ŷ_τ 时禁止开第一腿（默认开）"
-                  >
-                    <span>须有ŷ_τ</span>
-                    <input type="checkbox" name="y_tau_require_for_leg1" checked />
-                  </label>
-                  <label class="paper-t0-field" title="评估窗：统计做T的交易日数（默认 20）；y_τ/ATR 另用 ≥40 日因子缓冲，与窗长无关。改完会记住。">
+                  <label class="paper-t0-field" title="评估窗：统计做T的交易日数（默认 20）。改完会记住。">
                     <span>回测窗</span>
                     <input type="number" name="lookback" min="10" max="500" step="5" value="20" />
                   </label>
-                  <label
-                    class="paper-t0-field"
-                    title="dual_y 下 y_τ 符号如何映射正/反 T；选向固定 dual_y"
-                  >
-                    <span>τ映射</span>
-                    <select name="y_tau_map">
-                      <option value="trend" selected>符号定方向</option>
-                      <option value="fixed_sell_then_buy">固定反T</option>
-                      <option value="fixed_buy_then_sell">固定正T</option>
-                    </select>
-                  </label>
                   <input type="hidden" name="direction" value="dual_y" />
                   <input type="hidden" name="path_mode" value="first_touch" />
-                  <label class="paper-t0-field">
-                    <span>耦合 stance</span>
-                    <select name="t0_vs_stance">
-                      <option value="independent">independent</option>
-                      <option value="skip_if_avoid">skip_if_avoid</option>
-                      <option value="only_if_hold">only_if_hold</option>
-                    </select>
-                  </label>
-                  <label class="paper-t0-field">
-                    <span>ATR 调阈</span>
-                    <input type="checkbox" name="use_atr" />
+                  <input type="hidden" name="t0_vs_stance" value="independent" />
+                  <label
+                    class="paper-t0-field"
+                    title="v6：ĉ±δ 带宽，δ=开盘×此%/100；收价破上带反T、破下带正T；默认 0.5"
+                  >
+                    <span>带宽δ%</span>
+                    <input type="number" name="t0_close_band_delta_pct" min="0" max="10" step="0.05" value="0.5" />
                   </label>
                   <label
                     class="paper-t0-field"
-                    title="目标价弱信号下限：相对基准触发的%（默认 60 → ×0.6）；信心小时压低目标"
+                    title="开：|开盘差| 或 |昨收差| 超阈则跳过（price_space_mismatch）；关：不拦"
                   >
-                    <span>目标弱%</span>
-                    <input type="number" name="y_ratio_cut" min="20" max="100" step="5" value="60" />
+                    <span>日分价闸</span>
+                    <input type="checkbox" name="t0_price_space_gate" checked />
                   </label>
                   <label
                     class="paper-t0-field"
-                    title="目标价强信号上限：相对基准触发的%（默认 200 → ×2.0）；信心大时抬高目标"
+                    title="|日开/分开−1|×100 超过此值跳过；默认 0.25；0=关"
                   >
-                    <span>目标强%</span>
-                    <input type="number" name="y_ratio_boost_cap" min="100" max="200" step="5" value="200" />
+                    <span>开盘差%</span>
+                    <input type="number" name="t0_price_space_max_dev_pct" min="0" max="5" step="0.05" value="0.25" />
                   </label>
                   <label
                     class="paper-t0-field"
-                    title="目标价缩放：|y_eod|≥此值且与 y_τ 同向时略抬触发（非准入闸）"
+                    title="|日昨/分昨−1|×100 超过此值跳过；默认 0.25；0=关"
                   >
-                    <span>y_eod先验%</span>
-                    <input type="number" name="y_eod_prior" min="0.01" max="5" step="0.01" value="0.01" />
+                    <span>昨收差%</span>
+                    <input type="number" name="t0_price_space_prev_dev_pct" min="0" max="5" step="0.05" value="0.25" />
                   </label>
                   <label
                     class="paper-t0-field"
-                    title="dual_y：|y_trade| 低于此入场（%）跳过；|y_trade| 超 trade强% 须与 y_τ 同号"
+                    title="v6：每轮第一腿占日初可卖比例；默认 0.2（20%）"
                   >
-                    <span>trade入场%</span>
-                    <input type="number" name="y_trade_enter" min="0.01" max="5" step="0.01" value="0.01" />
+                    <span>每轮仓位</span>
+                    <input type="number" name="t0_round_ratio" min="0.05" max="1" step="0.05" value="0.2" />
                   </label>
                   <label
                     class="paper-t0-field"
-                    title="dual_y：|y_trade| 超过此强闸（%）时须与 y_τ 同号"
+                    title="v6：累计动仓上限；默认 1.0（100%）"
                   >
-                    <span>trade强%</span>
-                    <input type="number" name="y_trade_strong" min="0.05" max="5" step="0.01" value="0.2" />
+                    <span>满仓上限</span>
+                    <input type="number" name="t0_max_position_pct" min="0.05" max="1" step="0.05" value="1" />
                   </label>
                   <label
                     class="paper-t0-field"
-                    title="dual_y 准入：可得 ŷ_eod 时 |y_eod| 须≥此入场（收益百分点）"
+                    title="最多完成多少轮第一腿（默认5；0=不开第一腿）"
                   >
-                    <span>eod入场%</span>
-                    <input type="number" name="y_eod_enter" min="0.01" max="5" step="0.01" value="0.01" />
+                    <span>最大轮数</span>
+                    <input type="number" name="t0_slots_max_rounds" min="0" max="16" step="1" value="5" />
                   </label>
                   <label
                     class="paper-t0-field"
-                    title="dual_y：|y_eod| 超过此强闸（%）时须与 y_τ 同号"
+                    title="|y_τ| 低于此值视为横盘，破带也不开轮；默认 0.01；0=关"
                   >
-                    <span>eod强%</span>
-                    <input type="number" name="y_eod_strong" min="0.05" max="5" step="0.01" value="0.2" />
+                    <span>τ入场%</span>
+                    <input type="number" name="y_tau_enter" min="0" max="5" step="0.01" value="0.01" />
                   </label>
                   <label
                     class="paper-t0-field"
-                    title="dual_y：可得 nc 时 |nc| 须≥此入场；OC 开时比 y_nc_oc"
+                    title="开：须有 y_path，且过 path入场%；关：缺 path 也可开轮（仅看 τ 等）"
                   >
-                    <span>nc入场%</span>
-                    <input type="number" name="y_nc_enter" min="0.01" max="10" step="0.01" value="0.01" />
-                  </label>
-                  <label
-                    class="paper-t0-field"
-                    title="dual_y：|nc| 超过此强闸（%）时须与 y_τ 同号；OC 开时比 y_nc_oc"
-                  >
-                    <span>nc强%</span>
-                    <input type="number" name="y_nc_strong" min="0.05" max="10" step="0.05" value="0.2" />
-                  </label>
-                  <label
-                    class="paper-t0-field"
-                    title="开启后应用 nc 入场/强闸；关则整步 nc 闸不生效"
-                  >
-                    <span>nc闸</span>
-                    <input type="checkbox" name="y_block_tau_nowcast_sign" checked />
-                  </label>
-                  <label
-                    class="paper-t0-field"
-                    title="异号闸：nowcast oc = nc 映到 open→close，与 y_τ 比符号；大缺口日 nc 常异号但 oc 同号→不拦。关=用 nc（昨收）。默认关"
-                  >
-                    <span>nowcast OC</span>
-                    <input type="checkbox" name="y_nowcast_oc_gate" />
-                  </label>
-                  <label
-                    class="paper-t0-field"
-                    title="dual_y：启用 ŷ_path 与 y_τ 联合选向（需 path_ridge 模型）"
-                  >
-                    <span>y_path选向</span>
+                    <span>用path</span>
                     <input type="checkbox" name="y_use_path" checked />
                   </label>
                   <label
                     class="paper-t0-field"
-                    title="缺 y_path 时是否直接跳过（默认关：无模型时不拦）"
+                    title="|y_path| 低于此值视为横盘，破带也不开轮；默认 0.01；0=关幅度（用path 开时缺 path 仍跳过）"
                   >
-                    <span>path必填</span>
-                    <input type="checkbox" name="y_path_required" />
+                    <span>path入场%</span>
+                    <input type="number" name="y_path_enter" min="0" max="5" step="0.01" value="0.01" />
                   </label>
                   <label
                     class="paper-t0-field"
-                    title="大缺口分档：skip_opposite=高开跳正T（低开反T默认放行）；revert=强制反向；off=关"
+                    title="|y_path| 超过此值须与 y_τ 同号，异号则跳过；默认 0.2；0=任意非零 path 都要求同号"
                   >
-                    <span>缺口分档</span>
-                    <select name="y_gap_tier_mode">
-                      <option value="skip_opposite" selected>跳反向</option>
-                      <option value="revert">强制反向</option>
+                    <span>path强%</span>
+                    <input type="number" name="y_path_strong" min="0" max="5" step="0.01" value="0.2" />
+                  </label>
+                  <label
+                    class="paper-t0-field"
+                    title="r=(p/ĉ−1)%：默认 ±δ。score：s=clip(k·y_τ,±α·δ)，upper=δ+s，lower=−δ+s（α∈[0.1,0.9]，默认 0.9）；skip=异号硬跳过；off=对称 ±δ（ĉ 已含 y_τ，残差常小于 δ，成交会明显变少；可略降 δ）"
+                  >
+                    <span>τ先验</span>
+                    <select name="y_tau_leg1_prior_mode">
+                      <option value="score" selected>抬门槛</option>
+                      <option value="skip">硬跳过</option>
                       <option value="off">关</option>
                     </select>
                   </label>
                   <label
                     class="paper-t0-field"
-                    title="|gap|≥此值（%）触发缺口分档；默认 1.0"
+                    title="score：s 的灵敏度，s=k·y_τ（再经 α·δ 封顶）；默认 k=1"
                   >
-                    <span>缺口阈值%</span>
-                    <input type="number" name="y_gap_tier_pct" min="0.5" max="10" step="0.1" value="1.0" />
+                    <span>先验风险k</span>
+                    <input type="number" name="y_tau_leg1_prior_risk" min="0" max="10" step="0.1" value="1" />
                   </label>
                   <label
                     class="paper-t0-field"
-                    title="前 N 根 5m 仍无方向振幅则放弃当日做 T；默认 6"
+                    title="|s|≤α·δ：α∈[0.1, 0.9] 保证 upper=δ+s&gt;0&gt;lower；默认 0.9；α→0.9 时对侧门槛仍保留至少 0.1δ"
                   >
-                    <span>前缀放弃</span>
-                    <input type="checkbox" name="y_path_abandon_enabled" checked />
+                    <span>shift上限α</span>
+                    <input type="number" name="y_tau_leg1_prior_shift_scale" min="0.1" max="0.9" step="0.05" value="0.9" />
                   </label>
                   <label
                     class="paper-t0-field"
-                    title="正/反T：固定前缀根数（齐窗判定后半阳/阴占比）；默认 6"
-                  >
-                    <span>放弃/前缀根数</span>
-                    <input type="number" name="y_path_abandon_bars" min="2" max="48" step="1" value="6" />
-                  </label>
-                  <label
-                    class="paper-t0-field"
-                    title="复合确认：相对开盘锚偏离%（正T须曾下探、反T须曾上冲）；默认0.3；0=仅要求曾触及开盘锚"
-                  >
-                    <span>偏离%</span>
-                    <input type="number" name="t0_confirm_dev_pct" min="0" max="20" step="0.1" value="0.3" />
-                  </label>
-                  <label
-                    class="paper-t0-field"
-                    title="复合确认：确认根前动量翻转根数；默认2"
-                  >
-                    <span>动量根</span>
-                    <input type="number" name="t0_confirm_mom_bars" min="1" max="12" step="1" value="2" />
-                  </label>
-                  <label
-                    class="paper-t0-field"
-                    title="复合确认量能：末根≥前缀均量×此值；0=不看量"
-                  >
-                    <span>量能倍</span>
-                    <input type="number" name="t0_confirm_vol_mult" min="0" max="20" step="0.1" value="0" />
-                  </label>
-                  <label
-                    class="paper-t0-field"
-                    title="环境闸：前缀振幅下限%（默认0.5）；0=不限制"
-                  >
-                    <span>环境振幅%</span>
-                    <input type="number" name="t0_env_min_range_pct" min="0" max="30" step="0.1" value="0.5" />
-                  </label>
-                  <label
-                    class="paper-t0-field"
-                    title="环境闸：|ŷ_path|下限（默认0.08）；0=不限制"
-                  >
-                    <span>环境|path|</span>
-                    <input type="number" name="t0_env_min_path_abs" min="0" max="50" step="0.05" value="0.08" />
-                  </label>
-                  <label
-                    class="paper-t0-field"
-                    title="环境闸单边：|ŷ_τ|与|ŷ_path|同号且均≥此 τ 阈值则整轮不做；默认2；0=关该项"
-                  >
-                    <span>单边|τ|</span>
-                    <input type="number" name="t0_env_one_sided_tau_abs" min="0" max="50" step="0.1" value="2" />
-                  </label>
-                  <label
-                    class="paper-t0-field"
-                    title="环境闸单边：|ŷ_path|阈值（与单边|τ|同时满足才跳过）；默认2；0=关该项"
-                  >
-                    <span>单边|path|</span>
-                    <input type="number" name="t0_env_one_sided_path_abs" min="0" max="50" step="0.1" value="2" />
-                  </label>
-                  <label
-                    class="paper-t0-field"
-                    title="半贪心：最多完成多少轮第一腿（默认4；0=不开第一腿）"
-                  >
-                    <span>最大轮数</span>
-                    <input type="number" name="t0_slots_max_rounds" min="0" max="16" step="1" value="4" />
-                  </label>
-                  <label
-                    class="paper-t0-field"
-                    title="正/反T止损共用、四轮槽位也共用：入场后跳过 N 根 5m 再启用（默认 2≈10 分钟）"
+                    title="正/反T止损共用：入场后跳过 N 根 5m 再启用（默认 2≈10 分钟）"
                   >
                     <span>止损延迟根</span>
                     <input type="number" name="t0_stop_arm_bars" min="0" max="48" step="1" value="2" />
                   </label>
                   <label
                     class="paper-t0-field"
-                    title="正/反T止损共用、四轮槽位也共用：开=收盘破线才触发；关=影线刺破即触发（更易被扫）"
+                    title="正/反T止损共用：开=收盘破线才触发；关=影线刺破即触发（更易被扫）"
                   >
                     <span>止损收盘确认</span>
                     <input type="checkbox" name="t0_stop_on_close" checked />
-                  </label>
-                  <label
-                    class="paper-t0-field"
-                    title="正T关「当日回补」时：|y_on|≥此值才允许隔夜多头敞口；单位=收益百分点。反T不适用"
-                  >
-                    <span>y_on放行%</span>
-                    <input type="number" name="y_on_allow" min="0.01" max="10" step="0.01" value="0.01" />
                   </label>
                   </div>
                 </fieldset>
@@ -815,75 +695,18 @@
                 <div class="paper-t0-cfg-sides">
                 <fieldset class="paper-t0-cfg-block is-buy-then-sell">
                   <legend>正 T</legend>
-                  <p class="paper-t0-cfg-hint quant-sub">先买后卖；ŷ_τ/path 定是否做、前缀后半上涨占比确认后加仓；第二腿按 τ 卖价闸 / 止损 / 中点追价 / 收盘强平。τ/path 入场只填正幅度（|ŷ|≥门槛）；价偏可正可负（代数加在 clamp 后）</p>
+                  <p class="paper-t0-cfg-hint quant-sub">先买后卖；选腿仅收盘带宽；第二腿=冻结对侧带；止损/中点追价/回补仍生效。</p>
                   <div class="paper-t0-form-grid">
                   <label
-                    class="paper-t0-field"
-                    title="第二腿：卖价须 &gt; open×(1+(clamp(ŷ_τ×裕度,min,max)+价偏)/100)；有符号ŷ_τ；止损/收盘强平不受此闸"
-                  >
-                    <span>τ卖价闸</span>
-                    <input type="checkbox" name="y_tau_exit_price_skip_buy_then_sell" checked />
-                  </label>
-                  <label
-                    class="paper-t0-field"
-                    title="第二腿卖价裕度：动幅=clamp(ŷ_τ×裕度,min,max)+价偏；bound=open×(1+动幅/100)。卖价须高于 bound。默认1"
-                  >
-                    <span>卖价裕度</span>
-                    <input
-                      type="number"
-                      name="y_tau_exit_price_mult_buy_then_sell"
-                      min="0.5"
-                      max="5"
-                      step="0.05"
-                      value="1"
-                    />
-                  </label>
-                  <label
-                    class="paper-t0-field"
-                    title="第二腿卖价偏（百分点，可正可负，代数加在 clamp 后）：&gt;0 抬高 bound、更难卖过闸；&lt;0 压低 bound；默认1。与 τ/path 入场不同：此处要考虑符号"
-                  >
-                    <span>卖价偏±</span>
-                    <input
-                      type="number"
-                      name="y_tau_exit_price_bias_buy_then_sell"
-                      min="-50"
-                      max="50"
-                      step="0.01"
-                      value="1"
-                    />
-                  </label>
-                  <label
                     class="paper-t0-field has-tip"
-                    title="正T跌破止损%（相对该轮第一腿买价）：0=关。四轮共用此%。延迟/收盘确认见共用区。止损优先于中点追价。"
+                    title="正T跌破止损%（相对该轮第一腿买价）：0=关。多轮共用此%。延迟/收盘确认见共用区。止损优先于中点追价。"
                   >
                     <span>止损%</span>
                     <input type="number" name="t0_stop_pct_buy_then_sell" min="0" max="20" step="0.1" value="1.2" />
                   </label>
-                  <label class="paper-t0-field" title="成交模式">
-                    <span>成交</span>
-                    <select name="fill_mode_buy_then_sell">
-                      <option value="trigger">trigger</option>
-                      <option value="mid">mid</option>
-                      <option value="optimistic">optimistic</option>
-                    </select>
-                  </label>
                   <label
                     class="paper-t0-field"
-                    title="只填正数幅度：y_τ&gt;0 时须 y_τ&gt;此值（勿填负号）。建议高于反T以少开错向正T"
-                  >
-                    <span>τ入场%(正)</span>
-                    <input type="number" name="y_tau_enter_buy_then_sell" min="0.01" max="5" step="0.01" value="0.01" />
-                  </label>
-                  <label
-                    class="paper-t0-field"
-                    title="只填正数幅度：path 开时须 y_path&gt;此值（勿填负号；建议不低于反T侧）"
-                  >
-                    <span>path入场%(正)</span>
-                    <input type="number" name="y_path_enter_buy_then_sell" min="0.01" max="5" step="0.01" value="0.01" />
-                  </label>
-                  <label
-                    class="paper-t0-field"
-                    title="开=未卖回旧仓时收盘强制卖；关=可按 y_on 放行隔夜多头"
+                    title="开=未卖回旧仓时收盘强制卖；关=允许隔夜多头敞口（不做 y_on 放行调参，引擎用默认门槛）"
                   >
                     <span>当日回补</span>
                     <input type="checkbox" name="must_cover_same_day_buy_then_sell" checked />
@@ -902,118 +725,19 @@
                     <span>追价间隔分</span>
                     <input type="number" name="t0_pm_chase_interval_min_buy_then_sell" min="1" max="60" step="1" value="5" />
                   </label>
-                  <label
-                    class="paper-t0-field"
-                    title="第一腿：买价须 &lt; open×(1+(clamp(ŷ_τ×裕度,min,max)+价偏)/100)；有符号ŷ_τ；缺ŷ_τ不拦；关则放行"
-                  >
-                    <span>τ买价闸</span>
-                    <input type="checkbox" name="y_tau_entry_price_skip_buy_then_sell" checked />
-                  </label>
-                  <label
-                    class="paper-t0-field"
-                    title="裕度乘在有符号ŷ_τ上：动幅=clamp(ŷ_τ×裕度,min,max)+价偏；bound=open×(1+动幅/100)。买价须低于 bound。默认0.5"
-                  >
-                    <span>买价裕度</span>
-                    <input
-                      type="number"
-                      name="y_tau_entry_price_mult_buy_then_sell"
-                      min="0.5"
-                      max="5"
-                      step="0.05"
-                      value="0.5"
-                    />
-                  </label>
-                  <label
-                    class="paper-t0-field"
-                    title="第一腿买价偏（百分点，可正可负，代数加在 clamp 后）：正T 须买价&lt;bound；&gt;0 抬高 bound→更易买，&lt;0 压低 bound→更难买；默认0.5。切勿与反T卖价偏符号对调"
-                  >
-                    <span>买价偏±</span>
-                    <input
-                      type="number"
-                      name="y_tau_entry_price_bias_buy_then_sell"
-                      min="-50"
-                      max="50"
-                      step="0.01"
-                      value="0.5"
-                    />
-                  </label>
-                  <label
-                    class="paper-t0-field"
-                    title="固定前缀后半段中 close&gt;open 的 K 线占比下限（默认 0.2）；前缀根数=前缀放弃根数；v5 选腿必过"
-                  >
-                    <span>后半上涨占比</span>
-                    <input type="number" name="y_prefix_upbar_ratio_buy_then_sell" min="0" max="1" step="0.05" value="0.2" />
-                  </label>
                   </div>
                 </fieldset>
 
                 <fieldset class="paper-t0-cfg-block is-sell-then-buy">
                   <legend>反 T</legend>
-                  <p class="paper-t0-cfg-hint quant-sub">先卖后买；ŷ_τ/path 定是否做、前缀后半下跌占比确认后卖出；第二腿按 τ 买价闸 / 止损 / 中点追价（触不到则放弃回补，除非勾选当日回补）。τ/path 入场只填正幅度（代码比 −门槛）；价偏可正可负（想压低 bound 填负）</p>
+                  <p class="paper-t0-cfg-hint quant-sub">先卖后买；选腿仅收盘带宽；第二腿=冻结对侧带；止损/中点追价/回补仍生效。</p>
                   <div class="paper-t0-form-grid">
                   <label
-                    class="paper-t0-field"
-                    title="第二腿：买价须 &lt; open×(1+(clamp(ŷ_τ×裕度,min,max)+价偏)/100)；有符号ŷ_τ；止损/收盘强平不受此闸"
-                  >
-                    <span>τ买价闸</span>
-                    <input type="checkbox" name="y_tau_exit_price_skip_sell_then_buy" checked />
-                  </label>
-                  <label
-                    class="paper-t0-field"
-                    title="第二腿买价裕度：动幅=clamp(ŷ_τ×裕度,min,max)+价偏；bound=open×(1+动幅/100)。买价须低于 bound。默认1"
-                  >
-                    <span>买价裕度</span>
-                    <input
-                      type="number"
-                      name="y_tau_exit_price_mult_sell_then_buy"
-                      min="0.5"
-                      max="5"
-                      step="0.05"
-                      value="1"
-                    />
-                  </label>
-                  <label
-                    class="paper-t0-field"
-                    title="第二腿买价偏（百分点，可正可负，代数加）：&gt;0 抬高 bound；&lt;0 压低 bound（反T回补更易触到）；默认-1"
-                  >
-                    <span>买价偏% ±</span>
-                    <input
-                      type="number"
-                      name="y_tau_exit_price_bias_sell_then_buy"
-                      min="-50"
-                      max="50"
-                      step="0.01"
-                      value="-1"
-                    />
-                  </label>
-                  <label
                     class="paper-t0-field has-tip"
-                    title="反T涨破止损%（相对该轮第一腿卖价）：0=关。四轮共用此%。收盘≥卖价×(1+此%/100) 则强制买回。延迟/收盘确认见共用区。止损优先于中点追价。"
+                    title="反T涨破止损%（相对该轮第一腿卖价）：0=关。多轮共用此%。收盘≥卖价×(1+此%/100) 则强制买回。延迟/收盘确认见共用区。止损优先于中点追价。"
                   >
                     <span>止损%</span>
                     <input type="number" name="t0_stop_pct_sell_then_buy" min="0" max="20" step="0.1" value="1.2" />
-                  </label>
-                  <label class="paper-t0-field" title="成交模式">
-                    <span>成交</span>
-                    <select name="fill_mode_sell_then_buy">
-                      <option value="trigger">trigger</option>
-                      <option value="mid">mid</option>
-                      <option value="optimistic">optimistic</option>
-                    </select>
-                  </label>
-                  <label
-                    class="paper-t0-field"
-                    title="只填正数幅度：y_τ&lt;0 时须 y_τ&lt;−此值（勿填负号，代码已加负）。可低于正T以更容易开反T"
-                  >
-                    <span>τ入场%(正)</span>
-                    <input type="number" name="y_tau_enter_sell_then_buy" min="0.01" max="5" step="0.01" value="0.01" />
-                  </label>
-                  <label
-                    class="paper-t0-field"
-                    title="只填正数幅度：path 开时须 y_path&lt;−此值（勿填负号；与 τ 入场独立）"
-                  >
-                    <span>path入场%(正)</span>
-                    <input type="number" name="y_path_enter_sell_then_buy" min="0.01" max="5" step="0.01" value="0.01" />
                   </label>
                   <label
                     class="paper-t0-field"
@@ -1035,48 +759,6 @@
                   >
                     <span>追价间隔分</span>
                     <input type="number" name="t0_pm_chase_interval_min_sell_then_buy" min="1" max="60" step="1" value="5" />
-                  </label>
-                  <label
-                    class="paper-t0-field"
-                    title="第一腿：卖价须 &gt; open×(1+(clamp(ŷ_τ×裕度,min,max)+价偏)/100)；有符号ŷ_τ；缺ŷ_τ不拦；关则放行"
-                  >
-                    <span>τ卖价闸</span>
-                    <input type="checkbox" name="y_tau_entry_price_skip_sell_then_buy" checked />
-                  </label>
-                  <label
-                    class="paper-t0-field"
-                    title="裕度乘在有符号ŷ_τ上：动幅=clamp(ŷ_τ×裕度,min,max)+价偏；bound=open×(1+动幅/100)。卖价须高于 bound。默认0.5"
-                  >
-                    <span>卖价裕度</span>
-                    <input
-                      type="number"
-                      name="y_tau_entry_price_mult_sell_then_buy"
-                      min="0.5"
-                      max="5"
-                      step="0.05"
-                      value="0.5"
-                    />
-                  </label>
-                  <label
-                    class="paper-t0-field"
-                    title="第一腿卖价偏（百分点，可正可负，代数加）：反T 须卖价&gt;bound；&lt;0 压低 bound→更易卖，&gt;0 抬高 bound→更难卖；默认−0.5。切勿与正T买价偏符号对调"
-                  >
-                    <span>卖价偏% ±</span>
-                    <input
-                      type="number"
-                      name="y_tau_entry_price_bias_sell_then_buy"
-                      min="-50"
-                      max="50"
-                      step="0.01"
-                      value="-0.5"
-                    />
-                  </label>
-                  <label
-                    class="paper-t0-field"
-                    title="固定前缀后半段中 close&lt;open 的 K 线占比下限（默认 0.2）；前缀根数=前缀放弃根数；v5 选腿必过"
-                  >
-                    <span>后半下跌占比</span>
-                    <input type="number" name="y_prefix_downbar_ratio_sell_then_buy" min="0" max="1" step="0.05" value="0.2" />
                   </label>
                   </div>
                 </fieldset>

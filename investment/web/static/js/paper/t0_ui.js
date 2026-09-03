@@ -1,15 +1,15 @@
 /** Paper · 做T 指标与预演表渲染（从 paper.js 抽出）。 */
 
-import { yTauMapScoreTip, normalizeYTauMap } from "./execution_ui.js";
-import { renderT0Viz } from "./t0_viz.js?v=p1814";
-import { buildT0ReportHtml, fmtT0DirDays } from "./t0_report.js?v=p1795";
+import { yTauMapScoreTip } from "./execution_ui.js";
+import { renderT0Viz } from "./t0_viz.js?v=p1906";
+import { buildT0ReportHtml, fmtT0DirDays } from "./t0_report.js?v=p1906";
 import {
   buildT0TradeTableHtml,
   pickDetailDays,
   pickTradeDays,
   stockCellHtml,
   T0_TRADE_TABLE_MAX_ROWS,
-} from "./t0_table.js?v=p1814";
+} from "./t0_table.js?v=p1908";
 
 function escapeHtml(s) {
   return String(s ?? "")
@@ -58,15 +58,15 @@ function buildZeroTradeHint(data) {
   const tips = tplus1Skip
     ? "旧仓被 T+1 锁定；需隔日可卖仓才能反T先卖 / 正T卖旧"
     : compositeSkip
-      ? "复合确认未过（开盘锚偏离/动量）；可把「偏离%」调低或 0，或减少动量根数"
+      ? "历史：复合确认/开盘锚/动量闸（v6 已下线）；重跑预演后应消失"
       : envSkip
-        ? "环境闸跳过（振幅/|ŷ_path|/单边）；对应阈值填 0 可关该项"
+        ? "历史：环境闸（振幅/|ŷ_path|/单边，v6 已下线）；重跑预演后应消失"
         : multiSlotMiss
-          ? "各轮均未开仓（选向/选腿/价闸）；看明细槽位 reason，或放宽偏离%/阴阳占比"
+          ? "各轮均未开仓；看明细槽位 reason，或放宽带宽 δ / 检查 ĉ_τ"
           : tauExitSkip
             ? "第二腿出场价未过 open×(1+(clamp(ŷ_τ×裕度,min,max)+价偏)/100)；可调裕度/价偏或关 τ卖价闸/τ买价闸"
             : tauEntrySkip
-              ? "确认根入场价未过τ带；正T买价偏默认+0.5、反T卖价偏默认−0.5（符号反了会几乎零成交），可调裕度/价偏或关闸"
+              ? "触发根入场价未过τ带；正T买价偏默认+0.5、反T卖价偏默认−0.5（符号反了会几乎零成交），可调裕度/价偏或关闸"
               : prefixVsPathSkip
                 ? "历史：前缀振幅>|ŷ_path|×裕度；现行已改τ入场价闸，重跑预演后应消失"
                 : ampSkip
@@ -137,11 +137,6 @@ export function renderPaperT0(els, data) {
     return;
   }
 
-  const enter =
-    data.rules && data.rules.y_tau_enter != null && Number.isFinite(Number(data.rules.y_tau_enter))
-      ? Number(data.rules.y_tau_enter)
-      : 0.25;
-  const tauMap = normalizeYTauMap(data.rules && data.rules.y_tau_map);
   const sessDate =
     data.session_date ||
     data.as_of ||
@@ -161,7 +156,7 @@ export function renderPaperT0(els, data) {
     `<div class="paper-t0-days-head">` +
     `<h4 class="paper-t0-days-title">成交明细</h4>` +
     `<p class="quant-trades-caption">${captionBits.join(" · ")}` +
-    ` · <span title="${escapeHtml(yTauMapScoreTip(tauMap, enter))}">τ = y_τ</span>` +
+    ` · <span title="${escapeHtml(yTauMapScoreTip())}">收盘带宽</span>` +
     ` · <span title="y_* 为该行「日」列会话快照（做T决策时冻结）；5m 路径仓在研究枢纽写入；≠持仓实时分 / ≠调仓ŷ开关">会话快照ŷ · 5m仓</span></p>` +
     `</div>`;
 
@@ -276,12 +271,7 @@ export function renderPaperT0Preview(els, data) {
     ) +
     previewMetricChip("is-locked", "跳过", skipN) +
     `</span>`;
-  const enter =
-    rules.y_tau_enter != null && Number.isFinite(Number(rules.y_tau_enter))
-      ? Number(rules.y_tau_enter)
-      : 0.25;
-  const tauMap = normalizeYTauMap(rules.y_tau_map);
-  const tip = escapeHtml(yTauMapScoreTip(tauMap, enter));
+  const tip = escapeHtml(yTauMapScoreTip());
   const topSkip = buildSkipReasonTop(skipRows).slice(0, 2);
   const skipHint = topSkip.length
     ? ` · 主因 ${topSkip.map((t) => `${t.reason}×${t.count}`).join(" / ")}`
@@ -296,7 +286,7 @@ export function renderPaperT0Preview(els, data) {
           `<p class="quant-trades-caption">成交 ${tradeDays.length} · 跳过 ${skipN}` +
           escapeHtml(skipHint) +
           ` · 正${buyThenSellN}/反${sellThenBuyN}` +
-          ` · <span title="${tip}">τ = y_τ</span>` +
+          ` · <span title="${tip}">收盘带宽</span>` +
           ` · <span title="y_* 为该成交会话日快照，不是持仓表实时分">会话日快照分</span></p>` +
           `</div>`,
         maxRows: Math.max(T0_TRADE_TABLE_MAX_ROWS, days.length),
@@ -388,11 +378,7 @@ export function renderPaperT0WorkerTrades(el, { t0Auto, execution, liveScoresByC
     );
     return;
   }
-  const enter =
-    data.rules && data.rules.y_tau_enter != null && Number.isFinite(Number(data.rules.y_tau_enter))
-      ? Number(data.rules.y_tau_enter)
-      : 0.25;
-  const tauMap = normalizeYTauMap(data.rules && data.rules.y_tau_map);
+  const tip = escapeHtml(yTauMapScoreTip());
   const tag = data.workerTag || "—";
   const sellThenBuyN = days.filter((d) => d.direction === "sell_then_buy").length;
   const buyThenSellN = days.filter((d) => d.direction === "buy_then_sell").length;
@@ -420,7 +406,6 @@ export function renderPaperT0WorkerTrades(el, { t0Auto, execution, liveScoresByC
         `<span class="paper-t0-desk-chip-v">${sellThenBuyN}</span></span>`
       : "") +
     `</span>`;
-  const tip = escapeHtml(yTauMapScoreTip(tauMap, enter));
   el.innerHTML = foldShell(
     chips,
     `<div class="paper-t0-desk-board">` +
@@ -431,9 +416,7 @@ export function renderPaperT0WorkerTrades(el, { t0Auto, execution, liveScoresByC
         showDelete: true,
         showRealized: false,
       }) +
-      `<p class="paper-t0-desk-foot" title="${tip}">τ = y_τ · ${escapeHtml(
-        String(tauMap || "scalp")
-      )} · 删除将冲正账本</p>` +
+      `<p class="paper-t0-desk-foot" title="${tip}">收盘带宽 · 删除将冲正账本</p>` +
       `</div>`
   );
 }
@@ -503,7 +486,7 @@ function resolveDeskNote(r) {
   if (r.reason) return r.reason;
   if (r.unlocked_from_skip) return "已解锁，等下一根 5m 重评";
   if (r.legs_written > 0) return `${r.legs_written} 腿已落账`;
-  if (r.direction) return "已定方向，等待确认根 / 下一根 5m";
+  if (r.direction) return "已定方向，等待下一根 5m / 第二腿触价";
   return "等待下一根 5m";
 }
 
@@ -607,7 +590,7 @@ export function renderPaperT0WorkerDesk(el, desk) {
 
   const foot =
     lockedN > 0
-      ? `<p class="paper-t0-desk-foot">终锁票当日不再重评门槛；振幅 / 确认根未开仍可随 5m 推进。删除后 Worker 可重新监视（不改账本）。</p>`
+      ? `<p class="paper-t0-desk-foot">终锁票当日不再重评门槛；带宽未破仍可随 5m 推进。删除后 Worker 可重新监视（不改账本）。</p>`
       : `<p class="paper-t0-desk-foot">≥11:30 无成交腿一律终锁；有腿票继续盯盘至收盘回补。删除仅去盘中状态。</p>`;
 
   el.innerHTML =

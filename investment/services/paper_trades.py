@@ -1677,8 +1677,6 @@ class PaperTradesMixin:
             align_session_day_context,
             latest_minute_bar_ts,
             load_intraday_state,
-            lock_zero_legs_after_morning,
-            needs_midday_dual_y_gate,
             past_morning_close,
             run_intraday_session_tick,
             should_process_intraday_stock,
@@ -1776,21 +1774,6 @@ class PaperTradesMixin:
                     continue
                 st0 = stock_states.get(code) if isinstance(stock_states.get(code), dict) else {}
                 if not force_session_close and str(st0.get("phase") or "") in ("done", "skipped"):
-                    continue
-                # ≥11:30：单轮模式下无成交腿终锁；多轮槽位 11:30 仍要开末轮
-                from core.t0.config import t0_slots_enabled
-
-                if (
-                    force_dual_y_gate
-                    and needs_midday_dual_y_gate(st0)
-                    and not t0_slots_enabled(eff_t0)
-                ):
-                    stock_states[code] = lock_zero_legs_after_morning(
-                        code=code,
-                        holding=h,
-                        session_date=str(sess or "")[:10] or None,
-                    )
-                    state_dirty = True
                     continue
                 bars, _src = bars_and_source(code, limit=40)
                 if not bars:

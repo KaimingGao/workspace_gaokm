@@ -104,6 +104,48 @@ def _day_bars_upto_tau(
     return out
 
 
+def _format_hm_colon(raw: str) -> str:
+    s = str(raw or "").replace(":", "")
+    if len(s) >= 4 and s[:4].isdigit():
+        return f"{s[:2]}:{s[2:4]}"
+    return str(raw or "")[:5]
+
+
+def prefix_has_tau_clock(
+    minute_bars: Sequence[dict],
+    *,
+    trade_date: str,
+    tau_hm: str,
+) -> bool:
+    """当日 ≤τ 前缀是否含 τ 这一根（有根才可把 as_of 标成该钟）。"""
+    target = str(tau_hm or "10:30").replace(":", "")[:4]
+    if len(target) < 4:
+        return False
+    for b in _day_bars_upto_tau(
+        minute_bars, trade_date=trade_date, tau_hm=tau_hm
+    ):
+        if _bar_hm(b) == target:
+            return True
+    return False
+
+
+def clear_minute_tau_pack_keys(
+    feats: Dict[str, Any],
+    *,
+    include_cs: bool = True,
+) -> Dict[str, Any]:
+    """去掉开→τ 小包。缺根时必须清掉，禁止收盘 leftover 顶 10:30。
+
+    ``include_cs=False``：只清单票路径键，保留已算的 ``sector_ret_to_tau``
+    （做 T 前缀 inject 不得把打分用过的截面抹掉）。
+    """
+    out = feats if isinstance(feats, dict) else {}
+    keys = MINUTE_TAU_ALL_KEYS if include_cs else MINUTE_TAU_PACK_KEYS
+    for k in keys:
+        out.pop(k, None)
+    return out
+
+
 def extract_minute_tau_pack(
     minute_bars: Sequence[dict],
     *,
@@ -112,11 +154,11 @@ def extract_minute_tau_pack(
     open_px: Optional[float] = None,
     prev_close: Optional[float] = None,
 ) -> Dict[str, float]:
-    """从当日 ≤τ 分钟线提取小包特征；不足 2 根返回空 dict。"""
+    """从当日 ≤τ 分钟线提取小包特征；不足 1 根返回空 dict（09:30 无前缀）。"""
     bars = _day_bars_upto_tau(
         minute_bars, trade_date=trade_date, tau_hm=tau_hm
     )
-    if len(bars) < 2:
+    if len(bars) < 1:
         return {}
 
     o = _f(open_px)
@@ -146,7 +188,7 @@ def extract_minute_tau_pack(
         closes.append(float(c))
         vols.append(max(0.0, float(v)))
 
-    if len(closes) < 2:
+    if len(closes) < 1:
         return {}
 
     px = closes[-1]
@@ -349,6 +391,33 @@ def resolve_sector_ret_to_tau(
     return med
 
 
+def attach_sector_ret_cs_if_missing(
+    feats: Optional[Dict[str, Any]],
+    *,
+    trade_date: str,
+    tau_hm: str = "10:30",
+) -> Dict[str, Any]:
+    """live / 持仓补开→τ 截面。缺则 Ridge 把 CS 当 z=0，ŷ_τ 会比做 T 前缀矮一截。"""
+    out = dict(feats or {})
+    if out.get("ret_open_to_tau") is None:
+        return out
+    if out.get("sector_ret_to_tau") is not None:
+        attach_ret_vs_sector(out)
+        return out
+    day = str(trade_date or "")[:10]
+    hm = str(tau_hm or "10:30").strip()[:5] or "10:30"
+    if len(day) < 10:
+        return out
+    try:
+        sret = resolve_sector_ret_to_tau(day, hm)
+    except Exception:
+        sret = None
+    if sret is None:
+        attach_ret_vs_sector(out)
+        return out
+    return apply_sector_ret_cs(out, sret)
+
+
 def _peer_codes_for_sector_ret(*, cap: int = _SECTOR_RET_DEFAULT_CAP) -> List[str]:
     """同伴宇宙：活跃簿 → 观察池 → 本地分钟仓代码。"""
     global _PEER_CODES_MEMO
@@ -414,6 +483,59 @@ def _peer_codes_for_sector_ret(*, cap: int = _SECTOR_RET_DEFAULT_CAP) -> List[st
     except Exception:
         return []
 
+
+def _load_minute_bars_from_cache(
+    code: str,
+    *,
+    max_age_hours: float,
+) -> List[dict]:
+    try:
+        from core.ports.market import resolve_market_code
+        from core.store import load_minute_cache
+
+        mkt, pure = resolve_market_code(str(code))
+        packed = load_minute_cache(
+            mkt or "CN",
+            pure or str(code),
+            period="5",
+            min_bars=1,
+            max_age_hours=float(max_age_hours),
+        )
+        if packed:
+            return [b for b in (packed[0] or []) if isinstance(b, dict)]
+        # 超龄仓仍可能含当日 10:30 根；先 ignore_age 再决定要不要拉网
+        packed = load_minute_cache(
+            mkt or "CN",
+            pure or str(code),
+            period="5",
+            min_bars=1,
+            max_age_hours=float(max_age_hours),
+            ignore_age=True,
+        )
+        if packed:
+            return [b for b in (packed[0] or []) if isinstance(b, dict)]
+    except Exception:
+        return []
+    return []
+
+
+def _fetch_minute_bars_for_tau(code: str) -> List[dict]:
+    """缺 τ 根时拉 5m。调用方已确认不是因果前缀（未传入 minute_bars）。"""
+    try:
+        from core.ports.market import fetch_minute_bars
+
+        bars, _meta = fetch_minute_bars(
+            str(code),
+            period="5",
+            use_cache=True,
+            lookback_days=10,
+            max_age_hours=0.01,
+        )
+        return [b for b in (bars or []) if isinstance(b, dict)]
+    except Exception:
+        return []
+
+
 def merge_minute_tau_pack_into_feats(
     feats: Optional[Dict[str, Any]],
     *,
@@ -425,41 +547,36 @@ def merge_minute_tau_pack_into_feats(
     minute_bars: Optional[Sequence[dict]] = None,
     load_cache_if_missing: bool = True,
     max_age_hours: float = 36.0,
+    fetch_if_missing: bool = False,
 ) -> Tuple[Dict[str, Any], Optional[str], Optional[Dict[str, Any]]]:
-    """把 ≤τ 分钟小包并入 feats（已有非空键不覆盖）。
+    """把 ≤τ 分钟小包并入 feats。有根则按 τ **覆盖**旧开→τ（禁收盘 leftover）。
 
     返回 ``(feats, as_of_tau_override, y_spec_override)``。
-    ``minute_bars`` 优先；缺则可选读本地 5m 缓存（不拉网）。
+    ``minute_bars`` 优先（因果前缀，不拉网）；缺则读本地 5m 仓。
+    ``fetch_if_missing``：仓里没有 τ 这一根时拉 5m（live / 持仓）。
+    切不出包：清掉分钟键，``as_of`` 不标 τ。
     """
     out = dict(feats or {})
     day = str(trade_date or "")[:10]
-    hm = str(tau_hm or "10:30").strip() or "10:30"
+    hm = str(tau_hm or "10:30").strip()[:5] or "10:30"
     if len(day) < 10:
-        return out, None, None
-    if out.get("ret_open_to_tau") is not None:
+        clear_minute_tau_pack_keys(out)
         return out, None, None
 
+    passed_bars = minute_bars is not None
     bars = [b for b in (minute_bars or []) if isinstance(b, dict)]
     if not bars and load_cache_if_missing and code:
-        try:
-            from core.ports.market import resolve_market_code
-            from core.store import load_minute_cache
+        bars = _load_minute_bars_from_cache(code, max_age_hours=max_age_hours)
 
-            mkt, pure = resolve_market_code(str(code))
-            packed = load_minute_cache(
-                mkt or "CN",
-                pure or str(code),
-                period="5",
-                min_bars=1,
-                max_age_hours=float(max_age_hours),
-            )
-            if packed:
-                bars = list(packed[0] or [])
-        except Exception:
-            bars = []
-
-    if len(bars) < 2:
-        return out, None, None
+    if (
+        fetch_if_missing
+        and code
+        and not passed_bars
+        and not prefix_has_tau_clock(bars, trade_date=day, tau_hm=hm)
+    ):
+        fetched = _fetch_minute_bars_for_tau(code)
+        if fetched:
+            bars = fetched
 
     pack = extract_minute_tau_pack(
         bars,
@@ -468,20 +585,28 @@ def merge_minute_tau_pack_into_feats(
         open_px=open_px,
         prev_close=prev_close,
     )
+    clear_minute_tau_pack_keys(out)
     if pack.get("ret_open_to_tau") is None:
         return out, None, None
 
     for k, v in pack.items():
         if v is None or v == "":
             continue
-        if out.get(k) is None:
-            out[k] = v
+        out[k] = v
     attach_ret_vs_sector(out)
-    as_of = f"{day}T{hm}:00+08:00"
+    clock_ok = prefix_has_tau_clock(bars, trade_date=day, tau_hm=hm)
+    prefix = _day_bars_upto_tau(bars, trade_date=day, tau_hm=hm)
+    if clock_ok:
+        stamp_hm = hm
+    elif prefix:
+        stamp_hm = _format_hm_colon(_bar_hm(prefix[-1])) or hm
+    else:
+        return out, None, None
+    as_of = f"{day}T{stamp_hm}:00+08:00"
     y_spec = {
-        "tau": hm,
-        "formula": f"close[T]/price[{hm}]-1",
-        "note": "分钟小包；无网拉；模型缺特征时 z≈0",
+        "tau": stamp_hm,
+        "formula": f"close[T]/price[{stamp_hm}]-1",
+        "note": "分钟小包 ≤τ；缺 τ 根可拉 5m；无包不标该钟",
         "minute_pack": sorted(pack.keys()),
     }
     return out, as_of, y_spec

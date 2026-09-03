@@ -8,6 +8,8 @@ from core.signal.minute_tau_feats import (
     MINUTE_TAU_PACK_KEYS,
     apply_sector_ret_cs,
     attach_ret_vs_sector,
+    attach_sector_ret_cs_if_missing,
+    clear_minute_tau_pack_keys,
     clear_sector_ret_cache,
     extract_minute_tau_pack,
     sector_ret_median,
@@ -85,7 +87,8 @@ class TestMinuteTauPack(unittest.TestCase):
         self.assertAlmostEqual(pack_early["ret_open_to_tau"], 4.0, places=4)  # 10.4
         self.assertLess(pack_late["ret_open_to_tau"], pack_early["ret_open_to_tau"])
 
-    def test_need_two_bars(self):
+    def test_one_bar_pack_ok_empty_prefix_not(self):
+        """≥1 根即可出小包（09:35）；0 根仍空（09:30 无前缀）。"""
         one = [
             {
                 "date": "2026-08-28",
@@ -97,8 +100,10 @@ class TestMinuteTauPack(unittest.TestCase):
                 "volume": 1,
             }
         ]
+        pack = extract_minute_tau_pack(one, trade_date="2026-08-28", open_px=10.0)
+        self.assertAlmostEqual(pack["ret_open_to_tau"], 0.0, places=6)
         self.assertEqual(
-            extract_minute_tau_pack(one, trade_date="2026-08-28", open_px=10.0),
+            extract_minute_tau_pack([], trade_date="2026-08-28", open_px=10.0),
             {},
         )
 
@@ -120,6 +125,37 @@ class TestMinuteTauPack(unittest.TestCase):
         )
         self.assertAlmostEqual(feats2["sector_ret_to_tau"], 0.8, places=6)
         self.assertAlmostEqual(feats2["ret_vs_sector"], 1.2, places=6)
+
+    def test_attach_sector_ret_cs_if_missing_fills_serve_path(self):
+        from unittest.mock import patch
+
+        with patch(
+            "core.signal.minute_tau_feats.resolve_sector_ret_to_tau",
+            return_value=0.84,
+        ):
+            out = attach_sector_ret_cs_if_missing(
+                {"ret_open_to_tau": -1.58},
+                trade_date="2026-09-03",
+                tau_hm="10:30",
+            )
+        self.assertAlmostEqual(out["sector_ret_to_tau"], 0.84, places=6)
+        self.assertAlmostEqual(out["ret_vs_sector"], -2.42, places=5)
+
+    def test_clear_pack_keys_can_keep_sector_cs(self):
+        feats = {
+            "ret_open_to_tau": -1.58,
+            "range_pct": 1.8,
+            "sector_ret_to_tau": 0.84,
+            "ret_vs_sector": -2.42,
+            "gap_pct": 0.02,
+        }
+        kept = clear_minute_tau_pack_keys(dict(feats), include_cs=False)
+        self.assertIsNone(kept.get("ret_open_to_tau"))
+        self.assertAlmostEqual(kept["sector_ret_to_tau"], 0.84, places=6)
+        self.assertEqual(kept.get("gap_pct"), 0.02)
+        wiped = clear_minute_tau_pack_keys(dict(feats))
+        self.assertIsNone(wiped.get("sector_ret_to_tau"))
+        self.assertEqual(wiped.get("gap_pct"), 0.02)
 
     def test_pack_keys_constant(self):
         self.assertEqual(len(MINUTE_TAU_PACK_KEYS), 13)
@@ -214,16 +250,35 @@ class TestMinuteTauPack(unittest.TestCase):
         self.assertNotEqual(_xs[1].get("ret_open_to_tau"), _xs[-1].get("ret_open_to_tau"))
         self.assertIn("tau_elapsed_min", _xs[0])
 
+    def test_minute_tau_grid_5m_range_morning_leg1(self):
+        from core.research.tau_panel import (
+            DEFAULT_MINUTE_TAU_GRID,
+            DEFAULT_T0_TRAIN_TAU_GRID_5M,
+            minute_tau_grid_5m_range,
+        )
+        from core.t0.config import T0_LAST_LEG1_HM
+
+        morning = minute_tau_grid_5m_range(
+            "09:30", T0_LAST_LEG1_HM, include_open=True
+        )
+        self.assertEqual(morning[0], "09:30")
+        self.assertEqual(morning[1], "09:35")
+        self.assertEqual(morning[-1], "11:00")
+        self.assertEqual(len(morning), 19)
+        self.assertEqual(DEFAULT_T0_TRAIN_TAU_GRID_5M, tuple(morning))
+        self.assertEqual(tuple(DEFAULT_MINUTE_TAU_GRID), tuple(morning))
+        self.assertNotIn("13:00", DEFAULT_MINUTE_TAU_GRID)
+        self.assertNotIn("14:00", DEFAULT_MINUTE_TAU_GRID)
+
     def test_default_grid_covers_t0_slots(self):
         from core.research.tau_panel import DEFAULT_MINUTE_TAU_GRID
-        from core.t0.config import DEFAULT_T0_SLOT_CLOCKS
+        from core.t0.config import DEFAULT_T0_SLOT_CLOCKS, T0_LAST_LEG1_HM
 
-        self.assertEqual(
-            tuple(DEFAULT_T0_SLOT_CLOCKS),
-            ("10:00", "10:30", "11:00", "11:30"),
-        )
+        self.assertEqual(tuple(DEFAULT_T0_SLOT_CLOCKS), ("11:00",))
         self.assertTrue(set(DEFAULT_T0_SLOT_CLOCKS).issubset(DEFAULT_MINUTE_TAU_GRID))
         self.assertIn("09:30", DEFAULT_MINUTE_TAU_GRID)
+        self.assertIn("09:35", DEFAULT_MINUTE_TAU_GRID)
+        self.assertIn(T0_LAST_LEG1_HM, DEFAULT_MINUTE_TAU_GRID)
 
     def test_open_clock_keeps_open_z_without_minute_pack(self):
         """09:30 无 ≤τ 分钟根：仍留开盘 Z 行（训练网格含开盘档，不做T）。"""
@@ -333,15 +388,143 @@ class TestMinuteTauPack(unittest.TestCase):
         self.assertIsNotNone(feats.get("range_pct"))
         self.assertEqual(as_of, f"{day}T10:30:00+08:00")
         self.assertEqual((y_spec or {}).get("tau"), "10:30")
-        # 已有键不覆盖
-        feats2, _, _ = merge_minute_tau_pack_into_feats(
-            {"ret_open_to_tau": 9.9},
+        # 按 τ 重切：收盘 leftover 不得挡住 10:30
+        eod_ret = (9.0 / 10.0 - 1.0) * 100.0
+        feats2, as_of2, _ = merge_minute_tau_pack_into_feats(
+            {"ret_open_to_tau": eod_ret, "range_pct": 99.0},
             trade_date=day,
             open_px=10.0,
-            minute_bars=_bars(day),
+            minute_bars=_bars(day)
+            + [
+                {
+                    "date": day,
+                    "datetime": f"{day} 10:30:00",
+                    "open": 10.1,
+                    "high": 10.2,
+                    "low": 10.0,
+                    "close": 10.15,
+                    "volume": 1000,
+                },
+                {
+                    "date": day,
+                    "datetime": f"{day} 15:00:00",
+                    "open": 9.2,
+                    "high": 9.3,
+                    "low": 8.9,
+                    "close": 9.0,
+                    "volume": 1000,
+                },
+            ],
             load_cache_if_missing=False,
         )
-        self.assertAlmostEqual(feats2["ret_open_to_tau"], 9.9, places=4)
+        self.assertAlmostEqual(feats2["ret_open_to_tau"], 1.5, places=4)  # 10.15/10
+        self.assertNotAlmostEqual(feats2["ret_open_to_tau"], eod_ret, places=2)
+        self.assertEqual(as_of2, f"{day}T10:30:00+08:00")
+        self.assertLess(feats2["range_pct"], 99.0)
+
+    def test_merge_missing_tau_bar_does_not_stamp_1030(self):
+        from core.signal.minute_tau_feats import merge_minute_tau_pack_into_feats
+
+        day = "2026-08-28"
+        feats, as_of, y_spec = merge_minute_tau_pack_into_feats(
+            {"ret_open_to_tau": -2.34, "gap_pct": 0.1},
+            trade_date=day,
+            open_px=10.0,
+            tau_hm="10:30",
+            minute_bars=_bars(day),  # 只到 09:55
+            load_cache_if_missing=False,
+        )
+        self.assertIsNotNone(feats.get("ret_open_to_tau"))
+        self.assertEqual(as_of, f"{day}T09:55:00+08:00")
+        self.assertEqual((y_spec or {}).get("tau"), "09:55")
+
+    def test_merge_no_bars_strips_eod_leftover_and_does_not_stamp(self):
+        from core.signal.minute_tau_feats import merge_minute_tau_pack_into_feats
+
+        feats, as_of, y_spec = merge_minute_tau_pack_into_feats(
+            {"ret_open_to_tau": -2.34, "gap_pct": 0.1},
+            trade_date="2026-08-28",
+            open_px=10.0,
+            tau_hm="10:30",
+            minute_bars=[],
+            load_cache_if_missing=False,
+        )
+        self.assertIsNone(feats.get("ret_open_to_tau"))
+        self.assertEqual(feats.get("gap_pct"), 0.1)
+        self.assertIsNone(as_of)
+        self.assertIsNone(y_spec)
+
+    def test_merge_fetch_if_missing_when_cache_lacks_tau_clock(self):
+        from unittest.mock import patch
+
+        from core.signal.minute_tau_feats import merge_minute_tau_pack_into_feats
+
+        day = "2026-08-28"
+        fetched = _bars(day) + [
+            {
+                "date": day,
+                "datetime": f"{day} 10:30:00",
+                "open": 10.1,
+                "high": 10.2,
+                "low": 10.0,
+                "close": 10.15,
+                "volume": 1000,
+            }
+        ]
+        with patch(
+            "core.signal.minute_tau_feats._load_minute_bars_from_cache",
+            return_value=[],
+        ), patch(
+            "core.signal.minute_tau_feats._fetch_minute_bars_for_tau",
+            return_value=fetched,
+        ) as fetch_fn:
+            feats, as_of, _ = merge_minute_tau_pack_into_feats(
+                {"gap_pct": 0.5},
+                code="000568",
+                trade_date=day,
+                open_px=10.0,
+                tau_hm="10:30",
+                load_cache_if_missing=True,
+                fetch_if_missing=True,
+            )
+        fetch_fn.assert_called_once_with("000568")
+        self.assertAlmostEqual(feats["ret_open_to_tau"], 1.5, places=4)
+        self.assertEqual(as_of, f"{day}T10:30:00+08:00")
+
+    def test_merge_does_not_fetch_when_caller_passed_prefix(self):
+        from unittest.mock import patch
+
+        from core.signal.minute_tau_feats import merge_minute_tau_pack_into_feats
+
+        day = "2026-08-28"
+        with patch(
+            "core.signal.minute_tau_feats._fetch_minute_bars_for_tau",
+            return_value=_bars(day)
+            + [
+                {
+                    "date": day,
+                    "datetime": f"{day} 15:00:00",
+                    "open": 9.0,
+                    "high": 9.1,
+                    "low": 8.9,
+                    "close": 9.0,
+                    "volume": 1,
+                }
+            ],
+        ) as fetch_fn:
+            feats, as_of, _ = merge_minute_tau_pack_into_feats(
+                {},
+                code="000568",
+                trade_date=day,
+                open_px=10.0,
+                tau_hm="10:30",
+                minute_bars=_bars(day),
+                load_cache_if_missing=True,
+                fetch_if_missing=True,
+            )
+        fetch_fn.assert_not_called()
+        self.assertEqual(as_of, f"{day}T09:55:00+08:00")
+        self.assertAlmostEqual(feats["ret_open_to_tau"], 1.0, places=4)
 
     def test_attach_dual_score_pit_uses_minute_bars(self):
         from unittest.mock import patch
@@ -454,6 +637,110 @@ class TestMinuteTauPack(unittest.TestCase):
         call_feats = pred.call_args[0][0]
         self.assertIsNone(call_feats.get("ret_open_to_tau"))
         self.assertIsNone(call_feats.get("sector_ret_to_tau"))
+
+    def test_attach_dual_score_pit_overwrites_eod_leftover_at_1030(self):
+        """簿上收盘 leftover 须被 10:30 前缀覆盖，不得前窥。"""
+        from unittest.mock import patch
+
+        from core.signal.dual_score import attach_dual_score_pit
+
+        day = "2026-08-28"
+        eod_ret = (9.0 / 10.0 - 1.0) * 100.0
+        item = {
+            "stock_code": "600000",
+            "predicted_score_eod": 0.5,
+            "features_tau": {"ret_open_to_tau": eod_ret, "range_pct": 50.0},
+        }
+        quote = {"date": day, "open": 10.0, "prev_close": 9.9}
+        bars = [
+            {"date": "2026-08-27", "open": 9.8, "high": 10.0, "low": 9.7, "close": 9.9},
+            {"date": day, "open": 10.0, "high": 10.5, "low": 9.8, "close": 9.0},
+        ]
+        mins = _bars(day) + [
+            {
+                "date": day,
+                "datetime": f"{day} 10:30:00",
+                "open": 10.1,
+                "high": 10.2,
+                "low": 10.0,
+                "close": 10.15,
+                "volume": 1000,
+            },
+            {
+                "date": day,
+                "datetime": f"{day} 15:00:00",
+                "open": 9.2,
+                "high": 9.3,
+                "low": 8.9,
+                "close": 9.0,
+                "volume": 1000,
+            },
+        ]
+        with patch(
+            "core.signal.dual_score.resolve.get_dual_score_cfg",
+            return_value={
+                "enable_minute_tau": True,
+                "minute_tau_hm": "10:30",
+                "tau": "open",
+                "y_spec": {"formula": "close[T]/open[T]-1"},
+            },
+        ), patch(
+            "core.research.tau_ridge.load_tau_model", return_value=None
+        ), patch(
+            "core.research.tau_ridge.predict_tau_from_features", return_value=0.12
+        ) as pred:
+            attach_dual_score_pit(
+                item,
+                quote=quote,
+                bars=bars,
+                minute_bars=mins,
+                fuse_intraday=True,
+                minute_tau_hm="10:30",
+            )
+        rot = (item.get("features_tau") or {}).get("ret_open_to_tau")
+        self.assertAlmostEqual(rot, 1.5, places=4)
+        self.assertNotAlmostEqual(rot, eod_ret, places=2)
+        self.assertAlmostEqual(pred.call_args[0][0].get("ret_open_to_tau"), 1.5, places=4)
+        self.assertTrue(str(item.get("as_of_tau") or "").startswith(f"{day}T10:30"))
+
+    def test_attach_dual_score_pit_use_minute_tau_false_strips_leftover(self):
+        from unittest.mock import patch
+
+        from core.signal.dual_score import attach_dual_score_pit
+
+        day = "2026-08-28"
+        item = {
+            "stock_code": "600000",
+            "predicted_score_eod": 0.5,
+            "features_tau": {"ret_open_to_tau": -2.34},
+        }
+        quote = {"date": day, "open": 10.0, "prev_close": 9.9}
+        bars = [
+            {"date": "2026-08-27", "open": 9.8, "high": 10.0, "low": 9.7, "close": 9.9},
+            {"date": day, "open": 10.0, "high": 10.5, "low": 9.8, "close": 10.2},
+        ]
+        with patch(
+            "core.signal.dual_score.resolve.get_dual_score_cfg",
+            return_value={
+                "enable_minute_tau": True,
+                "minute_tau_hm": "10:30",
+                "tau": "open",
+                "y_spec": {"formula": "close[T]/open[T]-1"},
+            },
+        ), patch(
+            "core.research.tau_ridge.load_tau_model", return_value=None
+        ), patch(
+            "core.research.tau_ridge.predict_tau_from_features", return_value=0.12
+        ) as pred:
+            attach_dual_score_pit(
+                item,
+                quote=quote,
+                bars=bars,
+                fuse_intraday=True,
+                use_minute_tau=False,
+            )
+        self.assertIsNone((item.get("features_tau") or {}).get("ret_open_to_tau"))
+        self.assertIsNone(pred.call_args[0][0].get("ret_open_to_tau"))
 
     def test_attach_dual_score_pit_prefix_hm_blocks_1030_sector_fallback(self):
         """有前缀分钟时截面钟跟末根，不得回退配置 10:30。"""

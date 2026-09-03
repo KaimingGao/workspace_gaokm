@@ -1335,7 +1335,7 @@ BS → core/backtest/service.py → engine · topk_backtest · topk_weights
 | 模块 | 功能 |
 |------|------|
 | `core/research/` | OLS fit、walk-forward、ŷ_τ 头（`tau_ridge`）等研究算法 |
-| `t0/` | 做 T 回测内核 · `minute_path.prefix_range_gate`（前向前缀振幅，回测=Worker 同口径）· `intraday.py` · `auto_worker.py` |
+| `t0/` | 做 T 回测内核 · `close_band` / `slots`（v6 收盘带宽）· `minute_path` · `intraday.py` · `auto_worker.py` |
 
 ---
 
@@ -1752,7 +1752,7 @@ flowchart TD
 
 `_maybe_fetch_baostock_minute_bars` 仅在 **新浪/腾讯未接住** 且（当前 bar **空**或 **日历跨度** `< 30 日`）时调用。东财已给出近端但短于该窗口时仍会打 BaoStock。
 
-然后 merge：**近端东财（或新浪/腾讯），远端缺口仅在未走新浪时补 BaoStock**。
+然后 merge：**同日整段以后到源为准**（`merge_minute_bars_by_time` 默认 `lock_calendar_day`，禁止同日跨源按时间戳缝合）；重叠日若成交量中位比≈100 则先把手→股对齐。近端东财（或新浪/腾讯），远端缺口仅在未走新浪时补 BaoStock。
 
 **批量 skip_em**（`INVESTMENT_MINUTE_WARMUP_SKIP_EM=1`）：不调东财，顺序为新浪/腾讯 → BaoStock；默认 **关**。
 
@@ -3068,7 +3068,7 @@ CREATE TABLE IF NOT EXISTS minute_cache_meta (
 | `list_cached_symbols` | os.listdir + 逐文件 json.load | `SELECT * FROM daily_cache_meta [WHERE market=?]` | **无** |
 | `merge_bars_by_date` | 纯函数 | **不改**（upsert 在 save 内用 `INSERT OR REPLACE`） | 无 |
 | `load_minute_cache` / `save_minute_cache` | JSON | 对称改造，走 minute_bars / minute_cache_meta | **无** |
-| `merge_minute_bars_by_time` | 纯函数 | **不改** | 无 |
+| `merge_minute_bars_by_time` | 纯函数；默认同日整段替换（`lock_calendar_day`） | **已改**（禁同日跨源缝合） | 无 |
 | `daily_cache_path` / `minute_cache_path` | 算文件路径 | 内部不再用于存储，保留导出用途 | 无 |
 
 ### save_daily_cache 内部 upsert 逻辑（伪代码）

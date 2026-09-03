@@ -110,6 +110,20 @@ _DEAD_T0_KEYS = (
     "y_prefix_segment_enabled",
     "y_prefix_segment_enabled_sell_then_buy",
     "y_prefix_segment_enabled_buy_then_sell",
+    # v6：收盘带宽选腿；前缀阴阳/复合确认/环境闸选腿下线
+    "t0_confirm_dev_pct",
+    "t0_confirm_mom_bars",
+    "t0_confirm_vol_mult",
+    "t0_env_min_range_pct",
+    "t0_env_min_path_abs",
+    "t0_env_one_sided_tau_abs",
+    "t0_env_one_sided_path_abs",
+    "y_prefix_upbar_ratio_buy_then_sell",
+    "y_prefix_downbar_ratio_sell_then_buy",
+    "y_path_abandon_enabled",
+    "y_path_abandon_bars",
+    "y_path_abandon_bars_buy_then_sell",
+    "y_path_abandon_bars_sell_then_buy",
 )
 
 
@@ -195,6 +209,7 @@ DEFAULT_T0_RULES: Dict[str, Any] = {
     "y_path_enter": 0.01,
     "y_path_enter_sell_then_buy": 0.01,
     "y_path_enter_buy_then_sell": 0.01,
+    "y_path_strong": 0.2,
     "y_eod_enter": 0.01,
     "y_eod_strong": 0.2,
     "y_eod_prior": 0.01,
@@ -206,26 +221,27 @@ DEFAULT_T0_RULES: Dict[str, Any] = {
     "y_tau_map": "trend",
     "y_use_path": True,
     "y_path_required": False,
+    # v6：破带后用 y_τ 日线先验（score=抬门槛 / skip=硬跳过 / off）
+    "y_tau_leg1_prior_mode": "score",
+    "y_tau_leg1_prior_risk": 1.0,
+    # score 同向放宽下限：门槛 |·| 至少为 floor×δ（防压到 0%）
+    "y_tau_leg1_prior_band_floor": 0.5,
+    # score：s=clip(k·y_τ, ±α·δ)；α∈[0.1, 0.9]，upper=δ+s，lower=−δ+s（默认 α=0.9）
+    "y_tau_leg1_prior_shift_scale": 0.9,
+    "y_tau_leg1_prior": True,  # 镜像：mode≠off
     "y_gap_tier_mode": "skip_opposite",
     "y_gap_tier_pct": 1.0,
     "y_nowcast_oc_gate": False,
-    "y_path_abandon_enabled": True,
-    "y_path_abandon_bars": 6,
-    # 正/反T：固定前缀 N=abandon_bars；齐窗一次判定后半阴阳占比（不滚动探极值）
-    # 正T：后半 close>open ≥upbar_ratio；反T：后半 close<open ≥downbar_ratio
-    "y_prefix_upbar_ratio_buy_then_sell": 0.2,
-    "y_prefix_downbar_ratio_sell_then_buy": 0.2,
-    # v5 选腿：阴阳占比 ∩ 复合确认（开盘锚偏离+动量）；环境闸常开；半贪心滚仓常开
-    # 偏离默认 0.3：0.8 在低波动票上几乎 0 成交；0=不要求偏离（仍要动量）
-    "t0_confirm_dev_pct": 0.3,
-    "t0_confirm_mom_bars": 2,
-    "t0_confirm_vol_mult": 0.0,  # 0=不看量；>0 则末根≥均量×倍数
-    "t0_env_min_range_pct": 0.5,
-    "t0_env_min_path_abs": 0.08,
-    "t0_env_one_sided_tau_abs": 2.0,
-    "t0_env_one_sided_path_abs": 2.0,
+    # v6：收盘带宽选腿（无前缀阴阳/复合确认）
+    "t0_close_band_delta_pct": 0.5,
+    # 日线 ĉ=ĉ_τ，分钟价经 S=O_d/O_m 映入同空间破带（|S−1| 超阈跳过）
+    "t0_price_space_gate": True,
+    "t0_price_space_max_dev_pct": 0.25,
+    "t0_price_space_prev_dev_pct": 0.25,
+    "t0_round_ratio": 0.2,
+    "t0_max_position_pct": 1.0,
     # 缺 ŷ_τ 时禁止开第一腿（τ 闸开则硬跳过，不等午后追价）
-    "y_tau_require_for_leg1": True,
+    "y_tau_require_for_leg1": False,
     # 确认根第一腿：正T买价<open×(1+ŷ_τ×裕度)；反T卖价>同式（有符号ŷ_τ，分侧可调）
     "y_tau_entry_price_skip": True,
     "y_tau_entry_price_mult": 0.5,
@@ -269,37 +285,58 @@ DEFAULT_T0_RULES: Dict[str, Any] = {
     "t0_stop_on_close": True,
     # dual_y 分数来源：compute=开盘信息集即时算（默认）；live_book/ledger 仅兜底或对照
     "y_score_source": "compute",
-    # 多轮独立做T：10:00–11:30 四轮各 15%；确认根收盘开第一腿；午后仅 leg2 追价/EOD
-    # 不开 09:30。四轮共用一套买卖/止损配方；空轮仓位滚入后续（半贪心，常开）
+    # v6：收盘带宽多轮（每轮 20% 至满仓）；11:00 后不开 leg1；午后仅 leg2
     "t0_slots_enabled": True,
     "t0_slots": None,
-    "t0_slots_max_rounds": 4,
-    "note": "A股T+1底仓做T；仅5m first_touch（已删除日线模拟）；非实盘。",
+    "t0_slots_max_rounds": 5,
+    "note": "A股T+1底仓做T；v6 收盘带宽选腿；非实盘。",
 }
 
-# 第一腿最晚：11:30 确认根 = 第 24 根 5m（09:35 起计）；午后不再新开 leg1
-T0_LAST_LEG1_HM = "11:30"
-T0_LAST_LEG1_PREFIX_BARS = 24
+# 第一腿最晚：11:00（约第 18 根 5m，09:35 起计）；其后只收第二腿
+T0_LAST_LEG1_HM = "11:00"
+T0_LAST_LEG1_PREFIX_BARS = 18
 
-# 10:00–11:30 四轮；不做 09:30 开盘轮、不做 13:00/14:00 午后新开
+# 兼容旧 UI/测试的槽位壳：v6 实际按破带动态开轮，不再钉死确认钟
 DEFAULT_T0_SLOTS: tuple = (
-    {"id": "s1", "hm": "10:00", "prefix_bars": 6, "ratio": 0.15},
-    {"id": "s2", "hm": "10:30", "prefix_bars": 12, "ratio": 0.15},
-    {"id": "s3", "hm": "11:00", "prefix_bars": 18, "ratio": 0.15},
-    {"id": "s4", "hm": "11:30", "prefix_bars": 24, "ratio": 0.15},
+    {"id": "r1", "hm": "11:00", "prefix_bars": 18, "ratio": 0.20},
+    {"id": "r2", "hm": "11:00", "prefix_bars": 18, "ratio": 0.20},
+    {"id": "r3", "hm": "11:00", "prefix_bars": 18, "ratio": 0.20},
+    {"id": "r4", "hm": "11:00", "prefix_bars": 18, "ratio": 0.20},
+    {"id": "r5", "hm": "11:00", "prefix_bars": 18, "ratio": 0.20},
 )
-# 研究枢纽 τ / path 网格仍含 13:00/14:00；做 T 执行钟仅 10:00–11:30
-DEFAULT_T0_SLOT_CLOCKS: tuple = tuple(
-    str(s.get("hm") or "").strip() for s in DEFAULT_T0_SLOTS if str(s.get("hm") or "").strip()
-)
-# 纸面曾落盘的默认五轮（含 09:30 开盘）；加载时迁到现行四轮
+DEFAULT_T0_SLOT_CLOCKS: tuple = ("11:00",)
+
+
+def _am_5m_clocks_until(last_hm: str = T0_LAST_LEG1_HM) -> tuple:
+    """09:35 起每 5 分钟至 ``last_hm``（含），供分槽画像对齐拟合 by_tau。"""
+    out: list = []
+    h, m = 9, 35
+    last = str(last_hm or T0_LAST_LEG1_HM).strip()[:5] or T0_LAST_LEG1_HM
+    while True:
+        hm = f"{h:02d}:{m:02d}"
+        if hm > last:
+            break
+        out.append(hm)
+        m += 5
+        if m >= 60:
+            h += 1
+            m -= 60
+        if h > 15:
+            break
+    return tuple(out)
+
+
+# v6 扫描网格：每根 5m 因果 ŷ vs 全日标签（不是破带开轮才入样）
+T0_PORTRAIT_SLOT_CLOCKS: tuple = _am_5m_clocks_until(T0_LAST_LEG1_HM)
+# 日级「预估命中」用首根 5m，避免跳过日被 11:00 前缀垫高
+T0_PORTRAIT_DAY_HM = "09:35"
 _LEGACY_OPEN_FIVE_CLOCKS: tuple = ("09:30", "10:00", "10:30", "11:00", "11:30")
-# 曾短暂默认六轮（含午后 leg1）；加载时迁到现行四轮
 _LEGACY_SIX_CLOCKS: tuple = ("10:00", "10:30", "11:00", "11:30", "13:00", "14:00")
+_LEGACY_V5_FOUR_CLOCKS: tuple = ("10:00", "10:30", "11:00", "11:30")
 
 
 def _slot_allows_leg1(*, hm: str, prefix_bars: int) -> bool:
-    """多轮做 T：超过 11:30 / 第 24 根前缀的槽位不允许开第一腿。"""
+    """超过 11:00 / 第 18 根前缀不允许开第一腿。"""
     try:
         n = int(prefix_bars or 0)
     except (TypeError, ValueError):
@@ -313,11 +350,9 @@ def _slot_allows_leg1(*, hm: str, prefix_bars: int) -> bool:
 
 
 def normalize_t0_slots(raw: Any) -> list:
-    """规范化槽位列表；空/缺省 → 默认四轮（10:00–11:30）。
+    """规范化槽位列表；v6 默认五轮×20% 壳（执行走收盘带宽扫描）。
 
-    槽位只保留时钟 / 前缀根数 / 仓位切分。第二腿触发、止损、成交、dual_y 闸
-    一律走账户级 ``load_t0_rules``（正/反分侧，不按槽位分套）。
-    超过 ``T0_LAST_LEG1_*`` 的午后槽位会被丢弃（午后只做 leg2 追价/EOD）。
+    旧四轮/五轮/六轮时钟落盘一律迁到 v6 默认壳。
     """
     if raw is None:
         return [dict(s) for s in DEFAULT_T0_SLOTS]
@@ -325,11 +360,18 @@ def normalize_t0_slots(raw: Any) -> list:
         return [dict(s) for s in DEFAULT_T0_SLOTS]
     if not isinstance(raw, (list, tuple)):
         return [dict(s) for s in DEFAULT_T0_SLOTS]
+    raw_clocks = tuple(
+        str(item.get("hm") or "").strip()[:5]
+        for item in raw
+        if isinstance(item, dict)
+    )
+    if raw_clocks in (_LEGACY_OPEN_FIVE_CLOCKS, _LEGACY_SIX_CLOCKS, _LEGACY_V5_FOUR_CLOCKS):
+        return [dict(s) for s in DEFAULT_T0_SLOTS]
     out: list = []
     for i, item in enumerate(raw):
         if not isinstance(item, dict):
             continue
-        sid = str(item.get("id") or f"s{i + 1}").strip() or f"s{i + 1}"
+        sid = str(item.get("id") or f"r{i + 1}").strip() or f"r{i + 1}"
         hm = str(item.get("hm") or "").strip()[:5]
         try:
             prefix_bars = int(item.get("prefix_bars") if item.get("prefix_bars") is not None else 0)
@@ -339,24 +381,17 @@ def normalize_t0_slots(raw: Any) -> list:
         if not _slot_allows_leg1(hm=hm, prefix_bars=prefix_bars):
             continue
         try:
-            ratio = float(item.get("ratio") if item.get("ratio") is not None else 0.15)
+            ratio = float(item.get("ratio") if item.get("ratio") is not None else 0.20)
         except (TypeError, ValueError):
-            ratio = 0.15
+            ratio = 0.20
         ratio = max(0.05, min(ratio, 1.0))
         out.append({"id": sid, "hm": hm, "prefix_bars": prefix_bars, "ratio": ratio})
-    clocks = tuple(str(s.get("hm") or "").strip() for s in out)
-    if clocks in (_LEGACY_OPEN_FIVE_CLOCKS, _LEGACY_SIX_CLOCKS):
-        return [dict(s) for s in DEFAULT_T0_SLOTS]
     return out or [dict(s) for s in DEFAULT_T0_SLOTS]
 
 
 def t0_slots_enabled(cfg: Optional[dict]) -> bool:
-    """是否走多轮独立槽位（空列表视为关）。"""
-    if not coerce_cfg_bool((cfg or {}).get("t0_slots_enabled"), True):
-        return False
-    slots = (cfg or {}).get("t0_slots")
-    if isinstance(slots, (list, tuple)) and len(slots) == 0:
-        return False
+    """v6：恒走多轮收盘带宽壳；``t0_slots_max_rounds=0`` 仅禁开 leg1。"""
+    _ = cfg
     return True
 
 
@@ -475,18 +510,19 @@ def load_t0_rules(override: Optional[dict] = None) -> Dict[str, Any]:
         ("y_eod_strong", 0.05, 5.0, 0.2),
         ("y_trade_enter", 0.01, 5.0, 0.01),
         ("y_trade_strong", 0.05, 5.0, 0.2),
-        ("y_tau_enter", 0.01, 5.0, 0.01),
-        ("y_tau_enter_sell_then_buy", 0.01, 5.0, 0.01),
-        ("y_tau_enter_buy_then_sell", 0.01, 5.0, 0.01),
+        ("y_tau_enter", 0.0, 5.0, 0.01),
+        ("y_tau_enter_sell_then_buy", 0.0, 5.0, 0.01),
+        ("y_tau_enter_buy_then_sell", 0.0, 5.0, 0.01),
         ("y_on_risk", 0.01, 10.0, 0.01),
         ("y_on_allow", 0.01, 10.0, 0.01),
         ("y_ratio_boost_cap", 1.0, 2.0, 2.0),
         ("y_ratio_cut", 0.2, 1.0, 0.60),
         ("y_nc_enter", 0.01, 10.0, 0.01),
         ("y_nc_strong", 0.05, 10.0, 0.2),
-        ("y_path_enter", 0.01, 5.0, 0.01),
-        ("y_path_enter_sell_then_buy", 0.01, 5.0, 0.01),
-        ("y_path_enter_buy_then_sell", 0.01, 5.0, 0.01),
+        ("y_path_enter", 0.0, 5.0, 0.01),
+        ("y_path_enter_sell_then_buy", 0.0, 5.0, 0.01),
+        ("y_path_enter_buy_then_sell", 0.0, 5.0, 0.01),
+        ("y_path_strong", 0.0, 5.0, 0.2),
         ("y_gap_tier_pct", 0.3, 8.0, 1.0),
     ):
         try:
@@ -516,7 +552,7 @@ def load_t0_rules(override: Optional[dict] = None) -> Dict[str, Any]:
             cfg[side_key] = float(cfg[base_key])
         else:
             try:
-                cfg[side_key] = max(0.01, min(float(cfg[side_key]), 5.0))
+                cfg[side_key] = max(0.0, min(float(cfg[side_key]), 5.0))
             except (TypeError, ValueError):
                 cfg[side_key] = float(cfg[base_key])
     from core.t0.score_policy import normalize_y_trade_enter
@@ -533,88 +569,40 @@ def load_t0_rules(override: Optional[dict] = None) -> Dict[str, Any]:
     cfg.pop("y_block_trade_tau_sign", None)
     cfg["y_use_path"] = coerce_cfg_bool(cfg.get("y_use_path"), True)
     cfg["y_path_required"] = coerce_cfg_bool(cfg.get("y_path_required"), False)
+    from core.t0.close_band import normalize_y_tau_leg1_prior_mode
+
+    if cfg.get("y_tau_leg1_prior_mode") is None or cfg.get("y_tau_leg1_prior_mode") == "":
+        # 旧布尔：False→off；True/缺省→score（量化风险抬门槛，非硬跳过）
+        if "y_tau_leg1_prior" in override_keys:
+            cfg["y_tau_leg1_prior_mode"] = (
+                "score" if coerce_cfg_bool(cfg.get("y_tau_leg1_prior"), True) else "off"
+            )
+        else:
+            cfg["y_tau_leg1_prior_mode"] = "score"
+    cfg["y_tau_leg1_prior_mode"] = normalize_y_tau_leg1_prior_mode(
+        cfg.get("y_tau_leg1_prior_mode"), default="score"
+    )
+    cfg["y_tau_leg1_prior"] = cfg["y_tau_leg1_prior_mode"] != "off"
+    try:
+        risk_k = float(cfg.get("y_tau_leg1_prior_risk") or 1.0)
+    except (TypeError, ValueError):
+        risk_k = 1.0
+    cfg["y_tau_leg1_prior_risk"] = max(0.0, min(risk_k, 10.0))
+    try:
+        band_floor = float(cfg.get("y_tau_leg1_prior_band_floor") or 0.5)
+    except (TypeError, ValueError):
+        band_floor = 0.5
+    cfg["y_tau_leg1_prior_band_floor"] = max(0.0, min(band_floor, 1.0))
+    try:
+        shift_scale = float(cfg.get("y_tau_leg1_prior_shift_scale") or 0.9)
+    except (TypeError, ValueError):
+        shift_scale = 0.9
+    from core.t0.close_band import clamp_y_tau_leg1_prior_shift_scale
+
+    cfg["y_tau_leg1_prior_shift_scale"] = clamp_y_tau_leg1_prior_shift_scale(
+        shift_scale, default=0.9
+    )
     cfg["y_nowcast_oc_gate"] = coerce_cfg_bool(cfg.get("y_nowcast_oc_gate"), False)
-    cfg["y_path_abandon_enabled"] = bool(cfg.get("y_path_abandon_enabled", True))
-    try:
-        cfg["y_path_abandon_bars"] = max(2, min(int(cfg.get("y_path_abandon_bars") or 6), 48))
-    except (TypeError, ValueError):
-        cfg["y_path_abandon_bars"] = 6
-    for ab_side in ("y_path_abandon_bars_sell_then_buy", "y_path_abandon_bars_buy_then_sell"):
-        if ab_side not in override_keys:
-            cfg[ab_side] = int(cfg["y_path_abandon_bars"])
-            continue
-        try:
-            raw_ab = cfg.get(ab_side)
-            if raw_ab is None or raw_ab == "":
-                raw_ab = cfg["y_path_abandon_bars"]
-            cfg[ab_side] = max(2, min(int(raw_ab), 48))
-        except (TypeError, ValueError):
-            cfg[ab_side] = int(cfg["y_path_abandon_bars"])
-    try:
-        raw_up = cfg.get("y_prefix_upbar_ratio_buy_then_sell")
-        up_ratio = float(0.2 if raw_up is None or raw_up == "" else raw_up)
-    except (TypeError, ValueError):
-        up_ratio = 0.2
-    cfg["y_prefix_upbar_ratio_buy_then_sell"] = max(0.0, min(up_ratio, 1.0))
-    try:
-        raw_dn = cfg.get("y_prefix_downbar_ratio_sell_then_buy")
-        dn_ratio = float(0.2 if raw_dn is None or raw_dn == "" else raw_dn)
-    except (TypeError, ValueError):
-        dn_ratio = 0.2
-    cfg["y_prefix_downbar_ratio_sell_then_buy"] = max(0.0, min(dn_ratio, 1.0))
-    try:
-        raw_dev = cfg.get("t0_confirm_dev_pct")
-        cfg["t0_confirm_dev_pct"] = max(
-            0.0, min(float(0.3 if raw_dev is None or raw_dev == "" else raw_dev), 20.0)
-        )
-    except (TypeError, ValueError):
-        cfg["t0_confirm_dev_pct"] = 0.3
-    try:
-        raw_mom = cfg.get("t0_confirm_mom_bars")
-        cfg["t0_confirm_mom_bars"] = max(
-            1, min(int(2 if raw_mom is None or raw_mom == "" else raw_mom), 12)
-        )
-    except (TypeError, ValueError):
-        cfg["t0_confirm_mom_bars"] = 2
-    try:
-        raw_vol = cfg.get("t0_confirm_vol_mult")
-        cfg["t0_confirm_vol_mult"] = max(
-            0.0, min(float(0.0 if raw_vol is None or raw_vol == "" else raw_vol), 20.0)
-        )
-    except (TypeError, ValueError):
-        cfg["t0_confirm_vol_mult"] = 0.0
-    try:
-        raw_range = cfg.get("t0_env_min_range_pct")
-        cfg["t0_env_min_range_pct"] = max(
-            0.0,
-            min(float(0.5 if raw_range is None or raw_range == "" else raw_range), 30.0),
-        )
-    except (TypeError, ValueError):
-        cfg["t0_env_min_range_pct"] = 0.5
-    try:
-        raw_path = cfg.get("t0_env_min_path_abs")
-        cfg["t0_env_min_path_abs"] = max(
-            0.0,
-            min(float(0.08 if raw_path is None or raw_path == "" else raw_path), 50.0),
-        )
-    except (TypeError, ValueError):
-        cfg["t0_env_min_path_abs"] = 0.08
-    try:
-        raw_ot = cfg.get("t0_env_one_sided_tau_abs")
-        cfg["t0_env_one_sided_tau_abs"] = max(
-            0.0,
-            min(float(2.0 if raw_ot is None or raw_ot == "" else raw_ot), 50.0),
-        )
-    except (TypeError, ValueError):
-        cfg["t0_env_one_sided_tau_abs"] = 2.0
-    try:
-        raw_op = cfg.get("t0_env_one_sided_path_abs")
-        cfg["t0_env_one_sided_path_abs"] = max(
-            0.0,
-            min(float(2.0 if raw_op is None or raw_op == "" else raw_op), 50.0),
-        )
-    except (TypeError, ValueError):
-        cfg["t0_env_one_sided_path_abs"] = 2.0
     legacy_skip = coerce_cfg_bool(cfg.get("y_tau_entry_price_skip"), True)
     try:
         raw_legacy_mult = cfg.get("y_tau_entry_price_mult")
@@ -915,15 +903,42 @@ def load_t0_rules(override: Optional[dict] = None) -> Dict[str, Any]:
                 cfg[mr_side] = max(0.0, min(float(raw_mr), 30.0))
             except (TypeError, ValueError):
                 cfg[mr_side] = cfg.get(base_mr)
-    cfg["t0_slots_enabled"] = coerce_cfg_bool(cfg.get("t0_slots_enabled"), True)
+    cfg["t0_slots_enabled"] = True
     raw_max_rounds = cfg.get("t0_slots_max_rounds")
     if raw_max_rounds is None or raw_max_rounds == "":
-        cfg["t0_slots_max_rounds"] = 4
+        cfg["t0_slots_max_rounds"] = 5
     else:
         try:
             cfg["t0_slots_max_rounds"] = max(0, min(int(raw_max_rounds), 16))
         except (TypeError, ValueError):
-            cfg["t0_slots_max_rounds"] = 4
+            cfg["t0_slots_max_rounds"] = 5
+
+    try:
+        delta_pct = float(cfg.get("t0_close_band_delta_pct") or 0.5)
+    except (TypeError, ValueError):
+        delta_pct = 0.5
+    cfg["t0_close_band_delta_pct"] = max(0.0, min(delta_pct, 10.0))
+    cfg["t0_price_space_gate"] = bool(cfg.get("t0_price_space_gate", True))
+    try:
+        ps_dev = float(cfg.get("t0_price_space_max_dev_pct", 0.25))
+    except (TypeError, ValueError):
+        ps_dev = 0.25
+    cfg["t0_price_space_max_dev_pct"] = max(0.0, min(ps_dev, 5.0))
+    try:
+        ps_prev = float(cfg.get("t0_price_space_prev_dev_pct", cfg["t0_price_space_max_dev_pct"]))
+    except (TypeError, ValueError):
+        ps_prev = cfg["t0_price_space_max_dev_pct"]
+    cfg["t0_price_space_prev_dev_pct"] = max(0.0, min(ps_prev, 5.0))
+    try:
+        round_ratio = float(cfg.get("t0_round_ratio") or 0.2)
+    except (TypeError, ValueError):
+        round_ratio = 0.2
+    cfg["t0_round_ratio"] = max(0.05, min(round_ratio, 1.0))
+    try:
+        max_pos = float(cfg.get("t0_max_position_pct") or 1.0)
+    except (TypeError, ValueError):
+        max_pos = 1.0
+    cfg["t0_max_position_pct"] = max(0.05, min(max_pos, 1.0))
     if isinstance(cfg.get("t0_slots"), (list, tuple)) and len(cfg.get("t0_slots") or []) == 0:
         cfg["t0_slots"] = []
     else:
@@ -973,25 +988,6 @@ def apply_side_exec_params(cfg: dict, direction: Optional[str]) -> Dict[str, Any
         except (TypeError, ValueError):
             out["t0_pm_chase_interval_min"] = 5
     return out
-
-
-def resolve_path_abandon_bars(cfg: dict, direction: Optional[str] = None) -> int:
-    """前缀放弃根数；优先侧向键，否则共用 ``y_path_abandon_bars``。"""
-    d = str(direction or "").strip().lower()
-    side_key = None
-    if d == "sell_then_buy":
-        side_key = "y_path_abandon_bars_sell_then_buy"
-    elif d == "buy_then_sell":
-        side_key = "y_path_abandon_bars_buy_then_sell"
-    raw = None
-    if side_key is not None and (cfg or {}).get(side_key) is not None:
-        raw = (cfg or {}).get(side_key)
-    else:
-        raw = (cfg or {}).get("y_path_abandon_bars")
-    try:
-        return max(2, min(int(raw or 6), 48))
-    except (TypeError, ValueError):
-        return 6
 
 
 def resolve_min_range_pct(cfg: dict) -> float:

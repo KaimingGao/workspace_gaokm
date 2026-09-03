@@ -25,8 +25,7 @@ from core.signal.nowcast_kf import (
     run_live_nowcast,
 )
 
-# 与研究 DEFAULT_MINUTE_TAU_GRID 对齐（含 09:30 开盘 Z + 13:00/14:00 训练钟；做T执行 10:00–11:30 四轮）
-_DEFAULT_MINUTE_TAU_GRID = ["09:30", "10:00", "10:30", "11:00", "11:30", "13:00", "14:00"]
+from core.signal.minute_tau_grid import DEFAULT_MINUTE_TAU_GRID as _DEFAULT_MINUTE_TAU_GRID
 
 DEFAULT_DUAL_SCORE: Dict[str, Any] = {
     # 正交加权：簿排序用 ŷ_trade=blend(ŷ_EOD, 缺口∘ŷ_τ)；买入另须 ŷ_τ≥floor
@@ -55,7 +54,7 @@ DEFAULT_DUAL_SCORE: Dict[str, Any] = {
     # 有本地分钟缓存时附加 ret_open_to_tau（默认关；开后仍不拉网）
     "enable_minute_tau": False,
     "minute_tau_hm": "10:30",
-    # 变长前缀训练时钟（共享 β）；含开盘 Z + 13:00/14:00 训练钟；做T执行仅 10:00–11:30；live 特征仍用 minute_tau_hm
+    # 变长前缀训练时钟（共享 β）；09:30…11:00 每 5m；做 T v6 逐根 rescore；live 仍用 minute_tau_hm
     "minute_tau_grid": list(_DEFAULT_MINUTE_TAU_GRID),
     # nowcast / Kalman：默认只写影子字段，不改排序键
     "nowcast": dict(DEFAULT_NOWCAST),

@@ -39,6 +39,7 @@ DEFAULT_TAU_NOWCAST_SIGN_EPS = 0.05  # 写死：τ↔nowcast 异号闸死区
 DEFAULT_NC_ENTER = 0.01
 DEFAULT_NC_STRONG = 0.2
 DEFAULT_PATH_ENTER = 0.01  # ŷ_path 极值序 %；|ŷ|≤enter 横盘跳过；与 y_tau_enter 同尺度
+DEFAULT_PATH_STRONG = 0.2  # |y_path|>此值时须与 y_τ 同号；≤则允许异号
 DEFAULT_GAP_TIER_PCT = 1.0
 
 # dual_y 下 y_τ 符号 → 正/反 T（映射见 minute_path）
@@ -684,7 +685,9 @@ def _y_path_missing_reason(scores: dict) -> str:
     detail = {
         "no_model": "path_ridge 模型未 promote（/quant → ŷ_path 拟合/启用）",
         "feature_missing": "path 开盘特征不足",
-        "minute_feats_missing": "开盘选向未挂分钟小包（确认根将因果重估）",
+        "minute_feats_missing": "开盘 Z 特征不足（09:30 信息集）",
+        "minute_data_missing": "非开盘时刻缺分钟小包（数据缺失）",
+        "open_z": "开盘 Z path（09:30 / 无分钟，对齐研究）",
         "predict_none": "path 模型无法出分",
         "error": scores.get("y_path_error") or "path 预测异常",
     }.get(status)
@@ -773,22 +776,28 @@ def _tau_direction_sign(
 
 
 def side_tau_enter(cfg: dict, *, for_buy_then_sell: bool) -> float:
-    """反T用 y_tau_enter_sell_then_buy，正T用 y_tau_enter_buy_then_sell；缺省回退 y_tau_enter。"""
+    """反T用 y_tau_enter_sell_then_buy，正T用 y_tau_enter_buy_then_sell；缺省回退 y_tau_enter。
+
+    返回值 ≥0；0 表示关闭该侧 τ 入场闸。上限由 load_t0_rules 钳制，此处不截断以便直传 cfg。
+    """
     base = _cfg_float(cfg, "y_tau_enter", DEFAULT_TAU_ENTER)
     key = "y_tau_enter_buy_then_sell" if for_buy_then_sell else "y_tau_enter_sell_then_buy"
     raw = _f(cfg.get(key))
     v = float(base if raw is None else raw)
-    return max(0.01, v)
+    return max(0.0, v)
 
 
 def side_path_enter(cfg: dict, *, for_buy_then_sell: bool) -> float:
-    """正/反 path 入场；缺省回退 y_path_enter（再缺则用对应侧 τ enter）。"""
+    """正/反 path 入场；缺省回退 y_path_enter（再缺则用对应侧 τ enter）。
+
+    返回值 ≥0；0 表示关闭该侧 path 入场闸。
+    """
     tau_side = side_tau_enter(cfg, for_buy_then_sell=for_buy_then_sell)
     base = _cfg_float(cfg, "y_path_enter", tau_side)
     key = "y_path_enter_buy_then_sell" if for_buy_then_sell else "y_path_enter_sell_then_buy"
     raw = _f(cfg.get(key))
     v = float(base if raw is None else raw)
-    return max(0.01, v)
+    return max(0.0, v)
 
 
 def enters_for_y_tau(cfg: dict, y_tau: float) -> Tuple[float, float, bool]:
@@ -1161,12 +1170,19 @@ def _minute_pack_present(feats: Optional[dict]) -> bool:
     return feats.get("ret_open_to_tau") is not None
 
 
-def _attach_y_path_to_item(item: dict, *, hist_bars: Optional[Sequence[dict]] = None) -> None:
-    """即时算分后补 ŷ_path（开盘 Z + 分钟小包 → path_ridge）。
+def _attach_y_path_to_item(
+    item: dict,
+    *,
+    hist_bars: Optional[Sequence[dict]] = None,
+    allow_open_z: bool = True,
+) -> None:
+    """即时算分后补 ŷ_path（开盘 Z ± 分钟小包 → path_ridge）。
 
-    缺分钟小包时不写决策用 y_path（避免开盘-only 未校准幅度触发
-    ``y_tau_entry_price_skip_*`` 几乎全日否决第一腿；选向改走纯 y_τ）。
-    因果前缀 path 见 ``predict_path_from_prefix_minutes``。
+    - ``allow_open_z=True``（默认，日初 / 09:30 信息集）：无分钟小包时用开盘 Z 出分，
+      status=``open_z``（对齐研究 09:30）。
+    - ``allow_open_z=False``（盘中前缀重算）：无分钟小包不得退回开盘 Z
+      （``feature_missing``）。空前缀的数据缺失由 ``rescore_scores_at_fixed_prefix`` 标
+      ``minute_data_missing``。
     """
     if not isinstance(item, dict):
         return
@@ -1175,6 +1191,7 @@ def _attach_y_path_to_item(item: dict, *, hist_bars: Optional[Sequence[dict]] = 
     if row.get("gap_pct") is None:
         row["gap_pct"] = item.get("gap_pct")
     hist = [b for b in (hist_bars or []) if isinstance(b, dict)]
+    open_z_only = not _minute_pack_present(row)
     try:
         from core.research.path_panel import path_features_from_open_row
         from core.research.path_ridge import (
@@ -1188,17 +1205,19 @@ def _attach_y_path_to_item(item: dict, *, hist_bars: Optional[Sequence[dict]] = 
             if _f(item.get("y_path")) is None:
                 item["y_path_status"] = "no_model"
             return
-        if not _minute_pack_present(row) and _f(item.get("y_path")) is None:
-            # 开盘选向禁分钟时：不产出未校准 ŷ_path
-            item["y_path_status"] = "minute_feats_missing"
+        if open_z_only and not allow_open_z:
+            # 盘中模式且特征仍无小包：不是「没分钟线」，而是特征未带上
+            item["y_path_status"] = "feature_missing"
             item.pop("y_path", None)
             item.pop("predicted_score_path", None)
             return
         prev = hist[-1] if hist else None
         path_feats = path_features_from_open_row(row, hist=hist, prev_bar=prev)
+        status_ok = "open_z" if open_z_only else "ok"
         existing = _f(item.get("y_path"))
         if existing is not None:
-            item["y_path_status"] = "ok"
+            item["y_path_status"] = status_ok
+            item.pop("_minute_data_missing", None)
             if not isinstance(item.get("features_path"), dict):
                 ft = dict(feats_tau)
                 for k, v in path_feats.items():
@@ -1215,13 +1234,17 @@ def _attach_y_path_to_item(item: dict, *, hist_bars: Optional[Sequence[dict]] = 
                     item["score_formula_terms_path"] = expl
             return
         if not any(v is not None for v in path_feats.values()):
-            item["y_path_status"] = "feature_missing"
+            if open_z_only:
+                item["y_path_status"] = "minute_feats_missing"
+            else:
+                item["y_path_status"] = "feature_missing"
             return
         y_path = predict_path_from_features(path_feats, model_doc=model)
         if y_path is not None:
             item["y_path"] = y_path
             item["predicted_score_path"] = y_path
-            item["y_path_status"] = "ok"
+            item["y_path_status"] = status_ok
+            item.pop("_minute_data_missing", None)
             ft = dict(feats_tau)
             for k, v in path_feats.items():
                 if v is not None:
@@ -1237,6 +1260,60 @@ def _attach_y_path_to_item(item: dict, *, hist_bars: Optional[Sequence[dict]] = 
         item["y_path_status"] = "error"
         item["y_path_error"] = str(exc)[:120]
         logger.debug("attach y_path failed", exc_info=True)
+
+
+def _inject_minute_pack_from_prefix(
+    item: dict,
+    *,
+    minute_prefix: Sequence[dict],
+    day_bar: Optional[dict],
+    hm: str,
+) -> None:
+    """把前缀分钟小包并入 features_tau（按该根钟覆盖；禁收盘 leftover）。"""
+    if not isinstance(item, dict):
+        return
+    feats = item.get("features_tau") if isinstance(item.get("features_tau"), dict) else {}
+    day = ""
+    if isinstance(day_bar, dict):
+        day = str(day_bar.get("date") or day_bar.get("trade_date") or "")[:10]
+    if len(day) < 10 and minute_prefix:
+        b0 = minute_prefix[0] if isinstance(minute_prefix[0], dict) else {}
+        day = str(b0.get("datetime") or b0.get("date") or "")[:10]
+    if len(day) < 10:
+        return
+    try:
+        from core.signal.minute_tau_feats import (
+            attach_ret_vs_sector,
+            clear_minute_tau_pack_keys,
+            extract_minute_tau_pack,
+        )
+
+        open_px = None
+        prev_close = None
+        if isinstance(day_bar, dict):
+            open_px = _f(day_bar.get("open"))
+            prev_close = _f(day_bar.get("prev_close"))
+        pack = extract_minute_tau_pack(
+            minute_prefix,
+            trade_date=day,
+            tau_hm=hm or "10:30",
+            open_px=open_px,
+            prev_close=prev_close,
+        )
+        # 只清路径小包；截面已进 ŷ，inject 不得抹掉
+        merged = clear_minute_tau_pack_keys(dict(feats), include_cs=False)
+        if not pack:
+            item["features_tau"] = merged
+            return
+        for k, v in pack.items():
+            if v is not None:
+                merged[k] = v
+        attach_ret_vs_sector(merged)
+        item["features_tau"] = merged
+        if item.get("gap_pct") is None and merged.get("gap_pct") is not None:
+            item["gap_pct"] = merged.get("gap_pct")
+    except Exception:  # noqa: BLE001
+        logger.debug("inject minute pack from prefix failed", exc_info=True)
 
 
 def prefix_tau_hm_from_bars(
@@ -1316,7 +1393,7 @@ def predict_path_from_prefix_minutes(
     if not isinstance(score_snap, dict):
         return None
     bars = [b for b in (minute_prefix or []) if isinstance(b, dict)]
-    if len(bars) < 2:
+    if len(bars) < 1:
         return None
     try:
         from core.research.path_panel import path_features_from_open_row
@@ -1368,7 +1445,7 @@ def predict_tau_oc_from_prefix_minutes(
     if not isinstance(score_snap, dict):
         return None
     bars = [b for b in (minute_prefix or []) if isinstance(b, dict)]
-    if len(bars) < 2:
+    if len(bars) < 1:
         return None
     try:
         from core.research.tau_ridge import load_tau_model, predict_tau_from_features
@@ -1457,20 +1534,32 @@ def rescore_scores_at_fixed_prefix(
     fuse_intraday: bool = True,
     open_snap: Optional[dict] = None,
 ) -> Dict[str, Any]:
-    """齐 N 根：仅用前 N 根分钟重算 dual_y（因果；供确认根选向）。
+    """用已发生分钟前缀重算 dual_y（因果；≥1 根即可，含 09:35 首根）。
 
-    相对开盘-only 快照：补分钟小包 + 开→τ 截面 + ŷ_path。
-    失败时回退 ``open_snap``（仍可能无 path）。
+    非 09:30：**必须有分钟根**；空前缀 → ``minute_data_missing``。
+    有分钟根但打分失败时回退 open_snap，并注入分钟小包、禁止 open_z path。
     """
     raw = str(stock_code or "").strip()
     prefix = [b for b in (minute_prefix or []) if isinstance(b, dict)]
     fallback = dict(open_snap or {}) if isinstance(open_snap, dict) else {}
-    if not raw or len(prefix) < 2 or not isinstance(day_bar, dict):
+
+    def _missing(reason: str = "minute_data_missing") -> Dict[str, Any]:
+        out = dict(fallback)
+        out["y_path_status"] = reason
+        out["_minute_data_missing"] = True
+        out["_score_source"] = "prefix_minute_missing"
+        out.pop("y_path", None)
+        out.pop("predicted_score_path", None)
+        return out
+
+    if not raw or not isinstance(day_bar, dict):
         return fallback
+    if len(prefix) < 1:
+        # 非开盘信息集传空前缀 = 分钟数据缺失
+        return _missing()
     hm = prefix_tau_hm_from_bars(prefix)
-    # 不做同伴 5m 截面：回测 20 日×4 槽会反复扫仓，全持仓易超前端 abort。
-    # ŷ_τ 仍用前缀分钟因果重算；缺 sector_ret 时模型走无截面路径。
     sret = None
+    sc: Dict[str, Any] = {}
     try:
         sc = resolve_scores_for_code(
             raw,
@@ -1487,13 +1576,25 @@ def rescore_scores_at_fixed_prefix(
         )
     except Exception:  # noqa: BLE001
         logger.debug("rescore_scores_at_fixed_prefix failed", exc_info=True)
-        return fallback
-    if not scores_have_any(sc):
-        return fallback
-    out = dict(sc)
-    out["_score_source"] = "prefix_causal"
+        sc = {}
+
+    if scores_have_any(sc):
+        out = dict(sc)
+        src = "prefix_causal"
+    else:
+        # 有分钟根但未能出分：回退开盘锚，仍属「有分钟数据」
+        out = dict(fallback)
+        src = "prefix_open_fallback"
+
+    _inject_minute_pack_from_prefix(
+        out, minute_prefix=prefix, day_bar=day_bar, hm=hm or "10:30"
+    )
+    # 禁止 silently 用开盘 Z 冒充盘中 path
+    _attach_y_path_to_item(out, hist_bars=hist_bars, allow_open_z=False)
+    out["_score_source"] = src
     out["_score_prefix_hm"] = hm
     out["_score_prefix_bars"] = len(prefix)
+    out.pop("_minute_data_missing", None)
     return out
 
 
@@ -1529,9 +1630,9 @@ def attach_portrait_dual_scores(
     tau_hm: str = "10:30",
     prefix_bars: Optional[int] = None,
 ) -> Dict[str, Any]:
-    """日结果补画像用 ŷ_τ_oc / ŷ_path（**前 N 根**因果分钟，与做 T 前缀对齐）。
+    """日结果补画像用 ŷ_τ_oc / ŷ_path（**前 N 根**因果分钟）。
 
-    不再默认截到 10:30；N 取 ``prefix_bars`` / 日结果 / ``y_path_abandon_bars``。
+    不再默认截到 10:30；N 取 ``prefix_bars`` / 日结果 / ``T0_LAST_LEG1_PREFIX_BARS``。
     """
     out: Dict[str, Any] = dict(day or {})
     snap = dict(score_snap or {})
@@ -1562,12 +1663,12 @@ def attach_portrait_dual_scores(
                 break
     if n_pref is None:
         try:
-            from core.t0.config import resolve_path_abandon_bars
+            from core.t0.config import T0_LAST_LEG1_PREFIX_BARS
 
-            n_pref = int(resolve_path_abandon_bars({}, None))
+            n_pref = int(T0_LAST_LEG1_PREFIX_BARS)
         except Exception:  # noqa: BLE001
-            n_pref = 6
-    n_pref = max(2, min(int(n_pref or 6), 48))
+            n_pref = 18
+    n_pref = max(1, min(int(n_pref or 6), 48))
     prefix = _minute_bars_first_n(minute_bars or [], n_pref)
     # 兼容：显式 tau_hm 且未给 N 时仍可按钟截（旧调用）
     if not prefix and tau_hm:

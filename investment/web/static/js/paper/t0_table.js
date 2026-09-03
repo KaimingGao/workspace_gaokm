@@ -4,33 +4,23 @@ import {
   escapeText,
   paperMetricClass,
   fmtTableScore,
-  fmtScore,
   resolveTradeScore,
   resolveEodScore,
   resolveTauScore,
   resolveOnScore,
-  resolveNowcastCcScore,
   resolveNowcastScore,
-  Y_EOD_TITLE,
-  Y_TAU_TITLE,
-  Y_ON_TITLE,
-  Y_NC_TITLE,
-  Y_NC_OC_TITLE,
   Y_PATH_TITLE,
+  Y_TAU_TITLE,
   PATH_REALIZED_TITLE,
-  EOD_REALIZED_TITLE,
   TAU_REALIZED_TITLE,
   resolvePathScore,
   fmtPathScore,
-  nowcastOcPct,
 } from "./fmt.js?v=p1734";
 import {
   adaptiveSizingDayTip,
-  normalizeYTauMap,
   yTauMapScoreTip,
-} from "./execution_ui.js?v=p1814";
+} from "./execution_ui.js?v=p1906";
 import { watchingScoreDetail } from "../quant/watching_render.js?v=p1734";
-import { TRADE_TITLE } from "../quant/watching_quotes_ui.js";
 
 export const SKIP_CAT_LABEL = {
   missing_scores: "缺ŷ快照",
@@ -41,15 +31,18 @@ export const SKIP_CAT_LABEL = {
   y_path_flat: "y_path横盘",
   y_path_disagree: "y_τ↔y_path异号",
   gap_tier_skip: "大缺口反向跳过",
-  path_abandon: "前缀无空间放弃",
-  prefix_segment: "固定前缀待确认",
+  path_abandon: "前缀无空间放弃(旧)",
+  prefix_segment: "固定前缀待确认(旧)",
   prefix_vs_path: "前缀>|ŷ_path|×裕度(旧)",
+  close_band: "收盘带宽未破带",
+  price_space_mismatch: "日分价空间错位",
   tau_entry_price: "入场价vs开盘×ŷ_τ",
   tau_exit_price: "出场价vs开盘×ŷ_τ",
   y_trade_weak: "y_trade幅度不足",
   eod_tau_disagree: "y_eod↔y_τ异号",
   trade_tau_disagree: "y_trade↔y_τ异号",
   trade_tau_sign: "异号跳过",
+  tau_leg1_prior: "局部↔整体趋势不一致",
   conflict: "旧冲突",
   amplitude: "振幅不足(旧)",
   directional_amplitude: "方向振幅(旧)",
@@ -63,33 +56,39 @@ export const SKIP_CAT_LABEL = {
 /** 跳过类型口径（环形图 / 图例悬停） */
 export const SKIP_CAT_TIP = {
   missing_scores:
-    "当日缺 ŷ 快照（ŷ_τ / ŷ_trade 等算不出），无法定方向。",
+    "当日缺 ŷ 快照（ŷ_τ / ŷ_trade 等算不出），无法估 ĉ / 开轮。",
   missing_minute:
     "缺当日分钟线，无法模拟触达与成交路径。",
   y_tau_flat:
-    "|ŷ_τ| 低于入场门槛（默认 0.02%）：视为横盘，不定向、不开仓（path 关时）。",
+    "|ŷ_τ| 低于 y_tau_enter（默认 0.01%）视为横盘：即使收价破 ĉ±δ 也不开第一腿。",
   y_eod_flat:
-    "|ŷ_eod| 低于 y_eod_enter（默认 0.01%）：隔夜主轴过弱，dual_y 跳过。",
+    "历史口径：|ŷ_eod| 低于入场门槛。v6 选腿不经 eod 入场闸；强异号仍可跳过。",
   y_tau_weak:
     "历史跳过类别（旧双闸弱信号区）；现已并入 y_τ 入场，新跑批不再产生。",
   y_path_flat:
-    "ŷ_path 未过 y_path_enter（默认 0.02%），或 ŷ_τ 未过 y_tau_enter（path 开时联合闸）。",
+    "y_use_path 开时：缺 ŷ_path，或 |ŷ_path| 低于 y_path_enter（默认 0.01%），即使收价破 ĉ±δ 也不开第一腿。",
   y_path_disagree:
-    "ŷ_τ 与 ŷ_path 异号：dual_y 准入要求两预测同号且各过门槛。",
+    "y_use_path 开时：|ŷ_path| 超过 y_path_strong（默认 0.2%）却与 ŷ_τ 异号则跳过；低于强阈允许异号。",
   eod_tau_disagree:
-    "|ŷ_eod|>y_eod_strong（默认 0.2%）且 ŷ_eod 与定方向 ŷ_τ（OC）异号：隔夜主轴与盘中方向冲突，跳过。",
+    "历史口径：强 ŷ_eod 与 ŷ_τ 异号跳过。v6 选腿已下线该闸（仅 y_τ / ĉ_τ + path 入场/强）。",
   trade_tau_disagree:
-    "|ŷ_trade|>y_trade_strong（默认 0.2%）且 ŷ_trade 与定方向 ŷ_τ（OC）异号：融合幅度与盘中方向冲突，跳过。",
+    "历史口径：强 ŷ_trade 与 ŷ_τ 异号跳过。v6 选腿已下线该闸（仅 y_τ / ĉ_τ + path 入场/强）。",
+  tau_leg1_prior:
+    "局部 r=(p/ĉ−1)% vs 整体 y_τ。score：s=clip(k·y_τ,±α·δ)，upper=δ+s、lower=−δ+s；α∈[0.1,0.9]（默认 0.9）；skip=异号硬跳过；off=关。",
   gap_tier_skip:
     "大缺口档位与拟做方向冲突（如大高开仍想正 T），规则直接跳过。",
   path_abandon:
-    "固定前缀齐窗后仍未确认（后半阴阳占比等），放弃当日/本轮做 T。",
+    "历史口径：固定前缀齐窗后仍未确认。v6 已改为收盘带宽选腿，新跑批不应再产生。",
   prefix_segment:
-    "固定前缀未齐或后半阴阳占比未达标：正 T 待后半上涨、反 T 待后半下跌（Worker 可重试）。",
+    "历史口径：固定前缀未齐或阴阳占比未达标。v6 已下线，新跑批不应再产生。",
   prefix_vs_path:
-    "历史口径：前缀窗 (H−L)/ref% 超过 |ŷ_path|×裕度（空间用尽）。现行已改为确认根入场价 vs open×(1+(clamp(ŷ_τ×裕度,min,max)+价偏)/100)。",
+    "历史口径：前缀窗 (H−L)/ref% 超过 |ŷ_path|×裕度（空间用尽）。现行已改为收盘带宽 + τ 入场价闸。",
+  close_band:
+    "v6：该 5m 收价未破 ĉ±δ 带宽，或缺有效 ĉ 源，本轮不开第一腿。",
+  price_space_mismatch:
+    "日分价闸：开盘差 |日开/分开−1| 超 t0_price_space_max_dev_pct（默认 0.25%），或昨收差 |日昨/分昨−1| 超 t0_price_space_prev_dev_pct；错价则跳过。",
   tau_entry_price:
-    "确认根第一腿：正T买价须 < open×(1+(clamp(ŷ_τ×裕度,min,max)+价偏)/100)；反T卖价须 > 同式。可调裕度/价偏或关闸。",
+    "触发根第一腿：正T买价须 < open×(1+(clamp(ŷ_τ×裕度,min,max)+价偏)/100)；反T卖价须 > 同式。可调裕度/价偏或关闸。",
   tau_exit_price:
     "第二腿：正T卖价须 > open×(1+(clamp(ŷ_τ×裕度,min,max)+价偏)/100)；反T买价须 < 同式。止损/收盘强平不受闸。",
   y_trade_weak:
@@ -107,9 +106,9 @@ export const SKIP_CAT_TIP = {
   tplus1:
     "T+1 锁定：当日无可卖旧仓（反 T 先卖 / 正 T 卖旧仓走不通）。",
   path:
-    "分钟路径规则否决（veto），与预测头 dual_y 不一致类不同。",
+    "分钟路径规则否决（veto），与收盘带宽选腿不同。",
   trigger_miss:
-    "有方向且确认根已过，但第二腿全天未触达卖出/买回触发价。",
+    "已破带开第一腿，但第二腿全天未触达卖出/买回触发价。",
   other:
     "未归入上述类型的其它跳过原因。",
 };
@@ -125,7 +124,12 @@ const T0_TRADE_COL_W = {
   path: "120px",
   trade: "108px",
   on: "82px",
-  nc: "82px",
+  nc: "108px",
+  o: "52px",
+  l: "52px",
+  h: "52px",
+  c: "52px",
+  ctau: "72px",
   process: "320px",
   retPct: "76px",
   pnl: "72px",
@@ -245,11 +249,6 @@ export function shouldShowStockColumn(data, days) {
   return codes.size > 1;
 }
 
-function yTauEnter(data) {
-  const enter = data?.rules?.y_tau_enter;
-  return enter != null && Number.isFinite(Number(enter)) ? Number(enter) : 0.25;
-}
-
 /** 敞口列：仅「允许隔夜 + 第二腿未 intraday 完成」时有值；强制回补时损益全在 PnL。 */
 function exposureColTitle(data) {
   const forced =
@@ -308,7 +307,7 @@ function focusedSlotRow(d) {
 function slotClock(r, rows) {
   if (r && r.hm) return String(r.hm);
   const i = (rows || []).indexOf(r);
-  const defaults = ["10:00", "10:30", "11:00", "11:30"];
+  const defaults = ["11:00"];
   if (i >= 0 && i < defaults.length) return defaults[i];
   return "";
 }
@@ -365,21 +364,45 @@ function slotYNum(obj, keys) {
   return null;
 }
 
-/** 本轮 ŷ_τ / ŷ_path / ŷ_trade：只读槽位快照，不回退日级分。 */
-function slotYhat(r) {
+/** 该根前缀 y_τ：与 Ĉ 同源；旧包可从 ĉ/日开反推。 */
+function slotGateYTau(r, dayHost) {
+  const cb = slotCloseBand(r);
+  if (!cb) return null;
+  const stored = slotYNum(cb, ["y_tau"]);
+  if (stored != null) return stored;
+  const cDaily = slotYNum(cb, [
+    "c_tau_daily",
+    "close_px_daily",
+    "c_tau",
+    "close_px",
+  ]);
+  const oDay = Number(dayHost && dayHost.open);
+  if (cDaily != null && Number.isFinite(oDay) && oDay > 0) {
+    return (cDaily / oDay - 1) * 100;
+  }
+  return null;
+}
+
+/** 本轮 ŷ_τ / ŷ_path / ŷ_trade / ŷ_nowcast：只读槽位快照，不回退日级分。 */
+function slotYhat(r, dayHost) {
   const sc = r && r.scores && typeof r.scores === "object" ? r.scores : {};
   const ft =
     r && r.direction_features && typeof r.direction_features === "object"
       ? r.direction_features
       : {};
+  const gateYt = slotGateYTau(r, dayHost);
   let yTau =
     slotYNum(sc, ["y_tau", "y_tau_oc", "predicted_score_tau", "score_rem"]) ??
-    slotYNum(ft, ["y_tau", "y_tau_oc"]);
+    slotYNum(ft, ["y_tau", "y_tau_oc"]) ??
+    gateYt;
   let yPath =
     slotYNum(sc, ["y_path", "predicted_score_path"]) ?? slotYNum(ft, ["y_path"]);
   let yTrade =
     slotYNum(sc, ["y_trade", "predicted_score_blend", "decision_score"]) ??
     slotYNum(ft, ["y_trade"]);
+  let yNowcast =
+    slotYNum(sc, ["y_nowcast", "y_nc", "predicted_score_nowcast"]) ??
+    slotYNum(ft, ["y_nowcast", "y_nc"]);
   const reason = String((r && r.reason) || "");
   if (yTau == null) {
     const m = reason.match(/y_τ\s*=\s*(-?[\d.]+)/);
@@ -391,7 +414,12 @@ function slotYhat(r) {
       reason.match(/y_trade\s*=\s*(-?[\d.]+)/);
     if (m) yTrade = Number(m[1]);
   }
-  return { y_tau: yTau, y_path: yPath, y_trade: yTrade };
+  return {
+    y_tau: yTau,
+    y_path: yPath,
+    y_trade: yTrade,
+    y_nowcast: yNowcast,
+  };
 }
 
 function slotDayRow(d, r, rows) {
@@ -401,15 +429,25 @@ function slotDayRow(d, r, rows) {
   const slotTrades = (Array.isArray(d.trades) ? d.trades : []).filter(
     (t) => t && String(t.t0_slot || "") === sid
   );
-  const yhat = slotYhat(r);
+  const yhat = slotYhat(r, d);
   const slotScores = r.scores && typeof r.scores === "object" ? { ...r.scores } : {};
   const slotFeats =
     r.direction_features && typeof r.direction_features === "object"
       ? { ...r.direction_features }
       : {};
-  if (yhat.y_tau != null && slotScores.y_tau == null) slotScores.y_tau = yhat.y_tau;
+  // 槽位 scores 优先；缺字段时用 close_band.y_tau（与 Ĉ 同源）
+  if (yhat.y_tau != null) {
+    if (slotScores.y_tau == null) slotScores.y_tau = yhat.y_tau;
+    if (slotScores.y_tau_oc == null) slotScores.y_tau_oc = yhat.y_tau;
+  }
   if (yhat.y_path != null && slotScores.y_path == null) slotScores.y_path = yhat.y_path;
   if (yhat.y_trade != null && slotScores.y_trade == null) slotScores.y_trade = yhat.y_trade;
+  if (yhat.y_nowcast != null) {
+    if (slotScores.y_nowcast == null) slotScores.y_nowcast = yhat.y_nowcast;
+    if (slotScores.predicted_score_nowcast == null) {
+      slotScores.predicted_score_nowcast = yhat.y_nowcast;
+    }
+  }
   return {
     ...d,
     t0_slot: sid,
@@ -430,6 +468,7 @@ function slotDayRow(d, r, rows) {
     y_tau: yhat.y_tau,
     y_path: yhat.y_path,
     y_trade: yhat.y_trade,
+    y_nowcast: yhat.y_nowcast,
     scores: slotScores,
     direction_features: slotFeats,
     trades: filled ? (slotTrades.length ? slotTrades : d.trades) : [],
@@ -536,7 +575,7 @@ function pickScore(d, key) {
 function pickScoreNum(d, key) {
   if (
     d?.t0_slot_focus &&
-    (key === "y_tau" || key === "y_path" || key === "y_trade")
+    (key === "y_tau" || key === "y_path" || key === "y_trade" || key === "y_nowcast")
   ) {
     const n = Number(d[key]);
     return d[key] != null && d[key] !== "" && Number.isFinite(n) ? n : null;
@@ -645,45 +684,6 @@ function pickTauRealized(d) {
   };
 }
 
-function pickTradeRealized(d) {
-  const pr = pickEodRealized(d);
-  const pred = pickScoreNum(d, "y_trade");
-  const agree = _signAgree(pred, pr.n);
-  return {
-    text: pr.text,
-    n: pr.n,
-    tip:
-      "涨跌 · close[T]/close[T−1]−1（与 ŷ_trade 同目标）" +
-      (agree === true ? " · 与 ŷ_trade 同号" : agree === false ? " · 与 ŷ_trade 异号" : ""),
-    agree,
-  };
-}
-
-function pickEodRealized(d) {
-  let n =
-    pickScoreNum(d, "eod_realized") ??
-    (d.eod_realized != null && Number.isFinite(Number(d.eod_realized))
-      ? Number(d.eod_realized)
-      : null);
-  if (n == null) {
-    const pc = Number(d.prev_close);
-    const c = Number(d.close);
-    if (Number.isFinite(pc) && Number.isFinite(c) && pc > 0) {
-      n = (c / pc - 1) * 100;
-    }
-  }
-  if (n == null) return { text: "—", tip: EOD_REALIZED_TITLE, n: null };
-  const pred = pickScoreNum(d, "y_eod");
-  const agree = _signAgree(pred, n);
-  return {
-    text: fmtRealizedPct(n),
-    tip:
-      EOD_REALIZED_TITLE +
-      (agree === true ? " · 与 ŷ_EOD 同号" : agree === false ? " · 与 ŷ_EOD 异号" : ""),
-    n,
-    agree,
-  };
-}
 
 /** 回测：预估值(真实值)；实时做 T 无收盘真实 label，只显示预估值。 */
 function fmtPredRealizedText(predTxt, pr, showRealized) {
@@ -742,14 +742,13 @@ function pathMergedCellHtml(d, fallback, rules, scoreDetailJson, showRealized = 
   );
 }
 
-/** y_eod / y_τ：回测配对真实值；实时做 T 只显示 ŷ。 */
+/** y_τ：回测配对真实值；实时做 T 只显示 ŷ。 */
 function yPctMergedCellHtml(kind, d, fallback, rules, scoreDetailJson, titleExtra, showRealized = true, liveByCode = null) {
   const it = t0DayScoreItem(d, fallback, rules, liveByCode);
-  const isEod = kind === "eod";
-  const pred = isEod ? resolveEodScore(it) : resolveTauScore(it);
+  const pred = resolveTauScore(it);
   let predNum = pred;
   let predTxt = pred != null ? fmtTableScore(it, pred) : "—";
-  if (!isEod && predTxt === "—" && !d?.t0_slot_focus) {
+  if (predTxt === "—" && !d?.t0_slot_focus) {
     const ds = d.direction_score;
     if (ds != null && ds !== "" && Number.isFinite(Number(ds))) {
       predNum = Number(ds);
@@ -757,37 +756,40 @@ function yPctMergedCellHtml(kind, d, fallback, rules, scoreDetailJson, titleExtr
     }
   }
   const pr = showRealized
-    ? isEod
-      ? pickEodRealized(d)
-      : pickTauRealized(d)
-    : { n: null, tip: isEod ? EOD_REALIZED_TITLE : TAU_REALIZED_TITLE };
+    ? pickTauRealized(d)
+    : { n: null, tip: TAU_REALIZED_TITLE };
   const agreeCls = predRealizedAgreeCls(pr, showRealized);
-  const yTitle = isEod ? Y_EOD_TITLE : Y_TAU_TITLE;
-  const realTitle = isEod ? EOD_REALIZED_TITLE : TAU_REALIZED_TITLE;
   const tipParts = [
-    predNum != null || predTxt !== "—" ? yTitle : `暂无 ${isEod ? "ŷ_EOD" : "ŷ_τ"}`,
+    predNum != null || predTxt !== "—" ? Y_TAU_TITLE : "暂无 ŷ_τ",
   ];
-  if (it._scores_live_overlay) {
-    tipParts.push("缺快照·已用持仓分补洞");
-    if (isEod && it._decision_y_eod != null && Number.isFinite(Number(it._decision_y_eod))) {
-      tipParts.push(`决策时快照 ${Number(it._decision_y_eod).toFixed(3)}%`);
+  if (d?.t0_slot_focus) {
+    const slot = focusedSlotRow(d);
+    const cb = slotCloseBand(slot) || (d.close_band && typeof d.close_band === "object" ? d.close_band : null);
+    if (cb && cb.c_hat_score_source === "bar_prefix") {
+      tipParts.push("Ĉ 与该根前缀 ŷ_τ 同源；C=本根5m收价");
+    } else if (cb && cb.c_hat_score_source === "open_anchor") {
+      tipParts.push("Ĉ 用开盘 OC ŷ_τ（旧包）；请重跑回测");
+    } else if (cb && cb.c_hat_score_source === "bar_prefix_live") {
+      tipParts.push("该根前缀 ŷ_τ 估 Ĉ（与表列同源）");
     }
   }
-  if (showRealized) tipParts.push(pr.n != null ? pr.tip : realTitle);
+  if (it._scores_live_overlay) tipParts.push("缺快照·已用持仓分补洞");
+  if (showRealized) tipParts.push(pr.n != null ? pr.tip : TAU_REALIZED_TITLE);
   if (titleExtra) tipParts.push(String(titleExtra));
   if (showRealized) {
     if (pr.agree === true) tipParts.push("预测与真实同号");
     else if (pr.agree === false) tipParts.push("预测与真实异号");
   }
   const html = fmtPredRealizedHtml(predTxt, predNum, pr, showRealized);
-  const colKey = kind;
+  const colKey = kind === "tau" ? "tau" : kind;
   return (
     `<td class="num paper-t0-col-${escapeText(colKey)} paper-t0-col-y paper-t0-col-y-${escapeText(
       colKey
     )} paper-t0-y-score paper-t0-y-merged has-tip${agreeCls}" ` +
-    `data-score-tip="${escapeText(kind)}" data-score-detail="${scoreDetailJson}" ` +
+    `data-score-tip="tau" data-score-detail="${scoreDetailJson}" ` +
     `title="${escapeText(tipParts.join(" · "))}">` +
     `<span class="paper-t0-y-combo">${html}</span>` +
+
     `</td>`
   );
 }
@@ -796,16 +798,59 @@ function yPctMergedCellHtml(kind, d, fallback, rules, scoreDetailJson, titleExtr
  * ``liveByCode``：仅补洞（日快照缺字段时）；**绝不覆盖**已有决策分。
  * 回测/预演多日明细若盖持仓实时分，会出现「多日 ŷ 相同、负τ却正T」。
  */
+function scanRowForHm(d, hm) {
+  const scan = Array.isArray(d?.close_band_scan) ? d.close_band_scan : [];
+  const key = String(hm || "").trim().slice(0, 5);
+  if (!key || !scan.length) return null;
+  return (
+    scan.find((r) => r && String(r.hm || "").trim().slice(0, 5) === key) || null
+  );
+}
+
+/** 成交主表 ŷ 载荷：与展开扫描触发根同源，禁止持仓 live 盖决策快照。 */
+function tradeScoreHost(day, host) {
+  if (!host || typeof host !== "object") return host;
+  if (host.t0_slot_focus) return host;
+  const slot = focusedSlotRow(day);
+  let hm = String(host.t0_slot_hm || "").trim().slice(0, 5);
+  if (!hm && slot) hm = String(slotClock(slot, day?.t0_slot_results) || "").slice(0, 5);
+  const scanRow = scanRowForHm(day, hm);
+  if (!scanRow) return host;
+  const yTau = scanRow.y_tau != null ? Number(scanRow.y_tau) : null;
+  const yPath = scanRow.y_path != null ? Number(scanRow.y_path) : null;
+  const scores = { ...(host.scores && typeof host.scores === "object" ? host.scores : {}) };
+  if (yTau != null && Number.isFinite(yTau)) {
+    scores.y_tau = yTau;
+    scores.y_tau_oc = yTau;
+    scores.predicted_score_tau_oc = yTau;
+    scores.predicted_score_tau = yTau;
+    scores.score_rem = yTau;
+  }
+  if (yPath != null && Number.isFinite(yPath)) {
+    scores.y_path = yPath;
+    scores.predicted_score_path = yPath;
+  }
+  return {
+    ...host,
+    y_tau: yTau != null && Number.isFinite(yTau) ? yTau : host.y_tau,
+    y_path: yPath != null && Number.isFinite(yPath) ? yPath : host.y_path,
+    direction_score:
+      yTau != null && Number.isFinite(yTau) ? yTau : host.direction_score,
+    scores,
+    _scan_score_row: scanRow,
+  };
+}
+
 function t0DayScoreItem(d, fallback = {}, rules = {}, liveByCode = null) {
   const slot = focusedSlotRow(d);
-  const slotOnly = !!d?.t0_slot_focus;
-  const scores = slotOnly
+  const slotSnapMode = !!d?.t0_slot_focus || (!!slot && slotFilled(slot));
+  const scores = slotSnapMode
     ? { ...((slot && slot.scores && typeof slot.scores === "object" ? slot.scores : {}) || {}) }
     : {
         ...((d.scores && typeof d.scores === "object" ? d.scores : {}) || {}),
         ...((slot && slot.scores && typeof slot.scores === "object" ? slot.scores : {}) || {}),
       };
-  const feats = slotOnly
+  const feats = slotSnapMode
     ? {
         ...((slot && slot.direction_features && typeof slot.direction_features === "object"
           ? slot.direction_features
@@ -821,12 +866,24 @@ function t0DayScoreItem(d, fallback = {}, rules = {}, liveByCode = null) {
           ? slot.direction_features
           : {}) || {}),
       };
-  const yEod = pickScoreNum(d, "y_eod");
-  const yTau = pickScoreNum(d, "y_tau");
-  const yTrade = pickScoreNum(d, "y_trade");
-  const yOn = pickScoreNum(d, "y_on");
-  const yNc = pickScoreNum(d, "y_nowcast");
-  const yPath = pickScoreNum(d, "y_path");
+  let yEod = pickScoreNum(d, "y_eod");
+  let yTau = pickScoreNum(d, "y_tau");
+  let yTrade = pickScoreNum(d, "y_trade");
+  let yOn = pickScoreNum(d, "y_on");
+  let yNc = pickScoreNum(d, "y_nowcast");
+  let yPath = pickScoreNum(d, "y_path");
+  if (slotSnapMode && slot) {
+    const yhat = slotYhat(slot, d);
+    if (yhat.y_tau != null) yTau = yhat.y_tau;
+    if (yhat.y_path != null) yPath = yhat.y_path;
+    if (yhat.y_trade != null) yTrade = yhat.y_trade;
+  }
+  const scanHost = d?._scan_score_row ? d : null;
+  if (scanHost?._scan_score_row) {
+    const sr = scanHost._scan_score_row;
+    if (sr.y_tau != null && Number.isFinite(Number(sr.y_tau))) yTau = Number(sr.y_tau);
+    if (sr.y_path != null && Number.isFinite(Number(sr.y_path))) yPath = Number(sr.y_path);
+  }
   const code = String(
     d.stock_code || fallback.stock_code || scores.stock_code || ""
   ).trim();
@@ -834,12 +891,12 @@ function t0DayScoreItem(d, fallback = {}, rules = {}, liveByCode = null) {
     liveByCode && code && typeof liveByCode[code] === "object"
       ? liveByCode[code]
       : null;
-  const liveEod = slotOnly ? null : live ? resolveEodScore(live) : null;
-  const liveTau = slotOnly ? null : live ? resolveTauScore(live) : null;
-  const liveTrade = slotOnly ? null : live ? resolveTradeScore(live) : null;
-  const liveOn = slotOnly ? null : live ? resolveOnScore(live) : null;
-  const liveNc = slotOnly ? null : live ? resolveNowcastScore(live) : null;
-  const livePath = slotOnly ? null : live ? resolvePathScore(live) : null;
+  const liveEod = slotSnapMode ? null : live ? resolveEodScore(live) : null;
+  const liveTau = slotSnapMode ? null : live ? resolveTauScore(live) : null;
+  const liveTrade = slotSnapMode ? null : live ? resolveTradeScore(live) : null;
+  const liveOn = slotSnapMode ? null : live ? resolveOnScore(live) : null;
+  const liveNc = slotSnapMode ? null : live ? resolveNowcastScore(live) : null;
+  const livePath = slotSnapMode ? null : live ? resolvePathScore(live) : null;
   const dayEod = scores.predicted_score_eod ?? yEod;
   const dayTau = scores.predicted_score_tau ?? scores.score_rem ?? yTau;
   const ftTau =
@@ -866,7 +923,7 @@ function t0DayScoreItem(d, fallback = {}, rules = {}, liveByCode = null) {
   const dayNc = scores.predicted_score_nowcast ?? yNc;
   const dayPath = scores.predicted_score_path ?? scores.y_path ?? yPath;
   const filledFromLive =
-    !slotOnly &&
+    !slotSnapMode &&
     live &&
     ((dayEod == null && liveEod != null) ||
       (dayTau == null && liveTau != null) ||
@@ -876,21 +933,23 @@ function t0DayScoreItem(d, fallback = {}, rules = {}, liveByCode = null) {
     ...scores,
     stock_code: code || null,
     stock_name: d.stock_name || fallback.stock_name || scores.stock_name || null,
+    // 槽位行：锁存决策 y_trade，避免 resolveTradeScore 按 gap 再 fuse
+    _t0_lock_trade: !!slotSnapMode,
     predicted_score_eod: dayEod ?? liveEod,
     predicted_score: dayEod ?? scores.predicted_score ?? liveEod,
-    predicted_score_tau: slotOnly ? yTau : dayTau ?? liveTau,
-    score_rem: slotOnly ? yTau : dayTau ?? scores.score_rem ?? liveTau,
-    y_tau: slotOnly ? yTau : scores.y_tau ?? yTau,
-    y_tau_oc: slotOnly ? (dayTauOc ?? yTau) : dayTauOc,
-    predicted_score_tau_oc: slotOnly ? (dayTauOc ?? yTau) : dayTauOc,
-    predicted_score_blend: slotOnly ? yTrade : dayTrade ?? liveTrade,
-    y_trade: slotOnly ? yTrade : scores.y_trade ?? yTrade,
-    decision_score: slotOnly ? yTrade : dayTrade ?? scores.decision_score ?? liveTrade,
-    score: slotOnly ? yTrade : dayTrade ?? scores.score ?? liveTrade,
+    predicted_score_tau: slotSnapMode ? yTau : dayTau ?? liveTau,
+    score_rem: slotSnapMode ? yTau : dayTau ?? scores.score_rem ?? liveTau,
+    y_tau: slotSnapMode ? yTau : scores.y_tau ?? yTau,
+    y_tau_oc: slotSnapMode ? (dayTauOc ?? yTau) : dayTauOc,
+    predicted_score_tau_oc: slotSnapMode ? (dayTauOc ?? yTau) : dayTauOc,
+    predicted_score_blend: slotSnapMode ? yTrade : dayTrade ?? liveTrade,
+    y_trade: slotSnapMode ? yTrade : scores.y_trade ?? yTrade,
+    decision_score: slotSnapMode ? yTrade : dayTrade ?? scores.decision_score ?? liveTrade,
+    score: slotSnapMode ? yTrade : dayTrade ?? scores.score ?? liveTrade,
     predicted_score_on: dayOn ?? liveOn,
     predicted_score_nowcast: dayNc ?? liveNc,
-    predicted_score_path: slotOnly ? yPath : dayPath ?? livePath,
-    y_path: slotOnly ? yPath : dayPath ?? livePath,
+    predicted_score_path: slotSnapMode ? yPath : dayPath ?? livePath,
+    y_path: slotSnapMode ? yPath : dayPath ?? livePath,
     y_path_status: scores.y_path_status ?? live?.y_path_status ?? null,
     y_path_error: scores.y_path_error ?? live?.y_path_error ?? null,
     features_path:
@@ -1034,88 +1093,6 @@ function t0DayScoreItem(d, fallback = {}, rules = {}, liveByCode = null) {
   };
 }
 
-/** 表列 y_*：与 holdings_table / watching 同源 resolve。 */
-function t0FmtYScore(d, kind, fallback = {}, rules = {}, liveByCode = null) {
-  const it = t0DayScoreItem(d, fallback, rules, liveByCode);
-  if (kind === "path") {
-    const p = resolvePathScore(it);
-    return p != null ? fmtPathScore(p) : "—";
-  }
-  const resolvers = {
-    eod: resolveEodScore,
-    tau: resolveTauScore,
-    trade: resolveTradeScore,
-    on: resolveOnScore,
-    nowcast: resolveNowcastCcScore,
-  };
-  const fn = resolvers[kind];
-  return fmtTableScore(it, fn ? fn(it) : null);
-}
-
-function resolveNowcastCcValue(d, fallback, rules, liveByCode = null) {
-  const it = t0DayScoreItem(d, fallback, rules, liveByCode);
-  const cc = resolveNowcastCcScore(it);
-  if (cc != null && Number.isFinite(Number(cc))) return Number(cc);
-  return pickScoreNum(d, "y_nowcast");
-}
-
-function resolveNowcastOcValue(d, fallback, rules, liveByCode = null) {
-  const it = t0DayScoreItem(d, fallback, rules, liveByCode);
-  const feats =
-    (d.direction_features && typeof d.direction_features === "object"
-      ? d.direction_features
-      : null) ||
-    (d.features && typeof d.features === "object" ? d.features : {}) ||
-    {};
-  const cc = resolveNowcastCcValue(d, fallback, rules, liveByCode);
-  const gap = it.gap_pct;
-  let oc =
-    feats.y_nc_oc != null && Number.isFinite(Number(feats.y_nc_oc))
-      ? Number(feats.y_nc_oc)
-      : feats.y_nowcast_oc != null && Number.isFinite(Number(feats.y_nowcast_oc))
-        ? Number(feats.y_nowcast_oc)
-        : null;
-  if (oc == null && cc != null && gap != null) oc = nowcastOcPct(cc, gap);
-  return { oc, cc, gap };
-}
-
-function fmtNowcastOcCell(d, fallback, rules, scoreDetailJson, liveByCode = null) {
-  const ocOn = rules.y_nowcast_oc_gate === true;
-  const { oc, cc, gap } = resolveNowcastOcValue(d, fallback, rules, liveByCode);
-  if (oc == null) {
-    const tip =
-      gap == null
-        ? "缺 gap，无法由 nc 换算 nowcast oc"
-        : cc == null
-          ? "缺 nc，无法换算 nowcast oc"
-          : Y_NC_OC_TITLE;
-    return t0YScoreCell("nc_oc", "—", scoreDetailJson, tip);
-  }
-  const ocText = fmtScore(oc, { digits: 2 });
-  const gapText = gap != null ? fmtScore(gap, { digits: 2 }) : "—";
-  const ccText = cc != null ? fmtScore(cc, { digits: 2 }) : "—";
-  const gateNote = ocOn ? "异号闸用 nowcast oc" : "异号闸用 nc（oc 仅对照）";
-  const title = `${Y_NC_OC_TITLE} · ${gateNote} · nc ${ccText} · gap ${gapText}`;
-  return t0YScoreCell("nc_oc", ocText, scoreDetailJson, title);
-}
-
-function t0YScoreCell(tip, text, detailJson, title, extraCls = "", { html = false } = {}) {
-  const colKey =
-    tip === "nowcast"
-      ? "nc"
-      : tip === "nc_oc"
-        ? "nc-oc"
-        : tip;
-  return (
-    `<td class="num paper-t0-col-${escapeText(colKey)} paper-t0-col-y paper-t0-col-y-${escapeText(
-      colKey
-    )} paper-t0-y-score has-tip${extraCls}" data-score-tip="${escapeText(
-      tip
-    )}" data-score-detail="${detailJson}" title="${escapeText(title)}">${
-      html ? text : escapeText(text)
-    }</td>`
-  );
-}
 
 function fmtT0LegTime(v) {
   if (v == null || v === "") return "";
@@ -1268,8 +1245,9 @@ function processSlotGroups(d) {
       skipped: !!r.skipped && !slotLegs.length,
       reason: String(r.reason || ""),
       scores: r.scores && typeof r.scores === "object" ? r.scores : null,
-      yTau: slotYhat(r).y_tau,
-      yPath: slotYhat(r).y_path,
+      yTau: slotYhat(r, d).y_tau,
+      yPath: slotYhat(r, d).y_path,
+      closeBand: slotCloseBand(r),
     });
   }
   for (const [id, slotLegs] of byId) {
@@ -1292,7 +1270,9 @@ function slotYhatBit(g) {
   const yp = g && g.yPath != null ? Number(g.yPath) : NaN;
   if (Number.isFinite(yt)) bits.push(`τ${yt.toFixed(1)}`);
   if (Number.isFinite(yp)) bits.push(`p${yp.toFixed(1)}`);
-  return bits.length ? ` ${bits.join("/")}` : "";
+  const band = fmtCloseBandNote(g && g.closeBand);
+  if (band) bits.push(band);
+  return bits.length ? ` ${bits.join(" · ")}` : "";
 }
 
 function processGroupsForRow(d) {
@@ -1392,13 +1372,16 @@ function dayReturnPct(d) {
 function fmtDayReturnPct(d) {
   const pct = dayReturnPct(d);
   if (pct == null || !Number.isFinite(pct)) {
-    return { text: "—", tip: "缺动仓股数或成交价，无法算收益%" };
+    return { text: "—", tip: "缺动仓股数或成交价，无法算收益%", pct: null, heat: "" };
   }
   const sign = pct > 0 ? "+" : "";
+  const a = Math.abs(pct);
+  const heat = a >= 1 ? " is-ret-hot" : a >= 0.35 ? " is-ret-warm" : " is-ret-cool";
   return {
     text: `${sign}${pct.toFixed(2)}%`,
     tip: `(PnL ${d.pnl ?? 0} + 敞口 ${d.exposure_pnl ?? 0}) / 动仓名义`,
     pct,
+    heat,
   };
 }
 
@@ -1509,15 +1492,6 @@ export function tradeLegCells(d) {
 export function daysHaveIntradayTime(days) {
   return (days || []).some((d) => !!d.minute_path || collectLegRecords(d).some((l) => !!l.time));
 }
-
-function tradeTableColCount(showStock, showReason, showDelete) {
-  let n = 13;
-  if (showStock) n += 1;
-  if (showReason) n += 1;
-  if (showDelete) n += 1;
-  return n;
-}
-
 
 /** 过程 tip：从 forward_trace 压成迷你 K 线点（[hm,o,h,l,c,flag]）。
  * flag: 1=leg1 · 2=leg2 · 4=前缀 low · 8=前缀 high（可按位或）。
@@ -1773,12 +1747,92 @@ function slotOhlcFromBars(bars, hm) {
   };
 }
 
-function fmtOhlcTd(n) {
+function _finitePx(v) {
+  const n = Number(v);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+/** 成交主表：触发根 O/L/H/C。 */
+function tradeBarPxTd(colKey, n, title = "") {
+  const tip = String(title || "").trim();
+  const tipAttr = tip ? ` title="${escapeText(tip)}"` : "";
   const v = Number(n);
+  const tone = colKey === "l" ? " is-lo" : colKey === "h" ? " is-hi" : "";
   if (!Number.isFinite(v) || !(v > 0)) {
-    return `<td class="num paper-t0-day-yhat-ohlc is-na">—</td>`;
+    return `<td class="num paper-t0-col-${escapeText(colKey)} is-na${tone}"${tipAttr}>—</td>`;
   }
-  return `<td class="num paper-t0-day-yhat-ohlc">${escapeText(fmtBarPx(v))}</td>`;
+  return `<td class="num paper-t0-col-${escapeText(colKey)}${tone}"${tipAttr}>${escapeText(
+    fmtBarPx(v)
+  )}</td>`;
+}
+
+/** 成交主表：Ĉ_τ（主显分钟映后；有日原则旁注）。 */
+function tradeCtauTd(minutePx, dailyPx) {
+  const m = Number(minutePx);
+  const d = Number(dailyPx);
+  const mOk = Number.isFinite(m) && m > 0;
+  const dOk = Number.isFinite(d) && d > 0;
+  const bits = ["ĉ_τ"];
+  if (dOk) bits.push(`日原 ${fmtBarPx(d)}（估空间·未÷S）`);
+  if (mOk) bits.push(`分钟 ${fmtBarPx(m)}（破带·÷S 后）`);
+  const tipAttr = ` title="${escapeText(bits.join(" · "))}"`;
+  if (!mOk) {
+    return `<td class="num paper-t0-col-ctau is-na"${tipAttr}>—</td>`;
+  }
+  const differ =
+    dOk && Math.abs(d - m) >= 0.0005
+      ? `<span class="paper-t0-day-yhat-daily" title="${escapeText(
+          `日原 ${fmtBarPx(d)}`
+        )}">日${escapeText(fmtBarPx(d))}</span>`
+      : "";
+  return (
+    `<td class="num paper-t0-col-ctau"${tipAttr}>` +
+    `<span class="paper-t0-day-yhat-min">${escapeText(fmtBarPx(m))}</span>` +
+    differ +
+    `</td>`
+  );
+}
+
+/** 本轮触发根 OHLC + Ĉ_τ。 */
+function tradeSlotPxCells(host) {
+  const bars = compactTraceBars(host && host.forward_trace, {
+    prefixBars: Number(host && host.prefix_bars) || 0,
+    dir: (host && (host.direction || host.direction_used)) || "",
+    markPrefix: false,
+  });
+  let hm = String(host?.t0_slot_hm || "").trim();
+  let slotRow = null;
+  if (host?.t0_slot_focus) {
+    slotRow = focusedSlotRow(host);
+  } else {
+    const rows = Array.isArray(host?.t0_slot_results) ? host.t0_slot_results : [];
+    for (const r of rows) {
+      if (slotFilled(r)) {
+        slotRow = r;
+        break;
+      }
+    }
+  }
+  if (!hm && slotRow) hm = slotClock(slotRow, host?.t0_slot_results);
+  let ohlc = hm ? slotOhlcFromBars(bars, hm) : { o: null, l: null, h: null, c: null };
+  if (ohlc.o == null && ohlc.c == null) {
+    ohlc = {
+      o: _finitePx(host && host.open),
+      l: _finitePx(host && host.low),
+      h: _finitePx(host && host.high),
+      c: _finitePx(host && host.close),
+    };
+  }
+  const px = slotClosePxParts(slotRow);
+  const cTau = px.c_tau ?? px.c_hat;
+  const cTauDaily = px.c_tau_daily ?? px.c_hat_daily;
+  return (
+    tradeBarPxTd("o", ohlc.o, "本轮触发根 5m 开盘") +
+    tradeBarPxTd("l", ohlc.l, "本轮触发根 5m 最低") +
+    tradeBarPxTd("h", ohlc.h, "本轮触发根 5m 最高") +
+    tradeBarPxTd("c", ohlc.c, "本轮触发根 5m 收盘") +
+    tradeCtauTd(cTau, cTauDaily)
+  );
 }
 
 export function buildProcessTipPayload(d, legTip) {
@@ -1806,11 +1860,14 @@ export function buildProcessTipPayload(d, legTip) {
     markPrefix: slotFocus || filledN <= 1,
   });
   const slotHm = slotFocus ? String(d?.t0_slot_hm || "").trim() : "";
+  const slotRow = slotFocus ? focusedSlotRow(d) : null;
+  const closeBandNote = fmtCloseBandNote(slotCloseBand(slotRow));
   return {
     dir,
     bars,
     slots: !slotFocus && (filledN > 1 || dirRaw === "mixed"),
     slot_hm: slotHm,
+    close_band: closeBandNote || null,
   };
 }
 
@@ -1832,10 +1889,14 @@ export function buildProcessTipHtml(payload) {
     markers: slotHm ? [{ hm: slotHm, label: slotHm, filled: true }] : [],
   });
   const foot = slotHm
-    ? `悬停看 O/H/L/C · 买/卖=本轮成交 · ${slotHm} 决策钟 · L/H=本轮前缀极值价`
+    ? `悬停看 O/H/L/C · 买/卖=本轮成交 · ${slotHm} 决策钟 · L/H=本轮前缀极值价${
+        p.close_band ? ` · ${p.close_band}` : ""
+      }`
     : p.slots
       ? "悬停看 O/H/L/C · 买/卖=各轮成交 · K 线为当日 5m（多轮共用）"
-      : "悬停看 O/H/L/C · 买/卖=成交腿 · L/H=前缀极值价";
+      : `悬停看 O/H/L/C · 买/卖=成交腿 · L/H=前缀极值价${
+          p.close_band ? ` · ${p.close_band}` : ""
+        }`;
   return (
     `<div class="paper-t0-process-tip-inner">` +
     `<header class="paper-t0-process-tip-head">` +
@@ -1865,277 +1926,54 @@ export function wireT0ProcessTips(host, tipCtrl) {
   });
 }
 
-function dayLevelYNum(d, keys) {
-  const sc = d && d.scores && typeof d.scores === "object" ? d.scores : {};
-  const ft =
-    d && d.direction_features && typeof d.direction_features === "object"
-      ? d.direction_features
-      : d && d.features && typeof d.features === "object"
-        ? d.features
-        : {};
-  return slotYNum(sc, keys) ?? slotYNum(ft, keys);
+function fmtCloseBandNote(cb) {
+  if (!cb || typeof cb !== "object") return "";
+  const c = cb.close_px;
+  const d = cb.delta_px;
+  const l2 = cb.leg2_target;
+  if (c == null && d == null && l2 == null) return "";
+  const bits = [];
+  if (c != null && Number.isFinite(Number(c))) bits.push(`ĉ=${Number(c)}`);
+  if (d != null && Number.isFinite(Number(d))) bits.push(`δ=${Number(d)}`);
+  if (l2 != null && Number.isFinite(Number(l2))) bits.push(`→leg2 ${Number(l2)}`);
+  return bits.join(" ");
 }
 
-function daySlotScoreRows(d) {
-  const rows = Array.isArray(d?.t0_slot_results) ? d.t0_slot_results : [];
-  // 执行末轮 11:30；旧六轮结果里的 13:00/14:00 不再展示（午后不开 leg1）
-  const lastLeg1Hm = "11:30";
-  if (rows.length) {
-    return rows
-      .map((r) => {
-        const y = slotYhat(r);
-        const skipTxt = String(r.reason || "").trim();
-        return {
-          hm: slotClock(r, rows),
-          dir: slotDirShort(r.direction),
-          y_tau: y.y_tau,
-          y_path: y.y_path,
-          y_trade: y.y_trade,
-          filled: slotFilled(r),
-          skip: r.skipped || !slotFilled(r) ? skipTxt : "",
-        };
-      })
-      .filter((r) => {
-        const hm = String(r.hm || "").trim().slice(0, 5);
-        return !hm || hm <= lastLeg1Hm;
-      });
+function slotCloseBand(r) {
+  const cb = r && r.close_band && typeof r.close_band === "object" ? r.close_band : null;
+  return cb;
+}
+
+/** 从 close_band 取出 ĉ_τ / ĉ（分钟映后 + 日原）。 */
+function slotClosePxParts(r) {
+  const cb = slotCloseBand(r);
+  if (!cb) {
+    return {
+      c_tau: null,
+      c_trade: null,
+      c_nowcast: null,
+      c_hat: null,
+      c_tau_daily: null,
+      c_trade_daily: null,
+      c_nowcast_daily: null,
+      c_hat_daily: null,
+    };
   }
-  return [
-    {
-      hm: String(d?.t0_slot_hm || "").trim(),
-      dir: slotDirShort(d && d.direction),
-      y_tau: dayLevelYNum(d, ["y_tau", "y_tau_oc", "predicted_score_tau"]),
-      y_path: dayLevelYNum(d, ["y_path", "predicted_score_path"]),
-      y_trade: dayLevelYNum(d, ["y_trade", "predicted_score_blend"]),
-      filled: !d?.skipped,
-      skip: d?.skipped ? String(d.reason || "跳过").trim() : "",
-    },
-  ];
-}
-
-export function buildDayDetailPayload(d, { showRealized = true } = {}) {
-  const dirRaw = (d && (d.direction || d.direction_used)) || "";
-  const dir =
-    dirRaw === "buy_then_sell"
-      ? "正T"
-      : dirRaw === "sell_then_buy"
-        ? "反T"
-        : dirRaw === "mixed"
-          ? "多轮"
-          : "";
-  const bars = compactTraceBars(d && d.forward_trace, {
-    prefixBars: Number(d && d.prefix_bars) || 0,
-    dir: dirRaw,
-    markPrefix: false,
-  });
-  const slots = daySlotScoreRows(d).map((s) => {
-    const px = slotOhlcFromBars(bars, s && s.hm);
-    return { ...s, ...px };
-  });
-  const tauR = pickTauRealized(d);
-  const pathR = pickPathRealized(d);
-  const tradeR = pickTradeRealized(d);
-  return {
-    dir,
-    slots,
-    show_realized: !!showRealized,
-    tau_realized: tauR.n,
-    path_realized: pathR.n,
-    trade_realized: tradeR.n,
+  const num = (v) => {
+    if (v == null || v === "") return null;
+    const n = Number(v);
+    return Number.isFinite(n) ? n : null;
   };
-}
-
-function fmtYhatPair(n, real, { path = false, showRealized = true } = {}) {
-  const predOk = n != null && Number.isFinite(Number(n));
-  const predTxt = predOk
-    ? path
-      ? fmtPathScore(n)
-      : fmtScore(n, { digits: 2 })
-    : "—";
-  const realOk = real != null && Number.isFinite(Number(real));
-  const pr = realOk
-    ? { n: Number(real), text: path ? fmtPathScore(real) : fmtRealizedPct(real) }
-    : { n: null };
   return {
-    html: fmtPredRealizedHtml(predTxt, predOk ? Number(n) : null, pr, showRealized),
-    hit: signHitFlag(n, real, path ? 1e-9 : 0.05),
+    c_tau: num(cb.c_tau),
+    c_trade: num(cb.c_trade),
+    c_nowcast: num(cb.c_nowcast),
+    c_hat: num(cb.close_px),
+    c_tau_daily: num(cb.c_tau_daily),
+    c_trade_daily: num(cb.c_trade_daily),
+    c_nowcast_daily: num(cb.c_nowcast_daily),
+    c_hat_daily: num(cb.close_px_daily),
   };
-}
-
-function signHitFlag(pred, real, eps = 0.05) {
-  if (pred == null || real == null) return null;
-  const p = Number(pred);
-  const r = Number(real);
-  if (!Number.isFinite(p) || !Number.isFinite(r)) return null;
-  if (Math.abs(p) < eps || Math.abs(r) < eps) return null;
-  return (p > 0) === (r > 0);
-}
-
-function fmtHitTd(hit) {
-  if (hit === true) {
-    return `<td class="paper-t0-day-yhat-hit is-hit">同</td>`;
-  }
-  if (hit === false) {
-    return `<td class="paper-t0-day-yhat-hit is-miss">异</td>`;
-  }
-  return `<td class="paper-t0-day-yhat-hit is-na">—</td>`;
-}
-
-function fmtYhatTd(n, real, opts = {}) {
-  const { html, hit } = fmtYhatPair(n, real, opts);
-  return (
-    `<td class="num paper-t0-day-yhat-score"><span class="paper-t0-y-combo">${html}</span></td>` +
-    fmtHitTd(opts.showHit === false ? null : hit)
-  );
-}
-
-function shortenSkipReason(raw) {
-  let s = String(raw || "").trim();
-  if (!s) return "";
-  s = s.replace(/^dual_y[：:]\s*/i, "");
-  if (s.length > 48) s = `${s.slice(0, 47)}…`;
-  return s;
-}
-
-export function buildDayDetailHtml(payload) {
-  let p = payload;
-  if (typeof p === "string") {
-    try {
-      p = JSON.parse(p);
-    } catch (_) {
-      p = {};
-    }
-  }
-  p = p || {};
-  const slots = Array.isArray(p.slots) ? p.slots : [];
-  const showR = p.show_realized !== false;
-  const nFill = slots.filter((s) => s && s.filled).length;
-  const nSkip = slots.length - nFill;
-  const body = slots
-    .map((s) => {
-      const filled = !!s.filled;
-      const why = filled ? "" : shortenSkipReason(s.skip);
-      const st = filled
-        ? `<span class="paper-t0-day-status is-fill">成交</span>`
-        : `<span class="paper-t0-day-status is-skip">跳过</span>`;
-      const dirCls =
-        s.dir === "正" ? "is-bts" : s.dir === "反" ? "is-stb" : "";
-      return (
-        `<tr class="${filled ? "is-filled" : "is-skip"}">` +
-        `<td class="paper-t0-day-yhat-hm">${escapeText(s.hm || "—")}</td>` +
-        `<td class="paper-t0-day-yhat-dir ${dirCls}">${escapeText(s.dir || "—")}</td>` +
-        fmtOhlcTd(s.o) +
-        fmtOhlcTd(s.l) +
-        fmtOhlcTd(s.h) +
-        fmtOhlcTd(s.c) +
-        fmtYhatTd(s.y_tau, p.tau_realized, { showRealized: showR }) +
-        fmtYhatTd(s.y_path, p.path_realized, { path: true, showRealized: showR }) +
-        fmtYhatTd(s.y_trade, p.trade_realized, { showRealized: showR }) +
-        `<td class="paper-t0-day-yhat-res">${st}</td>` +
-        `<td class="paper-t0-day-yhat-st" title="${escapeText(s.skip || "")}">${escapeText(
-          why || (filled ? "—" : "")
-        )}</td>` +
-        `</tr>`
-      );
-    })
-    .join("");
-  const table = slots.length
-    ? `<table class="paper-t0-day-yhat">` +
-      `<thead><tr>` +
-      `<th rowspan="2">时钟</th>` +
-      `<th rowspan="2">向</th>` +
-      `<th rowspan="2" title="确认钟 5m 开盘">O</th>` +
-      `<th rowspan="2" title="确认钟 5m 最低">L</th>` +
-      `<th rowspan="2" title="确认钟 5m 最高">H</th>` +
-      `<th rowspan="2" title="确认钟 5m 收盘">C</th>` +
-      `<th colspan="2">y_τ</th>` +
-      `<th colspan="2">y_path</th>` +
-      `<th colspan="2">y_trade</th>` +
-      `<th rowspan="2">结果</th>` +
-      `<th rowspan="2">说明</th>` +
-      `</tr><tr>` +
-      `<th>分数(label)</th><th>命中</th>` +
-      `<th>分数(label)</th><th>命中</th>` +
-      `<th>分数(label)</th><th>命中</th>` +
-      `</tr></thead><tbody>${body}</tbody></table>`
-    : `<p class="paper-t0-day-detail-empty">无槽位预估</p>`;
-  return (
-    `<div class="paper-t0-day-detail-inner">` +
-    `<header class="paper-t0-day-detail-head">` +
-    `<span class="paper-t0-day-detail-title">各轮预估</span>` +
-    (p.dir ? `<span class="paper-t0-day-detail-badge">${escapeText(p.dir)}</span>` : "") +
-    `<span class="paper-t0-day-detail-count">成交 ${nFill} · 跳过 ${nSkip}</span>` +
-    `</header>` +
-    table +
-    `</div>`
-  );
-}
-
-function closeDayDetails(table, exceptTd) {
-  if (!table) return;
-  table.querySelectorAll("tr.paper-t0-day-detail").forEach((tr) => tr.remove());
-  table.querySelectorAll("td.paper-t0-col-date[aria-expanded='true']").forEach((td) => {
-    if (td !== exceptTd) td.setAttribute("aria-expanded", "false");
-  });
-}
-
-function toggleDayDetail(dateTd) {
-  if (!dateTd) return;
-  const table = dateTd.closest("table");
-  const hostTr = dateTd.closest("tr");
-  if (!table || !hostTr) return;
-  const dayId = hostTr.getAttribute("data-t0-day-id") || "";
-  const open = dateTd.getAttribute("aria-expanded") === "true";
-  closeDayDetails(table, dateTd);
-  if (open) {
-    dateTd.setAttribute("aria-expanded", "false");
-    return;
-  }
-  let payload = {};
-  try {
-    payload = JSON.parse(dateTd.getAttribute("data-t0-day-detail") || "{}");
-  } catch (_) {
-    payload = {};
-  }
-  const rows = dayId
-    ? [...table.querySelectorAll("tbody tr[data-t0-day-id]")].filter(
-        (tr) =>
-          tr.getAttribute("data-t0-day-id") === dayId &&
-          !tr.classList.contains("paper-t0-day-detail")
-      )
-    : [hostTr];
-  const last = rows.length ? rows[rows.length - 1] : hostTr;
-  const span = table.querySelectorAll("thead tr:first-child th").length || 12;
-  const detailTr = document.createElement("tr");
-  detailTr.className = "paper-t0-day-detail";
-  if (dayId) detailTr.setAttribute("data-t0-day-id", dayId);
-  const td = document.createElement("td");
-  td.colSpan = span;
-  td.innerHTML = buildDayDetailHtml(payload);
-  detailTr.appendChild(td);
-  last.insertAdjacentElement("afterend", detailTr);
-  dateTd.setAttribute("aria-expanded", "true");
-}
-
-let dayDetailBound = false;
-
-/** 点击成交明细「日」列：展开各轮预估表。 */
-export function bindT0DayDetailExpand() {
-  if (dayDetailBound || typeof document === "undefined") return;
-  dayDetailBound = true;
-  document.addEventListener("click", (ev) => {
-    const td = ev.target && ev.target.closest && ev.target.closest("td.paper-t0-col-date[data-t0-day-detail]");
-    if (!td) return;
-    ev.preventDefault();
-    toggleDayDetail(td);
-  });
-  document.addEventListener("keydown", (ev) => {
-    if (ev.key !== "Enter" && ev.key !== " ") return;
-    const td = ev.target && ev.target.closest && ev.target.closest("td.paper-t0-col-date[data-t0-day-detail]");
-    if (!td) return;
-    ev.preventDefault();
-    toggleDayDetail(td);
-  });
 }
 
 function tradeColgroup(showStock, showReason = false, showDelete = false) {
@@ -2143,12 +1981,13 @@ function tradeColgroup(showStock, showReason = false, showDelete = false) {
   if (showStock) html += t0Col("paper-t0-col-stock", "stock");
   html +=
     t0Col("paper-t0-col-date", "date") +
-    t0Col("paper-t0-col-on", "on") +
-    t0Col("paper-t0-col-nc", "nc") +
-    t0Col("paper-t0-col-eod", "eod") +
+    t0Col("paper-t0-col-o", "o") +
+    t0Col("paper-t0-col-l", "l") +
+    t0Col("paper-t0-col-h", "h") +
+    t0Col("paper-t0-col-c", "c") +
+    t0Col("paper-t0-col-ctau", "ctau") +
     t0Col("paper-t0-col-tau", "tau") +
     t0Col("paper-t0-col-path", "path") +
-    t0Col("paper-t0-col-trade", "trade") +
     t0Col("paper-t0-col-process", "process") +
     t0Col("paper-t0-col-ret", "retPct") +
     t0Col("paper-t0-col-pnl", "pnl") +
@@ -2218,7 +2057,6 @@ export function bindT0TradesFullscreen() {
 
 function wrapTradesFullscreenPanel(innerHtml, caption) {
   bindT0TradesFullscreen();
-  bindT0DayDetailExpand();
   const headMain = caption ? `<div class="paper-t0-trades-fs-head-main">${caption}</div>` : "";
   return (
     `<div class="paper-t0-trades-panel" data-trades-panel>` +
@@ -2246,6 +2084,177 @@ function tradeDaySlotHosts(d, splitSlots) {
   return filled.map((r) => slotDayRow(d, r, rows));
 }
 
+function tradeTableColCount(ctx) {
+  let n = 1;
+  if (ctx.showStock) n += 1;
+  n += 5;
+  n += 2;
+  n += 1;
+  n += 3;
+  if (ctx.showReason) n += 1;
+  if (ctx.showDelete) n += 1;
+  return n;
+}
+
+function fmtScanPct(n) {
+  const v = Number(n);
+  if (!Number.isFinite(v)) return "—";
+  return `${v.toFixed(2)}%`;
+}
+
+function fmtScanPick(pick) {
+  const p = String(pick || "").trim();
+  if (p === "buy_then_sell") return "正";
+  if (p === "sell_then_buy") return "反";
+  return "—";
+}
+
+function finitePosPx(v) {
+  const n = Number(v);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+/** 日/分钟 OHLC 对账：优先 price_space，回退日 bar / scan / forward_trace。 */
+function closeBandDayOhlcCheck(d) {
+  const ps = d?.price_space && typeof d.price_space === "object" ? d.price_space : {};
+  const scan = Array.isArray(d?.close_band_scan) ? d.close_band_scan : [];
+  const trace = Array.isArray(d?.forward_trace) ? d.forward_trace : [];
+
+  const dailyOpen = finitePosPx(ps.daily_open) ?? finitePosPx(d?.open);
+  const dailyClose = finitePosPx(ps.daily_close) ?? finitePosPx(d?.close);
+
+  let minFirstOpen = finitePosPx(ps.minute_open);
+  let minLastClose = finitePosPx(ps.minute_close);
+
+  if (minFirstOpen == null && scan.length) {
+    minFirstOpen = finitePosPx(scan[0].o);
+  }
+  if (minFirstOpen == null && trace.length) {
+    minFirstOpen = finitePosPx(trace[0]?.open);
+  }
+
+  if (minLastClose == null && trace.length) {
+    for (let i = trace.length - 1; i >= 0; i -= 1) {
+      const c = finitePosPx(trace[i]?.close);
+      if (c != null) {
+        minLastClose = c;
+        break;
+      }
+    }
+  }
+  // scan 仅至 11:00；无全日 trace 时才用末根扫描收价
+  if (minLastClose == null && scan.length) {
+    minLastClose = finitePosPx(scan[scan.length - 1].c);
+  }
+
+  return { dailyOpen, dailyClose, minFirstOpen, minLastClose };
+}
+
+function closeBandOhlcDevPct(a, b) {
+  if (a == null || b == null || !(a > 0)) return null;
+  return (b / a - 1) * 100;
+}
+
+function closeBandScanOhlcTip(ohlc) {
+  const { dailyOpen, dailyClose, minFirstOpen, minLastClose } = ohlc || {};
+  const bits = ["日 K 与分钟序列对账"];
+  const oDev = closeBandOhlcDevPct(dailyOpen, minFirstOpen);
+  const cDev = closeBandOhlcDevPct(dailyClose, minLastClose);
+  if (oDev != null) bits.push(`开盘 |O_分/O_日−1|=${Math.abs(oDev).toFixed(3)}%`);
+  if (cDev != null) bits.push(`收盘 |C_分末/C_日−1|=${Math.abs(cDev).toFixed(3)}%`);
+  return bits.join(" · ");
+}
+
+function closeBandScanTitleHtml(d) {
+  const ohlc = closeBandDayOhlcCheck(d);
+  const { dailyOpen, dailyClose, minFirstOpen, minLastClose } = ohlc;
+  const oDev = closeBandOhlcDevPct(dailyOpen, minFirstOpen);
+  const cDev = closeBandOhlcDevPct(dailyClose, minLastClose);
+  const warn =
+    (oDev != null && Math.abs(oDev) > 0.25) || (cDev != null && Math.abs(cDev) > 0.25);
+  const dayBit = `日线 O ${fmtBarPx(dailyOpen)} · C ${fmtBarPx(dailyClose)}`;
+  const minBit = `分钟首 O ${fmtBarPx(minFirstOpen)} · 末 C ${fmtBarPx(minLastClose)}`;
+  const checkCls = warn ? " paper-t0-scan-ohlc-check is-mismatch" : " paper-t0-scan-ohlc-check";
+  return (
+    `<div class="paper-t0-scan-debug-title">` +
+    `<span class="paper-t0-scan-debug-lead">11:00 前扫描 · Ĉ=该根前缀 ŷ_τ · C=5m收价</span>` +
+    `<span class="${checkCls.trim()}" title="${escapeText(closeBandScanOhlcTip(ohlc))}">` +
+  `${escapeText(dayBit)} · ${escapeText(minBit)}` +
+    `</span>` +
+    `</div>`
+  );
+}
+
+function buildCloseBandScanExpandRow(d, dayKey, colSpan) {
+  const scan = Array.isArray(d?.close_band_scan) ? d.close_band_scan : [];
+  if (!scan.length) return "";
+  const body = scan
+    .map((r) => {
+      if (!r || typeof r !== "object") return "";
+      const hm = escapeText(String(r.hm || ""));
+      const legCls = r.leg1 ? " is-leg1" : "";
+      const skips = [
+        r.minute_missing ? "分钟缺失" : "",
+        r.enter_skip ? String(r.enter_skip) : "",
+        r.sign_skip ? String(r.sign_skip) : "",
+      ]
+        .filter(Boolean)
+        .join(" · ");
+      return (
+        `<tr class="paper-t0-scan-row${legCls}">` +
+        `<td class="paper-t0-scan-hm">${hm}</td>` +
+        `<td class="num">${escapeText(fmtBarPx(r.o))}</td>` +
+        `<td class="num is-lo">${escapeText(fmtBarPx(r.l))}</td>` +
+        `<td class="num is-hi">${escapeText(fmtBarPx(r.h))}</td>` +
+        `<td class="num">${escapeText(fmtBarPx(r.c))}</td>` +
+        `<td class="num">${escapeText(fmtBarPx(r.c_tau))}</td>` +
+        `<td class="num">${escapeText(fmtScanPct(r.y_tau))}</td>` +
+        `<td class="num">${escapeText(fmtPathScore(r.y_path))}</td>` +
+        `<td class="num">${escapeText(fmtScanPct(r.r_pct))}</td>` +
+        `<td>${escapeText(fmtScanPick(r.pick))}</td>` +
+        `<td class="paper-t0-scan-skip">${escapeText(skips || "—")}</td>` +
+        `</tr>`
+      );
+    })
+    .join("");
+  return (
+    `<tr class="paper-t0-day-debug" data-t0-day-id="${escapeText(dayKey)}" hidden>` +
+    `<td colspan="${colSpan}" class="paper-t0-day-debug-cell">` +
+    `<div class="paper-t0-scan-debug-wrap">` +
+    closeBandScanTitleHtml(d) +
+    `<table class="paper-t0-scan-debug">` +
+    `<thead><tr>` +
+    `<th>钟</th><th class="num">O</th><th class="num">L</th><th class="num">H</th>` +
+    `<th class="num">C</th><th class="num">Ĉ_τ</th><th class="num">y_τ</th>` +
+    `<th class="num">y_path</th><th class="num">r%</th>` +
+    `<th>破带</th><th>跳过</th>` +
+    `</tr></thead>` +
+    `<tbody>${body}</tbody>` +
+    `</table></div></td></tr>`
+  );
+}
+
+/** 点击「日」列展开 11:00 前每根扫描（需 close_band_scan）。 */
+export function wireT0DayDebugExpand(host) {
+  if (!host) return;
+  host.addEventListener("click", (ev) => {
+    const btn =
+      ev.target && ev.target.closest ? ev.target.closest(".paper-t0-day-debug-toggle") : null;
+    if (!btn || !host.contains(btn)) return;
+    ev.preventDefault();
+    const id = String(btn.getAttribute("data-t0-day-id") || "").trim();
+    if (!id) return;
+    const esc =
+      typeof CSS !== "undefined" && CSS.escape ? CSS.escape(id) : id.replace(/"/g, "\\\"");
+    const row = host.querySelector(`.paper-t0-day-debug[data-t0-day-id="${esc}"]`);
+    if (!row) return;
+    const opening = row.hidden;
+    row.hidden = !opening;
+    btn.classList.toggle("is-open", opening);
+    btn.setAttribute("aria-expanded", opening ? "true" : "false");
+  });
+}
+
 function renderTradeDayHtml(d, ctx) {
   const {
     data,
@@ -2262,9 +2271,6 @@ function renderTradeDayHtml(d, ctx) {
   const hosts = tradeDaySlotHosts(d, splitSlots);
   const span = hosts.length;
   const daySkipped = !!d.skipped;
-  const dayDetailJson = escapeText(
-    watchingScoreDetail(t0DayScoreItem(d, fallback, rules, liveByCode))
-  );
   const expCell = fmtExposureCell(d);
   const retCell = fmtDayReturnPct(d);
   const code = String(d.stock_code || fallback.stock_code || "").trim();
@@ -2272,6 +2278,8 @@ function renderTradeDayHtml(d, ctx) {
   const reason = String(d.reason || d.direction_reason || d.error || "").trim();
   const sess = data.sessionDate || data.session_date;
   const dayText = fmtTradeDate(d.date, sess);
+  const dayKey = `${code}|${dayText}`;
+  const hasScan = Array.isArray(d.close_band_scan) && d.close_band_scan.length > 0;
   const delBtn =
     showDelete && code && !daySkipped
       ? `<button type="button" class="paper-t0-ledger-del" data-code="${escapeText(
@@ -2281,25 +2289,16 @@ function renderTradeDayHtml(d, ctx) {
         ? `<span class="paper-t0-leg-empty">—</span>`
         : "";
 
-  const slotYCells = (host) => {
+  const slotYCells = (host, dayRef) => {
+    const scoreHost = tradeScoreHost(dayRef || d, host);
     const scoreDetailJson = escapeText(
-      watchingScoreDetail(t0DayScoreItem(host, fallback, rules, liveByCode))
+      watchingScoreDetail(t0DayScoreItem(scoreHost, fallback, rules, liveByCode))
     );
     const slotYRealized = showRealized;
-    const tradeTxt = t0FmtYScore(host, "trade", fallback, rules, liveByCode);
-    const tradeIt = t0DayScoreItem(host, fallback, rules, liveByCode);
-    const tradePred = resolveTradeScore(tradeIt);
-    const tradePr = slotYRealized ? pickTradeRealized(host) : { n: null, tip: TRADE_TITLE };
-    const tradeTip = [TRADE_TITLE];
-    if (slotYRealized) {
-      tradeTip.push(tradePr.n != null ? tradePr.tip : "涨跌真实值");
-      if (tradePr.agree === true) tradeTip.push("预测与真实同号");
-      else if (tradePr.agree === false) tradeTip.push("预测与真实异号");
-    }
     return (
       yPctMergedCellHtml(
         "tau",
-        host,
+        scoreHost,
         fallback,
         rules,
         scoreDetailJson,
@@ -2307,20 +2306,7 @@ function renderTradeDayHtml(d, ctx) {
         slotYRealized,
         liveByCode
       ) +
-      pathMergedCellHtml(host, fallback, rules, scoreDetailJson, slotYRealized, liveByCode) +
-      t0YScoreCell(
-        "trade",
-        `<span class="paper-t0-y-combo">${fmtPredRealizedHtml(
-          tradeTxt,
-          tradePred,
-          tradePr,
-          slotYRealized
-        )}</span>`,
-        scoreDetailJson,
-        tradeTip.join(" · "),
-        ` paper-t0-y-merged${predRealizedAgreeCls(tradePr, slotYRealized)}`,
-        { html: true }
-      )
+      pathMergedCellHtml(scoreHost, fallback, rules, scoreDetailJson, slotYRealized, liveByCode)
     );
   };
 
@@ -2349,46 +2335,24 @@ function renderTradeDayHtml(d, ctx) {
   };
 
   const first = hosts[0];
-  const dayKey = `${code}|${dayText}`;
-  const dayExpandJson = escapeText(JSON.stringify(buildDayDetailPayload(d, { showRealized })));
+  const dateInner = hasScan
+    ? `<button type="button" class="paper-t0-day-debug-toggle" data-t0-day-id="${escapeText(
+        dayKey
+      )}" title="展开 11:00 前每根扫描（OLHC · Ĉ_τ · y_τ · y_path）" aria-expanded="false">${escapeText(
+        dayText
+      )}<span class="paper-t0-day-debug-caret" aria-hidden="true">▾</span></button>`
+    : escapeText(dayText);
   let html =
     `<tr class="${daySkipped ? "is-skipped" : ""}" data-code="${escapeText(code)}" data-t0-day-id="${escapeText(
       dayKey
     )}">` +
     (showStock ? applyTdRowspan(stockCellHtml(d, fallback), span) : "") +
-    applyTdRowspan(
-      `<td class="paper-t0-col-date is-expandable" tabindex="0" role="button" aria-expanded="false" ` +
-        `data-t0-day-detail="${dayExpandJson}" title="点击展开各轮预估">${escapeText(
-          dayText
-        )}</td>`,
-      span
-    ) +
-    applyTdRowspan(
-      t0YScoreCell(
-        "on",
-        t0FmtYScore(d, "on", fallback, rules, liveByCode),
-        dayDetailJson,
-        Y_ON_TITLE
-      ),
-      span
-    ) +
-    applyTdRowspan(
-      t0YScoreCell(
-        "nowcast",
-        t0FmtYScore(d, "nowcast", fallback, rules, liveByCode),
-        dayDetailJson,
-        Y_NC_TITLE
-      ),
-      span
-    ) +
-    applyTdRowspan(
-      yPctMergedCellHtml("eod", d, fallback, rules, dayDetailJson, null, showRealized, liveByCode),
-      span
-    ) +
-    slotYCells(first) +
+    applyTdRowspan(`<td class="paper-t0-col-date">${dateInner}</td>`, span) +
+    tradeSlotPxCells(first) +
+    slotYCells(first, d) +
     slotProcessCell(first) +
     applyTdRowspan(
-      `<td class="num paper-t0-col-ret ${paperMetricClass(retCell.pct)}" title="${escapeText(
+      `<td class="num paper-t0-col-ret ${paperMetricClass(retCell.pct)}${retCell.heat || ""}" title="${escapeText(
         retCell.tip
       )}">${escapeText(retCell.text)}</td>`,
       span
@@ -2419,9 +2383,13 @@ function renderTradeDayHtml(d, ctx) {
     html +=
       `<tr class="paper-t0-slot-cont${host.t0_slot_skipped ? " is-skipped" : ""}"` +
       ` data-code="${escapeText(code)}" data-t0-day-id="${escapeText(dayKey)}">` +
-      slotYCells(host) +
+      tradeSlotPxCells(host) +
+      slotYCells(host, d) +
       slotProcessCell(host) +
       `</tr>`;
+  }
+  if (hasScan) {
+    html += buildCloseBandScanExpandRow(d, dayKey, tradeTableColCount(ctx));
   }
   return html;
 }
@@ -2450,9 +2418,7 @@ export function buildT0TradeTableHtml(opts) {
   const showStock = shouldShowStockColumn(data, tableDays);
   const showTime = daysHaveIntradayTime(tableDays);
   const rules = (data && data.rules) || {};
-  const enter = yTauEnter(data);
-  const tauMap = normalizeYTauMap(rules.y_tau_map);
-  const scoreTip = yTauMapScoreTip(tauMap, enter);
+  const scoreTip = yTauMapScoreTip();
   const fallback = {
     stock_code: data.stock_code,
     stock_name: data.stock_name,
@@ -2460,28 +2426,22 @@ export function buildT0TradeTableHtml(opts) {
 
   const pairHint = showRealized ? " · 显示：预估值(真实值)" : "";
   const slotYHint = rules.t0_slots_enabled ? ` · 本轮 ŷ${pairHint}` : pairHint;
-  const liveHint = liveByCode ? " · 缺快照时可用持仓分补洞（不覆盖决策分）" : "";
+  const tauGateHint =
+    " · 收盘带宽：每根前缀 ŷ_τ 估 Ĉ，再与本根 5m 收价 C 比 r";
   const head =
     (showStock ? `<th scope="col" class="paper-t0-col-stock">股票</th>` : "") +
-    `<th scope="col" class="paper-t0-col-date" title="点击日期展开各轮预估">日</th>` +
-    `<th scope="col" class="paper-t0-col-on num paper-t0-col-y paper-t0-col-y-on" title="${escapeText(
-      `${Y_ON_TITLE}`
-    )}">y_on</th>` +
-    `<th scope="col" class="paper-t0-col-nc num paper-t0-col-y paper-t0-col-y-nc" title="${escapeText(
-      Y_NC_TITLE
-    )}">y_nc</th>` +
-    `<th scope="col" class="paper-t0-col-eod num paper-t0-col-y paper-t0-col-y-eod" title="${escapeText(
-      `${Y_EOD_TITLE}${pairHint}${liveHint}`
-    )}">y_eod</th>` +
+    `<th scope="col" class="paper-t0-col-date" title="有可展开扫描数据时点击日展开 11:00 前调试">日</th>` +
+    `<th scope="col" class="paper-t0-col-o num" title="本轮触发根 5m 开盘">O</th>` +
+    `<th scope="col" class="paper-t0-col-l num" title="本轮触发根 5m 最低">L</th>` +
+    `<th scope="col" class="paper-t0-col-h num" title="本轮触发根 5m 最高">H</th>` +
+    `<th scope="col" class="paper-t0-col-c num" title="本轮触发根 5m 收盘">C</th>` +
+    `<th scope="col" class="paper-t0-col-ctau num" title="ĉ_τ · 主显分钟映后（破带用）；悬停看日原">Ĉ_τ</th>` +
     `<th scope="col" class="paper-t0-col-tau num paper-t0-col-y paper-t0-col-y-tau" title="${escapeText(
-      `${scoreTip}${slotYHint}`
+      `${scoreTip}${slotYHint}${tauGateHint}`
     )}">y_τ</th>` +
     `<th scope="col" class="paper-t0-col-path num paper-t0-col-y paper-t0-col-y-path" title="${escapeText(
       `${Y_PATH_TITLE}${slotYHint}`
     )}">y_path</th>` +
-    `<th scope="col" class="paper-t0-col-trade num paper-t0-col-y paper-t0-col-y-trade" title="${escapeText(
-      `y_trade 可交易性${slotYHint}`
-    )}">y_trade</th>` +
     `<th scope="col" class="paper-t0-col-process" title="本轮时钟 + 成交腿；悬停看全日 K 线">过程</th>` +
     `<th scope="col" class="paper-t0-col-ret num" title="(PnL+敞口)/动仓名义">收益%</th>` +
     `<th scope="col" class="paper-t0-col-pnl num">PnL</th>` +

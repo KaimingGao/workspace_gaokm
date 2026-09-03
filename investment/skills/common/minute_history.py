@@ -16,7 +16,12 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from core.data.policy import MINUTE_CACHE_HOURS, minute_fetch_delay_sec
 from core.numbers import to_float as _to_float
-from core.store import load_minute_cache, merge_minute_bars_by_time, save_minute_cache
+from core.store import (
+    align_minute_volume_units,
+    load_minute_cache,
+    merge_minute_bars_by_time,
+    save_minute_cache,
+)
 from skills.common.history import resolve_market_code
 
 logger = logging.getLogger(__name__)
@@ -345,6 +350,9 @@ def fetch_a_minute_bars(
         if as_meta:
             _throttle_minute_remote_fetch()
         if as_bars:
+            # 重叠日若东财为「手」、新浪为「股」，先对齐再整日替换合并
+            if bars:
+                bars = align_minute_volume_units(bars, as_bars)
             bars = merge_minute_bars_by_time(bars, as_bars)
 
     if as_bars:
@@ -362,6 +370,9 @@ def fetch_a_minute_bars(
         if bs_meta:
             _throttle_minute_remote_fetch()
         if bs_bars:
+            if bars:
+                bars = align_minute_volume_units(bars, bs_bars)
+            # 同日整段以 incoming（BaoStock）为准，禁止跨源缝合
             bars = merge_minute_bars_by_time(bars, bs_bars)
 
     sources: List[str] = []

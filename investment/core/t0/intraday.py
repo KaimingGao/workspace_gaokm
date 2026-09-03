@@ -791,10 +791,10 @@ def _intraday_setup(
     force_session_close: bool = False,
 ) -> Dict[str, Any]:
     from core.t0.costs import resolve_t0_cost_context
-    from core.t0.minute_path import _day_ohlc_from_minutes, run_forward_first_touch
-    from core.t0.rules import (
-        _skip_result,
-    )
+    from core.t0.minute_path import _day_ohlc_from_minutes, _session_minutes_complete
+    from core.t0.rules import _skip_result
+    from core.t0.slots import simulate_t0_day_slots
+    from core.t0.score_policy import attach_day_scores, scores_have_any
 
     cost_model, cost_params = resolve_t0_cost_context(paper=paper)
 
@@ -820,35 +820,26 @@ def _intraday_setup(
             return {"pending": True, "reason": "dual_y：即时算分未就绪，等待重试"}
 
     bar_day = _day_ohlc_from_minutes(minute_bars, bar)
-    # 与回测一致：高低用已有 5m；收盘价优先日线，供 eod/敞口标记（尤其 force_session_close）
-    daily_close = float((bar or {}).get("close") or 0)
+    # 与回测一致：仅分钟齐至 ≥14:55 才用日线收盘作强平/敞口价，避免午前截断前视
     bar_session = dict(bar_day)
-    if daily_close > 0:
-        bar_session["close"] = daily_close
+    if _session_minutes_complete(minute_bars):
+        daily_close = float((bar or {}).get("close") or 0)
+        if daily_close > 0:
+            bar_session["close"] = daily_close
     lot = int(cfg.get("lot_size") or 100)
     shares = float(holding.get("shares") or 0)
     cost = float(holding.get("cost") or 0)
     if shares <= 0:
         return _skip_result(reason="无效 bar 或持仓", shares=shares, bar=bar_day)
 
-    cfg_pre = dict(cfg)
-    try:
-        ml = cfg.get("min_range_pct_sell_then_buy")
-        mr = cfg.get("min_range_pct_buy_then_sell")
-        if ml is not None and mr is not None:
-            cfg_pre["min_range_pct"] = min(float(ml), float(mr))
-    except (TypeError, ValueError):
-        pass
-
     base_ratio = float(cfg.get("t0_ratio") or 1.0)
-    out, dir_res = run_forward_first_touch(
-        minute_bars=minute_bars,
+    day_out = simulate_t0_day_slots(
         bar=bar,
+        minute_bars=minute_bars,
         shares=shares,
         cost=cost,
         sellable_shares=sellable,
-        cfg_day=cfg,
-        cfg_pre=cfg_pre,
+        cfg=cfg,
         cash=float(cash or 0),
         stock_code=code,
         lot=lot,
@@ -858,12 +849,11 @@ def _intraday_setup(
         hist_bars=hist_bars,
         score_snap=scores,
         session_bar=bar_session,
-        base_t0_ratio=base_ratio,
-        # 强制收盘窗：不得再 defer，否则午前末根无法 eod/敞口入账
         defer_eod=not bool(force_session_close),
+        daily_bar=dict(bar) if isinstance(bar, dict) else None,
     )
-    dir_res = dir_res or {}
-    direction = str((out or {}).get("direction_used") or dir_res.get("direction") or "")
+    out = day_out
+    direction = str(out.get("direction_used") or "")
 
     def _snap_for_day(day_obj: Optional[dict]) -> Optional[dict]:
         """优先确认根因果重算分（与回测 _finish 同口径）。"""
@@ -871,58 +861,30 @@ def _intraday_setup(
             return day_obj.pop("_t0_score_snap")
         return scores
 
-    if out is None:
-        return _skip_result(
-            reason="分钟线不足，无法第一触达",
-            shares=shares,
-            bar=bar_day,
-            extra={"path_mode": "first_touch", "range_mode": "forward"},
-        )
-
-    if out.get("skipped"):
-        from core.t0.score_policy import attach_day_scores
-
+    if out.get("pending") and not (out.get("trades") or []):
         snap = _snap_for_day(out)
-        return attach_day_scores(
-            {
-                **out,
-                "direction_score": dir_res.get("direction_score"),
-                "direction_reason": dir_res.get("direction_reason"),
-            },
-            snap,
-            features=dir_res.get("features"),
-        )
+        return attach_day_scores(out, snap)
+
+    if out.get("skipped") and not (out.get("trades") or []):
+        snap = _snap_for_day(out)
+        return attach_day_scores(out, snap)
 
     day = out
     trades = list(day.get("trades") or [])
     if not trades:
-        from core.t0.score_policy import attach_day_scores
-
         snap = _snap_for_day(day)
-        return attach_day_scores(
-            {
-                **day,
-                "direction_score": dir_res.get("direction_score"),
-                "direction_reason": dir_res.get("direction_reason"),
-            },
-            snap,
-            features=dir_res.get("features"),
-        )
+        return attach_day_scores(day, snap)
 
     t0_ratio = float(day.get("t0_ratio") or base_ratio)
     cover_meta = day.get("cover_policy")
     if isinstance(day, dict):
         day["t0_ratio_base"] = round(base_ratio, 4)
         day["t0_ratio"] = round(t0_ratio, 4)
-        day["direction_score"] = dir_res.get("direction_score")
-        day["direction_reason"] = dir_res.get("direction_reason")
         if cover_meta:
             day["cover_policy"] = cover_meta
             day["must_cover_same_day"] = bool(cover_meta.get("must_cover"))
-        from core.t0.score_policy import attach_day_scores
-
         snap = _snap_for_day(day)
-        day = attach_day_scores(day, snap, features=dir_res.get("features"))
+        day = attach_day_scores(day, snap)
 
     # 增量：只落尚未写入的腿
     return {
@@ -1050,15 +1012,11 @@ def _process_holding_slots(
     paper: dict,
     force_session_close: bool = False,
 ) -> Tuple[dict, List[dict], dict]:
-    """多轮独立做 T 盘中增量。"""
-    from core.t0.costs import resolve_t0_cost_context
-    from core.t0.minute_path import _day_ohlc_from_minutes
+    """多轮独立做 T 盘中增量（v6：全日收盘带宽扫描后按轮增量落账）。"""
+    from core.t0.costs import resolve_t0_cost_context, t0_leg_cash_delta
+    from core.t0.minute_path import _day_ohlc_from_minutes, _session_minutes_complete
     from core.t0.rules import _skip_result
-    from core.t0.slots import (
-        allocate_remaining_slot_slice,
-        simulate_t0_slot,
-        slot_specs,
-    )
+    from core.t0.slots import _open_leg1_cash_lock, _slot_trade_legs, simulate_t0_day_slots
     from core.t0.score_policy import attach_day_scores, scores_have_any
 
     st = dict(stock_state or {})
@@ -1101,111 +1059,59 @@ def _process_holding_slots(
     sim_sellable = float(st.get("sellable_day_start") if st.get("sellable_day_start") is not None else sellable)
     sim_cash = float(st.get("cash_day_start") if st.get("cash_day_start") is not None else cash)
 
-    specs = slot_specs(cfg)
     rounds = st.get("rounds") if isinstance(st.get("rounds"), dict) else {}
-    if not rounds:
-        rounds = {
-            str(s.get("id")): {
-                "phase": PHASE_IDLE,
-                "legs_written": 0,
-                "slot": dict(s),
-            }
-            for s in specs
-            if s.get("id")
-        }
     lot = int(cfg.get("lot_size") or 100)
     cost_model, cost_params = resolve_t0_cost_context(paper=paper)
-    atr_use = atr_pct
     bar_day = _day_ohlc_from_minutes(minute_bars, bar)
+    # 与回测 / _intraday_setup 一致：齐窗才用日线收盘作 EOD 价
+    bar_session = dict(bar_day)
+    if _session_minutes_complete(minute_bars):
+        daily_close = float((bar or {}).get("close") or 0)
+        if daily_close > 0:
+            bar_session["close"] = daily_close
     cost = float(holding.get("cost") or 0)
     cfg_day = dict(cfg)
 
-    from core.t0.slots import _parse_max_rounds
-
-    max_rounds = _parse_max_rounds(cfg, len(specs))
-    sellable_now = float(sim_sellable)
-    cash_now = float(sim_cash)
-    cash_locked = 0.0
-    all_applied: List[dict] = []
-    last_snap: dict = {}
-    leg1_rounds = sum(
-        1
-        for r in rounds.values()
-        if isinstance(r, dict) and int((r or {}).get("legs_written") or 0) >= 1
+    day_out = simulate_t0_day_slots(
+        bar=bar,
+        minute_bars=minute_bars,
+        shares=sim_shares,
+        cost=cost,
+        sellable_shares=sim_sellable,
+        cfg=cfg_day,
+        cash=sim_cash,
+        stock_code=code,
+        lot=lot,
+        cost_model=cost_model,
+        cost_params=cost_params,
+        atr_pct=atr_pct,
+        hist_bars=hist_bars,
+        score_snap=scores,
+        session_bar=bar_session,
+        defer_eod=not bool(force_session_close),
+        daily_bar=dict(bar) if isinstance(bar, dict) else None,
     )
-    for i, spec in enumerate(specs):
-        sid = str(spec.get("id") or "")
-        rnd = dict(rounds.get(sid) or {"phase": PHASE_IDLE, "legs_written": 0, "slot": dict(spec)})
-        slice_qty = allocate_remaining_slot_slice(sellable_now, specs, i, lot)
-
-        ph = str(rnd.get("phase") or PHASE_IDLE)
-        if ph in (PHASE_DONE, PHASE_SKIPPED):
-            rounds[sid] = rnd
+    slot_rows = list(day_out.get("t0_slot_results") or [])
+    all_applied: List[dict] = []
+    legs_total = 0
+    for row in slot_rows:
+        if not isinstance(row, dict):
             continue
-        if leg1_rounds >= max_rounds and int(rnd.get("legs_written") or 0) < 1:
-            rnd["phase"] = PHASE_SKIPPED
-            rnd["skip_reason"] = f"已达最大轮数 {max_rounds}"
-            rounds[sid] = rnd
-            continue
-        if slice_qty < lot:
-            rnd["phase"] = PHASE_SKIPPED
-            rnd["reason"] = "本轮预留不足 1 手"
-            rounds[sid] = rnd
-            continue
-
-        nxt = specs[i + 1] if i + 1 < len(specs) else None
-        avail_cash = max(0.0, cash_now - cash_locked)
-        out = simulate_t0_slot(
-            slot=spec,
-            next_slot=nxt,
-            minute_bars=minute_bars,
-            bar=bar,
-            shares=sim_shares,
-            cost=cost,
-            sellable_shares=slice_qty,
-            cfg_day=cfg_day,
-            cash=avail_cash,
-            stock_code=code,
-            lot=lot,
-            cost_model=cost_model,
-            cost_params=cost_params,
-            atr_pct=atr_use,
-            hist_bars=hist_bars,
-            score_snap=scores,
-            session_bar=bar_day,
-            defer_eod=not bool(force_session_close),
-        )
-        if isinstance(out.get("_t0_score_snap"), dict):
-            out = dict(out)
-            out.pop("_t0_score_snap", None)
-        direction = str(out.get("direction_used") or rnd.get("direction") or "")
+        sid = str(row.get("t0_slot") or f"r{len(rounds) + 1}")
+        rnd = dict(rounds.get(sid) or {"phase": PHASE_IDLE, "legs_written": 0})
+        direction = str(row.get("direction_used") or rnd.get("direction") or "")
         if direction:
             rnd["direction"] = direction
-        trades = list(out.get("trades") or [])
+        trades = _slot_trade_legs(row)
         legs_before = int(rnd.get("legs_written") or 0)
         written = legs_before
         new_trades = trades[written:]
-        path_complete = _roundtrip_complete(out, direction)
+        path_complete = _roundtrip_complete(row, direction)
 
-        if out.get("pending") or (
-            out.get("skipped") and _retryable_skip(str(out.get("reason") or ""))
-        ):
-            rnd["wait_reason"] = str(out.get("reason") or "")
-            rnd["phase"] = PHASE_AFTER_LEG1 if written > 0 else PHASE_IDLE
-            if out.get("direction_used"):
-                rnd["direction"] = str(out.get("direction_used"))
-            rounds[sid] = rnd
-            last_snap = attach_day_scores(out, scores) if isinstance(out, dict) else out
-            continue
-
-        if out.get("skipped") and not new_trades and written <= 0:
+        if row.get("skipped") and not new_trades and written <= 0:
             rnd["phase"] = PHASE_SKIPPED
-            rnd["reason"] = str(out.get("reason") or "")
-            rnd.pop("wait_reason", None)
-            if _dual_y_threshold_skip(str(out.get("reason") or "")):
-                rnd["score_locked"] = True
+            rnd["reason"] = str(row.get("reason") or "")
             rounds[sid] = rnd
-            last_snap = out
             continue
 
         applied = []
@@ -1219,20 +1125,7 @@ def _process_holding_slots(
             )
             written += len(applied)
             all_applied.extend(applied)
-            for t in applied:
-                side = str(t.get("side") or "")
-                qty = float(t.get("shares") or 0)
-                from core.t0.costs import t0_leg_cash_delta
-
-                cash_now += t0_leg_cash_delta(t)
-                if side.endswith("sell"):
-                    sellable_now = max(0.0, sellable_now - qty)
-            from core.t0.slots import _open_leg1_cash_lock
-
-            cash_locked += _open_leg1_cash_lock(out)
         rnd["legs_written"] = written
-        if legs_before < 1 and written >= 1:
-            leg1_rounds += 1
         if path_complete and written > 0:
             rnd["phase"] = PHASE_DONE
             rnd.pop("wait_reason", None)
@@ -1241,26 +1134,27 @@ def _process_holding_slots(
             rnd["wait_reason"] = "已开第一腿，等待第二触达 / 收盘回补"
         else:
             rnd["phase"] = PHASE_IDLE
-        rnd["day_snapshot"] = out
+        rnd["day_snapshot"] = row
         rounds[sid] = rnd
-        last_snap = out
+        legs_total += written
 
     st["rounds"] = rounds
-    stock_phase, legs_total, direction = _stock_phase_from_rounds(rounds)
+    stock_phase, legs_sum, direction = _stock_phase_from_rounds(rounds)
     st["phase"] = stock_phase
-    st["legs_written"] = legs_total
+    st["legs_written"] = legs_sum
     if direction:
         st["direction"] = direction
     if minute_bars:
         st["last_bar_ts"] = _bar_ts(minute_bars[-1])
-    merged = last_snap if isinstance(last_snap, dict) else {}
+    merged = attach_day_scores(day_out, scores) if isinstance(day_out, dict) else {}
     if all_applied or merged:
         st["day_snapshot"] = {
             **merged,
             "stock_code": code,
             "stock_name": holding.get("stock_name"),
-            "trades": list((merged.get("trades") or [])[:legs_total]) if merged.get("trades") else all_applied,
+            "trades": list((merged.get("trades") or [])[:legs_sum]) if merged.get("trades") else all_applied,
             "t0_slots_enabled": True,
+            "range_mode": "close_band",
         }
     return st, all_applied, st.get("day_snapshot") or {}
 
@@ -1294,182 +1188,26 @@ def process_holding_intraday(
     force_session_close: bool = False,
 ) -> Tuple[dict, List[dict], dict]:
     """返回 (new_stock_state, new_trades, day_snapshot)。"""
-    from core.t0.config import t0_slots_enabled
-
-    if t0_slots_enabled(cfg):
-        return _process_holding_slots(
-            code=code,
-            holding=holding,
-            stock_state=stock_state,
-            minute_bars=minute_bars,
-            bar=bar,
-            cfg=cfg,
-            sellable=sellable,
-            cash=cash,
-            atr_pct=atr_pct,
-            hist_bars=hist_bars,
-            scores=scores,
-            stance_code=stance_code,
-            coupling_mode=coupling_mode,
-            as_of=as_of,
-            log_source=log_source,
-            paper=paper,
-            force_session_close=bool(force_session_close),
-        )
-
-    st = dict(stock_state or {})
-    phase = str(st.get("phase") or PHASE_IDLE)
-    last_ts = str(st.get("last_bar_ts") or "")
-    legs_written = int(st.get("legs_written") or 0)
-
-    if phase == PHASE_DONE:
-        return st, [], st.get("day_snapshot") or {}
-    if phase == PHASE_SKIPPED:
-        return st, [], {}
-
-    name = str(holding.get("stock_name") or st.get("stock_name") or "").strip()
-    if not name or name == code:
-        name = resolve_stock_name(code, fallback=name)
-    if name:
-        st["stock_name"] = name
-        if not str(holding.get("stock_name") or "").strip():
-            holding["stock_name"] = name
-
-    # 路径重放必须用日初仓/可卖/现金；落账后持仓已变，否则会重复开仓或 shares=0 误跳过
-    if st.get("shares_day_start") is not None:
-        sim_shares = float(st.get("shares_day_start") or 0)
-        sim_sellable = float(
-            st["sellable_day_start"]
-            if st.get("sellable_day_start") is not None
-            else sellable
-        )
-        sim_cash = float(
-            st["cash_day_start"] if st.get("cash_day_start") is not None else cash
-        )
-        sim_holding = dict(holding)
-        sim_holding["shares"] = sim_shares
-    else:
-        sim_shares = float(holding.get("shares") or 0)
-        sim_sellable = float(sellable)
-        sim_cash = float(cash)
-        sim_holding = holding
-
-    setup = _intraday_setup(
+    _ = applied_legs, force_dual_y_gate
+    return _process_holding_slots(
         code=code,
-        holding=sim_holding,
-        bar=bar,
+        holding=holding,
+        stock_state=stock_state,
         minute_bars=minute_bars,
+        bar=bar,
         cfg=cfg,
-        sellable=sim_sellable,
-        cash=sim_cash,
+        sellable=sellable,
+        cash=cash,
         atr_pct=atr_pct,
         hist_bars=hist_bars,
         scores=scores,
         stance_code=stance_code,
         coupling_mode=coupling_mode,
-        paper=paper,
-        force_dual_y_gate=bool(force_dual_y_gate),
-        force_session_close=bool(force_session_close),
-    )
-    if setup.get("pending"):
-        st.setdefault("phase", PHASE_IDLE)
-        st["wait_reason"] = str(setup.get("reason") or "等待重试")
-        return st, [], {}
-    if setup.get("skipped"):
-        reason = str(setup.get("reason") or "")
-        # path_abandon：回测已终态；实盘不得因文案含「待回落」等误判可重试
-        if setup.get("path_abandon") or _path_abandon_skip(reason):
-            st["phase"] = PHASE_SKIPPED
-            st["reason"] = setup.get("reason")
-            st.pop("wait_reason", None)
-            st["day_snapshot"] = {
-                **setup,
-                "stock_code": code,
-                "stock_name": holding.get("stock_name"),
-            }
-            return st, [], st["day_snapshot"]
-        if _retryable_skip(reason) and phase in (PHASE_IDLE, PHASE_AFTER_LEG1):
-            st["last_bar_ts"] = setup.get("last_bar_ts") or (
-                _bar_ts(minute_bars[-1]) if minute_bars else last_ts
-            )
-            st["wait_reason"] = reason
-            dir_used = setup.get("direction_used") or setup.get("direction")
-            if dir_used:
-                st["direction"] = str(dir_used)
-            # 已有第一腿时保持 after_leg1，继续等第二触达 / 收盘回补
-            if legs_written > 0 and phase != PHASE_AFTER_LEG1:
-                st["phase"] = PHASE_AFTER_LEG1
-            return st, [], {}
-        st["phase"] = PHASE_SKIPPED
-        st["reason"] = setup.get("reason")
-        st.pop("wait_reason", None)
-        if _dual_y_threshold_skip(reason):
-            # 日线已对齐且有即时分才走到门槛；标记后不再被 unlock 成软锁循环
-            st["score_locked"] = True
-        st["day_snapshot"] = {**setup, "stock_code": code, "stock_name": holding.get("stock_name")}
-        return st, [], st["day_snapshot"]
-
-    trades = list(setup.get("trades") or [])
-    direction = str(setup.get("direction") or st.get("direction") or "")
-    day_result = setup.get("day_result") or {}
-    path_complete = bool(setup.get("path_complete")) or _roundtrip_complete(
-        day_result, direction
-    )
-    new_trades = trades[legs_written:]
-    if setup.get("direction"):
-        st["direction"] = str(setup.get("direction"))
-
-    if not new_trades:
-        st["last_bar_ts"] = setup.get("last_bar_ts") or last_ts
-        if path_complete and legs_written > 0:
-            st["phase"] = PHASE_DONE
-            st.pop("wait_reason", None)
-        elif legs_written > 0:
-            st["phase"] = PHASE_AFTER_LEG1
-            st["wait_reason"] = "已开第一腿，等待第二触达 / 收盘回补"
-        else:
-            st["phase"] = PHASE_IDLE
-            st["wait_reason"] = "已定方向，等待确认 / 下一根 5m"
-        if day_result:
-            st["day_snapshot"] = {
-                **day_result,
-                "stock_code": code,
-                "stock_name": holding.get("stock_name"),
-            }
-        return st, [], day_result
-
-    if st.get("shares_day_start") is None:
-        st["shares_day_start"] = sim_shares
-        st["sellable_day_start"] = sim_sellable
-        st["cash_day_start"] = sim_cash
-
-    applied = _apply_trades_to_paper(
-        paper,
-        holding,
-        new_trades,
         as_of=as_of,
         log_source=log_source,
+        paper=paper,
+        force_session_close=bool(force_session_close),
     )
-    legs_written += len(applied)
-    st["legs_written"] = legs_written
-    st["last_bar_ts"] = setup.get("last_bar_ts") or last_ts
-    # 仅往返完成才 done；单腿落账保持 after_leg1（勿用 len(trades) 误判）
-    if path_complete:
-        st["phase"] = PHASE_DONE
-        st.pop("wait_reason", None)
-    else:
-        st["phase"] = PHASE_AFTER_LEG1
-        st["wait_reason"] = "已开第一腿，等待第二触达 / 收盘回补"
-    st["day_snapshot"] = {
-        **day_result,
-        "stock_code": code,
-        "stock_name": holding.get("stock_name"),
-    }
-    if applied:
-        cum = list((day_result.get("trades") or [])[:legs_written])
-        if cum:
-            st["day_snapshot"]["trades"] = cum
-    return st, applied, st["day_snapshot"]
 
 
 def run_intraday_session_tick(

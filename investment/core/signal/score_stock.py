@@ -214,8 +214,9 @@ def score_stock(
     ``fetch_sector_breadth=True``：主题缺口时再拉同伴行情算广度（默认关；
     有预计算值时不再拉；刷簿并行下勿开，否则 N×批量行情卡死）。
     ``quote_timeout``：单票行情秒数（分池刷簿宜 ≤6，避免对照长时间挂起）。
-    ``offline_only=True``：日线/分钟只用本地缓存（研究枢纽强更），不补远端；
+    ``offline_only=True``：日线只用本地缓存（研究枢纽强更），不补远端；
     无传入行情时用末根日线合成 quote，不打实时行情。
+    分钟 τ 小包例外：仓里没有 ``minute_tau_hm`` 该根时仍拉 5m，禁止用收盘顶 τ。
 
     cluster_mode: None=读 signal_config.cluster_scoring；
     off — 不用组 β；shadow — 可算 score_cluster 对照，主分仍全局/空；
@@ -1020,6 +1021,8 @@ def score_stock(
                 gap_atr_from_hist,
                 gap_vs_sector_value,
                 hist_bars_pit,
+                mom3_pct_from_hist,
+                yclose_loc_from_prev,
             )
 
             asof = ""
@@ -1037,6 +1040,49 @@ def score_stock(
                         asof = str((bars[-1] or {}).get("date") or "")[:10]
             hist = hist_bars_pit(bars, asof_date=asof)
             feats["gap_atr"] = gap_atr_from_hist(gap_v, hist)
+            open_px_z = None
+            if quote:
+                open_px_z = quote.get("open") or quote.get("open_price")
+            if open_px_z is None and bars:
+                last_b = bars[-1] if isinstance(bars[-1], dict) else {}
+                if str(last_b.get("date") or "")[:10] == asof:
+                    open_px_z = last_b.get("open")
+            prev_b = hist[-1] if hist else None
+            if open_px_z is not None:
+                try:
+                    feats["yclose_loc"] = yclose_loc_from_prev(prev_b, float(open_px_z))
+                except (TypeError, ValueError):
+                    pass
+            feats["mom3_pct"] = mom3_pct_from_hist(hist)
+            # 与做 T compute_scores_from_bars 同构：单票缺截面时用活跃簿宇宙
+            if (
+                sector_breadth is None
+                or sector_gap_median is None
+                or not pool_gaps
+            ) and len(asof) >= 10:
+                try:
+                    from core.t0.score_policy import _tau_cross_section_kwargs
+
+                    xs = _tau_cross_section_kwargs(str(code), asof)
+                    if (
+                        sector_breadth is None
+                        and xs.get("sector_gap_breadth") is not None
+                    ):
+                        sector_breadth = float(xs["sector_gap_breadth"])
+                        feats["sector_gap_breadth"] = sector_breadth
+                    if (
+                        sector_gap_median is None
+                        and xs.get("sector_gap_median") is not None
+                    ):
+                        sector_gap_median = xs.get("sector_gap_median")
+                    if not pool_gaps and xs.get("pool_gaps"):
+                        pool_gaps = xs.get("pool_gaps")
+                except Exception:  # noqa: BLE001
+                    logger.debug(
+                        "score_stock tau XS fallback skipped for %s",
+                        code,
+                        exc_info=True,
+                    )
             ref = sector_gap_median
             if ref is None and isinstance(pool_gaps, (list, tuple)) and pool_gaps:
                 try:
@@ -1067,7 +1113,7 @@ def score_stock(
             )
         # τ 头只吃 Z；日线 sub_scores 已在 ŷ_EOD，勿再塞进 feats
 
-        # 可选：仅读本地分钟缓存附加 ret_open_to_tau（不拉网）
+        # 分钟 τ 小包：≤ minute_tau_hm 重切；仓无该根则拉 5m；切不出不标该钟
         as_of_tau_override = None
         y_spec_override = None
         try:
@@ -1075,7 +1121,10 @@ def score_stock(
 
             ds_cfg = get_dual_score_cfg()
             if ds_cfg.get("enable_minute_tau"):
-                from core.signal.minute_tau_feats import merge_minute_tau_pack_into_feats
+                from core.signal.minute_tau_feats import (
+                    attach_sector_ret_cs_if_missing,
+                    merge_minute_tau_pack_into_feats,
+                )
 
                 hm = str(ds_cfg.get("minute_tau_hm") or "10:30")
                 trade_day = ""
@@ -1124,6 +1173,11 @@ def score_stock(
                     prev_close=prev_c,
                     tau_hm=hm,
                     load_cache_if_missing=True,
+                    fetch_if_missing=True,
+                )
+                # 与 attach_dual_score_pit / 做 T 前缀同口径：补板块开→τ，禁止 CS 缺省 z=0
+                feats = attach_sector_ret_cs_if_missing(
+                    feats, trade_date=trade_day, tau_hm=hm
                 )
         except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
             logger.debug("catch except Exception: in score_stock.py", exc_info=True)

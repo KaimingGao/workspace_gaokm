@@ -150,6 +150,13 @@ export function resolveTradeScore(it) {
     }
     return null;
   }
+  // 做 T 槽位快照：禁止 gap/fuse 重算覆盖决策用 y_trade（否则外表≠各轮明细）
+  if (it._t0_lock_trade) {
+    for (const c of [it.y_trade, it.decision_score, it.predicted_score_blend, it.score]) {
+      const n = _numField(c);
+      if (_looksLikeYhatPct(n)) return n;
+    }
+  }
   const eod = resolveEodScore(it);
   const tau = _numField(it.predicted_score_tau ?? it.score_rem);
   const blend = _numField(it.predicted_score_blend);

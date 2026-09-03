@@ -53,7 +53,7 @@ import {
   resolveT0BacktestScope,
   normalizeExecutionView,
   renderExecutionDiffHtml,
-} from "./paper/execution_ui.js?v=p1814";
+} from "./paper/execution_ui.js?v=p1877";
 import { buildPaperLogsView, buildPaperLogsCsv } from "./paper/logs_ui.js?v=p1658";
 import { downloadBlob } from "./shared.js";
 import {
@@ -61,10 +61,10 @@ import {
   renderPaperT0Preview as renderPaperT0PreviewUi,
   renderPaperT0WorkerTrades as renderPaperT0WorkerTradesUi,
   renderPaperT0WorkerDesk as renderPaperT0WorkerDeskUi,
-} from "./paper/t0_ui.js?v=p1814";
-import { buildT0SummaryLine } from "./paper/t0_report.js?v=p1795";
-import { wireT0SkipTips } from "./paper/t0_viz.js?v=p1814";
-import { wireT0ProcessTips } from "./paper/t0_table.js?v=p1814";
+} from "./paper/t0_ui.js?v=p1906";
+import { buildT0SummaryLine } from "./paper/t0_report.js?v=p1906";
+import { wireT0SkipTips } from "./paper/t0_viz.js?v=p1906";
+import { wireT0ProcessTips, wireT0DayDebugExpand } from "./paper/t0_table.js?v=p1908";
 import { wireHoldingsChgTips } from "./paper/holding_chg_tip.js?v=p1737";
 import { createHoldingsIslandController } from "./paper/holdings_island.js";
 import { createClusterRebalanceController } from "./paper/cluster_rebalance.js?v=p1704";
@@ -1139,14 +1139,23 @@ export function initPaper(ctx) {
   function renderT0WorkerDetail(data) {
     const el = document.getElementById("paper-t0-worker-trades");
     if (!el) return;
-    const t0Auto =
-      (data && data.rules && data.rules.t0_auto) || (data && data.t0_auto) || null;
-    const execution = (data && data.execution) || lastAccountData?.execution || null;
-    renderPaperT0WorkerTradesUi(el, {
-      t0Auto,
-      execution,
-      liveScoresByCode: liveScoresByCodeFromHoldings(),
-    });
+    try {
+      const t0Auto =
+        (data && data.rules && data.rules.t0_auto) || (data && data.t0_auto) || null;
+      const execution = (data && data.execution) || lastAccountData?.execution || null;
+      renderPaperT0WorkerTradesUi(el, {
+        t0Auto,
+        execution,
+        liveScoresByCode: liveScoresByCodeFromHoldings(),
+      });
+    } catch (err) {
+      console.error("[follow] worker trades render failed", err);
+      el.hidden = false;
+      el.innerHTML =
+        `<p class="paper-t0-desk-empty">落账明细渲染失败：${escapeText(
+          String(err && err.message ? err.message : err)
+        )}</p>`;
+    }
   }
 
   function renderT0LastRun(data) {
@@ -2060,6 +2069,7 @@ export function initPaper(ctx) {
         ".paper-t0-y-score[data-score-detail], .paper-t0-dir-score[data-score-detail]",
     });
     wireT0ProcessTips(paperT0DaysHost, scoreTips);
+    wireT0DayDebugExpand(paperT0DaysHost);
   }
   const paperT0VizHost = document.getElementById("paper-t0-viz");
   if (paperT0VizHost) {
@@ -2072,6 +2082,7 @@ export function initPaper(ctx) {
         ".paper-t0-y-score[data-score-detail], .paper-t0-dir-score[data-score-detail]",
     });
     wireT0ProcessTips(paperT0WorkerTradesHost, scoreTips);
+    wireT0DayDebugExpand(paperT0WorkerTradesHost);
     paperT0WorkerTradesHost.addEventListener("click", async (ev) => {
       const btn = ev.target && ev.target.closest
         ? ev.target.closest("button.paper-t0-ledger-del")

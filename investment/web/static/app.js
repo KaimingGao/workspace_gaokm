@@ -206,8 +206,12 @@ async function bootWorkspace() {
   if (failed.length) {
     const statusEl = document.getElementById("status");
     const meta = document.getElementById("results-meta");
+    const followMeta = document.getElementById("follow-meta");
     const msg = `部分面板未加载: ${failed.join(", ")}`;
     if (meta) meta.textContent = msg;
+    if (followMeta) {
+      followMeta.textContent = `${msg} · 请强刷（Ctrl+Shift+R 或 Cmd+Shift+R）`;
+    }
     if (statusEl && statusEl.textContent.includes("面板")) {
       statusEl.textContent = msg;
       statusEl.className = "status bad";

@@ -164,7 +164,7 @@ flowchart LR
 | **Nowcast / Kalman** | Ensemble（序贯融合） | EOD 先验 → open → 当前 τ；\(R\) 来自 τ OOS 分层；默认 **对照列**，`use_as_rank_key=false` |
 | **分组 OLS / Ridge** | Bagging（宇宙子集） | 观察池按主题/相似度 **聚类** → 组内独立 fit β / Ridge；`active` 组才进 live ŷ（FH0）；OOS 失败率闸 |
 | **多 Ridge 头** | Multi-target（非堆叠单分） | `tau_ridge` · `on_ridge` · `path_ridge` 各自 artifact；**不**改组 β |
-| **dual_y 联合选向** | Ensemble + 否决 | y_τ 与 y_path 方向一致才入场；\|ŷ_path\| 不足 → 横盘；冲突 → skip |
+| **close_band 收盘带宽** | 破带涌现 | 每根前缀 ŷ_τ→Ĉ；**5m 收价 C**（非日收）破 `ĉ±δ` 定正/反 T；\|y_τ\|/\|y_path\| 准入（path 可关）；score 先验平移门槛 |
 | **影子簿 / promote** | Bagging 的工程化验收 | 新头先 shadow · OOS 对照 active → **人审 promote** 才切换 live |
 
 **尚未默认启用、须 eval + 人审**：GBDT blend、端到端 NN（见 [quant.md · 演进路径](quant.md#工业常见因子分类对照本仓库)）。原则不变：新模型须证明 **相对现行 ensemble 的增量**，且不得黑盒改写 `stance_label`。

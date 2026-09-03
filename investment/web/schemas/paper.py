@@ -179,6 +179,27 @@ class T0BacktestRequest(BaseModel):
     )
     y_on_risk: Optional[float] = Field(default=None, ge=0.01, le=10.0)
     y_block_tau_nowcast_sign: Optional[bool] = None
+    y_tau_leg1_prior: Optional[bool] = Field(
+        default=None,
+        description="已弃用镜像：mode≠off；请用 y_tau_leg1_prior_mode",
+    )
+    y_tau_leg1_prior_mode: Optional[str] = Field(
+        default=None,
+        max_length=16,
+        description="v6 日线先验：score=破带超额−k×逆势|y_τ|；skip=硬跳过；off=关",
+    )
+    y_tau_leg1_prior_risk: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        le=10.0,
+        description="score 模式风险系数 k（默认 1）",
+    )
+    y_tau_leg1_prior_shift_scale: Optional[float] = Field(
+        default=None,
+        ge=0.1,
+        le=0.9,
+        description="score：|s|≤α·δ，α∈[0.1, 0.9]（默认 0.9；保证 upper=δ+s>0>lower）",
+    )
     y_nc_enter: Optional[float] = Field(
         default=None,
         ge=0.01,
@@ -203,9 +224,9 @@ class T0BacktestRequest(BaseModel):
     y_use_path: Optional[bool] = None
     y_path_enter: Optional[float] = Field(
         default=None,
-        ge=0.01,
+        ge=0.0,
         le=5.0,
-        description="dual_y：path 入场兜底（侧向未设时正/反共用）",
+        description="path 入场%：|y_path| 低于此值横盘跳过（默认 0.01；0=关幅度）",
     )
     y_path_enter_sell_then_buy: Optional[float] = Field(
         default=None,
@@ -219,34 +240,31 @@ class T0BacktestRequest(BaseModel):
         le=5.0,
         description="dual_y：正T path 入场门槛",
     )
+    y_path_strong: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        le=5.0,
+        description="path强%：|y_path| 超此值须与 y_τ 同号，异号跳过（默认 0.2）",
+    )
     y_path_required: Optional[bool] = None
     y_gap_tier_mode: Optional[str] = Field(default=None, max_length=24)
     y_gap_tier_pct: Optional[float] = Field(default=None, ge=0.3, le=8.0)
     y_nowcast_oc_gate: Optional[bool] = None
-    y_path_abandon_enabled: Optional[bool] = None
-    y_path_abandon_bars: Optional[int] = Field(default=None, ge=2, le=48)
-    y_prefix_upbar_ratio_buy_then_sell: Optional[float] = Field(
-        default=None,
-        ge=0.0,
-        le=1.0,
-        description="正T：固定前缀后半上涨K占比下限",
+    t0_close_band_delta_pct: Optional[float] = Field(default=None, ge=0.0, le=10.0)
+    t0_price_space_gate: Optional[bool] = Field(
+        default=None, description="日分价空间门禁：|O_d/O_m−1| 超阈跳过"
     )
-    y_prefix_downbar_ratio_sell_then_buy: Optional[float] = Field(
-        default=None,
-        ge=0.0,
-        le=1.0,
-        description="反T：固定前缀后半下跌K占比下限",
+    t0_price_space_max_dev_pct: Optional[float] = Field(
+        default=None, ge=0.0, le=5.0, description="开盘差%：|日开/分开−1|×100 上限（默认 0.25）"
     )
-    t0_confirm_dev_pct: Optional[float] = Field(default=None, ge=0.0, le=20.0)
-    t0_confirm_mom_bars: Optional[int] = Field(default=None, ge=1, le=12)
-    t0_confirm_vol_mult: Optional[float] = Field(default=None, ge=0.0, le=20.0)
-    t0_env_min_range_pct: Optional[float] = Field(default=None, ge=0.0, le=30.0)
-    t0_env_min_path_abs: Optional[float] = Field(default=None, ge=0.0, le=50.0)
-    t0_env_one_sided_tau_abs: Optional[float] = Field(default=None, ge=0.0, le=50.0)
-    t0_env_one_sided_path_abs: Optional[float] = Field(default=None, ge=0.0, le=50.0)
+    t0_price_space_prev_dev_pct: Optional[float] = Field(
+        default=None, ge=0.0, le=5.0, description="昨收差%：|日昨/分昨−1|×100 上限（默认 0.25）"
+    )
+    t0_round_ratio: Optional[float] = Field(default=None, ge=0.05, le=1.0)
+    t0_max_position_pct: Optional[float] = Field(default=None, ge=0.05, le=1.0)
     t0_slots_max_rounds: Optional[int] = Field(default=None, ge=0, le=16)
     t0_slots_enabled: Optional[bool] = Field(
-        default=None, description="多轮槽位做T；关=单轮"
+        default=None, description="v6 恒为多轮收盘带宽壳；仅兼容旧补丁"
     )
     y_tau_require_for_leg1: Optional[bool] = Field(
         default=None, description="缺 ŷ_τ 时禁止开第一腿"
@@ -518,6 +536,10 @@ class PaperExecutionPatchRequest(BaseModel):
     y_on_allow: Optional[float] = None
     y_on_risk: Optional[float] = None
     y_block_tau_nowcast_sign: Optional[bool] = None
+    y_tau_leg1_prior: Optional[bool] = None
+    y_tau_leg1_prior_mode: Optional[str] = None
+    y_tau_leg1_prior_risk: Optional[float] = None
+    y_tau_leg1_prior_shift_scale: Optional[float] = None
     y_nc_enter: Optional[float] = None
     y_nc_strong: Optional[float] = None
     y_nowcast_enter: Optional[float] = None
@@ -528,21 +550,17 @@ class PaperExecutionPatchRequest(BaseModel):
     y_path_enter: Optional[float] = None
     y_path_enter_sell_then_buy: Optional[float] = None
     y_path_enter_buy_then_sell: Optional[float] = None
+    y_path_strong: Optional[float] = None
     y_path_required: Optional[bool] = None
     y_gap_tier_mode: Optional[str] = None
     y_gap_tier_pct: Optional[float] = None
     y_nowcast_oc_gate: Optional[bool] = None
-    y_path_abandon_enabled: Optional[bool] = None
-    y_path_abandon_bars: Optional[int] = None
-    y_prefix_upbar_ratio_buy_then_sell: Optional[float] = None
-    y_prefix_downbar_ratio_sell_then_buy: Optional[float] = None
-    t0_confirm_dev_pct: Optional[float] = None
-    t0_confirm_mom_bars: Optional[int] = None
-    t0_confirm_vol_mult: Optional[float] = None
-    t0_env_min_range_pct: Optional[float] = None
-    t0_env_min_path_abs: Optional[float] = None
-    t0_env_one_sided_tau_abs: Optional[float] = None
-    t0_env_one_sided_path_abs: Optional[float] = None
+    t0_close_band_delta_pct: Optional[float] = None
+    t0_price_space_gate: Optional[bool] = None
+    t0_price_space_max_dev_pct: Optional[float] = None
+    t0_price_space_prev_dev_pct: Optional[float] = None
+    t0_round_ratio: Optional[float] = None
+    t0_max_position_pct: Optional[float] = None
     t0_slots_max_rounds: Optional[int] = None
     t0_slots_enabled: Optional[bool] = None
     y_tau_require_for_leg1: Optional[bool] = None

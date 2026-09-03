@@ -390,7 +390,7 @@
                 融合权重与 τ 闸在
                 <a class="quant-hero-link" href="/strategy#strategy-dual-score">策略中心 · 融合分数</a>
                 （仅 blend）。分钟**训练**网格含开盘 Z + 午后训练钟
-                <code>09:30|10:00|10:30|11:00|11:30|13:00|14:00</code>（09:30 无前缀；**做T执行仅 10:00–11:30 四轮**）；live 调仓钟仍是 10:30。
+                <code>09:30|09:35|…|11:00</code>（09:30 无前缀；早盘每 5m 共享 β；不含 13:00 / 14:00；**做T执行 v6 收盘带宽**：每 5m 扫至 11:00，收价破 ĉ±δ 开 leg1，path 不进 ĉ）；live 调仓钟仍是 10:30。
               </p>
             </div>
           </details>
@@ -444,11 +444,11 @@
     </div>
   </section>
 
-  <!-- ŷ_path：极值序 + 多 τ 前缀；与 y_τ 联合选向 -->
+  <!-- ŷ_path：极值序 + 多 τ 前缀；做 T 画像对照（不进 v6 ĉ） -->
   <section class="dashboard-section quant-section" id="quant-section-path" aria-labelledby="quant-section-path-title">
     <header class="dashboard-section-head quant-section-head">
       <h3 id="quant-section-path-title" class="dashboard-section-title">ŷ_path</h3>
-      <p class="dashboard-section-desc quant-section-desc">极值序 · 多 τ 共享 β · dual_y · 需分钟缓存</p>
+      <p class="dashboard-section-desc quant-section-desc">极值序 · 多 τ 共享 β · 画像对照 · 需分钟缓存</p>
     </header>
     <div class="dashboard-card quant-pro-card">
       <div class="dashboard-card-head quant-pro-card-head quant-card-head--tools">
@@ -462,13 +462,13 @@
             <div class="quant-help-body quant-pro-help-body">
               <p>
                 <strong>ŷ_path</strong> = 开盘 Z + 早盘前缀分钟小包 → 全日极值序 signed range%
-                （先低后高为正）。训练默认多 τ 网格 <code>09:30|10:00|10:30|11:00|11:30|13:00|14:00</code>
-                （**做T执行 10:00–11:30 四轮**；09:30 / 13:00 / 14:00 仅训练）共享 β，看 OOS <code>by_tau</code>；live 调仓决策钟默认 10:30。
+                （先低后高为正）。训练默认多 τ 网格 <code>09:30|09:35|…|11:00</code>
+                （**做T执行 v6 收盘带宽**扫至 11:00；不含 13:00 / 14:00）共享 β，看 OOS <code>by_tau</code>；live 调仓决策钟默认 10:30。
                 字段 <code>y_path</code> / <code>predicted_score_path</code>。
               </p>
               <p>
-                <strong>与 ŷ_τ 联合选向</strong>：y_τ 定 OC 方向，y_path 定极值序（先低后高→正T）。
-                |ŷ_path|&lt;入场门槛则横盘跳过；达门槛后不一致则否决。
+                <strong>与做 T 的关系</strong>：ŷ_path 进回测画像命中对照，
+                <strong>不进</strong> v6 收盘带宽的 `ĉ`。选正/反 T 看收价破 `ĉ±δ`。
                 落盘 <code>path_ridge_model.json</code>；配置见
                 <a class="quant-hero-link" href="/follow#paper-t0-spec">交易执行 · 做 T 规则</a>。
               </p>

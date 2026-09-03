@@ -1,7 +1,7 @@
 /** 做T回测可视化（canvas + CSS，无外部图表库）。 */
 
 import { paperMetricClass } from "./fmt.js";
-import { SKIP_CAT_TIP, stockCellHtml } from "./t0_table.js?v=p1814";
+import { SKIP_CAT_TIP, stockCellHtml } from "./t0_table.js?v=p1908";
 
 const THEME = {
   actual: "#2563eb",
@@ -31,6 +31,7 @@ const SKIP_CAT_COLORS = {
   missing_minute: "#5c6b7a",
   missing_scores: "#8b98a5",
   y_path_missing: "#44525f",
+  price_space_mismatch: "#6a7380",
   trigger_miss: "#b8c0c8",
   other: "#cbd2d9",
   amplitude: "#6e7378",
@@ -43,6 +44,7 @@ const SKIP_CAT_COLORS = {
   // 异号 / 冲突 · 克制酒红 / 梅紫
   eod_tau_disagree: "#b33a3a",
   trade_tau_disagree: "#8f3d5b",
+  tau_leg1_prior: "#a0653a",
   trade_tau_sign: "#c45c4a",
   y_path_disagree: "#6b4c7a",
   conflict: "#a04848",
@@ -609,74 +611,6 @@ function wireSkipDonutHover(el, meta) {
   el.onmouseleave = () => show(null);
 }
 
-/** 方向 PnL — 双向水平柱 */
-function drawDirectionPnl(canvas, pnlByDir, split) {
-  if (!canvas || !pnlByDir) return null;
-  const sellThenBuyPnl = Number(pnlByDir.sell_then_buy || 0);
-  const buyThenSellPnl = Number(pnlByDir.buy_then_sell || 0);
-  if (!sellThenBuyPnl && !buyThenSellPnl) return null;
-
-  const { w, h } = getChartSize(canvas);
-  const ctx = setupCanvas(canvas, w, h);
-  ctx.clearRect(0, 0, w, h);
-
-  const pad = { l: 44, r: 52, t: 20, b: 24 };
-  const plotW = w - pad.l - pad.r;
-  const maxAbs = Math.max(Math.abs(sellThenBuyPnl), Math.abs(buyThenSellPnl), 1);
-  const midX = pad.l + plotW / 2;
-  const barH = Math.min(24, (h - pad.t - pad.b - 18) / 2);
-  const gap = Math.max(12, (h - pad.t - pad.b - barH * 2) / 2);
-
-  drawHGrid(ctx, { l: pad.l, r: pad.r, t: pad.t, b: pad.b }, w, h, [
-    { frac: 0.5, label: 0 },
-  ]);
-
-  ctx.strokeStyle = THEME.zero;
-  ctx.lineWidth = 1.5;
-  ctx.beginPath();
-  ctx.moveTo(midX, pad.t - 4);
-  ctx.lineTo(midX, h - pad.b);
-  ctx.stroke();
-
-  const rows = [
-    { label: "正T", val: buyThenSellPnl, color: THEME.buyThenSell, light: THEME.buyThenSellLight, days: split?.buy_then_sell },
-    { label: "反T", val: sellThenBuyPnl, color: THEME.sellThenBuy, light: THEME.sellThenBuyLight, days: split?.sell_then_buy },
-  ];
-
-  rows.forEach((row, i) => {
-    const y = pad.t + i * (barH + gap);
-    const bw = (Math.abs(row.val) / maxAbs) * (plotW / 2 - 8);
-    const x = row.val >= 0 ? midX : midX - bw;
-    const grad = ctx.createLinearGradient(x, 0, x + bw, 0);
-    grad.addColorStop(0, row.light);
-    grad.addColorStop(1, row.color);
-    roundRect(ctx, x, y, Math.max(2, bw), barH, 4);
-    ctx.fillStyle = grad;
-    ctx.fill();
-
-    ctx.fillStyle = THEME.axis;
-    ctx.font = FONT_SM;
-    ctx.textAlign = "right";
-    ctx.textBaseline = "middle";
-    ctx.fillText(row.label, pad.l - 6, y + barH / 2);
-    if (row.days != null) {
-      ctx.fillStyle = THEME.inkMuted;
-      ctx.font = "8px var(--font-mono, monospace)";
-      ctx.fillText(`${row.days}日`, pad.l - 6, y + barH / 2 + 10);
-    }
-
-    ctx.fillStyle = row.val >= 0 ? THEME.pnlUp : THEME.pnlDown;
-    ctx.font = FONT;
-    ctx.textAlign = row.val >= 0 ? "left" : "right";
-    const tx = row.val >= 0 ? x + bw + 6 : x - 6;
-    ctx.fillText(fmtMoney(row.val), tx, y + barH / 2);
-  });
-
-  const net = sellThenBuyPnl + buyThenSellPnl;
-  const sellThenBuyShare = net !== 0 ? Math.round((sellThenBuyPnl / net) * 1000) / 10 : null;
-  return { sellThenBuyPnl, buyThenSellPnl, net, sellThenBuyShare };
-}
-
 function renderKpiRow(summary) {
   const sm = summary || {};
   const chips = [
@@ -1174,8 +1108,7 @@ export function renderT0Viz(host, data) {
     (viz.cumulative_pnl && viz.cumulative_pnl.length) ||
     (viz.daily_activity && viz.daily_activity.length > 1) ||
     (viz.y_tau_scatter && viz.y_tau_scatter.length) ||
-    (viz.stock_contrib && viz.stock_contrib.length) ||
-    viz.pnl_by_direction;
+    (viz.stock_contrib && viz.stock_contrib.length);
   if (!hasContent) {
     if (host._t0VizRo) host._t0VizRo.disconnect();
     host.hidden = true;
@@ -1243,21 +1176,6 @@ export function renderT0Viz(host, data) {
         skipDonutChartHtml(viz.skip_categories),
         skipLegendHtml(viz.skip_categories, total),
         legendChips([{ color: THEME.otherSkip, label: viz.skip_scope === "slot" ? "按未成交轮次" : "按跳过原因" }])
-      )
-    );
-  }
-
-  if (viz.pnl_by_direction) {
-    cards.push(
-      vizCard(
-        "方向 PnL",
-        "相对零轴 · 正T / 反T",
-        chartCanvas("dirpnl"),
-        `<div data-role="dir-foot"></div>`,
-        legendChips([
-          { color: THEME.buyThenSell, label: "正T" },
-          { color: THEME.sellThenBuy, label: "反T" },
-        ])
       )
     );
   }
@@ -1356,20 +1274,6 @@ export function renderT0Viz(host, data) {
       }
     }
 
-    const dir = host.querySelector('canvas[data-viz="dirpnl"]');
-    if (dir) {
-      const meta = drawDirectionPnl(dir, viz.pnl_by_direction, ds);
-      const foot = host.querySelector('[data-role="dir-foot"]');
-      if (foot && meta) {
-        const netCls = meta.net >= 0 ? "up" : "down";
-        foot.innerHTML = [
-          `<span>合计 <b class="${netCls}">${fmtMoney(meta.net)}</b></span>`,
-          meta.sellThenBuyShare != null ? `<span>反T贡献 <b>${meta.sellThenBuyShare}%</b></span>` : "",
-        ]
-          .filter(Boolean)
-          .join('<span class="sep">·</span>');
-      }
-    }
   }
 
   requestAnimationFrame(() => {

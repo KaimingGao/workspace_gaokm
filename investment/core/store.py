@@ -139,15 +139,119 @@ def merge_bars_by_date(
 def merge_minute_bars_by_time(
     existing: List[dict],
     incoming: List[dict],
+    *,
+    lock_calendar_day: bool = True,
 ) -> List[dict]:
-    """按 datetime 合并分钟线；同时刻以后到为准；升序。"""
-    by_ts: Dict[str, dict] = {}
-    for b in list(existing or []) + list(incoming or []):
-        ts = str((b or {}).get("datetime") or (b or {}).get("date") or "").strip()
-        if not ts:
+    """按 datetime 合并分钟线；升序。
+
+    ``lock_calendar_day=True``（默认）：incoming 覆盖到的**交易日整段替换**，
+    禁止同日跨源按时间戳缝合（上午东财、下午新浪）。无日期的旧日保留。
+    ``False``：旧行为，同时刻以后到为准。
+    """
+    if not lock_calendar_day:
+        by_ts: Dict[str, dict] = {}
+        for b in list(existing or []) + list(incoming or []):
+            ts = str((b or {}).get("datetime") or (b or {}).get("date") or "").strip()
+            if not ts:
+                continue
+            by_ts[ts] = b
+        return [by_ts[k] for k in sorted(by_ts.keys())]
+
+    def _day(b: dict) -> str:
+        d = str((b or {}).get("date") or "").strip()[:10]
+        if len(d) == 10:
+            return d
+        ts = str((b or {}).get("datetime") or "").strip()
+        return ts[:10] if len(ts) >= 10 else ""
+
+    def _ts(b: dict) -> str:
+        return str((b or {}).get("datetime") or (b or {}).get("date") or "").strip()
+
+    by_day_old: Dict[str, Dict[str, dict]] = {}
+    for b in existing or []:
+        if not isinstance(b, dict):
             continue
-        by_ts[ts] = b
-    return [by_ts[k] for k in sorted(by_ts.keys())]
+        d, ts = _day(b), _ts(b)
+        if not d or not ts:
+            continue
+        by_day_old.setdefault(d, {})[ts] = b
+
+    touch_days: set = set()
+    by_day_new: Dict[str, Dict[str, dict]] = {}
+    for b in incoming or []:
+        if not isinstance(b, dict):
+            continue
+        d, ts = _day(b), _ts(b)
+        if not d or not ts:
+            continue
+        touch_days.add(d)
+        by_day_new.setdefault(d, {})[ts] = b
+
+    out_by_ts: Dict[str, dict] = {}
+    for d, m in by_day_old.items():
+        if d in touch_days:
+            continue
+        out_by_ts.update(m)
+    for d in touch_days:
+        out_by_ts.update(by_day_new.get(d) or {})
+    return [out_by_ts[k] for k in sorted(out_by_ts.keys())]
+
+
+def align_minute_volume_units(
+    bars: List[dict],
+    peer: List[dict],
+    *,
+    ratio_lo: float = 80.0,
+    ratio_hi: float = 120.0,
+) -> List[dict]:
+    """若重叠时刻 peer/bars 成交量中位数 ≈100，视 bars 为「手」×100→股。
+
+    无重叠或比值不在窗口内则原样返回（新列表浅拷贝 bar dict）。
+    """
+    if not bars or not peer:
+        return [dict(b) for b in (bars or []) if isinstance(b, dict)]
+    peer_by: Dict[str, dict] = {}
+    for b in peer:
+        if not isinstance(b, dict):
+            continue
+        ts = str(b.get("datetime") or b.get("date") or "").strip()
+        if ts:
+            peer_by[ts] = b
+    ratios: List[float] = []
+    for b in bars:
+        if not isinstance(b, dict):
+            continue
+        ts = str(b.get("datetime") or b.get("date") or "").strip()
+        p = peer_by.get(ts)
+        if not p:
+            continue
+        try:
+            va = float(b.get("volume") or 0)
+            vb = float(p.get("volume") or 0)
+        except (TypeError, ValueError):
+            continue
+        if va > 0 and vb > 0:
+            ratios.append(vb / va)
+    if len(ratios) < 5:
+        return [dict(b) for b in bars if isinstance(b, dict)]
+    ratios.sort()
+    med = ratios[len(ratios) // 2]
+    if not (ratio_lo <= med <= ratio_hi):
+        return [dict(b) for b in bars if isinstance(b, dict)]
+    out: List[dict] = []
+    for b in bars:
+        if not isinstance(b, dict):
+            continue
+        row = dict(b)
+        try:
+            v = float(row.get("volume") or 0)
+        except (TypeError, ValueError):
+            v = 0.0
+        if v > 0:
+            row["volume"] = float(v) * 100.0
+            row["volume_unit_scaled"] = "hand_to_share_x100"
+        out.append(row)
+    return out
 
 
 def trim_daily_bars(bars: List[dict], *, max_keep: int = DAILY_BARS_MAX_KEEP) -> List[dict]:

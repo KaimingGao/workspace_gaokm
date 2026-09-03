@@ -82,7 +82,16 @@ def summarize_t0_day_legs(day: Dict[str, Any]) -> Dict[str, Any]:
 def _t0_range_fields(day: Dict[str, Any]) -> Dict[str, Any]:
     """回测日明细：振幅/前缀审计字段。无成交日不落 forward_trace（明细只记成交）。"""
     out: Dict[str, Any] = {}
-    keys = ["range_mode", "prefix_bars", "range_pct", "min_range_pct"]
+    keys = [
+        "range_mode",
+        "prefix_bars",
+        "range_pct",
+        "min_range_pct",
+        "price_space",
+        "price_space_scale",
+        "price_space_mode",
+        "close_band_scan",
+    ]
     if not day.get("skipped"):
         keys.append("forward_trace")
     for k in keys:
@@ -756,24 +765,24 @@ def _walk_t0(
             "y_nowcast_enter": cfg.get("y_nowcast_enter") or cfg.get("y_nc_strong"),
             "y_tau_map": cfg.get("y_tau_map"),
             "y_use_path": cfg.get("y_use_path"),
+            "y_tau_leg1_prior": cfg.get("y_tau_leg1_prior"),
+            "y_tau_leg1_prior_mode": cfg.get("y_tau_leg1_prior_mode"),
+            "y_tau_leg1_prior_risk": cfg.get("y_tau_leg1_prior_risk"),
+            "y_tau_leg1_prior_shift_scale": cfg.get("y_tau_leg1_prior_shift_scale"),
             "y_path_enter": cfg.get("y_path_enter"),
             "y_path_enter_sell_then_buy": cfg.get("y_path_enter_sell_then_buy"),
             "y_path_enter_buy_then_sell": cfg.get("y_path_enter_buy_then_sell"),
+            "y_path_strong": cfg.get("y_path_strong"),
             "y_path_required": cfg.get("y_path_required"),
             "y_gap_tier_mode": cfg.get("y_gap_tier_mode"),
             "y_gap_tier_pct": cfg.get("y_gap_tier_pct"),
             "y_nowcast_oc_gate": cfg.get("y_nowcast_oc_gate"),
-            "y_path_abandon_enabled": cfg.get("y_path_abandon_enabled"),
-            "y_path_abandon_bars": cfg.get("y_path_abandon_bars"),
-            "y_prefix_upbar_ratio_buy_then_sell": cfg.get("y_prefix_upbar_ratio_buy_then_sell"),
-            "y_prefix_downbar_ratio_sell_then_buy": cfg.get("y_prefix_downbar_ratio_sell_then_buy"),
-            "t0_confirm_dev_pct": cfg.get("t0_confirm_dev_pct"),
-            "t0_confirm_mom_bars": cfg.get("t0_confirm_mom_bars"),
-            "t0_confirm_vol_mult": cfg.get("t0_confirm_vol_mult"),
-            "t0_env_min_range_pct": cfg.get("t0_env_min_range_pct"),
-            "t0_env_min_path_abs": cfg.get("t0_env_min_path_abs"),
-            "t0_env_one_sided_tau_abs": cfg.get("t0_env_one_sided_tau_abs"),
-            "t0_env_one_sided_path_abs": cfg.get("t0_env_one_sided_path_abs"),
+            "t0_close_band_delta_pct": cfg.get("t0_close_band_delta_pct"),
+            "t0_price_space_gate": cfg.get("t0_price_space_gate"),
+            "t0_price_space_max_dev_pct": cfg.get("t0_price_space_max_dev_pct"),
+            "t0_price_space_prev_dev_pct": cfg.get("t0_price_space_prev_dev_pct"),
+            "t0_round_ratio": cfg.get("t0_round_ratio"),
+            "t0_max_position_pct": cfg.get("t0_max_position_pct"),
             "t0_slots_max_rounds": cfg.get("t0_slots_max_rounds"),
             "t0_slots_enabled": cfg.get("t0_slots_enabled"),
             "y_tau_require_for_leg1": cfg.get("y_tau_require_for_leg1"),

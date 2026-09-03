@@ -1,7 +1,6 @@
 /** 做 T 回测专业报告渲染（纸面 / 量化共用）。 */
 
 import { escapeText, paperFmtPct, paperMetricClass } from "./fmt.js";
-import { yTauMapShortLabel } from "./execution_ui.js";
 
 function fmtMoney(v, { signed = false, digits = 0 } = {}) {
   const n = Number(v);
@@ -207,7 +206,7 @@ export function buildT0SummaryLine(data) {
       ? `胜率 ${fmtPct(data.win_rate_pct ?? data.t0_win_rate_pct)}`
       : null,
     pathLabel(data),
-    yTauMapShortLabel(data.rules && data.rules.y_tau_map),
+    "收盘带宽",
     verdict.label,
     "非实盘",
   ].filter(Boolean);
@@ -345,8 +344,6 @@ function buildPortraitSectionHtml(portrait) {
   );
   const tauHit = fmtHitParts(portrait.tau_hit);
   const pathHit = fmtHitParts(portrait.path_hit);
-  const eodHit = fmtHitParts(portrait.eod_hit);
-  const tradeHit = fmtHitParts(portrait.trade_hit);
   const tradedTau = fmtHitParts(portrait.traded && portrait.traded.tau_hit);
   const tradedPath = fmtHitParts(portrait.traded && portrait.traded.path_hit);
 
@@ -400,7 +397,7 @@ function buildPortraitSectionHtml(portrait) {
 
   const predBand = band(
     "预估命中 · 全样本",
-    "因果前缀 ŷ ↔ 全日标签；eod/trade ↔ 涨跌 close/prev_close−1",
+    "日级用 09:35 扫描前缀 ŷ ↔ 全日标签（勿与成交子集、晚钟分槽混读）",
     [
       _statCard("ŷ同号", escapeText(predSame.primary), {
         tip: "ŷ_τ_portrait_oc 与 ŷ_path_portrait 同号（前N根因果）",
@@ -416,16 +413,6 @@ function buildPortraitSectionHtml(portrait) {
         tip: "ŷ_path_portrait vs path_realized",
         sub: escapeText(pathHit.sub),
         tone: pathHit.tone,
-      }),
-      _statCard("eod命中", escapeText(eodHit.primary), {
-        tip: "ŷ_eod vs 涨跌",
-        sub: escapeText(eodHit.sub),
-        tone: eodHit.tone,
-      }),
-      _statCard("trade命中", escapeText(tradeHit.primary), {
-        tip: "ŷ_trade vs 涨跌（与 eod 同标签）",
-        sub: escapeText(tradeHit.sub),
-        tone: tradeHit.tone,
       }),
     ]
   );
@@ -447,9 +434,12 @@ function buildPortraitSectionHtml(portrait) {
     ]
   );
 
-  const slotRows = ((portrait.by_slot && portrait.by_slot.slots) || []).filter(
-    (s) => s && s.hm
-  );
+  const slotRows = ((portrait.by_slot && portrait.by_slot.slots) || [])
+    .filter((s) => s && s.hm)
+    .slice()
+    .sort((a, b) =>
+      String(a.hm || "").localeCompare(String(b.hm || ""), "en")
+    );
   const daySampleN = Number.isFinite(nAll) ? nAll : 0;
   const slotSampleN = slotRows.reduce(
     (m, s) => Math.max(m, Number(s.n_days) || 0),
@@ -462,17 +452,22 @@ function buildPortraitSectionHtml(portrait) {
   const slotCoverNote =
     slotSampleN > 0
       ? yhatCoverN > 0 && yhatCoverN < slotSampleN
-        ? `样本 ${slotSampleN} · 有ŷ ${yhatCoverN}`
+        ? `样本 ${slotSampleN} · 有ŷ最多 ${yhatCoverN}`
         : daySampleN > 0
           ? `样本 ${slotSampleN}（对齐日级）`
           : `样本 ${slotSampleN}`
       : "";
+  const denomSpread = slotRows.some(
+    (s) => (Number(s.n_days) || 0) > 0 && (Number(s.n_days) || 0) < slotSampleN
+  );
   const coverWarn =
-    yhatCoverN > 0 &&
-    slotSampleN > 0 &&
-    yhatCoverN / slotSampleN < 0.25
-      ? `<p class="paper-t0-portrait-slots-warn">槽位 τ/path ŷ 覆盖偏低（最多 ${yhatCoverN}/${slotSampleN}）：缺分钟日无槽位分；有分钟的跳过日须保留各钟因果ŷ（请用最新回测引擎重跑）。</p>`
-      : "";
+    denomSpread
+      ? `<p class="paper-t0-portrait-slots-warn">分槽分母未对齐：旧回测只记破带开轮钟。请用当前引擎重跑，分槽读 close_band_scan 每根 5m。</p>`
+      : yhatCoverN > 0 &&
+          slotSampleN > 0 &&
+          yhatCoverN / slotSampleN < 0.25
+        ? `<p class="paper-t0-portrait-slots-warn">槽位 τ/path ŷ 覆盖偏低（最多 ${yhatCoverN}/${slotSampleN}）：缺分钟日无扫描分；请用最新回测引擎重跑以保留 close_band_scan。</p>`
+        : "";
 
   const fmtHitCell = (pack) => {
     const p = fmtHitParts(pack);
@@ -514,8 +509,8 @@ function buildPortraitSectionHtml(portrait) {
         `<table class="paper-t0-portrait-slot-table">` +
         `<thead><tr>` +
         `<th>槽位</th>` +
-        `<th title="与日级同样本；有ŷ=该钟带 τ/path 快照">覆盖</th>` +
-        `<th title="该钟成交 / 样本">成交</th>` +
+        `<th title="有该钟扫描 ŷ / 与日级同样本；旧回测无 scan 则仅破带钟有ŷ">覆盖</th>` +
+        `<th title="该钟破带成交 / 样本">成交</th>` +
         `<th title="ŷ_τ ↔ ŷ_path 同号（有ŷ子集）">ŷ同号</th>` +
         `<th title="ŷ_τ ↔ tau_realized">τ命中</th>` +
         `<th title="ŷ_path ↔ path_realized">path命中</th>` +
@@ -563,7 +558,7 @@ function buildPortraitSectionHtml(portrait) {
     `<section class="paper-t0-metric-section is-portrait">` +
     `<div class="paper-t0-portrait-head">` +
     `<h4 class="paper-t0-metric-section-title">回测样本画像</h4>` +
-    `<p class="paper-t0-portrait-lead">全样本标签与因果 ŷ 命中（分槽=拟合 by_tau 口径：该钟前缀ŷ vs 全日标签；越晚通常越高）</p>` +
+    `<p class="paper-t0-portrait-lead">全样本标签与因果 ŷ 命中（日级=09:35 前缀；分槽=该钟扫描 ŷ vs 全日标签，同拟合 by_tau；越晚通常越高。成交命中才是开轮时点质量）</p>` +
     `</div>` +
     universe +
     `<div class="paper-t0-portrait-bands">` +

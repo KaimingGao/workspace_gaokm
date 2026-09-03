@@ -569,7 +569,14 @@ def attach_dual_score_pit(
     # 分钟小包（≤τ）：与 score_stock 同源；T0 选向须 use_minute_tau=False 禁前瞻
     as_of_tau_override: Optional[str] = None
     y_spec_override: Optional[Dict[str, Any]] = None
-    if allow_minute and feats.get("ret_open_to_tau") is None:
+    if not allow_minute:
+        from core.signal.minute_tau_feats import clear_minute_tau_pack_keys
+
+        clear_minute_tau_pack_keys(feats)
+        prior_tau = signal_item.get("features_tau")
+        if isinstance(prior_tau, dict):
+            clear_minute_tau_pack_keys(prior_tau)
+    else:
         try:
             from core.signal.minute_tau_feats import merge_minute_tau_pack_into_feats
 
@@ -600,7 +607,8 @@ def attach_dual_score_pit(
                 except (TypeError, ValueError):
                     prev_c = None
             hm = str(pack_hm or cfg_hm)
-            # 调用方未传分钟线时才读本地仓；做 T 开盘预计算走 use_minute_tau=False 不进本枝
+            # 显式传入分钟（含空前缀）只切该序列；None 才读仓/缺根拉 5m
+            no_prefix = minute_bars is None
             feats, as_of_tau_override, y_spec_override = merge_minute_tau_pack_into_feats(
                 feats,
                 code=str(signal_item.get("stock_code") or ""),
@@ -609,10 +617,20 @@ def attach_dual_score_pit(
                 prev_close=prev_c,
                 tau_hm=hm,
                 minute_bars=minute_bars,
-                load_cache_if_missing=not minute_bars,
+                load_cache_if_missing=no_prefix,
+                fetch_if_missing=no_prefix,
             )
         except Exception:  # noqa: BLE001
             logger.debug("minute tau pack attach in dual_score_pit failed", exc_info=True)
+            from core.signal.minute_tau_feats import clear_minute_tau_pack_keys
+
+            clear_minute_tau_pack_keys(feats)
+        # 簿 leftover 不得在 apply_tau_score_fields 里填回分钟键
+        prior_tau = signal_item.get("features_tau")
+        if isinstance(prior_tau, dict):
+            from core.signal.minute_tau_feats import clear_minute_tau_pack_keys as _clear_pack
+
+            _clear_pack(prior_tau)
     # 截面开→τ：训练 panel 有；serve 需显式补，否则 τ/path 头 CS 键恒缺→z=0
     # 开盘选向（use_minute_tau=False）禁开→τ 截面，避免分钟前缀前瞻
     if allow_minute:
