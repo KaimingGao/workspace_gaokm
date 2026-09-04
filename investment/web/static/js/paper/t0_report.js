@@ -596,7 +596,7 @@ export function buildT0ReportHtml(data, opts = {}) {
   const evalDays = data.eval_days ?? (Number(data.t0_trade_days || 0) + Number(data.skip_days || 0));
   const virtNote = data.virtual_sizing
     ? `虚拟仓每票 ${Number(data.virtual_shares || 10000).toLocaleString("zh-CN")} 股` +
-      ` · 现金 ${(Number(data.virtual_cash || 2e6) / 10000).toFixed(0)} 万`
+      ` · 现金 ${(Number(data.virtual_cash || 5e6) / 10000).toFixed(0)} 万`
     : null;
   const hero =
     `<header class="paper-t0-report-hero">` +

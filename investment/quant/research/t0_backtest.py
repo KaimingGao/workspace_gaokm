@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 # 持仓做T回测：只用纸面股票池，仓位/现金用虚拟假设（放宽实盘约束）
 T0_BT_DEFAULT_LOOKBACK = 10
 T0_BT_VIRTUAL_SHARES = 10_000.0
-T0_BT_VIRTUAL_CASH = 2_000_000.0
+T0_BT_VIRTUAL_CASH = 5_000_000.0
 
 # 仅「本地无分钟缓存」才打远端；东财偶发挂死，回测走 BaoStock 并设短超时。
 _MINUTE_FETCH_TIMEOUT_SEC = 12.0
