@@ -8,7 +8,8 @@
 
 0 = 直线（曲折度最低）；1 = 最折。与波动率不同：单边趋势可以振幅大但 y_cx 低。
 
-无未来函数：特征 = 开盘 Z + ≤τ 分钟前缀 + 历史真实 cx（cx_lag1 / cx_ma5，不含当日）；
+无未来函数：特征 = 开盘 Z + ≤τ 分钟前缀 + 历史真实 cx
+（cx_lag1 / cx_ma5 / cx_L_lag1 / cx_am_lag1，不含当日）；
 标签用全日 5m 路径（1−D/L 不变）。
 研究枢纽拟合；做 T 入场用盘中前缀 ŷ_cx，ŷ_cx > y_cx_max 则跳过（不用全日 realized 标签）。
 """
@@ -36,10 +37,12 @@ from core.research.tau_panel import (
 )
 
 CX_LAG_WINDOW = 5
-CX_LAG_FEATURES = ("cx_lag1", "cx_ma5")
+CX_LAG_FEATURES = ("cx_lag1", "cx_ma5", "cx_L_lag1", "cx_am_lag1")
 CX_LAG_FEAT_LABELS = {
     "cx_lag1": "昨真实曲折度",
     "cx_ma5": "近5日真实曲折度均",
+    "cx_L_lag1": "昨路径长 %",
+    "cx_am_lag1": "昨早盘曲折度",
 }
 CX_Z_FEATURES = PATH_Z_FEATURES + CX_LAG_FEATURES
 DEFAULT_CX_MINUTE_TAU_HM = DEFAULT_PATH_MINUTE_TAU_HM
@@ -47,8 +50,11 @@ DEFAULT_CX_TAU_GRID = DEFAULT_PATH_TAU_GRID
 # 相邻 5m 超过此时长视为会话断开（午休约 90m），不把跳空算进路径长
 CX_MAX_STEP_MIN = 20
 CX_MIN_BARS = 6
-# live：code → {date: y_cx}，避免每根 5m 扫描重算历史曲折度
-_CX_REALIZED_BY_CODE: Dict[str, Dict[str, float]] = {}
+# 昨早盘曲折度：对齐做 T 扫描窗 09:30–11:00（含 11:00）
+CX_AM_FIRST_MIN = 9 * 60 + 30
+CX_AM_LAST_MIN = 11 * 60
+# live：code → {y, L_pct, y_am} 三张 PIT 表
+_CX_LAG_MAPS_BY_CODE: Dict[str, Dict[str, Dict[str, float]]] = {}
 
 
 def _f(x: Any) -> Optional[float]:
@@ -131,6 +137,9 @@ def cx_complexity_label(
     meta["n_skipped_gaps"] = n_skip
     meta["path_len"] = round(length, 6)
     meta["displacement"] = round(disp, 6)
+    first_c = pts[0][1] if pts else None
+    if first_c is not None and first_c > 0:
+        meta["path_len_pct"] = round(length / float(first_c) * 100.0, 6)
     if n_steps < 2:
         return None, "too_few_steps", meta
     if length <= 1e-12:
@@ -142,20 +151,56 @@ def cx_complexity_label(
     return round(y, 6), "ok", meta
 
 
-def realized_cx_by_date(
+def am_session_minute_bars(minute_bars: Sequence[dict]) -> List[dict]:
+    """截取 09:30–11:00（含）5m，对齐做 T 扫描窗。"""
+    out: List[dict] = []
+    for bar in minute_bars or []:
+        if not isinstance(bar, dict):
+            continue
+        t = _bar_hm_minutes(bar)
+        if t is None:
+            continue
+        if CX_AM_FIRST_MIN <= t <= CX_AM_LAST_MIN:
+            out.append(bar)
+    return out
+
+
+def realized_cx_stats_by_date(
     minute_by_date: Optional[Dict[str, Sequence[dict]]],
-) -> Dict[str, float]:
-    """各日全日 5m 真实 y_cx；算不出的日不进表。"""
-    out: Dict[str, float] = {}
+) -> Dict[str, Dict[str, float]]:
+    """各日 {y, L_pct, y_am}；缺的键不进表。"""
+    y_map: Dict[str, float] = {}
+    len_map: Dict[str, float] = {}
+    am_map: Dict[str, float] = {}
     for dkey, bars in (minute_by_date or {}).items():
         day = str(dkey or "")[:10]
         if len(day) < 10:
             continue
-        y, _reason, _meta = cx_complexity_label(bars)
-        if y is None:
-            continue
-        out[day] = float(y)
-    return out
+        y, _reason, meta = cx_complexity_label(bars)
+        if y is not None:
+            y_map[day] = float(y)
+        lp = meta.get("path_len_pct") if isinstance(meta, dict) else None
+        if lp is None and isinstance(meta, dict) and meta.get("path_len") is not None:
+            pts = _ordered_closes(bars)
+            first_c = pts[0][1] if pts else None
+            if first_c is not None and first_c > 0:
+                lp = float(meta["path_len"]) / float(first_c) * 100.0
+        if lp is not None:
+            try:
+                len_map[day] = round(float(lp), 6)
+            except (TypeError, ValueError):
+                pass
+        y_am, _am_reason, _am_meta = cx_complexity_label(am_session_minute_bars(bars))
+        if y_am is not None:
+            am_map[day] = float(y_am)
+    return {"y": y_map, "L": len_map, "am": am_map}
+
+
+def realized_cx_by_date(
+    minute_by_date: Optional[Dict[str, Sequence[dict]]],
+) -> Dict[str, float]:
+    """各日全日 5m 真实 y_cx；算不出的日不进表。"""
+    return dict(realized_cx_stats_by_date(minute_by_date).get("y") or {})
 
 
 def cx_lag_features(
@@ -164,9 +209,11 @@ def cx_lag_features(
     cx_by_date: Dict[str, float],
     asof_date: str,
     window: int = CX_LAG_WINDOW,
+    len_by_date: Optional[Dict[str, float]] = None,
+    am_by_date: Optional[Dict[str, float]] = None,
 ) -> Dict[str, Optional[float]]:
     """PIT：只用 asof 之前、且有 5m 真实 cx 的交易日；最多 ``window`` 天。"""
-    return label_lag_features(
+    out = label_lag_features(
         hist_bars=hist_bars,
         by_date=cx_by_date,
         asof_date=asof_date,
@@ -174,13 +221,31 @@ def cx_lag_features(
         lag1_key="cx_lag1",
         ma_key="cx_ma5",
     )
+    len_lags = label_lag_features(
+        hist_bars=hist_bars,
+        by_date=len_by_date or {},
+        asof_date=asof_date,
+        window=window,
+        lag1_key="cx_L_lag1",
+    )
+    am_lags = label_lag_features(
+        hist_bars=hist_bars,
+        by_date=am_by_date or {},
+        asof_date=asof_date,
+        window=window,
+        lag1_key="cx_am_lag1",
+    )
+    out["cx_L_lag1"] = len_lags.get("cx_L_lag1")
+    out["cx_am_lag1"] = am_lags.get("cx_am_lag1")
+    return out
 
 
-def _load_realized_cx_map_for_code(stock_code: str) -> Dict[str, float]:
+def _load_cx_lag_maps_for_code(stock_code: str) -> Dict[str, Dict[str, float]]:
     code = str(stock_code or "").strip()
+    empty: Dict[str, Dict[str, float]] = {"y": {}, "L": {}, "am": {}}
     if not code:
-        return {}
-    hit = _CX_REALIZED_BY_CODE.get(code)
+        return empty
+    hit = _CX_LAG_MAPS_BY_CODE.get(code)
     if hit is not None:
         return hit
     by_date: Dict[str, List[dict]] = {}
@@ -202,8 +267,8 @@ def _load_realized_cx_map_for_code(stock_code: str) -> Dict[str, float]:
     except Exception:  # noqa: BLE001
         logger.debug("load realized cx minutes failed", exc_info=True)
         by_date = {}
-    mapped = realized_cx_by_date(by_date)
-    _CX_REALIZED_BY_CODE[code] = mapped
+    mapped = realized_cx_stats_by_date(by_date)
+    _CX_LAG_MAPS_BY_CODE[code] = mapped
     return mapped
 
 
@@ -215,20 +280,22 @@ def attach_cx_lag_features(
     minute_by_date: Optional[Dict[str, Sequence[dict]]] = None,
     stock_code: str = "",
 ) -> Dict[str, Any]:
-    """把 cx_lag1 / cx_ma5 写入特征行；缺历史分钟则留空，不挡打分。"""
+    """把 cx 历史因子写入特征行；缺历史分钟则留空，不挡打分。"""
     out: Dict[str, Any] = dict(feats or {})
     hist = hist_bars_pit(hist_bars, asof_date=asof_date)
     if isinstance(minute_by_date, dict) and minute_by_date:
-        cx_map = realized_cx_by_date(minute_by_date)
+        maps = realized_cx_stats_by_date(minute_by_date)
     else:
-        cx_map = _load_realized_cx_map_for_code(stock_code)
+        maps = _load_cx_lag_maps_for_code(stock_code)
     lags = cx_lag_features(
         hist_bars=hist,
-        cx_by_date=cx_map,
+        cx_by_date=maps.get("y") or {},
         asof_date=asof_date,
+        len_by_date=maps.get("L") or {},
+        am_by_date=maps.get("am") or {},
     )
-    out["cx_lag1"] = lags.get("cx_lag1")
-    out["cx_ma5"] = lags.get("cx_ma5")
+    for k in CX_LAG_FEATURES:
+        out[k] = lags.get(k)
     return out
 
 
@@ -316,6 +383,8 @@ def collect_cx_day_sample(
     tau_row: Optional[dict] = None,
     minute_tau_hm: Any = None,
     cx_by_date: Optional[Dict[str, float]] = None,
+    cx_len_by_date: Optional[Dict[str, float]] = None,
+    cx_am_by_date: Optional[Dict[str, float]] = None,
 ) -> Optional[Dict[str, Any]]:
     """单日：开盘 Z + 早盘前缀分钟小包 + 历史真实 cx + 全日曲折度标签。"""
     if not isinstance(day_bar, dict):
@@ -361,9 +430,11 @@ def collect_cx_day_sample(
         hist_bars=hist,
         cx_by_date=cx_by_date if isinstance(cx_by_date, dict) else {},
         asof_date=dkey,
+        len_by_date=cx_len_by_date if isinstance(cx_len_by_date, dict) else {},
+        am_by_date=cx_am_by_date if isinstance(cx_am_by_date, dict) else {},
     )
-    feats["cx_lag1"] = lags.get("cx_lag1")
-    feats["cx_ma5"] = lags.get("cx_ma5")
+    for k in CX_LAG_FEATURES:
+        feats[k] = lags.get(k)
     label, reason, lab_meta = cx_complexity_label(minute_bars)
     if label is None:
         return None
@@ -422,7 +493,10 @@ def build_cx_panels_from_bars(
             if i < len(tau_xs) and isinstance(tau_xs[i], dict):
                 tau_by_date[str(dkey)[:10]] = dict(tau_xs[i])
         code_mins = minute_map.get(code) if isinstance(minute_map.get(code), dict) else {}
-        cx_by_date = realized_cx_by_date(code_mins)
+        cx_maps = realized_cx_stats_by_date(code_mins)
+        cx_by_date = cx_maps.get("y") or {}
+        cx_len_by_date = cx_maps.get("L") or {}
+        cx_am_by_date = cx_maps.get("am") or {}
         xs_out: List[dict] = []
         ys_out: List[float] = []
         dates_out: List[str] = []
@@ -445,6 +519,8 @@ def build_cx_panels_from_bars(
                     tau_row=tau_by_date.get(dkey),
                     minute_tau_hm=hm,
                     cx_by_date=cx_by_date,
+                    cx_len_by_date=cx_len_by_date,
+                    cx_am_by_date=cx_am_by_date,
                 )
                 if not sample:
                     continue

@@ -430,10 +430,16 @@ export function createFactorIcUi(deps) {
     mom3_pct: "近3日动量 %",
     tau_lag1: "昨真实开→收 %",
     tau_ma5: "近5日真实开→收均 %",
+    tau_std5: "近5日真实开→收标准差 %",
+    yest_gap: "昨隔夜缺口 %",
     path_lag1: "昨真实极值序 %",
     path_ma5: "近5日真实极值序均 %",
+    path_range_lag1: "昨真实振幅 %",
+    path_sign_streak: "极值序同号连续日",
     cx_lag1: "昨真实曲折度",
     cx_ma5: "近5日真实曲折度均",
+    cx_L_lag1: "昨路径长 %",
+    cx_am_lag1: "昨早盘曲折度",
     ret_open_to_tau: "开盘→τ 收益 %",
     ret_prev_to_tau: "昨收→τ 收益 %",
     range_pct: "前缀振幅 %",
@@ -548,10 +554,16 @@ export function createFactorIcUi(deps) {
     const histLagExtra = new Set([
       "cx_lag1",
       "cx_ma5",
+      "cx_L_lag1",
+      "cx_am_lag1",
       "tau_lag1",
       "tau_ma5",
+      "tau_std5",
+      "yest_gap",
       "path_lag1",
       "path_ma5",
+      "path_range_lag1",
+      "path_sign_streak",
     ]);
     const pathExtra = new Set([
       "gap_pct",
@@ -644,7 +656,6 @@ export function createFactorIcUi(deps) {
       rm.ridge_lambda != null && Number.isFinite(Number(rm.ridge_lambda))
         ? Number(rm.ridge_lambda)
         : null;
-    const exclN = Object.keys(rm.exclusion_reasons || {}).length;
     const ySpecObj = rm.y_spec && typeof rm.y_spec === "object" ? rm.y_spec : {};
     const ySpecRaw =
       ySpecObj.formula ||
@@ -660,6 +671,19 @@ export function createFactorIcUi(deps) {
     const oos = opts.oos || {};
     const openN = rows.filter((r) => r.kind === "开盘" || r.kind === "路径").length;
     const minuteN = rows.filter((r) => r.kind === "分钟").length;
+    const histN = rows.filter((r) => r.kind === "历史").length;
+    const extraList = Array.isArray(rm.extra_features)
+      ? rm.extra_features.map(String).filter(Boolean)
+      : [];
+    const activeSet = new Set(activeList);
+    const omittedFromExtra = extraList.filter((k) => !activeSet.has(k));
+    const exclKeys = Object.keys(rm.exclusion_reasons || {});
+    const exclN = new Set([...exclKeys, ...omittedFromExtra]).size;
+    const omitTip = omittedFromExtra.length
+      ? `未入模：${omittedFromExtra.join("、")}`
+      : exclN > 0
+        ? "未入模因子已隐藏"
+        : "";
     const posN = rows.filter((r) => r.ols >= 0).length;
     const negN = rows.length - posN;
     const yhatTag = isPath ? pathTag : isOn ? "ŷ_ON" : "ŷ_τ";
@@ -716,13 +740,13 @@ export function createFactorIcUi(deps) {
         "入模",
         `${rows.length}`,
         isPath
-          ? `开盘 ${openN} · 分钟 ${minuteN}`
+          ? `开盘 ${openN} · 分钟 ${minuteN} · 历史 ${histN}`
           : isOn
             ? `路径 ${openN}`
-            : `开盘 ${openN} · 分钟 ${minuteN} · 其它 ${rows.length - openN - minuteN}`
+            : `开盘 ${openN} · 分钟 ${minuteN} · 历史 ${histN}`
       ) +
       kpi("β±", `${posN}/${negN}`, "正系数 / 负系数个数") +
-      (exclN > 0 ? kpi("省略", exclN, "未入模因子已隐藏") : "") +
+      (exclN > 0 ? kpi("省略", exclN, omitTip) : "") +
       `</div>`;
 
     const byTau = oos.by_tau && typeof oos.by_tau === "object" ? oos.by_tau : null;
@@ -840,12 +864,13 @@ export function createFactorIcUi(deps) {
       `<span class="quant-rem-leg is-neg">负β</span>` +
       (isPath
         ? `<span class="quant-rem-leg is-open">开盘</span>` +
-          `<span class="quant-rem-leg is-minute">分钟</span>`
+          `<span class="quant-rem-leg is-minute">分钟</span>` +
+          `<span class="quant-rem-leg is-eod">历史</span>`
         : isOn
           ? `<span class="quant-rem-leg is-open">路径</span>`
           : `<span class="quant-rem-leg is-open">开盘</span>` +
             `<span class="quant-rem-leg is-minute">分钟</span>` +
-            `<span class="quant-rem-leg is-eod">日线</span>`) +
+            `<span class="quant-rem-leg is-eod">历史</span>`) +
       `</div>` +
       `</div>`;
 
@@ -891,12 +916,15 @@ export function createFactorIcUi(deps) {
         return `${shown}${key}：T 日路径 / 开盘 Z，用于估 open[T+1]/open[T]−1。正 β 表示该值偏高时 ŷ_ON 更高。`;
       }
       if (r.kind === "分钟") {
-        return `${shown}${key}：≤τ 的 5m 路径摘要。正 β 表示该值偏高时 ŷ_τ（open→close）更高。`;
+        return `${shown}${key}：≤τ 的 5m 路径摘要。正 β 表示该值偏高时 ${yhatTag} 更高。`;
       }
       if (r.kind === "开盘") {
-        return `${shown}${key}：ŷ_τ 开盘/截面特征。正 β 表示该值偏高时 ŷ_τ 更高。`;
+        return `${shown}${key}：开盘/截面特征。正 β 表示该值偏高时 ${yhatTag} 更高。`;
       }
-      return `${shown}${key}：T−1 日线因子，ŷ_τ Ridge 入模。正 β 表示该值偏高时 ŷ_τ 更高。`;
+      if (r.kind === "历史") {
+        return `${shown}${key}：PIT 历史真实标签（不含当日）。正 β 表示该值偏高时 ${yhatTag} 更高。`;
+      }
+      return `${shown}${key}：T−1 日线因子。正 β 表示该值偏高时 ${yhatTag} 更高。`;
     };
 
     const factorCell = (r) =>
@@ -918,10 +946,10 @@ export function createFactorIcUi(deps) {
           width: 72,
           center: true,
           title: isPath
-            ? "开盘=缺口 Z；分钟=≤τ 前缀小包（与 ŷ_τ 同键）"
+            ? "开盘=缺口 Z；分钟=≤τ 前缀小包；历史=PIT 昨标签（不含当日）"
             : isOn
               ? "路径=T 日已实现 + 开盘 Z"
-              : "开盘=缺口 Z；分钟=≤τ 的 5m 路径；日线=T−1 因子",
+              : "开盘=缺口 Z；分钟=≤τ 的 5m 路径；历史=PIT 昨标签（不含当日）",
         },
         {
           id: "ols",
@@ -967,8 +995,10 @@ export function createFactorIcUi(deps) {
             : r.kind === "分钟"
               ? "≤τ 的 5m 路径摘要（分钟 τ）"
               : r.kind === "开盘"
-                ? "开盘/截面特征（τ 特有）"
-                : "T−1 日线因子";
+                ? "开盘/截面特征"
+                : r.kind === "历史"
+                  ? "PIT 历史真实标签（不含当日）"
+                  : "T−1 日线因子";
           return (
             `<span class="quant-rem-kind-chip ${chipClass}" title="${esc(kindTip)}">${esc(
               r.kind

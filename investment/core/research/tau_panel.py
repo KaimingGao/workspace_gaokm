@@ -1,24 +1,26 @@
 """ŷ_τ 训练面板：y = close[T]/open[T]-1；特征 = 开盘 Z（缺口/ATR/截面）。
 
 无未来函数：决策在开盘，标签为开盘→收盘。日线因子不在此计算（已在 ŷ_EOD）。
-另加 PIT 历史真实 open→close（tau_lag1 / tau_ma5，不含当日）。
+另加 PIT 历史真实 open→close（tau_lag1 / tau_ma5 / tau_std5，不含当日）与昨隔夜缺口 yest_gap。
 """
 
 
 import logging
 
 logger = logging.getLogger(__name__)
-from statistics import median
+from statistics import median, stdev
 from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
 GAP_ATR_WINDOW = 14
 GAP_ATR_CLIP = 10.0
 _SECTOR_REL_MIN_N = 3
 LABEL_LAG_WINDOW = 5
-TAU_LAG_FEATURES = ("tau_lag1", "tau_ma5")
+TAU_LAG_FEATURES = ("tau_lag1", "tau_ma5", "tau_std5", "yest_gap")
 TAU_LAG_FEAT_LABELS = {
     "tau_lag1": "昨真实开→收 %",
     "tau_ma5": "近5日真实开→收均 %",
+    "tau_std5": "近5日真实开→收标准差 %",
+    "yest_gap": "昨隔夜缺口 %",
 }
 
 from core.signal.minute_tau_grid import (
@@ -112,6 +114,40 @@ def hist_bars_pit(
     return hist
 
 
+def _series_std(vals: Sequence[float]) -> Optional[float]:
+    if not vals:
+        return None
+    if len(vals) < 2:
+        return 0.0
+    try:
+        return round(float(stdev(vals)), 6)
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _series_sign_streak(vals: Sequence[float]) -> Optional[float]:
+    """最近有效值起、同号连续天数（带符号）；0 断开；无样本则空。"""
+    if not vals:
+        return None
+
+    def _sign(x: float) -> int:
+        if x > 0:
+            return 1
+        if x < 0:
+            return -1
+        return 0
+
+    s0 = _sign(float(vals[0]))
+    if s0 == 0:
+        return 0.0
+    n = 0
+    for v in vals:
+        if _sign(float(v)) != s0:
+            break
+        n += 1
+    return float(s0 * n)
+
+
 def label_lag_features(
     *,
     hist_bars: Sequence[dict],
@@ -119,7 +155,9 @@ def label_lag_features(
     asof_date: str,
     window: int = LABEL_LAG_WINDOW,
     lag1_key: str,
-    ma_key: str,
+    ma_key: Optional[str] = None,
+    std_key: Optional[str] = None,
+    streak_key: Optional[str] = None,
 ) -> Dict[str, Optional[float]]:
     """PIT：只用 **严格早于** asof 且 ``by_date`` 有值的交易日；最多 ``window`` 天。
 
@@ -127,8 +165,19 @@ def label_lag_features(
     ``by_date`` 即使含 T/未来日也不读。
     """
     asof = str(asof_date or "")[:10]
+
+    def _empty() -> Dict[str, Optional[float]]:
+        out: Dict[str, Optional[float]] = {lag1_key: None}
+        if ma_key:
+            out[ma_key] = None
+        if std_key:
+            out[std_key] = None
+        if streak_key:
+            out[streak_key] = None
+        return out
+
     if len(asof) < 10:
-        return {lag1_key: None, ma_key: None}
+        return _empty()
     past = {
         str(k)[:10]: v
         for k, v in (by_date or {}).items()
@@ -156,8 +205,33 @@ def label_lag_features(
         if len(vals) >= win:
             break
     lag1 = round(vals[0], 6) if vals else None
-    ma = round(sum(vals) / float(len(vals)), 6) if vals else None
-    return {lag1_key: lag1, ma_key: ma}
+    out: Dict[str, Optional[float]] = {lag1_key: lag1}
+    if ma_key:
+        out[ma_key] = round(sum(vals) / float(len(vals)), 6) if vals else None
+    if std_key:
+        out[std_key] = _series_std(vals)
+    if streak_key:
+        out[streak_key] = _series_sign_streak(vals)
+    return out
+
+
+def yest_gap_from_hist(
+    hist_bars: Optional[Sequence[dict]],
+    asof_date: str,
+) -> Optional[float]:
+    """昨隔夜缺口 (O_{T-1}/C_{T-2}-1)×100；缺两根则空。不是当日 gap_pct。"""
+    asof = str(asof_date or "")[:10]
+    if len(asof) < 10:
+        return None
+    hist = hist_bars_pit(hist_bars, asof_date=asof)
+    if len(hist) < 2:
+        return None
+    b_yest = hist[-1]
+    b_prev = hist[-2]
+    g = _gap_pct(b_prev.get("close"), b_yest.get("open"))
+    if g is None:
+        return None
+    return round(float(g), 6)
 
 
 def realized_tau_by_date(bars: Optional[Sequence[dict]]) -> Dict[str, float]:
@@ -183,14 +257,17 @@ def tau_lag_features(
     asof_date: str,
     window: int = LABEL_LAG_WINDOW,
 ) -> Dict[str, Optional[float]]:
-    return label_lag_features(
+    out = label_lag_features(
         hist_bars=hist_bars,
         by_date=tau_by_date,
         asof_date=asof_date,
         window=window,
         lag1_key="tau_lag1",
         ma_key="tau_ma5",
+        std_key="tau_std5",
     )
+    out["yest_gap"] = yest_gap_from_hist(hist_bars, asof_date)
+    return out
 
 
 def attach_tau_lag_features(
@@ -199,7 +276,7 @@ def attach_tau_lag_features(
     hist_bars: Sequence[dict],
     asof_date: str,
 ) -> Dict[str, Any]:
-    """把 tau_lag1 / tau_ma5 写入特征行；缺历史则留空，不挡打分。"""
+    """把 tau_lag1 / tau_ma5 / tau_std5 / yest_gap 写入特征行；缺历史则留空，不挡打分。"""
     out: Dict[str, Any] = dict(feats or {})
     hist = hist_bars_pit(hist_bars, asof_date=asof_date)
     lags = tau_lag_features(
@@ -207,8 +284,8 @@ def attach_tau_lag_features(
         tau_by_date=realized_tau_by_date(hist),
         asof_date=asof_date,
     )
-    out["tau_lag1"] = lags.get("tau_lag1")
-    out["tau_ma5"] = lags.get("tau_ma5")
+    for k in TAU_LAG_FEATURES:
+        out[k] = lags.get(k)
     return out
 
 
@@ -390,9 +467,9 @@ def collect_tau_open_panel(
             "gap_atr": gap_atr_from_hist(gap, window),
             "yclose_loc": yclose_loc_from_prev(b_prev, o),
             "mom3_pct": mom3_pct_from_hist(window),
-            "tau_lag1": lags.get("tau_lag1"),
-            "tau_ma5": lags.get("tau_ma5"),
         }
+        for k in TAU_LAG_FEATURES:
+            row[k] = lags.get(k)
         xs.append(row)
         ys.append(float(y))
         dates.append(date_t)
@@ -768,9 +845,9 @@ def collect_tau_intraday_panel(
                 "gap_pct": float(gap) if gap is not None else None,
                 "open_gap": float(gap) if gap is not None else None,
                 "gap_atr": gap_atr_from_hist(gap, window),
-                "tau_lag1": lags.get("tau_lag1"),
-                "tau_ma5": lags.get("tau_ma5"),
             }
+            for k in TAU_LAG_FEATURES:
+                row[k] = lags.get(k)
             row.update(pack)
             if "ret_open_to_tau" not in row:
                 open_for_ret = float(o_min) if o_min and o_min > 0 else float(o)

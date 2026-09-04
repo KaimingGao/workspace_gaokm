@@ -162,7 +162,7 @@ class CxRidgeFitTests(unittest.TestCase):
             tau_grid=["09:30", "10:30"],
         )
         self.assertTrue(report.get("success"), report.get("error"))
-        self.assertEqual(report.get("schema"), "cx_ridge_v1")
+        self.assertEqual(report.get("schema"), "cx_ridge_v2")
         self.assertEqual(report.get("dual_score_head"), "y_cx")
         oos = report.get("oos") or {}
         self.assertIn("ic", oos)
@@ -173,6 +173,8 @@ class CxRidgeFitTests(unittest.TestCase):
         extras = (report.get("return_model") or {}).get("extra_features") or []
         self.assertIn("cx_lag1", extras)
         self.assertIn("cx_ma5", extras)
+        self.assertIn("cx_L_lag1", extras)
+        self.assertIn("cx_am_lag1", extras)
         self.assertIn("cx_lag1", (report.get("return_model") or {}).get("feat_labels") or {})
 
 
@@ -187,6 +189,8 @@ class CxLagFeatureTests(unittest.TestCase):
 
         self.assertNotIn("cx_lag1", PATH_Z_FEATURES)
         self.assertNotIn("path_lag1", PATH_Z_FEATURES)
+        self.assertNotIn("cx_L_lag1", PATH_Z_FEATURES)
+        self.assertNotIn("cx_am_lag1", PATH_Z_FEATURES)
         times = _times_am_pm()
         minute_by_date = {}
         daily = []
@@ -287,6 +291,70 @@ class CxLagFeatureTests(unittest.TestCase):
             asof_date="",
         )
         self.assertIsNone(empty["cx_lag1"])
+
+    def test_cx_am_lag1_is_yesterday_morning_not_full_day(self):
+        from core.research.cx_panel import (
+            am_session_minute_bars,
+            attach_cx_lag_features,
+            cx_complexity_label,
+        )
+
+        times = _times_am_pm()
+        d0, d1 = "2025-06-02", "2025-06-03"
+        px = 10.0
+        m0 = []
+        for j, hm in enumerate(times):
+            hh, mm = (int(p) for p in hm.split(":"))
+            tmin = hh * 60 + mm
+            if tmin <= 11 * 60:
+                c = px + j * 0.01
+            else:
+                c = px + (0.08 if j % 2 else 0.0)
+            m0.append(_bar(d0, hm, c, open_px=px))
+        y_full, _, _ = cx_complexity_label(m0)
+        y_am, _, meta_am = cx_complexity_label(am_session_minute_bars(m0))
+        self.assertIsNotNone(y_full)
+        self.assertIsNotNone(y_am)
+        self.assertNotAlmostEqual(float(y_full), float(y_am), places=3)
+        feats = attach_cx_lag_features(
+            {},
+            hist_bars=[{"date": d0}, {"date": d1}],
+            asof_date=d1,
+            minute_by_date={d0: m0},
+        )
+        self.assertAlmostEqual(feats["cx_lag1"], float(y_full), places=5)
+        self.assertAlmostEqual(feats["cx_am_lag1"], float(y_am), places=5)
+        self.assertIsNotNone(feats["cx_L_lag1"])
+        self.assertGreater(float(feats["cx_L_lag1"]), 0.0)
+
+    def test_t_day_am_and_L_not_used_as_factor(self):
+        from core.research.cx_panel import (
+            am_session_minute_bars,
+            attach_cx_lag_features,
+            cx_complexity_label,
+        )
+
+        times = _times_am_pm()
+        d0, d_t = "2025-06-02", "2025-06-03"
+        m0 = [_bar(d0, hm, 10.0 + j * 0.01) for j, hm in enumerate(times)]
+        mt = [
+            _bar(d_t, hm, 10.0 + (0.08 if j % 2 else 0.0), open_px=10.0)
+            for j, hm in enumerate(times)
+        ]
+        _y0, _, meta0 = cx_complexity_label(m0)
+        y0_am, _, _ = cx_complexity_label(am_session_minute_bars(m0))
+        yt_am, _, _ = cx_complexity_label(am_session_minute_bars(mt))
+        _yt, _, metat = cx_complexity_label(mt)
+        feats = attach_cx_lag_features(
+            {},
+            hist_bars=[{"date": d0}, {"date": d_t}],
+            asof_date=d_t,
+            minute_by_date={d0: m0, d_t: mt},
+        )
+        self.assertAlmostEqual(feats["cx_am_lag1"], float(y0_am), places=5)
+        self.assertNotAlmostEqual(feats["cx_am_lag1"], float(yt_am), places=3)
+        self.assertAlmostEqual(feats["cx_L_lag1"], float(meta0["path_len_pct"]), places=4)
+        self.assertNotAlmostEqual(feats["cx_L_lag1"], float(metat["path_len_pct"]), places=3)
 
 
 if __name__ == "__main__":

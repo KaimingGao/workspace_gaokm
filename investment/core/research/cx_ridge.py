@@ -311,7 +311,7 @@ def fit_cx_ridge_report(
         "tau_grid": list(grid),
         "note": (
             "Kaufman 1−ER：D=全日 5m 收价首末位移，L=邻根路径长（午休跳空不计）；"
-            "y_cx∈[0,1]，0≈直线、1=最折。特征=开盘 Z + ≤τ 前缀 + cx_lag1/cx_ma5；"
+            "y_cx∈[0,1]，0≈直线、1=最折。特征=开盘 Z + ≤τ 前缀 + cx_lag1/cx_ma5/cx_L_lag1/cx_am_lag1；"
             "标签=全日 1−D/L（不变）。OOS 看 IC / 中位命中，不看方向命中。"
         ),
     }
@@ -327,7 +327,7 @@ def fit_cx_ridge_report(
         "sample_count": len(ys),
         "oos": oos,
         "return_model": model,
-        "schema": "cx_ridge_v1",
+        "schema": "cx_ridge_v2",
         "target": "path_complexity_5m_er",
         "minute_tau_hm": live_hm,
         "tau_grid": list(grid),
@@ -443,7 +443,7 @@ def persist_cx_model(
         "oos": report.get("oos"),
         "sample_count": report.get("sample_count"),
         "stock_count": report.get("stock_count"),
-        "schema": report.get("schema") or "cx_ridge_v1",
+        "schema": report.get("schema") or "cx_ridge_v2",
         "minute_tau_hm": report.get("minute_tau_hm") or rm.get("minute_tau_hm"),
         "tau_grid": report.get("tau_grid") or rm.get("tau_grid"),
         "promote_gate": gate,
