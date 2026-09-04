@@ -686,7 +686,7 @@ export function initQuant(ctx) {
       }
       const oos = data.oos || {};
       const gate = data.promote_gate || null;
-      const chip = data.shadow ? "拟合" : data.promoted === false ? "拟合" : "已启用";
+      const chip = data.shadow || data.promoted === false ? "已拟合" : "已启用";
       const liveNote =
         data.shadow && data.live_tau
           ? ` · live 仍为 ${data.live_tau}`
@@ -714,11 +714,11 @@ export function initQuant(ctx) {
         if (oos.sign_hit != null && Number.isFinite(Number(oos.sign_hit))) {
           syncOverviewTau(
             oos.sign_hit,
-            `${data.shadow ? "拟合" : "模型"} OOS · IC ${fmtRemIc(oos.ic)}`,
+            `${data.shadow ? "已拟合" : "模型"} OOS · IC ${fmtRemIc(oos.ic)}`,
             "hit"
           );
         } else if (oos.ic != null && Number.isFinite(Number(oos.ic))) {
-          syncOverviewTau(oos.ic, data.shadow ? "拟合 OOS" : "模型 OOS", "ic");
+          syncOverviewTau(oos.ic, data.shadow ? "已拟合 OOS" : "模型 OOS", "ic");
         } else {
           syncOverviewTau(
             data.shadow ? "已拟合" : "已启用",
@@ -1508,9 +1508,9 @@ export function initQuant(ctx) {
               ? " · 可启用"
               : "";
         renderRemStatus(sum, {
-          state: "warn",
-          chip: "未写盘",
-          message: `人审后点「启用」${gateMsg}`,
+          state: "ok",
+          chip: "已拟合",
+          message: `未写 live${gateMsg}`,
           oos,
           sampleCount: data.sample_count,
         });
@@ -1520,11 +1520,11 @@ export function initQuant(ctx) {
       if (oos.sign_hit != null && Number.isFinite(Number(oos.sign_hit))) {
         syncOverviewTau(
           oos.sign_hit,
-          `τ OOS · IC ${fmtRemIc(oos.ic)}${persist ? " · 已启用" : " · 未写盘"}`,
+          `τ OOS · IC ${fmtRemIc(oos.ic)}${persist ? " · 已启用" : " · 已拟合"}`,
           "hit"
         );
       } else if (oos.ic != null && Number.isFinite(Number(oos.ic))) {
-        syncOverviewTau(oos.ic, persist ? "τ OOS · 已启用" : "τ OOS · 未写盘", "ic");
+        syncOverviewTau(oos.ic, persist ? "τ OOS · 已启用" : "τ OOS · 已拟合", "ic");
       }
       const rm = data.return_model || {};
       clearRemResultBox();
@@ -1965,7 +1965,7 @@ export function initQuant(ctx) {
       }
       const oos = data.oos || {};
       const gate = data.promote_gate || null;
-      const chip = data.shadow ? "拟合" : "已启用";
+      const chip = data.shadow ? "已拟合" : "已启用";
       const liveNote =
         data.shadow && data.live_tau
           ? ` · live 仍为 ${data.live_tau}`

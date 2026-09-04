@@ -43,6 +43,16 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("quant-rem-coef-spec-span", css)
         self.assertIn("quant-rem-coef-spec-metrics", css)
 
+    def test_tau_ridge_fit_chip_is_fitted(self):
+        quant_js = self._read("web", "static", "js", "quant.js")
+        tau_run = quant_js.split("async function runTauRidge")[1].split(
+            "async function runOnRidge"
+        )[0]
+        self.assertIn('chip: "已拟合"', tau_run)
+        self.assertNotIn('chip: "未写盘"', tau_run)
+        status_fn = quant_js.split("quant-tau-ridge-status")[1][:2200]
+        self.assertIn('data.shadow ? "已拟合" : "已启用"', status_fn)
+
     def test_daily_bt_option_js(self):
         export_js = self._read("web", "static", "js", "quant", "domain_export.js")
         self.assertIn("readDailyBtOverrides", export_js)
