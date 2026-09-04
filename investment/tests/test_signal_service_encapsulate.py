@@ -291,7 +291,7 @@ class TestMainCallersUseService(unittest.TestCase):
     def test_orchestrator_imports_service(self):
         from pathlib import Path
 
-        text = Path(ROOT, "core/paper_rebalance_orchestrator.py").read_text(
+        text = Path(ROOT, "core/paper/rebalance/orchestrator.py").read_text(
             encoding="utf-8"
         )
         self.assertIn("get_default_signal_service", text)
@@ -319,14 +319,16 @@ class TestMainCallersUseService(unittest.TestCase):
     def test_watching_insights_imports_service(self):
         from pathlib import Path
 
-        text = Path(ROOT, "core/watching_insights.py").read_text(encoding="utf-8")
+        text = Path(ROOT, "core/watching/insights.py").read_text(encoding="utf-8")
         self.assertIn("get_default_signal_service", text)
         self.assertNotIn("from core.signal.score_stock import score_stock", text)
 
     def test_cluster_live_refresh_imports_service(self):
         from pathlib import Path
 
-        text = Path(ROOT, "core/signal/cluster/live.py").read_text(encoding="utf-8")
+        text = Path(ROOT, "core/signal/cluster/live_audit.py").read_text(
+            encoding="utf-8"
+        )
         self.assertIn("get_default_signal_service", text)
         self.assertNotIn(
             "from core.signal.cluster.rank import rank_cluster_pools", text
@@ -409,7 +411,7 @@ class TestMetricsAndBookStamp(unittest.TestCase):
     def test_watching_insights_uses_book_fields(self):
         from pathlib import Path
 
-        text = Path(ROOT, "core/watching_insights.py").read_text(encoding="utf-8")
+        text = Path(ROOT, "core/watching/insights.py").read_text(encoding="utf-8")
         self.assertIn(".book_fields(", text)
         self.assertNotIn("dual_score_book_fields", text)
         self.assertNotIn(".annotate_item(", text)
@@ -430,14 +432,14 @@ class TestProductionBuyGate(unittest.TestCase):
     def test_paper_rebalance_checks_production_yhat(self):
         from pathlib import Path
 
-        text = Path(ROOT, "core/paper_rebalance.py").read_text(encoding="utf-8")
+        text = Path(ROOT, "core/paper/rebalance/buy.py").read_text(encoding="utf-8")
         self.assertIn("allows_production_yhat", text)
         self.assertIn("production_yhat_gate", text)
 
     def test_data_quality_exposes_signal_metrics(self):
         from pathlib import Path
 
-        text = Path(ROOT, "core/data_quality_center.py").read_text(encoding="utf-8")
+        text = Path(ROOT, "core/data/quality_center.py").read_text(encoding="utf-8")
         self.assertIn("signal_service_metrics", text)
 
     def test_ops_scripts_use_signal_service(self):

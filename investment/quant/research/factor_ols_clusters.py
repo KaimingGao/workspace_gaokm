@@ -215,23 +215,31 @@ def merge_cluster_universe(
 
 
 from quant.research.cluster_partition import (
+    OUTLIER_LABEL,
     _beta_matrix,
     _feature_union,
     _ols_coef_dict,
     _relabel_non_negative,
+    agglomerative_cut_by_tau,
+    agglomerative_labels,
     apply_beta_scale_transform,
     auto_k_candidates,
     beta_delta_mismatch,
     cluster_beta_vectors,
+    cluster_diameter,
     cluster_within_stats,
     coef_vector_from_report,
+    default_max_cluster_size,
     default_n_clusters,
     eject_by_group_beta_delta,
     eject_far_from_group_beta,
     fit_beta_scale_transform,
+    kmeans_labels,
     promote_outliers_to_singleton_clusters,
     refine_cluster_labels,
     resolve_beta_scale,
+    scale_beta_matrix,
+    within_dist_tau,
 )
 
 

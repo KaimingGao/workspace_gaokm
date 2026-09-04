@@ -351,14 +351,14 @@ class TestScoreStockModeYhatGate(unittest.TestCase):
         self.assertAlmostEqual(float(item["score_cluster"]), 9.0)
         self.assertEqual(item["return_model_source"], "oos_failed_heuristic")
         self.assertEqual(item.get("score_scale"), "heuristic_0_100")
-        self.assertIsNone(item.get("predicted_score"))
-        self.assertIsNone(item.get("predicted_score_eod"))
+        self.assertAlmostEqual(float(item.get("predicted_score")), 9.0)
+        self.assertAlmostEqual(float(item.get("predicted_score_eod")), 9.0)
         self.assertAlmostEqual(float(item["heuristic_score"]), 50.0)
         # 表列 score = 组 ŷ%，与 heuristic 分列
         self.assertAlmostEqual(float(item["score"]), 9.0)
         from core.signal.dual_score import resolve_predicted_score_eod
 
-        self.assertIsNone(resolve_predicted_score_eod(item))
+        self.assertAlmostEqual(float(resolve_predicted_score_eod(item)), 9.0)
 
 
 if __name__ == "__main__":

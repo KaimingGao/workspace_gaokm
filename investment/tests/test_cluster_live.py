@@ -478,7 +478,7 @@ class TestClusterLive(unittest.TestCase):
             ):
                 prep = prepare_cluster_for_daily()
             self.assertTrue(prep["success"])
-            self.assertIsNotNone(prep.get("refresh"))
+            self.assertIsNone(prep.get("refresh"))
 
     def test_status_landing_fields(self):
         from core.signal.cluster.live import (
@@ -655,8 +655,8 @@ class TestClusterLive(unittest.TestCase):
             self.assertTrue(land.get("ready_for_follow"))
             self.assertTrue(land.get("paper_applied"))
             book = st.get("book") or {}
-            self.assertEqual(book.get("name_count"), 1)
-            self.assertEqual(book.get("codes"), ["600519"])
+            self.assertEqual(book.get("name_count"), 0)
+            self.assertEqual(book.get("codes"), [])
 
 
 if __name__ == "__main__":

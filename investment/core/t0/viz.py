@@ -18,6 +18,7 @@ SKIP_CAT_LABELS: Dict[str, str] = {
     "y_cx_high": "y_cx太折",
     "gap_tier_skip": "大缺口反向跳过",
     "path_abandon": "前缀无空间放弃",
+    "prefix_vs_path": "前缀振幅超路径",
     "multi_slot_miss": "多轮均未成交",
     "tau_entry_price": "入场价vs开盘×ŷ_τ(旧)",
     "tau_exit_price": "出场价vs开盘×ŷ_τ",
@@ -66,6 +67,7 @@ SKIP_CAT_COLORS: Dict[str, str] = {
     "conflict": "#a04848",
     # 前缀 / 空间 / 缺口 · 海石青 + 一枚赭石
     "path_abandon": "#3f6f68",
+    "prefix_vs_path": "#4a8a7e",
     "multi_slot_miss": "#b8c0c8",
     "tau_entry_price": "#2a5f7a",
     "tau_exit_price": "#356b85",

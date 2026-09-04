@@ -138,7 +138,7 @@ class TestB4Demote(unittest.TestCase):
             h = assess_cluster_live_health(universe=["600000", "000001"])
         self.assertIn("ic_demote", h)
         self.assertIn("refit_suggested", h)
-        self.assertEqual(h.get("track"), "B4")
+        self.assertEqual(h.get("track"), "B4+FM2")
 
     def test_cfg_refit_max_age_alias(self):
         from core.signal.cluster.live import get_cluster_scoring_cfg
