@@ -129,6 +129,12 @@ class T0BacktestRequest(BaseModel):
         le=5.0,
         description="dual_y：正T（y_τ>0）入场 |y_τ| 门槛",
     )
+    r_tau_enter: Optional[float] = Field(
+        default=None,
+        ge=0.01,
+        le=99.99,
+        description="|R̂_τ| 入场下限（百分点）；范围 0.01–99.99",
+    )
     y_tau_enter_strong: Optional[float] = Field(
         default=None,
         ge=0.01,
@@ -186,19 +192,19 @@ class T0BacktestRequest(BaseModel):
     y_tau_leg1_prior_mode: Optional[str] = Field(
         default=None,
         max_length=16,
-        description="v6 日线先验：score=破带超额−k×逆势|y_τ|；skip=硬跳过；off=关",
+        description="v6 τ先验：ŷ_τ 当偏移加到 ±δ，整条带宽平移（宽仍 2δ）。score=漂移；off=对称 ±δ。旧 skip 并入 score",
     )
     y_tau_leg1_prior_risk: Optional[float] = Field(
         default=None,
         ge=0.0,
         le=10.0,
-        description="score 模式风险系数 k（默认 1）",
+        description="score：偏移灵敏度 k，s=k·ŷ_τ（再经 α·δ 封顶；默认 1）",
     )
     y_tau_leg1_prior_shift_scale: Optional[float] = Field(
         default=None,
         ge=0.1,
         le=0.9,
-        description="score：|s|≤α·δ，α∈[0.1, 0.9]（默认 0.9；保证 upper=δ+s>0>lower）",
+        description="score：带宽漂移 |s|≤α·δ，α∈[0.1, 0.9]（默认 0.9；保证上沿>0>下沿）",
     )
     y_nc_enter: Optional[float] = Field(
         default=None,
@@ -526,6 +532,7 @@ class PaperExecutionPatchRequest(BaseModel):
     y_tau_enter_strong: Optional[float] = None
     y_tau_enter_sell_then_buy: Optional[float] = None
     y_tau_enter_buy_then_sell: Optional[float] = None
+    r_tau_enter: Optional[float] = None
     y_ratio_cut: Optional[float] = None
     y_ratio_boost_cap: Optional[float] = None
     y_eod_prior: Optional[float] = None

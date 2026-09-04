@@ -11,6 +11,7 @@ SKIP_CAT_LABELS: Dict[str, str] = {
     "y_path_missing": "缺y_path",
     "y_eod_flat": "y_eod未过门槛",
     "y_tau_flat": "y_τ横盘",
+    "r_tau_flat": "R̂_τ超额不足",
     "y_tau_weak": "y_τ弱信号",
     "y_path_flat": "y_path横盘",
     "y_path_disagree": "y_τ↔y_path异号",
@@ -51,6 +52,7 @@ SKIP_CAT_COLORS: Dict[str, str] = {
     # 门槛不足 · 冷钢蓝 / 青灰
     "y_eod_flat": "#3d6a8a",
     "y_tau_flat": "#3a7a72",
+    "r_tau_flat": "#4a6e7a",
     "y_tau_weak": "#5a7d8c",
     "y_path_flat": "#7a6a55",
     # 异号 / 冲突 · 克制酒红 / 梅紫
@@ -92,6 +94,8 @@ def classify_t0_skip_reason(reason: Optional[str]) -> str:
         return "y_path_flat"
     if "y_eod" in r and "未过门槛" in r:
         return "y_eod_flat"
+    if "|R̂_τ|" in r or "R̂_τ" in r or "超额不足" in r:
+        return "r_tau_flat"
     if "y_τ" in r and "未过门槛" in r:
         return "y_tau_flat"
     if "y_eod" in r and "y_τ" in r and "异号" in r and "|y_eod|" in r:
@@ -1767,6 +1771,7 @@ def _summary_from_counts(
         "cover_rate_pct": round(cover_n / traded_n * 100.0, 2) if traded_n else None,
         "score_coverage_pct": round(score_seen / score_total * 100.0, 2) if score_total else None,
         "y_tau_enter": _f(cfg.get("y_tau_enter")) or 0.25,
+        "r_tau_enter": _f(cfg.get("r_tau_enter")) if cfg.get("r_tau_enter") is not None else 0.01,
         "y_trade_enter": _f(cfg.get("y_trade_enter") or cfg.get("y_trade_floor")) or 0.15,
         "y_trade_floor": _f(cfg.get("y_trade_floor") or cfg.get("y_trade_enter")) or 0.15,
     }

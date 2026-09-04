@@ -38,13 +38,17 @@ def _mins(date, points):
 
 
 def _scores_flat():
-    """三源全 0 + nowcast 锚 open → ĉ ≈ open，便于 ±δ 破带。"""
+    """三源全 0 + nowcast 锚 open → ĉ ≈ open，便于 ±δ 破带。
+
+    y_path 取弱正值：过默认 path 入场（0.01），但低于 path强（0.2），
+    避免 y_τ≈0 时被「强 path 异号」挡住破带夹具。
+    """
     return {
         "y_tau": 0.0,
         "y_trade": 0.0,
         "y_nowcast": 0.0,
         "nowcast_vs": "open",
-        "y_path": 1.0,
+        "y_path": 0.05,
     }
 
 
@@ -115,8 +119,11 @@ def _rules(**kwargs):
         "y_tau_entry_price_bias_sell_then_buy": 0.0,
         "y_tau_exit_price_bias_buy_then_sell": 0.0,
         "y_tau_exit_price_bias_sell_then_buy": 0.0,
-        # 路径/撮合单测不绑 ŷ_τ；生产默认 y_tau_require_for_leg1=True 见 overlay 单测
+        # 路径/撮合单测不绑 ŷ_τ / path 入场；生产默认 0.01 + 用path 见 overlay 单测
         "y_tau_require_for_leg1": False,
+        "y_tau_enter": 0.0,
+        "y_path_enter": 0.0,
+        "y_use_path": False,
     }
     base.update(kwargs)
     base["path_mode"] = "first_touch"
@@ -1748,7 +1755,19 @@ class TestDualYDirection(unittest.TestCase):
         self.assertIn("y_trade_floor", cfg)
         self.assertEqual(cfg["y_tau_enter"], 0.01)
         self.assertEqual(cfg["y_tau_enter_strong"], 0.01)
+        self.assertEqual(cfg["r_tau_enter"], 0.01)
         self.assertEqual(cfg["y_score_source"], "compute")
+
+    def test_r_tau_enter_clamped_to_range(self):
+        self.assertEqual(load_t0_rules({"r_tau_enter": 0.0})["r_tau_enter"], 0.01)
+        self.assertEqual(load_t0_rules({"r_tau_enter": 0.01})["r_tau_enter"], 0.01)
+        self.assertEqual(load_t0_rules({"r_tau_enter": 99.99})["r_tau_enter"], 99.99)
+        self.assertEqual(load_t0_rules({"r_tau_enter": 100.0})["r_tau_enter"], 99.99)
+
+    def test_tau_prior_skip_mode_maps_to_score(self):
+        cfg = load_t0_rules({"y_tau_leg1_prior_mode": "skip"})
+        self.assertEqual(cfg["y_tau_leg1_prior_mode"], "score")
+        self.assertTrue(cfg["y_tau_leg1_prior"])
 
     def test_y_tau_enter_strong_migrates_into_enter(self):
         cfg = load_t0_rules({"y_tau_enter": 0.4, "y_tau_enter_strong": 0.6})
@@ -2701,9 +2720,10 @@ class TestDualYDirection(unittest.TestCase):
                 min_range_pct=1.0,
                 fill_mode="optimistic",
                 must_cover_same_day=False,
-                # 破带测路径：ŷ=0；关掉 close-band 入场闸
+                # 破带测路径：ŷ=0；关掉 τ/path 入场与强同号
                 y_tau_enter=0.0,
                 y_path_enter=0.0,
+                y_use_path=False,
             ),
             scores=_scores_flat(),
             minute_bars=_mins_hl(bar=bar))
@@ -2727,6 +2747,7 @@ class TestDualYDirection(unittest.TestCase):
                 fill_mode="optimistic",
                 y_tau_enter=0.0,
                 y_path_enter=0.0,
+                y_use_path=False,
             ),
             scores=_scores_flat(),
             minute_bars=_mins_lh(bar=bar),
@@ -3854,6 +3875,10 @@ class TestT0Viz(unittest.TestCase):
         self.assertEqual(
             classify_t0_skip_reason("dual_y：|y_τ|=0.116%<0.25% 横盘跳过"),
             "y_tau_flat",
+        )
+        self.assertEqual(
+            classify_t0_skip_reason("|R̂_τ|=0.200%<0.5% 未过入场（超额不足）"),
+            "r_tau_flat",
         )
         self.assertEqual(
             classify_t0_skip_reason(

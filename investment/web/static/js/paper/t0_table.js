@@ -19,7 +19,7 @@ import {
 import {
   adaptiveSizingDayTip,
   yTauMapScoreTip,
-} from "./execution_ui.js?v=p1906";
+} from "./execution_ui.js?v=p1922";
 import { watchingScoreDetail } from "../quant/watching_render.js?v=p1734";
 
 export const SKIP_CAT_LABEL = {
@@ -27,6 +27,7 @@ export const SKIP_CAT_LABEL = {
   missing_minute: "缺分钟线",
   y_eod_flat: "y_eod未过门槛",
   y_tau_flat: "y_τ横盘",
+  r_tau_flat: "R̂_τ超额不足",
   y_tau_weak: "y_τ弱信号",
   y_path_flat: "y_path横盘",
   y_path_disagree: "y_τ↔y_path异号",
@@ -61,6 +62,8 @@ export const SKIP_CAT_TIP = {
     "缺当日分钟线，无法模拟触达与成交路径。",
   y_tau_flat:
     "|ŷ_τ| 低于 y_tau_enter（默认 0.01%）视为横盘：即使收价破 ĉ±δ 也不开第一腿。",
+  r_tau_flat:
+    "|R̂_τ| 低于 r_tau_enter（0.01–99.99%）视为超额不足：即使收价破带也不开第一腿。",
   y_eod_flat:
     "历史口径：|ŷ_eod| 低于入场门槛。v6 选腿不经 eod 入场闸；强异号仍可跳过。",
   y_tau_weak:
@@ -74,7 +77,7 @@ export const SKIP_CAT_TIP = {
   trade_tau_disagree:
     "历史口径：强 ŷ_trade 与 ŷ_τ 异号跳过。v6 选腿已下线该闸（仅 y_τ / ĉ_τ + path 入场/强）。",
   tau_leg1_prior:
-    "局部 r=(p/ĉ−1)% vs 整体 y_τ。score：s=clip(k·y_τ,±α·δ)，upper=δ+s、lower=−δ+s；α∈[0.1,0.9]（默认 0.9）；skip=异号硬跳过；off=关。",
+    "局部 r=(p/ĉ−1)% vs 整体 y_τ。score：s=clip(k·y_τ,±α·δ)，upper=δ+s、lower=−δ+s；α∈[0.1,0.9]（默认 0.9）；off=关。旧 skip 硬跳过已下线并入 score。",
   gap_tier_skip:
     "大缺口档位与拟做方向冲突（如大高开仍想正 T），规则直接跳过。",
   path_abandon:
@@ -130,6 +133,7 @@ const T0_TRADE_COL_W = {
   h: "52px",
   c: "52px",
   ctau: "72px",
+  rtau: "76px",
   process: "320px",
   retPct: "76px",
   pnl: "72px",
@@ -1793,8 +1797,98 @@ function tradeCtauTd(minutePx, dailyPx) {
   );
 }
 
-/** 本轮触发根 OHLC + Ĉ_τ。 */
-function tradeSlotPxCells(host) {
+function slotRtauPct(slotRow, barClose, cTau) {
+  const cb = slotCloseBand(slotRow);
+  const num = (v) => {
+    if (v == null || v === "") return null;
+    const n = Number(v);
+    return Number.isFinite(n) ? n : null;
+  };
+  let r = num(cb && (cb.band_r_pct ?? cb.r_pct));
+  if (r == null) {
+    const c = Number(barClose);
+    const mid = Number(cTau);
+    if (Number.isFinite(c) && c > 0 && Number.isFinite(mid) && mid > 0) {
+      r = (c / mid - 1) * 100;
+    }
+  }
+  return r;
+}
+
+/** R̂_τ 入场阈 = 页面 R入场%（r_tau_enter，0.01–99.99）。带宽因 τ 先验会漂，上下沿不对称，不能当阈值。 */
+function slotRtauEnterPct(slotRow, rPct, direction, rTauEnterCfg) {
+  const cb = slotCloseBand(slotRow);
+  const cfgN = Number(rTauEnterCfg ?? (cb && cb.band_r_enter_pct));
+  if (!Number.isFinite(cfgN) || cfgN <= 0) return null;
+  const dir = String(
+    direction || (slotRow && (slotRow.direction || slotRow.direction_used)) || ""
+  ).trim();
+  const r = Number(rPct);
+  const wantDown =
+    dir === "buy_then_sell" ||
+    (dir !== "sell_then_buy" && Number.isFinite(r) && r < -1e-9);
+  return { pct: wantDown ? -cfgN : cfgN, label: "R入场%" };
+}
+
+function fmtRtauPct(n) {
+  const v = Number(n);
+  if (!Number.isFinite(v)) return "—";
+  const abs = Math.abs(v);
+  const digits = abs < 0.1 && abs > 0 ? 3 : 2;
+  const body = v.toFixed(digits);
+  return `${v > 0 ? "+" : ""}${body}%`;
+}
+
+/** 成交主表：R̂_τ + 页面 R入场%（0.01–99.99）。 */
+function tradeRtauTd(rPct, slotRow, direction, rTauEnterCfg) {
+  const cb = slotCloseBand(slotRow);
+  const num = (v) => {
+    if (v == null || v === "") return null;
+    const n = Number(v);
+    return Number.isFinite(n) ? n : null;
+  };
+  const edge = slotRtauEnterPct(slotRow, rPct, direction, rTauEnterCfg);
+  const enter = edge && edge.pct;
+  const bits = ["r̂_τ = (C/ĉ_τ−1)×100 · 相对 ĉ 的超额"];
+  const cfgN = Number(rTauEnterCfg ?? (cb && cb.band_r_enter_pct));
+  if (Number.isFinite(cfgN) && cfgN > 0) {
+    bits.push(`入场阈 |R̂_τ|≥${cfgN}%（页面 R入场%，与带宽/τ先验漂移无关）`);
+  } else {
+    bits.push("本条无 R入场阈值");
+  }
+  const up = num(cb && (cb.band_upper_pct ?? cb.upper_pct));
+  const lo = num(cb && (cb.band_lower_pct ?? cb.lower_pct));
+  if (up != null) bits.push(`破带上沿 ${up.toFixed(2)}%`);
+  if (lo != null) bits.push(`破带下沿 ${lo.toFixed(2)}%`);
+  const tipAttr = ` title="${escapeText(bits.join(" · "))}"`;
+  const v = num(rPct);
+  if (v == null) {
+    return `<td class="num paper-t0-col-rtau is-na"${tipAttr}>—</td>`;
+  }
+  const tone = v > 1e-9 ? " up" : v < -1e-9 ? " down" : "";
+  const floor = Number.isFinite(cfgN) && cfgN > 0 ? cfgN : null;
+  const cleared =
+    floor == null
+      ? ""
+      : Math.abs(v) + 1e-12 >= floor
+        ? " is-cleared"
+        : " is-short";
+  const enterLine =
+    enter != null
+      ? `<span class="paper-t0-rtau-enter" title="${escapeText(
+          `入场阈 |R̂_τ|≥${cfgN}% · 页面 R入场%`
+        )}">入${escapeText(fmtRtauPct(enter))}</span>`
+      : "";
+  return (
+    `<td class="num paper-t0-col-rtau${tone}${cleared}"${tipAttr}>` +
+    `<span class="paper-t0-rtau-val">${escapeText(fmtRtauPct(v))}</span>` +
+    enterLine +
+    `</td>`
+  );
+}
+
+/** 本轮触发根 OHLC + Ĉ_τ + R̂_τ。 */
+function tradeSlotPxCells(host, rules) {
   const bars = compactTraceBars(host && host.forward_trace, {
     prefixBars: Number(host && host.prefix_bars) || 0,
     dir: (host && (host.direction || host.direction_used)) || "",
@@ -1826,12 +1920,19 @@ function tradeSlotPxCells(host) {
   const px = slotClosePxParts(slotRow);
   const cTau = px.c_tau ?? px.c_hat;
   const cTauDaily = px.c_tau_daily ?? px.c_hat_daily;
+  const rTau = slotRtauPct(slotRow, ohlc.c, cTau);
   return (
     tradeBarPxTd("o", ohlc.o, "本轮触发根 5m 开盘") +
     tradeBarPxTd("l", ohlc.l, "本轮触发根 5m 最低") +
     tradeBarPxTd("h", ohlc.h, "本轮触发根 5m 最高") +
     tradeBarPxTd("c", ohlc.c, "本轮触发根 5m 收盘") +
-    tradeCtauTd(cTau, cTauDaily)
+    tradeCtauTd(cTau, cTauDaily) +
+    tradeRtauTd(
+      rTau,
+      slotRow,
+      host && (host.direction || host.direction_used),
+      rules && rules.r_tau_enter
+    )
   );
 }
 
@@ -1986,6 +2087,7 @@ function tradeColgroup(showStock, showReason = false, showDelete = false) {
     t0Col("paper-t0-col-h", "h") +
     t0Col("paper-t0-col-c", "c") +
     t0Col("paper-t0-col-ctau", "ctau") +
+    t0Col("paper-t0-col-rtau", "rtau") +
     t0Col("paper-t0-col-tau", "tau") +
     t0Col("paper-t0-col-path", "path") +
     t0Col("paper-t0-col-process", "process") +
@@ -2087,7 +2189,7 @@ function tradeDaySlotHosts(d, splitSlots) {
 function tradeTableColCount(ctx) {
   let n = 1;
   if (ctx.showStock) n += 1;
-  n += 5;
+  n += 6;
   n += 2;
   n += 1;
   n += 3;
@@ -2100,6 +2202,27 @@ function fmtScanPct(n) {
   const v = Number(n);
   if (!Number.isFinite(v)) return "—";
   return `${v.toFixed(2)}%`;
+}
+
+function fmtScanRtau(r, rTauEnterCfg) {
+  const rTxt = fmtScanPct(r && r.r_pct);
+  const pick = String((r && r.pick) || "").trim();
+  const fakeSlot = {
+    close_band: {
+      band_upper_pct: r && r.upper_pct,
+      band_lower_pct: r && r.lower_pct,
+    },
+    direction: pick,
+  };
+  const edge = slotRtauEnterPct(
+    fakeSlot,
+    r && r.r_pct,
+    pick,
+    rTauEnterCfg != null ? rTauEnterCfg : r && r.r_enter
+  );
+  const thN = Number(edge && edge.pct);
+  if (!Number.isFinite(thN)) return rTxt;
+  return `${rTxt} 入${fmtRtauPct(thN)}`;
 }
 
 function fmtScanPick(pick) {
@@ -2185,9 +2308,10 @@ function closeBandScanTitleHtml(d) {
   );
 }
 
-function buildCloseBandScanExpandRow(d, dayKey, colSpan) {
+function buildCloseBandScanExpandRow(d, dayKey, colSpan, rules) {
   const scan = Array.isArray(d?.close_band_scan) ? d.close_band_scan : [];
   if (!scan.length) return "";
+  const rEnter = rules && rules.r_tau_enter;
   const body = scan
     .map((r) => {
       if (!r || typeof r !== "object") return "";
@@ -2208,9 +2332,9 @@ function buildCloseBandScanExpandRow(d, dayKey, colSpan) {
         `<td class="num is-hi">${escapeText(fmtBarPx(r.h))}</td>` +
         `<td class="num">${escapeText(fmtBarPx(r.c))}</td>` +
         `<td class="num">${escapeText(fmtBarPx(r.c_tau))}</td>` +
+        `<td class="num">${escapeText(fmtScanRtau(r, rEnter))}</td>` +
         `<td class="num">${escapeText(fmtScanPct(r.y_tau))}</td>` +
         `<td class="num">${escapeText(fmtPathScore(r.y_path))}</td>` +
-        `<td class="num">${escapeText(fmtScanPct(r.r_pct))}</td>` +
         `<td>${escapeText(fmtScanPick(r.pick))}</td>` +
         `<td class="paper-t0-scan-skip">${escapeText(skips || "—")}</td>` +
         `</tr>`
@@ -2225,8 +2349,8 @@ function buildCloseBandScanExpandRow(d, dayKey, colSpan) {
     `<table class="paper-t0-scan-debug">` +
     `<thead><tr>` +
     `<th>钟</th><th class="num">O</th><th class="num">L</th><th class="num">H</th>` +
-    `<th class="num">C</th><th class="num">Ĉ_τ</th><th class="num">y_τ</th>` +
-    `<th class="num">y_path</th><th class="num">r%</th>` +
+    `<th class="num">C</th><th class="num">Ĉ_τ</th><th class="num" title="r̂_τ = (C/ĉ_τ−1)×100 · 入场阈=页面 R入场%（0.01–99.99；与带宽δ/τ先验漂移无关）">R̂_τ</th>` +
+    `<th class="num">y_τ</th><th class="num">y_path</th>` +
     `<th>破带</th><th>跳过</th>` +
     `</tr></thead>` +
     `<tbody>${body}</tbody>` +
@@ -2338,7 +2462,7 @@ function renderTradeDayHtml(d, ctx) {
   const dateInner = hasScan
     ? `<button type="button" class="paper-t0-day-debug-toggle" data-t0-day-id="${escapeText(
         dayKey
-      )}" title="展开 11:00 前每根扫描（OLHC · Ĉ_τ · y_τ · y_path）" aria-expanded="false">${escapeText(
+      )}" title="展开 11:00 前每根扫描（OLHC · Ĉ_τ · R̂_τ · y_τ · y_path）" aria-expanded="false">${escapeText(
         dayText
       )}<span class="paper-t0-day-debug-caret" aria-hidden="true">▾</span></button>`
     : escapeText(dayText);
@@ -2348,7 +2472,7 @@ function renderTradeDayHtml(d, ctx) {
     )}">` +
     (showStock ? applyTdRowspan(stockCellHtml(d, fallback), span) : "") +
     applyTdRowspan(`<td class="paper-t0-col-date">${dateInner}</td>`, span) +
-    tradeSlotPxCells(first) +
+    tradeSlotPxCells(first, rules) +
     slotYCells(first, d) +
     slotProcessCell(first) +
     applyTdRowspan(
@@ -2383,13 +2507,13 @@ function renderTradeDayHtml(d, ctx) {
     html +=
       `<tr class="paper-t0-slot-cont${host.t0_slot_skipped ? " is-skipped" : ""}"` +
       ` data-code="${escapeText(code)}" data-t0-day-id="${escapeText(dayKey)}">` +
-      tradeSlotPxCells(host) +
+      tradeSlotPxCells(host, rules) +
       slotYCells(host, d) +
       slotProcessCell(host) +
       `</tr>`;
   }
   if (hasScan) {
-    html += buildCloseBandScanExpandRow(d, dayKey, tradeTableColCount(ctx));
+    html += buildCloseBandScanExpandRow(d, dayKey, tradeTableColCount(ctx), rules);
   }
   return html;
 }
@@ -2436,6 +2560,7 @@ export function buildT0TradeTableHtml(opts) {
     `<th scope="col" class="paper-t0-col-h num" title="本轮触发根 5m 最高">H</th>` +
     `<th scope="col" class="paper-t0-col-c num" title="本轮触发根 5m 收盘">C</th>` +
     `<th scope="col" class="paper-t0-col-ctau num" title="ĉ_τ · 主显分钟映后（破带用）；悬停看日原">Ĉ_τ</th>` +
+    `<th scope="col" class="paper-t0-col-rtau num" title="r̂_τ = (C/ĉ_τ−1)×100 · 相对 ĉ 的超额；入场阈=页面 R入场%（0.01–99.99；与带宽δ/τ先验漂移无关）">R̂_τ</th>` +
     `<th scope="col" class="paper-t0-col-tau num paper-t0-col-y paper-t0-col-y-tau" title="${escapeText(
       `${scoreTip}${slotYHint}${tauGateHint}`
     )}">y_τ</th>` +

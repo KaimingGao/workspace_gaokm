@@ -608,12 +608,17 @@ export function installClusterBarsUi(q) {
       paint(null);
       msgEl.textContent = error || "读取日 K 状态失败";
       setProStatusChip(chip, "error", "ERR");
+      if (!inflight) setBarsBusy(false);
       return null;
     }
     paint(data, { skipHead: !!jobFailure || !!jobSuccess });
     if (jobFailure) applyJobFailure({ message: jobFailure.errText }, jobFailure.job);
     else if (jobSuccess) applyJobSuccess(jobSuccess.job);
     else if (data.refresh_job) handleRefreshJob(data.refresh_job);
+    const jobSt = data.refresh_job && data.refresh_job.status;
+    if (!inflight && !jobFailure && !jobSuccess && jobSt !== "running") {
+      setBarsBusy(false);
+    }
     return data;
   }
 

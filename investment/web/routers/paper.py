@@ -96,6 +96,7 @@ def paper_execution_save(body: PaperExecutionPatchRequest | None = None) -> Dict
             ("y_tau_enter_strong", req.y_tau_enter_strong),
             ("y_tau_enter_sell_then_buy", req.y_tau_enter_sell_then_buy),
             ("y_tau_enter_buy_then_sell", req.y_tau_enter_buy_then_sell),
+            ("r_tau_enter", getattr(req, "r_tau_enter", None)),
             ("y_ratio_cut", req.y_ratio_cut),
             ("y_ratio_boost_cap", req.y_ratio_boost_cap),
             ("y_eod_prior", req.y_eod_prior),

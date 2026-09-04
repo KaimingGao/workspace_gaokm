@@ -206,6 +206,7 @@ DEFAULT_T0_RULES: Dict[str, Any] = {
     # 反T / 正T 分侧入场；缺省与 y_tau_enter 同
     "y_tau_enter_sell_then_buy": 0.01,
     "y_tau_enter_buy_then_sell": 0.01,
+    "r_tau_enter": 0.01,  # |R̂_τ| 入场；范围 0.01–99.99
     "y_path_enter": 0.01,
     "y_path_enter_sell_then_buy": 0.01,
     "y_path_enter_buy_then_sell": 0.01,
@@ -221,12 +222,13 @@ DEFAULT_T0_RULES: Dict[str, Any] = {
     "y_tau_map": "trend",
     "y_use_path": True,
     "y_path_required": False,
-    # v6：破带后用 y_τ 日线先验（score=抬门槛 / skip=硬跳过 / off）
+    # v6 τ先验：把预估开→收 ŷ_τ 当偏移加到 ±δ 上，整条带宽平移（宽度仍 2δ），不改冻结 leg2（仍 ĉ±δ）。
+    # score=漂移 / off=对称 ±δ；s=clip(k·ŷ_τ, ±α·δ)，上沿=δ+s、下沿=−δ+s（旧 skip 并入 score）
     "y_tau_leg1_prior_mode": "score",
-    "y_tau_leg1_prior_risk": 1.0,
-    # score 同向放宽下限：门槛 |·| 至少为 floor×δ（防压到 0%）
+    "y_tau_leg1_prior_risk": 1.0,  # k：偏移灵敏度；s=k·ŷ_τ
+    # score 同向放宽下限：门槛 |·| 至少为 floor×δ（防压到 0%；α<1 时漂移已保号）
     "y_tau_leg1_prior_band_floor": 0.5,
-    # score：s=clip(k·y_τ, ±α·δ)；α∈[0.1, 0.9]，upper=δ+s，lower=−δ+s（默认 α=0.9）
+    # α∈[0.1, 0.9]：|s|≤α·δ，防漂移过头导致上沿≤0 或下沿≥0（默认 0.9）
     "y_tau_leg1_prior_shift_scale": 0.9,
     "y_tau_leg1_prior": True,  # 镜像：mode≠off
     "y_gap_tier_mode": "skip_opposite",
@@ -513,6 +515,7 @@ def load_t0_rules(override: Optional[dict] = None) -> Dict[str, Any]:
         ("y_tau_enter", 0.0, 5.0, 0.01),
         ("y_tau_enter_sell_then_buy", 0.0, 5.0, 0.01),
         ("y_tau_enter_buy_then_sell", 0.0, 5.0, 0.01),
+        ("r_tau_enter", 0.01, 99.99, 0.01),
         ("y_on_risk", 0.01, 10.0, 0.01),
         ("y_on_allow", 0.01, 10.0, 0.01),
         ("y_ratio_boost_cap", 1.0, 2.0, 2.0),

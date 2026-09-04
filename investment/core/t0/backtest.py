@@ -284,7 +284,8 @@ def backtest_t0_on_bars(
         f"direction={cfg.get('direction')} · y_tau_map={cfg.get('y_tau_map')} · "
         f"y_score_source={cfg.get('y_score_source')} · "
         f"y_tau_enter=±{cfg.get('y_tau_enter')}%；"
-        "仅 5m 第一触达（缺分钟日跳过，已删除日线模拟）；"
+        f"r_tau_enter=|{cfg.get('r_tau_enter')}|%；"
+        + "仅 5m 第一触达（缺分钟日跳过，已删除日线模拟）；"
         + (
             f"评估窗 {len(bars)} 日 · 因子缓冲 {max(0, len(history) - len(bars))} 日；"
             if bars_history is not None and len(history) > len(bars)
@@ -757,6 +758,7 @@ def _walk_t0(
             "y_tau_enter": cfg.get("y_tau_enter"),
             "y_tau_enter_sell_then_buy": cfg.get("y_tau_enter_sell_then_buy"),
             "y_tau_enter_buy_then_sell": cfg.get("y_tau_enter_buy_then_sell"),
+            "r_tau_enter": cfg.get("r_tau_enter"),
             "y_on_risk": cfg.get("y_on_risk"),
             "y_on_allow": cfg.get("y_on_allow"),
             "y_block_tau_nowcast_sign": cfg.get("y_block_tau_nowcast_sign"),

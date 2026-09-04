@@ -533,7 +533,7 @@ def close_band_sign_skip_reason(
 
 
 def normalize_y_tau_leg1_prior_mode(raw: Any, *, default: str = "score") -> str:
-    """日线先验模式：off | skip（硬跳过）| score（按 y_τ 平移破带门槛）。"""
+    """日线先验模式：off | score（按 y_τ 平移破带门槛）。旧 skip/hard 并入 score。"""
     if raw is False or raw is None:
         if raw is False:
             return "off"
@@ -545,10 +545,8 @@ def normalize_y_tau_leg1_prior_mode(raw: Any, *, default: str = "score") -> str:
         return str(default or "score")
     if s in {"0", "off", "false", "no", "disable", "disabled"}:
         return "off"
-    if s in {"1", "true", "yes", "on", "score", "soft", "raise", "scale"}:
+    if s in {"1", "true", "yes", "on", "score", "soft", "raise", "scale", "skip", "hard", "block"}:
         return "score"
-    if s in {"skip", "hard", "block"}:
-        return "skip"
     return str(default or "score")
 
 
@@ -582,43 +580,8 @@ def close_band_tau_prior_skip_reason(
     close_px: Optional[float] = None,
     delta_px: Optional[float] = None,
 ) -> Optional[str]:
-    """仅 ``skip`` 模式：整体 open→close 与局部价→收异号则硬跳过。
-
-    ``score`` 模式已并入 ``close_band_pick_direction`` 的非对称门槛，此处直接放行。
-    """
-    from core.t0.score_policy import (
-        resolve_direction_y_tau,
-        scores_from_item,
-    )
-
-    cfg_d = cfg if isinstance(cfg, dict) else {}
-    mode = normalize_y_tau_leg1_prior_mode(
-        cfg_d.get("y_tau_leg1_prior_mode", cfg_d.get("y_tau_leg1_prior")),
-        default="score",
-    )
-    if mode != "skip":
-        return None
-    d = str(direction or "").strip()
-    if d not in ("sell_then_buy", "buy_then_sell"):
-        return None
-
-    raw = scores if isinstance(scores, dict) else {}
-    sc = scores_from_item(raw)
-    y_tau = resolve_direction_y_tau(sc)
-    if y_tau is None:
-        return "趋势不一致：缺 y_τ，无法评估开→收与价→收一致性"
-    yt = float(y_tau)
-    try:
-        raw_eps = cfg_d.get("y_tau_leg1_prior_eps")
-        eps = float(1e-9 if raw_eps is None or raw_eps == "" else raw_eps)
-    except (TypeError, ValueError):
-        eps = 1e-9
-    eps = max(0.0, min(eps, 1.0))
-    adverse = tau_prior_adverse_pct(yt, d, eps=eps)
-    if d == "buy_then_sell" and adverse > 0:
-        return f"趋势不一致：open→close y_τ={yt:.3f}%<0，与正T局部价→收向上冲突"
-    if d == "sell_then_buy" and adverse > 0:
-        return f"趋势不一致：open→close y_τ={yt:.3f}%>0，与反T局部价→收向下冲突"
+    """τ先验硬跳过已下线；旧 skip 由 normalize 并入 score，此处一律放行。"""
+    _ = (scores, cfg, direction, bar_close, close_px, delta_px)
     return None
 
 
@@ -627,11 +590,13 @@ def close_band_enter_skip_reason(
     cfg: Optional[dict] = None,
     *,
     direction: Optional[str] = None,
+    r_pct: Optional[float] = None,
 ) -> Optional[str]:
     """入场门槛：|y_τ|≥y_tau_enter；y_use_path 时须有 y_path 且 |y_path|≥y_path_enter。
 
-    选腿仍由收盘带宽定方向；此处只过滤横盘/弱信号/缺 path。
+    选腿仍由收盘带宽定方向；此处只过滤横盘/弱信号/缺 path / |R̂_τ| 不足。
     enter≤0 仅关闭对应 |ŷ| 幅度闸；缺 y_path 在 y_use_path 下仍跳过。
+    r_tau_enter 经 load 钳在 0.01–99.99；此处仍把 ≤0 当关（直传旧 cfg 兼容）。
     """
     from core.t0.score_policy import (
         DEFAULT_PATH_ENTER,
@@ -665,6 +630,20 @@ def close_band_enter_skip_reason(
         yt = float(y_tau)
         if abs(yt) < tau_enter - 1e-12:
             return f"|y_τ|={abs(yt):.3f}%<{tau_enter:g}% 未过入场（横盘）"
+
+    r_enter = _cfg_float(cfg_d, "r_tau_enter", 0.0)
+    r_enter = max(0.0, min(float(r_enter), 99.99))
+    if 0 < r_enter < 0.01:
+        r_enter = 0.01
+    if r_enter > 0:
+        if r_pct is None:
+            return "R̂_τ 缺失，未过入场门槛"
+        try:
+            rv = abs(float(r_pct))
+        except (TypeError, ValueError):
+            return "R̂_τ 缺失，未过入场门槛"
+        if rv < r_enter - 1e-12:
+            return f"|R̂_τ|={rv:.3f}%<{r_enter:g}% 未过入场（超额不足）"
 
     status = str(
         sc.get("y_path_status") or raw.get("y_path_status") or ""

@@ -51,6 +51,7 @@ def quant_t0_backtest(body: T0BacktestRequest) -> Dict[str, Any]:
             "y_tau_enter_strong",
             "y_tau_enter_sell_then_buy",
             "y_tau_enter_buy_then_sell",
+            "r_tau_enter",
             "y_ratio_cut",
             "y_ratio_boost_cap",
             "y_eod_prior",

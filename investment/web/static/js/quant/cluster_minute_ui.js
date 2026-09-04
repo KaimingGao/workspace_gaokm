@@ -533,12 +533,17 @@ export function installClusterMinuteUi(q) {
       paint(null);
       msgEl.textContent = error || "读取 5m 状态失败";
       setProStatusChip(chip, "error", "ERR");
+      if (!inflight) setMinuteBusy(false);
       return null;
     }
     paint(data, { skipHead: !!jobFailure || !!jobSuccess });
     if (jobFailure) applyJobFailure({ message: jobFailure.errText }, jobFailure.job);
     else if (jobSuccess) applyJobSuccess(jobSuccess.job);
     else if (data.refresh_job) handleRefreshJob(data.refresh_job);
+    const jobSt = data.refresh_job && data.refresh_job.status;
+    if (!inflight && !jobFailure && !jobSuccess && jobSt !== "running") {
+      setMinuteBusy(false);
+    }
     return data;
   }
 

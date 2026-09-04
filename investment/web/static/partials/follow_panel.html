@@ -560,7 +560,7 @@
               <form id="paper-t0-form" class="paper-t0-form" autocomplete="off">
                 <fieldset class="paper-t0-cfg-block is-shared">
                   <legend>共用</legend>
-                  <p class="paper-t0-cfg-hint quant-sub">v6 收盘带宽：<strong>ĉ = ĉ_τ</strong>（开盘×(1+y_τ%)）；收价破 ĉ±δ 涌现正/反T；|y_τ| 入场，|y_path| 校验（可关「用path」）；τ先验可平移门槛；每轮 20% 至满仓；11:00 后不开 leg1。y_trade / y_eod / y_nowcast <strong>不参与</strong>估 ĉ 与选腿。冻结 leg2 后新 ĉ 不改本轮；午后追价可改触发价。做 T 回测直接读当前表单（不必先保存）。</p>
+                  <p class="paper-t0-cfg-hint quant-sub">v6 收盘带宽：<strong>ĉ = ĉ_τ</strong>（开盘×(1+y_τ%)）；收价破 ĉ±δ 涌现正/反T；|y_τ| 入场，|R̂_τ| 入场（0.01–99.99%），|y_path| 校验（可关「用path」）；<strong>τ先验</strong>把预估开→收 ŷ_τ 当偏移加到 ±δ 上，整条带宽平移（宽仍 2δ），不改冻结 leg2；每轮 20% 至满仓；11:00 后不开 leg1。y_trade / y_eod / y_nowcast <strong>不参与</strong>估 ĉ 与选腿。冻结 leg2 后新 ĉ 不改本轮；午后追价可改触发价。做 T 回测直接读当前表单（不必先保存）。</p>
                   <div class="paper-t0-form-grid">
                   <label class="paper-t0-field">
                     <span>启用</span>
@@ -631,6 +631,13 @@
                   </label>
                   <label
                     class="paper-t0-field"
+                    title="|R̂_τ| 低于此值即使收价破带也不开轮；与带宽δ独立；范围 0.01–99.99"
+                  >
+                    <span>R入场%</span>
+                    <input type="number" name="r_tau_enter" min="0.01" max="99.99" step="0.01" value="0.01" />
+                  </label>
+                  <label
+                    class="paper-t0-field"
                     title="开：须有 y_path，且过 path入场%；关：缺 path 也可开轮（仅看 τ 等）"
                   >
                     <span>用path</span>
@@ -652,25 +659,24 @@
                   </label>
                   <label
                     class="paper-t0-field"
-                    title="r=(p/ĉ−1)%：默认 ±δ。score：s=clip(k·y_τ,±α·δ)，upper=δ+s，lower=−δ+s（α∈[0.1,0.9]，默认 0.9）；skip=异号硬跳过；off=对称 ±δ（ĉ 已含 y_τ，残差常小于 δ，成交会明显变少；可略降 δ）"
+                    title="把预估开→收 ŷ_τ 当偏移加到 ±δ 上，整条带宽平移（宽仍 2δ），不改冻结 leg2（仍 ĉ±δ）。抬门槛：s=clip(k·ŷ_τ,±α·δ)，上沿=δ+s、下沿=−δ+s；关=对称 ±δ（ĉ 已含 ŷ_τ，残差常小于 δ，成交会少；可略降 δ）"
                   >
                     <span>τ先验</span>
                     <select name="y_tau_leg1_prior_mode">
                       <option value="score" selected>抬门槛</option>
-                      <option value="skip">硬跳过</option>
                       <option value="off">关</option>
                     </select>
                   </label>
                   <label
                     class="paper-t0-field"
-                    title="score：s 的灵敏度，s=k·y_τ（再经 α·δ 封顶）；默认 k=1"
+                    title="带宽漂移灵敏度：偏移 s=k·ŷ_τ（再经 α·δ 封顶）；默认 k=1"
                   >
                     <span>先验风险k</span>
                     <input type="number" name="y_tau_leg1_prior_risk" min="0" max="10" step="0.1" value="1" />
                   </label>
                   <label
                     class="paper-t0-field"
-                    title="|s|≤α·δ：α∈[0.1, 0.9] 保证 upper=δ+s&gt;0&gt;lower；默认 0.9；α→0.9 时对侧门槛仍保留至少 0.1δ"
+                    title="带宽最多漂移 α·δ：α∈[0.1, 0.9] 保证上沿=δ+s&gt;0&gt;下沿；默认 0.9（对侧至少留 0.1δ）"
                   >
                     <span>shift上限α</span>
                     <input type="number" name="y_tau_leg1_prior_shift_scale" min="0.1" max="0.9" step="0.05" value="0.9" />

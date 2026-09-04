@@ -3688,7 +3688,8 @@ canvas#paper-chart-fallback[hidden] {
 .results-meta-line.is-loading::before,
 .results-meta-line.is-busy::before,
 .dashboard-updated[data-state="loading"]::before,
-.watching-toolbar-meta.is-busy::before {
+.watching-toolbar-meta.is-busy::before,
+.quant-cluster-bars-strip.is-busy .quant-cluster-bars-msg::before {
   content: "";
   flex-shrink: 0;
   display: inline-block;
@@ -3730,6 +3731,7 @@ canvas#paper-chart-fallback[hidden] {
 .follow-holdings-load-status.is-busy,
 .follow-ops-load-status.is-busy,
 .watching-toolbar-meta.is-busy,
+.quant-cluster-bars-strip.is-busy .quant-cluster-bars-msg,
 .results-meta-line.is-loading,
 .results-meta-line.is-busy,
 .dashboard-updated[data-state="loading"] {
@@ -3801,6 +3803,7 @@ canvas#paper-chart-fallback[hidden] {
   .results-meta-line.is-busy::before,
   .dashboard-updated[data-state="loading"]::before,
   .watching-toolbar-meta.is-busy::before,
+  .quant-cluster-bars-strip.is-busy .quant-cluster-bars-msg::before,
   .dialog-btn.is-busy::after,
   .dialog-btn[aria-busy="true"]::after,
   .ui-busy-spinner,
@@ -3820,7 +3823,8 @@ canvas#paper-chart-fallback[hidden] {
   .results-meta-line.is-loading::before,
   .results-meta-line.is-busy::before,
   .dashboard-updated[data-state="loading"]::before,
-  .watching-toolbar-meta.is-busy::before {
+  .watching-toolbar-meta.is-busy::before,
+  .quant-cluster-bars-strip.is-busy .quant-cluster-bars-msg::before {
     background-color: var(--ui-busy);
     box-shadow:
       var(--ui-busy-dot-gap) 0 0 var(--ui-busy),

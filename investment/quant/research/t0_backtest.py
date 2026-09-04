@@ -109,6 +109,7 @@ _BT_RULES_VIEW_KEYS = (
     "y_tau_enter",
     "y_tau_enter_sell_then_buy",
     "y_tau_enter_buy_then_sell",
+    "r_tau_enter",
     "y_eod_prior",
     "y_eod_enter",
     "y_eod_strong",

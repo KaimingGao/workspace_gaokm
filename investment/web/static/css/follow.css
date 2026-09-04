@@ -4876,6 +4876,7 @@ body[data-page="follow"] .paper-t0-table {
 .paper-t0-trades-table thead th.paper-t0-col-h,
 .paper-t0-trades-table thead th.paper-t0-col-c,
 .paper-t0-trades-table thead th.paper-t0-col-ctau,
+.paper-t0-trades-table thead th.paper-t0-col-rtau,
 .paper-t0-trades-table thead th.paper-t0-col-ret,
 .paper-t0-trades-table thead th.paper-t0-col-pnl,
 .paper-t0-trades-table thead th.paper-t0-col-exp {
@@ -5029,11 +5030,13 @@ body[data-page="follow"] .paper-t0-table {
 .paper-t0-trades-table thead th.paper-t0-col-h,
 .paper-t0-trades-table thead th.paper-t0-col-c,
 .paper-t0-trades-table thead th.paper-t0-col-ctau,
+.paper-t0-trades-table thead th.paper-t0-col-rtau,
 .paper-t0-trades-table tbody td.paper-t0-col-o,
 .paper-t0-trades-table tbody td.paper-t0-col-l,
 .paper-t0-trades-table tbody td.paper-t0-col-h,
 .paper-t0-trades-table tbody td.paper-t0-col-c,
-.paper-t0-trades-table tbody td.paper-t0-col-ctau {
+.paper-t0-trades-table tbody td.paper-t0-col-ctau,
+.paper-t0-trades-table tbody td.paper-t0-col-rtau {
   background: color-mix(in srgb, #0f766e 4.5%, var(--bg-card, var(--surface)));
 }
 
@@ -5048,7 +5051,8 @@ body[data-page="follow"] .paper-t0-table {
 .paper-t0-trades-table tbody tr:nth-child(even) td.paper-t0-col-l,
 .paper-t0-trades-table tbody tr:nth-child(even) td.paper-t0-col-h,
 .paper-t0-trades-table tbody tr:nth-child(even) td.paper-t0-col-c,
-.paper-t0-trades-table tbody tr:nth-child(even) td.paper-t0-col-ctau {
+.paper-t0-trades-table tbody tr:nth-child(even) td.paper-t0-col-ctau,
+.paper-t0-trades-table tbody tr:nth-child(even) td.paper-t0-col-rtau {
   background: color-mix(
     in srgb,
     #0f766e 5.5%,
@@ -5070,6 +5074,7 @@ body[data-page="follow"] .paper-t0-table {
 .paper-t0-trades-table tbody tr:hover td.paper-t0-col-h,
 .paper-t0-trades-table tbody tr:hover td.paper-t0-col-c,
 .paper-t0-trades-table tbody tr:hover td.paper-t0-col-ctau,
+.paper-t0-trades-table tbody tr:hover td.paper-t0-col-rtau,
 .paper-t0-trades-table tbody tr:hover td.paper-t0-col-tau,
 .paper-t0-trades-table tbody tr:hover td.paper-t0-col-path {
   background: color-mix(in srgb, var(--accent) 6%, var(--bg-card, var(--surface)));
@@ -5335,11 +5340,13 @@ body[data-page="follow"] .paper-t0-table {
 .paper-t0-trades-table thead th.paper-t0-col-h,
 .paper-t0-trades-table thead th.paper-t0-col-c,
 .paper-t0-trades-table thead th.paper-t0-col-ctau,
+.paper-t0-trades-table thead th.paper-t0-col-rtau,
 .paper-t0-trades-table tbody td.paper-t0-col-o,
 .paper-t0-trades-table tbody td.paper-t0-col-l,
 .paper-t0-trades-table tbody td.paper-t0-col-h,
 .paper-t0-trades-table tbody td.paper-t0-col-c,
-.paper-t0-trades-table tbody td.paper-t0-col-ctau {
+.paper-t0-trades-table tbody td.paper-t0-col-ctau,
+.paper-t0-trades-table tbody td.paper-t0-col-rtau {
   background: color-mix(in srgb, #0f766e 4.5%, var(--bg-card, var(--surface)));
 }
 
@@ -5359,7 +5366,8 @@ body[data-page="follow"] .paper-t0-table {
 .paper-t0-trades-table tbody tr:nth-child(even) td.paper-t0-col-l,
 .paper-t0-trades-table tbody tr:nth-child(even) td.paper-t0-col-h,
 .paper-t0-trades-table tbody tr:nth-child(even) td.paper-t0-col-c,
-.paper-t0-trades-table tbody tr:nth-child(even) td.paper-t0-col-ctau {
+.paper-t0-trades-table tbody tr:nth-child(even) td.paper-t0-col-ctau,
+.paper-t0-trades-table tbody tr:nth-child(even) td.paper-t0-col-rtau {
   background: color-mix(
     in srgb,
     #0f766e 5.5%,
@@ -5383,6 +5391,7 @@ body[data-page="follow"] .paper-t0-table {
 .paper-t0-trades-table tbody tr:hover td.paper-t0-col-h,
 .paper-t0-trades-table tbody tr:hover td.paper-t0-col-c,
 .paper-t0-trades-table tbody tr:hover td.paper-t0-col-ctau,
+.paper-t0-trades-table tbody tr:hover td.paper-t0-col-rtau,
 .paper-t0-trades-table tbody tr:hover td.paper-t0-col-tau,
 .paper-t0-trades-table tbody tr:hover td.paper-t0-col-path,
 .paper-t0-trades-table tbody tr:hover td.paper-t0-col-y-tau,
@@ -5539,11 +5548,13 @@ body[data-page="follow"] .paper-t0-table {
 .paper-t0-col-h,
 .paper-t0-col-c { width: 52px; min-width: 52px; }
 .paper-t0-col-ctau { width: 72px; min-width: 72px; }
+.paper-t0-col-rtau { width: 76px; min-width: 76px; }
 .paper-t0-trades-table td.paper-t0-col-o,
 .paper-t0-trades-table td.paper-t0-col-l,
 .paper-t0-trades-table td.paper-t0-col-h,
 .paper-t0-trades-table td.paper-t0-col-c,
-.paper-t0-trades-table td.paper-t0-col-ctau {
+.paper-t0-trades-table td.paper-t0-col-ctau,
+.paper-t0-trades-table td.paper-t0-col-rtau {
   font-variant-numeric: tabular-nums;
   font-family: var(--font-mono, ui-monospace, monospace);
   font-size: 0.78rem;
@@ -5552,6 +5563,16 @@ body[data-page="follow"] .paper-t0-table {
   display: block;
   font-size: 0.68rem;
   opacity: 0.72;
+}
+.paper-t0-trades-table td.paper-t0-col-rtau .paper-t0-rtau-val {
+  display: block;
+}
+.paper-t0-trades-table td.paper-t0-col-rtau .paper-t0-rtau-enter {
+  display: block;
+  font-size: 0.68rem;
+  font-weight: 500;
+  opacity: 0.78;
+  color: color-mix(in srgb, #0f766e 42%, var(--ink-3, #64748b));
 }
 .paper-t0-table col.paper-t0-col-process {
   width: 360px;

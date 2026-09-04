@@ -891,7 +891,7 @@ def _build_close_band_scan_trace(
                     lower_pct = band_meta.get("lower_pct")
                     if direction:
                         enter_skip = close_band_enter_skip_reason(
-                            gate_snap, cfg, direction=direction
+                            gate_snap, cfg, direction=direction, r_pct=r_pct
                         )
                         if not enter_skip:
                             sign_skip = close_band_sign_skip_reason(gate_snap, cfg)
@@ -930,6 +930,7 @@ def _build_close_band_scan_trace(
                 "lower_pct": (
                     round(float(lower_pct), 4) if lower_pct is not None else None
                 ),
+                "r_enter": cfg.get("r_tau_enter"),
                 "pick": direction,
                 "enter_skip": enter_skip,
                 "sign_skip": sign_skip,
@@ -1207,14 +1208,14 @@ def simulate_t0_day_slots(
         )
         if not direction:
             continue
-        # |y_τ| / |y_path| 入场（path 可关）；二者均用该根前缀
+        # |y_τ| / |y_path| / |R̂_τ| 入场（path 可关）；ŷ 用该根前缀
         enter_skip = close_band_enter_skip_reason(
-            gate_snap, cfg, direction=direction
+            gate_snap, cfg, direction=direction, r_pct=band_meta.get("r_pct")
         )
         if enter_skip:
             last_enter_skip = enter_skip
             continue
-        # skip 模式：整体 vs 局部异号硬跳过（score 已体现在门槛平移）
+        # τ先验：score 已体现在门槛平移；旧 skip 硬跳过已下线
         prior_skip = close_band_tau_prior_skip_reason(
             gate_snap,
             cfg,
@@ -1288,6 +1289,7 @@ def simulate_t0_day_slots(
                 "band_r_pct": band_meta.get("r_pct"),
                 "band_upper_pct": band_meta.get("upper_pct"),
                 "band_lower_pct": band_meta.get("lower_pct"),
+                "band_r_enter_pct": cfg.get("r_tau_enter"),
                 "band_prior_mode": band_meta.get("mode"),
                 "band_prior_k": band_meta.get("prior_risk_k"),
                 "y_tau": gate_yt,

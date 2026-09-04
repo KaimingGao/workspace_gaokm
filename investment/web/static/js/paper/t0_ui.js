@@ -1,7 +1,7 @@
 /** Paper · 做T 指标与预演表渲染（从 paper.js 抽出）。 */
 
 import { yTauMapScoreTip } from "./execution_ui.js";
-import { renderT0Viz } from "./t0_viz.js?v=p1906";
+import { renderT0Viz } from "./t0_viz.js?v=p1922";
 import { buildT0ReportHtml, fmtT0DirDays } from "./t0_report.js?v=p1906";
 import {
   buildT0TradeTableHtml,
@@ -9,7 +9,7 @@ import {
   pickTradeDays,
   stockCellHtml,
   T0_TRADE_TABLE_MAX_ROWS,
-} from "./t0_table.js?v=p1908";
+} from "./t0_table.js?v=p1922";
 
 function escapeHtml(s) {
   return String(s ?? "")
@@ -455,6 +455,8 @@ function deskClock(ts) {
 function classifyDeskNote(note, locked) {
   const r = String(note || "");
   if (locked) {
+    if (r.includes("超额不足") || r.includes("R̂_τ 缺失") || r.includes("|R̂_τ|"))
+      return { id: "r_tau_flat", label: "R不足" };
     if (r.includes("横盘")) return { id: "y_tau_flat", label: "τ横盘" };
     if (r.includes("y_trade") || r.includes("幅度不足")) return { id: "y_trade_weak", label: "幅度" };
     if (r.includes("异号")) return { id: "trade_tau_sign", label: "异号" };

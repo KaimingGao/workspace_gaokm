@@ -42,6 +42,16 @@ export function yTauMapShortLabel(mode) {
   return Y_TAU_MAP_SHORT[k] || yTauMapLabel(k);
 }
 
+/** τ先验：off | score。旧 skip/hard 并入 score。 */
+function normalizeTauLeg1PriorMode(raw, priorBool) {
+  if (raw == null || raw === "") {
+    return priorBool === false ? "off" : "score";
+  }
+  const m = String(raw).trim().toLowerCase();
+  if (m === "off" || m === "false" || m === "0" || m === "no") return "off";
+  return "score";
+}
+
 export function yTauMapRuleLabel(mode) {
   const k = normalizeYTauMap(mode);
   return Y_TAU_MAP_SELECT_LABELS[k] || k;
@@ -70,7 +80,7 @@ export function adaptiveSizingDayTip(day, rules = {}) {
 
 /** v6 收盘带宽选腿说明（旧 y_tau_map 参数已忽略）。 */
 export function yTauMapScoreTip(_mode, _enter = 0.25) {
-  return "v6 收盘带宽：ĉ=ĉ_τ（该根前缀 ŷ_τ）→ /S 映分钟；r=(C/ĉ−1)% 破 ±δ 定正/反T；C=本根5m收价；score 先验按 y_τ 平移门槛；|y_τ|/y_path 入场；|S−1| 超阈跳过。";
+  return "v6 收盘带宽：ĉ=ĉ_τ（该根前缀 ŷ_τ）→ /S 映分钟；r=(C/ĉ−1)% 破 ±δ 定正/反T；C=本根5m收价；τ先验把 ŷ_τ 当偏移加到 ±δ，整条带宽平移（宽仍 2δ）；|y_τ|/y_path 入场；|S−1| 超阈跳过。";
 }
 
 /** 回测/预演响应可能只有 rules 或残缺 execution；补齐 t0 供规则卡渲染。 */
@@ -139,6 +149,14 @@ export function renderExecutionRulesHtml(execution) {
         return `ĉ±${d}%·${rr}%×≤${mr}·≤${cap}%`;
       })(),
       "ĉ=ĉ_τ（该根前缀 ŷ_τ）；C=本根5m收价破 ĉ±δ 定正/反T；每轮比例×最多轮数×满仓上限"
+    ) +
+    specKpi(
+      "R入场",
+      (() => {
+        const n = Number(t0.r_tau_enter);
+        return Number.isFinite(n) && n >= 0.01 ? `|R|≥${n}%` : "0.01%"
+      })(),
+      "|R̂_τ| 入场下限；范围 0.01–99.99%；与带宽δ独立"
     ) +
     specKpi("路径", pathLbl, "分钟触价路径") +
     specKpi("成交", fillLbl, "全量触价 trigger；表单不再提供 mid/optimistic") +
@@ -257,13 +275,17 @@ export function fillExecutionForm(root, execution) {
   set("t0_max_position_pct", t0.t0_max_position_pct != null ? t0.t0_max_position_pct : 1.0);
   set("t0_slots_max_rounds", t0.t0_slots_max_rounds != null ? t0.t0_slots_max_rounds : 5);
   set("y_tau_enter", t0.y_tau_enter != null ? t0.y_tau_enter : 0.01);
+  set("r_tau_enter", (() => {
+    const n = Number(t0.r_tau_enter);
+    if (!Number.isFinite(n)) return 0.01;
+    return Math.max(0.01, Math.min(n, 99.99));
+  })());
   set("y_use_path", t0.y_use_path !== false);
   set("y_path_enter", t0.y_path_enter != null ? t0.y_path_enter : 0.01);
   set("y_path_strong", t0.y_path_strong != null ? t0.y_path_strong : 0.2);
   set(
     "y_tau_leg1_prior_mode",
-    t0.y_tau_leg1_prior_mode ||
-      (t0.y_tau_leg1_prior === false ? "off" : "score")
+    normalizeTauLeg1PriorMode(t0.y_tau_leg1_prior_mode, t0.y_tau_leg1_prior)
   );
   set("y_tau_leg1_prior_risk", t0.y_tau_leg1_prior_risk != null ? t0.y_tau_leg1_prior_risk : 1);
   set(
@@ -347,14 +369,14 @@ export function collectExecutionForm(root) {
     t0_max_position_pct: Math.max(0.05, Math.min(num("t0_max_position_pct", 1), 1)),
     t0_slots_max_rounds: Math.max(0, Math.min(Math.round(num("t0_slots_max_rounds", 5)), 16)),
     y_tau_enter: Math.max(0, Math.min(num("y_tau_enter", 0.01), 5)),
+    r_tau_enter: Math.max(0.01, Math.min(num("r_tau_enter", 0.01), 99.99)),
     y_use_path: chk("y_use_path", true),
     y_path_enter: Math.max(0, Math.min(num("y_path_enter", 0.01), 5)),
     y_path_strong: Math.max(0, Math.min(num("y_path_strong", 0.2), 5)),
-    y_tau_leg1_prior_mode: (() => {
-      const m = String(str("y_tau_leg1_prior_mode", "score") || "score").toLowerCase();
-      if (m === "off" || m === "skip" || m === "score") return m;
-      return "score";
-    })(),
+    y_tau_leg1_prior_mode: normalizeTauLeg1PriorMode(
+      str("y_tau_leg1_prior_mode", "score"),
+      true
+    ),
     y_tau_leg1_prior_risk: Math.max(0, Math.min(num("y_tau_leg1_prior_risk", 1), 10)),
     y_tau_leg1_prior_shift_scale: (() => {
       const a = num("y_tau_leg1_prior_shift_scale", 0.9);
@@ -632,10 +654,18 @@ export function collectT0BacktestBody(root, opts = {}) {
     t0_max_position_pct: t0.t0_max_position_pct != null ? t0.t0_max_position_pct : 1.0,
     t0_slots_max_rounds: t0.t0_slots_max_rounds != null ? t0.t0_slots_max_rounds : 5,
     y_tau_enter: t0.y_tau_enter != null ? t0.y_tau_enter : 0.01,
+    r_tau_enter: (() => {
+      const n = Number(t0.r_tau_enter);
+      if (!Number.isFinite(n)) return 0.01;
+      return Math.max(0.01, Math.min(n, 99.99));
+    })(),
     y_use_path: t0.y_use_path !== false,
     y_path_enter: t0.y_path_enter != null ? t0.y_path_enter : 0.01,
     y_path_strong: t0.y_path_strong != null ? t0.y_path_strong : 0.2,
-    y_tau_leg1_prior_mode: t0.y_tau_leg1_prior_mode || (t0.y_tau_leg1_prior === false ? "off" : "score"),
+    y_tau_leg1_prior_mode: normalizeTauLeg1PriorMode(
+      t0.y_tau_leg1_prior_mode,
+      t0.y_tau_leg1_prior
+    ),
     y_tau_leg1_prior_risk: t0.y_tau_leg1_prior_risk != null ? t0.y_tau_leg1_prior_risk : 1,
     y_tau_leg1_prior_shift_scale:
       t0.y_tau_leg1_prior_shift_scale != null ? t0.y_tau_leg1_prior_shift_scale : 0.9,

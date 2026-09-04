@@ -1,7 +1,7 @@
 /** 做T回测可视化（canvas + CSS，无外部图表库）。 */
 
 import { paperMetricClass } from "./fmt.js";
-import { SKIP_CAT_TIP, stockCellHtml } from "./t0_table.js?v=p1908";
+import { SKIP_CAT_TIP, stockCellHtml } from "./t0_table.js?v=p1922";
 
 const THEME = {
   actual: "#2563eb",
@@ -39,6 +39,7 @@ const SKIP_CAT_COLORS = {
   // 门槛不足 · 冷钢蓝 / 青灰
   y_eod_flat: "#3d6a8a",
   y_tau_flat: "#3a7a72",
+  r_tau_flat: "#4a6e7a",
   y_tau_weak: "#5a7d8c",
   y_path_flat: "#7a6a55",
   // 异号 / 冲突 · 克制酒红 / 梅紫
@@ -633,6 +634,13 @@ function renderKpiRow(summary) {
       "τ门槛",
       sm.y_tau_enter != null ? `|y_τ|≥${sm.y_tau_enter}%` : null,
       "|y_τ| 低于入场则横盘跳过",
+    ],
+    [
+      "R门槛",
+      sm.r_tau_enter != null && Number(sm.r_tau_enter) >= 0.01
+        ? `|R̂_τ|≥${sm.r_tau_enter}%`
+        : `|R̂_τ|≥0.01%`,
+      "|R̂_τ| 低于入场则超额不足跳过（0.01–99.99%）",
     ],
     [
       "信号跳过",
