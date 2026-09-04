@@ -424,6 +424,7 @@ class TestT0Core(unittest.TestCase):
         self.assertNotIn("buy_trigger_pct_reverse", d)
         self.assertEqual(d["y_path_enter"], 0.01)
         self.assertEqual(d["y_path_strong"], 0.2)
+        self.assertAlmostEqual(d["y_cx_max"], 1.0)
         self.assertFalse(d["y_nowcast_oc_gate"])
         self.assertEqual(d["y_nc_enter"], 0.01)
         self.assertEqual(d["y_nc_strong"], 0.2)
@@ -1770,10 +1771,10 @@ class TestDualYDirection(unittest.TestCase):
         self.assertEqual(cfg["y_score_source"], "compute")
 
     def test_r_tau_enter_clamped_to_range(self):
-        self.assertEqual(load_t0_rules({"r_tau_enter": 0.0})["r_tau_enter"], 0.01)
+        self.assertEqual(load_t0_rules({"r_tau_enter": 0.0})["r_tau_enter"], 0.0)
         self.assertEqual(load_t0_rules({"r_tau_enter": 0.01})["r_tau_enter"], 0.01)
-        self.assertEqual(load_t0_rules({"r_tau_enter": 99.99})["r_tau_enter"], 99.99)
-        self.assertEqual(load_t0_rules({"r_tau_enter": 100.0})["r_tau_enter"], 99.99)
+        self.assertEqual(load_t0_rules({"r_tau_enter": 1.0})["r_tau_enter"], 1.0)
+        self.assertEqual(load_t0_rules({"r_tau_enter": 1.5})["r_tau_enter"], 1.0)
 
     def test_tau_prior_skip_mode_maps_to_score(self):
         cfg = load_t0_rules({"y_tau_leg1_prior_mode": "skip"})
@@ -3867,6 +3868,10 @@ class TestT0Viz(unittest.TestCase):
     def test_classify_skip_reason(self):
         from core.t0.viz import classify_t0_skip_reason
 
+        self.assertEqual(
+            classify_t0_skip_reason("y_cx=0.820>0.70 太折跳过"),
+            "y_cx_high",
+        )
         self.assertEqual(
             classify_t0_skip_reason("dual_y：缺 y_eod/y_τ/y_trade（即时算分失败）"),
             "missing_scores",

@@ -226,6 +226,8 @@ class TestRemRidgeFit(unittest.TestCase):
         self.assertIn("theme_day", extras)
         self.assertIn("yclose_loc", extras)
         self.assertIn("mom3_pct", extras)
+        self.assertIn("tau_lag1", extras)
+        self.assertIn("tau_ma5", extras)
         oos = report.get("oos") or {}
         self.assertIn("by_theme", oos)
         self.assertEqual(oos.get("by_tau") or {}, {})
@@ -255,14 +257,14 @@ class TestRemRidgeFit(unittest.TestCase):
                 else:
                     saved = blocked
                 self.assertTrue(saved.get("success"), saved)
-                self.assertEqual(saved.get("schema"), "tau_ridge_v10")
+                self.assertEqual(saved.get("schema"), "tau_ridge_v11")
                 self.assertTrue(os.path.isfile(os.path.join(live, "tau_ridge_model.json")))
                 self.assertTrue(os.path.isfile(os.path.join(live, "rem_ridge_model.json")))
                 from quant.research.tau_ridge import load_tau_model, predict_tau_from_features
 
                 doc = load_tau_model()
                 self.assertIsNotNone(doc)
-                self.assertEqual(doc.get("schema"), "tau_ridge_v10")
+                self.assertEqual(doc.get("schema"), "tau_ridge_v11")
                 self.assertEqual(doc.get("tau"), "open")
                 self.assertEqual(doc.get("dual_score_head"), "predicted_score_tau")
                 yhat = predict_tau_from_features(
@@ -334,7 +336,7 @@ class TestRemRidgeFit(unittest.TestCase):
 
         dummy = {
             "success": True,
-            "schema": "tau_ridge_v10",
+            "schema": "tau_ridge_v11",
             "return_model": {
                 "coefficients": {"gap_pct": 0.1},
                 "intercept": 0.0,
@@ -371,7 +373,7 @@ class TestRemRidgeFit(unittest.TestCase):
 
         dummy = {
             "success": True,
-            "schema": "tau_ridge_v10",
+            "schema": "tau_ridge_v11",
             "return_model": {
                 "coefficients": {"gap_pct": 0.2},
                 "intercept": 0.0,
@@ -397,7 +399,7 @@ class TestRemRidgeFit(unittest.TestCase):
                 self.assertTrue(os.path.isfile(os.path.join(live, "rem_ridge_model.json")))
                 doc = load_tau_model()
                 self.assertIsNotNone(doc)
-                self.assertEqual(doc.get("schema"), "tau_ridge_v10")
+                self.assertEqual(doc.get("schema"), "tau_ridge_v11")
                 self.assertAlmostEqual(
                     float((doc.get("return_model") or {}).get("coefficients")["gap_pct"]),
                     0.2,
@@ -479,6 +481,99 @@ class TestEventBreadth(unittest.TestCase):
         # gaps ≈ 2%, 0%, 3% → 2/3 hit trigger
         self.assertIsNotNone(out.get("breadth"))
         self.assertGreaterEqual(float(out["breadth"]), 0.3)
+
+
+class TauLagFeatureTests(unittest.TestCase):
+    def test_lag1_and_ma5_are_pit(self):
+        from core.research.tau_panel import (
+            _open_to_close_pct,
+            realized_tau_by_date,
+            tau_lag_features,
+        )
+        from core.research.tau_ridge import TAU_Z_FEATURES
+
+        self.assertIn("tau_lag1", TAU_Z_FEATURES)
+        self.assertIn("tau_ma5", TAU_Z_FEATURES)
+        days = ["2025-06-02", "2025-06-03", "2025-06-04", "2025-06-05", "2025-06-06", "2025-06-09"]
+        daily = []
+        labels = []
+        px = 10.0
+        for i, dkey in enumerate(days):
+            o = px
+            c = o * (1.02 if i % 2 else 0.99)
+            daily.append({"date": dkey, "open": o, "close": c})
+            labels.append(float(_open_to_close_pct(o, c)))
+            px = c
+        tau_map = realized_tau_by_date(daily)
+        asof = days[-1]
+        lags = tau_lag_features(
+            hist_bars=daily,
+            tau_by_date=tau_map,
+            asof_date=asof,
+        )
+        self.assertAlmostEqual(lags["tau_lag1"], labels[-2], places=5)
+        self.assertNotAlmostEqual(lags["tau_lag1"], labels[-1], places=2)
+        expected_ma = sum(labels[-6:-1][-5:]) / 5.0
+        self.assertAlmostEqual(lags["tau_ma5"], expected_ma, places=5)
+
+    def test_lag_skips_days_without_oc(self):
+        from core.research.tau_panel import tau_lag_features
+
+        hist = [
+            {"date": "2025-06-02"},
+            {"date": "2025-06-03"},
+            {"date": "2025-06-04"},
+            {"date": "2025-06-05"},
+        ]
+        tau_map = {"2025-06-02": 0.10, "2025-06-04": 0.40}
+        lags = tau_lag_features(
+            hist_bars=hist,
+            tau_by_date=tau_map,
+            asof_date="2025-06-05",
+        )
+        self.assertAlmostEqual(lags["tau_lag1"], 0.40)
+        self.assertAlmostEqual(lags["tau_ma5"], 0.25)
+
+    def test_attach_tau_lag_from_hist(self):
+        from core.research.tau_panel import _open_to_close_pct, attach_tau_lag_features
+
+        d0, d1, d2 = "2025-06-02", "2025-06-03", "2025-06-04"
+        hist = [
+            {"date": d0, "open": 10.0, "close": 10.2},
+            {"date": d1, "open": 10.2, "close": 10.0},
+            {"date": d2, "open": 10.0, "close": 10.3},
+        ]
+        y1 = _open_to_close_pct(10.2, 10.0)
+        y2 = _open_to_close_pct(10.0, 10.3)
+        feats = attach_tau_lag_features({}, hist_bars=hist, asof_date=d2)
+        self.assertAlmostEqual(feats["tau_lag1"], float(y1), places=5)
+        self.assertIsNotNone(feats["tau_ma5"])
+        self.assertNotAlmostEqual(feats["tau_lag1"], float(y2), places=2)
+
+    def test_t_day_label_not_used_even_if_hist_includes_t(self):
+        from core.research.tau_panel import _open_to_close_pct, attach_tau_lag_features, tau_lag_features
+
+        d0, d_t = "2025-06-02", "2025-06-03"
+        hist = [
+            {"date": d0, "open": 10.0, "close": 10.1},
+            {"date": d_t, "open": 10.1, "close": 11.0},
+        ]
+        y0 = _open_to_close_pct(10.0, 10.1)
+        y_t = _open_to_close_pct(10.1, 11.0)
+        feats = attach_tau_lag_features({}, hist_bars=hist, asof_date=d_t)
+        self.assertAlmostEqual(feats["tau_lag1"], float(y0), places=5)
+        self.assertNotAlmostEqual(feats["tau_lag1"], float(y_t), places=2)
+        leaked = tau_lag_features(
+            hist_bars=hist,
+            tau_by_date={d0: y0, d_t: y_t},
+            asof_date=d_t,
+        )
+        self.assertAlmostEqual(leaked["tau_lag1"], float(y0), places=5)
+        self.assertIsNone(
+            tau_lag_features(hist_bars=hist, tau_by_date={d0: y0, d_t: y_t}, asof_date="")[
+                "tau_lag1"
+            ]
+        )
 
 
 if __name__ == "__main__":

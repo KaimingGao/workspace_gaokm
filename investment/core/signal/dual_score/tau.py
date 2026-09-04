@@ -530,6 +530,14 @@ def attach_dual_score_pit(
             if open_px is not None:
                 feats["yclose_loc"] = yclose_loc_from_prev(prev, float(open_px))
             feats["mom3_pct"] = mom3_pct_from_hist(hist)
+            try:
+                from core.research.tau_panel import attach_tau_lag_features
+
+                feats = attach_tau_lag_features(
+                    feats, hist_bars=hist, asof_date=asof
+                )
+            except Exception:  # noqa: BLE001
+                logger.debug("tau lag feats fill failed", exc_info=True)
         except Exception:  # noqa: BLE001
             logger.debug("tau yclose/mom3 fill failed", exc_info=True)
         ref = sector_gap_median

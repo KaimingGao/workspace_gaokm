@@ -13,13 +13,14 @@ import {
   Y_TAU_TITLE,
   PATH_REALIZED_TITLE,
   TAU_REALIZED_TITLE,
+  Y_CX_TITLE,
   resolvePathScore,
   fmtPathScore,
-} from "./fmt.js?v=p1734";
+} from "./fmt.js?v=p1945";
 import {
   adaptiveSizingDayTip,
   yTauMapScoreTip,
-} from "./execution_ui.js?v=p1924";
+} from "./execution_ui.js?v=p1945";
 import { watchingScoreDetail } from "../quant/watching_render.js?v=p1734";
 
 export const SKIP_CAT_LABEL = {
@@ -31,6 +32,7 @@ export const SKIP_CAT_LABEL = {
   y_tau_weak: "y_τ弱信号",
   y_path_flat: "y_path横盘",
   y_path_disagree: "y_τ↔y_path异号",
+  y_cx_high: "y_cx太折",
   gap_tier_skip: "大缺口反向跳过",
   path_abandon: "前缀无空间放弃(旧)",
   prefix_segment: "固定前缀待确认(旧)",
@@ -63,7 +65,7 @@ export const SKIP_CAT_TIP = {
   y_tau_flat:
     "|ŷ_τ| 低于 y_tau_enter（默认 0.01%）视为横盘：即使收价破 ĉ±δ 也不开第一腿。",
   r_tau_flat:
-    "|R̂_τ| 低于 r_tau_enter（0.01–99.99%）视为超额不足：即使收价破带也不开第一腿。",
+    "|R̂_τ| 低于 r_tau_enter（0–1.0%；0=关）视为超额不足：即使收价破带也不开第一腿。",
   y_eod_flat:
     "历史口径：|ŷ_eod| 低于入场门槛。v6 选腿不经 eod 入场闸；强异号仍可跳过。",
   y_tau_weak:
@@ -72,12 +74,14 @@ export const SKIP_CAT_TIP = {
     "y_use_path 开时：缺 ŷ_path，或 |ŷ_path| 低于 y_path_enter（默认 0.01%），即使收价破 ĉ±δ 也不开第一腿。",
   y_path_disagree:
     "y_use_path 开时：|ŷ_path| 超过 y_path_strong（默认 0.2%）却与 ŷ_τ 异号则跳过；低于强阈允许异号。",
+  y_cx_high:
+    "ŷ_cx > y_cx_max（0.01–1.00，默认 1.00≈关）视为太折：即使收价破 ĉ±δ 也不开第一腿。缺 ŷ_cx 不挡。",
   eod_tau_disagree:
     "历史口径：强 ŷ_eod 与 ŷ_τ 异号跳过。v6 选腿已下线该闸（仅 y_τ / ĉ_τ + path 入场/强）。",
   trade_tau_disagree:
     "历史口径：强 ŷ_trade 与 ŷ_τ 异号跳过。v6 选腿已下线该闸（仅 y_τ / ĉ_τ + path 入场/强）。",
   tau_leg1_prior:
-    "局部 r=(p/ĉ−1)% vs 整体 y_τ。score：s=clip(k·y_τ,±α·δ)，upper=δ+s、lower=−δ+s；α∈[0.1,0.9]（默认 0.1）；off=关。旧 skip 硬跳过已下线并入 score。",
+    "局部 r=(p/ĉ−1)% vs 整体 y_τ。score：s=clip(k·y_τ,±α·δ)，upper=δ+s、lower=−δ+s；α∈[0.1,1.0]（默认 0.1）；off=关。旧 skip 硬跳过已下线并入 score。",
   gap_tier_skip:
     "大缺口档位与拟做方向冲突（如大高开仍想正 T），规则直接跳过。",
   path_abandon:
@@ -125,6 +129,7 @@ const T0_TRADE_COL_W = {
   eod: "82px",
   tau: "108px",
   path: "120px",
+  cx: "72px",
   trade: "108px",
   on: "82px",
   nc: "108px",
@@ -387,7 +392,7 @@ function slotGateYTau(r, dayHost) {
   return null;
 }
 
-/** 本轮 ŷ_τ / ŷ_path / ŷ_trade / ŷ_nowcast：只读槽位快照，不回退日级分。 */
+/** 本轮 ŷ_τ / ŷ_path / ŷ_cx / ŷ_trade / ŷ_nowcast：只读槽位快照，不回退日级分。 */
 function slotYhat(r, dayHost) {
   const sc = r && r.scores && typeof r.scores === "object" ? r.scores : {};
   const ft =
@@ -401,6 +406,9 @@ function slotYhat(r, dayHost) {
     gateYt;
   let yPath =
     slotYNum(sc, ["y_path", "predicted_score_path"]) ?? slotYNum(ft, ["y_path"]);
+  let yCx =
+    slotYNum(sc, ["predicted_score_cx", "y_cx_hat"]) ??
+    slotYNum(ft, ["predicted_score_cx", "y_cx_hat"]);
   let yTrade =
     slotYNum(sc, ["y_trade", "predicted_score_blend", "decision_score"]) ??
     slotYNum(ft, ["y_trade"]);
@@ -412,6 +420,10 @@ function slotYhat(r, dayHost) {
     const m = reason.match(/y_τ\s*=\s*(-?[\d.]+)/);
     if (m) yTau = Number(m[1]);
   }
+  if (yCx == null) {
+    const m = reason.match(/y_cx\s*=\s*(-?[\d.]+)/);
+    if (m) yCx = Number(m[1]);
+  }
   if (yTrade == null) {
     const m =
       reason.match(/\|y_trade\|\s*=\s*(-?[\d.]+)/) ||
@@ -421,6 +433,7 @@ function slotYhat(r, dayHost) {
   return {
     y_tau: yTau,
     y_path: yPath,
+    y_cx: yCx,
     y_trade: yTrade,
     y_nowcast: yNowcast,
   };
@@ -445,6 +458,10 @@ function slotDayRow(d, r, rows) {
     if (slotScores.y_tau_oc == null) slotScores.y_tau_oc = yhat.y_tau;
   }
   if (yhat.y_path != null && slotScores.y_path == null) slotScores.y_path = yhat.y_path;
+  if (yhat.y_cx != null) {
+    if (slotScores.predicted_score_cx == null) slotScores.predicted_score_cx = yhat.y_cx;
+    if (slotScores.y_cx_hat == null) slotScores.y_cx_hat = yhat.y_cx;
+  }
   if (yhat.y_trade != null && slotScores.y_trade == null) slotScores.y_trade = yhat.y_trade;
   if (yhat.y_nowcast != null) {
     if (slotScores.y_nowcast == null) slotScores.y_nowcast = yhat.y_nowcast;
@@ -471,6 +488,8 @@ function slotDayRow(d, r, rows) {
     exit_reason: filled ? r.exit_reason : null,
     y_tau: yhat.y_tau,
     y_path: yhat.y_path,
+    predicted_score_cx: yhat.y_cx,
+    y_cx_hat: yhat.y_cx,
     y_trade: yhat.y_trade,
     y_nowcast: yhat.y_nowcast,
     scores: slotScores,
@@ -579,7 +598,12 @@ function pickScore(d, key) {
 function pickScoreNum(d, key) {
   if (
     d?.t0_slot_focus &&
-    (key === "y_tau" || key === "y_path" || key === "y_trade" || key === "y_nowcast")
+    (key === "y_tau" ||
+      key === "y_path" ||
+      key === "y_trade" ||
+      key === "y_nowcast" ||
+      key === "predicted_score_cx" ||
+      key === "y_cx_hat")
   ) {
     const n = Number(d[key]);
     return d[key] != null && d[key] !== "" && Number.isFinite(n) ? n : null;
@@ -722,6 +746,84 @@ function predRealizedAgreeCls(pr, showRealized) {
   return "";
 }
 
+function cxAsUnit01(v) {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return null;
+  const u = n > 1.5 ? n / 100 : n;
+  if (u < 0) return 0;
+  if (u > 1) return 1;
+  return u;
+}
+
+function fmtCxScore(v) {
+  const n = cxAsUnit01(v);
+  if (n == null) return "—";
+  return `${(n * 100).toFixed(1)}%`;
+}
+
+/** 全日 y_cx：0–1 按%显示；无正负、不上红绿；≥0.70 标高折。 */
+function pickCxRealized(d) {
+  const raw =
+    pickScoreNum(d, "cx_realized") ??
+    (d?.cx_realized != null && Number.isFinite(Number(d.cx_realized))
+      ? Number(d.cx_realized)
+      : null) ??
+    (d?.y_cx != null && Number.isFinite(Number(d.y_cx)) ? Number(d.y_cx) : null);
+  const n = cxAsUnit01(raw);
+  if (n == null) return { text: "—", n: null, tip: Y_CX_TITLE, high: false };
+  const reason = String(
+    (d.direction_features && d.direction_features.cx_realized_reason) ||
+      (d.scores && d.scores.cx_realized_reason) ||
+      d.cx_realized_reason ||
+      ""
+  ).trim();
+  const effRaw = d.cx_efficiency ?? (d.scores && d.scores.cx_efficiency);
+  const effN = Number(effRaw);
+  const extra = [];
+  if (reason && reason !== "ok") extra.push(reason);
+  if (Number.isFinite(effN)) extra.push(`ER=${effN.toFixed(2)}`);
+  return {
+    text: fmtCxScore(n),
+    n,
+    tip: extra.length ? `${Y_CX_TITLE} · ${extra.join(" · ")}` : Y_CX_TITLE,
+    high: n >= 0.7,
+  };
+}
+
+function pickCxPred(d) {
+  const raw =
+    pickScoreNum(d, "predicted_score_cx") ??
+    pickScoreNum(d, "y_cx_hat") ??
+    (d?.predicted_score_cx != null && Number.isFinite(Number(d.predicted_score_cx))
+      ? Number(d.predicted_score_cx)
+      : null) ??
+    (d?.y_cx_hat != null && Number.isFinite(Number(d.y_cx_hat)) ? Number(d.y_cx_hat) : null);
+  return cxAsUnit01(raw);
+}
+
+/** 槽位 ŷ_cx；回测配对全日 label。无 rowspan。 */
+function cxMergedCellHtml(host, dayRef, showRealized = true) {
+  const predHost = host || dayRef;
+  const realHost = dayRef || host;
+  const pr = showRealized
+    ? pickCxRealized(realHost)
+    : { text: "—", n: null, tip: Y_CX_TITLE, high: false };
+  const pred = pickCxPred(predHost);
+  const highCls = (pred != null && pred >= 0.7) || pr.high ? " is-cx-high" : "";
+  const predTxt = pred != null ? fmtCxScore(pred) : "—";
+  const shown =
+    showRealized && pred != null && pr.n != null
+      ? `${predTxt}(${pr.text})`
+      : showRealized && pr.n != null
+        ? pr.text
+        : predTxt;
+  const tip = pred != null ? `${pr.tip} · ŷ_cx=${pred.toFixed(3)}` : pr.tip;
+  return (
+    `<td class="num paper-t0-col-cx paper-t0-col-y paper-t0-col-y-cx has-tip${highCls}" ` +
+    `title="${escapeText(tip)}">${escapeText(shown)}</td>`
+  );
+}
+
 /** y_path：回测配对真实值；实时做 T 只显示 ŷ。 */
 function pathMergedCellHtml(d, fallback, rules, scoreDetailJson, showRealized = true, liveByCode = null) {
   const it = t0DayScoreItem(d, fallback, rules, liveByCode);
@@ -822,6 +924,12 @@ function tradeScoreHost(day, host) {
   if (!scanRow) return host;
   const yTau = scanRow.y_tau != null ? Number(scanRow.y_tau) : null;
   const yPath = scanRow.y_path != null ? Number(scanRow.y_path) : null;
+  const yCx =
+    scanRow.y_cx != null
+      ? Number(scanRow.y_cx)
+      : scanRow.predicted_score_cx != null
+        ? Number(scanRow.predicted_score_cx)
+        : null;
   const scores = { ...(host.scores && typeof host.scores === "object" ? host.scores : {}) };
   if (yTau != null && Number.isFinite(yTau)) {
     scores.y_tau = yTau;
@@ -834,10 +942,16 @@ function tradeScoreHost(day, host) {
     scores.y_path = yPath;
     scores.predicted_score_path = yPath;
   }
+  if (yCx != null && Number.isFinite(yCx)) {
+    scores.predicted_score_cx = yCx;
+    scores.y_cx_hat = yCx;
+  }
   return {
     ...host,
     y_tau: yTau != null && Number.isFinite(yTau) ? yTau : host.y_tau,
     y_path: yPath != null && Number.isFinite(yPath) ? yPath : host.y_path,
+    predicted_score_cx: yCx != null && Number.isFinite(yCx) ? yCx : host.predicted_score_cx,
+    y_cx_hat: yCx != null && Number.isFinite(yCx) ? yCx : host.y_cx_hat,
     direction_score:
       yTau != null && Number.isFinite(yTau) ? yTau : host.direction_score,
     scores,
@@ -876,10 +990,13 @@ function t0DayScoreItem(d, fallback = {}, rules = {}, liveByCode = null) {
   let yOn = pickScoreNum(d, "y_on");
   let yNc = pickScoreNum(d, "y_nowcast");
   let yPath = pickScoreNum(d, "y_path");
+  let yCx =
+    pickScoreNum(d, "predicted_score_cx") ?? pickScoreNum(d, "y_cx_hat");
   if (slotSnapMode && slot) {
     const yhat = slotYhat(slot, d);
     if (yhat.y_tau != null) yTau = yhat.y_tau;
     if (yhat.y_path != null) yPath = yhat.y_path;
+    if (yhat.y_cx != null) yCx = yhat.y_cx;
     if (yhat.y_trade != null) yTrade = yhat.y_trade;
   }
   const scanHost = d?._scan_score_row ? d : null;
@@ -887,6 +1004,10 @@ function t0DayScoreItem(d, fallback = {}, rules = {}, liveByCode = null) {
     const sr = scanHost._scan_score_row;
     if (sr.y_tau != null && Number.isFinite(Number(sr.y_tau))) yTau = Number(sr.y_tau);
     if (sr.y_path != null && Number.isFinite(Number(sr.y_path))) yPath = Number(sr.y_path);
+    if (sr.y_cx != null && Number.isFinite(Number(sr.y_cx))) {
+      scores.predicted_score_cx = Number(sr.y_cx);
+      scores.y_cx_hat = Number(sr.y_cx);
+    }
   }
   const code = String(
     d.stock_code || fallback.stock_code || scores.stock_code || ""
@@ -954,6 +1075,8 @@ function t0DayScoreItem(d, fallback = {}, rules = {}, liveByCode = null) {
     predicted_score_nowcast: dayNc ?? liveNc,
     predicted_score_path: slotSnapMode ? yPath : dayPath ?? livePath,
     y_path: slotSnapMode ? yPath : dayPath ?? livePath,
+    predicted_score_cx: slotSnapMode ? yCx : scores.predicted_score_cx ?? yCx,
+    y_cx_hat: slotSnapMode ? yCx : scores.y_cx_hat ?? yCx,
     y_path_status: scores.y_path_status ?? live?.y_path_status ?? null,
     y_path_error: scores.y_path_error ?? live?.y_path_error ?? null,
     features_path:
@@ -1815,7 +1938,7 @@ function slotRtauPct(slotRow, barClose, cTau) {
   return r;
 }
 
-/** R̂_τ 入场阈 = 页面 R入场%（r_tau_enter，0.01–99.99）。带宽因 τ 先验会漂，上下沿不对称，不能当阈值。 */
+/** R̂_τ 入场阈 = 页面 R入场%（r_tau_enter，0–1.0；0=关）。带宽因 τ 先验会漂，上下沿不对称，不能当阈值。 */
 function slotRtauEnterPct(slotRow, rPct, direction, rTauEnterCfg) {
   const cb = slotCloseBand(slotRow);
   const cfgN = Number(rTauEnterCfg ?? (cb && cb.band_r_enter_pct));
@@ -1839,7 +1962,7 @@ function fmtRtauPct(n) {
   return `${v > 0 ? "+" : ""}${body}%`;
 }
 
-/** 成交主表：R̂_τ + 页面 R入场%（0.01–99.99）。 */
+/** 成交主表：R̂_τ + 页面 R入场%（0–1.0）。 */
 function tradeRtauTd(rPct, slotRow, direction, rTauEnterCfg) {
   const cb = slotCloseBand(slotRow);
   const num = (v) => {
@@ -2077,7 +2200,7 @@ function slotClosePxParts(r) {
   };
 }
 
-function tradeColgroup(showStock, showReason = false, showDelete = false) {
+function tradeColgroup(showStock, showReason = false, showDelete = false, showRealized = false) {
   let html = "<colgroup>";
   if (showStock) html += t0Col("paper-t0-col-stock", "stock");
   html +=
@@ -2090,6 +2213,7 @@ function tradeColgroup(showStock, showReason = false, showDelete = false) {
     t0Col("paper-t0-col-rtau", "rtau") +
     t0Col("paper-t0-col-tau", "tau") +
     t0Col("paper-t0-col-path", "path") +
+    (showRealized ? t0Col("paper-t0-col-cx", "cx") : "") +
     t0Col("paper-t0-col-process", "process") +
     t0Col("paper-t0-col-ret", "retPct") +
     t0Col("paper-t0-col-pnl", "pnl") +
@@ -2189,10 +2313,11 @@ function tradeDaySlotHosts(d, splitSlots) {
 function tradeTableColCount(ctx) {
   let n = 1;
   if (ctx.showStock) n += 1;
-  n += 6;
-  n += 2;
-  n += 1;
-  n += 3;
+  n += 6; // O L H C Ĉ_τ R̂_τ
+  n += 2; // y_τ y_path
+  if (ctx.showRealized) n += 1; // y_cx
+  n += 1; // process
+  n += 3; // ret pnl exp
   if (ctx.showReason) n += 1;
   if (ctx.showDelete) n += 1;
   return n;
@@ -2335,6 +2460,7 @@ function buildCloseBandScanExpandRow(d, dayKey, colSpan, rules) {
         `<td class="num">${escapeText(fmtScanRtau(r, rEnter))}</td>` +
         `<td class="num">${escapeText(fmtScanPct(r.y_tau))}</td>` +
         `<td class="num">${escapeText(fmtPathScore(r.y_path))}</td>` +
+        `<td class="num">${escapeText(fmtCxScore(r.y_cx ?? r.predicted_score_cx))}</td>` +
         `<td>${escapeText(fmtScanPick(r.pick))}</td>` +
         `<td class="paper-t0-scan-skip">${escapeText(skips || "—")}</td>` +
         `</tr>`
@@ -2349,8 +2475,10 @@ function buildCloseBandScanExpandRow(d, dayKey, colSpan, rules) {
     `<table class="paper-t0-scan-debug">` +
     `<thead><tr>` +
     `<th>钟</th><th class="num">O</th><th class="num">L</th><th class="num">H</th>` +
-    `<th class="num">C</th><th class="num">Ĉ_τ</th><th class="num" title="r̂_τ = (C/ĉ_τ−1)×100 · 入场阈=页面 R入场%（0.01–99.99；与带宽δ/τ先验漂移无关）">R̂_τ</th>` +
-    `<th class="num">y_τ</th><th class="num">y_path</th>` +
+    `<th class="num">C</th><th class="num">Ĉ_τ</th><th class="num" title="r̂_τ = (C/ĉ_τ−1)×100 · 入场阈=页面 R入场%（0–1.0；0=关；与带宽δ/τ先验漂移无关）">R̂_τ</th>` +
+    `<th class="num">y_τ</th><th class="num">y_path</th><th class="num" title="${escapeText(
+      Y_CX_TITLE
+    )}">y_cx</th>` +
     `<th>破带</th><th>跳过</th>` +
     `</tr></thead>` +
     `<tbody>${body}</tbody>` +
@@ -2430,7 +2558,8 @@ function renderTradeDayHtml(d, ctx) {
         slotYRealized,
         liveByCode
       ) +
-      pathMergedCellHtml(scoreHost, fallback, rules, scoreDetailJson, slotYRealized, liveByCode)
+      pathMergedCellHtml(scoreHost, fallback, rules, scoreDetailJson, slotYRealized, liveByCode) +
+      (showRealized ? cxMergedCellHtml(scoreHost, dayRef || d, slotYRealized) : "")
     );
   };
 
@@ -2462,7 +2591,7 @@ function renderTradeDayHtml(d, ctx) {
   const dateInner = hasScan
     ? `<button type="button" class="paper-t0-day-debug-toggle" data-t0-day-id="${escapeText(
         dayKey
-      )}" title="展开 11:00 前每根扫描（OLHC · Ĉ_τ · R̂_τ · y_τ · y_path）" aria-expanded="false">${escapeText(
+      )}" title="展开 11:00 前每根扫描（OLHC · Ĉ_τ · R̂_τ · y_τ · y_path · y_cx）" aria-expanded="false">${escapeText(
         dayText
       )}<span class="paper-t0-day-debug-caret" aria-hidden="true">▾</span></button>`
     : escapeText(dayText);
@@ -2560,13 +2689,18 @@ export function buildT0TradeTableHtml(opts) {
     `<th scope="col" class="paper-t0-col-h num" title="本轮触发根 5m 最高">H</th>` +
     `<th scope="col" class="paper-t0-col-c num" title="本轮触发根 5m 收盘">C</th>` +
     `<th scope="col" class="paper-t0-col-ctau num" title="ĉ_τ · 主显分钟映后（破带用）；悬停看日原">Ĉ_τ</th>` +
-    `<th scope="col" class="paper-t0-col-rtau num" title="r̂_τ = (C/ĉ_τ−1)×100 · 相对 ĉ 的超额；入场阈=页面 R入场%（0.01–99.99；与带宽δ/τ先验漂移无关）">R̂_τ</th>` +
+    `<th scope="col" class="paper-t0-col-rtau num" title="r̂_τ = (C/ĉ_τ−1)×100 · 相对 ĉ 的超额；入场阈=页面 R入场%（0–1.0；0=关；与带宽δ/τ先验漂移无关）">R̂_τ</th>` +
     `<th scope="col" class="paper-t0-col-tau num paper-t0-col-y paper-t0-col-y-tau" title="${escapeText(
       `${scoreTip}${slotYHint}${tauGateHint}`
     )}">y_τ</th>` +
     `<th scope="col" class="paper-t0-col-path num paper-t0-col-y paper-t0-col-y-path" title="${escapeText(
       `${Y_PATH_TITLE}${slotYHint}`
     )}">y_path</th>` +
+    (showRealized
+      ? `<th scope="col" class="paper-t0-col-cx num paper-t0-col-y paper-t0-col-y-cx" title="${escapeText(
+          `${Y_CX_TITLE}${slotYHint}`
+        )}">y_cx</th>`
+      : "") +
     `<th scope="col" class="paper-t0-col-process" title="本轮时钟 + 成交腿；悬停看全日 K 线">过程</th>` +
     `<th scope="col" class="paper-t0-col-ret num" title="(PnL+敞口)/动仓名义">收益%</th>` +
     `<th scope="col" class="paper-t0-col-pnl num">PnL</th>` +
@@ -2600,7 +2734,7 @@ export function buildT0TradeTableHtml(opts) {
   const tableBlock =
     `<div class="quant-weight-table-wrap paper-t0-trades-wrap">` +
     `<table class="${TABLE_CLASS}">` +
-    tradeColgroup(showStock, showReason, showDelete) +
+    tradeColgroup(showStock, showReason, showDelete, showRealized) +
     `<thead><tr>${head}</tr></thead><tbody>${rows}</tbody></table>` +
     `</div>` +
     moreHint;

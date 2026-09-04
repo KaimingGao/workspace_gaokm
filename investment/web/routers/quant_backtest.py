@@ -75,6 +75,7 @@ def quant_t0_backtest(body: T0BacktestRequest) -> Dict[str, Any]:
             "y_path_enter_sell_then_buy",
             "y_path_enter_buy_then_sell",
             "y_path_strong",
+            "y_cx_max",
             "y_path_required",
             "y_gap_tier_mode",
             "y_gap_tier_pct",

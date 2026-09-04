@@ -296,6 +296,8 @@ export const Y_NOWCAST_TITLE = Y_NC_TITLE;
 export const Y_PATH_TITLE = "ŷ_path · 极值序 signed (H−L)/ref%";
 export const PATH_REALIZED_TITLE =
   "path实 · 先 low→high 为正、先 high→low 为负（与 ŷ_path 同标签）";
+export const Y_CX_TITLE =
+  "y_cx · 本轮前缀 ŷ（全日 1−D/L ∈[0,1]，表内×100%）· 0=直线 · 1=最折 · ŷ_cx>门槛则跳过";
 
 /** OC 头原始 ŷ（映射前）：与组成合计 / tip 大标题同口径。 */
 function _tauOcRaw(it) {

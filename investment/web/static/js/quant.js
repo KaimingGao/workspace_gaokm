@@ -44,7 +44,7 @@ import { createFactorMetaCache } from "./quant/factor_meta.js";
 import { buildUniversePanelHtml } from "./quant/universe_ui.js";
 import { researchGridHtml, metricCell } from "./quant/research_grid.js";
 import { createPromoteHintsRenderer } from "./quant/promote_hints_ui.js";
-import { createBtTablesUi } from "./quant/bt_tables.js";
+import { createBtTablesUi } from "./quant/bt_tables.js?v=p1945";
 import { installClusterProbe } from "./quant/domain_cluster.js";
 import { installSuggest } from "./quant/domain_suggest.js";
 import { installStrategy } from "./quant/domain_strategy.js";
@@ -390,6 +390,10 @@ export function initQuant(ctx) {
         metas.push(
           remStatusMeta("命中", fmtRemHit(oos.sign_hit_rate), "样本外方向命中率")
         );
+      } else if (oos.median_hit != null && Number.isFinite(Number(oos.median_hit))) {
+        metas.push(
+          remStatusMeta("中位命中", fmtRemHit(oos.median_hit), "ŷ 与 y 是否同在中位以上；≈50% 即无排序信息")
+        );
       }
       const bt = oos.by_theme || {};
       const th = bt.theme || {};
@@ -514,6 +518,24 @@ export function initQuant(ctx) {
     host.innerHTML = html || "";
   }
 
+
+  async function renderCxCoefTable(rm, opts = {}) {
+    const host = document.getElementById("quant-cx-coef-table");
+    if (!host) return;
+    try {
+      if (typeof q.ensureFactorMeta === "function") {
+        await q.ensureFactorMeta();
+      }
+    } catch (_) {
+      /* ignore */
+    }
+    const html =
+      typeof q.remCoefTableHtml === "function"
+        ? q.remCoefTableHtml(rm, { ...opts, head: "cx" })
+        : "";
+    host.innerHTML = html || "";
+  }
+
   function clearPathResultBox() {
     const box = document.getElementById("quant-path-result");
     if (box) box.innerHTML = "";
@@ -572,6 +594,40 @@ export function initQuant(ctx) {
       `<p class="quant-attr-note">${bits.map((b) => escapeHtml(String(b))).join(" · ")}</p>`;
   }
 
+
+  function renderCxFitSummary(data) {
+    const box = document.getElementById("quant-cx-result");
+    if (!box || !data || typeof data !== "object") return;
+    const oos = data.oos || {};
+    const gate = data.promote_gate || {};
+    const dist = oos.label_dist || {};
+    const bits = [
+      data.minute_codes_hit != null
+        ? `分钟覆盖 ${data.minute_codes_hit}/${data.minute_codes_universe ?? "—"} 票`
+        : null,
+      data.sample_count != null ? `样本 n=${data.sample_count}` : null,
+      dist.y_mean != null ? `标签均 ${Number(dist.y_mean).toFixed(1)}` : null,
+      oos.ic != null
+        ? `OOS IC ${Number(oos.ic).toFixed(3)}（n=${oos.n_valid ?? oos.n_test ?? "—"}）`
+        : null,
+      oos.median_hit != null
+        ? `中位命中 ${(Number(oos.median_hit) * 100).toFixed(1)}%`
+        : null,
+      oos.mae != null ? `MAE ${Number(oos.mae).toFixed(2)}` : null,
+      gate.ok === false
+        ? `promote 闸：${(gate.blockers || []).join("；")}`
+        : gate.ok === true
+          ? "promote 闸：通过"
+          : null,
+      Array.isArray(gate.warnings) && gate.warnings.length
+        ? `软提示：${gate.warnings.join("；")}`
+        : null,
+    ].filter(Boolean);
+    if (!bits.length) return;
+    box.innerHTML =
+      `<p class="quant-attr-note">${bits.map((b) => escapeHtml(String(b))).join(" · ")}</p>`;
+  }
+
   /** ŷ_τ 启用：不过闸也可点，确认后 force_promote。 */
   let _tauPromoteGate = null;
   function syncTauPersistBtn(gate, { hasReport = true } = {}) {
@@ -618,6 +674,34 @@ export function initQuant(ctx) {
     }
   }
 
+
+  let _cxPromoteGate = null;
+  function syncCxPersistBtn(gate, { hasReport = true } = {}) {
+    const persistBtn = document.getElementById("quant-cx-ridge-persist");
+    if (!persistBtn) return;
+    _cxPromoteGate = gate && typeof gate === "object" ? gate : null;
+    if (!hasReport) {
+      persistBtn.disabled = true;
+      persistBtn.title = "先拟合，再启用";
+      persistBtn.classList.remove("is-gate-warn");
+      return;
+    }
+    persistBtn.disabled = false;
+    if (_cxPromoteGate && _cxPromoteGate.ok === false) {
+      const blockers = (_cxPromoteGate.blockers || []).join("；") || "未过 OOS 闸";
+      persistBtn.title = `未过闸：${blockers} · 点击可确认后强制启用`;
+      persistBtn.classList.add("is-gate-warn");
+    } else {
+      persistBtn.title = "写入 live/cx_ridge_model.json";
+      persistBtn.classList.remove("is-gate-warn");
+    }
+  }
+
+  function clearCxResultBox() {
+    const box = document.getElementById("quant-cx-result");
+    if (box) box.innerHTML = "";
+  }
+
   // 轻量预填 ŷ_path 状态
   void (async () => {
     try {
@@ -658,6 +742,52 @@ export function initQuant(ctx) {
       syncPathPersistBtn(gate, { hasReport: true });
       clearPathResultBox();
       await renderPathCoefTable(data.return_model || {}, { oos });
+    } catch (_) {
+      /* ignore */
+    }
+  })();
+
+
+  // 轻量预填 ŷ_cx 状态
+  void (async () => {
+    try {
+      const res = await fetch("/api/quant/cx-ridge/model");
+      const data = await res.json().catch(() => ({}));
+      const sum = document.getElementById("quant-cx-summary");
+      if (!sum) return;
+      if (!data.exists) {
+        renderRemStatus(sum, {
+          state: "idle",
+          chip: "未启用",
+          message: data.last_report_exists
+            ? "有 last report · 点「拟合」或「启用」"
+            : data.note || "点「拟合」开始（需分钟缓存）",
+        });
+        syncCxPersistBtn(data.promote_gate, {
+          hasReport: !!data.last_report_exists,
+        });
+        clearCxResultBox();
+        await renderCxCoefTable(null);
+        return;
+      }
+      const oos = data.oos || {};
+      const gate = data.promote_gate || null;
+      const chip = data.shadow ? "影子" : data.promoted === false ? "拟合" : "已启用";
+      renderRemStatus(sum, {
+        state: "ok",
+        chip,
+        message: data.shadow
+          ? gate && !gate.ok
+            ? `last report · 闸：${(gate.blockers || []).join("；")}（可强制启用）`
+            : "last report 推理 · 过门后点「启用」"
+          : "",
+        oos,
+        sampleCount: data.sample_count,
+        promotedAt: data.promoted_at,
+      });
+      syncCxPersistBtn(gate, { hasReport: true });
+      clearCxResultBox();
+      await renderCxCoefTable(data.return_model || {}, { oos });
     } catch (_) {
       /* ignore */
     }
@@ -1802,6 +1932,210 @@ export function initQuant(ctx) {
       syncPathPersistBtn(gate, { hasReport: true });
       clearPathResultBox();
       await renderPathCoefTable(data.return_model || {}, { oos });
+    } catch (err) {
+      renderRemStatus(sum, {
+        state: "error",
+        chip: "失败",
+        message: String(err.message || err),
+        error: true,
+      });
+    }
+  });
+
+
+  async function runCxRidge({ persist = false, forcePromote = false } = {}) {
+    const sum = document.getElementById("quant-cx-summary");
+    renderRemStatus(sum, {
+      state: "busy",
+      chip: persist ? "写入中" : "拟合中",
+      message: persist
+        ? forcePromote
+          ? "强制写入上次拟合…"
+          : "写入上次拟合…"
+        : "cx Ridge + (1−D/L)…",
+      busy: true,
+    });
+    try {
+      const res = await fetch("/api/quant/cx-ridge", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          lookback: 120,
+          watching_limit: 200,
+          ridge_lambda: 1.0,
+          minute_period: "5",
+          minute_lookback_days: 150,
+          persist: !!persist,
+          force_promote: !!forcePromote,
+          note: persist
+            ? forcePromote
+              ? "ui cx force promote"
+              : "ui cx promote"
+            : "",
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      const gate = data.promote_gate || (data.persisted && data.persisted.promote_gate) || null;
+      const persistFailed =
+        persist &&
+        data.persisted &&
+        data.persisted.success === false &&
+        !data.persisted.skipped;
+      if (!res.ok || (!data.success && !persistFailed) || persistFailed) {
+        const err =
+          (data.persisted && data.persisted.error) ||
+          (data && (data.detail || data.error)) ||
+          `HTTP ${res.status}`;
+        const gateNote =
+          gate && Array.isArray(gate.blockers) && gate.blockers.length
+            ? ` · 闸：${gate.blockers.join("；")}`
+            : "";
+        renderRemStatus(sum, {
+          state: "error",
+          chip: persistFailed ? "未过闸" : "失败",
+          message: String(err) + gateNote,
+          error: true,
+        });
+        if (!persistFailed) {
+          clearCxResultBox();
+          renderCxCoefTable(null);
+        }
+        syncCxPersistBtn(gate, { hasReport: true });
+        return;
+      }
+      const oos = data.oos || {};
+      if (persist) {
+        renderRemStatus(sum, {
+          state: "ok",
+          chip: forcePromote ? "已强制启用" : "已启用",
+          oos,
+          sampleCount: data.sample_count,
+          promotedAt: data.promoted_at || (data.persisted && data.persisted.promoted_at),
+          message:
+            forcePromote && gate && !gate.ok
+              ? `已跳过闸：${(gate.blockers || []).join("；")}`
+              : undefined,
+        });
+      } else {
+        const gateMsg =
+          gate && !gate.ok
+            ? ` · 未过 promote 闸（${(gate.blockers || []).join("；")}；可强制启用）`
+            : gate && gate.ok
+              ? " · 可启用"
+              : "";
+        renderRemStatus(sum, {
+          state: "ok",
+          chip: "已拟合",
+          message: `未写 live${gateMsg}`,
+          oos,
+          sampleCount: data.sample_count,
+        });
+      }
+      syncCxPersistBtn(gate, { hasReport: true });
+      const rm = data.return_model || {};
+      renderCxFitSummary(data);
+      await renderCxCoefTable(rm, { oos });
+    } catch (err) {
+      renderRemStatus(sum, {
+        state: "error",
+        chip: "失败",
+        message: String(err.message || err),
+        error: true,
+      });
+      throw err;
+    }
+  }
+
+  on("quant-cx-ridge-run", "click", async (e) => {
+    e.preventDefault();
+    try {
+      await runCxRidge({ persist: false });
+    } catch (err) {
+      const sum = document.getElementById("quant-cx-summary");
+      renderRemStatus(sum, {
+        state: "error",
+        chip: "失败",
+        message: String(err.message || err),
+        error: true,
+      });
+    }
+  });
+
+  on("quant-cx-ridge-persist", "click", async (e) => {
+    e.preventDefault();
+    const gate = _cxPromoteGate;
+    let forcePromote = false;
+    if (gate && gate.ok === false) {
+      const blockers = (gate.blockers || []).join("；") || "未过 OOS 闸";
+      if (
+        !window.confirm(
+          `promote 未过闸：${blockers}\n\n仍强制写入 live/cx_ridge_model.json 吗？\n（研究枢纽；ŷ_cx>y_cx_max 跳过做 T）`
+        )
+      ) {
+        return;
+      }
+      forcePromote = true;
+    } else if (
+      !window.confirm(
+        "将 ŷ_cx 模型写入 live（研究枢纽；1−D/L∈[0,1]；ŷ_cx>y_cx_max 跳过做 T）？"
+      )
+    ) {
+      return;
+    }
+    try {
+      await runCxRidge({ persist: true, forcePromote });
+    } catch (err) {
+      const sum = document.getElementById("quant-cx-summary");
+      renderRemStatus(sum, {
+        state: "error",
+        chip: "失败",
+        message: String(err.message || err),
+        error: true,
+      });
+    }
+  });
+
+  on("quant-cx-ridge-status", "click", async (e) => {
+    e.preventDefault();
+    const sum = document.getElementById("quant-cx-summary");
+    renderRemStatus(sum, {
+      state: "busy",
+      chip: "读取中",
+      message: "live 模型…",
+      busy: true,
+    });
+    try {
+      const res = await fetch("/api/quant/cx-ridge/model");
+      const data = await res.json().catch(() => ({}));
+      if (!data.exists) {
+        renderRemStatus(sum, {
+          state: "idle",
+          chip: "未启用",
+          message: data.note || "尚无 live 模型",
+        });
+        syncCxPersistBtn(data.promote_gate, {
+          hasReport: !!data.last_report_exists,
+        });
+        clearCxResultBox();
+        await renderCxCoefTable(null);
+        return;
+      }
+      const oos = data.oos || {};
+      const gate = data.promote_gate || null;
+      renderRemStatus(sum, {
+        state: "ok",
+        chip: data.shadow ? "影子" : "已启用",
+        oos,
+        sampleCount: data.sample_count,
+        promotedAt: data.promoted_at,
+        message:
+          gate && !gate.ok
+            ? `promote 闸：${(gate.blockers || []).join("；")}（可强制启用）`
+            : undefined,
+      });
+      syncCxPersistBtn(gate, { hasReport: true });
+      clearCxResultBox();
+      await renderCxCoefTable(data.return_model || {}, { oos });
     } catch (err) {
       renderRemStatus(sum, {
         state: "error",

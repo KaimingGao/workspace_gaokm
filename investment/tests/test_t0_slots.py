@@ -446,13 +446,25 @@ class TestT0Slots(unittest.TestCase):
 
         extra = _slot_public_scores(
             {
-                "_t0_score_snap": {"y_tau": 0.8, "y_path": 1.2},
-                "direction_features": {"y_tau": 0.8, "gap_pct": 0.1},
+                "_t0_score_snap": {
+                    "y_tau": 0.8,
+                    "y_path": 1.2,
+                    "predicted_score_cx": 0.42,
+                    "y_cx_hat": 0.42,
+                },
+                "direction_features": {
+                    "y_tau": 0.8,
+                    "gap_pct": 0.1,
+                    "predicted_score_cx": 0.42,
+                },
             }
         )
         self.assertAlmostEqual(extra["scores"]["y_tau"], 0.8)
         self.assertAlmostEqual(extra["scores"]["y_path"], 1.2)
+        self.assertAlmostEqual(extra["scores"]["predicted_score_cx"], 0.42)
+        self.assertAlmostEqual(extra["scores"]["y_cx_hat"], 0.42)
         self.assertAlmostEqual(extra["direction_features"]["gap_pct"], 0.1)
+        self.assertAlmostEqual(extra["direction_features"]["predicted_score_cx"], 0.42)
 
     def test_promote_causal_portrait_fields(self):
         from core.t0.slots import _promote_causal_portrait_fields

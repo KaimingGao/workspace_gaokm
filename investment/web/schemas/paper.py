@@ -131,9 +131,9 @@ class T0BacktestRequest(BaseModel):
     )
     r_tau_enter: Optional[float] = Field(
         default=None,
-        ge=0.01,
-        le=99.99,
-        description="|R̂_τ| 入场下限（百分点）；范围 0.01–99.99",
+        ge=0.0,
+        le=1.0,
+        description="|R̂_τ| 入场下限（百分点）；范围 0–1.0；0=关",
     )
     y_tau_enter_strong: Optional[float] = Field(
         default=None,
@@ -203,8 +203,8 @@ class T0BacktestRequest(BaseModel):
     y_tau_leg1_prior_shift_scale: Optional[float] = Field(
         default=None,
         ge=0.1,
-        le=0.9,
-        description="score：带宽漂移 |s|≤α·δ，α∈[0.1, 0.9]（默认 0.1；保证上沿>0>下沿）",
+        le=1.0,
+        description="score：带宽漂移 |s|≤α·δ，α∈[0.1, 1.0]（默认 0.1；α=1 时同侧可贴 0）",
     )
     y_nc_enter: Optional[float] = Field(
         default=None,
@@ -251,6 +251,12 @@ class T0BacktestRequest(BaseModel):
         ge=0.0,
         le=5.0,
         description="path强%：|y_path| 超此值须与 y_τ 同号，异号跳过（默认 0.2）",
+    )
+    y_cx_max: Optional[float] = Field(
+        default=None,
+        ge=0.01,
+        le=1.0,
+        description="ŷ_cx∈[0,1] 上限：超过则太折跳过做 T（默认 1.00≈关）",
     )
     y_path_required: Optional[bool] = None
     y_gap_tier_mode: Optional[str] = Field(default=None, max_length=24)
@@ -558,6 +564,7 @@ class PaperExecutionPatchRequest(BaseModel):
     y_path_enter_sell_then_buy: Optional[float] = None
     y_path_enter_buy_then_sell: Optional[float] = None
     y_path_strong: Optional[float] = None
+    y_cx_max: Optional[float] = None
     y_path_required: Optional[bool] = None
     y_gap_tier_mode: Optional[str] = None
     y_gap_tier_pct: Optional[float] = None

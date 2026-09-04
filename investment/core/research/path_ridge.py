@@ -15,14 +15,15 @@ from core.research.factor_ols_fit import fit_factor_ols_from_panel
 from core.research.path_panel import (
     DEFAULT_PATH_MINUTE_TAU_HM,
     DEFAULT_PATH_TAU_GRID,
-    PATH_Z_FEATURES,
+    PATH_LAG_FEAT_LABELS,
+    PATH_RIDGE_FEATURES,
     build_path_panels_from_bars,
 )
 from core.research.tau_panel import normalize_minute_tau_grid
 from core.research.tau_ridge import _predict_rows, _subset, _time_split_indices
 from core.signal.minute_tau_feats import MINUTE_TAU_FEAT_LABELS
 
-PATH_MIN_STD_EXEMPT = PATH_Z_FEATURES
+PATH_MIN_STD_EXEMPT = PATH_RIDGE_FEATURES
 PATH_PROMOTE_MIN_SIGN_HIT = 0.55  # 全样本：软条件（warnings）
 PATH_PROMOTE_MIN_N_TEST = 80  # 全样本：软条件
 PATH_PROMOTE_MIN_STRONG_HIT = 0.55  # |ŷ|≥2% 强桶
@@ -48,12 +49,12 @@ def _stack_panels(enriched: Sequence[Dict[str, Any]]) -> tuple:
 
 
 def _z_only_xs(xs: List[dict]) -> List[dict]:
-    """始终输出完整 PATH_Z_FEATURES 键（缺值保留 None），避免 yclose_loc 被静默丢掉。"""
+    """始终输出完整 PATH_RIDGE_FEATURES 键（缺值保留 None），避免 yclose_loc / lag 被静默丢掉。"""
     out: List[dict] = []
     for row in xs:
         if not isinstance(row, dict):
             continue
-        out.append({k: row.get(k) for k in PATH_Z_FEATURES})
+        out.append({k: row.get(k) for k in PATH_RIDGE_FEATURES})
     return out
 
 
@@ -327,7 +328,7 @@ def fit_path_ridge_report(
     y_mean = sum(float(y) for y in ys_tr) / max(1, len(ys_tr))
     ys_tr_dm = [float(y) - y_mean for y in ys_tr]
 
-    feat_names: List[str] = list(PATH_Z_FEATURES)
+    feat_names: List[str] = list(PATH_RIDGE_FEATURES)
 
     fit = fit_factor_ols_from_panel(
         xs_tr,
@@ -366,7 +367,7 @@ def fit_path_ridge_report(
     try:
         from core.research.path_panel import audit_path_minute_coverage, feature_fill_rates
 
-        oos["feature_fill"] = feature_fill_rates(xs_z, PATH_Z_FEATURES)
+        oos["feature_fill"] = feature_fill_rates(xs_z, PATH_RIDGE_FEATURES)
         oos["sample_quality"] = audit_path_minute_coverage(
             stock_bars,
             minute_by_code_date,
@@ -406,7 +407,8 @@ def fit_path_ridge_report(
     if grid and len(grid) > 1:
         y_note = (
             "变长前缀少数时钟共享 β；标签=全日极值序 signed range%；"
-            "τ 越晚特征更贴标签，看 OOS.by_tau；live 决策钟=minute_tau_hm"
+            "τ 越晚特征更贴标签，看 OOS.by_tau；live 决策钟=minute_tau_hm；"
+            "另含 PIT path_lag1/path_ma5"
         )
     else:
         y_note = "单 τ 前缀分钟小包 + 开盘 Z；训练 demean+类别平衡"
@@ -417,7 +419,8 @@ def fit_path_ridge_report(
         "tau_grid": list(grid),
         "note": y_note,
     }
-    model["extra_features"] = list(PATH_Z_FEATURES)
+    model["extra_features"] = list(PATH_RIDGE_FEATURES)
+    model["feat_labels"] = {**dict(MINUTE_TAU_FEAT_LABELS), **dict(PATH_LAG_FEAT_LABELS)}
     model["minute_tau_hm"] = live_hm
     model["tau_grid"] = list(grid)
 
@@ -428,16 +431,16 @@ def fit_path_ridge_report(
         "sample_count": len(ys),
         "oos": oos,
         "return_model": model,
-        "schema": "path_ridge_v3",
+        "schema": "path_ridge_v4",
         "target": "extreme_order_signed_range",
         "sell_trig_pct": float(sell_trig_pct),
         "buy_trig_pct": float(buy_trig_pct),
         "minute_tau_hm": live_hm,
         "tau_grid": list(grid),
         "note": (
-            "开盘 Z + 多 τ 前缀分钟小包 → 全日极值序；供 dual_y 与 y_τ 联合选向"
+            "开盘 Z + 多 τ 前缀分钟小包 + 历史真实 path → 全日极值序；供 dual_y 与 y_τ 联合选向"
             if grid and len(grid) > 1
-            else "开盘 Z + 前缀分钟小包 → 全日极值序；供 dual_y 与 y_τ 联合选向"
+            else "开盘 Z + 前缀分钟小包 + 历史真实 path → 全日极值序；供 dual_y 与 y_τ 联合选向"
         ),
     }
     report["promote_gate"] = path_promote_gate(report)
@@ -550,7 +553,7 @@ def persist_path_model(
         "oos": report.get("oos"),
         "sample_count": report.get("sample_count"),
         "stock_count": report.get("stock_count"),
-        "schema": report.get("schema") or "path_ridge_v3",
+        "schema": report.get("schema") or "path_ridge_v4",
         "sell_trig_pct": report.get("sell_trig_pct", rm.get("sell_trig_pct")),
         "buy_trig_pct": report.get("buy_trig_pct", rm.get("buy_trig_pct")),
         "minute_tau_hm": report.get("minute_tau_hm") or rm.get("minute_tau_hm"),
@@ -581,7 +584,7 @@ def predict_path_from_features(
     if not doc:
         return None
     rm = doc.get("return_model") or {}
-    row = {k: features.get(k) for k in PATH_Z_FEATURES}
+    row = {k: features.get(k) for k in PATH_RIDGE_FEATURES}
     # 若模型以 demean 训练：系数对应 demeaned y；截距已含 y_mean 时直接预测
     # 存盘 intercept = intercept_dm + y_mean，与 _predict_rows 一致即可
     preds = _predict_rows(rm, [row])
@@ -598,6 +601,7 @@ _PATH_FEAT_LABELS = {
     "gap_vs_sector": "行业相对缺口",
     "yclose_loc": "昨收位置",
     "mom3_pct": "近3日动量 %",
+    **PATH_LAG_FEAT_LABELS,
     **MINUTE_TAU_FEAT_LABELS,
 }
 
@@ -624,7 +628,7 @@ def explain_path_prediction(
         if coefs.get(n) is not None
     ]
     # 确保 PATH 特征顺序中有值的都尽量出现
-    for name in PATH_Z_FEATURES:
+    for name in PATH_RIDGE_FEATURES:
         if name not in active and coefs.get(name) is not None:
             active.append(name)
     row = features or {}

@@ -245,6 +245,39 @@ class TestCloseBandCore(unittest.TestCase):
         )
         self.assertIsNone(off)
 
+    def test_enter_skip_cx_max(self):
+        from core.t0.close_band import close_band_enter_skip_reason
+
+        cfg = {
+            "y_tau_enter": 0.0,
+            "y_path_enter": 0.0,
+            "y_use_path": False,
+            "y_cx_max": 0.5,
+        }
+        too = close_band_enter_skip_reason(
+            {"y_tau": 1.0, "predicted_score_cx": 0.8},
+            cfg,
+        )
+        self.assertIsNotNone(too)
+        self.assertIn("太折", too)
+        ok = close_band_enter_skip_reason(
+            {"y_tau": 1.0, "predicted_score_cx": 0.4},
+            cfg,
+        )
+        self.assertIsNone(ok)
+        miss = close_band_enter_skip_reason({"y_tau": 1.0}, cfg)
+        self.assertIsNone(miss)
+        old_scale = close_band_enter_skip_reason(
+            {"y_tau": 1.0, "predicted_score_cx": 80.0},
+            cfg,
+        )
+        self.assertIsNotNone(old_scale)
+        cap = close_band_enter_skip_reason(
+            {"y_tau": 1.0, "predicted_score_cx": 0.99},
+            {**cfg, "y_cx_max": 1.0},
+        )
+        self.assertIsNone(cap)
+
     def test_enter_skip_r_tau(self):
         from core.t0.close_band import close_band_enter_skip_reason
 
@@ -417,17 +450,17 @@ class TestCloseBandCore(unittest.TestCase):
         self.assertEqual(d2, "buy_then_sell")
         self.assertGreater(meta2["lower_pct"], -0.5)
         self.assertLess(meta2["lower_pct"], 0.0)
-        # α≥1 或 >0.9 旧值钳到上限 0.9：|s|≤0.9δ
+        # α≥1 钳到上限 1.0：|s|≤δ，同侧可贴 0
         up_s, lo_s = resolve_close_band_thresholds_pct(
             0.5, 1.0, mode="score", risk_k=1.0, shift_scale=2.0
         )
-        self.assertAlmostEqual(up_s, 0.95, places=6)  # δ + 0.9δ
-        self.assertLess(lo_s, 0.0)
-        self.assertGreater(up_s, 0.0)
+        self.assertAlmostEqual(up_s, 1.0, places=6)  # δ + 1.0δ
+        self.assertAlmostEqual(lo_s, 0.0, places=6)
         from core.t0.close_band import clamp_y_tau_leg1_prior_shift_scale
 
         self.assertAlmostEqual(clamp_y_tau_leg1_prior_shift_scale(0.05), 0.1, places=6)
-        self.assertAlmostEqual(clamp_y_tau_leg1_prior_shift_scale(0.95), 0.9, places=6)
+        self.assertAlmostEqual(clamp_y_tau_leg1_prior_shift_scale(0.95), 0.95, places=6)
+        self.assertAlmostEqual(clamp_y_tau_leg1_prior_shift_scale(1.2), 1.0, places=6)
         self.assertAlmostEqual(clamp_y_tau_leg1_prior_shift_scale(None), 0.1, places=6)
         # k 与 α 分工：同等 raw 下 α 只抬 cap，不放大未触顶的 s
         up_a, lo_a = resolve_close_band_thresholds_pct(
@@ -845,6 +878,7 @@ class TestCloseBandCore(unittest.TestCase):
         self.assertIn("c", first)
         self.assertIn("c_tau", first)
         self.assertIn("y_tau", first)
+        self.assertIn("y_cx", first)
         for row in scan:
             hm = str(row.get("hm") or "")
             self.assertLessEqual(hm, "11:00", row)
@@ -1144,7 +1178,7 @@ class TestCloseBandDayPath(unittest.TestCase):
         self.assertIn("y_τ", reason)
 
     def test_weak_r_tau_enter_blocks_band_open(self):
-        """破带但 |R̂_τ|<r_tau_enter → 不开轮；load 把 0 钳到 0.01 后同价仍开。"""
+        """破带但 |R̂_τ|<r_tau_enter → 不开轮；0=关闸，同价仍开。"""
         # open=100, y_τ=1% → ĉ=101；δ=0.5% 对称；C=101.6 → r≈0.594% 上破但不到 0.8
         closes = [101.6] + [101.0] * 30
         mins = _mins(closes, session_open=100.0)

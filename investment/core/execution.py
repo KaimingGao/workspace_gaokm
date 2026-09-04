@@ -85,6 +85,7 @@ ALLOWED_T0_PATCH_KEYS = frozenset(
         "y_path_enter_sell_then_buy",
         "y_path_enter_buy_then_sell",
         "y_path_strong",
+        "y_cx_max",
         "y_path_required",
         "y_gap_tier_mode",
         "y_gap_tier_pct",
@@ -192,6 +193,7 @@ DEFAULT_T0_OVERLAY: Dict[str, Any] = {
     "y_path_enter_sell_then_buy": 0.01,
     "y_path_enter_buy_then_sell": 0.01,
     "y_path_strong": 0.2,
+    "y_cx_max": 1.0,
     "y_gap_tier_pct": 1.0,
     "t0_close_band_delta_pct": 0.2,
     "t0_price_space_gate": True,
@@ -278,6 +280,26 @@ _REBALANCE_KEYS = (
     "stop_loss_pnl",
     "max_hold_days",
 )
+
+
+# 表单只写共用键时，下层 DEFAULT_T0_OVERLAY / 纸面里的分侧默认值必须让路，
+# 否则 load_t0_rules 会把分侧 0.01 当成「显式覆盖」，闸仍走 0.01。
+_SHARED_TO_SIDE_KEYS: Tuple[Tuple[str, Tuple[str, ...]], ...] = (
+    ("y_path_enter", ("y_path_enter_buy_then_sell", "y_path_enter_sell_then_buy")),
+    ("y_tau_enter", ("y_tau_enter_buy_then_sell", "y_tau_enter_sell_then_buy")),
+)
+
+
+def _drop_stale_side_keys(merged: dict, sources: Dict[str, str], layer: dict) -> None:
+    """本层写了共用键、没写分侧 → 丢掉下层残留分侧，供 load_t0_rules 跟随共用键。"""
+    for shared, sides in _SHARED_TO_SIDE_KEYS:
+        if shared not in layer or layer.get(shared) is None:
+            continue
+        for sk in sides:
+            if sk in layer and layer.get(sk) is not None:
+                continue
+            merged.pop(sk, None)
+            sources.pop(sk, None)
 
 
 def _merge_dict(base: dict, overlay: Optional[dict]) -> dict:
@@ -371,6 +393,7 @@ def _layer_t0(
                 continue
             merged[k] = v
             sources[k] = name
+        _drop_stale_side_keys(merged, sources, layer)
     if not layers:
         notes.append("无 Spec/纸面/请求覆盖，T0 用库默认 + runtime")
     return merged, sources, notes
@@ -715,6 +738,7 @@ def execution_public_view(bundle: Dict[str, Any]) -> Dict[str, Any]:
             "y_path_enter_sell_then_buy": t0.get("y_path_enter_sell_then_buy"),
             "y_path_enter_buy_then_sell": t0.get("y_path_enter_buy_then_sell"),
             "y_path_strong": t0.get("y_path_strong"),
+            "y_cx_max": t0.get("y_cx_max"),
             "y_path_required": t0.get("y_path_required"),
             "y_gap_tier_mode": t0.get("y_gap_tier_mode"),
             "y_gap_tier_pct": t0.get("y_gap_tier_pct"),
@@ -946,6 +970,8 @@ def validate_execution_patch(raw: Any) -> Tuple[bool, Dict[str, Any], List[str]]
         ("y_tau_exit_price_skip", ("y_tau_exit_price_skip_buy_then_sell",)),
         ("fill_mode", ("fill_mode_buy_then_sell",)),
         ("must_cover_same_day", ("must_cover_same_day_buy_then_sell",)),
+        ("y_path_enter", ("y_path_enter_buy_then_sell", "y_path_enter_sell_then_buy")),
+        ("y_tau_enter", ("y_tau_enter_buy_then_sell", "y_tau_enter_sell_then_buy")),
     )
     for legacy, sides in _legacy_side_expand:
         if legacy not in t0_in:

@@ -36,7 +36,65 @@ class TestExecutionResolve(unittest.TestCase):
         self.assertEqual(bundle["t0"]["direction"], "dual_y")
         self.assertEqual(bundle["t0_sources"].get("t0_ratio"), "paper")
 
-    def test_request_override_wins(self):
+    def test_request_path_enter_follows_side_keys(self):
+        """表单只改 path入场% 时，分侧闸必须跟随，不能停在 overlay 默认 0.01。"""
+        from core.execution import resolve_t0_rules, strip_execution_meta
+        from core.t0.close_band import close_band_enter_skip_reason
+
+        paper = {
+            "strategy_id": "short",
+            "rules": {
+                "t0": {
+                    "y_path_enter": 0.01,
+                    "y_path_enter_buy_then_sell": 0.01,
+                    "y_path_enter_sell_then_buy": 0.01,
+                }
+            },
+        }
+        raw = resolve_t0_rules(
+            paper=paper,
+            rules={"y_path_enter": 0.2, "y_tau_enter": 0.01, "r_tau_enter": 0.01},
+            channel="backtest",
+            has_minute=True,
+        )
+        cfg = strip_execution_meta(raw)
+        self.assertAlmostEqual(float(cfg["y_path_enter"]), 0.2)
+        self.assertAlmostEqual(float(cfg["y_path_enter_buy_then_sell"]), 0.2)
+        self.assertAlmostEqual(float(cfg["y_path_enter_sell_then_buy"]), 0.2)
+        skip = close_band_enter_skip_reason(
+            {"y_tau": 0.54, "y_path": 0.18},
+            cfg,
+            direction="buy_then_sell",
+            r_pct=-0.067,
+        )
+        self.assertIsNotNone(skip)
+        self.assertIn("y_path", skip or "")
+
+    def test_request_explicit_path_enter_side_still_wins(self):
+        from core.execution import resolve_t0_rules, strip_execution_meta
+
+        cfg = strip_execution_meta(
+            resolve_t0_rules(
+                rules={
+                    "y_path_enter": 0.2,
+                    "y_path_enter_buy_then_sell": 0.05,
+                },
+                channel="backtest",
+                has_minute=True,
+            )
+        )
+        self.assertAlmostEqual(float(cfg["y_path_enter"]), 0.2)
+        self.assertAlmostEqual(float(cfg["y_path_enter_buy_then_sell"]), 0.05)
+        self.assertAlmostEqual(float(cfg["y_path_enter_sell_then_buy"]), 0.2)
+
+    def test_validate_patch_expands_path_enter_sides(self):
+        from core.execution import validate_execution_patch
+
+        ok, norm, errs = validate_execution_patch({"t0": {"y_path_enter": 0.2}})
+        self.assertTrue(ok, errs)
+        self.assertAlmostEqual(float(norm["t0"]["y_path_enter"]), 0.2)
+        self.assertAlmostEqual(float(norm["t0"]["y_path_enter_buy_then_sell"]), 0.2)
+        self.assertAlmostEqual(float(norm["t0"]["y_path_enter_sell_then_buy"]), 0.2)
         from core.execution import resolve_t0_rules, strip_execution_meta
 
         raw = resolve_t0_rules(

@@ -120,6 +120,7 @@ def paper_execution_save(body: PaperExecutionPatchRequest | None = None) -> Dict
             ("y_path_enter_sell_then_buy", req.y_path_enter_sell_then_buy),
             ("y_path_enter_buy_then_sell", req.y_path_enter_buy_then_sell),
             ("y_path_strong", getattr(req, "y_path_strong", None)),
+            ("y_cx_max", getattr(req, "y_cx_max", None)),
             ("y_path_required", req.y_path_required),
             ("y_gap_tier_mode", req.y_gap_tier_mode),
             ("y_gap_tier_pct", req.y_gap_tier_pct),

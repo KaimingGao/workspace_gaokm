@@ -206,11 +206,12 @@ DEFAULT_T0_RULES: Dict[str, Any] = {
     # 反T / 正T 分侧入场；缺省与 y_tau_enter 同
     "y_tau_enter_sell_then_buy": 0.01,
     "y_tau_enter_buy_then_sell": 0.01,
-    "r_tau_enter": 0.1,  # |R̂_τ| 入场；范围 0.01–99.99
+    "r_tau_enter": 0.1,  # |R̂_τ| 入场；范围 0–1.0；0=关
     "y_path_enter": 0.01,
     "y_path_enter_sell_then_buy": 0.01,
     "y_path_enter_buy_then_sell": 0.01,
     "y_path_strong": 0.2,
+    "y_cx_max": 1.0,  # ŷ_cx∈[0,1]；>此值太折跳过；默认 1.00≈关
     "y_eod_enter": 0.01,
     "y_eod_strong": 0.2,
     "y_eod_prior": 0.01,
@@ -228,7 +229,7 @@ DEFAULT_T0_RULES: Dict[str, Any] = {
     "y_tau_leg1_prior_risk": 0.1,  # k：偏移灵敏度；s=k·ŷ_τ
     # score 同向放宽下限：门槛 |·| 至少为 floor×δ（防压到 0%；α<1 时漂移已保号）
     "y_tau_leg1_prior_band_floor": 0.5,
-    # α∈[0.1, 0.9]：|s|≤α·δ，防漂移过头导致上沿≤0 或下沿≥0（默认 0.1）
+    # α∈[0.1, 1.0]：|s|≤α·δ（默认 0.1）；α=1 时同侧可贴 0
     "y_tau_leg1_prior_shift_scale": 0.1,
     "y_tau_leg1_prior": False,  # 镜像：mode≠off
     "y_gap_tier_mode": "skip_opposite",
@@ -515,7 +516,7 @@ def load_t0_rules(override: Optional[dict] = None) -> Dict[str, Any]:
         ("y_tau_enter", 0.0, 5.0, 0.01),
         ("y_tau_enter_sell_then_buy", 0.0, 5.0, 0.01),
         ("y_tau_enter_buy_then_sell", 0.0, 5.0, 0.01),
-        ("r_tau_enter", 0.01, 99.99, 0.1),
+        ("r_tau_enter", 0.0, 1.0, 0.1),
         ("y_on_risk", 0.01, 10.0, 0.01),
         ("y_on_allow", 0.01, 10.0, 0.01),
         ("y_ratio_boost_cap", 1.0, 2.0, 2.0),
@@ -526,6 +527,7 @@ def load_t0_rules(override: Optional[dict] = None) -> Dict[str, Any]:
         ("y_path_enter_sell_then_buy", 0.0, 5.0, 0.01),
         ("y_path_enter_buy_then_sell", 0.0, 5.0, 0.01),
         ("y_path_strong", 0.0, 5.0, 0.2),
+        ("y_cx_max", 0.01, 1.0, 1.0),
         ("y_gap_tier_pct", 0.3, 8.0, 1.0),
     ):
         try:

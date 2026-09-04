@@ -428,6 +428,12 @@ export function createFactorIcUi(deps) {
     gap_vs_sector: "行业相对缺口",
     yclose_loc: "昨收位置",
     mom3_pct: "近3日动量 %",
+    tau_lag1: "昨真实开→收 %",
+    tau_ma5: "近5日真实开→收均 %",
+    path_lag1: "昨真实极值序 %",
+    path_ma5: "近5日真实极值序均 %",
+    cx_lag1: "昨真实曲折度",
+    cx_ma5: "近5日真实曲折度均",
     ret_open_to_tau: "开盘→τ 收益 %",
     ret_prev_to_tau: "昨收→τ 收益 %",
     range_pct: "前缀振幅 %",
@@ -483,12 +489,14 @@ export function createFactorIcUi(deps) {
   /**
    * ŷ_τ / ŷ_ON Ridge 因子系数表：仅入模因子；KPI + 双向 β 图 + 表内条形。
    * @param {object|null} rm return_model 或含 coefficients 的报告块
-   * @param {{ oos?: object, head?: "tau"|"on" } } [opts]
+   * @param {{ oos?: object, head?: "tau"|"on"|"path"|"cx" } } [opts]
    */
   function remCoefTableHtml(rm, opts = {}) {
     if (!rm || typeof rm !== "object") return "";
     const isOn = opts.head === "on";
-    const isPath = opts.head === "path";
+    const isCx = opts.head === "cx";
+    const isPath = opts.head === "path" || isCx;
+    const pathTag = isCx ? "ŷ_cx" : "ŷ_path";
     const coefs =
       rm.coefficients && typeof rm.coefficients === "object" ? rm.coefficients : {};
     const means =
@@ -537,6 +545,14 @@ export function createFactorIcUi(deps) {
       "gap_vs_sector",
       "ret_open_to_tau",
     ]);
+    const histLagExtra = new Set([
+      "cx_lag1",
+      "cx_ma5",
+      "tau_lag1",
+      "tau_ma5",
+      "path_lag1",
+      "path_ma5",
+    ]);
     const pathExtra = new Set([
       "gap_pct",
       "sector_gap_breadth",
@@ -563,7 +579,9 @@ export function createFactorIcUi(deps) {
             ? Number(stds[name])
             : null;
         let kind;
-        if (isPath) {
+        if (histLagExtra.has(name)) {
+          kind = "历史";
+        } else if (isPath) {
           if (remMinuteExtra.has(name)) kind = "分钟";
           else if (pathExtra.has(name) || remOpenExtra.has(name)) kind = "开盘";
           else kind = "其它";
@@ -598,7 +616,9 @@ export function createFactorIcUi(deps) {
       .sort((a, b) => b.abs - a.abs)
       .map((r, i) => ({ ...r, rank: i + 1 }));
     if (!rows.length) {
-      const emptyMsg = isPath
+      const emptyMsg = isCx
+        ? "暂无 ŷ_cx 入模因子"
+        : isPath
         ? "暂无 ŷ_path 入模因子"
         : isOn
           ? "暂无 ŷ_ON 入模因子"
@@ -629,7 +649,9 @@ export function createFactorIcUi(deps) {
     const ySpecRaw =
       ySpecObj.formula ||
       (isPath
-        ? "extreme_order(low,high)"
+        ? isCx
+          ? "1−D/L"
+          : "extreme_order(low,high)"
         : isOn
           ? "open[T+1]/open[T]-1"
           : "close[T]/open[T]-1");
@@ -640,7 +662,7 @@ export function createFactorIcUi(deps) {
     const minuteN = rows.filter((r) => r.kind === "分钟").length;
     const posN = rows.filter((r) => r.ols >= 0).length;
     const negN = rows.length - posN;
-    const yhatTag = isPath ? "ŷ_path" : isOn ? "ŷ_ON" : "ŷ_τ";
+    const yhatTag = isPath ? pathTag : isOn ? "ŷ_ON" : "ŷ_τ";
     const ySpecTip =
       `${yhatTag} 训练标签 · ${ySpec}` +
       (ySpecClocks.length >= 2
@@ -662,7 +684,7 @@ export function createFactorIcUi(deps) {
 
     const metrics =
       `<div class="quant-rem-coef-spec-metrics" role="group" aria-label="${esc(
-        isPath ? "path 模型摘要" : isOn ? "on 模型摘要" : "τ 模型摘要"
+        isPath ? `${isCx ? "cx" : "path"} 模型摘要` : isOn ? "on 模型摘要" : "τ 模型摘要"
       )}">` +
       (intercept != null ? kpi("截距", intercept.toFixed(3), "模型截距（%）") : "") +
       (nFmt != null ? kpi("样本 n", nFmt, "入模观测数") : "") +
@@ -683,7 +705,13 @@ export function createFactorIcUi(deps) {
               `${(Number(oos.sign_hit) * 100).toFixed(1)}%`,
               "样本外方向命中率"
             )
-          : "") +
+          : oos.median_hit != null && Number.isFinite(Number(oos.median_hit))
+            ? kpi(
+                "中位命中",
+                `${(Number(oos.median_hit) * 100).toFixed(1)}%`,
+                "ŷ 与 y 是否同在中位以上；≈50% 即无排序信息"
+              )
+            : "") +
       kpi(
         "入模",
         `${rows.length}`,
@@ -701,11 +729,18 @@ export function createFactorIcUi(deps) {
     const byTauKeys = byTau
       ? Object.keys(byTau).filter((k) => byTau[k] && Number(byTau[k].n) > 0)
       : [];
-    const byTauTip = isPath
+    const byTauTip = isCx
+      ? "曲折度标签无方向；τ 分桶看 IC / 中位命中，≈50% 中位命中即无信息"
+      : isPath
       ? "极值序标签下 τ 越晚特征更贴标签，命中易虚高；优先分档对照，live 仍用决策钟"
       : "OC 标签下 τ 越晚命中通常越高（开→τ 已实现垫高）；看开盘/首根/10:30/11:00，不必逐钟";
     const byTauHit = (t) => {
       const b = (byTau && byTau[t]) || {};
+      if (isCx) {
+        return b.ic != null && Number.isFinite(Number(b.ic))
+          ? Number(b.ic)
+          : null;
+      }
       return b.sign_hit != null && Number.isFinite(Number(b.sign_hit))
         ? Number(b.sign_hit)
         : null;
@@ -713,7 +748,13 @@ export function createFactorIcUi(deps) {
     const byTauChip = (t) => {
       const b = (byTau && byTau[t]) || {};
       const hitN = byTauHit(t);
-      const hit = hitN != null ? `${(hitN * 100).toFixed(0)}%` : "—";
+      const hit = isCx
+        ? hitN != null
+          ? Number(hitN).toFixed(2)
+          : "—"
+        : hitN != null
+          ? `${(hitN * 100).toFixed(0)}%`
+          : "—";
       const ic =
         b.ic != null && Number.isFinite(Number(b.ic))
           ? Number(b.ic).toFixed(2)
@@ -722,7 +763,7 @@ export function createFactorIcUi(deps) {
       return (
         `<span class="quant-rem-coef-spec-tick${
           live ? " is-live" : ""
-        }" title="${esc(`${t} · n=${b.n ?? "—"} · hit=${hit} · IC=${ic}${live ? " · live 决策钟" : ""}`)}">` +
+        }" title="${esc(`${t} · n=${b.n ?? "—"} · ${isCx ? "IC" : "hit"}=${hit} · IC=${ic}${live ? " · live 决策钟" : ""}`)}">` +
         `<span class="quant-rem-coef-spec-tick-k">${esc(t)}</span>` +
         `<span class="quant-rem-coef-spec-tick-v">${esc(hit)}</span>` +
         `</span>`
@@ -736,7 +777,10 @@ export function createFactorIcUi(deps) {
           byTauKeysSorted
             .map((t) => {
               const h = byTauHit(t);
-              return `${t} ${h != null ? `${(h * 100).toFixed(0)}%` : "—"}`;
+              if (h == null) return `${t} —`;
+              return isCx
+                ? `${t} ${Number(h).toFixed(2)}`
+                : `${t} ${(h * 100).toFixed(0)}%`;
             })
             .join(" · ")
         : "");
@@ -744,7 +788,9 @@ export function createFactorIcUi(deps) {
     const lastHit = byTauHit(byTauKeysSorted[byTauKeysSorted.length - 1]);
     const spanLbl =
       firstHit != null && lastHit != null
-        ? `${(firstHit * 100).toFixed(0)}→${(lastHit * 100).toFixed(0)}%`
+        ? isCx
+          ? `${Number(firstHit).toFixed(2)}→${Number(lastHit).toFixed(2)}`
+          : `${(firstHit * 100).toFixed(0)}→${(lastHit * 100).toFixed(0)}%`
         : "";
     const anchorKeys =
       byTauKeysSorted.length > 5
@@ -786,7 +832,7 @@ export function createFactorIcUi(deps) {
     const head =
       `<div class="quant-rem-coef-head">` +
       `<div class="quant-rem-coef-head-main">` +
-      `<span class="quant-rem-coef-title">${isPath ? "ŷ_path 系数表" : isOn ? "ŷ_ON 系数表" : "ŷ_τ 系数表"}</span>` +
+      `<span class="quant-rem-coef-title">${isPath ? `${pathTag} 系数表` : isOn ? "ŷ_ON 系数表" : "ŷ_τ 系数表"}</span>` +
       `<span class="quant-rem-coef-sub">按 |β| 降序 · 标准化斜率</span>` +
       `</div>` +
       `<div class="quant-rem-coef-legend" aria-hidden="true">` +

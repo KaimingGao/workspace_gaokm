@@ -53,7 +53,7 @@ import {
   resolveT0BacktestScope,
   normalizeExecutionView,
   renderExecutionDiffHtml,
-} from "./paper/execution_ui.js?v=p1924";
+} from "./paper/execution_ui.js?v=p1945";
 import { buildPaperLogsView, buildPaperLogsCsv } from "./paper/logs_ui.js?v=p1658";
 import { downloadBlob } from "./shared.js";
 import {
@@ -64,7 +64,7 @@ import {
 } from "./paper/t0_ui.js?v=p1924";
 import { buildT0SummaryLine } from "./paper/t0_report.js?v=p1906";
 import { wireT0SkipTips } from "./paper/t0_viz.js?v=p1924";
-import { wireT0ProcessTips, wireT0DayDebugExpand } from "./paper/t0_table.js?v=p1924";
+import { wireT0ProcessTips, wireT0DayDebugExpand } from "./paper/t0_table.js?v=p1945";
 import { wireHoldingsChgTips } from "./paper/holding_chg_tip.js?v=p1924";
 import { createHoldingsIslandController } from "./paper/holdings_island.js";
 import { createClusterRebalanceController } from "./paper/cluster_rebalance.js?v=p1704";

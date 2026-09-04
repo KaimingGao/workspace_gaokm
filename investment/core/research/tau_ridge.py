@@ -12,9 +12,11 @@ logger = logging.getLogger(__name__)
 from core.io_atomic import atomic_write_json
 from core.research.factor_ols_fit import fit_factor_ols_from_panel
 from core.research.tau_panel import (
+    TAU_LAG_FEAT_LABELS,
+    TAU_LAG_FEATURES,
     attach_cross_section_breadth,
-    collect_tau_open_panel,
     collect_tau_intraday_panel,
+    collect_tau_open_panel,
     normalize_minute_tau_grid,
     theme_sample_weights,
 )
@@ -32,7 +34,7 @@ TAU_FEATURE_EXTRA = (
     "gap_vs_sector",
     "yclose_loc",
     "mom3_pct",
-)
+) + TAU_LAG_FEATURES
 # τ 头只吃开盘新信息，避免与 ŷ_EOD 的 X 双重计权
 TAU_Z_FEATURES = (
     "gap_pct",
@@ -42,7 +44,7 @@ TAU_Z_FEATURES = (
     "gap_vs_sector",
     "yclose_loc",
     "mom3_pct",
-) + MINUTE_TAU_ALL_KEYS
+) + MINUTE_TAU_ALL_KEYS + TAU_LAG_FEATURES
 # gap/breadth 单位是百分点或 [0,1]，勿用 0–100 分制的 min_std=5 误剔
 TAU_MIN_STD_EXEMPT = TAU_FEATURE_EXTRA + MINUTE_TAU_ALL_KEYS
 # open_gap ≡ gap_pct，只拟合其一，避免 Ridge 双计
@@ -641,10 +643,11 @@ def fit_tau_ridge_report(
             "变长前缀少数时钟共享 β；标签=日线 open→close；"
             "τ 越晚 OC hit 通常越高（开→τ 已实现垫高），看 by_tau；live 决策钟=minute_tau_hm"
             if use_minute
-            else "Z-only open→close；demean+theme_day+yclose/mom3；live 与 ŷ_EOD 正交加权成 ŷ_trade"
+            else "Z-only open→close；demean+theme_day+yclose/mom3+tau_lag1/ma5；live 与 ŷ_EOD 正交加权成 ŷ_trade"
         ),
     }
     model["extra_features"] = list(TAU_Z_FEATURES)
+    model["feat_labels"] = {**dict(MINUTE_TAU_FEAT_LABELS), **dict(TAU_LAG_FEAT_LABELS)}
 
     report = {
         "success": True,
@@ -657,13 +660,13 @@ def fit_tau_ridge_report(
         "tau": tau_key,
         "tau_grid": list(grid) if grid else None,
         "y_spec": dict(model.get("y_spec") or {}),
-        "schema": "tau_ridge_v10",
+        "schema": "tau_ridge_v11",
         "target": target,
         "residualized": False,
         "note": (
             "ŷ_τ(Z) 变长前缀少数时钟共享 β；OC 标签；OOS.by_tau；按日 OOS；与 EOD 解耦"
             if use_minute
-            else "ŷ_τ(Z) 独立估 open→close；theme+|gap|；yclose_loc/mom3；与 EOD 解耦"
+            else "ŷ_τ(Z) 独立估 open→close；theme+|gap|；yclose_loc/mom3；PIT tau_lag1/ma5；与 EOD 解耦"
         ),
     }
     report["promote_gate"] = tau_promote_gate(report)
@@ -871,6 +874,7 @@ _TAU_FEAT_LABELS = {
     "gap_vs_sector": "行业相对缺口",
     "yclose_loc": "昨收位置",
     "mom3_pct": "近3日动量 %",
+    **TAU_LAG_FEAT_LABELS,
     **MINUTE_TAU_FEAT_LABELS,
 }
 

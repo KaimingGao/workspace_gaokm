@@ -5,7 +5,7 @@ import { escapeHtml as defaultEscapeHtml } from "../shared.js";
 import { researchGridHtml as defaultResearchGridHtml, metricCell as defaultMetricCell } from "./research_grid.js";
 import { fmtPct as defaultFmtPct, metricClass as defaultMetricClass } from "./bt_result.js";
 import { fmtScore, scoreCls } from "../paper/fmt.js";
-import { buildT0TradeTableHtml, pickDetailDays } from "../paper/t0_table.js?v=p1924";
+import { buildT0TradeTableHtml, pickDetailDays } from "../paper/t0_table.js?v=p1945";
 import { buildT0MetricCards } from "../paper/t0_report.js?v=p1877";
 import { watchingNameSpanHtml } from "./names.js";
 

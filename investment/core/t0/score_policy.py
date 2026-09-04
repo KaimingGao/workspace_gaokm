@@ -191,6 +191,8 @@ def _slim_features_tau(feats: Any, *, limit: int = 24) -> Optional[Dict[str, Any
         "gap_vs_sector",
         "yclose_loc",
         "mom3_pct",
+        "tau_lag1",
+        "tau_ma5",
     ) + MINUTE_TAU_ALL_KEYS
     out: Dict[str, Any] = {}
     lim = max(len(pin) + 4, int(limit))
@@ -317,6 +319,10 @@ def tip_fields_from_item(item: Optional[dict]) -> Dict[str, Any]:
                 "gap_vs_sector",
                 "yclose_loc",
                 "mom3_pct",
+                "path_lag1",
+                "path_ma5",
+                "cx_lag1",
+                "cx_ma5",
             }
         }
         if slim_path:
@@ -334,6 +340,10 @@ def tip_fields_from_item(item: Optional[dict]) -> Dict[str, Any]:
                 "gap_vs_sector",
                 "yclose_loc",
                 "mom3_pct",
+                "path_lag1",
+                "path_ma5",
+                "tau_lag1",
+                "tau_ma5",
             }
         }
         if slim_path:
@@ -393,6 +403,8 @@ def pack_day_scores(score_snap: Optional[dict]) -> Optional[Dict[str, Any]]:
         "y_on_path",
         "y_nowcast",
         "y_path",
+        "predicted_score_cx",
+        "y_cx_hat",
         "y_check",
         "eod_trust",
         "y_nc",
@@ -448,6 +460,8 @@ def attach_day_scores(
             "y_on_path",
             "y_nowcast",
             "y_path",
+            "predicted_score_cx",
+            "y_cx_hat",
             "y_check",
             "eod_trust",
             "y_nc",
@@ -617,6 +631,17 @@ def scores_from_item(item: Optional[dict]) -> Dict[str, Optional[float]]:
     if y_path is None:
         y_path = _f(item.get("predicted_score_path"))
 
+    y_cx_hat = _f(item.get("predicted_score_cx"))
+    if y_cx_hat is None:
+        y_cx_hat = _f(item.get("y_cx_hat"))
+    if y_cx_hat is not None:
+        try:
+            from core.research.cx_panel import cx_as_unit_01
+
+            y_cx_hat = cx_as_unit_01(y_cx_hat)
+        except Exception:  # noqa: BLE001
+            pass
+
     y_check = item.get("y_check")
     if y_check is not None:
         y_check = str(y_check)
@@ -632,6 +657,9 @@ def scores_from_item(item: Optional[dict]) -> Dict[str, Optional[float]]:
         "y_check": y_check,
         "eod_trust": eod_trust,
     }
+    if y_cx_hat is not None:
+        out["predicted_score_cx"] = y_cx_hat
+        out["y_cx_hat"] = y_cx_hat
     if y_tau_oc is not None:
         out["y_tau_oc"] = y_tau_oc
         out["predicted_score_tau_oc"] = y_tau_oc
@@ -1213,6 +1241,23 @@ def _attach_y_path_to_item(
             return
         prev = hist[-1] if hist else None
         path_feats = path_features_from_open_row(row, hist=hist, prev_bar=prev)
+        try:
+            from core.research.path_panel import attach_path_lag_features
+
+            code = str(item.get("stock_code") or item.get("code") or "").strip()
+            asof = str(
+                item.get("date") or item.get("as_of") or item.get("trade_date") or ""
+            )[:10]
+            if len(asof) < 10 and isinstance(item.get("day_bar"), dict):
+                asof = str(item["day_bar"].get("date") or "")[:10]
+            path_feats = attach_path_lag_features(
+                path_feats,
+                hist_bars=hist,
+                asof_date=asof,
+                stock_code=code,
+            )
+        except Exception:  # noqa: BLE001
+            logger.debug("attach path lag feats failed", exc_info=True)
         status_ok = "open_z" if open_z_only else "ok"
         existing = _f(item.get("y_path"))
         if existing is not None:
@@ -1260,6 +1305,84 @@ def _attach_y_path_to_item(
         item["y_path_status"] = "error"
         item["y_path_error"] = str(exc)[:120]
         logger.debug("attach y_path failed", exc_info=True)
+    finally:
+        try:
+            _attach_y_cx_to_item(item, hist_bars=hist_bars, allow_open_z=allow_open_z)
+        except Exception:  # noqa: BLE001
+            logger.debug("attach y_cx failed", exc_info=True)
+
+
+def _attach_y_cx_to_item(
+    item: dict,
+    *,
+    hist_bars: Optional[Sequence[dict]] = None,
+    allow_open_z: bool = True,
+    stock_code: Optional[str] = None,
+    asof_date: Optional[str] = None,
+) -> None:
+    """即时补 ŷ_cx（与 path 同特征、独立 β）；缺模型/缺前缀则不出分，不挡做 T。"""
+    if not isinstance(item, dict):
+        return
+    feats_tau = item.get("features_tau") if isinstance(item.get("features_tau"), dict) else {}
+    feats_path = item.get("features_path") if isinstance(item.get("features_path"), dict) else {}
+    row: Dict[str, Any] = dict(feats_path or feats_tau)
+    if row.get("gap_pct") is None:
+        row["gap_pct"] = item.get("gap_pct")
+    open_z_only = not _minute_pack_present(row)
+    if open_z_only and not allow_open_z:
+        return
+    try:
+        from core.research.cx_ridge import load_cx_model, predict_cx_from_features
+        from core.research.path_panel import path_features_from_open_row
+
+        model = load_cx_model()
+        if model is None:
+            return
+        hist = [b for b in (hist_bars or []) if isinstance(b, dict)]
+        prev = hist[-1] if hist else None
+        if feats_path:
+            path_feats = dict(feats_path)
+        else:
+            path_feats = path_features_from_open_row(row, hist=hist, prev_bar=prev)
+        code = str(
+            stock_code
+            or item.get("stock_code")
+            or item.get("code")
+            or ""
+        ).strip()
+        asof = str(
+            asof_date
+            or item.get("date")
+            or item.get("as_of")
+            or item.get("trade_date")
+            or ""
+        )[:10]
+        if len(asof) < 10 and isinstance(item.get("day_bar"), dict):
+            asof = str(item["day_bar"].get("date") or "")[:10]
+        try:
+            from core.research.cx_panel import attach_cx_lag_features
+
+            path_feats = attach_cx_lag_features(
+                path_feats,
+                hist_bars=hist,
+                asof_date=asof,
+                stock_code=code,
+            )
+        except Exception:  # noqa: BLE001
+            logger.debug("attach cx lag feats failed", exc_info=True)
+        if not any(v is not None for v in path_feats.values()):
+            return
+        y_cx = predict_cx_from_features(path_feats, model_doc=model)
+        if y_cx is None:
+            return
+        fp = item.get("features_path")
+        if isinstance(fp, dict):
+            fp["cx_lag1"] = path_feats.get("cx_lag1")
+            fp["cx_ma5"] = path_feats.get("cx_ma5")
+        item["predicted_score_cx"] = float(y_cx)
+        item["y_cx_hat"] = float(y_cx)
+    except Exception:  # noqa: BLE001
+        logger.debug("attach y_cx predict failed", exc_info=True)
 
 
 def _inject_minute_pack_from_prefix(
@@ -1428,6 +1551,20 @@ def predict_path_from_prefix_minutes(
     prev = hist[-1] if hist else None
     path_feats = path_features_from_open_row(feats, hist=hist, prev_bar=prev)
     try:
+        from core.research.path_panel import attach_path_lag_features
+
+        code = ""
+        if isinstance(score_snap, dict):
+            code = str(score_snap.get("stock_code") or score_snap.get("code") or "").strip()
+        path_feats = attach_path_lag_features(
+            path_feats,
+            hist_bars=hist,
+            asof_date=trade_day,
+            stock_code=code,
+        )
+    except Exception:  # noqa: BLE001
+        logger.debug("attach path lag in prefix path failed", exc_info=True)
+    try:
         return predict_path_from_features(path_feats, model_doc=model)
     except Exception:  # noqa: BLE001
         logger.debug("predict_path_from_prefix failed", exc_info=True)
@@ -1440,6 +1577,7 @@ def predict_tau_oc_from_prefix_minutes(
     *,
     day_bar: Optional[dict] = None,
     tau_hm: Optional[str] = None,
+    hist_bars: Optional[Sequence[dict]] = None,
 ) -> Optional[float]:
     """用开盘 Z + 前缀分钟小包估 ŷ_τ OC 头（画像/确认根；对齐前 N 根）。"""
     if not isinstance(score_snap, dict):
@@ -1475,6 +1613,13 @@ def predict_tau_oc_from_prefix_minutes(
         return None
     if feats.get("ret_open_to_tau") is None:
         return None
+    try:
+        from core.research.tau_panel import attach_tau_lag_features
+
+        hist = [b for b in (hist_bars or []) if isinstance(b, dict)]
+        feats = attach_tau_lag_features(feats, hist_bars=hist, asof_date=trade_day)
+    except Exception:  # noqa: BLE001
+        logger.debug("attach tau lag in prefix tau failed", exc_info=True)
     try:
         # 模型标签=open→close；此处取 raw OC 头，不做剩余窗映射
         return predict_tau_from_features(feats, model_doc=model)
@@ -1550,6 +1695,8 @@ def rescore_scores_at_fixed_prefix(
         out["_score_source"] = "prefix_minute_missing"
         out.pop("y_path", None)
         out.pop("predicted_score_path", None)
+        out.pop("predicted_score_cx", None)
+        out.pop("y_cx_hat", None)
         return out
 
     if not raw or not isinstance(day_bar, dict):
@@ -1589,6 +1736,11 @@ def rescore_scores_at_fixed_prefix(
     _inject_minute_pack_from_prefix(
         out, minute_prefix=prefix, day_bar=day_bar, hm=hm or "10:30"
     )
+    if not out.get("stock_code"):
+        out["stock_code"] = raw
+    dkey = str((day_bar or {}).get("date") or "")[:10]
+    if dkey and not out.get("date"):
+        out["date"] = dkey
     # 禁止 silently 用开盘 Z 冒充盘中 path
     _attach_y_path_to_item(out, hist_bars=hist_bars, allow_open_z=False)
     out["_score_source"] = src
@@ -1685,7 +1837,7 @@ def attach_portrait_dual_scores(
             y_tau_p = _f(snap.get("y_tau"))
     if y_tau_p is None:
         y_tau_p = predict_tau_oc_from_prefix_minutes(
-            snap, prefix, day_bar=day_ref, tau_hm=hm
+            snap, prefix, day_bar=day_ref, tau_hm=hm, hist_bars=hist_bars
         )
 
     y_path_p = _f(out.get("y_path_portrait"))

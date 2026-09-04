@@ -1,7 +1,7 @@
 /** 做T回测可视化（canvas + CSS，无外部图表库）。 */
 
 import { paperMetricClass } from "./fmt.js";
-import { SKIP_CAT_TIP, stockCellHtml } from "./t0_table.js?v=p1924";
+import { SKIP_CAT_TIP, stockCellHtml } from "./t0_table.js?v=p1945";
 
 const THEME = {
   actual: "#2563eb",
@@ -637,10 +637,12 @@ function renderKpiRow(summary) {
     ],
     [
       "R门槛",
-      sm.r_tau_enter != null && Number(sm.r_tau_enter) >= 0.01
-        ? `|R̂_τ|≥${sm.r_tau_enter}%`
-        : `|R̂_τ|≥0.01%`,
-      "|R̂_τ| 低于入场则超额不足跳过（0.01–99.99%）",
+      sm.r_tau_enter != null && Number.isFinite(Number(sm.r_tau_enter))
+        ? Number(sm.r_tau_enter) > 0
+          ? `|R̂_τ|≥${sm.r_tau_enter}%`
+          : "关"
+        : `|R̂_τ|≥0.1%`,
+      "|R̂_τ| 低于入场则超额不足跳过（0–1.0%；0=关）",
     ],
     [
       "信号跳过",

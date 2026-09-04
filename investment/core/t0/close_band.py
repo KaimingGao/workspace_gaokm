@@ -118,12 +118,19 @@ def band_decision(
     return None
 
 
+SHIFT_SCALE_MIN = 0.1
+SHIFT_SCALE_MAX = 1.0
+
+
 def clamp_y_tau_leg1_prior_shift_scale(
     raw: Any,
     *,
     default: float = 0.1,
 ) -> float:
-    """score 先验 α：默认 0.1，钳制到 [0.1, 0.9]（保证 upper=δ+s>0>lower）。"""
+    """score 先验 α：默认 0.1，钳制到 [0.1, 1.0]。
+
+    α=1 时同向下沿可贴 0（须 r<0 才正T / r>0 才反T）；对侧带宽变为 2δ。
+    """
     try:
         if raw is None or raw == "":
             a = float(default)
@@ -133,8 +140,7 @@ def clamp_y_tau_leg1_prior_shift_scale(
         a = float(default)
     if a != a:  # NaN
         return float(default)
-    # 旧配置 α≥1 或越界 → 落到区间内（上限 0.9）
-    return max(0.1, min(0.9, float(a)))
+    return max(SHIFT_SCALE_MIN, min(SHIFT_SCALE_MAX, float(a)))
 
 
 def resolve_close_band_thresholds_pct(
@@ -151,9 +157,9 @@ def resolve_close_band_thresholds_pct(
     默认：``r > δ → 反T``，``r < −δ → 正T``。
     ``score`` 模式：
 
-    - ``s = clip(k·y_τ, −α·δ, +α·δ)``（α∈[0.1, 0.9]，默认 0.9）
+    - ``s = clip(k·y_τ, −α·δ, +α·δ)``（α∈[0.1, 1.0]）
     - ``upper = δ+s``，``lower = −δ+s``
-      （α≤0.9 ⇒ upper>0>lower）
+      （α<1 ⇒ upper>0>lower；α=1 时同侧可贴 0）
     """
     _ = band_floor_frac
     d = max(0.0, float(delta_pct))
@@ -593,10 +599,11 @@ def close_band_enter_skip_reason(
     r_pct: Optional[float] = None,
 ) -> Optional[str]:
     """入场门槛：|y_τ|≥y_tau_enter；y_use_path 时须有 y_path 且 |y_path|≥y_path_enter。
+    ŷ_cx > y_cx_max（0.01–1.00）则太折跳过；缺 ŷ_cx 不挡。
 
-    选腿仍由收盘带宽定方向；此处只过滤横盘/弱信号/缺 path / |R̂_τ| 不足。
+    选腿仍由收盘带宽定方向；此处只过滤横盘/弱信号/缺 path / |R̂_τ| 不足 / 太折。
     enter≤0 仅关闭对应 |ŷ| 幅度闸；缺 y_path 在 y_use_path 下仍跳过。
-    r_tau_enter 经 load 钳在 0.01–99.99；此处仍把 ≤0 当关（直传旧 cfg 兼容）。
+    r_tau_enter 经 load 钳在 0–1.0；≤0 关闸（直传旧 cfg 兼容）。
     """
     from core.t0.score_policy import (
         DEFAULT_PATH_ENTER,
@@ -632,9 +639,7 @@ def close_band_enter_skip_reason(
             return f"|y_τ|={abs(yt):.3f}%<{tau_enter:g}% 未过入场（横盘）"
 
     r_enter = _cfg_float(cfg_d, "r_tau_enter", 0.0)
-    r_enter = max(0.0, min(float(r_enter), 99.99))
-    if 0 < r_enter < 0.01:
-        r_enter = 0.01
+    r_enter = max(0.0, min(float(r_enter), 1.0))
     if r_enter > 0:
         if r_pct is None:
             return "R̂_τ 缺失，未过入场门槛"
@@ -664,6 +669,22 @@ def close_band_enter_skip_reason(
             yp = float(y_path)
             if abs(yp) < path_enter - 1e-12:
                 return f"|y_path|={abs(yp):.3f}%<{path_enter:g}% 未过入场（横盘）"
+
+    from core.research.cx_panel import cx_as_unit_01
+
+    cx_max = _cfg_float(cfg_d, "y_cx_max", 1.0)
+    cx_max = max(0.01, min(float(cx_max), 1.0))
+    y_cx_hat = sc.get("predicted_score_cx")
+    if y_cx_hat is None:
+        y_cx_hat = sc.get("y_cx_hat")
+    if y_cx_hat is None:
+        y_cx_hat = raw.get("predicted_score_cx")
+    if y_cx_hat is None:
+        y_cx_hat = raw.get("y_cx_hat")
+    y_cx_u = cx_as_unit_01(y_cx_hat)
+    if y_cx_u is not None and y_cx_u > cx_max + 1e-12:
+        return f"y_cx={y_cx_u:.3f}>{cx_max:g} 太折跳过"
+
     return None
 
 

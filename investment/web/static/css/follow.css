@@ -4843,6 +4843,14 @@ body[data-page="follow"] .paper-t0-table {
   color: var(--ink-3);
 }
 
+/* y_τ | y_path | y_cx */
+.paper-t0-scan-debug th:nth-child(9),
+.paper-t0-scan-debug td:nth-child(9),
+.paper-t0-scan-debug th:nth-child(10),
+.paper-t0-scan-debug td:nth-child(10) {
+  border-left: 1px solid color-mix(in srgb, var(--ink) 14%, transparent);
+}
+
 .paper-t0-scan-row.is-leg1 td {
   background: color-mix(in srgb, var(--accent, #3b82f6) 12%, transparent);
 }
@@ -4871,6 +4879,7 @@ body[data-page="follow"] .paper-t0-table {
 .paper-t0-trades-table thead th.paper-t0-col-y,
 .paper-t0-trades-table thead th.paper-t0-col-y-tau,
 .paper-t0-trades-table thead th.paper-t0-col-y-path,
+.paper-t0-trades-table thead th.paper-t0-col-y-cx,
 .paper-t0-trades-table thead th.paper-t0-col-o,
 .paper-t0-trades-table thead th.paper-t0-col-l,
 .paper-t0-trades-table thead th.paper-t0-col-h,
@@ -4904,6 +4913,7 @@ body[data-page="follow"] .paper-t0-table {
 .paper-t0-trades-table thead th.paper-t0-col-y-eod,
 .paper-t0-trades-table thead th.paper-t0-col-y-tau,
 .paper-t0-trades-table thead th.paper-t0-col-y-path,
+.paper-t0-trades-table thead th.paper-t0-col-y-cx,
 .paper-t0-trades-table thead th.paper-t0-col-y-on,
 .paper-t0-trades-table thead th.paper-t0-col-y-trade,
 .paper-t0-trades-table thead th.paper-t0-col-y-nc {
@@ -5001,7 +5011,7 @@ body[data-page="follow"] .paper-t0-table {
   box-shadow: none;
 }
 
-/* 价带 | 信号带 | 过程 | 结果：左边线作分区 */
+/* 价带 | y_τ | y_path | y_cx | 过程 | 结果：左边线作分区 */
 .paper-t0-trades-table thead th.paper-t0-col-o,
 .paper-t0-trades-table tbody td.paper-t0-col-o {
   border-left: 1px solid color-mix(in srgb, var(--ink) 10%, transparent);
@@ -5012,6 +5022,17 @@ body[data-page="follow"] .paper-t0-table {
 .paper-t0-trades-table tbody td.paper-t0-col-tau {
   border-left: 1px solid color-mix(in srgb, var(--ink) 10%, transparent);
   box-shadow: inset 3px 0 0 color-mix(in srgb, #2563eb 24%, transparent);
+}
+
+.paper-t0-trades-table thead th.paper-t0-col-path,
+.paper-t0-trades-table tbody td.paper-t0-col-path {
+  border-left: 1px solid color-mix(in srgb, var(--ink) 12%, transparent);
+}
+
+.paper-t0-trades-table thead th.paper-t0-col-cx,
+.paper-t0-trades-table tbody td.paper-t0-col-cx {
+  border-left: 1px solid color-mix(in srgb, var(--ink) 12%, transparent);
+  box-shadow: inset 3px 0 0 color-mix(in srgb, #7c3aed 28%, transparent);
 }
 
 .paper-t0-trades-table thead th.paper-t0-col-process,
@@ -5395,8 +5416,32 @@ body[data-page="follow"] .paper-t0-table {
 .paper-t0-trades-table tbody tr:hover td.paper-t0-col-tau,
 .paper-t0-trades-table tbody tr:hover td.paper-t0-col-path,
 .paper-t0-trades-table tbody tr:hover td.paper-t0-col-y-tau,
-.paper-t0-trades-table tbody tr:hover td.paper-t0-col-y-path {
+.paper-t0-trades-table tbody tr:hover td.paper-t0-col-y-path,
+.paper-t0-trades-table tbody tr:hover td.paper-t0-col-y-cx {
   background: color-mix(in srgb, var(--accent) 6%, var(--bg-card, var(--surface)));
+}
+
+.paper-t0-trades-table thead th.paper-t0-col-cx,
+.paper-t0-trades-table tbody td.paper-t0-col-cx {
+  background: color-mix(in srgb, #7c3aed 4.5%, var(--bg-card, var(--surface)));
+  color: var(--ink);
+}
+
+.paper-t0-trades-table tbody tr:nth-child(even) td.paper-t0-col-cx {
+  background: color-mix(
+    in srgb,
+    #7c3aed 6%,
+    color-mix(in srgb, var(--line-2) 40%, var(--bg-card, var(--surface)))
+  );
+}
+
+.paper-t0-trades-table tbody tr:hover td.paper-t0-col-cx {
+  background: color-mix(in srgb, #7c3aed 8%, var(--bg-card, var(--surface)));
+}
+
+.paper-t0-trades-table td.paper-t0-col-cx.is-cx-high {
+  font-weight: 600;
+  color: color-mix(in srgb, #7c3aed 42%, var(--ink));
 }
 
 .paper-t0-table td.paper-t0-y-merged,
@@ -5539,6 +5584,7 @@ body[data-page="follow"] .paper-t0-table {
 .paper-t0-col-eod { width: 88px; min-width: 88px; }
 .paper-t0-col-tau { width: 132px; min-width: 132px; }
 .paper-t0-col-path { width: 140px; min-width: 140px; }
+.paper-t0-col-cx { width: 92px; min-width: 88px; }
 .paper-t0-col-trade { width: 140px; min-width: 140px; }
 .paper-t0-col-on { width: 88px; min-width: 88px; }
 .paper-t0-col-nc { width: 148px; min-width: 148px; }
