@@ -560,25 +560,25 @@
               <form id="paper-t0-form" class="paper-t0-form" autocomplete="off">
                 <fieldset class="paper-t0-cfg-block is-shared">
                   <legend>共用</legend>
-                  <p class="paper-t0-cfg-hint quant-sub">v6 收盘带宽：<strong>ĉ = ĉ_τ</strong>（开盘×(1+y_τ%)）；收价破 ĉ±δ 涌现正/反T；|y_τ| 入场，|R̂_τ| 入场（0.01–99.99%），|y_path| 校验（可关「用path」）；<strong>τ先验</strong>把预估开→收 ŷ_τ 当偏移加到 ±δ 上，整条带宽平移（宽仍 2δ），不改冻结 leg2；每轮 20% 至满仓；11:00 后不开 leg1。y_trade / y_eod / y_nowcast <strong>不参与</strong>估 ĉ 与选腿。冻结 leg2 后新 ĉ 不改本轮；午后追价可改触发价。做 T 回测直接读当前表单（不必先保存）。</p>
+                  <p class="paper-t0-cfg-hint quant-sub">v6 收盘带宽：<strong>ĉ = ĉ_τ</strong>（开盘×(1+y_τ%)）；收价破 ĉ±δ 涌现正/反T；|y_τ| 入场，|R̂_τ| 入场（0.01–99.99%），|y_path| 校验（可关「用path」）；<strong>τ先验</strong>把预估开→收 ŷ_τ 当偏移加到 ±δ 上，整条带宽平移（宽仍 2δ），不改冻结 leg2；每轮 40% 至满仓；11:00 后不开 leg1。y_trade / y_eod / y_nowcast <strong>不参与</strong>估 ĉ 与选腿。冻结 leg2 后新 ĉ 不改本轮；午后追价可改触发价。做 T 回测直接读当前表单（不必先保存）。</p>
                   <div class="paper-t0-form-grid">
                   <label class="paper-t0-field">
                     <span>启用</span>
                     <input type="checkbox" name="enabled" checked />
                   </label>
-                  <label class="paper-t0-field" title="评估窗：统计做T的交易日数（默认 20）。改完会记住。">
+                  <label class="paper-t0-field" title="评估窗：统计做T的交易日数（默认 10）。改完会记住。">
                     <span>回测窗</span>
-                    <input type="number" name="lookback" min="10" max="500" step="5" value="20" />
+                    <input type="number" name="lookback" min="10" max="500" step="5" value="10" />
                   </label>
                   <input type="hidden" name="direction" value="dual_y" />
                   <input type="hidden" name="path_mode" value="first_touch" />
                   <input type="hidden" name="t0_vs_stance" value="independent" />
                   <label
                     class="paper-t0-field"
-                    title="v6：ĉ±δ 带宽，δ=开盘×此%/100；收价破上带反T、破下带正T；默认 0.5"
+                    title="v6：超额带宽 ĉ±δ，δ=开盘×此%/100；收价破上带反T、破下带正T；默认 0.2"
                   >
-                    <span>带宽δ%</span>
-                    <input type="number" name="t0_close_band_delta_pct" min="0" max="10" step="0.05" value="0.5" />
+                    <span>超额带宽δ%</span>
+                    <input type="number" name="t0_close_band_delta_pct" min="0" max="10" step="0.05" value="0.2" />
                   </label>
                   <label
                     class="paper-t0-field"
@@ -589,24 +589,24 @@
                   </label>
                   <label
                     class="paper-t0-field"
-                    title="|日开/分开−1|×100 超过此值跳过；默认 0.25；0=关"
+                    title="|日开/分开−1|×100 超过此值跳过；默认 5；0=关"
                   >
                     <span>开盘差%</span>
-                    <input type="number" name="t0_price_space_max_dev_pct" min="0" max="5" step="0.05" value="0.25" />
+                    <input type="number" name="t0_price_space_max_dev_pct" min="0" max="5" step="0.05" value="5" />
                   </label>
                   <label
                     class="paper-t0-field"
-                    title="|日昨/分昨−1|×100 超过此值跳过；默认 0.25；0=关"
+                    title="|日昨/分昨−1|×100 超过此值跳过；默认 5；0=关"
                   >
                     <span>昨收差%</span>
-                    <input type="number" name="t0_price_space_prev_dev_pct" min="0" max="5" step="0.05" value="0.25" />
+                    <input type="number" name="t0_price_space_prev_dev_pct" min="0" max="5" step="0.05" value="5" />
                   </label>
                   <label
                     class="paper-t0-field"
-                    title="v6：每轮第一腿占日初可卖比例；默认 0.2（20%）"
+                    title="v6：每轮第一腿占日初可卖比例；默认 0.4（40%）"
                   >
                     <span>每轮仓位</span>
-                    <input type="number" name="t0_round_ratio" min="0.05" max="1" step="0.05" value="0.2" />
+                    <input type="number" name="t0_round_ratio" min="0.05" max="1" step="0.05" value="0.4" />
                   </label>
                   <label
                     class="paper-t0-field"
@@ -631,10 +631,10 @@
                   </label>
                   <label
                     class="paper-t0-field"
-                    title="|R̂_τ| 低于此值即使收价破带也不开轮；与带宽δ独立；范围 0.01–99.99"
+                    title="|R̂_τ| 低于此值即使收价破带也不开轮；与超额带宽δ独立；范围 0.01–99.99；默认 0.1"
                   >
                     <span>R入场%</span>
-                    <input type="number" name="r_tau_enter" min="0.01" max="99.99" step="0.01" value="0.01" />
+                    <input type="number" name="r_tau_enter" min="0.01" max="99.99" step="0.01" value="0.1" />
                   </label>
                   <label
                     class="paper-t0-field"
@@ -663,23 +663,23 @@
                   >
                     <span>τ先验</span>
                     <select name="y_tau_leg1_prior_mode">
-                      <option value="score" selected>抬门槛</option>
-                      <option value="off">关</option>
+                      <option value="score">抬门槛</option>
+                      <option value="off" selected>关</option>
                     </select>
                   </label>
                   <label
                     class="paper-t0-field"
-                    title="带宽漂移灵敏度：偏移 s=k·ŷ_τ（再经 α·δ 封顶）；默认 k=1"
+                    title="带宽漂移灵敏度：偏移 s=k·ŷ_τ（再经 α·δ 封顶）；默认 k=0.1"
                   >
                     <span>先验风险k</span>
-                    <input type="number" name="y_tau_leg1_prior_risk" min="0" max="10" step="0.1" value="1" />
+                    <input type="number" name="y_tau_leg1_prior_risk" min="0" max="10" step="0.1" value="0.1" />
                   </label>
                   <label
                     class="paper-t0-field"
-                    title="带宽最多漂移 α·δ：α∈[0.1, 0.9] 保证上沿=δ+s&gt;0&gt;下沿；默认 0.9（对侧至少留 0.1δ）"
+                    title="带宽最多漂移 α·δ：α∈[0.1, 0.9] 保证上沿=δ+s&gt;0&gt;下沿；默认 0.1（对侧至少留 0.9δ）"
                   >
                     <span>shift上限α</span>
-                    <input type="number" name="y_tau_leg1_prior_shift_scale" min="0.1" max="0.9" step="0.05" value="0.9" />
+                    <input type="number" name="y_tau_leg1_prior_shift_scale" min="0.1" max="0.9" step="0.05" value="0.1" />
                   </label>
                   <label
                     class="paper-t0-field"
@@ -722,7 +722,7 @@
                     title="中点追价起算 HH:MM：到点后禁止新开；已开未平则第二腿目标=旧目标与现价中点，触不到则收盘强制平。空=关"
                   >
                     <span>中点追价</span>
-                    <input type="text" name="t0_pm_degrade_buy_then_sell" maxlength="5" placeholder="14:00" value="14:00" />
+                    <input type="text" name="t0_pm_degrade_buy_then_sell" maxlength="5" placeholder="13:00" value="13:00" />
                   </label>
                   <label
                     class="paper-t0-field"
@@ -750,7 +750,7 @@
                     title="开=未买回时收盘强制买回；关=触不到则放弃回补（减仓）。默认可中点追价抬高买回目标。"
                   >
                     <span>当日回补</span>
-                    <input type="checkbox" name="must_cover_same_day_sell_then_buy" />
+                    <input type="checkbox" name="must_cover_same_day_sell_then_buy" checked />
                   </label>
                   <label
                     class="paper-t0-field"

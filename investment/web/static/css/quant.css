@@ -9908,27 +9908,173 @@ body[data-page="quant"] .quant-page .quant-cluster-hub > .quant-kpi-row .quant-k
   border-bottom: 1px dotted color-mix(in srgb, var(--ink-3) 75%, transparent);
 }
 
-.quant-page .quant-rem-coef-kpis {
+.quant-page .quant-rem-coef-spec {
   display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 6px 8px;
+  min-height: 34px;
+  padding: 3px 8px;
+  border: 1px solid color-mix(in srgb, var(--line) 82%, transparent);
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--ink) 1.4%, var(--surface));
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: thin;
 }
 
-.quant-page .quant-rem-coef-by-tau {
-  display: flex;
-  flex-wrap: wrap;
+.quant-page .quant-rem-coef-spec-y,
+.quant-page .quant-rem-coef-spec-tau {
+  display: inline-flex;
   align-items: center;
   gap: 6px;
-  margin-top: 6px;
 }
 
-.quant-page .quant-rem-coef-by-tau-lab {
+.quant-page .quant-rem-coef-spec-y {
+  flex: 0 0 auto;
+  min-width: max-content;
+}
+
+.quant-page .quant-rem-coef-spec-tau {
+  flex: 0 0 auto;
+  padding-left: 8px;
+  border-left: 1px solid color-mix(in srgb, var(--line) 88%, transparent);
+}
+
+.quant-page .quant-rem-coef-spec-metrics {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+  flex-wrap: nowrap;
+  gap: 0;
+  min-width: max-content;
+  margin-left: auto;
+  padding-left: 8px;
+  border-left: 1px solid color-mix(in srgb, var(--line) 88%, transparent);
+}
+
+.quant-page .quant-rem-coef-spec-k {
+  flex: 0 0 auto;
   font-size: 0.62rem;
   font-weight: 650;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.05em;
   text-transform: uppercase;
   color: var(--ink-3);
-  margin-right: 2px;
+}
+
+.quant-page .quant-rem-coef-spec-f {
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 0.78rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+  white-space: nowrap;
+}
+
+.quant-page .quant-rem-coef-spec-grid {
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  padding: 1px 6px;
+  border-radius: 2px;
+  border: 1px solid color-mix(in srgb, var(--accent, #1890ff) 28%, var(--line));
+  background: color-mix(in srgb, var(--accent, #1890ff) 7%, var(--surface));
+  color: color-mix(in srgb, var(--accent, #1890ff) 72%, var(--ink));
+}
+
+.quant-page .quant-rem-coef-spec-span {
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 0.78rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+  white-space: nowrap;
+}
+
+.quant-page .quant-rem-coef-spec-anchors {
+  display: inline-flex;
+  align-items: stretch;
+  gap: 2px;
+}
+
+.quant-page .quant-rem-coef-spec-tick {
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 0;
+  min-width: 2.7rem;
+  padding: 1px 6px;
+  border-radius: 2px;
+}
+
+.quant-page .quant-rem-coef-spec-tick-k {
+  font-size: 0.58rem;
+  font-weight: 650;
+  letter-spacing: 0.02em;
+  color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+}
+
+.quant-page .quant-rem-coef-spec-tick-v {
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 0.76rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+  line-height: 1.15;
+}
+
+.quant-page .quant-rem-coef-spec-tick.is-live {
+  background: color-mix(in srgb, var(--accent, #1890ff) 10%, var(--surface));
+}
+
+.quant-page .quant-rem-coef-spec-tick.is-live .quant-rem-coef-spec-tick-k {
+  color: color-mix(in srgb, var(--accent, #1890ff) 70%, var(--ink));
+}
+
+.quant-page .quant-rem-coef-tau-spark {
+  display: block;
+  flex: 0 0 auto;
+  color: var(--accent, #1890ff);
+}
+
+.quant-page .quant-rem-coef-tau-spark .is-area {
+  fill: currentColor;
+  fill-opacity: 0.16;
+  stroke: none;
+}
+
+.quant-page .quant-rem-coef-tau-spark .is-line {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+
+.quant-page .quant-rem-coef-tau-spark circle {
+  fill: currentColor;
+}
+
+.quant-page .quant-rem-coef-tau-spark circle.is-live {
+  fill: var(--surface);
+  stroke: currentColor;
+  stroke-width: 1.35;
+}
+
+.quant-page .quant-rem-coef-tau-spark .is-base {
+  stroke: var(--ink-3);
+  stroke-width: 0.75;
+  stroke-dasharray: 2.5 2;
+  opacity: 0.55;
+}
+
+.quant-page .quant-rem-coef-tau-spark .is-live-x {
+  stroke: currentColor;
+  stroke-width: 0.8;
+  opacity: 0.32;
 }
 
 .quant-page .quant-rem-coef-kpi {
@@ -9942,11 +10088,12 @@ body[data-page="quant"] .quant-page .quant-cluster-hub > .quant-kpi-row .quant-k
   background: color-mix(in srgb, var(--ink) 1.2%, var(--surface));
 }
 
-.quant-page .quant-rem-coef-kpi:first-child,
-.quant-page .quant-rem-coef-kpi.is-formula {
-  min-width: min(100%, 22rem);
-  max-width: 100%;
-  flex: 1 1 18rem;
+.quant-page .quant-rem-coef-spec .quant-rem-coef-kpi {
+  min-width: max-content;
+  padding: 1px 5px;
+  border: 0;
+  background: transparent;
+  gap: 0;
 }
 
 .quant-page .quant-rem-coef-kpi-k {
@@ -9968,16 +10115,6 @@ body[data-page="quant"] .quant-page .quant-cluster-hub > .quant-kpi-row .quant-k
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.quant-page .quant-rem-coef-kpi.is-formula .quant-rem-coef-kpi-v {
-  max-width: none;
-  overflow: visible;
-  text-overflow: clip;
-  white-space: normal;
-  word-break: break-all;
-  font-size: 0.72rem;
-  font-weight: 650;
 }
 
 .quant-page .quant-rem-coef-chart {
@@ -10152,9 +10289,33 @@ body[data-page="quant"] .quant-page .quant-cluster-hub > .quant-kpi-row .quant-k
   color: var(--ink-3);
 }
 
+.quant-page .quant-rem-coef-spec .quant-rem-coef-kpi-v {
+  max-width: none;
+  overflow: visible;
+  text-overflow: clip;
+  font-size: 0.72rem;
+}
+
+@media (max-width: 1279px) {
+  .quant-page .quant-rem-coef-tau-spark {
+    display: none;
+  }
+}
+
 @media (max-width: 720px) {
   .quant-page .quant-rem-coef-bar-row {
     grid-template-columns: minmax(3.5rem, 5.5rem) minmax(0, 1fr) 3rem;
     gap: 6px;
+  }
+
+  .quant-page .quant-rem-coef-spec {
+    flex-wrap: wrap;
+  }
+
+  .quant-page .quant-rem-coef-spec-tau,
+  .quant-page .quant-rem-coef-spec-metrics {
+    margin-left: 0;
+    padding-left: 0;
+    border-left: 0;
   }
 }

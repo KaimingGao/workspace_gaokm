@@ -51,6 +51,8 @@ def _slot_rules(**kwargs):
         ],
         "direction": "buy_then_sell",
         "t0_close_band_delta_pct": 0.01,
+        "t0_round_ratio": 0.2,
+        "r_tau_enter": 0.01,
         "y_tau_entry_price_skip": False,
         "min_range_pct": 0.1,
         "min_range_pct_buy_then_sell": 0.1,
@@ -101,7 +103,7 @@ class TestT0Slots(unittest.TestCase):
         self.assertEqual(cfg["t0_slots"][0]["prefix_bars"], 18)
         self.assertAlmostEqual(float(cfg["t0_slots"][0]["ratio"]), 0.20)
         self.assertAlmostEqual(sum(float(s["ratio"]) for s in cfg["t0_slots"]), 1.0)
-        self.assertAlmostEqual(float(cfg.get("t0_close_band_delta_pct") or 0), 0.5)
+        self.assertAlmostEqual(float(cfg.get("t0_close_band_delta_pct") or 0), 0.2)
 
     def test_legacy_five_open_slots_migrate(self):
         cfg = load_t0_rules(

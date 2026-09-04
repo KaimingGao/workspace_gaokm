@@ -121,9 +121,9 @@ def band_decision(
 def clamp_y_tau_leg1_prior_shift_scale(
     raw: Any,
     *,
-    default: float = 0.9,
+    default: float = 0.1,
 ) -> float:
-    """score 先验 α：默认 0.9，钳制到 [0.1, 0.9]（保证 upper=δ+s>0>lower）。"""
+    """score 先验 α：默认 0.1，钳制到 [0.1, 0.9]（保证 upper=δ+s>0>lower）。"""
     try:
         if raw is None or raw == "":
             a = float(default)
@@ -133,7 +133,7 @@ def clamp_y_tau_leg1_prior_shift_scale(
         a = float(default)
     if a != a:  # NaN
         return float(default)
-    # 旧配置 α≥1 或越界 → 落到区间内（上限即默认 0.9）
+    # 旧配置 α≥1 或越界 → 落到区间内（上限 0.9）
     return max(0.1, min(0.9, float(a)))
 
 
@@ -222,12 +222,12 @@ def close_band_pick_direction(
     cfg_d = cfg if isinstance(cfg, dict) else {}
     mode = normalize_y_tau_leg1_prior_mode(
         cfg_d.get("y_tau_leg1_prior_mode", cfg_d.get("y_tau_leg1_prior")),
-        default="score",
+        default="off",
     )
-    k = _cfg_float(cfg_d, "y_tau_leg1_prior_risk", 1.0)
+    k = _cfg_float(cfg_d, "y_tau_leg1_prior_risk", 0.1)
     k = max(0.0, min(float(k), 10.0))
     shift_scale = clamp_y_tau_leg1_prior_shift_scale(
-        cfg_d.get("y_tau_leg1_prior_shift_scale"), default=0.9
+        cfg_d.get("y_tau_leg1_prior_shift_scale"), default=0.1
     )
     raw = scores if isinstance(scores, dict) else {}
     sc = scores_from_item(raw)
@@ -284,7 +284,7 @@ def band_decision_return(
 
 
 # |日线开/分钟开 − 1| 超此百分比 → price_space_mismatch（可配）
-DEFAULT_PRICE_SPACE_MAX_DEV_PCT = 0.25
+DEFAULT_PRICE_SPACE_MAX_DEV_PCT = 5.0
 
 
 def price_space_scale(
@@ -532,22 +532,22 @@ def close_band_sign_skip_reason(
     return reason or "强 y_path 与 y_τ 异号跳过"
 
 
-def normalize_y_tau_leg1_prior_mode(raw: Any, *, default: str = "score") -> str:
+def normalize_y_tau_leg1_prior_mode(raw: Any, *, default: str = "off") -> str:
     """日线先验模式：off | score（按 y_τ 平移破带门槛）。旧 skip/hard 并入 score。"""
     if raw is False or raw is None:
         if raw is False:
             return "off"
-        return str(default or "score")
+        return str(default or "off")
     if raw is True:
         return "score"
     s = str(raw).strip().lower()
     if s in {"", "none"}:
-        return str(default or "score")
+        return str(default or "off")
     if s in {"0", "off", "false", "no", "disable", "disabled"}:
         return "off"
     if s in {"1", "true", "yes", "on", "score", "soft", "raise", "scale", "skip", "hard", "block"}:
         return "score"
-    return str(default or "score")
+    return str(default or "off")
 
 
 def tau_prior_adverse_pct(

@@ -35,6 +35,102 @@ export function createFactorIcUi(deps) {
     return `<span class="quant-cell-empty">—</span>`;
   }
 
+  function _tauClocksFromYSpec(formula, ySpec) {
+    const grid = Array.isArray(ySpec && ySpec.tau_grid) ? ySpec.tau_grid : [];
+    const fromSpec = grid
+      .map((x) => String(x || "").trim().slice(0, 5))
+      .filter((s) => /^\d{2}:\d{2}$/.test(s));
+    if (fromSpec.length >= 2) return fromSpec;
+    const m = String(formula || "").match(/τ∈\{([^}]+)\}/);
+    if (!m) return fromSpec;
+    return m[1]
+      .split(",")
+      .map((s) => s.trim().slice(0, 5))
+      .filter((s) => /^\d{2}:\d{2}$/.test(s));
+  }
+
+  function compactYSpecFormula(formula, ySpec) {
+    const raw = String(formula || "").trim();
+    const clocks = _tauClocksFromYSpec(raw, ySpec);
+    if (clocks.length < 3) return raw;
+    const base = (raw.split("·")[0] || raw).trim() || raw;
+    return `${base} · 5m τ ${clocks[0]}–${clocks[clocks.length - 1]}`;
+  }
+
+  function pickTauAnchorKeys(keys) {
+    const sorted = [...keys].sort();
+    const out = [];
+    const add = (k) => {
+      if (k && sorted.includes(k) && !out.includes(k)) out.push(k);
+    };
+    add(sorted[0]);
+    if (sorted.length > 1) add(sorted[1]);
+    add("10:30");
+    add(sorted[sorted.length - 1]);
+    return out;
+  }
+
+  function tauHitSparkline(keys, byTau, anchorKeys) {
+    const sorted = [...keys].sort();
+    const anchors = Array.isArray(anchorKeys) ? anchorKeys : [];
+    const hits = sorted.map((t) => {
+      const n = Number((byTau[t] || {}).sign_hit);
+      return Number.isFinite(n) ? n : null;
+    });
+    const vals = hits.filter((v) => v != null);
+    if (vals.length < 2) return "";
+    const lo = Math.min(...vals);
+    const hi = Math.max(...vals);
+    const span = Math.max(1e-6, hi - lo);
+    const w = 88;
+    const h = 22;
+    const padX = 3;
+    const padY = 3;
+    const xy = [];
+    hits.forEach((v, i) => {
+      if (v == null) return;
+      const x = padX + (i / Math.max(1, hits.length - 1)) * (w - 2 * padX);
+      const y = h - padY - ((v - lo) / span) * (h - 2 * padY);
+      const t = sorted[i];
+      xy.push({
+        t,
+        x,
+        y,
+        live: t === "10:30",
+        anchor: anchors.includes(t),
+      });
+    });
+    if (xy.length < 2) return "";
+    const line = xy.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" ");
+    const yBase = (h - padY).toFixed(1);
+    const area =
+      `${xy[0].x.toFixed(1)},${yBase} ${line} ${xy[xy.length - 1].x.toFixed(1)},${yBase}`;
+    const y50 =
+      lo < 0.5 && hi > 0.5
+        ? h - padY - ((0.5 - lo) / span) * (h - 2 * padY)
+        : null;
+    const live = xy.find((p) => p.live);
+    return (
+      `<svg class="quant-rem-coef-tau-spark" viewBox="0 0 ${w} ${h}" width="${w}" height="${h}" aria-hidden="true">` +
+      (y50 != null
+        ? `<line class="is-base" x1="${padX}" x2="${w - padX}" y1="${y50.toFixed(1)}" y2="${y50.toFixed(1)}"></line>`
+        : "") +
+      (live
+        ? `<line class="is-live-x" x1="${live.x.toFixed(1)}" x2="${live.x.toFixed(1)}" y1="${padY}" y2="${yBase}"></line>`
+        : "") +
+      `<polygon class="is-area" points="${area}"></polygon>` +
+      `<polyline class="is-line" points="${line}"></polyline>` +
+      xy
+        .map((p) => {
+          const r = p.live ? 2.4 : p.anchor ? 1.85 : 1.0;
+          const cls = p.live ? "is-live" : p.anchor ? "is-anchor" : "";
+          return `<circle class="${cls}" cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="${r}"></circle>`;
+        })
+        .join("") +
+      `</svg>`
+    );
+  }
+
   function fmtOlsCell(v) {
     if (v == null || v === "") return fmtEmptyCell();
     const n = Number(v);
@@ -529,24 +625,32 @@ export function createFactorIcUi(deps) {
         ? Number(rm.ridge_lambda)
         : null;
     const exclN = Object.keys(rm.exclusion_reasons || {}).length;
-    const ySpec =
-      (rm.y_spec && rm.y_spec.formula) ||
+    const ySpecObj = rm.y_spec && typeof rm.y_spec === "object" ? rm.y_spec : {};
+    const ySpecRaw =
+      ySpecObj.formula ||
       (isPath
         ? "extreme_order(low,high)"
         : isOn
           ? "open[T+1]/open[T]-1"
           : "close[T]/open[T]-1");
+    const ySpec = compactYSpecFormula(ySpecRaw, ySpecObj);
+    const ySpecClocks = _tauClocksFromYSpec(ySpecRaw, ySpecObj);
     const oos = opts.oos || {};
     const openN = rows.filter((r) => r.kind === "开盘" || r.kind === "路径").length;
     const minuteN = rows.filter((r) => r.kind === "分钟").length;
     const posN = rows.filter((r) => r.ols >= 0).length;
     const negN = rows.length - posN;
     const yhatTag = isPath ? "ŷ_path" : isOn ? "ŷ_ON" : "ŷ_τ";
+    const ySpecTip =
+      `${yhatTag} 训练标签 · ${ySpec}` +
+      (ySpecClocks.length >= 2
+        ? /5m τ/.test(ySpec)
+          ? ` · ${ySpecClocks.length} 钟`
+          : ` · ${ySpecClocks.length} 钟每5分 ${ySpecClocks[0]}–${ySpecClocks[ySpecClocks.length - 1]}`
+        : "");
 
-    const kpi = (label, value, tip, extraClass) =>
-      `<span class="quant-rem-coef-kpi${
-        extraClass ? ` ${extraClass}` : ""
-      }" title="${esc(tip || String(value) || label)}">` +
+    const kpi = (label, value, tip) =>
+      `<span class="quant-rem-coef-kpi" title="${esc(tip || String(value) || label)}">` +
       `<span class="quant-rem-coef-kpi-k">${esc(label)}</span>` +
       `<span class="quant-rem-coef-kpi-v">${esc(String(value))}</span>` +
       `</span>`;
@@ -556,11 +660,10 @@ export function createFactorIcUi(deps) {
         ? Number(n).toLocaleString("en-US")
         : null;
 
-    const kpis =
-      `<div class="quant-rem-coef-kpis" role="group" aria-label="${esc(
+    const metrics =
+      `<div class="quant-rem-coef-spec-metrics" role="group" aria-label="${esc(
         isPath ? "path 模型摘要" : isOn ? "on 模型摘要" : "τ 模型摘要"
       )}">` +
-      kpi("标签", ySpec, `${yhatTag} 训练标签 · ${ySpec}`, "is-formula") +
       (intercept != null ? kpi("截距", intercept.toFixed(3), "模型截距（%）") : "") +
       (nFmt != null ? kpi("样本 n", nFmt, "入模观测数") : "") +
       (r2 != null ? kpi("R²", r2.toFixed(3), "样本内拟合优度") : "") +
@@ -600,35 +703,85 @@ export function createFactorIcUi(deps) {
       : [];
     const byTauTip = isPath
       ? "极值序标签下 τ 越晚特征更贴标签，命中易虚高；优先分档对照，live 仍用决策钟"
-      : "OC 标签下 τ 越晚命中通常越高（开→τ 已实现垫高）；优先对照各档 IC";
-    const byTauRow =
-      !isOn && byTauKeys.length > 1
-        ? `<div class="quant-rem-coef-by-tau" title="${esc(byTauTip)}">` +
-          `<span class="quant-rem-coef-by-tau-lab">OOS · 按 τ</span>` +
-          byTauKeys
-            .sort()
+      : "OC 标签下 τ 越晚命中通常越高（开→τ 已实现垫高）；看开盘/首根/10:30/11:00，不必逐钟";
+    const byTauHit = (t) => {
+      const b = (byTau && byTau[t]) || {};
+      return b.sign_hit != null && Number.isFinite(Number(b.sign_hit))
+        ? Number(b.sign_hit)
+        : null;
+    };
+    const byTauChip = (t) => {
+      const b = (byTau && byTau[t]) || {};
+      const hitN = byTauHit(t);
+      const hit = hitN != null ? `${(hitN * 100).toFixed(0)}%` : "—";
+      const ic =
+        b.ic != null && Number.isFinite(Number(b.ic))
+          ? Number(b.ic).toFixed(2)
+          : "—";
+      const live = t === "10:30";
+      return (
+        `<span class="quant-rem-coef-spec-tick${
+          live ? " is-live" : ""
+        }" title="${esc(`${t} · n=${b.n ?? "—"} · hit=${hit} · IC=${ic}${live ? " · live 决策钟" : ""}`)}">` +
+        `<span class="quant-rem-coef-spec-tick-k">${esc(t)}</span>` +
+        `<span class="quant-rem-coef-spec-tick-v">${esc(hit)}</span>` +
+        `</span>`
+      );
+    };
+    const byTauKeysSorted = [...byTauKeys].sort();
+    const byTauFullTip =
+      byTauTip +
+      (byTauKeysSorted.length
+        ? " · " +
+          byTauKeysSorted
             .map((t) => {
-              const b = byTau[t] || {};
-              const hit =
-                b.sign_hit != null && Number.isFinite(Number(b.sign_hit))
-                  ? `${(Number(b.sign_hit) * 100).toFixed(0)}%`
-                  : "—";
-              const ic =
-                b.ic != null && Number.isFinite(Number(b.ic))
-                  ? Number(b.ic).toFixed(2)
-                  : "—";
-              return (
-                `<span class="quant-rem-coef-kpi" title="${esc(
-                  `${t} · n=${b.n ?? "—"} · hit=${hit} · IC=${ic}`
-                )}">` +
-                `<span class="quant-rem-coef-kpi-k">${esc(t)}</span>` +
-                `<span class="quant-rem-coef-kpi-v">${esc(hit)}</span>` +
-                `</span>`
-              );
+              const h = byTauHit(t);
+              return `${t} ${h != null ? `${(h * 100).toFixed(0)}%` : "—"}`;
             })
-            .join("") +
+            .join(" · ")
+        : "");
+    const firstHit = byTauHit(byTauKeysSorted[0]);
+    const lastHit = byTauHit(byTauKeysSorted[byTauKeysSorted.length - 1]);
+    const spanLbl =
+      firstHit != null && lastHit != null
+        ? `${(firstHit * 100).toFixed(0)}→${(lastHit * 100).toFixed(0)}%`
+        : "";
+    const anchorKeys =
+      byTauKeysSorted.length > 5
+        ? pickTauAnchorKeys(byTauKeysSorted)
+        : byTauKeysSorted;
+    const spark =
+      byTauKeysSorted.length >= 2
+        ? tauHitSparkline(byTauKeysSorted, byTau, anchorKeys)
+        : "";
+    const yDot = ySpec.indexOf("·");
+    const yBase = (yDot >= 0 ? ySpec.slice(0, yDot) : ySpec).trim();
+    const yGrid = yDot >= 0 ? ySpec.slice(yDot + 1).trim() : "";
+    const specTau =
+      !isOn && byTauKeys.length > 1
+        ? `<div class="quant-rem-coef-spec-tau" title="${esc(byTauFullTip)}">` +
+          `<span class="quant-rem-coef-spec-k">OOS · τ</span>` +
+          spark +
+          (spanLbl
+            ? `<span class="quant-rem-coef-spec-span">${esc(spanLbl)}</span>`
+            : "") +
+          `<span class="quant-rem-coef-spec-anchors">${anchorKeys
+            .map(byTauChip)
+            .join("")}</span>` +
           `</div>`
         : "";
+    const specRow =
+      `<div class="quant-rem-coef-spec" role="group" aria-label="${esc(
+        `${yhatTag} 标签与 OOS`
+      )}">` +
+      `<div class="quant-rem-coef-spec-y" title="${esc(ySpecTip)}">` +
+      `<span class="quant-rem-coef-spec-k">y</span>` +
+      `<span class="quant-rem-coef-spec-f">${esc(yBase)}</span>` +
+      (yGrid ? `<span class="quant-rem-coef-spec-grid">${esc(yGrid)}</span>` : "") +
+      `</div>` +
+      specTau +
+      metrics +
+      `</div>`;
 
     const head =
       `<div class="quant-rem-coef-head">` +
@@ -802,8 +955,7 @@ export function createFactorIcUi(deps) {
     return (
       `<div class="quant-rem-coef">` +
       head +
-      kpis +
-      byTauRow +
+      specRow +
       `<div class="quant-rem-coef-frame">${grid}</div>` +
       `</div>`
     );

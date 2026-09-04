@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import List, Optional
+from typing import List, Optional, Sequence
 
 # 午后钟仅兼容旧配置/手工传入；研究枢纽 y_τ / y_path 默认拟合不含 13:00 / 14:00
 DEFAULT_AFTERNOON_TRAIN_TAU_GRID = ("13:00", "14:00")
@@ -44,6 +44,17 @@ def minute_tau_grid_5m_range(
         out.append(_clock_minutes_to_hm(t))
         t += step
     return out
+
+
+def format_shared_tau_formula(base: str, grid: Optional[Sequence[str]] = None) -> str:
+    """训练标签文案：多 τ 写成「5m τ 首–末」，不枚举全表。"""
+    clocks = [str(x).strip()[:5] for x in (grid or []) if str(x).strip()]
+    base_s = str(base or "").strip()
+    if len(clocks) >= 2:
+        return f"{base_s} · 5m τ {clocks[0]}–{clocks[-1]}"
+    if len(clocks) == 1:
+        return f"{base_s} · τ={clocks[0]}"
+    return base_s
 
 
 # 早盘 leg1：09:30 开盘 Z + 09:35…11:00 每 5m（共享 β；与做 T 逐根 rescore 对齐）

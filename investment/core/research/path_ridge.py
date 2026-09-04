@@ -400,14 +400,15 @@ def fit_path_ridge_report(
     model["path_label_mode"] = "extreme_order"
     model["sell_trig_pct"] = float(sell_trig_pct)
     model["buy_trig_pct"] = float(buy_trig_pct)
+    from core.signal.minute_tau_grid import format_shared_tau_formula
+
+    y_formula = format_shared_tau_formula("extreme_order(low,high)", grid or [live_hm])
     if grid and len(grid) > 1:
-        y_formula = f"extreme_order(low,high) · τ∈{{{','.join(grid)}}}"
         y_note = (
             "变长前缀少数时钟共享 β；标签=全日极值序 signed range%；"
             "τ 越晚特征更贴标签，看 OOS.by_tau；live 决策钟=minute_tau_hm"
         )
     else:
-        y_formula = f"extreme_order(low,high) · τ={live_hm}"
         y_note = "单 τ 前缀分钟小包 + 开盘 Z；训练 demean+类别平衡"
     model["y_spec"] = {
         "formula": y_formula,

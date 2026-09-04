@@ -19,7 +19,7 @@ import {
 import {
   adaptiveSizingDayTip,
   yTauMapScoreTip,
-} from "./execution_ui.js?v=p1922";
+} from "./execution_ui.js?v=p1924";
 import { watchingScoreDetail } from "../quant/watching_render.js?v=p1734";
 
 export const SKIP_CAT_LABEL = {
@@ -77,7 +77,7 @@ export const SKIP_CAT_TIP = {
   trade_tau_disagree:
     "历史口径：强 ŷ_trade 与 ŷ_τ 异号跳过。v6 选腿已下线该闸（仅 y_τ / ĉ_τ + path 入场/强）。",
   tau_leg1_prior:
-    "局部 r=(p/ĉ−1)% vs 整体 y_τ。score：s=clip(k·y_τ,±α·δ)，upper=δ+s、lower=−δ+s；α∈[0.1,0.9]（默认 0.9）；off=关。旧 skip 硬跳过已下线并入 score。",
+    "局部 r=(p/ĉ−1)% vs 整体 y_τ。score：s=clip(k·y_τ,±α·δ)，upper=δ+s、lower=−δ+s；α∈[0.1,0.9]（默认 0.1）；off=关。旧 skip 硬跳过已下线并入 score。",
   gap_tier_skip:
     "大缺口档位与拟做方向冲突（如大高开仍想正 T），规则直接跳过。",
   path_abandon:
@@ -89,7 +89,7 @@ export const SKIP_CAT_TIP = {
   close_band:
     "v6：该 5m 收价未破 ĉ±δ 带宽，或缺有效 ĉ 源，本轮不开第一腿。",
   price_space_mismatch:
-    "日分价闸：开盘差 |日开/分开−1| 超 t0_price_space_max_dev_pct（默认 0.25%），或昨收差 |日昨/分昨−1| 超 t0_price_space_prev_dev_pct；错价则跳过。",
+    "日分价闸：开盘差 |日开/分开−1| 超 t0_price_space_max_dev_pct（默认 5%），或昨收差 |日昨/分昨−1| 超 t0_price_space_prev_dev_pct；错价则跳过。",
   tau_entry_price:
     "触发根第一腿：正T买价须 < open×(1+(clamp(ŷ_τ×裕度,min,max)+价偏)/100)；反T卖价须 > 同式。可调裕度/价偏或关闸。",
   tau_exit_price:

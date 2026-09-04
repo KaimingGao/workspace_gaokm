@@ -626,10 +626,10 @@ def fit_tau_ridge_report(
     model["horizon_mode"] = "open_to_close"
     model["target"] = target
     model["residualized"] = False
-    if use_minute and grid and len(grid) > 1:
-        y_formula = f"close[T]/open[T]-1 · τ∈{{{','.join(grid)}}}"
-    elif use_minute:
-        y_formula = f"close[T]/open[T]-1 · τ={tau_key}"
+    if use_minute:
+        from core.signal.minute_tau_grid import format_shared_tau_formula
+
+        y_formula = format_shared_tau_formula("close[T]/open[T]-1", grid or [tau_key])
     else:
         y_formula = "close[T]/open[T]-1"
     model["y_spec"] = {

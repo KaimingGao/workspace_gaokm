@@ -44,7 +44,6 @@ import { createFactorMetaCache } from "./quant/factor_meta.js";
 import { buildUniversePanelHtml } from "./quant/universe_ui.js";
 import { researchGridHtml, metricCell } from "./quant/research_grid.js";
 import { createPromoteHintsRenderer } from "./quant/promote_hints_ui.js";
-import { createFactorIcUi } from "./quant/factor_ic_ui.js?v=p1640";
 import { createBtTablesUi } from "./quant/bt_tables.js";
 import { installClusterProbe } from "./quant/domain_cluster.js";
 import { installSuggest } from "./quant/domain_suggest.js";
@@ -81,6 +80,9 @@ const { installClusterBarsUi } = await import(
 );
 const { installClusterMinuteUi } = await import(
   `./quant/cluster_minute_ui.js?v=${encodeURIComponent(_QV)}`
+);
+const { createFactorIcUi } = await import(
+  `./quant/factor_ic_ui.js?v=${encodeURIComponent(_QV)}`
 );
 
 /** Quant research panel — shell + domain installs.

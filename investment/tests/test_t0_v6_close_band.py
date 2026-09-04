@@ -428,7 +428,7 @@ class TestCloseBandCore(unittest.TestCase):
 
         self.assertAlmostEqual(clamp_y_tau_leg1_prior_shift_scale(0.05), 0.1, places=6)
         self.assertAlmostEqual(clamp_y_tau_leg1_prior_shift_scale(0.95), 0.9, places=6)
-        self.assertAlmostEqual(clamp_y_tau_leg1_prior_shift_scale(None), 0.9, places=6)
+        self.assertAlmostEqual(clamp_y_tau_leg1_prior_shift_scale(None), 0.1, places=6)
         # k 与 α 分工：同等 raw 下 α 只抬 cap，不放大未触顶的 s
         up_a, lo_a = resolve_close_band_thresholds_pct(
             0.5, 0.2, mode="score", risk_k=1.0, shift_scale=0.9
@@ -1437,6 +1437,150 @@ class TestCloseBandDayPath(unittest.TestCase):
             hm = str(r.get("t0_slot_hm") or "")
             if hm:
                 self.assertLessEqual(hm, "11:00")
+
+
+class TestMergeSlotDay(unittest.TestCase):
+    def _leg(self, side, shares, price, at):
+        amt = float(shares) * float(price)
+        delta = amt if str(side).endswith("sell") else -amt
+        return {
+            "side": side,
+            "shares": shares,
+            "price": price,
+            "at": at,
+            "amount": amt,
+            "fees": 0,
+            "net_cash_delta": delta,
+        }
+
+    def _slot(self, sid, hm, direction, legs, **extra):
+        row = {
+            "t0_slot": sid,
+            "t0_slot_hm": hm,
+            "hm": hm,
+            "direction_used": direction,
+            "skipped": False,
+            "trades": list(legs),
+            "trade_legs": list(legs),
+            "pnl": 0,
+            "exposure_pnl": 0,
+            "sold_qty": 0,
+            "covered_qty": 0,
+            "bought_qty": 0,
+            "sold_back_qty": 0,
+        }
+        row.update(extra)
+        return row
+
+    def test_rerun_drops_cash_dependent_round(self):
+        """满仓：反T卖开供正T买，反T买回失败则两轮都丢，现金不变负。"""
+        from core.t0.slots import _merge_slot_day
+
+        bar = {"date": "2025-01-02", "open": 10, "close": 9}
+        r1 = self._slot(
+            "r1",
+            "10:00",
+            "sell_then_buy",
+            [
+                self._leg("t0_sell", 200, 10, "2025-01-02 10:00:00"),
+                self._leg("t0_buy", 200, 9, "2025-01-02 14:55:00"),
+            ],
+            sold_qty=200,
+            covered_qty=200,
+            close_band={"hm": "10:00"},
+        )
+        r2 = self._slot(
+            "r2",
+            "10:30",
+            "buy_then_sell",
+            [self._leg("t0_buy", 200, 10, "2025-01-02 10:30:00")],
+            bought_qty=200,
+        )
+        merged = _merge_slot_day(
+            slot_outs=[r1, r2],
+            bar=bar,
+            shares=1000,
+            cash=0,
+            sellable_shares=1000,
+            minute_bars=[],
+        )
+        cash0 = 0.0
+        self.assertGreaterEqual(cash0 + float(merged.get("cash_delta") or 0), -1e-6)
+        self.assertAlmostEqual(float(merged["shares_end"]), 1000.0)
+        self.assertEqual(merged.get("trades") or [], [])
+        by_id = {str(r.get("t0_slot")): r for r in (merged.get("t0_slot_results") or [])}
+        self.assertTrue(by_id["r1"].get("skipped"))
+        self.assertTrue(by_id["r2"].get("skipped"))
+        self.assertEqual(by_id["r1"].get("t0_slot_hm"), "10:00")
+        self.assertEqual((by_id["r1"].get("close_band") or {}).get("hm"), "10:00")
+
+    def test_rerun_keeps_both_when_cash_covers(self):
+        from core.t0.slots import _merge_slot_day
+
+        bar = {"date": "2025-01-02", "open": 10, "close": 9}
+        r1 = self._slot(
+            "r1",
+            "10:00",
+            "sell_then_buy",
+            [
+                self._leg("t0_sell", 200, 10, "2025-01-02 10:00:00"),
+                self._leg("t0_buy", 200, 9, "2025-01-02 14:55:00"),
+            ],
+            sold_qty=200,
+            covered_qty=200,
+        )
+        r2 = self._slot(
+            "r2",
+            "10:30",
+            "buy_then_sell",
+            [self._leg("t0_buy", 200, 10, "2025-01-02 10:30:00")],
+            bought_qty=200,
+        )
+        merged = _merge_slot_day(
+            slot_outs=[r1, r2],
+            bar=bar,
+            shares=1000,
+            cash=5000,
+            sellable_shares=1000,
+            minute_bars=[],
+        )
+        self.assertFalse(merged.get("skipped"))
+        self.assertEqual(len(merged.get("trades") or []), 3)
+        self.assertAlmostEqual(float(merged["shares_end"]), 1200.0)
+        # 5000 +2000 -2000 -1800 = 3200
+        self.assertAlmostEqual(5000.0 + float(merged.get("cash_delta") or 0), 3200.0)
+
+    def test_uncovered_reverse_t_can_fund_buy(self):
+        """反T未把买回写进成交时，正T仍可用卖开款（无回滚链）。"""
+        from core.t0.slots import _merge_slot_day
+
+        bar = {"date": "2025-01-02", "open": 10, "close": 10}
+        r1 = self._slot(
+            "r1",
+            "10:00",
+            "sell_then_buy",
+            [self._leg("t0_sell", 200, 10, "2025-01-02 10:00:00")],
+            sold_qty=200,
+            uncovered_qty=200,
+        )
+        r2 = self._slot(
+            "r2",
+            "10:30",
+            "buy_then_sell",
+            [self._leg("t0_buy", 200, 10, "2025-01-02 10:30:00")],
+            bought_qty=200,
+        )
+        merged = _merge_slot_day(
+            slot_outs=[r1, r2],
+            bar=bar,
+            shares=1000,
+            cash=0,
+            sellable_shares=1000,
+            minute_bars=[],
+        )
+        self.assertEqual(len(merged.get("trades") or []), 2)
+        self.assertAlmostEqual(float(merged["shares_end"]), 1000.0)
+        self.assertAlmostEqual(float(merged.get("cash_delta") or 0), 0.0)
 
 
 if __name__ == "__main__":

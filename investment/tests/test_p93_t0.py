@@ -119,11 +119,14 @@ def _rules(**kwargs):
         "y_tau_entry_price_bias_sell_then_buy": 0.0,
         "y_tau_exit_price_bias_buy_then_sell": 0.0,
         "y_tau_exit_price_bias_sell_then_buy": 0.0,
-        # 路径/撮合单测不绑 ŷ_τ / path 入场；生产默认 0.01 + 用path 见 overlay 单测
+        # 路径/撮合单测不绑 ŷ_τ / path / R̂ 入场；生产默认见 overlay
         "y_tau_require_for_leg1": False,
         "y_tau_enter": 0.0,
         "y_path_enter": 0.0,
         "y_use_path": False,
+        "r_tau_enter": 0.01,
+        # 路径用例与生产「反T当日回补」解耦
+        "must_cover_same_day_sell_then_buy": False,
     }
     base.update(kwargs)
     base["path_mode"] = "first_touch"
@@ -396,11 +399,11 @@ class TestT0Core(unittest.TestCase):
     def test_default_t0_rules_match_paper_overlay(self):
         d = load_t0_rules()
         self.assertTrue(d["must_cover_same_day"])
-        self.assertFalse(d["must_cover_same_day_sell_then_buy"])
+        self.assertTrue(d["must_cover_same_day_sell_then_buy"])
         self.assertTrue(d["must_cover_same_day_buy_then_sell"])
         self.assertEqual(d["t0_pm_degrade_sell_then_buy"], "13:00")
-        self.assertEqual(d["t0_pm_degrade_buy_then_sell"], "14:00")
-        self.assertEqual(d["t0_pm_degrade"], "14:00")
+        self.assertEqual(d["t0_pm_degrade_buy_then_sell"], "13:00")
+        self.assertEqual(d["t0_pm_degrade"], "13:00")
         self.assertEqual(d["t0_pm_chase_interval_min_sell_then_buy"], 5)
         self.assertEqual(d["t0_pm_chase_interval_min_buy_then_sell"], 5)
         self.assertAlmostEqual(d["t0_stop_pct_buy_then_sell"], 1.2)
@@ -436,7 +439,15 @@ class TestT0Core(unittest.TestCase):
         self.assertNotIn("t0_slots_roll_unused", d)
         self.assertEqual(d["t0_slots_max_rounds"], 5)
         self.assertNotIn("t0_confirm_dev_pct", d)
-        self.assertAlmostEqual(float(d.get("t0_close_band_delta_pct") or 0), 0.5)
+        self.assertAlmostEqual(float(d.get("t0_close_band_delta_pct") or 0), 0.2)
+        self.assertAlmostEqual(float(d.get("t0_round_ratio") or 0), 0.4)
+        self.assertAlmostEqual(float(d.get("t0_price_space_max_dev_pct") or 0), 5.0)
+        self.assertAlmostEqual(float(d.get("t0_price_space_prev_dev_pct") or 0), 5.0)
+        self.assertEqual(d["r_tau_enter"], 0.1)
+        self.assertEqual(d["y_tau_leg1_prior_mode"], "off")
+        self.assertFalse(d["y_tau_leg1_prior"])
+        self.assertAlmostEqual(float(d["y_tau_leg1_prior_risk"]), 0.1)
+        self.assertAlmostEqual(float(d["y_tau_leg1_prior_shift_scale"]), 0.1)
         self.assertEqual(d["y_tau_entry_price_mult"], 0.5)
         self.assertTrue(d["y_tau_entry_price_skip"])
         self.assertEqual(d["y_tau_entry_price_mult_buy_then_sell"], 0.5)
@@ -1755,7 +1766,7 @@ class TestDualYDirection(unittest.TestCase):
         self.assertIn("y_trade_floor", cfg)
         self.assertEqual(cfg["y_tau_enter"], 0.01)
         self.assertEqual(cfg["y_tau_enter_strong"], 0.01)
-        self.assertEqual(cfg["r_tau_enter"], 0.01)
+        self.assertEqual(cfg["r_tau_enter"], 0.1)
         self.assertEqual(cfg["y_score_source"], "compute")
 
     def test_r_tau_enter_clamped_to_range(self):
@@ -1823,7 +1834,7 @@ class TestDualYDirection(unittest.TestCase):
         self.assertEqual(bts_cfg["min_range_pct"], 1.0)
         self.assertEqual(bts_cfg["fill_mode"], "mid")
         self.assertEqual(stb_cfg["t0_pm_degrade"], "13:00")
-        self.assertEqual(bts_cfg["t0_pm_degrade"], "14:00")
+        self.assertEqual(bts_cfg["t0_pm_degrade"], "13:00")
 
     def test_asymmetric_tau_enter_blocks_weak_buy_then_sell_allows_weak_sell_then_buy(self):
         from core.t0.score_policy import resolve_dual_y_direction

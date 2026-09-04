@@ -145,8 +145,8 @@ class TestExecutionResolve(unittest.TestCase):
         from core.t0.config import load_t0_rules
 
         defaults = load_t0_rules()
-        self.assertEqual(defaults["t0_pm_degrade"], "14:00")
-        self.assertEqual(defaults["t0_pm_degrade_buy_then_sell"], "14:00")
+        self.assertEqual(defaults["t0_pm_degrade"], "13:00")
+        self.assertEqual(defaults["t0_pm_degrade_buy_then_sell"], "13:00")
         self.assertEqual(defaults["t0_pm_degrade_sell_then_buy"], "13:00")
         self.assertEqual(defaults["t0_pm_chase_interval_min"], 5)
         self.assertEqual(defaults["t0_pm_chase_interval_min_sell_then_buy"], 5)
@@ -230,7 +230,7 @@ class TestExecutionResolve(unittest.TestCase):
 
         req = T0BacktestRequest()
         d = load_t0_rules()
-        self.assertEqual(req.lookback, 20)
+        self.assertEqual(req.lookback, 10)
         self.assertAlmostEqual(float(d["y_tau_exit_price_mult_buy_then_sell"]), 1.0)
         self.assertAlmostEqual(float(d["y_tau_exit_price_mult_sell_then_buy"]), 1.0)
 

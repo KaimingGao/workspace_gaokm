@@ -270,6 +270,24 @@ class TestMinuteTauPack(unittest.TestCase):
         self.assertNotIn("13:00", DEFAULT_MINUTE_TAU_GRID)
         self.assertNotIn("14:00", DEFAULT_MINUTE_TAU_GRID)
 
+    def test_format_shared_tau_formula_compact(self):
+        from core.signal.minute_tau_grid import (
+            DEFAULT_MINUTE_TAU_GRID,
+            format_shared_tau_formula,
+        )
+
+        s = format_shared_tau_formula("close[T]/open[T]-1", DEFAULT_MINUTE_TAU_GRID)
+        self.assertEqual(s, "close[T]/open[T]-1 · 5m τ 09:30–11:00")
+        self.assertNotIn("τ∈{", s)
+        self.assertEqual(
+            format_shared_tau_formula("close[T]/open[T]-1", ["10:30"]),
+            "close[T]/open[T]-1 · τ=10:30",
+        )
+        self.assertEqual(
+            format_shared_tau_formula("close[T]/open[T]-1", []),
+            "close[T]/open[T]-1",
+        )
+
     def test_default_grid_covers_t0_slots(self):
         from core.research.tau_panel import DEFAULT_MINUTE_TAU_GRID
         from core.t0.config import DEFAULT_T0_SLOT_CLOCKS, T0_LAST_LEG1_HM

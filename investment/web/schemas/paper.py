@@ -74,7 +74,7 @@ class T0BacktestRequest(BaseModel):
     code: Optional[str] = None
     codes: Optional[list] = None
     from_paper: bool = True
-    lookback: int = Field(default=20, ge=10, le=500)
+    lookback: int = Field(default=10, ge=10, le=500)
     initial_shares: float = Field(default=1000, ge=100, le=100000)
     t0_ratio: float = Field(default=1.0, ge=0.05, le=1.0)
     must_cover_same_day: bool = True
@@ -198,13 +198,13 @@ class T0BacktestRequest(BaseModel):
         default=None,
         ge=0.0,
         le=10.0,
-        description="score：偏移灵敏度 k，s=k·ŷ_τ（再经 α·δ 封顶；默认 1）",
+        description="score：偏移灵敏度 k，s=k·ŷ_τ（再经 α·δ 封顶；默认 0.1）",
     )
     y_tau_leg1_prior_shift_scale: Optional[float] = Field(
         default=None,
         ge=0.1,
         le=0.9,
-        description="score：带宽漂移 |s|≤α·δ，α∈[0.1, 0.9]（默认 0.9；保证上沿>0>下沿）",
+        description="score：带宽漂移 |s|≤α·δ，α∈[0.1, 0.9]（默认 0.1；保证上沿>0>下沿）",
     )
     y_nc_enter: Optional[float] = Field(
         default=None,
@@ -261,10 +261,10 @@ class T0BacktestRequest(BaseModel):
         default=None, description="日分价空间门禁：|O_d/O_m−1| 超阈跳过"
     )
     t0_price_space_max_dev_pct: Optional[float] = Field(
-        default=None, ge=0.0, le=5.0, description="开盘差%：|日开/分开−1|×100 上限（默认 0.25）"
+        default=None, ge=0.0, le=5.0, description="开盘差%：|日开/分开−1|×100 上限（默认 5）"
     )
     t0_price_space_prev_dev_pct: Optional[float] = Field(
-        default=None, ge=0.0, le=5.0, description="昨收差%：|日昨/分昨−1|×100 上限（默认 0.25）"
+        default=None, ge=0.0, le=5.0, description="昨收差%：|日昨/分昨−1|×100 上限（默认 5）"
     )
     t0_round_ratio: Optional[float] = Field(default=None, ge=0.05, le=1.0)
     t0_max_position_pct: Optional[float] = Field(default=None, ge=0.05, le=1.0)

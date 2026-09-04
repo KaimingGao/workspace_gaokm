@@ -416,8 +416,11 @@ class TestPathRidgeFit(unittest.TestCase):
         self.assertEqual(rm.get("path_label_mode"), "extreme_order")
         formula = str((rm.get("y_spec") or {}).get("formula") or "")
         self.assertIn("extreme_order(low,high)", formula)
+        self.assertIn("5m τ", formula)
         self.assertIn("09:30", formula)
-        self.assertIn("11:30", formula)
+        self.assertIn("11:00", formula)
+        self.assertNotIn("τ∈{", formula)
+        self.assertNotIn("11:30", formula)
         self.assertEqual((rm.get("y_spec") or {}).get("tau_grid"), report.get("tau_grid"))
         oos = report.get("oos") or {}
         self.assertIn("buckets", oos)

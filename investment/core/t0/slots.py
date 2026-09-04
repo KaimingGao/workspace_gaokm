@@ -126,22 +126,51 @@ def _try_apply_slot_trades(
     return True, cash, shares, sellable
 
 
-def _rollback_slot_fills(
+def _settle_tagged_slot_legs(
+    tagged: Sequence[Tuple[str, dict, str]],
     *,
-    fills: Sequence[Tuple[str, float, float]],
-    cash_now: float,
-    shares_now: float,
+    cash: float,
+    shares: float,
     sellable_old: float,
-) -> Tuple[float, float, float]:
-    """撤销一整轮已落账成交（T+1 可卖与现金一并还原）。"""
-    for side, qty, delta in reversed(list(fills or [])):
-        cash_now -= delta
-        if str(side).endswith("buy"):
-            shares_now -= qty
-        else:
-            shares_now += qty
-            sellable_old += qty
-    return cash_now, shares_now, sellable_old
+) -> Tuple[set, float, float]:
+    """按墙钟落账。某轮失败则丢弃该轮，从日初现金/可卖重放剩余轮，直到稳定。
+
+    只回滚当前 sid 会留下「已花掉被撤卖开款」的其它轮，cash_now 可能变负。
+    """
+    dropped: set = set()
+    n_unique = len({sid for _at, _t, sid in tagged})
+    cash_now = float(cash or 0)
+    shares_now = float(shares)
+    for _ in range(max(n_unique, 1) + 1):
+        cash_now = float(cash or 0)
+        shares_now = float(shares)
+        sellable_now = float(sellable_old)
+        failed = None
+        for _at, trade, sid in tagged:
+            if sid in dropped:
+                continue
+            side = str(trade.get("side") or "")
+            qty = float(trade.get("shares") or 0)
+            delta = t0_leg_cash_delta(trade)
+            ok = True
+            if side.endswith("buy"):
+                if cash_now + delta < -1e-6:
+                    ok = False
+            elif sellable_now + 1e-9 < qty:
+                ok = False
+            if not ok:
+                failed = sid
+                break
+            if side.endswith("buy"):
+                shares_now += qty
+            else:
+                shares_now -= qty
+                sellable_now -= qty
+            cash_now += delta
+        if failed is None:
+            return dropped, cash_now, shares_now
+        dropped.add(failed)
+    return dropped, cash_now, shares_now
 
 
 def _slot_session_trace(
@@ -394,7 +423,7 @@ def _merge_slot_day(
     sellable_shares: Optional[float] = None,
     minute_bars: Optional[Sequence[dict]] = None,
 ) -> Dict[str, Any]:
-    """按时间合并各轮成交；现金/可卖不够则整轮回滚丢弃。卖出只动日初可卖（T+1）。"""
+    """按时间合并各轮成交；现金/可卖不够则整轮丢弃并重放剩余轮。卖出只动日初可卖（T+1）。"""
     tagged: List[Tuple[str, dict, str]] = []
     for out in slot_outs:
         sid = str((out or {}).get("t0_slot") or "")
@@ -402,43 +431,16 @@ def _merge_slot_day(
             tagged.append((_norm_trade_at(t.get("at")), dict(t), sid))
     tagged.sort(key=lambda x: x[0])
 
-    dropped = set()
-    cash_now = float(cash or 0)
-    shares_now = float(shares)
     sellable_cap = float(
         sellable_shares if sellable_shares is not None else shares
     )
     sellable_old = min(max(sellable_cap, 0.0), float(shares))
-    applied: Dict[str, List[Tuple[str, float, float]]] = {}
-    for _at, trade, sid in tagged:
-        if sid in dropped:
-            continue
-        side = str(trade.get("side") or "")
-        qty = float(trade.get("shares") or 0)
-        delta = t0_leg_cash_delta(trade)
-        ok = True
-        if side.endswith("buy"):
-            if cash_now + delta < -1e-6:
-                ok = False
-        elif sellable_old + 1e-9 < qty:
-            ok = False
-        if not ok:
-            cash_now, shares_now, sellable_old = _rollback_slot_fills(
-                fills=applied.get(sid) or [],
-                cash_now=cash_now,
-                shares_now=shares_now,
-                sellable_old=sellable_old,
-            )
-            dropped.add(sid)
-            applied.pop(sid, None)
-            continue
-        if side.endswith("buy"):
-            shares_now += qty
-        else:
-            shares_now -= qty
-            sellable_old -= qty
-        cash_now += delta
-        applied.setdefault(sid, []).append((side, qty, delta))
+    dropped, cash_now, shares_now = _settle_tagged_slot_legs(
+        tagged,
+        cash=float(cash or 0),
+        shares=float(shares),
+        sellable_old=sellable_old,
+    )
 
     trades: List[dict] = []
     for _at, trade, sid in tagged:
@@ -457,14 +459,23 @@ def _merge_slot_day(
     must_cover = None
     filled_sids = {sid for _at, _t, sid in tagged if sid not in dropped}
     for out in slot_outs:
-        row = dict(out)
-        sid = str(row.get("t0_slot") or "")
+        orig = dict(out)
+        sid = str(orig.get("t0_slot") or "")
+        row = orig
         if sid in dropped:
+            extra = {
+                "t0_slot": sid,
+                "direction_used": orig.get("direction_used"),
+                "t0_slot_hm": orig.get("t0_slot_hm") or orig.get("hm"),
+                "hm": orig.get("t0_slot_hm") or orig.get("hm"),
+            }
+            if orig.get("close_band") is not None:
+                extra["close_band"] = orig.get("close_band")
             row = _skip_result(
                 reason="现金或可卖不足，本轮未落账",
                 shares=shares,
                 bar=bar,
-                extra={"t0_slot": sid, "direction_used": row.get("direction_used")},
+                extra=extra,
             )
         kept = sid not in dropped
         if kept:
@@ -504,7 +515,7 @@ def _merge_slot_day(
             "pnl": row.get("pnl") if kept else 0,
             "exposure_pnl": row.get("exposure_pnl") if kept else 0,
             "exit_reason": row.get("exit_reason") if kept else None,
-            "close_band": row.get("close_band") if kept else None,
+            "close_band": row.get("close_band"),
         }
         slot_rec.update(_slot_public_scores(row))
         slot_rows.append(slot_rec)
@@ -787,9 +798,9 @@ def _build_close_band_scan_trace(
     est_prev = space.get("estimate_prev")
     scale = float(space.get("scale") or 1.0)
     try:
-        delta_pct = float(cfg.get("t0_close_band_delta_pct") or 0.5)
+        delta_pct = float(cfg.get("t0_close_band_delta_pct") or 0.2)
     except (TypeError, ValueError):
-        delta_pct = 0.5
+        delta_pct = 0.2
     last_hm = str(cfg.get("t0_last_leg1_hm") or T0_LAST_LEG1_HM)
     open_snap = score_snap if isinstance(score_snap, dict) else None
     code = str(stock_code or "").strip()
@@ -1017,9 +1028,9 @@ def simulate_t0_day_slots(
     sellable_cap = float(sellable_shares if sellable_shares is not None else shares)
     sellable_cap = min(max(sellable_cap, 0.0), float(shares))
     try:
-        round_ratio = float(cfg.get("t0_round_ratio") or 0.2)
+        round_ratio = float(cfg.get("t0_round_ratio") or 0.4)
     except (TypeError, ValueError):
-        round_ratio = 0.2
+        round_ratio = 0.4
     round_ratio = max(0.05, min(round_ratio, 1.0))
     try:
         max_pos = float(cfg.get("t0_max_position_pct") or 1.0)
@@ -1027,9 +1038,9 @@ def simulate_t0_day_slots(
         max_pos = 1.0
     max_pos = max(0.05, min(max_pos, 1.0))
     try:
-        delta_pct = float(cfg.get("t0_close_band_delta_pct") or 0.5)
+        delta_pct = float(cfg.get("t0_close_band_delta_pct") or 0.2)
     except (TypeError, ValueError):
-        delta_pct = 0.5
+        delta_pct = 0.2
     max_rounds = _parse_max_rounds(cfg, max(1, int(round(max_pos / round_ratio))))
     last_hm = str(cfg.get("t0_last_leg1_hm") or T0_LAST_LEG1_HM)
 
@@ -1434,4 +1445,5 @@ __all__ = [
     "_open_close_band_round",
     "_slot_trade_legs",
     "_norm_trade_at",
+    "_merge_slot_day",
 ]
