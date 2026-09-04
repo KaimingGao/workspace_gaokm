@@ -456,6 +456,9 @@ def path_last_report_path() -> str:
     return os.path.join(LIVE_DIR, "path_ridge_last_report.json")
 
 
+_PATH_MODEL_CACHE: Optional[Tuple[Tuple[float, float], Optional[Dict[str, Any]]]] = None
+
+
 def save_path_last_report(report: Dict[str, Any]) -> None:
     if not isinstance(report, dict) or not report.get("success"):
         return
@@ -464,6 +467,15 @@ def save_path_last_report(report: Dict[str, Any]) -> None:
     path = path_last_report_path()
     os.makedirs(os.path.dirname(path), exist_ok=True)
     atomic_write_json(path, report)
+    global _PATH_MODEL_CACHE
+    _PATH_MODEL_CACHE = None
+
+
+def _mtime_or_missing(path: str) -> float:
+    try:
+        return os.path.getmtime(path) if os.path.isfile(path) else -1.0
+    except OSError:
+        return -1.0
 
 
 def load_path_last_report() -> Optional[Dict[str, Any]]:
@@ -484,22 +496,30 @@ def load_path_last_report() -> Optional[Dict[str, Any]]:
 
 
 def load_path_model() -> Optional[Dict[str, Any]]:
-    path = path_model_path()
-    if os.path.isfile(path):
+    global _PATH_MODEL_CACHE
+    model_p = path_model_path()
+    report_p = path_last_report_path()
+    key = (_mtime_or_missing(model_p), _mtime_or_missing(report_p))
+    if _PATH_MODEL_CACHE is not None and _PATH_MODEL_CACHE[0] == key:
+        return _PATH_MODEL_CACHE[1]
+    doc: Optional[Dict[str, Any]] = None
+    if os.path.isfile(model_p):
         try:
-            with open(path, encoding="utf-8") as f:
-                doc = json.load(f)
-            if isinstance(doc, dict) and isinstance(doc.get("return_model"), dict):
-                return doc
+            with open(model_p, encoding="utf-8") as f:
+                loaded = json.load(f)
+            if isinstance(loaded, dict) and isinstance(loaded.get("return_model"), dict):
+                doc = loaded
         except Exception:  # noqa: BLE001
             logger.debug("load_path_model failed", exc_info=True)
-    # 已拟合未 promote 时用 last report 影子推理（显式 promote 写 path_ridge_model.json）
-    fallback = load_path_last_report()
-    if fallback:
-        out = dict(fallback)
-        out["_shadow"] = True
-        return out
-    return None
+    if doc is None:
+        # 已拟合未 promote 时用 last report 影子推理（显式 promote 写 path_ridge_model.json）
+        fallback = load_path_last_report()
+        if fallback:
+            out = dict(fallback)
+            out["_shadow"] = True
+            doc = out
+    _PATH_MODEL_CACHE = (key, doc)
+    return doc
 
 
 def persist_path_model(
@@ -542,6 +562,8 @@ def persist_path_model(
     path = path_model_path()
     os.makedirs(os.path.dirname(path), exist_ok=True)
     atomic_write_json(path, doc)
+    global _PATH_MODEL_CACHE
+    _PATH_MODEL_CACHE = None
     return {
         "success": True,
         "path": path,

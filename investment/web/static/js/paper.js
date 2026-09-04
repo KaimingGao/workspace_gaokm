@@ -2712,6 +2712,18 @@ export function initPaper(ctx) {
   const paperT0Run = document.getElementById("paper-t0-run");
   const paperT0ActionStatus = document.getElementById("paper-t0-action-status");
 
+  /** fetch 失败：Chrome 超时是 AbortError；Safari/网络断开常是 TypeError Failed to fetch */
+  const t0FetchErrorMessage = (err, timeoutHint) => {
+    const name = String((err && err.name) || "");
+    const msg = String((err && err.message) || err || "");
+    const aborted = name === "AbortError" || /abort/i.test(msg);
+    const network =
+      name === "TypeError" ||
+      /failed to fetch|networkerror|load failed|network request failed/i.test(msg);
+    if (aborted || network) return timeoutHint;
+    return msg || "请求失败";
+  };
+
   /** 手动预演 / 回测 / 落账共用：状态行 spinner + 当前按钮禁用 */
   const setT0ActionBusy = (btn, busy, msg) => {
     if (btn) {
@@ -2802,13 +2814,13 @@ export function initPaper(ctx) {
           );
         }
       } catch (err) {
-        const aborted = err && (err.name === "AbortError" || /abort/i.test(String(err)));
         setT0ActionBusy(
           paperT0Bt,
           false,
-          aborted
-            ? "回测超时（已中止）。持仓多时请勾「仅选中」或缩小回看窗；也可先预热 5 分钟线"
-            : String(err.message || err)
+          t0FetchErrorMessage(
+            err,
+            "回测连接中断或超时。服务刚重启、持仓过多或 5m 未预热时会出现；请刷新后重试，持仓多请勾「仅选中」或缩小回看窗"
+          )
         );
       } finally {
         if (timer) clearTimeout(timer);
@@ -2885,13 +2897,13 @@ export function initPaper(ctx) {
         }
         renderPaperT0Preview(data);
       } catch (err) {
-        const aborted = err && (err.name === "AbortError" || /abort/i.test(String(err)));
         setT0ActionBusy(
           paperT0Run,
           false,
-          aborted
-            ? "预演超时（已中止）。持仓多时可先预热 5 分钟线，或稍后再试"
-            : String(err.message || err)
+          t0FetchErrorMessage(
+            err,
+            "预演连接中断或超时。服务刚重启或持仓过多时会出现；请刷新后重试，也可先预热 5 分钟线"
+          )
         );
       } finally {
         if (timer) clearTimeout(timer);

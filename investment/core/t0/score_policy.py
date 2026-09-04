@@ -2481,7 +2481,7 @@ def _t0_index_bars_for_score(
     """与 score_stock 同源：基准指数日线，并裁到个股 hist 末日（开盘决策 T−1）。
 
     只读进程缓存，不打东财/新浪指数接口——远端挂死会占 ``ak_lock``，
-    把单票做 T 回测拖到前端 180s abort（UI 一直停在「xxx·5m」）。
+    把单票做 T 回测拖到前端 300s abort（UI 一直停在「xxx·5m」）。
     """
     try:
         from core.signal.live_features import peek_cached_index_bars

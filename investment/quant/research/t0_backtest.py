@@ -24,8 +24,8 @@ _MINUTE_FETCH_TIMEOUT_SEC = 12.0
 # A股全日约 48 根 5m；≥40 或末根≥14:55 视为齐窗（缺尾缓存会触发补拉）
 _MINUTE_SESSION_MIN_BARS = 40
 _MINUTE_SESSION_END_HM = (14, 55)
-# 前端 fetch 约 300s abort；整批须在此前返回（部分成功也好过整页超时）。
-_HOLDINGS_DEADLINE_SEC = 270.0
+# 前端 fetch 约 300s abort（Safari 常报 Failed to fetch）；整批须含 τ 池在此前返回。
+_HOLDINGS_DEADLINE_SEC = 240.0
 _QUOTE_TIMEOUT_SEC = 4.0
 
 
@@ -262,7 +262,7 @@ def _fetch_minute_by_date(
     """返回 (minute_by_date, meta)；失败则 ({}, meta)。
 
     先用本地缓存（含过期）。无缓存、或历史日明显缺尾（如只到午前）时短超时补拉；
-    跳过东财，避免 ak_lock 挂死把整次「做T回测」拖过前端 180s abort。
+    跳过东财，避免 ak_lock 挂死把整次「做T回测」拖过前端 300s abort。
     """
     by_date, meta = _local_minute_by_date(code, period)
     truncated = bool(by_date) and _local_has_truncated_history(by_date)
@@ -650,12 +650,19 @@ def run_t0_backtest_for_holdings(
     )
     eval_lb = max(10, int(lookback or T0_BT_DEFAULT_LOOKBACK))
     fetch_n = eval_lb + int(T0_BACKTEST_SCORE_WARMUP) + 5
+    per: List[Dict[str, Any]] = []
+    t_deadline = time.time() + float(_HOLDINGS_DEADLINE_SEC)
+    t_tau = time.time()
     tau_pool = build_tau_pool_by_date(
         load_bars_by_code_for_tau_pool(pool_codes, limit=fetch_n)
     )
-
-    per: List[Dict[str, Any]] = []
-    t_deadline = time.time() + float(_HOLDINGS_DEADLINE_SEC)
+    logger.info(
+        "t0 holdings bt tau_pool n=%s elapsed=%.1fs remain=%.1fs holdings=%s",
+        len(pool_codes),
+        time.time() - t_tau,
+        t_deadline - time.time(),
+        len(holdings),
+    )
     total_pnl = 0.0
     total_exposure = 0.0
     total_trades = 0
@@ -683,6 +690,7 @@ def run_t0_backtest_for_holdings(
             per.append(one)
             continue
         # 只用纸面股票名单；股数/成本走虚拟仓（成本由日线开窗决定）
+        t_one = time.time()
         one = run_t0_backtest_for_code(
             code,
             lookback=lookback,
@@ -691,11 +699,19 @@ def run_t0_backtest_for_holdings(
             initial_cash=v_cash,
             rules=cfg,
             paper=paper,
-                use_minute=True,
+            use_minute=True,
             compare_daily=False,
+            compare_no_t0=False,
             tau_pool_by_date=tau_pool,
             stock_name=h.get("stock_name"),
             skip_quote=True,
+        )
+        logger.debug(
+            "t0 holdings bt %s ok=%s elapsed=%.1fs remain=%.1fs",
+            code,
+            bool(one.get("success")),
+            time.time() - t_one,
+            t_deadline - time.time(),
         )
         one["stock_name"] = one.get("stock_name") or h.get("stock_name")
         one["paper_shares"] = float(h.get("shares") or 0)

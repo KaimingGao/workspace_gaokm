@@ -77,21 +77,22 @@ def _f(v: Any) -> Optional[float]:
     return x
 
 
-def _day_bars_upto_tau(
-    minute_bars: Sequence[dict],
+_MINUTE_BY_DATE_INDEX: Dict[int, Tuple[int, Dict[str, List[dict]]]] = {}
+_MINUTE_BY_DATE_INDEX_MAX = 48
+
+
+def _filter_day_bars_upto_tau(
+    rows: Sequence[dict],
     *,
-    trade_date: str,
-    tau_hm: str,
+    day: str,
+    target: str,
+    match_date: bool,
 ) -> List[dict]:
-    day = str(trade_date or "")[:10]
-    target = str(tau_hm or "10:30").replace(":", "")
-    if not day or not target:
-        return []
     out: List[dict] = []
-    for b in minute_bars or []:
+    for b in rows or []:
         if not isinstance(b, dict):
             continue
-        if _bar_date(b) != day and day not in str(b.get("datetime") or ""):
+        if match_date and _bar_date(b) != day and day not in str(b.get("datetime") or ""):
             continue
         hm = _bar_hm(b)
         if not hm or hm > target:
@@ -102,6 +103,51 @@ def _day_bars_upto_tau(
         out.append(b)
     out.sort(key=lambda x: _bar_hm(x))
     return out
+
+
+def _minute_bars_by_date(minute_bars: Sequence[dict]) -> Dict[str, List[dict]]:
+    """按日切分钟线；同伴全历史反复抽 τ 包时避免每钟扫几千根。"""
+    seq = minute_bars or []
+    key = id(seq)
+    n = len(seq)
+    hit = _MINUTE_BY_DATE_INDEX.get(key)
+    if hit is not None and hit[0] == n:
+        return hit[1]
+    by: Dict[str, List[dict]] = {}
+    for b in seq:
+        if not isinstance(b, dict):
+            continue
+        d = _bar_date(b)
+        if len(d) < 10:
+            dt = str(b.get("datetime") or "")
+            d = dt[:10] if len(dt) >= 10 else d
+        if len(d) < 10:
+            continue
+        by.setdefault(d, []).append(b)
+    if len(_MINUTE_BY_DATE_INDEX) >= _MINUTE_BY_DATE_INDEX_MAX:
+        _MINUTE_BY_DATE_INDEX.clear()
+    _MINUTE_BY_DATE_INDEX[key] = (n, by)
+    return by
+
+
+def _day_bars_upto_tau(
+    minute_bars: Sequence[dict],
+    *,
+    trade_date: str,
+    tau_hm: str,
+) -> List[dict]:
+    day = str(trade_date or "")[:10]
+    target = str(tau_hm or "10:30").replace(":", "")
+    if not day or not target:
+        return []
+    seq = minute_bars or []
+    # 做T前缀通常 <1 日；同伴仓才是跨日全历史
+    if len(seq) <= 96:
+        return _filter_day_bars_upto_tau(seq, day=day, target=target, match_date=True)
+    by = _minute_bars_by_date(seq)
+    return _filter_day_bars_upto_tau(
+        by.get(day) or [], day=day, target=target, match_date=False
+    )
 
 
 def _format_hm_colon(raw: str) -> str:
@@ -306,6 +352,7 @@ def clear_sector_ret_cache() -> None:
     global _PEER_CODES_MEMO
     _SECTOR_RET_CACHE.clear()
     _PEER_MINUTE_BARS.clear()
+    _MINUTE_BY_DATE_INDEX.clear()
     _PEER_CODES_MEMO = None
 
 

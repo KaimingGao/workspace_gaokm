@@ -647,6 +647,41 @@ class TestNowcastKf(unittest.TestCase):
         self.assertAlmostEqual(ve2, 2.0)
         self.assertEqual(src2, "prior_var")
 
+    def test_cluster_holdout_caches_missing_rmse(self):
+        import json
+        import os
+        import tempfile
+        from unittest.mock import patch
+
+        from core.signal import nowcast_kf as kf
+
+        kf._CLUSTER_VAR_CACHE.update({"mtime": None, "var": None, "ready": False})
+        fd, path = tempfile.mkstemp(suffix=".json")
+        os.close(fd)
+        try:
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump({"success": True, "note": "no rmse"}, f)
+            loads = {"n": 0}
+            real_load = json.load
+
+            def _counting_load(*args, **kwargs):
+                loads["n"] += 1
+                return real_load(*args, **kwargs)
+
+            with patch("core.paths.CLUSTER_LAST_REPORT_PATH", path), patch(
+                "json.load", side_effect=_counting_load
+            ):
+                self.assertIsNone(kf.cluster_holdout_residual_var())
+                self.assertIsNone(kf.cluster_holdout_residual_var())
+            self.assertEqual(loads["n"], 1)
+            self.assertTrue(kf._CLUSTER_VAR_CACHE.get("ready"))
+        finally:
+            kf._CLUSTER_VAR_CACHE.update({"mtime": None, "var": None, "ready": False})
+            try:
+                os.remove(path)
+            except OSError:
+                pass
+
     def test_apply_tau_records_prior_var_src(self):
         from core.signal.dual_score import apply_tau_score_fields
 

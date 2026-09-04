@@ -470,6 +470,14 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertNotIn('name="y_prefix_downbar_ratio_sell_then_buy"', panel)
         self.assertNotIn('name="y_prefix_upbar_ratio_buy_then_sell"', panel)
 
+    def test_t0_backtest_maps_failed_to_fetch(self):
+        paper = self._read("web", "static", "js", "paper.js")
+        self.assertIn("t0FetchErrorMessage", paper)
+        self.assertIn("failed to fetch", paper)
+        self.assertIn("回测连接中断或超时", paper)
+        self.assertIn("仅选中", paper)
+        self.assertIn("预演连接中断或超时", paper)
+
     def test_follow_path_matrix_form(self):
         panel = self._read("web", "static", "partials", "follow_panel.html")
         self.assertIn('id="paper-path-matrix-form"', panel)

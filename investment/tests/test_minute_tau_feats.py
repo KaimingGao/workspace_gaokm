@@ -87,6 +87,39 @@ class TestMinuteTauPack(unittest.TestCase):
         self.assertAlmostEqual(pack_early["ret_open_to_tau"], 4.0, places=4)  # 10.4
         self.assertLess(pack_late["ret_open_to_tau"], pack_early["ret_open_to_tau"])
 
+    def test_day_bars_upto_tau_indexes_long_history(self):
+        from core.signal import minute_tau_feats as m
+
+        day = "2026-08-28"
+        bars = []
+        for i in range(33):
+            d = f"2026-07-{(i % 28) + 1:02d}"
+            if i == 32:
+                d = day
+            for hm, c in (("09:35", 10.1), ("09:40", 10.4), ("10:30", 10.3)):
+                bars.append(
+                    {
+                        "date": d,
+                        "datetime": f"{d} {hm}:00",
+                        "open": 10.0,
+                        "high": c + 0.1,
+                        "low": c - 0.1,
+                        "close": c,
+                        "volume": 1000,
+                    }
+                )
+        self.assertGreater(len(bars), 96)
+        indexed = m._day_bars_upto_tau(bars, trade_date=day, tau_hm="09:40")
+        scanned = m._filter_day_bars_upto_tau(
+            bars, day=day, target="0940", match_date=True
+        )
+        self.assertEqual(len(indexed), 2)
+        self.assertEqual(
+            [x["datetime"] for x in indexed],
+            [x["datetime"] for x in scanned],
+        )
+        m.clear_sector_ret_cache()
+
     def test_one_bar_pack_ok_empty_prefix_not(self):
         """≥1 根即可出小包（09:35）；0 根仍空（09:30 无前缀）。"""
         one = [

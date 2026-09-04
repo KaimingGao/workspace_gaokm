@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import os
-from typing import Any, Dict, List, Optional, Sequence
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -696,19 +696,36 @@ def tau_last_report_path_legacy() -> str:
     return os.path.join(LIVE_DIR, "rem_ridge_last_report.json")
 
 
+_JSON_MODEL_CACHE: Dict[str, Tuple[float, Optional[Dict[str, Any]]]] = {}
+
+
 def _load_json_model(path: str) -> Optional[Dict[str, Any]]:
-    if not os.path.isfile(path):
+    try:
+        mtime = os.path.getmtime(path)
+    except OSError:
         return None
+    hit = _JSON_MODEL_CACHE.get(path)
+    if hit is not None and hit[0] == mtime:
+        return hit[1]
     try:
         with open(path, encoding="utf-8") as f:
             doc = json.load(f)
     except Exception:  # noqa: BLE001
         logger.debug("load tau json failed: %s", path, exc_info=True)
+        _JSON_MODEL_CACHE[path] = (mtime, None)
         return None
     if not isinstance(doc, dict) or not isinstance(doc.get("return_model"), dict):
+        _JSON_MODEL_CACHE[path] = (mtime, None)
         return None
     if doc.get("success") is False:
+        _JSON_MODEL_CACHE[path] = (mtime, None)
         return None
+    _JSON_MODEL_CACHE[path] = (mtime, doc)
+    if len(_JSON_MODEL_CACHE) > 16:
+        # 保当前这条，丢掉最旧的若干（模型文件就 2–4 个）
+        extra = [k for k in _JSON_MODEL_CACHE if k != path]
+        for k in extra[: max(0, len(_JSON_MODEL_CACHE) - 12)]:
+            _JSON_MODEL_CACHE.pop(k, None)
     return doc
 
 
@@ -720,6 +737,7 @@ def save_tau_last_report(report: Dict[str, Any]) -> None:
     path = tau_last_report_path()
     os.makedirs(os.path.dirname(path), exist_ok=True)
     atomic_write_json(path, report)
+    _JSON_MODEL_CACHE.pop(path, None)
     # 过渡期双写旧路径，避免旧 UI 读 last report 落空
     try:
         atomic_write_json(tau_last_report_path_legacy(), report)
@@ -806,6 +824,7 @@ def persist_tau_model(
     path = tau_model_path()
     os.makedirs(os.path.dirname(path), exist_ok=True)
     atomic_write_json(path, doc)
+    _JSON_MODEL_CACHE.pop(path, None)
     # 过渡期双写旧 rem 文件名，避免未刷新客户端读不到模型
     try:
         atomic_write_json(tau_model_path_legacy(), doc)

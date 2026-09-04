@@ -4307,9 +4307,23 @@ class TestT0HoldingsVirtualSizing(unittest.TestCase):
         self.assertIsNone(kwargs["initial_cost"])
         self.assertTrue(out.get("virtual_sizing"))
         self.assertTrue(kwargs.get("skip_quote"))
+        self.assertEqual(kwargs.get("compare_no_t0"), False)
         self.assertEqual(kwargs.get("stock_name"), "茅台")
         self.assertAlmostEqual(float(out["cumulative_return_pct"]), 0.1)
         self.assertIn("虚拟每票", out.get("scope_label") or "")
+
+    def test_holdings_deadline_starts_before_tau_pool(self):
+        import inspect
+
+        from quant.research import t0_backtest as m
+
+        src = inspect.getsource(m.run_t0_backtest_for_holdings)
+        dl_at = src.find("t_deadline = time.time()")
+        tau_at = src.find("tau_pool = build_tau_pool_by_date")
+        self.assertGreater(dl_at, 0)
+        self.assertGreater(tau_at, 0)
+        self.assertLess(dl_at, tau_at)
+        self.assertLessEqual(m._HOLDINGS_DEADLINE_SEC, 240.0)
 
     def test_fetch_minute_prefers_complete_local_cache(self):
         from unittest.mock import patch

@@ -738,7 +738,7 @@ def rem_obs_var(
     return _as_var(default, 1.0)
 
 
-_CLUSTER_VAR_CACHE: Dict[str, Any] = {"mtime": None, "var": None}
+_CLUSTER_VAR_CACHE: Dict[str, Any] = {"mtime": None, "var": None, "ready": False}
 
 
 def cluster_holdout_residual_var(
@@ -746,7 +746,8 @@ def cluster_holdout_residual_var(
 ) -> Optional[float]:
     """分组 holdout RMSE² → EOD 先验方差。只用已落盘前向指标，无当日误差。"""
     doc = report
-    if not isinstance(doc, dict):
+    from_disk = not isinstance(doc, dict)
+    if from_disk:
         try:
             import json
             import os
@@ -758,8 +759,8 @@ def cluster_holdout_residual_var(
                 return None
             mtime = os.path.getmtime(path)
             if (
-                _CLUSTER_VAR_CACHE.get("mtime") == mtime
-                and _CLUSTER_VAR_CACHE.get("var") is not None
+                _CLUSTER_VAR_CACHE.get("ready")
+                and _CLUSTER_VAR_CACHE.get("mtime") == mtime
             ):
                 return _CLUSTER_VAR_CACHE.get("var")
             with open(path, encoding="utf-8") as f:
@@ -769,6 +770,9 @@ def cluster_holdout_residual_var(
             logger.debug("catch except Exception: in nowcast_kf.py", exc_info=True)
             return None
     if not isinstance(doc, dict):
+        if from_disk:
+            _CLUSTER_VAR_CACHE["var"] = None
+            _CLUSTER_VAR_CACHE["ready"] = True
         return None
     rmse = None
     for bag in (
@@ -792,11 +796,15 @@ def cluster_holdout_residual_var(
             except (TypeError, ValueError):
                 continue
     if rmse is None or rmse <= 0:
+        if from_disk:
+            _CLUSTER_VAR_CACHE["var"] = None
+            _CLUSTER_VAR_CACHE["ready"] = True
         return None
     var = round(float(rmse) * float(rmse), 6)
     var = max(1e-6, var)
-    if report is None:
+    if from_disk:
         _CLUSTER_VAR_CACHE["var"] = var
+        _CLUSTER_VAR_CACHE["ready"] = True
     return var
 
 
