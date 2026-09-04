@@ -17,7 +17,6 @@ def _stb_cfg(**extra):
         "must_cover_same_day": True,
         "lot_size": 100,
         "t0_close_band_delta_pct": 0.01,
-        "y_tau_entry_price_skip_sell_then_buy": False,
         "y_tau_exit_price_skip_sell_then_buy": False,
     }
     base.update(extra)
@@ -30,7 +29,6 @@ def _bts_cfg(**extra):
         "must_cover_same_day": True,
         "lot_size": 100,
         "t0_close_band_delta_pct": 0.01,
-        "y_tau_entry_price_skip_buy_then_sell": False,
         "y_tau_exit_price_skip_buy_then_sell": False,
     }
     base.update(extra)
@@ -67,6 +65,7 @@ class TestT0Costs(unittest.TestCase):
             session_bar=bar,
             defer_eod=False,
             y_tau=-0.5,
+            leg1_gate_at=lambda i: i == 0,
         )
         self.assertTrue(out.get("success"))
         self.assertEqual(len(out.get("trades") or []), 2)
@@ -146,6 +145,7 @@ class TestT0Costs(unittest.TestCase):
             session_bar=bar,
             defer_eod=False,
             y_tau=-0.5,
+            leg1_gate_at=lambda i: i == 0,
         )
         # 无账户余额：卖出净得不够覆盖含费买回 → 放弃
         out = _first_touch_sell_then_buy(**kwargs, cash=0.0)
@@ -217,6 +217,7 @@ class TestT0Costs(unittest.TestCase):
             session_bar=bar,
             defer_eod=False,
             y_tau=0.5,
+            leg1_gate_at=lambda i: i == 0,
         )
         self.assertTrue(out.get("success"), out)
         bought = int(out.get("bought_qty") or 0)
@@ -257,6 +258,7 @@ class TestT0Costs(unittest.TestCase):
             session_bar=bar,
             defer_eod=False,
             y_tau=-0.5,
+            leg1_gate_at=lambda i: i == 0,
         )
         out = _first_touch_sell_then_buy(**kwargs, cash=0.0)
         self.assertTrue(out.get("success"), out)
@@ -304,7 +306,6 @@ class TestT0Costs(unittest.TestCase):
             "path_mode": "first_touch",
             "use_atr": False,
             "min_range_pct": 0.5,
-            "y_tau_entry_price_skip_buy_then_sell": False,
             "y_tau_exit_price_skip_buy_then_sell": False,
             "lot_size": 100,
             "t0_slots_max_rounds": 0,
@@ -352,7 +353,6 @@ class TestT0Costs(unittest.TestCase):
                     "use_atr": False,
                     "min_range_pct": 0.5,
                     "t0_close_band_delta_pct": 0.01,
-                    "y_tau_entry_price_skip_sell_then_buy": False,
                     "y_tau_exit_price_skip_sell_then_buy": False,
                     "lot_size": 100,
                     "t0_slots_max_rounds": 1,

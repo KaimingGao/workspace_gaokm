@@ -23,7 +23,6 @@ class TestT0V6WebWire(unittest.TestCase):
             t0_max_position_pct=1.0,
             t0_slots_max_rounds=5,
             t0_slots_enabled=True,
-            y_tau_require_for_leg1=False,
         )
         dumped = req.model_dump(exclude_none=True)
         for k in (

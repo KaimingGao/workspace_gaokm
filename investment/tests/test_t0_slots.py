@@ -53,7 +53,6 @@ def _slot_rules(**kwargs):
         "t0_close_band_delta_pct": 0.01,
         "t0_round_ratio": 0.2,
         "r_tau_enter": 0.01,
-        "y_tau_entry_price_skip": False,
         "min_range_pct": 0.1,
         "min_range_pct_buy_then_sell": 0.1,
         "t0_pm_degrade": "",
@@ -631,7 +630,6 @@ class TestT0Slots(unittest.TestCase):
                 {"id": "s2", "hm": "10:30", "prefix_bars": 12, "ratio": 0.50},
             ],
             direction="buy_then_sell",
-            y_tau_entry_price_skip=False,
         )
         out = simulate_t0_day(
             bar=bar,
@@ -659,21 +657,6 @@ class TestT0Slots(unittest.TestCase):
         self.assertGreaterEqual(len(filled), 1, rows)
         self.assertGreaterEqual(len(blocked), 1, rows)
         self.assertLessEqual(int(out.get("bought_qty") or 0), 200, out)
-
-    def test_missing_y_tau_blocks_leg1_when_required(self):
-        from unittest import mock
-
-        from core.t0.minute_path import tau_leg1_fill_price_ok
-
-        gate = tau_leg1_fill_price_ok(
-            fill_px=100.0,
-            ref=100.0,
-            y_tau=None,
-            direction="buy_then_sell",
-            cfg={"y_tau_entry_price_skip": True, "y_tau_require_for_leg1": True},
-        )
-        self.assertFalse(gate.get("ok"))
-        self.assertIn("缺ŷ_τ", str(gate.get("reason") or ""))
 
 
 if __name__ == "__main__":

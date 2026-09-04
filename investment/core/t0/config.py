@@ -93,9 +93,25 @@ _DEAD_T0_KEYS = (
     "y_ratio_tau_soft_band",
     "t0_leg1_hunt_pct_buy_then_sell",
     "t0_leg1_hunt_pct_sell_then_buy",
-    # 已改为 τ 入场价闸
+    # 前缀振幅 vs |path|、τ 入场价闸：均已下线（第一腿=确认根收盘）
     "y_prefix_vs_path_skip",
     "y_prefix_vs_path_mult",
+    "y_tau_require_for_leg1",
+    "y_tau_entry_price_mult",
+    "y_tau_entry_price_mult_buy_then_sell",
+    "y_tau_entry_price_mult_sell_then_buy",
+    "y_tau_entry_price_skip",
+    "y_tau_entry_price_skip_buy_then_sell",
+    "y_tau_entry_price_skip_sell_then_buy",
+    "y_tau_entry_price_bias",
+    "y_tau_entry_price_bias_buy_then_sell",
+    "y_tau_entry_price_bias_sell_then_buy",
+    "y_tau_entry_price_move_min",
+    "y_tau_entry_price_move_max",
+    "y_tau_entry_price_move_min_buy_then_sell",
+    "y_tau_entry_price_move_max_buy_then_sell",
+    "y_tau_entry_price_move_min_sell_then_buy",
+    "y_tau_entry_price_move_max_sell_then_buy",
     # 固定前缀：只按后半阴阳占比，不再叠最少命中根数
     "y_prefix_min_half_hits",
     # 第二腿已改 τ 出场价闸；相对 leg1 的 % 触发下线
@@ -127,30 +143,10 @@ _DEAD_T0_KEYS = (
 )
 
 
-def _migrate_prefix_vs_path_to_tau_entry(cfg: dict) -> None:
-    """旧「前缀振幅 vs |path|」→ τ 入场价闸（仅当新键未显式给出时）。"""
-    if not isinstance(cfg, dict):
-        return
-    if "y_tau_entry_price_mult" not in cfg and "y_prefix_vs_path_mult" in cfg:
-        cfg["y_tau_entry_price_mult"] = cfg.get("y_prefix_vs_path_mult")
-    if "y_tau_entry_price_skip" not in cfg and "y_prefix_vs_path_skip" in cfg:
-        cfg["y_tau_entry_price_skip"] = cfg.get("y_prefix_vs_path_skip")
-    legacy_skip = cfg.get("y_tau_entry_price_skip")
-    legacy_mult = cfg.get("y_tau_entry_price_mult")
-    for side in ("buy_then_sell", "sell_then_buy"):
-        sk = f"y_tau_entry_price_skip_{side}"
-        mk = f"y_tau_entry_price_mult_{side}"
-        if sk not in cfg and legacy_skip is not None:
-            cfg[sk] = legacy_skip
-        if mk not in cfg and legacy_mult is not None:
-            cfg[mk] = legacy_mult
-
-
 def drop_dead_t0_keys(cfg: dict) -> None:
     """就地丢弃已废弃做 T 键（含旧 long/reverse 命名）。"""
     if not isinstance(cfg, dict):
         return
-    _migrate_prefix_vs_path_to_tau_entry(cfg)
     for k in _DEAD_T0_KEYS:
         cfg.pop(k, None)
 
@@ -243,21 +239,7 @@ DEFAULT_T0_RULES: Dict[str, Any] = {
     "t0_price_space_prev_dev_pct": 5.0,
     "t0_round_ratio": 0.4,
     "t0_max_position_pct": 1.0,
-    # 缺 ŷ_τ 时禁止开第一腿（τ 闸开则硬跳过，不等午后追价）
-    "y_tau_require_for_leg1": False,
-    # 确认根第一腿：正T买价<open×(1+ŷ_τ×裕度)；反T卖价>同式（有符号ŷ_τ，分侧可调）
-    "y_tau_entry_price_skip": True,
-    "y_tau_entry_price_mult": 0.5,
-    "y_tau_entry_price_skip_buy_then_sell": True,
-    "y_tau_entry_price_mult_buy_then_sell": 0.5,
-    "y_tau_entry_price_skip_sell_then_buy": True,
-    "y_tau_entry_price_mult_sell_then_buy": 0.5,
-    # 价闸动幅：bound=open×(1+(clamp(ŷ_τ×裕度,min,max)+price_bias)/100)；价偏代数可正可负
-    "y_tau_entry_price_bias": 0.5,
-    "y_tau_entry_price_bias_buy_then_sell": 0.5,
-    "y_tau_entry_price_bias_sell_then_buy": -0.5,
-    "y_tau_entry_price_move_min": -100.0,
-    "y_tau_entry_price_move_max": 100.0,
+    # 第一腿：确认根收盘；τ 入场价闸已下线
     "y_tau_exit_price_skip": True,
     "y_tau_exit_price_mult": 1.0,
     "y_tau_exit_price_skip_buy_then_sell": True,
@@ -441,7 +423,6 @@ def load_t0_rules(override: Optional[dict] = None) -> Dict[str, Any]:
     override_keys = set(override.keys()) if override else set()
     if override:
         ov = dict(override)
-        _migrate_prefix_vs_path_to_tau_entry(ov)
         override_keys = set(ov.keys())
         for k, v in ov.items():
             if v is not None:
@@ -610,92 +591,6 @@ def load_t0_rules(override: Optional[dict] = None) -> Dict[str, Any]:
         shift_scale, default=0.1
     )
     cfg["y_nowcast_oc_gate"] = coerce_cfg_bool(cfg.get("y_nowcast_oc_gate"), False)
-    legacy_skip = coerce_cfg_bool(cfg.get("y_tau_entry_price_skip"), True)
-    try:
-        raw_legacy_mult = cfg.get("y_tau_entry_price_mult")
-        legacy_mult = float(
-            0.5 if raw_legacy_mult is None or raw_legacy_mult == "" else raw_legacy_mult
-        )
-    except (TypeError, ValueError):
-        legacy_mult = 0.5
-    legacy_mult = max(0.5, min(legacy_mult, 5.0))
-    for side in ("buy_then_sell", "sell_then_buy"):
-        sk = f"y_tau_entry_price_skip_{side}"
-        mk = f"y_tau_entry_price_mult_{side}"
-        if sk not in override_keys or cfg.get(sk) is None:
-            if cfg.get(sk) is None:
-                cfg[sk] = legacy_skip
-        cfg[sk] = coerce_cfg_bool(cfg.get(sk), True)
-        try:
-            raw_side_mult = cfg.get(mk)
-            if raw_side_mult is None or raw_side_mult == "":
-                raw_side_mult = legacy_mult
-            side_mult = float(raw_side_mult)
-        except (TypeError, ValueError):
-            side_mult = legacy_mult
-        cfg[mk] = max(0.5, min(side_mult, 5.0))
-    cfg["y_tau_entry_price_skip"] = cfg["y_tau_entry_price_skip_buy_then_sell"]
-    cfg["y_tau_entry_price_mult"] = cfg["y_tau_entry_price_mult_buy_then_sell"]
-    try:
-        raw_legacy_entry_bias = cfg.get("y_tau_entry_price_bias")
-        legacy_entry_bias = float(
-            0.5
-            if raw_legacy_entry_bias is None or raw_legacy_entry_bias == ""
-            else raw_legacy_entry_bias
-        )
-    except (TypeError, ValueError):
-        legacy_entry_bias = 0.5
-    legacy_entry_bias = max(-50.0, min(legacy_entry_bias, 50.0))
-    try:
-        legacy_entry_move_min = float(cfg.get("y_tau_entry_price_move_min") or -100.0)
-    except (TypeError, ValueError):
-        legacy_entry_move_min = -100.0
-    try:
-        legacy_entry_move_max = float(cfg.get("y_tau_entry_price_move_max") or 100.0)
-    except (TypeError, ValueError):
-        legacy_entry_move_max = 100.0
-    legacy_entry_move_min = max(-100.0, min(legacy_entry_move_min, 100.0))
-    legacy_entry_move_max = max(-100.0, min(legacy_entry_move_max, 100.0))
-    if legacy_entry_move_min > legacy_entry_move_max:
-        legacy_entry_move_min, legacy_entry_move_max = (
-            legacy_entry_move_max,
-            legacy_entry_move_min,
-        )
-    for side in ("buy_then_sell", "sell_then_buy"):
-        bk = f"y_tau_entry_price_bias_{side}"
-        mnk = f"y_tau_entry_price_move_min_{side}"
-        mxk = f"y_tau_entry_price_move_max_{side}"
-        try:
-            raw_bias = cfg.get(bk)
-            if raw_bias is None or raw_bias == "":
-                raw_bias = legacy_entry_bias
-            side_bias = float(raw_bias)
-        except (TypeError, ValueError):
-            side_bias = legacy_entry_bias
-        cfg[bk] = max(-50.0, min(side_bias, 50.0))
-        try:
-            raw_min = cfg.get(mnk)
-            if raw_min is None or raw_min == "":
-                raw_min = legacy_entry_move_min
-            side_min = float(raw_min)
-        except (TypeError, ValueError):
-            side_min = legacy_entry_move_min
-        try:
-            raw_max = cfg.get(mxk)
-            if raw_max is None or raw_max == "":
-                raw_max = legacy_entry_move_max
-            side_max = float(raw_max)
-        except (TypeError, ValueError):
-            side_max = legacy_entry_move_max
-        side_min = max(-100.0, min(side_min, 100.0))
-        side_max = max(-100.0, min(side_max, 100.0))
-        if side_min > side_max:
-            side_min, side_max = side_max, side_min
-        cfg[mnk] = side_min
-        cfg[mxk] = side_max
-    cfg["y_tau_entry_price_bias"] = cfg["y_tau_entry_price_bias_buy_then_sell"]
-    cfg["y_tau_entry_price_move_min"] = cfg["y_tau_entry_price_move_min_buy_then_sell"]
-    cfg["y_tau_entry_price_move_max"] = cfg["y_tau_entry_price_move_max_buy_then_sell"]
     legacy_exit_skip = coerce_cfg_bool(cfg.get("y_tau_exit_price_skip"), True)
     try:
         raw_legacy_exit_mult = cfg.get("y_tau_exit_price_mult")

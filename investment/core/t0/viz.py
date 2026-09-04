@@ -19,7 +19,7 @@ SKIP_CAT_LABELS: Dict[str, str] = {
     "gap_tier_skip": "大缺口反向跳过",
     "path_abandon": "前缀无空间放弃",
     "multi_slot_miss": "多轮均未成交",
-    "tau_entry_price": "入场价vs开盘×ŷ_τ",
+    "tau_entry_price": "入场价vs开盘×ŷ_τ(旧)",
     "tau_exit_price": "出场价vs开盘×ŷ_τ",
     "y_trade_weak": "y_trade幅度不足",
     "eod_tau_disagree": "y_eod↔y_τ异号",

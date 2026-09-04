@@ -278,73 +278,6 @@ class T0BacktestRequest(BaseModel):
     t0_slots_enabled: Optional[bool] = Field(
         default=None, description="v6 恒为多轮收盘带宽壳；仅兼容旧补丁"
     )
-    y_tau_require_for_leg1: Optional[bool] = Field(
-        default=None, description="缺 ŷ_τ 时禁止开第一腿"
-    )
-    y_tau_entry_price_skip: Optional[bool] = Field(
-        default=None,
-        description="legacy：等同 y_tau_entry_price_skip_buy_then_sell",
-    )
-    y_tau_entry_price_mult: Optional[float] = Field(
-        default=None,
-        ge=0.5,
-        le=5.0,
-        description="legacy：等同 y_tau_entry_price_mult_buy_then_sell",
-    )
-    y_tau_entry_price_skip_buy_then_sell: Optional[bool] = Field(
-        default=None,
-        description="正T确认根：买价<open×(1+ŷ_τ×裕度)",
-    )
-    y_tau_entry_price_mult_buy_then_sell: Optional[float] = Field(
-        default=None,
-        ge=0.5,
-        le=5.0,
-        description="正T 买价裕度：bound=open×(1+ŷ_τ%×本值/100)",
-    )
-    y_tau_entry_price_skip_sell_then_buy: Optional[bool] = Field(
-        default=None,
-        description="反T确认根：卖价>open×(1+ŷ_τ×裕度)",
-    )
-    y_tau_entry_price_mult_sell_then_buy: Optional[float] = Field(
-        default=None,
-        ge=0.5,
-        le=5.0,
-        description="反T 卖价裕度",
-    )
-    y_tau_entry_price_bias: Optional[float] = Field(
-        default=None,
-        ge=-50.0,
-        le=50.0,
-        description="legacy：等同 y_tau_entry_price_bias_buy_then_sell（价偏，百分点）",
-    )
-    y_tau_entry_price_move_min: Optional[float] = Field(
-        default=None,
-        ge=-100.0,
-        le=100.0,
-        description="legacy：入场 clamp 动幅下限（百分点）",
-    )
-    y_tau_entry_price_move_max: Optional[float] = Field(
-        default=None,
-        ge=-100.0,
-        le=100.0,
-        description="legacy：入场 clamp 动幅上限（百分点）",
-    )
-    y_tau_entry_price_bias_buy_then_sell: Optional[float] = Field(
-        default=None,
-        ge=-50.0,
-        le=50.0,
-        description="正T入场价偏：bound=open×(1+(clamp(ŷ_τ×裕度,min,max)+价偏)/100)",
-    )
-    y_tau_entry_price_move_min_buy_then_sell: Optional[float] = Field(default=None, ge=-100.0, le=100.0)
-    y_tau_entry_price_move_max_buy_then_sell: Optional[float] = Field(default=None, ge=-100.0, le=100.0)
-    y_tau_entry_price_bias_sell_then_buy: Optional[float] = Field(
-        default=None,
-        ge=-50.0,
-        le=50.0,
-        description="反T入场价偏（百分点，代数可正可负）",
-    )
-    y_tau_entry_price_move_min_sell_then_buy: Optional[float] = Field(default=None, ge=-100.0, le=100.0)
-    y_tau_entry_price_move_max_sell_then_buy: Optional[float] = Field(default=None, ge=-100.0, le=100.0)
     y_tau_exit_price_skip: Optional[bool] = Field(
         default=None,
         description="legacy：等同 y_tau_exit_price_skip_buy_then_sell",
@@ -577,22 +510,6 @@ class PaperExecutionPatchRequest(BaseModel):
     t0_max_position_pct: Optional[float] = None
     t0_slots_max_rounds: Optional[int] = None
     t0_slots_enabled: Optional[bool] = None
-    y_tau_require_for_leg1: Optional[bool] = None
-    y_tau_entry_price_skip: Optional[bool] = None
-    y_tau_entry_price_mult: Optional[float] = None
-    y_tau_entry_price_skip_buy_then_sell: Optional[bool] = None
-    y_tau_entry_price_mult_buy_then_sell: Optional[float] = None
-    y_tau_entry_price_skip_sell_then_buy: Optional[bool] = None
-    y_tau_entry_price_mult_sell_then_buy: Optional[float] = None
-    y_tau_entry_price_bias: Optional[float] = None
-    y_tau_entry_price_move_min: Optional[float] = None
-    y_tau_entry_price_move_max: Optional[float] = None
-    y_tau_entry_price_bias_buy_then_sell: Optional[float] = None
-    y_tau_entry_price_move_min_buy_then_sell: Optional[float] = None
-    y_tau_entry_price_move_max_buy_then_sell: Optional[float] = None
-    y_tau_entry_price_bias_sell_then_buy: Optional[float] = None
-    y_tau_entry_price_move_min_sell_then_buy: Optional[float] = None
-    y_tau_entry_price_move_max_sell_then_buy: Optional[float] = None
     y_tau_exit_price_skip: Optional[bool] = None
     y_tau_exit_price_mult: Optional[float] = None
     y_tau_exit_price_skip_buy_then_sell: Optional[bool] = None

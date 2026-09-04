@@ -115,12 +115,9 @@ def _rules(**kwargs):
         "t0_slots_max_rounds": 1,
         "t0_max_position_pct": 1.0,
         # 路径用例默认零价偏，避免与生产 ±默认纠缠断言
-        "y_tau_entry_price_bias_buy_then_sell": 0.0,
-        "y_tau_entry_price_bias_sell_then_buy": 0.0,
         "y_tau_exit_price_bias_buy_then_sell": 0.0,
         "y_tau_exit_price_bias_sell_then_buy": 0.0,
         # 路径/撮合单测不绑 ŷ_τ / path / R̂ 入场；生产默认见 overlay
-        "y_tau_require_for_leg1": False,
         "y_tau_enter": 0.0,
         "y_path_enter": 0.0,
         "y_use_path": False,
@@ -141,10 +138,8 @@ def _rules(**kwargs):
 
 
 def _rules_path(**kwargs):
-    """路径/追价用例：关 τ 价闸（配置 skip=False → 闸关）。"""
+    """路径/追价用例：关 τ 出场价闸（配置 skip=False → 闸关）。"""
     return _rules(
-        y_tau_entry_price_skip_buy_then_sell=False,
-        y_tau_entry_price_skip_sell_then_buy=False,
         y_tau_exit_price_skip_buy_then_sell=False,
         y_tau_exit_price_skip_sell_then_buy=False,
         **kwargs,
@@ -256,6 +251,7 @@ class TestT0Core(unittest.TestCase):
             session_bar=bar,
             defer_eod=True,
             y_tau=0.5,
+            leg1_gate_at=lambda i: i == 0,
         )
         self.assertTrue(out.get("success"), out)
         self.assertGreater(int(out.get("bought_qty") or 0), 0)
@@ -302,6 +298,7 @@ class TestT0Core(unittest.TestCase):
             session_bar=bar,
             defer_eod=True,
             y_tau=-0.5,
+            leg1_gate_at=lambda i: i == 0,
         )
         self.assertTrue(out.get("success"), out)
         self.assertGreater(int(out.get("sold_qty") or 0), 0)
@@ -449,21 +446,31 @@ class TestT0Core(unittest.TestCase):
         self.assertFalse(d["y_tau_leg1_prior"])
         self.assertAlmostEqual(float(d["y_tau_leg1_prior_risk"]), 0.1)
         self.assertAlmostEqual(float(d["y_tau_leg1_prior_shift_scale"]), 0.1)
-        self.assertEqual(d["y_tau_entry_price_mult"], 0.5)
-        self.assertTrue(d["y_tau_entry_price_skip"])
-        self.assertEqual(d["y_tau_entry_price_mult_buy_then_sell"], 0.5)
-        self.assertTrue(d["y_tau_entry_price_skip_buy_then_sell"])
-        self.assertEqual(d["y_tau_entry_price_mult_sell_then_buy"], 0.5)
-        self.assertTrue(d["y_tau_entry_price_skip_sell_then_buy"])
+        self.assertNotIn("y_tau_entry_price_skip", d)
+        self.assertNotIn("y_tau_entry_price_skip_buy_then_sell", d)
+        self.assertNotIn("y_tau_entry_price_skip_sell_then_buy", d)
+        self.assertNotIn("y_tau_entry_price_mult", d)
+        self.assertNotIn("y_tau_entry_price_mult_buy_then_sell", d)
+        self.assertNotIn("y_tau_entry_price_mult_sell_then_buy", d)
+        leftover = load_t0_rules(
+            {
+                "y_tau_entry_price_mult_buy_then_sell": 5.0,
+                "y_tau_entry_price_skip_buy_then_sell": True,
+                "y_tau_require_for_leg1": True,
+            }
+        )
+        self.assertNotIn("y_tau_entry_price_mult_buy_then_sell", leftover)
+        self.assertNotIn("y_tau_entry_price_skip_buy_then_sell", leftover)
+        self.assertNotIn("y_tau_require_for_leg1", leftover)
         self.assertEqual(d["y_tau_exit_price_mult_buy_then_sell"], 1.0)
         self.assertTrue(d["y_tau_exit_price_skip_buy_then_sell"])
         self.assertEqual(d["y_tau_exit_price_mult_sell_then_buy"], 1.0)
         self.assertTrue(d["y_tau_exit_price_skip_sell_then_buy"])
-        self.assertEqual(d["y_tau_entry_price_bias_buy_then_sell"], 0.5)
-        self.assertEqual(d["y_tau_entry_price_bias_sell_then_buy"], -0.5)
+        self.assertNotIn("y_tau_entry_price_bias_buy_then_sell", d)
+        self.assertNotIn("y_tau_entry_price_bias_sell_then_buy", d)
         self.assertEqual(d["y_tau_exit_price_bias_buy_then_sell"], 1.0)
         self.assertEqual(d["y_tau_exit_price_bias_sell_then_buy"], -1.0)
-        self.assertEqual(d["y_tau_entry_price_move_min_buy_then_sell"], -100.0)
+        self.assertNotIn("y_tau_entry_price_move_min_buy_then_sell", d)
         self.assertEqual(d["y_tau_exit_price_move_max_buy_then_sell"], 100.0)
         self.assertNotIn("y_ratio_tau_soft_band", d)
         self.assertTrue(d["t0_slots_enabled"])
@@ -474,7 +481,7 @@ class TestT0Core(unittest.TestCase):
         self.assertEqual(d["t0_slots"][-1]["hm"], "11:00")
         self.assertEqual(d["t0_slots"][-1]["prefix_bars"], 18)
         self.assertNotIn("y_prefix_min_half_hits", d)
-        self.assertFalse(d["y_tau_require_for_leg1"])
+        self.assertNotIn("y_tau_require_for_leg1", d)
         self.assertTrue(d["t0_pm_chase_cap_leg1_sell_then_buy"])
         self.assertTrue(d["t0_pm_chase_cap_leg1_buy_then_sell"])
         self.assertNotIn("t0_leg1_hunt_pct_buy_then_sell", d)
@@ -1047,103 +1054,6 @@ class TestT0Core(unittest.TestCase):
 
 
 
-    def test_prefix_tau_entry_price_cap(self):
-        """正T：确认根买价须 < open×(1+ŷ_τ×裕度)。"""
-        from core.t0.minute_path import tau_leg1_fill_price_ok
-
-        gate = tau_leg1_fill_price_ok(
-            fill_px=103.0,
-            ref=100.0,
-            y_tau=0.4,
-            direction="buy_then_sell",
-            mult=5.0,
-            cfg={
-                "y_tau_entry_price_skip_buy_then_sell": True,
-                "y_tau_entry_price_mult_buy_then_sell": 5.0,
-                "y_tau_entry_price_bias_buy_then_sell": 0.0,
-            },
-        )
-        self.assertFalse(gate["ok"], gate)
-        self.assertAlmostEqual(gate["bound_px"], 102.0, places=4)
-
-        via_cfg = tau_leg1_fill_price_ok(
-            fill_px=103.0,
-            ref=100.0,
-            y_tau=0.4,
-            direction="buy_then_sell",
-            cfg={
-                "y_tau_entry_price_skip": True,
-                "y_tau_entry_price_mult": 5.0,
-                "y_tau_entry_price_bias_buy_then_sell": 0.0,
-            },
-        )
-        self.assertFalse(via_cfg["ok"], via_cfg)
-
-        off = tau_leg1_fill_price_ok(
-            fill_px=103.0,
-            ref=100.0,
-            y_tau=0.4,
-            direction="buy_then_sell",
-            cfg={"y_tau_entry_price_skip": False, "y_tau_entry_price_mult": 5.0},
-        )
-        self.assertTrue(off["ok"], off)
-
-    def test_tau_entry_price_signed_bounds(self):
-        """有符号 ŷ_τ：正T天花板 / 反T地板 共用 open×(1+ŷ_τ×裕度)。"""
-        from core.t0.minute_path import tau_leg1_fill_price_ok
-
-        zbias_b = {
-            "y_tau_entry_price_bias_buy_then_sell": 0.0,
-            "y_tau_entry_price_skip_buy_then_sell": True,
-            "y_tau_entry_price_mult_buy_then_sell": 1.0,
-        }
-        zbias_s = {
-            "y_tau_entry_price_bias_sell_then_buy": 0.0,
-            "y_tau_entry_price_skip_sell_then_buy": True,
-            "y_tau_entry_price_mult_sell_then_buy": 1.0,
-        }
-        buy_ok = tau_leg1_fill_price_ok(
-            fill_px=100.3,
-            ref=100.0,
-            y_tau=0.5,
-            direction="buy_then_sell",
-            mult=1.0,
-            cfg=zbias_b,
-        )
-        self.assertTrue(buy_ok["ok"], buy_ok)
-        self.assertAlmostEqual(buy_ok["bound_px"], 100.5, places=4)
-
-        sell_ok = tau_leg1_fill_price_ok(
-            fill_px=99.7,
-            ref=100.0,
-            y_tau=-0.5,
-            direction="sell_then_buy",
-            mult=1.0,
-            cfg=zbias_s,
-        )
-        self.assertTrue(sell_ok["ok"], sell_ok)
-        self.assertAlmostEqual(sell_ok["bound_px"], 99.5, places=4)
-
-        buy_bad = tau_leg1_fill_price_ok(
-            fill_px=100.6,
-            ref=100.0,
-            y_tau=0.5,
-            direction="buy_then_sell",
-            mult=1.0,
-            cfg=zbias_b,
-        )
-        self.assertFalse(buy_bad["ok"], buy_bad)
-
-        sell_bad = tau_leg1_fill_price_ok(
-            fill_px=99.4,
-            ref=100.0,
-            y_tau=-0.5,
-            direction="sell_then_buy",
-            mult=1.0,
-            cfg=zbias_s,
-        )
-        self.assertFalse(sell_bad["ok"], sell_bad)
-
     def test_tau_exit_price_signed_bounds(self):
         """第二腿：正T卖价>bound / 反T买价<bound。"""
         from core.t0.minute_path import tau_leg2_fill_price_ok
@@ -1201,12 +1111,8 @@ class TestT0Core(unittest.TestCase):
         self.assertFalse(buy_bad["ok"], buy_bad)
 
     def test_tau_price_gate_bias_and_clamp(self):
-        """价闸：move=clamp(ŷ_τ×裕度,min,max)+price_bias。"""
-        from core.t0.minute_path import (
-            tau_entry_bound_px,
-            tau_exit_bound_px,
-            tau_leg1_fill_price_ok,
-        )
+        """出场价闸：move=clamp(ŷ_τ×裕度,min,max)+price_bias。"""
+        from core.t0.minute_path import tau_exit_bound_px, tau_leg2_fill_price_ok
 
         cfg_bias = {
             "y_tau_exit_price_skip_buy_then_sell": True,
@@ -1225,25 +1131,25 @@ class TestT0Core(unittest.TestCase):
         self.assertAlmostEqual(bound, 101.39, places=4)
 
         cfg_clamp = {
-            "y_tau_entry_price_skip_buy_then_sell": True,
-            "y_tau_entry_price_mult_buy_then_sell": 5.0,
-            "y_tau_entry_price_bias_buy_then_sell": 0.0,
-            "y_tau_entry_price_move_min_buy_then_sell": 0.0,
-            "y_tau_entry_price_move_max_buy_then_sell": 1.0,
+            "y_tau_exit_price_skip_buy_then_sell": True,
+            "y_tau_exit_price_mult_buy_then_sell": 1.0,
+            "y_tau_exit_price_bias_buy_then_sell": 0.0,
+            "y_tau_exit_price_move_min_buy_then_sell": 0.0,
+            "y_tau_exit_price_move_max_buy_then_sell": 1.0,
         }
-        entry_bound = tau_entry_bound_px(
+        exit_bound = tau_exit_bound_px(
             ref=100.0,
-            y_tau=0.4,
+            y_tau=2.0,
             direction="buy_then_sell",
             cfg=cfg_clamp,
         )
-        # clamp(0.4×5, 0, 1)+0 = 1.0 → 101.0
-        self.assertAlmostEqual(entry_bound, 101.0, places=4)
+        # clamp(2.0×1, 0, 1)+0 = 1.0 → 101.0
+        self.assertAlmostEqual(exit_bound, 101.0, places=4)
 
-        gate = tau_leg1_fill_price_ok(
-            fill_px=100.9,
+        gate = tau_leg2_fill_price_ok(
+            fill_px=101.1,
             ref=100.0,
-            y_tau=0.4,
+            y_tau=2.0,
             direction="buy_then_sell",
             cfg=cfg_clamp,
         )
@@ -1260,7 +1166,6 @@ class TestT0Core(unittest.TestCase):
         self.assertAlmostEqual(d["y_tau_exit_price_bias_sell_then_buy"], -1.0)
         applied = _tau_price_gate_bias(
             {"y_tau_exit_price_bias_sell_then_buy": -1.0},
-            leg="exit",
             direction="sell_then_buy",
         )
         self.assertAlmostEqual(applied, -1.0)
@@ -1363,48 +1268,6 @@ class TestT0Core(unittest.TestCase):
         self.assertEqual(port.get("path_hit", {}).get("hit"), 1)
         self.assertIsNotNone(port.get("pred_joint", {}).get("same_sign_rate"))
         self.assertAlmostEqual(float(sc.get("y_tau_portrait_oc")), 0.9, places=4)
-
-    def test_prefix_tau_entry_price_floor(self):
-        """反T：确认根卖价须 > open×(1+ŷ_τ×裕度)（ŷ_τ 为负）。"""
-        from core.t0.minute_path import tau_leg1_fill_price_ok
-
-        gate = tau_leg1_fill_price_ok(
-            fill_px=96.0,
-            ref=100.0,
-            y_tau=-0.4,
-            direction="sell_then_buy",
-            mult=5.0,
-            cfg={
-                "y_tau_entry_price_skip_sell_then_buy": True,
-                "y_tau_entry_price_mult_sell_then_buy": 5.0,
-                "y_tau_entry_price_bias_sell_then_buy": 0.0,
-            },
-        )
-        self.assertFalse(gate["ok"], gate)
-        self.assertAlmostEqual(gate["bound_px"], 98.0, places=4)
-
-        via_cfg = tau_leg1_fill_price_ok(
-            fill_px=96.0,
-            ref=100.0,
-            y_tau=-0.4,
-            direction="sell_then_buy",
-            cfg={
-                "y_tau_entry_price_skip": True,
-                "y_tau_entry_price_mult": 5.0,
-                "y_tau_entry_price_bias_sell_then_buy": 0.0,
-            },
-        )
-        self.assertFalse(via_cfg["ok"], via_cfg)
-
-        off = tau_leg1_fill_price_ok(
-            fill_px=96.0,
-            ref=100.0,
-            y_tau=-0.4,
-            direction="sell_then_buy",
-            cfg={"y_tau_entry_price_skip": False, "y_tau_entry_price_mult": 5.0},
-        )
-        self.assertTrue(off["ok"], off)
-
 
     def test_leg2_uses_frozen_close_band_not_tau(self):
         """v6：第二腿触冻结 ĉ−δ，不被 τ 出场价抢走。"""

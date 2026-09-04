@@ -96,21 +96,6 @@ ALLOWED_T0_PATCH_KEYS = frozenset(
         "t0_price_space_prev_dev_pct",
         "t0_round_ratio",
         "t0_max_position_pct",
-        "y_tau_entry_price_skip",
-        "y_tau_entry_price_mult",
-        "y_tau_entry_price_bias",
-        "y_tau_entry_price_move_min",
-        "y_tau_entry_price_move_max",
-        "y_tau_entry_price_skip_buy_then_sell",
-        "y_tau_entry_price_mult_buy_then_sell",
-        "y_tau_entry_price_bias_buy_then_sell",
-        "y_tau_entry_price_move_min_buy_then_sell",
-        "y_tau_entry_price_move_max_buy_then_sell",
-        "y_tau_entry_price_skip_sell_then_buy",
-        "y_tau_entry_price_mult_sell_then_buy",
-        "y_tau_entry_price_bias_sell_then_buy",
-        "y_tau_entry_price_move_min_sell_then_buy",
-        "y_tau_entry_price_move_max_sell_then_buy",
         "y_tau_exit_price_skip",
         "y_tau_exit_price_mult",
         "y_tau_exit_price_bias",
@@ -126,7 +111,6 @@ ALLOWED_T0_PATCH_KEYS = frozenset(
         "y_tau_exit_price_bias_sell_then_buy",
         "y_tau_exit_price_move_min_sell_then_buy",
         "y_tau_exit_price_move_max_sell_then_buy",
-        "y_tau_require_for_leg1",
         "y_ratio_boost_cap",
         "y_ratio_cut",
         "y_score_source",
@@ -202,14 +186,6 @@ DEFAULT_T0_OVERLAY: Dict[str, Any] = {
     "t0_round_ratio": 0.4,
     "t0_max_position_pct": 1.0,
     "t0_slots_max_rounds": 5,
-    "y_tau_entry_price_skip": True,
-    "y_tau_entry_price_mult": 0.5,
-    "y_tau_entry_price_skip_buy_then_sell": True,
-    "y_tau_entry_price_mult_buy_then_sell": 0.5,
-    "y_tau_entry_price_bias_buy_then_sell": 0.5,
-    "y_tau_entry_price_skip_sell_then_buy": True,
-    "y_tau_entry_price_mult_sell_then_buy": 0.5,
-    "y_tau_entry_price_bias_sell_then_buy": -0.5,
     "y_tau_exit_price_skip": True,
     "y_tau_exit_price_mult": 1.0,
     "y_tau_exit_price_skip_buy_then_sell": True,
@@ -224,7 +200,6 @@ DEFAULT_T0_OVERLAY: Dict[str, Any] = {
     "t0_pm_degrade_buy_then_sell": "13:00",
     "t0_pm_chase_cap_leg1_sell_then_buy": True,
     "t0_pm_chase_cap_leg1_buy_then_sell": True,
-    "y_tau_require_for_leg1": True,
     "t0_pm_chase_interval_min": 5,
     "t0_pm_chase_interval_min_sell_then_buy": 5,
     "t0_pm_chase_interval_min_buy_then_sell": 5,
@@ -749,41 +724,6 @@ def execution_public_view(bundle: Dict[str, Any]) -> Dict[str, Any]:
             "t0_price_space_prev_dev_pct": t0.get("t0_price_space_prev_dev_pct"),
             "t0_round_ratio": t0.get("t0_round_ratio"),
             "t0_max_position_pct": t0.get("t0_max_position_pct"),
-            "y_tau_entry_price_skip": t0.get("y_tau_entry_price_skip"),
-            "y_tau_entry_price_mult": t0.get("y_tau_entry_price_mult"),
-            "y_tau_entry_price_bias": t0.get("y_tau_entry_price_bias"),
-            "y_tau_entry_price_move_min": t0.get("y_tau_entry_price_move_min"),
-            "y_tau_entry_price_move_max": t0.get("y_tau_entry_price_move_max"),
-            "y_tau_entry_price_skip_buy_then_sell": t0.get(
-                "y_tau_entry_price_skip_buy_then_sell"
-            ),
-            "y_tau_entry_price_mult_buy_then_sell": t0.get(
-                "y_tau_entry_price_mult_buy_then_sell"
-            ),
-            "y_tau_entry_price_bias_buy_then_sell": t0.get(
-                "y_tau_entry_price_bias_buy_then_sell"
-            ),
-            "y_tau_entry_price_move_min_buy_then_sell": t0.get(
-                "y_tau_entry_price_move_min_buy_then_sell"
-            ),
-            "y_tau_entry_price_move_max_buy_then_sell": t0.get(
-                "y_tau_entry_price_move_max_buy_then_sell"
-            ),
-            "y_tau_entry_price_skip_sell_then_buy": t0.get(
-                "y_tau_entry_price_skip_sell_then_buy"
-            ),
-            "y_tau_entry_price_mult_sell_then_buy": t0.get(
-                "y_tau_entry_price_mult_sell_then_buy"
-            ),
-            "y_tau_entry_price_bias_sell_then_buy": t0.get(
-                "y_tau_entry_price_bias_sell_then_buy"
-            ),
-            "y_tau_entry_price_move_min_sell_then_buy": t0.get(
-                "y_tau_entry_price_move_min_sell_then_buy"
-            ),
-            "y_tau_entry_price_move_max_sell_then_buy": t0.get(
-                "y_tau_entry_price_move_max_sell_then_buy"
-            ),
             "y_tau_exit_price_skip": t0.get("y_tau_exit_price_skip"),
             "y_tau_exit_price_mult": t0.get("y_tau_exit_price_mult"),
             "y_tau_exit_price_bias": t0.get("y_tau_exit_price_bias"),
@@ -819,7 +759,6 @@ def execution_public_view(bundle: Dict[str, Any]) -> Dict[str, Any]:
             "y_tau_exit_price_move_max_sell_then_buy": t0.get(
                 "y_tau_exit_price_move_max_sell_then_buy"
             ),
-            "y_tau_require_for_leg1": t0.get("y_tau_require_for_leg1"),
             "y_ratio_boost_cap": t0.get("y_ratio_boost_cap"),
             "y_ratio_cut": t0.get("y_ratio_cut"),
             "y_score_source": t0.get("y_score_source"),
@@ -962,9 +901,6 @@ def validate_execution_patch(raw: Any) -> Tuple[bool, Dict[str, Any], List[str]]
     _legacy_side_expand = (
         ("t0_pm_chase_interval_min", ("t0_pm_chase_interval_min_buy_then_sell",)),
         ("t0_pm_degrade", ("t0_pm_degrade_buy_then_sell",)),
-        ("y_tau_entry_price_mult", ("y_tau_entry_price_mult_buy_then_sell",)),
-        ("y_tau_entry_price_bias", ("y_tau_entry_price_bias_buy_then_sell",)),
-        ("y_tau_entry_price_skip", ("y_tau_entry_price_skip_buy_then_sell",)),
         ("y_tau_exit_price_mult", ("y_tau_exit_price_mult_buy_then_sell",)),
         ("y_tau_exit_price_bias", ("y_tau_exit_price_bias_buy_then_sell",)),
         ("y_tau_exit_price_skip", ("y_tau_exit_price_skip_buy_then_sell",)),
@@ -1002,16 +938,6 @@ def validate_execution_patch(raw: Any) -> Tuple[bool, Dict[str, Any], List[str]]
         t0_out["t0_price_space_gate"] = bool(t0_in.get("t0_price_space_gate"))
     if "y_path_required" in t0_in:
         t0_out["y_path_required"] = bool(t0_in.get("y_path_required"))
-    if "y_tau_entry_price_skip" in t0_in:
-        t0_out["y_tau_entry_price_skip"] = bool(t0_in.get("y_tau_entry_price_skip"))
-    if "y_tau_entry_price_skip_buy_then_sell" in t0_in:
-        t0_out["y_tau_entry_price_skip_buy_then_sell"] = bool(
-            t0_in.get("y_tau_entry_price_skip_buy_then_sell")
-        )
-    if "y_tau_entry_price_skip_sell_then_buy" in t0_in:
-        t0_out["y_tau_entry_price_skip_sell_then_buy"] = bool(
-            t0_in.get("y_tau_entry_price_skip_sell_then_buy")
-        )
     if "y_tau_exit_price_skip" in t0_in:
         t0_out["y_tau_exit_price_skip"] = bool(t0_in.get("y_tau_exit_price_skip"))
     if "y_tau_exit_price_skip_buy_then_sell" in t0_in:

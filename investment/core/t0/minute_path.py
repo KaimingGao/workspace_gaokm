@@ -319,14 +319,13 @@ def _score_y_path(score_snap: Optional[dict]) -> Optional[float]:
     return None
 
 
-def _tau_price_gate_prefix(leg: str) -> str:
-    return "y_tau_entry_price" if str(leg or "").strip().lower() == "entry" else "y_tau_exit_price"
+_TAU_EXIT_PREFIX = "y_tau_exit_price"
 
 
-def _tau_price_gate_side_keys(*, leg: str, direction: str) -> tuple[str, str, str, str, str]:
-    """skip / mult / bias / move_min / move_max 分侧键。"""
+def _tau_price_gate_side_keys(*, direction: str) -> tuple[str, str, str, str, str]:
+    """出场 skip / mult / bias / move_min / move_max 分侧键。"""
     direction = str(direction or "").strip().lower()
-    prefix = _tau_price_gate_prefix(leg)
+    prefix = _TAU_EXIT_PREFIX
     if direction == "buy_then_sell":
         return (
             f"{prefix}_skip_buy_then_sell",
@@ -352,142 +351,9 @@ def _tau_price_gate_side_keys(*, leg: str, direction: str) -> tuple[str, str, st
     )
 
 
-def _tau_entry_price_side_keys(direction: str) -> tuple[str, str]:
-    skip_key, mult_key, _bias_key, _min_key, _max_key = _tau_price_gate_side_keys(
-        leg="entry", direction=direction
-    )
-    return skip_key, mult_key
-
-
-def _tau_entry_price_mult(cfg: Optional[dict], direction: str = "") -> float:
-    """τ 入场价裕度：bound = open×(1 + ŷ_τ%×mult/100)；默认 1.0；正/反T 分侧。"""
-    _skip_key, mult_key = _tau_entry_price_side_keys(direction)
-    raw = (cfg or {}).get(mult_key)
-    if raw is None or raw == "":
-        raw = (cfg or {}).get("y_tau_entry_price_mult")
-    try:
-        m = float(1.0 if raw is None or raw == "" else raw)
-    except (TypeError, ValueError):
-        m = 1.0
-    return max(0.5, min(m, 5.0))
-
-
-def _tau_entry_price_skip(cfg: Optional[dict], direction: str = "") -> bool:
-    from core.t0.config import coerce_cfg_bool
-
-    skip_key, _mult_key = _tau_entry_price_side_keys(direction)
-    raw = (cfg or {}).get(skip_key)
-    if raw is None:
-        raw = (cfg or {}).get("y_tau_entry_price_skip")
-    return coerce_cfg_bool(raw, True)
-
-
-def tau_leg1_fill_price_ok(
-    *,
-    fill_px: float,
-    ref: float,
-    y_tau: Optional[float],
-    direction: str,
-    cfg: Optional[dict] = None,
-    mult: Optional[float] = None,
-) -> Dict[str, Any]:
-    """确认根第一腿：有符号 ŷ_τ 定相对开盘边界。
-
-    - 正T：买价 < open×(1 + ŷ_τ×裕度)（ŷ_τ 多为正 → 天花板）
-    - 反T：卖价 > open×(1 + ŷ_τ×裕度)（ŷ_τ 多为负 → 地板）
-    正T ``y_tau_entry_price_mult_buy_then_sell`` / 反T ``…_sell_then_buy`` 默认 1。
-    关对应侧 skip 或显式 ``mult≤0`` 时放行。缺 ŷ_τ / 无效价放行。
-    """
-    direction = str(direction or "").strip().lower()
-    enabled = _tau_entry_price_skip(cfg, direction)
-    if mult is not None:
-        try:
-            m = float(mult)
-        except (TypeError, ValueError):
-            m = 0.0
-    else:
-        m = _tau_entry_price_mult(cfg, direction) if enabled else 0.0
-    base: Dict[str, Any] = {
-        "direction": direction,
-        "enabled": enabled,
-        "mult": round(m, 4),
-        "y_tau": None if y_tau is None else round(float(y_tau), 4),
-        "ref": round(float(ref), 4) if ref else None,
-        "fill_px": round(float(fill_px), 4) if fill_px else None,
-    }
-    if (not enabled) or m <= 0:
-        return {**base, "ok": True, "skipped": True, "reason": "τ入场价闸关"}
-    if ref is None or float(ref) <= 0 or fill_px is None or float(fill_px) <= 0:
-        return {**base, "ok": True, "skipped": True, "reason": "τ入场价门禁无效价"}
-    if y_tau is None:
-        from core.t0.config import coerce_cfg_bool
-
-        require = coerce_cfg_bool((cfg or {}).get("y_tau_require_for_leg1"), True)
-        if enabled and require:
-            return {
-                **base,
-                "ok": False,
-                "skipped": False,
-                "reason": "缺ŷ_τ，不开第一腿",
-            }
-        return {**base, "ok": True, "skipped": True, "reason": "缺ŷ_τ，跳过入场价门禁"}
-    bias = _tau_price_gate_bias(cfg, leg="entry", direction=direction)
-    move_min, move_max = _tau_price_gate_move_bounds(cfg, leg="entry", direction=direction)
-    move_pct = _tau_price_move_pct(
-        y_tau=float(y_tau),
-        mult=m,
-        move_min=move_min,
-        move_max=move_max,
-        bias=bias,
-    )
-    base["move_pct"] = round(move_pct, 4)
-    base["price_bias"] = round(bias, 4)
-    base["move_min"] = round(move_min, 4)
-    base["move_max"] = round(move_max, 4)
-    px = float(fill_px)
-    o = float(ref)
-    bound = _tau_price_bound_px(ref=o, move_pct=move_pct)
-    base["bound_px"] = round(bound, 4)
-    formula = _tau_price_formula_label(
-        mult=m,
-        y_tau=float(y_tau),
-        move_pct=move_pct,
-        move_min=move_min,
-        move_max=move_max,
-        bias=bias,
-    )
-    if direction == "buy_then_sell":
-        base["bound_kind"] = "ceil"
-        ok = px < bound + 1e-9
-        return {
-            **base,
-            "ok": ok,
-            "skipped": False,
-            "reason": (
-                f"正T买价<{formula}：{px:.3f}<{bound:.3f}"
-                if ok
-                else f"正T买价未低于τ带 {px:.3f}≥{bound:.3f}（{formula}）"
-            ),
-        }
-    if direction == "sell_then_buy":
-        base["bound_kind"] = "floor"
-        ok = px > bound - 1e-9
-        return {
-            **base,
-            "ok": ok,
-            "skipped": False,
-            "reason": (
-                f"反T卖价>{formula}：{px:.3f}>{bound:.3f}"
-                if ok
-                else f"反T卖价未高于τ带 {px:.3f}≤{bound:.3f}（{formula}）"
-            ),
-        }
-    return {**base, "ok": True, "skipped": True, "reason": "非正/反T，跳过入场价门禁"}
-
-
 def _tau_exit_price_side_keys(direction: str) -> tuple[str, str]:
     skip_key, mult_key, _bias_key, _min_key, _max_key = _tau_price_gate_side_keys(
-        leg="exit", direction=direction
+        direction=direction
     )
     return skip_key, mult_key
 
@@ -511,22 +377,21 @@ def _tau_price_gate_float(
     return max(lo, min(val, hi))
 
 
-def _tau_price_gate_bias(cfg: Optional[dict], *, leg: str, direction: str) -> float:
-    """价偏百分点（代数可正可负，直接加在 clamp 后）。"""
+def _tau_price_gate_bias(cfg: Optional[dict], *, direction: str) -> float:
+    """出场价偏百分点（代数可正可负，直接加在 clamp 后）。"""
     _skip, _mult, bias_key, _min_key, _max_key = _tau_price_gate_side_keys(
-        leg=leg, direction=direction
+        direction=direction
     )
-    prefix = _tau_price_gate_prefix(leg)
     if direction == "sell_then_buy":
-        default = -1.0 if leg == "exit" else -0.5
+        default = -1.0
     elif direction == "buy_then_sell":
-        default = 1.0 if leg == "exit" else 0.5
+        default = 1.0
     else:
         default = 0.0
     return _tau_price_gate_float(
         cfg,
         bias_key,
-        legacy_key=f"{prefix}_bias",
+        legacy_key=f"{_TAU_EXIT_PREFIX}_bias",
         default=default,
         lo=-50.0,
         hi=50.0,
@@ -534,16 +399,15 @@ def _tau_price_gate_bias(cfg: Optional[dict], *, leg: str, direction: str) -> fl
 
 
 def _tau_price_gate_move_bounds(
-    cfg: Optional[dict], *, leg: str, direction: str
+    cfg: Optional[dict], *, direction: str
 ) -> tuple[float, float]:
     _skip, _mult, _bias_key, min_key, max_key = _tau_price_gate_side_keys(
-        leg=leg, direction=direction
+        direction=direction
     )
-    prefix = _tau_price_gate_prefix(leg)
     move_min = _tau_price_gate_float(
         cfg,
         min_key,
-        legacy_key=f"{prefix}_move_min",
+        legacy_key=f"{_TAU_EXIT_PREFIX}_move_min",
         default=-100.0,
         lo=-100.0,
         hi=100.0,
@@ -551,7 +415,7 @@ def _tau_price_gate_move_bounds(
     move_max = _tau_price_gate_float(
         cfg,
         max_key,
-        legacy_key=f"{prefix}_move_max",
+        legacy_key=f"{_TAU_EXIT_PREFIX}_move_max",
         default=100.0,
         lo=-100.0,
         hi=100.0,
@@ -639,8 +503,8 @@ def tau_exit_bound_px(
     m = _tau_exit_price_mult(cfg, direction)
     if m <= 0 or ref is None or float(ref) <= 0 or y_tau is None:
         return None
-    bias = _tau_price_gate_bias(cfg, leg="exit", direction=direction)
-    move_min, move_max = _tau_price_gate_move_bounds(cfg, leg="exit", direction=direction)
+    bias = _tau_price_gate_bias(cfg, direction=direction)
+    move_min, move_max = _tau_price_gate_move_bounds(cfg, direction=direction)
     move_pct = _tau_price_move_pct(
         y_tau=float(y_tau),
         mult=m,
@@ -685,8 +549,8 @@ def tau_leg2_fill_price_ok(
         return {**base, "ok": True, "skipped": True, "reason": "τ出场价门禁无效价"}
     if y_tau is None:
         return {**base, "ok": True, "skipped": True, "reason": "缺ŷ_τ，跳过出场价门禁"}
-    bias = _tau_price_gate_bias(cfg, leg="exit", direction=direction)
-    move_min, move_max = _tau_price_gate_move_bounds(cfg, leg="exit", direction=direction)
+    bias = _tau_price_gate_bias(cfg, direction=direction)
+    move_min, move_max = _tau_price_gate_move_bounds(cfg, direction=direction)
     move_pct = _tau_price_move_pct(
         y_tau=float(y_tau),
         mult=m,
@@ -736,32 +600,6 @@ def tau_leg2_fill_price_ok(
             ),
         }
     return {**base, "ok": True, "skipped": True, "reason": "非正/反T，跳过出场价门禁"}
-
-
-def tau_entry_bound_px(
-    *,
-    ref: float,
-    y_tau: Optional[float],
-    direction: str,
-    cfg: Optional[dict] = None,
-) -> Optional[float]:
-    """第一腿 bound=open×(1+ŷ_τ×裕度)；闸关 / 缺 ŷ_τ → None。"""
-    direction = str(direction or "").strip().lower()
-    if not _tau_entry_price_skip(cfg, direction):
-        return None
-    m = _tau_entry_price_mult(cfg, direction)
-    if m <= 0 or ref is None or float(ref) <= 0 or y_tau is None:
-        return None
-    bias = _tau_price_gate_bias(cfg, leg="entry", direction=direction)
-    move_min, move_max = _tau_price_gate_move_bounds(cfg, leg="entry", direction=direction)
-    move_pct = _tau_price_move_pct(
-        y_tau=float(y_tau),
-        mult=m,
-        move_min=move_min,
-        move_max=move_max,
-        bias=bias,
-    )
-    return _tau_price_bound_px(ref=float(ref), move_pct=move_pct)
 
 
 def _leg2_tau_target_px(
@@ -927,30 +765,15 @@ def _first_touch_sell_then_buy(
         ts = mb.get("datetime") or mb.get("date")
         pm_hit = bool(pm_hm and _hm_reached(ts, pm_hm, inclusive=False))
 
-        # 第一腿：确认根收盘（leg1_gate_at）；无闸时 τ 入场闸
+        # 第一腿：确认根收盘；无闸不开
         if sold_qty <= 0 and qty > 0:
             if pm_hit:
                 continue
-            gated = leg1_gate_at is not None
-            if gated:
-                if not leg1_gate_at(idx):
-                    continue
-                if close <= 0:
-                    continue
-                fill_sell = float(close)
-            else:
-                if close <= 0:
-                    continue
-                fill_sell = float(close)
-                gate = tau_leg1_fill_price_ok(
-                    fill_px=fill_sell,
-                    ref=ref,
-                    y_tau=y_tau,
-                    direction="sell_then_buy",
-                    cfg=cfg,
-                )
-                if not gate.get("ok"):
-                    continue
+            if leg1_gate_at is None or not leg1_gate_at(idx):
+                continue
+            if close <= 0:
+                continue
+            fill_sell = float(close)
             cash_delta += append_t0_leg(
                 trades,
                 cost_model=cost_model,
@@ -1392,32 +1215,16 @@ def _first_touch_buy_then_sell(
         ts = mb.get("datetime") or mb.get("date")
         pm_hit = bool(pm_hm and _hm_reached(ts, pm_hm, inclusive=False))
 
-        # 第一腿：确认根收盘（leg1_gate_at）；无闸时保留相对开盘触价兜底
+        # 第一腿：确认根收盘；无闸不开
         if bought_qty <= 0:
             if pm_hit:
                 continue
-            gated = leg1_gate_at is not None
-            if gated:
-                if not leg1_gate_at(idx):
-                    continue
-                if close <= 0:
-                    continue
-                fill_buy = float(close)
-                buy_level = fill_buy
-            else:
-                if close <= 0:
-                    continue
-                fill_buy = float(close)
-                gate = tau_leg1_fill_price_ok(
-                    fill_px=fill_buy,
-                    ref=ref,
-                    y_tau=y_tau,
-                    direction="buy_then_sell",
-                    cfg=cfg,
-                )
-                if not gate.get("ok"):
-                    continue
-                buy_level = float(gate.get("bound_px") or fill_buy)
+            if leg1_gate_at is None or not leg1_gate_at(idx):
+                continue
+            if close <= 0:
+                continue
+            fill_buy = float(close)
+            buy_level = fill_buy
             # 含费再缩量，避免 append 后现金转负
             qty = _max_affordable_buy_lots(
                 cash,
@@ -1779,15 +1586,9 @@ def _forward_trace_row(
     cfg_side: Optional[dict] = None,
     wait_reason: Optional[str] = None,
 ) -> Dict[str, Any]:
-    sell_level = buy_level = tau_entry_bound = tau_exit_bound = None
+    sell_level = buy_level = tau_exit_bound = None
     direction_s = str(direction or "").strip().lower()
     if ref is not None and y_tau is not None and direction_s in ("buy_then_sell", "sell_then_buy"):
-        tau_entry_bound = tau_entry_bound_px(
-            ref=float(ref),
-            y_tau=y_tau,
-            direction=direction_s,
-            cfg=cfg_side,
-        )
         tau_exit_bound = tau_exit_bound_px(
             ref=float(ref),
             y_tau=y_tau,
@@ -1795,30 +1596,15 @@ def _forward_trace_row(
             cfg=cfg_side,
         )
         if direction_s == "buy_then_sell":
-            buy_level = (
-                round(float(tau_entry_bound), 4) if tau_entry_bound is not None else None
-            )
             sell_level = (
                 round(float(tau_exit_bound), 4) if tau_exit_bound is not None else None
             )
         else:
-            sell_level = (
-                round(float(tau_entry_bound), 4) if tau_entry_bound is not None else None
-            )
             buy_level = (
                 round(float(tau_exit_bound), 4) if tau_exit_bound is not None else None
             )
     lo = float(m.get("low") or 0)
     hi = float(m.get("high") or 0)
-    touch_leg1 = False
-    touch_blocked = False
-    if direction_s == "buy_then_sell" and buy_level is not None:
-        touch_leg1 = lo <= float(buy_level)
-    elif direction_s == "sell_then_buy" and sell_level is not None:
-        touch_leg1 = hi >= float(sell_level)
-    # 粘滞开闸已废弃：仅固定前缀确认根可成交；触价但未确认时标 blocked（诊断用）
-    if touch_leg1 and not (entry_ready or gate_open):
-        touch_blocked = True
     return {
         "idx": idx,
         "time": _minute_bar_time(m),
@@ -1839,16 +1625,14 @@ def _forward_trace_row(
         "entry_ready": bool(entry_ready),
         "ref": round(float(ref), 4) if ref is not None else None,
         "y_tau": round(float(y_tau), 4) if y_tau is not None else None,
-        "tau_entry_bound": (
-            round(float(tau_entry_bound), 4) if tau_entry_bound is not None else None
-        ),
+        "tau_entry_bound": None,
         "tau_exit_bound": (
             round(float(tau_exit_bound), 4) if tau_exit_bound is not None else None
         ),
         "sell_level": sell_level,
         "buy_level": buy_level,
-        "touch_leg1": touch_leg1,
-        "touch_blocked": touch_blocked,
+        "touch_leg1": False,
+        "touch_blocked": False,
         "pm_hit": False,
         "pm_block": False,
         "wait_reason": wait_reason,

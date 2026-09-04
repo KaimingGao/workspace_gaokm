@@ -39,7 +39,7 @@ export const SKIP_CAT_LABEL = {
   prefix_vs_path: "前缀>|ŷ_path|×裕度(旧)",
   close_band: "收盘带宽未破带",
   price_space_mismatch: "日分价空间错位",
-  tau_entry_price: "入场价vs开盘×ŷ_τ",
+  tau_entry_price: "入场价vs开盘×ŷ_τ(旧)",
   tau_exit_price: "出场价vs开盘×ŷ_τ",
   y_trade_weak: "y_trade幅度不足",
   eod_tau_disagree: "y_eod↔y_τ异号",
@@ -89,13 +89,13 @@ export const SKIP_CAT_TIP = {
   prefix_segment:
     "历史口径：固定前缀未齐或阴阳占比未达标。v6 已下线，新跑批不应再产生。",
   prefix_vs_path:
-    "历史口径：前缀窗 (H−L)/ref% 超过 |ŷ_path|×裕度（空间用尽）。现行已改为收盘带宽 + τ 入场价闸。",
+    "历史口径：前缀窗 (H−L)/ref% 超过 |ŷ_path|×裕度（空间用尽）。v6 已改为收盘带宽选腿，新跑批不应再产生。",
   close_band:
     "v6：该 5m 收价未破 ĉ±δ 带宽，或缺有效 ĉ 源，本轮不开第一腿。",
   price_space_mismatch:
     "日分价闸：开盘差 |日开/分开−1| 超 t0_price_space_max_dev_pct（默认 5%），或昨收差 |日昨/分昨−1| 超 t0_price_space_prev_dev_pct；错价则跳过。",
   tau_entry_price:
-    "触发根第一腿：正T买价须 < open×(1+(clamp(ŷ_τ×裕度,min,max)+价偏)/100)；反T卖价须 > 同式。可调裕度/价偏或关闸。",
+    "历史口径：确认根买/卖价相对 open×(1+ŷ_τ) 的入场价闸。v6 第一腿按确认根收盘成交，该闸已下线；新跑批不应再产生。",
   tau_exit_price:
     "第二腿：正T卖价须 > open×(1+(clamp(ŷ_τ×裕度,min,max)+价偏)/100)；反T买价须 < 同式。止损/收盘强平不受闸。",
   y_trade_weak:
