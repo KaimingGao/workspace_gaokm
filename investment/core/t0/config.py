@@ -208,6 +208,7 @@ DEFAULT_T0_RULES: Dict[str, Any] = {
     "y_path_enter_buy_then_sell": 0.01,
     "y_path_strong": 0.2,
     "y_complexity_max": 1.0,  # ŷ_complexity∈[0,1]；>此值太折跳过；默认 1.00≈关
+    "y_tpd_max": 0.40,  # ŷ_tpd∈[0,1]；>此值反转过密跳过；默认 0.40；1.00≈关
     "y_eod_enter": 0.01,
     "y_eod_strong": 0.2,
     "y_eod_prior": 0.01,
@@ -512,6 +513,7 @@ def load_t0_rules(override: Optional[dict] = None) -> Dict[str, Any]:
         ("y_path_enter_buy_then_sell", 0.0, 5.0, 0.01),
         ("y_path_strong", 0.0, 5.0, 0.2),
         ("y_complexity_max", 0.01, 1.0, 1.0),
+        ("y_tpd_max", 0.0, 1.0, 0.40),
         ("y_gap_tier_pct", 0.3, 8.0, 1.0),
     ):
         try:

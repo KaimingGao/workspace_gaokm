@@ -18,6 +18,13 @@ from core.t0.config import T0_LAST_LEG1_HM, load_t0_rules
 from core.t0.slots import simulate_t0_day_slots
 
 
+def _cfg(overrides=None):
+    """路径单测关掉 TPD 入场闸；生产默认 y_tpd_max=0.40。"""
+    d = dict(overrides or {})
+    d.setdefault("y_tpd_max", 1.0)
+    return load_t0_rules(d)
+
+
 def _mins(closes, *, session_open=100.0):
     """合成分钟线；首根 open=session_open（与估 Ĉ 锚同源），各根 close 按序列。"""
     out = []
@@ -284,6 +291,46 @@ class TestCloseBandCore(unittest.TestCase):
         )
         self.assertIsNone(cap)
 
+    def test_enter_skip_tpd_max(self):
+        from core.t0.close_band import close_band_enter_skip_reason
+
+        cfg = {
+            "y_tau_enter": 0.0,
+            "y_path_enter": 0.0,
+            "y_use_path": False,
+            "y_complexity_max": 1.0,
+            "y_tpd_max": 0.40,
+        }
+        too = close_band_enter_skip_reason(
+            {"y_tau": 1.0, "predicted_score_tpd": 0.80, "y_tpd_hat": 0.80},
+            cfg,
+        )
+        self.assertIsNotNone(too)
+        self.assertIn("反转过密", too)
+        ok = close_band_enter_skip_reason(
+            {"y_tau": 1.0, "predicted_score_tpd": 0.30},
+            cfg,
+        )
+        self.assertIsNone(ok)
+        miss = close_band_enter_skip_reason({"y_tau": 1.0}, cfg)
+        self.assertIsNone(miss)
+        cap = close_band_enter_skip_reason(
+            {"y_tau": 1.0, "predicted_score_tpd": 0.99},
+            {**cfg, "y_tpd_max": 1.0},
+        )
+        self.assertIsNone(cap)
+        default_on = close_band_enter_skip_reason(
+            {"y_tau": 1.0, "y_tpd_hat": 0.99},
+            {
+                "y_tau_enter": 0.0,
+                "y_path_enter": 0.0,
+                "y_use_path": False,
+                "y_complexity_max": 1.0,
+            },
+        )
+        self.assertIsNotNone(default_on)
+        self.assertIn("反转过密", default_on)
+
     def test_enter_skip_r_tau(self):
         from core.t0.close_band import close_band_enter_skip_reason
 
@@ -335,7 +382,7 @@ class TestCloseBandCore(unittest.TestCase):
             "close": 99.4,
             "prev_close": 100.0,
         }
-        cfg = load_t0_rules(
+        cfg = _cfg(
             {
                 "t0_close_band_delta_pct": 0.5,
                 "t0_round_ratio": 0.2,
@@ -552,7 +599,7 @@ class TestCloseBandCore(unittest.TestCase):
             "prev_close": 100.0,
             "close": 100.0,
         }
-        cfg = load_t0_rules(
+        cfg = _cfg(
             {
                 "t0_close_band_delta_pct": 0.5,
                 "t0_price_space_max_dev_pct": 0.25,
@@ -595,7 +642,7 @@ class TestCloseBandCore(unittest.TestCase):
         }
         for m in mins:
             m["prev_close"] = 100.0
-        cfg = load_t0_rules(
+        cfg = _cfg(
             {
                 "t0_close_band_delta_pct": 0.5,
                 "t0_round_ratio": 0.2,
@@ -674,7 +721,7 @@ class TestCloseBandCore(unittest.TestCase):
             "close": 100,
             "prev_close": 100,
         }
-        cfg = load_t0_rules(
+        cfg = _cfg(
             {
                 "t0_close_band_delta_pct": 0.5,
                 "t0_round_ratio": 0.2,
@@ -738,7 +785,7 @@ class TestCloseBandCore(unittest.TestCase):
             "close": 101,
             "prev_close": 100.0,
         }
-        cfg = load_t0_rules(
+        cfg = _cfg(
             {
                 "t0_close_band_delta_pct": 0.5,
                 "t0_round_ratio": 0.2,
@@ -851,7 +898,7 @@ class TestCloseBandCore(unittest.TestCase):
             "close": 101,
             "prev_close": 100.0,
         }
-        cfg = load_t0_rules(
+        cfg = _cfg(
             {
                 "t0_close_band_delta_pct": 0.5,
                 "t0_round_ratio": 0.2,
@@ -886,6 +933,7 @@ class TestCloseBandCore(unittest.TestCase):
         self.assertIn("y_tau", first)
         self.assertIn("y_complexity", first)
         self.assertIn("y_cx", first)
+        self.assertIn("y_tpd", first)
         for row in scan:
             hm = str(row.get("hm") or "")
             self.assertLessEqual(hm, "11:00", row)
@@ -904,7 +952,7 @@ class TestCloseBandDayPath(unittest.TestCase):
             "close": 100,
             "prev_close": 100,
         }
-        cfg = load_t0_rules(
+        cfg = _cfg(
             {
                 "t0_close_band_delta_pct": 0.5,
                 "t0_round_ratio": 0.2,
@@ -973,7 +1021,7 @@ class TestCloseBandDayPath(unittest.TestCase):
             "close": 100,
             "prev_close": 100,
         }
-        cfg = load_t0_rules(
+        cfg = _cfg(
             {
                 "t0_close_band_delta_pct": 0.5,
                 "t0_round_ratio": 0.2,
@@ -1039,7 +1087,7 @@ class TestCloseBandDayPath(unittest.TestCase):
             "close": 100,
             "prev_close": 100,
         }
-        cfg = load_t0_rules(
+        cfg = _cfg(
             {
                 "t0_close_band_delta_pct": 0.5,
                 "t0_round_ratio": 0.2,
@@ -1086,7 +1134,7 @@ class TestCloseBandDayPath(unittest.TestCase):
         self.assertEqual(rows, [])
         self.assertTrue(out.get("skipped"))
         # 对照：关先验后同价应能开反T
-        cfg_off = load_t0_rules(
+        cfg_off = _cfg(
             {
                 **{
                     "t0_close_band_delta_pct": 0.5,
@@ -1137,7 +1185,7 @@ class TestCloseBandDayPath(unittest.TestCase):
             "close": 100,
             "prev_close": 100,
         }
-        cfg = load_t0_rules(
+        cfg = _cfg(
             {
                 "t0_close_band_delta_pct": 0.5,
                 "t0_round_ratio": 0.2,
@@ -1206,7 +1254,7 @@ class TestCloseBandDayPath(unittest.TestCase):
         }
 
         def _run(r_enter):
-            cfg = load_t0_rules(
+            cfg = _cfg(
                 {
                     "t0_close_band_delta_pct": 0.5,
                     "t0_round_ratio": 0.2,
@@ -1270,7 +1318,7 @@ class TestCloseBandDayPath(unittest.TestCase):
             "close": 100,
             "prev_close": 100,
         }
-        cfg = load_t0_rules(
+        cfg = _cfg(
             {
                 "t0_close_band_delta_pct": 0.5,
                 "t0_round_ratio": 1.0,
@@ -1334,7 +1382,7 @@ class TestCloseBandDayPath(unittest.TestCase):
             "close": 100,
             "prev_close": 100,
         }
-        cfg = load_t0_rules(
+        cfg = _cfg(
             {
                 "t0_close_band_delta_pct": 0.5,
                 "t0_round_ratio": 1.0,
@@ -1441,7 +1489,7 @@ class TestCloseBandDayPath(unittest.TestCase):
             "close": 100,
             "prev_close": 100,
         }
-        cfg = load_t0_rules(
+        cfg = _cfg(
             {
                 "t0_close_band_delta_pct": 0.5,
                 "t0_round_ratio": 0.2,

@@ -264,6 +264,12 @@ class T0BacktestRequest(BaseModel):
         le=1.0,
         description="legacy alias of y_complexity_max",
     )
+    y_tpd_max: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        le=1.0,
+        description="ŷ_tpd∈[0,1] 上限：超过则反转过密跳过做 T（默认 0.40；1.00≈关）",
+    )
     y_path_required: Optional[bool] = None
     y_gap_tier_mode: Optional[str] = Field(default=None, max_length=24)
     y_gap_tier_pct: Optional[float] = Field(default=None, ge=0.3, le=8.0)
@@ -505,6 +511,7 @@ class PaperExecutionPatchRequest(BaseModel):
     y_path_strong: Optional[float] = None
     y_complexity_max: Optional[float] = None
     y_cx_max: Optional[float] = None
+    y_tpd_max: Optional[float] = None
     y_path_required: Optional[bool] = None
     y_gap_tier_mode: Optional[str] = None
     y_gap_tier_pct: Optional[float] = None

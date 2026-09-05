@@ -103,6 +103,10 @@ class CxLabelTests(unittest.TestCase):
         self.assertEqual(day["scores"].get("y_complexity"), day.get("y_complexity"))
         self.assertEqual(day["direction_features"].get("y_complexity"), day.get("y_complexity"))
         self.assertIsNotNone(day.get("cx_efficiency"))
+        self.assertIsNotNone(day.get("y_tpd"))
+        self.assertEqual(day.get("y_tpd"), day.get("tpd_realized"))
+        self.assertEqual(day.get("y_tpd"), day.get("y_complexity_tpd"))
+        self.assertEqual(day["scores"].get("y_tpd"), day.get("y_tpd"))
 
     def test_cx_as_unit_01(self):
         from core.research.cx_panel import cx_as_unit_01
@@ -131,6 +135,18 @@ class CxLabelTests(unittest.TestCase):
         self.assertEqual(packed["complexity_realized_reason"], "flat_path")
         self.assertIsNone(pick_y_complexity_label({}))
         self.assertIsNone(pack_y_complexity_fields(None)["y_complexity"])
+
+    def test_pick_y_tpd_label_zero_is_valid(self):
+        from core.research.cx_panel import pack_y_tpd_fields, pick_y_tpd_label
+
+        self.assertEqual(pick_y_tpd_label({"y_tpd": 0.0}), 0.0)
+        self.assertEqual(pick_y_tpd_label({"y_complexity_tpd": 0.0}), 0.0)
+        self.assertEqual(pick_y_tpd_label({"y_tpd": 0.0, "y_complexity_tpd": 0.9}), 0.0)
+        packed = pack_y_tpd_fields({"y_tpd": 0.0})
+        self.assertEqual(packed["y_tpd"], 0.0)
+        self.assertEqual(packed["tpd_realized"], 0.0)
+        self.assertIsNone(pick_y_tpd_label({}))
+        self.assertIsNone(pack_y_tpd_fields(None)["y_tpd"])
 
 
 class CxRidgeFitTests(unittest.TestCase):
@@ -189,11 +205,16 @@ class CxRidgeFitTests(unittest.TestCase):
         extras = (report.get("return_model") or {}).get("extra_features") or []
         self.assertIn("complexity_lag1", extras)
         self.assertIn("complexity_ma5", extras)
+        self.assertIn("tpd_lag1", extras)
+        self.assertIn("tpd_ma5", extras)
+        self.assertNotIn("complexity_tpd_lag1", extras)
         self.assertNotIn("cx_L_lag1", extras)
         self.assertNotIn("cx_am_lag1", extras)
         labels = (report.get("return_model") or {}).get("feat_labels") or {}
         self.assertIn("complexity_lag1", labels)
-        self.assertIn("cx_lag1", labels)
+        self.assertIn("tpd_lag1", labels)
+        self.assertNotIn("cx_lag1", labels)
+        self.assertNotIn("complexity_tpd_lag1", labels)
 
 
 class CxLagFeatureTests(unittest.TestCase):

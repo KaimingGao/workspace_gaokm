@@ -168,6 +168,15 @@ export function renderExecutionRulesHtml(execution) {
       })(),
       "ŷ_complexity∈[0,1]；超过则太折跳过做 T；默认 1.00≈关"
     ) +
+    specKpi(
+      "tpd门槛",
+      (() => {
+        const n = Number(t0.y_tpd_max);
+        if (!Number.isFinite(n)) return "0.40";
+        return n >= 1 ? "1.00≈关" : `ŷ_tpd>${n}`;
+      })(),
+      "ŷ_tpd∈[0,1]；超过则反转过密跳过做 T；默认 0.40；1.00≈关"
+    ) +
     specKpi("路径", pathLbl, "分钟触价路径") +
     specKpi("成交", fillLbl, "全量触价 trigger；表单不再提供 mid/optimistic") +
     specKpi(
@@ -310,6 +319,14 @@ export function fillExecutionForm(root, execution) {
     })()
   );
   set(
+    "y_tpd_max",
+    (() => {
+      const n = Number(t0.y_tpd_max);
+      if (!Number.isFinite(n)) return 0.4;
+      return Math.max(0, Math.min(n, 1));
+    })()
+  );
+  set(
     "y_tau_leg1_prior_mode",
     normalizeTauLeg1PriorMode(t0.y_tau_leg1_prior_mode, t0.y_tau_leg1_prior)
   );
@@ -412,6 +429,11 @@ export function collectExecutionForm(root) {
       const n = num("y_complexity_max", num("y_cx_max", 1));
       if (!Number.isFinite(n)) return 1;
       return Math.max(0.01, Math.min(n, 1));
+    })(),
+    y_tpd_max: (() => {
+      const n = num("y_tpd_max", 0.4);
+      if (!Number.isFinite(n)) return 0.4;
+      return Math.max(0, Math.min(n, 1));
     })(),
     y_tau_leg1_prior_mode: normalizeTauLeg1PriorMode(
       str("y_tau_leg1_prior_mode", "off"),
@@ -727,6 +749,11 @@ export function collectT0BacktestBody(root, opts = {}) {
       const n = Number(t0.y_complexity_max ?? t0.y_cx_max);
       if (!Number.isFinite(n)) return 1;
       return Math.max(0.01, Math.min(n, 1));
+    })(),
+    y_tpd_max: (() => {
+      const n = Number(t0.y_tpd_max);
+      if (!Number.isFinite(n)) return 0.4;
+      return Math.max(0, Math.min(n, 1));
     })(),
     y_tau_leg1_prior_mode: normalizeTauLeg1PriorMode(
       t0.y_tau_leg1_prior_mode,

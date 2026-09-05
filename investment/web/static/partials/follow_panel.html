@@ -666,6 +666,13 @@
                   </label>
                   <label
                     class="paper-t0-field"
+                    title="ŷ_tpd∈[0,1]（0=无反转，1=每根都反转）。超过此值反转过密则跳过做 T；范围 0.00–1.00；默认 0.40；1.00≈关。闸用盘中前缀 ŷ_tpd，不是收盘后的全日 label。"
+                  >
+                    <span>tpd门槛</span>
+                    <input type="number" name="y_tpd_max" min="0" max="1.00" step="0.01" value="0.40" />
+                  </label>
+                  <label
+                    class="paper-t0-field"
                     title="把预估开→收 ŷ_τ 当偏移加到 ±δ 上，整条带宽平移（宽仍 2δ），不改冻结 leg2（仍 ĉ±δ）。抬门槛：s=clip(k·ŷ_τ,±α·δ)，上沿=δ+s、下沿=−δ+s；关=对称 ±δ（ĉ 已含 ŷ_τ，残差常小于 δ，成交会少；可略降 δ）"
                   >
                     <span>τ先验</span>

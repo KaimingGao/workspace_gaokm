@@ -1093,6 +1093,198 @@ class QuantFactorMixin:
             **doc,
         }
 
+    def run_tpd_ridge_experiment(
+        self,
+        *,
+        lookback: int = 120,
+        watching_limit: int = 200,
+        ridge_lambda: float = 1.0,
+        gap_trigger_pct: float = 2.0,
+        minute_period: str = "5",
+        minute_lookback_days: int = 150,
+        persist: bool = False,
+        note: str = "",
+        force_promote: bool = False,
+    ) -> Dict[str, Any]:
+        """观察池 ŷ_tpd Ridge：开盘 Z + 多 τ 前缀 → 全日 5m 转折点密度。只读本地 5m 缓存。"""
+        from core.data.facade import bars_and_source
+        from core.ports.market import group_minute_bars_by_date
+        from core.research.cx_panel import DEFAULT_CX_TAU_GRID
+        from core.store import load_minute_cache
+        from core.watching.store import WATCHING_MAX_SIZE, read_watching
+        from quant.research.tpd_ridge import (
+            fit_tpd_ridge_report,
+            load_tpd_last_report,
+            load_tpd_model,
+            persist_tpd_model,
+            save_tpd_last_report,
+            tpd_promote_gate,
+        )
+
+        uni = read_watching()
+        pool = [
+            str(c).strip()
+            for c in (uni.get("watchlist") or [])
+            if str(c).strip()
+        ]
+        cap = max(2, min(int(WATCHING_MAX_SIZE), 500))
+        limit = max(2, min(int(watching_limit or cap), cap))
+        codes = pool[:limit]
+        if len(codes) < 2:
+            return {
+                "success": False,
+                "error": "研究池至少 2 只才可跑 ŷ_tpd Ridge",
+                "task": "tpd_ridge",
+            }
+
+        if persist:
+            last = load_tpd_last_report()
+            if last:
+                saved = persist_tpd_model(
+                    last,
+                    note=note or "persist last tpd report",
+                    force=bool(force_promote),
+                )
+                out = dict(last)
+                out["persisted"] = saved
+                out["from_last_report"] = True
+                out["promote_gate"] = saved.get("promote_gate") or tpd_promote_gate(last)
+                if saved.get("promoted_at"):
+                    out["promoted_at"] = saved["promoted_at"]
+                return out
+
+        period = str(minute_period or "5").strip() or "5"
+        mlook = max(20, min(int(minute_lookback_days or 90), 240))
+        minute_by_code_date: Dict[str, Dict[str, Any]] = {}
+        minute_codes_hit = 0
+        minute_codes_miss = 0
+        minute_days_total = 0
+        minute_span_days: List[int] = []
+
+        stock_bars: List[Dict[str, Any]] = []
+        for code in codes:
+            bars, _src = bars_and_source(code, limit=lookback + 40)
+            if not bars:
+                continue
+            stock_bars.append({"code": str(code), "bars": bars})
+            raw = str(code).strip()
+            mbars: Optional[List[dict]] = None
+            try:
+                packed = load_minute_cache(
+                    "CN",
+                    raw,
+                    period,
+                    min_bars=10,
+                    max_age_hours=720.0,
+                    ignore_age=True,
+                )
+                if packed:
+                    mbars, _meta = packed
+            except Exception:  # noqa: BLE001
+                logger.debug("tpd ridge minute cache miss for %s", raw, exc_info=True)
+            if not mbars:
+                minute_codes_miss += 1
+                continue
+            by_day = group_minute_bars_by_date(mbars)
+            if not by_day:
+                minute_codes_miss += 1
+                continue
+            minute_by_code_date[raw] = by_day
+            minute_codes_hit += 1
+            minute_days_total += len(by_day)
+            minute_span_days.append(len(by_day))
+
+        if minute_codes_hit < 1:
+            return {
+                "success": False,
+                "error": (
+                    f"无本地分钟缓存（period={period} · 池 {len(codes)} 只）；"
+                    "请先「强更 5m」，拟合不再拉远端"
+                ),
+                "task": "tpd_ridge",
+                "minute_period": period,
+                "watching_limit": limit,
+                "watching_pool_size": len(pool),
+                "minute_cache_only": True,
+                "minute_codes_miss": minute_codes_miss,
+            }
+
+        report = fit_tpd_ridge_report(
+            stock_bars,
+            minute_by_code_date=minute_by_code_date,
+            ridge_lambda=ridge_lambda,
+            gap_trigger_pct=gap_trigger_pct,
+            tau_grid=list(DEFAULT_CX_TAU_GRID),
+        )
+        report["watching_limit"] = limit
+        report["watching_pool_size"] = len(pool)
+        report["lookback"] = lookback
+        report["minute_period"] = period
+        report["minute_lookback_days"] = mlook
+        report["minute_codes_hit"] = minute_codes_hit
+        report["minute_codes_miss"] = minute_codes_miss
+        report["minute_codes_universe"] = len(codes)
+        report["minute_days_total"] = minute_days_total
+        report["minute_cache_only"] = True
+        if minute_span_days:
+            ss = sorted(minute_span_days)
+            report["minute_span_days_med"] = ss[len(ss) // 2]
+            report["minute_span_days_min"] = ss[0]
+            report["minute_span_days_max"] = ss[-1]
+        if report.get("success"):
+            save_tpd_last_report(report)
+        if persist and report.get("success"):
+            saved = persist_tpd_model(
+                report,
+                note=note or "api tpd-ridge persist",
+                force=bool(force_promote),
+            )
+            report["persisted"] = saved
+            report["promote_gate"] = saved.get("promote_gate") or tpd_promote_gate(report)
+            if saved.get("promoted_at"):
+                report["promoted_at"] = saved["promoted_at"]
+        else:
+            report["persisted"] = {"success": False, "skipped": True}
+            live = load_tpd_model()
+            report["live_model_present"] = bool(live)
+            if report.get("success") and not report.get("promote_gate"):
+                report["promote_gate"] = tpd_promote_gate(report)
+        return report
+
+    def get_tpd_ridge_model(self) -> Dict[str, Any]:
+        from quant.research.tpd_ridge import (
+            load_tpd_last_report,
+            load_tpd_model,
+            tpd_model_path,
+            tpd_promote_gate,
+        )
+
+        doc = load_tpd_model()
+        last = load_tpd_last_report()
+        if not doc:
+            out = {
+                "success": False,
+                "exists": False,
+                "path": tpd_model_path(),
+                "last_report_exists": bool(last),
+                "note": "尚无 ŷ_tpd 模型；POST /api/quant/tpd-ridge persist=true",
+            }
+            if last:
+                out["promote_gate"] = tpd_promote_gate(last)
+                out["oos"] = last.get("oos")
+            return out
+        gate_src = doc if not doc.get("_shadow") else (last or doc)
+        return {
+            "success": True,
+            "exists": True,
+            "path": tpd_model_path(),
+            "promoted": not bool(doc.get("_shadow")),
+            "shadow": bool(doc.get("_shadow")),
+            "last_report_exists": bool(last),
+            "promote_gate": tpd_promote_gate(gate_src),
+            **doc,
+        }
+
     def run_factor_ols_pool_experiment(
         self,
         *,

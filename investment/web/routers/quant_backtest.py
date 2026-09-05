@@ -77,6 +77,7 @@ def quant_t0_backtest(body: T0BacktestRequest) -> Dict[str, Any]:
             "y_path_strong",
             "y_complexity_max",
             "y_cx_max",
+            "y_tpd_max",
             "y_path_required",
             "y_gap_tier_mode",
             "y_gap_tier_pct",

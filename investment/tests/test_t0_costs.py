@@ -400,6 +400,7 @@ class TestT0Costs(unittest.TestCase):
                     "y_tau_exit_price_skip_sell_then_buy": False,
                     "lot_size": 100,
                     "t0_slots_max_rounds": 1,
+                    "y_tpd_max": 1.0,
                 }
             },
         }

@@ -122,6 +122,7 @@ def paper_execution_save(body: PaperExecutionPatchRequest | None = None) -> Dict
             ("y_path_strong", getattr(req, "y_path_strong", None)),
             ("y_complexity_max", getattr(req, "y_complexity_max", None) or getattr(req, "y_cx_max", None)),
             ("y_cx_max", getattr(req, "y_complexity_max", None) or getattr(req, "y_cx_max", None)),
+            ("y_tpd_max", getattr(req, "y_tpd_max", None)),
             ("y_path_required", req.y_path_required),
             ("y_gap_tier_mode", req.y_gap_tier_mode),
             ("y_gap_tier_pct", req.y_gap_tier_pct),

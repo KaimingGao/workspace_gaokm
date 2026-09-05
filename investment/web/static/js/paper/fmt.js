@@ -300,6 +300,8 @@ export const Y_COMPLEXITY_TITLE =
   "y_complexity · 本轮前缀 ŷ（全日 1−D/L ∈[0,1]，表内×100%）· 0=直线 · 1=最折 · ŷ_complexity>门槛则跳过";
 /** @deprecated 用 Y_COMPLEXITY_TITLE */
 export const Y_CX_TITLE = Y_COMPLEXITY_TITLE;
+export const Y_TPD_TITLE =
+  "y_tpd · 本轮前缀 ŷ（全日转折点密度 ∈[0,1]，表内×100%）· 0=无反转 · 1=每根都反转 · ŷ_tpd>门槛则跳过";
 
 /** OC 头原始 ŷ（映射前）：与组成合计 / tip 大标题同口径。 */
 function _tauOcRaw(it) {

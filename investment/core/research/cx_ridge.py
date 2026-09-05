@@ -15,12 +15,13 @@ logger = logging.getLogger(__name__)
 
 from core.io_atomic import atomic_write_json
 from core.research.cx_panel import (
-    CX_LAG_FEAT_LABELS,
+    CANON_LAG_FEAT_LABELS,
     CX_Z_FEATURES,
     DEFAULT_CX_MINUTE_TAU_HM,
     DEFAULT_CX_TAU_GRID,
     build_cx_panels_from_bars,
     cx_as_unit_01,
+    resolve_feat_value,
 )
 from core.research.factor_ols_fit import fit_factor_ols_from_panel
 from core.research.tau_panel import normalize_minute_tau_grid
@@ -45,12 +46,13 @@ def _stack_panels(enriched: Sequence[Dict[str, Any]]) -> tuple:
     return xs_all, ys_all, dates_all, metas_all
 
 
-def _z_only_xs(xs: List[dict]) -> List[dict]:
+def _z_only_xs(xs: List[dict], features: Optional[Sequence[str]] = None) -> List[dict]:
+    keys = list(features or CX_Z_FEATURES)
     out: List[dict] = []
     for row in xs:
         if not isinstance(row, dict):
             continue
-        out.append({k: row.get(k) for k in CX_Z_FEATURES})
+        out.append({k: row.get(k) for k in keys})
     return out
 
 
@@ -311,14 +313,17 @@ def fit_cx_ridge_report(
         "tau_grid": list(grid),
         "note": (
             "Kaufman 1−ER：D=全日 5m 收价首末位移，L=邻根路径长（午休跳空不计）；"
-            "y_complexity∈[0,1]，0≈直线、1=最折。特征=开盘 Z + ≤τ 前缀 + complexity_lag1/complexity_ma5；"
-            "标签=全日 1−D/L（不变）。OOS 看 IC / 中位命中，不看方向命中。"
+            "y_complexity∈[0,1]，0≈直线、1=最折。特征=开盘 Z + ≤τ 前缀 + complexity_lag1/ma5 + tpd_lag1/ma5；"
+            "标签=全日 1−D/L（不变）。TPD（转折点密度）补 1−D/L 的中间形状盲区。OOS 看 IC / 中位命中，不看方向命中。"
         ),
     }
     model["extra_features"] = list(CX_Z_FEATURES)
     model["minute_tau_hm"] = live_hm
     model["tau_grid"] = list(grid)
-    model["feat_labels"] = {**dict(MINUTE_TAU_FEAT_LABELS), **dict(CX_LAG_FEAT_LABELS)}
+    model["feat_labels"] = {
+        **dict(MINUTE_TAU_FEAT_LABELS),
+        **dict(CANON_LAG_FEAT_LABELS),
+    }
 
     report = {
         "success": True,
@@ -473,19 +478,8 @@ def predict_cx_from_features(
     if not names:
         names = list(CX_Z_FEATURES)
     row: Dict[str, Optional[float]] = {}
-    alias = {
-        "cx_lag1": "complexity_lag1",
-        "cx_ma5": "complexity_ma5",
-        "complexity_lag1": "cx_lag1",
-        "complexity_ma5": "cx_ma5",
-    }
     for k in names:
-        v = features.get(k)
-        if v is None:
-            alt = alias.get(k)
-            if alt:
-                v = features.get(alt)
-        row[k] = v
+        row[k] = resolve_feat_value(features, k)
     preds = _predict_rows(rm, [row])
     if not preds or preds[0] is None:
         return None

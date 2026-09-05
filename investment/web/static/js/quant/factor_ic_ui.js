@@ -434,8 +434,14 @@ export function createFactorIcUi(deps) {
     path_ma5: "近5日真实极值序均 %",
     complexity_lag1: "昨真实曲折度",
     complexity_ma5: "近5日真实曲折度均",
+    tpd_lag1: "昨真实反转密度",
+    tpd_ma5: "近5日真实反转密度均",
     cx_lag1: "昨真实曲折度",
     cx_ma5: "近5日真实曲折度均",
+    complexity_tpd_lag1: "昨真实反转密度",
+    complexity_tpd_ma5: "近5日真实反转密度均",
+    cx_tpd_lag1: "昨真实反转密度",
+    cx_tpd_ma5: "近5日真实反转密度均",
     ret_open_to_tau: "开盘→τ 收益 %",
     ret_prev_to_tau: "昨收→τ 收益 %",
     range_pct: "前缀振幅 %",
@@ -488,17 +494,48 @@ export function createFactorIcUi(deps) {
     return REM_FEAT_LABELS[key] || fromMeta || key;
   }
 
+  const LAG_FEAT_CANON = {
+    cx_lag1: "complexity_lag1",
+    cx_ma5: "complexity_ma5",
+    complexity_tpd_lag1: "tpd_lag1",
+    complexity_tpd_ma5: "tpd_ma5",
+    cx_tpd_lag1: "tpd_lag1",
+    cx_tpd_ma5: "tpd_ma5",
+  };
+  const LAG_FEAT_ALIASES = {
+    complexity_lag1: ["cx_lag1"],
+    complexity_ma5: ["cx_ma5"],
+    tpd_lag1: ["complexity_tpd_lag1", "cx_tpd_lag1"],
+    tpd_ma5: ["complexity_tpd_ma5", "cx_tpd_ma5"],
+  };
+
+  function canonLagFeatName(name) {
+    const key = String(name || "").trim();
+    return LAG_FEAT_CANON[key] || key;
+  }
+
+  function pickNamedNum(bag, canon) {
+    if (!bag || typeof bag !== "object") return null;
+    const keys = [canon, ...(LAG_FEAT_ALIASES[canon] || [])];
+    for (const k of keys) {
+      if (bag[k] != null && Number.isFinite(Number(bag[k]))) return Number(bag[k]);
+    }
+    return null;
+  }
+
   /**
    * ŷ_τ / ŷ_ON Ridge 因子系数表：仅入模因子；KPI + 双向 β 图 + 表内条形。
    * @param {object|null} rm return_model 或含 coefficients 的报告块
-   * @param {{ oos?: object, head?: "tau"|"on"|"path"|"cx" } } [opts]
+   * @param {{ oos?: object, head?: "tau"|"on"|"path"|"cx"|"tpd" } } [opts]
    */
   function remCoefTableHtml(rm, opts = {}) {
     if (!rm || typeof rm !== "object") return "";
     const isOn = opts.head === "on";
-    const isCx = opts.head === "cx";
+    const isTpd = opts.head === "tpd";
+    const isCxHead = opts.head === "cx";
+    const isCx = isCxHead || isTpd;
     const isPath = opts.head === "path" || isCx;
-    const pathTag = isCx ? "ŷ_complexity" : "ŷ_path";
+    const pathTag = isTpd ? "ŷ_tpd" : isCxHead ? "ŷ_complexity" : "ŷ_path";
     const coefs =
       rm.coefficients && typeof rm.coefficients === "object" ? rm.coefficients : {};
     const means =
@@ -552,6 +589,12 @@ export function createFactorIcUi(deps) {
       "complexity_ma5",
       "cx_lag1",
       "cx_ma5",
+      "complexity_tpd_lag1",
+      "complexity_tpd_ma5",
+      "cx_tpd_lag1",
+      "cx_tpd_ma5",
+      "tpd_lag1",
+      "tpd_ma5",
       "tau_lag1",
       "tau_ma5",
       "path_lag1",
@@ -569,19 +612,20 @@ export function createFactorIcUi(deps) {
     const activeList = Array.isArray(rm.active_features)
       ? rm.active_features.map(String)
       : Object.keys(coefs);
-    let rows = activeList
+    const seenCanon = new Set();
+    const canonActive = [];
+    for (const raw of activeList) {
+      const name = canonLagFeatName(raw);
+      if (seenCanon.has(name)) continue;
+      seenCanon.add(name);
+      canonActive.push(name);
+    }
+    let rows = canonActive
       .map((name) => {
-        const v = coefs[name];
-        if (v == null || !Number.isFinite(Number(v))) return null;
-        const ols = Number(v);
-        const mu =
-          means[name] != null && Number.isFinite(Number(means[name]))
-            ? Number(means[name])
-            : null;
-        const sd =
-          stds[name] != null && Number.isFinite(Number(stds[name]))
-            ? Number(stds[name])
-            : null;
+        const ols = pickNamedNum(coefs, name);
+        if (ols == null) return null;
+        const mu = pickNamedNum(means, name);
+        const sd = pickNamedNum(stds, name);
         let kind;
         if (histLagExtra.has(name)) {
           kind = "历史";
@@ -600,7 +644,7 @@ export function createFactorIcUi(deps) {
         }
         return {
           name,
-          label: remFactorDisplayLabel(name),
+          label: isCx && histLagExtra.has(name) ? name : remFactorDisplayLabel(name),
           ols,
           abs: Math.abs(ols),
           kind,
@@ -620,7 +664,9 @@ export function createFactorIcUi(deps) {
       .sort((a, b) => b.abs - a.abs)
       .map((r, i) => ({ ...r, rank: i + 1 }));
     if (!rows.length) {
-      const emptyMsg = isCx
+      const emptyMsg = isTpd
+        ? "暂无 ŷ_tpd 入模因子"
+        : isCxHead
         ? "暂无 ŷ_complexity 入模因子"
         : isPath
         ? "暂无 ŷ_path 入模因子"
@@ -652,7 +698,9 @@ export function createFactorIcUi(deps) {
     const ySpecRaw =
       ySpecObj.formula ||
       (isPath
-        ? isCx
+        ? isTpd
+          ? "TPD"
+          : isCxHead
           ? "1−D/L"
           : "extreme_order(low,high)"
         : isOn
@@ -664,10 +712,14 @@ export function createFactorIcUi(deps) {
     const openN = rows.filter((r) => r.kind === "开盘" || r.kind === "路径").length;
     const minuteN = rows.filter((r) => r.kind === "分钟").length;
     const histN = rows.filter((r) => r.kind === "历史").length;
-    const extraList = Array.isArray(rm.extra_features)
-      ? rm.extra_features.map(String).filter(Boolean)
-      : [];
-    const activeSet = new Set(activeList);
+    const extraList = [
+      ...new Set(
+        (Array.isArray(rm.extra_features) ? rm.extra_features : [])
+          .map((k) => canonLagFeatName(k))
+          .filter(Boolean)
+      ),
+    ];
+    const activeSet = new Set(canonActive);
     const omittedFromExtra = extraList.filter((k) => !activeSet.has(k));
     const exclKeys = Object.keys(rm.exclusion_reasons || {});
     const exclN = new Set([...exclKeys, ...omittedFromExtra]).size;
@@ -700,7 +752,7 @@ export function createFactorIcUi(deps) {
 
     const metrics =
       `<div class="quant-rem-coef-spec-metrics" role="group" aria-label="${esc(
-        isPath ? `${isCx ? "cx" : "path"} 模型摘要` : isOn ? "on 模型摘要" : "τ 模型摘要"
+        isPath ? `${isTpd ? "tpd" : isCxHead ? "cx" : "path"} 模型摘要` : isOn ? "on 模型摘要" : "τ 模型摘要"
       )}">` +
       (intercept != null ? kpi("截距", intercept.toFixed(3), "模型截距（%）") : "") +
       (nFmt != null ? kpi("样本 n", nFmt, "入模观测数") : "") +
@@ -745,7 +797,9 @@ export function createFactorIcUi(deps) {
     const byTauKeys = byTau
       ? Object.keys(byTau).filter((k) => byTau[k] && Number(byTau[k].n) > 0)
       : [];
-    const byTauTip = isCx
+    const byTauTip = isTpd
+      ? "TPD 标签无方向；τ 分桶看 IC / 中位命中，≈50% 中位命中即无信息"
+      : isCxHead
       ? "曲折度标签无方向；τ 分桶看 IC / 中位命中，≈50% 中位命中即无信息"
       : isPath
       ? "极值序标签下 τ 越晚特征更贴标签，命中易虚高；优先分档对照，live 仍用决策钟"
@@ -902,7 +956,9 @@ export function createFactorIcUi(deps) {
     };
 
     const remFactorFallbackTip = (r) => {
-      const shown = r.label || r.name || "因子";
+      const zh = REM_FEAT_LABELS[r.name];
+      const shown =
+        r.kind === "历史" && zh ? zh : r.label || r.name || "因子";
       const key = r.name ? `（${r.name}）` : "";
       if (isOn) {
         return `${shown}${key}：T 日路径 / 开盘 Z，用于估 open[T+1]/open[T]−1。正 β 表示该值偏高时 ŷ_ON 更高。`;

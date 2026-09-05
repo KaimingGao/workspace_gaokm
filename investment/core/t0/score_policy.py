@@ -409,6 +409,8 @@ def pack_day_scores(score_snap: Optional[dict]) -> Optional[Dict[str, Any]]:
         "y_complexity_hat",
         "predicted_score_cx",
         "y_cx_hat",
+        "predicted_score_tpd",
+        "y_tpd_hat",
         "y_check",
         "eod_trust",
         "y_nc",
@@ -468,6 +470,8 @@ def attach_day_scores(
             "y_complexity_hat",
             "predicted_score_cx",
             "y_cx_hat",
+            "predicted_score_tpd",
+            "y_tpd_hat",
             "y_check",
             "eod_trust",
             "y_nc",
@@ -683,6 +687,30 @@ def scores_from_item(item: Optional[dict]) -> Dict[str, Optional[float]]:
             out["y_complexity_hat"] = y_complexity_hat
             out["predicted_score_cx"] = y_complexity_hat
             out["y_cx_hat"] = y_complexity_hat
+    y_tpd_hat = None
+    try:
+        from core.research.cx_panel import pick_y_tpd_hat
+
+        y_tpd_hat = pick_y_tpd_hat(item)
+    except Exception:  # noqa: BLE001
+        y_tpd_hat = _f(item.get("predicted_score_tpd"))
+        if y_tpd_hat is None:
+            y_tpd_hat = _f(item.get("y_tpd_hat"))
+        if y_tpd_hat is not None:
+            try:
+                from core.research.cx_panel import tpd_as_unit_01
+
+                y_tpd_hat = tpd_as_unit_01(y_tpd_hat)
+            except Exception:  # noqa: BLE001
+                pass
+    if y_tpd_hat is not None:
+        try:
+            from core.research.cx_panel import write_y_tpd_hat
+
+            write_y_tpd_hat(out, y_tpd_hat)
+        except Exception:  # noqa: BLE001
+            out["predicted_score_tpd"] = y_tpd_hat
+            out["y_tpd_hat"] = y_tpd_hat
     if y_tau_oc is not None:
         out["y_tau_oc"] = y_tau_oc
         out["predicted_score_tau_oc"] = y_tau_oc
@@ -1343,7 +1371,7 @@ def _attach_y_complexity_to_item(
     stock_code: Optional[str] = None,
     asof_date: Optional[str] = None,
 ) -> None:
-    """即时补 ŷ_complexity（与 path 同特征、独立 β）；缺模型/缺前缀则不出分，不挡做 T。"""
+    """即时补 ŷ_complexity / ŷ_tpd（同特征、独立 β）；缺模型/缺前缀则不出分（缺分不挡入场闸）。"""
     if not isinstance(item, dict):
         return
     feats_tau = item.get("features_tau") if isinstance(item.get("features_tau"), dict) else {}
@@ -1356,11 +1384,13 @@ def _attach_y_complexity_to_item(
         return
     try:
         from core.research.cx_ridge import load_cx_model, predict_cx_from_features
+        from core.research.tpd_ridge import load_tpd_model, predict_tpd_from_features
         from core.research.path_panel import path_features_from_open_row
-        from core.research.cx_panel import write_y_complexity_hat
+        from core.research.cx_panel import write_y_complexity_hat, write_y_tpd_hat
 
-        model = load_cx_model()
-        if model is None:
+        cx_model = load_cx_model()
+        tpd_model = load_tpd_model()
+        if cx_model is None and tpd_model is None:
             return
         hist = [b for b in (hist_bars or []) if isinstance(b, dict)]
         prev = hist[-1] if hist else None
@@ -1396,16 +1426,35 @@ def _attach_y_complexity_to_item(
             logger.debug("attach cx lag feats failed", exc_info=True)
         if not any(v is not None for v in path_feats.values()):
             return
-        y_complexity = predict_cx_from_features(path_feats, model_doc=model)
-        if y_complexity is None:
-            return
-        fp = item.get("features_path")
-        if isinstance(fp, dict):
-            for k in ("complexity_lag1", "complexity_ma5", "cx_lag1", "cx_ma5"):
-                fp[k] = path_feats.get(k)
-        write_y_complexity_hat(item, float(y_complexity))
+        wrote = False
+        if cx_model is not None:
+            y_complexity = predict_cx_from_features(path_feats, model_doc=cx_model)
+            if y_complexity is not None:
+                write_y_complexity_hat(item, float(y_complexity))
+                wrote = True
+        if tpd_model is not None:
+            y_tpd = predict_tpd_from_features(path_feats, model_doc=tpd_model)
+            if y_tpd is not None:
+                write_y_tpd_hat(item, float(y_tpd))
+                wrote = True
+        if wrote:
+            fp = item.get("features_path")
+            if isinstance(fp, dict):
+                for k in (
+                    "complexity_lag1",
+                    "complexity_ma5",
+                    "cx_lag1",
+                    "cx_ma5",
+                    "complexity_tpd_lag1",
+                    "complexity_tpd_ma5",
+                    "cx_tpd_lag1",
+                    "cx_tpd_ma5",
+                    "tpd_lag1",
+                    "tpd_ma5",
+                ):
+                    fp[k] = path_feats.get(k)
     except Exception:  # noqa: BLE001
-        logger.debug("attach y_complexity predict failed", exc_info=True)
+        logger.debug("attach y_complexity/y_tpd predict failed", exc_info=True)
 
 
 def _inject_minute_pack_from_prefix(
@@ -1722,6 +1771,8 @@ def rescore_scores_at_fixed_prefix(
         out.pop("y_complexity_hat", None)
         out.pop("predicted_score_cx", None)
         out.pop("y_cx_hat", None)
+        out.pop("predicted_score_tpd", None)
+        out.pop("y_tpd_hat", None)
         return out
 
     if not raw or not isinstance(day_bar, dict):

@@ -53,6 +53,7 @@ def _slot_rules(**kwargs):
         "t0_close_band_delta_pct": 0.01,
         "t0_round_ratio": 0.2,
         "r_tau_enter": 0.01,
+        "y_tpd_max": 1.0,
         "min_range_pct": 0.1,
         "min_range_pct_buy_then_sell": 0.1,
         "t0_pm_degrade": "",
@@ -452,12 +453,16 @@ class TestT0Slots(unittest.TestCase):
                     "y_complexity_hat": 0.42,
                     "predicted_score_cx": 0.42,
                     "y_cx_hat": 0.42,
+                    "predicted_score_tpd": 0.31,
+                    "y_tpd_hat": 0.31,
                 },
                 "direction_features": {
                     "y_tau": 0.8,
                     "gap_pct": 0.1,
                     "predicted_score_complexity": 0.42,
                     "predicted_score_cx": 0.42,
+                    "predicted_score_tpd": 0.31,
+                    "y_tpd_hat": 0.31,
                 },
             }
         )
@@ -467,6 +472,8 @@ class TestT0Slots(unittest.TestCase):
         self.assertAlmostEqual(extra["scores"]["y_complexity_hat"], 0.42)
         self.assertAlmostEqual(extra["scores"]["predicted_score_cx"], 0.42)
         self.assertAlmostEqual(extra["scores"]["y_cx_hat"], 0.42)
+        self.assertAlmostEqual(extra["scores"]["predicted_score_tpd"], 0.31)
+        self.assertAlmostEqual(extra["scores"]["y_tpd_hat"], 0.31)
         self.assertAlmostEqual(extra["direction_features"]["gap_pct"], 0.1)
         self.assertAlmostEqual(extra["direction_features"]["predicted_score_cx"], 0.42)
 

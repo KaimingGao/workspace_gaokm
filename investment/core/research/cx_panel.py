@@ -9,7 +9,9 @@
 0 = 直线（曲折度最低）；1 = 最折。与波动率不同：单边趋势可以振幅大但 y_complexity 低。
 
 无未来函数：特征 = 开盘 Z + ≤τ 分钟前缀 + 历史真实曲折度
-（complexity_lag1 / complexity_ma5，不含当日）；标签用全日 5m 路径（1−D/L 不变）。
+（complexity_lag1 / complexity_ma5，不含当日）以及 TPD 滞后
+（tpd_lag1 / tpd_ma5；旧键 complexity_tpd_lag* 仍可读）。
+ŷ_complexity 与 ŷ_tpd 共用这套滞后，只换标签（全日 1−D/L 或全日 TPD）。
 研究枢纽拟合；做 T 入场用盘中前缀 ŷ_complexity，ŷ_complexity > y_complexity_max 则跳过
 （不用全日 realized 标签）。旧键 y_cx / cx_lag1 仍可读。
 """
@@ -49,6 +51,26 @@ CX_LAG_KEY_ALIASES = (
     ("complexity_lag1", "cx_lag1"),
     ("complexity_ma5", "cx_ma5"),
 )
+# TPD 滞后（两头共用键）：ŷ_complexity 当形状因子，ŷ_tpd 当本头自回归
+TPD_LAG_FEATURES = ("tpd_lag1", "tpd_ma5")
+CX_TPD_LAG_FEATURES = TPD_LAG_FEATURES
+TPD_LAG_FEAT_LABELS = {
+    "tpd_lag1": "昨真实反转密度",
+    "tpd_ma5": "近5日真实反转密度均",
+    "complexity_tpd_lag1": "昨真实反转密度",
+    "complexity_tpd_ma5": "近5日真实反转密度均",
+    "cx_tpd_lag1": "昨真实反转密度",
+    "cx_tpd_ma5": "近5日真实反转密度均",
+}
+CX_TPD_LAG_FEAT_LABELS = TPD_LAG_FEAT_LABELS
+TPD_LAG_KEY_GROUPS = (
+    ("tpd_lag1", "complexity_tpd_lag1", "cx_tpd_lag1"),
+    ("tpd_ma5", "complexity_tpd_ma5", "cx_tpd_ma5"),
+)
+CX_TPD_LAG_KEY_ALIASES = (
+    ("complexity_tpd_lag1", "cx_tpd_lag1"),
+    ("complexity_tpd_ma5", "cx_tpd_ma5"),
+)
 Y_COMPLEXITY_HAT_KEYS = (
     "predicted_score_complexity",
     "y_complexity_hat",
@@ -61,7 +83,26 @@ Y_COMPLEXITY_LABEL_KEYS = (
     "y_cx",
     "cx_realized",
 )
-CX_Z_FEATURES = PATH_Z_FEATURES + CX_LAG_FEATURES
+Y_TPD_HAT_KEYS = (
+    "predicted_score_tpd",
+    "y_tpd_hat",
+)
+Y_TPD_LABEL_KEYS = (
+    "y_tpd",
+    "tpd_realized",
+    "y_complexity_tpd",
+    "complexity_tpd_realized",
+    "cx_tpd_realized",
+)
+CX_Z_FEATURES = PATH_Z_FEATURES + CX_LAG_FEATURES + TPD_LAG_FEATURES
+TPD_Z_FEATURES = CX_Z_FEATURES
+# 研究枢纽因子表 / feat_labels 只用这四键；cx_lag* / complexity_tpd_lag* 仍可读
+CANON_LAG_FEAT_LABELS = {
+    "complexity_lag1": CX_LAG_FEAT_LABELS["complexity_lag1"],
+    "complexity_ma5": CX_LAG_FEAT_LABELS["complexity_ma5"],
+    "tpd_lag1": TPD_LAG_FEAT_LABELS["tpd_lag1"],
+    "tpd_ma5": TPD_LAG_FEAT_LABELS["tpd_ma5"],
+}
 DEFAULT_CX_MINUTE_TAU_HM = DEFAULT_PATH_MINUTE_TAU_HM
 DEFAULT_CX_TAU_GRID = DEFAULT_PATH_TAU_GRID
 # 相邻 5m 超过此时长视为会话断开（午休约 90m），不把跳空算进路径长
@@ -72,6 +113,7 @@ CX_AM_FIRST_MIN = 9 * 60 + 30
 CX_AM_LAST_MIN = 11 * 60
 # live：code → {date: y_complexity}
 _CX_REALIZED_BY_CODE: Dict[str, Dict[str, float]] = {}
+_CX_TPD_REALIZED_BY_CODE: Dict[str, Dict[str, float]] = {}
 
 
 def _f(x: Any) -> Optional[float]:
@@ -86,6 +128,61 @@ def _f(x: Any) -> Optional[float]:
     return v
 
 
+def tpd_from_closes(
+    closes: Sequence[float],
+    times_min: Optional[Sequence[int]] = None,
+    max_step_min: int = CX_MAX_STEP_MIN,
+) -> Optional[float]:
+    """转折点密度 = 方向反转次数 / 有效内点数 ∈ [0,1]。
+
+    0 = 完美直线（无反转）；1 = 每根都反转（最大锯齿）。
+    与 1−D/L 正交：1−D/L 管路径浪费比，TPD 管反转频次。
+    若提供 ``times_min``，跳过 dt > max_step_min 的会话断点（午休），只在连续 5m 段内数转折。
+    """
+    n = len(closes)
+    if n < 3:
+        return None
+    times = list(times_min) if times_min is not None else None
+    if times is None or len(times) != n:
+        turns = 0
+        for i in range(1, n - 1):
+            d1 = closes[i] - closes[i - 1]
+            d2 = closes[i + 1] - closes[i]
+            if d1 != 0 and d2 != 0 and d1 * d2 < 0:
+                turns += 1
+        return round(turns / float(n - 2), 6)
+
+    cap = max(5, int(max_step_min))
+    segments: List[List[float]] = []
+    cur: List[float] = [float(closes[0])]
+    for i in range(1, n):
+        dt = int(times[i]) - int(times[i - 1])
+        if dt <= 0:
+            continue
+        if dt > cap:
+            if len(cur) >= 3:
+                segments.append(cur)
+            cur = [float(closes[i])]
+        else:
+            cur.append(float(closes[i]))
+    if len(cur) >= 3:
+        segments.append(cur)
+    turns = 0
+    denom = 0
+    for seg in segments:
+        if len(seg) < 3:
+            continue
+        denom += len(seg) - 2
+        for i in range(1, len(seg) - 1):
+            d1 = seg[i] - seg[i - 1]
+            d2 = seg[i + 1] - seg[i]
+            if d1 != 0 and d2 != 0 and d1 * d2 < 0:
+                turns += 1
+    if denom <= 0:
+        return None
+    return round(turns / float(denom), 6)
+
+
 def _mirror_complexity_lag_aliases(out: Dict[str, Any]) -> None:
     """新键 complexity_lag* 与旧键 cx_lag* 互相同步，兼容已 promote 模型。"""
     for new_k, old_k in CX_LAG_KEY_ALIASES:
@@ -93,6 +190,47 @@ def _mirror_complexity_lag_aliases(out: Dict[str, Any]) -> None:
             out[old_k] = out[new_k]
         elif old_k in out and new_k not in out:
             out[new_k] = out[old_k]
+
+
+def _mirror_tpd_lag_aliases(out: Dict[str, Any]) -> None:
+    """tpd_lag*、complexity_tpd_lag*、cx_tpd_lag* 互相同步。"""
+    for group in TPD_LAG_KEY_GROUPS:
+        val = None
+        for k in group:
+            if k in out:
+                val = out[k]
+                break
+        if val is None and not any(k in out for k in group):
+            continue
+        for k in group:
+            if k not in out:
+                out[k] = val
+
+
+def resolve_feat_value(features: Optional[dict], name: str) -> Optional[Any]:
+    """读特征，兼容 complexity / tpd / cx 滞后别名。"""
+    row = features if isinstance(features, dict) else {}
+    v = row.get(name)
+    if v is not None:
+        return v
+    for group in TPD_LAG_KEY_GROUPS:
+        if name not in group:
+            continue
+        for alt in group:
+            v = row.get(alt)
+            if v is not None:
+                return v
+        return None
+    for new_k, old_k in CX_LAG_KEY_ALIASES:
+        if name == new_k:
+            v = row.get(old_k)
+            if v is not None:
+                return v
+        elif name == old_k:
+            v = row.get(new_k)
+            if v is not None:
+                return v
+    return None
 
 
 def cx_as_unit_01(
@@ -185,6 +323,65 @@ def pack_y_complexity_fields(day: Optional[dict]) -> Dict[str, Any]:
     }
 
 
+def tpd_as_unit_01(v: Any) -> Optional[float]:
+    """把 TPD 钳到 [0, 1]；0.0 无反转有效。"""
+    x = _f(v)
+    if x is None:
+        return None
+    return max(0.0, min(round(x, 6), 1.0))
+
+
+def pick_y_tpd_hat(*objs: Any) -> Optional[float]:
+    """盘中 ŷ_tpd。"""
+    for obj in objs:
+        if not isinstance(obj, dict):
+            continue
+        for k in Y_TPD_HAT_KEYS:
+            v = tpd_as_unit_01(obj.get(k))
+            if v is not None:
+                return v
+    return None
+
+
+def pick_y_tpd_label(*objs: Any) -> Optional[float]:
+    """全日 TPD 标签；兼容 y_complexity_tpd。"""
+    for obj in objs:
+        if not isinstance(obj, dict):
+            continue
+        for k in Y_TPD_LABEL_KEYS:
+            v = _f(obj.get(k))
+            if v is not None:
+                return v
+    return None
+
+
+def write_y_tpd_hat(dest: Dict[str, Any], val: float) -> None:
+    x = float(val)
+    dest["predicted_score_tpd"] = x
+    dest["y_tpd_hat"] = x
+
+
+def write_y_tpd_label(dest: Dict[str, Any], val: float) -> None:
+    x = float(val)
+    dest["y_tpd"] = x
+    dest["tpd_realized"] = x
+    dest["y_complexity_tpd"] = x
+    dest["complexity_tpd_realized"] = x
+    dest["cx_tpd_realized"] = x
+
+
+def pack_y_tpd_fields(day: Optional[dict]) -> Dict[str, Any]:
+    """全日 TPD 标签（0.0 无反转有效，不用 or）。"""
+    val = pick_y_tpd_label(day) if isinstance(day, dict) else None
+    return {
+        "y_tpd": val,
+        "tpd_realized": val,
+        "y_complexity_tpd": val,
+        "complexity_tpd_realized": val,
+        "cx_tpd_realized": val,
+    }
+
+
 def _bar_hm_minutes(bar: dict) -> Optional[int]:
     t = str(bar.get("time") or bar.get("datetime") or bar.get("date") or "")
     hm = ""
@@ -233,6 +430,14 @@ def cx_complexity_label(
         "displacement": None,
         "efficiency": None,
     }
+    if len(pts) < 3:
+        return None, "too_few_bars", meta
+    # TPD：转折点密度（与 1-D/L 正交，补中间形状信息）；午休跳空不计
+    meta["tpd"] = tpd_from_closes(
+        [p[1] for p in pts],
+        times_min=[p[0] for p in pts],
+        max_step_min=max_step_min,
+    )
     if len(pts) < max(3, int(min_bars)):
         return None, "too_few_bars", meta
     length = 0.0
@@ -284,10 +489,11 @@ def am_session_minute_bars(minute_bars: Sequence[dict]) -> List[dict]:
 def realized_cx_stats_by_date(
     minute_by_date: Optional[Dict[str, Sequence[dict]]],
 ) -> Dict[str, Dict[str, float]]:
-    """各日 {y, L_pct, y_am}；缺的键不进表。"""
+    """各日 {y, L_pct, y_am, tpd}；缺的键不进表。"""
     y_map: Dict[str, float] = {}
     len_map: Dict[str, float] = {}
     am_map: Dict[str, float] = {}
+    tpd_map: Dict[str, float] = {}
     for dkey, bars in (minute_by_date or {}).items():
         day = str(dkey or "")[:10]
         if len(day) < 10:
@@ -295,6 +501,9 @@ def realized_cx_stats_by_date(
         y, _reason, meta = cx_complexity_label(bars)
         if y is not None:
             y_map[day] = float(y)
+        tpd = meta.get("tpd") if isinstance(meta, dict) else None
+        if tpd is not None:
+            tpd_map[day] = float(tpd)
         lp = meta.get("path_len_pct") if isinstance(meta, dict) else None
         if lp is None and isinstance(meta, dict) and meta.get("path_len") is not None:
             pts = _ordered_closes(bars)
@@ -309,7 +518,7 @@ def realized_cx_stats_by_date(
         y_am, _am_reason, _am_meta = cx_complexity_label(am_session_minute_bars(bars))
         if y_am is not None:
             am_map[day] = float(y_am)
-    return {"y": y_map, "L": len_map, "am": am_map}
+    return {"y": y_map, "L": len_map, "am": am_map, "tpd": tpd_map}
 
 
 def realized_cx_by_date(
@@ -342,13 +551,17 @@ def cx_lag_features(
     return out
 
 
-def _load_realized_cx_map_for_code(stock_code: str) -> Dict[str, float]:
+def _load_realized_cx_maps_for_code(
+    stock_code: str,
+) -> Tuple[Dict[str, float], Dict[str, float]]:
+    """加载并缓存 code 的 {date: y_complexity} 和 {date: tpd}。"""
     code = str(stock_code or "").strip()
     if not code:
-        return {}
-    hit = _CX_REALIZED_BY_CODE.get(code)
-    if hit is not None:
-        return hit
+        return {}, {}
+    cx_hit = _CX_REALIZED_BY_CODE.get(code)
+    tpd_hit = _CX_TPD_REALIZED_BY_CODE.get(code)
+    if cx_hit is not None and tpd_hit is not None:
+        return cx_hit, tpd_hit
     by_date: Dict[str, List[dict]] = {}
     try:
         from core.ports.market import resolve_market_code
@@ -368,9 +581,37 @@ def _load_realized_cx_map_for_code(stock_code: str) -> Dict[str, float]:
     except Exception:  # noqa: BLE001
         logger.debug("load realized cx minutes failed", exc_info=True)
         by_date = {}
-    mapped = realized_cx_by_date(by_date)
-    _CX_REALIZED_BY_CODE[code] = mapped
-    return mapped
+    stats = realized_cx_stats_by_date(by_date)
+    cx_map = dict(stats.get("y") or {})
+    tpd_map = dict(stats.get("tpd") or {})
+    _CX_REALIZED_BY_CODE[code] = cx_map
+    _CX_TPD_REALIZED_BY_CODE[code] = tpd_map
+    return cx_map, tpd_map
+
+
+def _load_realized_cx_map_for_code(stock_code: str) -> Dict[str, float]:
+    """向后兼容：只返回 y_complexity map。"""
+    return _load_realized_cx_maps_for_code(stock_code)[0]
+
+
+def cx_tpd_lag_features(
+    *,
+    hist_bars: Sequence[dict],
+    tpd_by_date: Dict[str, float],
+    asof_date: str,
+    window: int = CX_LAG_WINDOW,
+) -> Dict[str, Optional[float]]:
+    """PIT：只用 asof 之前、且有真实 TPD 的交易日；最多 ``window`` 天。"""
+    out = label_lag_features(
+        hist_bars=hist_bars,
+        by_date=tpd_by_date,
+        asof_date=asof_date,
+        window=window,
+        lag1_key="tpd_lag1",
+        ma_key="tpd_ma5",
+    )
+    _mirror_tpd_lag_aliases(out)
+    return out
 
 
 def attach_cx_lag_features(
@@ -381,13 +622,16 @@ def attach_cx_lag_features(
     minute_by_date: Optional[Dict[str, Sequence[dict]]] = None,
     stock_code: str = "",
 ) -> Dict[str, Any]:
-    """把 complexity_lag1 / complexity_ma5 写入特征行；缺历史分钟则留空，不挡打分。"""
+    """把 complexity_lag1/ma5 + tpd_lag1/ma5（及 complexity_tpd_* 别名）写入特征行；缺历史分钟则留空。"""
     out: Dict[str, Any] = dict(feats or {})
     hist = hist_bars_pit(hist_bars, asof_date=asof_date)
     if isinstance(minute_by_date, dict) and minute_by_date:
-        cx_map = realized_cx_by_date(minute_by_date)
+        stats = realized_cx_stats_by_date(minute_by_date)
+        cx_map = dict(stats.get("y") or {})
+        tpd_map = dict(stats.get("tpd") or {})
     else:
-        cx_map = _load_realized_cx_map_for_code(stock_code)
+        cx_map, tpd_map = _load_realized_cx_maps_for_code(stock_code)
+    # 几何曲折度 lag
     lags = cx_lag_features(
         hist_bars=hist,
         cx_by_date=cx_map,
@@ -396,6 +640,15 @@ def attach_cx_lag_features(
     for k in CX_LAG_FEATURES:
         out[k] = lags.get(k)
     _mirror_complexity_lag_aliases(out)
+    # 转折点密度 lag
+    tpd_lags = cx_tpd_lag_features(
+        hist_bars=hist,
+        tpd_by_date=tpd_map,
+        asof_date=asof_date,
+    )
+    for k in TPD_LAG_FEATURES:
+        out[k] = tpd_lags.get(k)
+    _mirror_tpd_lag_aliases(out)
     return out
 
 
@@ -403,30 +656,36 @@ def attach_cx_realized(
     day: Optional[dict],
     minute_bars: Sequence[dict],
 ) -> Dict[str, Any]:
-    """把全日 5m 曲折度标签写入日结果（对照用，不进做 T 闸）。"""
+    """把全日 5m 曲折度 / TPD 标签写入日结果（对照用，不进做 T 闸）。"""
     out: Dict[str, Any] = dict(day or {})
     if not minute_bars:
         return out
     y, reason, meta = cx_complexity_label(minute_bars)
-    if y is None:
+    tpd = meta.get("tpd") if isinstance(meta, dict) else None
+    if y is None and tpd is None:
         return out
-    val = float(y)
-    write_y_complexity_label(out, val, str(reason))
+    scores = dict(out.get("scores") or {}) if isinstance(out.get("scores"), dict) else {}
+    feats = (
+        dict(out.get("direction_features") or {})
+        if isinstance(out.get("direction_features"), dict)
+        else {}
+    )
+    if y is not None:
+        val = float(y)
+        write_y_complexity_label(out, val, str(reason))
+        write_y_complexity_label(scores, val, str(reason))
+        write_y_complexity_label(feats, val, str(reason))
+    if tpd is not None:
+        write_y_tpd_label(out, float(tpd))
+        write_y_tpd_label(scores, float(tpd))
+        write_y_tpd_label(feats, float(tpd))
     if meta.get("efficiency") is not None:
         out["cx_efficiency"] = meta.get("efficiency")
     if meta.get("path_len") is not None:
         out["cx_path_len"] = meta.get("path_len")
     if meta.get("displacement") is not None:
         out["cx_displacement"] = meta.get("displacement")
-    scores = dict(out.get("scores") or {}) if isinstance(out.get("scores"), dict) else {}
-    write_y_complexity_label(scores, val, str(reason))
     out["scores"] = scores
-    feats = (
-        dict(out.get("direction_features") or {})
-        if isinstance(out.get("direction_features"), dict)
-        else {}
-    )
-    write_y_complexity_label(feats, val, str(reason))
     out["direction_features"] = feats
     return out
 
@@ -452,8 +711,9 @@ def collect_cx_day_sample(
     tau_row: Optional[dict] = None,
     minute_tau_hm: Any = None,
     cx_by_date: Optional[Dict[str, float]] = None,
+    tpd_by_date: Optional[Dict[str, float]] = None,
 ) -> Optional[Dict[str, Any]]:
-    """单日：开盘 Z + 早盘前缀分钟小包 + 历史真实 cx + 全日曲折度标签。"""
+    """单日：开盘 Z + 早盘前缀分钟小包 + 历史真实 cx/TPD + 全日曲折度 / TPD 标签。"""
     if not isinstance(day_bar, dict):
         return None
     daily_open = _f(day_bar.get("open"))
@@ -501,14 +761,24 @@ def collect_cx_day_sample(
     for k in CX_LAG_FEATURES:
         feats[k] = lags.get(k)
     _mirror_complexity_lag_aliases(feats)
+    tpd_lags = cx_tpd_lag_features(
+        hist_bars=hist,
+        tpd_by_date=tpd_by_date if isinstance(tpd_by_date, dict) else {},
+        asof_date=dkey,
+    )
+    for k in TPD_LAG_FEATURES:
+        feats[k] = tpd_lags.get(k)
+    _mirror_tpd_lag_aliases(feats)
     label, reason, lab_meta = cx_complexity_label(minute_bars)
-    if label is None:
+    tpd = lab_meta.get("tpd") if isinstance(lab_meta, dict) else None
+    if label is None and tpd is None:
         return None
     return {
         "code": str(code or "").strip(),
         "date": dkey,
         "features": feats,
-        "label": float(label),
+        "label": float(label) if label is not None else None,
+        "tpd_label": float(tpd) if tpd is not None else None,
         "label_reason": reason,
         "label_meta": lab_meta,
         "ref": float(ref),
@@ -524,11 +794,17 @@ def build_cx_panels_from_bars(
     gap_trigger_pct: float = 2.0,
     minute_tau_hm: Any = None,
     tau_grid: Optional[Sequence[str]] = None,
+    label: str = "complexity",
 ) -> List[Dict[str, Any]]:
-    """批量：特征与 ŷ_τ / ŷ_path 对齐；标签=全日 5m 曲折度。
+    """批量：特征与 ŷ_τ / ŷ_path 对齐。
 
+    ``label="complexity"``：y=全日 5m 曲折度 1−D/L。
+    ``label="tpd"``：y=全日转折点密度（午休跳空不计）。
     ``tau_grid`` 非空：同日多 τ 各一行、标签相同、共享 β。
     """
+    kind = str(label or "complexity").strip().lower()
+    if kind not in ("complexity", "tpd"):
+        kind = "complexity"
     minute_map = minute_by_code_date if isinstance(minute_by_code_date, dict) else {}
     if tau_grid is not None:
         clocks = normalize_minute_tau_grid(
@@ -559,7 +835,9 @@ def build_cx_panels_from_bars(
             if i < len(tau_xs) and isinstance(tau_xs[i], dict):
                 tau_by_date[str(dkey)[:10]] = dict(tau_xs[i])
         code_mins = minute_map.get(code) if isinstance(minute_map.get(code), dict) else {}
-        cx_by_date = realized_cx_by_date(code_mins)
+        _cx_stats = realized_cx_stats_by_date(code_mins)
+        cx_by_date = dict(_cx_stats.get("y") or {})
+        cx_tpd_by_date = dict(_cx_stats.get("tpd") or {})
         xs_out: List[dict] = []
         ys_out: List[float] = []
         dates_out: List[str] = []
@@ -582,11 +860,15 @@ def build_cx_panels_from_bars(
                     tau_row=tau_by_date.get(dkey),
                     minute_tau_hm=hm,
                     cx_by_date=cx_by_date,
+                    tpd_by_date=cx_tpd_by_date,
                 )
                 if not sample:
                     continue
+                y_val = sample.get("tpd_label") if kind == "tpd" else sample.get("label")
+                if y_val is None:
+                    continue
                 xs_out.append(sample["features"])
-                ys_out.append(float(sample["label"]))
+                ys_out.append(float(y_val))
                 dates_out.append(dkey)
                 metas_out.append(
                     {
@@ -597,6 +879,8 @@ def build_cx_panels_from_bars(
                         "minute_tau_hm": sample.get("minute_tau_hm") or hm,
                         "label_reason": sample.get("label_reason"),
                         "gap_pct": sample["features"].get("gap_pct"),
+                        "y_complexity": sample.get("label"),
+                        "y_tpd": sample.get("tpd_label"),
                     }
                 )
         if xs_out:

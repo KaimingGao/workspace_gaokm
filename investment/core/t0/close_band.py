@@ -600,8 +600,9 @@ def close_band_enter_skip_reason(
 ) -> Optional[str]:
     """入场门槛：|y_τ|≥y_tau_enter；y_use_path 时须有 y_path 且 |y_path|≥y_path_enter。
     ŷ_complexity > y_complexity_max（0.01–1.00）则太折跳过；缺 ŷ_complexity 不挡。
+    ŷ_tpd > y_tpd_max（0.00–1.00，默认 0.40）则反转过密跳过；缺 ŷ_tpd 不挡；1.00≈关。
 
-    选腿仍由收盘带宽定方向；此处只过滤横盘/弱信号/缺 path / |R̂_τ| 不足 / 太折。
+    选腿仍由收盘带宽定方向；此处只过滤横盘/弱信号/缺 path / |R̂_τ| 不足 / 太折 / TPD 过密。
     enter≤0 仅关闭对应 |ŷ| 幅度闸；缺 y_path 在 y_use_path 下仍跳过。
     r_tau_enter 经 load 钳在 0–1.0；≤0 关闸（直传旧 cfg 兼容）。
     """
@@ -670,7 +671,7 @@ def close_band_enter_skip_reason(
             if abs(yp) < path_enter - 1e-12:
                 return f"|y_path|={abs(yp):.3f}%<{path_enter:g}% 未过入场（横盘）"
 
-    from core.research.cx_panel import pick_y_complexity_hat
+    from core.research.cx_panel import pick_y_complexity_hat, pick_y_tpd_hat
 
     if cfg_d.get("y_complexity_max") not in (None, ""):
         cx_max = _cfg_float(cfg_d, "y_complexity_max", 1.0)
@@ -680,6 +681,12 @@ def close_band_enter_skip_reason(
     y_complexity_u = pick_y_complexity_hat(sc, raw)
     if y_complexity_u is not None and y_complexity_u > cx_max + 1e-12:
         return f"y_complexity={y_complexity_u:.3f}>{cx_max:g} 太折跳过"
+
+    tpd_max = _cfg_float(cfg_d, "y_tpd_max", 0.40)
+    tpd_max = max(0.0, min(float(tpd_max), 1.0))
+    y_tpd_u = pick_y_tpd_hat(sc, raw)
+    if y_tpd_u is not None and y_tpd_u > tpd_max + 1e-12:
+        return f"y_tpd={y_tpd_u:.3f}>{tpd_max:g} 反转过密跳过"
 
     return None
 

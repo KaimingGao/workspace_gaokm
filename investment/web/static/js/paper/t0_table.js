@@ -14,9 +14,10 @@ import {
   PATH_REALIZED_TITLE,
   TAU_REALIZED_TITLE,
   Y_COMPLEXITY_TITLE,
+  Y_TPD_TITLE,
   resolvePathScore,
   fmtPathScore,
-} from "./fmt.js?v=p1945";
+} from "./fmt.js?v=p1961";
 
 const Y_COMPLEXITY_HAT_KEYS = [
   "predicted_score_complexity",
@@ -25,6 +26,8 @@ const Y_COMPLEXITY_HAT_KEYS = [
   "y_cx_hat",
 ];
 
+const Y_TPD_HAT_KEYS = ["predicted_score_tpd", "y_tpd_hat"];
+
 function writeComplexityHat(obj, val) {
   if (obj == null || val == null || !Number.isFinite(Number(val))) return;
   const n = Number(val);
@@ -32,6 +35,13 @@ function writeComplexityHat(obj, val) {
   obj.y_complexity_hat = n;
   obj.predicted_score_cx = n;
   obj.y_cx_hat = n;
+}
+
+function writeTpdHat(obj, val) {
+  if (obj == null || val == null || !Number.isFinite(Number(val))) return;
+  const n = Number(val);
+  obj.predicted_score_tpd = n;
+  obj.y_tpd_hat = n;
 }
 import {
   adaptiveSizingDayTip,
@@ -50,6 +60,7 @@ export const SKIP_CAT_LABEL = {
   y_path_disagree: "y_τ↔y_path异号",
   y_complexity_high: "y_complexity太折",
   y_cx_high: "y_complexity太折",
+  y_tpd_high: "y_tpd反转过密",
   gap_tier_skip: "大缺口反向跳过",
   path_abandon: "前缀无空间放弃(旧)",
   prefix_segment: "固定前缀待确认(旧)",
@@ -95,6 +106,8 @@ export const SKIP_CAT_TIP = {
     "ŷ_complexity > y_complexity_max（0.01–1.00，默认 1.00≈关）视为太折：即使收价破 ĉ±δ 也不开第一腿。缺 ŷ_complexity 不挡。",
   y_cx_high:
     "ŷ_complexity > y_complexity_max（0.01–1.00，默认 1.00≈关）视为太折：即使收价破 ĉ±δ 也不开第一腿。缺 ŷ_complexity 不挡。",
+  y_tpd_high:
+    "ŷ_tpd > y_tpd_max（0.00–1.00，默认 0.40；1.00≈关）视为反转过密：即使收价破 ĉ±δ 也不开第一腿。缺 ŷ_tpd 不挡。",
   eod_tau_disagree:
     "历史口径：强 ŷ_eod 与 ŷ_τ 异号跳过。v6 选腿已下线该闸（仅 y_τ / ĉ_τ + path 入场/强）。",
   trade_tau_disagree:
@@ -141,27 +154,28 @@ export const SKIP_CAT_TIP = {
 
 const TABLE_CLASS = "quant-weight-table paper-t0-table paper-t0-trades-table";
 
-/** 列轨宽度：colgroup inline width + CSS 同源，避免 fixed 表头/体错位 */
+/** 列轨宽度：colgroup inline width + CSS `.paper-t0-col-*` 同源，避免 fixed 表头/体错位 */
 const T0_TRADE_COL_W = {
-  stock: "10.5rem",
+  stock: "8.75rem",
   date: "104px",
   eod: "82px",
-  tau: "108px",
-  path: "120px",
-  cx: "72px",
+  tau: "112px",
+  path: "112px",
+  cx: "108px",
+  tpd: "108px",
   trade: "108px",
   on: "82px",
   nc: "108px",
-  o: "52px",
-  l: "52px",
-  h: "52px",
-  c: "52px",
-  ctau: "72px",
-  rtau: "76px",
-  process: "320px",
-  retPct: "76px",
-  pnl: "72px",
-  exp: "72px",
+  o: "62px",
+  l: "62px",
+  h: "62px",
+  c: "62px",
+  ctau: "76px",
+  rtau: "80px",
+  process: "340px",
+  retPct: "80px",
+  pnl: "84px",
+  exp: "76px",
   reason: "12rem",
   act: "52px",
 };
@@ -411,7 +425,7 @@ function slotGateYTau(r, dayHost) {
   return null;
 }
 
-/** 本轮 ŷ_τ / ŷ_path / ŷ_complexity / ŷ_trade / ŷ_nowcast：只读槽位快照，不回退日级分。 */
+/** 本轮 ŷ_τ / ŷ_path / ŷ_complexity / ŷ_tpd / ŷ_trade / ŷ_nowcast：只读槽位快照，不回退日级分。 */
 function slotYhat(r, dayHost) {
   const sc = r && r.scores && typeof r.scores === "object" ? r.scores : {};
   const ft =
@@ -428,6 +442,7 @@ function slotYhat(r, dayHost) {
   let yCx =
     slotYNum(sc, Y_COMPLEXITY_HAT_KEYS) ??
     slotYNum(ft, Y_COMPLEXITY_HAT_KEYS);
+  let yTpd = slotYNum(sc, Y_TPD_HAT_KEYS) ?? slotYNum(ft, Y_TPD_HAT_KEYS);
   let yTrade =
     slotYNum(sc, ["y_trade", "predicted_score_blend", "decision_score"]) ??
     slotYNum(ft, ["y_trade"]);
@@ -443,6 +458,10 @@ function slotYhat(r, dayHost) {
     const m = reason.match(/y_complexity\s*=\s*(-?[\d.]+)/) || reason.match(/y_cx\s*=\s*(-?[\d.]+)/);
     if (m) yCx = Number(m[1]);
   }
+  if (yTpd == null) {
+    const m = reason.match(/y_tpd\s*=\s*(-?[\d.]+)/);
+    if (m) yTpd = Number(m[1]);
+  }
   if (yTrade == null) {
     const m =
       reason.match(/\|y_trade\|\s*=\s*(-?[\d.]+)/) ||
@@ -454,6 +473,7 @@ function slotYhat(r, dayHost) {
     y_path: yPath,
     y_complexity: yCx,
     y_cx: yCx,
+    y_tpd: yTpd,
     y_trade: yTrade,
     y_nowcast: yNowcast,
   };
@@ -485,6 +505,10 @@ function slotDayRow(d, r, rows) {
     if (slotScores.predicted_score_cx == null) slotScores.predicted_score_cx = n;
     if (slotScores.y_cx_hat == null) slotScores.y_cx_hat = n;
   }
+  if (yhat.y_tpd != null) {
+    if (slotScores.predicted_score_tpd == null) slotScores.predicted_score_tpd = yhat.y_tpd;
+    if (slotScores.y_tpd_hat == null) slotScores.y_tpd_hat = yhat.y_tpd;
+  }
   if (yhat.y_trade != null && slotScores.y_trade == null) slotScores.y_trade = yhat.y_trade;
   if (yhat.y_nowcast != null) {
     if (slotScores.y_nowcast == null) slotScores.y_nowcast = yhat.y_nowcast;
@@ -515,6 +539,8 @@ function slotDayRow(d, r, rows) {
     y_complexity_hat: yhat.y_complexity ?? yhat.y_cx,
     predicted_score_cx: yhat.y_complexity ?? yhat.y_cx,
     y_cx_hat: yhat.y_complexity ?? yhat.y_cx,
+    predicted_score_tpd: yhat.y_tpd,
+    y_tpd_hat: yhat.y_tpd,
     y_trade: yhat.y_trade,
     y_nowcast: yhat.y_nowcast,
     scores: slotScores,
@@ -630,7 +656,9 @@ function pickScoreNum(d, key) {
       key === "predicted_score_complexity" ||
       key === "y_complexity_hat" ||
       key === "predicted_score_cx" ||
-      key === "y_cx_hat")
+      key === "y_cx_hat" ||
+      key === "predicted_score_tpd" ||
+      key === "y_tpd_hat")
   ) {
     const n = Number(d[key]);
     return d[key] != null && d[key] !== "" && Number.isFinite(n) ? n : null;
@@ -871,6 +899,62 @@ function cxMergedCellHtml(host, dayRef, showRealized = true) {
   );
 }
 
+function pickTpdRealized(d) {
+  const raw =
+    pickScoreNum(d, "tpd_realized") ??
+    pickScoreNum(d, "y_tpd") ??
+    pickScoreNum(d, "y_complexity_tpd") ??
+    (d?.tpd_realized != null && Number.isFinite(Number(d.tpd_realized))
+      ? Number(d.tpd_realized)
+      : null) ??
+    (d?.y_tpd != null && Number.isFinite(Number(d.y_tpd)) ? Number(d.y_tpd) : null) ??
+    (d?.y_complexity_tpd != null && Number.isFinite(Number(d.y_complexity_tpd))
+      ? Number(d.y_complexity_tpd)
+      : null);
+  const n = cxAsUnit01(raw);
+  if (n == null) return { text: "—", n: null, tip: Y_TPD_TITLE, high: false };
+  return {
+    text: fmtCxScore(n),
+    n,
+    tip: Y_TPD_TITLE,
+    high: n >= 0.7,
+  };
+}
+
+function pickTpdPred(d) {
+  const raw =
+    pickScoreNum(d, "predicted_score_tpd") ??
+    pickScoreNum(d, "y_tpd_hat") ??
+    (d?.predicted_score_tpd != null && Number.isFinite(Number(d.predicted_score_tpd))
+      ? Number(d.predicted_score_tpd)
+      : null) ??
+    (d?.y_tpd_hat != null && Number.isFinite(Number(d.y_tpd_hat)) ? Number(d.y_tpd_hat) : null);
+  return cxAsUnit01(raw);
+}
+
+/** 槽位 ŷ_tpd；回测配对全日 label。无 rowspan。 */
+function tpdMergedCellHtml(host, dayRef, showRealized = true) {
+  const predHost = host || dayRef;
+  const realHost = dayRef || host;
+  const pr = showRealized
+    ? pickTpdRealized(realHost)
+    : { text: "—", n: null, tip: Y_TPD_TITLE, high: false };
+  const pred = pickTpdPred(predHost);
+  const highCls = (pred != null && pred >= 0.7) || pr.high ? " is-tpd-high" : "";
+  const predTxt = pred != null ? fmtCxScore(pred) : "—";
+  const shown =
+    showRealized && pred != null && pr.n != null
+      ? `${predTxt}(${pr.text})`
+      : showRealized && pr.n != null
+        ? pr.text
+        : predTxt;
+  const tip = pred != null ? `${pr.tip} · ŷ_tpd=${pred.toFixed(3)}` : pr.tip;
+  return (
+    `<td class="num paper-t0-col-tpd paper-t0-col-y paper-t0-col-y-tpd has-tip${highCls}" ` +
+    `title="${escapeText(tip)}">${escapeText(shown)}</td>`
+  );
+}
+
 /** y_path：回测配对真实值；实时做 T 只显示 ŷ。 */
 function pathMergedCellHtml(d, fallback, rules, scoreDetailJson, showRealized = true, liveByCode = null) {
   const it = t0DayScoreItem(d, fallback, rules, liveByCode);
@@ -981,6 +1065,14 @@ function tradeScoreHost(day, host) {
           : scanRow.predicted_score_cx != null
             ? Number(scanRow.predicted_score_cx)
             : null;
+  const yTpd =
+    scanRow.predicted_score_tpd != null
+      ? Number(scanRow.predicted_score_tpd)
+      : scanRow.y_tpd_hat != null
+        ? Number(scanRow.y_tpd_hat)
+        : scanRow.y_tpd != null
+          ? Number(scanRow.y_tpd)
+          : null;
   const scores = { ...(host.scores && typeof host.scores === "object" ? host.scores : {}) };
   if (yTau != null && Number.isFinite(yTau)) {
     scores.y_tau = yTau;
@@ -996,6 +1088,9 @@ function tradeScoreHost(day, host) {
   if (yCx != null && Number.isFinite(yCx)) {
     writeComplexityHat(scores, yCx);
   }
+  if (yTpd != null && Number.isFinite(yTpd)) {
+    writeTpdHat(scores, yTpd);
+  }
   return {
     ...host,
     y_tau: yTau != null && Number.isFinite(yTau) ? yTau : host.y_tau,
@@ -1005,6 +1100,8 @@ function tradeScoreHost(day, host) {
     y_complexity_hat: yCx != null && Number.isFinite(yCx) ? yCx : host.y_complexity_hat,
     predicted_score_cx: yCx != null && Number.isFinite(yCx) ? yCx : host.predicted_score_cx,
     y_cx_hat: yCx != null && Number.isFinite(yCx) ? yCx : host.y_cx_hat,
+    predicted_score_tpd: yTpd != null && Number.isFinite(yTpd) ? yTpd : host.predicted_score_tpd,
+    y_tpd_hat: yTpd != null && Number.isFinite(yTpd) ? yTpd : host.y_tpd_hat,
     direction_score:
       yTau != null && Number.isFinite(yTau) ? yTau : host.direction_score,
     scores,
@@ -1048,12 +1145,14 @@ function t0DayScoreItem(d, fallback = {}, rules = {}, liveByCode = null) {
     pickScoreNum(d, "y_complexity_hat") ??
     pickScoreNum(d, "predicted_score_cx") ??
     pickScoreNum(d, "y_cx_hat");
+  let yTpd = pickScoreNum(d, "predicted_score_tpd") ?? pickScoreNum(d, "y_tpd_hat");
   if (slotSnapMode && slot) {
     const yhat = slotYhat(slot, d);
     if (yhat.y_tau != null) yTau = yhat.y_tau;
     if (yhat.y_path != null) yPath = yhat.y_path;
     if (yhat.y_complexity != null) yCx = yhat.y_complexity;
     else if (yhat.y_cx != null) yCx = yhat.y_cx;
+    if (yhat.y_tpd != null) yTpd = yhat.y_tpd;
     if (yhat.y_trade != null) yTrade = yhat.y_trade;
   }
   const scanHost = d?._scan_score_row ? d : null;
@@ -1064,6 +1163,11 @@ function t0DayScoreItem(d, fallback = {}, rules = {}, liveByCode = null) {
     const srCx = sr.y_complexity ?? sr.y_cx;
     if (srCx != null && Number.isFinite(Number(srCx))) {
       writeComplexityHat(scores, Number(srCx));
+    }
+    const srTpd = sr.predicted_score_tpd ?? sr.y_tpd_hat ?? sr.y_tpd;
+    if (srTpd != null && Number.isFinite(Number(srTpd))) {
+      writeTpdHat(scores, Number(srTpd));
+      yTpd = Number(srTpd);
     }
   }
   const code = String(
@@ -1136,6 +1240,8 @@ function t0DayScoreItem(d, fallback = {}, rules = {}, liveByCode = null) {
     y_complexity_hat: slotSnapMode ? yCx : scores.y_complexity_hat ?? yCx,
     predicted_score_cx: slotSnapMode ? yCx : scores.predicted_score_cx ?? yCx,
     y_cx_hat: slotSnapMode ? yCx : scores.y_cx_hat ?? yCx,
+    predicted_score_tpd: slotSnapMode ? yTpd : scores.predicted_score_tpd ?? yTpd,
+    y_tpd_hat: slotSnapMode ? yTpd : scores.y_tpd_hat ?? yTpd,
     y_path_status: scores.y_path_status ?? live?.y_path_status ?? null,
     y_path_error: scores.y_path_error ?? live?.y_path_error ?? null,
     features_path:
@@ -2272,7 +2378,7 @@ function tradeColgroup(showStock, showReason = false, showDelete = false, showRe
     t0Col("paper-t0-col-rtau", "rtau") +
     t0Col("paper-t0-col-tau", "tau") +
     t0Col("paper-t0-col-path", "path") +
-    (showRealized ? t0Col("paper-t0-col-cx", "cx") : "") +
+    (showRealized ? t0Col("paper-t0-col-cx", "cx") + t0Col("paper-t0-col-tpd", "tpd") : "") +
     t0Col("paper-t0-col-process", "process") +
     t0Col("paper-t0-col-ret", "retPct") +
     t0Col("paper-t0-col-pnl", "pnl") +
@@ -2374,7 +2480,7 @@ function tradeTableColCount(ctx) {
   if (ctx.showStock) n += 1;
   n += 6; // O L H C Ĉ_τ R̂_τ
   n += 2; // y_τ y_path
-  if (ctx.showRealized) n += 1; // y_complexity
+  if (ctx.showRealized) n += 2; // y_complexity y_tpd
   n += 1; // process
   n += 3; // ret pnl exp
   if (ctx.showReason) n += 1;
@@ -2520,6 +2626,7 @@ function buildCloseBandScanExpandRow(d, dayKey, colSpan, rules) {
         `<td class="num">${escapeText(fmtScanPct(r.y_tau))}</td>` +
         `<td class="num">${escapeText(fmtPathScore(r.y_path))}</td>` +
         `<td class="num">${escapeText(fmtCxScore(r.y_complexity ?? r.y_cx ?? r.predicted_score_complexity ?? r.predicted_score_cx))}</td>` +
+        `<td class="num">${escapeText(fmtCxScore(r.predicted_score_tpd ?? r.y_tpd_hat ?? r.y_tpd))}</td>` +
         `<td>${escapeText(fmtScanPick(r.pick))}</td>` +
         `<td class="paper-t0-scan-skip">${escapeText(skips || "—")}</td>` +
         `</tr>`
@@ -2538,6 +2645,7 @@ function buildCloseBandScanExpandRow(d, dayKey, colSpan, rules) {
     `<th class="num">y_τ</th><th class="num">y_path</th><th class="num" title="${escapeText(
       Y_COMPLEXITY_TITLE
     )}">y_complexity</th>` +
+    `<th class="num" title="${escapeText(Y_TPD_TITLE)}">y_tpd</th>` +
     `<th>破带</th><th>跳过</th>` +
     `</tr></thead>` +
     `<tbody>${body}</tbody>` +
@@ -2618,7 +2726,10 @@ function renderTradeDayHtml(d, ctx) {
         liveByCode
       ) +
       pathMergedCellHtml(scoreHost, fallback, rules, scoreDetailJson, slotYRealized, liveByCode) +
-      (showRealized ? cxMergedCellHtml(scoreHost, dayRef || d, slotYRealized) : "")
+      (showRealized
+        ? cxMergedCellHtml(scoreHost, dayRef || d, slotYRealized) +
+          tpdMergedCellHtml(scoreHost, dayRef || d, slotYRealized)
+        : "")
     );
   };
 
@@ -2650,7 +2761,7 @@ function renderTradeDayHtml(d, ctx) {
   const dateInner = hasScan
     ? `<button type="button" class="paper-t0-day-debug-toggle" data-t0-day-id="${escapeText(
         dayKey
-      )}" title="展开 11:00 前每根扫描（OLHC · Ĉ_τ · R̂_τ · y_τ · y_path · y_complexity）" aria-expanded="false">${escapeText(
+      )}" title="展开 11:00 前每根扫描（OLHC · Ĉ_τ · R̂_τ · y_τ · y_path · y_complexity · y_tpd）" aria-expanded="false">${escapeText(
         dayText
       )}<span class="paper-t0-day-debug-caret" aria-hidden="true">▾</span></button>`
     : escapeText(dayText);
@@ -2758,7 +2869,10 @@ export function buildT0TradeTableHtml(opts) {
     (showRealized
       ? `<th scope="col" class="paper-t0-col-cx num paper-t0-col-y paper-t0-col-y-cx" title="${escapeText(
           `${Y_COMPLEXITY_TITLE}${slotYHint}`
-        )}">y_complexity</th>`
+        )}">y_complexity</th>` +
+        `<th scope="col" class="paper-t0-col-tpd num paper-t0-col-y paper-t0-col-y-tpd" title="${escapeText(
+          `${Y_TPD_TITLE}${slotYHint}`
+        )}">y_tpd</th>`
       : "") +
     `<th scope="col" class="paper-t0-col-process" title="本轮时钟 + 成交腿；悬停看全日 K 线">过程</th>` +
     `<th scope="col" class="paper-t0-col-ret num" title="(PnL+敞口)/动仓名义">收益%</th>` +

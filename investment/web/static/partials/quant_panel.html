@@ -517,8 +517,9 @@
                 <strong>0 = 直线</strong>（最低），<strong>1 = 最折</strong>。
                 不是波动率：单边趋势可以振幅大但曲折度低。
                 字段 <code>y_complexity</code> / <code>predicted_score_complexity</code>。
-                特征另含 PIT 历史真实曲折度 <code>complexity_lag1</code>（上一有 5m 的交易日）、
-                <code>complexity_ma5</code>（过去最多 5 个有 5m 日的均值）；标签仍是当日全日
+                特征另含 PIT 历史真实曲折度 <code>complexity_lag1</code>、<code>complexity_ma5</code>，
+                以及 TPD 滞后 <code>tpd_lag1</code> / <code>tpd_ma5</code>
+                （与 ŷ_tpd 同 X；旧键 <code>complexity_tpd_lag1</code> / <code>cx_tpd_lag1</code> 仍可读）。标签仍是当日全日
                 <code>1−D/L</code>。
               </p>
               <p>
@@ -539,6 +540,55 @@
       <div class="quant-pro-card-body">
         <div id="quant-cx-result" class="quant-weight-table-wrap" aria-label="cx 拟合摘要"></div>
         <div id="quant-cx-coef-table" class="quant-weight-table-wrap" aria-label="ŷ_complexity 因子系数表"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ŷ_tpd：全日 5m 转折点密度 [0,1]；ŷ_tpd>y_tpd_max 跳过做 T -->
+  <section class="dashboard-section quant-section" id="quant-section-tpd" aria-labelledby="quant-section-tpd-title">
+    <header class="dashboard-section-head quant-section-head">
+      <h3 id="quant-section-tpd-title" class="dashboard-section-title">ŷ_tpd</h3>
+      <p class="dashboard-section-desc quant-section-desc">转折点密度 · TPD ∈[0,1] · 多 τ 共享 β · 与 ŷ_complexity 同滞后</p>
+    </header>
+    <div class="dashboard-card quant-pro-card">
+      <div class="dashboard-card-head quant-pro-card-head quant-card-head--tools">
+        <div id="quant-tpd-summary" class="quant-rem-status quant-card-head-status" aria-live="polite">
+          <span class="quant-pro-status-chip" data-state="idle">待命</span>
+          <span class="quant-rem-status-msg">拟合后看 OOS IC / 中位命中 · 过门再启用</span>
+        </div>
+        <div class="dashboard-card-tools quant-pro-card-tools" role="group" aria-label="ŷ_tpd 操作">
+          <details class="quant-help-fold quant-pro-help-fold">
+            <summary class="quant-pro-help-summary"><span class="quant-pro-help-icon" aria-hidden="true">?</span> 说明</summary>
+            <div class="quant-help-body quant-pro-help-body">
+              <p>
+                <strong>ŷ_tpd</strong> = 开盘 Z + 早盘前缀分钟小包 →
+                全日 5m <strong>转折点密度</strong>（∈[0,1]）。
+                连续段内方向反转次数 / 有效内点（午休跳空不计）。
+                <strong>0 = 无反转</strong>，<strong>1 = 每根都反转</strong>。
+                与 <code>1−D/L</code> 正交：单日大 V 曲折度高但 TPD 低。
+                字段 <code>y_tpd</code> / <code>predicted_score_tpd</code>。
+                PIT 滞后与 ŷ_complexity 相同：<code>tpd_lag1</code> / <code>tpd_ma5</code>
+                （昨真实 / 近5日真实反转密度）以及 <code>complexity_lag1</code> / <code>complexity_ma5</code>。
+                两头同 X，只换标签。
+              </p>
+              <p>
+                标签无符号，OOS 看 <strong>Spearman IC</strong> 与 <strong>中位命中</strong>
+                （≈50% 即无排序信息），不看方向命中。
+                独立 <code>y_spec</code>，不写 <code>predicted_score</code> / ŷ_τ / ŷ_path / ŷ_complexity。
+                落盘 <code>tpd_ridge_model.json</code>。
+                做 T：盘中前缀 <strong>ŷ_tpd &gt; y_tpd_max</strong>（0.00–1.00，默认 0.40；1.00≈关）则跳过。
+              </p>
+              <p>依赖观察池 <strong>5m 分钟缓存</strong>；无分钟线时会报错。可在上方「分钟线」区块点 <strong>强更 5m</strong>。</p>
+            </div>
+          </details>
+          <button type="button" id="quant-tpd-ridge-run" class="dialog-btn secondary" title="观察池拟合 tpd Ridge + 时间 OOS（不写盘）">拟合</button>
+          <button type="button" id="quant-tpd-ridge-persist" class="dialog-btn secondary" title="人审后写入 live/tpd_ridge_model.json；未过 OOS 闸时可确认强制启用">启用</button>
+          <button type="button" id="quant-tpd-ridge-status" class="dialog-btn secondary" title="读取已启用 live 模型">状态</button>
+        </div>
+      </div>
+      <div class="quant-pro-card-body">
+        <div id="quant-tpd-result" class="quant-weight-table-wrap" aria-label="tpd 拟合摘要"></div>
+        <div id="quant-tpd-coef-table" class="quant-weight-table-wrap" aria-label="ŷ_tpd 因子系数表"></div>
       </div>
     </div>
   </section>

@@ -163,6 +163,8 @@ const PATH_FEAT_LABELS = {
   path_ma5: "近5日真实极值序均 %",
     complexity_lag1: "昨真实曲折度",
     complexity_ma5: "近5日真实曲折度均",
+    tpd_lag1: "昨真实反转密度",
+    tpd_ma5: "近5日真实反转密度均",
     cx_lag1: "昨真实曲折度",
     cx_ma5: "近5日真实曲折度均",
   ret_open_to_tau: "开盘→τ 收益 %",

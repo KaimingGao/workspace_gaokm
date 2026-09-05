@@ -117,11 +117,12 @@ def _rules(**kwargs):
         # 路径用例默认零价偏，避免与生产 ±默认纠缠断言
         "y_tau_exit_price_bias_buy_then_sell": 0.0,
         "y_tau_exit_price_bias_sell_then_buy": 0.0,
-        # 路径/撮合单测不绑 ŷ_τ / path / R̂ 入场；生产默认见 overlay
+        # 路径/撮合单测不绑 ŷ_τ / path / R̂ / TPD 入场；生产默认见 overlay
         "y_tau_enter": 0.0,
         "y_path_enter": 0.0,
         "y_use_path": False,
         "r_tau_enter": 0.01,
+        "y_tpd_max": 1.0,
         # 路径用例与生产「反T当日回补」解耦
         "must_cover_same_day_sell_then_buy": False,
     }
@@ -339,6 +340,7 @@ class TestT0Core(unittest.TestCase):
                     "use_atr": False,
                     "min_range_pct": 0.1,
                     "must_cover_same_day": True,
+                    "y_tpd_max": 1.0,
                     "y_path_abandon_bars": 2,
                     "y_prefix_upbar_ratio_buy_then_sell": 0.0,
                     "y_prefix_downbar_ratio_sell_then_buy": 0.0,
@@ -423,6 +425,7 @@ class TestT0Core(unittest.TestCase):
         self.assertEqual(d["y_path_strong"], 0.2)
         self.assertAlmostEqual(d["y_complexity_max"], 1.0)
         self.assertAlmostEqual(d["y_cx_max"], 1.0)
+        self.assertAlmostEqual(d["y_tpd_max"], 0.40)
         self.assertFalse(d["y_nowcast_oc_gate"])
         self.assertEqual(d["y_nc_enter"], 0.01)
         self.assertEqual(d["y_nc_strong"], 0.2)
@@ -1497,6 +1500,7 @@ class TestT0Core(unittest.TestCase):
                     "min_range_pct": 0.5,
                     "must_cover_same_day": True,
                     "t0_slots_max_rounds": 0,
+                    "y_tpd_max": 1.0,
                 }
             },
         }
@@ -1537,6 +1541,7 @@ class TestT0Core(unittest.TestCase):
                     "path_mode": "first_touch",
                     "use_atr": False,
                     "min_range_pct": 1.0,
+                    "y_tpd_max": 1.0,
                 }
             },
         }
@@ -1579,6 +1584,7 @@ class TestT0Core(unittest.TestCase):
                     "min_range_pct": 1.0,
                     "must_cover_same_day_sell_then_buy": False,
                     "t0_slots_max_rounds": 0,
+                    "y_tpd_max": 1.0,
                 }
             },
         }
@@ -3739,6 +3745,10 @@ class TestT0Viz(unittest.TestCase):
         self.assertEqual(
             classify_t0_skip_reason("y_cx=0.820>0.70 太折跳过"),
             "y_complexity_high",
+        )
+        self.assertEqual(
+            classify_t0_skip_reason("y_tpd=0.820>0.40 反转过密跳过"),
+            "y_tpd_high",
         )
         self.assertEqual(
             classify_t0_skip_reason("dual_y：缺 y_eod/y_τ/y_trade（即时算分失败）"),
