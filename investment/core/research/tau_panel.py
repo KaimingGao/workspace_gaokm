@@ -1,7 +1,7 @@
 """ŷ_τ 训练面板：y = close[T]/open[T]-1；特征 = 开盘 Z（缺口/ATR/截面）。
 
 无未来函数：决策在开盘，标签为开盘→收盘。日线因子不在此计算（已在 ŷ_EOD）。
-另加 PIT 历史真实 open→close（tau_lag1 / tau_ma5 / tau_std5，不含当日）与昨隔夜缺口 yest_gap。
+另加 PIT 历史真实 open→close（tau_lag1 / tau_ma5，不含当日）。
 """
 
 
@@ -15,12 +15,11 @@ GAP_ATR_WINDOW = 14
 GAP_ATR_CLIP = 10.0
 _SECTOR_REL_MIN_N = 3
 LABEL_LAG_WINDOW = 5
-TAU_LAG_FEATURES = ("tau_lag1", "tau_ma5", "tau_std5", "yest_gap")
+# tau_std5 / yest_gap 曾入模，做 T 回测变差后撤回
+TAU_LAG_FEATURES = ("tau_lag1", "tau_ma5")
 TAU_LAG_FEAT_LABELS = {
     "tau_lag1": "昨真实开→收 %",
     "tau_ma5": "近5日真实开→收均 %",
-    "tau_std5": "近5日真实开→收标准差 %",
-    "yest_gap": "昨隔夜缺口 %",
 }
 
 from core.signal.minute_tau_grid import (
@@ -257,17 +256,14 @@ def tau_lag_features(
     asof_date: str,
     window: int = LABEL_LAG_WINDOW,
 ) -> Dict[str, Optional[float]]:
-    out = label_lag_features(
+    return label_lag_features(
         hist_bars=hist_bars,
         by_date=tau_by_date,
         asof_date=asof_date,
         window=window,
         lag1_key="tau_lag1",
         ma_key="tau_ma5",
-        std_key="tau_std5",
     )
-    out["yest_gap"] = yest_gap_from_hist(hist_bars, asof_date)
-    return out
 
 
 def attach_tau_lag_features(
@@ -276,7 +272,7 @@ def attach_tau_lag_features(
     hist_bars: Sequence[dict],
     asof_date: str,
 ) -> Dict[str, Any]:
-    """把 tau_lag1 / tau_ma5 / tau_std5 / yest_gap 写入特征行；缺历史则留空，不挡打分。"""
+    """把 tau_lag1 / tau_ma5 写入特征行；缺历史则留空，不挡打分。"""
     out: Dict[str, Any] = dict(feats or {})
     hist = hist_bars_pit(hist_bars, asof_date=asof_date)
     lags = tau_lag_features(

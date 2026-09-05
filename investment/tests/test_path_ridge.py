@@ -404,7 +404,7 @@ class TestPathRidgeFit(unittest.TestCase):
             buy_trig_pct=1.0,
         )
         self.assertTrue(report.get("success"), report.get("error"))
-        self.assertEqual(report.get("schema"), "path_ridge_v5")
+        self.assertEqual(report.get("schema"), "path_ridge_v4")
         self.assertTrue(report.get("tau_grid"))
         self.assertIn("by_tau", report.get("oos") or {})
         self.assertEqual(report.get("target"), "extreme_order_signed_range")
@@ -420,8 +420,8 @@ class TestPathRidgeFit(unittest.TestCase):
         extras = rm.get("extra_features") or []
         self.assertIn("path_lag1", extras)
         self.assertIn("path_ma5", extras)
-        self.assertIn("path_range_lag1", extras)
-        self.assertIn("path_sign_streak", extras)
+        self.assertNotIn("path_range_lag1", extras)
+        self.assertNotIn("path_sign_streak", extras)
         self.assertIn("path_lag1", rm.get("feat_labels") or {})
         self.assertIn("09:30", formula)
         self.assertIn("11:00", formula)
@@ -449,7 +449,7 @@ class TestPathRidgeFit(unittest.TestCase):
                 doc = load_path_model()
                 self.assertIsNotNone(doc)
                 self.assertEqual(doc.get("dual_score_head"), "y_path")
-                self.assertEqual(doc.get("schema"), "path_ridge_v5")
+                self.assertEqual(doc.get("schema"), "path_ridge_v4")
                 self.assertEqual(doc.get("sell_trig_pct"), 1.0)
                 self.assertEqual(doc.get("tau_grid"), report.get("tau_grid"))
                 self.assertEqual(doc.get("minute_tau_hm"), report.get("minute_tau_hm"))
@@ -597,7 +597,7 @@ class PathLagFeatureTests(unittest.TestCase):
             PATH_Z_FEATURES,
             extreme_order_path_label,
             path_lag_features,
-            realized_path_stats_by_date,
+            realized_path_by_date,
         )
 
         self.assertNotIn("path_lag1", PATH_Z_FEATURES)
@@ -619,21 +619,19 @@ class PathLagFeatureTests(unittest.TestCase):
             labels.append(float(y))
             daily.append({"date": dkey, "open": px, "close": bars_m[-1]["close"]})
             px = bars_m[-1]["close"]
-        path_map, range_map = realized_path_stats_by_date(minute_by_date)
+        path_map = realized_path_by_date(minute_by_date)
         asof = days[-1]
         lags = path_lag_features(
             hist_bars=daily,
             path_by_date=path_map,
             asof_date=asof,
-            range_by_date=range_map,
         )
         self.assertAlmostEqual(lags["path_lag1"], labels[-2], places=5)
         self.assertNotAlmostEqual(lags["path_lag1"], labels[-1], places=2)
         expected_ma = sum(labels[-6:-1][-5:]) / 5.0
         self.assertAlmostEqual(lags["path_ma5"], expected_ma, places=5)
-        self.assertAlmostEqual(lags["path_range_lag1"], abs(labels[-2]), places=5)
-        # 昨为正、再昨为负 → 同号连续 1 日
-        self.assertAlmostEqual(lags["path_sign_streak"], 1.0)
+        self.assertNotIn("path_range_lag1", lags)
+        self.assertNotIn("path_sign_streak", lags)
 
     def test_lag_skips_days_without_minutes(self):
         from core.research.path_panel import path_lag_features
@@ -701,56 +699,20 @@ class PathLagFeatureTests(unittest.TestCase):
         )
         self.assertIsNone(empty["path_lag1"])
 
-    def test_path_sign_streak_breaks_on_zero(self):
-        from core.research.path_panel import path_lag_features
-
-        hist = [
-            {"date": "2025-06-02"},
-            {"date": "2025-06-03"},
-            {"date": "2025-06-04"},
-            {"date": "2025-06-05"},
-        ]
-        lags = path_lag_features(
-            hist_bars=hist,
-            path_by_date={"2025-06-02": 1.0, "2025-06-03": 0.0, "2025-06-04": 2.0},
-            asof_date="2025-06-05",
-        )
-        self.assertAlmostEqual(lags["path_lag1"], 2.0)
-        self.assertAlmostEqual(lags["path_sign_streak"], 1.0)
-
-    def test_t_day_range_not_used_as_factor(self):
-        from core.research.path_panel import attach_path_lag_features, unsigned_path_range_pct
+    def test_attach_does_not_write_withdrawn_hist_keys(self):
+        from core.research.path_panel import attach_path_lag_features
 
         d0, d_t = "2025-06-02", "2025-06-03"
         m0 = _minute_low_then_high(10.0, d0)
-        mt = [
-            {
-                "date": d_t,
-                "time": "09:35",
-                "open": 12.0,
-                "high": 13.2,
-                "low": 11.4,
-                "close": 12.0,
-            },
-            {
-                "date": d_t,
-                "time": "09:40",
-                "open": 12.0,
-                "high": 13.5,
-                "low": 11.2,
-                "close": 12.4,
-            },
-        ]
-        r0 = unsigned_path_range_pct(m0, ref=10.0)
-        rt = unsigned_path_range_pct(mt, ref=12.0)
+        mt = _minute_high_then_low(10.0, d_t)
         feats = attach_path_lag_features(
             {},
             hist_bars=[{"date": d0}, {"date": d_t}],
             asof_date=d_t,
             minute_by_date={d0: m0, d_t: mt},
         )
-        self.assertAlmostEqual(feats["path_range_lag1"], float(r0), places=5)
-        self.assertNotAlmostEqual(feats["path_range_lag1"], float(rt), places=2)
+        self.assertNotIn("path_range_lag1", feats)
+        self.assertNotIn("path_sign_streak", feats)
 
 
 if __name__ == "__main__":

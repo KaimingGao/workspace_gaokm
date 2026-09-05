@@ -228,8 +228,6 @@ class TestRemRidgeFit(unittest.TestCase):
         self.assertIn("mom3_pct", extras)
         self.assertIn("tau_lag1", extras)
         self.assertIn("tau_ma5", extras)
-        self.assertIn("tau_std5", extras)
-        self.assertIn("yest_gap", extras)
         oos = report.get("oos") or {}
         self.assertIn("by_theme", oos)
         self.assertEqual(oos.get("by_tau") or {}, {})
@@ -259,14 +257,14 @@ class TestRemRidgeFit(unittest.TestCase):
                 else:
                     saved = blocked
                 self.assertTrue(saved.get("success"), saved)
-                self.assertEqual(saved.get("schema"), "tau_ridge_v12")
+                self.assertEqual(saved.get("schema"), "tau_ridge_v11")
                 self.assertTrue(os.path.isfile(os.path.join(live, "tau_ridge_model.json")))
                 self.assertTrue(os.path.isfile(os.path.join(live, "rem_ridge_model.json")))
                 from quant.research.tau_ridge import load_tau_model, predict_tau_from_features
 
                 doc = load_tau_model()
                 self.assertIsNotNone(doc)
-                self.assertEqual(doc.get("schema"), "tau_ridge_v12")
+                self.assertEqual(doc.get("schema"), "tau_ridge_v11")
                 self.assertEqual(doc.get("tau"), "open")
                 self.assertEqual(doc.get("dual_score_head"), "predicted_score_tau")
                 yhat = predict_tau_from_features(
@@ -496,8 +494,8 @@ class TauLagFeatureTests(unittest.TestCase):
 
         self.assertIn("tau_lag1", TAU_Z_FEATURES)
         self.assertIn("tau_ma5", TAU_Z_FEATURES)
-        self.assertIn("tau_std5", TAU_Z_FEATURES)
-        self.assertIn("yest_gap", TAU_Z_FEATURES)
+        self.assertNotIn("tau_std5", TAU_Z_FEATURES)
+        self.assertNotIn("yest_gap", TAU_Z_FEATURES)
         days = ["2025-06-02", "2025-06-03", "2025-06-04", "2025-06-05", "2025-06-06", "2025-06-09"]
         daily = []
         labels = []
@@ -519,12 +517,8 @@ class TauLagFeatureTests(unittest.TestCase):
         self.assertNotAlmostEqual(lags["tau_lag1"], labels[-1], places=2)
         expected_ma = sum(labels[-6:-1][-5:]) / 5.0
         self.assertAlmostEqual(lags["tau_ma5"], expected_ma, places=5)
-        from statistics import stdev
-
-        expected_std = stdev(labels[-6:-1][-5:])
-        self.assertAlmostEqual(lags["tau_std5"], expected_std, places=5)
-        # 合成序列开=昨收，昨隔夜缺口为 0
-        self.assertAlmostEqual(lags["yest_gap"], 0.0, places=5)
+        self.assertNotIn("tau_std5", lags)
+        self.assertNotIn("yest_gap", lags)
 
     def test_lag_skips_days_without_oc(self):
         from core.research.tau_panel import tau_lag_features
@@ -584,14 +578,9 @@ class TauLagFeatureTests(unittest.TestCase):
                 "tau_lag1"
             ]
         )
-        self.assertIsNone(
-            tau_lag_features(hist_bars=hist, tau_by_date={d0: y0, d_t: y_t}, asof_date="")[
-                "yest_gap"
-            ]
-        )
 
-    def test_yest_gap_is_yesterday_overnight_not_today(self):
-        from core.research.tau_panel import attach_tau_lag_features, yest_gap_from_hist
+    def test_attach_does_not_write_withdrawn_hist_keys(self):
+        from core.research.tau_panel import attach_tau_lag_features
 
         d0, d1, d2 = "2025-06-02", "2025-06-03", "2025-06-04"
         hist = [
@@ -600,26 +589,8 @@ class TauLagFeatureTests(unittest.TestCase):
             {"date": d2, "open": 11.0, "close": 11.2},
         ]
         feats = attach_tau_lag_features({}, hist_bars=hist, asof_date=d2)
-        yest = (10.8 / 10.5 - 1.0) * 100.0
-        today = (11.0 / 10.6 - 1.0) * 100.0
-        self.assertAlmostEqual(feats["yest_gap"], yest, places=5)
-        self.assertNotAlmostEqual(feats["yest_gap"], today, places=2)
-        self.assertAlmostEqual(yest_gap_from_hist(hist, d2), yest, places=5)
-
-    def test_tau_std5_zero_when_single_past_day(self):
-        from core.research.tau_panel import tau_lag_features
-
-        hist = [
-            {"date": "2025-06-02", "open": 10.0, "close": 10.2},
-            {"date": "2025-06-03", "open": 10.2, "close": 10.1},
-        ]
-        lags = tau_lag_features(
-            hist_bars=hist,
-            tau_by_date={"2025-06-02": 2.0},
-            asof_date="2025-06-03",
-        )
-        self.assertAlmostEqual(lags["tau_lag1"], 2.0)
-        self.assertAlmostEqual(lags["tau_std5"], 0.0)
+        self.assertNotIn("yest_gap", feats)
+        self.assertNotIn("tau_std5", feats)
 
 
 if __name__ == "__main__":

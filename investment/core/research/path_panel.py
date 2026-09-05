@@ -6,8 +6,7 @@
 
 ``first_touch_path_label`` 保留供触价对照；训练与 path实 用 ``extreme_order_path_label``。
 
-无未来函数：特征 = 开盘信息集 + ≤τ（默认 10:30）分钟前缀 + 历史真实 path
-（path_lag1 / path_ma5 / path_range_lag1 / path_sign_streak，不含当日）；
+无未来函数：特征 = 开盘信息集 + ≤τ（默认 10:30）分钟前缀 + 历史真实 path（path_lag1 / path_ma5，不含当日）；
 标签可用全日分钟极值序。
 """
 
@@ -43,16 +42,15 @@ PATH_OPEN_FEATURES = (
     "mom3_pct",
 )
 PATH_Z_FEATURES = PATH_OPEN_FEATURES + MINUTE_TAU_ALL_KEYS
-PATH_LAG_FEATURES = ("path_lag1", "path_ma5", "path_range_lag1", "path_sign_streak")
+# path_range_lag1 / path_sign_streak 曾入模，做 T 回测变差后撤回
+PATH_LAG_FEATURES = ("path_lag1", "path_ma5")
 PATH_LAG_FEAT_LABELS = {
     "path_lag1": "昨真实极值序 %",
     "path_ma5": "近5日真实极值序均 %",
-    "path_range_lag1": "昨真实振幅 %",
-    "path_sign_streak": "极值序同号连续日",
 }
 PATH_RIDGE_FEATURES = PATH_Z_FEATURES + PATH_LAG_FEATURES
-# live：code → (signed map, unsigned range map)
-_PATH_LAG_MAPS_BY_CODE: Dict[str, Tuple[Dict[str, float], Dict[str, float]]] = {}
+# live：code → {date: y_path}，避免每根 5m 扫描重算历史极值序
+_PATH_REALIZED_BY_CODE: Dict[str, Dict[str, float]] = {}
 # path live 默认决策钟（与 dual_score / τ 头一致；做 T 选腿已改 v6 收盘带宽）
 DEFAULT_PATH_MINUTE_TAU_HM = "10:30"
 # 训练多 τ 默认网格（09:30…11:00 每 5m；与 τ 头 / dual_score.minute_tau_grid 一致）
@@ -309,34 +307,22 @@ def path_lag_features(
     window: int = LABEL_LAG_WINDOW,
     range_by_date: Optional[Dict[str, float]] = None,
 ) -> Dict[str, Optional[float]]:
-    out = label_lag_features(
+    _ = range_by_date
+    return label_lag_features(
         hist_bars=hist_bars,
         by_date=path_by_date,
         asof_date=asof_date,
         window=window,
         lag1_key="path_lag1",
         ma_key="path_ma5",
-        streak_key="path_sign_streak",
     )
-    range_lags = label_lag_features(
-        hist_bars=hist_bars,
-        by_date=range_by_date or {},
-        asof_date=asof_date,
-        window=window,
-        lag1_key="path_range_lag1",
-    )
-    out["path_range_lag1"] = range_lags.get("path_range_lag1")
-    return out
 
 
-def _load_path_lag_maps_for_code(
-    stock_code: str,
-) -> Tuple[Dict[str, float], Dict[str, float]]:
+def _load_realized_path_map_for_code(stock_code: str) -> Dict[str, float]:
     code = str(stock_code or "").strip()
-    empty: Tuple[Dict[str, float], Dict[str, float]] = ({}, {})
     if not code:
-        return empty
-    hit = _PATH_LAG_MAPS_BY_CODE.get(code)
+        return {}
+    hit = _PATH_REALIZED_BY_CODE.get(code)
     if hit is not None:
         return hit
     by_date: Dict[str, List[dict]] = {}
@@ -358,8 +344,8 @@ def _load_path_lag_maps_for_code(
     except Exception:  # noqa: BLE001
         logger.debug("load realized path minutes failed", exc_info=True)
         by_date = {}
-    mapped = realized_path_stats_by_date(by_date)
-    _PATH_LAG_MAPS_BY_CODE[code] = mapped
+    mapped = realized_path_by_date(by_date)
+    _PATH_REALIZED_BY_CODE[code] = mapped
     return mapped
 
 
@@ -371,18 +357,17 @@ def attach_path_lag_features(
     minute_by_date: Optional[Dict[str, Sequence[dict]]] = None,
     stock_code: str = "",
 ) -> Dict[str, Any]:
-    """把 path 历史因子写入特征行；缺历史分钟则留空，不挡打分。"""
+    """把 path_lag1 / path_ma5 写入特征行；缺历史分钟则留空，不挡打分。"""
     out: Dict[str, Any] = dict(feats or {})
     hist = hist_bars_pit(hist_bars, asof_date=asof_date)
     if isinstance(minute_by_date, dict) and minute_by_date:
-        path_map, range_map = realized_path_stats_by_date(minute_by_date)
+        path_map = realized_path_by_date(minute_by_date)
     else:
-        path_map, range_map = _load_path_lag_maps_for_code(stock_code)
+        path_map = _load_realized_path_map_for_code(stock_code)
     lags = path_lag_features(
         hist_bars=hist,
         path_by_date=path_map,
         asof_date=asof_date,
-        range_by_date=range_map,
     )
     for k in PATH_LAG_FEATURES:
         out[k] = lags.get(k)
@@ -553,7 +538,6 @@ def collect_path_day_sample(
     buy_trig_pct: float = 1.5,
     minute_tau_hm: Any = None,
     path_by_date: Optional[Dict[str, float]] = None,
-    path_range_by_date: Optional[Dict[str, float]] = None,
 ) -> Optional[Dict[str, Any]]:
     """单日：开盘 Z + 早盘前缀分钟小包 + 全日极值时间序标签。"""
     if not isinstance(day_bar, dict):
@@ -604,7 +588,6 @@ def collect_path_day_sample(
         hist_bars=hist,
         path_by_date=path_by_date if isinstance(path_by_date, dict) else {},
         asof_date=dkey,
-        range_by_date=path_range_by_date if isinstance(path_range_by_date, dict) else {},
     )
     for k in PATH_LAG_FEATURES:
         feats[k] = lags.get(k)
@@ -681,7 +664,7 @@ def build_path_panels_from_bars(
             if i < len(tau_xs) and isinstance(tau_xs[i], dict):
                 tau_by_date[str(dkey)[:10]] = dict(tau_xs[i])
         code_mins = minute_map.get(code) if isinstance(minute_map.get(code), dict) else {}
-        path_by_date, path_range_by_date = realized_path_stats_by_date(code_mins)
+        path_by_date = realized_path_by_date(code_mins)
         xs_out: List[dict] = []
         ys_out: List[float] = []
         dates_out: List[str] = []
@@ -706,7 +689,6 @@ def build_path_panels_from_bars(
                     buy_trig_pct=buy_trig_pct,
                     minute_tau_hm=hm,
                     path_by_date=path_by_date,
-                    path_range_by_date=path_range_by_date,
                 )
                 if not sample:
                     continue

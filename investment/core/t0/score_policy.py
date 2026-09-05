@@ -193,8 +193,6 @@ def _slim_features_tau(feats: Any, *, limit: int = 24) -> Optional[Dict[str, Any
         "mom3_pct",
         "tau_lag1",
         "tau_ma5",
-        "tau_std5",
-        "yest_gap",
     ) + MINUTE_TAU_ALL_KEYS
     out: Dict[str, Any] = {}
     lim = max(len(pin) + 4, int(limit))
@@ -323,12 +321,8 @@ def tip_fields_from_item(item: Optional[dict]) -> Dict[str, Any]:
                 "mom3_pct",
                 "path_lag1",
                 "path_ma5",
-                "path_range_lag1",
-                "path_sign_streak",
                 "cx_lag1",
                 "cx_ma5",
-                "cx_L_lag1",
-                "cx_am_lag1",
             }
         }
         if slim_path:
@@ -348,12 +342,8 @@ def tip_fields_from_item(item: Optional[dict]) -> Dict[str, Any]:
                 "mom3_pct",
                 "path_lag1",
                 "path_ma5",
-                "path_range_lag1",
-                "path_sign_streak",
                 "tau_lag1",
                 "tau_ma5",
-                "tau_std5",
-                "yest_gap",
             }
         }
         if slim_path:
@@ -1387,7 +1377,7 @@ def _attach_y_cx_to_item(
             return
         fp = item.get("features_path")
         if isinstance(fp, dict):
-            for k in ("cx_lag1", "cx_ma5", "cx_L_lag1", "cx_am_lag1"):
+            for k in ("cx_lag1", "cx_ma5"):
                 fp[k] = path_feats.get(k)
         item["predicted_score_cx"] = float(y_cx)
         item["y_cx_hat"] = float(y_cx)

@@ -385,8 +385,7 @@
                 <strong>ŷ_τ</strong> = τ Ridge，标签 <code>close[T]/open[T]−1</code>；字段
                 <code>predicted_score_tau</code>（= ŷ_τ；旧别名 <code>score_rem</code> 可读）。
                 特征另含 PIT 历史真实开→收 <code>tau_lag1</code>（上一交易日）、
-                <code>tau_ma5</code> / <code>tau_std5</code>（过去最多 5 日均值与标准差）与
-                <code>yest_gap</code>（昨隔夜缺口，不是当日 <code>gap_pct</code>）；标签仍是当日
+                <code>tau_ma5</code>（过去最多 5 日均值）；标签仍是当日
                 <code>close[T]/open[T]−1</code>。改特征后请重新拟合。
               </p>
               <p>
@@ -470,9 +469,7 @@
                 （**做T执行 v6 收盘带宽**扫至 11:00；不含 13:00 / 14:00）共享 β，看 OOS <code>by_tau</code>；live 调仓决策钟默认 10:30。
                 字段 <code>y_path</code> / <code>predicted_score_path</code>。
                 特征另含 PIT 历史真实极值序 <code>path_lag1</code>（上一有 5m 的交易日）、
-                <code>path_ma5</code>（过去最多 5 个有 5m 日的均值）、
-                <code>path_range_lag1</code>（昨无符号振幅）与
-                <code>path_sign_streak</code>（同号连续日，带符号）；标签仍是当日全日极值序。
+                <code>path_ma5</code>（过去最多 5 个有 5m 日的均值）；标签仍是当日全日极值序。
                 改特征后请重新拟合。
               </p>
               <p>
@@ -521,9 +518,7 @@
                 不是波动率：单边趋势可以振幅大但曲折度低。
                 字段 <code>y_cx</code> / <code>predicted_score_cx</code>。
                 特征另含 PIT 历史真实曲折度 <code>cx_lag1</code>（上一有 5m 的交易日）、
-                <code>cx_ma5</code>（过去最多 5 个有 5m 日的均值）、
-                <code>cx_L_lag1</code>（昨路径长 / 首收 ×100%）与
-                <code>cx_am_lag1</code>（昨 09:30–11:00 曲折度）；标签仍是当日全日
+                <code>cx_ma5</code>（过去最多 5 个有 5m 日的均值）；标签仍是当日全日
                 <code>1−D/L</code>。
               </p>
               <p>

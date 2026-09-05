@@ -408,7 +408,7 @@ def fit_path_ridge_report(
         y_note = (
             "变长前缀少数时钟共享 β；标签=全日极值序 signed range%；"
             "τ 越晚特征更贴标签，看 OOS.by_tau；live 决策钟=minute_tau_hm；"
-            "另含 PIT path_lag1/path_ma5/path_range_lag1/path_sign_streak"
+            "另含 PIT path_lag1/path_ma5"
         )
     else:
         y_note = "单 τ 前缀分钟小包 + 开盘 Z；训练 demean+类别平衡"
@@ -431,7 +431,7 @@ def fit_path_ridge_report(
         "sample_count": len(ys),
         "oos": oos,
         "return_model": model,
-        "schema": "path_ridge_v5",
+        "schema": "path_ridge_v4",
         "target": "extreme_order_signed_range",
         "sell_trig_pct": float(sell_trig_pct),
         "buy_trig_pct": float(buy_trig_pct),
@@ -553,7 +553,7 @@ def persist_path_model(
         "oos": report.get("oos"),
         "sample_count": report.get("sample_count"),
         "stock_count": report.get("stock_count"),
-        "schema": report.get("schema") or "path_ridge_v5",
+        "schema": report.get("schema") or "path_ridge_v4",
         "sell_trig_pct": report.get("sell_trig_pct", rm.get("sell_trig_pct")),
         "buy_trig_pct": report.get("buy_trig_pct", rm.get("buy_trig_pct")),
         "minute_tau_hm": report.get("minute_tau_hm") or rm.get("minute_tau_hm"),
