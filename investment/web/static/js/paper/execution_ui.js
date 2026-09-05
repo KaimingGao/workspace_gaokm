@@ -160,13 +160,13 @@ export function renderExecutionRulesHtml(execution) {
       "|R̂_τ| 入场下限；范围 0–1.0%；0=关；与超额带宽δ独立"
     ) +
     specKpi(
-      "cx门槛",
+      "complexity门槛",
       (() => {
-        const n = Number(t0.y_cx_max);
+        const n = Number(t0.y_complexity_max ?? t0.y_cx_max);
         if (!Number.isFinite(n)) return "1.00";
-        return n >= 1 ? "1.00≈关" : `ŷ_cx>${n}`;
+        return n >= 1 ? "1.00≈关" : `ŷ_complexity>${n}`;
       })(),
-      "ŷ_cx∈[0,1]；超过则太折跳过做 T；默认 1.00≈关"
+      "ŷ_complexity∈[0,1]；超过则太折跳过做 T；默认 1.00≈关"
     ) +
     specKpi("路径", pathLbl, "分钟触价路径") +
     specKpi("成交", fillLbl, "全量触价 trigger；表单不再提供 mid/optimistic") +
@@ -302,9 +302,9 @@ export function fillExecutionForm(root, execution) {
   set("y_path_enter", t0.y_path_enter != null ? t0.y_path_enter : 0.01);
   set("y_path_strong", t0.y_path_strong != null ? t0.y_path_strong : 0.2);
   set(
-    "y_cx_max",
+    "y_complexity_max",
     (() => {
-      const n = Number(t0.y_cx_max);
+      const n = Number(t0.y_complexity_max ?? t0.y_cx_max);
       if (!Number.isFinite(n)) return 1;
       return Math.max(0.01, Math.min(n, 1));
     })()
@@ -403,8 +403,13 @@ export function collectExecutionForm(root) {
     y_path_enter_buy_then_sell: Math.max(0, Math.min(num("y_path_enter", 0.01), 5)),
     y_path_enter_sell_then_buy: Math.max(0, Math.min(num("y_path_enter", 0.01), 5)),
     y_path_strong: Math.max(0, Math.min(num("y_path_strong", 0.2), 5)),
+    y_complexity_max: (() => {
+      const n = num("y_complexity_max", num("y_cx_max", 1));
+      if (!Number.isFinite(n)) return 1;
+      return Math.max(0.01, Math.min(n, 1));
+    })(),
     y_cx_max: (() => {
-      const n = num("y_cx_max", 1);
+      const n = num("y_complexity_max", num("y_cx_max", 1));
       if (!Number.isFinite(n)) return 1;
       return Math.max(0.01, Math.min(n, 1));
     })(),
@@ -713,8 +718,13 @@ export function collectT0BacktestBody(root, opts = {}) {
           ? t0.y_path_enter
           : 0.01,
     y_path_strong: t0.y_path_strong != null ? t0.y_path_strong : 0.2,
+    y_complexity_max: (() => {
+      const n = Number(t0.y_complexity_max ?? t0.y_cx_max);
+      if (!Number.isFinite(n)) return 1;
+      return Math.max(0.01, Math.min(n, 1));
+    })(),
     y_cx_max: (() => {
-      const n = Number(t0.y_cx_max);
+      const n = Number(t0.y_complexity_max ?? t0.y_cx_max);
       if (!Number.isFinite(n)) return 1;
       return Math.max(0.01, Math.min(n, 1));
     })(),

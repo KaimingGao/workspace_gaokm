@@ -432,6 +432,8 @@ export function createFactorIcUi(deps) {
     tau_ma5: "近5日真实开→收均 %",
     path_lag1: "昨真实极值序 %",
     path_ma5: "近5日真实极值序均 %",
+    complexity_lag1: "昨真实曲折度",
+    complexity_ma5: "近5日真实曲折度均",
     cx_lag1: "昨真实曲折度",
     cx_ma5: "近5日真实曲折度均",
     ret_open_to_tau: "开盘→τ 收益 %",
@@ -496,7 +498,7 @@ export function createFactorIcUi(deps) {
     const isOn = opts.head === "on";
     const isCx = opts.head === "cx";
     const isPath = opts.head === "path" || isCx;
-    const pathTag = isCx ? "ŷ_cx" : "ŷ_path";
+    const pathTag = isCx ? "ŷ_complexity" : "ŷ_path";
     const coefs =
       rm.coefficients && typeof rm.coefficients === "object" ? rm.coefficients : {};
     const means =
@@ -546,6 +548,8 @@ export function createFactorIcUi(deps) {
       "ret_open_to_tau",
     ]);
     const histLagExtra = new Set([
+      "complexity_lag1",
+      "complexity_ma5",
       "cx_lag1",
       "cx_ma5",
       "tau_lag1",
@@ -617,7 +621,7 @@ export function createFactorIcUi(deps) {
       .map((r, i) => ({ ...r, rank: i + 1 }));
     if (!rows.length) {
       const emptyMsg = isCx
-        ? "暂无 ŷ_cx 入模因子"
+        ? "暂无 ŷ_complexity 入模因子"
         : isPath
         ? "暂无 ŷ_path 入模因子"
         : isOn

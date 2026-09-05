@@ -321,6 +321,8 @@ def tip_fields_from_item(item: Optional[dict]) -> Dict[str, Any]:
                 "mom3_pct",
                 "path_lag1",
                 "path_ma5",
+                "complexity_lag1",
+                "complexity_ma5",
                 "cx_lag1",
                 "cx_ma5",
             }
@@ -403,6 +405,8 @@ def pack_day_scores(score_snap: Optional[dict]) -> Optional[Dict[str, Any]]:
         "y_on_path",
         "y_nowcast",
         "y_path",
+        "predicted_score_complexity",
+        "y_complexity_hat",
         "predicted_score_cx",
         "y_cx_hat",
         "y_check",
@@ -460,6 +464,8 @@ def attach_day_scores(
             "y_on_path",
             "y_nowcast",
             "y_path",
+            "predicted_score_complexity",
+            "y_complexity_hat",
             "predicted_score_cx",
             "y_cx_hat",
             "y_check",
@@ -631,16 +637,26 @@ def scores_from_item(item: Optional[dict]) -> Dict[str, Optional[float]]:
     if y_path is None:
         y_path = _f(item.get("predicted_score_path"))
 
-    y_cx_hat = _f(item.get("predicted_score_cx"))
-    if y_cx_hat is None:
-        y_cx_hat = _f(item.get("y_cx_hat"))
-    if y_cx_hat is not None:
-        try:
-            from core.research.cx_panel import cx_as_unit_01
+    y_complexity_hat = None
+    try:
+        from core.research.cx_panel import pick_y_complexity_hat
 
-            y_cx_hat = cx_as_unit_01(y_cx_hat)
-        except Exception:  # noqa: BLE001
-            pass
+        y_complexity_hat = pick_y_complexity_hat(item)
+    except Exception:  # noqa: BLE001
+        y_complexity_hat = _f(item.get("predicted_score_complexity"))
+        if y_complexity_hat is None:
+            y_complexity_hat = _f(item.get("y_complexity_hat"))
+        if y_complexity_hat is None:
+            y_complexity_hat = _f(item.get("predicted_score_cx"))
+        if y_complexity_hat is None:
+            y_complexity_hat = _f(item.get("y_cx_hat"))
+        if y_complexity_hat is not None:
+            try:
+                from core.research.cx_panel import cx_as_unit_01
+
+                y_complexity_hat = cx_as_unit_01(y_complexity_hat)
+            except Exception:  # noqa: BLE001
+                pass
 
     y_check = item.get("y_check")
     if y_check is not None:
@@ -657,9 +673,16 @@ def scores_from_item(item: Optional[dict]) -> Dict[str, Optional[float]]:
         "y_check": y_check,
         "eod_trust": eod_trust,
     }
-    if y_cx_hat is not None:
-        out["predicted_score_cx"] = y_cx_hat
-        out["y_cx_hat"] = y_cx_hat
+    if y_complexity_hat is not None:
+        try:
+            from core.research.cx_panel import write_y_complexity_hat
+
+            write_y_complexity_hat(out, y_complexity_hat)
+        except Exception:  # noqa: BLE001
+            out["predicted_score_complexity"] = y_complexity_hat
+            out["y_complexity_hat"] = y_complexity_hat
+            out["predicted_score_cx"] = y_complexity_hat
+            out["y_cx_hat"] = y_complexity_hat
     if y_tau_oc is not None:
         out["y_tau_oc"] = y_tau_oc
         out["predicted_score_tau_oc"] = y_tau_oc
@@ -1307,12 +1330,12 @@ def _attach_y_path_to_item(
         logger.debug("attach y_path failed", exc_info=True)
     finally:
         try:
-            _attach_y_cx_to_item(item, hist_bars=hist_bars, allow_open_z=allow_open_z)
+            _attach_y_complexity_to_item(item, hist_bars=hist_bars, allow_open_z=allow_open_z)
         except Exception:  # noqa: BLE001
-            logger.debug("attach y_cx failed", exc_info=True)
+            logger.debug("attach y_complexity failed", exc_info=True)
 
 
-def _attach_y_cx_to_item(
+def _attach_y_complexity_to_item(
     item: dict,
     *,
     hist_bars: Optional[Sequence[dict]] = None,
@@ -1320,7 +1343,7 @@ def _attach_y_cx_to_item(
     stock_code: Optional[str] = None,
     asof_date: Optional[str] = None,
 ) -> None:
-    """即时补 ŷ_cx（与 path 同特征、独立 β）；缺模型/缺前缀则不出分，不挡做 T。"""
+    """即时补 ŷ_complexity（与 path 同特征、独立 β）；缺模型/缺前缀则不出分，不挡做 T。"""
     if not isinstance(item, dict):
         return
     feats_tau = item.get("features_tau") if isinstance(item.get("features_tau"), dict) else {}
@@ -1334,6 +1357,7 @@ def _attach_y_cx_to_item(
     try:
         from core.research.cx_ridge import load_cx_model, predict_cx_from_features
         from core.research.path_panel import path_features_from_open_row
+        from core.research.cx_panel import write_y_complexity_hat
 
         model = load_cx_model()
         if model is None:
@@ -1372,17 +1396,16 @@ def _attach_y_cx_to_item(
             logger.debug("attach cx lag feats failed", exc_info=True)
         if not any(v is not None for v in path_feats.values()):
             return
-        y_cx = predict_cx_from_features(path_feats, model_doc=model)
-        if y_cx is None:
+        y_complexity = predict_cx_from_features(path_feats, model_doc=model)
+        if y_complexity is None:
             return
         fp = item.get("features_path")
         if isinstance(fp, dict):
-            for k in ("cx_lag1", "cx_ma5"):
+            for k in ("complexity_lag1", "complexity_ma5", "cx_lag1", "cx_ma5"):
                 fp[k] = path_feats.get(k)
-        item["predicted_score_cx"] = float(y_cx)
-        item["y_cx_hat"] = float(y_cx)
+        write_y_complexity_hat(item, float(y_complexity))
     except Exception:  # noqa: BLE001
-        logger.debug("attach y_cx predict failed", exc_info=True)
+        logger.debug("attach y_complexity predict failed", exc_info=True)
 
 
 def _inject_minute_pack_from_prefix(
@@ -1695,6 +1718,8 @@ def rescore_scores_at_fixed_prefix(
         out["_score_source"] = "prefix_minute_missing"
         out.pop("y_path", None)
         out.pop("predicted_score_path", None)
+        out.pop("predicted_score_complexity", None)
+        out.pop("y_complexity_hat", None)
         out.pop("predicted_score_cx", None)
         out.pop("y_cx_hat", None)
         return out

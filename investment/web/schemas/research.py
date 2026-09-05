@@ -137,7 +137,7 @@ class PathRidgeRequest(BaseModel):
 
 
 class CxRidgeRequest(BaseModel):
-    """ŷ_cx Ridge：开盘 Z + 多 τ 前缀分钟小包 → 全日 5m 曲折度 1−D/L ∈[0,1]。"""
+    """ŷ_complexity Ridge：开盘 Z + 多 τ 前缀分钟小包 → 全日 5m 曲折度 1−D/L ∈[0,1]。"""
 
     lookback: int = Field(default=120, ge=40, le=500)
     watching_limit: int = Field(

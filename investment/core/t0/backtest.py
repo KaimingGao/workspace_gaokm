@@ -6,6 +6,7 @@ import logging
 logger = logging.getLogger(__name__)
 from typing import Any, Dict, List, Optional
 
+from core.research.cx_panel import pack_y_complexity_fields
 from core.t0.config import T0_TRADE_DAYS_SAMPLE_UI_LIMIT, load_t0_rules
 from core.t0.minute_path import T0_INTENTIONAL_ABANDON_EXITS
 from core.t0.rules import _t0_qty_lots, atr_pct_from_bars, simulate_t0_day
@@ -530,9 +531,7 @@ def _walk_t0(
                     "path_realized": day.get("path_realized"),
                     "path_realized_reason": day.get("path_realized_reason"),
                     "path_realized_trig": day.get("path_realized_trig"),
-                    "y_cx": day.get("y_cx"),
-                    "cx_realized": day.get("cx_realized"),
-                    "cx_realized_reason": day.get("cx_realized_reason"),
+                    **pack_y_complexity_fields(day),
                     "cx_efficiency": day.get("cx_efficiency"),
                     "eod_realized": day.get("eod_realized"),
                     "tau_realized": day.get("tau_realized"),
@@ -654,9 +653,7 @@ def _walk_t0(
                 "path_realized": day.get("path_realized"),
                 "path_realized_reason": day.get("path_realized_reason"),
                 "path_realized_trig": day.get("path_realized_trig"),
-                "y_cx": day.get("y_cx"),
-                "cx_realized": day.get("cx_realized"),
-                "cx_realized_reason": day.get("cx_realized_reason"),
+                **pack_y_complexity_fields(day),
                 "cx_efficiency": day.get("cx_efficiency"),
                 "eod_realized": day.get("eod_realized"),
                 "tau_realized": day.get("tau_realized"),
@@ -783,7 +780,8 @@ def _walk_t0(
             "y_path_enter_sell_then_buy": cfg.get("y_path_enter_sell_then_buy"),
             "y_path_enter_buy_then_sell": cfg.get("y_path_enter_buy_then_sell"),
             "y_path_strong": cfg.get("y_path_strong"),
-            "y_cx_max": cfg.get("y_cx_max"),
+            "y_complexity_max": cfg.get("y_complexity_max") or cfg.get("y_cx_max"),
+            "y_cx_max": cfg.get("y_complexity_max") or cfg.get("y_cx_max"),
             "y_path_required": cfg.get("y_path_required"),
             "y_gap_tier_mode": cfg.get("y_gap_tier_mode"),
             "y_gap_tier_pct": cfg.get("y_gap_tier_pct"),

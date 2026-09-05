@@ -599,7 +599,7 @@ def close_band_enter_skip_reason(
     r_pct: Optional[float] = None,
 ) -> Optional[str]:
     """入场门槛：|y_τ|≥y_tau_enter；y_use_path 时须有 y_path 且 |y_path|≥y_path_enter。
-    ŷ_cx > y_cx_max（0.01–1.00）则太折跳过；缺 ŷ_cx 不挡。
+    ŷ_complexity > y_complexity_max（0.01–1.00）则太折跳过；缺 ŷ_complexity 不挡。
 
     选腿仍由收盘带宽定方向；此处只过滤横盘/弱信号/缺 path / |R̂_τ| 不足 / 太折。
     enter≤0 仅关闭对应 |ŷ| 幅度闸；缺 y_path 在 y_use_path 下仍跳过。
@@ -670,20 +670,16 @@ def close_band_enter_skip_reason(
             if abs(yp) < path_enter - 1e-12:
                 return f"|y_path|={abs(yp):.3f}%<{path_enter:g}% 未过入场（横盘）"
 
-    from core.research.cx_panel import cx_as_unit_01
+    from core.research.cx_panel import pick_y_complexity_hat
 
-    cx_max = _cfg_float(cfg_d, "y_cx_max", 1.0)
+    if cfg_d.get("y_complexity_max") not in (None, ""):
+        cx_max = _cfg_float(cfg_d, "y_complexity_max", 1.0)
+    else:
+        cx_max = _cfg_float(cfg_d, "y_cx_max", 1.0)
     cx_max = max(0.01, min(float(cx_max), 1.0))
-    y_cx_hat = sc.get("predicted_score_cx")
-    if y_cx_hat is None:
-        y_cx_hat = sc.get("y_cx_hat")
-    if y_cx_hat is None:
-        y_cx_hat = raw.get("predicted_score_cx")
-    if y_cx_hat is None:
-        y_cx_hat = raw.get("y_cx_hat")
-    y_cx_u = cx_as_unit_01(y_cx_hat)
-    if y_cx_u is not None and y_cx_u > cx_max + 1e-12:
-        return f"y_cx={y_cx_u:.3f}>{cx_max:g} 太折跳过"
+    y_complexity_u = pick_y_complexity_hat(sc, raw)
+    if y_complexity_u is not None and y_complexity_u > cx_max + 1e-12:
+        return f"y_complexity={y_complexity_u:.3f}>{cx_max:g} 太折跳过"
 
     return None
 

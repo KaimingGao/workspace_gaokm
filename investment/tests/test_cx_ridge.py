@@ -1,4 +1,4 @@
-"""ŷ_cx 曲折度标签与 Ridge。"""
+"""ŷ_complexity 曲折度标签与 Ridge。"""
 
 from __future__ import annotations
 
@@ -95,11 +95,13 @@ class CxLabelTests(unittest.TestCase):
             close = 10.0 + (0.08 if i % 2 else 0.0)
             bars.append(_bar(dkey, hm, close, open_px=10.0))
         day = attach_cx_realized({"scores": {"y_path": -1.2}}, bars)
-        self.assertGreater(day.get("y_cx"), 0.80)
-        self.assertEqual(day.get("y_cx"), day.get("cx_realized"))
+        self.assertGreater(day.get("y_complexity"), 0.80)
+        self.assertEqual(day.get("y_complexity"), day.get("complexity_realized"))
+        self.assertEqual(day.get("y_complexity"), day.get("y_cx"))
+        self.assertEqual(day.get("cx_realized"), day.get("complexity_realized"))
         self.assertEqual(day.get("cx_realized_reason"), "ok")
-        self.assertEqual(day["scores"].get("y_cx"), day.get("y_cx"))
-        self.assertEqual(day["direction_features"].get("y_cx"), day.get("y_cx"))
+        self.assertEqual(day["scores"].get("y_complexity"), day.get("y_complexity"))
+        self.assertEqual(day["direction_features"].get("y_complexity"), day.get("y_complexity"))
         self.assertIsNotNone(day.get("cx_efficiency"))
 
     def test_cx_as_unit_01(self):
@@ -115,6 +117,20 @@ class CxLabelTests(unittest.TestCase):
             cx_as_unit_01(0.4, model_doc={"return_model": {"y_spec": {"unit": "complexity_01"}}}),
             0.4,
         )
+
+    def test_pick_y_complexity_label_zero_is_valid(self):
+        from core.research.cx_panel import pack_y_complexity_fields, pick_y_complexity_label
+
+        self.assertEqual(pick_y_complexity_label({"y_complexity": 0.0}), 0.0)
+        self.assertEqual(pick_y_complexity_label({"y_cx": 0.0}), 0.0)
+        self.assertEqual(pick_y_complexity_label({"y_complexity": 0.0, "y_cx": 0.9}), 0.0)
+        packed = pack_y_complexity_fields({"y_cx": 0.0, "cx_realized_reason": "flat_path"})
+        self.assertEqual(packed["y_complexity"], 0.0)
+        self.assertEqual(packed["y_cx"], 0.0)
+        self.assertEqual(packed["complexity_realized"], 0.0)
+        self.assertEqual(packed["complexity_realized_reason"], "flat_path")
+        self.assertIsNone(pick_y_complexity_label({}))
+        self.assertIsNone(pack_y_complexity_fields(None)["y_complexity"])
 
 
 class CxRidgeFitTests(unittest.TestCase):
@@ -163,7 +179,7 @@ class CxRidgeFitTests(unittest.TestCase):
         )
         self.assertTrue(report.get("success"), report.get("error"))
         self.assertEqual(report.get("schema"), "cx_ridge_v1")
-        self.assertEqual(report.get("dual_score_head"), "y_cx")
+        self.assertEqual(report.get("dual_score_head"), "y_complexity")
         oos = report.get("oos") or {}
         self.assertIn("ic", oos)
         self.assertIn("median_hit", oos)
@@ -171,11 +187,13 @@ class CxRidgeFitTests(unittest.TestCase):
         y_spec = (report.get("return_model") or {}).get("y_spec") or {}
         self.assertIn("1-D/L", y_spec.get("formula") or "")
         extras = (report.get("return_model") or {}).get("extra_features") or []
-        self.assertIn("cx_lag1", extras)
-        self.assertIn("cx_ma5", extras)
+        self.assertIn("complexity_lag1", extras)
+        self.assertIn("complexity_ma5", extras)
         self.assertNotIn("cx_L_lag1", extras)
         self.assertNotIn("cx_am_lag1", extras)
-        self.assertIn("cx_lag1", (report.get("return_model") or {}).get("feat_labels") or {})
+        labels = (report.get("return_model") or {}).get("feat_labels") or {}
+        self.assertIn("complexity_lag1", labels)
+        self.assertIn("cx_lag1", labels)
 
 
 class CxLagFeatureTests(unittest.TestCase):
@@ -187,6 +205,7 @@ class CxLagFeatureTests(unittest.TestCase):
         )
         from core.research.path_panel import PATH_Z_FEATURES
 
+        self.assertNotIn("complexity_lag1", PATH_Z_FEATURES)
         self.assertNotIn("cx_lag1", PATH_Z_FEATURES)
         self.assertNotIn("path_lag1", PATH_Z_FEATURES)
         self.assertNotIn("cx_L_lag1", PATH_Z_FEATURES)
@@ -216,9 +235,12 @@ class CxLagFeatureTests(unittest.TestCase):
             cx_by_date=cx_map,
             asof_date=asof,
         )
+        self.assertAlmostEqual(lags["complexity_lag1"], labels[-2], places=5)
         self.assertAlmostEqual(lags["cx_lag1"], labels[-2], places=5)
+        self.assertNotAlmostEqual(lags["complexity_lag1"], labels[-1], places=2)
         self.assertNotAlmostEqual(lags["cx_lag1"], labels[-1], places=2)
         expected_ma = sum(labels[-6:-1][-5:]) / 5.0
+        self.assertAlmostEqual(lags["complexity_ma5"], expected_ma, places=5)
         self.assertAlmostEqual(lags["cx_ma5"], expected_ma, places=5)
 
     def test_lag_skips_days_without_minutes(self):
@@ -236,7 +258,9 @@ class CxLagFeatureTests(unittest.TestCase):
             cx_by_date=cx_map,
             asof_date="2025-06-05",
         )
+        self.assertAlmostEqual(lags["complexity_lag1"], 0.40)
         self.assertAlmostEqual(lags["cx_lag1"], 0.40)
+        self.assertAlmostEqual(lags["complexity_ma5"], 0.25)
         self.assertAlmostEqual(lags["cx_ma5"], 0.25)
 
     def test_attach_cx_lag_from_minute_map(self):
@@ -256,9 +280,12 @@ class CxLagFeatureTests(unittest.TestCase):
             asof_date=d2,
             minute_by_date={d0: m0, d1: m1, d2: m0},
         )
+        self.assertAlmostEqual(feats["complexity_lag1"], float(y1), places=5)
         self.assertAlmostEqual(feats["cx_lag1"], float(y1), places=5)
+        self.assertIsNotNone(feats["complexity_ma5"])
         self.assertIsNotNone(feats["cx_ma5"])
         y2, _, _ = cx_complexity_label(m0)
+        self.assertNotAlmostEqual(feats["complexity_lag1"], float(y2), places=2)
         self.assertNotAlmostEqual(feats["cx_lag1"], float(y2), places=2)
 
     def test_t_day_cx_label_not_used_as_factor(self):
@@ -283,13 +310,16 @@ class CxLagFeatureTests(unittest.TestCase):
             asof_date=d_t,
             minute_by_date={d0: m0, d_t: mt},
         )
+        self.assertAlmostEqual(feats["complexity_lag1"], float(y0), places=5)
         self.assertAlmostEqual(feats["cx_lag1"], float(y0), places=5)
+        self.assertNotAlmostEqual(feats["complexity_lag1"], float(yt), places=2)
         self.assertNotAlmostEqual(feats["cx_lag1"], float(yt), places=2)
         empty = cx_lag_features(
             hist_bars=[{"date": d0}, {"date": d_t}],
             cx_by_date={d0: y0, d_t: yt},
             asof_date="",
         )
+        self.assertIsNone(empty["complexity_lag1"])
         self.assertIsNone(empty["cx_lag1"])
 
     def test_attach_does_not_write_withdrawn_hist_keys(self):

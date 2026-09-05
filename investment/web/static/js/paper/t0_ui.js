@@ -9,7 +9,7 @@ import {
   pickTradeDays,
   stockCellHtml,
   T0_TRADE_TABLE_MAX_ROWS,
-} from "./t0_table.js?v=p1945";
+} from "./t0_table.js?v=p1953";
 
 function escapeHtml(s) {
   return String(s ?? "")

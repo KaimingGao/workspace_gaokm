@@ -207,7 +207,7 @@ DEFAULT_T0_RULES: Dict[str, Any] = {
     "y_path_enter_sell_then_buy": 0.01,
     "y_path_enter_buy_then_sell": 0.01,
     "y_path_strong": 0.2,
-    "y_cx_max": 1.0,  # ŷ_cx∈[0,1]；>此值太折跳过；默认 1.00≈关
+    "y_complexity_max": 1.0,  # ŷ_complexity∈[0,1]；>此值太折跳过；默认 1.00≈关
     "y_eod_enter": 0.01,
     "y_eod_strong": 0.2,
     "y_eod_prior": 0.01,
@@ -395,6 +395,7 @@ def _migrate_dual_y_gate_keys(cfg: dict, override_keys: Optional[set] = None) ->
         ("y_trade_strong", "y_trade_tau_sign_gate"),
         ("y_eod_strong", "y_eod_tau_sign_gate"),
         ("y_nc_strong", "y_nowcast_enter"),
+        ("y_complexity_max", "y_cx_max"),
     ):
         if new_key in keys:
             continue
@@ -416,6 +417,8 @@ def _sync_dual_y_gate_legacy_aliases(cfg: dict) -> None:
         cfg["y_eod_tau_sign_gate"] = cfg["y_eod_strong"]
     if cfg.get("y_nc_strong") is not None:
         cfg["y_nowcast_enter"] = cfg["y_nc_strong"]
+    if cfg.get("y_complexity_max") is not None:
+        cfg["y_cx_max"] = cfg["y_complexity_max"]
 
 
 def load_t0_rules(override: Optional[dict] = None) -> Dict[str, Any]:
@@ -508,7 +511,7 @@ def load_t0_rules(override: Optional[dict] = None) -> Dict[str, Any]:
         ("y_path_enter_sell_then_buy", 0.0, 5.0, 0.01),
         ("y_path_enter_buy_then_sell", 0.0, 5.0, 0.01),
         ("y_path_strong", 0.0, 5.0, 0.2),
-        ("y_cx_max", 0.01, 1.0, 1.0),
+        ("y_complexity_max", 0.01, 1.0, 1.0),
         ("y_gap_tier_pct", 0.3, 8.0, 1.0),
     ):
         try:

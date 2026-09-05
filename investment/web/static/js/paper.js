@@ -64,7 +64,7 @@ import {
 } from "./paper/t0_ui.js?v=p1924";
 import { buildT0SummaryLine } from "./paper/t0_report.js?v=p1906";
 import { wireT0SkipTips } from "./paper/t0_viz.js?v=p1924";
-import { wireT0ProcessTips, wireT0DayDebugExpand } from "./paper/t0_table.js?v=p1945";
+import { wireT0ProcessTips, wireT0DayDebugExpand } from "./paper/t0_table.js?v=p1953";
 import { wireHoldingsChgTips } from "./paper/holding_chg_tip.js?v=p1924";
 import { createHoldingsIslandController } from "./paper/holdings_island.js";
 import { createClusterRebalanceController } from "./paper/cluster_rebalance.js?v=p1704";

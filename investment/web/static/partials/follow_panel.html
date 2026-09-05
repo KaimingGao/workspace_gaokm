@@ -560,7 +560,7 @@
               <form id="paper-t0-form" class="paper-t0-form" autocomplete="off">
                 <fieldset class="paper-t0-cfg-block is-shared">
                   <legend>共用</legend>
-                  <p class="paper-t0-cfg-hint quant-sub">v6 收盘带宽：<strong>ĉ = ĉ_τ</strong>（开盘×(1+y_τ%)）；收价破 ĉ±δ 涌现正/反T；|y_τ| 入场，|R̂_τ| 入场（0–1.0%，0=关），|y_path| 校验（可关「用path」）；<strong>ŷ_cx&gt;cx门槛</strong>（0.01–1.00，默认 1.00≈关）太折则跳过；<strong>τ先验</strong>把预估开→收 ŷ_τ 当偏移加到 ±δ 上，整条带宽平移（宽仍 2δ），不改冻结 leg2；每轮 40% 至满仓；11:00 后不开 leg1。y_trade / y_eod / y_nowcast <strong>不参与</strong>估 ĉ 与选腿。冻结 leg2 后新 ĉ 不改本轮；午后追价可改触发价。做 T 回测直接读当前表单（不必先保存）。</p>
+                  <p class="paper-t0-cfg-hint quant-sub">v6 收盘带宽：<strong>ĉ = ĉ_τ</strong>（开盘×(1+y_τ%)）；收价破 ĉ±δ 涌现正/反T；|y_τ| 入场，|R̂_τ| 入场（0–1.0%，0=关），|y_path| 校验（可关「用path」）；<strong>ŷ_complexity&gt;complexity门槛</strong>（0.01–1.00，默认 1.00≈关）太折则跳过；<strong>τ先验</strong>把预估开→收 ŷ_τ 当偏移加到 ±δ 上，整条带宽平移（宽仍 2δ），不改冻结 leg2；每轮 40% 至满仓；11:00 后不开 leg1。y_trade / y_eod / y_nowcast <strong>不参与</strong>估 ĉ 与选腿。冻结 leg2 后新 ĉ 不改本轮；午后追价可改触发价。做 T 回测直接读当前表单（不必先保存）。</p>
                   <div class="paper-t0-form-grid">
                   <label class="paper-t0-field">
                     <span>启用</span>
@@ -659,10 +659,10 @@
                   </label>
                   <label
                     class="paper-t0-field"
-                    title="ŷ_cx∈[0,1]（0=直线，1=最折）。超过此值太折则跳过做 T；范围 0.01–1.00；默认 1.00≈关。闸用盘中前缀 ŷ_cx，不是收盘后的全日 label。"
+                    title="ŷ_complexity∈[0,1]（0=直线，1=最折）。超过此值太折则跳过做 T；范围 0.01–1.00；默认 1.00≈关。闸用盘中前缀 ŷ_complexity，不是收盘后的全日 label。"
                   >
-                    <span>cx门槛</span>
-                    <input type="number" name="y_cx_max" min="0.01" max="1.00" step="0.01" value="1.00" />
+                    <span>complexity门槛</span>
+                    <input type="number" name="y_complexity_max" min="0.01" max="1.00" step="0.01" value="1.00" />
                   </label>
                   <label
                     class="paper-t0-field"

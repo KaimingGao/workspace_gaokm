@@ -397,6 +397,8 @@ def _slot_public_scores(row: dict) -> dict:
         for k in (
             "y_tau",
             "y_path",
+            "predicted_score_complexity",
+            "y_complexity_hat",
             "predicted_score_cx",
             "y_cx_hat",
             "y_eod",
@@ -771,7 +773,7 @@ def _build_close_band_scan_trace(
     tau_pool_day: Optional[dict],
     trigger_hms: Optional[set] = None,
 ) -> List[dict]:
-    """11:00 前每根 5m：OLHC + Ĉ_τ + y_τ/y_path/y_cx（debug 展开用）。"""
+    """11:00 前每根 5m：OLHC + Ĉ_τ + y_τ/y_path/y_complexity（debug 展开用）。"""
     from core.t0.close_band import (
         close_band_enter_skip_reason,
         close_band_pick_direction,
@@ -866,7 +868,7 @@ def _build_close_band_scan_trace(
         c_tau = None
         y_tau = None
         y_path = None
-        y_cx = None
+        y_complexity = None
         r_pct = None
         upper_pct = None
         lower_pct = None
@@ -917,10 +919,11 @@ def _build_close_band_scan_trace(
             sc = scores_from_item(gate_snap)
             if sc.get("y_path") is not None:
                 y_path = round(float(sc["y_path"]), 4)
-            if sc.get("predicted_score_cx") is not None:
-                y_cx = round(float(sc["predicted_score_cx"]), 6)
-            elif sc.get("y_cx_hat") is not None:
-                y_cx = round(float(sc["y_cx_hat"]), 6)
+            from core.research.cx_panel import pick_y_complexity_hat
+
+            y_hat = pick_y_complexity_hat(sc, gate_snap)
+            if y_hat is not None:
+                y_complexity = round(float(y_hat), 6)
             yt_gate = _yt_gate(gate_snap)
             if yt_gate is not None:
                 y_tau = round(float(yt_gate), 4)
@@ -941,7 +944,8 @@ def _build_close_band_scan_trace(
                 "c_tau": c_tau,
                 "y_tau": y_tau,
                 "y_path": y_path,
-                "y_cx": y_cx,
+                "y_complexity": y_complexity,
+                "y_cx": y_complexity,
                 "r_pct": round(float(r_pct), 4) if r_pct is not None else None,
                 "upper_pct": (
                     round(float(upper_pct), 4) if upper_pct is not None else None

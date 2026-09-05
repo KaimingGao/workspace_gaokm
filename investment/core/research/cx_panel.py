@@ -1,16 +1,17 @@
-"""ŷ_cx 训练面板：开盘 Z + 早盘前缀分钟小包 → 全日 5m 路径曲折度。
+"""ŷ_complexity 训练面板：开盘 Z + 早盘前缀分钟小包 → 全日 5m 路径曲折度。
 
 标签（Kaufman 效率比的补，有界、无量纲）：
 
     D = |C_last − C_first|     全日 5m 收价首末位移
     L = Σ |ΔC|                 相邻 5m 路径长（午休/停牌跳空不计入）
-    y_cx = 1 − min(1, D/L)     ∈ [0, 1]
+    y_complexity = 1 − min(1, D/L)     ∈ [0, 1]
 
-0 = 直线（曲折度最低）；1 = 最折。与波动率不同：单边趋势可以振幅大但 y_cx 低。
+0 = 直线（曲折度最低）；1 = 最折。与波动率不同：单边趋势可以振幅大但 y_complexity 低。
 
-无未来函数：特征 = 开盘 Z + ≤τ 分钟前缀 + 历史真实 cx（cx_lag1 / cx_ma5，不含当日）；
-标签用全日 5m 路径（1−D/L 不变）。
-研究枢纽拟合；做 T 入场用盘中前缀 ŷ_cx，ŷ_cx > y_cx_max 则跳过（不用全日 realized 标签）。
+无未来函数：特征 = 开盘 Z + ≤τ 分钟前缀 + 历史真实曲折度
+（complexity_lag1 / complexity_ma5，不含当日）；标签用全日 5m 路径（1−D/L 不变）。
+研究枢纽拟合；做 T 入场用盘中前缀 ŷ_complexity，ŷ_complexity > y_complexity_max 则跳过
+（不用全日 realized 标签）。旧键 y_cx / cx_lag1 仍可读。
 """
 
 from __future__ import annotations
@@ -37,11 +38,29 @@ from core.research.tau_panel import (
 
 CX_LAG_WINDOW = 5
 # cx_L_lag1 / cx_am_lag1 曾入模，做 T 回测变差后撤回
-CX_LAG_FEATURES = ("cx_lag1", "cx_ma5")
+CX_LAG_FEATURES = ("complexity_lag1", "complexity_ma5")
 CX_LAG_FEAT_LABELS = {
+    "complexity_lag1": "昨真实曲折度",
+    "complexity_ma5": "近5日真实曲折度均",
     "cx_lag1": "昨真实曲折度",
     "cx_ma5": "近5日真实曲折度均",
 }
+CX_LAG_KEY_ALIASES = (
+    ("complexity_lag1", "cx_lag1"),
+    ("complexity_ma5", "cx_ma5"),
+)
+Y_COMPLEXITY_HAT_KEYS = (
+    "predicted_score_complexity",
+    "y_complexity_hat",
+    "predicted_score_cx",
+    "y_cx_hat",
+)
+Y_COMPLEXITY_LABEL_KEYS = (
+    "y_complexity",
+    "complexity_realized",
+    "y_cx",
+    "cx_realized",
+)
 CX_Z_FEATURES = PATH_Z_FEATURES + CX_LAG_FEATURES
 DEFAULT_CX_MINUTE_TAU_HM = DEFAULT_PATH_MINUTE_TAU_HM
 DEFAULT_CX_TAU_GRID = DEFAULT_PATH_TAU_GRID
@@ -51,7 +70,7 @@ CX_MIN_BARS = 6
 # 昨早盘曲折度：对齐做 T 扫描窗 09:30–11:00（含 11:00）
 CX_AM_FIRST_MIN = 9 * 60 + 30
 CX_AM_LAST_MIN = 11 * 60
-# live：code → {date: y_cx}
+# live：code → {date: y_complexity}
 _CX_REALIZED_BY_CODE: Dict[str, Dict[str, float]] = {}
 
 
@@ -65,6 +84,105 @@ def _f(x: Any) -> Optional[float]:
     if v != v:
         return None
     return v
+
+
+def _mirror_complexity_lag_aliases(out: Dict[str, Any]) -> None:
+    """新键 complexity_lag* 与旧键 cx_lag* 互相同步，兼容已 promote 模型。"""
+    for new_k, old_k in CX_LAG_KEY_ALIASES:
+        if new_k in out and old_k not in out:
+            out[old_k] = out[new_k]
+        elif old_k in out and new_k not in out:
+            out[new_k] = out[old_k]
+
+
+def cx_as_unit_01(
+    v: Any,
+    *,
+    model_doc: Optional[dict] = None,
+) -> Optional[float]:
+    """把曲折度统一到 [0, 1]。旧模型 (1−D/L)×100 在 |v|>1.5 时 /100。"""
+    x = _f(v)
+    if x is None:
+        return None
+    unit = ""
+    if isinstance(model_doc, dict):
+        rm = model_doc.get("return_model")
+        spec = {}
+        if isinstance(rm, dict) and isinstance(rm.get("y_spec"), dict):
+            spec = rm["y_spec"]
+        elif isinstance(model_doc.get("y_spec"), dict):
+            spec = model_doc["y_spec"]
+        unit = str(spec.get("unit") or "").strip()
+    if unit == "complexity_01":
+        pass
+    elif unit == "pct_complexity" or abs(x) > 1.5:
+        x = x / 100.0
+    return max(0.0, min(round(x, 6), 1.0))
+
+
+def pick_y_complexity_hat(*objs: Any) -> Optional[float]:
+    """盘中 ŷ_complexity；兼容 predicted_score_cx / y_cx_hat。"""
+    for obj in objs:
+        if not isinstance(obj, dict):
+            continue
+        for k in Y_COMPLEXITY_HAT_KEYS:
+            v = cx_as_unit_01(obj.get(k))
+            if v is not None:
+                return v
+    return None
+
+
+def pick_y_complexity_label(*objs: Any) -> Optional[float]:
+    """全日曲折度标签；兼容 y_cx / cx_realized。"""
+    for obj in objs:
+        if not isinstance(obj, dict):
+            continue
+        for k in Y_COMPLEXITY_LABEL_KEYS:
+            v = _f(obj.get(k))
+            if v is not None:
+                return v
+    return None
+
+
+def write_y_complexity_hat(dest: Dict[str, Any], val: float) -> None:
+    x = float(val)
+    dest["predicted_score_complexity"] = x
+    dest["y_complexity_hat"] = x
+    dest["predicted_score_cx"] = x
+    dest["y_cx_hat"] = x
+
+
+def write_y_complexity_label(
+    dest: Dict[str, Any],
+    val: float,
+    reason: str = "ok",
+) -> None:
+    x = float(val)
+    dest["y_complexity"] = x
+    dest["complexity_realized"] = x
+    dest["complexity_realized_reason"] = str(reason)
+    dest["y_cx"] = x
+    dest["cx_realized"] = x
+    dest["cx_realized_reason"] = str(reason)
+
+
+def pack_y_complexity_fields(day: Optional[dict]) -> Dict[str, Any]:
+    """全日曲折度标签写成新/旧双键（0.0 直线有效，不用 or）。"""
+    val = pick_y_complexity_label(day) if isinstance(day, dict) else None
+    reason = None
+    if isinstance(day, dict):
+        if day.get("complexity_realized_reason") is not None:
+            reason = day.get("complexity_realized_reason")
+        else:
+            reason = day.get("cx_realized_reason")
+    return {
+        "y_complexity": val,
+        "y_cx": val,
+        "complexity_realized": val,
+        "cx_realized": val,
+        "complexity_realized_reason": reason,
+        "cx_realized_reason": reason,
+    }
 
 
 def _bar_hm_minutes(bar: dict) -> Optional[int]:
@@ -105,7 +223,7 @@ def cx_complexity_label(
     min_bars: int = CX_MIN_BARS,
     max_step_min: int = CX_MAX_STEP_MIN,
 ) -> Tuple[Optional[float], str, Dict[str, Any]]:
-    """全日 5m 收价路径曲折度 1−D/L ∈ [0,1]；直线≈0。"""
+    """全日 5m 收价路径曲折度 1−D/L ∈ [0,1]（y_complexity）；直线≈0。"""
     pts = _ordered_closes(minute_bars)
     meta: Dict[str, Any] = {
         "n_bars": len(pts),
@@ -197,7 +315,7 @@ def realized_cx_stats_by_date(
 def realized_cx_by_date(
     minute_by_date: Optional[Dict[str, Sequence[dict]]],
 ) -> Dict[str, float]:
-    """各日全日 5m 真实 y_cx；算不出的日不进表。"""
+    """各日全日 5m 真实 y_complexity；算不出的日不进表。"""
     return dict(realized_cx_stats_by_date(minute_by_date).get("y") or {})
 
 
@@ -210,16 +328,18 @@ def cx_lag_features(
     len_by_date: Optional[Dict[str, float]] = None,
     am_by_date: Optional[Dict[str, float]] = None,
 ) -> Dict[str, Optional[float]]:
-    """PIT：只用 asof 之前、且有 5m 真实 cx 的交易日；最多 ``window`` 天。"""
+    """PIT：只用 asof 之前、且有 5m 真实曲折度的交易日；最多 ``window`` 天。"""
     _ = (len_by_date, am_by_date)
-    return label_lag_features(
+    out = label_lag_features(
         hist_bars=hist_bars,
         by_date=cx_by_date,
         asof_date=asof_date,
         window=window,
-        lag1_key="cx_lag1",
-        ma_key="cx_ma5",
+        lag1_key="complexity_lag1",
+        ma_key="complexity_ma5",
     )
+    _mirror_complexity_lag_aliases(out)
+    return out
 
 
 def _load_realized_cx_map_for_code(stock_code: str) -> Dict[str, float]:
@@ -261,7 +381,7 @@ def attach_cx_lag_features(
     minute_by_date: Optional[Dict[str, Sequence[dict]]] = None,
     stock_code: str = "",
 ) -> Dict[str, Any]:
-    """把 cx_lag1 / cx_ma5 写入特征行；缺历史分钟则留空，不挡打分。"""
+    """把 complexity_lag1 / complexity_ma5 写入特征行；缺历史分钟则留空，不挡打分。"""
     out: Dict[str, Any] = dict(feats or {})
     hist = hist_bars_pit(hist_bars, asof_date=asof_date)
     if isinstance(minute_by_date, dict) and minute_by_date:
@@ -275,32 +395,8 @@ def attach_cx_lag_features(
     )
     for k in CX_LAG_FEATURES:
         out[k] = lags.get(k)
+    _mirror_complexity_lag_aliases(out)
     return out
-
-
-def cx_as_unit_01(
-    v: Any,
-    *,
-    model_doc: Optional[dict] = None,
-) -> Optional[float]:
-    """把曲折度统一到 [0, 1]。旧模型 (1−D/L)×100 在 |v|>1.5 时 /100。"""
-    x = _f(v)
-    if x is None:
-        return None
-    unit = ""
-    if isinstance(model_doc, dict):
-        rm = model_doc.get("return_model")
-        spec = {}
-        if isinstance(rm, dict) and isinstance(rm.get("y_spec"), dict):
-            spec = rm["y_spec"]
-        elif isinstance(model_doc.get("y_spec"), dict):
-            spec = model_doc["y_spec"]
-        unit = str(spec.get("unit") or "").strip()
-    if unit == "complexity_01":
-        pass
-    elif unit == "pct_complexity" or abs(x) > 1.5:
-        x = x / 100.0
-    return max(0.0, min(round(x, 6), 1.0))
 
 
 def attach_cx_realized(
@@ -315,9 +411,7 @@ def attach_cx_realized(
     if y is None:
         return out
     val = float(y)
-    out["y_cx"] = val
-    out["cx_realized"] = val
-    out["cx_realized_reason"] = str(reason)
+    write_y_complexity_label(out, val, str(reason))
     if meta.get("efficiency") is not None:
         out["cx_efficiency"] = meta.get("efficiency")
     if meta.get("path_len") is not None:
@@ -325,18 +419,14 @@ def attach_cx_realized(
     if meta.get("displacement") is not None:
         out["cx_displacement"] = meta.get("displacement")
     scores = dict(out.get("scores") or {}) if isinstance(out.get("scores"), dict) else {}
-    scores["y_cx"] = val
-    scores["cx_realized"] = val
-    scores["cx_realized_reason"] = str(reason)
+    write_y_complexity_label(scores, val, str(reason))
     out["scores"] = scores
     feats = (
         dict(out.get("direction_features") or {})
         if isinstance(out.get("direction_features"), dict)
         else {}
     )
-    feats["y_cx"] = val
-    feats["cx_realized"] = val
-    feats["cx_realized_reason"] = str(reason)
+    write_y_complexity_label(feats, val, str(reason))
     out["direction_features"] = feats
     return out
 
@@ -410,6 +500,7 @@ def collect_cx_day_sample(
     )
     for k in CX_LAG_FEATURES:
         feats[k] = lags.get(k)
+    _mirror_complexity_lag_aliases(feats)
     label, reason, lab_meta = cx_complexity_label(minute_bars)
     if label is None:
         return None

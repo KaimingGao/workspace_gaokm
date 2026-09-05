@@ -5,6 +5,8 @@ from __future__ import annotations
 from collections import defaultdict
 from typing import Any, Dict, List, Optional, Sequence
 
+from core.research.cx_panel import pack_y_complexity_fields
+
 SKIP_CAT_LABELS: Dict[str, str] = {
     "missing_minute": "缺分钟",
     "missing_scores": "缺ŷ",
@@ -15,7 +17,8 @@ SKIP_CAT_LABELS: Dict[str, str] = {
     "y_tau_weak": "y_τ弱信号",
     "y_path_flat": "y_path横盘",
     "y_path_disagree": "y_τ↔y_path异号",
-    "y_cx_high": "y_cx太折",
+    "y_complexity_high": "y_complexity太折",
+    "y_cx_high": "y_complexity太折",
     "gap_tier_skip": "大缺口反向跳过",
     "path_abandon": "前缀无空间放弃",
     "prefix_vs_path": "前缀振幅超路径",
@@ -57,6 +60,7 @@ SKIP_CAT_COLORS: Dict[str, str] = {
     "r_tau_flat": "#4a6e7a",
     "y_tau_weak": "#5a7d8c",
     "y_path_flat": "#7a6a55",
+    "y_complexity_high": "#6b4c8a",
     "y_cx_high": "#6b4c8a",
     # 异号 / 冲突 · 克制酒红 / 梅紫
     "eod_tau_disagree": "#b33a3a",
@@ -86,8 +90,8 @@ def classify_t0_skip_reason(reason: Optional[str]) -> str:
     r = str(reason or "")
     if "price_space_mismatch" in r or ("价空间" in r and ("错位" in r or "不一致" in r)):
         return "price_space_mismatch"
-    if "y_cx" in r and ("太折" in r or "曲折" in r):
-        return "y_cx_high"
+    if ("y_complexity" in r or "y_cx" in r) and ("太折" in r or "曲折" in r):
+        return "y_complexity_high"
     if "缺" in r and ("分钟" in r or "minute" in r.lower()):
         return "missing_minute"
     if "缺 y_path" in r or ("缺" in r and "y_path" in r):
@@ -573,8 +577,7 @@ def _slot_as_portrait_unit(day: dict, row: dict) -> dict:
         "eod_realized": day.get("eod_realized"),
         "tau_realized": day.get("tau_realized"),
         "path_realized": day.get("path_realized"),
-        "y_cx": day.get("y_cx"),
-        "cx_realized": day.get("cx_realized"),
+        **pack_y_complexity_fields(day),
         "scores": _fill_day_eod_trade_scores(day, slot_sc),
         "direction_features": row.get("direction_features")
         if isinstance(row.get("direction_features"), dict)
@@ -605,8 +608,7 @@ def _slot_placeholder_unit(day: dict, hm: str) -> dict:
         "eod_realized": day.get("eod_realized"),
         "tau_realized": day.get("tau_realized"),
         "path_realized": day.get("path_realized"),
-        "y_cx": day.get("y_cx"),
-        "cx_realized": day.get("cx_realized"),
+        **pack_y_complexity_fields(day),
         "scores": _fill_day_eod_trade_scores(day, {}),
         "direction_features": {},
         "direction": None,
@@ -1594,8 +1596,7 @@ def iter_traded_attribution_units(day: dict) -> List[dict]:
                 "eod_realized": day.get("eod_realized"),
                 "tau_realized": day.get("tau_realized"),
                 "path_realized": day.get("path_realized"),
-                "y_cx": day.get("y_cx"),
-                "cx_realized": day.get("cx_realized"),
+                **pack_y_complexity_fields(day),
                 "direction": r.get("direction"),
                 "pnl": r.get("pnl") or 0,
                 "exposure_pnl": r.get("exposure_pnl") or 0,

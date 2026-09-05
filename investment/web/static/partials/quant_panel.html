@@ -493,11 +493,11 @@
     </div>
   </section>
 
-  <!-- ŷ_cx：全日 5m 曲折度 [0,1]；ŷ_cx>y_cx_max 跳过做 T -->
+  <!-- ŷ_complexity：全日 5m 曲折度 [0,1]；ŷ_complexity>y_complexity_max 跳过做 T -->
   <section class="dashboard-section quant-section" id="quant-section-cx" aria-labelledby="quant-section-cx-title">
     <header class="dashboard-section-head quant-section-head">
-      <h3 id="quant-section-cx-title" class="dashboard-section-title">ŷ_cx</h3>
-      <p class="dashboard-section-desc quant-section-desc">曲折度 · 1−D/L ∈[0,1] · 多 τ 共享 β · ŷ_cx&gt;门槛跳过</p>
+      <h3 id="quant-section-cx-title" class="dashboard-section-title">ŷ_complexity</h3>
+      <p class="dashboard-section-desc quant-section-desc">曲折度 · 1−D/L ∈[0,1] · 多 τ 共享 β · ŷ_complexity&gt;门槛跳过</p>
     </header>
     <div class="dashboard-card quant-pro-card">
       <div class="dashboard-card-head quant-pro-card-head quant-card-head--tools">
@@ -505,20 +505,20 @@
           <span class="quant-pro-status-chip" data-state="idle">待命</span>
           <span class="quant-rem-status-msg">拟合后看 OOS IC / 中位命中 · 过门再启用</span>
         </div>
-        <div class="dashboard-card-tools quant-pro-card-tools" role="group" aria-label="ŷ_cx 操作">
+        <div class="dashboard-card-tools quant-pro-card-tools" role="group" aria-label="ŷ_complexity 操作">
           <details class="quant-help-fold quant-pro-help-fold">
             <summary class="quant-pro-help-summary"><span class="quant-pro-help-icon" aria-hidden="true">?</span> 说明</summary>
             <div class="quant-help-body quant-pro-help-body">
               <p>
-                <strong>ŷ_cx</strong> = 开盘 Z + 早盘前缀分钟小包 →
+                <strong>ŷ_complexity</strong> = 开盘 Z + 早盘前缀分钟小包 →
                 <code>1 − D/L</code>（∈[0,1]）。
                 <code>D</code> 为全日 5m 收价首末位移，
                 <code>L</code> 为相邻 5m 路径长（午休跳空不计入）。
                 <strong>0 = 直线</strong>（最低），<strong>1 = 最折</strong>。
                 不是波动率：单边趋势可以振幅大但曲折度低。
-                字段 <code>y_cx</code> / <code>predicted_score_cx</code>。
-                特征另含 PIT 历史真实曲折度 <code>cx_lag1</code>（上一有 5m 的交易日）、
-                <code>cx_ma5</code>（过去最多 5 个有 5m 日的均值）；标签仍是当日全日
+                字段 <code>y_complexity</code> / <code>predicted_score_complexity</code>。
+                特征另含 PIT 历史真实曲折度 <code>complexity_lag1</code>（上一有 5m 的交易日）、
+                <code>complexity_ma5</code>（过去最多 5 个有 5m 日的均值）；标签仍是当日全日
                 <code>1−D/L</code>。
               </p>
               <p>
@@ -526,7 +526,7 @@
                 （≈50% 即无排序信息），不看方向命中。
                 独立 <code>y_spec</code>，不写 <code>predicted_score</code> / ŷ_τ / ŷ_path。
                 落盘 <code>cx_ridge_model.json</code>。
-                做 T：盘中前缀 <strong>ŷ_cx &gt; y_cx_max</strong>（0.01–1.00，默认 1.00≈关）则跳过；改标签尺度后请重新拟合。
+                做 T：盘中前缀 <strong>ŷ_complexity &gt; y_complexity_max</strong>（0.01–1.00，默认 1.00≈关）则跳过；改标签尺度后请重新拟合。
               </p>
               <p>依赖观察池 <strong>5m 分钟缓存</strong>；无分钟线时会报错。可在上方「分钟线」区块点 <strong>强更 5m</strong>。</p>
             </div>
@@ -538,7 +538,7 @@
       </div>
       <div class="quant-pro-card-body">
         <div id="quant-cx-result" class="quant-weight-table-wrap" aria-label="cx 拟合摘要"></div>
-        <div id="quant-cx-coef-table" class="quant-weight-table-wrap" aria-label="ŷ_cx 因子系数表"></div>
+        <div id="quant-cx-coef-table" class="quant-weight-table-wrap" aria-label="ŷ_complexity 因子系数表"></div>
       </div>
     </div>
   </section>

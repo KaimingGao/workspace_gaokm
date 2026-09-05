@@ -748,7 +748,7 @@ export function initQuant(ctx) {
   })();
 
 
-  // 轻量预填 ŷ_cx 状态
+  // 轻量预填 ŷ_complexity 状态
   void (async () => {
     try {
       const res = await fetch("/api/quant/cx-ridge/model");
@@ -2069,7 +2069,7 @@ export function initQuant(ctx) {
       const blockers = (gate.blockers || []).join("；") || "未过 OOS 闸";
       if (
         !window.confirm(
-          `promote 未过闸：${blockers}\n\n仍强制写入 live/cx_ridge_model.json 吗？\n（研究枢纽；ŷ_cx>y_cx_max 跳过做 T）`
+          `promote 未过闸：${blockers}\n\n仍强制写入 live/cx_ridge_model.json 吗？\n（研究枢纽；ŷ_complexity>y_complexity_max 跳过做 T）`
         )
       ) {
         return;
@@ -2077,7 +2077,7 @@ export function initQuant(ctx) {
       forcePromote = true;
     } else if (
       !window.confirm(
-        "将 ŷ_cx 模型写入 live（研究枢纽；1−D/L∈[0,1]；ŷ_cx>y_cx_max 跳过做 T）？"
+        "将 ŷ_complexity 模型写入 live（研究枢纽；1−D/L∈[0,1]；ŷ_complexity>y_complexity_max 跳过做 T）？"
       )
     ) {
       return;

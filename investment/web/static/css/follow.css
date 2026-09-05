@@ -4843,7 +4843,7 @@ body[data-page="follow"] .paper-t0-table {
   color: var(--ink-3);
 }
 
-/* y_τ | y_path | y_cx */
+/* y_τ | y_path | y_complexity */
 .paper-t0-scan-debug th:nth-child(9),
 .paper-t0-scan-debug td:nth-child(9),
 .paper-t0-scan-debug th:nth-child(10),
@@ -5011,7 +5011,7 @@ body[data-page="follow"] .paper-t0-table {
   box-shadow: none;
 }
 
-/* 价带 | y_τ | y_path | y_cx | 过程 | 结果：左边线作分区 */
+/* 价带 | y_τ | y_path | y_complexity | 过程 | 结果：左边线作分区 */
 .paper-t0-trades-table thead th.paper-t0-col-o,
 .paper-t0-trades-table tbody td.paper-t0-col-o {
   border-left: 1px solid color-mix(in srgb, var(--ink) 10%, transparent);

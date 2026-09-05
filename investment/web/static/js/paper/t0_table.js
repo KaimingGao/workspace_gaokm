@@ -13,10 +13,26 @@ import {
   Y_TAU_TITLE,
   PATH_REALIZED_TITLE,
   TAU_REALIZED_TITLE,
-  Y_CX_TITLE,
+  Y_COMPLEXITY_TITLE,
   resolvePathScore,
   fmtPathScore,
 } from "./fmt.js?v=p1945";
+
+const Y_COMPLEXITY_HAT_KEYS = [
+  "predicted_score_complexity",
+  "y_complexity_hat",
+  "predicted_score_cx",
+  "y_cx_hat",
+];
+
+function writeComplexityHat(obj, val) {
+  if (obj == null || val == null || !Number.isFinite(Number(val))) return;
+  const n = Number(val);
+  obj.predicted_score_complexity = n;
+  obj.y_complexity_hat = n;
+  obj.predicted_score_cx = n;
+  obj.y_cx_hat = n;
+}
 import {
   adaptiveSizingDayTip,
   yTauMapScoreTip,
@@ -32,7 +48,8 @@ export const SKIP_CAT_LABEL = {
   y_tau_weak: "y_τ弱信号",
   y_path_flat: "y_path横盘",
   y_path_disagree: "y_τ↔y_path异号",
-  y_cx_high: "y_cx太折",
+  y_complexity_high: "y_complexity太折",
+  y_cx_high: "y_complexity太折",
   gap_tier_skip: "大缺口反向跳过",
   path_abandon: "前缀无空间放弃(旧)",
   prefix_segment: "固定前缀待确认(旧)",
@@ -74,8 +91,10 @@ export const SKIP_CAT_TIP = {
     "y_use_path 开时：缺 ŷ_path，或 |ŷ_path| 低于 y_path_enter（默认 0.01%），即使收价破 ĉ±δ 也不开第一腿。",
   y_path_disagree:
     "y_use_path 开时：|ŷ_path| 超过 y_path_strong（默认 0.2%）却与 ŷ_τ 异号则跳过；低于强阈允许异号。",
+  y_complexity_high:
+    "ŷ_complexity > y_complexity_max（0.01–1.00，默认 1.00≈关）视为太折：即使收价破 ĉ±δ 也不开第一腿。缺 ŷ_complexity 不挡。",
   y_cx_high:
-    "ŷ_cx > y_cx_max（0.01–1.00，默认 1.00≈关）视为太折：即使收价破 ĉ±δ 也不开第一腿。缺 ŷ_cx 不挡。",
+    "ŷ_complexity > y_complexity_max（0.01–1.00，默认 1.00≈关）视为太折：即使收价破 ĉ±δ 也不开第一腿。缺 ŷ_complexity 不挡。",
   eod_tau_disagree:
     "历史口径：强 ŷ_eod 与 ŷ_τ 异号跳过。v6 选腿已下线该闸（仅 y_τ / ĉ_τ + path 入场/强）。",
   trade_tau_disagree:
@@ -392,7 +411,7 @@ function slotGateYTau(r, dayHost) {
   return null;
 }
 
-/** 本轮 ŷ_τ / ŷ_path / ŷ_cx / ŷ_trade / ŷ_nowcast：只读槽位快照，不回退日级分。 */
+/** 本轮 ŷ_τ / ŷ_path / ŷ_complexity / ŷ_trade / ŷ_nowcast：只读槽位快照，不回退日级分。 */
 function slotYhat(r, dayHost) {
   const sc = r && r.scores && typeof r.scores === "object" ? r.scores : {};
   const ft =
@@ -407,8 +426,8 @@ function slotYhat(r, dayHost) {
   let yPath =
     slotYNum(sc, ["y_path", "predicted_score_path"]) ?? slotYNum(ft, ["y_path"]);
   let yCx =
-    slotYNum(sc, ["predicted_score_cx", "y_cx_hat"]) ??
-    slotYNum(ft, ["predicted_score_cx", "y_cx_hat"]);
+    slotYNum(sc, Y_COMPLEXITY_HAT_KEYS) ??
+    slotYNum(ft, Y_COMPLEXITY_HAT_KEYS);
   let yTrade =
     slotYNum(sc, ["y_trade", "predicted_score_blend", "decision_score"]) ??
     slotYNum(ft, ["y_trade"]);
@@ -421,7 +440,7 @@ function slotYhat(r, dayHost) {
     if (m) yTau = Number(m[1]);
   }
   if (yCx == null) {
-    const m = reason.match(/y_cx\s*=\s*(-?[\d.]+)/);
+    const m = reason.match(/y_complexity\s*=\s*(-?[\d.]+)/) || reason.match(/y_cx\s*=\s*(-?[\d.]+)/);
     if (m) yCx = Number(m[1]);
   }
   if (yTrade == null) {
@@ -433,6 +452,7 @@ function slotYhat(r, dayHost) {
   return {
     y_tau: yTau,
     y_path: yPath,
+    y_complexity: yCx,
     y_cx: yCx,
     y_trade: yTrade,
     y_nowcast: yNowcast,
@@ -458,9 +478,12 @@ function slotDayRow(d, r, rows) {
     if (slotScores.y_tau_oc == null) slotScores.y_tau_oc = yhat.y_tau;
   }
   if (yhat.y_path != null && slotScores.y_path == null) slotScores.y_path = yhat.y_path;
-  if (yhat.y_cx != null) {
-    if (slotScores.predicted_score_cx == null) slotScores.predicted_score_cx = yhat.y_cx;
-    if (slotScores.y_cx_hat == null) slotScores.y_cx_hat = yhat.y_cx;
+  if (yhat.y_complexity != null || yhat.y_cx != null) {
+    const n = yhat.y_complexity ?? yhat.y_cx;
+    if (slotScores.predicted_score_complexity == null) slotScores.predicted_score_complexity = n;
+    if (slotScores.y_complexity_hat == null) slotScores.y_complexity_hat = n;
+    if (slotScores.predicted_score_cx == null) slotScores.predicted_score_cx = n;
+    if (slotScores.y_cx_hat == null) slotScores.y_cx_hat = n;
   }
   if (yhat.y_trade != null && slotScores.y_trade == null) slotScores.y_trade = yhat.y_trade;
   if (yhat.y_nowcast != null) {
@@ -488,8 +511,10 @@ function slotDayRow(d, r, rows) {
     exit_reason: filled ? r.exit_reason : null,
     y_tau: yhat.y_tau,
     y_path: yhat.y_path,
-    predicted_score_cx: yhat.y_cx,
-    y_cx_hat: yhat.y_cx,
+    predicted_score_complexity: yhat.y_complexity ?? yhat.y_cx,
+    y_complexity_hat: yhat.y_complexity ?? yhat.y_cx,
+    predicted_score_cx: yhat.y_complexity ?? yhat.y_cx,
+    y_cx_hat: yhat.y_complexity ?? yhat.y_cx,
     y_trade: yhat.y_trade,
     y_nowcast: yhat.y_nowcast,
     scores: slotScores,
@@ -602,6 +627,8 @@ function pickScoreNum(d, key) {
       key === "y_path" ||
       key === "y_trade" ||
       key === "y_nowcast" ||
+      key === "predicted_score_complexity" ||
+      key === "y_complexity_hat" ||
       key === "predicted_score_cx" ||
       key === "y_cx_hat")
   ) {
@@ -761,19 +788,31 @@ function fmtCxScore(v) {
   return `${(n * 100).toFixed(1)}%`;
 }
 
-/** 全日 y_cx：0–1 按%显示；无正负、不上红绿；≥0.70 标高折。 */
+/** 全日 y_complexity：0–1 按%显示；无正负、不上红绿；≥0.70 标高折。 */
 function pickCxRealized(d) {
   const raw =
+    pickScoreNum(d, "complexity_realized") ??
+    pickScoreNum(d, "y_complexity") ??
     pickScoreNum(d, "cx_realized") ??
+    (d?.complexity_realized != null && Number.isFinite(Number(d.complexity_realized))
+      ? Number(d.complexity_realized)
+      : null) ??
+    (d?.y_complexity != null && Number.isFinite(Number(d.y_complexity))
+      ? Number(d.y_complexity)
+      : null) ??
     (d?.cx_realized != null && Number.isFinite(Number(d.cx_realized))
       ? Number(d.cx_realized)
       : null) ??
     (d?.y_cx != null && Number.isFinite(Number(d.y_cx)) ? Number(d.y_cx) : null);
   const n = cxAsUnit01(raw);
-  if (n == null) return { text: "—", n: null, tip: Y_CX_TITLE, high: false };
+  if (n == null) return { text: "—", n: null, tip: Y_COMPLEXITY_TITLE, high: false };
   const reason = String(
-    (d.direction_features && d.direction_features.cx_realized_reason) ||
-      (d.scores && d.scores.cx_realized_reason) ||
+    (d.direction_features &&
+      (d.direction_features.complexity_realized_reason ||
+        d.direction_features.cx_realized_reason)) ||
+      (d.scores &&
+        (d.scores.complexity_realized_reason || d.scores.cx_realized_reason)) ||
+      d.complexity_realized_reason ||
       d.cx_realized_reason ||
       ""
   ).trim();
@@ -785,15 +824,23 @@ function pickCxRealized(d) {
   return {
     text: fmtCxScore(n),
     n,
-    tip: extra.length ? `${Y_CX_TITLE} · ${extra.join(" · ")}` : Y_CX_TITLE,
+    tip: extra.length ? `${Y_COMPLEXITY_TITLE} · ${extra.join(" · ")}` : Y_COMPLEXITY_TITLE,
     high: n >= 0.7,
   };
 }
 
 function pickCxPred(d) {
   const raw =
+    pickScoreNum(d, "predicted_score_complexity") ??
+    pickScoreNum(d, "y_complexity_hat") ??
     pickScoreNum(d, "predicted_score_cx") ??
     pickScoreNum(d, "y_cx_hat") ??
+    (d?.predicted_score_complexity != null && Number.isFinite(Number(d.predicted_score_complexity))
+      ? Number(d.predicted_score_complexity)
+      : null) ??
+    (d?.y_complexity_hat != null && Number.isFinite(Number(d.y_complexity_hat))
+      ? Number(d.y_complexity_hat)
+      : null) ??
     (d?.predicted_score_cx != null && Number.isFinite(Number(d.predicted_score_cx))
       ? Number(d.predicted_score_cx)
       : null) ??
@@ -801,13 +848,13 @@ function pickCxPred(d) {
   return cxAsUnit01(raw);
 }
 
-/** 槽位 ŷ_cx；回测配对全日 label。无 rowspan。 */
+/** 槽位 ŷ_complexity；回测配对全日 label。无 rowspan。 */
 function cxMergedCellHtml(host, dayRef, showRealized = true) {
   const predHost = host || dayRef;
   const realHost = dayRef || host;
   const pr = showRealized
     ? pickCxRealized(realHost)
-    : { text: "—", n: null, tip: Y_CX_TITLE, high: false };
+    : { text: "—", n: null, tip: Y_COMPLEXITY_TITLE, high: false };
   const pred = pickCxPred(predHost);
   const highCls = (pred != null && pred >= 0.7) || pr.high ? " is-cx-high" : "";
   const predTxt = pred != null ? fmtCxScore(pred) : "—";
@@ -817,7 +864,7 @@ function cxMergedCellHtml(host, dayRef, showRealized = true) {
       : showRealized && pr.n != null
         ? pr.text
         : predTxt;
-  const tip = pred != null ? `${pr.tip} · ŷ_cx=${pred.toFixed(3)}` : pr.tip;
+  const tip = pred != null ? `${pr.tip} · ŷ_complexity=${pred.toFixed(3)}` : pr.tip;
   return (
     `<td class="num paper-t0-col-cx paper-t0-col-y paper-t0-col-y-cx has-tip${highCls}" ` +
     `title="${escapeText(tip)}">${escapeText(shown)}</td>`
@@ -925,11 +972,15 @@ function tradeScoreHost(day, host) {
   const yTau = scanRow.y_tau != null ? Number(scanRow.y_tau) : null;
   const yPath = scanRow.y_path != null ? Number(scanRow.y_path) : null;
   const yCx =
-    scanRow.y_cx != null
-      ? Number(scanRow.y_cx)
-      : scanRow.predicted_score_cx != null
-        ? Number(scanRow.predicted_score_cx)
-        : null;
+    scanRow.y_complexity != null
+      ? Number(scanRow.y_complexity)
+      : scanRow.y_cx != null
+        ? Number(scanRow.y_cx)
+        : scanRow.predicted_score_complexity != null
+          ? Number(scanRow.predicted_score_complexity)
+          : scanRow.predicted_score_cx != null
+            ? Number(scanRow.predicted_score_cx)
+            : null;
   const scores = { ...(host.scores && typeof host.scores === "object" ? host.scores : {}) };
   if (yTau != null && Number.isFinite(yTau)) {
     scores.y_tau = yTau;
@@ -943,13 +994,15 @@ function tradeScoreHost(day, host) {
     scores.predicted_score_path = yPath;
   }
   if (yCx != null && Number.isFinite(yCx)) {
-    scores.predicted_score_cx = yCx;
-    scores.y_cx_hat = yCx;
+    writeComplexityHat(scores, yCx);
   }
   return {
     ...host,
     y_tau: yTau != null && Number.isFinite(yTau) ? yTau : host.y_tau,
     y_path: yPath != null && Number.isFinite(yPath) ? yPath : host.y_path,
+    predicted_score_complexity:
+      yCx != null && Number.isFinite(yCx) ? yCx : host.predicted_score_complexity,
+    y_complexity_hat: yCx != null && Number.isFinite(yCx) ? yCx : host.y_complexity_hat,
     predicted_score_cx: yCx != null && Number.isFinite(yCx) ? yCx : host.predicted_score_cx,
     y_cx_hat: yCx != null && Number.isFinite(yCx) ? yCx : host.y_cx_hat,
     direction_score:
@@ -991,12 +1044,16 @@ function t0DayScoreItem(d, fallback = {}, rules = {}, liveByCode = null) {
   let yNc = pickScoreNum(d, "y_nowcast");
   let yPath = pickScoreNum(d, "y_path");
   let yCx =
-    pickScoreNum(d, "predicted_score_cx") ?? pickScoreNum(d, "y_cx_hat");
+    pickScoreNum(d, "predicted_score_complexity") ??
+    pickScoreNum(d, "y_complexity_hat") ??
+    pickScoreNum(d, "predicted_score_cx") ??
+    pickScoreNum(d, "y_cx_hat");
   if (slotSnapMode && slot) {
     const yhat = slotYhat(slot, d);
     if (yhat.y_tau != null) yTau = yhat.y_tau;
     if (yhat.y_path != null) yPath = yhat.y_path;
-    if (yhat.y_cx != null) yCx = yhat.y_cx;
+    if (yhat.y_complexity != null) yCx = yhat.y_complexity;
+    else if (yhat.y_cx != null) yCx = yhat.y_cx;
     if (yhat.y_trade != null) yTrade = yhat.y_trade;
   }
   const scanHost = d?._scan_score_row ? d : null;
@@ -1004,9 +1061,9 @@ function t0DayScoreItem(d, fallback = {}, rules = {}, liveByCode = null) {
     const sr = scanHost._scan_score_row;
     if (sr.y_tau != null && Number.isFinite(Number(sr.y_tau))) yTau = Number(sr.y_tau);
     if (sr.y_path != null && Number.isFinite(Number(sr.y_path))) yPath = Number(sr.y_path);
-    if (sr.y_cx != null && Number.isFinite(Number(sr.y_cx))) {
-      scores.predicted_score_cx = Number(sr.y_cx);
-      scores.y_cx_hat = Number(sr.y_cx);
+    const srCx = sr.y_complexity ?? sr.y_cx;
+    if (srCx != null && Number.isFinite(Number(srCx))) {
+      writeComplexityHat(scores, Number(srCx));
     }
   }
   const code = String(
@@ -1075,6 +1132,8 @@ function t0DayScoreItem(d, fallback = {}, rules = {}, liveByCode = null) {
     predicted_score_nowcast: dayNc ?? liveNc,
     predicted_score_path: slotSnapMode ? yPath : dayPath ?? livePath,
     y_path: slotSnapMode ? yPath : dayPath ?? livePath,
+    predicted_score_complexity: slotSnapMode ? yCx : scores.predicted_score_complexity ?? yCx,
+    y_complexity_hat: slotSnapMode ? yCx : scores.y_complexity_hat ?? yCx,
     predicted_score_cx: slotSnapMode ? yCx : scores.predicted_score_cx ?? yCx,
     y_cx_hat: slotSnapMode ? yCx : scores.y_cx_hat ?? yCx,
     y_path_status: scores.y_path_status ?? live?.y_path_status ?? null,
@@ -2315,7 +2374,7 @@ function tradeTableColCount(ctx) {
   if (ctx.showStock) n += 1;
   n += 6; // O L H C Ĉ_τ R̂_τ
   n += 2; // y_τ y_path
-  if (ctx.showRealized) n += 1; // y_cx
+  if (ctx.showRealized) n += 1; // y_complexity
   n += 1; // process
   n += 3; // ret pnl exp
   if (ctx.showReason) n += 1;
@@ -2460,7 +2519,7 @@ function buildCloseBandScanExpandRow(d, dayKey, colSpan, rules) {
         `<td class="num">${escapeText(fmtScanRtau(r, rEnter))}</td>` +
         `<td class="num">${escapeText(fmtScanPct(r.y_tau))}</td>` +
         `<td class="num">${escapeText(fmtPathScore(r.y_path))}</td>` +
-        `<td class="num">${escapeText(fmtCxScore(r.y_cx ?? r.predicted_score_cx))}</td>` +
+        `<td class="num">${escapeText(fmtCxScore(r.y_complexity ?? r.y_cx ?? r.predicted_score_complexity ?? r.predicted_score_cx))}</td>` +
         `<td>${escapeText(fmtScanPick(r.pick))}</td>` +
         `<td class="paper-t0-scan-skip">${escapeText(skips || "—")}</td>` +
         `</tr>`
@@ -2477,8 +2536,8 @@ function buildCloseBandScanExpandRow(d, dayKey, colSpan, rules) {
     `<th>钟</th><th class="num">O</th><th class="num">L</th><th class="num">H</th>` +
     `<th class="num">C</th><th class="num">Ĉ_τ</th><th class="num" title="r̂_τ = (C/ĉ_τ−1)×100 · 入场阈=页面 R入场%（0–1.0；0=关；与带宽δ/τ先验漂移无关）">R̂_τ</th>` +
     `<th class="num">y_τ</th><th class="num">y_path</th><th class="num" title="${escapeText(
-      Y_CX_TITLE
-    )}">y_cx</th>` +
+      Y_COMPLEXITY_TITLE
+    )}">y_complexity</th>` +
     `<th>破带</th><th>跳过</th>` +
     `</tr></thead>` +
     `<tbody>${body}</tbody>` +
@@ -2591,7 +2650,7 @@ function renderTradeDayHtml(d, ctx) {
   const dateInner = hasScan
     ? `<button type="button" class="paper-t0-day-debug-toggle" data-t0-day-id="${escapeText(
         dayKey
-      )}" title="展开 11:00 前每根扫描（OLHC · Ĉ_τ · R̂_τ · y_τ · y_path · y_cx）" aria-expanded="false">${escapeText(
+      )}" title="展开 11:00 前每根扫描（OLHC · Ĉ_τ · R̂_τ · y_τ · y_path · y_complexity）" aria-expanded="false">${escapeText(
         dayText
       )}<span class="paper-t0-day-debug-caret" aria-hidden="true">▾</span></button>`
     : escapeText(dayText);
@@ -2698,8 +2757,8 @@ export function buildT0TradeTableHtml(opts) {
     )}">y_path</th>` +
     (showRealized
       ? `<th scope="col" class="paper-t0-col-cx num paper-t0-col-y paper-t0-col-y-cx" title="${escapeText(
-          `${Y_CX_TITLE}${slotYHint}`
-        )}">y_cx</th>`
+          `${Y_COMPLEXITY_TITLE}${slotYHint}`
+        )}">y_complexity</th>`
       : "") +
     `<th scope="col" class="paper-t0-col-process" title="本轮时钟 + 成交腿；悬停看全日 K 线">过程</th>` +
     `<th scope="col" class="paper-t0-col-ret num" title="(PnL+敞口)/动仓名义">收益%</th>` +

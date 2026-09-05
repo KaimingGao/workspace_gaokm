@@ -252,29 +252,35 @@ class TestCloseBandCore(unittest.TestCase):
             "y_tau_enter": 0.0,
             "y_path_enter": 0.0,
             "y_use_path": False,
-            "y_cx_max": 0.5,
+            "y_complexity_max": 0.5,
         }
         too = close_band_enter_skip_reason(
-            {"y_tau": 1.0, "predicted_score_cx": 0.8},
+            {"y_tau": 1.0, "predicted_score_complexity": 0.8},
             cfg,
         )
         self.assertIsNotNone(too)
         self.assertIn("太折", too)
         ok = close_band_enter_skip_reason(
-            {"y_tau": 1.0, "predicted_score_cx": 0.4},
+            {"y_tau": 1.0, "predicted_score_complexity": 0.4},
             cfg,
         )
         self.assertIsNone(ok)
         miss = close_band_enter_skip_reason({"y_tau": 1.0}, cfg)
         self.assertIsNone(miss)
+        old_key = close_band_enter_skip_reason(
+            {"y_tau": 1.0, "predicted_score_cx": 0.8},
+            {**cfg, "y_complexity_max": None, "y_cx_max": 0.5},
+        )
+        self.assertIsNotNone(old_key)
+        self.assertIn("太折", old_key)
         old_scale = close_band_enter_skip_reason(
-            {"y_tau": 1.0, "predicted_score_cx": 80.0},
+            {"y_tau": 1.0, "predicted_score_complexity": 80.0},
             cfg,
         )
         self.assertIsNotNone(old_scale)
         cap = close_band_enter_skip_reason(
-            {"y_tau": 1.0, "predicted_score_cx": 0.99},
-            {**cfg, "y_cx_max": 1.0},
+            {"y_tau": 1.0, "predicted_score_complexity": 0.99},
+            {**cfg, "y_complexity_max": 1.0},
         )
         self.assertIsNone(cap)
 
@@ -878,6 +884,7 @@ class TestCloseBandCore(unittest.TestCase):
         self.assertIn("c", first)
         self.assertIn("c_tau", first)
         self.assertIn("y_tau", first)
+        self.assertIn("y_complexity", first)
         self.assertIn("y_cx", first)
         for row in scan:
             hm = str(row.get("hm") or "")

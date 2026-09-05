@@ -421,6 +421,7 @@ class TestT0Core(unittest.TestCase):
         self.assertNotIn("buy_trigger_pct_reverse", d)
         self.assertEqual(d["y_path_enter"], 0.01)
         self.assertEqual(d["y_path_strong"], 0.2)
+        self.assertAlmostEqual(d["y_complexity_max"], 1.0)
         self.assertAlmostEqual(d["y_cx_max"], 1.0)
         self.assertFalse(d["y_nowcast_oc_gate"])
         self.assertEqual(d["y_nc_enter"], 0.01)
@@ -3732,8 +3733,12 @@ class TestT0Viz(unittest.TestCase):
         from core.t0.viz import classify_t0_skip_reason
 
         self.assertEqual(
+            classify_t0_skip_reason("y_complexity=0.820>0.70 太折跳过"),
+            "y_complexity_high",
+        )
+        self.assertEqual(
             classify_t0_skip_reason("y_cx=0.820>0.70 太折跳过"),
-            "y_cx_high",
+            "y_complexity_high",
         )
         self.assertEqual(
             classify_t0_skip_reason("dual_y：缺 y_eod/y_τ/y_trade（即时算分失败）"),

@@ -228,7 +228,7 @@ def quant_path_ridge_model() -> Dict[str, Any]:
 
 @router.post("/api/quant/cx-ridge")
 def quant_cx_ridge(body: CxRidgeRequest) -> Dict[str, Any]:
-    """ŷ_cx Ridge：开盘 Z + 多 τ 前缀 → 全日曲折度 1−D/L ∈[0,1] + 时间 OOS；可选 persist。"""
+    """ŷ_complexity Ridge：开盘 Z + 多 τ 前缀 → 全日曲折度 1−D/L ∈[0,1] + 时间 OOS；可选 persist。"""
     try:
         return deps.quant.run_cx_ridge_experiment(
             lookback=body.lookback,
@@ -247,7 +247,7 @@ def quant_cx_ridge(body: CxRidgeRequest) -> Dict[str, Any]:
 
 @router.get("/api/quant/cx-ridge/model")
 def quant_cx_ridge_model() -> Dict[str, Any]:
-    """读取已 promote 的 ŷ_cx 模型（若有）。"""
+    """读取已 promote 的 ŷ_complexity 模型（若有）。"""
     try:
         return deps.quant.get_cx_ridge_model()
     except Exception as e:

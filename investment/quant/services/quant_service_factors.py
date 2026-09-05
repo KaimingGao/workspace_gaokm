@@ -914,7 +914,7 @@ class QuantFactorMixin:
         note: str = "",
         force_promote: bool = False,
     ) -> Dict[str, Any]:
-        """观察池 ŷ_cx Ridge：开盘 Z + 多 τ 前缀 → 全日 5m 曲折度。只读本地 5m 缓存。"""
+        """观察池 ŷ_complexity Ridge：开盘 Z + 多 τ 前缀 → 全日 5m 曲折度。只读本地 5m 缓存。"""
         from core.data.facade import bars_and_source
         from core.ports.market import group_minute_bars_by_date
         from core.research.cx_panel import DEFAULT_CX_TAU_GRID
@@ -941,7 +941,7 @@ class QuantFactorMixin:
         if len(codes) < 2:
             return {
                 "success": False,
-                "error": "研究池至少 2 只才可跑 ŷ_cx Ridge",
+                "error": "研究池至少 2 只才可跑 ŷ_complexity Ridge",
                 "task": "cx_ridge",
             }
 
@@ -1075,7 +1075,7 @@ class QuantFactorMixin:
                 "exists": False,
                 "path": cx_model_path(),
                 "last_report_exists": bool(last),
-                "note": "尚无 ŷ_cx 模型；POST /api/quant/cx-ridge persist=true",
+                "note": "尚无 ŷ_complexity 模型；POST /api/quant/cx-ridge persist=true",
             }
             if last:
                 out["promote_gate"] = cx_promote_gate(last)
