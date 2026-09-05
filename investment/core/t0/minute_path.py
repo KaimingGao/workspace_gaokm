@@ -162,6 +162,20 @@ def _session_minutes_complete(minute_bars: Sequence[dict]) -> bool:
     return _hm_reached(ts, (14, 55))
 
 
+def _last_minute_close(minute_bars: Sequence[dict]) -> Optional[float]:
+    """末根有效 5m 收价；强平/敞口用这个，不用日线收盘。"""
+    for mb in reversed(list(minute_bars or ())):
+        if not isinstance(mb, dict):
+            continue
+        try:
+            c = float(mb.get("close") or 0)
+        except (TypeError, ValueError):
+            continue
+        if c > 0:
+            return c
+    return None
+
+
 
 def _allows_eod_cover(
     minute_bars: Sequence[dict],
@@ -988,13 +1002,11 @@ def _first_touch_sell_then_buy(
 
     at_end = len(minute_bars) >= len(sess_bars)
     if sold_qty > 0 and covered <= 0 and at_end:
-        # 敞口估价：完整日可用 session close；未齐窗只用末根 close（禁日线收盘）
-        last_px = float(close) if close > 0 else float(sess_bar.get("close") or 0)
-        sess_close = (
-            float(sess_bar.get("close") or last_px)
-            if _session_minutes_complete(minute_bars)
-            else last_px
-        )
+        # 强平/敞口 = 末根 5m 收价；禁止换成日线收盘（竞价/复权会对不齐，反T会把买回打贵）
+        last_px = _last_minute_close(minute_bars)
+        if last_px is None:
+            last_px = float(close) if close > 0 else float(sess_bar.get("close") or 0)
+        sess_close = float(last_px or 0)
         eod_ok = _allows_eod_cover(minute_bars, defer_eod=defer_eod)
         if cfg.get("must_cover_same_day") and eod_ok:
             cover = sold_qty
@@ -1442,12 +1454,10 @@ def _first_touch_buy_then_sell(
     at_end = len(minute_bars) >= len(sess_bars)
     if sold_back <= 0 and at_end:
         # sell_old_qty 已在 leg1 按入口 sell_old_cap 锁定；勿再读外部可卖
-        last_px = float(close) if close > 0 else float(sess_bar.get("close") or 0)
-        sess_close = (
-            float(sess_bar.get("close") or last_px)
-            if _session_minutes_complete(minute_bars)
-            else last_px
-        )
+        last_px = _last_minute_close(minute_bars)
+        if last_px is None:
+            last_px = float(close) if close > 0 else float(sess_bar.get("close") or 0)
+        sess_close = float(last_px or 0)
         eod_ok = _allows_eod_cover(minute_bars, defer_eod=defer_eod)
         if cfg.get("must_cover_same_day") and sell_old_qty > 0 and eod_ok:
             fill_sell = sess_close
@@ -1897,10 +1907,6 @@ def simulate_t0_day_minute(
     daily_anchor = dict(bar) if isinstance(bar, dict) else None
     bar_day = _day_ohlc_from_minutes(mins, bar)
     bar_session = dict(bar_day)
-    if _session_minutes_complete(mins):
-        daily_close = float((bar or {}).get("close") or 0)
-        if daily_close > 0:
-            bar_session["close"] = daily_close
     slot_out = simulate_t0_day_slots(
         bar=bar,
         minute_bars=mins,

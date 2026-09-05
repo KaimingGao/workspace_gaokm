@@ -791,7 +791,7 @@ def _intraday_setup(
     force_session_close: bool = False,
 ) -> Dict[str, Any]:
     from core.t0.costs import resolve_t0_cost_context
-    from core.t0.minute_path import _day_ohlc_from_minutes, _session_minutes_complete
+    from core.t0.minute_path import _day_ohlc_from_minutes
     from core.t0.rules import _skip_result
     from core.t0.slots import simulate_t0_day_slots
     from core.t0.score_policy import attach_day_scores, scores_have_any
@@ -820,12 +820,7 @@ def _intraday_setup(
             return {"pending": True, "reason": "dual_y：即时算分未就绪，等待重试"}
 
     bar_day = _day_ohlc_from_minutes(minute_bars, bar)
-    # 与回测一致：仅分钟齐至 ≥14:55 才用日线收盘作强平/敞口价，避免午前截断前视
     bar_session = dict(bar_day)
-    if _session_minutes_complete(minute_bars):
-        daily_close = float((bar or {}).get("close") or 0)
-        if daily_close > 0:
-            bar_session["close"] = daily_close
     lot = int(cfg.get("lot_size") or 100)
     shares = float(holding.get("shares") or 0)
     cost = float(holding.get("cost") or 0)
@@ -1014,7 +1009,7 @@ def _process_holding_slots(
 ) -> Tuple[dict, List[dict], dict]:
     """多轮独立做 T 盘中增量（v6：全日收盘带宽扫描后按轮增量落账）。"""
     from core.t0.costs import resolve_t0_cost_context, t0_leg_cash_delta
-    from core.t0.minute_path import _day_ohlc_from_minutes, _session_minutes_complete
+    from core.t0.minute_path import _day_ohlc_from_minutes
     from core.t0.rules import _skip_result
     from core.t0.slots import _open_leg1_cash_lock, _slot_trade_legs, simulate_t0_day_slots
     from core.t0.score_policy import attach_day_scores, scores_have_any
@@ -1063,12 +1058,7 @@ def _process_holding_slots(
     lot = int(cfg.get("lot_size") or 100)
     cost_model, cost_params = resolve_t0_cost_context(paper=paper)
     bar_day = _day_ohlc_from_minutes(minute_bars, bar)
-    # 与回测 / _intraday_setup 一致：齐窗才用日线收盘作 EOD 价
     bar_session = dict(bar_day)
-    if _session_minutes_complete(minute_bars):
-        daily_close = float((bar or {}).get("close") or 0)
-        if daily_close > 0:
-            bar_session["close"] = daily_close
     cost = float(holding.get("cost") or 0)
     cfg_day = dict(cfg)
 

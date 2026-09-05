@@ -163,6 +163,50 @@ class TestT0Costs(unittest.TestCase):
         self.assertIn(out2.get("exit_reason"), ("eod_cover", "trigger"), out2)
         self.assertEqual(len(out2.get("trades") or []), 2)
 
+    def test_eod_cover_uses_last_5m_close_not_daily(self):
+        """反T：日线收盘高于末根 5m 时，强平买回仍按 5m 收，避免把 PnL 打负。"""
+        from core.t0.minute_path import _first_touch_sell_then_buy
+
+        minute_bars = [
+            {"datetime": "2026-08-25 09:40:00", "open": 10.0, "high": 10.6, "low": 10.0, "close": 10.5},
+            {"datetime": "2026-08-25 14:55:00", "open": 10.8, "high": 10.9, "low": 10.7, "close": 10.85},
+            {"datetime": "2026-08-25 15:00:00", "open": 10.85, "high": 10.9, "low": 10.7, "close": 10.80},
+        ]
+        bar = {"date": "2026-08-25", "open": 10.0, "high": 12.0, "low": 10.0, "close": 11.80}
+        out = _first_touch_sell_then_buy(
+            minute_bars=minute_bars,
+            bar=bar,
+            shares=1000,
+            sellable_shares=1000,
+            ref=10.0,
+            lot=100,
+            fill_mode="trigger",
+            cfg=_stb_cfg(
+                t0_pm_degrade="",
+                t0_stop_pct_sell_then_buy=0,
+            ),
+            cost_model="zero",
+            cost_params={},
+            stock_code="600519",
+            atr_pct=None,
+            range_pct=6.0,
+            t0_ratio=0.4,
+            cash=20000.0,
+            session_bars=minute_bars,
+            session_bar=bar,
+            defer_eod=False,
+            y_tau=None,
+            leg1_gate_at=lambda i: i == 0,
+        )
+        self.assertTrue(out.get("success"), out)
+        self.assertEqual(int(out.get("sold_qty") or 0), 400)
+        self.assertEqual(int(out.get("covered_qty") or 0), 400)
+        self.assertEqual(out.get("exit_reason"), "eod_cover", out)
+        buys = [t for t in (out.get("trades") or []) if str(t.get("side") or "").endswith("buy")]
+        self.assertEqual(len(buys), 1, out)
+        self.assertAlmostEqual(float(buys[0].get("price") or 0), 10.80)
+        self.assertNotAlmostEqual(float(buys[0].get("price") or 0), 11.80)
+
     def test_apply_trades_skips_buy_when_shared_cash_short(self):
         """共享现金不足时买腿跳过，不把 paper.cash 打成负。"""
         from core.t0.intraday import _apply_trades_to_paper

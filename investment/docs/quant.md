@@ -361,7 +361,7 @@ watchlist
 | 纸面 | `POST /api/paper/t0` 默认 **dry_run 预演**，`confirm=true` 才写账 |
 | 自动落账 | Follow Worker · **5m 盯盘触达即落账**（交易时段 **5 分钟**轮询 + 分钟缓存，不再日终整段回放） |
 | 手动补跑 | Follow「手动预演 / 手动落账」· `POST /api/paper/t0`（预演 dry_run / 确认 confirm） |
-| 回测 | 与纸面同一引擎：默认 **v6 多轮收盘带宽**（每 5m 可触发第一腿 + 共用止损/第二腿）；**仅 5m 第一触达**（缺分钟日跳过）；**已删除日线模拟**；默认绑模拟持仓；**日初可卖=日初总持仓**（简化 T+1；合并/顺序落账按 sellable 约束）；dual_y 按 `dual_score_window` 决定是否 fuse ŷ_τ（`eod_next` 不 fuse）；ATR 仅用 T−1 及更早；**默认 CostPort 研究费率**（禁隐式零成本）；分钟未齐至 14:55 **不强平到日线收盘**（`incomplete_session`）；`y_score_source` 强制 `compute`；开盘 hydrate / 批量算分 **`use_minute_tau=False`**，各轮触发前再因果重算 ŷ。汇总按槽位分向记账；**同日正+反记为多轮日**（正/反日不再重叠双计）；合并日带敞口 PnL |
+| 回测 | 与纸面同一引擎：默认 **v6 多轮收盘带宽**（每 5m 可触发第一腿 + 共用止损/第二腿）；**仅 5m 第一触达**（缺分钟日跳过）；**已删除日线模拟**；默认绑模拟持仓；**日初可卖=日初总持仓**（简化 T+1；合并/顺序落账按 sellable 约束）；dual_y 按 `dual_score_window` 决定是否 fuse ŷ_τ（`eod_next` 不 fuse）；ATR 仅用 T−1 及更早；**默认 CostPort 研究费率**（禁隐式零成本）；分钟未齐至 14:55 **不强平**（`incomplete_session`）；齐窗 `eod_cover` **用末根 5m 收价，不用日线收盘**；`y_score_source` 强制 `compute`；开盘 hydrate / 批量算分 **`use_minute_tau=False`**，各轮触发前再因果重算 ŷ。汇总按槽位分向记账；**同日正+反记为多轮日**（正/反日不再重叠双计）；合并日带敞口 PnL |
 | 边界 | **不接实盘**；不做日线 high/low 顺序猜测；不改变 `advice.stance_label`；正/反 T **PnL 基数**分别为卖出/买入名义（汇总 long_pnl/reverse_pnl 口径略异，量级通常很小） |
 
 ##### 正T / 反T 选腿（v6 收盘带宽）
