@@ -88,6 +88,10 @@ ALLOWED_T0_PATCH_KEYS = frozenset(
         "y_complexity_max",
         "y_cx_max",
         "y_tpd_max",
+        "y_tau_enter_alt",
+        "y_path_enter_alt",
+        "y_complexity_max_alt",
+        "y_tpd_max_alt",
         "y_path_required",
         "y_gap_tier_mode",
         "y_gap_tier_pct",
@@ -182,6 +186,10 @@ DEFAULT_T0_OVERLAY: Dict[str, Any] = {
     "y_complexity_max": 1.0,
     "y_cx_max": 1.0,
     "y_tpd_max": 0.40,
+    "y_tau_enter_alt": 0.40,
+    "y_path_enter_alt": 0.40,
+    "y_complexity_max_alt": 1.0,
+    "y_tpd_max_alt": 1.0,
     "y_gap_tier_pct": 1.0,
     "t0_close_band_delta_pct": 0.2,
     "t0_price_space_gate": True,
@@ -715,9 +723,21 @@ def execution_public_view(bundle: Dict[str, Any]) -> Dict[str, Any]:
             "y_path_enter_sell_then_buy": t0.get("y_path_enter_sell_then_buy"),
             "y_path_enter_buy_then_sell": t0.get("y_path_enter_buy_then_sell"),
             "y_path_strong": t0.get("y_path_strong"),
-            "y_complexity_max": t0.get("y_complexity_max") or t0.get("y_cx_max"),
-            "y_cx_max": t0.get("y_complexity_max") or t0.get("y_cx_max"),
+            "y_complexity_max": (
+                t0.get("y_complexity_max")
+                if t0.get("y_complexity_max") not in (None, "")
+                else t0.get("y_cx_max")
+            ),
+            "y_cx_max": (
+                t0.get("y_complexity_max")
+                if t0.get("y_complexity_max") not in (None, "")
+                else t0.get("y_cx_max")
+            ),
             "y_tpd_max": t0.get("y_tpd_max"),
+            "y_tau_enter_alt": t0.get("y_tau_enter_alt"),
+            "y_path_enter_alt": t0.get("y_path_enter_alt"),
+            "y_complexity_max_alt": t0.get("y_complexity_max_alt"),
+            "y_tpd_max_alt": t0.get("y_tpd_max_alt"),
             "y_path_required": t0.get("y_path_required"),
             "y_gap_tier_mode": t0.get("y_gap_tier_mode"),
             "y_gap_tier_pct": t0.get("y_gap_tier_pct"),

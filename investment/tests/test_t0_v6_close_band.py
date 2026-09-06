@@ -367,6 +367,83 @@ class TestCloseBandCore(unittest.TestCase):
         )
         self.assertIsNone(omitted)
 
+    def test_enter_skip_alt_profile(self):
+        from core.t0.close_band import close_band_enter_skip_reason
+
+        primary = {
+            "y_tau_enter": 0.01,
+            "y_path_enter": 0.01,
+            "y_use_path": True,
+            "y_complexity_max": 0.8,
+            "y_tpd_max": 0.40,
+            "y_tau_enter_alt": 0.40,
+            "y_path_enter_alt": 0.40,
+            "y_complexity_max_alt": 1.0,
+            "y_tpd_max_alt": 1.0,
+        }
+        scores = {
+            "y_tau": 0.50,
+            "y_path": 0.50,
+            "predicted_score_complexity": 0.90,
+            "y_tpd_hat": 0.80,
+        }
+        self.assertIsNone(close_band_enter_skip_reason(scores, primary))
+        weak = close_band_enter_skip_reason(
+            {
+                "y_tau": 0.10,
+                "y_path": 0.10,
+                "predicted_score_complexity": 0.90,
+                "y_tpd_hat": 0.80,
+            },
+            primary,
+        )
+        self.assertIsNotNone(weak)
+        # 缺键视为关门槛2：与既有 raw cfg 兼容
+        legacy = close_band_enter_skip_reason(
+            scores,
+            {
+                "y_tau_enter": 0.01,
+                "y_path_enter": 0.01,
+                "y_complexity_max": 0.8,
+                "y_tpd_max": 0.40,
+            },
+        )
+        self.assertIsNotNone(legacy)
+        self.assertIsNone(
+            close_band_enter_skip_reason(
+                {
+                    "y_tau": 0.10,
+                    "y_path": 0.10,
+                    "predicted_score_complexity": 0.50,
+                    "y_tpd_hat": 0.20,
+                },
+                primary,
+            )
+        )
+        # 门槛2 不能绕过 |R̂_τ|
+        r_block = close_band_enter_skip_reason(
+            scores, {**primary, "r_tau_enter": 0.5}, r_pct=0.1
+        )
+        self.assertIsNotNone(r_block)
+        self.assertIn("超额不足", r_block)
+        from core.t0.config import load_t0_rules
+
+        loaded = load_t0_rules(
+            {
+                "y_tau_enter": 0.01,
+                "y_path_enter": 0.01,
+                "y_complexity_max": 0.8,
+                "y_tpd_max": 0.40,
+                "y_use_path": True,
+            }
+        )
+        self.assertNotIn("y_enter_alt_enabled", loaded)
+        self.assertIsNone(close_band_enter_skip_reason(scores, loaded, r_pct=0.2))
+        # 旧开关丢弃后仍走门槛2（有门槛2 键即 OR）
+        loaded_dead = load_t0_rules({**primary, "y_enter_alt_enabled": False})
+        self.assertNotIn("y_enter_alt_enabled", loaded_dead)
+        self.assertIsNone(close_band_enter_skip_reason(scores, loaded_dead, r_pct=0.2))
+
     def test_band_uses_minute_close_not_daily(self):
         """破带 p=本根 5m close；日线 close 不同也不得替代。"""
         from core.t0.slots import simulate_t0_day_slots

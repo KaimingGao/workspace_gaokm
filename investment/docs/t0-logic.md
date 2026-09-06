@@ -148,15 +148,17 @@ if r < lower:  → 正 T
 
 | 门槛 | 配置 | 默认 | 说明 |
 |------|------|------|------|
-| `|ŷ_τ|` | `y_tau_enter`（分侧） | 0.01% | 横盘跳过 |
-| `|ŷ_path|` | `y_path_enter`（分侧） | 0.01% | `y_use_path=True` 时生效 |
-| `|R̂_τ|` | `r_tau_enter` | 0.1 | 局部超额不足跳过 |
-| `ŷ_complexity` | `y_complexity_max` | 1.0（≈关） | 太折跳过 |
-| `ŷ_tpd` | `y_tpd_max` | 0.40 | 反转过密跳过 |
+| `|ŷ_τ|` | `y_tau_enter`（分侧） | 0.01% | 横盘跳过；范围 0–100% |
+| `|ŷ_path|` | `y_path_enter`（分侧） | 0.01% | `y_use_path=True` 时生效；范围 0–100% |
+| `|R̂_τ|` | `r_tau_enter` | 0.1 | 局部超额不足跳过（门槛1 / 门槛2 共用） |
+| `ŷ_complexity` | `y_complexity_max` | 1.0（≈关） | 太折跳过；范围 0–1 |
+| `ŷ_tpd` | `y_tpd_max` | 0.40 | 反转过密跳过；范围 0–1 |
+
+主门槛未过仍可走门槛2：`|ŷ_τ|≥y_tau_enter_alt`（0.40%）、`|ŷ_path|≥y_path_enter_alt`（0.40%）、`ŷ_complexity≤y_complexity_max_alt`（1.0≈关）、`ŷ_tpd≤y_tpd_max_alt`（1.0≈关）。缺 path / 分钟缺失 / `|R̂_τ|` **不能**被门槛2绕过。`load_t0_rules` 会写入上述门槛2 键；直传缺键的旧 cfg 只走主门槛。
 
 ### 4.5 强信号同号闸（`close_band_sign_skip_reason`）
 
-`|ŷ_path| > y_path_strong` 时，`ŷ_path` 须与 `ŷ_τ` **同号**，异号跳过。trade/eod 强闸已下线，仅保留 path。
+`|ŷ_path| > y_path_strong` 时，`ŷ_path` 须与 `ŷ_τ` **同号**，异号跳过。trade/eod 强闸已下线，仅保留 path。门槛1 与门槛2 共用此闸。
 
 ---
 
@@ -356,10 +358,14 @@ bound = ref × (1 + move_pct / 100)
 | `t0_pm_degrade` | 13:00 | 午后禁新开 leg1 |
 | `t0_stop_pct_*` | 1.2 | 止损百分比 |
 | `t0_stop_arm_bars` | 2 | 止损延迟根数 |
-| `y_tau_enter` | 0.01 | ŷ_τ 入场下限（%） |
-| `y_path_enter` | 0.01 | ŷ_path 入场下限（%） |
-| `y_complexity_max` | 1.0 | 复杂度上限（≈关） |
-| `y_tpd_max` | 0.40 | 拐点密度上限 |
+| `y_tau_enter` | 0.01 | ŷ_τ 入场下限（%；0–100） |
+| `y_path_enter` | 0.01 | ŷ_path 入场下限（%；0–100） |
+| `y_complexity_max` | 1.0 | 复杂度上限（0–1；≈关） |
+| `y_tpd_max` | 0.40 | 拐点密度上限（0–1） |
+| `y_tau_enter_alt` | 0.40 | 门槛2 ŷ_τ 入场下限（%；0–100） |
+| `y_path_enter_alt` | 0.40 | 门槛2 ŷ_path 入场下限（%；0–100） |
+| `y_complexity_max_alt` | 1.0 | 门槛2 复杂度上限（0–1；≈关） |
+| `y_tpd_max_alt` | 1.0 | 门槛2 拐点密度上限（≈关） |
 | `t0_price_space_max_dev_pct` | 5.0 | 价空间偏差上限（%） |
 | `fill_mode` | trigger | 成交假设 |
 | `direction` | dual_y | 方向模式 |

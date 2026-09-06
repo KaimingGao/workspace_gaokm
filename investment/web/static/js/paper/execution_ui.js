@@ -177,6 +177,21 @@ export function renderExecutionRulesHtml(execution) {
       })(),
       "ŷ_tpd∈[0,1]；超过则反转过密跳过做 T；默认 0.40；1.00≈关"
     ) +
+    specKpi(
+      "门槛2",
+      (() => {
+        const tau = Number(t0.y_tau_enter_alt);
+        const path = Number(t0.y_path_enter_alt);
+        const cx = Number(t0.y_complexity_max_alt);
+        const tpd = Number(t0.y_tpd_max_alt);
+        const tauLbl = Number.isFinite(tau) ? tau : 0.4;
+        const pathLbl = Number.isFinite(path) ? path : 0.4;
+        const cxLbl = Number.isFinite(cx) ? (cx >= 1 ? "cx关" : `cx≤${cx}`) : "cx关";
+        const tpdLbl = Number.isFinite(tpd) ? (tpd >= 1 ? "tpd关" : `tpd≤${tpd}`) : "tpd关";
+        return `|y|≥${tauLbl}/${pathLbl}·${cxLbl}·${tpdLbl}`;
+      })(),
+      "门槛1 未过时：|y_τ|/|y_path| 过门槛2 入场且 complexity/tpd 过上限仍可开腿；path强% 异号闸共用"
+    ) +
     specKpi("路径", pathLbl, "分钟触价路径") +
     specKpi("成交", fillLbl, "全量触价 trigger；表单不再提供 mid/optimistic") +
     specKpi(
@@ -315,7 +330,7 @@ export function fillExecutionForm(root, execution) {
     (() => {
       const n = Number(t0.y_complexity_max ?? t0.y_cx_max);
       if (!Number.isFinite(n)) return 1;
-      return Math.max(0.01, Math.min(n, 1));
+      return Math.max(0, Math.min(n, 1));
     })()
   );
   set(
@@ -323,6 +338,24 @@ export function fillExecutionForm(root, execution) {
     (() => {
       const n = Number(t0.y_tpd_max);
       if (!Number.isFinite(n)) return 0.4;
+      return Math.max(0, Math.min(n, 1));
+    })()
+  );
+  set("y_tau_enter_alt", t0.y_tau_enter_alt != null ? t0.y_tau_enter_alt : 0.4);
+  set("y_path_enter_alt", t0.y_path_enter_alt != null ? t0.y_path_enter_alt : 0.4);
+  set(
+    "y_complexity_max_alt",
+    (() => {
+      const n = Number(t0.y_complexity_max_alt);
+      if (!Number.isFinite(n)) return 1;
+      return Math.max(0, Math.min(n, 1));
+    })()
+  );
+  set(
+    "y_tpd_max_alt",
+    (() => {
+      const n = Number(t0.y_tpd_max_alt);
+      if (!Number.isFinite(n)) return 1;
       return Math.max(0, Math.min(n, 1));
     })()
   );
@@ -411,28 +444,35 @@ export function collectExecutionForm(root) {
     t0_round_ratio: Math.max(0.05, Math.min(num("t0_round_ratio", 0.4), 1)),
     t0_max_position_pct: Math.max(0.05, Math.min(num("t0_max_position_pct", 1), 1)),
     t0_slots_max_rounds: Math.max(0, Math.min(Math.round(num("t0_slots_max_rounds", 5)), 16)),
-    y_tau_enter: Math.max(0, Math.min(num("y_tau_enter", 0.01), 5)),
-    y_tau_enter_buy_then_sell: Math.max(0, Math.min(num("y_tau_enter", 0.01), 5)),
-    y_tau_enter_sell_then_buy: Math.max(0, Math.min(num("y_tau_enter", 0.01), 5)),
+    y_tau_enter: Math.max(0, Math.min(num("y_tau_enter", 0.01), 100)),
+    y_tau_enter_buy_then_sell: Math.max(0, Math.min(num("y_tau_enter", 0.01), 100)),
+    y_tau_enter_sell_then_buy: Math.max(0, Math.min(num("y_tau_enter", 0.01), 100)),
     r_tau_enter: Math.max(0, Math.min(num("r_tau_enter", 0.1), 1)),
     y_use_path: chk("y_use_path", true),
-    y_path_enter: Math.max(0, Math.min(num("y_path_enter", 0.01), 5)),
-    y_path_enter_buy_then_sell: Math.max(0, Math.min(num("y_path_enter", 0.01), 5)),
-    y_path_enter_sell_then_buy: Math.max(0, Math.min(num("y_path_enter", 0.01), 5)),
+    y_path_enter: Math.max(0, Math.min(num("y_path_enter", 0.01), 100)),
+    y_path_enter_buy_then_sell: Math.max(0, Math.min(num("y_path_enter", 0.01), 100)),
+    y_path_enter_sell_then_buy: Math.max(0, Math.min(num("y_path_enter", 0.01), 100)),
     y_path_strong: Math.max(0, Math.min(num("y_path_strong", 0.2), 5)),
     y_complexity_max: (() => {
       const n = num("y_complexity_max", num("y_cx_max", 1));
       if (!Number.isFinite(n)) return 1;
-      return Math.max(0.01, Math.min(n, 1));
-    })(),
-    y_cx_max: (() => {
-      const n = num("y_complexity_max", num("y_cx_max", 1));
-      if (!Number.isFinite(n)) return 1;
-      return Math.max(0.01, Math.min(n, 1));
+      return Math.max(0, Math.min(n, 1));
     })(),
     y_tpd_max: (() => {
       const n = num("y_tpd_max", 0.4);
       if (!Number.isFinite(n)) return 0.4;
+      return Math.max(0, Math.min(n, 1));
+    })(),
+    y_tau_enter_alt: Math.max(0, Math.min(num("y_tau_enter_alt", 0.4), 100)),
+    y_path_enter_alt: Math.max(0, Math.min(num("y_path_enter_alt", 0.4), 100)),
+    y_complexity_max_alt: (() => {
+      const n = num("y_complexity_max_alt", 1);
+      if (!Number.isFinite(n)) return 1;
+      return Math.max(0, Math.min(n, 1));
+    })(),
+    y_tpd_max_alt: (() => {
+      const n = num("y_tpd_max_alt", 1);
+      if (!Number.isFinite(n)) return 1;
       return Math.max(0, Math.min(n, 1));
     })(),
     y_tau_leg1_prior_mode: normalizeTauLeg1PriorMode(
@@ -743,16 +783,23 @@ export function collectT0BacktestBody(root, opts = {}) {
     y_complexity_max: (() => {
       const n = Number(t0.y_complexity_max ?? t0.y_cx_max);
       if (!Number.isFinite(n)) return 1;
-      return Math.max(0.01, Math.min(n, 1));
-    })(),
-    y_cx_max: (() => {
-      const n = Number(t0.y_complexity_max ?? t0.y_cx_max);
-      if (!Number.isFinite(n)) return 1;
-      return Math.max(0.01, Math.min(n, 1));
+      return Math.max(0, Math.min(n, 1));
     })(),
     y_tpd_max: (() => {
       const n = Number(t0.y_tpd_max);
       if (!Number.isFinite(n)) return 0.4;
+      return Math.max(0, Math.min(n, 1));
+    })(),
+    y_tau_enter_alt: t0.y_tau_enter_alt != null ? t0.y_tau_enter_alt : 0.4,
+    y_path_enter_alt: t0.y_path_enter_alt != null ? t0.y_path_enter_alt : 0.4,
+    y_complexity_max_alt: (() => {
+      const n = Number(t0.y_complexity_max_alt);
+      if (!Number.isFinite(n)) return 1;
+      return Math.max(0, Math.min(n, 1));
+    })(),
+    y_tpd_max_alt: (() => {
+      const n = Number(t0.y_tpd_max_alt);
+      if (!Number.isFinite(n)) return 1;
       return Math.max(0, Math.min(n, 1));
     })(),
     y_tau_leg1_prior_mode: normalizeTauLeg1PriorMode(

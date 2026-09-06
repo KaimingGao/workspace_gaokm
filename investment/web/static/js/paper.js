@@ -2910,18 +2910,35 @@ export function initPaper(ctx) {
   const paperT0Form = document.getElementById("paper-t0-form");
   const paperT0EditStatus = document.getElementById("paper-t0-edit-status");
   const paperT0DiffBox = document.getElementById("paper-t0-diff-box");
-  async function refreshPaperAfterExecution(exec) {
+  function setT0EditStatus(text) {
+    const el = document.getElementById("paper-t0-edit-status") || paperT0EditStatus;
+    if (el) el.textContent = text || "";
+  }
+  function applyExecutionToUi(exec) {
     const t0RulesEl = document.getElementById("paper-t0-rules");
     if (t0RulesEl && exec) t0RulesEl.innerHTML = renderExecutionRulesHtml(exec);
     if (paperT0Form && exec) fillExecutionForm(paperT0Form, exec);
     const pathMatrixForm = document.getElementById("paper-path-matrix-form");
     if (pathMatrixForm && exec) fillPathMatrixForm(pathMatrixForm, exec);
+  }
+  async function postJson(url, body, { timeoutMs = 12000, method = "POST" } = {}) {
+    const ac = new AbortController();
+    const timer = setTimeout(() => ac.abort(), timeoutMs);
     try {
-      const { ok, data } = await apiFetch("/api/paper");
-      if (ok) await renderPaperAccountDetail(data);
-    } catch (_) {
-      /* ignore */
+      const res = await fetch(url, {
+        method,
+        headers: body != null ? { "Content-Type": "application/json" } : undefined,
+        body: body != null ? JSON.stringify(body) : undefined,
+        signal: ac.signal,
+      });
+      const data = await res.json().catch(() => ({}));
+      return { res, data };
+    } finally {
+      clearTimeout(timer);
     }
+  }
+  function isAbortError(err) {
+    return !!(err && (err.name === "AbortError" || /aborted|AbortError/i.test(String(err.message || err))));
   }
   if (paperT0Form) {
     paperT0Form.addEventListener("submit", async (e) => {
@@ -2930,27 +2947,25 @@ export function initPaper(ctx) {
       if (!body) return;
       // 回测窗不进 Spec：保存前先记住，避免 fill 用旧 localStorage 盖成 30
       persistT0Lookback(paperT0Form);
-      if (paperT0EditStatus) paperT0EditStatus.textContent = "保存中…";
+      const saveBtn = document.getElementById("paper-t0-save");
+      if (saveBtn) saveBtn.disabled = true;
+      setT0EditStatus("保存中…");
       try {
-        const res = await fetch("/api/paper/execution", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ ...body, note: "follow UI" }),
+        const { res, data } = await postJson("/api/paper/execution", {
+          ...body,
+          note: "follow UI",
         });
-        const data = await res.json();
         if (!res.ok || data.ok === false) {
           const err = data.detail || data.errors || data.error || "保存失败";
-          if (paperT0EditStatus) {
-            paperT0EditStatus.textContent = Array.isArray(err) ? err.join("; ") : String(err);
-          }
+          setT0EditStatus(Array.isArray(err) ? err.join("; ") : String(err));
           return;
         }
-        if (paperT0EditStatus) {
-          paperT0EditStatus.textContent = data.message || "已保存";
-        }
-        await refreshPaperAfterExecution(data.execution);
+        setT0EditStatus(data.message || "已保存");
+        applyExecutionToUi(data.execution);
       } catch (err) {
-        if (paperT0EditStatus) paperT0EditStatus.textContent = String(err.message || err);
+        setT0EditStatus(isAbortError(err) ? "保存超时，请重试" : String(err.message || err));
+      } finally {
+        if (saveBtn) saveBtn.disabled = false;
       }
     });
   }
@@ -2971,12 +2986,10 @@ export function initPaper(ctx) {
       if (!body) return;
       setPathMatrixStatus("保存中…");
       try {
-        const res = await fetch("/api/paper/execution", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ ...body, note: "follow path_matrix UI" }),
+        const { res, data } = await postJson("/api/paper/execution", {
+          ...body,
+          note: "follow path_matrix UI",
         });
-        const data = await res.json();
         if (!res.ok || data.ok === false) {
           const err = data.detail || data.errors || data.error || "保存失败";
           setPathMatrixStatus(
@@ -2986,9 +2999,12 @@ export function initPaper(ctx) {
           return;
         }
         setPathMatrixStatus(data.message || "已保存择时");
-        await refreshPaperAfterExecution(data.execution);
+        applyExecutionToUi(data.execution);
       } catch (err) {
-        setPathMatrixStatus(String(err.message || err), { error: true });
+        setPathMatrixStatus(
+          isAbortError(err) ? "保存超时，请重试" : String(err.message || err),
+          { error: true }
+        );
       }
     });
   }
@@ -2996,23 +3012,22 @@ export function initPaper(ctx) {
   if (paperT0Reset) {
     paperT0Reset.addEventListener("click", async (e) => {
       e.preventDefault();
-      if (paperT0EditStatus) paperT0EditStatus.textContent = "重置中…";
+      setT0EditStatus("重置中…");
       try {
-        const res = await fetch("/api/paper/execution/reset", { method: "POST" });
-        const data = await res.json();
+        const { res, data } = await postJson("/api/paper/execution/reset", null);
         if (!res.ok) {
-          if (paperT0EditStatus) paperT0EditStatus.textContent = data.detail || "重置失败";
+          setT0EditStatus(data.detail || "重置失败");
           return;
         }
-        if (paperT0EditStatus) paperT0EditStatus.textContent = data.message || "已恢复默认";
+        setT0EditStatus(data.message || "已恢复默认");
         if (paperT0DiffBox) {
           paperT0DiffBox.hidden = true;
           paperT0DiffBox.innerHTML = "";
         }
         persistT0Lookback(paperT0Form);
-        await refreshPaperAfterExecution(data.execution);
+        applyExecutionToUi(data.execution);
       } catch (err) {
-        if (paperT0EditStatus) paperT0EditStatus.textContent = String(err.message || err);
+        setT0EditStatus(isAbortError(err) ? "重置超时，请重试" : String(err.message || err));
       }
     });
   }

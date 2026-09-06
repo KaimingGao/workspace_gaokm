@@ -113,21 +113,21 @@ class T0BacktestRequest(BaseModel):
     )
     y_tau_enter: Optional[float] = Field(
         default=None,
-        ge=0.01,
-        le=5.0,
-        description="dual_y：τ 入场兜底（侧向未设时正/反共用）",
+        ge=0.0,
+        le=100.0,
+        description="dual_y：τ 入场兜底（侧向未设时正/反共用）；范围 0–100%",
     )
     y_tau_enter_sell_then_buy: Optional[float] = Field(
         default=None,
-        ge=0.01,
-        le=5.0,
-        description="dual_y：反T（y_τ<0）入场 |y_τ| 门槛",
+        ge=0.0,
+        le=100.0,
+        description="dual_y：反T（y_τ<0）入场 |y_τ| 门槛；范围 0–100%",
     )
     y_tau_enter_buy_then_sell: Optional[float] = Field(
         default=None,
-        ge=0.01,
-        le=5.0,
-        description="dual_y：正T（y_τ>0）入场 |y_τ| 门槛",
+        ge=0.0,
+        le=100.0,
+        description="dual_y：正T（y_τ>0）入场 |y_τ| 门槛；范围 0–100%",
     )
     r_tau_enter: Optional[float] = Field(
         default=None,
@@ -137,8 +137,8 @@ class T0BacktestRequest(BaseModel):
     )
     y_tau_enter_strong: Optional[float] = Field(
         default=None,
-        ge=0.01,
-        le=5.0,
+        ge=0.0,
+        le=100.0,
         description="已弃用：并入 y_tau_enter（load 时取 max）",
     )
     y_ratio_cut: Optional[float] = Field(
@@ -231,20 +231,20 @@ class T0BacktestRequest(BaseModel):
     y_path_enter: Optional[float] = Field(
         default=None,
         ge=0.0,
-        le=5.0,
-        description="path 入场%：|y_path| 低于此值横盘跳过（默认 0.01；0=关幅度）",
+        le=100.0,
+        description="path 入场%：|y_path| 低于此值横盘跳过（默认 0.01；0=关幅度；范围 0–100%）",
     )
     y_path_enter_sell_then_buy: Optional[float] = Field(
         default=None,
-        ge=0.01,
-        le=5.0,
-        description="dual_y：反T path 入场门槛",
+        ge=0.0,
+        le=100.0,
+        description="dual_y：反T path 入场门槛；范围 0–100%",
     )
     y_path_enter_buy_then_sell: Optional[float] = Field(
         default=None,
-        ge=0.01,
-        le=5.0,
-        description="dual_y：正T path 入场门槛",
+        ge=0.0,
+        le=100.0,
+        description="dual_y：正T path 入场门槛；范围 0–100%",
     )
     y_path_strong: Optional[float] = Field(
         default=None,
@@ -254,13 +254,13 @@ class T0BacktestRequest(BaseModel):
     )
     y_complexity_max: Optional[float] = Field(
         default=None,
-        ge=0.01,
+        ge=0.0,
         le=1.0,
         description="ŷ_complexity∈[0,1] 上限：超过则太折跳过做 T（默认 1.00≈关）",
     )
     y_cx_max: Optional[float] = Field(
         default=None,
-        ge=0.01,
+        ge=0.0,
         le=1.0,
         description="legacy alias of y_complexity_max",
     )
@@ -269,6 +269,30 @@ class T0BacktestRequest(BaseModel):
         ge=0.0,
         le=1.0,
         description="ŷ_tpd∈[0,1] 上限：超过则反转过密跳过做 T（默认 0.40；1.00≈关）",
+    )
+    y_tau_enter_alt: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        le=100.0,
+        description="门槛2 τ 入场%：默认 0.40；范围 0–100%",
+    )
+    y_path_enter_alt: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        le=100.0,
+        description="门槛2 path 入场%：默认 0.40；范围 0–100%",
+    )
+    y_complexity_max_alt: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        le=1.0,
+        description="门槛2 ŷ_complexity 上限：默认 1.00≈关；范围 0–1",
+    )
+    y_tpd_max_alt: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        le=1.0,
+        description="门槛2 ŷ_tpd 上限：默认 1.00≈关",
     )
     y_path_required: Optional[bool] = None
     y_gap_tier_mode: Optional[str] = Field(default=None, max_length=24)
@@ -512,6 +536,10 @@ class PaperExecutionPatchRequest(BaseModel):
     y_complexity_max: Optional[float] = None
     y_cx_max: Optional[float] = None
     y_tpd_max: Optional[float] = None
+    y_tau_enter_alt: Optional[float] = None
+    y_path_enter_alt: Optional[float] = None
+    y_complexity_max_alt: Optional[float] = None
+    y_tpd_max_alt: Optional[float] = None
     y_path_required: Optional[bool] = None
     y_gap_tier_mode: Optional[str] = None
     y_gap_tier_pct: Optional[float] = None

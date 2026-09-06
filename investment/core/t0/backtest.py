@@ -782,9 +782,21 @@ def _walk_t0(
             "y_path_enter_sell_then_buy": cfg.get("y_path_enter_sell_then_buy"),
             "y_path_enter_buy_then_sell": cfg.get("y_path_enter_buy_then_sell"),
             "y_path_strong": cfg.get("y_path_strong"),
-            "y_complexity_max": cfg.get("y_complexity_max") or cfg.get("y_cx_max"),
-            "y_cx_max": cfg.get("y_complexity_max") or cfg.get("y_cx_max"),
+            "y_complexity_max": (
+                cfg.get("y_complexity_max")
+                if cfg.get("y_complexity_max") not in (None, "")
+                else cfg.get("y_cx_max")
+            ),
+            "y_cx_max": (
+                cfg.get("y_complexity_max")
+                if cfg.get("y_complexity_max") not in (None, "")
+                else cfg.get("y_cx_max")
+            ),
             "y_tpd_max": cfg.get("y_tpd_max"),
+            "y_tau_enter_alt": cfg.get("y_tau_enter_alt"),
+            "y_path_enter_alt": cfg.get("y_path_enter_alt"),
+            "y_complexity_max_alt": cfg.get("y_complexity_max_alt"),
+            "y_tpd_max_alt": cfg.get("y_tpd_max_alt"),
             "y_path_required": cfg.get("y_path_required"),
             "y_gap_tier_mode": cfg.get("y_gap_tier_mode"),
             "y_gap_tier_pct": cfg.get("y_gap_tier_pct"),

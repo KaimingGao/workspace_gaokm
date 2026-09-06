@@ -426,6 +426,11 @@ class TestT0Core(unittest.TestCase):
         self.assertAlmostEqual(d["y_complexity_max"], 1.0)
         self.assertAlmostEqual(d["y_cx_max"], 1.0)
         self.assertAlmostEqual(d["y_tpd_max"], 0.40)
+        self.assertNotIn("y_enter_alt_enabled", d)
+        self.assertAlmostEqual(d["y_tau_enter_alt"], 0.40)
+        self.assertAlmostEqual(d["y_path_enter_alt"], 0.40)
+        self.assertAlmostEqual(d["y_complexity_max_alt"], 1.0)
+        self.assertAlmostEqual(d["y_tpd_max_alt"], 1.0)
         self.assertFalse(d["y_nowcast_oc_gate"])
         self.assertEqual(d["y_nc_enter"], 0.01)
         self.assertEqual(d["y_nc_strong"], 0.2)
@@ -1639,6 +1644,11 @@ class TestDualYDirection(unittest.TestCase):
         self.assertEqual(cfg["y_tau_enter_strong"], 0.01)
         self.assertEqual(cfg["r_tau_enter"], 0.1)
         self.assertEqual(cfg["y_score_source"], "compute")
+        self.assertNotIn("y_enter_alt_enabled", cfg)
+        self.assertEqual(cfg["y_tau_enter_alt"], 0.40)
+        self.assertEqual(cfg["y_path_enter_alt"], 0.40)
+        self.assertEqual(cfg["y_complexity_max_alt"], 1.0)
+        self.assertEqual(cfg["y_tpd_max_alt"], 1.0)
 
     def test_r_tau_enter_clamped_to_range(self):
         self.assertEqual(load_t0_rules({"r_tau_enter": 0.0})["r_tau_enter"], 0.0)
@@ -1666,6 +1676,36 @@ class TestDualYDirection(unittest.TestCase):
         off = load_t0_rules({"y_tau_enter": 0.0, "y_path_enter": 0.0})
         self.assertEqual(off["y_tau_enter"], 0.0)
         self.assertEqual(off["y_path_enter"], 0.0)
+
+    def test_enter_pct_range_0_to_100_complexity_0_to_1(self):
+        cfg = load_t0_rules(
+            {
+                "y_tau_enter": 10.0,
+                "y_path_enter": 12.0,
+                "y_tau_enter_alt": 15.0,
+                "y_path_enter_alt": 20.0,
+                "y_complexity_max": 0.0,
+                "y_complexity_max_alt": 0.0,
+            }
+        )
+        self.assertEqual(cfg["y_tau_enter"], 10.0)
+        self.assertEqual(cfg["y_path_enter"], 12.0)
+        self.assertEqual(cfg["y_tau_enter_alt"], 15.0)
+        self.assertEqual(cfg["y_path_enter_alt"], 20.0)
+        self.assertEqual(cfg["y_complexity_max"], 0.0)
+        self.assertEqual(cfg["y_complexity_max_alt"], 0.0)
+        hi = load_t0_rules(
+            {
+                "y_tau_enter": 150.0,
+                "y_path_enter": 150.0,
+                "y_tau_enter_alt": 150.0,
+                "y_path_enter_alt": 150.0,
+            }
+        )
+        self.assertEqual(hi["y_tau_enter"], 100.0)
+        self.assertEqual(hi["y_path_enter"], 100.0)
+        self.assertEqual(hi["y_tau_enter_alt"], 100.0)
+        self.assertEqual(hi["y_path_enter_alt"], 100.0)
 
     def test_side_tau_enter_defaults_follow_base(self):
         cfg = load_t0_rules({"y_tau_enter": 0.4})

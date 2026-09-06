@@ -120,9 +120,23 @@ def paper_execution_save(body: PaperExecutionPatchRequest | None = None) -> Dict
             ("y_path_enter_sell_then_buy", req.y_path_enter_sell_then_buy),
             ("y_path_enter_buy_then_sell", req.y_path_enter_buy_then_sell),
             ("y_path_strong", getattr(req, "y_path_strong", None)),
-            ("y_complexity_max", getattr(req, "y_complexity_max", None) or getattr(req, "y_cx_max", None)),
-            ("y_cx_max", getattr(req, "y_complexity_max", None) or getattr(req, "y_cx_max", None)),
+            (
+                "y_complexity_max",
+                getattr(req, "y_complexity_max", None)
+                if getattr(req, "y_complexity_max", None) not in (None, "")
+                else getattr(req, "y_cx_max", None),
+            ),
+            (
+                "y_cx_max",
+                getattr(req, "y_complexity_max", None)
+                if getattr(req, "y_complexity_max", None) not in (None, "")
+                else getattr(req, "y_cx_max", None),
+            ),
             ("y_tpd_max", getattr(req, "y_tpd_max", None)),
+            ("y_tau_enter_alt", getattr(req, "y_tau_enter_alt", None)),
+            ("y_path_enter_alt", getattr(req, "y_path_enter_alt", None)),
+            ("y_complexity_max_alt", getattr(req, "y_complexity_max_alt", None)),
+            ("y_tpd_max_alt", getattr(req, "y_tpd_max_alt", None)),
             ("y_path_required", req.y_path_required),
             ("y_gap_tier_mode", req.y_gap_tier_mode),
             ("y_gap_tier_pct", req.y_gap_tier_pct),

@@ -532,7 +532,7 @@
                 过门后<strong>全面板再拟合</strong>写入系数（卡上「样本 n」=完整行，状态栏「面板 n」含缺测）。
                 独立 <code>y_spec</code>，不写 <code>predicted_score</code> / ŷ_τ / ŷ_path。
                 落盘 <code>cx_ridge_model.json</code>。
-                做 T：盘中前缀 <strong>ŷ_complexity &gt; y_complexity_max</strong>（0.01–1.00，默认 1.00≈关）则跳过；改标签尺度后请重新拟合。
+                做 T：盘中前缀 <strong>ŷ_complexity &gt; y_complexity_max</strong>（0.00–1.00，默认 1.00≈关）则跳过；改标签尺度后请重新拟合。
               </p>
               <p>依赖观察池 <strong>5m 分钟缓存</strong>；无分钟线时会报错。可在上方「分钟线」区块点 <strong>强更 5m</strong>。</p>
             </div>

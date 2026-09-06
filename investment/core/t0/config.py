@@ -140,6 +140,8 @@ _DEAD_T0_KEYS = (
     "y_path_abandon_bars",
     "y_path_abandon_bars_buy_then_sell",
     "y_path_abandon_bars_sell_then_buy",
+    # 门槛2 无开关：有门槛2 键即 OR；旧 overlay 开关丢弃
+    "y_enter_alt_enabled",
 )
 
 
@@ -209,6 +211,11 @@ DEFAULT_T0_RULES: Dict[str, Any] = {
     "y_path_strong": 0.2,
     "y_complexity_max": 1.0,  # ŷ_complexity∈[0,1]；>此值太折跳过；默认 1.00≈关
     "y_tpd_max": 0.40,  # ŷ_tpd∈[0,1]；>此值反转过密跳过；默认 0.40；1.00≈关
+    # 门槛2：主门槛未过时 |y_τ|/|y_path|≥0.40% 且 complexity/tpd≤1.0 仍可开腿
+    "y_tau_enter_alt": 0.40,
+    "y_path_enter_alt": 0.40,
+    "y_complexity_max_alt": 1.0,
+    "y_tpd_max_alt": 1.0,
     "y_eod_enter": 0.01,
     "y_eod_strong": 0.2,
     "y_eod_prior": 0.01,
@@ -498,9 +505,9 @@ def load_t0_rules(override: Optional[dict] = None) -> Dict[str, Any]:
         ("y_eod_strong", 0.05, 5.0, 0.2),
         ("y_trade_enter", 0.01, 5.0, 0.01),
         ("y_trade_strong", 0.05, 5.0, 0.2),
-        ("y_tau_enter", 0.0, 5.0, 0.01),
-        ("y_tau_enter_sell_then_buy", 0.0, 5.0, 0.01),
-        ("y_tau_enter_buy_then_sell", 0.0, 5.0, 0.01),
+        ("y_tau_enter", 0.0, 100.0, 0.01),
+        ("y_tau_enter_sell_then_buy", 0.0, 100.0, 0.01),
+        ("y_tau_enter_buy_then_sell", 0.0, 100.0, 0.01),
         ("r_tau_enter", 0.0, 1.0, 0.1),
         ("y_on_risk", 0.01, 10.0, 0.01),
         ("y_on_allow", 0.01, 10.0, 0.01),
@@ -508,12 +515,16 @@ def load_t0_rules(override: Optional[dict] = None) -> Dict[str, Any]:
         ("y_ratio_cut", 0.2, 1.0, 0.60),
         ("y_nc_enter", 0.01, 10.0, 0.01),
         ("y_nc_strong", 0.05, 10.0, 0.2),
-        ("y_path_enter", 0.0, 5.0, 0.01),
-        ("y_path_enter_sell_then_buy", 0.0, 5.0, 0.01),
-        ("y_path_enter_buy_then_sell", 0.0, 5.0, 0.01),
+        ("y_path_enter", 0.0, 100.0, 0.01),
+        ("y_path_enter_sell_then_buy", 0.0, 100.0, 0.01),
+        ("y_path_enter_buy_then_sell", 0.0, 100.0, 0.01),
         ("y_path_strong", 0.0, 5.0, 0.2),
-        ("y_complexity_max", 0.01, 1.0, 1.0),
+        ("y_complexity_max", 0.0, 1.0, 1.0),
         ("y_tpd_max", 0.0, 1.0, 0.40),
+        ("y_tau_enter_alt", 0.0, 100.0, 0.40),
+        ("y_path_enter_alt", 0.0, 100.0, 0.40),
+        ("y_complexity_max_alt", 0.0, 1.0, 1.0),
+        ("y_tpd_max_alt", 0.0, 1.0, 1.0),
         ("y_gap_tier_pct", 0.3, 8.0, 1.0),
     ):
         try:
@@ -528,7 +539,7 @@ def load_t0_rules(override: Optional[dict] = None) -> Dict[str, Any]:
         if strong_legacy is not None and strong_legacy != "":
             strong_f = float(strong_legacy)
             if strong_f > float(cfg["y_tau_enter"]):
-                cfg["y_tau_enter"] = max(0.01, min(strong_f, 5.0))
+                cfg["y_tau_enter"] = max(0.01, min(strong_f, 100.0))
     except (TypeError, ValueError):
         pass
     cfg["y_tau_enter_strong"] = float(cfg["y_tau_enter"])
@@ -543,7 +554,7 @@ def load_t0_rules(override: Optional[dict] = None) -> Dict[str, Any]:
             cfg[side_key] = float(cfg[base_key])
         else:
             try:
-                cfg[side_key] = max(0.0, min(float(cfg[side_key]), 5.0))
+                cfg[side_key] = max(0.0, min(float(cfg[side_key]), 100.0))
             except (TypeError, ValueError):
                 cfg[side_key] = float(cfg[base_key])
     from core.t0.score_policy import normalize_y_trade_enter
@@ -692,7 +703,7 @@ def load_t0_rules(override: Optional[dict] = None) -> Dict[str, Any]:
     try:
         eff = cfg.get("y_tau_enter_effective")
         if eff is not None and eff != "":
-            cfg["y_tau_enter_effective"] = max(0.0, min(float(eff), 5.0))
+            cfg["y_tau_enter_effective"] = max(0.0, min(float(eff), 100.0))
         else:
             cfg.pop("y_tau_enter_effective", None)
     except (TypeError, ValueError):

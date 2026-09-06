@@ -2545,22 +2545,40 @@ body[data-page="follow"] .follow-page .paper-holdings-react-grid .watching-react
   line-height: 1.35;
 }
 
-/* 正/反与共用同宽：仅作纵向堆叠容器，不加额外内边距/列宽 */
-.paper-t0-cfg-sides {
-  display: flex;
-  flex-direction: column;
-  gap: 0;
-  margin: 0;
+/* 门槛1/2、正T/反T：同一行两框 */
+.paper-t0-cfg-sides,
+.paper-t0-cfg-gates {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin: 0 0 12px;
   padding: 0;
   width: 100%;
   max-width: 100%;
   box-sizing: border-box;
 }
 
-.paper-t0-cfg-sides > .paper-t0-cfg-block {
+.paper-t0-cfg-sides > .paper-t0-cfg-block,
+.paper-t0-cfg-gates > .paper-t0-cfg-block {
+  margin-bottom: 0;
   width: 100%;
   max-width: 100%;
+  min-width: 0;
   box-sizing: border-box;
+}
+
+@media (max-width: 520px) {
+  .paper-t0-cfg-sides,
+  .paper-t0-cfg-gates {
+    grid-template-columns: 1fr;
+    gap: 0;
+    margin-bottom: 0;
+  }
+
+  .paper-t0-cfg-sides > .paper-t0-cfg-block,
+  .paper-t0-cfg-gates > .paper-t0-cfg-block {
+    margin-bottom: 12px;
+  }
 }
 
 .paper-t0-form-grid,
@@ -7633,6 +7651,24 @@ html[data-density="compact"] .follow-page #paper-chart.lw-host {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
   gap: 8px;
+}
+
+.paper-t0-cfg-gates .paper-t0-form-grid,
+.paper-t0-cfg-sides .paper-t0-form-grid,
+.paper-t0-form-grid.is-quad {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.paper-t0-cfg-block.is-shared .paper-t0-form-grid,
+.paper-t0-form-grid.is-oct {
+  grid-template-columns: repeat(8, minmax(0, 1fr));
+}
+
+@media (max-width: 520px) {
+  .paper-t0-cfg-block.is-shared .paper-t0-form-grid,
+  .paper-t0-form-grid.is-oct {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
 }
 
 .paper-t0-field {
