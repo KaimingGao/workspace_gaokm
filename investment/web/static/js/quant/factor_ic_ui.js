@@ -457,8 +457,6 @@ export function createFactorIcUi(deps) {
     tau_elapsed_min: "τ距开盘分钟",
     sector_ret_to_tau: "板块中位开→τ %",
     ret_vs_sector: "开→τ 相对板块 %",
-    prefix_complexity: "前缀曲折度 1−D/L",
-    prefix_tpd: "前缀转折点密度",
     t_hi_frac: "最高点相对前缀进度",
     t_lo_frac: "最低点相对前缀进度",
     ret_oc: "开→收 %",
@@ -576,8 +574,6 @@ export function createFactorIcUi(deps) {
       "tau_elapsed_min",
       "sector_ret_to_tau",
       "ret_vs_sector",
-      "prefix_complexity",
-      "prefix_tpd",
       "t_hi_frac",
       "t_lo_frac",
     ]);

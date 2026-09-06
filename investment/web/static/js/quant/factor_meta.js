@@ -237,16 +237,6 @@ export const TAU_FEAT_META = {
     label: "开→τ 相对板块 %",
     description: "个股开盘→τ − 板块中位开→τ（%）。正值=相对板块更强的前缀。",
   },
-  prefix_complexity: {
-    label: "前缀曲折度 1−D/L",
-    description:
-      "开盘→τ 前缀 5m 收价 Kaufman 1−D/L ∈[0,1]。与全日 y_complexity 同公式；短于 6 根留空。ŷ_complexity 头入模，ŷ_τ 不用。",
-  },
-  prefix_tpd: {
-    label: "前缀转折点密度",
-    description:
-      "开盘→τ 前缀转折点密度 ∈[0,1]。与全日 y_tpd 同公式；短于 6 根留空。ŷ_tpd 头入模，ŷ_τ 不用。",
-  },
   t_hi_frac: {
     label: "最高点相对前缀进度",
     description:

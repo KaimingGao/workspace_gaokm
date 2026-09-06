@@ -325,8 +325,6 @@ def tip_fields_from_item(item: Optional[dict]) -> Dict[str, Any]:
                 "complexity_ma5",
                 "cx_lag1",
                 "cx_ma5",
-                "prefix_complexity",
-                "prefix_tpd",
                 "t_hi_frac",
                 "t_lo_frac",
             }

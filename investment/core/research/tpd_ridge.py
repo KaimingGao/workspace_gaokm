@@ -1,7 +1,7 @@
 """ŷ_tpd Ridge：开盘 Z + 前缀分钟 + tpd_lag + complexity_lag → 全日转折点密度 TPD ∈ [0,1]。
 
 标签非有符号收益，OOS 看 Spearman IC 与中位命中（≈50% 即无信息），不用方向命中。
-研究枢纽拟合；盘中写 ŷ_tpd，ŷ_tpd > y_tpd_max 则跳过做 T。prefix_tpd 不进 Ridge。
+研究枢纽拟合；盘中写 ŷ_tpd，ŷ_tpd > y_tpd_max 则跳过做 T。
 """
 
 from __future__ import annotations

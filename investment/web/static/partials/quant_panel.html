@@ -523,7 +523,6 @@
                 以及 TPD 滞后 <code>tpd_lag1</code> / <code>tpd_ma5</code>
                 （与 ŷ_tpd 共用同一套 X，只换标签；
                 旧键 <code>complexity_tpd_lag1</code> / <code>cx_tpd_lag1</code> 仍可读）。
-                <code>prefix_complexity</code> 仍可从分钟小包读到，<strong>不进 Ridge</strong>。
                 标签仍是当日全日 <code>1−D/L</code>。
               </p>
               <p>
@@ -575,8 +574,7 @@
                 字段 <code>y_tpd</code> / <code>predicted_score_tpd</code>。
                 PIT 滞后与 ŷ_complexity 相同：<code>tpd_lag1</code> / <code>tpd_ma5</code>
                 （昨真实 / 近5日真实反转密度）以及 <code>complexity_lag1</code> / <code>complexity_ma5</code>。
-                两头共享同一套 X，只换标签；
-                <code>prefix_tpd</code> 仍可从分钟小包读到，<strong>不进 Ridge</strong>。
+                两头共享同一套 X，只换标签。
               </p>
               <p>
                 标签无符号，OOS 看 <strong>Spearman IC</strong> 与 <strong>中位命中</strong>

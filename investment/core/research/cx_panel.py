@@ -12,7 +12,6 @@
 （complexity_lag1 / complexity_ma5，不含当日）以及 TPD 滞后
 （tpd_lag1 / tpd_ma5；旧键 complexity_tpd_lag* 仍可读）。
 ŷ_complexity 与 ŷ_tpd 共用同一套 X（开盘 Z、路径小包、滞后），只换标签。
-prefix_complexity / prefix_tpd 仍可从分钟小包读到，不进 Ridge。
 研究枢纽拟合；做 T 入场用盘中前缀 ŷ_complexity，ŷ_complexity > y_complexity_max 则跳过
 （不用全日 realized 标签）。旧键 y_cx / cx_lag1 仍可读。
 """
