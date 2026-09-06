@@ -32,7 +32,7 @@ def cluster_speed_policy(panel_count: int) -> Dict[str, Any]:
         "daily_pit": not large,
         "select_ridge": not large,
         "note": (
-            f"宇宙 {n}≥40：财务用末日快照（非逐日 PIT）· 跳过 Ridge 选 λ 以加速"
+            f"宇宙 {n}≥40：财务用末日快照（非逐日 PIT）· 跳过 Ridge 选 λ · 选区跳过组权 OOS 辅门禁"
             if large
             else None
         ),

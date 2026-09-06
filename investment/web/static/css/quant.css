@@ -713,6 +713,11 @@
   overflow: visible;
 }
 
+.quant-page #quant-probe-fold .quant-secondary-fold,
+.quant-page #quant-probe-fold .dashboard-card.quant-pro-card {
+  overflow: visible;
+}
+
 .quant-page .quant-probe-body {
   display: flex;
   flex-direction: column;
@@ -8046,7 +8051,7 @@ body[data-page="quant"] section.dashboard-section.quant-section:last-child {
   opacity: 1;
 }
 
-/* 次要折叠：对照 / 日报 / 因子 / 拟合 */
+/* 次要折叠：探针 / 对照 / 日报 / 因子 / 拟合 */
 .quant-page .quant-section-secondary {
   padding: 0;
   border: 1px solid color-mix(in srgb, var(--line) 82%, transparent);

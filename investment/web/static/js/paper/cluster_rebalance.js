@@ -154,23 +154,13 @@ export function createClusterRebalanceController(deps) {
     }
   }
 
-  return {
+    return {
     get followMatrixPreviewPending() {
       return followMatrixPreviewPending;
     },
     setFollowMatrixPreviewPending(v) {
       followMatrixPreviewPending = !!v;
     },
-    /** @deprecated 分池调仓已移除；保留空实现避免旧调用炸 */
-    get followClusterActive() {
-      return false;
-    },
-    get followClusterPreviewPending() {
-      return false;
-    },
-    setFollowClusterActive() {},
-    setFollowClusterPreviewPending() {},
-    refreshFollowClusterStatus: async () => {},
     runWatchingMatrixPreview,
   };
 }

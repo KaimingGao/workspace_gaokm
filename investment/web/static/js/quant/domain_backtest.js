@@ -1319,7 +1319,7 @@ export function installBacktest(q) {
         engine === "paper_replay" ? "纸面回放" : "研究 Top-K";
       busyBase =
         watchN >= 40
-          ? `${engLabel}中（观察池约 ${watchN} 只 · lookback/horizon 越大越慢）…`
+          ? `${engLabel}中（ŷ_EOD · 观察池约 ${watchN} 只 · lookback/horizon 越大越慢）…`
           : `${engLabel}中（先读本地日线，缺的再补远端）…`;
       refreshBusy();
       const payload = {

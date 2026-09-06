@@ -69,7 +69,7 @@ def _load_bars_for_cluster(
             or src_s.startswith("empty")
             or not src_s.startswith("cache")
         )
-        # skip_remote（末根已到今天 / 增量无缺口）仍算完成强制路径，不计远端
+        # skip_remote（末根已到完整 as-of / 增量无缺口）仍算完成强制路径，不计远端
         if src_s.startswith("cache"):
             remote = False
         if bars:
@@ -487,8 +487,9 @@ def build_cluster_ols_panels(
                         try:
                             elapsed = int(time.time() - t0)
                             remain = max(0, int(batch_timeout) - elapsed)
+                            cache_n = max(0, done - remote_n)
                             progress_cb(
-                                f"拉日线 {done}/{n}（远端 {remote_n} · {elapsed}s · 剩 {remain}s · {workers} 并发）",
+                                f"拉日线 {done}/{n}（远端 {remote_n} · 缓存 {cache_n} · {elapsed}s · 剩 {remain}s · {workers} 并发）",
                                 done,
                                 n,
                             )

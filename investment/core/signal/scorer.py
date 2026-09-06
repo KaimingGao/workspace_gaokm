@@ -316,7 +316,12 @@ def score_bars(
     code_for_minute = stock_code or (quote or {}).get("stock_code")
     w_tail = float((weights or {}).get("tail_anomaly") or 0)
     req_set = {str(x).strip() for x in (required_factor_keys or []) if str(x).strip()}
-    if code_for_minute and (w_tail > 0 or "tail_anomaly" in req_set):
+    skip_minute_io = bool((cfg.get("scoring") or {}).get("skip_minute_io"))
+    if (
+        code_for_minute
+        and (w_tail > 0 or "tail_anomaly" in req_set)
+        and not skip_minute_io
+    ):
         try:
             from core.market import resolve_market_code
             from core.store import load_minute_cache

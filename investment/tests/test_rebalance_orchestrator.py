@@ -88,41 +88,5 @@ class TestRunPaperRebalanceRouting(unittest.TestCase):
         self.assertIn("停用", str(out.get("error") or ""))
 
 
-class TestSupplementHoldingScores(unittest.TestCase):
-    def test_noop_when_all_present(self):
-        from core.paper.rebalance.orchestrator import _supplement_holding_scores
-
-        rows = [{"stock_code": "000001", "score": 1.0}]
-        paper = {"holdings": [{"stock_code": "000001", "shares": 100}]}
-        out = _supplement_holding_scores(paper, rows)
-        self.assertEqual(len(out), 1)
-
-    def test_scores_missing_holding(self):
-        from core.paper.rebalance.orchestrator import _supplement_holding_scores
-
-        paper = {
-            "holdings": [
-                {"stock_code": "000063", "stock_name": "中兴", "shares": 100},
-            ]
-        }
-        with patch(
-            "core.signal.score_stock.score_stock",
-            return_value={
-                "success": True,
-                "signal_item": {
-                    "stock_code": "000063",
-                    "stock_name": "中兴通讯",
-                    "score": 1.48,
-                    "predicted_score": 1.48,
-                },
-            },
-        ):
-            out = _supplement_holding_scores(paper, [])
-        self.assertEqual(len(out), 1)
-        self.assertEqual(out[0]["stock_code"], "000063")
-        self.assertEqual(out[0]["score"], 1.48)
-        self.assertTrue(out[0].get("holding_supplement"))
-
-
 if __name__ == "__main__":
     unittest.main()

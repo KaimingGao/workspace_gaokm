@@ -6,7 +6,7 @@ import {
 } from "./names.js";
 import { postClusterLive as postClusterLiveApi, formatClusterApiError } from "./cluster_api.js";
 import { clusterLandingHtml } from "./cluster_landing.js?v=p1224";
-import { PROBE_EMPTY_CLUSTER_FAILED, PROBE_EMPTY_NO_CLUSTER, PROBE_EMPTY_COMPARE_FAILED, probePickerTriggerHtml, probePickerIdentityHtml, summarizeProbeHeterogeneity, buildProbeReadySummaryHtml, buildProbeNotReadySummaryHtml, buildProbeSingletonSummaryHtml, buildProbeNotInClusterPlainText, buildProbeHeteroSummaryHtml, buildProbeMetaSingleton, buildProbeMetaNotInCluster, buildProbeMetaHetero, buildProbePickerMenuHtml, probeStatusBadge } from "./probe_ui.js";
+import { PROBE_EMPTY_CLUSTER_FAILED, PROBE_EMPTY_NO_CLUSTER, PROBE_EMPTY_COMPARE_FAILED, probePickerTriggerHtml, probePickerIdentityHtml, summarizeProbeHeterogeneity, buildProbeReadySummaryHtml, buildProbeNotReadySummaryHtml, buildProbeSingletonSummaryHtml, buildProbeNotInClusterPlainText, buildProbeHeteroSummaryHtml, buildProbeMetaSingleton, buildProbeMetaNotInCluster, buildProbeMetaHetero, buildProbePickerMenuHtml, probeStatusBadge, openProbeFold } from "./probe_ui.js";
 import { createScoreTooltipController } from "../score_tooltip.js?v=p1734";
 import {
   syncOverviewFromClusters,
@@ -387,10 +387,6 @@ export function installClusterProbe(q) {
       runClusterLiveRank();
       return;
     }
-    if (key === "live-refresh") {
-      setQuantMeta("分池簿已停用");
-      return;
-    }
     if (key === "live-rollback") {
       runClusterLiveRollback();
       return;
@@ -562,10 +558,6 @@ export function installClusterProbe(q) {
     return resolveProbeInputToCode(raw) || "茅台";
   }
 
-  function paintClusterBookBadges(_bookCodes) {
-    // 分池簿徽章已停用
-  }
-
   async function refreshClusterLiveStatus() {
     try {
       const res = await fetch("/api/quant/cluster-live/status?light=1");
@@ -655,7 +647,6 @@ export function installClusterProbe(q) {
     const html = buildClusterFactorTablesHtml(state.quantLastOlsClusters, {
       lastFactorPanelForMerge: state.lastFactorPanelForMerge,
       lazyTables: true,
-      bookCodes: state.clusterBookCodes || [],
     });
     if (!html) return false;
     wireClusterFactorLazyHydrate();
@@ -1070,10 +1061,6 @@ export function installClusterProbe(q) {
     refreshClusterLiveStatus();
   }
 
-  async function runClusterLiveRefresh() {
-    setQuantMeta("分池簿已停用");
-  }
-
   async function runClusterLiveRollback() {
     if (
       !window.confirm(
@@ -1164,10 +1151,7 @@ export function installClusterProbe(q) {
 
   async function runProbeStockVsGroup() {
     const code = readOlsCode();
-    document.getElementById("quant-probe-fold")?.scrollIntoView?.({
-      behavior: "smooth",
-      block: "nearest",
-    });
+    openProbeFold();
     if (!state.quantLastOlsClusters || !state.quantLastOlsClusters.success) {
       if (bootstrapClusterHub._running) {
         setBusyText(els.quantProbeSummary, "上方分组进行中，请稍候…", {
@@ -1470,7 +1454,6 @@ export function installClusterProbe(q) {
     runClusterLiveMode,
     runClusterLivePromote,
     runClusterLiveRank,
-    runClusterLiveRefresh,
     runClusterLiveRollback,
     runClusterMultiRescore,
     runClusterPaperApply,

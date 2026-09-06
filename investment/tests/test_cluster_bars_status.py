@@ -24,6 +24,17 @@ class TestClusterBarsStatus(unittest.TestCase):
             dt = datetime(2026, 8, 25, 10, 0, 0)
             self.assertEqual(expected_latest_daily_bar_date(now=dt), "2026-08-22")
 
+    def test_expected_latest_weekend_uses_session(self):
+        from datetime import datetime
+
+        from quant.research.cluster_bars_status import expected_latest_daily_bar_date
+
+        with patch(
+            "core.market.calendar.resolve_session_date", return_value="2026-09-04"
+        ), patch("core.market.calendar.is_trading_day", return_value=True):
+            dt = datetime(2026, 9, 6, 1, 30, 0)
+            self.assertEqual(expected_latest_daily_bar_date(now=dt), "2026-09-04")
+
     def test_build_status_counts(self):
         from quant.research.cluster_bars_status import build_cluster_bars_status
 

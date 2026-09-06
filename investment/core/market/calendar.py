@@ -161,6 +161,26 @@ def resolve_session_date(
     return datetime.now().strftime("%Y-%m-%d")
 
 
+def expected_latest_daily_bar_date(*, now: Optional[datetime] = None) -> str:
+    """最新完整日线 as-of：交易日 15:05 前仍用上一交易日；周末/假日用最近已过交易日。
+
+    增量补齐用这个判断「本地是否已齐」，不要拿日历今天当缺口终点，
+    否则周日会把周五已齐的仓全部打成远端。
+    """
+    dt = now or datetime.now()
+    session = str(resolve_session_date(now=dt) or "")[:10]
+    if not session:
+        return ""
+    if not is_trading_day(session):
+        return session
+    today = dt.strftime("%Y-%m-%d")
+    cutoff = dt.replace(hour=15, minute=5, second=0, microsecond=0)
+    if today == session and dt < cutoff:
+        prev = prev_trading_day(session)
+        return prev or session
+    return session
+
+
 def halt_hint(text: str) -> Dict[str, Any]:
     """最小停牌提示：关键词检测，非完整停牌日历。"""
     s = str(text or "")

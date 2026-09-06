@@ -159,3 +159,13 @@ export function buildProbeMetaHetero(resolved, cl, unfit) {
     ? `探针 · ${resolved} 相对 ${cl.label || "组"} 异质偏大 · 建议视为离群`
     : `探针对照 · ${resolved} vs ${cl.label || "组"} · 不冲分组表`;
 }
+
+export function openProbeFold() {
+  const sec = document.getElementById("quant-probe-fold");
+  const fold = sec?.querySelector?.("details.quant-secondary-fold");
+  if (fold) fold.open = true;
+  sec?.scrollIntoView?.({
+    behavior: "smooth",
+    block: "nearest",
+  });
+}

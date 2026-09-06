@@ -14,20 +14,9 @@ logger = logging.getLogger(__name__)
 
 def expected_latest_daily_bar_date(*, now: Optional[datetime] = None) -> str:
     """研究侧期望的最新完整日线日期（A 股 15:05 前仍用上一交易日）。"""
-    from core.market.calendar import is_trading_day, prev_trading_day, resolve_session_date
+    from core.market.calendar import expected_latest_daily_bar_date as _as_of
 
-    dt = now or datetime.now()
-    session = str(resolve_session_date(now=dt) or "")[:10]
-    if not session:
-        return ""
-    if not is_trading_day(session):
-        return session
-    today = dt.strftime("%Y-%m-%d")
-    cutoff = dt.replace(hour=15, minute=5, second=0, microsecond=0)
-    if today == session and dt < cutoff:
-        prev = prev_trading_day(session)
-        return prev or session
-    return session
+    return _as_of(now=now)
 
 
 def _last_bar_date_for_code(code: str) -> Optional[str]:

@@ -484,6 +484,7 @@ class TestFactorOlsClusters(unittest.TestCase):
             ic_use_abs=False,
         )
         self.assertLess(loss["loss"], 1e9)
+
         better = compute_partition_loss(
             groups=[
                 {"member_count": 5, "pooled_r2": 0.9, "ic_mean": 0.3},
@@ -632,6 +633,56 @@ class TestFactorOlsClusters(unittest.TestCase):
         self.assertFalse(hold_fail.get("ok"))
         self.assertEqual(hold_fail.get("reason"), "refit_failed")
         self.assertIsNone(hold_fail.get("ic"))
+
+    def test_score_partition_skip_oos_gate_reports_progress(self):
+        """满池选区：跳过组权 OOS 辅门禁，但仍打 holdout，并回组进度。"""
+        from unittest.mock import patch
+
+        from quant.research.cluster_oos import score_cluster_partition_oos
+
+        clusters = [
+            {
+                "label": "G1",
+                "members": ["AAA", "BBB"],
+                "singleton": False,
+                "return_model": {
+                    "intercept": 0.0,
+                    "coefficients": {"momentum": 1.0},
+                },
+            }
+        ]
+        panel = {
+            "AAA": {
+                "xs": [{"momentum": float(i)} for i in range(20)],
+                "ys": [float(i) for i in range(20)],
+            },
+            "BBB": {
+                "xs": [{"momentum": float(i)} for i in range(20)],
+                "ys": [float(i) * 0.9 for i in range(20)],
+            },
+        }
+        seen = []
+
+        def _cb(msg, cur=0, tot=0):
+            seen.append((str(msg), int(cur), int(tot)))
+
+        with patch(
+            "core.signal.weight_oos_gate.evaluate_research_oos",
+            side_effect=AssertionError("auto-k 不得打组权 OOS"),
+        ):
+            out = score_cluster_partition_oos(
+                clusters,
+                panel_by_code=panel,
+                run_oos_gate=False,
+                progress_cb=_cb,
+            )
+        self.assertIn("partition_loss", out)
+        self.assertEqual(out.get("n_scored"), 0)
+        self.assertIsNone(out.get("mean_delta_oos_pp"))
+        self.assertTrue(seen)
+        self.assertIn("打分", seen[0][0])
+        self.assertEqual(seen[0][1], 1)
+        self.assertEqual(seen[0][2], 1)
 
     def test_calendar_cut_holdout_and_train_window(self):
         """宇宙日历 cut_date：跨票对齐；缺日期退回按票比例。"""
@@ -1003,6 +1054,11 @@ class TestFactorOlsClusters(unittest.TestCase):
         self.assertIn("跑分组", html)
         self.assertIn("quant-cluster-k", html)
         self.assertIn("quant-probe-fold", html)
+        self.assertIn("quant-secondary-fold", html)
+        self.assertRegex(
+            html,
+            r'id="quant-probe-fold"[^>]*>\s*<details class="quant-secondary-fold">',
+        )
         self.assertIn("观察池", html)
         self.assertIn("同组共用一套因子系数", html)
         self.assertIn("quant-global-fold", html)
@@ -1039,6 +1095,9 @@ class TestFactorOlsClusters(unittest.TestCase):
         self.assertIn("y_spec", ols)
         self.assertIn("quant-cluster-landing", ols)
         self.assertIn("probeStatusBadge", probe)
+        self.assertIn("openProbeFold", probe)
+        self.assertIn("openProbeFold", cluster)
+        self.assertIn("openProbeFold", _read("web/static/js/quant/domain_suggest.js"))
         self.assertIn("is-scan-hot", ols)
         self.assertIn("fmtOlsCell", ic)
         self.assertIn("quant-cell-empty", ic)
@@ -1161,6 +1220,181 @@ class TestFactorOlsClusters(unittest.TestCase):
         self.assertIsNotNone(out.get("preferred_cluster"))
         self.assertEqual(out["preferred_cluster"]["label"], "G1")
         self.assertTrue(out["preferred_cluster"]["oos_passed"])
+
+    def test_attach_oos_wraps_inner_progress_and_fast_gate(self):
+        from quant.research.cluster_oos import attach_cluster_oos_gates
+
+        report = {
+            "success": True,
+            "note": "base",
+            "clusters": [
+                {
+                    "label": "G8",
+                    "members": ["600519", "000001"],
+                    "singleton": False,
+                    "return_model": {
+                        "coefficients": {"momentum": 0.6},
+                        "intercept": 0.0,
+                    },
+                }
+            ],
+        }
+        seen = []
+        captured = {}
+
+        def _fake_eval(**kwargs):
+            captured.update(kwargs)
+            cb = kwargs.get("progress_cb")
+            if cb:
+                cb("基线 · 2024-01-10 · 1/4 日", 1, 4)
+                cb("研究臂 · 2024-01-12 · 2/4 日", 2, 4)
+            return {
+                "ok": True,
+                "passed": True,
+                "skipped": False,
+                "reason": "oos_not_worse",
+                "delta_oos_pp": 0.2,
+                "note": "ok",
+            }
+
+        def _cb(msg, cur=0, tot=0):
+            seen.append((str(msg), int(cur), int(tot)))
+
+        with patch(
+            "core.signal.weight_oos_gate.evaluate_research_oos",
+            side_effect=_fake_eval,
+        ):
+            attach_cluster_oos_gates(report, run_oos_gate=True, progress_cb=_cb)
+        self.assertTrue(captured.get("fast_gate"))
+        self.assertFalse(captured.get("attach_excess"))
+        self.assertTrue(any("OOS 1/1" in m and "基线" in m for m, _, _ in seen))
+        self.assertTrue(any("研究臂" in m for m, _, _ in seen))
+        self.assertEqual(seen[-1][2], 1000)
+
+    def test_evaluate_oos_forwards_progress_skips_excess(self):
+        from core.signal.weight_oos_gate import evaluate_research_oos
+
+        model = {
+            "intercept": 0.0,
+            "coefficients": {"momentum": 0.1},
+            "z_means": {},
+            "z_stds": {},
+            "standardized": True,
+        }
+        bars = {
+            "a": [{"date": f"2024-01-{i:02d}", "close": 10 + i * 0.01} for i in range(1, 40)],
+            "b": [{"date": f"2024-01-{i:02d}", "close": 20 + i * 0.02} for i in range(1, 40)],
+        }
+        seen = []
+        bt_kwargs = []
+
+        def fake_bt(stock_bars, **kwargs):
+            bt_kwargs.append(kwargs)
+            cb = kwargs.get("progress_cb")
+            if cb:
+                cb("2024-01-10 · 1/2 日", 1, 2)
+            return {
+                "success": True,
+                "metrics": {"total_return_pct": 5.0},
+                "equity_curve": [
+                    {"date": "d1", "equity": 100},
+                    {"date": "d2", "equity": 103},
+                    {"date": "d3", "equity": 104},
+                    {"date": "d4", "equity": 105},
+                ],
+                "trades": [{"id": 1}],
+                "params": {"rank_mode": kwargs.get("rank_mode")},
+            }
+
+        with patch(
+            "core.backtest.topk_backtest.backtest_topk_equal_weight",
+            side_effect=fake_bt,
+        ), patch(
+            "core.research.bt_excess_attach.attach_benchmark_excess",
+            side_effect=AssertionError("cluster OOS 不得拉指数"),
+        ):
+            out = evaluate_research_oos(
+                codes=["a", "b"],
+                research_models_by_code={"a": model, "b": model},
+                baseline_weights={"momentum": 0.5, "value": 0.5},
+                lookback=40,
+                stock_bars=bars,
+                min_names=2,
+                progress_cb=lambda m, c=0, t=0: seen.append(str(m)),
+                attach_excess=False,
+                fast_gate=True,
+            )
+        self.assertFalse(out.get("skipped"))
+        self.assertTrue(any("基线" in m for m in seen))
+        self.assertTrue(any("研究臂" in m for m in seen))
+        self.assertTrue(bt_kwargs)
+        self.assertFalse(bt_kwargs[0].get("neutralize"))
+        self.assertEqual(bt_kwargs[0].get("execution_mode"), "close")
+        self.assertFalse(bt_kwargs[0].get("apply_costs"))
+        self.assertFalse(bt_kwargs[0].get("respect_limit"))
+        self.assertFalse(bt_kwargs[0].get("exclude_oos_failed"))
+
+    def test_evaluate_oos_fast_gate_clips_bars_and_skips_minute_tau(self):
+        from core.signal.weight_oos_gate import evaluate_research_oos
+
+        model = {
+            "intercept": 0.0,
+            "coefficients": {"momentum": 0.1},
+            "z_means": {},
+            "z_stds": {},
+            "standardized": True,
+        }
+        bars = {
+            "a": [
+                {"date": f"2024-01-{(i % 28) + 1:02d}", "close": 10 + i * 0.01}
+                for i in range(1, 121)
+            ],
+            "b": [
+                {"date": f"2024-01-{(i % 28) + 1:02d}", "close": 20 + i * 0.02}
+                for i in range(1, 121)
+            ],
+        }
+        seen_lens = []
+        seen_cfg = []
+
+        def fake_bt(stock_bars, **kwargs):
+            seen_lens.append(len(stock_bars["a"]))
+            from core.signal.config import load_signal_config
+
+            cfg = load_signal_config()
+            seen_cfg.append(
+                (
+                    float((cfg.get("weights") or {}).get("tail_anomaly") or 0),
+                    bool((cfg.get("dual_score") or {}).get("enable_minute_tau")),
+                )
+            )
+            return {
+                "success": True,
+                "metrics": {"total_return_pct": 5.0},
+                "equity_curve": [{"date": "d1", "equity": 100}],
+                "trades": [{"id": 1}],
+                "params": {"rank_mode": kwargs.get("rank_mode")},
+            }
+
+        with patch(
+            "core.backtest.topk_backtest.backtest_topk_equal_weight",
+            side_effect=fake_bt,
+        ):
+            evaluate_research_oos(
+                codes=["a", "b"],
+                research_models_by_code={"a": model, "b": model},
+                baseline_weights={"momentum": 0.5, "value": 0.5, "tail_anomaly": 0.02},
+                lookback=80,
+                stock_bars=bars,
+                min_names=2,
+                attach_excess=False,
+                fast_gate=True,
+            )
+        self.assertTrue(seen_lens)
+        self.assertEqual(seen_lens[0], 80)
+        self.assertTrue(seen_cfg)
+        self.assertEqual(seen_cfg[0][0], 0.0)
+        self.assertFalse(seen_cfg[0][1])
 
 
 if __name__ == "__main__":

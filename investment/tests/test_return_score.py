@@ -118,7 +118,7 @@ class TestReturnScoreModel(unittest.TestCase):
         }
         with patch(
             "core.signal.dual_score.attach_dual_score_pit", side_effect=_fake_attach
-        ):
+        ) as attach_mock:
             picks_blend, meta_blend = score_and_rank_watching(
                 [dict(x) for x in entries],
                 min_score=0.0,
@@ -142,6 +142,8 @@ class TestReturnScoreModel(unittest.TestCase):
         self.assertEqual(picks_eod[0][0], "high_eod")
         self.assertTrue(meta_eod.get("rank_by_eod"))
         self.assertEqual(meta_eod.get("rank_key"), "predicted_score_eod")
+        self.assertTrue((meta_eod.get("dual_score") or {}).get("skipped"))
+        self.assertEqual(attach_mock.call_count, 2)
 
     def test_from_ols_skips_none_coefs(self):
         model = ReturnScoreModel.from_ols_report(
@@ -174,6 +176,33 @@ class TestReturnScoreModel(unittest.TestCase):
         self.assertNotIn("heuristic_score", out[0])
         self.assertAlmostEqual(out[0]["predicted_score"], 2.0)
         self.assertAlmostEqual(out[0]["score"], 2.0)
+
+    def test_skip_minute_io_does_not_load_cache(self):
+        from unittest.mock import patch
+
+        from core.signal.scorer import score_bars
+
+        bars = [
+            {
+                "date": f"2024-01-{i:02d}",
+                "open": 10,
+                "high": 11,
+                "low": 9,
+                "close": 10.5,
+                "volume": 1e6,
+            }
+            for i in range(1, 20)
+        ]
+        with patch("core.store.load_minute_cache") as load_m:
+            score_bars(
+                bars,
+                quote={"stock_code": "600519"},
+                config={
+                    "weights": {"momentum": 1.0, "tail_anomaly": 0.5},
+                    "scoring": {"skip_minute_io": True},
+                },
+            )
+            load_m.assert_not_called()
 
 
 if __name__ == "__main__":

@@ -852,6 +852,7 @@ def backtest_topk_equal_weight(
     use_live_cluster_models: bool = True,
     allow_heuristic_baseline: bool = False,
     apply_tau_buy_gate: bool = False,
+    exclude_oos_failed: bool = True,
     strategy_id: Optional[str] = None,
     precomputed_ranks: Optional[Dict[str, Any]] = None,
     progress_cb: Optional[Callable[..., Any]] = None,
@@ -897,6 +898,15 @@ def backtest_topk_equal_weight(
     top_k_cap = int(bt_defaults.get("top_k_cap") or 40)
 
     cfg = load_signal_config()
+    if not apply_tau_buy_gate:
+        # 历史 ŷ_EOD：不读分钟仓（live 5m 也不是 PIT）
+        cfg = dict(cfg)
+        scoring = dict(cfg.get("scoring") or {})
+        scoring["skip_minute_io"] = True
+        cfg["scoring"] = scoring
+        ds = dict(cfg.get("dual_score") or {})
+        ds["enable_minute_tau"] = False
+        cfg["dual_score"] = ds
     cs_cfg = cfg.get("cross_section") or {}
     use_neutral = cs_cfg.get("neutralize", True) if neutralize is None else bool(neutralize)
     global_factor_weights = dict(cfg.get("weights") or {})
@@ -1180,6 +1190,7 @@ def backtest_topk_equal_weight(
                 allow_heuristic_baseline=allow_heuristic_baseline
                 or resolved_rank_mode == "heuristic_score",
                 apply_tau_buy_gate=bool(apply_tau_buy_gate),
+                exclude_oos_failed=bool(exclude_oos_failed),
             )
             if resolved_rank_mode == "heuristic_score":
                 pred_rank_rebalances += 0

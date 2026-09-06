@@ -36,17 +36,19 @@ def _metrics_from_backtest(
     bt: Dict[str, Any],
     *,
     stock_bars: Optional[Dict[str, List[dict]]] = None,
+    attach_excess: bool = True,
 ) -> Dict[str, Any]:
     from core.backtest.oos_report import split_oos_summary
 
     enriched = bt
-    try:
-        from core.research.bt_excess_attach import attach_benchmark_excess
+    if attach_excess:
+        try:
+            from core.research.bt_excess_attach import attach_benchmark_excess
 
-        enriched = attach_benchmark_excess(bt, stock_bars or {})
-    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in weight_oos_gate.py", exc_info=True)
-        enriched = bt
+            enriched = attach_benchmark_excess(bt, stock_bars or {})
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in weight_oos_gate.py", exc_info=True)
+            enriched = bt
 
     m = enriched.get("metrics") or {}
     curve = enriched.get("equity_curve") or []
@@ -103,6 +105,30 @@ def _shared_oos_backtest_kwargs(
     }
 
 
+def _lite_backtest_kwargs(lite: bool) -> Dict[str, Any]:
+    """分组闸：关涨跌停/成本/失败组剔榜，收盘成交，避免当成生产回测。"""
+    if not lite:
+        return {}
+    return {
+        "execution_mode": "close",
+        "respect_limit": False,
+        "apply_costs": False,
+        "exclude_oos_failed": False,
+    }
+
+
+def _clip_stock_bars_lookback(
+    stock_bars: Dict[str, List[dict]],
+    lookback: int,
+) -> Dict[str, List[dict]]:
+    keep_n = max(40, min(int(lookback or 80), 80))
+    return {
+        str(c): list(b)[-keep_n:]
+        for c, b in (stock_bars or {}).items()
+        if b
+    }
+
+
 def _heuristic_oos_floor(min_score: float) -> float:
     """基线臂 0–100 门槛：显式参数优先，否则 tracks heuristic_buy_floor。"""
     try:
@@ -140,6 +166,10 @@ def _run_topk_heuristic(
     horizon_days: int,
     min_score: float,
     fundamentals_by_code: Optional[Dict[str, dict]] = None,
+    progress_cb: Optional[Any] = None,
+    cancel_check: Optional[Any] = None,
+    neutralize: Optional[bool] = None,
+    lite: bool = False,
 ) -> Dict[str, Any]:
     """基线臂：全局人工权 → heuristic_score 排序。"""
     from core.backtest.topk_backtest import backtest_topk_equal_weight
@@ -150,6 +180,9 @@ def _run_topk_heuristic(
         horizon_days=horizon_days,
         fundamentals_by_code=fundamentals_by_code,
     )
+    if neutralize is not None:
+        shared["neutralize"] = bool(neutralize)
+    shared.update(_lite_backtest_kwargs(lite))
     floor = _heuristic_oos_floor(min_score)
     with signal_config_overlay({"weights": weights}):
         return backtest_topk_equal_weight(
@@ -159,6 +192,8 @@ def _run_topk_heuristic(
             allow_heuristic_baseline=True,
             return_models_by_code={},
             min_predicted_score=None,
+            progress_cb=progress_cb,
+            cancel_check=cancel_check,
             **shared,
         )
 
@@ -172,6 +207,10 @@ def _run_topk_predicted(
     ridge_lambda: float = 0.0,
     fundamentals_by_code: Optional[Dict[str, dict]] = None,
     min_predicted_score: Optional[float] = None,
+    progress_cb: Optional[Any] = None,
+    cancel_check: Optional[Any] = None,
+    neutralize: Optional[bool] = None,
+    lite: bool = False,
 ) -> Dict[str, Any]:
     """研究臂：注入组/全局 return_model → predicted_score 排序。
 
@@ -185,6 +224,9 @@ def _run_topk_predicted(
         horizon_days=horizon_days,
         fundamentals_by_code=fundamentals_by_code,
     )
+    if neutralize is not None:
+        shared["neutralize"] = bool(neutralize)
+    shared.update(_lite_backtest_kwargs(lite))
     floor = (
         float(min_predicted_score)
         if min_predicted_score is not None
@@ -200,6 +242,8 @@ def _run_topk_predicted(
         else {},
         return_model_ridge_lambda=float(ridge_lambda or 0.0),
         allow_heuristic_baseline=False,
+        progress_cb=progress_cb,
+        cancel_check=cancel_check,
         **shared,
     )
 
@@ -333,6 +377,10 @@ def evaluate_research_oos(
     min_predicted_score: Optional[float] = None,
     rank_only: bool = False,
     require_clean_is_oos: bool = True,
+    progress_cb: Optional[Any] = None,
+    cancel_check: Optional[Any] = None,
+    attach_excess: bool = True,
+    fast_gate: bool = False,
 ) -> Dict[str, Any]:
     """heuristic 基线 vs predicted（研究模型）同一宇宙 Top-K OOS 对照。
 
@@ -344,9 +392,11 @@ def evaluate_research_oos(
     避免生产 ŷ≥1% 把研究臂买成 0 笔再记失败）。
     ``require_clean_is_oos``：False 时，ŷ 相对 heuristic 已过门则不再被
     「自身 IS≫OOS」旗标否决（小组 Top-K 曲线噪声大）。
+    ``fast_gate``：关回测逐日财务 PIT / 行业中性 / 分钟 τ / 尾盘分钟仓；
+    日线截到 lookback；收盘成交、不计成本。``attach_excess=False`` 不拉指数。
     """
     from core.research.portfolio_bars import load_portfolio_stock_bars
-    from core.signal.config import load_signal_config
+    from core.signal.config import load_signal_config, signal_config_overlay
     from core.watching.store import read_watching
 
     if codes:
@@ -451,26 +501,85 @@ def evaluate_research_oos(
 
     heur_floor = 0.0 if rank_only else min_score
     pred_floor = -999.0 if rank_only else min_predicted_score
-    base_bt = _run_topk_heuristic(
-        stock_bars,
-        base_w,
-        top_k=top_k_eff,
-        horizon_days=horizon_days,
-        min_score=heur_floor,
-        fundamentals_by_code=fund_map or None,
+    neut = False if fast_gate else None
+    if fast_gate:
+        stock_bars = _clip_stock_bars_lookback(stock_bars, lookback)
+        base_w = dict(base_w)
+        base_w["tail_anomaly"] = 0.0
+
+    def _emit(msg: str, cur: int = 0, tot: int = 1) -> None:
+        if not progress_cb:
+            return
+        try:
+            progress_cb(msg, int(cur or 0), int(tot or 1))
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in weight_oos_gate.py", exc_info=True)
+
+    def _arm_cb(arm: str):
+        def _cb(msg: str, cur: int = 0, tot: int = 0) -> None:
+            inner = str(msg or "").strip()
+            _emit(f"{arm} · {inner}" if inner else arm, cur, tot)
+
+        return _cb
+
+    overlay = (
+        {
+            "fundamentals": {"use_in_backtest": False},
+            "cross_section": {"neutralize": False},
+            "weights": {"tail_anomaly": 0.0},
+            "dual_score": {"enable_minute_tau": False},
+        }
+        if fast_gate
+        else None
     )
-    res_bt = _run_topk_predicted(
-        stock_bars,
-        top_k=top_k_eff,
-        horizon_days=horizon_days,
-        return_models_by_code=models_eff,
-        ridge_lambda=ridge_lambda,
-        fundamentals_by_code=fund_map or None,
-        min_predicted_score=pred_floor,
-    )
+    with signal_config_overlay(overlay):
+        _emit("基线", 0, 1)
+        base_bt = _run_topk_heuristic(
+            stock_bars,
+            base_w,
+            top_k=top_k_eff,
+            horizon_days=horizon_days,
+            min_score=heur_floor,
+            fundamentals_by_code=fund_map or None,
+            progress_cb=_arm_cb("基线"),
+            cancel_check=cancel_check,
+            neutralize=neut,
+            lite=bool(fast_gate),
+        )
+        if cancel_check:
+            try:
+                if cancel_check():
+                    return {
+                        "ok": False,
+                        "passed": False,
+                        "skipped": True,
+                        "reason": "cancelled",
+                        "note": "已取消",
+                        "stock_count": len(stock_bars),
+                    }
+            except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+                logger.debug("catch except Exception: in weight_oos_gate.py", exc_info=True)
+        _emit("研究臂", 0, 1)
+        res_bt = _run_topk_predicted(
+            stock_bars,
+            top_k=top_k_eff,
+            horizon_days=horizon_days,
+            return_models_by_code=models_eff,
+            ridge_lambda=ridge_lambda,
+            fundamentals_by_code=fund_map or None,
+            min_predicted_score=pred_floor,
+            progress_cb=_arm_cb("研究臂"),
+            cancel_check=cancel_check,
+            neutralize=neut,
+            lite=bool(fast_gate),
+        )
     out = _compare_arms(
-        _metrics_from_backtest(base_bt, stock_bars=stock_bars),
-        _metrics_from_backtest(res_bt, stock_bars=stock_bars),
+        _metrics_from_backtest(
+            base_bt, stock_bars=stock_bars, attach_excess=bool(attach_excess)
+        ),
+        _metrics_from_backtest(
+            res_bt, stock_bars=stock_bars, attach_excess=bool(attach_excess)
+        ),
         tol=float(oos_tol_pp),
         lookback=lookback,
         top_k=top_k_eff,

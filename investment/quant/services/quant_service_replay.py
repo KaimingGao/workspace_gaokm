@@ -354,7 +354,7 @@ class QuantReplayMixin:
             "rank_key": "predicted_score_eod",
             "score_axis_note": (
                 "选股键=ŷ_EOD · 关 τ 闸（日线无可靠分钟 τ；≠ live ŷ_trade）；"
-                "引擎=topk_research（≠纸面可实现）"
+                "不拉分钟仓；引擎=topk_research（≠纸面可实现）"
             ),
             "return_model_min_samples": int(return_model_min_samples or 24),
             "return_model_ridge_lambda": float(return_model_ridge_lambda or 0.0),

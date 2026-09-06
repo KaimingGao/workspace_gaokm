@@ -255,6 +255,85 @@ class TestIncrementalFetch(unittest.TestCase):
         self.assertIsNone(start2)
         self.assertFalse(skip2)
 
+    def test_plan_skip_when_last_meets_asof_on_weekend(self):
+        """周日增量：末根已是周五完整 as-of → 不打远端。"""
+        from datetime import datetime
+
+        from skills.common.history import _incremental_remote_plan
+
+        fat = [{"date": f"2026-08-{i:02d}", "close": 1} for i in range(1, 26)]
+        fat[-1]["date"] = "2026-09-04"
+        sunday = datetime(2026, 9, 6, 1, 30, 0)
+        with patch(
+            "core.market.calendar.expected_latest_daily_bar_date",
+            return_value="2026-09-04",
+        ):
+            start, lim, skip = _incremental_remote_plan(
+                fat, limit=20, adjust="qfq", now=sunday
+            )
+        self.assertTrue(skip)
+        self.assertIsNone(start)
+        self.assertEqual(lim, 0)
+
+    def test_plan_fetch_when_last_before_asof(self):
+        from datetime import datetime
+
+        from skills.common.history import _incremental_remote_plan
+
+        fat = [{"date": f"2026-08-{i:02d}", "close": 1} for i in range(1, 26)]
+        fat[-1]["date"] = "2026-09-03"
+        sunday = datetime(2026, 9, 6, 1, 30, 0)
+        with patch(
+            "core.market.calendar.expected_latest_daily_bar_date",
+            return_value="2026-09-04",
+        ):
+            start, lim, skip = _incremental_remote_plan(
+                fat, limit=20, adjust="qfq", now=sunday
+            )
+        self.assertFalse(skip)
+        self.assertEqual(start, "20260903")
+
+    def test_force_refresh_skips_remote_when_asof_aligned(self):
+        """cache_max_age<=0 的增量补齐：已齐 as-of 不得整池拉网。"""
+        from skills.common import history as hist
+
+        existing = [
+            {
+                "date": f"2026-08-{i:02d}",
+                "open": 1,
+                "high": 1,
+                "low": 1,
+                "close": float(i),
+                "volume": 1,
+            }
+            for i in range(1, 26)
+        ]
+        existing[-1]["date"] = "2026-09-04"
+        with patch(
+            "skills.common.history.resolve_market_code", return_value=("CN", "600519")
+        ), patch(
+            "skills.common.history.load_daily_cache",
+            return_value=(existing, {"data_source": "akshare_cn_daily:qfq"}),
+        ), patch(
+            "skills.common.history.fetch_a_daily_bars"
+        ) as fetch, patch(
+            "core.store.peek_daily_cache_meta",
+            return_value={"adjust_policy": "qfq"},
+        ), patch(
+            "core.market.calendar.expected_latest_daily_bar_date",
+            return_value="2026-09-04",
+        ), patch.dict(os.environ, {"INVESTMENT_DISABLE_CACHE": ""}):
+            bars, src = hist.fetch_daily_bars(
+                "600519",
+                limit=20,
+                use_cache=True,
+                cache_max_age_hours=0,
+                incremental=True,
+            )
+        fetch.assert_not_called()
+        self.assertEqual(bars[-1]["date"], "2026-09-04")
+        self.assertIn("cache", src)
+
 
 if __name__ == "__main__":
     unittest.main()

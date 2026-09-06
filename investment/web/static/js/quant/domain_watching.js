@@ -1546,11 +1546,6 @@ export function installWatching(q) {
       .join("");
   }
 
-  async function fetchClusterBookCodeSet() {
-    // 分池簿 UI 已停用；不再拉取 book codes / 画「簿」徽章
-    return new Set();
-  }
-
   async function renderWatchingWatchTable(wl, names, paperCodes, scores) {
     const watchTable = document.getElementById("watching-watchlist-table");
     if (!watchTable) return;
@@ -1576,8 +1571,7 @@ export function installWatching(q) {
       paperCodes instanceof Map
         ? paperCodes
         : new Map(Array.from(paperCodes || []).map((c) => [String(c), null]));
-    const bookCodes = await fetchClusterBookCodeSet();
-    state.clusterBookCodes = Array.from(bookCodes);
+    state.clusterBookCodes = [];
     // 读取 localStorage 缓存的 insights（4h 内有效），用于初始化评分列
     let cachedScores = {};
     try {
@@ -1609,7 +1603,6 @@ export function installWatching(q) {
           : cached;
       const onPaper = inPaper.has(code);
       const heldShares = onPaper ? inPaper.get(code) : null;
-      const bare = normalizeProbeCode(code);
       rowByCode.set(code, {
         code,
         name,
@@ -1617,7 +1610,7 @@ export function installWatching(q) {
         market: "",
         paper: onPaper ? (heldShares != null ? `${heldShares} 股` : "已持") : "建仓",
         onPaper,
-        inBook: bookCodes.has(bare) || bookCodes.has(code),
+        inBook: false,
         sentHtml: `<span class="watching-sent-badge is-neutral" data-code="${escapeHtml(code)}" title="加载中">…</span>`,
         price: "—",
         prev_close: "—",

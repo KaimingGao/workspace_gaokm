@@ -687,6 +687,8 @@ def _score_labels_partition(
     kind: str,
     holdout_ratio: float = 0.3,
     cut_date: Optional[str] = None,
+    progress_cb: Optional[Any] = None,
+    run_oos_gate: bool = True,
 ) -> Tuple[Dict[str, Any], Dict[str, Any], Dict[str, Any]]:
     """labels → slim 组池 + partition_oos 打分；返回 (clustered, score, row_extra)。"""
     from quant.research.cluster_oos import score_cluster_partition_oos
@@ -716,6 +718,7 @@ def _score_labels_partition(
         train_window_only=True,
         holdout_ratio=holdout_ratio,
         cut_date=cut_date,
+        progress_cb=progress_cb,
     )
     score = score_cluster_partition_oos(
         clusters_i,
@@ -732,6 +735,8 @@ def _score_labels_partition(
         use_pit=use_pit,
         holdout_ratio=holdout_ratio,
         cut_date=cut_date,
+        progress_cb=progress_cb,
+        run_oos_gate=bool(run_oos_gate),
     )
     extra = {
         "partition_kind": str(kind),
@@ -877,6 +882,7 @@ def _slim_pool_clusters_for_oos(
     train_window_only: bool = False,
     holdout_ratio: float = 0.3,
     cut_date: Optional[str] = None,
+    progress_cb: Optional[Any] = None,
 ) -> List[Dict[str, Any]]:
     """仅为选 k：组池 OLS + return_model，跳过 IC / gaps / 共线诊断。
 
@@ -885,7 +891,13 @@ def _slim_pool_clusters_for_oos(
     labs = np.asarray(labels, dtype=int)
     uniq = sorted(set(int(v) for v in labs if int(v) >= 0))
     out: List[Dict[str, Any]] = []
-    for cid in uniq:
+    n_uniq = max(1, len(uniq))
+    for gi, cid in enumerate(uniq, start=1):
+        if progress_cb:
+            try:
+                progress_cb(f"估β {gi}/{n_uniq}", gi, n_uniq)
+            except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+                logger.debug("catch except Exception: in factor_ols_clusters.py", exc_info=True)
         members = sorted(
             codes[i] for i, lab in enumerate(labs) if int(lab) == cid
         )
@@ -964,6 +976,7 @@ def _select_clustered_by_delta_oos(
     feature_names: Optional[Sequence[str]] = None,
     scale_mode: str = "feature_zscore",
     expanding_score: bool = True,
+    run_oos_gate: bool = True,
 ) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     """auto-k：邻域 k × 配方；主切点定交付标签，多折均值 loss 主排。"""
     from quant.research.cluster_oos import pick_best_k_selection_row
@@ -1011,18 +1024,31 @@ def _select_clustered_by_delta_oos(
         for spec in method_specs:
             step += 1
             kind = str(spec["kind"])
-            _progress(
-                f"选区 {step}/{total_steps} · k={k_cand} · {kind}"
-                + (f" · {len(cut_packs)}折" if len(cut_packs) > 1 else ""),
-                step,
-                total_steps,
-            )
+            fold_n = max(1, len(cut_packs))
+            units = total_steps * 1000
+
+            def _recipe_progress(inner_msg: str, frac: float) -> None:
+                f = min(1.0, max(0.0, float(frac)))
+                micro = int(round((step - 1 + f) * 1000))
+                bits = [
+                    f"选区 {step}/{total_steps}",
+                    f"k={k_cand}",
+                    kind,
+                ]
+                if fold_n > 1:
+                    bits.append(f"{fold_n}折")
+                if inner_msg:
+                    bits.append(inner_msg)
+                _progress(" · ".join(bits), micro, units)
+
+            _recipe_progress("聚类", 0.0)
             fold_scores: List[Dict[str, Any]] = []
             primary_clustered: Optional[Dict[str, Any]] = None
             primary_extra: Optional[Dict[str, Any]] = None
             primary_score: Optional[Dict[str, Any]] = None
             skip_candidate = False
-            for pack in cut_packs:
+            for pack_i, pack in enumerate(cut_packs):
+                fold_base = pack_i / fold_n
                 x_fold = pack["x"]
                 clustered_raw = cluster_beta_vectors(
                     x_fold,
@@ -1044,6 +1070,15 @@ def _select_clustered_by_delta_oos(
                         skip_candidate = True
                         break
                     seen_labels.add(lab_tuple)
+
+                def _on_inner(msg: str, cur: int = 0, tot: int = 0) -> None:
+                    inner = min(1.0, float(cur or 0) / float(max(1, tot or 1)))
+                    if str(msg or "").startswith("估β"):
+                        frac = fold_base + (0.08 + 0.42 * inner) / fold_n
+                    else:
+                        frac = fold_base + (0.5 + 0.5 * inner) / fold_n
+                    _recipe_progress(msg, frac)
+
                 clustered_i, score, extra = _score_labels_partition(
                     x=x_fold,
                     labels=np.asarray(clustered_raw["labels"], dtype=int),
@@ -1063,6 +1098,8 @@ def _select_clustered_by_delta_oos(
                     kind=kind,
                     holdout_ratio=float(pack.get("holdout_ratio") or holdout_ratio),
                     cut_date=pack.get("cut_date"),
+                    progress_cb=_on_inner,
+                    run_oos_gate=bool(run_oos_gate),
                 )
                 fold_scores.append(
                     {
@@ -1139,6 +1176,7 @@ def _select_clustered_by_delta_oos(
             "reason": "无有效候选，回退中心 k",
             "objective": "max_yhat_ic_min_fit_error",
             "expanding_score": bool(len(cut_packs) > 1),
+            "run_oos_gate": bool(run_oos_gate),
         }
 
     best = pick_best_k_selection_row(rows, oos_tol_pp=float(oos_tol_pp)) or rows[0]
@@ -1171,16 +1209,29 @@ def _select_clustered_by_delta_oos(
         "objective": "max_yhat_ic_min_fit_error",
         "expanding_score": bool(len(cut_packs) > 1),
         "n_expanding_folds": int(len(cut_packs)),
+        "run_oos_gate": bool(run_oos_gate),
         "note": (
-            "主排：多折日历前段 β 重聚类的均值 partition_loss"
-            "（尾段 ŷ 有符号 IC↑ / 前段重拟合 R²↑；重拟合失败不计分）；"
-            "交付标签取主切点（~70%）；辅门禁：有过门 ΔOOS 时淘汰更差负 ΔOOS；"
-            "kmeans 与层次同样劈超大组"
+            (
+                "主排：多折日历前段 β 重聚类的均值 partition_loss"
+                "（尾段 ŷ 有符号 IC↑ / 前段重拟合 R²↑；重拟合失败不计分）；"
+                "交付标签取主切点（~70%）；"
+                + (
+                    "选区跳过组权 OOS 辅门禁（满池加速；定组后仍跑组内 OOS）；"
+                    if not run_oos_gate
+                    else "辅门禁：有过门 ΔOOS 时淘汰更差负 ΔOOS；"
+                )
+                + "kmeans 与层次同样劈超大组"
+            )
             if len(cut_packs) > 1
             else (
                 "主排：partition_loss（前段 β 定组 · 尾段 ŷ 有符号 IC↑ / 前段重拟合 R²↑；"
-                "宇宙日历切分优先；重拟合失败不计分）；辅门禁：有过门 ΔOOS 时淘汰更差负 ΔOOS；"
-                "kmeans 与层次同样劈超大组；配方含层次/kmeans"
+                "宇宙日历切分优先；重拟合失败不计分）；"
+                + (
+                    "选区跳过组权 OOS 辅门禁（满池加速；定组后仍跑组内 OOS）；"
+                    if not run_oos_gate
+                    else "辅门禁：有过门 ΔOOS 时淘汰更差负 ΔOOS；"
+                )
+                + "kmeans 与层次同样劈超大组；配方含层次/kmeans"
             )
         ),
         "walk_forward": {
@@ -1458,6 +1509,7 @@ def compute_factor_ols_cluster_report(
             feature_names=feature_names,
             scale_mode=scale_mode,
             expanding_score=bool(cut_date) and not large_universe,
+            run_oos_gate=not large_universe,
         )
         # 选 k 侧的 expanding_score_cuts 并入顶层 walk_forward
         sel_wf = (k_selection or {}).get("walk_forward") or {}

@@ -642,8 +642,6 @@ def _timing_summary(timing: Optional[dict]) -> str:
 def execution_public_view(bundle: Dict[str, Any]) -> Dict[str, Any]:
     """API / Web 用精简视图。"""
     t0 = bundle.get("t0") or {}
-    # 分池簿已停用
-    cluster_book = None
     path_model_present = False
     path_model_shadow = False
     path_model_promoted = False
@@ -798,7 +796,6 @@ def execution_public_view(bundle: Dict[str, Any]) -> Dict[str, Any]:
         or (bundle.get("execution") or {}).get("rebalance_timing")
         or {},
         "runtime_defaults": bundle.get("runtime_defaults") or {},
-        "cluster_book": cluster_book,
         "path_model_present": path_model_present,
         "path_model_promoted": path_model_promoted,
         "path_model_shadow": path_model_shadow,

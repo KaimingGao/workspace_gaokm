@@ -42,9 +42,6 @@ class TestWatchingInsights(unittest.TestCase):
             "core.watching.insights._spot_valuation_map",
             return_value={},
         ), patch(
-            "core.signal.cluster.live.load_active_cluster_book",
-            return_value={},
-        ), patch(
             "core.research.tau_ridge.load_tau_model", return_value=None
         ), patch(
             "core.research.tau_ridge.predict_tau_from_features", return_value=None
@@ -82,169 +79,11 @@ class TestWatchingInsights(unittest.TestCase):
         with patch("core.signal.score_stock.score_stock", return_value=fake_score), patch(
             "core.watching.insights._spot_valuation_map",
             return_value={},
-        ), patch(
-            "core.signal.cluster.live.load_active_cluster_book",
-            return_value={},
         ):
             out = build_watching_insights(["600519"])
         item = out["items"][0]
         self.assertIsNone(item["excess_return_pct"])
         self.assertEqual(item["excess_label"], "RS66")
-
-    @unittest.skip("分池簿快路径已停用")
-    def test_book_row_forwards_trade_score_fields(self):
-        from core.watching.insights import _insight_from_book_row
-
-        row = {
-            "stock_code": "600519",
-            "score": 0.40,
-            "predicted_score": 0.40,
-            "predicted_score_blend": 0.12,
-            "predicted_score_tau": 0.12,
-            "predicted_score_eod_rem": 0.08,
-            "predicted_score_tau_delta": 0.04,
-            "realized_t1_to_tau": 0.30,
-        }
-        # 无新缺口时不覆盖簿上已有 rem；表列 score 对齐 ŷ_trade
-        with patch("core.ports.market.query_quote", return_value={}), patch(
-            "core.data.facade.get_bars", return_value={"bars": []}
-        ), patch("core.stance.compute_buy_stance", return_value={}):
-            out = _insight_from_book_row("600519", row)
-        self.assertAlmostEqual(out["predicted_score"], 0.40)
-        self.assertAlmostEqual(out["score"], 0.12)
-        self.assertAlmostEqual(out["decision_score"], 0.12)
-        self.assertAlmostEqual(out["predicted_score_blend"], 0.12)
-        self.assertAlmostEqual(out["predicted_score_tau"], 0.12)
-        self.assertAlmostEqual(out["predicted_score_eod_rem"], 0.08)
-        self.assertAlmostEqual(out["predicted_score_tau_delta"], 0.04)
-        self.assertAlmostEqual(out["realized_t1_to_tau"], 0.30)
-        self.assertFalse(out.get("oos_failed"))
-
-    @unittest.skip("分池簿快路径已停用")
-    def test_book_row_marks_oos_failed_global(self):
-        from core.watching.insights import _insight_from_book_row
-
-        row = {
-            "stock_code": "600519",
-            "score": 0.12,
-            "predicted_score": 0.12,
-            "return_model_source": "oos_failed_global",
-            "score_global": 0.12,
-            "score_cluster": 0.40,
-        }
-        with patch("core.data.facade.get_bars", return_value={"bars": []}), patch(
-            "core.stance.compute_buy_stance", return_value={}
-        ):
-            out = _insight_from_book_row("600519", row)
-        self.assertTrue(out["oos_failed"])
-        self.assertEqual(out["return_model_source"], "oos_failed_global")
-
-    @unittest.skip("分池簿快路径已停用")
-    def test_book_row_repairs_stale_eod_next_blend(self):
-        """旧簿 eod_next 掺了 τ 时，读路径剥离为 ŷ_EOD。"""
-        from core.watching.insights import _insight_from_book_row
-
-        row = {
-            "stock_code": "600519",
-            "score": 0.148812,
-            "predicted_score": 0.234547,
-            "predicted_score_eod": 0.234547,
-            "predicted_score_eod_rem": 0.234547,
-            "predicted_score_tau": 0.063077,
-            "predicted_score_blend": 0.148812,  # 旧错：掺 τ
-            "dual_score_window": "eod_next",
-            "dual_score_weights": {"w_eod": 0.5, "w_tau": 0.5, "w_mode": "fixed"},
-            "gap_pct": 1.0,
-        }
-        with patch("core.ports.market.query_quote", return_value={}), patch(
-            "core.data.facade.get_bars", return_value={"bars": []}
-        ), patch("core.stance.compute_buy_stance", return_value={}), patch(
-            "core.signal.session_pit.refresh_dual_score_window", return_value="eod_next"
-        ), patch(
-            "core.research.tau_ridge.load_tau_model", return_value=None
-        ), patch(
-            "core.research.tau_ridge.predict_tau_from_features", return_value=None
-        ):
-            out = _insight_from_book_row("600519", row)
-        self.assertAlmostEqual(out["predicted_score"], 0.234547, places=5)
-        self.assertAlmostEqual(out["predicted_score_blend"], 0.234547, places=5)
-        self.assertAlmostEqual(out["score"], 0.234547, places=5)
-        self.assertAlmostEqual(out["decision_score"], 0.234547, places=5)
-
-    @unittest.skip("分池簿快路径已停用")
-    def test_book_row_hydrates_eod_rem_when_missing(self):
-        from core.watching.insights import _insight_from_book_row
-
-        row = {
-            "stock_code": "600519",
-            "score": 0.40,
-            "predicted_score": 0.40,
-        }
-        with patch("core.ports.market.query_quote", return_value={}), patch(
-            "core.data.facade.get_bars", return_value={"bars": []}
-        ), patch("core.stance.compute_buy_stance", return_value={}), patch(
-            "core.research.tau_ridge.load_tau_model", return_value=None
-        ), patch(
-            "core.research.tau_ridge.predict_tau_from_features", return_value=None
-        ):
-            out = _insight_from_book_row("600519", row)
-        self.assertAlmostEqual(out["predicted_score_eod_rem"], 0.40)
-        self.assertIsNone(out.get("predicted_score_tau"))
-        self.assertAlmostEqual(out["predicted_score_blend"], 0.40)
-
-    @unittest.skip("分池簿快路径已停用")
-    def test_book_row_hydrates_trade_fields_without_live_quote(self):
-        """簿快路径不拉行情：无缺口时 rem=EOD，并写出 ŷ_trade。"""
-        from core.watching.insights import _insight_from_book_row
-
-        row = {
-            "stock_code": "600519",
-            "score": 0.40,
-            "predicted_score": 0.40,
-        }
-        with patch("core.research.tau_ridge.load_tau_model", return_value=None), patch(
-            "core.research.tau_ridge.predict_tau_from_features", return_value=None
-        ), patch(
-            "core.signal.session_pit.refresh_dual_score_window", return_value="eod_next"
-        ), patch(
-            "core.data.facade.get_bars", return_value={"bars": []}
-        ):
-            out = _insight_from_book_row("600519", row)
-        self.assertAlmostEqual(out["predicted_score"], 0.40, places=5)
-        self.assertAlmostEqual(out["predicted_score_eod_rem"], 0.40, places=5)
-        self.assertIsNotNone(out.get("predicted_score_blend"))
-        self.assertAlmostEqual(float(out["score"]), float(out["predicted_score_blend"]), places=5)
-
-    @unittest.skip("分池簿快路径已停用")
-    def test_book_row_fills_stance_volr_excess_from_local_bars(self):
-        """簿行无 factors 时，仍用本地日线补倾向 / 量比 / 超额，避免表列整列「—」。"""
-        from core.watching.insights import _insight_from_book_row
-
-        row = {
-            "stock_code": "600519",
-            "score": 0.40,
-            "predicted_score": 0.40,
-        }
-        stock_bars = [
-            {"date": f"2026-07-{d:02d}", "close": 10.0 + d * 0.2, "volume": 1000 + d * 50}
-            for d in range(1, 29)
-        ]
-        idx_bars = [
-            {"date": f"2026-07-{d:02d}", "close": 100.0 + d * 0.05}
-            for d in range(1, 29)
-        ]
-        with patch("core.data.facade.get_bars", return_value={"bars": stock_bars}), patch(
-            "core.signal.live_features.fetch_live_index_bars",
-            return_value={"ok": True, "bars": idx_bars},
-        ), patch("core.research.tau_ridge.load_tau_model", return_value=None), patch(
-            "core.research.tau_ridge.predict_tau_from_features", return_value=None
-        ):
-            out = _insight_from_book_row("600519", row)
-        self.assertIn(out["stance_short"], {"轻仓", "关注", "观望"})
-        self.assertIsNotNone(out["volume_ratio"])
-        self.assertGreater(float(out["volume_ratio"]), 0)
-        self.assertIsNotNone(out["excess_return_pct"])
-        self.assertIn(out["excess_label"], {"强", "弱", "平"})
 
     def test_insights_covers_full_watchlist_up_to_hard_cap(self):
         from core.watching.insights import build_watching_insights, _INSIGHT_HARD_CAP
@@ -260,9 +99,6 @@ class TestWatchingInsights(unittest.TestCase):
 
         with patch("core.signal.score_stock.score_stock", side_effect=fake_score), patch(
             "core.watching.insights._spot_valuation_map",
-            return_value={},
-        ), patch(
-            "core.signal.cluster.live.load_active_cluster_book",
             return_value={},
         ), patch(
             "core.data.facade.get_bars", return_value={"bars": []}
@@ -396,36 +232,6 @@ class TestWatchingInsights(unittest.TestCase):
         self.assertTrue(gb.call_args.kwargs.get("offline_only"))
         gq.assert_not_called()
 
-    @unittest.skip("分池簿快路径已停用")
-    def test_book_row_keeps_dual_track_on_oos_failed_heuristic(self):
-        """heuristic 0–100 与组 ŷ% 双轨并存；不把 0–100 写进 predicted_score。"""
-        from core.watching.insights import _insight_from_book_row
-
-        row = {
-            "stock_code": "600519",
-            "score": 57.2,
-            "heuristic_score": 57.2,
-            "predicted_score": 57.2,  # 旧脏簿
-            "predicted_score_eod": 57.2,
-            "score_cluster": 1.25,
-            "score_global": 0.4,
-            "return_model_source": "oos_failed_heuristic",
-            "score_scale": "heuristic_0_100",
-            "cluster_label": "G_fail",
-        }
-        with patch("core.ports.market.query_quote", return_value={}), patch(
-            "core.data.facade.get_bars", return_value={"bars": []}
-        ), patch("core.stance.compute_buy_stance", return_value={}):
-            out = _insight_from_book_row("600519", row)
-        self.assertEqual(out["score_scale"], "heuristic_0_100")
-        self.assertAlmostEqual(float(out["heuristic_score"]), 57.2)
-        # 表列 score = 组 ŷ%，不与 heuristic 混列
-        self.assertAlmostEqual(float(out["score"]), 1.25)
-        self.assertIsNone(out.get("predicted_score"))
-        self.assertIsNone(out.get("predicted_score_eod"))
-        self.assertAlmostEqual(float(out["score_cluster"]), 1.25)
-        self.assertAlmostEqual(float(out["score_global"]), 0.4)
-        self.assertTrue(out.get("oos_failed"))
 
 
 if __name__ == "__main__":

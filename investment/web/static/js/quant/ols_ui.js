@@ -121,7 +121,7 @@ export function createOlsUi(deps) {
     return list.length ? list.join("、") : "—";
   }
 
-  function formatMemberChipsHtml(codes, nameByCode, _bookCodes) {
+  function formatMemberChipsHtml(codes, nameByCode) {
     const watchingNameByCode = getWatchingNameByCode();
     const map = nameByCode || {};
     const chips = (codes || []).map((m) => {
@@ -459,7 +459,7 @@ export function createOlsUi(deps) {
 
   /**
    * @param {object} data - quantLastOlsClusters
-   * @param {{ lastFactorPanelForMerge?: object|null, lazyTables?: boolean, bookCodes?: string[] }} [merge]
+   * @param {{ lastFactorPanelForMerge?: object|null, lazyTables?: boolean }} [merge]
    * @returns {string|null} HTML or null if not applicable
    */
   function buildClusterFactorTablesHtml(data, merge = {}) {
@@ -474,7 +474,6 @@ export function createOlsUi(deps) {
     }
     const pref = data.preferred_cluster || null;
     const nameByCode = clusterNameByCodeFromData(data);
-    const bookCodes = Array.isArray(merge.bookCodes) ? merge.bookCodes : [];
     const lazy = merge.lazyTables !== false;
     const parts = clusters.map((cl, idx) => {
       const label = cl.label || `G${(cl.cluster_id ?? idx) + 1}`;
@@ -527,7 +526,7 @@ export function createOlsUi(deps) {
           "n",
           ols && ols.sample_count != null ? ols.sample_count : "—"
         );
-      const membersHtml = formatMemberChipsHtml(cl.members, nameByCode, bookCodes);
+      const membersHtml = formatMemberChipsHtml(cl.members, nameByCode);
       const useLazy = lazy;
       const bodyInner = useLazy
         ? `<p class="sub quant-cluster-lazy-ph">展开查看因子表…</p>`

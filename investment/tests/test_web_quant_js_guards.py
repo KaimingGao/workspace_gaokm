@@ -130,6 +130,7 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("startTopup", bars_js)
         self.assertIn('mode: modeS', bars_js)
         self.assertIn("quant-cluster-bars-topup", bars_js)
+        self.assertIn("Number(done) > 0", bars_js)
         self.assertIn("if (!inflight && !jobFailure && !jobSuccess && jobSt !== \"running\")", bars_js)
         self.assertIn("if (!inflight && !jobFailure && !jobSuccess && jobSt !== \"running\")", minute_js)
         job_js = self._read("web", "static", "js", "quant", "cluster_job_ui.js")

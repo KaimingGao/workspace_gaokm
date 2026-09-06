@@ -2311,11 +2311,6 @@ export function initPaper(ctx) {
       showPlainTooltip,
       hideScoreTooltip,
       metricCls,
-      setFollowClusterPreviewPending: (v) => {
-        if (followClusterRef && followClusterRef.setFollowClusterPreviewPending) {
-          followClusterRef.setFollowClusterPreviewPending(v);
-        }
-      },
       setFollowMatrixPreviewPending: (v) => {
         if (followClusterRef) followClusterRef.setFollowMatrixPreviewPending(v);
       },

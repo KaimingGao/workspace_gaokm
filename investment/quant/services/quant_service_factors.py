@@ -255,58 +255,37 @@ class QuantFactorMixin:
         from core.research.yhat_residual_shadow import compare_yhat_residual_shadow
         from core.watching.store import read_watching
 
+        _ = prefer_cluster_book
         items: List[Dict[str, Any]] = []
         source = "none"
-        if prefer_cluster_book:
-            # 保留参数兼容；load 恒为 None
-            try:
-                from core.signal.cluster.live import load_active_cluster_book
+        uni = read_watching()
+        codes = list(uni.get("watchlist") or [])[
+            : max(3, min(int(watching_limit or 36), 40))
+        ]
+        try:
+            from core.signal.service import get_default_signal_service
 
-                book = load_active_cluster_book() or {}
-                ranked = (
-                    book.get("book")
-                    or book.get("scored_all")
-                    or book.get("ranked")
-                    or book.get("items")
-                    or book.get("rows")
-                    or []
-                )
-                if isinstance(ranked, list) and ranked:
-                    items = [dict(x) for x in ranked if isinstance(x, dict)]
-                    source = "cluster_book"
-            except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-                logger.debug("catch except Exception: in quant_service_factors.py", exc_info=True)
-                items = []
-
-        if len(items) < 3:
-            uni = read_watching()
-            codes = list(uni.get("watchlist") or [])[
-                : max(3, min(int(watching_limit or 36), 40))
-            ]
-            try:
-                from core.signal.service import get_default_signal_service
-
-                svc = get_default_signal_service()
-                for code in codes:
-                    try:
-                        packed = svc.score_one(str(code)).as_dict()
-                    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-                        logger.debug("catch except Exception: in quant_service_factors.py", exc_info=True)
-                        continue
-                    if not isinstance(packed, dict):
-                        continue
-                    if packed.get("predicted_score") is None and packed.get("score") is None:
-                        continue
-                    items.append(packed)
-                source = "live_score"
-            except Exception as exc:
-                logger.exception('unexpected error in run_yhat_residual_shadow')
-                return {
-                    "success": False,
-                    "ok": False,
-                    "error": f"无法打分：{exc}",
-                    "task": "yhat_residual_shadow",
-                }
+            svc = get_default_signal_service()
+            for code in codes:
+                try:
+                    packed = svc.score_one(str(code)).as_dict()
+                except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+                    logger.debug("catch except Exception: in quant_service_factors.py", exc_info=True)
+                    continue
+                if not isinstance(packed, dict):
+                    continue
+                if packed.get("predicted_score") is None and packed.get("score") is None:
+                    continue
+                items.append(packed)
+            source = "live_score"
+        except Exception as exc:
+            logger.exception('unexpected error in run_yhat_residual_shadow')
+            return {
+                "success": False,
+                "ok": False,
+                "error": f"无法打分：{exc}",
+                "task": "yhat_residual_shadow",
+            }
 
         if len(items) < 3:
             return {
@@ -1591,7 +1570,20 @@ class QuantFactorMixin:
         report["name_by_code"] = name_by_code
         _enrich_cluster_name_by_code(report)
         if report.get("success"):
-            _on_progress("OOS / 分池…", n_codes, n_codes)
+            _on_progress("OOS / 分池…", 0, 1)
+
+            def _oos_cancel() -> bool:
+                try:
+                    from core.job_progress import quant_ols_clusters_job
+
+                    return bool(quant_ols_clusters_job.is_cancel_requested())
+                except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+                    logger.debug(
+                        "catch except Exception: in quant_service_factors.py",
+                        exc_info=True,
+                    )
+                    return False
+
             attach_cluster_oos_gates(
                 report,
                 lookback=lookback,
@@ -1600,6 +1592,7 @@ class QuantFactorMixin:
                 run_oos_gate=bool(run_oos_gate),
                 bars_by_code=bars_by_code,
                 progress_cb=_on_progress,
+                cancel_check=_oos_cancel,
             )
             _on_progress("组内打分…", n_codes, n_codes)
             attach_cluster_group_scores(
@@ -1972,6 +1965,8 @@ class QuantFactorMixin:
             message=_with_stage_prefix("排队中…"),
         )
 
+        last_mapped = [1]
+
         def _progress(msg: str, cur: int = 0, tot: int = 0) -> None:
             # 消息统一加 [N/13] 阶段号（便于前端/日志识别进度）
             try:
@@ -1980,7 +1975,8 @@ class QuantFactorMixin:
                 logger.debug("catch except Exception: in quant_service_factors.py", exc_info=True)
                 msg_out = msg
             # 映射到 job（须单调：选区结束后勿掉回 1%）
-            # 0–40% 拉日线 · 40–80% 拟合/选区 · 80–99% 组池及之后
+            # 0–40% 拉日线 · 40–50% 拟合 · 50–60% 选区 · 60–62% 组池/贪心
+            # 62–90% 组内 OOS · 90–99% 组内打分及之后
             t = max(1, int(tot or n_watch or 1))
             c = max(0, int(cur or 0))
             within = min(1.0, c / t)
@@ -1998,19 +1994,25 @@ class QuantFactorMixin:
             )
             late_idx = next((i for k, i in late_keys if k in msg_s), None)
             if "选区" in msg_s:
-                mapped = int(job_total * 0.4) + int(job_total * 0.4 * within)
+                mapped = int(job_total * 0.5) + int(job_total * 0.1 * within)
+            elif "OOS" in msg_s:
+                mapped = int(job_total * 0.62) + int(job_total * 0.28 * within)
+            elif any(k in msg_s for k in ("组池", "贪心", "扩展窗")):
+                mapped = int(job_total * 0.6) + int(job_total * 0.02 * within)
             elif late_idx is not None:
                 frac = (late_idx + within) / 8.0
-                mapped = int(job_total * 0.8) + int(job_total * 0.19 * frac)
+                mapped = int(job_total * 0.9) + int(job_total * 0.09 * frac)
             elif "拟合" in msg_s:
-                mapped = int(job_total * 0.4) + int(job_total * 0.4 * within)
+                mapped = int(job_total * 0.4) + int(job_total * 0.1 * within)
             elif "合并宇宙" in msg_s:
                 mapped = max(1, int(job_total * 0.02))
             else:
                 # 拉日线 / 拉指数
                 mapped = int(job_total * 0.4 * within)
+            mapped = max(last_mapped[0], max(1, min(job_total - 1, mapped)))
+            last_mapped[0] = mapped
             quant_ols_clusters_job.update(
-                current=max(1, min(job_total - 1, mapped)),
+                current=mapped,
                 total=job_total,
                 message=msg_out,
                 job_id=job_id,
@@ -2198,7 +2200,7 @@ class QuantFactorMixin:
             None,
             top_n_per_group=top_n_per_group,
             max_names=max_names,
-            persist_book=True,
+            persist_book=False,
         ).as_dict()
 
     def apply_cluster_live_shortcut(
@@ -2210,7 +2212,7 @@ class QuantFactorMixin:
         mode: str = "shadow",
         force: bool = False,
     ) -> Dict[str, Any]:
-        """一键：晋升 + 影子/激活 + 刷新分池簿。"""
+        """一键：晋升 + 影子/激活。分池簿已停用，不再刷簿。"""
         from core.signal.cluster.live import apply_cluster_live_shortcut
 
         return apply_cluster_live_shortcut(
@@ -2218,7 +2220,7 @@ class QuantFactorMixin:
             from_draft=from_draft,
             note=note,
             mode=mode,
-            refresh_book=True,
+            refresh_book=False,
             force=force,
         )
 

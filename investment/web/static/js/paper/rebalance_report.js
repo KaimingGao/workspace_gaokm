@@ -41,7 +41,6 @@ export function createRebalanceReportController(deps) {
     showPlainTooltip,
     hideScoreTooltip,
     metricCls,
-    setFollowClusterPreviewPending,
     setFollowMatrixPreviewPending,
   } = deps;
 
@@ -71,7 +70,6 @@ function dismissRebalancePreview() {
     nextEl.hidden = true;
     nextEl.innerHTML = "";
   }
-  if (typeof setFollowClusterPreviewPending === "function") setFollowClusterPreviewPending(false);
   if (typeof setFollowMatrixPreviewPending === "function") setFollowMatrixPreviewPending(false);
 }
 

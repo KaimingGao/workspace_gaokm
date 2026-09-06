@@ -186,7 +186,6 @@ def rank_cluster_pools(
     from core.signal.cluster.live import (
         get_cluster_scoring_cfg,
         load_active_cluster_weights,
-        save_active_cluster_book,
     )
     from core.signal.cluster.oos_labels import oos_failed_cluster_labels
     from core.signal.config import get_rank_defaults, get_scoring_horizon_days, load_signal_config
@@ -697,120 +696,12 @@ def rank_cluster_pools(
         b["weight_pct"] = w_pct
 
     min_score_out = json_safe_number(min_score)
+    _ = persist_book  # 分池簿已停用：不落盘、不写 τ/nowcast 影子
     path = None
     tau_shadow_path = None
     tau_shadow_meta = None
     nowcast_shadow_path = None
     nowcast_shadow_meta = None
-    if persist_book:
-        path = save_active_cluster_book(
-            book,
-            meta={
-                "version": active.get("version"),
-                "horizon_days": horizon_days,
-                "min_score": min_score_out,
-                "min_score_disabled": floor_disabled or min_score_out is None,
-                "max_names": max_n,
-                "mode": "cluster_score_global_rank",
-                # 兼容旧 status 读取
-                "top_n_per_group": top_n_cfg,
-                "oos_blocked_labels": sorted(oos_blocked_labels),
-                "oos_blocked_count": oos_blocked_count,
-                "rebalance_tracks": {
-                    "oos_fail_policy": (tracks_cfg or {}).get("oos_fail_policy"),
-                    "heuristic_buy_floor": (tracks_cfg or {}).get("heuristic_buy_floor"),
-                    "heuristic_hold_floor": (tracks_cfg or {}).get("heuristic_hold_floor"),
-                },
-                "sector_gap_breadth": pool_breadth,
-                "book_constraints": book_constraint_stats,
-                "book_skips": book_skips[:40],
-                "book_skips_count": len(book_skips),
-            },
-            scored_all=scored_all,
-        )
-        # A2：同池按 ŷ_τ 影子簿（默认开；不进 execution）
-        try:
-            from core.signal.cluster.live import save_tau_shadow_cluster_book
-            from core.signal.dual_score import build_tau_shadow_book, get_dual_score_cfg
-
-            ds = get_dual_score_cfg()
-            if ds.get("enable_tau_shadow_book"):
-                tau_book, tau_shadow_meta = build_tau_shadow_book(
-                    eligible,
-                    max_names=max_n,
-                    eod_book=book,
-                )
-                tau_shadow_meta = {
-                    **tau_shadow_meta,
-                    "version": active.get("version"),
-                    "horizon_days": horizon_days,
-                    "min_score": min_score_out,
-                    "eod_book_path": path,
-                }
-                n_tau = len(tau_book)
-                w_tau = round(100.0 / n_tau, 4) if n_tau else 0.0
-                for b in tau_book:
-                    b["weight_pct"] = w_tau
-                tau_shadow_path = save_tau_shadow_cluster_book(
-                    tau_book, meta=tau_shadow_meta
-                )
-        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-            logger.debug("catch except Exception: in cluster_rank.py", exc_info=True)
-            tau_shadow_path = None
-            tau_shadow_meta = None
-        nowcast_shadow_path = None
-        nowcast_shadow_meta = None
-        try:
-            from core.signal.cluster.live import save_nowcast_shadow_cluster_book
-            from core.signal.dual_score import (
-                build_nowcast_shadow_book,
-                nowcast_shadow_alerts,
-            )
-
-            # nowcast 是表列对照分：刷簿即写影子，不依赖 nowcast.enabled / write_shadow
-            nc_book, nowcast_shadow_meta = build_nowcast_shadow_book(
-                eligible,
-                max_names=max_n,
-                eod_book=book,
-            )
-            nowcast_shadow_meta = {
-                **nowcast_shadow_meta,
-                "version": active.get("version"),
-                "horizon_days": horizon_days,
-                "min_score": min_score_out,
-                "eod_book_path": path,
-            }
-            # P3-2：nowcast 影子闭环告警 — 对照决策簿(EOD/blend)，背离发告警
-            try:
-                _nc_alerts = nowcast_shadow_alerts(
-                    nc_book,
-                    nowcast_shadow_meta,
-                    decision_book=book,
-                )
-                nowcast_shadow_meta = {
-                    **nowcast_shadow_meta,
-                    "alerts": _nc_alerts,
-                }
-                if _nc_alerts:
-                    import logging as _logging
-                    _logging.getLogger(__name__).warning(
-                        "nowcast shadow alerts: %s",
-                        "; ".join(a.get("code", "?") for a in _nc_alerts),
-                    )
-            except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-                logger.debug("catch except Exception: in cluster_rank.py", exc_info=True)
-                pass
-            n_nc = len(nc_book)
-            w_nc = round(100.0 / n_nc, 4) if n_nc else 0.0
-            for b in nc_book:
-                b["weight_pct"] = w_nc
-            nowcast_shadow_path = save_nowcast_shadow_cluster_book(
-                nc_book, meta=nowcast_shadow_meta
-            )
-        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-            logger.debug("catch except Exception: in cluster_rank.py", exc_info=True)
-            nowcast_shadow_path = None
-            nowcast_shadow_meta = None
 
     empty_reason = None
     if not book:
@@ -864,6 +755,6 @@ def rank_cluster_pools(
             "分池：组ŷ→剔ST→剔OOS失败组→ŷ≥min_predicted_score→约束装填"
             "（可成交/行业名额/τ defer）→max_names。"
             "刷簿前批量行情算池内 sector_gap_breadth + theme_day（与 rem 同构）。"
-            "不写 signal_config.weights。另写 A2 τ 影子簿。"
+            "不写 signal_config.weights。分池簿已停用，不落盘。"
         ),
     }

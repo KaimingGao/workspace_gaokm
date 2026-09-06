@@ -28,6 +28,8 @@ def score_cluster_partition_oos(
     y_spec: Optional[Dict[str, Any]] = None,
     use_pit: bool = True,
     cut_date: Optional[str] = None,
+    progress_cb: ProgressCb = None,
+    run_oos_gate: bool = True,
 ) -> Dict[str, Any]:
     """组级评分，供 auto-k 邻域选优（不写 config_diff）。
 
@@ -80,7 +82,14 @@ def score_cluster_partition_oos(
         )
         return _return_model_from_ols(pooled)
 
-    for cl in clusters or []:
+    n_cl = max(1, len(clusters or []))
+    for gi, cl in enumerate(clusters or [], start=1):
+        if progress_cb:
+            try:
+                label = str(cl.get("label") or f"G{gi}")
+                progress_cb(f"打分 {gi}/{n_cl} · {label}", gi, n_cl)
+            except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+                logger.debug("catch except Exception: in cluster_oos.py", exc_info=True)
         members = sorted(
             str(c).strip() for c in (cl.get("members") or []) if str(c).strip()
         )
@@ -148,6 +157,9 @@ def score_cluster_partition_oos(
                 "has_return_model": True,
             }
         )
+
+        if not run_oos_gate:
+            continue
 
         top_k = 1 if n_mem <= 2 else min(2, n_mem)
         models_by_code = dict.fromkeys(members, rm)
@@ -395,11 +407,14 @@ def attach_cluster_oos_gates(
     respect_regime: Optional[bool] = None,
     bars_by_code: Optional[Dict[str, List[dict]]] = None,
     progress_cb: ProgressCb = None,
+    cancel_check: Optional[Any] = None,
 ) -> Dict[str, Any]:
     """就地为 ``report["clusters"]`` 挂 ``oos_gate``、``config_diff`` 与优选组。
 
     B5：默认 ``respect_regime`` 取自 report（分组拟合默认 True）。
     ``bars_by_code`` 复用分组阶段日线，避免每组再次 IO（100 票×多组会拖过前端超时）。
+    组内门禁用 ``fast_gate``：关逐日财务 PIT、分钟 τ / 尾盘仓、不拉指数超额，
+    日线截到 lookback，并把回测日进度回传到 UI。
     """
     clusters: List[Dict[str, Any]] = list(report.get("clusters") or [])
     regime_aligned = (
@@ -436,16 +451,68 @@ def attach_cluster_oos_gates(
     lb = max(40, min(int(lookback or 80), 90))
     base_w = dict((load_signal_config() or {}).get("weights") or {})
     n_cl = max(1, len(clusters))
+    units = n_cl * 1000
+
+    def _cancelled() -> bool:
+        if not cancel_check:
+            return False
+        try:
+            return bool(cancel_check())
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in cluster_oos.py", exc_info=True)
+            return False
+
+    def _mark_cancelled(cl: Dict[str, Any], label: str) -> None:
+        cl["oos_gate"] = {
+            "ok": False,
+            "passed": False,
+            "skipped": True,
+            "reason": "cancelled",
+            "note": "已取消",
+            "cluster_label": label,
+            "respect_regime": regime_aligned,
+        }
 
     for i, cl in enumerate(clusters):
         members = [str(c).strip() for c in (cl.get("members") or []) if str(c).strip()]
         label = str(cl.get("label") or f"G{i + 1}")
-        if progress_cb:
+        if _cancelled():
+            _mark_cancelled(cl, label)
+            skipped_n += 1
+            for rest in clusters[i + 1 :]:
+                rest_label = str(rest.get("label") or "")
+                _mark_cancelled(rest, rest_label)
+                skipped_n += 1
+            break
+
+        def _oos_progress(
+            inner: str = "",
+            cur: int = 0,
+            tot: int = 1,
+            *,
+            _i: int = i,
+            _label: str = label,
+        ) -> None:
+            if not progress_cb:
+                return
+            msg = str(inner or "")
+            inner_frac = min(1.0, float(cur or 0) / float(max(1, tot or 1)))
+            if "研究臂" in msg:
+                frac = 0.5 + 0.5 * inner_frac
+            elif "基线" in msg:
+                frac = 0.5 * inner_frac
+            else:
+                frac = 0.0
+            micro = int(round((_i + frac) * 1000))
+            bits = [f"OOS {_i + 1}/{n_cl}", _label]
+            if msg:
+                bits.append(msg)
             try:
-                progress_cb(f"OOS {i + 1}/{n_cl} · {label}", i + 1, n_cl)
+                progress_cb(" · ".join(bits), micro, units)
             except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
                 logger.debug("catch except Exception: in cluster_oos.py", exc_info=True)
-                pass
+
+        _oos_progress("", 0, 1)
         rm = cl.get("return_model")
         if cl.get("singleton") or len(members) < 2:
             cl["oos_gate"] = {
@@ -493,6 +560,10 @@ def attach_cluster_oos_gates(
             stock_bars=member_bars,
             rank_only=True,
             require_clean_is_oos=False,
+            progress_cb=_oos_progress,
+            cancel_check=cancel_check,
+            attach_excess=False,
+            fast_gate=True,
         )
         gate = dict(gate)
         gate["scope"] = "cluster_members"
@@ -509,6 +580,13 @@ def attach_cluster_oos_gates(
                 )
             )
         cl["oos_gate"] = gate
+        if gate.get("reason") == "cancelled":
+            skipped_n += 1
+            for rest in clusters[i + 1 :]:
+                rest_label = str(rest.get("label") or "")
+                _mark_cancelled(rest, rest_label)
+                skipped_n += 1
+            break
         if gate.get("skipped"):
             skipped_n += 1
         elif gate.get("ok") and gate.get("passed"):

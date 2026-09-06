@@ -964,26 +964,6 @@ def load_active_cluster_book() -> Optional[Dict[str, Any]]:
     return None
 
 
-def _align_cluster_book_trade_scores(doc: Dict[str, Any]) -> None:
-    """读簿时就地修 eod_next 塌成 EOD 的旧 blend / nowcast（不写盘）。"""
-    try:
-        from core.signal.dual_score import align_trade_score_fields
-    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in cluster_live.py", exc_info=True)
-        return
-    for key in ("scored_all", "book"):
-        rows = doc.get(key)
-        if not isinstance(rows, list):
-            continue
-        for row in rows:
-            if isinstance(row, dict):
-                try:
-                    align_trade_score_fields(row, write_score=True)
-                except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-                    logger.debug("catch except Exception: in cluster_live.py", exc_info=True)
-                    pass
-
-
 def save_tau_shadow_cluster_book(
     book: Sequence[Dict[str, Any]],
     *,
@@ -1443,9 +1423,7 @@ def apply_cluster_live_shortcut(
         mode = "shadow"
 
     rank_out = None
-    if refresh_book and mode != "off":
-        # 对照/一键：轻量刷簿（跳过 IC；打分跳过舆情）
-        rank_out = refresh_cluster_book_daily(light=True)
+    _ = refresh_book
 
     # active 走健康门禁；失败则降级 shadow
     mode_out = set_cluster_scoring_mode(mode, force=force)

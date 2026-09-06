@@ -278,32 +278,26 @@ class TestEodNextFusion(unittest.TestCase):
             self.assertAlmostEqual(fields["predicted_score_blend"], 0.542957, places=5)
             self.assertEqual(src["score"], 0.542957)
 
-    def test_load_active_cluster_book_aligns_stale_blend(self):
+    def test_align_trade_score_fields_repairs_stale_eod_next_blend(self):
         from unittest.mock import patch
         from datetime import timezone, timedelta
-        from core.signal.cluster.live import _align_cluster_book_trade_scores
+        from core.signal.dual_score import align_trade_score_fields
 
         cn = timezone(timedelta(hours=8))
         after_close = datetime(2026, 8, 20, 16, 0, tzinfo=cn)
-        doc = {
-            "scored_all": [
-                {
-                    "stock_code": "603019",
-                    "predicted_score": 1.896714,
-                    "predicted_score_eod_rem": 1.896714,
-                    "predicted_score_tau": 0.04579,
-                    "predicted_score_blend": 0.971252,  # 旧错：0.5*(eod+tau)
-                    "score": 0.971252,
-                    "dual_score_window": "eod_next",
-                    "dual_score_weights": {"w_eod": 0.5, "w_tau": 0.5},
-                    "gap_pct": 0.0223,
-                }
-            ],
-            "book": [],
+        row = {
+            "stock_code": "603019",
+            "predicted_score": 1.896714,
+            "predicted_score_eod_rem": 1.896714,
+            "predicted_score_tau": 0.04579,
+            "predicted_score_blend": 0.971252,  # 旧错：0.5*(eod+tau)
+            "score": 0.971252,
+            "dual_score_window": "eod_next",
+            "dual_score_weights": {"w_eod": 0.5, "w_tau": 0.5},
+            "gap_pct": 0.0223,
         }
         with patch("core.signal.session_pit.shanghai_now", return_value=after_close):
-            _align_cluster_book_trade_scores(doc)
-            row = doc["scored_all"][0]
+            align_trade_score_fields(row, write_score=True)
             self.assertAlmostEqual(row["predicted_score_blend"], 1.896714, places=5)
             self.assertAlmostEqual(row["score"], 1.896714, places=5)
             self.assertAlmostEqual(row["predicted_score"], 1.896714, places=5)

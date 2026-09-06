@@ -584,123 +584,6 @@ def _enrich_book_insight_display_fields(
         _apply_excess_label(out, None, item)
 
 
-def _insight_from_book_row(
-    code: str,
-    row: dict,
-    *,
-    added_at: Optional[str] = None,
-    valuation: Optional[Dict[str, Optional[float]]] = None,
-    paper_ctx: Optional[dict] = None,
-) -> Dict[str, Any]:
-    """分池簿快路径：tip 字段与交易执行同源，免 live score_stock。"""
-    out = _blank(code, added_at=added_at)
-    item = row if isinstance(row, dict) else {}
-    out["score"] = _f(item.get("score"))
-    if out["score"] is None:
-        out["score"] = _f(item.get("predicted_score_blend"))
-    if out["score"] is None:
-        out["score"] = _f(item.get("predicted_score"))
-    if out["score"] is None:
-        out["score"] = _f(item.get("score_cluster"))
-    # ŷ_EOD 主轴：勿用 trade score 冒充
-    out["predicted_score"] = _f(item.get("predicted_score"))
-    if out["predicted_score"] is None:
-        out["predicted_score"] = _f(item.get("predicted_score_eod"))
-    if out["predicted_score"] is None and _f(item.get("predicted_score_blend")) is None:
-        out["predicted_score"] = out["score"]
-    out["hard_reject"] = bool(item.get("hard_reject"))
-    out["reject_reason"] = (item.get("reject_reason") or None) if out["hard_reject"] else None
-    out["cluster_mode"] = item.get("cluster_mode")
-    out["weight_source"] = item.get("weight_source")
-    out["cluster_label"] = item.get("cluster_label")
-    out["cluster_version"] = item.get("cluster_version")
-    out["score_global"] = _f(item.get("score_global"))
-    out["score_cluster"] = _f(item.get("score_cluster"))
-    out["delta_vs_global"] = _f(item.get("delta_vs_global"))
-    out["return_model_source"] = item.get("return_model_source")
-    out["score_scale"] = item.get("score_scale")
-    out["heuristic_score"] = _f(item.get("heuristic_score"))
-    out["factor_coefficients"] = item.get("factor_coefficients")
-    out["sub_scores"] = item.get("sub_scores") or {}
-    out["score_formula_terms"] = item.get("score_formula_terms")
-    out["score_formula"] = item.get("score_formula")
-    # ensure 反推 τ 组成需要 stock_code
-    if not item.get("stock_code"):
-        item = dict(item)
-        item["stock_code"] = code
-    # 旧簿曾把 0–100 heuristic 写进 predicted_score：先清再拷 dual 字段
-    _sanitize_heuristic_yhat_fields(out, item)
-    reasons = item.get("reasons") or item.get("score_reasons") or []
-    out["score_reasons"] = list(reasons) if isinstance(reasons, list) else []
-    if not _is_heuristic_score_scale(out):
-        try:
-            from core.signal.service import get_default_signal_service
-
-            out.update(get_default_signal_service().book_fields(item))
-        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-            logger.debug("catch except Exception: in watching_insights.py", exc_info=True)
-            pass
-        # dual 拷贝可能再次带入脏 ŷ
-        _sanitize_heuristic_yhat_fields(out, item)
-    else:
-        # 仍保留 τ 与组 ŷ 对照；不做 EOD 融合
-        for k in (
-            "predicted_score_tau",
-            "score_rem",
-            "gap_pct",
-            "features_tau",
-            "formula_terms_tau",
-            "dual_score_weights",
-            "dual_score_window",
-            "score_cluster",
-            "score_global",
-            "delta_vs_global",
-            "heuristic_score",
-        ):
-            if item.get(k) is not None and out.get(k) is None:
-                out[k] = item.get(k)
-    try:
-        from core.signal.score_display import annotate_score_gate
-
-        gate = annotate_score_gate(out["score"], paper=paper_ctx, item=out)
-        out["min_score"] = gate["min_score"]
-        out["below_min_score"] = gate["below_min_score"]
-    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in watching_insights.py", exc_info=True)
-        out["min_score"] = None
-        out["below_min_score"] = False
-
-    factors = item.get("factors") or {}
-    out["volume_ratio"] = _f(factors.get("volume_ratio") or factors.get("turnover_ratio"))
-    pe = _f(factors.get("value_pe") or factors.get("pe"))
-    pb = _f(factors.get("value_pb") or factors.get("pb"))
-    if pe is None and valuation:
-        pe = _f(valuation.get("pe"))
-    if pb is None and valuation:
-        pb = _f(valuation.get("pb"))
-    out["pe"] = round(pe, 1) if pe is not None else None
-    out["pb"] = round(pb, 2) if pb is not None else None
-    excess = _f(factors.get("excess_return_pct") or item.get("excess_return_pct"))
-    if excess is not None:
-        _apply_excess_label(out, excess, item)
-
-    # 簿快路径不拉现货（避免整批超时）：本地日线补倾向/超额/量比；ŷ_trade 仍用簿内 gap
-    _enrich_book_insight_display_fields(out, code, item)
-    if not _is_heuristic_score_scale(out):
-        _hydrate_insight_tau_fields(out, item, {}, None)
-    else:
-        _finalize_insight_trade_fields(out)
-
-    out["ok"] = (
-        out["score"] is not None
-        or out.get("predicted_score") is not None
-        or out.get("score_cluster") is not None
-    )
-    out["stance_short"] = out.get("stance_short") or "—"
-    _attach_oos_flag(out)
-    return out
-
-
 def _insight_one(
     code: str,
     *,
@@ -895,7 +778,6 @@ def build_watching_insights(
 
     # 分池簿快路径已停用：一律 live 打分
     missing: List[str] = list(cleaned)
-    book_hits: List[tuple] = []
 
     n_jobs = len(missing)
     workers = min(_INSIGHT_MAX_WORKERS, max(1, n_jobs)) if n_jobs else 0
@@ -970,7 +852,6 @@ def build_watching_insights(
         "items": items,
         "truncated": truncated,
         "note": note,
-        "book_hit": 0,
         "live_scored": len(missing),
         "offline_only": use_offline,
     }

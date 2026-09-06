@@ -159,7 +159,10 @@ export function installClusterBarsUi(q) {
           : null;
     const facts = [];
     if (remote != null) facts.push(`远端 <strong>${remote}</strong>`);
-    if (cache != null) facts.push(`缓存命中 <strong>${cache}</strong>`);
+    // 0/N 启动瞬间 done=0 会算出「缓存命中 0」，像没吃到本地仓；有完成票再报
+    if (cache != null && Number(done) > 0) {
+      facts.push(`缓存命中 <strong>${cache}</strong>`);
+    }
     if (etaSec != null && parsed.phase !== "timeout") {
       facts.push(`ETA <strong>~${fmtDuration(etaSec)}</strong>`);
     }
@@ -254,7 +257,7 @@ export function installClusterBarsUi(q) {
       mode: "running",
       isWarn: warn,
       hint: topup
-        ? "缺口增量 merge · 跳过 36h 复用 · 约 4 并发"
+        ? "已齐 as-of 走本地 · 缺口增量 merge · 约 4 并发"
         : "整窗重拉 · 仓坏/复权兜底 · 约 4 并发",
       extraFacts: barsParsedFacts(parsed, pollStartedAt),
     });

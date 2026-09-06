@@ -53,8 +53,8 @@ def score_and_rank_watching(
 
     默认仅 predicted_score（ŷ）。研究 OOS 可设 allow_heuristic_baseline=True，
     用 heuristic_score（人工线性加权 0–100）作对照基线臂。
-    ``apply_tau_buy_gate=False``：历史/研究路径跳过 ŷ_τ 硬闸，并按 ŷ_EOD 排序
-    （不拿日线近似 ŷ_trade/blend 当选股键）。
+    ``apply_tau_buy_gate=False``：历史/研究路径跳过 ŷ_τ 硬闸与分钟 PIT 挂载，
+    并按 ŷ_EOD 排序（不拿日线近似 ŷ_trade/blend 当选股键）。
     ``exclude_oos_failed=True``（默认）：OOS 失败组成员不进 Top（含全局 ŷ / 规则分回退）。
     """
     from core.signal.return_score import (
@@ -199,7 +199,7 @@ def score_and_rank_watching(
         )
     meta["rank_mode"] = mode
 
-    # 双层 ŷ：PIT 挂 ŷ_τ + ŷ_trade 加权融合 + 买入闸
+    # 双层 ŷ：live 才挂 ŷ_τ；历史日线关 τ 闸时只排 ŷ_EOD，不拉分钟仓
     dual_cfg = None
     rem_doc = None
     try:
@@ -214,30 +214,36 @@ def score_and_rank_watching(
         )
 
         dual_cfg = get_dual_score_cfg(cfg)
-        try:
-            from core.research.tau_ridge import load_tau_model
+        if apply_tau_buy_gate:
+            try:
+                from core.research.tau_ridge import load_tau_model
 
-            rem_doc = load_tau_model()
-        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-            logger.debug("catch except Exception: in cross_section_batch.py", exc_info=True)
-            rem_doc = None
-        for it in items:
-            if not isinstance(it, dict):
-                continue
-            attach_dual_score_pit(
-                it,
-                quote=it.get("_bt_quote"),
-                bars=it.get("_bt_bars"),
-                config=cfg,
-                rem_model_doc=rem_doc,
-            )
-        meta["dual_score"] = {
-            "fusion_mode": dual_cfg.get("fusion_mode"),
-            "w_eod": dual_cfg.get("w_eod"),
-            "w_tau": dual_cfg.get("w_tau"),
-            "min_predicted_score_tau": dual_cfg.get("min_predicted_score_tau"),
-            "rem_model": bool(rem_doc),
-        }
+                rem_doc = load_tau_model()
+            except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+                logger.debug("catch except Exception: in cross_section_batch.py", exc_info=True)
+                rem_doc = None
+            for it in items:
+                if not isinstance(it, dict):
+                    continue
+                attach_dual_score_pit(
+                    it,
+                    quote=it.get("_bt_quote"),
+                    bars=it.get("_bt_bars"),
+                    config=cfg,
+                    rem_model_doc=rem_doc,
+                )
+            meta["dual_score"] = {
+                "fusion_mode": dual_cfg.get("fusion_mode"),
+                "w_eod": dual_cfg.get("w_eod"),
+                "w_tau": dual_cfg.get("w_tau"),
+                "min_predicted_score_tau": dual_cfg.get("min_predicted_score_tau"),
+                "rem_model": bool(rem_doc),
+            }
+        else:
+            meta["dual_score"] = {
+                "skipped": True,
+                "reason": "historical_eod_rank",
+            }
     except Exception as e:
         logger.exception('unexpected error in score_and_rank_watching')
         meta["dual_score"] = {"ok": False, "reason": str(e)}

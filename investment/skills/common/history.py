@@ -89,23 +89,40 @@ def _last_bar_dt(bars: List[dict]) -> Optional[datetime]:
     return _parse_bar_date((bars[-1] or {}).get("date"))
 
 
+def _asof_complete_bar_dt(now: Optional[datetime] = None) -> Optional[datetime]:
+    """完整日线 as-of（15:05 / 周末回退）；解析失败则 None。"""
+    try:
+        from core.market.calendar import expected_latest_daily_bar_date
+
+        as_of_s = expected_latest_daily_bar_date(now=now)
+    except Exception:
+        logger.debug("catch except Exception: in history.py", exc_info=True)
+        return None
+    return _parse_bar_date(as_of_s)
+
+
 def _incremental_remote_plan(
     existing: List[dict],
     *,
     limit: int,
     adjust: str = "qfq",
+    now: Optional[datetime] = None,
 ) -> Tuple[Optional[str], int, bool]:
     """增量远端计划：(start_ymd|None=默认整窗, fetch_limit, skip_remote)。
 
     本地条数够且缺口不大时只从最后交易日（含当日重叠）拉到今天；
     条数不足或缺很久（尤其 qfq）则回退整窗，避免前复权断层。
+    末根已到完整 as-of（收盘后交易日 / 周末上一个交易日）则 skip_remote。
     """
     last = _last_bar_dt(existing)
     if last is None:
         return None, max(int(limit or 30), 30), False
 
-    today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
-    if last.date() >= today.date():
+    dt = now or datetime.now()
+    today = dt.replace(hour=0, minute=0, second=0, microsecond=0)
+    as_of = _asof_complete_bar_dt(dt)
+    target = as_of or today
+    if last.date() >= target.date() or last.date() >= today.date():
         return None, 0, True
 
     gap_days = max(1, (today.date() - last.date()).days)
@@ -389,7 +406,7 @@ def fetch_daily_bars(
     offline_ok=True：本地有足够 bars 时直接返回（可过期），不打远端——研究分组用。
     offline_only=True：只读缓存（含过期），不够也不打远端；批量回测先扫盘再用进程池补缺。
     cache_max_age_hours<=0：不因「条数够」短路返回；把本地当 existing，配合
-    incremental 走缺口拉网（末根已到今天则仍可 skip_remote）。用于强制刷新到最新。
+    incremental 走缺口拉网（末根已到完整 as-of 则仍可 skip_remote）。用于强制刷新到最新。
     """
     from core.store import (
         code_refresh_lock,

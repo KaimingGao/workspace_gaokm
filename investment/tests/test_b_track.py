@@ -176,6 +176,7 @@ class TestB5RespectRegime(unittest.TestCase):
         self.assertFalse(big["daily_pit"])
         self.assertFalse(big["select_ridge"])
         self.assertIn("快照", str(big.get("note") or ""))
+        self.assertIn("选区跳过组权 OOS", str(big.get("note") or ""))
 
     def test_schema_cluster_request_b_fields(self):
         from web.schemas import FactorOlsClusterRequest

@@ -6,6 +6,7 @@ import {
   factorWeightSuggestCellTip,
 } from "./suggest_status_ui.js";
 import { formatClusterApiError } from "./cluster_api.js";
+import { openProbeFold } from "./probe_ui.js";
 
 /** Quant domain: suggest */
 export function installSuggest(q) {
@@ -397,10 +398,7 @@ export function installSuggest(q) {
         (sug.ols_used ? " · 含 OLS 回退" : "");
       if (state.quantLastOlsClusters && state.quantLastOlsClusters.success && els.quantProbeSummary) {
         setBusyText(els.quantProbeSummary, icMsg + " · 不冲组表", { busy: false });
-        document.getElementById("quant-probe-fold")?.scrollIntoView?.({
-          behavior: "smooth",
-          block: "nearest",
-        });
+        openProbeFold();
       }
       setQuantMeta(icMsg);
       return;
