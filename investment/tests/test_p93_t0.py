@@ -1912,9 +1912,9 @@ class TestDualYDirection(unittest.TestCase):
             self.assertEqual(sc.get("_score_source"), "compute")
             feats_on = sc.get("features_on") or {}
             path_feats = sc.get("features_on_path") or {}
-            # 开盘决策：price=open → ret_oc≈0；路径复盘用 close，ret_oc 非零
+            # 开盘决策：ret_oc 取 T-1 已实现（昨开→昨收），非当日 close；决策与路径口径一致
             if feats_on.get("ret_oc") is not None:
-                self.assertAlmostEqual(float(feats_on["ret_oc"]), 0.0, places=3)
+                self.assertNotAlmostEqual(float(feats_on["ret_oc"]), 0.0, places=4)
             if path_feats.get("ret_oc") is not None:
                 self.assertNotAlmostEqual(float(path_feats["ret_oc"]), 0.0, places=4)
             if sc.get("y_on_path") is not None and sc.get("y_on") is not None:

@@ -228,6 +228,9 @@ class TestRemRidgeFit(unittest.TestCase):
         self.assertIn("mom3_pct", extras)
         self.assertIn("tau_lag1", extras)
         self.assertIn("tau_ma5", extras)
+        self.assertNotIn("prefix_complexity", extras)
+        self.assertNotIn("prefix_tpd", extras)
+        self.assertNotIn("t_hi_frac", extras)
         oos = report.get("oos") or {}
         self.assertIn("by_theme", oos)
         self.assertEqual(oos.get("by_tau") or {}, {})
@@ -496,6 +499,9 @@ class TauLagFeatureTests(unittest.TestCase):
         self.assertIn("tau_ma5", TAU_Z_FEATURES)
         self.assertNotIn("tau_std5", TAU_Z_FEATURES)
         self.assertNotIn("yest_gap", TAU_Z_FEATURES)
+        self.assertNotIn("prefix_complexity", TAU_Z_FEATURES)
+        self.assertNotIn("prefix_tpd", TAU_Z_FEATURES)
+        self.assertNotIn("t_hi_frac", TAU_Z_FEATURES)
         days = ["2025-06-02", "2025-06-03", "2025-06-04", "2025-06-05", "2025-06-06", "2025-06-09"]
         daily = []
         labels = []

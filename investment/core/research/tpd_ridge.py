@@ -38,7 +38,7 @@ from core.research.cx_ridge import (
 from core.research.factor_ols_fit import fit_factor_ols_from_panel
 from core.research.tau_panel import normalize_minute_tau_grid
 from core.research.tau_ridge import _predict_rows, _subset, _time_split_indices
-from core.signal.minute_tau_feats import MINUTE_TAU_FEAT_LABELS
+from core.signal.minute_tau_feats import MINUTE_TAU_FEAT_LABELS, MINUTE_TAU_TPD_SHAPE_KEYS
 
 TPD_MIN_STD_EXEMPT = TPD_Z_FEATURES
 TPD_PROMOTE_MIN_N_TEST = CX_PROMOTE_MIN_N_TEST
@@ -57,7 +57,7 @@ def fit_tpd_ridge_report(
     ridge_lambda: float = 1.0,
     min_history: int = 12,
     gap_trigger_pct: float = 2.0,
-    train_frac: float = 0.7,
+    train_frac: float = 0.9,
     minute_tau_hm: Optional[str] = None,
     tau_grid: Optional[Sequence[str]] = None,
 ) -> Dict[str, Any]:
@@ -104,6 +104,7 @@ def fit_tpd_ridge_report(
         standardize=True,
         min_std_exempt=list(TPD_MIN_STD_EXEMPT),
         collinearity_policy="keep_all",
+        impute_keys=list(MINUTE_TAU_TPD_SHAPE_KEYS),
     )
     if not fit.get("success"):
         fit = {
@@ -116,7 +117,7 @@ def fit_tpd_ridge_report(
             "note": "Z 方差不足，ŷ_tpd 用训练均值",
         }
 
-    oos: Dict[str, Any] = {"n_test": len(test_idx)}
+    oos: Dict[str, Any] = {"n_train": len(ys_tr), "n_test": len(test_idx)}
     if xs_te:
         preds_dm = _predict_rows(fit, xs_te)
         preds = [
@@ -141,6 +142,7 @@ def fit_tpd_ridge_report(
         if len(cx_vals) >= 8:
             oos["spearman_y_complexity_y_tpd"] = _spearman(cx_vals, tpd_vals)
     oos["y_label_mean"] = round(y_mean, 4)
+    oos["train_frac"] = float(train_frac)
     oos["tau_grid"] = list(grid)
     oos["minute_tau_hm"] = live_hm
     try:
@@ -158,9 +160,20 @@ def fit_tpd_ridge_report(
         "rows_per_day": round(len(ys) / max(1, len({str(d)[:10] for d in dates})), 2),
     }
 
-    model = dict(fit)
+    ys_all_dm = [float(y) - y_mean for y in ys]
+    fit_full = fit_factor_ols_from_panel(
+        xs_z,
+        ys_all_dm,
+        feature_names=list(TPD_Z_FEATURES),
+        ridge_lambda=ridge_lambda,
+        standardize=True,
+        min_std_exempt=list(TPD_MIN_STD_EXEMPT),
+        collinearity_policy="keep_all",
+        impute_keys=list(MINUTE_TAU_TPD_SHAPE_KEYS),
+    )
+    model = dict(fit_full if fit_full.get("success") else fit)
     try:
-        model["intercept"] = round(float(fit.get("intercept") or 0.0) + y_mean, 6)
+        model["intercept"] = round(float(model.get("intercept") or 0.0) + y_mean, 6)
     except (TypeError, ValueError):
         model["intercept"] = round(y_mean, 6)
     model["intercept_demeaned"] = round(float(fit.get("intercept") or 0.0), 6)
@@ -176,8 +189,8 @@ def fit_tpd_ridge_report(
         "tau_grid": list(grid),
         "note": (
             "TPD=连续 5m 段内方向反转次数/有效内点（午休跳空不计）；"
-            "y_tpd∈[0,1]，0=无反转、1=每根都反转。特征=开盘 Z + ≤τ 前缀 + tpd_lag1/ma5 + complexity_lag1/ma5。"
-            " 与 ŷ_complexity 同 X，只换标签。OOS 看 IC / 中位命中，不看方向命中。"
+            "y_tpd∈[0,1]，0=无反转、1=每根都反转。特征=开盘 Z + ≤τ 前缀 + prefix_tpd + tpd_lag1/ma5 + complexity_lag1/ma5。"
+            " 与 ŷ_complexity 共享开盘 Z 与路径小包，额外吃前缀 TPD。OOS 看 IC / 中位命中，不看方向命中。"
         ),
     }
     model["extra_features"] = list(TPD_Z_FEATURES)
@@ -200,7 +213,7 @@ def fit_tpd_ridge_report(
         "minute_tau_hm": live_hm,
         "tau_grid": list(grid),
         "dual_score_head": "y_tpd",
-        "note": "开盘 Z + 多 τ 前缀 + tpd_lag + complexity_lag → 全日转折点密度 [0,1]；ŷ_tpd>y_tpd_max 跳过做 T",
+        "note": "开盘 Z + 多 τ 前缀 + prefix_tpd + tpd_lag + complexity_lag → 全日转折点密度 [0,1]；ŷ_tpd>y_tpd_max 跳过做 T",
     }
     report["promote_gate"] = tpd_promote_gate(report)
     return report

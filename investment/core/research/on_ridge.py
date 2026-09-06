@@ -1,4 +1,4 @@
-"""隔夜 open 链 Ridge：Z 上拟合 open[T+1]/open[T]-1；风控旁路 ŷ_ON。"""
+"""隔夜缺口 Ridge：Z 上拟合 open[T+1]/close[T]-1；风控旁路 ŷ_ON。"""
 
 from __future__ import annotations
 
@@ -95,7 +95,7 @@ def fit_on_ridge_report(
     train_frac: float = 0.9,
     use_theme_weights: bool = True,
 ) -> Dict[str, Any]:
-    """池化拟合 ŷ_ON(Z) + 时间 OOS。标签 = open[T+1]/open[T]-1（决策日 T）。"""
+    """池化拟合 ŷ_ON(Z) + 时间 OOS。标签 = open[T+1]/close[T]-1（决策日 T 开盘）。"""
     enriched = build_on_panels_from_bars(
         stock_bars,
         min_history=min_history,
@@ -165,7 +165,7 @@ def fit_on_ridge_report(
         "by_theme": by_theme,
         "train_frac": train_frac,
         "theme_boost": theme_boost if use_theme_weights else None,
-        "target": "open_to_next_open",
+        "target": "overnight_gap",
     }
 
     w_all = (
@@ -185,14 +185,14 @@ def fit_on_ridge_report(
     )
     model = fit_full if fit_full.get("success") else fit
     model = dict(model)
-    model["horizon_mode"] = "open_to_next_open"
-    model["target"] = "open_to_next_open"
-    y_formula = "open[T+1]/open[T]-1"
+    model["horizon_mode"] = "overnight_gap"
+    model["target"] = "overnight_gap"
+    y_formula = "open[T+1]/close[T]-1"
     model["y_spec"] = {
         "formula": y_formula,
         "unit": "pct",
-        "anchor": "open[T]",
-        "note": "隔夜 open 链；风控旁路，不进主排序",
+        "anchor": "close[T]",
+        "note": "真实隔夜缺口（T 收盘→T+1 开盘）；风控旁路，不进主排序",
     }
     model["extra_features"] = list(ON_Z_FEATURES)
 
@@ -205,8 +205,8 @@ def fit_on_ridge_report(
         "return_model": model,
         "y_spec": dict(model.get("y_spec") or {}),
         "schema": "on_ridge_v1",
-        "target": "open_to_next_open",
-        "note": "ŷ_ON(Z) 估 open[T+1]/open[T]-1；与 EOD/τ 解耦",
+        "target": "overnight_gap",
+        "note": "ŷ_ON(Z) 估 open[T+1]/close[T]-1 隔夜缺口；与 EOD/τ 解耦",
     }
 
 
@@ -262,17 +262,17 @@ def persist_on_model(report: Dict[str, Any], *, note: str = "") -> Dict[str, Any
     y_spec = dict(rm.get("y_spec") or {})
     if not y_spec:
         y_spec = {
-            "formula": "open[T+1]/open[T]-1",
+            "formula": "open[T+1]/close[T]-1",
             "unit": "pct",
-            "anchor": "open[T]",
-            "note": "隔夜 open 链",
+            "anchor": "close[T]",
+            "note": "真实隔夜缺口",
         }
     y_spec.setdefault("unit", "pct")
-    y_spec.setdefault("anchor", "open[T]")
+    y_spec.setdefault("anchor", "close[T]")
     rm = dict(rm)
     rm["y_spec"] = y_spec
-    rm["horizon_mode"] = rm.get("horizon_mode") or "open_to_next_open"
-    rm["target"] = str(report.get("target") or rm.get("target") or "open_to_next_open")
+    rm["horizon_mode"] = rm.get("horizon_mode") or "overnight_gap"
+    rm["target"] = str(report.get("target") or rm.get("target") or "overnight_gap")
 
     schema = str(report.get("schema") or "on_ridge_v1")
     doc = {
@@ -288,7 +288,7 @@ def persist_on_model(report: Dict[str, Any], *, note: str = "") -> Dict[str, Any
         "y_spec": y_spec,
         "y_spec_on": y_spec,
         "dual_score_head": "predicted_score_on",
-        "contract_note": "ŷ_ON 估 open[T+1]/open[T]-1；风控旁路，不覆盖 EOD/τ 字段。",
+        "contract_note": "ŷ_ON 估 open[T+1]/close[T]-1 隔夜缺口；风控旁路，不覆盖 EOD/τ 字段。",
     }
     path = on_model_path()
     os.makedirs(os.path.dirname(path), exist_ok=True)

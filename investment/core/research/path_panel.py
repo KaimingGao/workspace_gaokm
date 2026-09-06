@@ -29,7 +29,12 @@ from core.research.tau_panel import (
     tau_elapsed_min_from_open,
     yclose_loc_from_prev,
 )
-from core.signal.minute_tau_feats import MINUTE_TAU_ALL_KEYS, extract_minute_tau_pack
+from core.signal.minute_tau_feats import (
+    MINUTE_TAU_ALL_KEYS,
+    MINUTE_TAU_PATH_SHAPE_KEYS,
+    MINUTE_TAU_SHAPE_KEYS,
+    extract_minute_tau_pack,
+)
 
 # 与 ŷ_τ 开盘 Z 同源；分钟小包同属做 T 早盘前缀信息集（默认 τ=10:30）
 PATH_OPEN_FEATURES = (
@@ -48,7 +53,8 @@ PATH_LAG_FEAT_LABELS = {
     "path_lag1": "昨真实极值序 %",
     "path_ma5": "近5日真实极值序均 %",
 }
-PATH_RIDGE_FEATURES = PATH_Z_FEATURES + PATH_LAG_FEATURES
+PATH_SHAPE_FEATURES = MINUTE_TAU_PATH_SHAPE_KEYS
+PATH_RIDGE_FEATURES = PATH_Z_FEATURES + PATH_SHAPE_FEATURES + PATH_LAG_FEATURES
 # live：code → {date: y_path}，避免每根 5m 扫描重算历史极值序
 _PATH_REALIZED_BY_CODE: Dict[str, Dict[str, float]] = {}
 # path live 默认决策钟（与 dual_score / τ 头一致；做 T 选腿已改 v6 收盘带宽）
@@ -461,9 +467,12 @@ def path_features_from_open_row(
     hist: Optional[Sequence[dict]] = None,
     prev_bar: Optional[dict] = None,
 ) -> Dict[str, Optional[float]]:
-    """从 τ 开盘/前缀行补齐 PATH_Z（含分钟小包键；缺则 None）。"""
+    """从 τ 开盘/前缀行补齐 PATH_Z（含分钟小包键；缺则 None）。
+
+    形状键（prefix_complexity / prefix_tpd / t_*_frac）一并带上，供 path / complexity / tpd 分头自选；ŷ_τ 拟合不用。
+    """
     out: Dict[str, Optional[float]] = {}
-    for k in PATH_Z_FEATURES:
+    for k in PATH_Z_FEATURES + MINUTE_TAU_SHAPE_KEYS:
         if k in row:
             out[k] = _f(row.get(k))
         else:
@@ -514,7 +523,8 @@ def attach_path_minute_feats(
         open_px=open_px,
         prev_close=prev_close,
     )
-    for k in MINUTE_TAU_ALL_KEYS:
+    copy_keys = MINUTE_TAU_ALL_KEYS + MINUTE_TAU_SHAPE_KEYS
+    for k in copy_keys:
         if not overwrite and out.get(k) is not None:
             continue
         if k in pack and pack.get(k) is not None:

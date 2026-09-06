@@ -237,6 +237,26 @@ export const TAU_FEAT_META = {
     label: "开→τ 相对板块 %",
     description: "个股开盘→τ − 板块中位开→τ（%）。正值=相对板块更强的前缀。",
   },
+  prefix_complexity: {
+    label: "前缀曲折度 1−D/L",
+    description:
+      "开盘→τ 前缀 5m 收价 Kaufman 1−D/L ∈[0,1]。与全日 y_complexity 同公式；短于 6 根留空。ŷ_complexity 头入模，ŷ_τ 不用。",
+  },
+  prefix_tpd: {
+    label: "前缀转折点密度",
+    description:
+      "开盘→τ 前缀转折点密度 ∈[0,1]。与全日 y_tpd 同公式；短于 6 根留空。ŷ_tpd 头入模，ŷ_τ 不用。",
+  },
+  t_hi_frac: {
+    label: "最高点相对前缀进度",
+    description:
+      "前缀首次最高价时刻相对开盘的进度 0–1。ŷ_path 入模，补 path_sign 的时间位置。",
+  },
+  t_lo_frac: {
+    label: "最低点相对前缀进度",
+    description:
+      "前缀首次最低价时刻相对开盘的进度 0–1。ŷ_path 入模，补 path_sign 的时间位置。",
+  },
   yclose_loc: {
     label: "昨收位置",
     description: "昨收在昨高低中的位置 0–1。刻画隔夜起点相对昨路径的落点。",
@@ -250,19 +270,19 @@ export const TAU_FEAT_META = {
 /** ŷ_ON 路径/开盘 Z 特征（不在因子注册表）。 */
 export const ON_FEAT_META = {
   ret_oc: {
-    label: "开→收 %",
+    label: "昨开→昨收 %",
     description:
-      "T 日已实现开→收收益（%）。收盘前决策时，刻画当日 intraday 路径，用于估 open[T+1]/open[T]−1。",
+      "T-1 日已实现开→收收益（%）。开盘决策时刻画昨日 intraday 路径，用于估 open[T+1]/close[T]−1 隔夜缺口。",
   },
   ret_cc: {
-    label: "收→收 %",
+    label: "昨收→前收 %",
     description:
-      "T 日收→收涨跌（%）。与 EOD 标签同口径的当日已实现部分，辅助 ON 头看路径惯性。",
+      "T-1 日收→收涨跌（%）。昨日已实现收→收，辅助 ON 头看路径惯性。",
   },
   y_on_today: {
     label: "今开/昨开 %",
     description:
-      "T 日已实现 open/open[T−1]−1（%）。即 y_ON(T) 的当日段，不是训练标签（标签为 open[T+1]/open[T]−1）。",
+      "T 日已实现 open/open[T−1]−1（%）。今开相对昨开，不是训练标签（标签为 open[T+1]/close[T]−1）。",
   },
   gap_pct: TAU_FEAT_META.gap_pct,
   sector_gap_breadth: TAU_FEAT_META.sector_gap_breadth,

@@ -146,7 +146,7 @@ class TpdRidgeFitTests(unittest.TestCase):
         minute_by_date = {}
         px = 10.0
         times = _times_am_pm()
-        for i in range(28):
+        for i in range(45):
             day = d0 + timedelta(days=i)
             if day.weekday() >= 5:
                 continue
@@ -177,7 +177,7 @@ class TpdRidgeFitTests(unittest.TestCase):
             [{"code": "600000", "bars": daily}],
             minute_by_code_date={"600000": minute_by_date},
             ridge_lambda=1.0,
-            tau_grid=["09:30", "10:30"],
+            tau_grid=["09:30", "09:50", "10:30"],
         )
         self.assertTrue(report.get("success"), report.get("error"))
         self.assertEqual(report.get("schema"), "tpd_ridge_v1")
@@ -185,6 +185,9 @@ class TpdRidgeFitTests(unittest.TestCase):
         oos = report.get("oos") or {}
         self.assertIn("ic", oos)
         self.assertIn("median_hit", oos)
+        self.assertEqual(oos.get("train_frac"), 0.9)
+        self.assertIn("n_train", oos)
+        self.assertGreater(int(oos.get("n_train") or 0), 0)
         self.assertNotIn("sign_hit", oos)
         self.assertIn("spearman_y_complexity_y_tpd", oos)
         y_spec = (report.get("return_model") or {}).get("y_spec") or {}
@@ -196,12 +199,24 @@ class TpdRidgeFitTests(unittest.TestCase):
         self.assertIn("tpd_ma5", extras)
         self.assertIn("complexity_lag1", extras)
         self.assertIn("complexity_ma5", extras)
+        self.assertIn("prefix_tpd", extras)
+        self.assertNotIn("prefix_complexity", extras)
         self.assertNotIn("complexity_tpd_lag1", extras)
         labels = (report.get("return_model") or {}).get("feat_labels") or {}
         self.assertIn("tpd_lag1", labels)
         self.assertIn("complexity_lag1", labels)
         self.assertNotIn("cx_lag1", labels)
         self.assertNotIn("complexity_tpd_lag1", labels)
+        prep = (report.get("return_model") or {}).get("prep_meta") or {}
+        self.assertIn("prefix_tpd", prep.get("imputed_keys") or [])
+        self.assertGreater(int((prep.get("impute_n_filled") or {}).get("prefix_tpd") or 0), 0)
+        n_raw = int(prep.get("raw_sample_count") or 0)
+        n_c = int(prep.get("complete_sample_count") or 0)
+        self.assertEqual(n_raw, int(report.get("sample_count") or 0))
+        self.assertGreater(n_raw, 0)
+        # 09:50 有路径小包、无 prefix_tpd：填均值后应留下（09:30 仍可能缺 realized_vol；
+        # 训练日前段 lag 更稀，完整率可低于 50%）
+        self.assertGreater(n_c / float(n_raw), 1.0 / 3.0)
 
 
 if __name__ == "__main__":

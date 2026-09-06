@@ -48,11 +48,12 @@ class TestOnPanel(unittest.TestCase):
         i = 0
         b_t = bars[12 + i]
         b_next = bars[13 + i]
-        expected = (float(b_next["open"]) / float(b_t["open"]) - 1.0) * 100.0
+        # 标签 = 真实隔夜缺口 open[T+1]/close[T]-1
+        expected = (float(b_next["open"]) / float(b_t["close"]) - 1.0) * 100.0
         self.assertAlmostEqual(ys[i], expected, places=4)
         self.assertIn("ret_oc", xs[0])
         self.assertIn("y_on_today", xs[0])
-        self.assertIn("y_on_fwd", metas[0])
+        self.assertIn("overnight_gap", metas[0])
 
     def test_build_features_from_quote_bars(self):
         from core.research.on_panel import build_on_features_from_quote_bars
@@ -102,11 +103,11 @@ class TestOnRidgeFit(unittest.TestCase):
         ]
         report = fit_on_ridge_report(stock_bars, ridge_lambda=1.0, theme_boost=1.5)
         self.assertTrue(report.get("success"), report.get("error"))
-        self.assertEqual(report.get("target"), "open_to_next_open")
+        self.assertEqual(report.get("target"), "overnight_gap")
         self.assertEqual(report.get("schema"), "on_ridge_v1")
         rm = report["return_model"]
         self.assertEqual(
-            (rm.get("y_spec") or {}).get("formula"), "open[T+1]/open[T]-1"
+            (rm.get("y_spec") or {}).get("formula"), "open[T+1]/close[T]-1"
         )
         with tempfile.TemporaryDirectory() as tmp:
             live = os.path.join(tmp, "live")
@@ -139,7 +140,7 @@ class TestOnScoreAttach(unittest.TestCase):
         apply_on_score_fields(item, on_yhat=-0.35, feats={"ret_oc": 0.1, "gap_pct": 2.0})
         self.assertAlmostEqual(item["predicted_score_on"], -0.35)
         self.assertEqual(
-            (item.get("y_spec_on") or {}).get("formula"), "open[T+1]/open[T]-1"
+            (item.get("y_spec_on") or {}).get("formula"), "open[T+1]/close[T]-1"
         )
         self.assertEqual(item["predicted_score"], 1.2)
 
@@ -193,7 +194,7 @@ class TestOnScoreAttach(unittest.TestCase):
             "predicted_score_on": -0.42,
             "features_on": {"gap_pct": 1.2},
             "formula_terms_on": {"total": -0.42, "terms": []},
-            "y_spec_on": {"formula": "open[T+1]/open[T]-1"},
+            "y_spec_on": {"formula": "open[T+1]/close[T]-1"},
         }
         out = dual_score_book_fields(item)
         self.assertAlmostEqual(out.get("predicted_score_on"), -0.42)

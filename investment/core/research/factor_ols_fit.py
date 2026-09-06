@@ -24,6 +24,83 @@ def clamp_ridge_lambda(value: Any, default: float = 0.0) -> float:
     return float(min(x, 100.0))
 
 
+def _mean_impute_feature_keys(
+    xs: List[Dict[str, Optional[float]]],
+    keys: Sequence[str],
+) -> Tuple[List[Dict[str, Optional[float]]], Dict[str, Any]]:
+    """指定列缺测按观测均值填；不改动原行对象。无观测的列跳过。
+
+    填完后该列 z-score 为 0，与 live ``_predict_rows(impute_missing=True)`` 一致，
+    避免「尚未定义」的键把整行踢出完整子面板。
+    """
+    want = [str(n) for n in keys if n]
+    meta: Dict[str, Any] = {
+        "imputed_keys": [],
+        "impute_means": {},
+        "impute_n_obs": {},
+        "impute_n_filled": {},
+        "impute_skipped": [],
+    }
+    if not want or not xs:
+        return xs, meta
+
+    means: Dict[str, float] = {}
+    n_obs: Dict[str, int] = {}
+    for name in want:
+        vals: List[float] = []
+        for row in xs:
+            if not isinstance(row, dict):
+                continue
+            v = row.get(name)
+            if v is None:
+                continue
+            try:
+                fv = float(v)
+            except (TypeError, ValueError):
+                continue
+            if math.isfinite(fv):
+                vals.append(fv)
+        if not vals:
+            meta["impute_skipped"].append(name)
+            continue
+        means[name] = sum(vals) / float(len(vals))
+        n_obs[name] = len(vals)
+
+    if not means:
+        return xs, meta
+
+    n_filled: Dict[str, int] = {name: 0 for name in means}
+    out: List[Dict[str, Optional[float]]] = []
+    for row in xs:
+        if not isinstance(row, dict):
+            out.append(row)
+            continue
+        copied: Optional[Dict[str, Optional[float]]] = None
+        for name, mu in means.items():
+            v = row.get(name)
+            missing = v is None
+            if not missing:
+                try:
+                    fv = float(v)
+                    if not math.isfinite(fv):
+                        missing = True
+                except (TypeError, ValueError):
+                    missing = True
+            if not missing:
+                continue
+            if copied is None:
+                copied = dict(row)
+            copied[name] = mu
+            n_filled[name] = n_filled.get(name, 0) + 1
+        out.append(copied if copied is not None else row)
+
+    meta["imputed_keys"] = list(means.keys())
+    meta["impute_means"] = {k: round(float(v), 6) for k, v in means.items()}
+    meta["impute_n_obs"] = dict(n_obs)
+    meta["impute_n_filled"] = {k: int(n_filled.get(k) or 0) for k in means}
+    return out, meta
+
+
 def _zscore_complete_panel(
     xs: List[Dict[str, float]],
     active: List[str],
@@ -59,6 +136,7 @@ def _prepare_complete_panel(
     eps: float = 1e-6,
     min_std: float = 5.0,
     min_std_exempt: Optional[Sequence[str]] = None,
+    impute_keys: Optional[Sequence[str]] = None,
 ) -> Tuple[
     Optional[List[Dict[str, float]]],
     Optional[List[float]],
@@ -73,6 +151,8 @@ def _prepare_complete_panel(
     默认 5.0，与 live 组模型里 size/gap_risk/amihud 的炸分阈值对齐。
     ``min_std_exempt``：跳过该门槛的列（如 rem 的 gap_pct，单位是百分点而非 0–100 分）。
     真常数列（max−min≤eps）仍会剔除。
+    ``impute_keys``：这些列缺测按观测均值填后再挑完整行（标准化后 z=0），
+    与 live 缺键填均值对齐；未列出的列仍缺则整行丢掉。
     """
     exempt = {str(n) for n in (min_std_exempt or []) if n}
     n_raw = len(ys)
@@ -84,7 +164,13 @@ def _prepare_complete_panel(
         "dropped_for_coverage": [],
         "min_std": float(min_std),
         "min_std_exempt": sorted(exempt),
+        "imputed_keys": [],
     }
+    impute_set = {str(n) for n in (impute_keys or []) if n}
+    impute_want = [n for n in feature_names if n in impute_set]
+    if impute_want:
+        xs, impute_meta = _mean_impute_feature_keys(xs, impute_want)
+        meta.update(impute_meta)
     if n_raw < 4:
         return None, None, [], feature_names[:], meta
 
@@ -419,6 +505,7 @@ def fit_factor_ols_from_panel(
     feature_names: Optional[List[str]] = None,
     min_std: float = 5.0,
     min_std_exempt: Optional[Sequence[str]] = None,
+    impute_keys: Optional[Sequence[str]] = None,
 ) -> Dict[str, Any]:
     """对已对齐的 (sub_scores, forward return) 面板拟合 OLS / Ridge。
 
@@ -429,6 +516,7 @@ def fit_factor_ols_from_panel(
     ``sample_weights``：与 ``xs/ys`` 等长的非负样本权（组内软异质降权）；拟合时 √w 变换。
     ``feature_names``：可选覆盖默认注册因子集（τ 头可并入 gap_pct 等）。
     ``min_std`` / ``min_std_exempt``：透传 ``_prepare_complete_panel``（分制因子 vs 百分点列）。
+    ``impute_keys``：透传；缺测按列均值填、不整行丢掉（与 live z=0 对齐）。
     """
     from core.research.beta_accuracy import (
         apply_collinearity_policy,
@@ -448,6 +536,7 @@ def fit_factor_ols_from_panel(
         factor_names,
         min_std=float(min_std),
         min_std_exempt=exempt_merged,
+        impute_keys=impute_keys,
     )
     collinearity_meta: Dict[str, Any] = {}
     ridge_select_meta: Dict[str, Any] = {}
@@ -589,6 +678,13 @@ def fit_factor_ols_from_panel(
         note_parts.append("单票 walk-forward 非截面回归；样本少时系数不稳定。")
     if row_weights is not None:
         note_parts.append("已按 sample_weights 做加权 OLS（√w 变换）。")
+    imputed = [str(n) for n in (prep_meta.get("imputed_keys") or []) if n]
+    if imputed:
+        filled = prep_meta.get("impute_n_filled") or {}
+        n_fill = sum(int(filled.get(k) or 0) for k in imputed)
+        note_parts.append(
+            f"缺测 {imputed} 按列均值填（{n_fill} 格，标准化后 z=0），与 live 预测一致。"
+        )
     if fundamentals_used:
         note_parts.append(
             "value/quality 等基本面按决策日 PIT（缺史跳过）；非静默最新快照。"

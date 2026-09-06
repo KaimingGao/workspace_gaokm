@@ -328,10 +328,29 @@ def assess_quality(
     elif n < THIN_MIN_BARS:
         notes.append("样本偏少")
         level = "thin"
-    elif notes:
-        level = "thin"
     else:
-        level = "good"
+        # open 价质量：open[T+1]≈close[T] 占比过高可能是数据源 open 字段异常
+        exact_close = 0
+        checked = 0
+        for i in range(len(bars) - 1):
+            try:
+                o_next = float(bars[i + 1].get("open") or 0.0)
+                c_t = float(bars[i].get("close") or 0.0)
+            except (TypeError, ValueError):
+                continue
+            if c_t <= 0 or o_next <= 0:
+                continue
+            checked += 1
+            if abs(o_next / c_t - 1.0) < 0.0001:
+                exact_close += 1
+        if checked >= 20:
+            ratio = exact_close / checked
+            if ratio > 0.40:
+                notes.append(
+                    f"open≈prev_close 占比 {ratio:.0%}（>40%），open 字段疑似异常"
+                )
+
+        level = "thin" if notes else "good"
 
     if fetched_at:
         notes.append(f"缓存于 {fetched_at.isoformat(timespec='seconds')}")

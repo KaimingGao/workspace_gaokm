@@ -1149,9 +1149,11 @@ EOD 锚在 **收**，与 open 链 **并列**（选股主轴），不是 open 链
 
 曾试过 ŷ_next（下一窗 VWAP）与 ŷ_r（\(C/C_r\)）作做 T 研究头；OOS 符号命中约 50%，已从枢纽下线，不进 T0 闸。
 
-**做 T 曲折度头 \(y_{\mathrm{complexity}}\)**：独立 `y_spec`（禁止写入 `predicted_score` / `y_tau` / `y_path`）。标签 \(y_{\mathrm{complexity}}=1-D/L\in[0,1]\)：\(D=|C_{\mathrm{last}}-C_{\mathrm{first}}|\)（全日 5m 收价首末），\(L=\sum|\Delta C|\)（相邻 5m 路径长；午休跳空不计入）。0 = 直线，1 = 最折；**不是波动率**。特征与 \(\tau\)/path 同键、β 独立，另加 PIT **`complexity_lag1` / `complexity_ma5`**（过去有 5m 的交易日真实 \(y_{\mathrm{complexity}}\)，不含当日）。网格 `09:30…11:00`。OOS 看 Spearman IC 与中位命中。拟合 `POST /api/quant/cx-ridge`，落盘 `cx_ridge_model.json`。v6 入场：盘中前缀 \(\hat y_{\mathrm{complexity}}>y\_complexity\_max\)（0.01–1.00，默认 1.00≈关）则跳过；缺 ŷ_complexity 不挡。回测成交明细日级列显示 ŷ_complexity（label）（×100%）；实时做 T 表不显示全日 label。旧键 `y_cx` / `y_cx_max` / `cx_lag1` 仍可读。旧 ×100 模型预测会自动 /100。改特征后请重新拟合。
+**做 T 曲折度头 \(y_{\mathrm{complexity}}\)**：独立 `y_spec`（禁止写入 `predicted_score` / `y_tau` / `y_path`）。标签 \(y_{\mathrm{complexity}}=1-D/L\in[0,1]\)：\(D=|C_{\mathrm{last}}-C_{\mathrm{first}}|\)（全日 5m 收价首末），\(L=\sum|\Delta C|\)（相邻 5m 路径长；午休跳空不计入）。0 = 直线，1 = 最折；**不是波动率**。特征=开盘 Z + 路径小包 + **`prefix_complexity`**（&lt;6 根留空，训练按列均值填）+ PIT `complexity_lag1`/`ma5` 与 `tpd_lag1`/`ma5`。网格 `09:30…11:00`。OOS 按交易日 **90/10**，Spearman IC 与中位命中；过门后**全面板再拟合**写入 β。拟合 `POST /api/quant/cx-ridge`，落盘 `cx_ridge_model.json`。v6 入场：盘中前缀 \(\hat y_{\mathrm{complexity}}>y\_complexity\_max\)（0.01–1.00，默认 1.00≈关）则跳过；缺 ŷ_complexity 不挡。回测成交明细日级列显示 ŷ_complexity（label）（×100%）；实时做 T 表不显示全日 label。旧键 `y_cx` / `y_cx_max` / `cx_lag1` 仍可读。旧 ×100 模型预测会自动 /100。改特征后请重新拟合。
 
-**做 T 路径头 \(y_{\mathrm{path}}\)**：训练侧特征可与 \(y_\tau\) **对齐**（开盘 Z + 早盘前缀分钟小包），另加 PIT **`path_lag1` / `path_ma5`**（过去有 5m 的交易日真实极值序标签，不含当日）。各轮触发前因果重算 ŷ（含 `sector_ret_to_tau`）；**仅 09:30 / 开盘信息集**允许无分钟小包并用开盘 Z 挂 ŷ_path（status=`open_z`）；**非 09:30** 前缀重算必须带出分钟小包，否则 `minute_data_missing`（数据缺失，不做腿）。有分钟前缀后再升为带小包的 path。训练默认 **多 τ 网格** `09:30|09:35|…|11:00` 每 5m 共享 β（同日标签=全日极值序，特征≤各 τ；09:30 无分钟前缀只留开盘 Z；不含 13:00 / 14:00；看 `OOS.by_tau`）；live 调仓决策钟默认 `10:30`。标签：先 low→high 则 \((H-L)/\mathrm{ref}\%\)，先 high→low 则 \((L-H)/\mathrm{ref}\%\)。**v6 做 T 选腿**（收盘带宽）：每 5m 扫描至 **11:00**；\(\hat c=\hat c_\tau\)（开盘锚），**path 不进** \(\hat c\)（仅 \|y_path\| 入场 + \|y_path\|>`y_path_strong` 须同 τ）；\(\delta=\mathrm{open}\times t0\_close\_band\_delta\_pct/100\)；收价 \(>\hat c+\delta\) → 反T，\(<\hat c-\delta\) → 正T；带内或缺 \(\hat c\) → 跳过。第二腿冻结对侧带 `leg2_target` 优先于 τ 出场价闸；午后追价可改触发价。规划：`path_ridge_model.json`（β 与 τ 独立，因子键与多 τ 训法对齐）。改特征后请重新拟合。
+**做 T 转折点密度头 \(y_{\mathrm{tpd}}\)**：与曲折度**同一面板、同一 90/10 与全面板再拟合**，只换标签与前缀形状键 `prefix_tpd`。\(y_{\mathrm{tpd}}\in[0,1]\)=连续 5m 段内方向反转次数/有效内点（午休跳空不计）。OOS 早盘 IC 高多半来自 `tpd_ma5` 票质；看 `OOS.by_tau` 的 09:30→11:00 斜率才是前缀增量。拟合 `POST /api/quant/tpd-ridge`，落盘 `tpd_ridge_model.json`。v6：\(\hat y_{\mathrm{tpd}}>y\_tpd\_max\)（默认 0.40）则跳过。
+
+**做 T 路径头 \(y_{\mathrm{path}}\)**：训练侧特征可与 \(y_\tau\) **对齐**（开盘 Z + 早盘前缀分钟小包），另加 PIT **`path_lag1` / `path_ma5`**（过去有 5m 的交易日真实极值序标签，不含当日）与 **`t_hi_frac` / `t_lo_frac`**。各轮触发前因果重算 ŷ（含 `sector_ret_to_tau`）；**仅 09:30 / 开盘信息集**允许无分钟小包并用开盘 Z 挂 ŷ_path（status=`open_z`）；**非 09:30** 前缀重算必须带出分钟小包，否则 `minute_data_missing`（数据缺失，不做腿）。有分钟前缀后再升为带小包的 path。训练默认 **多 τ 网格** `09:30|09:35|…|11:00` 每 5m 共享 β（同日标签=全日极值序，特征≤各 τ；09:30 无分钟前缀只留开盘 Z；不含 13:00 / 14:00；看 `OOS.by_tau`）；live 调仓决策钟默认 `10:30`。切分与全面板再拟合同 τ。标签：先 low→high 则 \((H-L)/\mathrm{ref}\%\)，先 high→low 则 \((L-H)/\mathrm{ref}\%\)。**v6 做 T 选腿**（收盘带宽）：每 5m 扫描至 **11:00**；\(\hat c=\hat c_\tau\)（开盘锚），**path 不进** \(\hat c\)（仅 \|y_path\| 入场 + \|y_path\|>`y_path_strong` 须同 τ）；\(\delta=\mathrm{open}\times t0\_close\_band\_delta\_pct/100\)；收价 \(>\hat c+\delta\) → 反T，\(<\hat c-\delta\) → 正T；带内或缺 \(\hat c\) → 跳过。第二腿冻结对侧带 `leg2_target` 优先于 τ 出场价闸；午后追价可改触发价。规划：`path_ridge_model.json`（β 与 τ 独立，因子键与多 τ 训法对齐）。改特征后请重新拟合。
 
 ---
 
@@ -1243,7 +1245,7 @@ score_stock(code) 续——
 | `nowcast_vs` | `prev_close` | 落盘口径；缺缺口时可能为 `open` |
 | `dual_score_fusion` | `"blend"` | 正交加权 |
 
-### 4.3 ON 打分链（层 3 · 隔夜 open 链，风控旁路）
+### 4.3 ON 打分链（层 3 · 隔夜缺口，风控旁路）
 
 `score_stock` / `attach_dual_score_pit` 在 τ 字段之后 **追加** ŷ_ON（不改 `predicted_score` / `predicted_score_blend`）：
 
@@ -1256,9 +1258,9 @@ score_stock(code) 续——
 
 | 字段 | 值 | 说明 |
 |------|----|------|
-| `predicted_score_on` | ŷ_ON | **open[T+1]/open[T]−1**（决策锚 open[T]） |
+| `predicted_score_on` | ŷ_ON | **open[T+1]/close[T]−1**（决策锚 close[T]，真实隔夜缺口） |
 | `y_spec_on` | `{formula, anchor, unit}` | ON 标签规范 |
-| `features_on` | ret_oc / gap / ret_cc / … | T 日路径快照 |
+| `features_on` | ret_oc / gap / ret_cc / … | T-1 已实现路径 + 今开 gap 快照 |
 
 训练：`POST /api/quant/on-ridge` → `on_ridge_model.json`（人审 persist）。**默认不进主排序**；收盘前减仓策略后续接线。
 

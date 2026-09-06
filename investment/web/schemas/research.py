@@ -71,7 +71,7 @@ RemRidgeRequest = TauRidgeRequest
 
 
 class OnRidgeRequest(BaseModel):
-    """open[T+1]/open[T]-1 隔夜链头研究拟合（风控旁路 ŷ_ON）。"""
+    """open[T+1]/close[T]-1 隔夜缺口 Ridge 拟合（风控旁路 ŷ_ON）。"""
 
     lookback: int = Field(default=120, ge=40, le=500)
     watching_limit: int = Field(
@@ -91,7 +91,7 @@ class OnRidgeRequest(BaseModel):
 
 
 class PathRidgeRequest(BaseModel):
-    """ŷ_path Ridge：开盘 Z + 多 τ 前缀分钟小包 → 全日极值序（dual_y · y_path）。"""
+    """ŷ_path Ridge：开盘 Z + 多 τ 前缀分钟小包 + t_hi/t_lo 进度 → 全日极值序（dual_y · y_path）。"""
 
     lookback: int = Field(default=120, ge=40, le=500)
     watching_limit: int = Field(
@@ -137,7 +137,7 @@ class PathRidgeRequest(BaseModel):
 
 
 class CxRidgeRequest(BaseModel):
-    """ŷ_complexity Ridge：开盘 Z + 多 τ 前缀分钟小包 → 全日 5m 曲折度 1−D/L ∈[0,1]。"""
+    """ŷ_complexity Ridge：开盘 Z + 多 τ 前缀分钟小包 + 前缀 1−D/L → 全日 5m 曲折度 1−D/L ∈[0,1]。"""
 
     lookback: int = Field(default=120, ge=40, le=500)
     watching_limit: int = Field(
@@ -171,7 +171,7 @@ class CxRidgeRequest(BaseModel):
 
 
 class TpdRidgeRequest(BaseModel):
-    """ŷ_tpd Ridge：开盘 Z + 多 τ 前缀分钟小包 → 全日 5m 转折点密度 ∈[0,1]。"""
+    """ŷ_tpd Ridge：开盘 Z + 多 τ 前缀分钟小包 + 前缀 TPD → 全日 5m 转折点密度 ∈[0,1]。"""
 
     lookback: int = Field(default=120, ge=40, le=500)
     watching_limit: int = Field(

@@ -180,7 +180,7 @@ def _slim_features_tau(feats: Any, *, limit: int = 24) -> Optional[Dict[str, Any
     if not isinstance(feats, dict) or not feats:
         return None
     # 先保住 τ Z 键，避免 dict 截断丢掉 gap_pct / breadth / 分钟小包
-    from core.signal.minute_tau_feats import MINUTE_TAU_ALL_KEYS
+    from core.signal.minute_tau_feats import MINUTE_TAU_ALL_KEYS, MINUTE_TAU_SHAPE_KEYS
 
     pin = (
         "gap_pct",
@@ -193,7 +193,7 @@ def _slim_features_tau(feats: Any, *, limit: int = 24) -> Optional[Dict[str, Any
         "mom3_pct",
         "tau_lag1",
         "tau_ma5",
-    ) + MINUTE_TAU_ALL_KEYS
+    ) + MINUTE_TAU_ALL_KEYS + MINUTE_TAU_SHAPE_KEYS
     out: Dict[str, Any] = {}
     lim = max(len(pin) + 4, int(limit))
 
@@ -325,6 +325,10 @@ def tip_fields_from_item(item: Optional[dict]) -> Dict[str, Any]:
                 "complexity_ma5",
                 "cx_lag1",
                 "cx_ma5",
+                "prefix_complexity",
+                "prefix_tpd",
+                "t_hi_frac",
+                "t_lo_frac",
             }
         }
         if slim_path:
@@ -1530,15 +1534,16 @@ def prefix_tau_hm_from_bars(
 
 def _open_z_feats_from_snap(score_snap: Optional[dict]) -> Dict[str, Any]:
     """从开盘快照抽出开盘 Z（去掉分钟键，避免脏值挡住前缀小包）。"""
-    from core.signal.minute_tau_feats import MINUTE_TAU_ALL_KEYS
+    from core.signal.minute_tau_feats import MINUTE_TAU_ALL_KEYS, MINUTE_TAU_SHAPE_KEYS
 
     feats: Dict[str, Any] = {}
     if not isinstance(score_snap, dict):
         return feats
     ft = score_snap.get("features_tau")
     if isinstance(ft, dict):
+        skip = set(MINUTE_TAU_ALL_KEYS) | set(MINUTE_TAU_SHAPE_KEYS)
         for k, v in ft.items():
-            if k in MINUTE_TAU_ALL_KEYS:
+            if k in skip:
                 continue
             if v is not None:
                 feats[k] = v

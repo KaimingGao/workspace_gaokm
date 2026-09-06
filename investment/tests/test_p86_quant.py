@@ -175,6 +175,46 @@ class TestP86FactorOls(unittest.TestCase):
         ]
         self.assertIn("low", names)
 
+    def test_prepare_impute_keys_keeps_incomplete_rows(self):
+        from quant.research.factor_ols import _prepare_complete_panel
+
+        xs = []
+        for i in range(24):
+            xs.append(
+                {
+                    "path": 10.0 + float(i),
+                    "prefix_tpd": None if i < 10 else 0.2 + 0.02 * float(i),
+                }
+            )
+        ys = [float(i) for i in range(len(xs))]
+        orig_missing = xs[0]["prefix_tpd"]
+        xs_drop, _ys_d, _act_d, _ex_d, meta_drop = _prepare_complete_panel(
+            xs, ys, ["path", "prefix_tpd"], min_samples_over_p=2, min_std=0.0
+        )
+        self.assertIsNone(orig_missing)
+        self.assertEqual(len(xs_drop or []), 14)
+        self.assertFalse(meta_drop.get("imputed_keys"))
+
+        xs_keep, ys_keep, active, _excl, meta = _prepare_complete_panel(
+            xs,
+            ys,
+            ["path", "prefix_tpd"],
+            min_samples_over_p=2,
+            min_std=0.0,
+            impute_keys=["prefix_tpd"],
+        )
+        self.assertIsNone(xs[0]["prefix_tpd"], msg="不得改写调用方行")
+        self.assertIsNotNone(xs_keep)
+        self.assertEqual(len(xs_keep or []), 24)
+        self.assertEqual(len(ys_keep or []), 24)
+        self.assertEqual(set(active), {"path", "prefix_tpd"})
+        self.assertIn("prefix_tpd", meta.get("imputed_keys") or [])
+        self.assertEqual((meta.get("impute_n_filled") or {}).get("prefix_tpd"), 10)
+        mu = float((meta.get("impute_means") or {}).get("prefix_tpd"))
+        filled = [row["prefix_tpd"] for row in (xs_keep or [])[:10]]
+        self.assertTrue(filled)
+        self.assertTrue(all(abs(float(v) - mu) < 1e-9 for v in filled))
+
 
 if __name__ == "__main__":
     unittest.main()

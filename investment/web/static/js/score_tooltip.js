@@ -182,6 +182,10 @@ const PATH_FEAT_LABELS = {
   tau_elapsed_min: "τ距开盘分钟",
   sector_ret_to_tau: "板块中位开→τ %",
   ret_vs_sector: "开→τ 相对板块 %",
+  prefix_complexity: "前缀曲折度 1−D/L",
+  prefix_tpd: "前缀转折点密度",
+  t_hi_frac: "最高点相对前缀进度",
+  t_lo_frac: "最低点相对前缀进度",
 };
 
 function resolvePathEnter(raw) {
@@ -465,7 +469,7 @@ function formatCompactOnTip(raw) {
   const ySpec =
     (raw && raw.y_spec_on && raw.y_spec_on.formula) ||
     (raw && raw.on_y_spec) ||
-    "open[T+1]/open[T]−1";
+    "open[T+1]/close[T]−1";
   const pathOn =
     raw && raw.y_on_path != null && Number.isFinite(Number(raw.y_on_path))
       ? Number(raw.y_on_path)

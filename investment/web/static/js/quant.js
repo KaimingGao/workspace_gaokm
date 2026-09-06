@@ -558,6 +558,33 @@ export function initQuant(ctx) {
     if (box) box.innerHTML = "";
   }
 
+  function ridgeFitNBits(data) {
+    const oos = (data && data.oos) || {};
+    const rm = (data && data.return_model) || {};
+    const bits = [];
+    if (data && data.sample_count != null) bits.push(`面板 n=${data.sample_count}`);
+    if (rm.n_obs != null) bits.push(`入模 n=${rm.n_obs}`);
+    const tf = oos.train_frac;
+    if (tf != null && Number.isFinite(Number(tf))) {
+      const tr = Math.round(Number(tf) * 100);
+      bits.push(`切分 ${tr}/${Math.max(0, 100 - tr)}`);
+    }
+    const byTau = oos.by_tau || {};
+    const nd =
+      (byTau["09:30"] && byTau["09:30"].n) ||
+      (byTau["10:30"] && byTau["10:30"].n) ||
+      null;
+    if (oos.ic != null) {
+      const nRow = oos.n_valid ?? oos.n_test ?? "—";
+      bits.push(
+        nd != null
+          ? `OOS IC ${Number(oos.ic).toFixed(3)}（${nRow} 行 / ${nd} 票×日）`
+          : `OOS IC ${Number(oos.ic).toFixed(3)}（n=${nRow}）`
+      );
+    }
+    return bits;
+  }
+
   function renderPathFitSummary(data) {
     const box = document.getElementById("quant-path-result");
     if (!box || !data || typeof data !== "object") return;
@@ -581,7 +608,7 @@ export function initQuant(ctx) {
       data.sell_trig_pct != null && data.buy_trig_pct != null
         ? `触发 卖${data.sell_trig_pct}% / 买${data.buy_trig_pct}%`
         : null,
-      data.sample_count != null ? `样本 n=${data.sample_count}` : null,
+      ...ridgeFitNBits(data),
       touch.n_labeled != null
         ? `触达标签 ${touch.n_labeled}（+${touch.n_pos ?? 0}/−${touch.n_neg ?? 0}）`
         : null,
@@ -622,11 +649,8 @@ export function initQuant(ctx) {
       data.minute_codes_hit != null
         ? `分钟覆盖 ${data.minute_codes_hit}/${data.minute_codes_universe ?? "—"} 票`
         : null,
-      data.sample_count != null ? `样本 n=${data.sample_count}` : null,
-      dist.y_mean != null ? `标签均 ${Number(dist.y_mean).toFixed(1)}` : null,
-      oos.ic != null
-        ? `OOS IC ${Number(oos.ic).toFixed(3)}（n=${oos.n_valid ?? oos.n_test ?? "—"}）`
-        : null,
+      ...ridgeFitNBits(data),
+      dist.y_mean != null ? `标签均 ${Number(dist.y_mean).toFixed(3)}` : null,
       oos.median_hit != null
         ? `中位命中 ${(Number(oos.median_hit) * 100).toFixed(1)}%`
         : null,
@@ -656,11 +680,8 @@ export function initQuant(ctx) {
       data.minute_codes_hit != null
         ? `分钟覆盖 ${data.minute_codes_hit}/${data.minute_codes_universe ?? "—"} 票`
         : null,
-      data.sample_count != null ? `样本 n=${data.sample_count}` : null,
+      ...ridgeFitNBits(data),
       dist.y_mean != null ? `标签均 ${Number(dist.y_mean).toFixed(3)}` : null,
-      oos.ic != null
-        ? `OOS IC ${Number(oos.ic).toFixed(3)}（n=${oos.n_valid ?? oos.n_test ?? "—"}）`
-        : null,
       oos.median_hit != null
         ? `中位命中 ${(Number(oos.median_hit) * 100).toFixed(1)}%`
         : null,

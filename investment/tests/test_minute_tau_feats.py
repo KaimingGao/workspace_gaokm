@@ -70,6 +70,10 @@ class TestMinuteTauPack(unittest.TestCase):
         self.assertEqual(pack["path_sign"], -1.0)
         self.assertGreater(pack["range_pct"], 0)
         self.assertTrue(0.0 <= pack["loc_hl"] <= 1.0)
+        self.assertAlmostEqual(pack["t_hi_frac"], 10.0 / 25.0, places=4)
+        self.assertAlmostEqual(pack["t_lo_frac"], 20.0 / 25.0, places=4)
+        self.assertNotIn("prefix_complexity", pack)
+        self.assertNotIn("prefix_tpd", pack)
 
     def test_tau_cutoff_excludes_later_bars(self):
         pack_early = extract_minute_tau_pack(
@@ -135,6 +139,9 @@ class TestMinuteTauPack(unittest.TestCase):
         ]
         pack = extract_minute_tau_pack(one, trade_date="2026-08-28", open_px=10.0)
         self.assertAlmostEqual(pack["ret_open_to_tau"], 0.0, places=6)
+        self.assertAlmostEqual(pack["t_hi_frac"], 1.0, places=6)
+        self.assertNotIn("prefix_complexity", pack)
+        self.assertNotIn("prefix_tpd", pack)
         self.assertEqual(
             extract_minute_tau_pack([], trade_date="2026-08-28", open_px=10.0),
             {},
@@ -178,11 +185,18 @@ class TestMinuteTauPack(unittest.TestCase):
         feats = {
             "ret_open_to_tau": -1.58,
             "range_pct": 1.8,
+            "prefix_complexity": 0.4,
+            "prefix_tpd": 0.3,
+            "t_hi_frac": 0.2,
             "sector_ret_to_tau": 0.84,
             "ret_vs_sector": -2.42,
             "gap_pct": 0.02,
         }
         kept = clear_minute_tau_pack_keys(dict(feats), include_cs=False)
+        self.assertIsNone(kept.get("ret_open_to_tau"))
+        self.assertIsNone(kept.get("prefix_complexity"))
+        self.assertIsNone(kept.get("t_hi_frac"))
+        self.assertAlmostEqual(kept["sector_ret_to_tau"], 0.84, places=6)
         self.assertIsNone(kept.get("ret_open_to_tau"))
         self.assertAlmostEqual(kept["sector_ret_to_tau"], 0.84, places=6)
         self.assertEqual(kept.get("gap_pct"), 0.02)
@@ -191,7 +205,11 @@ class TestMinuteTauPack(unittest.TestCase):
         self.assertEqual(wiped.get("gap_pct"), 0.02)
 
     def test_pack_keys_constant(self):
+        from core.signal.minute_tau_feats import MINUTE_TAU_SHAPE_KEYS
+
         self.assertEqual(len(MINUTE_TAU_PACK_KEYS), 13)
+        self.assertEqual(len(MINUTE_TAU_SHAPE_KEYS), 4)
+        self.assertTrue(set(MINUTE_TAU_SHAPE_KEYS).isdisjoint(MINUTE_TAU_PACK_KEYS))
 
     def test_variable_prefix_grid_rows(self):
         """少数时钟变长前缀：同日多行，非整根独立标签。"""
@@ -442,7 +460,11 @@ class TestMinuteTauPack(unittest.TestCase):
         # 按 τ 重切：收盘 leftover 不得挡住 10:30
         eod_ret = (9.0 / 10.0 - 1.0) * 100.0
         feats2, as_of2, _ = merge_minute_tau_pack_into_feats(
-            {"ret_open_to_tau": eod_ret, "range_pct": 99.0},
+            {
+                "ret_open_to_tau": eod_ret,
+                "range_pct": 99.0,
+                "prefix_complexity": 0.99,
+            },
             trade_date=day,
             open_px=10.0,
             minute_bars=_bars(day)
@@ -472,6 +494,60 @@ class TestMinuteTauPack(unittest.TestCase):
         self.assertNotAlmostEqual(feats2["ret_open_to_tau"], eod_ret, places=2)
         self.assertEqual(as_of2, f"{day}T10:30:00+08:00")
         self.assertLess(feats2["range_pct"], 99.0)
+        self.assertIn("prefix_complexity", feats2)
+        self.assertNotAlmostEqual(feats2["prefix_complexity"], 0.99, places=2)
+
+    def test_prefix_shape_matches_cx_label_and_is_pit(self):
+        """≥6 根前缀：prefix_complexity/tpd 与全日同公式；τ 截断不含更晚根。"""
+        from core.research.cx_panel import CX_MAX_STEP_MIN, CX_MIN_BARS, cx_complexity_label, tpd_from_closes
+        from core.signal.minute_tau_feats import (
+            PREFIX_SHAPE_MAX_STEP_MIN,
+            PREFIX_SHAPE_MIN_BARS,
+        )
+
+        self.assertEqual(PREFIX_SHAPE_MIN_BARS, CX_MIN_BARS)
+        self.assertEqual(PREFIX_SHAPE_MAX_STEP_MIN, CX_MAX_STEP_MIN)
+        day = "2026-08-28"
+        hms = ["09:35", "09:40", "09:45", "09:50", "09:55", "10:00", "10:05", "10:30"]
+        bars = []
+        for i, hm in enumerate(hms):
+            c = 10.0 + (0.08 if i % 2 else 0.0)
+            bars.append(
+                {
+                    "date": day,
+                    "datetime": f"{day} {hm}:00",
+                    "open": 10.0,
+                    "high": c + 0.05,
+                    "low": c - 0.05,
+                    "close": c,
+                    "volume": 100,
+                }
+            )
+        prefix = bars[:6]
+        pack = extract_minute_tau_pack(
+            bars, trade_date=day, tau_hm="10:00", open_px=10.0
+        )
+        y, reason, meta = cx_complexity_label(prefix)
+        self.assertEqual(reason, "ok")
+        self.assertAlmostEqual(pack["prefix_complexity"], float(y), places=5)
+        self.assertAlmostEqual(pack["prefix_tpd"], float(meta["tpd"]), places=5)
+        tpd_direct = tpd_from_closes(
+            [10.0 + (0.08 if i % 2 else 0.0) for i in range(6)],
+            times_min=[9 * 60 + 35 + 5 * i for i in range(6)],
+        )
+        self.assertAlmostEqual(pack["prefix_tpd"], float(tpd_direct), places=5)
+        pack_early = extract_minute_tau_pack(
+            bars, trade_date=day, tau_hm="09:50", open_px=10.0
+        )
+        self.assertNotIn("prefix_complexity", pack_early)
+        self.assertNotIn("prefix_tpd", pack_early)
+
+    def test_tau_z_excludes_shape_keys(self):
+        from core.research.tau_ridge import TAU_Z_FEATURES
+        from core.signal.minute_tau_feats import MINUTE_TAU_SHAPE_KEYS
+
+        for k in MINUTE_TAU_SHAPE_KEYS:
+            self.assertNotIn(k, TAU_Z_FEATURES)
 
     def test_merge_missing_tau_bar_does_not_stamp_1030(self):
         from core.signal.minute_tau_feats import merge_minute_tau_pack_into_feats
@@ -493,7 +569,7 @@ class TestMinuteTauPack(unittest.TestCase):
         from core.signal.minute_tau_feats import merge_minute_tau_pack_into_feats
 
         feats, as_of, y_spec = merge_minute_tau_pack_into_feats(
-            {"ret_open_to_tau": -2.34, "gap_pct": 0.1},
+            {"ret_open_to_tau": -2.34, "gap_pct": 0.1, "prefix_complexity": 0.99},
             trade_date="2026-08-28",
             open_px=10.0,
             tau_hm="10:30",
@@ -501,6 +577,7 @@ class TestMinuteTauPack(unittest.TestCase):
             load_cache_if_missing=False,
         )
         self.assertIsNone(feats.get("ret_open_to_tau"))
+        self.assertIsNone(feats.get("prefix_complexity"))
         self.assertEqual(feats.get("gap_pct"), 0.1)
         self.assertIsNone(as_of)
         self.assertIsNone(y_spec)

@@ -191,7 +191,7 @@ class CxRidgeFitTests(unittest.TestCase):
             [{"code": "600000", "bars": daily}],
             minute_by_code_date={"600000": minute_by_date},
             ridge_lambda=1.0,
-            tau_grid=["09:30", "10:30"],
+            tau_grid=["09:30", "09:50", "10:30"],
         )
         self.assertTrue(report.get("success"), report.get("error"))
         self.assertEqual(report.get("schema"), "cx_ridge_v1")
@@ -199,6 +199,8 @@ class CxRidgeFitTests(unittest.TestCase):
         oos = report.get("oos") or {}
         self.assertIn("ic", oos)
         self.assertIn("median_hit", oos)
+        self.assertEqual(oos.get("train_frac"), 0.9)
+        self.assertIn("n_train", oos)
         self.assertNotIn("sign_hit", oos)
         y_spec = (report.get("return_model") or {}).get("y_spec") or {}
         self.assertIn("1-D/L", y_spec.get("formula") or "")
@@ -207,6 +209,8 @@ class CxRidgeFitTests(unittest.TestCase):
         self.assertIn("complexity_ma5", extras)
         self.assertIn("tpd_lag1", extras)
         self.assertIn("tpd_ma5", extras)
+        self.assertIn("prefix_complexity", extras)
+        self.assertNotIn("prefix_tpd", extras)
         self.assertNotIn("complexity_tpd_lag1", extras)
         self.assertNotIn("cx_L_lag1", extras)
         self.assertNotIn("cx_am_lag1", extras)
@@ -215,6 +219,16 @@ class CxRidgeFitTests(unittest.TestCase):
         self.assertIn("tpd_lag1", labels)
         self.assertNotIn("cx_lag1", labels)
         self.assertNotIn("complexity_tpd_lag1", labels)
+        prep = (report.get("return_model") or {}).get("prep_meta") or {}
+        self.assertIn("prefix_complexity", prep.get("imputed_keys") or [])
+        self.assertGreater(
+            int((prep.get("impute_n_filled") or {}).get("prefix_complexity") or 0), 0
+        )
+        n_raw = int(prep.get("raw_sample_count") or 0)
+        n_c = int(prep.get("complete_sample_count") or 0)
+        self.assertEqual(n_raw, int(report.get("sample_count") or 0))
+        self.assertGreater(n_raw, 0)
+        self.assertGreater(n_c / float(n_raw), 1.0 / 3.0)
 
 
 class CxLagFeatureTests(unittest.TestCase):
@@ -231,6 +245,9 @@ class CxLagFeatureTests(unittest.TestCase):
         self.assertNotIn("path_lag1", PATH_Z_FEATURES)
         self.assertNotIn("cx_L_lag1", PATH_Z_FEATURES)
         self.assertNotIn("cx_am_lag1", PATH_Z_FEATURES)
+        self.assertNotIn("prefix_complexity", PATH_Z_FEATURES)
+        self.assertNotIn("prefix_tpd", PATH_Z_FEATURES)
+        self.assertNotIn("t_hi_frac", PATH_Z_FEATURES)
         times = _times_am_pm()
         minute_by_date = {}
         daily = []

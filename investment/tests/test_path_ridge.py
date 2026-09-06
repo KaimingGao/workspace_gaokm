@@ -420,6 +420,13 @@ class TestPathRidgeFit(unittest.TestCase):
         extras = rm.get("extra_features") or []
         self.assertIn("path_lag1", extras)
         self.assertIn("path_ma5", extras)
+        self.assertIn("t_hi_frac", extras)
+        self.assertIn("t_lo_frac", extras)
+        prep = rm.get("prep_meta") or {}
+        imputed = set(prep.get("imputed_keys") or [])
+        self.assertTrue({"t_hi_frac", "t_lo_frac"} & imputed)
+        self.assertNotIn("prefix_complexity", extras)
+        self.assertNotIn("prefix_tpd", extras)
         self.assertNotIn("path_range_lag1", extras)
         self.assertNotIn("path_sign_streak", extras)
         self.assertIn("path_lag1", rm.get("feat_labels") or {})
@@ -431,6 +438,8 @@ class TestPathRidgeFit(unittest.TestCase):
         oos = report.get("oos") or {}
         self.assertIn("buckets", oos)
         self.assertIn("by_tau", oos)
+        self.assertEqual(oos.get("train_frac"), 0.9)
+        self.assertIn("n_train", oos)
         self.assertGreaterEqual(len(oos.get("by_tau") or {}), 2)
         gate = report.get("promote_gate") or {}
         self.assertIn("ok", gate)
@@ -557,11 +566,13 @@ class TestPathRidgeService(unittest.TestCase):
                     "ret_open_to_tau": 1.0,
                     "range_pct": 0.5,
                     "pullback_from_high": -0.2,
+                    "t_hi_frac": 0.3,
                 },
                 "active_features": [
                     "ret_open_to_tau",
                     "range_pct",
                     "pullback_from_high",
+                    "t_hi_frac",
                 ],
                 "zscore_means": {},
                 "zscore_stds": {},
@@ -572,6 +583,7 @@ class TestPathRidgeService(unittest.TestCase):
                 "ret_open_to_tau": 1.0,
                 "range_pct": 2.0,
                 "pullback_from_high": 1.0,
+                "t_hi_frac": 0.4,
             },
             model_doc=model,
         )
@@ -579,6 +591,7 @@ class TestPathRidgeService(unittest.TestCase):
         self.assertEqual(by_key["ret_open_to_tau"], "开盘→τ 收益 %")
         self.assertEqual(by_key["range_pct"], "前缀振幅 %")
         self.assertEqual(by_key["pullback_from_high"], "自高回撤 %")
+        self.assertEqual(by_key["t_hi_frac"], "最高点相对前缀进度")
 
     def test_get_path_ridge_model_missing(self):
         from quant.services.quant_service_factors import QuantFactorMixin
@@ -603,6 +616,8 @@ class PathLagFeatureTests(unittest.TestCase):
         self.assertNotIn("path_lag1", PATH_Z_FEATURES)
         self.assertNotIn("path_range_lag1", PATH_Z_FEATURES)
         self.assertNotIn("path_sign_streak", PATH_Z_FEATURES)
+        self.assertNotIn("t_hi_frac", PATH_Z_FEATURES)
+        self.assertNotIn("prefix_complexity", PATH_Z_FEATURES)
         days = ["2025-06-02", "2025-06-03", "2025-06-04", "2025-06-05", "2025-06-06", "2025-06-09"]
         minute_by_date = {}
         daily = []

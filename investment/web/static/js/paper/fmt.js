@@ -372,7 +372,7 @@ export function fmtPathScore(v, opts = {}) {
   return `${n > 0 ? "+" : ""}${n.toFixed(digits)}`;
 }
 
-/** ŷ_ON：隔夜 open 链旁路头。 */
+/** ŷ_ON：隔夜缺口旁路头。 */
 export function resolveOnScore(it) {
   if (!it || typeof it !== "object") return null;
   if (isHeuristicScoreScale(it)) return null;

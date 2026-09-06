@@ -33,7 +33,7 @@ from core.signal.nowcast_kf import (
     run_live_nowcast,
 )
 
-from core.signal.minute_tau_feats import MINUTE_TAU_ALL_KEYS
+from core.signal.minute_tau_feats import MINUTE_TAU_ALL_KEYS, MINUTE_TAU_SHAPE_KEYS
 
 _TAU_FEATURE_KEYS = (
     "gap_pct",
@@ -64,6 +64,9 @@ def features_tau_snapshot(feats: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     src = dict(feats or {})
     attach_ret_vs_sector(src)
     for k in _TAU_FEATURE_KEYS:
+        if k in src:
+            out[k] = src.get(k)
+    for k in MINUTE_TAU_SHAPE_KEYS:
         if k in src:
             out[k] = src.get(k)
     return out

@@ -457,6 +457,10 @@ export function createFactorIcUi(deps) {
     tau_elapsed_min: "τ距开盘分钟",
     sector_ret_to_tau: "板块中位开→τ %",
     ret_vs_sector: "开→τ 相对板块 %",
+    prefix_complexity: "前缀曲折度 1−D/L",
+    prefix_tpd: "前缀转折点密度",
+    t_hi_frac: "最高点相对前缀进度",
+    t_lo_frac: "最低点相对前缀进度",
     ret_oc: "开→收 %",
     ret_cc: "收→收 %",
     y_on_today: "今开/昨开 %",
@@ -572,6 +576,10 @@ export function createFactorIcUi(deps) {
       "tau_elapsed_min",
       "sector_ret_to_tau",
       "ret_vs_sector",
+      "prefix_complexity",
+      "prefix_tpd",
+      "t_hi_frac",
+      "t_lo_frac",
     ]);
     const onExtra = new Set([
       "ret_oc",
@@ -704,7 +712,7 @@ export function createFactorIcUi(deps) {
           ? "1−D/L"
           : "extreme_order(low,high)"
         : isOn
-          ? "open[T+1]/open[T]-1"
+          ? "open[T+1]/close[T]-1"
           : "close[T]/open[T]-1");
     const ySpec = compactYSpecFormula(ySpecRaw, ySpecObj);
     const ySpecClocks = _tauClocksFromYSpec(ySpecRaw, ySpecObj);
@@ -749,17 +757,25 @@ export function createFactorIcUi(deps) {
       n != null && Number.isFinite(Number(n))
         ? Number(n).toLocaleString("en-US")
         : null;
+    const interceptTip = isCx
+      ? "去均值后加回标签均值（∈[0,1]）"
+      : "模型截距（%）";
+    const nTip =
+      "全面板完整行（OOS 后重估 β）；状态栏「面板 n」含缺测行，OOS n 含同日多 τ";
+    const oosIcTip = isCx
+      ? "按交易日 90/10 样本外 Spearman；括号 n 含 19 个 τ，票×日看 by_τ"
+      : "时间切分样本外 IC";
 
     const metrics =
       `<div class="quant-rem-coef-spec-metrics" role="group" aria-label="${esc(
         isPath ? `${isTpd ? "tpd" : isCxHead ? "cx" : "path"} 模型摘要` : isOn ? "on 模型摘要" : "τ 模型摘要"
       )}">` +
-      (intercept != null ? kpi("截距", intercept.toFixed(3), "模型截距（%）") : "") +
-      (nFmt != null ? kpi("样本 n", nFmt, "入模观测数") : "") +
-      (r2 != null ? kpi("R²", r2.toFixed(3), "样本内拟合优度") : "") +
+      (intercept != null ? kpi("截距", intercept.toFixed(3), interceptTip) : "") +
+      (nFmt != null ? kpi("样本 n", nFmt, nTip) : "") +
+      (r2 != null ? kpi("R²", r2.toFixed(3), "全面板样本内拟合优度，非 OOS") : "") +
       (lam != null ? kpi("λ", lam, "Ridge 收缩") : "") +
       (oos.ic != null && Number.isFinite(Number(oos.ic))
-        ? kpi("OOS IC", Number(oos.ic).toFixed(3), "时间切分样本外 IC")
+        ? kpi("OOS IC", Number(oos.ic).toFixed(3), oosIcTip)
         : "") +
       (oos.sign_hit_rate != null && Number.isFinite(Number(oos.sign_hit_rate))
         ? kpi(
@@ -961,7 +977,7 @@ export function createFactorIcUi(deps) {
         r.kind === "历史" && zh ? zh : r.label || r.name || "因子";
       const key = r.name ? `（${r.name}）` : "";
       if (isOn) {
-        return `${shown}${key}：T 日路径 / 开盘 Z，用于估 open[T+1]/open[T]−1。正 β 表示该值偏高时 ŷ_ON 更高。`;
+        return `${shown}${key}：T-1 路径 / 开盘 Z，用于估 open[T+1]/close[T]−1。正 β 表示该值偏高时 ŷ_ON 更高。`;
       }
       if (r.kind === "分钟") {
         return `${shown}${key}：≤τ 的 5m 路径摘要。正 β 表示该值偏高时 ${yhatTag} 更高。`;

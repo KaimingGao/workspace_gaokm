@@ -30,6 +30,21 @@ MINUTE_TAU_CS_KEYS = (
 
 MINUTE_TAU_ALL_KEYS = MINUTE_TAU_PACK_KEYS + MINUTE_TAU_CS_KEYS
 
+# 标签同构前缀形状：写出供各头自选，不进 TAU_Z / 共用 PATH_Z
+# 与 cx_panel.CX_MIN_BARS / CX_MAX_STEP_MIN 对齐；短前缀留空
+PREFIX_SHAPE_MIN_BARS = 6
+PREFIX_SHAPE_MAX_STEP_MIN = 20
+_OPEN_CLOCK_MIN = 9 * 60 + 30
+MINUTE_TAU_SHAPE_KEYS = (
+    "prefix_complexity",
+    "prefix_tpd",
+    "t_hi_frac",
+    "t_lo_frac",
+)
+MINUTE_TAU_PATH_SHAPE_KEYS = ("t_hi_frac", "t_lo_frac")
+MINUTE_TAU_CX_SHAPE_KEYS = ("prefix_complexity",)
+MINUTE_TAU_TPD_SHAPE_KEYS = ("prefix_tpd",)
+
 MINUTE_TAU_FEAT_LABELS = {
     "ret_open_to_tau": "开盘→τ 收益 %",
     "ret_prev_to_tau": "昨收→τ 收益 %",
@@ -46,7 +61,19 @@ MINUTE_TAU_FEAT_LABELS = {
     "tau_elapsed_min": "τ距开盘分钟",
     "sector_ret_to_tau": "板块中位开→τ %",
     "ret_vs_sector": "开→τ 相对板块 %",
+    "prefix_complexity": "前缀曲折度 1−D/L",
+    "prefix_tpd": "前缀转折点密度",
+    "t_hi_frac": "最高点相对前缀进度",
+    "t_lo_frac": "最低点相对前缀进度",
 }
+
+
+def _hm_minutes(hm: str) -> Optional[int]:
+    """HHMM / HH:MM → 当日分钟数。"""
+    s = str(hm or "").replace(":", "")
+    if len(s) < 4 or not s[:4].isdigit():
+        return None
+    return int(s[:2]) * 60 + int(s[2:4])
 
 
 def _bar_hm(b: dict) -> str:
@@ -184,12 +211,101 @@ def clear_minute_tau_pack_keys(
 
     ``include_cs=False``：只清单票路径键，保留已算的 ``sector_ret_to_tau``
     （做 T 前缀 inject 不得把打分用过的截面抹掉）。
+    形状键始终清掉（与路径小包同生命周期）。
     """
     out = feats if isinstance(feats, dict) else {}
     keys = MINUTE_TAU_ALL_KEYS if include_cs else MINUTE_TAU_PACK_KEYS
     for k in keys:
         out.pop(k, None)
+    for k in MINUTE_TAU_SHAPE_KEYS:
+        out.pop(k, None)
     return out
+
+
+def prefix_complexity_from_closes(
+    closes: Sequence[float],
+    times_min: Optional[Sequence[int]] = None,
+    *,
+    min_bars: int = PREFIX_SHAPE_MIN_BARS,
+    max_step_min: int = PREFIX_SHAPE_MAX_STEP_MIN,
+) -> Optional[float]:
+    """前缀 Kaufman 1−D/L ∈[0,1]；公式与 ``cx_complexity_label`` 一致。短前缀空。"""
+    n = len(closes)
+    if n < max(3, int(min_bars)):
+        return None
+    times = list(times_min) if times_min is not None else None
+    if times is None or len(times) != n:
+        times = list(range(n))
+    length = 0.0
+    n_steps = 0
+    cap = max(5, int(max_step_min))
+    for i in range(1, n):
+        dt = int(times[i]) - int(times[i - 1])
+        if dt <= 0:
+            continue
+        if dt > cap:
+            continue
+        length += abs(float(closes[i]) - float(closes[i - 1]))
+        n_steps += 1
+    if n_steps < 2:
+        return None
+    disp = abs(float(closes[-1]) - float(closes[0]))
+    if length <= 1e-12:
+        return 0.0
+    er = min(1.0, disp / length)
+    return round(1.0 - er, 6)
+
+
+def prefix_tpd_from_closes(
+    closes: Sequence[float],
+    times_min: Optional[Sequence[int]] = None,
+    *,
+    min_bars: int = PREFIX_SHAPE_MIN_BARS,
+    max_step_min: int = PREFIX_SHAPE_MAX_STEP_MIN,
+) -> Optional[float]:
+    """前缀转折点密度；公式与 ``tpd_from_closes`` 一致。短前缀空。"""
+    n = len(closes)
+    if n < max(3, int(min_bars)):
+        return None
+    times = list(times_min) if times_min is not None else None
+    if times is None or len(times) != n:
+        turns = 0
+        for i in range(1, n - 1):
+            d1 = float(closes[i]) - float(closes[i - 1])
+            d2 = float(closes[i + 1]) - float(closes[i])
+            if d1 != 0 and d2 != 0 and d1 * d2 < 0:
+                turns += 1
+        return round(turns / float(n - 2), 6)
+
+    cap = max(5, int(max_step_min))
+    segments: List[List[float]] = []
+    cur: List[float] = [float(closes[0])]
+    for i in range(1, n):
+        dt = int(times[i]) - int(times[i - 1])
+        if dt <= 0:
+            continue
+        if dt > cap:
+            if len(cur) >= 3:
+                segments.append(cur)
+            cur = [float(closes[i])]
+        else:
+            cur.append(float(closes[i]))
+    if len(cur) >= 3:
+        segments.append(cur)
+    turns = 0
+    denom = 0
+    for seg in segments:
+        if len(seg) < 3:
+            continue
+        denom += len(seg) - 2
+        for i in range(1, len(seg) - 1):
+            d1 = seg[i] - seg[i - 1]
+            d2 = seg[i + 1] - seg[i]
+            if d1 != 0 and d2 != 0 and d1 * d2 < 0:
+                turns += 1
+    if denom <= 0:
+        return None
+    return round(turns / float(denom), 6)
 
 
 def extract_minute_tau_pack(
@@ -217,6 +333,7 @@ def extract_minute_tau_pack(
     lows: List[Tuple[str, float]] = []
     closes: List[float] = []
     vols: List[float] = []
+    times_min: List[int] = []
     for b in bars:
         hm = _bar_hm(b)
         h = _f(b.get("high"))
@@ -224,6 +341,9 @@ def extract_minute_tau_pack(
         c = _f(b.get("close") if b.get("close") is not None else b.get("price"))
         v = _f(b.get("volume")) or 0.0
         if c is None or c <= 0:
+            continue
+        tmin = _hm_minutes(hm)
+        if tmin is None:
             continue
         if h is None or h <= 0:
             h = c
@@ -233,6 +353,7 @@ def extract_minute_tau_pack(
         lows.append((hm, float(l)))
         closes.append(float(c))
         vols.append(max(0.0, float(v)))
+        times_min.append(int(tmin))
 
     if len(closes) < 1:
         return {}
@@ -287,6 +408,27 @@ def extract_minute_tau_pack(
         avg = sum(vols) / len(vols)
         if avg > 1e-12:
             out["vol_last3_vs_avg"] = round(last3 / avg, 6)
+
+    last_min = times_min[-1] if times_min else None
+    if last_min is not None and last_min > _OPEN_CLOCK_MIN:
+        elapsed = float(last_min - _OPEN_CLOCK_MIN)
+        thi = _hm_minutes(t_hi)
+        tlo = _hm_minutes(t_lo)
+        if thi is not None:
+            out["t_hi_frac"] = round(
+                max(0.0, min(1.0, (float(thi) - _OPEN_CLOCK_MIN) / elapsed)), 6
+            )
+        if tlo is not None:
+            out["t_lo_frac"] = round(
+                max(0.0, min(1.0, (float(tlo) - _OPEN_CLOCK_MIN) / elapsed)), 6
+            )
+
+    cx = prefix_complexity_from_closes(closes, times_min)
+    if cx is not None:
+        out["prefix_complexity"] = cx
+    tpd = prefix_tpd_from_closes(closes, times_min)
+    if tpd is not None:
+        out["prefix_tpd"] = tpd
 
     return out
 

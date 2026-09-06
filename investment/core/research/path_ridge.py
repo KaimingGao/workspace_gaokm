@@ -21,7 +21,7 @@ from core.research.path_panel import (
 )
 from core.research.tau_panel import normalize_minute_tau_grid
 from core.research.tau_ridge import _predict_rows, _subset, _time_split_indices
-from core.signal.minute_tau_feats import MINUTE_TAU_FEAT_LABELS
+from core.signal.minute_tau_feats import MINUTE_TAU_FEAT_LABELS, MINUTE_TAU_PATH_SHAPE_KEYS
 
 PATH_MIN_STD_EXEMPT = PATH_RIDGE_FEATURES
 PATH_PROMOTE_MIN_SIGN_HIT = 0.55  # 全样本：软条件（warnings）
@@ -281,7 +281,7 @@ def fit_path_ridge_report(
     gap_trigger_pct: float = 2.0,
     sell_trig_pct: float = DEFAULT_SELL_TRIG_PCT,
     buy_trig_pct: float = DEFAULT_BUY_TRIG_PCT,
-    train_frac: float = 0.7,
+    train_frac: float = 0.9,
     minute_tau_hm: Optional[str] = None,
     tau_grid: Optional[Sequence[str]] = None,
 ) -> Dict[str, Any]:
@@ -338,6 +338,7 @@ def fit_path_ridge_report(
         standardize=True,
         min_std_exempt=list(PATH_MIN_STD_EXEMPT),
         collinearity_policy="keep_all",
+        impute_keys=list(MINUTE_TAU_PATH_SHAPE_KEYS),
     )
     if not fit.get("success"):
         fit = {
@@ -351,7 +352,7 @@ def fit_path_ridge_report(
         }
 
     # OOS：demeaned 预测 + y_mean → 展示尺度
-    oos: Dict[str, Any] = {"n_test": len(test_idx)}
+    oos: Dict[str, Any] = {"n_train": len(ys_tr), "n_test": len(test_idx)}
     if xs_te:
         preds_dm = _predict_rows(fit, xs_te)
         preds = [
@@ -361,6 +362,7 @@ def fit_path_ridge_report(
         if grid and len(grid) > 1:
             oos["by_tau"] = _oos_by_tau(preds, ys_te, metas_te)
     oos["y_label_mean"] = round(y_mean, 4)
+    oos["train_frac"] = float(train_frac)
     oos["balance"] = bal_info
     oos["tau_grid"] = list(grid)
     oos["minute_tau_hm"] = live_hm
@@ -389,10 +391,21 @@ def fit_path_ridge_report(
         "rows_per_day": round(len(ys) / max(1, len({str(d)[:10] for d in dates})), 2),
     }
 
-    model = dict(fit)
+    ys_all_dm = [float(y) - y_mean for y in ys]
+    fit_full = fit_factor_ols_from_panel(
+        xs_z,
+        ys_all_dm,
+        feature_names=feat_names,
+        ridge_lambda=ridge_lambda,
+        standardize=True,
+        min_std_exempt=list(PATH_MIN_STD_EXEMPT),
+        collinearity_policy="keep_all",
+        impute_keys=list(MINUTE_TAU_PATH_SHAPE_KEYS),
+    )
+    model = dict(fit_full if fit_full.get("success") else fit)
     # 展示/闸门用：截距加回标签均值（推理仍用 demeaned 系数 + y_label_mean）
     try:
-        model["intercept"] = round(float(fit.get("intercept") or 0.0) + y_mean, 6)
+        model["intercept"] = round(float(model.get("intercept") or 0.0) + y_mean, 6)
     except (TypeError, ValueError):
         model["intercept"] = round(y_mean, 6)
     model["intercept_demeaned"] = round(float(fit.get("intercept") or 0.0), 6)

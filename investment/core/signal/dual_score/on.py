@@ -1,4 +1,4 @@
-"""双层 ŷ：隔夜 open 链 ŷ_ON 字段挂载（风控旁路，不进主排序）。"""
+"""双层 ŷ：隔夜缺口 ŷ_ON 字段挂载（风控旁路，不进主排序）。"""
 
 from __future__ import annotations
 
@@ -8,10 +8,10 @@ from typing import Any, Dict, Optional, Sequence
 logger = logging.getLogger(__name__)
 
 DEFAULT_Y_SPEC_ON: Dict[str, Any] = {
-    "formula": "open[T+1]/open[T]-1",
+    "formula": "open[T+1]/close[T]-1",
     "unit": "pct",
-    "anchor": "open[T]",
-    "note": "隔夜 open 链；风控旁路，不进主排序",
+    "anchor": "close[T]",
+    "note": "真实隔夜缺口（T 收盘→T+1 开盘）；风控旁路，不进主排序",
 }
 
 _ON_FEATURE_KEYS = (
@@ -102,7 +102,7 @@ def apply_on_score_fields(
         try:
             total = float(formula_terms_on.get("total") or on_yhat or 0.0)
             signal_item["score_formula_on"] = (
-                f"ŷ_ON = open[T+1]/open[T]-1 ≈ {total:+.3f}%"
+                f"ŷ_ON = open[T+1]/close[T]-1 ≈ {total:+.3f}%"
             )
         except (TypeError, ValueError):
             pass
