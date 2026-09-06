@@ -229,7 +229,7 @@ def quant_path_ridge_model() -> Dict[str, Any]:
 
 @router.post("/api/quant/cx-ridge")
 def quant_cx_ridge(body: CxRidgeRequest) -> Dict[str, Any]:
-    """ŷ_complexity Ridge：开盘 Z + 多 τ 前缀 + prefix_complexity → 全日曲折度 1−D/L ∈[0,1] + 时间 OOS；可选 persist。"""
+    """ŷ_complexity Ridge：开盘 Z + 多 τ 前缀 + lag → 全日曲折度 1−D/L ∈[0,1] + 时间 OOS；可选 persist。"""
     try:
         return deps.quant.run_cx_ridge_experiment(
             lookback=body.lookback,
@@ -257,7 +257,7 @@ def quant_cx_ridge_model() -> Dict[str, Any]:
 
 @router.post("/api/quant/tpd-ridge")
 def quant_tpd_ridge(body: TpdRidgeRequest) -> Dict[str, Any]:
-    """ŷ_tpd Ridge：开盘 Z + 多 τ 前缀 + prefix_tpd → 全日转折点密度 ∈[0,1] + 时间 OOS；可选 persist。"""
+    """ŷ_tpd Ridge：开盘 Z + 多 τ 前缀 + lag → 全日转折点密度 ∈[0,1] + 时间 OOS；可选 persist。"""
     try:
         return deps.quant.run_tpd_ridge_experiment(
             lookback=body.lookback,

@@ -42,6 +42,7 @@ MINUTE_TAU_SHAPE_KEYS = (
     "t_lo_frac",
 )
 MINUTE_TAU_PATH_SHAPE_KEYS = ("t_hi_frac", "t_lo_frac")
+# 仍可写出；ŷ_complexity / ŷ_tpd Ridge X 已不含这两键
 MINUTE_TAU_CX_SHAPE_KEYS = ("prefix_complexity",)
 MINUTE_TAU_TPD_SHAPE_KEYS = ("prefix_tpd",)
 

@@ -11,8 +11,8 @@
 无未来函数：特征 = 开盘 Z + ≤τ 分钟前缀 + 历史真实曲折度
 （complexity_lag1 / complexity_ma5，不含当日）以及 TPD 滞后
 （tpd_lag1 / tpd_ma5；旧键 complexity_tpd_lag* 仍可读）。
-ŷ_complexity 与 ŷ_tpd 共用开盘 Z、路径小包与滞后，只换标签与前缀形状键
-（prefix_complexity vs prefix_tpd）。
+ŷ_complexity 与 ŷ_tpd 共用同一套 X（开盘 Z、路径小包、滞后），只换标签。
+prefix_complexity / prefix_tpd 仍可从分钟小包读到，不进 Ridge。
 研究枢纽拟合；做 T 入场用盘中前缀 ŷ_complexity，ŷ_complexity > y_complexity_max 则跳过
 （不用全日 realized 标签）。旧键 y_cx / cx_lag1 仍可读。
 """
@@ -38,7 +38,6 @@ from core.research.tau_panel import (
     label_lag_features,
     normalize_minute_tau_grid,
 )
-from core.signal.minute_tau_feats import MINUTE_TAU_CX_SHAPE_KEYS, MINUTE_TAU_TPD_SHAPE_KEYS
 
 CX_LAG_WINDOW = 5
 # cx_L_lag1 / cx_am_lag1 曾入模，做 T 回测变差后撤回
@@ -96,8 +95,8 @@ Y_TPD_LABEL_KEYS = (
     "complexity_tpd_realized",
     "cx_tpd_realized",
 )
-CX_Z_FEATURES = PATH_Z_FEATURES + CX_LAG_FEATURES + TPD_LAG_FEATURES + MINUTE_TAU_CX_SHAPE_KEYS
-TPD_Z_FEATURES = PATH_Z_FEATURES + CX_LAG_FEATURES + TPD_LAG_FEATURES + MINUTE_TAU_TPD_SHAPE_KEYS
+CX_Z_FEATURES = PATH_Z_FEATURES + CX_LAG_FEATURES + TPD_LAG_FEATURES
+TPD_Z_FEATURES = PATH_Z_FEATURES + CX_LAG_FEATURES + TPD_LAG_FEATURES
 # 研究枢纽因子表 / feat_labels 只用这四键；cx_lag* / complexity_tpd_lag* 仍可读
 CANON_LAG_FEAT_LABELS = {
     "complexity_lag1": CX_LAG_FEAT_LABELS["complexity_lag1"],

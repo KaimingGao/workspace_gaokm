@@ -1,7 +1,7 @@
 """ŷ_tpd Ridge：开盘 Z + 前缀分钟 + tpd_lag + complexity_lag → 全日转折点密度 TPD ∈ [0,1]。
 
 标签非有符号收益，OOS 看 Spearman IC 与中位命中（≈50% 即无信息），不用方向命中。
-研究枢纽拟合；盘中写 ŷ_tpd，ŷ_tpd > y_tpd_max 则跳过做 T。
+研究枢纽拟合；盘中写 ŷ_tpd，ŷ_tpd > y_tpd_max 则跳过做 T。prefix_tpd 不进 Ridge。
 """
 
 from __future__ import annotations
@@ -38,7 +38,7 @@ from core.research.cx_ridge import (
 from core.research.factor_ols_fit import fit_factor_ols_from_panel
 from core.research.tau_panel import normalize_minute_tau_grid
 from core.research.tau_ridge import _predict_rows, _subset, _time_split_indices
-from core.signal.minute_tau_feats import MINUTE_TAU_FEAT_LABELS, MINUTE_TAU_TPD_SHAPE_KEYS
+from core.signal.minute_tau_feats import MINUTE_TAU_FEAT_LABELS
 
 TPD_MIN_STD_EXEMPT = TPD_Z_FEATURES
 TPD_PROMOTE_MIN_N_TEST = CX_PROMOTE_MIN_N_TEST
@@ -104,7 +104,6 @@ def fit_tpd_ridge_report(
         standardize=True,
         min_std_exempt=list(TPD_MIN_STD_EXEMPT),
         collinearity_policy="keep_all",
-        impute_keys=list(MINUTE_TAU_TPD_SHAPE_KEYS),
     )
     if not fit.get("success"):
         fit = {
@@ -169,7 +168,6 @@ def fit_tpd_ridge_report(
         standardize=True,
         min_std_exempt=list(TPD_MIN_STD_EXEMPT),
         collinearity_policy="keep_all",
-        impute_keys=list(MINUTE_TAU_TPD_SHAPE_KEYS),
     )
     model = dict(fit_full if fit_full.get("success") else fit)
     try:
@@ -189,8 +187,8 @@ def fit_tpd_ridge_report(
         "tau_grid": list(grid),
         "note": (
             "TPD=连续 5m 段内方向反转次数/有效内点（午休跳空不计）；"
-            "y_tpd∈[0,1]，0=无反转、1=每根都反转。特征=开盘 Z + ≤τ 前缀 + prefix_tpd + tpd_lag1/ma5 + complexity_lag1/ma5。"
-            " 与 ŷ_complexity 共享开盘 Z 与路径小包，额外吃前缀 TPD。OOS 看 IC / 中位命中，不看方向命中。"
+            "y_tpd∈[0,1]，0=无反转、1=每根都反转。特征=开盘 Z + ≤τ 前缀 + tpd_lag1/ma5 + complexity_lag1/ma5。"
+            " 与 ŷ_complexity 共享开盘 Z 与路径小包。OOS 看 IC / 中位命中，不看方向命中。"
         ),
     }
     model["extra_features"] = list(TPD_Z_FEATURES)
@@ -213,7 +211,7 @@ def fit_tpd_ridge_report(
         "minute_tau_hm": live_hm,
         "tau_grid": list(grid),
         "dual_score_head": "y_tpd",
-        "note": "开盘 Z + 多 τ 前缀 + prefix_tpd + tpd_lag + complexity_lag → 全日转折点密度 [0,1]；ŷ_tpd>y_tpd_max 跳过做 T",
+        "note": "开盘 Z + 多 τ 前缀 + tpd_lag + complexity_lag → 全日转折点密度 [0,1]；ŷ_tpd>y_tpd_max 跳过做 T",
     }
     report["promote_gate"] = tpd_promote_gate(report)
     return report

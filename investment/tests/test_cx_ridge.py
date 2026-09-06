@@ -209,7 +209,7 @@ class CxRidgeFitTests(unittest.TestCase):
         self.assertIn("complexity_ma5", extras)
         self.assertIn("tpd_lag1", extras)
         self.assertIn("tpd_ma5", extras)
-        self.assertIn("prefix_complexity", extras)
+        self.assertNotIn("prefix_complexity", extras)
         self.assertNotIn("prefix_tpd", extras)
         self.assertNotIn("complexity_tpd_lag1", extras)
         self.assertNotIn("cx_L_lag1", extras)
@@ -220,10 +220,7 @@ class CxRidgeFitTests(unittest.TestCase):
         self.assertNotIn("cx_lag1", labels)
         self.assertNotIn("complexity_tpd_lag1", labels)
         prep = (report.get("return_model") or {}).get("prep_meta") or {}
-        self.assertIn("prefix_complexity", prep.get("imputed_keys") or [])
-        self.assertGreater(
-            int((prep.get("impute_n_filled") or {}).get("prefix_complexity") or 0), 0
-        )
+        self.assertNotIn("prefix_complexity", prep.get("imputed_keys") or [])
         n_raw = int(prep.get("raw_sample_count") or 0)
         n_c = int(prep.get("complete_sample_count") or 0)
         self.assertEqual(n_raw, int(report.get("sample_count") or 0))
@@ -248,6 +245,13 @@ class CxLagFeatureTests(unittest.TestCase):
         self.assertNotIn("prefix_complexity", PATH_Z_FEATURES)
         self.assertNotIn("prefix_tpd", PATH_Z_FEATURES)
         self.assertNotIn("t_hi_frac", PATH_Z_FEATURES)
+        from core.research.cx_panel import CX_Z_FEATURES, TPD_Z_FEATURES
+
+        self.assertNotIn("prefix_complexity", CX_Z_FEATURES)
+        self.assertNotIn("prefix_tpd", CX_Z_FEATURES)
+        self.assertNotIn("prefix_complexity", TPD_Z_FEATURES)
+        self.assertNotIn("prefix_tpd", TPD_Z_FEATURES)
+        self.assertEqual(list(CX_Z_FEATURES), list(TPD_Z_FEATURES))
         times = _times_am_pm()
         minute_by_date = {}
         daily = []
