@@ -260,6 +260,8 @@ class TestCloseBandCore(unittest.TestCase):
             "y_path_enter": 0.0,
             "y_use_path": False,
             "y_complexity_max": 0.5,
+            # 与门槛1同闸，避免门槛2 默认 cx≤1.0 把太折救过
+            "y_complexity_max_alt": 0.5,
         }
         too = close_band_enter_skip_reason(
             {"y_tau": 1.0, "predicted_score_complexity": 0.8},
@@ -300,6 +302,7 @@ class TestCloseBandCore(unittest.TestCase):
             "y_use_path": False,
             "y_complexity_max": 1.0,
             "y_tpd_max": 0.40,
+            "y_tpd_max_alt": 0.40,
         }
         too = close_band_enter_skip_reason(
             {"y_tau": 1.0, "predicted_score_tpd": 0.80, "y_tpd_hat": 0.80},
@@ -326,6 +329,7 @@ class TestCloseBandCore(unittest.TestCase):
                 "y_path_enter": 0.0,
                 "y_use_path": False,
                 "y_complexity_max": 1.0,
+                "y_tpd_max_alt": 0.40,
             },
         )
         self.assertIsNotNone(default_on)
@@ -1704,7 +1708,7 @@ class TestMergeSlotDay(unittest.TestCase):
         return row
 
     def test_rerun_drops_cash_dependent_round(self):
-        """满仓：反T卖开供正T买，反T买回失败则两轮都丢，现金不变负。"""
+        """满仓：后轮正T占用反T卖开款时，丢掉后轮、留下先开的反T，现金不变负。"""
         from core.t0.slots import _merge_slot_day
 
         bar = {"date": "2025-01-02", "open": 10, "close": 9}
@@ -1738,9 +1742,11 @@ class TestMergeSlotDay(unittest.TestCase):
         cash0 = 0.0
         self.assertGreaterEqual(cash0 + float(merged.get("cash_delta") or 0), -1e-6)
         self.assertAlmostEqual(float(merged["shares_end"]), 1000.0)
-        self.assertEqual(merged.get("trades") or [], [])
+        trades = merged.get("trades") or []
+        self.assertEqual(len(trades), 2)
+        self.assertTrue(all(t.get("side", "").endswith(("sell", "buy")) for t in trades))
         by_id = {str(r.get("t0_slot")): r for r in (merged.get("t0_slot_results") or [])}
-        self.assertTrue(by_id["r1"].get("skipped"))
+        self.assertFalse(by_id["r1"].get("skipped"))
         self.assertTrue(by_id["r2"].get("skipped"))
         self.assertEqual(by_id["r1"].get("t0_slot_hm"), "10:00")
         self.assertEqual((by_id["r1"].get("close_band") or {}).get("hm"), "10:00")

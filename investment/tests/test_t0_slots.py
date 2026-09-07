@@ -330,6 +330,7 @@ class TestT0Slots(unittest.TestCase):
                 must_cover_same_day_sell_then_buy=False,
                 must_cover_same_day=False,
                 t0_stop_pct_sell_then_buy=0,
+                y_path_strong=100.0,
             ),
             stock_code="600519",
             minute_bars=mins,
@@ -592,6 +593,26 @@ class TestT0Slots(unittest.TestCase):
         self.assertEqual(extra["t0_slot"], "s2")
         self.assertEqual(extra["t0_slot_hm"], "10:30")
 
+
+    def test_settle_drops_later_round_keeps_first_buy(self):
+        """正T三轮回补超过可卖时，丢掉最后一轮，09:40 第一笔留下。"""
+        from core.t0.slots import _settle_tagged_slot_legs
+
+        tagged = [
+            ("2026-08-24 09:40:00", {"side": "buy", "shares": 4000, "net_cash_delta": -346000}, "r1"),
+            ("2026-08-24 09:45:00", {"side": "buy", "shares": 5600, "net_cash_delta": -486000}, "r2"),
+            ("2026-08-24 09:50:00", {"side": "buy", "shares": 3900, "net_cash_delta": -337000}, "r3"),
+            ("2026-08-24 13:25:00", {"side": "sell", "shares": 3900, "net_cash_delta": 337000}, "r3"),
+            ("2026-08-24 14:35:00", {"side": "sell", "shares": 5600, "net_cash_delta": 480000}, "r2"),
+            ("2026-08-24 14:35:00", {"side": "sell", "shares": 4000, "net_cash_delta": 342000}, "r1"),
+        ]
+        dropped, _cash, _shares = _settle_tagged_slot_legs(
+            tagged,
+            cash=2_000_000,
+            shares=10000,
+            sellable_old=10000,
+        )
+        self.assertEqual(dropped, {"r3"})
 
     def test_merge_respects_sellable_below_shares(self):
         date = "2026-03-02"

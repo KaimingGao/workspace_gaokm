@@ -126,6 +126,38 @@ def _try_apply_slot_trades(
     return True, cash, shares, sellable
 
 
+def _sid_first_at(tagged: Sequence[Tuple[str, dict, str]], sid: str) -> str:
+    """该轮第一笔成交时间（开仓先后）。"""
+    key = str(sid or "")
+    for at, _t, s in tagged:
+        if str(s) == key:
+            return str(at or "")
+    return ""
+
+
+def _sid_open_rank(tagged: Sequence[Tuple[str, dict, str]], sid: str) -> Tuple[str, int, str]:
+    """开仓序：先墙钟，再 rN / sN 编号。编号越大越晚开。"""
+    s = str(sid or "")
+    n = 0
+    i = len(s) - 1
+    while i >= 0 and s[i].isdigit():
+        i -= 1
+    if i < len(s) - 1:
+        try:
+            n = int(s[i + 1 :])
+        except ValueError:
+            n = 0
+    return (_sid_first_at(tagged, s), n, s)
+
+
+def _latest_open_sid(tagged: Sequence[Tuple[str, dict, str]], remaining: set) -> Optional[str]:
+    """剩余轮里最晚开的一笔。现金/可卖不够时丢掉后轮，不撤已发生的第一笔。"""
+    left = [str(s) for s in remaining if s]
+    if not left:
+        return None
+    return max(left, key=lambda s: _sid_open_rank(tagged, s))
+
+
 def _settle_tagged_slot_legs(
     tagged: Sequence[Tuple[str, dict, str]],
     *,
@@ -133,9 +165,9 @@ def _settle_tagged_slot_legs(
     shares: float,
     sellable_old: float,
 ) -> Tuple[set, float, float]:
-    """按墙钟落账。某轮失败则丢弃该轮，从日初现金/可卖重放剩余轮，直到稳定。
+    """按墙钟落账。现金/可卖不够时丢掉**最晚开**的一轮，从日初重放，直到稳定。
 
-    只回滚当前 sid 会留下「已花掉被撤卖开款」的其它轮，cash_now 可能变负。
+    正 T 第二腿卖的是底仓：后轮下午先卖光可卖时，不能把先开的第一轮整笔撤掉。
     """
     dropped: set = set()
     n_unique = len({sid for _at, _t, sid in tagged})
@@ -145,7 +177,7 @@ def _settle_tagged_slot_legs(
         cash_now = float(cash or 0)
         shares_now = float(shares)
         sellable_now = float(sellable_old)
-        failed = None
+        failed = False
         for _at, trade, sid in tagged:
             if sid in dropped:
                 continue
@@ -159,7 +191,7 @@ def _settle_tagged_slot_legs(
             elif sellable_now + 1e-9 < qty:
                 ok = False
             if not ok:
-                failed = sid
+                failed = True
                 break
             if side.endswith("buy"):
                 shares_now += qty
@@ -167,9 +199,13 @@ def _settle_tagged_slot_legs(
                 shares_now -= qty
                 sellable_now -= qty
             cash_now += delta
-        if failed is None:
+        if not failed:
             return dropped, cash_now, shares_now
-        dropped.add(failed)
+        remaining = {str(s) for _a, _t, s in tagged if s not in dropped}
+        latest = _latest_open_sid(tagged, remaining)
+        if not latest:
+            break
+        dropped.add(latest)
     return dropped, cash_now, shares_now
 
 
@@ -429,7 +465,7 @@ def _merge_slot_day(
     sellable_shares: Optional[float] = None,
     minute_bars: Optional[Sequence[dict]] = None,
 ) -> Dict[str, Any]:
-    """按时间合并各轮成交；现金/可卖不够则整轮丢弃并重放剩余轮。卖出只动日初可卖（T+1）。"""
+    """按时间合并各轮成交；现金/可卖不够则丢掉最晚开的一轮并重放。卖出只动日初可卖（T+1）。"""
     tagged: List[Tuple[str, dict, str]] = []
     for out in slot_outs:
         sid = str((out or {}).get("t0_slot") or "")
@@ -1083,6 +1119,7 @@ def simulate_t0_day_slots(
     shares_now = float(shares)
     sellable_now = float(sellable_cap)
     used_ratio = 0.0
+    cover_committed = 0.0  # 正T已开轮将占用的底仓回补额度
     leg1_rounds = 0
     last_leg1_idx = -1
     last_sign_skip: Optional[str] = None
@@ -1265,8 +1302,16 @@ def simulate_t0_day_slots(
         if ratio < 0.05:
             break
         slice_qty = float(_lot_floor(sellable_cap * ratio, lot))
-        # 反T卖开受剩余可卖约束；正T 第一腿买用现金，可卖交给路径内第二腿约束
+        # 反T卖开受剩余可卖约束；正T 第二腿仍卖旧仓，开新轮前预扣已承诺回补额度
         slice_qty = min(slice_qty, float(_lot_floor(sellable_now, lot)))
+        path_sellable = slice_qty if direction == "sell_then_buy" else sellable_now
+        if direction == "buy_then_sell":
+            remain_cover = float(
+                _lot_floor(max(0.0, float(sellable_cap) - cover_committed), lot)
+            )
+            if remain_cover < lot:
+                continue
+            path_sellable = remain_cover
         if direction == "sell_then_buy" and slice_qty < lot:
             continue
 
@@ -1335,7 +1380,7 @@ def simulate_t0_day_slots(
             bar=bar,
             shares=shares_now,
             cost=cost,
-            sellable_shares=slice_qty if direction == "sell_then_buy" else sellable_now,
+            sellable_shares=path_sellable,
             ratio=ratio,
             cfg_day=cfg,
             cash=avail_cash,
@@ -1388,6 +1433,12 @@ def simulate_t0_day_slots(
                 used_ratio += ratio
                 leg1_rounds += 1
                 last_leg1_idx = idx
+                if direction == "buy_then_sell":
+                    cover_committed += sum(
+                        float(t.get("shares") or 0)
+                        for t in scan_trades
+                        if str(t.get("side") or "").endswith("buy")
+                    )
             outs.append(out)
         else:
             # 无截至本根成交：不占轮次（防时间戳错位空占；全日腿也不入合并）
