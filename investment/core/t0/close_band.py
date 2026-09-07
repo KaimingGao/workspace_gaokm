@@ -150,7 +150,6 @@ def resolve_close_band_thresholds_pct(
     mode: str = "score",
     risk_k: float = 1.0,
     shift_scale: float = 0.9,
-    band_floor_frac: float = 0.5,  # 兼容旧参；α<1 时不再需要 ε 地板
 ) -> tuple[float, float]:
     """局部超额 r=(p/ĉ−1)×100 的上下门槛（百分点）。
 
@@ -161,7 +160,6 @@ def resolve_close_band_thresholds_pct(
     - ``upper = δ+s``，``lower = −δ+s``
       （α<1 ⇒ upper>0>lower；α=1 时同侧可贴 0）
     """
-    _ = band_floor_frac
     d = max(0.0, float(delta_pct))
     mode_n = normalize_y_tau_leg1_prior_mode(mode, default="score")
     if mode_n != "score" or y_tau is None:
@@ -556,45 +554,12 @@ def normalize_y_tau_leg1_prior_mode(raw: Any, *, default: str = "off") -> str:
     return str(default or "off")
 
 
-def tau_prior_adverse_pct(
-    y_tau: float,
-    direction: str,
-    *,
-    eps: float = 1e-9,
-) -> float:
-    """局部↔整体不一致幅度（收益百分点）。
-
-    破带定腿隐含局部 price→ĉ（正T：价在 ĉ 下、局部向上；反T：价在 ĉ 上、局部向下）；
-    y_τ 是分槽/日线 open→close 整体方向。二者异号时 adverse=|y_τ|，同向为 0。
-    """
-    d = str(direction or "").strip()
-    yt = float(y_tau)
-    e = max(0.0, float(eps))
-    if d == "buy_then_sell":
-        return max(0.0, -yt) if yt < -e else 0.0
-    if d == "sell_then_buy":
-        return max(0.0, yt) if yt > e else 0.0
-    return 0.0
-
-
-def close_band_tau_prior_skip_reason(
-    scores: Optional[dict],
-    cfg: Optional[dict] = None,
-    *,
-    direction: Optional[str] = None,
-    bar_close: Optional[float] = None,
-    close_px: Optional[float] = None,
-    delta_px: Optional[float] = None,
-) -> Optional[str]:
-    """τ先验硬跳过已下线；旧 skip 由 normalize 并入 score，此处一律放行。"""
-    _ = (scores, cfg, direction, bar_close, close_px, delta_px)
-    return None
-
-
 def _enter_profile_skip_reason(
     *,
     y_tau: Optional[float],
     y_path: Optional[float],
+    r_enter: float,
+    r_pct: Optional[float],
     y_complexity_u: Optional[float],
     y_tpd_u: Optional[float],
     tau_enter: float,
@@ -603,7 +568,7 @@ def _enter_profile_skip_reason(
     tpd_max: float,
     use_path: bool,
 ) -> Optional[str]:
-    """一组 |y_τ|/|y_path|/complexity/tpd 入场闸；缺 hat 的 complexity/tpd 不挡。"""
+    """一组 |y_τ| / |y_path| / |R̂_τ| / complexity / tpd 入场闸；缺 hat 的风险不挡。"""
     if tau_enter > 0:
         if y_tau is None:
             return "y_τ 缺失，未过入场门槛"
@@ -614,11 +579,36 @@ def _enter_profile_skip_reason(
         yp = float(y_path)
         if abs(yp) < path_enter - 1e-12:
             return f"|y_path|={abs(yp):.3f}%<{path_enter:g}% 未过入场（横盘）"
+    r_enter = max(0.0, min(float(r_enter), 1.0))
+    if r_enter > 0:
+        if r_pct is None:
+            return "R̂_τ 缺失，未过入场门槛"
+        try:
+            rv = abs(float(r_pct))
+        except (TypeError, ValueError):
+            return "R̂_τ 缺失，未过入场门槛"
+        if rv < r_enter - 1e-12:
+            return f"|R̂_τ|={rv:.3f}%<{r_enter:g}% 未过入场（超额不足）"
     if y_complexity_u is not None and y_complexity_u > cx_max + 1e-12:
         return f"y_complexity={y_complexity_u:.3f}>{cx_max:g} 太折跳过"
     if y_tpd_u is not None and y_tpd_u > tpd_max + 1e-12:
         return f"y_tpd={y_tpd_u:.3f}>{tpd_max:g} 反转过密跳过"
     return None
+
+
+def _cfg_or_follow(
+    cfg_d: dict,
+    key: str,
+    follow: float,
+    *,
+    lo: float,
+    hi: float,
+) -> float:
+    from core.t0.score_policy import _cfg_float
+
+    if cfg_d.get(key) in (None, ""):
+        return max(lo, min(float(follow), hi))
+    return max(lo, min(float(_cfg_float(cfg_d, key, follow)), hi))
 
 
 def close_band_enter_skip_reason(
@@ -628,17 +618,11 @@ def close_band_enter_skip_reason(
     direction: Optional[str] = None,
     r_pct: Optional[float] = None,
 ) -> Optional[str]:
-    """入场门槛：|y_τ|≥y_tau_enter；y_use_path 时须有 y_path 且 |y_path|≥y_path_enter。
-    ŷ_complexity > y_complexity_max（0.00–1.00）则太折跳过；缺 ŷ_complexity 不挡。
-    ŷ_tpd > y_tpd_max（0.00–1.00，默认 0.40）则反转过密跳过；缺 ŷ_tpd 不挡；1.00≈关。
+    """入场：启用中的门槛1 ∪ 门槛2。每档 |y_τ|、|y_path|、|R̂_τ| 过入场，且 complexity/tpd 过上限。
 
-    选腿仍由收盘带宽定方向；此处只过滤横盘/弱信号/缺 path / |R̂_τ| 不足 / 太折 / TPD 过密。
-    enter≤0 仅关闭对应 |ŷ| 幅度闸；缺 y_path 在 y_use_path 下仍跳过。
-    r_tau_enter 经 load 钳在 0–1.0；≤0 关闸（直传旧 cfg 兼容）。
-
-    门槛2 无开关：门槛1 未过仍按 y_*_alt 再判一次（缺键用默认 |y_τ|/|y_path|≥0.40%，
-    complexity/tpd≤1.0≈关）。|R̂_τ| 与缺 path / 分钟缺失共用，不能绕过。
-    两档都未过时文案带「门槛1 …；门槛2 …」。
+    ``y_enter_enabled`` / ``y_enter_alt_enabled`` 关则该档不参与 OR；两档都关则不开腿。
+    缺键时门槛2 跟随门槛1，避免未配置的备选把风险放行。
+    y_use_path 时缺 y_path 仍跳过（开盘 minute_feats_missing 除外）；分钟缺失共用。
     """
     from core.t0.score_policy import (
         DEFAULT_PATH_ENTER,
@@ -667,33 +651,16 @@ def close_band_enter_skip_reason(
 
     y_tau = resolve_direction_y_tau(sc)
 
-    r_enter = _cfg_float(cfg_d, "r_tau_enter", 0.0)
-    r_enter = max(0.0, min(float(r_enter), 1.0))
-    if r_enter > 0:
-        if r_pct is None:
-            return "R̂_τ 缺失，未过入场门槛"
-        try:
-            rv = abs(float(r_pct))
-        except (TypeError, ValueError):
-            return "R̂_τ 缺失，未过入场门槛"
-        if rv < r_enter - 1e-12:
-            return f"|R̂_τ|={rv:.3f}%<{r_enter:g}% 未过入场（超额不足）"
-
     status = str(
         sc.get("y_path_status") or raw.get("y_path_status") or ""
     ).strip()
-    # 非 09:30：缺分钟小包 = 数据缺失，硬跳过（与 y_use_path 无关）
     if raw.get("_minute_data_missing") or status == "minute_data_missing":
         return "分钟数据缺失（非 09:30 须有分钟小包）"
 
     use_path = coerce_cfg_bool(cfg_d.get("y_use_path"), True)
     y_path = sc.get("y_path")
-    if use_path:
-        if y_path is None:
-            # 仅 09:30 / 开盘信息集：无分钟且开盘特征不足时暂不挡 path 闸
-            if status == "minute_feats_missing":
-                return None
-            return "y_path 缺失，未过入场门槛"
+    if use_path and y_path is None and status != "minute_feats_missing":
+        return "y_path 缺失，未过入场门槛"
 
     from core.research.cx_panel import pick_y_complexity_hat, pick_y_tpd_hat
 
@@ -707,44 +674,72 @@ def close_band_enter_skip_reason(
     tpd_max = max(0.0, min(float(tpd_max), 1.0))
     y_tpd_u = pick_y_tpd_hat(sc, raw)
 
-    skip = _enter_profile_skip_reason(
-        y_tau=y_tau,
-        y_path=y_path,
-        y_complexity_u=y_complexity_u,
-        y_tpd_u=y_tpd_u,
-        tau_enter=tau_enter,
-        path_enter=path_enter,
-        cx_max=cx_max,
-        tpd_max=tpd_max,
-        use_path=use_path,
-    )
-    if skip is None:
-        return None
+    r_enter = _cfg_float(cfg_d, "r_tau_enter", 0.0)
+    r_enter = max(0.0, min(float(r_enter), 1.0))
 
-    tau_enter_alt = _cfg_float(cfg_d, "y_tau_enter_alt", 0.40)
-    tau_enter_alt = max(0.0, min(float(tau_enter_alt), 100.0))
-    path_enter_alt = _cfg_float(cfg_d, "y_path_enter_alt", 0.40)
-    path_enter_alt = max(0.0, min(float(path_enter_alt), 100.0))
-    cx_max_alt = _cfg_float(cfg_d, "y_complexity_max_alt", 1.0)
-    cx_max_alt = max(0.0, min(float(cx_max_alt), 1.0))
-    tpd_max_alt = _cfg_float(cfg_d, "y_tpd_max_alt", 1.0)
-    tpd_max_alt = max(0.0, min(float(tpd_max_alt), 1.0))
-    skip_alt = _enter_profile_skip_reason(
-        y_tau=y_tau,
-        y_path=y_path,
-        y_complexity_u=y_complexity_u,
-        y_tpd_u=y_tpd_u,
-        tau_enter=tau_enter_alt,
-        path_enter=path_enter_alt,
-        cx_max=cx_max_alt,
-        tpd_max=tpd_max_alt,
-        use_path=use_path,
-    )
-    if skip_alt is None:
-        return None
-    if skip_alt == skip:
+    gate1_on = coerce_cfg_bool(cfg_d.get("y_enter_enabled"), True)
+    gate2_on = coerce_cfg_bool(cfg_d.get("y_enter_alt_enabled"), True)
+
+    skip = None
+    if gate1_on:
+        skip = _enter_profile_skip_reason(
+            y_tau=y_tau,
+            y_path=y_path,
+            r_enter=r_enter,
+            r_pct=r_pct,
+            y_complexity_u=y_complexity_u,
+            y_tpd_u=y_tpd_u,
+            tau_enter=tau_enter,
+            path_enter=path_enter,
+            cx_max=cx_max,
+            tpd_max=tpd_max,
+            use_path=use_path,
+        )
+        if skip is None:
+            return None
+
+    skip_alt = None
+    if gate2_on:
+        tau_enter_alt = _cfg_or_follow(
+            cfg_d, "y_tau_enter_alt", tau_enter, lo=0.0, hi=100.0
+        )
+        path_enter_alt = _cfg_or_follow(
+            cfg_d, "y_path_enter_alt", path_enter, lo=0.0, hi=100.0
+        )
+        r_enter_alt = _cfg_or_follow(
+            cfg_d, "r_tau_enter_alt", r_enter, lo=0.0, hi=1.0
+        )
+        cx_max_alt = _cfg_or_follow(
+            cfg_d, "y_complexity_max_alt", cx_max, lo=0.0, hi=1.0
+        )
+        tpd_max_alt = _cfg_or_follow(
+            cfg_d, "y_tpd_max_alt", tpd_max, lo=0.0, hi=1.0
+        )
+        skip_alt = _enter_profile_skip_reason(
+            y_tau=y_tau,
+            y_path=y_path,
+            r_enter=r_enter_alt,
+            r_pct=r_pct,
+            y_complexity_u=y_complexity_u,
+            y_tpd_u=y_tpd_u,
+            tau_enter=tau_enter_alt,
+            path_enter=path_enter_alt,
+            cx_max=cx_max_alt,
+            tpd_max=tpd_max_alt,
+            use_path=use_path,
+        )
+        if skip_alt is None:
+            return None
+
+    if not gate1_on and not gate2_on:
+        return "门槛1/2 均未启用"
+    if gate1_on and gate2_on:
+        if skip_alt == skip:
+            return skip
+        return f"门槛1 {skip}；门槛2 {skip_alt}"
+    if gate1_on:
         return skip
-    return f"门槛1 {skip}；门槛2 {skip_alt}"
+    return skip_alt
 
 
 @dataclass

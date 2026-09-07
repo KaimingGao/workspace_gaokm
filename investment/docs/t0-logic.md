@@ -63,14 +63,14 @@
 
 | ŷ | 标签 | 含义 | 在做 T 中的作用 |
 |----|------|------|-----------------|
-| `y_trade` | 日频交易分数 | 横截面排序主信号 | **入场下限** `y_trade_enter`；超强 `y_trade_strong` 须与 ŷ_τ 同号 |
-| `y_eod` | 预估日收收益 | open→close（昨收口径） | 准入 `y_eod_enter`；强闸同号；同向略抬目标价 |
-| **`y_τ`** | 盘中 τ 收益 | open→close（开盘口径，OC 拟合） | **主方向锚**；映射正/反 T；估 ĉ |
-| `y_path` | 极值时间序 | signed range%（分钟路径） | 与 ŷ_τ 联合准入；强 `y_path_strong` 须同号 |
-| `y_nowcast` | 即时对照 | 盘中剩余收益 | 准入 `y_nc_enter`；强闸同号（可选） |
+| `y_trade` | 日频交易分数 | 横截面排序主信号 | **不参与**估 ĉ 与选腿 |
+| `y_eod` | 预估日收收益 | open→close（昨收口径） | **不参与**估 ĉ 与选腿 |
+| **`y_τ`** | 盘中 τ 收益 | open→close（开盘口径，OC 拟合） | **估 ĉ**；门槛 \|y_τ\| 入场 |
+| `y_path` | 极值时间序 | signed range%（分钟路径） | 缺测闸 + 强异号 + 门槛 \|y_path\| 入场 |
+| `y_nowcast` | 即时对照 | 盘中剩余收益 | **不参与**估 ĉ 与选腿 |
 | `y_on` | 尾盘回补 | 尾盘是否强制回补 | 控制 EOD 强平 |
-| `y_complexity` | 路径复杂度 | 1−Kaufman ER + TPD | 太折（`> y_complexity_max`）跳过 |
-| `y_tpd` | 拐点密度 | Turning Point Density | 反转过密（`> y_tpd_max`）跳过 |
+| `y_complexity` | 路径复杂度 | 1−Kaufman ER + TPD | **风险**：太折（`> y_complexity_max`）跳过 |
+| `y_tpd` | 拐点密度 | Turning Point Density | **风险**：反转过密（`> y_tpd_max`）跳过 |
 
 ### 3.2 方向映射（`y_tau_map`）
 
@@ -115,7 +115,7 @@
    │     C > ĉ_m + δ  → 反 T（sell_then_buy）
    │     C < ĉ_m − δ  → 正 T（buy_then_sell）
    │     |C − ĉ_m| ≤ δ → 带内，跳过
-   ├─ 入场门槛校验（|ŷ_τ| / |ŷ_path| / |R̂_τ| / complexity / tpd）
+   ├─ 入场门槛校验（门槛1 ∪ 门槛2：τ / path / R 入场 · complexity / tpd 风险）
    ├─ 强 path 同号校验
    └─ 破带且通过 → 开一轮（freeze leg2 target）
 ```
@@ -144,21 +144,18 @@ if r < lower:  → 正 T
 
 ### 4.4 入场门槛（`close_band_enter_skip_reason`）
 
-破带后仍需通过以下门槛才开 leg1：
+破带后过 **已启用的门槛1 或 门槛2** 任一即可开 leg1。每档都是 **|y_τ|、|y_path|、|R̂_τ| 过入场 AND complexity/tpd 过上限**：
 
-| 门槛 | 配置 | 默认 | 说明 |
-|------|------|------|------|
-| `|ŷ_τ|` | `y_tau_enter`（分侧） | 0.01% | 横盘跳过；范围 0–100% |
-| `|ŷ_path|` | `y_path_enter`（分侧） | 0.01% | `y_use_path=True` 时生效；范围 0–100% |
-| `|R̂_τ|` | `r_tau_enter` | 0.1 | 局部超额不足跳过（门槛1 / 门槛2 共用） |
-| `ŷ_complexity` | `y_complexity_max` | 1.0（≈关） | 太折跳过；范围 0–1 |
-| `ŷ_tpd` | `y_tpd_max` | 0.40 | 反转过密跳过；范围 0–1 |
+| 档 | 启用 | `|y_τ|` | `|y_path|` | `|R̂_τ|` | `ŷ_complexity` | `ŷ_tpd` |
+|----|------|---------|------------|---------|----------------|---------|
+| 门槛1 | `y_enter_enabled` 默认开 | `y_tau_enter` 默认 0.01 | `y_path_enter` 默认 0.01 | `r_tau_enter` 默认 0.1 | `y_complexity_max` 默认 1.0≈关 | `y_tpd_max` 默认 0.40 |
+| 门槛2 | `y_enter_alt_enabled` 默认开 | `y_tau_enter_alt` 默认 0.40 | `y_path_enter_alt` 默认 0.40 | `r_tau_enter_alt` 默认 0.40 | `y_complexity_max_alt` 默认 1.0≈关 | `y_tpd_max_alt` 默认 1.0≈关 |
 
-主门槛未过仍走门槛2（无开关，缺键用默认）：`|ŷ_τ|≥y_tau_enter_alt`（0.40%）、`|ŷ_path|≥y_path_enter_alt`（0.40%）、`ŷ_complexity≤y_complexity_max_alt`（1.0≈关）、`ŷ_tpd≤y_tpd_max_alt`（1.0≈关）。缺 path / 分钟缺失 / `|R̂_τ|` **不能**被门槛2绕过。两档都未过时跳过文案写「门槛1 …；门槛2 …」。
+关启用则该档不参与 OR；两档都关则破带也不开腿。缺键时门槛2 五项跟随门槛1。缺 path / 分钟缺失共用，不能被门槛2 绕过。两档都未过时跳过文案写「门槛1 …；门槛2 …」。
 
 ### 4.5 强信号同号闸（`close_band_sign_skip_reason`）
 
-`|ŷ_path| > y_path_strong` 时，`ŷ_path` 须与 `ŷ_τ` **同号**，异号跳过。trade/eod 强闸已下线，仅保留 path。门槛1 与门槛2 共用此闸。
+`|ŷ_path| > y_path_strong` 时，`ŷ_path` 须与 `ŷ_τ` **同号**，异号跳过。trade/eod 强闸已下线，仅保留 path。
 
 ---
 
@@ -359,12 +356,16 @@ bound = ref × (1 + move_pct / 100)
 | `t0_pm_degrade` | 13:00 | 午后禁新开 leg1 |
 | `t0_stop_pct_*` | 1.2 | 止损百分比 |
 | `t0_stop_arm_bars` | 2 | 止损延迟根数 |
-| `y_tau_enter` | 0.01 | ŷ_τ 入场下限（%；0–100） |
-| `y_path_enter` | 0.01 | ŷ_path 入场下限（%；0–100） |
-| `y_complexity_max` | 1.0 | 复杂度上限（0–1；≈关） |
-| `y_tpd_max` | 0.40 | 拐点密度上限（0–1） |
-| `y_tau_enter_alt` | 0.40 | 门槛2 ŷ_τ 入场下限（%；0–100） |
-| `y_path_enter_alt` | 0.40 | 门槛2 ŷ_path 入场下限（%；0–100） |
+| `y_enter_enabled` | True | 门槛1 启用（关则本档不参与 OR） |
+| `y_enter_alt_enabled` | True | 门槛2 启用（关则本档不参与 OR） |
+| `r_tau_enter` | 0.1 | 门槛1 \|R̂_τ\| 入场下限（%；0=关） |
+| `r_tau_enter_alt` | 0.40 | 门槛2 \|R̂_τ\| 入场下限（%；0=关） |
+| `y_tau_enter` | 0.01 | 门槛1 \|y_τ\| 入场下限（%；0=关） |
+| `y_tau_enter_alt` | 0.40 | 门槛2 \|y_τ\| 入场下限（%；0=关） |
+| `y_path_enter` | 0.01 | 门槛1 \|y_path\| 入场下限（%；0=关幅度） |
+| `y_path_enter_alt` | 0.40 | 门槛2 \|y_path\| 入场下限（%；0=关幅度） |
+| `y_complexity_max` | 1.0 | 门槛1 复杂度上限（0–1；≈关） |
+| `y_tpd_max` | 0.40 | 门槛1 拐点密度上限（0–1） |
 | `y_complexity_max_alt` | 1.0 | 门槛2 复杂度上限（0–1；≈关） |
 | `y_tpd_max_alt` | 1.0 | 门槛2 拐点密度上限（≈关） |
 | `t0_price_space_max_dev_pct` | 5.0 | 价空间偏差上限（%） |

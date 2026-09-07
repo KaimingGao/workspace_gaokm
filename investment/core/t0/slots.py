@@ -1066,7 +1066,6 @@ def simulate_t0_day_slots(
         close_band_enter_skip_reason,
         close_band_pick_direction,
         close_band_sign_skip_reason,
-        close_band_tau_prior_skip_reason,
         day_price_space_payload,
         estimate_close_px,
         freeze_round,
@@ -1124,7 +1123,6 @@ def simulate_t0_day_slots(
     last_leg1_idx = -1
     last_sign_skip: Optional[str] = None
     last_enter_skip: Optional[str] = None
-    last_prior_skip: Optional[str] = None
     open_snap = score_snap if isinstance(score_snap, dict) else None
     code = str(stock_code or "").strip()
 
@@ -1281,15 +1279,6 @@ def simulate_t0_day_slots(
         )
         if enter_skip:
             last_enter_skip = enter_skip
-            continue
-        # τ先验：score 已体现在门槛平移；旧 skip 硬跳过已下线
-        prior_skip = close_band_tau_prior_skip_reason(
-            gate_snap,
-            cfg,
-            direction=direction,
-        )
-        if prior_skip:
-            last_prior_skip = prior_skip
             continue
         # |y_path|>y_path_strong 须与 y_τ 同号（trade/eod 强闸已下线）
         sign_skip = close_band_sign_skip_reason(gate_snap, cfg)
@@ -1482,12 +1471,6 @@ def simulate_t0_day_slots(
         if merged.get("skipped") and not merged.get("direction_reason"):
             merged["direction_reason"] = last_enter_skip
             merged["reason"] = last_enter_skip
-            merged["signal_skip"] = True
-    if last_prior_skip:
-        merged["close_band_last_prior_skip"] = last_prior_skip
-        if merged.get("skipped") and not merged.get("direction_reason"):
-            merged["direction_reason"] = last_prior_skip
-            merged["reason"] = last_prior_skip
             merged["signal_skip"] = True
     if last_sign_skip:
         merged["close_band_last_sign_skip"] = last_sign_skip

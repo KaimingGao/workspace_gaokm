@@ -192,17 +192,20 @@ class TestCloseBandCore(unittest.TestCase):
     def test_enter_skip_tau_and_path(self):
         from core.t0.close_band import close_band_enter_skip_reason
 
+        # |y_τ| / |y_path| 低于入场视为横盘
         weak_tau = close_band_enter_skip_reason(
             {"y_tau": 0.005, "y_path": 1.0},
             {"y_tau_enter": 0.01, "y_path_enter": 0.01},
         )
         self.assertIsNotNone(weak_tau)
+        self.assertIn("横盘", weak_tau)
         self.assertIn("y_τ", weak_tau)
         weak_path = close_band_enter_skip_reason(
             {"y_tau": 1.0, "y_path": 0.005},
             {"y_tau_enter": 0.01, "y_path_enter": 0.01},
         )
         self.assertIsNotNone(weak_path)
+        self.assertIn("横盘", weak_path)
         self.assertIn("y_path", weak_path)
         ok = close_band_enter_skip_reason(
             {"y_tau": -0.5, "y_path": 0.8},
@@ -260,8 +263,6 @@ class TestCloseBandCore(unittest.TestCase):
             "y_path_enter": 0.0,
             "y_use_path": False,
             "y_complexity_max": 0.5,
-            # 与门槛1同闸，避免门槛2 默认 cx≤1.0 把太折救过
-            "y_complexity_max_alt": 0.5,
         }
         too = close_band_enter_skip_reason(
             {"y_tau": 1.0, "predicted_score_complexity": 0.8},
@@ -302,7 +303,6 @@ class TestCloseBandCore(unittest.TestCase):
             "y_use_path": False,
             "y_complexity_max": 1.0,
             "y_tpd_max": 0.40,
-            "y_tpd_max_alt": 0.40,
         }
         too = close_band_enter_skip_reason(
             {"y_tau": 1.0, "predicted_score_tpd": 0.80, "y_tpd_hat": 0.80},
@@ -329,7 +329,6 @@ class TestCloseBandCore(unittest.TestCase):
                 "y_path_enter": 0.0,
                 "y_use_path": False,
                 "y_complexity_max": 1.0,
-                "y_tpd_max_alt": 0.40,
             },
         )
         self.assertIsNotNone(default_on)
@@ -371,39 +370,66 @@ class TestCloseBandCore(unittest.TestCase):
         )
         self.assertIsNone(omitted)
 
-    def test_enter_skip_alt_profile(self):
+    def test_enter_skip_return_and_risk(self):
+        """破带后每档 |y_τ| / |y_path| / |R̂_τ| 过入场，且 complexity/tpd 过上限。大 |y| 不能换高风险。"""
         from core.t0.close_band import close_band_enter_skip_reason
 
-        primary = {
-            "y_tau_enter": 0.01,
-            "y_path_enter": 0.01,
+        cfg = {
             "y_use_path": True,
             "y_complexity_max": 0.8,
             "y_tpd_max": 0.40,
-            "y_tau_enter_alt": 0.40,
-            "y_path_enter_alt": 0.40,
-            "y_complexity_max_alt": 1.0,
-            "y_tpd_max_alt": 1.0,
+            "r_tau_enter": 0.1,
         }
-        scores = {
+        high_y_high_risk = {
             "y_tau": 0.50,
             "y_path": 0.50,
             "predicted_score_complexity": 0.90,
             "y_tpd_hat": 0.80,
         }
-        self.assertIsNone(close_band_enter_skip_reason(scores, primary))
-        weak = close_band_enter_skip_reason(
+        skip_cx = close_band_enter_skip_reason(high_y_high_risk, cfg, r_pct=0.5)
+        self.assertIsNotNone(skip_cx)
+        self.assertIn("太折", skip_cx)
+        self.assertNotIn("门槛", skip_cx)
+
+        skip_tpd = close_band_enter_skip_reason(
             {
-                "y_tau": 0.10,
-                "y_path": 0.10,
-                "predicted_score_complexity": 0.90,
-                "y_tpd_hat": 0.80,
+                "y_tau": 1.01,
+                "y_path": 1.5,
+                "predicted_score_complexity": 0.70,
+                "y_tpd_hat": 0.50,
             },
-            primary,
+            cfg,
+            r_pct=0.5,
         )
-        self.assertIsNotNone(weak)
-        self.assertIn("门槛2", weak)
-        # 2026-08-26 09:40：门槛1 太折，门槛2 死在 tpd（0.396>0.39），不是 complexity
+        self.assertIsNotNone(skip_tpd)
+        self.assertIn("反转过密", skip_tpd)
+
+        self.assertIsNone(
+            close_band_enter_skip_reason(
+                {
+                    "y_tau": 0.50,
+                    "y_path": 0.50,
+                    "predicted_score_complexity": 0.50,
+                    "y_tpd_hat": 0.20,
+                },
+                cfg,
+                r_pct=0.5,
+            )
+        )
+        r_block = close_band_enter_skip_reason(
+            {
+                "y_tau": 0.50,
+                "y_path": 0.50,
+                "predicted_score_complexity": 0.50,
+                "y_tpd_hat": 0.20,
+            },
+            cfg,
+            r_pct=0.05,
+        )
+        self.assertIsNotNone(r_block)
+        self.assertIn("超额不足", r_block)
+
+        # 2026-08-26 09:40：太折，大 y 不能放行
         day_0940 = close_band_enter_skip_reason(
             {
                 "y_tau": 1.01,
@@ -412,89 +438,49 @@ class TestCloseBandCore(unittest.TestCase):
                 "y_tpd_hat": 0.396,
             },
             {
-                **primary,
                 "y_complexity_max": 0.79,
                 "y_tpd_max": 0.39,
-                "y_tau_enter_alt": 0.5,
-                "y_path_enter_alt": 0.5,
-                "y_complexity_max_alt": 0.89,
-                "y_tpd_max_alt": 0.39,
+                "y_use_path": True,
                 "r_tau_enter": 0.0,
             },
             direction="buy_then_sell",
             r_pct=-0.01,
         )
         self.assertIsNotNone(day_0940)
-        self.assertIn("门槛2", day_0940)
-        self.assertIn("y_tpd", day_0940)
-        self.assertIn("0.39", day_0940)
+        self.assertIn("太折", day_0940)
+        self.assertNotIn("门槛", day_0940)
+
+        # 门槛2：更大 |R| 且放宽风险仍可开腿
         self.assertIsNone(
             close_band_enter_skip_reason(
+                high_y_high_risk,
                 {
-                    "y_tau": 1.01,
-                    "y_path": 1.5,
-                    "predicted_score_complexity": 0.877,
-                    "y_tpd_hat": 0.396,
-                },
-                {
-                    **primary,
-                    "y_complexity_max": 0.79,
-                    "y_tpd_max": 0.39,
-                    "y_tau_enter_alt": 0.5,
-                    "y_path_enter_alt": 0.5,
-                    "y_complexity_max_alt": 0.89,
+                    **cfg,
+                    "r_tau_enter_alt": 0.40,
+                    "y_complexity_max_alt": 1.0,
                     "y_tpd_max_alt": 1.0,
-                    "r_tau_enter": 0.0,
                 },
-                direction="buy_then_sell",
-                r_pct=-0.01,
+                r_pct=0.5,
             )
         )
-        # 缺键仍走门槛2 默认（|y|≥0.40% · cx/tpd≤1.00）
-        self.assertIsNone(
-            close_band_enter_skip_reason(
-                scores,
-                {
-                    "y_tau_enter": 0.01,
-                    "y_path_enter": 0.01,
-                    "y_complexity_max": 0.8,
-                    "y_tpd_max": 0.40,
-                },
-            )
-        )
-        weak_no_alt_keys = close_band_enter_skip_reason(
+        both_r_fail = close_band_enter_skip_reason(
             {
-                "y_tau": 0.10,
-                "y_path": 0.10,
-                "predicted_score_complexity": 0.90,
-                "y_tpd_hat": 0.80,
+                "y_tau": 0.50,
+                "y_path": 0.50,
+                "predicted_score_complexity": 0.50,
+                "y_tpd_hat": 0.20,
             },
             {
-                "y_tau_enter": 0.01,
-                "y_path_enter": 0.01,
-                "y_complexity_max": 0.8,
-                "y_tpd_max": 0.40,
+                **cfg,
+                "r_tau_enter_alt": 0.40,
+                "y_complexity_max_alt": 1.0,
+                "y_tpd_max_alt": 1.0,
             },
+            r_pct=0.05,
         )
-        self.assertIsNotNone(weak_no_alt_keys)
-        self.assertIn("门槛2", weak_no_alt_keys)
-        self.assertIsNone(
-            close_band_enter_skip_reason(
-                {
-                    "y_tau": 0.10,
-                    "y_path": 0.10,
-                    "predicted_score_complexity": 0.50,
-                    "y_tpd_hat": 0.20,
-                },
-                primary,
-            )
-        )
-        # 门槛2 不能绕过 |R̂_τ|
-        r_block = close_band_enter_skip_reason(
-            scores, {**primary, "r_tau_enter": 0.5}, r_pct=0.1
-        )
-        self.assertIsNotNone(r_block)
-        self.assertIn("超额不足", r_block)
+        self.assertIsNotNone(both_r_fail)
+        self.assertIn("超额不足", both_r_fail)
+
         from core.t0.config import load_t0_rules
 
         loaded = load_t0_rules(
@@ -504,14 +490,61 @@ class TestCloseBandCore(unittest.TestCase):
                 "y_complexity_max": 0.8,
                 "y_tpd_max": 0.40,
                 "y_use_path": True,
+                "y_enter_alt_enabled": False,
+                "y_tau_enter_alt": 0.40,
             }
         )
-        self.assertNotIn("y_enter_alt_enabled", loaded)
-        self.assertIsNone(close_band_enter_skip_reason(scores, loaded, r_pct=0.2))
-        # 旧开关丢弃后仍走门槛2
-        loaded_dead = load_t0_rules({**primary, "y_enter_alt_enabled": False})
-        self.assertNotIn("y_enter_alt_enabled", loaded_dead)
-        self.assertIsNone(close_band_enter_skip_reason(scores, loaded_dead, r_pct=0.2))
+        self.assertFalse(loaded["y_enter_alt_enabled"])
+        self.assertTrue(loaded["y_enter_enabled"])
+        self.assertAlmostEqual(loaded["y_tau_enter_alt"], 0.40)
+        self.assertAlmostEqual(loaded["y_path_enter_alt"], 0.40)
+        self.assertIsNotNone(
+            close_band_enter_skip_reason(high_y_high_risk, loaded, r_pct=0.2)
+        )
+
+    def test_enter_gate_enabled_toggles(self):
+        """关启用则该档不参与 OR；两档都关则不开腿。"""
+        from core.t0.close_band import close_band_enter_skip_reason
+
+        scores = {
+            "y_tau": 0.50,
+            "y_path": 0.50,
+            "predicted_score_complexity": 0.90,
+            "y_tpd_hat": 0.80,
+        }
+        tight = {
+            "y_use_path": True,
+            "y_complexity_max": 0.8,
+            "y_tpd_max": 0.40,
+            "r_tau_enter": 0.1,
+            "y_enter_enabled": True,
+            "y_enter_alt_enabled": True,
+            "r_tau_enter_alt": 0.40,
+            "y_complexity_max_alt": 1.0,
+            "y_tpd_max_alt": 1.0,
+        }
+        # 门槛1 太折；门槛2 放宽风险可过
+        self.assertIsNone(close_band_enter_skip_reason(scores, tight, r_pct=0.5))
+        # 关门槛2 后只剩门槛1，太折挡下
+        gate2_off = close_band_enter_skip_reason(
+            scores, {**tight, "y_enter_alt_enabled": False}, r_pct=0.5
+        )
+        self.assertIsNotNone(gate2_off)
+        self.assertIn("太折", gate2_off)
+        self.assertNotIn("门槛", gate2_off)
+        # 关门槛1：只走门槛2，仍可开
+        self.assertIsNone(
+            close_band_enter_skip_reason(
+                scores, {**tight, "y_enter_enabled": False}, r_pct=0.5
+            )
+        )
+        both_off = close_band_enter_skip_reason(
+            scores,
+            {**tight, "y_enter_enabled": False, "y_enter_alt_enabled": False},
+            r_pct=0.5,
+        )
+        self.assertIsNotNone(both_off)
+        self.assertIn("均未启用", both_off)
 
     def test_band_uses_minute_close_not_daily(self):
         """破带 p=本根 5m close；日线 close 不同也不得替代。"""
@@ -565,33 +598,14 @@ class TestCloseBandCore(unittest.TestCase):
     def test_tau_prior_blocks_against_leg(self):
         from core.t0.close_band import (
             close_band_pick_direction,
-            close_band_tau_prior_skip_reason,
             normalize_y_tau_leg1_prior_mode,
             resolve_close_band_thresholds_pct,
         )
 
-        # skip 已下线：旧 skip 配置不硬跳过（归一成 score）
-        bear_long = close_band_tau_prior_skip_reason(
-            {"y_tau": -0.5},
-            {"y_tau_leg1_prior_mode": "skip"},
-            direction="buy_then_sell",
-        )
-        self.assertIsNone(bear_long)
-        bull_short = close_band_tau_prior_skip_reason(
-            {"y_tau": 0.5},
-            {"y_tau_leg1_prior_mode": "skip"},
-            direction="sell_then_buy",
-        )
-        self.assertIsNone(bull_short)
+        # 旧 skip/hard 配置归一成 score，不再硬跳过
         self.assertEqual(normalize_y_tau_leg1_prior_mode("skip"), "score")
         self.assertEqual(normalize_y_tau_leg1_prior_mode("hard"), "score")
-        self.assertIsNone(
-            close_band_tau_prior_skip_reason(
-                {"y_tau": -0.5},
-                {"y_tau_leg1_prior_mode": "off"},
-                direction="buy_then_sell",
-            )
-        )
+        self.assertEqual(normalize_y_tau_leg1_prior_mode("off"), "off")
         # score：s=clip(k·y_τ, ±α·δ)；0<α<1 → upper=δ+s，lower=−δ+s
         up, lo = resolve_close_band_thresholds_pct(
             0.5, 0.3, mode="score", risk_k=1.0, shift_scale=0.9
@@ -1320,7 +1334,7 @@ class TestCloseBandDayPath(unittest.TestCase):
         self.assertGreater(len(rows_off), 0)
 
     def test_weak_tau_enter_blocks_band_open(self):
-        """破带但 |y_τ|<enter → 不开轮。"""
+        """破带但 |y_τ|<y_tau_enter → 不开轮。"""
         closes = [100.6] + [100.0] * 8 + [99.4] + [100.0] * 20
         mins = _mins(closes)
         bar = {
@@ -1372,11 +1386,10 @@ class TestCloseBandDayPath(unittest.TestCase):
             for r in (out.get("t0_slot_results") or [])
             if not r.get("skipped") and int(r.get("sold_qty") or 0) + int(r.get("bought_qty") or 0) > 0
         ]
-        self.assertEqual(rows, [])
+        self.assertEqual(len(rows), 0)
         self.assertTrue(out.get("skipped"))
         reason = str(out.get("close_band_last_enter_skip") or out.get("reason") or "")
-        self.assertIn("入场", reason)
-        self.assertIn("y_τ", reason)
+        self.assertIn("横盘", reason)
 
     def test_weak_r_tau_enter_blocks_band_open(self):
         """破带但 |R̂_τ|<r_tau_enter → 不开轮；0=关闸，同价仍开。"""
@@ -1409,6 +1422,7 @@ class TestCloseBandDayPath(unittest.TestCase):
                     "y_use_path": False,
                     "y_tau_leg1_prior_mode": "off",
                     "r_tau_enter": r_enter,
+                    "r_tau_enter_alt": r_enter,
                     "fill_mode": "trigger",
                     "t0_stop_pct_sell_then_buy": 0,
                     "must_cover_same_day_sell_then_buy": True,

@@ -426,9 +426,11 @@ class TestT0Core(unittest.TestCase):
         self.assertAlmostEqual(d["y_complexity_max"], 1.0)
         self.assertAlmostEqual(d["y_cx_max"], 1.0)
         self.assertAlmostEqual(d["y_tpd_max"], 0.40)
-        self.assertNotIn("y_enter_alt_enabled", d)
+        self.assertTrue(d["y_enter_enabled"])
+        self.assertTrue(d["y_enter_alt_enabled"])
         self.assertAlmostEqual(d["y_tau_enter_alt"], 0.40)
         self.assertAlmostEqual(d["y_path_enter_alt"], 0.40)
+        self.assertAlmostEqual(d["r_tau_enter_alt"], 0.40)
         self.assertAlmostEqual(d["y_complexity_max_alt"], 1.0)
         self.assertAlmostEqual(d["y_tpd_max_alt"], 1.0)
         self.assertFalse(d["y_nowcast_oc_gate"])
@@ -436,6 +438,7 @@ class TestT0Core(unittest.TestCase):
         self.assertEqual(d["y_nc_strong"], 0.2)
         self.assertEqual(d["y_nowcast_enter"], 0.2)
         self.assertNotIn("y_path_abandon_bars", d)
+        self.assertNotIn("y_tau_leg1_prior_band_floor", d)
         self.assertNotIn("y_prefix_segment_enabled", d)
         self.assertNotIn("y_prefix_segment_enabled_sell_then_buy", d)
         self.assertNotIn("y_prefix_segment_enabled_buy_then_sell", d)
@@ -1644,9 +1647,11 @@ class TestDualYDirection(unittest.TestCase):
         self.assertEqual(cfg["y_tau_enter_strong"], 0.01)
         self.assertEqual(cfg["r_tau_enter"], 0.1)
         self.assertEqual(cfg["y_score_source"], "compute")
-        self.assertNotIn("y_enter_alt_enabled", cfg)
+        self.assertTrue(cfg["y_enter_enabled"])
+        self.assertTrue(cfg["y_enter_alt_enabled"])
         self.assertEqual(cfg["y_tau_enter_alt"], 0.40)
         self.assertEqual(cfg["y_path_enter_alt"], 0.40)
+        self.assertEqual(cfg["r_tau_enter_alt"], 0.40)
         self.assertEqual(cfg["y_complexity_max_alt"], 1.0)
         self.assertEqual(cfg["y_tpd_max_alt"], 1.0)
 
@@ -1655,6 +1660,8 @@ class TestDualYDirection(unittest.TestCase):
         self.assertEqual(load_t0_rules({"r_tau_enter": 0.01})["r_tau_enter"], 0.01)
         self.assertEqual(load_t0_rules({"r_tau_enter": 1.0})["r_tau_enter"], 1.0)
         self.assertEqual(load_t0_rules({"r_tau_enter": 1.5})["r_tau_enter"], 1.0)
+        self.assertEqual(load_t0_rules({"r_tau_enter_alt": 0.0})["r_tau_enter_alt"], 0.0)
+        self.assertEqual(load_t0_rules({"r_tau_enter_alt": 1.5})["r_tau_enter_alt"], 1.0)
 
     def test_tau_prior_skip_mode_maps_to_score(self):
         cfg = load_t0_rules({"y_tau_leg1_prior_mode": "skip"})
@@ -1682,18 +1689,14 @@ class TestDualYDirection(unittest.TestCase):
             {
                 "y_tau_enter": 10.0,
                 "y_path_enter": 12.0,
-                "y_tau_enter_alt": 15.0,
-                "y_path_enter_alt": 20.0,
                 "y_complexity_max": 0.0,
-                "y_complexity_max_alt": 0.0,
             }
         )
         self.assertEqual(cfg["y_tau_enter"], 10.0)
         self.assertEqual(cfg["y_path_enter"], 12.0)
-        self.assertEqual(cfg["y_tau_enter_alt"], 15.0)
-        self.assertEqual(cfg["y_path_enter_alt"], 20.0)
         self.assertEqual(cfg["y_complexity_max"], 0.0)
-        self.assertEqual(cfg["y_complexity_max_alt"], 0.0)
+        self.assertEqual(cfg["y_tau_enter_alt"], 0.40)
+        self.assertEqual(cfg["y_path_enter_alt"], 0.40)
         hi = load_t0_rules(
             {
                 "y_tau_enter": 150.0,

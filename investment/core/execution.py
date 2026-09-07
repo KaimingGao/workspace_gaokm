@@ -68,7 +68,12 @@ ALLOWED_T0_PATCH_KEYS = frozenset(
         "y_tau_enter_strong",
         "y_tau_enter_sell_then_buy",
         "y_tau_enter_buy_then_sell",
+        "y_enter_enabled",
+        "y_enter_alt_enabled",
         "r_tau_enter",
+        "r_tau_enter_alt",
+        "y_tau_enter_alt",
+        "y_path_enter_alt",
         "y_on_risk",
         "y_on_allow",
         "y_block_tau_nowcast_sign",
@@ -88,8 +93,6 @@ ALLOWED_T0_PATCH_KEYS = frozenset(
         "y_complexity_max",
         "y_cx_max",
         "y_tpd_max",
-        "y_tau_enter_alt",
-        "y_path_enter_alt",
         "y_complexity_max_alt",
         "y_tpd_max_alt",
         "y_path_required",
@@ -165,7 +168,12 @@ DEFAULT_T0_OVERLAY: Dict[str, Any] = {
     "y_tau_enter": 0.01,
     "y_tau_enter_sell_then_buy": 0.01,
     "y_tau_enter_buy_then_sell": 0.01,
+    "y_enter_enabled": True,
+    "y_enter_alt_enabled": True,
     "r_tau_enter": 0.1,
+    "r_tau_enter_alt": 0.40,
+    "y_tau_enter_alt": 0.40,
+    "y_path_enter_alt": 0.40,
     "y_trade_enter": 0.01,
     "y_trade_strong": 0.2,
     "y_eod_prior": 0.01,
@@ -186,8 +194,6 @@ DEFAULT_T0_OVERLAY: Dict[str, Any] = {
     "y_complexity_max": 1.0,
     "y_cx_max": 1.0,
     "y_tpd_max": 0.40,
-    "y_tau_enter_alt": 0.40,
-    "y_path_enter_alt": 0.40,
     "y_complexity_max_alt": 1.0,
     "y_tpd_max_alt": 1.0,
     "y_gap_tier_pct": 1.0,
@@ -706,7 +712,12 @@ def execution_public_view(bundle: Dict[str, Any]) -> Dict[str, Any]:
             "y_tau_enter_strong": t0.get("y_tau_enter"),
             "y_tau_enter_sell_then_buy": t0.get("y_tau_enter_sell_then_buy"),
             "y_tau_enter_buy_then_sell": t0.get("y_tau_enter_buy_then_sell"),
+            "y_enter_enabled": t0.get("y_enter_enabled"),
+            "y_enter_alt_enabled": t0.get("y_enter_alt_enabled"),
             "r_tau_enter": t0.get("r_tau_enter"),
+            "r_tau_enter_alt": t0.get("r_tau_enter_alt"),
+            "y_tau_enter_alt": t0.get("y_tau_enter_alt"),
+            "y_path_enter_alt": t0.get("y_path_enter_alt"),
             "y_on_risk": t0.get("y_on_risk"),
             "y_on_allow": t0.get("y_on_allow"),
             "y_block_tau_nowcast_sign": t0.get("y_block_tau_nowcast_sign"),
@@ -734,8 +745,6 @@ def execution_public_view(bundle: Dict[str, Any]) -> Dict[str, Any]:
                 else t0.get("y_cx_max")
             ),
             "y_tpd_max": t0.get("y_tpd_max"),
-            "y_tau_enter_alt": t0.get("y_tau_enter_alt"),
-            "y_path_enter_alt": t0.get("y_path_enter_alt"),
             "y_complexity_max_alt": t0.get("y_complexity_max_alt"),
             "y_tpd_max_alt": t0.get("y_tpd_max_alt"),
             "y_path_required": t0.get("y_path_required"),
@@ -957,6 +966,10 @@ def validate_execution_patch(raw: Any) -> Tuple[bool, Dict[str, Any], List[str]]
         t0_out["y_nowcast_oc_gate"] = bool(t0_in.get("y_nowcast_oc_gate"))
     if "y_use_path" in t0_in:
         t0_out["y_use_path"] = bool(t0_in.get("y_use_path"))
+    if "y_enter_enabled" in t0_in:
+        t0_out["y_enter_enabled"] = bool(t0_in.get("y_enter_enabled"))
+    if "y_enter_alt_enabled" in t0_in:
+        t0_out["y_enter_alt_enabled"] = bool(t0_in.get("y_enter_alt_enabled"))
     if "t0_price_space_gate" in t0_in:
         t0_out["t0_price_space_gate"] = bool(t0_in.get("t0_price_space_gate"))
     if "y_path_required" in t0_in:

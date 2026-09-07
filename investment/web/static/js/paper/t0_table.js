@@ -91,23 +91,23 @@ export const SKIP_CAT_TIP = {
   missing_minute:
     "缺当日分钟线，无法模拟触达与成交路径。",
   y_tau_flat:
-    "|ŷ_τ| 低于 y_tau_enter（默认 0.01%）视为横盘：即使收价破 ĉ±δ 也不开第一腿。",
+    "入场：|ŷ_τ| 低于该档 τ入场%（门槛1 y_tau_enter / 门槛2 y_tau_enter_alt；0–100%；0=关）视为横盘。",
   r_tau_flat:
-    "|R̂_τ| 低于 r_tau_enter（0–1.0%；0=关）视为超额不足：即使收价破带也不开第一腿。",
+    "入场：|R̂_τ| 低于该档 R入场%（门槛1 r_tau_enter / 门槛2 r_tau_enter_alt；0–1.0%；0=关）。突破带宽才是超额收益。",
   y_eod_flat:
     "历史口径：|ŷ_eod| 低于入场门槛。v6 选腿不经 eod 入场闸；强异号仍可跳过。",
   y_tau_weak:
-    "历史跳过类别（旧双闸弱信号区）；现已并入 y_τ 入场，新跑批不再产生。",
+    "历史跳过类别（旧双闸弱信号区）；现已并入破带收益闸，新跑批不再产生。",
   y_path_flat:
-    "y_use_path 开时：缺 ŷ_path，或 |ŷ_path| 低于 y_path_enter（默认 0.01%），即使收价破 ĉ±δ 也不开第一腿。",
+    "入场：y_use_path 开时缺 ŷ_path（数据不全）则跳过；|ŷ_path| 低于该档 path入场%（门槛1 y_path_enter / 门槛2 y_path_enter_alt）视为横盘。",
   y_path_disagree:
     "y_use_path 开时：|ŷ_path| 超过 y_path_strong（默认 0.2%）却与 ŷ_τ 异号则跳过；低于强阈允许异号。",
   y_complexity_high:
-    "门槛1：ŷ_complexity > y_complexity_max 太折。门槛2 再用 y_complexity_max_alt（默认 1.00≈关）判一次；两档都过不了才跳过。缺 ŷ_complexity 不挡。",
+    "风险：ŷ_complexity 超过该档 complexity门槛则太折跳过。门槛1 / 门槛2 各判一次；缺 hat 不挡。",
   y_cx_high:
-    "门槛1：ŷ_complexity > y_complexity_max 太折。门槛2 再用 y_complexity_max_alt（默认 1.00≈关）判一次；两档都过不了才跳过。缺 ŷ_complexity 不挡。",
+    "风险：ŷ_complexity 超过该档 complexity门槛则太折跳过。门槛1 / 门槛2 各判一次；缺 hat 不挡。",
   y_tpd_high:
-    "门槛1：ŷ_tpd > y_tpd_max 反转过密。门槛2 再用 y_tpd_max_alt（默认 1.00≈关）判一次；两档都过不了才跳过。缺 ŷ_tpd 不挡。",
+    "风险：ŷ_tpd 超过该档 tpd门槛则反转过密跳过。门槛1 / 门槛2 各判一次；缺 hat 不挡。",
   eod_tau_disagree:
     "历史口径：强 ŷ_eod 与 ŷ_τ 异号跳过。v6 选腿已下线该闸（仅 y_τ / ĉ_τ + path 入场/强）。",
   trade_tau_disagree:

@@ -129,11 +129,25 @@ class T0BacktestRequest(BaseModel):
         le=100.0,
         description="dual_y：正T（y_τ>0）入场 |y_τ| 门槛；范围 0–100%",
     )
+    y_enter_enabled: Optional[bool] = Field(
+        default=None,
+        description="门槛1 启用；关则本档不参与入场 OR；默认开",
+    )
+    y_enter_alt_enabled: Optional[bool] = Field(
+        default=None,
+        description="门槛2 启用；关则本档不参与入场 OR；默认开",
+    )
     r_tau_enter: Optional[float] = Field(
         default=None,
         ge=0.0,
         le=1.0,
-        description="|R̂_τ| 入场下限（百分点）；范围 0–1.0；0=关",
+        description="门槛1 |R̂_τ| 入场下限（百分点）；范围 0–1.0；0=关",
+    )
+    r_tau_enter_alt: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        le=1.0,
+        description="门槛2 |R̂_τ| 入场下限（百分点）；默认 0.40；范围 0–1.0；0=关",
     )
     y_tau_enter_strong: Optional[float] = Field(
         default=None,
@@ -274,13 +288,13 @@ class T0BacktestRequest(BaseModel):
         default=None,
         ge=0.0,
         le=100.0,
-        description="门槛2 τ 入场%：默认 0.40；范围 0–100%",
+        description="门槛2 |y_τ| 入场下限（百分点）；默认 0.40；范围 0–100%；0=关",
     )
     y_path_enter_alt: Optional[float] = Field(
         default=None,
         ge=0.0,
         le=100.0,
-        description="门槛2 path 入场%：默认 0.40；范围 0–100%",
+        description="门槛2 |y_path| 入场下限（百分点）；默认 0.40；范围 0–100%；0=关幅度",
     )
     y_complexity_max_alt: Optional[float] = Field(
         default=None,
@@ -507,7 +521,10 @@ class PaperExecutionPatchRequest(BaseModel):
     y_tau_enter_strong: Optional[float] = None
     y_tau_enter_sell_then_buy: Optional[float] = None
     y_tau_enter_buy_then_sell: Optional[float] = None
+    y_enter_enabled: Optional[bool] = None
+    y_enter_alt_enabled: Optional[bool] = None
     r_tau_enter: Optional[float] = None
+    r_tau_enter_alt: Optional[float] = None
     y_ratio_cut: Optional[float] = None
     y_ratio_boost_cap: Optional[float] = None
     y_eod_prior: Optional[float] = None

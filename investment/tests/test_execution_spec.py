@@ -67,8 +67,10 @@ class TestExecutionResolve(unittest.TestCase):
             direction="buy_then_sell",
             r_pct=-0.067,
         )
+        # |y_path| 低于 path 入场视为横盘
         self.assertIsNotNone(skip)
-        self.assertIn("y_path", skip or "")
+        self.assertIn("y_path", skip)
+        self.assertIn("横盘", skip)
 
     def test_request_explicit_path_enter_side_still_wins(self):
         from core.execution import resolve_t0_rules, strip_execution_meta
