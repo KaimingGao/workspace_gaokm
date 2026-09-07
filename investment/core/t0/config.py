@@ -140,7 +140,7 @@ _DEAD_T0_KEYS = (
     "y_path_abandon_bars",
     "y_path_abandon_bars_buy_then_sell",
     "y_path_abandon_bars_sell_then_buy",
-    # 门槛2 无开关：有门槛2 键即 OR；旧 overlay 开关丢弃
+    # 门槛2 无开关：始终与门槛1 OR；旧 overlay 开关丢弃
     "y_enter_alt_enabled",
 )
 

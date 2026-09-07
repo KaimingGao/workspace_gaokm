@@ -154,7 +154,7 @@ if r < lower:  → 正 T
 | `ŷ_complexity` | `y_complexity_max` | 1.0（≈关） | 太折跳过；范围 0–1 |
 | `ŷ_tpd` | `y_tpd_max` | 0.40 | 反转过密跳过；范围 0–1 |
 
-主门槛未过仍可走门槛2：`|ŷ_τ|≥y_tau_enter_alt`（0.40%）、`|ŷ_path|≥y_path_enter_alt`（0.40%）、`ŷ_complexity≤y_complexity_max_alt`（1.0≈关）、`ŷ_tpd≤y_tpd_max_alt`（1.0≈关）。缺 path / 分钟缺失 / `|R̂_τ|` **不能**被门槛2绕过。`load_t0_rules` 会写入上述门槛2 键；直传缺键的旧 cfg 只走主门槛。
+主门槛未过仍走门槛2（无开关，缺键用默认）：`|ŷ_τ|≥y_tau_enter_alt`（0.40%）、`|ŷ_path|≥y_path_enter_alt`（0.40%）、`ŷ_complexity≤y_complexity_max_alt`（1.0≈关）、`ŷ_tpd≤y_tpd_max_alt`（1.0≈关）。缺 path / 分钟缺失 / `|R̂_τ|` **不能**被门槛2绕过。两档都未过时跳过文案写「门槛1 …；门槛2 …」。
 
 ### 4.5 强信号同号闸（`close_band_sign_skip_reason`）
 

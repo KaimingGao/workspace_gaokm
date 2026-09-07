@@ -103,11 +103,11 @@ export const SKIP_CAT_TIP = {
   y_path_disagree:
     "y_use_path 开时：|ŷ_path| 超过 y_path_strong（默认 0.2%）却与 ŷ_τ 异号则跳过；低于强阈允许异号。",
   y_complexity_high:
-    "ŷ_complexity > y_complexity_max（0.00–1.00，默认 1.00≈关）视为太折：即使收价破 ĉ±δ 也不开第一腿。缺 ŷ_complexity 不挡。",
+    "门槛1：ŷ_complexity > y_complexity_max 太折。门槛2 再用 y_complexity_max_alt（默认 1.00≈关）判一次；两档都过不了才跳过。缺 ŷ_complexity 不挡。",
   y_cx_high:
-    "ŷ_complexity > y_complexity_max（0.00–1.00，默认 1.00≈关）视为太折：即使收价破 ĉ±δ 也不开第一腿。缺 ŷ_complexity 不挡。",
+    "门槛1：ŷ_complexity > y_complexity_max 太折。门槛2 再用 y_complexity_max_alt（默认 1.00≈关）判一次；两档都过不了才跳过。缺 ŷ_complexity 不挡。",
   y_tpd_high:
-    "ŷ_tpd > y_tpd_max（0.00–1.00，默认 0.40；1.00≈关）视为反转过密：即使收价破 ĉ±δ 也不开第一腿。缺 ŷ_tpd 不挡。",
+    "门槛1：ŷ_tpd > y_tpd_max 反转过密。门槛2 再用 y_tpd_max_alt（默认 1.00≈关）判一次；两档都过不了才跳过。缺 ŷ_tpd 不挡。",
   eod_tau_disagree:
     "历史口径：强 ŷ_eod 与 ŷ_τ 异号跳过。v6 选腿已下线该闸（仅 y_τ / ĉ_τ + path 入场/强）。",
   trade_tau_disagree:

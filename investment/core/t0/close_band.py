@@ -621,19 +621,6 @@ def _enter_profile_skip_reason(
     return None
 
 
-_ENTER_ALT_KEYS = (
-    "y_tau_enter_alt",
-    "y_path_enter_alt",
-    "y_complexity_max_alt",
-    "y_tpd_max_alt",
-)
-
-
-def _enter_alt_configured(cfg_d: dict) -> bool:
-    """有任一门槛2 键则走门槛1/门槛2 OR；缺键保持门槛1-only（直传旧 cfg）。"""
-    return any(cfg_d.get(k) not in (None, "") for k in _ENTER_ALT_KEYS)
-
-
 def close_band_enter_skip_reason(
     scores: Optional[dict],
     cfg: Optional[dict] = None,
@@ -649,9 +636,9 @@ def close_band_enter_skip_reason(
     enter≤0 仅关闭对应 |ŷ| 幅度闸；缺 y_path 在 y_use_path 下仍跳过。
     r_tau_enter 经 load 钳在 0–1.0；≤0 关闸（直传旧 cfg 兼容）。
 
-    门槛2：配置了 y_*_alt 时，门槛1 未过仍可走门槛2（默认 |y_τ|/|y_path|≥0.40%，
-    complexity/tpd≤1.0≈关）；|R̂_τ| 与缺 path / 分钟缺失仍共用，不绕过。
-    load_t0_rules 会写入门槛2 键；直传缺键的旧 cfg 只走门槛1。
+    门槛2 无开关：门槛1 未过仍按 y_*_alt 再判一次（缺键用默认 |y_τ|/|y_path|≥0.40%，
+    complexity/tpd≤1.0≈关）。|R̂_τ| 与缺 path / 分钟缺失共用，不能绕过。
+    两档都未过时文案带「门槛1 …；门槛2 …」。
     """
     from core.t0.score_policy import (
         DEFAULT_PATH_ENTER,
@@ -733,8 +720,6 @@ def close_band_enter_skip_reason(
     )
     if skip is None:
         return None
-    if not _enter_alt_configured(cfg_d):
-        return skip
 
     tau_enter_alt = _cfg_float(cfg_d, "y_tau_enter_alt", 0.40)
     tau_enter_alt = max(0.0, min(float(tau_enter_alt), 100.0))
@@ -757,7 +742,9 @@ def close_band_enter_skip_reason(
     )
     if skip_alt is None:
         return None
-    return skip
+    if skip_alt == skip:
+        return skip
+    return f"门槛1 {skip}；门槛2 {skip_alt}"
 
 
 @dataclass

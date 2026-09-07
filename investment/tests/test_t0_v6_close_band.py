@@ -398,9 +398,73 @@ class TestCloseBandCore(unittest.TestCase):
             primary,
         )
         self.assertIsNotNone(weak)
-        # 缺键视为关门槛2：与既有 raw cfg 兼容
-        legacy = close_band_enter_skip_reason(
-            scores,
+        self.assertIn("门槛2", weak)
+        # 2026-08-26 09:40：门槛1 太折，门槛2 死在 tpd（0.396>0.39），不是 complexity
+        day_0940 = close_band_enter_skip_reason(
+            {
+                "y_tau": 1.01,
+                "y_path": 1.5,
+                "predicted_score_complexity": 0.877,
+                "y_tpd_hat": 0.396,
+            },
+            {
+                **primary,
+                "y_complexity_max": 0.79,
+                "y_tpd_max": 0.39,
+                "y_tau_enter_alt": 0.5,
+                "y_path_enter_alt": 0.5,
+                "y_complexity_max_alt": 0.89,
+                "y_tpd_max_alt": 0.39,
+                "r_tau_enter": 0.0,
+            },
+            direction="buy_then_sell",
+            r_pct=-0.01,
+        )
+        self.assertIsNotNone(day_0940)
+        self.assertIn("门槛2", day_0940)
+        self.assertIn("y_tpd", day_0940)
+        self.assertIn("0.39", day_0940)
+        self.assertIsNone(
+            close_band_enter_skip_reason(
+                {
+                    "y_tau": 1.01,
+                    "y_path": 1.5,
+                    "predicted_score_complexity": 0.877,
+                    "y_tpd_hat": 0.396,
+                },
+                {
+                    **primary,
+                    "y_complexity_max": 0.79,
+                    "y_tpd_max": 0.39,
+                    "y_tau_enter_alt": 0.5,
+                    "y_path_enter_alt": 0.5,
+                    "y_complexity_max_alt": 0.89,
+                    "y_tpd_max_alt": 1.0,
+                    "r_tau_enter": 0.0,
+                },
+                direction="buy_then_sell",
+                r_pct=-0.01,
+            )
+        )
+        # 缺键仍走门槛2 默认（|y|≥0.40% · cx/tpd≤1.00）
+        self.assertIsNone(
+            close_band_enter_skip_reason(
+                scores,
+                {
+                    "y_tau_enter": 0.01,
+                    "y_path_enter": 0.01,
+                    "y_complexity_max": 0.8,
+                    "y_tpd_max": 0.40,
+                },
+            )
+        )
+        weak_no_alt_keys = close_band_enter_skip_reason(
+            {
+                "y_tau": 0.10,
+                "y_path": 0.10,
+                "predicted_score_complexity": 0.90,
+                "y_tpd_hat": 0.80,
+            },
             {
                 "y_tau_enter": 0.01,
                 "y_path_enter": 0.01,
@@ -408,7 +472,8 @@ class TestCloseBandCore(unittest.TestCase):
                 "y_tpd_max": 0.40,
             },
         )
-        self.assertIsNotNone(legacy)
+        self.assertIsNotNone(weak_no_alt_keys)
+        self.assertIn("门槛2", weak_no_alt_keys)
         self.assertIsNone(
             close_band_enter_skip_reason(
                 {
@@ -439,7 +504,7 @@ class TestCloseBandCore(unittest.TestCase):
         )
         self.assertNotIn("y_enter_alt_enabled", loaded)
         self.assertIsNone(close_band_enter_skip_reason(scores, loaded, r_pct=0.2))
-        # 旧开关丢弃后仍走门槛2（有门槛2 键即 OR）
+        # 旧开关丢弃后仍走门槛2
         loaded_dead = load_t0_rules({**primary, "y_enter_alt_enabled": False})
         self.assertNotIn("y_enter_alt_enabled", loaded_dead)
         self.assertIsNone(close_band_enter_skip_reason(scores, loaded_dead, r_pct=0.2))
