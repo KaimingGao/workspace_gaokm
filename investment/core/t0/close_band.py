@@ -229,7 +229,7 @@ def close_band_pick_direction(
         default="off",
     )
     k = _cfg_float(cfg_d, "y_tau_leg1_prior_risk", 0.1)
-    k = max(0.0, min(float(k), 10.0))
+    k = max(0.0, min(float(k), 100.0))
     shift_scale = clamp_y_tau_leg1_prior_shift_scale(
         cfg_d.get("y_tau_leg1_prior_shift_scale"), default=0.1
     )

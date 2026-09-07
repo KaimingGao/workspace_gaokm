@@ -648,10 +648,10 @@
                   </label>
                   <label
                     class="paper-t0-field"
-                    title="带宽漂移灵敏度：偏移 s=k·ŷ_τ（再经 α·δ 封顶）；默认 k=0.1"
+                    title="带宽漂移灵敏度：偏移 s=k·ŷ_τ（再经 α·δ 封顶）；范围 0–100；默认 k=0.1"
                   >
                     <span>先验风险k</span>
-                    <input type="number" name="y_tau_leg1_prior_risk" min="0" max="10" step="0.1" value="0.1" />
+                    <input type="number" name="y_tau_leg1_prior_risk" min="0" max="100" step="0.1" value="0.1" />
                   </label>
                   <label
                     class="paper-t0-field"
@@ -729,7 +729,7 @@
 
                 <fieldset class="paper-t0-cfg-block is-gate-2">
                   <legend>门槛2</legend>
-                  <p class="paper-t0-cfg-hint quant-sub">门槛1 未过时，过本组仍可开腿。关启用则本档不参与 OR。默认 |y_τ|≥0.40%、|y_path|≥0.40%、|R̂_τ|≥0.40%，complexity/tpd≤1.00≈关。</p>
+                  <p class="paper-t0-cfg-hint quant-sub">|y_τ|、|y_path|、|R̂_τ| 过入场，且 complexity / tpd 过上限。关启用则本档不参与 OR。缺 path / 分钟缺失见共用区。</p>
                   <div class="paper-t0-form-grid is-quad">
                   <label
                     class="paper-t0-field"
@@ -740,35 +740,35 @@
                   </label>
                   <label
                     class="paper-t0-field"
-                    title="门槛2 |ŷ_τ| 入场下限；范围 0–100%；默认 0.40；0=关。"
+                    title="门槛2 |ŷ_τ| 低于此值视为横盘跳过；范围 0–100%；0=关；默认 0.40。"
                   >
                     <span>τ入场%</span>
                     <input type="number" name="y_tau_enter_alt" min="0" max="100" step="0.01" value="0.40" />
                   </label>
                   <label
                     class="paper-t0-field"
-                    title="门槛2 |ŷ_path| 入场下限；范围 0–100%；默认 0.40；0=关幅度。"
+                    title="门槛2 |ŷ_path| 低于此值视为横盘跳过；范围 0–100%；0=关幅度；默认 0.40。"
                   >
                     <span>path入场%</span>
                     <input type="number" name="y_path_enter_alt" min="0" max="100" step="0.01" value="0.40" />
                   </label>
                   <label
                     class="paper-t0-field"
-                    title="门槛2 |R̂_τ| 入场下限；范围 0–1.0；默认 0.40；0=关。"
+                    title="门槛2 |R̂_τ| 低于此值即使收价破带也不开轮；与超额带宽δ独立；范围 0–1.0；0=关；默认 0.40。"
                   >
                     <span>R入场%</span>
                     <input type="number" name="r_tau_enter_alt" min="0" max="1.0" step="0.01" value="0.40" />
                   </label>
                   <label
                     class="paper-t0-field"
-                    title="门槛2 ŷ_complexity 上限；范围 0–1；默认 1.00≈关。"
+                    title="ŷ_complexity∈[0,1]（0=直线，1=最折）。超过此值太折则跳过做 T；范围 0–1；默认 1.00≈关。闸用盘中前缀 ŷ_complexity，不是收盘后的全日 label。"
                   >
                     <span>complexity门槛</span>
                     <input type="number" name="y_complexity_max_alt" min="0" max="1.00" step="0.01" value="1.00" />
                   </label>
                   <label
                     class="paper-t0-field"
-                    title="门槛2 ŷ_tpd 上限；默认 1.00≈关。"
+                    title="ŷ_tpd∈[0,1]（0=无反转，1=每根都反转）。超过此值反转过密则跳过做 T；范围 0.00–1.00；默认 1.00≈关。闸用盘中前缀 ŷ_tpd，不是收盘后的全日 label。"
                   >
                     <span>tpd门槛</span>
                     <input type="number" name="y_tpd_max_alt" min="0" max="1.00" step="0.01" value="1.00" />

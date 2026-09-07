@@ -184,7 +184,7 @@ export function renderExecutionRulesHtml(execution) {
         const tpdLbl = Number.isFinite(tpd) ? (tpd >= 1 ? "tpd关" : `tpd≤${tpd}`) : "tpd关";
         return `${tauLbl}·${pathLblG}·${rLbl}·${cxLbl}·${tpdLbl}`;
       })(),
-      "门槛2：启用且门槛1 未过时，τ/path/R 过本组且 complexity/tpd 过上限仍可开腿"
+      "门槛2：启用时 |y_τ| / |y_path| / |R̂_τ| 入场 + complexity/tpd 风险"
     ) +
     specKpi("路径", pathLbl, "分钟触价路径") +
     specKpi("成交", fillLbl, "全量触价 trigger；表单不再提供 mid/optimistic") +
@@ -499,13 +499,12 @@ export function collectExecutionForm(root) {
       str("y_tau_leg1_prior_mode", "off"),
       false
     ),
-    y_tau_leg1_prior_risk: Math.max(0, Math.min(num("y_tau_leg1_prior_risk", 0.1), 10)),
+    y_tau_leg1_prior_risk: Math.max(0, Math.min(num("y_tau_leg1_prior_risk", 0.1), 100)),
     y_tau_leg1_prior_shift_scale: (() => {
       const a = num("y_tau_leg1_prior_shift_scale", 0.1);
       if (!Number.isFinite(a)) return 0.1;
       return Math.min(1.0, Math.max(0.1, a));
     })(),
-    y_on_allow: 0.01,
     t0_pm_degrade_sell_then_buy: str("t0_pm_degrade_sell_then_buy", "13:00"),
     t0_pm_degrade_buy_then_sell: str("t0_pm_degrade_buy_then_sell", "13:00"),
     t0_pm_degrade: str("t0_pm_degrade_buy_then_sell", "13:00"),
@@ -856,7 +855,6 @@ export function collectT0BacktestBody(root, opts = {}) {
     y_tau_leg1_prior_risk: t0.y_tau_leg1_prior_risk != null ? t0.y_tau_leg1_prior_risk : 0.1,
     y_tau_leg1_prior_shift_scale:
       t0.y_tau_leg1_prior_shift_scale != null ? t0.y_tau_leg1_prior_shift_scale : 0.1,
-    y_on_allow: 0.01,
     t0_pm_degrade_sell_then_buy: t0.t0_pm_degrade_sell_then_buy != null ? t0.t0_pm_degrade_sell_then_buy : "13:00",
     t0_pm_degrade_buy_then_sell:
       t0.t0_pm_degrade_buy_then_sell ?? t0.t0_pm_degrade ?? "13:00",

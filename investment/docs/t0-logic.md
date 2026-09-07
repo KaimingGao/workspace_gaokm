@@ -352,6 +352,7 @@ bound = ref × (1 + move_pct / 100)
 | `t0_max_position_pct` | 1.0 | 累计最大动仓比例 |
 | `t0_slots_max_rounds` | 5 | 最大轮数 |
 | `t0_close_band_delta_pct` | 0.2 | 收盘带宽半宽 δ（%） |
+| `y_tau_leg1_prior_risk` | 0.1 | score 偏移灵敏度 k（0–100）；s=k·ŷ_τ，再经 α·δ 封顶 |
 | `must_cover_same_day` | True | 收盘强制回补 |
 | `t0_pm_degrade` | 13:00 | 午后禁新开 leg1 |
 | `t0_stop_pct_*` | 1.2 | 止损百分比 |

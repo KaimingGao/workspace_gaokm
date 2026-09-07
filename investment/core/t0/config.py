@@ -232,7 +232,7 @@ DEFAULT_T0_RULES: Dict[str, Any] = {
     # v6 τ先验：把预估开→收 ŷ_τ 当偏移加到 ±δ 上，整条带宽平移（宽度仍 2δ），不改冻结 leg2（仍 ĉ±δ）。
     # score=漂移 / off=对称 ±δ；s=clip(k·ŷ_τ, ±α·δ)，上沿=δ+s、下沿=−δ+s（旧 skip 并入 score）
     "y_tau_leg1_prior_mode": "off",
-    "y_tau_leg1_prior_risk": 0.1,  # k：偏移灵敏度；s=k·ŷ_τ
+    "y_tau_leg1_prior_risk": 0.1,  # k：偏移灵敏度；s=k·ŷ_τ；范围 0–100
     # α∈[0.1, 1.0]：|s|≤α·δ（默认 0.1）；α=1 时同侧可贴 0
     "y_tau_leg1_prior_shift_scale": 0.1,
     "y_tau_leg1_prior": False,  # 镜像：mode≠off
@@ -593,7 +593,7 @@ def load_t0_rules(override: Optional[dict] = None) -> Dict[str, Any]:
         risk_k = 0.1 if raw_k is None or raw_k == "" else float(raw_k)
     except (TypeError, ValueError):
         risk_k = 0.1
-    cfg["y_tau_leg1_prior_risk"] = max(0.0, min(risk_k, 10.0))
+    cfg["y_tau_leg1_prior_risk"] = max(0.0, min(risk_k, 100.0))
     try:
         raw_a = cfg.get("y_tau_leg1_prior_shift_scale")
         shift_scale = 0.1 if raw_a is None or raw_a == "" else float(raw_a)

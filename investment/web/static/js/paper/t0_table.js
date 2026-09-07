@@ -18,6 +18,11 @@ import {
   resolvePathScore,
   fmtPathScore,
 } from "./fmt.js?v=p1961";
+import {
+  adaptiveSizingDayTip,
+  yTauMapScoreTip,
+} from "./execution_ui.js?v=p1985";
+import { watchingScoreDetail } from "../quant/watching_render.js?v=p1734";
 
 const Y_COMPLEXITY_HAT_KEYS = [
   "predicted_score_complexity",
@@ -43,11 +48,6 @@ function writeTpdHat(obj, val) {
   obj.predicted_score_tpd = n;
   obj.y_tpd_hat = n;
 }
-import {
-  adaptiveSizingDayTip,
-  yTauMapScoreTip,
-} from "./execution_ui.js?v=p1945";
-import { watchingScoreDetail } from "../quant/watching_render.js?v=p1734";
 
 export const SKIP_CAT_LABEL = {
   missing_scores: "缺ŷ快照",
@@ -2336,31 +2336,18 @@ function slotCloseBand(r) {
 /** 从 close_band 取出 ĉ_τ / ĉ（分钟映后 + 日原）。 */
 function slotClosePxParts(r) {
   const cb = slotCloseBand(r);
-  if (!cb) {
-    return {
-      c_tau: null,
-      c_trade: null,
-      c_nowcast: null,
-      c_hat: null,
-      c_tau_daily: null,
-      c_trade_daily: null,
-      c_nowcast_daily: null,
-      c_hat_daily: null,
-    };
-  }
   const num = (v) => {
     if (v == null || v === "") return null;
     const n = Number(v);
     return Number.isFinite(n) ? n : null;
   };
+  if (!cb) {
+    return { c_tau: null, c_hat: null, c_tau_daily: null, c_hat_daily: null };
+  }
   return {
     c_tau: num(cb.c_tau),
-    c_trade: num(cb.c_trade),
-    c_nowcast: num(cb.c_nowcast),
     c_hat: num(cb.close_px),
     c_tau_daily: num(cb.c_tau_daily),
-    c_trade_daily: num(cb.c_trade_daily),
-    c_nowcast_daily: num(cb.c_nowcast_daily),
     c_hat_daily: num(cb.close_px_daily),
   };
 }
@@ -2497,15 +2484,8 @@ function fmtScanPct(n) {
 function fmtScanRtau(r, rTauEnterCfg) {
   const rTxt = fmtScanPct(r && r.r_pct);
   const pick = String((r && r.pick) || "").trim();
-  const fakeSlot = {
-    close_band: {
-      band_upper_pct: r && r.upper_pct,
-      band_lower_pct: r && r.lower_pct,
-    },
-    direction: pick,
-  };
   const edge = slotRtauEnterPct(
-    fakeSlot,
+    { direction: pick },
     r && r.r_pct,
     pick,
     rTauEnterCfg != null ? rTauEnterCfg : r && r.r_enter
@@ -2623,6 +2603,8 @@ function buildCloseBandScanExpandRow(d, dayKey, colSpan, rules) {
         `<td class="num">${escapeText(fmtBarPx(r.c))}</td>` +
         `<td class="num">${escapeText(fmtBarPx(r.c_tau))}</td>` +
         `<td class="num">${escapeText(fmtScanRtau(r, rEnter))}</td>` +
+        `<td class="num">${escapeText(fmtScanPct(r.upper_pct))}</td>` +
+        `<td class="num">${escapeText(fmtScanPct(r.lower_pct))}</td>` +
         `<td class="num">${escapeText(fmtScanPct(r.y_tau))}</td>` +
         `<td class="num">${escapeText(fmtPathScore(r.y_path))}</td>` +
         `<td class="num">${escapeText(fmtCxScore(r.y_complexity ?? r.y_cx ?? r.predicted_score_complexity ?? r.predicted_score_cx))}</td>` +
@@ -2642,6 +2624,8 @@ function buildCloseBandScanExpandRow(d, dayKey, colSpan, rules) {
     `<thead><tr>` +
     `<th>钟</th><th class="num">O</th><th class="num">L</th><th class="num">H</th>` +
     `<th class="num">C</th><th class="num">Ĉ_τ</th><th class="num" title="r̂_τ = (C/ĉ_τ−1)×100 · 入场阈=页面 R入场%（0–1.0；0=关；与带宽δ/τ先验漂移无关）">R̂_τ</th>` +
+    `<th class="num" title="${escapeText("破带上沿 = δ+s（%）；r > upper → 反T")}">upper</th>` +
+    `<th class="num" title="${escapeText("破带下沿 = −δ+s（%）；r < lower → 正T")}">lower</th>` +
     `<th class="num">y_τ</th><th class="num">y_path</th><th class="num" title="${escapeText(
       Y_COMPLEXITY_TITLE
     )}">y_complexity</th>` +
@@ -2761,7 +2745,7 @@ function renderTradeDayHtml(d, ctx) {
   const dateInner = hasScan
     ? `<button type="button" class="paper-t0-day-debug-toggle" data-t0-day-id="${escapeText(
         dayKey
-      )}" title="展开 11:00 前每根扫描（OLHC · Ĉ_τ · R̂_τ · y_τ · y_path · y_complexity · y_tpd）" aria-expanded="false">${escapeText(
+      )}" title="展开 11:00 前每根扫描（OLHC · Ĉ_τ · R̂_τ · upper · lower · y_τ · y_path · y_complexity · y_tpd）" aria-expanded="false">${escapeText(
         dayText
       )}<span class="paper-t0-day-debug-caret" aria-hidden="true">▾</span></button>`
     : escapeText(dayText);

@@ -1085,18 +1085,6 @@ def _strong_head_tau_sign_gate(
     )
 
 
-def _eod_tau_sign_gate(
-    y_eod: float,
-    y_tau: float,
-    gate_pct: float,
-    *,
-    sign_eps: float = 1e-9,
-) -> Tuple[bool, Optional[str]]:
-    return _strong_head_tau_sign_gate(
-        y_eod, y_tau, gate_pct, "y_eod", sign_eps=sign_eps
-    )
-
-
 def _path_direction_sign(y_path: Optional[float], path_enter: float) -> int:
     if y_path is None:
         return 0

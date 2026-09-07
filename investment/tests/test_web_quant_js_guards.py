@@ -400,6 +400,11 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("if (ctx.showRealized) n += 2; // y_complexity y_tpd", table_js)
         self.assertIn("closeBandDayOhlcCheck", table_js)
         self.assertIn("closeBandScanTitleHtml", table_js)
+        self.assertIn(">upper</th>", table_js)
+        self.assertIn(">lower</th>", table_js)
+        self.assertIn("fmtScanPct(r.upper_pct)", table_js)
+        self.assertIn("fmtScanPct(r.lower_pct)", table_js)
+        self.assertIn("nth-child(n + 8)", self._read("web", "static", "css", "follow.css"))
         self.assertIn("paper-t0-scan-ohlc-check", self._read("web", "static", "css", "follow.css"))
         self.assertIn("slotClock", table_js)
         self.assertIn("paper-t0-slot-cont", table_js)
@@ -643,7 +648,8 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("slotClosePxParts", table)
         self.assertIn("/S 映分钟", self._read("web", "static", "js", "paper", "execution_ui.js"))
         self.assertIn("price_space_mismatch", table)
-        self.assertIn("c_nowcast", table)
+        self.assertNotIn("c_nowcast", table)
+        self.assertNotIn("band_upper_pct: r && r.upper_pct", table)
         self.assertNotIn("paper-t0-day-detail", table)
         self.assertIn("paper-t0-process-tip", css)
         self.assertIn("paper-t0-process-kline", css)
@@ -735,6 +741,12 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn(">tpd门槛</span>", panel)
         self.assertIn("<legend>门槛1</legend>", panel)
         self.assertIn("<legend>门槛2</legend>", panel)
+        gate_hint = (
+            "|y_τ|、|y_path|、|R̂_τ| 过入场，且 complexity / tpd 过上限。"
+            "关启用则本档不参与 OR。缺 path / 分钟缺失见共用区。"
+        )
+        self.assertEqual(panel.count(gate_hint), 2)
+        self.assertNotIn("门槛1 未过时，过本组仍可开腿", panel)
         self.assertNotIn("<legend>收益</legend>", panel)
         self.assertNotIn("<legend>风险</legend>", panel)
         self.assertIn('class="paper-t0-cfg-gates"', panel)
@@ -768,6 +780,8 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertNotIn('<option value="skip">硬跳过</option>', panel)
         self.assertNotIn("硬跳过", panel)
         self.assertIn('name="y_tau_leg1_prior_risk"', panel)
+        self.assertIn('name="y_tau_leg1_prior_risk" min="0" max="100"', panel)
+        self.assertIn('Math.min(num("y_tau_leg1_prior_risk", 0.1), 100)', ui)
         self.assertIn('name="y_tau_leg1_prior_shift_scale"', panel)
         self.assertIn(">shift上限α</span>", panel)
         self.assertIn('name="y_tau_leg1_prior_shift_scale" min="0.1" max="1.0"', panel)
@@ -807,6 +821,15 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("r_tau_enter_alt", ui)
         self.assertIn('"门槛1"', ui)
         self.assertIn('"门槛2"', ui)
+        self.assertIn(
+            '"门槛1：启用时 |y_τ| / |y_path| / |R̂_τ| 入场 + complexity/tpd 风险"',
+            ui,
+        )
+        self.assertIn(
+            '"门槛2：启用时 |y_τ| / |y_path| / |R̂_τ| 入场 + complexity/tpd 风险"',
+            ui,
+        )
+        self.assertNotIn("启用且门槛1 未过时", ui)
         self.assertIn("y_use_path", ui)
         self.assertNotIn("y_use_next", ui)
         self.assertNotIn("y_next_enter", ui)
@@ -816,6 +839,7 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("y_enter_enabled", ui)
         self.assertIn("y_enter_alt_enabled", ui)
         self.assertNotIn("y_cx_max:", ui)
+        self.assertNotIn("y_on_allow: 0.01", ui)
         self.assertIn("y_tau_enter_alt", ui)
         self.assertIn("y_path_enter_alt", ui)
         self.assertIn("y_complexity_max_alt", ui)

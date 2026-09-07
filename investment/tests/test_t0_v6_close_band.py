@@ -1094,6 +1094,8 @@ class TestCloseBandCore(unittest.TestCase):
         self.assertIn("y_complexity", first)
         self.assertIn("y_cx", first)
         self.assertIn("y_tpd", first)
+        self.assertIn("upper_pct", first)
+        self.assertIn("lower_pct", first)
         for row in scan:
             hm = str(row.get("hm") or "")
             self.assertLessEqual(hm, "11:00", row)

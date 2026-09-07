@@ -211,8 +211,8 @@ class T0BacktestRequest(BaseModel):
     y_tau_leg1_prior_risk: Optional[float] = Field(
         default=None,
         ge=0.0,
-        le=10.0,
-        description="score：偏移灵敏度 k，s=k·ŷ_τ（再经 α·δ 封顶；默认 0.1）",
+        le=100.0,
+        description="score：偏移灵敏度 k，s=k·ŷ_τ（再经 α·δ 封顶；范围 0–100；默认 0.1）",
     )
     y_tau_leg1_prior_shift_scale: Optional[float] = Field(
         default=None,

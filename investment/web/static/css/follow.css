@@ -4861,13 +4861,9 @@ body[data-page="follow"] .paper-t0-table {
   color: var(--ink-3);
 }
 
-/* y_τ | y_path | y_complexity | y_tpd */
-.paper-t0-scan-debug th:nth-child(9),
-.paper-t0-scan-debug td:nth-child(9),
-.paper-t0-scan-debug th:nth-child(10),
-.paper-t0-scan-debug td:nth-child(10),
-.paper-t0-scan-debug th:nth-child(11),
-.paper-t0-scan-debug td:nth-child(11) {
+/* upper | lower · y_τ | y_path | y_complexity | y_tpd */
+.paper-t0-scan-debug th:nth-child(n + 8):nth-child(-n + 13),
+.paper-t0-scan-debug td:nth-child(n + 8):nth-child(-n + 13) {
   border-left: 1px solid color-mix(in srgb, var(--ink) 14%, transparent);
 }
 

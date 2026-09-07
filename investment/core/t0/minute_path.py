@@ -68,11 +68,6 @@ def _t0_stop_params(cfg: dict, direction: str) -> Tuple[float, int, bool]:
     return pct, arm, on_close
 
 
-def _bts_stop_params(cfg: dict) -> Tuple[float, int, bool]:
-    """兼容旧调用：正T止损参数。"""
-    return _t0_stop_params(cfg, "buy_then_sell")
-
-
 def _tplus1_skip_reason(*, side: str, shares: float, sellable: float, lot: int) -> str:
     """可卖不足 1 手：主因是 T+1，不是动仓比例。"""
     sh = int(shares)

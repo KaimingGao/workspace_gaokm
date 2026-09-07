@@ -1662,6 +1662,8 @@ class TestDualYDirection(unittest.TestCase):
         self.assertEqual(load_t0_rules({"r_tau_enter": 1.5})["r_tau_enter"], 1.0)
         self.assertEqual(load_t0_rules({"r_tau_enter_alt": 0.0})["r_tau_enter_alt"], 0.0)
         self.assertEqual(load_t0_rules({"r_tau_enter_alt": 1.5})["r_tau_enter_alt"], 1.0)
+        self.assertEqual(load_t0_rules({"y_tau_leg1_prior_risk": 100})["y_tau_leg1_prior_risk"], 100.0)
+        self.assertEqual(load_t0_rules({"y_tau_leg1_prior_risk": 150})["y_tau_leg1_prior_risk"], 100.0)
 
     def test_tau_prior_skip_mode_maps_to_score(self):
         cfg = load_t0_rules({"y_tau_leg1_prior_mode": "skip"})
