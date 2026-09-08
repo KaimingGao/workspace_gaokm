@@ -114,59 +114,78 @@ class TestT3WeightMode(unittest.TestCase):
             self.assertEqual(sample.get("weight_mode"), "score_budget")
 
     def test_portfolio_request_accepts_weight_mode(self):
-        from web.schemas import PortfolioBacktestRequest
+        from web.schemas import PaperReplayBacktestRequest, PortfolioBacktestRequest
 
-        body = PortfolioBacktestRequest(weight_mode="score_budget")
-        self.assertEqual(body.weight_mode, "score_budget")
-        self.assertEqual(body.max_position_pct, 25.0)
-        self.assertEqual(body.engine, "paper_replay")
+        research = PortfolioBacktestRequest(weight_mode="score_budget")
+        self.assertEqual(research.weight_mode, "score_budget")
+        self.assertEqual(research.max_position_pct, 25.0)
+        self.assertFalse(hasattr(research, "engine"))
+
+        body = PaperReplayBacktestRequest()
         self.assertEqual(body.y_on_alpha, 0.0)
         self.assertEqual(body.fusion_w_trade, 0.6)
         self.assertEqual(body.fusion_w_nowcast, 0.4)
         self.assertEqual(body.rank_enter, 0.012)
         self.assertEqual(body.rank_strong, 0.012)
+        self.assertFalse(hasattr(body, "engine"))
+        self.assertFalse(hasattr(body, "top_k"))
+
+    def test_replay_request_ignores_legacy_topk_fields(self):
+        from web.schemas import PaperReplayBacktestRequest
+
+        body = PaperReplayBacktestRequest(
+            engine="topk_research",
+            top_k=3,
+            horizon_days=3,
+            dropout_n=2,
+            lookback=40,
+        )
+        self.assertEqual(body.lookback, 40)
+        self.assertFalse(hasattr(body, "engine"))
+        self.assertFalse(hasattr(body, "top_k"))
+        self.assertFalse(hasattr(body, "horizon_days"))
 
     def test_portfolio_request_y_on_alpha_range(self):
         from pydantic import ValidationError
-        from web.schemas import PortfolioBacktestRequest
+        from web.schemas import PaperReplayBacktestRequest
 
-        self.assertEqual(PortfolioBacktestRequest(y_on_alpha=0.5).y_on_alpha, 0.5)
-        self.assertEqual(PortfolioBacktestRequest(y_on_alpha=1).y_on_alpha, 1.0)
+        self.assertEqual(PaperReplayBacktestRequest(y_on_alpha=0.5).y_on_alpha, 0.5)
+        self.assertEqual(PaperReplayBacktestRequest(y_on_alpha=1).y_on_alpha, 1.0)
         with self.assertRaises(ValidationError):
-            PortfolioBacktestRequest(y_on_alpha=1.1)
+            PaperReplayBacktestRequest(y_on_alpha=1.1)
         with self.assertRaises(ValidationError):
-            PortfolioBacktestRequest(y_on_alpha=-0.1)
+            PaperReplayBacktestRequest(y_on_alpha=-0.1)
 
     def test_portfolio_request_fusion_weights(self):
         from pydantic import ValidationError
-        from web.schemas import PortfolioBacktestRequest
+        from web.schemas import PaperReplayBacktestRequest
 
-        body = PortfolioBacktestRequest(fusion_w_trade=0.7, fusion_w_nowcast=0.3)
+        body = PaperReplayBacktestRequest(fusion_w_trade=0.7, fusion_w_nowcast=0.3)
         self.assertEqual(body.fusion_w_trade, 0.7)
         self.assertEqual(body.fusion_w_nowcast, 0.3)
-        self.assertEqual(PortfolioBacktestRequest(fusion_w_trade=0).fusion_w_trade, 0.0)
-        self.assertEqual(PortfolioBacktestRequest(fusion_w_nowcast=1).fusion_w_nowcast, 1.0)
+        self.assertEqual(PaperReplayBacktestRequest(fusion_w_trade=0).fusion_w_trade, 0.0)
+        self.assertEqual(PaperReplayBacktestRequest(fusion_w_nowcast=1).fusion_w_nowcast, 1.0)
         with self.assertRaises(ValidationError):
-            PortfolioBacktestRequest(fusion_w_trade=1.1)
+            PaperReplayBacktestRequest(fusion_w_trade=1.1)
         with self.assertRaises(ValidationError):
-            PortfolioBacktestRequest(fusion_w_nowcast=-0.1)
+            PaperReplayBacktestRequest(fusion_w_nowcast=-0.1)
 
     def test_portfolio_request_rank_thresholds(self):
         from pydantic import ValidationError
-        from web.schemas import PortfolioBacktestRequest
+        from web.schemas import PaperReplayBacktestRequest
 
-        body = PortfolioBacktestRequest(rank_enter=0.015, rank_strong=0.03)
+        body = PaperReplayBacktestRequest(rank_enter=0.015, rank_strong=0.03)
         self.assertEqual(body.rank_enter, 0.015)
         self.assertEqual(body.rank_strong, 0.03)
         # 旧乘数 1.01 仍可进请求体，服务层 coerce 成 0.01
-        self.assertEqual(PortfolioBacktestRequest(rank_enter=1.01).rank_enter, 1.01)
+        self.assertEqual(PaperReplayBacktestRequest(rank_enter=1.01).rank_enter, 1.01)
         with self.assertRaises(ValidationError):
-            PortfolioBacktestRequest(rank_enter=-0.01)
+            PaperReplayBacktestRequest(rank_enter=-0.01)
         with self.assertRaises(ValidationError):
-            PortfolioBacktestRequest(rank_strong=10.1)
-        self.assertEqual(PortfolioBacktestRequest(lookback=10).lookback, 10)
+            PaperReplayBacktestRequest(rank_strong=10.1)
+        self.assertEqual(PaperReplayBacktestRequest(lookback=10).lookback, 10)
         with self.assertRaises(ValidationError):
-            PortfolioBacktestRequest(lookback=9)
+            PaperReplayBacktestRequest(lookback=9)
 
 
 if __name__ == "__main__":

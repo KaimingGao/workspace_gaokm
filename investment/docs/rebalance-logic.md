@@ -384,7 +384,7 @@ core/
 ├── paper/
 │   ├── rebalance/
 │   │   ├── __init__.py             # simulate_cross_section_rebalance 编排
-│   │   ├── orchestrator.py         # 模式路由（cross_section / holding_rules）
+│   │   ├── orchestrator.py         # 日循环 holding_rules（Follow 不走这里）
 │   │   ├── sell.py                 # 卖出腿
 │   │   ├── buy.py                  # 买入腿
 │   │   ├── gate.py                 # 卖后门禁 + optimize

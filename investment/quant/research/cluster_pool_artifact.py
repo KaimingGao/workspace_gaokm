@@ -7,9 +7,8 @@
 import logging
 
 logger = logging.getLogger(__name__)
-import copy
 import os
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Optional, Sequence
 
 from core.numbers import now_iso_utc
 from core.research.oos_slim import slim_oos_gate
@@ -300,29 +299,6 @@ def intent_preview_vs_holdings(
     }
 
 
-def _book_to_ranking(book: Sequence[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    return [
-        {
-            "stock_code": str(p.get("stock_code") or ""),
-            "stock_name": p.get("stock_name"),
-            "score": float(p.get("score") or 0.0),
-            "hard_reject": False,
-            "cluster_label": p.get("cluster_label"),
-        }
-        for p in (book or [])
-        if str(p.get("stock_code") or "").strip()
-    ]
-
-
-def _trade_lists(result: Dict[str, Any]) -> Tuple[List[dict], List[dict]]:
-    sells = list(result.get("sell_trades") or result.get("sells") or [])
-    buys = list(result.get("buy_trades") or result.get("buys") or [])
-    if not sells and not buys and isinstance(result.get("trades"), list):
-        sells = [t for t in result["trades"] if t.get("side") == "sell"]
-        buys = [t for t in result["trades"] if t.get("side") == "buy"]
-    return sells, buys
-
-
 def preview_paper_pool_rebalance(
     book: Sequence[Dict[str, Any]],
     *,
@@ -332,194 +308,17 @@ def preview_paper_pool_rebalance(
     confirm: bool = False,
     artifact: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
-    """用分池候选簿作排名，对纸面账户调仓。
-
-    - 默认预演：deepcopy，**不写盘**
-    - ``confirm=True``：写 ``paper.json``，记 ``last_cluster_pool``；**永不**写 signal_config
-    - ``dry_run=False`` 且未 confirm：拒绝（防误触）
-    """
-    from core.paper import (
-        append_operation_log,
-        append_snapshot,
-        append_trade_legs_to_operation_log,
-        capture_mark_snapshot,
-        load_paper,
-        mark_to_market,
-        save_paper,
-    )
-    from core.paths import PAPER_PATH
-
-    write = bool(confirm)
-    if not dry_run and not write:
-        return {
-            "success": False,
-            "ok": False,
-            "dry_run": False,
-            "confirmed": False,
-            "error": "未 confirm 时禁止写账；请先预演，或传 confirm=true",
-            "task": "cluster_paper_preview",
-        }
-
-    path = paper_path or PAPER_PATH
-    if not path or not os.path.isfile(path):
-        return {
-            "success": False,
-            "ok": False,
-            "dry_run": not write,
-            "confirmed": False,
-            "error": "纸面账户未初始化",
-            "task": "cluster_paper_preview",
-            "intent": intent_preview_vs_holdings(book, []),
-        }
-
-    paper = load_paper(path)
-    intent = intent_preview_vs_holdings(book, paper.get("holdings") or [])
-    ranking = _book_to_ranking(book)
-    if not ranking:
-        return {
-            "success": False,
-            "ok": False,
-            "dry_run": not write,
-            "confirmed": False,
-            "error": "候选簿为空",
-            "task": "cluster_paper_preview",
-            "intent": intent,
-        }
-
-    from core.paper.rebalance import simulate_cross_section_rebalance
-
-    target = paper if write else copy.deepcopy(paper)
-    k = top_k if top_k is not None else len(ranking)
-    k = max(1, min(int(k), 80))
-
-    if write:
-        capture_mark_snapshot(target)
-
-    try:
-        result = simulate_cross_section_rebalance(
-            target,
-            ranking,
-            top_k=k,
-            # 分池簿本身已是每组 Top-N 合成；勿再被纸面 max_positions(常=5) 砍掉
-            respect_max_positions=False,
-        )
-    except Exception as exc:
-        logger.exception('unexpected error in preview_paper_pool_rebalance')
-        return {
-            "success": False,
-            "ok": False,
-            "dry_run": not write,
-            "confirmed": False,
-            "error": str(exc),
-            "task": "cluster_paper_preview",
-            "intent": intent,
-        }
-
-    sells, buys = _trade_lists(result)
-    summary = None
-    if write:
-        summary = mark_to_market(target)
-        append_snapshot(target, summary)
-        art = artifact if isinstance(artifact, dict) else {}
-        target["last_cluster_pool"] = {
-            "applied_at": now_iso_utc(),
-            "schema_version": art.get("schema_version") or SCHEMA_VERSION,
-            "artifact_created_at": art.get("created_at"),
-            "n_clusters": art.get("n_clusters"),
-            "book_codes": [r["stock_code"] for r in ranking],
-            "sell_count": len(sells),
-            "buy_count": len(buys),
-            "signal_config_touched": False,
-            "note": "分池候选簿纸面落账；组权未写入 signal_config",
-        }
-        append_trade_legs_to_operation_log(
-            target,
-            sells,
-            buys,
-            origin="cluster",
-            source="research_hub",
-        )
-        append_operation_log(
-            target,
-            "cluster_pool_rebalance",
-            detail=(
-                f"分池调仓：卖 {len(sells)} · 买 {len(buys)} · "
-                f"目标 {len(ranking)} 只（不写 signal_config）"
-            ),
-            meta={
-                "book_codes": [r["stock_code"] for r in ranking],
-                "sell_count": len(sells),
-                "buy_count": len(buys),
-                "artifact_created_at": art.get("created_at"),
-                "signal_config_touched": False,
-                "origin": "cluster",
-                "source": "research_hub",
-            },
-        )
-        save_paper(target, path)
-
+    """分池簿→纸面调仓已停用；请改用 Follow 观察池 rank_lots。"""
+    _ = book, paper_path, top_k, dry_run, confirm, artifact
     return {
-        "success": True,
-        "ok": True,
-        "dry_run": not write,
-        "confirmed": write,
-        "task": "cluster_paper_apply" if write else "cluster_paper_preview",
-        "top_k": k,
-        "intent": intent,
-        "sell_count": len(sells),
-        "buy_count": len(buys),
-        "sell_trades": sells[:20],
-        "buy_trades": buys[:20],
-        "buys_blocked": bool(result.get("buys_blocked")),
-        "risk_gate": result.get("risk_gate"),
-        "risk_budget_skips": result.get("risk_budget_skips") or [],
-        "sentiment_prior": result.get("sentiment_prior"),
-        "cash_impact": result.get("cash_impact"),
-        "ops_report": result.get("ops_report"),
-        "rebalance_report": result.get("rebalance_report")
-        or [
-            {
-                "stock_code": t.get("stock_code"),
-                "stock_name": t.get("stock_name"),
-                "decision": (
-                    "买入"
-                    if t.get("side") == "buy"
-                    else (
-                        "减仓"
-                        if t.get("sentiment_prior") and "缩仓" in str(t.get("note") or "")
-                        else "卖出"
-                    )
-                ),
-                "reason": t.get("note") or "",
-                "shares": t.get("shares"),
-                "score": t.get("score"),
-                "sentiment_prior": bool(t.get("sentiment_prior")),
-            }
-            for t in (sells + buys)[:40]
-        ],
-        "cash_after": target.get("cash"),
-        "holdings_after": [
-            {
-                "stock_code": h.get("stock_code"),
-                "stock_name": h.get("stock_name"),
-                "shares": h.get("shares"),
-            }
-            for h in (target.get("holdings") or [])[:30]
-        ],
-        "summary": summary,
-        "last_cluster_pool": target.get("last_cluster_pool") if write else None,
-        "note": (
-
-                "分池候选簿已写入纸面账户；组权未写入 signal_config。"
-                if write
-                else "分池候选簿 → 纸面调仓预演（deepcopy，未写 paper.json）。"
-
-        ),
-        "apply_note": (
-            "已落账 · 仅 paper.json"
-            if write
-            else "预演不写账；确认落账请传 confirm=true（仍不写 signal_config）。"
-        ),
+        "success": False,
+        "ok": False,
+        "deprecated": True,
+        "dry_run": bool(dry_run) and not bool(confirm),
+        "confirmed": False,
+        "error": "分池簿纸面调仓已停用；请到交易执行页用观察池 rank_lots 预演/确认",
+        "task": "cluster_paper_preview",
+        "redirect": "/follow",
     }
 
 

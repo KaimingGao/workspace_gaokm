@@ -272,7 +272,7 @@ def _y_track_gate(snaps: dict, add) -> None:
             has_hysteresis,
             f"ŷ 滞回 buy={buy_f} hold={hold_f}（须在 scoring 显式配置）",
             severity="hard",
-            action="策略中心写入 min_predicted_score / min_hold_predicted_score",
+            action="检查 signal_config.scoring 滞回配置",
         )
     except Exception as exc:
         logger.exception('unexpected error in evaluate_maturity_gate')

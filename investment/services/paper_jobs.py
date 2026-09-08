@@ -26,7 +26,7 @@ class PaperJobsMixin:
         self,
         *,
         simulate_buy: bool = False,
-        strategy: str = "short",
+        strategy: str = "short_conservative",
         dry_run: bool = False,
         on_progress=None,
     ) -> Dict[str, Any]:
@@ -161,7 +161,7 @@ class PaperJobsMixin:
         self,
         *,
         simulate_buy: bool = False,
-        strategy: str = "short",
+        strategy: str = "short_conservative",
         dry_run: bool = False,
     ) -> Dict[str, Any]:
         """后台跑观察池，前端轮询 /api/jobs/paper（兼容 /api/paper/job）。"""

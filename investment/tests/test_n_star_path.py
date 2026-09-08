@@ -120,7 +120,7 @@ class TestP1QualityGate(unittest.TestCase):
         from core.paper import build_ops_report
 
         ops = build_ops_report(
-            strategy_id="short",
+            strategy_id="short_conservative",
             optimize={
                 "ok": True,
                 "weights_pct": {"600519": 25.0, "600036": 20.0},
@@ -142,15 +142,6 @@ class TestP1QualityGate(unittest.TestCase):
         r = specs[0].get("risk") or {}
         self.assertIn("max_position_pct", r)
         self.assertIn("max_sector_pct", r)
-
-    def test_cost_compare_helper_gap(self):
-        from quant.services.quant_service_replay import _metrics_slice
-
-        sliced = _metrics_slice(
-            {"metrics": {"total_return_pct": 10.0, "max_drawdown_pct": 3.0}, "trade_count": 4}
-        )
-        self.assertEqual(sliced["total_return_pct"], 10.0)
-        self.assertEqual(sliced["trade_count"], 4)
 
     def test_rolling_walk_forward_slices(self):
         from research.split import rolling_walk_forward_slices
@@ -328,7 +319,7 @@ class TestN3PortfolioRisk(unittest.TestCase):
     def test_sector_risk_block(self):
         from core.risk.checks import check_account_risk
 
-        paper = {"cash": 0, "strategy_id": "short", "holdings": []}
+        paper = {"cash": 0, "strategy_id": "short_conservative", "holdings": []}
         summary = {
             "equity": 100000,
             "max_drawdown_pct": 1.0,
@@ -368,12 +359,12 @@ class TestN4OosReport(unittest.TestCase):
         self.assertIn("regime", out["regime_summary"])
 
     def test_portfolio_request_defaults_apply_costs(self):
-        from web.schemas import PortfolioBacktestRequest
+        from web.schemas import PaperReplayBacktestRequest
 
-        body = PortfolioBacktestRequest()
+        body = PaperReplayBacktestRequest()
         self.assertTrue(body.apply_costs)
-        self.assertTrue(body.include_wf_slices)
-        self.assertEqual(body.wf_n_splits, 3)
+        self.assertFalse(hasattr(body, "include_wf_slices"))
+        self.assertEqual(body.lookback, 30)
 
 
 class TestN5Monitor(unittest.TestCase):
@@ -381,7 +372,7 @@ class TestN5Monitor(unittest.TestCase):
         from core.strategy_monitor import assess_strategy_health
 
         out = assess_strategy_health(
-            {"strategy_id": "short"},
+            {"strategy_id": "short_conservative"},
             summary={"max_drawdown_pct": 15.0, "equity": 100000, "cash": 10000},
             risk={"max_drawdown_pct": 20.0, "target_drawdown_pct": 12.0},
         )
@@ -404,7 +395,7 @@ class TestN5Monitor(unittest.TestCase):
 
         out = assess_strategy_health(
             {
-                "strategy_id": "short",
+                "strategy_id": "short_conservative",
                 "cash": 10000,
                 "holdings": [{"stock_code": "999991"}, {"stock_code": "999992"}],
             },
@@ -438,7 +429,7 @@ class TestP0OpsReportAndRiskBlock(unittest.TestCase):
         from core.paper import build_ops_report
 
         ops = build_ops_report(
-            strategy_id="short",
+            strategy_id="short_conservative",
             strategy_version="1",
             cost_model="simple_cn",
             data_quality={"fallback_count": 2, "count": 5},
@@ -464,7 +455,7 @@ class TestP0OpsReportAndRiskBlock(unittest.TestCase):
 
         paper = {
             "cash": 10000,
-            "strategy_id": "short",
+            "strategy_id": "short_conservative",
             "strategy_version": "t",
             "cost_model": "simple_cn",
             "holdings": [
@@ -521,7 +512,7 @@ class TestP0OpsReportAndRiskBlock(unittest.TestCase):
         ), patch(
             "core.run_manifest.write_run_manifest", return_value="/tmp/m.json"
         ):
-            out = run_daily_cycle(paper, simulate_buy=True, strategy="short")
+            out = run_daily_cycle(paper, simulate_buy=True, strategy="short_conservative")
 
         mock_buys.assert_not_called()
         self.assertTrue(out["buys_blocked"])
@@ -539,7 +530,7 @@ class TestP0OpsReportAndRiskBlock(unittest.TestCase):
 
         paper = {
             "cash": 50000,
-            "strategy_id": "short",
+            "strategy_id": "short_conservative",
             "cost_model": "simple_cn",
             "holdings": [
                 {
@@ -633,7 +624,7 @@ class TestP2PaperOpsLoop(unittest.TestCase):
 
         paper = {
             "cash": 50000,
-            "strategy_id": "short",
+            "strategy_id": "short_conservative",
             "cost_model": "simple_cn",
             "holdings": [],
             "rules": {"max_positions": 5, "min_score": 50, "min_hold_score": 40, "position_pct": 0.2},
@@ -686,13 +677,13 @@ class TestP2PaperOpsLoop(unittest.TestCase):
             "ok": True,
             "kind": "paper_daily",
             "monitor_alerts": [],
-            "strategy_id": "short",
+            "strategy_id": "short_conservative",
             "cost_model": "simple_cn",
             "data_quality": {},
             "risk_blocks": [],
         }
         with patch("core.schedule_jobs.run_paper_daily", return_value=fake) as mocked:
-            out = run_schedule("paper_daily", simulate_buy=False, strategy="short")
+            out = run_schedule("paper_daily", simulate_buy=False, strategy="short_conservative")
         mocked.assert_called_once()
         self.assertTrue(out.get("ok"))
         self.assertEqual(out.get("kind"), "paper_daily")

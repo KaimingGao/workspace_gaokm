@@ -48,12 +48,14 @@ import {
   collectExecutionForm,
   fillPathMatrixForm,
   collectPathMatrixForm,
+  fillDualScoreForm,
+  collectDualScorePatch,
   persistT0Lookback,
   collectT0BacktestBody,
   resolveT0BacktestScope,
   normalizeExecutionView,
   renderExecutionDiffHtml,
-} from "./paper/execution_ui.js?v=p1986";
+} from "./paper/execution_ui.js?v=p2076";
 import { buildPaperLogsView, buildPaperLogsCsv } from "./paper/logs_ui.js?v=p1658";
 import { downloadBlob } from "./shared.js";
 import {
@@ -912,6 +914,7 @@ export function initPaper(ctx) {
         t0RulesEl.innerHTML = renderExecutionRulesHtml(execution);
         if (t0Form) fillExecutionForm(t0Form, execution);
         if (pathMatrixForm) fillPathMatrixForm(pathMatrixForm, execution);
+        if (pathMatrixForm) loadDualScoreOntoForm(pathMatrixForm);
       } else {
         t0RulesEl.innerHTML = `<p class="quant-sub">加载 ExecutionSpec…</p>`;
         // 旧进程未带 execution 字段时兜底拉专用接口
@@ -927,6 +930,7 @@ export function initPaper(ctx) {
             t0RulesEl.innerHTML = renderExecutionRulesHtml(exe);
             if (t0Form) fillExecutionForm(t0Form, exe);
             if (pathMatrixForm) fillPathMatrixForm(pathMatrixForm, exe);
+            if (pathMatrixForm) loadDualScoreOntoForm(pathMatrixForm);
           })
           .catch((err) => {
             t0RulesEl.innerHTML = renderExecutionRulesHtml({
@@ -937,6 +941,7 @@ export function initPaper(ctx) {
       }
     } else if (pathMatrixForm && execution && execution.ok !== false) {
       fillPathMatrixForm(pathMatrixForm, execution);
+      loadDualScoreOntoForm(pathMatrixForm);
     }
 
     const logsView = buildPaperLogsView(data, paperLogShowAll, paperLogFilter);
@@ -1405,14 +1410,14 @@ export function initPaper(ctx) {
       el.innerHTML =
         `做 T 是<strong>底仓 overlay</strong>验证，不是独立选股。完整闭环：` +
         `<a class="follow-hero-link" href="/replay">历史回测</a> · ` +
-        `<a class="follow-hero-link" href="/strategy">策略晋升</a> · ` +
+        `<a class="follow-hero-link" href="/strategy">策略中心</a> · ` +
         `<a class="follow-hero-link" href="/platform">北极星</a>`;
       return;
     }
     el.innerHTML =
       `纸面调仓是落地一步（非完整科学验证）。下一步：` +
       `<a class="follow-hero-link" href="/replay">历史回测对照</a> · ` +
-      `改限额去 <a class="follow-hero-link" href="/strategy">策略中心晋升</a> · ` +
+      `先验去 <a class="follow-hero-link" href="/strategy">策略中心</a> · ` +
       `看拟合 <a class="follow-hero-link" href="/platform">北极星</a>`;
   }
 
@@ -1612,6 +1617,17 @@ export function initPaper(ctx) {
       })();
     },
   });
+
+  async function loadDualScoreOntoForm(form) {
+    if (!form) return;
+    try {
+      const res = await fetch("/api/signal/config/dual-score");
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data.dual_score) fillDualScoreForm(form, data.dual_score);
+    } catch (_) {
+      /* 缺接口时保留表单默认 0.5 */
+    }
+  }
 
   async function loadPaper(opts = {}) {
     const quiet = !!(opts && opts.quiet);
@@ -2601,7 +2617,6 @@ export function initPaper(ctx) {
     return { code: String(code).trim(), name: String(name || "").trim() };
   };
 
-  const paperRebalanceSummary = document.getElementById("paper-rebalance-summary");
   const paperT0Metrics = document.getElementById("paper-t0-metrics");
   const paperT0Viz = document.getElementById("paper-t0-viz");
   const paperT0Days = document.getElementById("paper-t0-days");
@@ -2627,35 +2642,6 @@ export function initPaper(ctx) {
       { previewEl: paperT0Preview, confirmEl: paperT0Confirm },
       data
     );
-  }
-
-  const paperRebalanceBtn = document.getElementById("paper-rebalance");
-  if (paperRebalanceBtn) {
-    paperRebalanceBtn.addEventListener("click", async (e) => {
-      e.preventDefault();
-      if (paperRebalanceSummary) paperRebalanceSummary.textContent = "调仓中…";
-      try {
-        const res = await fetch("/api/paper/rebalance", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ top_k: 3, limit: 10 }),
-        });
-        const data = await res.json();
-        if (!res.ok || !data.success) {
-          if (paperRebalanceSummary) {
-            paperRebalanceSummary.textContent = data.error || data.detail || "调仓失败";
-          }
-          return;
-        }
-        if (paperRebalanceSummary) {
-          paperRebalanceSummary.textContent =
-            `卖出 ${(data.sell_trades || []).length} · 买入 ${(data.buy_trades || []).length} · 净值 ${(data.summary || {}).equity ?? "—"}`;
-        }
-        await loadPaper({ quiet: true });
-      } catch (err) {
-        if (paperRebalanceSummary) paperRebalanceSummary.textContent = String(err.message || err);
-      }
-    });
   }
 
   const paperT0Bt = document.getElementById("paper-t0-backtest");
@@ -2874,7 +2860,10 @@ export function initPaper(ctx) {
     if (t0RulesEl && exec) t0RulesEl.innerHTML = renderExecutionRulesHtml(exec);
     if (paperT0Form && exec) fillExecutionForm(paperT0Form, exec);
     const pathMatrixForm = document.getElementById("paper-path-matrix-form");
-    if (pathMatrixForm && exec) fillPathMatrixForm(pathMatrixForm, exec);
+    if (pathMatrixForm && exec) {
+      fillPathMatrixForm(pathMatrixForm, exec);
+      loadDualScoreOntoForm(pathMatrixForm);
+    }
   }
   async function postJson(url, body, { timeoutMs = 12000, method = "POST" } = {}) {
     const ac = new AbortController();
@@ -2938,6 +2927,7 @@ export function initPaper(ctx) {
     paperPathMatrixForm.addEventListener("submit", async (e) => {
       e.preventDefault();
       const body = collectPathMatrixForm(paperPathMatrixForm);
+      const dualPatch = collectDualScorePatch(paperPathMatrixForm);
       if (!body) return;
       setPathMatrixStatus("保存中…");
       try {
@@ -2952,6 +2942,23 @@ export function initPaper(ctx) {
             { error: true }
           );
           return;
+        }
+        if (dualPatch) {
+          const dualRes = await fetch("/api/signal/config/dual-score", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(dualPatch),
+          });
+          const dualData = await dualRes.json().catch(() => ({}));
+          if (!dualRes.ok || dualData.success === false) {
+            setPathMatrixStatus(
+              dualData.detail || dualData.error || "y_fuse 已保存，y_trade 权重未写入",
+              { error: true }
+            );
+            applyExecutionToUi(data.execution);
+            return;
+          }
+          fillDualScoreForm(paperPathMatrixForm, dualData.dual_score);
         }
         setPathMatrixStatus(data.message || "已保存规则");
         applyExecutionToUi(data.execution);

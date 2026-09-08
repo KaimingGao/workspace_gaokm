@@ -26,6 +26,7 @@ data/memory.json
 data/decisions.jsonl
 data/ttm_events.jsonl
 data/north_star_last_backtest.json
+data/last_portfolio_backtest.json
 data/signal_config_draft.json
 data/config_backups/
 data/schedule_last_run.json

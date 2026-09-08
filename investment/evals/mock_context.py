@@ -114,6 +114,7 @@ def _patch_daily_bars(stack, mock_cfg: dict) -> None:
     # 只 patch 仍存在的符号；日线入口已收敛到 core.data.facade
     for target, value in (
         ("core.data.facade.bars_and_source", ret),
+        ("core.data.facade.bars_and_source_research", ret),
         ("core.data.facade.get_bars", pack),
         ("skills.common.history.fetch_daily_bars", ret),
         ("core.signal.score_stock.fetch_daily_bars", ret),

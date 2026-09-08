@@ -10,7 +10,6 @@ AVAILABLE_TASKS = (
     "daily_summary",
     "cross_section",
     "portfolio_backtest",
-    "portfolio_neutral_compare",
     "weight_suggest",
     "threshold_suggest",
     "interpret",
@@ -65,7 +64,7 @@ class QuantEngine:
                 include_cross_section=bool(params.get("include_cross_section")),
                 include_portfolio_backtest=bool(params.get("include_portfolio_backtest", True)),
                 include_portfolio_neutral_compare=bool(
-                    params.get("include_portfolio_neutral_compare", True)
+                    params.get("include_portfolio_neutral_compare", False)
                 ),
             )
             return self._compact_daily(report)
@@ -81,27 +80,12 @@ class QuantEngine:
 
         if task == "portfolio_backtest":
             codes = self._as_codes(params.get("codes") or params.get("stock_codes"))
+            costs = params.get("apply_costs")
             return self._svc.run_portfolio_backtest(
                 codes=codes or None,
                 lookback=lookback,
-                top_k=int(params.get("top_k") or 3),
-                horizon_days=int(params.get("horizon_days") or 3),
-                min_score=float(params.get("min_score") or 55),
-                apply_costs=bool(params.get("apply_costs")),
+                apply_costs=True if costs is None else bool(costs),
             )
-
-        if task == "portfolio_neutral_compare":
-            codes = self._as_codes(params.get("codes") or params.get("stock_codes"))
-            out = self._svc.run_portfolio_neutral_compare(
-                codes=codes or None,
-                lookback=lookback,
-                top_k=int(params.get("top_k") or 3),
-                horizon_days=int(params.get("horizon_days") or 3),
-                min_score=float(params.get("min_score") or 55),
-                apply_costs=bool(params.get("apply_costs")),
-            )
-            out["task"] = "portfolio_neutral_compare"
-            return out
 
         if task == "factor_ols":
             return self._svc.run_factor_ols_experiment(
@@ -172,7 +156,7 @@ class QuantEngine:
                 report = self._svc.build_daily_report(
                     code,
                     include_portfolio_backtest=True,
-                    include_portfolio_neutral_compare=True,
+                    include_portfolio_neutral_compare=False,
                 )
             if offline:
                 from quant.services.quant_interpret import build_rule_based_interpret

@@ -24,7 +24,7 @@ def run_daily_cycle(
     paper: dict,
     *,
     simulate_buy: bool = False,
-    strategy: str = "short",
+    strategy: str = "short_conservative",
     on_progress=None,
 ) -> Dict[str, Any]:
     def _p(cur: int, tot: int, msg: str) -> None:

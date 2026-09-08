@@ -102,10 +102,8 @@ def build_live_config_manifest(*, note: str = "") -> Dict[str, Any]:
         alerts.append(f"cluster_scoring.mode={mode} 但无 cluster_weights")
     if has_weights and mode == "off":
         alerts.append("有 cluster_weights 但 mode=off（半晋升：须人审设 shadow/active）")
-    if mode == "active" and not artifacts["cluster_book_active"].get("exists"):
-        alerts.append("mode=active 但无 cluster_book_active（请刷新簿）")
     if bool(paper_rules.get("cluster_mode")) and mode == "off":
-        alerts.append("paper.rules.cluster_mode 开但 signal cluster_scoring.mode=off")
+        alerts.append("paper.rules.cluster_mode 已无调仓含义；组 ŷ 看 cluster_scoring.mode")
     if os.path.isfile(CLUSTER_POINTER_PATH) and not resolved_weights:
         alerts.append("cluster_pointer 存在但 artifact 不可读（指针残缺）")
     if ptr and resolved_weights:

@@ -206,7 +206,7 @@ flowchart TB
 | 叫法 | 代码落点 | 职责 | 典型入口 |
 |------|----------|------|----------|
 | **Application Service**（应用服务） | `services/*` · `quant/services/` | Web/CLI **用例组装**；编排多步业务、定 API 边界 | `PaperService` · `WatchingService` · `QuantService` |
-| **Domain Facade**（领域门面） | `core/data/facade` · `signal_service` · `backtest_service` | **单一领域能力**的统一出口；委托 `core/data` · `signal` · `backtest` | DS · SS · BS（`get_bars` · `score_one` · `run_topk`） |
+| **Domain Facade**（领域门面） | `core/data/facade` · `signal_service` · `backtest_service` | **单一领域能力**的统一出口；委托 `core/data` · `signal` · `backtest` | DS · SS · BS（`get_bars` · `score_one` · `run_topk` 研究探针；产品回测走 `paper_replay`） |
 
 **原则**
 
@@ -1165,7 +1165,7 @@ flowchart TB
 | QuantService | `quant_service.py` | Mixin 门面入口 |
 | Config | `quant_service_config.py` | 策略/信号配置列表 |
 | Follow | `quant_service_follow.py` | ① 模拟（T0 研究；执行归 PaperService） |
-| Replay | `quant_service_replay.py` | ② 回溯（TopK 回测、中性化对照） |
+| Replay | `quant_service_replay.py` | ② 回溯（paper_replay；中性化对照仍 TopK） |
 | Compare | `quant_service_compare.py` | ③ 持仓联动摘要 |
 | Factors | `quant_service_factors.py` | 因子面板、IC、OLS、截面 |
 | Ops | `quant_service_ops.py` | 日报、导出、解读、watching 运维 |
@@ -1226,7 +1226,7 @@ flowchart TB
 |------|----------|--------|----------|
 | **DS** | `core/data/facade.py` | `core/data/` | `get_quote` · `get_bars` · `bars_and_source` · `summarize_data_quality` |
 | **SS** | `core/signal_service.py` | `core/signal/` | `score_one` · `rank_cross_section` · `rank_cluster_pools` |
-| **BS** | `core/backtest_service.py` | `core/backtest/` | `run_topk` · `run_signal_backtest` |
+| **BS** | `core/backtest_service.py` | `core/backtest/` | `run_topk`（研究探针，≠ 产品 `/replay`） · `run_signal_backtest` |
 
 **端口与绑定**：
 
@@ -1261,8 +1261,9 @@ BS → core/backtest/service.py → engine · topk_backtest · topk_weights
 | 子模块 | 功能 |
 |--------|------|
 | `service.py` | BacktestService 实现 |
-| `engine.py` | 回测引擎 |
-| `topk_backtest.py` | TopK 等权/加权回测 |
+| `engine.py` | 单票 signal 回测 |
+| `paper_replay.py` | 产品历史回测（rank_lots） |
+| `topk_backtest.py` | TopK 等权/加权回测（研究探针，≠ `/replay`） |
 | `topk_weights.py` | 权重计算（按用例拆分） |
 | `matching.py` | 成交撮合规则 |
 | `strategies/` | 策略模板 |
@@ -1359,7 +1360,6 @@ BS → core/backtest/service.py → engine · topk_backtest · topk_weights
 | 示例脚本 | 功能 |
 |----------|------|
 | `cross_section_run.py` | 截面排序导出 |
-| `portfolio_backtest_run.py` | 组合回测 CLI |
 | `t0_backtest_run.py` | 做 T 回测 CLI |
 | `quant_export_run.py` | 量化报告导出 |
 | `cache_cli.py` | 缓存管理（含 `--clear`） |
@@ -1994,7 +1994,7 @@ flowchart LR
 一句话：策略是函数 `f(x) = y` —— `x` 为行情与账户上下文，`f` 为选股/择时/仓位/风控，`y` 为标准化信号（不是直接下真单）。
 
 本仓库 **没有** 经典 `StrategyBase.on_bar` 类体系；等价逻辑拆在 **`score_bars` → `stance` / 回测入场 → 纸面 `rules`**。  
-**Q2**：`short`（短线评分）已收编为版本化 **StrategySpec**（`core/strategy.py` + `STRATEGY_SPECS[].lifecycle`）：回测参数、模拟 `paper_rules`、默认 `cost_model`、账户 `risk` 限额。另有 `short_conservative`（保守短线）。旧 ID `signal_v1` / `signal_v1_conservative` 经别名仍可解析。研究配置经 **`POST /api/strategy/promote`** 显式晋级，禁止静默覆盖。
+**Q2**：唯一 canonical 策略为 **`short_conservative`**（`core/strategy.py` + `STRATEGY_SPECS[].lifecycle`）：回测参数、模拟 `paper_rules`、默认 `cost_model`、账户 `risk` 限额。研究配置经 **`POST /api/strategy/promote`** 显式晋级（API 仍在；策略中心页不再挂空壳按钮），禁止静默覆盖。
 
 **ExecutionSpec（v1.1）**：`lifecycle.execution` 收编两类纸面动作——**结构层调仓**（持有什么、各占多少；ŷ_trade 排序 + ŷ_EOD/ŷ_τ 买卖闸）与 **overlay 做 T**（底仓上 dual_y：y_τ 定方向 + 5m 往返 timing；不改变选股主线）。**ŷ_τ 模型共用、决策接口不同**，见 [quant.md · 策略调仓 vs 底仓做 T](quant.md#策略调仓-vs-底仓做-t)。纸面 / 做 T 回测经 `core/execution.resolve_effective_execution` 合并  
 `DEFAULT → Spec → paper.rules → 请求 → channel runtime_defaults`，禁止入口各自硬编码 `direction` / `path_mode`。  
@@ -2076,7 +2076,7 @@ API：`GET/POST /api/paper/t0/worker`（启停 + 状态）· `GET /api/paper/t0/
 
 | 页 | 策略角色 |
 |----|----------|
-| `/strategy` | **看图纸**：策略卡限额 · 人审 promote · ŷ 滞回说明 |
+| `/strategy` | **看图纸**：舆情先验 · M prior · 风控审计 |
 | `/watching` | **划狩猎范围**（选股输入名单） |
 | `/replay` | 用图纸交**历史卷**（资金模拟在引擎内） |
 | `/paper` + `/follow` | 图纸 + **假账**持续记账 |
@@ -2867,9 +2867,8 @@ Canonical Job API：`GET /api/jobs/{name}` · `POST /api/jobs/{name}/cancel`（`
 | 任务 | 现行 | 是否再上 ProcessPool | 理由 |
 |------|------|----------------------|------|
 | AkShare 拉数 | `skills/common/ak_worker.py` ProcessPool | 已隔离 | 崩溃不拖死 Web |
-| paper / chat / ols / param-grid 进度 | `data/jobs/*.json` 落盘 | — | reload 后可解释中断 |
+| paper / chat / ols 进度 | `data/jobs/*.json` 落盘 | — | reload 后可解释中断 |
 | 分组 OLS fit | Job 槽内 ThreadPool | **暂不上** ProcessPool | panel/矩阵难 pickle；已有 Job + cancel + stale reclaim；HTTP 经 `progress=1` 轻量轮询 |
-| 参数网格 | 同左 | **暂不上** | 结果小、可落盘完整 result |
 
 后续若 OLS 仍饿死 API：优先「子进程整段 run_ols_clusters」单入口，而不是拆散 fit 函数。
 

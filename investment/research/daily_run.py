@@ -32,16 +32,11 @@ def main(argv=None) -> int:
     parser.add_argument("--watching-refresh", action="store_true", help="刷新 watching watchlist")
     parser.add_argument("--cross-section", action="store_true", help="横截面排序 Top N")
     parser.add_argument("--sync-paper-watchlist", action="store_true", help="兼容空步骤（观察/仓位已分离）")
-    parser.add_argument("--paper-rebalance", action="store_true", help="横截面 TopK 纸面调仓")
+    parser.add_argument("--paper-rebalance", action="store_true", help="观察池 rank_lots 纸面调仓")
     parser.add_argument(
         "--export-quant-report",
         action="store_true",
         help="quant 报告额外导出 Markdown/HTML 到 data/reports/",
-    )
-    parser.add_argument(
-        "--portfolio-neutral-compare",
-        action="store_true",
-        help="量化日报嵌入中性化 vs 绝对分对照摘要",
     )
     parser.add_argument("--json", action="store_true", help="JSON 输出")
     args = parser.parse_args(argv)
@@ -59,7 +54,6 @@ def main(argv=None) -> int:
         "sync_paper_watchlist",
         "paper_rebalance",
         "export_quant_report",
-        "portfolio_neutral_compare",
     ]
     explicit = {name: bool(getattr(args, name)) for name in flag_names}
     if not args.preset and not any(explicit.values()):

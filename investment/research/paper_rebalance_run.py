@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""横截面 TopK 纸面调仓 CLI（P11.3）。"""
+"""观察池 rank_lots 纸面调仓 CLI。"""
 
 
 import argparse
@@ -15,14 +15,13 @@ from services.paper_service import PaperService  # noqa: E402
 
 
 def main(argv=None) -> int:
-    parser = argparse.ArgumentParser(description="横截面 TopK 纸面调仓（非实盘）")
-    parser.add_argument("--top-k", type=int, default=3)
-    parser.add_argument("--limit", type=int, default=10)
+    parser = argparse.ArgumentParser(description="观察池 rank_lots 纸面调仓（非实盘）")
+    parser.add_argument("--top-k", type=int, default=None, help="省略则用策略 max_positions")
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args(argv)
 
     try:
-        result = PaperService().rebalance(top_k=args.top_k, limit=args.limit)
+        result = PaperService().rebalance(top_k=args.top_k)
     except FileNotFoundError as e:
         print(str(e))
         return 1

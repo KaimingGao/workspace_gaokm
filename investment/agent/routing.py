@@ -231,10 +231,6 @@ def infer_quant_task(text: str) -> str:
         k in t for k in ("摘要", "专节", "字段", "包含", "写了什么")
     ):
         return "daily_summary"
-    if any(k in t for k in ("中性化对照", "中性化 vs", "截面中性化", "绝对分对照", "neutral compare")) or (
-        "中性化" in t and ("绝对分" in t or "对照" in t or "回测差" in t)
-    ):
-        return "portfolio_neutral_compare"
     if any(k in t for k in ("横截面", "排序", "Top N", "top")):
         return "cross_section"
     if any(k in t.lower() for k in ("factor_ols", "截面ols", "截面 ols", "面板 ols")) or (

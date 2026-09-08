@@ -9,7 +9,7 @@ class TestExecutionResolve(unittest.TestCase):
     def test_paper_direction_fallback_dual_y(self):
         from core.execution import resolve_effective_execution
 
-        bundle = resolve_effective_execution(strategy="short", channel="paper")
+        bundle = resolve_effective_execution(strategy="short_conservative", channel="paper")
         self.assertTrue(bundle["ok"])
         self.assertEqual(bundle["t0"]["direction"], "dual_y")
         self.assertEqual(bundle["t0_sources"].get("direction"), "runtime_fallback")
@@ -21,15 +21,15 @@ class TestExecutionResolve(unittest.TestCase):
     def test_backtest_path_fallback(self):
         from core.execution import resolve_effective_execution
 
-        no_m = resolve_effective_execution(strategy="short", channel="backtest", has_minute=False)
+        no_m = resolve_effective_execution(strategy="short_conservative", channel="backtest", has_minute=False)
         self.assertEqual(no_m["t0"]["path_mode"], "first_touch")
-        with_m = resolve_effective_execution(strategy="short", channel="backtest", has_minute=True)
+        with_m = resolve_effective_execution(strategy="short_conservative", channel="backtest", has_minute=True)
         self.assertEqual(with_m["t0"]["path_mode"], "first_touch")
 
     def test_paper_override_wins(self):
         from core.execution import resolve_effective_execution
 
-        paper = {"strategy_id": "short", "rules": {"t0": {"t0_ratio": 0.25, "direction": "sell_then_buy"}}}
+        paper = {"strategy_id": "short_conservative", "rules": {"t0": {"t0_ratio": 0.25, "direction": "sell_then_buy"}}}
         bundle = resolve_effective_execution(paper=paper, channel="paper")
         self.assertAlmostEqual(float(bundle["t0"]["t0_ratio"]), 1.0)
         # 旧选向已下线，一律收敛 dual_y
@@ -42,7 +42,7 @@ class TestExecutionResolve(unittest.TestCase):
         from core.t0.close_band import close_band_enter_skip_reason
 
         paper = {
-            "strategy_id": "short",
+            "strategy_id": "short_conservative",
             "rules": {
                 "t0": {
                     "y_path_enter": 0.01,
@@ -105,7 +105,7 @@ class TestExecutionResolve(unittest.TestCase):
         from core.execution import resolve_t0_rules, strip_execution_meta
 
         raw = resolve_t0_rules(
-            strategy="short",
+            strategy="short_conservative",
             rules={"direction": "buy_then_sell", "path_mode": "adverse"},
             channel="backtest",
             has_minute=True,
@@ -120,12 +120,12 @@ class TestExecutionResolve(unittest.TestCase):
     def test_strategy_spec_includes_execution(self):
         from core.strategy import get_strategy_spec
 
-        spec = get_strategy_spec("short")
+        spec = get_strategy_spec("short_conservative")
         self.assertEqual(spec["version"], "1.2.0")
         self.assertIn("execution", spec)
         t0 = (spec["execution"].get("overlays") or {}).get("t0") or {}
         self.assertTrue(t0.get("enabled"))
-        self.assertAlmostEqual(float(t0.get("t0_ratio")), 1.0)
+        self.assertAlmostEqual(float(t0.get("t0_ratio")), 0.35)
 
     def test_conservative_t0_ratio(self):
         from core.strategy import get_strategy_spec
@@ -138,9 +138,9 @@ class TestExecutionResolve(unittest.TestCase):
         from core.strategy import apply_strategy_to_paper
 
         paper = {"rules": {}, "cash": 100000, "cost_model": "simple_cn"}
-        apply_strategy_to_paper(paper, "short")
+        apply_strategy_to_paper(paper, "short_conservative")
         self.assertIn("t0", paper["rules"])
-        self.assertAlmostEqual(float(paper["rules"]["t0"]["t0_ratio"]), 1.0)
+        self.assertAlmostEqual(float(paper["rules"]["t0"]["t0_ratio"]), 0.35)
         self.assertEqual(paper.get("execution_version"), "1.0.0")
         self.assertEqual(paper["rules"].get("execution_mode"), "next_open")
         self.assertTrue(paper["rules"]["t0"].get("enabled"))
@@ -148,7 +148,7 @@ class TestExecutionResolve(unittest.TestCase):
     def test_public_view(self):
         from core.execution import execution_public_view, resolve_effective_execution
 
-        view = execution_public_view(resolve_effective_execution(strategy="short"))
+        view = execution_public_view(resolve_effective_execution(strategy="short_conservative"))
         self.assertTrue(view["ok"])
         self.assertIn("direction", view["t0"])
         self.assertIn("must_cover_same_day", view["t0"])
@@ -185,7 +185,7 @@ class TestExecutionResolve(unittest.TestCase):
             {"t0": {"must_cover_same_day": True}, "coupling": {}}
         )
         self.assertTrue(ok, errs)
-        paper = {"strategy_id": "short", "rules": {}}
+        paper = {"strategy_id": "short_conservative", "rules": {}}
         apply_execution_patch_to_paper(paper, norm)
         view = execution_public_view(resolve_effective_execution(paper=paper, channel="paper"))
         self.assertTrue(view["t0"]["must_cover_same_day"])
@@ -240,7 +240,7 @@ class TestExecutionResolve(unittest.TestCase):
         self.assertEqual(norm["t0"].get("t0_pm_degrade_buy_then_sell"), "14:00")
         self.assertAlmostEqual(float(norm["t0"]["t0_stop_pct_buy_then_sell"]), 1.2)
         self.assertEqual(norm["t0"]["t0_pm_chase_interval_min"], 10)
-        paper = {"strategy_id": "short", "rules": {}}
+        paper = {"strategy_id": "short_conservative", "rules": {}}
         apply_execution_patch_to_paper(paper, norm)
         view = execution_public_view(
             resolve_effective_execution(paper=paper, channel="paper")
@@ -337,7 +337,7 @@ class TestExecutionResolve(unittest.TestCase):
         self.assertFalse(load_t0_rules({"y_nowcast_oc_gate": "false"})["y_nowcast_oc_gate"])
         resolved = resolve_t0_rules(
             paper={
-                "strategy_id": "short",
+                "strategy_id": "short_conservative",
                 "rules": {"t0": {"y_nowcast_oc_gate": False}},
             },
             rules={"y_tau_enter": 0.02},
@@ -363,7 +363,7 @@ class TestExecutionResolve(unittest.TestCase):
         self.assertAlmostEqual(norm["t0"]["t0_ratio"], 1.0)
         self.assertEqual(norm["coupling"]["t0_vs_stance"], "skip_if_avoid")
 
-        paper = {"strategy_id": "short", "rules": {}}
+        paper = {"strategy_id": "short_conservative", "rules": {}}
         applied = apply_execution_patch_to_paper(paper, norm)
         self.assertTrue(applied["ok"])
         bundle = resolve_effective_execution(paper=paper, channel="paper")
@@ -387,7 +387,7 @@ class TestExecutionResolve(unittest.TestCase):
             execution_diff_against_strategy,
         )
 
-        paper = {"strategy_id": "short", "rules": {}}
+        paper = {"strategy_id": "short_conservative", "rules": {}}
         apply_execution_patch_to_paper(paper, {"t0": {"fill_mode": "mid"}})
         self.assertEqual(paper["rules"]["t0"]["fill_mode"], "mid")
         diff = execution_diff_against_strategy(paper)

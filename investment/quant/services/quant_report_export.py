@@ -1141,7 +1141,7 @@ def build_portfolio_backtest_markdown_lines(ps: Dict[str, Any]) -> List[str]:
     if trade_n is None:
         trade_n = m.get("trade_count")
     engine = _portfolio_bt_engine(ps)
-    engine_label = engine or "topk_research"
+    engine_label = engine or "paper_replay"
     if engine == "paper_replay":
         engine_bit = f"- 引擎：{engine_label}（rank_lots · 对齐历史回测）"
     else:

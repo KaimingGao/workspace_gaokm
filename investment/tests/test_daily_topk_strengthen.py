@@ -46,7 +46,7 @@ class TestDailyTopkDefaults(unittest.TestCase):
         from core.signal.config import get_scoring_horizon_days
         from core.strategy import backtest_portfolio_defaults
 
-        d = backtest_portfolio_defaults("short")
+        d = backtest_portfolio_defaults("short_conservative")
         got = resolve_daily_topk_backtest_kwargs()
         self.assertEqual(got["top_k"], d["max_positions"])
         self.assertNotEqual(d["top_k"], d["max_positions"])

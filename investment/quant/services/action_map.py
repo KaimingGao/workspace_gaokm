@@ -39,7 +39,7 @@ ACTIONS: List[Dict[str, Any]] = [
         "apis": [
             "/api/watching/*",
             "/api/quant/portfolio-backtest",
-            "/api/quant/portfolio-neutral-compare",
+            "/api/quant/last-portfolio-backtest",
             "/api/quant/cross-section",
         ],
         "services": [
@@ -88,7 +88,7 @@ ACTIONS: List[Dict[str, Any]] = [
         "core": ["core.paper", "core.watching.store"],
         "notes": [
             "纸面 vs TopK 对照已下线（口径不公平）",
-            "portfolio-neutral-compare 属历史验证（规则变体对照），不是对照层",
+            "中性化对照研究口已下线（ŷ 路径开关空转）",
             "skills/compare 是行情比价 Skill，与本动作无关",
         ],
     },

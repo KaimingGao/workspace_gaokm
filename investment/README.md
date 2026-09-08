@@ -248,7 +248,6 @@ python3 research/paper_run.py --init && python3 research/paper_run.py --run
 python3 research/watching_run.py --init && python3 research/watching_run.py --refresh --sync-paper
 python3 research/cross_section_run.py --limit 10
 python3 research/factor_experiment.py --code 茅台
-python3 research/portfolio_backtest_run.py --top-k 3 --json
 python3 research/paper_rebalance_run.py --top-k 3 --json
 python3 research/t0_backtest_run.py --code 茅台 --json   # 底仓做T模拟
 python3 research/threshold_suggest_run.py --code 茅台 --json

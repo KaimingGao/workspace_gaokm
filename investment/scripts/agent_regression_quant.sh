@@ -12,7 +12,7 @@ if [[ -f .env ]]; then
   set +a
 fi
 
-echo "[agent_regression_quant] mock skills + Agent (11 quant_* cases)…"
+echo "[agent_regression_quant] mock skills + Agent (10 quant_* cases)…"
 python3 evals/run_agent_check.py --quant-only --presets "$@"
 
 echo "[agent_regression_quant] OK"

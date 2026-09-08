@@ -31,7 +31,7 @@ DAILY_PRESETS: Dict[str, Dict[str, Any]] = {
     },
     "quant": {
         "label": "量化研究",
-        "description": "刷新 watching、横截面、量化日报（组ŷ主叙事 + 中性化对照）并导出 Markdown/HTML",
+        "description": "刷新 watching、横截面、量化日报（组ŷ主叙事）并导出 Markdown/HTML",
         "paper_run": False,
         "paper_buy": False,
         "eval_mock": False,
@@ -42,11 +42,11 @@ DAILY_PRESETS: Dict[str, Dict[str, Any]] = {
         "sync_paper_watchlist": True,
         "paper_rebalance": False,
         "export_quant_report": True,
-        "portfolio_neutral_compare": True,
+        "portfolio_neutral_compare": False,
     },
     "full": {
         "label": "全量日常",
-        "description": "投顾 + 量化（含中性化对照，不含纸面调仓与 Agent 回归）",
+        "description": "投顾 + 量化（不含纸面调仓与 Agent 回归）",
         "paper_run": True,
         "paper_buy": False,
         "eval_mock": True,
@@ -57,11 +57,11 @@ DAILY_PRESETS: Dict[str, Dict[str, Any]] = {
         "sync_paper_watchlist": True,
         "paper_rebalance": False,
         "export_quant_report": True,
-        "portfolio_neutral_compare": True,
+        "portfolio_neutral_compare": False,
     },
     "quant_paper": {
         "label": "量化 + 纸面调仓",
-        "description": "quant 全流程 + 中性化对照 + 按纸面 max_positions 做横截面 TopK 调仓（显式 opt-in，非实盘；会卖出非 Top 持仓）",
+        "description": "quant 全流程 + 观察池 rank_lots 纸面调仓（显式 opt-in，非实盘）",
         "paper_run": False,
         "paper_buy": False,
         "eval_mock": False,
@@ -72,7 +72,7 @@ DAILY_PRESETS: Dict[str, Dict[str, Any]] = {
         "sync_paper_watchlist": True,
         "paper_rebalance": True,
         "export_quant_report": True,
-        "portfolio_neutral_compare": True,
+        "portfolio_neutral_compare": False,
     },
 }
 

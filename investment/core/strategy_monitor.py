@@ -291,7 +291,7 @@ def assess_strategy_health(
     alerts: List[Dict[str, str]] = []
     suggestions: List[str] = []
 
-    sid = paper.get("strategy_id") or "short"
+    sid = paper.get("strategy_id") or "short_conservative"
     try:
         spec_risk = risk or (get_strategy_spec(str(sid)).get("risk") or {})
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程

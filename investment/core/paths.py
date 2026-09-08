@@ -66,6 +66,8 @@ SCHEDULE_LAST_RUN_PATH = os.path.join(DATA_DIR, "schedule_last_run.json")
 T0_AUTO_WORKER_PATH = os.path.join(DATA_DIR, "t0_auto_worker.json")
 T0_INTRADAY_STATE_PATH = os.path.join(DATA_DIR, "t0_intraday_state.json")
 NORTH_STAR_LAST_BACKTEST_PATH = os.path.join(DATA_DIR, "north_star_last_backtest.json")
+# 最近一次产品回测（/replay 刷新恢复 KPI / 净值 / 成交账；不重跑）
+LAST_PORTFOLIO_BACKTEST_PATH = os.path.join(DATA_DIR, "last_portfolio_backtest.json")
 TTM_EVENTS_PATH = os.path.join(DATA_DIR, "ttm_events.jsonl")
 NEWS_STORE_DIR = os.path.join(STORE_DIR, "news")
 NEWS_HISTORY_DIR = os.path.join(NEWS_STORE_DIR, "history")
@@ -76,7 +78,6 @@ PAPER_JOB_PATH = os.path.join(JOBS_DIR, "paper.json")
 QUANT_OLS_CLUSTERS_JOB_PATH = os.path.join(JOBS_DIR, "quant_ols_clusters.json")
 CLUSTER_BARS_REFRESH_JOB_PATH = os.path.join(JOBS_DIR, "cluster_bars_refresh.json")
 CLUSTER_MINUTE_REFRESH_JOB_PATH = os.path.join(JOBS_DIR, "cluster_minute_refresh.json")
-QUANT_PARAM_GRID_JOB_PATH = os.path.join(JOBS_DIR, "quant_param_grid.json")
 CHAT_JOB_PATH = os.path.join(JOBS_DIR, "chat.json")
 
 

@@ -2,6 +2,8 @@
 
 Web/CLI 与领域逻辑之间的**用例组装**边界（不是微服务、不是 Domain Facade）。
 
+- [架构总览 · 子目录索引](../docs/architecture.md#子目录-readme-索引)
+
 | 模块 | 职责 |
 |------|------|
 | `paper_service`（+ account / jobs / trades / helpers） | 纸面账户、买卖、调仓 Job |

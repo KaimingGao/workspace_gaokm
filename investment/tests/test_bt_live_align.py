@@ -12,11 +12,11 @@ if ROOT not in sys.path:
 
 
 class TestBacktestDefaultsAlign(unittest.TestCase):
-    def test_defaults_match_short_spec(self):
+    def test_defaults_match_conservative_spec(self):
         from core.strategy import backtest_portfolio_defaults, get_strategy_spec
 
-        d = backtest_portfolio_defaults("short")
-        spec = get_strategy_spec("short")
+        d = backtest_portfolio_defaults("short_conservative")
+        spec = get_strategy_spec("short_conservative")
         risk = spec["risk"]
         self.assertEqual(d["weight_mode"], "score_budget")
         self.assertAlmostEqual(d["max_position_pct"], float(risk["max_position_pct"]))

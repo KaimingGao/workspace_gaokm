@@ -18,20 +18,20 @@ PRESET_EXPECTATIONS: Dict[str, Dict[str, bool]] = {
         "watching_refresh": True,
         "cross_section": True,
         "export_quant_report": True,
-        "portfolio_neutral_compare": True,
+        "portfolio_neutral_compare": False,
         "paper_rebalance": False,
     },
     "quant_paper": {
         "quant_report": True,
         "paper_rebalance": True,
         "export_quant_report": True,
-        "portfolio_neutral_compare": True,
+        "portfolio_neutral_compare": False,
     },
     "full": {
         "paper_run": True,
         "eval_mock": True,
         "quant_report": True,
-        "portfolio_neutral_compare": True,
+        "portfolio_neutral_compare": False,
         "paper_rebalance": False,
     },
 }

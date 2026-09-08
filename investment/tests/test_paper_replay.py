@@ -929,5 +929,65 @@ class TestReplayCalendar(unittest.TestCase):
         self.assertEqual(len(curve), 11)
 
 
+class TestPortfolioBacktestPersistCurve(unittest.TestCase):
+    def test_persist_curve_false_skips_north_star_save(self):
+        from quant.services.quant_service import QuantService
+
+        svc = QuantService()
+        fake_bt = {
+            "success": True,
+            "metrics": {"total_return_pct": 1.0, "trade_count": 1, "max_drawdown_pct": 2.0},
+            "equity_curve": [{"date": "2026-01-01", "equity": 1.0}],
+            "dropped_stocks": [],
+        }
+        bars = {
+            "A": [{"date": "2026-01-01", "close": 10}] * 10,
+            "B": [{"date": "2026-01-01", "close": 10}] * 10,
+        }
+        with patch(
+            "quant.services.quant_service_replay.resolve_replay_candidates",
+            return_value={
+                "ok": True,
+                "codes": ["A", "B"],
+                "source": "explicit",
+                "excluded": [],
+            },
+        ), patch(
+            "quant.research.portfolio_data.load_portfolio_stock_bars",
+            return_value=(bars, [], {}),
+        ), patch(
+            "core.backtest.paper_replay.backtest_paper_replay",
+            return_value=dict(fake_bt),
+        ), patch(
+            "core.backtest.topk_backtest.backtest_topk_equal_weight",
+        ) as topk_mock, patch(
+            "core.north_star.save_last_backtest_curve",
+        ) as save, patch(
+            "core.north_star.append_ttm_event",
+        ), patch(
+            "core.data.facade.summarize_data_quality",
+            return_value={},
+        ), patch(
+            "core.data.consistency.attach_source_audit",
+            side_effect=lambda result, **kwargs: result,
+        ):
+            out = svc.run_portfolio_backtest(
+                persist_curve=False,
+                include_benchmark=False,
+                exclude_st=False,
+            )
+            self.assertTrue(out.get("success"))
+            save.assert_not_called()
+            topk_mock.assert_not_called()
+            out2 = svc.run_portfolio_backtest(
+                persist_curve=True,
+                include_benchmark=False,
+                exclude_st=False,
+            )
+            self.assertTrue(out2.get("success"))
+            save.assert_called()
+            topk_mock.assert_not_called()
+
+
 if __name__ == "__main__":
     unittest.main()

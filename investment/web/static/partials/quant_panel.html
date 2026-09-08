@@ -390,9 +390,9 @@
               </p>
               <p>
                 <strong>不进聚类、不改 ŷ_EOD</strong>。启用后只影响主题日 soft hold / τ 闸；表列主分仍是 ŷ_EOD。
-                融合权重与 τ 闸在
-                <a class="quant-hero-link" href="/strategy#strategy-dual-score">策略中心 · 融合分数</a>
-                （仅 blend）。分钟**训练**网格含开盘 Z + 午后训练钟
+                融合权重在
+                <a class="quant-hero-link" href="/follow">交易执行 · 分数融合</a>
+                （一层 y_trade，二层 y_fuse；仅 blend）。分钟**训练**网格含开盘 Z + 午后训练钟
                 <code>09:30|09:35|…|11:00</code>（09:30 无前缀；早盘每 5m 共享 β；不含 13:00 / 14:00；**做T执行 v6 收盘带宽**：每 5m 扫至 11:00，收价破 ĉ±δ 开 leg1，path 不进 ĉ）；live 调仓钟仍是 10:30。
               </p>
             </div>
@@ -710,7 +710,7 @@
         <div class="dashboard-card-head quant-pro-card-head quant-card-head--tools">
           <p id="quant-ops-summary" class="quant-fingerprint quant-card-head-status is-busy">加载中…</p>
           <div class="dashboard-card-tools quant-pro-card-tools">
-            <button type="button" id="quant-ops-run-daily" class="dialog-btn" title="quant 预设：刷新 watching · 横截面 · 历史回测（rank_lots）+ 中性化对照 · 导出。大宇宙常见 5–15 分钟，状态会显示已用时。">生成日报</button>
+            <button type="button" id="quant-ops-run-daily" class="dialog-btn" title="quant 预设：刷新 watching · 横截面 · 历史回测（rank_lots）· 导出。大宇宙常见 5–15 分钟，状态会显示已用时。">生成日报</button>
             <button type="button" id="quant-interpret-offline" class="dialog-btn secondary">规则解读</button>
             <button type="button" id="quant-interpret" class="dialog-btn secondary">AI 解读</button>
             <button type="button" id="quant-export-md" class="dialog-btn secondary">下载 MD</button>

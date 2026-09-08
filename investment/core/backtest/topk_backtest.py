@@ -894,7 +894,7 @@ def backtest_topk_equal_weight(
     if not stock_bars:
         return {"success": False, "error": "无标的日线"}
 
-    bt_defaults = backtest_portfolio_defaults(strategy_id or "short")
+    bt_defaults = backtest_portfolio_defaults(strategy_id or "short_conservative")
     top_k_cap = int(bt_defaults.get("top_k_cap") or 40)
 
     cfg = load_signal_config()

@@ -1,6 +1,6 @@
 {
   "name": "quant",
-  "description": "量化研究台：横截面排序、观察池 TopK 回测、因子权重/stance 阈值 OOS 建议、量化日报摘要与 AI 解读。用于「观察池组合 historically 如何」「量化报告怎么说」「IC 权重要不要调」「阈值怎么校准」等研究问题。非实盘、不保证收益。",
+  "description": "量化研究台：横截面排序、观察池 rank_lots 历史回测、因子权重/stance 阈值 OOS 建议、量化日报摘要与 AI 解读。用于「观察池组合 historically 如何」「量化报告怎么说」「IC 权重要不要调」「阈值怎么校准」等研究问题。非实盘、不保证收益。",
   "parameters": {
     "type": "object",
     "properties": {
@@ -10,7 +10,6 @@
           "daily_summary",
           "cross_section",
           "portfolio_backtest",
-          "portfolio_neutral_compare",
           "weight_suggest",
           "threshold_suggest",
           "interpret",
@@ -43,7 +42,7 @@
       },
       "top_k": {
         "type": "integer",
-        "description": "组合 TopK，默认 3",
+        "description": "仅研究口（中性化对照）；产品历史回测不截 TopK",
         "default": 3
       },
       "horizon_days": {
@@ -83,8 +82,8 @@
       },
       "include_portfolio_neutral_compare": {
         "type": "boolean",
-        "description": "daily_summary 是否含中性化 vs 绝对分对照专节",
-        "default": true
+        "description": "daily_summary 是否含中性化 vs 绝对分对照专节（默认关：ŷ 路径开关空转）",
+        "default": false
       }
     },
     "required": [

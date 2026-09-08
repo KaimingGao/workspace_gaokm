@@ -562,7 +562,7 @@ def run_fundamentals_warmup(
 def run_paper_daily(
     *,
     simulate_buy: bool = False,
-    strategy: str = "short",
+    strategy: str = "short_conservative",
 ) -> Dict[str, Any]:
     """准实盘日更（N5）：跑纸面日循环 + 决策记录摘要 + 衰减监控。"""
     slot = job_registry.slot("schedule")
@@ -605,7 +605,7 @@ def run_paper_daily(
         cycle = run_daily_cycle(
             paper,
             simulate_buy=bool(simulate_buy),
-            strategy=str(strategy or "short"),
+            strategy=str(strategy or "short_conservative"),
         )
         from core.paper.open_fill import apply_next_open_commit
 
@@ -1022,7 +1022,7 @@ def run_schedule(kind: str, **kwargs: Any) -> Dict[str, Any]:
     if k == "paper_daily":
         return run_paper_daily(
             simulate_buy=bool(kwargs.get("simulate_buy")),
-            strategy=str(kwargs.get("strategy") or "short"),
+            strategy=str(kwargs.get("strategy") or "short_conservative"),
         )
     if k == "paper_t0":
         return run_paper_t0(force=bool(kwargs.get("force")))

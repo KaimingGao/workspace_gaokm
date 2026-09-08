@@ -12,7 +12,7 @@ class TestExposureMatrix(unittest.TestCase):
         self.assertEqual(board_style_for("300750"), "创业板")
         self.assertEqual(board_style_for("600519"), "主板沪")
 
-        paper = {"cash": 0, "strategy_id": "short"}
+        paper = {"cash": 0, "strategy_id": "short_conservative"}
         summary = {
             "equity": 100000,
             "holdings": [
@@ -50,7 +50,7 @@ class TestExposureMatrix(unittest.TestCase):
     def test_check_account_risk_codes(self):
         from core.risk.checks import check_account_risk
 
-        paper = {"cash": 0, "strategy_id": "short", "holdings": []}
+        paper = {"cash": 0, "strategy_id": "short_conservative", "holdings": []}
         summary = {
             "equity": 100000,
             "max_drawdown_pct": 1.0,

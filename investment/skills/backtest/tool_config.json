@@ -11,8 +11,8 @@
       },
       "strategy": {
         "type": "string",
-        "description": "策略名：short（短线评分）或 short_conservative（保守短线）；旧名 signal_v1 仍可用",
-        "default": "short"
+        "description": "策略名：short_conservative（保守短线）",
+        "default": "short_conservative"
       },
       "lookback_days": {
         "type": "integer",

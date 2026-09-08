@@ -263,7 +263,7 @@ class TestPaperCycleExport(unittest.TestCase):
                 "core.risk.check_account_risk",
                 return_value={"ok": True, "blocks": [], "warnings": []},
             ):
-                out = run_daily_cycle(paper, simulate_buy=False, strategy="short")
+                out = run_daily_cycle(paper, simulate_buy=False, strategy="short_conservative")
         self.assertTrue(out.get("success"))
         self.assertEqual(out.get("observation_pool_count"), 0)
 

@@ -25,11 +25,6 @@ _SLOT_STALE_POLICY: Dict[str, Dict[str, Any]] = {
         "stuck_start_sec": 360.0,
         "label": "分组任务",
     },
-    "quant-param-grid": {
-        "stale_sec": 600.0,
-        "stuck_start_sec": 360.0,
-        "label": "参数网格任务",
-    },
     "paper": {
         "stale_sec": 600.0,
         "stuck_start_sec": 300.0,
@@ -126,9 +121,6 @@ class JobProgress:
                         "oos_summary": result.get("oos_summary"),
                         "error": result.get("error"),
                     }
-                elif self.name == "quant-param-grid":
-                    # 网格结果本身很小（无净值曲线）；热重载后仍要能画出热力
-                    pass
                 elif self.name != "quant-ols-clusters":
                     try:
                         result_bytes = len(json.dumps(result, default=str))
@@ -438,7 +430,6 @@ class JobRegistry:
             "paper",
             "chat",
             "quant-ols-clusters",
-            "quant-param-grid",
         ):
             self.slot(name)
         with self._lock:
@@ -446,7 +437,7 @@ class JobRegistry:
         return [s.policy() for s in slots]
 
 
-# 全局注册表；paper / ols / param-grid / chat 落盘抗 uvicorn reload
+# 全局注册表；paper / ols / chat 落盘抗 uvicorn reload
 job_registry = JobRegistry()
 try:
     from core.paths import (
@@ -455,7 +446,6 @@ try:
         CLUSTER_MINUTE_REFRESH_JOB_PATH,
         PAPER_JOB_PATH,
         QUANT_OLS_CLUSTERS_JOB_PATH,
-        QUANT_PARAM_GRID_JOB_PATH,
     )
 
     paper_job = job_registry.slot("paper", persist_path=PAPER_JOB_PATH)
@@ -468,9 +458,6 @@ try:
     cluster_minute_refresh_job = job_registry.slot(
         "cluster-minute-refresh", persist_path=CLUSTER_MINUTE_REFRESH_JOB_PATH
     )
-    quant_param_grid_job = job_registry.slot(
-        "quant-param-grid", persist_path=QUANT_PARAM_GRID_JOB_PATH
-    )
     chat_job = job_registry.slot("chat", persist_path=CHAT_JOB_PATH)
 except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
     logger.debug("catch except Exception: in job_progress.py", exc_info=True)
@@ -478,5 +465,4 @@ except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流
     quant_ols_clusters_job = job_registry.slot("quant-ols-clusters")
     cluster_bars_refresh_job = job_registry.slot("cluster-bars-refresh")
     cluster_minute_refresh_job = job_registry.slot("cluster-minute-refresh")
-    quant_param_grid_job = job_registry.slot("quant-param-grid")
     chat_job = job_registry.slot("chat")

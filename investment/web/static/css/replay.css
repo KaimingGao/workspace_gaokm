@@ -68,12 +68,6 @@
   color: var(--ink-2);
 }
 
-.replay-page .param-grid-heat {
-  display: block;
-  width: min(100%, 420px);
-  max-width: 420px;
-  margin: 0 0 var(--replay-gap);
-}
 
 html[data-density="compact"] .replay-page {
   --replay-gap: 6px;
@@ -819,10 +813,6 @@ body[data-page="replay"] .replay-page .quant-weight-table-wrap td {
   color: var(--ink);
 }
 
-body[data-page="replay"] .replay-page .param-grid-heat {
-  width: min(100%, 420px);
-  max-width: 420px;
-}
 
 /* ── 次要折叠 ── */
 body[data-page="replay"] .replay-page .dashboard-section.replay-section-secondary {
@@ -959,8 +949,7 @@ body[data-page="replay"] .replay-page .quant-neutral-frozen > summary {
   animation: paper-progress-status-pulse 1.35s ease-in-out infinite;
 }
 
-.paper-progress-status.is-busy #quant-bt-progress-text,
-.paper-progress-status.is-busy #param-grid-progress-text {
+.paper-progress-status.is-busy #quant-bt-progress-text {
   animation: paper-progress-text-pulse 1.35s ease-in-out infinite;
 }
 
@@ -988,8 +977,7 @@ body[data-page="replay"] .replay-page .quant-neutral-frozen > summary {
 
 @media (prefers-reduced-motion: reduce) {
   .paper-progress-status.is-busy,
-  .paper-progress-status.is-busy #quant-bt-progress-text,
-  .paper-progress-status.is-busy #param-grid-progress-text {
+  .paper-progress-status.is-busy #quant-bt-progress-text {
     animation: none;
   }
 }

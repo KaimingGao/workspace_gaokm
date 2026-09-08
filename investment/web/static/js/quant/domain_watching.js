@@ -41,7 +41,7 @@ import {
   watchingBuildModeUiConfig,
 } from "./watching_build_ui.js";
 import { mountScoreHistogram, summarizeScores } from "./yhat_viz.js";
-import { defaultScoringFloors } from "./scoring.js";
+import { defaultScoringFloors, mergeScoringFloors } from "./scoring.js";
 import {
   formatRefreshStats,
   buildWatchingNameByCode,
@@ -219,7 +219,7 @@ export function installWatching(q) {
     if (state.watchingYhatHist) return state.watchingYhatHist;
     const canvas = document.getElementById("watching-yhat-hist");
     if (!canvas) return null;
-    const floors = state.scoringFloors || defaultScoringFloors();
+    const floors = state.quantScoringFloors || defaultScoringFloors();
     state.watchingYhatHist = mountScoreHistogram(canvas, {
       bins: 14,
       floors: {
@@ -277,7 +277,7 @@ export function installWatching(q) {
       return;
     }
     wrap.hidden = false;
-    const floors = state.scoringFloors || defaultScoringFloors();
+    const floors = state.quantScoringFloors || defaultScoringFloors();
     const hist = ensureWatchingYhatHist();
     if (!hist) return;
     hist.setFloors({
@@ -1207,6 +1207,24 @@ export function installWatching(q) {
     }
   }
 
+  async function hydrateWatchingScoringFloors() {
+    if (state._scoringFloorsHydrated) return;
+    try {
+      const res = await fetch("/api/quant/strategies");
+      const data = await res.json().catch(() => ({}));
+      const floors = data && data.scoring_floors;
+      if (floors) {
+        state.quantScoringFloors = mergeScoringFloors(
+          state.quantScoringFloors,
+          floors
+        );
+        state._scoringFloorsHydrated = true;
+      }
+    } catch (_) {
+      /* 直方图用默认，后端仍读 signal_config */
+    }
+  }
+
   async function loadWatchingPanel() {
     const shellEls = {
       emptyEl: document.getElementById("watching-empty"),
@@ -1222,6 +1240,7 @@ export function installWatching(q) {
       ],
     };
     setWatchingRefreshStatus("正在加载观察名单…", { busy: true, owner: "panel" });
+    const floorsP = hydrateWatchingScoringFloors();
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), 15000);
     let uniRes;
@@ -1237,6 +1256,7 @@ export function installWatching(q) {
       }));
       uniRes = await watchingP;
       paperCtx = await paperP;
+      await floorsP.catch(() => {});
     } catch (err) {
       const msg =
         err && err.name === "AbortError"

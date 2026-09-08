@@ -100,13 +100,13 @@ ML 视角见 [机器学习视角 · 四件套对照](#四件套对照)。
 
 #### 横截面中性化（P47）
 
-单票 `score_bars` 仍用绝对子分；**watching 横截面排序**与**组合 TopK 回测**在 ≥3 只候选/调仓日时，对各因子 `sub_scores` 做 **z-score**（或配置为 `rank`）映射回 0～100，再按权重重算 `score`。原始分保留在 `score_raw` / `sub_scores_raw`。配置见 `signal_config.json` → `cross_section.neutralize`。
+单票 `score_bars` 仍用绝对子分；**watching 横截面排序**在 ≥3 只候选时，对各因子 `sub_scores` 做 **z-score**（或配置为 `rank`）映射回 0～100，再按权重重算 `score`。原始分保留在 `score_raw` / `sub_scores_raw`。配置见 `signal_config.json` → `cross_section.neutralize`。产品历史回测（`paper_replay`）不走这条组合 TopK 腿。
 
 **IC 实验（P50）**：`value` / `quality` 可在 `fundamentals.use_in_ic_experiment=true` 时注入最新基本面快照；IC 仅供方向参考，非 point-in-time。
 
-**组合回测（P51/P52）**：`use_in_backtest=true` 时批量注入基本面；Web「中性化对照」同一 watching 对比 neutralized vs absolute 累计收益。
+**组合回测（P51/P52）**：`use_in_backtest=true` 时批量注入基本面。中性化对照研究口已下线。
 
-**量化日报（P54）**：`build_daily_report` 自动生成 `portfolio_neutral_compare_summary`（winner / Δ累计 / 解读），写入 Markdown/HTML 一页摘要。
+**量化日报**：主叙事为组ŷ / 簿 / OOS / 横截面 / rank_lots 历史回测。不再自动写入 `portfolio_neutral_compare_summary`。
 
 #### 失效条件（Invalidation）
 
@@ -992,7 +992,7 @@ y = \bigl(\mathrm{close}[t+h] / \mathrm{close}[t] - 1\bigr) \times 100
 | 来源 | 常见默认 | 用途 |
 |------|----------|------|
 | `signal_config.scoring.horizon_days` | **1**（现网；曾长期为 3） | 配置契约；打分 / 复盘 / promote 校验 |
-| 研究枢纽「持有期」`#quant-horizon` | **1** | **跑分组 / TopK 回测** 读页面时 |
+| 研究枢纽「持有期」`#quant-horizon` | **1** | **跑分组** 读页面时；产品 `/replay` 不读此项 |
 | 昨日复盘 Horizon 下拉 | **1**（可选更长） | 对账标签长度 |
 
 **原则**：估 β、打 ŷ、复盘 \(r_h\)、回测持有期应使用**同一 \(h\)**；改 UI 持有期后需重跑分组并 promote，再谈 live 一致性。
@@ -1320,41 +1320,41 @@ score_stock(code) 续——
 
 ---
 
-## 5. 回测链（TopK 历史）
+## 5. 回测链（paper_replay / rank_lots）
 
-入口：历史回测页 / 日报轻量摘要 · `backtest_topk_equal_weight`  
-（Web：`quant_service_replay`；日报：`summarize_portfolio_backtest`）。
+入口：历史回测页 / 日报轻量摘要 · `backtest_paper_replay`  
+（Web：`run_portfolio_backtest`；日报：`summarize_portfolio_backtest`）。
 
-### 5.1 分数口径（与 live 不同 · 必读）
+产品回测与 live Follow 同一套 **rank_lots**：每个交易日 09:30 用 y_fuse / y_on 排序，按手数开/加/清仓。  
+`topk_research`（`backtest_topk_equal_weight`）只作研究探针（组 OOS / 权建议 OOS / 分池合成对照），**不进 `/replay`**。中性化对照研究口与 lookback×K 参数网格已下线。
 
-| 项 | 历史 Top-K（本页 / 日报） | Live 纸面调仓 |
+成功回测落盘 `data/last_portfolio_backtest.json`。打开 `/replay` 时 `GET /api/quant/last-portfolio-backtest` 恢复 KPI / 净值 / 成交账，**不重跑**；点「跑回测」才重算。日报摘要仍走 `summarize_portfolio_backtest`，不覆盖这份落盘。
+
+### 5.1 分数口径（历史 vs live）
+
+| 项 | 历史 paper_replay（本页 / 日报） | Live 纸面调仓 |
 |--|--|--|
-| 选股排序键 | **ŷ_EOD**（`predicted_score`） | **ŷ_trade**（blend） |
-| ŷ_τ 买入闸 | **关**（`apply_tau_buy_gate=False`） | 开（predicted 轨） |
-| ŷ_τ 字段 | 日线通常 **不可靠 / 常为空** | 开盘/分钟特征可估 |
-| 原因 | 历史只有日线 PIT，无可靠分钟 τ；开闸易 0 笔 | 有开盘/盘中信息 |
-
-UI 已在历史回测页标明「排序 · ŷ_EOD」；勿把成交表当成 live 融合分。
+| 选股排序键 | **y_fuse / y_on**（09:30 ranking） | 同左 |
+| 宇宙 | 全部观察池（开加只受现金地板） | 每天开/加受策略 `max_positions` |
+| 手数 | 回测 1000 / 2000 股 | live 100 / 200 股 |
+| 成交 | 开盘 rank_lots；T+1；现金地板 | 同规则，账本为 `paper.json` |
 
 与契约对齐的部分：
 
-- 每个调仓日 \(t\)：仅用到 \(t\) 的窗口打分；
-- ŷ 标签窗口是 `scoring.horizon_days`；持有期是调仓 h，两者不同时报告会注明；
-- 日报 **含成本**。cron / API 不传 K·h 时跟纸面 `max_positions` / `paper_rules.horizon_days`；`/quant` 生成日报表单默认 **K=3 · 持有 1 日 · lookback 30**（可选 30/60/90；跟纸面仅 K·持有；不写 `signal_config`）；
-- 研究页交互回测默认 K=3（防满池卡死，≠ 纸面）；权重按净值%计（现金不计收益）；
-- 大宇宙先扫本地缓存再截断，避免 `watching[:40]` 丢掉后面有日线的票；
-- walk-forward 拟合时，训练 \(y\) 仍是 \(\mathrm{close}[t+h]/\mathrm{close}[t]-1\)。
+- 每个交易日 \(t\)：仅用到 \(t\) 开盘可得信息打分；
+- ŷ 标签窗口仍是 `scoring.horizon_days`（打分 / 复盘），与 rank_lots **无持有期截断**（持仓直到 ranking&lt;0）；
+- 日报 **含成本**，lookback 默认 30（可选 30/60/90）；对齐 `/replay` 的 α / rank入场 / rank强；
+- 大宇宙先扫本地缓存再截断，避免 `watching[:40]` 丢掉后面有日线的票。
 
 与复盘的差异（执行假设）：
 
-| | 昨日复盘 | TopK 回测（默认） |
+| | 昨日复盘 | paper_replay（默认） |
 |--|----------|------------------|
-| 验证对象 | 单票 ŷ 方向 vs \(r_h\) | 组合 TopK 净值 / 交易 |
-| 成交 | 概念上 close→close 标签 | 默认 `execution_mode=next_open`（信号日收盘决策，**次日开盘**成交） |
-| β | 冻结账本当时的 ŷ | 可注入 live 组 β，或回测内 walk-forward 重拟合 |
-| 排序 | 账本冻结 ŷ | **ŷ_EOD**（关 τ 闸） |
+| 验证对象 | 单票 ŷ 方向 vs \(r_h\) | 组合 rank_lots 净值 / 成交账 |
+| 成交 | 概念上 close→close 标签 | 每个交易日 09:30 开盘手数 |
+| 排序 | 账本冻结 ŷ | y_fuse / y_on ranking |
 
-UI 横轴说明（TopK）：权益曲线常标在持有期**结束日**；解读时勿与「决策日」混为一谈。
+UI 横轴：权益/日收益按**交易日**；解读时勿与「ŷ 决策日」混为一谈。
 
 ---
 
@@ -1397,7 +1397,7 @@ UI 横轴说明（TopK）：权益曲线常标在持有期**结束日**；解读
 | 样本内 / 组 OOS | 跑分组附带组门禁、ΔOOS 等 | 枢纽分组卡 |
 | 截面 IC | 决策日 ŷ 与 \(r_h\) 的截面相关 | 池 IC / 研究臂 |
 | 账本复盘 | 冻结 ŷ vs 实现 \(r_h\) 方向命中 | 昨日复盘 |
-| TopK 回测 | 历史组合可交易性（成本、成交模式） | `/replay` · portfolio-backtest |
+| paper_replay | 历史组合可交易性（rank_lots、成本、T+1） | `/replay` · portfolio-backtest |
 | Live 健康 | 映射年龄、滚动 ŷ IC、覆盖率 | `assess_cluster_live_health`；可 demote |
 | 成熟闸门 | 研究→纸面准入软硬项 | `maturity_gate` |
 
@@ -1447,7 +1447,7 @@ flowchart TD
 | live 打分 | 决策日 \(t\) 因子 | ŷ% | —（预测） |
 | 冻结账本 | 选定 `as_of`（对齐因子截止） | **宇宙** `scored_all`（优先）→ ledger；行带 `in_book` | 校准用全量；复盘默认簿；待 \(h\) 日后回填 |
 | 昨日复盘 | 已冻结簿 ŷ | 命中 / 归因（检验簿合理性） | \(r_h\) close→close；不含持仓并集 |
-| TopK 回测 | 历史各 \(t\) | 组合曲线 | 持有期收益（+ 成交假设） |
+| paper_replay | 历史各 \(t\) 开盘 | 组合曲线 / 成交账 | rank_lots 日收益 |
 | 纸面调仓 | 当日可得 ŷ（可补持仓分） | 持仓变动 | 事后用纸面归因 / 净值，非簿命中率 |
 
 ---
@@ -1545,7 +1545,7 @@ A 改进「估得准」；B 改进「做得对」。北极星乘积两者都要�
 | 准不准可见 | ledger / outcomes / 复盘归因 | 残差面板 + 分层 IC 仪表 |
 | 错了停手 | auto demote · refit 提示 | 工况门控 \(p(\text{hit})\) |
 | 幅度校准 | — | \(g(\hat y)\) 校准层（研究→人审） |
-| 交易参数 | TopK / rules / fit-gap | 纸面轨迹上的参数搜索 + Realization 约束 |
+| 交易参数 | rank_lots / rules / fit-gap | 纸面轨迹上的参数搜索 + Realization 约束 |
 | 长期 Policy | rl-layer 仅映射 | 离线评估就绪后再谈 RL |
 
 ---
@@ -1565,7 +1565,8 @@ A 改进「估得准」；B 改进「做得对」。北极星乘积两者都要�
 | **分池簿 + τ 影子簿** | **`core/signal/cluster/rank.py`**（rank_cluster_pools · build_tau_shadow_book） |
 | **F1 买入闸（纸面）** | **`core/paper_rebalance.py`**（buy_passes_tau_gate 调用） |
 | **账本 / 复盘（双层）** | `core/score_ledger.py`（ŷ_EOD + ŷ_τ 分标签冻结/回填）· [quant.md · 复盘](quant.md#昨日复盘score-review) |
-| TopK | `core/backtest/topk_backtest.py` |
+| 产品回测 | `core/backtest/paper_replay.py` |
+| TopK（研究探针） | `core/backtest/topk_backtest.py` |
 | 配置 | `data/signal_config.json` → `scoring.horizon_days` / `cluster_scoring` / `dual_score` |
 | 日更 | `core/schedule_jobs.py` · [quant.md · 运维](quant.md#量化运维) |
 | 测试 | `tests/test_dual_score.py` · `tests/test_rem_ridge.py`（覆盖 `tau_*` 与 `rem_*` 别名）· `tests/test_score_ledger.py` |
@@ -1675,6 +1676,7 @@ bash scripts/daily_paper.sh   # P2 / N5：paper_daily（五问 + DecisionRecord 
 | 文件 | 说明 |
 |------|------|
 | `data/quant_daily.json` | 最新量化日报 JSON（API `/api/quant/last`） |
+| `data/last_portfolio_backtest.json` | 最近一次 `/replay` 产品回测（刷新恢复，不重跑） |
 | `data/reports/quant_daily_YYYYMMDD.md` | preset quant/full 自动导出 Markdown |
 | `data/reports/quant_daily_YYYYMMDD.html` | 同上 HTML |
 | `data/daily_last_run.json` | 最近一次 daily 任务状态 |
@@ -1709,7 +1711,7 @@ python3 research/quant_export_run.py --format html -o data/reports/manual.html
 
 Agent：`quant(task=health)` · `quant(task=package_info)` 查看包模块树。量化 preset 跑完后会追加 `watching_health` 步骤（watchlist 为空等会记为失败）。
 
-Web 量化面板 **「运维状态」** 区可 **「量化 CI」**（11 quant_* + preset）、**运行 daily**、复制报告链接；包模块树见 `GET /api/quant/package`。
+Web 量化面板 **「运维状态」** 区可 **「量化 CI」**（10 quant_* + preset）、**运行 daily**、复制报告链接；包模块树见 `GET /api/quant/package`。
 
 Agent：`quant(task=daily_presets)` 列出 preset；`quant(task=config_diff)` 预览 signal_config diff；`quant(task=portfolio_bridge)` 汇总持仓/纸面/量化联动。
 

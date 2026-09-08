@@ -151,7 +151,7 @@ class TestWebApi(unittest.TestCase):
                 {"date": "2026-01-13", "equity": 101.2, "return_pct": 1.2},
             ],
         }
-        with patch.object(deps.quant, "run_portfolio_backtest", return_value=mock_out):
+        with patch.object(deps.quant, "run_portfolio_backtest", return_value=mock_out) as run_bt:
             res = self.client.post(
                 "/api/quant/portfolio-backtest",
                 json={"codes": ["600519", "600036"], "top_k": 2, "lookback": 80},
@@ -161,6 +161,51 @@ class TestWebApi(unittest.TestCase):
         self.assertTrue(data["success"])
         self.assertEqual(len(data["loaded_stocks"]), 2)
         self.assertIn("equity_curve", data)
+        kwargs = run_bt.call_args.kwargs
+        self.assertNotIn("engine", kwargs)
+        self.assertNotIn("top_k", kwargs)
+
+    def test_quant_portfolio_backtest_ignores_engine_and_skips_run_topk(self):
+        if self.client is None:
+            self.skipTest("fastapi not installed")
+
+        mock_out = {
+            "success": True,
+            "loaded_stocks": ["600519"],
+            "params": {"engine": "paper_replay"},
+            "metrics": {"trade_count": 0, "total_return_pct": 0.0, "win_rate_pct": 0.0},
+            "trade_count": 0,
+            "equity_curve": [],
+        }
+        with patch.object(
+            deps.quant, "run_portfolio_backtest", return_value=mock_out
+        ) as run_bt, patch(
+            "core.backtest_service.run_topk",
+            side_effect=AssertionError("product replay must not call run_topk"),
+        ):
+            res = self.client.post(
+                "/api/quant/portfolio-backtest",
+                json={
+                    "codes": ["600519", "600036"],
+                    "lookback": 30,
+                    "engine": "topk_research",
+                    "top_k": 3,
+                    "horizon_days": 3,
+                },
+            )
+        self.assertEqual(res.status_code, 200)
+        kwargs = run_bt.call_args.kwargs
+        self.assertNotIn("engine", kwargs)
+        self.assertNotIn("top_k", kwargs)
+        self.assertNotIn("horizon_days", kwargs)
+        self.assertEqual(kwargs.get("lookback"), 30)
+
+    def test_quant_param_grid_gone(self):
+        if self.client is None:
+            self.skipTest("fastapi not installed")
+        res = self.client.post("/api/quant/param-grid", json={"max_cells": 1})
+        self.assertEqual(res.status_code, 410, res.text)
+        self.assertIn("paper_replay", str(res.json().get("detail") or ""))
 
     def test_quant_threshold_suggest_mocked(self):
         if self.client is None:
@@ -271,7 +316,7 @@ class TestWebApi(unittest.TestCase):
         with patch.object(deps.paper, "rebalance", return_value=mock_out):
             res = self.client.post(
                 "/api/paper/rebalance",
-                json={"top_k": 3, "limit": 10},
+                json={"top_k": 3},
             )
         self.assertEqual(res.status_code, 200)
         data = res.json()

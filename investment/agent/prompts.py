@@ -44,7 +44,7 @@ MODEL_POLICY_HINT = (
 
 # 与 skills/quant/tool_config.json · quant.skill.engine.AVAILABLE_TASKS 对齐
 QUANT_TASK_ENUM = (
-    "daily_summary|cross_section|portfolio_backtest|portfolio_neutral_compare|"
+    "daily_summary|cross_section|portfolio_backtest|"
     "weight_suggest|threshold_suggest|interpret|health|"
     "config_diff|daily_presets|portfolio_bridge|package_info|factor_ols|factor_corr|t0_backtest"
 )
@@ -53,7 +53,6 @@ QUANT_TASK_ROUTES = (
     ("daily_summary", "量化日报/报告摘要"),
     ("cross_section", "横截面排序/Top N"),
     ("portfolio_backtest", "观察池组合历史回测"),
-    ("portfolio_neutral_compare", "中性化 vs 绝对分对照"),
     ("weight_suggest", "因子 IC 权重建议"),
     ("threshold_suggest", "stance 阈值 OOS 校准"),
     ("interpret", "量化日报 AI 解读"),
@@ -111,7 +110,7 @@ SYSTEM_PROMPT = (
 - **signal.score 为动能分（筛池/排序/回测），能否买须 advise.stance_label，不得把 score 当买入指令**
 - **能否买入/买卖建议/该不该买 → advise（必须）**；需要长文解读时可再调 fundamentals/news
 - 回测/历史表现/胜率回撤 → backtest（strategy=short；含基准对比与分层收益）
-- 量化报告/观察池组合/横截面/IC 权重/阈值校准/模拟对照/中性化对照/包结构 → quant（task="""
+- 量化报告/观察池组合/横截面/IC 权重/阈值校准/模拟对照/包结构 → quant（task="""
     + QUANT_TASK_ENUM
     + """）
 - 估值/财务/长期基本面 → fundamentals

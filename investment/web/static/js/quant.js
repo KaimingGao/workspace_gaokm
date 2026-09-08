@@ -26,24 +26,9 @@ import {
   normalizeProbeCode,
 } from "./quant/names.js";
 import { createResearchParams } from "./quant/params.js";
-import {
-  readPromoteTtlHours,
-  promoteHintsTtlMs,
-  persistPromoteTtlHours,
-  readPromoteExpireHard,
-  persistPromoteExpireHard,
-  readPromoteHardGate,
-  persistPromoteHardGate,
-  loadCachedPromoteHints,
-  buildResearchPromoteMeta,
-  PROMOTE_HARD_GATE_KEY,
-  PROMOTE_HINTS_TTL_HOURS_KEY,
-  PROMOTE_EXPIRE_HARD_KEY,
-} from "./quant/promote_cache.js";
 import { createFactorMetaCache } from "./quant/factor_meta.js";
 import { buildUniversePanelHtml } from "./quant/universe_ui.js";
 import { researchGridHtml, metricCell } from "./quant/research_grid.js";
-import { createPromoteHintsRenderer } from "./quant/promote_hints_ui.js";
 import { createBtTablesUi } from "./quant/bt_tables.js?v=p1998";
 import { installClusterProbe } from "./quant/domain_cluster.js";
 import { installSuggest } from "./quant/domain_suggest.js";
@@ -115,10 +100,9 @@ export function initQuant(ctx) {
     "口径：每个交易日 09:30 rank_lots（初始 50 万 · 现金地板 10 万 · y_fuse/y_on · 1000/2000 股）。" +
     "净值起点 100；成本按纸面成本模型。有效≠正确：先看超额/回撤，再解读累计收益。";
   const BT_SCOPE_FROZEN =
-    "以下为 quant_daily 冻结摘要，不是刚才点的回测；点「跑回测」或「中性化对照」刷新当次结果。";
+    "以下为 quant_daily 冻结摘要，不是刚才点的回测；点「跑回测」刷新当次结果。";
   const quantBtBusyIds = [
     "quant-portfolio-run",
-    "quant-portfolio-compare",
     "quant-return-model-fit",
   ];
   const PRESET_FLAG_LABELS = {
@@ -132,7 +116,7 @@ export function initQuant(ctx) {
     cross_section: "横截面",
     sync_paper_watchlist: "模拟建仓同步",
     paper_rebalance: "纸面截面调仓",
-    paper_cross_section_rebalance: "纸面截面调仓",
+    paper_cross_section_rebalance: "纸面调仓",
     export_quant_report: "导出 MD/HTML",
     portfolio_neutral_compare: "中性化对照",
   };
@@ -156,8 +140,6 @@ export function initQuant(ctx) {
     quantMeta: document.getElementById("quant-meta"),
     quantWatchingMeta: document.getElementById("quant-watching-meta"),
     quantWatchingList: document.getElementById("quant-watching-list"),
-    strategyList: document.getElementById("strategy-list"),
-    strategyListLoading: document.getElementById("strategy-list-loading"),
     quantCrossSummary: document.getElementById("quant-cross-summary"),
     quantCrossList: document.getElementById("quant-cross-list"),
     quantFactorList: document.getElementById("quant-factor-list"),
@@ -201,7 +183,6 @@ export function initQuant(ctx) {
 
   const state = {
     lastBacktestPack: null,
-    lastParamGrid: null,
     neutralCompareSource: null,
     quantScoringFloors: defaultScoringFloors(),
     prefsHorizonDays: getPrefsHorizonDays(),
@@ -246,9 +227,7 @@ export function initQuant(ctx) {
     factorDescription, factorNameCellHtml, factorTaxonomyCellHtml,
     BT_SCOPE_LIVE, BT_SCOPE_FROZEN, quantBtBusyIds, PRESET_FLAG_LABELS, QUANT_EXPORT_PRESETS,
     setQuantMeta, setBusyText, watchingScoreTips, btSimScoreTips,
-    buildUniversePanelHtml, buildResearchCurves, buildResearchPromoteMeta,
-    readPromoteHardGate, readPromoteTtlHours, persistPromoteTtlHours,
-    persistPromoteExpireHard, persistPromoteHardGate, loadCachedPromoteHints,
+    buildUniversePanelHtml, buildResearchCurves,
     truncateStockName, watchingNameSpanHtml, watchingNameFromEl, applyWatchingNameEl, normalizeProbeCode,
     fmtScore, scoreCls, mountVirtualTable, colStyle,
     renderLineChart, renderDualLineChart, renderMultiLineChart,
@@ -258,7 +237,6 @@ export function initQuant(ctx) {
   };
 
   Object.assign(q, createBtResultRenderers({ escapeHtml, fmtPct, metricClass, researchGridHtml }));
-  q.renderPromoteHintsPanel = createPromoteHintsRenderer({ escapeHtml, researchGridHtml, promoteHintsTtlMs });
   Object.assign(q, createFactorIcUi({ escapeHtml, researchGridHtml, metricCell, metricClass, factorMetaByName, factorMetaByLabel, factorNameCellHtml, factorTaxonomyCellHtml }));
   Object.assign(q, createOlsUi({
     escapeHtml, researchGridHtml, metricCell, metricClass, factorNameCellHtml, factorTaxonomyCellHtml, factorMetaByName,
@@ -1089,7 +1067,7 @@ export function initQuant(ctx) {
       page !== "follow" &&
       els.quantDialog &&
       typeof els.quantDialog.showModal === "function";
-    const hasStrategy = !!document.getElementById("strategy-list");
+    const hasStrategy = !!document.getElementById("strategy-sentiment-prior");
     const hasWatching = !!document.getElementById("quant-watching-list") || !!document.getElementById("quant-watching-meta");
     const hasReplay = !!document.getElementById("quant-portfolio-run");
     const hasOps = !!document.getElementById("quant-ops-summary");
@@ -1105,6 +1083,9 @@ export function initQuant(ctx) {
             watching.setPoolMeta(String(err.message || err));
           })
         );
+      }
+      if (page === "replay") {
+        foreground.push(backtest.restoreLastPortfolioBacktest().catch(() => {}));
       }
       if (hasStrategy) {
         foreground.push(strategy.loadSignalConfigPanel().catch(() => {}));
@@ -2661,17 +2642,6 @@ export function initQuant(ctx) {
     }
   });
 
-  on("quant-portfolio-compare", "click", async (e) => {
-    e.preventDefault();
-    try {
-      await backtest.runPortfolioNeutralCompare();
-    } catch (err) {
-      els.quantPortfolioSummary.textContent = String(err.message || err);
-      backtest.paintPortfolioChart([], "对照失败");
-    }
-  });
-
-
   on("quant-return-model-fit", "click", async (e) => {
     e.preventDefault();
     try {
@@ -2682,77 +2652,17 @@ export function initQuant(ctx) {
   });
 
 
-
-
-
-  on("quant-param-grid-run", "click", async (e) => {
-    e.preventDefault();
-    try {
-      await backtest.runParamGrid();
-    } catch (err) {
-      const meta = document.getElementById("param-grid-meta");
-      if (meta) meta.textContent = String(err.message || err);
-      }
-  });
-
-  on("quant-param-grid-apply-best", "click", (e) => {
-    e.preventDefault();
-    const best = state.lastParamGrid && state.lastParamGrid.best;
-    const meta = document.getElementById("param-grid-meta");
-    const gate = backtest.paramGridApplyGate();
-    if (!best || !gate.ok) {
-      if (meta) meta.textContent = gate.reason || "无最优单元可应用";
-      backtest.refreshParamGridApplyGate();
-      return;
-    }
-    const dull = state.lastParamGrid.dullness || backtest.paramGridDullness(state.lastParamGrid);
-    if (dull && dull.sharp) {
-      const ok = window.confirm(
-        `过门最优格相对邻格 OOS 差达 ${dull.max_gap_pp}pp，可能过拟合尖峰。仍应用 lookback=${best.lookback}？`
-      );
-      if (!ok) {
-        if (meta) meta.textContent = "已取消应用最优（邻格过尖）";
-        return;
-      }
-    }
-    if (gate.warn) {
-      const okAlign = window.confirm(
-        `${gate.reason}\n\n仍将最优 lookback=${best.lookback} 写入回测表单？`
-      );
-      if (!okAlign) {
-        if (meta) meta.textContent = "已取消应用最优（需确认）";
-        return;
-      }
-    }
-    backtest.applyParamGridCellToForm(best, {
-      horizon_days: state.lastParamGrid && state.lastParamGrid.horizon_days,
-    });
-    if (meta) {
-      meta.textContent =
-        `已写入 lookback=${best.lookback}` +
-        (state.lastParamGrid && state.lastParamGrid.horizon_days != null
-          ? ` · h=${state.lastParamGrid.horizon_days}`
-          : "") +
-        `；请再跑回测看完整报告。仍勿静默 promote` +
-        (dull && dull.sharp ? ` · 邻格Δ ${dull.max_gap_pp}pp` : "");
-    }
-  });
-
-
-
   on("quant-research-export", "click", (e) => {
     e.preventDefault();
     const result = state.lastBacktestPack && state.lastBacktestPack.result;
     const pack = {
       exported_at: new Date().toISOString(),
       backtest: state.lastBacktestPack,
-      param_grid: state.lastParamGrid,
       curves: backtest.buildResearchCurves(result),
-      promote_meta: backtest.buildResearchPromoteMeta(result),
-      note: "研究包 · 含 IC/分层/基准曲线与 promote_meta（硬闸/提示）；不含实盘指令",
+      note: "研究包 · 含 IC/分层/基准曲线；不含实盘指令",
     };
-    if (!pack.backtest && !pack.param_grid) {
-      if (els.quantPortfolioSummary) els.quantPortfolioSummary.textContent = "请先跑回测或参数网格";
+    if (!pack.backtest) {
+      if (els.quantPortfolioSummary) els.quantPortfolioSummary.textContent = "请先跑回测";
       return;
     }
     downloadJson(pack, `research_pack_${Date.now()}.json`);
@@ -3095,75 +3005,15 @@ export function initQuant(ctx) {
     strategy.loadStrategyRiskAudit().catch(() => {});
   } else if (page === "strategy") {
     strategy.loadStrategyRiskAudit().catch(() => {});
-    q.renderPromoteHintsPanel(loadCachedPromoteHints(), "strategy-promote-hints");
   }
   if (hash === "strategy-factor-dict") {
     const fold = document.getElementById("strategy-factor-dict-fold");
     if (fold) fold.open = true;
   }
 
-  // T15/T17：IC硬闸 / TTL / 过期硬拦（默认均关或 24h）
-  const hardGateEl = document.getElementById("quant-promote-hard-gate");
-  if (hardGateEl) {
-    try {
-      hardGateEl.checked = sessionStorage.getItem(PROMOTE_HARD_GATE_KEY) === "1";
-    } catch (_) {
-      hardGateEl.checked = false;
-    }
-    hardGateEl.addEventListener("change", () => {
-      persistPromoteHardGate(!!hardGateEl.checked);
-      backtest.refreshParamGridApplyGate();
-    });
+  if (document.getElementById("strategy-sentiment-prior")) {
+    strategy.loadStrategyList().catch(() => {});
   }
-  const ttlEl = document.getElementById("quant-promote-ttl-hours");
-  if (ttlEl) {
-    try {
-      const saved = Number(sessionStorage.getItem(PROMOTE_HINTS_TTL_HOURS_KEY));
-      if (Number.isFinite(saved) && saved > 0) {
-        ttlEl.value = String(Math.max(1, Math.min(168, Math.round(saved))));
-      }
-    } catch (_) {
-      /* ignore */
-    }
-    ttlEl.addEventListener("change", () => {
-      const h = readPromoteTtlHours();
-      ttlEl.value = String(h);
-      persistPromoteTtlHours(h);
-      q.renderPromoteHintsPanel(loadCachedPromoteHints(), "quant-promote-hints");
-      q.renderPromoteHintsPanel(loadCachedPromoteHints(), "strategy-promote-hints");
-    });
-  }
-  const expireHardEl = document.getElementById("strategy-promote-expire-hard");
-  if (expireHardEl) {
-    try {
-      expireHardEl.checked = sessionStorage.getItem(PROMOTE_EXPIRE_HARD_KEY) === "1";
-    } catch (_) {
-      expireHardEl.checked = false;
-    }
-    expireHardEl.addEventListener("change", () => {
-      persistPromoteExpireHard(!!expireHardEl.checked);
-    });
-  }
-  if (document.getElementById("quant-promote-hints")) {
-    q.renderPromoteHintsPanel(loadCachedPromoteHints(), "quant-promote-hints");
-  }
-
-  const floorSaveBtn = document.getElementById("strategy-floor-save");
-  if (floorSaveBtn) {
-    floorSaveBtn.addEventListener("click", (e) => {
-      e.preventDefault();
-      strategy.saveStrategyScoringFloors().catch(() => {});
-    });
-  }
-
-  const dualSaveBtn = document.getElementById("strategy-dual-save");
-  if (dualSaveBtn) {
-    dualSaveBtn.addEventListener("click", (e) => {
-      e.preventDefault();
-      strategy.saveStrategyDualScore().catch(() => {});
-    });
-  }
-  strategy.loadDualScoreForm?.().catch(() => {});
 
   const priorSaveBtn = document.getElementById("strategy-prior-save");
   if (priorSaveBtn) {

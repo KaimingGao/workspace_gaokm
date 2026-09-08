@@ -253,13 +253,16 @@ export function buildPortfolioBacktestSummaryText(data) {
           : " · 选股 ŷ_EOD·关τ闸";
   const engNote =
     eng === "topk_research"
-      ? " · 引擎 研究Top-K"
+      ? " · 引擎 研究Top-K（已下线）"
       : " · 引擎 rank_lots";
   const dropN = Number(
     data.params?.dropped_thin_count || (data.dropped_stocks || []).length || 0
   );
   const dropNote = dropN > 0 ? ` · 排除短序列 ${dropN}` : "";
-  const doN = Number(data.params?.dropout_n ?? data.request?.dropout_n ?? 0);
+  const doN =
+    eng === "topk_research"
+      ? Number(data.params?.dropout_n ?? data.request?.dropout_n ?? 0)
+      : 0;
   const dropoutNote = doN > 0 ? ` · dropout ${doN}` : "";
   const sic = data.score_ic || {};
   const icNote = sic.ok

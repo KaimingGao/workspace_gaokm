@@ -234,7 +234,7 @@ class QuantOpsMixin:
         if payload is None:
             payload = self.build_daily_report(
                 include_portfolio_backtest=True,
-                include_portfolio_neutral_compare=True,
+                include_portfolio_neutral_compare=False,
             )
         from quant.services.quant_interpret import build_rule_based_interpret, interpret_quant_report
 
@@ -457,7 +457,7 @@ class QuantOpsMixin:
             "path": QUANT_DAILY_PATH,
             "generated_at": generated,
             "frozen": True,
-            "note": "日报冻结摘要；与当页「历史回测 / 中性化对照」结果可能不一致。",
+            "note": "日报冻结摘要；与当页「历史回测」结果可能不一致。",
         }
         return data
 
@@ -467,7 +467,7 @@ class QuantOpsMixin:
         *,
         include_cross_section: bool = True,
         include_portfolio_backtest: bool = True,
-        include_portfolio_neutral_compare: bool = True,
+        include_portfolio_neutral_compare: bool = False,
         include_legacy_probe: bool = False,
         top_k: Optional[int] = None,
         horizon_days: Optional[int] = None,
@@ -480,7 +480,8 @@ class QuantOpsMixin:
 
         单票 IC·OLS·权建议·阈值 默认不跑，仅 ``include_legacy_probe=True`` 进附录。
         历史回测缺省对齐 /replay：paper_replay · α / rank入场 1.2% / rank强 1.2% / lookback 30（下限 10）。
-        top_k / horizon_days 仅留给中性化对照（研究 Top-K 腿）。
+        中性化对照默认不下发（ŷ 路径开关空转）；仅显式 ``include_portfolio_neutral_compare=True``。
+        ``top_k`` / ``horizon_days`` 仅留给该研究腿。
         """
         cfg = self.config_summary()
         ic = None
@@ -667,10 +668,11 @@ class QuantOpsMixin:
             },
             "strategies": self.list_strategies(),
             "portfolio_backtest_summary": portfolio_summary,
-            "portfolio_neutral_compare_summary": neutral_compare_summary,
             "cluster_live": cluster_live,
             "y_check_summary": y_check_summary,
         }
+        if include_portfolio_backtest and include_portfolio_neutral_compare:
+            report["portfolio_neutral_compare_summary"] = neutral_compare_summary
         if include_cross_section:
             report["cross_section"] = self.run_cross_section(limit=10)
         if include_legacy_probe:

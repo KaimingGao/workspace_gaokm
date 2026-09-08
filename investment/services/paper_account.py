@@ -476,7 +476,7 @@ class PaperAccountMixin:
                 "lite": True,
                 "path": self.path,
                 "name": paper.get("name"),
-                "strategy_id": paper.get("strategy_id") or "short",
+                "strategy_id": paper.get("strategy_id") or "short_conservative",
                 "strategy_label": self._strategy_label(paper),
                 "strategy_version": paper.get("strategy_version"),
                 "summary": {
@@ -523,7 +523,7 @@ class PaperAccountMixin:
             "path": self.path,
             "name": paper.get("name"),
             "version": paper.get("version"),
-            "strategy_id": paper.get("strategy_id") or "short",
+            "strategy_id": paper.get("strategy_id") or "short_conservative",
             "strategy_label": self._strategy_label(paper),
             "strategy_version": paper.get("strategy_version"),
             "cost_model": paper.get("cost_model") or "simple_cn",
@@ -754,7 +754,7 @@ class PaperAccountMixin:
 
     def promote_strategy(
         self,
-        strategy: str = "short",
+        strategy: str = "short_conservative",
         *,
         note: str = "",
         apply_to_paper: bool = False,

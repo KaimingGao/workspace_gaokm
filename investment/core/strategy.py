@@ -128,26 +128,11 @@ def list_strategy_specs() -> List[Dict[str, Any]]:
     return [get_strategy_spec(s["name"]) for s in list_strategies()]
 
 
-# 纸面 rules 中不得再作为 live 选股门槛的遗留键（0–100 时代）
-_LEGACY_PAPER_SCORE_KEYS = (
-    "min_score",
-    "add_score",
-    "min_hold_score",
-    "reduce_score",
-)
-
-
 def apply_strategy_to_paper(paper: dict, strategy: str = DEFAULT_STRATEGY) -> Dict[str, Any]:
-    """把策略规格合并进 paper.rules / cost_model / t0 overlay（不落盘）。
-
-    不合并 0–100 的 min_score/add_score 等；选股门槛真源为 signal_config.scoring。
-    """
+    """把策略规格合并进 paper.rules / cost_model / t0 overlay（不落盘）。"""
     spec = get_strategy_spec(strategy)
     rules = dict(paper.get("rules") or {})
     pr = deepcopy(spec.get("paper_rules") or {})
-    for k in _LEGACY_PAPER_SCORE_KEYS:
-        pr.pop(k, None)
-        rules.pop(k, None)
     rules.update(pr)
     exe = spec.get("execution") or {}
     t0_overlay = ((exe.get("overlays") or {}).get("t0")) or {}
@@ -232,9 +217,6 @@ def promote_strategy(
         params = merge_strategy_params(strategy, overrides)
         spec["params"] = params
         for k, v in overrides.items():
-            if k in _LEGACY_PAPER_SCORE_KEYS:
-                # 0–100 选股门不进 promote；真源为 signal_config.scoring
-                continue
             if k in (spec.get("paper_rules") or {}) or k in (
                 "max_positions",
                 "position_pct",
@@ -243,9 +225,6 @@ def promote_strategy(
                 "weight_mode",
             ):
                 spec.setdefault("paper_rules", {})[k] = v
-    # 防御：规格或旧 promote 残留
-    for k in _LEGACY_PAPER_SCORE_KEYS:
-        (spec.get("paper_rules") or {}).pop(k, None)
     entry = {
         "promoted_at": _now_iso(),
         "note": note or f"promote {spec['strategy_id']}@{spec['version']}",

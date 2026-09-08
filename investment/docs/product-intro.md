@@ -71,7 +71,7 @@ quant_panel.html
 ├── 因子面板（factor_*.js）         — 因子 IC、相关性、元数据管理
 ├── ŷ 可视化（yhat_viz.js, y_path_viz.js）— 双预测头曲线、路径拟合
 ├── 聚类（cluster_*.js）            — 信号簇构建与回测
-├── 回测（bt_*.js, domain_backtest.js）— 参数网格、交易明细、结果对比
+├── 回测（bt_*.js, domain_backtest.js）— 交易明细、结果对比
 ├── 观察池（watching_*.js）         — 候选池构建、DQ、持仓
 └── 研究网格（research_grid.js）    — 多维度参数扫描
 ```

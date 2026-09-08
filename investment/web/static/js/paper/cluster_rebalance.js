@@ -52,7 +52,6 @@ export function createClusterRebalanceController(deps) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          matrix_mode: true,
           dry_run: !!dryRun,
           // ŷ / 日K·5m 永远只读本地；写仓已由 ensureWarehouseTopup 显式完成
           offline_only: true,

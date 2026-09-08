@@ -2,184 +2,33 @@
   <div class="dashboard-head-text quant-head-text">
     <p class="dashboard-eyebrow">Strategy Desk</p>
     <h2>策略中心</h2>
-    <p id="strategy-meta" class="dashboard-meta quant-meta" aria-live="polite">策略卡限额 · ŷ 滞回 · 人审晋升 · 不静默写盘</p>
+    <p id="strategy-meta" class="dashboard-meta quant-meta" aria-live="polite">舆情先验 · M prior · 不静默写盘</p>
     <p class="dashboard-section-desc strategy-head-path">
       <a class="strategy-hero-link" href="/quant">研究枢纽</a>
-      → 限额 / 门槛 →
+      → 舆情 / M prior →
       <a class="strategy-hero-link" href="/replay">回测</a>
       ·
       <a class="strategy-hero-link" href="/follow">交易执行</a>
     </p>
   </div>
   <div class="dashboard-head-actions quant-head-actions strategy-head-actions">
-    <span class="quant-desk-badge strategy-desk-badge" title="限额与门槛仅人审写盘">人审写盘</span>
+    <span class="quant-desk-badge strategy-desk-badge" title="先验仅人审写盘">人审写盘</span>
     <span class="strategy-desk-guard" title="禁止静默改 signal_config / weights">不静默</span>
   </div>
 </div>
 
 <div class="quant-body strategy-page">
   <nav class="quant-path-rail strategy-path-rail" aria-label="策略主路径">
-    <a class="quant-path-step strategy-path-step is-active" href="#quant-section-strategy-list" data-step="cards">
-      <span class="strategy-path-num">1</span> 策略卡
-    </a>
-    <span class="quant-path-sep strategy-path-sep" aria-hidden="true">/</span>
-    <a class="quant-path-step strategy-path-step" href="#strategy-scoring-floors" data-step="floors">
-      <span class="strategy-path-num">2</span> ŷ 门槛
-    </a>
-    <span class="quant-path-sep strategy-path-sep" aria-hidden="true">/</span>
-    <a class="quant-path-step strategy-path-step" href="#strategy-dual-score" data-step="dual">
-          <span class="strategy-path-num">3</span> 融合分
+    <a class="quant-path-step strategy-path-step is-active" href="#strategy-sentiment-prior" data-step="prior">
+      <span class="strategy-path-num">1</span> 舆情
     </a>
     <span class="quant-path-sep strategy-path-sep" aria-hidden="true">/</span>
     <a class="quant-path-step strategy-path-step" href="#strategy-market-context" data-step="mctx">
-      <span class="strategy-path-num">4</span> M prior
-    </a>
-    <span class="quant-path-sep strategy-path-sep" aria-hidden="true">/</span>
-    <a class="quant-path-step strategy-path-step" href="#strategy-promote-lab" data-step="promote">
-      <span class="strategy-path-num">5</span> 晋升
+      <span class="strategy-path-num">2</span> M prior
     </a>
   </nav>
 
-  <!-- ① 主路径：策略卡 -->
-  <section
-    class="dashboard-section quant-section strategy-section strategy-section-primary"
-    id="quant-section-strategy-list"
-    aria-labelledby="strategy-section-list-title"
-  >
-    <header class="dashboard-section-head quant-section-head strategy-section-head">
-      <h3 id="strategy-section-list-title" class="dashboard-section-title">策略卡</h3>
-      <p class="dashboard-section-desc quant-section-desc">只读限额 · 人审晋升写盘</p>
-    </header>
-    <div class="dashboard-card quant-pro-card strategy-ops-card">
-      <div class="dashboard-card-head quant-pro-card-head strategy-ops-card-head">
-        <p id="strategy-list-loading" class="quant-fingerprint quant-card-head-status strategy-card-status is-busy" aria-live="polite">
-          加载策略列表
-        </p>
-      </div>
-      <div class="quant-pro-card-body strategy-ops-card-body">
-        <div id="strategy-list" class="quant-weight-table-wrap strategy-list-host"></div>
-        <div id="strategy-risk-limits" class="strategy-risk-limits" aria-label="StrategySpec 说明"></div>
-      </div>
-    </div>
-  </section>
-
-  <!-- ② 主路径：ŷ 滞回 -->
-  <section
-    class="dashboard-section quant-section strategy-section strategy-section-primary"
-    id="strategy-scoring-floors"
-    aria-labelledby="strategy-section-floors-title"
-  >
-    <header class="dashboard-section-head quant-section-head strategy-section-head">
-      <h3 id="strategy-section-floors-title" class="dashboard-section-title">ŷ 滞回门槛</h3>
-      <p class="dashboard-section-desc quant-section-desc">买入 / 入簿 · 卖出 · 人审写盘</p>
-    </header>
-    <div class="dashboard-card quant-pro-card strategy-ops-card">
-      <div class="quant-pro-card-body strategy-ops-card-body">
-        <div class="quant-control-band strategy-control-band" aria-label="ŷ 门槛">
-          <div class="strategy-floors-form quant-actions-inline">
-            <label class="platform-field strategy-inline-field">
-              <span class="strategy-field-label">买入 ≥</span>
-              <input
-                id="strategy-floor-buy"
-                type="number"
-                step="0.1"
-                class="platform-input"
-                title="ŷ% 百分点；h=1 现网约 +0.35"
-              />
-              <span class="strategy-field-unit">%</span>
-            </label>
-            <label class="platform-field strategy-inline-field">
-              <span class="strategy-field-label">卖出 &lt;</span>
-              <input
-                id="strategy-floor-hold"
-                type="number"
-                step="0.1"
-                class="platform-input"
-                title="ŷ% 百分点；默认 −1"
-              />
-              <span class="strategy-field-unit">%</span>
-            </label>
-            <button type="button" id="strategy-floor-save" class="dialog-btn">保存门槛</button>
-          </div>
-          <p id="strategy-floor-status" class="quant-fingerprint" aria-live="polite"></p>
-        </div>
-      </div>
-    </div>
-  </section>
-
-  <!-- ②b 双层 ŷ 融合分 -->
-  <section
-    class="dashboard-section quant-section strategy-section strategy-section-primary"
-    id="strategy-dual-score"
-    aria-labelledby="strategy-section-dual-title"
-  >
-    <header class="dashboard-section-head quant-section-head strategy-section-head">
-      <h3 id="strategy-section-dual-title" class="dashboard-section-title">融合分数</h3>
-      <p class="dashboard-section-desc quant-section-desc">ŷ_trade = w·ŷ_EOD_rem + w·ŷ_τ · τ 闸 · 人审写盘</p>
-    </header>
-    <div class="dashboard-card quant-pro-card strategy-ops-card">
-      <div class="quant-pro-card-body strategy-ops-card-body">
-        <p class="strategy-prior-contract" role="note">
-          <span class="strategy-prior-contract-k">契约</span>
-          ŷ_EOD_rem = (1+ŷ_EOD)/(1+开盘缺口)−1，与 ŷ_τ 同为 T收/T开。簿排序键 =
-          <code>w_EOD·ŷ_EOD_rem + w_τ·ŷ_τ</code>。Kalman nowcast（ŷ_nowcast）为影子对照，默认不改主排序。数据中心 / 交易执行表列主分为
-          <code>ŷ_trade</code>；买入另须 ŷ_EOD ≥ 门槛且 ŷ_τ ≥ τ 闸。
-        </p>
-        <div class="quant-control-band strategy-control-band" aria-label="融合分数">
-          <div class="strategy-floors-form quant-actions-inline">
-            <label class="platform-field strategy-inline-field" title="ŷ_EOD_rem 权重">
-              <span class="strategy-field-label">w_EOD</span>
-              <input
-                id="strategy-dual-w-eod"
-                type="number"
-                step="0.05"
-                min="0"
-                max="1"
-                class="platform-input"
-                title="w_eod"
-              />
-            </label>
-            <label class="platform-field strategy-inline-field" title="ŷ_τ 权重">
-              <span class="strategy-field-label">w_τ</span>
-              <input
-                id="strategy-dual-w-tau"
-                type="number"
-                step="0.05"
-                min="0"
-                max="1"
-                class="platform-input"
-                title="w_tau"
-              />
-            </label>
-            <label class="platform-field strategy-inline-field" title="决策层合成权">
-              <span class="strategy-field-label">w 模式</span>
-              <select id="strategy-dual-w-mode" class="platform-input" title="w_mode">
-                <option value="fixed">fixed</option>
-                <option value="theme_boost">theme_boost</option>
-                <option value="variance">variance</option>
-                <option value="kalman">kalman</option>
-              </select>
-            </label>
-            <label class="platform-field strategy-inline-field" title="ŷ_τ ≥ 此值才买入">
-              <span class="strategy-field-label">τ 闸 ≥</span>
-              <input
-                id="strategy-dual-tau-floor"
-                type="number"
-                step="0.1"
-                class="platform-input"
-                title="min_predicted_score_tau（%）"
-              />
-              <span class="strategy-field-unit">%</span>
-            </label>
-            <button type="button" id="strategy-dual-save" class="dialog-btn">保存融合</button>
-          </div>
-          <p id="strategy-dual-status" class="quant-fingerprint" aria-live="polite"></p>
-        </div>
-      </div>
-    </div>
-  </section>
-
-  <!-- 舆情先验：政策旁路，紧接门槛 -->
+  <!-- 舆情先验：政策旁路 -->
   <section
     class="dashboard-section quant-section strategy-section strategy-section-primary"
     id="strategy-sentiment-prior"
@@ -540,36 +389,6 @@
             <p id="strategy-mctx-save-status" class="quant-fingerprint strategy-prior-status" aria-live="polite"></p>
           </div>
         </div>
-      </div>
-    </div>
-  </section>
-
-  <!-- ③ 主路径：人审晋升 -->
-  <section
-    class="dashboard-section quant-section strategy-section strategy-section-primary"
-    id="strategy-promote-lab"
-    aria-labelledby="strategy-section-promote-title"
-  >
-    <header class="dashboard-section-head quant-section-head strategy-section-head">
-      <h3 id="strategy-section-promote-title" class="dashboard-section-title">人审晋升</h3>
-      <p class="dashboard-section-desc quant-section-desc">改限额 / 持有期 · 选股 β 在研究枢纽</p>
-    </header>
-    <div class="dashboard-card quant-pro-card strategy-ops-card">
-      <div class="dashboard-card-head quant-pro-card-head strategy-ops-card-head">
-        <p class="quant-fingerprint quant-card-head-status strategy-card-status">回测晋升提示 · 过期门禁</p>
-        <div class="dashboard-card-tools quant-pro-card-tools">
-          <label
-            class="platform-field strategy-promote-toggle"
-            title="开启后：Top-K 晋升提示过期则禁止策略晋升（默认关=仅二次确认）"
-          >
-            <input id="strategy-promote-expire-hard" type="checkbox" />
-            过期硬拦晋升
-          </label>
-        </div>
-      </div>
-      <div class="quant-pro-card-body strategy-ops-card-body">
-        <div id="strategy-promote-hints" class="quant-weight-table-wrap" aria-label="回测晋升提示"></div>
-        <p id="strategy-promote-status" class="quant-fingerprint" aria-live="polite"></p>
       </div>
     </div>
   </section>

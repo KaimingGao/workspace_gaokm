@@ -14,20 +14,19 @@ from evals.run_checklist import filter_quant_cases, load_cases, run_skills
 class TestEvalsQuantCases(unittest.TestCase):
     def test_golden_case_counts(self):
         cases = load_cases()
-        self.assertEqual(len(cases), 22)
+        self.assertEqual(len(cases), 21)
         quant_cases = filter_quant_cases(cases)
-        self.assertEqual(len(quant_cases), 11)
+        self.assertEqual(len(quant_cases), 10)
 
     def test_interpret_neutral_agent_phrases(self):
         case = next(c for c in load_cases() if c["id"] == "quant_interpret_neutral")
         must = case.get("agent_must_contain") or []
-        self.assertIn("中性化", must)
-        self.assertIn("对照", must)
         self.assertIn("不保证收益", must)
+        self.assertNotIn("中性化", must)
         run = run_skills(case, use_mock=True)
         body = run["skill_runs"][0]["result"].get("interpretation") or ""
-        for phrase in ("中性化", "对照"):
-            self.assertIn(phrase, body)
+        self.assertIn("不保证收益", run["skill_runs"][0]["result"].get("note") or body)
+        self.assertNotIn("中性化对照", body)
         ids = {c["id"] for c in filter_quant_cases(load_cases())}
         self.assertIn("quant_interpret_neutral", ids)
 

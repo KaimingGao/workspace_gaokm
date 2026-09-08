@@ -420,7 +420,7 @@ class TestNextOpenCommit(unittest.TestCase):
             ],
             "trades": [],
             "rules": {"execution_mode": "next_open"},
-            "strategy_id": "short",
+            "strategy_id": "short_conservative",
         }
 
     def test_stage_after_close(self):
@@ -644,7 +644,7 @@ class TestExecutionTiming(unittest.TestCase):
     def test_default_next_open(self):
         from core.execution import resolve_effective_execution
 
-        bundle = resolve_effective_execution(strategy="short", channel="paper")
+        bundle = resolve_effective_execution(strategy="short_conservative", channel="paper")
         timing = bundle.get("rebalance_timing") or {}
         self.assertEqual(timing.get("execution_mode"), "next_open")
         self.assertIn("次日开盘", bundle.get("summary") or "")

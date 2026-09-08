@@ -36,7 +36,7 @@ class BacktestEngine:
         return bars, label or bench
 
     def run(self, params: dict) -> dict:
-        strategy = (params.get("strategy") or "short").strip()
+        strategy = (params.get("strategy") or "short_conservative").strip()
         try:
             get_strategy(strategy)
             strategy_spec = get_strategy_spec(strategy)

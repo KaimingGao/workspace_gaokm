@@ -29,7 +29,6 @@ QUANT_TASK_TAB: Dict[str, str] = {
     "portfolio_bridge": "follow",
     "t0_backtest": "quant",
     "portfolio_backtest": "quant",
-    "portfolio_neutral_compare": "quant",
     "daily_summary": "quant",
     "cross_section": "quant",
     "weight_suggest": "quant",

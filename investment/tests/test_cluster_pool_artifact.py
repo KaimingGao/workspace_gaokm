@@ -2,7 +2,6 @@
 
 import os
 import sys
-import tempfile
 import unittest
 from unittest.mock import patch
 
@@ -202,165 +201,15 @@ class TestClusterPoolArtifact(unittest.TestCase):
         self.assertIn("分组映射", out["note"])
         self.assertTrue(out["pool_artifact"]["intent_preview"]["success"])
 
-    def test_paper_preview_dry_run_no_write(self):
-        book = [
-            {"stock_code": "600519", "stock_name": "茅台", "score": 80},
-            {"stock_code": "601318", "stock_name": "人保", "score": 75},
-        ]
-        paper = {
-            "cash": 100000.0,
-            "holdings": [
-                {
-                    "stock_code": "000001",
-                    "stock_name": "平安",
-                    "shares": 100,
-                    "cost": 10.0,
-                }
-            ],
-            "rules": {"max_positions": 5, "min_score": 50, "position_pct": 0.2},
-            "trades": [],
-        }
-        with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as f:
-            path = f.name
-        try:
-            import json
-
-            with open(path, "w", encoding="utf-8") as wf:
-                json.dump(paper, wf)
-
-            def fake_sim(paper_in, ranking, **kwargs):
-                # 模拟会改副本；验证外层不 save
-                paper_in["holdings"] = [
-                    {"stock_code": "600519", "stock_name": "茅台", "shares": 100}
-                ]
-                paper_in.setdefault("trades", []).append(
-                    {"side": "sell", "stock_code": "000001"}
-                )
-                return {
-                    "success": True,
-                    "sell_trades": [{"side": "sell", "stock_code": "000001"}],
-                    "buy_trades": [{"side": "buy", "stock_code": "600519"}],
-                    "buys_blocked": False,
-                    "risk_gate": {"ok": True},
-                }
-
-            with patch(
-                "core.paper.rebalance.simulate_cross_section_rebalance",
-                side_effect=fake_sim,
-            ):
-                out = preview_paper_pool_rebalance(book, paper_path=path, dry_run=True)
-
-            self.assertTrue(out["success"])
-            self.assertTrue(out["dry_run"])
-            self.assertEqual(out["sell_count"], 1)
-            self.assertEqual(out["buy_count"], 1)
-            # 原文件不应被改写
-            with open(path, encoding="utf-8") as rf:
-                saved = json.load(rf)
-            self.assertEqual(saved["holdings"][0]["stock_code"], "000001")
-            self.assertEqual(len(saved.get("trades") or []), 0)
-        finally:
-            os.unlink(path)
-
-    def test_refuse_write_without_confirm(self):
+    def test_paper_preview_retired(self):
         out = preview_paper_pool_rebalance(
             [{"stock_code": "600519", "score": 80}],
-            dry_run=False,
-            confirm=False,
+            dry_run=True,
         )
-        self.assertFalse(out["success"])
-        self.assertIn("禁止写账", out.get("error") or "")
+        self.assertFalse(out.get("success"))
+        self.assertTrue(out.get("deprecated"))
+        self.assertIn("rank_lots", out.get("error") or "")
 
-    def test_confirm_writes_paper_not_signal_config(self):
-        book = [
-            {"stock_code": "600519", "stock_name": "茅台", "score": 80},
-        ]
-        paper = {
-            "cash": 100000.0,
-            "initial_cash": 100000.0,
-            "holdings": [
-                {
-                    "stock_code": "000001",
-                    "stock_name": "平安",
-                    "shares": 100,
-                    "cost": 10.0,
-                }
-            ],
-            "rules": {"max_positions": 5, "min_score": 50, "position_pct": 0.2},
-            "trades": [],
-            "snapshots": [],
-            "operation_log": [],
-        }
-        with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as f:
-            path = f.name
-        try:
-            import json
-
-            with open(path, "w", encoding="utf-8") as wf:
-                json.dump(paper, wf)
-
-            def fake_sim(paper_in, ranking, **kwargs):
-                paper_in["holdings"] = [
-                    {
-                        "stock_code": "600519",
-                        "stock_name": "茅台",
-                        "shares": 100,
-                        "cost": 50.0,
-                    }
-                ]
-                paper_in["cash"] = 90000.0
-                return {
-                    "success": True,
-                    "sell_trades": [{"side": "sell", "stock_code": "000001"}],
-                    "buy_trades": [{"side": "buy", "stock_code": "600519"}],
-                    "buys_blocked": False,
-                    "risk_gate": {"ok": True},
-                }
-
-            with patch(
-                "core.paper.rebalance.simulate_cross_section_rebalance",
-                side_effect=fake_sim,
-            ), patch(
-                "core.paper.mark_to_market",
-                return_value={"equity": 95000.0, "cash": 90000.0},
-            ), patch(
-                "core.paper.capture_mark_snapshot",
-                return_value=None,
-            ), patch(
-                "core.paper.append_snapshot",
-                return_value=None,
-            ):
-                out = preview_paper_pool_rebalance(
-                    book,
-                    paper_path=path,
-                    confirm=True,
-                    artifact={
-                        "schema_version": 1,
-                        "created_at": "2026-08-01T00:00:00Z",
-                        "n_clusters": 2,
-                    },
-                )
-
-            self.assertTrue(out["success"])
-            self.assertTrue(out["confirmed"])
-            self.assertFalse(out["dry_run"])
-            with open(path, encoding="utf-8") as rf:
-                saved = json.load(rf)
-            self.assertEqual(saved["holdings"][0]["stock_code"], "600519")
-            self.assertIn("last_cluster_pool", saved)
-            self.assertFalse(saved["last_cluster_pool"]["signal_config_touched"])
-            ops = saved.get("operation_log") or []
-            self.assertTrue(
-                any(o.get("type") == "cluster_pool_rebalance" for o in ops)
-            )
-            self.assertTrue(any(o.get("type") == "buy" for o in ops))
-            summary = next(
-                o for o in ops if o.get("type") == "cluster_pool_rebalance"
-            )
-            self.assertEqual((summary.get("meta") or {}).get("source"), "research_hub")
-            self.assertEqual((summary.get("meta") or {}).get("buy_count"), 1)
-        finally:
-            os.unlink(path)
 
 
 if __name__ == "__main__":

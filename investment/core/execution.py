@@ -1103,7 +1103,7 @@ def reset_paper_execution_overlay(paper: dict) -> Dict[str, Any]:
     paper.pop("execution_note", None)
     from core.strategy import apply_strategy_to_paper
 
-    sid = paper.get("strategy_id") or "short"
+    sid = paper.get("strategy_id") or "short_conservative"
     apply_strategy_to_paper(paper, str(sid))
     return {"ok": True}
 

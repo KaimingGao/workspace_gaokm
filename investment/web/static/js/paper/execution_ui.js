@@ -608,6 +608,45 @@ export function fillPathMatrixForm(root, execution) {
   );
 }
 
+function _normWeightPair(a, b) {
+  let x = Math.max(0, Math.min(Number.isFinite(a) ? a : 0.5, 1));
+  let y = Math.max(0, Math.min(Number.isFinite(b) ? b : 0.5, 1));
+  const s = x + y;
+  if (s <= 1e-12) return { a: 0.5, b: 0.5 };
+  return { a: x / s, b: y / s };
+}
+
+/** 填 y_trade 一层权重（signal_config.dual_score）。 */
+export function fillDualScoreForm(root, ds) {
+  if (!root || !ds) return;
+  const set = (name, val) => {
+    const el = root.querySelector(`[name="${name}"]`);
+    if (!el || val == null) return;
+    el.value = String(val);
+  };
+  set("pm_w_eod", ds.w_eod != null ? ds.w_eod : 0.5);
+  set("pm_w_tau", ds.w_tau != null ? ds.w_tau : 0.5);
+}
+
+/** 收集 dual_score 保存体；不改 τ 闸。 */
+export function collectDualScorePatch(root) {
+  if (!root) return null;
+  const num = (name, fallback) => {
+    const el = root.querySelector(`[name="${name}"]`);
+    if (!el || el.value === "") return fallback;
+    const n = Number(el.value);
+    return Number.isFinite(n) ? n : fallback;
+  };
+  const pair = _normWeightPair(num("pm_w_eod", 0.5), num("pm_w_tau", 0.5));
+  return {
+    fusion_mode: "blend",
+    w_eod: Math.round(pair.a * 1000) / 1000,
+    w_tau: Math.round(pair.b * 1000) / 1000,
+    w_mode: "fixed",
+    note: "follow rank_lots UI",
+  };
+}
+
 /** 收集 path_matrix 保存体（只改 rebalance_timing，不动 t0）。 */
 export function collectPathMatrixForm(root) {
   if (!root) return null;

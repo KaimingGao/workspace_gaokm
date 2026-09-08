@@ -1,4 +1,4 @@
-"""研究台因子 / ŷ_τ / 网格 / 影子实验请求模型。"""
+"""研究台因子 / ŷ_τ / 影子实验请求模型。"""
 
 from __future__ import annotations
 
@@ -372,31 +372,6 @@ class ReturnModelFitRequest(BaseModel):
 
 class ReturnModelPromoteRequest(BaseModel):
     note: str = ""
-
-
-class ParamGridRequest(BaseModel):
-    """Top-K × lookback 网格（限格；不落盘北极星；按 OOS 过门选优）。"""
-
-    codes: Optional[list] = None
-    top_k_values: Optional[list] = None
-    lookback_values: Optional[list] = None
-    horizon_days: int = Field(default=3, ge=1, le=10)
-    min_score: float = Field(default=55.0, ge=0, le=100)
-    min_predicted_score: Optional[float] = Field(
-        default=None,
-        description="ŷ 下限（百分点）；None=用 scoring.min_predicted_score",
-    )
-    apply_costs: bool = True
-    max_cells: int = Field(default=12, ge=1, le=20)
-    weight_mode: str = Field(default="score_budget")
-    dropout_n: int = Field(default=0, ge=0, le=10)
-    exclude_st: bool = True
-    min_avg_amount_pctile: Optional[float] = Field(default=None, ge=0, le=90)
-    rank_mode: str = Field(default="predicted_score")
-    sync: bool = Field(
-        default=False,
-        description="true=同步跑（单测/兼容）；默认入队 Job，轮询 GET /api/jobs/quant-param-grid",
-    )
 
 
 class WeightSuggestRequest(BaseModel):

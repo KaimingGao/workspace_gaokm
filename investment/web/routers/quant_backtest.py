@@ -11,8 +11,7 @@ from fastapi import APIRouter, HTTPException
 from web import deps
 from web.schemas import (
     AbCompareRequest,
-    ParamGridRequest,
-    PortfolioBacktestRequest,
+    PaperReplayBacktestRequest,
     ReturnModelFitRequest,
     ReturnModelPromoteRequest,
     T0BacktestRequest,
@@ -158,34 +157,17 @@ def quant_t0_backtest(body: T0BacktestRequest) -> Dict[str, Any]:
 
 
 @router.post("/api/quant/portfolio-backtest")
-def quant_portfolio_backtest(body: PortfolioBacktestRequest) -> Dict[str, Any]:
+def quant_portfolio_backtest(body: PaperReplayBacktestRequest) -> Dict[str, Any]:
     try:
         return deps.quant.run_portfolio_backtest(
             codes=body.codes,
             lookback=body.lookback,
-            top_k=body.top_k,
-            horizon_days=body.horizon_days,
-            min_score=body.min_score,
             apply_costs=body.apply_costs,
-            include_wf_slices=body.include_wf_slices,
-            include_cost_compare=body.include_cost_compare,
-            wf_n_splits=body.wf_n_splits,
             fetch_fundamentals=body.fetch_fundamentals,
-            weight_mode=body.weight_mode,
-            max_position_pct=body.max_position_pct,
-            max_sector_pct=body.max_sector_pct,
-            dropout_n=body.dropout_n,
             exclude_st=body.exclude_st,
             min_avg_amount_pctile=body.min_avg_amount_pctile,
-            include_score_ic=body.include_score_ic,
-            include_quantile=body.include_quantile,
             include_benchmark=body.include_benchmark,
             benchmark_code=body.benchmark_code,
-            rank_mode=body.rank_mode,
-            min_predicted_score=body.min_predicted_score,
-            return_model_min_samples=body.return_model_min_samples,
-            return_model_ridge_lambda=body.return_model_ridge_lambda,
-            engine=body.engine,
             y_on_alpha=body.y_on_alpha,
             fusion_w_trade=body.fusion_w_trade,
             fusion_w_nowcast=body.fusion_w_nowcast,
@@ -196,57 +178,33 @@ def quant_portfolio_backtest(body: PortfolioBacktestRequest) -> Dict[str, Any]:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
-@router.post("/api/quant/param-grid")
-def quant_param_grid(body: ParamGridRequest) -> Dict[str, Any]:
-    """Top-K × lookback 参数扫描（限格）。
-
-    默认入队 Job（``GET /api/jobs/quant-param-grid``）；``sync=true`` 同步兼容单测。
-    """
-    kwargs = dict(
-        codes=body.codes,
-        top_k_values=body.top_k_values,
-        lookback_values=body.lookback_values,
-        horizon_days=body.horizon_days,
-        min_score=body.min_score,
-        min_predicted_score=body.min_predicted_score,
-        apply_costs=body.apply_costs,
-        max_cells=body.max_cells,
-        weight_mode=body.weight_mode,
-        dropout_n=body.dropout_n,
-        exclude_st=body.exclude_st,
-        min_avg_amount_pctile=body.min_avg_amount_pctile,
-        rank_mode=body.rank_mode,
-    )
+@router.get("/api/quant/last-portfolio-backtest")
+def quant_last_portfolio_backtest() -> Dict[str, Any]:
+    """最近一次成功产品回测（``/replay`` 刷新恢复，不重跑）。"""
     try:
-        if body.sync:
-            return deps.quant.run_param_grid(**kwargs)
-        return deps.quant.start_param_grid_job(**kwargs)
+        from core.signal.score_display import json_safe
+
+        return json_safe(deps.quant.load_last_portfolio_backtest())
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@router.post("/api/quant/param-grid")
+def quant_param_grid() -> Dict[str, Any]:
+    """参数网格已下线（lookback×K 属 TopK 研究探针；产品回测只认 paper_replay）。"""
+    raise HTTPException(
+        status_code=410,
+        detail="参数网格已下线；产品回测只认 paper_replay / rank_lots",
+    )
 
 
 @router.post("/api/quant/portfolio-neutral-compare")
-def quant_portfolio_neutral_compare(body: PortfolioBacktestRequest) -> Dict[str, Any]:
-    try:
-        return deps.quant.run_portfolio_neutral_compare(
-            codes=body.codes,
-            lookback=body.lookback,
-            top_k=body.top_k,
-            horizon_days=body.horizon_days,
-            min_score=body.min_score,
-            min_predicted_score=body.min_predicted_score,
-            apply_costs=body.apply_costs,
-            fetch_fundamentals=body.fetch_fundamentals,
-            weight_mode=body.weight_mode,
-            max_position_pct=body.max_position_pct,
-            max_sector_pct=body.max_sector_pct,
-            dropout_n=body.dropout_n,
-            exclude_st=body.exclude_st,
-            min_avg_amount_pctile=body.min_avg_amount_pctile,
-            benchmark_code=body.benchmark_code,
-        )
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e)) from e
+def quant_portfolio_neutral_compare() -> Dict[str, Any]:
+    """中性化对照研究口已下线（ŷ 路径开关空转；日报也不再嵌入）。"""
+    raise HTTPException(
+        status_code=410,
+        detail="中性化对照研究口已下线；产品回测只认 paper_replay / rank_lots",
+    )
 
 
 @router.post("/api/quant/ab-compare")

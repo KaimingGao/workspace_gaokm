@@ -58,7 +58,31 @@ if ROOT not in sys.path:
 
 # --- p54_daily.py::TestDailyNeutralCompareReport ---
 class TestDailyNeutralCompareReport(unittest.TestCase):
-    def test_build_daily_report_includes_neutral_summary(self):
+    def test_build_daily_report_skips_neutral_summary_by_default(self):
+        import quant.services.quant_service as qs_mod
+
+        svc = qs_mod.QuantService()
+        with patch.object(svc, "config_summary", return_value={"success": True}), patch.object(
+            svc, "portfolio_daily_summary", return_value={"success": True, "total_return_pct": 4.0}
+        ), patch.object(
+            svc, "portfolio_neutral_compare_summary", return_value={"success": True}
+        ) as nc_mock, patch.object(
+            svc, "list_strategies", return_value={"success": True, "strategies": []}
+        ), patch(
+            "core.signal.cluster.live.cluster_status_public", return_value={}
+        ), patch(
+            "core.signal.y_state.ledger_y_check_daily_summary",
+            return_value={"success": True},
+        ):
+            report = svc.build_daily_report(
+                include_portfolio_backtest=True,
+                include_cross_section=False,
+            )
+
+        self.assertNotIn("portfolio_neutral_compare_summary", report)
+        nc_mock.assert_not_called()
+
+    def test_build_daily_report_includes_neutral_summary_when_opted_in(self):
         import quant.services.quant_service as qs_mod
 
         mock_summary = {
@@ -82,8 +106,17 @@ class TestDailyNeutralCompareReport(unittest.TestCase):
             svc, "portfolio_neutral_compare_summary", return_value=mock_summary
         ), patch.object(
             svc, "list_strategies", return_value={"success": True, "strategies": []}
+        ), patch(
+            "core.signal.cluster.live.cluster_status_public", return_value={}
+        ), patch(
+            "core.signal.y_state.ledger_y_check_daily_summary",
+            return_value={"success": True},
         ):
-            report = svc.build_daily_report(include_portfolio_backtest=True)
+            report = svc.build_daily_report(
+                include_portfolio_backtest=True,
+                include_portfolio_neutral_compare=True,
+                include_cross_section=False,
+            )
 
         self.assertIn("portfolio_neutral_compare_summary", report)
         self.assertTrue(report["portfolio_neutral_compare_summary"]["success"])
@@ -103,17 +136,13 @@ class TestDailyNeutralCompareReport(unittest.TestCase):
 
 # --- test_p56_quant.py::TestP56DailyPresetNeutralCompare ---
 class TestP56DailyPresetNeutralCompare(unittest.TestCase):
-    def test_quant_presets_enable_neutral_compare(self):
-        for name in ("quant", "full", "quant_paper"):
+    def test_quant_presets_disable_neutral_compare(self):
+        for name in ("quant", "full", "quant_paper", "advisor"):
             flags = resolve_daily_preset(name)["flags"]
-            self.assertTrue(
+            self.assertFalse(
                 flags["portfolio_neutral_compare"],
-                msg=f"{name} should enable portfolio_neutral_compare",
+                msg=f"{name} should not enable portfolio_neutral_compare",
             )
-
-    def test_advisor_preset_disables_neutral_compare(self):
-        flags = resolve_daily_preset("advisor")["flags"]
-        self.assertFalse(flags["portfolio_neutral_compare"])
 
     def test_preset_check_expectations(self):
         out = check_daily_presets()
@@ -156,14 +185,12 @@ class TestP56DailyPresetNeutralCompare(unittest.TestCase):
             self.assertTrue(out["ok"])
             build_mock.assert_called_once()
             kwargs = build_mock.call_args.kwargs
-            self.assertTrue(kwargs.get("include_portfolio_neutral_compare"))
+            self.assertFalse(kwargs.get("include_portfolio_neutral_compare"))
             self.assertIsNone(kwargs.get("top_k"))
             self.assertIsNone(kwargs.get("horizon_days"))
             self.assertIsNone(kwargs.get("lookback"))
             step = next(s for s in out["steps"] if s["name"] == "quant_report")
-            self.assertTrue(step.get("portfolio_neutral_compare"))
-            self.assertTrue(step.get("neutral_compare_ok"))
-            self.assertEqual(step.get("neutral_compare_winner"), "neutralized")
+            self.assertFalse(step.get("portfolio_neutral_compare"))
 
     def test_daily_service_passes_bt_overrides_to_build(self):
         mock_report = {"factor_ic": {"sample_count": 1}}
@@ -208,8 +235,14 @@ class TestP56DailyPresetNeutralCompare(unittest.TestCase):
             self.assertEqual(step.get("horizon_days"), 1)
             self.assertEqual(step.get("lookback"), 120)
 
-    def test_daily_service_can_disable_neutral_compare(self):
-        mock_report = {"factor_ic": {"sample_count": 1}}
+    def test_daily_service_can_opt_in_neutral_compare(self):
+        mock_report = {
+            "factor_ic": {"sample_count": 1},
+            "portfolio_neutral_compare_summary": {
+                "success": True,
+                "winner": "neutralized",
+            },
+        }
         with tempfile.TemporaryDirectory() as tmp:
             svc = DailyRunService(last_run_path=os.path.join(tmp, "daily.json"))
             with patch(
@@ -225,12 +258,14 @@ class TestP56DailyPresetNeutralCompare(unittest.TestCase):
                 "core.watching.health.check_watching_health",
                 return_value={"success": True, "warnings": [], "issues": []},
             ):
-                out = svc.run(preset="quant", portfolio_neutral_compare=False)
+                out = svc.run(preset="quant", portfolio_neutral_compare=True)
 
             kwargs = build_mock.call_args.kwargs
-            self.assertFalse(kwargs.get("include_portfolio_neutral_compare"))
+            self.assertTrue(kwargs.get("include_portfolio_neutral_compare"))
             step = next(s for s in out["steps"] if s["name"] == "quant_report")
-            self.assertFalse(step.get("portfolio_neutral_compare"))
+            self.assertTrue(step.get("portfolio_neutral_compare"))
+            self.assertTrue(step.get("neutral_compare_ok"))
+            self.assertEqual(step.get("neutral_compare_winner"), "neutralized")
 
 # --- test_p58_quant.py::TestP58NeutralCompareExportSection ---
 class TestP58NeutralCompareExportSection(unittest.TestCase):
@@ -286,7 +321,7 @@ class TestP59WebPresetFlags(unittest.TestCase):
         presets = list_daily_presets()
         by_name = {p["name"]: p for p in presets}
         self.assertIn("portfolio_neutral_compare", by_name["quant"]["flags"])
-        self.assertTrue(by_name["quant"]["flags"]["portfolio_neutral_compare"])
+        self.assertFalse(by_name["quant"]["flags"]["portfolio_neutral_compare"])
         self.assertFalse(by_name["advisor"]["flags"]["portfolio_neutral_compare"])
 
     def test_daily_presets_api_includes_flag(self):
@@ -300,7 +335,7 @@ class TestP59WebPresetFlags(unittest.TestCase):
         res = client.get("/api/daily/presets")
         self.assertEqual(res.status_code, 200)
         quant = next(p for p in res.json()["presets"] if p["name"] == "quant")
-        self.assertTrue(quant["flags"]["portfolio_neutral_compare"])
+        self.assertFalse(quant["flags"]["portfolio_neutral_compare"])
 
     def test_index_html_has_preset_flags_container(self):
         path = os.path.join(ROOT, "web", "static", "partials", "quant_panel.html")
@@ -373,7 +408,7 @@ class TestP61InterpretNeutralCompare(unittest.TestCase):
 # --- test_p63_quant.py::TestP63GoldenInterpretNeutral ---
 class TestP63GoldenInterpretNeutral(unittest.TestCase):
     def test_golden_case_exists(self):
-        self.assertEqual(len(load_cases()), 22)
+        self.assertEqual(len(load_cases()), 21)
 
     def test_routing_expect(self):
         case = next(c for c in load_cases() if c["id"] == "quant_interpret_neutral")
@@ -391,9 +426,10 @@ class TestP63GoldenInterpretNeutral(unittest.TestCase):
         self.assertTrue(result.get("success"))
         self.assertEqual(result.get("task"), "interpret")
         self.assertEqual(result.get("source"), "rule_based")
-        self.assertIn("中性化", result.get("interpretation") or "")
-        nc = result.get("neutral_compare_summary") or {}
-        self.assertTrue(nc.get("success"))
+        body = result.get("interpretation") or ""
+        self.assertIn("历史回测", body)
+        self.assertNotIn("中性化对照", body)
+        self.assertFalse((result.get("neutral_compare_summary") or {}).get("success"))
 
     def test_rule_based_interpret_mentions_neutral(self):
         out = build_rule_based_interpret(

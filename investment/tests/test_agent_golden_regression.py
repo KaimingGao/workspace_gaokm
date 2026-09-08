@@ -20,37 +20,35 @@ if ROOT not in sys.path:
 class TestP55AgentGoldenRegression(unittest.TestCase):
     def test_golden_case_count(self):
         cases = load_cases()
-        self.assertEqual(len(cases), 22)
+        self.assertEqual(len(cases), 21)
         quant_ids = [c["id"] for c in cases if str(c["id"]).startswith("quant_")]
-        self.assertEqual(len(quant_ids), 11)
+        self.assertEqual(len(quant_ids), 10)
 
-    def test_neutral_compare_case_has_agent_must_contain(self):
-        case = next(c for c in load_cases() if c["id"] == "quant_portfolio_neutral_compare")
-        must = case.get("agent_must_contain") or []
-        self.assertIn("中性化", must)
-        self.assertIn("绝对分", must)
+    def test_neutral_compare_case_removed(self):
+        ids = {c["id"] for c in load_cases()}
+        self.assertNotIn("quant_portfolio_neutral_compare", ids)
 
     def test_eval_summary_case_count(self):
         summary = EvalService().summary()
-        self.assertEqual(summary["case_count"], 22)
-        self.assertEqual(len(summary["quant_case_ids"]), 11)
+        self.assertEqual(summary["case_count"], 21)
+        self.assertEqual(len(summary["quant_case_ids"]), 10)
         self.assertIn("quant_interpret_neutral", summary["quant_case_ids"])
         self.assertIn("quant_cross_section_score", summary["quant_case_ids"])
         self.assertIn("quant_factor_ols", summary["quant_case_ids"])
         self.assertIn("quant_model_policy", summary["quant_case_ids"])
-        self.assertIn("quant_portfolio_neutral_compare", summary["quant_case_ids"])
+        self.assertNotIn("quant_portfolio_neutral_compare", summary["quant_case_ids"])
 
-    def test_prompts_mention_portfolio_neutral_compare(self):
-        self.assertIn("portfolio_neutral_compare", SYSTEM_PROMPT)
-        self.assertIn("portfolio_neutral_compare", QUANT_HINT)
+    def test_prompts_do_not_mention_portfolio_neutral_compare(self):
+        self.assertNotIn("portfolio_neutral_compare", SYSTEM_PROMPT)
+        self.assertNotIn("portfolio_neutral_compare", QUANT_HINT)
 
-    def test_agent_regression_scripts_document_22_and_11(self):
+    def test_agent_regression_scripts_document_21_and_10(self):
         scripts_dir = os.path.join(ROOT, "scripts")
         with open(os.path.join(scripts_dir, "agent_regression.sh"), encoding="utf-8") as f:
-            self.assertIn("22 cases", f.read())
+            self.assertIn("21 cases", f.read())
         with open(os.path.join(scripts_dir, "agent_regression_quant.sh"), encoding="utf-8") as f:
             text = f.read()
-            self.assertIn("11 quant_* cases", text)
+            self.assertIn("10 quant_* cases", text)
 
 
 if __name__ == "__main__":

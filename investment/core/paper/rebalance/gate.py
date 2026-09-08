@@ -152,7 +152,7 @@ def apply_post_sell_gate(state: RebalanceState) -> Dict[str, Any]:
         from core.portfolio_optimize import optimize_weights
         from core.strategy import get_strategy_spec
 
-        sid = paper.get("strategy_id") or "short"
+        sid = paper.get("strategy_id") or "short_conservative"
         rr = (get_strategy_spec(str(sid)).get("risk") or {})
         if not risk_limits:
             risk_limits = {

@@ -3,12 +3,11 @@ import { apiFetch } from "../api_client.js";
 import { renderExportPreviewToc as renderExportPreviewTocHtml, renderExportMarkdownPreview as renderExportMarkdownPreviewHtml, applyExportPreviewHeadingIds as applyExportPreviewHeadingIdsHtml } from "./export_preview.js";
 import { renderNeutralCompareTable as renderNeutralCompareTableHtml, buildNeutralCompareBriefHtml } from "./neutral_compare.js";
 import { buildResearchCurves } from "./bt_result.js";
-import { buildResearchPromoteMeta } from "./promote_cache.js";
 
 /** Quant domain: export */
 export function installExportInterpret(q) {
   const { on, els, state, ctx, escapeHtml, apiFetch, setQuantMeta, setBusyText } = q;
-  const { QUANT_EXPORT_PRESETS, PRESET_FLAG_LABELS, attachReadmeLinkHandler, renderReadmeLinksHtml, buildResearchCurves, buildResearchPromoteMeta } = q;
+  const { QUANT_EXPORT_PRESETS, PRESET_FLAG_LABELS, attachReadmeLinkHandler, renderReadmeLinksHtml, buildResearchCurves } = q;
   const { renderNeutralCompareTable } = q;
 
 

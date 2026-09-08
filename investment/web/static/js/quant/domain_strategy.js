@@ -1,21 +1,18 @@
 import { mergeScoringFloors } from "./scoring.js";
 import { runMarketContextIngest } from "../macro_context_ui.js";
-import { buildStrategyListHtml, buildStrategyRiskFootnoteHtml } from "./strategy_list_ui.js";
 import { researchGridHtml } from "./research_grid.js";
 import { buildRiskAuditMetaText, buildRiskAuditFoldSummary, buildSectorExposureHtml, buildStyleExposureHtml, buildRiskEffHtml, normalizeRiskBlockRows, buildRiskBlocksHtml } from "./strategy_risk_ui.js";
-import { readPromoteExpireHard, readPromoteTtlHours, loadCachedPromoteHints } from "./promote_cache.js";
 
 /** Quant domain: strategy */
 export function installStrategy(q) {
   const { els, state, escapeHtml, apiFetch } = q;
-  const { factorMetaByName, ensureFactorMeta, renderPromoteHintsPanel } = q;
+  const { factorMetaByName, ensureFactorMeta } = q;
 
   async function loadSignalConfigPanel() {
     try {
       await ensureFactorMeta();
       renderFactorDict();
       await loadSentimentPriorForm();
-      await loadDualScoreForm();
       await loadMarketContextPanel();
       await loadMarketPriorForm();
       return null;
@@ -752,19 +749,15 @@ export function installStrategy(q) {
   }
 
   async function loadStrategyList() {
-    if (!els.strategyList || !els.strategyListLoading) return;
     try {
       const res = await fetch("/api/quant/strategies");
       const data = await res.json();
       if (!res.ok) throw new Error(data.detail || res.statusText);
       renderStrategyList(data);
     } catch (err) {
-      if (els.strategyListLoading) {
-        els.strategyListLoading.classList.remove("is-busy");
-        els.strategyListLoading.classList.add("is-error");
-        els.strategyListLoading.textContent = String(err.message || err);
-      }
-      }
+      const st = document.getElementById("strategy-meta");
+      if (st) st.textContent = `策略配置加载失败：${err.message || err}`;
+    }
   }
 
   async function loadStrategyRiskAudit() {
@@ -841,71 +834,6 @@ export function installStrategy(q) {
     }
   }
 
-  async function promoteStrategy(strategyId, applyToPaper) {
-    const st = document.getElementById("strategy-promote-status");
-    const cached = loadCachedPromoteHints();
-    if (cached && cached.expired) {
-      renderPromoteHintsPanel(cached, "strategy-promote-hints");
-      if (readPromoteExpireHard()) {
-        if (st) {
-          st.textContent =
-            "Promote 提示已过期且「过期硬拦晋升」已开；请重跑 Top-K 后再晋升";
-        }
-        return;
-      }
-      if (st) st.textContent = "Promote 提示已过期，请先重跑 Top-K 再晋升";
-      const go = window.confirm(
-        `最近 Top-K 晋升提示已过期（TTL ${readPromoteTtlHours()}h）。仍继续晋升？（建议先回历史回测重跑）`
-      );
-      if (!go) return;
-    }
-    const hints = (cached && !cached.expired && cached.hints) || [];
-    const align = (cached && !cached.expired && cached.ic_equity_align) || {};
-    const hasWarn =
-      hints.length > 0 || (align.ok && align.aligned_favor_pos_ic === false);
-    if (hasWarn) {
-      const lines = hints.map((h) => `· ${h.text || h.code}`).slice(0, 5);
-      if (align.ok && align.aligned_favor_pos_ic === false) {
-        lines.unshift(`· IC窗收益差 ${align.avg_return_spread_pp}pp（正IC未优于非正）`);
-      }
-      const ok = window.confirm(
-        `最近 Top-K 存在 promote 警示：\n${lines.join("\n")}\n\n仍晋升 ${strategyId}？`
-      );
-      if (!ok) {
-        if (st) st.textContent = "已取消晋升（存在回测警示）";
-        return;
-      }
-    }
-    if (st) {
-      st.textContent = applyToPaper
-        ? `正在晋升 ${strategyId} 并应用到纸面…`
-        : `正在晋升 ${strategyId} 快照…`;
-    }
-    const res = await fetch("/api/strategy/promote", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        strategy: strategyId,
-        note: "P2 UI promote",
-        apply_to_paper: !!applyToPaper,
-      }),
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.detail || data.error || res.statusText);
-    const ver =
-      (data.promoted && (data.promoted.version || data.promoted.strategy_version)) || "—";
-    if (st) {
-      const exe = (data.promoted && data.promoted.execution_summary) || {};
-      const t0bit =
-        exe.t0_ratio != null
-          ? ` · 做T ${Math.round(Number(exe.t0_ratio) * 100)}%` +
-            (exe.coupling ? `/${exe.coupling}` : "")
-          : "";
-      st.textContent = applyToPaper
-        ? `已晋升 ${strategyId} @ ${ver} 并写入纸面（含 Execution）${t0bit}`
-        : `已晋升 ${strategyId} @ ${ver}（含 Execution 快照；未改 signal_config）${t0bit}`;
-    }
-    return data;
   }
 
   function renderFactorDict() {
@@ -930,219 +858,15 @@ export function installStrategy(q) {
   }
 
   function renderStrategyList(data) {
-    if (!data || !data.success || !data.strategies) {
-      if (els.strategyListLoading) {
-        els.strategyListLoading.classList.remove("is-busy");
-        els.strategyListLoading.classList.add("is-error");
-        els.strategyListLoading.textContent = "加载失败";
-      }
-      return;
-    }
-    if (els.strategyListLoading) {
-      els.strategyListLoading.classList.remove("is-busy");
-      els.strategyListLoading.hidden = true;
-    }
-    els.strategyList.innerHTML = buildStrategyListHtml(data, { escapeHtml });
-    els.strategyList.querySelectorAll(".strategy-promote-btn").forEach((btn) => {
-      btn.addEventListener("click", (e) => {
-        e.preventDefault();
-        const sid = btn.getAttribute("data-strategy") || "short";
-        const apply = btn.getAttribute("data-apply") === "1";
-        promoteStrategy(sid, apply).catch((err) => {
-          const st = document.getElementById("strategy-promote-status");
-          if (st) st.textContent = String(err.message || err);
-        });
-      });
-    });
-    const riskBox = document.getElementById("strategy-risk-limits");
-    if (riskBox) {
-      riskBox.innerHTML = buildStrategyRiskFootnoteHtml(data, { escapeHtml }).html;
-    }
+    if (!data || !data.success || !data.strategies) return;
     if (data.sentiment_prior) {
       fillSentimentPriorForm(data.sentiment_prior);
     }
-    // 顺带填 ŷ 门槛输入
+    // 观察页直方图只读滞回门槛（本页不再提供编辑）
     const floors = data.scoring_floors || {};
     if (floors.min_predicted_score != null || floors.min_hold_predicted_score != null) {
       state.quantScoringFloors = mergeScoringFloors(state.quantScoringFloors, floors);
       state._scoringFloorsHydrated = true;
-    }
-    const buyIn = document.getElementById("strategy-floor-buy");
-    const holdIn = document.getElementById("strategy-floor-hold");
-    if (buyIn && floors.min_predicted_score != null && buyIn.value === "") {
-      buyIn.value = String(floors.min_predicted_score);
-    }
-    if (holdIn && floors.min_hold_predicted_score != null && holdIn.value === "") {
-      holdIn.value = String(floors.min_hold_predicted_score);
-    }
-    // 显示当前已保存阈值
-    const floorSt = document.getElementById("strategy-floor-status");
-    if (floorSt && floors.min_predicted_score != null) {
-      floorSt.textContent = `当前 · 买入 ≥ ${floors.min_predicted_score}% · 卖出 < ${floors.min_hold_predicted_score ?? "—"}%`;
-    }
-    fillDualScoreForm(data.dual_score);
-    renderPromoteHintsPanel(loadCachedPromoteHints(), "strategy-promote-hints");
-  }
-
-  function formatDualStatus(ds, { saved = false } = {}) {
-    const d = ds || {};
-    const bits = [
-      saved ? "已保存" : "当前",
-      `正交加权 w_EOD=${d.w_eod ?? "—"} w_τ=${d.w_tau ?? "—"}`,
-      `w_mode=${d.w_mode ?? "fixed"}`,
-      `τ闸 ≥ ${d.min_predicted_score_tau ?? "—"}%`,
-    ];
-    return bits.join(" · ");
-  }
-
-  function fillDualScoreForm(ds) {
-    const d = ds || {};
-    const floor = document.getElementById("strategy-dual-tau-floor");
-    if (floor && d.min_predicted_score_tau != null) {
-      floor.value = String(d.min_predicted_score_tau);
-    }
-    const we = document.getElementById("strategy-dual-w-eod");
-    if (we && d.w_eod != null) we.value = String(d.w_eod);
-    const wt = document.getElementById("strategy-dual-w-tau");
-    if (wt && d.w_tau != null) wt.value = String(d.w_tau);
-    const wm = document.getElementById("strategy-dual-w-mode");
-    if (wm && d.w_mode) wm.value = String(d.w_mode);
-    const st = document.getElementById("strategy-dual-status");
-    if (st) st.textContent = formatDualStatus(d);
-  }
-
-  async function loadDualScoreForm() {
-    try {
-      const res = await fetch("/api/signal/config/dual-score");
-      const data = await res.json().catch(() => ({}));
-      if (res.ok && data.dual_score) fillDualScoreForm(data.dual_score);
-    } catch (_) {
-      /* ignore */
-    }
-  }
-
-  async function saveStrategyDualScore() {
-    const st = document.getElementById("strategy-dual-status");
-    const floorIn = document.getElementById("strategy-dual-tau-floor");
-    const floor =
-      floorIn && floorIn.value !== "" ? Number(floorIn.value) : null;
-    const weIn = document.getElementById("strategy-dual-w-eod");
-    const wtIn = document.getElementById("strategy-dual-w-tau");
-    const wmIn = document.getElementById("strategy-dual-w-mode");
-    const wEod = weIn && weIn.value !== "" ? Number(weIn.value) : 0.5;
-    const wTau = wtIn && wtIn.value !== "" ? Number(wtIn.value) : 0.5;
-    const wMode = wmIn && wmIn.value ? String(wmIn.value) : "fixed";
-    if (floor == null || !Number.isFinite(floor)) {
-      if (st) st.textContent = "请填写 τ 闸";
-      return;
-    }
-    if (!Number.isFinite(wEod) || !Number.isFinite(wTau)) {
-      if (st) st.textContent = "请填写融合权重";
-      return;
-    }
-    const lines = [
-      "保存融合分数？",
-      "",
-      "· 模式 = 正交加权（ŷ_trade = w·ŷ_EOD + w·(缺口∘ŷ_τ)）",
-      `· w_EOD = ${wEod} · w_τ = ${wTau} · w_mode = ${wMode}`,
-      `· τ 闸 ≥ ${floor}%`,
-      "",
-      "Kalman nowcast 默认为影子分，不替换 EOD 主字段。",
-      "仅改 signal_config.dual_score；不改 weights / scoring。刷簿/预演后生效。",
-    ].filter(Boolean);
-    if (!window.confirm(lines.join("\n"))) return;
-    if (st) {
-      st.classList.add("is-busy");
-      st.textContent = "正在保存…";
-    }
-    try {
-      const body = {
-        note: "策略中心人审·正交加权",
-        fusion_mode: "blend",
-        w_eod: wEod,
-        w_tau: wTau,
-        w_mode: wMode,
-      };
-      body.min_predicted_score_tau = floor;
-      const res = await fetch("/api/signal/config/dual-score", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok || data.success === false) {
-        if (st) {
-          st.classList.remove("is-busy");
-          st.textContent = data.detail || data.error || "保存失败";
-        }
-        return;
-      }
-      fillDualScoreForm(data.dual_score);
-      if (st) {
-        st.classList.remove("is-busy");
-        st.textContent = formatDualStatus(data.dual_score, { saved: true });
-      }
-    } catch (err) {
-      if (st) {
-        st.classList.remove("is-busy");
-        st.textContent = String(err.message || err);
-      }
-    }
-  }
-
-  async function saveStrategyScoringFloors() {
-    const st = document.getElementById("strategy-floor-status");
-    const buyIn = document.getElementById("strategy-floor-buy");
-    const holdIn = document.getElementById("strategy-floor-hold");
-    const buy = buyIn && buyIn.value !== "" ? Number(buyIn.value) : null;
-    const hold = holdIn && holdIn.value !== "" ? Number(holdIn.value) : null;
-    if (
-      (buy == null || !Number.isFinite(buy)) &&
-      (hold == null || !Number.isFinite(hold))
-    ) {
-      if (st) st.textContent = "请填写买入或卖出门槛";
-      return;
-    }
-    if (
-      !window.confirm(
-        [
-          "保存 ŷ 滞回门槛？",
-          "",
-          buy != null && Number.isFinite(buy) ? `· 买入/入簿 ≥ ${buy}%` : "",
-          hold != null && Number.isFinite(hold) ? `· 卖出 < ${hold}%` : "",
-          "",
-          "仅改 signal_config.scoring；不改 weights。保存后请到 /follow 预演调仓。",
-        ]
-          .filter(Boolean)
-          .join("\n")
-      )
-    ) {
-      return;
-    }
-    if (st) st.textContent = "正在保存…";
-    try {
-      const body = { note: "策略中心人审" };
-      if (buy != null && Number.isFinite(buy)) body.min_predicted_score = buy;
-      if (hold != null && Number.isFinite(hold)) body.min_hold_predicted_score = hold;
-      const res = await fetch("/api/signal/config/scoring", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-      const data = await res.json();
-      if (!res.ok || data.success === false) {
-        if (st) st.textContent = data.detail || data.error || "保存失败";
-        return;
-      }
-      const f = data.scoring_floors || {};
-      if (st) {
-        st.textContent = `已保存 · 买入 ≥ ${f.min_predicted_score ?? "—"}% · 卖出 < ${
-          f.min_hold_predicted_score ?? "—"
-        }% · 请到 /follow 预演`;
-      }
-      loadStrategyList().catch(() => {});
-    } catch (err) {
-      if (st) st.textContent = String(err.message || err);
     }
   }
 
@@ -1150,17 +874,13 @@ export function installStrategy(q) {
     loadSignalConfigPanel,
     loadStrategyList,
     loadStrategyRiskAudit,
-    promoteStrategy,
     renderFactorDict,
     renderStrategyList,
-    saveStrategyScoringFloors,
     saveStrategySentimentPrior,
     saveStrategyMarketPrior,
-    saveStrategyDualScore,
     loadSentimentPriorForm,
     loadMarketPriorForm,
     loadMarketContextPanel,
-    loadDualScoreForm,
     refreshMarketContextPanel,
     syncPriorGateOptsVisibility,
     syncMctxGateOptsVisibility,

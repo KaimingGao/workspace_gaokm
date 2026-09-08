@@ -6,7 +6,7 @@
     <p class="dashboard-section-desc follow-head-path">
       <a class="follow-hero-link" href="/quant">补日K·5m</a>
       → 调仓 / 做T →
-      <a class="follow-hero-link" href="/strategy">晋升</a>
+      <a class="follow-hero-link" href="/strategy">策略</a>
       ·
       <a class="follow-hero-link" href="/platform">北极星</a>
       ·
@@ -100,7 +100,7 @@
         </a>
         <span class="quant-path-sep quant-pro-path-sep follow-path-sep" aria-hidden="true">/</span>
         <a class="quant-path-step quant-pro-path-step follow-path-step" href="/strategy" data-step="strategy" data-state="idle">
-          <span class="quant-pro-path-num follow-path-num">5</span> 晋升
+          <span class="quant-pro-path-num follow-path-num">5</span> 策略
         </a>
       </nav>
     </div>
@@ -267,21 +267,35 @@
               <div class="follow-path-matrix-panels">
                 <section class="follow-path-matrix-panel" data-panel="mode" aria-labelledby="pm-panel-mode">
                   <header class="follow-path-matrix-panel-head">
-                    <h4 id="pm-panel-mode" class="follow-path-matrix-panel-title">y_fuse 融合</h4>
-                    <p class="follow-path-matrix-panel-note">trade⊕nc 加权 = 预期今日收益</p>
+                    <h4 id="pm-panel-mode" class="follow-path-matrix-panel-title">分数融合</h4>
+                    <p class="follow-path-matrix-panel-note">一层 y_trade＝w_EOD·ŷ_EOD＋w_τ·ŷ_τ；二层 y_fuse＝w_trade·y_trade＋w_nc·y_nowcast</p>
                   </header>
-                  <div class="follow-path-matrix-body follow-path-matrix-body--row2">
+                  <div class="follow-path-matrix-body follow-path-matrix-body--row4">
+                    <label class="follow-path-matrix-box" title="y_trade 中 ŷ_EOD_rem 权重；与 w_τ 一并归一化">
+                      <span class="follow-path-matrix-box-text">
+                        <span class="follow-path-matrix-box-title">w_EOD</span>
+                        <span class="follow-path-matrix-box-desc">y_trade</span>
+                      </span>
+                      <input type="number" name="pm_w_eod" min="0" max="1" step="0.05" value="0.5" />
+                    </label>
+                    <label class="follow-path-matrix-box" title="y_trade 中 ŷ_τ 权重；与 w_EOD 一并归一化">
+                      <span class="follow-path-matrix-box-text">
+                        <span class="follow-path-matrix-box-title">w_τ</span>
+                        <span class="follow-path-matrix-box-desc">y_trade</span>
+                      </span>
+                      <input type="number" name="pm_w_tau" min="0" max="1" step="0.05" value="0.5" />
+                    </label>
                     <label class="follow-path-matrix-box" title="y_fuse 中 y_trade 权重；与 nc 权重一并归一化">
                       <span class="follow-path-matrix-box-text">
                         <span class="follow-path-matrix-box-title">w_trade</span>
-                        <span class="follow-path-matrix-box-desc">融合权重</span>
+                        <span class="follow-path-matrix-box-desc">y_fuse</span>
                       </span>
                       <input type="number" name="pm_fusion_w_trade" min="0" max="1" step="0.05" value="0.5" />
                     </label>
                     <label class="follow-path-matrix-box" title="y_fuse 中 y_nowcast 权重；与 trade 权重一并归一化">
                       <span class="follow-path-matrix-box-text">
                         <span class="follow-path-matrix-box-title">w_nc</span>
-                        <span class="follow-path-matrix-box-desc">融合权重</span>
+                        <span class="follow-path-matrix-box-desc">y_fuse</span>
                       </span>
                       <input type="number" name="pm_fusion_w_nc" min="0" max="1" step="0.05" value="0.5" />
                     </label>

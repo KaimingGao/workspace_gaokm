@@ -54,7 +54,6 @@ from web.schemas.research import (
     AbCompareRequest,
     ReturnModelFitRequest,
     ReturnModelPromoteRequest,
-    ParamGridRequest,
     WeightSuggestRequest,
     ThresholdSuggestRequest,
     YhatResidualShadowRequest,
@@ -79,6 +78,7 @@ from web.schemas.config import (
 )
 
 from web.schemas.backtest import (
+    PaperReplayBacktestRequest,
     PortfolioBacktestRequest,
 )
 
@@ -137,7 +137,6 @@ __all__ = [
     "AbCompareRequest",
     "ReturnModelFitRequest",
     "ReturnModelPromoteRequest",
-    "ParamGridRequest",
     "WeightSuggestRequest",
     "ThresholdSuggestRequest",
     "YhatResidualShadowRequest",
@@ -153,6 +152,7 @@ __all__ = [
     "SentimentPriorRequest",
     "MarketPriorRequest",
     "DualScoreRequest",
+    "PaperReplayBacktestRequest",
     "PortfolioBacktestRequest",
     "ScoreReviewRequest",
     "ScoreLedgerFreezeRequest",

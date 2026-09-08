@@ -33,15 +33,6 @@ const {
   ledgerTradesCaptionHtml,
   buildLedgerTradesCsv,
 } = await import(`./bt_trades.js?v=${encodeURIComponent(_V)}`);
-const { readPromoteHardGate, buildPromoteHintsPack, savePromoteHintsPack } = await import(
-  `./promote_cache.js?v=${encodeURIComponent(_V)}`
-);
-const {
-  drawParamHeatmap,
-  paramGridDullness,
-  buildParamGridMetaText,
-  buildParamGridTableHtml,
-} = await import(`./param_grid_ui.js?v=${encodeURIComponent(_V)}`);
 const { renderNeutralCompareTable: renderNeutralCompareTableHtml } = await import(
   `./neutral_compare.js?v=${encodeURIComponent(_V)}`
 );
@@ -90,7 +81,7 @@ export function sliceCurveToDateWindow(series, days = TOPK_NAV_CHART_WINDOW_DAYS
 /** Quant domain: backtest */
 export function installBacktest(q) {
   const { on, els, state, ctx, escapeHtml, apiFetch, setQuantMeta, setBusyText, btSimScoreTips, watchingNameFromEl } = q;
-  const { fmtPct, metricClass, renderMetricCards, renderBtScopeNote, renderFitGapPanel, renderRobustnessPanel, buildPortfolioBacktestCards, renderPromoteHintsPanel, BT_SCOPE_LIVE, BT_SCOPE_FROZEN, readHorizonDays, quantBtBusyIds } = q;
+  const { fmtPct, metricClass, renderMetricCards, renderBtScopeNote, renderFitGapPanel, renderRobustnessPanel, buildPortfolioBacktestCards, BT_SCOPE_LIVE, BT_SCOPE_FROZEN, readHorizonDays, quantBtBusyIds } = q;
   const { renderAttributionTablesHtml, renderIcEquityAlignHtml, renderQuantileTableHtml, buildT0BacktestMetrics, buildT0BacktestDaysHtml, buildCrossSectionResult, renderScoreIcHtml } = q;
   const { researchGridHtml, metricCell } = q;
 
@@ -314,17 +305,6 @@ export function installBacktest(q) {
     return shown;
   }
 
-  function cachePromoteHintsFromBacktest(data) {
-    if (isReplayDesk()) return;
-    if (!data || !data.success) return;
-    const pack = buildPromoteHintsPack(data, {
-      hardGateAtCache: readPromoteHardGate(),
-    });
-    savePromoteHintsPack(pack);
-    renderPromoteHintsPanel(pack, "quant-promote-hints");
-    renderPromoteHintsPanel(pack, "strategy-promote-hints");
-  }
-
   function clearBtTradesTable() {
     state.btTradesTableApi = null;
     state.lastSimTrades = [];
@@ -406,7 +386,64 @@ export function installBacktest(q) {
       const enter = Number.isFinite(n) ? `${(n * 100).toFixed(1)}%` : "—";
       return `lb${lb} · w${wt}/${wn} · α${alpha} · 入场${enter} · ${cost}`;
     }
+    // 仅兼容旧日报冻结摘要（研究 Top-K 独立腿）
     return `K${p.top_k ?? "—"} · h${p.horizon_days ?? "—"} · ${cost}`;
+  }
+
+  function scoreToRankPct(score) {
+    const n = Number(score);
+    if (!Number.isFinite(n)) return "";
+    return (n * 100).toFixed(1);
+  }
+
+  function applyPortfolioBtParams(req) {
+    if (!req || typeof req !== "object") return;
+    const setVal = (id, val) => {
+      const el = document.getElementById(id);
+      if (!el || val == null || val === "") return;
+      el.value = String(val);
+    };
+    if (req.lookback != null) setVal("quant-lookback", req.lookback);
+    if (req.fusion_w_trade != null) setVal("quant-w-trade", req.fusion_w_trade);
+    if (req.fusion_w_nowcast != null) setVal("quant-w-nowcast", req.fusion_w_nowcast);
+    if (req.y_on_alpha != null) setVal("quant-on-alpha", req.y_on_alpha);
+    const enterPct = scoreToRankPct(req.rank_enter);
+    const strongPct = scoreToRankPct(req.rank_strong);
+    if (enterPct) setVal("quant-rank-enter", enterPct);
+    if (strongPct) setVal("quant-rank-strong", strongPct);
+  }
+
+  function markReplayRestored(at) {
+    const meta = document.getElementById("replay-meta");
+    if (meta) {
+      meta.textContent = `历史验证 · rank_lots（09:30）· 上次结果 ${at} · 刷新未重跑`;
+    }
+  }
+
+  async function restoreLastPortfolioBacktest() {
+    if (!isReplayDesk()) return;
+    if (state.btBusy) return;
+    try {
+      const res = await fetch("/api/quant/last-portfolio-backtest");
+      const pack = await res.json();
+      if (state.btBusy) return;
+      if (!pack || pack.empty || !pack.result || !pack.result.success) return;
+      const data = pack.result;
+      const at = formatSnapshotAt(pack.saved_at);
+      applyPortfolioBtParams(data.request || data.params);
+      renderPortfolioBacktestResult(data);
+      applyReplayOverviewKpis(data, { source: at ? `上次 ${at}` : "上次结果" });
+      paintPortfolioChart(
+        data.equity_curve,
+        "回测无足够交易点",
+        (data.benchmark && data.benchmark.ok && data.benchmark.equity_curve) || null,
+        (data.benchmark && data.benchmark.benchmark_label) || null,
+        data.ic_equity_align
+      );
+      markReplayRestored(at);
+    } catch (_) {
+      /* ignore */
+    }
   }
 
   async function loadLastBacktestSnapshot() {
@@ -735,104 +772,6 @@ export function installBacktest(q) {
     }
   }
 
-  function paramGridApplyGate() {
-    const best = state.lastParamGrid && state.lastParamGrid.best;
-    if (!best) {
-      return { ok: false, reason: "无过门格（OOS≥0 且回撤≤15%）" };
-    }
-    const warnBits = [];
-    if (best.oos_failed) {
-      warnBits.push("内外缺口旗标失败");
-    }
-    const bt = state.lastBacktestPack && state.lastBacktestPack.result;
-    const req = (bt && bt.request) || {};
-    const matched =
-      bt &&
-      bt.success &&
-      Number(req.lookback) === Number(best.lookback);
-    if (matched) {
-      const align = bt.ic_equity_align || {};
-      const hints = Array.isArray(bt.promote_hints) ? bt.promote_hints : [];
-      const alignWarn =
-        (align.ok && align.aligned_favor_pos_ic === false) ||
-        hints.some((h) => h && h.code === "ic_align_mismatch");
-      if (alignWarn && readPromoteHardGate()) {
-        return {
-          ok: false,
-          reason:
-            "IC硬闸已开：正IC窗未优于非正，禁止应用最优（可关闭硬闸后仅二次确认）",
-        };
-      }
-      if (alignWarn) warnBits.push("正IC窗未优于非正");
-    }
-    if (warnBits.length) {
-      return {
-        ok: true,
-        warn: true,
-        reason: `${warnBits.join("；")}。可写入 lookback，请再跑回测核对。仍勿 promote`,
-      };
-    }
-    return {
-      ok: true,
-      reason: "过门最优可写入 lookback；请再跑回测看完整报告。仍勿 promote",
-    };
-  }
-
-  function applyParamGridCellToForm(cell, opts = {}) {
-    if (!cell) return false;
-    const lb = document.getElementById("quant-lookback");
-    if (lb && cell.lookback != null) lb.value = String(cell.lookback);
-    const h =
-      opts.horizon_days != null
-        ? opts.horizon_days
-        : state.lastParamGrid && state.lastParamGrid.horizon_days;
-    if (h != null && typeof q.syncHorizonInputs === "function") {
-      q.syncHorizonInputs(h);
-      if (typeof q.setPrefsHorizonDays === "function") q.setPrefsHorizonDays(h);
-    } else if (h != null) {
-      document.querySelectorAll("#quant-horizon").forEach((el) => {
-        el.value = String(h);
-      });
-    }
-    return true;
-  }
-
-  function bindParamHeatClicks() {
-    const host = document.getElementById("param-grid-heat");
-    if (!host || host.dataset.boundClick === "1") return;
-    host.dataset.boundClick = "1";
-    const pick = (el) => {
-      if (!el) return;
-      const lb = Number(el.getAttribute("data-pg-lookback"));
-      const tk = Number(el.getAttribute("data-pg-top-k"));
-      const eligible = el.getAttribute("data-pg-eligible") === "1";
-      if (!Number.isFinite(lb) || !Number.isFinite(tk)) return;
-      if (!eligible) {
-        const ok = window.confirm(
-          `该格未过门（OOS<0 或回撤超）。仍把 lookback=${lb} 写入回测表单？`
-        );
-        if (!ok) return;
-      }
-      applyParamGridCellToForm({ lookback: lb });
-      const meta = document.getElementById("param-grid-meta");
-      if (meta) {
-        meta.textContent = `已写入 lookback=${lb}${
-          eligible ? "" : "（未过门）"
-        }；请再跑回测。仍勿 promote`;
-      }
-    };
-    host.addEventListener("click", (e) => {
-      pick(e.target && e.target.closest ? e.target.closest("[data-pg-lookback]") : null);
-    });
-    host.addEventListener("keydown", (e) => {
-      if (e.key !== "Enter" && e.key !== " ") return;
-      const el = e.target && e.target.closest ? e.target.closest("[data-pg-lookback]") : null;
-      if (!el) return;
-      e.preventDefault();
-      pick(el);
-    });
-  }
-
   function readUnitWeight(id, fallback) {
     const el = document.getElementById(id);
     let v = fallback;
@@ -922,38 +861,10 @@ export function installBacktest(q) {
       min_avg_amount_pctile: minAvgAmountPctile,
       benchmark_code: benchmarkCode,
       rank_mode: rankMode,
-      engine: "paper_replay",
       y_on_alpha: readYOnAlpha(),
       ...readFusionWeights(),
       ...readRankThresholds(),
     };
-  }
-
-  function refreshParamGridApplyGate() {
-    const applyBestBtn = document.getElementById("quant-param-grid-apply-best");
-    const meta = document.getElementById("param-grid-meta");
-    if (!applyBestBtn) return;
-    const gate = paramGridApplyGate();
-    applyBestBtn.disabled = !gate.ok;
-    if (meta && state.lastParamGrid) {
-      const best = state.lastParamGrid.best;
-      const n = state.lastParamGrid.cell_count;
-      const elig = state.lastParamGrid.eligible_count;
-      if (!best) {
-        meta.textContent = `完成 ${n} 格 · 过门 ${elig ?? 0} · 不可应用：${gate.reason}`;
-      } else {
-        const oos = best.oos_return_pct != null ? `${best.oos_return_pct}%` : "—";
-        const base =
-          `过门最优 lookback=${best.lookback} · top_k=${best.top_k} · OOS ${oos} · ${n} 格 / 过门 ${elig ?? "—"}`;
-        if (!gate.ok) {
-          meta.textContent = `${base} · 不可应用：${gate.reason}`;
-        } else if (gate.warn) {
-          meta.textContent = `${base} · ⚠可应用但需确认：${gate.reason}`;
-        } else {
-          meta.textContent = `${base} · 可写入 lookback（请再跑回测；勿 promote）`;
-        }
-      }
-    }
   }
 
   function renderAttributionTables(attr) {
@@ -1108,30 +1019,6 @@ export function installBacktest(q) {
     renderNeutralCompareTableHtml(source, targetEl || els.quantNeutralCompareTable, opts);
   }
 
-  function renderParamGridResult(data) {
-    const meta = document.getElementById("param-grid-meta");
-    const table = document.getElementById("param-grid-table");
-    if (!data || !data.success) {
-      if (meta) meta.textContent = (data && data.error) || "网格失败";
-      return;
-    }
-    state.lastParamGrid = data;
-    const dull = paramGridDullness(data);
-    if (dull) data.dullness = dull;
-    if (meta) meta.textContent = buildParamGridMetaText(data, dull);
-    drawParamHeatmap(data.cells || [], data.axes || {}, { best: data.best });
-    bindParamHeatClicks();
-    refreshParamGridApplyGate();
-    if (!table) return;
-    table.innerHTML = buildParamGridTableHtml(data, {
-      researchGridHtml,
-      metricCell,
-      fmtPct,
-      metricClass,
-      escapeHtml,
-    });
-  }
-
   function renderPortfolioBacktestResult(data) {
     if (!data || !data.success) {
       applyReplayOverviewKpis(null);
@@ -1195,8 +1082,6 @@ export function installBacktest(q) {
       exported_at: new Date().toISOString(),
       result: data,
     };
-    cachePromoteHintsFromBacktest(data);
-    refreshParamGridApplyGate();
     const expBtn = document.getElementById("quant-backtest-report-export");
     if (expBtn) expBtn.disabled = false;
 
@@ -1394,252 +1279,6 @@ export function installBacktest(q) {
       );
   }
 
-  function isNetworkFetchError(err) {
-    const msg = String((err && err.message) || err || "");
-    const name = String((err && err.name) || "");
-    return (
-      name === "TypeError" ||
-      /failed to fetch|networkerror|load failed|network request failed/i.test(msg)
-    );
-  }
-
-  async function fetchRetry(url, init, { tries = 6, delayMs = 350 } = {}) {
-    let lastErr = null;
-    for (let i = 0; i < tries; i++) {
-      try {
-        return await fetch(url, init);
-      } catch (err) {
-        lastErr = err;
-        if (i < tries - 1) {
-          await new Promise((r) => setTimeout(r, delayMs * (i + 1)));
-        }
-      }
-    }
-    throw lastErr;
-  }
-
-  function setParamGridBusy(on, text) {
-    const prog = document.getElementById("param-grid-progress");
-    const progText = document.getElementById("param-grid-progress-text");
-    const btn = document.getElementById("quant-param-grid-run");
-    if (prog) {
-      prog.hidden = !on;
-      prog.classList.toggle("is-busy", !!on);
-    }
-    if (text && progText) progText.textContent = text;
-    if (btn) btn.disabled = !!on;
-  }
-
-  async function waitParamGridJob(jobId, startedAt) {
-    const started = startedAt || Date.now();
-    const fmtElapsed = () => {
-      const sec = Math.max(1, Math.round((Date.now() - started) / 1000));
-      return sec < 60
-        ? `${sec}s`
-        : `${Math.floor(sec / 60)}m${String(sec % 60).padStart(2, "0")}s`;
-    };
-    const softCapMs = 25 * 60 * 1000;
-    const absoluteCapMs = 90 * 60 * 1000;
-    const heartbeatFreshSec = 90;
-    let sawOwnJob = false;
-    let netFailStreak = 0;
-    while (Date.now() - started < absoluteCapMs) {
-      let res;
-      try {
-        res = await fetchRetry("/api/jobs/quant-param-grid?progress=1", undefined, {
-          tries: 3,
-          delayMs: 400,
-        });
-        netFailStreak = 0;
-      } catch (err) {
-        netFailStreak += 1;
-        setParamGridBusy(
-          true,
-          `网格扫描中… ${fmtElapsed()} · 服务短暂断开，重连中（${netFailStreak}）…`
-        );
-        await new Promise((r) => setTimeout(r, Math.min(4000, 500 * netFailStreak)));
-        continue;
-      }
-      if (!res.ok && res.status >= 500) {
-        await new Promise((r) => setTimeout(r, 400));
-        continue;
-      }
-      let payload = {};
-      try {
-        payload = await res.json();
-      } catch (err) {
-        if (isNetworkFetchError(err)) {
-          netFailStreak += 1;
-          await new Promise((r) => setTimeout(r, 500));
-          continue;
-        }
-        await new Promise((r) => setTimeout(r, 400));
-        continue;
-      }
-      const job = (payload && payload.job) || {};
-      const sameJob = !jobId || !job.id || job.id === jobId;
-      if (sameJob && job.id) sawOwnJob = true;
-      if (job.status === "idle" || !job.id) {
-        if (sawOwnJob || Date.now() - started > 2500) {
-          throw new Error("网格任务已中断（可能服务重启），请再点「跑网格」");
-        }
-        await new Promise((r) => setTimeout(r, 400));
-        continue;
-      }
-      if (!sameJob) {
-        throw new Error("网格任务已被其它任务覆盖，请重试");
-      }
-      if (job.status === "done") {
-        let fullJob = job;
-        try {
-          const fullRes = await fetchRetry("/api/jobs/quant-param-grid", undefined, {
-            tries: 4,
-            delayMs: 400,
-          });
-          const fullPayload = await fullRes.json();
-          fullJob = (fullPayload && fullPayload.job) || job;
-        } catch (_) {
-          fullJob = { ...job, result: (job && job.result) || {} };
-        }
-        return fullJob;
-      }
-      if (job.status === "failed") {
-        throw new Error(job.error || job.message || "网格任务失败");
-      }
-      const elapsed = Date.now() - started;
-      if (elapsed >= softCapMs) {
-        const ua = Number(job.updated_at);
-        const fresh =
-          Number.isFinite(ua) && Date.now() / 1000 - ua < heartbeatFreshSec;
-        if (!fresh) {
-          throw new Error("网格任务超时（无心跳进展）");
-        }
-      }
-      const pct = Number(job.pct) || 0;
-      const msg = job.message || "运行中…";
-      setParamGridBusy(
-        true,
-        `网格扫描中… ${fmtElapsed()} · ${msg}${
-          Number.isFinite(pct) && pct > 0 ? ` · ${Math.round(pct)}%` : ""
-        }`
-      );
-      await new Promise((r) => setTimeout(r, 400));
-    }
-    throw new Error("网格任务超时（超过 90 分钟）");
-  }
-
-  async function resumeParamGridJobIfAny() {
-    if (runParamGrid._inflight) return runParamGrid._inflight;
-    try {
-      const res = await fetch("/api/jobs/quant-param-grid?progress=1");
-      if (!res.ok) return null;
-      const payload = await res.json();
-      const job = (payload && payload.job) || {};
-      if (job.status === "running" && job.id) {
-        return runParamGrid({ resumeJobId: job.id });
-      }
-      if (
-        job.status === "done" &&
-        job.result &&
-        Array.isArray(job.result.cells) &&
-        job.result.align_paper
-      ) {
-        renderParamGridResult(job.result);
-      }
-    } catch (_) {
-      /* ignore */
-    }
-    return null;
-  }
-
-  async function runParamGrid(opts) {
-    if (runParamGrid._inflight) return runParamGrid._inflight;
-    runParamGrid._inflight = _runParamGridInner(opts).finally(() => {
-      runParamGrid._inflight = null;
-    });
-    return runParamGrid._inflight;
-  }
-
-  async function _runParamGridInner(opts) {
-    const resumeJobId = opts && opts.resumeJobId;
-    const started = Date.now();
-    const fmtElapsed = () => {
-      const sec = Math.max(1, Math.round((Date.now() - started) / 1000));
-      return sec < 60
-        ? `${sec}s`
-        : `${Math.floor(sec / 60)}m${String(sec % 60).padStart(2, "0")}s`;
-    };
-    setParamGridBusy(
-      true,
-      resumeJobId
-        ? `接上已在跑的网格… ${fmtElapsed()}`
-        : "扫 K∈{10,15,20}（对齐纸面持有期与 ŷ 门槛 · 不覆盖最近回测）…"
-    );
-    const tick = setInterval(() => {
-      const el = document.getElementById("param-grid-progress-text");
-      if (!el) return;
-      const cur = String(el.textContent || "");
-      if (/网格扫描中|接上已在跑|后台任务/.test(cur) && !/ · \d/.test(cur.split("…")[0] || "")) {
-        /* job poll overwrites with richer text; keep a fallback clock if still queued */
-      }
-      if (/排队|接上已在跑|后台任务/.test(cur) && !/m\d{2}s|\d+s ·/.test(cur)) {
-        el.textContent = cur.replace(/…(?:\s+\d.*)?$/, `… ${fmtElapsed()}`);
-      }
-    }, 1000);
-    try {
-      let jobId = resumeJobId || null;
-      if (!jobId) {
-        const {
-          lookback,
-          weight_mode,
-          rank_mode,
-          dropout_n,
-          exclude_st,
-          min_avg_amount_pctile,
-        } = readPortfolioBtParams();
-        await ensureScoringFloors();
-        const { ok, data, error } = await apiFetch("/api/quant/param-grid", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            top_k_values: [10, 15, 20],
-            lookback_values: [lookback],
-            apply_costs: true,
-            max_cells: 9,
-            weight_mode,
-            dropout_n,
-            exclude_st,
-            min_avg_amount_pctile,
-            rank_mode,
-            // 不传 horizon / ŷ：后端对齐纸面，避免页面 h=1、未水合 ŷ=1.0 污染格子
-          }),
-        });
-        if (!ok) throw new Error(error || (data && data.detail) || "网格失败");
-        if (data && data.background && data.job && data.job.id) {
-          jobId = data.job.id;
-          if (data.reused) {
-            setParamGridBusy(true, `已有网格在跑，接上进度… ${fmtElapsed()}`);
-          }
-        } else if (data && Array.isArray(data.cells)) {
-          renderParamGridResult(data);
-          return data;
-        } else {
-          throw new Error((data && data.error) || "网格未入队");
-        }
-      }
-      const fullJob = await waitParamGridJob(jobId, started);
-      const result = (fullJob && fullJob.result) || {};
-      if (!result.success && !Array.isArray(result.cells)) {
-        throw new Error(result.error || (fullJob && fullJob.error) || "网格失败");
-      }
-      renderParamGridResult(result);
-      return result;
-    } finally {
-      clearInterval(tick);
-      setParamGridBusy(false);
-    }
-  }
-
   async function runPortfolioBacktest() {
     const watchN = Object.keys(state.watchingNameByCode || {}).length;
     const started = Date.now();
@@ -1657,56 +1296,36 @@ export function installBacktest(q) {
       await ensureScoringFloors();
       const {
         lookback,
-        horizon_days,
-        weight_mode,
-        dropout_n,
         exclude_st,
         min_avg_amount_pctile,
         benchmark_code,
-        rank_mode,
-        engine,
         y_on_alpha,
         fusion_w_trade,
         fusion_w_nowcast,
         rank_enter,
         rank_strong,
       } = readPortfolioBtParams();
-      const engLabel = engine === "topk_research" ? "研究 Top-K" : "rank_lots";
       busyBase =
         watchN >= 40
-          ? `${engLabel}中（${
-              engine === "topk_research" ? "ŷ_EOD" : "y_fuse/y_on · 09:30"
-            } · 观察池约 ${watchN} 只 · lookback 越大越慢）…`
-          : `${engLabel}中（先读本地日线，缺的再补远端）…`;
+          ? `rank_lots 中（y_fuse/y_on · 09:30 · 观察池约 ${watchN} 只 · lookback 越大越慢）…`
+          : `rank_lots 中（先读本地日线，缺的再补远端）…`;
       refreshBusy();
       const payload = {
         lookback,
-        horizon_days,
-        ...portfolioBtScoreFloorPayload(rank_mode),
         apply_costs: true,
         fetch_fundamentals: false,
-        weight_mode,
-        dropout_n,
         exclude_st,
         min_avg_amount_pctile,
         benchmark_code,
-        rank_mode,
-        engine: engine || "paper_replay",
         y_on_alpha,
         fusion_w_trade,
         fusion_w_nowcast,
         rank_enter,
         rank_strong,
-        include_wf_slices: false,
-        include_cost_compare: false,
-        include_score_ic: false,
-        include_quantile: false,
         include_benchmark: true,
       };
       const ctrl = typeof AbortController !== "undefined" ? new AbortController() : null;
-      // 满池 × lookback120 × horizon1 可 >10min；留 20min 余量
-      const heavyRun =
-        watchN >= 40 || lookback >= 90 || horizon_days <= 1;
+      const heavyRun = watchN >= 40 || lookback >= 90;
       const abortMs = heavyRun ? 1200000 : 480000;
       const timer = ctrl ? setTimeout(() => ctrl.abort(), abortMs) : null;
       let res;
@@ -1722,7 +1341,7 @@ export function installBacktest(q) {
           err && (err.name === "AbortError" || /abort/i.test(String(err)))
         );
         const failMsg = aborted
-          ? `回测超时未返回（满池 + lookback 长 + horizon=1 时常见，需 10～20 分钟）。可试：lookback 60、horizon 3，或等分组任务跑完再点。`
+          ? `回测超时未返回（满池 + lookback 长时常见，需 10～20 分钟）。可试：lookback 60，或等分组任务跑完再点。`
           : String((err && err.message) || err || "回测请求失败");
         writePortfolioSummary(failMsg, { error: true });
         renderPortfolioBacktestResult(null);
@@ -1775,82 +1394,6 @@ export function installBacktest(q) {
     }
   }
 
-  async function runPortfolioNeutralCompare() {
-    setQuantBtBusy(true, "中性化对照回测中（可能需数秒）…");
-    try {
-      const {
-        lookback,
-        horizon_days,
-        weight_mode,
-        dropout_n,
-        exclude_st,
-        min_avg_amount_pctile,
-        benchmark_code,
-      } = readPortfolioBtParams();
-      const payload = {
-        lookback,
-        horizon_days,
-        ...portfolioBtScoreFloorPayload("predicted_score"),
-        apply_costs: true,
-        fetch_fundamentals: false,
-        weight_mode,
-        dropout_n,
-        exclude_st,
-        min_avg_amount_pctile,
-        benchmark_code,
-      };
-      const res = await fetch("/api/quant/portfolio-neutral-compare", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-      const data = await res.json();
-      if (!data.success) {
-        writePortfolioSummary(data.error || "对照失败", { error: true });
-        renderNeutralCompareTable(null);
-        renderPortfolioBacktestResult(null);
-        paintPortfolioChart([], "对照失败");
-        return data;
-      }
-      const nm = (data.neutralized && data.neutralized.metrics) || {};
-      const am = (data.absolute && data.absolute.metrics) || {};
-      const d = data.delta || {};
-      const bc = data.benchmark_compare || {};
-      const winner =
-        data.winner === "neutralized"
-          ? "中性化更优"
-          : data.winner === "absolute"
-            ? "未中性化ŷ更优"
-            : "接近";
-      const excessNote =
-        bc.ok && bc.delta_excess_pct != null
-          ? ` · Δ超额 ${Number(bc.delta_excess_pct) >= 0 ? "+" : ""}${bc.delta_excess_pct}%(${
-              bc.benchmark_label || "基准"
-            })`
-          : "";
-      writePortfolioSummary(
-        `${winner} · Δ累计 ${d.total_return_pct ?? "—"}% · 中性 ${nm.total_return_pct ?? "—"}% vs 绝对 ${am.total_return_pct ?? "—"}%` +
-          excessNote +
-          (data.fundamentals_count ? ` · 基本面 ${data.fundamentals_count} 只` : "")
-      );
-      state.neutralCompareSource = "live";
-      renderNeutralCompareTable(data, null, { frozen: false });
-      state.neutralCompareSource = "live";
-      renderBtScopeNote(BT_SCOPE_LIVE);
-      if (data.neutralized && data.neutralized.success) {
-        renderPortfolioBacktestResult({
-          ...data.neutralized,
-          loaded_stocks: data.loaded_stocks,
-          params: { ...(data.neutralized.params || {}), stock_count: (data.loaded_stocks || []).length },
-        });
-      }
-      await paintNeutralCompareChart(data);
-      return data;
-    } finally {
-      setQuantBtBusy(false);
-    }
-  }
-
   function setBtTradesCaption(text) {
     state.btTradesTableApi = null;
     state.lastSimTrades = [];
@@ -1861,6 +1404,7 @@ export function installBacktest(q) {
   }
 
   function setQuantBtBusy(busy, message) {
+    state.btBusy = !!busy;
     if (els.quantBtProgress) {
       els.quantBtProgress.hidden = !busy;
       els.quantBtProgress.classList.toggle("is-busy", !!busy);
@@ -1901,7 +1445,6 @@ export function installBacktest(q) {
 
   return {
     buildIcAlignMarkers,
-    cachePromoteHintsFromBacktest,
     clearBtTradesTable,
     downloadSimTradesCsv,
     fitReturnScoreModel,
@@ -1911,22 +1454,19 @@ export function installBacktest(q) {
     formatSnapshotAt,
     loadFitGapForBacktest,
     loadLastBacktestSnapshot,
+    restoreLastPortfolioBacktest,
     paintDualPortfolioChart,
     paintIcChart,
     paintNeutralCompareChart,
     paintPortfolioChart,
     paintQuantileChart,
-    applyParamGridCellToForm,
-    paramGridApplyGate,
     portfolioBtScoreFloorPayload,
     readPortfolioBtParams,
-    refreshParamGridApplyGate,
     renderAttributionTables,
     renderBtTradesTable,
     renderCostAssumptions,
     renderIcEquityAlign,
     renderNeutralCompareTable,
-    renderParamGridResult,
     renderPortfolioBacktestResult,
     renderQuantileTable,
     renderRegimeBuckets,
@@ -1935,10 +1475,7 @@ export function installBacktest(q) {
     renderT0BacktestResult,
     renderUniversePanel,
     renderWfSlices,
-    resumeParamGridJobIfAny,
-    runParamGrid,
     runPortfolioBacktest,
-    runPortfolioNeutralCompare,
     setBtTradesCaption,
     setQuantBtBusy,
   };

@@ -74,7 +74,6 @@ class TestBacktestEngine(unittest.TestCase):
     def test_strategy_registry(self):
         bars = _rising_bars(50)
         names = [s["name"] for s in list_strategies()]
-        self.assertIn("short", names)
         self.assertIn("short_conservative", names)
         conservative = run_strategy_backtest(
             bars, "short_conservative", min_history=10
@@ -116,7 +115,7 @@ class TestBacktestEngine(unittest.TestCase):
             )
         data = json.loads(raw)
         self.assertTrue(data["success"])
-        self.assertEqual(data["strategy"], "short")
+        self.assertEqual(data["strategy"], "short_conservative")
         self.assertEqual(len(data["results"]), 1)
         self.assertTrue(data["results"][0]["success"])
 

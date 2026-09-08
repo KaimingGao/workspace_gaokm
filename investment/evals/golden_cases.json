@@ -424,7 +424,7 @@
             "stock_codes": [
               "茅台"
             ],
-            "strategy": "short",
+            "strategy": "short_conservative",
             "lookback_days": 120,
             "horizon_days": 3,
             "min_score": 55
@@ -479,65 +479,6 @@
         "is_quant_question": true,
         "quant_task": "portfolio_backtest"
       },
-      "mock": {
-        "quotes": {
-          "600519": {
-            "success": true,
-            "stock_code": "600519",
-            "stock_name": "贵州茅台",
-            "market": "CN"
-          },
-          "600036": {
-            "success": true,
-            "stock_code": "600036",
-            "stock_name": "招商银行",
-            "market": "CN"
-          }
-        },
-        "daily_bars": "rising_45",
-        "resolve_market_code": [
-          "CN",
-          "600519"
-        ]
-      }
-    },
-    {
-      "id": "quant_portfolio_neutral_compare",
-      "question": "观察池组合中性化和绝对分回测差多少",
-      "intent": "量化研究",
-      "skills": [
-        {
-          "name": "quant",
-          "parameters": {
-            "task": "portfolio_neutral_compare",
-            "codes": [
-              "600519",
-              "600036"
-            ],
-            "top_k": 2,
-            "lookback": 80,
-            "horizon_days": 3,
-            "min_score": 40
-          }
-        }
-      ],
-      "required_paths": [
-        "success",
-        "winner",
-        "delta",
-        "neutralized",
-        "absolute"
-      ],
-      "routing_expect": {
-        "is_quant_question": true,
-        "quant_task": "portfolio_neutral_compare"
-      },
-      "agent_must_contain": [
-        "中性化",
-        "绝对分",
-        "不保证收益",
-        "不代客下单"
-      ],
       "mock": {
         "quotes": {
           "600519": {
@@ -769,8 +710,6 @@
         "success",
         "task",
         "interpretation",
-        "neutral_compare_summary.success",
-        "neutral_compare_summary.winner",
         "source"
       ],
       "routing_expect": {
@@ -778,8 +717,6 @@
         "quant_task": "interpret"
       },
       "agent_must_contain": [
-        "中性化",
-        "对照",
         "不保证收益",
         "不代客下单"
       ],

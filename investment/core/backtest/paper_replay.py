@@ -619,7 +619,7 @@ def _default_paper(
         "trades": [],
         "snapshots": [],
         "operation_log": [],
-        "strategy_id": "short",
+        "strategy_id": "short_conservative",
         "cost_model": cost_model,
         "rules": rules,
     }

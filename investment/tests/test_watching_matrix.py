@@ -334,7 +334,7 @@ class TestWatchingMatrixPreview(unittest.TestCase):
                     return out
 
                 sim.side_effect = _sim
-                out = svc.rebalance(matrix_mode=True, dry_run=False)
+                out = svc.rebalance(dry_run=False)
 
             self.assertTrue(out.get("ok"))
             self.assertFalse(out.get("dry_run"))

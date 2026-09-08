@@ -43,7 +43,9 @@ class TestP57QuantTaskCatalog(unittest.TestCase):
         cases = {
             "观察池横截面 Top10": "cross_section",
             "quant 包结构有哪些模块": "package_info",
-            "观察池组合中性化和绝对分回测差多少": "portfolio_neutral_compare",
+            "观察池组合 historically 如何": "portfolio_backtest",
+            "观察池组合中性化和绝对分回测差多少": "portfolio_backtest",
+            "量化日报中性化对照专节包含什么": "daily_summary",
             "量化日报 AI 解读": "interpret",
         }
         for question, task in cases.items():

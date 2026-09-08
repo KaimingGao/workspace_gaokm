@@ -18,21 +18,7 @@ class PaperRebalanceRequest(BaseModel):
         default=None,
         ge=1,
         le=80,
-        description="目标持仓只数；分池模式省略则按合并簿长度（上限 80）",
-    )
-    limit: int = Field(
-        default=40,
-        ge=1,
-        le=80,
-        description="横截面候选上限；分池模式对齐 max_names（≤80）",
-    )
-    cluster_mode: bool = Field(
-        default=False,
-        description="已停用：分池调仓不再支持；请用 matrix_mode",
-    )
-    matrix_mode: bool = Field(
-        default=True,
-        description="观察池实时算分 + rank_lots 预演/落账（默认且唯一调仓路径）",
+        description="目标持仓只数上限（rank_lots；省略则用策略 max_positions）",
     )
     dry_run: bool = Field(
         default=False,
@@ -44,7 +30,7 @@ class PaperRebalanceRequest(BaseModel):
     )
     strategy: Optional[str] = Field(
         default=None,
-        description="调仓策略 ID（short / short_conservative）；省略则沿用 paper.strategy_id",
+        description="调仓策略 ID（short_conservative）；省略则沿用 paper.strategy_id",
     )
 
 

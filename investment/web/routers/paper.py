@@ -316,9 +316,6 @@ def paper_rebalance(body: PaperRebalanceRequest) -> Dict[str, Any]:
         return json_safe(
             deps.paper.rebalance(
                 top_k=body.top_k,
-                limit=body.limit,
-                cluster_mode=bool(body.cluster_mode),
-                matrix_mode=bool(body.matrix_mode),
                 dry_run=bool(body.dry_run),
                 strategy=body.strategy,
                 offline_only=bool(body.offline_only),

@@ -713,9 +713,6 @@ class PaperTradesMixin:
         self,
         *,
         top_k: Optional[int] = None,
-        limit: Optional[int] = None,
-        cluster_mode: bool = False,
-        matrix_mode: bool = True,
         dry_run: bool = False,
         strategy: Optional[str] = None,
         offline_only: bool = True,
@@ -723,19 +720,7 @@ class PaperTradesMixin:
         if not os.path.isfile(self.path):
             raise FileNotFoundError("请先初始化纸面账户")
 
-        # 分池簿调仓已停用；唯一路径 = 观察池 + rank_lots
-        _ = matrix_mode  # API 兼容；非 cluster 一律 rank_lots
-        if cluster_mode:
-            return {
-                "success": False,
-                "ok": False,
-                "mode": "cluster_book",
-                "matrix_mode": False,
-                "cluster_mode": True,
-                "dry_run": bool(dry_run),
-                "error": "分池调仓已停用；请使用观察池 rank_lots（matrix_mode=true）",
-                "confirm_supported": False,
-            }
+        _ = strategy
 
         from core.paper.rebalance.watching_matrix import (
             simulate_watching_matrix_preview,
