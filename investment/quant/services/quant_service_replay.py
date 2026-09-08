@@ -1,4 +1,4 @@
-"""QuantService · ② 回溯（研究池 Top-K 回测 / 中性化对照）。"""
+"""QuantService · ② 回溯（历史回测默认 rank_lots / paper_replay）。"""
 
 
 import logging
@@ -177,7 +177,7 @@ class QuantReplayMixin:
         self,
         *,
         codes: Optional[List[str]] = None,
-        lookback: int = 120,
+        lookback: int = 30,
         top_k: int = 3,
         horizon_days: int = 3,
         min_score: float = 55.0,
@@ -201,20 +201,24 @@ class QuantReplayMixin:
         return_model_min_samples: int = 24,
         return_model_ridge_lambda: float = 0.0,
         persist_curve: bool = True,
-        engine: str = "topk_research",
+        engine: str = "paper_replay",
+        y_on_alpha: float = 0.0,
+        rank_enter: float = 0.01,
+        rank_strong: float = 0.02,
     ) -> Dict[str, Any]:
         from core.backtest_service import run_topk as backtest_topk_equal_weight
         from core.strategy import backtest_portfolio_defaults
         from quant.research.portfolio_data import load_portfolio_stock_bars
 
-        engine_s = str(engine or "topk_research").strip().lower()
+        engine_s = str(engine or "paper_replay").strip().lower()
         if engine_s not in ("topk_research", "paper_replay", "topk"):
-            engine_s = "topk_research"
+            engine_s = "paper_replay"
         if engine_s == "topk":
             engine_s = "topk_research"
 
         bt_def = backtest_portfolio_defaults()
         top_k = int(top_k if top_k is not None else bt_def["top_k"])
+        max_positions = max(1, int(bt_def.get("max_positions") or 20))
         weight_mode = str(weight_mode or bt_def["weight_mode"])
         max_position_pct = float(
             max_position_pct
@@ -272,32 +276,65 @@ class QuantReplayMixin:
 
         if engine_s == "paper_replay":
             from core.backtest.paper_replay import backtest_paper_replay
-            from core.paper.rebalance.cash_reserve import resolve_min_cash_pct
+            from core.paper.rebalance.rank_lots import (
+                DEFAULT_CASH_FLOOR,
+                DEFAULT_INITIAL_CASH,
+                DEFAULT_RANK_ENTER,
+                DEFAULT_RANK_STRONG,
+                coerce_rank_threshold,
+            )
 
+            universe_n = len(stock_bars)
+            try:
+                alpha = float(y_on_alpha)
+            except (TypeError, ValueError):
+                alpha = 0.0
+            if alpha != alpha:
+                alpha = 0.0
+            y_on_alpha = max(0.0, min(1.0, alpha))
+            enter = coerce_rank_threshold(rank_enter, DEFAULT_RANK_ENTER)
+            strong = coerce_rank_threshold(rank_strong, DEFAULT_RANK_STRONG)
+            enter = max(0.0, min(1.0, float(enter)))
+            strong = max(0.0, min(1.0, float(strong)))
+            if strong < enter:
+                strong = enter
             result = backtest_paper_replay(
                 stock_bars,
-                top_k=top_k,
-                min_predicted_score=min_predicted_score,
-                min_score=float(min_score) if min_score is not None else None,
-                min_cash_pct=resolve_min_cash_pct(None),
-                max_turnover_pct=40.0,
+                top_k=universe_n,
                 cost_model="simple_cn" if apply_costs else "zero",
-                yhat_horizon_days=int(horizon_days or 1),
-                stop_loss_pnl=-8.0,
-                force_trim_cooldown_days=1,
+                yhat_horizon_days=1,
+                initial_cash=DEFAULT_INITIAL_CASH,
+                cash_floor=DEFAULT_CASH_FLOOR,
+                y_on_alpha=y_on_alpha,
+                rank_enter=enter,
+                rank_strong=strong,
+                lookback=int(lookback),
             )
             result["loaded_stocks"] = list(stock_bars.keys())
             result["failures"] = failures
             result["request"] = {
                 "engine": "paper_replay",
                 "lookback": int(lookback),
-                "top_k": int(top_k),
-                "horizon_days": int(horizon_days),
+                "top_k": int(universe_n),
+                "max_positions": int(universe_n),
+                "paper_max_positions": int(max_positions),
+                "horizon_days": 1,
                 "apply_costs": bool(apply_costs),
+                "exclude_st": bool(exclude_st),
+                "min_avg_amount_pctile": min_avg_amount_pctile,
+                "benchmark_code": str(benchmark_code or "000300"),
                 "min_predicted_score": min_predicted_score,
+                "initial_cash": DEFAULT_INITIAL_CASH,
+                "cash_floor": DEFAULT_CASH_FLOOR,
+                "y_on_alpha": y_on_alpha,
+                "rank_enter": enter,
+                "rank_strong": strong,
                 "score_axis_note": (
-                    "引擎=paper_replay：纸面 T+1/换手/现金底仓回放；"
-                    "信号日收盘打分→次日开盘调仓"
+                    "引擎=paper_replay：每个交易日 09:30 rank_lots"
+                    "（初始 100 万 · 现金地板 50 万 · y_fuse/y_on · 1000/2000 股；"
+                    f"α={y_on_alpha:g}；入场={enter:g}；强={strong:g}；"
+                    f"宇宙=观察池 {universe_n} 只，开加不按纸面 max_positions={max_positions} 截断）；"
+                    "现金地板约束实际成交。"
                 ),
             }
             result["universe"] = {
@@ -307,8 +344,33 @@ class QuantReplayMixin:
                 "load_failures": failures,
                 "filters": filter_meta,
                 "filter_dropped": filter_dropped,
-                "note": "paper_replay 候选与 Top-K 同源；执行约束对齐纸面调仓。",
+                "note": "候选=全部观察池；开加不按纸面持仓上限截断（≠研究 Top-K 独立腿）。",
             }
+            if include_benchmark and result.get("success"):
+                try:
+                    from core.backtest.topk_benchmark import build_topk_benchmark_summary
+                    from core.research.bt_excess_attach import attach_benchmark_excess
+
+                    result["benchmark"] = build_topk_benchmark_summary(
+                        result,
+                        stock_bars,
+                        lookback=lookback,
+                        index_code=benchmark_code or "000300",
+                    )
+                    result = attach_benchmark_excess(
+                        result,
+                        stock_bars,
+                        index_code=benchmark_code or "sh000300",
+                        lookback=lookback,
+                    )
+                except Exception as e:
+                    logger.exception(
+                        "unexpected error attaching paper_replay benchmark"
+                    )
+                    result["benchmark"] = {"ok": False, "reason": str(e)}
+            if isinstance(result, dict):
+                # 账本已在 trades / sim_trades；去掉嵌套 paper 减小下发体积
+                result.pop("paper", None)
             return result
 
         common_kw = dict(
@@ -677,7 +739,7 @@ class QuantReplayMixin:
         """top_k × lookback 网格：不落盘北极星；跳过 IC/分层/基准/WF；按 OOS 过门选优。"""
         top_ks = [int(x) for x in (top_k_values or [10, 15, 20]) if 1 <= int(x) <= 40]
         lookbacks = [
-            int(x) for x in (lookback_values or [120]) if 40 <= int(x) <= 500
+            int(x) for x in (lookback_values or [120]) if 30 <= int(x) <= 500
         ]
         if not top_ks:
             top_ks = [20]
@@ -1018,7 +1080,7 @@ class QuantReplayMixin:
 
         top_ks = [int(x) for x in (kwargs.get("top_k_values") or [10, 15, 20]) if 1 <= int(x) <= 40]
         lookbacks = [
-            int(x) for x in (kwargs.get("lookback_values") or [120]) if 40 <= int(x) <= 500
+            int(x) for x in (kwargs.get("lookback_values") or [120]) if 30 <= int(x) <= 500
         ]
         if not top_ks:
             top_ks = [20]

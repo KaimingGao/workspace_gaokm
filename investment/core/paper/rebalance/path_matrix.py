@@ -1,11 +1,10 @@
-"""早盘调仓决策矩阵（L1 路径择时）与线性对照（L0）。
+"""早盘调仓配置（rank_lots）与遗留 λ 矩阵。
 
-目标层与执行层分离：
-  - 目标：y_fuse = 加权(y_trade, y_nowcast) 排序 Top-K / 定 w*
-  - 过滤：开加仓要求 y_path、y_on 与方向同号；|y_path| 定 λ
-  - 隔夜：y_on 另定收盘可留仓折扣 w*_close
+生产 Follow / 历史回测走 ``rank_lots``：本模块提供
+``rank_enter`` / ``rank_strong`` / ``cash_floor`` / 融合权重 / ``y_on_alpha``，以及 ``scores_from_rebalance_item``。
 
-默认 ``enabled=True``：观察池预演/落账与买卖腿闸均走矩阵；仍可用配置显式关闭闸。
+``decide_*`` / ``buy_execution_gate`` / ``sell_execution_gate``（同号闸 + λ）
+仍给横截面 ``simulate_cross_section_rebalance`` 使用，不再驱动 Follow。
 """
 
 from __future__ import annotations
@@ -32,6 +31,9 @@ DEFAULT_PATH_MATRIX: Dict[str, Any] = {
     "mode": MODE_PATH,  # path | linear
     "buy_floor": None,  # None → 调用方传入 / 回退 0.01
     "hold_floor": None,
+    "rank_enter": 0.01,
+    "rank_strong": 0.02,
+    "cash_floor": 500_000.0,
     "path_enter": 0.1,  # |ŷ_path| 横盘门槛（%）
     "path_half": 0.5,  # ≥half → λ=0.5
     "path_full": 1.0,  # ≥full → λ=1.0
@@ -39,6 +41,7 @@ DEFAULT_PATH_MATRIX: Dict[str, Any] = {
     "y_on_half": 0.1,  # ≥half 且 <allow → 隔夜半仓
     "fusion_w_trade": 0.5,  # y_trade 权重
     "fusion_w_nowcast": 0.5,  # y_nowcast 权重
+    "y_on_alpha": 0.0,  # ranking 隔夜系数 0~10；0=不乘 y_on
     "sign_eps": 0.0,  # 同号判定；0=严格看符号
     "nowcast_sign_eps": 0.0,  # 兼容旧键，并入 sign_eps
     "require_nowcast_for_open": False,  # 废弃：开加不再单独卡 nc
@@ -90,6 +93,9 @@ def get_path_matrix_cfg(
     out["mode"] = MODE_LINEAR if mode in {"linear", "l0", "score_budget"} else MODE_PATH
     out["enabled"] = bool(out.get("enabled"))
     for key, default, lo, hi in (
+        ("rank_enter", 0.01, 0.0, 10.0),
+        ("rank_strong", 0.02, 0.0, 10.0),
+        ("cash_floor", 500_000.0, 0.0, 1.0e8),
         ("path_enter", 0.1, 0.01, 5.0),
         ("path_half", 0.5, 0.01, 5.0),
         ("path_full", 1.0, 0.01, 10.0),
@@ -97,6 +103,7 @@ def get_path_matrix_cfg(
         ("y_on_half", 0.1, -5.0, 5.0),
         ("fusion_w_trade", 0.5, 0.0, 1.0),
         ("fusion_w_nowcast", 0.5, 0.0, 1.0),
+        ("y_on_alpha", 0.0, 0.0, 10.0),
         ("sign_eps", 0.0, 0.0, 1.0),
         ("nowcast_sign_eps", 0.0, 0.0, 1.0),
         ("min_weight_eps", 1e-4, 0.0, 0.05),
@@ -105,6 +112,18 @@ def get_path_matrix_cfg(
             out[key] = max(lo, min(float(out.get(key, default)), hi))
         except (TypeError, ValueError):
             out[key] = float(default)
+    for rk in ("rank_enter", "rank_strong"):
+        v = float(out[rk])
+        if v >= 0.5:
+            if abs(v - 1.0) < 1e-9:
+                v = 0.01
+            elif abs(v - 1.002) < 1e-6:
+                v = 0.02
+            else:
+                v = max(0.0, v - 1.0)
+        elif abs(v - 0.20) < 1e-6:
+            v = 0.02
+        out[rk] = v
     # 旧 nowcast_sign_eps 并入 sign_eps（若未单独写 sign_eps）
     if abs(float(out.get("sign_eps") or 0.0)) < 1e-15 and float(
         out.get("nowcast_sign_eps") or 0.0
@@ -121,6 +140,8 @@ def get_path_matrix_cfg(
         out["path_half"] = float(out["path_enter"])
     if float(out["path_half"]) > float(out["path_full"]):
         out["path_full"] = float(out["path_half"])
+    if float(out["rank_strong"]) < float(out["rank_enter"]):
+        out["rank_strong"] = float(out["rank_enter"])
     out["require_nowcast_for_open"] = bool(out.get("require_nowcast_for_open", False))
     out["require_path_on_same_sign"] = bool(out.get("require_path_on_same_sign", True))
     out["allow_pending_exit_on_path_low"] = bool(

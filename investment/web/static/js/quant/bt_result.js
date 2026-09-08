@@ -32,7 +32,7 @@ function _kpiPct(v, { signed = true } = {}) {
 
 /**
  * 历史回测页概览 KPI（纯数据，无 DOM）。
- * 兼容完整 Top-K 结果（metrics+benchmark）与日报冻结摘要（顶层字段）。
+ * 兼容完整回测结果（metrics+benchmark）与摘要顶层字段。
  */
 export function buildReplayOverviewKpis(data, { source = "" } = {}) {
   const blank = (sub) => ({ value: "—", sub, empty: true, cls: "" });
@@ -56,7 +56,7 @@ export function buildReplayOverviewKpis(data, { source = "" } = {}) {
     data.alpha_beta_legs && typeof data.alpha_beta_legs === "object"
       ? data.alpha_beta_legs
       : {};
-  const src = source || (data.params ? "当次回测" : "日报冻结");
+  const src = source || (data.params ? "当次回测" : "回测");
   const retN = _kpiNum(ret);
   const exN = _kpiNum(excess);
   const ddN = _kpiNum(dd);
@@ -229,23 +229,32 @@ export function buildPortfolioBacktestSummaryText(data) {
       ? ` · 源不一致风险 ${sa.fallback_count}`
       : "";
   const matchNote = data.params?.execution_mode
-    ? ` · 成交 ${data.params.execution_mode === "next_open" ? "次日开" : "收盘"}`
+    ? ` · 成交 ${
+        data.params.execution_mode === "open_930"
+          ? "09:30开"
+          : data.params.execution_mode === "next_open"
+            ? "次日开"
+            : "收盘"
+      }`
     : "";
   const tauOff =
     data.params?.apply_tau_buy_gate === false ||
     data.request?.apply_tau_buy_gate === false ||
     data.request?.rank_key === "predicted_score_eod";
-  const scoreAxisNote = tauOff
-    ? " · 选股 ŷ_EOD·关τ闸"
-    : data.params?.apply_tau_buy_gate === true
-      ? " · 选股 ŷ_trade·τ闸开"
-      : " · 选股 ŷ_EOD·关τ闸";
   const eng =
-    data.params?.engine || data.request?.engine || data.engine || "topk_research";
+    data.params?.engine || data.request?.engine || data.engine || "paper_replay";
+  const scoreAxisNote =
+    eng === "paper_replay" || eng === "rank_lots"
+      ? ""
+      : tauOff
+        ? " · 选股 ŷ_EOD·关τ闸"
+        : data.params?.apply_tau_buy_gate === true
+          ? " · 选股 ŷ_trade·τ闸开"
+          : " · 选股 ŷ_EOD·关τ闸";
   const engNote =
-    eng === "paper_replay"
-      ? " · 引擎 纸面回放(可实现)"
-      : " · 引擎 研究Top-K";
+    eng === "topk_research"
+      ? " · 引擎 研究Top-K"
+      : " · 引擎 rank_lots";
   const dropN = Number(
     data.params?.dropped_thin_count || (data.dropped_stocks || []).length || 0
   );
@@ -267,6 +276,18 @@ export function buildPortfolioBacktestSummaryText(data) {
       ? ` · 分层单调↑ Q差${qb.q_high_minus_q_low_pct ?? "—"}%`
       : ` · 分层非单调 Q差${qb.q_high_minus_q_low_pct ?? "—"}%`
     : "";
+  const cashInit = Number(data.params?.initial_cash ?? data.request?.initial_cash);
+  const cashFloor = Number(data.params?.cash_floor ?? data.request?.cash_floor);
+  const cashNote =
+    Number.isFinite(cashInit) || Number.isFinite(cashFloor)
+      ? ` · 初始${
+          Number.isFinite(cashInit) ? `${Math.round(cashInit / 10000)}万` : "—"
+        }/地板${
+          Number.isFinite(cashFloor) ? `${Math.round(cashFloor / 10000)}万` : "—"
+        }`
+      : "";
+  const sess = String(data.params?.session_day || "").slice(0, 10);
+  const sessNote = /^\d{4}-\d{2}-\d{2}$/.test(sess) ? ` · 含当日 ${sess}` : "";
   const bench = data.benchmark || {};
   const benchNote =
     bench.ok && bench.excess_pct != null
@@ -276,9 +297,13 @@ export function buildPortfolioBacktestSummaryText(data) {
         (bench.ann_ir != null ? ` · IR ${bench.ann_ir}` : "")
       : "";
   const text =
-    `标的 ${(data.loaded_stocks || []).length} · 共同日 ${data.params?.common_dates} · 交易 ${m.trade_count} · 累计 ${m.total_return_pct}% · 胜率 ${m.win_rate_pct}% · 成本 ${
+    `标的 ${(data.loaded_stocks || []).length}` +
+    (data.request?.lookback != null || data.params?.lookback != null
+      ? ` · lookback ${data.request?.lookback ?? data.params?.lookback}`
+      : "") +
+    ` · 交易日 ${data.params?.trade_days ?? data.params?.common_dates ?? "—"} · 交易 ${m.trade_count} · 累计 ${m.total_return_pct}% · 胜率 ${m.win_rate_pct}% · 成本 ${
       costModel === "simple_cn" ? "A股简化" : costModel
-    }${data.params?.neutralize ? ` · 中性化 ${data.params?.neutralized_rebalances || 0} 次` : ""}${fundNote}${oosNote}${regimeNote}${dqNote}${costCmpNote}${wfNote}${attrNote}${pitNote}${auditNote}${matchNote}${scoreAxisNote}${engNote}${dropNote}${dropoutNote}${icNote}${qNote}${benchNote}`;
+    }${data.params?.neutralize ? ` · 中性化 ${data.params?.neutralized_rebalances || 0} 次` : ""}${fundNote}${oosNote}${regimeNote}${dqNote}${costCmpNote}${wfNote}${attrNote}${pitNote}${auditNote}${matchNote}${scoreAxisNote}${engNote}${cashNote}${dropNote}${dropoutNote}${icNote}${qNote}${benchNote}${sessNote}`;
   const qBad = qb.ok && qb.monotonic_increasing === false;
   return { text, warn: !!(oosFailed || qBad) };
 }
@@ -326,7 +351,7 @@ export function buildPortfolioBacktestCards(data, { escapeHtml: esc, fmtPct: fmt
     { label: "最大回撤", value: fmt(m.max_drawdown_pct), cls: mcls(-(Number(m.max_drawdown_pct) || 0)) },
     { label: "平均收益", value: fmt(m.avg_return_pct), cls: mcls(m.avg_return_pct) },
     { label: "Sharpe≈", value: esc(String(m.sharpe_approx ?? "—")) },
-    { label: "共同交易日", value: esc(String(params.common_dates ?? "—")) },
+    { label: "交易日", value: esc(String(params.trade_days ?? params.common_dates ?? "—")) },
     { label: "标的数", value: esc(String((data.loaded_stocks || []).length || params.stock_count || "—")) },
     {
       label: "排除短序列",

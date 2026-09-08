@@ -344,7 +344,26 @@ class TestPathMatrix(unittest.TestCase):
         pm = DEFAULT_REBALANCE_TIMING.get("path_matrix") or {}
         self.assertIn("enabled", pm)
         self.assertTrue(pm["enabled"])
-        self.assertEqual(pm.get("mode"), "path")
+        self.assertEqual(pm.get("mode"), "rank_lots")
+        self.assertIn("rank_enter", pm)
+        self.assertIn("cash_floor", pm)
+        self.assertEqual(pm.get("y_on_alpha"), 0.0)
+        self.assertAlmostEqual(float(pm.get("rank_enter")), 0.01)
+        self.assertAlmostEqual(float(pm.get("rank_strong")), 0.02)
+
+    def test_legacy_rank_thresholds_coerced_to_net(self):
+        cfg = self._cfg(rank_enter=1.01, rank_strong=1.02)
+        self.assertAlmostEqual(cfg["rank_enter"], 0.01)
+        self.assertAlmostEqual(cfg["rank_strong"], 0.02)
+        cfg0 = self._cfg(rank_enter=0.01, rank_strong=0.20)
+        self.assertAlmostEqual(cfg0["rank_enter"], 0.01)
+        self.assertAlmostEqual(cfg0["rank_strong"], 0.02)
+
+    def test_y_on_alpha_clamped(self):
+        cfg = self._cfg(y_on_alpha=99)
+        self.assertEqual(cfg["y_on_alpha"], 10.0)
+        cfg0 = self._cfg(y_on_alpha=-1)
+        self.assertEqual(cfg0["y_on_alpha"], 0.0)
 
 
 if __name__ == "__main__":

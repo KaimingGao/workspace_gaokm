@@ -145,12 +145,12 @@ def quant_factor_ols_clusters_last_report() -> Dict[str, Any]:
 
 @router.post("/api/quant/cluster-paper-preview")
 def quant_cluster_paper_preview(body: ClusterPaperPreviewRequest) -> Dict[str, Any]:
-    """分池簿→纸面调仓已停用；请改用 Follow「预演调仓」（观察池 + path_matrix）。"""
+    """分池簿→纸面调仓已停用；请改用 Follow「预演调仓」（观察池 + rank_lots）。"""
     _ = body
     return {
         "success": False,
         "ok": False,
-        "error": "分池簿纸面调仓已停用；请到交易执行页用观察池 path_matrix 预演/确认",
+        "error": "分池簿纸面调仓已停用；请到交易执行页用观察池 rank_lots 预演/确认",
         "deprecated": True,
         "redirect": "/follow",
     }
@@ -195,7 +195,7 @@ def quant_cluster_live_status(
 
 @router.post("/api/quant/cluster-live/apply")
 def quant_cluster_live_apply(body: ClusterApplyShortcutRequest) -> Dict[str, Any]:
-    """一键：晋升 + 设 mode（默认 shadow）+ 刷新分池簿。"""
+    """一键：晋升 + 设 mode（默认 shadow）。分池簿已停用。"""
     try:
         return deps.quant.apply_cluster_live_shortcut(
             body.artifact,
@@ -257,7 +257,7 @@ def quant_cluster_live_refresh_book() -> Dict[str, Any]:
         "success": False,
         "ok": False,
         "deprecated": True,
-        "error": "分池簿已停用；调仓请用 /follow 观察池 path_matrix",
+        "error": "分池簿已停用；调仓请用 /follow 观察池 rank_lots",
         "signal_config_touched": False,
     }
 

@@ -245,29 +245,13 @@ def summarize_portfolio_backtest(
             rankings_from_topk_precomputed,
             summarize_paper_replay_for_daily,
         )
-        from core.strategy import backtest_portfolio_defaults
 
-        paper_defs = backtest_portfolio_defaults()
-        paper_rules_cash = 0.2
-        try:
-            from core.paper.rebalance.cash_reserve import resolve_min_cash_pct
-
-            paper_rules_cash = float(resolve_min_cash_pct(None))
-        except Exception:  # noqa: BLE001 — 缺省 20%
-            logger.debug("resolve_min_cash_pct for daily paper_replay failed", exc_info=True)
-        mto = paper_defs.get("max_turnover_pct")
-        if mto is None:
-            mto = 40.0
         yhat_ranks = rankings_from_topk_precomputed(
             precomputed_ranks, top_k=int(resolved["top_k"])
         )
         paper_replay_summary = summarize_paper_replay_for_daily(
             stock_bars,
             top_k=int(resolved["top_k"]),
-            min_cash_pct=paper_rules_cash,
-            max_turnover_pct=float(mto) if mto is not None else None,
-            min_predicted_score=resolved.get("min_predicted_score"),
-            yhat_horizon_days=int(resolved["yhat_horizon_days"]),
             lookback=int(lookback),
             rankings_by_date=yhat_ranks if yhat_ranks else None,
             rank_source="topk_precomputed" if yhat_ranks else "momentum_close",

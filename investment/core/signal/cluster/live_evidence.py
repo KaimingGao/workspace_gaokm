@@ -69,27 +69,20 @@ def build_cluster_enable_evidence(
         cluster_score_audit_sample,
         ensure_active_cluster_oos_gates,
         get_cluster_scoring_cfg,
-        load_active_cluster_book,
         load_active_cluster_weights,
     )
 
     cs = get_cluster_scoring_cfg()
     active = load_active_cluster_weights()
-    book_doc = load_active_cluster_book() or {}
-    book_rows = list(book_doc.get("book") or [])
-    meta = book_doc.get("meta") if isinstance(book_doc.get("meta"), dict) else {}
     h = health if isinstance(health, dict) else assess_cluster_live_health()
 
-    top_n = meta.get("top_n_per_group") or cs.get("top_n_per_group")
-    max_names = meta.get("max_names") or cs.get("max_names")
+    top_n = cs.get("top_n_per_group")
+    max_names = cs.get("max_names")
     from core.signal.score_display import json_safe_number
 
-    raw_min = meta.get("min_score")
-    min_score = json_safe_number(raw_min)
-    if min_score is None and raw_min is None and not meta.get("min_score_disabled"):
-        min_score = json_safe_number(cs.get("min_score"))
-    selection_mode = meta.get("mode") or "cluster_score_global_rank"
-    name_count = len(book_rows)
+    min_score = json_safe_number(cs.get("min_score"))
+    selection_mode = "cluster_score_global_rank"
+    name_count = 0
 
     # 缺 oos_gate 时补算并落盘，避免证据包长期「未知」
     try:
@@ -101,12 +94,6 @@ def build_cluster_enable_evidence(
 
     oos_summary = _summarize_cluster_oos((active or {}).get("clusters") or [])
 
-    # 换手估计：纸面持仓 vs 分池簿（只数，无报价）
-    book_codes = {
-        str(r.get("stock_code") or "").strip()
-        for r in book_rows
-        if r.get("stock_code")
-    }
     held_codes: set = set()
     try:
         from core.paper import load_paper
@@ -119,26 +106,24 @@ def build_cluster_enable_evidence(
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
         logger.debug("catch except Exception: in cluster_live_evidence.py", exc_info=True)
         held_codes = set()
-    would_sell = sorted(held_codes - book_codes)
-    would_buy = sorted(book_codes - held_codes)
     turnover_est = {
         "held_count": len(held_codes),
-        "book_count": len(book_codes),
-        "would_sell_count": len(would_sell),
-        "would_buy_count": len(would_buy),
-        "would_sell": would_sell[:12],
-        "would_buy": would_buy[:12],
-        "note": "相对当前纸面 vs 合并簿只数估计，非金额换手",
+        "book_count": 0,
+        "would_sell_count": 0,
+        "would_buy_count": 0,
+        "would_sell": [],
+        "would_buy": [],
+        "deprecated": True,
+        "note": "分池簿已停用；换手请看交易执行 rank_lots 预演",
     }
 
-    # 行业集中度简表（簿内）
     exposure_summary: Dict[str, Any] = {"sectors": [], "top_sector": None}
     try:
         from core.portfolio_optimize import _sector_for, load_sector_map
 
         smap = load_sector_map()
         sec_cnt: Dict[str, int] = {}
-        for c in book_codes:
+        for c in held_codes:
             sec = _sector_for(c, smap)
             sec_cnt[sec] = int(sec_cnt.get(sec) or 0) + 1
         total = sum(sec_cnt.values()) or 1
@@ -153,7 +138,7 @@ def build_cluster_enable_evidence(
         exposure_summary = {
             "sectors": sectors[:8],
             "top_sector": sectors[0] if sectors else None,
-            "note": "按簿内只数占比（非市值）",
+            "note": "按纸面持仓只数占比（非市值）",
         }
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
         logger.debug("catch except Exception: in cluster_live_evidence.py", exc_info=True)
@@ -198,8 +183,6 @@ def build_cluster_enable_evidence(
             # 兼容：全败且 max=1.0 时仍拦
             if max_fail_rate >= 1.0 - 1e-12:
                 blockers.append(f"组 OOS 全部失败（{fail_n}）")
-    if name_count <= 0:
-        warnings.append("分池簿为空 · 启用后请刷新簿再分池调仓")
 
     # Y1.1 / Y1.3：滚动 ŷ IC（仅启用门禁显式打开；状态 GET 默认跳过以免行情挂死）
     rolling_ic_pack: Dict[str, Any] = {"ok": False, "rolling_ic": None, "skipped": True}
@@ -209,7 +192,7 @@ def build_cluster_enable_evidence(
         try:
             from core.strategy_monitor import estimate_rolling_yhat_ic_for_codes
 
-            ic_codes = list(book_codes)[:6] or list(held_codes)[:6]
+            ic_codes = list(held_codes)[:6]
             if ic_codes:
                 rolling_ic_pack = estimate_rolling_yhat_ic_for_codes(ic_codes, limit=4)
         except Exception as exc:
@@ -237,7 +220,7 @@ def build_cluster_enable_evidence(
     try:
         from core.strategy_monitor import sector_coverage_report
 
-        sec_cov = sector_coverage_report(list(book_codes) or list(held_codes))
+        sec_cov = sector_coverage_report(list(held_codes))
         exposure_summary["sector_map_coverage"] = sec_cov.get("coverage")
         exposure_summary["sector_map"] = {
             "mapped": sec_cov.get("mapped"),
@@ -260,12 +243,12 @@ def build_cluster_enable_evidence(
         "task": "cluster_enable_evidence",
         "ok": gate_ok,
         "gate": {"ok": gate_ok, "blockers": blockers, "warnings": warnings},
-        "top_n_per_group": top_n,  # 兼容旧字段；建簿已改为全局排序
+        "top_n_per_group": top_n,  # 兼容旧字段；选股已改为全局排序
         "selection_mode": selection_mode,
         "min_score": min_score,
         "max_names": max_names,
         "name_count": name_count,
-        "book_codes": sorted(book_codes),
+        "book_codes": [],
         "cluster_version": (active or {}).get("version"),
         "mode": cs.get("mode") or "off",
         "oos_summary": oos_summary,
@@ -281,7 +264,7 @@ def build_cluster_enable_evidence(
             "fitted_as_of": h.get("fitted_as_of"),
             "sample_count_min": h.get("sample_count_min"),
         },
-        "note": "启用前证据包 · 健康门禁 + OOS/簿长/换手估计/行业简表/ŷ IC（组ŷ；无全局模型对照）",
+        "note": "启用前证据包 · 健康门禁 + OOS/行业简表/ŷ IC（组ŷ；无全局模型对照）",
     }
     if include_audit:
         out["score_audit_sample"] = {
@@ -300,10 +283,10 @@ def cluster_status_public(
     light: bool = False,
     run_auto_demote: bool = False,
 ) -> Dict[str, Any]:
-    """供 API/UI 的状态摘要（含落地下一步）。
+    """供 API/UI 的状态摘要（含下一步）。
 
     ``include_audit`` 默认关闭：系统主路径只有组 return_model，无全局ŷ对照。
-    ``light``：交易执行状态条等只读 mode/簿长，跳过证据包与自动降级（避免行情挂死）。
+    ``light``：交易执行状态条等只读 mode，跳过证据包与自动降级（避免行情挂死）。
     ``run_auto_demote``：默认关；GET 状态不做副作用。日更请走 ``prepare_cluster_for_daily``。
     """
     from core.paths import (
@@ -317,7 +300,6 @@ def cluster_status_public(
         assess_cluster_live_health,
         cluster_score_audit_sample,
         get_cluster_scoring_cfg,
-        load_active_cluster_book,
         load_active_cluster_weights,
         load_cluster_draft,
         maybe_auto_demote_stale,
@@ -350,37 +332,15 @@ def cluster_status_public(
             auto_demote = None
 
     active = load_active_cluster_weights()
-    # 状态/落地 UI 不拉滚动 IC；IC 门禁在 set_mode(active) / 日更路径算
+    # 状态 UI 不拉滚动 IC；IC 门禁在 set_mode(active) / 日更路径算
     health = assess_cluster_live_health(compute_ic=False)
     draft = load_cluster_draft()
-    book = load_active_cluster_book()
     import core.signal.cluster.live as cluster_live_mod
 
     paper_land = cluster_live_mod._paper_cluster_landed(active)
-    tau_shadow = None
-    try:
-        tau_shadow = cluster_live_mod.load_tau_shadow_cluster_book()
-    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in cluster_live_evidence.py", exc_info=True)
-        tau_shadow = None
-    nowcast_shadow = None
-    try:
-        nowcast_shadow = cluster_live_mod.load_nowcast_shadow_cluster_book()
-    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in cluster_live_evidence.py", exc_info=True)
-        nowcast_shadow = None
     mode = cs.get("mode") or "off"
     has_draft = bool(draft and draft.get("code_map"))
     has_active = bool(active)
-
-    book_meta = (book or {}).get("meta") if isinstance((book or {}).get("meta"), dict) else {}
-    book_min_score = json_safe_number(book_meta.get("min_score"))
-    book_rows = list((book or {}).get("book") or [])
-    book_codes = [
-        str(r.get("stock_code") or "").strip()
-        for r in book_rows
-        if isinstance(r, dict) and str(r.get("stock_code") or "").strip()
-    ]
 
     audit = None
     if include_audit and not light and mode in ("shadow", "active") and has_active:
@@ -474,43 +434,21 @@ def cluster_status_public(
             "holdings_assignment": (draft or {}).get("holdings_assignment"),
         },
         "book": {
-            "exists": bool(book),
+            "exists": False,
             "path": CLUSTER_BOOK_ACTIVE_PATH,
-            "updated_at": (book or {}).get("updated_at"),
-            "name_count": len(book_rows),
-            "codes": book_codes,
-            "selection_mode": book_meta.get("mode") or "cluster_score_global_rank",
-            "min_score": book_min_score,
-            "top_n_per_group": book_meta.get("top_n_per_group") or cs.get("top_n_per_group"),
-            "max_names": book_meta.get("max_names") or cs.get("max_names"),
+            "updated_at": None,
+            "name_count": 0,
+            "codes": [],
+            "selection_mode": "cluster_score_global_rank",
+            "min_score": json_safe_number(cs.get("min_score")),
+            "top_n_per_group": cs.get("top_n_per_group"),
+            "max_names": cs.get("max_names"),
         },
-        "tau_shadow_book": (
-            {
-                "exists": True,
-                "path": CLUSTER_BOOK_TAU_SHADOW_PATH,
-                "updated_at": (tau_shadow or {}).get("updated_at"),
-                "name_count": len((tau_shadow or {}).get("book") or []),
-                "meta": (tau_shadow or {}).get("meta") or {},
-                "vs_eod": ((tau_shadow or {}).get("meta") or {}).get("vs_eod_book"),
-            }
-            if tau_shadow
-            else {"exists": False, "path": CLUSTER_BOOK_TAU_SHADOW_PATH}
-        ),
-        "nowcast_shadow_book": (
-            {
-                "exists": True,
-                "path": CLUSTER_BOOK_NOWCAST_SHADOW_PATH,
-                "updated_at": (nowcast_shadow or {}).get("updated_at"),
-                "name_count": len((nowcast_shadow or {}).get("book") or []),
-                "meta": (nowcast_shadow or {}).get("meta") or {},
-                "vs_eod": ((nowcast_shadow or {}).get("meta") or {}).get("vs_eod_book"),
-                "nordhaus_revision_slope": ((nowcast_shadow or {}).get("meta") or {}).get(
-                    "nordhaus_revision_slope"
-                ),
-            }
-            if nowcast_shadow
-            else {"exists": False, "path": CLUSTER_BOOK_NOWCAST_SHADOW_PATH}
-        ),
+        "tau_shadow_book": {"exists": False, "path": CLUSTER_BOOK_TAU_SHADOW_PATH},
+        "nowcast_shadow_book": {
+            "exists": False,
+            "path": CLUSTER_BOOK_NOWCAST_SHADOW_PATH,
+        },
         "health": health,
         "landing": {
             "next_step": next_step,

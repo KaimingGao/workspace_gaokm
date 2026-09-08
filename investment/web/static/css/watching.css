@@ -3027,9 +3027,10 @@ body[data-page="watching"] .watching-watchlist-card .watching-react-grid {
   scroll-margin-top: 6.5rem;
 }
 
-/* 列多：窄屏允许横向滚；固定列宽由 grid-template 决定，勿再叠 min-width */
+/* 列多：整表（表头+表体）一起横滑；表体只竖滑，避免表头不动、右侧 ŷ 列被裁空 */
 body[data-page="watching"] .watching-watchlist-card .watching-react-grid {
-  overflow-x: auto;
+  overflow-x: visible;
+  min-width: max-content;
 }
 
 body[data-page="watching"] .watching-watchlist-card .watching-react-grid-body {

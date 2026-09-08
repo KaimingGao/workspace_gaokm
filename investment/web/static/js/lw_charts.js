@@ -87,6 +87,69 @@ const SHADOW_CSS = `
   color: var(--ink-3, #94a3b8);
   font: 500 13px Manrope, "PingFang SC", system-ui, sans-serif;
 }
+.lw-hover-tip {
+  position: absolute;
+  z-index: 8;
+  pointer-events: none;
+  min-width: 9.5rem;
+  max-width: 16rem;
+  padding: 6px 8px;
+  border-radius: 4px;
+  border: 1px solid var(--line, #e2e8f0);
+  background: color-mix(in srgb, var(--surface, #fff) 92%, transparent);
+  box-shadow: 0 6px 16px rgba(15, 23, 42, 0.12);
+  font: 500 11px/1.45 "IBM Plex Mono", Manrope, "PingFang SC", sans-serif;
+  color: var(--ink, #1e293b);
+  white-space: nowrap;
+}
+.lw-hover-tip[hidden] {
+  display: none !important;
+}
+.lw-hover-tip-date {
+  font-weight: 700;
+  color: var(--ink-2, #475569);
+  margin-bottom: 3px;
+}
+.lw-hover-tip-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+.lw-hover-tip-k {
+  color: var(--ink-3, #94a3b8);
+}
+.lw-hover-tip-v.is-up { color: #e11d48; }
+.lw-hover-tip-v.is-down { color: #059669; }
+.lw-hover-tip.has-legs {
+  max-width: 18.5rem;
+  white-space: normal;
+}
+.lw-hover-tip-legs {
+  margin-top: 4px;
+  padding-top: 4px;
+  border-top: 1px solid var(--line, #e2e8f0);
+}
+.lw-hover-tip-legs-h,
+.lw-hover-tip-leg {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 3.5rem 3.7rem;
+  gap: 6px;
+  align-items: baseline;
+}
+.lw-hover-tip-legs-h {
+  color: var(--ink-3, #94a3b8);
+  font-size: 10px;
+  margin-bottom: 2px;
+}
+.lw-hover-tip-leg-n {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.lw-hover-tip-leg.is-more {
+  color: var(--ink-3, #94a3b8);
+  margin-top: 2px;
+}
 `;
 
 function maColor(n) {
@@ -643,6 +706,261 @@ export async function renderDualLineChart(container, pointsA, pointsB, opts = {}
   container.__lwChart = chart;
   if (!disableZoom) attachWheelGuard(container, mount);
 
+  const ro =
+    typeof ResizeObserver !== "undefined"
+      ? new ResizeObserver(() => {
+          if (!container.__lwChart || !container.__lwMount) return;
+          const next = measureHost(container);
+          applyMountSize(container.__lwMount, next);
+          try {
+            container.__lwChart.applyOptions(next);
+          } catch (_) {
+            /* ignore */
+          }
+        })
+      : null;
+  if (ro) {
+    ro.observe(container);
+    container.__lwRo = ro;
+  }
+  return chart;
+}
+
+const BAR_UP = "#e11d48";
+const BAR_DOWN = "#059669";
+const BAR_FLAT = "#94a3b8";
+
+function navToDailyBars(pts) {
+  const byTime = new Map();
+  const bars = [];
+  for (let i = 0; i < pts.length; i++) {
+    const nav = Number(pts[i].value);
+    let ret = 0;
+    const prev = i > 0 ? Number(pts[i - 1].value) : NaN;
+    if (i > 0 && Number.isFinite(prev) && prev > 0 && Number.isFinite(nav)) {
+      ret = (nav / prev - 1) * 100;
+    }
+    const color = ret > 1e-12 ? BAR_UP : ret < -1e-12 ? BAR_DOWN : BAR_FLAT;
+    const row = { time: pts[i].time, value: ret, color, nav };
+    bars.push(row);
+    byTime.set(String(pts[i].time), row);
+  }
+  return { bars, byTime };
+}
+
+function fmtSignedPct(v) {
+  if (!Number.isFinite(v)) return "—";
+  return `${v > 0 ? "+" : ""}${v.toFixed(2)}%`;
+}
+
+function fmtNav(v) {
+  if (!Number.isFinite(v)) return "—";
+  return v.toFixed(2);
+}
+
+function retCls(v) {
+  if (!Number.isFinite(v) || Math.abs(v) < 1e-12) return "";
+  return v > 0 ? "is-up" : "is-down";
+}
+
+function escTip(s) {
+  return String(s ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function shortTipName(name, code) {
+  const s = String(name || code || "").trim() || String(code || "");
+  const chars = [...s];
+  return chars.length <= 6 ? s : `${chars.slice(0, 6).join("")}…`;
+}
+
+function lookupDayDetails(dayDetails, key) {
+  if (!dayDetails || !key) return null;
+  if (typeof dayDetails.get === "function") return dayDetails.get(key) || null;
+  return dayDetails[key] || null;
+}
+
+function renderDayLegRows(details) {
+  const legs = details && Array.isArray(details.legs) ? details.legs : [];
+  if (!legs.length) return "";
+  let html =
+    `<div class="lw-hover-tip-legs">` +
+    `<div class="lw-hover-tip-legs-h"><span>票</span><span>涨跌</span><span>贡献</span></div>`;
+  for (const g of legs) {
+    const ret = Number(g.ret_pct);
+    const contrib = Number(g.contrib_pct);
+    const label = shortTipName(g.stock_name, g.stock_code);
+    html +=
+      `<div class="lw-hover-tip-leg" title="${escTip(g.stock_name || g.stock_code || "")}">` +
+      `<span class="lw-hover-tip-leg-n">${escTip(label)}</span>` +
+      `<span class="lw-hover-tip-v ${retCls(ret)}">${fmtSignedPct(ret)}</span>` +
+      `<span class="lw-hover-tip-v ${retCls(contrib)}">${fmtSignedPct(contrib)}</span>` +
+      `</div>`;
+  }
+  const more = Number(details.n_more);
+  if (Number.isFinite(more) && more > 0) {
+    html += `<div class="lw-hover-tip-leg is-more">其余 ${more} 只</div>`;
+  }
+  html += `</div>`;
+  return html;
+}
+
+function attachHoverTip(container, chart, renderHtml) {
+  const wrap =
+    (container.__lwShadow || container.shadowRoot)?.querySelector(".lw-wrap") ||
+    container.__lwMount?.parentElement;
+  if (!wrap) return;
+  let tip = wrap.querySelector(".lw-hover-tip");
+  if (!tip) {
+    tip = document.createElement("div");
+    tip.className = "lw-hover-tip";
+    tip.hidden = true;
+    wrap.appendChild(tip);
+  }
+  chart.subscribeCrosshairMove((param) => {
+    if (!param || param.time == null || !param.point) {
+      tip.hidden = true;
+      return;
+    }
+    const html = renderHtml(param);
+    if (!html) {
+      tip.hidden = true;
+      return;
+    }
+    tip.innerHTML = html;
+    tip.classList.toggle("has-legs", html.includes("lw-hover-tip-legs"));
+    tip.hidden = false;
+    const w = wrap.clientWidth || 1;
+    const h = wrap.clientHeight || 1;
+    const tw = tip.offsetWidth || 140;
+    const th = tip.offsetHeight || 60;
+    let x = param.point.x + 12;
+    let y = param.point.y + 12;
+    if (x + tw > w - 6) x = Math.max(6, param.point.x - tw - 12);
+    if (y + th > h - 6) y = Math.max(6, param.point.y - th - 8);
+    tip.style.left = `${Math.round(x)}px`;
+    tip.style.top = `${Math.round(y)}px`;
+  });
+}
+
+function tipRow(k, v, cls) {
+  const vCls = cls ? ` lw-hover-tip-v ${cls}` : " lw-hover-tip-v";
+  return (
+    `<div class="lw-hover-tip-row"><span class="lw-hover-tip-k">${k}</span>` +
+    `<span class="${vCls}">${v}</span></div>`
+  );
+}
+
+/**
+ * NAV → daily-return histogram (A-share red-up / green-down) with hover values.
+ * pointsA/B: {time, value}[] 净值；悬浮显示日收益、净值与个股贡献。
+ * opts.dayDetails: Map|object date → { legs: [{stock_name, stock_code, ret_pct, contrib_pct}], n_more }
+ */
+export async function renderNavBarChart(container, pointsA, pointsB, opts = {}) {
+  if (!container) return null;
+  const a = normalizeSeriesPoints(
+    (pointsA || []).map((p) => ({
+      time: p.time ?? p.date ?? p.ts,
+      value: p.value ?? p.equity_nav ?? p.equity_norm ?? p.equity,
+    }))
+  );
+  const b = normalizeSeriesPoints(
+    (pointsB || []).map((p) => ({
+      time: p.time ?? p.date ?? p.ts,
+      value: p.value ?? p.equity_nav ?? p.equity_norm ?? p.equity,
+    }))
+  );
+  if (a.length < 1) {
+    showEmpty(container, opts.emptyText || "暂无日收益柱");
+    return null;
+  }
+
+  let LC;
+  try {
+    LC = await loadLightweightCharts();
+  } catch (_) {
+    showEmpty(container, "图表库加载失败");
+    return null;
+  }
+
+  disposeChart(container);
+  const mount = ensureIsolatedMount(container);
+  mount.replaceChildren();
+  const size = measureHost(container);
+  applyMountSize(mount, size);
+  const disableZoom = !!opts.disableZoom;
+  const chart = LC.createChart(mount, {
+    ...chartTheme(),
+    autoSize: false,
+    width: size.width,
+    height: size.height,
+    ...interactionOptions(disableZoom),
+    rightPriceScale: {
+      borderColor: cssVar("--line", "#e5e7eb"),
+      scaleMargins: { top: 0.12, bottom: 0.08 },
+    },
+  });
+
+  const { bars, byTime } = navToDailyBars(a);
+  const { byTime: benchByTime } = b.length ? navToDailyBars(b) : { byTime: new Map() };
+  const hist = chart.addHistogramSeries({
+    priceFormat: {
+      type: "custom",
+      minMove: 0.01,
+      formatter: (p) => fmtSignedPct(Number(p)),
+    },
+    priceLineVisible: false,
+    lastValueVisible: true,
+  });
+  hist.setData(bars.map((r) => ({ time: r.time, value: r.value, color: r.color })));
+  container.__lwSeries = hist;
+  try {
+    hist.createPriceLine({
+      price: 0,
+      color: "rgba(100, 116, 139, 0.45)",
+      lineWidth: 1,
+      lineStyle: 2,
+      axisLabelVisible: false,
+      title: "",
+    });
+  } catch (_) {
+    /* ignore */
+  }
+
+  const labelA = opts.labelA || "策略";
+  const labelB = opts.labelB || "基准";
+  syncLegend(container, [
+    { label: `${labelA} 日收益`, color: BAR_UP, series: hist },
+  ]);
+  try {
+    chart.timeScale().fitContent();
+  } catch (_) {
+    /* ignore */
+  }
+
+  attachHoverTip(container, chart, (param) => {
+    const t = param.time;
+    const key = typeof t === "object" ? `${t.year}-${String(t.month).padStart(2, "0")}-${String(t.day).padStart(2, "0")}` : String(t);
+    const row = byTime.get(key);
+    if (!row) return "";
+    const date = typeof t === "string" ? t : key;
+    const bench = benchByTime.get(key);
+    let html = `<div class="lw-hover-tip-date">${date}</div>`;
+    html += tipRow("日收益", fmtSignedPct(row.value), retCls(row.value));
+    html += tipRow("净值", fmtNav(row.nav), "");
+    if (bench) {
+      html += tipRow(`${labelB}日收益`, fmtSignedPct(bench.value), retCls(bench.value));
+      html += tipRow(`${labelB}净值`, fmtNav(bench.nav), "");
+    }
+    html += renderDayLegRows(lookupDayDetails(opts.dayDetails, key));
+    return html;
+  });
+
+  if (!disableZoom) attachWheelGuard(container, mount);
+  container.__lwChart = chart;
   const ro =
     typeof ResizeObserver !== "undefined"
       ? new ResizeObserver(() => {

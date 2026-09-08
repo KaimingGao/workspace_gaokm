@@ -35,18 +35,22 @@ export function colStyle(col) {
   }
   if (col.width != null) {
     const w = Number(col.width);
-    return `min-width:0;width:${w}px;`;
+    return `min-width:${w}px;width:${w}px;`;
   }
   return "min-width:0;";
 }
 
 /** 表头/表体共用同一套轨道，避免 flex + max-width 导致列错位 */
-export function gridTemplateColumns(columns) {
+export function gridTemplateColumns(columns, { shrink = false } = {}) {
   return (columns || [])
     .map((col) => {
       if (col.flex) {
         // flexMin：因子+徽章等需要更宽下限，避免被 overflow 裁切
-        const min = col.flexMin != null ? String(col.flexMin) : "6.5rem";
+        const min = shrink
+          ? "0"
+          : col.flexMin != null
+            ? String(col.flexMin)
+            : "6.5rem";
         const fr =
           col.flexFr != null && Number(col.flexFr) > 0
             ? Number(col.flexFr)
@@ -56,11 +60,15 @@ export function gridTemplateColumns(columns) {
       // widthPct 作相对权重（fr），并设 rem 下限，避免 % 轨在窄容器里塌成 0
       if (col.widthPct != null) {
         const w = Math.max(2, Number(col.widthPct) || 8);
-        const min = col.widthMin != null ? String(col.widthMin) : "3.1rem";
+        const min = shrink
+          ? "0"
+          : col.widthMin != null
+            ? String(col.widthMin)
+            : "3.1rem";
         return `minmax(${min}, ${w}fr)`;
       }
       if (col.width != null) return `${Number(col.width)}px`;
-      return "minmax(3.1rem, 1fr)";
+      return shrink ? "minmax(0, 1fr)" : "minmax(3.1rem, 1fr)";
     })
     .join(" ");
 }
@@ -133,8 +141,11 @@ export function mountVirtualTable(host, options = {}) {
   const bodyClass = options.bodyClass
     ? `watching-react-grid-body ${options.bodyClass}`
     : "watching-react-grid-body";
-  const gridCols = gridTemplateColumns(columns);
-  const rowTrackStyle = `display:grid;grid-template-columns:${gridCols};align-items:center;width:100%;`;
+  const fitHost = options.fit === "host";
+  const gridCols = gridTemplateColumns(columns, { shrink: fitHost });
+  const rowTrackStyle = fitHost
+    ? `display:grid;grid-template-columns:${gridCols};align-items:center;width:100%;min-width:0;box-sizing:border-box;`
+    : `display:grid;grid-template-columns:${gridCols};align-items:center;width:max-content;min-width:100%;box-sizing:border-box;`;
 
   host.innerHTML =
     `<div class="${escapeHtml(rootClass)}">` +

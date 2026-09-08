@@ -1314,7 +1314,7 @@ def refresh_cluster_book_daily(*, light: bool = False) -> Dict[str, Any]:
         "ok": False,
         "task": "cluster_daily_refresh",
         "deprecated": True,
-        "error": "分池簿已停用；调仓请用 /follow 观察池 path_matrix",
+        "error": "分池簿已停用；调仓请用 /follow 观察池 rank_lots",
         "signal_config_touched": False,
     }
 

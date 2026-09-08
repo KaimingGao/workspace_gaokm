@@ -5,7 +5,7 @@ import {
   resolveStockDisplayName,
 } from "./names.js";
 import { postClusterLive as postClusterLiveApi, formatClusterApiError } from "./cluster_api.js";
-import { clusterLandingHtml } from "./cluster_landing.js?v=p1224";
+import { clusterLandingHtml } from "./cluster_landing.js?v=p2042";
 import { PROBE_EMPTY_CLUSTER_FAILED, PROBE_EMPTY_NO_CLUSTER, PROBE_EMPTY_COMPARE_FAILED, probePickerTriggerHtml, probePickerIdentityHtml, summarizeProbeHeterogeneity, buildProbeReadySummaryHtml, buildProbeNotReadySummaryHtml, buildProbeSingletonSummaryHtml, buildProbeNotInClusterPlainText, buildProbeHeteroSummaryHtml, buildProbeMetaSingleton, buildProbeMetaNotInCluster, buildProbeMetaHetero, buildProbePickerMenuHtml, probeStatusBadge, openProbeFold } from "./probe_ui.js";
 import { createScoreTooltipController } from "../score_tooltip.js?v=p1734";
 import {
@@ -569,12 +569,11 @@ export function installClusterProbe(q) {
         const reason =
           (data && (data.error || data.detail)) ||
           (!res.ok ? `HTTP ${res.status}` : "");
-        host.innerHTML = `<p class="sub">落地状态不可用${
+        host.innerHTML = `<p class="sub">分组状态不可用${
           reason ? ` · ${escapeHtml(String(reason))}` : ""
         }</p>`;
         return;
       }
-      state.clusterBookCodes = [];
       const research =
         state.quantLastOlsClusters && state.quantLastOlsClusters.success
           ? state.quantLastOlsClusters
@@ -593,7 +592,7 @@ export function installClusterProbe(q) {
       const host = document.getElementById("quant-cluster-landing");
       if (host) {
         const msg = err && err.message ? String(err.message) : "";
-        host.innerHTML = `<p class="sub">落地状态加载失败${
+        host.innerHTML = `<p class="sub">分组状态加载失败${
           msg ? ` · ${escapeHtml(msg)}` : ""
         }</p>`;
       }
@@ -909,7 +908,7 @@ export function installClusterProbe(q) {
       return;
     }
     setQuantMeta("正在进入对照…晋升映射（跳过舆情）", { busy: true });
-    const body = { from_draft: true, mode: "shadow", note: "落地·对照" };
+    const body = { from_draft: true, mode: "shadow", note: "对照" };
     if (art && art.success && art.code_map) {
       body.artifact = art;
       body.from_draft = false;
@@ -929,16 +928,9 @@ export function installClusterProbe(q) {
       setQuantMeta(`对照未完成 · ${out.error}`, { error: true });
       return;
     }
-    const n =
-      (out.data.refresh &&
-        out.data.refresh.rank &&
-        out.data.refresh.rank.name_count) ||
-      0;
     const sec = Math.max(1, Math.round((Date.now() - started) / 1000));
     setQuantMeta(
-      `已进入对照（shadow）· ${sec}s` +
-        (n ? ` · 排序 ${n} 只` : "") +
-        ` · 启用前交易执行选股未切换`
+      `已进入对照（shadow）· ${sec}s · 启用前交易执行选股未切换`
     );
     refreshClusterLiveStatus();
   }
@@ -955,7 +947,6 @@ export function installClusterProbe(q) {
         const st = await stRes.json();
         const ev = (st && st.enable_evidence) || {};
         const oos = ev.oos_summary || {};
-        const turn = ev.turnover_est || {};
         const cov =
           ev.health && ev.health.coverage != null
             ? `${Math.round(Number(ev.health.coverage) * 100)}%`
@@ -964,9 +955,8 @@ export function installClusterProbe(q) {
           "启用组ŷ选股？",
           "",
           "证据摘要：",
-          `· 排序候选 ${ev.name_count ?? "—"} 只 · 上限 ${ev.max_names ?? "—"}`,
+          `· 上限 ${ev.max_names ?? "—"}`,
           `· OOS（heuristic 基线 vs ŷ）：通过 ${oos.pass_count ?? 0} · 失败 ${oos.fail_count ?? 0}`,
-          `· 相对当前纸面：约卖 ${turn.would_sell_count ?? 0} · 买 ${turn.would_buy_count ?? 0}`,
           `· 映射健康覆盖 ${cov}`,
           "",
           "启用后：",
@@ -976,7 +966,7 @@ export function installClusterProbe(q) {
         ].join("\n");
         if (ev.gate && ev.gate.ok === false) {
           setQuantMeta(
-            `启用受阻 · ${(ev.gate.blockers || []).join("；") || "证据包未通过，见落地卡"}`,
+            `启用受阻 · ${(ev.gate.blockers || []).join("；") || "证据包未通过，见分组摘要"}`,
             { error: true }
           );
           refreshClusterLiveStatus();

@@ -360,10 +360,9 @@ html[data-theme="dark"] .quant-page .quant-kpi-row {
 }
 
 html[data-theme="dark"] .quant-page .quant-cluster-status {
-  border-color: rgba(255, 255, 255, 0.08);
-  box-shadow:
-    0 1px 0 rgba(0, 0, 0, 0.25),
-    0 1px 2px rgba(0, 0, 0, 0.35);
+  border: none;
+  box-shadow: none;
+  background: transparent;
 }
 
 html[data-theme="dark"] .quant-page .yhat-mx {
@@ -387,15 +386,10 @@ html[data-theme="dark"] .quant-page .quant-fold {
     0 1px 2px rgba(0, 0, 0, 0.3);
 }
 
-html[data-theme="dark"] .quant-page .quant-cluster-landing-card {
-  border-color: rgba(255, 255, 255, 0.08);
-  background:
-    linear-gradient(180deg,
-      color-mix(in srgb, var(--ok) 5%, #1a1a1a) 0%,
-      #1a1a1a 55%);
-  box-shadow:
-    0 1px 0 rgba(0, 0, 0, 0.25),
-    0 1px 2px rgba(0, 0, 0, 0.35);
+html[data-theme="dark"] .quant-page .quant-cluster-status > .quant-cluster-landing > .quant-cluster-landing-card {
+  border: none;
+  background: transparent;
+  box-shadow: none;
 }
 
 /* Dark theme */
@@ -904,9 +898,9 @@ html[data-theme="dark"] .quant-pro-help-body {
   color: rgba(255, 255, 255, 0.68);
 }
 
-html[data-theme="dark"] .quant-page .quant-cluster-landing-card {
-  background: #181a1f;
-  border-color: rgba(255, 255, 255, 0.06);
+html[data-theme="dark"] .quant-page .quant-cluster-status > .quant-cluster-landing > .quant-cluster-landing-card {
+  background: transparent;
+  border: none;
   box-shadow: none;
 }
 

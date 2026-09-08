@@ -53,7 +53,7 @@ import {
   resolveT0BacktestScope,
   normalizeExecutionView,
   renderExecutionDiffHtml,
-} from "./paper/execution_ui.js?v=p1985";
+} from "./paper/execution_ui.js?v=p1986";
 import { buildPaperLogsView, buildPaperLogsCsv } from "./paper/logs_ui.js?v=p1658";
 import { downloadBlob } from "./shared.js";
 import {
@@ -61,11 +61,11 @@ import {
   renderPaperT0Preview as renderPaperT0PreviewUi,
   renderPaperT0WorkerTrades as renderPaperT0WorkerTradesUi,
   renderPaperT0WorkerDesk as renderPaperT0WorkerDeskUi,
-} from "./paper/t0_ui.js?v=p1985";
+} from "./paper/t0_ui.js?v=p1986";
 import { buildT0SummaryLine } from "./paper/t0_report.js?v=p1906";
-import { wireT0SkipTips } from "./paper/t0_viz.js?v=p1985";
-import { wireT0ProcessTips, wireT0DayDebugExpand } from "./paper/t0_table.js?v=p1985";
-import { wireHoldingsChgTips } from "./paper/holding_chg_tip.js?v=p1985";
+import { wireT0SkipTips } from "./paper/t0_viz.js?v=p1986";
+import { wireT0ProcessTips, wireT0DayDebugExpand } from "./paper/t0_table.js?v=p1986";
+import { wireHoldingsChgTips } from "./paper/holding_chg_tip.js?v=p1986";
 import { createHoldingsIslandController } from "./paper/holdings_island.js";
 import { createClusterRebalanceController } from "./paper/cluster_rebalance.js?v=p1704";
 import {
@@ -2534,7 +2534,7 @@ export function initPaper(ctx) {
       dismissRebalancePreview();
       e.preventDefault();
       try {
-        // 手动预演：观察池实时算分 + path_matrix（唯一调仓路径）
+        // 手动预演：观察池实时算分 + rank_lots（唯一调仓路径）
         await followClusterRef.runWatchingMatrixPreview();
       } catch (err) {
         setPaperMetaText(String(err.message || err));
@@ -2555,7 +2555,7 @@ export function initPaper(ctx) {
             if (
               !window.confirm(
                 [
-                  "确认按观察池 path_matrix 落账？",
+                  "确认按观察池 rank_lots 落账？",
                   "",
                   "将按预演清单改写 paper.json 持仓与现金。",
                   "确认时会重新算分与报价，清单可能与预演略有差异。",
@@ -2988,7 +2988,7 @@ export function initPaper(ctx) {
       try {
         const { res, data } = await postJson("/api/paper/execution", {
           ...body,
-          note: "follow path_matrix UI",
+          note: "follow rank_lots UI",
         });
         if (!res.ok || data.ok === false) {
           const err = data.detail || data.errors || data.error || "保存失败";
@@ -2998,7 +2998,7 @@ export function initPaper(ctx) {
           );
           return;
         }
-        setPathMatrixStatus(data.message || "已保存择时");
+        setPathMatrixStatus(data.message || "已保存规则");
         applyExecutionToUi(data.execution);
       } catch (err) {
         setPathMatrixStatus(

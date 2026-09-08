@@ -539,7 +539,7 @@ export function collectExecutionForm(root) {
   };
 }
 
-/** 同步 |y_path| λ 刻度文案、模式徽章与面板 viz 高亮。 */
+/** 同步融合权重文案与模式徽章。 */
 function syncPathMatrixViz(root) {
   if (!root) return;
   const num = (name, fallback) => {
@@ -548,28 +548,17 @@ function syncPathMatrixViz(root) {
     const n = Number(el.value);
     return Number.isFinite(n) ? n : fallback;
   };
-  const fmt = (v) => {
-    const n = Number(v);
-    if (!Number.isFinite(n)) return "—";
-    return `${Number.isInteger(n) ? n : Number(n.toFixed(2))}%`;
-  };
-  const enterEl = document.getElementById("pm-viz-enter");
-  const halfEl = document.getElementById("pm-viz-half");
-  const fullEl = document.getElementById("pm-viz-full");
-  if (enterEl) enterEl.textContent = fmt(num("pm_path_enter", 0.1));
-  if (halfEl) halfEl.textContent = fmt(num("pm_path_half", 0.5));
-  if (fullEl) fullEl.textContent = fmt(num("pm_path_full", 1));
   const badge = document.getElementById("paper-path-matrix-badge");
   if (badge) {
-    badge.textContent = "路径择时";
+    badge.textContent = "rank_lots";
     badge.classList.add("is-on");
     badge.classList.remove("is-linear");
   }
   const wt = num("pm_fusion_w_trade", 0.5);
   const wn = num("pm_fusion_w_nc", 0.5);
-  const wSum = Math.max(1e-9, Math.max(0, wt) + Math.max(0, wn));
-  const pt = Math.round((Math.max(0, wt) / wSum) * 100);
-  const pn = Math.max(0, 100 - pt);
+  const sum = wt + wn;
+  const pt = sum > 1e-12 ? Math.round((wt / sum) * 100) : 50;
+  const pn = 100 - pt;
   const fuseTrade = document.getElementById("pm-viz-fuse-trade");
   const fuseNc = document.getElementById("pm-viz-fuse-nc");
   const fuseRatio = document.getElementById("pm-viz-fuse-ratio");
@@ -584,18 +573,23 @@ function syncPathMatrixViz(root) {
     fuseNc.classList.toggle("is-dim", pn <= 0);
   }
   if (fuseRatio) fuseRatio.textContent = `${pt} : ${pn}`;
-  const gatesPanel = root.querySelector('.follow-path-matrix-panel[data-panel="gates"]');
-  if (gatesPanel) {
-    const poOn = !!root.querySelector('[name="pm_require_path_on"]')?.checked;
-    const exitOn = !!root.querySelector('[name="pm_pending_exit"]')?.checked;
-    const nc = gatesPanel.querySelector(".follow-path-matrix-viz-seg.is-nc");
-    const exit = gatesPanel.querySelector(".follow-path-matrix-viz-seg.is-exit");
-    if (nc) nc.classList.toggle("is-dim", !poOn);
-    if (exit) exit.classList.toggle("is-dim", !exitOn);
-  }
 }
 
-/** 从 execution.rebalance_timing.path_matrix 填调仓择时表单。 */
+/** 毛收益乘数 1.01/1.02、旧 0.20 → 净收益 0.01/0.02。 */
+function coerceRankThreshold(raw, fallback) {
+  if (raw == null || raw === "") return fallback;
+  const n = Number(raw);
+  if (!Number.isFinite(n)) return fallback;
+  if (n >= 0.5) {
+    if (Math.abs(n - 1) < 1e-9) return 0.01;
+    if (Math.abs(n - 1.002) < 1e-6) return 0.02;
+    return Math.max(0, n - 1);
+  }
+  if (Math.abs(n - 0.2) < 1e-6) return 0.02;
+  return n;
+}
+
+/** 从 execution.rebalance_timing.path_matrix 填调仓表单。 */
 export function fillPathMatrixForm(root, execution) {
   if (!root) return;
   const timing =
@@ -616,11 +610,10 @@ export function fillPathMatrixForm(root, execution) {
     if (val == null) return;
     el.value = String(val);
   };
-  set("pm_path_enter", pm.path_enter != null ? pm.path_enter : 0.1);
-  set("pm_path_half", pm.path_half != null ? pm.path_half : 0.5);
-  set("pm_path_full", pm.path_full != null ? pm.path_full : 1);
-  set("pm_y_on_allow", pm.y_on_allow != null ? pm.y_on_allow : 0.5);
-  set("pm_y_on_half", pm.y_on_half != null ? pm.y_on_half : 0.1);
+  set("pm_rank_enter", coerceRankThreshold(pm.rank_enter, 0.01));
+  set("pm_rank_strong", coerceRankThreshold(pm.rank_strong, 0.02));
+  set("pm_y_on_alpha", pm.y_on_alpha != null ? pm.y_on_alpha : 0);
+  set("pm_cash_floor", pm.cash_floor != null ? pm.cash_floor : 500000);
   set(
     "pm_fusion_w_trade",
     pm.fusion_w_trade != null ? pm.fusion_w_trade : 0.5
@@ -629,19 +622,6 @@ export function fillPathMatrixForm(root, execution) {
     "pm_fusion_w_nc",
     pm.fusion_w_nowcast != null ? pm.fusion_w_nowcast : 0.5
   );
-  // 同号闸：优先新键；仅当旧账只有 nc 闸且未写新键时回退
-  let pathOn = true;
-  if (pm.require_path_on_same_sign != null) {
-    pathOn = !!pm.require_path_on_same_sign;
-  } else if (
-    pm.require_nowcast_for_open != null &&
-    pm.fusion_w_trade == null &&
-    pm.fusion_w_nowcast == null
-  ) {
-    pathOn = !!pm.require_nowcast_for_open;
-  }
-  set("pm_require_path_on", pathOn);
-  set("pm_pending_exit", pm.allow_pending_exit_on_path_low !== false);
   syncPathMatrixViz(root);
   if (!root.dataset.pmVizBound) {
     root.dataset.pmVizBound = "1";
@@ -659,14 +639,11 @@ export function collectPathMatrixForm(root) {
     const n = Number(el.value);
     return Number.isFinite(n) ? n : fallback;
   };
-  const chk = (name, fallback = true) => {
-    const el = root.querySelector(`[name="${name}"]`);
-    return el ? !!el.checked : fallback;
-  };
-  const enter = Math.max(0.01, Math.min(num("pm_path_enter", 0.1), 5));
-  let half = Math.max(0.01, Math.min(num("pm_path_half", 0.5), 5));
-  let full = Math.max(0.01, Math.min(num("pm_path_full", 1), 10));
-  if (half > full) half = full;
+  let enter = Math.max(0, Math.min(coerceRankThreshold(num("pm_rank_enter", 0.01), 0.01), 10));
+  let strong = Math.max(0, Math.min(coerceRankThreshold(num("pm_rank_strong", 0.02), 0.02), 10));
+  if (strong < enter) strong = enter;
+  const yOnAlpha = Math.max(0, Math.min(num("pm_y_on_alpha", 0), 10));
+  const cashFloor = Math.max(0, Math.min(num("pm_cash_floor", 500000), 1e8));
   let wTrade = Math.max(0, Math.min(num("pm_fusion_w_trade", 0.5), 1));
   let wNc = Math.max(0, Math.min(num("pm_fusion_w_nc", 0.5), 1));
   const wSum = wTrade + wNc;
@@ -682,17 +659,13 @@ export function collectPathMatrixForm(root) {
     rebalance_timing: {
       path_matrix: {
         enabled: true,
-        mode: "path",
-        path_enter: enter,
-        path_half: half,
-        path_full: full,
-        y_on_allow: Math.max(0, Math.min(num("pm_y_on_allow", 0.5), 5)),
-        y_on_half: Math.max(-5, Math.min(num("pm_y_on_half", 0.1), 5)),
+        mode: "rank_lots",
+        rank_enter: enter,
+        rank_strong: strong,
+        y_on_alpha: Math.round(yOnAlpha * 1000) / 1000,
+        cash_floor: cashFloor,
         fusion_w_trade: Math.round(wTrade * 1000) / 1000,
         fusion_w_nowcast: Math.round(wNc * 1000) / 1000,
-        require_path_on_same_sign: chk("pm_require_path_on", true),
-        require_nowcast_for_open: false,
-        allow_pending_exit_on_path_low: chk("pm_pending_exit", true),
       },
     },
   };

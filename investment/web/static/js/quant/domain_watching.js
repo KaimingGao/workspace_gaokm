@@ -24,7 +24,7 @@ import {
   buildWatchingInsightsNativeFields,
   isOosFailedItem,
   oosFailedBadgeHtml,
-} from "./watching_insights_ui.js?v=p1457";
+} from "./watching_insights_ui.js?v=p2025";
 import {
   parseWatchingVolume,
   formatWatchingChg,
@@ -599,6 +599,43 @@ export function installWatching(q) {
     // 每批单独超时（对齐后端 batch≈90s）；勿用总时钟，否则 100 票 3 批必触发「摘要超时」
     const chunkTimeoutMs = 95000;
     const insightDeps = { fmtScore, scoreCls, parseWatchingVolume, watchingScoreDetail };
+    const readInsightsStore = () => {
+      try {
+        const raw = localStorage.getItem("watching_insights_cache");
+        if (!raw) return null;
+        const parsed = JSON.parse(raw);
+        if (!parsed || !parsed.timestamp) return null;
+        if (Date.now() - parsed.timestamp >= 4 * 3600 * 1000) return null;
+        return parsed;
+      } catch (_) {
+        return null;
+      }
+    };
+    const writeInsightsStore = (items, extra) => {
+      try {
+        const prev = readInsightsStore() || {};
+        const scoresByCode = { ...(prev.scoresByCode || {}) };
+        const itemsByCode = { ...(prev.itemsByCode || {}) };
+        for (const it of items || []) {
+          const code = String((it && (it.stock_code || it.code)) || "").trim();
+          if (!code) continue;
+          if (it && it.ok !== false) itemsByCode[code] = it;
+          const trade = resolveTradeScore(it);
+          if (trade != null && Math.abs(Number(trade)) <= 20) {
+            scoresByCode[code] = trade;
+          }
+        }
+        localStorage.setItem(
+          "watching_insights_cache",
+          JSON.stringify({
+            timestamp: Date.now(),
+            scoresByCode,
+            itemsByCode,
+            cacheStamp: (extra && extra.cacheStamp) || prev.cacheStamp || "",
+          })
+        );
+      } catch (_) {}
+    };
     setWatchingRefreshStatus("正在加载评分…", { busy: true, owner: "insights" });
     try {
       await prepareWatchingWarehouse({ force: false });
@@ -613,15 +650,21 @@ export function installWatching(q) {
       if (gen !== state.watchingInsightsGen) return;
       if (useGrid && !(state.watchingGrid && state.watchingGridReady)) return;
       const byCode = indexByWatchingCode(items);
+      // 超时/失败空壳 ok:false：不要把已有 ŷ 刷成「—」
+      const ready = {};
+      Object.keys(byCode).forEach((k) => {
+        const it = byCode[k];
+        if (it && it.ok !== false && (it.stock_code || it.code)) ready[k] = it;
+      });
       state.watchingInsightByCode = {
         ...(state.watchingInsightByCode || {}),
-        ...byCode,
+        ...ready,
       };
       if (useGrid && typeof state.watchingGrid.patchRows === "function") {
         const patches = {};
         codes.forEach((code) => {
-          const it = byCode[watchingCodeKey(code)];
-          if (!it || !it.stock_code) return;
+          const it = ready[watchingCodeKey(code)];
+          if (!it) return;
           const row = state.watchingGrid.getRow(code);
           if (!row) return;
           patches[code] = buildWatchingInsightsGridPatch(it, row, insightDeps);
@@ -630,8 +673,8 @@ export function installWatching(q) {
         sortWatchingTableRows();
       } else if (useGrid) {
         codes.forEach((code) => {
-          const it = byCode[watchingCodeKey(code)];
-          if (!it || !it.stock_code) return;
+          const it = ready[watchingCodeKey(code)];
+          if (!it) return;
           const row = state.watchingGrid.getRow(code);
           if (!row) return;
           row.update(buildWatchingInsightsGridPatch(it, row, insightDeps));
@@ -639,8 +682,8 @@ export function installWatching(q) {
         sortWatchingTableRows();
       } else {
         codes.forEach((code) => {
-          const it = byCode[watchingCodeKey(code)];
-          if (!it || !it.stock_code) return;
+          const it = ready[watchingCodeKey(code)];
+          if (!it) return;
           const tr = watchTable?.querySelector(
             `tr[data-code="${String(code).replace(/"/g, "")}"]`
           );
@@ -713,8 +756,26 @@ export function installWatching(q) {
       paintWatchingYhatHist();
     };
 
+    const cachedItems = [];
+    try {
+      const store = readInsightsStore();
+      const by = (store && store.itemsByCode) || {};
+      for (const code of codes) {
+        const it = by[String(code)] || by[watchingCodeKey(code)];
+        if (it && it.ok !== false) cachedItems.push(it);
+      }
+    } catch (_) {}
+    if (cachedItems.length) {
+      applyInsightItems(cachedItems);
+      setWatchingRefreshStatus(
+        `摘要缓存 ${cachedItems.length}/${codes.length} · 正在核对…`,
+        { busy: true, owner: "insights" }
+      );
+    }
+
     const items = [];
     let timedOut = false;
+    let cachedCount = 0;
     try {
       // P2：首批 20 只快速回填，后续批 40 只复用连接
       const FIRST_CHUNK = 20;
@@ -751,7 +812,9 @@ export function installWatching(q) {
         if (!res.ok) throw new Error(data.detail || res.statusText);
         const batch = data.items || [];
         items.push(...batch);
+        cachedCount += Number(data.cached_count) || 0;
         applyInsightItems(batch);
+        writeInsightsStore(batch, { cacheStamp: data.cache_stamp });
         i += curSize;
       }
       if (gen !== state.watchingInsightsGen) return;
@@ -767,25 +830,14 @@ export function installWatching(q) {
           owner: "insights",
         });
       } else {
-        setWatchingRefreshStatus(buildWatchingInsightsStatusText(okN, codes.length, items), {
+        setWatchingRefreshStatus(buildWatchingInsightsStatusText(okN, codes.length, items, {
+          cachedCount,
+        }), {
           ok: true,
           owner: "insights",
         });
       }
-      // 缓存到 localStorage（4h 有效），下次进页秒级显示
-      try {
-        const scoresByCode = {};
-        for (const it of items) {
-          const trade = resolveTradeScore(it);
-          if (it.stock_code && trade != null && Math.abs(Number(trade)) <= 20) {
-            scoresByCode[it.stock_code] = trade;
-          }
-        }
-        localStorage.setItem(
-          "watching_insights_cache",
-          JSON.stringify({ timestamp: Date.now(), scoresByCode })
-        );
-      } catch (_) {}
+      writeInsightsStore(items);
       paintWatchingYhatHist();
     } catch (err) {
       if (gen !== state.watchingInsightsGen) return;
@@ -1571,7 +1623,6 @@ export function installWatching(q) {
       paperCodes instanceof Map
         ? paperCodes
         : new Map(Array.from(paperCodes || []).map((c) => [String(c), null]));
-    state.clusterBookCodes = [];
     // 读取 localStorage 缓存的 insights（4h 内有效），用于初始化评分列
     let cachedScores = {};
     try {
@@ -1725,7 +1776,13 @@ export function installWatching(q) {
     for (const id of ["quant-watching-meta", "replay-pool-meta"]) {
       const el = document.getElementById(id);
       if (!el) continue;
-      el.textContent = msg;
+      let shown = msg;
+      if (id === "replay-pool-meta") {
+        const mPool = msg.match(/观察\s+(\d+)\s*只/);
+        if (mPool) shown = `观察池 ${mPool[1]} 只`;
+        else if (/尚未创建|未创建/.test(msg)) shown = "观察池：—";
+      }
+      el.textContent = shown;
       el.classList.toggle("is-busy", busy);
     }
     // 与卡头 meta 同步概览 KPI（嵌套模块若被缓存漏掉显式调用时仍能写上）

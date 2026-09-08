@@ -723,8 +723,8 @@ class PaperTradesMixin:
         if not os.path.isfile(self.path):
             raise FileNotFoundError("请先初始化纸面账户")
 
-        # 分池簿调仓已停用；唯一路径 = 观察池 + path_matrix
-        _ = matrix_mode  # API 兼容；非 cluster 一律矩阵
+        # 分池簿调仓已停用；唯一路径 = 观察池 + rank_lots
+        _ = matrix_mode  # API 兼容；非 cluster 一律 rank_lots
         if cluster_mode:
             return {
                 "success": False,
@@ -733,7 +733,7 @@ class PaperTradesMixin:
                 "matrix_mode": False,
                 "cluster_mode": True,
                 "dry_run": bool(dry_run),
-                "error": "分池调仓已停用；请使用观察池 path_matrix（matrix_mode=true）",
+                "error": "分池调仓已停用；请使用观察池 rank_lots（matrix_mode=true）",
                 "confirm_supported": False,
             }
 

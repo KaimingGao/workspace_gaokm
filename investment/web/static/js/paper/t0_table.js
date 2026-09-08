@@ -21,7 +21,7 @@ import {
 import {
   adaptiveSizingDayTip,
   yTauMapScoreTip,
-} from "./execution_ui.js?v=p1985";
+} from "./execution_ui.js?v=p1986";
 import { watchingScoreDetail } from "../quant/watching_render.js?v=p1734";
 
 const Y_COMPLEXITY_HAT_KEYS = [

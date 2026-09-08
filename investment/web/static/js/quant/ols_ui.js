@@ -566,7 +566,7 @@ export function createOlsUi(deps) {
     return (
       `<div class="quant-cluster-tables-head">` +
       `<span class="quant-cluster-tables-label">因子系数</span>` +
-      `<span class="sub">按经济族排序 · 族/来源见徽章</span>` +
+      `<span class="sub">${esc(String(clusters.length))} 组</span>` +
       `</div>` +
       __matrixGrid +
       __partsHtml
@@ -805,7 +805,7 @@ export function createOlsUi(deps) {
     return { html, rows };
   }
 
-  /** β 分组摘要区 HTML（不含落地卡异步内容） */
+  /** β 分组摘要区 HTML（live 映射异步注入 #quant-cluster-landing） */
   function buildOlsClustersSummaryHtml(data) {
     if (!data || !data.success) {
       console.warn(`[quant-summary] buildOlsClustersSummaryHtml: data 无效 · success=${data && data.success} · error=${data && data.error}`);
@@ -896,7 +896,7 @@ export function createOlsUi(deps) {
     if (data.cluster_method === "kmeans") methodBits.push("k-means");
     else if (data.cluster_linkage === "complete") methodBits.push("complete");
     else methodBits.push("平均连接");
-    if (data.target_k != null) methodBits.push(`目标k=${data.target_k}`);
+    if (data.target_k != null) methodBits.push(`k=${data.target_k}`);
     else if (data.n_clusters_auto) methodBits.push(`k=${nGroups}`);
     if (data.max_cluster_size != null) {
       methodBits.push(`单组≤${data.max_cluster_size}`);
@@ -906,80 +906,66 @@ export function createOlsUi(deps) {
     }
     if (data.beta_scale === "l2") methodBits.push("β 行L2");
     else if (data.beta_scale === "none") methodBits.push("β 原始");
-    else methodBits.push("β z-score");
     if (data.cluster_balance && data.cluster_balance.imbalanced) {
       methodBits.push("组规模偏斜");
     }
-    methodBits.push("不写 config");
     if (data.respect_regime) methodBits.push("regime对齐");
-    if (data.collinearity_policy && data.collinearity_policy !== "keep_all") {
+    if (
+      data.collinearity_policy &&
+      data.collinearity_policy !== "keep_all" &&
+      data.collinearity_policy !== "drop_redundant"
+    ) {
       methodBits.push(`共线=${data.collinearity_policy}`);
     }
     if (data.select_ridge) methodBits.push("选λ");
-    if (data.speed_note) methodBits.push("大宇宙加速");
-    if (data.daily_pit === false && data.pit_fundamentals !== false) {
-      methodBits.push("财务快照");
-    }
-    const la = data.label_alignment || {};
-    if (la.aligned) {
-      const ids = clusters
-        .map((c) => Number(c.cluster_id))
-        .filter((v) => Number.isFinite(v) && v >= 0);
-      const maxId = ids.length ? Math.max(...ids) : -1;
-      const sparse = maxId + 1 > clusters.length;
-      methodBits.push(
-        sparse
-          ? `标签对齐 live（G 号保留，可跳号如 G21）`
-          : `标签对齐 live`
-      );
-    }
     const flags = data.lookahead_flags || {};
     const fundMode = String(flags.fundamentals || "");
     const pitOn = data.pit_fundamentals !== false && flags.pit_fundamentals !== false;
     const pitSummary = flags.pit_summary || data.fundamentals_pit_summary || {};
     const pitCover =
       pitSummary.resolved_ok != null && pitSummary.sample_count != null
-        ? ` · 末日探针 ${pitSummary.resolved_ok}/${pitSummary.sample_count}`
+        ? `${pitSummary.resolved_ok}/${pitSummary.sample_count}`
         : "";
-    let pitBanner;
-    if (!pitOn || fundMode === "none") {
-      pitBanner = `<p class="quant-cluster-pit-flag is-warn">非 PIT · 勿当实盘证据 · ${esc(
-        String((flags.note || "").slice(0, 80))
-      )}</p>`;
-    } else if (fundMode === "pit_as_of_missing") {
-      pitBanner = `<p class="quant-cluster-pit-flag is-warn">PIT 已开 · 财务点缺失${esc(
-        pitCover
-      )} · ${esc(String((flags.note || "").slice(0, 60)))}</p>`;
-    } else {
-      pitBanner = `<p class="quant-cluster-pit-flag">PIT as_of · 财务=${esc(
-        fundMode || "pit_as_of"
-      )}${esc(pitCover)}</p>`;
-    }
+    const pitTip = String(flags.note || "");
     const ySpec = data.y_spec || {};
     const fp = data.sample_fingerprint || {};
-    const yLine =
-      ySpec.horizon_days != null
-        ? `<p class="quant-cluster-method"><span class="quant-cluster-method-k">y</span>` +
-          `<span class="quant-cluster-method-v">${esc(
-            `horizon=${ySpec.horizon_days} · ${
-              ySpec.include_cost ? "含成本" : "不含成本"
-            } · ${ySpec.formula || "fwd ret"}`
-          )}</span></p>`
-        : "";
     const fpWarn = fp.promote_ok === false;
-    const fpLine =
+    const methodTip = [
+      !pitOn || fundMode === "none"
+        ? "非 PIT"
+        : `PIT${pitCover ? ` ${pitCover}` : ""}`,
+      ySpec.horizon_days != null
+        ? `y h=${ySpec.horizon_days}${ySpec.include_cost ? " 含成本" : ""}`
+        : "",
       fp.n_obs != null
-        ? `<p class="quant-cluster-method${
-            fpWarn ? " is-warn" : ""
-          }"><span class="quant-cluster-method-k">样本</span>` +
-          `<span class="quant-cluster-method-v">${esc(
-            `n_obs=${fp.n_obs} · names=${fp.n_names ?? "—"}` +
-              (fp.date_span ? ` · ${fp.date_span}` : "") +
-              (fpWarn
-                ? ` · 不足不可 promote：${(fp.blockers || []).slice(0, 2).join("；")}`
-                : "")
-          )}</span></p>`
-        : "";
+        ? `样本 ${fp.n_obs}×${fp.n_names ?? "—"}票`
+        : "",
+      methodBits.join(" · "),
+    ]
+      .filter(Boolean)
+      .join(" · ");
+    const warnBits = [];
+    if (!pitOn || fundMode === "none") {
+      warnBits.push("非 PIT · 勿当实盘证据");
+    } else if (fundMode === "pit_as_of_missing") {
+      warnBits.push(
+        `PIT 财务点缺失${pitCover ? ` · 探针 ${pitCover}` : ""}`
+      );
+    }
+    if (fpWarn) {
+      warnBits.push(
+        `样本不足不可 promote${
+          (fp.blockers || []).length
+            ? `：${(fp.blockers || []).slice(0, 2).join("；")}`
+            : ""
+        }`
+      );
+    }
+    const warnHtml = warnBits.length
+      ? `<p class="quant-cluster-pit-flag is-warn" title="${esc(
+          pitTip
+        )}">${esc(warnBits.join(" · "))}</p>`
+      : "";
     // —— KPI Row：研究态势总览 ——
     // R²/同质/过门：质量色（绿好红弱）；ICIR/ΔOOS：符号收益色（红涨绿跌）
     function __kpiToneGood(v, thr) {
@@ -993,12 +979,31 @@ export function createOlsUi(deps) {
       if (n < 0) return "is-down";
       return "";
     }
-    function __kpiCell(label, value, tone, sub) {
+    function __kpiState(tone) {
+      if (tone === "is-good" || tone === "is-up") return { state: "strong", label: "强" };
+      if (tone === "is-bad" || tone === "is-down") return { state: "weak", label: "弱" };
+      return { state: "mid", label: "中" };
+    }
+    function __kpiMetric(label, value, extraCls) {
       return (
-        `<div class="quant-kpi-card${tone ? " " + tone : ""}">` +
-        `<span class="quant-kpi-label">${esc(label)}</span>` +
-        `<span class="quant-kpi-value">${esc(value)}</span>` +
-        (sub ? `<span class="quant-kpi-sub">${esc(sub)}</span>` : "") +
+        `<div class="quant-pro-factor-metric">` +
+        `<span class="quant-pro-factor-metric-label">${esc(label)}</span>` +
+        `<span class="quant-pro-factor-metric-value${
+          extraCls ? ` ${extraCls}` : ""
+        }">${esc(value)}</span>` +
+        `</div>`
+      );
+    }
+    function __kpiCard(name, desc, tone, metricsHtml) {
+      const st = __kpiState(tone);
+      return (
+        `<div class="quant-pro-factor-card" data-state="${esc(st.state)}">` +
+        `<div class="quant-pro-factor-card-head">` +
+        `<span class="quant-pro-factor-card-name">${esc(name)}</span>` +
+        `<span class="quant-pro-factor-card-state">${esc(st.label)}</span>` +
+        `</div>` +
+        `<div class="quant-pro-factor-card-desc">${esc(desc)}</div>` +
+        `<div class="quant-pro-factor-card-metrics">${metricsHtml}</div>` +
         `</div>`
       );
     }
@@ -1011,12 +1016,56 @@ export function createOlsUi(deps) {
           const deltaT = __kpiToneSigned(kpi.avg_delta);
           const tightT = __kpiToneGood(kpi.avg_tight, 0.6);
           const passT = __kpiToneGood(kpi.pass_rate, 0.5);
+          const g = String(kpi.total_k);
+          const signedCls = (t) =>
+            t === "is-up" ? "is-pos" : t === "is-down" ? "is-neg" : "";
+          const goodCls = (t) =>
+            t === "is-good" ? "is-accent" : t === "is-bad" ? "is-warn" : "";
+          const deltaTxt =
+            kpi.avg_delta == null
+              ? "—"
+              : `${kpi.avg_delta > 0 ? "+" : ""}${f2(kpi.avg_delta)}pp`;
           const cells =
-            __kpiCell("平均 R²", f2(kpi.avg_r2), r2T, "≥0.7 强") +
-            __kpiCell("ICIR", f2(kpi.avg_icir), icirT, "≥0.3 有效") +
-            __kpiCell("ΔOOS", kpi.avg_delta == null ? "—" : (kpi.avg_delta > 0 ? "+" : "") + f2(kpi.avg_delta) + "pp", deltaT, "ŷ − baseline") +
-            __kpiCell("同质度", fPct(kpi.avg_tight), tightT, "1−均距/cap") +
-            __kpiCell("OOS 过门", `${kpi.pass_count}/${kpi.scored}`, passT, kpi.skip ? `跳过 ${kpi.skip}` : "—");
+            __kpiCard(
+              "平均 R²",
+              "≥0.7 强",
+              r2T,
+              __kpiMetric("值", f2(kpi.avg_r2), goodCls(r2T)) +
+                __kpiMetric("门槛", "0.7") +
+                __kpiMetric("组", g)
+            ) +
+            __kpiCard(
+              "ICIR",
+              "≥0.3 有效",
+              icirT,
+              __kpiMetric("值", f2(kpi.avg_icir), signedCls(icirT)) +
+                __kpiMetric("门槛", "0.3") +
+                __kpiMetric("组", g)
+            ) +
+            __kpiCard(
+              "ΔOOS",
+              "ŷ − baseline",
+              deltaT,
+              __kpiMetric("值", deltaTxt, signedCls(deltaT)) +
+                __kpiMetric("基线", "ŷ") +
+                __kpiMetric("组", g)
+            ) +
+            __kpiCard(
+              "同质度",
+              "1−均距/cap",
+              tightT,
+              __kpiMetric("值", fPct(kpi.avg_tight), goodCls(tightT)) +
+                __kpiMetric("门槛", "60%") +
+                __kpiMetric("组", g)
+            ) +
+            __kpiCard(
+              "OOS 过门",
+              kpi.skip ? `跳过 ${kpi.skip}` : "组内闸门",
+              passT,
+              __kpiMetric("通过", String(kpi.pass_count)) +
+                __kpiMetric("评分", String(kpi.scored), goodCls(passT)) +
+                __kpiMetric("跳过", String(kpi.skip || 0))
+            );
           return (
             `<div class="quant-kpi-row" aria-label="研究态势 KPI">` +
             `<div class="quant-kpi-row-head">` +
@@ -1029,57 +1078,45 @@ export function createOlsUi(deps) {
         })()
       : "";
 
-    // —— 升级分组状态卡：Header 带 PIT 图标 + 方法细节默认折叠 ——
-    const statCardsHtml = [
-      { k: "组", v: nGroups, cls: "" },
-      { k: "观察", v: nWatchAll || nUni, cls: "" },
-      { k: "拟合", v: nFitted, cls: "" },
-      { k: "入组", v: nClustered, cls: "" },
-      data.singleton_outlier_count
-        ? { k: "单票离群", v: data.singleton_outlier_count, cls: "is-warn" }
-        : nOutlier
-          ? { k: "β离群", v: nOutlier, cls: "is-warn" }
-          : null,
-      nDataSkip
-        ? { k: "数据不足", v: nDataSkip, cls: "is-warn" }
-        : null,
-    ]
-      .filter(Boolean)
-      .map(
-        (it) =>
-          `<div class="quant-stat-card${it.cls ? " " + it.cls : ""}">` +
-          `<span class="quant-stat-value">${esc(String(it.v))}</span>` +
-          `<span class="quant-stat-key">${esc(it.k)}</span>` +
-          `</div>`
-      )
-      .join("");
-
-    const detailBitsHtml =
-      pitBanner +
-      yLine +
-      fpLine +
-      `<p class="quant-cluster-method">` +
-      `<span class="quant-cluster-method-k">方法</span>` +
-      `<span class="quant-cluster-method-v">${esc(methodBits.join(" · "))}</span>` +
-      `</p>`;
-
-    const metaLine =
-      `<div class="quant-cluster-status">` +
-      `<div class="quant-cluster-status-header">` +
-      `<div class="quant-cluster-status-brand">` +
-      `<span class="quant-cluster-status-mark"></span>` +
-      `<span class="quant-cluster-status-title">分组摘要</span>` +
-      `</div>` +
-      `<div class="quant-cluster-status-stats-cards">${statCardsHtml}</div>` +
-      `</div>` +
-      `<details class="quant-cluster-status-details"${kpi ? "" : " open"}>` +
-      `<summary class="quant-cluster-status-details-summary">` +
-      `<span class="quant-cluster-status-details-icon" aria-hidden="true"></span>` +
-      `<span>PIT · y 口径 · 样本 · 方法细节</span>` +
-      `</summary>` +
-      `<div class="quant-cluster-status-details-body">${detailBitsHtml}</div>` +
-      `</details>` +
-      `</div>`;
+    // —— 分组状态卡 ——
+    const nWatchShow = nWatchAll || nUni;
+    const statBits = [`${esc(String(nGroups))} 组`];
+    if (nWatchShow !== "—" && nWatchShow != null && nWatchShow !== "") {
+      statBits.push(`观察 ${esc(String(nWatchShow))}`);
+    }
+    if (
+      nClustered !== "—" &&
+      nClustered != null &&
+      String(nClustered) !== String(nWatchShow)
+    ) {
+      statBits.push(`入组 ${esc(String(nClustered))}`);
+    }
+    if (
+      nFitted !== "—" &&
+      nFitted != null &&
+      String(nFitted) !== String(nClustered)
+    ) {
+      statBits.push(`拟合 ${esc(String(nFitted))}`);
+    }
+    if (data.singleton_outlier_count) {
+      statBits.push(
+        `<span class="is-warn">单票离群 ${esc(
+          String(data.singleton_outlier_count)
+        )}</span>`
+      );
+    } else if (nOutlier) {
+      statBits.push(
+        `<span class="is-warn">β离群 ${esc(String(nOutlier))}</span>`
+      );
+    }
+    if (nDataSkip) {
+      statBits.push(
+        `<span class="is-warn">数据不足 ${esc(String(nDataSkip))}</span>`
+      );
+    }
+    const statLineHtml = `<span class="quant-cluster-status-inline">${statBits.join(
+      " · "
+    )}</span>`;
 
     const rosterNameByCode = clusterNameByCodeFromData(data);
     const outlierNote = outliers.length
@@ -1117,11 +1154,23 @@ export function createOlsUi(deps) {
     }
 
     const landingHost =
-      `<div class="quant-cluster-landing" id="quant-cluster-landing" aria-label="分组权落地">` +
-      `<p class="quant-fingerprint is-busy">加载落地状态…</p>` +
+      `<div class="quant-cluster-landing" id="quant-cluster-landing" aria-label="live 映射">` +
+      `<p class="quant-fingerprint is-busy">同步 live 映射…</p>` +
       `</div>`;
 
-    const __summaryHtml = `${kpiRowHtml}${metaLine}${outlierNote}${holdHtml}${landingHost}`;
+    const metaLine =
+      `<div class="quant-cluster-status">` +
+      `<div class="quant-cluster-status-header">` +
+      `<span class="quant-cluster-status-title" title="${esc(
+        methodTip
+      )}">分组摘要</span>` +
+      statLineHtml +
+      `</div>` +
+      landingHost +
+      warnHtml +
+      `</div>`;
+
+    const __summaryHtml = `${kpiRowHtml}${metaLine}${outlierNote}${holdHtml}`;
     return {
       ok: true,
       html: __summaryHtml,

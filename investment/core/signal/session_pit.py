@@ -44,6 +44,44 @@ def asof_session_final(asof: str, *, now: Optional[datetime] = None) -> bool:
     return (n.hour, n.minute) >= _SESSION_CLOSE
 
 
+def clock_dual_score_window(*, now: Optional[datetime] = None) -> str:
+    """无「今日报价日」时：交易日 09:30–15:05 → ``intraday``，否则 ``eod_next``。
+
+    必须看 **日历今天** 是否开市，不能用 ``resolve_session_date`` 回退到上周五，
+    否则周末白天会被误判成盘中。
+    """
+    n = shanghai_now(now)
+    t = (n.hour, n.minute)
+    in_hours = (9, 30) <= t < _SESSION_CLOSE
+    today = n.strftime("%Y-%m-%d")
+    trading_today = n.weekday() < 5
+    try:
+        from core.market.calendar import is_trading_day
+
+        trading_today = bool(is_trading_day(today))
+    except Exception:  # noqa: BLE001
+        logger.debug("trading-day check failed in clock_dual_score_window", exc_info=True)
+    if trading_today and in_hours:
+        return "intraday"
+    return "eod_next"
+
+
+def _is_latest_complete_offline_asof(asof: str, *, now: Optional[datetime] = None) -> bool:
+    """报价日是否等于「此刻仓里应有的最新完整日线」（盘中=昨收）。"""
+    day = str(asof or "")[:10]
+    if not day:
+        return False
+    try:
+        from core.market.calendar import expected_latest_daily_bar_date
+
+        expected = str(expected_latest_daily_bar_date(now=shanghai_now(now)) or "")[:10]
+    except Exception:  # noqa: BLE001
+        logger.debug("expected latest bar date failed", exc_info=True)
+        n = shanghai_now(now)
+        expected = (n - timedelta(days=1)).strftime("%Y-%m-%d")
+    return bool(expected) and day == expected
+
+
 def prepare_eod_bars(
     bars: Optional[Sequence[dict]],
     quote: Optional[dict] = None,
@@ -65,16 +103,27 @@ def prepare_eod_bars(
             stripped = True
     eod_as_of = str(eod[-1].get("date") or "")[:10] if eod else None
     quote_day = asof or None
-    rolled = bool(
-        final and eod_as_of and quote_day and str(eod_as_of)[:10] == str(quote_day)[:10]
-    )
+    # 昨收仓：末根已完成 ≠ 今日已收盘。若按 asof_final 直接 rolled，
+    # 次日盘中会一直 eod_next，数据中心 TRADE 假「单」。
+    # 更早的历史 asof 仍走「该会话已收盘 → eod_next」（回测/attach）。
+    if quote_day and _is_latest_complete_offline_asof(quote_day, now=now):
+        win = clock_dual_score_window(now=now)
+        rolled = win == "eod_next"
+    else:
+        rolled = bool(
+            final
+            and eod_as_of
+            and quote_day
+            and str(eod_as_of)[:10] == str(quote_day)[:10]
+        )
+        win = "eod_next" if rolled else "intraday"
     return eod, {
         "quote_as_of": quote_day,
         "eod_as_of": eod_as_of,
         "asof_final": final,
         "stripped_asof_bar": stripped,
         "rolled_to_next": rolled,
-        "dual_score_window": "eod_next" if rolled else "intraday",
+        "dual_score_window": win,
     }
 
 
@@ -91,31 +140,13 @@ def refresh_dual_score_window(
     否则读路径会一直剥离 τ、表列 TRADE 假「单」。
     有 quote/bars 时走 ``prepare_eod_bars``；否则仅用今日是否已收盘判断。
     """
-    win = "intraday"
     q = quote if isinstance(quote, dict) else None
     b = list(bars) if bars is not None else None
     if q is not None or b is not None:
         _eod, pit = prepare_eod_bars(b, q, now=now)
         win = str(pit.get("dual_score_window") or "intraday")
     else:
-        n = shanghai_now(now)
-        # 无行情上下文：仅在交易日盘中时段标 intraday；
-        # 开盘前 / 收盘后 / 周末一律 eod_next（勿把凌晨误判成盘中）。
-        t = (n.hour, n.minute)
-        in_session = (9, 30) <= t < _SESSION_CLOSE
-        trading = True
-        try:
-            from core.market.calendar import is_trading_day, resolve_session_date
-
-            sess = resolve_session_date(now=n)
-            trading = bool(sess and is_trading_day(sess))
-        except Exception:  # noqa: BLE001
-            logger.debug("trading-day check failed in refresh_dual_score_window", exc_info=True)
-            trading = n.weekday() < 5
-        if trading and in_session:
-            win = "intraday"
-        else:
-            win = "eod_next"
+        win = clock_dual_score_window(now=now)
     if isinstance(item, dict):
         item["dual_score_window"] = win
     return win

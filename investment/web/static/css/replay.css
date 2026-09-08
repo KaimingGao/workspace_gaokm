@@ -441,6 +441,46 @@ body[data-page="replay"] .replay-page > .dashboard-section.quant-section > .dash
   padding: 0 0 2px;
 }
 
+body[data-page="replay"] .replay-run-head {
+  align-items: center;
+}
+
+body[data-page="replay"] .replay-pool-meta {
+  margin: 0;
+  flex: 0 1 auto;
+  min-width: 0;
+  font-size: var(--r-fs-caption);
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-3);
+  line-height: 1.35;
+  white-space: nowrap;
+}
+
+body[data-page="replay"] .replay-run-toolbar {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px 10px;
+  margin-left: auto;
+  flex-wrap: wrap;
+}
+
+body[data-page="replay"] .replay-lookback-field {
+  flex-direction: row !important;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 0;
+  white-space: nowrap;
+}
+
+body[data-page="replay"] .replay-lookback-field #quant-lookback,
+body[data-page="replay"] .replay-on-alpha-field #quant-on-alpha,
+body[data-page="replay"] .replay-rank-field #quant-rank-enter,
+body[data-page="replay"] .replay-rank-field #quant-rank-strong {
+  width: 4.5rem;
+  min-width: 4.5rem;
+}
+
 body[data-page="replay"] .replay-page .dashboard-section-title {
   margin: 0;
   font-size: var(--r-fs-section);
@@ -541,9 +581,11 @@ body[data-page="replay"] .replay-params-inline > #quant-portfolio-run {
 
 body[data-page="replay"] .replay-rank-hint {
   align-self: center;
+  flex: 0 1 auto;
   font-size: var(--r-fs-caption);
   color: var(--ink-3);
   font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  white-space: nowrap;
 }
 
 body[data-page="replay"] .replay-page .quant-pro-field-label {
@@ -684,6 +726,60 @@ body[data-page="replay"] .replay-page .quant-chart-title {
   font-weight: 700;
   color: var(--ink-2);
   letter-spacing: 0.02em;
+}
+
+body[data-page="replay"] .replay-page .quant-chart-nav-btn {
+  appearance: none;
+  -webkit-appearance: none;
+  margin: 0 0 0 auto;
+  padding: 1px 8px;
+  border: 1px solid var(--line);
+  border-radius: 2px;
+  background: var(--surface);
+  color: var(--ink-2);
+  font: 650 0.68rem/1.4 inherit;
+  cursor: pointer;
+}
+
+body[data-page="replay"] .replay-page .quant-chart-nav-btn:hover {
+  color: var(--ink);
+  border-color: color-mix(in srgb, var(--accent, #1890ff) 40%, var(--line));
+}
+
+body[data-page="replay"] .replay-page .quant-bt-stock-chip {
+  margin: 0 0 6px;
+  font-size: var(--r-fs-micro, 0.68rem);
+  font-weight: 650;
+  letter-spacing: 0.02em;
+  color: var(--accent, #1890ff);
+}
+
+body[data-page="replay"] .replay-page .quant-bt-trades-host .watching-stock {
+  cursor: pointer;
+}
+
+body[data-page="replay"] .replay-page .bt-ledger-grid .watching-react-grid-row.is-head .watching-react-grid-cell {
+  font-size: var(--r-fs-micro, 0.68rem);
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+}
+
+body[data-page="replay"] .replay-page .bt-ledger-grid .watching-react-grid-cell.watching-col-y_fuse,
+body[data-page="replay"] .replay-page .bt-ledger-grid .watching-react-grid-cell.watching-col-y_on,
+body[data-page="replay"] .replay-page .bt-ledger-grid .watching-react-grid-cell.watching-col-ranking {
+  justify-content: flex-end;
+  align-items: flex-start;
+}
+
+body[data-page="replay"] .replay-page .quant-bt-trades-host .watching-react-grid-row.is-chart-active {
+  background: color-mix(in srgb, var(--accent, #1890ff) 12%, var(--surface));
+}
+
+body[data-page="replay"] .replay-page .quant-bt-trades-host .watching-react-grid-row.is-chart-active .watching-name-text {
+  color: var(--accent, #1890ff);
 }
 
 body[data-page="replay"] .replay-page .quant-chart-axis-hint {
@@ -832,6 +928,15 @@ body[data-page="replay"] .replay-page .quant-neutral-frozen > summary {
   body[data-page="replay"] .replay-params-inline > #quant-portfolio-run {
     margin-left: 0;
     width: 100%;
+  }
+
+  body[data-page="replay"] .replay-run-toolbar {
+    margin-left: 0;
+    width: 100%;
+  }
+
+  body[data-page="replay"] .replay-run-head .replay-rank-hint {
+    white-space: normal;
   }
 }
 

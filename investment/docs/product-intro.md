@@ -56,7 +56,7 @@
 paper_panel.html
 ├── 持仓表（holdings_ui.js）        — 实时持仓、ŷ、做T 标记、可操作列
 ├── 调仓执行（execution_ui.js）     — 目标权重输入、调仓报告预览与执行
-├── 调仓规则（rules_ui.js）         — 再平衡参数（λ、权重上限、冷却等）
+├── 调仓规则（rules_ui.js）         — rank入场 / rank强 / 现金地板
 ├── 做T 面板（t0_ui.js, t0_table.js, t0_viz.js）— 做T 参数、实时触发、盈亏汇总
 ├── 日志（logs_ui.js）              — 调仓 / 做T / 错误日志
 └── 北极星（north_star_ui.js）      — 组合层面目标与偏差监控
@@ -172,72 +172,63 @@ quant_panel.html
 
 > 详细数学推导见 [rebalance-logic.md](./rebalance-logic.md)。
 
-调仓系统基于 **目标权重偏差** 驱动再平衡，核心是将"买多少"从"现金×比例"改为"目标权重-实际权重"。
+调仓系统按 **y_fuse / y_on ranking** 以 100/200 股加减仓，现金不得低于地板。
 
 ### 4.1 核心概念
 
 | 概念 | 含义 |
 |------|------|
-| **目标权重 w\*** | 每只股票的目标持仓比例 |
-| **实际权重 w** | 当前持仓市值 / 组合总市值 |
-| **偏差 gap** | w\* − w，正偏差加仓，负偏差减仓 |
-| **缩放因子 λ** | gap × λ = 实际调整比例（0 < λ ≤ 1） |
-| **买单比例 bf** | 开仓/加仓的最小买入比例阈值 |
+| **y_fuse** | 预期今日收益（trade⊕nowcast） |
+| **y_on** | 预期明日收益 |
+| **ranking** | (1 + y_fuse/100) × (1 + α × y_on/100) − 1，展示百分数；α 默认 0 |
+| **rank入场 / rank强** | 选股下限 / 200 股门槛 |
+| **现金地板** | 买完后现金下限（默认 50 万） |
 
 ### 4.2 决策流程
 
-调仓在 `core/paper/rebalance/path_matrix.py` 中实现，对每只持仓逐只决策：
+调仓在 `core/paper/rebalance/rank_lots.py` 中实现，观察池与历史回测共用：
 
 ```
-对每只股票 i：
-  gap = w*_i - w_i
-  若 |gap| < 阈值 → 跳过（noise floor）
-  若 gap > 0（需加仓）：
-    → path_matrix 检查方向信号（ŷ_EOD 同号、y_on 同号）
-    → 可选 nowcast 闸（默认关闭）
-    → 满足 → ACTION_ADD / ACTION_OPEN
-    → 不满足 → ACTION_SKIP
-  若 gap < 0（需减仓）：
-    → ACTION_REDUCE（按 gap 比例减仓）
-  若 w*_i = 0 且有持仓：
-    → ACTION_CLOSE（清仓）
+每个交易日 09:30：
+  y_fuse = w_trade·ŷ_trade + w_nc·ŷ_nowcast
+  ranking = (1 + y_fuse/100) × (1 + α × y_on/100) − 1  # 展示百分数；α 默认 0
+  已持仓且 ranking < 0 → 清仓（T+1 可卖）
+  ranking > rank入场 → 开仓或加仓（live 另受 max_positions；历史回测用全部观察池）
+  ranking > rank强 → 200 股，否则 100 股
+  买完现金 < 地板（默认 50 万）→ 跳过该买
+  未买且 ranking ≥ 0 → 持有
 ```
 
-### 4.3 缩放因子 λ
+### 4.3 手数与现金地板
 
-λ 控制每次调仓的激进程度：
-
-- **λ = 1**：一步到位，直接调到目标权重
-- **λ < 1**：分批渐进，每次只调整 gap 的一部分
-- 研究预览可通过 `respect_max_positions=False` 放宽仓位上限
+- ranking &gt; rank强（默认 0.02 / 2%）→ **200 股**，否则 **100 股**
+- 买完后现金不得低于 `cash_floor`（默认 50 万）；否则跳过该买
+- 未买但 ranking ≥ 0 **不卖**
 
 ### 4.4 风控约束
 
 | 约束 | 说明 |
 |------|------|
-| **权重上限** | 单票权重不超过配置上限（默认 25%） |
-| **冷却期** | 调仓后 N 分钟内不可再次调仓 |
-| **最小成交量** | 单笔最小股数限制 |
-| **手续费/滑点** | 按券商费率计算，从现金扣除 |
-| **现金不足** | 按比例缩减买单，或跳过 |
-| **drawdown 硬拦** | 组合回撤超阈值时整批拦买 |
+| **T+1** | 当日买入不可卖 |
+| **现金地板** | 默认 50 万，破地板禁买 |
+| **OOS 失败组** | 禁止新开/加仓 |
+| **手续费/滑点** | 按账户成本模型从现金扣除 |
 
 ### 4.5 调仓执行
 
-`core/paper/rebalance/orchestrator.py` 编排：
+live：`watching_matrix.simulate_watching_matrix_preview`；历史：`backtest_paper_replay`。
 
-1. 读取当前持仓与目标权重
-2. 逐只走 path_matrix 决策
-3. 生成交易单列表
-4. 现金校验与缩量
-5. 提交撮合引擎执行
-6. 输出调仓报告（开/加/减/平明细、现金变化、持仓变化）
+1. 09:30 对观察池打 y_fuse / y_on
+2. `plan_rank_lot_day` 出买卖清单
+3. 现金地板校验
+4. 预演或落账（盘中现价；收盘后可挂次日开盘）
+5. 输出调仓报告
 
 ### 4.6 模式
 
-- **正常模式**：默认行为，path_matrix 全量检查
-- **dry-run**：仅生成报告不执行，用于预览
-- **跨池调仓**：多信号簇组合并后的权重再平衡
+- **预演（dry-run）**：只出清单不写 paper.json
+- **确认落账**：改持仓与现金
+- **历史回测**：每个交易日开盘价成交，初始资金 100 万
 
 ---
 
@@ -320,7 +311,7 @@ quant_panel.html
 | 因子库 | `core/signal/factors/` |
 | 双预测头 | `core/signal/dual_score/` |
 | 横截面排序 | `core/signal/cross_section.py` |
-| 调仓引擎 | `core/paper/rebalance/path_matrix.py`, `orchestrator.py` |
+| 调仓引擎 | `core/paper/rebalance/rank_lots.py`, `watching_matrix.py` |
 | 做T 引擎 | `core/t0/strategy.py`, `core/t0/engine.py` |
 | 模拟盘撮合 | `core/execution.py`, `core/paper/` |
 | Web 后端 | `web/app.py`, `web/routers/` |

@@ -1,6 +1,6 @@
 # 策略调仓产品文档
 
-> A 股 T+1 横截面 / 持仓规则调仓：基于多目标 ŷ 排序与门禁链，在风险预算内完成持仓再均衡。非实盘、不代客下单，服务于策略验证与纸面增强。
+> A 股 T+1 **rank_lots** 调仓：每个交易日 09:30 用 y_fuse / y_on 排序，按 100/200 股开仓或加仓。非实盘、不代客下单。
 
 ---
 
@@ -8,20 +8,19 @@
 
 ### 1.1 一句话定义
 
-根据**多目标 ŷ 打分**（横截面排序或持仓规则），在满足买卖门槛、风控限额、换手预算与 T+1 约束的前提下，对纸面持仓进行**卖出 → 买入**的再均衡，使组合向目标权重靠拢。
+每个交易日 **09:30 开盘**，对观察池打 y_fuse（预期今日收益）与 y_on（预期隔夜收益），按 `ranking = (1 + y_fuse/100) × (1 + α × y_on/100) − 1` 排序（展示百分数；α 默认 0，隔夜不参与），过 rank入场以 **100 或 200 股** 建仓/加仓（**live** 每天开/加上限为策略 `max_positions`；**历史回测** 面向全部观察池，只受现金地板约束）；已持仓且 **ranking &lt; 0** 则清仓（仅 T+1 可卖部分）。现金买完后不得低于地板（默认 50 万）。
 
 ### 1.2 与底仓做 T 的边界
 
 | 维度 | 策略调仓 | 底仓做 T |
 |------|----------|----------|
-| 决策问题 | 持有什么、各占多少 | 既有底仓上日内往返 |
-| 信号头 | ŷ_trade 排序 + ŷ_EOD 买入闸 + ŷ_τ 买入闸 | v6 收盘带宽：ĉ=ĉ_τ，破 ĉ±δ |
-| 持仓寿命 | 持有约 3 日（horizon_days） | 当日往返 |
-| 收益类型 | 持有期相对收益 | 已实现 round-trip 价差 |
-| 仓位出处 | `origin=strategy` | `origin=t0`（`t0_batch`） |
-| 频率 | 日级（日内可执行） | 每 5 分钟扫至 11:00 |
+| 决策问题 | 持有什么、每次加几手 | 既有底仓上日内往返 |
+| 信号头 | y_fuse（trade⊕nc）+ y_on 进 ranking | v6 收盘带宽：ĉ=ĉ_τ，破 ĉ±δ |
+| 持仓寿命 | 直到 ranking&lt;0 清仓（未买不卖） | 当日往返 |
+| 仓位单位 | 100 / 200 股 | `origin=t0`（`t0_batch`） |
+| 频率 | 每个交易日 09:30 | 每 5 分钟扫至 11:00 |
 
-调仓是选股 Alpha 的载体；做 T 是调仓底仓上的 timing overlay。两者可独立运行，也可通过 `coupling.t0_vs_stance` 耦合。
+调仓是选股 Alpha 的载体；做 T 是调仓底仓上的 timing overlay。两者可独立运行。
 
 ### 1.3 A 股 T+1 硬约束
 
@@ -36,51 +35,49 @@
 
 | 模式 | 枚举 | 适用场景 | 卖出逻辑 | 买入逻辑 |
 |------|------|----------|----------|----------|
-| **横截面** | `cross_section` | 主路径（默认） | 不在 TopK 或 ŷ_trade < min_hold_score → 卖出 | 从 TopK 买入未持仓，过 ŷ_EOD + ŷ_τ 闸 |
+| **rank_lots** | 观察池 live + `paper_replay` | **生产主路径** | 仅 ranking&lt;0（或 hard_reject）清仓 | ranking&gt;rank入场 按分数买，过 rank强买 200 否则 100 |
+| ~~横截面~~ | `cross_section` | 遗留：cluster 产物 / 旧单测 | 不在 TopK 或低于 hold 卖 | 目标权重 + path_matrix λ |
 | **持仓规则** | `holding_rules` | 逐票规则引擎 | 单票信号扫描驱动卖出 | 按规则引擎加仓 |
 | ~~分池簿~~ | ~~cluster_book~~ | **已停用** | — | — |
 
-分池簿路径已停用，保留 API 兼容但返回"已停用"错误。当前生产统一走横截面模式。
+分池簿路径已停用。live 与历史回测统一走 `rank_lots`（`watching_matrix` / `backtest_paper_replay`）。`simulate_cross_section_rebalance` 仍保留给 cluster 产物与旧测试，**不再作为 Follow 调仓入口**。
 
 ---
 
 ## 3. 信号与门槛体系
 
-### 3.1 多目标 ŷ
+### 3.1 多目标 ŷ（生产 rank_lots）
 
 | ŷ | 含义 | 调仓中的作用 |
 |----|------|-------------|
-| **ŷ_trade** | 日频交易分数 | 横截面排序主分；卖出主分（低于 min_hold_score 卖） |
-| **ŷ_EOD** | 预估日收收益 | **买入闸**（≥ min_score 才买） |
-| **ŷ_τ** | 盘中 τ 收益 | **买入闸**（`buy_passes_tau_gate`）；与 ŷ_EOD 双头校验 |
-| ŷ_path | 极值时间序 | path_matrix 开/加同号闸；|y_path| 定 λ 仓位系数 |
-| ŷ_on | 尾盘回补 | path_matrix 隔夜留仓折扣 |
-| ŷ_nowcast | 即时对照 | y_fuse 融合分（与 ŷ_trade 加权） |
+| **y_fuse** | w_trade·ŷ_trade + w_nc·ŷ_nowcast | 预期**今日**收益（百分点） |
+| **ŷ_on** | 预期隔夜收益 | 乘进 ranking：`(1+y_fuse/100)×(1+α×y_on/100)−1`；α 默认 0 |
+| **ranking_score** | 上式（净收益，展示百分数） | &lt;0 清仓；&gt; rank入场 才开/加；&gt; rank强 买 200 股 |
+| ŷ_trade / ŷ_nowcast | 融合分量 | 只进 y_fuse，不再单独做 path/on 同号闸 |
+| ŷ_path | 极值时间序 | **不做**策略调仓闸（仅底仓做 T 仍用） |
 
-### 3.2 双轨评分（predicted / heuristic）
+未买但 ranking ≥ 0 → **续持**，不因排名靠后而卖。
 
-调仓门槛支持两条轨道，由 `rebalance_tracks` 配置驱动：
+### 3.2 核心门槛（rank_lots）
 
-| 轨道 | 分数空间 | 买入门槛 | 卖出门槛 |
-|------|----------|----------|----------|
-| **predicted**（生产） | ŷ_EOD / ŷ_trade（百分比） | `predicted_buy_floor` | `predicted_hold_floor` |
-| **heuristic**（回退） | 0–100 分 | `min_score`（默认 55） | `min_hold_score`（默认 45） |
+| 参数 | 默认 | 说明 |
+|------|------|------|
+| `rank_enter` | 0.01 | ranking 选股下限（1%；旧 1.01 / 101% 自动换成 0.01） |
+| `rank_strong` | 0.02 | 超过则买 200 股，否则 100 股（2%；旧 1.02 / 102% 自动换成 0.02） |
+| `y_on_alpha` | 0 | 隔夜系数 α∈[0,10]；ranking=(1+y_fuse/100)×(1+α×y_on/100)−1 |
+| `cash_floor` | 500_000 | 买完后现金不得低于此值 |
+| `max_positions` | 策略限额 | **live** 每天开/加的票数上限；历史回测用观察池只数 |
+| 初始现金（回测） | 1_000_000 | 历史回测默认 |
 
-`resolve_score_track(item)` 判定单票走哪条轨；`buy_gate_for_item` / `hold_decision_for_item` 统一执行。生产 ŷ 须 `allows_production_yhat` 通过。
+OOS 失败组禁止新开/加仓。配置写在 `execution.rebalance_timing.path_matrix`（`mode=rank_lots`）。
 
-### 3.3 核心门槛
+### 3.3 遗留双轨评分
 
-| 参数 | 默认值（short 策略） | 说明 |
-|------|----------------------|------|
-| `min_score` | 55（heuristic）/ predicted_buy_floor | 买入下限（ŷ_EOD） |
-| `min_hold_score` | 45（heuristic）/ predicted_hold_floor | 持有下限（ŷ_trade，低于则卖） |
-| `max_positions` | 20 | 最大持仓数 |
-| `position_pct` | 0.15 | 单票目标仓位比例 |
-| `min_cash_pct` | 20%（隐含） | 保留现金比例（供反 T） |
-| `max_turnover_pct` | 可配 | 双边换手软上限 |
-| `horizon_days` | 3 | 预期持有天数 |
+`simulate_cross_section_rebalance` 仍用 predicted/heuristic 双轨与 `min_score` / `min_hold_score`。生产 Follow 不再走这条链。
 
-### 3.4 Stance 规则引擎
+---
+
+### 3.4 Stance 规则引擎（遗留横截面）
 
 由 `compute_buy_stance` 输出确定性 stance，LLM 须引用不得自行升级/降级：
 
@@ -96,7 +93,9 @@
 
 ---
 
-## 4. 调仓全流程
+## 4. 遗留横截面全流程
+
+> 以下描述 `simulate_cross_section_rebalance`（cluster 产物 / 旧单测）。**Follow 预演与 `paper_replay` 不走此链。**
 
 ```
 simulate_cross_section_rebalance(paper, ranking, top_k)
@@ -261,37 +260,37 @@ shares = shares × path_matrix_λ            # λ ∈ [0, 1]
 
 ---
 
-## 8. 早盘路径矩阵（path_matrix）
+## 8. 生产规则（rank_lots）
 
-### 8.1 目标与执行分离
+实现：`core/paper/rebalance/rank_lots.py`。live：`watching_matrix.py`；历史：`backtest_paper_replay`。
 
-- **目标层**：`y_fuse = w_trade × ŷ_trade + w_nowcast × ŷ_nowcast` 排序 Top-K / 定 w*
-- **执行层**：开加仓要求 ŷ_path、ŷ_on 与方向同号；|ŷ_path| 定 λ
+### 8.1 每日 09:30
 
-### 8.2 两种模式
+1. 信息集：窗口截至**昨收**，报价用**今开**（不把今日收盘喂进特征）。
+2. `y_fuse = w_trade × ŷ_trade + w_nc × ŷ_nowcast`（百分点）。
+3. `ranking = (1 + y_fuse/100) × (1 + α × y_on/100) − 1`；缺 y_on 视为 0；α 默认 0。展示百分数。
+4. 已持仓且 ranking &lt; 0 → 清仓（T+1 可卖手数）。
+5. ranking &gt; rank入场 的票按分数买（live 受 `max_positions`；历史回测面向观察池全名单）：建仓或加仓。
+6. ranking &gt; rank强 → 200 股，否则 100 股。
+7. 若本笔买入会使现金 &lt; cash_floor → 跳过该买。
+8. 未买且 ranking ≥ 0 → 持有。
 
-| 模式 | 行为 |
-|------|------|
-| `linear`（L0） | 缺口立刻补 |
-| `path`（L1，默认） | path + on 同号闸 |
-
-### 8.3 关键参数
+### 8.2 关键参数
 
 | 参数 | 默认 | 说明 |
 |------|------|------|
-| `path_enter` | 0.1% | |ŷ_path| 横盘门槛 |
-| `path_half` | 0.5% | ≥half → λ=0.5 |
-| `path_full` | 1.0% | ≥full → λ=1.0 |
-| `y_on_allow` | 0.5% | ≥allow → 隔夜满留 |
-| `y_on_half` | 0.1% | ≥half 且 <allow → 隔夜半仓 |
-| `fusion_w_trade` | 0.5 | ŷ_trade 权重 |
-| `fusion_w_nowcast` | 0.5 | ŷ_nowcast 权重 |
-| `require_path_on_same_sign` | True | 开/加：path、on 与方向同号 |
-| `allow_pending_exit_on_path_low` | True | path>0 时清仓可推迟 |
+| `rank_enter` | 0.01 | ranking 选股下限（1%） |
+| `rank_strong` | 0.02 | 超过买 200 股（2%） |
+| `y_on_alpha` | 0 | 隔夜系数 α∈[0,10]；0=不乘 y_on |
+| `cash_floor` | 500_000 | 现金地板（元） |
+| `fusion_w_trade` | 0.5 | ŷ_trade 融合权重 |
+| `fusion_w_nowcast` | 0.5 | ŷ_nowcast 融合权重 |
 
-### 8.4 动作码
+配置键仍在 `rebalance_timing.path_matrix`（`mode=rank_lots`）。旧 λ / 同号闸 / pending_exit **不再驱动** Follow 调仓。`path_matrix.py` 的 λ 助手仅遗留横截面路径使用。
 
-`open`（开仓）/ `add`（加仓）/ `reduce`（减仓）/ `exit`（清仓）/ `hold`（持有）/ `skip_window`（本窗不调）/ `pending_exit`（必清但等更好卖点）
+### 8.3 动作码
+
+`open` / `add` / `exit` / `hold` / `skip`（无报价、破地板、T+1 不可卖、OOS）
 
 ---
 
@@ -389,8 +388,10 @@ core/
 │   │   ├── sell.py                 # 卖出腿
 │   │   ├── buy.py                  # 买入腿
 │   │   ├── gate.py                 # 卖后门禁 + optimize
-│   │   ├── path_matrix.py          # 早盘路径择时矩阵
-│   │   ├── force_trim.py           # 膨胀减仓
+│   │   ├── watching_matrix.py      # 观察池 live：算分 + rank_lots
+│   │   ├── rank_lots.py            # 生产调仓：y_fuse/y_on · 100/200 股
+│   │   ├── path_matrix.py          # 遗留：横截面 λ / 同号闸
+│   │   ├── force_trim.py           # 膨胀减仓（遗留横截面）
 │   │   ├── turnover.py             # 换手预算
 │   │   ├── cash_reserve.py         # 现金保留
 │   │   ├── match.py                # 涨跌停/停牌匹配

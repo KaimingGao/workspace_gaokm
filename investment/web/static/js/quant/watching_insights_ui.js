@@ -356,7 +356,7 @@ export function buildWatchingNowcastScoreCellHtml(disp, scoreClsFn, escapeHtml =
   );
 }
 
-export function buildWatchingInsightsStatusText(okN, total, items) {
+export function buildWatchingInsightsStatusText(okN, total, items, meta) {
   const srcSample = (items || []).find((x) => x && x.weight_source) || {};
   const mode = srcSample.cluster_mode || "";
   const wsrc = String(srcSample.weight_source || "");
@@ -366,7 +366,10 @@ export function buildWatchingInsightsStatusText(okN, total, items) {
   else if (wsrc === "global_fallback") scoreMode = "未映射组（无ŷ）";
   else if (mode === "active") scoreMode = "active · 组ŷ";
   else if (mode === "shadow") scoreMode = "shadow · 组ŷ映射";
-  return `摘要已更新 · ${okN}/${total} · score ${scoreMode}（与交易执行同源）`;
+  const cached = Number(meta && meta.cachedCount);
+  const cacheBit =
+    Number.isFinite(cached) && cached > 0 ? ` · 缓存 ${cached}` : "";
+  return `摘要已更新 · ${okN}/${total}${cacheBit} · score ${scoreMode}（与交易执行同源）`;
 }
 
 export function buildWatchingInsightsErrorStatus(err) {

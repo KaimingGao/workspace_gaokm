@@ -2,6 +2,19 @@
 
 import { escapeText } from "./fmt.js";
 
+function coerceRankChip(raw, fallback) {
+  if (raw == null || raw === "") return fallback;
+  const n = Number(raw);
+  if (!Number.isFinite(n)) return fallback;
+  if (n >= 0.5) {
+    if (Math.abs(n - 1) < 1e-9) return 0.01;
+    if (Math.abs(n - 1.002) < 1e-6) return 0.02;
+    return Math.max(0, n - 1);
+  }
+  if (Math.abs(n - 0.2) < 1e-6) return 0.02;
+  return n;
+}
+
 export function renderPaperRulesHtml(data) {
   if (!data || !data.initialized) return "—";
   const rules = (data && data.rules) || {};
@@ -24,16 +37,6 @@ export function renderPaperRulesHtml(data) {
           : "—",
     ],
     ["最大持仓", String(rules.max_positions ?? "—")],
-    [
-      "仓位",
-      rules.position_pct != null ? `${Math.round(rules.position_pct * 100)}%` : "—",
-    ],
-    [
-      "现金底仓",
-      rules.min_cash_pct != null
-        ? `${Math.round(Number(rules.min_cash_pct) * 100)}%`
-        : "20%",
-    ],
     ["止损", rules.stop_loss_pnl != null ? `${rules.stop_loss_pnl}%` : "—"],
     ["做T", t0Label],
   ];
@@ -46,12 +49,21 @@ export function renderPaperRulesHtml(data) {
       ? timing.path_matrix
       : null;
   if (pm) {
+    const enter = coerceRankChip(pm.rank_enter, 0.01);
+    const strong = coerceRankChip(pm.rank_strong, 0.02);
+    const floor =
+      pm.cash_floor != null
+        ? `${Math.round(Number(pm.cash_floor) / 10000)}万`
+        : "50万";
     chips.push([
-      "择时",
-      pm.mode === "linear"
-        ? "线性"
-        : `path≥${pm.path_enter != null ? pm.path_enter : 1}%`,
+      "rank",
+      `入场${(Number(enter) * 100).toFixed(1)}% · 强${(Number(strong) * 100).toFixed(1)}%`,
     ]);
+    const alpha = pm.y_on_alpha != null ? Number(pm.y_on_alpha) : 0;
+    if (Number.isFinite(alpha)) {
+      chips.push(["α_on", Number(alpha).toFixed(alpha % 1 === 0 ? 0 : 1)]);
+    }
+    chips.push(["现金地板", floor]);
   }
   if (exe.effective_hash) {
     chips.push(["exec", String(exe.effective_hash).slice(0, 8)]);

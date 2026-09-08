@@ -2,7 +2,7 @@
   <div class="dashboard-head-text quant-head-text">
     <p class="dashboard-eyebrow">Backtest Desk</p>
     <h2>历史回测</h2>
-    <p id="replay-meta" class="dashboard-meta quant-meta" aria-live="polite">历史验证 · 研究 Top-K 或纸面回放 · 非实盘</p>
+    <p id="replay-meta" class="dashboard-meta quant-meta" aria-live="polite">历史验证 · rank_lots（09:30 · 1000/2000 股）· 非实盘</p>
     <p class="dashboard-section-desc replay-head-path">
       <a class="replay-hero-link" href="/watching">观察</a>
       →
@@ -29,7 +29,7 @@
   >
     <header class="dashboard-section-head quant-section-head replay-section-head">
       <h3 id="replay-section-overview-title" class="dashboard-section-title">概览</h3>
-      <p class="dashboard-section-desc quant-section-desc">累计 · 超额 · 回撤 · 胜率 · 路径</p>
+      <p class="dashboard-section-desc quant-section-desc">累计 · 超额 · 回撤 · 胜率</p>
     </header>
     <div class="dashboard-overview-band quant-pro-desk-top replay-overview-band">
       <div class="dashboard-kpi-row quant-pro-overview-kpis replay-kpi-row" id="replay-kpi-row" aria-label="回测概览 KPI">
@@ -61,16 +61,12 @@
           <span class="quant-pro-path-num replay-path-num">1</span> 跑回测
         </a>
         <span class="quant-path-sep quant-pro-path-sep replay-path-sep" aria-hidden="true">/</span>
-        <a class="quant-path-step quant-pro-path-step replay-path-step" href="#quant-bt-metrics" data-step="report" data-state="idle">
-          <span class="quant-pro-path-num replay-path-num">2</span> 报告
-        </a>
-        <span class="quant-path-sep quant-pro-path-sep replay-path-sep" aria-hidden="true">/</span>
-        <a class="quant-path-step quant-pro-path-step replay-path-step" href="#param-grid" data-step="grid" data-state="idle">
-          <span class="quant-pro-path-num replay-path-num">3</span> 参数扫描
+        <a class="quant-path-step quant-pro-path-step replay-path-step" href="#quant-portfolio-chart" data-step="report" data-state="idle">
+          <span class="quant-pro-path-num replay-path-num">2</span> 净值
         </a>
         <span class="quant-path-sep quant-pro-path-sep replay-path-sep" aria-hidden="true">/</span>
         <a class="quant-path-step quant-pro-path-step replay-path-step" href="/follow" data-step="follow" data-state="idle">
-          <span class="quant-pro-path-num replay-path-num">4</span> 交易执行
+          <span class="quant-pro-path-num replay-path-num">3</span> 交易执行
         </a>
       </nav>
     </div>
@@ -82,300 +78,83 @@
     id="replay-section-run"
     aria-labelledby="replay-section-run-title"
   >
-    <header class="dashboard-section-head quant-section-head replay-section-head">
+    <header class="dashboard-section-head quant-section-head replay-section-head replay-run-head">
       <h3 id="replay-section-run-title" class="dashboard-section-title">回测报告</h3>
-      <p class="dashboard-section-desc quant-section-desc">
-        有效 ≠ 正确 · 先 IC / 分层 / 超额，再 Top-K，后
-        <a class="replay-hero-link" href="/follow">纸面</a>
-        · 改参回
-        <a class="replay-hero-link" href="/strategy">策略</a>
-      </p>
+      <p id="replay-pool-meta" class="quant-fingerprint replay-pool-meta" aria-live="polite">观察池：—</p>
+      <span
+        class="replay-rank-hint"
+        title="锁定口径：每个交易日 09:30 开盘；初始资金 100 万；买完后现金不得低于 50 万。不是可选项。"
+      >
+        09:30 · 100万 / 地板50万
+      </span>
+      <div class="replay-run-toolbar" aria-label="回测参数">
+        <label
+          class="platform-field quant-pro-field replay-lookback-field replay-on-alpha-field"
+          title="ranking=(1+y_fuse/100)×(1+α×y_on/100)−1。α=0 隔夜不参与；1 按原权重乘入。范围 0.0～1.0。"
+        >
+          <span class="quant-pro-field-label">ON_Alpha</span>
+          <input id="quant-on-alpha" type="number" min="0" max="1" step="0.1" value="0" />
+        </label>
+        <label
+          class="platform-field quant-pro-field replay-lookback-field replay-rank-field"
+          title="ranking 须大于此值才建仓/加仓。默认 0.01（1%）。"
+        >
+          <span class="quant-pro-field-label">Rank入场</span>
+          <input id="quant-rank-enter" type="number" min="0" max="1" step="0.001" value="0.01" />
+        </label>
+        <label
+          class="platform-field quant-pro-field replay-lookback-field replay-rank-field"
+          title="ranking 大于此值买 2000 股，否则 1000 股。默认 0.02（2%）。"
+        >
+          <span class="quant-pro-field-label">Rank强</span>
+          <input id="quant-rank-strong" type="number" min="0" max="1" step="0.001" value="0.02" />
+        </label>
+        <label
+          class="platform-field quant-pro-field replay-lookback-field"
+          title="回测覆盖多少个交易日。默认 30。不是调仓规则。不再用全池日期交集（会被次新/停牌卡死）。"
+        >
+          <span class="quant-pro-field-label">Lookback</span>
+          <input id="quant-lookback" type="number" min="30" max="500" value="30" />
+        </label>
+        <input type="hidden" id="quant-horizon" value="1" />
+        <input type="hidden" id="quant-weight-mode" value="score_budget" />
+        <input type="hidden" id="quant-dropout-n" value="0" />
+        <input type="hidden" id="quant-rank-mode" value="predicted_score" />
+        <input type="hidden" id="quant-bt-engine" value="paper_replay" />
+        <input type="hidden" id="quant-min-amount-pctile" value="" />
+        <input type="hidden" id="quant-benchmark-code" value="000300" />
+        <button type="button" id="quant-portfolio-run" class="dialog-btn">跑回测</button>
+      </div>
     </header>
     <div class="dashboard-card quant-pro-card replay-ops-card">
-      <div class="dashboard-card-head quant-pro-card-head quant-card-head--tools replay-card-head">
-        <p id="replay-pool-meta" class="quant-fingerprint quant-card-head-status replay-card-status" aria-live="polite">研究池：—</p>
-        <div class="dashboard-card-tools quant-pro-card-tools replay-card-tools">
-          <button type="button" id="quant-research-export" class="dialog-btn secondary" title="导出最近回测/网格 JSON">导出研究包</button>
-          <button type="button" id="quant-backtest-report-export" class="dialog-btn secondary" title="导出与页内块对齐的 MD 报告" disabled>
-            导出报告
-          </button>
-        </div>
-      </div>
       <div class="quant-pro-card-body replay-card-body">
-        <div class="quant-control-band quant-pro-control-band replay-control-band" aria-label="回测参数">
-          <div class="quant-actions-inline quant-pro-params-inline replay-params-inline">
-            <label
-              class="platform-field quant-pro-field"
-              title="拉多少根共同交易日线（样本长度）；默认 120。≠持有期。"
-            >
-              <span class="quant-pro-field-label">Lookback</span>
-              <input id="quant-lookback" type="number" min="40" max="500" value="120" />
-            </label>
-            <label
-              class="platform-field quant-pro-field"
-              title="持有几个交易日再调仓：1=每个交易日一轮；3=约每 3 日一轮。可存为研究默认，不影响 live 评分。"
-            >
-              <span class="quant-pro-field-label">Horizon</span>
-              <input id="quant-horizon" type="number" min="1" max="10" value="3" />
-            </label>
-            <button type="button" id="quant-horizon-save-default" class="dialog-btn secondary" title="写入 memory.json">
-              存为默认
-            </button>
-            <label class="platform-field quant-pro-field">
-              <span class="quant-pro-field-label">Top K</span>
-              <input id="quant-top-k" type="number" min="1" max="40" value="3" />
-            </label>
-            <label class="platform-field quant-pro-field">
-              <span class="quant-pro-field-label">权重</span>
-              <select id="quant-weight-mode" title="与纸面 StrategySpec 同源；默认分数预算">
-                <option value="score_budget" selected>分数预算</option>
-                <option value="equal">等权</option>
-                <option value="risk_parity_lite">风险平价 lite</option>
-              </select>
-            </label>
-            <span
-              class="platform-field replay-rank-hint"
-              title="历史日线 Top-K：按 ŷ_EOD（predicted_score）排序；关 ŷ_τ 闸。日线无可靠分钟 τ，不用 ŷ_trade 选股（与 live 不同）。"
-            >
-              排序 · ŷ_EOD
-            </span>
-            <input type="hidden" id="quant-rank-mode" value="predicted_score" />
-            <label class="platform-field quant-pro-field" title="TopK-Dropout：掉出 K+N 才卖">
-              <span class="quant-pro-field-label">Dropout N</span>
-              <input id="quant-dropout-n" type="number" min="0" max="10" value="0" />
-            </label>
-            <label class="platform-field quant-pro-checkbox" title="剔除名称含 ST/退 的标的（与分池选股一致，默认开）">
-              <input id="quant-exclude-st" type="checkbox" checked />
-              <span>剔 ST</span>
-            </label>
-            <label class="platform-field quant-pro-field" title="池内成交额分位下限；空=不过滤">
-              <span class="quant-pro-field-label">额分位</span>
-              <input
-                id="quant-min-amount-pctile"
-                type="number"
-                min="0"
-                max="90"
-                step="5"
-                placeholder="空"
-                title="保留成交额≥该分位的票；0 或空=不过滤"
-              />
-            </label>
-            <label class="platform-field quant-pro-field" title="超额对照基准">
-              <span class="quant-pro-field-label">基准</span>
-              <select id="quant-benchmark-code">
-                <option value="000300" selected>沪深300</option>
-                <option value="000905">中证500</option>
-                <option value="399006">创业板指</option>
-                <option value="pool">池等权</option>
-              </select>
-            </label>
-            <label class="platform-field quant-pro-field" title="topk_research=独立腿聚合研究；paper_replay=纸面 T+1/换手/现金回放">
-              <span class="quant-pro-field-label">引擎</span>
-              <select id="quant-bt-engine">
-                <option value="topk_research" selected>研究 Top-K</option>
-                <option value="paper_replay">纸面回放</option>
-              </select>
-            </label>
-            <button type="button" id="quant-portfolio-run" class="dialog-btn">跑回测</button>
-            <button type="button" id="quant-portfolio-compare" class="dialog-btn secondary">中性化对照</button>
-            <button
-              type="button"
-              id="quant-return-model-fit"
-              class="dialog-btn secondary"
-              title="拟合全局收益分模型并保存研究草稿（优先仍用分组 β）"
-            >
-              拟合ŷ模型
-            </button>
-          </div>
-          <div class="quant-oos-band replay-oos-band">
-            <span class="quant-oos-band-label">口径</span>
-            <span class="quant-oos-band-text"
-              >历史 Top-K = ŷ_EOD 排序 · 关 τ 闸（无可靠分钟 τ）· 有效 ≠ 正确 · 过门 ≠ 自动 promote</span
-            >
-          </div>
-        </div>
-
-        <div id="quant-portfolio-summary" class="quant-summary">有票后点「Top-K 回测」</div>
-        <p id="quant-bt-scope-note" class="quant-fingerprint" hidden></p>
+        <div id="quant-portfolio-summary" class="quant-summary" hidden></div>
         <p id="quant-bt-progress" class="quant-fingerprint quant-card-head-status paper-progress-status" hidden aria-live="polite">
           <span id="quant-bt-progress-text">回测中…</span>
         </p>
-        <div id="quant-bt-metrics" class="quant-metrics" aria-live="polite"></div>
-        <div id="quant-robustness" class="quant-weight-table-wrap" aria-label="稳健性 OOS/WF"></div>
-        <div id="quant-fit-gap" class="quant-weight-table-wrap" aria-label="回测纸面落差归因"></div>
-        <div id="quant-score-ic" class="quant-weight-table-wrap" aria-label="截面 IC"></div>
-        <div class="quant-chart-wrap quant-bt-chart-wrap" id="quant-ic-chart-wrap" hidden>
-          <div class="quant-chart-axis-head">
-            <span class="quant-chart-title">滚动截面 IC</span>
-            <span class="quant-chart-axis-hint">蓝=日度 IC · 绿=滚动均值；零轴以上表示当日区分度为正</span>
-          </div>
-          <div
-            id="quant-ic-chart"
-            class="quant-chart-host dashboard-chart-host"
-            aria-label="滚动截面 IC 曲线"
-          ></div>
-        </div>
-        <div id="quant-ic-align" class="quant-weight-table-wrap" aria-label="IC净值对齐"></div>
-        <div id="quant-quantile-table" class="quant-weight-table-wrap" aria-label="分层回测"></div>
-        <div class="quant-chart-wrap quant-bt-chart-wrap" id="quant-quantile-chart-wrap" hidden>
-          <div class="quant-chart-axis-head">
-            <span class="quant-chart-title">分层净值（Q1→Qn）</span>
-            <span class="quant-chart-axis-hint">灰→绿=Q低→Q高 · 琥珀=Q高−Q低多空</span>
-          </div>
-          <div
-            id="quant-quantile-chart"
-            class="quant-chart-host dashboard-chart-host"
-            aria-label="分层回测净值曲线"
-          ></div>
-        </div>
-        <div id="quant-universe-panel" class="quant-weight-table-wrap" aria-label="验证宇宙"></div>
-        <div id="quant-cost-assumptions" class="quant-cost-assumptions quant-weight-table-wrap" aria-label="成本假设"></div>
-        <div id="quant-attr-tables" class="quant-attr-table quant-weight-table-wrap" aria-label="归因"></div>
-        <div id="quant-regime-buckets" class="quant-weight-table-wrap" aria-label="Regime 分桶"></div>
-        <div id="quant-wf-slices" class="quant-weight-table-wrap" aria-label="Walk-forward 切片"></div>
-        <div id="quant-neutral-compare-table" class="quant-weight-table-wrap"></div>
         <div class="quant-chart-wrap quant-bt-chart-wrap replay-nav-chart-wrap">
           <div class="quant-chart-axis-head">
-            <span class="quant-chart-title">Top-K 组合净值曲线</span>
-            <span class="quant-chart-axis-hint"
-              >纵轴：净值（起始=100）· 横轴近15日 · 蓝/绿=策略/基准 · 绿点=正IC窗 · 灰点=非正IC窗</span
+            <span class="quant-chart-title" id="quant-chart-title">rank_lots 日收益</span>
+            <button type="button" id="quant-chart-nav-mode" class="quant-chart-nav-btn" hidden>
+              净值
+            </button>
+            <span
+              class="quant-chart-axis-hint"
+              id="quant-chart-axis-hint"
+              >纵轴：日收益%（红涨绿跌）· 悬停看净值与个股明细 · 横轴全部交易日 · 可缩放</span
             >
           </div>
           <div
             id="quant-portfolio-chart"
             class="quant-chart-host dashboard-chart-host"
-            aria-label="Top-K 回测净值曲线：纵轴净值起始100，横轴持有期结束日"
+            aria-label="rank_lots 回测日收益柱：红涨绿跌，悬停看净值与个股明细，横轴交易日"
           ></div>
         </div>
         <p id="quant-portfolio-legend" class="quant-sub">
-          研究用 Top-K 回测净值（非纸面账本；权重可选等权/分数预算/风险平价）。起点 100；每完成一期持有（默认 3
-          日）按组合收益复利更新。选股按 <strong>ŷ_EOD</strong>，关 ŷ_τ 闸（与 live ŷ_trade
-          不同）。单线=当次回测；对照时蓝=中性化、绿=绝对分。
+          每个交易日 09:30 对全部观察池按 y_fuse/y_on 以 1000/2000 股调仓，现金地板 50 万。横轴为本次全部交易日。
         </p>
-        <div id="quant-bt-trades" class="quant-weight-table-wrap" aria-label="模拟成交账"></div>
+        <div id="quant-bt-trades" class="quant-weight-table-wrap" aria-label="成交流水"></div>
       </div>
     </div>
-  </section>
-
-  <!-- ③ 次要：怎么跑 -->
-  <section
-    class="dashboard-section quant-section replay-section-secondary"
-    id="replay-section-howto"
-    aria-labelledby="replay-section-howto-title"
-  >
-    <details class="replay-secondary-fold replay-howto">
-      <summary class="replay-secondary-fold-sum">
-        <h3 id="replay-section-howto-title" class="dashboard-section-title">说明</h3>
-        <p class="dashboard-section-desc quant-section-desc">回测怎么跑 · lookback / horizon</p>
-      </summary>
-      <div class="dashboard-card quant-pro-card">
-        <div class="quant-pro-card-body replay-howto-body">
-          <p>
-            <strong>lookback</strong>＝样本长度（默认 120 个共同交易日）；
-            <strong>horizon</strong>＝持有几个交易日再调仓（填 1＝每个交易日一轮，不是日历自然日）。
-          </p>
-          <p class="replay-howto-clarify">
-            因子权＝全局 <code>signal_config.weights</code>（固定，非分组权）；
-            池＝观察池 − exclude（验证宇宙），不是纸面持仓。
-            页上「等权 / 分数预算」是股票仓位，不是因子权。
-          </p>
-          <p class="replay-howto-clarify">
-            <b>分数口径</b>：本页只有日线，<b>不含可靠 ŷ_τ</b>。Top-K 按
-            <code>ŷ_EOD</code>（<code>predicted_score</code>）从高到低选取，并
-            <b>关闭 ŷ_τ 买入闸</b>。live 调仓才用 ŷ_trade / τ 闸——勿把本页成交表当成 live 融合分。
-          </p>
-          <ol class="replay-howto-steps">
-            <li><b>准备</b>：拉日线对齐；净值从 100 起；读一次全局因子权。</li>
-            <li><b>攒历史</b>：前若干日只积累窗口（约需 ≥12 根），不买卖。</li>
-            <li><b>信号日</b>：对池内每票用「当天及以前」K 线打 <b>ŷ_EOD</b>（可中性化）→ 取 Top-K（默认 3）。</li>
-            <li><b>次日开盘</b>（默认 next_open）：假买入；持有 horizon 个交易日。</li>
-            <li><b>出场</b>：按规则卖出 → 加权收益 − 换手成本 → 更新净值。</li>
-            <li><b>下一轮</b>：指针前进 horizon 天，重复打分→买入→持有→卖出，直到样本不够。</li>
-          </ol>
-          <pre class="replay-howto-timeline" aria-label="三天一轮示意">交易日:  …  D11        D12        D13–D14     D15       D16 …
-动作:        打分/TopK   开盘买入    持有        卖出结算   新一轮开盘买
-             (信号)      (入场)                 (出场)     (下一轮入场)
-horizon=1 时：每个交易日都可成为信号日，调仓更密、成本更重。</pre>
-        </div>
-      </div>
-    </details>
-  </section>
-
-  <!-- ④ 次要：参数扫描（锚点 #param-grid 保留） -->
-  <section
-    class="dashboard-section quant-section replay-section-secondary"
-    id="replay-section-grid"
-    aria-labelledby="replay-section-grid-title"
-  >
-    <details class="replay-secondary-fold" id="param-grid" open>
-      <summary class="replay-secondary-fold-sum">
-        <h3 id="replay-section-grid-title" class="dashboard-section-title">参数扫描</h3>
-        <p class="dashboard-section-desc quant-section-desc">固定窗口扫 K · 对齐纸面 h/ŷ · 热力=OOS</p>
-      </summary>
-      <div class="dashboard-card quant-pro-card">
-        <div class="dashboard-card-head quant-pro-card-head replay-card-head">
-          <p class="quant-fingerprint quant-card-head-status" id="param-grid-meta">
-            固定 lookback 扫 K∈{10,15,20} · 口径=纸面持有期与 ŷ 门槛 · 热力=OOS · 过门才标最优
-          </p>
-        </div>
-        <div class="quant-pro-card-body replay-card-body">
-          <div class="quant-control-band replay-control-band">
-            <div class="quant-actions-inline replay-params-inline">
-              <button type="button" id="quant-param-grid-run" class="dialog-btn">跑网格</button>
-              <button type="button" id="quant-param-grid-apply-best" class="dialog-btn secondary" disabled>
-                应用最优到回测表单
-              </button>
-              <label class="platform-field quant-pro-field" title="Promote 提示缓存有效期（小时），默认 24">
-                <span class="quant-pro-field-label">提示 TTL(h)</span>
-                <input
-                  id="quant-promote-ttl-hours"
-                  type="number"
-                  min="1"
-                  max="168"
-                  step="1"
-                  value="24"
-                />
-              </label>
-              <label
-                class="platform-field quant-pro-checkbox"
-                title="开启后：正IC窗未优于非正时禁止「应用最优」（默认关=仅二次确认）"
-              >
-                <input id="quant-promote-hard-gate" type="checkbox" />
-                <span>IC 硬闸</span>
-              </label>
-            </div>
-          </div>
-          <div id="quant-promote-hints" class="quant-weight-table-wrap" aria-label="Promote 提示"></div>
-          <div id="param-grid-progress" class="quant-fingerprint quant-card-head-status paper-progress-status" hidden aria-live="polite">
-            <span id="param-grid-progress-text">扫描中…</span>
-          </div>
-          <div id="param-grid-heat" class="param-grid-heat" aria-label="参数 OOS 矩阵，点击格子写入表单"></div>
-          <div id="param-grid-table" class="quant-weight-table-wrap"></div>
-        </div>
-      </div>
-    </details>
-  </section>
-
-  <!-- ⑤ 次要：横截面 -->
-  <section
-    class="dashboard-section quant-section replay-section-secondary"
-    id="quant-fold-cross"
-    aria-labelledby="replay-section-cross-title"
-  >
-    <details class="replay-secondary-fold">
-      <summary class="replay-secondary-fold-sum">
-        <h3 id="replay-section-cross-title" class="dashboard-section-title">横截面</h3>
-        <p class="dashboard-section-desc quant-section-desc">Top N · 当日相对强弱（辅助）</p>
-      </summary>
-      <div class="dashboard-card quant-pro-card">
-        <div class="quant-pro-card-body replay-card-body">
-          <div id="quant-cross-summary" class="quant-summary">当日研究池内相对强弱</div>
-          <div class="quant-actions-inline">
-            <button type="button" id="quant-cross-run" class="dialog-btn secondary">排序</button>
-          </div>
-          <div id="quant-cross-list" class="quant-weight-table-wrap"></div>
-        </div>
-      </div>
-    </details>
   </section>
 </div>

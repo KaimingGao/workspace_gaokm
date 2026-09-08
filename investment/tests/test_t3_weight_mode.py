@@ -119,6 +119,35 @@ class TestT3WeightMode(unittest.TestCase):
         body = PortfolioBacktestRequest(weight_mode="score_budget")
         self.assertEqual(body.weight_mode, "score_budget")
         self.assertEqual(body.max_position_pct, 25.0)
+        self.assertEqual(body.engine, "paper_replay")
+        self.assertEqual(body.y_on_alpha, 0.0)
+        self.assertEqual(body.rank_enter, 0.01)
+        self.assertEqual(body.rank_strong, 0.02)
+
+    def test_portfolio_request_y_on_alpha_range(self):
+        from pydantic import ValidationError
+        from web.schemas import PortfolioBacktestRequest
+
+        self.assertEqual(PortfolioBacktestRequest(y_on_alpha=0.5).y_on_alpha, 0.5)
+        self.assertEqual(PortfolioBacktestRequest(y_on_alpha=1).y_on_alpha, 1.0)
+        with self.assertRaises(ValidationError):
+            PortfolioBacktestRequest(y_on_alpha=1.1)
+        with self.assertRaises(ValidationError):
+            PortfolioBacktestRequest(y_on_alpha=-0.1)
+
+    def test_portfolio_request_rank_thresholds(self):
+        from pydantic import ValidationError
+        from web.schemas import PortfolioBacktestRequest
+
+        body = PortfolioBacktestRequest(rank_enter=0.015, rank_strong=0.03)
+        self.assertEqual(body.rank_enter, 0.015)
+        self.assertEqual(body.rank_strong, 0.03)
+        # 旧乘数 1.01 仍可进请求体，服务层 coerce 成 0.01
+        self.assertEqual(PortfolioBacktestRequest(rank_enter=1.01).rank_enter, 1.01)
+        with self.assertRaises(ValidationError):
+            PortfolioBacktestRequest(rank_enter=-0.01)
+        with self.assertRaises(ValidationError):
+            PortfolioBacktestRequest(rank_strong=10.1)
 
 
 if __name__ == "__main__":

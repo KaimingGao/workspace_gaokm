@@ -74,10 +74,9 @@ def cluster_score_audit_sample(
     offset: Optional[int] = None,
     rotate: bool = False,
 ) -> Dict[str, Any]:
-    """对照审计：优先分池簿样本，按组轮询取票，算 score_global vs score_cluster。"""
+    """对照审计：按组轮询取票，算 score_global vs score_cluster。"""
     from core.signal.cluster.live import (
         get_cluster_scoring_cfg,
-        load_active_cluster_book,
         load_active_cluster_weights,
     )
 
@@ -98,10 +97,9 @@ def cluster_score_audit_sample(
         offset = int(datetime.now(timezone.utc).timestamp() * 1000) % 10_000_000
     elif offset is None:
         offset = 0
-    book = load_active_cluster_book() or {}
     codes = pick_audit_codes(
         cmap,
-        list(book.get("book") or []),
+        [],
         n,
         offset=int(offset),
     )

@@ -15,7 +15,7 @@ export const BT_SIM_TRADE_COLS_BASE = [
   { id: "signal", label: "信号日", widthPct: 9 },
   { id: "entry", label: "买入日", widthPct: 9 },
   { id: "exit", label: "卖出日", widthPct: 9 },
-  { id: "name", label: "股票", flex: true },
+  { id: "name", label: "股票", flex: true, title: "点击名称看日线" },
   {
     id: "score",
     label: "ŷ_EOD",
@@ -210,6 +210,13 @@ export function resolveSimTradeLegs(dataOrTrades) {
     if (Array.isArray(dataOrTrades.sim_trades) && dataOrTrades.sim_trades.length) {
       return dataOrTrades.sim_trades;
     }
+    if (Array.isArray(dataOrTrades.trades) && dataOrTrades.trades.length) {
+      return dataOrTrades.trades;
+    }
+    const paperTrades = dataOrTrades.paper && dataOrTrades.paper.trades;
+    if (Array.isArray(paperTrades) && paperTrades.length) {
+      return paperTrades;
+    }
     if (Array.isArray(dataOrTrades.trades_sample)) {
       return flattenTradesToSimLegs(dataOrTrades.trades_sample);
     }
@@ -218,6 +225,337 @@ export function resolveSimTradeLegs(dataOrTrades) {
     }
   }
   return [];
+}
+
+/** rank_lots 账本腿（有 buy/sell），不是研究独立腿 round-trip。 */
+export function isRankLotsLedger(legs, dataOrTrades) {
+  const eng =
+    (dataOrTrades && dataOrTrades.params && dataOrTrades.params.engine) ||
+    (dataOrTrades && dataOrTrades.request && dataOrTrades.request.engine) ||
+    (dataOrTrades && dataOrTrades.strategy) ||
+    "";
+  if (String(eng).trim().toLowerCase() === "paper_replay") return true;
+  const rows = legs || [];
+  if (!rows.length) return false;
+  let n = 0;
+  for (const r of rows) {
+    const s = String(r.side || "").toLowerCase();
+    if (s === "buy" || s === "sell") n += 1;
+  }
+  return n >= Math.max(1, Math.ceil(rows.length * 0.6));
+}
+
+export const BT_LEDGER_TRADE_COLS = [
+  { id: "action", label: "动作", widthPct: 5, widthMin: "2.4rem" },
+  { id: "name", label: "股票", flex: true, flexMin: "5.6rem", title: "点击名称看日线" },
+  { id: "shares", label: "股数", widthPct: 7, num: true, sortable: true },
+  { id: "price", label: "成交价", widthPct: 8, num: true, sortable: true },
+  {
+    id: "cost",
+    label: "成交额",
+    widthPct: 8,
+    num: true,
+    sortable: true,
+    title: "股数 × 成交价",
+  },
+  {
+    id: "y_fuse",
+    label: "y_fuse",
+    widthPct: 16,
+    num: true,
+    sortable: true,
+    title: "格式 预估(真实)。真实=收盘/昨收。下行 trade / nowcast。对照用，不进决策。",
+  },
+  {
+    id: "y_on",
+    label: "y_on",
+    widthPct: 16,
+    num: true,
+    sortable: true,
+    title: "格式 预估(真实)。真实=次日开/今日收。对照用，不进决策。",
+  },
+  {
+    id: "ranking",
+    label: "ranking",
+    widthPct: 11,
+    num: true,
+    sortable: true,
+    title: "ranking = (1+y_fuse/100)×(1+α×y_on/100)−1，展示百分数。α 默认 0（隔夜不参与）。<0% 清仓；>1% 入场；>2% 强手。",
+  },
+];
+
+export function sortLedgerTradeLegs(legs) {
+  const sideRank = (r) => {
+    const s = String(r.side || "").toLowerCase();
+    const skipped = String(r.status || "") === "skipped";
+    if (s === "sell") return skipped ? 1 : 0;
+    if (s === "buy") return skipped ? 3 : 2;
+    return 4;
+  };
+  return (legs || []).slice().sort((a, b) => {
+    const ad = String(a.as_of || a.signal_date || a.ts || "").slice(0, 10);
+    const bd = String(b.as_of || b.signal_date || b.ts || "").slice(0, 10);
+    if (ad !== bd) return ad.localeCompare(bd);
+    const sr = sideRank(a) - sideRank(b);
+    if (sr) return sr;
+    return String(a.stock_code || "").localeCompare(String(b.stock_code || ""), "zh-CN");
+  });
+}
+
+function _numOrNull(v) {
+  if (v == null || v === "") return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
+function _scoreClsOf(scoreCls, v) {
+  return v == null ? "score-na" : scoreCls(v);
+}
+
+function _fmtNum(v, digits = 2) {
+  const n = _numOrNull(v);
+  return n == null ? "—" : n.toLocaleString("zh-CN", { maximumFractionDigits: digits });
+}
+
+function _fmtWan(v) {
+  const n = _numOrNull(v);
+  if (n == null) return "—";
+  if (Math.abs(n) >= 10000) {
+    return `${(n / 10000).toLocaleString("zh-CN", { maximumFractionDigits: 2 })}万`;
+  }
+  return n.toLocaleString("zh-CN", { maximumFractionDigits: 0 });
+}
+
+function _actionMeta(r) {
+  const skipped = String(r.status || "") === "skipped";
+  const raw = String(r.action || r.matrix_action || "").toLowerCase();
+  const side = String(r.side || "").toLowerCase();
+  if (skipped || raw === "skip") return { key: "skip", text: "跳过" };
+  if (raw === "open") return { key: "open", text: "开" };
+  if (raw === "add") return { key: "add", text: "加" };
+  if (raw === "exit") return { key: "exit", text: "清" };
+  if (side === "buy") return { key: "open", text: "买" };
+  if (side === "sell") return { key: "exit", text: "卖" };
+  return { key: "", text: "—" };
+}
+
+export function buildLedgerTradeRow(r, i, deps) {
+  const nameByCode = deps.nameByCode || {};
+  const { fmtScore, scoreCls } = deps;
+  const code = String(r.stock_code || "").trim();
+  const fullName = nameByCode[code] || r.stock_name || code;
+  const side = String(r.side || "").toLowerCase();
+  const buy = side === "buy";
+  const skipped = String(r.status || "") === "skipped";
+  const yf = _numOrNull(r.y_fuse != null ? r.y_fuse : r.predicted_score);
+  const yo = _numOrNull(r.y_on);
+  const rk = _numOrNull(r.ranking_score);
+  const yt = _numOrNull(r.y_trade);
+  const yn = _numOrNull(r.y_nowcast);
+  const rankI = _numOrNull(r.rank_i);
+  const rankN = _numOrNull(r.rank_n);
+  const rCc = _numOrNull(r.realized_cc);
+  const rOn = _numOrNull(r.realized_on);
+  const cash = _numOrNull(r.cash_after);
+  const nHold = _numOrNull(r.n_holdings);
+  const equity = _numOrNull(r.equity_after);
+  const act = _actionMeta(r);
+  const fuseTip = [
+    yf != null ? `y_fuse ${fmtScore(yf)}` : "",
+    rCc != null ? `真实 close/昨收 ${fmtScore(rCc, { signed: true })}` : "真实 —",
+    yt != null ? `y_trade ${fmtScore(yt)}` : "",
+    yn != null ? `y_nowcast ${fmtScore(yn)}` : "",
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  const onTip = [
+    yo != null ? `y_on ${fmtScore(yo)}` : "",
+    rOn != null ? `真实 次日开/今日收 ${fmtScore(rOn, { signed: true })}` : "真实 —",
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  const sharesNum = skipped ? null : _numOrNull(r.shares);
+  const priceNum = skipped
+    ? null
+    : _numOrNull(r.price != null ? r.price : buy ? r.entry_price : r.exit_price);
+  const costNum = sharesNum != null && priceNum != null ? sharesNum * priceNum : null;
+  return {
+    code: `led-${i}-${code}-${r.as_of || ""}-${side}-${skipped ? "skip" : "fill"}`,
+    date: String(r.as_of || r.signal_date || r.ts || "").slice(0, 10) || "—",
+    side,
+    skipped,
+    actionKey: act.key,
+    actionText: act.text,
+    stock_code: code,
+    name: fullName,
+    sharesNum,
+    sharesText: skipped ? "—" : _fmtNum(r.shares, 0),
+    priceNum,
+    priceText: skipped ? "—" : _fmtNum(priceNum, 2),
+    costNum,
+    costText: costNum == null ? "—" : _fmtWan(costNum),
+    y_fuseNum: yf,
+    y_fuseText: fmtScore(yf, { signed: true }),
+    y_fuseCls: _scoreClsOf(scoreCls, yf),
+    y_fuseTip: fuseTip,
+    y_tradeNum: yt,
+    y_tradeText: fmtScore(yt),
+    y_tradeCls: _scoreClsOf(scoreCls, yt),
+    y_nowcastNum: yn,
+    y_nowcastText: fmtScore(yn),
+    y_nowcastCls: _scoreClsOf(scoreCls, yn),
+    y_onNum: yo,
+    y_onText: fmtScore(yo, { signed: true }),
+    y_onCls: _scoreClsOf(scoreCls, yo),
+    rankingNum: rk == null ? null : rk * 100,
+    rankingText: rk == null ? "—" : fmtScore(rk * 100, { signed: true }),
+    rankingCls: _scoreClsOf(scoreCls, rk),
+    y_onTip: onTip,
+    realizedCcNum: rCc,
+    realizedCcText: rCc == null ? "" : fmtScore(rCc, { signed: true }),
+    realizedCcCls: _scoreClsOf(scoreCls, rCc),
+    realizedOnNum: rOn,
+    realizedOnText: rOn == null ? "" : fmtScore(rOn, { signed: true }),
+    realizedOnCls: _scoreClsOf(scoreCls, rOn),
+    rankNum: rankI,
+    rankText: rankI != null && rankN != null ? `${rankI}/${rankN}` : rankI != null ? String(rankI) : "—",
+    cashNum: cash,
+    cashText: _fmtWan(cash),
+    cashTip: [
+      cash != null ? `日终现金 ${_fmtWan(cash)}` : "",
+      nHold != null ? `持仓 ${nHold} 只` : "",
+      equity != null ? `净值 ${_fmtWan(equity)}` : "",
+    ]
+      .filter(Boolean)
+      .join(" · "),
+  };
+}
+
+function _dayMeta(legs, day) {
+  let nOpen = 0;
+  let nAdd = 0;
+  let nExit = 0;
+  let nSkip = 0;
+  let cash = null;
+  let nHold = null;
+  let equity = null;
+  for (const r of legs || []) {
+    const d = String(r.as_of || r.signal_date || r.ts || "").slice(0, 10);
+    if (d !== day) continue;
+    const act = _actionMeta(r);
+    if (act.key === "open") nOpen += 1;
+    else if (act.key === "add") nAdd += 1;
+    else if (act.key === "exit") nExit += 1;
+    else if (act.key === "skip") nSkip += 1;
+    if (cash == null) cash = _numOrNull(r.cash_after);
+    if (nHold == null) nHold = _numOrNull(r.n_holdings);
+    if (equity == null) equity = _numOrNull(r.equity_after);
+  }
+  return { nOpen, nAdd, nExit, nSkip, cash, nHold, equity };
+}
+
+export function buildLedgerDayRow(day, meta) {
+  const cash = meta && meta.cash != null ? meta.cash : null;
+  const nHold = meta && meta.nHold != null ? meta.nHold : null;
+  const equity = meta && meta.equity != null ? meta.equity : null;
+  return {
+    kind: "day",
+    code: `led-day-${day}`,
+    date: day,
+    stock_code: "",
+    name: "",
+    nOpen: meta ? meta.nOpen : 0,
+    nAdd: meta ? meta.nAdd : 0,
+    nExit: meta ? meta.nExit : 0,
+    nSkip: meta ? meta.nSkip : 0,
+    cashNum: cash,
+    cashText: _fmtWan(cash),
+    nHold,
+    equityNum: equity,
+    equityText: _fmtWan(equity),
+  };
+}
+
+export function buildLedgerTradeRows(legs, deps) {
+  const sorted = sortLedgerTradeLegs(legs);
+  const out = [];
+  let lastDay = "";
+  sorted.forEach((r, i) => {
+    const day = String(r.as_of || r.signal_date || r.ts || "").slice(0, 10);
+    if (day && day !== lastDay) {
+      lastDay = day;
+      out.push(buildLedgerDayRow(day, _dayMeta(sorted, day)));
+    }
+    out.push(buildLedgerTradeRow(r, i, deps));
+  });
+  return out;
+}
+
+export function ledgerTradesCaptionHtml() {
+  return (
+    `<p id="quant-bt-stock-chip" class="quant-bt-stock-chip" hidden></p>` +
+    `<div class="quant-bt-trades-host"></div>`
+  );
+}
+
+export function buildLedgerTradesCsv(rows, nameByCode = {}) {
+  const header = [
+    "date",
+    "status",
+    "action",
+    "side",
+    "stock_code",
+    "stock_name",
+    "shares",
+    "price",
+    "cost",
+    "y_fuse",
+    "y_trade",
+    "y_nowcast",
+    "y_on",
+    "ranking_score",
+    "realized_cc",
+    "realized_on",
+    "cash_after",
+    "n_holdings",
+    "equity_after",
+  ];
+  const lines = [header.join(",")];
+  for (const r of sortLedgerTradeLegs(rows)) {
+    const code = String(r.stock_code || "").trim();
+    const name = nameByCode[code] || r.stock_name || "";
+    const sh = Number(r.shares);
+    const px = Number(r.price);
+    const cost = Number.isFinite(sh) && Number.isFinite(px) ? sh * px : "";
+    const cells = [
+      String(r.as_of || r.signal_date || r.ts || "").slice(0, 10),
+      r.status || "",
+      r.action || r.matrix_action || "",
+      r.side || "",
+      code,
+      name,
+      r.shares ?? "",
+      r.price ?? "",
+      cost,
+      r.y_fuse ?? r.predicted_score ?? "",
+      r.y_trade ?? "",
+      r.y_nowcast ?? "",
+      r.y_on ?? "",
+      r.ranking_score != null && Number.isFinite(Number(r.ranking_score))
+        ? (Number(r.ranking_score) * 100).toFixed(4)
+        : "",
+      r.realized_cc ?? "",
+      r.realized_on ?? "",
+      r.cash_after ?? "",
+      r.n_holdings ?? "",
+      r.equity_after ?? "",
+    ].map((v) => {
+      const s = String(v);
+      return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+    });
+    lines.push(cells.join(","));
+  }
+  return "\ufeff" + lines.join("\n");
 }
 
 /** @param {Array<object>} legs */
@@ -441,10 +779,24 @@ const BT_TRADES_NUM_KEYS = {
   intent: "intentNum",
   score: "scoreNum",
   score_nowcast: "scoreNowcastNum",
+  shares: "sharesNum",
+  price: "priceNum",
+  cost: "costNum",
+  amount: "amountNum",
+  y_fuse: "y_fuseNum",
+  y_on: "y_onNum",
+  ranking: "rankingNum",
+  rank: "rankNum",
+  cash: "cashNum",
 };
 
 /** Virtual-table compare callback for sim trades. */
 export function btTradesNumCompare(id, a, b) {
+  const ad = a && a.date;
+  const bd = b && b.date;
+  if (ad && bd && ad !== bd) return String(ad).localeCompare(String(bd));
+  if (a && a.kind === "day" && !(b && b.kind === "day")) return -1;
+  if (b && b.kind === "day" && !(a && a.kind === "day")) return 1;
   const nk = BT_TRADES_NUM_KEYS[id];
   if (nk) {
     const av = a[nk];
@@ -459,18 +811,135 @@ export function btTradesNumCompare(id, a, b) {
   });
 }
 
+function _dayBandHtml(d, escapeHtml) {
+  const chips = [];
+  if (d.nExit) chips.push(`<span class="bt-ledger-flow is-exit">清 ${d.nExit}</span>`);
+  if (d.nOpen) chips.push(`<span class="bt-ledger-flow is-open">开 ${d.nOpen}</span>`);
+  if (d.nAdd) chips.push(`<span class="bt-ledger-flow is-add">加 ${d.nAdd}</span>`);
+  if (d.nSkip) chips.push(`<span class="bt-ledger-flow is-skip">跳 ${d.nSkip}</span>`);
+  const cashBits = [
+    d.cashText && d.cashText !== "—" ? `现金 ${d.cashText}` : "",
+    d.nHold != null ? `持仓 ${d.nHold}` : "",
+    d.equityText && d.equityText !== "—" ? `净值 ${d.equityText}` : "",
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  return (
+    `<div class="bt-ledger-day-inner">` +
+    `<time class="bt-ledger-day-date">${escapeHtml(d.date || "")}</time>` +
+    (chips.length ? `<span class="bt-ledger-day-flows">${chips.join("")}</span>` : "") +
+    (cashBits
+      ? `<span class="bt-ledger-day-cash">${escapeHtml(cashBits)}</span>`
+      : "") +
+    `</div>`
+  );
+}
+
+function _predRealHtml(predText, predCls, realText, realCls, escapeHtml) {
+  const hasPred = predText && predText !== "—";
+  const hasReal = realText && realText !== "—";
+  if (!hasPred && !hasReal) {
+    return `<span class="bt-trade-score bt-stack-main paper-hold-score score-na">—</span>`;
+  }
+  const pred = hasPred ? predText : "—";
+  const real = hasReal ? realText : "—";
+  return (
+    `<span class="bt-pair">` +
+    `<span class="bt-trade-score bt-stack-main paper-hold-score ${escapeHtml(
+      predCls || ""
+    )}">${escapeHtml(pred)}</span>` +
+    `<span class="bt-pair-sep">(</span>` +
+    `<span class="bt-pair-real paper-hold-score ${escapeHtml(
+      hasReal ? realCls || "" : "score-na"
+    )}">${escapeHtml(real)}</span>` +
+    `<span class="bt-pair-sep">)</span>` +
+    `</span>`
+  );
+}
+
+function _stackScoreHtml(topHtml, parts, tip, escapeHtml) {
+  const t = tip ? ` title="${escapeHtml(tip)}"` : "";
+  return (
+    `<span class="bt-stack-score"${t}>` +
+    `<span class="bt-stack-top">${topHtml}</span>` +
+    (parts ? `<span class="bt-stack-parts">${parts}</span>` : "") +
+    `</span>`
+  );
+}
+
 /**
  * Virtual-table cellHtml for sim trades.
  * @param {{ escapeHtml: (s: string) => string, watchingNameSpanHtml: (name: string) => string }} deps
  */
 export function btTradesCellHtml(col, d, deps) {
   const { escapeHtml, watchingNameSpanHtml } = deps;
+  if (d && d.kind === "day") {
+    if (col.id === "action") return _dayBandHtml(d, escapeHtml);
+    return "";
+  }
   if (col.id === "name") {
     return (
-      `<div class="watching-stock" title="${escapeHtml(d.name + " " + d.stock_code)}">` +
+      `<div class="watching-stock" title="${escapeHtml(
+        `${d.name} ${d.stock_code} · 点击看日线`
+      )}">` +
       watchingNameSpanHtml(d.name) +
       `<span class="watching-code-sub">${escapeHtml(d.stock_code)}</span></div>`
     );
+  }
+  if (col.id === "date") return escapeHtml(d.date || "—");
+  if (col.id === "action") {
+    const cls = d.actionKey ? `bt-trade-action is-${d.actionKey}` : "bt-trade-action";
+    return `<span class="${cls}">${escapeHtml(d.actionText || "—")}</span>`;
+  }
+  if (col.id === "side") {
+    const cls = d.side === "buy" ? "up" : d.side === "sell" ? "down" : "";
+    return `<span class="bt-trade-side ${cls}">${escapeHtml(d.sideText || d.actionText || "—")}</span>`;
+  }
+  if (col.id === "shares") return escapeHtml(d.sharesText || "—");
+  if (col.id === "price") return escapeHtml(d.priceText || "—");
+  if (col.id === "cost") {
+    return `<span class="bt-trade-cash">${escapeHtml(d.costText || "—")}</span>`;
+  }
+  if (col.id === "amount") return escapeHtml(d.amountText || "—");
+  if (col.id === "y_fuse") {
+    const bits = [];
+    bits.push(
+      `<span class="bt-stack-k">trade</span> ${escapeHtml(d.y_tradeText || "—")}`
+    );
+    bits.push(
+      `<span class="bt-stack-k">nowcast</span> ${escapeHtml(d.y_nowcastText || "—")}`
+    );
+    return _stackScoreHtml(
+      _predRealHtml(d.y_fuseText, d.y_fuseCls, d.realizedCcText, d.realizedCcCls, escapeHtml),
+      bits.join("<span class=\"bt-stack-sep\">·</span>"),
+      d.y_fuseTip,
+      escapeHtml
+    );
+  }
+  if (col.id === "y_on") {
+    return _stackScoreHtml(
+      _predRealHtml(d.y_onText, d.y_onCls, d.realizedOnText, d.realizedOnCls, escapeHtml),
+      `<span class="bt-stack-ph" aria-hidden="true">&nbsp;</span>`,
+      d.y_onTip,
+      escapeHtml
+    );
+  }
+  if (col.id === "ranking") {
+    return _stackScoreHtml(
+      `<span class="bt-trade-score bt-stack-main paper-hold-score ${escapeHtml(
+        d.rankingCls || ""
+      )}">${escapeHtml(d.rankingText || "—")}</span>`,
+      "",
+      d.rankingText && d.rankingText !== "—"
+        ? `ranking ${d.rankingText} = (1+y_fuse/100)×(1+α×y_on/100)−1，展示百分数`
+        : "",
+      escapeHtml
+    );
+  }
+  if (col.id === "rank") return escapeHtml(d.rankText || "—");
+  if (col.id === "cash") {
+    const tip = d.cashTip ? ` title="${escapeHtml(d.cashTip)}"` : "";
+    return `<span class="bt-trade-cash"${tip}>${escapeHtml(d.cashText || "—")}</span>`;
   }
   if (col.id === "ret") {
     return `<span class="bt-trade-ret ${d.retCls || ""}">${escapeHtml(d.retText)}</span>`;

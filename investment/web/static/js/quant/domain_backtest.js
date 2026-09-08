@@ -1,15 +1,17 @@
 import { apiFetch } from "../api_client.js";
-import { renderLineChart, renderDualLineChart, renderMultiLineChart } from "../lw_charts.js";
-import { mountVirtualTable } from "../virtual_table.js";
+import { renderLineChart, renderDualLineChart, renderMultiLineChart, renderNavBarChart } from "../lw_charts.js";
 import { fmtScore, scoreCls } from "../paper/fmt.js";
 import { renderT0Viz, wireT0SkipTips } from "../paper/t0_viz.js?v=p1924";
-import { wireT0ProcessTips, wireT0DayDebugExpand } from "../paper/t0_table.js?v=p1985";
+import { wireT0ProcessTips, wireT0DayDebugExpand } from "../paper/t0_table.js?v=p1986";
 import { portfolioBtScoreFloorPayload as buildBtScoreFloorPayload, mergeScoringFloors } from "./scoring.js";
 import { truncateStockName, watchingNameSpanHtml } from "./names.js";
 import { downloadBlob } from "../shared.js";
 
 const _V =
   (typeof window !== "undefined" && window.__ASSET_V__) || "dev";
+const { mountVirtualTable } = await import(
+  `../virtual_table.js?v=${encodeURIComponent(_V)}`
+);
 const { createScoreTooltipController } = await import(
   `../score_tooltip.js?v=${encodeURIComponent(_V)}`
 );
@@ -25,6 +27,11 @@ const {
   flattenTradesToSimLegs,
   formatFactorWeightsNote,
   formatSimStatus,
+  isRankLotsLedger,
+  BT_LEDGER_TRADE_COLS,
+  buildLedgerTradeRows,
+  ledgerTradesCaptionHtml,
+  buildLedgerTradesCsv,
 } = await import(`./bt_trades.js?v=${encodeURIComponent(_V)}`);
 const { readPromoteHardGate, buildPromoteHintsPack, savePromoteHintsPack } = await import(
   `./promote_cache.js?v=${encodeURIComponent(_V)}`
@@ -82,7 +89,7 @@ export function sliceCurveToDateWindow(series, days = TOPK_NAV_CHART_WINDOW_DAYS
 
 /** Quant domain: backtest */
 export function installBacktest(q) {
-  const { on, els, state, ctx, escapeHtml, apiFetch, setQuantMeta, setBusyText, btSimScoreTips } = q;
+  const { on, els, state, ctx, escapeHtml, apiFetch, setQuantMeta, setBusyText, btSimScoreTips, watchingNameFromEl } = q;
   const { fmtPct, metricClass, renderMetricCards, renderBtScopeNote, renderFitGapPanel, renderRobustnessPanel, buildPortfolioBacktestCards, renderPromoteHintsPanel, BT_SCOPE_LIVE, BT_SCOPE_FROZEN, readHorizonDays, quantBtBusyIds } = q;
   const { renderAttributionTablesHtml, renderIcEquityAlignHtml, renderQuantileTableHtml, buildT0BacktestMetrics, buildT0BacktestDaysHtml, buildCrossSectionResult, renderScoreIcHtml } = q;
   const { researchGridHtml, metricCell } = q;
@@ -107,7 +114,208 @@ export function installBacktest(q) {
     return out.slice(-40);
   }
 
+  function isReplayDesk() {
+    return typeof document !== "undefined" && document.body?.getAttribute("data-page") === "replay";
+  }
+
+  const BT_NAV_TITLE = "rank_lots 净值曲线";
+  const BT_NAV_HINT =
+    "纵轴：净值（起始=100）· 横轴全部交易日 · 蓝=策略 · 绿=基准 · 可缩放";
+  let btStockChartSeq = 0;
+
+  function btTradeRowAttrs(d) {
+    if (d && d.kind === "day") {
+      return { "data-kind": "day", "data-date": d.date || "" };
+    }
+    return {
+      "data-code": d.stock_code || "",
+      "data-name": d.name || "",
+      "data-date": d.date || "",
+    };
+  }
+
+  function btTradeRowClass(d) {
+    if (d && d.kind === "day") return "bt-ledger-day";
+    const parts = ["bt-ledger-leg"];
+    if (d.actionKey) parts.push(`is-${d.actionKey}`);
+    if (d.skipped) parts.push("bt-trade-skip");
+    if (state.btChartStockCode && d.stock_code === state.btChartStockCode) {
+      parts.push("is-chart-active");
+    }
+    return parts.join(" ");
+  }
+
+  function syncBtChartChrome({ mode, name, code, error } = {}) {
+    const titleEl = document.getElementById("quant-chart-title");
+    const hintEl = document.getElementById("quant-chart-axis-hint");
+    const navBtn = document.getElementById("quant-chart-nav-mode");
+    const chip = document.getElementById("quant-bt-stock-chip");
+    const stock = mode === "stock";
+    if (titleEl) {
+      titleEl.textContent = stock
+        ? `${name || code || "单票"} · 收盘价`
+        : isReplayDesk()
+          ? "rank_lots 日收益"
+          : BT_NAV_TITLE;
+    }
+    if (hintEl) {
+      hintEl.textContent = stock
+        ? error
+          ? `日线加载失败：${error}`
+          : isReplayDesk()
+            ? "纵轴：收盘价 · 近 60 个交易日 · 点「净值」回到日收益柱"
+            : "纵轴：收盘价 · 近 60 个交易日 · 点「净值」回到组合曲线"
+        : isReplayDesk()
+          ? "纵轴：日收益%（红涨绿跌）· 悬停看净值与个股明细 · 横轴全部交易日 · 可缩放"
+          : BT_NAV_HINT;
+    }
+    if (navBtn) navBtn.hidden = !stock;
+    if (chip) {
+      if (stock && (name || code)) {
+        chip.hidden = false;
+        chip.textContent = `日线 ${name || ""} ${code || ""} · 再点名称回到净值`.replace(
+          /\s+/g,
+          " "
+        ).trim();
+      } else {
+        chip.hidden = true;
+        chip.textContent = "";
+      }
+    }
+  }
+
+  function restoreNavChart() {
+    btStockChartSeq += 1;
+    const saved = state.lastNavChart;
+    if (saved) {
+      paintPortfolioChart(
+        saved.curve,
+        saved.emptyText,
+        saved.benchCurve,
+        saved.benchLabel,
+        saved.icAlign
+      );
+      return;
+    }
+    state.btChartMode = "nav";
+    state.btChartStockCode = null;
+    state.btChartStockName = "";
+    syncBtChartChrome({ mode: "nav" });
+    if (state.btTradesTableApi && typeof state.btTradesTableApi.repaint === "function") {
+      state.btTradesTableApi.repaint();
+    }
+  }
+
+  async function paintStockKline(code, name) {
+    const host = els.quantPortfolioChart;
+    if (!host || !code) return;
+    const seq = ++btStockChartSeq;
+    const label = name || code;
+    syncBtChartChrome({ mode: "stock", name: label, code });
+    const legendEl = document.getElementById("quant-portfolio-legend");
+    if (legendEl) {
+      legendEl.textContent = `${label} 日线 · 近 60 日收盘 · 再点名称或「净值」回到 rank_lots。`;
+    }
+    await renderLineChart(host, [], { emptyText: "加载日线…" });
+    if (seq !== btStockChartSeq) return;
+    try {
+      const res = await fetch(
+        `/api/watching/daily-chart?code=${encodeURIComponent(code)}&lookback=60`
+      );
+      const data = await res.json().catch(() => ({}));
+      if (seq !== btStockChartSeq) return;
+      if (!res.ok) throw new Error(data.detail || res.statusText || "加载失败");
+      const pts = (data.points || [])
+        .map((p) => ({
+          time: String(p.date || "").slice(0, 10),
+          value: Number(p.close),
+        }))
+        .filter((p) => /^\d{4}-\d{2}-\d{2}$/.test(p.time) && Number.isFinite(p.value));
+      const stockName = String(data.stock_name || name || code).trim();
+      if (state.btChartStockCode === code) state.btChartStockName = stockName;
+      syncBtChartChrome({ mode: "stock", name: stockName, code });
+      await renderLineChart(host, pts, {
+        emptyText: "暂无日线",
+        ma: [5, 10, 20],
+        disableZoom: false,
+      });
+    } catch (err) {
+      if (seq !== btStockChartSeq) return;
+      const msg = String((err && err.message) || err || "加载失败");
+      syncBtChartChrome({ mode: "stock", name: label, code, error: msg });
+      await renderLineChart(host, [], { emptyText: `日线加载失败：${msg}` });
+    }
+  }
+
+  function focusBtTradeStock(code, name) {
+    const c = String(code || "").trim();
+    if (!c) return;
+    if (state.btChartMode === "stock" && state.btChartStockCode === c) {
+      restoreNavChart();
+      return;
+    }
+    state.btChartMode = "stock";
+    state.btChartStockCode = c;
+    state.btChartStockName = String(name || "").trim();
+    if (state.btTradesTableApi && typeof state.btTradesTableApi.repaint === "function") {
+      state.btTradesTableApi.repaint();
+    }
+    const host = els.quantPortfolioChart;
+    if (host && typeof host.scrollIntoView === "function") {
+      try {
+        host.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      } catch (_) {
+        /* ignore */
+      }
+    }
+    paintStockKline(c, state.btChartStockName || c);
+  }
+
+  function bindBtTradesStockClicks(api) {
+    if (!api || typeof api.on !== "function") return;
+    api.on("rowClick", ({ code, event, row }) => {
+      const t = event && event.target;
+      if (!t || typeof t.closest !== "function") return;
+      if (!t.closest(".watching-stock, .watching-col-name")) return;
+      const stockEl = t.closest(".watching-stock");
+      const nameEl = stockEl && stockEl.querySelector(".watching-name-text");
+      const fromEl =
+        typeof watchingNameFromEl === "function"
+          ? watchingNameFromEl(nameEl, code)
+          : "";
+      const name =
+        (row && row.dataset && row.dataset.name) || fromEl || code;
+      focusBtTradeStock(code, name);
+    });
+  }
+
+  const navModeBtn = document.getElementById("quant-chart-nav-mode");
+  if (navModeBtn && navModeBtn.dataset.wired !== "1") {
+    navModeBtn.dataset.wired = "1";
+    navModeBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      restoreNavChart();
+    });
+  }
+
+  function writePortfolioSummary(text, { error = false } = {}) {
+    const el = els.quantPortfolioSummary;
+    const shown = String(text || "");
+    if (!el) return shown;
+    if (isReplayDesk() && !error) {
+      el.textContent = "";
+      el.hidden = true;
+      el.classList.remove("down");
+      return shown;
+    }
+    el.hidden = !shown;
+    el.textContent = shown;
+    el.classList.toggle("down", !!error);
+    return shown;
+  }
+
   function cachePromoteHintsFromBacktest(data) {
+    if (isReplayDesk()) return;
     if (!data || !data.success) return;
     const pack = buildPromoteHintsPack(data, {
       hardGateAtCache: readPromoteHardGate(),
@@ -120,14 +328,22 @@ export function installBacktest(q) {
   function clearBtTradesTable() {
     state.btTradesTableApi = null;
     state.lastSimTrades = [];
+    state.lastLedgerTrades = false;
     if (els.quantBtTrades) els.quantBtTrades.innerHTML = "";
   }
 
   function downloadSimTradesCsv(rows) {
-    const blob = new Blob([buildSimTradesCsv(rows, state.watchingNameByCode)], {
-      type: "text/csv;charset=utf-8",
-    });
-    downloadBlob(blob, `topk_sim_trades_${new Date().toISOString().slice(0, 10)}.csv`);
+    const ledger = !!state.lastLedgerTrades;
+    const blob = new Blob(
+      [
+        ledger
+          ? buildLedgerTradesCsv(rows, state.watchingNameByCode)
+          : buildSimTradesCsv(rows, state.watchingNameByCode),
+      ],
+      { type: "text/csv;charset=utf-8" }
+    );
+    const tag = ledger ? "rank_lots_trades" : "topk_sim_trades";
+    downloadBlob(blob, `${tag}_${new Date().toISOString().slice(0, 10)}.csv`);
   }
 
   async function fitReturnScoreModel() {
@@ -146,10 +362,7 @@ export function installBacktest(q) {
       });
       if (!ok || !data || !data.success) {
         const msg = (data && (data.error || data.detail)) || error || "拟合失败";
-        if (els.quantPortfolioSummary) {
-          els.quantPortfolioSummary.textContent = msg;
-          els.quantPortfolioSummary.classList.add("down");
-        }
+        writePortfolioSummary(msg, { error: true });
         return;
       }
       const draft = data.draft || {};
@@ -157,10 +370,7 @@ export function installBacktest(q) {
         `ŷ模型已拟合并落草稿 n=${data.sample_count} R²=${(data.ols && data.ols.r_squared) ?? "—"}` +
         (draft.path ? ` · ${draft.path}` : "") +
         " · 人审 promote 后配合 scoring.rank_mode=predicted_score";
-      if (els.quantPortfolioSummary) {
-        els.quantPortfolioSummary.classList.remove("down");
-        els.quantPortfolioSummary.textContent = msg;
-      }
+      writePortfolioSummary(msg);
     } finally {
       setQuantBtBusy(false);
     }
@@ -173,6 +383,7 @@ export function installBacktest(q) {
   }
 
   async function loadFitGapForBacktest(bt) {
+    if (isReplayDesk()) return;
     const { ok, data } = await apiFetch("/api/ops/fit-gap", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -183,6 +394,7 @@ export function installBacktest(q) {
   }
 
   async function loadLastBacktestSnapshot() {
+    if (isReplayDesk()) return;
     try {
       const res = await fetch("/api/quant/last");
       const data = await res.json();
@@ -196,7 +408,7 @@ export function installBacktest(q) {
         if (nc && nc.success) {
           summary += ` · 中性化 Δ${nc.delta?.total_return_pct ?? "—"}% (${nc.winner})`;
         }
-        els.quantPortfolioSummary.textContent = summary;
+        writePortfolioSummary(summary);
         renderBtScopeNote(`${BT_SCOPE_FROZEN} · 冻结于 ${at}`, { warn: true });
         renderMetricCards(els.quantBtMetrics, [
           { label: "累计收益", value: fmtPct(ps.total_return_pct), cls: metricClass(ps.total_return_pct) },
@@ -224,7 +436,7 @@ export function installBacktest(q) {
         }
         paintPortfolioChart(ps.equity_curve_tail, "无组合摘要曲线");
         applyReplayOverviewKpis(ps, { source: `冻结 ${at}` });
-        setBtTradesCaption("日报仅含摘要曲线；点击「Top-K 回测」加载完整模拟成交账");
+        setBtTradesCaption("日报仅含摘要曲线；点击「跑回测」加载完整模拟成交账");
       }
     } catch (_) {
       /* ignore */
@@ -304,7 +516,7 @@ export function installBacktest(q) {
           time: /^\d{4}-\d{2}-\d{2}$/.test(t)
             ? t
             : new Date(Date.UTC(2020, 0, 1 + i)).toISOString().slice(0, 10),
-          value: Number(p.equity ?? p.equity_norm ?? p.value),
+          value: Number(p.equity_nav ?? p.equity_norm ?? p.equity ?? p.value),
         };
       });
     const nPts = toPts(sliceCurveToDateWindow(nCurve));
@@ -343,9 +555,41 @@ export function installBacktest(q) {
     await paintDualPortfolioChart(nCurve, aCurve, "对照曲线不足");
   }
 
+  function buildDayDetailsMap(curve) {
+    const m = new Map();
+    for (const p of curve || []) {
+      if (!p || typeof p !== "object") continue;
+      const d = String(p.date || p.ts || p.time || "").slice(0, 10);
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) continue;
+      const legs = Array.isArray(p.legs) ? p.legs : [];
+      const more = Number(p.legs_more);
+      if (!legs.length && !(more > 0)) continue;
+      m.set(d, {
+        legs,
+        n_more: Number.isFinite(more) && more > 0 ? more : 0,
+      });
+    }
+    return m;
+  }
+
   async function paintPortfolioChart(curve, emptyText, benchCurve, benchLabel, icAlign) {
     const host = els.quantPortfolioChart;
     if (!host) return;
+    state.lastNavChart = {
+      curve: Array.isArray(curve) ? curve : [],
+      emptyText: emptyText || "",
+      benchCurve: benchCurve || null,
+      benchLabel: benchLabel || null,
+      icAlign: icAlign || null,
+    };
+    const hadStock = state.btChartMode === "stock" || !!state.btChartStockCode;
+    state.btChartMode = "nav";
+    state.btChartStockCode = null;
+    state.btChartStockName = "";
+    syncBtChartChrome({ mode: "nav" });
+    if (hadStock && state.btTradesTableApi && typeof state.btTradesTableApi.repaint === "function") {
+      state.btTradesTableApi.repaint();
+    }
     const legendEl = document.getElementById("quant-portfolio-legend");
     const toPts = (series) =>
       (series || []).map((p, i) => {
@@ -354,12 +598,17 @@ export function installBacktest(q) {
           time: /^\d{4}-\d{2}-\d{2}$/.test(t)
             ? t
             : new Date(Date.UTC(2020, 0, 1 + i)).toISOString().slice(0, 10),
-          value: Number(p.equity ?? p.equity_norm ?? p.value),
+          value: Number(p.equity_nav ?? p.equity_norm ?? p.equity ?? p.value),
         };
       });
-    const markers = buildIcAlignMarkers(icAlign);
-    const windowed = sliceCurveToDateWindow(curve);
-    const windowedBench = sliceCurveToDateWindow(benchCurve);
+    const fullWindow = isReplayDesk();
+    const markers = fullWindow ? [] : buildIcAlignMarkers(icAlign);
+    const windowed = fullWindow ? (Array.isArray(curve) ? curve : []) : sliceCurveToDateWindow(curve);
+    const windowedBench = fullWindow
+      ? Array.isArray(benchCurve)
+        ? benchCurve
+        : []
+      : sliceCurveToDateWindow(benchCurve);
     const winStart = _curvePointDate(windowed[0] || {});
     const pts = toPts(windowed);
     const bpts = toPts(windowedBench);
@@ -367,31 +616,51 @@ export function installBacktest(q) {
       winStart && /^\d{4}-\d{2}-\d{2}$/.test(winStart)
         ? markers.filter((m) => String(m.time || "") >= winStart)
         : markers;
+    const axisHint = fullWindow
+      ? `横轴全部 ${pts.length || 0} 个交易日。`
+      : "横轴近15日。";
+    if (fullWindow) {
+      if (legendEl) {
+        legendEl.textContent = bpts.length
+          ? `日收益柱（红涨绿跌）。悬停看净值、基准与个股明细。${axisHint}`
+          : `日收益柱（红涨绿跌）。悬停看净值与个股明细。起点净值 100。${axisHint}`;
+      }
+      await renderNavBarChart(host, pts, bpts, {
+        emptyText,
+        disableZoom: false,
+        labelA: "策略",
+        labelB: benchLabel || "基准",
+        dayDetails: buildDayDetailsMap(windowed),
+      });
+      return;
+    }
     if (bpts.length >= 2 && pts.length >= 2) {
       if (legendEl) {
-        legendEl.textContent =
-          `Top-K 净值（蓝）vs ${benchLabel || "基准"}（绿）。` +
-          (markers.length
-            ? "标记：绿点=正IC窗结束 · 灰点=非正IC窗。横轴近15日。"
-            : "起点 100；横轴近15日（调仓期结束日）。") +
-          "超额看指标卡，勿只看绝对累计。";
+        legendEl.textContent = fullWindow
+          ? `rank_lots（蓝）vs ${benchLabel || "基准"}（绿）。起点 100。${axisHint}`
+          : `rank_lots 净值（蓝）vs ${benchLabel || "基准"}（绿）。` +
+            (markers.length
+              ? `标记：绿点=正IC窗结束 · 灰点=非正IC窗。${axisHint}`
+              : `起点 100；${axisHint}`) +
+            "超额看指标卡，勿只看绝对累计。";
       }
       await renderDualLineChart(host, pts, bpts, {
         emptyText,
-        disableZoom: true,
+        disableZoom: !fullWindow,
         markers: winMarkers,
       });
       return;
     }
     if (legendEl) {
-      legendEl.textContent =
-        "研究用 Top-K 回测净值（非纸面账本）。起点 100。" +
-        (markers.length
-          ? " 标记：绿点=正IC窗结束 · 灰点=非正IC窗。"
-          : " 单线=当次回测；对照时蓝=中性化、绿=未中性化ŷ。") +
-        " 横轴近15日。";
+      legendEl.textContent = fullWindow
+        ? `rank_lots 净值。起点 100。${axisHint}`
+        : "rank_lots 净值（非研究独立腿）。起点 100。" +
+          (markers.length
+            ? " 标记：绿点=正IC窗结束 · 灰点=非正IC窗。"
+            : " 单线=当次回测；对照时蓝=中性化、绿=未中性化ŷ。") +
+          ` ${axisHint}`;
     }
-    await renderLineChart(host, pts, { emptyText, disableZoom: true, markers: winMarkers });
+    await renderLineChart(host, pts, { emptyText, disableZoom: !fullWindow, markers: winMarkers });
   }
 
   async function paintQuantileChart(qb) {
@@ -467,8 +736,7 @@ export function installBacktest(q) {
     const matched =
       bt &&
       bt.success &&
-      Number(req.lookback) === Number(best.lookback) &&
-      Number(req.top_k) === Number(best.top_k);
+      Number(req.lookback) === Number(best.lookback);
     if (matched) {
       const align = bt.ic_equity_align || {};
       const hints = Array.isArray(bt.promote_hints) ? bt.promote_hints : [];
@@ -488,21 +756,19 @@ export function installBacktest(q) {
       return {
         ok: true,
         warn: true,
-        reason: `${warnBits.join("；")}。可写入表单，请再跑 Top-K 核对。仍勿 promote`,
+        reason: `${warnBits.join("；")}。可写入 lookback，请再跑回测核对。仍勿 promote`,
       };
     }
     return {
       ok: true,
-      reason: "过门最优可写入表单；请再跑 Top-K 看完整报告。仍勿 promote",
+      reason: "过门最优可写入 lookback；请再跑回测看完整报告。仍勿 promote",
     };
   }
 
   function applyParamGridCellToForm(cell, opts = {}) {
     if (!cell) return false;
     const lb = document.getElementById("quant-lookback");
-    const tk = document.getElementById("quant-top-k");
     if (lb && cell.lookback != null) lb.value = String(cell.lookback);
-    if (tk && cell.top_k != null) tk.value = String(cell.top_k);
     const h =
       opts.horizon_days != null
         ? opts.horizon_days
@@ -530,16 +796,16 @@ export function installBacktest(q) {
       if (!Number.isFinite(lb) || !Number.isFinite(tk)) return;
       if (!eligible) {
         const ok = window.confirm(
-          `该格未过门（OOS<0 或回撤超）。仍把 lookback=${lb} / top_k=${tk} 写入回测表单？`
+          `该格未过门（OOS<0 或回撤超）。仍把 lookback=${lb} 写入回测表单？`
         );
         if (!ok) return;
       }
-      applyParamGridCellToForm({ lookback: lb, top_k: tk });
+      applyParamGridCellToForm({ lookback: lb });
       const meta = document.getElementById("param-grid-meta");
       if (meta) {
-        meta.textContent = `已写入 lookback=${lb} · top_k=${tk}${
+        meta.textContent = `已写入 lookback=${lb}${
           eligible ? "" : "（未过门）"
-        }；请再跑 Top-K。仍勿 promote`;
+        }；请再跑回测。仍勿 promote`;
       }
     };
     host.addEventListener("click", (e) => {
@@ -554,30 +820,57 @@ export function installBacktest(q) {
     });
   }
 
+  function readYOnAlpha() {
+    const el = document.getElementById("quant-on-alpha");
+    let v = 0;
+    if (el && el.value !== "") {
+      const n = Number(el.value);
+      if (Number.isFinite(n)) v = n;
+    }
+    return Math.round(Math.max(0, Math.min(1, v)) * 1000) / 1000;
+  }
+
+  /** 与 execution_ui.coerceRankThreshold 对齐：旧乘数 1.01/1.02 → 净收益 0.01/0.02。 */
+  function coerceReplayRank(raw, fallback) {
+    if (raw == null || raw === "") return fallback;
+    const n = Number(raw);
+    if (!Number.isFinite(n)) return fallback;
+    if (n >= 0.5) {
+      if (Math.abs(n - 1) < 1e-9) return 0.01;
+      if (Math.abs(n - 1.002) < 1e-6) return 0.02;
+      return Math.max(0, n - 1);
+    }
+    if (Math.abs(n - 0.2) < 1e-6) return 0.02;
+    return n;
+  }
+
+  function readRankThresholds() {
+    const enterEl = document.getElementById("quant-rank-enter");
+    const strongEl = document.getElementById("quant-rank-strong");
+    let enter = coerceReplayRank(enterEl && enterEl.value, 0.01);
+    let strong = coerceReplayRank(strongEl && strongEl.value, 0.02);
+    enter = Math.round(Math.max(0, Math.min(1, enter)) * 1000) / 1000;
+    strong = Math.round(Math.max(0, Math.min(1, strong)) * 1000) / 1000;
+    if (strong < enter) strong = enter;
+    return { rank_enter: enter, rank_strong: strong };
+  }
+
   function readPortfolioBtParams() {
     const lbEl = document.getElementById("quant-lookback");
-    const tkEl = document.getElementById("quant-top-k");
     const wmEl = document.getElementById("quant-weight-mode");
     const dropEl = document.getElementById("quant-dropout-n");
     const stEl = document.getElementById("quant-exclude-st");
     const amtEl = document.getElementById("quant-min-amount-pctile");
     const benchEl = document.getElementById("quant-benchmark-code");
-    const engEl = document.getElementById("quant-bt-engine");
-    let lookback = 120;
-    let topK = 3;
+    let lookback = 30;
     let weightMode = "score_budget";
     let dropoutN = 0;
     let excludeSt = true;
     let minAvgAmountPctile = null;
     let benchmarkCode = "000300";
-    let engine = "topk_research";
     if (lbEl && lbEl.value !== "") {
       const n = Number(lbEl.value);
-      if (Number.isFinite(n)) lookback = Math.max(40, Math.min(500, Math.round(n)));
-    }
-    if (tkEl && tkEl.value !== "") {
-      const n = Number(tkEl.value);
-      if (Number.isFinite(n)) topK = Math.max(1, Math.min(40, Math.round(n)));
+      if (Number.isFinite(n)) lookback = Math.max(30, Math.min(500, Math.round(n)));
     }
     if (wmEl && wmEl.value) {
       const allowed = new Set(["equal", "score_budget", "risk_parity_lite"]);
@@ -598,22 +891,19 @@ export function installBacktest(q) {
       const allowedB = new Set(["000300", "000905", "399006", "pool"]);
       if (allowedB.has(String(benchEl.value))) benchmarkCode = String(benchEl.value);
     }
-    if (engEl && engEl.value) {
-      const allowedE = new Set(["topk_research", "paper_replay"]);
-      if (allowedE.has(String(engEl.value))) engine = String(engEl.value);
-    }
     const rankMode = "predicted_score";
     return {
       lookback,
-      top_k: topK,
-      horizon_days: readHorizonDays(),
+      horizon_days: 1,
       weight_mode: weightMode,
       dropout_n: dropoutN,
       exclude_st: excludeSt,
       min_avg_amount_pctile: minAvgAmountPctile,
       benchmark_code: benchmarkCode,
       rank_mode: rankMode,
-      engine,
+      engine: "paper_replay",
+      y_on_alpha: readYOnAlpha(),
+      ...readRankThresholds(),
     };
   }
 
@@ -638,7 +928,7 @@ export function installBacktest(q) {
         } else if (gate.warn) {
           meta.textContent = `${base} · ⚠可应用但需确认：${gate.reason}`;
         } else {
-          meta.textContent = `${base} · 可写入表单（请再跑 Top-K；勿 promote）`;
+          meta.textContent = `${base} · 可写入 lookback（请再跑回测；勿 promote）`;
         }
       }
     }
@@ -660,13 +950,13 @@ export function installBacktest(q) {
     if (fillEl) fillEl.innerHTML = "";
     const legs = resolveSimTradeLegs(dataOrTrades);
     if (!legs.length) {
-      setBtTradesCaption("暂无模拟成交记录 · 请先跑 Top-K 回测");
+      state.lastLedgerTrades = false;
+      setBtTradesCaption("暂无成交流水 · 请先跑回测");
       return;
     }
     state.lastSimTrades = legs;
-    const filled = legs.filter((r) => (r.status || "filled") === "filled").length;
-    const skipped = legs.length - filled;
-    const showIntent = simTradesIntentDiffers(legs);
+    const ledger = isRankLotsLedger(legs, dataOrTrades);
+    state.lastLedgerTrades = ledger;
     const rowDeps = {
       nameByCode: state.watchingNameByCode,
       fmtPct,
@@ -674,8 +964,39 @@ export function installBacktest(q) {
       fmtScore,
       scoreCls,
     };
-    const rows = buildSimTradeRows(legs, rowDeps);
     const cellDeps = { escapeHtml, watchingNameSpanHtml };
+    if (ledger) {
+      const filledLegs = legs.filter(
+        (r) => String(r.status || "filled") !== "skipped"
+      );
+      state.lastSimTrades = filledLegs;
+      if (!filledLegs.length) {
+        setBtTradesCaption("暂无成交记录");
+        return;
+      }
+      const rows = buildLedgerTradeRows(filledLegs, rowDeps);
+      els.quantBtTrades.innerHTML = ledgerTradesCaptionHtml();
+      const host = els.quantBtTrades.querySelector(".quant-bt-trades-host");
+      state.btTradesTableApi = mountVirtualTable(host, {
+        columns: BT_LEDGER_TRADE_COLS,
+        emptyText: "暂无成交流水",
+        rowHeight: 48,
+        fit: "host",
+        rootClass: "watching-react-grid bt-ledger-grid",
+        bodyClass: "quant-bt-trades-body",
+        compare: btTradesNumCompare,
+        cellHtml: (col, d) => btTradesCellHtml(col, d, cellDeps),
+        rowClass: btTradeRowClass,
+        rowAttrs: btTradeRowAttrs,
+      });
+      bindBtTradesStockClicks(state.btTradesTableApi);
+      state.btTradesTableApi.setRows(rows);
+      return;
+    }
+    const filled = legs.filter((r) => (r.status || "filled") === "filled").length;
+    const skipped = legs.length - filled;
+    const showIntent = simTradesIntentDiffers(legs);
+    const rows = buildSimTradeRows(legs, rowDeps);
     els.quantBtTrades.innerHTML = simTradesCaptionHtml({
       rowsLen: rows.length,
       filled,
@@ -691,11 +1012,15 @@ export function installBacktest(q) {
       columns: btSimTradeColumns(showIntent),
       emptyText: "暂无模拟成交记录",
       rowHeight: 38,
+      fit: "host",
       rootClass: "watching-react-grid",
       bodyClass: "quant-bt-trades-body",
       compare: btTradesNumCompare,
       cellHtml: (col, d) => btTradesCellHtml(col, d, cellDeps),
+      rowClass: btTradeRowClass,
+      rowAttrs: btTradeRowAttrs,
     });
+    bindBtTradesStockClicks(state.btTradesTableApi);
     state.btTradesTableApi.setRows(rows);
     if (els.quantBtTrades.dataset.scoreTipWired !== "1") {
       btSimScoreTips.bindHost(els.quantBtTrades, {
@@ -804,6 +1129,17 @@ export function installBacktest(q) {
       clearBtTradesTable();
       return;
     }
+    const m = data.metrics || {};
+    ctx.lastBacktestMetrics = {
+      max_drawdown_pct: m.max_drawdown_pct,
+      win_rate_pct: m.win_rate_pct,
+      total_return_pct: m.total_return_pct,
+    };
+    applyReplayOverviewKpis(data);
+    if (isReplayDesk()) {
+      renderBtTradesTable(data);
+      return;
+    }
     if (state.neutralCompareSource === "frozen") {
       renderBtScopeNote(
         BT_SCOPE_LIVE + " · 下方中性化对照仍为日报冻结，请点「中性化对照」刷新。",
@@ -819,25 +1155,18 @@ export function installBacktest(q) {
         warn: !!bench.warn_abs_pos_excess_neg,
       });
     }
-    const m = data.metrics || {};
-    ctx.lastBacktestMetrics = {
-      max_drawdown_pct: m.max_drawdown_pct,
-      win_rate_pct: m.win_rate_pct,
-      total_return_pct: m.total_return_pct,
-    };
     renderMetricCards(els.quantBtMetrics, buildPortfolioBacktestCards(data));
-    applyReplayOverviewKpis(data);
     renderRobustnessPanel(data);
     renderUniversePanel(data.universe);
     renderWfSlices(data.wf_slices);
     renderCostAssumptions(data.cost_assumptions);
     renderAttributionTables(data.attribution);
     renderRegimeBuckets(data.regime_buckets, data.macro_context_summary);
-    // 信号–成交已并入模拟成交账
-    renderSignalFillTable(null);
     renderScoreIc(data.score_ic);
     renderIcEquityAlign(data.ic_equity_align);
     renderQuantileTable(data.quantile_backtest);
+    // 信号–成交已并入模拟成交账
+    renderSignalFillTable(null);
     state.lastBacktestPack = {
       kind: "portfolio_backtest",
       exported_at: new Date().toISOString(),
@@ -1305,7 +1634,6 @@ export function installBacktest(q) {
       await ensureScoringFloors();
       const {
         lookback,
-        top_k,
         horizon_days,
         weight_mode,
         dropout_n,
@@ -1314,17 +1642,20 @@ export function installBacktest(q) {
         benchmark_code,
         rank_mode,
         engine,
+        y_on_alpha,
+        rank_enter,
+        rank_strong,
       } = readPortfolioBtParams();
-      const engLabel =
-        engine === "paper_replay" ? "纸面回放" : "研究 Top-K";
+      const engLabel = engine === "topk_research" ? "研究 Top-K" : "rank_lots";
       busyBase =
         watchN >= 40
-          ? `${engLabel}中（ŷ_EOD · 观察池约 ${watchN} 只 · lookback/horizon 越大越慢）…`
+          ? `${engLabel}中（${
+              engine === "topk_research" ? "ŷ_EOD" : "y_fuse/y_on · 09:30"
+            } · 观察池约 ${watchN} 只 · lookback 越大越慢）…`
           : `${engLabel}中（先读本地日线，缺的再补远端）…`;
       refreshBusy();
       const payload = {
         lookback,
-        top_k,
         horizon_days,
         ...portfolioBtScoreFloorPayload(rank_mode),
         apply_costs: true,
@@ -1335,13 +1666,15 @@ export function installBacktest(q) {
         min_avg_amount_pctile,
         benchmark_code,
         rank_mode,
-        engine: engine || "topk_research",
-        // 大池交互回测：关 WF / 零成本 / 截面 IC / 分层（各再跑一遍横截面，易超前端超时）
+        engine: engine || "paper_replay",
+        y_on_alpha,
+        rank_enter,
+        rank_strong,
         include_wf_slices: false,
         include_cost_compare: false,
         include_score_ic: false,
         include_quantile: false,
-        include_benchmark: engine !== "paper_replay",
+        include_benchmark: true,
       };
       const ctrl = typeof AbortController !== "undefined" ? new AbortController() : null;
       // 满池 × lookback120 × horizon1 可 >10min；留 20min 余量
@@ -1361,36 +1694,26 @@ export function installBacktest(q) {
         const aborted = Boolean(
           err && (err.name === "AbortError" || /abort/i.test(String(err)))
         );
-        els.quantPortfolioSummary.textContent = aborted
+        const failMsg = aborted
           ? `回测超时未返回（满池 + lookback 长 + horizon=1 时常见，需 10～20 分钟）。可试：lookback 60、horizon 3，或等分组任务跑完再点。`
           : String((err && err.message) || err || "回测请求失败");
-        els.quantPortfolioSummary.classList.add("down");
+        writePortfolioSummary(failMsg, { error: true });
         renderPortfolioBacktestResult(null);
         paintPortfolioChart([], "回测失败");
-        return { success: false, error: els.quantPortfolioSummary.textContent };
+        return { success: false, error: failMsg };
       } finally {
         if (timer) clearTimeout(timer);
       }
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data.success) {
-        els.quantPortfolioSummary.textContent = buildPortfolioBacktestFailText(
-          data,
-          res.status
-        );
-        els.quantPortfolioSummary.classList.add("down");
+        writePortfolioSummary(buildPortfolioBacktestFailText(data, res.status), { error: true });
         renderPortfolioBacktestResult(null);
         paintPortfolioChart([], "回测失败");
         return data;
       }
-      els.quantPortfolioSummary.classList.remove("down");
       const summary = buildPortfolioBacktestSummaryText(data);
       const elapsed = fmtElapsed();
-      els.quantPortfolioSummary.textContent = `${summary.text} · 耗时 ${elapsed}`;
-      if (summary.warn) {
-        els.quantPortfolioSummary.classList.add("down");
-      } else {
-        els.quantPortfolioSummary.classList.remove("down");
-      }
+      writePortfolioSummary(`${summary.text} · 耗时 ${elapsed}`, { error: !!summary.warn });
       // Top-K 单曲线与中性化对照无关：清掉日报/上次对照块，避免曲线前残留「绝对分…百分点」
       state.neutralCompareSource = null;
       renderNeutralCompareTable(null);
@@ -1430,7 +1753,6 @@ export function installBacktest(q) {
     try {
       const {
         lookback,
-        top_k,
         horizon_days,
         weight_mode,
         dropout_n,
@@ -1440,7 +1762,6 @@ export function installBacktest(q) {
       } = readPortfolioBtParams();
       const payload = {
         lookback,
-        top_k,
         horizon_days,
         ...portfolioBtScoreFloorPayload("predicted_score"),
         apply_costs: true,
@@ -1458,7 +1779,7 @@ export function installBacktest(q) {
       });
       const data = await res.json();
       if (!data.success) {
-        els.quantPortfolioSummary.textContent = data.error || "对照失败";
+        writePortfolioSummary(data.error || "对照失败", { error: true });
         renderNeutralCompareTable(null);
         renderPortfolioBacktestResult(null);
         paintPortfolioChart([], "对照失败");
@@ -1480,10 +1801,11 @@ export function installBacktest(q) {
               bc.benchmark_label || "基准"
             })`
           : "";
-      els.quantPortfolioSummary.textContent =
+      writePortfolioSummary(
         `${winner} · Δ累计 ${d.total_return_pct ?? "—"}% · 中性 ${nm.total_return_pct ?? "—"}% vs 绝对 ${am.total_return_pct ?? "—"}%` +
-        excessNote +
-        (data.fundamentals_count ? ` · 基本面 ${data.fundamentals_count} 只` : "");
+          excessNote +
+          (data.fundamentals_count ? ` · 基本面 ${data.fundamentals_count} 只` : "")
+      );
       state.neutralCompareSource = "live";
       renderNeutralCompareTable(data, null, { frozen: false });
       state.neutralCompareSource = "live";
@@ -1505,6 +1827,7 @@ export function installBacktest(q) {
   function setBtTradesCaption(text) {
     state.btTradesTableApi = null;
     state.lastSimTrades = [];
+    state.lastLedgerTrades = false;
     if (els.quantBtTrades) {
       els.quantBtTrades.innerHTML = `<p class="quant-trades-caption">${escapeHtml(text)}</p>`;
     }

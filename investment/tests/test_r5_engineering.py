@@ -28,6 +28,8 @@ class TestVirtualTableContract(unittest.TestCase):
         self.assertIn("500", text)
         self.assertIn("点击排序", text)
         self.assertIn("col.title", text)
+        self.assertIn('options.fit === "host"', text)
+        self.assertIn("minmax(0, 1fr)", text)
 
     def test_residual_pairs_trade_with_day_change(self):
         path = os.path.join(ROOT, "web/static/js/quant/watching_quotes_ui.js")

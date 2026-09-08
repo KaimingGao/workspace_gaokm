@@ -70,7 +70,7 @@ def run_paper_rebalance(
             "ok": False,
             "mode": "cluster_book",
             "dry_run": dry_run,
-            "error": "分池簿调仓已停用；请用观察池 path_matrix",
+            "error": "分池簿调仓已停用；请用观察池 rank_lots",
             "confirm_supported": False,
         }
     return _run_cross_section(

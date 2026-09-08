@@ -128,6 +128,64 @@ class TestSessionPit(unittest.TestCase):
         win = refresh_dual_score_window(item, now=now)
         self.assertEqual(win, "intraday")
 
+    def test_refresh_weekend_daytime_without_quote_is_eod_next(self):
+        """周末 10:00 不得因 session 回退到周五而标盘中。"""
+        from core.signal.session_pit import refresh_dual_score_window
+
+        item = {"dual_score_window": "intraday"}
+        now = datetime(2026, 8, 16, 10, 0)  # Sunday
+        win = refresh_dual_score_window(item, now=now)
+        self.assertEqual(win, "eod_next")
+
+    def test_offline_yesterday_quote_is_intraday_next_session(self):
+        """本地仓 quote.date=昨收：次日盘中须 intraday，否则 TRADE 假「单」。"""
+        from core.signal.session_pit import prepare_eod_bars, refresh_dual_score_window
+
+        bars = [{"date": "2026-09-07", "open": 10.0, "close": 10.2}]
+        quote = {"date": "2026-09-07", "open": 10.0, "close": 10.2}
+        now = datetime(2026, 9, 8, 14, 21)
+        eod, pit = prepare_eod_bars(bars, quote, now=now)
+        self.assertEqual(eod[-1]["date"], "2026-09-07")
+        self.assertFalse(pit["rolled_to_next"])
+        self.assertEqual(pit["dual_score_window"], "intraday")
+        item = {"dual_score_window": "eod_next"}
+        win = refresh_dual_score_window(item, quote=quote, bars=bars, now=now)
+        self.assertEqual(win, "intraday")
+
+    def test_offline_yesterday_quote_is_eod_next_after_close(self):
+        from core.signal.session_pit import prepare_eod_bars
+
+        bars = [{"date": "2026-09-07", "open": 10.0, "close": 10.2}]
+        quote = {"date": "2026-09-07", "open": 10.0, "close": 10.2}
+        now = datetime(2026, 9, 8, 15, 30)
+        _eod, pit = prepare_eod_bars(bars, quote, now=now)
+        self.assertTrue(pit["rolled_to_next"])
+        self.assertEqual(pit["dual_score_window"], "eod_next")
+
+    def test_offline_yesterday_quote_is_eod_next_preopen(self):
+        from core.signal.session_pit import prepare_eod_bars
+
+        bars = [{"date": "2026-09-07", "open": 10.0, "close": 10.2}]
+        quote = {"date": "2026-09-07", "open": 10.0, "close": 10.2}
+        now = datetime(2026, 9, 8, 8, 0)
+        _eod, pit = prepare_eod_bars(bars, quote, now=now)
+        self.assertTrue(pit["rolled_to_next"])
+        self.assertEqual(pit["dual_score_window"], "eod_next")
+
+    def test_historical_asof_stays_eod_next_at_live_midday(self):
+        """更早的历史报价日：即使此刻盘中，该 asof 会话已收盘，仍 eod_next。"""
+        from core.signal.session_pit import prepare_eod_bars
+
+        bars = [
+            {"date": "2026-08-13", "open": 10.0, "close": 10.0},
+            {"date": "2026-08-14", "open": 10.3, "close": 10.5},
+        ]
+        quote = {"date": "2026-08-14", "open": 10.3}
+        now = datetime(2026, 9, 8, 14, 21)
+        _eod, pit = prepare_eod_bars(bars, quote, now=now)
+        self.assertTrue(pit["rolled_to_next"])
+        self.assertEqual(pit["dual_score_window"], "eod_next")
+
     def test_quote_change_stripped_when_intraday(self):
         from core.signal.session_pit import quote_for_eod_score
 
@@ -392,6 +450,29 @@ class TestEodNextFusion(unittest.TestCase):
         bw = item.get("dual_score_weights") or {}
         self.assertAlmostEqual(float(bw.get("w_tau") or 0), 0.5, places=4)
         self.assertTrue(bw.get("tau_in_trade"))
+
+    def test_offline_yesterday_quote_fuses_tau_next_session(self):
+        """数据中心 offline 昨收 quote：次日盘中 ŷ_trade 须融 τ，不得单头「单」。"""
+        from core.signal.session_pit import prepare_eod_bars
+        from core.signal.dual_score import apply_tau_score_fields
+
+        bars = [{"date": "2026-09-07", "open": 10.0, "close": 10.2}]
+        quote = {"date": "2026-09-07", "open": 10.0}
+        now = datetime(2026, 9, 8, 14, 21)
+        _eod, pit = prepare_eod_bars(bars, quote, now=now)
+        item = {"predicted_score": 2.38, "score": 2.38}
+        apply_tau_score_fields(
+            item,
+            rem_yhat=1.79,
+            gap_pct=-0.58,
+            feats={"gap_pct": -0.58},
+            fuse_intraday=not bool(pit.get("rolled_to_next")),
+        )
+        self.assertEqual(item["dual_score_window"], "intraday")
+        self.assertEqual(item.get("dual_score_head"), "blend")
+        self.assertFalse(item.get("dual_score_single_head"))
+        self.assertTrue((item.get("dual_score_weights") or {}).get("tau_in_trade"))
+        self.assertNotAlmostEqual(float(item["predicted_score_blend"]), 2.38, places=3)
 
 
 if __name__ == "__main__":

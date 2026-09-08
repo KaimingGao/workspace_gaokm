@@ -32,7 +32,7 @@ class PaperRebalanceRequest(BaseModel):
     )
     matrix_mode: bool = Field(
         default=True,
-        description="观察池实时算分 + path_matrix 预演/落账（默认且唯一调仓路径）",
+        description="观察池实时算分 + rank_lots 预演/落账（默认且唯一调仓路径）",
     )
     dry_run: bool = Field(
         default=False,
@@ -494,7 +494,7 @@ class PaperExecutionPatchRequest(BaseModel):
     coupling: Optional[dict] = None
     rebalance_timing: Optional[dict] = Field(
         default=None,
-        description="调仓时机；含 path_matrix（早盘路径择时）",
+        description="调仓时机；含 path_matrix.rank_lots（09:30 开盘 100/200 股）",
     )
     lock: bool = True
     note: str = ""

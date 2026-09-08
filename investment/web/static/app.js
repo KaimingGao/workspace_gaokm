@@ -25,8 +25,7 @@ try {
     window.__investmentOpenCommandPalette?.();
   });
 
-  // W3：键盘可完成「打开回溯 → 跑网格 → 看热力 → 打开策略只读稿」
-  // 触发方式：Alt + Shift + G
+  // Alt + Shift + G → 打开历史回测
   document.addEventListener("keydown", (e) => {
     if (e.repeat) return;
     if (!(e.altKey && e.shiftKey && String(e.key || "").toLowerCase() === "g")) return;
@@ -40,7 +39,7 @@ try {
       return;
     }
     e.preventDefault();
-    window.location.href = "/replay?auto_param_grid_chain=1#param-grid";
+    window.location.href = "/replay";
   });
 } catch (err) {
   console.error("[QuantLab] init command palette failed", err);

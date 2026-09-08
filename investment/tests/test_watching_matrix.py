@@ -1,4 +1,4 @@
-"""观察池 + path_matrix 预演 / 落账。"""
+"""观察池 + rank_lots 预演 / 落账。"""
 
 from __future__ import annotations
 
@@ -17,16 +17,16 @@ def _signal_item(**extra):
     base = {
         "stock_code": "600000",
         "stock_name": "测试",
-        "y_trade": 1.0,
-        "predicted_score_blend": 1.0,
+        "y_trade": 1.5,
+        "predicted_score_blend": 1.5,
         "predicted_score": 0.9,
         "predicted_score_eod": 0.9,
         "predicted_score_tau": 0.7,
         "score_rem": 0.7,
         "y_path": 2.5,
         "predicted_score_path": 2.5,
-        "y_nowcast": 0.8,
-        "predicted_score_nowcast": 0.8,
+        "y_nowcast": 1.1,
+        "predicted_score_nowcast": 1.1,
         "y_on": 0.2,
         "predicted_score_on": 0.2,
         "sector": "银行",
@@ -57,12 +57,6 @@ class TestWatchingMatrixPreview(unittest.TestCase):
         ), patch(
             "core.paper.ledger.mark_to_market",
             return_value={"equity": 1_000_000, "cash": 1_000_000},
-        ), patch(
-            "core.signal.score_display.resolve_buy_floor",
-            return_value=0.01,
-        ), patch(
-            "core.signal.score_display.resolve_hold_floor",
-            return_value=0.01,
         ):
             out = simulate_watching_matrix_preview(paper, dry_run=True)
 
@@ -79,6 +73,7 @@ class TestWatchingMatrixPreview(unittest.TestCase):
         self.assertEqual(report[0].get("predicted_score_eod"), 0.9)
         self.assertEqual(report[0].get("predicted_score_tau"), 0.7)
         self.assertEqual(report[0].get("predicted_score_on"), 0.2)
+        self.assertEqual(float(out["buy_trades"][0].get("shares") or 0), 100)
         self.assertEqual(paper.get("cash"), 1_000_000)
         self.assertEqual(paper.get("holdings") or [], [])
 
@@ -112,12 +107,6 @@ class TestWatchingMatrixPreview(unittest.TestCase):
                 ),
                 "cash": float(p.get("cash") or 0),
             },
-        ), patch(
-            "core.signal.score_display.resolve_buy_floor",
-            return_value=0.01,
-        ), patch(
-            "core.signal.score_display.resolve_hold_floor",
-            return_value=0.01,
         ):
             out = simulate_watching_matrix_preview(paper, dry_run=False)
 
@@ -126,9 +115,11 @@ class TestWatchingMatrixPreview(unittest.TestCase):
         self.assertGreaterEqual(len(out.get("buy_trades") or []), 1)
         self.assertGreater(len(paper.get("holdings") or []), 0)
         self.assertEqual(paper["holdings"][0]["stock_code"], "600000")
+        self.assertEqual(float(paper["holdings"][0].get("shares") or 0), 100)
         self.assertLess(float(paper.get("cash") or 0), 1_000_000)
 
-    def test_skip_when_path_adverse(self):
+    def test_adverse_path_still_opens(self):
+        """低/负 y_path 不再拦开仓；ranking 过入场即可买。"""
         from core.paper.rebalance.watching_matrix import simulate_watching_matrix_preview
 
         paper = {
@@ -149,23 +140,17 @@ class TestWatchingMatrixPreview(unittest.TestCase):
         ), patch(
             "core.paper.ledger.mark_to_market",
             return_value={"equity": 1_000_000, "cash": 1_000_000},
-        ), patch(
-            "core.signal.score_display.resolve_buy_floor",
-            return_value=0.01,
-        ), patch(
-            "core.signal.score_display.resolve_hold_floor",
-            return_value=0.01,
         ):
             out = simulate_watching_matrix_preview(paper)
 
         self.assertTrue(out.get("ok"))
-        self.assertEqual(len(out.get("buy_trades") or []), 0)
-        self.assertEqual(len(out.get("rebalance_report") or []), 0)
+        self.assertGreaterEqual(len(out.get("buy_trades") or []), 1)
+        self.assertEqual(out["buy_trades"][0]["stock_code"], "600000")
         acts = (out.get("path_matrix") or {}).get("by_action") or {}
-        self.assertGreaterEqual(int(acts.get("skip_window") or 0), 1)
+        self.assertEqual(int(acts.get("skip_window") or 0), 0)
 
-    def test_held_path_skip_not_in_report(self):
-        """已持仓但本窗 path 闸：无成交，报告不进对照行（仅买/卖/加/减）。"""
+    def test_held_fusion_nonneg_no_sell_at_cash_floor(self):
+        """已持仓 y_fuse≥0：不因未进 Top 而卖；现金贴地板则不加仓。"""
         from core.paper.rebalance.watching_matrix import simulate_watching_matrix_preview
 
         paper = {
@@ -216,12 +201,6 @@ class TestWatchingMatrixPreview(unittest.TestCase):
                     }
                 ],
             },
-        ), patch(
-            "core.signal.score_display.resolve_buy_floor",
-            return_value=0.01,
-        ), patch(
-            "core.signal.score_display.resolve_hold_floor",
-            return_value=0.01,
         ):
             out = simulate_watching_matrix_preview(paper, dry_run=True)
 
@@ -263,12 +242,6 @@ class TestWatchingMatrixPreview(unittest.TestCase):
         ), patch(
             "core.paper.ledger.mark_to_market",
             return_value={"equity": 1_000_000, "cash": 1_000_000},
-        ), patch(
-            "core.signal.score_display.resolve_buy_floor",
-            return_value=0.01,
-        ), patch(
-            "core.signal.score_display.resolve_hold_floor",
-            return_value=0.01,
         ):
             out = simulate_watching_matrix_preview(paper, dry_run=True)
 
@@ -312,7 +285,7 @@ class TestWatchingMatrixPreview(unittest.TestCase):
             "summary": {"equity": 990000, "cash": 990000},
             "cash_impact": {},
             "confirm_supported": True,
-            "note": "观察池 path_matrix 落账（未建分池簿）",
+            "note": "观察池 rank_lots 落账（未建分池簿）",
         }
 
         with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as tf:

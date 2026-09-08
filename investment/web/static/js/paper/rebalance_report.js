@@ -233,10 +233,10 @@ function renderRebalanceReport(
     if (
       preview &&
       cashImpact &&
-      cashImpact.min_cash_pct != null &&
-      Number(cashImpact.min_cash_pct) > 0
+      cashImpact.cash_floor != null &&
+      Number(cashImpact.cash_floor) > 0
     ) {
-      note += ` · 现金底仓≥${Number(cashImpact.min_cash_pct)}%（正T加仓）`;
+      note += ` · 现金地板≥${Number(cashImpact.cash_floor).toLocaleString("zh-CN")}元`;
     }
     const tauGate = dualScore && dualScore.tau_gate;
     if (

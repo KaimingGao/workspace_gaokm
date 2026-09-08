@@ -397,7 +397,7 @@ def compare_partition_vs_active(
     if delta.get("mean_ic") is not None and float(delta["mean_ic"]) < -0.02:
         warnings.append(f"mean_ic 低于 active（Δ={delta['mean_ic']}）")
 
-    # 硬清单扩展：衰减 / 建簿约束告警（研究台，不替代 OOS 闸）
+    # 硬清单扩展：α 衰减告警（研究台，不替代 OOS 闸）
     checklist: List[Dict[str, Any]] = []
     checklist.append(
         {
@@ -409,12 +409,10 @@ def compare_partition_vs_active(
     )
     try:
         from core.risk.portfolio_health import build_portfolio_health
-        from core.signal.cluster.live import load_active_cluster_book
 
-        book_doc = load_active_cluster_book() or {}
         health = build_portfolio_health(
-            book=list(book_doc.get("book") or []),
-            book_constraints=(book_doc.get("meta") or {}).get("book_constraints"),
+            book=[],
+            book_constraints=None,
             rolling_ic={
                 "mean_ic": (d_q or {}).get("mean_ic"),
             },
@@ -432,24 +430,6 @@ def compare_partition_vs_active(
         )
         if decay:
             warnings.append("组合健康度：α 衰减告警（建议暂缓 promote）")
-        top_pct = (health.get("exposure") or {}).get("book_top_sector_pct")
-        max_sec = float((health.get("limits") or {}).get("max_sector_pct") or 40)
-        sector_ok = top_pct is None or float(top_pct) <= max_sec + 1e-6
-        checklist.append(
-            {
-                "id": "book_sector_cap",
-                "ok": sector_ok,
-                "label": "选股簿行业集中度",
-                "detail": (
-                    f"Top {health.get('exposure', {}).get('book_top_sector')} "
-                    f"{top_pct}% / 上限 {max_sec:g}%"
-                    if top_pct is not None
-                    else "无簿或未计算"
-                ),
-            }
-        )
-        if not sector_ok:
-            warnings.append("选股簿行业占比超上限（约束装填后仍超则检查配置）")
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
         logger.debug("catch except Exception: in cluster_oos_labels.py", exc_info=True)
         checklist.append(
@@ -457,7 +437,7 @@ def compare_partition_vs_active(
                 "id": "portfolio_health",
                 "ok": True,
                 "label": "组合健康度",
-                "detail": "跳过（无法加载簿/纸面）",
+                "detail": "跳过（健康度不可用）",
             }
         )
 

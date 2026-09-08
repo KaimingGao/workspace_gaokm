@@ -49,13 +49,6 @@ const COMMANDS = [
     },
   },
   {
-    id: "replay-grid",
-    label: "历史回测 · 滚动到参数扫描",
-    hint: "/replay#param-grid",
-    href: "/replay#param-grid",
-    keywords: "网格 热力 参数 scan",
-  },
-  {
     id: "factor-dict",
     label: "策略 · 因子字典",
     hint: "/strategy#strategy-factor-dict",

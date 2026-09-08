@@ -44,7 +44,7 @@ import { createFactorMetaCache } from "./quant/factor_meta.js";
 import { buildUniversePanelHtml } from "./quant/universe_ui.js";
 import { researchGridHtml, metricCell } from "./quant/research_grid.js";
 import { createPromoteHintsRenderer } from "./quant/promote_hints_ui.js";
-import { createBtTablesUi } from "./quant/bt_tables.js?v=p1985";
+import { createBtTablesUi } from "./quant/bt_tables.js?v=p1998";
 import { installClusterProbe } from "./quant/domain_cluster.js";
 import { installSuggest } from "./quant/domain_suggest.js";
 import { installStrategy } from "./quant/domain_strategy.js";
@@ -112,11 +112,10 @@ export function initQuant(ctx) {
   } = factorMeta;
 
   const BT_SCOPE_LIVE =
-    "口径：日线 PIT + 可选财务；不含舆情加减分；无 live 质量门禁（thin/fallback 仍可能进分）。" +
-    "历史 Top-K 仅用 ŷ_EOD 排序，关 ŷ_τ 买入闸（日线无可靠分钟 τ；与 live ŷ_trade 不同）。" +
-    "成本按换手计费。有效≠正确：先看上方 IC/分层/超额，再解读 Top-K 累计收益。";
+    "口径：每个交易日 09:30 rank_lots（初始 100 万 · 现金地板 50 万 · y_fuse/y_on · 1000/2000 股）。" +
+    "净值起点 100；成本按纸面成本模型。有效≠正确：先看超额/回撤，再解读累计收益。";
   const BT_SCOPE_FROZEN =
-    "以下为 quant_daily 冻结摘要，不是刚才点的 Top-K；点「Top-K 回测」或「中性化对照」刷新当次结果。";
+    "以下为 quant_daily 冻结摘要，不是刚才点的回测；点「跑回测」或「中性化对照」刷新当次结果。";
   const quantBtBusyIds = [
     "quant-portfolio-run",
     "quant-portfolio-compare",
@@ -1138,7 +1137,9 @@ export function initQuant(ctx) {
       if (hasStrategy || els.quantFactorList) {
         background.push(suggest.loadFactorPanel().catch(() => {}));
       }
-      if (hasReplay) background.push(backtest.loadLastBacktestSnapshot().catch(() => {}));
+      if (hasReplay && page !== "replay") {
+        background.push(backtest.loadLastBacktestSnapshot().catch(() => {}));
+      }
       // 研究枢纽：进页恢复上次分组；点「跑分组」才重算（当日首次自动强制日线，其后纯缓存）
       if (page === "quant" && (els.quantFactorList || els.quantOlsClusters)) {
         background.push(cluster.bootstrapClusterHub().catch(() => {}));
@@ -2776,7 +2777,7 @@ export function initQuant(ctx) {
     const dull = state.lastParamGrid.dullness || backtest.paramGridDullness(state.lastParamGrid);
     if (dull && dull.sharp) {
       const ok = window.confirm(
-        `过门最优格相对邻格 OOS 差达 ${dull.max_gap_pp}pp，可能过拟合尖峰。仍应用 lookback=${best.lookback} / top_k=${best.top_k}？`
+        `过门最优格相对邻格 OOS 差达 ${dull.max_gap_pp}pp，可能过拟合尖峰。仍应用 lookback=${best.lookback}？`
       );
       if (!ok) {
         if (meta) meta.textContent = "已取消应用最优（邻格过尖）";
@@ -2785,7 +2786,7 @@ export function initQuant(ctx) {
     }
     if (gate.warn) {
       const okAlign = window.confirm(
-        `${gate.reason}\n\n仍将最优 lookback=${best.lookback} / top_k=${best.top_k} 写入回测表单？`
+        `${gate.reason}\n\n仍将最优 lookback=${best.lookback} 写入回测表单？`
       );
       if (!okAlign) {
         if (meta) meta.textContent = "已取消应用最优（需确认）";
@@ -2797,11 +2798,11 @@ export function initQuant(ctx) {
     });
     if (meta) {
       meta.textContent =
-        `已写入 lookback=${best.lookback} · top_k=${best.top_k}` +
+        `已写入 lookback=${best.lookback}` +
         (state.lastParamGrid && state.lastParamGrid.horizon_days != null
           ? ` · h=${state.lastParamGrid.horizon_days}`
           : "") +
-        `；请再跑 Top-K 看完整报告。仍勿静默 promote` +
+        `；请再跑回测看完整报告。仍勿静默 promote` +
         (dull && dull.sharp ? ` · 邻格Δ ${dull.max_gap_pp}pp` : "");
     }
   });
@@ -2834,7 +2835,7 @@ export function initQuant(ctx) {
     e.preventDefault();
     const result = state.lastBacktestPack && state.lastBacktestPack.result;
     if (!result || !result.success) {
-      if (els.quantPortfolioSummary) els.quantPortfolioSummary.textContent = "请先跑 Top-K 回测";
+      if (els.quantPortfolioSummary) els.quantPortfolioSummary.textContent = "请先跑回测";
       return;
     }
     try {
@@ -3367,34 +3368,4 @@ export function initQuant(ctx) {
       autoBacktest: auto === "backtest",
     });
   }
-
-  // W3：键盘链路自动化（可从全局快捷键触发）
-  if (document.body.dataset.page === "replay") {
-    const sp = new URLSearchParams(location.search);
-    const auto = sp.get("auto_param_grid_chain");
-    if (auto === "1") {
-      const meta = document.getElementById("param-grid-meta");
-      if (meta) meta.textContent = "键盘链路：自动跑网格中…";
-      setTimeout(() => {
-        backtest.runParamGrid()
-          .then(() => {
-            if (meta) meta.textContent = (meta.textContent || "") + " · 键盘链路完成（留在本页看热力）";
-            try {
-              const url = new URL(window.location.href);
-              url.searchParams.delete("auto_param_grid_chain");
-              history.replaceState({}, "", `${url.pathname}${url.search}#param-grid`);
-            } catch (_) {
-              /* ignore */
-            }
-          })
-          .catch((err) => {
-            if (meta) meta.textContent = String(err.message || err);
-      });
-      }, 30);
-    } else if (typeof backtest.resumeParamGridJobIfAny === "function") {
-      backtest.resumeParamGridJobIfAny().catch((err) => {
-        const meta = document.getElementById("param-grid-meta");
-        if (meta && err) meta.textContent = String(err.message || err);
-      });
-    }
-  }}
+}

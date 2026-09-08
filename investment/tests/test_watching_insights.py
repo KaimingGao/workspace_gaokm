@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 import sys
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT not in sys.path:
@@ -13,6 +13,11 @@ if ROOT not in sys.path:
 
 
 class TestWatchingInsights(unittest.TestCase):
+    def setUp(self):
+        from core.watching.insights import reset_insight_memo
+
+        reset_insight_memo()
+
     def test_insight_fields(self):
         from core.watching.insights import build_watching_insights
 
@@ -62,6 +67,57 @@ class TestWatchingInsights(unittest.TestCase):
         self.assertEqual(item["pb"], 8.5)
         self.assertIsNotNone(item["days_watched"])
         self.assertFalse(item["hard_reject"])
+
+    def test_insight_memo_skips_rescore(self):
+        from core.watching.insights import build_watching_insights, reset_insight_memo
+
+        reset_insight_memo()
+        fake_score = {
+            "success": True,
+            "quote": {
+                "success": True,
+                "stock_code": "600519",
+                "stock_name": "茅台",
+                "change_raw": 1.2,
+                "volume": "1.2万",
+            },
+            "signal_item": {
+                "score": 62.0,
+                "hard_reject": False,
+                "factors": {
+                    "volume_ratio": 1.35,
+                    "value_pe": 20.5,
+                    "value_pb": 8.5,
+                    "excess_return_pct": 3.2,
+                },
+                "sub_scores": {"relative_strength": 70.0},
+            },
+        }
+        score_mock = Mock(return_value=fake_score)
+        with patch("core.signal.score_stock.score_stock", score_mock), patch(
+            "core.watching.insights._spot_valuation_map",
+            return_value={},
+        ), patch(
+            "core.research.tau_ridge.load_tau_model", return_value=None
+        ), patch(
+            "core.research.tau_ridge.predict_tau_from_features", return_value=None
+        ):
+            first = build_watching_insights(
+                ["600519"],
+                added_at_by_code={"600519": "2026-07-20T10:00:00"},
+            )
+            second = build_watching_insights(
+                ["600519"],
+                added_at_by_code={"600519": "2026-07-20T10:00:00"},
+            )
+        self.assertTrue(first["ok"])
+        self.assertEqual(score_mock.call_count, 1)
+        self.assertEqual(second.get("cached_count"), 1)
+        self.assertEqual(second.get("live_scored"), 0)
+        self.assertEqual(
+            first["items"][0]["predicted_score"],
+            second["items"][0]["predicted_score"],
+        )
 
     def test_rs_fallback_when_no_excess(self):
         from core.watching.insights import build_watching_insights

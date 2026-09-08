@@ -254,7 +254,7 @@
       </header>
       <div class="dashboard-card quant-pro-card follow-ops-card" id="follow-fold-rebalance">
         <div class="quant-pro-card-body follow-card-body">
-          <div class="follow-path-matrix" id="follow-path-matrix" aria-label="策略调仓与路径择时">
+          <div class="follow-path-matrix" id="follow-path-matrix" aria-label="策略调仓规则">
             <form id="paper-path-matrix-form" class="follow-path-matrix-form" autocomplete="off">
               <div class="follow-path-matrix-toolbar" aria-label="策略与元信息">
                 <div class="follow-path-matrix-strategy" title="组合限额来自策略中心 promote 的纸面策略；调仓页不可切换">
@@ -267,38 +267,38 @@
                   <input type="hidden" id="paper-strategy" value="short_conservative" />
                 </div>
                 <div class="follow-path-matrix-meta" aria-label="执行元信息">
-                  <span class="follow-path-matrix-chip" title="决策窗">09:30–10:30</span>
-                  <span id="paper-path-matrix-badge" class="follow-path-matrix-badge is-on" title="执行模式">路径择时</span>
-                  <span class="follow-path-matrix-chip is-muted" title="成交规则">盘中现价 · 收盘挂开盘</span>
+                  <span class="follow-path-matrix-chip" title="决策窗">09:30 开盘</span>
+                  <span id="paper-path-matrix-badge" class="follow-path-matrix-badge is-on" title="执行模式">rank_lots</span>
+                  <span class="follow-path-matrix-chip is-muted" title="成交规则">开盘价 · 100/200 股</span>
                 </div>
               </div>
               <div class="follow-path-matrix-roles" aria-label="分数角色">
                 <div class="follow-path-matrix-role" data-role="trade">
                   <span class="follow-path-matrix-role-sym">y_fuse</span>
-                  <span class="follow-path-matrix-role-job">定标的</span>
-                  <span class="follow-path-matrix-role-desc">trade⊕nc · Top-K</span>
-                </div>
-                <div class="follow-path-matrix-role" data-role="path">
-                  <span class="follow-path-matrix-role-sym">y_path</span>
-                  <span class="follow-path-matrix-role-job">同号过滤</span>
-                  <span class="follow-path-matrix-role-desc">低买高卖 · 定 λ</span>
-                </div>
-                <div class="follow-path-matrix-role" data-role="nc">
-                  <span class="follow-path-matrix-role-sym">y_trade/nc</span>
-                  <span class="follow-path-matrix-role-job">融合入 y_fuse</span>
-                  <span class="follow-path-matrix-role-desc">默认各 ½</span>
+                  <span class="follow-path-matrix-role-job">今日收益</span>
+                  <span class="follow-path-matrix-role-desc">trade⊕nc</span>
                 </div>
                 <div class="follow-path-matrix-role" data-role="on">
                   <span class="follow-path-matrix-role-sym">y_on</span>
-                  <span class="follow-path-matrix-role-job">同号过滤</span>
-                  <span class="follow-path-matrix-role-desc">兼隔夜折扣</span>
+                  <span class="follow-path-matrix-role-job">明日收益</span>
+                  <span class="follow-path-matrix-role-desc">×α 乘进 ranking</span>
+                </div>
+                <div class="follow-path-matrix-role" data-role="nc">
+                  <span class="follow-path-matrix-role-sym">ranking</span>
+                  <span class="follow-path-matrix-role-job">(1+yf)×(1+α·yon)−1</span>
+                  <span class="follow-path-matrix-role-desc">过入场取 Top</span>
+                </div>
+                <div class="follow-path-matrix-role" data-role="path">
+                  <span class="follow-path-matrix-role-sym">现金</span>
+                  <span class="follow-path-matrix-role-job">地板 50 万</span>
+                  <span class="follow-path-matrix-role-desc">低于则禁买</span>
                 </div>
               </div>
               <div class="follow-path-matrix-panels">
                 <section class="follow-path-matrix-panel" data-panel="mode" aria-labelledby="pm-panel-mode">
                   <header class="follow-path-matrix-panel-head">
                     <h4 id="pm-panel-mode" class="follow-path-matrix-panel-title">y_fuse 融合</h4>
-                    <p class="follow-path-matrix-panel-note">trade⊕nc 加权 · Top-K / 目标仓</p>
+                    <p class="follow-path-matrix-panel-note">trade⊕nc 加权 = 预期今日收益</p>
                   </header>
                   <div class="follow-path-matrix-viz follow-path-matrix-viz--2" aria-hidden="true">
                     <span class="follow-path-matrix-viz-seg is-a" id="pm-viz-fuse-trade">trade 50%</span>
@@ -325,113 +325,55 @@
                     </label>
                   </div>
                 </section>
-                <section class="follow-path-matrix-panel" data-panel="path" aria-labelledby="pm-panel-path">
+                <section class="follow-path-matrix-panel" data-panel="rank" aria-labelledby="pm-panel-rank">
                   <header class="follow-path-matrix-panel-head">
-                    <h4 id="pm-panel-path" class="follow-path-matrix-panel-title">|y_path| 执行力度</h4>
-                    <p class="follow-path-matrix-panel-note">横盘跳过 → 半仓 → 全量推向目标</p>
+                    <h4 id="pm-panel-rank" class="follow-path-matrix-panel-title">ranking 门槛</h4>
+                    <p class="follow-path-matrix-panel-note">ranking=(1+y_fuse/100)×(1+α×y_on/100)−1，展示百分数。α=0 隔夜不参与。过入场取 Top；过强买 200 否则 100。ranking&lt;0% 清仓；入场 1%、强 2%</p>
                   </header>
-                  <div class="follow-path-matrix-viz follow-path-matrix-viz--3" aria-hidden="true">
-                    <span class="follow-path-matrix-viz-seg is-skip">λ=0</span>
-                    <span class="follow-path-matrix-viz-seg is-half">λ½</span>
-                    <span class="follow-path-matrix-viz-seg is-full">λ=1</span>
-                  </div>
-                  <div class="follow-path-matrix-viz-marks" aria-hidden="true">
-                    <span>0</span>
-                    <span id="pm-viz-enter">0.1%</span>
-                    <span id="pm-viz-half">0.5%</span>
-                    <span id="pm-viz-full">1%</span>
-                  </div>
                   <div class="follow-path-matrix-body follow-path-matrix-body--row3">
-                    <label class="follow-path-matrix-box" title="|y_path| 低于此值视为横盘，本窗不调">
+                    <label class="follow-path-matrix-box" title="ranking=(1+y_fuse/100)×(1+α×y_on/100)−1，展示百分数；须大于 1% 才建仓/加仓">
                       <span class="follow-path-matrix-box-text">
-                        <span class="follow-path-matrix-box-title">门槛 %</span>
-                        <span class="follow-path-matrix-box-desc">λ=0</span>
+                        <span class="follow-path-matrix-box-title">rank入场</span>
+                        <span class="follow-path-matrix-box-desc">1%</span>
                       </span>
-                      <input type="number" name="pm_path_enter" min="0.01" max="5" step="0.01" value="0.1" />
+                      <input type="number" name="pm_rank_enter" min="0" max="10" step="0.001" value="0.01" />
                     </label>
-                    <label class="follow-path-matrix-box" title="≥此值半仓执行">
+                    <label class="follow-path-matrix-box" title="ranking 大于 2% 买 200 股，否则 100 股">
                       <span class="follow-path-matrix-box-text">
-                        <span class="follow-path-matrix-box-title">半量 %</span>
-                        <span class="follow-path-matrix-box-desc">λ½</span>
+                        <span class="follow-path-matrix-box-title">rank强</span>
+                        <span class="follow-path-matrix-box-desc">2%</span>
                       </span>
-                      <input type="number" name="pm_path_half" min="0.01" max="5" step="0.01" value="0.5" />
+                      <input type="number" name="pm_rank_strong" min="0" max="10" step="0.001" value="0.02" />
                     </label>
-                    <label class="follow-path-matrix-box" title="≥此值全量推向目标仓">
+                    <label class="follow-path-matrix-box" title="隔夜系数 α，范围 0～10。ranking=(1+y_fuse/100)×(1+α×y_on/100)−1。默认 0：隔夜不参与；1：按原权重乘入">
                       <span class="follow-path-matrix-box-text">
-                        <span class="follow-path-matrix-box-title">全量 %</span>
-                        <span class="follow-path-matrix-box-desc">λ=1</span>
+                        <span class="follow-path-matrix-box-title">α_on</span>
+                        <span class="follow-path-matrix-box-desc">0～10</span>
                       </span>
-                      <input type="number" name="pm_path_full" min="0.01" max="10" step="0.01" value="1" />
-                    </label>
-                  </div>
-                </section>
-                <section class="follow-path-matrix-panel" data-panel="on" aria-labelledby="pm-panel-on">
-                  <header class="follow-path-matrix-panel-head">
-                    <h4 id="pm-panel-on" class="follow-path-matrix-panel-title">隔夜 y_on</h4>
-                    <p class="follow-path-matrix-panel-note">收盘目标仓折扣</p>
-                  </header>
-                  <div class="follow-path-matrix-viz follow-path-matrix-viz--3" aria-hidden="true">
-                    <span class="follow-path-matrix-viz-seg is-cut">清/减</span>
-                    <span class="follow-path-matrix-viz-seg is-half">半仓</span>
-                    <span class="follow-path-matrix-viz-seg is-full">满仓</span>
-                  </div>
-                  <div class="follow-path-matrix-viz-marks" aria-hidden="true">
-                    <span>&lt;半仓</span>
-                    <span>≥半仓</span>
-                    <span>≥满仓</span>
-                  </div>
-                  <div class="follow-path-matrix-body follow-path-matrix-body--row2">
-                    <label class="follow-path-matrix-box" title="y_on≥此值允许满仓隔夜">
-                      <span class="follow-path-matrix-box-text">
-                        <span class="follow-path-matrix-box-title">满仓 %</span>
-                        <span class="follow-path-matrix-box-desc">y_on ≥ allow</span>
-                      </span>
-                      <input type="number" name="pm_y_on_allow" min="0" max="5" step="0.01" value="0.5" />
-                    </label>
-                    <label class="follow-path-matrix-box" title="y_on≥half 且 &lt;allow → 半仓隔夜">
-                      <span class="follow-path-matrix-box-text">
-                        <span class="follow-path-matrix-box-title">半仓 %</span>
-                        <span class="follow-path-matrix-box-desc">half ≤ y_on &lt; allow</span>
-                      </span>
-                      <input type="number" name="pm_y_on_half" min="-5" max="5" step="0.01" value="0.1" />
+                      <input type="number" name="pm_y_on_alpha" min="0" max="10" step="0.1" value="0" />
                     </label>
                   </div>
                 </section>
-                <section class="follow-path-matrix-panel" data-panel="gates" aria-labelledby="pm-panel-gates">
+                <section class="follow-path-matrix-panel" data-panel="cash" aria-labelledby="pm-panel-cash">
                   <header class="follow-path-matrix-panel-head">
-                    <h4 id="pm-panel-gates" class="follow-path-matrix-panel-title">闸门</h4>
-                    <p class="follow-path-matrix-panel-note">开仓确认与清仓时机</p>
+                    <h4 id="pm-panel-cash" class="follow-path-matrix-panel-title">现金地板</h4>
+                    <p class="follow-path-matrix-panel-note">买完后现金不得低于此值；回测默认初始 100 万</p>
                   </header>
-                  <div class="follow-path-matrix-viz follow-path-matrix-viz--2" aria-hidden="true">
-                    <span class="follow-path-matrix-viz-seg is-nc">path⊕on</span>
-                    <span class="follow-path-matrix-viz-seg is-exit">pending</span>
-                  </div>
-                  <div class="follow-path-matrix-viz-marks" aria-hidden="true">
-                    <span>同号过滤</span>
-                    <span>清仓择时</span>
-                  </div>
                   <div class="follow-path-matrix-body follow-path-matrix-body--row2">
-                    <label class="follow-path-matrix-box follow-path-matrix-box--check" title="开/加/减仓要求 y_path、y_on 与调仓方向同号">
+                    <label class="follow-path-matrix-box" title="账户现金低于此值禁止买入">
                       <span class="follow-path-matrix-box-text">
-                        <span class="follow-path-matrix-box-title">path/on 同号</span>
-                        <span class="follow-path-matrix-box-desc">异号本窗跳过</span>
+                        <span class="follow-path-matrix-box-title">地板（元）</span>
+                        <span class="follow-path-matrix-box-desc">默认 50 万</span>
                       </span>
-                      <input type="checkbox" name="pm_require_path_on" checked />
-                    </label>
-                    <label class="follow-path-matrix-box follow-path-matrix-box--check" title="必清但 path 仍在低点时本窗推迟卖出">
-                      <span class="follow-path-matrix-box-text">
-                        <span class="follow-path-matrix-box-title">低点推迟清仓</span>
-                        <span class="follow-path-matrix-box-desc">path&gt;0 → pending</span>
-                      </span>
-                      <input type="checkbox" name="pm_pending_exit" checked />
+                      <input type="number" name="pm_cash_floor" min="0" max="100000000" step="10000" value="500000" />
                     </label>
                   </div>
                 </section>
               </div>
-              <div class="follow-path-matrix-footer" aria-label="择时操作">
+              <div class="follow-path-matrix-footer" aria-label="调仓操作">
                 <div class="follow-path-matrix-actions">
-                  <button type="submit" class="dialog-btn secondary" id="paper-path-matrix-save">保存择时</button>
-                  <button type="button" id="paper-adjust" class="dialog-btn dialog-btn-keep-case follow-adjust" title="预演调仓：可拉远端时先观察池增量补齐日K/5m，再只读现算 ŷ + path_matrix。仓坏请研究枢纽「强更」。确认落账时成交价走行情。">预演调仓</button>
+                  <button type="submit" class="dialog-btn secondary" id="paper-path-matrix-save">保存规则</button>
+                  <button type="button" id="paper-adjust" class="dialog-btn dialog-btn-keep-case follow-adjust" title="预演调仓：09:30 口径 y_fuse/y_on，过 rank入场后按 100/200 股建仓或加仓；ranking&lt;0% 清仓。确认落账时成交价走行情。">预演调仓</button>
                   <span
                     id="paper-path-matrix-status"
                     class="follow-ops-note follow-path-matrix-status follow-holdings-load-status follow-ops-load-status"

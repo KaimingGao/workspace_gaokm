@@ -746,15 +746,15 @@
                   </span>
                   <div>
                     <h3>调仓规则</h3>
-                    <p class="strategy-alpha-risk-desc">观察池 + path_matrix · 预演后确认 · 不在本页下单</p>
+                    <p class="strategy-alpha-risk-desc">观察池 + rank_lots · 预演后确认 · 不在本页下单</p>
                   </div>
                 </div>
                 <div class="strategy-logic">
                   <div class="strategy-logic-item">
                     <h4>观察池路径（Follow）</h4>
                     <ul>
-                      <li>目标：y_trade Top-K + 策略限额（最多几只 / 单票%）</li>
-                      <li>时机：早盘 path_matrix（y_path / y_nowcast / y_on）</li>
+                      <li>目标：y_fuse / y_on ranking，过入场买 100/200 股（上限 max_positions）</li>
+                      <li>时机：每个交易日 09:30 开盘；ranking&lt;0% 清仓；现金地板 50 万</li>
                       <li>组合限额来自策略中心 promote 的纸面策略</li>
                     </ul>
                   </div>
@@ -768,7 +768,7 @@
                   <div class="strategy-logic-item">
                     <h4>验证（非本页）</h4>
                     <ul>
-                      <li>历史回测：Top-K / Walk-forward / 成本假设</li>
+                      <li>历史回测：rank_lots / lookback / 成本假设</li>
                       <li>回测 promote 提示可拦策略卡过期晋升（见上方开关）</li>
                     </ul>
                   </div>

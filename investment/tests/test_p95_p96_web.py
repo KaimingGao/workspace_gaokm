@@ -90,11 +90,10 @@ class TestP95P96WebPages(unittest.TestCase):
             "/strategy": ("data-page=\"strategy\"", "strategy-list", "strategy-factor-lab"),
             "/replay": (
                 "data-page=\"replay\"",
-                "quant-bt-metrics",
                 "quant-portfolio-run",
-                "quant-bt-scope-note",
-                "quant-universe-panel",
-                "quant-neutral-compare-table",
+                "quant-portfolio-chart",
+                "replay-kpi-row",
+                "quant-bt-trades",
             ),
             "/follow": ("data-page=\"follow\"", "paper-holdings-table", "paper-trade-status"),
             "/paper": ("data-page=\"follow\"",),  # /paper → 302 /follow

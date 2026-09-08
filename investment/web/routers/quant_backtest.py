@@ -186,6 +186,9 @@ def quant_portfolio_backtest(body: PortfolioBacktestRequest) -> Dict[str, Any]:
             return_model_min_samples=body.return_model_min_samples,
             return_model_ridge_lambda=body.return_model_ridge_lambda,
             engine=body.engine,
+            y_on_alpha=body.y_on_alpha,
+            rank_enter=body.rank_enter,
+            rank_strong=body.rank_strong,
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e

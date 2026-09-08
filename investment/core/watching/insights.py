@@ -7,10 +7,13 @@
 import logging
 
 logger = logging.getLogger(__name__)
+import os
+import threading
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from concurrent.futures import TimeoutError as FuturesTimeout
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from core.numbers import to_float as _f
 
@@ -31,6 +34,78 @@ from core.watching.store import WATCHING_MAX_SIZE
 # 与观察池上限对齐；勿砍到更小导致尾部无分
 _INSIGHT_DEFAULT_LIMIT = WATCHING_MAX_SIZE
 _INSIGHT_HARD_CAP = WATCHING_MAX_SIZE + 20
+
+# 进程内 ŷ 摘要：同一会话窗口 + live 映射未变时，避免数据中心每次整池重算
+_INSIGHT_MEMO_LOCK = threading.Lock()
+_INSIGHT_MEMO: Dict[str, Tuple[float, str, Dict[str, Any]]] = {}
+_INSIGHT_MEMO_TTL = 900.0
+
+
+def reset_insight_memo() -> None:
+    with _INSIGHT_MEMO_LOCK:
+        _INSIGHT_MEMO.clear()
+
+
+def _insight_cache_stamp() -> str:
+    win = "intraday"
+    try:
+        from core.signal.session_pit import clock_dual_score_window
+
+        win = clock_dual_score_window()
+    except Exception:  # noqa: BLE001
+        logger.debug("insight cache stamp window failed", exc_info=True)
+    asof = ""
+    try:
+        from core.market.calendar import expected_latest_daily_bar_date
+
+        asof = str(expected_latest_daily_bar_date() or "")
+    except Exception:  # noqa: BLE001
+        logger.debug("insight cache stamp asof failed", exc_info=True)
+    ver = ""
+    try:
+        from core.signal.cluster.pointer import resolve_cluster_weights_path
+
+        p = resolve_cluster_weights_path()
+        if p and os.path.isfile(p):
+            ver = f"{os.path.basename(p)}:{int(os.path.getmtime(p))}"
+    except Exception:  # noqa: BLE001
+        logger.debug("insight cache stamp mapping failed", exc_info=True)
+    bars_gen = ""
+    try:
+        from core.paths import CLUSTER_BARS_REFRESH_JOB_PATH, CLUSTER_MINUTE_REFRESH_JOB_PATH
+
+        bits = []
+        for path in (CLUSTER_BARS_REFRESH_JOB_PATH, CLUSTER_MINUTE_REFRESH_JOB_PATH):
+            if path and os.path.isfile(path):
+                bits.append(str(int(os.path.getmtime(path))))
+        bars_gen = ",".join(bits)
+    except Exception:  # noqa: BLE001
+        logger.debug("insight cache stamp bars gen failed", exc_info=True)
+    return f"{win}|{asof}|{ver}|{bars_gen}"
+
+
+def _memo_get(code: str, stamp: str) -> Optional[Dict[str, Any]]:
+    with _INSIGHT_MEMO_LOCK:
+        hit = _INSIGHT_MEMO.get(str(code))
+    if not hit:
+        return None
+    exp, st, item = hit
+    if st != stamp or time.monotonic() > exp:
+        return None
+    if not isinstance(item, dict) or item.get("ok") is False:
+        return None
+    return item
+
+
+def _memo_put(code: str, stamp: str, item: Optional[Dict[str, Any]]) -> None:
+    if not isinstance(item, dict) or item.get("ok") is False:
+        return
+    with _INSIGHT_MEMO_LOCK:
+        _INSIGHT_MEMO[str(code)] = (
+            time.monotonic() + _INSIGHT_MEMO_TTL,
+            stamp,
+            item,
+        )
 
 
 def _days_since(iso: Optional[str]) -> Optional[int]:
@@ -762,8 +837,6 @@ def build_watching_insights(
     # paper 门槛只读一次，避免每票 load_paper
     paper_ctx = None
     try:
-        import os
-
         from core.paper import load_paper
         from core.paths import PAPER_PATH
 
@@ -776,8 +849,16 @@ def build_watching_insights(
     valuation_by = _spot_valuation_map(cleaned)
     items_by_code: Dict[str, Dict[str, Any]] = {}
 
-    # 分池簿快路径已停用：一律 live 打分
-    missing: List[str] = list(cleaned)
+    stamp = _insight_cache_stamp()
+    missing: List[str] = []
+    cached_n = 0
+    for c in cleaned:
+        hit = _memo_get(c, stamp)
+        if hit is not None:
+            items_by_code[c] = hit
+            cached_n += 1
+        else:
+            missing.append(c)
 
     n_jobs = len(missing)
     workers = min(_INSIGHT_MAX_WORKERS, max(1, n_jobs)) if n_jobs else 0
@@ -802,7 +883,9 @@ def build_watching_insights(
             for fut in as_completed(futures, timeout=_INSIGHT_BATCH_TIMEOUT) if futures else []:
                 code = futures[fut]
                 try:
-                    items_by_code[code] = fut.result(timeout=_INSIGHT_STOCK_TIMEOUT)
+                    row = fut.result(timeout=_INSIGHT_STOCK_TIMEOUT)
+                    items_by_code[code] = row
+                    _memo_put(code, stamp, row)
                 except Exception as e:
                     logger.exception('unexpected error in build_watching_insights')
                     items_by_code[code] = _blank(
@@ -816,7 +899,9 @@ def build_watching_insights(
                     continue
                 if fut.done():
                     try:
-                        items_by_code[code] = fut.result(timeout=0)
+                        row = fut.result(timeout=0)
+                        items_by_code[code] = row
+                        _memo_put(code, stamp, row)
                     except Exception as e:
                         logger.exception('unexpected error in build_watching_insights')
                         items_by_code[code] = _blank(
@@ -844,6 +929,8 @@ def build_watching_insights(
     ]
     truncated = max(0, len([str(c).strip() for c in (codes or []) if str(c).strip()]) - len(cleaned))
     note = "轻量观察摘要（跳过基本面/同业/独立指数重拉）；不改 stance 主契约。"
+    if cached_n:
+        note += f" 缓存 {cached_n}/{len(cleaned)}。"
     if truncated:
         note += f" 本次仅返回前 {len(cleaned)} 只（截断 {truncated}）。"
     return {
@@ -853,12 +940,14 @@ def build_watching_insights(
         "truncated": truncated,
         "note": note,
         "live_scored": len(missing),
+        "cached_count": cached_n,
+        "cache_stamp": stamp,
         "offline_only": use_offline,
     }
 
 
 def load_insights_cache() -> Optional[List[Dict[str, Any]]]:
-    """加载观察池 insights items（即时构建，供因子相关性/IR 等只读分析复用）。"""
+    """加载观察池 insights items（走 ``build_watching_insights``，命中进程内 memo 则不再打分）。"""
     try:
         from core.watching.store import read_watching, watchlist_added_map
 

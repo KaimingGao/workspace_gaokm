@@ -1,4 +1,4 @@
-"""观察池实时算分 + path_matrix 预演/落账。
+"""观察池实时算分 + rank_lots 预演/落账。
 
 手动路径：dry_run 预演 → 确认后同算法落账（改 paper 持仓/现金）。
 """
@@ -204,115 +204,6 @@ def _score_pool(
     return scored, rejected
 
 
-def _y_fuse_of(item: dict, cfg: Optional[dict] = None) -> Optional[float]:
-    from core.paper.rebalance.path_matrix import (
-        fuse_trade_nowcast,
-        get_path_matrix_cfg,
-        scores_from_rebalance_item,
-    )
-
-    sc = scores_from_rebalance_item(item)
-    rules = get_path_matrix_cfg(cfg)
-    return fuse_trade_nowcast(
-        sc.get("y_trade"),
-        sc.get("y_nowcast"),
-        w_trade=float(rules.get("fusion_w_trade") or 0.5),
-        w_nowcast=float(rules.get("fusion_w_nowcast") or 0.5),
-    )
-
-
-def _y_trade_of(item: dict) -> Optional[float]:
-    from core.paper.rebalance.path_matrix import scores_from_rebalance_item
-
-    return scores_from_rebalance_item(item).get("y_trade")
-
-
-def _current_weights(paper: dict, equity: float) -> Dict[str, float]:
-    out: Dict[str, float] = {}
-    if equity <= 0:
-        return out
-    for h in paper.get("holdings") or []:
-        if not isinstance(h, dict):
-            continue
-        code = str(h.get("stock_code") or "").strip()
-        if not code:
-            continue
-        sh = _f(h.get("shares")) or 0.0
-        px = _f(h.get("last_price")) or _f(h.get("cost")) or 0.0
-        if sh <= 0 or px <= 0:
-            continue
-        out[code] = float(sh) * float(px) / float(equity)
-    return out
-
-
-def _is_oos_failed_item(item: Optional[dict]) -> bool:
-    """OOS 失败组 / 降级 heuristic：禁止新开与加仓。"""
-    if not isinstance(item, dict):
-        return False
-    if item.get("oos_failed") or item.get("oos_blocked") or item.get("oos_sleeve"):
-        return True
-    try:
-        from core.signal.rebalance_tracks import OOS_FAIL, resolve_oos_status
-
-        return resolve_oos_status(item) == OOS_FAIL
-    except Exception:  # noqa: BLE001
-        logger.debug("resolve_oos_status failed", exc_info=True)
-        src = str(item.get("return_model_source") or "")
-        return src.startswith("oos_failed")
-
-
-def _target_weights_for_topk(
-    scored: Sequence[dict],
-    *,
-    top_k: int,
-    buy_floor: float,
-    max_position_pct: float,
-    cfg: Optional[dict] = None,
-) -> Dict[str, float]:
-    """按 y_fuse=加权(y_trade,y_nowcast) 选 Top-K，score_budget 分配目标仓（0–1）。"""
-    rows: List[dict] = []
-    for it in scored:
-        if _is_oos_failed_item(it):
-            continue
-        yf = _y_fuse_of(it, cfg)
-        if yf is None or float(yf) < float(buy_floor):
-            continue
-        code = str(it.get("stock_code") or "").strip()
-        if not code:
-            continue
-        rows.append(
-            {
-                "stock_code": code,
-                "score": float(yf),
-                "sector": it.get("sector") or "未知",
-            }
-        )
-    rows.sort(key=lambda r: (-float(r["score"]), str(r["stock_code"])))
-    rows = rows[: max(1, int(top_k))]
-    if not rows:
-        return {}
-    try:
-        from core.risk.budget import score_budget_weights
-
-        weights_pct, _, _ = score_budget_weights(
-            rows,
-            max_position_pct=float(max_position_pct),
-            max_sector_pct=min(100.0, float(max_position_pct) * 3),
-            max_positions=len(rows),
-        )
-        return {
-            str(k): float(v) / 100.0
-            for k, v in (weights_pct or {}).items()
-            if v is not None
-        }
-    except Exception:  # noqa: BLE001
-        logger.debug("score_budget_weights failed, equal weight", exc_info=True)
-        w = 1.0 / float(len(rows))
-        cap = float(max_position_pct) / 100.0
-        w = min(w, cap) if cap > 0 else w
-        return {str(r["stock_code"]): w for r in rows}
-
-
 def _quote_px(code: str, *, offline_only: bool = True) -> Optional[float]:
     """预演/落账定价：默认本地日线末收；``offline_only=False`` 可打实时行情。"""
     try:
@@ -344,12 +235,6 @@ def _quote_px(code: str, *, offline_only: bool = True) -> Optional[float]:
         except Exception:  # noqa: BLE001
             logger.debug("live quote price failed for %s", code, exc_info=True)
     return None
-
-
-def _lot_shares(amount: float, price: float) -> int:
-    if amount <= 0 or price <= 0:
-        return 0
-    return int(amount // price // 100) * 100
 
 
 _SCORE_PASSTHROUGH_KEYS = (
@@ -386,20 +271,6 @@ _SCORE_PASSTHROUGH_KEYS = (
 )
 
 
-def _is_path_window_noise_reason(reason: str) -> bool:
-    """矩阵预演跳过清单噪音：已对齐、|path|本窗闸、异号、清仓推迟等（by_action 已计数）。"""
-    r = str(reason or "")
-    if "已对齐" in r or "不动" in r:
-        return True
-    if "欲加仓但" in r or "欲减仓但" in r:
-        return True
-    if "本窗跳过" in r or "本窗推迟" in r:
-        return True
-    if "必清但" in r:
-        return True
-    return False
-
-
 def _score_fields_for_report(item: dict, scores: Dict[str, Optional[float]]) -> Dict[str, Any]:
     """透传 signal_item 打分字段，供前端 resolve*Score 解析表列。"""
     out: Dict[str, Any] = {}
@@ -407,7 +278,7 @@ def _score_fields_for_report(item: dict, scores: Dict[str, Optional[float]]) -> 
         for k in _SCORE_PASSTHROUGH_KEYS:
             if k in item and item.get(k) is not None:
                 out[k] = item.get(k)
-    # 矩阵决议分数优先（已对齐 dual_y）
+    # rank_lots 决议分优先（y_fuse 经调用方塞进 y_trade）
     yt = scores.get("y_trade")
     yp = scores.get("y_path")
     yn = scores.get("y_nowcast")
@@ -465,6 +336,24 @@ def _apply_one_leg(
     existing = next((h for h in holdings if str(h.get("stock_code")) == code), None)
     name = leg.get("stock_name") or (existing or {}).get("stock_name")
     note = leg.get("reason") or leg.get("matrix_action") or "watching_matrix"
+    rank_fields = {
+        k: leg.get(k)
+        for k in (
+            "y_fuse",
+            "y_on",
+            "ranking_score",
+            "reason",
+            "y_trade",
+            "y_nowcast",
+            "rank_i",
+            "rank_n",
+            "lot_kind",
+            "action",
+        )
+        if leg.get(k) is not None
+    }
+    if as_of:
+        rank_fields["as_of"] = str(as_of)[:10]
 
     if side == "sell":
         have = float((existing or {}).get("shares") or 0)
@@ -496,6 +385,7 @@ def _apply_one_leg(
                 "matrix_action": leg.get("matrix_action"),
                 "y_trade": leg.get("y_trade"),
                 "y_path": leg.get("y_path"),
+                **rank_fields,
             },
             fee_info,
         )
@@ -515,6 +405,15 @@ def _apply_one_leg(
     need = amount + float(fee_info.get("fees") or 0)
     if need > cash + 1e-6:
         return None, "cash"
+    try:
+        from core.paper.rebalance.rank_lots import get_rank_lot_cfg
+
+        floor = float(get_rank_lot_cfg(paper).get("cash_floor") or 0.0)
+    except Exception:  # noqa: BLE001
+        logger.debug("cash_floor resolve failed", exc_info=True)
+        floor = 0.0
+    if cash - need < floor - 1e-6:
+        return None, "cash_floor"
     trade = annotate_trade(
         {
             "ts": _now_iso(),
@@ -530,6 +429,7 @@ def _apply_one_leg(
             "matrix_action": leg.get("matrix_action"),
             "y_trade": leg.get("y_trade"),
             "y_path": leg.get("y_path"),
+            **rank_fields,
         },
         fee_info,
     )
@@ -543,7 +443,7 @@ def _apply_one_leg(
         new_sh = old_sh + buy_shares
         if new_sh > 0:
             existing["cost"] = round((old_cost * old_sh + fill_px * buy_shares) / new_sh, 4)
-        add_buy_lot(existing, buy_shares, ts=trade["ts"])
+        add_buy_lot(existing, buy_shares, ts=trade["ts"], as_of=as_of)
         existing["origin"] = merge_origin(existing.get("origin"), ORIGIN_STRATEGY)
         if name and not existing.get("stock_name"):
             existing["stock_name"] = name
@@ -556,7 +456,7 @@ def _apply_one_leg(
             "bought_at": trade["ts"],
             "origin": ORIGIN_STRATEGY,
         }
-        stamp_new_holding(row, ts=trade["ts"])
+        stamp_new_holding(row, ts=trade["ts"], as_of=as_of)
         holdings.append(row)
         paper["holdings"] = holdings
     paper["updated_at"] = trade["ts"]
@@ -567,13 +467,15 @@ def _apply_matrix_trades(
     paper: dict,
     sell_trades: Sequence[dict],
     buy_trades: Sequence[dict],
+    *,
+    as_of: Optional[str] = None,
 ) -> Dict[str, Any]:
     """先卖后买落地；失败腿进 apply_skips，不中断其余。"""
     applied_sells: List[dict] = []
     applied_buys: List[dict] = []
     skips: List[dict] = []
     for leg in sell_trades:
-        trade, err = _apply_one_leg(paper, leg)
+        trade, err = _apply_one_leg(paper, leg, as_of=as_of)
         if trade is None:
             skips.append(
                 {
@@ -587,7 +489,7 @@ def _apply_matrix_trades(
             continue
         applied_sells.append(trade)
     for leg in buy_trades:
-        trade, err = _apply_one_leg(paper, leg)
+        trade, err = _apply_one_leg(paper, leg, as_of=as_of)
         if trade is None:
             skips.append(
                 {
@@ -619,44 +521,19 @@ def simulate_watching_matrix_preview(
     dry_run: bool = True,
     offline_only: bool = True,
 ) -> Dict[str, Any]:
-    """观察池算分 + L1 path_matrix。默认 offline；dry_run 不写仓。"""
+    """观察池算分 + rank_lots（y_fuse/y_on · 100/200 股）。默认 offline；dry_run 不写仓。"""
     from core.paper.ledger import mark_to_market
-    from core.paper.rebalance.path_matrix import (
+    from core.paper.rebalance.rank_lots import (
         ACTION_ADD,
         ACTION_EXIT,
         ACTION_OPEN,
-        ACTION_PENDING_EXIT,
-        ACTION_REDUCE,
-        ACTION_SKIP,
-        get_path_matrix_cfg,
-        resolve_rebalance_action_from_item,
+        get_rank_lot_cfg,
+        plan_rank_lot_day,
     )
-    from core.signal.score_display import resolve_buy_floor, resolve_hold_floor
 
-    rules = paper.get("rules") if isinstance(paper.get("rules"), dict) else {}
-    max_pos = max(1, int(rules.get("max_positions") or 15))
-    k = max(1, min(int(top_k or max_pos), 80))
-    bf = float(buy_floor) if buy_floor is not None else float(
-        resolve_buy_floor(paper, heuristic_default=0.01)
-    )
-    # predicted 门槛常为 ŷ%；若拿到 heuristic 大数则回退
-    if bf > 20:
-        bf = 0.01
-    hf = float(hold_floor) if hold_floor is not None else float(
-        resolve_hold_floor(paper, heuristic_default=0.01)
-    )
-    if hf > 20:
-        hf = min(bf, 0.01)
-    if hf > bf:
-        hf = bf
-    raw_pos = _f(rules.get("position_pct"))
-    if raw_pos is None:
-        max_pos_pct = 15.0
-    elif raw_pos > 1.0:
-        max_pos_pct = float(raw_pos)
-    else:
-        max_pos_pct = float(raw_pos) * 100.0
-    max_pos_pct = max(5.0, min(max_pos_pct, 40.0))
+    _ = buy_floor, hold_floor
+    rl_cfg = get_rank_lot_cfg(paper, top_k=top_k)
+    k = int(rl_cfg["top_k"])
 
     held_codes = [
         str(h.get("stock_code") or "").strip()
@@ -708,227 +585,133 @@ def simulate_watching_matrix_preview(
     equity = float(summary.get("equity") or 0) or 0.0
     cash_before = float(summary.get("cash") or paper.get("cash") or 0)
     cash = cash_before
-    w_now = _current_weights(paper, equity if equity > 0 else 1.0)
-    # 预演/落账始终启用矩阵；Web 仅路径择时
-    pm_cfg = get_path_matrix_cfg(paper=paper)
-    pm_cfg["enabled"] = True
-    pm_cfg["mode"] = "path"
-    mode = "path"
-
-    w_star = _target_weights_for_topk(
-        scored,
-        top_k=k,
-        buy_floor=bf,
-        max_position_pct=max_pos_pct,
-        cfg=pm_cfg,
-    )
-    top_codes = list(w_star.keys())
 
     item_by_code = {
         str(it.get("stock_code") or "").strip(): it
         for it in scored
         if str(it.get("stock_code") or "").strip()
     }
-    # 持仓但不在 scored：补空壳以便清仓决议
     for code in held_codes:
         if code not in item_by_code:
             item_by_code[code] = {"stock_code": code, "hard_reject": False}
+        name = _resolve_report_name(
+            code,
+            item=item_by_code.get(code),
+            paper=paper,
+            name_by_code=name_by_code,
+        )
+        if name:
+            item_by_code[code]["stock_name"] = name
+
+    prices: Dict[str, float] = {}
+    for code in item_by_code:
+        px = _quote_px(code, offline_only=use_offline)
+        if px is not None and px > 0:
+            prices[code] = float(px)
+
+    plan = plan_rank_lot_day(
+        scored=list(item_by_code.values()),
+        holdings=list(paper.get("holdings") or []),
+        cash=cash_before,
+        prices=prices,
+        cfg=rl_cfg,
+    )
+    oos_excluded = sum(
+        1
+        for s in (plan.get("skips") or [])
+        if "OOS" in str(s.get("reason") or "")
+    )
 
     decisions: List[dict] = []
     buy_trades: List[dict] = []
     sell_trades: List[dict] = []
     report: List[dict] = []
-    skips: List[dict] = []
-    oos_excluded = 0
+    skips: List[dict] = list(plan.get("skips") or [])
 
-    universe = sorted(set(list(w_star.keys()) + list(w_now.keys()) + list(item_by_code.keys())))
-    for code in universe:
-        item = item_by_code.get(code) or {"stock_code": code}
-        w = float(w_now.get(code) or 0.0)
-        ws = float(w_star.get(code) or 0.0)
-        oos_fail = _is_oos_failed_item(item)
-        if oos_fail:
-            oos_excluded += 1
-            if w <= 1e-9:
-                # 未持仓 OOS：直接过滤，不进决议/报告
-                continue
-            # 已持仓 OOS：目标清零（禁止滞回留仓 / 加仓），走减/清路径
-            ws = 0.0
-        elif code in w_now and code not in w_star:
-            yt = _y_trade_of(item)
-            if yt is not None and float(yt) >= hf:
-                # 滞回：未破 hold 则维持现仓为目标（本窗可不加）
-                ws = w
-            else:
-                ws = 0.0
-        dec = resolve_rebalance_action_from_item(
-            item,
-            w=w,
-            w_star_day=ws,
-            in_topk=(code in w_star) or (w > 1e-9),
-            cfg=pm_cfg,
-            buy_floor=bf,
-            hold_floor=hf,
-            mode=mode,
-        )
-        # 双保险：OOS 不得开/加
-        act0 = str(dec.get("action") or "")
-        if oos_fail and act0 in (ACTION_OPEN, ACTION_ADD):
-            dec = {
-                **dec,
-                "action": ACTION_SKIP,
-                "execute": False,
-                "delta_w": 0.0,
-                "reason": "OOS 失败组 · 禁止新开/加仓",
-            }
-        decisions.append({"stock_code": code, **dec})
-        act = str(dec.get("action") or "")
-        yt = (dec.get("scores") or {}).get("y_trade")
-        yp = (dec.get("scores") or {}).get("y_path")
-        yn = (dec.get("scores") or {}).get("y_nowcast")
-        yo = (dec.get("scores") or {}).get("y_on")
+    held_sh_of = {
+        str(h.get("stock_code") or "").strip(): float(h.get("shares") or 0)
+        for h in (paper.get("holdings") or [])
+        if isinstance(h, dict)
+    }
+
+    def _leg_row(leg: dict, *, side: str) -> dict:
+        code = str(leg.get("stock_code") or "")
+        item = item_by_code.get(code) or {}
         name = _resolve_report_name(
             code, item=item, paper=paper, name_by_code=name_by_code
         )
-        if isinstance(item, dict) and name and (
-            not item.get("stock_name") or str(item.get("stock_name")) == code
-        ):
-            item["stock_name"] = name
+        px = prices.get(code)
+        act = str(leg.get("action") or "")
+        held_sh = float(held_sh_of.get(code) or 0)
+        shares = float(leg.get("shares") or 0)
+        yf = leg.get("y_fuse")
+        yo = leg.get("y_on")
         score_payload = _score_fields_for_report(
-            item if isinstance(item, dict) else {},
-            {"y_trade": yt, "y_path": yp, "y_nowcast": yn, "y_on": yo},
+            item,
+            {"y_trade": yf, "y_path": None, "y_nowcast": None, "y_on": yo},
         )
+        score_payload["y_fuse"] = yf
+        score_payload["ranking_score"] = leg.get("ranking_score")
         row = {
             "stock_code": code,
             "stock_name": name,
             "action": act,
-            "reason": dec.get("reason"),
-            "w": w,
-            "w_star": dec.get("w_star"),
-            "w_close": dec.get("w_close"),
-            "lambda": dec.get("lambda"),
-            "delta_w": dec.get("delta_w"),
-            "execute": dec.get("execute"),
+            "reason": leg.get("reason"),
+            "execute": True,
             "matrix_mode": True,
+            "side": side,
+            "shares": shares,
+            "price": px,
+            "amount": round(shares * float(px), 2) if px else None,
             **score_payload,
         }
+        if side == "buy":
+            row["decision"] = "买入" if act == ACTION_OPEN else "加仓"
+            row["old_shares"] = held_sh
+            row["new_shares"] = held_sh + shares
+            row["shares_change"] = shares
+        else:
+            row["decision"] = "卖出"
+            row["old_shares"] = held_sh
+            row["new_shares"] = max(0.0, held_sh - shares)
+            row["shares_change"] = -shares
+        return row
 
-        held_sh = 0.0
-        for h in paper.get("holdings") or []:
-            if str(h.get("stock_code") or "").strip() == code:
-                held_sh = float(h.get("shares") or 0)
-                break
-
-        if act in (ACTION_SKIP, ACTION_PENDING_EXIT) or not dec.get("execute"):
-            reason = str(dec.get("reason") or act)
-            # 已对齐 / path 本窗闸 / 清仓推迟：不进跳过清单（by_action 已计数）
-            if act == ACTION_SKIP and not _is_path_window_noise_reason(reason):
-                skips.append(
-                    {
-                        "stock_code": code,
-                        "stock_name": name,
-                        "reason": reason,
-                        "path_matrix": True,
-                        "path_matrix_action": act,
-                        "score": yt,
-                    }
-                )
+    for leg in plan.get("sells") or []:
+        code = str(leg.get("stock_code") or "")
+        px = prices.get(code)
+        if px is None:
+            skips.append({"stock_code": code, "reason": "无有效报价"})
             continue
+        trade = {
+            **leg,
+            "price": px,
+            "amount": round(float(leg.get("shares") or 0) * px, 2),
+            "dry_run": bool(dry_run),
+        }
+        sell_trades.append(trade)
+        report.append(_leg_row(leg, side="sell"))
+        decisions.append({"stock_code": code, "action": ACTION_EXIT, **leg})
 
-        px = _quote_px(code, offline_only=use_offline)
-        if px is None or px <= 0:
-            skips.append(
-                {
-                    "stock_code": code,
-                    "reason": "无有效报价",
-                    "path_matrix": True,
-                    "score": yt,
-                }
-            )
+    for leg in plan.get("buys") or []:
+        code = str(leg.get("stock_code") or "")
+        px = prices.get(code)
+        if px is None:
+            skips.append({"stock_code": code, "reason": "无有效报价"})
             continue
+        trade = {
+            **leg,
+            "price": px,
+            "amount": round(float(leg.get("shares") or 0) * px, 2),
+            "dry_run": bool(dry_run),
+        }
+        buy_trades.append(trade)
+        report.append(_leg_row(leg, side="buy"))
+        decisions.append({"stock_code": code, "action": leg.get("action"), **leg})
 
-        delta = float(dec.get("delta_w") or 0.0)
+    for hrow in plan.get("holds") or []:
+        decisions.append(hrow)
 
-        if act in (ACTION_OPEN, ACTION_ADD) and delta > 0 and equity > 0:
-            amount = float(equity) * abs(delta)
-            shares = _lot_shares(amount, px)
-            if shares <= 0:
-                skips.append(
-                    {
-                        "stock_code": code,
-                        "reason": "金额不足一手",
-                        "path_matrix": True,
-                        "score": yt,
-                    }
-                )
-                continue
-            buy_trades.append(
-                {
-                    "side": "buy",
-                    "stock_code": code,
-                    "stock_name": name,
-                    "shares": shares,
-                    "price": px,
-                    "amount": round(shares * px, 2),
-                    "reason": dec.get("reason"),
-                    "matrix_action": act,
-                    "y_trade": yt,
-                    "y_path": yp,
-                    "dry_run": bool(dry_run),
-                }
-            )
-            row.update(
-                {
-                    "side": "buy",
-                    "shares": shares,
-                    "price": px,
-                    "decision": "买入" if act == ACTION_OPEN else "加仓",
-                    "old_shares": held_sh,
-                    "new_shares": held_sh + shares,
-                    "shares_change": shares,
-                }
-            )
-            report.append(row)
-        elif act in (ACTION_EXIT, ACTION_REDUCE) and delta < 0:
-            if held_sh <= 0:
-                continue
-            frac = min(1.0, abs(delta) / max(w, 1e-9)) if w > 1e-9 else 1.0
-            if act == ACTION_EXIT and float(dec.get("lambda") or 1) >= 1.0 - 1e-9:
-                frac = 1.0
-            sell_sh = int(held_sh * frac // 100) * 100
-            if sell_sh <= 0 and act == ACTION_EXIT:
-                sell_sh = int(held_sh)
-            if sell_sh <= 0:
-                continue
-            sell_trades.append(
-                {
-                    "side": "sell",
-                    "stock_code": code,
-                    "stock_name": name,
-                    "shares": sell_sh,
-                    "price": px,
-                    "amount": round(sell_sh * px, 2),
-                    "reason": dec.get("reason"),
-                    "matrix_action": act,
-                    "y_trade": yt,
-                    "y_path": yp,
-                    "dry_run": bool(dry_run),
-                }
-            )
-            row.update(
-                {
-                    "side": "sell",
-                    "shares": sell_sh,
-                    "price": px,
-                    "decision": "卖出" if act == ACTION_EXIT else "减仓",
-                    "old_shares": held_sh,
-                    "new_shares": max(0.0, held_sh - sell_sh),
-                    "shares_change": -sell_sh,
-                }
-            )
-            report.append(row)
-
-    # 先卖后买
     report.sort(
         key=lambda r: (
             0 if str(r.get("side") or "") == "sell" else 1,
@@ -962,9 +745,9 @@ def simulate_watching_matrix_preview(
         by_action[a] = by_action.get(a, 0) + 1
 
     note = (
-        "观察池 + path_matrix 预演（未写账）"
+        "观察池 + rank_lots 预演（未写账）"
         if dry_run
-        else "观察池 + path_matrix 落账"
+        else "观察池 + rank_lots 落账"
     )
     strategy_id = paper.get("strategy_id")
     strategy_label = None
@@ -984,8 +767,8 @@ def simulate_watching_matrix_preview(
         "cluster_mode": False,
         "offline_only": use_offline,
         "top_k": k,
-        "min_score": bf,
-        "min_hold_score": hf,
+        "min_score": rl_cfg.get("rank_enter"),
+        "min_hold_score": 0.0,
         "observation_pool_count": len(codes),
         "scored_count": len(scored),
         "rejected": rejected[:40],
@@ -1004,6 +787,7 @@ def simulate_watching_matrix_preview(
             "net_cash": round(sell_amt - buy_amt, 2),
             "cash_before": cash_before,
             "cash_after": float(paper.get("cash") or cash) if not dry_run else None,
+            "cash_floor": rl_cfg.get("cash_floor"),
             "turnover_pct": round(
                 (buy_amt + sell_amt) / equity * 100.0, 2
             )
@@ -1013,26 +797,19 @@ def simulate_watching_matrix_preview(
         "empty_reason": empty,
         "path_matrix": {
             "enabled": True,
-            "mode": mode,
+            "mode": "rank_lots",
             "oos_excluded": oos_excluded,
             "cfg": {
-                k2: pm_cfg.get(k2)
-                for k2 in (
-                    "mode",
-                    "path_enter",
-                    "path_half",
-                    "path_full",
-                    "y_on_allow",
-                    "fusion_w_trade",
-                    "fusion_w_nowcast",
-                    "require_path_on_same_sign",
-                    "require_nowcast_for_open",
-                    "allow_pending_exit_on_path_low",
-                )
+                "rank_enter": rl_cfg.get("rank_enter"),
+                "rank_strong": rl_cfg.get("rank_strong"),
+                "cash_floor": rl_cfg.get("cash_floor"),
+                "fusion_w_trade": rl_cfg.get("fusion_w_trade"),
+                "fusion_w_nowcast": rl_cfg.get("fusion_w_nowcast"),
+                "y_on_alpha": rl_cfg.get("y_on_alpha"),
             },
             "by_action": by_action,
         },
-        "target_weights": {c: round(w * 100.0, 4) for c, w in w_star.items()},
+        "target_weights": {},
         "note": note,
         "strategy_id": strategy_id,
         "strategy_label": strategy_label,
@@ -1045,7 +822,7 @@ def simulate_watching_matrix_preview(
                 else "watching_matrix 落账"
             ),
             "matrix_by_action": by_action,
-            "matrix_mode": mode,
+            "matrix_mode": "rank_lots",
         },
         "confirm_supported": True,
     }

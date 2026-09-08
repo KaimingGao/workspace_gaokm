@@ -235,20 +235,16 @@ DEFAULT_REBALANCE_TIMING: Dict[str, Any] = {
     "open_fill_until_hm": "10:00",
     "pending_chase_interval_min": 10,
     "pending_chase_eod_hm": "14:50",
-    # 早盘路径择时调仓矩阵（默认开；见 core.paper.rebalance.path_matrix）
+    # 策略调仓：09:30 rank_lots（y_fuse/y_on · 100/200 股）
     "path_matrix": {
         "enabled": True,
-        "mode": "path",  # path | linear（Web 仅 path）
-        "path_enter": 0.1,
-        "path_half": 0.5,
-        "path_full": 1.0,
-        "y_on_allow": 0.5,
-        "y_on_half": 0.1,
+        "mode": "rank_lots",
+        "rank_enter": 0.01,
+        "rank_strong": 0.02,
+        "cash_floor": 500000.0,
         "fusion_w_trade": 0.5,
         "fusion_w_nowcast": 0.5,
-        "require_path_on_same_sign": True,
-        "require_nowcast_for_open": False,
-        "allow_pending_exit_on_path_low": True,
+        "y_on_alpha": 0.0,
     },
 }
 
@@ -1017,25 +1013,13 @@ def validate_execution_patch(raw: Any) -> Tuple[bool, Dict[str, Any], List[str]]
                 pm = get_path_matrix_cfg({"path_matrix": pm_in})
                 timing_out["path_matrix"] = {
                     "enabled": bool(pm.get("enabled")),
-                    "mode": "path",
-                    "path_enter": float(pm.get("path_enter") or 0.1),
-                    "path_half": float(pm.get("path_half") or 0.5),
-                    "path_full": float(pm.get("path_full") or 1.0),
-                    "y_on_allow": float(pm.get("y_on_allow") or 0.5),
-                    "y_on_half": float(
-                        pm.get("y_on_half") if pm.get("y_on_half") is not None else 0.1
-                    ),
+                    "mode": "rank_lots",
+                    "rank_enter": float(pm.get("rank_enter") or 0.01),
+                    "rank_strong": float(pm.get("rank_strong") or 0.02),
+                    "cash_floor": float(pm.get("cash_floor") or 500_000.0),
                     "fusion_w_trade": float(pm.get("fusion_w_trade") or 0.5),
                     "fusion_w_nowcast": float(pm.get("fusion_w_nowcast") or 0.5),
-                    "require_path_on_same_sign": bool(
-                        pm.get("require_path_on_same_sign", True)
-                    ),
-                    "require_nowcast_for_open": bool(
-                        pm.get("require_nowcast_for_open", False)
-                    ),
-                    "allow_pending_exit_on_path_low": bool(
-                        pm.get("allow_pending_exit_on_path_low", True)
-                    ),
+                    "y_on_alpha": float(pm.get("y_on_alpha") if pm.get("y_on_alpha") is not None else 0.0),
                 }
             except Exception as e:  # noqa: BLE001
                 errors.append(f"path_matrix 校验失败: {e}")

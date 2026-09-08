@@ -1,4 +1,4 @@
-/** Paper · 观察池 path_matrix 预演/落账（Follow 调仓主路径）。 */
+/** Paper · 观察池 rank_lots 预演/落账（Follow 调仓主路径）。 */
 
 import { getDataOfflineOnly } from "../data_offline.js";
 import { ensureWarehouseTopup } from "../data_warehouse_topup.js";

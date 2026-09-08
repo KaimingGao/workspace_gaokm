@@ -1,18 +1,21 @@
-"""纸面可实现回放：日循环驱动 ``simulate_cross_section_rebalance``。
+"""纸面可实现回放：每个交易日 09:30 开盘走 rank_lots（y_fuse/y_on · 1000/2000 股）。
 
-与 ``topk_research``（独立腿聚合）并列：本引擎跟踪真实持仓、T+1、换手预算、
-``min_cash_pct`` 与账户风控，成交价默认 next_open（信号日收盘打分 → 次日开盘调仓）。
+与 ``topk_research``（独立腿聚合）并列。现金地板默认 50 万；T+1 仍生效。
+历史回测手数大于 live（live 仍为 100/200）。
 """
 
 from __future__ import annotations
 
 import copy
 import logging
-from typing import Any, Callable, Dict, List, Optional, Sequence
+from datetime import datetime
+from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 logger = logging.getLogger(__name__)
 
 ENGINE_ID = "paper_replay"
+REPLAY_LOT_BASE = 1000
+REPLAY_LOT_STRONG = 2000
 
 
 def _bars_by_date(bars: List[dict]) -> Dict[str, dict]:
@@ -25,11 +28,272 @@ def _bars_by_date(bars: List[dict]) -> Dict[str, dict]:
 
 
 def _common_dates(stock_bars: Dict[str, List[dict]]) -> List[str]:
+    """全交集日历。回测主路径用 ``_coverage_dates``；此处留给对照测试。"""
     common: Optional[set] = None
     for bars in stock_bars.values():
         keys = set(_bars_by_date(bars).keys())
         common = keys if common is None else common & keys
     return sorted(common or [])
+
+
+def _coverage_dates(
+    stock_bars: Dict[str, List[dict]],
+    *,
+    min_coverage: float = 0.8,
+) -> List[str]:
+    """多数票有 K 的日期。全交集会被停牌/次新一张票卡死，lookback 拉长也不生效。"""
+    n = max(1, len(stock_bars or {}))
+    counts: Dict[str, int] = {}
+    for bars in (stock_bars or {}).values():
+        seen = set()
+        for b in bars or []:
+            if not isinstance(b, dict):
+                continue
+            d = str(b.get("date") or "").strip()[:10]
+            if d and d not in seen:
+                seen.add(d)
+                counts[d] = counts.get(d, 0) + 1
+    if n <= 3:
+        thresh = n
+    else:
+        cov = min(1.0, max(0.5, float(min_coverage)))
+        thresh = max(2, int(n * cov + 0.999999))
+    dates = sorted(d for d, c in counts.items() if c >= thresh)
+    return dates or sorted(counts)
+
+
+def _replay_calendar(
+    stock_bars: Dict[str, List[dict]],
+    *,
+    lookback: Optional[int] = None,
+    min_history: int = 12,
+    max_window: int = 30,
+    min_coverage: float = 0.8,
+) -> Tuple[List[str], int]:
+    """回测交易日：覆盖率日历的最后 lookback 根；前面垫特征窗，不占样本长度。"""
+    cal = _coverage_dates(stock_bars, min_coverage=min_coverage)
+    if not cal:
+        return [], 0
+    try:
+        lb = int(lookback) if lookback is not None else 0
+    except (TypeError, ValueError):
+        lb = 0
+    core = cal[-lb:] if lb > 0 else cal
+    pad_n = max(int(min_history or 1), int(max_window or 1), 1)
+    pre = [d for d in cal if d < core[0]]
+    dates = pre[-pad_n:] + list(core)
+    start_i = dates.index(core[0]) if core[0] in dates else 0
+    if start_i < 1 and len(dates) > 1:
+        start_i = 1
+    return dates, start_i
+
+
+def _fpx(v: Any) -> Optional[float]:
+    try:
+        n = float(v)
+    except (TypeError, ValueError):
+        return None
+    return n if n > 0 else None
+
+
+DAY_LEG_TOP = 8
+
+
+def _holding_snap(holdings: Sequence[dict]) -> Dict[str, dict]:
+    out: Dict[str, dict] = {}
+    for h in holdings or []:
+        if not isinstance(h, dict):
+            continue
+        code = str(h.get("stock_code") or "").strip()
+        sh = _fpx(h.get("shares"))
+        if not code or sh is None:
+            continue
+        out[code] = {
+            "stock_code": code,
+            "stock_name": str(h.get("stock_name") or code),
+            "shares": float(sh),
+        }
+    return out
+
+
+def _bar_px(
+    date_maps: Dict[str, Dict[str, dict]],
+    code: str,
+    day: str,
+    *fields: str,
+) -> Optional[float]:
+    bar = (date_maps.get(code) or {}).get(day) or {}
+    for f in fields:
+        v = _fpx(bar.get(f))
+        if v is not None:
+            return float(v)
+    return None
+
+
+def day_stock_legs(
+    *,
+    start: Dict[str, dict],
+    end: Dict[str, dict],
+    date_maps: Dict[str, Dict[str, dict]],
+    prev_day: str,
+    day: str,
+    open_px: Dict[str, float],
+    prev_equity: float,
+) -> Tuple[List[dict], int]:
+    """当日个股盈亏：隔夜段 open−昨收 + 当日段 close−open，贡献=盈亏/昨净值。"""
+    codes = sorted(set(start) | set(end))
+    rows: List[dict] = []
+    pe = float(prev_equity or 0.0)
+    for code in codes:
+        st = start.get(code) or {}
+        en = end.get(code) or {}
+        prev_sh = float(st.get("shares") or 0.0)
+        now_sh = float(en.get("shares") or 0.0)
+        prev_c = _bar_px(date_maps, code, prev_day, "close", "open")
+        opn = _fpx((open_px or {}).get(code)) or _bar_px(
+            date_maps, code, day, "open", "close"
+        )
+        close = _bar_px(date_maps, code, day, "close", "open")
+        if close is None and opn is None:
+            continue
+        if opn is None:
+            opn = close
+        if prev_c is None:
+            prev_c = opn
+        if close is None:
+            close = opn
+        if opn is None or prev_c is None or close is None:
+            continue
+        pnl = now_sh * (float(close) - float(opn)) + prev_sh * (
+            float(opn) - float(prev_c)
+        )
+        contrib = (pnl / pe * 100.0) if pe > 0 else 0.0
+        stock_ret = (
+            (float(close) / float(prev_c) - 1.0) * 100.0 if float(prev_c) > 0 else None
+        )
+        name = str(en.get("stock_name") or st.get("stock_name") or code)
+        rows.append(
+            {
+                "stock_code": code,
+                "stock_name": name,
+                "shares": round(now_sh, 0),
+                "ret_pct": None if stock_ret is None else round(stock_ret, 3),
+                "contrib_pct": round(contrib, 4),
+            }
+        )
+    rows.sort(key=lambda r: abs(float(r.get("contrib_pct") or 0.0)), reverse=True)
+    n_more = max(0, len(rows) - DAY_LEG_TOP)
+    return rows[:DAY_LEG_TOP], n_more
+
+
+def replay_session_day(*, now: Optional[datetime] = None) -> Optional[str]:
+    """交易日且已过 09:30 才覆盖当天；开盘前 / 非交易日返回 None。"""
+    from core.market.calendar import is_trading_day, resolve_session_date
+
+    dt = now or datetime.now()
+    session = str(resolve_session_date(now=dt) or "")[:10]
+    if not session or not is_trading_day(session):
+        return None
+    if dt.strftime("%Y-%m-%d") == session:
+        open_at = dt.replace(hour=9, minute=30, second=0, microsecond=0)
+        if dt < open_at:
+            return None
+    return session
+
+
+def _lookup_quote(quotes: Dict[str, Any], code: str) -> dict:
+    if not quotes:
+        return {}
+    if code in quotes and isinstance(quotes.get(code), dict):
+        return quotes[code]
+    digits = "".join(ch for ch in str(code) if ch.isdigit())
+    for k, v in quotes.items():
+        if not isinstance(v, dict):
+            continue
+        kd = "".join(ch for ch in str(k) if ch.isdigit())
+        if digits and kd == digits:
+            return v
+    return {}
+
+
+def _quote_open_px(q: Any) -> Optional[float]:
+    if not isinstance(q, dict):
+        return None
+    return (
+        _fpx(q.get("open"))
+        or _fpx(q.get("open_raw"))
+        or _fpx(q.get("price_raw"))
+        or _fpx(q.get("price"))
+        or _fpx(q.get("last"))
+        or _fpx(q.get("close"))
+    )
+
+
+def overlay_session_day_bars(
+    stock_bars: Dict[str, List[dict]],
+    *,
+    now: Optional[datetime] = None,
+    quotes_by_code: Optional[Dict[str, dict]] = None,
+    fetch_quotes: bool = True,
+) -> Tuple[Dict[str, List[dict]], Optional[str], int]:
+    """仓里还没有当日日 K 时，用现价开盘补一根，让 09:30 能跑到当天。
+
+    特征仍只用昨收。成交用今开。真实收盘 / 隔夜 label 不写。
+    仅当覆盖率日历末日恰好是上一交易日才补，避免测试夹具或过期仓跳到今天。
+    """
+    dates = _coverage_dates(stock_bars)
+    session = replay_session_day(now=now)
+    if not session or not dates:
+        return stock_bars, None, 0
+    last = dates[-1]
+    if last >= session:
+        return stock_bars, None, 0
+    from core.market.calendar import prev_trading_day
+
+    if last != prev_trading_day(session):
+        return stock_bars, None, 0
+
+    missing = [
+        str(code)
+        for code, bars in stock_bars.items()
+        if session not in _bars_by_date(bars)
+    ]
+    if not missing:
+        return stock_bars, session, 0
+
+    quotes = dict(quotes_by_code or {})
+    if fetch_quotes:
+        still = [c for c in missing if not _quote_open_px(_lookup_quote(quotes, c))]
+        if still:
+            try:
+                from core.data.facade import batch_get_quotes
+
+                got = batch_get_quotes(still) or {}
+                quotes.update(got)
+            except Exception:  # noqa: BLE001
+                logger.debug("session overlay quotes failed", exc_info=True)
+
+    n = 0
+    out = {str(c): list(bars or []) for c, bars in stock_bars.items()}
+    for code in missing:
+        open_px = _quote_open_px(_lookup_quote(quotes, code))
+        if open_px is None:
+            continue
+        out[code].append(
+            {
+                "date": session,
+                "open": open_px,
+                "high": open_px,
+                "low": open_px,
+                "close": open_px,
+                "volume": 0,
+                "session_overlay": True,
+            }
+        )
+        n += 1
+    if n < 1:
+        return stock_bars, None, 0
+    return out, session, n
 
 
 def _window_for_code(
@@ -125,23 +389,165 @@ def _make_batch_query(
     return _batch
 
 
+_DEBUG_SKIP_KEYS = ("T+1", "地板", "不可卖", "无有效报价", "不足一手", "cash_floor", "锁定")
+
+
+def _is_debug_skip(sk: dict) -> bool:
+    r = str((sk or {}).get("reason") or "")
+    return any(k in r for k in _DEBUG_SKIP_KEYS)
+
+
+def _infer_skip_side(sk: dict) -> str:
+    s = str((sk or {}).get("side") or "").strip().lower()
+    if s in ("buy", "sell"):
+        return s
+    r = str((sk or {}).get("reason") or "")
+    if any(k in r for k in ("T+1", "不可卖", "不足一手", "锁定", "no_position")):
+        return "sell"
+    return "buy"
+
+
+def _skip_to_sim(sk: dict, day: str) -> dict:
+    side = _infer_skip_side(sk)
+    return {
+        "stock_code": sk.get("stock_code"),
+        "stock_name": sk.get("stock_name"),
+        "side": side,
+        "shares": sk.get("shares"),
+        "price": None,
+        "amount": None,
+        "as_of": day,
+        "signal_date": day,
+        "status": "skipped",
+        "action": "skip",
+        "matrix_action": "skip",
+        "y_fuse": sk.get("y_fuse"),
+        "y_on": sk.get("y_on"),
+        "ranking_score": sk.get("ranking_score"),
+        "y_trade": sk.get("y_trade"),
+        "y_nowcast": sk.get("y_nowcast"),
+        "rank_i": sk.get("rank_i"),
+        "rank_n": sk.get("rank_n"),
+        "lot_kind": sk.get("lot_kind"),
+        "reason": sk.get("reason") or "跳过",
+    }
+
+
+def _ledger_trades_to_sim(trades: Sequence[dict]) -> List[dict]:
+    """账本买卖腿 → 前端成交表行（保留 side / 股数 / y_fuse，不是研究独立腿）。"""
+    out: List[dict] = []
+    for t in trades or []:
+        if not isinstance(t, dict):
+            continue
+        side = str(t.get("side") or "").strip().lower()
+        if side not in ("buy", "sell"):
+            continue
+        day = str(t.get("as_of") or t.get("ts") or "")[:10]
+        yf = t.get("y_fuse")
+        if yf is None:
+            yf = t.get("y_trade") if t.get("y_trade") is not None else t.get("score")
+        row: Dict[str, Any] = {
+            "stock_code": t.get("stock_code"),
+            "stock_name": t.get("stock_name"),
+            "side": side,
+            "shares": t.get("shares"),
+            "price": t.get("price"),
+            "amount": t.get("amount"),
+            "fees": t.get("fees"),
+            "as_of": day,
+            "signal_date": day,
+            "status": "filled",
+            "action": t.get("action") or t.get("matrix_action"),
+            "y_fuse": yf,
+            "y_on": t.get("y_on"),
+            "ranking_score": t.get("ranking_score"),
+            "y_trade": t.get("y_trade"),
+            "y_nowcast": t.get("y_nowcast"),
+            "rank_i": t.get("rank_i"),
+            "rank_n": t.get("rank_n"),
+            "lot_kind": t.get("lot_kind"),
+            "predicted_score": yf,
+            "score": yf,
+            "matrix_action": t.get("matrix_action") or t.get("action"),
+            "note": t.get("note"),
+            "reason": t.get("reason") or t.get("note"),
+            "pnl_pct": t.get("pnl_pct"),
+            "origin": t.get("origin"),
+        }
+        if side == "buy":
+            row["entry_date"] = day
+            row["entry_price"] = t.get("price")
+        else:
+            row["exit_date"] = day
+            row["exit_price"] = t.get("price")
+            row["return_pct"] = t.get("pnl_pct")
+        out.append(row)
+    return out
+
+
+def _px(bar: Optional[dict], key: str) -> Optional[float]:
+    if not isinstance(bar, dict):
+        return None
+    try:
+        v = float(bar.get(key) or 0)
+    except (TypeError, ValueError):
+        return None
+    return v if v > 0 else None
+
+
+def _pct_ret(start: Optional[float], end: Optional[float]) -> Optional[float]:
+    if start is None or end is None or start <= 0 or end <= 0:
+        return None
+    return round((float(end) / float(start) - 1.0) * 100.0, 4)
+
+
+def realized_yhat_windows(
+    code: str,
+    day: str,
+    *,
+    dates: Sequence[str],
+    date_maps: Dict[str, Dict[str, dict]],
+    date_index: Optional[Dict[str, int]] = None,
+) -> Tuple[Optional[float], Optional[float]]:
+    """事后对照：y_fuse↔close[T]/close[T−1]−1；y_on↔open[T+1]/close[T]−1。不进决策。"""
+    d = str(day or "")[:10]
+    c = str(code or "").strip()
+    if not d or not c:
+        return None, None
+    if date_index is not None:
+        i = date_index.get(d)
+    else:
+        try:
+            i = list(dates).index(d)
+        except ValueError:
+            i = None
+    if i is None or i < 0:
+        return None, None
+    dm = date_maps.get(c) or {}
+    bar = dm.get(d)
+    if isinstance(bar, dict) and bar.get("session_overlay"):
+        return None, None
+    prev = dm.get(dates[i - 1]) if i > 0 else None
+    nxt = dm.get(dates[i + 1]) if i + 1 < len(dates) else None
+    r_cc = _pct_ret(_px(prev, "close"), _px(bar, "close"))
+    r_on = _pct_ret(_px(bar, "close"), _px(nxt, "open"))
+    return r_cc, r_on
+
+
 def _default_paper(
     *,
     initial_cash: float,
     top_k: int,
-    min_cash_pct: float,
-    max_turnover_pct: Optional[float],
     cost_model: str,
 ) -> dict:
     rules: Dict[str, Any] = {
         "max_positions": int(top_k),
-        "position_pct": min(0.25, 1.0 / max(1, int(top_k))),
-        "min_cash_pct": float(min_cash_pct),
+        # 单票上限不随观察池放大而变小（否则 1/N 会把 1000 股手数挡掉）
+        "position_pct": 0.25,
+        "min_cash_pct": 0.0,
         "horizon_days": 1,
         "execution_mode": "next_open",
     }
-    if max_turnover_pct is not None:
-        rules["max_turnover_pct"] = float(max_turnover_pct)
     # 回放关闭做 T，避免卖腿读盘中分钟线打网
     rules["t0"] = {"enabled": False}
     cash = float(initial_cash)
@@ -158,70 +564,203 @@ def _default_paper(
     }
 
 
-def _ranking_from_scores(
+def _load_replay_cluster_models() -> Dict[str, Any]:
+    """与历史 Top-K 同源：live 分组 β；失败则空（再试全局模型）。"""
+    try:
+        from core.signal.cluster.live import (
+            cluster_yhat_shadow_compute_allowed,
+            filter_primary_cluster_models_by_code,
+            get_cluster_scoring_cfg,
+            load_cluster_return_models_by_code,
+        )
+
+        cs = get_cluster_scoring_cfg()
+        if cluster_yhat_shadow_compute_allowed(str(cs.get("mode") or "off")):
+            raw = load_cluster_return_models_by_code()
+            return filter_primary_cluster_models_by_code(raw)
+    except Exception:  # noqa: BLE001
+        logger.debug("load replay cluster models failed", exc_info=True)
+    return {}
+
+
+def _load_replay_global_model() -> Any:
+    try:
+        from core.signal.return_score_store import load_return_model
+
+        model, meta = load_return_model(prefer_active=True)
+        if meta.get("ok") and model is not None:
+            return model
+    except Exception:  # noqa: BLE001
+        logger.debug("load replay global return model failed", exc_info=True)
+    return None
+
+
+def _attach_open_yhat_heads(
     entries: List[dict],
     *,
-    top_k: int,
-    min_predicted_score: Optional[float],
+    quotes: Dict[str, dict],
+    windows: Dict[str, List[dict]],
+    cluster_models: Optional[Dict[str, Any]] = None,
+    global_model: Any = None,
+    on_model_doc: Any = None,
+    tau_model_doc: Any = None,
+    cfg: Optional[dict] = None,
 ) -> List[dict]:
-    """把打分行排成调仓 ranking（ŷ_EOD 优先；无则 heuristic）。"""
-    rows: List[dict] = []
-    for it in entries or []:
-        if not isinstance(it, dict) or not it.get("stock_code"):
-            continue
-        row = dict(it)
-        eod = row.get("predicted_score_eod")
-        if eod is None:
-            eod = row.get("predicted_score")
-        if eod is None:
-            eod = row.get("score")
+    """heuristic 窗口分 → 分组 ŷ_EOD；09:30 PIT 挂 ŷ_τ / nowcast；开盘特征打 y_on。
+
+    无 ŷ_τ 时 nowcast 退回 ŷ_EOD 先验，不写假 0。缺 nowcast 则 fuse 只用 y_trade。
+    """
+    from core.signal.return_score import (
+        apply_predicted_scores,
+        apply_predicted_scores_by_model,
+    )
+
+    items = list(entries)
+    by_code = dict(cluster_models or {})
+    if by_code:
+        items = apply_predicted_scores_by_model(
+            items,
+            by_code,
+            write_rank_score=False,
+            default_model=global_model,
+        )
+    elif global_model is not None:
+        items = apply_predicted_scores(items, global_model, write_rank_score=False)
+
+    rem_doc = tau_model_doc
+    if rem_doc is None:
         try:
-            eod_f = float(eod) if eod is not None else None
-        except (TypeError, ValueError):
-            eod_f = None
-        if eod_f is not None:
-            row["predicted_score"] = eod_f
-            row.setdefault("predicted_score_eod", eod_f)
-            row.setdefault("predicted_score_blend", eod_f)
-            row.setdefault("score_scale", "predicted_yhat")
-        if min_predicted_score is not None and eod_f is not None:
-            if eod_f < float(min_predicted_score):
-                continue
-        rows.append(row)
+            from core.research.tau_ridge import load_tau_model
 
-    def _key(r: dict) -> float:
-        for k in ("predicted_score_eod", "predicted_score", "score"):
-            v = r.get(k)
-            if v is not None:
+            rem_doc = load_tau_model()
+        except Exception:  # noqa: BLE001
+            rem_doc = None
+            logger.debug("load_tau_model failed in replay yhat heads", exc_info=True)
+
+    try:
+        from core.signal.dual_score import (
+            align_trade_score_fields,
+            attach_dual_score_pit,
+        )
+    except Exception:  # noqa: BLE001
+        align_trade_score_fields = None  # type: ignore[assignment]
+        attach_dual_score_pit = None  # type: ignore[assignment]
+        logger.debug("dual_score import failed", exc_info=True)
+
+    try:
+        from core.research.on_panel import build_on_features_from_quote_bars
+        from core.research.on_ridge import predict_on_from_features
+        from core.signal.dual_score.on import apply_on_score_fields
+    except Exception:  # noqa: BLE001
+        build_on_features_from_quote_bars = None  # type: ignore[assignment]
+        predict_on_from_features = None  # type: ignore[assignment]
+        apply_on_score_fields = None  # type: ignore[assignment]
+        logger.debug("on-head imports failed", exc_info=True)
+
+    for it in items:
+        if not isinstance(it, dict):
+            continue
+        code = str(it.get("stock_code") or "").strip()
+        pred = it.get("predicted_score")
+        if pred is not None:
+            it.setdefault("predicted_score_eod", pred)
+            it.setdefault("y_trade", pred)
+        if attach_dual_score_pit is not None and code:
+            try:
+                attach_dual_score_pit(
+                    it,
+                    quote=quotes.get(code) or {},
+                    bars=windows.get(code) or [],
+                    config=cfg,
+                    rem_model_doc=rem_doc,
+                    use_minute_tau=False,
+                    fuse_intraday=True,
+                )
+            except Exception:  # noqa: BLE001
+                logger.debug("attach open nowcast failed for %s", code, exc_info=True)
+        if align_trade_score_fields is not None:
+            try:
+                align_trade_score_fields(
+                    it, write_score=False, refresh_window=False, config=cfg
+                )
+            except Exception:  # noqa: BLE001
+                logger.debug("align_trade_score_fields failed", exc_info=True)
+        blend = it.get("predicted_score_blend")
+        if blend is not None:
+            it["y_trade"] = blend
+        elif it.get("y_trade") is None and pred is not None:
+            it["y_trade"] = pred
+        nc = it.get("predicted_score_nowcast")
+        if nc is not None:
+            it["y_nowcast"] = nc
+        if (
+            apply_on_score_fields is None
+            or build_on_features_from_quote_bars is None
+            or predict_on_from_features is None
+            or not code
+        ):
+            continue
+        quote = quotes.get(code) or {}
+        window = windows.get(code) or []
+        try:
+            gap = None
+            if quote:
                 try:
-                    return float(v)
+                    gap = float(quote.get("change_raw"))
                 except (TypeError, ValueError):
-                    continue
-        return float("-inf")
+                    gap = None
+            on_feats = build_on_features_from_quote_bars(
+                quote,
+                window,
+                gap_pct=gap,
+            )
+            on_yhat = predict_on_from_features(on_feats, model_doc=on_model_doc)
+            apply_on_score_fields(
+                it,
+                on_yhat=on_yhat,
+                feats=on_feats,
+                on_model_doc=on_model_doc,
+            )
+        except Exception:  # noqa: BLE001
+            logger.debug("attach y_on failed for %s", code, exc_info=True)
+    return items
 
-    rows.sort(key=_key, reverse=True)
-    return rows[: max(1, int(top_k))]
 
-
-def _score_day(
+def _score_open_day(
     *,
     stock_bars: Dict[str, List[dict]],
     dates: List[str],
     date_maps: Dict[str, Dict[str, dict]],
-    signal_i: int,
+    day_i: int,
     max_window: int,
     horizon_days: int,
     cfg: Optional[dict],
+    cluster_models: Optional[Dict[str, Any]] = None,
+    global_model: Any = None,
+    on_model_doc: Any = None,
+    tau_model_doc: Any = None,
 ) -> List[dict]:
-    from core.backtest.engine import _mock_quote_from_bars
+    """9:30 信息集：窗口截至昨收，报价用今开（不把今日收盘喂进特征）。"""
     from core.signal.cross_section_batch import score_window_as_item
 
+    if day_i <= 0:
+        return []
     entries: List[dict] = []
+    quotes: Dict[str, dict] = {}
+    windows: Dict[str, List[dict]] = {}
+    prev_i = day_i - 1
+    today = dates[day_i]
     for code in stock_bars:
-        window = _window_for_code(code, dates, date_maps, signal_i, max_window)
+        window = _window_for_code(code, dates, date_maps, prev_i, max_window)
         if len(window) < 2:
             continue
-        quote = _mock_quote_from_bars(window, len(window) - 1)
+        dm = date_maps.get(code) or {}
+        today_bar = dm.get(today)
+        prev_bar = dm.get(dates[prev_i])
+        quote = mock_quote_from_bar(today_bar, prev_bar=prev_bar, px_field="open")
+        if quote:
+            quote["date"] = today
+            quote["trade_date"] = today
         item = score_window_as_item(
             code,
             window,
@@ -231,238 +770,442 @@ def _score_day(
         )
         if item:
             entries.append(item)
-    return entries
+            quotes[str(code)] = quote or {}
+            windows[str(code)] = window
+    if not entries:
+        return []
+    return _attach_open_yhat_heads(
+        entries,
+        quotes=quotes,
+        windows=windows,
+        cluster_models=cluster_models,
+        global_model=global_model,
+        on_model_doc=on_model_doc,
+        tau_model_doc=tau_model_doc,
+        cfg=cfg,
+    )
+
+
+def _items_from_injected_ranking(rows: Sequence[dict]) -> List[dict]:
+    """测试/日报注入行：ŷ 当作 y_fuse；有 y_on 则带上。"""
+    out: List[dict] = []
+    for it in rows or []:
+        if not isinstance(it, dict) or not it.get("stock_code"):
+            continue
+        row = dict(it)
+        yf = row.get("y_fuse")
+        if yf is None:
+            yf = row.get("y_fusion")
+        if yf is None:
+            yf = row.get("predicted_score")
+        if yf is None:
+            yf = row.get("predicted_score_eod")
+        if yf is None:
+            yf = row.get("y_trade")
+        if yf is None:
+            yf = row.get("score")
+        if yf is not None:
+            row["y_fuse"] = yf
+            row.setdefault("y_trade", yf)
+        out.append(row)
+    return out
 
 
 def backtest_paper_replay(
     stock_bars: Dict[str, List[dict]],
     *,
-    top_k: int = 5,
+    top_k: Optional[int] = None,
     min_history: int = 12,
     max_window: int = 30,
+    lookback: Optional[int] = None,
     initial_cash: float = 1_000_000.0,
-    min_cash_pct: float = 0.2,
-    max_turnover_pct: Optional[float] = 40.0,
     cost_model: str = "simple_cn",
-    min_predicted_score: Optional[float] = None,
-    min_score: Optional[float] = None,
     rankings_by_date: Optional[Dict[str, List[dict]]] = None,
-    skip_sentiment_prior: bool = True,
-    skip_market_prior: bool = True,
     yhat_horizon_days: int = 1,
-    stop_loss_pnl: float = -8.0,
-    force_trim_cooldown_days: int = 1,
     progress_cb: Optional[Callable[..., Any]] = None,
+    cash_floor: Optional[float] = None,
+    rank_enter: Optional[float] = None,
+    rank_strong: Optional[float] = None,
+    y_on_alpha: Optional[float] = None,
+    include_session_day: bool = True,
+    session_quotes: Optional[Dict[str, dict]] = None,
+    session_now: Optional[datetime] = None,
 ) -> Dict[str, Any]:
-    """纸面日频回放：信号日收盘打分 → 次日开盘调仓 →（可选）盘中止损 → 收盘盯市。
-
-    ``rankings_by_date``：可选预计算目标簿（测试/对照）；缺省则按日线 PIT 打分。
-    ``stop_loss_pnl``：日线 low 触及成本该百分比则卖（默认 -8；≥0 关闭）。
-    ``force_trim_cooldown_days``：膨胀减仓卸簿内后 N 日不买回（0=关）。
-    """
+    """策略调仓历史回测：每个交易日 9:30 开盘用 y_fuse/y_on 排序并按 1000/2000 股调仓。"""
     from core.backtest.engine import _trade_metrics
-    from core.paper.ledger import mark_to_market
-    from core.paper.rebalance import simulate_cross_section_rebalance
+    from core.paper.rebalance.rank_lots import (
+        DEFAULT_CASH_FLOOR,
+        DEFAULT_RANK_ENTER,
+        DEFAULT_RANK_STRONG,
+        DEFAULT_Y_ON_ALPHA,
+        clamp_y_on_alpha,
+        coerce_rank_threshold,
+        get_rank_lot_cfg,
+        plan_rank_lot_day,
+    )
+    from core.paper.rebalance.watching_matrix import _apply_matrix_trades
     from core.paper.replay_ctx import paper_replay_context
 
     if not stock_bars or len(stock_bars) < 1:
         return {"success": False, "error": "stock_bars 为空", "params": {"engine": ENGINE_ID}}
 
+    session_day = None
+    n_overlay = 0
+    if include_session_day:
+        stock_bars, session_day, n_overlay = overlay_session_day_bars(
+            stock_bars,
+            now=session_now,
+            quotes_by_code=session_quotes,
+            fetch_quotes=session_quotes is None,
+        )
+
     date_maps = {str(c): _bars_by_date(bars) for c, bars in stock_bars.items()}
-    dates = _common_dates(stock_bars)
+    dates, trade_start = _replay_calendar(
+        stock_bars,
+        lookback=lookback,
+        min_history=min_history,
+        max_window=max_window,
+    )
+    if session_day and session_day not in dates:
+        dates = sorted(dates + [session_day])
     n = len(dates)
-    need = max(2, int(min_history) + 2)
+    need = max(2, int(min_history) + 1)
     if n < need:
         return {
             "success": False,
-            "error": f"共同交易日不足 {n}<{need}",
-            "params": {"engine": ENGINE_ID, "common_dates": n},
+            "error": f"可交易日不足 {n}<{need}",
+            "params": {"engine": ENGINE_ID, "common_dates": n, "lookback": lookback},
         }
 
-    top_k = max(1, min(int(top_k or 1), 30))
+    from core.watching.store import WATCHING_MAX_SIZE
+
+    universe_n = max(1, len(stock_bars))
+    cap = max(universe_n, int(WATCHING_MAX_SIZE))
+    if top_k is None:
+        top_k = universe_n
+    else:
+        top_k = max(1, min(int(top_k or 1), cap))
+    floor = float(DEFAULT_CASH_FLOOR if cash_floor is None else cash_floor)
+    alpha = clamp_y_on_alpha(
+        DEFAULT_Y_ON_ALPHA if y_on_alpha is None else y_on_alpha
+    )
     paper = _default_paper(
         initial_cash=initial_cash,
         top_k=top_k,
-        min_cash_pct=min_cash_pct,
-        max_turnover_pct=max_turnover_pct,
         cost_model=cost_model,
     )
+    paper.setdefault("rules", {})["execution"] = {
+        "rebalance_timing": {
+            "path_matrix": {
+                "rank_enter": float(
+                    DEFAULT_RANK_ENTER
+                    if rank_enter is None
+                    else coerce_rank_threshold(rank_enter, DEFAULT_RANK_ENTER)
+                ),
+                "rank_strong": float(
+                    DEFAULT_RANK_STRONG
+                    if rank_strong is None
+                    else coerce_rank_threshold(rank_strong, DEFAULT_RANK_STRONG)
+                ),
+                "cash_floor": floor,
+                "y_on_alpha": alpha,
+            }
+        }
+    }
+    rl_cfg = get_rank_lot_cfg(paper, top_k=top_k)
+    rl_cfg["cash_floor"] = floor
+    rl_cfg["lot_base"] = REPLAY_LOT_BASE
+    rl_cfg["lot_strong"] = REPLAY_LOT_STRONG
+    rl_cfg["y_on_alpha"] = alpha
+    if rank_enter is not None:
+        rl_cfg["rank_enter"] = coerce_rank_threshold(
+            rank_enter, DEFAULT_RANK_ENTER
+        )
+    if rank_strong is not None:
+        rl_cfg["rank_strong"] = coerce_rank_threshold(
+            rank_strong, DEFAULT_RANK_STRONG
+        )
+
     cfg = None
     try:
         from core.signal.config import load_signal_config
 
         cfg = load_signal_config()
-    except Exception:  # noqa: BLE001 — 打分缺省配置
+        cfg = dict(cfg)
+        scoring = dict(cfg.get("scoring") or {})
+        scoring["skip_minute_io"] = True
+        cfg["scoring"] = scoring
+    except Exception:  # noqa: BLE001
         logger.debug("load_signal_config failed in paper_replay", exc_info=True)
+
+    cluster_models = _load_replay_cluster_models() if rankings_by_date is None else {}
+    global_model = None
+    on_model_doc = None
+    tau_model_doc = None
+    if rankings_by_date is None:
+        if not cluster_models:
+            global_model = _load_replay_global_model()
+        try:
+            from core.research.on_ridge import load_on_model
+
+            on_model_doc = load_on_model()
+        except Exception:  # noqa: BLE001
+            logger.debug("load_on_model failed in paper_replay", exc_info=True)
+        try:
+            from core.research.tau_ridge import load_tau_model
+
+            tau_model_doc = load_tau_model()
+        except Exception:  # noqa: BLE001
+            logger.debug("load_tau_model failed in paper_replay", exc_info=True)
 
     equity_curve: List[dict] = []
     day_returns: List[float] = []
     rebalance_logs: List[dict] = []
+    debug_skips: List[dict] = []
     constraints: Dict[str, int] = {
         "t1_blocks": 0,
-        "limit_skips": 0,
-        "turnover_clips": 0,
-        "cash_reserve_hits": 0,
+        "cash_floor_skips": 0,
         "rebalance_days": 0,
-        "stop_exits": 0,
-        "trim_cooldown_blocks": 0,
     }
-    paper["_force_trim_cooldown"] = {}
     prev_equity = float(initial_cash)
-    equity_curve.append({"date": dates[min_history - 1], "equity": prev_equity, "return_pct": 0.0})
+    if lookback is not None:
+        first_i = max(1, int(trade_start))
+    else:
+        first_i = max(1, int(min_history))
+    if first_i >= n:
+        first_i = max(1, n - 1)
+    if dates:
+        equity_curve.append(
+            {
+                "date": dates[first_i - 1],
+                "equity": prev_equity,
+                "equity_nav": 100.0,
+                "return_pct": 0.0,
+            }
+        )
 
-    # 信号日 i → 执行日 i+1；最后一日仅盯市不新开
-    first_i = max(0, int(min_history) - 1)
-    last_signal_i = n - 2
-    for signal_i in range(first_i, last_signal_i + 1):
-        signal_date = dates[signal_i]
-        exec_date = dates[signal_i + 1]
+    for i in range(first_i, n):
+        day = dates[i]
         if progress_cb is not None:
             try:
-                progress_cb(
-                    f"{signal_date}→{exec_date}",
-                    signal_i - first_i + 1,
-                    max(1, last_signal_i - first_i + 1),
-                )
-            except Exception:  # noqa: BLE001 — 进度回调不阻塞
+                progress_cb(f"{day} 09:30", i - first_i + 1, max(1, n - first_i))
+            except Exception:  # noqa: BLE001
                 logger.debug("paper_replay progress_cb failed", exc_info=True)
 
         if rankings_by_date is not None:
-            ranking = list(rankings_by_date.get(signal_date) or [])[:top_k]
+            scored = _items_from_injected_ranking(rankings_by_date.get(day) or [])
+            held_codes = [
+                str(h.get("stock_code") or "")
+                for h in (paper.get("holdings") or [])
+            ]
+            have = {str(it.get("stock_code") or "") for it in scored}
+            for code in held_codes:
+                if code and code not in have:
+                    prev_rows = rankings_by_date.get(dates[i - 1]) or []
+                    extra = _items_from_injected_ranking(
+                        [r for r in prev_rows if str(r.get("stock_code")) == code]
+                    )
+                    scored.extend(extra or [{"stock_code": code}])
         else:
-            entries = _score_day(
+            scored = _score_open_day(
                 stock_bars=stock_bars,
                 dates=dates,
                 date_maps=date_maps,
-                signal_i=signal_i,
+                day_i=i,
                 max_window=max_window,
                 horizon_days=max(1, int(yhat_horizon_days or 1)),
                 cfg=cfg,
+                cluster_models=cluster_models,
+                global_model=global_model,
+                on_model_doc=on_model_doc,
+                tau_model_doc=tau_model_doc,
             )
-            ranking = _ranking_from_scores(
-                entries, top_k=top_k, min_predicted_score=min_predicted_score
-            )
-        before_cool = sum(
-            1 for it in ranking if it.get("hard_reject")
-        )
-        ranking = _apply_force_trim_cooldown_to_ranking(
-            ranking, paper, exec_date=exec_date
-        )
-        after_cool = sum(1 for it in ranking if it.get("hard_reject"))
-        if after_cool > before_cool:
-            constraints["trim_cooldown_blocks"] += after_cool - before_cool
 
-        open_q = _make_batch_query(date_maps, dates, exec_date, px_field="open")
-        with paper_replay_context(as_of=exec_date, batch_query=open_q):
+        prices: Dict[str, float] = {}
+        for code in list(stock_bars.keys()) + [
+            str(h.get("stock_code") or "") for h in (paper.get("holdings") or [])
+        ]:
+            c = str(code or "").strip()
+            bar = (date_maps.get(c) or {}).get(day)
+            if not bar:
+                continue
             try:
-                result = simulate_cross_section_rebalance(
-                    paper,
-                    ranking,
-                    top_k=top_k,
-                    min_score=min_score,
-                    respect_max_positions=True,
-                    skip_sentiment_prior=skip_sentiment_prior,
-                    skip_market_prior=skip_market_prior,
-                )
-            except Exception as exc:  # noqa: BLE001 — 单日失败记日志继续
-                logger.exception("paper_replay rebalance failed on %s", exec_date)
-                rebalance_logs.append(
-                    {
-                        "signal_date": signal_date,
-                        "exec_date": exec_date,
-                        "ok": False,
-                        "error": str(exc),
-                    }
-                )
-                result = {"success": False, "error": str(exc)}
+                px = float(bar.get("open") or 0)
+            except (TypeError, ValueError):
+                px = 0.0
+            if px > 0:
+                prices[c] = px
 
-        if result.get("success"):
-            constraints["rebalance_days"] += 1
-            for skip in result.get("sell_match_skips") or []:
-                reason = str(skip.get("reason") or "")
-                if "T+1" in reason:
+        cash = float(paper.get("cash") or 0)
+        start_snap = _holding_snap(paper.get("holdings") or [])
+        with paper_replay_context(
+            as_of=day,
+            batch_query=_make_batch_query(date_maps, dates, day, px_field="open"),
+        ):
+            plan = plan_rank_lot_day(
+                scored=scored,
+                holdings=list(paper.get("holdings") or []),
+                cash=cash,
+                prices=prices,
+                cfg=rl_cfg,
+                as_of=day,
+            )
+            sell_trades = []
+            buy_trades = []
+            for leg in plan.get("sells") or []:
+                px = prices.get(str(leg.get("stock_code") or ""))
+                if not px:
+                    continue
+                sell_trades.append(
+                    {**leg, "price": px, "amount": round(float(leg["shares"]) * px, 2)}
+                )
+            for leg in plan.get("buys") or []:
+                px = prices.get(str(leg.get("stock_code") or ""))
+                if not px:
+                    continue
+                buy_trades.append(
+                    {**leg, "price": px, "amount": round(float(leg["shares"]) * px, 2)}
+                )
+            for sk in plan.get("skips") or []:
+                if "地板" in str(sk.get("reason") or ""):
+                    constraints["cash_floor_skips"] += 1
+                if "T+1" in str(sk.get("reason") or ""):
                     constraints["t1_blocks"] += 1
-                elif "跌停" in reason or "停牌" in reason:
-                    constraints["limit_skips"] += 1
-            if result.get("turnover_capped") or result.get("cash_impact", {}).get(
-                "turnover_clipped"
-            ):
-                constraints["turnover_clips"] += 1
-            ci = result.get("cash_impact") or {}
-            if ci.get("min_cash_pct") is not None:
-                constraints["cash_reserve_hits"] += 1
-            _stamp_force_trim_cooldown(
-                paper,
-                result.get("sell_trades") or [],
-                exec_date=exec_date,
-                dates=dates,
-                cooldown_days=force_trim_cooldown_days,
-            )
-            rebalance_logs.append(
-                {
-                    "signal_date": signal_date,
-                    "exec_date": exec_date,
-                    "ok": True,
-                    "sell_count": len(result.get("sell_trades") or []),
-                    "buy_count": len(result.get("buy_trades") or []),
-                    "held": [
-                        str(h.get("stock_code"))
-                        for h in (paper.get("holdings") or [])
-                        if h.get("stock_code")
-                    ],
-                    "turnover_pct": (result.get("cash_impact") or {}).get("turnover_pct"),
-                }
-            )
 
-        # 开盘调仓后、收盘盯市前：日线 low 止损近似（需回放时钟 / T+1）
-        with paper_replay_context(as_of=exec_date, batch_query=open_q):
-            stop_trades = _apply_intraday_stops(
-                paper,
-                date_maps=date_maps,
-                exec_date=exec_date,
-                stop_loss_pnl=stop_loss_pnl,
-            )
-        if stop_trades:
-            constraints["stop_exits"] += len(stop_trades)
+            applied = {"sell_trades": [], "buy_trades": [], "apply_skips": []}
+            if sell_trades or buy_trades:
+                applied = _apply_matrix_trades(paper, sell_trades, buy_trades, as_of=day)
+                constraints["rebalance_days"] += 1
+            for sk in list(plan.get("skips") or []) + list(applied.get("apply_skips") or []):
+                if not isinstance(sk, dict):
+                    continue
+                if not _is_debug_skip(sk):
+                    continue
+                debug_skips.append(_skip_to_sim(sk, day))
 
-        close_q = _make_batch_query(date_maps, dates, exec_date, px_field="close")
-        with paper_replay_context(as_of=exec_date, batch_query=close_q):
-            summary = mark_to_market(paper)
-        equity = float(summary.get("equity") or paper.get("cash") or 0)
+        equity = float(paper.get("cash") or 0)
+        for h in paper.get("holdings") or []:
+            if not isinstance(h, dict):
+                continue
+            code = str(h.get("stock_code") or "")
+            bar = (date_maps.get(code) or {}).get(day) or {}
+            try:
+                close_px = float(bar.get("close") or bar.get("open") or 0)
+            except (TypeError, ValueError):
+                close_px = 0.0
+            sh = float(h.get("shares") or 0)
+            if close_px > 0 and sh > 0:
+                h["last_price"] = close_px
+                equity += sh * close_px
         ret = (equity / prev_equity - 1.0) * 100.0 if prev_equity > 0 else 0.0
         day_returns.append(ret)
+        cash_now = round(float(paper.get("cash") or 0), 2)
+        nav = (
+            round(100.0 * equity / float(initial_cash), 4)
+            if initial_cash
+            else None
+        )
+        n_holdings = len(paper.get("holdings") or [])
+        end_snap = _holding_snap(paper.get("holdings") or [])
+        legs, legs_more = day_stock_legs(
+            start=start_snap,
+            end=end_snap,
+            date_maps=date_maps,
+            prev_day=dates[i - 1],
+            day=day,
+            open_px=prices,
+            prev_equity=prev_equity,
+        )
         equity_curve.append(
             {
-                "date": exec_date,
+                "date": day,
                 "equity": round(equity, 2),
+                "equity_nav": nav,
                 "return_pct": round(ret, 4),
-                "cash": round(float(paper.get("cash") or 0), 2),
-                "n_holdings": len(paper.get("holdings") or []),
+                "cash": cash_now,
+                "n_holdings": n_holdings,
+                "legs": legs,
+                "legs_more": legs_more,
+            }
+        )
+        rebalance_logs.append(
+            {
+                "signal_date": day,
+                "exec_date": day,
+                "ok": True,
+                "n_buy": len(applied.get("buy_trades") or []),
+                "n_sell": len(applied.get("sell_trades") or []),
+                "n_hold": len(plan.get("holds") or []),
+                "n_skip": len(plan.get("skips") or []),
+                "n_apply_skip": len(applied.get("apply_skips") or []),
+                "cash": cash_now,
+                "equity": round(equity, 2),
+                "equity_nav": nav,
+                "n_holdings": n_holdings,
+                "return_pct": round(ret, 4),
             }
         )
         prev_equity = equity
 
     metrics = _trade_metrics(day_returns, holding_days=1)
-    # 日收益段数 ≠ 成交笔数；补纸面成交笔数
     metrics = dict(metrics)
-    metrics["trade_count"] = len(paper.get("trades") or [])
+    ledger_trades = list(paper.get("trades") or [])
+    cash_by_day = {
+        str(p.get("date") or "")[:10]: p.get("cash")
+        for p in equity_curve
+        if isinstance(p, dict)
+    }
+    hold_by_day = {
+        str(p.get("date") or "")[:10]: p.get("n_holdings")
+        for p in equity_curve
+        if isinstance(p, dict)
+    }
+    equity_by_day = {
+        str(p.get("date") or "")[:10]: p.get("equity")
+        for p in equity_curve
+        if isinstance(p, dict)
+    }
+    date_index = {d: i for i, d in enumerate(dates)}
+
+    def _stamp_day_context(row: dict) -> dict:
+        day = str(row.get("as_of") or "")[:10]
+        row["cash_after"] = cash_by_day.get(day)
+        row["n_holdings"] = hold_by_day.get(day)
+        row["equity_after"] = equity_by_day.get(day)
+        r_cc, r_on = realized_yhat_windows(
+            str(row.get("stock_code") or ""),
+            day,
+            dates=dates,
+            date_maps=date_maps,
+            date_index=date_index,
+        )
+        row["realized_cc"] = r_cc
+        row["realized_on"] = r_on
+        return row
+
+    sim_trades = [_stamp_day_context(r) for r in _ledger_trades_to_sim(ledger_trades)]
+    sim_trades.extend(_stamp_day_context(dict(s)) for s in debug_skips)
+    metrics["trade_count"] = len(ledger_trades)
+    metrics["sim_trade_count"] = len(ledger_trades)
+    metrics["skip_count"] = len(debug_skips)
     metrics["rebalance_days"] = constraints["rebalance_days"]
     final_eq = float(equity_curve[-1]["equity"]) if equity_curve else float(initial_cash)
     total_ret = (final_eq / float(initial_cash) - 1.0) * 100.0 if initial_cash else 0.0
     metrics["total_return_pct"] = round(total_ret, 2)
 
     note = (
-        f"引擎={ENGINE_ID}：信号日收盘打分→次日开盘调仓→收盘盯市；"
-        f"含 T+1 / min_cash_pct={min_cash_pct:.0%} / 换手预算"
-        + (f"≤{max_turnover_pct:g}%" if max_turnover_pct is not None else "关")
-        + f"；止损={stop_loss_pnl:g}%"
-        + (
-            f"；trim冷却={force_trim_cooldown_days}日"
-            if force_trim_cooldown_days
-            else "；trim冷却关"
-        )
-        + f"；成本={cost_model}；≠ topk_research 独立腿聚合。"
+        f"引擎={ENGINE_ID}：每个交易日 09:30 开盘算 y_fuse/y_on，"
+        f"ranking=(1+y_fuse/100)×(1+α×y_on/100)−1 α={alpha:g}；ranking<0 清仓；"
+        f"过 rank入场={rl_cfg.get('rank_enter')} 按分数买（开加上限=观察池 {top_k} 只，现金地板约束），"
+        f"过 rank强={rl_cfg.get('rank_strong')} 买 {int(rl_cfg.get('lot_strong') or REPLAY_LOT_STRONG)} "
+        f"否则 {int(rl_cfg.get('lot_base') or REPLAY_LOT_BASE)} 股；"
+        f"现金地板={floor:.0f}；T+1；成本={cost_model}；≠ topk_research。"
     )
+    if session_day:
+        note += (
+            f" 含当日 {session_day} 09:30（现价开盘 ×{n_overlay}；"
+            "真实收盘/隔夜 label 待日K入库）。"
+        )
     return {
         "success": True,
         "strategy": ENGINE_ID,
@@ -472,171 +1215,37 @@ def backtest_paper_replay(
             "min_history": min_history,
             "max_window": max_window,
             "initial_cash": initial_cash,
-            "min_cash_pct": min_cash_pct,
-            "max_turnover_pct": max_turnover_pct,
+            "cash_floor": floor,
+            "rank_enter": rl_cfg.get("rank_enter"),
+            "rank_strong": rl_cfg.get("rank_strong"),
+            "y_on_alpha": alpha,
+            "lot_base": int(rl_cfg.get("lot_base") or REPLAY_LOT_BASE),
+            "lot_strong": int(rl_cfg.get("lot_strong") or REPLAY_LOT_STRONG),
             "cost_model": cost_model,
-            "execution_mode": "next_open",
+            "execution_mode": "open_930",
+            "horizon_days": 1,
             "stock_count": len(stock_bars),
-            "common_dates": n,
+            "lookback": int(lookback) if lookback is not None else None,
+            "common_dates": max(0, n - first_i),
+            "trade_days": max(0, n - first_i),
+            "end_date": dates[-1] if dates else None,
+            "session_day": session_day,
+            "session_overlay_n": n_overlay,
             "yhat_horizon_days": yhat_horizon_days,
             "rankings_injected": rankings_by_date is not None,
-            "skip_sentiment_prior": skip_sentiment_prior,
-            "skip_market_prior": skip_market_prior,
-            "stop_loss_pnl": stop_loss_pnl,
-            "force_trim_cooldown_days": int(force_trim_cooldown_days or 0),
         },
         "metrics": metrics,
         "equity_curve": equity_curve,
         "constraints_hit": constraints,
-        "rebalance_logs": rebalance_logs[-40:],
-        "trades": list(paper.get("trades") or [])[-80:],
+        "rebalance_logs": rebalance_logs,
+        "trades": ledger_trades,
+        "sim_trades": sim_trades,
+        "sim_trade_count": len(ledger_trades),
         "holdings_end": copy.deepcopy(paper.get("holdings") or []),
         "cash_end": round(float(paper.get("cash") or 0), 2),
         "paper": paper,
         "note": note,
     }
-
-
-def _apply_intraday_stops(
-    paper: dict,
-    *,
-    date_maps: Dict[str, Dict[str, dict]],
-    exec_date: str,
-    stop_loss_pnl: float,
-) -> List[dict]:
-    """日线近似盘中止损：当日 low 触及成本×(1+stop%) 则按 min(open, stop_px) 卖。
-
-    ``stop_loss_pnl`` 为百分比（如 -8 表示跌 8%）。≤0 或 ≥0 视为关闭。
-    """
-    try:
-        sp = float(stop_loss_pnl)
-    except (TypeError, ValueError):
-        return []
-    if sp >= 0 or sp <= -99:
-        return []
-    from core.paper.costs import (
-        annotate_trade,
-        apply_fill_price,
-        calc_trade_fees,
-        cost_params,
-        resolve_cost_model,
-    )
-    from core.paper.ledger import ORIGIN_STRATEGY, _now_iso
-    from core.paper.tplus1 import clip_sell_shares, consume_sell_lots
-
-    cost_model = resolve_cost_model(paper)
-    fee_params = cost_params(paper)
-    cash = float(paper.get("cash") or 0)
-    kept: List[dict] = []
-    trades: List[dict] = []
-    floor_mult = 1.0 + sp / 100.0
-    for h in list(paper.get("holdings") or []):
-        code = str(h.get("stock_code") or "").strip()
-        shares = float(h.get("shares") or 0)
-        cost = float(h.get("cost") or 0)
-        if not code or shares <= 0 or cost <= 0:
-            kept.append(h)
-            continue
-        bar = (date_maps.get(code) or {}).get(exec_date) or {}
-        try:
-            low = float(bar.get("low") or 0)
-            open_px = float(bar.get("open") or 0)
-        except (TypeError, ValueError):
-            low, open_px = 0.0, 0.0
-        floor_px = cost * floor_mult
-        if low <= 0 or low > floor_px:
-            kept.append(h)
-            continue
-        sell_px = floor_px
-        if open_px > 0:
-            sell_px = min(open_px, floor_px)
-        sell_shares, t1_meta = clip_sell_shares(h, shares)
-        if sell_shares <= 1e-9:
-            kept.append(h)
-            continue
-        fill_px = apply_fill_price(
-            "sell", float(sell_px), model=cost_model, params=fee_params
-        )
-        amount = round(sell_shares * fill_px, 2)
-        fee_info = calc_trade_fees("sell", amount, model=cost_model, params=fee_params)
-        trade = annotate_trade(
-            {
-                "ts": _now_iso(),
-                "side": "sell",
-                "stock_code": code,
-                "stock_name": h.get("stock_name"),
-                "shares": sell_shares,
-                "price": round(fill_px, 4),
-                "amount": amount,
-                "pnl_pct": round((fill_px / cost - 1.0) * 100.0, 2),
-                "origin": ORIGIN_STRATEGY,
-                "note": f"纸面回放盘中止损近似（low≤{sp:g}% · {exec_date}）",
-            },
-            fee_info,
-        )
-        paper.setdefault("trades", []).append(trade)
-        trades.append(trade)
-        cash = round(cash + float(fee_info["net_cash_delta"]), 2)
-        consume_sell_lots(h, sell_shares)
-        if float(h.get("shares") or 0) > 1e-6:
-            kept.append(h)
-    paper["holdings"] = kept
-    paper["cash"] = round(cash, 2)
-    return trades
-
-
-def _stamp_force_trim_cooldown(
-    paper: dict,
-    sell_trades: Sequence[dict],
-    *,
-    exec_date: str,
-    dates: Sequence[str],
-    cooldown_days: int,
-) -> None:
-    """膨胀减仓卸簿内票 → 写入 N 日买回冷却。"""
-    n = max(0, int(cooldown_days or 0))
-    if n <= 0:
-        return
-    date_i = {str(d): i for i, d in enumerate(dates)}
-    i0 = date_i.get(str(exec_date))
-    if i0 is None:
-        return
-    until_i = min(len(dates) - 1, i0 + n)
-    until = str(dates[until_i])
-    cool = dict(paper.get("_force_trim_cooldown") or {})
-    for t in sell_trades or []:
-        note = str(t.get("note") or "")
-        if "膨胀" not in note or "簿内" not in note:
-            continue
-        code = str(t.get("stock_code") or "").strip()
-        if code:
-            cool[code] = until
-    paper["_force_trim_cooldown"] = cool
-
-
-def _apply_force_trim_cooldown_to_ranking(
-    ranking: List[dict],
-    paper: dict,
-    *,
-    exec_date: str,
-) -> List[dict]:
-    cool = paper.get("_force_trim_cooldown") or {}
-    if not cool:
-        return ranking
-    out: List[dict] = []
-    for it in ranking or []:
-        row = dict(it)
-        code = str(row.get("stock_code") or "").strip()
-        until = str(cool.get(code) or "")
-        if code and until and exec_date <= until:
-            row["hard_reject"] = True
-            row["reject_reason"] = f"force_trim_cooldown≤{until}"
-        out.append(row)
-    # 过期清理
-    paper["_force_trim_cooldown"] = {
-        c: u for c, u in cool.items() if str(u or "") >= exec_date
-    }
-    return out
 
 
 def rankings_from_topk_precomputed(
@@ -683,7 +1292,7 @@ def build_momentum_rankings(
 ) -> Dict[str, List[dict]]:
     """用昨收到今收涨跌幅做轻量目标簿（日报离线摘要用；≠生产 ŷ）。"""
     date_maps = {str(c): _bars_by_date(bars) for c, bars in (stock_bars or {}).items()}
-    dates = _common_dates(stock_bars)
+    dates = _coverage_dates(stock_bars)
     top_k = max(1, int(top_k or 1))
     out: Dict[str, List[dict]] = {}
     for i, day in enumerate(dates):
@@ -726,21 +1335,14 @@ def summarize_paper_replay_for_daily(
     stock_bars: Dict[str, List[dict]],
     *,
     top_k: int,
-    min_cash_pct: float = 0.2,
-    max_turnover_pct: Optional[float] = 40.0,
-    min_predicted_score: Optional[float] = None,
-    yhat_horizon_days: int = 1,
     lookback: Optional[int] = None,
     rankings_by_date: Optional[Dict[str, List[dict]]] = None,
     rank_source: Optional[str] = None,
-    stop_loss_pnl: float = -8.0,
-    force_trim_cooldown_days: int = 1,
 ) -> Dict[str, Any]:
     """日报用轻量摘要（与 ``summarize_portfolio_backtest`` 字段对齐子集）。
 
     优先用注入的 Top-K ŷ ranking；否则昨收→今收动量近似。
     """
-    del min_predicted_score, yhat_horizon_days
     src = rank_source
     if rankings_by_date is None:
         rankings = build_momentum_rankings(stock_bars, top_k=top_k)
@@ -748,18 +1350,16 @@ def summarize_paper_replay_for_daily(
     else:
         rankings = rankings_by_date
         src = src or "topk_precomputed"
+    from core.paper.rebalance.rank_lots import DEFAULT_CASH_FLOOR, DEFAULT_INITIAL_CASH
+
     bt = backtest_paper_replay(
         stock_bars,
         top_k=top_k,
-        min_cash_pct=min_cash_pct,
-        max_turnover_pct=max_turnover_pct,
         rankings_by_date=rankings,
-        min_score=-1e9,
         cost_model="simple_cn",
-        skip_sentiment_prior=True,
-        skip_market_prior=True,
-        stop_loss_pnl=stop_loss_pnl,
-        force_trim_cooldown_days=force_trim_cooldown_days,
+        initial_cash=DEFAULT_INITIAL_CASH,
+        cash_floor=DEFAULT_CASH_FLOOR,
+        lookback=lookback,
     )
     if not bt.get("success"):
         return bt

@@ -3126,27 +3126,9 @@ def load_bars_by_code_for_tau_pool(
 
 
 def active_book_codes_for_tau_pool(*, cap: int = 120) -> List[str]:
-    """活跃分池簿代码（刷簿同宇宙），供单票 T0 回测补截面。"""
-    try:
-        from core.signal.cluster.live import load_active_cluster_book
-
-        book_doc = load_active_cluster_book() or {}
-    except Exception:  # noqa: BLE001
-        logger.debug("load active book for tau pool failed", exc_info=True)
-        return []
-    codes: List[str] = []
-    seen = set()
-    for row in list(book_doc.get("scored_all") or []) + list(book_doc.get("book") or []):
-        if not isinstance(row, dict):
-            continue
-        c = str(row.get("stock_code") or row.get("code") or "").strip()
-        if not c or c in seen:
-            continue
-        seen.add(c)
-        codes.append(c)
-        if len(codes) >= max(8, int(cap or 120)):
-            break
-    return codes
+    """分池簿已停用：不再提供刷簿宇宙。"""
+    _ = cap
+    return []
 
 
 def compute_scores_map_from_bars(
@@ -3272,28 +3254,8 @@ def compute_scores_live(
 
 
 def _scores_from_live_book(code: str) -> Dict[str, Optional[float]]:
-    try:
-        from core.signal.cluster.live import load_active_cluster_book
-
-        book_doc = load_active_cluster_book() or {}
-        key = str(code or "").strip()
-        for row in list(book_doc.get("scored_all") or []) + list(book_doc.get("book") or []):
-            if not isinstance(row, dict):
-                continue
-            rc = str(row.get("stock_code") or row.get("code") or "").strip()
-            if rc == key:
-                try:
-                    from core.signal.dual_score import align_trade_score_fields
-
-                    align_trade_score_fields(row, write_score=False, refresh_window=True)
-                except Exception:  # noqa: BLE001
-                    logger.debug("align live book row failed", exc_info=True)
-                sc = scores_from_item(row)
-                if scores_have_any(sc):
-                    sc["_score_source"] = "live_book"
-                    return sc
-    except Exception:  # noqa: BLE001
-        logger.debug("live book score lookup failed", exc_info=True)
+    """分池簿已停用：不再从簿取分。"""
+    _ = code
     return scores_from_item(None)
 
 
