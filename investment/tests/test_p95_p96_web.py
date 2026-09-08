@@ -81,13 +81,15 @@ class TestP95P96WebPages(unittest.TestCase):
                 "quant-ols-summary",
                 "quant-ridge-lambda",
                 "quant-daily-fold",
-                "quant-daily-top-k",
+                "quant-daily-on-alpha",
+                "quant-daily-rank-enter",
+                "quant-daily-rank-strong",
                 "quant-interpret-offline",
                 "quant-interpret-neutral",
                 "规则解读",
             ),
             "/watching": ("data-page=\"watching\"", "watching-search-input", "watching-watchlist-table", "观察", "加入纸面", "quant-watching-sync", "watching-build-layer"),
-            "/strategy": ("data-page=\"strategy\"", "strategy-list", "strategy-factor-lab"),
+            "/strategy": ("data-page=\"strategy\"", "strategy-list", "strategy-factor-dict"),
             "/replay": (
                 "data-page=\"replay\"",
                 "quant-portfolio-run",
@@ -139,6 +141,11 @@ class TestP95P96WebPages(unittest.TestCase):
         self.assertNotIn("quant-ops-summary", strategy.text)
         self.assertNotIn("quant-factor-run", strategy.text)
         self.assertNotIn("strategy-weight-suggest-run", strategy.text)
+        self.assertNotIn("strategy-sample-ops", strategy.text)
+        self.assertNotIn("strategy-logic-ref", strategy.text)
+        self.assertNotIn("策略逻辑参考", strategy.text)
+        self.assertNotIn("样本与闸门", strategy.text)
+        self.assertNotIn("strategy-factor-lab", strategy.text)
         self.assertIn('href="/quant"', strategy.text)
         self.assertNotIn('id="paper-daily"', self.client.get("/follow").text)
         quant = self.client.get("/quant")

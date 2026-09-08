@@ -59,23 +59,26 @@ class TestDailyTopkDefaults(unittest.TestCase):
         self.assertEqual(got["top_k"], got["paper_max_positions"])
         self.assertEqual(got["lookback"], 30)
 
-    def test_daily_bt_option_defaults_ui_not_paper(self):
+    def test_daily_bt_option_defaults_align_replay(self):
         from quant.research.portfolio_data import (
-            DAILY_BT_UI_HORIZON_DAYS,
             DAILY_BT_UI_LOOKBACK,
-            DAILY_BT_UI_TOP_K,
+            DAILY_BT_UI_RANK_ENTER,
+            DAILY_BT_UI_RANK_STRONG,
+            DAILY_BT_UI_Y_ON_ALPHA,
             daily_bt_option_defaults,
+            resolve_daily_replay_kwargs,
         )
 
-        d = resolve_daily_topk_backtest_kwargs()
+        d = resolve_daily_replay_kwargs()
         opts = daily_bt_option_defaults()
-        self.assertEqual(opts["top_k"], DAILY_BT_UI_TOP_K)
-        self.assertEqual(opts["horizon_days"], DAILY_BT_UI_HORIZON_DAYS)
+        self.assertEqual(opts["engine"], "paper_replay")
         self.assertEqual(opts["lookback"], DAILY_BT_UI_LOOKBACK)
-        self.assertEqual(opts["paper_max_positions"], d["paper_max_positions"])
-        self.assertEqual(opts["paper_horizon_days"], d["paper_horizon_days"])
-        self.assertNotEqual(opts["top_k"], opts["paper_max_positions"])
+        self.assertEqual(opts["y_on_alpha"], DAILY_BT_UI_Y_ON_ALPHA)
+        self.assertAlmostEqual(opts["rank_enter"], DAILY_BT_UI_RANK_ENTER)
+        self.assertAlmostEqual(opts["rank_strong"], DAILY_BT_UI_RANK_STRONG)
+        self.assertEqual(opts["lookback"], d["lookback"])
         self.assertTrue(opts["apply_costs"])
+        self.assertIn("paper_max_positions", opts)
 
     def test_explicit_overrides(self):
         got = resolve_daily_topk_backtest_kwargs(
@@ -84,6 +87,24 @@ class TestDailyTopkDefaults(unittest.TestCase):
         self.assertEqual(got["top_k"], 5)
         self.assertEqual(got["horizon_days"], 2)
         self.assertFalse(got["apply_costs"])
+
+    def test_replay_overrides(self):
+        from quant.research.portfolio_data import resolve_daily_replay_kwargs
+
+        got = resolve_daily_replay_kwargs(
+            lookback=60, y_on_alpha=0.4, rank_enter=0.015, rank_strong=0.03
+        )
+        self.assertEqual(got["lookback"], 60)
+        self.assertEqual(got["y_on_alpha"], 0.4)
+        self.assertAlmostEqual(got["rank_enter"], 0.015)
+        self.assertAlmostEqual(got["rank_strong"], 0.03)
+        self.assertEqual(got["engine"], "paper_replay")
+
+    def test_replay_lookback_10_allowed(self):
+        from quant.research.portfolio_data import resolve_daily_replay_kwargs
+
+        got = resolve_daily_replay_kwargs(lookback=10)
+        self.assertEqual(got["lookback"], 10)
 
 
 class TestStopShadow(unittest.TestCase):
@@ -177,7 +198,30 @@ class TestTopkParamsDisclose(unittest.TestCase):
         shadow = result.get("stop_shadow") or {}
         self.assertIn("ok", shadow)
 
-    def test_summarize_uses_daily_defaults(self):
+    def _fake_replay(self, **overrides):
+        params = {
+            "engine": "paper_replay",
+            "rank_enter": 0.012,
+            "rank_strong": 0.012,
+            "y_on_alpha": 0.0,
+            "lookback": 30,
+            "cost_model": "simple_cn",
+        }
+        params.update(overrides)
+        return {
+            "success": True,
+            "params": params,
+            "metrics": {
+                "total_return_pct": 1.2,
+                "win_rate_pct": 55.0,
+                "trade_count": 4,
+                "max_drawdown_pct": 2.0,
+            },
+            "equity_curve": [{"date": "2026-01-20", "equity": 1_000_000}],
+            "note": "引擎=paper_replay：每个交易日 09:30 rank_lots",
+        }
+
+    def test_summarize_uses_replay_defaults(self):
         stock_bars = {
             "600519": _aligned_bars("a", n=50),
             "600036": _aligned_bars("b", n=50, step=0.35),
@@ -185,26 +229,33 @@ class TestTopkParamsDisclose(unittest.TestCase):
         with patch(
             "quant.research.portfolio_data.load_portfolio_stock_bars",
             return_value=(stock_bars, [], {}),
-        ):
+        ), patch(
+            "core.backtest.paper_replay.backtest_paper_replay",
+            return_value=self._fake_replay(),
+        ) as bt_mock:
             out = summarize_portfolio_backtest(codes=["600519", "600036"])
         self.assertTrue(out.get("success"), out.get("error"))
         params = out.get("params") or {}
+        self.assertEqual(out.get("engine"), "paper_replay")
+        self.assertEqual(params.get("engine"), "paper_replay")
         self.assertTrue(params.get("apply_costs"))
         self.assertEqual(out.get("cost_model"), "simple_cn")
-        from core.strategy import backtest_portfolio_defaults
-
-        self.assertEqual(
-            int(params.get("top_k") or 0),
-            backtest_portfolio_defaults()["max_positions"],
-        )
-        self.assertEqual(params.get("horizon_days"), params.get("paper_horizon_days"))
-        self.assertEqual(params.get("paper_max_positions"), backtest_portfolio_defaults()["max_positions"])
+        self.assertAlmostEqual(float(params.get("rank_enter") or 0), 0.012)
+        self.assertAlmostEqual(float(params.get("rank_strong") or 0), 0.012)
+        self.assertEqual(float(params.get("y_on_alpha")), 0.0)
         self.assertIn("lookback", params)
         self.assertIn("research_next", out)
-        self.assertIn("纸面 max_positions", out.get("note") or "")
-        self.assertNotIn("≠纸面", out.get("note") or "")
+        self.assertIn("paper_replay", out.get("note") or "")
+        self.assertIn("rank_lots", out.get("note") or "")
+        kw = bt_mock.call_args.kwargs
+        self.assertEqual(kw.get("top_k"), 2)
+        self.assertEqual(kw.get("cost_model"), "simple_cn")
+        self.assertEqual(kw.get("y_on_alpha"), 0.0)
+        self.assertAlmostEqual(float(kw.get("rank_enter") or 0), 0.012)
+        self.assertAlmostEqual(float(kw.get("rank_strong") or 0), 0.012)
+        self.assertEqual(kw.get("lookback"), 30)
 
-    def test_override_k_does_not_claim_paper(self):
+    def test_override_rank_params(self):
         stock_bars = {
             "600519": _aligned_bars("a", n=50),
             "600036": _aligned_bars("b", n=50, step=0.35),
@@ -212,16 +263,29 @@ class TestTopkParamsDisclose(unittest.TestCase):
         with patch(
             "quant.research.portfolio_data.load_portfolio_stock_bars",
             return_value=(stock_bars, [], {}),
-        ):
+        ), patch(
+            "core.backtest.paper_replay.backtest_paper_replay",
+            return_value=self._fake_replay(
+                y_on_alpha=0.5, rank_enter=0.015, rank_strong=0.03
+            ),
+        ) as bt_mock:
             out = summarize_portfolio_backtest(
-                codes=["600519", "600036"], top_k=3, horizon_days=1
+                codes=["600519", "600036"],
+                y_on_alpha=0.5,
+                rank_enter=0.015,
+                rank_strong=0.03,
+                lookback=30,
             )
         self.assertTrue(out.get("success"), out.get("error"))
-        self.assertEqual(int((out.get("params") or {}).get("top_k") or 0), 3)
-        note = out.get("note") or ""
-        self.assertIn("K=3", note)
-        self.assertIn("≠纸面 max_positions=", note)
-        self.assertIn("≠纸面持有", note)
+        params = out.get("params") or {}
+        self.assertEqual(out.get("engine"), "paper_replay")
+        self.assertEqual(float(params.get("y_on_alpha")), 0.5)
+        self.assertAlmostEqual(float(params.get("rank_enter") or 0), 0.015)
+        self.assertAlmostEqual(float(params.get("rank_strong") or 0), 0.03)
+        kw = bt_mock.call_args.kwargs
+        self.assertEqual(kw.get("y_on_alpha"), 0.5)
+        self.assertAlmostEqual(float(kw.get("rank_enter") or 0), 0.015)
+        self.assertAlmostEqual(float(kw.get("rank_strong") or 0), 0.03)
 
 
 if __name__ == "__main__":

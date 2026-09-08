@@ -393,6 +393,22 @@ export function installBacktest(q) {
     else renderFitGapPanel(null);
   }
 
+  function frozenBtCaliber(ps) {
+    const p = (ps && ps.params) || {};
+    const cost = ps && ps.cost_model === "zero" ? "零成本" : "含成本";
+    const engine = String(p.engine || "");
+    if (engine === "paper_replay" || p.rank_enter != null) {
+      const lb = p.lookback != null ? p.lookback : "—";
+      const alpha = p.y_on_alpha != null ? p.y_on_alpha : "—";
+      const wt = p.fusion_w_trade != null ? p.fusion_w_trade : "—";
+      const wn = p.fusion_w_nowcast != null ? p.fusion_w_nowcast : "—";
+      const n = Number(p.rank_enter);
+      const enter = Number.isFinite(n) ? `${(n * 100).toFixed(1)}%` : "—";
+      return `lb${lb} · w${wt}/${wn} · α${alpha} · 入场${enter} · ${cost}`;
+    }
+    return `K${p.top_k ?? "—"} · h${p.horizon_days ?? "—"} · ${cost}`;
+  }
+
   async function loadLastBacktestSnapshot() {
     if (isReplayDesk()) return;
     try {
@@ -418,11 +434,7 @@ export function installBacktest(q) {
           { label: "冻结时间", value: escapeHtml(at) },
           {
             label: "口径",
-            value: escapeHtml(
-              `K${ps.params?.top_k ?? "—"} · h${ps.params?.horizon_days ?? "—"} · ${
-                ps.cost_model === "zero" ? "零成本" : "含成本"
-              }`
-            ),
+            value: escapeHtml(frozenBtCaliber(ps)),
           },
         ]);
         if (nc && nc.success) {
@@ -631,6 +643,7 @@ export function installBacktest(q) {
         labelA: "策略",
         labelB: benchLabel || "基准",
         dayDetails: buildDayDetailsMap(windowed),
+        nameByCode: state.watchingNameByCode,
       });
       return;
     }
@@ -820,9 +833,9 @@ export function installBacktest(q) {
     });
   }
 
-  function readYOnAlpha() {
-    const el = document.getElementById("quant-on-alpha");
-    let v = 0;
+  function readUnitWeight(id, fallback) {
+    const el = document.getElementById(id);
+    let v = fallback;
     if (el && el.value !== "") {
       const n = Number(el.value);
       if (Number.isFinite(n)) v = n;
@@ -830,27 +843,35 @@ export function installBacktest(q) {
     return Math.round(Math.max(0, Math.min(1, v)) * 1000) / 1000;
   }
 
-  /** 与 execution_ui.coerceRankThreshold 对齐：旧乘数 1.01/1.02 → 净收益 0.01/0.02。 */
-  function coerceReplayRank(raw, fallback) {
-    if (raw == null || raw === "") return fallback;
-    const n = Number(raw);
-    if (!Number.isFinite(n)) return fallback;
-    if (n >= 0.5) {
-      if (Math.abs(n - 1) < 1e-9) return 0.01;
-      if (Math.abs(n - 1.002) < 1e-6) return 0.02;
-      return Math.max(0, n - 1);
+  function readYOnAlpha() {
+    return readUnitWeight("quant-on-alpha", 0);
+  }
+
+  function readFusionWeights() {
+    return {
+      fusion_w_trade: readUnitWeight("quant-w-trade", 0.6),
+      fusion_w_nowcast: readUnitWeight("quant-w-nowcast", 0.4),
+    };
+  }
+
+  const RANK_PCT_DEFAULT = 1.2;
+
+  /** 表单为百分数（1.2 → 1.2%）；引擎仍用 0.012。 */
+  function rankPctToScore(raw, fallbackPct = RANK_PCT_DEFAULT) {
+    let pct = fallbackPct;
+    if (raw != null && raw !== "") {
+      const n = Number(raw);
+      if (Number.isFinite(n)) pct = n;
     }
-    if (Math.abs(n - 0.2) < 1e-6) return 0.02;
-    return n;
+    const score = pct / 100;
+    return Math.round(Math.max(0, Math.min(1, score)) * 10000) / 10000;
   }
 
   function readRankThresholds() {
     const enterEl = document.getElementById("quant-rank-enter");
     const strongEl = document.getElementById("quant-rank-strong");
-    let enter = coerceReplayRank(enterEl && enterEl.value, 0.01);
-    let strong = coerceReplayRank(strongEl && strongEl.value, 0.02);
-    enter = Math.round(Math.max(0, Math.min(1, enter)) * 1000) / 1000;
-    strong = Math.round(Math.max(0, Math.min(1, strong)) * 1000) / 1000;
+    let enter = rankPctToScore(enterEl && enterEl.value);
+    let strong = rankPctToScore(strongEl && strongEl.value);
     if (strong < enter) strong = enter;
     return { rank_enter: enter, rank_strong: strong };
   }
@@ -870,7 +891,7 @@ export function installBacktest(q) {
     let benchmarkCode = "000300";
     if (lbEl && lbEl.value !== "") {
       const n = Number(lbEl.value);
-      if (Number.isFinite(n)) lookback = Math.max(30, Math.min(500, Math.round(n)));
+      if (Number.isFinite(n)) lookback = Math.max(10, Math.min(500, Math.round(n)));
     }
     if (wmEl && wmEl.value) {
       const allowed = new Set(["equal", "score_budget", "risk_parity_lite"]);
@@ -903,6 +924,7 @@ export function installBacktest(q) {
       rank_mode: rankMode,
       engine: "paper_replay",
       y_on_alpha: readYOnAlpha(),
+      ...readFusionWeights(),
       ...readRankThresholds(),
     };
   }
@@ -982,6 +1004,7 @@ export function installBacktest(q) {
         emptyText: "暂无成交流水",
         rowHeight: 48,
         fit: "host",
+        shrinkTracks: false,
         rootClass: "watching-react-grid bt-ledger-grid",
         bodyClass: "quant-bt-trades-body",
         compare: btTradesNumCompare,
@@ -1643,6 +1666,8 @@ export function installBacktest(q) {
         rank_mode,
         engine,
         y_on_alpha,
+        fusion_w_trade,
+        fusion_w_nowcast,
         rank_enter,
         rank_strong,
       } = readPortfolioBtParams();
@@ -1668,6 +1693,8 @@ export function installBacktest(q) {
         rank_mode,
         engine: engine || "paper_replay",
         y_on_alpha,
+        fusion_w_trade,
+        fusion_w_nowcast,
         rank_enter,
         rank_strong,
         include_wf_slices: false,

@@ -14,6 +14,10 @@ if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
 from core.backtest.paper_replay import (
+    REPLAY_CASH_FLOOR,
+    REPLAY_INITIAL_CASH,
+    REPLAY_RANK_ENTER,
+    REPLAY_RANK_STRONG,
     backtest_paper_replay,
     mock_quote_from_bar,
     realized_yhat_windows,
@@ -174,7 +178,7 @@ class TestPaperReplayEngine(unittest.TestCase):
         self.assertTrue(out.get("success"), out.get("error"))
         self.assertEqual(out["params"]["engine"], "paper_replay")
         self.assertEqual(float(out["params"]["initial_cash"]), 1_000_000.0)
-        self.assertEqual(float(out["params"]["cash_floor"]), 500_000.0)
+        self.assertEqual(float(out["params"]["cash_floor"]), REPLAY_CASH_FLOOR)
         sells = [
             t
             for t in (out.get("trades") or [])
@@ -228,6 +232,27 @@ class TestPaperReplayEngine(unittest.TestCase):
             float(curve[day].get("equity")),
             places=2,
         )
+
+    def test_default_cash_is_50w_floor_10w(self):
+        stock_bars = {
+            "600519": _bars(16, step=0.5),
+            "600036": _bars(16, step=0.3),
+        }
+        dates = [b["date"] for b in stock_bars["600519"]]
+        rankings = {d: [_rank_row("600519", 2.0)] for d in dates}
+        with _offline_rebalance_patches():
+            out = backtest_paper_replay(
+                stock_bars,
+                top_k=1,
+                min_history=8,
+                rankings_by_date=rankings,
+                cost_model="zero",
+            )
+        self.assertTrue(out.get("success"), out.get("error"))
+        self.assertEqual(float(out["params"]["initial_cash"]), REPLAY_INITIAL_CASH)
+        self.assertEqual(float(out["params"]["cash_floor"]), REPLAY_CASH_FLOOR)
+        self.assertEqual(REPLAY_INITIAL_CASH, 500_000.0)
+        self.assertEqual(REPLAY_CASH_FLOOR, 100_000.0)
 
     def test_cash_floor_respected(self):
         stock_bars = {
@@ -365,12 +390,28 @@ class TestPaperReplayEngine(unittest.TestCase):
         self.assertEqual(len(paper_trades), len(trades))
         self.assertEqual(out["params"]["lot_base"], 1000)
         self.assertEqual(out["params"]["lot_strong"], 2000)
+        self.assertAlmostEqual(float(out["params"]["rank_enter"]), REPLAY_RANK_ENTER)
+        self.assertAlmostEqual(float(out["params"]["rank_strong"]), REPLAY_RANK_STRONG)
         buys = [t for t in trades if t.get("side") == "buy"]
         self.assertTrue(buys)
         for t in buys:
             sh = float(t.get("shares") or 0)
             self.assertIn(sh, (1000.0, 2000.0), t)
             self.assertIn(t.get("action") or t.get("matrix_action"), ("open", "add"))
+            self.assertEqual(t.get("cost_price"), t.get("price"), t)
+            self.assertTrue(str(t.get("open_date") or "")[:10], t)
+            self.assertIsNotNone(t.get("cum_cost"), t)
+            self.assertGreater(float(t["cum_cost"]), 0)
+        sim_buys = [
+            s
+            for s in sim
+            if s.get("side") == "buy" and s.get("status") != "skipped"
+        ]
+        for s in sim_buys:
+            self.assertEqual(s.get("cost_price"), s.get("price"), s)
+            self.assertTrue(str(s.get("open_date") or "")[:10], s)
+            self.assertIsNotNone(s.get("cum_cost"), s)
+            self.assertGreater(float(s["cum_cost"]), 0)
 
     def test_default_top_k_is_universe_size(self):
         stock_bars = {
@@ -535,7 +576,7 @@ class TestRealizedYhatWindows(unittest.TestCase):
         bars = _bars(6, step=0.5, start=100.0)
         dates = [b["date"] for b in bars]
         date_maps = {"600519": {b["date"]: b for b in bars}}
-        r_cc, r_on = realized_yhat_windows(
+        r_cc, r_on, r_tau = realized_yhat_windows(
             "600519",
             dates[2],
             dates=dates,
@@ -544,28 +585,33 @@ class TestRealizedYhatWindows(unittest.TestCase):
         prev_c = float(bars[1]["close"])
         close_t = float(bars[2]["close"])
         nxt_o = float(bars[3]["open"])
+        open_t = float(bars[2]["open"])
         self.assertAlmostEqual(r_cc, (close_t / prev_c - 1.0) * 100.0, places=4)
         self.assertAlmostEqual(r_on, (nxt_o / close_t - 1.0) * 100.0, places=4)
+        self.assertAlmostEqual(r_tau, (close_t / open_t - 1.0) * 100.0, places=4)
 
     def test_edges_are_none(self):
         bars = _bars(4, step=0.4, start=100.0)
         dates = [b["date"] for b in bars]
         date_maps = {"600519": {b["date"]: b for b in bars}}
-        first_cc, first_on = realized_yhat_windows(
+        first_cc, first_on, first_tau = realized_yhat_windows(
             "600519", dates[0], dates=dates, date_maps=date_maps
         )
-        last_cc, last_on = realized_yhat_windows(
+        last_cc, last_on, last_tau = realized_yhat_windows(
             "600519", dates[-1], dates=dates, date_maps=date_maps
         )
         self.assertIsNone(first_cc)
         self.assertIsNotNone(first_on)
+        self.assertIsNotNone(first_tau)
         self.assertIsNotNone(last_cc)
         self.assertIsNone(last_on)
-        miss_cc, miss_on = realized_yhat_windows(
+        self.assertIsNotNone(last_tau)
+        miss_cc, miss_on, miss_tau = realized_yhat_windows(
             "", dates[1], dates=dates, date_maps=date_maps
         )
         self.assertIsNone(miss_cc)
         self.assertIsNone(miss_on)
+        self.assertIsNone(miss_tau)
 
 
 class TestSessionOverlay(unittest.TestCase):
@@ -657,11 +703,12 @@ class TestSessionOverlay(unittest.TestCase):
         self.assertEqual(n, 1)
         dates = [b["date"] for b in out["600519"]]
         date_maps = {"600519": {b["date"]: b for b in out["600519"]}}
-        r_cc, r_on = realized_yhat_windows(
+        r_cc, r_on, r_tau = realized_yhat_windows(
             "600519", session, dates=dates, date_maps=date_maps
         )
         self.assertIsNone(r_cc)
         self.assertIsNone(r_on)
+        self.assertIsNone(r_tau)
 
     def test_replay_runs_session_day(self):
         from core.market.calendar import prev_trading_day
@@ -721,6 +768,7 @@ class TestSessionOverlay(unittest.TestCase):
         for t in session_fills:
             self.assertIsNone(t.get("realized_cc"))
             self.assertIsNone(t.get("realized_on"))
+            self.assertIsNone(t.get("realized_tau"))
 
 
 class TestDayStockLegs(unittest.TestCase):
@@ -752,6 +800,7 @@ class TestDayStockLegs(unittest.TestCase):
         self.assertEqual(more, 0)
         self.assertEqual(len(legs), 1)
         self.assertEqual(legs[0]["stock_code"], "600519")
+        self.assertEqual(legs[0]["stock_name"], "茅台")
         self.assertAlmostEqual(legs[0]["ret_pct"], 2.0, places=3)
         self.assertAlmostEqual(legs[0]["contrib_pct"], 0.2, places=4)
 
@@ -783,6 +832,34 @@ class TestDayStockLegs(unittest.TestCase):
         )
         self.assertEqual(len(legs), DAY_LEG_TOP)
         self.assertEqual(more, 3)
+
+    def test_name_by_code_overrides_code_label(self):
+        from core.backtest.paper_replay import day_stock_legs
+
+        date_maps = {
+            "600519": {
+                "2026-03-09": {"open": 99.0, "close": 100.0},
+                "2026-03-10": {"open": 101.0, "close": 102.0},
+            }
+        }
+        held = {
+            "600519": {
+                "stock_code": "600519",
+                "stock_name": "600519",
+                "shares": 1000.0,
+            }
+        }
+        legs, _more = day_stock_legs(
+            start=held,
+            end=held,
+            date_maps=date_maps,
+            prev_day="2026-03-09",
+            day="2026-03-10",
+            open_px={"600519": 101.0},
+            prev_equity=1_000_000.0,
+            name_by_code={"600519": "贵州茅台"},
+        )
+        self.assertEqual(legs[0]["stock_name"], "贵州茅台")
 
 
 class TestReplayCalendar(unittest.TestCase):

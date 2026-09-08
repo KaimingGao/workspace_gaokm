@@ -840,9 +840,9 @@ def _build_close_band_scan_trace(
     est_prev = space.get("estimate_prev")
     scale = float(space.get("scale") or 1.0)
     try:
-        delta_pct = float(cfg.get("t0_close_band_delta_pct") or 0.2)
+        delta_pct = float(cfg.get("t0_close_band_delta_pct") or 3.0)
     except (TypeError, ValueError):
-        delta_pct = 0.2
+        delta_pct = 3.0
     last_hm = str(cfg.get("t0_last_leg1_hm") or T0_LAST_LEG1_HM)
     open_snap = score_snap if isinstance(score_snap, dict) else None
     code = str(stock_code or "").strip()
@@ -1092,9 +1092,9 @@ def simulate_t0_day_slots(
         max_pos = 1.0
     max_pos = max(0.05, min(max_pos, 1.0))
     try:
-        delta_pct = float(cfg.get("t0_close_band_delta_pct") or 0.2)
+        delta_pct = float(cfg.get("t0_close_band_delta_pct") or 3.0)
     except (TypeError, ValueError):
-        delta_pct = 0.2
+        delta_pct = 3.0
     max_rounds = _parse_max_rounds(cfg, max(1, int(round(max_pos / round_ratio))))
     last_hm = str(cfg.get("t0_last_leg1_hm") or T0_LAST_LEG1_HM)
 
@@ -1123,6 +1123,7 @@ def simulate_t0_day_slots(
     last_leg1_idx = -1
     last_sign_skip: Optional[str] = None
     last_enter_skip: Optional[str] = None
+    last_tplus1_skip: Optional[str] = None
     open_snap = score_snap if isinstance(score_snap, dict) else None
     code = str(stock_code or "").strip()
 
@@ -1299,6 +1300,14 @@ def simulate_t0_day_slots(
                 _lot_floor(max(0.0, float(sellable_cap) - cover_committed), lot)
             )
             if remain_cover < lot:
+                from core.t0.minute_path import _tplus1_skip_reason
+
+                last_tplus1_skip = _tplus1_skip_reason(
+                    side="buy_then_sell",
+                    shares=shares,
+                    sellable=sellable_cap,
+                    lot=lot,
+                )
                 continue
             path_sellable = remain_cover
         if direction == "sell_then_buy" and slice_qty < lot:
@@ -1478,6 +1487,11 @@ def simulate_t0_day_slots(
             merged["direction_reason"] = last_sign_skip
             merged["reason"] = last_sign_skip
             merged["signal_skip"] = True
+    if last_tplus1_skip:
+        if merged.get("skipped") and not merged.get("direction_reason"):
+            merged["direction_reason"] = last_tplus1_skip
+            merged["reason"] = last_tplus1_skip
+            merged["signal_skip"] = False
     return _attach_close_band_scan(
         merged,
         minute_bars=mins,

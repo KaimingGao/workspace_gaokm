@@ -348,8 +348,8 @@ class TestPathMatrix(unittest.TestCase):
         self.assertIn("rank_enter", pm)
         self.assertIn("cash_floor", pm)
         self.assertEqual(pm.get("y_on_alpha"), 0.0)
-        self.assertAlmostEqual(float(pm.get("rank_enter")), 0.01)
-        self.assertAlmostEqual(float(pm.get("rank_strong")), 0.02)
+        self.assertAlmostEqual(float(pm.get("rank_enter")), 0.012)
+        self.assertAlmostEqual(float(pm.get("rank_strong")), 0.012)
 
     def test_legacy_rank_thresholds_coerced_to_net(self):
         cfg = self._cfg(rank_enter=1.01, rank_strong=1.02)

@@ -12,18 +12,27 @@ from core.research.portfolio_bars import (
     should_fetch_backtest_fundamentals,
 )
 
-# `/quant` 生成日报表单默认（≠ 纸面 max_positions；cron/CLI 不传仍走 resolve 纸面对齐）
-DAILY_BT_UI_TOP_K = 3
+from core.backtest.paper_replay import REPLAY_RANK_ENTER, REPLAY_RANK_STRONG
+
+# `/quant` 生成日报：历史回测对齐 /replay（rank_lots）；lookback 表单默认 30
+DAILY_BT_UI_TOP_K = 3  # 仅中性化对照 / 旧 API；主回测不再截 Top-K
 DAILY_BT_UI_HORIZON_DAYS = 1
 DAILY_BT_UI_LOOKBACK = 30
+DAILY_BT_UI_Y_ON_ALPHA = 0.0
+DAILY_BT_UI_RANK_ENTER = REPLAY_RANK_ENTER
+DAILY_BT_UI_RANK_STRONG = REPLAY_RANK_STRONG
 
 __all__ = [
     "DAILY_BT_UI_TOP_K",
     "DAILY_BT_UI_HORIZON_DAYS",
     "DAILY_BT_UI_LOOKBACK",
+    "DAILY_BT_UI_Y_ON_ALPHA",
+    "DAILY_BT_UI_RANK_ENTER",
+    "DAILY_BT_UI_RANK_STRONG",
     "should_fetch_backtest_fundamentals",
     "load_portfolio_stock_bars",
     "resolve_daily_topk_backtest_kwargs",
+    "resolve_daily_replay_kwargs",
     "daily_bt_option_defaults",
     "summarize_portfolio_backtest",
     "DAILY_PORTFOLIO_MAX_NAMES",
@@ -72,22 +81,73 @@ def resolve_daily_topk_backtest_kwargs(
     }
 
 
-def daily_bt_option_defaults() -> Dict[str, Any]:
-    """`/quant` 生成日报表单默认（K=3 / h=1）；纸面值在 paper_*，供「跟纸面」标签。"""
-    d = resolve_daily_topk_backtest_kwargs()
+def resolve_daily_replay_kwargs(
+    *,
+    lookback: Optional[int] = None,
+    apply_costs: Optional[bool] = None,
+    y_on_alpha: Optional[float] = None,
+    rank_enter: Optional[float] = None,
+    rank_strong: Optional[float] = None,
+) -> Dict[str, Any]:
+    """日报历史回测：对齐 /replay paper_replay（α / rank入场 / rank强 / lookback）。"""
+    from core.paper.rebalance.rank_lots import (
+        DEFAULT_Y_ON_ALPHA,
+        clamp_y_on_alpha,
+        coerce_rank_threshold,
+    )
+
+    costs = True if apply_costs is None else bool(apply_costs)
+    try:
+        alpha = float(DEFAULT_Y_ON_ALPHA if y_on_alpha is None else y_on_alpha)
+    except (TypeError, ValueError):
+        alpha = float(DEFAULT_Y_ON_ALPHA)
+    if alpha != alpha:
+        alpha = float(DEFAULT_Y_ON_ALPHA)
+    alpha = max(0.0, min(1.0, float(clamp_y_on_alpha(alpha))))
+    enter = coerce_rank_threshold(
+        DAILY_BT_UI_RANK_ENTER if rank_enter is None else rank_enter,
+        DAILY_BT_UI_RANK_ENTER,
+    )
+    strong = coerce_rank_threshold(
+        DAILY_BT_UI_RANK_STRONG if rank_strong is None else rank_strong,
+        DAILY_BT_UI_RANK_STRONG,
+    )
+    enter = max(0.0, min(1.0, float(enter)))
+    strong = max(0.0, min(1.0, float(strong)))
+    if strong < enter:
+        strong = enter
+    lb = int(lookback) if lookback is not None else int(DAILY_BT_UI_LOOKBACK)
+    lb = max(10, min(lb, 500))
     return {
+        "lookback": lb,
+        "apply_costs": costs,
+        "y_on_alpha": alpha,
+        "rank_enter": enter,
+        "rank_strong": strong,
+        "engine": "paper_replay",
+    }
+
+
+def daily_bt_option_defaults() -> Dict[str, Any]:
+    """`/quant` 生成日报表单默认：历史回测对齐 /replay。"""
+    from core.strategy import backtest_portfolio_defaults
+
+    d = backtest_portfolio_defaults()
+    replay = resolve_daily_replay_kwargs()
+    return {
+        "engine": "paper_replay",
+        "lookback": replay["lookback"],
+        "y_on_alpha": replay["y_on_alpha"],
+        "rank_enter": replay["rank_enter"],
+        "rank_strong": replay["rank_strong"],
+        "apply_costs": True,
+        "paper_max_positions": int(d.get("max_positions") or d.get("top_k") or 20),
+        "paper_horizon_days": int(d.get("horizon_days") or 1),
         "top_k": DAILY_BT_UI_TOP_K,
         "horizon_days": DAILY_BT_UI_HORIZON_DAYS,
-        "paper_max_positions": d["paper_max_positions"],
-        "paper_horizon_days": d["paper_horizon_days"],
-        "yhat_horizon_days": d["yhat_horizon_days"],
-        "min_predicted_score": d["min_predicted_score"],
-        "lookback": DAILY_BT_UI_LOOKBACK,
-        "apply_costs": True,
         "note": (
-            "表单默认 K=3 · 持有 1 日 · lookback 30；跟纸面用 paper_*；"
-            "cron/CLI 不传则仍跟纸面；ŷ 标签窗口仍是 scoring.horizon_days；不写 signal_config；"
-            "h=1 日频换仓为研究探路口径，≠纸面可实现（见 paper_replay）"
+            "日报历史回测=paper_replay/rank_lots（对齐 /replay · 09:30 · 1000/2000 股）；"
+            "模块可改 ON_Alpha / Rank入场 / Rank强 / lookback；不写 signal_config；成本开"
         ),
     }
 
@@ -116,10 +176,22 @@ def summarize_portfolio_backtest(
     min_score: Optional[float] = None,
     min_predicted_score: Optional[float] = None,
     apply_costs: Optional[bool] = None,
+    y_on_alpha: Optional[float] = None,
+    rank_enter: Optional[float] = None,
+    rank_strong: Optional[float] = None,
 ) -> Dict[str, Any]:
-    """每日报告用的轻量 TopK 回测摘要（ŷ 排序；规则分 min_score 不再默认 55）。"""
-    from core.backtest.topk_backtest import backtest_topk_equal_weight
+    """日报历史回测摘要：与 /replay 同一引擎 paper_replay / rank_lots。
+
+    top_k / horizon_days / min_score 保留兼容签名，主路径不再截 Top-K 独立腿。
+    """
+    from core.backtest.paper_replay import (
+        REPLAY_CASH_FLOOR,
+        REPLAY_INITIAL_CASH,
+        backtest_paper_replay,
+    )
     from core.watching.store import read_watching
+
+    _ = top_k, horizon_days, min_score, min_predicted_score
 
     candidates = list(codes or [])
     if not candidates:
@@ -133,9 +205,16 @@ def summarize_portfolio_backtest(
         return {"success": False, "error": "候选标的不足"}
 
     n_all = len(candidates)
+    replay = resolve_daily_replay_kwargs(
+        lookback=lookback,
+        apply_costs=apply_costs,
+        y_on_alpha=y_on_alpha,
+        rank_enter=rank_enter,
+        rank_strong=rank_strong,
+    )
     stock_bars, failures, _fund = load_portfolio_stock_bars(
         candidates,
-        lookback=lookback,
+        lookback=replay["lookback"],
         offline_ok=True,
         max_names=DAILY_PORTFOLIO_MAX_NAMES,
         fundamentals_live=False,
@@ -147,127 +226,59 @@ def summarize_portfolio_backtest(
             "failures": failures,
         }
 
-    resolved = resolve_daily_topk_backtest_kwargs(
-        top_k=top_k,
-        horizon_days=horizon_days,
-        min_predicted_score=min_predicted_score,
-        apply_costs=apply_costs,
-    )
     sector_sync = _watching_sector_overlay()
-    bt_kwargs: Dict[str, Any] = {
-        "top_k": resolved["top_k"],
-        "horizon_days": resolved["horizon_days"],
-        "rank_mode": "predicted_score",
-        "min_predicted_score": resolved["min_predicted_score"],
-        "apply_costs": resolved["apply_costs"],
-        "weight_mode": resolved["weight_mode"],
-        "max_position_pct": resolved["max_position_pct"],
-        "max_sector_pct": resolved["max_sector_pct"],
-    }
-    if isinstance(sector_sync.get("mapping"), dict) and sector_sync["mapping"]:
-        bt_kwargs["sector_map"] = sector_sync["mapping"]
-    # 仅显式传入时才带规则分门槛，避免日报 params 残留 min_score=55
-    if min_score is not None:
-        bt_kwargs["min_score"] = float(min_score)
-
-    precomputed_ranks: Dict[str, Any] = {}
-    bt = backtest_topk_equal_weight(
+    universe_n = len(stock_bars)
+    bt = backtest_paper_replay(
         stock_bars,
-        **bt_kwargs,
-        # 日报只有日线、无可靠分钟 τ；开 ŷ_τ 闸会把调仓打成 0 笔
-        apply_tau_buy_gate=False,
-        precomputed_ranks=precomputed_ranks,
+        top_k=universe_n,
+        cost_model="simple_cn" if replay["apply_costs"] else "zero",
+        yhat_horizon_days=1,
+        initial_cash=REPLAY_INITIAL_CASH,
+        cash_floor=REPLAY_CASH_FLOOR,
+        y_on_alpha=replay["y_on_alpha"],
+        rank_enter=replay["rank_enter"],
+        rank_strong=replay["rank_strong"],
+        lookback=int(replay["lookback"]),
     )
+    if isinstance(bt, dict):
+        bt.pop("paper", None)
     if not bt.get("success"):
         return bt
 
     metrics = bt.get("metrics") or {}
     curve = bt.get("equity_curve") or []
-    attr = bt.get("attribution") or {}
-    oos = bt.get("oos_summary") or {}
-    regime = bt.get("regime_summary") or {}
-    rb = bt.get("regime_buckets") or {}
-    pit = bt.get("pit_report") or {}
     params = dict(bt.get("params") or {})
-    if params.get("rank_mode") == "predicted_score":
-        # 规则分 0–100 门槛不适用；保留 min_predicted_score
-        params["min_score"] = None
-    params["apply_tau_buy_gate"] = False
-    params["rank_key"] = "predicted_score_eod"
-    params["yhat_horizon_days"] = resolved["yhat_horizon_days"]
-    params["paper_horizon_days"] = resolved["paper_horizon_days"]
-    params["paper_max_positions"] = resolved.get("paper_max_positions")
-    params["lookback"] = int(lookback)
+    params["engine"] = "paper_replay"
+    params["apply_costs"] = bool(replay["apply_costs"])
+    params["lookback"] = int(replay["lookback"])
+    params["rank_enter"] = replay["rank_enter"]
+    params["rank_strong"] = replay["rank_strong"]
+    params["y_on_alpha"] = replay["y_on_alpha"]
+    params["cost_model"] = "simple_cn" if replay["apply_costs"] else "zero"
+
     note_bits = []
     if n_all > DAILY_PORTFOLIO_MAX_NAMES:
         note_bits.append(
             f"日报轻量回测截断观察池 {n_all}→{len(stock_bars)}（缓存优先，上限 {DAILY_PORTFOLIO_MAX_NAMES}），"
             "基本面仅本地缓存（避免串行远端挂死）"
         )
-    note_bits.append("选股键=ŷ_EOD · 关 τ 闸（日线无可靠分钟 τ；≠ live ŷ_trade）")
-    note_bits.append("引擎=topk_research（独立腿聚合；≠纸面可实现）")
-    paper_k = resolved.get("paper_max_positions")
-    if paper_k is not None and int(paper_k) != int(resolved["top_k"]):
-        k_note = f"K={resolved['top_k']}（≠纸面 max_positions={paper_k}）"
-    else:
-        k_note = f"K={resolved['top_k']}（纸面 max_positions）"
-    paper_h = resolved.get("paper_horizon_days")
-    if paper_h is not None and int(paper_h) != int(resolved["horizon_days"]):
-        h_note = f"h={resolved['horizon_days']}（≠纸面持有 {paper_h}）"
-    else:
-        h_note = f"h={resolved['horizon_days']}（纸面持有）"
     note_bits.append(
-        f"{k_note}· {h_note}"
-        f"· 成本={'开' if resolved['apply_costs'] else '关'} · 权重含现金"
-        f"· 止损={params.get('stop_pct') or '关'}"
-        + (
-            f"（已进主路径 · 触及 {params.get('stop_legs_clipped') or 0} 腿）"
-            if params.get("stop_applied")
-            else ""
-        )
+        "引擎=paper_replay：每个交易日 09:30 rank_lots"
+        f"（α={replay['y_on_alpha']:g}；入场={replay['rank_enter']:g}；"
+        f"强={replay['rank_strong']:g}；宇宙={universe_n} 只）"
     )
-    if resolved["yhat_horizon_days"] != resolved["paper_horizon_days"]:
-        note_bits.append(
-            f"ŷ 标签仍为 {resolved['yhat_horizon_days']} 日；未改 scoring.horizon_days"
-        )
-    cov = params.get("sector_coverage") or {}
-    if cov.get("coverage") is not None:
-        note_bits.append(f"行业映射 {cov.get('mapped')}/{cov.get('total')}")
-    note_bits.append(
-        "ŷ残差/超额标签对照未自动打开（研究枢纽影子 API）"
+    note_bits.append("对齐历史回测页 · 成本=" + ("开" if replay["apply_costs"] else "关"))
+    note = str(bt.get("note") or "")
+    if note_bits:
+        extra = " · ".join(note_bits)
+        note = f"{note} · {extra}" if note else extra
+
+    cost_model = params.get("cost_model") or (
+        "simple_cn" if replay["apply_costs"] else "zero"
     )
-    note = " · ".join(note_bits)
-    params["engine"] = "topk_research"
-
-    paper_replay_summary: Optional[Dict[str, Any]] = None
-    try:
-        from core.backtest.paper_replay import (
-            rankings_from_topk_precomputed,
-            summarize_paper_replay_for_daily,
-        )
-
-        yhat_ranks = rankings_from_topk_precomputed(
-            precomputed_ranks, top_k=int(resolved["top_k"])
-        )
-        paper_replay_summary = summarize_paper_replay_for_daily(
-            stock_bars,
-            top_k=int(resolved["top_k"]),
-            lookback=int(lookback),
-            rankings_by_date=yhat_ranks if yhat_ranks else None,
-            rank_source="topk_precomputed" if yhat_ranks else "momentum_close",
-        )
-    except Exception as exc:  # noqa: BLE001 — 纸面回放失败不挡研究摘要
-        logger.warning("paper_replay daily summary failed: %s", exc, exc_info=True)
-        paper_replay_summary = {
-            "success": False,
-            "engine": "paper_replay",
-            "error": str(exc),
-            "note": "纸面回放不可用；研究 Top-K 摘要仍有效",
-        }
-
     return {
         "success": True,
-        "engine": "topk_research",
+        "engine": "paper_replay",
         "loaded_stocks": list(stock_bars.keys()),
         "trade_count": metrics.get("trade_count"),
         "total_return_pct": metrics.get("total_return_pct"),
@@ -277,30 +288,14 @@ def summarize_portfolio_backtest(
         "equity_curve_tail": curve[-12:],
         "failures": failures,
         "note": note,
-        # R4.4：日报导出可读诊断块（与页内块对齐的子集）
         "metrics": metrics,
-        "attribution": {
-            "ok": attr.get("ok"),
-            "selection_excess_pct": attr.get("selection_excess_pct"),
-            "brinson": attr.get("brinson"),
-            "factor_proxy": attr.get("factor_proxy"),
-            "by_sector": (attr.get("by_sector") or [])[:6],
-        }
-        if attr
-        else None,
-        "oos_summary": oos,
-        "regime_summary": regime,
-        "regime_buckets": rb,
-        "pit_report": pit,
-        "stop_shadow": bt.get("stop_shadow"),
-        "signal_fill_sample": (bt.get("signal_fill_sample") or [])[-12:],
-        "cost_model": bt.get("cost_model"),
-        "paper_replay": paper_replay_summary,
+        "constraints_hit": bt.get("constraints_hit"),
+        "cost_model": cost_model,
         "research_next": [
             "人审 ŷ 残差对照 POST /api/quant/yhat-residual/shadow",
             "人审 超额标签对照 POST /api/quant/excess-mode/shadow",
             "过门后再开 cross_section.yhat_residual / y_spec.excess_mode=index",
-            "可交易验证看 paper_replay（同摘要内嵌）",
+            "完整曲线与成交账见 /replay 历史回测",
         ],
         "sector_sync": {
             "ok": sector_sync.get("ok"),

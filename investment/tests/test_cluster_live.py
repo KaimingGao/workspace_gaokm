@@ -127,6 +127,61 @@ class TestClusterLive(unittest.TestCase):
                 looked["weights"]["momentum"] + looked["weights"]["value"], 1.0, places=5
             )
 
+    def test_promote_skips_thin_singleton_without_blocking_siblings(self):
+        from core.signal.cluster.live import promote_cluster_artifact
+        from core.signal.factors.meta.coefs import has_factor_coefficients
+
+        thin_fp = {
+            "n_obs": 20,
+            "n_names": 1,
+            "min_obs": 24,
+            "min_names": 1,
+            "promote_ok": False,
+            "blockers": ["n_obs=20 < min_obs=24"],
+        }
+        ok_fp = {
+            "n_obs": 80,
+            "n_names": 2,
+            "min_obs": 24,
+            "min_names": 2,
+            "promote_ok": True,
+            "blockers": [],
+        }
+        rm_ok = self._rm(0.5, 0.5)
+        rm_ok["sample_fingerprint"] = ok_fp
+        rm_thin = self._rm(0.4, 0.6)
+        rm_thin["sample_fingerprint"] = thin_fp
+        art = {
+            "sample_fingerprint": {
+                "n_obs": 100,
+                "n_names": 3,
+                "min_obs": 24,
+                "min_names": 3,
+                "promote_ok": False,
+                "blockers": ["组内：n_obs=20 < min_obs=24"],
+            },
+            "clusters": [
+                {"label": "G1", "return_model": rm_ok},
+                {"label": "G94", "return_model": rm_thin},
+            ],
+            "code_map": {
+                "600519": {"cluster_label": "G1", "return_model": dict(rm_ok)},
+                "000001": {"cluster_label": "G1", "return_model": dict(rm_ok)},
+                "688825": {"cluster_label": "G94", "return_model": dict(rm_thin)},
+            },
+        }
+        with _live_tmp():
+            out = promote_cluster_artifact(art)
+            self.assertTrue(out.get("success"), out)
+            from core.signal.cluster.live import load_active_cluster_weights
+
+            act = load_active_cluster_weights()
+            self.assertTrue(
+                has_factor_coefficients((act["code_map"]["600519"] or {}).get("return_model"))
+            )
+            self.assertNotIn("688825", act.get("code_map") or {})
+            self.assertEqual(int(act.get("n_mapped_codes") or 0), 2)
+
     def test_promote_rejects_weights_only(self):
         from core.signal.cluster.live import promote_cluster_artifact
 

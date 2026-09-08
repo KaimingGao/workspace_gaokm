@@ -37,7 +37,7 @@ class TestExecutionResolve(unittest.TestCase):
         self.assertEqual(bundle["t0_sources"].get("t0_ratio"), "paper")
 
     def test_request_path_enter_follows_side_keys(self):
-        """表单只改 path入场% 时，分侧闸必须跟随，不能停在 overlay 默认 0.01。"""
+        """表单只改 path入场% 时，分侧闸必须跟随，不能停在 overlay 默认 0。"""
         from core.execution import resolve_t0_rules, strip_execution_meta
         from core.t0.close_band import close_band_enter_skip_reason
 
@@ -53,7 +53,12 @@ class TestExecutionResolve(unittest.TestCase):
         }
         raw = resolve_t0_rules(
             paper=paper,
-            rules={"y_path_enter": 0.2, "y_tau_enter": 0.01, "r_tau_enter": 0.01},
+            rules={
+                "y_path_enter": 0.2,
+                "y_tau_enter": 0.01,
+                "r_tau_enter": 0.01,
+                "y_enter_alt_enabled": False,
+            },
             channel="backtest",
             has_minute=True,
         )
@@ -212,7 +217,7 @@ class TestExecutionResolve(unittest.TestCase):
         self.assertEqual(defaults["t0_pm_chase_interval_min_sell_then_buy"], 5)
         self.assertEqual(defaults["t0_pm_chase_interval_min_buy_then_sell"], 5)
         self.assertAlmostEqual(defaults["t0_stop_pct_buy_then_sell"], 1.2)
-        self.assertEqual(defaults["t0_stop_arm_bars"], 2)
+        self.assertEqual(defaults["t0_stop_arm_bars"], 1)
         self.assertTrue(defaults["t0_stop_on_close"])
         self.assertTrue(defaults["y_block_tau_nowcast_sign"])
         self.assertNotIn("t0_adverse_stop_pct", defaults)

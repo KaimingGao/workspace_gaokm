@@ -57,6 +57,9 @@ class DailyRunService:
         top_k: Optional[int] = None,
         horizon_days: Optional[int] = None,
         lookback: Optional[int] = None,
+        y_on_alpha: Optional[float] = None,
+        rank_enter: Optional[float] = None,
+        rank_strong: Optional[float] = None,
     ) -> Dict[str, Any]:
         overrides = {
             k: v
@@ -265,6 +268,9 @@ class DailyRunService:
                     top_k=top_k,
                     horizon_days=horizon_days,
                     lookback=lookback,
+                    y_on_alpha=y_on_alpha,
+                    rank_enter=rank_enter,
+                    rank_strong=rank_strong,
                 )
                 path = qs.save_daily_report(quant_report_payload)
                 step: Dict[str, Any] = {
@@ -276,6 +282,9 @@ class DailyRunService:
                     "top_k": top_k,
                     "horizon_days": horizon_days,
                     "lookback": lookback,
+                    "y_on_alpha": y_on_alpha,
+                    "rank_enter": rank_enter,
+                    "rank_strong": rank_strong,
                 }
                 if portfolio_neutral_compare:
                     nc = quant_report_payload.get("portfolio_neutral_compare_summary") or {}

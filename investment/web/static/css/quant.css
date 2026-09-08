@@ -12,10 +12,6 @@
   color: var(--warn);
 }
 
-.quant-section .strategy-logic {
-  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-}
-
 .embed-panel.quant-panel .quant-head {
   position: static;
   padding: 0 0 12px;
@@ -2754,6 +2750,45 @@ html[data-density="compact"] .quant-page {
   overflow-x: hidden;
 }
 
+.quant-bt-trades-host .watching-react-grid.bt-ledger-grid {
+  overflow-x: auto;
+}
+
+.quant-bt-trades-host .bt-ledger-grid .watching-react-grid-cell.watching-col-name {
+  overflow: hidden;
+  min-width: 0;
+}
+
+.quant-bt-trades-host .bt-ledger-grid .watching-stock {
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+}
+
+.quant-bt-trades-host .bt-ledger-grid .watching-name-row,
+.quant-bt-trades-host .bt-ledger-grid .watching-name-text,
+.quant-bt-trades-host .bt-ledger-grid .watching-code-sub {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.quant-bt-trades-host .bt-ledger-grid .watching-name-text {
+  flex-shrink: 1;
+}
+
+.quant-bt-trades-host .bt-ledger-grid .watching-react-grid-cell.watching-col-open_date {
+  overflow: hidden;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.quant-bt-trades-host .bt-ledger-grid .watching-react-grid-cell.watching-col-action {
+  overflow: visible;
+  letter-spacing: 0.02em;
+}
+
 .quant-bt-trades-host .watching-react-grid-row,
 .quant-bt-trades-host .watching-react-grid-cell {
   min-width: 0;
@@ -2762,16 +2797,6 @@ html[data-density="compact"] .quant-page {
 .quant-bt-trades-body {
   height: auto;
   max-height: min(42vh, 480px);
-}
-
-.quant-bt-trades-host .bt-trade-side.up {
-  color: var(--danger, #f5222d);
-  font-variant-numeric: tabular-nums;
-}
-
-.quant-bt-trades-host .bt-trade-side.down {
-  color: var(--ok, #16a34a);
-  font-variant-numeric: tabular-nums;
 }
 
 .quant-bt-trades-host .bt-trade-action {
@@ -2818,35 +2843,23 @@ html[data-density="compact"] .quant-page {
 }
 
 .quant-bt-trades-host .watching-react-grid-cell.watching-col-y_fuse,
+.quant-bt-trades-host .watching-react-grid-cell.watching-col-y_tau,
 .quant-bt-trades-host .watching-react-grid-cell.watching-col-y_on,
 .quant-bt-trades-host .watching-react-grid-cell.watching-col-ranking {
   display: flex;
   justify-content: flex-end;
-  align-items: flex-start;
-  padding-top: 6px;
-  padding-bottom: 4px;
+  align-items: center;
   min-width: 0;
   overflow: hidden;
 }
 
 .quant-bt-trades-host .bt-stack-score {
   display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 1px;
-  min-width: 0;
-  line-height: 1.15;
-}
-
-.quant-bt-trades-host .bt-stack-top {
-  display: inline-flex;
   align-items: baseline;
   justify-content: flex-end;
-  gap: 0;
-  max-width: 100%;
   min-width: 0;
-  min-height: 1.15em;
-  overflow: hidden;
+  max-width: 100%;
+  line-height: 1.15;
 }
 
 .quant-bt-trades-host .bt-stack-main {
@@ -2857,83 +2870,46 @@ html[data-density="compact"] .quant-page {
 .quant-bt-trades-host .bt-pair {
   display: inline-flex;
   align-items: baseline;
+  flex-shrink: 0;
+  gap: 0.28em;
   white-space: nowrap;
-  overflow: hidden;
   max-width: 100%;
   font-variant-numeric: tabular-nums;
   font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
-  font-size: 0.82rem;
+  font-size: 0.78rem;
   font-weight: 650;
   line-height: 1.15;
 }
 
 .quant-bt-trades-host .bt-pair .bt-stack-main,
-.quant-bt-trades-host .bt-pair-real,
-.quant-bt-trades-host .bt-pair-sep {
+.quant-bt-trades-host .bt-pair-real {
   font-size: inherit;
   font-family: inherit;
   font-variant-numeric: tabular-nums;
 }
 
 .quant-bt-trades-host .bt-pair-real {
-  font-weight: 650;
-}
-
-.quant-bt-trades-host .bt-pair-sep {
-  font-weight: 500;
-  color: var(--ink-3, #94a3b8);
+  font-weight: 600;
 }
 
 .quant-bt-trades-host .bt-stack-main.score-up,
-.quant-bt-trades-host .bt-pair-real.score-up,
-.quant-bt-trades-host .bt-stack-parts .score-up {
+.quant-bt-trades-host .bt-pair-real.score-up {
   color: var(--color-up, #f5222d);
 }
 
 .quant-bt-trades-host .bt-stack-main.score-down,
-.quant-bt-trades-host .bt-pair-real.score-down,
-.quant-bt-trades-host .bt-stack-parts .score-down {
+.quant-bt-trades-host .bt-pair-real.score-down {
   color: var(--color-down, #52c41a);
 }
 
 .quant-bt-trades-host .bt-stack-main.score-flat,
-.quant-bt-trades-host .bt-pair-real.score-flat,
-.quant-bt-trades-host .bt-stack-parts .score-flat {
+.quant-bt-trades-host .bt-pair-real.score-flat {
   color: var(--ink-2, #64748b);
 }
 
 .quant-bt-trades-host .bt-stack-main.score-na,
-.quant-bt-trades-host .bt-pair-real.score-na,
-.quant-bt-trades-host .bt-stack-parts .score-na {
+.quant-bt-trades-host .bt-pair-real.score-na {
   color: var(--ink-3, #94a3b8);
-}
-
-.quant-bt-trades-host .bt-stack-parts {
-  font-size: 0.68rem;
-  font-variant-numeric: tabular-nums;
-  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
-  color: var(--ink-3);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: 100%;
-  min-height: 0.68rem;
-}
-
-.quant-bt-trades-host .bt-stack-ph {
-  visibility: hidden;
-}
-
-.quant-bt-trades-host .bt-stack-k {
-  margin-right: 0.2em;
-  font-weight: 650;
-  letter-spacing: 0.02em;
-  color: color-mix(in srgb, var(--ink-3) 80%, var(--ink));
-}
-
-.quant-bt-trades-host .bt-stack-sep {
-  margin: 0 0.28em;
-  color: color-mix(in srgb, var(--ink-3) 55%, transparent);
 }
 
 .quant-bt-trades-host .watching-react-grid-row.bt-ledger-day {
@@ -8182,9 +8158,15 @@ body[data-page="quant"] section.dashboard-section.quant-section:last-child {
   gap: 6px;
 }
 
-.quant-page .quant-daily-bt-band .quant-pro-field select {
+.quant-page .quant-daily-bt-band .quant-pro-field select,
+.quant-page .quant-daily-bt-band .quant-pro-field input[type="number"] {
   width: auto;
   min-width: 3.25rem;
+}
+
+.quant-page .quant-daily-bt-band .quant-pro-field input[type="number"] {
+  width: 4.5rem;
+  min-width: 4.5rem;
 }
 
 .quant-page .quant-daily-bt-hint {

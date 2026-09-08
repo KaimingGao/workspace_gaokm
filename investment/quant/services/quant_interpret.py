@@ -11,7 +11,7 @@ QUANT_INTERPRET_SYSTEM = """你是 Investment 量化研究台的解读助手。
 根据用户提供的量化日报 JSON 摘要，用中文输出 3～6 条要点：
 1) 因子 IC / 权重建议遗留诊断（若有；权重建议不驱动选股）
 2) **横截面 ŷ（predicted_score）排序**（若有 cross_section：须写 Top 标的与 ŷ 分布；ŷ 为模型预测收益百分点，不等于买入）
-3) Top-K 回测摘要（若有）
+3) 历史回测摘要（若有）
 4) **中性化 vs 绝对分对照专节**（若有 portfolio_neutral_compare_summary：须写 winner、Δ累计、中性化/绝对分累计）
 5) stance 阈值建议（若有；按 ŷ% 门槛）
 6) **因子 OLS 实验**（若有 factor_ols：R²/样本与 config 对照；研究用，不写 config）
@@ -156,7 +156,7 @@ def build_rule_based_interpret(report: Dict[str, Any]) -> Dict[str, Any]:
     ps = compact.get("portfolio_backtest_summary") or {}
     if ps.get("success"):
         bullets.append(
-            f"Top-K 回测：累计 {ps.get('total_return_pct')}% · "
+            f"历史回测：累计 {ps.get('total_return_pct')}% · "
             f"胜率 {ps.get('win_rate_pct')}% · 交易 {ps.get('trade_count')}"
         )
 

@@ -23,6 +23,43 @@ def _f(x: Any) -> Optional[float]:
     return v
 
 
+def _ymd(raw: Any) -> Optional[str]:
+    s = str(raw or "").strip().replace("Z", "")
+    d = s[:10]
+    if len(d) == 10 and d[4] == "-" and d[7] == "-":
+        return d
+    return None
+
+
+def _open_date_of(
+    holding: Optional[dict],
+    fallback: Optional[str] = None,
+) -> Optional[str]:
+    """持仓最早开日（lots.bought_date 优先，避免 ts=墙钟把开日写成今天）。"""
+    dates: List[str] = []
+    if isinstance(holding, dict):
+        try:
+            from core.paper.tplus1 import ensure_lots
+
+            ensure_lots(holding)
+        except Exception:  # noqa: BLE001
+            logger.debug("ensure_lots failed in _open_date_of", exc_info=True)
+        lots = holding.get("lots") if isinstance(holding.get("lots"), list) else []
+        for lot in lots:
+            if not isinstance(lot, dict):
+                continue
+            d = _ymd(lot.get("bought_date")) or _ymd(lot.get("bought_at"))
+            if d:
+                dates.append(d)
+        if not dates:
+            d = _ymd(holding.get("bought_date")) or _ymd(holding.get("bought_at"))
+            if d:
+                dates.append(d)
+    if dates:
+        return min(dates)
+    return _ymd(fallback)
+
+
 def _watching_codes(*, include_held: Sequence[str] = ()) -> Tuple[List[str], Dict[str, Any]]:
     meta: Dict[str, Any] = {"source": "watching", "n_watch": 0, "n_held_extra": 0}
     name_by_code: Dict[str, str] = {}
@@ -341,6 +378,8 @@ def _apply_one_leg(
         for k in (
             "y_fuse",
             "y_on",
+            "y_tau",
+            "predicted_score_tau",
             "ranking_score",
             "reason",
             "y_trade",
@@ -366,9 +405,11 @@ def _apply_one_leg(
         if sell_shares <= 0 or not existing:
             return None, (t1_meta.get("reason") or TPLUS1_LOCK_REASON) if have > 0 else "no_position"
         cost = float(existing.get("cost") or 0)
+        have_sh = float(existing.get("shares") or 0)
         amount = round(sell_shares * fill_px, 2)
         fee_info = calc_trade_fees("sell", amount, model=model, params=params)
         pnl_pct = round((fill_px / cost - 1.0) * 100.0, 2) if cost else None
+        cum_cost = round(cost * have_sh, 2) if cost and have_sh else None
         trade = annotate_trade(
             {
                 "ts": _now_iso(),
@@ -378,6 +419,9 @@ def _apply_one_leg(
                 "shares": sell_shares,
                 "price": round(fill_px, 4),
                 "amount": amount,
+                "cost_price": round(cost, 4) if cost else None,
+                "cum_cost": cum_cost,
+                "open_date": _open_date_of(existing, as_of),
                 "pnl_pct": pnl_pct,
                 "score": leg.get("y_trade") if leg.get("y_trade") is not None else leg.get("score"),
                 "origin": ORIGIN_STRATEGY,
@@ -414,6 +458,10 @@ def _apply_one_leg(
         floor = 0.0
     if cash - need < floor - 1e-6:
         return None, "cash_floor"
+    fill_rounded = round(fill_px, 4)
+    old_sh = float(existing.get("shares") or 0) if existing else 0.0
+    old_cost = float(existing.get("cost") or 0) if existing else 0.0
+    cum_cost = round(old_cost * old_sh + fill_px * buy_shares, 2)
     trade = annotate_trade(
         {
             "ts": _now_iso(),
@@ -421,8 +469,11 @@ def _apply_one_leg(
             "stock_code": code,
             "stock_name": name,
             "shares": buy_shares,
-            "price": round(fill_px, 4),
+            "price": fill_rounded,
             "amount": amount,
+            "cost_price": fill_rounded,
+            "cum_cost": cum_cost,
+            "open_date": _open_date_of(existing, as_of),
             "score": leg.get("y_trade") if leg.get("y_trade") is not None else leg.get("score"),
             "origin": ORIGIN_STRATEGY,
             "note": f"矩阵调仓 · {note}",
@@ -438,8 +489,6 @@ def _apply_one_leg(
     from core.paper.tplus1 import add_buy_lot, stamp_new_holding
 
     if existing:
-        old_sh = float(existing.get("shares") or 0)
-        old_cost = float(existing.get("cost") or 0)
         new_sh = old_sh + buy_shares
         if new_sh > 0:
             existing["cost"] = round((old_cost * old_sh + fill_px * buy_shares) / new_sh, 4)
@@ -521,7 +570,7 @@ def simulate_watching_matrix_preview(
     dry_run: bool = True,
     offline_only: bool = True,
 ) -> Dict[str, Any]:
-    """观察池算分 + rank_lots（y_fuse/y_on · 100/200 股）。默认 offline；dry_run 不写仓。"""
+    """观察池算分 + rank_lots（y_fuse/y_on · 200/500 股）。默认 offline；dry_run 不写仓。"""
     from core.paper.ledger import mark_to_market
     from core.paper.rebalance.rank_lots import (
         ACTION_ADD,

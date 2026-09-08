@@ -1,4 +1,4 @@
-"""策略调仓：9:30 用 y_fuse / y_on 排序，按 100/200 股下单。
+"""策略调仓：9:30 用 y_fuse / y_on 排序，按 200/500 股下单。
 
 规则（live 与历史回测共用）：
   - y_fuse = 加权(y_trade, y_nowcast)，表示预期今日收益（百分点）
@@ -7,7 +7,7 @@
   - 展示为百分数（×100）。α 默认 0：隔夜项为 0，清仓等价于 y_fuse < 0
   - 已持仓且 ranking < 0 → 清仓（T+1 可卖部分）
   - ranking_score > rank入场 的票按分数取 Top-K：建仓或加仓
-  - ranking_score > rank强 → 200 股，否则 100 股
+  - ranking_score > rank强 → 500 股，否则 200 股
   - 现金低于 cash_floor（默认 50 万）禁止买入
 """
 
@@ -18,14 +18,14 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_RANK_ENTER = 0.01
-DEFAULT_RANK_STRONG = 0.02
+DEFAULT_RANK_ENTER = 0.012
+DEFAULT_RANK_STRONG = 0.012
 DEFAULT_CASH_FLOOR = 500_000.0
 DEFAULT_INITIAL_CASH = 1_000_000.0
 DEFAULT_Y_ON_ALPHA = 0.0
 Y_ON_ALPHA_MAX = 10.0
-LOT_BASE = 100
-LOT_STRONG = 200
+LOT_BASE = 200
+LOT_STRONG = 500
 
 ACTION_OPEN = "open"
 ACTION_ADD = "add"
@@ -70,6 +70,13 @@ def clamp_y_on_alpha(raw: Any, default: float = DEFAULT_Y_ON_ALPHA) -> float:
     if v is None:
         return float(default)
     return max(0.0, min(float(v), Y_ON_ALPHA_MAX))
+
+
+def clamp_fusion_weight(raw: Any, default: float = 0.5) -> float:
+    v = _f(raw)
+    if v is None:
+        return max(0.0, min(1.0, float(default)))
+    return max(0.0, min(1.0, float(v)))
 
 
 def ranking_score(
@@ -212,6 +219,16 @@ def _heads(item: Optional[dict]) -> Tuple[Optional[float], Optional[float]]:
     return sc.get("y_trade"), sc.get("y_nowcast")
 
 
+def y_tau_of(item: Optional[dict]) -> Optional[float]:
+    if not isinstance(item, dict):
+        return None
+    if item.get("y_tau") is not None:
+        return _f(item.get("y_tau"))
+    if item.get("predicted_score_tau") is not None:
+        return _f(item.get("predicted_score_tau"))
+    return _f(item.get("score_rem"))
+
+
 def _debug_scores(
     item: Optional[dict],
     yf: Optional[float],
@@ -220,12 +237,15 @@ def _debug_scores(
     **extra: Any,
 ) -> Dict[str, Any]:
     yt, yn = _heads(item)
+    ytau = y_tau_of(item)
     out: Dict[str, Any] = {
         "y_fuse": yf,
         "y_on": yo,
         "ranking_score": rs,
         "y_trade": yt,
         "y_nowcast": yn,
+        "y_tau": ytau,
+        "predicted_score_tau": ytau,
     }
     out.update({k: v for k, v in extra.items() if v is not None})
     return out
@@ -479,6 +499,7 @@ __all__ = [
     "DEFAULT_Y_ON_ALPHA",
     "LOT_BASE",
     "Y_ON_ALPHA_MAX",
+    "clamp_fusion_weight",
     "clamp_y_on_alpha",
     "LOT_STRONG",
     "coerce_rank_threshold",
@@ -488,4 +509,5 @@ __all__ = [
     "ranking_score",
     "y_fuse_of",
     "y_on_of",
+    "y_tau_of",
 ]

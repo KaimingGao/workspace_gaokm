@@ -147,7 +147,7 @@ class T0BacktestRequest(BaseModel):
         default=None,
         ge=0.0,
         le=1.0,
-        description="门槛2 |R̂_τ| 入场下限（百分点）；默认 0.40；范围 0–1.0；0=关",
+        description="门槛2 |R̂_τ| 入场下限（百分点）；默认 0；范围 0–1.0；0=关",
     )
     y_tau_enter_strong: Optional[float] = Field(
         default=None,
@@ -212,13 +212,13 @@ class T0BacktestRequest(BaseModel):
         default=None,
         ge=0.0,
         le=100.0,
-        description="score：偏移灵敏度 k，s=k·ŷ_τ（再经 α·δ 封顶；范围 0–100；默认 0.1）",
+        description="score：偏移灵敏度 k，s=k·ŷ_τ（再经 α·δ 封顶；范围 0–100；默认 10）",
     )
     y_tau_leg1_prior_shift_scale: Optional[float] = Field(
         default=None,
         ge=0.1,
         le=1.0,
-        description="score：带宽漂移 |s|≤α·δ，α∈[0.1, 1.0]（默认 0.1；α=1 时同侧可贴 0）",
+        description="score：带宽漂移 |s|≤α·δ，α∈[0.1, 1.0]（默认 1；α=1 时同侧可贴 0）",
     )
     y_nc_enter: Optional[float] = Field(
         default=None,
@@ -246,7 +246,7 @@ class T0BacktestRequest(BaseModel):
         default=None,
         ge=0.0,
         le=100.0,
-        description="path 入场%：|y_path| 低于此值横盘跳过（默认 0.01；0=关幅度；范围 0–100%）",
+        description="path 入场%：|y_path| 低于此值横盘跳过（默认 0；0=关幅度；范围 0–100%）",
     )
     y_path_enter_sell_then_buy: Optional[float] = Field(
         default=None,
@@ -264,7 +264,7 @@ class T0BacktestRequest(BaseModel):
         default=None,
         ge=0.0,
         le=5.0,
-        description="path强%：|y_path| 超此值须与 y_τ 同号，异号跳过（默认 0.2）",
+        description="path强%：|y_path| 超此值须与 y_τ 同号，异号跳过（默认 5）",
     )
     y_complexity_max: Optional[float] = Field(
         default=None,
@@ -282,19 +282,19 @@ class T0BacktestRequest(BaseModel):
         default=None,
         ge=0.0,
         le=1.0,
-        description="ŷ_tpd∈[0,1] 上限：超过则反转过密跳过做 T（默认 0.40；1.00≈关）",
+        description="ŷ_tpd∈[0,1] 上限：超过则反转过密跳过做 T（默认 1.00≈关）",
     )
     y_tau_enter_alt: Optional[float] = Field(
         default=None,
         ge=0.0,
         le=100.0,
-        description="门槛2 |y_τ| 入场下限（百分点）；默认 0.40；范围 0–100%；0=关",
+        description="门槛2 |y_τ| 入场下限（百分点）；默认 0；范围 0–100%；0=关",
     )
     y_path_enter_alt: Optional[float] = Field(
         default=None,
         ge=0.0,
         le=100.0,
-        description="门槛2 |y_path| 入场下限（百分点）；默认 0.40；范围 0–100%；0=关幅度",
+        description="门槛2 |y_path| 入场下限（百分点）；默认 0；范围 0–100%；0=关幅度",
     )
     y_complexity_max_alt: Optional[float] = Field(
         default=None,
@@ -494,7 +494,7 @@ class PaperExecutionPatchRequest(BaseModel):
     coupling: Optional[dict] = None
     rebalance_timing: Optional[dict] = Field(
         default=None,
-        description="调仓时机；含 path_matrix.rank_lots（09:30 开盘 100/200 股）",
+        description="调仓时机；含 path_matrix.rank_lots（09:30 开盘 200/500 股）",
     )
     lock: bool = True
     note: str = ""

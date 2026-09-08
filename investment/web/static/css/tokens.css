@@ -738,10 +738,6 @@ html[data-theme="dark"] .strategy-page .strategy-control-band {
   background: #252526;
 }
 
-html[data-theme="dark"] .strategy-page .strategy-secondary-band {
-  border-top-color: rgba(255, 255, 255, 0.08);
-}
-
 html[data-theme="dark"] .strategy-page .strategy-card-head {
   background: rgba(255, 255, 255, 0.03);
   border-bottom-color: rgba(255, 255, 255, 0.06);

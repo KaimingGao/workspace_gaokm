@@ -133,14 +133,21 @@ class TestDailyWebPresets(unittest.TestCase):
             client = TestClient(web_app.app)
             res = client.post(
                 "/api/daily/run",
-                json={"preset": "quant", "top_k": 3, "horizon_days": 1, "lookback": 30},
+                json={
+                    "preset": "quant",
+                    "lookback": 30,
+                    "y_on_alpha": 0.5,
+                    "rank_enter": 0.01,
+                    "rank_strong": 0.03,
+                },
             )
         self.assertEqual(res.status_code, 200)
-        self.assertEqual(run_mock.call_args.kwargs.get("top_k"), 3)
-        self.assertEqual(run_mock.call_args.kwargs.get("horizon_days"), 1)
         self.assertEqual(run_mock.call_args.kwargs.get("lookback"), 30)
+        self.assertEqual(run_mock.call_args.kwargs.get("y_on_alpha"), 0.5)
+        self.assertEqual(run_mock.call_args.kwargs.get("rank_enter"), 0.01)
+        self.assertEqual(run_mock.call_args.kwargs.get("rank_strong"), 0.03)
 
-    def test_api_run_rejects_lookback_below_30(self):
+    def test_api_run_rejects_lookback_below_10(self):
         from fastapi.testclient import TestClient
 
         import web.app as web_app
@@ -148,9 +155,25 @@ class TestDailyWebPresets(unittest.TestCase):
         client = TestClient(web_app.app)
         res = client.post(
             "/api/daily/run",
-            json={"preset": "quant", "lookback": 20},
+            json={"preset": "quant", "lookback": 9},
         )
         self.assertEqual(res.status_code, 422)
+
+    def test_api_run_accepts_lookback_10(self):
+        from fastapi.testclient import TestClient
+
+        import web.app as web_app
+        import web.deps as deps
+
+        mock_out = {"ok": True, "preset": "quant", "steps": [], "failures": []}
+        with patch.object(deps.daily, "run", return_value=mock_out) as run_mock:
+            client = TestClient(web_app.app)
+            res = client.post(
+                "/api/daily/run",
+                json={"preset": "quant", "lookback": 10},
+            )
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(run_mock.call_args.kwargs.get("lookback"), 10)
 
     def test_api_presets_include_bt_defaults(self):
         from fastapi.testclient import TestClient
@@ -162,11 +185,13 @@ class TestDailyWebPresets(unittest.TestCase):
         self.assertEqual(res.status_code, 200)
         data = res.json()
         bt = data.get("bt_defaults") or {}
-        self.assertEqual(int(bt.get("top_k") or 0), 3)
-        self.assertEqual(int(bt.get("horizon_days") or 0), 1)
+        self.assertEqual(bt.get("engine"), "paper_replay")
+        self.assertEqual(bt.get("lookback"), 30)
+        self.assertEqual(float(bt.get("y_on_alpha")), 0.0)
+        self.assertAlmostEqual(float(bt.get("rank_enter") or 0), 0.012)
+        self.assertAlmostEqual(float(bt.get("rank_strong") or 0), 0.012)
         self.assertGreaterEqual(int(bt.get("paper_max_positions") or 0), 8)
         self.assertIn("paper_horizon_days", bt)
-        self.assertEqual(bt.get("lookback"), 30)
 
 # --- test_p17_quant.py::TestWatchingHealth ---
 class TestWatchingHealth(unittest.TestCase):

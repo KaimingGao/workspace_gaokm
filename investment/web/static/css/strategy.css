@@ -1,99 +1,5 @@
 /* ══ STRATEGY ══ 策略中心：策略卡、参数、晋升 */
 
-.strategy-logic {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-  gap: 8px;
-}
-
-.strategy-alpha-risk-item .strategy-logic {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-  gap: 8px;
-}
-
-.strategy-logic-item {
-  padding: 8px 10px;
-  border-radius: var(--radius-sm);
-  background: var(--bg);
-  border: 1px solid var(--line-2);
-  height: 100%;
-  display: flex;
-  flex-direction: column;
-  box-shadow: none;
-}
-
-.strategy-logic-item h4 {
-  margin: 0 0 6px;
-  font-size: 0.72rem;
-  font-weight: 700;
-  letter-spacing: 0.02em;
-  text-transform: none;
-  color: var(--ink);
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.strategy-logic-item h4::before {
-  content: "";
-  width: 3px;
-  height: 12px;
-  border-radius: 1px;
-  background: var(--accent);
-  flex-shrink: 0;
-}
-
-.strategy-alpha-risk-item.strategy-risk .strategy-logic-item h4::before {
-  background: var(--ok);
-}
-
-.strategy-logic-item p {
-  margin: 0 0 6px;
-  font-size: 0.72rem;
-  color: var(--ink-2);
-  line-height: 1.45;
-}
-
-.strategy-logic-item ul {
-  margin: 0;
-  padding-left: 1.1em;
-  font-size: 0.72rem;
-  color: var(--ink-2);
-  line-height: 1.45;
-}
-
-.strategy-logic-item li {
-  margin-bottom: 3px;
-}
-
-.strategy-logic-item li:last-child {
-  margin-bottom: 0;
-}
-
-.strategy-param-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 0.78rem;
-}
-
-.strategy-param-table td {
-  padding: 6px 8px;
-  text-align: left;
-  border-bottom: 1px solid var(--line-2);
-}
-
-.strategy-param-table th {
-  font-weight: 650;
-  color: var(--ink);
-  background: var(--bg);
-}
-
-.strategy-param-table td {
-  color: var(--ink-2);
-  font-variant-numeric: tabular-nums;
-}
-
 .strategy-factor-dict-list {
   display: flex;
   flex-wrap: wrap;
@@ -164,31 +70,6 @@
   user-select: none;
 }
 
-.strategy-page .strategy-path-note {
-  margin-left: auto;
-  font-size: 0.62rem;
-  color: var(--ink-3);
-  letter-spacing: 0.02em;
-}
-
-.strategy-page .strategy-hero-lead {
-  margin: 0 0 4px;
-  max-width: 56em;
-  font-size: 0.68rem;
-  line-height: 1.45;
-  color: var(--ink-3);
-}
-
-.strategy-page .strategy-hero-lead a {
-  color: var(--accent-active);
-  font-weight: 600;
-  text-decoration: none;
-}
-
-.strategy-page .strategy-hero-lead a:hover {
-  text-decoration: underline;
-}
-
 .strategy-page .strategy-section {
   margin: 0;
   padding: 0;
@@ -213,10 +94,6 @@
   display: flex;
   flex-direction: column;
   gap: 6px;
-}
-
-.strategy-page .strategy-control-band-compact {
-  padding: 6px 10px;
 }
 
 .strategy-page .strategy-inline-field {
@@ -257,31 +134,6 @@
 .strategy-page #strategy-dual-score .strategy-inline-field .strategy-field-label {
   min-width: 3.75rem;
   text-align: right;
-}
-
-.strategy-page .strategy-secondary-band {
-  display: flex;
-  align-items: baseline;
-  gap: 10px;
-  flex-wrap: wrap;
-  margin: 8px 0 2px;
-  padding: 8px 2px 4px;
-  border-top: 1px dashed color-mix(in srgb, var(--line) 90%, transparent);
-}
-
-.strategy-page .strategy-secondary-band-title {
-  margin: 0;
-  font-size: 0.62rem;
-  font-weight: 700;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  color: var(--ink-3);
-}
-
-.strategy-page .strategy-secondary-band-desc {
-  margin: 0;
-  font-size: 0.66rem;
-  color: var(--ink-3);
 }
 
 .strategy-page .strategy-prior-contract {
@@ -515,40 +367,10 @@
   text-decoration: underline;
 }
 
-.strategy-page .strategy-promote-bar {
-  gap: 6px 10px;
-  margin: 0;
-}
-
 .strategy-page .strategy-promote-toggle {
   font-size: 0.72rem;
   color: var(--ink-2);
   gap: 6px;
-}
-
-.strategy-page > .strategy-fold {
-  margin: 0;
-  border: 1px solid var(--line);
-  border-radius: var(--strategy-radius);
-  background: var(--surface);
-}
-
-.strategy-page > .strategy-fold > summary {
-  padding: 8px 10px;
-  font-size: 0.78rem;
-  font-weight: 650;
-  letter-spacing: -0.01em;
-  color: var(--ink);
-  cursor: pointer;
-  user-select: none;
-}
-
-.strategy-page > .strategy-fold[open] > summary {
-  border-bottom: 1px solid var(--line-2);
-}
-
-.strategy-page > .strategy-fold .strategy-logic-ref {
-  padding: 8px 10px 10px;
 }
 
 .strategy-card-list {
@@ -676,29 +498,6 @@
   text-overflow: ellipsis;
 }
 
-/* 旧 chips 兜底（若别处仍生成） */
-.strategy-card-chips {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 5px;
-  margin: 0;
-  padding: 6px 0 0;
-  list-style: none;
-  border-top: 1px solid var(--line-2);
-}
-
-.strategy-card-chips li {
-  padding: 2px 7px;
-  border-radius: var(--radius-xs);
-  background: var(--bg);
-  border: 1px solid var(--line-2);
-  font-size: 0.68rem;
-  font-weight: 560;
-  font-variant-numeric: tabular-nums;
-  color: var(--ink-2);
-  white-space: nowrap;
-}
-
 .strategy-card-actions {
   margin-top: 8px;
   padding-top: 8px;
@@ -741,119 +540,7 @@
   color: var(--ink);
 }
 
-/* Alpha / Risk / 调仓参考 */
-.strategy-alpha-risk {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 8px;
-}
-
-.strategy-alpha-risk-item {
-  background: var(--bg);
-  border: 1px solid var(--line);
-  border-radius: var(--strategy-radius, var(--radius-sm));
-  padding: 10px;
-  box-shadow: none;
-  border-top: 1px solid var(--line);
-  border-left: 3px solid var(--line);
-}
-
-.strategy-alpha {
-  border-left-color: var(--accent);
-}
-
-.strategy-risk {
-  border-left-color: var(--ok);
-}
-
-.strategy-rebalance {
-  border-left-color: var(--gold);
-}
-
-.strategy-rebalance .strategy-alpha-risk-icon {
-  background: color-mix(in srgb, var(--gold) 14%, var(--bg));
-  color: var(--gold);
-  box-shadow: none;
-}
-
-.strategy-rebalance .strategy-logic-item h4::before {
-  background: var(--gold);
-}
-
-.strategy-alpha-risk-header {
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
-  margin-bottom: 8px;
-}
-
-.strategy-alpha-risk-icon {
-  font-size: 14px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 24px;
-  height: 24px;
-  border-radius: var(--radius-xs);
-  flex-shrink: 0;
-  margin-top: 1px;
-}
-
-.strategy-alpha-risk-icon svg {
-  width: 14px;
-  height: 14px;
-}
-
-.strategy-alpha-risk-item.strategy-alpha .strategy-alpha-risk-icon {
-  background: var(--accent-soft);
-  color: var(--accent-active);
-  box-shadow: none;
-}
-
-.strategy-alpha-risk-item.strategy-risk .strategy-alpha-risk-icon {
-  background: var(--ok-soft);
-  color: var(--ok);
-  box-shadow: none;
-}
-
-.strategy-alpha-risk-header h3 {
-  margin: 0;
-  font-size: 0.78rem;
-  font-weight: 700;
-  letter-spacing: -0.015em;
-  color: var(--ink);
-  line-height: 1.25;
-}
-
-.strategy-alpha-risk-desc {
-  margin: 2px 0 0;
-  font-size: 0.7rem;
-  line-height: 1.4;
-  color: var(--ink-3);
-}
-
-.strategy-logic-ref #quant-section-strategy-detail {
-  margin-top: 0;
-  padding: 0;
-  grid-column: 1 / -1;
-}
-
-@media (max-width: 900px) {
-  .strategy-alpha-risk {
-    grid-template-columns: 1fr;
-  }
-}
-
 @media (max-width: 768px) {
-  .strategy-alpha-risk {
-    grid-template-columns: 1fr;
-  }
-  .strategy-logic {
-    grid-template-columns: 1fr;
-  }
-  .strategy-alpha-risk-item .strategy-logic {
-    grid-template-columns: 1fr;
-  }
   .strategy-card-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -896,15 +583,6 @@ html[data-density="compact"] .strategy-card-grid {
 .strategy-page .strategy-card-actions {
   margin-top: 6px;
   gap: 6px;
-}
-
-.strategy-page > .strategy-fold {
-  border-radius: 8px;
-}
-
-.strategy-page > .strategy-fold > summary {
-  font-size: 0.74rem;
-  letter-spacing: 0.02em;
 }
 
 /* ==========================================================================
@@ -1086,10 +764,6 @@ body[data-page="strategy"] .strategy-path-sep {
   font-size: 12px;
   padding: 0 2px;
   user-select: none;
-}
-
-body[data-page="strategy"] .strategy-path-note {
-  display: none;
 }
 
 /* L1 区段壳 */
@@ -1625,7 +1299,6 @@ body[data-page="strategy"] .strategy-page .platform-input,
 body[data-page="strategy"] .strategy-page .dialog-btn,
 body[data-page="strategy"] .strategy-page .strategy-prior-card-inner,
 body[data-page="strategy"] .strategy-page .strategy-prior-params,
-body[data-page="strategy"] .strategy-page .strategy-logic-item,
 body[data-page="strategy"] .strategy-page .strategy-factor-chip,
 body[data-page="strategy"] .strategy-page .strategy-card {
   border-radius: 2px !important;
@@ -1737,45 +1410,6 @@ body[data-page="strategy"] .strategy-secondary-fold-sum .dashboard-section-title
 
 body[data-page="strategy"] .strategy-secondary-fold > .dashboard-card.quant-pro-card {
   margin: 0 10px 10px;
-}
-
-body[data-page="strategy"] .strategy-logic-ref {
-  padding: 10px 12px 12px;
-}
-
-body[data-page="strategy"] .strategy-logic-ref .strategy-alpha-risk {
-  gap: 8px;
-}
-
-body[data-page="strategy"] .strategy-logic-ref .strategy-alpha-risk-item {
-  margin-bottom: 0;
-}
-
-body[data-page="strategy"] .strategy-logic-ref .strategy-alpha-risk-item .strategy-logic {
-  grid-template-columns: 1fr;
-  gap: 8px;
-}
-
-body[data-page="strategy"] .strategy-logic-ref .strategy-alpha-risk-item.strategy-rebalance .strategy-logic {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-}
-
-@media (max-width: 900px) {
-  body[data-page="strategy"] .strategy-logic-ref .strategy-alpha-risk-item.strategy-rebalance .strategy-logic {
-    grid-template-columns: 1fr;
-  }
-}
-
-body[data-page="strategy"] .strategy-alpha-risk-item {
-  border: 1px solid color-mix(in srgb, var(--line) 88%, transparent);
-  border-radius: 2px;
-  padding: 10px 12px;
-  background: color-mix(in srgb, var(--ink) 1.2%, var(--surface));
-  margin-bottom: 8px;
-}
-
-body[data-page="strategy"] .strategy-alpha-risk-item:last-child {
-  margin-bottom: 0;
 }
 
 /* 风控与敞口 · 研究小表（strategy-page 无 quant-page 壳，须覆盖默认 14px 圆角） */

@@ -402,7 +402,7 @@ flowchart LR
 | StrategySpec 限额 UI | **已落地** | 策略页列表 + `strategy-risk-limits` 只读展示 risk |
 | 成本对照 zero vs simple_cn | **已落地** | `cost_compare` 附于组合回测响应与指标卡 |
 | Walk-forward 切片 | **已落地** | `rolling_walk_forward_slices` · `wf_slices` 附于组合回测；回溯页折表 |
-| IC 一键导出 · weight_suggest 进策略页 | **已落地** | 策略页「分析 IC / 权重」+ 导出 IC / 权重 diff（只读，不写盘） |
+| IC 一键导出 · weight_suggest | **已落地** | 研究枢纽只读 IC / 权重 diff（策略页入口已下线，不写盘） |
 
 ### P2 落地状态（2026-07）
 
@@ -1138,7 +1138,7 @@ Q2 与 Q3 可部分并行（Strategy 接口先定，ports 清债同步）；Q4 �
 | **清洗** | 复权策略写入 manifest；bars 质量 level 门禁（差数据不进生产 score）；PIT 最小约定文档化 | **门禁+manifest+PIT 文档已落地** |
 | **组合** | `optimize_weights` 默认进策略调仓建议；行业 map 覆盖观察池；限额进 StrategySpec UI | **目标权重+限额只读 UI 已落地** |
 | **回测** | Walk-forward 最小切片；成本敏感对照（zero vs simple_cn）；OOS 失败时报告标红 | **已落地**（OOS 标红 · 成本对照 · `wf_slices`） |
-| **因子** | IC 实验室一键导出；`weight_suggest` 只读 diff 进策略页；情绪因子默认仍 0 | **已落地**（策略页分析/导出；情绪默认 0） |
+| **因子** | IC 实验室一键导出；`weight_suggest` 只读 diff 在研究枢纽；情绪因子默认仍 0 | **已落地**（研究枢纽分析/导出；情绪默认 0） |
 
 #### P2 · 准实盘稳态（已完成）
 

@@ -101,7 +101,7 @@ export const SKIP_CAT_TIP = {
   y_path_flat:
     "入场：y_use_path 开时缺 ŷ_path（数据不全）则跳过；|ŷ_path| 低于该档 path入场%（门槛1 y_path_enter / 门槛2 y_path_enter_alt）视为横盘。",
   y_path_disagree:
-    "y_use_path 开时：|ŷ_path| 超过 y_path_strong（默认 0.2%）却与 ŷ_τ 异号则跳过；低于强阈允许异号。",
+    "y_use_path 开时：|ŷ_path| 超过 y_path_strong（默认 5%）却与 ŷ_τ 异号则跳过；低于强阈允许异号。",
   y_complexity_high:
     "风险：ŷ_complexity 超过该档 complexity门槛则太折跳过。门槛1 / 门槛2 各判一次；缺 hat 不挡。",
   y_cx_high:
@@ -113,7 +113,7 @@ export const SKIP_CAT_TIP = {
   trade_tau_disagree:
     "历史口径：强 ŷ_trade 与 ŷ_τ 异号跳过。v6 选腿已下线该闸（仅 y_τ / ĉ_τ + path 入场/强）。",
   tau_leg1_prior:
-    "局部 r=(p/ĉ−1)% vs 整体 y_τ。score：s=clip(k·y_τ,±α·δ)，upper=δ+s、lower=−δ+s；α∈[0.1,1.0]（默认 0.1）；off=关。旧 skip 硬跳过已下线并入 score。",
+    "局部 r=(p/ĉ−1)% vs 整体 y_τ。score：s=clip(k·y_τ,±α·δ)，upper=δ+s、lower=−δ+s；α∈[0.1,1.0]（默认 1）；off=关。旧 skip 硬跳过已下线并入 score。",
   gap_tier_skip:
     "大缺口档位与拟做方向冲突（如大高开仍想正 T），规则直接跳过。",
   path_abandon:

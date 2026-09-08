@@ -51,7 +51,7 @@ class TestMarkdownExport(unittest.TestCase):
         }
         md = render_quant_report_markdown(report)
         self.assertIn("# 量化研究日报", md)
-        self.assertIn("Top-K 回测摘要", md)
+        self.assertIn("历史回测摘要", md)
         out = export_quant_report_markdown(report)
         self.assertTrue(out["success"])
         self.assertIn("content", out)

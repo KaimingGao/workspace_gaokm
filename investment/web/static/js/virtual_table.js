@@ -108,6 +108,8 @@ function defaultCompare(id, a, b) {
  *   columns: Array<object>,
  *   emptyText?: string,
  *   rowHeight?: number,
+ *   fit?: "host",
+ *   shrinkTracks?: boolean,
  *   rootClass?: string,
  *   bodyClass?: string,
  *   initialSort?: Array<{column:string, dir:string}>,
@@ -142,7 +144,9 @@ export function mountVirtualTable(host, options = {}) {
     ? `watching-react-grid-body ${options.bodyClass}`
     : "watching-react-grid-body";
   const fitHost = options.fit === "host";
-  const gridCols = gridTemplateColumns(columns, { shrink: fitHost });
+  const shrinkTracks =
+    options.shrinkTracks != null ? !!options.shrinkTracks : fitHost;
+  const gridCols = gridTemplateColumns(columns, { shrink: shrinkTracks });
   const rowTrackStyle = fitHost
     ? `display:grid;grid-template-columns:${gridCols};align-items:center;width:100%;min-width:0;box-sizing:border-box;`
     : `display:grid;grid-template-columns:${gridCols};align-items:center;width:max-content;min-width:100%;box-sizing:border-box;`;

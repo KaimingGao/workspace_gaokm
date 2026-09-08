@@ -457,7 +457,7 @@ class QuantOpsMixin:
             "path": QUANT_DAILY_PATH,
             "generated_at": generated,
             "frozen": True,
-            "note": "日报冻结摘要；与当页「Top-K 回测 / 中性化对照」结果可能不一致。",
+            "note": "日报冻结摘要；与当页「历史回测 / 中性化对照」结果可能不一致。",
         }
         return data
 
@@ -472,12 +472,15 @@ class QuantOpsMixin:
         top_k: Optional[int] = None,
         horizon_days: Optional[int] = None,
         lookback: Optional[int] = None,
+        y_on_alpha: Optional[float] = None,
+        rank_enter: Optional[float] = None,
+        rank_strong: Optional[float] = None,
     ) -> Dict[str, Any]:
-        """量化日报：主叙事=组ŷ / 簿 / OOS / 横截面ŷ / Top-K(ŷ)。
+        """量化日报：主叙事=组ŷ / 簿 / OOS / 横截面ŷ / 历史回测（rank_lots）。
 
         单票 IC·OLS·权建议·阈值 默认不跑，仅 ``include_legacy_probe=True`` 进附录。
-        top_k / horizon_days / lookback 缺省跟日报表单默认（见 resolve_daily_topk_backtest_kwargs /
-        DAILY_BT_UI_*；K·持有跟纸面，lookback 默认 30）。
+        历史回测缺省对齐 /replay：paper_replay · α / rank入场 1.2% / rank强 1.2% / lookback 30（下限 10）。
+        top_k / horizon_days 仅留给中性化对照（研究 Top-K 腿）。
         """
         cfg = self.config_summary()
         ic = None
@@ -527,12 +530,14 @@ class QuantOpsMixin:
                 ).strip()
 
         portfolio_bt_kwargs: Dict[str, Any] = {}
-        if top_k is not None:
-            portfolio_bt_kwargs["top_k"] = int(top_k)
-        if horizon_days is not None:
-            portfolio_bt_kwargs["horizon_days"] = int(horizon_days)
         if lookback is not None:
             portfolio_bt_kwargs["lookback"] = int(lookback)
+        if y_on_alpha is not None:
+            portfolio_bt_kwargs["y_on_alpha"] = float(y_on_alpha)
+        if rank_enter is not None:
+            portfolio_bt_kwargs["rank_enter"] = float(rank_enter)
+        if rank_strong is not None:
+            portfolio_bt_kwargs["rank_strong"] = float(rank_strong)
         portfolio_summary = (
             self.portfolio_daily_summary(**portfolio_bt_kwargs)
             if include_portfolio_backtest
@@ -540,8 +545,15 @@ class QuantOpsMixin:
         )
         neutral_compare_summary = None
         if include_portfolio_backtest and include_portfolio_neutral_compare:
+            neutral_kwargs: Dict[str, Any] = {}
+            if top_k is not None:
+                neutral_kwargs["top_k"] = int(top_k)
+            if horizon_days is not None:
+                neutral_kwargs["horizon_days"] = int(horizon_days)
+            if lookback is not None:
+                neutral_kwargs["lookback"] = int(lookback)
             neutral_compare_summary = self.portfolio_neutral_compare_summary(
-                **portfolio_bt_kwargs
+                **neutral_kwargs
             )
         cluster_live = None
         try:
@@ -650,7 +662,7 @@ class QuantOpsMixin:
                 "min_predicted_score": scoring.get("min_predicted_score"),
                 "note": (
                     (cfg.get("product_note") if isinstance(cfg, dict) else None)
-                    or "选股真源=predicted_score（ŷ）· 主叙事=组ŷ/簿/OOS/横截面/Top-K"
+                    or "选股真源=predicted_score（ŷ）· 主叙事=组ŷ/簿/OOS/横截面/历史回测"
                 ),
             },
             "strategies": self.list_strategies(),

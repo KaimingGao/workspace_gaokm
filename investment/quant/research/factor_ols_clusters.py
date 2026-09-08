@@ -1352,6 +1352,15 @@ def compute_factor_ols_cluster_report(
         )
         if not ys:
             return code, None, None, "面板为空"
+        from core.research.beta_accuracy import MIN_CLUSTER_OBS
+
+        if len(ys) < int(MIN_CLUSTER_OBS):
+            return (
+                code,
+                None,
+                None,
+                f"入模样本 {len(ys)}<{int(MIN_CLUSTER_OBS)}（次新/日线不足，不入簇）",
+            )
         fit = fit_factor_ols_from_panel(
             xs,
             ys,
@@ -2218,9 +2227,13 @@ def _aggregate_sample_fingerprint(clusters: Sequence[Dict[str, Any]]) -> Dict[st
     """汇总各组 sample_fingerprint。
 
     小组成员数 < 3 时，组指纹本身用自适应 min_names，不再把「n_names<3」
-    当成硬拦（单票/双票组是聚类设计内结果）。仍汇总 n_obs / 总 names。
+    当成硬拦。组内 n_obs 不足同样不连坐（该组对照时回退全局 β）。
+    仍汇总 n_obs / 总 names。
     """
-    from core.research.beta_accuracy import sample_fingerprint
+    from core.research.beta_accuracy import (
+        fingerprint_blocker_is_group_local,
+        sample_fingerprint,
+    )
 
     obs = 0
     names = 0
@@ -2243,19 +2256,10 @@ def _aggregate_sample_fingerprint(clusters: Sequence[Dict[str, Any]]) -> Dict[st
         if fp.get("date_span"):
             spans.append(str(fp["date_span"]))
         if fp.get("promote_ok") is False:
-            # 仅保留非「小组员数」类拦阻（如 n_obs 不足）
             for b in fp.get("blockers") or []:
                 bs = str(b)
-                if "n_names=" in bs and "min_names=" in bs:
-                    try:
-                        # n_names=2 < min_names=3 → 小组，忽略
-                        left = bs.split("n_names=")[1]
-                        n_part = left.split("<")[0].strip()
-                        if int(float(n_part)) < 3:
-                            continue
-                    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-                        logger.debug("catch except Exception: in factor_ols_clusters.py", exc_info=True)
-                        logger.warning("聚类后处理异常", exc_info=True)
+                if fingerprint_blocker_is_group_local(bs, from_group=True):
+                    continue
                 blockers.append(bs)
     # 全产物：总映射票数门槛仍用 3（至少覆盖若干票）；obs 用累加
     out = sample_fingerprint(

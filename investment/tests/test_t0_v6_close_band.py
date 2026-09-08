@@ -19,7 +19,7 @@ from core.t0.slots import simulate_t0_day_slots
 
 
 def _cfg(overrides=None):
-    """路径单测关掉 TPD 入场闸；生产默认 y_tpd_max=0.40。"""
+    """路径单测关掉 TPD 入场闸；生产默认 y_tpd_max=1.00≈关。"""
     d = dict(overrides or {})
     d.setdefault("y_tpd_max", 1.0)
     return load_t0_rules(d)
@@ -497,7 +497,7 @@ class TestCloseBandCore(unittest.TestCase):
         self.assertFalse(loaded["y_enter_alt_enabled"])
         self.assertTrue(loaded["y_enter_enabled"])
         self.assertAlmostEqual(loaded["y_tau_enter_alt"], 0.40)
-        self.assertAlmostEqual(loaded["y_path_enter_alt"], 0.40)
+        self.assertAlmostEqual(loaded["y_path_enter_alt"], 0.0)
         self.assertIsNotNone(
             close_band_enter_skip_reason(high_y_high_risk, loaded, r_pct=0.2)
         )
@@ -606,6 +606,7 @@ class TestCloseBandCore(unittest.TestCase):
         self.assertEqual(normalize_y_tau_leg1_prior_mode("skip"), "score")
         self.assertEqual(normalize_y_tau_leg1_prior_mode("hard"), "score")
         self.assertEqual(normalize_y_tau_leg1_prior_mode("off"), "off")
+        self.assertEqual(normalize_y_tau_leg1_prior_mode(None), "score")
         # score：s=clip(k·y_τ, ±α·δ)；0<α<1 → upper=δ+s，lower=−δ+s
         up, lo = resolve_close_band_thresholds_pct(
             0.5, 0.3, mode="score", risk_k=1.0, shift_scale=0.9
@@ -674,7 +675,7 @@ class TestCloseBandCore(unittest.TestCase):
         self.assertAlmostEqual(clamp_y_tau_leg1_prior_shift_scale(0.05), 0.1, places=6)
         self.assertAlmostEqual(clamp_y_tau_leg1_prior_shift_scale(0.95), 0.95, places=6)
         self.assertAlmostEqual(clamp_y_tau_leg1_prior_shift_scale(1.2), 1.0, places=6)
-        self.assertAlmostEqual(clamp_y_tau_leg1_prior_shift_scale(None), 0.1, places=6)
+        self.assertAlmostEqual(clamp_y_tau_leg1_prior_shift_scale(None), 1.0, places=6)
         # k 与 α 分工：同等 raw 下 α 只抬 cap，不放大未触顶的 s
         up_a, lo_a = resolve_close_band_thresholds_pct(
             0.5, 0.2, mode="score", risk_k=1.0, shift_scale=0.9
@@ -1353,6 +1354,7 @@ class TestCloseBandDayPath(unittest.TestCase):
                 "t0_round_ratio": 0.2,
                 "y_tau_enter": 0.5,
                 "y_path_enter": 0.0,
+                "y_enter_alt_enabled": False,
                 "fill_mode": "trigger",
                 "t0_stop_pct_sell_then_buy": 0,
                 "must_cover_same_day_sell_then_buy": True,

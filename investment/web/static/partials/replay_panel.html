@@ -83,11 +83,25 @@
       <p id="replay-pool-meta" class="quant-fingerprint replay-pool-meta" aria-live="polite">观察池：—</p>
       <span
         class="replay-rank-hint"
-        title="锁定口径：每个交易日 09:30 开盘；初始资金 100 万；买完后现金不得低于 50 万。不是可选项。"
+        title="锁定口径：每个交易日 09:30 开盘；初始资金 50 万；买完后现金不得低于 10 万。不是可选项。"
       >
-        09:30 · 100万 / 地板50万
+        09:30 · 50万 / 地板10万
       </span>
       <div class="replay-run-toolbar" aria-label="回测参数">
+        <label
+          class="platform-field quant-pro-field replay-lookback-field replay-fusion-field"
+          title="y_fuse 中 y_trade 权重；与 W_NOWCAST 一并归一化。范围 0.0～1.0。"
+        >
+          <span class="quant-pro-field-label">W_TRADE</span>
+          <input id="quant-w-trade" type="number" min="0" max="1" step="0.1" value="0.6" />
+        </label>
+        <label
+          class="platform-field quant-pro-field replay-lookback-field replay-fusion-field"
+          title="y_fuse 中 y_nowcast 权重；与 W_TRADE 一并归一化。范围 0.0～1.0。"
+        >
+          <span class="quant-pro-field-label">W_NOWCAST</span>
+          <input id="quant-w-nowcast" type="number" min="0" max="1" step="0.1" value="0.4" />
+        </label>
         <label
           class="platform-field quant-pro-field replay-lookback-field replay-on-alpha-field"
           title="ranking=(1+y_fuse/100)×(1+α×y_on/100)−1。α=0 隔夜不参与；1 按原权重乘入。范围 0.0～1.0。"
@@ -97,24 +111,24 @@
         </label>
         <label
           class="platform-field quant-pro-field replay-lookback-field replay-rank-field"
-          title="ranking 须大于此值才建仓/加仓。默认 0.01（1%）。"
+          title="ranking 须大于此值才建仓/加仓。单位百分数，默认 1.2%。"
         >
-          <span class="quant-pro-field-label">Rank入场</span>
-          <input id="quant-rank-enter" type="number" min="0" max="1" step="0.001" value="0.01" />
+          <span class="quant-pro-field-label">Rank入场%</span>
+          <input id="quant-rank-enter" type="number" min="0" max="10" step="0.1" value="1.2" />
         </label>
         <label
           class="platform-field quant-pro-field replay-lookback-field replay-rank-field"
-          title="ranking 大于此值买 2000 股，否则 1000 股。默认 0.02（2%）。"
+          title="ranking 大于此值买 2000 股，否则 1000 股。单位百分数，默认 1.2%。"
         >
-          <span class="quant-pro-field-label">Rank强</span>
-          <input id="quant-rank-strong" type="number" min="0" max="1" step="0.001" value="0.02" />
+          <span class="quant-pro-field-label">Rank强%</span>
+          <input id="quant-rank-strong" type="number" min="0" max="10" step="0.1" value="1.2" />
         </label>
         <label
           class="platform-field quant-pro-field replay-lookback-field"
-          title="回测覆盖多少个交易日。默认 30。不是调仓规则。不再用全池日期交集（会被次新/停牌卡死）。"
+          title="回测覆盖多少个交易日。默认 30，最少 10。不是调仓规则。不再用全池日期交集（会被次新/停牌卡死）。"
         >
           <span class="quant-pro-field-label">Lookback</span>
-          <input id="quant-lookback" type="number" min="30" max="500" value="30" />
+          <input id="quant-lookback" type="number" min="10" max="500" value="30" />
         </label>
         <input type="hidden" id="quant-horizon" value="1" />
         <input type="hidden" id="quant-weight-mode" value="score_budget" />
@@ -151,7 +165,7 @@
           ></div>
         </div>
         <p id="quant-portfolio-legend" class="quant-sub">
-          每个交易日 09:30 对全部观察池按 y_fuse/y_on 以 1000/2000 股调仓，现金地板 50 万。横轴为本次全部交易日。
+          每个交易日 09:30 对全部观察池按 y_fuse/y_on 以 1000/2000 股调仓，现金地板 10 万。横轴为本次全部交易日。
         </p>
         <div id="quant-bt-trades" class="quant-weight-table-wrap" aria-label="成交流水"></div>
       </div>

@@ -1716,55 +1716,10 @@ export function initPaper(ctx) {
     const costSelect = document.getElementById("paper-cost-model");
     const fundCostLabel = document.getElementById("follow-fund-cost-label");
     const stratHidden = document.getElementById("paper-strategy");
-    const stratLabel = document.getElementById("paper-strategy-label");
-    const stratVer = document.getElementById("paper-strategy-version");
-    const stratRules = document.getElementById("paper-strategy-rules");
     const model = data.cost_model || (data.summary && data.summary.cost_model) || "zero";
     if (costSelect && costSelect.value !== model) costSelect.value = model;
-    const STRATEGY_LABELS = {
-      short_conservative: "保守短线",
-      short: "短线评分",
-    };
     const sid = data.strategy_id ? String(data.strategy_id) : "";
-    if (sid) {
-      if (stratHidden && stratHidden.value !== sid) stratHidden.value = sid;
-      if (stratLabel) {
-        stratLabel.textContent =
-          data.strategy_label || STRATEGY_LABELS[sid] || sid;
-      }
-    } else if (stratLabel && !String(stratLabel.textContent || "").trim()) {
-      stratLabel.textContent = "—";
-    }
-    if (stratVer) {
-      const ver = String(data.strategy_version || "").trim();
-      if (ver) {
-        stratVer.hidden = false;
-        stratVer.textContent = `@${ver}`;
-      } else {
-        stratVer.hidden = true;
-        stratVer.textContent = "";
-      }
-    }
-    if (stratRules) {
-      const rules = data.rules || (data.config_preview && data.config_preview.rules) || {};
-      const parts = [];
-      const maxPos = Number(rules.max_positions);
-      if (Number.isFinite(maxPos) && maxPos > 0) parts.push(`≤${maxPos}只`);
-      const rawPct = Number(rules.position_pct);
-      if (Number.isFinite(rawPct) && rawPct > 0) {
-        const pct = rawPct <= 1 ? Math.round(rawPct * 100) : Math.round(rawPct);
-        parts.push(`单票${pct}%`);
-      }
-      if (parts.length) {
-        stratRules.hidden = false;
-        stratRules.textContent = parts.join(" · ");
-        stratRules.title = "来自当前策略纸面规则（组合限额）";
-      } else {
-        stratRules.hidden = true;
-        stratRules.textContent = "";
-        stratRules.removeAttribute("title");
-      }
-    }
+    if (sid && stratHidden && stratHidden.value !== sid) stratHidden.value = sid;
     if (costNote) {
       costNote.textContent =
         model === "simple_cn"

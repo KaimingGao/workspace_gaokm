@@ -474,6 +474,8 @@ body[data-page="replay"] .replay-lookback-field {
 }
 
 body[data-page="replay"] .replay-lookback-field #quant-lookback,
+body[data-page="replay"] .replay-fusion-field #quant-w-trade,
+body[data-page="replay"] .replay-fusion-field #quant-w-nowcast,
 body[data-page="replay"] .replay-on-alpha-field #quant-on-alpha,
 body[data-page="replay"] .replay-rank-field #quant-rank-enter,
 body[data-page="replay"] .replay-rank-field #quant-rank-strong {
@@ -761,17 +763,22 @@ body[data-page="replay"] .replay-page .quant-bt-trades-host .watching-stock {
 body[data-page="replay"] .replay-page .bt-ledger-grid .watching-react-grid-row.is-head .watching-react-grid-cell {
   font-size: var(--r-fs-micro, 0.68rem);
   font-weight: 650;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.03em;
   text-transform: uppercase;
   color: var(--ink-3);
   font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
 }
 
+body[data-page="replay"] .replay-page .bt-ledger-grid .watching-react-grid-row.is-head .watching-col-action {
+  letter-spacing: 0.02em;
+}
+
 body[data-page="replay"] .replay-page .bt-ledger-grid .watching-react-grid-cell.watching-col-y_fuse,
+body[data-page="replay"] .replay-page .bt-ledger-grid .watching-react-grid-cell.watching-col-y_tau,
 body[data-page="replay"] .replay-page .bt-ledger-grid .watching-react-grid-cell.watching-col-y_on,
 body[data-page="replay"] .replay-page .bt-ledger-grid .watching-react-grid-cell.watching-col-ranking {
   justify-content: flex-end;
-  align-items: flex-start;
+  align-items: center;
 }
 
 body[data-page="replay"] .replay-page .quant-bt-trades-host .watching-react-grid-row.is-chart-active {

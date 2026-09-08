@@ -112,7 +112,7 @@ export function initQuant(ctx) {
   } = factorMeta;
 
   const BT_SCOPE_LIVE =
-    "口径：每个交易日 09:30 rank_lots（初始 100 万 · 现金地板 50 万 · y_fuse/y_on · 1000/2000 股）。" +
+    "口径：每个交易日 09:30 rank_lots（初始 50 万 · 现金地板 10 万 · y_fuse/y_on · 1000/2000 股）。" +
     "净值起点 100；成本按纸面成本模型。有效≠正确：先看超额/回撤，再解读累计收益。";
   const BT_SCOPE_FROZEN =
     "以下为 quant_daily 冻结摘要，不是刚才点的回测；点「跑回测」或「中性化对照」刷新当次结果。";
@@ -158,8 +158,6 @@ export function initQuant(ctx) {
     quantWatchingList: document.getElementById("quant-watching-list"),
     strategyList: document.getElementById("strategy-list"),
     strategyListLoading: document.getElementById("strategy-list-loading"),
-    quantDiffSummary: document.getElementById("quant-diff-summary"),
-    quantDiffTable: document.getElementById("quant-diff-table"),
     quantCrossSummary: document.getElementById("quant-cross-summary"),
     quantCrossList: document.getElementById("quant-cross-list"),
     quantFactorList: document.getElementById("quant-factor-list"),
@@ -217,8 +215,6 @@ export function initQuant(ctx) {
     quantLastOlsClusters: null,
     quantLastThresholdDiff: null,
     quantLastThresholdSuggest: null,
-    strategyLastIcExport: null,
-    strategyLastWeightDiff: null,
     dailyPresetsCache: [],
     watchingSearchTimer: null,
     watchingSearchSeq: 0,
@@ -1614,71 +1610,6 @@ export function initQuant(ctx) {
     downloadJson(state.quantLastWeightDiff, "signal_config_weight_diff.json");
   });
 
-  on("strategy-weight-suggest-run", "click", (e) => {
-    e.preventDefault();
-    strategy.runStrategyWeightSuggest();
-  });
-  on("strategy-ic-export", "click", (e) => {
-    e.preventDefault();
-    const status = document.getElementById("strategy-factor-status");
-    if (!state.strategyLastIcExport) {
-      if (status) status.textContent = "请先「分析 IC / 权重」";
-      return;
-    }
-    downloadJson(state.strategyLastIcExport, "factor_ic_export.json");
-  });
-  on("strategy-weight-diff-export", "click", (e) => {
-    e.preventDefault();
-    const status = document.getElementById("strategy-factor-status");
-    if (!state.strategyLastWeightDiff) {
-      if (status) status.textContent = "请先「分析 IC / 权重」";
-      return;
-    }
-    downloadJson(state.strategyLastWeightDiff, "signal_config_weight_diff.json");
-  });
-
-  on("strategy-feedback-from-ic", "click", async (e) => {
-    e.preventDefault();
-    const status = document.getElementById("strategy-factor-status");
-    if (!state.strategyLastWeightDiff) {
-      if (status) status.textContent = "请先「分析 IC / 权重」";
-      return;
-    }
-    if (status) status.textContent = "生成反馈建议中…";
-    try {
-      const { ok, data, error } = await apiFetch("/api/feedback/suggest", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          backtest_metrics: {
-            win_rate_pct: null,
-            max_drawdown_pct: null,
-            weight_suggest: state.strategyLastWeightDiff,
-          },
-          paper_metrics: {},
-          monitor_alerts: [
-            {
-              level: "info",
-              code: "ic_weight_suggest",
-              message: "来自策略页 IC/权重分析的人审建议入口",
-            },
-          ],
-        }),
-      });
-      if (!ok) throw new Error(error || "反馈失败");
-      const reasons = (data.reasons || []).filter(Boolean);
-      if (status) {
-        status.textContent =
-          reasons.slice(0, 2).join("；") ||
-          data.note ||
-          "已生成建议（未写盘）· 选股改β请到研究枢纽；限额改策略卡晋升";
-      }
-    } catch (err) {
-      if (status) status.textContent = String(err.message || err);
-      }
-  });
-
-
   on("quant-threshold-run", "click", async (e) => {
     e.preventDefault();
     try {
@@ -3049,26 +2980,6 @@ export function initQuant(ctx) {
       exportDomain.showQuantInterpretPanel();
       if (els.quantInterpretBody) els.quantInterpretBody.textContent = String(err.message || err);
     }
-  });
-
-  on("quant-diff-preview", "click", async (e) => {
-    e.preventDefault();
-    await strategy.loadConfigDiffPreview();
-  });
-
-  on("quant-diff-export", "click", async (e) => {
-    e.preventDefault();
-    try {
-      const res = await fetch("/api/signal/config/diff-export?use_saved=true");
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.detail || data.error || res.statusText);
-      downloadJson(data, data.filename || "signal_config_diff_bundle.json");
-      if (els.quantDiffSummary) {
-        els.quantDiffSummary.textContent = "diff 包已下载 · 请手动合并 merged_patch";
-      }
-    } catch (err) {
-      if (els.quantDiffSummary) els.quantDiffSummary.textContent = String(err.message || err);
-      }
   });
 
   on("quant-daily", "click", async (e) => {

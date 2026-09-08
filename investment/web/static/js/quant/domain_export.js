@@ -405,27 +405,71 @@ export function installExportInterpret(q) {
     }
   }
 
-  const DAILY_BT_OPTS_KEY = "quant_daily_bt_opts_v3";
+  const DAILY_BT_OPTS_KEY = "quant_daily_bt_opts_v5";
+  const RANK_PCT_DEFAULT = 1.2;
+
+  /** 与历史回测页 domain_backtest.rankPctToScore 对齐：表单百分数 → 引擎小数。 */
+  function rankPctToScore(raw, fallbackPct = RANK_PCT_DEFAULT) {
+    let pct = fallbackPct;
+    if (raw != null && raw !== "") {
+      const n = Number(raw);
+      if (Number.isFinite(n)) pct = n;
+    }
+    const score = pct / 100;
+    return Math.round(Math.max(0, Math.min(1, score)) * 10000) / 10000;
+  }
+
+  function rankScoreToPct(raw) {
+    const n = Number(raw);
+    if (!Number.isFinite(n)) return RANK_PCT_DEFAULT;
+    const pct = n > 0.5 ? n : n * 100;
+    return Math.round(Math.max(0, Math.min(10, pct)) * 10) / 10;
+  }
+
+  function readDailyYOnAlpha() {
+    const el = document.getElementById("quant-daily-on-alpha");
+    let v = 0;
+    if (el && el.value !== "") {
+      const n = Number(el.value);
+      if (Number.isFinite(n)) v = n;
+    }
+    return Math.round(Math.max(0, Math.min(1, v)) * 1000) / 1000;
+  }
+
+  function readDailyRankThresholds() {
+    const enterEl = document.getElementById("quant-daily-rank-enter");
+    const strongEl = document.getElementById("quant-daily-rank-strong");
+    let enter = rankPctToScore(enterEl && enterEl.value);
+    let strong = rankPctToScore(strongEl && strongEl.value);
+    if (strong < enter) strong = enter;
+    return { rank_enter: enter, rank_strong: strong };
+  }
 
   function readDailyBtOverrides() {
-    const kEl = document.getElementById("quant-daily-top-k");
-    const hEl = document.getElementById("quant-daily-horizon");
     const lbEl = document.getElementById("quant-daily-lookback");
-    const k = kEl ? String(kEl.value || "3") : "3";
-    const h = hEl ? String(hEl.value || "1") : "1";
     const lb = lbEl ? String(lbEl.value || "30") : "30";
+    const yOnAlpha = readDailyYOnAlpha();
+    const ranks = readDailyRankThresholds();
     try {
-      sessionStorage.setItem(DAILY_BT_OPTS_KEY, JSON.stringify({ k, h, lb }));
+      sessionStorage.setItem(
+        DAILY_BT_OPTS_KEY,
+        JSON.stringify({
+          alpha: yOnAlpha,
+          enter: ranks.rank_enter,
+          strong: ranks.rank_strong,
+          lb,
+        })
+      );
     } catch (_) {
       /* ignore quota / private mode */
     }
-    const out = {};
-    const kN = Number(k);
-    if (k !== "paper" && Number.isFinite(kN) && kN >= 1) out.top_k = kN;
-    const hN = Number(h);
-    if (h !== "paper" && Number.isFinite(hN) && hN >= 1) out.horizon_days = hN;
+    const out = {
+      y_on_alpha: yOnAlpha,
+      rank_enter: ranks.rank_enter,
+      rank_strong: ranks.rank_strong,
+    };
     const lbN = Number(lb);
-    if (Number.isFinite(lbN) && lbN >= 30) out.lookback = lbN;
+    if (Number.isFinite(lbN) && lbN >= 10) out.lookback = lbN;
     return out;
   }
 
@@ -437,14 +481,18 @@ export function installExportInterpret(q) {
       saved = null;
     }
     if (!saved || typeof saved !== "object") return;
-    const kEl = document.getElementById("quant-daily-top-k");
-    const hEl = document.getElementById("quant-daily-horizon");
+    const alphaEl = document.getElementById("quant-daily-on-alpha");
+    const enterEl = document.getElementById("quant-daily-rank-enter");
+    const strongEl = document.getElementById("quant-daily-rank-strong");
     const lbEl = document.getElementById("quant-daily-lookback");
-    if (kEl && saved.k != null && Array.from(kEl.options).some((o) => o.value === String(saved.k))) {
-      kEl.value = String(saved.k);
+    if (alphaEl && saved.alpha != null && Number.isFinite(Number(saved.alpha))) {
+      alphaEl.value = String(saved.alpha);
     }
-    if (hEl && saved.h != null && Array.from(hEl.options).some((o) => o.value === String(saved.h))) {
-      hEl.value = String(saved.h);
+    if (enterEl && saved.enter != null && Number.isFinite(Number(saved.enter))) {
+      enterEl.value = String(rankScoreToPct(saved.enter));
+    }
+    if (strongEl && saved.strong != null && Number.isFinite(Number(saved.strong))) {
+      strongEl.value = String(rankScoreToPct(saved.strong));
     }
     if (lbEl && saved.lb != null && Array.from(lbEl.options).some((o) => o.value === String(saved.lb))) {
       lbEl.value = String(saved.lb);
@@ -453,18 +501,26 @@ export function installExportInterpret(q) {
 
   function hydrateDailyBtOptionLabels(bt) {
     if (!bt || typeof bt !== "object") return;
-    const kEl = document.getElementById("quant-daily-top-k");
-    const hEl = document.getElementById("quant-daily-horizon");
-    const paperK = Number(bt.paper_max_positions);
-    const paperH = Number(bt.paper_horizon_days);
-    const kPaper = kEl && kEl.querySelector('option[value="paper"]');
-    if (kPaper && Number.isFinite(paperK) && paperK > 0) {
-      kPaper.textContent = `跟纸面 · ${paperK}`;
+    const setNum = (id, key, min, max) => {
+      const el = document.getElementById(id);
+      if (!el || el.value === undefined) return;
+      const n = Number(bt[key]);
+      if (!Number.isFinite(n)) return;
+      el.value = String(Math.max(min, Math.min(max, n)));
+    };
+    // 仅当 session 未恢复时填服务端默认（restore 已先跑）
+    let saved = null;
+    try {
+      saved = JSON.parse(sessionStorage.getItem(DAILY_BT_OPTS_KEY) || "null");
+    } catch (_) {
+      saved = null;
     }
-    const hPaper = hEl && hEl.querySelector('option[value="paper"]');
-    if (hPaper && Number.isFinite(paperH) && paperH > 0) {
-      hPaper.textContent = `跟纸面 · ${paperH}日`;
-    }
+    if (saved && typeof saved === "object") return;
+    setNum("quant-daily-on-alpha", "y_on_alpha", 0, 1);
+    const enterEl = document.getElementById("quant-daily-rank-enter");
+    const strongEl = document.getElementById("quant-daily-rank-strong");
+    if (enterEl) enterEl.value = String(rankScoreToPct(bt.rank_enter));
+    if (strongEl) strongEl.value = String(rankScoreToPct(bt.rank_strong));
   }
 
   function applyDailyPresetsPayload(presetsData) {
@@ -484,7 +540,7 @@ export function installExportInterpret(q) {
       const tip =
         sec < 60
           ? `${busyBase} ${sec}s`
-          : `${busyBase} ${Math.floor(sec / 60)}m${String(sec % 60).padStart(2, "0")}s · 含 watching/横截面/组合回测`;
+          : `${busyBase} ${Math.floor(sec / 60)}m${String(sec % 60).padStart(2, "0")}s · 含 watching/横截面/历史回测`;
       setBusyText(els.quantOpsSummary, tip, { busy: true });
     }, 1000);
     setBusyText(els.quantOpsSummary, busyBase, { busy: true });
@@ -512,7 +568,6 @@ export function installExportInterpret(q) {
     setBusyText(els.quantOpsSummary, doneLine, { busy: false });
     await q.watching.loadWatchingPanel();
     await loadOpsPanel();
-    await q.strategy.loadConfigDiffPreview();
     if (els.quantCrossList) {
       await q.cluster.refreshCrossSection().catch(() => {});
     }

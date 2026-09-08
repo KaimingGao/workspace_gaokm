@@ -187,6 +187,8 @@ def quant_portfolio_backtest(body: PortfolioBacktestRequest) -> Dict[str, Any]:
             return_model_ridge_lambda=body.return_model_ridge_lambda,
             engine=body.engine,
             y_on_alpha=body.y_on_alpha,
+            fusion_w_trade=body.fusion_w_trade,
+            fusion_w_nowcast=body.fusion_w_nowcast,
             rank_enter=body.rank_enter,
             rank_strong=body.rank_strong,
         )

@@ -256,42 +256,12 @@
         <div class="quant-pro-card-body follow-card-body">
           <div class="follow-path-matrix" id="follow-path-matrix" aria-label="策略调仓规则">
             <form id="paper-path-matrix-form" class="follow-path-matrix-form" autocomplete="off">
-              <div class="follow-path-matrix-toolbar" aria-label="策略与元信息">
-                <div class="follow-path-matrix-strategy" title="组合限额来自策略中心 promote 的纸面策略；调仓页不可切换">
-                  <span class="follow-path-matrix-strategy-kicker">策略</span>
-                  <a id="paper-strategy-link" class="follow-strategy-link" href="/strategy" title="在策略中心查看 / 晋升策略">
-                    <span id="paper-strategy-label">—</span>
-                  </a>
-                  <span id="paper-strategy-version" class="follow-strategy-version" hidden></span>
-                  <span id="paper-strategy-rules" class="follow-strategy-rules" hidden></span>
-                  <input type="hidden" id="paper-strategy" value="short_conservative" />
-                </div>
+              <div class="follow-path-matrix-toolbar" aria-label="执行元信息">
+                <input type="hidden" id="paper-strategy" value="short_conservative" />
                 <div class="follow-path-matrix-meta" aria-label="执行元信息">
                   <span class="follow-path-matrix-chip" title="决策窗">09:30 开盘</span>
                   <span id="paper-path-matrix-badge" class="follow-path-matrix-badge is-on" title="执行模式">rank_lots</span>
-                  <span class="follow-path-matrix-chip is-muted" title="成交规则">开盘价 · 100/200 股</span>
-                </div>
-              </div>
-              <div class="follow-path-matrix-roles" aria-label="分数角色">
-                <div class="follow-path-matrix-role" data-role="trade">
-                  <span class="follow-path-matrix-role-sym">y_fuse</span>
-                  <span class="follow-path-matrix-role-job">今日收益</span>
-                  <span class="follow-path-matrix-role-desc">trade⊕nc</span>
-                </div>
-                <div class="follow-path-matrix-role" data-role="on">
-                  <span class="follow-path-matrix-role-sym">y_on</span>
-                  <span class="follow-path-matrix-role-job">明日收益</span>
-                  <span class="follow-path-matrix-role-desc">×α 乘进 ranking</span>
-                </div>
-                <div class="follow-path-matrix-role" data-role="nc">
-                  <span class="follow-path-matrix-role-sym">ranking</span>
-                  <span class="follow-path-matrix-role-job">(1+yf)×(1+α·yon)−1</span>
-                  <span class="follow-path-matrix-role-desc">过入场取 Top</span>
-                </div>
-                <div class="follow-path-matrix-role" data-role="path">
-                  <span class="follow-path-matrix-role-sym">现金</span>
-                  <span class="follow-path-matrix-role-job">地板 50 万</span>
-                  <span class="follow-path-matrix-role-desc">低于则禁买</span>
+                  <span class="follow-path-matrix-chip is-muted" title="成交规则">开盘价 · 200/500 股</span>
                 </div>
               </div>
               <div class="follow-path-matrix-panels">
@@ -300,14 +270,6 @@
                     <h4 id="pm-panel-mode" class="follow-path-matrix-panel-title">y_fuse 融合</h4>
                     <p class="follow-path-matrix-panel-note">trade⊕nc 加权 = 预期今日收益</p>
                   </header>
-                  <div class="follow-path-matrix-viz follow-path-matrix-viz--2" aria-hidden="true">
-                    <span class="follow-path-matrix-viz-seg is-a" id="pm-viz-fuse-trade">trade 50%</span>
-                    <span class="follow-path-matrix-viz-seg is-b" id="pm-viz-fuse-nc">nc 50%</span>
-                  </div>
-                  <div class="follow-path-matrix-viz-marks" aria-hidden="true">
-                    <span>融合权重（保存时归一化）</span>
-                    <span id="pm-viz-fuse-ratio">50 : 50</span>
-                  </div>
                   <div class="follow-path-matrix-body follow-path-matrix-body--row2">
                     <label class="follow-path-matrix-box" title="y_fuse 中 y_trade 权重；与 nc 权重一并归一化">
                       <span class="follow-path-matrix-box-text">
@@ -328,22 +290,22 @@
                 <section class="follow-path-matrix-panel" data-panel="rank" aria-labelledby="pm-panel-rank">
                   <header class="follow-path-matrix-panel-head">
                     <h4 id="pm-panel-rank" class="follow-path-matrix-panel-title">ranking 门槛</h4>
-                    <p class="follow-path-matrix-panel-note">ranking=(1+y_fuse/100)×(1+α×y_on/100)−1，展示百分数。α=0 隔夜不参与。过入场取 Top；过强买 200 否则 100。ranking&lt;0% 清仓；入场 1%、强 2%</p>
+                    <p class="follow-path-matrix-panel-note">ranking=(1+y_fuse/100)×(1+α×y_on/100)−1，展示百分数。α=0 隔夜不参与。过入场取 Top；过强买 500 否则 200。ranking&lt;0% 清仓；入场 1.2%、强 1.2%</p>
                   </header>
                   <div class="follow-path-matrix-body follow-path-matrix-body--row3">
-                    <label class="follow-path-matrix-box" title="ranking=(1+y_fuse/100)×(1+α×y_on/100)−1，展示百分数；须大于 1% 才建仓/加仓">
+                    <label class="follow-path-matrix-box" title="单位百分数。ranking 须大于此值才建仓/加仓，买 200 股。默认 1.2%">
                       <span class="follow-path-matrix-box-text">
                         <span class="follow-path-matrix-box-title">rank入场</span>
-                        <span class="follow-path-matrix-box-desc">1%</span>
+                        <span class="follow-path-matrix-box-desc">%</span>
                       </span>
-                      <input type="number" name="pm_rank_enter" min="0" max="10" step="0.001" value="0.01" />
+                      <input type="number" name="pm_rank_enter" min="0" max="10" step="0.1" value="1.2" />
                     </label>
-                    <label class="follow-path-matrix-box" title="ranking 大于 2% 买 200 股，否则 100 股">
+                    <label class="follow-path-matrix-box" title="单位百分数。ranking 大于此值买 500 股，否则 200 股。默认 1.2%">
                       <span class="follow-path-matrix-box-text">
                         <span class="follow-path-matrix-box-title">rank强</span>
-                        <span class="follow-path-matrix-box-desc">2%</span>
+                        <span class="follow-path-matrix-box-desc">%</span>
                       </span>
-                      <input type="number" name="pm_rank_strong" min="0" max="10" step="0.001" value="0.02" />
+                      <input type="number" name="pm_rank_strong" min="0" max="10" step="0.1" value="1.2" />
                     </label>
                     <label class="follow-path-matrix-box" title="隔夜系数 α，范围 0～10。ranking=(1+y_fuse/100)×(1+α×y_on/100)−1。默认 0：隔夜不参与；1：按原权重乘入">
                       <span class="follow-path-matrix-box-text">
@@ -354,26 +316,11 @@
                     </label>
                   </div>
                 </section>
-                <section class="follow-path-matrix-panel" data-panel="cash" aria-labelledby="pm-panel-cash">
-                  <header class="follow-path-matrix-panel-head">
-                    <h4 id="pm-panel-cash" class="follow-path-matrix-panel-title">现金地板</h4>
-                    <p class="follow-path-matrix-panel-note">买完后现金不得低于此值；回测默认初始 100 万</p>
-                  </header>
-                  <div class="follow-path-matrix-body follow-path-matrix-body--row2">
-                    <label class="follow-path-matrix-box" title="账户现金低于此值禁止买入">
-                      <span class="follow-path-matrix-box-text">
-                        <span class="follow-path-matrix-box-title">地板（元）</span>
-                        <span class="follow-path-matrix-box-desc">默认 50 万</span>
-                      </span>
-                      <input type="number" name="pm_cash_floor" min="0" max="100000000" step="10000" value="500000" />
-                    </label>
-                  </div>
-                </section>
               </div>
               <div class="follow-path-matrix-footer" aria-label="调仓操作">
                 <div class="follow-path-matrix-actions">
                   <button type="submit" class="dialog-btn secondary" id="paper-path-matrix-save">保存规则</button>
-                  <button type="button" id="paper-adjust" class="dialog-btn dialog-btn-keep-case follow-adjust" title="预演调仓：09:30 口径 y_fuse/y_on，过 rank入场后按 100/200 股建仓或加仓；ranking&lt;0% 清仓。确认落账时成交价走行情。">预演调仓</button>
+                  <button type="button" id="paper-adjust" class="dialog-btn dialog-btn-keep-case follow-adjust" title="预演调仓：09:30 口径 y_fuse/y_on，过 rank入场后按 200/500 股建仓或加仓；ranking&lt;0% 清仓。确认落账时成交价走行情。">预演调仓</button>
                   <span
                     id="paper-path-matrix-status"
                     class="follow-ops-note follow-path-matrix-status follow-holdings-load-status follow-ops-load-status"
@@ -517,10 +464,10 @@
                   <input type="hidden" name="t0_vs_stance" value="independent" />
                   <label
                     class="paper-t0-field"
-                    title="v6：超额带宽 ĉ±δ，δ=开盘×此%/100；收价破上带反T、破下带正T；默认 0.2"
+                    title="v6：超额带宽 ĉ±δ，δ=开盘×此%/100；收价破上带反T、破下带正T；默认 3"
                   >
                     <span>超额带宽δ%</span>
-                    <input type="number" name="t0_close_band_delta_pct" min="0" max="10" step="0.05" value="0.2" />
+                    <input type="number" name="t0_close_band_delta_pct" min="0" max="10" step="0.05" value="3" />
                   </label>
                   <label
                     class="paper-t0-field"
@@ -573,10 +520,10 @@
                   </label>
                   <label
                     class="paper-t0-field"
-                    title="|y_path| 超过此值须与 y_τ 同号，异号则跳过；默认 0.2；0=任意非零 path 都要求同号。"
+                    title="|y_path| 超过此值须与 y_τ 同号，异号则跳过；默认 5；0=任意非零 path 都要求同号。"
                   >
                     <span>path强%</span>
-                    <input type="number" name="y_path_strong" min="0" max="5" step="0.01" value="0.2" />
+                    <input type="number" name="y_path_strong" min="0" max="5" step="0.01" value="5" />
                   </label>
                   <label
                     class="paper-t0-field"
@@ -584,30 +531,30 @@
                   >
                     <span>τ先验</span>
                     <select name="y_tau_leg1_prior_mode">
-                      <option value="score">抬门槛</option>
-                      <option value="off" selected>关</option>
+                      <option value="score" selected>抬门槛</option>
+                      <option value="off">关</option>
                     </select>
                   </label>
                   <label
                     class="paper-t0-field"
-                    title="带宽漂移灵敏度：偏移 s=k·ŷ_τ（再经 α·δ 封顶）；范围 0–100；默认 k=0.1"
+                    title="带宽漂移灵敏度：偏移 s=k·ŷ_τ（再经 α·δ 封顶）；范围 0–100；默认 k=10"
                   >
                     <span>先验风险k</span>
-                    <input type="number" name="y_tau_leg1_prior_risk" min="0" max="100" step="0.1" value="0.1" />
+                    <input type="number" name="y_tau_leg1_prior_risk" min="0" max="100" step="0.1" value="10" />
                   </label>
                   <label
                     class="paper-t0-field"
-                    title="带宽最多漂移 α·δ：α∈[0.1, 1.0]；α=1 时同侧可贴 0（须收价越过 ĉ 才开仓）；默认 0.1"
+                    title="带宽最多漂移 α·δ：α∈[0.1, 1.0]；α=1 时同侧可贴 0（须收价越过 ĉ 才开仓）；默认 1"
                   >
                     <span>shift上限α</span>
-                    <input type="number" name="y_tau_leg1_prior_shift_scale" min="0.1" max="1.0" step="0.05" value="0.1" />
+                    <input type="number" name="y_tau_leg1_prior_shift_scale" min="0.1" max="1.0" step="0.05" value="1" />
                   </label>
                   <label
                     class="paper-t0-field"
-                    title="正/反T止损共用：入场后跳过 N 根 5m 再启用（默认 2≈10 分钟）"
+                    title="正/反T止损共用：入场后跳过 N 根 5m 再启用（默认 1≈5 分钟）"
                   >
                     <span>止损延迟根</span>
-                    <input type="number" name="t0_stop_arm_bars" min="0" max="48" step="1" value="2" />
+                    <input type="number" name="t0_stop_arm_bars" min="0" max="48" step="1" value="1" />
                   </label>
                   <label
                     class="paper-t0-field"
@@ -633,24 +580,24 @@
                   </label>
                   <label
                     class="paper-t0-field"
-                    title="门槛1 |ŷ_τ| 低于此值视为横盘跳过；范围 0–100%；0=关；默认 0.01。"
+                    title="门槛1 |ŷ_τ| 低于此值视为横盘跳过；范围 0–100%；0=关；默认 0。"
                   >
                     <span>τ入场%</span>
-                    <input type="number" name="y_tau_enter" min="0" max="100" step="0.01" value="0.01" />
+                    <input type="number" name="y_tau_enter" min="0" max="100" step="0.01" value="0" />
                   </label>
                   <label
                     class="paper-t0-field"
-                    title="门槛1 |ŷ_path| 低于此值视为横盘跳过；范围 0–100%；0=关幅度；默认 0.01。"
+                    title="门槛1 |ŷ_path| 低于此值视为横盘跳过；范围 0–100%；0=关幅度；默认 0。"
                   >
                     <span>path入场%</span>
-                    <input type="number" name="y_path_enter" min="0" max="100" step="0.01" value="0.01" />
+                    <input type="number" name="y_path_enter" min="0" max="100" step="0.01" value="0" />
                   </label>
                   <label
                     class="paper-t0-field"
-                    title="门槛1 |R̂_τ| 低于此值即使收价破带也不开轮；与超额带宽δ独立；范围 0–1.0；0=关；默认 0.1。"
+                    title="门槛1 |R̂_τ| 低于此值即使收价破带也不开轮；与超额带宽δ独立；范围 0–1.0；0=关；默认 0。"
                   >
                     <span>R入场%</span>
-                    <input type="number" name="r_tau_enter" min="0" max="1.0" step="0.01" value="0.1" />
+                    <input type="number" name="r_tau_enter" min="0" max="1.0" step="0.01" value="0" />
                   </label>
                   <label
                     class="paper-t0-field"
@@ -661,10 +608,10 @@
                   </label>
                   <label
                     class="paper-t0-field"
-                    title="ŷ_tpd∈[0,1]（0=无反转，1=每根都反转）。超过此值反转过密则跳过做 T；范围 0.00–1.00；默认 0.40；1.00≈关。闸用盘中前缀 ŷ_tpd，不是收盘后的全日 label。"
+                    title="ŷ_tpd∈[0,1]（0=无反转，1=每根都反转）。超过此值反转过密则跳过做 T；范围 0.00–1.00；默认 1.00≈关。闸用盘中前缀 ŷ_tpd，不是收盘后的全日 label。"
                   >
                     <span>tpd门槛</span>
-                    <input type="number" name="y_tpd_max" min="0" max="1.00" step="0.01" value="0.40" />
+                    <input type="number" name="y_tpd_max" min="0" max="1.00" step="0.01" value="1.00" />
                   </label>
                   </div>
                 </fieldset>
@@ -682,24 +629,24 @@
                   </label>
                   <label
                     class="paper-t0-field"
-                    title="门槛2 |ŷ_τ| 低于此值视为横盘跳过；范围 0–100%；0=关；默认 0.40。"
+                    title="门槛2 |ŷ_τ| 低于此值视为横盘跳过；范围 0–100%；0=关；默认 0。"
                   >
                     <span>τ入场%</span>
-                    <input type="number" name="y_tau_enter_alt" min="0" max="100" step="0.01" value="0.40" />
+                    <input type="number" name="y_tau_enter_alt" min="0" max="100" step="0.01" value="0" />
                   </label>
                   <label
                     class="paper-t0-field"
-                    title="门槛2 |ŷ_path| 低于此值视为横盘跳过；范围 0–100%；0=关幅度；默认 0.40。"
+                    title="门槛2 |ŷ_path| 低于此值视为横盘跳过；范围 0–100%；0=关幅度；默认 0。"
                   >
                     <span>path入场%</span>
-                    <input type="number" name="y_path_enter_alt" min="0" max="100" step="0.01" value="0.40" />
+                    <input type="number" name="y_path_enter_alt" min="0" max="100" step="0.01" value="0" />
                   </label>
                   <label
                     class="paper-t0-field"
-                    title="门槛2 |R̂_τ| 低于此值即使收价破带也不开轮；与超额带宽δ独立；范围 0–1.0；0=关；默认 0.40。"
+                    title="门槛2 |R̂_τ| 低于此值即使收价破带也不开轮；与超额带宽δ独立；范围 0–1.0；0=关；默认 0。"
                   >
                     <span>R入场%</span>
-                    <input type="number" name="r_tau_enter_alt" min="0" max="1.0" step="0.01" value="0.40" />
+                    <input type="number" name="r_tau_enter_alt" min="0" max="1.0" step="0.01" value="0" />
                   </label>
                   <label
                     class="paper-t0-field"

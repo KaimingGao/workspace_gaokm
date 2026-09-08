@@ -43,7 +43,45 @@ class TestB1SampleFingerprint(unittest.TestCase):
         self.assertTrue(solo["promote_ok"])
         pair = sample_fingerprint(n_obs=40, n_names=2, min_obs=24, min_names=2)
         self.assertTrue(pair["promote_ok"])
-        self.assertTrue(bad["blockers"])
+
+    def test_group_local_n_obs_blocker_does_not_poison_pool(self):
+        from core.research.beta_accuracy import fingerprint_blocker_is_group_local
+        from quant.research.factor_ols_clusters import _aggregate_sample_fingerprint
+
+        self.assertTrue(
+            fingerprint_blocker_is_group_local("组内：n_obs=20 < min_obs=24")
+        )
+        self.assertTrue(
+            fingerprint_blocker_is_group_local("n_obs=20 < min_obs=24", from_group=True)
+        )
+        self.assertFalse(
+            fingerprint_blocker_is_group_local("n_obs=20 < min_obs=24")
+        )
+        clusters = [
+            {
+                "return_model": {
+                    "sample_fingerprint": {
+                        "n_obs": 80,
+                        "n_names": 5,
+                        "promote_ok": True,
+                        "blockers": [],
+                    }
+                }
+            },
+            {
+                "return_model": {
+                    "sample_fingerprint": {
+                        "n_obs": 20,
+                        "n_names": 1,
+                        "promote_ok": False,
+                        "blockers": ["n_obs=20 < min_obs=24"],
+                    }
+                }
+            },
+        ]
+        fp = _aggregate_sample_fingerprint(clusters)
+        self.assertTrue(fp["promote_ok"], fp)
+        self.assertFalse(any("n_obs=" in str(b) for b in (fp.get("blockers") or [])))
 
     def test_universe_sample_gate_fields(self):
         from core.validation_universe import universe_sample_gate

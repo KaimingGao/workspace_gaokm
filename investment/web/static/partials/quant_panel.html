@@ -583,7 +583,7 @@
                 过门后<strong>全面板再拟合</strong>写入系数。09:30 IC 高多半是 <code>tpd_ma5</code> 票质，不是今早路径。
                 独立 <code>y_spec</code>，不写 <code>predicted_score</code> / ŷ_τ / ŷ_path / ŷ_complexity。
                 落盘 <code>tpd_ridge_model.json</code>。
-                做 T：盘中前缀 <strong>ŷ_tpd &gt; y_tpd_max</strong>（0.00–1.00，默认 0.40；1.00≈关）则跳过。
+                做 T：盘中前缀 <strong>ŷ_tpd &gt; y_tpd_max</strong>（0.00–1.00，默认 1.00≈关）则跳过。
               </p>
               <p>依赖观察池 <strong>5m 分钟缓存</strong>；无分钟线时会报错。可在上方「分钟线」区块点 <strong>强更 5m</strong>。</p>
             </div>
@@ -710,7 +710,7 @@
         <div class="dashboard-card-head quant-pro-card-head quant-card-head--tools">
           <p id="quant-ops-summary" class="quant-fingerprint quant-card-head-status is-busy">加载中…</p>
           <div class="dashboard-card-tools quant-pro-card-tools">
-            <button type="button" id="quant-ops-run-daily" class="dialog-btn" title="quant 预设：刷新 watching · 横截面 · 组合回测 + 中性化对照 · 导出。大宇宙常见 5–15 分钟，状态会显示已用时。">生成日报</button>
+            <button type="button" id="quant-ops-run-daily" class="dialog-btn" title="quant 预设：刷新 watching · 横截面 · 历史回测（rank_lots）+ 中性化对照 · 导出。大宇宙常见 5–15 分钟，状态会显示已用时。">生成日报</button>
             <button type="button" id="quant-interpret-offline" class="dialog-btn secondary">规则解读</button>
             <button type="button" id="quant-interpret" class="dialog-btn secondary">AI 解读</button>
             <button type="button" id="quant-export-md" class="dialog-btn secondary">下载 MD</button>
@@ -722,35 +722,32 @@
             <option value="quant" selected>量化研究</option>
           </select>
           <div id="quant-ops-preset-flags" class="sr-only" aria-hidden="true"></div>
-          <div class="quant-control-band quant-pro-control-band quant-daily-bt-band" aria-label="日报 Top-K 配置">
+          <div class="quant-control-band quant-pro-control-band quant-daily-bt-band" aria-label="日报历史回测配置">
             <div class="quant-actions-inline quant-pro-params-inline">
               <label
                 class="platform-field quant-pro-field"
-                title="组合槽数。默认 3；跟纸面 = max_positions。"
+                title="ranking=(1+y_fuse/100)×(1+α×y_on/100)−1。α=0 隔夜不参与；1 按原权重乘入。范围 0.0～1.0。对齐历史回测页。"
               >
-                <span class="quant-pro-field-label">K</span>
-                <select id="quant-daily-top-k">
-                  <option value="paper">跟纸面</option>
-                  <option value="3" selected>3</option>
-                  <option value="10">10</option>
-                  <option value="15">15</option>
-                  <option value="20">20</option>
-                </select>
+                <span class="quant-pro-field-label">ON_Alpha</span>
+                <input id="quant-daily-on-alpha" type="number" min="0" max="1" step="0.1" value="0" />
               </label>
               <label
                 class="platform-field quant-pro-field"
-                title="持有几个交易日再调仓。默认 1 日；跟纸面 = paper hold。≠ ŷ 标签窗口 scoring.horizon_days。"
+                title="ranking 须大于此值才建仓/加仓。单位百分数，默认 1.2%。对齐历史回测页。"
               >
-                <span class="quant-pro-field-label">持有</span>
-                <select id="quant-daily-horizon">
-                  <option value="paper">跟纸面</option>
-                  <option value="1" selected>1日</option>
-                  <option value="3">3日</option>
-                </select>
+                <span class="quant-pro-field-label">Rank入场%</span>
+                <input id="quant-daily-rank-enter" type="number" min="0" max="10" step="0.1" value="1.2" />
               </label>
               <label
                 class="platform-field quant-pro-field"
-                title="拉多少根共同交易日线（样本长度）。可选 30 / 60 / 90；默认 30。"
+                title="ranking 大于此值买 2000 股，否则 1000 股。单位百分数，默认 1.2%。对齐历史回测页。"
+              >
+                <span class="quant-pro-field-label">Rank强%</span>
+                <input id="quant-daily-rank-strong" type="number" min="0" max="10" step="0.1" value="1.2" />
+              </label>
+              <label
+                class="platform-field quant-pro-field"
+                title="回测覆盖多少个交易日。默认 30。不是调仓规则。"
               >
                 <span class="quant-pro-field-label">Lookback</span>
                 <select id="quant-daily-lookback">
@@ -759,7 +756,7 @@
                   <option value="90">90</option>
                 </select>
               </label>
-              <p class="quant-sub quant-daily-bt-hint">这次 Top-K 可改 · 不写 signal_config · 成本开</p>
+              <p class="quant-sub quant-daily-bt-hint">历史回测 · rank_lots · 09:30 · 不写 signal_config · 成本开</p>
             </div>
           </div>
           <div

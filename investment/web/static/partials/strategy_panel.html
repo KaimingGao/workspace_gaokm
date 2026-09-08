@@ -601,27 +601,6 @@
 
     <section
       class="dashboard-section quant-section strategy-section strategy-section-secondary"
-      aria-labelledby="strategy-sample-ops-title"
-    >
-      <details class="quant-secondary-fold strategy-secondary-fold" id="strategy-sample-ops-fold">
-        <summary class="quant-secondary-fold-sum strategy-secondary-fold-sum">
-          <h3 id="strategy-sample-ops-title" class="dashboard-section-title">样本与闸门</h3>
-          <p class="dashboard-section-desc quant-section-desc">运营入口 · 系统设置</p>
-        </summary>
-        <div class="dashboard-card quant-pro-card strategy-ops-card">
-          <div class="quant-pro-card-body strategy-ops-card-body">
-            <p class="quant-sub strategy-inline-note">
-              财务覆盖、outcome 标注、成熟闸门在
-              <a class="quant-inline-link" href="/platform#sample-status-fold">系统设置</a>。
-              本页只做人审限额与 ŷ 门槛。
-            </p>
-          </div>
-        </div>
-      </details>
-    </section>
-
-    <section
-      class="dashboard-section quant-section strategy-section strategy-section-secondary"
       id="strategy-factor-dict"
       aria-labelledby="strategy-factor-dict-title"
     >
@@ -630,7 +609,7 @@
           <h3 id="strategy-factor-dict-title" class="dashboard-section-title">因子字典</h3>
           <p class="dashboard-section-desc quant-section-desc">研究入口 · 悬停见定义</p>
         </summary>
-        <div class="dashboard-card quant-pro-card strategy-ops-card" id="strategy-factor-lab">
+        <div class="dashboard-card quant-pro-card strategy-ops-card">
           <div class="quant-pro-card-body strategy-ops-card-body">
             <p class="quant-sub strategy-inline-note">
               因子进模型经组 OLS/Ridge β → ŷ；拟合与落地在
@@ -638,143 +617,7 @@
               本页仅字典：点击可填入 AI 提问；悬停见定义。
               不在此页改 weights / 自动 promote。
             </p>
-            <p id="strategy-factor-status" class="quant-fingerprint" aria-live="polite"></p>
             <div id="strategy-factor-dict-list" class="strategy-factor-dict-list"></div>
-          </div>
-        </div>
-      </details>
-    </section>
-
-    <section
-      class="dashboard-section quant-section strategy-section strategy-section-secondary"
-      aria-labelledby="strategy-logic-ref-title"
-    >
-      <details class="quant-secondary-fold strategy-secondary-fold" id="strategy-logic-ref-fold">
-        <summary class="quant-secondary-fold-sum strategy-secondary-fold-sum">
-          <h3 id="strategy-logic-ref-title" class="dashboard-section-title">策略逻辑参考</h3>
-          <p class="dashboard-section-desc quant-section-desc">Alpha · Risk · 调仓</p>
-        </summary>
-        <div class="dashboard-card quant-pro-card strategy-ops-card">
-          <div class="quant-pro-card-body strategy-ops-card-body strategy-logic-ref">
-            <div class="strategy-alpha-risk">
-              <div class="strategy-alpha-risk-item strategy-alpha">
-                <div class="strategy-alpha-risk-header">
-                  <span class="strategy-alpha-risk-icon" aria-hidden="true">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                      <polyline points="3 17 9 11 13 15 21 7"></polyline>
-                      <polyline points="14 7 21 7 21 14"></polyline>
-                    </svg>
-                  </span>
-                  <div>
-                    <h3>Alpha</h3>
-                    <p class="strategy-alpha-risk-desc">sub_scores → 组 OLS/Ridge β → ŷ%（predicted_score）· 非 0–100 规则分、非手工权重</p>
-                  </div>
-                </div>
-                <div class="strategy-logic">
-                  <div class="strategy-logic-item">
-                    <h4>主轴</h4>
-                    <ul>
-                      <li>研究枢纽：跑分组 → 组内拟合 return_model → 对照 / 启用 live</li>
-                      <li>打分：因子 sub_scores × 组 β → 预测前瞻收益 ŷ（百分点）</li>
-                      <li>heuristic_score / signal_config.weights 仅研究基线，不驱动 live 选股</li>
-                    </ul>
-                  </div>
-                  <div class="strategy-logic-item">
-                    <h4>因子族（入模）</h4>
-                    <ul>
-                      <li>价量/趋势：动量、量价、形态、均线斜率、周线、相对强弱、特异动量</li>
-                      <li>风险/微观：波动、反转、流动性、跳空、Amihud</li>
-                      <li>基本面：估值、盈利收益率、质量、成长、股息、规模</li>
-                      <li>情绪：另类情绪等（以注册表为准）</li>
-                    </ul>
-                  </div>
-                  <div class="strategy-logic-item">
-                    <h4>ŷ 滞回门槛</h4>
-                    <ul>
-                      <li>买入/入簿：ŷ ≥ min_predicted_score（h=1 现网约 +0.35%；缺省键兜底曾为 +1%）</li>
-                      <li>卖出：仅 ŷ &lt; min_hold_predicted_score（默认 −1%）</li>
-                      <li>中间带：已持仓不因「未进目标簿」清仓</li>
-                    </ul>
-                  </div>
-                </div>
-              </div>
-
-              <div class="strategy-alpha-risk-item strategy-risk">
-                <div class="strategy-alpha-risk-header">
-                  <span class="strategy-alpha-risk-icon" aria-hidden="true">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                      <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
-                      <polyline points="9 12 11 14 15 10"></polyline>
-                    </svg>
-                  </span>
-                  <div>
-                    <h3>Risk</h3>
-                    <p class="strategy-alpha-risk-desc">策略卡限额 · 账户风控 · 成本 · 敞口审计</p>
-                  </div>
-                </div>
-                <div class="strategy-logic">
-                  <div class="strategy-logic-item">
-                    <h4>组合限额（策略卡 promote）</h4>
-                    <ul>
-                      <li>最多持仓数 · 单票/行业上限 · 目标回撤</li>
-                      <li>改参须本页人审晋升，交易页不手改规格</li>
-                    </ul>
-                  </div>
-                  <div class="strategy-logic-item">
-                    <h4>账户风控</h4>
-                    <ul>
-                      <li>回撤硬拦加仓；单票/行业超限则买入缩量</li>
-                      <li>敞口与拦截流水见上方折叠</li>
-                    </ul>
-                  </div>
-                  <div class="strategy-logic-item">
-                    <h4>成本</h4>
-                    <ul>
-                      <li>佣金 · 印花税 · 滑点（策略卡 cost_model，默认 A 股简化）</li>
-                    </ul>
-                  </div>
-                </div>
-              </div>
-
-              <div class="strategy-alpha-risk-item strategy-rebalance" id="quant-section-strategy-detail">
-                <div class="strategy-alpha-risk-header">
-                  <span class="strategy-alpha-risk-icon" aria-hidden="true">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                      <path d="M12 20h9"></path>
-                      <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path>
-                    </svg>
-                  </span>
-                  <div>
-                    <h3>调仓规则</h3>
-                    <p class="strategy-alpha-risk-desc">观察池 + rank_lots · 预演后确认 · 不在本页下单</p>
-                  </div>
-                </div>
-                <div class="strategy-logic">
-                  <div class="strategy-logic-item">
-                    <h4>观察池路径（Follow）</h4>
-                    <ul>
-                      <li>目标：y_fuse / y_on ranking，过入场买 100/200 股（上限 max_positions）</li>
-                      <li>时机：每个交易日 09:30 开盘；ranking&lt;0% 清仓；现金地板 50 万</li>
-                      <li>组合限额来自策略中心 promote 的纸面策略</li>
-                    </ul>
-                  </div>
-                  <div class="strategy-logic-item">
-                    <h4>执行落点</h4>
-                    <ul>
-                      <li>交易执行页：预演调仓 → 确认落账（才写纸面）</li>
-                      <li>可选做 T 为独立 overlay，与选股 ŷ 解耦</li>
-                    </ul>
-                  </div>
-                  <div class="strategy-logic-item">
-                    <h4>验证（非本页）</h4>
-                    <ul>
-                      <li>历史回测：rank_lots / lookback / 成本假设</li>
-                      <li>回测 promote 提示可拦策略卡过期晋升（见上方开关）</li>
-                    </ul>
-                  </div>
-                </div>
-              </div>
-            </div>
           </div>
         </div>
       </details>

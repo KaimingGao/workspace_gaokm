@@ -40,7 +40,7 @@ def _mins(date, points):
 def _scores_flat():
     """三源全 0 + nowcast 锚 open → ĉ ≈ open，便于 ±δ 破带。
 
-    y_path 取弱正值：过默认 path 入场（0.01），但低于 path强（0.2），
+    y_path 取弱正值：过默认 path 入场（0），但低于 path强（5），
     避免 y_τ≈0 时被「强 path 异号」挡住破带夹具。
     """
     return {
@@ -123,6 +123,8 @@ def _rules(**kwargs):
         "y_use_path": False,
         "r_tau_enter": 0.01,
         "y_tpd_max": 1.0,
+        "y_enter_alt_enabled": False,
+        "y_tau_leg1_prior_mode": "off",
         # 路径用例与生产「反T当日回补」解耦
         "must_cover_same_day_sell_then_buy": False,
     }
@@ -407,7 +409,7 @@ class TestT0Core(unittest.TestCase):
         self.assertEqual(d["t0_pm_chase_interval_min_buy_then_sell"], 5)
         self.assertAlmostEqual(d["t0_stop_pct_buy_then_sell"], 1.2)
         self.assertAlmostEqual(d["t0_stop_pct_sell_then_buy"], 1.2)
-        self.assertEqual(d["t0_stop_arm_bars"], 2)
+        self.assertEqual(d["t0_stop_arm_bars"], 1)
         self.assertTrue(d["t0_stop_on_close"])
         self.assertFalse(d["use_atr"])
         self.assertEqual(d["min_range_pct"], 0.0)
@@ -421,16 +423,18 @@ class TestT0Core(unittest.TestCase):
         self.assertNotIn("sell_trigger_pct_sell_then_buy", d)
         self.assertNotIn("sell_trigger_pct_long", d)
         self.assertNotIn("buy_trigger_pct_reverse", d)
-        self.assertEqual(d["y_path_enter"], 0.01)
-        self.assertEqual(d["y_path_strong"], 0.2)
+        self.assertEqual(d["y_path_enter"], 0.0)
+        self.assertEqual(d["y_tau_enter"], 0.0)
+        self.assertTrue(d["y_use_path"])
+        self.assertEqual(d["y_path_strong"], 5.0)
         self.assertAlmostEqual(d["y_complexity_max"], 1.0)
         self.assertAlmostEqual(d["y_cx_max"], 1.0)
-        self.assertAlmostEqual(d["y_tpd_max"], 0.40)
+        self.assertAlmostEqual(d["y_tpd_max"], 1.0)
         self.assertTrue(d["y_enter_enabled"])
         self.assertTrue(d["y_enter_alt_enabled"])
-        self.assertAlmostEqual(d["y_tau_enter_alt"], 0.40)
-        self.assertAlmostEqual(d["y_path_enter_alt"], 0.40)
-        self.assertAlmostEqual(d["r_tau_enter_alt"], 0.40)
+        self.assertAlmostEqual(d["y_tau_enter_alt"], 0.0)
+        self.assertAlmostEqual(d["y_path_enter_alt"], 0.0)
+        self.assertAlmostEqual(d["r_tau_enter_alt"], 0.0)
         self.assertAlmostEqual(d["y_complexity_max_alt"], 1.0)
         self.assertAlmostEqual(d["y_tpd_max_alt"], 1.0)
         self.assertFalse(d["y_nowcast_oc_gate"])
@@ -449,15 +453,15 @@ class TestT0Core(unittest.TestCase):
         self.assertNotIn("t0_slots_roll_unused", d)
         self.assertEqual(d["t0_slots_max_rounds"], 5)
         self.assertNotIn("t0_confirm_dev_pct", d)
-        self.assertAlmostEqual(float(d.get("t0_close_band_delta_pct") or 0), 0.2)
+        self.assertAlmostEqual(float(d.get("t0_close_band_delta_pct") or 0), 3.0)
         self.assertAlmostEqual(float(d.get("t0_round_ratio") or 0), 0.4)
         self.assertAlmostEqual(float(d.get("t0_price_space_max_dev_pct") or 0), 5.0)
         self.assertAlmostEqual(float(d.get("t0_price_space_prev_dev_pct") or 0), 5.0)
-        self.assertEqual(d["r_tau_enter"], 0.1)
-        self.assertEqual(d["y_tau_leg1_prior_mode"], "off")
-        self.assertFalse(d["y_tau_leg1_prior"])
-        self.assertAlmostEqual(float(d["y_tau_leg1_prior_risk"]), 0.1)
-        self.assertAlmostEqual(float(d["y_tau_leg1_prior_shift_scale"]), 0.1)
+        self.assertEqual(d["r_tau_enter"], 0.0)
+        self.assertEqual(d["y_tau_leg1_prior_mode"], "score")
+        self.assertTrue(d["y_tau_leg1_prior"])
+        self.assertAlmostEqual(float(d["y_tau_leg1_prior_risk"]), 10.0)
+        self.assertAlmostEqual(float(d["y_tau_leg1_prior_shift_scale"]), 1.0)
         self.assertNotIn("y_tau_entry_price_skip", d)
         self.assertNotIn("y_tau_entry_price_skip_buy_then_sell", d)
         self.assertNotIn("y_tau_entry_price_skip_sell_then_buy", d)
@@ -1643,15 +1647,15 @@ class TestDualYDirection(unittest.TestCase):
         cfg = load_t0_rules({"direction": "yhat"})
         self.assertEqual(cfg["direction"], "dual_y")
         self.assertIn("y_trade_floor", cfg)
-        self.assertEqual(cfg["y_tau_enter"], 0.01)
-        self.assertEqual(cfg["y_tau_enter_strong"], 0.01)
-        self.assertEqual(cfg["r_tau_enter"], 0.1)
+        self.assertEqual(cfg["y_tau_enter"], 0.0)
+        self.assertEqual(cfg["y_tau_enter_strong"], 0.0)
+        self.assertEqual(cfg["r_tau_enter"], 0.0)
         self.assertEqual(cfg["y_score_source"], "compute")
         self.assertTrue(cfg["y_enter_enabled"])
         self.assertTrue(cfg["y_enter_alt_enabled"])
-        self.assertEqual(cfg["y_tau_enter_alt"], 0.40)
-        self.assertEqual(cfg["y_path_enter_alt"], 0.40)
-        self.assertEqual(cfg["r_tau_enter_alt"], 0.40)
+        self.assertEqual(cfg["y_tau_enter_alt"], 0.0)
+        self.assertEqual(cfg["y_path_enter_alt"], 0.0)
+        self.assertEqual(cfg["r_tau_enter_alt"], 0.0)
         self.assertEqual(cfg["y_complexity_max_alt"], 1.0)
         self.assertEqual(cfg["y_tpd_max_alt"], 1.0)
 
@@ -1697,8 +1701,8 @@ class TestDualYDirection(unittest.TestCase):
         self.assertEqual(cfg["y_tau_enter"], 10.0)
         self.assertEqual(cfg["y_path_enter"], 12.0)
         self.assertEqual(cfg["y_complexity_max"], 0.0)
-        self.assertEqual(cfg["y_tau_enter_alt"], 0.40)
-        self.assertEqual(cfg["y_path_enter_alt"], 0.40)
+        self.assertEqual(cfg["y_tau_enter_alt"], 0.0)
+        self.assertEqual(cfg["y_path_enter_alt"], 0.0)
         hi = load_t0_rules(
             {
                 "y_tau_enter": 150.0,
@@ -4078,7 +4082,7 @@ class TestT0Viz(unittest.TestCase):
         self.assertEqual(merged["cumulative_pnl"][-1]["cum_pnl"], 130.0)
         self.assertIn("summary", merged)
         self.assertIn("y_tau_scatter", viz)
-        self.assertEqual(viz["summary"]["y_tau_enter"], 0.25)
+        self.assertEqual(viz["summary"]["y_tau_enter"], 0.0)
 
     def test_scatter_y_tau_not_direction_score_on_y_trade_skip(self):
         from core.t0.viz import build_t0_viz_payload, extract_scores

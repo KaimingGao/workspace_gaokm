@@ -1581,8 +1581,8 @@ export function formatT0DirectionDetail(raw) {
       ? Number(raw.y_tau_enter)
       : raw && raw.dir_enter != null
         ? Number(raw.dir_enter)
-        : 0.25;
-  const enter = Number.isFinite(enterRaw) ? enterRaw : 0.25;
+        : 0;
+  const enter = Number.isFinite(enterRaw) ? enterRaw : 0;
   const reason = String((raw && raw.direction_reason) || "").trim();
   let decision = "未入场 / 跳过";
   if (reason) decision = reason;

@@ -125,9 +125,9 @@ SHIFT_SCALE_MAX = 1.0
 def clamp_y_tau_leg1_prior_shift_scale(
     raw: Any,
     *,
-    default: float = 0.1,
+    default: float = 1.0,
 ) -> float:
-    """score 先验 α：默认 0.1，钳制到 [0.1, 1.0]。
+    """score 先验 α：默认 1.0，钳制到 [0.1, 1.0]。
 
     α=1 时同向下沿可贴 0（须 r<0 才正T / r>0 才反T）；对侧带宽变为 2δ。
     """
@@ -226,12 +226,12 @@ def close_band_pick_direction(
     cfg_d = cfg if isinstance(cfg, dict) else {}
     mode = normalize_y_tau_leg1_prior_mode(
         cfg_d.get("y_tau_leg1_prior_mode", cfg_d.get("y_tau_leg1_prior")),
-        default="off",
+        default="score",
     )
-    k = _cfg_float(cfg_d, "y_tau_leg1_prior_risk", 0.1)
+    k = _cfg_float(cfg_d, "y_tau_leg1_prior_risk", 10.0)
     k = max(0.0, min(float(k), 100.0))
     shift_scale = clamp_y_tau_leg1_prior_shift_scale(
-        cfg_d.get("y_tau_leg1_prior_shift_scale"), default=0.1
+        cfg_d.get("y_tau_leg1_prior_shift_scale"), default=1.0
     )
     raw = scores if isinstance(scores, dict) else {}
     sc = scores_from_item(raw)
@@ -536,22 +536,22 @@ def close_band_sign_skip_reason(
     return reason or "强 y_path 与 y_τ 异号跳过"
 
 
-def normalize_y_tau_leg1_prior_mode(raw: Any, *, default: str = "off") -> str:
+def normalize_y_tau_leg1_prior_mode(raw: Any, *, default: str = "score") -> str:
     """日线先验模式：off | score（按 y_τ 平移破带门槛）。旧 skip/hard 并入 score。"""
     if raw is False or raw is None:
         if raw is False:
             return "off"
-        return str(default or "off")
+        return str(default or "score")
     if raw is True:
         return "score"
     s = str(raw).strip().lower()
     if s in {"", "none"}:
-        return str(default or "off")
+        return str(default or "score")
     if s in {"0", "off", "false", "no", "disable", "disabled"}:
         return "off"
     if s in {"1", "true", "yes", "on", "score", "soft", "raise", "scale", "skip", "hard", "block"}:
         return "score"
-    return str(default or "off")
+    return str(default or "score")
 
 
 def _enter_profile_skip_reason(

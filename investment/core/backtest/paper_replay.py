@@ -1,7 +1,7 @@
 """纸面可实现回放：每个交易日 09:30 开盘走 rank_lots（y_fuse/y_on · 1000/2000 股）。
 
-与 ``topk_research``（独立腿聚合）并列。现金地板默认 50 万；T+1 仍生效。
-历史回测手数大于 live（live 仍为 100/200）。
+与 ``topk_research``（独立腿聚合）并列。现金地板默认 10 万、初始 50 万；T+1 仍生效。
+历史回测手数大于 live（live 仍为 200/500）。
 """
 
 from __future__ import annotations
@@ -16,6 +16,13 @@ logger = logging.getLogger(__name__)
 ENGINE_ID = "paper_replay"
 REPLAY_LOT_BASE = 1000
 REPLAY_LOT_STRONG = 2000
+REPLAY_INITIAL_CASH = 500_000.0
+REPLAY_CASH_FLOOR = 100_000.0
+# 历史回测 / 日报 / live rank_lots 缺省均为 1.2%。
+REPLAY_RANK_ENTER = 0.012
+REPLAY_RANK_STRONG = 0.012
+REPLAY_FUSION_W_TRADE = 0.6
+REPLAY_FUSION_W_NOWCAST = 0.4
 
 
 def _bars_by_date(bars: List[dict]) -> Dict[str, dict]:
@@ -99,6 +106,39 @@ def _fpx(v: Any) -> Optional[float]:
 DAY_LEG_TOP = 8
 
 
+def _watching_name_map() -> Dict[str, str]:
+    try:
+        from core.watching.store import read_watching, watchlist_names_for
+
+        uni = read_watching()
+        wl = [str(c).strip() for c in (uni.get("watchlist") or []) if str(c).strip()]
+        names = watchlist_names_for(uni)
+        out: Dict[str, str] = {}
+        for code, name in zip(wl, names or []):
+            nm = str(name or "").strip()
+            if nm and nm != code:
+                out[code] = nm
+        return out
+    except Exception:  # noqa: BLE001
+        logger.debug("watching name map failed in paper_replay", exc_info=True)
+        return {}
+
+
+def _leg_stock_name(
+    code: str,
+    start: dict,
+    end: dict,
+    name_by_code: Optional[Dict[str, str]] = None,
+) -> str:
+    mapped = str((name_by_code or {}).get(code) or "").strip()
+    raw = str(end.get("stock_name") or start.get("stock_name") or "").strip()
+    if mapped and mapped != code:
+        return mapped
+    if raw and raw != code:
+        return raw
+    return mapped or raw or code
+
+
 def _holding_snap(holdings: Sequence[dict]) -> Dict[str, dict]:
     out: Dict[str, dict] = {}
     for h in holdings or []:
@@ -139,6 +179,7 @@ def day_stock_legs(
     day: str,
     open_px: Dict[str, float],
     prev_equity: float,
+    name_by_code: Optional[Dict[str, str]] = None,
 ) -> Tuple[List[dict], int]:
     """当日个股盈亏：隔夜段 open−昨收 + 当日段 close−open，贡献=盈亏/昨净值。"""
     codes = sorted(set(start) | set(end))
@@ -171,7 +212,7 @@ def day_stock_legs(
         stock_ret = (
             (float(close) / float(prev_c) - 1.0) * 100.0 if float(prev_c) > 0 else None
         )
-        name = str(en.get("stock_name") or st.get("stock_name") or code)
+        name = _leg_stock_name(code, st, en, name_by_code)
         rows.append(
             {
                 "stock_code": code,
@@ -423,6 +464,12 @@ def _skip_to_sim(sk: dict, day: str) -> dict:
         "matrix_action": "skip",
         "y_fuse": sk.get("y_fuse"),
         "y_on": sk.get("y_on"),
+        "y_tau": sk.get("y_tau")
+        if sk.get("y_tau") is not None
+        else sk.get("predicted_score_tau"),
+        "predicted_score_tau": sk.get("predicted_score_tau")
+        if sk.get("predicted_score_tau") is not None
+        else sk.get("y_tau"),
         "ranking_score": sk.get("ranking_score"),
         "y_trade": sk.get("y_trade"),
         "y_nowcast": sk.get("y_nowcast"),
@@ -460,6 +507,12 @@ def _ledger_trades_to_sim(trades: Sequence[dict]) -> List[dict]:
             "action": t.get("action") or t.get("matrix_action"),
             "y_fuse": yf,
             "y_on": t.get("y_on"),
+            "y_tau": t.get("y_tau")
+            if t.get("y_tau") is not None
+            else t.get("predicted_score_tau"),
+            "predicted_score_tau": t.get("predicted_score_tau")
+            if t.get("predicted_score_tau") is not None
+            else t.get("y_tau"),
             "ranking_score": t.get("ranking_score"),
             "y_trade": t.get("y_trade"),
             "y_nowcast": t.get("y_nowcast"),
@@ -473,10 +526,17 @@ def _ledger_trades_to_sim(trades: Sequence[dict]) -> List[dict]:
             "reason": t.get("reason") or t.get("note"),
             "pnl_pct": t.get("pnl_pct"),
             "origin": t.get("origin"),
+            "open_date": t.get("open_date"),
+            "cost_price": t.get("cost_price"),
+            "cum_cost": t.get("cum_cost"),
         }
         if side == "buy":
             row["entry_date"] = day
             row["entry_price"] = t.get("price")
+            if row.get("cost_price") is None:
+                row["cost_price"] = t.get("price")
+            if not row.get("open_date"):
+                row["open_date"] = day
         else:
             row["exit_date"] = day
             row["exit_price"] = t.get("price")
@@ -508,12 +568,12 @@ def realized_yhat_windows(
     dates: Sequence[str],
     date_maps: Dict[str, Dict[str, dict]],
     date_index: Optional[Dict[str, int]] = None,
-) -> Tuple[Optional[float], Optional[float]]:
-    """事后对照：y_fuse↔close[T]/close[T−1]−1；y_on↔open[T+1]/close[T]−1。不进决策。"""
+) -> Tuple[Optional[float], Optional[float], Optional[float]]:
+    """事后对照：y_fuse↔close[T]/close[T−1]−1；y_τ↔close[T]/open[T]−1；y_on↔open[T+1]/close[T]−1。不进决策。"""
     d = str(day or "")[:10]
     c = str(code or "").strip()
     if not d or not c:
-        return None, None
+        return None, None, None
     if date_index is not None:
         i = date_index.get(d)
     else:
@@ -522,16 +582,17 @@ def realized_yhat_windows(
         except ValueError:
             i = None
     if i is None or i < 0:
-        return None, None
+        return None, None, None
     dm = date_maps.get(c) or {}
     bar = dm.get(d)
     if isinstance(bar, dict) and bar.get("session_overlay"):
-        return None, None
+        return None, None, None
     prev = dm.get(dates[i - 1]) if i > 0 else None
     nxt = dm.get(dates[i + 1]) if i + 1 < len(dates) else None
     r_cc = _pct_ret(_px(prev, "close"), _px(bar, "close"))
     r_on = _pct_ret(_px(bar, "close"), _px(nxt, "open"))
-    return r_cc, r_on
+    r_tau = _pct_ret(_px(bar, "open"), _px(bar, "close"))
+    return r_cc, r_on, r_tau
 
 
 def _default_paper(
@@ -818,7 +879,7 @@ def backtest_paper_replay(
     min_history: int = 12,
     max_window: int = 30,
     lookback: Optional[int] = None,
-    initial_cash: float = 1_000_000.0,
+    initial_cash: float = REPLAY_INITIAL_CASH,
     cost_model: str = "simple_cn",
     rankings_by_date: Optional[Dict[str, List[dict]]] = None,
     yhat_horizon_days: int = 1,
@@ -827,6 +888,8 @@ def backtest_paper_replay(
     rank_enter: Optional[float] = None,
     rank_strong: Optional[float] = None,
     y_on_alpha: Optional[float] = None,
+    fusion_w_trade: Optional[float] = None,
+    fusion_w_nowcast: Optional[float] = None,
     include_session_day: bool = True,
     session_quotes: Optional[Dict[str, dict]] = None,
     session_now: Optional[datetime] = None,
@@ -834,10 +897,8 @@ def backtest_paper_replay(
     """策略调仓历史回测：每个交易日 9:30 开盘用 y_fuse/y_on 排序并按 1000/2000 股调仓。"""
     from core.backtest.engine import _trade_metrics
     from core.paper.rebalance.rank_lots import (
-        DEFAULT_CASH_FLOOR,
-        DEFAULT_RANK_ENTER,
-        DEFAULT_RANK_STRONG,
         DEFAULT_Y_ON_ALPHA,
+        clamp_fusion_weight,
         clamp_y_on_alpha,
         coerce_rank_threshold,
         get_rank_lot_cfg,
@@ -885,10 +946,30 @@ def backtest_paper_replay(
         top_k = universe_n
     else:
         top_k = max(1, min(int(top_k or 1), cap))
-    floor = float(DEFAULT_CASH_FLOOR if cash_floor is None else cash_floor)
+    floor = float(REPLAY_CASH_FLOOR if cash_floor is None else cash_floor)
     alpha = clamp_y_on_alpha(
         DEFAULT_Y_ON_ALPHA if y_on_alpha is None else y_on_alpha
     )
+    w_trade = clamp_fusion_weight(
+        REPLAY_FUSION_W_TRADE if fusion_w_trade is None else fusion_w_trade,
+        REPLAY_FUSION_W_TRADE,
+    )
+    w_nowcast = clamp_fusion_weight(
+        REPLAY_FUSION_W_NOWCAST if fusion_w_nowcast is None else fusion_w_nowcast,
+        REPLAY_FUSION_W_NOWCAST,
+    )
+    enter = coerce_rank_threshold(
+        REPLAY_RANK_ENTER if rank_enter is None else rank_enter,
+        REPLAY_RANK_ENTER,
+    )
+    strong = coerce_rank_threshold(
+        REPLAY_RANK_STRONG if rank_strong is None else rank_strong,
+        REPLAY_RANK_STRONG,
+    )
+    enter = max(0.0, min(1.0, float(enter)))
+    strong = max(0.0, min(1.0, float(strong)))
+    if strong < enter:
+        strong = enter
     paper = _default_paper(
         initial_cash=initial_cash,
         top_k=top_k,
@@ -897,18 +978,12 @@ def backtest_paper_replay(
     paper.setdefault("rules", {})["execution"] = {
         "rebalance_timing": {
             "path_matrix": {
-                "rank_enter": float(
-                    DEFAULT_RANK_ENTER
-                    if rank_enter is None
-                    else coerce_rank_threshold(rank_enter, DEFAULT_RANK_ENTER)
-                ),
-                "rank_strong": float(
-                    DEFAULT_RANK_STRONG
-                    if rank_strong is None
-                    else coerce_rank_threshold(rank_strong, DEFAULT_RANK_STRONG)
-                ),
+                "rank_enter": enter,
+                "rank_strong": strong,
                 "cash_floor": floor,
                 "y_on_alpha": alpha,
+                "fusion_w_trade": w_trade,
+                "fusion_w_nowcast": w_nowcast,
             }
         }
     }
@@ -917,14 +992,10 @@ def backtest_paper_replay(
     rl_cfg["lot_base"] = REPLAY_LOT_BASE
     rl_cfg["lot_strong"] = REPLAY_LOT_STRONG
     rl_cfg["y_on_alpha"] = alpha
-    if rank_enter is not None:
-        rl_cfg["rank_enter"] = coerce_rank_threshold(
-            rank_enter, DEFAULT_RANK_ENTER
-        )
-    if rank_strong is not None:
-        rl_cfg["rank_strong"] = coerce_rank_threshold(
-            rank_strong, DEFAULT_RANK_STRONG
-        )
+    rl_cfg["fusion_w_trade"] = w_trade
+    rl_cfg["fusion_w_nowcast"] = w_nowcast
+    rl_cfg["rank_enter"] = enter
+    rl_cfg["rank_strong"] = strong
 
     cfg = None
     try:
@@ -967,6 +1038,7 @@ def backtest_paper_replay(
         "cash_floor_skips": 0,
         "rebalance_days": 0,
     }
+    name_by_code = _watching_name_map()
     prev_equity = float(initial_cash)
     if lookback is not None:
         first_i = max(1, int(trade_start))
@@ -1115,6 +1187,7 @@ def backtest_paper_replay(
             day=day,
             open_px=prices,
             prev_equity=prev_equity,
+            name_by_code=name_by_code,
         )
         equity_curve.append(
             {
@@ -1172,7 +1245,7 @@ def backtest_paper_replay(
         row["cash_after"] = cash_by_day.get(day)
         row["n_holdings"] = hold_by_day.get(day)
         row["equity_after"] = equity_by_day.get(day)
-        r_cc, r_on = realized_yhat_windows(
+        r_cc, r_on, r_tau = realized_yhat_windows(
             str(row.get("stock_code") or ""),
             day,
             dates=dates,
@@ -1181,6 +1254,7 @@ def backtest_paper_replay(
         )
         row["realized_cc"] = r_cc
         row["realized_on"] = r_on
+        row["realized_tau"] = r_tau
         return row
 
     sim_trades = [_stamp_day_context(r) for r in _ledger_trades_to_sim(ledger_trades)]
@@ -1195,7 +1269,8 @@ def backtest_paper_replay(
 
     note = (
         f"引擎={ENGINE_ID}：每个交易日 09:30 开盘算 y_fuse/y_on，"
-        f"ranking=(1+y_fuse/100)×(1+α×y_on/100)−1 α={alpha:g}；ranking<0 清仓；"
+        f"ranking=(1+y_fuse/100)×(1+α×y_on/100)−1 α={alpha:g}；"
+        f"y_fuse 权 w_trade={w_trade:g} w_nowcast={w_nowcast:g}；ranking<0 清仓；"
         f"过 rank入场={rl_cfg.get('rank_enter')} 按分数买（开加上限=观察池 {top_k} 只，现金地板约束），"
         f"过 rank强={rl_cfg.get('rank_strong')} 买 {int(rl_cfg.get('lot_strong') or REPLAY_LOT_STRONG)} "
         f"否则 {int(rl_cfg.get('lot_base') or REPLAY_LOT_BASE)} 股；"
@@ -1219,6 +1294,8 @@ def backtest_paper_replay(
             "rank_enter": rl_cfg.get("rank_enter"),
             "rank_strong": rl_cfg.get("rank_strong"),
             "y_on_alpha": alpha,
+            "fusion_w_trade": w_trade,
+            "fusion_w_nowcast": w_nowcast,
             "lot_base": int(rl_cfg.get("lot_base") or REPLAY_LOT_BASE),
             "lot_strong": int(rl_cfg.get("lot_strong") or REPLAY_LOT_STRONG),
             "cost_model": cost_model,
@@ -1350,15 +1427,14 @@ def summarize_paper_replay_for_daily(
     else:
         rankings = rankings_by_date
         src = src or "topk_precomputed"
-    from core.paper.rebalance.rank_lots import DEFAULT_CASH_FLOOR, DEFAULT_INITIAL_CASH
 
     bt = backtest_paper_replay(
         stock_bars,
         top_k=top_k,
         rankings_by_date=rankings,
         cost_model="simple_cn",
-        initial_cash=DEFAULT_INITIAL_CASH,
-        cash_floor=DEFAULT_CASH_FLOOR,
+        initial_cash=REPLAY_INITIAL_CASH,
+        cash_floor=REPLAY_CASH_FLOOR,
         lookback=lookback,
     )
     if not bt.get("success"):

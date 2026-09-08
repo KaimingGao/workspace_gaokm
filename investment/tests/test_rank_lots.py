@@ -1,4 +1,4 @@
-"""rank_lots：ranking 净收益百分数、100/200 股、ranking<0 清仓、现金地板。"""
+"""rank_lots：ranking 净收益百分数、200/500 股、ranking<0 清仓、现金地板。"""
 
 from __future__ import annotations
 
@@ -48,9 +48,9 @@ class TestRankingScore(unittest.TestCase):
     def test_lot_shares_threshold(self):
         from core.paper.rebalance.rank_lots import lot_shares_for_rank
 
-        self.assertEqual(lot_shares_for_rank(0.20, 0.20), 100)
-        self.assertEqual(lot_shares_for_rank(0.21, 0.20), 200)
-        self.assertEqual(lot_shares_for_rank(0.01, 0.20), 100)
+        self.assertEqual(lot_shares_for_rank(0.20, 0.20), 200)
+        self.assertEqual(lot_shares_for_rank(0.21, 0.20), 500)
+        self.assertEqual(lot_shares_for_rank(0.01, 0.20), 200)
         self.assertEqual(lot_shares_for_rank(None, 0.20), 0)
         self.assertEqual(
             lot_shares_for_rank(0.21, 0.20, lot_base=1000, lot_strong=2000),
@@ -76,7 +76,7 @@ def _cfg(**extra):
 
 
 class TestPlanRankLotDay(unittest.TestCase):
-    def test_open_100_vs_200(self):
+    def test_open_200_vs_500(self):
         from core.paper.rebalance.rank_lots import plan_rank_lot_day
 
         scored = [
@@ -101,9 +101,9 @@ class TestPlanRankLotDay(unittest.TestCase):
             cfg=_cfg(),
         )
         by = {t["stock_code"]: t for t in out["buys"]}
-        self.assertEqual(float(by["600000"]["shares"]), 100)
+        self.assertEqual(float(by["600000"]["shares"]), 200)
         self.assertEqual(by["600000"]["action"], "open")
-        self.assertEqual(float(by["600001"]["shares"]), 200)
+        self.assertEqual(float(by["600001"]["shares"]), 500)
         self.assertEqual(by["600001"]["action"], "open")
         self.assertEqual(int(by["600001"]["rank_i"]), 1)
         self.assertEqual(int(by["600000"]["rank_i"]), 2)
@@ -133,6 +133,28 @@ class TestPlanRankLotDay(unittest.TestCase):
         self.assertAlmostEqual(float(buy["y_nowcast"]), 1.0)
         self.assertAlmostEqual(float(buy["y_fuse"]), 1.5)
         self.assertEqual(int(buy["rank_i"]), 1)
+
+    def test_fuse_weights_trade_nowcast(self):
+        from core.paper.rebalance.rank_lots import plan_rank_lot_day
+
+        scored = [
+            {
+                "stock_code": "600000",
+                "stock_name": "加权",
+                "y_trade": 2.0,
+                "y_nowcast": 1.0,
+                "y_on": 0.0,
+            }
+        ]
+        out = plan_rank_lot_day(
+            scored=scored,
+            holdings=[],
+            cash=1_000_000,
+            prices={"600000": 10.0},
+            cfg=_cfg(fusion_w_trade=0.6, fusion_w_nowcast=0.4),
+        )
+        buy = out["buys"][0]
+        self.assertAlmostEqual(float(buy["y_fuse"]), 1.6)
 
     def test_open_cfg_lot_1000_vs_2000(self):
         from core.paper.rebalance.rank_lots import plan_rank_lot_day
@@ -418,6 +440,16 @@ class TestGetRankLotCfg(unittest.TestCase):
         self.assertEqual(cfg["top_k"], 100)
         cfg_full = get_rank_lot_cfg(None, top_k=WATCHING_MAX_SIZE)
         self.assertEqual(cfg_full["top_k"], WATCHING_MAX_SIZE)
+
+
+class TestYTauOf(unittest.TestCase):
+    def test_prefers_y_tau_then_predicted(self):
+        from core.paper.rebalance.rank_lots import y_tau_of
+
+        self.assertEqual(y_tau_of({"y_tau": 0.4, "predicted_score_tau": 0.9}), 0.4)
+        self.assertEqual(y_tau_of({"predicted_score_tau": 0.9}), 0.9)
+        self.assertEqual(y_tau_of({"score_rem": 0.3}), 0.3)
+        self.assertIsNone(y_tau_of({}))
 
 
 if __name__ == "__main__":

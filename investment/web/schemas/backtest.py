@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field
 
 class PortfolioBacktestRequest(BaseModel):
     codes: Optional[list] = None
-    lookback: int = Field(default=30, ge=30, le=500)
+    lookback: int = Field(default=30, ge=10, le=500)
     # 历史 Top-K 默认 3（研究用小组合；纸面 max_positions 仍见 StrategySpec）
     top_k: int = Field(default=3, ge=1, le=40)
     horizon_days: int = Field(default=3, ge=1, le=10)
@@ -55,16 +55,28 @@ class PortfolioBacktestRequest(BaseModel):
         le=1.0,
         description="历史回测 ranking 隔夜系数 α；0=不乘 y_on，1=按原权重乘入",
     )
+    fusion_w_trade: float = Field(
+        default=0.6,
+        ge=0.0,
+        le=1.0,
+        description="历史回测 y_fuse 中 y_trade 权重；与 fusion_w_nowcast 一并归一化",
+    )
+    fusion_w_nowcast: float = Field(
+        default=0.4,
+        ge=0.0,
+        le=1.0,
+        description="历史回测 y_fuse 中 y_nowcast 权重；与 fusion_w_trade 一并归一化",
+    )
     rank_enter: float = Field(
-        default=0.01,
+        default=0.012,
         ge=0.0,
         le=10.0,
-        description="历史回测 ranking 入场下限（净收益，0.01=1%）",
+        description="历史回测 ranking 入场下限（净收益，0.012=1.2%；UI 用百分数）",
     )
     rank_strong: float = Field(
-        default=0.02,
+        default=0.012,
         ge=0.0,
         le=10.0,
-        description="历史回测 ranking 强手门槛（净收益，0.02=2%；超过买 2000 股）",
+        description="历史回测 ranking 强手门槛（净收益，0.012=1.2%；超过买 2000 股）",
     )
 

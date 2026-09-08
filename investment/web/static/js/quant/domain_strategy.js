@@ -1,4 +1,3 @@
-import { apiFetch } from "../api_client.js";
 import { mergeScoringFloors } from "./scoring.js";
 import { runMarketContextIngest } from "../macro_context_ui.js";
 import { buildStrategyListHtml, buildStrategyRiskFootnoteHtml } from "./strategy_list_ui.js";
@@ -8,22 +7,8 @@ import { readPromoteExpireHard, readPromoteTtlHours, loadCachedPromoteHints } fr
 
 /** Quant domain: strategy */
 export function installStrategy(q) {
-  const { on, els, state, ctx, escapeHtml, apiFetch, setQuantMeta, setBusyText } = q;
-  const { factorMetaByName, ensureFactorMeta, renderPromoteHintsPanel, loadCachedPromoteHints, readPromoteExpireHard, readPromoteTtlHours } = q;
-
-  async function loadConfigDiffPreview() {
-    if (els.quantDiffSummary) els.quantDiffSummary.textContent = "加载 diff 预览…";
-    try {
-      const res = await fetch("/api/signal/config/diff-preview?use_saved=true");
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.detail || res.statusText);
-      renderConfigDiffPreview(data);
-      return data;
-    } catch (err) {
-      if (els.quantDiffSummary) els.quantDiffSummary.textContent = String(err.message || err);
-      return null;
-    }
-  }
+  const { els, state, escapeHtml, apiFetch } = q;
+  const { factorMetaByName, ensureFactorMeta, renderPromoteHintsPanel } = q;
 
   async function loadSignalConfigPanel() {
     try {
@@ -923,42 +908,6 @@ export function installStrategy(q) {
     return data;
   }
 
-  function renderConfigDiffPreview(data) {
-    if (!data || !data.success) {
-      if (els.quantDiffSummary) els.quantDiffSummary.textContent = (data && data.error) || "预览失败";
-      if (els.quantDiffTable) els.quantDiffTable.innerHTML = "";
-      return;
-    }
-    const parts = [];
-    const rows = [];
-    for (const block of [data.weights, data.thresholds]) {
-      if (!block || !block.success) continue;
-      const label = block.kind === "weights" ? "权重" : "stance 阈值";
-      const changes = block.changes || {};
-      const keys = Object.keys(changes);
-      parts.push(`${label} ${keys.length} 项变更`);
-      keys.forEach((k) => {
-        const c = changes[k];
-        rows.push(
-          `<tr><td>${label}:${k}</td><td class="num">${c.from}</td><td class="num">${c.to}</td><td class="num">${c.delta > 0 ? "+" : ""}${c.delta}</td></tr>`
-        );
-      });
-    }
-    if (els.quantDiffSummary) {
-      els.quantDiffSummary.textContent = parts.length
-        ? parts.join(" · ")
-        : data.note || "无待合并 diff（可先跑「分析」/「阈值」或「每日量化」）";
-    }
-    if (els.quantDiffTable) {
-      els.quantDiffTable.innerHTML = rows.length
-        ? `<table class="quant-weight-table">
-            <thead><tr><th>项</th><th>当前</th><th>建议</th><th>Δ</th></tr></thead>
-            <tbody>${rows.join("")}</tbody>
-          </table>`
-        : "";
-    }
-  }
-
   function renderFactorDict() {
     const list = document.getElementById("strategy-factor-dict-list");
     if (!list) return;
@@ -1141,98 +1090,6 @@ export function installStrategy(q) {
     }
   }
 
-  async function runStrategyWeightSuggest() {
-    const status = document.getElementById("strategy-factor-status");
-    const icHost = document.getElementById("strategy-ic-table");
-    const wHost = document.getElementById("strategy-weight-table");
-    const runBtn = document.getElementById("strategy-weight-suggest-run");
-    if (!icHost && !wHost) return;
-    if (runBtn) runBtn.disabled = true;
-    setStrategyFactorExportEnabled(false);
-    if (status) status.textContent = "分析 IC / 权重中…";
-    try {
-      await ensureFactorMeta();
-      const code = await strategyIcCode();
-      const res = await fetch("/api/quant/weight-suggest", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          code,
-          lookback: 120,
-          horizon_days: readHorizonDays(),
-          use_cs_ic: true,
-          watching_limit: 12,
-          ridge_lambda: readRidgeLambda(),
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok || !data.success) {
-        if (status) status.textContent = data.error || data.detail || "分析失败";
-        if (icHost) icHost.innerHTML = "";
-        if (wHost) wHost.innerHTML = "";
-        state.strategyLastIcExport = null;
-        state.strategyLastWeightDiff = null;
-        return;
-      }
-      const exp =
-        data.ic_mode === "cs_ic" && data.factor_cs_ic
-          ? data.factor_cs_ic
-          : data.factor_experiment || {};
-      state.strategyLastIcExport = {
-        stock_code: data.stock_code || exp.stock_code || code,
-        generated_at: new Date().toISOString(),
-        panel: exp.panel || null,
-        factors: exp.factors || exp.rows || null,
-        ic_mode: data.ic_mode,
-        note: "只读 IC 导出；不改写 signal_config",
-      };
-      state.strategyLastWeightDiff = data.config_diff || {
-        current_weights: data.current_weights,
-        suggested_weights: data.suggested_weights,
-        deltas: data.deltas,
-      };
-      if (icHost) {
-        icHost.innerHTML =
-          factorIcWeightMergedHtml(exp, data) ||
-          `<p class="quant-trades-caption">无因子行</p>`;
-      }
-      if (wHost) wHost.innerHTML = "";
-      if (status) {
-        status.textContent =
-          `标的 ${state.strategyLastIcExport.stock_code} · ${data.ic_mode || "single"} · 只读建议，须人审后合并配置`;
-      }
-      setStrategyFactorExportEnabled(true);
-    } catch (err) {
-      if (status) status.textContent = String(err.message || err);
-      } finally {
-      if (runBtn) runBtn.disabled = false;
-    }
-  }
-
-  function setStrategyFactorExportEnabled(on) {
-    const icBtn = document.getElementById("strategy-ic-export");
-    const wBtn = document.getElementById("strategy-weight-diff-export");
-    const fbBtn = document.getElementById("strategy-feedback-from-ic");
-    if (icBtn) icBtn.disabled = !on;
-    if (wBtn) wBtn.disabled = !on;
-    if (fbBtn) fbBtn.disabled = !on;
-  }
-
-  async function strategyIcCode() {
-    try {
-      const res = await fetch("/api/watching");
-      const data = await res.json();
-      const wl = (data && (data.watchlist || data.codes)) || [];
-      if (Array.isArray(wl) && wl.length) {
-        const first = wl[0];
-        return typeof first === "string" ? first : first.code || first.stock_code || "茅台";
-      }
-    } catch (_) {
-      /* ignore */
-    }
-    return "茅台";
-  }
-
   async function saveStrategyScoringFloors() {
     const st = document.getElementById("strategy-floor-status");
     const buyIn = document.getElementById("strategy-floor-buy");
@@ -1290,15 +1147,12 @@ export function installStrategy(q) {
   }
 
   return {
-    loadConfigDiffPreview,
     loadSignalConfigPanel,
     loadStrategyList,
     loadStrategyRiskAudit,
     promoteStrategy,
-    renderConfigDiffPreview,
     renderFactorDict,
     renderStrategyList,
-    runStrategyWeightSuggest,
     saveStrategyScoringFloors,
     saveStrategySentimentPrior,
     saveStrategyMarketPrior,
@@ -1313,7 +1167,5 @@ export function installStrategy(q) {
     syncMspGateOptsVisibility,
     syncRegGateOptsVisibility,
     syncIpoGateOptsVisibility,
-    setStrategyFactorExportEnabled,
-    strategyIcCode,
   };
 }

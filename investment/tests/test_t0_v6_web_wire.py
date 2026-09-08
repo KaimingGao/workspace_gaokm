@@ -50,7 +50,7 @@ class TestT0V6WebWire(unittest.TestCase):
         self.assertNotIn("t0_leg_confirm_mode", d)
         self.assertNotIn("t0_env_gate_enabled", d)
         self.assertNotIn("t0_slots_roll_unused", d)
-        self.assertAlmostEqual(d.get("t0_close_band_delta_pct", 0.2), 0.2)
+        self.assertAlmostEqual(d.get("t0_close_band_delta_pct", 3.0), 3.0)
         self.assertEqual(d["t0_slots_max_rounds"], 5)
 
     def test_patch_accepts_close_band_thresholds(self):

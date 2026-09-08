@@ -200,22 +200,22 @@ DEFAULT_T0_RULES: Dict[str, Any] = {
     # dual_y 阈值（百分比点）：*_enter 入场下限；*_strong 超强须与 τ 同号
     "y_trade_enter": 0.01,
     "y_trade_strong": 0.2,
-    "y_tau_enter": 0.01,
+    "y_tau_enter": 0.0,
     # 反T / 正T 分侧入场；缺省与 y_tau_enter 同
-    "y_tau_enter_sell_then_buy": 0.01,
-    "y_tau_enter_buy_then_sell": 0.01,
+    "y_tau_enter_sell_then_buy": 0.0,
+    "y_tau_enter_buy_then_sell": 0.0,
     "y_enter_enabled": True,  # 门槛1 启用；关则本档不参与 OR
     "y_enter_alt_enabled": True,  # 门槛2 启用；关则本档不参与 OR
-    "r_tau_enter": 0.1,  # 门槛1 |R̂_τ| 入场；范围 0–1.0；0=关
-    "r_tau_enter_alt": 0.40,  # 门槛2 |R̂_τ| 入场；缺键跟随 r_tau_enter
-    "y_path_enter": 0.01,
-    "y_path_enter_sell_then_buy": 0.01,
-    "y_path_enter_buy_then_sell": 0.01,
-    "y_path_strong": 0.2,
+    "r_tau_enter": 0.0,  # 门槛1 |R̂_τ| 入场；范围 0–1.0；0=关
+    "r_tau_enter_alt": 0.0,  # 门槛2 |R̂_τ| 入场；缺键跟随 r_tau_enter
+    "y_path_enter": 0.0,
+    "y_path_enter_sell_then_buy": 0.0,
+    "y_path_enter_buy_then_sell": 0.0,
+    "y_path_strong": 5.0,
     "y_complexity_max": 1.0,  # ŷ_complexity∈[0,1]；>此值太折跳过；默认 1.00≈关
-    "y_tpd_max": 0.40,  # ŷ_tpd∈[0,1]；>此值反转过密跳过；默认 0.40；1.00≈关
-    "y_tau_enter_alt": 0.40,  # 门槛2 |y_τ| 入场；缺键跟随 y_tau_enter
-    "y_path_enter_alt": 0.40,  # 门槛2 |y_path| 入场；缺键跟随 y_path_enter
+    "y_tpd_max": 1.0,  # ŷ_tpd∈[0,1]；>此值反转过密跳过；默认 1.00≈关
+    "y_tau_enter_alt": 0.0,  # 门槛2 |y_τ| 入场；缺键跟随 y_tau_enter
+    "y_path_enter_alt": 0.0,  # 门槛2 |y_path| 入场；缺键跟随 y_path_enter
     "y_complexity_max_alt": 1.0,
     "y_tpd_max_alt": 1.0,
     "y_eod_enter": 0.01,
@@ -231,16 +231,16 @@ DEFAULT_T0_RULES: Dict[str, Any] = {
     "y_path_required": False,
     # v6 τ先验：把预估开→收 ŷ_τ 当偏移加到 ±δ 上，整条带宽平移（宽度仍 2δ），不改冻结 leg2（仍 ĉ±δ）。
     # score=漂移 / off=对称 ±δ；s=clip(k·ŷ_τ, ±α·δ)，上沿=δ+s、下沿=−δ+s（旧 skip 并入 score）
-    "y_tau_leg1_prior_mode": "off",
-    "y_tau_leg1_prior_risk": 0.1,  # k：偏移灵敏度；s=k·ŷ_τ；范围 0–100
-    # α∈[0.1, 1.0]：|s|≤α·δ（默认 0.1）；α=1 时同侧可贴 0
-    "y_tau_leg1_prior_shift_scale": 0.1,
-    "y_tau_leg1_prior": False,  # 镜像：mode≠off
+    "y_tau_leg1_prior_mode": "score",
+    "y_tau_leg1_prior_risk": 10.0,  # k：偏移灵敏度；s=k·ŷ_τ；范围 0–100
+    # α∈[0.1, 1.0]：|s|≤α·δ（默认 1）；α=1 时同侧可贴 0
+    "y_tau_leg1_prior_shift_scale": 1.0,
+    "y_tau_leg1_prior": True,  # 镜像：mode≠off
     "y_gap_tier_mode": "skip_opposite",
     "y_gap_tier_pct": 1.0,
     "y_nowcast_oc_gate": False,
     # v6：收盘带宽选腿（无前缀阴阳/复合确认）
-    "t0_close_band_delta_pct": 0.2,
+    "t0_close_band_delta_pct": 3.0,
     # 日线 ĉ=ĉ_τ，分钟价经 S=O_d/O_m 映入同空间破带（|S−1| 超阈跳过）
     "t0_price_space_gate": True,
     "t0_price_space_max_dev_pct": 5.0,
@@ -271,10 +271,10 @@ DEFAULT_T0_RULES: Dict[str, Any] = {
     "t0_pm_chase_interval_min": 5,
     "t0_pm_chase_interval_min_sell_then_buy": 5,
     "t0_pm_chase_interval_min_buy_then_sell": 5,
-    # 正/反T第二腿止损（相对第一腿成交价）；0=关；默认延迟2根+收盘确认
+    # 正/反T第二腿止损（相对第一腿成交价）；0=关；默认延迟1根+收盘确认
     "t0_stop_pct_buy_then_sell": 1.2,
     "t0_stop_pct_sell_then_buy": 1.2,
-    "t0_stop_arm_bars": 2,
+    "t0_stop_arm_bars": 1,
     "t0_stop_on_close": True,
     # dual_y 分数来源：compute=开盘信息集即时算（默认）；live_book/ledger 仅兜底或对照
     "y_score_source": "compute",
@@ -505,25 +505,25 @@ def load_t0_rules(override: Optional[dict] = None) -> Dict[str, Any]:
         ("y_eod_strong", 0.05, 5.0, 0.2),
         ("y_trade_enter", 0.01, 5.0, 0.01),
         ("y_trade_strong", 0.05, 5.0, 0.2),
-        ("y_tau_enter", 0.0, 100.0, 0.01),
-        ("y_tau_enter_sell_then_buy", 0.0, 100.0, 0.01),
-        ("y_tau_enter_buy_then_sell", 0.0, 100.0, 0.01),
-        ("r_tau_enter", 0.0, 1.0, 0.1),
-        ("r_tau_enter_alt", 0.0, 1.0, 0.40),
-        ("y_tau_enter_alt", 0.0, 100.0, 0.40),
+        ("y_tau_enter", 0.0, 100.0, 0.0),
+        ("y_tau_enter_sell_then_buy", 0.0, 100.0, 0.0),
+        ("y_tau_enter_buy_then_sell", 0.0, 100.0, 0.0),
+        ("r_tau_enter", 0.0, 1.0, 0.0),
+        ("r_tau_enter_alt", 0.0, 1.0, 0.0),
+        ("y_tau_enter_alt", 0.0, 100.0, 0.0),
         ("y_on_risk", 0.01, 10.0, 0.01),
         ("y_on_allow", 0.01, 10.0, 0.01),
         ("y_ratio_boost_cap", 1.0, 2.0, 2.0),
         ("y_ratio_cut", 0.2, 1.0, 0.60),
         ("y_nc_enter", 0.01, 10.0, 0.01),
         ("y_nc_strong", 0.05, 10.0, 0.2),
-        ("y_path_enter", 0.0, 100.0, 0.01),
-        ("y_path_enter_sell_then_buy", 0.0, 100.0, 0.01),
-        ("y_path_enter_buy_then_sell", 0.0, 100.0, 0.01),
-        ("y_path_enter_alt", 0.0, 100.0, 0.40),
-        ("y_path_strong", 0.0, 5.0, 0.2),
+        ("y_path_enter", 0.0, 100.0, 0.0),
+        ("y_path_enter_sell_then_buy", 0.0, 100.0, 0.0),
+        ("y_path_enter_buy_then_sell", 0.0, 100.0, 0.0),
+        ("y_path_enter_alt", 0.0, 100.0, 0.0),
+        ("y_path_strong", 0.0, 5.0, 5.0),
         ("y_complexity_max", 0.0, 1.0, 1.0),
-        ("y_tpd_max", 0.0, 1.0, 0.40),
+        ("y_tpd_max", 0.0, 1.0, 1.0),
         ("y_complexity_max_alt", 0.0, 1.0, 1.0),
         ("y_tpd_max_alt", 0.0, 1.0, 1.0),
         ("y_gap_tier_pct", 0.3, 8.0, 1.0),
@@ -577,32 +577,32 @@ def load_t0_rules(override: Optional[dict] = None) -> Dict[str, Any]:
     from core.t0.close_band import normalize_y_tau_leg1_prior_mode
 
     if cfg.get("y_tau_leg1_prior_mode") is None or cfg.get("y_tau_leg1_prior_mode") == "":
-        # 旧布尔：False→off；True→score（量化风险抬门槛，非硬跳过）；键都缺→off
+        # 旧布尔：False→off；True→score（量化风险抬门槛，非硬跳过）；键都缺→score
         if "y_tau_leg1_prior" in override_keys:
             cfg["y_tau_leg1_prior_mode"] = (
                 "score" if coerce_cfg_bool(cfg.get("y_tau_leg1_prior"), False) else "off"
             )
         else:
-            cfg["y_tau_leg1_prior_mode"] = "off"
+            cfg["y_tau_leg1_prior_mode"] = "score"
     cfg["y_tau_leg1_prior_mode"] = normalize_y_tau_leg1_prior_mode(
-        cfg.get("y_tau_leg1_prior_mode"), default="off"
+        cfg.get("y_tau_leg1_prior_mode"), default="score"
     )
     cfg["y_tau_leg1_prior"] = cfg["y_tau_leg1_prior_mode"] != "off"
     try:
         raw_k = cfg.get("y_tau_leg1_prior_risk")
-        risk_k = 0.1 if raw_k is None or raw_k == "" else float(raw_k)
+        risk_k = 10.0 if raw_k is None or raw_k == "" else float(raw_k)
     except (TypeError, ValueError):
-        risk_k = 0.1
+        risk_k = 10.0
     cfg["y_tau_leg1_prior_risk"] = max(0.0, min(risk_k, 100.0))
     try:
         raw_a = cfg.get("y_tau_leg1_prior_shift_scale")
-        shift_scale = 0.1 if raw_a is None or raw_a == "" else float(raw_a)
+        shift_scale = 1.0 if raw_a is None or raw_a == "" else float(raw_a)
     except (TypeError, ValueError):
-        shift_scale = 0.1
+        shift_scale = 1.0
     from core.t0.close_band import clamp_y_tau_leg1_prior_shift_scale
 
     cfg["y_tau_leg1_prior_shift_scale"] = clamp_y_tau_leg1_prior_shift_scale(
-        shift_scale, default=0.1
+        shift_scale, default=1.0
     )
     cfg["y_nowcast_oc_gate"] = coerce_cfg_bool(cfg.get("y_nowcast_oc_gate"), False)
     legacy_exit_skip = coerce_cfg_bool(cfg.get("y_tau_exit_price_skip"), True)
@@ -773,9 +773,9 @@ def load_t0_rules(override: Optional[dict] = None) -> Dict[str, Any]:
     cfg["t0_stop_pct_sell_then_buy"] = max(0.0, min(stop_pct_stb, 20.0))
     try:
         raw_arm = cfg.get("t0_stop_arm_bars")
-        arm_bars = int(2 if raw_arm is None or raw_arm == "" else raw_arm)
+        arm_bars = int(1 if raw_arm is None or raw_arm == "" else raw_arm)
     except (TypeError, ValueError):
-        arm_bars = 2
+        arm_bars = 1
     cfg["t0_stop_arm_bars"] = max(0, min(arm_bars, 48))
     cfg["t0_stop_on_close"] = coerce_cfg_bool(cfg.get("t0_stop_on_close"), True)
     from core.t0.score_policy import normalize_y_tau_map
@@ -830,9 +830,9 @@ def load_t0_rules(override: Optional[dict] = None) -> Dict[str, Any]:
             cfg["t0_slots_max_rounds"] = 5
 
     try:
-        delta_pct = float(cfg.get("t0_close_band_delta_pct") or 0.2)
+        delta_pct = float(cfg.get("t0_close_band_delta_pct") or 3.0)
     except (TypeError, ValueError):
-        delta_pct = 0.2
+        delta_pct = 3.0
     cfg["t0_close_band_delta_pct"] = max(0.0, min(delta_pct, 10.0))
     cfg["t0_price_space_gate"] = bool(cfg.get("t0_price_space_gate", True))
     try:

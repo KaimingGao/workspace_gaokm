@@ -1505,9 +1505,9 @@ def summarize_dual_y_upgrade_acceptance(
     """同窗口验收：|τ|<enter 成交、τ 强桶同号、path 否决笔数（不依赖泄漏 y_on）。"""
     cfg = rules if isinstance(rules, dict) else {}
     try:
-        enter = float(cfg.get("y_tau_enter") if cfg.get("y_tau_enter") is not None else 0.02)
+        enter = float(cfg.get("y_tau_enter") if cfg.get("y_tau_enter") is not None else 0.0)
     except (TypeError, ValueError):
-        enter = 0.6
+        enter = 0.0
     # 旧双闸兼容：有效入场 = max(enter, strong)
     try:
         strong_legacy = cfg.get("y_tau_enter_strong")
@@ -1790,8 +1790,8 @@ def _summary_from_counts(
         "signal_skip_rate_pct": round(signal_skip_n / total * 100.0, 2) if total else None,
         "cover_rate_pct": round(cover_n / traded_n * 100.0, 2) if traded_n else None,
         "score_coverage_pct": round(score_seen / score_total * 100.0, 2) if score_total else None,
-        "y_tau_enter": _f(cfg.get("y_tau_enter")) or 0.25,
-        "r_tau_enter": _f(cfg.get("r_tau_enter")) if cfg.get("r_tau_enter") is not None else 0.1,
+        "y_tau_enter": _f(cfg.get("y_tau_enter")) if cfg.get("y_tau_enter") is not None else 0.0,
+        "r_tau_enter": _f(cfg.get("r_tau_enter")) if cfg.get("r_tau_enter") is not None else 0.0,
         "y_trade_enter": _f(cfg.get("y_trade_enter") or cfg.get("y_trade_floor")) or 0.15,
         "y_trade_floor": _f(cfg.get("y_trade_floor") or cfg.get("y_trade_enter")) or 0.15,
     }

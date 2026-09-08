@@ -73,7 +73,7 @@ class TestWatchingMatrixPreview(unittest.TestCase):
         self.assertEqual(report[0].get("predicted_score_eod"), 0.9)
         self.assertEqual(report[0].get("predicted_score_tau"), 0.7)
         self.assertEqual(report[0].get("predicted_score_on"), 0.2)
-        self.assertEqual(float(out["buy_trades"][0].get("shares") or 0), 100)
+        self.assertEqual(float(out["buy_trades"][0].get("shares") or 0), 500)
         self.assertEqual(paper.get("cash"), 1_000_000)
         self.assertEqual(paper.get("holdings") or [], [])
 
@@ -115,7 +115,7 @@ class TestWatchingMatrixPreview(unittest.TestCase):
         self.assertGreaterEqual(len(out.get("buy_trades") or []), 1)
         self.assertGreater(len(paper.get("holdings") or []), 0)
         self.assertEqual(paper["holdings"][0]["stock_code"], "600000")
-        self.assertEqual(float(paper["holdings"][0].get("shares") or 0), 100)
+        self.assertEqual(float(paper["holdings"][0].get("shares") or 0), 500)
         self.assertLess(float(paper.get("cash") or 0), 1_000_000)
 
     def test_adverse_path_still_opens(self):
@@ -347,6 +347,69 @@ class TestWatchingMatrixPreview(unittest.TestCase):
                 os.unlink(path)
             except OSError:
                 pass
+
+
+class TestApplyLegOpenCost(unittest.TestCase):
+    def test_buy_cost_equals_fill_sell_keeps_open_date(self):
+        from core.paper.rebalance.watching_matrix import _apply_one_leg
+
+        paper = {
+            "cash": 1_000_000.0,
+            "holdings": [],
+            "trades": [],
+            "cost_model": "zero",
+        }
+        buy, err = _apply_one_leg(
+            paper,
+            {
+                "side": "buy",
+                "stock_code": "600519",
+                "stock_name": "茅台",
+                "shares": 1000,
+                "price": 10.0,
+                "action": "open",
+            },
+            as_of="2026-03-10",
+        )
+        self.assertIsNone(err)
+        self.assertIsNotNone(buy)
+        self.assertEqual(buy["open_date"], "2026-03-10")
+        self.assertEqual(buy["cost_price"], buy["price"])
+        self.assertEqual(float(buy["price"]), 10.0)
+        self.assertAlmostEqual(float(buy["cum_cost"]), 10000.0)
+
+        add, err = _apply_one_leg(
+            paper,
+            {
+                "side": "buy",
+                "stock_code": "600519",
+                "shares": 1000,
+                "price": 12.0,
+                "action": "add",
+            },
+            as_of="2026-03-11",
+        )
+        self.assertIsNone(err)
+        self.assertEqual(add["open_date"], "2026-03-10")
+        self.assertEqual(add["cost_price"], add["price"])
+        self.assertEqual(float(add["price"]), 12.0)
+        self.assertAlmostEqual(float(add["cum_cost"]), 22000.0)
+
+        sell, err = _apply_one_leg(
+            paper,
+            {
+                "side": "sell",
+                "stock_code": "600519",
+                "shares": 2000,
+                "price": 13.0,
+                "action": "exit",
+            },
+            as_of="2026-03-12",
+        )
+        self.assertIsNone(err, err)
+        self.assertEqual(sell["open_date"], "2026-03-10")
+        self.assertAlmostEqual(float(sell["cost_price"]), 11.0)
+        self.assertAlmostEqual(float(sell["cum_cost"]), 22000.0)
 
 
 if __name__ == "__main__":

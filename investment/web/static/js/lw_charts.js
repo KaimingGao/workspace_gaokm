@@ -777,13 +777,30 @@ function shortTipName(name, code) {
   return chars.length <= 6 ? s : `${chars.slice(0, 6).join("")}…`;
 }
 
+function isCodeLikeName(name, code) {
+  const n = String(name || "").trim();
+  const c = String(code || "").trim();
+  if (!n) return true;
+  if (c && n === c) return true;
+  return /^\d{6}$/.test(n);
+}
+
+function legDisplayName(g, nameByCode) {
+  const code = String((g && g.stock_code) || "").trim();
+  const mapped = nameByCode && code ? String(nameByCode[code] || "").trim() : "";
+  const raw = String((g && g.stock_name) || "").trim();
+  if (mapped && !isCodeLikeName(mapped, code)) return mapped;
+  if (raw && !isCodeLikeName(raw, code)) return raw;
+  return mapped || raw || code;
+}
+
 function lookupDayDetails(dayDetails, key) {
   if (!dayDetails || !key) return null;
   if (typeof dayDetails.get === "function") return dayDetails.get(key) || null;
   return dayDetails[key] || null;
 }
 
-function renderDayLegRows(details) {
+function renderDayLegRows(details, nameByCode) {
   const legs = details && Array.isArray(details.legs) ? details.legs : [];
   if (!legs.length) return "";
   let html =
@@ -792,9 +809,10 @@ function renderDayLegRows(details) {
   for (const g of legs) {
     const ret = Number(g.ret_pct);
     const contrib = Number(g.contrib_pct);
-    const label = shortTipName(g.stock_name, g.stock_code);
+    const fullName = legDisplayName(g, nameByCode);
+    const label = shortTipName(fullName, g.stock_code);
     html +=
-      `<div class="lw-hover-tip-leg" title="${escTip(g.stock_name || g.stock_code || "")}">` +
+      `<div class="lw-hover-tip-leg" title="${escTip(fullName || g.stock_code || "")}">` +
       `<span class="lw-hover-tip-leg-n">${escTip(label)}</span>` +
       `<span class="lw-hover-tip-v ${retCls(ret)}">${fmtSignedPct(ret)}</span>` +
       `<span class="lw-hover-tip-v ${retCls(contrib)}">${fmtSignedPct(contrib)}</span>` +
@@ -955,7 +973,7 @@ export async function renderNavBarChart(container, pointsA, pointsB, opts = {}) 
       html += tipRow(`${labelB}日收益`, fmtSignedPct(bench.value), retCls(bench.value));
       html += tipRow(`${labelB}净值`, fmtNav(bench.nav), "");
     }
-    html += renderDayLegRows(lookupDayDetails(opts.dayDetails, key));
+    html += renderDayLegRows(lookupDayDetails(opts.dayDetails, key), opts.nameByCode);
     return html;
   });
 

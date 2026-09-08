@@ -12,6 +12,7 @@ from typing import Any, Dict, List, Optional
 CROSS_SECTION_TITLE = "横截面 ŷ（predicted_score）"
 WEIGHT_SUGGEST_TITLE = "权重建议（遗留诊断）"
 CLUSTER_LIVE_TITLE = "分组 live（组ŷ）"
+PORTFOLIO_BT_SECTION_TITLE = "历史回测摘要"
 SCORING_DEFAULT_NOTE = (
     "选股真源=predicted_score（ŷ）；heuristic 仅作研究 OOS 基线；过门≠自动 promote"
 )
@@ -490,7 +491,7 @@ def build_neutral_compare_export_section(nc: Dict[str, Any]) -> Optional[Dict[st
 
 
 def build_report_export_toc(report: Dict[str, Any]) -> Dict[str, Any]:
-    """导出目录：主叙事组ŷ → 横截面 → Top-K → 中性化；单票探针进附录。"""
+    """导出目录：主叙事组ŷ → 横截面 → 历史回测 → 中性化；单票探针进附录。"""
     entries: List[tuple] = [("一页摘要", "一页摘要")]
 
     cl = report.get("cluster_live") or {}
@@ -500,7 +501,7 @@ def build_report_export_toc(report: Dict[str, Any]) -> Dict[str, Any]:
     if cs_section:
         entries.append((cs_section["title"], cs_section["anchor"]))
     if (report.get("portfolio_backtest_summary") or {}).get("success"):
-        entries.append(("Top-K 回测摘要（ŷ_EOD）", "topk-回测摘要"))
+        entries.append((PORTFOLIO_BT_SECTION_TITLE, "历史回测摘要"))
     nc_section = build_neutral_compare_export_section(
         report.get("portfolio_neutral_compare_summary") or {}
     )
@@ -531,7 +532,7 @@ def build_report_export_toc(report: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def build_report_executive_summary(report: Dict[str, Any]) -> Dict[str, Any]:
-    """量化日报一页摘要：组ŷ / 簿 / OOS / 横截面 / Top-K 优先。"""
+    """量化日报一页摘要：组ŷ / 簿 / OOS / 横截面 / 历史回测优先。"""
     bullets: List[str] = []
     scoring = _scoring_meta(report)
     bullets.append(
@@ -573,25 +574,38 @@ def build_report_executive_summary(report: Dict[str, Any]) -> Dict[str, Any]:
         cfg = _topk_run_config_line(ps)
         if cfg:
             bullets.append(cfg)
-        bullets.append(
-            f"Top-K 研究回测（topk_research / ŷ_EOD）：累计 {ps.get('total_return_pct')}% · "
-            f"胜率 {ps.get('win_rate_pct')}% · 交易 {ps.get('trade_count')}"
-            f" · {_topk_score_axis_note(ps)}"
-            + (
-                " · 无成交"
-                if (ps.get("trade_count") in (0, None) and ps.get("total_return_pct") is None)
-                else ""
-            )
-        )
-        pr = ps.get("paper_replay") or {}
-        if pr.get("success"):
+        engine = (ps.get("params") or {}).get("engine") or ps.get("engine") or ""
+        if engine == "paper_replay":
             bullets.append(
-                f"纸面回放（paper_replay / 可实现）：累计 {pr.get('total_return_pct')}% · "
-                f"回撤 {pr.get('max_drawdown_pct')}% · 成交 {pr.get('trade_count')}"
-                f" · ≠研究腿聚合"
+                f"历史回测（rank_lots · 09:30）：累计 {ps.get('total_return_pct')}% · "
+                f"胜率 {ps.get('win_rate_pct')}% · 交易 {ps.get('trade_count')}"
+                f" · {_topk_score_axis_note(ps)}"
+                + (
+                    " · 无成交"
+                    if (ps.get("trade_count") in (0, None) and ps.get("total_return_pct") is None)
+                    else ""
+                )
             )
-        elif pr.get("error"):
-            bullets.append(f"纸面回放不可用：{pr.get('error')}")
+        else:
+            bullets.append(
+                f"Top-K 研究回测（topk_research / ŷ_EOD）：累计 {ps.get('total_return_pct')}% · "
+                f"胜率 {ps.get('win_rate_pct')}% · 交易 {ps.get('trade_count')}"
+                f" · {_topk_score_axis_note(ps)}"
+                + (
+                    " · 无成交"
+                    if (ps.get("trade_count") in (0, None) and ps.get("total_return_pct") is None)
+                    else ""
+                )
+            )
+            pr = ps.get("paper_replay") or {}
+            if pr.get("success"):
+                bullets.append(
+                    f"纸面回放（paper_replay / 可实现）：累计 {pr.get('total_return_pct')}% · "
+                    f"回撤 {pr.get('max_drawdown_pct')}% · 成交 {pr.get('trade_count')}"
+                    f" · ≠研究腿聚合"
+                )
+            elif pr.get("error"):
+                bullets.append(f"纸面回放不可用：{pr.get('error')}")
 
     nc = report.get("portfolio_neutral_compare_summary") or {}
     if nc.get("success"):
@@ -657,7 +671,7 @@ def build_report_executive_summary(report: Dict[str, Any]) -> Dict[str, Any]:
         "success": True,
         "bullet_count": len(bullets),
         "bullets": bullets,
-        "note": "一页摘要；主叙事=组ŷ/簿/OOS/横截面/Top-K；过门≠自动 promote。",
+        "note": "一页摘要；主叙事=组ŷ/簿/OOS/横截面/历史回测；过门≠自动 promote。",
     }
 
 
@@ -701,7 +715,7 @@ def render_quant_report_markdown(report: Dict[str, Any]) -> str:
     ps = report.get("portfolio_backtest_summary") or {}
     if ps.get("success"):
         detail_lines = build_portfolio_backtest_markdown_lines(ps)
-        parts.extend(_lines("Top-K 回测摘要（ŷ_EOD）", detail_lines))
+        parts.extend(_lines(PORTFOLIO_BT_SECTION_TITLE, detail_lines))
 
     nc = report.get("portfolio_neutral_compare_summary") or {}
     nc_section = build_neutral_compare_export_section(nc)
@@ -879,7 +893,7 @@ def render_quant_report_html(report: Dict[str, Any]) -> str:
             for line in build_portfolio_backtest_markdown_lines(ps)
             if line.startswith("- ")
         )
-        section("Top-K 回测摘要（ŷ_EOD）", f"<ul>{lis}</ul>")
+        section(PORTFOLIO_BT_SECTION_TITLE, f"<ul>{lis}</ul>")
 
     nc = report.get("portfolio_neutral_compare_summary") or {}
     nc_section = build_neutral_compare_export_section(nc)
@@ -960,7 +974,7 @@ def render_quant_report_html(report: Dict[str, Any]) -> str:
   <h1>量化研究日报</h1>
   <p class="meta">生成时间 {ts}</p>
   {body}
-  <p class="foot">以上为量化研究摘要（选股真源=ŷ · 主叙事=组ŷ/簿/OOS/横截面/Top-K）；市场有风险，不保证收益，不代客下单。</p>
+  <p class="foot">以上为量化研究摘要（选股真源=ŷ · 主叙事=组ŷ/簿/OOS/横截面/历史回测）；市场有风险，不保证收益，不代客下单。</p>
 </body>
 </html>"""
 
@@ -999,11 +1013,20 @@ def export_quant_report_markdown(report: Optional[Dict[str, Any]] = None) -> Dic
     return export_quant_report(report, fmt="markdown")
 
 
+def _portfolio_bt_engine(ps: Optional[dict] = None, params: Optional[dict] = None) -> str:
+    p = params if isinstance(params, dict) else {}
+    if not p and isinstance(ps, dict):
+        p = ps.get("params") if isinstance(ps.get("params"), dict) else {}
+    return str((ps or {}).get("engine") or p.get("engine") or "")
+
+
 def _topk_score_axis_note(ps: Optional[dict] = None) -> str:
-    """历史 Top-K 分数口径一句（日报 / 导出共用）。"""
+    """历史回测 / Top-K 分数口径一句（日报 / 导出共用）。"""
     params = (ps or {}).get("params") if isinstance(ps, dict) else None
     if not isinstance(params, dict):
         params = {}
+    if _portfolio_bt_engine(ps, params) == "paper_replay":
+        return "每个交易日 09:30 按 y_fuse/y_on ranking 调仓（对齐历史回测页）"
     tau_on = params.get("apply_tau_buy_gate")
     if tau_on is True:
         return "选股键=ŷ_trade · τ 闸开（非默认历史路径）"
@@ -1022,18 +1045,10 @@ def _paper_max_positions_for_report() -> Optional[int]:
 
 
 def _topk_run_config_line(ps: Optional[dict] = None) -> str:
-    """日报 / 导出：K、持有、ŷ 标签、门槛、成本一行，避免和纸面口径对不上还看不出来。"""
+    """日报 / 导出：历史回测 rank 参数或旧 Top-K 配置一行。"""
     params = (ps or {}).get("params") if isinstance(ps, dict) else None
     if not isinstance(params, dict):
         params = {}
-    k = params.get("top_k")
-    h = params.get("horizon_days")
-    yhat_h = params.get("yhat_horizon_days")
-    paper_k = params.get("paper_max_positions")
-    if paper_k is None:
-        paper_k = _paper_max_positions_for_report()
-    paper_h = params.get("paper_horizon_days")
-    ymin = params.get("min_predicted_score")
     n = params.get("stock_count")
     if n is None and isinstance(ps, dict):
         n = len(ps.get("loaded_stocks") or []) or None
@@ -1042,6 +1057,40 @@ def _topk_run_config_line(ps: Optional[dict] = None) -> str:
     apply_costs = params.get("apply_costs")
     if apply_costs is None and cost:
         apply_costs = str(cost) not in ("zero", "off")
+
+    def _cost_bit() -> Optional[str]:
+        if apply_costs is True:
+            return f"成本={cost or '开'}"
+        if apply_costs is False:
+            return "成本=关"
+        if cost:
+            return f"成本={cost}"
+        return None
+
+    if _portfolio_bt_engine(ps, params) == "paper_replay":
+        bits = [
+            "引擎=paper_replay/rank_lots",
+            f"ON_Alpha={params.get('y_on_alpha') if params.get('y_on_alpha') is not None else '—'}",
+            f"Rank入场={params.get('rank_enter') if params.get('rank_enter') is not None else '—'}",
+            f"Rank强={params.get('rank_strong') if params.get('rank_strong') is not None else '—'}",
+        ]
+        cb = _cost_bit()
+        if cb:
+            bits.append(cb)
+        if lookback is not None:
+            bits.append(f"lookback={lookback}")
+        if n:
+            bits.append(f"池{n}")
+        return "配置：" + " · ".join(bits)
+
+    k = params.get("top_k")
+    h = params.get("horizon_days")
+    yhat_h = params.get("yhat_horizon_days")
+    paper_k = params.get("paper_max_positions")
+    if paper_k is None:
+        paper_k = _paper_max_positions_for_report()
+    paper_h = params.get("paper_horizon_days")
+    ymin = params.get("min_predicted_score")
 
     def _as_int(v: Any) -> Optional[int]:
         try:
@@ -1066,12 +1115,9 @@ def _topk_run_config_line(ps: Optional[dict] = None) -> str:
         bits.append(f"ŷ标签={yhat_i}日")
     if ymin is not None:
         bits.append(f"ŷ≥{ymin}%")
-    if apply_costs is True:
-        bits.append(f"成本={cost or '开'}")
-    elif apply_costs is False:
-        bits.append("成本=关")
-    elif cost:
-        bits.append(f"成本={cost}")
+    cb = _cost_bit()
+    if cb:
+        bits.append(cb)
     if lookback is not None:
         bits.append(f"lookback={lookback}")
     if n:
@@ -1094,6 +1140,12 @@ def build_portfolio_backtest_markdown_lines(ps: Dict[str, Any]) -> List[str]:
     trade_n = ps.get("trade_count")
     if trade_n is None:
         trade_n = m.get("trade_count")
+    engine = _portfolio_bt_engine(ps)
+    engine_label = engine or "topk_research"
+    if engine == "paper_replay":
+        engine_bit = f"- 引擎：{engine_label}（rank_lots · 对齐历史回测）"
+    else:
+        engine_bit = f"- 引擎：{engine_label}（研究腿聚合）"
     lines: List[str] = [
         f"- {_topk_run_config_line(ps)}",
         f"- 累计收益：**{total_ret}%**",
@@ -1103,16 +1155,16 @@ def build_portfolio_backtest_markdown_lines(ps: Dict[str, Any]) -> List[str]:
         f"- 分数口径：{_topk_score_axis_note(ps)}",
         f"- 成本：{ps.get('cost_model') or (ps.get('params') or {}).get('cost_mode') or '—'}",
         f"- 标的：{', '.join(ps.get('loaded_stocks') or [])}",
-        f"- 引擎：{(ps.get('params') or {}).get('engine') or ps.get('engine') or 'topk_research'}（研究腿聚合）",
+        engine_bit,
     ]
     pr = ps.get("paper_replay") or {}
-    if pr.get("success"):
+    if engine != "paper_replay" and pr.get("success"):
         lines.append(
             f"- 纸面回放（可实现）：累计 **{pr.get('total_return_pct')}%** · "
             f"回撤 {pr.get('max_drawdown_pct')}% · 成交 {pr.get('trade_count')}"
             f" · {(pr.get('note') or '')[:80]}"
         )
-    elif isinstance(pr, dict) and pr.get("error"):
+    elif engine != "paper_replay" and isinstance(pr, dict) and pr.get("error"):
         lines.append(f"- 纸面回放：不可用（{pr.get('error')}）")
     cc = ps.get("cost_compare") or {}
     if cc.get("ok"):

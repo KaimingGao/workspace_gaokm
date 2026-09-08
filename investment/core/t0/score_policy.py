@@ -28,7 +28,7 @@ DEFAULT_TRADE_STRONG = 0.2  # |y_trade|>此值时须 y_trade 与 y_τ 同号
 DEFAULT_EOD_PRIOR = 0.01
 DEFAULT_EOD_ENTER = 0.01  # |y_eod| 准入下限（%点）
 DEFAULT_EOD_STRONG = 0.2  # |y_eod|>此值时须 y_eod 与 y_τ 同号
-DEFAULT_TAU_ENTER = 0.01
+DEFAULT_TAU_ENTER = 0.0
 DEFAULT_ON_RISK = 0.01
 DEFAULT_ON_ALLOW = 0.01
 DEFAULT_RATIO_BOOST_CAP = 2.0
@@ -38,8 +38,8 @@ DEFAULT_RATIO_TAU_SOFT_BAND = 0.20  # 写死：|ŷ_τ| 刚过入场线时压目�
 DEFAULT_TAU_NOWCAST_SIGN_EPS = 0.05  # 写死：τ↔nowcast 异号闸死区
 DEFAULT_NC_ENTER = 0.01
 DEFAULT_NC_STRONG = 0.2
-DEFAULT_PATH_ENTER = 0.01  # ŷ_path 极值序 %；|ŷ|≤enter 横盘跳过；与 y_tau_enter 同尺度
-DEFAULT_PATH_STRONG = 0.2  # |y_path|>此值时须与 y_τ 同号；≤则允许异号
+DEFAULT_PATH_ENTER = 0.0  # ŷ_path 极值序 %；|ŷ|≤enter 横盘跳过；与 y_tau_enter 同尺度
+DEFAULT_PATH_STRONG = 5.0  # |y_path|>此值时须与 y_τ 同号；≤则允许异号
 DEFAULT_GAP_TIER_PCT = 1.0
 
 # dual_y 下 y_τ 符号 → 正/反 T（映射见 minute_path）

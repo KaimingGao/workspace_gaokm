@@ -45,7 +45,7 @@ export function yTauMapShortLabel(mode) {
 /** τ先验：off | score。旧 skip/hard 并入 score。 */
 function normalizeTauLeg1PriorMode(raw, priorBool) {
   if (raw == null || raw === "") {
-    return priorBool === true ? "score" : "off";
+    return priorBool === false ? "off" : "score";
   }
   const m = String(raw).trim().toLowerCase();
   if (m === "off" || m === "false" || m === "0" || m === "no") return "off";
@@ -79,7 +79,7 @@ export function adaptiveSizingDayTip(day, rules = {}) {
 }
 
 /** v6 收盘带宽选腿说明（旧 y_tau_map 参数已忽略）。 */
-export function yTauMapScoreTip(_mode, _enter = 0.25) {
+export function yTauMapScoreTip(_mode, _enter = 0) {
   return "v6 收盘带宽：ĉ=ĉ_τ（该根前缀 ŷ_τ）→ /S 映分钟；r=(C/ĉ−1)% 破 ±δ 定正/反T；C=本根5m收价；τ先验把 ŷ_τ 当偏移加到 ±δ，整条带宽平移（宽仍 2δ）；|y_τ|/y_path 入场；|S−1| 超阈跳过。";
 }
 
@@ -139,7 +139,7 @@ export function renderExecutionRulesHtml(execution) {
       "选腿",
       (() => {
         const d =
-          t0.t0_close_band_delta_pct != null ? Number(t0.t0_close_band_delta_pct) : 0.2;
+          t0.t0_close_band_delta_pct != null ? Number(t0.t0_close_band_delta_pct) : 3;
         const rr =
           t0.t0_round_ratio != null ? Math.round(Number(t0.t0_round_ratio) * 100) : 40;
         const mr =
@@ -159,11 +159,11 @@ export function renderExecutionRulesHtml(execution) {
         const r = Number(t0.r_tau_enter);
         const cx = Number(t0.y_complexity_max ?? t0.y_cx_max);
         const tpd = Number(t0.y_tpd_max);
-        const tauLbl = Number.isFinite(tau) ? (tau > 0 ? `|τ|≥${tau}%` : "τ关") : "|τ|≥0.01%";
-        const pathLblG = Number.isFinite(path) ? (path > 0 ? `|path|≥${path}%` : "path关") : "|path|≥0.01%";
-        const rLbl = Number.isFinite(r) ? (r > 0 ? `|R|≥${r}%` : "R关") : "|R|≥0.1%";
+        const tauLbl = Number.isFinite(tau) ? (tau > 0 ? `|τ|≥${tau}%` : "τ关") : "τ关";
+        const pathLblG = Number.isFinite(path) ? (path > 0 ? `|path|≥${path}%` : "path关") : "path关";
+        const rLbl = Number.isFinite(r) ? (r > 0 ? `|R|≥${r}%` : "R关") : "R关";
         const cxLbl = Number.isFinite(cx) ? (cx >= 1 ? "cx关" : `cx≤${cx}`) : "cx关";
-        const tpdLbl = Number.isFinite(tpd) ? (tpd >= 1 ? "tpd关" : `tpd≤${tpd}`) : "tpd≤0.4";
+        const tpdLbl = Number.isFinite(tpd) ? (tpd >= 1 ? "tpd关" : `tpd≤${tpd}`) : "tpd关";
         return `${tauLbl}·${pathLblG}·${rLbl}·${cxLbl}·${tpdLbl}`;
       })(),
       "门槛1：启用时 |y_τ| / |y_path| / |R̂_τ| 入场 + complexity/tpd 风险"
@@ -177,9 +177,9 @@ export function renderExecutionRulesHtml(execution) {
         const r = Number(t0.r_tau_enter_alt);
         const cx = Number(t0.y_complexity_max_alt);
         const tpd = Number(t0.y_tpd_max_alt);
-        const tauLbl = Number.isFinite(tau) ? (tau > 0 ? `|τ|≥${tau}%` : "τ关") : "|τ|≥0.4%";
-        const pathLblG = Number.isFinite(path) ? (path > 0 ? `|path|≥${path}%` : "path关") : "|path|≥0.4%";
-        const rLbl = Number.isFinite(r) ? (r > 0 ? `|R|≥${r}%` : "R关") : "|R|≥0.4%";
+        const tauLbl = Number.isFinite(tau) ? (tau > 0 ? `|τ|≥${tau}%` : "τ关") : "τ关";
+        const pathLblG = Number.isFinite(path) ? (path > 0 ? `|path|≥${path}%` : "path关") : "path关";
+        const rLbl = Number.isFinite(r) ? (r > 0 ? `|R|≥${r}%` : "R关") : "R关";
         const cxLbl = Number.isFinite(cx) ? (cx >= 1 ? "cx关" : `cx≤${cx}`) : "cx关";
         const tpdLbl = Number.isFinite(tpd) ? (tpd >= 1 ? "tpd关" : `tpd≤${tpd}`) : "tpd关";
         return `${tauLbl}·${pathLblG}·${rLbl}·${cxLbl}·${tpdLbl}`;
@@ -194,7 +194,7 @@ export function renderExecutionRulesHtml(execution) {
         const bts = Number(t0.t0_stop_pct_buy_then_sell);
         const stb = Number(t0.t0_stop_pct_sell_then_buy);
         const arm = Number(t0.t0_stop_arm_bars);
-        const armLbl = Number.isFinite(arm) ? `${Math.round(arm)}根` : "2根";
+        const armLbl = Number.isFinite(arm) ? `${Math.round(arm)}根` : "1根";
         const conf = t0.t0_stop_on_close === false ? "触价" : "收盘";
         const fmt = (n) => (Number.isFinite(n) && n > 0 ? `${n}%` : "关");
         return `正${fmt(bts)}/反${fmt(stb)}·${armLbl}·${conf}`;
@@ -297,7 +297,7 @@ export function fillExecutionForm(root, execution) {
   );
   // 表单写死独立；后端仍可读旧 coupling，保存时强制 independent
   set("t0_vs_stance", "independent");
-  set("t0_close_band_delta_pct", t0.t0_close_band_delta_pct != null ? t0.t0_close_band_delta_pct : 0.2);
+  set("t0_close_band_delta_pct", t0.t0_close_band_delta_pct != null ? t0.t0_close_band_delta_pct : 3);
   set("t0_price_space_gate", t0.t0_price_space_gate !== false);
   set(
     "t0_price_space_max_dev_pct",
@@ -314,36 +314,36 @@ export function fillExecutionForm(root, execution) {
   set("y_enter_alt_enabled", t0.y_enter_alt_enabled !== false);
   set("y_tau_enter", (() => {
     const n = Number(t0.y_tau_enter);
-    if (!Number.isFinite(n)) return 0.01;
+    if (!Number.isFinite(n)) return 0;
     return Math.max(0, Math.min(n, 100));
   })());
   set("y_path_enter", (() => {
     const n = Number(t0.y_path_enter);
-    if (!Number.isFinite(n)) return 0.01;
+    if (!Number.isFinite(n)) return 0;
     return Math.max(0, Math.min(n, 100));
   })());
   set("r_tau_enter", (() => {
     const n = Number(t0.r_tau_enter);
-    if (!Number.isFinite(n)) return 0.1;
+    if (!Number.isFinite(n)) return 0;
     return Math.max(0, Math.min(n, 1));
   })());
   set("y_tau_enter_alt", (() => {
     const n = Number(t0.y_tau_enter_alt);
-    if (!Number.isFinite(n)) return 0.4;
+    if (!Number.isFinite(n)) return 0;
     return Math.max(0, Math.min(n, 100));
   })());
   set("y_path_enter_alt", (() => {
     const n = Number(t0.y_path_enter_alt);
-    if (!Number.isFinite(n)) return 0.4;
+    if (!Number.isFinite(n)) return 0;
     return Math.max(0, Math.min(n, 100));
   })());
   set("r_tau_enter_alt", (() => {
     const n = Number(t0.r_tau_enter_alt);
-    if (!Number.isFinite(n)) return 0.4;
+    if (!Number.isFinite(n)) return 0;
     return Math.max(0, Math.min(n, 1));
   })());
   set("y_use_path", t0.y_use_path !== false);
-  set("y_path_strong", t0.y_path_strong != null ? t0.y_path_strong : 0.2);
+  set("y_path_strong", t0.y_path_strong != null ? t0.y_path_strong : 5);
   set(
     "y_complexity_max",
     (() => {
@@ -356,7 +356,7 @@ export function fillExecutionForm(root, execution) {
     "y_tpd_max",
     (() => {
       const n = Number(t0.y_tpd_max);
-      if (!Number.isFinite(n)) return 0.4;
+      if (!Number.isFinite(n)) return 1;
       return Math.max(0, Math.min(n, 1));
     })()
   );
@@ -380,13 +380,13 @@ export function fillExecutionForm(root, execution) {
     "y_tau_leg1_prior_mode",
     normalizeTauLeg1PriorMode(t0.y_tau_leg1_prior_mode, t0.y_tau_leg1_prior)
   );
-  set("y_tau_leg1_prior_risk", t0.y_tau_leg1_prior_risk != null ? t0.y_tau_leg1_prior_risk : 0.1);
+  set("y_tau_leg1_prior_risk", t0.y_tau_leg1_prior_risk != null ? t0.y_tau_leg1_prior_risk : 10);
   set(
     "y_tau_leg1_prior_shift_scale",
     (() => {
       const a =
-        t0.y_tau_leg1_prior_shift_scale != null ? Number(t0.y_tau_leg1_prior_shift_scale) : 0.1;
-      if (!Number.isFinite(a)) return 0.1;
+        t0.y_tau_leg1_prior_shift_scale != null ? Number(t0.y_tau_leg1_prior_shift_scale) : 1;
+      if (!Number.isFinite(a)) return 1;
       return Math.min(1.0, Math.max(0.1, a));
     })()
   );
@@ -420,7 +420,7 @@ export function fillExecutionForm(root, execution) {
   );
   set(
     "t0_stop_arm_bars",
-    t0.t0_stop_arm_bars != null ? t0.t0_stop_arm_bars : 2
+    t0.t0_stop_arm_bars != null ? t0.t0_stop_arm_bars : 1
   );
   set("t0_stop_on_close", t0.t0_stop_on_close !== false);
   _restoreT0Lookback(root);
@@ -454,7 +454,7 @@ export function collectExecutionForm(root) {
     must_cover_same_day_sell_then_buy: chk("must_cover_same_day_sell_then_buy", true),
     must_cover_same_day_buy_then_sell: chk("must_cover_same_day_buy_then_sell", true),
     must_cover_same_day: chk("must_cover_same_day_buy_then_sell", true),
-    t0_close_band_delta_pct: Math.max(0, Math.min(num("t0_close_band_delta_pct", 0.2), 10)),
+    t0_close_band_delta_pct: Math.max(0, Math.min(num("t0_close_band_delta_pct", 3), 10)),
     t0_price_space_gate: chk("t0_price_space_gate", true),
     t0_price_space_max_dev_pct: Math.max(0, Math.min(num("t0_price_space_max_dev_pct", 5), 5)),
     t0_price_space_prev_dev_pct: Math.max(0, Math.min(num("t0_price_space_prev_dev_pct", 5), 5)),
@@ -463,26 +463,26 @@ export function collectExecutionForm(root) {
     t0_slots_max_rounds: Math.max(0, Math.min(Math.round(num("t0_slots_max_rounds", 5)), 16)),
     y_enter_enabled: chk("y_enter_enabled", true),
     y_enter_alt_enabled: chk("y_enter_alt_enabled", true),
-    y_tau_enter: Math.max(0, Math.min(num("y_tau_enter", 0.01), 100)),
-    y_tau_enter_sell_then_buy: Math.max(0, Math.min(num("y_tau_enter", 0.01), 100)),
-    y_tau_enter_buy_then_sell: Math.max(0, Math.min(num("y_tau_enter", 0.01), 100)),
-    y_tau_enter_alt: Math.max(0, Math.min(num("y_tau_enter_alt", 0.4), 100)),
-    y_path_enter: Math.max(0, Math.min(num("y_path_enter", 0.01), 100)),
-    y_path_enter_sell_then_buy: Math.max(0, Math.min(num("y_path_enter", 0.01), 100)),
-    y_path_enter_buy_then_sell: Math.max(0, Math.min(num("y_path_enter", 0.01), 100)),
-    y_path_enter_alt: Math.max(0, Math.min(num("y_path_enter_alt", 0.4), 100)),
-    r_tau_enter: Math.max(0, Math.min(num("r_tau_enter", 0.1), 1)),
-    r_tau_enter_alt: Math.max(0, Math.min(num("r_tau_enter_alt", 0.4), 1)),
+    y_tau_enter: Math.max(0, Math.min(num("y_tau_enter", 0), 100)),
+    y_tau_enter_sell_then_buy: Math.max(0, Math.min(num("y_tau_enter", 0), 100)),
+    y_tau_enter_buy_then_sell: Math.max(0, Math.min(num("y_tau_enter", 0), 100)),
+    y_tau_enter_alt: Math.max(0, Math.min(num("y_tau_enter_alt", 0), 100)),
+    y_path_enter: Math.max(0, Math.min(num("y_path_enter", 0), 100)),
+    y_path_enter_sell_then_buy: Math.max(0, Math.min(num("y_path_enter", 0), 100)),
+    y_path_enter_buy_then_sell: Math.max(0, Math.min(num("y_path_enter", 0), 100)),
+    y_path_enter_alt: Math.max(0, Math.min(num("y_path_enter_alt", 0), 100)),
+    r_tau_enter: Math.max(0, Math.min(num("r_tau_enter", 0), 1)),
+    r_tau_enter_alt: Math.max(0, Math.min(num("r_tau_enter_alt", 0), 1)),
     y_use_path: chk("y_use_path", true),
-    y_path_strong: Math.max(0, Math.min(num("y_path_strong", 0.2), 5)),
+    y_path_strong: Math.max(0, Math.min(num("y_path_strong", 5), 5)),
     y_complexity_max: (() => {
       const n = num("y_complexity_max", 1);
       if (!Number.isFinite(n)) return 1;
       return Math.max(0, Math.min(n, 1));
     })(),
     y_tpd_max: (() => {
-      const n = num("y_tpd_max", 0.4);
-      if (!Number.isFinite(n)) return 0.4;
+      const n = num("y_tpd_max", 1);
+      if (!Number.isFinite(n)) return 1;
       return Math.max(0, Math.min(n, 1));
     })(),
     y_complexity_max_alt: (() => {
@@ -496,13 +496,13 @@ export function collectExecutionForm(root) {
       return Math.max(0, Math.min(n, 1));
     })(),
     y_tau_leg1_prior_mode: normalizeTauLeg1PriorMode(
-      str("y_tau_leg1_prior_mode", "off"),
-      false
+      str("y_tau_leg1_prior_mode", "score"),
+      true
     ),
-    y_tau_leg1_prior_risk: Math.max(0, Math.min(num("y_tau_leg1_prior_risk", 0.1), 100)),
+    y_tau_leg1_prior_risk: Math.max(0, Math.min(num("y_tau_leg1_prior_risk", 10), 100)),
     y_tau_leg1_prior_shift_scale: (() => {
-      const a = num("y_tau_leg1_prior_shift_scale", 0.1);
-      if (!Number.isFinite(a)) return 0.1;
+      const a = num("y_tau_leg1_prior_shift_scale", 1);
+      if (!Number.isFinite(a)) return 1;
       return Math.min(1.0, Math.max(0.1, a));
     })(),
     t0_pm_degrade_sell_then_buy: str("t0_pm_degrade_sell_then_buy", "13:00"),
@@ -522,7 +522,7 @@ export function collectExecutionForm(root) {
     ),
     t0_stop_pct_buy_then_sell: Math.max(0, Math.min(num("t0_stop_pct_buy_then_sell", 1.2), 20)),
     t0_stop_pct_sell_then_buy: Math.max(0, Math.min(num("t0_stop_pct_sell_then_buy", 1.2), 20)),
-    t0_stop_arm_bars: Math.max(0, Math.min(Math.round(num("t0_stop_arm_bars", 2)), 48)),
+    t0_stop_arm_bars: Math.max(0, Math.min(Math.round(num("t0_stop_arm_bars", 1)), 48)),
     t0_stop_on_close: chk("t0_stop_on_close", true),
   };
   t0.y_tau_leg1_prior = t0.y_tau_leg1_prior_mode !== "off";
@@ -539,42 +539,6 @@ export function collectExecutionForm(root) {
   };
 }
 
-/** 同步融合权重文案与模式徽章。 */
-function syncPathMatrixViz(root) {
-  if (!root) return;
-  const num = (name, fallback) => {
-    const el = root.querySelector(`[name="${name}"]`);
-    if (!el || el.value === "") return fallback;
-    const n = Number(el.value);
-    return Number.isFinite(n) ? n : fallback;
-  };
-  const badge = document.getElementById("paper-path-matrix-badge");
-  if (badge) {
-    badge.textContent = "rank_lots";
-    badge.classList.add("is-on");
-    badge.classList.remove("is-linear");
-  }
-  const wt = num("pm_fusion_w_trade", 0.5);
-  const wn = num("pm_fusion_w_nc", 0.5);
-  const sum = wt + wn;
-  const pt = sum > 1e-12 ? Math.round((wt / sum) * 100) : 50;
-  const pn = 100 - pt;
-  const fuseTrade = document.getElementById("pm-viz-fuse-trade");
-  const fuseNc = document.getElementById("pm-viz-fuse-nc");
-  const fuseRatio = document.getElementById("pm-viz-fuse-ratio");
-  if (fuseTrade) {
-    fuseTrade.textContent = `trade ${pt}%`;
-    fuseTrade.style.flex = String(Math.max(pt, 1));
-    fuseTrade.classList.toggle("is-dim", pt <= 0);
-  }
-  if (fuseNc) {
-    fuseNc.textContent = `nc ${pn}%`;
-    fuseNc.style.flex = String(Math.max(pn, 1));
-    fuseNc.classList.toggle("is-dim", pn <= 0);
-  }
-  if (fuseRatio) fuseRatio.textContent = `${pt} : ${pn}`;
-}
-
 /** 毛收益乘数 1.01/1.02、旧 0.20 → 净收益 0.01/0.02。 */
 function coerceRankThreshold(raw, fallback) {
   if (raw == null || raw === "") return fallback;
@@ -587,6 +551,27 @@ function coerceRankThreshold(raw, fallback) {
   }
   if (Math.abs(n - 0.2) < 1e-6) return 0.02;
   return n;
+}
+
+const RANK_PCT_DEFAULT = 1.2;
+
+/** 引擎净收益小数 → 表单百分数（0.012 → 1.2）。 */
+function rankScoreToPct(raw, fallbackPct = RANK_PCT_DEFAULT) {
+  const score = coerceRankThreshold(raw, fallbackPct / 100);
+  const pct = Number(score) * 100;
+  if (!Number.isFinite(pct)) return fallbackPct;
+  return Math.round(Math.max(0, Math.min(10, pct)) * 10) / 10;
+}
+
+/** 表单百分数 → 引擎净收益小数（1.2 → 0.012）。 */
+function rankPctToScore(raw, fallbackPct = RANK_PCT_DEFAULT) {
+  let pct = fallbackPct;
+  if (raw != null && raw !== "") {
+    const n = Number(raw);
+    if (Number.isFinite(n)) pct = n;
+  }
+  const score = pct / 100;
+  return Math.round(Math.max(0, Math.min(0.1, score)) * 10000) / 10000;
 }
 
 /** 从 execution.rebalance_timing.path_matrix 填调仓表单。 */
@@ -610,10 +595,9 @@ export function fillPathMatrixForm(root, execution) {
     if (val == null) return;
     el.value = String(val);
   };
-  set("pm_rank_enter", coerceRankThreshold(pm.rank_enter, 0.01));
-  set("pm_rank_strong", coerceRankThreshold(pm.rank_strong, 0.02));
+  set("pm_rank_enter", rankScoreToPct(pm.rank_enter));
+  set("pm_rank_strong", rankScoreToPct(pm.rank_strong));
   set("pm_y_on_alpha", pm.y_on_alpha != null ? pm.y_on_alpha : 0);
-  set("pm_cash_floor", pm.cash_floor != null ? pm.cash_floor : 500000);
   set(
     "pm_fusion_w_trade",
     pm.fusion_w_trade != null ? pm.fusion_w_trade : 0.5
@@ -622,12 +606,6 @@ export function fillPathMatrixForm(root, execution) {
     "pm_fusion_w_nc",
     pm.fusion_w_nowcast != null ? pm.fusion_w_nowcast : 0.5
   );
-  syncPathMatrixViz(root);
-  if (!root.dataset.pmVizBound) {
-    root.dataset.pmVizBound = "1";
-    root.addEventListener("input", () => syncPathMatrixViz(root));
-    root.addEventListener("change", () => syncPathMatrixViz(root));
-  }
 }
 
 /** 收集 path_matrix 保存体（只改 rebalance_timing，不动 t0）。 */
@@ -639,11 +617,10 @@ export function collectPathMatrixForm(root) {
     const n = Number(el.value);
     return Number.isFinite(n) ? n : fallback;
   };
-  let enter = Math.max(0, Math.min(coerceRankThreshold(num("pm_rank_enter", 0.01), 0.01), 10));
-  let strong = Math.max(0, Math.min(coerceRankThreshold(num("pm_rank_strong", 0.02), 0.02), 10));
+  let enter = rankPctToScore(num("pm_rank_enter", RANK_PCT_DEFAULT));
+  let strong = rankPctToScore(num("pm_rank_strong", RANK_PCT_DEFAULT));
   if (strong < enter) strong = enter;
   const yOnAlpha = Math.max(0, Math.min(num("pm_y_on_alpha", 0), 10));
-  const cashFloor = Math.max(0, Math.min(num("pm_cash_floor", 500000), 1e8));
   let wTrade = Math.max(0, Math.min(num("pm_fusion_w_trade", 0.5), 1));
   let wNc = Math.max(0, Math.min(num("pm_fusion_w_nc", 0.5), 1));
   const wSum = wTrade + wNc;
@@ -663,7 +640,6 @@ export function collectPathMatrixForm(root) {
         rank_enter: enter,
         rank_strong: strong,
         y_on_alpha: Math.round(yOnAlpha * 1000) / 1000,
-        cash_floor: cashFloor,
         fusion_w_trade: Math.round(wTrade * 1000) / 1000,
         fusion_w_nowcast: Math.round(wNc * 1000) / 1000,
       },
@@ -738,7 +714,7 @@ export function collectT0BacktestBody(root, opts = {}) {
       (t0.must_cover_same_day_buy_then_sell ?? t0.must_cover_same_day) !== false,
     must_cover_same_day:
       (t0.must_cover_same_day_buy_then_sell ?? t0.must_cover_same_day) !== false,
-    t0_close_band_delta_pct: t0.t0_close_band_delta_pct != null ? t0.t0_close_band_delta_pct : 0.2,
+    t0_close_band_delta_pct: t0.t0_close_band_delta_pct != null ? t0.t0_close_band_delta_pct : 3,
     t0_price_space_gate: t0.t0_price_space_gate !== false,
     t0_price_space_max_dev_pct:
       t0.t0_price_space_max_dev_pct != null ? t0.t0_price_space_max_dev_pct : 5,
@@ -751,56 +727,56 @@ export function collectT0BacktestBody(root, opts = {}) {
     y_enter_alt_enabled: t0.y_enter_alt_enabled !== false,
     y_tau_enter: (() => {
       const n = Number(t0.y_tau_enter);
-      if (!Number.isFinite(n)) return 0.01;
+      if (!Number.isFinite(n)) return 0;
       return Math.max(0, Math.min(n, 100));
     })(),
     y_tau_enter_sell_then_buy: (() => {
       const n = Number(t0.y_tau_enter_sell_then_buy ?? t0.y_tau_enter);
-      if (!Number.isFinite(n)) return 0.01;
+      if (!Number.isFinite(n)) return 0;
       return Math.max(0, Math.min(n, 100));
     })(),
     y_tau_enter_buy_then_sell: (() => {
       const n = Number(t0.y_tau_enter_buy_then_sell ?? t0.y_tau_enter);
-      if (!Number.isFinite(n)) return 0.01;
+      if (!Number.isFinite(n)) return 0;
       return Math.max(0, Math.min(n, 100));
     })(),
     y_tau_enter_alt: (() => {
       const n = Number(t0.y_tau_enter_alt);
-      if (!Number.isFinite(n)) return 0.4;
+      if (!Number.isFinite(n)) return 0;
       return Math.max(0, Math.min(n, 100));
     })(),
     y_path_enter: (() => {
       const n = Number(t0.y_path_enter);
-      if (!Number.isFinite(n)) return 0.01;
+      if (!Number.isFinite(n)) return 0;
       return Math.max(0, Math.min(n, 100));
     })(),
     y_path_enter_sell_then_buy: (() => {
       const n = Number(t0.y_path_enter_sell_then_buy ?? t0.y_path_enter);
-      if (!Number.isFinite(n)) return 0.01;
+      if (!Number.isFinite(n)) return 0;
       return Math.max(0, Math.min(n, 100));
     })(),
     y_path_enter_buy_then_sell: (() => {
       const n = Number(t0.y_path_enter_buy_then_sell ?? t0.y_path_enter);
-      if (!Number.isFinite(n)) return 0.01;
+      if (!Number.isFinite(n)) return 0;
       return Math.max(0, Math.min(n, 100));
     })(),
     y_path_enter_alt: (() => {
       const n = Number(t0.y_path_enter_alt);
-      if (!Number.isFinite(n)) return 0.4;
+      if (!Number.isFinite(n)) return 0;
       return Math.max(0, Math.min(n, 100));
     })(),
     r_tau_enter: (() => {
       const n = Number(t0.r_tau_enter);
-      if (!Number.isFinite(n)) return 0.1;
+      if (!Number.isFinite(n)) return 0;
       return Math.max(0, Math.min(n, 1));
     })(),
     r_tau_enter_alt: (() => {
       const n = Number(t0.r_tau_enter_alt);
-      if (!Number.isFinite(n)) return 0.4;
+      if (!Number.isFinite(n)) return 0;
       return Math.max(0, Math.min(n, 1));
     })(),
     y_use_path: t0.y_use_path !== false,
-    y_path_strong: t0.y_path_strong != null ? t0.y_path_strong : 0.2,
+    y_path_strong: t0.y_path_strong != null ? t0.y_path_strong : 5,
     y_complexity_max: (() => {
       const n = Number(t0.y_complexity_max ?? t0.y_cx_max);
       if (!Number.isFinite(n)) return 1;
@@ -808,7 +784,7 @@ export function collectT0BacktestBody(root, opts = {}) {
     })(),
     y_tpd_max: (() => {
       const n = Number(t0.y_tpd_max);
-      if (!Number.isFinite(n)) return 0.4;
+      if (!Number.isFinite(n)) return 1;
       return Math.max(0, Math.min(n, 1));
     })(),
     y_complexity_max_alt: (() => {
@@ -825,9 +801,9 @@ export function collectT0BacktestBody(root, opts = {}) {
       t0.y_tau_leg1_prior_mode,
       t0.y_tau_leg1_prior
     ),
-    y_tau_leg1_prior_risk: t0.y_tau_leg1_prior_risk != null ? t0.y_tau_leg1_prior_risk : 0.1,
+    y_tau_leg1_prior_risk: t0.y_tau_leg1_prior_risk != null ? t0.y_tau_leg1_prior_risk : 10,
     y_tau_leg1_prior_shift_scale:
-      t0.y_tau_leg1_prior_shift_scale != null ? t0.y_tau_leg1_prior_shift_scale : 0.1,
+      t0.y_tau_leg1_prior_shift_scale != null ? t0.y_tau_leg1_prior_shift_scale : 1,
     t0_pm_degrade_sell_then_buy: t0.t0_pm_degrade_sell_then_buy != null ? t0.t0_pm_degrade_sell_then_buy : "13:00",
     t0_pm_degrade_buy_then_sell:
       t0.t0_pm_degrade_buy_then_sell ?? t0.t0_pm_degrade ?? "13:00",
@@ -848,7 +824,7 @@ export function collectT0BacktestBody(root, opts = {}) {
       t0.t0_stop_pct_buy_then_sell != null ? t0.t0_stop_pct_buy_then_sell : 1.2,
     t0_stop_pct_sell_then_buy:
       t0.t0_stop_pct_sell_then_buy != null ? t0.t0_stop_pct_sell_then_buy : 1.2,
-    t0_stop_arm_bars: t0.t0_stop_arm_bars != null ? t0.t0_stop_arm_bars : 2,
+    t0_stop_arm_bars: t0.t0_stop_arm_bars != null ? t0.t0_stop_arm_bars : 1,
     t0_stop_on_close: t0.t0_stop_on_close !== false,
   };
   if (t0.min_range_pct_sell_then_buy != null) body.min_range_pct_sell_then_buy = t0.min_range_pct_sell_then_buy;

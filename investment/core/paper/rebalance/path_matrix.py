@@ -31,8 +31,8 @@ DEFAULT_PATH_MATRIX: Dict[str, Any] = {
     "mode": MODE_PATH,  # path | linear
     "buy_floor": None,  # None → 调用方传入 / 回退 0.01
     "hold_floor": None,
-    "rank_enter": 0.01,
-    "rank_strong": 0.02,
+    "rank_enter": 0.012,
+    "rank_strong": 0.012,
     "cash_floor": 500_000.0,
     "path_enter": 0.1,  # |ŷ_path| 横盘门槛（%）
     "path_half": 0.5,  # ≥half → λ=0.5
@@ -93,8 +93,8 @@ def get_path_matrix_cfg(
     out["mode"] = MODE_LINEAR if mode in {"linear", "l0", "score_budget"} else MODE_PATH
     out["enabled"] = bool(out.get("enabled"))
     for key, default, lo, hi in (
-        ("rank_enter", 0.01, 0.0, 10.0),
-        ("rank_strong", 0.02, 0.0, 10.0),
+        ("rank_enter", 0.012, 0.0, 10.0),
+        ("rank_strong", 0.012, 0.0, 10.0),
         ("cash_floor", 500_000.0, 0.0, 1.0e8),
         ("path_enter", 0.1, 0.01, 5.0),
         ("path_half", 0.5, 0.01, 5.0),

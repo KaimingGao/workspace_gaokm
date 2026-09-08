@@ -203,8 +203,10 @@ class QuantReplayMixin:
         persist_curve: bool = True,
         engine: str = "paper_replay",
         y_on_alpha: float = 0.0,
-        rank_enter: float = 0.01,
-        rank_strong: float = 0.02,
+        fusion_w_trade: float = 0.6,
+        fusion_w_nowcast: float = 0.4,
+        rank_enter: float = 0.012,
+        rank_strong: float = 0.012,
     ) -> Dict[str, Any]:
         from core.backtest_service import run_topk as backtest_topk_equal_weight
         from core.strategy import backtest_portfolio_defaults
@@ -275,14 +277,16 @@ class QuantReplayMixin:
             }
 
         if engine_s == "paper_replay":
-            from core.backtest.paper_replay import backtest_paper_replay
-            from core.paper.rebalance.rank_lots import (
-                DEFAULT_CASH_FLOOR,
-                DEFAULT_INITIAL_CASH,
-                DEFAULT_RANK_ENTER,
-                DEFAULT_RANK_STRONG,
-                coerce_rank_threshold,
+            from core.backtest.paper_replay import (
+                REPLAY_CASH_FLOOR,
+                REPLAY_FUSION_W_NOWCAST,
+                REPLAY_FUSION_W_TRADE,
+                REPLAY_INITIAL_CASH,
+                REPLAY_RANK_ENTER,
+                REPLAY_RANK_STRONG,
+                backtest_paper_replay,
             )
+            from core.paper.rebalance.rank_lots import clamp_fusion_weight, coerce_rank_threshold
 
             universe_n = len(stock_bars)
             try:
@@ -292,8 +296,10 @@ class QuantReplayMixin:
             if alpha != alpha:
                 alpha = 0.0
             y_on_alpha = max(0.0, min(1.0, alpha))
-            enter = coerce_rank_threshold(rank_enter, DEFAULT_RANK_ENTER)
-            strong = coerce_rank_threshold(rank_strong, DEFAULT_RANK_STRONG)
+            w_trade = clamp_fusion_weight(fusion_w_trade, REPLAY_FUSION_W_TRADE)
+            w_nowcast = clamp_fusion_weight(fusion_w_nowcast, REPLAY_FUSION_W_NOWCAST)
+            enter = coerce_rank_threshold(rank_enter, REPLAY_RANK_ENTER)
+            strong = coerce_rank_threshold(rank_strong, REPLAY_RANK_STRONG)
             enter = max(0.0, min(1.0, float(enter)))
             strong = max(0.0, min(1.0, float(strong)))
             if strong < enter:
@@ -303,9 +309,11 @@ class QuantReplayMixin:
                 top_k=universe_n,
                 cost_model="simple_cn" if apply_costs else "zero",
                 yhat_horizon_days=1,
-                initial_cash=DEFAULT_INITIAL_CASH,
-                cash_floor=DEFAULT_CASH_FLOOR,
+                initial_cash=REPLAY_INITIAL_CASH,
+                cash_floor=REPLAY_CASH_FLOOR,
                 y_on_alpha=y_on_alpha,
+                fusion_w_trade=w_trade,
+                fusion_w_nowcast=w_nowcast,
                 rank_enter=enter,
                 rank_strong=strong,
                 lookback=int(lookback),
@@ -324,14 +332,17 @@ class QuantReplayMixin:
                 "min_avg_amount_pctile": min_avg_amount_pctile,
                 "benchmark_code": str(benchmark_code or "000300"),
                 "min_predicted_score": min_predicted_score,
-                "initial_cash": DEFAULT_INITIAL_CASH,
-                "cash_floor": DEFAULT_CASH_FLOOR,
+                "initial_cash": REPLAY_INITIAL_CASH,
+                "cash_floor": REPLAY_CASH_FLOOR,
                 "y_on_alpha": y_on_alpha,
+                "fusion_w_trade": w_trade,
+                "fusion_w_nowcast": w_nowcast,
                 "rank_enter": enter,
                 "rank_strong": strong,
                 "score_axis_note": (
                     "引擎=paper_replay：每个交易日 09:30 rank_lots"
-                    "（初始 100 万 · 现金地板 50 万 · y_fuse/y_on · 1000/2000 股；"
+                    "（初始 50 万 · 现金地板 10 万 · y_fuse/y_on · 1000/2000 股；"
+                    f"w_trade={w_trade:g}；w_nowcast={w_nowcast:g}；"
                     f"α={y_on_alpha:g}；入场={enter:g}；强={strong:g}；"
                     f"宇宙=观察池 {universe_n} 只，开加不按纸面 max_positions={max_positions} 截断）；"
                     "现金地板约束实际成交。"
@@ -739,7 +750,7 @@ class QuantReplayMixin:
         """top_k × lookback 网格：不落盘北极星；跳过 IC/分层/基准/WF；按 OOS 过门选优。"""
         top_ks = [int(x) for x in (top_k_values or [10, 15, 20]) if 1 <= int(x) <= 40]
         lookbacks = [
-            int(x) for x in (lookback_values or [120]) if 30 <= int(x) <= 500
+            int(x) for x in (lookback_values or [120]) if 10 <= int(x) <= 500
         ]
         if not top_ks:
             top_ks = [20]
@@ -1080,7 +1091,7 @@ class QuantReplayMixin:
 
         top_ks = [int(x) for x in (kwargs.get("top_k_values") or [10, 15, 20]) if 1 <= int(x) <= 40]
         lookbacks = [
-            int(x) for x in (kwargs.get("lookback_values") or [120]) if 30 <= int(x) <= 500
+            int(x) for x in (kwargs.get("lookback_values") or [120]) if 10 <= int(x) <= 500
         ]
         if not top_ks:
             top_ks = [20]

@@ -337,7 +337,7 @@ function drawDailyActivity(canvas, rows) {
 }
 
 /** y_τ 散点 — 时间轴 + 分区着色 */
-function drawYtauScatter(canvas, points, threshold = 0.25) {
+function drawYtauScatter(canvas, points, threshold = 0) {
   if (!canvas || !points || !points.length) return null;
   const { w, h } = getChartSize(canvas);
   const ctx = setupCanvas(canvas, w, h);
@@ -1127,7 +1127,7 @@ export function renderT0Viz(host, data) {
   }
 
   const ds = viz.direction_split || {};
-  const tauEnter = sm.y_tau_enter != null ? sm.y_tau_enter : 0.25;
+  const tauEnter = sm.y_tau_enter != null ? sm.y_tau_enter : 0;
   const cards = [];
 
   if (viz.cumulative_pnl && viz.cumulative_pnl.length) {

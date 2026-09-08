@@ -49,12 +49,8 @@ export function renderPaperRulesHtml(data) {
       ? timing.path_matrix
       : null;
   if (pm) {
-    const enter = coerceRankChip(pm.rank_enter, 0.01);
-    const strong = coerceRankChip(pm.rank_strong, 0.02);
-    const floor =
-      pm.cash_floor != null
-        ? `${Math.round(Number(pm.cash_floor) / 10000)}万`
-        : "50万";
+    const enter = coerceRankChip(pm.rank_enter, 0.012);
+    const strong = coerceRankChip(pm.rank_strong, 0.012);
     chips.push([
       "rank",
       `入场${(Number(enter) * 100).toFixed(1)}% · 强${(Number(strong) * 100).toFixed(1)}%`,
@@ -63,7 +59,6 @@ export function renderPaperRulesHtml(data) {
     if (Number.isFinite(alpha)) {
       chips.push(["α_on", Number(alpha).toFixed(alpha % 1 === 0 ? 0 : 1)]);
     }
-    chips.push(["现金地板", floor]);
   }
   if (exe.effective_hash) {
     chips.push(["exec", String(exe.effective_hash).slice(0, 8)]);

@@ -246,14 +246,32 @@ export function isRankLotsLedger(legs, dataOrTrades) {
 }
 
 export const BT_LEDGER_TRADE_COLS = [
-  { id: "action", label: "动作", widthPct: 5, widthMin: "2.4rem" },
-  { id: "name", label: "股票", flex: true, flexMin: "5.6rem", title: "点击名称看日线" },
-  { id: "shares", label: "股数", widthPct: 7, num: true, sortable: true },
-  { id: "price", label: "成交价", widthPct: 8, num: true, sortable: true },
+  { id: "action", label: "动作", widthPct: 5, widthMin: "3.4rem" },
+  { id: "name", label: "股票", flex: true, flexMin: "6.8rem", title: "点击名称看日线" },
+  {
+    id: "open_date",
+    label: "开日日期",
+    widthPct: 8,
+    widthMin: "6.8rem",
+    sortable: true,
+    title: "该持仓最早买入日；开仓=当日，加仓/清仓=原开日",
+  },
+  { id: "shares", label: "股数", widthPct: 6, widthMin: "3.6rem", num: true, sortable: true },
+  {
+    id: "basis",
+    label: "成本",
+    widthPct: 8,
+    widthMin: "4.6rem",
+    num: true,
+    sortable: true,
+    title: "累计买入成本：加权成本 × 当前持仓股数；买入含本笔，卖出为卖前持仓",
+  },
+  { id: "price", label: "成交价", widthPct: 7, widthMin: "4.2rem", num: true, sortable: true },
   {
     id: "cost",
     label: "成交额",
-    widthPct: 8,
+    widthPct: 7,
+    widthMin: "4.4rem",
     num: true,
     sortable: true,
     title: "股数 × 成交价",
@@ -261,15 +279,26 @@ export const BT_LEDGER_TRADE_COLS = [
   {
     id: "y_fuse",
     label: "y_fuse",
-    widthPct: 16,
+    widthPct: 12,
+    widthMin: "8.8rem",
     num: true,
     sortable: true,
-    title: "格式 预估(真实)。真实=收盘/昨收。下行 trade / nowcast。对照用，不进决策。",
+    title: "格式 预估(真实)。真实=收盘/昨收。对照用，不进决策。",
+  },
+  {
+    id: "y_tau",
+    label: "y_τ",
+    widthPct: 12,
+    widthMin: "8.8rem",
+    num: true,
+    sortable: true,
+    title: "格式 预估(真实)，与 y_fuse 预估同一套百分数。预估=ŷ_τ；真实=收盘/开盘。对照用，不进决策。",
   },
   {
     id: "y_on",
     label: "y_on",
-    widthPct: 16,
+    widthPct: 12,
+    widthMin: "8.8rem",
     num: true,
     sortable: true,
     title: "格式 预估(真实)。真实=次日开/今日收。对照用，不进决策。",
@@ -278,9 +307,10 @@ export const BT_LEDGER_TRADE_COLS = [
     id: "ranking",
     label: "ranking",
     widthPct: 11,
+    widthMin: "5.4rem",
     num: true,
     sortable: true,
-    title: "ranking = (1+y_fuse/100)×(1+α×y_on/100)−1，展示百分数。α 默认 0（隔夜不参与）。<0% 清仓；>1% 入场；>2% 强手。",
+    title: "ranking = (1+y_fuse/100)×(1+α×y_on/100)−1，展示百分数。α 默认 0（隔夜不参与）。<0% 清仓；过 Rank入场% 建仓；过 Rank强% 买 2000 股。",
   },
 ];
 
@@ -299,6 +329,49 @@ export function sortLedgerTradeLegs(legs) {
     const sr = sideRank(a) - sideRank(b);
     if (sr) return sr;
     return String(a.stock_code || "").localeCompare(String(b.stock_code || ""), "zh-CN");
+  });
+}
+
+export function attachLedgerOpenCost(legs) {
+  const pos = Object.create(null);
+  return (legs || []).map((raw) => {
+    const r = { ...raw };
+    const code = String(r.stock_code || "").trim();
+    const day = String(r.as_of || r.signal_date || r.ts || "").slice(0, 10);
+    const skipped = String(r.status || "") === "skipped";
+    const side = String(r.side || "").toLowerCase();
+    const px = _numOrNull(
+      r.price != null ? r.price : side === "buy" ? r.entry_price : r.exit_price
+    );
+    const sh = _numOrNull(r.shares);
+    const book = pos[code];
+    let openDate = String(r.open_date || "").slice(0, 10);
+    let cumCost = _numOrNull(r.cum_cost);
+    if (side === "buy") {
+      if (!openDate) openDate = (book && book.open_date) || day;
+      if (!skipped && px != null && sh != null && sh > 0) {
+        if (!book) {
+          pos[code] = { open_date: openDate || day, shares: sh, cost: px };
+        } else {
+          const tot = book.shares + sh;
+          if (tot > 0) book.cost = (book.cost * book.shares + px * sh) / tot;
+          book.shares = tot;
+        }
+        if (cumCost == null && pos[code]) {
+          cumCost = pos[code].cost * pos[code].shares;
+        }
+      }
+    } else if (side === "sell") {
+      if (!openDate && book) openDate = book.open_date;
+      if (cumCost == null && book) cumCost = book.cost * book.shares;
+      if (!skipped && book && sh != null && sh > 0) {
+        book.shares -= sh;
+        if (book.shares <= 1e-6) delete pos[code];
+      }
+    }
+    r.open_date = openDate || "";
+    r.cum_cost = cumCost;
+    return r;
   });
 }
 
@@ -349,16 +422,15 @@ export function buildLedgerTradeRow(r, i, deps) {
   const skipped = String(r.status || "") === "skipped";
   const yf = _numOrNull(r.y_fuse != null ? r.y_fuse : r.predicted_score);
   const yo = _numOrNull(r.y_on);
+  const ytau = _numOrNull(
+    r.y_tau != null ? r.y_tau : r.predicted_score_tau
+  );
   const rk = _numOrNull(r.ranking_score);
   const yt = _numOrNull(r.y_trade);
   const yn = _numOrNull(r.y_nowcast);
-  const rankI = _numOrNull(r.rank_i);
-  const rankN = _numOrNull(r.rank_n);
   const rCc = _numOrNull(r.realized_cc);
   const rOn = _numOrNull(r.realized_on);
-  const cash = _numOrNull(r.cash_after);
-  const nHold = _numOrNull(r.n_holdings);
-  const equity = _numOrNull(r.equity_after);
+  const rTau = _numOrNull(r.realized_tau);
   const act = _actionMeta(r);
   const fuseTip = [
     yf != null ? `y_fuse ${fmtScore(yf)}` : "",
@@ -374,14 +446,24 @@ export function buildLedgerTradeRow(r, i, deps) {
   ]
     .filter(Boolean)
     .join(" · ");
+  const tauTip = [
+    ytau != null ? `y_τ ${fmtScore(ytau, { signed: true })}` : "",
+    rTau != null ? `真实 收盘/开盘 ${fmtScore(rTau, { signed: true })}` : "真实 —",
+  ]
+    .filter(Boolean)
+    .join(" · ");
   const sharesNum = skipped ? null : _numOrNull(r.shares);
   const priceNum = skipped
     ? null
     : _numOrNull(r.price != null ? r.price : buy ? r.entry_price : r.exit_price);
   const costNum = sharesNum != null && priceNum != null ? sharesNum * priceNum : null;
+  const basisNum = skipped ? null : _numOrNull(r.cum_cost);
+  const openDate = String(r.open_date || "").slice(0, 10);
   return {
     code: `led-${i}-${code}-${r.as_of || ""}-${side}-${skipped ? "skip" : "fill"}`,
     date: String(r.as_of || r.signal_date || r.ts || "").slice(0, 10) || "—",
+    openDate: openDate || "—",
+    open_date: openDate || "—",
     side,
     skipped,
     actionKey: act.key,
@@ -392,18 +474,18 @@ export function buildLedgerTradeRow(r, i, deps) {
     sharesText: skipped ? "—" : _fmtNum(r.shares, 0),
     priceNum,
     priceText: skipped ? "—" : _fmtNum(priceNum, 2),
+    basisNum,
+    basisText: skipped || basisNum == null ? "—" : _fmtWan(basisNum),
     costNum,
     costText: costNum == null ? "—" : _fmtWan(costNum),
     y_fuseNum: yf,
     y_fuseText: fmtScore(yf, { signed: true }),
     y_fuseCls: _scoreClsOf(scoreCls, yf),
     y_fuseTip: fuseTip,
-    y_tradeNum: yt,
-    y_tradeText: fmtScore(yt),
-    y_tradeCls: _scoreClsOf(scoreCls, yt),
-    y_nowcastNum: yn,
-    y_nowcastText: fmtScore(yn),
-    y_nowcastCls: _scoreClsOf(scoreCls, yn),
+    y_tauNum: ytau,
+    y_tauText: fmtScore(ytau, { signed: true }),
+    y_tauCls: _scoreClsOf(scoreCls, ytau),
+    y_tauTip: tauTip,
     y_onNum: yo,
     y_onText: fmtScore(yo, { signed: true }),
     y_onCls: _scoreClsOf(scoreCls, yo),
@@ -417,17 +499,9 @@ export function buildLedgerTradeRow(r, i, deps) {
     realizedOnNum: rOn,
     realizedOnText: rOn == null ? "" : fmtScore(rOn, { signed: true }),
     realizedOnCls: _scoreClsOf(scoreCls, rOn),
-    rankNum: rankI,
-    rankText: rankI != null && rankN != null ? `${rankI}/${rankN}` : rankI != null ? String(rankI) : "—",
-    cashNum: cash,
-    cashText: _fmtWan(cash),
-    cashTip: [
-      cash != null ? `日终现金 ${_fmtWan(cash)}` : "",
-      nHold != null ? `持仓 ${nHold} 只` : "",
-      equity != null ? `净值 ${_fmtWan(equity)}` : "",
-    ]
-      .filter(Boolean)
-      .join(" · "),
+    realizedTauNum: rTau,
+    realizedTauText: rTau == null ? "" : fmtScore(rTau, { signed: true }),
+    realizedTauCls: _scoreClsOf(scoreCls, rTau),
   };
 }
 
@@ -477,7 +551,7 @@ export function buildLedgerDayRow(day, meta) {
 }
 
 export function buildLedgerTradeRows(legs, deps) {
-  const sorted = sortLedgerTradeLegs(legs);
+  const sorted = attachLedgerOpenCost(sortLedgerTradeLegs(legs));
   const out = [];
   let lastDay = "";
   sorted.forEach((r, i) => {
@@ -501,6 +575,7 @@ export function ledgerTradesCaptionHtml() {
 export function buildLedgerTradesCsv(rows, nameByCode = {}) {
   const header = [
     "date",
+    "open_date",
     "status",
     "action",
     "side",
@@ -508,20 +583,23 @@ export function buildLedgerTradesCsv(rows, nameByCode = {}) {
     "stock_name",
     "shares",
     "price",
+    "cum_cost",
     "cost",
     "y_fuse",
+    "y_tau",
     "y_trade",
     "y_nowcast",
     "y_on",
     "ranking_score",
     "realized_cc",
+    "realized_tau",
     "realized_on",
     "cash_after",
     "n_holdings",
     "equity_after",
   ];
   const lines = [header.join(",")];
-  for (const r of sortLedgerTradeLegs(rows)) {
+  for (const r of attachLedgerOpenCost(sortLedgerTradeLegs(rows))) {
     const code = String(r.stock_code || "").trim();
     const name = nameByCode[code] || r.stock_name || "";
     const sh = Number(r.shares);
@@ -529,6 +607,7 @@ export function buildLedgerTradesCsv(rows, nameByCode = {}) {
     const cost = Number.isFinite(sh) && Number.isFinite(px) ? sh * px : "";
     const cells = [
       String(r.as_of || r.signal_date || r.ts || "").slice(0, 10),
+      String(r.open_date || "").slice(0, 10),
       r.status || "",
       r.action || r.matrix_action || "",
       r.side || "",
@@ -536,8 +615,10 @@ export function buildLedgerTradesCsv(rows, nameByCode = {}) {
       name,
       r.shares ?? "",
       r.price ?? "",
+      r.cum_cost ?? "",
       cost,
       r.y_fuse ?? r.predicted_score ?? "",
+      r.y_tau ?? r.predicted_score_tau ?? "",
       r.y_trade ?? "",
       r.y_nowcast ?? "",
       r.y_on ?? "",
@@ -545,6 +626,7 @@ export function buildLedgerTradesCsv(rows, nameByCode = {}) {
         ? (Number(r.ranking_score) * 100).toFixed(4)
         : "",
       r.realized_cc ?? "",
+      r.realized_tau ?? "",
       r.realized_on ?? "",
       r.cash_after ?? "",
       r.n_holdings ?? "",
@@ -781,13 +863,12 @@ const BT_TRADES_NUM_KEYS = {
   score_nowcast: "scoreNowcastNum",
   shares: "sharesNum",
   price: "priceNum",
+  basis: "basisNum",
   cost: "costNum",
-  amount: "amountNum",
   y_fuse: "y_fuseNum",
+  y_tau: "y_tauNum",
   y_on: "y_onNum",
   ranking: "rankingNum",
-  rank: "rankNum",
-  cash: "cashNum",
 };
 
 /** Virtual-table compare callback for sim trades. */
@@ -848,23 +929,16 @@ function _predRealHtml(predText, predCls, realText, realCls, escapeHtml) {
     `<span class="bt-trade-score bt-stack-main paper-hold-score ${escapeHtml(
       predCls || ""
     )}">${escapeHtml(pred)}</span>` +
-    `<span class="bt-pair-sep">(</span>` +
     `<span class="bt-pair-real paper-hold-score ${escapeHtml(
       hasReal ? realCls || "" : "score-na"
-    )}">${escapeHtml(real)}</span>` +
-    `<span class="bt-pair-sep">)</span>` +
+    )}">(${escapeHtml(real)})</span>` +
     `</span>`
   );
 }
 
-function _stackScoreHtml(topHtml, parts, tip, escapeHtml) {
+function _stackScoreHtml(topHtml, tip, escapeHtml) {
   const t = tip ? ` title="${escapeHtml(tip)}"` : "";
-  return (
-    `<span class="bt-stack-score"${t}>` +
-    `<span class="bt-stack-top">${topHtml}</span>` +
-    (parts ? `<span class="bt-stack-parts">${parts}</span>` : "") +
-    `</span>`
-  );
+  return `<span class="bt-stack-score"${t}>${topHtml}</span>`;
 }
 
 /**
@@ -886,40 +960,36 @@ export function btTradesCellHtml(col, d, deps) {
       `<span class="watching-code-sub">${escapeHtml(d.stock_code)}</span></div>`
     );
   }
-  if (col.id === "date") return escapeHtml(d.date || "—");
+  if (col.id === "open_date") return escapeHtml(d.openDate || "—");
   if (col.id === "action") {
     const cls = d.actionKey ? `bt-trade-action is-${d.actionKey}` : "bt-trade-action";
     return `<span class="${cls}">${escapeHtml(d.actionText || "—")}</span>`;
   }
-  if (col.id === "side") {
-    const cls = d.side === "buy" ? "up" : d.side === "sell" ? "down" : "";
-    return `<span class="bt-trade-side ${cls}">${escapeHtml(d.sideText || d.actionText || "—")}</span>`;
-  }
   if (col.id === "shares") return escapeHtml(d.sharesText || "—");
   if (col.id === "price") return escapeHtml(d.priceText || "—");
+  if (col.id === "basis") {
+    return `<span class="bt-trade-cash">${escapeHtml(d.basisText || "—")}</span>`;
+  }
   if (col.id === "cost") {
     return `<span class="bt-trade-cash">${escapeHtml(d.costText || "—")}</span>`;
   }
-  if (col.id === "amount") return escapeHtml(d.amountText || "—");
   if (col.id === "y_fuse") {
-    const bits = [];
-    bits.push(
-      `<span class="bt-stack-k">trade</span> ${escapeHtml(d.y_tradeText || "—")}`
-    );
-    bits.push(
-      `<span class="bt-stack-k">nowcast</span> ${escapeHtml(d.y_nowcastText || "—")}`
-    );
     return _stackScoreHtml(
       _predRealHtml(d.y_fuseText, d.y_fuseCls, d.realizedCcText, d.realizedCcCls, escapeHtml),
-      bits.join("<span class=\"bt-stack-sep\">·</span>"),
       d.y_fuseTip,
+      escapeHtml
+    );
+  }
+  if (col.id === "y_tau") {
+    return _stackScoreHtml(
+      _predRealHtml(d.y_tauText, d.y_tauCls, d.realizedTauText, d.realizedTauCls, escapeHtml),
+      d.y_tauTip,
       escapeHtml
     );
   }
   if (col.id === "y_on") {
     return _stackScoreHtml(
       _predRealHtml(d.y_onText, d.y_onCls, d.realizedOnText, d.realizedOnCls, escapeHtml),
-      `<span class="bt-stack-ph" aria-hidden="true">&nbsp;</span>`,
       d.y_onTip,
       escapeHtml
     );
@@ -929,17 +999,11 @@ export function btTradesCellHtml(col, d, deps) {
       `<span class="bt-trade-score bt-stack-main paper-hold-score ${escapeHtml(
         d.rankingCls || ""
       )}">${escapeHtml(d.rankingText || "—")}</span>`,
-      "",
       d.rankingText && d.rankingText !== "—"
         ? `ranking ${d.rankingText} = (1+y_fuse/100)×(1+α×y_on/100)−1，展示百分数`
         : "",
       escapeHtml
     );
-  }
-  if (col.id === "rank") return escapeHtml(d.rankText || "—");
-  if (col.id === "cash") {
-    const tip = d.cashTip ? ` title="${escapeHtml(d.cashTip)}"` : "";
-    return `<span class="bt-trade-cash"${tip}>${escapeHtml(d.cashText || "—")}</span>`;
   }
   if (col.id === "ret") {
     return `<span class="bt-trade-ret ${d.retCls || ""}">${escapeHtml(d.retText)}</span>`;

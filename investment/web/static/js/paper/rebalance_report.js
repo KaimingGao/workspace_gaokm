@@ -230,14 +230,6 @@ function renderRebalanceReport(
           : "";
       note += ` · 换手软上限已截断买入${cap}`;
     }
-    if (
-      preview &&
-      cashImpact &&
-      cashImpact.cash_floor != null &&
-      Number(cashImpact.cash_floor) > 0
-    ) {
-      note += ` · 现金地板≥${Number(cashImpact.cash_floor).toLocaleString("zh-CN")}元`;
-    }
     const tauGate = dualScore && dualScore.tau_gate;
     if (
       preview &&

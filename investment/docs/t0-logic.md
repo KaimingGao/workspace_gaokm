@@ -139,8 +139,8 @@ if r > upper:  → 反 T
 if r < lower:  → 正 T
 ```
 
-- 默认 `y_tau_leg1_prior_mode=off`：对称门槛 `±δ`
-- `score` 模式：按 `ŷ_τ` 平移门槛（同向放宽、反向收紧）
+- 默认 `y_tau_leg1_prior_mode=score`：按 `ŷ_τ` 平移门槛（同向放宽、反向收紧）；`k=10`，`α=1`
+- `off`：对称门槛 `±δ`
 
 ### 4.4 入场门槛（`close_band_enter_skip_reason`）
 
@@ -148,14 +148,14 @@ if r < lower:  → 正 T
 
 | 档 | 启用 | `|y_τ|` | `|y_path|` | `|R̂_τ|` | `ŷ_complexity` | `ŷ_tpd` |
 |----|------|---------|------------|---------|----------------|---------|
-| 门槛1 | `y_enter_enabled` 默认开 | `y_tau_enter` 默认 0.01 | `y_path_enter` 默认 0.01 | `r_tau_enter` 默认 0.1 | `y_complexity_max` 默认 1.0≈关 | `y_tpd_max` 默认 0.40 |
-| 门槛2 | `y_enter_alt_enabled` 默认开 | `y_tau_enter_alt` 默认 0.40 | `y_path_enter_alt` 默认 0.40 | `r_tau_enter_alt` 默认 0.40 | `y_complexity_max_alt` 默认 1.0≈关 | `y_tpd_max_alt` 默认 1.0≈关 |
+| 门槛1 | `y_enter_enabled` 默认开 | `y_tau_enter` 默认 0（关） | `y_path_enter` 默认 0（关幅度） | `r_tau_enter` 默认 0（关） | `y_complexity_max` 默认 1.0≈关 | `y_tpd_max` 默认 1.0≈关 |
+| 门槛2 | `y_enter_alt_enabled` 默认开 | `y_tau_enter_alt` 默认 0（关） | `y_path_enter_alt` 默认 0（关幅度） | `r_tau_enter_alt` 默认 0（关） | `y_complexity_max_alt` 默认 1.0≈关 | `y_tpd_max_alt` 默认 1.0≈关 |
 
 关启用则该档不参与 OR；两档都关则破带也不开腿。缺键时门槛2 五项跟随门槛1。缺 path / 分钟缺失共用，不能被门槛2 绕过。两档都未过时跳过文案写「门槛1 …；门槛2 …」。
 
 ### 4.5 强信号同号闸（`close_band_sign_skip_reason`）
 
-`|ŷ_path| > y_path_strong` 时，`ŷ_path` 须与 `ŷ_τ` **同号**，异号跳过。trade/eod 强闸已下线，仅保留 path。
+`|ŷ_path| > y_path_strong`（默认 5%）时，`ŷ_path` 须与 `ŷ_τ` **同号**，异号跳过。trade/eod 强闸已下线，仅保留 path。
 
 ---
 
@@ -242,7 +242,7 @@ bound = ref × (1 + move_pct / 100)
 | 正 T | 跌破 `买价 × (1 − stop_pct%)` | `t0_stop_pct_buy_then_sell`（默认 1.2%） |
 | 反 T | 涨破 `卖价 × (1 + stop_pct%)` | `t0_stop_pct_sell_then_buy`（默认 1.2%） |
 
-- 延迟 `t0_stop_arm_bars`（默认 2 根）后生效
+- 延迟 `t0_stop_arm_bars`（默认 1 根）后生效
 - 默认 `t0_stop_on_close=True`（收盘确认），关则触价即止损
 - 止损 leg2 不受 τ 出场价闸约束
 
@@ -351,22 +351,26 @@ bound = ref × (1 + move_pct / 100)
 | `t0_round_ratio` | 0.4 | 每轮开仓比例 |
 | `t0_max_position_pct` | 1.0 | 累计最大动仓比例 |
 | `t0_slots_max_rounds` | 5 | 最大轮数 |
-| `t0_close_band_delta_pct` | 0.2 | 收盘带宽半宽 δ（%） |
-| `y_tau_leg1_prior_risk` | 0.1 | score 偏移灵敏度 k（0–100）；s=k·ŷ_τ，再经 α·δ 封顶 |
+| `t0_close_band_delta_pct` | 3.0 | 收盘带宽半宽 δ（%） |
+| `y_tau_leg1_prior_mode` | score | τ先验：抬门槛平移整条带宽 |
+| `y_tau_leg1_prior_risk` | 10 | score 偏移灵敏度 k（0–100）；s=k·ŷ_τ，再经 α·δ 封顶 |
+| `y_tau_leg1_prior_shift_scale` | 1.0 | 带宽最多漂移 α·δ |
 | `must_cover_same_day` | True | 收盘强制回补 |
 | `t0_pm_degrade` | 13:00 | 午后禁新开 leg1 |
 | `t0_stop_pct_*` | 1.2 | 止损百分比 |
-| `t0_stop_arm_bars` | 2 | 止损延迟根数 |
+| `t0_stop_arm_bars` | 1 | 止损延迟根数 |
 | `y_enter_enabled` | True | 门槛1 启用（关则本档不参与 OR） |
 | `y_enter_alt_enabled` | True | 门槛2 启用（关则本档不参与 OR） |
-| `r_tau_enter` | 0.1 | 门槛1 \|R̂_τ\| 入场下限（%；0=关） |
-| `r_tau_enter_alt` | 0.40 | 门槛2 \|R̂_τ\| 入场下限（%；0=关） |
-| `y_tau_enter` | 0.01 | 门槛1 \|y_τ\| 入场下限（%；0=关） |
-| `y_tau_enter_alt` | 0.40 | 门槛2 \|y_τ\| 入场下限（%；0=关） |
-| `y_path_enter` | 0.01 | 门槛1 \|y_path\| 入场下限（%；0=关幅度） |
-| `y_path_enter_alt` | 0.40 | 门槛2 \|y_path\| 入场下限（%；0=关幅度） |
+| `r_tau_enter` | 0 | 门槛1 \|R̂_τ\| 入场下限（%；0=关） |
+| `r_tau_enter_alt` | 0 | 门槛2 \|R̂_τ\| 入场下限（%；0=关） |
+| `y_tau_enter` | 0 | 门槛1 \|y_τ\| 入场下限（%；0=关） |
+| `y_tau_enter_alt` | 0 | 门槛2 \|y_τ\| 入场下限（%；0=关） |
+| `y_path_enter` | 0 | 门槛1 \|y_path\| 入场下限（%；0=关幅度） |
+| `y_path_enter_alt` | 0 | 门槛2 \|y_path\| 入场下限（%；0=关幅度） |
+| `y_path_strong` | 5 | \|y_path\| 超此值须与 y_τ 同号 |
+| `y_use_path` | True | 须有 y_path（缺则跳过） |
 | `y_complexity_max` | 1.0 | 门槛1 复杂度上限（0–1；≈关） |
-| `y_tpd_max` | 0.40 | 门槛1 拐点密度上限（0–1） |
+| `y_tpd_max` | 1.0 | 门槛1 拐点密度上限（0–1；≈关） |
 | `y_complexity_max_alt` | 1.0 | 门槛2 复杂度上限（0–1；≈关） |
 | `y_tpd_max_alt` | 1.0 | 门槛2 拐点密度上限（≈关） |
 | `t0_price_space_max_dev_pct` | 5.0 | 价空间偏差上限（%） |

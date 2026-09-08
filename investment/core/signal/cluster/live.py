@@ -333,6 +333,45 @@ def filter_primary_cluster_models_by_code(
     return out
 
 
+def _detach_thin_cluster_models(artifact: Dict[str, Any]) -> List[str]:
+    """n_obs 不足的组不把 β 写进 live；成员回退全局模型。"""
+    from core.research.beta_accuracy import fingerprint_blocker_is_group_local
+
+    thin: List[str] = []
+    thin_set = set()
+    for cl in artifact.get("clusters") or []:
+        if not isinstance(cl, dict):
+            continue
+        rm = cl.get("return_model") if isinstance(cl.get("return_model"), dict) else {}
+        fp = rm.get("sample_fingerprint") if isinstance(rm.get("sample_fingerprint"), dict) else None
+        if not isinstance(fp, dict):
+            ols = cl.get("ols") if isinstance(cl.get("ols"), dict) else {}
+            fp = ols.get("sample_fingerprint") if isinstance(ols.get("sample_fingerprint"), dict) else None
+        if not isinstance(fp, dict) or fp.get("promote_ok") is not False:
+            continue
+        blockers = [str(b) for b in (fp.get("blockers") or [])]
+        if not blockers or not all(
+            fingerprint_blocker_is_group_local(b, from_group=True) for b in blockers
+        ):
+            continue
+        lab = str(cl.get("label") or cl.get("cluster_label") or "").strip()
+        if lab:
+            thin.append(lab)
+            thin_set.add(lab)
+        cl["return_model"] = None
+        cl["thin_unmapped"] = True
+    cmap = artifact.get("code_map")
+    if isinstance(cmap, dict):
+        for meta in cmap.values():
+            if not isinstance(meta, dict):
+                continue
+            lab = str(meta.get("cluster_label") or meta.get("label") or "").strip()
+            if lab in thin_set:
+                meta.pop("return_model", None)
+                meta["thin_unmapped"] = True
+    return thin
+
+
 def _validate_artifact_for_promote(artifact: Dict[str, Any]) -> Optional[str]:
     from core.signal.config import get_scoring_horizon_days
     from core.signal.factors.meta.coefs import has_factor_coefficients
@@ -351,20 +390,15 @@ def _validate_artifact_for_promote(artifact: Dict[str, Any]) -> Optional[str]:
         )
 
     # B1：样本指纹 / 验证宇宙不足则拒绝 promote（force 可豁免）
+    from core.research.beta_accuracy import fingerprint_blocker_is_group_local
+
     fp = artifact.get("sample_fingerprint")
     if isinstance(fp, dict) and fp.get("promote_ok") is False:
         blockers = []
         for b in fp.get("blockers") or []:
             bs = str(b)
-            # 历史产物里单票/双票组的 n_names<3 不再硬拦
-            if ("n_names=" in bs and "min_names=" in bs) or bs.startswith("组内：n_names="):
-                try:
-                    part = bs.split("n_names=")[1].split("<")[0].strip()
-                    if int(float(part)) < 3:
-                        continue
-                except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-                    logger.debug("catch except Exception: in cluster_live.py", exc_info=True)
-                    pass
+            if fingerprint_blocker_is_group_local(bs):
+                continue
             blockers.append(bs)
         if blockers:
             return "样本指纹未过：" + ("；".join(blockers[:4]) or "n 不足")
@@ -385,8 +419,16 @@ def _validate_artifact_for_promote(artifact: Dict[str, Any]) -> Optional[str]:
         lab = str(cl.get("label") or cl.get("cluster_label") or "")
         rm = cl.get("return_model")
         if lab and isinstance(rm, dict) and has_factor_coefficients(rm):
-            by_label_rm[lab] = rm
-        # 组级指纹不足也拦
+            gfp_rm = rm.get("sample_fingerprint") if isinstance(rm.get("sample_fingerprint"), dict) else None
+            thin = False
+            if isinstance(gfp_rm, dict) and gfp_rm.get("promote_ok") is False:
+                thin = all(
+                    fingerprint_blocker_is_group_local(str(b), from_group=True)
+                    for b in (gfp_rm.get("blockers") or [])
+                ) and bool(gfp_rm.get("blockers"))
+            if not thin:
+                by_label_rm[lab] = rm
+        # 组级指纹不足也拦（n_obs 不足只摘掉该组，不否整份）
         gfp = None
         if isinstance(rm, dict):
             gfp = rm.get("sample_fingerprint")
@@ -394,18 +436,11 @@ def _validate_artifact_for_promote(artifact: Dict[str, Any]) -> Optional[str]:
             ols = cl.get("ols") if isinstance(cl.get("ols"), dict) else {}
             gfp = ols.get("sample_fingerprint")
         if isinstance(gfp, dict) and gfp.get("promote_ok") is False:
-            # 小组员数不足 3：聚类允许单票/双票组，不因此拒晋升
             bad = []
             for b in gfp.get("blockers") or []:
                 bs = str(b)
-                if "n_names=" in bs and "min_names=" in bs:
-                    try:
-                        n_part = bs.split("n_names=")[1].split("<")[0].strip()
-                        if int(float(n_part)) < 3:
-                            continue
-                    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-                        logger.debug("catch except Exception: in cluster_live.py", exc_info=True)
-                        pass
+                if fingerprint_blocker_is_group_local(bs, from_group=True):
+                    continue
                 bad.append(bs)
             if not bad:
                 continue
@@ -539,6 +574,7 @@ def promote_cluster_artifact(
         resolve_cluster_weights_path,
     )
 
+    _detach_thin_cluster_models(artifact)
     err = _validate_artifact_for_promote(artifact)
     if err and not force:
         return {"success": False, "error": err, "task": "cluster_promote"}

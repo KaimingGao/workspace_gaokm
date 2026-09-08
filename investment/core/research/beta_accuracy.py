@@ -118,6 +118,31 @@ def sample_fingerprint(
     }
 
 
+MIN_CLUSTER_OBS = 24
+
+
+def fingerprint_blocker_is_group_local(msg: str, *, from_group: bool = False) -> bool:
+    """组级拦阻不连坐整份产物：单票/双票 n_names，或该组 n_obs 不足。
+
+    次新单独成组时 n_obs<24，应跳过该组回退全局 β，不应否掉其余组的对照/promote。
+    全产物自己的 ``n_obs < min_obs``（无「组内：」前缀）仍硬拦。
+    """
+    s = str(msg or "")
+    tagged = s.startswith("组内：")
+    if tagged:
+        s = s[len("组内：") :]
+    if "n_names=" in s and "min_names=" in s:
+        try:
+            n_part = s.split("n_names=")[1].split("<")[0].strip()
+            if int(float(n_part)) < 3:
+                return True
+        except (TypeError, ValueError):
+            pass
+    if (tagged or from_group) and "n_obs=" in s and "min_obs=" in s:
+        return True
+    return False
+
+
 def dates_span_from_panel_rows(
     xs: Sequence[Dict[str, Any]],
     *,

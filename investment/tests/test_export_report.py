@@ -53,7 +53,7 @@ class TestHtmlExport(unittest.TestCase):
         }
         html = render_quant_report_html(report)
         self.assertIn("<!DOCTYPE html>", html)
-        self.assertIn("Top-K 回测摘要", html)
+        self.assertIn("历史回测摘要", html)
         out = export_quant_report(report, fmt="html")
         self.assertTrue(out["success"])
         self.assertEqual(out["format"], "html")
@@ -246,7 +246,7 @@ class TestP27ExecutiveSummary(unittest.TestCase):
     def test_markdown_includes_summary_section(self):
         md = render_quant_report_markdown(self._sample_report())
         self.assertIn("一页摘要", md)
-        self.assertIn("## Top-K 回测摘要", md)
+        self.assertIn("## 历史回测摘要", md)
     def test_html_includes_summary_section(self):
         html = render_quant_report_html(self._sample_report())
         self.assertIn("一页摘要", html)

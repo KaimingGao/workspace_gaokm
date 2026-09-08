@@ -121,8 +121,10 @@ class TestT3WeightMode(unittest.TestCase):
         self.assertEqual(body.max_position_pct, 25.0)
         self.assertEqual(body.engine, "paper_replay")
         self.assertEqual(body.y_on_alpha, 0.0)
-        self.assertEqual(body.rank_enter, 0.01)
-        self.assertEqual(body.rank_strong, 0.02)
+        self.assertEqual(body.fusion_w_trade, 0.6)
+        self.assertEqual(body.fusion_w_nowcast, 0.4)
+        self.assertEqual(body.rank_enter, 0.012)
+        self.assertEqual(body.rank_strong, 0.012)
 
     def test_portfolio_request_y_on_alpha_range(self):
         from pydantic import ValidationError
@@ -134,6 +136,20 @@ class TestT3WeightMode(unittest.TestCase):
             PortfolioBacktestRequest(y_on_alpha=1.1)
         with self.assertRaises(ValidationError):
             PortfolioBacktestRequest(y_on_alpha=-0.1)
+
+    def test_portfolio_request_fusion_weights(self):
+        from pydantic import ValidationError
+        from web.schemas import PortfolioBacktestRequest
+
+        body = PortfolioBacktestRequest(fusion_w_trade=0.7, fusion_w_nowcast=0.3)
+        self.assertEqual(body.fusion_w_trade, 0.7)
+        self.assertEqual(body.fusion_w_nowcast, 0.3)
+        self.assertEqual(PortfolioBacktestRequest(fusion_w_trade=0).fusion_w_trade, 0.0)
+        self.assertEqual(PortfolioBacktestRequest(fusion_w_nowcast=1).fusion_w_nowcast, 1.0)
+        with self.assertRaises(ValidationError):
+            PortfolioBacktestRequest(fusion_w_trade=1.1)
+        with self.assertRaises(ValidationError):
+            PortfolioBacktestRequest(fusion_w_nowcast=-0.1)
 
     def test_portfolio_request_rank_thresholds(self):
         from pydantic import ValidationError
@@ -148,6 +164,9 @@ class TestT3WeightMode(unittest.TestCase):
             PortfolioBacktestRequest(rank_enter=-0.01)
         with self.assertRaises(ValidationError):
             PortfolioBacktestRequest(rank_strong=10.1)
+        self.assertEqual(PortfolioBacktestRequest(lookback=10).lookback, 10)
+        with self.assertRaises(ValidationError):
+            PortfolioBacktestRequest(lookback=9)
 
 
 if __name__ == "__main__":
