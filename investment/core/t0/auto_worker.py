@@ -211,6 +211,20 @@ class T0AutoWorker:
         except Exception:  # noqa: BLE001
             logger.debug("t0 worker fill_pending skipped", exc_info=True)
 
+        if in_market:
+            from core.paper.rebalance.auto_worker import t0_wait_for_rebalance
+
+            wait, wait_reason = t0_wait_for_rebalance()
+            if wait:
+                with self._lock:
+                    self._runtime["last_tick_ts"] = _now_ts()
+                    self._runtime["last_run_session"] = sess
+                    self._runtime["last_error"] = None
+                    self._runtime["last_tick_message"] = (
+                        (pending_msg + " · " if pending_msg else "") + wait_reason
+                    )
+                return
+
         with self._lock:
             self._runtime["last_tick_ts"] = _now_ts()
             self._runtime["last_run_session"] = sess

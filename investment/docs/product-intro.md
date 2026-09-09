@@ -171,7 +171,7 @@ quant_panel.html
 
 > 详细数学推导见 [rebalance-logic.md](./rebalance-logic.md)。
 
-调仓系统按 **y_fuse / y_on ranking** 以 100/200 股加减仓，现金不得低于地板。
+调仓系统按 **y_fuse / y_on ranking** 以 200/500 股加减仓，现金不得低于地板。
 
 ### 4.1 核心概念
 
@@ -180,7 +180,7 @@ quant_panel.html
 | **y_fuse** | 预期今日收益（trade⊕nowcast） |
 | **y_on** | 预期明日收益 |
 | **ranking** | (1 + y_fuse/100) × (1 + α × y_on/100) − 1，展示百分数；α 默认 0 |
-| **rank入场 / rank强** | 选股下限 / 200 股门槛 |
+| **rank入场 / rank强** | 选股下限 / 500 股门槛 |
 | **现金地板** | 买完后现金下限（默认 50 万） |
 
 ### 4.2 决策流程
@@ -192,15 +192,15 @@ quant_panel.html
   y_fuse = w_trade·ŷ_trade + w_nc·ŷ_nowcast
   ranking = (1 + y_fuse/100) × (1 + α × y_on/100) − 1  # 展示百分数；α 默认 0
   已持仓且 ranking < 0 → 清仓（T+1 可卖）
-  ranking > rank入场 → 开仓或加仓（live 另受 max_positions；历史回测用全部观察池）
-  ranking > rank强 → 200 股，否则 100 股
+  ranking > rank入场 → 开仓或加仓（live 受观察池容量与持仓市值上限；历史回测用全部观察池）
+  ranking > rank强 → 500 股，否则 200 股
   买完现金 < 地板（默认 50 万）→ 跳过该买
   未买且 ranking ≥ 0 → 持有
 ```
 
 ### 4.3 手数与现金地板
 
-- ranking &gt; rank强（默认 0.02 / 2%）→ **200 股**，否则 **100 股**
+- ranking &gt; rank强（默认 0.012 / 1.2%）→ **500 股**，否则 **200 股**
 - 买完后现金不得低于 `cash_floor`（默认 50 万；live 账户小于该值时按净值 20% 缩放）；否则跳过该买
 - 未买但 ranking ≥ 0 **不卖**
 

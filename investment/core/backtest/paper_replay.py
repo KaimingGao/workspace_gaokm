@@ -1007,6 +1007,8 @@ def backtest_paper_replay(
     rl_cfg["fusion_w_nowcast"] = w_nowcast
     rl_cfg["rank_enter"] = enter
     rl_cfg["rank_strong"] = strong
+    rl_cfg["holdings_mv_cap"] = 0.0
+    rl_cfg["t0_sell_blocks"] = {}
 
     cfg = None
     try:

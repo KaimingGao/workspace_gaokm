@@ -264,19 +264,41 @@ class TestN3PortfolioRisk(unittest.TestCase):
         from core.portfolio_optimize import optimize_weights
 
         cands = [
-            {"stock_code": "AAA", "score": 90, "sector": "X"},
-            {"stock_code": "BBB", "score": 88, "sector": "X"},
-            {"stock_code": "CCC", "score": 80, "sector": "Y"},
+            {
+                "stock_code": "AAA",
+                "predicted_score": 2.0,
+                "predicted_score_eod": 2.0,
+                "eod_trust": 1.0,
+                "y_check": {"ok": True},
+                "sector": "X",
+            },
+            {
+                "stock_code": "BBB",
+                "predicted_score": 1.8,
+                "predicted_score_eod": 1.8,
+                "eod_trust": 1.0,
+                "y_check": {"ok": True},
+                "sector": "X",
+            },
+            {
+                "stock_code": "CCC",
+                "predicted_score": 1.5,
+                "predicted_score_eod": 1.5,
+                "eod_trust": 1.0,
+                "y_check": {"ok": True},
+                "sector": "Y",
+            },
         ]
         out = optimize_weights(
             cands,
             max_position_pct=2.0,
             max_sector_pct=3.0,
             max_positions=5,
-            min_score=50,
+            min_score=0.5,
             sector_map={},
             weight_mode="greedy_cap",
             apply_market_vol=False,
+            apply_regime_scale=False,
         )
         self.assertTrue(out["ok"])
         self.assertLessEqual(out["sector_exposure_pct"].get("X", 0), 3.0 + 1e-6)
@@ -287,8 +309,8 @@ class TestN3PortfolioRisk(unittest.TestCase):
         from core.risk.budget import score_budget_weights
 
         ranked = [
-            {"stock_code": "A", "score": 90, "sector": "X"},
-            {"stock_code": "B", "score": 60, "sector": "Y"},
+            {"stock_code": "A", "score": 2.0, "sector": "X"},
+            {"stock_code": "B", "score": 1.0, "sector": "Y"},
         ]
         w, sec, _ = score_budget_weights(
             ranked, max_position_pct=70.0, max_sector_pct=80.0, max_positions=5
@@ -298,17 +320,32 @@ class TestN3PortfolioRisk(unittest.TestCase):
 
         out = optimize_weights(
             [
-                {"stock_code": "A", "score": 90, "sector": "X"},
-                {"stock_code": "B", "score": 60, "sector": "Y"},
+                {
+                    "stock_code": "A",
+                    "predicted_score": 2.0,
+                    "predicted_score_eod": 2.0,
+                    "eod_trust": 1.0,
+                    "y_check": {"ok": True},
+                    "sector": "X",
+                },
+                {
+                    "stock_code": "B",
+                    "predicted_score": 1.0,
+                    "predicted_score_eod": 1.0,
+                    "eod_trust": 1.0,
+                    "y_check": {"ok": True},
+                    "sector": "Y",
+                },
             ],
             max_position_pct=20.0,
             max_sector_pct=40.0,
             max_positions=5,
-            min_score=50,
+            min_score=0.5,
             sector_map={},
             weight_mode="score_budget",
             vol_scale=0.8,
             apply_market_vol=False,
+            apply_regime_scale=False,
         )
         self.assertTrue(out["ok"])
         self.assertEqual(out["weight_mode"], "score_budget")
@@ -524,82 +561,6 @@ class TestP0OpsReportAndRiskBlock(unittest.TestCase):
         types = [e.get("type") for e in paper.get("operation_log") or []]
         self.assertIn("risk_block", types)
 
-    def test_cross_section_soft_sector_budget(self):
-        """行业超限不整批 buys_blocked，走 risk_budget 缩量。"""
-        from core.paper.rebalance import simulate_cross_section_rebalance
-
-        paper = {
-            "cash": 50000,
-            "strategy_id": "short_conservative",
-            "cost_model": "simple_cn",
-            "holdings": [
-                {
-                    "stock_code": "300750",
-                    "stock_name": "宁德",
-                    "shares": 100,
-                    "cost": 200,
-                }
-            ],
-            "rules": {"max_positions": 5, "position_pct": 0.2},
-            "operation_log": [],
-            "trades": [],
-        }
-        ranking = [
-            {
-                "stock_code": "300750",
-                "score": 2.0,
-                "stock_name": "宁德",
-                "predicted_score_tau": 1.0,
-            },
-            {
-                "stock_code": "600519",
-                "score": 3.0,
-                "stock_name": "茅台",
-                "predicted_score_tau": 1.0,
-            },
-        ]
-        risk_out = {
-            "ok": False,
-            "blocks": ["行业 新能源 敞口 55.0% > 上限 40%"],
-            "block_items": [
-                {
-                    "code": "max_sector",
-                    "message": "行业 新能源 敞口 55.0% > 上限 40%",
-                    "sector": "新能源",
-                    "value": 55.0,
-                    "limit": 40.0,
-                }
-            ],
-            "warnings": [],
-            "limits": {"max_position_pct": 25.0, "max_sector_pct": 40.0},
-        }
-        with patch(
-            "core.ports.market.query_quote",
-            return_value={"success": True, "stock_name": "茅台", "price": 100},
-        ), patch(
-            "core.paper.rebalance._quote_price", return_value=100.0
-        ), patch(
-            "core.paper.mark_to_market",
-            return_value={
-                "equity": 100000,
-                "cash": 50000,
-                "max_drawdown_pct": 1,
-                "holdings": [
-                    {"stock_code": "300750", "shares": 100, "market_value": 55000, "sector": "新能源"}
-                ],
-            },
-        ), patch("core.risk.check_account_risk", return_value=risk_out), patch(
-            "core.data.facade.summarize_data_quality",
-            return_value={"levels": {}, "fallback_count": 0, "count": 1},
-        ):
-            out = simulate_cross_section_rebalance(paper, ranking, top_k=2)
-
-        self.assertFalse(out["buys_blocked"])
-        self.assertIn("ops_report", out)
-        self.assertIn("data_quality", out)
-        types = [e.get("type") for e in paper.get("operation_log") or []]
-        self.assertIn("risk_budget", types)
-
 
 class TestP2PaperOpsLoop(unittest.TestCase):
     def test_feedback_from_monitor_alerts(self):
@@ -619,56 +580,6 @@ class TestP2PaperOpsLoop(unittest.TestCase):
         self.assertIn("patch", out)
         self.assertFalse(out.get("auto_apply"))
 
-    def test_cross_section_ops_report_carries_monitor_alerts(self):
-        from core.paper.rebalance import simulate_cross_section_rebalance
-
-        paper = {
-            "cash": 50000,
-            "strategy_id": "short_conservative",
-            "cost_model": "simple_cn",
-            "holdings": [],
-            "rules": {"max_positions": 5, "min_score": 50, "min_hold_score": 40, "position_pct": 0.2},
-            "operation_log": [],
-            "trades": [],
-        }
-        ranking = [
-            {
-                "stock_code": "600519",
-                "score": 90,
-                "stock_name": "茅台",
-                "predicted_score_tau": 1.0,
-            }
-        ]
-        alerts = [
-            {"level": "warn", "code": "drawdown_target", "message": "回撤触及预警"}
-        ]
-        with patch(
-            "core.ports.market.query_quote",
-            return_value={"success": True, "stock_name": "茅台", "price": 100},
-        ), patch(
-            "core.paper.rebalance._quote_price", return_value=100.0
-        ), patch(
-            "core.paper.mark_to_market",
-            return_value={
-                "equity": 100000,
-                "cash": 50000,
-                "max_drawdown_pct": 12.0,
-                "holdings": [],
-            },
-        ), patch(
-            "core.risk.check_account_risk",
-            return_value={"ok": True, "blocks": [], "warnings": [], "limits": {}},
-        ), patch(
-            "core.data.facade.summarize_data_quality",
-            return_value={"levels": {}, "fallback_count": 0, "count": 1},
-        ), patch(
-            "core.strategy_monitor.assess_strategy_health",
-            return_value={"ok": True, "level": "warn", "alerts": alerts},
-        ):
-            out = simulate_cross_section_rebalance(paper, ranking, top_k=1)
-
-        ops = out.get("ops_report") or {}
-        self.assertEqual(ops.get("monitor_alerts"), alerts)
 
     def test_run_schedule_paper_daily_kind(self):
         from core.schedule_jobs import run_schedule

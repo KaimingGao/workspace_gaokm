@@ -291,13 +291,17 @@ class TestMainCallersUseService(unittest.TestCase):
     def test_orchestrator_imports_service(self):
         from pathlib import Path
 
-        text = Path(ROOT, "core/paper/rebalance/orchestrator.py").read_text(
+        orch = Path(ROOT, "core/paper/rebalance/orchestrator.py").read_text(
             encoding="utf-8"
         )
-        self.assertIn("get_default_signal_service", text)
-        self.assertNotIn("from core.signal.score_stock import score_stock", text)
-        self.assertNotIn("from core.signal.cross_section import rank_cross_section", text)
-        self.assertNotIn("from core.signal.cluster.rank import rank_cluster_pools", text)
+        self.assertIn("holding_rules", orch)
+        self.assertIn("run_daily_cycle", orch)
+        self.assertNotIn("from core.signal.score_stock import score_stock", orch)
+        self.assertNotIn("from core.signal.cross_section import rank_cross_section", orch)
+        self.assertNotIn("from core.signal.cluster.rank import rank_cluster_pools", orch)
+        cycle = Path(ROOT, "core/paper/cycle.py").read_text(encoding="utf-8")
+        self.assertIn("get_default_signal_service", cycle)
+        self.assertNotIn("from core.signal.score_stock import score_stock", cycle)
 
     def test_paper_account_imports_service(self):
         from pathlib import Path
@@ -432,9 +436,12 @@ class TestProductionBuyGate(unittest.TestCase):
     def test_paper_rebalance_checks_production_yhat(self):
         from pathlib import Path
 
-        text = Path(ROOT, "core/paper/rebalance/buy.py").read_text(encoding="utf-8")
-        self.assertIn("allows_production_yhat", text)
-        self.assertIn("production_yhat_gate", text)
+        wm = Path(ROOT, "core/paper/rebalance/watching_matrix.py").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("score_stock", wm)
+        types = Path(ROOT, "core/signal/types.py").read_text(encoding="utf-8")
+        self.assertIn("allows_production_yhat", types)
 
     def test_data_quality_exposes_signal_metrics(self):
         from pathlib import Path

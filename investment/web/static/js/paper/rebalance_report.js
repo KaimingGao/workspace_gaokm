@@ -946,7 +946,7 @@ function renderRebalanceReport(
       } else if (decision.includes("卖出")) {
         decisionTip = reasonText
           ? `${reasonText}；点「确认落账」后才成交`
-          : "矩阵卖出：path_matrix 决议减/清；点「确认落账」后才成交";
+          : "策略调仓卖出：ranking<0 清仓；点「确认落账」后才成交";
       } else if (reasonText) {
         decisionTip = reasonText;
       }

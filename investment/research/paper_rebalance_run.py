@@ -16,7 +16,7 @@ from services.paper_service import PaperService  # noqa: E402
 
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description="观察池 rank_lots 纸面调仓（非实盘）")
-    parser.add_argument("--top-k", type=int, default=None, help="省略则用策略 max_positions")
+    parser.add_argument("--top-k", type=int, default=None, help="省略则用观察池容量")
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args(argv)
 

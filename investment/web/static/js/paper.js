@@ -55,7 +55,7 @@ import {
   resolveT0BacktestScope,
   normalizeExecutionView,
   renderExecutionDiffHtml,
-} from "./paper/execution_ui.js?v=p2076";
+} from "./paper/execution_ui.js?v=p2151";
 import { buildPaperLogsView, buildPaperLogsCsv } from "./paper/logs_ui.js?v=p1658";
 import { downloadBlob } from "./shared.js";
 import {
@@ -64,6 +64,7 @@ import {
   renderPaperT0WorkerTrades as renderPaperT0WorkerTradesUi,
   renderPaperT0WorkerDesk as renderPaperT0WorkerDeskUi,
 } from "./paper/t0_ui.js?v=p1986";
+import { renderPaperRebalanceWorkerDesk as renderPaperRebalanceWorkerDeskUi } from "./paper/rebalance_desk.js?v=p2154";
 import { buildT0SummaryLine } from "./paper/t0_report.js?v=p1906";
 import { wireT0SkipTips } from "./paper/t0_viz.js?v=p1986";
 import { wireT0ProcessTips, wireT0DayDebugExpand } from "./paper/t0_table.js?v=p1986";
@@ -77,7 +78,7 @@ import {
 } from "./data_offline.js";
 import { rebalanceDataFoot, t0DataFoot } from "./data_policy.js?v=p1736";
 import { ensureWarehouseTopup } from "./data_warehouse_topup.js";
-import { createRebalanceReportController } from "./paper/rebalance_report.js?v=p2093";
+import { createRebalanceReportController } from "./paper/rebalance_report.js?v=p2151";
 import { waitPaperJob as waitPaperJobPoll } from "./paper/job_poll.js?v=p1416";
 import { renderFollowNorthStar as renderFollowNorthStarUi } from "./paper/north_star_ui.js?v=p1416";
 import {
@@ -965,6 +966,7 @@ export function initPaper(ctx) {
     renderT0LastRun(data);
     renderT0WorkerDetail(data);
     refreshT0RunPanel({ quiet: true }).catch(() => {});
+    refreshRebalanceWorkerPanel({ quiet: true }).catch(() => {});
     startT0RunPoll();
     const fundCard = document.getElementById("paper-fund-log-card");
     const fundEl = document.getElementById("paper-fund-log");
@@ -1298,6 +1300,157 @@ export function initPaper(ctx) {
     }
   }
 
+  function renderRebalanceWorkerBar(worker) {
+    const panel = document.getElementById("paper-rebalance-worker-panel");
+    const switchEl = document.getElementById("paper-rebalance-worker-enabled");
+    const badgeEl = document.getElementById("paper-rebalance-worker-badge");
+    const badgeLabelEl = document.getElementById("paper-rebalance-worker-badge-label");
+    const hintEl = document.getElementById("paper-rebalance-worker-hint");
+    const errEl = document.getElementById("paper-rebalance-worker-error");
+    if (!panel && !switchEl && !badgeEl) return;
+
+    const w = worker || {};
+    if (switchEl && document.activeElement !== switchEl) {
+      switchEl.checked = !!w.enabled;
+      switchEl.disabled = false;
+    }
+
+    const running = !!w.running;
+    const err = w.last_error ? String(w.last_error) : "";
+    let state = w.state || (running ? "running" : w.enabled ? "starting" : "stopped");
+    if (err && running) state = "degraded";
+
+    const stateLabels = {
+      running: "运行中",
+      stopped: "已停止",
+      starting: "启动中",
+      degraded: "运行异常",
+    };
+    const badgeLabel = stateLabels[state] || "未知";
+
+    if (badgeEl) {
+      badgeEl.classList.remove("is-running", "is-stopped", "is-starting", "is-degraded");
+      if (state === "running") badgeEl.classList.add("is-running");
+      else if (state === "starting") badgeEl.classList.add("is-starting");
+      else if (state === "degraded") badgeEl.classList.add("is-degraded");
+      else badgeEl.classList.add("is-stopped");
+    }
+    if (badgeLabelEl) badgeLabelEl.textContent = badgeLabel;
+
+    const tickTs = w.last_tick_ts ? fmtT0AutoTs(w.last_tick_ts) : "—";
+    const tickIntervalSec =
+      w.tick_interval_sec != null && Number.isFinite(Number(w.tick_interval_sec))
+        ? Math.max(1, Math.round(Number(w.tick_interval_sec)))
+        : 30;
+    const nextSec =
+      w.next_tick_in_sec != null && Number.isFinite(Number(w.next_tick_in_sec))
+        ? `${Math.max(0, Math.round(Number(w.next_tick_in_sec)))}s`
+        : running
+          ? `≤${tickIntervalSec}s`
+          : "—";
+    const tickMsg = w.last_tick_message ? String(w.last_tick_message) : "—";
+    const started =
+      w.started_at != null && Number.isFinite(Number(w.started_at))
+        ? fmtT0AutoTs(w.started_at)
+        : null;
+    const lastTs = w.last_run_ts != null ? fmtT0AutoTs(w.last_run_ts) : "";
+    const buys = Number(w.last_buy_count);
+    const sells = Number(w.last_sell_count);
+    const tag = w.last_source === "follow" ? "手动" : "自动";
+    let lastRunText = "尚无记录";
+    let lastRunTone = "is-muted";
+    if (w.last_run_ts != null) {
+      const tradeN =
+        (Number.isFinite(buys) ? buys : 0) + (Number.isFinite(sells) ? sells : 0);
+      if (!tradeN) {
+        lastRunText = "尚无成交";
+      } else {
+        lastRunText = `${lastTs || "—"} · ${tag} · 卖 ${
+          Number.isFinite(sells) ? sells : 0
+        } · 买 ${Number.isFinite(buys) ? buys : 0}`;
+        lastRunTone = "";
+      }
+    }
+
+    setWorkerMetric(
+      "paper-rebalance-worker-m-state",
+      running ? "线程活跃" : w.enabled ? "待启动" : "未运行",
+      { tone: running ? "is-ok" : w.enabled ? "is-warn" : "is-muted" }
+    );
+    setWorkerMetric("paper-rebalance-worker-m-tick", tickTs, {
+      tone: tickTs !== "—" ? "" : "is-muted",
+    });
+    setWorkerMetric("paper-rebalance-worker-m-next", nextSec, {
+      tone: running ? "" : "is-muted",
+    });
+    setWorkerMetric("paper-rebalance-worker-m-action", tickMsg, {
+      tone: err ? "is-error" : tickMsg !== "—" ? "" : "is-muted",
+    });
+    setWorkerMetric("paper-rebalance-worker-m-lastrun", lastRunText, {
+      tone: lastRunTone,
+    });
+
+    if (hintEl) {
+      const hints = [];
+      if (!w.enabled) {
+        hints.push("后台 worker 已关闭；打开右侧「运行」即按已保存规则在 09:30–10:00 现价成交一次");
+      } else if (!running) {
+        hints.push("开关已开但线程未就绪，请稍候或重启 Web");
+      } else if (w.in_window) {
+        hints.push("开盘窗内 · 现价成交");
+      } else {
+        hints.push("Worker 运行中 · 等待下一开盘窗");
+      }
+      if (started && running) hints.push(`启动于 ${started}`);
+      hintEl.textContent = hints.join(" · ");
+    }
+
+    if (errEl) {
+      if (err) {
+        errEl.hidden = false;
+        errEl.textContent = `异常：${err}`;
+      } else {
+        errEl.hidden = true;
+        errEl.textContent = "";
+      }
+    }
+
+    if (panel) {
+      panel.classList.toggle("is-running", running && !err);
+      panel.classList.toggle("is-degraded", !!err);
+      panel.classList.remove("is-busy");
+    }
+  }
+
+  async function refreshRebalanceWorkerPanel({ quiet = false } = {}) {
+    if (!document.getElementById("paper-rebalance-worker-panel")) return null;
+    try {
+      const res = await fetch("/api/paper/rebalance/worker");
+      const data = await res.json();
+      if (!res.ok) {
+        const errEl = document.getElementById("paper-rebalance-worker-error");
+        if (errEl && !quiet) {
+          errEl.hidden = false;
+          errEl.textContent = data.detail || data.error || "后台状态加载失败";
+        }
+        return null;
+      }
+      renderRebalanceWorkerBar(data.worker);
+      renderPaperRebalanceWorkerDeskUi(
+        document.getElementById("paper-rebalance-worker-desk"),
+        data.desk
+      );
+      return data;
+    } catch (err) {
+      const errEl = document.getElementById("paper-rebalance-worker-error");
+      if (errEl && !quiet) {
+        errEl.hidden = false;
+        errEl.textContent = String(err.message || err);
+      }
+      return null;
+    }
+  }
+
   async function refreshT0RunPanel({ quiet = false } = {}) {
     if (!document.getElementById("paper-t0-auto-bar")) return null;
     try {
@@ -1349,6 +1502,7 @@ export function initPaper(ctx) {
     if (t0RunPollTimer) return;
     t0RunPollTimer = setInterval(() => {
       refreshT0RunPanel({ quiet: true }).catch(() => {});
+      refreshRebalanceWorkerPanel({ quiet: true }).catch(() => {});
     }, 10000);
   }
   function stopT0RunPoll() {
@@ -1391,6 +1545,45 @@ export function initPaper(ctx) {
       return { ok: true, data };
     } catch (err) {
       const errEl = document.getElementById("paper-t0-worker-error");
+      if (errEl) {
+        errEl.hidden = false;
+        errEl.textContent = String(err.message || err);
+      }
+      return { ok: false, error: err };
+    } finally {
+      if (switchEl) switchEl.disabled = false;
+      if (panel) panel.classList.remove("is-busy");
+    }
+  }
+
+  async function postRebalanceWorker(enabled) {
+    const panel = document.getElementById("paper-rebalance-worker-panel");
+    const switchEl = document.getElementById("paper-rebalance-worker-enabled");
+    const badgeLabelEl = document.getElementById("paper-rebalance-worker-badge-label");
+    if (panel) panel.classList.add("is-busy");
+    if (switchEl) switchEl.disabled = true;
+    if (badgeLabelEl) badgeLabelEl.textContent = enabled ? "启动中" : "停止中";
+    try {
+      const res = await fetch("/api/paper/rebalance/worker", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ enabled: !!enabled }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        const msg = data.detail || data.error || "操作失败";
+        const errEl = document.getElementById("paper-rebalance-worker-error");
+        if (errEl) {
+          errEl.hidden = false;
+          errEl.textContent = String(msg);
+        }
+        return { ok: false, data };
+      }
+      renderRebalanceWorkerBar(data.worker);
+      await refreshRebalanceWorkerPanel({ quiet: true });
+      return { ok: true, data };
+    } catch (err) {
+      const errEl = document.getElementById("paper-rebalance-worker-error");
       if (errEl) {
         errEl.hidden = false;
         errEl.textContent = String(err.message || err);
@@ -3108,6 +3301,15 @@ export function initPaper(ctx) {
   if (paperT0WorkerEnabled) {
     paperT0WorkerEnabled.addEventListener("change", () => {
       postT0Worker(!!paperT0WorkerEnabled.checked);
+    });
+  }
+
+  const paperRebalanceWorkerEnabled = document.getElementById(
+    "paper-rebalance-worker-enabled"
+  );
+  if (paperRebalanceWorkerEnabled) {
+    paperRebalanceWorkerEnabled.addEventListener("change", () => {
+      postRebalanceWorker(!!paperRebalanceWorkerEnabled.checked);
     });
   }
 

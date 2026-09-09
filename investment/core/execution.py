@@ -237,12 +237,25 @@ DEFAULT_REBALANCE_TIMING: Dict[str, Any] = {
     "pending_chase_interval_min": 10,
     "pending_chase_eod_hm": "14:50",
     # 策略调仓：09:30 rank_lots（y_fuse/y_on · 200/500 股）
+    "rank_lots": {
+        "enabled": True,
+        "mode": "rank_lots",
+        "rank_enter": 0.012,
+        "rank_strong": 0.012,
+        "cash_floor": 500000.0,
+        "holdings_mv_cap": 150000.0,
+        "fusion_w_trade": 0.5,
+        "fusion_w_nowcast": 0.5,
+        "y_on_alpha": 0.0,
+    },
+    # 旧键：读盘仍认；写入与 rank_lots 同步
     "path_matrix": {
         "enabled": True,
         "mode": "rank_lots",
         "rank_enter": 0.012,
         "rank_strong": 0.012,
         "cash_floor": 500000.0,
+        "holdings_mv_cap": 150000.0,
         "fusion_w_trade": 0.5,
         "fusion_w_nowcast": 0.5,
         "y_on_alpha": 0.0,
@@ -496,7 +509,7 @@ def resolve_effective_execution(
             if k in paper_rules and paper_rules[k] is not None:
                 rebalance[k] = paper_rules[k]
 
-    # 成交时机 + path_matrix：Spec ← paper.rules.execution.rebalance_timing
+    # 成交时机 + rank_lots（仍认旧键 path_matrix）：Spec ← paper.rules.execution.rebalance_timing
     timing = deepcopy(DEFAULT_REBALANCE_TIMING)
     spec_timing = strategy_exe.get("rebalance_timing")
     if isinstance(spec_timing, dict):
@@ -1006,24 +1019,33 @@ def validate_execution_patch(raw: Any) -> Tuple[bool, Dict[str, Any], List[str]]
     timing_out: Dict[str, Any] = {}
     raw_timing = raw.get("rebalance_timing") if isinstance(raw, dict) else None
     if isinstance(raw_timing, dict):
-        pm_in = raw_timing.get("path_matrix")
+        pm_in = raw_timing.get("rank_lots")
+        if not isinstance(pm_in, dict):
+            pm_in = raw_timing.get("path_matrix")
         if isinstance(pm_in, dict):
             try:
                 from core.paper.rebalance.path_matrix import get_path_matrix_cfg
 
-                pm = get_path_matrix_cfg({"path_matrix": pm_in})
-                timing_out["path_matrix"] = {
+                pm = get_path_matrix_cfg({"rank_lots": pm_in})
+                lots = {
                     "enabled": bool(pm.get("enabled")),
                     "mode": "rank_lots",
                     "rank_enter": float(pm.get("rank_enter") or 0.012),
                     "rank_strong": float(pm.get("rank_strong") or 0.012),
                     "cash_floor": float(pm.get("cash_floor") or 500_000.0),
+                    "holdings_mv_cap": float(
+                        pm.get("holdings_mv_cap")
+                        if pm.get("holdings_mv_cap") is not None
+                        else 150_000.0
+                    ),
                     "fusion_w_trade": float(pm.get("fusion_w_trade") or 0.5),
                     "fusion_w_nowcast": float(pm.get("fusion_w_nowcast") or 0.5),
                     "y_on_alpha": float(pm.get("y_on_alpha") if pm.get("y_on_alpha") is not None else 0.0),
                 }
+                timing_out["rank_lots"] = lots
+                timing_out["path_matrix"] = lots
             except Exception as e:  # noqa: BLE001
-                errors.append(f"path_matrix 校验失败: {e}")
+                errors.append(f"rank_lots 校验失败: {e}")
                 return False, {}, errors
         if raw_timing.get("execution_mode") is not None:
             mode = str(raw_timing.get("execution_mode") or "next_open").strip().lower()
@@ -1068,16 +1090,20 @@ def apply_execution_patch_to_paper(
     timing_patch = normalized.get("rebalance_timing") or {}
     if timing_patch:
         rt = dict(exe.get("rebalance_timing") or {})
-        if isinstance(timing_patch.get("path_matrix"), dict):
-            prev_pm = (
-                dict(rt.get("path_matrix") or {})
-                if isinstance(rt.get("path_matrix"), dict)
-                else {}
-            )
-            prev_pm.update(timing_patch["path_matrix"])
+        if isinstance(timing_patch.get("rank_lots"), dict) or isinstance(
+            timing_patch.get("path_matrix"), dict
+        ):
+            incoming = timing_patch.get("rank_lots") or timing_patch.get("path_matrix") or {}
+            prev_pm = {}
+            if isinstance(rt.get("rank_lots"), dict):
+                prev_pm.update(rt["rank_lots"])
+            if isinstance(rt.get("path_matrix"), dict):
+                prev_pm.update(rt["path_matrix"])
+            prev_pm.update(incoming)
+            rt["rank_lots"] = prev_pm
             rt["path_matrix"] = prev_pm
         for k, v in timing_patch.items():
-            if k == "path_matrix" or v is None:
+            if k in ("path_matrix", "rank_lots") or v is None:
                 continue
             rt[k] = v
         exe["rebalance_timing"] = rt

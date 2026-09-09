@@ -21,6 +21,7 @@ logger = logging.getLogger(__name__)
 DEFAULT_RANK_ENTER = 0.012
 DEFAULT_RANK_STRONG = 0.012
 DEFAULT_CASH_FLOOR = 500_000.0
+DEFAULT_HOLDINGS_MV_CAP = 150_000.0
 DEFAULT_INITIAL_CASH = 1_000_000.0
 DEFAULT_Y_ON_ALPHA = 0.0
 Y_ON_ALPHA_MAX = 10.0
@@ -206,26 +207,31 @@ def get_rank_lot_cfg(
         floor_cfg = DEFAULT_CASH_FLOOR
     floor_cfg = max(0.0, min(floor_cfg, 1.0e8))
     floor = scale_cash_floor_to_account(floor_cfg, paper)
-    rules = (paper or {}).get("rules") if isinstance(paper, dict) else {}
-    max_pos = 15
-    if isinstance(rules, dict) and rules.get("max_positions") is not None:
-        try:
-            max_pos = max(1, int(rules.get("max_positions") or 15))
-        except (TypeError, ValueError):
-            max_pos = 15
-    k = max(1, int(top_k)) if top_k is not None else max_pos
+    try:
+        mv_cap = float(pm.get("holdings_mv_cap", DEFAULT_HOLDINGS_MV_CAP))
+    except (TypeError, ValueError):
+        mv_cap = DEFAULT_HOLDINGS_MV_CAP
+    if mv_cap != mv_cap:
+        mv_cap = DEFAULT_HOLDINGS_MV_CAP
+    mv_cap = max(0.0, min(mv_cap, 1.0e8))
     try:
         from core.watching.store import WATCHING_MAX_SIZE
 
-        k = min(k, int(WATCHING_MAX_SIZE))
+        pool_cap = int(WATCHING_MAX_SIZE)
     except Exception:  # noqa: BLE001
-        k = min(k, 200)
+        logger.debug("WATCHING_MAX_SIZE import failed", exc_info=True)
+        pool_cap = 200
+    if top_k is not None:
+        k = max(1, min(int(top_k), pool_cap))
+    else:
+        k = pool_cap
     return {
         "rank_enter": enter,
         "rank_strong": strong,
         "cash_floor": floor,
         "cash_floor_configured": floor_cfg,
         "cash_floor_scaled": abs(float(floor) - float(floor_cfg)) > 1e-6,
+        "holdings_mv_cap": mv_cap,
         "top_k": k,
         "fusion_w_trade": float(pm.get("fusion_w_trade") or 0.5),
         "fusion_w_nowcast": float(pm.get("fusion_w_nowcast") or 0.5),
@@ -344,9 +350,25 @@ def plan_rank_lot_day(
         cfg.get("rank_strong"), DEFAULT_RANK_STRONG
     )
     cash_floor = float(cfg.get("cash_floor") or 0.0)
+    try:
+        mv_cap = float(cfg.get("holdings_mv_cap") or 0.0)
+    except (TypeError, ValueError):
+        mv_cap = 0.0
+    if mv_cap != mv_cap:
+        mv_cap = 0.0
+    mv_cap = max(0.0, mv_cap)
     top_k = max(1, int(cfg.get("top_k") or 15))
     lot_base, lot_strong_sh = _lot_sizes_from_cfg(cfg)
     y_on_alpha = clamp_y_on_alpha(cfg.get("y_on_alpha"))
+    t0_blocks = cfg.get("t0_sell_blocks")
+    if not isinstance(t0_blocks, dict):
+        try:
+            from core.t0.intraday import load_rebalance_t0_sell_blocks
+
+            t0_blocks = load_rebalance_t0_sell_blocks(session_date=as_of)
+        except Exception:  # noqa: BLE001
+            logger.debug("load_rebalance_t0_sell_blocks failed", exc_info=True)
+            t0_blocks = {}
 
     item_by: Dict[str, dict] = {}
     for it in scored or []:
@@ -382,6 +404,31 @@ def plan_rank_lot_day(
         name = str(item.get("stock_name") or h.get("stock_name") or code)
         held_sh = float(h.get("shares") or 0)
         if item.get("hard_reject") or (rs is not None and float(rs) < 0.0):
+            t0_reason = str(t0_blocks.get(code) or "").strip()
+            if t0_reason:
+                skips.append(
+                    {
+                        "stock_code": code,
+                        "stock_name": name,
+                        "side": "sell",
+                        "action": ACTION_SKIP,
+                        "reason": t0_reason,
+                        **_debug_scores(item, yf, yo, rs, y_on_alpha=y_on_alpha),
+                    }
+                )
+                holds.append(
+                    {
+                        "stock_code": code,
+                        "stock_name": name,
+                        "action": ACTION_HOLD,
+                        "reason": t0_reason,
+                        "y_fuse": yf,
+                        "y_on": yo,
+                        "ranking_score": rs,
+                        "y_on_alpha": y_on_alpha,
+                    }
+                )
+                continue
             sell_sh, t1 = clip_sell_shares(h, held_sh, as_of=as_of)
             sell_sh = int(float(sell_sh or 0) // 100) * 100
             if sell_sh <= 0:
@@ -461,6 +508,19 @@ def plan_rank_lot_day(
         if str(h.get("stock_code") or "").strip()
     }
     sold_codes = {str(s.get("stock_code") or "") for s in sells}
+    remain_sh: Dict[str, float] = {}
+    for h in held_rows:
+        code = str(h.get("stock_code") or "").strip()
+        remain_sh[code] = float(h.get("shares") or 0)
+    for s in sells:
+        code = str(s.get("stock_code") or "").strip()
+        if code:
+            remain_sh[code] = max(0.0, float(remain_sh.get(code) or 0) - float(s.get("shares") or 0))
+    mv_sim = 0.0
+    for code, sh in remain_sh.items():
+        px = _f(prices.get(code))
+        if px is not None and px > 0 and sh > 0:
+            mv_sim += float(sh) * float(px)
     buys: List[dict] = []
     rank_n = len(cand)
     for i, (rs, item, yf, yo) in enumerate(cand, start=1):
@@ -499,9 +559,23 @@ def plan_rank_lot_day(
                 }
             )
             continue
+        if mv_cap > 0 and mv_sim + need > mv_cap + 1e-6:
+            skips.append(
+                {
+                    "stock_code": code,
+                    "stock_name": item.get("stock_name") or code,
+                    "side": "buy",
+                    "action": ACTION_SKIP,
+                    "reason": f"持仓市值将超过上限 {mv_cap:.0f}",
+                    **dbg,
+                }
+            )
+            continue
         is_add = code in held_codes and code not in sold_codes
         act = ACTION_ADD if is_add else ACTION_OPEN
         cash_sim -= need
+        mv_sim += need
+        remain_sh[code] = float(remain_sh.get(code) or 0) + float(lots)
         buys.append(
             {
                 "side": "buy",
@@ -528,6 +602,8 @@ def plan_rank_lot_day(
         "rank_enter": rank_enter,
         "rank_strong": rank_strong,
         "cash_floor": cash_floor,
+        "holdings_mv_cap": mv_cap,
+        "holdings_mv_after_plan": round(mv_sim, 2),
         "y_on_alpha": y_on_alpha,
         "top_k": top_k,
     }
@@ -540,6 +616,7 @@ __all__ = [
     "ACTION_OPEN",
     "ACTION_SKIP",
     "DEFAULT_CASH_FLOOR",
+    "DEFAULT_HOLDINGS_MV_CAP",
     "DEFAULT_INITIAL_CASH",
     "DEFAULT_RANK_ENTER",
     "DEFAULT_RANK_STRONG",

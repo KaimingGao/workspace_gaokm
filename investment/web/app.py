@@ -65,6 +65,10 @@ _quant = deps.quant
 async def _app_lifespan(app: FastAPI):
     try:
         from core.paths import PAPER_PATH
+        from core.paper.rebalance.auto_worker import (
+            load_enabled_flag as _load_rebalance_enabled,
+            rebalance_auto_worker,
+        )
         from core.t0.auto_worker import _load_enabled_flag, t0_auto_worker
         from services.paper_service import PaperService
 
@@ -73,15 +77,19 @@ async def _app_lifespan(app: FastAPI):
                 PaperService(PAPER_PATH).set_t0_worker(True)
             except FileNotFoundError:
                 t0_auto_worker.restore()
+        if _load_rebalance_enabled():
+            rebalance_auto_worker.restore()
     except Exception:  # noqa: BLE001
-        logger.debug("t0 auto worker restore skipped", exc_info=True)
+        logger.debug("auto worker restore skipped", exc_info=True)
     yield
     try:
+        from core.paper.rebalance.auto_worker import rebalance_auto_worker
         from core.t0.auto_worker import t0_auto_worker
 
         t0_auto_worker.stop()
+        rebalance_auto_worker.stop()
     except Exception:  # noqa: BLE001
-        logger.debug("t0 auto worker shutdown skipped", exc_info=True)
+        logger.debug("auto worker shutdown skipped", exc_info=True)
 
 
 app = FastAPI(

@@ -153,39 +153,63 @@ class DailyRunService:
                 failures.append(f"cross_section: {msg}")
 
         if paper_rebalance:
+            skip_reason = ""
             try:
-                if not self.paper.exists():
-                    raise FileNotFoundError(
-                        "纸面账户未初始化，请先 init 或 Web「纸面」初始化"
-                    )
-                result = self.paper.rebalance()
+                from core.paper.rebalance.auto_worker import (
+                    already_ran_today,
+                    after_auto_rebalance_window,
+                )
+
+                if already_ran_today():
+                    skip_reason = "今日已开盘调仓"
+                elif after_auto_rebalance_window():
+                    skip_reason = "已过 09:30–10:00 开盘窗，日更不补跑、不挂开盘单"
+            except Exception:  # noqa: BLE001
+                logger.debug("auto-rebalance daily skip check failed", exc_info=True)
+                skip_reason = ""
+            if skip_reason:
                 steps.append(
                     {
                         "name": "paper_rebalance",
-                        "ok": bool(result.get("success") or result.get("ok")),
-                        "mode": result.get("mode"),
-                        "top_k": result.get("top_k"),
-                        "sell_trades": len(result.get("sell_trades") or []),
-                        "buy_trades": len(result.get("buy_trades") or []),
-                        "holdings": len(
-                            ((result.get("summary") or {}).get("holdings"))
-                            or (result.get("holdings") or [])
-                        ),
-                        "equity": (result.get("summary") or {}).get("equity"),
-                        "error": result.get("error"),
+                        "ok": True,
+                        "skipped": True,
+                        "reason": skip_reason,
                     }
                 )
-                if not (result.get("success") or result.get("ok")):
-                    failures.append(f"paper_rebalance: {result.get('error')}")
-            except FileNotFoundError as e:
-                msg = str(e)
-                steps.append({"name": "paper_rebalance", "ok": False, "error": msg})
-                failures.append(f"paper_rebalance: {msg}")
-            except Exception as e:
-                logger.exception('unexpected error in run')
-                msg = str(e)
-                steps.append({"name": "paper_rebalance", "ok": False, "error": msg})
-                failures.append(f"paper_rebalance: {msg}")
+            else:
+                try:
+                    if not self.paper.exists():
+                        raise FileNotFoundError(
+                            "纸面账户未初始化，请先 init 或 Web「纸面」初始化"
+                        )
+                    result = self.paper.rebalance()
+                    steps.append(
+                        {
+                            "name": "paper_rebalance",
+                            "ok": bool(result.get("success") or result.get("ok")),
+                            "mode": result.get("mode"),
+                            "top_k": result.get("top_k"),
+                            "sell_trades": len(result.get("sell_trades") or []),
+                            "buy_trades": len(result.get("buy_trades") or []),
+                            "holdings": len(
+                                ((result.get("summary") or {}).get("holdings"))
+                                or (result.get("holdings") or [])
+                            ),
+                            "equity": (result.get("summary") or {}).get("equity"),
+                            "error": result.get("error"),
+                        }
+                    )
+                    if not (result.get("success") or result.get("ok")):
+                        failures.append(f"paper_rebalance: {result.get('error')}")
+                except FileNotFoundError as e:
+                    msg = str(e)
+                    steps.append({"name": "paper_rebalance", "ok": False, "error": msg})
+                    failures.append(f"paper_rebalance: {msg}")
+                except Exception as e:
+                    logger.exception('unexpected error in run')
+                    msg = str(e)
+                    steps.append({"name": "paper_rebalance", "ok": False, "error": msg})
+                    failures.append(f"paper_rebalance: {msg}")
 
         if paper_run or paper_buy:
             try:

@@ -252,7 +252,79 @@
           ŷ 只读本地仓 · 可拉远端→增量补齐 · 落账价行情 · ≠ 做T
         </p>
       </header>
-      <div class="dashboard-card quant-pro-card follow-ops-card" id="follow-fold-rebalance">
+      <div class="dashboard-card quant-pro-card follow-ops-card follow-rebalance-run-card" id="follow-fold-rebalance-run">
+        <div class="quant-pro-card-body follow-card-body">
+          <div class="paper-t0-auto-bar" id="paper-rebalance-worker-bar" aria-label="自动调仓运行控制">
+            <div class="paper-t0-worker-panel" id="paper-rebalance-worker-panel" aria-label="自动调仓后台进程">
+              <div class="paper-t0-worker-top">
+                <div class="paper-t0-worker-title-block">
+                  <span class="paper-t0-worker-kicker">Web Worker</span>
+                  <strong class="paper-t0-worker-title">自动调仓后台进程</strong>
+                  <span class="paper-t0-worker-sub">每个交易日 09:30–10:00 现价成交一次 · 过点不补跑</span>
+                </div>
+                <div class="paper-t0-worker-controls">
+                  <span
+                    id="paper-rebalance-worker-badge"
+                    class="paper-t0-worker-badge is-stopped"
+                    role="status"
+                    aria-live="polite"
+                  >
+                    <span class="paper-t0-worker-dot" aria-hidden="true"></span>
+                    <span id="paper-rebalance-worker-badge-label">已停止</span>
+                  </span>
+                  <label
+                    class="paper-t0-toggle"
+                    title="启动/停止 Web 内自动调仓 worker（打开后按已保存规则在开盘窗现价落账）"
+                  >
+                    <input type="checkbox" id="paper-rebalance-worker-enabled" role="switch" />
+                    <span class="paper-t0-toggle-track" aria-hidden="true"></span>
+                    <span class="paper-t0-toggle-text">运行</span>
+                  </label>
+                </div>
+              </div>
+              <div class="paper-t0-worker-metrics" id="paper-rebalance-worker-metrics">
+                <div class="paper-t0-worker-metric">
+                  <span class="paper-t0-worker-metric-label">进程状态</span>
+                  <span class="paper-t0-worker-metric-val" id="paper-rebalance-worker-m-state">—</span>
+                </div>
+                <div class="paper-t0-worker-metric">
+                  <span class="paper-t0-worker-metric-label">最近检查</span>
+                  <span class="paper-t0-worker-metric-val" id="paper-rebalance-worker-m-tick">—</span>
+                </div>
+                <div class="paper-t0-worker-metric">
+                  <span class="paper-t0-worker-metric-label">下次检查</span>
+                  <span class="paper-t0-worker-metric-val" id="paper-rebalance-worker-m-next">—</span>
+                </div>
+                <div class="paper-t0-worker-metric paper-t0-worker-metric-wide">
+                  <span class="paper-t0-worker-metric-label">最近动作</span>
+                  <span class="paper-t0-worker-metric-val" id="paper-rebalance-worker-m-action">—</span>
+                </div>
+                <div class="paper-t0-worker-metric paper-t0-worker-metric-wide">
+                  <span class="paper-t0-worker-metric-label">上次落账</span>
+                  <span class="paper-t0-worker-metric-val" id="paper-rebalance-worker-m-lastrun">—</span>
+                </div>
+              </div>
+              <p id="paper-rebalance-worker-hint" class="paper-t0-worker-hint" aria-live="polite">
+                加载后台进程状态…
+              </p>
+              <p id="paper-rebalance-worker-error" class="paper-t0-worker-error" hidden aria-live="assertive"></p>
+            </div>
+            <div
+              class="paper-t0-worker-ledger"
+              id="paper-rebalance-worker-ledger"
+              aria-label="今日调仓盯盘"
+            >
+              <div
+                id="paper-rebalance-worker-desk"
+                class="paper-t0-worker-desk"
+                hidden
+                aria-label="今日调仓盯盘状态"
+              ></div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="dashboard-card quant-pro-card follow-ops-card follow-rebalance-rules-card" id="follow-fold-rebalance">
         <div class="quant-pro-card-body follow-card-body">
           <div class="follow-path-matrix" id="follow-path-matrix" aria-label="策略调仓规则">
             <form id="paper-path-matrix-form" class="follow-path-matrix-form" autocomplete="off">
@@ -261,7 +333,7 @@
                 <div class="follow-path-matrix-meta" aria-label="执行元信息">
                   <span class="follow-path-matrix-chip" title="决策窗">09:30 开盘</span>
                   <span id="paper-path-matrix-badge" class="follow-path-matrix-badge is-on" title="执行模式">rank_lots</span>
-                  <span class="follow-path-matrix-chip is-muted" title="成交规则">开盘价 · 200/500 股</span>
+                  <span class="follow-path-matrix-chip is-muted" title="成交规则">现价 · 200/500 股</span>
                 </div>
               </div>
               <div class="follow-path-matrix-panels">
@@ -304,9 +376,9 @@
                 <section class="follow-path-matrix-panel" data-panel="rank" aria-labelledby="pm-panel-rank">
                   <header class="follow-path-matrix-panel-head">
                     <h4 id="pm-panel-rank" class="follow-path-matrix-panel-title">ranking 门槛</h4>
-                    <p class="follow-path-matrix-panel-note">ranking=(1+y_fuse/100)×(1+α×y_on/100)−1，展示百分数。α=0 隔夜不参与。过入场取 Top；过强买 500 否则 200。ranking&lt;0% 清仓；入场 1.2%、强 1.2%</p>
+                    <p class="follow-path-matrix-panel-note">ranking=(1+y_fuse/100)×(1+α×y_on/100)−1，展示百分数。α=0 隔夜不参与。过入场取 Top；过强买 500 否则 200。ranking&lt;0% 清仓；入场 1.2%、强 1.2%。持仓市值上限默认 15 万，本笔将超则跳过该买</p>
                   </header>
-                  <div class="follow-path-matrix-body follow-path-matrix-body--row3">
+                  <div class="follow-path-matrix-body follow-path-matrix-body--row4">
                     <label class="follow-path-matrix-box" title="单位百分数。ranking 须大于此值才建仓/加仓，买 200 股。默认 1.2%">
                       <span class="follow-path-matrix-box-text">
                         <span class="follow-path-matrix-box-title">rank入场</span>
@@ -327,6 +399,13 @@
                         <span class="follow-path-matrix-box-desc">0～10</span>
                       </span>
                       <input type="number" name="pm_y_on_alpha" min="0" max="10" step="0.1" value="0" />
+                    </label>
+                    <label class="follow-path-matrix-box" title="持仓市值上限（元）。给做 T 留现金。本笔买入将超则跳过该买；已超线只禁买、不强制砍仓。0=不限。默认 15 万。">
+                      <span class="follow-path-matrix-box-text">
+                        <span class="follow-path-matrix-box-title">市值上限</span>
+                        <span class="follow-path-matrix-box-desc">元</span>
+                      </span>
+                      <input type="number" name="pm_holdings_mv_cap" min="0" max="100000000" step="10000" value="150000" />
                     </label>
                   </div>
                 </section>

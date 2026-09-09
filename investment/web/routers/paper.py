@@ -439,6 +439,24 @@ def paper_t0_worker_post(body: PaperT0WorkerRequest) -> Dict[str, Any]:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
+@router.get("/api/paper/rebalance/worker")
+def paper_rebalance_worker_get() -> Dict[str, Any]:
+    """自动调仓后台 worker 状态。"""
+    try:
+        return deps.paper.rebalance_worker_status()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@router.post("/api/paper/rebalance/worker")
+def paper_rebalance_worker_post(body: PaperT0WorkerRequest) -> Dict[str, Any]:
+    """启动/停止 Web 内自动调仓后台 worker。"""
+    try:
+        return deps.paper.set_rebalance_worker(bool(body.enabled))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
 @router.post("/api/paper/t0/last-run/delete")
 def paper_t0_last_run_delete(body: PaperT0DeleteRequest) -> Dict[str, Any]:
     """删除落账明细；默认冲正对应做 T 成交腿。"""

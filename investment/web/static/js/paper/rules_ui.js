@@ -45,9 +45,11 @@ export function renderPaperRulesHtml(data) {
       ? exe.rebalance_timing
       : null) || {};
   const pm =
-    timing.path_matrix && typeof timing.path_matrix === "object"
-      ? timing.path_matrix
-      : null;
+    (timing.rank_lots && typeof timing.rank_lots === "object"
+      ? timing.rank_lots
+      : timing.path_matrix && typeof timing.path_matrix === "object"
+        ? timing.path_matrix
+        : null);
   if (pm) {
     const enter = coerceRankChip(pm.rank_enter, 0.012);
     const strong = coerceRankChip(pm.rank_strong, 0.012);

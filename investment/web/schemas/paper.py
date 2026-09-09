@@ -18,7 +18,7 @@ class PaperRebalanceRequest(BaseModel):
         default=None,
         ge=1,
         le=80,
-        description="目标持仓只数上限（rank_lots；省略则用策略 max_positions）",
+        description="观察池开/加上限（rank_lots；省略则用观察池容量，不再用 max_positions）",
     )
     dry_run: bool = Field(
         default=False,

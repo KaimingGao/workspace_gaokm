@@ -5,7 +5,7 @@
 | 路径 | 入口 | 计费形态 |
 |------|------|----------|
 | 纸面现金账 | `core.paper.costs.calc_trade_fees` | 金额级（含最低佣金） |
-| 纸面回放 | `core.backtest.paper_replay` → 同上 | 金额级（经 simulate_cross_section_rebalance） |
+| 纸面回放 | `core.backtest.paper_replay` → 同上 | 金额级（经 rank_lots） |
 | 回测单票 | `costs.apply_trade_cost` | bps 往返近似 |
 | 回测组合 TopK | `costs.rebalance_cost_pct` | **换手**（续持不扣往返；引擎=topk_research） |
 | 研究辅助 | `signal.factors.cost.TransactionCostCalculator` | 金额级，须同源 |

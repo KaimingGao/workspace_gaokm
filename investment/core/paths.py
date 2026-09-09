@@ -64,6 +64,7 @@ DECISIONS_PATH = os.environ.get(
 )
 SCHEDULE_LAST_RUN_PATH = os.path.join(DATA_DIR, "schedule_last_run.json")
 T0_AUTO_WORKER_PATH = os.path.join(DATA_DIR, "t0_auto_worker.json")
+REBALANCE_AUTO_WORKER_PATH = os.path.join(DATA_DIR, "rebalance_auto_worker.json")
 T0_INTRADAY_STATE_PATH = os.path.join(DATA_DIR, "t0_intraday_state.json")
 NORTH_STAR_LAST_BACKTEST_PATH = os.path.join(DATA_DIR, "north_star_last_backtest.json")
 # 最近一次产品回测（/replay 刷新恢复 KPI / 净值 / 成交账；不重跑）

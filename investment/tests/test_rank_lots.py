@@ -66,8 +66,10 @@ def _cfg(**extra):
     base = {
         "rank_enter": 0.01,
         "rank_strong": 0.02,
-        "cash_floor": 500_000.0,
-        "top_k": 5,
+    "cash_floor": 500_000.0,
+    "holdings_mv_cap": 0.0,
+    "t0_sell_blocks": {},
+    "top_k": 5,
         "fusion_w_trade": 0.5,
         "fusion_w_nowcast": 0.5,
     }
@@ -424,13 +426,52 @@ class TestPlanRankLotDay(unittest.TestCase):
         self.assertEqual(len(capped["buys"]), 20)
         self.assertEqual(len(full["buys"]), n)
 
+    def test_holdings_mv_cap_skips_buy_that_would_exceed(self):
+        from core.paper.rebalance.rank_lots import plan_rank_lot_day
+
+        scored = [
+            {"stock_code": "600000", "y_fuse": 1.2, "y_on": 0.0},
+            {"stock_code": "600001", "y_fuse": 1.2, "y_on": 0.0},
+        ]
+        out = plan_rank_lot_day(
+            scored=scored,
+            holdings=[],
+            cash=1_000_000,
+            prices={"600000": 200.0, "600001": 200.0},
+            cfg=_cfg(holdings_mv_cap=50_000),
+        )
+        self.assertEqual(len(out["buys"]), 1)
+        self.assertTrue(
+            any("持仓市值将超过上限" in str(s.get("reason") or "") for s in out["skips"])
+        )
+
+    def test_t0_open_leg_skips_exit(self):
+        from core.paper.rebalance.rank_lots import plan_rank_lot_day
+
+        scored = [{"stock_code": "600000", "y_fuse": -1.0, "y_on": 0.0}]
+        holdings = [{"stock_code": "600000", "stock_name": "测", "shares": 200}]
+        out = plan_rank_lot_day(
+            scored=scored,
+            holdings=holdings,
+            cash=1_000_000,
+            prices={"600000": 10.0},
+            cfg=_cfg(t0_sell_blocks={"600000": "未平做 T 腿"}),
+        )
+        self.assertEqual(out["sells"], [])
+        self.assertTrue(any(h.get("action") == "hold" for h in out["holds"]))
+        self.assertTrue(
+            any("未平做 T 腿" in str(s.get("reason") or "") for s in out["skips"])
+        )
+
 
 class TestGetRankLotCfg(unittest.TestCase):
-    def test_live_keeps_paper_max_positions(self):
+    def test_live_top_k_is_watching_pool(self):
         from core.paper.rebalance.rank_lots import get_rank_lot_cfg
+        from core.watching.store import WATCHING_MAX_SIZE
 
         cfg = get_rank_lot_cfg({"rules": {"max_positions": 20}})
-        self.assertEqual(cfg["top_k"], 20)
+        self.assertEqual(cfg["top_k"], WATCHING_MAX_SIZE)
+        self.assertAlmostEqual(float(cfg["holdings_mv_cap"]), 150_000.0)
 
     def test_scales_floor_when_account_smaller_than_configured(self):
         from core.paper.rebalance.rank_lots import get_rank_lot_cfg

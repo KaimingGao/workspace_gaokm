@@ -966,6 +966,7 @@ def simulate_watching_matrix_preview(
                 "cash_floor": rl_cfg.get("cash_floor"),
                 "cash_floor_configured": rl_cfg.get("cash_floor_configured"),
                 "cash_floor_scaled": bool(rl_cfg.get("cash_floor_scaled")),
+                "holdings_mv_cap": rl_cfg.get("holdings_mv_cap"),
                 "fusion_w_trade": rl_cfg.get("fusion_w_trade"),
                 "fusion_w_nowcast": rl_cfg.get("fusion_w_nowcast"),
                 "y_on_alpha": rl_cfg.get("y_on_alpha"),

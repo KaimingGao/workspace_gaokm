@@ -85,18 +85,6 @@ def _offline_rebalance_patches():
         )
         stack.enter_context(
             patch(
-                "core.paper.rebalance.buy._buy_match_block_reason",
-                return_value=None,
-            )
-        )
-        stack.enter_context(
-            patch(
-                "core.paper.rebalance.sell._sell_match_block_reason",
-                return_value=None,
-            )
-        )
-        stack.enter_context(
-            patch(
                 "skills.common.history.fetch_a_daily_bars",
                 side_effect=RuntimeError("paper_replay test: no network"),
             )

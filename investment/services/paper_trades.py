@@ -883,6 +883,36 @@ class PaperTradesMixin:
             work.pop("watchlist", None)
             trim_paper_lists(work)
             atomic_write_json(self.path, work)
+        try:
+            from core.paper.rebalance.auto_worker import (
+                mark_run_session,
+                resolve_session,
+                should_record_follow_run,
+            )
+
+            if should_record_follow_run(fill_action):
+                sess = resolve_session()
+                mark_run_session(
+                    sess,
+                    fill_action=fill_action,
+                    buy_count=len(buy_trades),
+                    sell_count=len(sell_trades),
+                    note=str(base_out.get("note") or ""),
+                    source="follow",
+                )
+                try:
+                    from core.paper.rebalance.desk import persist_desk_from_result
+
+                    persist_desk_from_result(
+                        base_out, sess, source="follow", filled=True
+                    )
+                except Exception:  # noqa: BLE001
+                    logger.debug(
+                        "persist rebalance desk after follow commit failed",
+                        exc_info=True,
+                    )
+        except Exception:  # noqa: BLE001
+            logger.debug("mark auto-rebalance session after follow commit failed", exc_info=True)
         return base_out
 
 
@@ -1593,6 +1623,25 @@ class PaperTradesMixin:
             "intraday": desk,
             "message": msg,
         }
+
+    @staticmethod
+    def rebalance_worker_status() -> Dict[str, Any]:
+        from core.paper.rebalance.auto_worker import rebalance_auto_worker
+        from core.paper.rebalance.desk import build_rebalance_desk_status
+
+        worker = rebalance_auto_worker.status()
+        try:
+            desk = build_rebalance_desk_status(worker=worker)
+        except Exception:  # noqa: BLE001
+            logger.debug("build_rebalance_desk_status failed", exc_info=True)
+            desk = {"rows": [], "universe_count": 0, "note": "盯盘状态读取失败"}
+        return {"ok": True, "worker": worker, "desk": desk}
+
+    @staticmethod
+    def set_rebalance_worker(enabled: bool) -> Dict[str, Any]:
+        from core.paper.rebalance.auto_worker import rebalance_auto_worker
+
+        return {"ok": True, **rebalance_auto_worker.set_enabled(bool(enabled))}
 
     @staticmethod
     def t0_worker_status() -> Dict[str, Any]:

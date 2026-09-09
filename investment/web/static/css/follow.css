@@ -9376,7 +9376,7 @@ body[data-page="follow"] .follow-page .dialog-btn {
 }
 
 /* 策略调仓 · path_matrix 工作台 */
-body[data-page="follow"] .follow-rebalance-section .follow-card-body {
+body[data-page="follow"] .follow-rebalance-section .follow-rebalance-rules-card .follow-card-body {
   padding: 0;
   gap: 0;
 }
@@ -10542,7 +10542,8 @@ body[data-page="follow"] .paper-t0-auto-bar {
   margin-bottom: 0;
 }
 
-body[data-page="follow"] .follow-t0-rules-card {
+body[data-page="follow"] .follow-t0-rules-card,
+body[data-page="follow"] .follow-rebalance-rules-card {
   margin-top: 12px;
 }
 

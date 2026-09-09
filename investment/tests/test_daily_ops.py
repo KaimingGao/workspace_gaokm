@@ -512,13 +512,55 @@ class TestQuantPaperDailyIntegration(unittest.TestCase):
                 "paths": {"markdown": "/tmp/x.md"},
             }
 
-            out = DailyRunService(paper=paper).run(preset="quant_paper")
+            with patch(
+                "core.paper.rebalance.auto_worker.already_ran_today",
+                return_value=False,
+            ), patch(
+                "core.paper.rebalance.auto_worker.after_auto_rebalance_window",
+                return_value=False,
+            ):
+                out = DailyRunService(paper=paper).run(preset="quant_paper")
 
         names = [s.get("name") for s in out.get("steps") or []]
         self.assertIn("paper_rebalance", names)
         reb = next(s for s in out["steps"] if s["name"] == "paper_rebalance")
         self.assertTrue(reb.get("ok"))
         paper.rebalance.assert_called_once()
+
+    @patch("core.watching.health.check_watching_health")
+    def test_quant_paper_skips_rebalance_after_open_window(self, mock_health):
+        mock_health.return_value = {
+            "success": True,
+            "issues": [],
+            "warnings": [],
+            "watchlist_count": 3,
+        }
+        paper = MagicMock()
+        paper.exists.return_value = True
+        with patch(
+            "core.paper.rebalance.auto_worker.already_ran_today",
+            return_value=False,
+        ), patch(
+            "core.paper.rebalance.auto_worker.after_auto_rebalance_window",
+            return_value=True,
+        ), patch("quant.services.quant_service.QuantService") as qcls:
+            inst = qcls.return_value
+            inst.refresh_watching.return_value = {"success": True, "refresh": {"count": 3}}
+            inst.run_cross_section.return_value = {"success": True, "ranked_count": 3}
+            inst.build_daily_report.return_value = {
+                "success": True,
+                "factor_ic": {"sample_count": 10},
+            }
+            inst.save_daily_report.return_value = os.path.join(ROOT, "data", "quant_daily.json")
+            inst.save_report_exports.return_value = {
+                "success": True,
+                "paths": {"markdown": "/tmp/x.md"},
+            }
+            out = DailyRunService(paper=paper).run(preset="quant_paper")
+        reb = next(s for s in out["steps"] if s["name"] == "paper_rebalance")
+        self.assertTrue(reb.get("ok"))
+        self.assertTrue(reb.get("skipped"))
+        paper.rebalance.assert_not_called()
 
 # --- test_p22_quant.py::TestCiPresetCheck ---
 class TestCiPresetCheck(unittest.TestCase):

@@ -582,9 +582,11 @@ export function fillPathMatrixForm(root, execution) {
     (execution && execution.execution && execution.execution.rebalance_timing) ||
     {};
   const pm =
-    (timing && timing.path_matrix && typeof timing.path_matrix === "object"
-      ? timing.path_matrix
-      : null) || {};
+    (timing && timing.rank_lots && typeof timing.rank_lots === "object"
+      ? timing.rank_lots
+      : timing && timing.path_matrix && typeof timing.path_matrix === "object"
+        ? timing.path_matrix
+        : null) || {};
   const set = (name, val) => {
     const el = root.querySelector(`[name="${name}"]`);
     if (!el) return;
@@ -598,6 +600,10 @@ export function fillPathMatrixForm(root, execution) {
   set("pm_rank_enter", rankScoreToPct(pm.rank_enter));
   set("pm_rank_strong", rankScoreToPct(pm.rank_strong));
   set("pm_y_on_alpha", pm.y_on_alpha != null ? pm.y_on_alpha : 0);
+  set(
+    "pm_holdings_mv_cap",
+    pm.holdings_mv_cap != null ? pm.holdings_mv_cap : 150000
+  );
   set(
     "pm_fusion_w_trade",
     pm.fusion_w_trade != null ? pm.fusion_w_trade : 0.5
@@ -660,6 +666,7 @@ export function collectPathMatrixForm(root) {
   let strong = rankPctToScore(num("pm_rank_strong", RANK_PCT_DEFAULT));
   if (strong < enter) strong = enter;
   const yOnAlpha = Math.max(0, Math.min(num("pm_y_on_alpha", 0), 10));
+  const mvCap = Math.max(0, Math.min(num("pm_holdings_mv_cap", 150000), 1e8));
   let wTrade = Math.max(0, Math.min(num("pm_fusion_w_trade", 0.5), 1));
   let wNc = Math.max(0, Math.min(num("pm_fusion_w_nc", 0.5), 1));
   const wSum = wTrade + wNc;
@@ -673,12 +680,23 @@ export function collectPathMatrixForm(root) {
   return {
     lock: true,
     rebalance_timing: {
+      rank_lots: {
+        enabled: true,
+        mode: "rank_lots",
+        rank_enter: enter,
+        rank_strong: strong,
+        y_on_alpha: Math.round(yOnAlpha * 1000) / 1000,
+        holdings_mv_cap: Math.round(mvCap),
+        fusion_w_trade: Math.round(wTrade * 1000) / 1000,
+        fusion_w_nowcast: Math.round(wNc * 1000) / 1000,
+      },
       path_matrix: {
         enabled: true,
         mode: "rank_lots",
         rank_enter: enter,
         rank_strong: strong,
         y_on_alpha: Math.round(yOnAlpha * 1000) / 1000,
+        holdings_mv_cap: Math.round(mvCap),
         fusion_w_trade: Math.round(wTrade * 1000) / 1000,
         fusion_w_nowcast: Math.round(wNc * 1000) / 1000,
       },
