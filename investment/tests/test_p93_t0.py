@@ -4176,6 +4176,13 @@ class TestT0Api(unittest.TestCase):
         self.assertNotIn("落账控制", text)
         self.assertIn("持仓操作流水", text)
         self.assertIn("paper-holdings-table", text)
+        self.assertNotIn("follow-section-fund", text)
+        self.assertNotIn("资金调整", text)
+        ov = text[text.find('id="follow-section-overview"') : text.find('id="follow-section-holdings"')]
+        self.assertIn("paper-deposit", ov)
+        self.assertIn("paper-withdraw", ov)
+        self.assertIn("paper-reset", ov)
+        self.assertLess(ov.find('id="follow-north-star"'), ov.find('id="follow-overview-fund"'))
         self.assertNotIn('id="paper-rebalance"', text)
         self.assertNotIn("跑一日", text)
 

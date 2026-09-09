@@ -30,6 +30,7 @@ const {
   isRankLotsLedger,
   BT_LEDGER_TRADE_COLS,
   buildLedgerTradeRows,
+  curveLedgerDays,
   ledgerTradesCaptionHtml,
   buildLedgerTradesCsv,
 } = await import(`./bt_trades.js?v=${encodeURIComponent(_V)}`);
@@ -882,13 +883,16 @@ export function installBacktest(q) {
     const fillEl = document.getElementById("quant-signal-fill");
     if (fillEl) fillEl.innerHTML = "";
     const legs = resolveSimTradeLegs(dataOrTrades);
-    if (!legs.length) {
+    const curve = !Array.isArray(dataOrTrades) && Array.isArray(dataOrTrades?.equity_curve)
+      ? dataOrTrades.equity_curve
+      : [];
+    const ledger = isRankLotsLedger(legs, dataOrTrades);
+    if (!legs.length && !(ledger && curveLedgerDays(curve).length)) {
       state.lastLedgerTrades = false;
       setBtTradesCaption("暂无成交流水 · 请先跑回测");
       return;
     }
     state.lastSimTrades = legs;
-    const ledger = isRankLotsLedger(legs, dataOrTrades);
     state.lastLedgerTrades = ledger;
     const rowDeps = {
       nameByCode: state.watchingNameByCode,
@@ -902,13 +906,29 @@ export function installBacktest(q) {
       const filledLegs = legs.filter(
         (r) => String(r.status || "filled") !== "skipped"
       );
-      state.lastSimTrades = filledLegs;
-      if (!filledLegs.length) {
+      const filledDays = new Set(
+        filledLegs.map((r) => String(r.as_of || r.signal_date || r.ts || "").slice(0, 10))
+      );
+      const skipOnly = legs.filter((r) => {
+        if (String(r.status || "") !== "skipped") return false;
+        const day = String(r.as_of || r.signal_date || r.ts || "").slice(0, 10);
+        return day && !filledDays.has(day);
+      });
+      const showLegs = filledLegs.concat(skipOnly);
+      state.lastSimTrades = showLegs;
+      if (!showLegs.length && !curveLedgerDays(curve).length) {
         setBtTradesCaption("暂无成交记录");
         return;
       }
-      const rows = buildLedgerTradeRows(filledLegs, rowDeps);
-      els.quantBtTrades.innerHTML = ledgerTradesCaptionHtml();
+      const rows = buildLedgerTradeRows(showLegs, {
+        ...rowDeps,
+        curve,
+        metaLegs: legs,
+      });
+      const skipNote = !filledLegs.length && legs.length
+        ? `<p class="quant-trades-caption">暂无成交 · ${legs.length} 笔跳过（现金地板 / T+1 等）</p>`
+        : "";
+      els.quantBtTrades.innerHTML = skipNote + ledgerTradesCaptionHtml();
       const host = els.quantBtTrades.querySelector(".quant-bt-trades-host");
       state.btTradesTableApi = mountVirtualTable(host, {
         columns: BT_LEDGER_TRADE_COLS,

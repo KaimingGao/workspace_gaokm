@@ -466,8 +466,8 @@ def _skip_to_sim(sk: dict, day: str) -> dict:
         "stock_name": sk.get("stock_name"),
         "side": side,
         "shares": sk.get("shares"),
-        "price": None,
-        "amount": None,
+        "price": sk.get("price"),
+        "amount": sk.get("amount"),
         "as_of": day,
         "signal_date": day,
         "status": "skipped",
@@ -986,16 +986,23 @@ def backtest_paper_replay(
         top_k=top_k,
         cost_model=cost_model,
     )
+    # 必须写 rank_lots：get_path_matrix_cfg 优先该键。只写旧键 path_matrix 时，
+    # resolve_effective_execution 里 live 的 50 万地板会留下，落账把所有买入打成 cash_floor。
+    replay_lots = {
+        "enabled": True,
+        "mode": "rank_lots",
+        "rank_enter": enter,
+        "rank_strong": strong,
+        "cash_floor": floor,
+        "holdings_mv_cap": 0.0,
+        "y_on_alpha": alpha,
+        "fusion_w_trade": w_trade,
+        "fusion_w_nowcast": w_nowcast,
+    }
     paper.setdefault("rules", {})["execution"] = {
         "rebalance_timing": {
-            "path_matrix": {
-                "rank_enter": enter,
-                "rank_strong": strong,
-                "cash_floor": floor,
-                "y_on_alpha": alpha,
-                "fusion_w_trade": w_trade,
-                "fusion_w_nowcast": w_nowcast,
-            }
+            "rank_lots": dict(replay_lots),
+            "path_matrix": dict(replay_lots),
         }
     }
     rl_cfg = get_rank_lot_cfg(paper, top_k=top_k)

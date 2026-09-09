@@ -1336,8 +1336,10 @@ score_stock(code) 续——
 |--|--|--|
 | 选股排序键 | **y_fuse / y_on**（09:30 ranking） | 同左 |
 | 宇宙 | 全部观察池（开加只受现金地板） | 观察池 + 持仓市值上限（默认 15 万）；开加不按 `max_positions` 截断 |
-| 手数 | 回测 1000 / 2000 股 | live 200 / 500 股 |
-| 成交 | 开盘 rank_lots；T+1；现金地板 | 同规则，账本为 `paper.json` |
+| 手数 | 回测 1000 / 2000 股（2000 买不下则退 1000） | live 200 / 500 股 |
+| 成交 | 开盘 rank_lots；T+1；现金地板 **10 万**（本金 50 万） | 同规则，账本为 `paper.json`；地板默认 **50 万** |
+
+回测合成 paper 必须把地板写进 `rebalance_timing.rank_lots`（`get_path_matrix_cfg` 优先该键）。只写旧键 `path_matrix` 时，落账会读到 live 50 万地板，50 万本金一笔都买不上。
 
 与契约对齐的部分：
 

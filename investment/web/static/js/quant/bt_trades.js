@@ -505,6 +505,10 @@ export function buildLedgerTradeRow(r, i, deps) {
   };
 }
 
+function _legDay(r) {
+  return String((r && (r.as_of || r.signal_date || r.ts)) || "").slice(0, 10);
+}
+
 function _dayMeta(legs, day) {
   let nOpen = 0;
   let nAdd = 0;
@@ -514,7 +518,7 @@ function _dayMeta(legs, day) {
   let nHold = null;
   let equity = null;
   for (const r of legs || []) {
-    const d = String(r.as_of || r.signal_date || r.ts || "").slice(0, 10);
+    const d = _legDay(r);
     if (d !== day) continue;
     const act = _actionMeta(r);
     if (act.key === "open") nOpen += 1;
@@ -526,6 +530,26 @@ function _dayMeta(legs, day) {
     if (equity == null) equity = _numOrNull(r.equity_after);
   }
   return { nOpen, nAdd, nExit, nSkip, cash, nHold, equity };
+}
+
+/** 净值曲线上的调仓日（跳过起始垫点：无 cash / n_holdings）。 */
+export function curveLedgerDays(curve) {
+  const out = [];
+  const seen = new Set();
+  for (const p of curve || []) {
+    if (!p || typeof p !== "object") continue;
+    const d = String(p.date || p.ts || p.time || "").slice(0, 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(d) || seen.has(d)) continue;
+    if (p.n_holdings == null && p.cash == null) continue;
+    seen.add(d);
+    out.push({
+      date: d,
+      cash: _numOrNull(p.cash),
+      nHold: _numOrNull(p.n_holdings),
+      equity: _numOrNull(p.equity),
+    });
+  }
+  return out;
 }
 
 export function buildLedgerDayRow(day, meta) {
@@ -552,16 +576,42 @@ export function buildLedgerDayRow(day, meta) {
 
 export function buildLedgerTradeRows(legs, deps) {
   const sorted = attachLedgerOpenCost(sortLedgerTradeLegs(legs));
-  const out = [];
-  let lastDay = "";
+  const metaLegs = Array.isArray(deps && deps.metaLegs) ? deps.metaLegs : sorted;
+  const curveDays = curveLedgerDays(deps && deps.curve);
+  const curveByDay = new Map(curveDays.map((c) => [c.date, c]));
+  const days = [];
+  const seen = new Set();
+  for (const c of curveDays) {
+    seen.add(c.date);
+    days.push(c.date);
+  }
+  for (const r of sorted) {
+    const day = _legDay(r);
+    if (!day || seen.has(day)) continue;
+    seen.add(day);
+    days.push(day);
+  }
+  days.sort();
+  const legsByDay = new Map();
   sorted.forEach((r, i) => {
-    const day = String(r.as_of || r.signal_date || r.ts || "").slice(0, 10);
-    if (day && day !== lastDay) {
-      lastDay = day;
-      out.push(buildLedgerDayRow(day, _dayMeta(sorted, day)));
-    }
-    out.push(buildLedgerTradeRow(r, i, deps));
+    const day = _legDay(r);
+    if (!legsByDay.has(day)) legsByDay.set(day, []);
+    legsByDay.get(day).push({ r, i });
   });
+  const out = [];
+  for (const day of days) {
+    const meta = _dayMeta(metaLegs, day);
+    const fromCurve = curveByDay.get(day);
+    if (fromCurve) {
+      if (meta.cash == null) meta.cash = fromCurve.cash;
+      if (meta.nHold == null) meta.nHold = fromCurve.nHold;
+      if (meta.equity == null) meta.equity = fromCurve.equity;
+    }
+    out.push(buildLedgerDayRow(day, meta));
+    for (const { r, i } of legsByDay.get(day) || []) {
+      out.push(buildLedgerTradeRow(r, i, deps));
+    }
+  }
   return out;
 }
 
@@ -898,6 +948,9 @@ function _dayBandHtml(d, escapeHtml) {
   if (d.nOpen) chips.push(`<span class="bt-ledger-flow is-open">开 ${d.nOpen}</span>`);
   if (d.nAdd) chips.push(`<span class="bt-ledger-flow is-add">加 ${d.nAdd}</span>`);
   if (d.nSkip) chips.push(`<span class="bt-ledger-flow is-skip">跳 ${d.nSkip}</span>`);
+  if (!chips.length) {
+    chips.push(`<span class="bt-ledger-flow is-hold">未调仓</span>`);
+  }
   const cashBits = [
     d.cashText && d.cashText !== "—" ? `现金 ${d.cashText}` : "",
     d.nHold != null ? `持仓 ${d.nHold}` : "",

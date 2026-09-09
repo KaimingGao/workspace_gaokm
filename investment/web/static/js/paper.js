@@ -56,7 +56,7 @@ import {
   normalizeExecutionView,
   renderExecutionDiffHtml,
 } from "./paper/execution_ui.js?v=p2151";
-import { buildPaperLogsView, buildPaperLogsCsv } from "./paper/logs_ui.js?v=p1658";
+import { buildPaperLogsView, buildPaperLogsCsv } from "./paper/logs_ui.js?v=p2157";
 import { downloadBlob } from "./shared.js";
 import {
   renderPaperT0 as renderPaperT0Ui,
@@ -80,7 +80,7 @@ import { rebalanceDataFoot, t0DataFoot } from "./data_policy.js?v=p1736";
 import { ensureWarehouseTopup } from "./data_warehouse_topup.js";
 import { createRebalanceReportController } from "./paper/rebalance_report.js?v=p2151";
 import { waitPaperJob as waitPaperJobPoll } from "./paper/job_poll.js?v=p1416";
-import { renderFollowNorthStar as renderFollowNorthStarUi } from "./paper/north_star_ui.js?v=p1416";
+import { renderFollowNorthStar as renderFollowNorthStarUi } from "./paper/north_star_ui.js?v=p2159";
 import {
   formatWeightSourceNote,
   formatFactorWeightsSection,
@@ -494,11 +494,11 @@ export function initPaper(ctx) {
     const raw = depositAmountEl ? String(depositAmountEl.value || "").trim() : "";
     const amount = Number(raw);
     if (!Number.isFinite(amount) || amount <= 0) {
-      setTradeStatus("请填写有效金额", { error: true });
+      setTradeStatus("请填写有效金额", { error: true, target: "paper-fund-status" });
       return null;
     }
     if (amount > 100_000_000) {
-      setTradeStatus("单次不超过 1 亿", { error: true });
+      setTradeStatus("单次不超过 1 亿", { error: true, target: "paper-fund-status" });
       return null;
     }
     return amount;
@@ -512,10 +512,10 @@ export function initPaper(ctx) {
       const amount = readAdjustAmount();
       if (amount == null) return;
       try {
-        setTradeStatus(`注资 ${amount.toLocaleString("zh-CN")} 中…`);
-        await postPaperTrade("/api/paper/deposit", { amount });
+        setTradeStatus(`注资 ${amount.toLocaleString("zh-CN")} 中…`, { target: "paper-fund-status" });
+        await postPaperTrade("/api/paper/deposit", { amount }, "paper-fund-status");
       } catch (err) {
-        setTradeStatus(String(err.message || err), { error: true });
+        setTradeStatus(String(err.message || err), { error: true, target: "paper-fund-status" });
       }
     });
   }
@@ -528,10 +528,10 @@ export function initPaper(ctx) {
       const amount = readAdjustAmount();
       if (amount == null) return;
       try {
-        setTradeStatus(`减资 ${amount.toLocaleString("zh-CN")} 中…`);
-        await postPaperTrade("/api/paper/withdraw", { amount });
+        setTradeStatus(`减资 ${amount.toLocaleString("zh-CN")} 中…`, { target: "paper-fund-status" });
+        await postPaperTrade("/api/paper/withdraw", { amount }, "paper-fund-status");
       } catch (err) {
-        setTradeStatus(String(err.message || err), { error: true });
+        setTradeStatus(String(err.message || err), { error: true, target: "paper-fund-status" });
       }
     });
   }
@@ -545,13 +545,13 @@ export function initPaper(ctx) {
         return;
       }
       try {
-        setTradeStatus("回零中…");
+        setTradeStatus("回零中…", { target: "paper-fund-status" });
         chartMode = "portfolio";
         chartStockCode = null;
-        await postPaperTrade("/api/paper/reset", {});
+        await postPaperTrade("/api/paper/reset", {}, "paper-fund-status");
         showPortfolioChart();
       } catch (err) {
-        setTradeStatus(String(err.message || err), { error: true });
+        setTradeStatus(String(err.message || err), { error: true, target: "paper-fund-status" });
       }
     });
   }
@@ -1923,7 +1923,6 @@ export function initPaper(ctx) {
     paperInitialized = !!data.initialized;
     const costNote = document.getElementById("follow-cost-note");
     const costSelect = document.getElementById("paper-cost-model");
-    const fundCostLabel = document.getElementById("follow-fund-cost-label");
     const stratHidden = document.getElementById("paper-strategy");
     const model = data.cost_model || (data.summary && data.summary.cost_model) || "zero";
     if (costSelect && costSelect.value !== model) costSelect.value = model;
@@ -1938,9 +1937,6 @@ export function initPaper(ctx) {
         model === "simple_cn"
           ? "佣金万 2.5（最低 5 元）+ 卖出印花税万 5"
           : "成交按现价，不计佣金、滑点与印花税";
-    }
-    if (fundCostLabel) {
-      fundCostLabel.textContent = model === "simple_cn" ? "A股简化" : "零成本";
     }
     if (!data.initialized) {
       setPaperMetaText("未初始化");
@@ -2030,8 +2026,10 @@ export function initPaper(ctx) {
   })();
 
   let tradeStatusTimer = null;
-  function setTradeStatus(msg, { error } = {}) {
-    const el = document.getElementById("paper-trade-status");
+  function setTradeStatus(msg, { error, target } = {}) {
+    const el =
+      (target && document.getElementById(target)) ||
+      document.getElementById("paper-trade-status");
     if (!el) return;
     if (tradeStatusTimer) {
       clearTimeout(tradeStatusTimer);
@@ -2065,7 +2063,7 @@ export function initPaper(ctx) {
     return Math.floor(n);
   }
 
-  async function postPaperTrade(url, body) {
+  async function postPaperTrade(url, body, statusTarget) {
     const res = await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -2074,7 +2072,7 @@ export function initPaper(ctx) {
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.detail || data.error || res.statusText);
     applyPaperData(data);
-    setTradeStatus(data.message || "完成");
+    setTradeStatus(data.message || "完成", statusTarget ? { target: statusTarget } : {});
     // 加减仓 / 清仓后回写观察页「已持 / 未持」状态
     if (typeof ctx.reloadWatching === "function") {
       try {

@@ -1165,7 +1165,7 @@ flowchart TB
 | QuantService | `quant_service.py` | Mixin 门面入口 |
 | Config | `quant_service_config.py` | 策略/信号配置列表 |
 | Follow | `quant_service_follow.py` | ① 模拟（T0 研究；执行归 PaperService） |
-| Replay | `quant_service_replay.py` | ② 回溯（paper_replay；中性化对照仍 TopK） |
+| Replay | `quant_service_replay.py` | ② 回溯（paper_replay / rank_lots） |
 | Compare | `quant_service_compare.py` | ③ 持仓联动摘要 |
 | Factors | `quant_service_factors.py` | 因子面板、IC、OLS、截面 |
 | Ops | `quant_service_ops.py` | 日报、导出、解读、watching 运维 |

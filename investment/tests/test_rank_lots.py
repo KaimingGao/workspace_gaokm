@@ -186,6 +186,21 @@ class TestPlanRankLotDay(unittest.TestCase):
         self.assertEqual(float(by["600000"]["shares"]), 1000)
         self.assertEqual(float(by["600001"]["shares"]), 2000)
 
+    def test_strong_lot_falls_back_to_base_when_floor_blocks(self):
+        from core.paper.rebalance.rank_lots import plan_rank_lot_day
+
+        scored = [{"stock_code": "600001", "stock_name": "强", "y_fuse": 3.0, "y_on": 0.0}]
+        out = plan_rank_lot_day(
+            scored=scored,
+            holdings=[],
+            cash=500_000,
+            prices={"600001": 250.0},
+            cfg=_cfg(lot_base=1000, lot_strong=2000, cash_floor=100_000, rank_enter=0.012, rank_strong=0.012),
+        )
+        self.assertEqual(len(out["buys"]), 1)
+        self.assertEqual(float(out["buys"][0]["shares"]), 1000)
+        self.assertEqual(out["buys"][0]["lot_kind"], "base")
+
     def test_fusion_negative_exits(self):
         from core.paper.rebalance.rank_lots import plan_rank_lot_day
 

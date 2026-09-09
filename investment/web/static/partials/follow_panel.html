@@ -76,12 +76,71 @@
           </div>
         </div>
       </div>
-      <div
-        id="follow-north-star"
-        class="follow-north-star-inline"
-        hidden
-        aria-label="产品北极星指标"
-      ></div>
+      <div class="follow-north-star-grid follow-overview-metrics" role="list" aria-label="北极星质量与调资">
+        <div
+          id="follow-north-star"
+          class="follow-north-star-inline"
+          hidden
+          aria-label="产品北极星指标"
+        ></div>
+        <div
+          class="dashboard-kpi-card quant-pro-kpi-card follow-kpi-card follow-north-star-item follow-overview-fund"
+          id="follow-overview-fund"
+          data-kpi="fund"
+          role="listitem"
+          aria-label="调资操作"
+          title="注资 / 减资 / 回零"
+        >
+          <div class="dashboard-kpi-label quant-pro-kpi-label follow-kpi-label follow-north-star-label">调资</div>
+          <div class="follow-fund-actions">
+            <input
+              type="number"
+              id="paper-deposit-amount"
+              class="follow-deposit-input"
+              min="0"
+              max="100000000"
+              step="10000"
+              value="0"
+              aria-label="调资金额（元）"
+              placeholder="金额"
+              title="注资/减资金额（元）"
+            />
+            <button
+              type="button"
+              id="paper-deposit"
+              class="dialog-btn secondary follow-deposit"
+              title="按左侧金额向假账注资"
+            >
+              注资
+            </button>
+            <button
+              type="button"
+              id="paper-withdraw"
+              class="dialog-btn secondary follow-withdraw"
+              title="按左侧金额减少假账现金"
+            >
+              减资
+            </button>
+            <button
+              type="button"
+              id="paper-reset"
+              class="dialog-btn secondary follow-reset"
+              title="保留持仓，盈亏与曲线从当前净值回零重新累积"
+            >
+              回零
+            </button>
+            <span class="watching-toolbar-meta paper-trade-status follow-overview-fund-status" id="paper-fund-status" hidden aria-live="polite"></span>
+          </div>
+          <div class="dashboard-kpi-sub quant-pro-kpi-sub follow-kpi-sub follow-north-star-sub" id="paper-fund-cash-text">尚未加载 · 初始化后显示现金余额</div>
+        </div>
+      </div>
+      <div class="follow-ops-sub" id="paper-fund-log-card" hidden>
+        <div class="follow-ops-subhead">
+          <span class="follow-ops-subtitle">资金流水</span>
+          <button type="button" class="follow-ops-link paper-clear-records" data-category="fund">清除</button>
+        </div>
+        <div id="paper-fund-log" class="paper-operation-log follow-ops-log"></div>
+      </div>
       <nav class="quant-path-rail quant-pro-path-rail follow-path-rail" aria-label="执行主路径">
         <a class="quant-path-step quant-pro-path-step follow-path-step" href="/watching" data-step="watching" data-state="idle">
           <span class="quant-pro-path-num follow-path-num">1</span> 观察
@@ -175,76 +234,6 @@
   </section>
 
   <div class="follow-ops" aria-label="账户操作">
-    <section class="dashboard-section quant-section follow-section-secondary follow-fund-section" id="follow-section-fund" aria-labelledby="follow-section-fund-title">
-      <details class="quant-secondary-fold follow-secondary-fold">
-        <summary class="quant-secondary-fold-sum follow-secondary-fold-sum">
-          <h3 id="follow-section-fund-title" class="dashboard-section-title">资金调整</h3>
-          <p class="dashboard-section-desc quant-section-desc" title="回零保留持仓，只把盈亏与净值曲线重新起算；成本模型见页顶">注资 / 减资 / 回零</p>
-        </summary>
-        <div class="dashboard-card quant-pro-card follow-ops-card" id="follow-fold-fund">
-          <div class="dashboard-card-head quant-pro-card-head quant-card-head--tools follow-card-head">
-            <p class="quant-fingerprint quant-card-head-status follow-card-status">纸面账户现金管理</p>
-            <div class="dashboard-card-tools quant-pro-card-tools follow-card-tools">
-              <span class="quant-desk-note">成本：<span id="follow-fund-cost-label">零成本</span></span>
-            </div>
-          </div>
-          <div class="quant-pro-card-body follow-card-body">
-            <div class="quant-control-band quant-pro-control-band follow-control-band" aria-label="调资操作">
-              <div class="quant-cluster-params quant-actions-inline follow-actions-inline follow-fund-actions">
-                <label class="platform-field quant-pro-field follow-platform-field" title="注资/减资金额（元）">
-                  <span class="quant-pro-field-label follow-field-label">调资金额（元）</span>
-                  <input
-                    type="number"
-                    id="paper-deposit-amount"
-                    class="follow-deposit-input"
-                    min="0"
-                    max="100000000"
-                    step="10000"
-                    value="0"
-                  />
-                </label>
-                <button
-                  type="button"
-                  id="paper-deposit"
-                  class="dialog-btn secondary follow-deposit"
-                  title="按左侧金额向假账注资"
-                >
-                  注资
-                </button>
-                <button
-                  type="button"
-                  id="paper-withdraw"
-                  class="dialog-btn secondary follow-withdraw"
-                  title="按左侧金额减少假账现金"
-                >
-                  减资
-                </button>
-                <button
-                  type="button"
-                  id="paper-reset"
-                  class="dialog-btn secondary follow-reset"
-                  title="保留持仓，盈亏与曲线从当前净值回零重新累积"
-                >
-                  回零
-                </button>
-              </div>
-              <div class="quant-oos-band follow-oos-band">
-                <span class="quant-oos-band-label">现金</span>
-                <span class="quant-oos-band-text" id="paper-fund-cash-text">尚未加载 · 初始化后显示现金余额</span>
-              </div>
-            </div>
-            <div class="follow-ops-sub" id="paper-fund-log-card" hidden>
-              <div class="follow-ops-subhead">
-                <span class="follow-ops-subtitle">资金流水</span>
-                <button type="button" class="follow-ops-link paper-clear-records" data-category="fund">清除</button>
-              </div>
-              <div id="paper-fund-log" class="paper-operation-log follow-ops-log"></div>
-            </div>
-          </div>
-        </div>
-      </details>
-    </section>
-
     <section class="dashboard-section quant-section follow-rebalance-section" id="follow-section-rebalance" aria-labelledby="follow-section-rebalance-title" aria-label="策略调仓">
       <header class="dashboard-section-head quant-section-head follow-section-head">
         <h3 id="follow-section-rebalance-title" class="dashboard-section-title">策略调仓</h3>

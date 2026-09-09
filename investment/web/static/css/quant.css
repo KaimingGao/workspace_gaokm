@@ -2935,7 +2935,8 @@ html[data-density="compact"] .quant-page {
   color: var(--danger, #f5222d);
 }
 
-.quant-bt-trades-host .bt-ledger-flow.is-skip {
+.quant-bt-trades-host .bt-ledger-flow.is-skip,
+.quant-bt-trades-host .bt-ledger-flow.is-hold {
   color: var(--ink-3);
 }
 

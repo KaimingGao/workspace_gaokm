@@ -49,19 +49,16 @@ export function renderFollowNorthStar(host, ns) {
     ],
     ["IR", fmt(annIr, 2), "年化信息比率（超额/波动）", "ir"],
   ];
-  host.innerHTML =
-    `<div class="follow-north-star-grid dashboard-kpi-row-body" role="list" aria-label="北极星质量">` +
-    items
-      .map(([label, val, sub, key]) => {
-        const empty = val === "—";
-        return (
-          `<div class="dashboard-kpi-card quant-pro-kpi-card follow-kpi-card follow-north-star-item${empty ? " is-empty" : ""}" role="listitem" data-kpi="${key}" title="${sub}">` +
-          `<div class="dashboard-kpi-label quant-pro-kpi-label follow-kpi-label follow-north-star-label">${label}</div>` +
-          `<div class="dashboard-kpi-value quant-pro-kpi-value follow-kpi-value follow-north-star-val">${val}</div>` +
-          `<div class="dashboard-kpi-sub quant-pro-kpi-sub follow-kpi-sub follow-north-star-sub">${sub}</div>` +
-          `</div>`
-        );
-      })
-      .join("") +
-    `</div>`;
+  host.innerHTML = items
+    .map(([label, val, sub, key]) => {
+      const empty = val === "—";
+      return (
+        `<div class="dashboard-kpi-card quant-pro-kpi-card follow-kpi-card follow-north-star-item${empty ? " is-empty" : ""}" role="listitem" data-kpi="${key}" title="${sub}">` +
+        `<div class="dashboard-kpi-label quant-pro-kpi-label follow-kpi-label follow-north-star-label">${label}</div>` +
+        `<div class="dashboard-kpi-value quant-pro-kpi-value follow-kpi-value follow-north-star-val">${val}</div>` +
+        `<div class="dashboard-kpi-sub quant-pro-kpi-sub follow-kpi-sub follow-north-star-sub">${sub}</div>` +
+        `</div>`
+      );
+    })
+    .join("");
 }

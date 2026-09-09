@@ -2,6 +2,28 @@
 
 import { escapeText, fmtPct, fmtScore, metricCls } from "./fmt.js";
 
+const TYPE_LABELS = {
+  deposit: "注资",
+  withdraw: "减资",
+  reset: "回零",
+  buy: "买入",
+  sell: "卖出",
+  rebalance: "调仓",
+  cluster_pool_rebalance: "分池",
+  watching_matrix_rebalance: "调仓",
+  t0_batch: "做T",
+  t0_void: "冲正",
+  sync_paper: "建仓",
+  init: "初始化",
+};
+
+function typeLabelOf(l) {
+  const t = String(l.type || "").trim();
+  const stored = String(l.type_label || "").trim();
+  if (stored && stored !== t) return stored;
+  return TYPE_LABELS[t] || stored || t || "";
+}
+
 function typeCls(t) {
   const m = {
     deposit: "is-deposit",
@@ -76,16 +98,18 @@ function originLabelOf(l) {
   if (origin === "strategy") return "策略";
   if (origin === "mixed") return "手动+策略";
   if (origin === "cluster" || origin === "research") return "研究枢纽";
-  if (origin === "matrix") return "矩阵调仓";
+  if (origin === "matrix") return source === "auto" ? "策略·自动" : "策略";
   const detail = String(l.detail || "");
   if (detail.includes("[调仓]")) return "策略";
   if (l.type === "sync_paper") return "观察建仓";
   if (l.type === "t0_batch") return source === "paper_t0_auto" ? "做T·自动" : "做T";
   if (l.type === "cluster_pool_rebalance") return "研究枢纽";
-  if (l.type === "watching_matrix_rebalance") return "矩阵调仓";
+  if (l.type === "watching_matrix_rebalance") {
+    return source === "auto" ? "策略·自动" : "策略";
+  }
   if (l.type === "rebalance") return "策略汇总";
   if (meta.cluster_mode || meta.source === "research_hub") return "研究枢纽";
-  if (meta.matrix_mode) return "矩阵调仓";
+  if (meta.matrix_mode) return "策略";
   if (l.type === "buy" || l.type === "sell") return "手动";
   return "";
 }
@@ -128,7 +152,7 @@ export function logMatchesTradingFilter(l, filter) {
 function renderLogItem(l, { tradeCols = false } = {}) {
   const meta = l.meta || {};
   const cls = typeCls(l.type);
-  const label = escapeText(l.type_label || l.type || "");
+  const label = escapeText(typeLabelOf(l));
   let code = String(meta.stock_code || "").trim();
   let name = String(meta.stock_name || "").trim();
   let shares = meta.shares != null && meta.shares !== "" ? Number(meta.shares) : NaN;
@@ -182,11 +206,7 @@ function renderLogItem(l, { tradeCols = false } = {}) {
       primary = String(l.detail || "做T汇总");
     } else {
       const fallback =
-        l.type === "cluster_pool_rebalance"
-          ? "分池调仓"
-          : l.type === "watching_matrix_rebalance"
-            ? "矩阵调仓"
-            : "策略调仓";
+        l.type === "cluster_pool_rebalance" ? "分池调仓" : "策略调仓";
       primary =
         Number.isFinite(buyN) || Number.isFinite(sellN)
           ? `买入 ${Number.isFinite(buyN) ? buyN : 0} 笔 · 卖出 ${Number.isFinite(sellN) ? sellN : 0} 笔`
@@ -347,7 +367,7 @@ function dayLabel(key, items) {
   if (buyN) parts.push(`买${buyN}`);
   if (sellN) parts.push(`卖${sellN}`);
   if (clusterN) parts.push(`分池${clusterN}`);
-  if (matrixN) parts.push(`矩阵${matrixN}`);
+  if (matrixN) parts.push(`调仓${matrixN}`);
   return parts.length ? `${base} · ${parts.join(" ")}` : base;
 }
 

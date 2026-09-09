@@ -545,14 +545,21 @@ def plan_rank_lot_day(
             rs, rank_strong, lot_base=lot_base, lot_strong=lot_strong_sh
         )
         lot_kind = "strong" if lots == lot_strong_sh else "base"
-        dbg["lot_kind"] = lot_kind
         need = float(lots) * float(px)
+        if cash_sim - need < cash_floor - 1e-6 and lots > lot_base:
+            lots = lot_base
+            lot_kind = "base"
+            need = float(lots) * float(px)
+        dbg["lot_kind"] = lot_kind
         if cash_sim - need < cash_floor - 1e-6:
             skips.append(
                 {
                     "stock_code": code,
                     "stock_name": item.get("stock_name") or code,
                     "side": "buy",
+                    "shares": float(lots),
+                    "price": float(px),
+                    "amount": round(need, 2),
                     "action": ACTION_SKIP,
                     "reason": f"现金将低于地板 {cash_floor:.0f}",
                     **dbg,

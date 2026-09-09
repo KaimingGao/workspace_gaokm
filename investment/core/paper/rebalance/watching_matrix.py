@@ -586,7 +586,11 @@ def _apply_matrix_trades(
             skips.append(
                 {
                     "stock_code": (leg or {}).get("stock_code"),
+                    "stock_name": (leg or {}).get("stock_name"),
                     "side": "buy",
+                    "shares": (leg or {}).get("shares"),
+                    "price": (leg or {}).get("price"),
+                    "amount": (leg or {}).get("amount"),
                     "reason": err or "apply_failed",
                     "path_matrix": True,
                 }

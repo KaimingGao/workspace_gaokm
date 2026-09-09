@@ -318,6 +318,7 @@ OPERATION_LOG_TYPES = {
     "sell": "卖出",
     "rebalance": "调仓",
     "cluster_pool_rebalance": "分池调仓",
+    "watching_matrix_rebalance": "调仓",
     "t0_batch": "做T汇总",
     "t0_void": "做T冲正",
     "sync_paper": "建仓",

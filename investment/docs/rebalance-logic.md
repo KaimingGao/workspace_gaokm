@@ -63,10 +63,10 @@
 | `rank_enter` | 0.012 | ranking 选股下限（1.2%；旧 1.01 / 101% 自动换成净收益） |
 | `rank_strong` | 0.012 | 超过则买 500 股，否则 200 股（1.2%） |
 | `y_on_alpha` | 0 | 隔夜系数 α∈[0,10]；ranking=(1+y_fuse/100)×(1+α×y_on/100)−1 |
-| `cash_floor` | 500_000 | 买完后现金不得低于此值。**live**：若配置地板超过账户规模（`initial_cash` / 权益），按净值 20% 缩放（对齐回测 10 万 / 50 万），避免 20 万纸面账本被 50 万地板永久拦买。 |
+| `cash_floor` | 500_000 | 买完后现金不得低于此值。**live**：若配置地板超过账户规模，按净值 20% 缩放。**历史回测**：本金 50 万、地板 10 万；合成 paper 必须写 `rebalance_timing.rank_lots`（不能只写旧键 `path_matrix`），否则落账会读到 live 50 万地板、一笔都买不上。 |
 | `holdings_mv_cap` | 150_000 | **live** 持仓市值上限；本笔将超则跳过该买。历史回测为 0（不限） |
 | `max_positions` | 策略限额 | 仅持仓规则日循环 / 风控仍可读；**rank_lots 开/加不再用它截断** |
-| 初始现金（回测） | 1_000_000 | 历史回测默认 |
+| 初始现金（回测） | 500_000 | 历史回测默认；现金地板 100_000 |
 
 OOS 失败组禁止新开/加仓。配置写在 `execution.rebalance_timing.rank_lots`（仍认旧键 `path_matrix`）。
 
@@ -83,7 +83,7 @@ OOS 失败组禁止新开/加仓。配置写在 `execution.rebalance_timing.rank
 3. `ranking = (1 + y_fuse/100) × (1 + α × y_on/100) − 1`；缺 y_on 视为 0；α 默认 0。展示百分数。
 4. 已持仓且 ranking &lt; 0 → 清仓（T+1 可卖手数）。
 5. ranking &gt; rank入场 的票按分数买（live 受观察池容量与 `holdings_mv_cap`；历史回测面向观察池全名单、不套市值帽）：建仓或加仓。
-6. ranking &gt; rank强 → 500 股，否则 200 股。
+6. ranking &gt; rank强 → live 500 股 / 回测 2000 股，否则 live 200 / 回测 1000；回测 2000 买不下则退 1000。
 7. 若本笔买入会使现金 &lt; cash_floor → 跳过该买。
 8. 未买且 ranking ≥ 0 → 持有。
 

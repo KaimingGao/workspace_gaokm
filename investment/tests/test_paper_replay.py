@@ -241,6 +241,22 @@ class TestPaperReplayEngine(unittest.TestCase):
         self.assertEqual(float(out["params"]["cash_floor"]), REPLAY_CASH_FLOOR)
         self.assertEqual(REPLAY_INITIAL_CASH, 500_000.0)
         self.assertEqual(REPLAY_CASH_FLOOR, 100_000.0)
+        fills = [
+            t
+            for t in (out.get("trades") or [])
+            if t.get("side") == "buy"
+        ]
+        self.assertTrue(fills, "50 万本金 + 10 万地板应能买入手数，不能被 live 50 万地板拦死")
+        from core.paper.rebalance.rank_lots import get_rank_lot_cfg
+
+        paper = out.get("paper") or {}
+        self.assertAlmostEqual(
+            float(get_rank_lot_cfg(paper).get("cash_floor") or 0),
+            REPLAY_CASH_FLOOR,
+        )
+        rt = ((paper.get("rules") or {}).get("execution") or {}).get("rebalance_timing") or {}
+        self.assertIn("rank_lots", rt)
+        self.assertAlmostEqual(float((rt.get("rank_lots") or {}).get("cash_floor") or 0), REPLAY_CASH_FLOOR)
 
     def test_cash_floor_respected(self):
         stock_bars = {
