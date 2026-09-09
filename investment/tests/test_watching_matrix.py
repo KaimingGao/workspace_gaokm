@@ -67,12 +67,15 @@ class TestWatchingMatrixPreview(unittest.TestCase):
         self.assertGreaterEqual(len(out.get("buy_trades") or []), 1)
         self.assertEqual(out["buy_trades"][0]["stock_code"], "600000")
         report = out.get("rebalance_report") or []
-        self.assertEqual(len(report), len(out.get("buy_trades") or []) + len(out.get("sell_trades") or []))
-        self.assertTrue(all(r.get("side") in ("buy", "sell") for r in report))
+        self.assertGreaterEqual(len(report), 1)
         self.assertEqual(report[0].get("decision"), "买入")
         self.assertEqual(report[0].get("predicted_score_eod"), 0.9)
         self.assertEqual(report[0].get("predicted_score_tau"), 0.7)
         self.assertEqual(report[0].get("predicted_score_on"), 0.2)
+        self.assertEqual(report[0].get("predicted_score_path"), 2.5)
+        self.assertAlmostEqual(float(report[0].get("y_trade")), 1.5)
+        self.assertIsNotNone(report[0].get("y_fuse"))
+        self.assertIsNotNone(report[0].get("ranking_score"))
         self.assertEqual(float(out["buy_trades"][0].get("shares") or 0), 500)
         self.assertEqual(paper.get("cash"), 1_000_000)
         self.assertEqual(paper.get("holdings") or [], [])
@@ -207,7 +210,12 @@ class TestWatchingMatrixPreview(unittest.TestCase):
         self.assertTrue(out.get("ok"))
         self.assertEqual(len(out.get("buy_trades") or []), 0)
         self.assertEqual(len(out.get("sell_trades") or []), 0)
-        self.assertEqual(len(out.get("rebalance_report") or []), 0)
+        report = out.get("rebalance_report") or []
+        self.assertEqual(len(report), 1)
+        self.assertEqual(report[0].get("stock_code"), "601111")
+        self.assertEqual(report[0].get("decision"), "持有")
+        self.assertEqual(report[0].get("predicted_score_eod"), 0.18)
+        self.assertEqual(out.get("empty_reason"), "no_executable_changes")
 
     def test_oos_failed_excluded_from_buys(self):
         from core.paper.rebalance.watching_matrix import simulate_watching_matrix_preview
@@ -250,6 +258,49 @@ class TestWatchingMatrixPreview(unittest.TestCase):
         self.assertNotIn("600001", buy_codes)
         self.assertIn("600000", buy_codes)
         self.assertGreaterEqual(int((out.get("path_matrix") or {}).get("oos_excluded") or 0), 1)
+        skip_codes = [
+            r.get("stock_code")
+            for r in (out.get("rebalance_report") or [])
+            if r.get("decision") == "跳过"
+        ]
+        self.assertIn("600001", skip_codes)
+
+    def test_cash_floor_skip_rows_keep_scores(self):
+        """现金低于缩放后地板：跳过行仍带 ŷ，empty_reason=cash_below_floor。"""
+        from core.paper.rebalance.watching_matrix import simulate_watching_matrix_preview
+
+        paper = {
+            "initial_cash": 200_000,
+            "cash": 8_000,
+            "holdings": [],
+            "rules": {"max_positions": 5, "position_pct": 0.2},
+        }
+        item = _signal_item(y_trade=3.0, predicted_score_blend=3.0, y_nowcast=2.0)
+        with patch(
+            "core.paper.rebalance.watching_matrix._watching_codes",
+            return_value=(["600000"], {"n_watch": 1, "n_total": 1}),
+        ), patch(
+            "core.paper.rebalance.watching_matrix._score_pool",
+            return_value=([item], []),
+        ), patch(
+            "core.paper.rebalance.watching_matrix._quote_px",
+            return_value=10.0,
+        ), patch(
+            "core.paper.ledger.mark_to_market",
+            return_value={"equity": 8_000, "cash": 8_000},
+        ):
+            out = simulate_watching_matrix_preview(paper, dry_run=True)
+
+        self.assertTrue(out.get("ok"))
+        self.assertEqual(len(out.get("buy_trades") or []), 0)
+        self.assertEqual(out.get("empty_reason"), "cash_below_floor")
+        self.assertIn("现金", str(out.get("empty_detail") or ""))
+        report = out.get("rebalance_report") or []
+        self.assertEqual(len(report), 1)
+        self.assertEqual(report[0].get("decision"), "跳过")
+        self.assertIn("地板", str(report[0].get("reason") or ""))
+        self.assertAlmostEqual(float(report[0].get("y_trade")), 3.0)
+        self.assertAlmostEqual(float(report[0].get("predicted_score_eod")), 0.9)
 
     def test_matrix_mode_service_confirm_writes(self):
         from services.paper_trades import PaperTradesMixin

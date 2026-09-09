@@ -1,7 +1,5 @@
 import { mergeScoringFloors } from "./scoring.js";
 import { runMarketContextIngest } from "../macro_context_ui.js";
-import { researchGridHtml } from "./research_grid.js";
-import { buildRiskAuditMetaText, buildRiskAuditFoldSummary, buildSectorExposureHtml, buildStyleExposureHtml, buildRiskEffHtml, normalizeRiskBlockRows, buildRiskBlocksHtml } from "./strategy_risk_ui.js";
 
 /** Quant domain: strategy */
 export function installStrategy(q) {
@@ -12,7 +10,6 @@ export function installStrategy(q) {
     try {
       await ensureFactorMeta();
       renderFactorDict();
-      await loadSentimentPriorForm();
       await loadMarketContextPanel();
       await loadMarketPriorForm();
       return null;
@@ -32,16 +29,183 @@ export function installStrategy(q) {
     return m[String(code || "").toLowerCase()] || code || "—";
   }
 
+  function regimeShortLabel(code) {
+    const m = { bear: "熊", weak: "弱", neutral: "中", strong: "强", bull: "牛" };
+    return m[String(code || "").toLowerCase()] || "—";
+  }
+
+  function regimeBenchmarkLabel(code) {
+    const raw = String(code || "").toLowerCase();
+    if (!raw) return "沪深300";
+    if (raw.includes("300") || raw === "hs300" || raw === "csi300") return "沪深300";
+    return String(code);
+  }
+
+  function regimePositionScale(code, apply) {
+    if (apply === false) return 1;
+    const c = String(code || "").toLowerCase();
+    if (c === "bear" || c === "weak" || c === "weak_trend" || c === "chop") return 0.8;
+    if (c === "neutral") return 0.9;
+    if (c === "strong" || c === "bull") return 1;
+    return 1;
+  }
+
+  function regimeFactorHint(code) {
+    const c = String(code || "").toLowerCase();
+    if (c === "bear" || c === "weak") return "防守权 · 关动量/量价";
+    if (c === "bull" || c === "strong") return "趋势权 · 关估值/质量";
+    return "全因子环境";
+  }
+
+  function regimeAxisPct(roc) {
+    const lo = -10;
+    const hi = 10;
+    if (roc == null || !Number.isFinite(Number(roc))) return 50;
+    const t = (Number(roc) - lo) / (hi - lo);
+    return Math.max(3, Math.min(97, t * 100));
+  }
+
+  function renderRegimeBoard(reg) {
+    const body = document.getElementById("strategy-regime-body");
+    const pill = document.getElementById("strategy-mctx-regime-pill");
+    if (!body) return;
+    const r = reg && typeof reg === "object" ? reg : {};
+    const code = String(r.regime || "").toLowerCase();
+    const lab = regimeLabel(code);
+    const days = Number(r.window_days);
+    const windowDays = Number.isFinite(days) && days > 0 ? days : 20;
+    const applyScale = r.apply_position_scale !== false;
+    const scale = regimePositionScale(code, applyScale);
+    const roc = r.index_return_pct;
+    const rocTone = toneClass(roc);
+    const bench = regimeBenchmarkLabel(r.benchmark);
+    const ticks = [
+      { k: "bear", lab: "熊" },
+      { k: "weak", lab: "弱" },
+      { k: "neutral", lab: "中" },
+      { k: "strong", lab: "强" },
+      { k: "bull", lab: "牛" },
+    ];
+    const overlay = r.macro_overlay_deferred
+      ? "overlay → M"
+      : r.macro_overlay_applied
+        ? "overlay on"
+        : "仓位闸";
+    const overlayTip = r.macro_overlay_deferred
+      ? "科技拖累已交给跨市场 prior，避免双重惩罚"
+      : r.macro_overlay_applied
+        ? "Regime 叠加了海外科技拖累"
+        : "弱/熊压单票与行业上限；不进 ŷ";
+    const reason = r.reason ? String(r.reason) : "";
+    const vol =
+      r.volatility_pct != null && Number.isFinite(Number(r.volatility_pct))
+        ? Number(r.volatility_pct)
+        : null;
+    const penalty =
+      r.score_penalty != null && Number(r.score_penalty) > 0
+        ? Number(r.score_penalty)
+        : null;
+    const known = !!code;
+    const envHint = regimeFactorHint(code);
+    const envMetric = envHint.split(" · ")[0] || "—";
+    const envSub = [
+      !applyScale ? "仓位缩放已关" : null,
+      penalty != null && penalty >= 0.05 ? `启发式罚 ${penalty.toFixed(1)}` : null,
+      vol != null ? `近5日波动 ${vol.toFixed(2)}%` : null,
+      r.blend_blended ? "边界软插值" : null,
+    ]
+      .filter(Boolean)
+      .join(" · ");
+    if (pill) {
+      pill.textContent = known
+        ? `Regime · ${regimeShortLabel(code)} · ${bench} ${windowDays}D`
+        : "Regime —";
+    }
+    const axisPct = regimeAxisPct(roc);
+    const rocText = fmtPct(roc);
+    const needleTitle = roc == null ? "无基准收益" : `${windowDays}D ROC ${rocText}`;
+    const needleSide = axisPct < 18 ? "is-start" : axisPct > 82 ? "is-end" : "";
+    body.innerHTML =
+      `<div class="strategy-regime-axis" data-regime="${escapeHtml(code || "na")}" role="img" aria-label="${escapeHtml(
+        needleTitle
+      )}">` +
+      `<div class="strategy-regime-axis-track">` +
+      ticks
+        .map(
+          (t) =>
+            `<span class="strategy-regime-seg ${escapeHtml(t.k)}${
+              t.k === code ? " is-current" : ""
+            }"></span>`
+        )
+        .join("") +
+      `<span class="strategy-regime-needle ${needleSide}" style="left:${axisPct.toFixed(
+        2
+      )}%" title="${escapeHtml(needleTitle)}">` +
+      `<span class="strategy-regime-needle-val ${rocTone}">${escapeHtml(rocText)}</span>` +
+      `</span>` +
+      `</div>` +
+      `<ol class="strategy-regime-spectrum" aria-label="Regime 五档">` +
+      ticks
+        .map((t) => {
+          const on = t.k === code;
+          return (
+            `<li class="${escapeHtml(t.k)}${on ? " is-current" : ""}"` +
+            (on ? ` aria-current="true"` : "") +
+            `>${escapeHtml(t.lab)}</li>`
+          );
+        })
+        .join("") +
+      `</ol>` +
+      `<div class="strategy-regime-scale" aria-hidden="true">` +
+      `<span>−10%</span><span>0</span><span>+10%</span>` +
+      `</div>` +
+      `</div>` +
+      `<p class="strategy-regime-reason${reason ? "" : " is-muted"}" title="${escapeHtml(
+        reason || `现价相对 ${windowDays} 日前收盘，不是均线多空`
+      )}">${escapeHtml(reason || `现价相对 ${windowDays} 日前收盘，不是均线多空`)}</p>` +
+      `<div class="strategy-mctx-strip strategy-regime-metrics">` +
+      `<div class="strategy-mctx-cell ${known ? `is-${code}` : ""}">` +
+      `<div class="strategy-mctx-cell-top">` +
+      `<span class="strategy-mctx-label">状态</span>` +
+      `<span class="strategy-mctx-badge ${
+        code === "bear" || code === "weak" ? "is-fire" : known ? "is-armed" : "is-idle"
+      }">${escapeHtml(known ? lab : "未评估")}</span>` +
+      `</div>` +
+      `<span class="strategy-mctx-metric">${escapeHtml(known ? lab : "—")}</span>` +
+      `<span class="strategy-mctx-sub" title="${escapeHtml(overlayTip)}">${escapeHtml(
+        [code || "—", overlay].filter(Boolean).join(" · ")
+      )}</span>` +
+      `</div>` +
+      `<div class="strategy-mctx-cell">` +
+      `<div class="strategy-mctx-cell-top">` +
+      `<span class="strategy-mctx-label">${windowDays}D ROC</span>` +
+      `</div>` +
+      `<span class="strategy-mctx-metric ${rocTone}">${escapeHtml(rocText)}</span>` +
+      `<span class="strategy-mctx-sub">相对${windowDays}日前收盘 · ${escapeHtml(bench)}</span>` +
+      `</div>` +
+      `<div class="strategy-mctx-cell">` +
+      `<div class="strategy-mctx-cell-top">` +
+      `<span class="strategy-mctx-label">仓位上限</span>` +
+      `</div>` +
+      `<span class="strategy-mctx-metric">×${scale.toFixed(2)}</span>` +
+      `<span class="strategy-mctx-sub">${applyScale ? "单票/行业同乘" : "缩放关闭"} · 不进 ŷ</span>` +
+      `</div>` +
+      `<div class="strategy-mctx-cell">` +
+      `<div class="strategy-mctx-cell-top">` +
+      `<span class="strategy-mctx-label">因子环境</span>` +
+      `</div>` +
+      `<span class="strategy-mctx-metric">${escapeHtml(envMetric)}</span>` +
+      `<span class="strategy-mctx-sub" title="${escapeHtml(envHint)}">${escapeHtml(
+        envSub || "查表，非模型"
+      )}</span>` +
+      `</div>` +
+      `</div>`;
+  }
+
   function fmtPct(v) {
     if (v == null || !Number.isFinite(Number(v))) return "—";
     const n = Number(v);
     return `${n >= 0 ? "+" : ""}${n.toFixed(2)}%`;
-  }
-
-  function cardStateClass(on, neutral) {
-    if (on) return "is-on";
-    if (neutral) return "is-armed";
-    return "is-off";
   }
 
   function toneClass(v) {
@@ -94,34 +258,62 @@ export function installStrategy(q) {
     sctx.stroke();
   }
 
-  function renderMctxCard(c) {
-    const badge = c.on ? "触发" : c.modeCode && c.modeCode !== "off" ? "武装" : "待机";
-    const badgeCls = c.on ? "is-fire" : c.modeCode && c.modeCode !== "off" ? "is-armed" : "is-idle";
-    const metricTone = c.metricTone || "";
-    const tipAttr = c.tip ? ` title="${escapeHtml(c.tip)}"` : "";
-    return (
-      `<div class="strategy-mctx-cell ${cardStateClass(c.on, c.neutral)}" data-k="${escapeHtml(c.k)}"${tipAttr}>` +
-      `<div class="strategy-mctx-cell-top">` +
-      `<span class="strategy-mctx-label">${escapeHtml(c.label)}</span>` +
-      `<span class="strategy-mctx-badge ${badgeCls}">${escapeHtml(badge)}</span>` +
-      `</div>` +
-      `<span class="strategy-mctx-metric ${metricTone}">${escapeHtml(c.metric)}</span>` +
-      `<span class="strategy-mctx-sub">${escapeHtml(c.sub)}</span>` +
-      (c.modeHint
-        ? `<span class="strategy-mctx-mode">${escapeHtml(c.modeHint)}</span>`
-        : "") +
-      `</div>`
-    );
+  function paintMctxBox(c) {
+    const unit = document.querySelector(`.strategy-mctx-unit[data-k="${c.k}"]`);
+    if (!unit) return;
+    unit.classList.toggle("is-on", !!c.on);
+    unit.classList.toggle("is-armed", !c.on && !!c.neutral);
+    if (c.tip) unit.setAttribute("title", c.tip);
+    const note = unit.querySelector(".strategy-mctx-block-note");
+    if (!note) return;
+    const live = c.on ? `触发 · ${c.metric}` : c.metric || "—";
+    note.textContent = c.sub && c.sub !== "—" ? `${live} · ${c.sub}` : live;
+    note.classList.remove("is-up", "is-down", "is-flat");
+    if (c.metricTone) note.classList.add(c.metricTone);
+  }
+
+  function paintMctxEmpty(msg) {
+    document.querySelectorAll(".strategy-mctx-unit").forEach((unit) => {
+      unit.classList.remove("is-on", "is-armed");
+      const note = unit.querySelector(".strategy-mctx-block-note");
+      if (!note) return;
+      note.textContent = msg || "—";
+      note.classList.remove("is-up", "is-down", "is-flat");
+    });
+  }
+
+  function setMctxHeadStatus(text, { busy = false, warn = false } = {}) {
+    const head = document.getElementById("strategy-mctx-head-status");
+    if (!head) return;
+    head.textContent = text || "";
+    head.classList.toggle("is-busy", !!busy);
+    head.classList.toggle("is-warn", !!warn && !busy);
+    if (busy) head.setAttribute("aria-busy", "true");
+    else head.removeAttribute("aria-busy");
+  }
+
+  function setMctxMeta(chips) {
+    const st = document.getElementById("strategy-mctx-status");
+    if (!st) return;
+    const list = (chips || []).filter((c) => c && c.t);
+    if (!list.length) {
+      st.hidden = true;
+      st.classList.remove("is-busy");
+      st.innerHTML = "";
+      return;
+    }
+    st.hidden = false;
+    st.innerHTML = list
+      .map(
+        (c) =>
+          `<span class="strategy-mctx-chip ${c.cls || ""}">${escapeHtml(c.t)}</span>`
+      )
+      .join("");
   }
 
   async function loadMarketContextPanel() {
-    const grid = document.getElementById("strategy-mctx-grid");
-    const st = document.getElementById("strategy-mctx-status");
-    const hint = document.getElementById("strategy-mctx-hint");
-    const freshPill = document.getElementById("strategy-mctx-fresh-pill");
-    const mPill = document.getElementById("strategy-mctx-m-pill");
+    if (!document.querySelector(".strategy-mctx-unit")) return;
     const spark = document.getElementById("strategy-mctx-spark");
-    if (!grid) return;
     try {
       const [ctxRes, priorRes] = await Promise.all([
         apiFetch("/api/dashboard/market-context"),
@@ -132,17 +324,10 @@ export function installStrategy(q) {
       ]);
       const ctx = ctxRes.ok !== false && ctxRes.data ? ctxRes.data : null;
       if (!ctx || ctx.ok === false) {
-        grid.innerHTML = `<div class="strategy-mctx-empty">盘前上下文未就绪 · 运行 pre_market_ingest</div>`;
-        if (st) st.innerHTML = "";
-        if (hint) hint.hidden = true;
-        if (freshPill) {
-          freshPill.textContent = "无快照";
-          freshPill.className = "strategy-mctx-pill is-warn";
-        }
-        if (mPill) {
-          mPill.textContent = "M —";
-          mPill.className = "strategy-mctx-pill is-muted";
-        }
+        paintMctxEmpty("盘前上下文未就绪");
+        renderRegimeBoard({});
+        setMctxMeta([]);
+        setMctxHeadStatus("无快照", { warn: true });
         if (spark) spark.hidden = true;
         return;
       }
@@ -159,8 +344,6 @@ export function installStrategy(q) {
       const macroErrHint = (ctx.macro_errors || macro.errors || []).slice(0, 3).join(" · ");
       const macroBlocking =
         !!ctx.macro_degraded || macro.overseas_tech_1d_pct == null;
-      const regLab = regimeLabel(reg.regime);
-      const regCode = String(reg.regime || "").toLowerCase();
 
       const activeCount = [
         flags.cross_market,
@@ -168,31 +351,24 @@ export function installStrategy(q) {
         flags.regulatory,
         flags.ipo_drain,
       ].filter(Boolean).length;
+      const bits = [];
+      const age = ageLabel(fresh.parts);
 
-      if (freshPill) {
-        const age = ageLabel(fresh.parts);
-        if (fresh.needs_ingest || ctx.macro_degraded) {
-          freshPill.textContent = ctx.macro_degraded ? "macro 降级" : "需刷新";
-          freshPill.className = "strategy-mctx-pill is-warn";
-        } else if (ctx.data_ready === false) {
-          freshPill.textContent = "部分空";
-          freshPill.className = "strategy-mctx-pill is-warn";
-        } else {
-          freshPill.textContent = age ? `新鲜 · ${age}` : "新鲜";
-          freshPill.className = "strategy-mctx-pill is-ok";
-        }
+      if (fresh.needs_ingest || ctx.macro_degraded) {
+        bits.push(ctx.macro_degraded ? "macro 降级" : "需刷新");
+      } else if (ctx.data_ready === false) {
+        bits.push("部分空");
+      } else {
+        bits.push(age ? `新鲜 ${age}` : "新鲜");
       }
-      if (mPill) {
-        if (activeCount > 0) {
-          mPill.textContent = `M 触发 ${activeCount}/4`;
-          mPill.className = "strategy-mctx-pill is-fire";
-        } else {
-          mPill.textContent = "M 待机";
-          mPill.className = "strategy-mctx-pill is-muted";
-        }
-      }
+      if (macroBlocking) bits.push("跨市场空");
+      if (activeCount > 0) bits.push(`触发 ${activeCount}/4`);
+      setMctxHeadStatus(bits.join(" · "), {
+        warn: !!(fresh.needs_ingest || ctx.macro_degraded || macroBlocking),
+      });
 
       paintMctxSpark(spark, ctx.macro_sparkline || []);
+      renderRegimeBoard(reg);
 
       const cards = [
         {
@@ -200,8 +376,6 @@ export function installStrategy(q) {
           label: "跨市场",
           on: flags.cross_market,
           neutral: !flags.cross_market && String(cmCfg.mode || "off") !== "off",
-          modeCode: String(cmCfg.mode || "off"),
-          modeHint: `mode ${cmCfg.mode || "off"}`,
           tip:
             "海外科技/A50 等隔夜冲击。触发后由 cross_market prior 在调仓时缩仓或警告；不改 ŷ。overlay→M 时科技拖累优先走此路。",
           metric:
@@ -218,13 +392,11 @@ export function installStrategy(q) {
         },
         {
           k: "sentiment",
-          label: "情绪周期",
+          label: "情绪",
           on: flags.market_sentiment,
           neutral: !flags.market_sentiment && String(mspCfg.mode || "off") !== "off",
-          modeCode: String(mspCfg.mode || "off"),
-          modeHint: `mode ${mspCfg.mode || "off"}`,
           tip:
-            "情绪周期分 / 炸板率。market_sentiment_prior：过热或脆弱时可在调仓缩仓；不改 ŷ。",
+            "炸板率 = 涨停后开板的比例。偏高说明跟风盘脆弱，market_sentiment_prior 可在调仓缩仓；不改 ŷ。",
           metric:
             sent.broken_limit_rate != null
               ? `${(Number(sent.broken_limit_rate) * 100).toFixed(0)}%`
@@ -234,7 +406,9 @@ export function installStrategy(q) {
           metricTone: "",
           sub:
             sent.broken_limit_rate != null
-              ? "炸板率"
+              ? flags.market_sentiment
+                ? "涨停后开板 · 偏高"
+                : "涨停后开板占比"
               : sent.sentiment_cycle_score != null
                 ? "周期分"
                 : "—",
@@ -244,8 +418,6 @@ export function installStrategy(q) {
           label: "监管",
           on: flags.regulatory,
           neutral: !flags.regulatory && String(regCfg.mode || "off") !== "off",
-          modeCode: String(regCfg.mode || "off"),
-          modeHint: `mode ${regCfg.mode || "off"}`,
           tip:
             "监管/处罚公告与概念映射。命中时 regulatory_prior 可警告或约束开仓；不改 ŷ。",
           metric: flags.regulatory ? "命中" : "清静",
@@ -257,11 +429,9 @@ export function installStrategy(q) {
         },
         {
           k: "ipo",
-          label: "IPO 虹吸",
+          label: "IPO",
           on: flags.ipo_drain,
           neutral: !flags.ipo_drain && String(ipoCfg.mode || "off") !== "off",
-          modeCode: String(ipoCfg.mode || "off"),
-          modeHint: `mode ${ipoCfg.mode || "off"}`,
           tip:
             "新股对流动性的虹吸（比值/只数）。极端日由 ipo_drain_prior 参与调仓缩仓；不改 ŷ。",
           metric:
@@ -286,135 +456,69 @@ export function installStrategy(q) {
                 ? "今日新股"
                 : "—",
         },
-        {
-          k: "regime",
-          label: "Regime",
-          on: regCode === "bear" || regCode === "weak" || !!reg.macro_overlay_applied,
-          neutral:
-            regCode === "neutral" || regCode === "strong" || regCode === "bull",
-          modeCode: regCode || "—",
-          modeHint: reg.macro_overlay_deferred
-            ? "overlay → M"
-            : reg.macro_overlay_applied
-              ? "overlay on"
-              : "权重层",
-          tip:
-            "基准近端趋势分档（熊/弱/中/强/牛），影响因子权重环境。overlay→M：科技拖累 defer 给跨市场 prior，避免双重惩罚。",
-          metric: regLab,
-          metricTone:
-            regCode === "bear" || regCode === "weak"
-              ? "is-down"
-              : regCode === "bull" || regCode === "strong"
-                ? "is-up"
-                : "is-flat",
-          sub:
-            reg.index_return_pct != null
-              ? `基准 ${fmtPct(reg.index_return_pct)}`
-              : reg.reason
-                ? String(reg.reason).slice(0, 28)
-                : "—",
-        },
       ];
-      grid.innerHTML = cards.map(renderMctxCard).join("");
+      cards.forEach(paintMctxBox);
 
-      if (hint) {
-        if (macroBlocking) {
-          hint.hidden = false;
-          hint.textContent = `跨市场 macro 未拉到（${macroErrHint || "empty"}）· 情绪/公告/Regime 仍可用 · 点「刷新 ingest」`;
-        } else {
-          hint.hidden = true;
-          hint.textContent = "";
-        }
-      }
-
-      if (st) {
-        const warns = (ctx.prior_warnings || []).slice(0, 2);
-        const chips = [
-          { t: `cross_market · ${cmCfg.mode || "off"}`, cls: flags.cross_market ? "is-fire" : "" },
-          { t: `Regime · ${regLab}`, cls: regCode === "bear" || regCode === "weak" ? "is-fire" : "" },
-        ];
-        if (reg.macro_overlay_deferred) chips.push({ t: "overlay→cross_market", cls: "" });
-        if (fresh.needs_ingest) chips.push({ t: "快照需刷新", cls: "is-warn" });
-        warns.forEach((w) => chips.push({ t: String(w).slice(0, 36), cls: "is-warn" }));
-        st.innerHTML = chips
-          .map(
-            (c) =>
-              `<span class="strategy-mctx-chip ${c.cls}">${escapeHtml(c.t)}</span>`
-          )
-          .join("");
-      }
+      const chips = [];
+      if (reg.macro_overlay_deferred) chips.push({ t: "overlay→跨市场" });
+      setMctxMeta(chips);
     } catch (err) {
-      grid.innerHTML = `<div class="strategy-mctx-empty">${escapeHtml(String(err.message || err))}</div>`;
-      if (hint) hint.hidden = true;
-      if (st) st.innerHTML = "";
+      paintMctxEmpty(String(err.message || err));
+      renderRegimeBoard({});
+      setMctxMeta([]);
+      setMctxHeadStatus(String(err.message || err), { warn: true });
     }
   }
 
   async function refreshMarketContextPanel() {
     const btn = document.getElementById("strategy-mctx-refresh");
-    const st = document.getElementById("strategy-mctx-status");
-    if (btn) {
-      btn.disabled = true;
-      btn.textContent = "ingest…";
-    }
-    if (st) {
-      st.innerHTML = `<span class="strategy-mctx-chip">正在刷新盘前快照…</span>`;
-    }
+    const head = document.getElementById("strategy-mctx-head-status");
+    if (btn) btn.disabled = true;
+    setMctxHeadStatus((head && head.textContent) || "", { busy: true });
     try {
       const res = await runMarketContextIngest(apiFetch, { backfill: true });
       if (res && res.ok === false) {
-        if (st) {
-          st.innerHTML = `<span class="strategy-mctx-chip is-warn">${escapeHtml(
-            res.error || "ingest 失败"
-          )}</span>`;
-        }
+        setMctxHeadStatus(res.error || "ingest 失败", { warn: true });
         return;
       }
       await loadMarketContextPanel();
-      if (btn) btn.textContent = "完成";
     } catch (err) {
-      if (st) {
-        st.innerHTML = `<span class="strategy-mctx-chip is-warn">${escapeHtml(
-          String(err.message || err)
-        )}</span>`;
-      }
-      if (btn) btn.textContent = "失败";
+      setMctxHeadStatus(String(err.message || err), { warn: true });
     } finally {
-      if (btn) {
-        setTimeout(() => {
-          btn.disabled = false;
-          btn.textContent = "刷新 ingest";
-        }, 1200);
-      }
+      if (btn) btn.disabled = false;
     }
   }
 
+  function selectMode(id, fallback) {
+    const el = document.getElementById(id);
+    const v = el && el.value != null ? String(el.value) : "";
+    return v || fallback || "off";
+  }
+
+  function setSelectMode(id, value) {
+    const el = document.getElementById(id);
+    if (el) el.value = String(value || "off");
+  }
+
+  function syncGateOpts(optsId, modeId) {
+    const opts = document.getElementById(optsId);
+    if (opts) opts.hidden = selectMode(modeId) !== "gate";
+  }
+
   function syncMctxGateOptsVisibility() {
-    const opts = document.getElementById("strategy-mctx-gate-opts");
-    const checked = document.querySelector('input[name="strategy-mctx-mode"]:checked');
-    const mode = checked ? checked.value : "off";
-    if (opts) opts.hidden = mode !== "gate";
+    syncGateOpts("strategy-mctx-gate-opts", "strategy-mctx-mode");
   }
 
   function syncMspGateOptsVisibility() {
-    const opts = document.getElementById("strategy-msp-gate-opts");
-    const checked = document.querySelector('input[name="strategy-msp-mode"]:checked');
-    const mode = checked ? checked.value : "off";
-    if (opts) opts.hidden = mode !== "gate";
+    syncGateOpts("strategy-msp-gate-opts", "strategy-msp-mode");
   }
 
   function syncRegGateOptsVisibility() {
-    const opts = document.getElementById("strategy-reg-gate-opts");
-    const checked = document.querySelector('input[name="strategy-reg-mode"]:checked');
-    const mode = checked ? checked.value : "off";
-    if (opts) opts.hidden = mode !== "gate";
+    syncGateOpts("strategy-reg-gate-opts", "strategy-reg-mode");
   }
 
   function syncIpoGateOptsVisibility() {
-    const opts = document.getElementById("strategy-ipo-gate-opts");
-    const checked = document.querySelector('input[name="strategy-ipo-mode"]:checked');
-    const mode = checked ? checked.value : "off";
-    if (opts) opts.hidden = mode !== "gate";
+    syncGateOpts("strategy-ipo-gate-opts", "strategy-ipo-mode");
   }
 
   function fillMarketPriorForm(mp) {
@@ -423,22 +527,10 @@ export function installStrategy(q) {
     const reg = (mp && mp.regulatory_prior) || {};
     const ipo = (mp && mp.ipo_drain_prior) || {};
     const policy = (mp && mp.market_prior_policy) || {};
-    const mode = String(cm.mode || "off");
-    document.querySelectorAll('input[name="strategy-mctx-mode"]').forEach((el) => {
-      el.checked = el.value === mode;
-    });
-    const mspMode = String(msp.mode || "off");
-    document.querySelectorAll('input[name="strategy-msp-mode"]').forEach((el) => {
-      el.checked = el.value === mspMode;
-    });
-    const regMode = String(reg.mode || "off");
-    document.querySelectorAll('input[name="strategy-reg-mode"]').forEach((el) => {
-      el.checked = el.value === regMode;
-    });
-    const ipoMode = String(ipo.mode || "off");
-    document.querySelectorAll('input[name="strategy-ipo-mode"]').forEach((el) => {
-      el.checked = el.value === ipoMode;
-    });
+    setSelectMode("strategy-mctx-mode", cm.mode || "off");
+    setSelectMode("strategy-msp-mode", msp.mode || "off");
+    setSelectMode("strategy-reg-mode", reg.mode || "off");
+    setSelectMode("strategy-ipo-mode", ipo.mode || "off");
     const trig = document.getElementById("strategy-mctx-tech-trigger");
     if (trig && cm.tech_drag_trigger_pct != null) {
       trig.value = String(cm.tech_drag_trigger_pct);
@@ -482,10 +574,6 @@ export function installStrategy(q) {
       const data = await res.json();
       if (!res.ok) throw new Error(data.detail || res.statusText);
       fillMarketPriorForm(data.market_prior || {});
-      if (st && !(st.textContent || "").includes("已保存")) {
-        const cm = (data.market_prior && data.market_prior.cross_market) || {};
-        st.textContent = `cross_market · ${priorModeLabel(cm.mode || "off")}（${cm.mode || "off"}）`;
-      }
     } catch (err) {
       if (st) st.textContent = String(err.message || err);
     }
@@ -493,20 +581,16 @@ export function installStrategy(q) {
 
   async function saveStrategyMarketPrior() {
     const st = document.getElementById("strategy-mctx-save-status");
-    const checked = document.querySelector('input[name="strategy-mctx-mode"]:checked');
-    const mode = checked ? checked.value : "off";
-    const mspChecked = document.querySelector('input[name="strategy-msp-mode"]:checked');
-    const mspMode = mspChecked ? mspChecked.value : "off";
+    const mode = selectMode("strategy-mctx-mode");
+    const mspMode = selectMode("strategy-msp-mode");
     const trigEl = document.getElementById("strategy-mctx-tech-trigger");
     const scaleEl = document.getElementById("strategy-mctx-scale");
     const holdsEl = document.getElementById("strategy-mctx-scale-holds");
     const mergeEl = document.getElementById("strategy-mctx-merge");
     const mspScaleEl = document.getElementById("strategy-msp-scale");
     const mspHoldsEl = document.getElementById("strategy-msp-scale-holds");
-    const regChecked = document.querySelector('input[name="strategy-reg-mode"]:checked');
-    const regMode = regChecked ? regChecked.value : "off";
-    const ipoChecked = document.querySelector('input[name="strategy-ipo-mode"]:checked');
-    const ipoMode = ipoChecked ? ipoChecked.value : "off";
+    const regMode = selectMode("strategy-reg-mode");
+    const ipoMode = selectMode("strategy-ipo-mode");
     const regScaleEl = document.getElementById("strategy-reg-scale");
     const ipoScaleEl = document.getElementById("strategy-ipo-scale");
     const ipoRatioEl = document.getElementById("strategy-ipo-drain-ratio");
@@ -601,7 +685,7 @@ export function installStrategy(q) {
       }
       fillMarketPriorForm(data.market_prior || {});
       if (st) {
-        st.textContent = `已保存 · cross_market ${priorModeLabel(mode)}（${mode}）`;
+        st.textContent = "已保存";
       }
       loadMarketContextPanel().catch(() => {});
       loadStrategyList().catch(() => {});
@@ -616,138 +700,6 @@ export function installStrategy(q) {
     return "关闭";
   }
 
-  function formatPriorStatus(prior, { saved = false } = {}) {
-    const p = prior || {};
-    const mode = String(p.mode || "off");
-    const bits = [
-      saved ? "已保存" : "当前",
-      `${priorModeLabel(mode)}（${mode}）`,
-      "ŷ 不变",
-    ];
-    bits.push("看空即触发");
-    if (mode === "gate") {
-      if (p.block_new_buys) bits.push("禁止新开仓");
-      else {
-        const s = Number(p.scale_buy_pct);
-        bits.push(
-          `缩仓 ${Number.isFinite(s) ? Math.round(s * 100) : 50}%`
-        );
-      }
-      if (p.scale_holds) bits.push("已持仓同步");
-    }
-    return bits.join(" · ");
-  }
-
-  function fillSentimentPriorForm(prior) {
-    const p = prior || {};
-    const mode = String(p.mode || "off").toLowerCase();
-    document.querySelectorAll('input[name="strategy-prior-mode"]').forEach((el) => {
-      el.checked = el.value === mode;
-    });
-    const blockEl = document.getElementById("strategy-prior-block-buys");
-    if (blockEl) blockEl.checked = !!p.block_new_buys;
-    const holdsEl = document.getElementById("strategy-prior-scale-holds");
-    if (holdsEl) holdsEl.checked = !!p.scale_holds;
-    const scaleEl = document.getElementById("strategy-prior-scale");
-    if (scaleEl) {
-      const s = Number(p.scale_buy_pct);
-      scaleEl.value = Number.isFinite(s) ? String(Math.round(s * 100)) : "50";
-    }
-    syncPriorGateOptsVisibility();
-  }
-
-  function syncPriorGateOptsVisibility() {
-    const opts = document.getElementById("strategy-prior-gate-opts");
-    if (!opts) return;
-    const checked = document.querySelector(
-      'input[name="strategy-prior-mode"]:checked'
-    );
-    const mode = checked ? checked.value : "off";
-    opts.hidden = mode !== "gate";
-  }
-
-  async function loadSentimentPriorForm() {
-    const st = document.getElementById("strategy-prior-status");
-    try {
-      const res = await fetch("/api/signal/config/sentiment-prior");
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.detail || res.statusText);
-      const prior = data.sentiment_prior || {};
-      fillSentimentPriorForm(prior);
-      if (st && !(st.textContent || "").includes("已保存")) {
-        st.textContent = formatPriorStatus(prior);
-      }
-    } catch (err) {
-      if (st) st.textContent = String(err.message || err);
-    }
-  }
-
-  async function saveStrategySentimentPrior() {
-    const st = document.getElementById("strategy-prior-status");
-    const checked = document.querySelector(
-      'input[name="strategy-prior-mode"]:checked'
-    );
-    const mode = checked ? checked.value : "off";
-    const blockEl = document.getElementById("strategy-prior-block-buys");
-    const holdsEl = document.getElementById("strategy-prior-scale-holds");
-    const scaleEl = document.getElementById("strategy-prior-scale");
-    let scalePct = scaleEl && scaleEl.value !== "" ? Number(scaleEl.value) : 50;
-    if (!Number.isFinite(scalePct)) scalePct = 50;
-    const scale = Math.max(0, Math.min(scalePct, 100)) / 100;
-    const modeLabel = priorModeLabel(mode);
-    if (
-      !window.confirm(
-        [
-          "保存舆情先验配置？",
-          "",
-          `· 模式：${modeLabel}（prior.mode=${mode}）`,
-          mode === "gate"
-            ? blockEl && blockEl.checked
-              ? "· Gate：禁止新开仓"
-              : `· Gate：新开仓缩至 ${Math.round(scale * 100)}%`
-            : "",
-          mode === "gate" && holdsEl && holdsEl.checked
-            ? `· 已持仓同步缩至 ${Math.round(scale * 100)}%`
-            : "",
-          "",
-          "契约：不改 predicted_score（ŷ）；不改 weights。",
-        ]
-          .filter(Boolean)
-          .join("\n")
-      )
-    ) {
-      return;
-    }
-    if (st) st.textContent = "正在保存…";
-    try {
-      const body = {
-        mode,
-        note: "策略中心人审·舆情先验",
-      };
-      if (mode === "gate") {
-        body.block_new_buys = !!(blockEl && blockEl.checked);
-        body.scale_buy_pct = scale;
-        body.scale_holds = !!(holdsEl && holdsEl.checked);
-      }
-      const res = await fetch("/api/signal/config/sentiment-prior", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-      const data = await res.json();
-      if (!res.ok || data.success === false) {
-        if (st) st.textContent = data.detail || data.error || "保存失败";
-        return;
-      }
-      const prior = data.sentiment_prior || {};
-      fillSentimentPriorForm(prior);
-      if (st) st.textContent = formatPriorStatus(prior, { saved: true });
-      loadStrategyList().catch(() => {});
-    } catch (err) {
-      if (st) st.textContent = String(err.message || err);
-    }
-  }
-
   async function loadStrategyList() {
     try {
       const res = await fetch("/api/quant/strategies");
@@ -758,82 +710,6 @@ export function installStrategy(q) {
       const st = document.getElementById("strategy-meta");
       if (st) st.textContent = `策略配置加载失败：${err.message || err}`;
     }
-  }
-
-  async function loadStrategyRiskAudit() {
-    const meta = document.getElementById("strategy-risk-meta");
-    const expEl = document.getElementById("strategy-exposure");
-    const styleEl = document.getElementById("strategy-exposure-style");
-    const effEl = document.getElementById("strategy-risk-eff");
-    const blkEl = document.getElementById("strategy-risk-blocks");
-    if (!expEl || !blkEl) return;
-    if (meta) meta.textContent = "加载中…";
-    try {
-      const { ok, data, error } = await apiFetch("/api/paper");
-      if (!ok) throw new Error(error || "纸面接口失败");
-      const ops = data.ops_report || {};
-      const origin = (data.summary && data.summary.origin_summary) || [];
-      const exposure = data.exposure || ops.exposure || {};
-      const blocks = ops.risk_blocks || ops.blocks || [];
-      const blockItems = ops.risk_block_items || [];
-      const ns = data.north_star || {};
-      const rbSum = ns.risk_blocks || {};
-      const budget =
-        (ops.optimize && ops.optimize.vol_scale) ||
-        ops.position_budget ||
-        ops.risk_budget ||
-        {};
-      const lim =
-        (exposure && exposure.limits) ||
-        ops.risk_limits ||
-        {};
-      if (meta) {
-        meta.textContent = buildRiskAuditMetaText({ ops, data, exposure, lim });
-      }
-      const foldDesc = document.getElementById("strategy-risk-audit-fold-desc");
-      if (foldDesc) {
-        foldDesc.textContent = buildRiskAuditFoldSummary({ blocks, rbSum, exposure });
-      }
-      expEl.innerHTML = buildSectorExposureHtml({
-        exposure,
-        budget,
-        lim,
-        escapeHtml,
-        researchGridHtml,
-      });
-      if (styleEl) {
-        styleEl.innerHTML = buildStyleExposureHtml({
-          exposure,
-          origin,
-          escapeHtml,
-          researchGridHtml,
-        });
-      }
-      if (effEl) {
-        let blocksAnnotate = [];
-        try {
-          const br = await apiFetch("/api/paper/risk-blocks?limit=8");
-          blocksAnnotate = (br.ok && br.data && br.data.blocks) || [];
-        } catch (_) {
-          /* ignore */
-        }
-        effEl.innerHTML = buildRiskEffHtml({
-          rbSum,
-          ops,
-          blocksAnnotate,
-          escapeHtml,
-          researchGridHtml,
-        });
-      }
-      const blkData = normalizeRiskBlockRows({ blockItems, blocks });
-      blkEl.innerHTML = buildRiskBlocksHtml(blkData, { escapeHtml, researchGridHtml });
-    } catch (err) {
-      if (meta) meta.textContent = String(err.message || err);
-      const foldDesc = document.getElementById("strategy-risk-audit-fold-desc");
-      if (foldDesc) foldDesc.textContent = "加载失败";
-    }
-  }
-
   }
 
   function renderFactorDict() {
@@ -859,9 +735,6 @@ export function installStrategy(q) {
 
   function renderStrategyList(data) {
     if (!data || !data.success || !data.strategies) return;
-    if (data.sentiment_prior) {
-      fillSentimentPriorForm(data.sentiment_prior);
-    }
     // 观察页直方图只读滞回门槛（本页不再提供编辑）
     const floors = data.scoring_floors || {};
     if (floors.min_predicted_score != null || floors.min_hold_predicted_score != null) {
@@ -873,16 +746,12 @@ export function installStrategy(q) {
   return {
     loadSignalConfigPanel,
     loadStrategyList,
-    loadStrategyRiskAudit,
     renderFactorDict,
     renderStrategyList,
-    saveStrategySentimentPrior,
     saveStrategyMarketPrior,
-    loadSentimentPriorForm,
     loadMarketPriorForm,
     loadMarketContextPanel,
     refreshMarketContextPanel,
-    syncPriorGateOptsVisibility,
     syncMctxGateOptsVisibility,
     syncMspGateOptsVisibility,
     syncRegGateOptsVisibility,

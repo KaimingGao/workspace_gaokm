@@ -646,7 +646,7 @@ body[data-page="follow"] .follow-pending-grid.watching-react-grid {
 
 .follow-page .rebalance-table {
   /* 与 base.css 同步：决策列 max-content，防「持有（评分…）」被截 */
-  --rebalance-cols: minmax(6.5rem, 1fr) 4.25rem 4.25rem 4.25rem 4.5rem 4.5rem 4.5rem 4.5rem 4.5rem 4.5rem 4.5rem 6.25rem 3.5rem minmax(9rem, max-content);
+  --rebalance-cols: minmax(6.5rem, 1fr) 4.25rem 4.25rem 4.25rem 4.5rem 4.5rem 4.5rem 4.5rem 4.5rem 4.5rem 4.5rem 4.5rem 6.25rem 3.5rem minmax(9rem, max-content);
   font-size: 0.78rem;
 }
 
@@ -6826,59 +6826,61 @@ html[data-density="compact"] .follow-page #paper-chart.lw-host {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 16px;
-  padding: 0 0 16px;
-  border-bottom: 1px solid var(--line);
-  margin-bottom: 16px;
+  gap: 12px;
+  padding: 2px 0 6px;
+  border-bottom: 1px solid color-mix(in srgb, var(--line) 70%, transparent);
+  margin-bottom: 2px;
 }
 
 .follow-page .quant-head-text {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 1px;
   min-width: 0;
 }
 
-/* Eyebrow (Execution Desk) — 12px ALLCAPS 600 */
+/* Eyebrow — desk micro / mono / 0.14em（与其它四页页头同一套） */
 .follow-page .dashboard-eyebrow {
-  margin: 0;
-  font-size: 12px;
-  font-weight: 600;
-  letter-spacing: 0.08em;
+  margin: 0 0 2px;
+  font-size: var(--f-fs-micro);
+  font-weight: var(--sys-fw-label, 650);
+  letter-spacing: 0.14em;
   text-transform: uppercase;
   color: var(--ink-3);
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
   line-height: 18px;
 }
 
-/* Page title — 16px/24 medium (terminal size, not hero) */
+/* Page title — --sys-fs-title / 700 */
 .follow-page .quant-head h2 {
   margin: 0;
-  font-size: 16px;
-  line-height: 24px;
-  font-weight: 600;
-  letter-spacing: -0.01em;
+  font-size: var(--sys-fs-title, 1.125rem);
+  line-height: var(--sys-lh-tight, 1.2);
+  font-weight: var(--sys-fw-display, 700);
+  letter-spacing: -0.02em;
   color: var(--ink);
 }
 
-/* Meta line — 12px/18 tertiary */
+/* Meta line — caption / 4px 顶距 */
 .follow-page .quant-meta {
-  margin: 2px 0 0 !important;
-  font-size: 12px;
-  line-height: 18px;
+  margin: 4px 0 0 !important;
+  font-size: var(--f-fs-caption);
+  line-height: var(--sys-lh-snug, 1.35);
   color: var(--ink-3);
 }
 
-/* Breadcrumb / path — 12px/18 (same as meta, consistent) */
+/* Breadcrumb / path — 与 meta 同级 caption */
 .follow-head-path {
-  margin: 6px 0 0;
-  font-size: 12px;
-  line-height: 18px;
-  color: var(--ink-2);
+  margin: 4px 0 0;
+  font-size: var(--f-fs-caption);
+  line-height: var(--sys-lh-snug, 1.35);
+  color: var(--ink-3);
+  letter-spacing: 0.01em;
 }
 
 .follow-hero-link {
   color: var(--accent);
-  font-weight: 500;
+  font-weight: 600;
   text-decoration: none;
 }
 
@@ -8159,19 +8161,19 @@ body[data-page="follow"] .follow-ops-t0 .quant-actions-inline #paper-t0-action-s
   flex-wrap: wrap;
 }
 
-/* Desk badge — same style as 研究枢纽「只读研究」Pill */
+/* Desk badge — 28px 方框，与其它四页页头 chip 同高 */
 .follow-desk-badge {
   display: inline-flex;
   align-items: center;
-  height: 24px;
+  height: 28px;
   padding: 0 10px;
   font-size: 12px;
-  line-height: 18px;
-  font-weight: 500;
+  line-height: 1;
+  font-weight: 600;
   color: var(--accent);
   background: color-mix(in srgb, var(--accent) 8%, transparent);
   border: 1px solid color-mix(in srgb, var(--accent) 24%, transparent);
-  border-radius: 999px;
+  border-radius: 2px;
   white-space: nowrap;
   letter-spacing: 0.02em;
 }
@@ -8901,11 +8903,18 @@ body[data-page="follow"] {
 
 /* ── 页头：紧、静、可读 ── */
 body[data-page="follow"] .dashboard-head.quant-head {
+  display: flex;
   align-items: flex-start;
+  justify-content: space-between;
   gap: 12px;
   padding: 2px 0 6px;
   margin-bottom: 2px;
   border-bottom: 1px solid color-mix(in srgb, var(--line) 70%, transparent);
+}
+
+body[data-page="follow"] .dashboard-head-text,
+body[data-page="follow"] .quant-head-text {
+  gap: 1px;
 }
 
 body[data-page="follow"] .dashboard-eyebrow {
@@ -8916,9 +8925,11 @@ body[data-page="follow"] .dashboard-eyebrow {
   text-transform: uppercase;
   color: var(--ink-3);
   font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  line-height: 18px;
 }
 
-body[data-page="follow"] .dashboard-head h2 {
+body[data-page="follow"] .dashboard-head h2,
+body[data-page="follow"] .quant-head h2 {
   margin: 0;
   font-size: var(--sys-fs-title, 1.125rem);
   font-weight: var(--sys-fw-display, 700);
@@ -8928,8 +8939,9 @@ body[data-page="follow"] .dashboard-head h2 {
 }
 
 body[data-page="follow"] .dashboard-meta,
+body[data-page="follow"] .quant-meta,
 body[data-page="follow"] #follow-meta {
-  margin: 4px 0 0;
+  margin: 4px 0 0 !important;
   font-size: var(--f-fs-caption);
   line-height: var(--sys-lh-snug, 1.35);
   font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
@@ -8942,6 +8954,7 @@ body[data-page="follow"] .follow-head-path {
   font-size: var(--f-fs-caption);
   color: var(--ink-3);
   letter-spacing: 0.01em;
+  line-height: var(--sys-lh-snug, 1.35);
 }
 
 body[data-page="follow"] .follow-hero-link {
@@ -8959,12 +8972,12 @@ body[data-page="follow"] .follow-head-actions {
 }
 
 body[data-page="follow"] .follow-desk-badge {
-  height: 22px;
-  padding: 0 8px;
-  font-size: var(--f-fs-micro);
+  height: 28px;
+  padding: 0 10px;
+  font-size: 12px;
   font-weight: 600;
-  letter-spacing: 0.04em;
-  border-radius: var(--sys-r-tier4, 4px);
+  letter-spacing: 0.02em;
+  border-radius: 2px;
   color: var(--accent);
   background: color-mix(in srgb, var(--accent) 8%, transparent);
   border: 1px solid color-mix(in srgb, var(--accent) 22%, transparent);
@@ -8974,16 +8987,16 @@ body[data-page="follow"] .follow-desk-badge {
 body[data-page="follow"] .follow-desk-guard {
   display: inline-flex;
   align-items: center;
-  height: 22px;
-  padding: 0 8px;
-  font-size: var(--f-fs-micro);
+  height: 28px;
+  padding: 0 10px;
+  font-size: 12px;
   font-weight: 650;
   letter-spacing: 0.04em;
   font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
   color: var(--ink-2);
   background: color-mix(in srgb, var(--ink) 3%, var(--surface));
   border: 1px solid var(--line);
-  border-radius: var(--sys-r-tier4, 4px);
+  border-radius: 2px;
   white-space: nowrap;
 }
 

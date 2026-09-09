@@ -28,6 +28,7 @@ class TestQuantActions(unittest.TestCase):
         self.assertTrue(callable(qs.run_t0_backtest))
         self.assertTrue(callable(qs.run_portfolio_backtest))
         self.assertTrue(callable(qs.load_last_portfolio_backtest))
+        self.assertTrue(callable(qs.load_last_t0_backtest))
         self.assertTrue(callable(qs.build_portfolio_bridge))
         self.assertFalse(hasattr(qs, "run_paper_vs_portfolio"))
         self.assertEqual(qs.action_map()["actions"][0]["id"], "strategy")

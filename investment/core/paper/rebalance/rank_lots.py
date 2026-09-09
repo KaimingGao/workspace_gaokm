@@ -8,7 +8,7 @@
   - 已持仓且 ranking < 0 → 清仓（T+1 可卖部分）
   - ranking_score > rank入场 的票按分数取 Top-K：建仓或加仓
   - ranking_score > rank强 → 500 股，否则 200 股
-  - 现金低于 cash_floor（默认 50 万）禁止买入
+  - 现金低于 cash_floor（默认 50 万）禁止买入；地板超过账户规模时按净值 20% 缩放
 """
 
 from __future__ import annotations
@@ -136,6 +136,50 @@ def _lot_sizes_from_cfg(cfg: Optional[dict]) -> Tuple[int, int]:
     return base_n, strong_n
 
 
+def account_ref_equity(paper: Optional[dict]) -> float:
+    """账户规模：initial_cash、现金+成本市值、现金 三者取大。"""
+    if not isinstance(paper, dict):
+        return 0.0
+    initial = _f(paper.get("initial_cash")) or 0.0
+    cash = _f(paper.get("cash")) or 0.0
+    hv = 0.0
+    for h in paper.get("holdings") or []:
+        if not isinstance(h, dict):
+            continue
+        sh = _f(h.get("shares")) or 0.0
+        px = _f(h.get("cost")) or _f(h.get("price")) or 0.0
+        hv += sh * px
+    return max(initial, cash + hv, cash)
+
+
+def scale_cash_floor_to_account(
+    floor: float,
+    paper: Optional[dict] = None,
+) -> float:
+    """配置地板超过账户规模时，按净值 20% 保留现金（对齐回测 10万/50万）。
+
+    1M 账本 + 50 万地板保持原值；~20 万纸面账本不再被 50 万地板永久拦买。
+    """
+    try:
+        out = float(floor)
+    except (TypeError, ValueError):
+        out = DEFAULT_CASH_FLOOR
+    if out != out:
+        out = DEFAULT_CASH_FLOOR
+    out = max(0.0, min(out, 1.0e8))
+    ref = account_ref_equity(paper)
+    if ref <= 0.0 or out <= ref + 1e-6:
+        return out
+    try:
+        from core.paper.rebalance.cash_reserve import DEFAULT_MIN_CASH_PCT
+
+        ratio = float(DEFAULT_MIN_CASH_PCT)
+    except Exception:  # noqa: BLE001
+        logger.debug("DEFAULT_MIN_CASH_PCT import failed", exc_info=True)
+        ratio = 0.20
+    return max(0.0, ref * ratio)
+
+
 def get_rank_lot_cfg(
     paper: Optional[dict] = None,
     *,
@@ -157,10 +201,11 @@ def get_rank_lot_cfg(
     if strong < enter:
         strong = enter
     try:
-        floor = float(pm.get("cash_floor", DEFAULT_CASH_FLOOR))
+        floor_cfg = float(pm.get("cash_floor", DEFAULT_CASH_FLOOR))
     except (TypeError, ValueError):
-        floor = DEFAULT_CASH_FLOOR
-    floor = max(0.0, min(floor, 1.0e8))
+        floor_cfg = DEFAULT_CASH_FLOOR
+    floor_cfg = max(0.0, min(floor_cfg, 1.0e8))
+    floor = scale_cash_floor_to_account(floor_cfg, paper)
     rules = (paper or {}).get("rules") if isinstance(paper, dict) else {}
     max_pos = 15
     if isinstance(rules, dict) and rules.get("max_positions") is not None:
@@ -179,6 +224,8 @@ def get_rank_lot_cfg(
         "rank_enter": enter,
         "rank_strong": strong,
         "cash_floor": floor,
+        "cash_floor_configured": floor_cfg,
+        "cash_floor_scaled": abs(float(floor) - float(floor_cfg)) > 1e-6,
         "top_k": k,
         "fusion_w_trade": float(pm.get("fusion_w_trade") or 0.5),
         "fusion_w_nowcast": float(pm.get("fusion_w_nowcast") or 0.5),
@@ -502,8 +549,10 @@ __all__ = [
     "clamp_fusion_weight",
     "clamp_y_on_alpha",
     "LOT_STRONG",
+    "account_ref_equity",
     "coerce_rank_threshold",
     "get_rank_lot_cfg",
+    "scale_cash_floor_to_account",
     "lot_shares_for_rank",
     "plan_rank_lot_day",
     "ranking_score",

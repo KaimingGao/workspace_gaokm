@@ -9,7 +9,7 @@ import { fmtScore, fmtTableScore, scoreCls, resolveTradeScore, resolveEodScore }
 import { truncateStockName, watchingNameSpanHtml, watchingNameFromEl, applyWatchingNameEl, normalizeProbeCode } from "./names.js";
 import { renderWatchingHoldings as renderWatchingHoldingsHtml } from "./watching_holdings.js";
 import { buildWatchingDqMetaText, buildWatchingDqFoldSummary, buildWatchingDqTableHtml } from "./watching_dq_ui.js";
-import { watchingScoreDetail, sentimentBadgeHtml, renderWatchingBuildPlan as renderWatchingBuildPlanHtml, renderWatchingWatchTableFallback, buildWatchingWatchRows, buildWatchingNewsTitleHtml, buildWatchingNewsMetaText, buildWatchingNewsListHtml, WATCHING_NEWS_AI_LOADING_HTML, buildWatchingNewsAiAnalysisHtml, buildWatchingNewsAiErrorHtml, describeWatchingSource, matchWatchlistSource, truncateText, sentimentLabelZh, shortOriginLabel } from "./watching_render.js?v=p1734";
+import { watchingScoreDetail, sentimentBadgeHtml, renderWatchingBuildPlan as renderWatchingBuildPlanHtml, renderWatchingWatchTableFallback, buildWatchingWatchRows, buildWatchingNewsTitleHtml, buildWatchingNewsMetaText, buildWatchingNewsListHtml, WATCHING_NEWS_AI_LOADING_HTML, buildWatchingNewsAiAnalysisHtml, buildWatchingNewsAiErrorHtml, describeWatchingSource, matchWatchlistSource, truncateText, sentimentLabelZh, shortOriginLabel } from "./watching_render.js?v=p2121";
 import {
   buildWatchingScoreDisplay,
   buildWatchingInsightsGridPatch,
@@ -1060,19 +1060,13 @@ export function installWatching(q) {
     if (c && typeof ctx.focusPaperHolding === "function") {
       ctx.focusPaperHolding(c);
     }
-    if (typeof ctx.showResultsTab === "function") {
-      ctx.showResultsTab("follow");
-      return;
-    }
     const q = c ? `?code=${encodeURIComponent(c)}` : "";
     window.location.href = `/follow${q}`;
   }
 
   async function gotoFollowTab() {
-    const page = document.body.dataset.page;
-    if (typeof ctx.showResultsTab === "function" && (page === "chat" || !page)) {
-      await ctx.showResultsTab("follow", { openMobile: true, load: true });
-    }
+    if (document.body.dataset.page === "follow") return;
+    window.location.href = "/follow";
   }
 
   function hideWatchingChart() {
@@ -1429,13 +1423,10 @@ export function installWatching(q) {
       watchingSentimentByCode[String(code)] = data;
       if (data.ok && (data.items || []).length) {
         fetchWatchingNewsAI(code, sc);
-      } else if (aiSection && aiContent) {
-        aiSection.hidden = false;
-        aiContent.innerHTML = buildWatchingNewsAiErrorHtml(
-          data.error || "暂无资讯，跳过 AI 分析",
-          escapeHtml
-        );
-        if (aiStatus) aiStatus.textContent = "无资讯";
+      } else if (aiSection) {
+        aiSection.hidden = true;
+        if (aiContent) aiContent.innerHTML = "";
+        if (aiStatus) aiStatus.textContent = "";
       }
     } catch (err) {
       if (gen !== state.watchingNewsDetailGen) return;

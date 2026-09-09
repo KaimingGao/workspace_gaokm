@@ -1,4 +1,3 @@
-import { initChat } from "./js/chat.js";
 import { initTheme } from "./js/theme.js";
 import { initAiDrawer } from "./js/ai_drawer.js";
 import { initCommandPalette } from "./js/command_palette.js";
@@ -66,22 +65,14 @@ const ctx = {
   sessionId: localStorage.getItem(SESSION_KEY) || "",
   page,
   busy: false,
-  sendMessage: null,
   openQuantDialog: null,
   openReadmeViewer: null,
   refreshHealth: null,
-  autoResize: null,
-  syncSendEnabled: null,
-  focusInput: null,
-  setResultsReply: null,
-  openResults: null,
-  closeResults: null,
-  showResultsTab: null,
-  applyChatArtifacts: null,
   applyQuantArtifact: null,
   reloadPaper: null,
   openPlatformPanel: null,
   reloadPlatform: null,
+  openEvalsPanel: null,
 };
 
 function safeInit(name, fn) {
@@ -90,8 +81,8 @@ function safeInit(name, fn) {
     return true;
   } catch (err) {
     console.error(`[QuantLab] init ${name} failed`, err);
-    const meta = document.getElementById("results-meta") || document.getElementById("status");
-    if (meta) meta.textContent = `初始化失败(${name}): ${err.message || err}`;
+    const statusEl = document.getElementById("status");
+    if (statusEl) statusEl.textContent = `初始化失败(${name}): ${err.message || err}`;
     return false;
   }
 }
@@ -106,37 +97,23 @@ async function loadModule(name, path) {
 }
 
 const V = (typeof window !== "undefined" && window.__ASSET_V__) || "p879";
-const QUANT_PAGES = new Set(["chat", "quant", "watching", "strategy", "replay", "follow", "dashboard"]);
-const PAPER_PAGES = new Set(["chat", "paper", "follow"]);
+const QUANT_PAGES = new Set(["quant", "watching", "strategy", "replay", "follow", "dashboard"]);
+const PAPER_PAGES = new Set(["paper", "follow"]);
 
-if (page === "chat") {
-  safeInit("chat", () => initChat(ctx));
-  if (ctx.sendMessage && document.body.dataset.chatReady !== "classic") {
-    document.body.dataset.chatReady = "1";
-  }
-  if (document.body.dataset.chatReady !== "classic" && ctx.refreshHealth) {
-    ctx.refreshHealth();
-  }
-  if (document.body.dataset.chatReady !== "classic") {
-    if (ctx.autoResize) ctx.autoResize();
-    if (ctx.syncSendEnabled) ctx.syncSendEnabled();
-    if (ctx.focusInput) ctx.focusInput();
-  }
-} else if (ctx.refreshHealth) {
+if (ctx.refreshHealth) {
   try {
     ctx.refreshHealth();
   } catch (_) {
-    /* health may need chat init */
+    /* health probe is optional at boot */
   }
 }
 
 async function bootWorkspace() {
   const __perfT0 = typeof performance !== "undefined" ? performance.now() : Date.now();
 
-  const [paperMod, quantMod, resultsMod, evalsMod, platformMod] = await Promise.all([
+  const [paperMod, quantMod, evalsMod, platformMod] = await Promise.all([
     loadModule("paper", `./js/paper.js?v=${V}`),
     loadModule("quant", `./js/quant.js?v=${V}`),
-    loadModule("results", `./js/results.js?v=${V}`),
     loadModule("evals", `./js/evals.js?v=${V}`),
     loadModule("platform", `./js/platform.js?v=${V}`),
   ]);
@@ -144,7 +121,6 @@ async function bootWorkspace() {
   const failed = [];
   if (!paperMod) failed.push("paper");
   if (!quantMod) failed.push("quant");
-  if (!resultsMod) failed.push("results");
   if (!evalsMod) failed.push("evals");
   if (!platformMod) failed.push("platform");
 
@@ -163,37 +139,19 @@ async function bootWorkspace() {
     const dashboardMod = await loadModule("dashboard", `./js/dashboard.js?v=${V}`);
     if (dashboardMod) safeInit("dashboard", () => dashboardMod.initDashboard(ctx));
   }
-  if (page === "chat") {
-    if (platformMod) safeInit("platform", () => platformMod.initPlatform(ctx));
-    if (resultsMod) safeInit("results", () => resultsMod.initResults(ctx));
-    if (evalsMod) safeInit("evals", () => evalsMod.initEvals(ctx));
+  if (evalsMod) {
+    safeInit("evals", () => evalsMod.initEvals(ctx));
   }
   if (page === "platform") {
     if (platformMod) safeInit("platform", () => platformMod.initPlatform(ctx));
-    // 系统设置页默认直接加载平台面板数据
+    // 平台页默认加载审计 / 日更
     if (typeof ctx.openPlatformPanel === "function") {
       await ctx.openPlatformPanel().catch((err) => console.error("[QuantLab] openPlatformPanel", err));
     }
   }
 
-  if (page === "chat" && ctx.showResultsTab) {
-    const params = new URLSearchParams(location.search);
-    let openTab = params.get("tab");
-    if (!openTab) {
-      const open = params.get("open");
-      if (open === "evals") openTab = "evals";
-      else if (open === "usage") openTab = "usage";
-      else openTab = "watching";
-    }
-    await ctx.showResultsTab(openTab, { openMobile: false, load: false });
-    setTimeout(() => {
-      ctx.showResultsTab(openTab, { openMobile: openTab === "evals" || openTab === "usage", load: true }).catch((err) => {
-        console.error("[QuantLab] showResultsTab load failed", err);
-      });
-    }, 50);
-  } else if (
+  if (
     QUANT_PAGES.has(page) &&
-    page !== "chat" &&
     page !== "follow" &&
     page !== "dashboard" &&
     ctx.openQuantDialog
@@ -204,10 +162,8 @@ async function bootWorkspace() {
 
   if (failed.length) {
     const statusEl = document.getElementById("status");
-    const meta = document.getElementById("results-meta");
     const followMeta = document.getElementById("follow-meta");
     const msg = `部分面板未加载: ${failed.join(", ")}`;
-    if (meta) meta.textContent = msg;
     if (followMeta) {
       followMeta.textContent = `${msg} · 请强刷（Ctrl+Shift+R 或 Cmd+Shift+R）`;
     }
@@ -237,7 +193,7 @@ bootWorkspace().catch((err) => {
   console.error("[QuantLab] workspace boot failed", err);
   const statusEl = document.getElementById("status");
   if (statusEl) {
-    statusEl.textContent = `对话可用 · 右侧面板加载失败: ${err.message || err}`;
+    statusEl.textContent = `面板加载失败: ${err.message || err}`;
     statusEl.className = "status bad";
   }
 });

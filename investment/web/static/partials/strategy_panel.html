@@ -2,10 +2,10 @@
   <div class="dashboard-head-text quant-head-text">
     <p class="dashboard-eyebrow">Strategy Desk</p>
     <h2>策略中心</h2>
-    <p id="strategy-meta" class="dashboard-meta quant-meta" aria-live="polite">舆情先验 · M prior · 不静默写盘</p>
+    <p id="strategy-meta" class="dashboard-meta quant-meta" aria-live="polite">M prior · 舆情仅观察徽章 · 不静默写盘</p>
     <p class="dashboard-section-desc strategy-head-path">
       <a class="strategy-hero-link" href="/quant">研究枢纽</a>
-      → 舆情 / M prior →
+      → M prior →
       <a class="strategy-hero-link" href="/replay">回测</a>
       ·
       <a class="strategy-hero-link" href="/follow">交易执行</a>
@@ -18,166 +18,22 @@
 </div>
 
 <div class="quant-body strategy-page">
-  <nav class="quant-path-rail strategy-path-rail" aria-label="策略主路径">
-    <a class="quant-path-step strategy-path-step is-active" href="#strategy-sentiment-prior" data-step="prior">
-      <span class="strategy-path-num">1</span> 舆情
-    </a>
-    <span class="quant-path-sep strategy-path-sep" aria-hidden="true">/</span>
-    <a class="quant-path-step strategy-path-step" href="#strategy-market-context" data-step="mctx">
-      <span class="strategy-path-num">2</span> M prior
-    </a>
-  </nav>
-
-  <!-- 舆情先验：政策旁路 -->
-  <section
-    class="dashboard-section quant-section strategy-section strategy-section-primary"
-    id="strategy-sentiment-prior"
-    aria-labelledby="strategy-section-prior-title"
-  >
-    <header class="dashboard-section-head quant-section-head strategy-section-head">
-      <h3 id="strategy-section-prior-title" class="dashboard-section-title">舆情先验</h3>
-      <p class="dashboard-section-desc quant-section-desc">Policy · ŷ 外旁路 · 人审写盘</p>
-    </header>
-    <div class="dashboard-card quant-pro-card strategy-ops-card">
-      <div class="quant-pro-card-body strategy-ops-card-body">
-        <p class="strategy-prior-contract" role="note">
-          <span class="strategy-prior-contract-k">契约</span>
-          排序真源仍是 <code>predicted_score</code>（ŷ）；本区只改
-          <code>policy(ŷ, S)</code>——告警或约束新开仓，不改分、不改 weights。
-        </p>
-
-        <div class="strategy-prior-body">
-          <div class="strategy-prior-col strategy-prior-col-mode">
-            <p class="strategy-prior-label" id="strategy-prior-mode-label">运行模式</p>
-            <fieldset
-              class="strategy-prior-modes"
-              id="strategy-prior-mode-group"
-              aria-labelledby="strategy-prior-mode-label"
-            >
-              <legend class="sr-only">prior.mode</legend>
-              <label class="strategy-prior-card">
-                <input type="radio" name="strategy-prior-mode" value="off" />
-                <span class="strategy-prior-card-inner">
-                  <span class="strategy-prior-card-top">
-                    <span class="strategy-prior-card-title">关闭</span>
-                    <code class="strategy-prior-card-code">off</code>
-                  </span>
-                  <span class="strategy-prior-card-desc">仅展示徽章；调仓不读先验</span>
-                </span>
-              </label>
-              <label class="strategy-prior-card">
-                <input type="radio" name="strategy-prior-mode" value="risk" />
-                <span class="strategy-prior-card-inner">
-                  <span class="strategy-prior-card-top">
-                    <span class="strategy-prior-card-title">仅警告</span>
-                    <code class="strategy-prior-card-code">risk</code>
-                  </span>
-                  <span class="strategy-prior-card-desc">强看空写入 warnings；仍可买入</span>
-                </span>
-              </label>
-              <label class="strategy-prior-card">
-                <input type="radio" name="strategy-prior-mode" value="gate" />
-                <span class="strategy-prior-card-inner">
-                  <span class="strategy-prior-card-top">
-                    <span class="strategy-prior-card-title">约束开仓</span>
-                    <code class="strategy-prior-card-code">gate</code>
-                  </span>
-                  <span class="strategy-prior-card-desc">强看空时跳过/缩减新开仓，可选同步缩已持仓</span>
-                </span>
-              </label>
-            </fieldset>
-          </div>
-
-          <div class="strategy-prior-col strategy-prior-col-params">
-            <p class="strategy-prior-label">触发与 Gate</p>
-            <div class="strategy-prior-params">
-              <div class="strategy-prior-field">
-                <span class="strategy-prior-field-title">触发条件</span>
-                <span class="strategy-prior-field-hint">看空(bearish)即触发，不看分数阈值</span>
-              </div>
-              <div id="strategy-prior-gate-opts" class="strategy-prior-gate-only" hidden>
-                <label class="strategy-prior-field strategy-prior-field-check">
-                  <input type="checkbox" id="strategy-prior-block-buys" />
-                  <span>
-                    <span class="strategy-prior-field-title">禁止新开仓</span>
-                    <span class="strategy-prior-field-hint">勾选后 skip；不勾选则按比例缩仓</span>
-                  </span>
-                </label>
-                <label class="strategy-prior-field strategy-prior-field-check">
-                  <input type="checkbox" id="strategy-prior-scale-holds" />
-                  <span>
-                    <span class="strategy-prior-field-title">已持仓同步缩仓</span>
-                    <span class="strategy-prior-field-hint">强看空时按下方比例减仓（非整批清仓）</span>
-                  </span>
-                </label>
-                <label class="strategy-prior-field">
-                  <span class="strategy-prior-field-title">缩仓比例</span>
-                  <span class="strategy-prior-field-hint">新开仓与已持仓共用（剩余目标仓）</span>
-                  <span class="strategy-prior-field-ctrl">
-                    <input
-                      id="strategy-prior-scale"
-                      type="number"
-                      min="0"
-                      max="100"
-                      step="5"
-                      class="platform-input"
-                      title="scale_buy_pct ×100"
-                    />
-                    <span class="strategy-prior-unit">%</span>
-                  </span>
-                </label>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div class="strategy-prior-footer">
-          <button type="button" id="strategy-prior-save" class="dialog-btn">
-            保存先验配置
-          </button>
-          <p id="strategy-prior-status" class="quant-fingerprint strategy-prior-status" aria-live="polite"></p>
-        </div>
-      </div>
-    </div>
-  </section>
-
-  <!-- 盘前 M prior + Regime：只读状态（配置仍写 signal_config.json） -->
+  <!-- 盘前 M prior（上）· Regime（下）：只读状态（配置仍写 signal_config.json） -->
   <section
     class="dashboard-section quant-section strategy-section strategy-section-primary"
     id="strategy-market-context"
     aria-labelledby="strategy-section-mctx-title"
   >
     <header class="dashboard-section-head quant-section-head strategy-section-head">
-      <h3 id="strategy-section-mctx-title" class="dashboard-section-title">盘前 prior · Regime</h3>
-      <p class="dashboard-section-desc quant-section-desc">
-        M 层旁路约束调仓 · Regime 叠加权重 · ŷ 轴不变
-      </p>
+      <h3 id="strategy-section-mctx-title" class="dashboard-section-title">M prior</h3>
+      <p class="dashboard-section-desc quant-section-desc">四闸缩仓 / 拦开仓 · ŷ 不改 · 人审写入 signal_config</p>
     </header>
     <div class="dashboard-card quant-pro-card strategy-ops-card strategy-mctx-panel">
       <div class="quant-pro-card-body strategy-ops-card-body">
-        <p class="strategy-prior-contract strategy-mctx-contract" role="note">
-          <span class="strategy-prior-contract-k">契约</span>
-          <span class="strategy-mctx-contract-body">
-            <code>M</code> =
-            <code>cross_market</code> ·
-            <code>sentiment</code> ·
-            <code>regulatory</code> ·
-            <code>ipo_drain</code>
-            → 调仓旁路；
-            <code>Regime</code> 可 defer 科技拖累至 cross_market；
-            <strong>ŷ 不改</strong>
-          </span>
-        </p>
-
-        <div class="strategy-mctx-live" id="strategy-mctx-live">
-          <div class="strategy-mctx-live-head">
-            <div class="strategy-mctx-live-title-row">
-              <span class="strategy-mctx-kicker">Live</span>
-              <span class="strategy-mctx-live-title">盘前快照</span>
-              <span id="strategy-mctx-fresh-pill" class="strategy-mctx-pill is-muted">—</span>
-              <span id="strategy-mctx-m-pill" class="strategy-mctx-pill is-muted">M 待机</span>
-            </div>
-            <div class="strategy-mctx-live-actions">
+        <div class="strategy-mctx-matrix" id="strategy-mctx-form" aria-label="人审 M prior">
+          <div class="strategy-mctx-toolbar">
+            <p id="strategy-mctx-head-status" class="quant-fingerprint strategy-mctx-toolbar-status">加载中…</p>
+            <div class="strategy-mctx-toolbar-tools">
               <canvas
                 class="strategy-mctx-spark"
                 id="strategy-mctx-spark"
@@ -186,238 +42,190 @@
                 aria-label="海外科技近14日"
                 hidden
               ></canvas>
-              <button type="button" id="strategy-mctx-refresh" class="dialog-btn secondary strategy-mctx-refresh-btn">
-                刷新 ingest
-              </button>
+              <button type="button" id="strategy-mctx-refresh" class="dialog-btn dialog-btn-keep-case">刷新 ingest</button>
             </div>
           </div>
-          <div class="strategy-mctx-strip" id="strategy-mctx-grid" aria-live="polite">
-            <div class="strategy-mctx-empty">加载盘前上下文…</div>
-          </div>
-          <p id="strategy-mctx-hint" class="strategy-mctx-hint" hidden aria-live="polite"></p>
-          <div id="strategy-mctx-status" class="strategy-mctx-meta" aria-live="polite"></div>
-        </div>
-
-        <div class="strategy-mctx-form" id="strategy-mctx-form">
-          <div class="strategy-mctx-form-head">
-            <span class="strategy-mctx-kicker">Config</span>
-            <span class="strategy-mctx-form-title">人审 M prior</span>
-            <span class="strategy-mctx-form-sub">写入 signal_config · 四路独立 mode</span>
-          </div>
-          <p class="strategy-prior-label strategy-mctx-channel-label">
-            <span class="strategy-mctx-channel-id">01</span>
-            跨市场 · <code>cross_market.mode</code>
-          </p>
-          <fieldset
-            class="strategy-prior-modes strategy-mctx-modes"
-            id="strategy-mctx-mode-group"
-            aria-label="cross_market.mode"
-          >
-            <label class="strategy-prior-card strategy-mctx-mode-card">
-              <input type="radio" name="strategy-mctx-mode" value="off" />
-              <span class="strategy-prior-card-inner">
-                <span class="strategy-prior-card-title">关闭</span>
-                <code class="strategy-prior-card-code">off</code>
-              </span>
-            </label>
-            <label class="strategy-prior-card strategy-mctx-mode-card">
-              <input type="radio" name="strategy-mctx-mode" value="risk" />
-              <span class="strategy-prior-card-inner">
-                <span class="strategy-prior-card-title">仅警告</span>
-                <code class="strategy-prior-card-code">risk</code>
-              </span>
-            </label>
-            <label class="strategy-prior-card strategy-mctx-mode-card">
-              <input type="radio" name="strategy-mctx-mode" value="gate" />
-              <span class="strategy-prior-card-inner">
-                <span class="strategy-prior-card-title">约束开仓</span>
-                <code class="strategy-prior-card-code">gate</code>
-              </span>
-            </label>
-          </fieldset>
-          <div id="strategy-mctx-gate-opts" class="strategy-prior-gate-only strategy-mctx-gate-opts" hidden>
-            <label class="strategy-prior-field">
-              <span class="strategy-prior-field-title">科技拖累触发（%）</span>
-              <input
-                id="strategy-mctx-tech-trigger"
-                type="number"
-                step="0.1"
-                max="0"
-                class="platform-input"
-                title="overseas_tech_1d_pct ≤ 此值触发"
-              />
-            </label>
-            <label class="strategy-prior-field">
-              <span class="strategy-prior-field-title">缩仓比例</span>
-              <span class="strategy-prior-field-ctrl">
-                <input
-                  id="strategy-mctx-scale"
-                  type="number"
-                  min="0"
-                  max="100"
-                  step="5"
-                  class="platform-input"
-                />
-                <span class="strategy-prior-unit">%</span>
-              </span>
-            </label>
-            <label class="strategy-prior-field strategy-prior-field-check">
-              <input type="checkbox" id="strategy-mctx-scale-holds" />
-              <span>
-                <span class="strategy-prior-field-title">已持仓同步缩仓</span>
-              </span>
-            </label>
-          </div>
-
-          <div class="strategy-mctx-sent-block" id="strategy-mctx-sent-block">
-            <p class="strategy-prior-label strategy-mctx-channel-label">
-              <span class="strategy-mctx-channel-id">02</span>
-              情绪周期 · <code>market_sentiment_prior.mode</code>
-            </p>
-            <fieldset class="strategy-prior-modes strategy-mctx-modes" aria-label="market_sentiment_prior.mode">
-              <label class="strategy-prior-card strategy-mctx-mode-card">
-                <input type="radio" name="strategy-msp-mode" value="off" />
-                <span class="strategy-prior-card-inner">
-                  <span class="strategy-prior-card-title">关闭</span>
-                </span>
-              </label>
-              <label class="strategy-prior-card strategy-mctx-mode-card">
-                <input type="radio" name="strategy-msp-mode" value="risk" />
-                <span class="strategy-prior-card-inner">
-                  <span class="strategy-prior-card-title">仅警告</span>
-                </span>
-              </label>
-              <label class="strategy-prior-card strategy-mctx-mode-card">
-                <input type="radio" name="strategy-msp-mode" value="gate" />
-                <span class="strategy-prior-card-inner">
-                  <span class="strategy-prior-card-title">约束开仓</span>
-                </span>
-              </label>
-            </fieldset>
-            <div id="strategy-msp-gate-opts" class="strategy-mctx-gate-opts" hidden>
-              <label class="strategy-prior-field">
-                <span class="strategy-prior-field-title">缩仓比例</span>
-                <span class="strategy-prior-field-ctrl">
-                  <input id="strategy-msp-scale" type="number" min="0" max="100" step="5" class="platform-input" />
-                  <span class="strategy-prior-unit">%</span>
-                </span>
-              </label>
-              <label class="strategy-prior-field strategy-prior-field-check">
-                <input type="checkbox" id="strategy-msp-scale-holds" />
-                <span><span class="strategy-prior-field-title">已持仓同步缩仓</span></span>
-              </label>
-            </div>
-          </div>
-
-          <div class="strategy-mctx-extra-grid">
-            <div class="strategy-mctx-sent-block" id="strategy-mctx-reg-block">
-              <p class="strategy-prior-label strategy-mctx-channel-label">
-                <span class="strategy-mctx-channel-id">03</span>
-                监管 · <code>regulatory_prior.mode</code>
-              </p>
-              <fieldset class="strategy-prior-modes strategy-mctx-modes" aria-label="regulatory_prior.mode">
-                <label class="strategy-prior-card strategy-mctx-mode-card">
-                  <input type="radio" name="strategy-reg-mode" value="off" />
-                  <span class="strategy-prior-card-inner"><span class="strategy-prior-card-title">关闭</span></span>
-                </label>
-                <label class="strategy-prior-card strategy-mctx-mode-card">
-                  <input type="radio" name="strategy-reg-mode" value="risk" />
-                  <span class="strategy-prior-card-inner"><span class="strategy-prior-card-title">警告</span></span>
-                </label>
-                <label class="strategy-prior-card strategy-mctx-mode-card">
-                  <input type="radio" name="strategy-reg-mode" value="gate" />
-                  <span class="strategy-prior-card-inner"><span class="strategy-prior-card-title">Gate</span></span>
-                </label>
-              </fieldset>
-              <div id="strategy-reg-gate-opts" class="strategy-mctx-gate-opts" hidden>
-                <label class="strategy-prior-field">
-                  <span class="strategy-prior-field-title">命中缩仓</span>
-                  <span class="strategy-prior-field-ctrl">
-                    <input id="strategy-reg-scale" type="number" min="0" max="100" step="5" class="platform-input" />
-                    <span class="strategy-prior-unit">%</span>
+          <div class="strategy-mctx-panels" id="strategy-mctx-grid" aria-live="polite">
+            <section class="strategy-mctx-unit" data-k="cross_market" data-panel="cross" aria-labelledby="strategy-mctx-title-cross">
+              <header class="strategy-mctx-block-head">
+                <h4 id="strategy-mctx-title-cross" class="strategy-mctx-block-title">跨市场</h4>
+                <p class="strategy-mctx-block-note">加载…</p>
+              </header>
+              <div class="strategy-mctx-boxes strategy-mctx-boxes--row4">
+                <label class="strategy-mctx-box" title="cross_market.mode">
+                  <span class="strategy-mctx-box-text">
+                    <span class="strategy-mctx-box-title">模式</span>
+                    <span class="strategy-mctx-box-desc">关闭 / 警告 / 约束</span>
                   </span>
+                  <select id="strategy-mctx-mode" aria-label="cross_market.mode">
+                    <option value="off">关闭</option>
+                    <option value="risk">警告</option>
+                    <option value="gate">约束</option>
+                  </select>
+                </label>
+                <label class="strategy-mctx-box" title="overseas_tech_1d_pct ≤ 此值触发">
+                  <span class="strategy-mctx-box-text">
+                    <span class="strategy-mctx-box-title">拖累%</span>
+                    <span class="strategy-mctx-box-desc">海外科技 1D</span>
+                  </span>
+                  <input id="strategy-mctx-tech-trigger" type="number" step="0.1" max="0" />
+                </label>
+                <label class="strategy-mctx-box">
+                  <span class="strategy-mctx-box-text">
+                    <span class="strategy-mctx-box-title">缩仓%</span>
+                    <span class="strategy-mctx-box-desc">调仓上限</span>
+                  </span>
+                  <input id="strategy-mctx-scale" type="number" min="0" max="100" step="5" />
+                </label>
+                <label class="strategy-mctx-box strategy-mctx-box--check">
+                  <span class="strategy-mctx-box-text">
+                    <span class="strategy-mctx-box-title">持仓同步</span>
+                    <span class="strategy-mctx-box-desc">缩仓时</span>
+                  </span>
+                  <input type="checkbox" id="strategy-mctx-scale-holds" />
                 </label>
               </div>
-            </div>
-            <div class="strategy-mctx-sent-block" id="strategy-mctx-ipo-block">
-              <p class="strategy-prior-label strategy-mctx-channel-label">
-                <span class="strategy-mctx-channel-id">04</span>
-                IPO 虹吸 · <code>ipo_drain_prior.mode</code>
-              </p>
-              <fieldset class="strategy-prior-modes strategy-mctx-modes" aria-label="ipo_drain_prior.mode">
-                <label class="strategy-prior-card strategy-mctx-mode-card">
-                  <input type="radio" name="strategy-ipo-mode" value="off" />
-                  <span class="strategy-prior-card-inner"><span class="strategy-prior-card-title">关闭</span></span>
-                </label>
-                <label class="strategy-prior-card strategy-mctx-mode-card">
-                  <input type="radio" name="strategy-ipo-mode" value="risk" />
-                  <span class="strategy-prior-card-inner"><span class="strategy-prior-card-title">警告</span></span>
-                </label>
-                <label class="strategy-prior-card strategy-mctx-mode-card">
-                  <input type="radio" name="strategy-ipo-mode" value="gate" />
-                  <span class="strategy-prior-card-inner"><span class="strategy-prior-card-title">Gate</span></span>
-                </label>
-              </fieldset>
-              <div id="strategy-ipo-gate-opts" class="strategy-mctx-gate-opts" hidden>
-                <label class="strategy-prior-field">
-                  <span class="strategy-prior-field-title">虹吸比阈值</span>
-                  <input id="strategy-ipo-drain-ratio" type="number" min="0" step="0.1" class="platform-input" />
-                </label>
-                <label class="strategy-prior-field">
-                  <span class="strategy-prior-field-title">缩仓比例</span>
-                  <span class="strategy-prior-field-ctrl">
-                    <input id="strategy-ipo-scale" type="number" min="0" max="100" step="5" class="platform-input" />
-                    <span class="strategy-prior-unit">%</span>
+            </section>
+            <section class="strategy-mctx-unit" data-k="sentiment" data-panel="sentiment" aria-labelledby="strategy-mctx-title-sent">
+              <header class="strategy-mctx-block-head">
+                <h4 id="strategy-mctx-title-sent" class="strategy-mctx-block-title">情绪</h4>
+                <p class="strategy-mctx-block-note">加载…</p>
+              </header>
+              <div class="strategy-mctx-boxes strategy-mctx-boxes--row3">
+                <label class="strategy-mctx-box" title="market_sentiment_prior.mode">
+                  <span class="strategy-mctx-box-text">
+                    <span class="strategy-mctx-box-title">模式</span>
+                    <span class="strategy-mctx-box-desc">关闭 / 警告 / 约束</span>
                   </span>
+                  <select id="strategy-msp-mode" aria-label="market_sentiment_prior.mode">
+                    <option value="off">关闭</option>
+                    <option value="risk">警告</option>
+                    <option value="gate">约束</option>
+                  </select>
+                </label>
+                <label class="strategy-mctx-box">
+                  <span class="strategy-mctx-box-text">
+                    <span class="strategy-mctx-box-title">缩仓%</span>
+                    <span class="strategy-mctx-box-desc">调仓上限</span>
+                  </span>
+                  <input id="strategy-msp-scale" type="number" min="0" max="100" step="5" />
+                </label>
+                <label class="strategy-mctx-box strategy-mctx-box--check">
+                  <span class="strategy-mctx-box-text">
+                    <span class="strategy-mctx-box-title">持仓同步</span>
+                    <span class="strategy-mctx-box-desc">缩仓时</span>
+                  </span>
+                  <input type="checkbox" id="strategy-msp-scale-holds" />
                 </label>
               </div>
+            </section>
+            <section class="strategy-mctx-unit" data-k="regulatory" data-panel="reg" aria-labelledby="strategy-mctx-title-reg">
+              <header class="strategy-mctx-block-head">
+                <h4 id="strategy-mctx-title-reg" class="strategy-mctx-block-title">监管</h4>
+                <p class="strategy-mctx-block-note">加载…</p>
+              </header>
+              <div class="strategy-mctx-boxes strategy-mctx-boxes--row2">
+                <label class="strategy-mctx-box" title="regulatory_prior.mode">
+                  <span class="strategy-mctx-box-text">
+                    <span class="strategy-mctx-box-title">模式</span>
+                    <span class="strategy-mctx-box-desc">关闭 / 警告 / 约束</span>
+                  </span>
+                  <select id="strategy-reg-mode" aria-label="regulatory_prior.mode">
+                    <option value="off">关闭</option>
+                    <option value="risk">警告</option>
+                    <option value="gate">约束</option>
+                  </select>
+                </label>
+                <label class="strategy-mctx-box">
+                  <span class="strategy-mctx-box-text">
+                    <span class="strategy-mctx-box-title">缩仓%</span>
+                    <span class="strategy-mctx-box-desc">调仓上限</span>
+                  </span>
+                  <input id="strategy-reg-scale" type="number" min="0" max="100" step="5" />
+                </label>
+              </div>
+            </section>
+            <section class="strategy-mctx-unit" data-k="ipo" data-panel="ipo" aria-labelledby="strategy-mctx-title-ipo">
+              <header class="strategy-mctx-block-head">
+                <h4 id="strategy-mctx-title-ipo" class="strategy-mctx-block-title">IPO</h4>
+                <p class="strategy-mctx-block-note">加载…</p>
+              </header>
+              <div class="strategy-mctx-boxes strategy-mctx-boxes--row3">
+                <label class="strategy-mctx-box" title="ipo_drain_prior.mode">
+                  <span class="strategy-mctx-box-text">
+                    <span class="strategy-mctx-box-title">模式</span>
+                    <span class="strategy-mctx-box-desc">关闭 / 警告 / 约束</span>
+                  </span>
+                  <select id="strategy-ipo-mode" aria-label="ipo_drain_prior.mode">
+                    <option value="off">关闭</option>
+                    <option value="risk">警告</option>
+                    <option value="gate">约束</option>
+                  </select>
+                </label>
+                <label class="strategy-mctx-box">
+                  <span class="strategy-mctx-box-text">
+                    <span class="strategy-mctx-box-title">虹吸</span>
+                    <span class="strategy-mctx-box-desc">流动性比</span>
+                  </span>
+                  <input id="strategy-ipo-drain-ratio" type="number" min="0" step="0.1" />
+                </label>
+                <label class="strategy-mctx-box">
+                  <span class="strategy-mctx-box-text">
+                    <span class="strategy-mctx-box-title">缩仓%</span>
+                    <span class="strategy-mctx-box-desc">调仓上限</span>
+                  </span>
+                  <input id="strategy-ipo-scale" type="number" min="0" max="100" step="5" />
+                </label>
+              </div>
+            </section>
+          </div>
+          <div id="strategy-mctx-status" class="strategy-mctx-meta" hidden aria-live="polite"></div>
+          <div class="strategy-mctx-footer">
+            <div class="strategy-mctx-actions">
+              <label class="strategy-mctx-field" title="market_prior_policy.merge_mode">
+                <span class="strategy-mctx-field-label">合并</span>
+                <select id="strategy-mctx-merge" aria-label="多 prior 合并策略">
+                  <option value="min_scale">最严</option>
+                  <option value="chain">串联</option>
+                </select>
+              </label>
+              <button type="button" id="strategy-mctx-save" class="dialog-btn dialog-btn-keep-case">保存 4 路</button>
+              <p id="strategy-mctx-save-status" class="strategy-prior-status" aria-live="polite"></p>
             </div>
-          </div>
-
-          <div class="strategy-mctx-merge-row">
-            <label class="strategy-prior-field">
-              <span class="strategy-prior-field-title">多 prior 合并策略</span>
-              <select id="strategy-mctx-merge" class="platform-input">
-                <option value="min_scale">min_scale · 取最严缩仓</option>
-                <option value="chain">chain · 串联乘积</option>
-              </select>
-            </label>
-          </div>
-
-          <div class="strategy-prior-footer strategy-mctx-footer">
-            <button type="button" id="strategy-mctx-save" class="dialog-btn">保存 M 层 prior（4 路）</button>
-            <p id="strategy-mctx-save-status" class="quant-fingerprint strategy-prior-status" aria-live="polite"></p>
           </div>
         </div>
       </div>
     </div>
   </section>
 
-  <div class="strategy-ops" aria-label="次要分析">
-    <section
-      class="dashboard-section quant-section strategy-section strategy-section-secondary"
-      aria-labelledby="strategy-risk-audit-title"
-    >
-      <details class="quant-secondary-fold strategy-secondary-fold" id="strategy-risk-audit-fold">
-        <summary class="quant-secondary-fold-sum strategy-secondary-fold-sum">
-          <h3 id="strategy-risk-audit-title" class="dashboard-section-title">风控与敞口</h3>
-          <p
-            id="strategy-risk-audit-fold-desc"
-            class="dashboard-section-desc quant-section-desc"
-          >拦截流水 · 纸面实时敞口</p>
-        </summary>
-        <div class="dashboard-card quant-pro-card strategy-ops-card" id="strategy-risk-audit">
-          <div class="quant-pro-card-body strategy-ops-card-body">
-            <p class="quant-fingerprint" id="strategy-risk-meta">来自纸面持仓实时敞口 + 最近 ops / 北极星拦截汇总</p>
-            <div id="strategy-exposure" class="quant-weight-table-wrap"></div>
-            <div id="strategy-exposure-style" class="quant-weight-table-wrap"></div>
-            <div id="strategy-risk-eff" class="quant-weight-table-wrap"></div>
-            <div id="strategy-risk-blocks" class="quant-weight-table-wrap"></div>
-          </div>
+  <section
+    class="dashboard-section quant-section strategy-section strategy-section-primary strategy-regime-board"
+    id="strategy-regime-board"
+    aria-labelledby="strategy-regime-title"
+  >
+    <header class="dashboard-section-head quant-section-head strategy-section-head">
+      <h3 id="strategy-regime-title" class="dashboard-section-title">Regime</h3>
+      <p class="dashboard-section-desc quant-section-desc">
+        压单票与行业上限 · 科技拖累 defer 至跨市场 · ŷ 不改
+      </p>
+    </header>
+    <div class="dashboard-card quant-pro-card strategy-ops-card strategy-mctx-panel strategy-regime-panel">
+      <div class="dashboard-card-head quant-pro-card-head quant-card-head--tools">
+        <p id="strategy-mctx-regime-pill" class="quant-fingerprint quant-card-head-status">Regime —</p>
+      </div>
+      <div class="quant-pro-card-body strategy-ops-card-body">
+        <div class="strategy-mctx-live">
+          <section class="strategy-mctx-pane" aria-label="Regime 分档">
+            <div class="strategy-regime-body" id="strategy-regime-body" aria-live="polite">
+              <div class="strategy-regime-empty">加载 Regime…</div>
+            </div>
+          </section>
         </div>
-      </details>
-    </section>
+      </div>
+    </div>
+  </section>
 
+  <div class="strategy-ops" aria-label="次要分析">
     <section
       class="dashboard-section quant-section strategy-section strategy-section-secondary"
       id="strategy-factor-dict"

@@ -1135,7 +1135,7 @@ export function formatFeatureIsoSection(raw) {
   );
 }
 
-/** 舆情先验（ŷ 外）旁路提示。 */
+/** 个股舆情徽章（ŷ 外）：仅参考，不调仓。 */
 export function formatSentimentGateSection(raw) {
   if (!raw) return "";
   const meta = [];
@@ -1199,8 +1199,8 @@ export function formatSentimentGateSection(raw) {
 
   return (
     `<div class="score-sentiment-section">` +
-    `<div class="score-section-title">舆情先验</div>` +
-    `<div class="score-sentiment-lead">先验旁路 · 不进 ŷ · 非因子</div>` +
+    `<div class="score-section-title">舆情</div>` +
+    `<div class="score-sentiment-lead">仅参考徽章 · 不进 ŷ · 不调仓</div>` +
     metaHtml +
     notesHtml +
     `</div>`

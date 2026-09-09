@@ -64,6 +64,7 @@ ACTIONS: List[Dict[str, Any]] = [
             "/api/paper/rebalance",
             "/api/paper/t0",
             "/api/quant/t0-backtest",
+            "/api/quant/last-t0-backtest",
             "/api/watching/refresh?sync_paper=true",
         ],
         "services": [

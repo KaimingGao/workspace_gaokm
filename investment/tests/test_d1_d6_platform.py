@@ -7,7 +7,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from core.decision_record import build_decision_record, list_decisions, record_from_advice
+from core.decision_record import build_decision_record, clear_decisions, list_decisions, record_from_advice
 from core.feedback_suggest import suggest_config_feedback
 from core.job_progress import JobRegistry, paper_job
 from core.memory_store import (
@@ -117,6 +117,12 @@ class TestD3Decision(unittest.TestCase):
             listed = list_decisions(limit=10, path=path)
             self.assertEqual(listed["count"], 1)
             self.assertEqual(listed["items"][0]["stock_code"], "600519")
+            cleared = clear_decisions(path=path)
+            self.assertTrue(cleared["ok"])
+            self.assertEqual(cleared["cleared"], 1)
+            self.assertFalse(os.path.isfile(path))
+            listed2 = list_decisions(limit=10, path=path)
+            self.assertEqual(listed2["count"], 0)
 
 
 class TestD4Feedback(unittest.TestCase):

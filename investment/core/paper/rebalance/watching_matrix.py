@@ -291,6 +291,9 @@ _SCORE_PASSTHROUGH_KEYS = (
     "y_nowcast",
     "y_nc",
     "y_on",
+    "y_tau",
+    "y_fuse",
+    "ranking_score",
     "dual_score_window",
     "dual_score_head",
     "dual_score_weights",
@@ -315,7 +318,7 @@ def _score_fields_for_report(item: dict, scores: Dict[str, Optional[float]]) -> 
         for k in _SCORE_PASSTHROUGH_KEYS:
             if k in item and item.get(k) is not None:
                 out[k] = item.get(k)
-    # rank_lots 决议分优先（y_fuse 经调用方塞进 y_trade）
+    # 分项 ŷ 覆盖同名键；ŷ_EOD / ŷ_τ 仍走 item 透传
     yt = scores.get("y_trade")
     yp = scores.get("y_path")
     yn = scores.get("y_nowcast")
@@ -335,7 +338,47 @@ def _score_fields_for_report(item: dict, scores: Dict[str, Optional[float]]) -> 
     if yo is not None:
         out["y_on"] = yo
         out.setdefault("predicted_score_on", yo)
+    ytau = scores.get("y_tau")
+    if ytau is not None:
+        out["y_tau"] = ytau
+        out.setdefault("predicted_score_tau", ytau)
     return out
+
+
+def _row_score_payload(item: Optional[dict], src: Optional[dict] = None) -> Dict[str, Any]:
+    """表列用分项 ŷ，不把 y_fuse 塞进 y_trade。"""
+    from core.paper.rebalance.rank_lots import y_on_of, y_tau_of
+    from core.paper.rebalance.path_matrix import scores_from_rebalance_item
+
+    item = item if isinstance(item, dict) else {}
+    src = src if isinstance(src, dict) else {}
+    sc = scores_from_rebalance_item(item)
+    yt = _f(src.get("y_trade"))
+    if yt is None:
+        yt = sc.get("y_trade")
+    yn = _f(src.get("y_nowcast") if src.get("y_nowcast") is not None else src.get("y_nc"))
+    if yn is None:
+        yn = sc.get("y_nowcast")
+    yp = _f(src.get("y_path") if src.get("y_path") is not None else src.get("predicted_score_path"))
+    if yp is None:
+        yp = _f(item.get("y_path") if item.get("y_path") is not None else item.get("predicted_score_path"))
+    yo = _f(src.get("y_on"))
+    if yo is None:
+        yo = y_on_of(item)
+    ytau = _f(src.get("y_tau") if src.get("y_tau") is not None else src.get("predicted_score_tau"))
+    if ytau is None:
+        ytau = y_tau_of(item)
+    payload = _score_fields_for_report(
+        item,
+        {"y_trade": yt, "y_path": yp, "y_nowcast": yn, "y_on": yo, "y_tau": ytau},
+    )
+    yf = src.get("y_fuse")
+    if yf is not None:
+        payload["y_fuse"] = yf
+    rs = src.get("ranking_score")
+    if rs is not None:
+        payload["ranking_score"] = rs
+    return payload
 
 
 def _apply_one_leg(
@@ -683,36 +726,34 @@ def simulate_watching_matrix_preview(
         if isinstance(h, dict)
     }
 
-    def _leg_row(leg: dict, *, side: str) -> dict:
-        code = str(leg.get("stock_code") or "")
+    def _base_row(code: str, src: Optional[dict] = None) -> dict:
         item = item_by_code.get(code) or {}
         name = _resolve_report_name(
             code, item=item, paper=paper, name_by_code=name_by_code
         )
         px = prices.get(code)
+        return {
+            "stock_code": code,
+            "stock_name": name,
+            "matrix_mode": True,
+            "price": px,
+            **_row_score_payload(item, src),
+        }
+
+    def _leg_row(leg: dict, *, side: str) -> dict:
+        code = str(leg.get("stock_code") or "")
         act = str(leg.get("action") or "")
         held_sh = float(held_sh_of.get(code) or 0)
         shares = float(leg.get("shares") or 0)
-        yf = leg.get("y_fuse")
-        yo = leg.get("y_on")
-        score_payload = _score_fields_for_report(
-            item,
-            {"y_trade": yf, "y_path": None, "y_nowcast": None, "y_on": yo},
-        )
-        score_payload["y_fuse"] = yf
-        score_payload["ranking_score"] = leg.get("ranking_score")
+        px = prices.get(code)
         row = {
-            "stock_code": code,
-            "stock_name": name,
+            **_base_row(code, leg),
             "action": act,
             "reason": leg.get("reason"),
             "execute": True,
-            "matrix_mode": True,
             "side": side,
             "shares": shares,
-            "price": px,
             "amount": round(shares * float(px), 2) if px else None,
-            **score_payload,
         }
         if side == "buy":
             row["decision"] = "买入" if act == ACTION_OPEN else "加仓"
@@ -725,6 +766,27 @@ def simulate_watching_matrix_preview(
             row["new_shares"] = max(0.0, held_sh - shares)
             row["shares_change"] = -shares
         return row
+
+    def _status_row(
+        src: dict,
+        *,
+        decision: str,
+        held_sh: float,
+        new_sh: Optional[float] = None,
+    ) -> dict:
+        code = str(src.get("stock_code") or "")
+        ns = float(held_sh if new_sh is None else new_sh)
+        return {
+            **_base_row(code, src),
+            "action": src.get("action"),
+            "reason": src.get("reason"),
+            "execute": False,
+            "decision": decision,
+            "old_shares": held_sh,
+            "new_shares": ns,
+            "shares_change": ns - held_sh,
+            "shares": held_sh,
+        }
 
     for leg in plan.get("sells") or []:
         code = str(leg.get("stock_code") or "")
@@ -758,8 +820,38 @@ def simulate_watching_matrix_preview(
         report.append(_leg_row(leg, side="buy"))
         decisions.append({"stock_code": code, "action": leg.get("action"), **leg})
 
+    reported = {
+        str(r.get("stock_code") or "").strip()
+        for r in report
+        if str(r.get("stock_code") or "").strip()
+    }
+    skip_by_code = {
+        str(s.get("stock_code") or "").strip(): s
+        for s in skips
+        if str(s.get("stock_code") or "").strip()
+    }
     for hrow in plan.get("holds") or []:
         decisions.append(hrow)
+        code = str(hrow.get("stock_code") or "").strip()
+        if not code or code in reported:
+            continue
+        held_sh = float(held_sh_of.get(code) or 0)
+        reason = str(hrow.get("reason") or "ranking≥0% 持有")
+        sk = skip_by_code.get(code) or {}
+        sk_reason = str(sk.get("reason") or "")
+        if sk_reason and "地板" in sk_reason and sk_reason not in reason:
+            reason = f"{reason} · {sk_reason}"
+        src = {**sk, **hrow, "reason": reason}
+        report.append(_status_row(src, decision="持有", held_sh=held_sh))
+        reported.add(code)
+
+    for sk in skips:
+        code = str(sk.get("stock_code") or "").strip()
+        if not code or code in reported:
+            continue
+        held_sh = float(held_sh_of.get(code) or 0)
+        report.append(_status_row(sk, decision="跳过", held_sh=held_sh))
+        reported.add(code)
 
     report.sort(
         key=lambda r: (
@@ -785,8 +877,23 @@ def simulate_watching_matrix_preview(
     buy_amt = sum(float(t.get("amount") or 0) for t in buy_trades)
     sell_amt = sum(float(t.get("amount") or 0) for t in sell_trades)
     empty = None
+    empty_detail = None
+    floor_val = _f(rl_cfg.get("cash_floor")) or 0.0
+    cash_skips = [
+        s
+        for s in skips
+        if "地板" in str(s.get("reason") or "")
+    ]
     if not buy_trades and not sell_trades:
-        empty = "no_executable_changes"
+        if cash_skips or (floor_val > 0 and cash_before + 1e-6 < floor_val):
+            empty = "cash_below_floor"
+            empty_detail = (
+                f"现金 {cash_before:,.0f} < 地板 {floor_val:,.0f}"
+            )
+        elif not scored and not held_codes:
+            empty = "empty_ranking"
+        else:
+            empty = "no_executable_changes"
 
     by_action: Dict[str, int] = {}
     for d in decisions:
@@ -817,6 +924,8 @@ def simulate_watching_matrix_preview(
         "offline_only": use_offline,
         "top_k": k,
         "min_score": rl_cfg.get("rank_enter"),
+        "rank_enter": rl_cfg.get("rank_enter"),
+        "rank_enter_pct": round(float(rl_cfg.get("rank_enter") or 0) * 100.0, 4),
         "min_hold_score": 0.0,
         "observation_pool_count": len(codes),
         "scored_count": len(scored),
@@ -837,6 +946,8 @@ def simulate_watching_matrix_preview(
             "cash_before": cash_before,
             "cash_after": float(paper.get("cash") or cash) if not dry_run else None,
             "cash_floor": rl_cfg.get("cash_floor"),
+            "cash_floor_configured": rl_cfg.get("cash_floor_configured"),
+            "cash_floor_scaled": bool(rl_cfg.get("cash_floor_scaled")),
             "turnover_pct": round(
                 (buy_amt + sell_amt) / equity * 100.0, 2
             )
@@ -844,6 +955,7 @@ def simulate_watching_matrix_preview(
             else None,
         },
         "empty_reason": empty,
+        "empty_detail": empty_detail,
         "path_matrix": {
             "enabled": True,
             "mode": "rank_lots",
@@ -852,6 +964,8 @@ def simulate_watching_matrix_preview(
                 "rank_enter": rl_cfg.get("rank_enter"),
                 "rank_strong": rl_cfg.get("rank_strong"),
                 "cash_floor": rl_cfg.get("cash_floor"),
+                "cash_floor_configured": rl_cfg.get("cash_floor_configured"),
+                "cash_floor_scaled": bool(rl_cfg.get("cash_floor_scaled")),
                 "fusion_w_trade": rl_cfg.get("fusion_w_trade"),
                 "fusion_w_nowcast": rl_cfg.get("fusion_w_nowcast"),
                 "y_on_alpha": rl_cfg.get("y_on_alpha"),

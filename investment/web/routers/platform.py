@@ -193,6 +193,15 @@ def audit_timeline(limit: int = 40) -> Dict[str, Any]:
     return build_audit_timeline(limit=limit)
 
 
+@router.post("/api/audit/timeline/clear")
+def audit_timeline_clear() -> Dict[str, Any]:
+    """清空时间线日志：DecisionRecord + 最近告警快照。不改晋升 / 调度 last-run。"""
+    out = deps.platform.clear_audit_timeline()
+    if not out.get("ok"):
+        raise HTTPException(status_code=500, detail=out.get("error") or "clear failed")
+    return out
+
+
 @router.get("/api/north-star")
 def north_star(refresh: bool = True) -> Dict[str, Any]:
     """R0 · 产品北极星二级指标（纸面夏普/卡玛 · 拟合 · TTM · 拦截流水）。"""

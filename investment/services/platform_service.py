@@ -51,6 +51,11 @@ class PlatformService:
     def list_decisions(self, *, limit: int = 50) -> Dict[str, Any]:
         return list_decisions(limit=limit)
 
+    def clear_audit_timeline(self) -> Dict[str, Any]:
+        from web.audit_timeline import clear_audit_timeline_logs
+
+        return clear_audit_timeline_logs()
+
     def record_advice(
         self,
         advice: Dict[str, Any],

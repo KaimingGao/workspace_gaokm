@@ -429,7 +429,7 @@ class TestSentimentBullish(unittest.TestCase):
             },
         )
         self.assertTrue(prior.get("bullish_theme"))
-        self.assertTrue(should_soft_hold_from_sentiment(prior))
+        self.assertFalse(should_soft_hold_from_sentiment(prior))
 
 
 class TestEventBreadth(unittest.TestCase):

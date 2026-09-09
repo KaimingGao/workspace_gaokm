@@ -68,6 +68,8 @@ T0_INTRADAY_STATE_PATH = os.path.join(DATA_DIR, "t0_intraday_state.json")
 NORTH_STAR_LAST_BACKTEST_PATH = os.path.join(DATA_DIR, "north_star_last_backtest.json")
 # 最近一次产品回测（/replay 刷新恢复 KPI / 净值 / 成交账；不重跑）
 LAST_PORTFOLIO_BACKTEST_PATH = os.path.join(DATA_DIR, "last_portfolio_backtest.json")
+# 最近一次做 T 研究回测（/follow 刷新恢复指标 / 图 / 成交明细；不重跑）
+LAST_T0_BACKTEST_PATH = os.path.join(DATA_DIR, "last_t0_backtest.json")
 TTM_EVENTS_PATH = os.path.join(DATA_DIR, "ttm_events.jsonl")
 NEWS_STORE_DIR = os.path.join(STORE_DIR, "news")
 NEWS_HISTORY_DIR = os.path.join(NEWS_STORE_DIR, "history")

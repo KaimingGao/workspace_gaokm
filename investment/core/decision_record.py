@@ -71,6 +71,17 @@ def list_decisions(*, limit: int = 50, path: Optional[str] = None) -> Dict[str, 
     return {"ok": True, "path": p, "count": len(rows), "items": items}
 
 
+def clear_decisions(*, path: Optional[str] = None) -> Dict[str, Any]:
+    """清空 DecisionRecord 流水；不改策略晋升或调度 last-run。"""
+    p = path or DECISIONS_PATH
+    cleared = 0
+    if os.path.isfile(p):
+        with open(p, encoding="utf-8") as f:
+            cleared = sum(1 for line in f if line.strip())
+        os.remove(p)
+    return {"ok": True, "path": p, "cleared": cleared}
+
+
 def record_from_advice(
     advice: Dict[str, Any],
     *,

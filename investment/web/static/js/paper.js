@@ -69,7 +69,7 @@ import { wireT0SkipTips } from "./paper/t0_viz.js?v=p1986";
 import { wireT0ProcessTips, wireT0DayDebugExpand } from "./paper/t0_table.js?v=p1986";
 import { wireHoldingsChgTips } from "./paper/holding_chg_tip.js?v=p1986";
 import { createHoldingsIslandController } from "./paper/holdings_island.js";
-import { createClusterRebalanceController } from "./paper/cluster_rebalance.js?v=p1704";
+import { createClusterRebalanceController } from "./paper/cluster_rebalance.js?v=p2088";
 import {
   getDataOfflineOnly,
   installDataOfflineToggle,
@@ -77,7 +77,7 @@ import {
 } from "./data_offline.js";
 import { rebalanceDataFoot, t0DataFoot } from "./data_policy.js?v=p1736";
 import { ensureWarehouseTopup } from "./data_warehouse_topup.js";
-import { createRebalanceReportController } from "./paper/rebalance_report.js?v=p1662";
+import { createRebalanceReportController } from "./paper/rebalance_report.js?v=p2093";
 import { waitPaperJob as waitPaperJobPoll } from "./paper/job_poll.js?v=p1416";
 import { renderFollowNorthStar as renderFollowNorthStarUi } from "./paper/north_star_ui.js?v=p1416";
 import {
@@ -881,7 +881,7 @@ export function initPaper(ctx) {
           `<div class="paper-holdings-empty">` +
           `<p class="paper-holdings-empty-title">暂无持仓</p>` +
           `<p class="paper-holdings-empty-text">本页只管理已有仓位；新仓请到观察页搜索建仓。</p>` +
-          `<a class="dialog-btn" href="/watching" data-results-tab="watching">去观察建仓</a>` +
+          `<a class="dialog-btn" href="/watching">去观察建仓</a>` +
           `</div>`;
       } else {
         if (holdingsCountEl) holdingsCountEl.textContent = String(holdings.length);
@@ -1411,14 +1411,14 @@ export function initPaper(ctx) {
         `做 T 是<strong>底仓 overlay</strong>验证，不是独立选股。完整闭环：` +
         `<a class="follow-hero-link" href="/replay">历史回测</a> · ` +
         `<a class="follow-hero-link" href="/strategy">策略中心</a> · ` +
-        `<a class="follow-hero-link" href="/platform">北极星</a>`;
+        `<a class="follow-hero-link" href="#follow-north-star">北极星</a>`;
       return;
     }
     el.innerHTML =
       `纸面调仓是落地一步（非完整科学验证）。下一步：` +
       `<a class="follow-hero-link" href="/replay">历史回测对照</a> · ` +
       `先验去 <a class="follow-hero-link" href="/strategy">策略中心</a> · ` +
-      `看拟合 <a class="follow-hero-link" href="/platform">北极星</a>`;
+      `看拟合 <a class="follow-hero-link" href="#follow-north-star">北极星</a>`;
   }
 
   let holdingsScoreEnrichPromise = null;
@@ -2441,6 +2441,8 @@ export function initPaper(ctx) {
             dualScore,
             emptyReason,
             minScore,
+            rankEnter: result.rank_enter ?? minScore,
+            emptyDetail: result.empty_detail || null,
             marketContext: result.market_context,
           });
         } else if (simulateBuy) {
@@ -2453,6 +2455,8 @@ export function initPaper(ctx) {
             dualScore,
             emptyReason,
             minScore,
+            rankEnter: result.rank_enter ?? minScore,
+            emptyDetail: result.empty_detail || null,
             marketContext: result.market_context,
           });
           setPaperMetaText(
@@ -2648,6 +2652,57 @@ export function initPaper(ctx) {
   const paperT0Run = document.getElementById("paper-t0-run");
   const paperT0ActionStatus = document.getElementById("paper-t0-action-status");
 
+  function formatT0SnapshotAt(iso) {
+    if (!iso) return "";
+    const s = String(iso);
+    return s.length > 19 ? s.slice(0, 19).replace("T", " ") : s.replace("T", " ");
+  }
+
+  function t0BacktestIsBusy() {
+    return !!(paperT0Bt && (paperT0Bt.disabled || paperT0Bt.classList.contains("is-busy")));
+  }
+
+  function applyT0BacktestResult(data, { restored, savedAt } = {}) {
+    if (!data || !data.success) return;
+    if (restored) {
+      if (t0BacktestIsBusy()) return;
+      if (paperT0Metrics && paperT0Metrics.dataset.liveRun === "1") return;
+    } else if (paperT0Metrics) {
+      paperT0Metrics.dataset.liveRun = "1";
+    }
+    renderPaperT0(data);
+    const summary = buildT0SummaryLine(data);
+    if (paperT0ActionStatus) {
+      const at = formatT0SnapshotAt(savedAt);
+      paperT0ActionStatus.textContent = restored
+        ? (at ? `上次 ${at}` : "上次结果") + (summary ? ` · ${summary}` : "")
+        : summary || "做 T 回测完成";
+    }
+    const t0RulesEl = document.getElementById("paper-t0-rules");
+    if (t0RulesEl && data.execution) {
+      t0RulesEl.innerHTML = renderExecutionRulesHtml(
+        normalizeExecutionView(data.execution, data.rules)
+      );
+    }
+  }
+
+  async function restoreLastT0Backtest() {
+    if (page !== "paper" && page !== "follow") return;
+    if (!paperT0Metrics) return;
+    if (t0BacktestIsBusy()) return;
+    if (paperT0Metrics.dataset.liveRun === "1") return;
+    try {
+      const res = await fetch("/api/quant/last-t0-backtest");
+      const pack = await res.json();
+      if (t0BacktestIsBusy()) return;
+      if (paperT0Metrics.dataset.liveRun === "1") return;
+      if (!pack || pack.empty || !pack.result || !pack.result.success) return;
+      applyT0BacktestResult(pack.result, { restored: true, savedAt: pack.saved_at });
+    } catch (_) {
+      /* ignore */
+    }
+  }
+
   /** fetch 失败：Chrome 超时是 AbortError；Safari/网络断开常是 TypeError Failed to fetch */
   const t0FetchErrorMessage = (err, timeoutHint) => {
     const name = String((err && err.name) || "");
@@ -2739,16 +2794,9 @@ export function initPaper(ctx) {
           renderPaperT0(null);
           return;
         }
-        const summary = buildT0SummaryLine(data);
-        setT0ActionBusy(paperT0Bt, false, summary || "做 T 回测完成");
-        renderPaperT0(data);
+        setT0ActionBusy(paperT0Bt, false);
+        applyT0BacktestResult(data);
         showValidateNext("t0");
-        const t0RulesEl = document.getElementById("paper-t0-rules");
-        if (t0RulesEl && data.execution) {
-          t0RulesEl.innerHTML = renderExecutionRulesHtml(
-            normalizeExecutionView(data.execution, data.rules)
-          );
-        }
       } catch (err) {
         setT0ActionBusy(
           paperT0Bt,
@@ -3063,20 +3111,6 @@ export function initPaper(ctx) {
     });
   }
 
-  const paperGotoQuant = document.getElementById("paper-goto-quant");
-  if (paperGotoQuant) {
-    paperGotoQuant.addEventListener("click", async (e) => {
-      e.preventDefault();
-      try {
-        if (typeof ctx.showResultsTab === "function" && page === "chat") {
-          await ctx.showResultsTab("quant", { openMobile: true, load: true });
-        }
-      } catch (err) {
-        setPaperMetaText(String(err.message || err));
-      }
-    });
-  }
-
   const paperTradesCsvBtn = document.getElementById("paper-trades-csv");
   if (paperTradesCsvBtn) {
     paperTradesCsvBtn.addEventListener("click", (e) => {
@@ -3169,5 +3203,6 @@ export function initPaper(ctx) {
     loadPaper().catch((err) => {
       setPaperMetaText(String(err.message || err));
     });
+    restoreLastT0Backtest();
   }
 }

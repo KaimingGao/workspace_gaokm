@@ -145,7 +145,7 @@ export function initTheme() {
       });
   }
 
-  // 设置页：/platform 高亮系统设置
+  // /platform 高亮侧栏「平台」
   try {
     const u = new URL(window.location.href);
     if (u.pathname.indexOf("/platform") === 0) {

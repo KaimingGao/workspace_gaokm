@@ -658,7 +658,7 @@ export function createBtResultRenderers(deps) {
         );
       }
     }
-    html += `<p class="quant-sub">${esc(data.note || "")} · 常驻拟合见 <a href="/quant">研究枢纽</a> · 北极星见 <a href="/platform">平台</a></p>`;
+    html += `<p class="quant-sub">${esc(data.note || "")} · 常驻拟合见 <a href="/quant">研究枢纽</a> · 北极星见 <a href="/follow">交易执行</a></p>`;
     el.innerHTML = html;
   }
 

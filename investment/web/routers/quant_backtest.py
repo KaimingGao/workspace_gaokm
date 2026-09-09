@@ -189,6 +189,17 @@ def quant_last_portfolio_backtest() -> Dict[str, Any]:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
+@router.get("/api/quant/last-t0-backtest")
+def quant_last_t0_backtest() -> Dict[str, Any]:
+    """最近一次成功做 T 回测（``/follow`` 刷新恢复，不重跑）。"""
+    try:
+        from core.signal.score_display import json_safe
+
+        return json_safe(deps.quant.load_last_t0_backtest())
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
 @router.post("/api/quant/param-grid")
 def quant_param_grid() -> Dict[str, Any]:
     """参数网格已下线（lookback×K 属 TopK 研究探针；产品回测只认 paper_replay）。"""

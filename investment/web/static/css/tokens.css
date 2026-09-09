@@ -174,14 +174,11 @@
   --spacing-lg: 24px;
   --side-nav-w: 200px;
   --side-nav-w-collapsed: 64px;
-  --chat-w: 100%;
   --ease: cubic-bezier(0.22, 1, 0.36, 1);
   --transition-fast: 0.15s var(--ease);
   --transition: 0.2s var(--ease);
   --transition-slow: 0.3s var(--ease);
   --transition-data: 0.3s ease;
-  --split-major: 30%;
-  --split-minor: 70%;
   --ui-busy-dot: 6px;
   --ui-busy-dot-gap: 9px;
   --ui-busy-duration: 1.05s;
@@ -726,11 +723,6 @@ html[data-theme="dark"] .quant-page .quant-section-hint {
 
 html[data-theme="dark"] .quant-head .quant-eyebrow {
   color: rgba(255, 255, 255, 0.4);
-}
-
-html[data-theme="dark"] .strategy-page .strategy-path-rail {
-  border-color: rgba(255, 255, 255, 0.08);
-  background: color-mix(in srgb, var(--accent, #3b82f6) 8%, #1a1a1a);
 }
 
 html[data-theme="dark"] .strategy-page .strategy-control-band {

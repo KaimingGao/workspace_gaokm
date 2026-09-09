@@ -9,7 +9,7 @@ import os
 from typing import Any, Dict, Optional
 
 from core.io_atomic import atomic_write_json
-from core.sentiment_prior import DEFAULT_PRIOR, get_sentiment_prior_cfg, normalize_prior_mode
+from core.sentiment_prior import DEFAULT_PRIOR, get_sentiment_prior_cfg
 
 
 def read_sentiment_prior_public(*, config: Optional[dict] = None) -> Dict[str, Any]:
@@ -23,7 +23,7 @@ def read_sentiment_prior_public(*, config: Optional[dict] = None) -> Dict[str, A
         "scale_buy_pct": float(cfg["scale_buy_pct"]),
         "scale_holds": bool(cfg.get("scale_holds", False)),
         "warn_only": bool(cfg["warn_only"]),
-        "note": "舆情先验 · 不进 predicted_score；改 mode 影响调仓旁路",
+        "note": "舆情仅观察徽章 · 不进 predicted_score · 不参与调仓",
     }
 
 
@@ -35,7 +35,7 @@ def save_sentiment_prior(
     scale_holds: Optional[bool] = None,
     note: str = "",
 ) -> Dict[str, Any]:
-    """写入 prior.*；强制 ``include_in_score=false``、``role=prior``。"""
+    """人审写盘仍可调用；产品强制 ``mode=off``（仅徽章，不调仓）。"""
     from core.signal.config import get_signal_config_path, load_signal_config
 
     path = get_signal_config_path()
@@ -47,32 +47,11 @@ def save_sentiment_prior(
     sent = dict(raw.get("sentiment") or {})
     prior = dict(DEFAULT_PRIOR)
     prior.update(dict(sent.get("prior") or {}))
-    changed: Dict[str, Any] = {}
+    prior["mode"] = "off"
+    prior.pop("bearish_score_min", None)
+    changed: Dict[str, Any] = {"mode": "off"}
+    _ = (mode, block_new_buys, scale_buy_pct, scale_holds)
 
-    if mode is not None:
-        m = normalize_prior_mode(mode)
-        prior["mode"] = m
-        changed["mode"] = m
-    prior.pop("bearish_score_min", None)  # 向前清理旧配置残留
-    if block_new_buys is not None:
-        prior["block_new_buys"] = bool(block_new_buys)
-        changed["block_new_buys"] = bool(block_new_buys)
-    if scale_buy_pct is not None:
-        scale = max(0.0, min(float(scale_buy_pct), 1.0))
-        prior["scale_buy_pct"] = scale
-        changed["scale_buy_pct"] = scale
-    if scale_holds is not None:
-        prior["scale_holds"] = bool(scale_holds)
-        changed["scale_holds"] = bool(scale_holds)
-
-    if not changed:
-        return {
-            "success": False,
-            "error": "未提供可写字段（mode / block_new_buys / scale_buy_pct / scale_holds）",
-            "signal_config_weights_touched": False,
-        }
-
-    # 契约：先验不是因子
     sent["include_in_score"] = False
     sent["role"] = "prior"
     sent["prior"] = prior
@@ -94,7 +73,7 @@ def save_sentiment_prior(
         "sentiment_prior": read_sentiment_prior_public(),
         "path": path,
         "note": note
-        or "仅改 sentiment.prior；ŷ/weights 未触碰；include_in_score 强制 false",
+        or "个股舆情仅观察徽章；mode 强制 off；ŷ/weights 未触碰",
         "signal_config_weights_touched": False,
         "include_in_score": False,
     }

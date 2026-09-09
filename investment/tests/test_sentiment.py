@@ -108,6 +108,46 @@ class TestFetchAndCache(unittest.TestCase):
                 self.assertTrue(second["from_cache"])
                 self.assertEqual(mock_news.call_count, 1)
 
+    def test_empty_ok_cache_refetches(self):
+        """ok=True 且无标题的毒缓存不得挡住 live 拉取。"""
+        with tempfile.TemporaryDirectory() as td:
+            with open(os.path.join(td, "300750.json"), "w", encoding="utf-8") as f:
+                json.dump(
+                    {
+                        "ok": True,
+                        "stock_code": "300750",
+                        "stock_name": "",
+                        "items": [],
+                        "error": None,
+                        "fetched_at": 1e12,
+                    },
+                    f,
+                )
+            with patch.object(sentiment_mod, "NEWS_STORE_DIR", td), patch(
+                "core.store.get_store_dir", return_value=td
+            ), patch(
+                "core.ports.market.build_news",
+                return_value={
+                    "success": True,
+                    "stock_code": "300750",
+                    "stock_name": "宁德时代",
+                    "items": [
+                        {"title": "宁德时代公告", "time": "t", "source": "s", "url": ""},
+                    ],
+                },
+            ) as mock_news:
+                out = fetch_stock_headlines(
+                    "300750",
+                    limit=3,
+                    force=False,
+                    ttl_sec=3600,
+                )
+            self.assertTrue(out["ok"])
+            self.assertEqual(len(out["items"]), 1)
+            self.assertEqual(out["items"][0]["title"], "宁德时代公告")
+            self.assertFalse(out["from_cache"])
+            self.assertEqual(mock_news.call_count, 1)
+
     def test_list_watchlist_sentiment(self):
         with tempfile.TemporaryDirectory() as td:
             uni = os.path.join(td, "watching.json")

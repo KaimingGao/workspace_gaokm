@@ -29,6 +29,7 @@ class TestP94QuantServiceMixins(unittest.TestCase):
             "run_factor_experiment",
             "run_portfolio_backtest",
             "run_t0_backtest",
+            "load_last_t0_backtest",
             "build_daily_report",
             "load_last_daily",
         ):
@@ -49,6 +50,7 @@ class TestP94QuantServiceMixins(unittest.TestCase):
             "/api/paper",
             "/api/quant/config",
             "/api/quant/t0-backtest",
+            "/api/quant/last-t0-backtest",
             "/api/daily/presets",
             "/api/watching",
             "/api/evals/cases",

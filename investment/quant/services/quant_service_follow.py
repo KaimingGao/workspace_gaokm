@@ -31,7 +31,7 @@ class QuantFollowMixin:
         _ = (use_minute, compare_daily)
         if from_paper or codes is not None or not str(code or "").strip():
             holdings, paper = self._t0_holdings_for_backtest(codes=codes, code=code)
-            return run_t0_backtest_for_holdings(
+            out = run_t0_backtest_for_holdings(
                 holdings,
                 lookback=lookback,
                 rules=rules,
@@ -39,15 +39,38 @@ class QuantFollowMixin:
                 use_minute=True,
                 compare_daily=False,
             )
+        else:
+            out = run_t0_backtest_for_code(
+                code,
+                lookback=lookback,
+                initial_shares=initial_shares,
+                rules=rules,
+                use_minute=True,
+                compare_daily=False,
+            )
+        if isinstance(out, dict) and out.get("success"):
+            out.setdefault(
+                "request",
+                {
+                    "lookback": lookback,
+                    "code": str(code or "").strip(),
+                    "from_paper": bool(from_paper),
+                    "codes": list(codes) if codes else None,
+                },
+            )
+            try:
+                from core.backtest_result_store import save_last_t0_backtest
 
-        return run_t0_backtest_for_code(
-            code,
-            lookback=lookback,
-            initial_shares=initial_shares,
-            rules=rules,
-            use_minute=True,
-            compare_daily=False,
-        )
+                save_last_t0_backtest(out)
+            except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+                logger.debug("catch except Exception: in quant_service_follow.py", exc_info=True)
+                logger.warning("上次做 T 回测结果落盘失败", exc_info=True)
+        return out
+
+    def load_last_t0_backtest(self) -> Dict[str, Any]:
+        from core.backtest_result_store import load_last_t0_backtest as load_snap
+
+        return load_snap()
 
     def _t0_holdings_for_backtest(
         self, *, codes: Optional[list] = None, code: str = ""

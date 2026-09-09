@@ -38,15 +38,14 @@ class TestSentimentPriorConfigSave(unittest.TestCase):
                 out = save_sentiment_prior(mode="gate", block_new_buys=True, note="test")
                 self.assertTrue(out.get("success"))
                 self.assertFalse(out.get("include_in_score"))
-                self.assertEqual(out["sentiment_prior"]["mode"], "gate")
-                self.assertTrue(out["sentiment_prior"]["block_new_buys"])
+                self.assertEqual(out["sentiment_prior"]["mode"], "off")
                 with open(path, encoding="utf-8") as f:
                     raw = json.load(f)
                 self.assertFalse(raw["sentiment"]["include_in_score"])
                 self.assertEqual(raw["sentiment"]["role"], "prior")
-                self.assertEqual(raw["sentiment"]["prior"]["mode"], "gate")
+                self.assertEqual(raw["sentiment"]["prior"]["mode"], "off")
                 pub = read_sentiment_prior_public()
-                self.assertEqual(pub["mode"], "gate")
+                self.assertEqual(pub["mode"], "off")
             finally:
                 if old is None:
                     os.environ.pop("INVESTMENT_SIGNAL_CONFIG", None)

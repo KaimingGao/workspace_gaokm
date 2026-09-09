@@ -569,7 +569,31 @@ def _rebalance_report_from_legs(
                 reason = "未进目标簿 · 滞回持有"
             else:
                 reason = "未纳入本轮打分"
-        rank_row = row_by.get(code) or {}
+        rank_row = dict(row_by.get(code) or {})
+        for src in (skip_by.get(code), sell_by.get(code), buy_by.get(code)):
+            if not isinstance(src, dict):
+                continue
+            for k in (
+                "predicted_score",
+                "predicted_score_eod",
+                "predicted_score_tau",
+                "predicted_score_path",
+                "predicted_score_on",
+                "predicted_score_nowcast",
+                "predicted_score_blend",
+                "y_trade",
+                "y_path",
+                "y_on",
+                "y_nowcast",
+                "y_nc",
+                "y_tau",
+                "y_fuse",
+                "ranking_score",
+                "score",
+                "score_rem",
+            ):
+                if rank_row.get(k) is None and src.get(k) is not None:
+                    rank_row[k] = src.get(k)
         label = rank_row.get("cluster_label")
         # 字段名与 paper_cycle / 交易执行页 renderRebalanceReport 对齐
         delta = n - o

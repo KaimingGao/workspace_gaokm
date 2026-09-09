@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import tempfile
 import unittest
@@ -40,6 +41,26 @@ class TestSnapshotCache(unittest.TestCase):
             self.assertTrue(data.get("success"))
             self.assertTrue(meta.get("non_pit"))
 
+    def test_missing_data_key_is_miss(self):
+        from core import store as st
+
+        with tempfile.TemporaryDirectory() as td:
+            path = st.snapshot_cache_path("news", "300750", td)
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(
+                    {
+                        "ok": True,
+                        "stock_code": "300750",
+                        "items": [],
+                        "fetched_at": 1,
+                    },
+                    f,
+                )
+            self.assertIsNone(
+                st.load_snapshot_cache("news", "300750", max_age_hours=24, store_dir=td)
+            )
+
 
 class TestDataServiceWrappers(unittest.TestCase):
     def test_get_bars_shape(self):
@@ -74,6 +95,32 @@ class TestDataServiceWrappers(unittest.TestCase):
             self.assertTrue(pack.get("non_pit"))
             self.assertFalse(pack.get("fundamentals_pit"))
             live.assert_not_called()
+
+    def test_get_news_skips_sentiment_ttl_file(self):
+        from core.data.facade import get_news
+
+        with tempfile.TemporaryDirectory() as td:
+            news_ttl = os.path.join(td, "news", "300750.json")
+            os.makedirs(os.path.dirname(news_ttl), exist_ok=True)
+            with open(news_ttl, "w", encoding="utf-8") as f:
+                json.dump({"ok": True, "items": [], "fetched_at": 1}, f)
+            live = {
+                "success": True,
+                "stock_code": "300750",
+                "stock_name": "宁德时代",
+                "items": [
+                    {"title": "宁德时代公告", "time": "t", "source": "s", "url": ""},
+                ],
+            }
+            with patch("core.store.get_store_dir", return_value=td), patch(
+                "core.ports.market.build_news", return_value=live
+            ):
+                out = get_news("300750", limit=5)
+            self.assertTrue(out.get("success"))
+            self.assertFalse(out.get("cache_hit"))
+            self.assertEqual(len(out.get("items") or []), 1)
+            snap = os.path.join(td, "news_snap", "300750.json")
+            self.assertTrue(os.path.isfile(snap))
 
 
 class TestDataCoverage(unittest.TestCase):

@@ -1,28 +1,74 @@
-<aside class="ai-drawer" id="ai-drawer" aria-hidden="true" aria-label="AI 命令">
+<aside class="ai-drawer" id="ai-drawer" aria-hidden="true" aria-label="AI">
   <div class="ai-drawer-backdrop" id="ai-drawer-backdrop" tabindex="-1"></div>
   <div class="ai-drawer-panel" role="dialog" aria-modal="true" aria-labelledby="ai-drawer-title">
     <header class="ai-drawer-head">
-      <div>
-        <h2 id="ai-drawer-title">AI 命令</h2>
-        <p class="ai-drawer-ctx" id="ai-drawer-ctx">自然语言驱动量化系统</p>
-      </div>
-      <div class="ai-drawer-head-actions">
-        <button type="button" class="icon-btn" id="ai-drawer-close" aria-label="关闭">×</button>
+      <h2 id="ai-drawer-title" class="ai-msg-role" title="只读解读 · 不改 score / stance_label">AI</h2>
+      <nav class="ai-drawer-chips" id="ai-drawer-chips" aria-label="快捷命令">
+        <button type="button" class="ai-drawer-cmd" data-ai-q="请基于模拟账户 paper.json 持仓给我分析与调仓建议">
+          <span class="ai-drawer-cmd-num">1</span>持仓
+        </button>
+        <button type="button" class="ai-drawer-cmd" data-ai-q="今天盘前市场上下文怎样？跨市场、情绪周期、监管 prior 是否激活？">
+          <span class="ai-drawer-cmd-num">2</span>盘前
+        </button>
+        <button type="button" class="ai-drawer-cmd" data-ai-q="对模拟持仓做T回测30日">
+          <span class="ai-drawer-cmd-num">3</span>做T
+        </button>
+        <button type="button" class="ai-drawer-cmd" data-ai-q="__current_quote__">
+          <span class="ai-drawer-cmd-num">4</span>行情
+        </button>
+      </nav>
+      <div class="ai-drawer-settings">
+        <button
+          type="button"
+          id="ai-drawer-settings-btn"
+          class="ai-drawer-settings-btn"
+          aria-expanded="false"
+          aria-controls="ai-drawer-settings-panel"
+          title="设置"
+        >
+          设置
+        </button>
+        <div
+          class="ai-drawer-settings-panel"
+          id="ai-drawer-settings-panel"
+          hidden
+          role="dialog"
+          aria-label="设置"
+        >
+          <p class="ai-drawer-settings-kicker">模型</p>
+          <label class="ai-drawer-model" for="ai-drawer-llm-model">
+            <span class="sr-only">LLM 模型</span>
+            <input
+              id="ai-drawer-llm-model"
+              class="ai-drawer-model-input"
+              type="text"
+              spellcheck="false"
+              autocomplete="off"
+              placeholder="qwen-plus"
+              aria-describedby="ai-drawer-llm-hint"
+            />
+            <button type="button" id="ai-drawer-llm-save" class="ai-drawer-model-save">保存</button>
+          </label>
+          <p class="ai-drawer-settings-hint" id="ai-drawer-llm-hint">写入 .env · DASHSCOPE_MODEL</p>
+        </div>
       </div>
     </header>
-    <div class="ai-drawer-chips" id="ai-drawer-chips">
-      <button type="button" data-ai-q="请基于模拟账户 paper.json 持仓给我分析与调仓建议">持仓</button>
-      <button type="button" data-ai-q="今天盘前市场上下文怎样？跨市场、情绪周期、监管 prior 是否激活？">盘前环境</button>
-      <button type="button" data-ai-q="对模拟持仓做T回测30日">做T回测</button>
-      <button type="button" data-ai-q="__current_quote__">当前行情</button>
+
+    <div class="ai-drawer-messages" id="ai-drawer-messages" aria-live="polite">
+      <div class="ai-drawer-empty" id="ai-drawer-empty">
+        <span class="ai-msg-role" aria-hidden="true">AI</span>
+        <p class="ai-drawer-empty-title">有什么想分析的</p>
+        <p class="ai-drawer-empty-sub">持仓 · 盘前 · 做T · 行情</p>
+      </div>
     </div>
-    <div class="ai-drawer-market" id="ai-drawer-market" aria-live="polite" hidden></div>
-    <div class="ai-drawer-messages" id="ai-drawer-messages" aria-live="polite"></div>
+
     <form class="ai-drawer-form" id="ai-drawer-form" autocomplete="off">
       <label class="sr-only" for="ai-drawer-input">命令</label>
-      <textarea id="ai-drawer-input" rows="2" placeholder="用自然语言下命令…（Enter 发送，Shift+Enter 换行）"></textarea>
-      <button type="submit" class="dialog-btn" id="ai-drawer-send">发送</button>
+      <div class="ai-drawer-composer">
+        <textarea id="ai-drawer-input" rows="1" placeholder="问持仓、盘前，或一只股票…"></textarea>
+        <button type="submit" class="dialog-btn" id="ai-drawer-send" aria-label="发送" title="Enter 发送">↑</button>
+      </div>
+      <p class="ai-drawer-form-hint">Enter 发送 · Esc 关闭</p>
     </form>
-    <p class="ai-drawer-hint">Esc 关闭 · ⌘K / Ctrl+K 打开 · 危险动作仍需人审确认</p>
   </div>
 </aside>

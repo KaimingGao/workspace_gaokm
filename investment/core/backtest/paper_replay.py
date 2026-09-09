@@ -181,7 +181,10 @@ def day_stock_legs(
     prev_equity: float,
     name_by_code: Optional[Dict[str, str]] = None,
 ) -> Tuple[List[dict], int]:
-    """当日个股盈亏：隔夜段 open−昨收 + 当日段 close−open，贡献=盈亏/昨净值。"""
+    """当日个股盈亏：隔夜段 open−昨收 + 当日段 close−open，贡献=盈亏/昨净值。
+
+    ``ret_pct`` 是持有段，不是股票全日收盘涨跌：清仓只计隔夜，新开只计开→收。
+    """
     codes = sorted(set(start) | set(end))
     rows: List[dict] = []
     pe = float(prev_equity or 0.0)
@@ -205,13 +208,21 @@ def day_stock_legs(
             close = opn
         if opn is None or prev_c is None or close is None:
             continue
-        pnl = now_sh * (float(close) - float(opn)) + prev_sh * (
-            float(opn) - float(prev_c)
-        )
+        opn_f = float(opn)
+        prev_c_f = float(prev_c)
+        close_f = float(close)
+        pnl = now_sh * (close_f - opn_f) + prev_sh * (opn_f - prev_c_f)
         contrib = (pnl / pe * 100.0) if pe > 0 else 0.0
-        stock_ret = (
-            (float(close) / float(prev_c) - 1.0) * 100.0 if float(prev_c) > 0 else None
-        )
+        stock_ret = None
+        if prev_sh > 0 and prev_c_f > 0:
+            capital = prev_sh * prev_c_f
+            added = now_sh - prev_sh
+            if added > 0 and opn_f > 0:
+                capital += added * opn_f
+            if capital > 0:
+                stock_ret = pnl / capital * 100.0
+        elif now_sh > 0 and opn_f > 0:
+            stock_ret = (close_f / opn_f - 1.0) * 100.0
         name = _leg_stock_name(code, st, en, name_by_code)
         rows.append(
             {

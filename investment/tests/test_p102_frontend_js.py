@@ -32,19 +32,32 @@ class TestP102FrontendJs(unittest.TestCase):
         errors, _notes = run_checks(use_esbuild=True)
         self.assertEqual(errors, [], msg="\n".join(errors))
 
-    def test_chat_html_boot_before_cdn(self):
-        from web.page_html import clear_html_cache, render_chat_html
+    def test_legacy_chat_workspace_files_removed(self):
+        from pathlib import Path
+
+        static = Path(__file__).resolve().parents[1] / "web" / "static"
+        gone = (
+            static / "js" / "chat.js",
+            static / "js" / "chat_boot.js",
+            static / "js" / "results.js",
+            static / "js" / "quant" / "strategy_risk_ui.js",
+            static / "partials" / "chat_dialogs.html",
+            static / "partials" / "usage_panel.html",
+            static / "templates" / "chat.html",
+            static / "styles.css.bak",
+        )
+        missing = [str(p.relative_to(static.parents[1])) for p in gone if p.exists()]
+        self.assertEqual(missing, [], msg="仍残留已下线文件: " + ", ".join(missing))
+
+    def test_tool_html_marked_defer(self):
+        from web.page_html import clear_html_cache, render_tool_html
 
         clear_html_cache()
-        html = render_chat_html()
-        boot = html.find("chat_boot.js")
+        html = render_tool_html("watching")
         marked = html.find("marked/marked.min.js")
         app = html.find("/static/app.js")
-        self.assertGreaterEqual(boot, 0)
         self.assertGreaterEqual(marked, 0)
-        self.assertLess(boot, marked)
-        self.assertLess(boot, app)
-        # marked 使用 defer，避免阻塞对话启动
+        self.assertGreaterEqual(app, 0)
         self.assertRegex(
             html,
             r'<script[^>]+marked/marked\.min\.js[^>]*\sdefer',

@@ -399,7 +399,7 @@ flowchart LR
 | PIT 最小约定 | **文档化** | [architecture.md · 数据层](architecture.md#数据层) |
 | OOS 失败标红 | **已落地** | `oos_summary.failed`；组合回测指标卡 / 摘要 `down` |
 | optimize 进调仓建议 | **已落地** | `last_optimize` / `target_weights` 进 ops_report 与日更/横截面；新开仓受目标仓上限 |
-| StrategySpec 限额 UI | **已落地** | 策略页列表 + `strategy-risk-limits` 只读展示 risk |
+| StrategySpec 限额 | **已落地** | `StrategySpec.risk` / `paper.rules` 调仓前门禁；只读暴露在仪表盘，策略中心不挂审计折叠 |
 | 成本对照 zero vs simple_cn | **已落地** | `cost_compare` 附于组合回测响应与指标卡 |
 | Walk-forward 切片 | **已落地** | `rolling_walk_forward_slices` · `wf_slices` 附于组合回测；回溯页折表 |
 | IC 一键导出 · weight_suggest | **已落地** | 研究枢纽只读 IC / 权重 diff（策略页入口已下线，不写盘） |
@@ -410,7 +410,7 @@ flowchart LR
 |----|------|------|
 | `paper_daily` 定时 | **已落地** | `scripts/daily_paper.sh` · launchd 示例 · `POST /api/schedule/run` · `GET /api/schedule/last` |
 | 监控告警进 UI | **已落地** | 横截面 ops_report 接线 `assess_strategy_health`；平台/模拟页展示告警 |
-| 告警→建议→promote | **已落地** | feedback `monitor_alerts`；平台/模拟「从告警生成建议」；策略卡人审 promote |
+| 告警→建议→promote | **已落地** | feedback `monitor_alerts`；研究枢纽 `POST /api/feedback/suggest`；策略卡人审 promote |
 
 ### P2+ 稳态加深（已完成）
 
@@ -580,7 +580,7 @@ StrategySpec（如 `signal_v1` + 成本模型 `simple_cn`）把信号参数、�
 | 用户感知 | 系统真实能力 | 校准 |
 |----------|--------------|------|
 | **(1)** 不定期手动「策略调仓」，用一段时间纸面表现验 `short` / `short_conservative` | 交易执行：预演→确认；持仓标 `strategy`；净值可累积 | **结构层验证**：截面 Alpha → 持仓结构 → 持有期收益；**纸面流程验证**，不是完整科学验证。名单/建仓常来自数据中心**人工**；持仓可混手动+策略，归因不干净。应配合历史回测、五问、风控、北极星 Corr/TE |
-| **(2)** 「做 T 回测」验 T 策略 | 做 T 回测 + 预演/确认做 T（ExecutionSpec overlay） | **执行 overlay 验证**：底仓上 5m 往返价差；**非**独立选股 Alpha；仅 5m 第一触达（已删除日线模拟） |
+| **(2)** 「做 T 回测」验 T 策略 | 做 T 回测 + 预演/确认做 T（ExecutionSpec overlay）；刷新恢复上次落盘，不重跑 | **执行 overlay 验证**：底仓上 5m 往返价差；**非**独立选股 Alpha；仅 5m 第一触达（已删除日线模拟） |
 
 **策略调仓 vs 底仓做 T（产品定义）**
 
@@ -600,7 +600,7 @@ StrategySpec（如 `signal_v1` + 成本模型 `simple_cn`）把信号参数、�
     → ② 历史回测：验证规则（Top-K / WF / 成本）
     → ③ 交易执行：纸面落地（手管仓 · 策略调仓 · 可选做 T）
     → ④ 策略中心：改参须人审晋升
-    → ⑤ 系统设置：北极星拟合 · 告警 · 审计
+    → ⑤ 交易执行：北极星拟合 · 平台：告警 · 审计
 ```
 
 **(1)(2) 落在第 ③ 步**；②④⑤ 常「有能力、少感知」。UI 应用短引导把回测与晋升接在调仓/做 T 之后，而不是在交易页堆更多旋钮。
@@ -1146,7 +1146,7 @@ Q2 与 Q3 可部分并行（Strategy 接口先定，ports 清债同步）；Q4 �
 |----|----------|------|------|
 | 日更可定时 | `scripts/daily_paper.sh` · launchd · `POST /api/schedule/run` `paper_daily` · `GET /api/schedule/last` | cron/平台一键可跑 | **已落地** |
 | 告警进 UI | 横截面 `assess_strategy_health` → ops_report；平台/模拟展示 | 日更/调仓可见 monitor_alerts | **已落地** |
-| 演示闭环 | 告警 → `feedback/suggest(monitor_alerts)` → 策略页 promote → 再回测/纸面 | 人审路径可复现、不静默写盘 | **已落地** |
+| 演示闭环 | 告警 → 研究枢纽 `feedback/suggest(monitor_alerts)` → 策略页 promote → 再回测/纸面 | 人审路径可复现、不静默写盘 | **已落地** |
 
 - **成功画像**：一次纸面日更稳定回答数据质量、策略版本、成本、风控拦截、监控告警；生产分仍可引用。
 
@@ -1263,7 +1263,7 @@ N1 ──► N2 ──► N3 ──► N4 ──► N5 ──►（闸门）N6
 | **D6** | 非交易订单预填 | `core/order_prefill.py` | `GET /api/orders/prefill` |
 
 门面：`services/platform_service.py` · 路由：`web/routers/platform.py`。  
-Web：平台面板（`partials/platform_panel.html` · `js/platform.js`，`/?tab=platform`）；纸面进度轮询统一为 `GET /api/jobs/paper`。  
+Web：平台面板（`partials/platform_panel.html` · `js/platform.js`，`/platform`）；纸面进度轮询统一为 `GET /api/jobs/paper`。  
 单测：`tests/test_d1_d6_platform.py`。
 
 **环境变量**：`INVESTMENT_MEMORY_PATH` · `INVESTMENT_DECISIONS_PATH` · `INVESTMENT_RECORD_DECISIONS=0`（关闭 advise 自动落盘）。

@@ -804,6 +804,70 @@ class TestDayStockLegs(unittest.TestCase):
         self.assertAlmostEqual(legs[0]["ret_pct"], 2.0, places=3)
         self.assertAlmostEqual(legs[0]["contrib_pct"], 0.2, places=4)
 
+    def test_exit_at_open_ret_is_overnight_only(self):
+        from core.backtest.paper_replay import day_stock_legs
+
+        date_maps = {
+            "688825": {
+                "2026-09-07": {"open": 58.5, "close": 58.48},
+                "2026-09-08": {"open": 58.4, "close": 57.0},
+            }
+        }
+        start = {
+            "688825": {
+                "stock_code": "688825",
+                "stock_name": "长鑫科技",
+                "shares": 2000.0,
+            }
+        }
+        legs, more = day_stock_legs(
+            start=start,
+            end={},
+            date_maps=date_maps,
+            prev_day="2026-09-07",
+            day="2026-09-08",
+            open_px={"688825": 58.4},
+            prev_equity=525_368.64,
+        )
+        self.assertEqual(more, 0)
+        self.assertEqual(len(legs), 1)
+        self.assertEqual(legs[0]["shares"], 0)
+        overnight = (58.4 / 58.48 - 1.0) * 100.0
+        self.assertAlmostEqual(legs[0]["ret_pct"], overnight, places=3)
+        self.assertLess(abs(legs[0]["ret_pct"]), 1.0)
+        self.assertNotAlmostEqual(legs[0]["ret_pct"], (57.0 / 58.48 - 1.0) * 100.0, places=2)
+        pnl = 2000.0 * (58.4 - 58.48)
+        self.assertAlmostEqual(legs[0]["contrib_pct"], pnl / 525_368.64 * 100.0, places=4)
+
+    def test_open_at_open_ret_is_intraday_only(self):
+        from core.backtest.paper_replay import day_stock_legs
+
+        date_maps = {
+            "600183": {
+                "2026-03-09": {"close": 10.0},
+                "2026-03-10": {"open": 10.2, "close": 10.4},
+            }
+        }
+        end = {
+            "600183": {
+                "stock_code": "600183",
+                "stock_name": "生益科技",
+                "shares": 1000.0,
+            }
+        }
+        legs, more = day_stock_legs(
+            start={},
+            end=end,
+            date_maps=date_maps,
+            prev_day="2026-03-09",
+            day="2026-03-10",
+            open_px={"600183": 10.2},
+            prev_equity=1_000_000.0,
+        )
+        self.assertEqual(more, 0)
+        self.assertAlmostEqual(legs[0]["ret_pct"], (10.4 / 10.2 - 1.0) * 100.0, places=3)
+        self.assertAlmostEqual(legs[0]["contrib_pct"], 1000.0 * (10.4 - 10.2) / 1_000_000.0 * 100.0, places=4)
+
     def test_caps_top_legs(self):
         from core.backtest.paper_replay import DAY_LEG_TOP, day_stock_legs
 

@@ -77,6 +77,8 @@ function emptyReasonLabel(code) {
   const map = {
     empty_ranking: "目标簿为空（无人过闸或未建簿）",
     all_below_eod_floor: "全部低于 EOD 买入门槛",
+    all_below_rank_enter: "无人过 ranking 入场",
+    cash_below_floor: "现金已低于买入地板",
     buys_blocked: "买入被风控/规则拦截",
     risk_blocked: "风控整批拦截",
     no_executable_changes: "无可执行买卖",
@@ -87,6 +89,42 @@ function emptyReasonLabel(code) {
   const k = String(code || "").trim();
   if (!k) return "";
   return map[k] || k;
+}
+
+function fmtRankEnterPct(raw) {
+  const n = Number(raw);
+  if (!Number.isFinite(n)) return "";
+  const pct = n * 100;
+  const rounded = Math.round(pct * 1000) / 1000;
+  const text =
+    Math.abs(rounded - Math.round(rounded * 10) / 10) < 1e-9
+      ? String(Number(rounded.toFixed(1)))
+      : String(Number(rounded.toFixed(3)));
+  return `${text}%`;
+}
+
+function emptyFloorHint({
+  minScore,
+  rankEnter,
+  matrixPreview,
+  emptyReason,
+} = {}) {
+  const reason = String(emptyReason || "");
+  if (reason === "cash_below_floor") return "";
+  const enterRaw =
+    rankEnter != null && Number.isFinite(Number(rankEnter))
+      ? Number(rankEnter)
+      : matrixPreview && minScore != null && Number.isFinite(Number(minScore))
+        ? Number(minScore)
+        : null;
+  if (enterRaw != null && (matrixPreview || rankEnter != null)) {
+    const shown = fmtRankEnterPct(enterRaw);
+    return shown ? ` · ranking入场≥${shown}` : "";
+  }
+  if (minScore != null && Number.isFinite(Number(minScore))) {
+    return ` · ŷ_EOD≥${Number(minScore)}%`;
+  }
+  return "";
 }
 
 function fmtRebalancePx(v) {
@@ -121,6 +159,8 @@ function renderRebalanceReport(
     dualScore = null,
     emptyReason = null,
     minScore = null,
+    rankEnter = null,
+    emptyDetail = null,
     marketContext = null,
     matrixPreview = false,
   } = {}
@@ -245,11 +285,17 @@ function renderRebalanceReport(
         (ef != null && Number.isFinite(ef) ? `（门槛 ${ef}%）` : "");
     }
     if (hasEmptyReason) {
-      const floorHint =
-        minScore != null && Number.isFinite(Number(minScore))
-          ? ` · ŷ_EOD≥${Number(minScore)}%`
+      const floorHint = emptyFloorHint({
+        minScore,
+        rankEnter,
+        matrixPreview,
+        emptyReason,
+      });
+      const detailHint =
+        emptyDetail && String(emptyDetail).trim()
+          ? ` · ${String(emptyDetail).trim()}`
           : "";
-      note += (note ? " · " : "") + emptyReasonText + floorHint;
+      note += (note ? " · " : "") + emptyReasonText + detailHint + floorHint;
     }
     previewNote.textContent = note;
     previewNote.hidden = !note;
@@ -308,14 +354,22 @@ function renderRebalanceReport(
       }
       let emptyHtml = "";
       if (hasEmptyReason) {
+        const floorHint = emptyFloorHint({
+          minScore,
+          rankEnter,
+          matrixPreview,
+          emptyReason,
+        });
+        const detailHint =
+          emptyDetail && String(emptyDetail).trim()
+            ? ` · ${String(emptyDetail).trim()}`
+            : "";
         emptyHtml =
           `<div class="paper-rebalance-risk" role="status">` +
           `<p class="paper-rebalance-risk-title is-warn">空仓/无变动原因</p>` +
-          `<ul><li>${escapeText(emptyReasonText)}` +
-          (minScore != null && Number.isFinite(Number(minScore))
-            ? ` · 当前买入门槛 ŷ_EOD≥${escapeText(String(minScore))}%`
-            : "") +
-          `</li></ul></div>`;
+          `<ul><li>${escapeText(emptyReasonText)}${escapeText(
+            detailHint + floorHint
+          )}</li></ul></div>`;
       }
       let skipHtml = "";
       let marketCtxHtml = "";
@@ -487,12 +541,20 @@ function renderRebalanceReport(
   }
 
   if (emptyReport) {
+    const floorHint = emptyFloorHint({
+      minScore,
+      rankEnter,
+      matrixPreview,
+      emptyReason,
+    });
+    const detailHint =
+      emptyDetail && String(emptyDetail).trim()
+        ? ` · ${String(emptyDetail).trim()}`
+        : "";
     container.innerHTML = hasEmptyReason
-      ? `<p class="follow-ops-note">${escapeText(emptyReasonText)}${
-          minScore != null && Number.isFinite(Number(minScore))
-            ? ` · 门槛 ŷ_EOD≥${escapeText(String(minScore))}%`
-            : ""
-        }。</p>`
+      ? `<p class="follow-ops-note">${escapeText(emptyReasonText)}${escapeText(
+          detailHint + floorHint
+        )}。</p>`
       : hasSkips
         ? `<p class="follow-ops-note">本轮无加仓清单（跳过 ${skips.length} 只）。</p>`
         : hasRisk
@@ -531,6 +593,10 @@ function renderRebalanceReport(
       features_path: r.features_path || null,
       formula_terms_path: r.formula_terms_path || r.score_formula_terms_path,
       predicted_score_on: r.predicted_score_on,
+      y_fuse: r.y_fuse != null ? r.y_fuse : r.y_fusion,
+      ranking_score: r.ranking_score != null ? r.ranking_score : r.ranking,
+      rank_i: r.rank_i,
+      rank_n: r.rank_n,
       gap_pct: r.gap_pct,
       predicted_score: r.predicted_score != null ? r.predicted_score : r.score,
       score: r.score != null ? r.score : r.predicted_score,
@@ -739,6 +805,33 @@ function renderRebalanceReport(
         scoreNowcast != null ? fmtTableScore(r, scoreNowcast) : "—";
       const scoreNowcastTitle =
         scoreNowcast == null ? "暂无 nowcast · 有 ŷ_EOD 与 ŷ_τ 后可见" : Y_NOWCAST_TITLE;
+      const fuseRaw = Number(r.y_fuse != null ? r.y_fuse : r.y_fusion);
+      const scoreFuse = Number.isFinite(fuseRaw) ? fuseRaw : null;
+      const scoreFuseShown =
+        scoreFuse != null ? fmtTableScore(r, scoreFuse) : "—";
+      const scoreFuseTitle =
+        scoreFuse == null
+          ? "暂无 y_fuse"
+          : "y_fuse · w_trade·ŷ_trade + w_nc·ŷ_nowcast（百分点）";
+      const rankRaw = Number(
+        r.ranking_score != null ? r.ranking_score : r.ranking
+      );
+      const scoreRank = Number.isFinite(rankRaw) ? rankRaw : null;
+      const rankPct = scoreRank != null ? scoreRank * 100 : null;
+      const scoreRankShown =
+        rankPct != null ? fmtTableScore(r, rankPct) : "—";
+      const rankI = Number(r.rank_i);
+      const rankN = Number(r.rank_n);
+      const rankOrd =
+        Number.isFinite(rankI) && Number.isFinite(rankN) && rankN > 0
+          ? ` · 候选第 ${rankI}/${rankN}`
+          : Number.isFinite(rankI)
+            ? ` · 候选第 ${rankI}`
+            : "";
+      const scoreRankTitle =
+        scoreRank == null
+          ? "暂无 rank"
+          : `rank · ranking=(1+y_fuse/100)×(1+α×y_on/100)−1，展示百分数；<0% 清仓；过入场才开/加${rankOrd}`;
       const tipDetailJson = escapeText(
         JSON.stringify(tipDetailPayload(r))
       );
@@ -883,7 +976,7 @@ function renderRebalanceReport(
         (decision.includes("减仓") ||
           decision.includes("卖出") ||
           decision.includes("跳过"))
-          ? `<span class="watching-sent-badge is-bear" title="舆情 prior · 不改 ŷ">S</span>`
+          ? `<span class="watching-sent-badge is-bear" title="舆情参考 · 不调仓">S</span>`
           : "";
       const marketPriorBadge =
         isMarketPrior &&
@@ -948,6 +1041,14 @@ function renderRebalanceReport(
         )}" role="cell" ` +
         `data-score-detail="${tipDetailJson}" data-score-tip="nowcast" ` +
         `title="${escapeText(scoreNowcastTitle)}">${escapeText(scoreNowcastShown)}</div>` +
+        `<div class="num rebalance-score-fuse rebalance-score paper-hold-score has-tip ${scoreCls(
+          scoreFuse
+        )}" role="cell" ` +
+        `title="${escapeText(scoreFuseTitle)}">${escapeText(scoreFuseShown)}</div>` +
+        `<div class="num rebalance-score-rank rebalance-score paper-hold-score has-tip ${scoreCls(
+          rankPct
+        )}" role="cell" ` +
+        `title="${escapeText(scoreRankTitle)}">${escapeText(scoreRankShown)}</div>` +
         `<div class="num rebalance-shares" role="cell">` +
         `<span class="rebalance-shares-old">${escapeText(
           String(
@@ -995,6 +1096,8 @@ function renderRebalanceReport(
     `<div class="rebalance-th num" role="columnheader" title="ŷ_ON · open 链旁路">y_on</div>` +
     `<div class="rebalance-th num" role="columnheader" title="ŷ_trade · 排序/卖门槛">y_trade</div>` +
     `<div class="rebalance-th num" role="columnheader" title="nowcast（nc）· 对照昨收">y_nc</div>` +
+    `<div class="rebalance-th num" role="columnheader" title="y_fuse · w_trade·ŷ_trade + w_nc·ŷ_nowcast">y_fuse</div>` +
+    `<div class="rebalance-th num" role="columnheader" title="rank · ranking=(1+y_fuse/100)×(1+α×y_on/100)−1，展示百分数">rank</div>` +
     `<div class="rebalance-th num" role="columnheader">股数</div>` +
     `<div class="rebalance-th num" role="columnheader">变动</div>` +
     `<div class="rebalance-th rebalance-th-decision" role="columnheader" title="悬停看原因">决策</div>` +

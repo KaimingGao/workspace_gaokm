@@ -96,13 +96,15 @@ export function createClusterRebalanceController(deps) {
         );
         renderRebalanceReport(report, {
           preview: true,
-          // 矩阵预演：买卖已在清单/状态条；成交预估与 path 推迟名单噪音，不下发
-          cashImpact: null,
+          // 空单时带现金影响，便于展示地板 vs 现金；有买卖时清单已够
+          cashImpact: sellN + buyN === 0 ? ci : null,
           riskGate: data.risk_gate || null,
-          riskBudgetSkips: [],
+          riskBudgetSkips: data.risk_budget_skips || [],
           dualScore: data.dual_score || null,
           emptyReason: data.empty_reason || null,
+          emptyDetail: data.empty_detail || null,
           minScore: data.min_score,
+          rankEnter: data.rank_enter ?? data.min_score,
           marketContext: data.market_context || null,
           opsReport: null,
           matrixPreview: true,

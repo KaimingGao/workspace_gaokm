@@ -605,6 +605,9 @@ def load_snapshot_cache(
         fetched_at = datetime.fromtimestamp(os.path.getmtime(path))
     if max_age_hours > 0 and datetime.now() - fetched_at > timedelta(hours=max_age_hours):
         return None
+    # 舆情 TTL 文件与快照同目录时没有 data 键；当成未命中，避免空信封当成功
+    if not isinstance(payload, dict) or "data" not in payload or payload.get("data") is None:
+        return None
     data = payload.get("data")
     meta = {
         "kind": kind,

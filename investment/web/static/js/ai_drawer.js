@@ -11,22 +11,9 @@ const TAB_HREF = {
   strategy: { href: "/strategy", label: "去策略中心" },
   replay: { href: "/replay", label: "去历史回测" },
   quant: { href: "/quant", label: "去研究枢纽" },
-  platform: { href: "/platform", label: "去系统设置" },
+  platform: { href: "/platform", label: "去平台" },
   reply: { href: "/watching", label: "去数据中心" },
 };
-
-function pageContextLabel() {
-  const page = document.body?.dataset?.page || "";
-  const map = {
-    watching: "数据中心",
-    follow: "交易执行",
-    strategy: "策略中心",
-    replay: "历史回测",
-    quant: "研究枢纽",
-    platform: "系统设置",
-  };
-  return map[page] || page || "系统";
-}
 
 function nameFromStockRow(row) {
   if (!row) return "";
@@ -108,6 +95,100 @@ function sessionHeaders() {
   return h;
 }
 
+function formatLlmModelHint(prefs) {
+  const effective = prefs.llm_model || "qwen-plus";
+  const source = prefs.llm_model_source || "default";
+  if (source === "env") {
+    return `当前生效 ${effective}（.env · DASHSCOPE_MODEL）`;
+  }
+  if (source === "memory") {
+    return `当前生效 ${effective}（memory.json 遗留项；建议改 .env）`;
+  }
+  return `当前生效 ${effective}（默认；保存后写入 .env）`;
+}
+
+function applyLlmPrefs(prefs) {
+  const input = document.getElementById("ai-drawer-llm-model");
+  const hint = document.getElementById("ai-drawer-llm-hint");
+  const tip = formatLlmModelHint(prefs);
+  if (input) {
+    input.value = prefs.llm_model_saved || prefs.llm_model || "";
+    input.disabled = false;
+    input.title = tip;
+  }
+  if (hint) hint.textContent = tip;
+}
+
+function settingsPanel() {
+  return document.getElementById("ai-drawer-settings-panel");
+}
+
+function settingsBtn() {
+  return document.getElementById("ai-drawer-settings-btn");
+}
+
+function isSettingsOpen() {
+  const panel = settingsPanel();
+  return !!(panel && !panel.hidden);
+}
+
+function closeSettings() {
+  const panel = settingsPanel();
+  const btn = settingsBtn();
+  if (panel) panel.hidden = true;
+  if (btn) btn.setAttribute("aria-expanded", "false");
+}
+
+function openSettings() {
+  const panel = settingsPanel();
+  const btn = settingsBtn();
+  if (panel) panel.hidden = false;
+  if (btn) btn.setAttribute("aria-expanded", "true");
+  loadLlmPrefs().catch(() => {});
+  setTimeout(() => document.getElementById("ai-drawer-llm-model")?.focus(), 20);
+}
+
+function toggleSettings() {
+  if (isSettingsOpen()) closeSettings();
+  else openSettings();
+}
+
+async function loadLlmPrefs() {
+  const hint = document.getElementById("ai-drawer-llm-hint");
+  try {
+    const { ok, data, error } = await apiFetch("/api/memory");
+    if (!ok) throw new Error(error || "加载偏好失败");
+    applyLlmPrefs((data.effective || data.preferences) || {});
+    return data;
+  } catch (err) {
+    if (hint) hint.textContent = String(err.message || err);
+    throw err;
+  }
+}
+
+async function saveLlmPrefs() {
+  const input = document.getElementById("ai-drawer-llm-model");
+  const hint = document.getElementById("ai-drawer-llm-hint");
+  const btn = document.getElementById("ai-drawer-llm-save");
+  const preferences = { llm_model: input ? input.value.trim() : "" };
+  if (btn) btn.disabled = true;
+  try {
+    const { ok, data, error } = await apiFetch("/api/memory", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ preferences }),
+    });
+    if (!ok) throw new Error(error || (data && data.detail) || "保存失败");
+    applyLlmPrefs(data.effective || data.preferences || preferences);
+    return data;
+  } catch (err) {
+    if (hint) hint.textContent = String(err.message || err);
+    throw err;
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
 function resolveArtifactTab(art, fallback) {
   let tab = (art && art.tab) || fallback || "reply";
   if (tab === "quant") {
@@ -158,95 +239,140 @@ function appendArtifactJumps(container, data) {
     });
     wrap.appendChild(a);
   }
-  if (wrap.childNodes.length) container.appendChild(wrap);
+  if (wrap.childNodes.length) {
+    const host = container.querySelector(".ai-msg-main") || container;
+    host.appendChild(wrap);
+  }
 }
 
-function appendMsg(container, role, text, pending) {
+function syncEmptyState(container) {
+  const empty = document.getElementById("ai-drawer-empty");
+  if (!empty) return;
+  const host = container || document.getElementById("ai-drawer-messages");
+  empty.hidden = !!(host && host.querySelector(".ai-msg"));
+}
+
+function splitUsageFooter(text) {
+  const raw = String(text || "");
+  const marker = "\n\n---\n";
+  const idx = raw.lastIndexOf(marker);
+  if (idx === -1) return { body: raw, meta: "" };
+  const after = raw.slice(idx + marker.length).trim();
+  if (/token|prompt|completion|calls/i.test(after) || /用量|token/i.test(after)) {
+    return { body: raw.slice(0, idx).trimEnd(), meta: after };
+  }
+  return { body: raw, meta: "" };
+}
+
+function parseUsageLine(line) {
+  const u = {};
+  const pairs = [
+    ["prompt", "prompt_tokens"],
+    ["completion", "completion_tokens"],
+    ["reasoning", "reasoning_tokens"],
+    ["total", "total_tokens"],
+    ["calls", "calls"],
+  ];
+  for (const [key, field] of pairs) {
+    const m = String(line || "").match(new RegExp(`${key}=(\\d+)`));
+    if (m) u[field] = Number(m[1]);
+  }
+  return u;
+}
+
+function usageFromMeta(meta) {
+  const out = { turn: null, session: null };
+  for (const part of String(meta || "").split(/\s*｜\s*/)) {
+    const u = parseUsageLine(part);
+    if (!Object.keys(u).length) continue;
+    if (/累计/.test(part)) out.session = u;
+    else out.turn = u;
+  }
+  return out;
+}
+
+function usageHasCounts(u) {
+  return !!(u && (u.total_tokens || u.calls));
+}
+
+function usageChipsHtml(u) {
+  const items = [
+    ["prompt", u.prompt_tokens],
+    ["completion", u.completion_tokens],
+  ];
+  if (u.reasoning_tokens) items.push(["reasoning", u.reasoning_tokens]);
+  items.push(["total", u.total_tokens], ["calls", u.calls]);
+  return items
+    .map(
+      ([k, v]) =>
+        `<span class="ai-msg-usage-chip"><em>${k}</em><strong>${v ?? 0}</strong></span>`
+    )
+    .join("");
+}
+
+function appendUsageBox(main, turn, session) {
+  if (!main || (!usageHasCounts(turn) && !usageHasCounts(session))) return;
+  const box = document.createElement("div");
+  box.className = "ai-msg-usage";
+  let html = "";
+  if (usageHasCounts(turn)) {
+    html +=
+      `<div class="ai-msg-usage-row"><span class="ai-msg-usage-label">本轮</span>` +
+      `<span class="ai-msg-usage-chips">${usageChipsHtml(turn)}</span></div>`;
+  }
+  if (usageHasCounts(session)) {
+    html +=
+      `<div class="ai-msg-usage-row"><span class="ai-msg-usage-label">累计</span>` +
+      `<span class="ai-msg-usage-chips">${usageChipsHtml(session)}</span></div>`;
+  }
+  box.innerHTML = html;
+  main.appendChild(box);
+}
+
+function appendMsg(container, role, text, pending, extras) {
   const el = document.createElement("article");
-  el.className = `ai-msg ${role}${pending ? " pending" : ""}`;
-  const body = pending
-    ? '<span class="typing"><i></i><i></i><i></i></span>'
+  const isError = !pending && role === "assistant" && String(text || "").startsWith("出错了");
+  el.className = `ai-msg ${role}${pending ? " pending" : ""}${isError ? " is-error" : ""}`;
+  const pendingBody = pending
+    ? '<span class="typing" aria-hidden="true"><i></i><i></i><i></i></span>'
+    : "";
+  const status = pending
+    ? '<p class="ai-msg-status msg-pending-tip">思考中…</p>'
     : "";
   el.innerHTML =
     `<div class="ai-msg-role">${role === "user" ? "你" : "AI"}</div>` +
-    `<div class="ai-msg-bubble">${body}</div>`;
+    `<div class="ai-msg-main">` +
+    `<div class="ai-msg-bubble">${pendingBody}</div>` +
+    status +
+    `</div>`;
   const bubble = el.querySelector(".ai-msg-bubble");
+  const main = el.querySelector(".ai-msg-main");
+  let body = text;
+  if (!pending && role === "assistant" && !isError) {
+    const split = splitUsageFooter(text);
+    body = split.body;
+    const parsed = usageFromMeta(split.meta);
+    const turn = usageHasCounts(extras && extras.turn) ? extras.turn : parsed.turn;
+    const session = usageHasCounts(extras && extras.session)
+      ? extras.session
+      : parsed.session;
+    appendUsageBox(main, turn, session);
+  }
   if (!pending && bubble) {
     if (role !== "user" && window.marked) {
       try {
-        bubble.innerHTML = marked.parse(text || "");
+        bubble.innerHTML = marked.parse(body || "");
       } catch (_) {
-        bubble.textContent = text || "";
+        bubble.textContent = body || "";
       }
     } else {
-      bubble.textContent = text || "";
+      bubble.textContent = body || "";
     }
   }
   container.appendChild(el);
+  syncEmptyState(container);
   container.scrollTop = container.scrollHeight;
   return el;
-}
-
-function escapeHtmlLite(s) {
-  return String(s || "")
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
-}
-
-let _marketStripLoadedAt = 0;
-
-async function refreshAiMarketStrip() {
-  const host = document.getElementById("ai-drawer-market");
-  if (!host) return;
-  const now = Date.now();
-  if (now - _marketStripLoadedAt < 45000 && host.dataset.loaded === "1") return;
-  try {
-    const { ok, data } = await apiFetch("/api/dashboard/market-context");
-    const ctx = ok !== false && data ? data : null;
-    if (!ctx || ctx.ok === false) {
-      host.hidden = true;
-      host.innerHTML = "";
-      return;
-    }
-    const flags = ctx.prior_flags || {};
-    const macro = ctx.macro || {};
-    const reg = ctx.regime || {};
-    const warns = (ctx.prior_warnings || []).slice(0, 3);
-    const stale = ctx.freshness && ctx.freshness.needs_ingest;
-    const tech =
-      macro.overseas_tech_1d_pct != null
-        ? `${macro.overseas_tech_1d_pct > 0 ? "+" : ""}${Number(macro.overseas_tech_1d_pct).toFixed(2)}%`
-        : "—";
-    const regShort =
-      reg.regime === "bear"
-        ? "熊"
-        : reg.regime === "weak"
-          ? "弱"
-          : reg.regime === "bull"
-            ? "牛"
-            : reg.regime === "strong"
-              ? "强"
-              : reg.regime === "neutral"
-                ? "中"
-                : "";
-    host.hidden = false;
-    host.dataset.loaded = "1";
-    _marketStripLoadedAt = now;
-    host.className = `ai-drawer-market${stale ? " is-stale" : ""}${flags.any_active ? " is-active" : ""}`;
-    host.innerHTML =
-      `<span class="ai-drawer-market-label">M prior</span>` +
-      (regShort
-        ? `<span class="ai-drawer-market-regime" title="Regime ${escapeHtmlLite(reg.regime || "")}">${escapeHtmlLite(regShort)}</span>`
-        : "") +
-      `<span class="ai-drawer-market-tech">科技 ${escapeHtmlLite(tech)}</span>` +
-      (warns.length
-        ? `<span class="ai-drawer-market-warn">${escapeHtmlLite(warns.join(" · "))}</span>`
-        : `<span class="ai-drawer-market-warn is-muted">${stale ? "快照需刷新" : "环境中性"}</span>`);
-  } catch (_) {
-    host.hidden = true;
-  }
 }
 
 export function openAiDrawer(prefill) {
@@ -255,25 +381,22 @@ export function openAiDrawer(prefill) {
   drawer.classList.add("open");
   drawer.setAttribute("aria-hidden", "false");
   document.body.classList.add("ai-drawer-open");
-  const ctx = document.getElementById("ai-drawer-ctx");
-  if (ctx) {
-    const stock = resolveCurrentStock();
-    const stockBit = stock
-      ? ` · ${stock.name && stock.name !== "—" ? stock.name : stock.code}`
-      : "";
-    ctx.textContent = `上下文 · ${pageContextLabel()}${stockBit} · 研究/纸面`;
-  }
-  refreshAiMarketStrip();
+  syncEmptyState();
+  loadLlmPrefs().catch(() => {});
   const input = document.getElementById("ai-drawer-input");
   if (input) {
     if (prefill) input.value = prefill;
-    setTimeout(() => input.focus(), 40);
+    setTimeout(() => {
+      if (isSettingsOpen()) return;
+      input.focus();
+    }, 40);
   }
 }
 
 export function closeAiDrawer() {
   const drawer = document.getElementById("ai-drawer");
   if (!drawer) return;
+  closeSettings();
   drawer.classList.remove("open");
   drawer.setAttribute("aria-hidden", "true");
   document.body.classList.remove("ai-drawer-open");
@@ -297,21 +420,30 @@ export function initAiDrawer() {
 
   document.getElementById("btn-ai-open")?.addEventListener("click", (e) => {
     e.preventDefault();
-    if (document.body.dataset.page === "chat") {
-      const main = document.getElementById("input");
-      if (main) {
-        main.focus();
-        return;
-      }
-    }
     openAiDrawer();
-  });
-  document.getElementById("ai-drawer-close")?.addEventListener("click", (e) => {
-    e.preventDefault();
-    closeAiDrawer();
   });
   document.getElementById("ai-drawer-backdrop")?.addEventListener("click", () => {
     closeAiDrawer();
+  });
+  document.getElementById("ai-drawer-settings-btn")?.addEventListener("click", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    toggleSettings();
+  });
+  document.getElementById("ai-drawer-llm-save")?.addEventListener("click", (e) => {
+    e.preventDefault();
+    saveLlmPrefs().catch(() => {});
+  });
+  document.getElementById("ai-drawer-llm-model")?.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      saveLlmPrefs().catch(() => {});
+    }
+  });
+  drawer.addEventListener("click", (e) => {
+    if (!isSettingsOpen()) return;
+    const wrap = e.target.closest?.(".ai-drawer-settings");
+    if (!wrap) closeSettings();
   });
 
   document.addEventListener("keydown", (e) => {
@@ -323,7 +455,8 @@ export function initAiDrawer() {
     }
     if (e.key === "Escape" && drawer.classList.contains("open")) {
       e.preventDefault();
-      closeAiDrawer();
+      if (isSettingsOpen()) closeSettings();
+      else closeAiDrawer();
     }
   });
 
@@ -373,6 +506,7 @@ export function initAiDrawer() {
     if (!content || busy || !messages) return;
     busy = true;
     if (sendBtn) sendBtn.disabled = true;
+    form?.classList.add("is-busy");
     appendMsg(messages, "user", content, false);
     if (input) input.value = "";
     const pending = appendMsg(messages, "assistant", "", true);
@@ -404,7 +538,8 @@ export function initAiDrawer() {
         messages,
         "assistant",
         result.reply || "(空回复)",
-        false
+        false,
+        { turn: result.turn_usage, session: result.session_usage }
       );
       appendArtifactJumps(msgEl, result);
       messages.scrollTop = messages.scrollHeight;
@@ -421,6 +556,7 @@ export function initAiDrawer() {
     } finally {
       busy = false;
       if (sendBtn) sendBtn.disabled = false;
+      form?.classList.remove("is-busy");
       input?.focus();
     }
   }
@@ -450,7 +586,7 @@ export function initAiDrawer() {
           appendMsg(
             messages,
             "assistant",
-            "请先在数据中心点选一只股票，或在交易执行选中持仓，再点「当前行情」。",
+            "请先在数据中心点选一只股票，或在交易执行选中持仓，再点「行情」。",
             false
           );
         }
@@ -463,5 +599,4 @@ export function initAiDrawer() {
 
   window.__investmentOpenAi = openAiDrawer;
   window.__investmentCloseAi = closeAiDrawer;
-  refreshAiMarketStrip();
 }

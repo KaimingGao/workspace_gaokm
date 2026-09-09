@@ -209,18 +209,12 @@ export function initEvals(ctx) {
   }
 
   ctx.openEvalsPanel = openEvalsPanel;
+  window.__investmentOpenEvals = () => openEvalsPanel({ showDialog: true });
 
   const btnEvals = document.getElementById("btn-evals");
   if (btnEvals) {
     btnEvals.addEventListener("click", async () => {
-      // 工具页顶栏：弹窗；对话页若误留按钮则切右侧 Tab
-      if (evalsDialog && document.body.dataset.page !== "chat") {
-        await openEvalsPanel({ showDialog: true });
-      } else if (ctx.showResultsTab) {
-        await ctx.showResultsTab("evals", { openMobile: true, load: true });
-      } else {
-        await openEvalsPanel({ showDialog: true });
-      }
+      await openEvalsPanel({ showDialog: true });
     });
   }
 

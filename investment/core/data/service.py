@@ -32,6 +32,8 @@ _METRICS: Dict[str, int] = {
     "bars_offline_miss": 0,
     "pool_worker_failed": 0,
 }
+# 与舆情 TTL（data/store/news/{code}.json）分目录，避免互相覆盖后读成空标题
+_NEWS_SNAPSHOT_KIND = "news_snap"
 _METRICS_LOCK = threading.Lock()
 
 
@@ -615,10 +617,17 @@ class MarketDataService:
         fetched = datetime.now().isoformat(timespec="seconds")
         if use_cache:
             cached = self.ports.snapshots.load(
-                "news", raw, max_age_hours=cache_max_age_hours
+                _NEWS_SNAPSHOT_KIND, raw, max_age_hours=cache_max_age_hours
             )
-            if cached:
-                payload, meta = cached
+            payload = cached[0] if cached else None
+            if isinstance(payload, dict):
+                items = list(payload.get("items") or [])
+            elif isinstance(payload, list):
+                items = list(payload)
+            else:
+                items = []
+            if cached and items:
+                meta = cached[1]
                 base = payload if isinstance(payload, dict) else {"items": payload}
                 data = {
                     **base,
@@ -667,7 +676,9 @@ class MarketDataService:
         src = "akshare_news"
         if use_cache and (live.get("success") or live.get("items")):
             try:
-                self.ports.snapshots.save("news", raw, live, data_source=src)
+                self.ports.snapshots.save(
+                    _NEWS_SNAPSHOT_KIND, raw, live, data_source=src
+                )
             except OSError:
                 pass
         ok = bool(live.get("items") or live.get("success"))

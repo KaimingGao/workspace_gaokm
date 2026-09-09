@@ -1,9 +1,9 @@
-"""舆情先验（ŷ 外）：确定性规则 S，不进 sub_scores / predicted_score / 回测。
+"""舆情先验（ŷ 外）：只作观察徽章，不进 sub_scores / predicted_score / 调仓 / 回测。
 
 契约：
   ŷ = ReturnScoreModel(...)     ← 唯一生产排序轴
-  S = score_headlines(...)      ← 先验
-  action = policy(ŷ, S)         ← warn / block_new_buy / scale_buy / scale_hold
+  S = score_headlines(...)      ← 参考徽章（看空/看多）
+  live 调仓 = rank_lots(y_fuse, y_on)  ← 不读 S
 """
 
 from __future__ import annotations
@@ -50,6 +50,8 @@ def get_sentiment_prior_cfg(config: Optional[dict] = None) -> Dict[str, Any]:
     raw = dict(DEFAULT_PRIOR)
     raw.update(dict(sent.get("prior") or {}))
     raw["mode"] = normalize_prior_mode(raw.get("mode"))
+    # 产品：个股舆情只作徽章参考；调仓 / 回测不执行 gate/risk
+    raw["mode"] = "off"
     raw.pop("bearish_score_min", None)  # 已废弃：看空即触发，清理旧配置残留
     try:
         scale = float(raw.get("scale_buy_pct") if raw.get("scale_buy_pct") is not None else 0.5)

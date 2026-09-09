@@ -32,7 +32,6 @@ import { researchGridHtml, metricCell } from "./quant/research_grid.js";
 import { createBtTablesUi } from "./quant/bt_tables.js?v=p1998";
 import { installClusterProbe } from "./quant/domain_cluster.js";
 import { installSuggest } from "./quant/domain_suggest.js";
-import { installStrategy } from "./quant/domain_strategy.js";
 import { installExportInterpret } from "./quant/domain_export.js";
 import { installFitGapHub } from "./quant/domain_fit_gap.js";
 import { loadAndRenderFactorCorr, loadAndRenderFactorIR, loadAndRenderFactorICSeries, setProStatusChip, syncOverviewFromClusters, syncOverviewTau, renderFactorSummaryCards } from "./quant/factor_corr_ui.js";
@@ -56,6 +55,9 @@ const { installWatching } = await import(
 );
 const { installBacktest } = await import(
   `./quant/domain_backtest.js?v=${encodeURIComponent(_QV)}`
+);
+const { installStrategy } = await import(
+  `./quant/domain_strategy.js?v=${encodeURIComponent(_QV)}`
 );
 const { installScoreReview } = await import(
   `./quant/domain_score_review.js?v=${encodeURIComponent(_QV)}`
@@ -1067,7 +1069,7 @@ export function initQuant(ctx) {
       page !== "follow" &&
       els.quantDialog &&
       typeof els.quantDialog.showModal === "function";
-    const hasStrategy = !!document.getElementById("strategy-sentiment-prior");
+    const hasStrategy = !!document.getElementById("strategy-market-context");
     const hasWatching = !!document.getElementById("quant-watching-list") || !!document.getElementById("quant-watching-meta");
     const hasReplay = !!document.getElementById("quant-portfolio-run");
     const hasOps = !!document.getElementById("quant-ops-summary");
@@ -1131,13 +1133,6 @@ export function initQuant(ctx) {
       if (useDialog) els.quantDialog.showModal();
     }
   }
-  async function gotoPaperTab() {
-    const page = document.body.dataset.page;
-    if (typeof ctx.showResultsTab === "function" && (page === "chat" || !page)) {
-      await ctx.showResultsTab("paper", { openMobile: true, load: true });
-    }
-  }
-
   async function onGotoFollow(e) {
     e.preventDefault();
     try {
@@ -1148,7 +1143,6 @@ export function initQuant(ctx) {
   }
 
   const btnQuant = document.getElementById("btn-quant");
-  // 对话工作台顶栏由 results Tab 接管，避免重复加载
   if (btnQuant && btnQuant.tagName === "BUTTON" && !btnQuant.dataset.resultsTab) {
     btnQuant.addEventListener("click", () => openQuantDialog());
   }
@@ -2810,7 +2804,7 @@ export function initQuant(ctx) {
       "请解读上次量化日报（quant_daily / use_saved）：概括因子 IC、权重建议、组合表现与主要风险；" +
       "不要改写 score / stance_label；结论须可核对数据。";
     if (typeof window.__investmentOpenAi === "function") {
-      if (els.quantMeta) els.quantMeta.textContent = "已打开 AI 助手…";
+      if (els.quantMeta) els.quantMeta.textContent = "已打开 AI…";
       window.__investmentOpenAi(q);
       setTimeout(() => {
         document.getElementById("ai-drawer-form")?.requestSubmit();
@@ -2882,9 +2876,6 @@ export function initQuant(ctx) {
         ].filter(Boolean);
         els.quantInterpretBody.textContent = lines.join("\n");
       }
-      if (typeof ctx.showResultsTab === "function" && document.body.dataset.page === "chat") {
-        await ctx.showResultsTab("platform", { openMobile: true, load: true });
-      }
     } catch (err) {
       if (els.quantMeta) els.quantMeta.textContent = String(err.message || err);
       exportDomain.showQuantInterpretPanel();
@@ -2934,32 +2925,6 @@ export function initQuant(ctx) {
   document.getElementById("watching-data-quality-fold")?.addEventListener("toggle", (e) => {
     if (e.target.open) watching.loadWatchingDataQuality();
   });
-  document.getElementById("strategy-risk-audit-fold")?.addEventListener("toggle", (e) => {
-    if (e.target.open) strategy.loadStrategyRiskAudit();
-  });
-
-  document.getElementById("strategy-risk-audit")?.addEventListener("click", async (e) => {
-    const btn = e.target.closest && e.target.closest(".strategy-rb-annotate");
-    if (!btn) return;
-    e.preventDefault();
-    const index = Number(btn.getAttribute("data-index"));
-    const outcome = btn.getAttribute("data-outcome") || "";
-    const meta = document.getElementById("strategy-risk-meta");
-    try {
-      const { ok, data, error } = await apiFetch("/api/paper/risk-blocks/annotate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ index, outcome }),
-      });
-      if (!ok) throw new Error(error || "标注失败");
-      if (meta) {
-        meta.textContent = `已标注 #${index} → ${data.outcome || outcome}`;
-      }
-      await strategy.loadStrategyRiskAudit();
-    } catch (err) {
-      if (meta) meta.textContent = String(err.message || err);
-      }
-  });
 
   // 进页面时先把“折叠 summary 结论”拉出来；同时支持 hash 深链强制打开对应折叠
   const page = document.body.dataset.page || "";
@@ -3000,42 +2965,14 @@ export function initQuant(ctx) {
   } else if (page === "watching") {
     watching.loadWatchingDataQuality().catch(() => {});
   }
-  if (hash === "strategy-risk-audit-fold") {
-    document.getElementById("strategy-risk-audit-fold").open = true;
-    strategy.loadStrategyRiskAudit().catch(() => {});
-  } else if (page === "strategy") {
-    strategy.loadStrategyRiskAudit().catch(() => {});
-  }
   if (hash === "strategy-factor-dict") {
     const fold = document.getElementById("strategy-factor-dict-fold");
     if (fold) fold.open = true;
   }
 
-  if (document.getElementById("strategy-sentiment-prior")) {
+  if (document.getElementById("strategy-market-context")) {
     strategy.loadStrategyList().catch(() => {});
   }
-
-  const priorSaveBtn = document.getElementById("strategy-prior-save");
-  if (priorSaveBtn) {
-    priorSaveBtn.addEventListener("click", (e) => {
-      e.preventDefault();
-      strategy.saveStrategySentimentPrior().catch(() => {});
-    });
-  }
-  document.querySelectorAll('input[name="strategy-prior-mode"]').forEach((el) => {
-    el.addEventListener("change", () => {
-      if (typeof strategy.syncPriorGateOptsVisibility === "function") {
-        strategy.syncPriorGateOptsVisibility();
-      } else {
-        const opts = document.getElementById("strategy-prior-gate-opts");
-        const checked = document.querySelector(
-          'input[name="strategy-prior-mode"]:checked'
-        );
-        if (opts) opts.hidden = !(checked && checked.value === "gate");
-      }
-    });
-  });
-  strategy.loadSentimentPriorForm?.().catch(() => {});
 
   const mctxRefreshBtn = document.getElementById("strategy-mctx-refresh");
   if (mctxRefreshBtn) {
@@ -3051,24 +2988,15 @@ export function initQuant(ctx) {
       strategy.saveStrategyMarketPrior?.().catch(() => {});
     });
   }
-  document.querySelectorAll('input[name="strategy-mctx-mode"]').forEach((el) => {
-    el.addEventListener("change", () => {
-      strategy.syncMctxGateOptsVisibility?.();
-    });
-  });
-  document.querySelectorAll('input[name="strategy-msp-mode"]').forEach((el) => {
-    el.addEventListener("change", () => {
-      strategy.syncMspGateOptsVisibility?.();
-    });
-  });
-  document.querySelectorAll('input[name="strategy-reg-mode"]').forEach((el) => {
-    el.addEventListener("change", () => {
-      strategy.syncRegGateOptsVisibility?.();
-    });
-  });
-  document.querySelectorAll('input[name="strategy-ipo-mode"]').forEach((el) => {
-    el.addEventListener("change", () => {
-      strategy.syncIpoGateOptsVisibility?.();
+  const mctxModeSync = [
+    ["strategy-mctx-mode", "syncMctxGateOptsVisibility"],
+    ["strategy-msp-mode", "syncMspGateOptsVisibility"],
+    ["strategy-reg-mode", "syncRegGateOptsVisibility"],
+    ["strategy-ipo-mode", "syncIpoGateOptsVisibility"],
+  ];
+  mctxModeSync.forEach(([id, fn]) => {
+    document.getElementById(id)?.addEventListener("change", () => {
+      strategy[fn]?.();
     });
   });
   strategy.loadMarketPriorForm?.().catch(() => {});

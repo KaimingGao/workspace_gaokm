@@ -509,32 +509,49 @@ def fetch_stock_headlines(
     cached = _read_cache(code_key)
     if cached and not force and _cache_fresh(cached, ttl_sec=ttl_sec):
         items = list(cached.get("items") or [])[:limit]
-        sent = cached.get("sentiment")
-        if not isinstance(sent, dict):
-            sent = _attach_sentiment(items, lexicon=lexicon)
-        sent = _annotate_include_gate(sent if isinstance(sent, dict) else {})
-        sent.setdefault("degraded", False)
-        sent.setdefault("prior_eligible", True)
-        return {
-            "ok": True,
-            "stock_code": cached.get("stock_code") or code_key,
-            "stock_name": cached.get("stock_name") or "",
-            "items": items,
-            "sentiment": sent,
-            "updated_at": cached.get("updated_at"),
-            "from_cache": True,
-            "error": None,
-        }
+        if items:
+            sent = cached.get("sentiment")
+            if not isinstance(sent, dict):
+                sent = _attach_sentiment(items, lexicon=lexicon)
+            sent = _annotate_include_gate(sent if isinstance(sent, dict) else {})
+            sent.setdefault("degraded", False)
+            sent.setdefault("prior_eligible", True)
+            return {
+                "ok": True,
+                "stock_code": cached.get("stock_code") or code_key,
+                "stock_name": cached.get("stock_name") or "",
+                "items": items,
+                "sentiment": sent,
+                "updated_at": cached.get("updated_at"),
+                "from_cache": True,
+                "error": None,
+            }
+        # 失败缓存仍按 TTL 复用，避免空源狂打网；ok=True 的空标题是毒缓存，须重拉
+        if cached.get("ok") is False or cached.get("error"):
+            sent = cached.get("sentiment")
+            if not isinstance(sent, dict):
+                sent = score_headlines([], lexicon=lexicon, degraded=True)
+            sent = _annotate_include_gate(sent if isinstance(sent, dict) else {})
+            return {
+                "ok": False,
+                "stock_code": cached.get("stock_code") or code_key,
+                "stock_name": cached.get("stock_name") or "",
+                "items": [],
+                "sentiment": sent,
+                "updated_at": cached.get("updated_at"),
+                "from_cache": True,
+                "error": cached.get("error") or "未获取到相关资讯",
+            }
 
     from core.data.facade import get_news
 
     try:
-        raw = get_news(code_key, limit=limit)
+        raw = get_news(code_key, limit=limit, use_cache=not force)
     except Exception as exc:
         logger.exception('unexpected error in fetch_stock_headlines')
         # 超时/网络异常：优先回退过期缓存，避免 UI 永久加载中
         reason = f"资讯源超时：{exc}"
-        if cached:
+        if cached and (cached.get("items") or []):
             items = list(cached.get("items") or [])[:limit]
             sent = cached.get("sentiment")
             if not isinstance(sent, dict):
@@ -565,7 +582,8 @@ def fetch_stock_headlines(
         }
     now = time.time()
     updated_at = time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime(now))
-    if not raw.get("success"):
+    live_items = list(raw.get("items") or [])[:limit]
+    if not raw.get("success") or not live_items:
         err = str(raw.get("error") or "未获取到相关资讯")
         if cached and (cached.get("items") or []):
             items = list(cached.get("items") or [])[:limit]
@@ -609,12 +627,8 @@ def fetch_stock_headlines(
             "from_cache": False,
         }
 
-    items = list(raw.get("items") or [])[:limit]
+    items = live_items
     sent = _attach_sentiment(items, lexicon=lexicon)
-    if not items:
-        sent = score_headlines(
-            [], lexicon=lexicon, degraded=True, degrade_reason="空标题"
-        )
     payload = {
         "ok": True,
         "stock_code": raw.get("stock_code") or code_key,

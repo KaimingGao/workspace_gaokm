@@ -2521,37 +2521,6 @@ body[data-page="watching"] .watching-head-actions {
   flex-shrink: 0;
 }
 
-body[data-page="watching"] .watching-desk-badge {
-  display: inline-flex;
-  align-items: center;
-  height: 22px;
-  padding: 0 8px;
-  font-size: var(--w-fs-micro);
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  border-radius: var(--sys-r-tier4, 4px);
-  color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 8%, transparent);
-  border: 1px solid color-mix(in srgb, var(--accent) 22%, transparent);
-}
-
-body[data-page="watching"] .watching-desk-guard {
-  display: inline-flex;
-  align-items: center;
-  height: 22px;
-  padding: 0 8px;
-  font-size: var(--w-fs-micro);
-  font-weight: 650;
-  letter-spacing: 0.04em;
-  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
-  color: var(--ink-2);
-  background: color-mix(in srgb, var(--ink) 3%, var(--surface));
-  border: 1px solid var(--line);
-  border-radius: var(--sys-r-tier4, 4px);
-  white-space: nowrap;
-  text-transform: none;
-}
-
 /* ── L1 区段壳 ── */
 body[data-page="watching"] .watching-page > .dashboard-section.watching-section {
   display: flex;
@@ -2580,17 +2549,14 @@ body[data-page="watching"] .watching-page > .dashboard-section.watching-section 
   padding: 0 0 2px;
 }
 
+/* 对齐交易执行：14px fw-700 ink + accent 色条 */
 body[data-page="watching"] .watching-page > .dashboard-section.watching-section > .dashboard-section-head .dashboard-section-title {
   margin: 0;
   color: var(--ink);
   font-size: var(--w-fs-section);
   font-weight: var(--sys-fw-display, 700);
-  letter-spacing: 0.02em;
-  line-height: var(--sys-lh-tight, 1.2);
-}
-
-body[data-page="watching"] .watching-page > .dashboard-section.watching-section > .dashboard-section-head .dashboard-section-title::before {
-  display: none;
+  letter-spacing: 0.04em;
+  line-height: 1.25;
 }
 
 body[data-page="watching"] .watching-page > .dashboard-section.watching-section > .dashboard-section-head .dashboard-section-desc {
@@ -3206,11 +3172,8 @@ body[data-page="watching"] .watching-secondary-fold-sum .dashboard-section-title
   font-size: var(--w-fs-body);
   font-weight: var(--sys-fw-display, 700);
   letter-spacing: 0.03em;
+  line-height: var(--sys-lh-tight, 1.2);
   color: var(--ink);
-}
-
-body[data-page="watching"] .watching-secondary-fold-sum .dashboard-section-title::before {
-  display: none;
 }
 
 body[data-page="watching"] .watching-secondary-fold-sum .dashboard-section-desc {
@@ -3286,7 +3249,9 @@ body[data-page="watching"] .watching-page {
 
 /* ── 页头：紧、静、可读 ── */
 body[data-page="watching"] .dashboard-head.quant-head {
+  display: flex;
   align-items: flex-start;
+  justify-content: space-between;
   gap: 12px;
   padding: 2px 0 6px;
   margin-bottom: 2px;
@@ -3301,6 +3266,7 @@ body[data-page="watching"] .dashboard-eyebrow {
   text-transform: uppercase;
   color: var(--ink-3);
   font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  line-height: 18px;
 }
 
 body[data-page="watching"] .dashboard-head h2 {
@@ -3341,29 +3307,48 @@ body[data-page="watching"] .watching-hero-link:hover {
   text-underline-offset: 2px;
 }
 
-body[data-page="watching"] .watching-desk-badge {
-  height: 22px;
-  padding: 0 8px;
-  font-size: var(--w-fs-micro);
+body[data-page="watching"] .watching-head-actions {
+  display: inline-flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  flex-shrink: 0;
+}
+
+body[data-page="watching"] .watching-desk-badge,
+body[data-page="watching"] .watching-desk-guard,
+body[data-page="watching"] .quant-head .quant-desk-badge.watching-desk-badge {
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 28px;
+  min-height: 28px;
+  max-height: 28px;
+  padding: 0 10px;
+  margin: 0;
+  font-size: 12px;
   font-weight: 600;
-  letter-spacing: 0.04em;
-  border-radius: var(--sys-r-tier4, 4px);
+  line-height: 1;
+  letter-spacing: 0.02em;
+  border-radius: 2px;
+  white-space: nowrap;
+}
+
+body[data-page="watching"] .watching-desk-badge {
   color: var(--accent);
   background: color-mix(in srgb, var(--accent) 8%, transparent);
-  border: 1px solid color-mix(in srgb, var(--accent) 22%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 24%, var(--line));
 }
 
 body[data-page="watching"] .watching-desk-guard {
-  height: 22px;
-  padding: 0 8px;
-  font-size: var(--w-fs-micro);
-  font-weight: 650;
-  letter-spacing: 0.04em;
-  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
   color: var(--ink-2);
   background: color-mix(in srgb, var(--ink) 3%, var(--surface));
   border: 1px solid var(--line);
-  border-radius: var(--sys-r-tier4, 4px);
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-weight: 650;
+  letter-spacing: 0.04em;
 }
 
 /* ── 区段：更紧的 Data Desk 节奏 ── */
@@ -3379,16 +3364,16 @@ body[data-page="watching"] .watching-page > .dashboard-section.watching-section 
 }
 
 body[data-page="watching"] .watching-page > .dashboard-section.watching-section > .dashboard-section-head {
-  gap: 4px 10px;
-  margin: 0 0 2px;
-  padding: 0;
+  gap: 6px 12px;
+  margin: 0;
+  padding: 0 0 2px;
 }
 
 body[data-page="watching"] .watching-page > .dashboard-section.watching-section > .dashboard-section-head .dashboard-section-title {
   font-size: var(--w-fs-section);
   font-weight: var(--sys-fw-display, 700);
-  letter-spacing: 0.02em;
-  line-height: var(--sys-lh-tight, 1.2);
+  letter-spacing: 0.04em;
+  line-height: 1.25;
   color: var(--ink);
 }
 
@@ -3727,6 +3712,7 @@ body[data-page="watching"] .watching-secondary-fold-sum .dashboard-section-title
   font-size: var(--w-fs-body);
   font-weight: var(--sys-fw-display, 700);
   letter-spacing: 0.03em;
+  line-height: var(--sys-lh-tight, 1.2);
   color: var(--ink);
 }
 

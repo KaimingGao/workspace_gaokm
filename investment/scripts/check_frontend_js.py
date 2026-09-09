@@ -3,7 +3,7 @@
 
 检查项：
 1. ``??`` 与 ``||`` / ``&&`` 在同一表达式中未加括号混用（ES 语法错误）
-2. 必要文件存在、chat 页脚本顺序（chat_boot 先于 CDN marked）
+2. 必要文件存在、tool.html 中 marked 使用 defer
 3. 可选：若本机有 esbuild，则做真实 parse/bundle
 
 用法::
@@ -29,20 +29,17 @@ TEMPLATES = STATIC / "templates"
 
 REQUIRED_JS = (
     "app.js",
-    "js/chat_boot.js",
-    "js/chat.js",
+    "js/ai_drawer.js",
     "js/shared.js",
     "js/paper.js",
     "js/quant.js",
-    "js/results.js",
     "js/evals.js",
 )
 
 EXPORT_EXPECT = {
-    "js/chat.js": "export function initChat",
+    "js/ai_drawer.js": "export function initAiDrawer",
     "js/paper.js": "export function initPaper",
     "js/quant.js": "export function initQuant",
-    "js/results.js": "export function initResults",
     "js/evals.js": "export function initEvals",
 }
 
@@ -172,32 +169,22 @@ def check_required_files() -> List[str]:
         expect = EXPORT_EXPECT.get(rel)
         if expect and expect not in p.read_text(encoding="utf-8"):
             issues.append(f"{rel} 缺少导出: {expect}")
-    boot = (JS_DIR / "chat_boot.js").read_text(encoding="utf-8")
-    if (
-        "fetch(\"/api/chat" not in boot
-        and "fetch('/api/chat" not in boot
-    ):
-        issues.append("js/chat_boot.js 未调用 /api/chat 或 /api/chat/async")
     return issues
 
 
-def check_chat_html_script_order() -> List[str]:
+def check_tool_html_script_order() -> List[str]:
     issues: List[str] = []
-    chat = (TEMPLATES / "chat.html").read_text(encoding="utf-8")
-    boot_i = chat.find("chat_boot.js")
-    marked_i = chat.find("marked/marked.min.js")
-    app_i = chat.find("/static/app.js")
-    if boot_i < 0:
-        issues.append("chat.html 未引入 chat_boot.js")
-    if marked_i >= 0 and boot_i >= 0 and boot_i > marked_i:
-        issues.append("chat.html: chat_boot.js 必须在 CDN marked 之前，避免 CDN 卡住导致对话无响应")
-    if "marked.min.js" in chat and "defer" not in chat[chat.find("marked") : chat.find("marked") + 120]:
-        # marked script tag should prefer defer
-        m = re.search(r"<script[^>]*marked/marked\.min\.js[^>]*>", chat)
+    tool = (TEMPLATES / "tool.html").read_text(encoding="utf-8")
+    marked_i = tool.find("marked/marked.min.js")
+    app_i = tool.find("/static/app.js")
+    if marked_i < 0:
+        issues.append("tool.html 未引入 marked")
+    elif "defer" not in tool[marked_i : marked_i + 80]:
+        m = re.search(r"<script[^>]*marked/marked\.min\.js[^>]*>", tool)
         if m and "defer" not in m.group(0):
-            issues.append("chat.html: marked CDN 建议带 defer，避免阻塞")
-    if app_i >= 0 and boot_i >= 0 and boot_i > app_i:
-        issues.append("chat.html: chat_boot.js 应在 app.js module 之前")
+            issues.append("tool.html: marked CDN 建议带 defer，避免阻塞")
+    if app_i < 0:
+        issues.append("tool.html 未引入 app.js")
     return issues
 
 
@@ -240,7 +227,7 @@ def run_checks(*, use_esbuild: bool = True) -> Tuple[List[str], List[str]]:
     notes: List[str] = []
 
     errors.extend(check_required_files())
-    errors.extend(check_chat_html_script_order())
+    errors.extend(check_tool_html_script_order())
     errors.extend(check_panel_div_balance())
 
     for path in sorted(STATIC.rglob("*.js")):

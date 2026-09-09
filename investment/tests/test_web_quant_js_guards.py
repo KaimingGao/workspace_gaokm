@@ -370,6 +370,8 @@ class TestWebQuantJsGuards(unittest.TestCase):
         lw_js = self._read("web", "static", "js", "lw_charts.js")
         self.assertIn("lw-hover-tip-legs", lw_js)
         self.assertIn("renderDayLegRows", lw_js)
+        self.assertIn("开盘清仓，涨跌仅隔夜", lw_js)
+        self.assertIn("持有段：清仓=隔夜", lw_js)
         self.assertIn("legDisplayName", lw_js)
         self.assertIn("nameByCode", lw_js)
         self.assertIn("dayDetails", lw_js)
@@ -834,6 +836,9 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("回测连接中断或超时", paper)
         self.assertIn("仅选中", paper)
         self.assertIn("预演连接中断或超时", paper)
+        self.assertIn("restoreLastT0Backtest", paper)
+        self.assertIn("/api/quant/last-t0-backtest", paper)
+        self.assertIn("上次 ${at}", paper)
 
     def test_follow_path_matrix_form(self):
         panel = self._read("web", "static", "partials", "follow_panel.html")
@@ -920,6 +925,12 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertNotIn("现金地板", rules_ui)
         report = self._read("web", "static", "js", "paper", "rebalance_report.js")
         self.assertNotIn("现金地板≥", report)
+        self.assertIn("cash_below_floor", report)
+        self.assertIn("ranking入场≥", report)
+        self.assertIn("fmtRankEnterPct", report)
+        self.assertIn('role="columnheader" title="y_fuse', report)
+        self.assertIn(">y_fuse</div>", report)
+        self.assertIn(">rank</div>", report)
         css = self._read("web", "static", "css", "follow.css")
         self.assertNotIn("follow-path-matrix-strategy", css)
         self.assertNotIn("follow-path-matrix-roles", css)
@@ -1254,13 +1265,79 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertNotIn("loadConfigDiffPreview", export_js)
         css = self._read("web", "static", "css", "strategy.css")
         self.assertNotIn("strategy-param-table", css)
+        self.assertNotIn("strategy-risk-limits-grid", css)
         self.assertNotIn("strategy-card-chips", css)
         self.assertNotIn("strategy-hero-lead", css)
         self.assertNotIn("strategy-secondary-band", css)
         self.assertNotIn("strategy-logic-ref", css)
         self.assertIn("strategy-factor-dict", panel)
-        self.assertIn("strategy-risk-audit-fold", panel)
-        self.assertIn("strategy-sentiment-prior", panel)
+        self.assertNotIn("strategy-risk-audit-fold", panel)
+        self.assertNotIn("strategy-risk-audit", panel)
+        self.assertNotIn("loadStrategyRiskAudit", strat_js)
+        self.assertNotIn("strategy-risk-audit-fold", quant_js)
+        self.assertIn("strategy-market-context", panel)
+        self.assertIn("strategy-regime-board", panel)
+        self.assertIn("strategy-regime-body", panel)
+        self.assertIn("strategy-mctx-regime-pill", panel)
+        self.assertIn("strategy-regime-body", strat_js)
+        self.assertIn("renderRegimeBoard", strat_js)
+        self.assertIn("strategy-regime-axis", strat_js)
+        self.assertIn("strategy-regime-spectrum", css)
+        self.assertIn("strategy-regime-needle-val", css)
+        self.assertIn("压单票与行业上限", panel)
+        self.assertNotIn("strategy-regime-sub", panel)
+        self.assertNotIn("strategy-mctx-board", panel)
+        self.assertNotIn("盘前 prior · Regime", panel)
+        self.assertNotIn("strategy-path-rail", panel)
+        self.assertNotIn("strategy-path-step", quant_js)
+        self.assertNotIn("ingest…", strat_js)
+        self.assertNotIn("正在刷新盘前快照", strat_js)
+        self.assertNotIn('btn.classList.add("is-busy")', strat_js)
+        self.assertIn('setMctxHeadStatus((head && head.textContent) || "", { busy: true })', strat_js)
+        self.assertIn('id="strategy-regime-board"', panel)
+        self.assertIn('id="strategy-market-context"', panel)
+        self.assertIn("strategy-mctx-head-status", panel)
+        self.assertNotIn("strategy-mctx-hint", panel)
+        self.assertNotIn("四路闸门", panel)
+        self.assertNotIn("mode gate", strat_js)
+        self.assertNotIn("off · 关闭", panel)
+        self.assertIn("strategy-mctx-matrix", panel)
+        self.assertIn("strategy-mctx-panels", panel)
+        self.assertIn("strategy-mctx-unit", panel)
+        self.assertIn("strategy-mctx-boxes", panel)
+        self.assertIn(">跨市场<", panel)
+        self.assertIn(">情绪<", panel)
+        self.assertIn(">监管<", panel)
+        self.assertIn(">IPO<", panel)
+        self.assertIn("strategy-mctx-unit[data-k=", strat_js)
+        self.assertNotIn("quant-control-band", panel)
+        self.assertNotIn("quant-oos-band", panel)
+        self.assertNotIn("strategy-mctx-params-modes", panel)
+        self.assertNotIn("strategy-mctx-params-actions", panel)
+        self.assertIn("四闸缩仓 / 拦开仓", panel)
+        self.assertIn("人审写入 signal_config", panel)
+        self.assertEqual(panel.count('id="strategy-mctx-mode"'), 1)
+        self.assertEqual(panel.count('id="strategy-mctx-save"'), 1)
+        self.assertNotIn('id="strategy-mctx-save" class="dialog-btn secondary"', panel)
+        self.assertNotIn('id="strategy-mctx-refresh" class="dialog-btn secondary"', panel)
+        self.assertIn('id="strategy-mctx-mode"', panel)
+        self.assertNotIn("strategy-mctx-channels", panel)
+        self.assertNotIn("strategy-mctx-channel", css)
+        self.assertNotIn('name="strategy-mctx-mode"', panel)
+        self.assertNotIn("strategy-mctx-extra-grid", panel)
+        self.assertIn("repeat(4, minmax(0, 1fr))", css)
+        self.assertIn("minmax(0, 1fr) minmax(0, 1fr)", css)
+        self.assertIn('[data-k="cross_market"]', css)
+        self.assertIn('[data-k="sentiment"]', css)
+        self.assertIn('[data-k="regulatory"]', css)
+        self.assertIn('[data-k="ipo"]', css)
+        self.assertIn(".strategy-mctx-box--check input[type=\"checkbox\"]", css)
+        self.assertNotIn("strategy-sentiment-prior", panel)
+        self.assertNotIn("strategy-prior-save", panel)
+        self.assertNotIn('name="strategy-prior-mode"', panel)
+        self.assertNotIn("saveStrategySentimentPrior", strat_js)
+        self.assertNotIn("loadSentimentPriorForm", strat_js)
+        self.assertIn("strategy-market-context", quant_js)
         self.assertNotIn("strategy-promote-lab", panel)
         self.assertNotIn("strategy-promote-btn", panel)
         self.assertNotIn("晋升快照", panel)
@@ -1276,6 +1353,100 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertNotIn("#strategy-dual-score", css)
         self.assertNotIn("strategy-floors-form", css)
         self.assertNotIn("strategy-inline-field", css)
+
+    def test_desk_page_heads_share_title_scale(self):
+        for name in ("strategy", "watching", "follow", "replay", "quant"):
+            css = self._read("web", "static", "css", f"{name}.css")
+            self.assertIn("--sys-fs-title, 1.125rem", css, name)
+            self.assertIn("letter-spacing: 0.14em", css, name)
+            self.assertIn("font-weight: var(--sys-fw-display, 700)", css, name)
+            self.assertIn("height: 28px", css, name)
+            self.assertIn("padding: 2px 0 6px", css, name)
+            self.assertNotRegex(
+                css,
+                r"\.quant-head h2\s*\{[^}]*font-size:\s*16px",
+                msg=f"{name}: leftover 16px page title",
+            )
+            self.assertNotRegex(
+                css,
+                r"\.quant-head:has\(\+",
+                msg=f"{name}: leftover :has(+ page) head override",
+            )
+        follow = self._read("web", "static", "css", "follow.css")
+        self.assertNotIn("padding: 0 0 16px", follow)
+        self.assertNotRegex(
+            follow,
+            r"\.follow-desk-badge\s*\{[^}]*border-radius:\s*999px",
+            msg="follow desk badge must not be a 22/24px pill",
+        )
+
+    def test_domain_strategy_js_braces_balanced(self):
+        """多余 } 会让 installStrategy 提前结束，return 变成模块顶层，/replay 整页 JS 挂不上。"""
+        src = self._read("web", "static", "js", "quant", "domain_strategy.js")
+        depth = 0
+        in_s = None
+        esc = False
+        in_line = False
+        in_block = False
+        i = 0
+        n = len(src)
+        while i < n:
+            c = src[i]
+            nxt = src[i + 1] if i + 1 < n else ""
+            if in_line:
+                if c == "\n":
+                    in_line = False
+                i += 1
+                continue
+            if in_block:
+                if c == "*" and nxt == "/":
+                    in_block = False
+                    i += 2
+                    continue
+                i += 1
+                continue
+            if in_s:
+                if esc:
+                    esc = False
+                elif c == "\\":
+                    esc = True
+                elif c == in_s:
+                    in_s = None
+                i += 1
+                continue
+            if c in "\"'`":
+                in_s = c
+                i += 1
+                continue
+            if c == "/" and nxt == "/":
+                in_line = True
+                i += 2
+                continue
+            if c == "/" and nxt == "*":
+                in_block = True
+                i += 2
+                continue
+            if c == "{":
+                depth += 1
+            elif c == "}":
+                depth -= 1
+                self.assertGreaterEqual(depth, 0, "extra } before end of domain_strategy.js")
+            i += 1
+        self.assertEqual(depth, 0)
+        quant_js = self._read("web", "static", "js", "quant.js")
+        self.assertIn(
+            "domain_strategy.js?v=${encodeURIComponent(_QV)}",
+            quant_js,
+        )
+
+    def test_watching_news_empty_copy(self):
+        watching = self._read("web", "static", "js", "quant", "domain_watching.js")
+        self.assertNotIn("暂无资讯，跳过 AI 分析", watching)
+        self.assertNotIn('aiStatus.textContent = "无资讯"', watching)
+        render = self._read("web", "static", "js", "quant", "watching_render.js")
+        self.assertIn('data.error || "暂无资讯"', render)
+        self.assertNotIn('data.error || "无资讯"', render)
+        self.assertNotIn('data.error || "暂无标题"', render)
 
 
 if __name__ == "__main__":

@@ -244,34 +244,7 @@
   line-height: 1.4;
 }
 
-.quant-head:has(+ .strategy-page) {
-  padding-bottom: 6px;
-}
-
-.quant-head:has(+ .strategy-page) h2 {
-  font-size: 0.98rem;
-  font-weight: 700;
-  letter-spacing: -0.02em;
-  margin: 0 0 2px;
-}
-
-.quant-head:has(+ .strategy-page) .quant-meta {
-  font-size: 0.72rem;
-  font-variant-numeric: tabular-nums;
-  color: var(--ink-3);
-}
-
-/* 历史回测：专业紧凑密度（scoped；表行不压紧） */
-.quant-head:has(+ .replay-page) {
-  padding-bottom: 6px;
-}
-
-.quant-head:has(+ .replay-page) h2 {
-  font-size: 0.98rem;
-  font-weight: 700;
-  letter-spacing: -0.02em;
-  margin: 0 0 2px;
-}
+/* 页头标题阶梯由各页 desk 规格接管，勿再按邻接选择器压 padding / 字号 */
 
 .replay-page > .quant-map-hint {
   margin: 0 0 8px;

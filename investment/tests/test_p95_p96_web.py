@@ -18,12 +18,12 @@ class TestP95P96WebPages(unittest.TestCase):
         except Exception:
             cls.client = None
 
-    def test_index_redirects_to_watching(self):
+    def test_index_redirects_to_dashboard(self):
         if self.client is None:
             self.skipTest("fastapi not installed")
         res = self.client.get("/", follow_redirects=False)
         self.assertIn(res.status_code, (301, 302, 303, 307, 308))
-        self.assertEqual(res.headers.get("location"), "/watching")
+        self.assertEqual(res.headers.get("location"), "/dashboard")
         watching = self.client.get("/watching")
         self.assertEqual(watching.status_code, 200)
         self.assertIn('data-page="watching"', watching.text)
@@ -32,10 +32,13 @@ class TestP95P96WebPages(unittest.TestCase):
         self.assertIn('id="btn-ai-open"', watching.text)
         self.assertIn("side-nav", watching.text)
         self.assertIn(">数据中心<", watching.text)
+        self.assertIn(">仪表盘<", watching.text)
         self.assertNotIn("dashboard-root", watching.text)
-        self.assertNotIn(">仪表盘<", watching.text)
         self.assertNotIn("workspace-main", watching.text)
         self.assertNotIn("topbar-nav", watching.text)
+        self.assertNotIn("chat.js", watching.text)
+        self.assertNotIn("results.js", watching.text)
+        self.assertNotIn('id="btn-reset"', watching.text)
 
     def test_chat_redirects_offline(self):
         if self.client is None:
@@ -52,6 +55,11 @@ class TestP95P96WebPages(unittest.TestCase):
         self.assertEqual(res.status_code, 200)
         self.assertIn("ai-drawer", res.text)
         self.assertIn("btn-ai-open", res.text)
+        self.assertIn("ai-drawer-llm-model", res.text)
+        self.assertIn('id="ai-drawer-title"', res.text)
+        self.assertIn("ai-drawer-head", res.text)
+        self.assertIn("只读解读", res.text)
+        self.assertNotIn("AI Desk", res.text)
         self.assertNotIn("全屏对话", res.text)
         self.assertNotIn('href="/chat"', res.text)
         self.assertNotIn("topbar-nav", res.text)
@@ -71,7 +79,7 @@ class TestP95P96WebPages(unittest.TestCase):
                 "quant-cross-run",
                 "quant-ops-run-daily",
                 "因子系数",
-                "IC / OLS·因子系数说明",
+                "因子系数 β",
                 "return_model",
                 "ŷ",
                 "quant-ols-pool-run",
@@ -89,7 +97,7 @@ class TestP95P96WebPages(unittest.TestCase):
                 "规则解读",
             ),
             "/watching": ("data-page=\"watching\"", "watching-search-input", "watching-watchlist-table", "观察", "加入纸面", "quant-watching-sync", "watching-build-layer"),
-            "/strategy": ("data-page=\"strategy\"", "strategy-list", "strategy-factor-dict"),
+            "/strategy": ("data-page=\"strategy\"", "strategy-market-context", "strategy-factor-dict", "strategy-regime-board"),
             "/replay": (
                 "data-page=\"replay\"",
                 "quant-portfolio-run",
@@ -156,18 +164,9 @@ class TestP95P96WebPages(unittest.TestCase):
         self.assertIn('href="/follow"', quant.text)
 
     def test_page_html_helpers(self):
-        from web.page_html import clear_html_cache, render_chat_html, render_tool_html
+        from web.page_html import clear_html_cache, render_tool_html
 
         clear_html_cache()
-        chat = render_chat_html()
-        self.assertIn("tab-panel-strategy", chat)
-        self.assertNotIn("results-more", chat)
-        self.assertIn("tab-btn-strategy", chat)
-        self.assertIn("quant-bt-trades", chat)
-        self.assertIn("tab-btn-follow", chat)
-        self.assertNotIn("workspace-portfolio", chat)
-        self.assertNotIn("tab-panel-portfolio", chat)
-        self.assertNotIn("topbar-nav", chat)
         tool = render_tool_html("follow")
         self.assertNotIn("topbar-more", tool)
         self.assertNotIn('id="paper-run"', tool)
@@ -176,6 +175,14 @@ class TestP95P96WebPages(unittest.TestCase):
         uni = render_tool_html("watching")
         self.assertIn("观察名单", uni)
         self.assertIn("btn-watching", uni)
+        self.assertIn("ai-drawer", uni)
+        self.assertNotIn("workspace-main", uni)
+        self.assertNotIn("chat_boot.js", uni)
+        self.assertNotIn("chat.js", uni)
+        self.assertNotIn("results.js", uni)
+        self.assertNotIn("usage-dialog", uni)
+        self.assertNotIn('id="btn-reset"', uni)
+        self.assertIn("evals-dialog", uni)
         with self.assertRaises(ValueError):
             render_tool_html("nope")
 

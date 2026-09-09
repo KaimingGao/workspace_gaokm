@@ -223,12 +223,22 @@ def _build_market_context_dashboard() -> Dict[str, Any]:
             macro=macro if isinstance(macro, dict) else None,
         )
         overlay = regime_info.get("macro_overlay") or {}
+        blend = regime_info.get("blend") or {}
+        rcfg = sig_cfg.get("regime") or {}
+        try:
+            window_days = int(rcfg.get("weak_trend_days") or 20)
+        except (TypeError, ValueError):
+            window_days = 20
         regime_snapshot = {
             "regime": regime_info.get("regime"),
             "index_return_pct": regime_info.get("index_return_pct"),
+            "volatility_pct": regime_info.get("volatility_pct"),
             "score_penalty": regime_info.get("score_penalty"),
             "reason": regime_info.get("reason"),
             "benchmark": idx_pack.get("benchmark"),
+            "window_days": window_days,
+            "apply_position_scale": rcfg.get("apply_position_scale") is not False,
+            "blend_blended": bool(blend.get("blended")),
             "macro_overlay_applied": bool(overlay.get("applied")),
             "macro_overlay_deferred": bool(overlay.get("deferred_to_cross_market_prior")),
             "macro_overlay_tech_1d_pct": overlay.get("tech_1d_pct"),

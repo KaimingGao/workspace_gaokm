@@ -283,10 +283,10 @@ export function sentimentBadgeHtml(sent, code) {
     s.score != null && !Number.isNaN(Number(s.score))
       ? ` · 风险 ${Number(s.score).toFixed(2)}`
       : "";
-  // 先验旁路：不进 score/ŷ；policy 见 sentiment.prior.mode
+  // 仅参考：不进 score/ŷ，不参与调仓
   const gateNote =
     s.role === "prior" || s.include_in_score !== true
-      ? "先验旁路 · 不参与 predicted_score"
+      ? "仅参考 · 不参与 predicted_score / 调仓"
       : "遗留开闸进 ŷ（不推荐）";
   const title = [
     s.note || "规则关键词，非模型",
@@ -631,8 +631,9 @@ export function buildWatchingNewsMetaText(data, sent) {
   const hitBits = []
     .concat(sent.hit_pos || [])
     .concat(sent.hit_neg || []);
+  const n = (data.items || []).length;
   return [
-    data.ok ? `${(data.items || []).length} 条` : data.error || "无资讯",
+    n ? `${n} 条` : data.error || "暂无资讯",
     sent.note || "规则关键词，非模型",
     hitBits.length ? `命中 ${hitBits.join("、")}` : "",
     data.updated_at ? `更新 ${data.updated_at}` : "",
@@ -644,7 +645,7 @@ export function buildWatchingNewsMetaText(data, sent) {
 export function buildWatchingNewsListHtml(items, data) {
   if (!items.length) {
     return `<li class="watching-news-empty">${escapeHtml(
-      data.error || "暂无标题"
+      data.error || "暂无资讯"
     )}</li>`;
   }
   return items

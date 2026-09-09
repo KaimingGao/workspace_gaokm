@@ -432,6 +432,30 @@ class TestGetRankLotCfg(unittest.TestCase):
         cfg = get_rank_lot_cfg({"rules": {"max_positions": 20}})
         self.assertEqual(cfg["top_k"], 20)
 
+    def test_scales_floor_when_account_smaller_than_configured(self):
+        from core.paper.rebalance.rank_lots import get_rank_lot_cfg
+
+        cfg = get_rank_lot_cfg(
+            {
+                "initial_cash": 198_854.75,
+                "cash": 175_479.6,
+                "holdings": [
+                    {"stock_code": "600150", "shares": 400, "cost": 37.82}
+                ],
+            }
+        )
+        self.assertLess(float(cfg["cash_floor"]), 198_854.75)
+        self.assertAlmostEqual(float(cfg["cash_floor"]), 198_854.75 * 0.20, places=1)
+        self.assertTrue(cfg.get("cash_floor_scaled"))
+        self.assertAlmostEqual(float(cfg["cash_floor_configured"]), 500_000.0)
+
+    def test_keeps_floor_when_account_covers_it(self):
+        from core.paper.rebalance.rank_lots import get_rank_lot_cfg
+
+        cfg = get_rank_lot_cfg({"initial_cash": 1_000_000, "cash": 1_000_000})
+        self.assertAlmostEqual(float(cfg["cash_floor"]), 500_000.0)
+        self.assertFalse(cfg.get("cash_floor_scaled"))
+
     def test_explicit_top_k_can_cover_watching_pool(self):
         from core.paper.rebalance.rank_lots import get_rank_lot_cfg
         from core.watching.store import WATCHING_MAX_SIZE

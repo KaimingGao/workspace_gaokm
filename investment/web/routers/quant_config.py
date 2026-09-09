@@ -103,7 +103,7 @@ def signal_config_sentiment_prior_get() -> Dict[str, Any]:
 
 @router.post("/api/signal/config/sentiment-prior")
 def signal_config_sentiment_prior_save(body: SentimentPriorRequest) -> Dict[str, Any]:
-    """人审写入 prior.mode 等；强制不进 ŷ；不改 weights。"""
+    """兼容旧入口；产品强制 mode=off（仅徽章）。"""
     try:
         out = deps.quant.save_sentiment_prior(
             mode=body.mode,

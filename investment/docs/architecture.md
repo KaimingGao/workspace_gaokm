@@ -1135,7 +1135,7 @@ flowchart TB
 | `paper.js` | 模拟页总编排（子模块在 `paper/`） |
 | `quant.js` | 研究台总编排（子模块在 `quant/`） |
 | `dashboard.js` + `dashboard_api.js` | 首页仪表盘 |
-| `chat.js` | 对话 UI |
+| `ai_drawer.js` | ⌘K 对话抽屉 |
 | `watching_table_island.js` | 观察池表格岛 |
 | `api_client.js` | 统一 fetch 封装 |
 | `live_ws.js` | 实时推送 |
@@ -1377,6 +1377,7 @@ BS → core/backtest/service.py → engine · topk_backtest · topk_weights
 | Job 状态 | `data/jobs/*.json` | 长任务进度与结果 |
 | 决策/记忆 | `data/decisions.jsonl` · `data/memory.json` | 平台 D 轨 |
 | 报告 | `data/reports/` | 量化日报归档 |
+| 回测快照 | `data/last_portfolio_backtest.json` · `data/last_t0_backtest.json` | `/replay` / `/follow` 刷新恢复，不重跑 |
 | 配置备份 | `data/config_backups/` | signal_config 历史 |
 
 环境变量：`INVESTMENT_STORE_DIR` · `INVESTMENT_BARS_BACKEND`。见 [data-layer](architecture.md#数据层) · [sqlite-migration](architecture.md)。
@@ -1867,6 +1868,7 @@ flowchart TD
 | **基本面 / 资讯** | 按标的 JSON | `data/store/fundamentals|news/` | 快照 + PIT 面板；不进 bars.db |
 | **决策 / TTM 事件** | JSONL 追加 | `decisions.jsonl` · `ttm_events.jsonl` | 流水审计，轻量追加写 |
 | **日报 / 告警** | JSON · MD | `quant_daily.json` · `reports/` · `alerts/` | 运行时产物 |
+| **回测快照** | JSON | `last_portfolio_backtest.json` · `last_t0_backtest.json` | 刷新恢复 KPI / 做 T 结果；不重跑 |
 
 上层统一经 **DataService** / `core/store` 读写；禁止业务层散落直接扫盘当「隐式数据库」。
 
@@ -2076,7 +2078,7 @@ API：`GET/POST /api/paper/t0/worker`（启停 + 状态）· `GET /api/paper/t0/
 
 | 页 | 策略角色 |
 |----|----------|
-| `/strategy` | **看图纸**：舆情先验 · M prior · 风控审计 |
+| `/strategy` | **看图纸**：M prior（个股舆情只在观察徽章） |
 | `/watching` | **划狩猎范围**（选股输入名单） |
 | `/replay` | 用图纸交**历史卷**（资金模拟在引擎内） |
 | `/paper` + `/follow` | 图纸 + **假账**持续记账 |
@@ -2303,7 +2305,7 @@ API：`GET/POST /api/paper/t0/worker`（启停 + 状态）· `GET /api/paper/t0/
 | 组合目标权重 | `optimize_weights` → `last_optimize` / ops_report | **分数风险预算**（默认）+ 可选贪心填仓；**高波缩放**有效单票/行业上限 |
 | 波动缩放 | `core/risk/budget.market_vol_scale` | 指数近20日波动/基线 ≥1.5 → 上限×0.8；取数失败不挡调仓 |
 | 拦截有效率 | `north_star.summarize_risk_blocks` | 按码/日/周；`meta.outcome` 标注后算有效率/误拦率 |
-| 策略限额 UI | `/strategy` 风控与敞口折叠 | 暴露矩阵 + 拦截汇总；人审 promote，不静默改 |
+| 策略限额 | StrategySpec.risk / `paper.rules` | 调仓前门禁；UI 不在策略中心挂只读审计 |
 | ML 风控拟合 | 无 | 远期 |
 
 配置摘要见 `data/signal_config.json`（`invalidation` / `regime`）与 `data/paper.example.json`（`rules`）。
@@ -2398,32 +2400,34 @@ Alpha 条目（选股择时）与 Risk 条目分开写，避免「一个大 if�
 
 ```text
 ŷ = ReturnScoreModel(价量 / 财务 / …)   ← 唯一生产排序轴
-S = score_headlines(当日标题)            ← 先验
-action = policy(ŷ, S)                    ← warn / 拦新开仓 / 缩仓；不改 ŷ
+S = score_headlines(当日标题)            ← 观察徽章（参考）
+live 调仓 = rank_lots(y_fuse, y_on)     ← 不读 S
 ```
 
-本仓库 **已有**：标题拉取与缓存；观察徽章；`sentiment_prior`（off / risk / gate）；标题 history jsonl（供 as_of 诊断）；降级不触发 gate；`GET /api/ops/sentiment-as-of` · validation hygiene 面板覆盖。  
-**没有**：完整可估 β 的全市场 news 仓、用 S 拟合 OLS β、LLM 写分进 ŷ、主回测注入舆情。
+本仓库 **已有**：标题拉取与缓存；观察徽章；`sentiment_prior`（产品强制 `mode=off`）；标题 history jsonl（供 as_of 诊断）；`GET /api/ops/sentiment-as-of`。  
+**没有**：完整可估 β 的全市场 news 仓、用 S 拟合 OLS β、LLM 写分进 ŷ、主回测注入舆情、个股舆情拦买/缩仓。
 
-LLM 可**解读**标题；**不得**写入 `sub_scores` / ŷ。`sentiment.include_in_score` **恒保持 false**（硬闸）；行为由 `sentiment.prior.mode` 控制。
+LLM 可**解读**标题；**不得**写入 `sub_scores` / ŷ。`sentiment.include_in_score` **恒保持 false**（硬闸）；`get_sentiment_prior_cfg` 强制 `mode=off`，调仓不执行 gate/risk。
 
-超时 / 空标题 / 过期缓存回退时标记 `degraded=true` · `prior_eligible=false`，**不触发** gate 缩仓（避免误拦）。
+超时 / 空标题 / 过期缓存回退时标记 `degraded=true` · `prior_eligible=false`，徽章不标触发。
 
 ---
 
 ## 先验 policy（live）
 
-| `prior.mode` | 行为 |
-|--------------|------|
-| `off` | 徽章 + 可选 `risk_hints`；不改目标簿 |
-| `risk` | 强 bearish → warnings / UI；不改目标簿 |
-| `gate` | 强 bearish → 跳过新开仓（`block_new_buys`）或目标仓 ×`scale_buy_pct`；若 `scale_holds` 则已持仓同步缩至同比例；**ŷ 不变** |
+个股舆情 **只展示徽章**。文件里残留的 `risk` / `gate` 配置被运行时忽略。
 
-`reduce_avoid_on_bullish`（默认 true）：label 看多或标题命中主题词时发 `soft_hold`，纸面低 ŷ 卖出可改为持有（与 [quant.md · 盘中剩余收益头](quant.md#13-盘中剩余收益头intraday-residual方案) 事件先验对称）。
+| 表面 | 行为 |
+|------|------|
+| 观察 / 持仓 / 分数 tip | 看空/看多徽章 + `risk_hints` |
+| Follow `rank_lots` / `/replay` | 不读 S |
+| 旧横截面编排 | 读到的 cfg 也是 `off`，不拦买不缩仓 |
 
-**Web**：策略中心「舆情先验」三态开关 → `POST /api/signal/config/sentiment-prior`（人审写盘；强制 `include_in_score=false`）。
+`apply_prior_to_buy` / `apply_prior_to_hold` 仍保留给单测合成 pack，生产 live cfg 不会产出 block/scale actions。
 
-配置见 `signal_config.sentiment`；实现见 `core/sentiment_prior.py` · 调仓接入 `core/paper/rebalance`。
+**Web**：策略中心不再编辑个股舆情；`POST /api/signal/config/sentiment-prior` 若被调用也强制 `mode=off`。
+
+配置见 `signal_config.sentiment`；实现见 `core/sentiment_prior.py`；徽章由 `score_stock` 挂到观察/持仓。
 
 **相关**：开盘缺口等 **事件先验**（与 S 并列的 \(E\)，同属 ŷ 外旁路）及盘中剩余收益头规划见 [quant.md · 盘中剩余收益头](quant.md#13-盘中剩余收益头intraday-residual方案)。
 

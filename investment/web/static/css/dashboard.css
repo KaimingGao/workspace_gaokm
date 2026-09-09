@@ -1,21 +1,10 @@
 /* ══ DASHBOARD ══ 仪表盘：KPI、净值曲线、风险、板块、信号 */
 
-/* 平台区段：走 dashboard-section 节奏；旧底部分隔仅兜底无 header 的遗留块 */
+/* 平台区段：走 dashboard-section 节奏 */
 .platform-section.dashboard-section {
   margin-bottom: 0;
   padding-bottom: 0;
   border-bottom: none;
-}
-
-.platform-section:not(.dashboard-section) {
-  margin-bottom: 16px;
-  padding-bottom: 14px;
-  border-bottom: 1px solid var(--line);
-}
-
-.platform-section:not(.dashboard-section) > h3 {
-  margin: 0 0 8px;
-  font-size: 0.88rem;
 }
 
 /* 内联态：工具条 / 仪表盘时间戳 / results meta */
@@ -1478,11 +1467,6 @@ html[data-density="compact"] .dashboard-risk-card {
   font-size: 0.78rem;
   color: var(--ink-3);
   line-height: 1.4;
-}
-
-/* 进阶 embed：与主链同页头语义，取消窄列压迫感 */
-.embed-panel.usage-embed .dashboard-head h2 {
-  font-size: 1.05rem;
 }
 
 /* ==========================================================================

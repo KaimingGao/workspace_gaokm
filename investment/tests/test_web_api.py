@@ -75,22 +75,22 @@ class TestWebApi(unittest.TestCase):
         self.assertEqual(data.get("artifacts"), [])
         self.assertEqual(data.get("primary_tab"), "reply")
 
-    def test_index_redirects_to_watching(self):
+    def test_index_redirects_to_dashboard(self):
         if self.client is None:
             self.skipTest("fastapi not installed")
         res = self.client.get("/", follow_redirects=False)
         self.assertIn(res.status_code, (301, 302, 303, 307, 308))
-        self.assertEqual(res.headers.get("location"), "/watching")
+        self.assertEqual(res.headers.get("location"), "/dashboard")
         watching = self.client.get("/watching")
         self.assertEqual(watching.status_code, 200)
-        self.assertIn("Investment", watching.text)
+        self.assertIn("QuantLab", watching.text)
         self.assertIn('data-page="watching"', watching.text)
         self.assertIn("ai-drawer", watching.text)
         self.assertIn("api-degrade-banner", watching.text)
         self.assertIn("command-palette", watching.text)
         self.assertNotIn("workspace-results", watching.text)
         self.assertNotIn("dashboard-root", watching.text)
-        self.assertNotIn(">仪表盘<", watching.text)
+        self.assertIn(">仪表盘<", watching.text)
 
     def test_chat_page_offline_redirect(self):
         if self.client is None:

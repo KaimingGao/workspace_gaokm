@@ -37,16 +37,15 @@
 
 | 面板 | HTML | 主要 JS | 功能 |
 |------|------|---------|------|
-| **对话（Chat）** | `chat_dialogs.html` | `chat.js`, `chat_boot.js` | 自然语言交互，支持查询持仓、ŷ、调仓等 |
 | **模拟盘（Paper）** | `paper_panel.html` | `paper.js`, `paper/*.js` | 持仓表、调仓、做T、规则、日志 |
 | **量化研究（Quant）** | `quant_panel.html` | `quant.js`, `quant/*.js` | 因子、ŷ、聚类、回测、观察池 |
 | **观察池（Watching）** | `watching_panel.html` | `watching_table_island.js` | 候选股票池管理与打分展示 |
 | **策略（Strategy）** | `strategy_panel.html` | `strategy.js` | 策略组合管理与运行 |
 | **仪表盘（Dashboard）** | `dashboard_panel.html` | `dashboard.js`, `lw_charts.js` | 净值曲线、KPI、风险指标 |
 | **回测（Evals）** | `evals_panel.html` | `evals.js` | 历史回测结果与对比 |
-| **平台（Platform）** | `platform_panel.html` | `platform.js` | 数据仓库、行情源、系统状态 |
+| **平台（Platform）** | `platform_panel.html` | `platform.js` | 调度 / 审计 |
 | **行情回放（Replay）** | `replay_panel.html` | — | 历史行情逐 Bar 回放调试 |
-| **AI 抽屉** | `ai_drawer.html` | `ai_drawer.js` | LLM 辅助分析与生成 |
+| **AI 抽屉** | `ai_drawer.html` | `ai_drawer.js` | LLM 模型 + 自然语言命令 |
 
 ### 2.3 模拟盘面板（Paper）详解
 
@@ -202,7 +201,7 @@ quant_panel.html
 ### 4.3 手数与现金地板
 
 - ranking &gt; rank强（默认 0.02 / 2%）→ **200 股**，否则 **100 股**
-- 买完后现金不得低于 `cash_floor`（默认 50 万）；否则跳过该买
+- 买完后现金不得低于 `cash_floor`（默认 50 万；live 账户小于该值时按净值 20% 缩放）；否则跳过该买
 - 未买但 ranking ≥ 0 **不卖**
 
 ### 4.4 风控约束
