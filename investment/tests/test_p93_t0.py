@@ -4539,6 +4539,373 @@ class TestIntradaySkipLogic(unittest.TestCase):
         self.assertTrue(desk["rows"][2]["locked"])
         self.assertIn("横盘", desk["rows"][2]["reason"])
 
+    def test_desk_idle_tplus1_reason_counts_as_locked(self):
+        import json
+        import tempfile
+        from unittest.mock import patch
+
+        from core.t0 import intraday as mod
+
+        fake = {
+            "session_date": "2026-09-10",
+            "stocks": {
+                "000938": {
+                    "phase": "idle",
+                    "legs_written": 0,
+                    "last_bar_ts": "2026-09-10 11:05:00",
+                    "stock_name": "紫光股份",
+                    "day_snapshot": {
+                        "reason": "正T：可卖旧仓 0 股（持仓 500 全被 T+1 锁定），第二腿卖不掉旧仓",
+                    },
+                }
+            },
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "t0_intraday_state.json")
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(fake, f)
+            with patch.object(mod, "_state_path", return_value=path), patch(
+                "core.market.calendar.resolve_session_date", return_value="2026-09-10"
+            ), patch(
+                "core.paper.load_paper",
+                return_value={
+                    "holdings": [{"stock_code": "000938", "stock_name": "紫光股份"}]
+                },
+            ):
+                desk = mod.build_intraday_desk_status()
+        row = desk["rows"][0]
+        self.assertEqual(row["phase"], "skipped")
+        self.assertTrue(row["locked"])
+        self.assertEqual(desk["locked_count"], 1)
+        self.assertEqual(desk["counts"]["skipped"], 1)
+        self.assertEqual(desk["counts"]["idle"], 0)
+
+    def test_process_holding_tplus1_zero_sellable_locks(self):
+        from core.t0.intraday import PHASE_SKIPPED, process_holding_intraday
+
+        bar = _bar("2026-01-10", 99, 103, 97, 101)
+        paper = {"cash": 50000, "holdings": [], "trades": [], "rules": {}}
+        holding = {
+            "stock_code": "000938",
+            "stock_name": "紫光股份",
+            "shares": 500,
+            "cost": 100,
+        }
+        st, trades, snap = process_holding_intraday(
+            code="000938",
+            holding=holding,
+            stock_state={},
+            minute_bars=_mins_lh(bar=bar),
+            bar=bar,
+            cfg=_rules(t0_ratio=0.4, direction="dual_y"),
+            sellable=0,
+            cash=50000,
+            atr_pct=None,
+            hist_bars=None,
+            scores=_scores_flat(),
+            stance_code=None,
+            coupling_mode="independent",
+            as_of="2026-01-10",
+            log_source="test",
+            paper=paper,
+            applied_legs=0,
+        )
+        self.assertEqual(st.get("phase"), PHASE_SKIPPED)
+        self.assertTrue(st.get("score_locked"))
+        self.assertEqual(trades, [])
+        reason = str(st.get("reason") or snap.get("reason") or "")
+        self.assertIn("T+1", reason)
+        self.assertTrue("可卖旧仓" in reason or "无法先卖" in reason)
+
+    def test_live_new_leg1_window(self):
+        from core.t0.intraday import live_new_leg1_in_window
+
+        latest = "2026-09-10 10:30:00"
+        self.assertTrue(
+            live_new_leg1_in_window(
+                "2026-09-10 10:30:00", last_bar_ts="", latest_bar_ts=latest
+            )
+        )
+        self.assertFalse(
+            live_new_leg1_in_window(
+                "2026-09-10 09:35:00", last_bar_ts="", latest_bar_ts=latest
+            )
+        )
+        self.assertTrue(
+            live_new_leg1_in_window(
+                "2026-09-10 10:30:00",
+                last_bar_ts="2026-09-10 10:25:00",
+                latest_bar_ts=latest,
+            )
+        )
+        self.assertFalse(
+            live_new_leg1_in_window(
+                "2026-09-10 09:40:00",
+                last_bar_ts="2026-09-10 10:25:00",
+                latest_bar_ts=latest,
+            )
+        )
+        # 漏跳：中间 09:40 已过，只认当前 10:30
+        self.assertFalse(
+            live_new_leg1_in_window(
+                "2026-09-10 09:40:00",
+                last_bar_ts="2026-09-10 09:35:00",
+                latest_bar_ts=latest,
+            )
+        )
+        self.assertTrue(
+            live_new_leg1_in_window(
+                "2026-09-10 10:30:00",
+                last_bar_ts="2026-09-10 09:35:00",
+                latest_bar_ts=latest,
+            )
+        )
+
+    def test_intraday_skips_stale_morning_leg1_on_first_tick(self):
+        from unittest.mock import patch
+        from core.t0.intraday import PHASE_IDLE, process_holding_intraday
+
+        bar = _bar("2026-09-10", 25.92, 25.96, 25.64, 25.70)
+        mins = _mins(
+            "2026-09-10",
+            [
+                (935, 25.92, 25.96, 25.64, 25.70),
+                (940, 25.70, 25.80, 25.63, 25.63),
+                (1030, 25.63, 25.80, 25.60, 25.65),
+            ],
+        )
+        fake_day = {
+            "t0_slots_enabled": True,
+            "direction_used": "sell_then_buy",
+            "t0_slot_results": [
+                {
+                    "t0_slot": "r1",
+                    "t0_slot_hm": "09:35",
+                    "direction_used": "sell_then_buy",
+                    "trades": [
+                        {
+                            "side": "t0_sell",
+                            "shares": 100,
+                            "price": 25.7,
+                            "at": "2026-09-10 09:35:00",
+                        }
+                    ],
+                }
+            ],
+            "trades": [
+                {
+                    "side": "t0_sell",
+                    "shares": 100,
+                    "price": 25.7,
+                    "at": "2026-09-10 09:35:00",
+                }
+            ],
+        }
+        paper = {"cash": 80000, "holdings": [], "trades": [], "rules": {}, "operation_log": []}
+        holding = {
+            "stock_code": "600875",
+            "stock_name": "东方电气",
+            "shares": 300,
+            "cost": 25,
+        }
+        with patch("core.t0.slots.simulate_t0_day_slots", return_value=fake_day):
+            st, trades, snap = process_holding_intraday(
+                code="600875",
+                holding=holding,
+                stock_state={},
+                minute_bars=mins,
+                bar=bar,
+                cfg=_rules(direction="sell_then_buy", t0_ratio=0.4),
+                sellable=300,
+                cash=80000,
+                atr_pct=None,
+                hist_bars=None,
+                scores=_scores_flat(),
+                stance_code=None,
+                coupling_mode="independent",
+                as_of="2026-09-10",
+                log_source="test",
+                paper=paper,
+                applied_legs=0,
+            )
+        self.assertEqual(trades, [])
+        self.assertEqual(st.get("phase"), PHASE_IDLE)
+        self.assertEqual(paper.get("trades") or [], [])
+        self.assertEqual(st.get("last_bar_ts"), "2026-09-10 10:30:00")
+        self.assertEqual((snap or {}).get("trades") or [], [])
+
+    def test_intraday_applies_leg1_on_current_bar(self):
+        from unittest.mock import patch
+        from core.t0.intraday import PHASE_AFTER_LEG1, process_holding_intraday
+
+        bar = _bar("2026-09-10", 25.92, 25.96, 25.64, 25.70)
+        mins = _mins("2026-09-10", [(1030, 25.63, 25.80, 25.60, 25.65)])
+        fake_day = {
+            "t0_slots_enabled": True,
+            "direction_used": "sell_then_buy",
+            "t0_slot_results": [
+                {
+                    "t0_slot": "r1",
+                    "t0_slot_hm": "10:30",
+                    "direction_used": "sell_then_buy",
+                    "trades": [
+                        {
+                            "side": "t0_sell",
+                            "shares": 100,
+                            "price": 25.65,
+                            "at": "2026-09-10 10:30:00",
+                        }
+                    ],
+                }
+            ],
+            "trades": [
+                {
+                    "side": "t0_sell",
+                    "shares": 100,
+                    "price": 25.65,
+                    "at": "2026-09-10 10:30:00",
+                }
+            ],
+        }
+        paper = {"cash": 80000, "holdings": [], "trades": [], "rules": {}, "operation_log": []}
+        holding = {
+            "stock_code": "600875",
+            "stock_name": "东方电气",
+            "shares": 300,
+            "cost": 25,
+            "lots": [
+                {
+                    "shares": 300,
+                    "bought_at": "2026-09-09T10:00:00",
+                    "bought_date": "2026-09-09",
+                }
+            ],
+        }
+        with patch("core.t0.slots.simulate_t0_day_slots", return_value=fake_day):
+            st, trades, snap = process_holding_intraday(
+                code="600875",
+                holding=holding,
+                stock_state={},
+                minute_bars=mins,
+                bar=bar,
+                cfg=_rules(direction="sell_then_buy", t0_ratio=0.4),
+                sellable=300,
+                cash=80000,
+                atr_pct=None,
+                hist_bars=None,
+                scores=_scores_flat(),
+                stance_code=None,
+                coupling_mode="independent",
+                as_of="2026-09-10",
+                log_source="test",
+                paper=paper,
+                applied_legs=0,
+            )
+        self.assertEqual(len(trades), 1)
+        self.assertEqual(st.get("phase"), PHASE_AFTER_LEG1)
+        self.assertTrue(trades[0].get("ts"))
+        self.assertEqual((snap.get("trades") or [{}])[0].get("at"), "2026-09-10 10:30:00")
+        self.assertTrue((snap.get("trades") or [{}])[0].get("ts"))
+
+    def test_intraday_gap_does_not_replay_missed_bars(self):
+        from unittest.mock import patch
+        from core.t0.intraday import PHASE_AFTER_LEG1, process_holding_intraday
+
+        bar = _bar("2026-09-10", 25.92, 25.96, 25.64, 25.70)
+        mins = _mins(
+            "2026-09-10",
+            [
+                (935, 25.92, 25.96, 25.64, 25.70),
+                (940, 25.70, 25.80, 25.63, 25.63),
+                (1030, 25.63, 25.80, 25.60, 25.65),
+            ],
+        )
+        fake_day = {
+            "t0_slots_enabled": True,
+            "direction_used": "sell_then_buy",
+            "t0_slot_results": [
+                {
+                    "t0_slot": "r1",
+                    "t0_slot_hm": "09:40",
+                    "direction_used": "sell_then_buy",
+                    "trades": [
+                        {
+                            "side": "t0_sell",
+                            "shares": 100,
+                            "price": 25.63,
+                            "at": "2026-09-10 09:40:00",
+                        }
+                    ],
+                },
+                {
+                    "t0_slot": "r2",
+                    "t0_slot_hm": "10:30",
+                    "direction_used": "sell_then_buy",
+                    "trades": [
+                        {
+                            "side": "t0_sell",
+                            "shares": 100,
+                            "price": 25.65,
+                            "at": "2026-09-10 10:30:00",
+                        }
+                    ],
+                },
+            ],
+            "trades": [
+                {
+                    "side": "t0_sell",
+                    "shares": 100,
+                    "price": 25.63,
+                    "at": "2026-09-10 09:40:00",
+                },
+                {
+                    "side": "t0_sell",
+                    "shares": 100,
+                    "price": 25.65,
+                    "at": "2026-09-10 10:30:00",
+                },
+            ],
+        }
+        paper = {"cash": 80000, "holdings": [], "trades": [], "rules": {}, "operation_log": []}
+        holding = {
+            "stock_code": "600875",
+            "stock_name": "东方电气",
+            "shares": 300,
+            "cost": 25,
+            "lots": [
+                {
+                    "shares": 300,
+                    "bought_at": "2026-09-09T10:00:00",
+                    "bought_date": "2026-09-09",
+                }
+            ],
+        }
+        with patch("core.t0.slots.simulate_t0_day_slots", return_value=fake_day):
+            st, trades, snap = process_holding_intraday(
+                code="600875",
+                holding=holding,
+                stock_state={"last_bar_ts": "2026-09-10 09:35:00"},
+                minute_bars=mins,
+                bar=bar,
+                cfg=_rules(direction="sell_then_buy", t0_ratio=0.4),
+                sellable=300,
+                cash=80000,
+                atr_pct=None,
+                hist_bars=None,
+                scores=_scores_flat(),
+                stance_code=None,
+                coupling_mode="independent",
+                as_of="2026-09-10",
+                log_source="test",
+                paper=paper,
+                applied_legs=0,
+            )
+        self.assertEqual(len(trades), 1)
+        self.assertEqual(st.get("phase"), PHASE_AFTER_LEG1)
+        self.assertAlmostEqual(float(trades[0].get("price") or 0), 25.65)
+        self.assertEqual(str(trades[0].get("at") or "")[:16], "2026-09-10 10:30")
+        self.assertEqual(len(snap.get("trades") or []), 1)
+
     def test_desk_status_falls_back_to_a_code_name(self):
         import json
         import tempfile
@@ -4864,6 +5231,7 @@ class TestT0AutoLastRunDetail(unittest.TestCase):
         self.assertEqual(len(compact), 2)
         self.assertTrue(compact[0].get("skip_category"))
         self.assertEqual(compact[1]["direction"], "sell_then_buy")
+        self.assertNotIn("minute_bars", compact[0])
 
         with tempfile.TemporaryDirectory() as tmp:
             path = os.path.join(tmp, "paper.json")
@@ -4894,6 +5262,204 @@ class TestT0AutoLastRunDetail(unittest.TestCase):
             self.assertEqual(lr["rules"]["direction"], "dual_y")
             self.assertEqual(len(lr["results"]), 1)
             self.assertEqual(lr["results"][0]["stock_code"], "000001")
+
+    def test_compact_keeps_close_band_table_fields(self):
+        from services.paper_trades import _compact_t0_result_rows
+
+        compact = _compact_t0_result_rows(
+            [
+                {
+                    "stock_code": "600875",
+                    "date": "2026-09-10",
+                    "skipped": False,
+                    "direction_used": "sell_then_buy",
+                    "pnl": 0,
+                    "minute_bars": 48,
+                    "scores": {
+                        "y_tau": 0.08,
+                        "y_path": 0.29,
+                        "score_formula_terms": {"terms": [1, 2, 3]},
+                        "factor_coefficients": {"momentum": 0.1},
+                    },
+                    "close_band_scan": [
+                        {
+                            "hm": "09:35",
+                            "o": 25.5,
+                            "l": 25.4,
+                            "h": 25.8,
+                            "c": 25.7,
+                            "c_tau": 25.45,
+                            "r_pct": 0.95,
+                        }
+                    ],
+                    "forward_trace": [
+                        {
+                            "time": "09:35",
+                            "open": 25.5,
+                            "high": 25.8,
+                            "low": 25.4,
+                            "close": 25.7,
+                            "leg1_fill": True,
+                            "wait_reason": "drop-me",
+                        }
+                    ],
+                    "t0_slot_results": [
+                        {
+                            "id": "r1",
+                            "hm": "09:35",
+                            "direction": "sell_then_buy",
+                            "sold_qty": 100,
+                            "trades": 1,
+                            "close_band": {"c_tau": 25.45, "band_r_pct": 0.95},
+                            "_t0_score_snap": {"huge": True},
+                        }
+                    ],
+                    "trades": [
+                        {
+                            "side": "t0_sell",
+                            "price": 25.7,
+                            "shares": 100,
+                            "at": "2026-09-10 09:35:00",
+                            "ts": "2026-09-10T10:29:15.941",
+                            "t0_slot": "r1",
+                            "t0_slot_hm": "09:35",
+                        }
+                    ],
+                }
+            ]
+        )
+        row = compact[0]
+        self.assertNotIn("minute_bars", row)
+        self.assertNotIn("score_formula_terms", row.get("scores") or {})
+        self.assertAlmostEqual(float(row["scores"]["y_tau"]), 0.08)
+        self.assertEqual(row["close_band_scan"][0]["c_tau"], 25.45)
+        self.assertTrue(row["forward_trace"][0]["leg1_fill"])
+        self.assertNotIn("wait_reason", row["forward_trace"][0])
+        self.assertEqual(row["t0_slot_results"][0]["close_band"]["c_tau"], 25.45)
+        self.assertNotIn("_t0_score_snap", row["t0_slot_results"][0])
+        self.assertEqual(row["trades"][0]["t0_slot"], "r1")
+        self.assertEqual(row["trades"][0]["ts"], "2026-09-10T10:29:15.941")
+
+    def test_hydrate_last_run_from_intraday_snapshot(self):
+        from unittest.mock import patch
+        from services.paper_trades import _hydrate_t0_last_run_display
+
+        lr = {
+            "session_date": "2026-09-10",
+            "results": [
+                {
+                    "stock_code": "600875",
+                    "date": "2026-09-10",
+                    "direction": "sell_then_buy",
+                    "trades": [
+                        {
+                            "side": "t0_sell",
+                            "price": 25.7,
+                            "shares": 100,
+                            "at": "2026-09-10 09:35:00",
+                        }
+                    ],
+                    "pnl": 0,
+                }
+            ],
+        }
+        state = {
+            "session_date": "2026-09-10",
+            "stocks": {
+                "600875": {
+                    "day_snapshot": {
+                        "stock_code": "600875",
+                        "open": 25.4,
+                        "close": 25.2,
+                        "t0_slots_enabled": True,
+                        "t0_slot_results": [
+                            {
+                                "id": "r1",
+                                "hm": "09:35",
+                                "sold_qty": 100,
+                                "trades": 1,
+                                "close_band": {"c_tau": 25.45, "band_r_pct": 0.95},
+                            }
+                        ],
+                        "close_band_scan": [
+                            {
+                                "hm": "09:35",
+                                "o": 25.5,
+                                "l": 25.4,
+                                "h": 25.8,
+                                "c": 25.7,
+                                "c_tau": 25.45,
+                                "r_pct": 0.95,
+                            }
+                        ],
+                        "forward_trace": [
+                            {
+                                "time": "09:35",
+                                "open": 25.5,
+                                "high": 25.8,
+                                "low": 25.4,
+                                "close": 25.7,
+                                "leg1_fill": True,
+                            }
+                        ],
+                        "trades": [
+                            {
+                                "side": "t0_sell",
+                                "price": 25.7,
+                                "shares": 100,
+                                "at": "2026-09-10 09:35:00",
+                                "t0_slot": "r1",
+                                "t0_slot_hm": "09:35",
+                            }
+                        ],
+                    }
+                }
+            },
+        }
+        with patch("core.t0.intraday.load_intraday_state", return_value=state):
+            self.assertTrue(_hydrate_t0_last_run_display(lr))
+        row = lr["results"][0]
+        self.assertEqual(row["t0_slot_results"][0]["hm"], "09:35")
+        self.assertEqual(row["close_band_scan"][0]["c"], 25.7)
+        self.assertEqual(row["forward_trace"][0]["open"], 25.5)
+        self.assertEqual(row["trades"][0]["t0_slot"], "r1")
+        self.assertAlmostEqual(float(row["trades"][0]["price"]), 25.7)
+
+    def test_stamp_book_ts_from_paper_trades(self):
+        from services.paper_trades import _stamp_book_ts_from_paper
+
+        lr = {
+            "session_date": "2026-09-10",
+            "results": [
+                {
+                    "stock_code": "600875",
+                    "trades": [
+                        {
+                            "side": "t0_sell",
+                            "price": 25.7,
+                            "shares": 100,
+                            "at": "2026-09-10 09:35:00",
+                            "t0_slot_hm": "09:35",
+                        }
+                    ],
+                }
+            ],
+        }
+        paper = {
+            "trades": [
+                {
+                    "stock_code": "600875",
+                    "side": "t0_sell",
+                    "price": 25.7,
+                    "shares": 100,
+                    "at": "2026-09-10 09:35:00",
+                    "ts": "2026-09-10T10:29:15.941",
+                }
+            ]
+        }
+        self.assertTrue(_stamp_book_ts_from_paper(lr, paper))
+        self.assertEqual(lr["results"][0]["trades"][0]["ts"], "2026-09-10T10:29:15.941")
+        self.assertFalse(_stamp_book_ts_from_paper(lr, paper))
 
     def test_last_run_skipped_without_write(self):
         import tempfile
@@ -5047,7 +5613,24 @@ class TestDeleteT0Records(unittest.TestCase):
                         },
                     }
                 },
-                "operation_log": [],
+                "operation_log": [
+                    {
+                        "ts": f"{sess}T09:35:00",
+                        "type": "sell",
+                        "detail": "做T卖出 中国铝业 100股 @ 10.1",
+                        "meta": {
+                            "stock_code": "601600",
+                            "origin": "t0",
+                            "source": "paper_t0_auto",
+                        },
+                    },
+                    {
+                        "ts": f"{sess}T09:35:00",
+                        "type": "t0_batch",
+                        "detail": "做T自动·盘中 · 成交 1 笔",
+                        "meta": {"origin": "t0", "source": "paper_t0_auto", "trade_count": 1},
+                    },
+                ],
                 "snapshots": [],
             }
             save_paper(paper, path)
@@ -5075,6 +5658,12 @@ class TestDeleteT0Records(unittest.TestCase):
             voided = [t for t in paper2["trades"] if t.get("voided")]
             self.assertEqual(len(voided), 2)
             self.assertTrue(any(e.get("type") == "t0_void" for e in paper2.get("operation_log") or []))
+            voided_logs = [
+                e
+                for e in (paper2.get("operation_log") or [])
+                if e.get("voided") and e.get("type") in ("sell", "t0_batch")
+            ]
+            self.assertEqual(len(voided_logs), 2)
 
     def test_delete_only_last_run_keeps_other_code(self):
         import tempfile

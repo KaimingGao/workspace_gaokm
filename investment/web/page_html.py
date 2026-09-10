@@ -133,7 +133,7 @@ def _topbar(_active: str) -> str:
       </div>
       <div class="topbar-right">
         <span id="status" class="status" role="status">检测中…</span>
-        <button type="button" class="dialog-btn" id="btn-ai-open" title="AI（⌘K）">AI</button>
+        <button type="button" class="icon-btn topbar-ai-btn" id="btn-ai-open" title="AI（⌘K）" aria-label="打开 AI（⌘K）">AI</button>
         <button type="button" class="icon-btn" id="btn-theme-toggle" title="切换深浅色" aria-label="切换深浅色">◐</button>
       </div>
     </header>

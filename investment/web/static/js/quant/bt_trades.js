@@ -2,6 +2,8 @@
  * Top-K 回测模拟成交表：列定义与纯变换。
  */
 
+import { resolveStockDisplayName } from "./names.js";
+
 const _V =
   (typeof window !== "undefined" && window.__ASSET_V__) || "dev";
 const { watchingScoreDetail } = await import(
@@ -176,7 +178,7 @@ export function buildSimTradesCsv(rows, nameByCode = {}) {
   const lines = [header.join(",")];
   for (const r of rows || []) {
     const code = String(r.stock_code || "").trim();
-    const name = nameByCode[code] || "";
+    const name = resolveStockDisplayName(code, nameByCode[code], r.stock_name) || "";
     const cells = [
       code,
       name,
@@ -416,7 +418,7 @@ export function buildLedgerTradeRow(r, i, deps) {
   const nameByCode = deps.nameByCode || {};
   const { fmtScore, scoreCls } = deps;
   const code = String(r.stock_code || "").trim();
-  const fullName = nameByCode[code] || r.stock_name || code;
+  const fullName = resolveStockDisplayName(code, nameByCode[code], r.stock_name) || code;
   const side = String(r.side || "").toLowerCase();
   const buy = side === "buy";
   const skipped = String(r.status || "") === "skipped";
@@ -651,7 +653,7 @@ export function buildLedgerTradesCsv(rows, nameByCode = {}) {
   const lines = [header.join(",")];
   for (const r of attachLedgerOpenCost(sortLedgerTradeLegs(rows))) {
     const code = String(r.stock_code || "").trim();
-    const name = nameByCode[code] || r.stock_name || "";
+    const name = resolveStockDisplayName(code, nameByCode[code], r.stock_name) || "";
     const sh = Number(r.shares);
     const px = Number(r.price);
     const cost = Number.isFinite(sh) && Number.isFinite(px) ? sh * px : "";
@@ -718,7 +720,7 @@ export function buildSimTradeRow(r, i, deps) {
   const nameByCode = deps.nameByCode || {};
   const { fmtPct, metricClass, fmtScore, scoreCls } = deps;
   const code = String(r.stock_code || "").trim();
-  const fullName = nameByCode[code] || code;
+  const fullName = resolveStockDisplayName(code, nameByCode[code], r.stock_name) || code;
   const ret = r.return_pct;
   const st = r.status || "filled";
   // 与观察池同源：slim 分项、优先 τ 字段，避免 data-score-detail 过长截断坏 JSON

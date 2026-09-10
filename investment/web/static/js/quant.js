@@ -1079,15 +1079,22 @@ export function initQuant(ctx) {
       await loadPrefsHorizon().catch(() => {});
       await cluster.populateOlsCodeOptions().catch(() => {});
       const foreground = [];
+      const watchingP =
+        hasWatching || hasReplay
+          ? watching.loadWatchingPanel().catch((err) => {
+              watching.setPoolMeta(String(err.message || err));
+            })
+          : Promise.resolve();
       if (hasWatching || hasReplay) {
-        foreground.push(
-          watching.loadWatchingPanel().catch((err) => {
-            watching.setPoolMeta(String(err.message || err));
-          })
-        );
+        foreground.push(watchingP);
       }
       if (page === "replay") {
-        foreground.push(backtest.restoreLastPortfolioBacktest().catch(() => {}));
+        foreground.push(
+          watchingP
+            .catch(() => {})
+            .then(() => backtest.restoreLastPortfolioBacktest())
+            .catch(() => {})
+        );
       }
       if (hasStrategy) {
         foreground.push(strategy.loadSignalConfigPanel().catch(() => {}));

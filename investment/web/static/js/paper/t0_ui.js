@@ -454,6 +454,12 @@ function deskClock(ts) {
 
 function classifyDeskNote(note, locked) {
   const r = String(note || "");
+  const tplus1 =
+    r.includes("T+1") ||
+    r.includes("可卖旧仓") ||
+    r.includes("卖不掉旧仓") ||
+    (r.includes("可卖 0") && r.includes("无法先卖"));
+  if (tplus1) return { id: "lot", label: "仓/钱" };
   if (locked) {
     if (r.includes("超额不足") || r.includes("R̂_τ 缺失") || r.includes("|R̂_τ|"))
       return { id: "r_tau_flat", label: "R不足" };

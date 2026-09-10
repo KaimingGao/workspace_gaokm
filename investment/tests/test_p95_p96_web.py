@@ -30,6 +30,8 @@ class TestP95P96WebPages(unittest.TestCase):
         self.assertIn("watching-watchlist-table", watching.text)
         self.assertIn("ai-drawer", watching.text)
         self.assertIn('id="btn-ai-open"', watching.text)
+        self.assertIn("topbar-ai-btn", watching.text)
+        self.assertNotIn('class="dialog-btn" id="btn-ai-open"', watching.text)
         self.assertIn("side-nav", watching.text)
         self.assertIn(">数据中心<", watching.text)
         self.assertIn(">仪表盘<", watching.text)

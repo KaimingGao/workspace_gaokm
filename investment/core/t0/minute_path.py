@@ -87,6 +87,16 @@ def _tplus1_skip_reason(*, side: str, shares: float, sellable: float, lot: int) 
     return f"反T：可卖仅 {sv} 股 < {lot}（持仓 {sh}），不够 1 手"
 
 
+def tplus1_reason_is_terminal(reason: str) -> bool:
+    """当日可卖旧仓不足：正T卖不掉旧仓 / 反T无法先卖，盘中不会解冻。"""
+    r = str(reason or "")
+    if "T+1" in r or "可卖旧仓" in r or "卖不掉旧仓" in r:
+        return True
+    if "无法先卖" in r and "可卖" in r:
+        return True
+    return False
+
+
 def _ratio_lot_skip_reason(*, side: str, shares: float, t0_ratio: float, lot: int) -> str:
     """可卖够、但持仓×动仓比例仍不足 1 手（动仓固定 100%）。"""
     sh = int(shares)

@@ -124,6 +124,32 @@ def _watching_name_map() -> Dict[str, str]:
         return {}
 
 
+def _usable_stock_name(code: str, *cands: Any) -> str:
+    c = str(code or "").strip()
+    for raw in cands:
+        nm = str(raw or "").strip()
+        if nm and nm != c and not nm.isdigit():
+            return nm
+    return ""
+
+
+def _stamp_stock_names(
+    rows: Sequence[dict],
+    name_by_code: Optional[Dict[str, str]] = None,
+) -> None:
+    """把观察池中文名写到打分/成交行；缺名时不要用代码冒充。"""
+    names = name_by_code or {}
+    for row in rows or []:
+        if not isinstance(row, dict):
+            continue
+        code = str(row.get("stock_code") or "").strip()
+        if not code:
+            continue
+        nm = _usable_stock_name(code, names.get(code), row.get("stock_name"))
+        if nm:
+            row["stock_name"] = nm
+
+
 def _leg_stock_name(
     code: str,
     start: dict,
@@ -1112,6 +1138,8 @@ def backtest_paper_replay(
                 on_model_doc=on_model_doc,
                 tau_model_doc=tau_model_doc,
             )
+        _stamp_stock_names(scored, name_by_code)
+        _stamp_stock_names(paper.get("holdings") or [], name_by_code)
 
         prices: Dict[str, float] = {}
         for code in list(stock_bars.keys()) + [
@@ -1279,6 +1307,9 @@ def backtest_paper_replay(
 
     sim_trades = [_stamp_day_context(r) for r in _ledger_trades_to_sim(ledger_trades)]
     sim_trades.extend(_stamp_day_context(dict(s)) for s in debug_skips)
+    _stamp_stock_names(sim_trades, name_by_code)
+    _stamp_stock_names(ledger_trades, name_by_code)
+    _stamp_stock_names(paper.get("holdings") or [], name_by_code)
     metrics["trade_count"] = len(ledger_trades)
     metrics["sim_trade_count"] = len(ledger_trades)
     metrics["skip_count"] = len(debug_skips)

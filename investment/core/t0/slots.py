@@ -1302,15 +1302,25 @@ def simulate_t0_day_slots(
             if remain_cover < lot:
                 from core.t0.minute_path import _tplus1_skip_reason
 
-                last_tplus1_skip = _tplus1_skip_reason(
-                    side="buy_then_sell",
-                    shares=shares,
-                    sellable=sellable_cap,
-                    lot=lot,
-                )
+                if not last_tplus1_skip:
+                    last_tplus1_skip = _tplus1_skip_reason(
+                        side="buy_then_sell",
+                        shares=shares,
+                        sellable=sellable_cap,
+                        lot=lot,
+                    )
                 continue
             path_sellable = remain_cover
         if direction == "sell_then_buy" and slice_qty < lot:
+            from core.t0.minute_path import _tplus1_skip_reason
+
+            if not last_tplus1_skip:
+                last_tplus1_skip = _tplus1_skip_reason(
+                    side="sell_then_buy",
+                    shares=shares,
+                    sellable=sellable_now,
+                    lot=lot,
+                )
             continue
 
         frozen = freeze_round(

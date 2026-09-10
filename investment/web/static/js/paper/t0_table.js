@@ -1423,7 +1423,8 @@ function normalizeTradeLeg(t) {
   const side = legSideKind(t?.side);
   const qty = Math.round(Number(t?.shares) || 0);
   const price = Number(t?.price);
-  const time = fmtT0LegTime(t?.at);
+  const time =
+    fmtT0LegTime(t?.t0_slot_hm) || fmtT0LegTime(t?.at);
   const note = String(t?.note || "");
   const legKind =
     String(t?.leg_kind || "").trim() ||
@@ -1527,9 +1528,11 @@ function processSlotGroups(d) {
     groups.push({
       id,
       hm: String(
-        r.hm ||
+        (slotLegs[0] && slotLegs[0].slotHm) ||
+          r.hm ||
+          r.t0_slot_hm ||
           (String(r.id || "") === String(d?.t0_slot || "") ? d.t0_slot_hm : "") ||
-          (slotLegs[0] && slotLegs[0].slotHm) ||
+          (slotLegs[0] && slotLegs[0].time) ||
           ""
       ),
       dir: String(r.direction || ""),
@@ -1546,7 +1549,7 @@ function processSlotGroups(d) {
     if (seen.has(id) || !slotLegs.length) continue;
     groups.push({
       id,
-      hm: String(slotLegs[0].slotHm || ""),
+      hm: String((slotLegs[0] && (slotLegs[0].slotHm || slotLegs[0].time)) || ""),
       dir: "",
       legs: slotLegs,
       skipped: false,
@@ -2039,6 +2042,26 @@ function slotOhlcFromBars(bars, hm) {
   };
 }
 
+function slotOhlcFromScan(host, hm) {
+  const r = scanRowForHm(host, hm);
+  if (!r) return { o: null, l: null, h: null, c: null };
+  return {
+    o: _finitePx(r.o),
+    l: _finitePx(r.l),
+    h: _finitePx(r.h),
+    c: _finitePx(r.c),
+  };
+}
+
+function firstLegClock(host) {
+  const legs = collectLegRecords(host);
+  for (const l of legs) {
+    const hm = String((l && (l.slotHm || l.time)) || "").trim();
+    if (hm) return hm.slice(0, 5);
+  }
+  return "";
+}
+
 function _finitePx(v) {
   const n = Number(v);
   return Number.isFinite(n) && n > 0 ? n : null;
@@ -2196,7 +2219,11 @@ function tradeSlotPxCells(host, rules) {
     }
   }
   if (!hm && slotRow) hm = slotClock(slotRow, host?.t0_slot_results);
+  if (!hm) hm = firstLegClock(host);
   let ohlc = hm ? slotOhlcFromBars(bars, hm) : { o: null, l: null, h: null, c: null };
+  if (ohlc.o == null && ohlc.c == null) {
+    ohlc = slotOhlcFromScan(host, hm);
+  }
   if (ohlc.o == null && ohlc.c == null) {
     ohlc = {
       o: _finitePx(host && host.open),
@@ -2206,9 +2233,10 @@ function tradeSlotPxCells(host, rules) {
     };
   }
   const px = slotClosePxParts(slotRow);
-  const cTau = px.c_tau ?? px.c_hat;
+  const scan = scanRowForHm(host, hm);
+  const cTau = px.c_tau ?? px.c_hat ?? _finitePx(scan && scan.c_tau);
   const cTauDaily = px.c_tau_daily ?? px.c_hat_daily;
-  const rTau = slotRtauPct(slotRow, ohlc.c, cTau);
+  const rTau = slotRtauPct(slotRow, ohlc.c, cTau) ?? (scan && scan.r_pct);
   return (
     tradeBarPxTd("o", ohlc.o, "本轮触发根 5m 开盘") +
     tradeBarPxTd("l", ohlc.l, "本轮触发根 5m 最低") +

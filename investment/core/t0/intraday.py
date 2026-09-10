@@ -331,6 +331,11 @@ def _desk_row_from_stock_state(
             else "等待下一根 5m"
         )
     legs = int(raw.get("legs_written") or 0)
+    if phase == PHASE_IDLE and legs <= 0:
+        from core.t0.minute_path import tplus1_reason_is_terminal
+
+        if tplus1_reason_is_terminal(reason):
+            phase = PHASE_SKIPPED
     locked = phase == PHASE_SKIPPED
     direction = str(
         raw.get("direction")
@@ -487,6 +492,87 @@ def save_intraday_state(state: Dict[str, Any]) -> None:
 
 def _bar_ts(mb: dict) -> str:
     return str(mb.get("datetime") or mb.get("date") or "")
+
+
+def _norm_bar_ts(ts: Any) -> str:
+    s = str(ts or "").strip().replace("T", " ")
+    if len(s) >= 19 and s[4:5] == "-":
+        return s[:19]
+    return s
+
+
+def _bar_key(ts: Any) -> str:
+    """对齐到分钟：``YYYY-MM-DD HH:MM``，忽略秒与 T 分隔。"""
+    s = _norm_bar_ts(ts)
+    if len(s) >= 16:
+        return s[:16]
+    return s
+
+
+def live_new_leg1_in_window(
+    trade_at: Any,
+    *,
+    last_bar_ts: str,
+    latest_bar_ts: str,
+) -> bool:
+    """盘中新开第一腿：只认最新一根已闭合 5m。
+
+    首 tick、漏跳、午间补扫都不回放中间已过的 K；那一根当时没成交就错过。
+    """
+    at = _bar_key(trade_at)
+    latest = _bar_key(latest_bar_ts)
+    last = _bar_key(last_bar_ts)
+    if not at or not latest:
+        return False
+    if at != latest:
+        return False
+    if last and last >= latest:
+        return False
+    return True
+
+
+def _overlay_applied_ts(legs: List[dict], applied: List[dict]) -> List[dict]:
+    """把本 tick 落账的 ``ts`` 盖回快照腿（审计）；过程列仍用 5m 槽钟。"""
+    unused = [dict(a) for a in applied or [] if isinstance(a, dict)]
+    out: List[dict] = []
+    for raw in legs or []:
+        if not isinstance(raw, dict):
+            continue
+        row = dict(raw)
+        if row.get("ts"):
+            out.append(row)
+            continue
+        side = str(row.get("side") or "")
+        try:
+            shares = int(row.get("shares") or 0)
+        except (TypeError, ValueError):
+            shares = 0
+        try:
+            px = round(float(row.get("price") or 0), 4)
+        except (TypeError, ValueError):
+            px = 0.0
+        hit_i = None
+        for i, a in enumerate(unused):
+            if str(a.get("side") or "") != side:
+                continue
+            try:
+                if int(a.get("shares") or 0) != shares:
+                    continue
+            except (TypeError, ValueError):
+                continue
+            try:
+                if round(float(a.get("price") or 0), 4) != px:
+                    continue
+            except (TypeError, ValueError):
+                continue
+            hit_i = i
+            break
+        if hit_i is not None:
+            a = unused.pop(hit_i)
+            if a.get("ts") and not row.get("ts"):
+                row["ts"] = a.get("ts")
+        out.append(row)
+    return out
 
 
 def latest_minute_bar_ts(minute_bars: List[dict]) -> str:
@@ -1084,6 +1170,8 @@ def _process_holding_slots(
     slot_rows = list(day_out.get("t0_slot_results") or [])
     all_applied: List[dict] = []
     legs_total = 0
+    last_seen = str(st.get("last_bar_ts") or "")
+    latest_ts = latest_minute_bar_ts(minute_bars) if minute_bars else ""
     for row in slot_rows:
         if not isinstance(row, dict):
             continue
@@ -1103,6 +1191,14 @@ def _process_holding_slots(
             rnd["reason"] = str(row.get("reason") or "")
             rounds[sid] = rnd
             continue
+
+        if written <= 0 and new_trades:
+            first_at = new_trades[0].get("at") if isinstance(new_trades[0], dict) else ""
+            if not live_new_leg1_in_window(
+                first_at, last_bar_ts=last_seen, latest_bar_ts=latest_ts
+            ):
+                # 早盘已过的破带不回放成交；本轮不入 rounds，下一根 K 再看
+                continue
 
         applied = []
         if new_trades:
@@ -1130,19 +1226,47 @@ def _process_holding_slots(
 
     st["rounds"] = rounds
     stock_phase, legs_sum, direction = _stock_phase_from_rounds(rounds)
+    skip_reason = str(
+        day_out.get("reason") or day_out.get("direction_reason") or st.get("reason") or ""
+    )
+    if legs_sum <= 0 and not all_applied:
+        from core.t0.minute_path import tplus1_reason_is_terminal
+
+        if tplus1_reason_is_terminal(skip_reason):
+            stock_phase = PHASE_SKIPPED
+            st["reason"] = skip_reason
+            st["score_locked"] = True
+            st.pop("wait_reason", None)
     st["phase"] = stock_phase
     st["legs_written"] = legs_sum
     if direction:
         st["direction"] = direction
     if minute_bars:
-        st["last_bar_ts"] = _bar_ts(minute_bars[-1])
+        st["last_bar_ts"] = latest_minute_bar_ts(minute_bars)
     merged = attach_day_scores(day_out, scores) if isinstance(day_out, dict) else {}
-    if all_applied or merged:
+    committed_slots: List[dict] = []
+    committed_legs: List[dict] = []
+    for row in slot_rows:
+        if not isinstance(row, dict):
+            continue
+        sid = str(row.get("t0_slot") or "")
+        rnd = rounds.get(sid) if sid else None
+        if not isinstance(rnd, dict):
+            continue
+        committed_slots.append(row)
+        w = int(rnd.get("legs_written") or 0)
+        if w > 0:
+            committed_legs.extend(_slot_trade_legs(row)[:w])
+    snap_trades = _overlay_applied_ts(committed_legs, all_applied)
+    if all_applied or snap_trades or merged:
+        snap_merged = dict(merged) if isinstance(merged, dict) else {}
+        if committed_slots:
+            snap_merged["t0_slot_results"] = committed_slots
         st["day_snapshot"] = {
-            **merged,
+            **snap_merged,
             "stock_code": code,
             "stock_name": holding.get("stock_name"),
-            "trades": list((merged.get("trades") or [])[:legs_sum]) if merged.get("trades") else all_applied,
+            "trades": snap_trades,
             "t0_slots_enabled": True,
             "range_mode": "close_band",
         }

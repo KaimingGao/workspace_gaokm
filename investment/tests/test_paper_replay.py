@@ -358,6 +358,45 @@ class TestPaperReplayEngine(unittest.TestCase):
         sells = [t for t in (out.get("trades") or []) if t.get("side") == "sell"]
         self.assertEqual(sells, [], "未进 Top-K 不应卖出")
 
+    def test_stamp_stock_names_prefers_watching_map(self):
+        from core.backtest.paper_replay import _stamp_stock_names
+
+        rows = [{"stock_code": "600519", "stock_name": "600519"}]
+        _stamp_stock_names(rows, {"600519": "贵州茅台"})
+        self.assertEqual(rows[0]["stock_name"], "贵州茅台")
+        keep = [{"stock_code": "600519", "stock_name": "茅台"}]
+        _stamp_stock_names(keep, {})
+        self.assertEqual(keep[0]["stock_name"], "茅台")
+
+    def test_sim_trades_use_watching_names(self):
+        stock_bars = {
+            "600519": _bars(22, step=0.5),
+            "600036": _bars(22, step=0.35),
+        }
+        dates = [b["date"] for b in stock_bars["600519"]]
+        rankings = {
+            d: [_rank_row("600519", 2.0), _rank_row("600036", 1.5)] for d in dates
+        }
+        with _offline_rebalance_patches(), patch(
+            "core.backtest.paper_replay._watching_name_map",
+            return_value={"600519": "贵州茅台", "600036": "招商银行"},
+        ):
+            out = backtest_paper_replay(
+                stock_bars,
+                top_k=2,
+                min_history=8,
+                rankings_by_date=rankings,
+                cost_model="zero",
+                initial_cash=1_000_000.0,
+            )
+        self.assertTrue(out.get("success"), out.get("error"))
+        names = {
+            str(t.get("stock_code")): t.get("stock_name")
+            for t in (out.get("sim_trades") or [])
+        }
+        self.assertEqual(names.get("600519"), "贵州茅台")
+        self.assertEqual(names.get("600036"), "招商银行")
+
     def test_full_ledger_not_truncated(self):
         """完整账本：trades / sim_trades / rebalance_logs 等长且带 as_of。"""
         stock_bars = {

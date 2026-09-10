@@ -59,61 +59,417 @@ def _normalize_t0_auto(raw: Optional[dict]) -> Dict[str, Any]:
     return out
 
 
+_T0_LEDGER_ROW_KEYS = (
+    "stock_code",
+    "stock_name",
+    "date",
+    "skipped",
+    "reason",
+    "signal_skip",
+    "skip_category",
+    "success",
+    "error",
+    "direction_used",
+    "direction",
+    "direction_score",
+    "direction_reason",
+    "pnl",
+    "exposure_pnl",
+    "sold_qty",
+    "bought_qty",
+    "covered_qty",
+    "uncovered_qty",
+    "sold_back_qty",
+    "touch_sell_at",
+    "touch_buy_at",
+    "touch_cover_at",
+    "path_mode",
+    "minute_path",
+    "intraday_path",
+    "cover_policy",
+    "must_cover_same_day",
+    "exit_reason",
+    "t0_slots_enabled",
+    "t0_slot",
+    "t0_slot_hm",
+    "t0_slot_focus",
+    "range_mode",
+    "prefix_bars",
+    "open",
+    "high",
+    "low",
+    "close",
+    "price_space",
+    "price_space_scale",
+    "price_space_mode",
+    "close_band",
+    "day_return_pct",
+    "leg1_notional",
+)
+
+_T0_SCORE_BULK_KEYS = frozenset(
+    {
+        "score_formula_terms",
+        "factor_coefficients",
+        "y_spec_tau",
+        "dual_score_weights",
+        "dual_score_fusion",
+    }
+)
+
+_T0_TRACE_KEYS = (
+    "idx",
+    "time",
+    "datetime",
+    "open",
+    "high",
+    "low",
+    "close",
+    "buy_fill",
+    "sell_fill",
+    "leg1_fill",
+    "leg2_fill",
+)
+
+_T0_SLOT_ROW_KEYS = (
+    "id",
+    "hm",
+    "t0_slot",
+    "t0_slot_hm",
+    "skipped",
+    "pending",
+    "reason",
+    "direction",
+    "direction_used",
+    "trades",
+    "sold_qty",
+    "covered_qty",
+    "uncovered_qty",
+    "bought_qty",
+    "sold_back_qty",
+    "pnl",
+    "exposure_pnl",
+    "exit_reason",
+    "close_band",
+)
+
+_T0_LEG_KEYS = (
+    "side",
+    "price",
+    "shares",
+    "at",
+    "ts",
+    "t0_slot",
+    "t0_slot_hm",
+    "note",
+    "leg_kind",
+)
+
+_T0_DISPLAY_KEYS = (
+    "t0_slots_enabled",
+    "t0_slot_results",
+    "close_band",
+    "close_band_scan",
+    "forward_trace",
+    "price_space",
+    "price_space_scale",
+    "price_space_mode",
+    "open",
+    "high",
+    "low",
+    "close",
+    "prefix_bars",
+    "range_mode",
+    "day_return_pct",
+    "leg1_notional",
+)
+
+
+def _slim_t0_scores(raw: Any) -> Optional[dict]:
+    """成交表只要 ŷ 标量；丢掉公式拆项 / 系数表。"""
+    if not isinstance(raw, dict):
+        return None
+    out: Dict[str, Any] = {}
+    for k, v in raw.items():
+        if k in _T0_SCORE_BULK_KEYS or str(k).startswith("formula_terms"):
+            continue
+        out[k] = v
+    return out or None
+
+
+def _compact_t0_legs(trades: Any) -> List[dict]:
+    out: List[dict] = []
+    for t in trades or []:
+        if not isinstance(t, dict):
+            continue
+        leg = {k: t[k] for k in _T0_LEG_KEYS if k in t}
+        if leg:
+            out.append(leg)
+    return out
+
+
+def _compact_forward_trace(trace: Any) -> List[dict]:
+    out: List[dict] = []
+    for row in trace or []:
+        if not isinstance(row, dict):
+            continue
+        slim = {k: row[k] for k in _T0_TRACE_KEYS if k in row}
+        if slim:
+            out.append(slim)
+    return out
+
+
+def _compact_t0_slot_row(raw: Any) -> Optional[dict]:
+    if not isinstance(raw, dict):
+        return None
+    row = {k: raw[k] for k in _T0_SLOT_ROW_KEYS if k in raw}
+    if raw.get("direction_used") and "direction" not in row:
+        row["direction"] = raw.get("direction_used")
+    scores = _slim_t0_scores(raw.get("scores"))
+    if scores:
+        row["scores"] = scores
+    feats = _slim_t0_scores(raw.get("direction_features"))
+    if feats:
+        row["direction_features"] = feats
+    raw_legs = raw.get("trade_legs")
+    if not isinstance(raw_legs, list):
+        raw_legs = raw.get("trades") if isinstance(raw.get("trades"), list) else None
+    legs = _compact_t0_legs(raw_legs)
+    if legs:
+        row["trade_legs"] = legs
+    if isinstance(row.get("trades"), list):
+        row["trades"] = len(row["trades"])
+    return row or None
+
+
 def _compact_t0_result_rows(results: Optional[list]) -> List[dict]:
     """落账 last_run 存档：保留成交表所需字段，去掉冗余 bulk。"""
     from core.t0.viz import classify_t0_skip_reason
 
-    keys = (
-        "stock_code",
-        "stock_name",
-        "date",
-        "skipped",
-        "reason",
-        "signal_skip",
-        "skip_category",
-        "success",
-        "error",
-        "direction_used",
-        "direction_score",
-        "direction_reason",
-        "direction_features",
-        "scores",
-        "pnl",
-        "exposure_pnl",
-        "sold_qty",
-        "bought_qty",
-        "covered_qty",
-        "sold_back_qty",
-        "touch_sell_at",
-        "touch_buy_at",
-        "touch_cover_at",
-        "path_mode",
-        "minute_path",
-        "intraday_path",
-        "cover_policy",
-        "must_cover_same_day",
-        "exit_reason",
-    )
     out: List[dict] = []
     for raw in results or []:
         if not isinstance(raw, dict):
             continue
-        row = {k: raw[k] for k in keys if k in raw}
+        row = {k: raw[k] for k in _T0_LEDGER_ROW_KEYS if k in raw}
         if raw.get("direction_used") and "direction" not in row:
             row["direction"] = raw.get("direction_used")
         if row.get("skipped") and not row.get("skip_category"):
             row["skip_category"] = classify_t0_skip_reason(str(raw.get("reason") or ""))
-        legs = []
-        for t in raw.get("trades") or []:
-            if not isinstance(t, dict):
-                continue
-            leg = {k: t[k] for k in ("side", "price", "shares", "at") if k in t}
-            if leg:
-                legs.append(leg)
+        scores = _slim_t0_scores(raw.get("scores"))
+        if scores:
+            row["scores"] = scores
+        feats = _slim_t0_scores(raw.get("direction_features"))
+        if feats:
+            row["direction_features"] = feats
+        legs = _compact_t0_legs(raw.get("trades"))
         if legs:
             row["trades"] = legs
+        slots = [
+            s
+            for s in (_compact_t0_slot_row(r) for r in (raw.get("t0_slot_results") or []))
+            if s
+        ]
+        if slots:
+            row["t0_slot_results"] = slots
+        scan = raw.get("close_band_scan")
+        if isinstance(scan, list) and scan:
+            row["close_band_scan"] = [r for r in scan if isinstance(r, dict)]
+        trace = _compact_forward_trace(raw.get("forward_trace"))
+        if trace:
+            row["forward_trace"] = trace
         out.append(row)
     return out
+
+
+def _ledger_row_missing_px(row: Optional[dict]) -> bool:
+    if not isinstance(row, dict):
+        return True
+    if row.get("close_band_scan") or row.get("forward_trace") or row.get("t0_slot_results"):
+        return False
+    return True
+
+
+def _intraday_ledger_snap(state: dict, code: str) -> Optional[dict]:
+    stocks = state.get("stocks") if isinstance(state.get("stocks"), dict) else {}
+    st = stocks.get(code) if isinstance(stocks.get(code), dict) else {}
+    snap = st.get("day_snapshot") if isinstance(st.get("day_snapshot"), dict) else None
+    if isinstance(snap, dict) and not _ledger_row_missing_px(snap):
+        return snap
+    for raw in state.get("results") or []:
+        if not isinstance(raw, dict):
+            continue
+        if str(raw.get("stock_code") or "") != code:
+            continue
+        if not _ledger_row_missing_px(raw):
+            return raw
+    return snap if isinstance(snap, dict) else None
+
+
+def _leg_clock(at: Any) -> str:
+    s = str(at or "").strip()
+    for part in s.replace("T", " ").split():
+        if ":" in part and part[0].isdigit():
+            return part[:5]
+    return s[:5]
+
+
+def _stamp_slot_ids_on_legs(legs: List[dict], snap_legs: List[dict]) -> List[dict]:
+    """只给已落账腿补槽位标记，不改成交价。"""
+    unused = [dict(s) for s in snap_legs or [] if isinstance(s, dict)]
+    out: List[dict] = []
+    for raw in legs or []:
+        if not isinstance(raw, dict):
+            continue
+        row = dict(raw)
+        if row.get("t0_slot") and row.get("t0_slot_hm"):
+            out.append(row)
+            continue
+        clock = _leg_clock(row.get("at"))
+        side = str(row.get("side") or "")
+        try:
+            shares = int(row.get("shares") or 0)
+        except (TypeError, ValueError):
+            shares = 0
+        hit_i = None
+        for i, s in enumerate(unused):
+            if str(s.get("side") or "") != side:
+                continue
+            try:
+                if int(s.get("shares") or 0) != shares:
+                    continue
+            except (TypeError, ValueError):
+                continue
+            if clock and _leg_clock(s.get("at")) != clock:
+                continue
+            hit_i = i
+            break
+        if hit_i is not None:
+            s = unused.pop(hit_i)
+            for k in ("t0_slot", "t0_slot_hm", "note", "leg_kind"):
+                if not row.get(k) and s.get(k):
+                    row[k] = s.get(k)
+        out.append(row)
+    return out
+
+
+def _stamp_book_ts_from_paper(last_run: Optional[dict], paper: Optional[dict]) -> bool:
+    """旧 last_run 缺记账 ``ts`` 时从 paper.trades 补回（审计用；过程列走 5m 槽钟）。"""
+    if not isinstance(last_run, dict) or not isinstance(paper, dict):
+        return False
+    rows = last_run.get("results")
+    if not isinstance(rows, list) or not rows:
+        return False
+    pool = [t for t in (paper.get("trades") or []) if isinstance(t, dict) and t.get("ts")]
+    if not pool:
+        return False
+    unused = list(pool)
+    changed = False
+    for raw in rows:
+        if not isinstance(raw, dict):
+            continue
+        code = str(raw.get("stock_code") or "").strip()
+        legs = raw.get("trades")
+        if not isinstance(legs, list):
+            continue
+        patched: List[dict] = []
+        for leg in legs:
+            if not isinstance(leg, dict):
+                continue
+            row = dict(leg)
+            if row.get("ts"):
+                patched.append(row)
+                continue
+            side = str(row.get("side") or "")
+            try:
+                shares = int(row.get("shares") or 0)
+            except (TypeError, ValueError):
+                shares = 0
+            try:
+                px = round(float(row.get("price") or 0), 4)
+            except (TypeError, ValueError):
+                px = 0.0
+            hit_i = None
+            for i, t in enumerate(unused):
+                t_code = str(t.get("stock_code") or "").strip()
+                if code and t_code and t_code != code:
+                    continue
+                if str(t.get("side") or "") != side:
+                    continue
+                try:
+                    if int(t.get("shares") or 0) != shares:
+                        continue
+                except (TypeError, ValueError):
+                    continue
+                try:
+                    if round(float(t.get("price") or 0), 4) != px:
+                        continue
+                except (TypeError, ValueError):
+                    continue
+                hit_i = i
+                break
+            if hit_i is not None:
+                t = unused.pop(hit_i)
+                row["ts"] = t.get("ts")
+                changed = True
+            patched.append(row)
+        raw["trades"] = patched
+    return changed
+
+
+def _hydrate_t0_last_run_display(last_run: Optional[dict]) -> bool:
+    """旧 last_run 缺 OHLC/Ĉ 时，用当日盘中 day_snapshot 补成交表字段。"""
+    if not isinstance(last_run, dict):
+        return False
+    rows = last_run.get("results")
+    if not isinstance(rows, list) or not rows:
+        return False
+    if not any(_ledger_row_missing_px(r) for r in rows if isinstance(r, dict)):
+        return False
+    try:
+        from core.t0.intraday import load_intraday_state
+    except Exception:  # noqa: BLE001
+        logger.debug("hydrate last_run: load_intraday_state import failed", exc_info=True)
+        return False
+    state = load_intraday_state()
+    if not isinstance(state, dict) or not state:
+        return False
+    sess = str(last_run.get("session_date") or "")[:10]
+    st_sess = str(state.get("session_date") or "")[:10]
+    if sess and st_sess and sess != st_sess:
+        return False
+    changed = False
+    patched: List[dict] = []
+    for raw in rows:
+        if not isinstance(raw, dict):
+            continue
+        if not _ledger_row_missing_px(raw):
+            patched.append(raw)
+            continue
+        code = str(raw.get("stock_code") or "").strip()
+        snap = _intraday_ledger_snap(state, code) if code else None
+        if not isinstance(snap, dict):
+            patched.append(raw)
+            continue
+        merged = dict(raw)
+        for k in _T0_DISPLAY_KEYS:
+            if merged.get(k) in (None, [], {}) and snap.get(k) not in (None, [], {}):
+                merged[k] = snap.get(k)
+        existing_legs = (
+            list(merged.get("trades") or [])
+            if isinstance(merged.get("trades"), list)
+            else []
+        )
+        snap_legs = _compact_t0_legs(snap.get("trades"))
+        if existing_legs:
+            merged["trades"] = _stamp_slot_ids_on_legs(existing_legs, snap_legs)
+        elif snap_legs:
+            merged["trades"] = snap_legs
+        slim = _compact_t0_result_rows([merged])
+        patched.append(slim[0] if slim else merged)
+        changed = True
+    if changed:
+        last_run["results"] = patched
+    return changed
 
 
 def _t0_rules_from_result(result: dict) -> Dict[str, Any]:
@@ -277,6 +633,65 @@ def _trade_session_date(trade: dict) -> str:
     return ""
 
 
+def _norm_log_ts(ts: Any) -> str:
+    s = str(ts or "").strip().replace("T", " ")
+    return s[:19] if len(s) >= 19 else s
+
+
+def _mark_t0_operation_logs_voided(
+    paper: dict,
+    *,
+    code: str,
+    session_date: Optional[str],
+    matched: List[dict],
+) -> int:
+    """冲正后把「交易记录」里对应做 T 流水一并标 voided，避免仍显示成交。"""
+    from core.paper.ledger import _now_iso
+
+    code = str(code or "").strip()
+    sess = str(session_date or "")[:10]
+    if not code or not isinstance(paper.get("operation_log"), list):
+        return 0
+    now = _now_iso()
+    n = 0
+    marked_ts: set = set()
+    for e in paper["operation_log"]:
+        if not isinstance(e, dict) or e.get("voided"):
+            continue
+        et = str(e.get("type") or "")
+        if et not in ("buy", "sell"):
+            continue
+        meta = e.get("meta") if isinstance(e.get("meta"), dict) else {}
+        if str(meta.get("origin") or "") != "t0":
+            continue
+        if str(meta.get("stock_code") or "").strip() != code:
+            continue
+        e_sess = _trade_session_date(e) or str(e.get("ts") or "")[:10]
+        if sess and e_sess and e_sess != sess:
+            continue
+        e["voided"] = True
+        e["voided_at"] = now
+        marked_ts.add(_norm_log_ts(e.get("ts")))
+        n += 1
+    if not marked_ts:
+        for t in matched or []:
+            marked_ts.add(_norm_log_ts((t or {}).get("ts")))
+    for e in paper["operation_log"]:
+        if not isinstance(e, dict) or e.get("voided"):
+            continue
+        if str(e.get("type") or "") != "t0_batch":
+            continue
+        meta = e.get("meta") if isinstance(e.get("meta"), dict) else {}
+        if str(meta.get("origin") or "") != "t0":
+            continue
+        if _norm_log_ts(e.get("ts")) not in marked_ts:
+            continue
+        e["voided"] = True
+        e["voided_at"] = now
+        n += 1
+    return n
+
+
 def _void_t0_trades_for_code(
     paper: dict,
     code: str,
@@ -382,6 +797,10 @@ def _void_t0_trades_for_code(
         tag = " · 已删除冲正"
         if tag not in note:
             t["note"] = (note + tag).strip(" ·")
+
+    _mark_t0_operation_logs_voided(
+        paper, code=code, session_date=sess, matched=matched
+    )
 
     paper["cash"] = round(float(paper.get("cash") or 0) + cash_delta, 2)
     # 清零空仓
@@ -1470,7 +1889,27 @@ class PaperTradesMixin:
         if not os.path.isfile(self.path):
             raise FileNotFoundError("请先初始化纸面账户")
         paper = load_paper(self.path)
-        return {"ok": True, "t0_auto": _t0_auto_from_paper(paper)}
+        cfg = _t0_auto_from_paper(paper)
+        lr = cfg.get("last_run") if isinstance(cfg.get("last_run"), dict) else None
+        need_persist = _hydrate_t0_last_run_display(lr) or _stamp_book_ts_from_paper(
+            lr, paper
+        )
+        if need_persist:
+            try:
+                with paper_write_lock(self.path):
+                    paper = load_paper(self.path)
+                    rules = dict(paper.get("rules") or {})
+                    auto = _normalize_t0_auto(rules.get("t0_auto"))
+                    h = _hydrate_t0_last_run_display(auto.get("last_run"))
+                    s = _stamp_book_ts_from_paper(auto.get("last_run"), paper)
+                    if h or s:
+                        rules["t0_auto"] = auto
+                        paper["rules"] = rules
+                        save_paper(paper, self.path)
+                    cfg = auto
+            except Exception:  # noqa: BLE001
+                logger.debug("persist hydrated t0 last_run failed", exc_info=True)
+        return {"ok": True, "t0_auto": cfg}
 
     def delete_t0_records(
         self,

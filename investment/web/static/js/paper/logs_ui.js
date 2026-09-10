@@ -421,9 +421,10 @@ export function buildPaperLogsCsv(logs, { tradingOnly = true } = {}) {
     "watching_matrix_rebalance",
     "sync_paper",
   ]);
-  const rows = (logs || []).filter((l) =>
-    tradingOnly ? tradingTypes.has(l.type) : true
-  );
+  const rows = (logs || []).filter((l) => {
+    if (l && l.voided) return false;
+    return tradingOnly ? tradingTypes.has(l.type) : true;
+  });
   const esc = (v) => {
     const s = v == null ? "" : String(v);
     if (/[",\n]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
@@ -482,7 +483,9 @@ export function buildPaperLogsView(data, showAllState, logFilter = "all") {
     "sync_paper",
   ]);
   const fundTypes = new Set(["init", "deposit", "withdraw", "reset"]);
-  const tradingLogsAll = logs.filter((l) => tradingTypes.has(l.type));
+  const tradingLogsAll = logs.filter(
+    (l) => tradingTypes.has(l.type) && !l.voided
+  );
   const tradingLogs = tradingLogsAll.filter((l) => logMatchesTradingFilter(l, logFilter));
   const fundLogs = logs.filter((l) => fundTypes.has(l.type));
   return {
