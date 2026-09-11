@@ -20,8 +20,11 @@ from web.schemas import (
     CxRidgeRequest,
     TpdRidgeRequest,
     RRidgeRequest,
+    RTreeRequest,
     RemRidgeRequest,
     TauRidgeRequest,
+    TauTreeRequest,
+    TauBoostRequest,
     ThresholdSuggestRequest,
     WeightSuggestRequest,
     YhatResidualShadowRequest,
@@ -103,6 +106,45 @@ def quant_factor_ols_pool(body: FactorOlsPoolRequest) -> Dict[str, Any]:
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@router.post("/api/quant/tau-tree")
+def quant_tau_tree(body: TauTreeRequest) -> Dict[str, Any]:
+    """ŷ_τ_tree 影子头 + 同 Holdout Ridge；不写 live / 研究套，不进回测。"""
+    try:
+        return deps.quant.run_tau_tree_experiment(
+            lookback=body.lookback,
+            watching_limit=body.watching_limit,
+            ridge_lambda=body.ridge_lambda,
+            gap_trigger_pct=body.gap_trigger_pct,
+            theme_boost=body.theme_boost,
+            tau_hm=body.tau_hm,
+            holdout_trading_days=body.holdout_trading_days,
+            backend=body.backend,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@router.get("/api/quant/tau-tree/last")
+def quant_tau_tree_last() -> Dict[str, Any]:
+    """读取上次 ŷ_τ_tree（tau_tree_last_report.json）；不进打分。"""
+    try:
+        return deps.quant.get_tau_tree_last_report()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@router.post("/api/quant/tau-boost")
+def quant_tau_boost(body: TauBoostRequest) -> Dict[str, Any]:
+    """兼容旧路径 → 同 ``/api/quant/tau-tree``。"""
+    return quant_tau_tree(body)
+
+
+@router.get("/api/quant/tau-boost/last")
+def quant_tau_boost_last() -> Dict[str, Any]:
+    """兼容旧路径 → 同 ``/api/quant/tau-tree/last``。"""
+    return quant_tau_tree_last()
 
 
 @router.post("/api/quant/tau-ridge")
@@ -320,6 +362,33 @@ def quant_r_ridge_model() -> Dict[str, Any]:
     """读取已 promote 的 ŷ_r 模型（若有）。"""
     try:
         return deps.quant.get_r_ridge_model()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@router.post("/api/quant/r-tree")
+def quant_r_tree(body: RTreeRequest) -> Dict[str, Any]:
+    """ŷ_r_tree 影子头 + 同 Holdout Ridge；不写 live / 研究套，不进回测。"""
+    try:
+        return deps.quant.run_r_tree_experiment(
+            lookback=body.lookback,
+            watching_limit=body.watching_limit,
+            ridge_lambda=body.ridge_lambda,
+            gap_trigger_pct=body.gap_trigger_pct,
+            theme_boost=body.theme_boost,
+            tau_hm=body.tau_hm,
+            holdout_trading_days=body.holdout_trading_days,
+            backend=body.backend,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@router.get("/api/quant/r-tree/last")
+def quant_r_tree_last() -> Dict[str, Any]:
+    """读取上次 ŷ_r_tree（r_tree_last_report.json）；不进打分。"""
+    try:
+        return deps.quant.get_r_tree_last_report()
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 

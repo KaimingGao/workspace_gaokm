@@ -23,11 +23,17 @@ export function clampRidgeLambda(v, fallback = 0) {
   return Math.min(100, n);
 }
 
-/** 与后端 clamp_watching_limit 对齐：3～100；默认满池 100 */
-export function clampWatchingLimit(v, fallback = 100) {
+/** 观察池截断上限：对齐 WATCHING_MAX_SIZE。分组 Limit / 日K/5m / ŷ_* 拟合共用。 */
+export const BARS_WATCHING_LIMIT = 200;
+
+export function clampWatchingLimit(v, fallback = BARS_WATCHING_LIMIT) {
   const n = Number(v);
   if (!Number.isFinite(n)) return fallback;
-  return Math.max(3, Math.min(100, Math.round(n)));
+  return Math.max(3, Math.min(BARS_WATCHING_LIMIT, Math.round(n)));
+}
+
+export function clampBarsWatchingLimit(v, fallback = BARS_WATCHING_LIMIT) {
+  return clampWatchingLimit(v, fallback);
 }
 
 /** @returns {number|null} 空=自动 */
@@ -84,8 +90,8 @@ export function createResearchParams(opts = {}) {
 
   function readWatchingLimit() {
     const el = getWatchingLimitEl();
-    if (el && el.value !== "") return clampWatchingLimit(el.value, 100);
-    return 100;
+    if (el && el.value !== "") return clampWatchingLimit(el.value, BARS_WATCHING_LIMIT);
+    return BARS_WATCHING_LIMIT;
   }
 
   function setPrefsHorizonDays(h) {

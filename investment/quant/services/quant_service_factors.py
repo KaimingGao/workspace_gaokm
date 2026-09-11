@@ -633,6 +633,158 @@ class QuantFactorMixin:
             live_present=True,
         )
 
+    def run_tau_tree_experiment(
+        self,
+        *,
+        lookback: int = 120,
+        watching_limit: int = 200,
+        ridge_lambda: float = 1.0,
+        gap_trigger_pct: float = 2.0,
+        theme_boost: float = 1.5,
+        tau_hm: Optional[str] = None,
+        holdout_trading_days: int = 10,
+        backend: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """ŷ_τ_tree 影子头：同面板 Holdout vs Ridge。只写 last_report，不进 live / 回测。"""
+        import time
+
+        from core.data.facade import bars_and_source
+        from core.signal.dual_score import get_dual_score_cfg
+        from core.watching.store import WATCHING_MAX_SIZE, read_watching
+        from quant.research.tau_tree import (
+            fit_tau_tree_report,
+            save_tau_tree_last_report,
+        )
+
+        uni = read_watching()
+        pool = [
+            str(c).strip()
+            for c in (uni.get("watchlist") or [])
+            if str(c).strip()
+        ]
+        cap = max(2, min(int(WATCHING_MAX_SIZE), 500))
+        limit = max(2, min(int(watching_limit or cap), cap))
+        codes = pool[:limit]
+        if len(codes) < 2:
+            return {
+                "success": False,
+                "error": "研究池至少 2 只才可跑 ŷ_τ_tree",
+                "task": "tau_tree",
+                "head": "y_tau_tree",
+                "live_hook": False,
+                "backtest_hook": False,
+            }
+
+        ds = get_dual_score_cfg()
+        if tau_hm is None:
+            if ds.get("enable_minute_tau"):
+                tau_key = str(ds.get("minute_tau_hm") or "10:30")
+            else:
+                tau_key = "open"
+        else:
+            tau_key = str(tau_hm or "open").strip() or "open"
+        use_minute = tau_key.lower() not in ("", "open")
+        tau_grid = None
+        if use_minute:
+            raw_grid = ds.get("minute_tau_grid")
+            if isinstance(raw_grid, (list, tuple)) and raw_grid:
+                tau_grid = [str(x).strip() for x in raw_grid if str(x).strip()]
+
+        stock_bars: List[Dict[str, Any]] = []
+        minute_hit = 0
+        t_bars0 = time.perf_counter()
+        for code in codes:
+            bars, _src = bars_and_source(code, limit=lookback + 40)
+            if not bars:
+                continue
+            row: Dict[str, Any] = {"code": str(code), "bars": bars}
+            if use_minute:
+                try:
+                    from core.ports.market import resolve_market_code
+                    from core.store import load_minute_cache
+
+                    mkt, pure = resolve_market_code(str(code))
+                    packed = load_minute_cache(
+                        mkt or "CN",
+                        pure or str(code),
+                        "5",
+                        min_bars=1,
+                        ignore_age=True,
+                    )
+                    if packed:
+                        mb, _meta = packed
+                        if mb:
+                            row["minute_bars"] = mb
+                            minute_hit += 1
+                except Exception:  # noqa: BLE001
+                    logger.debug(
+                        "tau tree minute cache failed", exc_info=True
+                    )
+            stock_bars.append(row)
+        bars_s = round(time.perf_counter() - t_bars0, 2)
+        report = fit_tau_tree_report(
+            stock_bars,
+            ridge_lambda=ridge_lambda,
+            gap_trigger_pct=gap_trigger_pct,
+            theme_boost=theme_boost,
+            tau_hm=tau_key,
+            tau_grid=tau_grid,
+            holdout_trading_days=holdout_trading_days,
+            backend=backend,
+        )
+        report["watching_limit"] = limit
+        report["watching_pool_size"] = len(pool)
+        report["lookback"] = lookback
+        report["minute_cache_hit"] = minute_hit if use_minute else None
+        report["minute_cache_universe"] = len(codes) if use_minute else None
+        timing = dict(report.get("timing") or {}) if isinstance(report.get("timing"), dict) else {}
+        timing["bars_s"] = bars_s
+        fit_s = timing.get("fit_s")
+        try:
+            total_s = bars_s + (float(fit_s) if fit_s is not None else 0.0)
+        except (TypeError, ValueError):
+            total_s = bars_s
+        timing["total_s"] = round(float(total_s), 2)
+        report["timing"] = timing
+        report["live_hook"] = False
+        report["backtest_hook"] = False
+        report["persisted"] = {
+            "success": False,
+            "skipped": True,
+            "reason": "shadow_only",
+        }
+        if report.get("success"):
+            save_tau_tree_last_report(report)
+        return report
+
+    def get_tau_tree_last_report(self) -> Dict[str, Any]:
+        from quant.research.tau_tree import (
+            load_tau_tree_last_report,
+            tau_tree_last_report_path,
+        )
+
+        last = load_tau_tree_last_report()
+        if not last:
+            return {
+                "success": False,
+                "exists": False,
+                "path": tau_tree_last_report_path(),
+                "live_hook": False,
+                "backtest_hook": False,
+                "head": "y_tau_tree",
+                "note": "尚无 ŷ_τ_tree；POST /api/quant/tau-tree",
+            }
+        out = dict(last)
+        out["exists"] = True
+        out["path"] = tau_tree_last_report_path()
+        out["live_hook"] = False
+        out["backtest_hook"] = False
+        out.setdefault("head", "y_tau_tree")
+        return out
+
+    run_tau_boost_experiment = run_tau_tree_experiment
+    get_tau_boost_last_report = get_tau_tree_last_report
+
     run_rem_ridge_experiment = run_tau_ridge_experiment
     get_rem_ridge_model = get_tau_ridge_model
 
@@ -1583,6 +1735,173 @@ class QuantFactorMixin:
             r_model_path(),
         )
 
+    def run_r_tree_experiment(
+        self,
+        *,
+        lookback: int = 120,
+        watching_limit: int = 200,
+        ridge_lambda: float = 1.0,
+        gap_trigger_pct: float = 2.0,
+        theme_boost: float = 1.5,
+        tau_hm: Optional[str] = None,
+        holdout_trading_days: int = 10,
+        backend: Optional[str] = None,
+        minute_period: str = "5",
+        minute_lookback_days: int = 150,
+    ) -> Dict[str, Any]:
+        """ŷ_r_tree 影子头：同面板 Holdout vs Ridge。只写 last_report，不进 live / 回测。"""
+        import time
+
+        from core.data.facade import bars_and_source
+        from core.watching.store import WATCHING_MAX_SIZE, read_watching
+        from quant.research.r_tree import (
+            fit_r_tree_report,
+            save_r_tree_last_report,
+        )
+
+        uni = read_watching()
+        pool = [
+            str(c).strip()
+            for c in (uni.get("watchlist") or [])
+            if str(c).strip()
+        ]
+        cap = max(2, min(int(WATCHING_MAX_SIZE), 500))
+        limit = max(2, min(int(watching_limit or cap), cap))
+        codes = pool[:limit]
+        if len(codes) < 2:
+            return {
+                "success": False,
+                "error": "研究池至少 2 只才可跑 ŷ_r_tree",
+                "task": "r_tree",
+                "head": "y_r_tree",
+                "live_hook": False,
+                "backtest_hook": False,
+            }
+
+        live_hm = str(tau_hm or "10:30").strip() or "10:30"
+        if live_hm.lower() in ("", "open"):
+            live_hm = "10:30"
+        period = str(minute_period or "5").strip() or "5"
+        mlook = max(20, min(int(minute_lookback_days or 90), 240))
+        stock_bars: List[Dict[str, Any]] = []
+        minute_hit = 0
+        minute_codes_miss = 0
+        t_bars0 = time.perf_counter()
+        for code in codes:
+            bars, _src = bars_and_source(code, limit=lookback + 40)
+            if not bars:
+                continue
+            row: Dict[str, Any] = {"code": str(code), "bars": bars}
+            try:
+                from core.ports.market import resolve_market_code
+                from core.store import load_minute_cache
+
+                mkt, pure = resolve_market_code(str(code))
+                packed = load_minute_cache(
+                    mkt or "CN",
+                    pure or str(code),
+                    period,
+                    min_bars=1,
+                    ignore_age=True,
+                )
+                if packed:
+                    mb, _meta = packed
+                    if mb:
+                        row["minute_bars"] = mb
+                        minute_hit += 1
+                    else:
+                        minute_codes_miss += 1
+                else:
+                    minute_codes_miss += 1
+            except Exception:  # noqa: BLE001
+                logger.debug("r tree minute cache miss for %s", code, exc_info=True)
+                minute_codes_miss += 1
+            stock_bars.append(row)
+        bars_s = round(time.perf_counter() - t_bars0, 2)
+
+        if minute_hit < 1:
+            return {
+                "success": False,
+                "error": (
+                    f"无本地分钟缓存（period={period} · 池 {len(codes)} 只）；"
+                    "请先「强更 5m」，拟合不再拉远端"
+                ),
+                "task": "r_tree",
+                "head": "y_r_tree",
+                "minute_period": period,
+                "watching_limit": limit,
+                "watching_pool_size": len(pool),
+                "minute_cache_only": True,
+                "minute_codes_miss": minute_codes_miss,
+                "live_hook": False,
+                "backtest_hook": False,
+            }
+
+        report = fit_r_tree_report(
+            stock_bars,
+            ridge_lambda=ridge_lambda,
+            gap_trigger_pct=gap_trigger_pct,
+            theme_boost=theme_boost,
+            tau_hm=live_hm,
+            holdout_trading_days=holdout_trading_days,
+            backend=backend,
+        )
+        report["watching_limit"] = limit
+        report["watching_pool_size"] = len(pool)
+        report["lookback"] = lookback
+        report["minute_period"] = period
+        report["minute_lookback_days"] = mlook
+        report["minute_codes_hit"] = minute_hit
+        report["minute_codes_miss"] = minute_codes_miss
+        report["minute_codes_universe"] = len(codes)
+        report["minute_cache_hit"] = minute_hit
+        report["minute_cache_universe"] = len(codes)
+        report["minute_cache_only"] = True
+        timing = dict(report.get("timing") or {}) if isinstance(report.get("timing"), dict) else {}
+        timing["bars_s"] = bars_s
+        fit_s = timing.get("fit_s")
+        try:
+            total_s = bars_s + (float(fit_s) if fit_s is not None else 0.0)
+        except (TypeError, ValueError):
+            total_s = bars_s
+        timing["total_s"] = round(float(total_s), 2)
+        report["timing"] = timing
+        report["live_hook"] = False
+        report["backtest_hook"] = False
+        report["persisted"] = {
+            "success": False,
+            "skipped": True,
+            "reason": "shadow_only",
+        }
+        if report.get("success"):
+            save_r_tree_last_report(report)
+        return report
+
+    def get_r_tree_last_report(self) -> Dict[str, Any]:
+        from quant.research.r_tree import (
+            load_r_tree_last_report,
+            r_tree_last_report_path,
+        )
+
+        last = load_r_tree_last_report()
+        if not last:
+            return {
+                "success": False,
+                "exists": False,
+                "path": r_tree_last_report_path(),
+                "live_hook": False,
+                "backtest_hook": False,
+                "head": "y_r_tree",
+                "note": "尚无 ŷ_r_tree；POST /api/quant/r-tree",
+            }
+        out = dict(last)
+        out["exists"] = True
+        out["path"] = r_tree_last_report_path()
+        out["live_hook"] = False
+        out["backtest_hook"] = False
+        out.setdefault("head", "y_r_tree")
+        return out
+
     def run_factor_ols_pool_experiment(
         self,
         *,
@@ -1650,7 +1969,7 @@ class QuantFactorMixin:
         lookback: int = 80,
         horizon_days: int = 3,
         holdout_trading_days: int = 10,
-        watching_limit: int = 100,
+        watching_limit: int = 200,
         ridge_lambda: float = 0.0,
         n_clusters: Optional[int] = None,
         pit_fundamentals: bool = True,
@@ -1975,7 +2294,7 @@ class QuantFactorMixin:
             _save_last_cluster_report(report)
         return report
 
-    def cluster_bars_status(self, *, watching_limit: int = 100) -> Dict[str, Any]:
+    def cluster_bars_status(self, *, watching_limit: int = 200) -> Dict[str, Any]:
         """观察池日线末 bar 覆盖（研究枢纽 UI）。"""
         from quant.research.cluster_bars_status import build_cluster_bars_status
 
@@ -1984,7 +2303,7 @@ class QuantFactorMixin:
     def run_cluster_bars_refresh(
         self,
         *,
-        watching_limit: int = 100,
+        watching_limit: int = 200,
         lookback: int = 80,
         mode: str = "topup",
         progress_cb: Optional[Any] = None,
@@ -2002,7 +2321,7 @@ class QuantFactorMixin:
     def start_cluster_bars_refresh_job(
         self,
         *,
-        watching_limit: int = 100,
+        watching_limit: int = 200,
         lookback: int = 80,
         mode: str = "topup",
     ) -> Dict[str, Any]:
@@ -2022,7 +2341,7 @@ class QuantFactorMixin:
                 "job": cluster_bars_refresh_job.get(),
             }
 
-        watch_limit = clamp_watching_limit(watching_limit or 100, 100)
+        watch_limit = clamp_watching_limit(watching_limit or 200, 200)
         mode_s = str(mode or "topup").strip().lower()
         if mode_s not in ("full", "topup"):
             mode_s = "topup"
@@ -2106,7 +2425,7 @@ class QuantFactorMixin:
     def cluster_minute_status(
         self,
         *,
-        watching_limit: int = 100,
+        watching_limit: int = 200,
         period: str = "5",
         min_span_days: int = 30,
         include_label_portrait: bool = True,
@@ -2124,7 +2443,7 @@ class QuantFactorMixin:
     def run_cluster_minute_refresh(
         self,
         *,
-        watching_limit: int = 100,
+        watching_limit: int = 200,
         period: str = "5",
         lookback_days: int = 30,
         mode: str = "full",
@@ -2146,7 +2465,7 @@ class QuantFactorMixin:
     def start_cluster_minute_refresh_job(
         self,
         *,
-        watching_limit: int = 100,
+        watching_limit: int = 200,
         period: str = "5",
         lookback_days: int = 30,
         mode: str = "full",
@@ -2168,7 +2487,7 @@ class QuantFactorMixin:
                 "job": cluster_minute_refresh_job.get(),
             }
 
-        watch_limit = clamp_watching_limit(watching_limit or 100, 100)
+        watch_limit = clamp_watching_limit(watching_limit or 200, 200)
         mode_s = str(mode or "full").strip().lower()
         if mode_s not in ("full", "topup"):
             mode_s = "full"
@@ -2279,7 +2598,7 @@ class QuantFactorMixin:
         except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
             logger.debug("catch except Exception: in quant_service_factors.py", exc_info=True)
             n_watch_all = 20
-        watch_limit = clamp_watching_limit(kwargs.get("watching_limit") or 100, 100)
+        watch_limit = clamp_watching_limit(kwargs.get("watching_limit") or 200, 200)
         n_watch = min(n_watch_all, watch_limit) if n_watch_all else watch_limit
         job_total = max(20, n_watch * 2 + 10)
 

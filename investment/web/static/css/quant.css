@@ -2875,6 +2875,11 @@ html[data-density="compact"] .quant-page {
   background: color-mix(in srgb, var(--ink-3) 10%, transparent);
 }
 
+.quant-bt-trades-host .bt-trade-action.is-hold {
+  color: var(--accent, #2563eb);
+  background: color-mix(in srgb, var(--accent, #2563eb) 10%, transparent);
+}
+
 .quant-bt-trades-host .bt-trade-action-wrap {
   display: flex;
   flex-direction: column;
@@ -2907,6 +2912,10 @@ html[data-density="compact"] .quant-page {
 
 .quant-bt-trades-host .bt-ledger-leg.is-exit {
   box-shadow: inset 2px 0 0 color-mix(in srgb, var(--ok, #16a34a) 70%, transparent);
+}
+
+.quant-bt-trades-host .bt-ledger-leg.is-hold {
+  box-shadow: inset 2px 0 0 color-mix(in srgb, var(--accent, #2563eb) 55%, transparent);
 }
 
 .quant-bt-trades-host .watching-react-grid-cell.watching-col-y_fuse,
@@ -10619,5 +10628,622 @@ body[data-page="quant"] .quant-page .quant-cluster-status .quant-cluster-landing
     margin-left: 0;
     padding-left: 0;
     border-left: 0;
+  }
+}
+
+/* ── ŷ_τ_tree / ŷ_r_tree 影子对照 ── */
+.quant-page #quant-tau-tree-result.quant-weight-table-wrap,
+.quant-page #quant-r-tree-result.quant-weight-table-wrap {
+  overflow-x: hidden;
+  width: 100%;
+}
+
+.quant-page .quant-tree-report {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+  min-width: 0;
+}
+
+.quant-page .quant-tree-report.is-busy {
+  padding: 4px 0 2px;
+}
+
+.quant-page .quant-tree-meta {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  width: 100%;
+  border: 1px solid color-mix(in srgb, var(--line) 88%, transparent);
+  border-radius: 3px;
+  overflow: hidden;
+  background: var(--surface);
+}
+
+.quant-page .quant-tree-meta-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  padding: 7px 10px 6px;
+  border-left: 1px solid color-mix(in srgb, var(--line) 70%, transparent);
+}
+
+.quant-page .quant-tree-meta-cell:first-child {
+  border-left: 0;
+}
+
+.quant-page .quant-tree-meta-k {
+  font-size: 0.62rem;
+  font-weight: 650;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+
+.quant-page .quant-tree-meta-v {
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 0.78rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.quant-page .quant-tree-meta-cell.is-flags .quant-tree-meta-v {
+  font-family: inherit;
+  font-weight: 650;
+  font-size: 0.72rem;
+}
+
+.quant-page .quant-tree-meta-cell.is-xgb .quant-tree-meta-v {
+  color: color-mix(in srgb, var(--accent, #1890ff) 78%, var(--ink));
+}
+
+.quant-page .quant-tree-meta-cell.is-numpy .quant-tree-meta-v {
+  color: var(--gold, #b45309);
+}
+
+.quant-page .quant-tree-verdict {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas:
+    "main y"
+    "sub y";
+  column-gap: 16px;
+  row-gap: 2px;
+  align-items: baseline;
+  width: 100%;
+  padding: 8px 12px;
+  border: 1px solid color-mix(in srgb, var(--line) 88%, transparent);
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--ink) 1.6%, var(--surface));
+}
+
+.quant-page .quant-tree-verdict-main {
+  grid-area: main;
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  min-width: 0;
+}
+
+.quant-page .quant-tree-verdict-k {
+  flex: 0 0 auto;
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--ink-3);
+}
+
+.quant-page .quant-tree-verdict strong {
+  font-size: 0.92rem;
+  font-weight: 750;
+  color: var(--ink);
+}
+
+.quant-page .quant-tree-verdict-sub {
+  grid-area: sub;
+  margin: 0;
+  font-size: 0.72rem;
+  line-height: 1.35;
+  color: var(--ink-2);
+  min-width: 0;
+}
+
+.quant-page .quant-tree-verdict-y {
+  grid-area: y;
+  align-self: center;
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 0.72rem;
+  font-weight: 650;
+  color: var(--ink-3);
+  white-space: nowrap;
+}
+
+.quant-page .quant-tree-verdict.is-ridge {
+  box-shadow: inset 3px 0 0 color-mix(in srgb, var(--ink) 22%, transparent);
+}
+
+.quant-page .quant-tree-verdict.is-tree {
+  box-shadow: inset 3px 0 0 color-mix(in srgb, var(--accent, #1890ff) 55%, transparent);
+}
+
+.quant-page .quant-tree-verdict.is-split {
+  box-shadow: inset 3px 0 0 color-mix(in srgb, #0d9488 55%, transparent);
+}
+
+.quant-page .quant-tree-kpis {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  width: 100%;
+  gap: 0;
+  border: 1px solid color-mix(in srgb, var(--line) 88%, transparent);
+  border-radius: 3px;
+  overflow: hidden;
+  background: var(--surface);
+}
+
+.quant-page .quant-tree-kpi {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 8px 12px 8px;
+  min-width: 0;
+  border-left: 1px solid color-mix(in srgb, var(--line) 70%, transparent);
+}
+
+.quant-page .quant-tree-kpi:first-child {
+  border-left: 0;
+}
+
+.quant-page .quant-tree-kpi-k {
+  font-size: 0.62rem;
+  font-weight: 650;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+
+.quant-page .quant-tree-kpi-v {
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 1.16rem;
+  font-weight: 750;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+  line-height: 1.15;
+}
+
+.quant-page .quant-tree-kpi-sub {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+}
+
+.quant-page .quant-tree-kpi-ridge {
+  font-size: 0.64rem;
+  color: var(--ink-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.quant-page .quant-tree-kpi.is-win {
+  box-shadow: inset 0 2px 0 0 color-mix(in srgb, var(--accent, #1890ff) 55%, transparent);
+}
+
+.quant-page .quant-tree-kpi.is-lose {
+  box-shadow: inset 0 2px 0 0 color-mix(in srgb, var(--ink-3) 45%, transparent);
+}
+
+.quant-page .quant-tree-delta {
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  font-size: 0.68rem;
+}
+
+.quant-page .quant-tree-delta.is-win {
+  color: color-mix(in srgb, var(--accent, #1890ff) 82%, var(--ink));
+}
+
+.quant-page .quant-tree-delta.is-lose,
+.quant-page .quant-tree-delta.is-flat {
+  color: var(--ink-3);
+}
+
+.quant-page .quant-tree-table {
+  width: 100%;
+  min-width: 0;
+  border: 1px solid color-mix(in srgb, var(--line) 88%, transparent);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.quant-page .quant-tree-table .quant-research-grid {
+  margin: 0;
+  width: 100%;
+}
+
+.quant-page .quant-tree-table .watching-react-grid-row.is-tree {
+  background: color-mix(in srgb, var(--accent, #1890ff) 4%, var(--surface));
+}
+
+.quant-page .quant-tree-table .watching-react-grid-row.is-delta {
+  background: color-mix(in srgb, var(--ink) 2.5%, var(--surface));
+}
+
+.quant-page .quant-tree-model {
+  font-weight: 650;
+}
+
+.quant-page .quant-tree-lower {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  align-items: stretch;
+  width: 100%;
+}
+
+.quant-page .quant-tree-panel {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  padding: 8px 12px 10px;
+  border: 1px solid color-mix(in srgb, var(--line) 88%, transparent);
+  border-radius: 3px;
+  background: var(--surface);
+}
+
+.quant-page .quant-tree-tau-slot {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+}
+
+.quant-page .quant-tree-panel--tau {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+}
+
+.quant-page .quant-tree-panel-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 0 0 8px;
+}
+
+.quant-page .quant-tree-panel-head h4 {
+  margin: 0;
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--ink);
+}
+
+.quant-page .quant-tree-panel-head span {
+  font-size: 0.62rem;
+  color: var(--ink-3);
+  text-align: right;
+}
+
+.quant-page .quant-tree-gain {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  flex: 1 1 auto;
+}
+
+.quant-page .quant-tree-gain-row {
+  display: grid;
+  grid-template-columns: 1.15rem minmax(0, 7.5rem) minmax(0, 1fr) 2.4rem;
+  gap: 8px;
+  align-items: center;
+  min-height: 18px;
+}
+
+.quant-page .quant-tree-gain-rank {
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 0.6rem;
+  font-weight: 650;
+  color: var(--ink-3);
+  text-align: right;
+}
+
+.quant-page .quant-tree-gain-name {
+  font-size: 0.7rem;
+  color: var(--ink-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.quant-page .quant-tree-gain-track {
+  height: 8px;
+  border-radius: 1px;
+  background: color-mix(in srgb, var(--ink) 6%, var(--surface));
+  overflow: hidden;
+}
+
+.quant-page .quant-tree-gain-fill {
+  display: block;
+  height: 100%;
+  border-radius: 1px;
+  background: color-mix(in srgb, var(--accent, #1890ff) 72%, transparent);
+}
+
+.quant-page .quant-tree-gain-n {
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 0.66rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  color: var(--ink);
+}
+
+.quant-page .quant-tree-time-track {
+  display: flex;
+  height: 10px;
+  width: 100%;
+  border-radius: 1px;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--ink) 6%, var(--surface));
+}
+
+.quant-page .quant-tree-time-fill {
+  display: block;
+  height: 100%;
+}
+
+.quant-page .quant-tree-time-fill.is-bars {
+  background: color-mix(in srgb, var(--ink) 22%, transparent);
+}
+
+.quant-page .quant-tree-time-fill.is-panel {
+  background: color-mix(in srgb, var(--ink) 38%, transparent);
+}
+
+.quant-page .quant-tree-time-fill.is-tree {
+  background: color-mix(in srgb, var(--accent, #1890ff) 75%, transparent);
+}
+
+.quant-page .quant-tree-time-fill.is-ridge {
+  background: color-mix(in srgb, #0d9488 70%, transparent);
+}
+
+.quant-page .quant-tree-time-legs {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0;
+  margin-top: 8px;
+}
+
+.quant-page .quant-tree-time-leg {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 0 8px 0 0;
+  font-size: 0.64rem;
+  color: var(--ink-2);
+}
+
+.quant-page .quant-tree-time-leg i {
+  flex: 0 0 7px;
+  width: 7px;
+  height: 7px;
+  border-radius: 1px;
+  background: color-mix(in srgb, var(--ink) 28%, transparent);
+}
+
+.quant-page .quant-tree-time-leg.is-panel i {
+  background: color-mix(in srgb, var(--ink) 45%, transparent);
+}
+
+.quant-page .quant-tree-time-leg.is-tree i {
+  background: color-mix(in srgb, var(--accent, #1890ff) 80%, transparent);
+}
+
+.quant-page .quant-tree-time-leg.is-ridge i {
+  background: color-mix(in srgb, #0d9488 75%, transparent);
+}
+
+.quant-page .quant-tree-tau-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.quant-page .quant-tree-spark-wrap {
+  display: flex;
+  flex: 1 1 auto;
+  width: 100%;
+  min-height: 0;
+}
+
+.quant-page .quant-tree-spark {
+  display: block;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  flex: 1 1 auto;
+  color: var(--accent, #1890ff);
+}
+
+.quant-page .quant-tree-spark .is-base {
+  stroke: var(--ink-3);
+  stroke-width: 0.75;
+  stroke-dasharray: 2.5 2;
+  opacity: 0.5;
+}
+
+.quant-page .quant-tree-spark .is-live-x {
+  stroke: currentColor;
+  stroke-width: 0.8;
+  opacity: 0.32;
+}
+
+.quant-page .quant-tree-spark .is-ridge {
+  fill: none;
+  stroke: var(--ink-3);
+  stroke-width: 1.2;
+  stroke-dasharray: 3 2.5;
+  stroke-linejoin: round;
+}
+
+.quant-page .quant-tree-spark .is-tree {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.55;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+
+.quant-page .quant-tree-spark circle {
+  fill: currentColor;
+}
+
+.quant-page .quant-tree-spark circle.is-live {
+  fill: var(--surface);
+  stroke: currentColor;
+  stroke-width: 1.3;
+}
+
+.quant-page .quant-tree-tau-ticks {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  width: 100%;
+  gap: 0;
+  flex: 0 0 auto;
+}
+
+.quant-page .quant-tree-tau-tick {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+  padding: 4px 8px;
+  border-left: 1px solid color-mix(in srgb, var(--line) 60%, transparent);
+}
+
+.quant-page .quant-tree-tau-tick:first-child {
+  border-left: 0;
+  padding-left: 0;
+}
+
+.quant-page .quant-tree-tau-tick.is-live {
+  background: color-mix(in srgb, var(--accent, #1890ff) 8%, transparent);
+}
+
+.quant-page .quant-tree-tau-tick.is-open {
+  background: color-mix(in srgb, #0d9488 8%, transparent);
+}
+
+.quant-page .quant-tree-tau-k {
+  font-size: 0.58rem;
+  font-weight: 650;
+  color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+}
+
+.quant-page .quant-tree-tau-v {
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 0.8rem;
+  font-weight: 750;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+}
+
+@media (max-width: 980px) {
+  .quant-page .quant-tree-meta {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .quant-page .quant-tree-meta-cell:nth-child(3n + 1) {
+    border-left: 0;
+  }
+
+  .quant-page .quant-tree-meta-cell:nth-child(n + 4) {
+    border-top: 1px solid color-mix(in srgb, var(--line) 70%, transparent);
+  }
+
+  .quant-page .quant-tree-lower {
+    grid-template-columns: 1fr;
+  }
+
+  .quant-page .quant-tree-tau-slot {
+    position: static;
+  }
+
+  .quant-page .quant-tree-panel--tau {
+    position: static;
+    height: auto;
+    overflow: visible;
+  }
+
+  .quant-page .quant-tree-spark-wrap {
+    min-height: 64px;
+    max-height: 72px;
+  }
+}
+
+@media (max-width: 720px) {
+  .quant-page .quant-tree-meta {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .quant-page .quant-tree-meta-cell:nth-child(3n + 1) {
+    border-left: 1px solid color-mix(in srgb, var(--line) 70%, transparent);
+  }
+
+  .quant-page .quant-tree-meta-cell:nth-child(2n + 1) {
+    border-left: 0;
+  }
+
+  .quant-page .quant-tree-meta-cell:nth-child(n + 3) {
+    border-top: 1px solid color-mix(in srgb, var(--line) 70%, transparent);
+  }
+
+  .quant-page .quant-tree-kpis {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .quant-page .quant-tree-kpi {
+    border-left: 0;
+    border-top: 1px solid color-mix(in srgb, var(--line) 70%, transparent);
+  }
+
+  .quant-page .quant-tree-kpi:nth-child(-n + 2) {
+    border-top: 0;
+  }
+
+  .quant-page .quant-tree-kpi:nth-child(2n) {
+    border-left: 1px solid color-mix(in srgb, var(--line) 70%, transparent);
+  }
+
+  .quant-page .quant-tree-verdict {
+    grid-template-columns: 1fr;
+    grid-template-areas:
+      "main"
+      "y"
+      "sub";
+  }
+
+  .quant-page .quant-tree-verdict-y {
+    justify-self: start;
+  }
+
+  .quant-page .quant-tree-tau-ticks,
+  .quant-page .quant-tree-time-legs {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }

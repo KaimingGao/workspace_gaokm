@@ -25,7 +25,7 @@ router = APIRouter(tags=["quant"])
 
 
 @router.get("/api/quant/cluster-bars/status")
-def quant_cluster_bars_status(watching_limit: int = 100) -> Dict[str, Any]:
+def quant_cluster_bars_status(watching_limit: int = 200) -> Dict[str, Any]:
     """观察池日线末 bar 覆盖（研究枢纽状态条）。"""
     try:
         return deps.quant.cluster_bars_status(watching_limit=watching_limit)
@@ -54,7 +54,7 @@ def quant_cluster_bars_refresh(body: ClusterBarsRefreshRequest) -> Dict[str, Any
 
 @router.get("/api/quant/cluster-minute/status")
 def quant_cluster_minute_status(
-    watching_limit: int = 100,
+    watching_limit: int = 200,
     period: str = "5",
     min_span_days: int = 30,
     include_label_portrait: bool = True,

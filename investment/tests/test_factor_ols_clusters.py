@@ -17,6 +17,7 @@ from quant.research.factor_ols_clusters import (
     apply_beta_scale_transform,
     beta_delta_mismatch,
     clamp_n_clusters,
+    clamp_watching_limit,
     cluster_beta_vectors,
     cluster_diameter,
     compute_factor_ols_cluster_report,
@@ -49,6 +50,20 @@ class TestFactorOlsClusters(unittest.TestCase):
         self.assertEqual(clamp_n_clusters(3), 3)
         self.assertEqual(clamp_n_clusters(1), 2)
         self.assertEqual(clamp_n_clusters(99), 99)
+
+    def test_clamp_watching_limit_allows_watchlist_max(self):
+        from core.watching.store import WATCHING_MAX_SIZE
+
+        self.assertEqual(WATCHING_MAX_SIZE, 200)
+        self.assertEqual(clamp_watching_limit(200), 200)
+        self.assertEqual(clamp_watching_limit(999), 200)
+        self.assertEqual(clamp_watching_limit(1), 3)
+        watch = [f"{i:06d}" for i in range(200)]
+        out = merge_cluster_universe(
+            watch, [], watching_limit=200, universe_mode="watching"
+        )
+        self.assertEqual(out["universe_count"], 200)
+        self.assertEqual(len(out["codes"]), 200)
 
     def test_merge_cluster_universe_modes(self):
         watch = ["A", "B", "C", "D", "E"]

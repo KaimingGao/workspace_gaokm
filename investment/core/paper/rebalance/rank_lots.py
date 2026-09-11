@@ -1,10 +1,11 @@
 """策略调仓：9:30 用 y_fuse / y_on 排序，按 200/500 股下单。
 
 规则（live 与历史回测共用）：
-  - y_fuse = 加权(y_trade, y_nowcast)，表示预期今日收益（百分点）
-  - y_on 表示预期隔夜收益（百分点）
+  - 持有周期 = T 开盘 → T+1 开盘
+  - y_fuse = 加权(y_trade, y_nowcast) 按缺口映成 open[T]→close[T]（百分点）
+  - y_on 表示预期隔夜 close[T]→open[T+1]（百分点）
   - ranking = (1 + y_fuse/100) × (1 + α × y_on/100) − 1；缺 y_on 视为 0
-  - 展示为百分数（×100）。α 默认 0：隔夜项为 0，清仓等价于 y_fuse < 0
+  - α=1 时 ranking ≈ open[T]→open[T+1]。展示百分数（×100）。α 默认 0：隔夜不参与，清仓等价于 y_fuse < 0
   - 已持仓且 ranking < 0 → 清仓（T+1 可卖部分）
   - ranking_score > rank入场 的票按分数取 Top-K：建仓或加仓
   - ranking_score > rank强 → 500 股，否则 200 股
@@ -107,9 +108,11 @@ def ranking_score(
     *,
     y_on_alpha: float = DEFAULT_Y_ON_ALPHA,
 ) -> Optional[float]:
-    """y_fuse、y_on 均为收益百分点；缺 y_on 视为 0。返回净收益（小数，展示×100 为百分数）。
+    """y_fuse=open[T]→close[T]、y_on=close[T]→open[T+1]（百分点）；缺 y_on 视为 0。
 
+    返回净收益（小数，展示×100 为百分数）。
     ranking = (1 + y_fuse/100) × (1 + α × y_on/100) − 1；α 默认 0（隔夜不参与）。
+    α=1 时对齐持有腿 open[T]→open[T+1]。
     """
     yf = _f(y_fuse)
     if yf is None:
@@ -261,8 +264,9 @@ def get_rank_lot_cfg(
 
 def y_fuse_of(item: Optional[dict], cfg: Optional[dict] = None) -> Optional[float]:
     from core.paper.rebalance.path_matrix import (
-        fuse_trade_nowcast,
+        fuse_trade_nowcast_oc,
         get_path_matrix_cfg,
+        open_gap_pct_of,
         scores_from_rebalance_item,
     )
 
@@ -273,11 +277,12 @@ def y_fuse_of(item: Optional[dict], cfg: Optional[dict] = None) -> Optional[floa
         return direct
     sc = scores_from_rebalance_item(item)
     rules = get_path_matrix_cfg(cfg)
-    return fuse_trade_nowcast(
+    return fuse_trade_nowcast_oc(
         sc.get("y_trade"),
         sc.get("y_nowcast"),
         w_trade=float(rules.get("fusion_w_trade") or 0.5),
         w_nowcast=float(rules.get("fusion_w_nowcast") or 0.5),
+        gap_pct=open_gap_pct_of(item),
     )
 
 
@@ -438,12 +443,10 @@ def plan_rank_lot_day(
                     {
                         "stock_code": code,
                         "stock_name": name,
+                        "shares": held_sh,
                         "action": ACTION_HOLD,
                         "reason": t0_reason,
-                        "y_fuse": yf,
-                        "y_on": yo,
-                        "ranking_score": rs,
-                        "y_on_alpha": y_on_alpha,
+                        **_debug_scores(item, yf, yo, rs, y_on_alpha=y_on_alpha),
                     }
                 )
                 continue
@@ -486,12 +489,10 @@ def plan_rank_lot_day(
                 {
                     "stock_code": code,
                     "stock_name": name,
+                    "shares": held_sh,
                     "action": ACTION_HOLD,
                     "reason": "ranking≥0% 持有",
-                    "y_fuse": yf,
-                    "y_on": yo,
-                    "ranking_score": rs,
-                    "y_on_alpha": y_on_alpha,
+                    **_debug_scores(item, yf, yo, rs, y_on_alpha=y_on_alpha),
                 }
             )
 

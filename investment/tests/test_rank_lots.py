@@ -158,6 +158,37 @@ class TestPlanRankLotDay(unittest.TestCase):
         buy = out["buys"][0]
         self.assertAlmostEqual(float(buy["y_fuse"]), 1.6)
 
+    def test_y_fuse_maps_cc_blend_to_open_close(self):
+        from core.paper.rebalance.rank_lots import plan_rank_lot_day, y_fuse_of
+
+        scored = [
+            {
+                "stock_code": "600000",
+                "stock_name": "OC",
+                "y_trade": 2.0,
+                "y_nowcast": 1.0,
+                "gap_pct": 1.0,
+                "y_on": 0.0,
+            }
+        ]
+        expect = round(((1.0 + 1.5 / 100.0) / (1.0 + 1.0 / 100.0) - 1.0) * 100.0, 6)
+        self.assertAlmostEqual(y_fuse_of(scored[0], _cfg()), expect)
+        out = plan_rank_lot_day(
+            scored=scored,
+            holdings=[],
+            cash=1_000_000,
+            prices={"600000": 10.0},
+            cfg=_cfg(rank_enter=0.0, rank_strong=0.02),
+        )
+        buy = out["buys"][0]
+        self.assertAlmostEqual(float(buy["y_fuse"]), expect)
+
+    def test_direct_y_fuse_not_unlifted(self):
+        from core.paper.rebalance.rank_lots import y_fuse_of
+
+        item = {"y_fuse": 1.2, "gap_pct": 1.0, "y_trade": 3.0}
+        self.assertAlmostEqual(y_fuse_of(item, _cfg()), 1.2)
+
     def test_open_cfg_lot_1000_vs_2000(self):
         from core.paper.rebalance.rank_lots import plan_rank_lot_day
 

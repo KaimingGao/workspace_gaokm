@@ -10,7 +10,11 @@
       →
       <a class="quant-hero-link" href="#quant-section-tau">ŷ_τ</a>
       →
+      <a class="quant-hero-link" href="#quant-section-tau-tree">ŷ_τ_tree</a>
+      →
       <a class="quant-hero-link" href="#quant-section-r">ŷ_r</a>
+      →
+      <a class="quant-hero-link" href="#quant-section-r-tree">ŷ_r_tree</a>
       →
       <a class="quant-hero-link" href="#quant-section-ic-series">IC</a>
       →
@@ -295,7 +299,7 @@
                 不同组各自池 OLS → 各自 β → 收益分 <strong>ŷ_EOD</strong>（主轴），避免异质票硬套全局模型。
               </p>
               <p>
-                「跑分组」：宇宙=观察池<strong>前 Limit 只</strong>（默认 100≈满池），按单票 OLS β 层次聚类。
+                「跑分组」：宇宙=观察池<strong>前 Limit 只</strong>（默认 200≈满池），按单票 OLS β 层次聚类。
                 表单默认 <strong>ridge λ=1.0</strong>、<strong>K=自动</strong>（中心约 N/5，夹在 4～10；宇宙日历 Holdout 前段 β 定组；邻域 ±1 × 多折均值尾段 ŷ IC / 前段重拟合选优；定组后有限轮 holdout 贪心换组；另附扩展窗审计；超大组再二分）；
                 <strong>填 ≥2</strong>=按目标 k 切簇（尽量贴近 K；实际上限≈有效票数，不因离群拆成单票堆）。
                 页顶 <strong>Holdout日</strong> 同时切定组与研究套组 β（执行套仍全样本；EOD 研究 β 再隔离 horizon）。
@@ -306,7 +310,7 @@
               <p><strong>基线</strong>：全局人工预定义线性加权（<code>heuristic_score</code>）。<strong>研究臂</strong>：本页回归模型 → <code>predicted_score</code>（ŷ_EOD）。</p>
               <h4>因子系数 β</h4>
               <p>分组后为<strong>一组一表</strong>。表里<strong>系数 β</strong>来自该组池 OLS，即 <code>return_model.coefficients</code>，驱动组内收益分 ŷ_EOD。</p>
-              <h4>耗时（满池 ≈100 只 · K=自动）</h4>
+              <h4>耗时（满池 ≈200 只 · K=自动）</h4>
               <p>
                 全量重算常见 <strong>15～30 分钟</strong>（有心跳可持续等到约 90 分钟；命中 24h 缓存则秒级）。
                 钱主要花在定组后组内 OOS，不是卡死：
@@ -345,9 +349,9 @@
               <span class="quant-pro-field-label">K</span>
               <input id="quant-cluster-k" type="number" min="2" max="100" step="1" value="" placeholder="自动" inputmode="numeric" />
             </label>
-            <label class="platform-field quant-pro-field" title="观察池截断：取名单前 N 只跑 OLS 分组（3～100）；默认 100≈满池">
+            <label class="platform-field quant-pro-field" title="观察池截断：取名单前 N 只跑 OLS 分组（3～200）；默认 200≈满池">
               <span class="quant-pro-field-label">Limit</span>
-              <input id="quant-watching-limit" type="number" min="3" max="100" step="1" value="100" inputmode="numeric" />
+              <input id="quant-watching-limit" type="number" min="3" max="200" step="1" value="200" inputmode="numeric" />
             </label>
             <label class="platform-field quant-cluster-refresh quant-pro-checkbox" title="勾选后因子集对齐当前大盘 regime 白名单">
               <input id="quant-cluster-respect-regime" type="checkbox" />
@@ -406,7 +410,7 @@
                 <a class="quant-hero-link" href="/follow">交易执行 · 分数融合</a>
                 （一层 y_trade，二层 y_fuse；仅 blend）。分钟**训练**网格含开盘 Z + 午后训练钟
                 <code>09:30|09:35|…|11:00</code>（09:30 无前缀；早盘每 5m 共享 β；不含 13:00 / 14:00；**做T执行 v6 收盘带宽**：每 5m 扫至 11:00，收价破 ĉ±δ 开 leg1，path 不进 ĉ）；live 调仓钟仍是 10:30。
-                研究套 holdout 天数在页顶概览 <strong>Holdout日</strong>（默认 10），ŷ_τ / ŷ_r / ŷ_ON / ŷ_path / ŷ_cx / ŷ_tpd 共用。
+                研究套 holdout 天数在页顶概览 <strong>Holdout日</strong>（默认 10），ŷ_τ / ŷ_τ_tree / ŷ_r / ŷ_ON / ŷ_path / ŷ_cx / ŷ_tpd 共用。
               </p>
             </div>
           </details>
@@ -419,6 +423,43 @@
       <div class="quant-pro-card-body">
         <div id="quant-tau-result" class="quant-weight-table-wrap" aria-label="ŷ_τ 拟合摘要"></div>
         <div id="quant-tau-coef-table" class="quant-weight-table-wrap" aria-label="ŷ_τ 因子系数表"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ŷ_τ_tree：独立浅树头；同标签、不进 live / 回测 -->
+  <section class="dashboard-section quant-section" id="quant-section-tau-tree" aria-labelledby="quant-section-tau-tree-title">
+    <header class="dashboard-section-head quant-section-head">
+      <h3 id="quant-section-tau-tree-title" class="dashboard-section-title">ŷ_τ_tree</h3>
+      <p class="dashboard-section-desc quant-section-desc">open→close 浅树（80 棵）· 影子对照 · 不进 live</p>
+    </header>
+    <div class="dashboard-card quant-pro-card">
+      <div class="dashboard-card-head quant-pro-card-head quant-card-head--tools">
+        <div id="quant-tau-tree-summary" class="quant-rem-status quant-card-head-status" aria-live="polite">
+          <span class="quant-pro-status-chip" data-state="idle">待命</span>
+          <span class="quant-rem-status-msg">拟合 80 棵后看 OOS · 不写盘 · 满池约数十秒起</span>
+        </div>
+        <div class="dashboard-card-tools quant-pro-card-tools" role="group" aria-label="ŷ_τ_tree 操作">
+          <details class="quant-help-fold quant-pro-help-fold">
+            <summary class="quant-pro-help-summary"><span class="quant-pro-help-icon" aria-hidden="true">?</span> 说明</summary>
+            <div class="quant-help-body quant-pro-help-body">
+              <p>
+                <strong>ŷ_τ_tree</strong> 是独立估计器，标签与 ŷ_τ 相同：
+                <code>close[T]/open[T]−1</code>。80 棵浅树（深度 3）GBM；有 XGBoost 则用，否则 numpy。
+                与 Ridge 同面板、同 Holdout，表内对照 IC / 命中 / MSE。
+              </p>
+              <p>
+                <strong>不改 ŷ_τ Ridge、不进聚类、不写 live、不进回测</strong>。
+                无「启用研究 / 启用执行」。Holdout 日与页顶概览共用。
+              </p>
+            </div>
+          </details>
+          <button type="button" id="quant-tau-tree-run" class="dialog-btn secondary" title="观察池拟合 ŷ_τ_tree（80 棵浅树，深度 3）+ 同 Holdout Ridge 对照；不写盘。满池可能需数十秒到数分钟。">拟合</button>
+          <button type="button" id="quant-tau-tree-status" class="dialog-btn secondary" title="读取上次影子对照（不进打分）">上次</button>
+        </div>
+      </div>
+      <div class="quant-pro-card-body">
+        <div id="quant-tau-tree-result" class="quant-weight-table-wrap" aria-label="ŷ_τ_tree 对照表"></div>
       </div>
     </div>
   </section>
@@ -461,6 +502,43 @@
       <div class="quant-pro-card-body">
         <div id="quant-r-result" class="quant-weight-table-wrap" aria-label="ŷ_r 拟合摘要"></div>
         <div id="quant-r-coef-table" class="quant-weight-table-wrap" aria-label="ŷ_r 因子系数表"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ŷ_r_tree：独立浅树头；同标签、不进 live / 回测 -->
+  <section class="dashboard-section quant-section" id="quant-section-r-tree" aria-labelledby="quant-section-r-tree-title">
+    <header class="dashboard-section-head quant-section-head">
+      <h3 id="quant-section-r-tree-title" class="dashboard-section-title">ŷ_r_tree</h3>
+      <p class="dashboard-section-desc quant-section-desc">price(τ)/close−1 浅树（80 棵）· 影子对照 · 不进 live</p>
+    </header>
+    <div class="dashboard-card quant-pro-card">
+      <div class="dashboard-card-head quant-pro-card-head quant-card-head--tools">
+        <div id="quant-r-tree-summary" class="quant-rem-status quant-card-head-status" aria-live="polite">
+          <span class="quant-pro-status-chip" data-state="idle">待命</span>
+          <span class="quant-rem-status-msg">拟合 80 棵后看 OOS · 不写盘 · 满池约数十秒起 · 需 5m</span>
+        </div>
+        <div class="dashboard-card-tools quant-pro-card-tools" role="group" aria-label="ŷ_r_tree 操作">
+          <details class="quant-help-fold quant-pro-help-fold">
+            <summary class="quant-pro-help-summary"><span class="quant-pro-help-icon" aria-hidden="true">?</span> 说明</summary>
+            <div class="quant-help-body quant-pro-help-body">
+              <p>
+                <strong>ŷ_r_tree</strong> 是独立估计器，标签与 ŷ_r 相同：
+                <code>price[τ]/close[T]−1</code>（百分点）。80 棵浅树（深度 3）GBM；有 XGBoost 则用，否则 numpy。
+                与 Ridge 同面板、同 Holdout，表内对照 IC / 命中 / MSE。
+              </p>
+              <p>
+                <strong>不改 ŷ_r Ridge、不进调仓、不写 live、不进回测</strong>。
+                无「启用研究 / 启用执行」。依赖观察池 5m 缓存。Holdout 日与页顶概览共用。
+              </p>
+            </div>
+          </details>
+          <button type="button" id="quant-r-tree-run" class="dialog-btn secondary" title="观察池拟合 ŷ_r_tree（80 棵浅树，深度 3）+ 同 Holdout Ridge 对照；不写盘。需 5m 缓存。满池可能需数十秒到数分钟。">拟合</button>
+          <button type="button" id="quant-r-tree-status" class="dialog-btn secondary" title="读取上次影子对照（不进打分）">上次</button>
+        </div>
+      </div>
+      <div class="quant-pro-card-body">
+        <div id="quant-r-tree-result" class="quant-weight-table-wrap" aria-label="ŷ_r_tree 对照表"></div>
       </div>
     </div>
   </section>

@@ -29,6 +29,15 @@ class TestPathMatrix(unittest.TestCase):
         self.assertAlmostEqual(fuse_trade_nowcast(1.0, None), 1.0)
         self.assertIsNone(fuse_trade_nowcast(None, None))
 
+    def test_fuse_trade_nowcast_oc_strips_gap(self):
+        from core.paper.rebalance.path_matrix import fuse_trade_nowcast_oc
+
+        cc = fuse_trade_nowcast_oc(2.0, 1.0, w_trade=0.5, w_nowcast=0.5)
+        self.assertAlmostEqual(cc, 1.5)
+        oc = fuse_trade_nowcast_oc(2.0, 1.0, w_trade=0.5, w_nowcast=0.5, gap_pct=1.0)
+        expect = round(((1.0 + 1.5 / 100.0) / (1.0 + 1.0 / 100.0) - 1.0) * 100.0, 6)
+        self.assertAlmostEqual(oc, expect)
+
     def test_reads_rank_lots_key_first(self):
         from core.paper.rebalance.path_matrix import get_path_matrix_cfg
 

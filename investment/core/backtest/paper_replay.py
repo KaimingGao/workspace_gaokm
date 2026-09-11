@@ -937,6 +937,82 @@ def _skip_to_sim(sk: dict, day: str) -> dict:
     }
 
 
+def _hold_to_sim(
+    plan_h: dict,
+    day: str,
+    holding: dict,
+    *,
+    date_maps: Dict[str, Dict[str, dict]],
+    prices: Optional[Dict[str, float]] = None,
+) -> dict:
+    """续持腿：无成交，收盘盯市，便于成交明细回溯当日收益。"""
+    code = str(
+        (holding or {}).get("stock_code") or (plan_h or {}).get("stock_code") or ""
+    ).strip()
+    sh = _fpx((holding or {}).get("shares"))
+    if sh is None:
+        sh = _fpx((plan_h or {}).get("shares"))
+    bar = (date_maps.get(code) or {}).get(day) or {}
+    close_px = (
+        _fpx(bar.get("close"))
+        or _fpx(bar.get("open"))
+        or _fpx((prices or {}).get(code))
+    )
+    cost = _fpx((holding or {}).get("cost"))
+    cum_cost = (
+        round(float(cost) * float(sh), 2)
+        if cost is not None and sh is not None and sh > 0
+        else None
+    )
+    try:
+        from core.paper.rebalance.watching_matrix import _open_date_of
+
+        open_date = _open_date_of(holding, day) or ""
+    except Exception:  # noqa: BLE001
+        logger.debug("hold open_date failed %s", code, exc_info=True)
+        open_date = str(
+            (holding or {}).get("bought_date") or (holding or {}).get("bought_at") or ""
+        )[:10]
+    yf = (plan_h or {}).get("y_fuse")
+    ytau = (plan_h or {}).get("y_tau")
+    if ytau is None:
+        ytau = (plan_h or {}).get("predicted_score_tau")
+    amount = (
+        round(float(sh) * float(close_px), 2)
+        if sh is not None and close_px is not None
+        else None
+    )
+    name = (holding or {}).get("stock_name") or (plan_h or {}).get("stock_name")
+    return {
+        "stock_code": code,
+        "stock_name": name,
+        "side": "hold",
+        "shares": sh,
+        "price": close_px,
+        "amount": amount,
+        "as_of": day,
+        "signal_date": day,
+        "status": "held",
+        "action": "hold",
+        "matrix_action": "hold",
+        "y_fuse": yf,
+        "y_on": (plan_h or {}).get("y_on"),
+        "y_tau": ytau,
+        "predicted_score_tau": (plan_h or {}).get("predicted_score_tau")
+        if (plan_h or {}).get("predicted_score_tau") is not None
+        else ytau,
+        "ranking_score": (plan_h or {}).get("ranking_score"),
+        "y_trade": (plan_h or {}).get("y_trade"),
+        "y_nowcast": (plan_h or {}).get("y_nowcast"),
+        "predicted_score": yf,
+        "score": yf,
+        "reason": (plan_h or {}).get("reason") or "ranking≥0% 持有",
+        "open_date": open_date,
+        "cost_price": cost,
+        "cum_cost": cum_cost,
+    }
+
+
 def _ledger_trades_to_sim(trades: Sequence[dict]) -> List[dict]:
     """账本买卖腿 → 前端成交表行（保留 side / 股数 / y_fuse，不是研究独立腿）。"""
     out: List[dict] = []
@@ -1045,20 +1121,22 @@ def _sign_hit_yf(yhat: Optional[float], realized: Optional[float]) -> Optional[b
 
 
 def fuse_hit_metrics(rows: Sequence[dict]) -> Tuple[Optional[float], int, int]:
-    """成交腿 sign(y_fuse)=sign(realized_cc)。跳过腿不计。返回 (命中率%, 有方向笔数, 命中笔数)。"""
+    """成交腿 sign(y_fuse)=sign(realized_tau)。跳过/持仓腿不计。返回 (命中率%, 有方向笔数, 命中笔数)。"""
     hits = 0
     n = 0
     for r in rows or []:
         if not isinstance(r, dict):
             continue
-        if str(r.get("status") or "") == "skipped":
+        if str(r.get("status") or "") in ("skipped", "held"):
             continue
         yf = _fnum(r.get("y_fuse"))
         if yf is None:
             rs = _fnum(r.get("ranking_score"))
             if rs is not None:
                 yf = float(rs) * 100.0
-        real = _fnum(r.get("realized_cc"))
+        real = _fnum(r.get("realized_tau"))
+        if real is None:
+            real = _fnum(r.get("realized_cc"))
         hit = _sign_hit_yf(yf, real)
         if hit is None:
             continue
@@ -1078,7 +1156,7 @@ def realized_yhat_windows(
     date_maps: Dict[str, Dict[str, dict]],
     date_index: Optional[Dict[str, int]] = None,
 ) -> Tuple[Optional[float], Optional[float], Optional[float]]:
-    """事后对照：y_fuse↔close[T]/close[T−1]−1；y_τ↔close[T]/open[T]−1；y_on↔open[T+1]/close[T]−1。不进决策。"""
+    """事后对照：y_fuse↔close[T]/open[T]−1；y_τ 同 OC；y_on↔open[T+1]/close[T]−1。realized_cc 仅诊断。不进决策。"""
     d = str(day or "")[:10]
     c = str(code or "").strip()
     if not d or not c:
@@ -1576,6 +1654,7 @@ def backtest_paper_replay(
     day_returns: List[float] = []
     rebalance_logs: List[dict] = []
     debug_skips: List[dict] = []
+    debug_holds: List[dict] = []
     constraints: Dict[str, int] = {
         "t1_blocks": 0,
         "cash_floor_skips": 0,
@@ -1705,12 +1784,43 @@ def backtest_paper_replay(
             if sell_trades or buy_trades:
                 applied = _apply_matrix_trades(paper, sell_trades, buy_trades, as_of=day)
                 constraints["rebalance_days"] += 1
+            day_skip_sell: set = set()
             for sk in list(plan.get("skips") or []) + list(applied.get("apply_skips") or []):
                 if not isinstance(sk, dict):
                     continue
                 if not _is_debug_skip(sk):
                     continue
                 debug_skips.append(_skip_to_sim(sk, day))
+                if _infer_skip_side(sk) == "sell":
+                    c = str(sk.get("stock_code") or "").strip()
+                    if c:
+                        day_skip_sell.add(c)
+            traded_codes = {
+                str(t.get("stock_code") or "").strip()
+                for t in list(applied.get("sell_trades") or [])
+                + list(applied.get("buy_trades") or [])
+                if str(t.get("stock_code") or "").strip()
+            }
+            hold_by_code = {
+                str(h.get("stock_code") or "").strip(): h
+                for h in (plan.get("holds") or [])
+                if isinstance(h, dict) and str(h.get("stock_code") or "").strip()
+            }
+            for h in paper.get("holdings") or []:
+                if not isinstance(h, dict):
+                    continue
+                code = str(h.get("stock_code") or "").strip()
+                if not code or code in traded_codes or code in day_skip_sell:
+                    continue
+                debug_holds.append(
+                    _hold_to_sim(
+                        hold_by_code.get(code) or {},
+                        day,
+                        h,
+                        date_maps=date_maps,
+                        prices=prices,
+                    )
+                )
 
         equity = float(paper.get("cash") or 0)
         for h in paper.get("holdings") or []:
@@ -1820,6 +1930,7 @@ def backtest_paper_replay(
 
     sim_trades = [_stamp_day_context(r) for r in _ledger_trades_to_sim(ledger_trades)]
     sim_trades.extend(_stamp_day_context(dict(s)) for s in debug_skips)
+    sim_trades.extend(_stamp_day_context(dict(s)) for s in debug_holds)
     _stamp_stock_names(sim_trades, name_by_code)
     _stamp_stock_names(ledger_trades, name_by_code)
     _stamp_stock_names(paper.get("holdings") or [], name_by_code)
@@ -1833,6 +1944,7 @@ def backtest_paper_replay(
     metrics["trade_count"] = len(ledger_trades)
     metrics["sim_trade_count"] = len(ledger_trades)
     metrics["skip_count"] = len(debug_skips)
+    metrics["hold_count"] = len(debug_holds)
     metrics["rebalance_days"] = constraints["rebalance_days"]
     metrics["day_count"] = len(day_returns)
     metrics["hit_rate_pct"] = hit_pct
@@ -1852,7 +1964,7 @@ def backtest_paper_replay(
     note = (
         f"引擎={ENGINE_ID}：每个交易日 09:30 开盘算 y_fuse/y_on，{fill_note}；"
         f"ranking=(1+y_fuse/100)×(1+α×y_on/100)−1 α={alpha:g}；"
-        f"y_fuse 权 w_trade={w_trade:g} w_nowcast={w_nowcast:g}；ranking<0 清仓；"
+        f"y_fuse=open→close 权 w_trade={w_trade:g} w_nowcast={w_nowcast:g}；ranking<0 清仓；"
         f"过 rank入场={rl_cfg.get('rank_enter')} 按分数买（开加上限=观察池 {top_k} 只，现金不够则停），"
         f"过 rank强={rl_cfg.get('rank_strong')} 买 {int(rl_cfg.get('lot_strong') or REPLAY_LOT_STRONG)} "
         f"否则 {int(rl_cfg.get('lot_base') or REPLAY_LOT_BASE)} 股；"

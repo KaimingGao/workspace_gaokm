@@ -210,8 +210,10 @@ class TestPaperReplayEngine(unittest.TestCase):
         bars = stock_bars["600519"]
         prev_c = float(bars[i - 1]["close"])
         close_t = float(bars[i]["close"])
+        open_t = float(bars[i]["open"])
         nxt_o = float(bars[i + 1]["open"])
         self.assertAlmostEqual(mid.get("realized_cc"), (close_t / prev_c - 1.0) * 100.0, places=3)
+        self.assertAlmostEqual(mid.get("realized_tau"), (close_t / open_t - 1.0) * 100.0, places=3)
         self.assertAlmostEqual(mid.get("realized_on"), (nxt_o / close_t - 1.0) * 100.0, places=3)
         last_rows = [
             t
@@ -496,13 +498,19 @@ class TestPaperReplayEngine(unittest.TestCase):
         logs = out.get("rebalance_logs") or []
         curve = out.get("equity_curve") or []
         self.assertGreaterEqual(len(trades), 1)
-        fills = [s for s in sim if s.get("status") != "skipped"]
+        fills = [s for s in sim if s.get("status") == "filled"]
         self.assertEqual(len(fills), len(trades))
         self.assertEqual(out.get("sim_trade_count"), len(trades))
         self.assertGreaterEqual(len(logs), 3)
         self.assertGreaterEqual(len(curve), len(logs))
         self.assertTrue(all(str(t.get("as_of") or "")[:10] for t in trades))
-        self.assertTrue(all(s.get("side") in ("buy", "sell") for s in sim))
+        self.assertTrue(
+            all(
+                s.get("side") in ("buy", "sell", "hold")
+                or s.get("status") == "skipped"
+                for s in sim
+            )
+        )
         paper_trades = (out.get("paper") or {}).get("trades") or []
         self.assertEqual(len(paper_trades), len(trades))
         self.assertEqual(out["params"]["lot_base"], REPLAY_LOT_BASE)
@@ -529,6 +537,51 @@ class TestPaperReplayEngine(unittest.TestCase):
             self.assertTrue(str(s.get("open_date") or "")[:10], s)
             self.assertIsNotNone(s.get("cum_cost"), s)
             self.assertGreater(float(s["cum_cost"]), 0)
+
+    def test_sim_trades_include_hold_rows(self):
+        """开仓后 ranking 落到 [0, 入场]：成交明细应有持仓腿（收盘盯市 + 真实涨跌）。"""
+        stock_bars = {
+            "600519": _bars(18, step=0.5),
+            "600036": _bars(18, step=0.3),
+        }
+        dates = [b["date"] for b in stock_bars["600519"]]
+        rankings = {}
+        for i, d in enumerate(dates):
+            y = 2.0 if i <= 9 else 0.4
+            rankings[d] = [_rank_row("600519", y)]
+        with _offline_rebalance_patches():
+            out = backtest_paper_replay(
+                stock_bars,
+                top_k=1,
+                min_history=8,
+                rankings_by_date=rankings,
+                cost_model="zero",
+                initial_cash=200_000.0,
+            )
+        self.assertTrue(out.get("success"), out.get("error"))
+        sim = out.get("sim_trades") or []
+        holds = [s for s in sim if s.get("action") == "hold"]
+        self.assertTrue(holds, "续持日应写入持仓腿")
+        self.assertEqual(int((out.get("metrics") or {}).get("hold_count") or 0), len(holds))
+        for h in holds:
+            self.assertEqual(h.get("status"), "held")
+            self.assertEqual(h.get("side"), "hold")
+            self.assertEqual(h.get("stock_code"), "600519")
+            self.assertGreater(float(h.get("shares") or 0), 0)
+            self.assertIsNotNone(h.get("price"))
+            self.assertTrue(str(h.get("open_date") or "")[:10], h)
+            self.assertIsNotNone(h.get("y_fuse"))
+            self.assertIsNotNone(h.get("ranking_score"))
+            day = str(h.get("as_of") or "")[:10]
+            if day and day != dates[-1]:
+                self.assertIsNotNone(h.get("realized_cc"), h)
+        hold_days = {str(h.get("as_of") or "")[:10] for h in holds}
+        fill_days = {
+            str(s.get("as_of") or "")[:10]
+            for s in sim
+            if s.get("status") == "filled" and s.get("stock_code") == "600519"
+        }
+        self.assertFalse(hold_days & fill_days, "持仓腿不应与同日开/加/清重叠")
 
     def test_default_top_k_is_universe_size(self):
         stock_bars = {
@@ -1449,20 +1502,29 @@ class TestFuseHitMetrics(unittest.TestCase):
     def test_sign_hit_skips_and_no_direction(self):
         pct, n, hits = fuse_hit_metrics(
             [
-                {"y_fuse": 1.2, "realized_cc": 0.5},
-                {"y_fuse": 1.2, "realized_cc": -0.5},
-                {"y_fuse": 1.2, "realized_cc": 0.5, "status": "skipped"},
-                {"y_fuse": 0.01, "realized_cc": 1.0},
-                {"y_fuse": -1.0, "realized_cc": -0.2},
-                {"ranking_score": 0.02, "realized_cc": 1.0},
+                {"y_fuse": 1.2, "realized_tau": 0.5},
+                {"y_fuse": 1.2, "realized_tau": -0.5},
+                {"y_fuse": 1.2, "realized_tau": 0.5, "status": "skipped"},
+                {"y_fuse": 1.2, "realized_tau": 0.5, "status": "held"},
+                {"y_fuse": 0.01, "realized_tau": 1.0},
+                {"y_fuse": -1.0, "realized_tau": -0.2},
+                {"ranking_score": 0.02, "realized_tau": 1.0},
             ]
         )
         self.assertEqual(n, 4)
         self.assertEqual(hits, 3)
         self.assertEqual(pct, 75.0)
 
+    def test_prefers_realized_tau_over_cc(self):
+        pct, n, hits = fuse_hit_metrics(
+            [{"y_fuse": 1.2, "realized_tau": 0.4, "realized_cc": -0.5}]
+        )
+        self.assertEqual(n, 1)
+        self.assertEqual(hits, 1)
+        self.assertEqual(pct, 100.0)
+
     def test_empty_is_none(self):
-        pct, n, hits = fuse_hit_metrics([{"status": "skipped", "y_fuse": 2.0, "realized_cc": 1.0}])
+        pct, n, hits = fuse_hit_metrics([{"status": "skipped", "y_fuse": 2.0, "realized_tau": 1.0}])
         self.assertIsNone(pct)
         self.assertEqual(n, 0)
         self.assertEqual(hits, 0)

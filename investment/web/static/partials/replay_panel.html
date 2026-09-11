@@ -94,7 +94,7 @@
             <div class="dashboard-kpi-value quant-pro-kpi-value replay-kpi-value" id="replay-kpi-win">—</div>
             <div class="dashboard-kpi-sub quant-pro-kpi-sub replay-kpi-sub" id="replay-kpi-win-sub">日净值&gt;0</div>
           </div>
-          <div class="dashboard-kpi-card quant-pro-kpi-card replay-kpi-card is-empty" data-kpi="hit" title="成交腿 sign(y_fuse)=sign(当日收/昨收−1)；|y_fuse|&lt;0.05% 无方向；跳过不计">
+          <div class="dashboard-kpi-card quant-pro-kpi-card replay-kpi-card is-empty" data-kpi="hit" title="成交腿 sign(y_fuse)=sign(当日收/开盘−1)；|y_fuse|&lt;0.05% 无方向；跳过不计">
             <div class="dashboard-kpi-label quant-pro-kpi-label replay-kpi-label">命中率</div>
             <div class="dashboard-kpi-value quant-pro-kpi-value replay-kpi-value" id="replay-kpi-hit">—</div>
             <div class="dashboard-kpi-sub quant-pro-kpi-sub replay-kpi-sub" id="replay-kpi-hit-sub">sign(y_fuse)</div>
@@ -109,7 +109,7 @@
                 <section class="follow-path-matrix-panel" data-panel="mode" aria-labelledby="pm-panel-mode">
                   <header class="follow-path-matrix-panel-head">
                     <h4 id="pm-panel-mode" class="follow-path-matrix-panel-title">分数融合</h4>
-                    <p class="follow-path-matrix-panel-note">一层 y_trade＝w_EOD·ŷ_EOD＋w_τ·ŷ_τ；二层 y_fuse＝w_trade·y_trade＋w_nc·y_nowcast</p>
+                    <p class="follow-path-matrix-panel-note">一层 y_trade＝昨收口径；二层 y_fuse＝open[T]→close[T]（CC 融合按缺口映剩余）；y_on＝close[T]→open[T+1]</p>
                   </header>
                   <div class="follow-path-matrix-body follow-path-matrix-body--row4">
                     <label class="follow-path-matrix-box" title="y_trade 中 ŷ_EOD_rem 权重；与 w_τ 一并归一化">
@@ -145,7 +145,7 @@
                 <section class="follow-path-matrix-panel" data-panel="rank" aria-labelledby="pm-panel-rank">
                   <header class="follow-path-matrix-panel-head">
                     <h4 id="pm-panel-rank" class="follow-path-matrix-panel-title">ranking 门槛</h4>
-                    <p class="follow-path-matrix-panel-note">ranking=(1+y_fuse/100)×(1+α×y_on/100)−1，展示百分数。α=0 隔夜不参与。过入场买入场股数；过强买强档股数。</p>
+                    <p class="follow-path-matrix-panel-note">ranking=(1+y_fuse/100)×(1+α×y_on/100)−1，展示百分数。α=0 隔夜不参与；α=1 对齐 T 开→T+1 开。过入场买入场股数；过强买强档股数。</p>
                   </header>
                   <div class="follow-path-matrix-body follow-path-matrix-body--row4">
                     <div
@@ -186,7 +186,7 @@
                     </div>
                     <div
                       class="follow-path-matrix-box follow-path-matrix-box--solo"
-                      title="隔夜系数 α，范围 0～10。ranking=(1+y_fuse/100)×(1+α×y_on/100)−1。默认 0：隔夜不参与；1：按原权重乘入"
+                      title="隔夜系数 α，范围 0～10。ranking=(1+y_fuse/100)×(1+α×y_on/100)−1。默认 0：隔夜不参与；1：按原权重乘入，对齐 T 开→T+1 开"
                     >
                       <span class="follow-path-matrix-box-text">
                         <span class="follow-path-matrix-box-title">α_on</span>

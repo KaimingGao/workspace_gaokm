@@ -223,6 +223,7 @@ class TestB5RespectRegime(unittest.TestCase):
         self.assertTrue(body.respect_regime)
         self.assertTrue(body.select_ridge)
         self.assertEqual(body.collinearity_policy, "drop_redundant")
+        self.assertEqual(body.watching_limit, 200)
 
 
 if __name__ == "__main__":

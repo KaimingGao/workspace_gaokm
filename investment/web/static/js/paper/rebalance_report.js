@@ -855,7 +855,7 @@ function renderRebalanceReport(
       const scoreFuseTitle =
         scoreFuse == null
           ? "暂无 y_fuse"
-          : "y_fuse · w_trade·ŷ_trade + w_nc·ŷ_nowcast（百分点）";
+          : "y_fuse · open[T]→close[T]（CC 融合按缺口映剩余）";
       const rankRaw = Number(
         r.ranking_score != null ? r.ranking_score : r.ranking
       );
@@ -1140,7 +1140,7 @@ function renderRebalanceReport(
     `<div class="rebalance-th num" role="columnheader" title="ŷ_ON · open 链旁路">y_on</div>` +
     `<div class="rebalance-th num" role="columnheader" title="ŷ_trade · 排序/卖门槛">y_trade</div>` +
     `<div class="rebalance-th num" role="columnheader" title="nowcast（nc）· 对照昨收">y_nc</div>` +
-    `<div class="rebalance-th num" role="columnheader" title="y_fuse · w_trade·ŷ_trade + w_nc·ŷ_nowcast">y_fuse</div>` +
+    `<div class="rebalance-th num" role="columnheader" title="y_fuse · open[T]→close[T]（CC 融合按缺口映剩余）">y_fuse</div>` +
     `<div class="rebalance-th num" role="columnheader" title="rank · ranking=(1+y_fuse/100)×(1+α×y_on/100)−1，展示百分数">rank</div>` +
     `<div class="rebalance-th num" role="columnheader">股数</div>` +
     `<div class="rebalance-th num" role="columnheader">变动</div>` +

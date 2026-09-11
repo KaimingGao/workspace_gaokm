@@ -2539,7 +2539,32 @@ body[data-page="follow"] .follow-page .paper-holdings-react-grid .watching-react
   background: var(--t0-cfg-wash);
 }
 
-/* 三种底色：共用蓝 · 门槛赭 · 正/反 T 青（正/反 T 均绿描边） */
+/* 三种描边：共用蓝 · 门槛赭 · 正/反 T 青（正/反 T 均绿描边）
+   区块框不铺底色，底色落在配置项 .paper-t0-field 上。 */
+.paper-t0-cfg-block.is-shared,
+.paper-t0-cfg-block.is-gate-1,
+.paper-t0-cfg-block.is-gate-2,
+.paper-t0-cfg-block.is-buy-then-sell,
+.paper-t0-cfg-block.is-sell-then-buy {
+  background: transparent;
+}
+
+.paper-t0-cfg-block.is-shared > legend,
+.paper-t0-cfg-block.is-gate-1 > legend,
+.paper-t0-cfg-block.is-gate-2 > legend,
+.paper-t0-cfg-block.is-buy-then-sell > legend,
+.paper-t0-cfg-block.is-sell-then-buy > legend {
+  background: var(--bg-card, var(--surface, #fff));
+}
+
+.paper-t0-cfg-block.is-shared .paper-t0-field,
+.paper-t0-cfg-block.is-gate-1 .paper-t0-field,
+.paper-t0-cfg-block.is-gate-2 .paper-t0-field,
+.paper-t0-cfg-block.is-buy-then-sell .paper-t0-field,
+.paper-t0-cfg-block.is-sell-then-buy .paper-t0-field {
+  background: var(--t0-cfg-wash);
+}
+
 .paper-t0-cfg-block.is-shared {
   --t0-cfg-wash: color-mix(in srgb, var(--accent, #2563eb) 11%, var(--surface, #fff));
   --t0-cfg-ink: color-mix(in srgb, var(--accent, #2563eb) 62%, var(--ink));

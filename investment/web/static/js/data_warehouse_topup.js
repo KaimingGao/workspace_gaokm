@@ -7,6 +7,7 @@
 import { apiFetch } from "./api_client.js";
 import { getDataOfflineOnly } from "./data_offline.js";
 import { unwrapJobSnap } from "./quant/cluster_job_ui.js";
+import { BARS_WATCHING_LIMIT, clampBarsWatchingLimit } from "./quant/params.js";
 
 /** 同会话内默认 30 分钟内不重复整池 topup（force 可强制）。 */
 export const WAREHOUSE_TOPUP_TTL_MS = 30 * 60 * 1000;
@@ -109,9 +110,9 @@ async function runOneTopup(postUrl, body, pollPath, opts = {}) {
  */
 export async function ensureWarehouseTopup(opts = {}) {
   const force = !!opts.force;
-  const watchingLimit = Math.max(
-    3,
-    Math.min(100, Number(opts.watchingLimit) || 100)
+  const watchingLimit = clampBarsWatchingLimit(
+    opts.watchingLimit,
+    BARS_WATCHING_LIMIT
   );
   const onStatus = opts.onStatus;
   const fetchImpl = opts.fetchImpl || apiFetch;

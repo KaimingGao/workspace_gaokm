@@ -8,10 +8,11 @@ import {
   jobStatusBadge,
   unwrapJobSnap,
 } from "./cluster_job_ui.js";
+import { BARS_WATCHING_LIMIT } from "./params.js";
 
 /** 研究枢纽 · 观察池日 K 覆盖 + 「增量补齐」/「强更日 K」 */
 export function installClusterBarsUi(q) {
-  const { on, apiFetch, readWatchingLimit, escapeHtml } = q;
+  const { on, apiFetch, escapeHtml } = q;
   const chip = document.getElementById("quant-cluster-bars-chip");
   const msgEl = document.getElementById("quant-cluster-bars-msg");
   const btn = document.getElementById("quant-cluster-bars-refresh");
@@ -608,7 +609,7 @@ export function installClusterBarsUi(q) {
   }
 
   async function refreshStatus() {
-    const limit = typeof readWatchingLimit === "function" ? readWatchingLimit() : 100;
+    const limit = BARS_WATCHING_LIMIT;
     const { ok, data, error } = await apiFetch(
       `/api/quant/cluster-bars/status?watching_limit=${encodeURIComponent(limit)}`
     );
@@ -763,7 +764,7 @@ export function installClusterBarsUi(q) {
         { pollStartedAt: Date.now(), mode: modeS }
       );
       try {
-        const limit = typeof readWatchingLimit === "function" ? readWatchingLimit() : 100;
+        const limit = BARS_WATCHING_LIMIT;
         const { ok, data, error } = await apiFetch("/api/quant/cluster-bars/refresh", {
           method: "POST",
           headers: { "Content-Type": "application/json" },

@@ -245,13 +245,25 @@ export function isRankLotsLedger(legs, dataOrTrades) {
   let n = 0;
   for (const r of rows) {
     const s = String(r.side || "").toLowerCase();
-    if (s === "buy" || s === "sell") n += 1;
+    const act = String(r.action || r.matrix_action || "").toLowerCase();
+    const st = String(r.status || "").toLowerCase();
+    if (
+      s === "buy" ||
+      s === "sell" ||
+      s === "hold" ||
+      act === "hold" ||
+      act === "skip" ||
+      st === "skipped" ||
+      st === "held"
+    ) {
+      n += 1;
+    }
   }
   return n >= Math.max(1, Math.ceil(rows.length * 0.6));
 }
 
 export const BT_LEDGER_TRADE_COLS = [
-  { id: "action", label: "动作", widthPct: 8, widthMin: "5.4rem", title: "开/加/清/跳过；跳过行下方为原因" },
+  { id: "action", label: "动作", widthPct: 8, widthMin: "5.4rem", title: "开/加/清/持/跳过；跳过行下方为原因" },
   { id: "name", label: "股票", flex: true, flexMin: "6.8rem", title: "点击名称看日线" },
   {
     id: "open_date",
@@ -259,7 +271,7 @@ export const BT_LEDGER_TRADE_COLS = [
     widthPct: 8,
     widthMin: "6.8rem",
     sortable: true,
-    title: "该持仓最早买入日；开仓=当日，加仓/清仓=原开日",
+    title: "该持仓最早买入日；开仓=当日，加仓/清仓/持=原开日",
   },
   { id: "shares", label: "股数", widthPct: 6, widthMin: "3.6rem", num: true, sortable: true },
   {
@@ -271,7 +283,7 @@ export const BT_LEDGER_TRADE_COLS = [
     sortable: true,
     title: "累计买入成本：加权成本 × 当前持仓股数；买入含本笔，卖出为卖前持仓",
   },
-  { id: "price", label: "成交价", widthPct: 7, widthMin: "4.2rem", num: true, sortable: true },
+  { id: "price", label: "成交价", widthPct: 7, widthMin: "4.2rem", num: true, sortable: true, title: "开/加/清=成交价；持=当日收盘盯市" },
   {
     id: "cost",
     label: "成交额",
@@ -279,7 +291,7 @@ export const BT_LEDGER_TRADE_COLS = [
     widthMin: "4.4rem",
     num: true,
     sortable: true,
-    title: "股数 × 成交价",
+    title: "股数 × 成交价；持=收盘市值",
   },
   {
     id: "y_fuse",
@@ -288,7 +300,7 @@ export const BT_LEDGER_TRADE_COLS = [
     widthMin: "8.8rem",
     num: true,
     sortable: true,
-    title: "格式 预估(真实)。真实=收盘/昨收。对照用，不进决策。",
+    title: "格式 预估(真实)。y_fuse=open[T]→close[T]；真实=收盘/开盘。对照用，不进决策。",
   },
   {
     id: "y_tau",
@@ -315,7 +327,7 @@ export const BT_LEDGER_TRADE_COLS = [
     widthMin: "5.4rem",
     num: true,
     sortable: true,
-    title: "ranking = (1+y_fuse/100)×(1+α×y_on/100)−1，展示百分数。α 默认 0（隔夜不参与）。<0% 清仓；过 Rank入场% 建仓；过 Rank强% 买 200 股。",
+    title: "ranking = (1+y_fuse/100)×(1+α×y_on/100)−1，展示百分数。y_fuse=open[T]→close[T]。α 默认 0（隔夜不参与）；α=1 对齐 T 开→T+1 开。<0% 清仓；过 Rank入场% 建仓；过 Rank强% 买 200 股。",
   },
 ];
 
@@ -323,9 +335,11 @@ export function sortLedgerTradeLegs(legs) {
   const sideRank = (r) => {
     const s = String(r.side || "").toLowerCase();
     const skipped = String(r.status || "") === "skipped";
+    const held = String(r.status || "") === "held" || String(r.action || "").toLowerCase() === "hold";
     if (s === "sell") return skipped ? 1 : 0;
     if (s === "buy") return skipped ? 3 : 2;
-    return 4;
+    if (held) return 4;
+    return 5;
   };
   return (legs || []).slice().sort((a, b) => {
     const ad = String(a.as_of || a.signal_date || a.ts || "").slice(0, 10);
@@ -344,6 +358,9 @@ export function attachLedgerOpenCost(legs) {
     const code = String(r.stock_code || "").trim();
     const day = String(r.as_of || r.signal_date || r.ts || "").slice(0, 10);
     const skipped = String(r.status || "") === "skipped";
+    const held =
+      String(r.status || "") === "held" ||
+      String(r.action || r.matrix_action || "").toLowerCase() === "hold";
     const side = String(r.side || "").toLowerCase();
     const px = _numOrNull(
       r.price != null ? r.price : side === "buy" ? r.entry_price : r.exit_price
@@ -373,6 +390,9 @@ export function attachLedgerOpenCost(legs) {
         book.shares -= sh;
         if (book.shares <= 1e-6) delete pos[code];
       }
+    } else if (held) {
+      if (!openDate && book) openDate = book.open_date;
+      if (cumCost == null && book) cumCost = book.cost * book.shares;
     }
     r.open_date = openDate || "";
     r.cum_cost = cumCost;
@@ -412,6 +432,7 @@ function _actionMeta(r) {
   if (raw === "open") return { key: "open", text: "开" };
   if (raw === "add") return { key: "add", text: "加" };
   if (raw === "exit") return { key: "exit", text: "清" };
+  if (raw === "hold" || side === "hold") return { key: "hold", text: "持" };
   if (side === "buy") return { key: "open", text: "买" };
   if (side === "sell") return { key: "exit", text: "卖" };
   return { key: "", text: "—" };
@@ -445,7 +466,7 @@ export function buildLedgerTradeRow(r, i, deps) {
   const actionTip = _legReason(r);
   const fuseTip = [
     yf != null ? `y_fuse ${fmtScore(yf)}` : "",
-    rCc != null ? `真实 close/昨收 ${fmtScore(rCc, { signed: true })}` : "真实 —",
+    rTau != null ? `真实 收盘/开盘 ${fmtScore(rTau, { signed: true })}` : "真实 —",
     yt != null ? `y_trade ${fmtScore(yt)}` : "",
     yn != null ? `y_nowcast ${fmtScore(yn)}` : "",
   ]
@@ -525,6 +546,7 @@ function _dayMeta(legs, day) {
   let nOpen = 0;
   let nAdd = 0;
   let nExit = 0;
+  let nKeep = 0;
   let nSkip = 0;
   let cash = null;
   let nHold = null;
@@ -536,12 +558,13 @@ function _dayMeta(legs, day) {
     if (act.key === "open") nOpen += 1;
     else if (act.key === "add") nAdd += 1;
     else if (act.key === "exit") nExit += 1;
+    else if (act.key === "hold") nKeep += 1;
     else if (act.key === "skip") nSkip += 1;
     if (cash == null) cash = _numOrNull(r.cash_after);
     if (nHold == null) nHold = _numOrNull(r.n_holdings);
     if (equity == null) equity = _numOrNull(r.equity_after);
   }
-  return { nOpen, nAdd, nExit, nSkip, cash, nHold, equity };
+  return { nOpen, nAdd, nExit, nKeep, nSkip, cash, nHold, equity };
 }
 
 /** 净值曲线上的调仓日（跳过起始垫点：无 cash / n_holdings）。 */
@@ -577,6 +600,7 @@ export function buildLedgerDayRow(day, meta) {
     nOpen: meta ? meta.nOpen : 0,
     nAdd: meta ? meta.nAdd : 0,
     nExit: meta ? meta.nExit : 0,
+    nKeep: meta ? meta.nKeep : 0,
     nSkip: meta ? meta.nSkip : 0,
     cashNum: cash,
     cashText: _fmtWan(cash),
@@ -964,6 +988,7 @@ function _dayBandHtml(d, escapeHtml) {
   if (d.nExit) chips.push(`<span class="bt-ledger-flow is-exit">清 ${d.nExit}</span>`);
   if (d.nOpen) chips.push(`<span class="bt-ledger-flow is-open">开 ${d.nOpen}</span>`);
   if (d.nAdd) chips.push(`<span class="bt-ledger-flow is-add">加 ${d.nAdd}</span>`);
+  if (d.nKeep) chips.push(`<span class="bt-ledger-flow is-hold">持 ${d.nKeep}</span>`);
   if (d.nSkip) chips.push(`<span class="bt-ledger-flow is-skip">跳 ${d.nSkip}</span>`);
   if (!chips.length) {
     chips.push(`<span class="bt-ledger-flow is-hold">未调仓</span>`);
@@ -1058,7 +1083,7 @@ export function btTradesCellHtml(col, d, deps) {
   }
   if (col.id === "y_fuse") {
     return _stackScoreHtml(
-      _predRealHtml(d.y_fuseText, d.y_fuseCls, d.realizedCcText, d.realizedCcCls, escapeHtml),
+      _predRealHtml(d.y_fuseText, d.y_fuseCls, d.realizedTauText, d.realizedTauCls, escapeHtml),
       d.y_fuseTip,
       escapeHtml
     );

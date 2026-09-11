@@ -71,6 +71,9 @@ const { installClusterMinuteUi } = await import(
 const { createFactorIcUi } = await import(
   `./quant/factor_ic_ui.js?v=${encodeURIComponent(_QV)}`
 );
+const { treeReportHtml } = await import(
+  `./quant/tree_report.js?v=${encodeURIComponent(_QV)}`
+);
 
 /** Quant research panel — shell + domain installs.
  * A4: 禁止再往根文件堆域逻辑；新能力进 quant/domain_* 或子模块，按页懒加载。
@@ -769,6 +772,329 @@ export function initQuant(ctx) {
       );
     }
     return bits;
+  }
+
+  let tauTreeBusyTimer = null;
+
+  function fmtTauTreeSec(v) {
+    const n = Number(v);
+    if (!Number.isFinite(n) || n < 0) return "—";
+    if (n < 60) return `${n >= 10 ? Math.round(n) : n.toFixed(1)}s`;
+    const m = Math.floor(n / 60);
+    const s = Math.round(n % 60);
+    return `${m}分${String(s).padStart(2, "0")}秒`;
+  }
+
+  function tauTreeBusyHint(elapsedSec) {
+    const s = Number(elapsedSec) || 0;
+    if (s < 8) return "拉观察池行情";
+    if (s < 25) return "组 open→close 面板";
+    if (s < 90) return "拟合 80 棵浅树 + Ridge 对照";
+    return "仍在拟合 80 棵（numpy 浅树较慢）";
+  }
+
+  function fmtTauTreeTiming(data) {
+    const t = data && data.timing;
+    if (!t || typeof t !== "object") return "";
+    const total = t.total_s != null ? t.total_s : t.fit_s;
+    const parts = [];
+    if (total != null && Number.isFinite(Number(total))) {
+      parts.push(`用时 ${fmtTauTreeSec(total)}`);
+    }
+    const segs = [];
+    if (t.bars_s != null) segs.push(`行情 ${fmtTauTreeSec(t.bars_s)}`);
+    if (t.panel_s != null) segs.push(`面板 ${fmtTauTreeSec(t.panel_s)}`);
+    if (t.tree_s != null) segs.push(`树 ${fmtTauTreeSec(t.tree_s)}`);
+    if (t.ridge_s != null) segs.push(`Ridge ${fmtTauTreeSec(t.ridge_s)}`);
+    if (segs.length) parts.push(segs.join(" / "));
+    return parts.join(" · ");
+  }
+
+  function tauTreeHyperBits(data) {
+    const hyper = (data && data.hyperparams) || {};
+    const n =
+      hyper.n_estimators != null && Number.isFinite(Number(hyper.n_estimators))
+        ? Number(hyper.n_estimators)
+        : 80;
+    const depth =
+      hyper.max_depth != null && Number.isFinite(Number(hyper.max_depth))
+        ? Number(hyper.max_depth)
+        : 3;
+    return `${n} 棵 · 深度 ${depth}`;
+  }
+
+  function stopTauTreeBusy() {
+    if (tauTreeBusyTimer) {
+      clearInterval(tauTreeBusyTimer);
+      tauTreeBusyTimer = null;
+    }
+    const btn = document.getElementById("quant-tau-tree-run");
+    if (btn) btn.disabled = false;
+  }
+
+  function startTauTreeBusy() {
+    stopTauTreeBusy();
+    const sum = document.getElementById("quant-tau-tree-summary");
+    const btn = document.getElementById("quant-tau-tree-run");
+    if (btn) btn.disabled = true;
+    const t0 = Date.now();
+    const tick = () => {
+      const s = Math.max(0, Math.round((Date.now() - t0) / 1000));
+      const msg = `${tauTreeBusyHint(s)} · 已 ${fmtTauTreeSec(s)} · 满池可能数十秒到数分钟`;
+      renderRemStatus(sum, {
+        state: "busy",
+        chip: "拟合中",
+        message: msg,
+        busy: true,
+      });
+      renderTauTreeCompare({
+        busy: true,
+        success: false,
+        message: msg,
+      });
+    };
+    tick();
+    tauTreeBusyTimer = setInterval(tick, 1000);
+  }
+
+  function renderTauTreeCompare(data) {
+    const box = document.getElementById("quant-tau-tree-result");
+    if (!box) return;
+    if (!data || typeof data !== "object") {
+      box.innerHTML = "";
+      return;
+    }
+    if (data.busy) {
+      box.innerHTML = `<div class="quant-tree-report is-busy"><p class="quant-attr-note">${escapeHtml(
+        data.message || "ŷ_τ_tree 拟合中…"
+      )}</p></div>`;
+      return;
+    }
+    if (!data.success) {
+      box.innerHTML = `<p class="quant-attr-note">${escapeHtml(
+        String(data.error || data.note || "ŷ_τ_tree 拟合失败")
+      )}</p>`;
+      return;
+    }
+    box.innerHTML = treeReportHtml(data, { head: "tau" });
+  }
+
+  async function runTauTree() {
+    const sum = document.getElementById("quant-tau-tree-summary");
+    startTauTreeBusy();
+    try {
+      const tauLimit = 200;
+      const res = await fetch("/api/quant/tau-tree", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          lookback: 120,
+          watching_limit: tauLimit,
+          ridge_lambda: 1.0,
+          holdout_trading_days: readHoldoutTradingDays(),
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      stopTauTreeBusy();
+      if (!res.ok || !data.success) {
+        const err = (data && (data.detail || data.error)) || `HTTP ${res.status}`;
+        renderRemStatus(sum, {
+          state: "error",
+          chip: "失败",
+          message: String(err),
+          error: true,
+        });
+        renderTauTreeCompare({ success: false, error: String(err) });
+        return;
+      }
+      const timingMsg = fmtTauTreeTiming(data);
+      renderRemStatus(sum, {
+        state: "ok",
+        chip: "已拟合",
+        message: [tauTreeHyperBits(data), timingMsg, "影子头 · 未写盘"]
+          .filter(Boolean)
+          .join(" · "),
+        oos: data.oos || {},
+        sampleCount: data.sample_count,
+      });
+      renderTauTreeCompare(data);
+    } finally {
+      stopTauTreeBusy();
+    }
+  }
+
+  async function loadTauTreeLast() {
+    const sum = document.getElementById("quant-tau-tree-summary");
+    renderRemStatus(sum, {
+      state: "busy",
+      chip: "读取中",
+      message: "上次影子对照…",
+      busy: true,
+    });
+    const res = await fetch("/api/quant/tau-tree/last");
+    const data = await res.json().catch(() => ({}));
+    if (!data.exists || !data.success) {
+      renderRemStatus(sum, {
+        state: "idle",
+        chip: "待命",
+        message: data.note || "尚无 ŷ_τ_tree",
+      });
+      renderTauTreeCompare({ success: false, error: data.note || "尚无上次对照" });
+      return;
+    }
+    const timingMsg = fmtTauTreeTiming(data);
+    renderRemStatus(sum, {
+      state: "ok",
+      chip: "上次",
+      message: [tauTreeHyperBits(data), timingMsg, "影子头 · 未写盘"]
+        .filter(Boolean)
+        .join(" · "),
+      oos: data.oos || {},
+      sampleCount: data.sample_count,
+    });
+    renderTauTreeCompare(data);
+  }
+
+  let rTreeBusyTimer = null;
+
+  function rTreeBusyHint(elapsedSec) {
+    const s = Number(elapsedSec) || 0;
+    if (s < 8) return "拉观察池行情";
+    if (s < 25) return "组 price(τ)/close 面板";
+    if (s < 90) return "拟合 80 棵浅树 + Ridge 对照";
+    return "仍在拟合 80 棵（numpy 浅树较慢）";
+  }
+
+  function stopRTreeBusy() {
+    if (rTreeBusyTimer) {
+      clearInterval(rTreeBusyTimer);
+      rTreeBusyTimer = null;
+    }
+    const btn = document.getElementById("quant-r-tree-run");
+    if (btn) btn.disabled = false;
+  }
+
+  function startRTreeBusy() {
+    stopRTreeBusy();
+    const sum = document.getElementById("quant-r-tree-summary");
+    const btn = document.getElementById("quant-r-tree-run");
+    if (btn) btn.disabled = true;
+    const t0 = Date.now();
+    const tick = () => {
+      const s = Math.max(0, Math.round((Date.now() - t0) / 1000));
+      const msg = `${rTreeBusyHint(s)} · 已 ${fmtTauTreeSec(s)} · 满池可能数十秒到数分钟`;
+      renderRemStatus(sum, {
+        state: "busy",
+        chip: "拟合中",
+        message: msg,
+        busy: true,
+      });
+      renderRTreeCompare({
+        busy: true,
+        success: false,
+        message: msg,
+      });
+    };
+    tick();
+    rTreeBusyTimer = setInterval(tick, 1000);
+  }
+
+  function renderRTreeCompare(data) {
+    const box = document.getElementById("quant-r-tree-result");
+    if (!box) return;
+    if (!data || typeof data !== "object") {
+      box.innerHTML = "";
+      return;
+    }
+    if (data.busy) {
+      box.innerHTML = `<div class="quant-tree-report is-busy"><p class="quant-attr-note">${escapeHtml(
+        data.message || "ŷ_r_tree 拟合中…"
+      )}</p></div>`;
+      return;
+    }
+    if (!data.success) {
+      box.innerHTML = `<p class="quant-attr-note">${escapeHtml(
+        String(data.error || data.note || "ŷ_r_tree 拟合失败")
+      )}</p>`;
+      return;
+    }
+    box.innerHTML = treeReportHtml(data, { head: "r" });
+  }
+
+  async function runRTree() {
+    const sum = document.getElementById("quant-r-tree-summary");
+    startRTreeBusy();
+    try {
+      const rLimit = 200;
+      const res = await fetch("/api/quant/r-tree", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          lookback: 120,
+          watching_limit: rLimit,
+          ridge_lambda: 1.0,
+          holdout_trading_days: readHoldoutTradingDays(),
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      stopRTreeBusy();
+      if (!res.ok || !data.success) {
+        const err = (data && (data.detail || data.error)) || `HTTP ${res.status}`;
+        renderRemStatus(sum, {
+          state: "error",
+          chip: "失败",
+          message: String(err),
+          error: true,
+        });
+        renderRTreeCompare({ success: false, error: String(err) });
+        return;
+      }
+      const timingMsg = fmtTauTreeTiming(data);
+      renderRemStatus(sum, {
+        state: "ok",
+        chip: "已拟合",
+        message: [tauTreeHyperBits(data), timingMsg, "影子头 · 未写盘"]
+          .filter(Boolean)
+          .join(" · "),
+        oos: data.oos || {},
+        sampleCount: data.sample_count,
+      });
+      renderRTreeCompare(data);
+    } finally {
+      stopRTreeBusy();
+    }
+  }
+
+  async function loadRTreeLast() {
+    const sum = document.getElementById("quant-r-tree-summary");
+    renderRemStatus(sum, {
+      state: "busy",
+      chip: "读取中",
+      message: "上次影子对照…",
+      busy: true,
+    });
+    const res = await fetch("/api/quant/r-tree/last");
+    const data = await res.json().catch(() => ({}));
+    if (!data.exists || !data.success) {
+      renderRemStatus(sum, {
+        state: "idle",
+        chip: "待命",
+        message: data.note || "尚无 ŷ_r_tree",
+      });
+      renderRTreeCompare({ success: false, error: data.note || "尚无上次对照" });
+      return;
+    }
+    const timingMsg = fmtTauTreeTiming(data);
+    renderRemStatus(sum, {
+      state: "ok",
+      chip: "上次",
+      message: [tauTreeHyperBits(data), timingMsg, "影子头 · 未写盘"]
+        .filter(Boolean)
+        .join(" · "),
+      oos: data.oos || {},
+      sampleCount: data.sample_count,
+    });
+    renderRTreeCompare(data);
   }
 
   function renderPathFitSummary(data) {
@@ -2742,6 +3068,68 @@ export function initQuant(ctx) {
         chip: "失败",
         message: String(err.message || err),
         error: true,
+      });
+    }
+  });
+
+  on("quant-tau-tree-run", "click", async (e) => {
+    e.preventDefault();
+    try {
+      await runTauTree();
+    } catch (err) {
+      const sum = document.getElementById("quant-tau-tree-summary");
+      renderRemStatus(sum, {
+        state: "error",
+        chip: "失败",
+        message: String(err.message || err),
+        error: true,
+      });
+      renderTauTreeCompare({
+        success: false,
+        error: String(err.message || err),
+      });
+    }
+  });
+
+  on("quant-tau-tree-status", "click", async (e) => {
+    e.preventDefault();
+    try {
+      await loadTauTreeLast();
+    } catch (err) {
+      renderTauTreeCompare({
+        success: false,
+        error: String(err.message || err),
+      });
+    }
+  });
+
+  on("quant-r-tree-run", "click", async (e) => {
+    e.preventDefault();
+    try {
+      await runRTree();
+    } catch (err) {
+      const sum = document.getElementById("quant-r-tree-summary");
+      renderRemStatus(sum, {
+        state: "error",
+        chip: "失败",
+        message: String(err.message || err),
+        error: true,
+      });
+      renderRTreeCompare({
+        success: false,
+        error: String(err.message || err),
+      });
+    }
+  });
+
+  on("quant-r-tree-status", "click", async (e) => {
+    e.preventDefault();
+    try {
+      await loadRTreeLast();
+    } catch (err) {
+      renderRTreeCompare({
+        success: false,
+        error: String(err.message || err),
       });
     }
   });

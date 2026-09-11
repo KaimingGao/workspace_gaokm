@@ -177,9 +177,9 @@ quant_panel.html
 
 | 概念 | 含义 |
 |------|------|
-| **y_fuse** | 预期今日收益（trade⊕nowcast） |
-| **y_on** | 预期明日收益 |
-| **ranking** | (1 + y_fuse/100) × (1 + α × y_on/100) − 1，展示百分数；α 默认 0 |
+| **y_fuse** | 预期 open[T]→close[T]（trade⊕nowcast 按缺口映剩余） |
+| **y_on** | 预期隔夜 close[T]→open[T+1] |
+| **ranking** | (1 + y_fuse/100) × (1 + α × y_on/100) − 1，展示百分数；α 默认 0；α=1 对齐 T 开→T+1 开 |
 | **rank入场 / rank强** | 选股下限 / 500 股门槛 |
 | **持仓市值上限** | live 默认 15 万；本笔将超则跳过。历史回测不限 |
 
@@ -189,8 +189,8 @@ quant_panel.html
 
 ```
 每个交易日 09:30 打分；历史回测按所选调仓时间用 5 分钟价成交：
-  y_fuse = w_trade·ŷ_trade + w_nc·ŷ_nowcast
-  ranking = (1 + y_fuse/100) × (1 + α × y_on/100) − 1  # 展示百分数；α 默认 0
+  y_fuse = remaining(w_trade·ŷ_trade + w_nc·ŷ_nowcast, gap)  # open[T]→close[T]
+  ranking = (1 + y_fuse/100) × (1 + α × y_on/100) − 1  # α=1 对齐 T 开→T+1 开
   已持仓且 ranking < 0 → 清仓（T+1 可卖）
   ranking > rank入场 → 开仓或加仓（live 受观察池容量与持仓市值上限；历史回测用全部观察池）
   ranking > rank强 → 500 股，否则 200 股

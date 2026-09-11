@@ -38,13 +38,13 @@ function _fuseHitFromTrades(rows) {
   let n = 0;
   for (const r of rows || []) {
     if (!r || typeof r !== "object") continue;
-    if (String(r.status || "") === "skipped") continue;
+    if (String(r.status || "") === "skipped" || String(r.status || "") === "held") continue;
     let yf = _kpiNum(r.y_fuse);
     if (yf == null) {
       const rs = _kpiNum(r.ranking_score);
       if (rs != null) yf = rs * 100;
     }
-    const real = _kpiNum(r.realized_cc);
+    const real = _kpiNum(r.realized_tau) ?? _kpiNum(r.realized_cc);
     if (yf == null || real == null) continue;
     if (Math.abs(yf) < HIT_YHAT_EPS) continue;
     if (Math.abs(real) < 1e-12) continue;

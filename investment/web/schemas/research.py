@@ -76,6 +76,71 @@ class TauRidgeRequest(BaseModel):
     )
 
 
+class TauTreeRequest(BaseModel):
+    """ŷ_τ_tree 影子头：同面板 Holdout vs Ridge。无 persist，不进 live / 回测。"""
+
+    lookback: int = Field(default=120, ge=40, le=500)
+    watching_limit: int = Field(
+        default=200,
+        ge=2,
+        le=200,
+        description="观察池上限（默认满池 200）",
+    )
+    ridge_lambda: float = Field(default=1.0, ge=0.0, le=100.0)
+    gap_trigger_pct: float = Field(default=2.0, ge=0.5, le=10.0)
+    theme_boost: float = Field(default=1.5, ge=0.5, le=5.0)
+    holdout_trading_days: int = Field(
+        default=10,
+        ge=1,
+        le=60,
+        description="近 N 个交易日不进训练，与 Ridge 对照共用",
+    )
+    tau_hm: Optional[str] = Field(
+        default=None,
+        description="open | 09:45 | 10:30；缺省跟随 dual_score.enable_minute_tau / minute_tau_hm",
+        max_length=8,
+    )
+    backend: Optional[str] = Field(
+        default=None,
+        description="xgboost | numpy_gbm | auto（缺省：有 xgboost 用 xgboost，否则 numpy 浅树）",
+        max_length=16,
+    )
+
+
+TauBoostRequest = TauTreeRequest
+
+
+class RTreeRequest(BaseModel):
+    """ŷ_r_tree 影子头：同面板 Holdout vs Ridge。无 persist，不进 live / 回测。"""
+
+    lookback: int = Field(default=120, ge=40, le=500)
+    watching_limit: int = Field(
+        default=200,
+        ge=2,
+        le=200,
+        description="观察池上限（默认满池 200）；拟合只读本地 5m 缓存",
+    )
+    ridge_lambda: float = Field(default=1.0, ge=0.0, le=100.0)
+    gap_trigger_pct: float = Field(default=2.0, ge=0.5, le=10.0)
+    theme_boost: float = Field(default=1.5, ge=0.5, le=5.0)
+    holdout_trading_days: int = Field(
+        default=10,
+        ge=1,
+        le=60,
+        description="近 N 个交易日不进训练，与 Ridge 对照共用",
+    )
+    tau_hm: Optional[str] = Field(
+        default=None,
+        description="09:45 | 10:30；缺省 10:30。open 会强制改成 10:30（ŷ_r 需分钟价）",
+        max_length=8,
+    )
+    backend: Optional[str] = Field(
+        default=None,
+        description="xgboost | numpy_gbm | auto（缺省：有 xgboost 用 xgboost，否则 numpy 浅树）",
+        max_length=16,
+    )
+
+
 # 旧名兼容（请求体字段同 TauRidgeRequest）
 RemRidgeRequest = TauRidgeRequest
 
@@ -310,10 +375,10 @@ class FactorOlsClusterRequest(BaseModel):
         description="近 N 个交易日不进定组/选 k；研究套组 β 再隔离 horizon h",
     )
     watching_limit: int = Field(
-        default=100,
+        default=200,
         ge=3,
-        le=100,
-        description="观察池截断：universe_mode=watching 时取名单前 N 只（与 clamp_watching_limit 对齐，默认/上限 100）",
+        le=200,
+        description="观察池截断：universe_mode=watching 时取名单前 N 只（与 clamp_watching_limit 对齐，默认/上限 200）",
     )
     n_clusters: Optional[int] = Field(
         default=None,
@@ -402,7 +467,7 @@ class ClusterBarsRefreshRequest(BaseModel):
     """观察池日线更新（不跑 OLS 分组）。"""
 
     lookback: int = Field(default=80, ge=40, le=500)
-    watching_limit: int = Field(default=100, ge=3, le=100)
+    watching_limit: int = Field(default=200, ge=3, le=200)
     mode: str = Field(
         default="topup",
         description="topup=增量补齐到最新；full=整窗强更（仓坏/复权兜底）",
@@ -418,7 +483,7 @@ class ClusterMinuteRefreshRequest(BaseModel):
 
     period: str = Field(default="5", description="分钟周期；默认 5m")
     lookback_days: int = Field(default=30, ge=5, le=90)
-    watching_limit: int = Field(default=100, ge=3, le=100)
+    watching_limit: int = Field(default=200, ge=3, le=200)
     min_span_days: int = Field(default=30, ge=10, le=120)
     mode: str = Field(
         default="full",

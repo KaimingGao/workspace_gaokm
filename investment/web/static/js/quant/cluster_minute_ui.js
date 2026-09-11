@@ -8,10 +8,11 @@ import {
   jobStatusBadge,
   unwrapJobSnap,
 } from "./cluster_job_ui.js";
+import { BARS_WATCHING_LIMIT } from "./params.js";
 
 /** 研究枢纽 · 观察池 5m 分钟覆盖 + 「增量补齐」/「强更 5m」 */
 export function installClusterMinuteUi(q) {
-  const { on, apiFetch, readWatchingLimit, escapeHtml } = q;
+  const { on, apiFetch, escapeHtml } = q;
   const chip = document.getElementById("quant-cluster-minute-chip");
   const msgEl = document.getElementById("quant-cluster-minute-msg");
   const btn = document.getElementById("quant-cluster-minute-refresh");
@@ -511,7 +512,7 @@ export function installClusterMinuteUi(q) {
 
   async function refreshCoverageKpis() {
     if (kpiInflight) return kpiInflight;
-    const limit = typeof readWatchingLimit === "function" ? readWatchingLimit() : 100;
+    const limit = BARS_WATCHING_LIMIT;
     kpiInflight = (async () => {
       const { ok, data } = await apiFetch(
         `/api/quant/cluster-minute/status?watching_limit=${encodeURIComponent(limit)}&min_span_days=${MIN_SPAN_DAYS}&include_label_portrait=0`
@@ -526,7 +527,7 @@ export function installClusterMinuteUi(q) {
   }
 
   async function refreshStatus() {
-    const limit = typeof readWatchingLimit === "function" ? readWatchingLimit() : 100;
+    const limit = BARS_WATCHING_LIMIT;
     const { ok, data, error } = await apiFetch(
       `/api/quant/cluster-minute/status?watching_limit=${encodeURIComponent(limit)}&min_span_days=${MIN_SPAN_DAYS}`
     );
@@ -656,7 +657,7 @@ export function installClusterMinuteUi(q) {
         { pollStartedAt: Date.now(), mode: modeS }
       );
       try {
-        const limit = typeof readWatchingLimit === "function" ? readWatchingLimit() : 100;
+        const limit = BARS_WATCHING_LIMIT;
         const body = {
           lookback_days: LOOKBACK_DAYS,
           watching_limit: limit,

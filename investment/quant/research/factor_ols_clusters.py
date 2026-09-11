@@ -79,7 +79,7 @@ def merge_cluster_universe(
 ) -> Dict[str, Any]:
     """构建聚类宇宙。
 
-    ``universe_mode=watching``：观察池前 N（``watching_limit``，默认钳制 3–100）。
+    ``universe_mode=watching``：观察池前 N（``watching_limit``，钳制 3–200，对齐观察池上限）。
     ``holdings``：仅纸面持仓。
     ``union``：观察池前 N ∪ 全部纸面持仓。
     ``watching_all``：全部观察池（旧行为，显式开启）。

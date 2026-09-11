@@ -29,10 +29,10 @@ def _span_mix_bucket_keys() -> List[str]:
     """固定 ``<90d`` / ``<60d`` / ``<30d``（宽→严）。"""
     return [f"<{int(c)}d" for c in SPAN_MIX_CUTS if int(c) > 0]
 
-def _resolve_watching_codes(*, watching_limit: int = 100) -> List[str]:
+def _resolve_watching_codes(*, watching_limit: int = 200) -> List[str]:
     from quant.research.factor_ols_clusters import clamp_watching_limit, merge_cluster_universe
 
-    limit = clamp_watching_limit(watching_limit, 100)
+    limit = clamp_watching_limit(watching_limit, 200)
     watchlist: List[Any] = []
     try:
         from core.watching.store import read_watching
@@ -201,7 +201,7 @@ def _path_label_from_minute(day_bars: List[dict]) -> Tuple[Optional[float], str]
 
 def build_minute_label_portrait(
     *,
-    watching_limit: int = 100,
+    watching_limit: int = 200,
     period: str = DEFAULT_MINUTE_PERIOD,
     max_days_per_code: int = DEFAULT_LABEL_MAX_DAYS,
     codes: Optional[List[str]] = None,
@@ -211,7 +211,7 @@ def build_minute_label_portrait(
     from core.ports.market import group_minute_bars_by_date, resolve_market_code
     from core.store import load_minute_cache
 
-    limit = clamp_watching_limit(watching_limit, 100)
+    limit = clamp_watching_limit(watching_limit, 200)
     period_s = str(period or DEFAULT_MINUTE_PERIOD)
     max_days = max(10, min(int(max_days_per_code or DEFAULT_LABEL_MAX_DAYS), 400))
     code_list = [str(c).strip() for c in (codes or _resolve_watching_codes(watching_limit=limit)) if str(c).strip()]
@@ -339,7 +339,7 @@ def _cached_minute_label_portrait(
 
 def build_cluster_minute_status(
     *,
-    watching_limit: int = 100,
+    watching_limit: int = 200,
     period: str = DEFAULT_MINUTE_PERIOD,
     min_span_days: int = DEFAULT_MIN_SPAN_DAYS,
     stale_hours: float = 24.0,
@@ -348,7 +348,7 @@ def build_cluster_minute_status(
     """汇总观察池截断后的 5m 分钟缓存覆盖。"""
     from quant.research.factor_ols_clusters import clamp_watching_limit
 
-    limit = clamp_watching_limit(watching_limit, 100)
+    limit = clamp_watching_limit(watching_limit, 200)
     period_s = str(period or DEFAULT_MINUTE_PERIOD)
     min_span = max(1, int(min_span_days or DEFAULT_MIN_SPAN_DAYS))
     codes = _resolve_watching_codes(watching_limit=limit)
@@ -645,7 +645,7 @@ def _minute_topup_core(
 
 def refresh_cluster_minute_only(
     *,
-    watching_limit: int = 100,
+    watching_limit: int = 200,
     period: str = DEFAULT_MINUTE_PERIOD,
     lookback_days: int = DEFAULT_LOOKBACK_DAYS,
     mode: str = "full",
@@ -660,7 +660,7 @@ def refresh_cluster_minute_only(
     from core.schedule_jobs import _minute_warmup_core
     from core.data.policy import minute_em_lookback_days
 
-    limit = max(1, int(watching_limit or 100))
+    limit = max(1, int(watching_limit or 200))
     period_s = str(period or DEFAULT_MINUTE_PERIOD)
     cap = minute_em_lookback_days()
     lb = min(max(int(lookback_days or DEFAULT_LOOKBACK_DAYS), 5), cap)

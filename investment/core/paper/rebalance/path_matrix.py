@@ -2,7 +2,8 @@
 
 Follow / 历史回测 / 自动调仓都走 ``rank_lots``。本模块只提供
 ``rank_enter`` / ``rank_strong`` / ``cash_floor`` / ``holdings_mv_cap`` /
-融合权重 / ``y_on_alpha``，以及 ``scores_from_rebalance_item``。
+融合权重 / ``y_on_alpha``，以及 ``scores_from_rebalance_item`` /
+``fuse_trade_nowcast_oc``（y_fuse = open[T]→close[T]）。
 
 配置键优先 ``rebalance_timing.rank_lots``，仍认旧键 ``path_matrix``。
 λ / 同号闸 / 横截面 TopK 已删除。
@@ -119,7 +120,7 @@ def fuse_trade_nowcast(
     w_trade: float = 0.5,
     w_nowcast: float = 0.5,
 ) -> Optional[float]:
-    """加权融合；缺一侧则用另一侧；都缺则 None。"""
+    """加权融合（昨收口径）；缺一侧则用另一侧；都缺则 None。"""
     wt = max(0.0, float(w_trade))
     wn = max(0.0, float(w_nowcast))
     t = _f(y_trade)
@@ -134,6 +135,52 @@ def fuse_trade_nowcast(
     if s <= 1e-12:
         return 0.5 * float(t) + 0.5 * float(n)
     return (wt * float(t) + wn * float(n)) / s
+
+
+def open_gap_pct_of(item: Optional[dict]) -> Optional[float]:
+    """开盘缺口 open[T]/close[T−1]−1（%）。09:30 已实现，用来把 CC 映成 OC。"""
+    if not isinstance(item, dict):
+        return None
+    g = _f(item.get("gap_pct"))
+    if g is not None:
+        return g
+    feats = item.get("features_tau")
+    if isinstance(feats, dict):
+        g = _f(feats.get("gap_pct"))
+        if g is not None:
+            return g
+    return _f(item.get("realized_t1_to_tau"))
+
+
+def fuse_trade_nowcast_oc(
+    y_trade: Optional[float],
+    y_nowcast: Optional[float],
+    *,
+    w_trade: float = 0.5,
+    w_nowcast: float = 0.5,
+    gap_pct: Optional[float] = None,
+) -> Optional[float]:
+    """调仓 y_fuse：CC 融合后按缺口映成 open[T]→close[T]。
+
+    ŷ_trade / ŷ_nowcast 训练在 close[T]/close[T−1]−1；09:30 缺口已实现，
+    remaining=(1+cc)/(1+gap)−1 才是持有腿 Open(T)→Close(T)。无缺口则退回 CC。
+    """
+    cc = fuse_trade_nowcast(
+        y_trade,
+        y_nowcast,
+        w_trade=w_trade,
+        w_nowcast=w_nowcast,
+    )
+    if cc is None:
+        return None
+    try:
+        from core.signal.nowcast_kf import remaining_at_tau
+
+        oc = remaining_at_tau(cc, gap_pct)
+    except Exception:  # noqa: BLE001
+        logger.debug("remaining_at_tau failed", exc_info=True)
+        oc = cc
+    return oc if oc is not None else cc
 
 
 def scores_from_rebalance_item(item: Optional[dict]) -> Dict[str, Optional[float]]:
@@ -174,6 +221,8 @@ def scores_from_rebalance_item(item: Optional[dict]) -> Dict[str, Optional[float
 __all__ = [
     "DEFAULT_PATH_MATRIX",
     "fuse_trade_nowcast",
+    "fuse_trade_nowcast_oc",
     "get_path_matrix_cfg",
+    "open_gap_pct_of",
     "scores_from_rebalance_item",
 ]

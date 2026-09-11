@@ -19,8 +19,10 @@ def clamp_watching_limit(value: Any, default: int = 8) -> int:
         n = int(value)
     except (TypeError, ValueError):
         return int(default)
-    # 研究台 UI 常用 12；上限 100（对齐数据中心满池量级，仍显式截断）
-    return max(3, min(n, 100))
+    # 上限对齐观察池 WATCHING_MAX_SIZE（分组 Limit / 日K/5m / ŷ_* 拟合默认满池 200）
+    from core.watching.store import WATCHING_MAX_SIZE
+
+    return max(3, min(n, int(WATCHING_MAX_SIZE)))
 
 
 def cluster_speed_policy(panel_count: int) -> Dict[str, Any]:
