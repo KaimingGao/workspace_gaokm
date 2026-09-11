@@ -573,10 +573,11 @@ body[data-page="replay"] .replay-t0-section .replay-run-head {
 }
 
 body[data-page="replay"] .follow-path-matrix-panel[data-panel="rank"] .follow-path-matrix-body--row4 {
-  grid-template-columns: minmax(0, 1.3fr) minmax(0, 1.3fr) minmax(0, 0.85fr) minmax(0, 0.95fr);
+  grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
-body[data-page="replay"] .follow-path-matrix-box--pair {
+body[data-page="replay"] .follow-path-matrix-box--pair,
+body[data-page="replay"] .follow-path-matrix-box--solo {
   cursor: default;
   grid-template-rows: auto auto;
 }
@@ -586,6 +587,10 @@ body[data-page="replay"] .follow-path-matrix-box-pair {
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: 6px;
   align-items: end;
+}
+
+body[data-page="replay"] .follow-path-matrix-box--solo .follow-path-matrix-box-pair {
+  grid-template-columns: minmax(0, 1fr);
 }
 
 body[data-page="replay"] .follow-path-matrix-box-slot {
@@ -602,7 +607,8 @@ body[data-page="replay"] .follow-path-matrix-box-slot-label {
   font-weight: 650;
 }
 
-body[data-page="replay"] .follow-path-matrix-box--pair input[type="number"] {
+body[data-page="replay"] .follow-path-matrix-box--pair input[type="number"],
+body[data-page="replay"] .follow-path-matrix-box--solo input[type="number"] {
   min-width: 0;
   width: 100%;
 }

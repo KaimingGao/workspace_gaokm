@@ -135,6 +135,11 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("quant-ols-summary", panel)
         self.assertIn("quant-factor-list", panel)
         self.assertIn("quant-ridge-lambda", panel)
+        eod = panel[
+            panel.find('id="quant-section-factors"') : panel.find('id="quant-section-tau"')
+        ]
+        self.assertNotIn("quant-oos-band", eod)
+        self.assertNotIn("heuristic（人工加权基线） vs predicted_score（枢纽 ŷ）", panel)
         self.assertIn("quant-cross-list", panel)
         self.assertIn("quant-weight-table-wrap", panel)
         self.assertIn("quant-cross-run", panel)
@@ -344,6 +349,10 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertNotIn('slot-label">强阈值', replay)
         self.assertNotIn('slot-label">强档股数', replay)
         self.assertIn("follow-path-matrix-box--pair", replay)
+        self.assertIn("follow-path-matrix-box--solo", replay)
+        self.assertEqual(replay.count("follow-path-matrix-box--solo"), 2)
+        self.assertIn('follow-path-matrix-box-slot-label">系数</span>', replay)
+        self.assertIn('follow-path-matrix-box-slot-label">元</span>', replay)
         self.assertIn('name="pm_lot_base"', replay)
         self.assertIn('name="pm_lot_strong"', replay)
         self.assertIn('id="paper-t0-form"', replay)
@@ -382,6 +391,13 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("replay-run-progress", replay)
         css = self._read("web", "static", "css", "replay.css")
         self.assertIn(".replay-run-toolbar > .dialog-btn", css)
+        self.assertIn(
+            '.follow-path-matrix-panel[data-panel="rank"] .follow-path-matrix-body--row4',
+            css,
+        )
+        self.assertIn("repeat(4, minmax(0, 1fr))", css)
+        self.assertNotIn("minmax(0, 1.3fr) minmax(0, 1.3fr)", css)
+        self.assertIn(".follow-path-matrix-box--solo", css)
         self.assertNotIn('id="replay-rank-hint"', replay)
         self.assertLess(
             replay.find('id="quant-bt-progress"'),
@@ -1243,6 +1259,10 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertNotIn('slot-label">强阈值', replay)
         self.assertIn("follow-path-matrix-box--pair", replay)
         self.assertEqual(replay.count("follow-path-matrix-box--pair"), 2)
+        self.assertIn("follow-path-matrix-box--solo", replay)
+        self.assertEqual(replay.count("follow-path-matrix-box--solo"), 2)
+        self.assertIn('follow-path-matrix-box-slot-label">系数</span>', replay)
+        self.assertIn('follow-path-matrix-box-slot-label">元</span>', replay)
         self.assertNotIn('id="replay-lot-chip"', replay)
         self.assertNotIn('id="replay-fill-chip"', replay)
         self.assertNotIn("follow-path-matrix-chip", replay)

@@ -581,9 +581,12 @@
   text-transform: uppercase;
 }
 
-.quant-page .quant-cluster-params .platform-field input {
+.quant-page .quant-cluster-params .platform-field input[type="number"] {
   width: 4.2rem;
-  padding: 3px 7px;
+  height: 28px;
+  min-height: 28px;
+  max-height: 28px;
+  padding: 2px 8px;
   border-radius: 4px;
   font-family: var(--font-mono);
   font-size: 0.78rem;
@@ -592,21 +595,28 @@
   color: var(--ink);
   text-transform: none;
   letter-spacing: 0;
+  box-sizing: border-box;
 }
 
 .quant-page .quant-cluster-params .quant-cluster-refresh {
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  height: 28px;
+  min-height: 28px;
+  max-height: 28px;
+  padding: 0 8px;
   font-size: 0.78rem;
   color: var(--ink-2);
-  padding-bottom: 2px;
   user-select: none;
+  box-sizing: border-box;
 }
 
 .quant-page .quant-cluster-params .quant-cluster-refresh input[type="checkbox"] {
-  width: auto;
-  min-width: 0;
+  width: 13px;
+  height: 13px;
+  min-width: 13px;
+  min-height: 0;
   margin: 0;
   padding: 0;
 }
@@ -2409,7 +2419,7 @@
   font-size: 0.76rem;
 }
 
-.quant-page .quant-actions-inline .platform-field input {
+.quant-page .quant-actions-inline .platform-field input:not([type="checkbox"]) {
   min-height: 32px;
   padding: 4px 8px;
   font-size: 0.8rem;
@@ -9610,9 +9620,9 @@ body[data-page="quant"] .quant-page .quant-block-cap {
   font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
 }
 
-body[data-page="quant"] .quant-page .platform-field input,
+body[data-page="quant"] .quant-page .platform-field input:not([type="checkbox"]),
 body[data-page="quant"] .quant-page .platform-field select,
-body[data-page="quant"] .quant-page .quant-pro-field input,
+body[data-page="quant"] .quant-page .quant-pro-field input:not([type="checkbox"]),
 body[data-page="quant"] .quant-page .quant-inline-input,
 body[data-page="quant"] .quant-page .quant-inline-select {
   height: 28px !important;
@@ -9622,6 +9632,40 @@ body[data-page="quant"] .quant-page .quant-inline-select {
   color: var(--ink);
   background: var(--surface);
   border: 1px solid var(--line);
+}
+
+/* ŷ_EOD 参数行：数字框 / 勾选框 / 按钮同高（压过 .quant-actions-inline 的 32px min-height） */
+body[data-page="quant"] .quant-page .quant-cluster-params {
+  align-items: center !important;
+}
+
+body[data-page="quant"] .quant-page .quant-cluster-params .platform-field input[type="number"],
+body[data-page="quant"] .quant-page .quant-cluster-params .dialog-btn,
+body[data-page="quant"] .quant-page .quant-cluster-params .quant-pro-checkbox {
+  height: 28px !important;
+  min-height: 28px !important;
+  max-height: 28px !important;
+  box-sizing: border-box;
+}
+
+body[data-page="quant"] .quant-page .quant-cluster-params .dialog-btn {
+  padding-top: 0 !important;
+  padding-bottom: 0 !important;
+  display: inline-flex;
+  align-items: center;
+}
+
+body[data-page="quant"] .quant-page .quant-cluster-params .quant-pro-checkbox {
+  padding: 0 8px !important;
+}
+
+body[data-page="quant"] .quant-page .quant-cluster-params .quant-pro-checkbox input[type="checkbox"] {
+  width: 13px !important;
+  height: 13px !important;
+  min-width: 13px !important;
+  min-height: 0 !important;
+  padding: 0 !important;
+  margin: 0 !important;
 }
 
 body[data-page="quant"] .quant-page .dialog-btn {

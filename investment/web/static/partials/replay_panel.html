@@ -184,20 +184,34 @@
                         </label>
                       </div>
                     </div>
-                    <label class="follow-path-matrix-box" title="隔夜系数 α，范围 0～10。ranking=(1+y_fuse/100)×(1+α×y_on/100)−1。默认 0：隔夜不参与；1：按原权重乘入">
+                    <div
+                      class="follow-path-matrix-box follow-path-matrix-box--solo"
+                      title="隔夜系数 α，范围 0～10。ranking=(1+y_fuse/100)×(1+α×y_on/100)−1。默认 0：隔夜不参与；1：按原权重乘入"
+                    >
                       <span class="follow-path-matrix-box-text">
                         <span class="follow-path-matrix-box-title">α_on</span>
-                        <span class="follow-path-matrix-box-desc">0～10</span>
                       </span>
-                      <input type="number" name="pm_y_on_alpha" min="0" max="10" step="0.1" value="0" />
-                    </label>
-                    <label class="follow-path-matrix-box" title="回测全部本金（元）。默认 20 万。跑回测用这个数当起始现金；不套持仓市值帽。保存规则不改交易执行市值上限。">
+                      <div class="follow-path-matrix-box-pair">
+                        <label class="follow-path-matrix-box-slot">
+                          <span class="follow-path-matrix-box-slot-label">系数</span>
+                          <input type="number" name="pm_y_on_alpha" min="0" max="10" step="0.1" value="0" aria-label="α_on" />
+                        </label>
+                      </div>
+                    </div>
+                    <div
+                      class="follow-path-matrix-box follow-path-matrix-box--solo"
+                      title="回测全部本金（元）。默认 20 万。跑回测用这个数当起始现金；不套持仓市值帽。保存规则不改交易执行市值上限。"
+                    >
                       <span class="follow-path-matrix-box-text">
                         <span class="follow-path-matrix-box-title">本金</span>
-                        <span class="follow-path-matrix-box-desc">元</span>
                       </span>
-                      <input type="number" name="pm_initial_cash" min="10000" max="100000000" step="10000" value="200000" />
-                    </label>
+                      <div class="follow-path-matrix-box-pair">
+                        <label class="follow-path-matrix-box-slot">
+                          <span class="follow-path-matrix-box-slot-label">元</span>
+                          <input type="number" name="pm_initial_cash" min="10000" max="100000000" step="10000" value="200000" aria-label="本金" />
+                        </label>
+                      </div>
+                    </div>
                   </div>
                 </section>
               </div>
