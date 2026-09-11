@@ -34,6 +34,7 @@ import {
 import { TRADE_TITLE, formatPrevCloseDisplay, formatOpenDisplay } from "../quant/watching_quotes_ui.js?v=p1227";
 import { buildHoldingSharesTip } from "./holding_lots_tip.js?v=p1227";
 import { holdingT0BadgeHtml } from "./holding_t0_badge.js?v=p1526";
+import { fitTierBadgeForCode } from "../quant/fit_tier_ui.js?v=p2261";
 
 const ORIGIN_HINT = {
   manual: "你手动建仓或加仓",
@@ -219,6 +220,7 @@ export function buildPaperHoldingsTableHtml({
         `<td class="paper-wl-name">` +
         `<span class="watching-name-row">` +
         `<span class="paper-wl-name-text">${escapeText(name)}</span>` +
+        fitTierBadgeForCode(code, { escapeHtml: escapeText }) +
         oosBadge +
         `</span>` +
         `<span class="paper-wl-code">${escapeText(code)}</span>` +

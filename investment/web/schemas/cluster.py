@@ -52,6 +52,12 @@ class ClusterModeRequest(BaseModel):
     force: bool = False
 
 
+class ClusterUniverseFitTiersRequest(BaseModel):
+    """观察池 live 宇宙按拟合档过滤。空选视为 A+B+C。"""
+
+    universe_fit_tiers: List[str] = Field(default_factory=lambda: ["A", "B", "C"])
+
+
 class ClusterApplyShortcutRequest(BaseModel):
     """一键应用分组：晋升 + mode + 刷新分池簿。"""
 

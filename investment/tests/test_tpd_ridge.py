@@ -185,7 +185,7 @@ class TpdRidgeFitTests(unittest.TestCase):
         oos = report.get("oos") or {}
         self.assertIn("ic", oos)
         self.assertIn("median_hit", oos)
-        self.assertEqual(oos.get("train_frac"), 0.9)
+        self.assertEqual(oos.get("split_mode"), "holdout_days")
         self.assertIn("n_train", oos)
         self.assertGreater(int(oos.get("n_train") or 0), 0)
         self.assertNotIn("sign_hit", oos)

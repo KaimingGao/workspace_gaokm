@@ -127,6 +127,10 @@ class TestT3WeightMode(unittest.TestCase):
         self.assertEqual(body.fusion_w_nowcast, 0.4)
         self.assertEqual(body.rank_enter, 0.012)
         self.assertEqual(body.rank_strong, 0.012)
+        self.assertEqual(body.fill_clock, "09:30")
+        self.assertEqual(body.lot_base, 100)
+        self.assertEqual(body.lot_strong, 200)
+        self.assertIsNone(body.universe_fit_tiers)
         self.assertFalse(hasattr(body, "engine"))
         self.assertFalse(hasattr(body, "top_k"))
 
@@ -186,6 +190,10 @@ class TestT3WeightMode(unittest.TestCase):
         self.assertEqual(PaperReplayBacktestRequest(lookback=10).lookback, 10)
         with self.assertRaises(ValidationError):
             PaperReplayBacktestRequest(lookback=9)
+        self.assertEqual(
+            PaperReplayBacktestRequest(universe_fit_tiers=["A"]).universe_fit_tiers,
+            ["A"],
+        )
 
 
 if __name__ == "__main__":

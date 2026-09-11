@@ -102,6 +102,43 @@ def _watching_codes(*, include_held: Sequence[str] = ()) -> Tuple[List[str], Dic
     return codes, meta
 
 
+def _apply_universe_fit_tier_filter(
+    codes: Sequence[str],
+    *,
+    keep: Sequence[str] = (),
+) -> Tuple[List[str], Dict[str, Any]]:
+    """按 live 拟合档收缩新买宇宙；已持仓 keep 留下。失败则不过滤。"""
+    cleaned = [str(c).strip() for c in (codes or []) if str(c).strip()]
+    try:
+        from core.signal.cluster.fit_tier import (
+            filter_codes_by_fit_tiers,
+            universe_fit_tiers_unrestricted,
+        )
+        from core.signal.cluster.live import get_cluster_scoring_cfg
+
+        tiers = get_cluster_scoring_cfg().get("universe_fit_tiers")
+        if universe_fit_tiers_unrestricted(tiers or []):
+            return cleaned, {
+                "universe_fit_tiers": ["A", "B", "C"],
+                "unrestricted": True,
+                "n_in": len(cleaned),
+                "n_kept": len(cleaned),
+                "n_dropped": 0,
+            }
+        return filter_codes_by_fit_tiers(
+            cleaned, tiers=tiers, keep=keep, prefer_research=False
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("universe fit-tier filter skipped: %s", exc, exc_info=True)
+        return cleaned, {
+            "unrestricted": True,
+            "error": str(exc),
+            "n_in": len(cleaned),
+            "n_kept": len(cleaned),
+            "n_dropped": 0,
+        }
+
+
 def _resolve_report_name(
     code: str,
     *,
@@ -664,6 +701,23 @@ def simulate_watching_matrix_preview(
             "empty_reason": "empty_ranking",
             "confirm_supported": True,
         }
+    codes, fit_meta = _apply_universe_fit_tier_filter(codes, keep=held_codes)
+    if isinstance(pool_meta, dict):
+        pool_meta = dict(pool_meta)
+        pool_meta["fit_tiers"] = fit_meta
+        pool_meta["n_total"] = len(codes)
+    if not codes:
+        return {
+            "success": False,
+            "ok": False,
+            "mode": "watching_matrix",
+            "dry_run": bool(dry_run),
+            "matrix_mode": True,
+            "error": "观察池按拟合档过滤后为空",
+            "empty_reason": "empty_ranking",
+            "pool_meta": pool_meta,
+            "confirm_supported": True,
+        }
 
     # 与持仓表 / 数据中心同源：signal_config.scoring.horizon_days
     try:
@@ -886,13 +940,15 @@ def simulate_watching_matrix_preview(
     cash_skips = [
         s
         for s in skips
-        if "地板" in str(s.get("reason") or "")
+        if "地板" in str(s.get("reason") or "") or "现金不足" in str(s.get("reason") or "")
     ]
     if not buy_trades and not sell_trades:
         if cash_skips or (floor_val > 0 and cash_before + 1e-6 < floor_val):
             empty = "cash_below_floor"
             empty_detail = (
                 f"现金 {cash_before:,.0f} < 地板 {floor_val:,.0f}"
+                if floor_val > 0
+                else f"现金 {cash_before:,.0f} 不足买入"
             )
         elif not scored and not held_codes:
             empty = "empty_ranking"

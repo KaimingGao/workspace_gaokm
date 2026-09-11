@@ -101,10 +101,21 @@ class TestOnRidgeFit(unittest.TestCase):
             {"code": "B", "bars": _bars(40, 12)},
             {"code": "C", "bars": _bars(40, 8)},
         ]
-        report = fit_on_ridge_report(stock_bars, ridge_lambda=1.0, theme_boost=1.5)
+        report = fit_on_ridge_report(
+            stock_bars, ridge_lambda=1.0, theme_boost=1.5, holdout_trading_days=5
+        )
         self.assertTrue(report.get("success"), report.get("error"))
         self.assertEqual(report.get("target"), "overnight_gap")
+        oos = report.get("oos") or {}
+        self.assertEqual(oos.get("split_mode"), "holdout_days")
+        self.assertEqual(int(oos.get("holdout_trading_days") or 0), 5)
+        self.assertEqual(int(oos.get("n_test_days") or 0), 5)
+        self.assertEqual(int(report.get("label_horizon_days") or 0), 1)
         self.assertEqual(report.get("schema"), "on_ridge_v1")
+        from core.research.holdout import calendar_dates_from_stock_bars
+
+        cal = calendar_dates_from_stock_bars(stock_bars)
+        self.assertEqual(report.get("eval_start"), cal[-5])
         rm = report["return_model"]
         self.assertEqual(
             (rm.get("y_spec") or {}).get("formula"), "open[T+1]/close[T]-1"
@@ -184,7 +195,10 @@ class TestOnScoreAttach(unittest.TestCase):
                 save_on_last_report(report)
                 doc = load_on_model()
                 self.assertIsNotNone(doc)
-                self.assertEqual(load_on_last_report(), doc)
+                self.assertTrue(doc.get("_shadow"))
+                last = load_on_last_report()
+                self.assertIsNotNone(last)
+                self.assertEqual(last.get("return_model"), doc.get("return_model"))
 
     def test_dual_score_book_fields_passes_on(self):
         from core.signal.dual_score.book import dual_score_book_fields

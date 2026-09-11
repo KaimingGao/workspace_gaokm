@@ -74,19 +74,188 @@ export function setProOverviewKpi(key, valueText, subText, state /* is-good | is
   if (subEl && subText != null) subEl.textContent = subText;
 }
 
+const overviewPack = {
+  universeN: null,
+  universeHint: null,
+  barsPct: null,
+  k: null,
+  oosPass: null,
+  oosN: null,
+  icPos: null,
+  outliers: null,
+  mode: null,
+  research: null,
+  live: null,
+  version: null,
+};
+
+function clusterOosCounts(data) {
+  const clusters = Array.isArray(data && data.clusters) ? data.clusters : [];
+  let pass = 0;
+  let n = 0;
+  for (const cl of clusters) {
+    if (!cl || cl.singleton) continue;
+    const g = cl.oos_gate || {};
+    if (g.skipped) continue;
+    if (!g || (g.ok == null && g.passed == null && cl.oos_passed == null)) continue;
+    n += 1;
+    if ((g.ok && g.passed) || cl.oos_passed === true) pass += 1;
+  }
+  return { pass, n };
+}
+
+/** 组内 ŷ_EOD 截面 IC 为正的日占比（均值）；不是 ŷ 与收益同号率。 */
+function clusterIcPosRatio(data) {
+  const clusters = Array.isArray(data && data.clusters) ? data.clusters : [];
+  const xs = [];
+  for (const cl of clusters) {
+    const sp =
+      cl &&
+      cl.factor_ic_panel &&
+      cl.factor_ic_panel.score_ic &&
+      cl.factor_ic_panel.score_ic.spearman;
+    const r = sp && Number(sp.positive_ic_ratio);
+    if (Number.isFinite(r)) xs.push(r);
+  }
+  if (!xs.length) return null;
+  return xs.reduce((a, b) => a + b, 0) / xs.length;
+}
+
+function paintOverviewUniverse() {
+  const n = overviewPack.universeN;
+  if (n == null || !Number.isFinite(Number(n))) return;
+  const pct = overviewPack.barsPct;
+  const hint = overviewPack.universeHint;
+  let sub = "观察池";
+  if (pct != null && Number.isFinite(Number(pct))) {
+    sub = `日线 ${Number(pct).toFixed(0)}%`;
+  } else if (hint) {
+    sub = hint;
+  }
+  setProOverviewKpi(
+    "universe",
+    `${Number(n)} 只`,
+    sub,
+    Number(n) > 0 ? "is-mid" : "is-empty"
+  );
+}
+
+function paintOverviewEod() {
+  const k = overviewPack.k;
+  if (k == null || !Number.isFinite(Number(k))) {
+    return;
+  }
+  const pass = overviewPack.oosPass;
+  const oosN = overviewPack.oosN;
+  const mode = overviewPack.mode;
+  const modeLabel =
+    mode === "active" ? "执行" : mode === "shadow" ? "对照" : mode === "off" ? "未接通" : "";
+  const parts = [];
+  if (oosN != null && oosN > 0) {
+    parts.push(`OOS ${pass}/${oosN}`);
+  } else if (overviewPack.outliers) {
+    parts.push(`${overviewPack.outliers} 离群`);
+  }
+  const icPos = overviewPack.icPos;
+  if (icPos != null && Number.isFinite(Number(icPos))) {
+    parts.push(`IC+日 ${(Number(icPos) * 100).toFixed(0)}%`);
+  }
+  if (modeLabel) parts.push(modeLabel);
+  let st = "is-mid";
+  if (oosN != null && oosN > 0) {
+    const ratio = pass / oosN;
+    st = ratio >= 0.8 ? "is-good" : ratio >= 0.5 ? "is-mid" : "is-bad";
+  }
+  setProOverviewKpi("eod", `${k} 组`, parts.join(" · ") || "分组完成", st);
+}
+
+function paintOverviewLanding() {
+  const research = overviewPack.research;
+  const live = overviewPack.live;
+  const mode = overviewPack.mode || "off";
+  if (research == null && live == null && !overviewPack.mode) return;
+  const hasR = !!research;
+  const execOn = mode === "active";
+  const shadow = mode === "shadow";
+  let val = "未启用";
+  let st = "is-empty";
+  if (hasR && execOn) {
+    val = "研究+执行";
+    st = "is-good";
+  } else if (hasR && shadow) {
+    val = "研究+对照";
+    st = "is-mid";
+  } else if (hasR) {
+    val = "仅研究";
+    st = "is-mid";
+  } else if (execOn) {
+    val = "仅执行";
+    st = "is-bad";
+  } else if (live && shadow) {
+    val = "对照 · 缺研究";
+    st = "is-bad";
+  }
+  const ver =
+    overviewPack.version != null && overviewPack.version !== ""
+      ? `v${overviewPack.version}`
+      : "";
+  const subParts = [];
+  if (ver) subParts.push(ver);
+  if (hasR) subParts.push("研究套");
+  else if (live) subParts.push("缺研究档");
+  if (execOn) subParts.push("执行 active");
+  else if (shadow) subParts.push("shadow");
+  setProOverviewKpi("landing", val, subParts.join(" · ") || "研究套 · 执行套", st);
+}
+
 /** 观察池只数 → 概览 KPI（进页拉 watching 时） */
 export function syncOverviewUniverse(n, subText) {
   const count = Number(n);
   if (!Number.isFinite(count) || count < 0) return;
+  overviewPack.universeN = count;
+  if (subText != null) overviewPack.universeHint = String(subText);
+  paintOverviewUniverse();
+}
+
+/** 日线 as-of 覆盖 → 观察池副文案 */
+export function syncOverviewBarsCoverage(data) {
+  if (!data || data.success === false) return;
+  const pct = Number(data.coverage_pct);
+  if (Number.isFinite(pct)) overviewPack.barsPct = pct;
+  const n = Number(data.universe_count);
+  if (Number.isFinite(n) && overviewPack.universeN == null) {
+    overviewPack.universeN = n;
+  }
+  paintOverviewUniverse();
+}
+
+/** 分钟 Ready → 概览 */
+export function syncOverviewMinute(data) {
+  if (!data || data.success === false) {
+    setProOverviewKpi("minute", "—", "Ready% · Short", "is-empty");
+    return;
+  }
+  const total = Number(data.universe_count) || 0;
+  const ok = Number(data.cached_ok) || 0;
+  const short = Number(data.short) || 0;
+  const missing = Number(data.missing) || 0;
+  const pct = total > 0 ? Math.round((1000 * ok) / total) / 10 : 0;
+  let st = "is-empty";
+  if (total > 0) {
+    st = data.coverage_ok ? "is-good" : missing > 0 ? "is-bad" : "is-mid";
+  }
+  const subBits = [];
+  if (short > 0) subBits.push(`Short ${short}`);
+  if (missing > 0) subBits.push(`Missing ${missing}`);
   setProOverviewKpi(
-    "universe",
-    `${count} 只`,
-    subText != null ? String(subText) : "观察池",
-    count > 0 ? "is-mid" : "is-empty"
+    "minute",
+    total > 0 ? `${pct}%` : "—",
+    subBits.join(" · ") || (total > 0 ? "全员 Ready" : "Ready% · Short"),
+    st
   );
 }
 
-/** 分组结果 → 概览 KPI（避免 DOM 刮取） */
+/** 分组结果 → ŷ_EOD 卡 */
 export function syncOverviewFromClusters(data) {
   if (!data || data.success === false) return;
   const clusters = Array.isArray(data.clusters) ? data.clusters : [];
@@ -107,36 +276,55 @@ export function syncOverviewFromClusters(data) {
           : null;
   const n = nRaw != null && Number.isFinite(nRaw) ? nRaw : null;
   const outliers = clusters.filter((c) => c && c.outlier_singleton).length;
-  if (n != null) {
-    setProOverviewKpi(
-      "universe",
-      `${n} 只`,
-      k != null ? `聚类 ${k} 组` : "观察池",
-      "is-mid"
-    );
+  if (n != null && overviewPack.universeN == null) {
+    overviewPack.universeN = n;
+    paintOverviewUniverse();
   }
-  if (k != null) {
-    setProOverviewKpi(
-      "clusters",
-      `${k} 组`,
-      outliers ? `${outliers} 离群` : n != null ? `入组 ${n}` : "分组完成",
-      "is-mid"
-    );
-  }
+  if (k != null) overviewPack.k = k;
+  overviewPack.outliers = outliers || null;
+  const oos = clusterOosCounts(data);
+  overviewPack.oosPass = oos.n > 0 ? oos.pass : null;
+  overviewPack.oosN = oos.n > 0 ? oos.n : null;
+  overviewPack.icPos = clusterIcPosRatio(data);
+  paintOverviewEod();
 }
 
-/** 命中率（0–1 或已是百分比）→ 概览 */
+/** 命中率（0–1 或已是百分比）→ ŷ_EOD 卡副文案（无 OOS 计数时） */
 export function syncOverviewHit(hitRate, subText) {
   let pct = Number(hitRate);
   if (!Number.isFinite(pct)) return;
   if (pct <= 1.0001) pct *= 100;
+  if (overviewPack.k == null) return;
+  if (overviewPack.oosN) {
+    paintOverviewEod();
+    return;
+  }
   const st = pct >= 55 ? "is-good" : pct >= 50 ? "is-mid" : "is-bad";
-  setProOverviewKpi(
-    "hit",
-    `${pct.toFixed(1)}%`,
-    subText != null ? String(subText) : "ŷ_EOD 方向命中 · μ 线=50%",
-    st
-  );
+  const mode = overviewPack.mode;
+  const modeLabel =
+    mode === "active" ? "执行" : mode === "shadow" ? "对照" : "";
+  const sub = [subText != null ? String(subText) : `命中 ${pct.toFixed(0)}%`, modeLabel]
+    .filter(Boolean)
+    .join(" · ");
+  setProOverviewKpi("eod", `${overviewPack.k} 组`, sub, st);
+}
+
+/** live 状态 → 落地卡，并补 ŷ_EOD mode */
+export function syncOverviewLanding(data) {
+  if (!data || data.success === false) return;
+  const cs = data.cluster_scoring || {};
+  const act = data.active || {};
+  const research = data.research || {};
+  overviewPack.mode = cs.mode || "off";
+  overviewPack.live = !!act.exists;
+  overviewPack.research = research.exists != null ? !!research.exists : null;
+  overviewPack.version = act.version != null ? act.version : null;
+  if (overviewPack.k == null && act.n_clusters != null) {
+    const nk = Number(act.n_clusters);
+    if (Number.isFinite(nk)) overviewPack.k = nk;
+  }
+  paintOverviewLanding();
+  paintOverviewEod();
 }
 
 /** ŷ_τ 复盘 / τ 模型 → 概览副轴 KPI
@@ -184,60 +372,11 @@ export function syncOverviewTau(value, subText, mode = "hit") {
 }
 
 
-/** 纸面拟合 Corr/TE → 概览 */
-export function syncOverviewFit(corr, te, subText) {
-  const c = Number(corr);
-  if (!Number.isFinite(c)) return;
-  const st = c >= 0.85 ? "is-good" : c >= 0.7 ? "is-mid" : "is-bad";
-  const teN = te != null ? Number(te) : null;
-  const teLabel =
-    teN != null && Number.isFinite(teN) ? `TE ${teN.toFixed(2)}%` : null;
-  setProOverviewKpi(
-    "fit",
-    `Corr ${c.toFixed(2)}`,
-    subText != null ? String(subText) : teLabel || "拟合相关",
-    st
-  );
-}
+/** 纸面拟合已退出概览（仍在页内「纸面拟合」区）。 */
+export function syncOverviewFit(_corr, _te, _subText) {}
 
-/** 拟合落差整包 → 概览（含未对齐诊断） */
-export function syncOverviewFromFitGap(data) {
-  if (!data) return;
-  const rz = data.realization || {};
-  if (rz.corr != null && Number.isFinite(Number(rz.corr))) {
-    const te =
-      rz.tracking_error_pct != null
-        ? `TE ${Number(rz.tracking_error_pct).toFixed(2)}%`
-        : "拟合相关";
-    syncOverviewFit(rz.corr, rz.tracking_error_pct, te);
-    return;
-  }
-  if (data.ok === false) {
-    setProOverviewKpi("fit", "失败", data.error || "无法加载拟合", "is-empty");
-    return;
-  }
-  const dd = data.day_diff || {};
-  const aligned =
-    rz.aligned_days != null
-      ? Number(rz.aligned_days)
-      : dd.aligned_days != null
-        ? Number(dd.aligned_days)
-        : null;
-  const need = rz.need_days != null ? Number(rz.need_days) : null;
-  let val = "未对齐";
-  if (rz.status === "thin" || (aligned != null && need != null && aligned < need)) {
-    val = "样本薄";
-  } else if (rz.status === "ok") {
-    val = "—";
-  }
-  const sub =
-    aligned != null && need != null && Number.isFinite(aligned) && Number.isFinite(need)
-      ? `交集 ${aligned}/${need} 日`
-      : aligned != null && Number.isFinite(aligned)
-        ? `对齐 ${aligned} 日`
-        : rz.reason || "Corr / TE";
-  setProOverviewKpi("fit", val, sub, "is-empty");
-}
+/** 拟合落差不再写概览 KPI。 */
+export function syncOverviewFromFitGap(_data) {}
 
 /** 从 IC/分组结果渲染因子摘要卡网格 */
 export function renderFactorSummaryCards(data, metaByName) {

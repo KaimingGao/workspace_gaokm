@@ -125,9 +125,9 @@
     }
   },
   "stance_thresholds": {
-    "avoid": -0.25,
-    "wait": 0.25,
-    "probe": 0.6
+    "avoid": -0.5,
+    "wait": 0.0,
+    "probe": 0.35
   },
   "stance_thresholds_heuristic": {
     "avoid": 45,
@@ -172,10 +172,10 @@
     "include_in_score": false,
     "role": "prior",
     "prior": {
-      "mode": "gate",
-      "block_new_buys": true,
+      "mode": "off",
+      "block_new_buys": false,
       "scale_buy_pct": 0.6,
-      "scale_holds": true,
+      "scale_holds": false,
       "warn_only": true,
       "reduce_avoid_on_bullish": true
     },
@@ -220,7 +220,11 @@
       "filter_untradeable": true,
       "enforce_sector_cap": true,
       "tau_fail_mode": "defer"
-    }
+    },
+    "universe_fit_tiers": [
+      "A",
+      "B"
+    ]
   },
   "event_prior": {
     "mode": "gate",

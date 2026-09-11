@@ -93,6 +93,56 @@ def _open_to_close_pct(open_px: float, close_px: float) -> Optional[float]:
     return (c / o - 1.0) * 100.0
 
 
+def y_r_pct(price_tau: Any, close: Any) -> Optional[float]:
+    """R_τ 真值（百分点）：price(τ)/close − 1。与 R̂_τ=(C/ĉ−1)×100 同几何。"""
+    try:
+        p = float(price_tau)
+        c = float(close)
+    except (TypeError, ValueError):
+        return None
+    if p <= 0 or c <= 0:
+        return None
+    return (p / c - 1.0) * 100.0
+
+
+def relabel_tau_panels_as_r(
+    enriched: Sequence[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    """把 τ 面板的 OC 标签换成 y_r = price(τ)/close − 1（百分点）。缺价则丢行。"""
+    out: List[Dict[str, Any]] = []
+    for p in enriched or []:
+        if not isinstance(p, dict):
+            continue
+        xs_in = list(p.get("xs") or [])
+        dates_in = list(p.get("dates") or [])
+        metas_in = list(p.get("metas") or [])
+        n = min(len(xs_in), len(dates_in), len(metas_in))
+        xs: List[Any] = []
+        ys: List[float] = []
+        dates: List[str] = []
+        metas: List[Dict[str, Any]] = []
+        for i in range(n):
+            m = metas_in[i] if isinstance(metas_in[i], dict) else {}
+            yr = y_r_pct(m.get("price_tau"), m.get("close"))
+            if yr is None:
+                continue
+            xs.append(xs_in[i])
+            ys.append(float(yr))
+            dates.append(dates_in[i])
+            meta = dict(m)
+            meta["y_r"] = float(yr)
+            metas.append(meta)
+        if len(ys) < 4:
+            continue
+        row = dict(p)
+        row["xs"] = xs
+        row["ys"] = ys
+        row["dates"] = dates
+        row["metas"] = metas
+        out.append(row)
+    return out
+
+
 def _finite_median(vals: Sequence[float]) -> Optional[float]:
     xs = [float(v) for v in vals if v is not None]
     if not xs:

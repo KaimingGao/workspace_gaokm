@@ -145,6 +145,10 @@ export async function mountWatchingTableIsland(host, options = {}) {
   const { mountVirtualTable, escapeHtml, truncateName } = await import(
     `./virtual_table.js?v=${encodeURIComponent(V)}`
   );
+  const { fitTierBadgeForCode, ensureFitTierMap } = await import(
+    `./quant/fit_tier_ui.js?v=${encodeURIComponent(V)}`
+  );
+  await ensureFitTierMap();
 
   const api = mountVirtualTable(host, {
     columns: COLS,
@@ -191,12 +195,14 @@ export async function mountWatchingTableIsland(host, options = {}) {
         const oosBadge = d.oosFailed
           ? `<span class="watching-oos-badge" title="OOS 失败组 · 禁止新买 · 表列 ŷ 仅对照">OOS</span>`
           : "";
+        const fitBadge = fitTierBadgeForCode(d.code, { escapeHtml });
         return (
           `<div class="watching-stock" title="${escapeHtml((d.name || "") + " " + (d.code || ""))}">` +
           `<span class="watching-name-row">` +
           `<span class="watching-name-text" title="${escapeHtml(d.name || "")}" data-full-name="${escapeHtml(
             d.name || ""
           )}">${escapeHtml(truncateName(d.name || d.code))}</span>` +
+          fitBadge +
           oosBadge +
           `</span>` +
           `<span class="watching-code-sub">${escapeHtml(d.code || "")}` +

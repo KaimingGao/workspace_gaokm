@@ -19,6 +19,23 @@ T0_BT_DEFAULT_LOOKBACK = 10
 T0_BT_VIRTUAL_SHARES = 10_000.0
 T0_BT_VIRTUAL_CASH = 5_000_000.0
 
+def _fill_t0_viz_stock_names(viz: Any, *, stock_code: str, stock_name: Optional[str]) -> None:
+    """点位/贡献行补股票名，避免累计 PnL / 散点 tip 只剩代码。"""
+    if not isinstance(viz, dict):
+        return
+    code = str(stock_code or "").strip()
+    name = str(stock_name or "").strip()
+    if not code and not name:
+        return
+    for key in ("stock_contrib", "cumulative_pnl", "y_tau_scatter"):
+        for row in viz.get(key) or []:
+            if not isinstance(row, dict):
+                continue
+            if code and not str(row.get("stock_code") or "").strip():
+                row["stock_code"] = code
+            if name and not str(row.get("stock_name") or "").strip():
+                row["stock_name"] = name
+
 # 仅「本地无分钟缓存」才打远端；东财偶发挂死，回测走 BaoStock 并设短超时。
 _MINUTE_FETCH_TIMEOUT_SEC = 12.0
 # A股全日约 48 根 5m；≥40 或末根≥14:55 视为齐窗（缺尾缓存会触发补拉）
@@ -415,6 +432,30 @@ def run_t0_backtest_for_code(
     stock_name: Optional[str] = None,
     skip_quote: bool = False,
 ) -> Dict[str, Any]:
+    from core.research.holdout import (
+        MODEL_ROLE_RESEARCH,
+        current_scoring_model_role,
+        scoring_model_role_context,
+    )
+
+    if current_scoring_model_role() != MODEL_ROLE_RESEARCH:
+        with scoring_model_role_context(MODEL_ROLE_RESEARCH):
+            return run_t0_backtest_for_code(
+                code,
+                lookback=lookback,
+                initial_shares=initial_shares,
+                initial_cost=initial_cost,
+                initial_cash=initial_cash,
+                rules=rules,
+                paper=paper,
+                use_minute=use_minute,
+                compare_daily=compare_daily,
+                compare_no_t0=compare_no_t0,
+                tau_pool_by_date=tau_pool_by_date,
+                stock_name=stock_name,
+                skip_quote=skip_quote,
+            )
+
     from core.data.facade import bars_and_source as fetch_daily_bars
 
     _ = (use_minute, compare_daily)  # 日线模拟已删除；强制分钟
@@ -524,6 +565,9 @@ def run_t0_backtest_for_code(
         compare_daily=False,
         require_minute=True,
         tau_pool_by_date=tau_pool,
+        stock_name=str(
+            (quote.get("stock_name") if quote.get("success") else None) or stock_name or ""
+        ),
     )
     try:
         from core.t0.costs import default_t0_research_cost_config, resolve_t0_cost_context
@@ -537,10 +581,11 @@ def run_t0_backtest_for_code(
         (quote.get("stock_name") if quote.get("success") else None) or stock_name
     )
     if report.get("viz") and isinstance(report["viz"], dict):
-        for row in report["viz"].get("stock_contrib") or []:
-            if isinstance(row, dict):
-                row["stock_code"] = report.get("stock_code") or sym
-                row["stock_name"] = report.get("stock_name")
+        _fill_t0_viz_stock_names(
+            report["viz"],
+            stock_code=str(report.get("stock_code") or sym),
+            stock_name=report.get("stock_name"),
+        )
     report["use_minute"] = True
     report["minute_meta"] = {
         "period": minute_meta.get("period") or bt_rules.get("minute_period"),
@@ -615,6 +660,26 @@ def run_t0_backtest_for_holdings(
             "task": "t0_backtest",
             "note": "请先在模拟页建仓，或指定 code",
         }
+
+    from core.research.holdout import (
+        MODEL_ROLE_RESEARCH,
+        current_scoring_model_role,
+        scoring_model_role_context,
+    )
+
+    if current_scoring_model_role() != MODEL_ROLE_RESEARCH:
+        with scoring_model_role_context(MODEL_ROLE_RESEARCH):
+            return run_t0_backtest_for_holdings(
+                holdings,
+                lookback=lookback,
+                rules=rules,
+                paper=paper,
+                cash=cash,
+                use_minute=use_minute,
+                compare_daily=compare_daily,
+                virtual_shares=virtual_shares,
+                virtual_cash=virtual_cash,
+            )
 
     from core.execution import resolve_t0_rules, strip_execution_meta
     from core.t0.viz import merge_t0_viz_payloads, summarize_skip_reason_label
@@ -721,10 +786,11 @@ def run_t0_backtest_for_holdings(
         one["virtual_shares"] = v_shares
         one["virtual_cash"] = v_cash
         if one.get("viz") and isinstance(one["viz"], dict):
-            for row in one["viz"].get("stock_contrib") or []:
-                if isinstance(row, dict):
-                    row["stock_code"] = code
-                    row["stock_name"] = one.get("stock_name")
+            _fill_t0_viz_stock_names(
+                one["viz"],
+                stock_code=code,
+                stock_name=one.get("stock_name"),
+            )
         per.append(one)
         if one.get("success"):
             total_pnl += float(one.get("t0_pnl_total") or 0)

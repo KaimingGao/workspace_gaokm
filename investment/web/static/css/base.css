@@ -53,6 +53,8 @@ body {
 .app-column > .page-main {
   min-height: 0;
   overflow: auto;
+  overflow-y: scroll;
+  scrollbar-gutter: stable;
   overscroll-behavior: contain;
 }
 
@@ -63,6 +65,12 @@ body {
   border-right: 1px solid var(--border-color);
   z-index: 20;
   min-height: 0;
+  font-size: var(--font-size-body);
+  line-height: 1.25;
+  /* 页级 --radius 不得改壳层圆角 */
+  --radius: 8px;
+  --radius-sm: 8px;
+  --radius-xs: 4px;
 }
 
 .side-nav-brand {
@@ -1076,6 +1084,11 @@ html[data-density="compact"] .ai-drawer-head {
   -webkit-backdrop-filter: blur(10px);
   border-bottom: 1px solid var(--line);
   z-index: 10;
+  font-size: var(--font-size-body);
+  line-height: 1.25;
+  --radius: 8px;
+  --radius-sm: 8px;
+  --radius-xs: 4px;
 }
 
 .topbar-right {
@@ -1480,7 +1493,8 @@ a.dialog-btn[aria-disabled="true"] {
 }
 
 .rebalance-stock-name .watching-book-badge,
-.rebalance-stock-name .watching-oos-badge {
+.rebalance-stock-name .watching-oos-badge,
+.rebalance-stock-name .watching-fit-tier-badge {
   flex: none;
 }
 
@@ -4274,7 +4288,8 @@ html[data-density="compact"] .table-pager {
 }
 
 .rebalance-stock-name .watching-book-badge,
-.rebalance-stock-name .watching-oos-badge {
+.rebalance-stock-name .watching-oos-badge,
+.rebalance-stock-name .watching-fit-tier-badge {
   flex: none;
 }
 

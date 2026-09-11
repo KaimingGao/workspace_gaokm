@@ -20,7 +20,7 @@ from core.research.path_panel import (
     build_path_panels_from_bars,
 )
 from core.research.tau_panel import normalize_minute_tau_grid
-from core.research.tau_ridge import _predict_rows, _subset, _time_split_indices
+from core.research.tau_ridge import _predict_rows, _subset
 from core.signal.minute_tau_feats import MINUTE_TAU_FEAT_LABELS, MINUTE_TAU_PATH_SHAPE_KEYS
 
 PATH_MIN_STD_EXEMPT = PATH_RIDGE_FEATURES
@@ -281,7 +281,7 @@ def fit_path_ridge_report(
     gap_trigger_pct: float = 2.0,
     sell_trig_pct: float = DEFAULT_SELL_TRIG_PCT,
     buy_trig_pct: float = DEFAULT_BUY_TRIG_PCT,
-    train_frac: float = 0.9,
+    holdout_trading_days: int = 10,
     minute_tau_hm: Optional[str] = None,
     tau_grid: Optional[Sequence[str]] = None,
 ) -> Dict[str, Any]:
@@ -318,7 +318,20 @@ def fit_path_ridge_report(
         }
 
     xs_z = _z_only_xs(xs)
-    train_idx, test_idx = _time_split_indices(dates, train_frac=train_frac)
+    from core.research.holdout import (
+        DEFAULT_HOLDOUT_TRADING_DAYS,
+        attach_holdout_meta,
+        calendar_dates_from_stock_bars,
+        make_research_model,
+        resolve_ridge_split,
+    )
+
+    hold_n = int(holdout_trading_days or DEFAULT_HOLDOUT_TRADING_DAYS)
+    train_idx, test_idx, split_meta = resolve_ridge_split(
+        dates,
+        holdout_trading_days=hold_n,
+        calendar_dates=calendar_dates_from_stock_bars(stock_bars),
+    )
     xs_tr, ys_tr, metas_tr = _subset(xs_z, ys, metas, train_idx)
     xs_te, ys_te, metas_te = _subset(xs_z, ys, metas, test_idx)
 
@@ -362,7 +375,7 @@ def fit_path_ridge_report(
         if grid and len(grid) > 1:
             oos["by_tau"] = _oos_by_tau(preds, ys_te, metas_te)
     oos["y_label_mean"] = round(y_mean, 4)
-    oos["train_frac"] = float(train_frac)
+    oos["holdout_trading_days"] = hold_n
     oos["balance"] = bal_info
     oos["tau_grid"] = list(grid)
     oos["minute_tau_hm"] = live_hm
@@ -390,6 +403,10 @@ def fit_path_ridge_report(
         "n_unique_days": len({str(d)[:10] for d in dates}),
         "rows_per_day": round(len(ys) / max(1, len({str(d)[:10] for d in dates})), 2),
     }
+
+    research_model = make_research_model(fit, y_mean=y_mean)
+    research_model["y_demeaned"] = True
+    research_model["y_label_mean"] = round(y_mean, 6)
 
     ys_all_dm = [float(y) - y_mean for y in ys]
     fit_full = fit_factor_ols_from_panel(
@@ -436,6 +453,9 @@ def fit_path_ridge_report(
     model["feat_labels"] = {**dict(MINUTE_TAU_FEAT_LABELS), **dict(PATH_LAG_FEAT_LABELS)}
     model["minute_tau_hm"] = live_hm
     model["tau_grid"] = list(grid)
+    model["model_role"] = "live"
+    for k in ("y_spec", "extra_features", "feat_labels", "minute_tau_hm", "tau_grid", "path_label_mode"):
+        research_model[k] = model.get(k)
 
     report = {
         "success": True,
@@ -444,6 +464,7 @@ def fit_path_ridge_report(
         "sample_count": len(ys),
         "oos": oos,
         "return_model": model,
+        "return_model_research": research_model,
         "schema": "path_ridge_v4",
         "target": "extreme_order_signed_range",
         "sell_trig_pct": float(sell_trig_pct),
@@ -456,6 +477,7 @@ def fit_path_ridge_report(
             else "开盘 Z + 前缀分钟小包 + 历史真实 path → 全日极值序；供 dual_y 与 y_τ 联合选向"
         ),
     }
+    attach_holdout_meta(report, split_meta)
     report["promote_gate"] = path_promote_gate(report)
     return report
 
@@ -511,7 +533,25 @@ def load_path_last_report() -> Optional[Dict[str, Any]]:
     return doc
 
 
-def load_path_model() -> Optional[Dict[str, Any]]:
+def load_path_model(*, role: Optional[str] = None) -> Optional[Dict[str, Any]]:
+    from core.research.holdout import (
+        MODEL_ROLE_RESEARCH,
+        current_scoring_model_role,
+        research_model_path,
+    )
+
+    role_n = role if role is not None else current_scoring_model_role()
+    if role_n == MODEL_ROLE_RESEARCH:
+        research_p = research_model_path(path_model_path())
+        if os.path.isfile(research_p):
+            try:
+                with open(research_p, encoding="utf-8") as f:
+                    loaded = json.load(f)
+                if isinstance(loaded, dict) and isinstance(loaded.get("return_model"), dict):
+                    return loaded
+            except Exception:  # noqa: BLE001
+                logger.debug("load_path_model research failed", exc_info=True)
+        return None
     global _PATH_MODEL_CACHE
     model_p = path_model_path()
     report_p = path_last_report_path()
@@ -543,10 +583,17 @@ def persist_path_model(
     *,
     note: str = "",
     force: bool = False,
+    role: str = "live",
 ) -> Dict[str, Any]:
+    from core.research.holdout import (
+        MODEL_ROLE_RESEARCH,
+        research_model_path,
+        select_persist_return_model,
+    )
+
     if not report.get("success"):
         return {"success": False, "error": report.get("error") or "no report"}
-    rm = report.get("return_model")
+    role_n, rm = select_persist_return_model(report, role=role)
     if not isinstance(rm, dict):
         return {"success": False, "error": "return_model missing"}
     gate = path_promote_gate(report)
@@ -572,10 +619,17 @@ def persist_path_model(
         "minute_tau_hm": report.get("minute_tau_hm") or rm.get("minute_tau_hm"),
         "tau_grid": report.get("tau_grid") or rm.get("tau_grid"),
         "promote_gate": gate,
+        "model_role": role_n,
+        "fit_end": report.get("fit_end"),
+        "eval_start": report.get("eval_start"),
         "dual_score_head": "y_path",
         "contract_note": "ŷ_path：开盘 Z + 多 τ 前缀分钟小包 → 全日极值序 signed range%；live=minute_tau_hm",
     }
-    path = path_model_path()
+    path = (
+        research_model_path(path_model_path())
+        if role_n == MODEL_ROLE_RESEARCH
+        else path_model_path()
+    )
     os.makedirs(os.path.dirname(path), exist_ok=True)
     atomic_write_json(path, doc)
     global _PATH_MODEL_CACHE
@@ -585,6 +639,7 @@ def persist_path_model(
         "path": path,
         "promoted_at": doc["promoted_at"],
         "promote_gate": gate,
+        "model_role": role_n,
     }
 
 

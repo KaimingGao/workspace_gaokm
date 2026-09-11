@@ -40,35 +40,24 @@ import {
   buildPaperHoldingsTableHtml,
   buildPaperOriginBarHtml,
   buildPaperHoldActionBarHtml,
-} from "./paper/holdings_ui.js?v=p1734";
+} from "./paper/holdings_ui.js?v=p2261";
 import { renderPaperRulesHtml } from "./paper/rules_ui.js?v=p1658";
 import {
   renderExecutionRulesHtml,
-  fillExecutionForm,
-  collectExecutionForm,
-  fillPathMatrixForm,
-  collectPathMatrixForm,
-  fillDualScoreForm,
-  collectDualScorePatch,
-  persistT0Lookback,
-  collectT0BacktestBody,
-  resolveT0BacktestScope,
   normalizeExecutionView,
-  renderExecutionDiffHtml,
-} from "./paper/execution_ui.js?v=p2151";
+} from "./paper/execution_ui.js?v=p2202";
+import { applyExecutionToUi } from "./paper/execution_forms.js?v=p2202";
 import { buildPaperLogsView, buildPaperLogsCsv } from "./paper/logs_ui.js?v=p2157";
 import { downloadBlob } from "./shared.js";
 import {
-  renderPaperT0 as renderPaperT0Ui,
   renderPaperT0Preview as renderPaperT0PreviewUi,
   renderPaperT0WorkerTrades as renderPaperT0WorkerTradesUi,
   renderPaperT0WorkerDesk as renderPaperT0WorkerDeskUi,
-} from "./paper/t0_ui.js?v=p1986";
-import { renderPaperRebalanceWorkerDesk as renderPaperRebalanceWorkerDeskUi } from "./paper/rebalance_desk.js?v=p2154";
-import { buildT0SummaryLine } from "./paper/t0_report.js?v=p1906";
-import { wireT0SkipTips } from "./paper/t0_viz.js?v=p1986";
-import { wireT0ProcessTips, wireT0DayDebugExpand } from "./paper/t0_table.js?v=p1986";
-import { wireHoldingsChgTips } from "./paper/holding_chg_tip.js?v=p1986";
+} from "./paper/t0_ui.js?v=p2261";
+import { renderPaperRebalanceWorkerDesk as renderPaperRebalanceWorkerDeskUi } from "./paper/rebalance_desk.js?v=p2261";
+import { wireT0SkipTips } from "./paper/t0_viz.js?v=p2261";
+import { wireT0ProcessTips, wireT0DayDebugExpand } from "./paper/t0_table.js?v=p2261";
+import { wireHoldingsChgTips } from "./paper/holding_chg_tip.js?v=p2261";
 import { createHoldingsIslandController } from "./paper/holdings_island.js";
 import { createClusterRebalanceController } from "./paper/cluster_rebalance.js?v=p2088";
 import {
@@ -78,9 +67,9 @@ import {
 } from "./data_offline.js";
 import { rebalanceDataFoot, t0DataFoot } from "./data_policy.js?v=p1736";
 import { ensureWarehouseTopup } from "./data_warehouse_topup.js";
-import { createRebalanceReportController } from "./paper/rebalance_report.js?v=p2151";
+import { createRebalanceReportController } from "./paper/rebalance_report.js?v=p2268";
 import { waitPaperJob as waitPaperJobPoll } from "./paper/job_poll.js?v=p1416";
-import { renderFollowNorthStar as renderFollowNorthStarUi } from "./paper/north_star_ui.js?v=p2159";
+import { renderFollowNorthStar as renderFollowNorthStarUi } from "./paper/north_star_ui.js?v=p2182";
 import {
   formatWeightSourceNote,
   formatFactorWeightsSection,
@@ -100,6 +89,11 @@ import { formatDailySteps, runDaily } from "./shared.js";
 
 /** Paper dialog/page wiring. */
 export function initPaper(ctx) {
+  const _PV =
+    (typeof window !== "undefined" && window.__ASSET_V__) || "p2261";
+  void import(`./quant/fit_tier_ui.js?v=${encodeURIComponent(_PV)}`).then((m) =>
+    m.ensureFitTierMap()
+  );
   const page = document.body.dataset.page || "chat";
   const paperDialog = document.getElementById("paper-dialog");
   const paperMeta = document.getElementById("paper-meta");
@@ -892,6 +886,9 @@ export function initPaper(ctx) {
         const html = renderHoldingsHtml(summary, holdings);
         holdingsEl.innerHTML = html;
         setTimeout(() => applyPendingFocus(), 0);
+        void import(`./quant/fit_tier_ui.js?v=${encodeURIComponent(_PV)}`).then((m) =>
+          m.ensureFitTierMap(holdingsEl)
+        );
         try {
           await upgradeHoldingsToIsland(summary, holdings);
         } catch (err) {
@@ -899,6 +896,9 @@ export function initPaper(ctx) {
           destroyHoldingsGrid();
           holdingsEl.innerHTML = html;
           setTimeout(() => applyPendingFocus(), 0);
+          void import(`./quant/fit_tier_ui.js?v=${encodeURIComponent(_PV)}`).then((m) =>
+            m.ensureFitTierMap(holdingsEl)
+          );
         }
         fillHoldingsSentiment(holdings).catch(() => {});
       }
@@ -906,43 +906,29 @@ export function initPaper(ctx) {
 
     if (rulesEl) rulesEl.innerHTML = renderPaperRulesHtml(data);
 
-    const pathMatrixForm = document.getElementById("paper-path-matrix-form");
-    const t0RulesEl = document.getElementById("paper-t0-rules");
-    const t0Form = document.getElementById("paper-t0-form");
     let execution = data && data.execution;
-    if (t0RulesEl) {
-      if (execution && execution.ok !== false) {
-        t0RulesEl.innerHTML = renderExecutionRulesHtml(execution);
-        if (t0Form) fillExecutionForm(t0Form, execution);
-        if (pathMatrixForm) fillPathMatrixForm(pathMatrixForm, execution);
-        if (pathMatrixForm) loadDualScoreOntoForm(pathMatrixForm);
-      } else {
-        t0RulesEl.innerHTML = `<p class="quant-sub">加载 ExecutionSpec…</p>`;
-        // 旧进程未带 execution 字段时兜底拉专用接口
-        apiFetch("/api/paper/execution")
-          .then(({ ok, data: exe }) => {
-            if (!ok || !exe || exe.ok === false) {
-              t0RulesEl.innerHTML = renderExecutionRulesHtml(
-                exe || { ok: false, error: "无法加载 ExecutionSpec（请重启 Web：python run_web.py）" }
-              );
-              return;
-            }
-            if (lastAccountData) lastAccountData.execution = exe;
-            t0RulesEl.innerHTML = renderExecutionRulesHtml(exe);
-            if (t0Form) fillExecutionForm(t0Form, exe);
-            if (pathMatrixForm) fillPathMatrixForm(pathMatrixForm, exe);
-            if (pathMatrixForm) loadDualScoreOntoForm(pathMatrixForm);
-          })
-          .catch((err) => {
-            t0RulesEl.innerHTML = renderExecutionRulesHtml({
-              ok: false,
-              error: String(err.message || err) + "（若刚升级请重启 Web）",
-            });
+    if (execution && execution.ok !== false) {
+      applyExecutionToUi(execution);
+    } else {
+      const t0RulesEl = document.getElementById("paper-t0-rules");
+      if (t0RulesEl) t0RulesEl.innerHTML = `<p class="quant-sub">加载 ExecutionSpec…</p>`;
+      apiFetch("/api/paper/execution")
+        .then(({ ok, data: exe }) => {
+          if (!ok || !exe || exe.ok === false) {
+            applyExecutionToUi(
+              exe || { ok: false, error: "无法加载 ExecutionSpec（请重启 Web：python run_web.py）" }
+            );
+            return;
+          }
+          if (lastAccountData) lastAccountData.execution = exe;
+          applyExecutionToUi(exe);
+        })
+        .catch((err) => {
+          applyExecutionToUi({
+            ok: false,
+            error: String(err.message || err) + "（若刚升级请重启 Web）",
           });
-      }
-    } else if (pathMatrixForm && execution && execution.ok !== false) {
-      fillPathMatrixForm(pathMatrixForm, execution);
-      loadDualScoreOntoForm(pathMatrixForm);
+        });
     }
 
     const logsView = buildPaperLogsView(data, paperLogShowAll, paperLogFilter);
@@ -1811,17 +1797,6 @@ export function initPaper(ctx) {
     },
   });
 
-  async function loadDualScoreOntoForm(form) {
-    if (!form) return;
-    try {
-      const res = await fetch("/api/signal/config/dual-score");
-      const data = await res.json().catch(() => ({}));
-      if (res.ok && data.dual_score) fillDualScoreForm(form, data.dual_score);
-    } catch (_) {
-      /* 缺接口时保留表单默认 0.5 */
-    }
-  }
-
   async function loadPaper(opts = {}) {
     const quiet = !!(opts && opts.quiet);
     const force = !!(opts && opts.force);
@@ -1944,6 +1919,7 @@ export function initPaper(ctx) {
       if (emptyEl) emptyEl.hidden = false;
       if (mainEl) mainEl.hidden = true;
       renderPaperStats({});
+      renderFollowNorthStar(null);
       await renderPaperAccountDetail(data);
       drawPaperChart([]);
       return data;
@@ -2224,18 +2200,15 @@ export function initPaper(ctx) {
     wireHoldingsChgTips(holdingsTableEl, scoreTips, { apiFetch });
   }
 
-  const paperT0DaysHost = document.getElementById("paper-t0-days");
-  if (paperT0DaysHost) {
-    scoreTips.bindHost(paperT0DaysHost, {
+  const paperT0PreviewHost = document.getElementById("paper-t0-preview");
+  if (paperT0PreviewHost) {
+    scoreTips.bindHost(paperT0PreviewHost, {
       scoreSelector:
         ".paper-t0-y-score[data-score-detail], .paper-t0-dir-score[data-score-detail]",
     });
-    wireT0ProcessTips(paperT0DaysHost, scoreTips);
-    wireT0DayDebugExpand(paperT0DaysHost);
-  }
-  const paperT0VizHost = document.getElementById("paper-t0-viz");
-  if (paperT0VizHost) {
-    wireT0SkipTips(paperT0VizHost, scoreTips);
+    wireT0ProcessTips(paperT0PreviewHost, scoreTips);
+    wireT0DayDebugExpand(paperT0PreviewHost);
+    wireT0SkipTips(paperT0PreviewHost, scoreTips);
   }
   const paperT0WorkerTradesHost = document.getElementById("paper-t0-worker-trades");
   if (paperT0WorkerTradesHost) {
@@ -2516,7 +2489,7 @@ export function initPaper(ctx) {
         document.getElementById("paper-strategy")?.value || "short_conservative";
       showProgress(
         1,
-        dryRun ? "预演调仓…" : simulateBuy ? "启动模拟买入…" : "启动跑一日…"
+        dryRun ? "手动预演…" : simulateBuy ? "启动模拟买入…" : "启动跑一日…"
       );
       try {
         const res = await fetch("/api/paper/run", {
@@ -2734,7 +2707,7 @@ export function initPaper(ctx) {
             }
             await followClusterRef.runWatchingMatrixPreview({ dryRun: false });
           } else {
-            setPaperMetaText("请先点「预演调仓」，再确认落账");
+            setPaperMetaText("请先点「手动预演」，再确认落账");
             rebalanceConfirmBtn.disabled = false;
           }
         } catch (err) {
@@ -2812,24 +2785,8 @@ export function initPaper(ctx) {
     return { code: String(code).trim(), name: String(name || "").trim() };
   };
 
-  const paperT0Metrics = document.getElementById("paper-t0-metrics");
-  const paperT0Viz = document.getElementById("paper-t0-viz");
-  const paperT0Days = document.getElementById("paper-t0-days");
   const paperT0Preview = document.getElementById("paper-t0-preview");
   const paperT0Confirm = document.getElementById("paper-t0-confirm");
-
-  function renderPaperT0(data) {
-    // 回测成交明细必须用各日决策快照；勿盖持仓实时分（否则多日 ŷ 相同、负τ却正T）
-    renderPaperT0Ui(
-      {
-        metricsEl: paperT0Metrics,
-        vizEl: paperT0Viz,
-        daysEl: paperT0Days,
-        previewEl: paperT0Preview,
-      },
-      data
-    );
-  }
 
   function renderPaperT0Preview(data) {
     // 预演同行：用预演返回的会话快照，勿盖持仓实时分
@@ -2839,60 +2796,8 @@ export function initPaper(ctx) {
     );
   }
 
-  const paperT0Bt = document.getElementById("paper-t0-backtest");
   const paperT0Run = document.getElementById("paper-t0-run");
   const paperT0ActionStatus = document.getElementById("paper-t0-action-status");
-
-  function formatT0SnapshotAt(iso) {
-    if (!iso) return "";
-    const s = String(iso);
-    return s.length > 19 ? s.slice(0, 19).replace("T", " ") : s.replace("T", " ");
-  }
-
-  function t0BacktestIsBusy() {
-    return !!(paperT0Bt && (paperT0Bt.disabled || paperT0Bt.classList.contains("is-busy")));
-  }
-
-  function applyT0BacktestResult(data, { restored, savedAt } = {}) {
-    if (!data || !data.success) return;
-    if (restored) {
-      if (t0BacktestIsBusy()) return;
-      if (paperT0Metrics && paperT0Metrics.dataset.liveRun === "1") return;
-    } else if (paperT0Metrics) {
-      paperT0Metrics.dataset.liveRun = "1";
-    }
-    renderPaperT0(data);
-    const summary = buildT0SummaryLine(data);
-    if (paperT0ActionStatus) {
-      const at = formatT0SnapshotAt(savedAt);
-      paperT0ActionStatus.textContent = restored
-        ? (at ? `上次 ${at}` : "上次结果") + (summary ? ` · ${summary}` : "")
-        : summary || "做 T 回测完成";
-    }
-    const t0RulesEl = document.getElementById("paper-t0-rules");
-    if (t0RulesEl && data.execution) {
-      t0RulesEl.innerHTML = renderExecutionRulesHtml(
-        normalizeExecutionView(data.execution, data.rules)
-      );
-    }
-  }
-
-  async function restoreLastT0Backtest() {
-    if (page !== "paper" && page !== "follow") return;
-    if (!paperT0Metrics) return;
-    if (t0BacktestIsBusy()) return;
-    if (paperT0Metrics.dataset.liveRun === "1") return;
-    try {
-      const res = await fetch("/api/quant/last-t0-backtest");
-      const pack = await res.json();
-      if (t0BacktestIsBusy()) return;
-      if (paperT0Metrics.dataset.liveRun === "1") return;
-      if (!pack || pack.empty || !pack.result || !pack.result.success) return;
-      applyT0BacktestResult(pack.result, { restored: true, savedAt: pack.saved_at });
-    } catch (_) {
-      /* ignore */
-    }
-  }
 
   /** fetch 失败：Chrome 超时是 AbortError；Safari/网络断开常是 TypeError Failed to fetch */
   const t0FetchErrorMessage = (err, timeoutHint) => {
@@ -2906,7 +2811,7 @@ export function initPaper(ctx) {
     return msg || "请求失败";
   };
 
-  /** 手动预演 / 回测 / 落账共用：状态行 spinner + 当前按钮禁用 */
+  /** 手动预演 / 落账共用：状态行 spinner + 当前按钮禁用 */
   const setT0ActionBusy = (btn, busy, msg) => {
     if (btn) {
       btn.disabled = !!busy;
@@ -2932,77 +2837,6 @@ export function initPaper(ctx) {
       paperT0ActionStatus.removeAttribute("aria-busy");
     }
   };
-
-  if (paperT0Bt) {
-    paperT0Bt.addEventListener("click", async (e) => {
-      e.preventDefault();
-      if (paperT0Bt.disabled) return;
-      const formRoot = document.getElementById("paper-t0-form");
-      const scope = resolveT0BacktestScope(formRoot, {
-        altKey: e.altKey,
-        selectedCode: selectedHoldCode,
-      });
-      if (scope.error) {
-        const fold = document.getElementById("follow-section-t0");
-        if (fold) fold.scrollIntoView({ behavior: "smooth", block: "start" });
-        if (paperT0ActionStatus) {
-          paperT0ActionStatus.classList.remove("is-busy");
-          paperT0ActionStatus.textContent = scope.error;
-        }
-        return;
-      }
-      const { onlySelected, useMinute } = scope;
-      const busyLabel = onlySelected
-        ? `回测中（${selectedHoldCode}·5m/选向）…`
-        : "回测中（全部持仓·5m/选向）…";
-      setT0ActionBusy(paperT0Bt, true, busyLabel);
-      const ac = typeof AbortController !== "undefined" ? new AbortController() : null;
-      const timer =
-        ac &&
-        setTimeout(() => {
-          try {
-            ac.abort();
-          } catch (_) {
-            /* ignore */
-          }
-        }, 300000);
-      try {
-        const body = collectT0BacktestBody(formRoot, {
-          useMinute,
-          onlySelected,
-          selectedCode: selectedHoldCode,
-        });
-        const res = await fetch("/api/quant/t0-backtest", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(body),
-          signal: ac ? ac.signal : undefined,
-        });
-        const data = await res.json();
-        if (!res.ok || !data.success) {
-          const errMsg = data.error || data.detail || "回测失败";
-          setT0ActionBusy(paperT0Bt, false, errMsg);
-          renderPaperT0(null);
-          return;
-        }
-        setT0ActionBusy(paperT0Bt, false);
-        applyT0BacktestResult(data);
-        showValidateNext("t0");
-      } catch (err) {
-        setT0ActionBusy(
-          paperT0Bt,
-          false,
-          t0FetchErrorMessage(
-            err,
-            "回测连接中断或超时。服务刚重启、持仓过多或 5m 未预热时会出现；请刷新后重试，持仓多请勾「仅选中」或缩小回看窗"
-          )
-        );
-      } finally {
-        if (timer) clearTimeout(timer);
-        clearT0ActionBusy(paperT0Bt);
-      }
-    });
-  }
 
   if (paperT0Run) {
     paperT0Run.addEventListener("click", async (e) => {
@@ -3083,178 +2917,6 @@ export function initPaper(ctx) {
       } finally {
         if (timer) clearTimeout(timer);
         clearT0ActionBusy(paperT0Run);
-      }
-    });
-  }
-
-  const paperT0Form = document.getElementById("paper-t0-form");
-  const paperT0EditStatus = document.getElementById("paper-t0-edit-status");
-  const paperT0DiffBox = document.getElementById("paper-t0-diff-box");
-  function setT0EditStatus(text) {
-    const el = document.getElementById("paper-t0-edit-status") || paperT0EditStatus;
-    if (el) el.textContent = text || "";
-  }
-  function applyExecutionToUi(exec) {
-    const t0RulesEl = document.getElementById("paper-t0-rules");
-    if (t0RulesEl && exec) t0RulesEl.innerHTML = renderExecutionRulesHtml(exec);
-    if (paperT0Form && exec) fillExecutionForm(paperT0Form, exec);
-    const pathMatrixForm = document.getElementById("paper-path-matrix-form");
-    if (pathMatrixForm && exec) {
-      fillPathMatrixForm(pathMatrixForm, exec);
-      loadDualScoreOntoForm(pathMatrixForm);
-    }
-  }
-  async function postJson(url, body, { timeoutMs = 12000, method = "POST" } = {}) {
-    const ac = new AbortController();
-    const timer = setTimeout(() => ac.abort(), timeoutMs);
-    try {
-      const res = await fetch(url, {
-        method,
-        headers: body != null ? { "Content-Type": "application/json" } : undefined,
-        body: body != null ? JSON.stringify(body) : undefined,
-        signal: ac.signal,
-      });
-      const data = await res.json().catch(() => ({}));
-      return { res, data };
-    } finally {
-      clearTimeout(timer);
-    }
-  }
-  function isAbortError(err) {
-    return !!(err && (err.name === "AbortError" || /aborted|AbortError/i.test(String(err.message || err))));
-  }
-  if (paperT0Form) {
-    paperT0Form.addEventListener("submit", async (e) => {
-      e.preventDefault();
-      const body = collectExecutionForm(paperT0Form);
-      if (!body) return;
-      // 回测窗不进 Spec：保存前先记住，避免 fill 用旧 localStorage 盖成 30
-      persistT0Lookback(paperT0Form);
-      const saveBtn = document.getElementById("paper-t0-save");
-      if (saveBtn) saveBtn.disabled = true;
-      setT0EditStatus("保存中…");
-      try {
-        const { res, data } = await postJson("/api/paper/execution", {
-          ...body,
-          note: "follow UI",
-        });
-        if (!res.ok || data.ok === false) {
-          const err = data.detail || data.errors || data.error || "保存失败";
-          setT0EditStatus(Array.isArray(err) ? err.join("; ") : String(err));
-          return;
-        }
-        setT0EditStatus(data.message || "已保存");
-        applyExecutionToUi(data.execution);
-      } catch (err) {
-        setT0EditStatus(isAbortError(err) ? "保存超时，请重试" : String(err.message || err));
-      } finally {
-        if (saveBtn) saveBtn.disabled = false;
-      }
-    });
-  }
-  const paperPathMatrixForm = document.getElementById("paper-path-matrix-form");
-  const paperPathMatrixStatus = document.getElementById("paper-path-matrix-status");
-  const setPathMatrixStatus = (msg, { error = false } = {}) => {
-    if (!paperPathMatrixStatus) return;
-    const text = String(msg || "").trim();
-    paperPathMatrixStatus.classList.remove("is-busy", "is-ok");
-    paperPathMatrixStatus.classList.toggle("is-error", !!error && !!text);
-    paperPathMatrixStatus.textContent = text;
-    paperPathMatrixStatus.hidden = !text;
-  };
-  if (paperPathMatrixForm) {
-    paperPathMatrixForm.addEventListener("submit", async (e) => {
-      e.preventDefault();
-      const body = collectPathMatrixForm(paperPathMatrixForm);
-      const dualPatch = collectDualScorePatch(paperPathMatrixForm);
-      if (!body) return;
-      setPathMatrixStatus("保存中…");
-      try {
-        const { res, data } = await postJson("/api/paper/execution", {
-          ...body,
-          note: "follow rank_lots UI",
-        });
-        if (!res.ok || data.ok === false) {
-          const err = data.detail || data.errors || data.error || "保存失败";
-          setPathMatrixStatus(
-            Array.isArray(err) ? err.join("; ") : String(err),
-            { error: true }
-          );
-          return;
-        }
-        if (dualPatch) {
-          const dualRes = await fetch("/api/signal/config/dual-score", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(dualPatch),
-          });
-          const dualData = await dualRes.json().catch(() => ({}));
-          if (!dualRes.ok || dualData.success === false) {
-            setPathMatrixStatus(
-              dualData.detail || dualData.error || "y_fuse 已保存，y_trade 权重未写入",
-              { error: true }
-            );
-            applyExecutionToUi(data.execution);
-            return;
-          }
-          fillDualScoreForm(paperPathMatrixForm, dualData.dual_score);
-        }
-        setPathMatrixStatus(data.message || "已保存规则");
-        applyExecutionToUi(data.execution);
-      } catch (err) {
-        setPathMatrixStatus(
-          isAbortError(err) ? "保存超时，请重试" : String(err.message || err),
-          { error: true }
-        );
-      }
-    });
-  }
-  const paperT0Reset = document.getElementById("paper-t0-reset");
-  if (paperT0Reset) {
-    paperT0Reset.addEventListener("click", async (e) => {
-      e.preventDefault();
-      setT0EditStatus("重置中…");
-      try {
-        const { res, data } = await postJson("/api/paper/execution/reset", null);
-        if (!res.ok) {
-          setT0EditStatus(data.detail || "重置失败");
-          return;
-        }
-        setT0EditStatus(data.message || "已恢复默认");
-        if (paperT0DiffBox) {
-          paperT0DiffBox.hidden = true;
-          paperT0DiffBox.innerHTML = "";
-        }
-        persistT0Lookback(paperT0Form);
-        applyExecutionToUi(data.execution);
-      } catch (err) {
-        setT0EditStatus(isAbortError(err) ? "重置超时，请重试" : String(err.message || err));
-      }
-    });
-  }
-  const paperT0DiffBtn = document.getElementById("paper-t0-diff");
-  if (paperT0DiffBtn) {
-    paperT0DiffBtn.addEventListener("click", async (e) => {
-      e.preventDefault();
-      if (paperT0EditStatus) paperT0EditStatus.textContent = "对照中…";
-      try {
-        const res = await fetch("/api/paper/execution/diff");
-        const data = await res.json();
-        if (!res.ok) {
-          if (paperT0EditStatus) paperT0EditStatus.textContent = data.detail || "对照失败";
-          return;
-        }
-        if (paperT0DiffBox) {
-          paperT0DiffBox.hidden = false;
-          paperT0DiffBox.innerHTML = renderExecutionDiffHtml(data);
-        }
-        if (paperT0EditStatus) {
-          paperT0EditStatus.textContent = data.changed
-            ? `相对 Spec 有 ${(data.t0_changes || []).length + (data.coupling_changes || []).length} 项差异`
-            : "与策略默认一致";
-        }
-      } catch (err) {
-        if (paperT0EditStatus) paperT0EditStatus.textContent = String(err.message || err);
       }
     });
   }
@@ -3403,6 +3065,5 @@ export function initPaper(ctx) {
     loadPaper().catch((err) => {
       setPaperMetaText(String(err.message || err));
     });
-    restoreLastT0Backtest();
   }
 }

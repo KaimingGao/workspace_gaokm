@@ -913,6 +913,49 @@ def load_minute_cache(
     return bars, meta
 
 
+def load_minute_span_snapshot(
+    market: str,
+    code: str,
+    period: str = "5",
+    *,
+    store_dir: Optional[str] = None,
+) -> Optional[Dict[str, Any]]:
+    """覆盖状态：跨度 + 末日 bars。sqlite 不拉全历史。"""
+    base = store_dir or get_store_dir()
+    if bars_backend() == "sqlite":
+        from core import store_bars_sqlite as sq
+
+        return sq.load_minute_span_snapshot(market, code, period, store_dir=base)
+    packed = load_minute_cache(
+        market, code, period, min_bars=1, max_age_hours=0, ignore_age=True, store_dir=base
+    )
+    if not packed:
+        return None
+    bars, meta = packed
+    by_day: Dict[str, List[dict]] = {}
+    for b in bars or []:
+        if not isinstance(b, dict):
+            continue
+        d = str(b.get("date") or str(b.get("datetime") or "")[:10])[:10]
+        if len(d) != 10:
+            continue
+        by_day.setdefault(d, []).append(b)
+    if not by_day:
+        return None
+    date_max = max(by_day.keys())
+    date_min = min(by_day.keys())
+    return {
+        "span_days": len(by_day),
+        "bar_count": int((meta or {}).get("bar_count") or len(bars or [])),
+        "fetched_at": (meta or {}).get("fetched_at"),
+        "date_min": date_min,
+        "date_max": date_max,
+        "date_max_bars": list(by_day.get(date_max) or []),
+        "adjust_policy": (meta or {}).get("adjust_policy"),
+        "bars_backend": (meta or {}).get("bars_backend") or "json",
+    }
+
+
 def save_minute_cache(
     market: str,
     code: str,
@@ -943,26 +986,35 @@ def save_minute_cache(
     os.makedirs(os.path.dirname(path), exist_ok=True)
     bars = trim_minute_bars(list(bars or []))
     fetched_at = datetime.now()
-    date_min = None
-    date_max = None
-    if bars:
-        date_min = bars[0].get("date") or str(bars[0].get("datetime") or "")[:10]
-        date_max = bars[-1].get("date") or str(bars[-1].get("datetime") or "")[:10]
-    payload = {
-        "version": MINUTE_CACHE_VERSION,
-        "market": market.upper(),
-        "code": code,
-        "stock_code": stock_code or code,
-        "period": str(period),
-        "data_source": data_source,
-        "fetched_at": fetched_at.isoformat(timespec="seconds"),
-        "bars": bars,
-        "bar_count": len(bars or []),
-        "date_min": date_min,
-        "date_max": date_max,
-        "adjust_policy": adjust_policy,
-    }
     with path_lock(path):
+        if bars:
+            try:
+                with open(path, encoding="utf-8") as f:
+                    old_payload = json.load(f)
+                old_bars = old_payload.get("bars") or []
+                if isinstance(old_bars, list) and old_bars:
+                    bars = trim_minute_bars(merge_minute_bars_by_time(old_bars, bars))
+            except (OSError, json.JSONDecodeError, TypeError):
+                pass
+        date_min = None
+        date_max = None
+        if bars:
+            date_min = bars[0].get("date") or str(bars[0].get("datetime") or "")[:10]
+            date_max = bars[-1].get("date") or str(bars[-1].get("datetime") or "")[:10]
+        payload = {
+            "version": MINUTE_CACHE_VERSION,
+            "market": market.upper(),
+            "code": code,
+            "stock_code": stock_code or code,
+            "period": str(period),
+            "data_source": data_source,
+            "fetched_at": fetched_at.isoformat(timespec="seconds"),
+            "bars": bars,
+            "bar_count": len(bars or []),
+            "date_min": date_min,
+            "date_max": date_max,
+            "adjust_policy": adjust_policy,
+        }
         try:
             atomic_write_json(path, payload)
         except OSError as e:

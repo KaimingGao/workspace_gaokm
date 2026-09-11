@@ -1,11 +1,13 @@
 import { apiFetch } from "../api_client.js";
 import { renderLineChart, renderDualLineChart, renderMultiLineChart, renderNavBarChart } from "../lw_charts.js";
 import { fmtScore, scoreCls } from "../paper/fmt.js";
-import { renderT0Viz, wireT0SkipTips } from "../paper/t0_viz.js?v=p1924";
-import { wireT0ProcessTips, wireT0DayDebugExpand } from "../paper/t0_table.js?v=p1986";
+import { renderPaperT0 } from "../paper/t0_ui.js?v=p2261";
 import { portfolioBtScoreFloorPayload as buildBtScoreFloorPayload, mergeScoringFloors } from "./scoring.js";
 import { truncateStockName, watchingNameSpanHtml } from "./names.js";
+import { ensureFitTierMap } from "./fit_tier_ui.js";
 import { downloadBlob } from "../shared.js";
+import { collectPathMatrixForm, collectExecutionForm } from "../paper/execution_ui.js?v=p2202";
+import { initExecutionRuleForms } from "../paper/execution_forms.js?v=p2202";
 
 const _V =
   (typeof window !== "undefined" && window.__ASSET_V__) || "dev";
@@ -46,6 +48,7 @@ const {
   buildPortfolioBacktestSummaryText,
   buildPortfolioBacktestFailText,
   applyReplayOverviewKpis,
+  applyReplayT0Kpis,
 } = await import(`./bt_result.js?v=${encodeURIComponent(_V)}`);
 
 /** Top-K 净值图横轴只展示最近 N 个自然日（含末日）。 */
@@ -83,7 +86,7 @@ export function sliceCurveToDateWindow(series, days = TOPK_NAV_CHART_WINDOW_DAYS
 export function installBacktest(q) {
   const { on, els, state, ctx, escapeHtml, apiFetch, setQuantMeta, setBusyText, btSimScoreTips, watchingNameFromEl } = q;
   const { fmtPct, metricClass, renderMetricCards, renderBtScopeNote, renderFitGapPanel, renderRobustnessPanel, buildPortfolioBacktestCards, BT_SCOPE_LIVE, BT_SCOPE_FROZEN, readHorizonDays, quantBtBusyIds } = q;
-  const { renderAttributionTablesHtml, renderIcEquityAlignHtml, renderQuantileTableHtml, buildT0BacktestMetrics, buildT0BacktestDaysHtml, buildCrossSectionResult, renderScoreIcHtml } = q;
+  const { renderAttributionTablesHtml, renderIcEquityAlignHtml, renderQuantileTableHtml, buildCrossSectionResult, renderScoreIcHtml, renderReplayStockContribHtml } = q;
   const { researchGridHtml, metricCell } = q;
 
   function buildIcAlignMarkers(align) {
@@ -263,6 +266,13 @@ export function installBacktest(q) {
     paintStockKline(c, state.btChartStockName || c);
   }
 
+  function bindBtTradesCsv() {
+    const csvBtn = document.getElementById("quant-bt-trades-csv");
+    if (!csvBtn || csvBtn.dataset.wired === "1") return;
+    csvBtn.dataset.wired = "1";
+    csvBtn.addEventListener("click", () => downloadSimTradesCsv(state.lastSimTrades));
+  }
+
   function bindBtTradesStockClicks(api) {
     if (!api || typeof api.on !== "function") return;
     api.on("rowClick", ({ code, event, row }) => {
@@ -311,6 +321,49 @@ export function installBacktest(q) {
     state.lastSimTrades = [];
     state.lastLedgerTrades = false;
     if (els.quantBtTrades) els.quantBtTrades.innerHTML = "";
+    renderStockContribTable(null);
+  }
+
+  function renderStockContribTable(data) {
+    const el = document.getElementById("quant-bt-stock-contrib");
+    if (!el) return;
+    const rows = data && Array.isArray(data.stock_contrib) ? data.stock_contrib : [];
+    const renderHtml =
+      typeof renderReplayStockContribHtml === "function"
+        ? renderReplayStockContribHtml
+        : q.renderReplayStockContribHtml;
+    const html =
+      rows.length && typeof renderHtml === "function" ? renderHtml(rows) : "";
+    if (!html) {
+      el.hidden = true;
+      el.innerHTML = "";
+      return;
+    }
+    el.hidden = false;
+    el.innerHTML = html;
+    bindStockContribClicks(el);
+    void ensureFitTierMap(el);
+  }
+
+  function bindStockContribClicks(host) {
+    if (!host || host.dataset.wired === "1") return;
+    host.dataset.wired = "1";
+    host.addEventListener("click", (e) => {
+      const t = e.target;
+      if (!t || typeof t.closest !== "function") return;
+      const cell = t.closest(".watching-stock");
+      if (!cell) return;
+      const row = cell.closest("tr");
+      const code = (row && row.getAttribute("data-code")) || "";
+      if (!code) return;
+      const nameEl = cell.querySelector(".watching-name-text");
+      const fromEl =
+        typeof watchingNameFromEl === "function"
+          ? watchingNameFromEl(nameEl, code)
+          : "";
+      const name = (row && row.getAttribute("data-name")) || fromEl || code;
+      focusBtTradeStock(code, name);
+    });
   }
 
   function downloadSimTradesCsv(rows) {
@@ -380,12 +433,19 @@ export function installBacktest(q) {
     const engine = String(p.engine || "");
     if (engine === "paper_replay" || p.rank_enter != null) {
       const lb = p.lookback != null ? p.lookback : "—";
+      const clock = p.fill_clock || "09:30";
       const alpha = p.y_on_alpha != null ? p.y_on_alpha : "—";
       const wt = p.fusion_w_trade != null ? p.fusion_w_trade : "—";
       const wn = p.fusion_w_nowcast != null ? p.fusion_w_nowcast : "—";
+      const lotB = p.lot_base != null ? p.lot_base : "—";
+      const lotS = p.lot_strong != null ? p.lot_strong : "—";
       const n = Number(p.rank_enter);
       const enter = Number.isFinite(n) ? `${(n * 100).toFixed(1)}%` : "—";
-      return `lb${lb} · w${wt}/${wn} · α${alpha} · 入场${enter} · ${cost}`;
+      const tiers = Array.isArray(p.universe_fit_tiers)
+        ? p.universe_fit_tiers.join("")
+        : "";
+      const tierBit = tiers && tiers !== "ABC" ? ` · 档${tiers}` : "";
+      return `lb${lb} · ${clock} · ${lotB}/${lotS} · w${wt}/${wn} · α${alpha} · 入场${enter}${tierBit} · ${cost}`;
     }
     // 仅兼容旧日报冻结摘要（研究 Top-K 独立腿）
     return `K${p.top_k ?? "—"} · h${p.horizon_days ?? "—"} · ${cost}`;
@@ -405,19 +465,78 @@ export function installBacktest(q) {
       el.value = String(val);
     };
     if (req.lookback != null) setVal("quant-lookback", req.lookback);
-    if (req.fusion_w_trade != null) setVal("quant-w-trade", req.fusion_w_trade);
-    if (req.fusion_w_nowcast != null) setVal("quant-w-nowcast", req.fusion_w_nowcast);
-    if (req.y_on_alpha != null) setVal("quant-on-alpha", req.y_on_alpha);
+    if (req.fill_clock != null) setVal("quant-fill-clock", clampFillClock(req.fill_clock));
+    const form = document.getElementById("paper-path-matrix-form");
+    const setName = (name, val) => {
+      if (!form || val == null || val === "") return;
+      const el = form.querySelector(`[name="${name}"]`);
+      if (el) el.value = String(val);
+    };
+    if (req.fusion_w_trade != null) {
+      setVal("quant-w-trade", req.fusion_w_trade);
+      setName("pm_fusion_w_trade", req.fusion_w_trade);
+    }
+    if (req.fusion_w_nowcast != null) {
+      setVal("quant-w-nowcast", req.fusion_w_nowcast);
+      setName("pm_fusion_w_nc", req.fusion_w_nowcast);
+    }
+    if (req.y_on_alpha != null) {
+      setVal("quant-on-alpha", req.y_on_alpha);
+      setName("pm_y_on_alpha", req.y_on_alpha);
+    }
     const enterPct = scoreToRankPct(req.rank_enter);
     const strongPct = scoreToRankPct(req.rank_strong);
-    if (enterPct) setVal("quant-rank-enter", enterPct);
-    if (strongPct) setVal("quant-rank-strong", strongPct);
+    if (enterPct) {
+      setVal("quant-rank-enter", enterPct);
+      setName("pm_rank_enter", enterPct);
+    }
+    if (strongPct) {
+      setVal("quant-rank-strong", strongPct);
+      setName("pm_rank_strong", strongPct);
+    }
+    if (req.initial_cash != null) setName("pm_initial_cash", req.initial_cash);
+    if (req.lot_base != null) setName("pm_lot_base", req.lot_base);
+    if (req.lot_strong != null) setName("pm_lot_strong", req.lot_strong);
+    applyUniverseFitTiers(req.universe_fit_tiers);
+  }
+
+  function applyUniverseFitTiers(tiers) {
+    const allowed = new Set(["A", "B", "C"]);
+    const list = Array.isArray(tiers)
+      ? tiers.map((t) => String(t || "").toUpperCase()).filter((t) => allowed.has(t))
+      : [];
+    const on = list.length ? new Set(list) : new Set(["A", "B", "C"]);
+    ["A", "B", "C"].forEach((t) => {
+      const el = document.getElementById(`quant-universe-tier-${t.toLowerCase()}`);
+      if (el) el.checked = on.has(t);
+    });
+  }
+
+  function readUniverseFitTiers() {
+    const out = [];
+    ["A", "B", "C"].forEach((t) => {
+      const el = document.getElementById(`quant-universe-tier-${t.toLowerCase()}`);
+      if (el && el.checked) out.push(t);
+    });
+    return out.length ? out : ["A", "B", "C"];
+  }
+
+  async function hydrateReplayUniverseFromLive() {
+    try {
+      const res = await fetch("/api/quant/cluster-live/status?light=1");
+      const data = await res.json();
+      const tiers =
+        data && data.cluster_scoring && data.cluster_scoring.universe_fit_tiers;
+      if (Array.isArray(tiers) && tiers.length) applyUniverseFitTiers(tiers);
+    } catch (_) {
+      /* ignore */
+    }
   }
 
   function markReplayRestored(at) {
     const meta = document.getElementById("replay-meta");
     if (meta) {
-      meta.textContent = `历史验证 · rank_lots（09:30）· 上次结果 ${at} · 刷新未重跑`;
+      meta.textContent = `历史验证 · rank_lots（${readFillClock()} 5m）· 上次结果 ${at} · 刷新未重跑`;
     }
   }
 
@@ -428,10 +547,17 @@ export function installBacktest(q) {
       const res = await fetch("/api/quant/last-portfolio-backtest");
       const pack = await res.json();
       if (state.btBusy) return;
-      if (!pack || pack.empty || !pack.result || !pack.result.success) return;
+      if (!pack || pack.empty || !pack.result || !pack.result.success) {
+        await hydrateReplayUniverseFromLive();
+        return;
+      }
       const data = pack.result;
       const at = formatSnapshotAt(pack.saved_at);
       applyPortfolioBtParams(data.request || data.params);
+      const req = data.request || data.params || {};
+      if (!Array.isArray(req.universe_fit_tiers)) {
+        await hydrateReplayUniverseFromLive();
+      }
       renderPortfolioBacktestResult(data);
       applyReplayOverviewKpis(data, { source: at ? `上次 ${at}` : "上次结果" });
       paintPortfolioChart(
@@ -783,11 +909,67 @@ export function installBacktest(q) {
     return Math.round(Math.max(0, Math.min(1, v)) * 1000) / 1000;
   }
 
+  function readInitialCash() {
+    const form = document.getElementById("paper-path-matrix-form");
+    const el = form && form.querySelector('[name="pm_initial_cash"]');
+    let v = 200000;
+    if (el && el.value !== "") {
+      const n = Number(el.value);
+      if (Number.isFinite(n)) v = n;
+    }
+    return Math.round(Math.max(10000, Math.min(1e8, v)));
+  }
+
+  function clampReplayLot(raw, fallback) {
+    let v = fallback;
+    if (raw != null && raw !== "") {
+      const n = Number(raw);
+      if (Number.isFinite(n)) v = n;
+    }
+    v = Math.round(Math.max(100, Math.min(10000, v)));
+    return Math.floor(v / 100) * 100;
+  }
+
+  function readReplayLots() {
+    const form = document.getElementById("paper-path-matrix-form");
+    const val = (name, fallback) => {
+      const el = form && form.querySelector(`[name="${name}"]`);
+      return clampReplayLot(el && el.value, fallback);
+    };
+    let lot_base = val("pm_lot_base", 100);
+    let lot_strong = val("pm_lot_strong", 200);
+    if (lot_strong < lot_base) lot_strong = lot_base;
+    const setIf = (name, v) => {
+      const el = form && form.querySelector(`[name="${name}"]`);
+      if (el && el.value !== String(v)) el.value = String(v);
+    };
+    setIf("pm_lot_base", lot_base);
+    setIf("pm_lot_strong", lot_strong);
+    return { lot_base, lot_strong };
+  }
+
   function readYOnAlpha() {
+    const form = document.getElementById("paper-path-matrix-form");
+    const el = form && form.querySelector('[name="pm_y_on_alpha"]');
+    if (el && el.value !== "") {
+      const n = Number(el.value);
+      if (Number.isFinite(n)) return Math.max(0, Math.min(10, n));
+    }
     return readUnitWeight("quant-on-alpha", 0);
   }
 
   function readFusionWeights() {
+    const form = document.getElementById("paper-path-matrix-form");
+    if (form) {
+      const pack = collectPathMatrixForm(form);
+      const lots = pack && pack.rebalance_timing && pack.rebalance_timing.rank_lots;
+      if (lots) {
+        return {
+          fusion_w_trade: lots.fusion_w_trade,
+          fusion_w_nowcast: lots.fusion_w_nowcast,
+        };
+      }
+    }
     return {
       fusion_w_trade: readUnitWeight("quant-w-trade", 0.6),
       fusion_w_nowcast: readUnitWeight("quant-w-nowcast", 0.4),
@@ -808,12 +990,64 @@ export function installBacktest(q) {
   }
 
   function readRankThresholds() {
+    const form = document.getElementById("paper-path-matrix-form");
+    if (form) {
+      const pack = collectPathMatrixForm(form);
+      const lots = pack && pack.rebalance_timing && pack.rebalance_timing.rank_lots;
+      if (lots) {
+        return { rank_enter: lots.rank_enter, rank_strong: lots.rank_strong };
+      }
+    }
     const enterEl = document.getElementById("quant-rank-enter");
     const strongEl = document.getElementById("quant-rank-strong");
     let enter = rankPctToScore(enterEl && enterEl.value);
     let strong = rankPctToScore(strongEl && strongEl.value);
     if (strong < enter) strong = enter;
     return { rank_enter: enter, rank_strong: strong };
+  }
+
+  const FILL_CLOCK_KEY = "paper.replay.fill_clock";
+  const FILL_CLOCKS = [
+    "09:30",
+    "09:35",
+    "09:40",
+    "09:45",
+    "09:50",
+    "09:55",
+    "10:00",
+  ];
+
+  function clampFillClock(raw) {
+    const s = String(raw || "")
+      .replace("：", ":")
+      .trim()
+      .slice(0, 5);
+    return FILL_CLOCKS.includes(s) ? s : "09:30";
+  }
+
+  function readFillClock() {
+    const el = document.getElementById("quant-fill-clock");
+    const v = clampFillClock(el && el.value);
+    if (el && el.value !== v) el.value = v;
+    try {
+      localStorage.setItem(FILL_CLOCK_KEY, v);
+    } catch (_err) {
+      /* ignore */
+    }
+    return v;
+  }
+
+  function restoreFillClock(reqClock) {
+    const el = document.getElementById("quant-fill-clock");
+    let v = reqClock;
+    if (v == null || v === "") {
+      try {
+        v = localStorage.getItem(FILL_CLOCK_KEY);
+      } catch (_err) {
+        v = "";
+      }
+    }
+    if (el) el.value = clampFillClock(v);
   }
 
   function readPortfolioBtParams() {
@@ -863,6 +1097,10 @@ export function installBacktest(q) {
       benchmark_code: benchmarkCode,
       rank_mode: rankMode,
       y_on_alpha: readYOnAlpha(),
+      initial_cash: readInitialCash(),
+      fill_clock: readFillClock(),
+      universe_fit_tiers: readUniverseFitTiers(),
+      ...readReplayLots(),
       ...readFusionWeights(),
       ...readRankThresholds(),
     };
@@ -876,6 +1114,7 @@ export function installBacktest(q) {
       return;
     }
     el.innerHTML = renderAttributionTablesHtml(attr);
+    void ensureFitTierMap(el);
   }
 
   function renderBtTradesTable(dataOrTrades) {
@@ -906,15 +1145,7 @@ export function installBacktest(q) {
       const filledLegs = legs.filter(
         (r) => String(r.status || "filled") !== "skipped"
       );
-      const filledDays = new Set(
-        filledLegs.map((r) => String(r.as_of || r.signal_date || r.ts || "").slice(0, 10))
-      );
-      const skipOnly = legs.filter((r) => {
-        if (String(r.status || "") !== "skipped") return false;
-        const day = String(r.as_of || r.signal_date || r.ts || "").slice(0, 10);
-        return day && !filledDays.has(day);
-      });
-      const showLegs = filledLegs.concat(skipOnly);
+      const showLegs = legs;
       state.lastSimTrades = showLegs;
       if (!showLegs.length && !curveLedgerDays(curve).length) {
         setBtTradesCaption("暂无成交记录");
@@ -926,7 +1157,7 @@ export function installBacktest(q) {
         metaLegs: legs,
       });
       const skipNote = !filledLegs.length && legs.length
-        ? `<p class="quant-trades-caption">暂无成交 · ${legs.length} 笔跳过（现金地板 / T+1 等）</p>`
+        ? `<p class="quant-trades-caption">暂无成交 · ${legs.length} 笔跳过（现金不足 / T+1 等）</p>`
         : "";
       els.quantBtTrades.innerHTML = skipNote + ledgerTradesCaptionHtml();
       const host = els.quantBtTrades.querySelector(".quant-bt-trades-host");
@@ -944,7 +1175,9 @@ export function installBacktest(q) {
         rowAttrs: btTradeRowAttrs,
       });
       bindBtTradesStockClicks(state.btTradesTableApi);
+      bindBtTradesCsv();
       state.btTradesTableApi.setRows(rows);
+      void ensureFitTierMap(els.quantBtTrades);
       return;
     }
     const filled = legs.filter((r) => (r.status || "filled") === "filled").length;
@@ -957,10 +1190,7 @@ export function installBacktest(q) {
       skipped,
       showIntent,
     });
-    const csvBtn = document.getElementById("quant-bt-trades-csv");
-    if (csvBtn) {
-      csvBtn.addEventListener("click", () => downloadSimTradesCsv(state.lastSimTrades));
-    }
+    bindBtTradesCsv();
     const host = els.quantBtTrades.querySelector(".quant-bt-trades-host");
     state.btTradesTableApi = mountVirtualTable(host, {
       columns: btSimTradeColumns(showIntent),
@@ -976,6 +1206,7 @@ export function installBacktest(q) {
     });
     bindBtTradesStockClicks(state.btTradesTableApi);
     state.btTradesTableApi.setRows(rows);
+    void ensureFitTierMap(els.quantBtTrades);
     if (els.quantBtTrades.dataset.scoreTipWired !== "1") {
       btSimScoreTips.bindHost(els.quantBtTrades, {
         scoreSelector: ".bt-trade-score[data-score-detail], .paper-hold-score[data-score-detail]",
@@ -1067,6 +1298,7 @@ export function installBacktest(q) {
     };
     applyReplayOverviewKpis(data);
     if (isReplayDesk()) {
+      renderStockContribTable(data);
       renderBtTradesTable(data);
       return;
     }
@@ -1106,6 +1338,7 @@ export function installBacktest(q) {
     if (expBtn) expBtn.disabled = false;
 
     renderBtTradesTable(data);
+    renderStockContribTable(data);
   }
 
   function renderQuantileTable(qb) {
@@ -1212,29 +1445,23 @@ export function installBacktest(q) {
     if (el) el.innerHTML = "";
   }
 
+  function replayT0PaintEls() {
+    return {
+      metricsEl: els.quantT0Metrics || document.getElementById("paper-t0-metrics"),
+      vizEl: els.quantT0Viz || document.getElementById("paper-t0-viz"),
+      daysEl: els.quantT0Days || document.getElementById("paper-t0-days"),
+      previewEl: null,
+      tipCtrl: btSimScoreTips,
+    };
+  }
+
+  function paintReplayT0(data) {
+    renderPaperT0(replayT0PaintEls(), data);
+    applyReplayT0Kpis(data);
+  }
+
   function renderT0BacktestResult(data) {
-    if (!data || !data.success) {
-      renderMetricCards(els.quantT0Metrics, []);
-      if (els.quantT0Days) els.quantT0Days.innerHTML = "";
-      renderT0Viz(els.quantT0Viz, null);
-      return;
-    }
-    renderMetricCards(els.quantT0Metrics, buildT0BacktestMetrics(data));
-    if (els.quantT0Days) els.quantT0Days.innerHTML = buildT0BacktestDaysHtml(data);
-    renderT0Viz(els.quantT0Viz, data);
-    if (els.quantT0Viz && btSimScoreTips) {
-      wireT0SkipTips(els.quantT0Viz, btSimScoreTips);
-    }
-    if (els.quantT0Days && btSimScoreTips) {
-      wireT0ProcessTips(els.quantT0Days, btSimScoreTips);
-      wireT0DayDebugExpand(els.quantT0Days);
-      if (els.quantT0Days.dataset.scoreTipWired !== "1") {
-        btSimScoreTips.bindHost(els.quantT0Days, {
-          scoreSelector:
-            ".paper-t0-y-score[data-score-detail], .paper-t0-dir-score[data-score-detail]",
-        });
-      }
-    }
+    paintReplayT0(data);
   }
 
   function renderUniversePanel(uni) {
@@ -1308,7 +1535,7 @@ export function installBacktest(q) {
         ? `${sec}s`
         : `${Math.floor(sec / 60)}m${String(sec % 60).padStart(2, "0")}s`;
     };
-    let busyBase = "回测中…";
+    const busyBase = "回测中…";
     const refreshBusy = () => setQuantBtBusy(true, `${busyBase} ${fmtElapsed()}`);
     refreshBusy();
     const tick = setInterval(refreshBusy, 1000);
@@ -1324,12 +1551,12 @@ export function installBacktest(q) {
         fusion_w_nowcast,
         rank_enter,
         rank_strong,
+        initial_cash,
+        fill_clock,
+        lot_base,
+        lot_strong,
+        universe_fit_tiers,
       } = readPortfolioBtParams();
-      busyBase =
-        watchN >= 40
-          ? `rank_lots 中（y_fuse/y_on · 09:30 · 观察池约 ${watchN} 只 · lookback 越大越慢）…`
-          : `rank_lots 中（先读本地日线，缺的再补远端）…`;
-      refreshBusy();
       const payload = {
         lookback,
         apply_costs: true,
@@ -1342,6 +1569,11 @@ export function installBacktest(q) {
         fusion_w_nowcast,
         rank_enter,
         rank_strong,
+        initial_cash,
+        fill_clock,
+        lot_base,
+        lot_strong,
+        universe_fit_tiers,
         include_benchmark: true,
       };
       const ctrl = typeof AbortController !== "undefined" ? new AbortController() : null;
@@ -1372,9 +1604,10 @@ export function installBacktest(q) {
       }
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data.success) {
-        writePortfolioSummary(buildPortfolioBacktestFailText(data, res.status), { error: true });
+        const failText = buildPortfolioBacktestFailText(data, res.status);
+        writePortfolioSummary(failText, { error: true });
         renderPortfolioBacktestResult(null);
-        paintPortfolioChart([], "回测失败");
+        paintPortfolioChart([], failText || "回测失败");
         return data;
       }
       const summary = buildPortfolioBacktestSummaryText(data);
@@ -1463,6 +1696,135 @@ export function installBacktest(q) {
     return buildBtScoreFloorPayload(state.quantScoringFloors, rankMode);
   }
 
+  function restoreLastT0Backtest() {
+    const metricsEl = els.quantT0Metrics || document.getElementById("paper-t0-metrics");
+    const btn = document.getElementById("paper-t0-backtest");
+    if (!isReplayDesk() || !metricsEl) return Promise.resolve();
+    if (btn && btn.disabled) return Promise.resolve();
+    if (metricsEl.dataset.liveRun === "1") return Promise.resolve();
+    return fetch("/api/quant/last-t0-backtest")
+      .then((res) => res.json())
+      .then((pack) => {
+        if (!pack || pack.empty || !pack.result || !pack.result.success) return;
+        if (metricsEl.dataset.liveRun === "1") return;
+        paintReplayT0(pack.result);
+      })
+      .catch(() => {});
+  }
+
+  function collectReplayT0BacktestBody() {
+    const lbEl = document.getElementById("paper-t0-lookback");
+    let lookback = Number(lbEl && lbEl.value);
+    if (!Number.isFinite(lookback) || lookback < 10) lookback = 10;
+    lookback = Math.min(60, Math.max(10, lookback));
+    const t0Form = document.getElementById("paper-t0-form");
+    const pack = t0Form ? collectExecutionForm(t0Form) : null;
+    const t0 = (pack && pack.t0) || {};
+    return {
+      from_paper: true,
+      lookback,
+      use_minute: true,
+      compare_daily: false,
+      ...t0,
+    };
+  }
+
+  function setReplayT0Progress({ busy, message, hide } = {}) {
+    const progress = document.getElementById("paper-t0-progress");
+    const textEl = document.getElementById("paper-t0-progress-text");
+    const btn = document.getElementById("paper-t0-backtest");
+    if (btn) btn.disabled = !!busy;
+    if (textEl && message != null) textEl.textContent = message;
+    if (!progress) return;
+    progress.classList.toggle("is-busy", !!busy);
+    if (hide) {
+      progress.hidden = true;
+      progress.removeAttribute("title");
+      return;
+    }
+    if (message) progress.title = message;
+    progress.hidden = false;
+  }
+
+  function wirePaperT0Backtest() {
+    const btn = document.getElementById("paper-t0-backtest");
+    if (!btn || btn.dataset.wired === "1") return;
+    btn.dataset.wired = "1";
+    const t0FetchErrorMessage = (err, timeoutHint) => {
+      const name = String((err && err.name) || "");
+      const msg = String((err && err.message) || err || "");
+      const aborted = name === "AbortError" || /abort/i.test(msg);
+      const network =
+        name === "TypeError" ||
+        /failed to fetch|networkerror|load failed|network request failed/i.test(msg);
+      if (aborted || network) return timeoutHint;
+      return msg || "请求失败";
+    };
+    btn.addEventListener("click", async (e) => {
+      e.preventDefault();
+      if (btn.disabled) return;
+      setReplayT0Progress({ busy: true, message: "回测中（持仓·5m/选向）…" });
+      const ac = typeof AbortController !== "undefined" ? new AbortController() : null;
+      const timer =
+        ac &&
+        setTimeout(() => {
+          try {
+            ac.abort();
+          } catch (_) {
+            /* ignore */
+          }
+        }, 300000);
+      try {
+        const body = collectReplayT0BacktestBody();
+        const res = await fetch("/api/quant/t0-backtest", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+          signal: ac ? ac.signal : undefined,
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || !data.success) {
+          setReplayT0Progress({
+            busy: false,
+            message: data.error || data.detail || "回测失败",
+          });
+          renderT0BacktestResult(null);
+          return;
+        }
+        const metricsEl = els.quantT0Metrics || document.getElementById("paper-t0-metrics");
+        if (metricsEl) metricsEl.dataset.liveRun = "1";
+        paintReplayT0(data);
+        setReplayT0Progress({ busy: false, hide: true });
+      } catch (err) {
+        setReplayT0Progress({
+          busy: false,
+          message: t0FetchErrorMessage(
+            err,
+            "回测连接中断或超时。服务刚重启、持仓过多或 5m 未预热时会出现；请刷新后重试或缩小回看窗"
+          ),
+        });
+      } finally {
+        if (timer) clearTimeout(timer);
+        btn.disabled = false;
+      }
+    });
+  }
+
+  function wireReplayFillClock() {
+    const el = document.getElementById("quant-fill-clock");
+    if (el && el.dataset.wired !== "1") {
+      el.dataset.wired = "1";
+      restoreFillClock();
+      el.addEventListener("change", () => {
+        readFillClock();
+      });
+    }
+  }
+
+  wirePaperT0Backtest();
+  wireReplayFillClock();
+  initExecutionRuleForms().catch(() => {});
+
   return {
     buildIcAlignMarkers,
     clearBtTradesTable,
@@ -1475,6 +1837,7 @@ export function installBacktest(q) {
     loadFitGapForBacktest,
     loadLastBacktestSnapshot,
     restoreLastPortfolioBacktest,
+    restoreLastT0Backtest,
     paintDualPortfolioChart,
     paintIcChart,
     paintNeutralCompareChart,

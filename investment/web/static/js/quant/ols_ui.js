@@ -10,8 +10,9 @@ import {
   resolveStockDisplayName,
 } from "./names.js";
 import { probeStatusBadge } from "./probe_ui.js";
-import { buildClustersHealthMatrixHtml } from "./yhat_viz.js?v=p868";
+import { buildClustersHealthMatrixHtml, clusterFitTierFromCluster } from "./yhat_viz.js";
 import { classifyFactor, isRemovedFactor } from "./factor_meta.js";
+import { fitTierBadgeForCode } from "./fit_tier_ui.js";
 
 /**
  * @param {{
@@ -130,19 +131,20 @@ export function createOlsUi(deps) {
         .trim()
         .replace(/\s+/g, "");
       const codeAttr = c ? ` data-code="${esc(c)}"` : "";
+      const head =
+        `<span class="quant-cluster-member-head">` +
+        `<span class="quant-cluster-member-name">${esc(n || c || "—")}</span>` +
+        fitTierBadgeForCode(c, { escapeHtml: esc }) +
+        `</span>`;
       if (n && c && n !== c) {
         return (
           `<span class="quant-cluster-member"${codeAttr}>` +
-          `<span class="quant-cluster-member-name">${esc(n)}</span>` +
+          head +
           `<span class="quant-cluster-member-code">${esc(c)}</span>` +
           `</span>`
         );
       }
-      return (
-        `<span class="quant-cluster-member"${codeAttr}>` +
-        `<span class="quant-cluster-member-name">${esc(n || c || "—")}</span>` +
-        `</span>`
-      );
+      return `<span class="quant-cluster-member"${codeAttr}>${head}</span>`;
     });
     return chips.length ? chips.join("") : `<span class="sub">—</span>`;
   }
@@ -475,7 +477,25 @@ export function createOlsUi(deps) {
     const pref = data.preferred_cluster || null;
     const nameByCode = clusterNameByCodeFromData(data);
     const lazy = merge.lazyTables !== false;
-    const parts = clusters.map((cl, idx) => {
+    const tierRank = { A: 0, B: 1, C: 2 };
+    const ordered = clusters.map((cl, idx) => {
+      const fitInfo = clusterFitTierFromCluster(cl);
+      return { cl, idx, fitInfo };
+    });
+    ordered.sort((a, b) => {
+      const ra = tierRank[a.fitInfo.tier] ?? 9;
+      const rb = tierRank[b.fitInfo.tier] ?? 9;
+      if (ra !== rb) return ra - rb;
+      const ia = Number(a.fitInfo.icMean);
+      const ib = Number(b.fitInfo.icMean);
+      if (Number.isFinite(ia) && Number.isFinite(ib) && ia !== ib) return ib - ia;
+      if (Number.isFinite(ia) !== Number.isFinite(ib)) return Number.isFinite(ia) ? -1 : 1;
+      return String((a.cl && a.cl.label) || "").localeCompare(
+        String((b.cl && b.cl.label) || ""),
+        "zh"
+      );
+    });
+    const parts = ordered.map(({ cl, idx, fitInfo }) => {
       const label = cl.label || `G${(cl.cluster_id ?? idx) + 1}`;
       const ord =
         cl.ordinal != null && Number.isFinite(Number(cl.ordinal))
@@ -511,6 +531,20 @@ export function createOlsUi(deps) {
       if (cl.outlier_singleton) tags.push(clusterTagHtml("离群单票", "warn"));
       else if (cl.singleton) tags.push(clusterTagHtml("单票", "muted"));
       if (isPref) tags.push(clusterTagHtml("导出优先", "accent"));
+      const fit = fitInfo.tier;
+      const fitTitle =
+        fit === "A"
+          ? "A 强：过门且截面 IC、ICIR>0，且 ŷOOS>0"
+          : fit === "B"
+            ? `B 中：OOS 过门未达强${fitInfo.reason ? " · " + fitInfo.reason : ""}`
+            : `C 弱：未过/跳过/单票/无模型${fitInfo.reason ? " · " + fitInfo.reason : ""}`;
+      tags.push(
+        clusterTagHtml(
+          `${fit} ${fitInfo.label || ""}`.trim(),
+          fit === "A" ? "accent" : fit === "B" ? "tier-b" : "warn",
+          fitTitle
+        )
+      );
       if (gate.skipped) {
         tags.push(clusterTagHtml("OOS跳过", "muted", null, gate));
       } else if (gate.ok && gate.passed) {
@@ -566,7 +600,11 @@ export function createOlsUi(deps) {
     return (
       `<div class="quant-cluster-tables-head">` +
       `<span class="quant-cluster-tables-label">因子系数</span>` +
-      `<span class="sub">${esc(String(clusters.length))} 组</span>` +
+      `<span class="sub">${esc(String(clusters.length))} 组 · A ${
+        ordered.filter((x) => x.fitInfo.tier === "A").length
+      } · B ${ordered.filter((x) => x.fitInfo.tier === "B").length} · C ${
+        ordered.filter((x) => x.fitInfo.tier === "C").length
+      }</span>` +
       `</div>` +
       __matrixGrid +
       __partsHtml

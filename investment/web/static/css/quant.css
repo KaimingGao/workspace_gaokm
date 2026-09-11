@@ -945,10 +945,30 @@
   cursor: help;
 }
 
+.quant-page .quant-cluster-tag.is-tier-b {
+  border-color: color-mix(in srgb, var(--ok) 28%, transparent);
+  background: var(--ok-soft);
+  color: var(--ok);
+}
+
 .quant-page .quant-cluster-tag.is-muted {
   background: transparent;
   color: var(--ink-3);
   border-color: var(--line);
+}
+
+.quant-page .yhat-mx-td-kind.is-kind-tier-b {
+  color: var(--ok);
+  font-weight: 650;
+}
+
+.quant-page .yhat-mx-td-kind.is-kind-tier-c {
+  color: var(--gold);
+}
+
+.quant-page .yhat-mx-row.is-tier-c {
+  box-shadow: inset 3px 0 0 var(--gold);
+  background: color-mix(in srgb, var(--gold) 7%, var(--surface));
 }
 
 .quant-page .quant-cluster-metrics {
@@ -1017,10 +1037,21 @@
   padding-right: 0;
 }
 
+.quant-page .quant-cluster-member-head {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
 .quant-page .quant-cluster-member-name {
   color: var(--ink);
   font-size: 0.76rem;
   font-weight: 600;
+}
+
+.quant-page .quant-cluster-member .watching-fit-tier-badge {
+  margin: 0;
 }
 
 .quant-page .quant-cluster-member.is-book .quant-cluster-member-name {
@@ -1047,7 +1078,8 @@
 }
 
 .watching-page .watching-stock .watching-book-badge,
-.watching-page .watching-stock .watching-oos-badge {
+.watching-page .watching-stock .watching-oos-badge,
+.watching-page .watching-stock .watching-fit-tier-badge {
   margin-left: 0;
 }
 
@@ -1232,6 +1264,32 @@
   align-items: center;
   gap: 4px 6px;
   margin: 0;
+}
+
+.quant-page .quant-cluster-universe-tiers {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  margin: 0 0 6px;
+  padding: 0;
+  border: 0;
+}
+
+.quant-page .quant-cluster-universe-tiers legend {
+  padding: 0;
+  margin-right: 4px;
+  font-size: 12px;
+  color: var(--ink-2, #5a6570);
+}
+
+.quant-page .quant-cluster-universe-tier {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
 }
 
 .quant-page .quant-cluster-landing-next {
@@ -2710,6 +2768,10 @@ html[data-density="compact"] .quant-page {
   vertical-align: middle;
 }
 
+.quant-trades-caption > .quant-bt-trades-csv:first-child {
+  margin-left: 0;
+}
+
 .quant-bt-trades-host {
   width: 100%;
   max-width: 100%;
@@ -2760,6 +2822,7 @@ html[data-density="compact"] .quant-page {
 .quant-bt-trades-host .bt-ledger-grid .watching-react-grid-cell.watching-col-action {
   overflow: visible;
   letter-spacing: 0.02em;
+  align-items: flex-start;
 }
 
 .quant-bt-trades-host .watching-react-grid-row,
@@ -2800,6 +2863,27 @@ html[data-density="compact"] .quant-page {
 .quant-bt-trades-host .bt-trade-action.is-skip {
   color: var(--ink-3);
   background: color-mix(in srgb, var(--ink-3) 10%, transparent);
+}
+
+.quant-bt-trades-host .bt-trade-action-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.quant-bt-trades-host .bt-trade-skip-why {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.62rem;
+  font-weight: 500;
+  letter-spacing: 0;
+  line-height: 1.2;
+  color: var(--ink-3);
 }
 
 .quant-bt-trades-host .watching-react-grid-row.bt-trade-skip {
@@ -3216,8 +3300,13 @@ body[data-page="replay"] .quant-bt-trades-host .watching-react-grid-cell.watchin
   border-color: color-mix(in srgb, var(--accent, #2563eb) 28%, var(--line));
 }
 
-.quant-page .yhat-mx.is-open-default .yhat-mx-summary::after {
-  opacity: 1;
+.quant-page .yhat-mx-health .yhat-mx-health-head {
+  padding-right: 12px;
+  cursor: default;
+}
+
+.quant-page .yhat-mx-health .yhat-mx-health-head::after {
+  display: none;
 }
 
 .quant-page .yhat-mx-scroll {
@@ -3301,6 +3390,30 @@ body[data-page="replay"] .quant-bt-trades-host .watching-react-grid-cell.watchin
 .quant-page .yhat-mx-td-kind {
   font-size: 0.62rem;
   color: var(--ink-3);
+}
+
+.quant-page .yhat-mx-td-kind.is-kind-fit {
+  color: var(--ok);
+  font-weight: 700;
+}
+
+.quant-page .yhat-mx-td-kind.is-kind-fit-strong {
+  color: var(--accent-active, #096dd9);
+}
+
+.quant-page .yhat-mx-td-group.is-fit-label {
+  font-weight: 700;
+  color: var(--accent-active, #096dd9);
+}
+
+.quant-page .yhat-mx-row.is-fit-row {
+  box-shadow: inset 3px 0 0 var(--ok);
+  background: color-mix(in srgb, var(--ok) 5.5%, var(--surface));
+}
+
+.quant-page .yhat-mx-row.is-fit-strong {
+  box-shadow: inset 3px 0 0 var(--accent, #1890ff);
+  background: color-mix(in srgb, var(--accent, #1890ff) 8%, var(--surface));
 }
 
 .quant-page .yhat-mx-td-kind.is-kind-pref {
@@ -5886,15 +5999,32 @@ body[data-page="replay"] .replay-page .quant-bt-trades-host .watching-react-grid
   gap: 8px 12px;
 }
 
+.quant-bars-foot-item--nowrap {
+  grid-column: span 4;
+}
+
+.quant-bars-foot-item--nowrap .quant-bars-foot-v {
+  white-space: nowrap;
+  word-break: normal;
+}
+
 @media (max-width: 900px) {
   .quant-bars-foot-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .quant-bars-foot-item--nowrap {
+    grid-column: span 2;
   }
 }
 
 @media (max-width: 520px) {
   .quant-bars-foot-grid {
     grid-template-columns: 1fr;
+  }
+
+  .quant-bars-foot-item--nowrap {
+    grid-column: auto;
   }
 }
 
@@ -8281,7 +8411,7 @@ body[data-page="quant"] .quant-head.dashboard-head .quant-desk-note {
    L1 区段壳 → L2 白卡 → L3 控制带 · 最小圆角 2px · 终端密度
    ========================================================================== */
 body[data-page="quant"] .quant-page,
-body[data-page="quant"] {
+body[data-page="quant"] .page-main {
   --sys-r-tier1: 2px;
   --sys-r-tier2: 2px;
   --sys-r-tier3: 2px;
@@ -8419,6 +8549,122 @@ body[data-page="quant"] .quant-page > .dashboard-section.quant-section > .dashbo
   font-size: var(--q-fs-caption);
   color: var(--ink-3);
   line-height: var(--sys-lh-snug, 1.35);
+}
+
+body[data-page="quant"] .quant-overview-section > .dashboard-section-head {
+  align-items: center;
+  flex-wrap: nowrap;
+}
+
+body[data-page="quant"] .quant-overview-section > .dashboard-section-head .dashboard-section-desc {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+body[data-page="quant"] .quant-overview-section > .dashboard-section-head .quant-holdout-field {
+  display: inline-flex;
+  flex: 0 0 auto;
+  flex-direction: row;
+  align-items: baseline;
+  justify-content: flex-end;
+  gap: 8px;
+  margin: 0 0 0 auto;
+  padding: 0 0 0 16px;
+  white-space: nowrap;
+  border: none;
+  border-left: 1px solid color-mix(in srgb, var(--ink) 12%, var(--line));
+  background: transparent;
+  border-radius: 0;
+}
+
+body[data-page="quant"] .quant-overview-section > .dashboard-section-head .quant-holdout-kicker {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  line-height: 1;
+}
+
+body[data-page="quant"] .quant-overview-section > .dashboard-section-head .quant-holdout-field .quant-pro-field-label {
+  font-size: var(--q-fs-micro, 0.6875rem) !important;
+  font-weight: var(--sys-fw-label, 650) !important;
+  letter-spacing: 0.14em !important;
+  color: var(--ink-3) !important;
+}
+
+body[data-page="quant"] .quant-overview-section > .dashboard-section-head .quant-holdout-hint {
+  font-size: var(--q-fs-micro, 0.6875rem);
+  font-weight: var(--sys-fw-body, 500);
+  letter-spacing: 0.06em;
+  color: var(--ink-3);
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+}
+
+body[data-page="quant"] .quant-overview-section > .dashboard-section-head .quant-holdout-hint::before {
+  content: "·";
+  margin-right: 6px;
+  color: color-mix(in srgb, var(--ink-3) 70%, transparent);
+}
+
+body[data-page="quant"] .quant-overview-section > .dashboard-section-head .quant-holdout-control {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+}
+
+body[data-page="quant"] .quant-overview-section > .dashboard-section-head .quant-holdout-field input[type="number"] {
+  width: 2.35rem !important;
+  height: 1.35em !important;
+  padding: 0 !important;
+  font-size: 1.0625rem !important;
+  font-weight: var(--sys-fw-display, 700) !important;
+  font-variant-numeric: tabular-nums;
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  line-height: var(--sys-lh-tight, 1.2);
+  text-align: right;
+  color: var(--ink);
+  background: transparent;
+  border: none !important;
+  border-bottom: 1px solid transparent !important;
+  border-radius: 0 !important;
+  appearance: textfield;
+  -moz-appearance: textfield;
+  caret-color: var(--accent, #1890ff);
+  cursor: text;
+}
+
+body[data-page="quant"] .quant-overview-section > .dashboard-section-head .quant-holdout-field input[type="number"]::-webkit-outer-spin-button,
+body[data-page="quant"] .quant-overview-section > .dashboard-section-head .quant-holdout-field input[type="number"]::-webkit-inner-spin-button {
+  appearance: none;
+  margin: 0;
+}
+
+body[data-page="quant"] .quant-overview-section > .dashboard-section-head .quant-holdout-field input[type="number"]:hover {
+  border-bottom-color: color-mix(in srgb, var(--ink) 22%, var(--line)) !important;
+}
+
+body[data-page="quant"] .quant-overview-section > .dashboard-section-head .quant-holdout-field input[type="number"]:focus {
+  outline: none;
+  border-bottom-color: var(--accent, #1890ff) !important;
+}
+
+body[data-page="quant"] .quant-overview-section > .dashboard-section-head .quant-holdout-unit {
+  font-size: var(--q-fs-caption, 0.75rem);
+  font-weight: var(--sys-fw-sub, 600);
+  color: var(--ink-2);
+  letter-spacing: 0.04em;
+}
+
+@media (max-width: 720px) {
+  body[data-page="quant"] .quant-overview-section > .dashboard-section-head {
+    flex-wrap: wrap;
+  }
+
+  body[data-page="quant"] .quant-overview-section > .dashboard-section-head .quant-holdout-field {
+    margin-left: 0;
+  }
 }
 
 /* 概览 band */
@@ -9074,10 +9320,14 @@ body[data-page="quant"] .quant-page .yhat-mx-summary::after {
    对标 follow p871：mono 标签 · KPI 阶梯 · 满宽路径轨 · 紧凑卡头/控件
    ========================================================================== */
 body[data-page="quant"] .quant-page,
-body[data-page="quant"] {
+body[data-page="quant"] .page-main {
   --q-fs-kpi: var(--sys-fs-kpi, 1.25rem);
   --q-gap-page: 10px;
   --q-gap-block: 8px;
+}
+
+/* 字号/行高只落在页体，勿写到 body，否则侧栏/顶栏会跟着缩一截 */
+body[data-page="quant"] .quant-page {
   color: var(--ink);
   font-size: var(--q-fs-body);
   line-height: var(--sys-lh-snug, 1.35);

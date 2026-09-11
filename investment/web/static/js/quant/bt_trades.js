@@ -9,6 +9,9 @@ const _V =
 const { watchingScoreDetail } = await import(
   `./watching_render.js?v=${encodeURIComponent(_V)}`
 );
+const { fitTierBadgeForCode } = await import(
+  `./fit_tier_ui.js?v=${encodeURIComponent(_V)}`
+);
 const { resolveTradeScore, resolveNowcastScore } = await import(
   `../paper/fmt.js?v=${encodeURIComponent(_V)}`
 );
@@ -248,7 +251,7 @@ export function isRankLotsLedger(legs, dataOrTrades) {
 }
 
 export const BT_LEDGER_TRADE_COLS = [
-  { id: "action", label: "动作", widthPct: 5, widthMin: "3.4rem" },
+  { id: "action", label: "动作", widthPct: 8, widthMin: "5.4rem", title: "开/加/清/跳过；跳过行下方为原因" },
   { id: "name", label: "股票", flex: true, flexMin: "6.8rem", title: "点击名称看日线" },
   {
     id: "open_date",
@@ -312,7 +315,7 @@ export const BT_LEDGER_TRADE_COLS = [
     widthMin: "5.4rem",
     num: true,
     sortable: true,
-    title: "ranking = (1+y_fuse/100)×(1+α×y_on/100)−1，展示百分数。α 默认 0（隔夜不参与）。<0% 清仓；过 Rank入场% 建仓；过 Rank强% 买 2000 股。",
+    title: "ranking = (1+y_fuse/100)×(1+α×y_on/100)−1，展示百分数。α 默认 0（隔夜不参与）。<0% 清仓；过 Rank入场% 建仓；过 Rank强% 买 200 股。",
   },
 ];
 
@@ -414,6 +417,11 @@ function _actionMeta(r) {
   return { key: "", text: "—" };
 }
 
+function _legReason(r) {
+  const s = String((r && (r.reason || r.note)) || "").trim();
+  return s;
+}
+
 export function buildLedgerTradeRow(r, i, deps) {
   const nameByCode = deps.nameByCode || {};
   const { fmtScore, scoreCls } = deps;
@@ -434,6 +442,7 @@ export function buildLedgerTradeRow(r, i, deps) {
   const rOn = _numOrNull(r.realized_on);
   const rTau = _numOrNull(r.realized_tau);
   const act = _actionMeta(r);
+  const actionTip = _legReason(r);
   const fuseTip = [
     yf != null ? `y_fuse ${fmtScore(yf)}` : "",
     rCc != null ? `真实 close/昨收 ${fmtScore(rCc, { signed: true })}` : "真实 —",
@@ -470,6 +479,7 @@ export function buildLedgerTradeRow(r, i, deps) {
     skipped,
     actionKey: act.key,
     actionText: act.text,
+    actionTip,
     stock_code: code,
     name: fullName,
     sharesNum,
@@ -619,6 +629,9 @@ export function buildLedgerTradeRows(legs, deps) {
 
 export function ledgerTradesCaptionHtml() {
   return (
+    `<p class="quant-trades-caption">` +
+    `<button type="button" id="quant-bt-trades-csv" class="dialog-btn secondary quant-bt-trades-csv">下载 CSV</button>` +
+    `</p>` +
     `<p id="quant-bt-stock-chip" class="quant-bt-stock-chip" hidden></p>` +
     `<div class="quant-bt-trades-host"></div>`
   );
@@ -630,6 +643,7 @@ export function buildLedgerTradesCsv(rows, nameByCode = {}) {
     "open_date",
     "status",
     "action",
+    "reason",
     "side",
     "stock_code",
     "stock_name",
@@ -662,6 +676,7 @@ export function buildLedgerTradesCsv(rows, nameByCode = {}) {
       String(r.open_date || "").slice(0, 10),
       r.status || "",
       r.action || r.matrix_action || "",
+      r.reason || r.note || "",
       r.side || "",
       code,
       name,
@@ -1011,14 +1026,27 @@ export function btTradesCellHtml(col, d, deps) {
       `<div class="watching-stock" title="${escapeHtml(
         `${d.name} ${d.stock_code} · 点击看日线`
       )}">` +
+      `<span class="watching-name-row">` +
       watchingNameSpanHtml(d.name) +
+      fitTierBadgeForCode(d.stock_code, { escapeHtml }) +
+      `</span>` +
       `<span class="watching-code-sub">${escapeHtml(d.stock_code)}</span></div>`
     );
   }
   if (col.id === "open_date") return escapeHtml(d.openDate || "—");
   if (col.id === "action") {
     const cls = d.actionKey ? `bt-trade-action is-${d.actionKey}` : "bt-trade-action";
-    return `<span class="${cls}">${escapeHtml(d.actionText || "—")}</span>`;
+    const tip = d.actionTip ? ` title="${escapeHtml(d.actionTip)}"` : "";
+    const badge = `<span class="${cls}"${tip}>${escapeHtml(d.actionText || "—")}</span>`;
+    if (d.skipped && d.actionTip) {
+      return (
+        `<span class="bt-trade-action-wrap">` +
+        badge +
+        `<span class="bt-trade-skip-why">${escapeHtml(d.actionTip)}</span>` +
+        `</span>`
+      );
+    }
+    return badge;
   }
   if (col.id === "shares") return escapeHtml(d.sharesText || "—");
   if (col.id === "price") return escapeHtml(d.priceText || "—");

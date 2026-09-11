@@ -316,7 +316,7 @@ ML 视角见 [机器学习视角 · 四件套对照](#四件套对照)。
 
 系统通过 **每日重置研究现金**（`backtest.py` 日循环）与 **`dry_run` 预演** 部分缓解资金耦合；`coupling.t0_vs_stance=independent` 可跳过 stance 联动。可接受，但 **必须** 把 `origin=strategy` 与 `t0_batch` 分开归因，否则无法判断 α 来自截面选股还是日内振幅。
 
-实现入口：`core/execution.resolve_effective_execution` · 调仓 `run_daily_cycle` / `POST /api/paper/run` · 做 T `core/t0/` · Web Follow 页。
+实现入口：`core/execution.resolve_effective_execution` · 调仓 `run_daily_cycle` / `POST /api/paper/run` · 做 T `core/t0/` · Web：规则在 `/replay`，落账在 `/follow`。
 
 #### 日循环（`run_daily_cycle`）
 
@@ -361,7 +361,7 @@ watchlist
 | 纸面 | `POST /api/paper/t0` 默认 **dry_run 预演**，`confirm=true` 才写账 |
 | 自动落账 | Follow Worker · **5m 盯盘触达即落账**（交易时段 **5 分钟**轮询 + 分钟缓存，不再日终整段回放） |
 | 手动补跑 | Follow「手动预演 / 手动落账」· `POST /api/paper/t0`（预演 dry_run / 确认 confirm） |
-| 回测 | 与纸面同一引擎：默认 **v6 多轮收盘带宽**（每 5m 可触发第一腿 + 共用止损/第二腿）；**仅 5m 第一触达**（缺分钟日跳过）；**已删除日线模拟**；默认绑模拟持仓；**日初可卖=日初总持仓**（简化 T+1；合并/顺序落账按 sellable 约束）；dual_y 按 `dual_score_window` 决定是否 fuse ŷ_τ（`eod_next` 不 fuse）；ATR 仅用 T−1 及更早；**默认 CostPort 研究费率**（禁隐式零成本）；分钟未齐至 14:55 **不强平**（`incomplete_session`）；齐窗 `eod_cover` **用末根 5m 收价，不用日线收盘**；`y_score_source` 强制 `compute`；开盘 hydrate / 批量算分 **`use_minute_tau=False`**，各轮触发前再因果重算 ŷ。汇总按槽位分向记账；**同日正+反记为多轮日**（正/反日不再重叠双计）；合并日带敞口 PnL。成功回测落盘 `data/last_t0_backtest.json`；打开 `/follow` 时 `GET /api/quant/last-t0-backtest` 恢复指标 / 图 / 成交明细，**不重跑**；点「做 T 回测」才重算 |
+| 回测 | 与纸面同一引擎：默认 **v6 多轮收盘带宽**（每 5m 可触发第一腿 + 共用止损/第二腿）；**仅 5m 第一触达**（缺分钟日跳过）；**已删除日线模拟**；默认绑模拟持仓；**日初可卖=日初总持仓**（简化 T+1；合并/顺序落账按 sellable 约束）；dual_y 按 `dual_score_window` 决定是否 fuse ŷ_τ（`eod_next` 不 fuse）；ATR 仅用 T−1 及更早；**默认 CostPort 研究费率**（禁隐式零成本）；分钟未齐至 14:55 **不强平**（`incomplete_session`）；齐窗 `eod_cover` **用末根 5m 收价，不用日线收盘**；`y_score_source` 强制 `compute`；开盘 hydrate / 批量算分 **`use_minute_tau=False`**，各轮触发前再因果重算 ŷ。汇总按槽位分向记账；**同日正+反记为多轮日**（正/反日不再重叠双计）；合并日带敞口 PnL。成功回测落盘 `data/last_t0_backtest.json`；打开 `/replay` 时 `GET /api/quant/last-t0-backtest` 恢复指标 / 图 / 成交明细，**不重跑**；点「做 T 回测」才重算。回测加载研究套模型（holdout 训练），不读执行套 live 系数。 |
 | 边界 | **不接实盘**；不做日线 high/low 顺序猜测；不改变 `advice.stance_label`；正/反 T **PnL 基数**分别为卖出/买入名义（汇总 long_pnl/reverse_pnl 口径略异，量级通常很小） |
 
 ##### 正T / 反T 选腿（v6 收盘带宽）
@@ -808,6 +808,7 @@ AI 只解读数字，**不得改写** `score` / `stance_label`。
 | 时间 | 对着历史 K 线一次推演 | 活着的假账本持续记账 |
 | 页面 | `/replay` | `/follow` |
 | 共用 | 同一套 `score_bars` / `stance` | 同左 |
+| 模型 | **研究套**（近 N 交易日 holdout；Ridge `*_research.json`；组 OLS `cluster_weights_active_research.json`。枢纽 **Holdout日** 默认 10。ŷ_EOD 组冻后研究 β 再隔离 horizon h） | **执行套**（全样本 live；启用时与研究套一并落盘） |
 | 是否要 `paper.json` | **否**（回测引擎自带资金曲线） | **是**（读写假账户） |
 
 ---
@@ -1179,16 +1180,17 @@ flowchart LR
 
 - **β 不会在固定钟点自动更新**；`paper_daily` / `daily_quant` 不跑 OLS 分组。
 - 收盘后刷新日线（约 15:05+，实务常 16:30–17:00）再跑分组，最新 K 线可含**当日**；但训练样本仍受 \(h\) 约束：最后一条训练决策日 ≈ 最新 bar 再往前 \(h\) 日。
-- **auto-k**：中心 \(k_0\approx n/5\)（夹 4～10）。**定组 β / 选 k 组池 / holdout 重拟合**共用宇宙日历切分（主切点约前 70%）。邻域 \(\{k_0-1,k_0,k_0+1\}\) × 层次 complete/average + kmeans 等配方（**kmeans 同样超大组二分**，避免 30+ 只大团）；有日历时再加 **~55% 切点**各自前段 β 重聚类，按 **多折均值 `partition_loss`**（尾段有符号 ŷ IC↑ / 前段重拟合误差↓；重拟合失败不计分）选优。**辅门禁**：若存在 ΔOOS 过门（\(\ge -\)`oos_tol_pp`）的候选，淘汰更差的负 ΔOOS（避免 loss 略优但对照回测明显更差）。**交付标签取主切点**；组池 `return_model` 仍用**全样本**重估。大宇宙（≥40）跳过多折打分。报告：`k_selection`（含 `expanding_score` / `expanding_folds`）与 `walk_forward`。手动 `n_clusters` 不搜邻域，但定组 β 同样走前段。
+- **auto-k**：中心 \(k_0\approx n/5\)（夹 4～10）。**定组 β / 选 k / 贪心**共用宇宙日历 **Holdout日**（近 N 个交易日为尾段，枢纽默认 10；不再用约 70/30）。邻域 \(\{k_0-1,k_0,k_0+1\}\) × 层次 complete/average + kmeans 等配方（**kmeans 同样超大组二分**，避免 30+ 只大团）；有日历时再加 **~55% 切点**各自前段 β 重聚类，按 **多折均值 `partition_loss`**（尾段有符号 ŷ IC↑ / 前段重拟合误差↓；重拟合失败不计分）选优。**辅门禁**：若存在 ΔOOS 过门（\(\ge -\)`oos_tol_pp`）的候选，淘汰更差的负 ΔOOS（避免 loss 略优但对照回测明显更差）。**交付标签取主切点**。组冻后：**执行套**组池 `return_model` 全样本重估；**研究套** `return_model_research` 仅 Holdout 训练窗，且 EOD 再隔离 horizon \(h\) 个决策日。启用一次写两套（live + `cluster_weights_active_research.json`）；`/replay` 只读研究套，缺文件不回退 live。大宇宙（≥40）跳过多折打分。报告：`k_selection`（含 `expanding_score` / `expanding_folds`）与 `walk_forward`。手动 `n_clusters` 不搜邻域，但定组 β 同样走 Holdout 前段。
 - **贪心换组**：定组后（≤24 票、有日历切分）按 holdout `partition_loss` 有限轮试换（`cluster_greedy_refine`；最多 2 轮 / ≤80 次评估）。接受的 swap **改写交付标签**；全样本组池仍后置重估。报告字段 `greedy_refine`。大宇宙跳过。完整 `objective_partition` 贪心仍为研究试点。
 - **`partition_loss` 口径**：默认 **有符号 IC**（`ic_use_abs=False`，与 live 选 k 一致；|IC| 会把反向 ŷ 评成「好」）。IC 项按 ``ic_ref_scale``（默认 0.05）放大到与 (1−R²) 同量级后再乘 ``w_ic``（默认 1.0），避免典型 |IC|≪0.1 被 R² 淹没。失衡罚阈值 ``1.5×ideal``（原 2×）。单票组计入质量先验（``singleton_prior_r2≈0.05``），结构 ``lambda_singleton`` 下调以免双重最重罚；无可用模型 / holdout 重拟合失败的多票组须带 `fit_ok=False`（含 live 贪心 `cluster_greedy_refine`），另计 `penalty_unusable`。`penalty_singleton` 按**票数占比**；`singleton_count` 仍是单票**组数**（展示勿混）。β 异质踢出同时看相对 |Δβ|/scale 与绝对阈值。
 - **研究轨 `objective_partition`**：默认 holdout 评估 + ``auto_k_candidates`` 邻域候选；**不进** promote。生产仍走 `_select_clustered_by_delta_oos` + `light_greedy_swap_refine`。
 - **扩展窗审计**：在 train 分位约 55% / 70% 两折各自前段 β **重聚类** + 尾段评分（`walk_forward.expanding`）；记相邻折标签稳定度。只读诊断，**不改**交付标签；大宇宙跳过。
 - **标签对齐**：跑分组结束时若存在 live `cluster_weights`，按 code 重叠最大化把新 `cluster_id` / `G*` 对齐到上一版（Hungarian；无 scipy 则贪心），报告字段 `label_alignment`（含 `stability`）。未匹配的新组分配新 id。
 - **软异质**：多票组先等权池 OLS 得组 β，再按单票 max\|Δβ\| 降样本权（\(w=1/(1+(Δ/0.25)^2)\)，下限 0.2）重拟合；**不拆组**。组字段 `soft_hetero` / `member_beta_gaps[].soft_weight`。
+- **拟合三档**：每组挂 `fit_tier` `A`/`B`/`C`（强/中/弱）。**A**=OOS 过门且截面 IC、ICIR>0 且 ŷOOS>0；**B**=过门未达 A；**C**=未过/跳过/单票/无模型。一组一表与健康矩阵按 A→B→C 排（同档按 IC）。**宇宙过滤**（可配）：`cluster_scoring.universe_fit_tiers`（默认 `A+B+C`=不过滤）。live 观察池只对入选档**新开/加**；已持仓仍可卖/持。`/replay` 调仓回测可另选 A / A+B / 全档对照，不改 live。**做 T 不套分档**（底仓 overlay，v6 不吃 ŷ_EOD）。未映射票在未选满三档时不进新买。**OOS 失败仍拦新买**（与分档独立）。
 - **研究区持久化**：成功分组始终写 `data/live/cluster_last_report.json`（并更新指纹缓存）。刷新进页 `GET .../last-report` 恢复同一分区（顺序：last_report → 指纹缓存 → `cluster_weights_draft`）；仅点「跑分组」才重算。勾选刷新日线时也会覆盖指纹缓存，避免旧分区残留。概览「全局 IC / 方向命中 / 因子摘要」来自全样本因子与 ŷ 复盘，**不是**组内 β 表。
 
-相关实现：`quant/research/factor_ols_clusters.py` · `quant/research/partition_loss.py` · `quant/research/cluster_wf_audit.py` · `quant/research/cluster_greedy_refine.py` · `core/signal/cluster/live.py` · `core/signal/return_score.py`。
+相关实现：`quant/research/factor_ols_clusters.py` · `core/signal/cluster/fit_tier.py` · `quant/research/partition_loss.py` · `quant/research/cluster_wf_audit.py` · `quant/research/cluster_greedy_refine.py` · `core/signal/cluster/live.py` · `core/signal/return_score.py`。
 
 ---
 
@@ -1325,21 +1327,21 @@ score_stock(code) 续——
 入口：历史回测页 / 日报轻量摘要 · `backtest_paper_replay`  
 （Web：`run_portfolio_backtest`；日报：`summarize_portfolio_backtest`）。
 
-产品回测与 live Follow 同一套 **rank_lots**：每个交易日 09:30 用 y_fuse / y_on 排序，按手数开/加/清仓。  
+产品回测与 live Follow 同一套 **rank_lots**：每个交易日 09:30 用 y_fuse / y_on 排序，按手数开/加/清仓。历史成交用 5 分钟 K（调仓时间 09:30–10:00）。  
 `topk_research`（`backtest_topk_equal_weight`）只作研究探针（组 OOS / 权建议 OOS / 分池合成对照），**不进 `/replay`**。中性化对照研究口与 lookback×K 参数网格已下线。
 
-成功回测落盘 `data/last_portfolio_backtest.json`。打开 `/replay` 时 `GET /api/quant/last-portfolio-backtest` 恢复 KPI / 净值 / 成交账，**不重跑**；点「跑回测」才重算。日报摘要仍走 `summarize_portfolio_backtest`，不覆盖这份落盘。
+成功回测落盘 `data/last_portfolio_backtest.json`。打开 `/replay` 时 `GET /api/quant/last-portfolio-backtest` 恢复 KPI / 净值 / 分票贡献 / 成交账，**不重跑**；点「跑回测」才重算。日报摘要仍走 `summarize_portfolio_backtest`，不覆盖这份落盘。
 
 ### 5.1 分数口径（历史 vs live）
 
 | 项 | 历史 paper_replay（本页 / 日报） | Live 纸面调仓 |
 |--|--|--|
 | 选股排序键 | **y_fuse / y_on**（09:30 ranking） | 同左 |
-| 宇宙 | 全部观察池（开加只受现金地板） | 观察池 + 持仓市值上限（默认 15 万）；开加不按 `max_positions` 截断 |
-| 手数 | 回测 1000 / 2000 股（2000 买不下则退 1000） | live 200 / 500 股 |
-| 成交 | 开盘 rank_lots；T+1；现金地板 **10 万**（本金 50 万） | 同规则，账本为 `paper.json`；地板默认 **50 万** |
+| 宇宙 | 全部观察池（现金用完即止） | 观察池 + 持仓市值上限（默认 15 万）；开加不按 `max_positions` 截断 |
+| 手数 | 回测默认 100 / 200 股（表单可改；强档买不下则退入场手数） | live 200 / 500 股 |
+| 成交 | 开盘 rank_lots；T+1；本金默认 **20 万**（表单可改，不留地板）；**5m 成交钟**默认 09:30（可选至 10:00） | 同规则，账本为 `paper.json`；live 另受 15 万市值帽；现价 |
 
-回测合成 paper 必须把地板写进 `rebalance_timing.rank_lots`（`get_path_matrix_cfg` 优先该键）。只写旧键 `path_matrix` 时，落账会读到 live 50 万地板，50 万本金一笔都买不上。
+回测合成 paper 必须写 `rebalance_timing.rank_lots`（`get_path_matrix_cfg` 优先该键）。只写旧键 `path_matrix` 时，其它 live 缺省（如持仓市值帽）会漏进合成账本。
 
 与契约对齐的部分：
 
@@ -1353,10 +1355,23 @@ score_stock(code) 续——
 | | 昨日复盘 | paper_replay（默认） |
 |--|----------|------------------|
 | 验证对象 | 单票 ŷ 方向 vs \(r_h\) | 组合 rank_lots 净值 / 成交账 |
-| 成交 | 概念上 close→close 标签 | 每个交易日 09:30 开盘手数 |
+| 成交 | 概念上 close→close 标签 | 每个交易日所选调仓钟 5m 价手数 |
 | 排序 | 账本冻结 ŷ | y_fuse / y_on ranking |
 
 UI 横轴：权益/日收益按**交易日**；解读时勿与「ŷ 决策日」混为一谈。
+
+### 5.2 `/replay` 调仓 KPI（胜率 ≠ 命中率）
+
+| 卡 | 口径 | 分母 |
+|--|--|--|
+| **胜率** | 当日净值 &gt; 昨日净值 | **交易日**（副文案「N 日净值&gt;0」）。`metrics.trade_count` 是成交笔数，不是胜率分母 |
+| **命中率** | 成交腿 \(\mathrm{sign}(y_{\mathrm{fuse}})=\mathrm{sign}(\text{当日收}/\text{昨收}-1)\) | **有方向成交腿**（跳过不计；\(\lvert y_{\mathrm{fuse}}\rvert&lt;0.05\%\) 无方向）。字段 `hit_rate_pct` / `hit_n` / `hit_hits` |
+
+方向对、净值仍可能跌：仓位薄、错笔幅度大、未成交日持仓也会记入胜率。跳过腿（无有效报价、现金不足、T+1 等）进成交账动作列，可下 CSV，不进命中分母。旧快照无 `hit_rate_pct` 时前端用 `sim_trades` 现算。
+
+### 5.3 分票贡献
+
+`stock_contrib`：窗口内每只出现过的票，把每日持仓盯市盈亏加总（隔夜 open−昨收 + 当日 close−open；清仓只计隔夜，新开只计开→收）。**贡献%**＝盈亏 / 回测本金；**收益%**＝盈亏 / 日均占用资金。佣金印花走现金，不进本表。净值柱悬停仍只展示当日贡献 Top-8；本表用全日未截断腿，刷新落盘一并恢复。
 
 ---
 
@@ -1449,7 +1464,7 @@ flowchart TD
 | live 打分 | 决策日 \(t\) 因子 | ŷ% | —（预测） |
 | 冻结账本 | 选定 `as_of`（对齐因子截止） | **宇宙** `scored_all`（优先）→ ledger；行带 `in_book` | 校准用全量；复盘默认簿；待 \(h\) 日后回填 |
 | 昨日复盘 | 已冻结簿 ŷ | 命中 / 归因（检验簿合理性） | \(r_h\) close→close；不含持仓并集 |
-| paper_replay | 历史各 \(t\) 开盘 | 组合曲线 / 成交账 | rank_lots 日收益 |
+| paper_replay | 历史各 \(t\) 开盘 | 组合曲线 / 分票贡献 / 成交账 | rank_lots 日收益 |
 | 纸面调仓 | 当日可得 ŷ（可补持仓分） | 持仓变动 | 事后用纸面归因 / 净值，非簿命中率 |
 
 ---
@@ -1679,7 +1694,7 @@ bash scripts/daily_paper.sh   # P2 / N5：paper_daily（五问 + DecisionRecord 
 |------|------|
 | `data/quant_daily.json` | 最新量化日报 JSON（API `/api/quant/last`） |
 | `data/last_portfolio_backtest.json` | 最近一次 `/replay` 产品回测（刷新恢复，不重跑） |
-| `data/last_t0_backtest.json` | 最近一次 `/follow` 做 T 回测（刷新恢复，不重跑） |
+| `data/last_t0_backtest.json` | 最近一次 `/replay` 做 T 回测（刷新恢复，不重跑） |
 | `data/reports/quant_daily_YYYYMMDD.md` | preset quant/full 自动导出 Markdown |
 | `data/reports/quant_daily_YYYYMMDD.html` | 同上 HTML |
 | `data/daily_last_run.json` | 最近一次 daily 任务状态 |

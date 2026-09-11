@@ -302,6 +302,10 @@ export const Y_COMPLEXITY_TITLE =
 export const Y_CX_TITLE = Y_COMPLEXITY_TITLE;
 export const Y_TPD_TITLE =
   "y_tpd · 本轮前缀 ŷ（全日转折点密度 ∈[0,1]，表内×100%）· 0=无反转 · 1=每根都反转 · ŷ_tpd>门槛则跳过";
+export const Y_R_TITLE =
+  "ŷ_r · price(τ)/close[T]−1（百分点）· 与 R̂_τ 同几何 · 不进 ĉ / 选腿 / 调仓";
+export const R_REALIZED_TITLE =
+  "r实 · C_τ/收盘−1（与 R̂_τ 同几何；对照估超额）";
 
 /** OC 头原始 ŷ（映射前）：与组成合计 / tip 大标题同口径。 */
 function _tauOcRaw(it) {

@@ -1,4 +1,4 @@
-"""rank_lots：ranking 净收益百分数、200/500 股、ranking<0 清仓、现金地板。"""
+"""rank_lots：ranking 净收益百分数、200/500 股、ranking<0 清仓、现金约束。"""
 
 from __future__ import annotations
 
@@ -394,6 +394,22 @@ class TestPlanRankLotDay(unittest.TestCase):
         self.assertEqual(out["skips"][0].get("side"), "buy")
         self.assertEqual(out["skips"][0].get("action"), "skip")
 
+    def test_zero_floor_skips_when_cash_short(self):
+        from core.paper.rebalance.rank_lots import plan_rank_lot_day
+
+        scored = [{"stock_code": "600000", "y_fuse": 2.0, "y_on": 0.0}]
+        out = plan_rank_lot_day(
+            scored=scored,
+            holdings=[],
+            cash=500,
+            prices={"600000": 10.0},
+            cfg=_cfg(cash_floor=0.0),
+        )
+        self.assertEqual(out["buys"], [])
+        self.assertTrue(
+            any("现金不足" in str(s.get("reason") or "") for s in out["skips"])
+        )
+
     def test_oos_blocks_new_buys(self):
         from core.paper.rebalance.rank_lots import plan_rank_lot_day
 
@@ -488,8 +504,8 @@ class TestGetRankLotCfg(unittest.TestCase):
         self.assertEqual(cfg["top_k"], WATCHING_MAX_SIZE)
         self.assertAlmostEqual(float(cfg["holdings_mv_cap"]), 150_000.0)
 
-    def test_scales_floor_when_account_smaller_than_configured(self):
-        from core.paper.rebalance.rank_lots import get_rank_lot_cfg
+    def test_live_ignores_stored_cash_floor(self):
+        from core.paper.rebalance.rank_lots import get_rank_lot_cfg, scale_cash_floor_to_account
 
         cfg = get_rank_lot_cfg(
             {
@@ -498,18 +514,28 @@ class TestGetRankLotCfg(unittest.TestCase):
                 "holdings": [
                     {"stock_code": "600150", "shares": 400, "cost": 37.82}
                 ],
+                "rules": {
+                    "execution": {
+                        "rebalance_timing": {
+                            "rank_lots": {"cash_floor": 500_000.0}
+                        }
+                    }
+                },
             }
         )
-        self.assertLess(float(cfg["cash_floor"]), 198_854.75)
-        self.assertAlmostEqual(float(cfg["cash_floor"]), 198_854.75 * 0.20, places=1)
-        self.assertTrue(cfg.get("cash_floor_scaled"))
-        self.assertAlmostEqual(float(cfg["cash_floor_configured"]), 500_000.0)
+        self.assertEqual(float(cfg["cash_floor"]), 0.0)
+        self.assertFalse(cfg.get("cash_floor_scaled"))
+        self.assertAlmostEqual(
+            scale_cash_floor_to_account(500_000.0, {"initial_cash": 198_854.75}),
+            198_854.75 * 0.20,
+            places=1,
+        )
 
-    def test_keeps_floor_when_account_covers_it(self):
+    def test_live_cash_floor_is_zero(self):
         from core.paper.rebalance.rank_lots import get_rank_lot_cfg
 
         cfg = get_rank_lot_cfg({"initial_cash": 1_000_000, "cash": 1_000_000})
-        self.assertAlmostEqual(float(cfg["cash_floor"]), 500_000.0)
+        self.assertEqual(float(cfg["cash_floor"]), 0.0)
         self.assertFalse(cfg.get("cash_floor_scaled"))
 
     def test_explicit_top_k_can_cover_watching_pool(self):

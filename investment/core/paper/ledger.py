@@ -126,6 +126,14 @@ def load_paper(path: Optional[str] = None) -> dict:
     data.setdefault("rules", {})
     data.setdefault("cost_model", "simple_cn")
     data.setdefault("cost_params", {})
+    try:
+        from core.t0.intraday import stamp_resolved_stock_names
+
+        stamp_resolved_stock_names(data.get("holdings"))
+        stamp_resolved_stock_names(data.get("trades"))
+        stamp_resolved_stock_names(data.get("operation_log"))
+    except Exception:  # noqa: BLE001
+        logger.debug("stamp paper stock names skipped", exc_info=True)
     return data
 
 

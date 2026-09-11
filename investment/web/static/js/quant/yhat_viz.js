@@ -1197,11 +1197,18 @@ function extractClusterHealth(cl) {
     panel && panel.score_ic && panel.score_ic.pearson
       ? panel.score_ic.pearson
       : null;
-  if (pear) {
-    if (pear.icir != null && Number.isFinite(Number(pear.icir))) icir = Number(pear.icir);
-    if (pear.ic != null && Number.isFinite(Number(pear.ic))) icMean = Number(pear.ic);
-    else if (pear.ic_mean != null && Number.isFinite(Number(pear.ic_mean)))
-      icMean = Number(pear.ic_mean);
+  const spear =
+    panel && panel.score_ic && panel.score_ic.spearman
+      ? panel.score_ic.spearman
+      : null;
+  const icBlock = spear || pear;
+  if (icBlock) {
+    if (icBlock.icir != null && Number.isFinite(Number(icBlock.icir)))
+      icir = Number(icBlock.icir);
+    if (icBlock.ic != null && Number.isFinite(Number(icBlock.ic)))
+      icMean = Number(icBlock.ic);
+    else if (icBlock.ic_mean != null && Number.isFinite(Number(icBlock.ic_mean)))
+      icMean = Number(icBlock.ic_mean);
   }
   if (icir == null && panel && Array.isArray(panel.rows)) {
     const irs = panel.rows
@@ -1263,6 +1270,7 @@ function extractClusterHealth(cl) {
 
   const outlier = !!(cl && cl.outlier_singleton);
   const singleton = !!(cl && (cl.singleton || outlier));
+  const hasModel = !!(rm && rm.coefficients);
 
   return {
     r2,
@@ -1281,6 +1289,7 @@ function extractClusterHealth(cl) {
     gate,
     singleton,
     outlier,
+    hasModel,
   };
 }
 
@@ -1307,8 +1316,73 @@ function clusterHealthScore(h) {
   return Math.round(score);
 }
 
+const FIT_TIER_LABEL = { A: "强", B: "中", C: "弱" };
+
+/** 拟合三档（与后端 fit_tier 同口径；缺字段时前端回退）。 */
+export function clusterFitTierFromHealth(h) {
+  if (!h) return { tier: "C", reason: "invalid_cluster", label: FIT_TIER_LABEL.C };
+  if (h.outlier) return { tier: "C", reason: "outlier_singleton", label: FIT_TIER_LABEL.C };
+  if (h.singleton) return { tier: "C", reason: "singleton", label: FIT_TIER_LABEL.C };
+  if (h.hasModel === false) {
+    return { tier: "C", reason: "no_return_model", label: FIT_TIER_LABEL.C };
+  }
+  if (h.skipped) {
+    return {
+      tier: "C",
+      reason: String((h.gate && h.gate.reason) || "oos_skipped"),
+      label: FIT_TIER_LABEL.C,
+    };
+  }
+  if (!h.passed) {
+    return {
+      tier: "C",
+      reason: String((h.gate && (h.gate.reason || "oos_failed")) || "oos_failed"),
+      label: FIT_TIER_LABEL.C,
+    };
+  }
+  const ic = Number(h.icMean);
+  const icir = Number(h.icir);
+  const y = Number(h.yhatOos);
+  const icOk = Number.isFinite(ic) && ic > 0;
+  const icirOk = Number.isFinite(icir) && icir > 0;
+  const yOk = Number.isFinite(y) && y > 0;
+  if (icOk && icirOk && yOk) {
+    return { tier: "A", reason: "oos_passed_ic_icir_yhat_positive", label: FIT_TIER_LABEL.A };
+  }
+  const bits = [];
+  if (!icOk) bits.push(Number.isFinite(ic) ? "ic_nonpositive" : "ic_missing");
+  if (!icirOk) bits.push(Number.isFinite(icir) ? "icir_nonpositive" : "icir_missing");
+  if (!yOk) bits.push(Number.isFinite(y) ? "yhat_oos_nonpositive" : "yhat_oos_missing");
+  return { tier: "B", reason: "oos_passed;" + bits.join(","), label: FIT_TIER_LABEL.B };
+}
+
+export function clusterFitTierFromCluster(cl) {
+  const tagged = String((cl && cl.fit_tier) || "").toUpperCase();
+  const h = extractClusterHealth(cl);
+  if (tagged === "A" || tagged === "B" || tagged === "C") {
+    const label =
+      (cl && cl.fit_tier_label) || FIT_TIER_LABEL[tagged] || tagged;
+    return {
+      tier: tagged,
+      label,
+      reason: String((cl && cl.fit_tier_reason) || ""),
+      icMean: h.icMean,
+    };
+  }
+  return { ...clusterFitTierFromHealth(h), icMean: h.icMean };
+}
+
+/** @deprecated 用 clusterFitTierFromHealth；A/B/C。 */
+export function clusterFitQuality(h) {
+  return clusterFitTierFromHealth(h).tier;
+}
+
+export function clusterFitQualityFromCluster(cl) {
+  return clusterFitTierFromCluster(cl).tier;
+}
+
 /**
- * 跨组健康矩阵：汇总条 + 多指标表（按综合分排序）。
+ * 跨组健康矩阵：汇总条 + 多指标表（A→B→C；最佳/偏弱按综合分）。
  * @param {object[]} clusters
  * @param {{ escapeHtml?: Function, preferredLabel?: string }} [opts]
  */
@@ -1326,20 +1400,23 @@ export function buildClustersHealthMatrixHtml(
     );
     const h = extractClusterHealth(cl);
     const isPref = !!(pref && (label === pref || String(cl && cl.label) === pref));
-    const kind = h.outlier
-      ? "离群"
-      : h.singleton
-        ? "单票"
-        : isPref
-          ? "优先"
-          : "组";
     const score = clusterHealthScore(h);
-    return { label, kind, isPref, score, ...h };
+    const fitInfo = clusterFitTierFromCluster(cl);
+    const fit = fitInfo.tier;
+    const kind = `${fit} ${fitInfo.label}`;
+    return { label, kind, isPref, fit, fitReason: fitInfo.reason, score, ...h };
   });
 
-  // 按组名排序；跳过组沉底
+  // A→B→C，同档按截面 IC 降序
+  const tierRank = { A: 0, B: 1, C: 2 };
   rows.sort((a, b) => {
-    if (a.skipped !== b.skipped) return a.skipped ? 1 : -1;
+    const ra = tierRank[a.fit] ?? 9;
+    const rb = tierRank[b.fit] ?? 9;
+    if (ra !== rb) return ra - rb;
+    const ia = Number(a.icMean);
+    const ib = Number(b.icMean);
+    if (Number.isFinite(ia) && Number.isFinite(ib) && ia !== ib) return ib - ia;
+    if (Number.isFinite(ia) !== Number.isFinite(ib)) return Number.isFinite(ia) ? -1 : 1;
     return String(a.label).localeCompare(String(b.label), "zh");
   });
 
@@ -1370,9 +1447,28 @@ export function buildClustersHealthMatrixHtml(
   const avgDelta = avg(rows.map((r) => r.deltaOos).filter((v) => v != null));
   const avgTight = avg(rows.map((r) => r.tightScore).filter((v) => v != null));
   const avgScore = avg(rows.map((r) => r.score).filter((v) => v != null));
-  const best = rows.find((r) => !r.skipped && r.score != null) || null;
-  const worst =
-    [...rows].reverse().find((r) => !r.skipped && r.score != null) || null;
+  const scoredRows = rows.filter((r) => !r.skipped && r.score != null);
+  let best = null;
+  let worst = null;
+  for (const r of scoredRows) {
+    if (!best || Number(r.score) > Number(best.score)) best = r;
+    if (!worst || Number(r.score) < Number(worst.score)) worst = r;
+  }
+  let bestFit = null;
+  const fitA = rows.filter((r) => r.fit === "A");
+  const fitB = rows.filter((r) => r.fit === "B");
+  const fitC = rows.filter((r) => r.fit === "C");
+  const fitRows = rows.filter((r) => r.fit === "A" || r.fit === "B");
+  for (const r of fitRows) {
+    if (
+      !bestFit ||
+      Number(r.icMean) > Number(bestFit.icMean) ||
+      (Number(r.icMean) === Number(bestFit.icMean) &&
+        Number(r.icir) > Number(bestFit.icir))
+    ) {
+      bestFit = r;
+    }
+  }
 
   const kpi = (k, v, tip) =>
     `<span class="yhat-mx-kpi" title="${esc(tip)}">` +
@@ -1383,6 +1479,16 @@ export function buildClustersHealthMatrixHtml(
   const kpiRow =
     `<div class="yhat-mx-kpis" aria-label="跨组健康汇总">` +
     kpi("过门", `${passN}/${scoredN || 0}`, "OOS 过门组数 / 可评组数") +
+    kpi("A", String(fitA.length), "A 强：过门且截面 IC、ICIR>0 且 ŷOOS>0") +
+    kpi("B", String(fitB.length), "B 中：OOS 过门未达 A") +
+    kpi("C", String(fitC.length), "C 弱：未过 / 跳过 / 单票 / 无模型") +
+    (bestFit
+      ? kpi(
+          "A 最佳",
+          `${bestFit.label}·${f3(bestFit.icMean)}`,
+          "A/B 档里截面 IC 最高"
+        )
+      : "") +
     kpi("均R²", f2(avgR2), "各组 OLS R² 均值") +
     kpi("均ICIR", f2(avgIcir), "各组 ICIR 均值") +
     kpi("均ΔOOS", fSigned(avgDelta), "ŷ−heuristic 增益均值 (pp)") +
@@ -1397,13 +1503,13 @@ export function buildClustersHealthMatrixHtml(
     `</div>`;
 
   const cols = [
-    ["#", "排序（按综合分）"],
-    ["组", "组标签"],
+    ["#", "排序（A→B→C，同档按截面 IC）"],
+    ["组", "组标签；蓝=A · 绿=B"],
     ["只", "组成员数"],
-    ["型", "组 / 单票 / 离群 / 优先导出"],
+    ["档", "A 强=过门且 IC/ICIR>0 且 ŷOOS>0；B 中=过门未达强；C 弱=未过/跳过/单票"],
     ["R²", "组 OLS R²；≥0.7 偏绿"],
-    ["IC", "组截面 IC 均值"],
-    ["ICIR", "组 IC 信息比；正红负绿"],
+    ["IC", "组截面 Spearman IC 均值"],
+    ["ICIR", "组 Spearman IC 信息比；正红负绿"],
     ["ŷOOS", "研究臂 OOS 收益%；正红负绿"],
     ["ΔOOS", "ŷ−heuristic 增益 (pp)；正红负绿"],
     ["同质", "1−均β距/cap；越高越同质"],
@@ -1422,7 +1528,10 @@ export function buildClustersHealthMatrixHtml(
     .map((r, rank) => {
       const rowCls = [
         "yhat-mx-row",
-        r.isPref ? "is-pref" : "",
+        r.fit === "A" || r.fit === "B" ? "is-fit-row" : "",
+        r.fit === "A" ? "is-fit-strong" : "",
+        r.fit === "C" ? "is-tier-c" : "",
+        r.isPref && r.fit === "C" ? "is-pref" : "",
         r.singleton ? "is-singleton-row" : "",
         r.passed ? "is-pass-row" : "",
         r.skipped ? "is-skip-row" : "",
@@ -1443,22 +1552,26 @@ export function buildClustersHealthMatrixHtml(
             gateTip
           )}">${r.passed ? "✓" : "✗"}</td>`;
       const kindCls =
-        r.kind === "优先"
-          ? " is-kind-pref"
-          : r.kind === "离群"
-            ? " is-kind-outlier"
-            : r.kind === "单票"
-              ? " is-kind-single"
-              : "";
+        r.fit === "A"
+          ? " is-kind-fit is-kind-fit-strong"
+          : r.fit === "B"
+            ? " is-kind-fit is-kind-tier-b"
+            : " is-kind-tier-c";
+      const kindTip =
+        r.fit === "A"
+          ? "A 强：过门且 IC、ICIR>0，ŷOOS>0"
+          : r.fit === "B"
+            ? `B 中：OOS 过门未达强${r.fitReason ? " · " + r.fitReason : ""}`
+            : `C 弱：未过/跳过/单票${r.fitReason ? " · " + r.fitReason : ""}`;
       const cells =
         `<td class="yhat-mx-td num yhat-mx-td-rank" title="排名">${rank + 1}</td>` +
         `<td class="yhat-mx-td yhat-mx-td-group${r.singleton ? " is-singleton" : ""}${
-          r.isPref ? " is-pref-label" : ""
+          r.fit === "A" ? " is-fit-label" : r.isPref ? " is-pref-label" : ""
         }" title="${esc(r.label)}">${esc(r.label)}</td>` +
         `<td class="yhat-mx-td num" title="成员数">${
           r.memberN == null ? "—" : esc(String(r.memberN))
         }</td>` +
-        `<td class="yhat-mx-td yhat-mx-td-kind${kindCls}" title="${esc(r.kind)}">${esc(
+        `<td class="yhat-mx-td yhat-mx-td-kind${kindCls}" title="${esc(kindTip)}">${esc(
           r.kind
         )}</td>` +
         `<td class="yhat-mx-td num" style="${qualityCellBg(tR2(r.r2))}" title="R² ${f3(
@@ -1509,25 +1622,23 @@ export function buildClustersHealthMatrixHtml(
     swatch("is-good", "质量好") +
     swatch("is-weak", "质量弱") +
     `</span>` +
-    `<span class="yhat-mx-legend-note">IC·ŷ·Δ 用涨跌色 · R²·同质·分用质量色 · 按综合分排序` +
-    (pref ? ` · 优先 ${esc(pref)}` : "") +
+    `<span class="yhat-mx-legend-note">A 强=过门且 IC/ICIR>0 且 ŷOOS>0 · B 中=过门未达强 · C 弱=未过/跳过/单票` +
+    (pref ? ` · 导出优先 ${esc(pref)}` : "") +
     `</span>` +
     `</p>`;
 
   return (
-    `<details class="yhat-mx yhat-mx-health">` +
-    `<summary class="yhat-mx-summary">` +
+    `<section class="yhat-mx yhat-mx-health">` +
+    `<header class="yhat-mx-summary yhat-mx-health-head">` +
     `<span class="yhat-mx-title">跨组健康矩阵</span>` +
-    `<span class="yhat-mx-meta">过门 ${passN}/${scoredN}${
-      skipN ? ` · 跳过 ${skipN}` : ""
-    } · ${rows.length} 组</span>` +
-    `</summary>` +
+    `<span class="yhat-mx-meta">过门 ${passN}/${scoredN} · A ${fitA.length} · B ${fitB.length} · C ${fitC.length} · ${rows.length} 组</span>` +
+    `</header>` +
     kpiRow +
     `<div class="yhat-mx-scroll">` +
     `<table class="yhat-mx-table yhat-mx-table--health"><thead><tr>${headCells}</tr></thead><tbody>${bodyRows}</tbody></table>` +
     `</div>` +
     legend +
-    `</details>`
+    `</section>`
   );
 }
 

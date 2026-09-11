@@ -5,6 +5,7 @@ import { escapeHtml } from "../shared.js";
 import { fmtTableScore } from "../paper/fmt.js?v=p1734";
 import { marketPriorDetailFields, tailAnomalyDetailFields, overheatDetailFields } from "../score_tooltip.js?v=p1734";
 import { watchingNameSpanHtml } from "./names.js";
+import { fitTierBadgeForCode } from "./fit_tier_ui.js";
 
 export function describeWatchingSource(src, index) {
   const typ = String(src.type || "").toLowerCase() || "—";
@@ -388,7 +389,10 @@ export function renderWatchingBuildPlan(plan, opts) {
                 : "—";
           return (
             `<tr data-code="${escapeHtml(code)}"><td class="watching-build-name">` +
+            `<span class="watching-name-row">` +
             watchingNameSpanHtml(it.stock_name || code) +
+            fitTierBadgeForCode(code) +
+            `</span>` +
             `<span class="watching-code-sub">${escapeHtml(code)}</span></td>` +
             `<td class="num">${escapeHtml(String(it.price ?? "—"))}</td>` +
             midCells +
@@ -434,6 +438,7 @@ export function renderWatchingWatchTableFallback(rows, { onPickCountUpdate } = {
         `<td class="watching-stock" title="${escapeHtml(name)} ${code}">` +
         `<span class="watching-name-row">` +
         watchingNameSpanHtml(name) +
+        fitTierBadgeForCode(d.code) +
         oosBadge +
         `</span>` +
         `<span class="watching-code-sub">${code}<span class="watching-mkt"></span></span></td>` +

@@ -377,6 +377,13 @@ def attach_cluster_export_diffs(report: Dict[str, Any]) -> Dict[str, Any]:
 
     preferred = _pick_preferred_cluster(clusters)
     report["clusters"] = clusters
+    try:
+        from core.signal.cluster.fit_tier import attach_cluster_fit_tiers
+
+        attach_cluster_fit_tiers(report, force=True)
+        clusters = list(report.get("clusters") or [])
+    except Exception:  # noqa: BLE001 — 分档失败不挡导出
+        logger.debug("catch except Exception: in cluster_oos.py", exc_info=True)
     if preferred is not None:
         report["preferred_cluster"] = {
             "cluster_id": preferred.get("cluster_id"),

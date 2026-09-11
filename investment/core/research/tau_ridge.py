@@ -66,30 +66,6 @@ def _stack_panels(
     return xs_all, ys_all, dates_all, metas_all
 
 
-def _time_split_indices(dates: List[str], *, train_frac: float = 0.9) -> tuple:
-    """按**唯一交易日**排序切分，再展开到行下标（变长前缀同日多行不拆到两侧）。"""
-    n = len(dates)
-    if n < 10:
-        return list(range(n)), []
-    uniq = sorted({str(d)[:10] for d in dates if str(d)[:10]})
-    if len(uniq) < 4:
-        order = sorted(range(n), key=lambda i: dates[i])
-        cut = max(4, int(n * float(train_frac)))
-        cut = min(cut, n - 2)
-        return order[:cut], order[cut:]
-    cut_d = max(2, int(len(uniq) * float(train_frac)))
-    cut_d = min(cut_d, len(uniq) - 1)
-    train_days = set(uniq[:cut_d])
-    train_idx = [i for i, d in enumerate(dates) if str(d)[:10] in train_days]
-    test_idx = [i for i, d in enumerate(dates) if str(d)[:10] not in train_days]
-    if len(test_idx) < 2 or len(train_idx) < 4:
-        order = sorted(range(n), key=lambda i: dates[i])
-        cut = max(4, int(n * float(train_frac)))
-        cut = min(cut, n - 2)
-        return order[:cut], order[cut:]
-    return train_idx, test_idx
-
-
 def _subset(xs, ys, metas, idxs):
     return (
         [xs[i] for i in idxs],
@@ -475,16 +451,17 @@ def fit_tau_ridge_report(
     min_history: int = 12,
     gap_trigger_pct: float = 2.0,
     theme_boost: float = 1.5,
-    train_frac: float = 0.9,
+    holdout_trading_days: int = 10,
     use_theme_weights: bool = True,
     tau_hm: str = "open",
     tau_grid: Optional[Sequence[str]] = None,
 ) -> Dict[str, Any]:
-    """池化拟合 ŷ_τ 头 Ridge + 时间 OOS。
+    """池化拟合 ŷ_τ 头 Ridge + Holdout OOS。
 
     标签统一为 y_oc = 日线 close[T]/open[T]−1；分钟仅作 ≤τ 特征。
     ``tau_hm`` 非 open 时换信息集（前缀分钟路径）；``tau_grid`` 变长前缀共享 β。
-    OOS 按交易日切分。
+    默认近 ``holdout_trading_days`` 个交易日只测；训练段 β 为研究模型，
+    全样本重估为执行模型。
     """
     tau_key = str(tau_hm or "open").strip() or "open"
     use_minute = tau_key.lower() not in ("", "open")
@@ -516,7 +493,19 @@ def fit_tau_ridge_report(
     target = "open_to_close_z"
 
     xs_z = _z_only_xs(xs_use)
-    train_idx, test_idx = _time_split_indices(dates_use, train_frac=train_frac)
+    from core.research.holdout import (
+        DEFAULT_HOLDOUT_TRADING_DAYS,
+        attach_holdout_meta,
+        calendar_dates_from_stock_bars,
+        resolve_ridge_split,
+    )
+
+    hold_n = int(holdout_trading_days or DEFAULT_HOLDOUT_TRADING_DAYS)
+    train_idx, test_idx, split_meta = resolve_ridge_split(
+        dates_use,
+        holdout_trading_days=hold_n,
+        calendar_dates=calendar_dates_from_stock_bars(stock_bars),
+    )
     xs_tr, ys_tr, metas_tr = _subset(xs_z, ys_use, metas_use, train_idx)
     xs_te, ys_te, metas_te = _subset(xs_z, ys_use, metas_use, test_idx)
 
@@ -585,7 +574,7 @@ def fit_tau_ridge_report(
         "n_pos": bucket_pack.get("n_pos"),
         "n_neg": bucket_pack.get("n_neg"),
         "y_label_mean": round(y_mean, 6),
-        "train_frac": train_frac,
+        "holdout_trading_days": hold_n,
         "theme_boost": theme_boost if use_theme_weights else None,
         "target": target,
         "residualized": False,
@@ -598,12 +587,25 @@ def fit_tau_ridge_report(
     except Exception:  # noqa: BLE001
         logger.debug("tau feature_fill failed", exc_info=True)
 
+    research_model = dict(fit)
+    try:
+        research_model["intercept"] = round(
+            float(fit.get("intercept") or 0.0) + y_mean, 6
+        )
+    except (TypeError, ValueError):
+        research_model["intercept"] = round(y_mean, 6)
+    research_model["intercept_demeaned"] = round(float(fit.get("intercept") or 0.0), 6)
+    research_model["y_label_mean"] = round(y_mean, 6)
+    research_model["y_demeaned"] = True
+    research_model["model_role"] = "research"
+
     w_all = (
         theme_sample_weights(metas_use, theme_boost=theme_boost)
         if use_theme_weights
         else None
     )
-    ys_all_dm = [float(y) - y_mean for y in ys_use]
+    y_mean_all = sum(float(y) for y in ys_use) / max(1, len(ys_use))
+    ys_all_dm = [float(y) - y_mean_all for y in ys_use]
     fit_full = fit_factor_ols_from_panel(
         xs_z,
         ys_all_dm,
@@ -616,6 +618,7 @@ def fit_tau_ridge_report(
     )
     model = fit_full if fit_full.get("success") else fit
     model = dict(model)
+    y_mean = y_mean_all
     try:
         model["intercept"] = round(float(model.get("intercept") or 0.0) + y_mean, 6)
     except (TypeError, ValueError):
@@ -646,6 +649,9 @@ def fit_tau_ridge_report(
     }
     model["extra_features"] = list(TAU_Z_FEATURES)
     model["feat_labels"] = {**dict(MINUTE_TAU_FEAT_LABELS), **dict(TAU_LAG_FEAT_LABELS)}
+    model["model_role"] = "live"
+    for k in ("y_spec", "extra_features", "feat_labels", "horizon_mode", "target", "residualized"):
+        research_model[k] = model.get(k)
 
     report = {
         "success": True,
@@ -655,6 +661,7 @@ def fit_tau_ridge_report(
         "sample_count_raw": len(ys),
         "oos": oos,
         "return_model": model,
+        "return_model_research": research_model,
         "tau": tau_key,
         "tau_grid": list(grid) if grid else None,
         "y_spec": dict(model.get("y_spec") or {}),
@@ -667,6 +674,7 @@ def fit_tau_ridge_report(
             else "ŷ_τ(Z) 独立估 open→close；theme+|gap|；yclose_loc/mom3；PIT tau_lag1/ma5；与 EOD 解耦"
         ),
     }
+    attach_holdout_meta(report, split_meta)
     report["promote_gate"] = tau_promote_gate(report)
     return report
 
@@ -759,11 +767,18 @@ def persist_tau_model(
     *,
     note: str = "",
     force: bool = False,
+    role: str = "live",
 ) -> Dict[str, Any]:
-    """人审后写入 data/live/tau_ridge_model.json（契约：τ + y_spec）。"""
+    """人审后写入执行或研究模型。live → tau_ridge_model.json；research → *_research.json。"""
+    from core.research.holdout import (
+        MODEL_ROLE_RESEARCH,
+        research_model_path,
+        select_persist_return_model,
+    )
+
     if not report.get("success"):
         return {"success": False, "error": report.get("error") or "no report"}
-    rm = report.get("return_model")
+    role_n, rm = select_persist_return_model(report, role=role)
     if not isinstance(rm, dict):
         return {"success": False, "error": "return_model missing"}
     if not rm.get("coefficients") and rm.get("intercept") is None:
@@ -819,30 +834,50 @@ def persist_tau_model(
         "y_spec": y_spec,
         "y_spec_tau": y_spec,
         "promote_gate": gate,
+        "model_role": role_n,
+        "fit_end": report.get("fit_end"),
+        "eval_start": report.get("eval_start"),
+        "holdout_trading_days": report.get("holdout_trading_days"),
         "dual_score_head": "predicted_score_tau",
         "contract_note": "ŷ_τ(Z) 估 open→close；live 与 ŷ_EOD 加权融合（缺口∘ŷ_τ）；不覆盖 EOD predicted_score。",
     }
-    path = tau_model_path()
+    path = (
+        research_model_path(tau_model_path())
+        if role_n == MODEL_ROLE_RESEARCH
+        else tau_model_path()
+    )
     os.makedirs(os.path.dirname(path), exist_ok=True)
     atomic_write_json(path, doc)
     _JSON_MODEL_CACHE.pop(path, None)
-    # 过渡期双写旧 rem 文件名，避免未刷新客户端读不到模型
-    try:
-        atomic_write_json(tau_model_path_legacy(), doc)
-    except Exception:  # noqa: BLE001
-        logger.debug("legacy tau model write failed", exc_info=True)
-    return {
+    if role_n != MODEL_ROLE_RESEARCH:
+        try:
+            atomic_write_json(tau_model_path_legacy(), doc)
+        except Exception:  # noqa: BLE001
+            logger.debug("legacy tau model write failed", exc_info=True)
+    out = {
         "success": True,
         "path": path,
-        "legacy_path": tau_model_path_legacy(),
         "promoted_at": doc["promoted_at"],
         "tau": tau,
         "schema": doc["schema"],
         "promote_gate": gate,
+        "model_role": role_n,
     }
+    if role_n != MODEL_ROLE_RESEARCH:
+        out["legacy_path"] = tau_model_path_legacy()
+    return out
 
 
-def load_tau_model() -> Optional[Dict[str, Any]]:
+def load_tau_model(*, role: Optional[str] = None) -> Optional[Dict[str, Any]]:
+    from core.research.holdout import (
+        MODEL_ROLE_RESEARCH,
+        current_scoring_model_role,
+        research_model_path,
+    )
+
+    role_n = role if role is not None else current_scoring_model_role()
+    if role_n == MODEL_ROLE_RESEARCH:
+        return _load_json_model(research_model_path(tau_model_path()))
     for path in (tau_model_path(), tau_model_path_legacy()):
         doc = _load_json_model(path)
         if doc:

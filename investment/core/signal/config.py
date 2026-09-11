@@ -199,6 +199,8 @@ DEFAULT_SIGNAL_CONFIG: Dict[str, Any] = {
         "min_sector_map_coverage": 0.5,
         # B1：相对 active 默认软提示（True）；False=恢复「不得差于 active」硬闸
         "promote_allow_worse_oos_than_active": True,
+        # 观察池宇宙按拟合档过滤新开/加；默认三档=不过滤。已持仓仍可卖/持。
+        "universe_fit_tiers": ["A", "B", "C"],
         # 建簿约束：可成交过滤 · 行业名额 · τ 闸 defer（与纸面 risk 同配置源）
         "book_constraints": {
             "enabled": True,

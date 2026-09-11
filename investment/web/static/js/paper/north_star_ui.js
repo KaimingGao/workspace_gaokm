@@ -6,39 +6,34 @@
  */
 export function renderFollowNorthStar(host, ns) {
   if (!host) return;
-  if (!ns || typeof ns !== "object") {
-    host.hidden = true;
-    host.innerHTML = "";
-    return;
-  }
-  const pr = ns.paper_risk || {};
-  const rz = ns.realization || {};
-  const isFull = !!ns.paper_risk;
-  const sharpe = isFull ? pr.rolling_sharpe : ns.rolling_sharpe;
-  const calmar = isFull ? pr.calmar : ns.calmar;
-  const corr = isFull ? rz.corr : ns.corr;
-  const te = isFull ? rz.tracking_error_pct : ns.tracking_error_pct;
-  const bex = ns.benchmark_excess || {};
-  const legs = ns.alpha_beta_legs || {};
+  const data = ns && typeof ns === "object" ? ns : {};
+  const pr = data.paper_risk || {};
+  const rz = data.realization || {};
+  const ttm = data.ttm || {};
+  const isFull = !!data.paper_risk;
+  const sharpe = isFull ? pr.rolling_sharpe : data.rolling_sharpe;
+  const calmar = isFull ? pr.calmar : data.calmar;
+  const corr = isFull ? rz.corr : data.corr;
+  const te = isFull ? rz.tracking_error_pct : data.tracking_error_pct;
+  const bex = data.benchmark_excess || {};
+  const legs = data.alpha_beta_legs || {};
   const excess = bex.ok ? bex.total_excess_approx_pct : legs.alpha_leg_approx_pct;
   const annIr = bex.ok ? bex.ann_ir : null;
-  if (
-    sharpe == null &&
-    calmar == null &&
-    corr == null &&
-    te == null &&
-    excess == null
-  ) {
-    host.hidden = true;
-    host.innerHTML = "";
-    return;
-  }
+  const ttmHours = ttm.median_idea_to_paper_hours;
+  // 始终画出 7 张质量卡，与调资凑满 4×2，避免第二行空一格
   host.hidden = false;
   const fmt = (v, d) =>
     v == null || Number.isNaN(Number(v)) ? "—" : Number(v).toFixed(d);
+  const fmtTtm = (v) => {
+    if (v == null || Number.isNaN(Number(v))) return "—";
+    const n = Number(v);
+    if (n >= 24) return `${(n / 24).toFixed(1)}d`;
+    return `${n.toFixed(1)}h`;
+  };
   const items = [
     ["夏普", fmt(sharpe, 2), "滚动纸面夏普", "sharpe"],
     ["卡玛", fmt(calmar, 2), "纸面卡玛", "calmar"],
+    ["TTM", fmtTtm(ttmHours), "Idea→纸面中位", "ttm"],
     ["拟合", fmt(corr, 3), "回测–纸面相关", "fit"],
     ["TE", te != null ? `${fmt(te, 2)}%` : "—", "跟踪误差", "te"],
     [

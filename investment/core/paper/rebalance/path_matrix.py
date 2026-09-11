@@ -20,7 +20,7 @@ DEFAULT_PATH_MATRIX: Dict[str, Any] = {
     "mode": "rank_lots",
     "rank_enter": 0.012,
     "rank_strong": 0.012,
-    "cash_floor": 500_000.0,
+    "cash_floor": 0.0,
     "holdings_mv_cap": 150_000.0,
     "fusion_w_trade": 0.5,
     "fusion_w_nowcast": 0.5,
@@ -77,7 +77,7 @@ def get_path_matrix_cfg(
     for key, default, lo, hi in (
         ("rank_enter", 0.012, 0.0, 10.0),
         ("rank_strong", 0.012, 0.0, 10.0),
-        ("cash_floor", 500_000.0, 0.0, 1.0e8),
+        ("cash_floor", 0.0, 0.0, 1.0e8),
         ("holdings_mv_cap", 150_000.0, 0.0, 1.0e8),
         ("fusion_w_trade", 0.5, 0.0, 1.0),
         ("fusion_w_nowcast", 0.5, 0.0, 1.0),
@@ -108,6 +108,7 @@ def get_path_matrix_cfg(
         out["fusion_w_trade"], out["fusion_w_nowcast"] = wt / s, wn / s
     if float(out["rank_strong"]) < float(out["rank_enter"]):
         out["rank_strong"] = float(out["rank_enter"])
+    out["cash_floor"] = 0.0
     return out
 
 

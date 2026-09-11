@@ -106,7 +106,7 @@ html[data-density="compact"] .strategy-page {
    L1 区段壳 → L2 白卡 → L3 控制带 · 最小圆角 2px · 终端密度
    ========================================================================== */
 body[data-page="strategy"] .strategy-page,
-body[data-page="strategy"] {
+body[data-page="strategy"] .page-main {
   --sys-r-tier1: 2px;
   --sys-r-tier2: 2px;
   --sys-r-tier3: 2px;

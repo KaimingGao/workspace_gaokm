@@ -19,8 +19,9 @@
 | 决策频率 | 每个交易日 09:30 | 每 5 分钟扫至 11:00 |
 | 收益类型 | 持有期相对收益 | 已实现 round-trip 价差 |
 | 仓位出处 | `origin=strategy` | 做 T leg（`t0_batch`） |
+| 分组分档 | 观察池按 `fit_tier` 限制新开/加 | **不看**：做 T 只在已持底仓上 overlay，不吃 ŷ_EOD / 拟合档 |
 
-**关键区别**：做 T 不是独立选股 Alpha，而是在调仓给定的底仓上做 **timing overlay**。归因必须分层（调仓 PnL vs 做 T leg）。
+**关键区别**：做 T 不是独立选股 Alpha，而是在调仓给定的底仓上做 **timing overlay**。归因必须分层（调仓 PnL vs 做 T leg）。v6 估 ĉ / 选腿用 ŷ_τ；**ŷ_EOD 不参与**，因此也不套分组 A/B/C 宇宙。
 
 ### 1.3 A 股 T+1 硬约束
 
@@ -71,6 +72,7 @@
 | `y_on` | 尾盘回补 | 尾盘是否强制回补 | 控制 EOD 强平 |
 | `y_complexity` | 路径复杂度 | 1−Kaufman ER + TPD | **风险**：太折（`> y_complexity_max`）跳过 |
 | `y_tpd` | 拐点密度 | Turning Point Density | **风险**：反转过密（`> y_tpd_max`）跳过 |
+| `y_r` | τ 价相对收盘 | `price(τ)/close−1`（与 R̂_τ 同几何） | **成交明细对照** R̂_τ；**不参与**估 ĉ 与选腿 / 调仓 |
 
 ### 3.2 方向映射（`y_tau_map`）
 

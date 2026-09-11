@@ -187,32 +187,6 @@ export function buildT0MetricCards(data) {
   ];
 }
 
-export function buildT0SummaryLine(data) {
-  if (!data || !data.success) return "";
-  const scope = resolveT0ScopeLabel(data);
-  const net = data.t0_pnl_with_exposure ?? data.t0_pnl_total;
-  const ret =
-    data.cumulative_return_pct != null
-      ? data.cumulative_return_pct
-      : data.pnl_vs_hold_mv_pct;
-  const verdict = resolveVerdict(data);
-  const bits = [
-    scope,
-    ret != null ? `累计收益 ${fmtPct(ret, 3)}` : `净 PnL ${fmtMoney(net, { signed: true })}`,
-    `做T ${data.t0_trade_days ?? "—"} 日`,
-    data.cover_rate_pct != null ? `往返 ${fmtPct(data.cover_rate_pct)}` : null,
-    data.participate_rate_pct != null ? `参与 ${fmtPct(data.participate_rate_pct)}` : null,
-    data.win_rate_pct != null || data.t0_win_rate_pct != null
-      ? `胜率 ${fmtPct(data.win_rate_pct ?? data.t0_win_rate_pct)}`
-      : null,
-    pathLabel(data),
-    "收盘带宽",
-    verdict.label,
-    "非实盘",
-  ].filter(Boolean);
-  return bits.join(" · ");
-}
-
 function _pct1(v) {
   const n = Number(v);
   if (!Number.isFinite(n)) return null;

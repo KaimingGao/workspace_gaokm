@@ -12,6 +12,7 @@ import {
 import { TRADE_TITLE, formatPrevCloseDisplay, formatOpenDisplay, resolveOpenPx } from "./quant/watching_quotes_ui.js?v=p1227";
 import { buildHoldingSharesTip } from "./paper/holding_lots_tip.js?v=p1227";
 import { holdingT0BadgeHtml } from "./paper/holding_t0_badge.js?v=p1526";
+import { fitTierBadgeForCode, ensureFitTierMap } from "./quant/fit_tier_ui.js?v=p2261";
 
 function escapeHtml(s) {
   return String(s ?? "")
@@ -341,6 +342,7 @@ export async function mountHoldingsTableIsland(host, options = {}) {
   const { mountVirtualTable } = await import(
     `./virtual_table.js?v=${encodeURIComponent(V)}`
   );
+  await ensureFitTierMap();
   return mountVirtualTable(host, {
     columns: COLS,
     emptyText: "暂无持仓",
@@ -382,6 +384,7 @@ export async function mountHoldingsTableIsland(host, options = {}) {
           `<span class="paper-wl-name-text" title="${escapeHtml(d.name || "")}" data-full-name="${escapeHtml(
             d.name || ""
           )}">${escapeHtml(truncateName(d.name || d.code))}</span>` +
+          fitTierBadgeForCode(d.code, { escapeHtml }) +
           oosBadge +
           `</span>` +
           `<span class="paper-wl-code">${escapeHtml(d.code || "")}</span></div>`

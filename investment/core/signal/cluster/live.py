@@ -22,9 +22,48 @@ from core.signal.cluster.live_evidence import (  # noqa: F401 — 门面再导�
     build_cluster_enable_evidence,
     cluster_status_public,
 )
+from core.signal.cluster.fit_tier import normalize_universe_fit_tiers
 from core.signal.factors.meta.health import PROXY_OR_UNSOURCED
 
 SCHEMA_VERSION = 1
+
+
+def _normalize_cfg_fit_tiers(raw: Any) -> List[str]:
+    return normalize_universe_fit_tiers(raw)
+
+
+def _stamp_code_map_fit_tier(
+    entry: Dict[str, Any],
+    meta: Dict[str, Any],
+    by_label_tier: Dict[str, Dict[str, str]],
+) -> None:
+    from core.signal.cluster.fit_tier import FIT_TIER_LABELS
+
+    t = str((meta or {}).get("fit_tier") or "").strip().upper()
+    packed = by_label_tier.get(str(entry.get("cluster_label") or "")) or {}
+    if t not in FIT_TIER_LABELS:
+        t = str(packed.get("fit_tier") or "").strip().upper()
+    if t not in FIT_TIER_LABELS:
+        return
+    entry["fit_tier"] = t
+    label = str((meta or {}).get("fit_tier_label") or packed.get("fit_tier_label") or "")
+    reason = str((meta or {}).get("fit_tier_reason") or packed.get("fit_tier_reason") or "")
+    if label:
+        entry["fit_tier_label"] = label
+    if reason:
+        entry["fit_tier_reason"] = reason
+
+
+def _clear_signal_config_cache() -> None:
+    try:
+        from core.signal import config as cfg_mod
+
+        cfg_mod._cached = None
+    except Exception:  # noqa: BLE001
+        logger.debug("catch except Exception: in cluster_live.py", exc_info=True)
+    from core.signal.config import load_signal_config
+
+    load_signal_config(reload=True)
 
 
 def _ensure_dirs() -> None:
@@ -123,6 +162,7 @@ def get_cluster_scoring_cfg(config: Optional[dict] = None) -> Dict[str, Any]:
         "promote_allow_worse_oos_than_active": bool(
             raw.get("promote_allow_worse_oos_than_active", True)
         ),
+        "universe_fit_tiers": _normalize_cfg_fit_tiers(raw.get("universe_fit_tiers")),
         "rebalance_tracks": (
             dict(raw["rebalance_tracks"])
             if isinstance(raw.get("rebalance_tracks"), dict)
@@ -156,6 +196,25 @@ def load_active_cluster_weights(
             return data
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
         logger.debug("catch except Exception: in cluster_live.py", exc_info=True)
+        return None
+    return None
+
+
+def load_research_cluster_weights() -> Optional[Dict[str, Any]]:
+    """只读研究套组权；缺文件或无 code_map 返回 None（不回退 live）。"""
+    from core.paths import CLUSTER_WEIGHTS_ACTIVE_PATH
+    from core.research.holdout import research_model_path
+
+    p = research_model_path(CLUSTER_WEIGHTS_ACTIVE_PATH)
+    if not p or not os.path.isfile(p):
+        return None
+    try:
+        with open(p, encoding="utf-8") as f:
+            data = json.load(f)
+        if isinstance(data, dict) and isinstance(data.get("code_map"), dict):
+            return data
+    except Exception:  # noqa: BLE001
+        logger.debug("load research cluster weights failed", exc_info=True)
         return None
     return None
 
@@ -263,11 +322,30 @@ def lookup_code_return_model(
 def load_cluster_return_models_by_code(
     *,
     active: Optional[Dict[str, Any]] = None,
+    role: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """code → ReturnScoreModel（仅含有分组收益分模型的映射）。"""
+    """code → ReturnScoreModel（仅含有分组收益分模型的映射）。
+
+    未显式传入 ``active`` 时：研究角色读研究套文件，缺则空（不回退 live）。
+    """
+    from core.research.holdout import (
+        MODEL_ROLE_RESEARCH,
+        current_scoring_model_role,
+        normalize_model_role,
+    )
     from core.signal.return_score import ReturnScoreModel
 
-    art = active if active is not None else load_active_cluster_weights()
+    role_n = (
+        normalize_model_role(role)
+        if role is not None
+        else current_scoring_model_role()
+    )
+    if active is not None:
+        art = active
+    elif role_n == MODEL_ROLE_RESEARCH:
+        art = load_research_cluster_weights()
+    else:
+        art = load_active_cluster_weights()
     out: Dict[str, Any] = {}
     if not art:
         return out
@@ -685,6 +763,15 @@ def promote_cluster_artifact(
     )
 
     by_label_rm: Dict[str, Any] = {}
+    by_label_rm_research: Dict[str, Any] = {}
+    by_label_tier: Dict[str, Dict[str, str]] = {}
+    try:
+        from core.signal.cluster.fit_tier import FIT_TIER_LABELS, attach_cluster_fit_tiers
+
+        attach_cluster_fit_tiers(artifact, force=False)
+    except Exception:  # noqa: BLE001
+        logger.debug("attach fit_tier before promote skipped", exc_info=True)
+        FIT_TIER_LABELS = {"A", "B", "C"}
     for cl in artifact.get("clusters") or []:
         if not isinstance(cl, dict):
             continue
@@ -692,6 +779,16 @@ def promote_cluster_artifact(
         rm = cl.get("return_model")
         if lab and isinstance(rm, dict) and has_factor_coefficients(rm):
             by_label_rm[lab] = rm
+        rm_r = cl.get("return_model_research")
+        if lab and isinstance(rm_r, dict) and has_factor_coefficients(rm_r):
+            by_label_rm_research[lab] = rm_r
+        t = str(cl.get("fit_tier") or "").strip().upper()
+        if lab and t in FIT_TIER_LABELS:
+            by_label_tier[lab] = {
+                "fit_tier": t,
+                "fit_tier_label": str(cl.get("fit_tier_label") or ""),
+                "fit_tier_reason": str(cl.get("fit_tier_reason") or ""),
+            }
 
     cmap = {}
     for code, meta in (artifact.get("code_map") or {}).items():
@@ -713,6 +810,7 @@ def promote_cluster_artifact(
                 "weights": {str(k): float(v) for k, v in w_only.items() if _num(v)},
                 "oos_passed": meta.get("oos_passed"),
             }
+            _stamp_code_map_fit_tier(entry, meta, by_label_tier)
             cmap[c] = entry
             continue
         derived = display_weights_from_return_model(rm)
@@ -731,11 +829,17 @@ def promote_cluster_artifact(
             "return_model": rm,
             "oos_passed": meta.get("oos_passed"),
         }
+        rm_r = meta.get("return_model_research")
+        if not has_factor_coefficients(rm_r if isinstance(rm_r, dict) else None):
+            rm_r = by_label_rm_research.get(str(lab or ""))
+        if has_factor_coefficients(rm_r if isinstance(rm_r, dict) else None):
+            entry["return_model_research"] = rm_r
         if isinstance(w, dict) and w:
             _w_clean = {k: v for k, v in w.items() if k not in PROXY_OR_UNSOURCED}
             entry["weights"] = {str(k): float(v) for k, v in _w_clean.items() if _num(v)}
             if used_derived:
                 entry["weights_derived_from_beta"] = True
+        _stamp_code_map_fit_tier(entry, meta, by_label_tier)
         cmap[c] = entry
 
     active = {
@@ -758,6 +862,10 @@ def promote_cluster_artifact(
         "pool_book": artifact.get("pool_book"),
         "promote_note": str(note or "")[:500],
         "signal_config_touched": False,
+        "holdout_trading_days": artifact.get("holdout_trading_days"),
+        "fit_end": artifact.get("fit_end"),
+        "eval_start": artifact.get("eval_start"),
+        "model_role": "live",
         "note": "live 因子系数映射；真源=return_model；weights 可选派生",
     }
     published = publish_cluster_weights_doc(active, note=note or f"promote v{version}")
@@ -768,6 +876,24 @@ def promote_cluster_artifact(
             "task": "cluster_promote",
             "previous_version": prev.get("version") if prev else None,
         }
+
+    try:
+        from core.io_atomic import atomic_write_json
+        from core.paths import CLUSTER_WEIGHTS_ACTIVE_PATH
+        from core.research.holdout import research_model_path
+        from quant.research.cluster_pool_artifact import (
+            build_research_scoring_artifact,
+        )
+
+        research_doc = build_research_scoring_artifact(artifact)
+        if research_doc:
+            research_doc["version"] = version
+            research_doc["promoted_at"] = active.get("promoted_at")
+            atomic_write_json(
+                research_model_path(CLUSTER_WEIGHTS_ACTIVE_PATH), research_doc
+            )
+    except Exception:  # noqa: BLE001
+        logger.debug("write research cluster artifact failed", exc_info=True)
 
     if force and err:
         append_promote_audit(
@@ -899,6 +1025,23 @@ def rollback_cluster_weights(*, to_version: Optional[int] = None) -> Dict[str, A
             "error": published.get("error") or "回滚指针切换失败",
             "task": "cluster_rollback",
         }
+    try:
+        from core.io_atomic import atomic_write_json
+        from core.paths import CLUSTER_WEIGHTS_ACTIVE_PATH
+        from core.research.holdout import research_model_path
+        from quant.research.cluster_pool_artifact import (
+            build_research_scoring_artifact,
+        )
+
+        research_doc = build_research_scoring_artifact(restored_doc)
+        if research_doc:
+            research_doc["version"] = new_ver
+            research_doc["promoted_at"] = restored_doc.get("promoted_at")
+            atomic_write_json(
+                research_model_path(CLUSTER_WEIGHTS_ACTIVE_PATH), research_doc
+            )
+    except Exception:  # noqa: BLE001
+        logger.debug("rewrite research cluster artifact on rollback failed", exc_info=True)
     append_promote_audit(
         {
             "action": "cluster_rollback",
@@ -1256,7 +1399,7 @@ def set_cluster_scoring_mode(
     """
     from core.io_atomic import atomic_write_json
     from core.signal.cluster.pointer import active_enable_blockers, append_promote_audit
-    from core.signal.config import get_signal_config_path, load_signal_config
+    from core.signal.config import get_signal_config_path
 
     mode = str(mode or "off").strip().lower()
     if mode not in ("off", "shadow", "active"):
@@ -1303,15 +1446,7 @@ def set_cluster_scoring_mode(
         cs["enabled"] = bool(enabled)
     raw["cluster_scoring"] = cs
     atomic_write_json(path, raw)
-    # 清缓存
-    try:
-        from core.signal import config as cfg_mod
-
-        cfg_mod._cached = None
-    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in cluster_live.py", exc_info=True)
-        pass
-    load_signal_config(reload=True)
+    _clear_signal_config_cache()
     warnings: List[str] = []
     manifest = None
     try:
@@ -1339,6 +1474,52 @@ def set_cluster_scoring_mode(
         if manifest or warnings
         else None,
         "note": "仅更新 cluster_scoring 开关；weights 未改",
+    }
+
+
+def set_cluster_universe_fit_tiers(tiers: Any) -> Dict[str, Any]:
+    """写入 cluster_scoring.universe_fit_tiers；空选视为 A+B+C 不过滤。"""
+    from core.io_atomic import atomic_write_json
+    from core.signal.config import get_signal_config_path
+
+    allowed = _normalize_cfg_fit_tiers(tiers)
+    path = get_signal_config_path()
+    raw: Dict[str, Any] = {}
+    if os.path.isfile(path):
+        with open(path, encoding="utf-8") as f:
+            raw = json.load(f) or {}
+    cs = dict(raw.get("cluster_scoring") or {})
+    cs["universe_fit_tiers"] = allowed
+    raw["cluster_scoring"] = cs
+    atomic_write_json(path, raw)
+    _clear_signal_config_cache()
+    warnings: List[str] = []
+    manifest = None
+    try:
+        from core.live_config_manifest import write_live_config_manifest
+
+        manifest = write_live_config_manifest(
+            note="after cluster_universe_fit_tiers=" + ",".join(allowed)
+        )
+    except Exception as e:
+        logger.exception("unexpected error in set_cluster_universe_fit_tiers")
+        warnings.append(f"live_manifest_write_failed:{e}")
+    return {
+        "success": True,
+        "task": "cluster_universe_fit_tiers",
+        "cluster_scoring": get_cluster_scoring_cfg(),
+        "universe_fit_tiers": allowed,
+        "path": path,
+        "signal_config_weights_touched": False,
+        "warnings": warnings,
+        "live_manifest": {
+            "consistent": (manifest or {}).get("consistent"),
+            "alerts": (manifest or {}).get("alerts") or [],
+            "error": None if manifest else (warnings[-1] if warnings else None),
+        }
+        if manifest or warnings
+        else None,
+        "note": "仅更新观察池拟合档宇宙；OOS 失败仍拦新买；已持仓可卖/持",
     }
 
 

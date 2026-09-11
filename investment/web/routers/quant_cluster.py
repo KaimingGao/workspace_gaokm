@@ -15,6 +15,7 @@ from web.schemas import (
     ClusterPaperPreviewRequest,
     ClusterPromoteRequest,
     ClusterRollbackRequest,
+    ClusterUniverseFitTiersRequest,
     FactorOlsClusterRequest,
 )
 
@@ -56,6 +57,7 @@ def quant_cluster_minute_status(
     watching_limit: int = 100,
     period: str = "5",
     min_span_days: int = 30,
+    include_label_portrait: bool = True,
 ) -> Dict[str, Any]:
     """观察池 5m 分钟缓存覆盖（研究枢纽 UI）。"""
     try:
@@ -63,6 +65,7 @@ def quant_cluster_minute_status(
             watching_limit=watching_limit,
             period=period,
             min_span_days=min_span_days,
+            include_label_portrait=include_label_portrait,
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
@@ -98,6 +101,7 @@ def quant_factor_ols_clusters(body: FactorOlsClusterRequest) -> Dict[str, Any]:
     kwargs = dict(
         lookback=body.lookback,
         horizon_days=body.horizon_days,
+        holdout_trading_days=body.holdout_trading_days,
         watching_limit=body.watching_limit,
         ridge_lambda=body.ridge_lambda,
         n_clusters=body.n_clusters,
@@ -145,7 +149,7 @@ def quant_factor_ols_clusters_last_report() -> Dict[str, Any]:
 
 @router.post("/api/quant/cluster-paper-preview")
 def quant_cluster_paper_preview(body: ClusterPaperPreviewRequest) -> Dict[str, Any]:
-    """分池簿→纸面调仓已停用；请改用 Follow「预演调仓」（观察池 + rank_lots）。"""
+    """分池簿→纸面调仓已停用；请改用 Follow「手动预演」（观察池 + rank_lots）。"""
     _ = body
     return {
         "success": False,
@@ -246,6 +250,26 @@ def quant_cluster_live_mode(body: ClusterModeRequest) -> Dict[str, Any]:
         return deps.quant.set_cluster_live_mode(
             body.mode, enabled=body.enabled, force=bool(body.force)
         )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@router.post("/api/quant/cluster-live/universe-fit-tiers")
+def quant_cluster_live_universe_fit_tiers(
+    body: ClusterUniverseFitTiersRequest,
+) -> Dict[str, Any]:
+    """设置观察池 live 宇宙拟合档（A/B/C）。不改 weights / mode。"""
+    try:
+        return deps.quant.set_cluster_universe_fit_tiers(body.universe_fit_tiers)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@router.get("/api/quant/cluster-live/fit-tiers")
+def quant_cluster_live_fit_tiers() -> Dict[str, Any]:
+    """code → A/B/C，给四页股票名徽标。"""
+    try:
+        return deps.quant.cluster_live_fit_tiers()
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 

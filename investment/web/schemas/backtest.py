@@ -50,7 +50,33 @@ class PaperReplayBacktestRequest(BaseModel):
         default=0.012,
         ge=0.0,
         le=10.0,
-        description="历史回测 ranking 强手门槛（净收益，0.012=1.2%；超过买 2000 股）",
+        description="历史回测 ranking 强手门槛（净收益，0.012=1.2%；超过买 200 股）",
+    )
+    initial_cash: float = Field(
+        default=200_000.0,
+        ge=10_000.0,
+        le=100_000_000.0,
+        description="历史回测本金（元）。默认 20 万；不套持仓市值帽",
+    )
+    fill_clock: str = Field(
+        default="09:30",
+        description="调仓成交钟 09:30–10:00 每 5 分钟；成交用该档 5 分钟 K（09:30 用首根开盘）",
+    )
+    lot_base: int = Field(
+        default=100,
+        ge=100,
+        le=10000,
+        description="历史回测入场手数（股）。默认 100；整百。保存规则不改交易执行 200/500",
+    )
+    lot_strong: int = Field(
+        default=200,
+        ge=100,
+        le=10000,
+        description="历史回测强档手数（股）。默认 200；须 ≥ 入场手数。保存规则不改交易执行 200/500",
+    )
+    universe_fit_tiers: Optional[list] = Field(
+        default=None,
+        description="观察池拟合档过滤（A/B/C 可多选）。空则用 live cluster_scoring.universe_fit_tiers；满三档=不过滤",
     )
 
 
@@ -116,5 +142,5 @@ class PortfolioBacktestRequest(BaseModel):
         default=0.012,
         ge=0.0,
         le=10.0,
-        description="历史回测 ranking 强手门槛（净收益，0.012=1.2%；超过买 2000 股）",
+        description="历史回测 ranking 强手门槛（净收益，0.012=1.2%；超过买 200 股）",
     )

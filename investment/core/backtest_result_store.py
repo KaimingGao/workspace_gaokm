@@ -13,7 +13,7 @@ from core.paths import LAST_PORTFOLIO_BACKTEST_PATH, LAST_T0_BACKTEST_PATH
 
 logger = logging.getLogger(__name__)
 
-# 历史回测页只画 KPI / 净值 / 成交账；其余研究块不落盘。
+# 历史回测页只画 KPI / 净值 / 成交账 / 分票贡献；其余研究块不落盘。
 _KEEP_KEYS = (
     "success",
     "metrics",
@@ -21,6 +21,7 @@ _KEEP_KEYS = (
     "equity_curve_tail",
     "benchmark",
     "sim_trades",
+    "stock_contrib",
     "request",
     "params",
     "universe",

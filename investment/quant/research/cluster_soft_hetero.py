@@ -96,16 +96,18 @@ def expand_member_weights_to_rows(
 def build_pooled_rows_with_codes(
     members: Sequence[str],
     panel_by_code: Dict[str, Dict[str, Any]],
-) -> Tuple[List[Dict[str, Any]], List[float], List[str]]:
-    """组内拼接面板，并记录每行所属 code（供软异质加权）。"""
+) -> Tuple[List[Dict[str, Any]], List[float], List[str], List[str]]:
+    """组内拼接面板，并记录每行所属 code 与决策日（供软异质 / holdout）。"""
     all_xs: List[Dict[str, Any]] = []
     all_ys: List[float] = []
     row_codes: List[str] = []
+    row_dates: List[str] = []
     for code in members:
         c = str(code).strip()
         panel = panel_by_code.get(c) or {}
         xs = list(panel.get("xs") or [])
         ys = list(panel.get("ys") or [])
+        dates = list(panel.get("dates") or [])
         n = min(len(xs), len(ys))
         for i in range(n):
             try:
@@ -118,4 +120,39 @@ def build_pooled_rows_with_codes(
             all_xs.append(row)
             all_ys.append(yv)
             row_codes.append(c)
-    return all_xs, all_ys, row_codes
+            d = str(dates[i] or "").strip()[:10] if i < len(dates) else ""
+            row_dates.append(d)
+    return all_xs, all_ys, row_codes, row_dates
+
+
+def filter_rows_by_train_days(
+    xs: Sequence[Dict[str, Any]],
+    ys: Sequence[float],
+    dates: Sequence[str],
+    train_days: Sequence[str],
+    row_codes: Optional[Sequence[str]] = None,
+) -> Tuple[List[Dict[str, Any]], List[float], List[str], List[str]]:
+    """只保留决策日落在训练日集合内的行。"""
+    allowed = {str(d)[:10] for d in (train_days or []) if str(d)[:10]}
+    out_xs: List[Dict[str, Any]] = []
+    out_ys: List[float] = []
+    out_dates: List[str] = []
+    out_codes: List[str] = []
+    n = min(len(xs or []), len(ys or []), len(dates or []))
+    codes = list(row_codes or [])
+    for i in range(n):
+        d = str(dates[i] or "").strip()[:10]
+        if d not in allowed:
+            continue
+        row = xs[i]
+        if not isinstance(row, dict):
+            continue
+        try:
+            yv = float(ys[i])
+        except (TypeError, ValueError):
+            continue
+        out_xs.append(row)
+        out_ys.append(yv)
+        out_dates.append(d)
+        out_codes.append(str(codes[i]) if i < len(codes) else "")
+    return out_xs, out_ys, out_codes, out_dates

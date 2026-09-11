@@ -19,21 +19,15 @@ DEFAULT_LOOKBACK_DAYS = MINUTE_EM_LOOKBACK_DAYS
 DEFAULT_TOPUP_LOOKBACK_DAYS = 5
 DEFAULT_TOPUP_WORKERS = 4
 DEFAULT_LABEL_MAX_DAYS = 120
-# Span mix 细档（累计）：在 Ready 闸 `<min_span>d` 之外再标 `<20d` / `<10d`
-SPAN_MIX_FINE_CUTS = (20, 10)
+# Span mix 累计档：有缓存标的按跨度同时计入更宽档（与 Ready 闸独立）
+SPAN_MIX_CUTS = (90, 60, 30)
 _LABEL_PORTRAIT_TTL_SEC = 90.0
 _label_portrait_cache: Dict[str, Any] = {"key": None, "at": 0.0, "payload": None}
 
 
-def _span_mix_bucket_keys(min_span: int) -> List[str]:
-    """`<min_span>d` 优先，再追加更严的累计阈值（仅 cut < min_span）。"""
-    gate = max(1, int(min_span or DEFAULT_MIN_SPAN_DAYS))
-    keys = [f"<{gate}d"]
-    for cut in SPAN_MIX_FINE_CUTS:
-        c = int(cut)
-        if 0 < c < gate:
-            keys.append(f"<{c}d")
-    return keys
+def _span_mix_bucket_keys() -> List[str]:
+    """固定 ``<90d`` / ``<60d`` / ``<30d``（宽→严）。"""
+    return [f"<{int(c)}d" for c in SPAN_MIX_CUTS if int(c) > 0]
 
 def _resolve_watching_codes(*, watching_limit: int = 100) -> List[str]:
     from quant.research.factor_ols_clusters import clamp_watching_limit, merge_cluster_universe
@@ -92,38 +86,24 @@ def _minute_day_complete(day_bars: Optional[List[dict]]) -> bool:
 
 def _minute_snapshot_for_code(code: str, *, period: str = DEFAULT_MINUTE_PERIOD) -> Optional[Dict[str, Any]]:
     try:
-        from core.ports.market import group_minute_bars_by_date, resolve_market_code
-        from core.store import load_minute_cache
+        from core.ports.market import resolve_market_code
+        from core.store import load_minute_span_snapshot
 
         market, sym = resolve_market_code(code)
-        packed = load_minute_cache(
-            market,
-            sym,
-            str(period or DEFAULT_MINUTE_PERIOD),
-            min_bars=10,
-            ignore_age=True,
+        snap = load_minute_span_snapshot(
+            market, sym, str(period or DEFAULT_MINUTE_PERIOD)
         )
-        if not packed:
+        if not snap:
             return None
-        bars, meta = packed
-        by_day = group_minute_bars_by_date(bars or []) or {}
-        span_days = len(by_day)
-        fetched_at = str((meta or {}).get("fetched_at") or "")[:19]
-        date_min = (meta or {}).get("date_min")
-        date_max = (meta or {}).get("date_max")
-        if not date_min and by_day:
-            date_min = min(by_day.keys())
-        if not date_max and by_day:
-            date_max = max(by_day.keys())
-        date_max_s = str(date_max)[:10] if date_max else None
-        day_bars = list(by_day.get(date_max_s) or []) if date_max_s else []
+        day_bars = list(snap.get("date_max_bars") or [])
         last_hm = _minute_bar_hm(day_bars[-1]) if day_bars else None
+        fetched_at = str(snap.get("fetched_at") or "")[:19]
         return {
-            "span_days": span_days,
-            "bar_count": int((meta or {}).get("bar_count") or len(bars or [])),
+            "span_days": int(snap.get("span_days") or 0),
+            "bar_count": int(snap.get("bar_count") or 0),
             "fetched_at": fetched_at or None,
-            "date_min": str(date_min)[:10] if date_min else None,
-            "date_max": date_max_s,
+            "date_min": str(snap.get("date_min") or "")[:10] or None,
+            "date_max": str(snap.get("date_max") or "")[:10] or None,
             "date_max_bars": len(day_bars),
             "last_bar_hm": f"{last_hm[0]:02d}:{last_hm[1]:02d}" if last_hm else None,
             "session_complete": _minute_day_complete(day_bars) if day_bars else False,
@@ -378,7 +358,7 @@ def build_cluster_minute_status(
     missing = 0
     stale = 0
     spans: List[int] = []
-    bucket_keys = _span_mix_bucket_keys(min_span)
+    bucket_keys = _span_mix_bucket_keys()
     span_buckets: Dict[str, int] = {k: 0 for k in bucket_keys}
 
     now = datetime.now()
@@ -405,14 +385,14 @@ def build_cluster_minute_status(
             cached_ok += 1
         else:
             short += 1
-            # 累计阈值：span=5 → 同时计入 <30d / <20d / <10d
-            for key in bucket_keys:
-                try:
-                    cut = int(str(key).strip("<>d"))
-                except (TypeError, ValueError):
-                    continue
-                if span < cut:
-                    span_buckets[key] += 1
+        # 累计：span=45 → <90d 与 <60d；与 Ready 是否过闸无关
+        for key in bucket_keys:
+            try:
+                cut = int(str(key).strip("<>d"))
+            except (TypeError, ValueError):
+                continue
+            if span < cut:
+                span_buckets[key] += 1
 
     total = len(codes)
     spans_sorted = sorted(spans)
@@ -426,7 +406,7 @@ def build_cluster_minute_status(
     except Exception:  # noqa: BLE001
         backend = "unknown"
 
-    # 细档也返回 0，便于 UI 固定画出 <20d / <10d
+    # 三档均返回（含 0），便于 UI 固定画出 <90d / <60d / <30d
     dist = [{"bucket": k, "count": int(span_buckets.get(k, 0) or 0)} for k in bucket_keys]
 
     label_portrait: Optional[Dict[str, Any]] = None
@@ -549,37 +529,35 @@ def _minute_topup_core(
     total = len(watch)
     done = 0
 
-    def _plan(code: str) -> Tuple[str, str, int, bool]:
-        """返回 (code, action, lookback, skip_em)。action: skip|skip_today|topup|full。"""
+    def _plan(code: str) -> Tuple[str, str, int, bool, bool]:
+        """返回 (code, action, lookback, skip_em, force)。action: skip|skip_today|topup|full。"""
         snap = _minute_snapshot_for_code(code, period=period_s)
         if not snap:
-            return code, "full", full_lb, False
+            return code, "full", full_lb, False, False
         span = int(snap.get("span_days") or 0)
         date_max = str(snap.get("date_max") or "")[:10]
         on_expected = bool(expected and date_max and date_max >= expected)
-        # 会话日有仓但缺尾（午前残缺）：不得因「今日已拉 / date_max 对齐」跳过
+        # 会话缺尾：新浪近端强刷（有超时）；不打东财/BaoStock，避免增量整批挂死
         if on_expected and not bool(snap.get("session_complete")):
-            return code, "topup", top_lb, False
+            return code, "topup", top_lb, True, True
         # 同日已拉且会话齐窗：增量不再打远端（含 Short 新浪近端空转）；强更 5m 不受此限
         if _minute_fetched_today(snap.get("fetched_at"), now=now):
-            return code, "skip_today", 0, True
+            return code, "skip_today", 0, True, False
         if span >= min_span and on_expected:
-            return code, "skip", 0, True
+            return code, "skip", 0, True, False
         if span >= min_span:
-            return code, "topup", top_lb, True
-        return code, "full", full_lb, False
+            return code, "topup", top_lb, True, False
+        return code, "full", full_lb, False, False
 
     plans = [_plan(c) for c in watch]
-    truncated_codes = {
-        c for c, act, _lb, sem in plans if act == "topup" and not sem
-    }
+    truncated_codes = {c for c, act, _lb, _sem, force in plans if act == "topup" and force}
     to_fetch = [
         (c, act, lb, sem)
-        for c, act, lb, sem in plans
+        for c, act, lb, sem, _force in plans
         if act not in ("skip", "skip_today")
     ]
-    skipped_aligned = sum(1 for _, act, _, _ in plans if act == "skip")
-    skipped_today = sum(1 for _, act, _, _ in plans if act == "skip_today")
+    skipped_aligned = sum(1 for _, act, _, _, _ in plans if act == "skip")
+    skipped_today = sum(1 for _, act, _, _, _ in plans if act == "skip_today")
     skipped_total = skipped_aligned + skipped_today
     warmed += skipped_total
     done = skipped_total
@@ -604,6 +582,7 @@ def _minute_topup_core(
             lookback_days=lookback,
             max_age_hours=0.01,
             skip_em=skip_em,
+            skip_bs=action == "topup",
         )
         if bars:
             return code, action, True, None
@@ -658,7 +637,7 @@ def _minute_topup_core(
         "workers": n_workers,
         "errors": errors[:10],
         "note": (
-            f"5m 增量补齐 · 齐窗才今日/对齐跳过 · 缺尾强刷 · 近 {top_lb} 日 topup · "
+            f"5m 增量补齐 · 齐窗才今日/对齐跳过 · 缺尾走新浪近端 · 近 {top_lb} 日 topup · "
             f"缺/短全窗 {full_lb} 日 · {n_workers} 并发"
         ),
     }

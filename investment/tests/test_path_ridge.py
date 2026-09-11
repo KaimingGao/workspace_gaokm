@@ -402,6 +402,7 @@ class TestPathRidgeFit(unittest.TestCase):
             ridge_lambda=1.0,
             sell_trig_pct=1.0,
             buy_trig_pct=1.0,
+            holdout_trading_days=5,
         )
         self.assertTrue(report.get("success"), report.get("error"))
         self.assertEqual(report.get("schema"), "path_ridge_v4")
@@ -438,7 +439,7 @@ class TestPathRidgeFit(unittest.TestCase):
         oos = report.get("oos") or {}
         self.assertIn("buckets", oos)
         self.assertIn("by_tau", oos)
-        self.assertEqual(oos.get("train_frac"), 0.9)
+        self.assertEqual(oos.get("split_mode"), "holdout_days")
         self.assertIn("n_train", oos)
         self.assertGreaterEqual(len(oos.get("by_tau") or {}), 2)
         gate = report.get("promote_gate") or {}
@@ -507,22 +508,27 @@ class TestPathRidgeService(unittest.TestCase):
         bars = _bars(40, 10.0)
         minute_map = _minute_map_for_bars(bars, low_then_high=True)
 
-        with patch("core.watching.store.read_watching") as rw, patch(
-            "core.data.facade.bars_and_source", return_value=(bars, "mock")
-        ), patch(
-            "core.store.load_minute_cache",
-            return_value=(list(minute_map.values())[0], {}),
-        ), patch(
-            "core.ports.market.group_minute_bars_by_date",
-            return_value=minute_map,
-        ):
-            rw.return_value = {"watchlist": ["A", "B"]}
-            svc = Svc()
-            out = svc.run_path_ridge_experiment(
-                lookback=40,
-                watching_limit=2,
-                persist=False,
-            )
+        with tempfile.TemporaryDirectory() as tmp:
+            live = os.path.join(tmp, "live")
+            os.makedirs(live, exist_ok=True)
+            with patch("core.paths.LIVE_DIR", live), patch(
+                "core.watching.store.read_watching"
+            ) as rw, patch(
+                "core.data.facade.bars_and_source", return_value=(bars, "mock")
+            ), patch(
+                "core.store.load_minute_cache",
+                return_value=(list(minute_map.values())[0], {}),
+            ), patch(
+                "core.ports.market.group_minute_bars_by_date",
+                return_value=minute_map,
+            ):
+                rw.return_value = {"watchlist": ["A", "B"]}
+                svc = Svc()
+                out = svc.run_path_ridge_experiment(
+                    lookback=40,
+                    watching_limit=2,
+                    persist=False,
+                )
         self.assertTrue(out.get("success"), out.get("error"))
         self.assertGreaterEqual(int(out.get("minute_codes_hit") or 0), 1)
         self.assertIn("return_model", out)
@@ -599,9 +605,14 @@ class TestPathRidgeService(unittest.TestCase):
         class Svc(QuantFactorMixin):
             pass
 
-        with patch("quant.research.path_ridge.load_path_model", return_value=None):
+        with patch("quant.research.path_ridge.load_path_model", return_value=None), patch(
+            "quant.research.path_ridge.load_path_last_report", return_value=None
+        ):
             out = Svc().get_path_ridge_model()
         self.assertFalse(out.get("exists"))
+        self.assertIn("research_exists", out)
+        self.assertIn("live_model_present", out)
+        self.assertFalse(out.get("live_model_present"))
 
 
 class PathLagFeatureTests(unittest.TestCase):

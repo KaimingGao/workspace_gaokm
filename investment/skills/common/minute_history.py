@@ -118,21 +118,28 @@ def _merge_save_minute_bars(
     if bars:
         meta["date_min"] = bars[0].get("date")
         meta["date_max"] = bars[-1].get("date")
+        incoming = list(bars)
         old = load_minute_cache(
             market, bare, period, min_bars=1, max_age_hours=0, ignore_age=True
         )
         if old:
-            bars = merge_minute_bars_by_time(old[0], bars)
+            bars = merge_minute_bars_by_time(old[0], incoming)
+        from core.store import bars_backend
+
+        # sqlite 按日替换 incoming；JSON 仍写合并后的全量
+        to_write = incoming if bars_backend() == "sqlite" else bars
         save_minute_cache(
             market,
             bare,
-            bars,
+            to_write,
             period=period,
             data_source=data_source,
             stock_code=bare,
             adjust_policy=adjust_policy,
         )
         meta["bar_count"] = len(bars)
+        meta["date_min"] = bars[0].get("date") if bars else meta.get("date_min")
+        meta["date_max"] = bars[-1].get("date") if bars else meta.get("date_max")
         meta["cached"] = True
     return bars, meta
 
@@ -291,6 +298,7 @@ def fetch_a_minute_bars(
     max_age_hours: float = MINUTE_CACHE_HOURS,
     adjust: str = "qfq",
     skip_em: bool = False,
+    skip_bs: bool = False,
 ) -> Tuple[List[dict], Dict[str, Any]]:
     """拉取 A 股分钟线；失败返回空列表。
 
@@ -298,6 +306,7 @@ def fetch_a_minute_bars(
     use_cache: True 时先读本地有效仓；False 跳过读仓直接打远端。
       远端成功后**始终** merge+save（与 use_cache 无关），避免 force refresh 不落盘。
     skip_em: True 时跳过东财（T0 回测 / 显式 skip）；新浪/腾讯有数则不再打 BaoStock。
+    skip_bs: True 时跳过 BaoStock（增量补齐近端，避免 90s 子进程把 Job 挂死）。
     远端失败时回退本地过期缓存（与日线 fetch 一致），避免做T回测整批挂死。
     """
     market, bare = resolve_market_code(code)
@@ -355,9 +364,12 @@ def fetch_a_minute_bars(
                 bars = align_minute_volume_units(bars, as_bars)
             bars = merge_minute_bars_by_time(bars, as_bars)
 
-    if as_bars:
-        # 新浪/腾讯已接住近端：不再打 BaoStock（避免超时空等；更长窗口仍靠东财）
-        bs_bars, bs_meta = [], {"skipped": True, "reason": "sina_tx_ok"}
+    if as_bars or skip_bs:
+        # 新浪/腾讯已接住近端，或调用方禁止 BaoStock（增量补齐）
+        bs_bars, bs_meta = [], {
+            "skipped": True,
+            "reason": "sina_tx_ok" if as_bars else "skip_bs",
+        }
     else:
         bs_bars, bs_meta = _maybe_fetch_baostock_minute_bars(
             bare,
@@ -432,6 +444,7 @@ def fetch_minute_bars(
     max_age_hours: float = MINUTE_CACHE_HOURS,
     adjust: str = "qfq",
     skip_em: bool = False,
+    skip_bs: bool = False,
 ) -> Tuple[List[dict], Dict[str, Any]]:
     """对外入口：目前仅 A 股。"""
     return fetch_a_minute_bars(
@@ -442,4 +455,5 @@ def fetch_minute_bars(
         max_age_hours=max_age_hours,
         adjust=adjust,
         skip_em=skip_em,
+        skip_bs=skip_bs,
     )

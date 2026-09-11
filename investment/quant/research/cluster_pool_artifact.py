@@ -53,6 +53,11 @@ def build_pool_artifact(report: Dict[str, Any]) -> Dict[str, Any]:
 
     for cl in report.get("clusters") or []:
         rm = cl.get("return_model") if isinstance(cl.get("return_model"), dict) else None
+        rm_research = (
+            cl.get("return_model_research")
+            if isinstance(cl.get("return_model_research"), dict)
+            else None
+        )
         weights = _cluster_weights(cl)
         label = str(cl.get("label") or f"G{(cl.get('cluster_id') or 0) + 1}")
         members = [str(m).strip() for m in (cl.get("members") or []) if str(m).strip()]
@@ -67,23 +72,35 @@ def build_pool_artifact(report: Dict[str, Any]) -> Dict[str, Any]:
             "members": members,
             "member_count": len(members),
             "return_model": rm,
+            "return_model_research": rm_research,
             "weights": weights,
             "weights_derived_from_beta": bool(
                 rm and has_factor_coefficients(rm) and weights
             ),
             "oos_gate": gate_slim,
             "oos_passed": oos_passed,
+            "fit_tier": str(cl.get("fit_tier") or "").strip().upper() or None,
+            "fit_tier_label": cl.get("fit_tier_label"),
+            "fit_tier_reason": cl.get("fit_tier_reason"),
             "singleton": bool(cl.get("singleton")),
         }
+        if entry["fit_tier"] not in ("A", "B", "C"):
+            entry.pop("fit_tier", None)
+            entry.pop("fit_tier_label", None)
+            entry.pop("fit_tier_reason", None)
         clusters_out.append(entry)
+        cmap_entry = {
+            "cluster_id": cl.get("cluster_id"),
+            "cluster_label": label,
+            "return_model": rm,
+            "return_model_research": rm_research,
+            "weights": weights,
+            "oos_passed": entry["oos_passed"],
+        }
+        if entry.get("fit_tier"):
+            cmap_entry["fit_tier"] = entry["fit_tier"]
         for code in members:
-            code_map[code] = {
-                "cluster_id": cl.get("cluster_id"),
-                "cluster_label": label,
-                "return_model": rm,
-                "weights": weights,
-                "oos_passed": entry["oos_passed"],
-            }
+            code_map[code] = dict(cmap_entry)
 
     pm = report.get("pool_merge") or {}
     book_wrap = (pm.get("book") or {}) if isinstance(pm, dict) else {}
@@ -129,6 +146,9 @@ def build_pool_artifact(report: Dict[str, Any]) -> Dict[str, Any]:
         "n_codes_with_coefs": n_with_coefs,
         "lookback": report.get("lookback"),
         "horizon_days": report.get("horizon_days"),
+        "holdout_trading_days": report.get("holdout_trading_days"),
+        "fit_end": report.get("fit_end"),
+        "eval_start": report.get("eval_start"),
         "y_spec": report.get("y_spec"),
         "sample_fingerprint": report.get("sample_fingerprint"),
         "respect_regime": report.get("respect_regime"),
@@ -152,6 +172,50 @@ def build_pool_artifact(report: Dict[str, Any]) -> Dict[str, Any]:
         "note": "人审产物；因子系数=组 OLS β→收益分；不进 live 须 promote。",
         "track": "B0-B5",
     }
+
+
+def build_research_scoring_artifact(artifact: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """同一分组：把打分真源换成研究套 β。缺研究系数则该组不打分（不回退 live）。"""
+    import copy
+
+    from core.signal.factors.meta.coefs import has_factor_coefficients
+
+    if not isinstance(artifact, dict):
+        return None
+    doc = copy.deepcopy(artifact)
+    n = 0
+    by_label: Dict[str, Any] = {}
+    for cl in doc.get("clusters") or []:
+        if not isinstance(cl, dict):
+            continue
+        rm_r = cl.get("return_model_research")
+        if has_factor_coefficients(rm_r if isinstance(rm_r, dict) else None):
+            cl["return_model"] = rm_r
+            n += 1
+            lab = str(cl.get("label") or "")
+            if lab:
+                by_label[lab] = rm_r
+        else:
+            cl["return_model"] = None
+        cl.pop("return_model_research", None)
+    for meta in (doc.get("code_map") or {}).values():
+        if not isinstance(meta, dict):
+            continue
+        rm_r = meta.get("return_model_research")
+        lab = str(meta.get("cluster_label") or meta.get("label") or "")
+        if not has_factor_coefficients(rm_r if isinstance(rm_r, dict) else None):
+            rm_r = by_label.get(lab)
+        if has_factor_coefficients(rm_r if isinstance(rm_r, dict) else None):
+            meta["return_model"] = rm_r
+            n += 1
+        else:
+            meta["return_model"] = None
+        meta.pop("return_model_research", None)
+    if n < 1:
+        return None
+    doc["model_role"] = "research"
+    doc["note"] = "研究套组 β（Holdout）；回测加载；不回退 live。"
+    return doc
 
 
 def assign_holdings_to_clusters(

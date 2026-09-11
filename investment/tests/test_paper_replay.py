@@ -1,4 +1,4 @@
-"""纸面回放引擎：T+1 / 续持 / 现金地板 / 引擎元数据。"""
+"""纸面回放引擎：T+1 / 续持 / 现金约束 / 引擎元数据。"""
 
 from __future__ import annotations
 
@@ -16,9 +16,12 @@ if ROOT not in sys.path:
 from core.backtest.paper_replay import (
     REPLAY_CASH_FLOOR,
     REPLAY_INITIAL_CASH,
+    REPLAY_LOT_BASE,
+    REPLAY_LOT_STRONG,
     REPLAY_RANK_ENTER,
     REPLAY_RANK_STRONG,
     backtest_paper_replay,
+    fuse_hit_metrics,
     mock_quote_from_bar,
     realized_yhat_windows,
 )
@@ -145,7 +148,7 @@ class TestReplayTplus1(unittest.TestCase):
 
 class TestPaperReplayEngine(unittest.TestCase):
     def test_hold_continuity_no_churn_sell(self):
-        """同票连续入选且 ranking≥0：不开卖腿（可每日加 1000/2000 直到地板）。"""
+        """同票连续入选且 ranking≥0：不开卖腿（可每日加 100/200 直到现金不够）。"""
         stock_bars = {
             "600519": _bars(22, step=0.5),
             "600036": _bars(22, step=0.3),
@@ -186,6 +189,15 @@ class TestPaperReplayEngine(unittest.TestCase):
         self.assertIn("contrib_pct", sample["legs"][0])
         self.assertIn("ret_pct", sample["legs"][0])
         self.assertIn("stock_code", sample["legs"][0])
+        contrib = out.get("stock_contrib") or []
+        self.assertTrue(contrib, "调仓回测应带分票贡献")
+        mt = next((r for r in contrib if r.get("stock_code") == "600519"), None)
+        self.assertIsNotNone(mt)
+        self.assertGreater(int(mt.get("hold_days") or 0), 0)
+        self.assertGreater(int(mt.get("buy_count") or 0), 0)
+        self.assertEqual(int(mt.get("sell_count") or 0), 0)
+        self.assertIn("pnl", mt)
+        self.assertIn("contrib_pct", mt)
         last = dates[-1]
         fills = [
             t
@@ -221,7 +233,7 @@ class TestPaperReplayEngine(unittest.TestCase):
             places=2,
         )
 
-    def test_default_cash_is_50w_floor_10w(self):
+    def test_default_cash_is_20w_no_floor(self):
         stock_bars = {
             "600519": _bars(16, step=0.5),
             "600036": _bars(16, step=0.3),
@@ -239,14 +251,14 @@ class TestPaperReplayEngine(unittest.TestCase):
         self.assertTrue(out.get("success"), out.get("error"))
         self.assertEqual(float(out["params"]["initial_cash"]), REPLAY_INITIAL_CASH)
         self.assertEqual(float(out["params"]["cash_floor"]), REPLAY_CASH_FLOOR)
-        self.assertEqual(REPLAY_INITIAL_CASH, 500_000.0)
-        self.assertEqual(REPLAY_CASH_FLOOR, 100_000.0)
+        self.assertEqual(REPLAY_INITIAL_CASH, 200_000.0)
+        self.assertEqual(REPLAY_CASH_FLOOR, 0.0)
         fills = [
             t
             for t in (out.get("trades") or [])
             if t.get("side") == "buy"
         ]
-        self.assertTrue(fills, "50 万本金 + 10 万地板应能买入手数，不能被 live 50 万地板拦死")
+        self.assertTrue(fills, "20 万本金、不留地板应能买入手数")
         from core.paper.rebalance.rank_lots import get_rank_lot_cfg
 
         paper = out.get("paper") or {}
@@ -257,6 +269,68 @@ class TestPaperReplayEngine(unittest.TestCase):
         rt = ((paper.get("rules") or {}).get("execution") or {}).get("rebalance_timing") or {}
         self.assertIn("rank_lots", rt)
         self.assertAlmostEqual(float((rt.get("rank_lots") or {}).get("cash_floor") or 0), REPLAY_CASH_FLOOR)
+        m = out.get("metrics") or {}
+        self.assertIn("hit_rate_pct", m)
+        self.assertIn("hit_n", m)
+        self.assertIn("hit_hits", m)
+        self.assertIn("day_count", m)
+        self.assertGreaterEqual(int(m.get("hit_n") or 0), 1)
+        self.assertIsNotNone(m.get("hit_rate_pct"))
+
+    def test_initial_cash_from_arg(self):
+        from core.backtest.paper_replay import clamp_replay_initial_cash
+
+        self.assertEqual(clamp_replay_initial_cash(150000), 150_000.0)
+        self.assertEqual(clamp_replay_initial_cash(None), 200_000.0)
+        self.assertEqual(clamp_replay_initial_cash(1000), 10_000.0)
+        stock_bars = {
+            "600519": _bars(16, step=0.5),
+            "600036": _bars(16, step=0.3),
+        }
+        dates = [b["date"] for b in stock_bars["600519"]]
+        rankings = {d: [_rank_row("600519", 2.0)] for d in dates}
+        with _offline_rebalance_patches():
+            out = backtest_paper_replay(
+                stock_bars,
+                top_k=1,
+                min_history=8,
+                rankings_by_date=rankings,
+                cost_model="zero",
+                initial_cash=150_000.0,
+            )
+        self.assertTrue(out.get("success"), out.get("error"))
+        self.assertEqual(float(out["params"]["initial_cash"]), 150_000.0)
+
+    def test_custom_lots(self):
+        from core.backtest.paper_replay import clamp_replay_lot, clamp_replay_lot_pair
+
+        self.assertEqual(clamp_replay_lot(150), 100)
+        self.assertEqual(clamp_replay_lot(250), 200)
+        self.assertEqual(clamp_replay_lot_pair(300, 200), (300, 300))
+        stock_bars = {
+            "600519": _bars(16, step=0.5),
+            "600036": _bars(16, step=0.3),
+        }
+        dates = [b["date"] for b in stock_bars["600519"]]
+        rankings = {d: [_rank_row("600519", 2.0)] for d in dates}
+        with _offline_rebalance_patches():
+            out = backtest_paper_replay(
+                stock_bars,
+                top_k=1,
+                min_history=8,
+                rankings_by_date=rankings,
+                cost_model="zero",
+                initial_cash=1_000_000.0,
+                lot_base=300,
+                lot_strong=500,
+            )
+        self.assertTrue(out.get("success"), out.get("error"))
+        self.assertEqual(int(out["params"]["lot_base"]), 300)
+        self.assertEqual(int(out["params"]["lot_strong"]), 500)
+        buys = [t for t in (out.get("trades") or []) if t.get("side") == "buy"]
+        self.assertTrue(buys)
+        for t in buys:
+            self.assertIn(float(t.get("shares") or 0), (300.0, 500.0), t)
 
     def test_cash_floor_respected(self):
         stock_bars = {
@@ -431,15 +505,15 @@ class TestPaperReplayEngine(unittest.TestCase):
         self.assertTrue(all(s.get("side") in ("buy", "sell") for s in sim))
         paper_trades = (out.get("paper") or {}).get("trades") or []
         self.assertEqual(len(paper_trades), len(trades))
-        self.assertEqual(out["params"]["lot_base"], 1000)
-        self.assertEqual(out["params"]["lot_strong"], 2000)
+        self.assertEqual(out["params"]["lot_base"], REPLAY_LOT_BASE)
+        self.assertEqual(out["params"]["lot_strong"], REPLAY_LOT_STRONG)
         self.assertAlmostEqual(float(out["params"]["rank_enter"]), REPLAY_RANK_ENTER)
         self.assertAlmostEqual(float(out["params"]["rank_strong"]), REPLAY_RANK_STRONG)
         buys = [t for t in trades if t.get("side") == "buy"]
         self.assertTrue(buys)
         for t in buys:
             sh = float(t.get("shares") or 0)
-            self.assertIn(sh, (1000.0, 2000.0), t)
+            self.assertIn(sh, (float(REPLAY_LOT_BASE), float(REPLAY_LOT_STRONG)), t)
             self.assertIn(t.get("action") or t.get("matrix_action"), ("open", "add"))
             self.assertEqual(t.get("cost_price"), t.get("price"), t)
             self.assertTrue(str(t.get("open_date") or "")[:10], t)
@@ -670,6 +744,21 @@ class TestSessionOverlay(unittest.TestCase):
             replay_session_day(now=datetime(2026, 9, 8, 10, 0, 0)), "2026-09-08"
         )
 
+    def test_before_fill_clock_is_none(self):
+        from core.backtest.paper_replay import replay_session_day
+
+        self.assertIsNone(
+            replay_session_day(
+                now=datetime(2026, 9, 8, 9, 32, 0), fill_clock="09:35"
+            )
+        )
+        self.assertEqual(
+            replay_session_day(
+                now=datetime(2026, 9, 8, 9, 35, 0), fill_clock="09:35"
+            ),
+            "2026-09-08",
+        )
+
     def test_stale_sample_not_jumped(self):
         from core.backtest.paper_replay import overlay_session_day_bars
 
@@ -846,6 +935,9 @@ class TestDayStockLegs(unittest.TestCase):
         self.assertEqual(legs[0]["stock_name"], "茅台")
         self.assertAlmostEqual(legs[0]["ret_pct"], 2.0, places=3)
         self.assertAlmostEqual(legs[0]["contrib_pct"], 0.2, places=4)
+        self.assertAlmostEqual(legs[0]["pnl"], 2000.0, places=2)
+        self.assertAlmostEqual(legs[0]["overnight_pnl"], 1000.0, places=2)
+        self.assertAlmostEqual(legs[0]["intraday_pnl"], 1000.0, places=2)
 
     def test_exit_at_open_ret_is_overnight_only(self):
         from core.backtest.paper_replay import day_stock_legs
@@ -939,6 +1031,18 @@ class TestDayStockLegs(unittest.TestCase):
         )
         self.assertEqual(len(legs), DAY_LEG_TOP)
         self.assertEqual(more, 3)
+        uncapped, more0 = day_stock_legs(
+            start=start,
+            end=end,
+            date_maps=date_maps,
+            prev_day="2026-03-09",
+            day="2026-03-10",
+            open_px=open_px,
+            prev_equity=1_000_000.0,
+            top=0,
+        )
+        self.assertEqual(len(uncapped), DAY_LEG_TOP + 3)
+        self.assertEqual(more0, 0)
 
     def test_name_by_code_overrides_code_label(self):
         from core.backtest.paper_replay import day_stock_legs
@@ -967,6 +1071,246 @@ class TestDayStockLegs(unittest.TestCase):
             name_by_code={"600519": "贵州茅台"},
         )
         self.assertEqual(legs[0]["stock_name"], "贵州茅台")
+
+
+class TestStockContrib(unittest.TestCase):
+    def test_aggregates_hold_and_exit(self):
+        from core.backtest.paper_replay import (
+            accumulate_day_contrib,
+            day_stock_legs,
+            finalize_stock_contrib,
+        )
+
+        date_maps = {
+            "600519": {
+                "2026-03-09": {"open": 99.0, "close": 100.0},
+                "2026-03-10": {"open": 101.0, "close": 102.0},
+                "2026-03-11": {"open": 103.0, "close": 99.0},
+            }
+        }
+        held = {
+            "600519": {
+                "stock_code": "600519",
+                "stock_name": "茅台",
+                "shares": 1000.0,
+            }
+        }
+        acc = {}
+        d1, _ = day_stock_legs(
+            start=held,
+            end=held,
+            date_maps=date_maps,
+            prev_day="2026-03-09",
+            day="2026-03-10",
+            open_px={"600519": 101.0},
+            prev_equity=1_000_000.0,
+            top=0,
+        )
+        accumulate_day_contrib(acc, d1, day="2026-03-10")
+        d2, _ = day_stock_legs(
+            start=held,
+            end={},
+            date_maps=date_maps,
+            prev_day="2026-03-10",
+            day="2026-03-11",
+            open_px={"600519": 103.0},
+            prev_equity=1_002_000.0,
+            top=0,
+        )
+        accumulate_day_contrib(acc, d2, day="2026-03-11")
+        rows = finalize_stock_contrib(
+            acc,
+            initial_cash=1_000_000.0,
+            trades=[
+                {"stock_code": "600519", "side": "buy", "shares": 1000},
+                {"stock_code": "600519", "side": "sell", "shares": 1000},
+            ],
+        )
+        self.assertEqual(len(rows), 1)
+        r = rows[0]
+        self.assertEqual(r["stock_code"], "600519")
+        self.assertEqual(r["stock_name"], "茅台")
+        self.assertEqual(r["hold_days"], 2)
+        self.assertEqual(r["buy_count"], 1)
+        self.assertEqual(r["sell_count"], 1)
+        self.assertEqual(r["shares_end"], 0)
+        self.assertEqual(r["first_date"], "2026-03-10")
+        self.assertEqual(r["last_date"], "2026-03-11")
+        # d1: 1000*(102-101)+1000*(101-100)=2000；d2 清仓只计隔夜 1000*(103-102)=1000
+        self.assertAlmostEqual(r["pnl"], 3000.0, places=2)
+        self.assertAlmostEqual(r["contrib_pct"], 0.3, places=4)
+        self.assertAlmostEqual(r["overnight_pnl"], 2000.0, places=2)
+        self.assertAlmostEqual(r["intraday_pnl"], 1000.0, places=2)
+
+    def test_uncapped_rows_keep_small_contrib_names(self):
+        from core.backtest.paper_replay import (
+            DAY_LEG_TOP,
+            accumulate_day_contrib,
+            day_stock_legs,
+            finalize_stock_contrib,
+        )
+
+        date_maps = {}
+        start = {}
+        end = {}
+        open_px = {}
+        n = DAY_LEG_TOP + 4
+        for i in range(n):
+            code = f"{600000 + i}"
+            date_maps[code] = {
+                "2026-03-09": {"close": 10.0},
+                "2026-03-10": {"open": 10.0, "close": 10.0 + (i + 1) * 0.1},
+            }
+            row = {"stock_code": code, "stock_name": f"票{i}", "shares": 1000.0}
+            start[code] = row
+            end[code] = row
+            open_px[code] = 10.0
+        legs, more = day_stock_legs(
+            start=start,
+            end=end,
+            date_maps=date_maps,
+            prev_day="2026-03-09",
+            day="2026-03-10",
+            open_px=open_px,
+            prev_equity=1_000_000.0,
+        )
+        self.assertEqual(len(legs), DAY_LEG_TOP)
+        self.assertEqual(more, 4)
+        all_legs, _ = day_stock_legs(
+            start=start,
+            end=end,
+            date_maps=date_maps,
+            prev_day="2026-03-09",
+            day="2026-03-10",
+            open_px=open_px,
+            prev_equity=1_000_000.0,
+            top=0,
+        )
+        acc = {}
+        accumulate_day_contrib(acc, all_legs, day="2026-03-10")
+        rows = finalize_stock_contrib(acc, initial_cash=1_000_000.0)
+        self.assertEqual(len(rows), n)
+        self.assertEqual(rows[0]["stock_code"], f"{600000 + n - 1}")
+
+
+class TestReplayMinuteFill(unittest.TestCase):
+    def test_clamp_fill_clock(self):
+        from core.backtest.paper_replay import (
+            REPLAY_FILL_CLOCKS,
+            clamp_replay_fill_clock,
+        )
+
+        self.assertEqual(clamp_replay_fill_clock("9:35"), "09:35")
+        self.assertEqual(clamp_replay_fill_clock("0935"), "09:35")
+        self.assertEqual(clamp_replay_fill_clock("10:00"), "10:00")
+        self.assertEqual(clamp_replay_fill_clock("11:00"), "09:30")
+        self.assertEqual(clamp_replay_fill_clock(None), "09:30")
+        self.assertEqual(len(REPLAY_FILL_CLOCKS), 7)
+
+    def test_fill_px_0930_uses_first_open(self):
+        from core.backtest.paper_replay import replay_fill_px
+
+        daily = {"open": 100.0, "close": 101.0}
+        mins = [
+            {
+                "datetime": "2026-03-10 09:35:00",
+                "open": 100.4,
+                "close": 100.8,
+            }
+        ]
+        self.assertAlmostEqual(
+            replay_fill_px(daily_bar=daily, minute_bars=mins, fill_clock="09:30"),
+            100.4,
+        )
+        self.assertAlmostEqual(
+            replay_fill_px(daily_bar=daily, minute_bars=mins, fill_clock="09:35"),
+            100.8,
+        )
+        self.assertIsNone(
+            replay_fill_px(daily_bar=daily, minute_bars=mins, fill_clock="10:00")
+        )
+        self.assertAlmostEqual(
+            replay_fill_px(daily_bar=daily, minute_bars=[], fill_clock="09:30"),
+            100.0,
+        )
+
+    def test_engine_fills_at_935_close(self):
+        stock_bars = {
+            "600519": _bars(16, step=0.5),
+            "600036": _bars(16, step=0.3),
+        }
+        dates = [b["date"] for b in stock_bars["600519"]]
+        rankings = {d: [_rank_row("600519", 2.0)] for d in dates}
+        minutes = {
+            "600519": {
+                d: [
+                    {
+                        "date": d,
+                        "datetime": f"{d} 09:35:00",
+                        "open": 80.0,
+                        "high": 81.0,
+                        "low": 79.5,
+                        "close": 80.5,
+                    }
+                ]
+                for d in dates
+            },
+            "600036": {
+                d: [
+                    {
+                        "date": d,
+                        "datetime": f"{d} 09:35:00",
+                        "open": 70.0,
+                        "close": 70.2,
+                    }
+                ]
+                for d in dates
+            },
+        }
+        with _offline_rebalance_patches():
+            out = backtest_paper_replay(
+                stock_bars,
+                top_k=1,
+                min_history=8,
+                rankings_by_date=rankings,
+                cost_model="zero",
+                fill_clock="09:35",
+                minute_bars_by_code=minutes,
+            )
+        self.assertTrue(out.get("success"), out.get("error"))
+        self.assertEqual(out["params"]["fill_clock"], "09:35")
+        self.assertEqual(out["params"]["execution_mode"], "minute_5m")
+        buys = [
+            t
+            for t in (out.get("trades") or [])
+            if t.get("side") == "buy" and t.get("stock_code") == "600519"
+        ]
+        self.assertTrue(buys)
+        self.assertAlmostEqual(float(buys[0].get("price") or 0), 80.5, places=4)
+        daily_open = float(stock_bars["600519"][8]["open"])
+        self.assertNotAlmostEqual(float(buys[0].get("price") or 0), daily_open, places=2)
+
+    def test_935_skips_when_minute_missing(self):
+        stock_bars = {
+            "600519": _bars(16, step=0.5),
+            "600036": _bars(16, step=0.3),
+        }
+        dates = [b["date"] for b in stock_bars["600519"]]
+        rankings = {d: [_rank_row("600519", 2.0)] for d in dates}
+        with _offline_rebalance_patches():
+            out = backtest_paper_replay(
+                stock_bars,
+                top_k=1,
+                min_history=8,
+                rankings_by_date=rankings,
+                cost_model="zero",
+                fill_clock="09:35",
+                minute_bars_by_code={},
+            )
+        self.assertTrue(out.get("success"), out.get("error"))
+        buys = [t for t in (out.get("trades") or []) if t.get("side") == "buy"]
+        self.assertEqual(buys, [])
+        self.assertGreater(int((out.get("constraints_hit") or {}).get("minute_skips") or 0), 0)
 
 
 class TestReplayCalendar(unittest.TestCase):
@@ -1066,6 +1410,9 @@ class TestPortfolioBacktestPersistCurve(unittest.TestCase):
             "core.backtest.paper_replay.backtest_paper_replay",
             return_value=dict(fake_bt),
         ), patch(
+            "core.backtest.paper_replay.load_replay_minute_bars",
+            return_value=({}, {"ok": True, "covered": 0, "missing": []}),
+        ), patch(
             "core.backtest.topk_backtest.backtest_topk_equal_weight",
         ) as topk_mock, patch(
             "core.north_star.save_last_backtest_curve",
@@ -1082,6 +1429,7 @@ class TestPortfolioBacktestPersistCurve(unittest.TestCase):
                 persist_curve=False,
                 include_benchmark=False,
                 exclude_st=False,
+                universe_fit_tiers=["A", "B", "C"],
             )
             self.assertTrue(out.get("success"))
             save.assert_not_called()
@@ -1090,10 +1438,34 @@ class TestPortfolioBacktestPersistCurve(unittest.TestCase):
                 persist_curve=True,
                 include_benchmark=False,
                 exclude_st=False,
+                universe_fit_tiers=["A", "B", "C"],
             )
             self.assertTrue(out2.get("success"))
             save.assert_called()
             topk_mock.assert_not_called()
+
+
+class TestFuseHitMetrics(unittest.TestCase):
+    def test_sign_hit_skips_and_no_direction(self):
+        pct, n, hits = fuse_hit_metrics(
+            [
+                {"y_fuse": 1.2, "realized_cc": 0.5},
+                {"y_fuse": 1.2, "realized_cc": -0.5},
+                {"y_fuse": 1.2, "realized_cc": 0.5, "status": "skipped"},
+                {"y_fuse": 0.01, "realized_cc": 1.0},
+                {"y_fuse": -1.0, "realized_cc": -0.2},
+                {"ranking_score": 0.02, "realized_cc": 1.0},
+            ]
+        )
+        self.assertEqual(n, 4)
+        self.assertEqual(hits, 3)
+        self.assertEqual(pct, 75.0)
+
+    def test_empty_is_none(self):
+        pct, n, hits = fuse_hit_metrics([{"status": "skipped", "y_fuse": 2.0, "realized_cc": 1.0}])
+        self.assertIsNone(pct)
+        self.assertEqual(n, 0)
+        self.assertEqual(hits, 0)
 
 
 if __name__ == "__main__":

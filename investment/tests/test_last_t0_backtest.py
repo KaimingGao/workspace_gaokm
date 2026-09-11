@@ -154,5 +154,21 @@ class TestPersistLastT0Backtest(unittest.TestCase):
             save_ui.assert_not_called()
 
 
+class TestFillT0VizStockNames(unittest.TestCase):
+    def test_fills_empty_point_names(self):
+        from quant.research.t0_backtest import _fill_t0_viz_stock_names
+
+        viz = {
+            "cumulative_pnl": [{"date": "2026-09-01", "pnl": 1.0, "stock_code": "", "stock_name": ""}],
+            "y_tau_scatter": [{"date": "2026-09-01", "y_tau": -0.5, "stock_code": "600584"}],
+            "stock_contrib": [{"stock_code": "600584", "stock_name": ""}],
+        }
+        _fill_t0_viz_stock_names(viz, stock_code="600584", stock_name="长电科技")
+        self.assertEqual(viz["cumulative_pnl"][0]["stock_code"], "600584")
+        self.assertEqual(viz["cumulative_pnl"][0]["stock_name"], "长电科技")
+        self.assertEqual(viz["y_tau_scatter"][0]["stock_name"], "长电科技")
+        self.assertEqual(viz["stock_contrib"][0]["stock_name"], "长电科技")
+
+
 if __name__ == "__main__":
     unittest.main()

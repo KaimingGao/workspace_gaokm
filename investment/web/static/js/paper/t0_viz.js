@@ -1,7 +1,7 @@
 /** 做T回测可视化（canvas + CSS，无外部图表库）。 */
 
 import { paperMetricClass } from "./fmt.js";
-import { SKIP_CAT_TIP, stockCellHtml } from "./t0_table.js?v=p1986";
+import { SKIP_CAT_TIP, stockCellHtml, stampStockFitTiers } from "./t0_table.js?v=p2261";
 
 const THEME = {
   actual: "#2563eb",
@@ -194,7 +194,29 @@ function niceMax(v) {
   return nice * mag;
 }
 
-function drawCumulativePnl(canvas, points) {
+function t0DirShort(dir) {
+  const d = String(dir || "");
+  if (d === "buy_then_sell") return "正T";
+  if (d === "sell_then_buy") return "反T";
+  if (d === "mixed") return "多轮";
+  return "";
+}
+
+function cumPointX(i, n, padL, plotW) {
+  return padL + (n <= 1 ? plotW / 2 : (i / (n - 1)) * plotW);
+}
+
+function stockNameByCode(viz) {
+  const m = {};
+  (viz && viz.stock_contrib ? viz.stock_contrib : []).forEach((r) => {
+    const code = String((r && r.stock_code) || "").trim();
+    const name = String((r && r.stock_name) || "").trim();
+    if (code && name) m[code] = name;
+  });
+  return m;
+}
+
+function drawCumulativePnl(canvas, points, { hoverIdx = null, nameByCode = {} } = {}) {
   if (!canvas || !points || points.length < 1) return;
   const { w, h } = getChartSize(canvas);
   const ctx = setupCanvas(canvas, w, h);
@@ -207,6 +229,23 @@ function drawCumulativePnl(canvas, points) {
   const plotW = w - pad.l - pad.r;
   const plotH = h - pad.t - pad.b;
   const y0 = pad.t + ((maxV - 0) / span) * plotH;
+  const n = points.length;
+  const pts = points.map((p, i) => {
+    const v = Number(p.cum_pnl ?? p.pnl ?? 0);
+    const code = String(p.stock_code || "").trim();
+    return {
+      i,
+      x: cumPointX(i, n, pad.l, plotW),
+      y: pad.t + ((maxV - v) / span) * plotH,
+      v,
+      day: Number(p.pnl ?? 0),
+      date: p.date,
+      stock_name: String(p.stock_name || "").trim() || nameByCode[code] || "",
+      stock_code: code,
+      direction: p.direction,
+      y_tau: p.y_tau,
+    };
+  });
 
   drawHGrid(ctx, pad, w, h, [
     { frac: 0, label: fmtNum(maxV, 0) },
@@ -226,16 +265,11 @@ function drawCumulativePnl(canvas, points) {
   grad.addColorStop(0, "rgba(37,99,235,0.18)");
   grad.addColorStop(1, "rgba(37,99,235,0.02)");
   ctx.beginPath();
-  points.forEach((p, i) => {
-    const x = pad.l + (points.length === 1 ? plotW / 2 : (i / (points.length - 1)) * plotW);
-    const v = Number(p.cum_pnl ?? p.pnl ?? 0);
-    const y = pad.t + ((maxV - v) / span) * plotH;
-    if (i === 0) ctx.moveTo(x, y);
-    else ctx.lineTo(x, y);
+  pts.forEach((pt, i) => {
+    if (i === 0) ctx.moveTo(pt.x, pt.y);
+    else ctx.lineTo(pt.x, pt.y);
   });
-  const lastX =
-    pad.l + (points.length === 1 ? plotW / 2 : plotW);
-  ctx.lineTo(lastX, h - pad.b);
+  ctx.lineTo(pts[pts.length - 1].x, h - pad.b);
   ctx.lineTo(pad.l, h - pad.b);
   ctx.closePath();
   ctx.fillStyle = grad;
@@ -244,39 +278,164 @@ function drawCumulativePnl(canvas, points) {
   ctx.strokeStyle = THEME.actual;
   ctx.lineWidth = 2;
   ctx.beginPath();
-  points.forEach((p, i) => {
-    const x = pad.l + (points.length === 1 ? plotW / 2 : (i / (points.length - 1)) * plotW);
-    const v = Number(p.cum_pnl ?? p.pnl ?? 0);
-    const y = pad.t + ((maxV - v) / span) * plotH;
-    if (i === 0) ctx.moveTo(x, y);
-    else ctx.lineTo(x, y);
+  pts.forEach((pt, i) => {
+    if (i === 0) ctx.moveTo(pt.x, pt.y);
+    else ctx.lineTo(pt.x, pt.y);
   });
   ctx.stroke();
 
-  points.forEach((p, i) => {
-    const x = pad.l + (points.length === 1 ? plotW / 2 : (i / (points.length - 1)) * plotW);
-    const v = Number(p.cum_pnl ?? p.pnl ?? 0);
-    const y = pad.t + ((maxV - v) / span) * plotH;
-    ctx.fillStyle = v >= 0 ? THEME.pnlUp : THEME.pnlDown;
+  const hi = Number.isInteger(hoverIdx) && hoverIdx >= 0 && hoverIdx < pts.length ? hoverIdx : null;
+  if (hi != null) {
+    const hp = pts[hi];
+    ctx.strokeStyle = THEME.axis;
+    ctx.lineWidth = 1;
+    ctx.setLineDash([3, 3]);
     ctx.beginPath();
-    ctx.arc(x, y, 3.5, 0, Math.PI * 2);
+    ctx.moveTo(hp.x, pad.t);
+    ctx.lineTo(hp.x, h - pad.b);
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }
+
+  pts.forEach((pt, i) => {
+    const active = hi === i;
+    ctx.fillStyle = pt.v >= 0 ? THEME.pnlUp : THEME.pnlDown;
+    ctx.beginPath();
+    ctx.arc(pt.x, pt.y, active ? 5 : 3.5, 0, Math.PI * 2);
     ctx.fill();
+    if (active) {
+      ctx.strokeStyle = THEME.actual;
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.arc(pt.x, pt.y, 7, 0, Math.PI * 2);
+      ctx.stroke();
+    }
   });
 
   const last = points[points.length - 1];
   const total = Number(last.cum_pnl ?? last.pnl ?? 0);
   const first = Number(points[0]?.cum_pnl ?? points[0]?.pnl ?? 0);
-  return {
+  const meta = {
     total,
-    n: points.length,
+    n,
     delta: total - first,
     max: maxV,
     min: minV,
+    pad,
+    w,
+    h,
+    plotW,
+    pts,
+    rawPoints: points,
   };
+  canvas._cumHoverMeta = meta;
+  return meta;
+}
+
+function hitCumPnlPoint(meta, ev, el) {
+  if (!meta || !meta.pts || !meta.pts.length || !el) return null;
+  const rect = el.getBoundingClientRect();
+  const scaleX = meta.w / Math.max(rect.width, 1);
+  const lx = (ev.clientX - rect.left) * scaleX;
+  const pad = meta.pad || { l: 44, r: 10 };
+  if (lx < pad.l - 6 || lx > meta.w - (pad.r || 0) + 6) return null;
+  let best = 0;
+  let bestD = Infinity;
+  meta.pts.forEach((pt, i) => {
+    const d = Math.abs(pt.x - lx);
+    if (d < bestD) {
+      bestD = d;
+      best = i;
+    }
+  });
+  const slot = meta.n > 1 ? meta.plotW / (meta.n - 1) : meta.plotW;
+  if (bestD > Math.max(10, slot * 0.6)) return null;
+  return best;
+}
+
+function wireCumPnlHover(canvas) {
+  if (!canvas) return;
+  const box = canvas.closest(".paper-t0-viz-chart-box") || canvas.parentElement;
+  let tipEl = box && box.querySelector('[data-role="cum-hover-tip"]');
+  if (box && !tipEl) {
+    tipEl = document.createElement("div");
+    tipEl.className = "paper-t0-viz-chart-hover-tip";
+    tipEl.setAttribute("data-role", "cum-hover-tip");
+    tipEl.hidden = true;
+    box.appendChild(tipEl);
+  }
+
+  const show = (idx, ev) => {
+    const meta = canvas._cumHoverMeta;
+    const pt = meta && meta.pts && meta.pts[idx];
+    if (!tipEl) {
+      canvas.title = pt
+        ? `${fmtDateShort(pt.date)} ${pt.stock_name || pt.stock_code || ""} 累计 ${fmtMoney(pt.v)}`
+        : "";
+      return;
+    }
+    if (idx == null || !pt) {
+      tipEl.hidden = true;
+      tipEl.textContent = "";
+      canvas.style.cursor = "default";
+      if (box) box.classList.remove("is-chart-tip");
+      return;
+    }
+    const name = String(pt.stock_name || pt.stock_code || "").trim();
+    const dir = t0DirShort(pt.direction);
+    const yt = pt.y_tau != null && Number.isFinite(Number(pt.y_tau)) ? Number(pt.y_tau) : null;
+    const bits = [dir || null, yt != null ? `y_τ ${fmtNum(yt, 2)}%` : null].filter(Boolean);
+    tipEl.hidden = false;
+    if (box) box.classList.add("is-chart-tip");
+    canvas.style.cursor = "crosshair";
+    tipEl.innerHTML =
+      `<strong>${esc(String(pt.date || "").slice(0, 10))}${name ? ` · ${esc(name)}` : ""}</strong>` +
+      `<span class="paper-t0-viz-chart-hover-meta">` +
+      `累计 ${esc(fmtMoney(pt.v))} · 当日 ${esc(fmtMoney(pt.day))}` +
+      `</span>` +
+      (bits.length ? `<p>${esc(bits.join(" · "))}</p>` : "");
+    if (ev && box) {
+      const br = box.getBoundingClientRect();
+      const x = Math.min(Math.max(8, ev.clientX - br.left + 12), Math.max(8, br.width - 200));
+      const y = Math.min(Math.max(8, ev.clientY - br.top + 12), Math.max(8, br.height - 76));
+      tipEl.style.left = `${x}px`;
+      tipEl.style.top = `${y}px`;
+    }
+  };
+
+  if (canvas._cumHoverWired) return;
+  canvas._cumHoverWired = true;
+  canvas.addEventListener("mousemove", (ev) => {
+    const meta = canvas._cumHoverMeta;
+    const idx = hitCumPnlPoint(meta, ev, canvas);
+    if (idx !== canvas._cumHoverIdx) {
+      canvas._cumHoverIdx = idx;
+      if (meta && meta.rawPoints) {
+        drawCumulativePnl(canvas, meta.rawPoints, {
+          hoverIdx: idx,
+          nameByCode: canvas._cumNameByCode,
+        });
+      }
+    }
+    show(idx, ev);
+  });
+  canvas.addEventListener("mouseleave", () => {
+    if (canvas._cumHoverIdx != null) {
+      canvas._cumHoverIdx = null;
+      const meta = canvas._cumHoverMeta;
+      if (meta && meta.rawPoints) {
+        drawCumulativePnl(canvas, meta.rawPoints, {
+          hoverIdx: null,
+          nameByCode: canvas._cumNameByCode,
+        });
+      }
+    }
+    show(null);
+  });
 }
 
 /** 日度活跃 — 堆叠柱 + 日期轴 */
-function drawDailyActivity(canvas, rows) {
+function drawDailyActivity(canvas, rows, { hoverIdx = null, hoverStack = null } = {}) {
   if (!canvas || !rows || rows.length < 2) return null;
   const { w, h } = getChartSize(canvas);
   const ctx = setupCanvas(canvas, w, h);
@@ -290,8 +449,8 @@ function drawDailyActivity(canvas, rows) {
   const pad = { l: 28, r: 6, t: 10, b: 28 };
   const plotW = w - pad.l - pad.r;
   const plotH = h - pad.t - pad.b;
-  const barW = Math.max(3, plotW / slice.length - 1.5);
   const gap = 1.5;
+  const barW = Math.max(3, plotW / slice.length - gap);
 
   drawHGrid(ctx, pad, w, h, [
     { frac: 0, label: maxTot },
@@ -302,26 +461,79 @@ function drawDailyActivity(canvas, rows) {
   let sumTraded = 0;
   let sumSignal = 0;
   let sumOther = 0;
+  const hi = Number.isInteger(hoverIdx) && hoverIdx >= 0 && hoverIdx < slice.length ? hoverIdx : null;
 
-  slice.forEach((r, i) => {
+  const bars = slice.map((r, i) => {
     const x = pad.l + i * (barW + gap);
+    const traded = Number(r.traded || 0);
+    const signal_skip = Number(r.signal_skip || 0);
+    const other_skip = Number(r.other_skip || 0);
+    sumTraded += traded;
+    sumSignal += signal_skip;
+    sumOther += other_skip;
+    const bar = {
+      i,
+      x,
+      barW,
+      date: r.date,
+      traded,
+      signal_skip,
+      other_skip,
+      total: traded + signal_skip + other_skip,
+      stacks: [],
+      topY: h - pad.b,
+      botY: h - pad.b,
+    };
     let y = h - pad.b;
-    sumTraded += Number(r.traded || 0);
-    sumSignal += Number(r.signal_skip || 0);
-    sumOther += Number(r.other_skip || 0);
     [
-      { n: Number(r.other_skip || 0), c: THEME.otherSkip },
-      { n: Number(r.signal_skip || 0), c: THEME.signalSkip },
-      { n: Number(r.traded || 0), c: THEME.sellThenBuy },
+      { id: "other_skip", label: "其它跳过", n: other_skip, c: THEME.otherSkip },
+      { id: "signal_skip", label: "信号跳过", n: signal_skip, c: THEME.signalSkip },
+      { id: "traded", label: "成交", n: traded, c: THEME.sellThenBuy },
     ].forEach((p) => {
       if (p.n <= 0) return;
       const bh = (p.n / maxTot) * plotH;
       y -= bh;
+      bar.stacks.push({ id: p.id, label: p.label, n: p.n, c: p.c, y, h: bh });
       roundRect(ctx, x, y, barW, bh, Math.min(2, barW / 2));
       ctx.fillStyle = p.c;
       ctx.fill();
     });
+    bar.topY = y;
+    return bar;
   });
+
+  if (hi != null) {
+    const bar = bars[hi];
+    const midX = bar.x + bar.barW / 2;
+    ctx.strokeStyle = THEME.axis;
+    ctx.lineWidth = 1;
+    ctx.setLineDash([3, 3]);
+    ctx.beginPath();
+    ctx.moveTo(midX, pad.t);
+    ctx.lineTo(midX, h - pad.b);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    const stack = hoverStack ? bar.stacks.find((s) => s.id === hoverStack) : null;
+    ctx.beginPath();
+    if (stack) {
+      ctx.strokeStyle = THEME.actual;
+      ctx.lineWidth = 1.5;
+      roundRect(ctx, bar.x - 0.5, stack.y - 0.5, bar.barW + 1, stack.h + 1, Math.min(2, bar.barW / 2));
+      ctx.stroke();
+    } else if (bar.total > 0) {
+      ctx.strokeStyle = THEME.actual;
+      ctx.lineWidth = 1.5;
+      roundRect(
+        ctx,
+        bar.x - 0.5,
+        bar.topY - 0.5,
+        bar.barW + 1,
+        bar.botY - bar.topY + 1,
+        Math.min(2, bar.barW / 2)
+      );
+      ctx.stroke();
+    }
+  }
 
   const dateLabels = [0, Math.floor(slice.length / 2), slice.length - 1];
   ctx.fillStyle = THEME.axis;
@@ -333,11 +545,139 @@ function drawDailyActivity(canvas, rows) {
     ctx.fillText(fmtDateShort(slice[idx]?.date), x, h - pad.b + 6);
   });
 
-  return { sumTraded, sumSignal, sumOther, days: slice.length };
+  const meta = {
+    sumTraded,
+    sumSignal,
+    sumOther,
+    days: slice.length,
+    bars,
+    pad,
+    w,
+    h,
+    plotW,
+    barW,
+    gap,
+    rawRows: rows,
+  };
+  canvas._actHoverMeta = meta;
+  return meta;
+}
+
+function hitDailyActivityBar(meta, ev, el) {
+  if (!meta || !meta.bars || !meta.bars.length || !el) return null;
+  const rect = el.getBoundingClientRect();
+  const scaleX = meta.w / Math.max(rect.width, 1);
+  const scaleY = meta.h / Math.max(rect.height, 1);
+  const lx = (ev.clientX - rect.left) * scaleX;
+  const ly = (ev.clientY - rect.top) * scaleY;
+  const pad = meta.pad || { l: 28, r: 6, t: 10, b: 28 };
+  if (lx < pad.l - 4 || lx > meta.w - (pad.r || 0) + 4) return null;
+  if (ly < pad.t - 4 || ly > meta.h - (pad.b || 0) + 8) return null;
+  let best = 0;
+  let bestD = Infinity;
+  meta.bars.forEach((bar, i) => {
+    const cx = bar.x + bar.barW / 2;
+    const d = Math.abs(cx - lx);
+    if (d < bestD) {
+      bestD = d;
+      best = i;
+    }
+  });
+  const slot = (meta.barW || 3) + (meta.gap || 1.5);
+  if (bestD > Math.max(8, slot * 0.7)) return null;
+  const bar = meta.bars[best];
+  let stackId = null;
+  (bar.stacks || []).forEach((s) => {
+    if (ly >= s.y && ly <= s.y + s.h) stackId = s.id;
+  });
+  return { idx: best, stackId };
+}
+
+function wireDailyActivityHover(canvas) {
+  if (!canvas) return;
+  const box = canvas.closest(".paper-t0-viz-chart-box") || canvas.parentElement;
+  let tipEl = box && box.querySelector('[data-role="activity-hover-tip"]');
+  if (box && !tipEl) {
+    tipEl = document.createElement("div");
+    tipEl.className = "paper-t0-viz-chart-hover-tip";
+    tipEl.setAttribute("data-role", "activity-hover-tip");
+    tipEl.hidden = true;
+    box.appendChild(tipEl);
+  }
+
+  const show = (hit, ev) => {
+    const meta = canvas._actHoverMeta;
+    const bar = hit && meta && meta.bars && meta.bars[hit.idx];
+    if (!tipEl) {
+      canvas.title = bar
+        ? `${fmtDateShort(bar.date)} 成交 ${bar.traded} · 信号 ${bar.signal_skip} · 其它 ${bar.other_skip}`
+        : "";
+      return;
+    }
+    if (!hit || !bar) {
+      tipEl.hidden = true;
+      tipEl.textContent = "";
+      canvas.style.cursor = "default";
+      if (box) box.classList.remove("is-chart-tip");
+      return;
+    }
+    const stack = hit.stackId ? (bar.stacks || []).find((s) => s.id === hit.stackId) : null;
+    const parts = [
+      `成交 ${bar.traded}`,
+      `信号跳过 ${bar.signal_skip}`,
+      `其它 ${bar.other_skip}`,
+    ];
+    tipEl.hidden = false;
+    if (box) box.classList.add("is-chart-tip");
+    canvas.style.cursor = "crosshair";
+    tipEl.innerHTML =
+      `<strong>${esc(String(bar.date || "").slice(0, 10))}${
+        stack ? ` · ${esc(stack.label)}` : ""
+      }</strong>` +
+      `<span class="paper-t0-viz-chart-hover-meta">` +
+      (stack ? `${esc(String(stack.n))} / 合计 ${esc(String(bar.total))}` : `合计 ${esc(String(bar.total))}`) +
+      `</span>` +
+      `<p>${esc(parts.join(" · "))}</p>`;
+    if (ev && box) {
+      const br = box.getBoundingClientRect();
+      const x = Math.min(Math.max(8, ev.clientX - br.left + 12), Math.max(8, br.width - 220));
+      const y = Math.min(Math.max(8, ev.clientY - br.top + 12), Math.max(8, br.height - 80));
+      tipEl.style.left = `${x}px`;
+      tipEl.style.top = `${y}px`;
+    }
+  };
+
+  if (canvas._actHoverWired) return;
+  canvas._actHoverWired = true;
+  canvas.addEventListener("mousemove", (ev) => {
+    const meta = canvas._actHoverMeta;
+    const hit = hitDailyActivityBar(meta, ev, canvas);
+    const idx = hit ? hit.idx : null;
+    const stackId = hit ? hit.stackId : null;
+    if (idx !== canvas._actHoverIdx || stackId !== canvas._actHoverStack) {
+      canvas._actHoverIdx = idx;
+      canvas._actHoverStack = stackId;
+      if (meta && meta.rawRows) {
+        drawDailyActivity(canvas, meta.rawRows, { hoverIdx: idx, hoverStack: stackId });
+      }
+    }
+    show(hit, ev);
+  });
+  canvas.addEventListener("mouseleave", () => {
+    if (canvas._actHoverIdx != null || canvas._actHoverStack) {
+      canvas._actHoverIdx = null;
+      canvas._actHoverStack = null;
+      const meta = canvas._actHoverMeta;
+      if (meta && meta.rawRows) {
+        drawDailyActivity(canvas, meta.rawRows, { hoverIdx: null });
+      }
+    }
+    show(null);
+  });
 }
 
 /** y_τ 散点 — 时间轴 + 分区着色 */
-function drawYtauScatter(canvas, points, threshold = 0) {
+function drawYtauScatter(canvas, points, threshold = 0, { hoverIdx = null, nameByCode = {} } = {}) {
   if (!canvas || !points || !points.length) return null;
   const { w, h } = getChartSize(canvas);
   const ctx = setupCanvas(canvas, w, h);
@@ -367,7 +707,6 @@ function drawYtauScatter(canvas, points, threshold = 0) {
     return pad.l + (base + jitter) * plotW;
   };
 
-  // 方向分区底色（y_τ>0→正T，y_τ<0→反T）
   ctx.fillStyle = THEME.buyThenSellLight;
   ctx.fillRect(pad.l, yLine(maxY), plotW, yLine(threshold) - yLine(maxY));
   ctx.fillStyle = THEME.sellThenBuyLight;
@@ -381,7 +720,6 @@ function drawYtauScatter(canvas, points, threshold = 0) {
     { frac: 1, label: fmtNum(minY, 2) },
   ]);
 
-  // ±τ 门槛
   ctx.setLineDash([5, 4]);
   ctx.strokeStyle = THEME.gridStrong;
   ctx.lineWidth = 1;
@@ -404,6 +742,7 @@ function drawYtauScatter(canvas, points, threshold = 0) {
   let nSellThenBuy = 0;
   let nBuyThenSell = 0;
   let nSkipNeg = 0;
+  const pts = [];
 
   sorted.forEach((p, i) => {
     const yv = Number(p.y_tau);
@@ -418,12 +757,28 @@ function drawYtauScatter(canvas, points, threshold = 0) {
       nSkip += 1;
       if (yv < -0.1) nSkipNeg += 1;
     }
+    const code = String(p.stock_code || "").trim();
     const color = traded
       ? p.direction === "buy_then_sell"
         ? THEME.buyThenSell
         : THEME.sellThenBuy
       : THEME.signalSkip;
     const r = traded ? 4.5 : 3.5;
+    pts.push({
+      i,
+      x,
+      y,
+      r,
+      color,
+      traded,
+      y_tau: yv,
+      date: p.date,
+      direction: p.direction,
+      outcome: p.outcome,
+      skip_category: p.skip_category,
+      stock_code: code,
+      stock_name: String(p.stock_name || "").trim() || nameByCode[code] || "",
+    });
     ctx.beginPath();
     ctx.arc(x, y, r + 1.5, 0, Math.PI * 2);
     ctx.fillStyle = traded ? "rgba(255,255,255,0.85)" : "rgba(255,255,255,0.5)";
@@ -436,6 +791,16 @@ function drawYtauScatter(canvas, points, threshold = 0) {
     ctx.globalAlpha = 1;
   });
 
+  const hi = Number.isInteger(hoverIdx) && hoverIdx >= 0 && hoverIdx < pts.length ? hoverIdx : null;
+  if (hi != null) {
+    const hp = pts[hi];
+    ctx.strokeStyle = THEME.actual;
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.arc(hp.x, hp.y, hp.r + 4, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+
   const dateTicks = [0, Math.floor(dates.length / 2), dates.length - 1];
   ctx.fillStyle = THEME.axis;
   ctx.font = FONT_SM;
@@ -446,7 +811,124 @@ function drawYtauScatter(canvas, points, threshold = 0) {
     ctx.fillText(fmtDateShort(dates[idx]), x, h - pad.b + 4);
   });
 
-  return { nTraded, nSkip, nSkipNeg, nSellThenBuy, nBuyThenSell, threshold };
+  const meta = {
+    nTraded,
+    nSkip,
+    nSkipNeg,
+    nSellThenBuy,
+    nBuyThenSell,
+    threshold,
+    pts,
+    pad,
+    w,
+    h,
+    rawPoints: points,
+  };
+  canvas._scatHoverMeta = meta;
+  return meta;
+}
+
+function hitYtauScatterPoint(meta, ev, el) {
+  if (!meta || !meta.pts || !meta.pts.length || !el) return null;
+  const rect = el.getBoundingClientRect();
+  const scaleX = meta.w / Math.max(rect.width, 1);
+  const scaleY = meta.h / Math.max(rect.height, 1);
+  const lx = (ev.clientX - rect.left) * scaleX;
+  const ly = (ev.clientY - rect.top) * scaleY;
+  const pad = meta.pad || { l: 40, r: 10, t: 12, b: 26 };
+  if (lx < pad.l - 8 || lx > meta.w - (pad.r || 0) + 8) return null;
+  if (ly < pad.t - 8 || ly > meta.h - (pad.b || 0) + 8) return null;
+  let best = 0;
+  let bestD = Infinity;
+  meta.pts.forEach((pt, i) => {
+    const d = Math.hypot(pt.x - lx, pt.y - ly);
+    if (d < bestD) {
+      bestD = d;
+      best = i;
+    }
+  });
+  if (bestD > 14) return null;
+  return best;
+}
+
+function wireYtauScatterHover(canvas) {
+  if (!canvas) return;
+  const box = canvas.closest(".paper-t0-viz-chart-box") || canvas.parentElement;
+  let tipEl = box && box.querySelector('[data-role="scatter-hover-tip"]');
+  if (box && !tipEl) {
+    tipEl = document.createElement("div");
+    tipEl.className = "paper-t0-viz-chart-hover-tip";
+    tipEl.setAttribute("data-role", "scatter-hover-tip");
+    tipEl.hidden = true;
+    box.appendChild(tipEl);
+  }
+
+  const show = (idx, ev) => {
+    const meta = canvas._scatHoverMeta;
+    const pt = meta && meta.pts && meta.pts[idx];
+    if (!tipEl) {
+      canvas.title = pt
+        ? `${fmtDateShort(pt.date)} ${pt.stock_name || pt.stock_code || ""} y_τ ${fmtNum(pt.y_tau, 2)}%`
+        : "";
+      return;
+    }
+    if (idx == null || !pt) {
+      tipEl.hidden = true;
+      tipEl.textContent = "";
+      canvas.style.cursor = "default";
+      if (box) box.classList.remove("is-chart-tip");
+      return;
+    }
+    const name = String(pt.stock_name || pt.stock_code || "").trim();
+    const dir = pt.traded ? t0DirShort(pt.direction) : "信号跳过";
+    const skipTip = !pt.traded && pt.skip_category ? skipCatTip(pt.skip_category) : "";
+    tipEl.hidden = false;
+    if (box) box.classList.add("is-chart-tip");
+    canvas.style.cursor = "crosshair";
+    tipEl.innerHTML =
+      `<strong>${esc(String(pt.date || "").slice(0, 10))}${name ? ` · ${esc(name)}` : ""}</strong>` +
+      `<span class="paper-t0-viz-chart-hover-meta">` +
+      `y_τ ${esc(fmtNum(pt.y_tau, 2))}% · ${esc(dir)}` +
+      `</span>` +
+      (skipTip ? `<p>${esc(skipTip)}</p>` : "");
+    if (ev && box) {
+      const br = box.getBoundingClientRect();
+      const x = Math.min(Math.max(8, ev.clientX - br.left + 12), Math.max(8, br.width - 220));
+      const y = Math.min(Math.max(8, ev.clientY - br.top + 12), Math.max(8, br.height - 80));
+      tipEl.style.left = `${x}px`;
+      tipEl.style.top = `${y}px`;
+    }
+  };
+
+  if (canvas._scatHoverWired) return;
+  canvas._scatHoverWired = true;
+  canvas.addEventListener("mousemove", (ev) => {
+    const meta = canvas._scatHoverMeta;
+    const idx = hitYtauScatterPoint(meta, ev, canvas);
+    if (idx !== canvas._scatHoverIdx) {
+      canvas._scatHoverIdx = idx;
+      if (meta && meta.rawPoints) {
+        drawYtauScatter(canvas, meta.rawPoints, canvas._scatThreshold || 0, {
+          hoverIdx: idx,
+          nameByCode: canvas._scatNameByCode,
+        });
+      }
+    }
+    show(idx, ev);
+  });
+  canvas.addEventListener("mouseleave", () => {
+    if (canvas._scatHoverIdx != null) {
+      canvas._scatHoverIdx = null;
+      const meta = canvas._scatHoverMeta;
+      if (meta && meta.rawPoints) {
+        drawYtauScatter(canvas, meta.rawPoints, canvas._scatThreshold || 0, {
+          hoverIdx: null,
+          nameByCode: canvas._scatNameByCode,
+        });
+      }
+    }
+    show(null);
+  });
 }
 
 /** 跳过构成 — CSS conic-gradient 环形（避免 canvas 填色在部分环境下糊成单色） */
@@ -1134,7 +1616,7 @@ export function renderT0Viz(host, data) {
     cards.push(
       vizCard(
         "累计 PnL",
-        `${viz.trade_count ?? 0} 笔成交`,
+        `${viz.trade_count ?? 0} 笔成交 · 悬停看逐笔`,
         chartCanvas("cum"),
         `<div data-role="cum-foot"></div>`,
         legendChips([{ color: THEME.actual, label: "累计 PnL" }])
@@ -1146,7 +1628,7 @@ export function renderT0Viz(host, data) {
     cards.push(
       vizCard(
         "日度活跃",
-        "近 50 评估日 · 堆叠",
+        "近 50 评估日 · 堆叠 · 悬停看逐日",
         chartCanvas("activity"),
         `<div data-role="activity-foot"></div>`,
         legendChips([
@@ -1162,7 +1644,7 @@ export function renderT0Viz(host, data) {
     cards.push(
       vizCard(
         "y_τ 散点",
-        `|y_τ|≥${tauEnter}% 门槛 · 中间灰带=|y_τ|<τ · 橙=信号跳过（不含振幅/未触达跳过）`,
+        `|y_τ|≥${tauEnter}% 门槛 · 中间灰带=|y_τ|<τ · 橙=信号跳过 · 悬停看点`,
         chartCanvas("scatter"),
         `<div data-role="scatter-foot"></div>`,
         legendChips([
@@ -1215,11 +1697,17 @@ export function renderT0Viz(host, data) {
     renderKpiRow(sm) +
     `<div class="paper-t0-viz-grid">${cards.join("")}</div>` +
     renderContribSection(viz.stock_contrib);
+  stampStockFitTiers(host);
 
   function paintCharts() {
     const cum = host.querySelector('canvas[data-viz="cum"]');
     if (cum) {
-      const meta = drawCumulativePnl(cum, viz.cumulative_pnl);
+      cum._cumNameByCode = stockNameByCode(viz);
+      const meta = drawCumulativePnl(cum, viz.cumulative_pnl, {
+        hoverIdx: cum._cumHoverIdx,
+        nameByCode: cum._cumNameByCode,
+      });
+      wireCumPnlHover(cum);
       const foot = host.querySelector('[data-role="cum-foot"]');
       if (foot && meta) {
         const cls = meta.total >= 0 ? "up" : "down";
@@ -1237,7 +1725,11 @@ export function renderT0Viz(host, data) {
 
     const act = host.querySelector('canvas[data-viz="activity"]');
     if (act) {
-      const meta = drawDailyActivity(act, viz.daily_activity);
+      const meta = drawDailyActivity(act, viz.daily_activity, {
+        hoverIdx: act._actHoverIdx,
+        hoverStack: act._actHoverStack,
+      });
+      wireDailyActivityHover(act);
       const foot = host.querySelector('[data-role="activity-foot"]');
       if (foot && meta) {
         foot.innerHTML = [
@@ -1251,7 +1743,13 @@ export function renderT0Viz(host, data) {
 
     const sc = host.querySelector('canvas[data-viz="scatter"]');
     if (sc) {
-      const meta = drawYtauScatter(sc, viz.y_tau_scatter, tauEnter);
+      sc._scatNameByCode = stockNameByCode(viz);
+      sc._scatThreshold = tauEnter;
+      const meta = drawYtauScatter(sc, viz.y_tau_scatter, tauEnter, {
+        hoverIdx: sc._scatHoverIdx,
+        nameByCode: sc._scatNameByCode,
+      });
+      wireYtauScatterHover(sc);
       const foot = host.querySelector('[data-role="scatter-foot"]');
       if (foot && meta) {
         foot.innerHTML = [

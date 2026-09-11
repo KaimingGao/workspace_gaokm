@@ -37,7 +37,7 @@ from core.research.cx_ridge import (
 )
 from core.research.factor_ols_fit import fit_factor_ols_from_panel
 from core.research.tau_panel import normalize_minute_tau_grid
-from core.research.tau_ridge import _predict_rows, _subset, _time_split_indices
+from core.research.tau_ridge import _predict_rows, _subset
 from core.signal.minute_tau_feats import MINUTE_TAU_FEAT_LABELS
 
 TPD_MIN_STD_EXEMPT = TPD_Z_FEATURES
@@ -57,7 +57,7 @@ def fit_tpd_ridge_report(
     ridge_lambda: float = 1.0,
     min_history: int = 12,
     gap_trigger_pct: float = 2.0,
-    train_frac: float = 0.9,
+    holdout_trading_days: int = 10,
     minute_tau_hm: Optional[str] = None,
     tau_grid: Optional[Sequence[str]] = None,
 ) -> Dict[str, Any]:
@@ -89,7 +89,20 @@ def fit_tpd_ridge_report(
         }
 
     xs_z = _z_only_xs(xs, TPD_Z_FEATURES)
-    train_idx, test_idx = _time_split_indices(dates, train_frac=train_frac)
+    from core.research.holdout import (
+        DEFAULT_HOLDOUT_TRADING_DAYS,
+        attach_holdout_meta,
+        calendar_dates_from_stock_bars,
+        make_research_model,
+        resolve_ridge_split,
+    )
+
+    hold_n = int(holdout_trading_days or DEFAULT_HOLDOUT_TRADING_DAYS)
+    train_idx, test_idx, split_meta = resolve_ridge_split(
+        dates,
+        holdout_trading_days=hold_n,
+        calendar_dates=calendar_dates_from_stock_bars(stock_bars),
+    )
     xs_tr, ys_tr, _metas_tr = _subset(xs_z, ys, metas, train_idx)
     xs_te, ys_te, metas_te = _subset(xs_z, ys, metas, test_idx)
 
@@ -141,7 +154,6 @@ def fit_tpd_ridge_report(
         if len(cx_vals) >= 8:
             oos["spearman_y_complexity_y_tpd"] = _spearman(cx_vals, tpd_vals)
     oos["y_label_mean"] = round(y_mean, 4)
-    oos["train_frac"] = float(train_frac)
     oos["tau_grid"] = list(grid)
     oos["minute_tau_hm"] = live_hm
     try:
@@ -159,6 +171,7 @@ def fit_tpd_ridge_report(
         "rows_per_day": round(len(ys) / max(1, len({str(d)[:10] for d in dates})), 2),
     }
 
+    research_model = make_research_model(fit, y_mean=y_mean)
     ys_all_dm = [float(y) - y_mean for y in ys]
     fit_full = fit_factor_ols_from_panel(
         xs_z,
@@ -206,6 +219,7 @@ def fit_tpd_ridge_report(
         "sample_count": len(ys),
         "oos": oos,
         "return_model": model,
+        "return_model_research": research_model,
         "schema": "tpd_ridge_v1",
         "target": "path_tpd_5m",
         "minute_tau_hm": live_hm,
@@ -213,6 +227,7 @@ def fit_tpd_ridge_report(
         "dual_score_head": "y_tpd",
         "note": "开盘 Z + 多 τ 前缀 + tpd_lag + complexity_lag → 全日转折点密度 [0,1]；ŷ_tpd>y_tpd_max 跳过做 T",
     }
+    attach_holdout_meta(report, split_meta)
     report["promote_gate"] = tpd_promote_gate(report)
     return report
 
@@ -268,7 +283,16 @@ def load_tpd_last_report() -> Optional[Dict[str, Any]]:
     return doc
 
 
-def load_tpd_model() -> Optional[Dict[str, Any]]:
+def load_tpd_model(*, role: Optional[str] = None) -> Optional[Dict[str, Any]]:
+    from core.research.holdout import (
+        MODEL_ROLE_RESEARCH,
+        current_scoring_model_role,
+        load_research_promoted_json,
+    )
+
+    role_n = role if role is not None else current_scoring_model_role()
+    if role_n == MODEL_ROLE_RESEARCH:
+        return load_research_promoted_json(tpd_model_path())
     global _TPD_MODEL_CACHE
     model_p = tpd_model_path()
     report_p = tpd_last_report_path()
@@ -299,10 +323,17 @@ def persist_tpd_model(
     *,
     note: str = "",
     force: bool = False,
+    role: str = "live",
 ) -> Dict[str, Any]:
+    from core.research.holdout import (
+        MODEL_ROLE_RESEARCH,
+        research_model_path,
+        select_persist_return_model,
+    )
+
     if not report.get("success"):
         return {"success": False, "error": report.get("error") or "no report"}
-    rm = report.get("return_model")
+    role_n, rm = select_persist_return_model(report, role=role)
     if not isinstance(rm, dict):
         return {"success": False, "error": "return_model missing"}
     gate = tpd_promote_gate(report)
@@ -326,9 +357,17 @@ def persist_tpd_model(
         "minute_tau_hm": report.get("minute_tau_hm") or rm.get("minute_tau_hm"),
         "tau_grid": report.get("tau_grid") or rm.get("tau_grid"),
         "promote_gate": gate,
+        "model_role": role_n,
+        "fit_end": report.get("fit_end"),
+        "eval_start": report.get("eval_start"),
+        "holdout_trading_days": report.get("holdout_trading_days"),
         "dual_score_head": "y_tpd",
     }
-    path = tpd_model_path()
+    path = (
+        research_model_path(tpd_model_path())
+        if role_n == MODEL_ROLE_RESEARCH
+        else tpd_model_path()
+    )
     os.makedirs(os.path.dirname(path), exist_ok=True)
     atomic_write_json(path, doc)
     global _TPD_MODEL_CACHE

@@ -338,6 +338,17 @@ class TestFactorOlsClusters(unittest.TestCase):
                 self.assertIn("max_within_dist", cl)
                 # 合成短序列可能日截面稀疏；只要走了组内截面口径即可
                 self.assertIn("组内按日截面", panel.get("note") or "")
+        wf = out.get("walk_forward") or {}
+        if wf.get("split_mode") == "holdout_days":
+            self.assertEqual(int(out.get("holdout_trading_days") or 0), 10)
+            self.assertTrue(wf.get("cut_date"))
+            n_research = sum(
+                1
+                for cl in clusters
+                if isinstance(cl.get("return_model_research"), dict)
+                and (cl.get("return_model_research") or {}).get("coefficients")
+            )
+            self.assertGreaterEqual(n_research, 1)
 
     def test_pick_best_k_selection_row(self):
         from quant.research.cluster_oos import pick_best_k_selection_row
@@ -801,13 +812,15 @@ class TestFactorOlsClusters(unittest.TestCase):
         self.assertIn("cluster_beta", ks)
         self.assertIn("chosen_partition_kind", ks)
         wf = out.get("walk_forward") or {}
-        self.assertIn(wf.get("split_mode"), ("calendar", "per_stock_ratio"))
+        self.assertIn(wf.get("split_mode"), ("holdout_days", "calendar", "per_stock_ratio"))
         self.assertEqual(ks.get("walk_forward"), wf)
-        if wf.get("split_mode") == "calendar":
+        if wf.get("split_mode") in ("holdout_days", "calendar"):
             self.assertTrue(wf.get("cut_date"))
             self.assertEqual(
                 (ks.get("cluster_beta") or {}).get("cut_date"), wf.get("cut_date")
             )
+            if wf.get("split_mode") == "holdout_days":
+                self.assertEqual(int(wf.get("holdout_trading_days") or 0), 10)
             # auto-k 多折打分（小宇宙）
             self.assertTrue(ks.get("expanding_score") in (True, False))
             cand0 = (ks.get("candidates") or [{}])[0]
@@ -1243,6 +1256,10 @@ class TestFactorOlsClusters(unittest.TestCase):
         self.assertIsNotNone(out.get("preferred_cluster"))
         self.assertEqual(out["preferred_cluster"]["label"], "G1")
         self.assertTrue(out["preferred_cluster"]["oos_passed"])
+        self.assertEqual(out["clusters"][0]["fit_tier"], "B")
+        self.assertEqual(out["clusters"][1]["fit_tier"], "C")
+        self.assertEqual(out["fit_tier_summary"]["B"], 1)
+        self.assertEqual(out["fit_tier_summary"]["C"], 1)
 
     def test_attach_oos_wraps_inner_progress_and_fast_gate(self):
         from quant.research.cluster_oos import attach_cluster_oos_gates

@@ -153,6 +153,68 @@ class _StoreBackendMixin:
         self.assertEqual(len(lb), 12)
         self.assertEqual(meta.get("bars_backend"), self.backend)
 
+    def test_minute_topup_does_not_wipe_older_days(self):
+        old = []
+        for hm in ("09:35:00", "14:55:00"):
+            old.append(
+                {
+                    "datetime": f"2026-07-10 {hm}",
+                    "date": "2026-07-10",
+                    "open": 10,
+                    "high": 11,
+                    "low": 9,
+                    "close": 10.5,
+                    "volume": 100,
+                }
+            )
+        save_minute_cache(
+            "CN",
+            "601898",
+            old,
+            period="5",
+            data_source="hist",
+            store_dir=self.tmp,
+        )
+        incoming = [
+            {
+                "datetime": "2026-09-11 09:35:00",
+                "date": "2026-09-11",
+                "open": 12,
+                "high": 13,
+                "low": 11,
+                "close": 12.5,
+                "volume": 200,
+            },
+            {
+                "datetime": "2026-09-11 14:55:00",
+                "date": "2026-09-11",
+                "open": 12.5,
+                "high": 13,
+                "low": 12,
+                "close": 12.8,
+                "volume": 200,
+            },
+        ]
+        save_minute_cache(
+            "CN",
+            "601898",
+            incoming,
+            period="5",
+            data_source="topup",
+            store_dir=self.tmp,
+        )
+        loaded = load_minute_cache(
+            "CN", "601898", "5", min_bars=1, ignore_age=True, store_dir=self.tmp
+        )
+        self.assertIsNotNone(loaded)
+        lb, meta = loaded
+        days = {str(b.get("date") or "")[:10] for b in lb}
+        self.assertIn("2026-07-10", days)
+        self.assertIn("2026-09-11", days)
+        self.assertGreaterEqual(len(lb), 4)
+        self.assertEqual(str(meta.get("date_min") or "")[:10], "2026-07-10")
+        self.assertEqual(str(meta.get("date_max") or "")[:10], "2026-09-11")
+
     def test_clear_daily(self):
         save_daily_cache(
             "CN",

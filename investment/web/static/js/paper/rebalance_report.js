@@ -1,5 +1,7 @@
 /** Paper · 调仓预演报告渲染（从 paper.js 抽出）。 */
 
+import { fitTierBadgeForCode, ensureFitTierMap } from "../quant/fit_tier_ui.js?v=p2261";
+
 /**
  * @param {object} deps
  * @returns {{ dismissRebalancePreview: Function, emptyReasonLabel: Function, renderRebalanceReport: Function }}
@@ -44,7 +46,45 @@ export function createRebalanceReportController(deps) {
     setFollowMatrixPreviewPending,
   } = deps;
 
-/** 确认落账或点 × 后收起预演区（持仓/流水另由 loadPaper 刷新）。 */
+function previewMetricChip(cls, label, value) {
+  return (
+    `<span class="paper-t0-desk-chip ${cls}">` +
+    `<span class="paper-t0-desk-chip-k">${escapeText(label)}</span>` +
+    `<span class="paper-t0-desk-chip-v">${escapeText(String(value ?? 0))}</span>` +
+    `</span>`
+  );
+}
+
+function paintRebalancePreviewChips({ report, skips, cashImpact } = {}) {
+  const chipsEl = document.getElementById("paper-rebalance-preview-chips");
+  if (!chipsEl) return;
+  const rows = Array.isArray(report) ? report : [];
+  let buyN = 0;
+  let sellN = 0;
+  let holdN = 0;
+  let skipN = 0;
+  for (const r of rows) {
+    const d = String((r && r.decision) || "");
+    if (d.includes("买入") || d.includes("加仓")) buyN += 1;
+    else if (d.includes("卖出") || d.includes("减仓")) sellN += 1;
+    else if (d.includes("跳过")) skipN += 1;
+    else holdN += 1;
+  }
+  const skipExtra = Array.isArray(skips) ? skips.length : 0;
+  const turn = cashImpact != null ? cashImpact.turnover_pct : null;
+  const turnN = turn == null || turn === "" ? NaN : Number(turn);
+  chipsEl.innerHTML =
+    previewMetricChip("is-univ", "票", rows.length) +
+    previewMetricChip("is-done", "买", buyN) +
+    previewMetricChip("is-locked", "卖", sellN) +
+    previewMetricChip("is-idle", "持", holdN) +
+    previewMetricChip("is-locked", "跳过", skipN + skipExtra) +
+    (Number.isFinite(turnN)
+      ? previewMetricChip("is-univ", "换手", `${turnN.toFixed(1)}%`)
+      : "");
+}
+
+/** 确认落账后收起预演区（持仓/流水另由 loadPaper 刷新）。 */
 function dismissRebalancePreview() {
   const section = document.getElementById("paper-rebalance-section");
   if (section) section.hidden = true;
@@ -65,6 +105,8 @@ function dismissRebalancePreview() {
   }
   const container = document.getElementById("paper-rebalance-report");
   if (container) container.innerHTML = "";
+  const chipsEl = document.getElementById("paper-rebalance-preview-chips");
+  if (chipsEl) chipsEl.innerHTML = "";
   const nextEl = document.getElementById("paper-validate-next");
   if (nextEl) {
     nextEl.hidden = true;
@@ -78,7 +120,7 @@ function emptyReasonLabel(code) {
     empty_ranking: "目标簿为空（无人过闸或未建簿）",
     all_below_eod_floor: "全部低于 EOD 买入门槛",
     all_below_rank_enter: "无人过 ranking 入场",
-    cash_below_floor: "现金已低于买入地板",
+    cash_below_floor: "现金不足，无法买入",
     buys_blocked: "买入被风控/规则拦截",
     risk_blocked: "风控整批拦截",
     no_executable_changes: "无可执行买卖",
@@ -238,6 +280,7 @@ function renderRebalanceReport(
       nextEl.innerHTML = "";
     }
     renderOpsReport(null);
+    paintRebalancePreviewChips();
     return;
   }
 
@@ -997,6 +1040,7 @@ function renderRebalanceReport(
         `<span class="rebalance-stock-main">` +
         `<span class="rebalance-stock-name">` +
         `<span class="rebalance-stock-name-text">${name}</span>` +
+        fitTierBadgeForCode(rawCode, { escapeHtml: escapeText }) +
         oosBadge +
         sentPriorBadge +
         marketPriorBadge +
@@ -1138,7 +1182,13 @@ function renderRebalanceReport(
   scoreTips.bindHost(container, {
     scoreSelector: ".rebalance-score[data-score-detail]",
   });
+  void ensureFitTierMap(container);
 
+  paintRebalancePreviewChips({
+    report,
+    skips,
+    cashImpact,
+  });
   section.hidden = false;
 }
 

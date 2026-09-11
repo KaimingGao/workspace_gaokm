@@ -114,6 +114,34 @@ class TestClusterPoolArtifact(unittest.TestCase):
         self.assertFalse(art["clusters"][1]["oos_passed"])
         self.assertFalse(art["clusters"][1]["oos_gate"]["passed"])
 
+    def test_build_research_scoring_swaps_beta_no_live_fallback(self):
+        from quant.research.cluster_pool_artifact import (
+            build_research_scoring_artifact,
+        )
+
+        report = self._report()
+        report["clusters"][0]["return_model_research"] = {
+            "coefficients": {"momentum": 0.11, "value": 0.89},
+            "intercept": 0.0,
+        }
+        art = build_pool_artifact(report)
+        self.assertEqual(
+            art["code_map"]["600519"]["return_model_research"]["coefficients"]["momentum"],
+            0.11,
+        )
+        research = build_research_scoring_artifact(art)
+        self.assertIsNotNone(research)
+        self.assertEqual(research["model_role"], "research")
+        self.assertEqual(
+            research["code_map"]["600519"]["return_model"]["coefficients"]["momentum"],
+            0.11,
+        )
+        self.assertNotIn(
+            "return_model_research", research["code_map"]["600519"]
+        )
+        missing = build_research_scoring_artifact(self._report())
+        self.assertIsNone(missing)
+
     def test_intent_preview(self):
         intent = intent_preview_vs_holdings(
             [{"stock_code": "600519"}, {"stock_code": "601318"}],

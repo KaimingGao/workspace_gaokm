@@ -413,6 +413,11 @@ def pack_day_scores(score_snap: Optional[dict]) -> Optional[Dict[str, Any]]:
         "y_cx_hat",
         "predicted_score_tpd",
         "y_tpd_hat",
+        "predicted_score_r",
+        "y_r_hat",
+        "y_r",
+        "r_realized",
+        "y_r_realized",
         "y_check",
         "eod_trust",
         "y_nc",
@@ -474,6 +479,11 @@ def attach_day_scores(
             "y_cx_hat",
             "predicted_score_tpd",
             "y_tpd_hat",
+            "predicted_score_r",
+            "y_r_hat",
+            "y_r",
+            "r_realized",
+            "y_r_realized",
             "y_check",
             "eod_trust",
             "y_nc",
@@ -713,6 +723,25 @@ def scores_from_item(item: Optional[dict]) -> Dict[str, Optional[float]]:
         except Exception:  # noqa: BLE001
             out["predicted_score_tpd"] = y_tpd_hat
             out["y_tpd_hat"] = y_tpd_hat
+    try:
+        from core.research.r_ridge import pick_y_r_hat, pick_y_r_label, write_y_r_hat, write_y_r_label
+
+        y_r_hat = pick_y_r_hat(item)
+        if y_r_hat is not None:
+            write_y_r_hat(out, y_r_hat)
+        y_r_lab = pick_y_r_label(item)
+        if y_r_lab is not None:
+            write_y_r_label(out, y_r_lab)
+    except Exception:  # noqa: BLE001
+        y_r_hat = _f(item.get("predicted_score_r"))
+        if y_r_hat is None:
+            y_r_hat = _f(item.get("y_r_hat"))
+        if y_r_hat is None:
+            y_r_hat = _f(item.get("y_r"))
+        if y_r_hat is not None:
+            out["predicted_score_r"] = y_r_hat
+            out["y_r_hat"] = y_r_hat
+            out["y_r"] = y_r_hat
     if y_tau_oc is not None:
         out["y_tau_oc"] = y_tau_oc
         out["predicted_score_tau_oc"] = y_tau_oc
@@ -1351,6 +1380,39 @@ def _attach_y_path_to_item(
             _attach_y_complexity_to_item(item, hist_bars=hist_bars, allow_open_z=allow_open_z)
         except Exception:  # noqa: BLE001
             logger.debug("attach y_complexity failed", exc_info=True)
+        try:
+            _attach_y_r_to_item(item, allow_open_z=allow_open_z)
+        except Exception:  # noqa: BLE001
+            logger.debug("attach y_r failed", exc_info=True)
+
+
+def _attach_y_r_to_item(
+    item: dict,
+    *,
+    allow_open_z: bool = True,
+) -> None:
+    """即时补 ŷ_r（与 ŷ_τ 同 X）；缺模型/缺前缀则不出分。仅展示，不进 ĉ / 选腿。"""
+    if not isinstance(item, dict):
+        return
+    feats = item.get("features_tau") if isinstance(item.get("features_tau"), dict) else {}
+    if not feats:
+        feats = item.get("features_path") if isinstance(item.get("features_path"), dict) else {}
+    if not feats:
+        return
+    open_z_only = not _minute_pack_present(feats)
+    if open_z_only and not allow_open_z:
+        return
+    try:
+        from core.research.r_ridge import load_r_model, predict_r_from_features, write_y_r_hat
+
+        model = load_r_model()
+        if model is None:
+            return
+        y_r = predict_r_from_features(feats, model_doc=model)
+        if y_r is not None:
+            write_y_r_hat(item, float(y_r))
+    except Exception:  # noqa: BLE001
+        logger.debug("attach y_r predict failed", exc_info=True)
 
 
 def _attach_y_complexity_to_item(
@@ -1764,6 +1826,9 @@ def rescore_scores_at_fixed_prefix(
         out.pop("y_cx_hat", None)
         out.pop("predicted_score_tpd", None)
         out.pop("y_tpd_hat", None)
+        out.pop("predicted_score_r", None)
+        out.pop("y_r_hat", None)
+        out.pop("y_r", None)
         return out
 
     if not raw or not isinstance(day_bar, dict):
@@ -2616,7 +2681,10 @@ def _enrich_quote_path_price(
 
 def _scoring_models() -> Tuple[Any, Dict[str, Any], Any]:
     """(tau_doc, cluster_models_by_code, global_return_model)。"""
-    if _MODEL_CACHE.get("ok"):
+    from core.research.holdout import current_scoring_model_role
+
+    role = current_scoring_model_role()
+    if _MODEL_CACHE.get("ok") and _MODEL_CACHE.get("role") == role:
         return (
             _MODEL_CACHE.get("tau") or _MODEL_CACHE.get("rem"),
             _MODEL_CACHE.get("cluster") or {},
@@ -2650,7 +2718,13 @@ def _scoring_models() -> Tuple[Any, Dict[str, Any], Any]:
         logger.debug("load global return model failed", exc_info=True)
     _MODEL_CACHE.clear()
     _MODEL_CACHE.update(
-        {"ok": True, "tau": tau, "cluster": cluster, "global_rm": global_rm}
+        {
+            "ok": True,
+            "tau": tau,
+            "cluster": cluster,
+            "global_rm": global_rm,
+            "role": role,
+        }
     )
     return tau, cluster, global_rm
 

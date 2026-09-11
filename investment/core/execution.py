@@ -242,7 +242,7 @@ DEFAULT_REBALANCE_TIMING: Dict[str, Any] = {
         "mode": "rank_lots",
         "rank_enter": 0.012,
         "rank_strong": 0.012,
-        "cash_floor": 500000.0,
+        "cash_floor": 0.0,
         "holdings_mv_cap": 150000.0,
         "fusion_w_trade": 0.5,
         "fusion_w_nowcast": 0.5,
@@ -254,7 +254,7 @@ DEFAULT_REBALANCE_TIMING: Dict[str, Any] = {
         "mode": "rank_lots",
         "rank_enter": 0.012,
         "rank_strong": 0.012,
-        "cash_floor": 500000.0,
+        "cash_floor": 0.0,
         "holdings_mv_cap": 150000.0,
         "fusion_w_trade": 0.5,
         "fusion_w_nowcast": 0.5,
@@ -1032,7 +1032,7 @@ def validate_execution_patch(raw: Any) -> Tuple[bool, Dict[str, Any], List[str]]
                     "mode": "rank_lots",
                     "rank_enter": float(pm.get("rank_enter") or 0.012),
                     "rank_strong": float(pm.get("rank_strong") or 0.012),
-                    "cash_floor": float(pm.get("cash_floor") or 500_000.0),
+                    "cash_floor": 0.0,
                     "holdings_mv_cap": float(
                         pm.get("holdings_mv_cap")
                         if pm.get("holdings_mv_cap") is not None

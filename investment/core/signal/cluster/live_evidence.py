@@ -302,6 +302,7 @@ def cluster_status_public(
         get_cluster_scoring_cfg,
         load_active_cluster_weights,
         load_cluster_draft,
+        load_research_cluster_weights,
         maybe_auto_demote_stale,
     )
     from core.signal.config import load_signal_config
@@ -332,6 +333,8 @@ def cluster_status_public(
             auto_demote = None
 
     active = load_active_cluster_weights()
+    research_doc = load_research_cluster_weights()
+    has_research = bool(research_doc and research_doc.get("code_map"))
     # 状态 UI 不拉滚动 IC；IC 门禁在 set_mode(active) / 日更路径算
     health = assess_cluster_live_health(compute_ic=False)
     draft = load_cluster_draft()
@@ -415,6 +418,9 @@ def cluster_status_public(
             "source_created_at": (active or {}).get("source_created_at"),
             "n_mapped_codes": (active or {}).get("n_mapped_codes"),
             "n_clusters": (active or {}).get("n_clusters"),
+        },
+        "research": {
+            "exists": has_research,
         },
         "draft": {
             "exists": has_draft,

@@ -439,6 +439,11 @@ def _slot_public_scores(row: dict) -> dict:
             "y_cx_hat",
             "predicted_score_tpd",
             "y_tpd_hat",
+            "predicted_score_r",
+            "y_r_hat",
+            "y_r",
+            "r_realized",
+            "y_r_realized",
             "y_eod",
             "y_trade",
             "y_on",
@@ -811,7 +816,7 @@ def _build_close_band_scan_trace(
     tau_pool_day: Optional[dict],
     trigger_hms: Optional[set] = None,
 ) -> List[dict]:
-    """11:00 前每根 5m：OLHC + Ĉ_τ + y_τ/y_path/y_complexity/y_tpd（debug 展开用）。"""
+    """11:00 前每根 5m：OLHC + Ĉ_τ + y_r/y_τ/y_path/y_complexity/y_tpd（debug 展开用）。"""
     from core.t0.close_band import (
         close_band_enter_skip_reason,
         close_band_pick_direction,
@@ -908,6 +913,8 @@ def _build_close_band_scan_trace(
         y_path = None
         y_complexity = None
         y_tpd = None
+        y_r = None
+        r_realized = None
         r_pct = None
         upper_pct = None
         lower_pct = None
@@ -966,6 +973,18 @@ def _build_close_band_scan_trace(
             y_tpd_hat = pick_y_tpd_hat(sc, gate_snap)
             if y_tpd_hat is not None:
                 y_tpd = round(float(y_tpd_hat), 6)
+            from core.research.r_ridge import pick_y_r_hat, r_realized_pct
+
+            y_r_hat = pick_y_r_hat(sc, gate_snap)
+            if y_r_hat is not None:
+                y_r = round(float(y_r_hat), 4)
+            daily_c = None
+            try:
+                daily_c = float((day_anchor or {}).get("close") or 0)
+            except (TypeError, ValueError):
+                daily_c = 0.0
+            if daily_c and daily_c > 0:
+                r_realized = r_realized_pct(c, daily_c)
             yt_gate = _yt_gate(gate_snap)
             if yt_gate is not None:
                 y_tau = round(float(yt_gate), 4)
@@ -989,6 +1008,11 @@ def _build_close_band_scan_trace(
                 "y_complexity": y_complexity,
                 "y_cx": y_complexity,
                 "y_tpd": y_tpd,
+                "y_r": y_r,
+                "predicted_score_r": y_r,
+                "y_r_hat": y_r,
+                "r_realized": r_realized,
+                "y_r_realized": r_realized,
                 "r_pct": round(float(r_pct), 4) if r_pct is not None else None,
                 "upper_pct": (
                     round(float(upper_pct), 4) if upper_pct is not None else None

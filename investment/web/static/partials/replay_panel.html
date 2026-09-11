@@ -2,7 +2,7 @@
   <div class="dashboard-head-text quant-head-text">
     <p class="dashboard-eyebrow">Backtest Desk</p>
     <h2>历史回测</h2>
-    <p id="replay-meta" class="dashboard-meta quant-meta" aria-live="polite">历史验证 · rank_lots（09:30 · 1000/2000 股）· 非实盘</p>
+    <p id="replay-meta" class="dashboard-meta quant-meta" aria-live="polite">历史验证 · rank_lots（5m · 100/200 股）· 非实盘</p>
     <p class="dashboard-section-desc replay-head-path">
       <a class="replay-hero-link" href="/watching">观察</a>
       →
@@ -14,25 +14,65 @@
     </p>
   </div>
   <div class="dashboard-head-actions quant-head-actions replay-head-actions">
-    <span class="quant-desk-badge replay-desk-badge" title="历史回测验证规则；不写纸面、不改 live 配置">历史验证</span>
+    <span class="quant-desk-badge replay-desk-badge" title="历史回测验证规则；保存规则会写入交易执行覆盖，不直接买卖">历史验证</span>
     <span class="replay-desk-guard" title="本页仅研究回测；买卖在交易执行">无实盘</span>
   </div>
 </div>
 
 <div class="quant-body replay-page">
 
-  <!-- ① 概览：路径 rail（对齐交易执行） -->
+  <!-- ① 调仓回测：KPI + 规则 + 净值 -->
   <section
-    class="dashboard-section quant-section replay-section replay-overview-section"
-    id="replay-section-overview"
-    aria-labelledby="replay-section-overview-title"
+    class="dashboard-section quant-section replay-section replay-run-section"
+    id="replay-section-run"
+    aria-labelledby="replay-section-run-title"
   >
-    <header class="dashboard-section-head quant-section-head replay-section-head">
-      <h3 id="replay-section-overview-title" class="dashboard-section-title">概览</h3>
-      <p class="dashboard-section-desc quant-section-desc">累计 · 超额 · 回撤 · 胜率</p>
+    <header class="dashboard-section-head quant-section-head replay-section-head replay-run-head">
+      <h3 id="replay-section-run-title" class="dashboard-section-title">调仓回测</h3>
+      <p id="quant-bt-progress" class="quant-fingerprint paper-progress-status replay-run-progress" hidden aria-live="polite">
+        <span id="quant-bt-progress-text">回测中…</span>
+      </p>
+      <div class="replay-run-toolbar" aria-label="回测窗">
+        <label
+          class="platform-field quant-pro-field replay-lookback-field replay-clock-field"
+          title="成交用该时刻 5 分钟 K。09:30 用首根开盘价；其后用该根收盘价。分数仍是 09:30 开盘信息集。缺分钟则跳过该票（09:30 可回退日开盘）。"
+        >
+          <span class="quant-pro-field-label">调仓时间</span>
+          <select id="quant-fill-clock">
+            <option value="09:30" selected>09:30</option>
+            <option value="09:35">09:35</option>
+            <option value="09:40">09:40</option>
+            <option value="09:45">09:45</option>
+            <option value="09:50">09:50</option>
+            <option value="09:55">09:55</option>
+            <option value="10:00">10:00</option>
+          </select>
+        </label>
+        <label
+          class="platform-field quant-pro-field replay-lookback-field"
+          title="回测覆盖多少个交易日。默认 30，最少 10。不是调仓规则。不再用全池日期交集（会被次新/停牌卡死）。"
+        >
+          <span class="quant-pro-field-label">回测窗口</span>
+          <input id="quant-lookback" type="number" min="10" max="500" value="30" />
+        </label>
+        <fieldset
+          class="platform-field quant-pro-field replay-lookback-field replay-fit-tier-field"
+          title="按分组拟合档限制观察池新开/加。可只勾 A、A+B 或全选对照。不改 live 配置。未映射票在未选满三档时不进新买。C 档即使入选，OOS 失败仍拦新买。"
+        >
+          <span class="quant-pro-field-label">宇宙分档</span>
+          <span class="replay-fit-tier-checks">
+            <label><input type="checkbox" id="quant-universe-tier-a" value="A" checked /> A 强</label>
+            <label><input type="checkbox" id="quant-universe-tier-b" value="B" checked /> B 中</label>
+            <label><input type="checkbox" id="quant-universe-tier-c" value="C" checked /> C 弱</label>
+          </span>
+        </fieldset>
+        <input type="hidden" id="quant-min-amount-pctile" value="" />
+        <input type="hidden" id="quant-benchmark-code" value="000300" />
+        <button type="button" id="quant-portfolio-run" class="dialog-btn">跑回测</button>
+      </div>
     </header>
-    <div class="dashboard-overview-band quant-pro-desk-top replay-overview-band">
-      <div class="dashboard-kpi-row quant-pro-overview-kpis replay-kpi-row" id="replay-kpi-row" aria-label="回测概览 KPI">
+    <div class="replay-overview-band" id="replay-section-overview">
+      <div class="dashboard-kpi-row quant-pro-overview-kpis replay-kpi-row" id="replay-kpi-row" aria-label="调仓回测 KPI">
         <div class="dashboard-kpi-row-body">
           <div class="dashboard-kpi-card quant-pro-kpi-card replay-kpi-card is-empty" data-kpi="return">
             <div class="dashboard-kpi-label quant-pro-kpi-label replay-kpi-label">累计收益</div>
@@ -49,98 +89,135 @@
             <div class="dashboard-kpi-value quant-pro-kpi-value replay-kpi-value" id="replay-kpi-dd">—</div>
             <div class="dashboard-kpi-sub quant-pro-kpi-sub replay-kpi-sub" id="replay-kpi-dd-sub">历史 MaxDD</div>
           </div>
-          <div class="dashboard-kpi-card quant-pro-kpi-card replay-kpi-card is-empty" data-kpi="win">
+          <div class="dashboard-kpi-card quant-pro-kpi-card replay-kpi-card is-empty" data-kpi="win" title="净值日收益&gt;0 的交易日占比，不是成交方向命中">
             <div class="dashboard-kpi-label quant-pro-kpi-label replay-kpi-label">胜率</div>
             <div class="dashboard-kpi-value quant-pro-kpi-value replay-kpi-value" id="replay-kpi-win">—</div>
-            <div class="dashboard-kpi-sub quant-pro-kpi-sub replay-kpi-sub" id="replay-kpi-win-sub">胜率</div>
+            <div class="dashboard-kpi-sub quant-pro-kpi-sub replay-kpi-sub" id="replay-kpi-win-sub">日净值&gt;0</div>
+          </div>
+          <div class="dashboard-kpi-card quant-pro-kpi-card replay-kpi-card is-empty" data-kpi="hit" title="成交腿 sign(y_fuse)=sign(当日收/昨收−1)；|y_fuse|&lt;0.05% 无方向；跳过不计">
+            <div class="dashboard-kpi-label quant-pro-kpi-label replay-kpi-label">命中率</div>
+            <div class="dashboard-kpi-value quant-pro-kpi-value replay-kpi-value" id="replay-kpi-hit">—</div>
+            <div class="dashboard-kpi-sub quant-pro-kpi-sub replay-kpi-sub" id="replay-kpi-hit-sub">sign(y_fuse)</div>
           </div>
         </div>
       </div>
-      <nav class="quant-path-rail quant-pro-path-rail replay-path-rail" aria-label="回测主路径">
-        <a class="quant-path-step quant-pro-path-step replay-path-step is-active" href="#replay-section-run" data-step="run" data-state="active" aria-current="step">
-          <span class="quant-pro-path-num replay-path-num">1</span> 跑回测
-        </a>
-        <span class="quant-path-sep quant-pro-path-sep replay-path-sep" aria-hidden="true">/</span>
-        <a class="quant-path-step quant-pro-path-step replay-path-step" href="#quant-portfolio-chart" data-step="report" data-state="idle">
-          <span class="quant-pro-path-num replay-path-num">2</span> 净值
-        </a>
-        <span class="quant-path-sep quant-pro-path-sep replay-path-sep" aria-hidden="true">/</span>
-        <a class="quant-path-step quant-pro-path-step replay-path-step" href="/follow" data-step="follow" data-state="idle">
-          <span class="quant-pro-path-num replay-path-num">3</span> 交易执行
-        </a>
-      </nav>
     </div>
-  </section>
+    <div class="follow-path-matrix" id="follow-path-matrix" aria-label="策略调仓规则">
+            <form id="paper-path-matrix-form" class="follow-path-matrix-form" autocomplete="off">
+              <input type="hidden" id="paper-strategy" value="short_conservative" />
+              <div class="follow-path-matrix-panels">
+                <section class="follow-path-matrix-panel" data-panel="mode" aria-labelledby="pm-panel-mode">
+                  <header class="follow-path-matrix-panel-head">
+                    <h4 id="pm-panel-mode" class="follow-path-matrix-panel-title">分数融合</h4>
+                    <p class="follow-path-matrix-panel-note">一层 y_trade＝w_EOD·ŷ_EOD＋w_τ·ŷ_τ；二层 y_fuse＝w_trade·y_trade＋w_nc·y_nowcast</p>
+                  </header>
+                  <div class="follow-path-matrix-body follow-path-matrix-body--row4">
+                    <label class="follow-path-matrix-box" title="y_trade 中 ŷ_EOD_rem 权重；与 w_τ 一并归一化">
+                      <span class="follow-path-matrix-box-text">
+                        <span class="follow-path-matrix-box-title">w_EOD</span>
+                        <span class="follow-path-matrix-box-desc">y_trade</span>
+                      </span>
+                      <input type="number" name="pm_w_eod" min="0" max="1" step="0.05" value="0.5" />
+                    </label>
+                    <label class="follow-path-matrix-box" title="y_trade 中 ŷ_τ 权重；与 w_EOD 一并归一化">
+                      <span class="follow-path-matrix-box-text">
+                        <span class="follow-path-matrix-box-title">w_τ</span>
+                        <span class="follow-path-matrix-box-desc">y_trade</span>
+                      </span>
+                      <input type="number" name="pm_w_tau" min="0" max="1" step="0.05" value="0.5" />
+                    </label>
+                    <label class="follow-path-matrix-box" title="y_fuse 中 y_trade 权重；与 nc 权重一并归一化">
+                      <span class="follow-path-matrix-box-text">
+                        <span class="follow-path-matrix-box-title">w_trade</span>
+                        <span class="follow-path-matrix-box-desc">y_fuse</span>
+                      </span>
+                      <input type="number" name="pm_fusion_w_trade" min="0" max="1" step="0.05" value="0.5" />
+                    </label>
+                    <label class="follow-path-matrix-box" title="y_fuse 中 y_nowcast 权重；与 trade 权重一并归一化">
+                      <span class="follow-path-matrix-box-text">
+                        <span class="follow-path-matrix-box-title">w_nc</span>
+                        <span class="follow-path-matrix-box-desc">y_fuse</span>
+                      </span>
+                      <input type="number" name="pm_fusion_w_nc" min="0" max="1" step="0.05" value="0.5" />
+                    </label>
+                  </div>
+                </section>
+                <section class="follow-path-matrix-panel" data-panel="rank" aria-labelledby="pm-panel-rank">
+                  <header class="follow-path-matrix-panel-head">
+                    <h4 id="pm-panel-rank" class="follow-path-matrix-panel-title">ranking 门槛</h4>
+                    <p class="follow-path-matrix-panel-note">ranking=(1+y_fuse/100)×(1+α×y_on/100)−1，展示百分数。α=0 隔夜不参与。过入场买入场股数；过强买强档股数。</p>
+                  </header>
+                  <div class="follow-path-matrix-body follow-path-matrix-body--row4">
+                    <div
+                      class="follow-path-matrix-box follow-path-matrix-box--pair"
+                      title="过入场阈值才建仓/加仓，买右侧股数。阈值默认 1.2%；股数整百，默认 100。保存规则不改交易执行 200 股。"
+                    >
+                      <span class="follow-path-matrix-box-text">
+                        <span class="follow-path-matrix-box-title">入场</span>
+                      </span>
+                      <div class="follow-path-matrix-box-pair">
+                        <label class="follow-path-matrix-box-slot">
+                          <span class="follow-path-matrix-box-slot-label">阈值%</span>
+                          <input type="number" name="pm_rank_enter" min="0" max="10" step="0.1" value="1.2" aria-label="入场阈值" />
+                        </label>
+                        <label class="follow-path-matrix-box-slot">
+                          <span class="follow-path-matrix-box-slot-label">股数</span>
+                          <input type="number" name="pm_lot_base" min="100" max="10000" step="100" value="100" aria-label="入场股数" />
+                        </label>
+                      </div>
+                    </div>
+                    <div
+                      class="follow-path-matrix-box follow-path-matrix-box--pair"
+                      title="过强阈值买右侧强档股数，否则买入场股数。阈值默认 1.2%；股数整百且不少于入场，默认 200。保存规则不改交易执行 500 否则 200。"
+                    >
+                      <span class="follow-path-matrix-box-text">
+                        <span class="follow-path-matrix-box-title">强档</span>
+                      </span>
+                      <div class="follow-path-matrix-box-pair">
+                        <label class="follow-path-matrix-box-slot">
+                          <span class="follow-path-matrix-box-slot-label">阈值%</span>
+                          <input type="number" name="pm_rank_strong" min="0" max="10" step="0.1" value="1.2" aria-label="强阈值" />
+                        </label>
+                        <label class="follow-path-matrix-box-slot">
+                          <span class="follow-path-matrix-box-slot-label">股数</span>
+                          <input type="number" name="pm_lot_strong" min="100" max="10000" step="100" value="200" aria-label="强档股数" />
+                        </label>
+                      </div>
+                    </div>
+                    <label class="follow-path-matrix-box" title="隔夜系数 α，范围 0～10。ranking=(1+y_fuse/100)×(1+α×y_on/100)−1。默认 0：隔夜不参与；1：按原权重乘入">
+                      <span class="follow-path-matrix-box-text">
+                        <span class="follow-path-matrix-box-title">α_on</span>
+                        <span class="follow-path-matrix-box-desc">0～10</span>
+                      </span>
+                      <input type="number" name="pm_y_on_alpha" min="0" max="10" step="0.1" value="0" />
+                    </label>
+                    <label class="follow-path-matrix-box" title="回测全部本金（元）。默认 20 万。跑回测用这个数当起始现金；不套持仓市值帽。保存规则不改交易执行市值上限。">
+                      <span class="follow-path-matrix-box-text">
+                        <span class="follow-path-matrix-box-title">本金</span>
+                        <span class="follow-path-matrix-box-desc">元</span>
+                      </span>
+                      <input type="number" name="pm_initial_cash" min="10000" max="100000000" step="10000" value="200000" />
+                    </label>
+                  </div>
+                </section>
+              </div>
+              <div class="follow-path-matrix-footer" aria-label="调仓操作">
+                <div class="follow-path-matrix-actions">
+                  <button type="submit" class="dialog-btn secondary" id="paper-path-matrix-save">保存</button>
+                  <button type="button" class="dialog-btn secondary" id="paper-path-matrix-reset">恢复默认</button>
+                  <span
+                    id="paper-path-matrix-status"
+                    class="follow-ops-note follow-path-matrix-status follow-holdings-load-status follow-ops-load-status"
+                    aria-live="polite"
+                  ></span>
+                </div>
+              </div>
+            </form>
+    </div>
 
-  <!-- ② 主区：回测运行 + 报告轨 -->
-  <section
-    class="dashboard-section quant-section replay-section replay-run-section"
-    id="replay-section-run"
-    aria-labelledby="replay-section-run-title"
-  >
-    <header class="dashboard-section-head quant-section-head replay-section-head replay-run-head">
-      <h3 id="replay-section-run-title" class="dashboard-section-title">回测报告</h3>
-      <p id="replay-pool-meta" class="quant-fingerprint replay-pool-meta" aria-live="polite">观察池：—</p>
-      <span
-        class="replay-rank-hint"
-        title="锁定口径：每个交易日 09:30 开盘；初始资金 50 万；买完后现金不得低于 10 万。不是可选项。"
-      >
-        09:30 · 50万 / 地板10万
-      </span>
-      <div class="replay-run-toolbar" aria-label="回测参数">
-        <label
-          class="platform-field quant-pro-field replay-lookback-field replay-fusion-field"
-          title="y_fuse 中 y_trade 权重；与 W_NOWCAST 一并归一化。范围 0.0～1.0。"
-        >
-          <span class="quant-pro-field-label">W_TRADE</span>
-          <input id="quant-w-trade" type="number" min="0" max="1" step="0.1" value="0.6" />
-        </label>
-        <label
-          class="platform-field quant-pro-field replay-lookback-field replay-fusion-field"
-          title="y_fuse 中 y_nowcast 权重；与 W_TRADE 一并归一化。范围 0.0～1.0。"
-        >
-          <span class="quant-pro-field-label">W_NOWCAST</span>
-          <input id="quant-w-nowcast" type="number" min="0" max="1" step="0.1" value="0.4" />
-        </label>
-        <label
-          class="platform-field quant-pro-field replay-lookback-field replay-on-alpha-field"
-          title="ranking=(1+y_fuse/100)×(1+α×y_on/100)−1。α=0 隔夜不参与；1 按原权重乘入。范围 0.0～1.0。"
-        >
-          <span class="quant-pro-field-label">ON_Alpha</span>
-          <input id="quant-on-alpha" type="number" min="0" max="1" step="0.1" value="0" />
-        </label>
-        <label
-          class="platform-field quant-pro-field replay-lookback-field replay-rank-field"
-          title="ranking 须大于此值才建仓/加仓。单位百分数，默认 1.2%。"
-        >
-          <span class="quant-pro-field-label">Rank入场%</span>
-          <input id="quant-rank-enter" type="number" min="0" max="10" step="0.1" value="1.2" />
-        </label>
-        <label
-          class="platform-field quant-pro-field replay-lookback-field replay-rank-field"
-          title="ranking 大于此值买 2000 股，否则 1000 股。单位百分数，默认 1.2%。"
-        >
-          <span class="quant-pro-field-label">Rank强%</span>
-          <input id="quant-rank-strong" type="number" min="0" max="10" step="0.1" value="1.2" />
-        </label>
-        <label
-          class="platform-field quant-pro-field replay-lookback-field"
-          title="回测覆盖多少个交易日。默认 30，最少 10。不是调仓规则。不再用全池日期交集（会被次新/停牌卡死）。"
-        >
-          <span class="quant-pro-field-label">Lookback</span>
-          <input id="quant-lookback" type="number" min="10" max="500" value="30" />
-        </label>
-        <input type="hidden" id="quant-min-amount-pctile" value="" />
-        <input type="hidden" id="quant-benchmark-code" value="000300" />
-        <button type="button" id="quant-portfolio-run" class="dialog-btn">跑回测</button>
-      </div>
-    </header>
     <div class="dashboard-card quant-pro-card replay-ops-card">
       <div class="quant-pro-card-body replay-card-body">
         <div id="quant-portfolio-summary" class="quant-summary" hidden></div>
-        <p id="quant-bt-progress" class="quant-fingerprint quant-card-head-status paper-progress-status" hidden aria-live="polite">
-          <span id="quant-bt-progress-text">回测中…</span>
-        </p>
         <div class="quant-chart-wrap quant-bt-chart-wrap replay-nav-chart-wrap">
           <div class="quant-chart-axis-head">
             <span class="quant-chart-title" id="quant-chart-title">rank_lots 日收益</span>
@@ -160,9 +237,367 @@
           ></div>
         </div>
         <p id="quant-portfolio-legend" class="quant-sub">
-          每个交易日 09:30 对全部观察池按 y_fuse/y_on 以 1000/2000 股调仓，现金地板 10 万。横轴为本次全部交易日。
+          每个交易日 09:30 对全部观察池按 y_fuse/y_on 调仓；手数看上方入场/强档股数。横轴为本次全部交易日。
         </p>
+        <div id="quant-bt-stock-contrib" class="replay-stock-contrib" hidden aria-label="分票贡献"></div>
         <div id="quant-bt-trades" class="quant-weight-table-wrap" aria-label="成交流水"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ③ 做 T 回测：历史验证，加载研究套模型 -->
+  <section
+    class="dashboard-section quant-section replay-section replay-run-section replay-t0-section"
+    id="replay-section-t0"
+    aria-labelledby="replay-section-t0-title"
+  >
+    <header class="dashboard-section-head quant-section-head replay-section-head replay-run-head">
+      <h3 id="replay-section-t0-title" class="dashboard-section-title">做 T 回测</h3>
+      <p class="quant-fingerprint replay-pool-meta">持仓 5m 第一触达 · 研究模型 · 不写账本</p>
+      <p id="paper-t0-progress" class="quant-fingerprint paper-progress-status replay-run-progress" hidden aria-live="polite">
+        <span id="paper-t0-progress-text">回测中…</span>
+      </p>
+      <div class="replay-run-toolbar" aria-label="做 T 回测窗">
+        <label
+          class="platform-field quant-pro-field replay-lookback-field"
+          title="评估窗：统计做T的交易日数（默认 10）。规则用下方表单（可先保存到交易执行）。"
+        >
+          <span class="quant-pro-field-label">回测窗口</span>
+          <input id="paper-t0-lookback" type="number" min="10" max="60" step="1" value="10" />
+        </label>
+        <button type="button" id="paper-t0-backtest" class="dialog-btn" title="5m 第一触达回测：加载研究套模型；规则读下方表单。缺该日5m则跳过。">跑回测</button>
+      </div>
+    </header>
+    <div class="replay-overview-band" id="replay-t0-overview">
+      <div class="dashboard-kpi-row quant-pro-overview-kpis replay-kpi-row" id="replay-t0-kpi-row" aria-label="做 T 回测 KPI">
+        <div class="dashboard-kpi-row-body">
+          <div class="dashboard-kpi-card quant-pro-kpi-card replay-kpi-card is-empty" data-kpi="return">
+            <div class="dashboard-kpi-label quant-pro-kpi-label replay-kpi-label">累计收益</div>
+            <div class="dashboard-kpi-value quant-pro-kpi-value replay-kpi-value" id="replay-t0-kpi-return">—</div>
+            <div class="dashboard-kpi-sub quant-pro-kpi-sub replay-kpi-sub" id="replay-t0-kpi-return-sub">先跑回测</div>
+          </div>
+          <div class="dashboard-kpi-card quant-pro-kpi-card replay-kpi-card is-empty" data-kpi="pnl">
+            <div class="dashboard-kpi-label quant-pro-kpi-label replay-kpi-label">净 PnL</div>
+            <div class="dashboard-kpi-value quant-pro-kpi-value replay-kpi-value" id="replay-t0-kpi-pnl">—</div>
+            <div class="dashboard-kpi-sub quant-pro-kpi-sub replay-kpi-sub" id="replay-t0-kpi-pnl-sub">含敞口</div>
+          </div>
+          <div class="dashboard-kpi-card quant-pro-kpi-card replay-kpi-card is-empty" data-kpi="win">
+            <div class="dashboard-kpi-label quant-pro-kpi-label replay-kpi-label">胜率</div>
+            <div class="dashboard-kpi-value quant-pro-kpi-value replay-kpi-value" id="replay-t0-kpi-win">—</div>
+            <div class="dashboard-kpi-sub quant-pro-kpi-sub replay-kpi-sub" id="replay-t0-kpi-win-sub">做 T 日</div>
+          </div>
+          <div class="dashboard-kpi-card quant-pro-kpi-card replay-kpi-card is-empty" data-kpi="cover">
+            <div class="dashboard-kpi-label quant-pro-kpi-label replay-kpi-label">往返</div>
+            <div class="dashboard-kpi-value quant-pro-kpi-value replay-kpi-value" id="replay-t0-kpi-cover">—</div>
+            <div class="dashboard-kpi-sub quant-pro-kpi-sub replay-kpi-sub" id="replay-t0-kpi-cover-sub">完成往返率</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="replay-t0-matrix" id="paper-t0-edit-fold" aria-label="做 T 规则">
+              <form id="paper-t0-form" class="paper-t0-form" autocomplete="off">
+                <fieldset class="paper-t0-cfg-block is-shared">
+                  <legend>共用</legend>
+                  <div class="paper-t0-form-grid is-oct">
+                  <label class="paper-t0-field">
+                    <span>启用</span>
+                    <input type="checkbox" name="enabled" checked />
+                  </label>
+                  <input type="hidden" name="direction" value="dual_y" />
+                  <input type="hidden" name="path_mode" value="first_touch" />
+                  <input type="hidden" name="t0_vs_stance" value="independent" />
+                  <label
+                    class="paper-t0-field"
+                    title="v6：超额带宽 ĉ±δ，δ=开盘×此%/100；收价破上带反T、破下带正T；默认 3"
+                  >
+                    <span>超额带宽δ%</span>
+                    <input type="number" name="t0_close_band_delta_pct" min="0" max="10" step="0.05" value="3" />
+                  </label>
+                  <label
+                    class="paper-t0-field"
+                    title="开：|开盘差| 或 |昨收差| 超阈则跳过（price_space_mismatch）；关：不拦"
+                  >
+                    <span>日分价闸</span>
+                    <input type="checkbox" name="t0_price_space_gate" checked />
+                  </label>
+                  <label
+                    class="paper-t0-field"
+                    title="|日开/分开−1|×100 超过此值跳过；默认 5；0=关"
+                  >
+                    <span>开盘差%</span>
+                    <input type="number" name="t0_price_space_max_dev_pct" min="0" max="5" step="0.05" value="5" />
+                  </label>
+                  <label
+                    class="paper-t0-field"
+                    title="|日昨/分昨−1|×100 超过此值跳过；默认 5；0=关"
+                  >
+                    <span>昨收差%</span>
+                    <input type="number" name="t0_price_space_prev_dev_pct" min="0" max="5" step="0.05" value="5" />
+                  </label>
+                  <label
+                    class="paper-t0-field"
+                    title="v6：每轮第一腿占日初可卖比例；默认 0.4（40%）"
+                  >
+                    <span>每轮仓位</span>
+                    <input type="number" name="t0_round_ratio" min="0.05" max="1" step="0.05" value="0.4" />
+                  </label>
+                  <label
+                    class="paper-t0-field"
+                    title="v6：累计动仓上限；默认 1.0（100%）"
+                  >
+                    <span>满仓上限</span>
+                    <input type="number" name="t0_max_position_pct" min="0.05" max="1" step="0.05" value="1" />
+                  </label>
+                  <label
+                    class="paper-t0-field"
+                    title="最多完成多少轮第一腿（默认5；0=不开第一腿）"
+                  >
+                    <span>最大轮数</span>
+                    <input type="number" name="t0_slots_max_rounds" min="0" max="16" step="1" value="5" />
+                  </label>
+                  <label
+                    class="paper-t0-field"
+                    title="开：须有 y_path（缺则跳过）；关：缺 path 也可开轮。|y_path| 入场幅度见门槛1/门槛2 的 path入场%。"
+                  >
+                    <span>用path</span>
+                    <input type="checkbox" name="y_use_path" checked />
+                  </label>
+                  <label
+                    class="paper-t0-field"
+                    title="|y_path| 超过此值须与 y_τ 同号，异号则跳过；默认 5；0=任意非零 path 都要求同号。"
+                  >
+                    <span>path强%</span>
+                    <input type="number" name="y_path_strong" min="0" max="5" step="0.01" value="5" />
+                  </label>
+                  <label
+                    class="paper-t0-field"
+                    title="把预估开→收 ŷ_τ 当偏移加到 ±δ 上，整条带宽平移（宽仍 2δ），不改冻结 leg2（仍 ĉ±δ）。抬门槛：s=clip(k·ŷ_τ,±α·δ)，上沿=δ+s、下沿=−δ+s；关=对称 ±δ（ĉ 已含 ŷ_τ，残差常小于 δ，成交会少；可略降 δ）"
+                  >
+                    <span>τ先验</span>
+                    <select name="y_tau_leg1_prior_mode">
+                      <option value="score" selected>抬门槛</option>
+                      <option value="off">关</option>
+                    </select>
+                  </label>
+                  <label
+                    class="paper-t0-field"
+                    title="带宽漂移灵敏度：偏移 s=k·ŷ_τ（再经 α·δ 封顶）；范围 0–100；默认 k=10"
+                  >
+                    <span>先验风险k</span>
+                    <input type="number" name="y_tau_leg1_prior_risk" min="0" max="100" step="0.1" value="10" />
+                  </label>
+                  <label
+                    class="paper-t0-field"
+                    title="带宽最多漂移 α·δ：α∈[0.1, 1.0]；α=1 时同侧可贴 0（须收价越过 ĉ 才开仓）；默认 1"
+                  >
+                    <span>shift上限α</span>
+                    <input type="number" name="y_tau_leg1_prior_shift_scale" min="0.1" max="1.0" step="0.05" value="1" />
+                  </label>
+                  <label
+                    class="paper-t0-field"
+                    title="正/反T止损共用：入场后跳过 N 根 5m 再启用（默认 1≈5 分钟）"
+                  >
+                    <span>止损延迟根</span>
+                    <input type="number" name="t0_stop_arm_bars" min="0" max="48" step="1" value="1" />
+                  </label>
+                  <label
+                    class="paper-t0-field"
+                    title="正/反T止损共用：开=收盘破线才触发；关=影线刺破即触发（更易被扫）"
+                  >
+                    <span>止损收盘确认</span>
+                    <input type="checkbox" name="t0_stop_on_close" checked />
+                  </label>
+                  </div>
+                </fieldset>
+
+                <div class="paper-t0-cfg-gates">
+                <fieldset class="paper-t0-cfg-block is-gate-1">
+                  <legend>门槛1</legend>
+                  <p class="paper-t0-cfg-hint quant-sub">|y_τ|、|y_path|、|R̂_τ| 过入场，且 complexity / tpd 过上限。关启用则本档不参与 OR。缺 path / 分钟缺失见共用区。</p>
+                  <div class="paper-t0-form-grid is-quad">
+                  <label
+                    class="paper-t0-field"
+                    title="开=本档参与入场 OR；关=忽略门槛1。两档都关则破带也不开腿。"
+                  >
+                    <span>启用</span>
+                    <input type="checkbox" name="y_enter_enabled" checked />
+                  </label>
+                  <label
+                    class="paper-t0-field"
+                    title="门槛1 |ŷ_τ| 低于此值视为横盘跳过；范围 0–100%；0=关；默认 0。"
+                  >
+                    <span>τ入场%</span>
+                    <input type="number" name="y_tau_enter" min="0" max="100" step="0.01" value="0" />
+                  </label>
+                  <label
+                    class="paper-t0-field"
+                    title="门槛1 |ŷ_path| 低于此值视为横盘跳过；范围 0–100%；0=关幅度；默认 0。"
+                  >
+                    <span>path入场%</span>
+                    <input type="number" name="y_path_enter" min="0" max="100" step="0.01" value="0" />
+                  </label>
+                  <label
+                    class="paper-t0-field"
+                    title="门槛1 |R̂_τ| 低于此值即使收价破带也不开轮；与超额带宽δ独立；范围 0–1.0；0=关；默认 0。"
+                  >
+                    <span>R入场%</span>
+                    <input type="number" name="r_tau_enter" min="0" max="1.0" step="0.01" value="0" />
+                  </label>
+                  <label
+                    class="paper-t0-field"
+                    title="ŷ_complexity∈[0,1]（0=直线，1=最折）。超过此值太折则跳过做 T；范围 0–1；默认 1.00≈关。闸用盘中前缀 ŷ_complexity，不是收盘后的全日 label。"
+                  >
+                    <span>complexity门槛</span>
+                    <input type="number" name="y_complexity_max" min="0" max="1.00" step="0.01" value="1.00" />
+                  </label>
+                  <label
+                    class="paper-t0-field"
+                    title="ŷ_tpd∈[0,1]（0=无反转，1=每根都反转）。超过此值反转过密则跳过做 T；范围 0.00–1.00；默认 1.00≈关。闸用盘中前缀 ŷ_tpd，不是收盘后的全日 label。"
+                  >
+                    <span>tpd门槛</span>
+                    <input type="number" name="y_tpd_max" min="0" max="1.00" step="0.01" value="1.00" />
+                  </label>
+                  </div>
+                </fieldset>
+
+                <fieldset class="paper-t0-cfg-block is-gate-2">
+                  <legend>门槛2</legend>
+                  <p class="paper-t0-cfg-hint quant-sub">|y_τ|、|y_path|、|R̂_τ| 过入场，且 complexity / tpd 过上限。关启用则本档不参与 OR。缺 path / 分钟缺失见共用区。</p>
+                  <div class="paper-t0-form-grid is-quad">
+                  <label
+                    class="paper-t0-field"
+                    title="开=本档参与入场 OR；关=忽略门槛2。两档都关则破带也不开腿。"
+                  >
+                    <span>启用</span>
+                    <input type="checkbox" name="y_enter_alt_enabled" checked />
+                  </label>
+                  <label
+                    class="paper-t0-field"
+                    title="门槛2 |ŷ_τ| 低于此值视为横盘跳过；范围 0–100%；0=关；默认 0。"
+                  >
+                    <span>τ入场%</span>
+                    <input type="number" name="y_tau_enter_alt" min="0" max="100" step="0.01" value="0" />
+                  </label>
+                  <label
+                    class="paper-t0-field"
+                    title="门槛2 |ŷ_path| 低于此值视为横盘跳过；范围 0–100%；0=关幅度；默认 0。"
+                  >
+                    <span>path入场%</span>
+                    <input type="number" name="y_path_enter_alt" min="0" max="100" step="0.01" value="0" />
+                  </label>
+                  <label
+                    class="paper-t0-field"
+                    title="门槛2 |R̂_τ| 低于此值即使收价破带也不开轮；与超额带宽δ独立；范围 0–1.0；0=关；默认 0。"
+                  >
+                    <span>R入场%</span>
+                    <input type="number" name="r_tau_enter_alt" min="0" max="1.0" step="0.01" value="0" />
+                  </label>
+                  <label
+                    class="paper-t0-field"
+                    title="ŷ_complexity∈[0,1]（0=直线，1=最折）。超过此值太折则跳过做 T；范围 0–1；默认 1.00≈关。闸用盘中前缀 ŷ_complexity，不是收盘后的全日 label。"
+                  >
+                    <span>complexity门槛</span>
+                    <input type="number" name="y_complexity_max_alt" min="0" max="1.00" step="0.01" value="1.00" />
+                  </label>
+                  <label
+                    class="paper-t0-field"
+                    title="ŷ_tpd∈[0,1]（0=无反转，1=每根都反转）。超过此值反转过密则跳过做 T；范围 0.00–1.00；默认 1.00≈关。闸用盘中前缀 ŷ_tpd，不是收盘后的全日 label。"
+                  >
+                    <span>tpd门槛</span>
+                    <input type="number" name="y_tpd_max_alt" min="0" max="1.00" step="0.01" value="1.00" />
+                  </label>
+                  </div>
+                </fieldset>
+                </div>
+
+                <div class="paper-t0-cfg-sides">
+                <fieldset class="paper-t0-cfg-block is-buy-then-sell">
+                  <legend>正 T</legend>
+                  <p class="paper-t0-cfg-hint quant-sub">先买后卖；选腿仅收盘带宽；第二腿=冻结对侧带；止损/中点追价/回补仍生效。</p>
+                  <div class="paper-t0-form-grid is-quad">
+                  <label
+                    class="paper-t0-field has-tip"
+                    title="正T跌破止损%（相对该轮第一腿买价）：0=关。多轮共用此%。延迟/收盘确认见共用区。止损优先于中点追价。"
+                  >
+                    <span>止损%</span>
+                    <input type="number" name="t0_stop_pct_buy_then_sell" min="0" max="20" step="0.1" value="1.2" />
+                  </label>
+                  <label
+                    class="paper-t0-field"
+                    title="开=未卖回旧仓时收盘强制卖；关=允许隔夜多头敞口（不做 y_on 放行调参，引擎用默认门槛）"
+                  >
+                    <span>当日回补</span>
+                    <input type="checkbox" name="must_cover_same_day_buy_then_sell" checked />
+                  </label>
+                  <label
+                    class="paper-t0-field"
+                    title="中点追价起算 HH:MM：到点后禁止新开；已开未平则第二腿目标=旧目标与现价中点，触不到则收盘强制平。空=关"
+                  >
+                    <span>中点追价</span>
+                    <input type="text" name="t0_pm_degrade_buy_then_sell" maxlength="5" placeholder="13:00" value="13:00" />
+                  </label>
+                  <label
+                    class="paper-t0-field"
+                    title="中点追价间隔（分钟）：起算后首次中点，之后每隔该分钟再调一次"
+                  >
+                    <span>追价间隔分</span>
+                    <input type="number" name="t0_pm_chase_interval_min_buy_then_sell" min="1" max="60" step="1" value="5" />
+                  </label>
+                  </div>
+                </fieldset>
+
+                <fieldset class="paper-t0-cfg-block is-sell-then-buy">
+                  <legend>反 T</legend>
+                  <p class="paper-t0-cfg-hint quant-sub">先卖后买；选腿仅收盘带宽；第二腿=冻结对侧带；止损/中点追价/回补仍生效。</p>
+                  <div class="paper-t0-form-grid is-quad">
+                  <label
+                    class="paper-t0-field has-tip"
+                    title="反T涨破止损%（相对该轮第一腿卖价）：0=关。多轮共用此%。收盘≥卖价×(1+此%/100) 则强制买回。延迟/收盘确认见共用区。止损优先于中点追价。"
+                  >
+                    <span>止损%</span>
+                    <input type="number" name="t0_stop_pct_sell_then_buy" min="0" max="20" step="0.1" value="1.2" />
+                  </label>
+                  <label
+                    class="paper-t0-field"
+                    title="开=未买回时收盘强制买回；关=触不到则放弃回补（减仓）。默认可中点追价抬高买回目标。"
+                  >
+                    <span>当日回补</span>
+                    <input type="checkbox" name="must_cover_same_day_sell_then_buy" checked />
+                  </label>
+                  <label
+                    class="paper-t0-field"
+                    title="中点追价起算 HH:MM：到点后禁新开；已卖未买回则买回目标=旧目标与现价中点。空=关"
+                  >
+                    <span>中点追价</span>
+                    <input type="text" name="t0_pm_degrade_sell_then_buy" maxlength="5" placeholder="13:00" value="13:00" />
+                  </label>
+                  <label
+                    class="paper-t0-field"
+                    title="中点追价间隔（分钟）：起算后首次中点，之后每隔该分钟再调一次"
+                  >
+                    <span>追价间隔分</span>
+                    <input type="number" name="t0_pm_chase_interval_min_sell_then_buy" min="1" max="60" step="1" value="5" />
+                  </label>
+                  </div>
+                </fieldset>
+                </div>
+
+                <div class="follow-path-matrix-footer replay-t0-matrix-footer" aria-label="做 T 规则操作">
+                  <div class="follow-path-matrix-actions">
+                    <button type="submit" id="paper-t0-save" class="dialog-btn secondary">保存覆盖</button>
+                    <button type="button" id="paper-t0-reset" class="dialog-btn secondary">恢复策略默认</button>
+                    <button type="button" id="paper-t0-diff" class="dialog-btn secondary">对照 Spec</button>
+                    <span id="paper-t0-edit-status" class="follow-ops-note follow-path-matrix-status" aria-live="polite"></span>
+                  </div>
+                </div>
+                <div id="paper-t0-diff-box" class="quant-weight-table-wrap" hidden></div>
+              </form>
+    </div>
+    <div class="dashboard-card quant-pro-card replay-ops-card">
+      <div class="quant-pro-card-body replay-card-body">
+        <div id="paper-t0-metrics" class="quant-metrics" aria-live="polite"></div>
+        <div id="paper-t0-viz" class="paper-t0-viz" hidden aria-label="做T回测可视化"></div>
+        <div id="paper-t0-days" class="quant-weight-table-wrap"></div>
       </div>
     </div>
   </section>

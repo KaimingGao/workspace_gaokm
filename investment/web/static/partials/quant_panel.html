@@ -10,6 +10,8 @@
       →
       <a class="quant-hero-link" href="#quant-section-tau">ŷ_τ</a>
       →
+      <a class="quant-hero-link" href="#quant-section-r">ŷ_r</a>
+      →
       <a class="quant-hero-link" href="#quant-section-ic-series">IC</a>
       →
       <a class="quant-hero-link" href="/follow">交易执行</a>
@@ -28,35 +30,48 @@
   <section class="dashboard-section quant-section quant-overview-section" id="quant-section-overview" aria-labelledby="quant-section-overview-title">
     <header class="dashboard-section-head quant-section-head">
       <h3 id="quant-section-overview-title" class="dashboard-section-title">概览</h3>
-      <p class="dashboard-section-desc quant-section-desc">观察池 · 聚类 · IC · ŷ_τ · 纸面拟合</p>
+      <p class="dashboard-section-desc quant-section-desc">观察池 · 分钟 Ready · ŷ_EOD · ŷ_τ · 落地</p>
+      <label
+        class="platform-field quant-pro-field quant-holdout-field"
+        title="近 N 个交易日不进研究套训练，专供 /replay 历史回测。执行套仍用全样本。默认 10（1～60）。改完后重新点各头「拟合」。"
+      >
+        <span class="quant-holdout-kicker">
+          <span class="quant-pro-field-label">Holdout</span>
+          <span class="quant-holdout-hint">研究套</span>
+        </span>
+        <span class="quant-holdout-control">
+          <input id="quant-holdout-days" type="number" min="1" max="60" step="1" value="10" inputmode="numeric" aria-label="Holdout 交易日数" />
+          <span class="quant-holdout-unit" aria-hidden="true">日</span>
+        </span>
+      </label>
     </header>
     <div class="dashboard-overview-band quant-pro-desk-top quant-overview-band">
       <div class="dashboard-kpi-row quant-pro-overview-kpis quant-kpi-row" id="quant-pro-overview-kpis" aria-label="研究全景 KPI">
         <div class="dashboard-kpi-row-body">
-          <div class="dashboard-kpi-card quant-pro-kpi-card quant-kpi-card is-empty" data-kpi="universe">
+          <div class="dashboard-kpi-card quant-pro-kpi-card quant-kpi-card is-empty" data-kpi="universe" title="观察池只数；副文案为日线 as-of 覆盖">
             <div class="dashboard-kpi-label quant-pro-kpi-label quant-kpi-label">观察池</div>
             <div class="dashboard-kpi-value quant-pro-kpi-value quant-kpi-value">—</div>
-            <div class="dashboard-kpi-sub quant-pro-kpi-sub quant-kpi-sub">只数 / 覆盖</div>
+            <div class="dashboard-kpi-sub quant-pro-kpi-sub quant-kpi-sub">只数 / 日线覆盖</div>
           </div>
-          <div class="dashboard-kpi-card quant-pro-kpi-card quant-kpi-card is-empty" data-kpi="clusters">
-            <div class="dashboard-kpi-label quant-pro-kpi-label quant-kpi-label">聚类</div>
+          <div class="dashboard-kpi-card quant-pro-kpi-card quant-kpi-card is-empty" data-kpi="minute" title="5m 跨度 ≥ Ready 闸的占比">
+            <div class="dashboard-kpi-label quant-pro-kpi-label quant-kpi-label">分钟 Ready</div>
             <div class="dashboard-kpi-value quant-pro-kpi-value quant-kpi-value">—</div>
-            <div class="dashboard-kpi-sub quant-pro-kpi-sub quant-kpi-sub">组数 / 离群</div>
+            <div class="dashboard-kpi-sub quant-pro-kpi-sub quant-kpi-sub">Ready% · Short</div>
           </div>
-          <div class="dashboard-kpi-card quant-pro-kpi-card quant-kpi-card is-empty" data-kpi="ic" title="全样本因子 IC 时序，不是当前分组的组内 β">
-            <div class="dashboard-kpi-label quant-pro-kpi-label quant-kpi-label">全局 IC</div>
+          <div class="dashboard-kpi-card quant-pro-kpi-card quant-kpi-card is-empty" data-kpi="eod" title="ŷ_EOD：组数 · 组闸（Top-K vs 人工权）· IC+日=截面 IC 为正的日占比，不是 ŷ 同号率">
+            <div class="dashboard-kpi-label quant-pro-kpi-label quant-kpi-label">ŷ_EOD</div>
             <div class="dashboard-kpi-value quant-pro-kpi-value quant-kpi-value">—</div>
-            <div class="dashboard-kpi-sub quant-pro-kpi-sub quant-kpi-sub">因子 IC · 非组β</div>
+            <div class="dashboard-kpi-sub quant-pro-kpi-sub quant-kpi-sub">组数 · 组闸 · IC+日</div>
           </div>
-          <div class="dashboard-kpi-card quant-pro-kpi-card quant-kpi-card is-empty" data-kpi="tau" title="ŷ_τ vs open→close：影子簿 IC/命中；副轴不驱动聚类">
+          <div class="dashboard-kpi-card quant-pro-kpi-card quant-kpi-card is-empty" data-kpi="tau" title="ŷ_τ：开盘 09:30 同号率（可比旧口径）；混合=09:30–11:00 全网格">
             <div class="dashboard-kpi-label quant-pro-kpi-label quant-kpi-label">ŷ_τ</div>
             <div class="dashboard-kpi-value quant-pro-kpi-value quant-kpi-value">—</div>
             <div class="dashboard-kpi-sub quant-pro-kpi-sub quant-kpi-sub">副轴 · open→收</div>
           </div>
-          <div class="dashboard-kpi-card quant-pro-kpi-card quant-kpi-card is-empty" data-kpi="fit">
-            <div class="dashboard-kpi-label quant-pro-kpi-label quant-kpi-label">纸面拟合</div>
+          <div class="dashboard-kpi-card quant-pro-kpi-card quant-kpi-card is-empty" data-kpi="landing" title="研究套 sidecar 与执行套 mode（off / 对照 / 启用）">
+            <div class="dashboard-kpi-label quant-pro-kpi-label quant-kpi-label">落地</div>
             <div class="dashboard-kpi-value quant-pro-kpi-value quant-kpi-value">—</div>
-            <div class="dashboard-kpi-sub quant-pro-kpi-sub quant-kpi-sub">Corr / TE</div>
+            <div class="dashboard-kpi-sub quant-pro-kpi-sub quant-kpi-sub">研究套 · 执行套</div>
           </div>
         </div>
       </div>
@@ -281,8 +296,9 @@
               </p>
               <p>
                 「跑分组」：宇宙=观察池<strong>前 Limit 只</strong>（默认 100≈满池），按单票 OLS β 层次聚类。
-                表单默认 <strong>ridge λ=1.0</strong>、<strong>K=自动</strong>（中心约 N/5，夹在 4～10；宇宙日历前段 β 定组；邻域 ±1 × 多折均值尾段 ŷ IC / 前段重拟合选优；定组后有限轮 holdout 贪心换组；另附扩展窗审计；超大组再二分）；
+                表单默认 <strong>ridge λ=1.0</strong>、<strong>K=自动</strong>（中心约 N/5，夹在 4～10；宇宙日历 Holdout 前段 β 定组；邻域 ±1 × 多折均值尾段 ŷ IC / 前段重拟合选优；定组后有限轮 holdout 贪心换组；另附扩展窗审计；超大组再二分）；
                 <strong>填 ≥2</strong>=按目标 k 切簇（尽量贴近 K；实际上限≈有效票数，不因离群拆成单票堆）。
+                页顶 <strong>Holdout日</strong> 同时切定组与研究套组 β（执行套仍全样本；EOD 研究 β 再隔离 horizon）。
               </p>
               <h4>双层 ŷ</h4>
               <p><strong>本组只产 ŷ_EOD</strong>。<code>ŷ_τ</code>（当日剩余 / τ Ridge）在独立「ŷ_τ」区块拟合与启用，<strong>不进聚类、不改组 β</strong>。</p>
@@ -394,17 +410,61 @@
                 <a class="quant-hero-link" href="/follow">交易执行 · 分数融合</a>
                 （一层 y_trade，二层 y_fuse；仅 blend）。分钟**训练**网格含开盘 Z + 午后训练钟
                 <code>09:30|09:35|…|11:00</code>（09:30 无前缀；早盘每 5m 共享 β；不含 13:00 / 14:00；**做T执行 v6 收盘带宽**：每 5m 扫至 11:00，收价破 ĉ±δ 开 leg1，path 不进 ĉ）；live 调仓钟仍是 10:30。
+                研究套 holdout 天数在页顶概览 <strong>Holdout日</strong>（默认 10），ŷ_τ / ŷ_r / ŷ_ON / ŷ_path / ŷ_cx / ŷ_tpd 共用。
               </p>
             </div>
           </details>
-          <button type="button" id="quant-tau-ridge-run" class="dialog-btn secondary" title="观察池拟合 ŷ_τ Ridge + 时间 OOS（不写盘）">拟合</button>
-          <button type="button" id="quant-tau-ridge-persist" class="dialog-btn secondary" title="人审后写入 live/tau_ridge_model.json">启用</button>
+          <button type="button" id="quant-tau-ridge-run" class="dialog-btn secondary" title="观察池拟合 ŷ_τ Ridge + 时间 OOS（不写盘；一次产出研究 β 与执行套全样本 β）">拟合</button>
+          <button type="button" id="quant-tau-ridge-persist-research" class="dialog-btn secondary" data-persist-role="research" title="人审后写入 tau_ridge_model_research.json，供历史回测加载">启用研究</button>
+          <button type="button" id="quant-tau-ridge-persist" class="dialog-btn secondary" data-persist-role="live" title="人审后写入 live/tau_ridge_model.json，供交易执行加载">启用执行</button>
           <button type="button" id="quant-tau-ridge-status" class="dialog-btn secondary" title="读取已启用 live 模型">状态</button>
         </div>
       </div>
       <div class="quant-pro-card-body">
         <div id="quant-tau-result" class="quant-weight-table-wrap" aria-label="ŷ_τ 拟合摘要"></div>
         <div id="quant-tau-coef-table" class="quant-weight-table-wrap" aria-label="ŷ_τ 因子系数表"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ŷ_r：与 ŷ_τ 同 X；标签 price(τ)/close−1；成交明细对照 R̂_τ；不进调仓 / ĉ / 选腿 -->
+  <section class="dashboard-section quant-section" id="quant-section-r" aria-labelledby="quant-section-r-title">
+    <header class="dashboard-section-head quant-section-head">
+      <h3 id="quant-section-r-title" class="dashboard-section-title">ŷ_r</h3>
+      <p class="dashboard-section-desc quant-section-desc">price(τ)/close−1 · 对照 R̂_τ · 不进调仓</p>
+    </header>
+    <div class="dashboard-card quant-pro-card">
+      <div class="dashboard-card-head quant-pro-card-head quant-card-head--tools">
+        <div id="quant-r-summary" class="quant-rem-status quant-card-head-status" aria-live="polite">
+          <span class="quant-pro-status-chip" data-state="idle">待命</span>
+          <span class="quant-rem-status-msg">拟合后看 OOS · 过门再启用</span>
+        </div>
+        <div class="dashboard-card-tools quant-pro-card-tools" role="group" aria-label="ŷ_r 操作">
+          <details class="quant-help-fold quant-pro-help-fold">
+            <summary class="quant-pro-help-summary"><span class="quant-pro-help-icon" aria-hidden="true">?</span> 说明</summary>
+            <div class="quant-help-body quant-pro-help-body">
+              <p>
+                <strong>ŷ_r</strong> 与 <strong>ŷ_τ</strong> 共用同一套 X（开盘 Z + ≤τ 分钟小包 +
+                <code>tau_lag1</code> / <code>tau_ma5</code>），只换标签：
+                <code>price[τ]/close[T]−1</code>（百分点），与 R̂_τ = (C/ĉ−1)×100 同几何。
+                字段 <code>y_r</code> / <code>predicted_score_r</code>。
+                成交明细写在 R̂_τ 旁，供对照「估超额」vs「相对真收盘超额」。
+              </p>
+              <p>
+                <strong>不改 ŷ_EOD / ŷ_τ、不进调仓、不进 ĉ / 选腿</strong>。
+                落盘 <code>r_ridge_model.json</code>。依赖观察池 <strong>5m 分钟缓存</strong>；无分钟线时会报错。可在上方「分钟线」区块点 <strong>强更 5m</strong>。
+              </p>
+            </div>
+          </details>
+          <button type="button" id="quant-r-ridge-run" class="dialog-btn secondary" title="观察池拟合 ŷ_r Ridge + 时间 OOS（不写盘）">拟合</button>
+          <button type="button" id="quant-r-ridge-persist-research" class="dialog-btn secondary" data-persist-role="research" title="人审后写入 r_ridge_model_research.json，供历史回测加载">启用研究</button>
+          <button type="button" id="quant-r-ridge-persist" class="dialog-btn secondary" data-persist-role="live" title="人审后写入 live/r_ridge_model.json；未过 OOS 闸时可确认强制启用">启用执行</button>
+          <button type="button" id="quant-r-ridge-status" class="dialog-btn secondary" title="读取已启用 live 模型">状态</button>
+        </div>
+      </div>
+      <div class="quant-pro-card-body">
+        <div id="quant-r-result" class="quant-weight-table-wrap" aria-label="ŷ_r 拟合摘要"></div>
+        <div id="quant-r-coef-table" class="quant-weight-table-wrap" aria-label="ŷ_r 因子系数表"></div>
       </div>
     </div>
   </section>
@@ -436,7 +496,8 @@
             </div>
           </details>
           <button type="button" id="quant-on-ridge-run" class="dialog-btn secondary" title="观察池拟合 on Ridge + 时间 OOS（不写盘）">拟合</button>
-          <button type="button" id="quant-on-ridge-persist" class="dialog-btn secondary" title="人审后写入 live/on_ridge_model.json">启用</button>
+          <button type="button" id="quant-on-ridge-persist-research" class="dialog-btn secondary" data-persist-role="research" title="人审后写入 on_ridge_model_research.json，供历史回测加载">启用研究</button>
+          <button type="button" id="quant-on-ridge-persist" class="dialog-btn secondary" data-persist-role="live" title="人审后写入 live/on_ridge_model.json，供交易执行加载">启用执行</button>
           <button type="button" id="quant-on-ridge-status" class="dialog-btn secondary" title="读取已启用 live 模型">状态</button>
         </div>
       </div>
@@ -478,13 +539,14 @@
                 <strong>与做 T 的关系</strong>：ŷ_path 进回测画像命中对照，
                 <strong>不进</strong> v6 收盘带宽的 `ĉ`。选正/反 T 看收价破 `ĉ±δ`。
                 落盘 <code>path_ridge_model.json</code>；配置见
-                <a class="quant-hero-link" href="/follow#paper-t0-spec">交易执行 · 做 T 规则</a>。
+                <a class="quant-hero-link" href="/replay#replay-section-t0">历史回测 · 做 T 规则</a>。
               </p>
               <p>依赖观察池 <strong>5m 分钟缓存</strong>；无分钟线时会报错。可在上方「分钟线」区块点 <strong>强更 5m</strong>。</p>
             </div>
           </details>
           <button type="button" id="quant-path-ridge-run" class="dialog-btn secondary" title="观察池拟合 path Ridge + 时间 OOS（不写盘）">拟合</button>
-          <button type="button" id="quant-path-ridge-persist" class="dialog-btn secondary" title="人审后写入 live/path_ridge_model.json；未过 OOS 闸时可确认强制启用">启用</button>
+          <button type="button" id="quant-path-ridge-persist-research" class="dialog-btn secondary" data-persist-role="research" title="人审后写入 path_ridge_model_research.json，供历史回测加载">启用研究</button>
+          <button type="button" id="quant-path-ridge-persist" class="dialog-btn secondary" data-persist-role="live" title="人审后写入 live/path_ridge_model.json；未过 OOS 闸时可确认强制启用">启用执行</button>
           <button type="button" id="quant-path-ridge-status" class="dialog-btn secondary" title="读取已启用 live 模型">状态</button>
         </div>
       </div>
@@ -538,7 +600,8 @@
             </div>
           </details>
           <button type="button" id="quant-cx-ridge-run" class="dialog-btn secondary" title="观察池拟合 cx Ridge + 时间 OOS（不写盘）">拟合</button>
-          <button type="button" id="quant-cx-ridge-persist" class="dialog-btn secondary" title="人审后写入 live/cx_ridge_model.json；未过 OOS 闸时可确认强制启用">启用</button>
+          <button type="button" id="quant-cx-ridge-persist-research" class="dialog-btn secondary" data-persist-role="research" title="人审后写入 cx_ridge_model_research.json，供历史回测加载">启用研究</button>
+          <button type="button" id="quant-cx-ridge-persist" class="dialog-btn secondary" data-persist-role="live" title="人审后写入 live/cx_ridge_model.json；未过 OOS 闸时可确认强制启用">启用执行</button>
           <button type="button" id="quant-cx-ridge-status" class="dialog-btn secondary" title="读取已启用 live 模型">状态</button>
         </div>
       </div>
@@ -589,7 +652,8 @@
             </div>
           </details>
           <button type="button" id="quant-tpd-ridge-run" class="dialog-btn secondary" title="观察池拟合 tpd Ridge + 时间 OOS（不写盘）">拟合</button>
-          <button type="button" id="quant-tpd-ridge-persist" class="dialog-btn secondary" title="人审后写入 live/tpd_ridge_model.json；未过 OOS 闸时可确认强制启用">启用</button>
+          <button type="button" id="quant-tpd-ridge-persist-research" class="dialog-btn secondary" data-persist-role="research" title="人审后写入 tpd_ridge_model_research.json，供历史回测加载">启用研究</button>
+          <button type="button" id="quant-tpd-ridge-persist" class="dialog-btn secondary" data-persist-role="live" title="人审后写入 live/tpd_ridge_model.json；未过 OOS 闸时可确认强制启用">启用执行</button>
           <button type="button" id="quant-tpd-ridge-status" class="dialog-btn secondary" title="读取已启用 live 模型">状态</button>
         </div>
       </div>
@@ -740,7 +804,7 @@
               </label>
               <label
                 class="platform-field quant-pro-field"
-                title="ranking 大于此值买 2000 股，否则 1000 股。单位百分数，默认 1.2%。对齐历史回测页。"
+                title="ranking 大于此值买 200 股，否则 100 股。单位百分数，默认 1.2%。对齐历史回测页。"
               >
                 <span class="quant-pro-field-label">Rank强%</span>
                 <input id="quant-daily-rank-strong" type="number" min="0" max="10" step="0.1" value="1.2" />

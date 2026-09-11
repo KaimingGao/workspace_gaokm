@@ -3,8 +3,8 @@
 const COMMANDS = [
   { id: "nav-watching", label: "前往 · 数据中心", hint: "/watching", href: "/watching", keywords: "home 观察 名单 建仓 首页" },
   { id: "nav-strategy", label: "前往 · 策略中心", hint: "/strategy", href: "/strategy", keywords: "策略 舆情 prior 人审" },
-  { id: "nav-follow", label: "前往 · 交易执行", hint: "/follow", href: "/follow", keywords: "模拟 持仓 调仓" },
-  { id: "nav-replay", label: "前往 · 历史回测", hint: "/replay", href: "/replay", keywords: "回测 回溯 绩效 grid" },
+  { id: "nav-follow", label: "前往 · 交易执行", hint: "/follow", href: "/follow", keywords: "模拟 持仓 调仓 做T" },
+  { id: "nav-replay", label: "前往 · 历史回测", hint: "/replay", href: "/replay", keywords: "回测 回溯 绩效 grid 做T" },
   { id: "nav-quant", label: "前往 · 研究枢纽", hint: "/quant", href: "/quant", keywords: "研究 因子 ic ols 运维 日报 hub" },
   { id: "nav-platform", label: "前往 · 平台", hint: "/platform", href: "/platform", keywords: "调度 审计 平台 系统设置" },
   { id: "nav-audit", label: "前往 · 审计时间线", hint: "audit", href: "/platform#platform-audit-section", keywords: "audit promote 告警" },

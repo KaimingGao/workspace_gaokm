@@ -8,7 +8,7 @@
   - 已持仓且 ranking < 0 → 清仓（T+1 可卖部分）
   - ranking_score > rank入场 的票按分数取 Top-K：建仓或加仓
   - ranking_score > rank强 → 500 股，否则 200 股
-  - 现金低于 cash_floor（默认 50 万）禁止买入；地板超过账户规模时按净值 20% 缩放
+  - 不留现金地板：现金不够该手则跳过（强档买不下先退基础手数）；live 另受持仓市值上限约束
 """
 
 from __future__ import annotations
@@ -20,13 +20,34 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_RANK_ENTER = 0.012
 DEFAULT_RANK_STRONG = 0.012
-DEFAULT_CASH_FLOOR = 500_000.0
+DEFAULT_CASH_FLOOR = 0.0
 DEFAULT_HOLDINGS_MV_CAP = 150_000.0
 DEFAULT_INITIAL_CASH = 1_000_000.0
 DEFAULT_Y_ON_ALPHA = 0.0
 Y_ON_ALPHA_MAX = 10.0
 LOT_BASE = 200
 LOT_STRONG = 500
+
+
+def _display_name(code: str, *cands: Any) -> str:
+    """持仓/打分行里的中文名；代码冒充名走 a_code_name。"""
+    c = str(code or "").strip()
+    fallback = ""
+    for raw in cands:
+        s = str(raw or "").strip()
+        if s and s != c:
+            fallback = s
+            break
+    try:
+        from core.t0.intraday import resolve_stock_name
+
+        nm = str(resolve_stock_name(c, fallback=fallback) or "").strip()
+        if nm and nm != c:
+            return nm
+    except Exception:  # noqa: BLE001
+        logger.debug("resolve rank_lots stock name failed %s", c, exc_info=True)
+    return fallback or c
+
 
 ACTION_OPEN = "open"
 ACTION_ADD = "add"
@@ -157,9 +178,9 @@ def scale_cash_floor_to_account(
     floor: float,
     paper: Optional[dict] = None,
 ) -> float:
-    """配置地板超过账户规模时，按净值 20% 保留现金（对齐回测 10万/50万）。
+    """旧现金地板超过账户规模时，按净值 20% 保留现金。
 
-    1M 账本 + 50 万地板保持原值；~20 万纸面账本不再被 50 万地板永久拦买。
+    产品默认地板已为 0；本函数只给显式传入的旧配置做缩放。
     """
     try:
         out = float(floor)
@@ -201,12 +222,9 @@ def get_rank_lot_cfg(
     strong = max(0.0, min(strong, 10.0))
     if strong < enter:
         strong = enter
-    try:
-        floor_cfg = float(pm.get("cash_floor", DEFAULT_CASH_FLOOR))
-    except (TypeError, ValueError):
-        floor_cfg = DEFAULT_CASH_FLOOR
-    floor_cfg = max(0.0, min(floor_cfg, 1.0e8))
-    floor = scale_cash_floor_to_account(floor_cfg, paper)
+    # 产品不再留现金地板（含 paper.json 里旧 50 万）。买到现金不够为止。
+    floor_cfg = 0.0
+    floor = 0.0
     try:
         mv_cap = float(pm.get("holdings_mv_cap", DEFAULT_HOLDINGS_MV_CAP))
     except (TypeError, ValueError):
@@ -340,7 +358,7 @@ def plan_rank_lot_day(
     cfg: dict,
     as_of: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """一天的卖/买计划。价格用于估算买入手数是否破现金地板；成交仍由调用方落地。"""
+    """一天的卖/买计划。价格用于估算现金是否够买该手；成交仍由调用方落地。"""
     from core.paper.tplus1 import clip_sell_shares
 
     rank_enter = coerce_rank_threshold(
@@ -401,7 +419,7 @@ def plan_rank_lot_day(
         yf = y_fuse_of(item, cfg)
         yo = y_on_of(item)
         rs = ranking_score(yf, yo, y_on_alpha=y_on_alpha)
-        name = str(item.get("stock_name") or h.get("stock_name") or code)
+        name = _display_name(code, item.get("stock_name"), h.get("stock_name"))
         held_sh = float(h.get("shares") or 0)
         if item.get("hard_reject") or (rs is not None and float(rs) < 0.0):
             t0_reason = str(t0_blocks.get(code) or "").strip()
@@ -485,7 +503,7 @@ def plan_rank_lot_day(
             skips.append(
                 {
                     "stock_code": code,
-                    "stock_name": item.get("stock_name") or code,
+                    "stock_name": _display_name(code, item.get("stock_name")),
                     "action": ACTION_SKIP,
                     "reason": "OOS 失败组 · 禁止新开/加仓",
                 }
@@ -533,7 +551,7 @@ def plan_rank_lot_day(
             skips.append(
                 {
                     "stock_code": code,
-                    "stock_name": item.get("stock_name") or code,
+                    "stock_name": _display_name(code, item.get("stock_name")),
                     "side": "buy",
                     "action": ACTION_SKIP,
                     "reason": "无有效报价",
@@ -552,16 +570,21 @@ def plan_rank_lot_day(
             need = float(lots) * float(px)
         dbg["lot_kind"] = lot_kind
         if cash_sim - need < cash_floor - 1e-6:
+            skip_reason = (
+                f"现金将低于地板 {cash_floor:.0f}"
+                if cash_floor > 0
+                else "现金不足"
+            )
             skips.append(
                 {
                     "stock_code": code,
-                    "stock_name": item.get("stock_name") or code,
+                    "stock_name": _display_name(code, item.get("stock_name")),
                     "side": "buy",
                     "shares": float(lots),
                     "price": float(px),
                     "amount": round(need, 2),
                     "action": ACTION_SKIP,
-                    "reason": f"现金将低于地板 {cash_floor:.0f}",
+                    "reason": skip_reason,
                     **dbg,
                 }
             )
@@ -570,7 +593,7 @@ def plan_rank_lot_day(
             skips.append(
                 {
                     "stock_code": code,
-                    "stock_name": item.get("stock_name") or code,
+                    "stock_name": _display_name(code, item.get("stock_name")),
                     "side": "buy",
                     "action": ACTION_SKIP,
                     "reason": f"持仓市值将超过上限 {mv_cap:.0f}",
@@ -587,7 +610,7 @@ def plan_rank_lot_day(
             {
                 "side": "buy",
                 "stock_code": code,
-                "stock_name": item.get("stock_name") or code,
+                "stock_name": _display_name(code, item.get("stock_name")),
                 "shares": float(lots),
                 "action": act,
                 "matrix_action": act,

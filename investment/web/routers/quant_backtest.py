@@ -173,6 +173,11 @@ def quant_portfolio_backtest(body: PaperReplayBacktestRequest) -> Dict[str, Any]
             fusion_w_nowcast=body.fusion_w_nowcast,
             rank_enter=body.rank_enter,
             rank_strong=body.rank_strong,
+            initial_cash=body.initial_cash,
+            fill_clock=body.fill_clock,
+            lot_base=body.lot_base,
+            lot_strong=body.lot_strong,
+            universe_fit_tiers=body.universe_fit_tiers,
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e

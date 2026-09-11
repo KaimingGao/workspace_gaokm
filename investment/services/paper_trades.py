@@ -942,8 +942,10 @@ def _rebalance_report_from_legs(
         buy_trades or []
     ) + list(skip_by.values()):
         code = str(src.get("stock_code") or "")
-        if code and src.get("stock_name"):
-            name_by[code] = str(src.get("stock_name"))
+        if code:
+            raw_nm = str(src.get("stock_name") or "").strip()
+            if raw_nm and raw_nm != code:
+                name_by[code] = raw_nm
     old_shares = {
         str(h.get("stock_code")): float(h.get("shares") or 0)
         for h in holdings_before or []
@@ -1128,6 +1130,12 @@ def _rebalance_report_from_legs(
         return (missing, sc_rank, action)
 
     rows.sort(key=_sort_key)
+    try:
+        from core.t0.intraday import stamp_resolved_stock_names
+
+        stamp_resolved_stock_names(rows, name_by_code=name_by)
+    except Exception:  # noqa: BLE001
+        logger.debug("stamp rebalance report names skipped", exc_info=True)
     return rows
 
 

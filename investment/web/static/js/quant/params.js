@@ -1,6 +1,15 @@
 /**
- * 研究台参数：持有期 / Ridge / 聚类 K / 观察池 Limit。
+ * 研究台参数：持有期 / Ridge / 聚类 K / 观察池 Limit / Holdout。
  */
+
+export const DEFAULT_HOLDOUT_TRADING_DAYS = 10;
+export const HOLDOUT_DAYS_STORAGE_KEY = "quant_holdout_trading_days";
+
+export function clampHoldoutTradingDays(v, fallback = DEFAULT_HOLDOUT_TRADING_DAYS) {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.max(1, Math.min(60, Math.round(n)));
+}
 
 export function clampHorizonDays(v, fallback = 1) {
   const n = Number(v);
@@ -30,7 +39,7 @@ export function readClusterKFromEl(el) {
 }
 
 /**
- * @param {{ getHorizonEl?: () => HTMLElement|null, getRidgeEl?: () => HTMLElement|null, getClusterKEl?: () => HTMLElement|null, getWatchingLimitEl?: () => HTMLElement|null, initialHorizon?: number }} opts
+ * @param {{ getHorizonEl?: () => HTMLElement|null, getRidgeEl?: () => HTMLElement|null, getClusterKEl?: () => HTMLElement|null, getWatchingLimitEl?: () => HTMLElement|null, getHoldoutEl?: () => HTMLElement|null, initialHorizon?: number }} opts
  */
 export function createResearchParams(opts = {}) {
   let prefsHorizonDays = clampHorizonDays(opts.initialHorizon ?? 3, 3);
@@ -43,6 +52,8 @@ export function createResearchParams(opts = {}) {
   const getWatchingLimitEl =
     opts.getWatchingLimitEl ||
     (() => document.getElementById("quant-watching-limit"));
+  const getHoldoutEl =
+    opts.getHoldoutEl || (() => document.getElementById("quant-holdout-days"));
 
   function syncHorizonInputs(h) {
     const v = String(clampHorizonDays(h, prefsHorizonDays));
@@ -86,15 +97,52 @@ export function createResearchParams(opts = {}) {
     return prefsHorizonDays;
   }
 
+  function readHoldoutTradingDays() {
+    const el = getHoldoutEl();
+    let n;
+    if (el && el.value !== "") {
+      n = clampHoldoutTradingDays(el.value, DEFAULT_HOLDOUT_TRADING_DAYS);
+    } else {
+      try {
+        n = clampHoldoutTradingDays(
+          localStorage.getItem(HOLDOUT_DAYS_STORAGE_KEY),
+          DEFAULT_HOLDOUT_TRADING_DAYS
+        );
+      } catch (_) {
+        n = DEFAULT_HOLDOUT_TRADING_DAYS;
+      }
+    }
+    if (el && String(el.value) !== String(n)) el.value = String(n);
+    try {
+      localStorage.setItem(HOLDOUT_DAYS_STORAGE_KEY, String(n));
+    } catch (_) {}
+    return n;
+  }
+
+  function hydrateHoldoutTradingDays() {
+    const el = getHoldoutEl();
+    if (!el) return;
+    try {
+      const saved = localStorage.getItem(HOLDOUT_DAYS_STORAGE_KEY);
+      if (saved != null && saved !== "") {
+        el.value = String(clampHoldoutTradingDays(saved, DEFAULT_HOLDOUT_TRADING_DAYS));
+      }
+    } catch (_) {}
+    el.addEventListener("change", () => readHoldoutTradingDays());
+  }
+
   return {
     clampHorizonDays,
     clampRidgeLambda,
     clampWatchingLimit,
+    clampHoldoutTradingDays,
     syncHorizonInputs,
     readHorizonDays,
     readRidgeLambda,
     readClusterK,
     readWatchingLimit,
+    readHoldoutTradingDays,
+    hydrateHoldoutTradingDays,
     setPrefsHorizonDays,
     getPrefsHorizonDays,
   };

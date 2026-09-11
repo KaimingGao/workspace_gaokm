@@ -36,6 +36,13 @@ def _signal_item(**extra):
 
 
 class TestWatchingMatrixPreview(unittest.TestCase):
+    def setUp(self):
+        self._fit = patch(
+            "core.paper.rebalance.watching_matrix._apply_universe_fit_tier_filter",
+            side_effect=lambda codes, **kw: (list(codes), {"unrestricted": True}),
+        )
+        self._fit.start()
+        self.addCleanup(self._fit.stop)
     def test_preview_builds_open_trade(self):
         from core.paper.rebalance.watching_matrix import simulate_watching_matrix_preview
 
@@ -152,8 +159,8 @@ class TestWatchingMatrixPreview(unittest.TestCase):
         acts = (out.get("path_matrix") or {}).get("by_action") or {}
         self.assertEqual(int(acts.get("skip_window") or 0), 0)
 
-    def test_held_fusion_nonneg_no_sell_at_cash_floor(self):
-        """已持仓 y_fuse≥0：不因未进 Top 而卖；现金贴地板则不加仓。"""
+    def test_held_nonneg_does_not_sell(self):
+        """已持仓 ranking≥0：不因未过入场而卖。"""
         from core.paper.rebalance.watching_matrix import simulate_watching_matrix_preview
 
         paper = {
@@ -265,13 +272,13 @@ class TestWatchingMatrixPreview(unittest.TestCase):
         ]
         self.assertIn("600001", skip_codes)
 
-    def test_cash_floor_skip_rows_keep_scores(self):
-        """现金低于缩放后地板：跳过行仍带 ŷ，empty_reason=cash_below_floor。"""
+    def test_cash_short_skip_rows_keep_scores(self):
+        """现金不够一手：跳过行仍带 ŷ，empty_reason=cash_below_floor。"""
         from core.paper.rebalance.watching_matrix import simulate_watching_matrix_preview
 
         paper = {
             "initial_cash": 200_000,
-            "cash": 8_000,
+            "cash": 500,
             "holdings": [],
             "rules": {"max_positions": 5, "position_pct": 0.2},
         }
@@ -287,7 +294,7 @@ class TestWatchingMatrixPreview(unittest.TestCase):
             return_value=10.0,
         ), patch(
             "core.paper.ledger.mark_to_market",
-            return_value={"equity": 8_000, "cash": 8_000},
+            return_value={"equity": 500, "cash": 500},
         ):
             out = simulate_watching_matrix_preview(paper, dry_run=True)
 
@@ -298,7 +305,7 @@ class TestWatchingMatrixPreview(unittest.TestCase):
         report = out.get("rebalance_report") or []
         self.assertEqual(len(report), 1)
         self.assertEqual(report[0].get("decision"), "跳过")
-        self.assertIn("地板", str(report[0].get("reason") or ""))
+        self.assertIn("现金不足", str(report[0].get("reason") or ""))
         self.assertAlmostEqual(float(report[0].get("y_trade")), 3.0)
         self.assertAlmostEqual(float(report[0].get("predicted_score_eod")), 0.9)
 
@@ -461,6 +468,71 @@ class TestApplyLegOpenCost(unittest.TestCase):
         self.assertEqual(sell["open_date"], "2026-03-10")
         self.assertAlmostEqual(float(sell["cost_price"]), 11.0)
         self.assertAlmostEqual(float(sell["cum_cost"]), 22000.0)
+
+
+class TestWatchingMatrixUniverseFitTiers(unittest.TestCase):
+    def test_preview_keeps_held_when_tier_drops_name(self):
+        from core.paper.rebalance.watching_matrix import simulate_watching_matrix_preview
+
+        paper = {
+            "strategy_id": "short_conservative",
+            "cash": 1_000_000,
+            "holdings": [
+                {
+                    "stock_code": "601318",
+                    "stock_name": "持仓",
+                    "shares": 200,
+                    "cost_price": 10.0,
+                }
+            ],
+            "rules": {"max_positions": 5, "position_pct": 0.2},
+        }
+
+        def _filter(codes, *, keep=(), **_kw):
+            keep_set = {str(c).strip() for c in (keep or []) if str(c).strip()}
+            kept = [c for c in codes if c == "600519" or c in keep_set]
+            return kept, {
+                "universe_fit_tiers": ["A"],
+                "unrestricted": False,
+                "n_in": len(list(codes)),
+                "n_kept": len(kept),
+                "n_dropped": 1,
+                "n_kept_held": 1,
+            }
+
+        with patch(
+            "core.paper.rebalance.watching_matrix._watching_codes",
+            return_value=(
+                ["600519", "000001", "601318"],
+                {"n_watch": 2, "n_total": 3},
+            ),
+        ), patch(
+            "core.paper.rebalance.watching_matrix._apply_universe_fit_tier_filter",
+            side_effect=_filter,
+        ), patch(
+            "core.paper.rebalance.watching_matrix._score_pool",
+            return_value=(
+                [
+                    _signal_item(stock_code="600519", stock_name="贵州茅台"),
+                    _signal_item(stock_code="601318", stock_name="持仓", y_trade=-2.0),
+                ],
+                [],
+            ),
+        ), patch(
+            "core.paper.rebalance.watching_matrix._quote_px",
+            return_value=10.0,
+        ), patch(
+            "core.paper.ledger.mark_to_market",
+            return_value={"equity": 1_002_000, "cash": 1_000_000},
+        ):
+            out = simulate_watching_matrix_preview(paper, dry_run=True)
+
+        self.assertTrue(out.get("ok") or out.get("success") is not False)
+        meta = out.get("pool_meta") or {}
+        fit = meta.get("fit_tiers") or {}
+        self.assertEqual(fit.get("universe_fit_tiers"), ["A"])
+        self.assertFalse(fit.get("unrestricted"))
+        self.assertEqual(fit.get("n_kept_held"), 1)
 
 
 if __name__ == "__main__":

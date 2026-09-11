@@ -1,7 +1,7 @@
 /** Paper · 做T 指标与预演表渲染（从 paper.js 抽出）。 */
 
 import { yTauMapScoreTip } from "./execution_ui.js";
-import { renderT0Viz } from "./t0_viz.js?v=p1986";
+import { renderT0Viz, wireT0SkipTips } from "./t0_viz.js?v=p2261";
 import { buildT0ReportHtml, fmtT0DirDays } from "./t0_report.js?v=p1906";
 import {
   buildT0TradeTableHtml,
@@ -9,7 +9,10 @@ import {
   pickTradeDays,
   stockCellHtml,
   T0_TRADE_TABLE_MAX_ROWS,
-} from "./t0_table.js?v=p1986";
+  wireT0DayDebugExpand,
+  wireT0ProcessTips,
+  stampStockFitTiers,
+} from "./t0_table.js?v=p2261";
 
 function escapeHtml(s) {
   return String(s ?? "")
@@ -98,14 +101,28 @@ function placeT0DaysBelowContrib(vizEl, daysEl) {
   if (vizEl) vizEl.insertAdjacentElement("afterend", daysEl);
 }
 
+function finishT0Days(vizEl, daysEl, tipCtrl) {
+  placeT0DaysBelowContrib(vizEl, daysEl);
+  wireT0DayDebugExpand(daysEl);
+  if (!tipCtrl) return;
+  wireT0SkipTips(vizEl, tipCtrl);
+  wireT0ProcessTips(daysEl, tipCtrl);
+  if (daysEl && daysEl.dataset.scoreTipWired !== "1" && typeof tipCtrl.bindHost === "function") {
+    tipCtrl.bindHost(daysEl, {
+      scoreSelector:
+        ".paper-t0-y-score[data-score-detail], .paper-t0-dir-score[data-score-detail]",
+    });
+  }
+}
+
 export function renderPaperT0(els, data) {
-  const { metricsEl, daysEl, vizEl, previewEl } = els || {};
+  const { metricsEl, daysEl, vizEl, previewEl, tipCtrl } = els || {};
   if (!metricsEl) return;
   if (!data || !data.success) {
     metricsEl.innerHTML = "";
     if (daysEl) daysEl.innerHTML = "";
     renderT0Viz(vizEl, null);
-    placeT0DaysBelowContrib(vizEl, daysEl);
+    finishT0Days(vizEl, daysEl, tipCtrl);
     return;
   }
 
@@ -133,7 +150,7 @@ export function renderPaperT0(els, data) {
       `<p class="quant-trades-caption">${trades}${skip} · 样本为空</p>` +
       `</div>`;
     renderT0Viz(vizEl, data);
-    placeT0DaysBelowContrib(vizEl, daysEl);
+    finishT0Days(vizEl, daysEl, tipCtrl);
     return;
   }
 
@@ -167,7 +184,8 @@ export function renderPaperT0(els, data) {
     maxRows: T0_TRADE_TABLE_MAX_ROWS,
   });
   renderT0Viz(vizEl, data);
-  placeT0DaysBelowContrib(vizEl, daysEl);
+  stampStockFitTiers(daysEl);
+  finishT0Days(vizEl, daysEl, tipCtrl);
 }
 
 function previewMetricChip(cls, label, value) {
@@ -304,6 +322,7 @@ export function renderPaperT0Preview(els, data) {
     tradeBlock +
     `<p class="paper-t0-desk-foot" title="${tip}">预演不改账本 · 确认「手动落账」后才写入 · τ = y_τ</p>` +
     `</div></details>`;
+  stampStockFitTiers(previewEl);
 }
 
 function workerLastRunToTableData(lastRun, execution) {
@@ -419,6 +438,7 @@ export function renderPaperT0WorkerTrades(el, { t0Auto, execution, liveScoresByC
       `<p class="paper-t0-desk-foot" title="${tip}">收盘带宽 · 删除将冲正账本</p>` +
       `</div>`
   );
+  stampStockFitTiers(el);
 }
 
 const DESK_PHASE_LABEL = {
@@ -634,4 +654,5 @@ export function renderPaperT0WorkerDesk(el, desk) {
     `</tr></thead><tbody>${body}</tbody></table></div>` +
     foot +
     `</div></details>`;
+  stampStockFitTiers(el);
 }

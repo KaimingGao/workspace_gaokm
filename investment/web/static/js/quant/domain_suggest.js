@@ -11,7 +11,7 @@ import { openProbeFold } from "./probe_ui.js";
 /** Quant domain: suggest */
 export function installSuggest(q) {
   const { on, els, state, ctx, escapeHtml, apiFetch, setQuantMeta, setBusyText } = q;
-  const { readHorizonDays, readRidgeLambda, readClusterK, readWatchingLimit, ensureFactorMeta, rememberFactorMeta, factorMetaByName, factorMetaByLabel, factorIcWeightMergedHtml, parseOosGateReason, fmtEmptyCell, fmtOlsCell } = q;
+  const { readHorizonDays, readRidgeLambda, readClusterK, readWatchingLimit, readHoldoutTradingDays, ensureFactorMeta, rememberFactorMeta, factorMetaByName, factorMetaByLabel, factorIcWeightMergedHtml, parseOosGateReason, fmtEmptyCell, fmtOlsCell } = q;
   const { researchGridHtml, metricCell, metricClass, fmtPct } = q;
 
   function formatSuggestError(data, status, fallback = "请求失败") {
@@ -638,6 +638,7 @@ export function installSuggest(q) {
               body: JSON.stringify({
                 lookback: 80,
                 horizon_days: readHorizonDays(),
+                holdout_trading_days: readHoldoutTradingDays(),
                 watching_limit: readWatchingLimit(),
                 // null → 自动目标 k≈n/5（约 4～10）+ 超大组二分；填了则按目标 k
                 n_clusters: readClusterK(),

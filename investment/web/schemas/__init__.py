@@ -45,6 +45,7 @@ from web.schemas.research import (
     PathRidgeRequest,
     CxRidgeRequest,
     TpdRidgeRequest,
+    RRidgeRequest,
     RemRidgeRequest,
     TauRidgeRequest,
     FactorOlsClusterRequest,
@@ -66,6 +67,7 @@ from web.schemas.cluster import (
     ClusterPromoteRequest,
     ClusterRollbackRequest,
     ClusterModeRequest,
+    ClusterUniverseFitTiersRequest,
     ClusterApplyShortcutRequest,
 )
 
@@ -128,6 +130,7 @@ __all__ = [
     "PathRidgeRequest",
     "CxRidgeRequest",
     "TpdRidgeRequest",
+    "RRidgeRequest",
     "RemRidgeRequest",
     "TauRidgeRequest",
     "FactorOlsClusterRequest",
@@ -146,6 +149,7 @@ __all__ = [
     "ClusterPromoteRequest",
     "ClusterRollbackRequest",
     "ClusterModeRequest",
+    "ClusterUniverseFitTiersRequest",
     "ClusterApplyShortcutRequest",
     "ScoringFloorsRequest",
     "StanceThresholdsRequest",

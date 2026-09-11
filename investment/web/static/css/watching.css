@@ -1427,7 +1427,8 @@ body[data-page="watching"] .watching-react-grid-cell.watching-col-score_nowcast 
 }
 
 .watching-name-row .watching-book-badge,
-.watching-name-row .watching-oos-badge {
+.watching-name-row .watching-oos-badge,
+.watching-name-row .watching-fit-tier-badge {
   flex: none;
 }
 
@@ -1493,6 +1494,58 @@ body[data-page="watching"] .watching-react-grid-cell.watching-col-score_nowcast 
   color: #9a6700;
   border: 1px solid rgba(154, 103, 0, 0.38);
   background: rgba(154, 103, 0, 0.10);
+}
+
+.watching-fit-tier-badge {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  padding: 0 5px;
+  border-radius: 3px;
+  font-size: 0.62rem;
+  font-weight: 700;
+  line-height: 1.4;
+  letter-spacing: 0.04em;
+  cursor: help;
+  border: 1px solid transparent;
+  background: var(--bg-hover, #f1f5f9);
+  color: var(--ink-2);
+}
+
+.watching-fit-tier-badge.is-A {
+  color: var(--accent-active, #096dd9);
+  border-color: color-mix(in srgb, var(--accent, #1890ff) 42%, transparent);
+  background: color-mix(in srgb, var(--accent, #1890ff) 18%, var(--surface, #fff));
+}
+
+.watching-fit-tier-badge.is-B {
+  color: var(--ok, #059669);
+  border-color: color-mix(in srgb, var(--ok, #059669) 40%, transparent);
+  background: color-mix(in srgb, var(--ok, #059669) 16%, var(--surface, #fff));
+}
+
+.watching-fit-tier-badge.is-C {
+  color: var(--gold, #d97706);
+  border-color: color-mix(in srgb, var(--gold, #d97706) 42%, transparent);
+  background: color-mix(in srgb, var(--gold, #d97706) 18%, var(--surface, #fff));
+}
+
+html[data-theme="dark"] .watching-fit-tier-badge.is-A {
+  color: #93c5fd;
+  border-color: color-mix(in srgb, var(--accent, #1890ff) 48%, transparent);
+  background: color-mix(in srgb, var(--accent, #1890ff) 28%, transparent);
+}
+
+html[data-theme="dark"] .watching-fit-tier-badge.is-B {
+  color: #6ee7b7;
+  border-color: color-mix(in srgb, var(--ok, #059669) 48%, transparent);
+  background: color-mix(in srgb, var(--ok, #059669) 26%, transparent);
+}
+
+html[data-theme="dark"] .watching-fit-tier-badge.is-C {
+  color: #fcd34d;
+  border-color: color-mix(in srgb, var(--gold, #d97706) 50%, transparent);
+  background: color-mix(in srgb, var(--gold, #d97706) 28%, transparent);
 }
 
 .watching-single-head-badge {

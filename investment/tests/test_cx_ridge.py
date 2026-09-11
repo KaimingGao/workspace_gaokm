@@ -199,7 +199,7 @@ class CxRidgeFitTests(unittest.TestCase):
         oos = report.get("oos") or {}
         self.assertIn("ic", oos)
         self.assertIn("median_hit", oos)
-        self.assertEqual(oos.get("train_frac"), 0.9)
+        self.assertEqual(oos.get("split_mode"), "holdout_days")
         self.assertIn("n_train", oos)
         self.assertNotIn("sign_hit", oos)
         y_spec = (report.get("return_model") or {}).get("y_spec") or {}

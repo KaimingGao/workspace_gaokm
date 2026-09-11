@@ -23,7 +23,6 @@ from core.research.tau_ridge import (
     _residual_var,
     _sign_hit,
     _subset,
-    _time_split_indices,
 )
 
 ON_Z_FEATURES = (
@@ -92,7 +91,7 @@ def fit_on_ridge_report(
     min_history: int = 12,
     gap_trigger_pct: float = 2.0,
     theme_boost: float = 1.5,
-    train_frac: float = 0.9,
+    holdout_trading_days: int = 10,
     use_theme_weights: bool = True,
 ) -> Dict[str, Any]:
     """池化拟合 ŷ_ON(Z) + 时间 OOS。标签 = open[T+1]/close[T]-1（决策日 T 开盘）。"""
@@ -112,7 +111,21 @@ def fit_on_ridge_report(
         }
 
     xs_z = _z_only_xs(xs)
-    train_idx, test_idx = _time_split_indices(dates, train_frac=train_frac)
+    from core.research.holdout import (
+        DEFAULT_HOLDOUT_TRADING_DAYS,
+        attach_holdout_meta,
+        calendar_dates_from_stock_bars,
+        make_research_model,
+        resolve_ridge_split,
+    )
+
+    hold_n = int(holdout_trading_days or DEFAULT_HOLDOUT_TRADING_DAYS)
+    train_idx, test_idx, split_meta = resolve_ridge_split(
+        dates,
+        holdout_trading_days=hold_n,
+        label_horizon_days=1,
+        calendar_dates=calendar_dates_from_stock_bars(stock_bars),
+    )
     xs_tr, ys_tr, metas_tr = _subset(xs_z, ys, metas, train_idx)
     xs_te, ys_te, metas_te = _subset(xs_z, ys, metas, test_idx)
 
@@ -163,11 +176,12 @@ def fit_on_ridge_report(
         "sign_hit": _sign_hit(preds_te, ys_te) if ys_te else None,
         "residual_var": _residual_var(preds_te, ys_te) if ys_te else None,
         "by_theme": by_theme,
-        "train_frac": train_frac,
+        "holdout_trading_days": hold_n,
         "theme_boost": theme_boost if use_theme_weights else None,
         "target": "overnight_gap",
     }
 
+    research_model = make_research_model(fit, y_mean=0.0)
     w_all = (
         theme_sample_weights(metas, theme_boost=theme_boost)
         if use_theme_weights
@@ -195,19 +209,25 @@ def fit_on_ridge_report(
         "note": "真实隔夜缺口（T 收盘→T+1 开盘）；风控旁路，不进主排序",
     }
     model["extra_features"] = list(ON_Z_FEATURES)
+    model["model_role"] = "live"
+    for k in ("y_spec", "extra_features", "horizon_mode", "target"):
+        research_model[k] = model.get(k)
 
-    return {
+    report = {
         "success": True,
         "task": "on_ridge",
         "stock_count": len(enriched),
         "sample_count": len(ys),
         "oos": oos,
         "return_model": model,
+        "return_model_research": research_model,
         "y_spec": dict(model.get("y_spec") or {}),
         "schema": "on_ridge_v1",
         "target": "overnight_gap",
         "note": "ŷ_ON(Z) 估 open[T+1]/close[T]-1 隔夜缺口；与 EOD/τ 解耦",
     }
+    attach_holdout_meta(report, split_meta)
+    return report
 
 
 def on_model_path() -> str:
@@ -249,10 +269,18 @@ def load_on_last_report() -> Optional[Dict[str, Any]]:
     return doc
 
 
-def persist_on_model(report: Dict[str, Any], *, note: str = "") -> Dict[str, Any]:
+def persist_on_model(
+    report: Dict[str, Any], *, note: str = "", role: str = "live"
+) -> Dict[str, Any]:
+    from core.research.holdout import (
+        MODEL_ROLE_RESEARCH,
+        research_model_path,
+        select_persist_return_model,
+    )
+
     if not report.get("success"):
         return {"success": False, "error": report.get("error") or "no report"}
-    rm = report.get("return_model")
+    role_n, rm = select_persist_return_model(report, role=role)
     if not isinstance(rm, dict):
         return {"success": False, "error": "return_model missing"}
     if not rm.get("coefficients") and rm.get("intercept") is None:
@@ -288,9 +316,16 @@ def persist_on_model(report: Dict[str, Any], *, note: str = "") -> Dict[str, Any
         "y_spec": y_spec,
         "y_spec_on": y_spec,
         "dual_score_head": "predicted_score_on",
+        "model_role": role_n,
+        "fit_end": report.get("fit_end"),
+        "eval_start": report.get("eval_start"),
         "contract_note": "ŷ_ON 估 open[T+1]/close[T]-1 隔夜缺口；风控旁路，不覆盖 EOD/τ 字段。",
     }
-    path = on_model_path()
+    path = (
+        research_model_path(on_model_path())
+        if role_n == MODEL_ROLE_RESEARCH
+        else on_model_path()
+    )
     os.makedirs(os.path.dirname(path), exist_ok=True)
     atomic_write_json(path, doc)
     return {
@@ -301,7 +336,25 @@ def persist_on_model(report: Dict[str, Any], *, note: str = "") -> Dict[str, Any
     }
 
 
-def load_on_model() -> Optional[Dict[str, Any]]:
+def load_on_model(*, role: Optional[str] = None) -> Optional[Dict[str, Any]]:
+    from core.research.holdout import (
+        MODEL_ROLE_RESEARCH,
+        current_scoring_model_role,
+        research_model_path,
+    )
+
+    role_n = role if role is not None else current_scoring_model_role()
+    if role_n == MODEL_ROLE_RESEARCH:
+        path = research_model_path(on_model_path())
+        if os.path.isfile(path):
+            try:
+                with open(path, encoding="utf-8") as f:
+                    doc = json.load(f)
+                if isinstance(doc, dict) and isinstance(doc.get("return_model"), dict):
+                    return doc
+            except Exception:  # noqa: BLE001
+                logger.debug("load_on_model research failed", exc_info=True)
+        return None
     path = on_model_path()
     if os.path.isfile(path):
         try:
@@ -314,7 +367,9 @@ def load_on_model() -> Optional[Dict[str, Any]]:
     # 已跑 on Ridge 但未 promote 时，用 last report 影子推理（显式 promote 写 on_ridge_model.json）
     fallback = load_on_last_report()
     if fallback:
-        return fallback
+        out = dict(fallback)
+        out["_shadow"] = True
+        return out
     return None
 
 

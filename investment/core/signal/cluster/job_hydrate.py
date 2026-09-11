@@ -49,6 +49,12 @@ def _unpack_cluster_report(path: str) -> Optional[Dict[str, Any]]:
         strip_removed_factors_from_cluster_report(out)
     except Exception:
         logger.debug("strip removed factors failed", exc_info=True)
+    try:
+        from core.signal.cluster.fit_tier import attach_cluster_fit_tiers
+
+        attach_cluster_fit_tiers(out)
+    except Exception:
+        logger.debug("attach fit tiers failed", exc_info=True)
     return out
 
 

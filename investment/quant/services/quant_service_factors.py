@@ -2,10 +2,73 @@
 
 
 import logging
+import os
 import re
 from typing import Any, Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
+
+
+def _tau_ridge_desk_key(doc: Optional[Dict[str, Any]]) -> tuple:
+    """研究台身份：τ / 标签 / 面板 n + Holdout。Holdout 变了必须展示最近拟合。"""
+    return _ridge_desk_key(doc)
+
+
+def _ridge_desk_key(doc: Optional[Dict[str, Any]]) -> tuple:
+    """研究台身份：标签 / 面板 n + Holdout。Holdout 变了必须展示最近拟合。"""
+    if not isinstance(doc, dict):
+        return ("", "", None, None, None)
+    oos = doc.get("oos") if isinstance(doc.get("oos"), dict) else {}
+    hold = doc.get("holdout_trading_days")
+    if hold is None:
+        hold = oos.get("holdout_trading_days")
+    try:
+        hold_n = int(hold) if hold is not None else None
+    except (TypeError, ValueError):
+        hold_n = hold
+    return (
+        str(doc.get("tau") or doc.get("target") or ""),
+        str(doc.get("target") or ""),
+        doc.get("sample_count"),
+        hold_n,
+        oos.get("n_test"),
+    )
+
+
+def _select_ridge_desk_doc(
+    live: Optional[Dict[str, Any]],
+    last: Optional[Dict[str, Any]],
+) -> Tuple[Optional[Dict[str, Any]], bool]:
+    """last 与 live 的 Holdout/n 不一致时，研究台展示最近拟合。"""
+    last_ok = isinstance(last, dict) and isinstance(last.get("return_model"), dict)
+    live_ok = isinstance(live, dict) and isinstance(live.get("return_model"), dict)
+    if last_ok:
+        if not live_ok:
+            return last, True
+        if _ridge_desk_key(last) != _ridge_desk_key(live):
+            return last, True
+    if live_ok:
+        return live, False
+    return None, False
+
+
+def _attach_ridge_role_flags(
+    out: Dict[str, Any],
+    live_path: str,
+    *,
+    live_present: Optional[bool] = None,
+) -> Dict[str, Any]:
+    """给 Ridge GET/POST 打上执行套 / 研究套是否已落盘。"""
+    from core.research.holdout import research_sidecar_flags
+
+    flags = research_sidecar_flags(live_path)
+    out["research_exists"] = bool(flags.get("research_exists"))
+    out["research_path"] = flags.get("research_path")
+    out["research_promoted_at"] = flags.get("research_promoted_at")
+    if live_present is None:
+        live_present = bool(live_path and os.path.isfile(live_path))
+    out["live_model_present"] = bool(live_present)
+    return out
 
 # ============================================================
 # 跑分组阶段编号（共 13 主阶段）
@@ -354,6 +417,8 @@ class QuantFactorMixin:
         note: str = "",
         tau_hm: Optional[str] = None,
         force_promote: bool = False,
+        persist_role: str = "live",
+        holdout_trading_days: int = 10,
     ) -> Dict[str, Any]:
         """R0：观察池 ŷ_τ 头 Ridge；可选 persist live 模型。
 
@@ -369,6 +434,7 @@ class QuantFactorMixin:
             load_tau_model,
             persist_tau_model,
             save_tau_last_report,
+            tau_model_path,
             tau_promote_gate,
         )
 
@@ -395,6 +461,7 @@ class QuantFactorMixin:
                     last,
                     note=note or "persist last tau report",
                     force=bool(force_promote),
+                    role=persist_role,
                 )
                 out = dict(last)
                 out["persisted"] = saved
@@ -402,7 +469,9 @@ class QuantFactorMixin:
                 out["promote_gate"] = saved.get("promote_gate") or tau_promote_gate(last)
                 if saved.get("promoted_at"):
                     out["promoted_at"] = saved["promoted_at"]
-                return out
+                return _attach_ridge_role_flags(
+                    out, tau_model_path(), live_present=bool(load_tau_model())
+                )
 
         ds = get_dual_score_cfg()
         if tau_hm is None:
@@ -457,6 +526,7 @@ class QuantFactorMixin:
             theme_boost=theme_boost,
             tau_hm=tau_key,
             tau_grid=tau_grid,
+            holdout_trading_days=holdout_trading_days,
         )
         report["watching_limit"] = limit
         report["watching_pool_size"] = len(pool)
@@ -472,6 +542,7 @@ class QuantFactorMixin:
                 report,
                 note=note or "api tau-ridge persist",
                 force=bool(force_promote),
+                role=persist_role,
             )
             report["persisted"] = saved
             report["promote_gate"] = saved.get("promote_gate") or tau_promote_gate(report)
@@ -483,6 +554,9 @@ class QuantFactorMixin:
             report["live_model_present"] = bool(live)
             if report.get("success") and not report.get("promote_gate"):
                 report["promote_gate"] = tau_promote_gate(report)
+        _attach_ridge_role_flags(
+            report, tau_model_path(), live_present=bool(load_tau_model())
+        )
         return report
 
     def get_tau_ridge_model(self) -> Dict[str, Any]:
@@ -496,32 +570,20 @@ class QuantFactorMixin:
         live = load_tau_model()
         last = load_tau_last_report()
         if not live and not last:
-            return {
-                "success": False,
-                "exists": False,
-                "path": tau_model_path(),
-                "last_report_exists": False,
-                "note": "尚无 ŷ_τ 模型；POST /api/quant/tau-ridge persist=true",
-            }
-
-        def _tau_key(doc: Optional[Dict[str, Any]]) -> tuple:
-            if not isinstance(doc, dict):
-                return ("", "", None)
-            return (
-                str(doc.get("tau") or ""),
-                str(doc.get("target") or ""),
-                doc.get("sample_count"),
+            return _attach_ridge_role_flags(
+                {
+                    "success": False,
+                    "exists": False,
+                    "path": tau_model_path(),
+                    "last_report_exists": False,
+                    "note": "尚无 ŷ_τ 模型；POST /api/quant/tau-ridge persist=true",
+                },
+                tau_model_path(),
+                live_present=False,
             )
 
-        # 研究台：有 last report 且与 live 不一致时，优先展示最近拟合（避免刷新退回旧启用模型）
-        use_last = False
-        if last and isinstance(last.get("return_model"), dict):
-            if not live:
-                use_last = True
-            elif _tau_key(last) != _tau_key(live):
-                use_last = True
-
-        if use_last:
+        _doc, use_last = _select_ridge_desk_doc(live, last)
+        if use_last and last:
             out = dict(last)
             out.update(
                 {
@@ -536,30 +598,40 @@ class QuantFactorMixin:
                     "promote_gate": tau_promote_gate(last),
                 }
             )
-            return out
+            return _attach_ridge_role_flags(
+                out, tau_model_path(), live_present=bool(live)
+            )
 
         if not live:
-            return {
-                "success": False,
-                "exists": False,
-                "path": tau_model_path(),
-                "last_report_exists": bool(last),
-                "note": "尚无 ŷ_τ 模型；POST /api/quant/tau-ridge persist=true",
-            }
+            return _attach_ridge_role_flags(
+                {
+                    "success": False,
+                    "exists": False,
+                    "path": tau_model_path(),
+                    "last_report_exists": bool(last),
+                    "note": "尚无 ŷ_τ 模型；POST /api/quant/tau-ridge persist=true",
+                },
+                tau_model_path(),
+                live_present=False,
+            )
 
-        return {
-            "success": True,
-            "exists": True,
-            "path": tau_model_path(),
-            "promoted": True,
-            "shadow": False,
-            "last_report_exists": bool(last),
-            "live_model_present": True,
-            "promote_gate": tau_promote_gate(
-                live if live.get("oos") else (last or live)
-            ),
-            **live,
-        }
+        return _attach_ridge_role_flags(
+            {
+                "success": True,
+                "exists": True,
+                "path": tau_model_path(),
+                "promoted": True,
+                "shadow": False,
+                "last_report_exists": bool(last),
+                "live_model_present": True,
+                "promote_gate": tau_promote_gate(
+                    live if live.get("oos") else (last or live)
+                ),
+                **live,
+            },
+            tau_model_path(),
+            live_present=True,
+        )
 
     run_rem_ridge_experiment = run_tau_ridge_experiment
     get_rem_ridge_model = get_tau_ridge_model
@@ -574,6 +646,8 @@ class QuantFactorMixin:
         theme_boost: float = 1.5,
         persist: bool = False,
         note: str = "",
+        persist_role: str = "live",
+        holdout_trading_days: int = 10,
     ) -> Dict[str, Any]:
         """R0+：观察池 ŷ_ON Ridge；可选 persist live 模型。默认用满观察池。"""
         from core.data.facade import bars_and_source
@@ -582,6 +656,7 @@ class QuantFactorMixin:
             fit_on_ridge_report,
             load_on_last_report,
             load_on_model,
+            on_model_path,
             persist_on_model,
             save_on_last_report,
         )
@@ -606,14 +681,16 @@ class QuantFactorMixin:
             last = load_on_last_report()
             if last:
                 saved = persist_on_model(
-                    last, note=note or "persist last on report"
+                    last,
+                    note=note or "persist last on report",
+                    role=persist_role,
                 )
                 out = dict(last)
                 out["persisted"] = saved
                 out["from_last_report"] = True
                 if saved.get("promoted_at"):
                     out["promoted_at"] = saved["promoted_at"]
-                return out
+                return _attach_ridge_role_flags(out, on_model_path())
 
         stock_bars: List[Dict[str, Any]] = []
         for code in codes:
@@ -626,6 +703,7 @@ class QuantFactorMixin:
             ridge_lambda=ridge_lambda,
             gap_trigger_pct=gap_trigger_pct,
             theme_boost=theme_boost,
+            holdout_trading_days=holdout_trading_days,
         )
         report["watching_limit"] = limit
         report["watching_pool_size"] = len(pool)
@@ -633,7 +711,9 @@ class QuantFactorMixin:
         if report.get("success"):
             save_on_last_report(report)
         if persist and report.get("success"):
-            saved = persist_on_model(report, note=note or "api on-ridge persist")
+            saved = persist_on_model(
+                report, note=note or "api on-ridge persist", role=persist_role
+            )
             report["persisted"] = saved
             if saved.get("promoted_at"):
                 report["promoted_at"] = saved["promoted_at"]
@@ -641,20 +721,43 @@ class QuantFactorMixin:
             report["persisted"] = {"success": False, "skipped": True}
             live = load_on_model()
             report["live_model_present"] = bool(live)
-        return report
+        return _attach_ridge_role_flags(report, on_model_path())
 
     def get_on_ridge_model(self) -> Dict[str, Any]:
-        from quant.research.on_ridge import load_on_model, on_model_path
+        from quant.research.on_ridge import (
+            load_on_last_report,
+            load_on_model,
+            on_model_path,
+        )
 
         doc = load_on_model()
-        if not doc:
-            return {
-                "success": False,
-                "exists": False,
+        last = load_on_last_report()
+        live_file = bool(os.path.isfile(on_model_path()))
+        chosen, use_last = _select_ridge_desk_doc(doc, last)
+        if not chosen:
+            return _attach_ridge_role_flags(
+                {
+                    "success": False,
+                    "exists": False,
+                    "path": on_model_path(),
+                    "last_report_exists": bool(last),
+                    "note": "尚无 on 模型；POST /api/quant/on-ridge persist=true",
+                },
+                on_model_path(),
+                live_present=False,
+            )
+        out = dict(chosen)
+        out.update(
+            {
+                "success": True,
+                "exists": True,
                 "path": on_model_path(),
-                "note": "尚无 on 模型；POST /api/quant/on-ridge persist=true",
+                "shadow": bool(use_last) or bool(chosen.get("_shadow")) or (not live_file),
+                "promoted": (not use_last) and live_file and not chosen.get("_shadow"),
+                "last_report_exists": bool(last),
             }
-        return {"success": True, "exists": True, "path": on_model_path(), **doc}
+        )
+        return _attach_ridge_role_flags(out, on_model_path(), live_present=live_file)
 
     def run_path_ridge_experiment(
         self,
@@ -670,6 +773,8 @@ class QuantFactorMixin:
         persist: bool = False,
         note: str = "",
         force_promote: bool = False,
+        persist_role: str = "live",
+        holdout_trading_days: int = 10,
     ) -> Dict[str, Any]:
         """观察池 ŷ_path Ridge：开盘 Z + 多 τ 前缀分钟小包 → 全日极值序。
 
@@ -683,6 +788,7 @@ class QuantFactorMixin:
             fit_path_ridge_report,
             load_path_last_report,
             load_path_model,
+            path_model_path,
             path_promote_gate,
             persist_path_model,
             save_path_last_report,
@@ -722,6 +828,7 @@ class QuantFactorMixin:
                     last,
                     note=note or "persist last path report",
                     force=bool(force_promote),
+                    role=persist_role,
                 )
                 out = dict(last)
                 out["persisted"] = saved
@@ -729,7 +836,7 @@ class QuantFactorMixin:
                 out["promote_gate"] = saved.get("promote_gate") or path_promote_gate(last)
                 if saved.get("promoted_at"):
                     out["promoted_at"] = saved["promoted_at"]
-                return out
+                return _attach_ridge_role_flags(out, path_model_path())
 
         period = str(minute_period or "5").strip() or "5"
         mlook = max(20, min(int(minute_lookback_days or 90), 240))
@@ -807,6 +914,7 @@ class QuantFactorMixin:
             buy_trig_pct=buy_trig,
             minute_tau_hm=path_tau_hm,
             tau_grid=path_tau_grid,
+            holdout_trading_days=holdout_trading_days,
         )
         report["watching_limit"] = limit
         report["watching_pool_size"] = len(pool)
@@ -833,6 +941,7 @@ class QuantFactorMixin:
                 report,
                 note=note or "api path-ridge persist",
                 force=bool(force_promote),
+                role=persist_role,
             )
             report["persisted"] = saved
             report["promote_gate"] = saved.get("promote_gate") or path_promote_gate(report)
@@ -844,7 +953,7 @@ class QuantFactorMixin:
             report["live_model_present"] = bool(live)
             if report.get("success") and not report.get("promote_gate"):
                 report["promote_gate"] = path_promote_gate(report)
-        return report
+        return _attach_ridge_role_flags(report, path_model_path())
 
     def get_path_ridge_model(self) -> Dict[str, Any]:
         from quant.research.path_ridge import (
@@ -856,7 +965,8 @@ class QuantFactorMixin:
 
         doc = load_path_model()
         last = load_path_last_report()
-        if not doc:
+        chosen, use_last = _select_ridge_desk_doc(doc, last)
+        if not chosen:
             out = {
                 "success": False,
                 "exists": False,
@@ -867,18 +977,21 @@ class QuantFactorMixin:
             if last:
                 out["promote_gate"] = path_promote_gate(last)
                 out["oos"] = last.get("oos")
-            return out
-        gate_src = doc if not doc.get("_shadow") else (last or doc)
-        return {
-            "success": True,
-            "exists": True,
-            "path": path_model_path(),
-            "promoted": not bool(doc.get("_shadow")),
-            "shadow": bool(doc.get("_shadow")),
-            "last_report_exists": bool(last),
-            "promote_gate": path_promote_gate(gate_src),
-            **doc,
-        }
+            return _attach_ridge_role_flags(out, path_model_path(), live_present=False)
+        gate_src = last if use_last else (doc if not doc.get("_shadow") else (last or doc))
+        return _attach_ridge_role_flags(
+            {
+                **chosen,
+                "success": True,
+                "exists": True,
+                "path": path_model_path(),
+                "promoted": (not use_last) and not bool(chosen.get("_shadow")),
+                "shadow": bool(use_last) or bool(chosen.get("_shadow")),
+                "last_report_exists": bool(last),
+                "promote_gate": path_promote_gate(gate_src),
+            },
+            path_model_path(),
+        )
 
     def run_cx_ridge_experiment(
         self,
@@ -892,6 +1005,8 @@ class QuantFactorMixin:
         persist: bool = False,
         note: str = "",
         force_promote: bool = False,
+        persist_role: str = "live",
+        holdout_trading_days: int = 10,
     ) -> Dict[str, Any]:
         """观察池 ŷ_complexity Ridge：开盘 Z + 多 τ 前缀 → 全日 5m 曲折度。只读本地 5m 缓存。"""
         from core.data.facade import bars_and_source
@@ -900,6 +1015,7 @@ class QuantFactorMixin:
         from core.store import load_minute_cache
         from core.watching.store import WATCHING_MAX_SIZE, read_watching
         from quant.research.cx_ridge import (
+            cx_model_path,
             cx_promote_gate,
             fit_cx_ridge_report,
             load_cx_last_report,
@@ -931,6 +1047,7 @@ class QuantFactorMixin:
                     last,
                     note=note or "persist last cx report",
                     force=bool(force_promote),
+                    role=persist_role,
                 )
                 out = dict(last)
                 out["persisted"] = saved
@@ -938,7 +1055,7 @@ class QuantFactorMixin:
                 out["promote_gate"] = saved.get("promote_gate") or cx_promote_gate(last)
                 if saved.get("promoted_at"):
                     out["promoted_at"] = saved["promoted_at"]
-                return out
+                return _attach_ridge_role_flags(out, cx_model_path())
 
         period = str(minute_period or "5").strip() or "5"
         mlook = max(20, min(int(minute_lookback_days or 90), 240))
@@ -1002,6 +1119,7 @@ class QuantFactorMixin:
             ridge_lambda=ridge_lambda,
             gap_trigger_pct=gap_trigger_pct,
             tau_grid=list(DEFAULT_CX_TAU_GRID),
+            holdout_trading_days=holdout_trading_days,
         )
         report["watching_limit"] = limit
         report["watching_pool_size"] = len(pool)
@@ -1025,6 +1143,7 @@ class QuantFactorMixin:
                 report,
                 note=note or "api cx-ridge persist",
                 force=bool(force_promote),
+                role=persist_role,
             )
             report["persisted"] = saved
             report["promote_gate"] = saved.get("promote_gate") or cx_promote_gate(report)
@@ -1036,7 +1155,7 @@ class QuantFactorMixin:
             report["live_model_present"] = bool(live)
             if report.get("success") and not report.get("promote_gate"):
                 report["promote_gate"] = cx_promote_gate(report)
-        return report
+        return _attach_ridge_role_flags(report, cx_model_path())
 
     def get_cx_ridge_model(self) -> Dict[str, Any]:
         from quant.research.cx_ridge import (
@@ -1048,7 +1167,8 @@ class QuantFactorMixin:
 
         doc = load_cx_model()
         last = load_cx_last_report()
-        if not doc:
+        chosen, use_last = _select_ridge_desk_doc(doc, last)
+        if not chosen:
             out = {
                 "success": False,
                 "exists": False,
@@ -1059,18 +1179,21 @@ class QuantFactorMixin:
             if last:
                 out["promote_gate"] = cx_promote_gate(last)
                 out["oos"] = last.get("oos")
-            return out
-        gate_src = doc if not doc.get("_shadow") else (last or doc)
-        return {
-            "success": True,
-            "exists": True,
-            "path": cx_model_path(),
-            "promoted": not bool(doc.get("_shadow")),
-            "shadow": bool(doc.get("_shadow")),
-            "last_report_exists": bool(last),
-            "promote_gate": cx_promote_gate(gate_src),
-            **doc,
-        }
+            return _attach_ridge_role_flags(out, cx_model_path(), live_present=False)
+        gate_src = last if use_last else (doc if not doc.get("_shadow") else (last or doc))
+        return _attach_ridge_role_flags(
+            {
+                **chosen,
+                "success": True,
+                "exists": True,
+                "path": cx_model_path(),
+                "promoted": (not use_last) and not bool(chosen.get("_shadow")),
+                "shadow": bool(use_last) or bool(chosen.get("_shadow")),
+                "last_report_exists": bool(last),
+                "promote_gate": cx_promote_gate(gate_src),
+            },
+            cx_model_path(),
+        )
 
     def run_tpd_ridge_experiment(
         self,
@@ -1084,6 +1207,8 @@ class QuantFactorMixin:
         persist: bool = False,
         note: str = "",
         force_promote: bool = False,
+        persist_role: str = "live",
+        holdout_trading_days: int = 10,
     ) -> Dict[str, Any]:
         """观察池 ŷ_tpd Ridge：开盘 Z + 多 τ 前缀 → 全日 5m 转折点密度。只读本地 5m 缓存。"""
         from core.data.facade import bars_and_source
@@ -1097,6 +1222,7 @@ class QuantFactorMixin:
             load_tpd_model,
             persist_tpd_model,
             save_tpd_last_report,
+            tpd_model_path,
             tpd_promote_gate,
         )
 
@@ -1123,6 +1249,7 @@ class QuantFactorMixin:
                     last,
                     note=note or "persist last tpd report",
                     force=bool(force_promote),
+                    role=persist_role,
                 )
                 out = dict(last)
                 out["persisted"] = saved
@@ -1130,7 +1257,7 @@ class QuantFactorMixin:
                 out["promote_gate"] = saved.get("promote_gate") or tpd_promote_gate(last)
                 if saved.get("promoted_at"):
                     out["promoted_at"] = saved["promoted_at"]
-                return out
+                return _attach_ridge_role_flags(out, tpd_model_path())
 
         period = str(minute_period or "5").strip() or "5"
         mlook = max(20, min(int(minute_lookback_days or 90), 240))
@@ -1194,6 +1321,7 @@ class QuantFactorMixin:
             ridge_lambda=ridge_lambda,
             gap_trigger_pct=gap_trigger_pct,
             tau_grid=list(DEFAULT_CX_TAU_GRID),
+            holdout_trading_days=holdout_trading_days,
         )
         report["watching_limit"] = limit
         report["watching_pool_size"] = len(pool)
@@ -1217,6 +1345,7 @@ class QuantFactorMixin:
                 report,
                 note=note or "api tpd-ridge persist",
                 force=bool(force_promote),
+                role=persist_role,
             )
             report["persisted"] = saved
             report["promote_gate"] = saved.get("promote_gate") or tpd_promote_gate(report)
@@ -1228,7 +1357,7 @@ class QuantFactorMixin:
             report["live_model_present"] = bool(live)
             if report.get("success") and not report.get("promote_gate"):
                 report["promote_gate"] = tpd_promote_gate(report)
-        return report
+        return _attach_ridge_role_flags(report, tpd_model_path())
 
     def get_tpd_ridge_model(self) -> Dict[str, Any]:
         from quant.research.tpd_ridge import (
@@ -1240,7 +1369,8 @@ class QuantFactorMixin:
 
         doc = load_tpd_model()
         last = load_tpd_last_report()
-        if not doc:
+        chosen, use_last = _select_ridge_desk_doc(doc, last)
+        if not chosen:
             out = {
                 "success": False,
                 "exists": False,
@@ -1251,18 +1381,207 @@ class QuantFactorMixin:
             if last:
                 out["promote_gate"] = tpd_promote_gate(last)
                 out["oos"] = last.get("oos")
-            return out
-        gate_src = doc if not doc.get("_shadow") else (last or doc)
-        return {
-            "success": True,
-            "exists": True,
-            "path": tpd_model_path(),
-            "promoted": not bool(doc.get("_shadow")),
-            "shadow": bool(doc.get("_shadow")),
-            "last_report_exists": bool(last),
-            "promote_gate": tpd_promote_gate(gate_src),
-            **doc,
-        }
+            return _attach_ridge_role_flags(out, tpd_model_path(), live_present=False)
+        gate_src = last if use_last else (doc if not doc.get("_shadow") else (last or doc))
+        return _attach_ridge_role_flags(
+            {
+                **chosen,
+                "success": True,
+                "exists": True,
+                "path": tpd_model_path(),
+                "promoted": (not use_last) and not bool(chosen.get("_shadow")),
+                "shadow": bool(use_last) or bool(chosen.get("_shadow")),
+                "last_report_exists": bool(last),
+                "promote_gate": tpd_promote_gate(gate_src),
+            },
+            tpd_model_path(),
+        )
+
+    def run_r_ridge_experiment(
+        self,
+        *,
+        lookback: int = 120,
+        watching_limit: int = 200,
+        ridge_lambda: float = 1.0,
+        gap_trigger_pct: float = 2.0,
+        minute_period: str = "5",
+        minute_lookback_days: int = 150,
+        persist: bool = False,
+        note: str = "",
+        force_promote: bool = False,
+        persist_role: str = "live",
+        holdout_trading_days: int = 10,
+    ) -> Dict[str, Any]:
+        """观察池 ŷ_r Ridge：与 ŷ_τ 同 X → price(τ)/close−1。只读本地 5m 缓存。不进调仓。"""
+        from core.data.facade import bars_and_source
+        from core.watching.store import WATCHING_MAX_SIZE, read_watching
+        from quant.research.r_ridge import (
+            fit_r_ridge_report,
+            load_r_last_report,
+            load_r_model,
+            persist_r_model,
+            r_model_path,
+            r_promote_gate,
+            save_r_last_report,
+        )
+
+        uni = read_watching()
+        pool = [
+            str(c).strip()
+            for c in (uni.get("watchlist") or [])
+            if str(c).strip()
+        ]
+        cap = max(2, min(int(WATCHING_MAX_SIZE), 500))
+        limit = max(2, min(int(watching_limit or cap), cap))
+        codes = pool[:limit]
+        if len(codes) < 2:
+            return {
+                "success": False,
+                "error": "研究池至少 2 只才可跑 ŷ_r Ridge",
+                "task": "r_ridge",
+            }
+
+        if persist:
+            last = load_r_last_report()
+            if last:
+                saved = persist_r_model(
+                    last,
+                    note=note or "persist last r report",
+                    force=bool(force_promote),
+                    role=persist_role,
+                )
+                out = dict(last)
+                out["persisted"] = saved
+                out["from_last_report"] = True
+                out["promote_gate"] = saved.get("promote_gate") or r_promote_gate(last)
+                if saved.get("promoted_at"):
+                    out["promoted_at"] = saved["promoted_at"]
+                return _attach_ridge_role_flags(out, r_model_path())
+
+        period = str(minute_period or "5").strip() or "5"
+        mlook = max(20, min(int(minute_lookback_days or 90), 240))
+        stock_bars: List[Dict[str, Any]] = []
+        minute_hit = 0
+        minute_codes_miss = 0
+        for code in codes:
+            bars, _src = bars_and_source(code, limit=lookback + 40)
+            if not bars:
+                continue
+            row: Dict[str, Any] = {"code": str(code), "bars": bars}
+            try:
+                from core.ports.market import resolve_market_code
+                from core.store import load_minute_cache
+
+                mkt, pure = resolve_market_code(str(code))
+                packed = load_minute_cache(
+                    mkt or "CN",
+                    pure or str(code),
+                    period,
+                    min_bars=1,
+                    ignore_age=True,
+                )
+                if packed:
+                    mb, _meta = packed
+                    if mb:
+                        row["minute_bars"] = mb
+                        minute_hit += 1
+                    else:
+                        minute_codes_miss += 1
+                else:
+                    minute_codes_miss += 1
+            except Exception:  # noqa: BLE001
+                logger.debug("r ridge minute cache miss for %s", code, exc_info=True)
+                minute_codes_miss += 1
+            stock_bars.append(row)
+
+        if minute_hit < 1:
+            return {
+                "success": False,
+                "error": (
+                    f"无本地分钟缓存（period={period} · 池 {len(codes)} 只）；"
+                    "请先「强更 5m」，拟合不再拉远端"
+                ),
+                "task": "r_ridge",
+                "minute_period": period,
+                "watching_limit": limit,
+                "watching_pool_size": len(pool),
+                "minute_cache_only": True,
+                "minute_codes_miss": minute_codes_miss,
+            }
+
+        report = fit_r_ridge_report(
+            stock_bars,
+            ridge_lambda=ridge_lambda,
+            gap_trigger_pct=gap_trigger_pct,
+            holdout_trading_days=holdout_trading_days,
+        )
+        report["watching_limit"] = limit
+        report["watching_pool_size"] = len(pool)
+        report["lookback"] = lookback
+        report["minute_period"] = period
+        report["minute_lookback_days"] = mlook
+        report["minute_codes_hit"] = minute_hit
+        report["minute_codes_miss"] = minute_codes_miss
+        report["minute_codes_universe"] = len(codes)
+        report["minute_cache_only"] = True
+        if report.get("success"):
+            save_r_last_report(report)
+        if persist and report.get("success"):
+            saved = persist_r_model(
+                report,
+                note=note or "api r-ridge persist",
+                force=bool(force_promote),
+                role=persist_role,
+            )
+            report["persisted"] = saved
+            report["promote_gate"] = saved.get("promote_gate") or r_promote_gate(report)
+            if saved.get("promoted_at"):
+                report["promoted_at"] = saved["promoted_at"]
+        else:
+            report["persisted"] = {"success": False, "skipped": True}
+            live = load_r_model()
+            report["live_model_present"] = bool(live)
+            if report.get("success") and not report.get("promote_gate"):
+                report["promote_gate"] = r_promote_gate(report)
+        return _attach_ridge_role_flags(report, r_model_path())
+
+    def get_r_ridge_model(self) -> Dict[str, Any]:
+        from quant.research.r_ridge import (
+            load_r_last_report,
+            load_r_model,
+            r_model_path,
+            r_promote_gate,
+        )
+
+        doc = load_r_model()
+        last = load_r_last_report()
+        chosen, use_last = _select_ridge_desk_doc(doc, last)
+        if not chosen:
+            out = {
+                "success": False,
+                "exists": False,
+                "path": r_model_path(),
+                "last_report_exists": bool(last),
+                "note": "尚无 ŷ_r 模型；POST /api/quant/r-ridge persist=true",
+            }
+            if last:
+                out["promote_gate"] = r_promote_gate(last)
+                out["oos"] = last.get("oos")
+            return _attach_ridge_role_flags(out, r_model_path(), live_present=False)
+        gate_src = last if use_last else (doc if not doc.get("_shadow") else (last or doc))
+        return _attach_ridge_role_flags(
+            {
+                **chosen,
+                "success": True,
+                "exists": True,
+                "path": r_model_path(),
+                "promoted": (not use_last) and not bool(chosen.get("_shadow")),
+                "shadow": bool(use_last) or bool(chosen.get("_shadow")),
+                "last_report_exists": bool(last),
+                "promote_gate": r_promote_gate(gate_src),
+            },
+            r_model_path(),
+        )
 
     def run_factor_ols_pool_experiment(
         self,
@@ -1330,6 +1649,7 @@ class QuantFactorMixin:
         *,
         lookback: int = 80,
         horizon_days: int = 3,
+        holdout_trading_days: int = 10,
         watching_limit: int = 100,
         ridge_lambda: float = 0.0,
         n_clusters: Optional[int] = None,
@@ -1412,6 +1732,7 @@ class QuantFactorMixin:
                 watchlist,
                 lookback=lookback,
                 horizon_days=horizon_days,
+                holdout_trading_days=holdout_trading_days,
                 watching_limit=watching_limit,
                 n_clusters=n_clusters,
                 ridge_lambda=ridge_lambda,
@@ -1518,6 +1839,7 @@ class QuantFactorMixin:
         report = compute_factor_ols_cluster_report(
             panels,
             horizon_days=horizon_days,
+            holdout_trading_days=holdout_trading_days,
             ridge_lambda=ridge_lambda,
             n_clusters=n_clusters,
             pit_fundamentals=bool(pit_fundamentals),
@@ -1787,6 +2109,7 @@ class QuantFactorMixin:
         watching_limit: int = 100,
         period: str = "5",
         min_span_days: int = 30,
+        include_label_portrait: bool = True,
     ) -> Dict[str, Any]:
         """观察池 5m 分钟缓存覆盖（研究枢纽 UI）。"""
         from quant.research.cluster_minute_status import build_cluster_minute_status
@@ -1795,6 +2118,7 @@ class QuantFactorMixin:
             watching_limit=watching_limit,
             period=period,
             min_span_days=min_span_days,
+            include_label_portrait=include_label_portrait,
         )
 
     def run_cluster_minute_refresh(
@@ -2177,6 +2501,26 @@ class QuantFactorMixin:
         from core.signal.cluster.live import set_cluster_scoring_mode
 
         return set_cluster_scoring_mode(mode, enabled=enabled, force=force)
+
+    def set_cluster_universe_fit_tiers(self, tiers: Any) -> Dict[str, Any]:
+        from core.signal.cluster.live import set_cluster_universe_fit_tiers as _set
+
+        return _set(tiers)
+
+    def cluster_live_fit_tiers(self) -> Dict[str, Any]:
+        """code → A/B/C，完整报告 A 不被瘦产物盖掉。供四页股票名徽标。"""
+        from core.signal.cluster.fit_tier import load_code_fit_tier_map
+
+        mapping = load_code_fit_tier_map(prefer_research=True)
+        counts = {"A": 0, "B": 0, "C": 0}
+        for t in mapping.values():
+            if t in counts:
+                counts[t] += 1
+        return {
+            "success": True,
+            "code_fit_tiers": mapping,
+            "fit_tier_counts": counts,
+        }
 
     def save_cluster_live_draft(self, artifact: Dict[str, Any]) -> Dict[str, Any]:
         from core.signal.cluster.live import save_cluster_draft
@@ -2618,7 +2962,7 @@ def _enrich_cluster_name_by_code(report: Dict[str, Any]) -> Dict[str, Any]:
 
 
 # 选 k / 拆组算法版本。改分区逻辑时必须 bump，否则 refresh_bars=False 会命中 24h 旧分区。
-CLUSTER_CACHE_ALGO_VERSION = "v4-cluster-oos-rank-only"
+CLUSTER_CACHE_ALGO_VERSION = "v5-eod-holdout-beta"
 
 
 def _cluster_cache_fingerprint(
@@ -2626,6 +2970,7 @@ def _cluster_cache_fingerprint(
     *,
     lookback: int,
     horizon_days: int,
+    holdout_trading_days: int,
     watching_limit: int,
     n_clusters: Optional[int],
     ridge_lambda: float,
@@ -2660,6 +3005,7 @@ def _cluster_cache_fingerprint(
         f"codes={','.join(codes)}",
         f"lb={int(lookback)}",
         f"hz={int(horizon_days)}",
+        f"hold={int(holdout_trading_days)}",
         f"wlim={int(watching_limit)}",
         f"k={n_clusters if n_clusters is not None else 'auto'}",
         f"ridge={float(ridge_lambda):.4f}",
@@ -2909,6 +3255,13 @@ def _report_from_cluster_draft() -> Optional[Dict[str, Any]]:
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
         logger.debug("catch except Exception: in quant_service_factors.py", exc_info=True)
         pass
+    try:
+        from core.signal.cluster.fit_tier import attach_cluster_fit_tiers
+
+        attach_cluster_fit_tiers(report)
+    except Exception:  # noqa: BLE001 — 草稿缺 OOS 仍可分档
+        logger.debug("catch except Exception: in quant_service_factors.py", exc_info=True)
+        pass
     return report
 
 
@@ -2961,6 +3314,13 @@ def _load_latest_cluster_report() -> Optional[Dict[str, Any]]:
 
             strip_removed_factors_from_cluster_report(out)
         except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in quant_service_factors.py", exc_info=True)
+            pass
+        try:
+            from core.signal.cluster.fit_tier import attach_cluster_fit_tiers
+
+            attach_cluster_fit_tiers(out)
+        except Exception:  # noqa: BLE001 — 旧报告无 OOS 时仍可分档
             logger.debug("catch except Exception: in quant_service_factors.py", exc_info=True)
             pass
         return out

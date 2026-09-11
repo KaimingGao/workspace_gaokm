@@ -60,6 +60,34 @@ function summaryCard({ name, state, stateLabel, desc, metricsHtml, title, extraC
   );
 }
 
+function universeFitTiersHtml(cs) {
+  const raw = Array.isArray(cs.universe_fit_tiers)
+    ? cs.universe_fit_tiers
+    : ["A", "B", "C"];
+  const set = new Set(
+    raw.map((t) => String(t || "").toUpperCase()).filter((t) => t === "A" || t === "B" || t === "C")
+  );
+  if (!set.size) {
+    set.add("A");
+    set.add("B");
+    set.add("C");
+  }
+  const row = (id, label) =>
+    `<label class="quant-cluster-universe-tier">` +
+    `<input type="checkbox" id="quant-universe-tier-live-${id.toLowerCase()}" value="${id}" ${
+      set.has(id) ? "checked" : ""
+    } /> ${escapeHtml(label)}</label>`;
+  return (
+    `<fieldset class="quant-cluster-universe-tiers" title="观察池按拟合档限制新开/加仓宇宙；已持仓仍可卖/持。C 档即使入选，OOS 失败仍拦新买。回测页可另选对照，不改这里。">` +
+    `<legend>宇宙分档</legend>` +
+    row("A", "A 强") +
+    row("B", "B 中") +
+    row("C", "C 弱") +
+    `<button type="button" class="dialog-btn secondary dialog-btn-keep-case" data-cluster-export="universe-fit-tiers" title="写入 cluster_scoring.universe_fit_tiers，影响 live 观察池新开/加。">保存宇宙</button>` +
+    `</fieldset>`
+  );
+}
+
 export function clusterLandingHtml(data) {
   const cs = (data && data.cluster_scoring) || {};
   const act = (data && data.active) || {};
@@ -406,10 +434,10 @@ export function clusterLandingHtml(data) {
     `title="跳到研究枢纽「跑分组」重估组 β（人审后对照/启用）。">建议重估</button>` +
     `</span></div>`;
 
-  const mid =
-    preflightExtra || evidenceHtml
-      ? `<div class="quant-cluster-landing-mid">${preflightExtra}${evidenceHtml}</div>`
-      : "";
+  const midBits = [universeFitTiersHtml(cs), preflightExtra, evidenceHtml].filter(Boolean);
+  const mid = midBits.length
+    ? `<div class="quant-cluster-landing-mid">${midBits.join("")}</div>`
+    : "";
 
   return (
     `<div class="quant-cluster-landing-card">` +

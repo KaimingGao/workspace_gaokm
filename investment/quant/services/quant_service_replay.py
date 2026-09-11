@@ -71,6 +71,11 @@ class QuantReplayMixin:
         fusion_w_nowcast: float = 0.4,
         rank_enter: float = 0.012,
         rank_strong: float = 0.012,
+        initial_cash: Optional[float] = None,
+        fill_clock: str = "09:30",
+        lot_base: Optional[int] = None,
+        lot_strong: Optional[int] = None,
+        universe_fit_tiers: Optional[Sequence[str]] = None,
         **legacy_kw: Any,
     ) -> Dict[str, Any]:
         from core.strategy import backtest_portfolio_defaults
@@ -98,6 +103,41 @@ class QuantReplayMixin:
                 "universe": resolved,
             }
 
+        fit_meta: Dict[str, Any] = {}
+        try:
+            from core.signal.cluster.fit_tier import (
+                filter_codes_by_fit_tiers,
+                normalize_universe_fit_tiers,
+            )
+
+            tiers_raw = universe_fit_tiers
+            if tiers_raw is None:
+                from core.signal.cluster.live import get_cluster_scoring_cfg
+
+                tiers_raw = get_cluster_scoring_cfg().get("universe_fit_tiers")
+            allowed_tiers = normalize_universe_fit_tiers(tiers_raw)
+            candidates, fit_meta = filter_codes_by_fit_tiers(
+                candidates,
+                tiers=allowed_tiers,
+                keep=(),
+                prefer_research=True,
+            )
+        except Exception as exc:
+            logger.warning("replay fit-tier filter skipped: %s", exc, exc_info=True)
+            fit_meta = {"unrestricted": True, "error": str(exc)}
+        if not candidates:
+            by = (fit_meta or {}).get("n_by_tier") or {}
+            tiers = "".join((fit_meta or {}).get("universe_fit_tiers") or [])
+            n_in = (fit_meta or {}).get("n_in")
+            return {
+                "success": False,
+                "error": (
+                    f"验证宇宙按拟合档过滤后为空（档{tiers or '—'} · 池{n_in}只"
+                    f" · A{by.get('A', 0)}/B{by.get('B', 0)}/C{by.get('C', 0)}）"
+                ),
+                "universe": {**resolved, "fit_tiers": fit_meta},
+            }
+
         stock_bars, failures, fundamentals_by_code = load_portfolio_stock_bars(
             candidates,
             lookback=lookback,
@@ -115,7 +155,7 @@ class QuantReplayMixin:
                 min_avg_amount_pctile=min_avg_amount_pctile,
             )
 
-        if len(stock_bars) < 2:
+        if len(stock_bars) < 1:
             return {
                 "success": False,
                 "error": f"有效日线标的不足（{len(stock_bars)}）",
@@ -131,12 +171,17 @@ class QuantReplayMixin:
 
         from core.backtest.paper_replay import (
             REPLAY_CASH_FLOOR,
+            REPLAY_FILL_CLOCK,
             REPLAY_FUSION_W_NOWCAST,
             REPLAY_FUSION_W_TRADE,
             REPLAY_INITIAL_CASH,
             REPLAY_RANK_ENTER,
             REPLAY_RANK_STRONG,
             backtest_paper_replay,
+            clamp_replay_fill_clock,
+            clamp_replay_initial_cash,
+            clamp_replay_lot_pair,
+            load_replay_minute_bars,
         )
         from core.paper.rebalance.rank_lots import clamp_fusion_weight, coerce_rank_threshold
 
@@ -156,12 +201,43 @@ class QuantReplayMixin:
         strong = max(0.0, min(1.0, float(strong)))
         if strong < enter:
             strong = enter
+        cash = clamp_replay_initial_cash(
+            REPLAY_INITIAL_CASH if initial_cash is None else initial_cash
+        )
+        lot_base_n, lot_strong_n = clamp_replay_lot_pair(lot_base, lot_strong)
+        clock = clamp_replay_fill_clock(fill_clock, REPLAY_FILL_CLOCK)
+        minute_span = min(max(int(lookback or 30) + 20, 15), 120)
+        minute_bars, minute_meta = load_replay_minute_bars(
+            list(stock_bars.keys()),
+            lookback_days=minute_span,
+        )
+        if clock != "09:30" and not minute_bars:
+            return {
+                "success": False,
+                "error": (
+                    f"调仓时间 {clock} 需要 5 分钟 K，观察池无可用分钟缓存。"
+                    "请先在研究页预热分钟线后再跑。"
+                ),
+                "universe": {
+                    **resolved,
+                    "load_failures": failures,
+                    "loaded_count": len(stock_bars),
+                    "filters": filter_meta,
+                    "filter_dropped": filter_dropped,
+                },
+                "minute_meta": minute_meta,
+                "request": {
+                    "engine": "paper_replay",
+                    "lookback": int(lookback),
+                    "fill_clock": clock,
+                },
+            }
         result = backtest_paper_replay(
             stock_bars,
             top_k=universe_n,
             cost_model="simple_cn" if apply_costs else "zero",
             yhat_horizon_days=1,
-            initial_cash=REPLAY_INITIAL_CASH,
+            initial_cash=cash,
             cash_floor=REPLAY_CASH_FLOOR,
             y_on_alpha=y_on_alpha,
             fusion_w_trade=w_trade,
@@ -169,9 +245,14 @@ class QuantReplayMixin:
             rank_enter=enter,
             rank_strong=strong,
             lookback=int(lookback),
+            fill_clock=clock,
+            minute_bars_by_code=minute_bars,
+            lot_base=lot_base_n,
+            lot_strong=lot_strong_n,
         )
         result["loaded_stocks"] = list(stock_bars.keys())
         result["failures"] = failures
+        result["minute_meta"] = minute_meta
         result["request"] = {
             "engine": "paper_replay",
             "lookback": int(lookback),
@@ -183,20 +264,33 @@ class QuantReplayMixin:
             "exclude_st": bool(exclude_st),
             "min_avg_amount_pctile": min_avg_amount_pctile,
             "benchmark_code": str(benchmark_code or "000300"),
-            "initial_cash": REPLAY_INITIAL_CASH,
+            "initial_cash": cash,
             "cash_floor": REPLAY_CASH_FLOOR,
             "y_on_alpha": y_on_alpha,
             "fusion_w_trade": w_trade,
             "fusion_w_nowcast": w_nowcast,
             "rank_enter": enter,
             "rank_strong": strong,
+            "fill_clock": clock,
+            "lot_base": lot_base_n,
+            "lot_strong": lot_strong_n,
+            "universe_fit_tiers": list(
+                (fit_meta or {}).get("universe_fit_tiers") or ["A", "B", "C"]
+            ),
             "score_axis_note": (
                 "引擎=paper_replay：每个交易日 09:30 rank_lots"
-                "（初始 50 万 · 现金地板 10 万 · y_fuse/y_on · 1000/2000 股；"
+                f"（成交 {clock} 5m · 初始 {cash / 10000:g} 万 · y_fuse/y_on · "
+                f"{lot_base_n}/{lot_strong_n} 股；"
                 f"w_trade={w_trade:g}；w_nowcast={w_nowcast:g}；"
                 f"α={y_on_alpha:g}；入场={enter:g}；强={strong:g}；"
-                f"宇宙=观察池 {universe_n} 只，开加不按纸面 max_positions={max_positions} 截断）；"
-                "现金地板约束实际成交。"
+                f"宇宙=观察池 {universe_n} 只"
+                + (
+                    f" · 档{''.join((fit_meta or {}).get('universe_fit_tiers') or [])}"
+                    if not (fit_meta or {}).get("unrestricted", True)
+                    else ""
+                )
+                + f"，开加不按纸面 max_positions={max_positions} 截断）；"
+                "现金用完即止。"
             ),
         }
         result["universe"] = {
@@ -206,7 +300,12 @@ class QuantReplayMixin:
             "load_failures": failures,
             "filters": filter_meta,
             "filter_dropped": filter_dropped,
-            "note": "候选=全部观察池；开加不按纸面持仓上限截断（≠研究 Top-K 独立腿）。",
+            "fit_tiers": fit_meta,
+            "note": (
+                "候选=观察池按拟合档过滤；开加不按纸面持仓上限截断（≠研究 Top-K 独立腿）。"
+                if not (fit_meta or {}).get("unrestricted", True)
+                else "候选=全部观察池；开加不按纸面持仓上限截断（≠研究 Top-K 独立腿）。"
+            ),
         }
         if include_benchmark and result.get("success"):
             try:

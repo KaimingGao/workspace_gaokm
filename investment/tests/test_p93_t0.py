@@ -4151,10 +4151,11 @@ class TestT0Api(unittest.TestCase):
         self.assertTrue(res.json()["success"])
 
     def test_index_has_t0_controls(self):
-        path = os.path.join(ROOT, "web", "static", "partials", "follow_panel.html")
-        with open(path, "r", encoding="utf-8") as f:
+        follow = os.path.join(ROOT, "web", "static", "partials", "follow_panel.html")
+        with open(follow, "r", encoding="utf-8") as f:
             text = f.read()
-        self.assertIn("paper-t0-backtest", text)
+        self.assertNotIn("paper-t0-backtest", text)
+        self.assertNotIn("paper-t0-metrics", text)
         self.assertIn("paper-t0-action-status", text)
         self.assertIn("paper-t0-run", text)
         self.assertIn("paper-t0-confirm", text)
@@ -4167,7 +4168,7 @@ class TestT0Api(unittest.TestCase):
         self.assertIn("paper-rebalance-worker-desk", text)
         self.assertIn("自动调仓后台进程", text)
         self.assertIn("paper-t0-run", text)
-        self.assertIn("dual_y", text)
+        self.assertNotIn('id="paper-t0-form"', text)
         self.assertIn("手动预演", text)
         self.assertIn("自动做 T 后台进程", text)
         self.assertNotIn("paper-t0-auto-enabled", text)
@@ -4185,6 +4186,22 @@ class TestT0Api(unittest.TestCase):
         self.assertLess(ov.find('id="follow-north-star"'), ov.find('id="follow-overview-fund"'))
         self.assertNotIn('id="paper-rebalance"', text)
         self.assertNotIn("跑一日", text)
+
+    def test_replay_has_t0_backtest_controls(self):
+        path = os.path.join(ROOT, "web", "static", "partials", "replay_panel.html")
+        with open(path, "r", encoding="utf-8") as f:
+            text = f.read()
+        self.assertIn("paper-t0-backtest", text)
+        self.assertIn("paper-t0-metrics", text)
+        self.assertIn("paper-t0-viz", text)
+        self.assertIn("paper-t0-days", text)
+        self.assertIn("paper-t0-lookback", text)
+        self.assertIn("replay-section-t0", text)
+        self.assertIn("paper-t0-form", text)
+        self.assertIn("replay-t0-kpi-row", text)
+        self.assertIn("replay-t0-matrix", text)
+        self.assertIn("dual_y", text)
+        self.assertIn("paper-path-matrix-form", text)
 
 
 class TestT0HoldingsVirtualSizing(unittest.TestCase):
@@ -4267,6 +4284,16 @@ class TestT0HoldingsVirtualSizing(unittest.TestCase):
         self.assertGreater(tau_at, 0)
         self.assertLess(dl_at, tau_at)
         self.assertLessEqual(m._HOLDINGS_DEADLINE_SEC, 240.0)
+        self.assertIn("scoring_model_role_context(MODEL_ROLE_RESEARCH)", src)
+
+    def test_t0_walk_does_not_clear_score_cache_per_stock(self):
+        import inspect
+
+        from core.t0 import backtest as m
+
+        src = inspect.getsource(m.backtest_t0_on_bars)
+        self.assertIn("scoring_model_role_context(MODEL_ROLE_RESEARCH)", src)
+        self.assertNotIn("clear_score_model_cache", src)
 
     def test_fetch_minute_prefers_complete_local_cache(self):
         from unittest.mock import patch
@@ -4941,6 +4968,57 @@ class TestIntradaySkipLogic(unittest.TestCase):
                 desk = mod.build_intraday_desk_status()
         self.assertEqual(desk["rows"][0]["stock_code"], "600029")
         self.assertEqual(desk["rows"][0]["stock_name"], "南方航空")
+
+    def test_resolve_stock_name_replaces_code_as_name(self):
+        from core.t0 import intraday as mod
+
+        with patch.object(
+            mod, "_load_a_code_name_map", return_value={"000938": "紫光股份"}
+        ):
+            self.assertEqual(
+                mod.resolve_stock_name("000938", fallback="000938"),
+                "紫光股份",
+            )
+            row = {"stock_code": "000938", "stock_name": "000938"}
+            mod.stamp_resolved_stock_names([row])
+            self.assertEqual(row["stock_name"], "紫光股份")
+
+    def test_load_paper_replaces_code_as_stock_name(self):
+        import json
+        import tempfile
+
+        from core.paper.ledger import load_paper
+        from core.t0 import intraday as mod
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "paper.json")
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(
+                    {
+                        "cash": 1,
+                        "holdings": [
+                            {
+                                "stock_code": "000938",
+                                "stock_name": "000938",
+                                "shares": 100,
+                            }
+                        ],
+                        "trades": [
+                            {
+                                "stock_code": "000938",
+                                "stock_name": "000938",
+                                "side": "buy",
+                            }
+                        ],
+                    },
+                    f,
+                )
+            with patch.object(
+                mod, "_load_a_code_name_map", return_value={"000938": "紫光股份"}
+            ):
+                paper = load_paper(path)
+        self.assertEqual(paper["holdings"][0]["stock_name"], "紫光股份")
+        self.assertEqual(paper["trades"][0]["stock_name"], "紫光股份")
 
     def test_desk_status_from_holdings_when_state_stale(self):
         import json

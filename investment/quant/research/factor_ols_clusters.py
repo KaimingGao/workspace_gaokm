@@ -1,10 +1,10 @@
 """按单票 OLS β 相似度聚类，使同组可共用建模、异组各用各的（研究用，不写盘）。
 
 目的：OLS 表现相似的股票进同一组 → 组内池 OLS + 共用小步权；不同组独立建模。
-默认宇宙=观察池。流程：逐票全样本 OLS（展示）→ **前段窗口 β** 聚类定组
-（中心 ≈ n/5，夹 4～10；auto 时邻域 ±1 × 多种分区配方，按组 ŷ 每票时间尾段
+默认宇宙=观察池。流程：逐票全样本 OLS（展示）→ **Holdout 前段窗口 β** 聚类定组
+（近 N 个交易日留作尾段；auto 时邻域 ±1 × 多种分区配方，按组 ŷ 尾段
 有符号 IC↑ / 前段重拟合误差↓ 选优，ΔOOS 辅门禁）
-→ 多票组**全样本**池 OLS → 因子系数(return_model)。异质用探针核对。
+→ 多票组**全样本**池 OLS（执行套）+ Holdout 训练窗研究套 β。异质用探针核对。
 
 ``beta_scale``：
 - ``feature_zscore``（默认）：列缩尾 + 因子维 z-score
@@ -520,6 +520,71 @@ def _stock_train_xy(
     if len(train) < int(min_train):
         return xs, ys, True
     return [r for r, _ in train], [y for _, y in train], False
+
+
+def _universe_dates(
+    panel_by_code: Dict[str, Dict[str, Any]], codes: Sequence[str]
+) -> List[str]:
+    dates: List[str] = []
+    for code in codes:
+        panel = panel_by_code.get(str(code)) or {}
+        for d in panel.get("dates") or []:
+            s = str(d or "").strip()[:10]
+            if s:
+                dates.append(s)
+    return dates
+
+
+def _fit_research_group_return_model(
+    *,
+    xs: Sequence[Dict[str, Any]],
+    ys: Sequence[float],
+    dates: Sequence[str],
+    members: Sequence[str],
+    train_days: Sequence[str],
+    row_codes: Optional[Sequence[str]] = None,
+    horizon_days: int,
+    ridge_lambda: float,
+    use_pit: bool,
+    collinearity_policy: str,
+    respect_regime: bool,
+    y_spec: Dict[str, Any],
+    mode: str,
+) -> Optional[Dict[str, Any]]:
+    """组冻后：Holdout 训练窗（含 EOD h 隔离）估研究套 β。样本不足则 None。"""
+    from core.research.beta_accuracy import MIN_CLUSTER_OBS
+    from core.research.factor_ols_fit import fit_factor_ols_from_panel
+    from core.research.holdout import make_research_model
+    from quant.research.cluster_soft_hetero import filter_rows_by_train_days
+    from quant.research.cluster_weight_display import (
+        _public_cluster_ols,
+        _return_model_from_ols,
+    )
+
+    tx, ty, _tc, _td = filter_rows_by_train_days(
+        xs, ys, dates, train_days, row_codes=row_codes
+    )
+    if len(ty) < int(MIN_CLUSTER_OBS):
+        return None
+    pooled = fit_factor_ols_from_panel(
+        tx,
+        ty,
+        horizon_days=horizon_days,
+        fundamentals_used=False,
+        pit_fundamentals=use_pit,
+        mode="watching_pooled" if len(members) >= 2 else "single",
+        stock_codes=list(members),
+        ridge_lambda=ridge_lambda,
+        select_ridge=False,
+        collinearity_policy=collinearity_policy,
+        respect_regime=respect_regime,
+        y_spec=y_spec,
+    )
+    ols = _public_cluster_ols(pooled, mode=mode)
+    rm = _return_model_from_ols(ols)
+    if not isinstance(rm, dict):
+        return None
+    return make_research_model(rm, y_mean=0.0)
 
 
 def build_train_window_beta_matrix(
@@ -1282,13 +1347,15 @@ def compute_factor_ols_cluster_report(
     collinearity_policy: str = "drop_redundant",
     progress_cb: Optional[Any] = None,
     max_workers: int = 8,
+    holdout_trading_days: int = 10,
 ) -> Dict[str, Any]:
     """逐票 OLS → β 聚类 → 组内池 OLS + 小步权。
 
     默认 / 显式 ``n_clusters`` 均切到目标 k；不严踢异质升单票组（否则手动 k 会炸组数）。
     异质用探针核对。``n_clusters is None`` 时：前段 β 定组，邻域 ±1 × 多种分区配方，
     按组 ŷ 每票时间尾段有符号 IC / 前段重拟合 R²（partition_loss）选优，ΔOOS 辅门禁。
-    交付组池仍全样本估 β。手动 k 同样用前段 β 定组。
+    交付组池：执行套全样本估 β；研究套用 Holdout 训练窗（EOD 再隔离 h 日）。
+    手动 k 同样用 Holdout 前段 β 定组。
     FS2：``sentiment_pit`` 注入 as_of alt_sentiment（与 live 闸独立）。
     B5：默认 ``respect_regime=True``；B3：默认选 Ridge λ + 共线 drop_redundant。
     大宇宙（≥40）：末日财务快照进面板（跳过逐日 PIT）+ 默认不选 λ，显著加速。
@@ -1462,21 +1529,45 @@ def compute_factor_ols_cluster_report(
         index_bars=index_bars_probe,
         cluster_feature_names=feature_names,
     )
-    # 定组用前段 β（时间因果）；全样本 per_stock 仍供探针 / 展示 / 最终组池
-    holdout_ratio = 0.3
-    from quant.research.partition_loss import resolve_calendar_cut_date
-
-    cut_date = resolve_calendar_cut_date(
-        panel_by_code, holdout_ratio=holdout_ratio, codes=codes
+    # 定组 / 选 k / 贪心：宇宙日历 Holdout 前段（近 N 日不进）；无日期时退回比例切尾
+    from core.research.holdout import (
+        DEFAULT_HOLDOUT_TRADING_DAYS,
+        split_by_holdout_days,
     )
+
+    hold_n = max(1, min(60, int(holdout_trading_days or DEFAULT_HOLDOUT_TRADING_DAYS)))
+    uni_dates = _universe_dates(panel_by_code, codes)
+    _idx_g, _te_g, group_hold_meta = split_by_holdout_days(
+        uni_dates, holdout_trading_days=hold_n, label_horizon_days=0
+    )
+    _idx_r, _te_r, eod_hold_meta = split_by_holdout_days(
+        uni_dates,
+        holdout_trading_days=hold_n,
+        label_horizon_days=horizon_days,
+    )
+    cut_date = str(group_hold_meta.get("fit_end") or "").strip()[:10] or None
+    holdout_ratio = 0.3  # 无日历切点时 _stock_train_xy 退回按票比例
+    research_train_days = list(eod_hold_meta.get("train_days") or [])
+    if not cut_date:
+        from quant.research.partition_loss import resolve_calendar_cut_date
+
+        cut_date = resolve_calendar_cut_date(
+            panel_by_code, holdout_ratio=holdout_ratio, codes=codes
+        )
     walk_forward = {
-        "holdout_ratio": float(holdout_ratio),
+        "holdout_ratio": None if cut_date else float(holdout_ratio),
+        "holdout_trading_days": int(hold_n),
         "cut_date": cut_date,
-        "split_mode": "calendar" if cut_date else "per_stock_ratio",
+        "eval_start": group_hold_meta.get("eval_start"),
+        "fit_end": group_hold_meta.get("fit_end"),
+        "split_mode": "holdout_days" if cut_date else "per_stock_ratio",
+        "label_horizon_days": int(horizon_days),
+        "research_fit_end": eod_hold_meta.get("fit_end"),
+        "n_train_days": group_hold_meta.get("n_train_days"),
+        "n_test_days": group_hold_meta.get("n_test_days"),
         "note": (
-            "宇宙日历切分：决策日 ≤ cut_date 为前段（定组 β / 选 k 组池 / holdout 重拟合）；"
-            "之后为尾段评 ŷ。auto-k 另用更早切点均值 loss 排序；另附 expanding 审计。"
-            "无足够日期时退回按票比例切。"
+            "宇宙日历 Holdout：近 N 个交易日为尾段（定组 β / 选 k / 贪心评 ŷ）；"
+            "研究套组 OLS 再隔离 horizon h 个决策日。执行套组池仍全样本。"
             if cut_date
             else "面板缺决策日，退回每票比例切尾；交付组池 return_model 仍用全样本。"
         ),
@@ -1493,6 +1584,13 @@ def compute_factor_ols_cluster_report(
         use_pit=use_pit,
         holdout_ratio=holdout_ratio,
         cut_date=cut_date,
+    )
+    cluster_beta_meta["holdout_trading_days"] = int(hold_n)
+    cluster_beta_meta["eval_start"] = group_hold_meta.get("eval_start")
+    if cut_date:
+        cluster_beta_meta["split_mode"] = "holdout_days"
+    cluster_beta_meta["note"] = (
+        "聚类 β 来自 Holdout 前段 OLS；执行套组池全样本；研究套 Holdout+h。"
     )
     x, scale_tf = fit_beta_scale_transform(raw, scale_mode)
     k_selection: Dict[str, Any]
@@ -1839,7 +1937,7 @@ def compute_factor_ols_cluster_report(
         }
         from quant.research.cluster_soft_hetero import build_pooled_rows_with_codes
 
-        all_xs, all_ys, row_codes = build_pooled_rows_with_codes(
+        all_xs, all_ys, row_codes, row_dates = build_pooled_rows_with_codes(
             members, panel_by_code
         )
         if len(members) < 2:
@@ -1856,6 +1954,21 @@ def compute_factor_ols_cluster_report(
                 one = per_stock[member_idx[0]]
                 cluster["ols"] = _public_cluster_ols(one, mode="single")
                 cluster["return_model"] = _return_model_from_ols(cluster["ols"])
+                cluster["return_model_research"] = _fit_research_group_return_model(
+                    xs=all_xs,
+                    ys=all_ys,
+                    dates=row_dates,
+                    members=members,
+                    train_days=research_train_days,
+                    row_codes=row_codes,
+                    horizon_days=horizon_days,
+                    ridge_lambda=lam,
+                    use_pit=use_pit,
+                    collinearity_policy=collinearity_policy,
+                    respect_regime=respect_regime,
+                    y_spec=y_spec,
+                    mode="single_research",
+                )
                 draft = _draft_weights_from_ols(
                     one,
                     ic_panel=cluster.get("factor_ic_panel"),
@@ -1865,6 +1978,7 @@ def compute_factor_ols_cluster_report(
             else:
                 cluster["ols"] = {"success": False, "error": "空组"}
                 cluster["return_model"] = None
+                cluster["return_model_research"] = None
             cluster["member_beta_gaps"] = []
             cluster["soft_hetero"] = {"enabled": False, "refit": False}
             clusters.append(cluster)
@@ -1952,6 +2066,25 @@ def compute_factor_ols_cluster_report(
         pooled["mode"] = "cluster_pooled"
         cluster["ols"] = _public_cluster_ols(pooled, mode="cluster_pooled")
         cluster["return_model"] = _return_model_from_ols(cluster["ols"])
+        cluster["return_model_research"] = _fit_research_group_return_model(
+            xs=all_xs,
+            ys=all_ys,
+            dates=row_dates,
+            members=members,
+            train_days=research_train_days,
+            row_codes=row_codes,
+            horizon_days=horizon_days,
+            ridge_lambda=float(
+                pooled.get("ridge_lambda_selected")
+                if pooled.get("ridge_lambda_selected") is not None
+                else (pooled.get("ridge_lambda") or lam)
+            ),
+            use_pit=use_pit,
+            collinearity_policy=collinearity_policy,
+            respect_regime=respect_regime,
+            y_spec=y_spec,
+            mode="cluster_pooled_research",
+        )
         cluster["soft_hetero"] = soft_hetero
         gaps: List[Dict[str, Any]] = []
         if pooled.get("success"):
@@ -2104,6 +2237,10 @@ def compute_factor_ols_cluster_report(
         "task": "factor_ols_clusters",
         "mode": "ols_beta_clusters",
         "horizon_days": horizon_days,
+        "holdout_trading_days": int(hold_n),
+        "fit_end": eod_hold_meta.get("fit_end"),
+        "eval_start": eod_hold_meta.get("eval_start"),
+        "label_horizon_days": int(horizon_days),
         "ridge_lambda": lam,
         "n_clusters": k,
         "n_multi_member_clusters": n_multi,
@@ -2203,7 +2340,7 @@ def compute_factor_ols_cluster_report(
                 )
                 else ""
             )
-            + "多票组池 OLS → 因子系数 return_model（同组同建模）。"
+            + "多票组池 OLS → 执行套 return_model（全样本）+ 研究套 return_model_research（Holdout）。"
             + (
                 " 默认关闭逐日 PIT 财务以加速；仅作分组探针。"
                 if not use_pit

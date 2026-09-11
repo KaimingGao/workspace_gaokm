@@ -223,6 +223,40 @@ export function renderExecutionRulesHtml(execution) {
   );
 }
 
+/** 交易执行页只读：调仓规则摘要（改规则在历史回测）。 */
+export function renderRebalanceRulesHtml(execution) {
+  if (!execution || execution.ok === false) {
+    const err = (execution && execution.error) || "无法加载调仓规则";
+    return `<p class="quant-sub">${escapeText(err)}</p>`;
+  }
+  const timing = execution.rebalance_timing || {};
+  const pm =
+    (timing.rank_lots && typeof timing.rank_lots === "object" && timing.rank_lots) ||
+    (timing.path_matrix && typeof timing.path_matrix === "object" && timing.path_matrix) ||
+    {};
+  const enter = rankScoreToPct(pm.rank_enter);
+  const strong = rankScoreToPct(pm.rank_strong);
+  const alpha = pm.y_on_alpha != null ? Number(pm.y_on_alpha) : 0;
+  const wt = pm.fusion_w_trade != null ? Number(pm.fusion_w_trade) : 0.5;
+  const wn = pm.fusion_w_nowcast != null ? Number(pm.fusion_w_nowcast) : 0.5;
+  const cap = pm.holdings_mv_cap != null ? Number(pm.holdings_mv_cap) : 150000;
+  const fmtN = (n, d) => (Number.isFinite(n) ? n.toFixed(d) : "—");
+  const capLbl = Number.isFinite(cap) && cap > 0 ? `${Math.round(cap / 10000)}万` : "不限";
+  return (
+    `<div class="paper-t0-spec">` +
+    `<header class="paper-t0-spec-head">` +
+    `<h4 class="paper-t0-spec-head-title">生效调仓</h4>` +
+    `<div class="paper-t0-spec-kpi-strip" aria-label="调仓核心参数">` +
+    specKpi("模式", "rank_lots", "09:30 开盘 · 现价 200/500 股") +
+    specKpi("入场", `${fmtN(Number(enter), 1)}%`, "ranking 须大于此值才建仓/加仓") +
+    specKpi("强买", `${fmtN(Number(strong), 1)}%`, "超过买 500 股，否则 200") +
+    specKpi("α_on", fmtN(alpha, 1), "隔夜系数；0=不参与") +
+    specKpi("y_fuse", `${fmtN(wt, 2)}/${fmtN(wn, 2)}`, "w_trade / w_nowcast") +
+    specKpi("市值上限", capLbl, "本笔将超则跳过该买") +
+    `</div></header></div>`
+  );
+}
+
 /** 回测窗不进 ExecutionSpec；用 localStorage 跨刷新记住。 */
 const T0_LOOKBACK_KEY = "paper.t0.lookback";
 const T0_LOOKBACK_MIGRATE_KEY = "paper.t0.lookback.migrated_v3";
@@ -666,7 +700,11 @@ export function collectPathMatrixForm(root) {
   let strong = rankPctToScore(num("pm_rank_strong", RANK_PCT_DEFAULT));
   if (strong < enter) strong = enter;
   const yOnAlpha = Math.max(0, Math.min(num("pm_y_on_alpha", 0), 10));
-  const mvCap = Math.max(0, Math.min(num("pm_holdings_mv_cap", 150000), 1e8));
+  const mvEl = root.querySelector('[name="pm_holdings_mv_cap"]');
+  const mvCap =
+    mvEl && mvEl.value !== ""
+      ? Math.max(0, Math.min(num("pm_holdings_mv_cap", 150000), 1e8))
+      : 150000;
   let wTrade = Math.max(0, Math.min(num("pm_fusion_w_trade", 0.5), 1));
   let wNc = Math.max(0, Math.min(num("pm_fusion_w_nc", 0.5), 1));
   const wSum = wTrade + wNc;
@@ -707,10 +745,13 @@ export function collectPathMatrixForm(root) {
 /** 做 T 区块根节点：复选框在 form 外，须从 section 查找。 */
 function t0PanelRoot(formRoot) {
   if (formRoot) {
-    const fromForm = formRoot.closest("#follow-section-t0, .follow-ops-t0");
+    const fromForm = formRoot.closest(
+      "#follow-section-t0, .follow-ops-t0, #replay-section-t0, .replay-t0-section"
+    );
     if (fromForm) return fromForm;
   }
   return (
+    document.getElementById("replay-section-t0") ||
     document.getElementById("follow-section-t0") ||
     document.querySelector(".follow-ops-t0") ||
     formRoot ||

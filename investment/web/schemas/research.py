@@ -52,7 +52,17 @@ class TauRidgeRequest(BaseModel):
     theme_boost: float = Field(default=1.5, ge=0.5, le=5.0)
     persist: bool = Field(
         default=False,
-        description="True=人审写入 data/live/tau_ridge_model.json",
+        description="True=人审写入模型文件（路径由 persist_role 决定）",
+    )
+    persist_role: str = Field(
+        default="live",
+        description="live=执行套 tau_ridge_model.json；research=研究套 *_research.json",
+    )
+    holdout_trading_days: int = Field(
+        default=10,
+        ge=1,
+        le=60,
+        description="近 N 个交易日不进研究套训练，专供历史回测",
     )
     force_promote: bool = Field(
         default=False,
@@ -85,7 +95,17 @@ class OnRidgeRequest(BaseModel):
     theme_boost: float = Field(default=1.5, ge=0.5, le=5.0)
     persist: bool = Field(
         default=False,
-        description="True=人审写入 data/live/on_ridge_model.json",
+        description="True=人审写入模型文件（路径由 persist_role 决定）",
+    )
+    persist_role: str = Field(
+        default="live",
+        description="live=执行套 on_ridge_model.json；research=研究套 *_research.json",
+    )
+    holdout_trading_days: int = Field(
+        default=10,
+        ge=1,
+        le=60,
+        description="近 N 个交易日不进研究套训练，专供历史回测",
     )
     note: str = Field(default="", max_length=200)
 
@@ -127,7 +147,17 @@ class PathRidgeRequest(BaseModel):
     )
     persist: bool = Field(
         default=False,
-        description="True=人审写入 data/live/path_ridge_model.json",
+        description="True=人审写入模型文件（路径由 persist_role 决定）",
+    )
+    persist_role: str = Field(
+        default="live",
+        description="live=执行套 path_ridge_model.json；research=研究套 *_research.json",
+    )
+    holdout_trading_days: int = Field(
+        default=10,
+        ge=1,
+        le=60,
+        description="近 N 个交易日不进研究套训练，专供历史回测",
     )
     force_promote: bool = Field(
         default=False,
@@ -161,7 +191,17 @@ class CxRidgeRequest(BaseModel):
     )
     persist: bool = Field(
         default=False,
-        description="True=人审写入 data/live/cx_ridge_model.json",
+        description="True=人审写入模型文件（路径由 persist_role 决定）",
+    )
+    persist_role: str = Field(
+        default="live",
+        description="live=执行套 cx_ridge_model.json；research=研究套 *_research.json",
+    )
+    holdout_trading_days: int = Field(
+        default=10,
+        ge=1,
+        le=60,
+        description="近 N 个交易日不进研究套训练，专供历史回测",
     )
     force_promote: bool = Field(
         default=False,
@@ -195,7 +235,61 @@ class TpdRidgeRequest(BaseModel):
     )
     persist: bool = Field(
         default=False,
-        description="True=人审写入 data/live/tpd_ridge_model.json",
+        description="True=人审写入模型文件（路径由 persist_role 决定）",
+    )
+    persist_role: str = Field(
+        default="live",
+        description="live=执行套 tpd_ridge_model.json；research=研究套 *_research.json",
+    )
+    holdout_trading_days: int = Field(
+        default=10,
+        ge=1,
+        le=60,
+        description="近 N 个交易日不进研究套训练，专供历史回测",
+    )
+    force_promote: bool = Field(
+        default=False,
+        description="True=跳过 OOS promote 闸（仅调试）",
+    )
+    note: str = Field(default="", max_length=200)
+
+
+class RRidgeRequest(BaseModel):
+    """ŷ_r Ridge：与 ŷ_τ 同 X → price(τ)/close−1（百分点）。对照 R̂_τ；不进调仓 / ĉ / 选腿。"""
+
+    lookback: int = Field(default=120, ge=40, le=500)
+    watching_limit: int = Field(
+        default=200,
+        ge=2,
+        le=200,
+        description="观察池上限（默认满池 200）；拟合只读本地 5m 缓存、不拉远端",
+    )
+    ridge_lambda: float = Field(default=1.0, ge=0.0, le=100.0)
+    gap_trigger_pct: float = Field(default=2.0, ge=0.5, le=10.0)
+    minute_period: str = Field(
+        default="5",
+        max_length=4,
+        description="分钟周期；默认 5m，与做 T 回测一致",
+    )
+    minute_lookback_days: int = Field(
+        default=150,
+        ge=20,
+        le=240,
+        description="兼容字段；拟合已改为只读缓存，不再按此天数拉远端",
+    )
+    persist: bool = Field(
+        default=False,
+        description="True=人审写入模型文件（路径由 persist_role 决定）",
+    )
+    persist_role: str = Field(
+        default="live",
+        description="live=执行套 r_ridge_model.json；research=研究套 *_research.json",
+    )
+    holdout_trading_days: int = Field(
+        default=10,
+        ge=1,
+        le=60,
+        description="近 N 个交易日不进研究套训练，专供历史回测",
     )
     force_promote: bool = Field(
         default=False,
@@ -209,6 +303,12 @@ class FactorOlsClusterRequest(BaseModel):
 
     lookback: int = Field(default=80, ge=40, le=500)
     horizon_days: int = Field(default=3, ge=1, le=10)
+    holdout_trading_days: int = Field(
+        default=10,
+        ge=1,
+        le=60,
+        description="近 N 个交易日不进定组/选 k；研究套组 β 再隔离 horizon h",
+    )
     watching_limit: int = Field(
         default=100,
         ge=3,

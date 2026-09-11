@@ -156,6 +156,25 @@ class TestBaostockMinute(unittest.TestCase):
         self.assertEqual(len(bars), 1)
         self.assertTrue(meta.get("skip_em"))
 
+    def test_skip_bs_does_not_call_baostock(self):
+        from skills.common import minute_history as mh
+
+        with patch.object(mh, "resolve_market_code", return_value=("CN", "600519")), patch.object(
+            mh, "load_minute_cache", return_value=None
+        ), patch.object(
+            mh, "_fetch_em_minute_bars", return_value=([], {}, "em down")
+        ) as em_fetch, patch.object(
+            mh, "_maybe_fetch_sina_tx_minute_bars", return_value=([], {})
+        ), patch.object(
+            mh, "_maybe_fetch_baostock_minute_bars"
+        ) as bs_fetch, patch.object(mh, "_throttle_minute_remote_fetch"):
+            bars, meta = mh.fetch_a_minute_bars(
+                "600519", use_cache=False, skip_em=True, skip_bs=True
+            )
+        em_fetch.assert_not_called()
+        bs_fetch.assert_not_called()
+        self.assertEqual(bars, [])
+
     def test_throttle_after_em_and_baostock(self):
         from skills.common import minute_history as mh
 

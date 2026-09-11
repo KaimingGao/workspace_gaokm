@@ -45,9 +45,9 @@ class TestClusterMinuteStatus(unittest.TestCase):
         self.assertEqual(
             st["span_distribution"],
             [
-                {"bucket": "<40d", "count": 1},
-                {"bucket": "<20d", "count": 0},
-                {"bucket": "<10d", "count": 0},
+                {"bucket": "<90d", "count": 1},
+                {"bucket": "<60d", "count": 1},
+                {"bucket": "<30d", "count": 1},
             ],
         )
 
@@ -57,7 +57,7 @@ class TestClusterMinuteStatus(unittest.TestCase):
         watch = ["A", "B", "C", "D", "E"]
 
         def _snap(code: str, *, period: str = "5"):
-            spans = {"A": 95, "B": 25, "C": 15, "D": 5, "E": None}
+            spans = {"A": 95, "B": 70, "C": 45, "D": 25, "E": None}
             if spans.get(code) is None:
                 return None
             return {
@@ -74,16 +74,16 @@ class TestClusterMinuteStatus(unittest.TestCase):
             return_value={"success": True, "tau": {}, "path": {}, "joint": {}},
         ):
             st = build_cluster_minute_status(watching_limit=100, min_span_days=30)
-        self.assertEqual(st["cached_ok"], 1)
-        self.assertEqual(st["short"], 3)
+        self.assertEqual(st["cached_ok"], 3)
+        self.assertEqual(st["short"], 1)
         self.assertEqual(st["missing"], 1)
-        # 累计：B25+C15+D5 → <30d；C15+D5 → <20d；D5 → <10d（0 也返回）
+        # 累计（含已过 Ready 闸）：B70+C45+D25 → <90d；C45+D25 → <60d；D25 → <30d
         self.assertEqual(
             st["span_distribution"],
             [
-                {"bucket": "<30d", "count": 3},
-                {"bucket": "<20d", "count": 2},
-                {"bucket": "<10d", "count": 1},
+                {"bucket": "<90d", "count": 3},
+                {"bucket": "<60d", "count": 2},
+                {"bucket": "<30d", "count": 1},
             ],
         )
 
@@ -226,7 +226,7 @@ class TestClusterMinuteStatus(unittest.TestCase):
         calls = []
 
         def _fetch(code, **kwargs):
-            calls.append((code, kwargs.get("lookback_days"), kwargs.get("skip_em")))
+            calls.append((code, kwargs.get("lookback_days"), kwargs.get("skip_em"), kwargs.get("skip_bs")))
             return [{"date": "2026-08-28 10:00:00"}], {"ok": True}
 
         with patch(
@@ -247,9 +247,9 @@ class TestClusterMinuteStatus(unittest.TestCase):
         self.assertEqual(out["topped"], 1)
         self.assertEqual(out["bootstrapped"], 1)
         self.assertEqual(len(calls), 2)
-        by_code = {c: (lb, sem) for c, lb, sem in calls}
-        self.assertEqual(by_code["000001"], (5, True))
-        self.assertEqual(by_code["300750"], (30, False))
+        by_code = {c: (lb, sem, sbs) for c, lb, sem, sbs in calls}
+        self.assertEqual(by_code["000001"], (5, True, True))
+        self.assertEqual(by_code["300750"], (30, False, False))
 
     def test_topup_skips_fetched_today(self):
         from quant.research.cluster_minute_status import _minute_topup_core
@@ -331,7 +331,7 @@ class TestClusterMinuteStatus(unittest.TestCase):
         calls = []
 
         def _fetch(code, **kwargs):
-            calls.append((code, kwargs.get("use_cache"), kwargs.get("skip_em")))
+            calls.append((code, kwargs.get("use_cache"), kwargs.get("skip_em"), kwargs.get("skip_bs")))
             return [{"date": f"{expected} 14:55:00"}], {"ok": True}
 
         with patch(
@@ -351,7 +351,7 @@ class TestClusterMinuteStatus(unittest.TestCase):
         self.assertEqual(out["skipped_today"], 1)
         self.assertEqual(out["topped"], 1)
         self.assertEqual(out.get("refreshed_truncated"), 1)
-        self.assertEqual(calls, [("002415", False, False)])
+        self.assertEqual(calls, [("002415", False, True, True)])
 
     def test_refresh_topup_mode_delegates(self):
         from quant.research.cluster_minute_status import refresh_cluster_minute_only

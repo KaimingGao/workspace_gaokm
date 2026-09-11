@@ -19,10 +19,27 @@ class TestLastPortfolioBacktestStore(unittest.TestCase):
 
         raw = {
             "success": True,
-            "metrics": {"total_return_pct": 1.2, "win_rate_pct": 55.0, "trade_count": 3},
+            "metrics": {
+                "total_return_pct": 1.2,
+                "win_rate_pct": 55.0,
+                "trade_count": 3,
+                "day_count": 10,
+                "hit_rate_pct": 60.0,
+                "hit_n": 5,
+                "hit_hits": 3,
+            },
             "equity_curve": [{"date": "2026-01-10", "equity": 100.0}],
             "benchmark": {"ok": True, "excess_pct": 0.4, "benchmark_label": "沪深300"},
             "sim_trades": [{"stock_code": "600519", "action": "buy"}],
+            "stock_contrib": [
+                {
+                    "stock_code": "600519",
+                    "stock_name": "茅台",
+                    "pnl": 1200.0,
+                    "contrib_pct": 0.6,
+                    "hold_days": 8,
+                }
+            ],
             "request": {"lookback": 30, "rank_enter": 0.012, "fusion_w_trade": 0.6},
             "loaded_stocks": ["600519", "600036"],
             "universe": {
@@ -44,7 +61,11 @@ class TestLastPortfolioBacktestStore(unittest.TestCase):
         self.assertTrue(pack.get("saved_at"))
         result = pack["result"]
         self.assertEqual(result["metrics"]["total_return_pct"], 1.2)
+        self.assertEqual(result["metrics"]["hit_rate_pct"], 60.0)
+        self.assertEqual(result["metrics"]["day_count"], 10)
         self.assertEqual(len(result["sim_trades"]), 1)
+        self.assertEqual(result["stock_contrib"][0]["stock_code"], "600519")
+        self.assertEqual(result["stock_contrib"][0]["pnl"], 1200.0)
         self.assertEqual(result["request"]["lookback"], 30)
         self.assertNotIn("trades", result)
         self.assertNotIn("score_ic", result)
@@ -137,6 +158,9 @@ class TestPersistLastPortfolioBacktest(unittest.TestCase):
             "core.backtest.paper_replay.backtest_paper_replay",
             return_value=dict(fake_bt),
         ), patch(
+            "core.backtest.paper_replay.load_replay_minute_bars",
+            return_value=({}, {"ok": True, "covered": 0, "missing": []}),
+        ), patch(
             "core.north_star.save_last_backtest_curve",
         ), patch(
             "core.north_star.append_ttm_event",
@@ -153,6 +177,7 @@ class TestPersistLastPortfolioBacktest(unittest.TestCase):
                 persist_curve=False,
                 include_benchmark=False,
                 exclude_st=False,
+                universe_fit_tiers=["A", "B", "C"],
             )
             self.assertTrue(out.get("success"))
             save_ui.assert_not_called()
@@ -160,6 +185,7 @@ class TestPersistLastPortfolioBacktest(unittest.TestCase):
                 persist_curve=True,
                 include_benchmark=False,
                 exclude_st=False,
+                universe_fit_tiers=["A", "B", "C"],
             )
             self.assertTrue(out2.get("success"))
             save_ui.assert_called()

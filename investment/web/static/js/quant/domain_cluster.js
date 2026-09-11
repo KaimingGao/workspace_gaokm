@@ -1,15 +1,17 @@
 import { downloadJson } from "../shared.js";
+import { ensureFitTierMap } from "./fit_tier_ui.js";
 import {
   normalizeProbeCode,
   isUsableStockName,
   resolveStockDisplayName,
 } from "./names.js";
 import { postClusterLive as postClusterLiveApi, formatClusterApiError } from "./cluster_api.js";
-import { clusterLandingHtml } from "./cluster_landing.js?v=p2042";
+import { clusterLandingHtml } from "./cluster_landing.js?v=p2253";
 import { PROBE_EMPTY_CLUSTER_FAILED, PROBE_EMPTY_NO_CLUSTER, PROBE_EMPTY_COMPARE_FAILED, probePickerTriggerHtml, probePickerIdentityHtml, summarizeProbeHeterogeneity, buildProbeReadySummaryHtml, buildProbeNotReadySummaryHtml, buildProbeSingletonSummaryHtml, buildProbeNotInClusterPlainText, buildProbeHeteroSummaryHtml, buildProbeMetaSingleton, buildProbeMetaNotInCluster, buildProbeMetaHetero, buildProbePickerMenuHtml, probeStatusBadge, openProbeFold } from "./probe_ui.js";
 import { createScoreTooltipController } from "../score_tooltip.js?v=p1734";
 import {
   syncOverviewFromClusters,
+  syncOverviewLanding,
   setProStatusChip,
   loadAndRenderFactorICSeries,
 } from "./factor_corr_ui.js";
@@ -343,6 +345,12 @@ export function installClusterProbe(q) {
       }
       return;
     }
+    if (key === "universe-fit-tiers") {
+      e.preventDefault();
+      e.stopPropagation();
+      saveUniverseFitTiers();
+      return;
+    }
     if (!state.quantLastOlsClusters) return;
     e.preventDefault();
     e.stopPropagation(); // 勿触发组 details 折叠
@@ -588,6 +596,11 @@ export function installClusterProbe(q) {
         ...data,
         research_n_clusters: researchN,
       });
+      try {
+        syncOverviewLanding(data);
+      } catch (_) {
+        /* overview optional */
+      }
     } catch (err) {
       const host = document.getElementById("quant-cluster-landing");
       if (host) {
@@ -723,6 +736,7 @@ export function installClusterProbe(q) {
     markProbeReadyFromClusters(data);
     const summary = buildOlsClustersSummaryHtml(data);
     els.quantOlsClusters.innerHTML = summary.html;
+    void ensureFitTierMap(els.quantOlsClusters);
     if (data && data.success) {
       try {
         syncOverviewFromClusters(data);
@@ -960,7 +974,7 @@ export function installClusterProbe(q) {
           `· 映射健康覆盖 ${cov}`,
           "",
           "启用后：",
-          "· 交易执行页「预演调仓」将按组ŷ 排序执行",
+          "· 交易执行页「手动预演」将按组ŷ 排序执行",
           "· 不写入 signal_config.weights",
           "· 过门 ≠ 自动 promote；可随时关闭或回滚",
         ].join("\n");
@@ -1018,6 +1032,34 @@ export function installClusterProbe(q) {
           ? "已切回对照（shadow）"
           : `分组 live mode=${mode}`;
     setQuantMeta(doneLabel);
+    refreshClusterLiveStatus();
+  }
+
+  async function saveUniverseFitTiers() {
+    const tiers = [];
+    ["A", "B", "C"].forEach((t) => {
+      const el = document.getElementById(
+        `quant-universe-tier-live-${t.toLowerCase()}`
+      );
+      if (el && el.checked) tiers.push(t);
+    });
+    setQuantMeta("正在保存宇宙分档…", { busy: true });
+    const out = await postClusterLive(
+      "/api/quant/cluster-live/universe-fit-tiers",
+      { universe_fit_tiers: tiers.length ? tiers : ["A", "B", "C"] }
+    );
+    if (!out.ok) {
+      setQuantMeta(`宇宙分档未保存 · ${out.error}`, { error: true });
+      return;
+    }
+    const saved =
+      (out.data && out.data.universe_fit_tiers) ||
+      (out.data &&
+        out.data.cluster_scoring &&
+        out.data.cluster_scoring.universe_fit_tiers) ||
+      tiers;
+    const label = Array.isArray(saved) && saved.length ? saved.join("+") : "A+B+C";
+    setQuantMeta(`已保存宇宙分档 ${label} · live 新开/加按此过滤`);
     refreshClusterLiveStatus();
   }
 

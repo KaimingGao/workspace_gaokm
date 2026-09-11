@@ -7,6 +7,7 @@ logger = logging.getLogger(__name__)
 from typing import Any, Dict, List, Optional
 
 from core.research.cx_panel import pack_y_complexity_fields, pack_y_tpd_fields
+from core.research.r_ridge import pack_y_r_fields
 from core.t0.config import T0_TRADE_DAYS_SAMPLE_UI_LIMIT, load_t0_rules
 from core.t0.minute_path import T0_INTENTIONAL_ABANDON_EXITS
 from core.t0.rules import _t0_qty_lots, atr_pct_from_bars, simulate_t0_day
@@ -205,6 +206,7 @@ def backtest_t0_on_bars(
     bars_history: Optional[List[dict]] = None,
     eval_lookback: Optional[int] = None,
     tau_pool_by_date: Optional[Dict[str, Dict[str, Any]]] = None,
+    stock_name: str = "",
 ) -> Dict[str, Any]:
     """Walk 底仓做 T。
 
@@ -215,6 +217,23 @@ def backtest_t0_on_bars(
     compare_daily / require_minute 形参保留兼容；require_minute=True 且无 minute_by_date 时直接失败。
     ``cost_config`` 缺省时用 CostPort 研究费率（禁止隐式零成本抬高 PnL）。
     """
+    from core.research.holdout import (
+        MODEL_ROLE_RESEARCH,
+        current_scoring_model_role,
+        scoring_model_role_context,
+    )
+
+    if current_scoring_model_role() != MODEL_ROLE_RESEARCH:
+        import inspect
+
+        allowed = inspect.signature(backtest_t0_on_bars).parameters
+        params = {
+            k: v for k, v in locals().items() if k in allowed and k != "bars"
+        }
+        # 不在这里清模型缓存：逐票回测会进本函数多次，清缓存会把研究套反复从盘重载，
+        # 6 票即可把 240s 时限吃光。_scoring_models 已按 role 分桶，不会误用 live。
+        with scoring_model_role_context(MODEL_ROLE_RESEARCH):
+            return backtest_t0_on_bars(bars, **params)
     _ = compare_daily  # 保留形参兼容旧调用
     if require_minute and not minute_by_date:
         return {
@@ -272,6 +291,7 @@ def backtest_t0_on_bars(
         require_minute=require_minute,
         bars_history=history,
         tau_pool_by_date=tau_pool_by_date,
+        stock_name=str(stock_name or ""),
     )
     if not primary.get("success"):
         return primary
@@ -316,6 +336,7 @@ def _walk_t0(
     require_minute: bool = False,
     bars_history: Optional[List[dict]] = None,
     tau_pool_by_date: Optional[Dict[str, Dict[str, Any]]] = None,
+    stock_name: str = "",
 ) -> Dict[str, Any]:
     cfg = load_t0_rules(rules)
     # 回测禁 live_book / ledger 前视
@@ -533,6 +554,7 @@ def _walk_t0(
                     "path_realized_trig": day.get("path_realized_trig"),
                     **pack_y_complexity_fields(day),
                     **pack_y_tpd_fields(day),
+                    **pack_y_r_fields(day),
                     "cx_efficiency": day.get("cx_efficiency"),
                     "eod_realized": day.get("eod_realized"),
                     "tau_realized": day.get("tau_realized"),
@@ -656,6 +678,7 @@ def _walk_t0(
                 "path_realized_trig": day.get("path_realized_trig"),
                 **pack_y_complexity_fields(day),
                 **pack_y_tpd_fields(day),
+                **pack_y_r_fields(day),
                 "cx_efficiency": day.get("cx_efficiency"),
                 "eod_realized": day.get("eod_realized"),
                 "tau_realized": day.get("tau_realized"),
@@ -701,7 +724,7 @@ def _walk_t0(
     viz = build_t0_viz_payload(
         days,
         stock_code=str(stock_code or ""),
-        stock_name="",
+        stock_name=str(stock_name or ""),
         rules=cfg,
         initial_shares=initial_shares,
     )

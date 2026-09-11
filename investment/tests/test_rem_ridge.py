@@ -203,7 +203,7 @@ class TestRemRidgeFit(unittest.TestCase):
             {"code": "C", "bars": _bars(40, 8)},
         ]
         report = fit_tau_ridge_report(
-            stock_bars, ridge_lambda=1.0, theme_boost=1.5, train_frac=0.7
+            stock_bars, ridge_lambda=1.0, theme_boost=1.5
         )
         self.assertTrue(report.get("success"), report.get("error"))
         self.assertEqual(report.get("task"), "tau_ridge")

@@ -38,6 +38,49 @@
   padding: 0;
 }
 
+/* ── 页头：对齐策略中心 / 研究枢纽 ── */
+body[data-page="platform"] .dashboard-head.quant-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 2px 0 6px;
+  margin-bottom: 2px;
+  border-bottom: 1px solid color-mix(in srgb, var(--line) 70%, transparent);
+}
+
+body[data-page="platform"] .dashboard-eyebrow {
+  margin: 0 0 2px;
+  font-size: var(--sys-fs-micro, 0.6875rem);
+  font-weight: var(--sys-fw-label, 650);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  line-height: 18px;
+}
+
+body[data-page="platform"] .dashboard-head h2,
+body[data-page="platform"] .quant-head h2 {
+  margin: 0;
+  font-size: var(--sys-fs-title, 1.125rem);
+  font-weight: var(--sys-fw-display, 700);
+  letter-spacing: -0.02em;
+  line-height: var(--sys-lh-tight, 1.2);
+  color: var(--ink);
+}
+
+body[data-page="platform"] .dashboard-meta,
+body[data-page="platform"] .quant-meta,
+body[data-page="platform"] #platform-meta {
+  margin: 4px 0 0 !important;
+  font-size: var(--sys-fs-caption, 0.75rem);
+  line-height: var(--sys-lh-snug, 1.35);
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-3);
+}
+
 body[data-page="platform"] .platform-head-path {
   margin: 4px 0 0;
   font-size: var(--sys-fs-caption, 0.75rem);

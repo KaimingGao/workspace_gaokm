@@ -2517,11 +2517,13 @@ body[data-page="follow"] .follow-page .paper-holdings-react-grid .watching-react
 }
 
 .paper-t0-cfg-block {
+  --t0-cfg-wash: var(--surface, transparent);
+  --t0-cfg-ink: var(--ink);
   margin: 0 0 12px;
   padding: 10px 12px 8px;
   border: 1px solid var(--line, rgba(0, 0, 0, 0.12));
   border-radius: var(--paper-t0-r, 6px);
-  background: var(--surface, transparent);
+  background: var(--t0-cfg-wash);
   width: 100%;
   max-width: 100%;
   box-sizing: border-box;
@@ -2533,15 +2535,29 @@ body[data-page="follow"] .follow-page .paper-holdings-react-grid .watching-react
   font-size: 0.72rem;
   font-weight: 700;
   letter-spacing: 0.04em;
-  color: var(--ink);
+  color: var(--t0-cfg-ink);
+  background: var(--t0-cfg-wash);
 }
 
+/* 三种底色：共用蓝 · 门槛赭 · 正/反 T 青（正/反 T 均绿描边） */
+.paper-t0-cfg-block.is-shared {
+  --t0-cfg-wash: color-mix(in srgb, var(--accent, #2563eb) 11%, var(--surface, #fff));
+  --t0-cfg-ink: color-mix(in srgb, var(--accent, #2563eb) 62%, var(--ink));
+  border-color: color-mix(in srgb, var(--accent, #2563eb) 36%, var(--line, #ccc));
+}
+
+.paper-t0-cfg-block.is-gate-1,
+.paper-t0-cfg-block.is-gate-2 {
+  --t0-cfg-wash: color-mix(in srgb, #b45309 12%, var(--surface, #fff));
+  --t0-cfg-ink: color-mix(in srgb, #b45309 68%, var(--ink));
+  border-color: color-mix(in srgb, #b45309 36%, var(--line, #ccc));
+}
+
+.paper-t0-cfg-block.is-buy-then-sell,
 .paper-t0-cfg-block.is-sell-then-buy {
-  border-color: color-mix(in srgb, var(--pos, #2a7a4b) 35%, var(--line, #ccc));
-}
-
-.paper-t0-cfg-block.is-buy-then-sell {
-  border-color: color-mix(in srgb, var(--neg, #b33) 35%, var(--line, #ccc));
+  --t0-cfg-wash: color-mix(in srgb, #0f766e 11%, var(--surface, #fff));
+  --t0-cfg-ink: color-mix(in srgb, #0f766e 64%, var(--ink));
+  border-color: color-mix(in srgb, var(--color-down, #52c41a) 58%, var(--line, #ccc));
 }
 
 .paper-t0-cfg-hint {
@@ -2701,7 +2717,8 @@ body[data-page="follow"] .follow-ops-t0 {
   box-sizing: border-box;
 }
 
-.paper-t0-viz-chart-box.is-skip-tip {
+.paper-t0-viz-chart-box.is-skip-tip,
+.paper-t0-viz-chart-box.is-chart-tip {
   overflow: visible;
   z-index: 2;
 }
@@ -2888,7 +2905,8 @@ body[data-page="follow"] .follow-ops-t0 {
   outline: none;
 }
 
-.paper-t0-viz-skip-hover-tip {
+.paper-t0-viz-skip-hover-tip,
+.paper-t0-viz-chart-hover-tip {
   position: absolute;
   z-index: 6;
   max-width: min(220px, 70%);
@@ -2902,21 +2920,28 @@ body[data-page="follow"] .follow-ops-t0 {
   box-shadow: 0 8px 24px rgba(15, 23, 42, 0.22);
 }
 
-.paper-t0-viz-skip-hover-tip strong {
+.paper-t0-viz-chart-hover-tip {
+  max-width: min(260px, 78%);
+}
+
+.paper-t0-viz-skip-hover-tip strong,
+.paper-t0-viz-chart-hover-tip strong {
   display: block;
   font-size: 0.72rem;
   font-weight: 650;
   margin-bottom: 2px;
 }
 
-.paper-t0-viz-skip-hover-tip .paper-t0-viz-skip-hover-meta {
+.paper-t0-viz-skip-hover-tip .paper-t0-viz-skip-hover-meta,
+.paper-t0-viz-chart-hover-tip .paper-t0-viz-chart-hover-meta {
   display: block;
   opacity: 0.75;
   font-variant-numeric: tabular-nums;
   margin-bottom: 4px;
 }
 
-.paper-t0-viz-skip-hover-tip p {
+.paper-t0-viz-skip-hover-tip p,
+.paper-t0-viz-chart-hover-tip p {
   margin: 0;
   opacity: 0.92;
 }
@@ -3440,7 +3465,8 @@ body[data-page="follow"] .follow-ops-t0 {
 }
 
 .quant-page .paper-t0-viz-stock-table,
-body[data-page="follow"] .paper-t0-viz-stock-table {
+body[data-page="follow"] .paper-t0-viz-stock-table,
+body[data-page="replay"] .replay-t0-section .paper-t0-viz-stock-table {
   width: 100%;
   min-width: 0;
   max-width: 100%;
@@ -4053,15 +4079,17 @@ body[data-page="follow"] .paper-t0-viz-stock-table {
 
 .paper-t0-portrait-head {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: baseline;
-  justify-content: space-between;
+  justify-content: flex-start;
   gap: 6px 14px;
   margin-bottom: 10px;
+  min-width: 0;
 }
 
 .paper-t0-portrait-head .paper-t0-metric-section-title {
   margin: 0;
+  flex: 0 0 auto;
 }
 
 .paper-t0-portrait-lead {
@@ -4069,7 +4097,9 @@ body[data-page="follow"] .paper-t0-viz-stock-table {
   font-size: 0.68rem;
   color: var(--ink-3, #64748b);
   line-height: 1.35;
-  max-width: 36rem;
+  white-space: nowrap;
+  max-width: none;
+  flex: 1 0 auto;
 }
 
 .paper-t0-portrait-universe {
@@ -4624,7 +4654,8 @@ body.paper-t0-trades-fs-open .paper-t0-desk-board {
 }
 
 .quant-page .paper-t0-table,
-body[data-page="follow"] .paper-t0-table {
+body[data-page="follow"] .paper-t0-table,
+body[data-page="replay"] .replay-t0-section .paper-t0-table {
   table-layout: fixed;
   width: max-content;
   min-width: 100%;
@@ -4866,9 +4897,9 @@ body[data-page="follow"] .paper-t0-table {
   color: var(--ink-3);
 }
 
-/* upper | lower · y_τ | y_path | y_complexity | y_tpd */
-.paper-t0-scan-debug th:nth-child(n + 8):nth-child(-n + 13),
-.paper-t0-scan-debug td:nth-child(n + 8):nth-child(-n + 13) {
+/* upper | lower · y_r | y_τ | y_path | y_complexity | y_tpd */
+.paper-t0-scan-debug th:nth-child(n + 8):nth-child(-n + 14),
+.paper-t0-scan-debug td:nth-child(n + 8):nth-child(-n + 14) {
   border-left: 1px solid color-mix(in srgb, var(--ink) 14%, transparent);
 }
 
@@ -4902,6 +4933,7 @@ body[data-page="follow"] .paper-t0-table {
 .paper-t0-trades-table thead th.paper-t0-col-y-path,
 .paper-t0-trades-table thead th.paper-t0-col-y-cx,
 .paper-t0-trades-table thead th.paper-t0-col-y-tpd,
+.paper-t0-trades-table thead th.paper-t0-col-y-r,
 .paper-t0-trades-table thead th.paper-t0-col-o,
 .paper-t0-trades-table thead th.paper-t0-col-l,
 .paper-t0-trades-table thead th.paper-t0-col-h,
@@ -5089,6 +5121,8 @@ body[data-page="follow"] .paper-t0-table {
 .paper-t0-trades-table tbody td.paper-t0-col-o,
 .paper-t0-trades-table thead th.paper-t0-col-tau,
 .paper-t0-trades-table tbody td.paper-t0-col-tau,
+.paper-t0-trades-table thead th.paper-t0-col-yr,
+.paper-t0-trades-table tbody td.paper-t0-col-yr,
 .paper-t0-trades-table thead th.paper-t0-col-cx,
 .paper-t0-trades-table tbody td.paper-t0-col-cx,
 .paper-t0-trades-table thead th.paper-t0-col-tpd,
@@ -5098,7 +5132,7 @@ body[data-page="follow"] .paper-t0-table {
   padding-left: 9px;
 }
 
-/* 价带 | y_τ | y_path | y_complexity | y_tpd | 过程 | 结果：左边线作分区 */
+/* 价带 | y_r | y_τ | y_path | y_complexity | y_tpd | 过程 | 结果：左边线作分区 */
 .paper-t0-trades-table thead th.paper-t0-col-o,
 .paper-t0-trades-table tbody td.paper-t0-col-o {
   border-left: 1px solid color-mix(in srgb, var(--ink) 10%, transparent);
@@ -5109,6 +5143,12 @@ body[data-page="follow"] .paper-t0-table {
 .paper-t0-trades-table tbody td.paper-t0-col-tau {
   border-left: 1px solid color-mix(in srgb, var(--ink) 10%, transparent);
   box-shadow: inset 3px 0 0 color-mix(in srgb, #2563eb 24%, transparent);
+}
+
+.paper-t0-trades-table thead th.paper-t0-col-yr,
+.paper-t0-trades-table tbody td.paper-t0-col-yr {
+  border-left: 1px solid color-mix(in srgb, var(--ink) 10%, transparent);
+  box-shadow: inset 3px 0 0 color-mix(in srgb, #d97706 28%, transparent);
 }
 
 .paper-t0-trades-table thead th.paper-t0-col-path,
@@ -5693,6 +5733,7 @@ body[data-page="follow"] .paper-t0-table {
 .paper-t0-col-path { width: 112px; min-width: 112px; }
 .paper-t0-col-cx { width: 108px; min-width: 108px; }
 .paper-t0-col-tpd { width: 108px; min-width: 108px; }
+.paper-t0-col-yr { width: 112px; min-width: 112px; }
 .paper-t0-col-trade { width: 140px; min-width: 140px; }
 .paper-t0-col-on { width: 88px; min-width: 88px; }
 .paper-t0-col-nc { width: 148px; min-width: 148px; }
@@ -5708,7 +5749,8 @@ body[data-page="follow"] .paper-t0-table {
 .paper-t0-trades-table td.paper-t0-col-h,
 .paper-t0-trades-table td.paper-t0-col-c,
 .paper-t0-trades-table td.paper-t0-col-ctau,
-.paper-t0-trades-table td.paper-t0-col-rtau {
+.paper-t0-trades-table td.paper-t0-col-rtau,
+.paper-t0-trades-table td.paper-t0-col-yr {
   font-variant-numeric: tabular-nums;
   font-family: var(--font-mono, ui-monospace, monospace);
   font-size: 0.78rem;
@@ -7369,6 +7411,10 @@ html[data-density="compact"] .follow-page #paper-chart.lw-host {
   transform: translateY(-1px);
 }
 
+body[data-page="follow"] .follow-ops .dialog-btn[hidden] {
+  display: none !important;
+}
+
 /* Specific button semantic overrides */
 .follow-reset {                                    /* danger-secondary */
   background: #fff5f5 !important;
@@ -7924,7 +7970,8 @@ html[data-density="compact"] .follow-page #paper-chart.lw-host {
 
 /* 回测中 / 完成 · PnL：与同行按钮同高、垂直居中（覆盖 .quant-sub 底边距） */
 .follow-ops-t0 .quant-actions-inline #paper-t0-action-status,
-body[data-page="follow"] .follow-ops-t0 .quant-actions-inline #paper-t0-action-status {
+body[data-page="follow"] .follow-ops-t0 .quant-actions-inline #paper-t0-action-status,
+body[data-page="follow"] .follow-rebalance-exec-actions #paper-path-matrix-status {
   display: inline-flex;
   align-items: center;
   align-self: center;
@@ -7944,7 +7991,8 @@ body[data-page="follow"] .follow-ops-t0 .quant-actions-inline #paper-t0-action-s
   max-width: min(100%, 28rem);
 }
 
-.follow-ops-t0 .quant-actions-inline #paper-t0-action-status.is-busy {
+.follow-ops-t0 .quant-actions-inline #paper-t0-action-status.is-busy,
+body[data-page="follow"] .follow-rebalance-exec-actions #paper-path-matrix-status.is-busy {
   color: var(--ui-busy, var(--accent));
 }
 
@@ -9384,13 +9432,9 @@ body[data-page="follow"] .follow-page .dialog-btn {
   letter-spacing: 0.01em;
 }
 
-/* 策略调仓 · path_matrix 工作台 */
-body[data-page="follow"] .follow-rebalance-section .follow-rebalance-rules-card .follow-card-body {
-  padding: 0;
-  gap: 0;
-}
+/* 策略调仓 · 手动预演卡：与做 T 规则卡同壳（内边距走 follow-card-body） */
 
-body[data-page="follow"] .follow-path-matrix {
+body[data-page="follow"] .follow-path-matrix, body[data-page="replay"] .follow-path-matrix {
   --pm-ink: #0f172a;
   --pm-muted: #64748b;
   --pm-line: color-mix(in srgb, var(--border-subtle, #e2e8f0) 82%, #94a3b8);
@@ -9408,14 +9452,14 @@ body[data-page="follow"] .follow-path-matrix {
   overflow: hidden;
 }
 
-body[data-page="follow"] .follow-path-matrix-form {
+body[data-page="follow"] .follow-path-matrix-form, body[data-page="replay"] .follow-path-matrix-form {
   margin: 0;
   padding: 0;
   display: grid;
   gap: 0;
 }
 
-body[data-page="follow"] .follow-path-matrix-toolbar {
+body[data-page="follow"] .follow-path-matrix-toolbar, body[data-page="replay"] .follow-path-matrix-toolbar {
   width: 100%;
   margin: 0;
   padding: 8px 12px;
@@ -9430,7 +9474,7 @@ body[data-page="follow"] .follow-path-matrix-toolbar {
   min-height: 2.75rem;
 }
 
-body[data-page="follow"] .follow-path-matrix-meta {
+body[data-page="follow"] .follow-path-matrix-meta, body[data-page="replay"] .follow-path-matrix-meta {
   display: inline-flex;
   flex-wrap: wrap;
   align-items: center;
@@ -9443,14 +9487,14 @@ body[data-page="follow"] .follow-path-matrix-meta {
   line-height: 1.3;
 }
 
-body[data-page="follow"] .follow-path-matrix-meta > * + *::before {
+body[data-page="follow"] .follow-path-matrix-meta > * + *::before, body[data-page="replay"] .follow-path-matrix-meta > * + *::before {
   content: "·";
   margin: 0 7px;
   color: #94a3b8;
   font-weight: 500;
 }
 
-body[data-page="follow"] .follow-path-matrix-chip {
+body[data-page="follow"] .follow-path-matrix-chip, body[data-page="replay"] .follow-path-matrix-chip {
   display: inline-flex;
   align-items: center;
   font-size: inherit;
@@ -9464,14 +9508,14 @@ body[data-page="follow"] .follow-path-matrix-chip {
   white-space: nowrap;
 }
 
-body[data-page="follow"] .follow-path-matrix-chip.is-muted {
+body[data-page="follow"] .follow-path-matrix-chip.is-muted, body[data-page="replay"] .follow-path-matrix-chip.is-muted {
   border: 0;
   background: transparent;
   color: inherit;
   font-weight: inherit;
 }
 
-body[data-page="follow"] .follow-path-matrix-badge {
+body[data-page="follow"] .follow-path-matrix-badge, body[data-page="replay"] .follow-path-matrix-badge {
   display: inline-flex;
   align-items: center;
   flex: 0 0 auto;
@@ -9485,19 +9529,19 @@ body[data-page="follow"] .follow-path-matrix-badge {
   white-space: nowrap;
 }
 
-body[data-page="follow"] .follow-path-matrix-badge.is-on {
+body[data-page="follow"] .follow-path-matrix-badge.is-on, body[data-page="replay"] .follow-path-matrix-badge.is-on {
   background: transparent;
   color: var(--pm-path);
   border: 0;
 }
 
-body[data-page="follow"] .follow-path-matrix-badge.is-linear {
+body[data-page="follow"] .follow-path-matrix-badge.is-linear, body[data-page="replay"] .follow-path-matrix-badge.is-linear {
   background: transparent;
   color: var(--pm-muted);
   border: 0;
 }
 
-body[data-page="follow"] .follow-path-matrix-footer {
+body[data-page="follow"] .follow-path-matrix-footer, body[data-page="replay"] .follow-path-matrix-footer {
   width: 100%;
   margin: 0;
   padding: 10px 12px;
@@ -9506,7 +9550,7 @@ body[data-page="follow"] .follow-path-matrix-footer {
   box-sizing: border-box;
 }
 
-body[data-page="follow"] .follow-path-matrix-actions {
+body[data-page="follow"] .follow-path-matrix-actions, body[data-page="replay"] .follow-path-matrix-actions {
   display: flex;
   align-items: center;
   justify-content: flex-start;
@@ -9516,7 +9560,7 @@ body[data-page="follow"] .follow-path-matrix-actions {
   width: 100%;
 }
 
-body[data-page="follow"] .follow-path-matrix-actions .follow-path-matrix-status {
+body[data-page="follow"] .follow-path-matrix-actions .follow-path-matrix-status, body[data-page="replay"] .follow-path-matrix-actions .follow-path-matrix-status {
   max-width: min(28rem, 55vw);
   margin: 0;
   font-size: 0.72rem;
@@ -9528,22 +9572,22 @@ body[data-page="follow"] .follow-path-matrix-actions .follow-path-matrix-status 
   text-align: left;
 }
 
-body[data-page="follow"] .follow-path-matrix-actions #paper-path-matrix-status:empty {
+body[data-page="follow"] .follow-path-matrix-actions #paper-path-matrix-status:empty, body[data-page="replay"] .follow-path-matrix-actions #paper-path-matrix-status:empty {
   display: none;
 }
 
-body[data-page="follow"] .follow-path-matrix-actions #paper-adjust {
+body[data-page="follow"] .follow-path-matrix-actions #paper-adjust, body[data-page="replay"] .follow-path-matrix-actions #paper-adjust {
   font-weight: 700;
 }
 
-body[data-page="follow"] .follow-path-matrix-panels {
+body[data-page="follow"] .follow-path-matrix-panels, body[data-page="replay"] .follow-path-matrix-panels {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 0;
   align-items: stretch;
 }
 
-body[data-page="follow"] .follow-path-matrix-panel {
+body[data-page="follow"] .follow-path-matrix-panel, body[data-page="replay"] .follow-path-matrix-panel {
   --pm-accent: var(--pm-on);
   padding: 0;
   border-right: 1px solid var(--pm-line);
@@ -9559,37 +9603,37 @@ body[data-page="follow"] .follow-path-matrix-panel {
 
 @supports (grid-template-rows: subgrid) {
   @media (min-width: 721px) {
-    body[data-page="follow"] .follow-path-matrix-panels {
+    body[data-page="follow"] .follow-path-matrix-panels, body[data-page="replay"] .follow-path-matrix-panels {
       grid-template-rows: auto 1fr;
     }
-    body[data-page="follow"] .follow-path-matrix-panel {
+    body[data-page="follow"] .follow-path-matrix-panel, body[data-page="replay"] .follow-path-matrix-panel {
       grid-template-rows: subgrid;
       grid-row: 1 / span 2;
     }
   }
 }
 
-body[data-page="follow"] .follow-path-matrix-panel[data-panel="mode"] {
+body[data-page="follow"] .follow-path-matrix-panel[data-panel="mode"], body[data-page="replay"] .follow-path-matrix-panel[data-panel="mode"] {
   --pm-accent: var(--pm-trade);
   --pm-wash: color-mix(in srgb, var(--pm-trade) 10%, #fff);
   background: color-mix(in srgb, var(--pm-trade) 5%, #fff);
 }
 
-body[data-page="follow"] .follow-path-matrix-panel[data-panel="rank"] {
+body[data-page="follow"] .follow-path-matrix-panel[data-panel="rank"], body[data-page="replay"] .follow-path-matrix-panel[data-panel="rank"] {
   --pm-accent: var(--pm-path);
   --pm-wash: color-mix(in srgb, var(--pm-path) 11%, #fff);
   background: color-mix(in srgb, var(--pm-path) 5.5%, #fff);
 }
 
-body[data-page="follow"] .follow-path-matrix-panel:nth-child(2n) {
+body[data-page="follow"] .follow-path-matrix-panel:nth-child(2n), body[data-page="replay"] .follow-path-matrix-panel:nth-child(2n) {
   border-right: 0;
 }
 
-body[data-page="follow"] .follow-path-matrix-panel:nth-last-child(-n + 2) {
+body[data-page="follow"] .follow-path-matrix-panel:nth-last-child(-n + 2), body[data-page="replay"] .follow-path-matrix-panel:nth-last-child(-n + 2) {
   border-bottom: 0;
 }
 
-body[data-page="follow"] .follow-path-matrix-panel-head {
+body[data-page="follow"] .follow-path-matrix-panel-head, body[data-page="replay"] .follow-path-matrix-panel-head {
   display: grid;
   gap: 2px;
   align-content: start;
@@ -9599,7 +9643,7 @@ body[data-page="follow"] .follow-path-matrix-panel-head {
   background: var(--pm-wash);
 }
 
-body[data-page="follow"] .follow-path-matrix-panel-title {
+body[data-page="follow"] .follow-path-matrix-panel-title, body[data-page="replay"] .follow-path-matrix-panel-title {
   margin: 0;
   font-size: 0.8rem;
   font-weight: 700;
@@ -9608,14 +9652,14 @@ body[data-page="follow"] .follow-path-matrix-panel-title {
   line-height: 1.25;
 }
 
-body[data-page="follow"] .follow-path-matrix-panel-note {
+body[data-page="follow"] .follow-path-matrix-panel-note, body[data-page="replay"] .follow-path-matrix-panel-note {
   margin: 0;
   font-size: 0.68rem;
   color: var(--pm-muted);
   line-height: 1.35;
 }
 
-body[data-page="follow"] .follow-path-matrix-body {
+body[data-page="follow"] .follow-path-matrix-body, body[data-page="replay"] .follow-path-matrix-body {
   display: grid;
   gap: 8px;
   align-content: stretch;
@@ -9624,22 +9668,22 @@ body[data-page="follow"] .follow-path-matrix-body {
   padding: 12px 14px;
 }
 
-body[data-page="follow"] .follow-path-matrix-body--row3 {
+body[data-page="follow"] .follow-path-matrix-body--row3, body[data-page="replay"] .follow-path-matrix-body--row3 {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
-body[data-page="follow"] .follow-path-matrix-body--row4 {
+body[data-page="follow"] .follow-path-matrix-body--row4, body[data-page="replay"] .follow-path-matrix-body--row4 {
   grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
-body[data-page="follow"] .follow-path-matrix-field {
+body[data-page="follow"] .follow-path-matrix-field, body[data-page="replay"] .follow-path-matrix-field {
   display: grid;
   gap: 3px;
   margin: 0;
   min-width: 0;
 }
 
-body[data-page="follow"] .follow-path-matrix-field-label {
+body[data-page="follow"] .follow-path-matrix-field-label, body[data-page="replay"] .follow-path-matrix-field-label {
   font-size: 0.62rem;
   font-weight: 700;
   letter-spacing: 0.05em;
@@ -9648,8 +9692,8 @@ body[data-page="follow"] .follow-path-matrix-field-label {
   line-height: 1.15;
 }
 
-body[data-page="follow"] .follow-path-matrix-field input[type="number"],
-body[data-page="follow"] .follow-path-matrix-field select {
+body[data-page="follow"] .follow-path-matrix-field input[type="number"], body[data-page="replay"] .follow-path-matrix-field input[type="number"],
+body[data-page="follow"] .follow-path-matrix-field select, body[data-page="replay"] .follow-path-matrix-field select {
   width: 100%;
   max-width: none;
   box-sizing: border-box;
@@ -9667,7 +9711,7 @@ body[data-page="follow"] .follow-path-matrix-field select {
   line-height: 1.2;
 }
 
-body[data-page="follow"] .follow-path-matrix-field select {
+body[data-page="follow"] .follow-path-matrix-field select, body[data-page="replay"] .follow-path-matrix-field select {
   background-image: linear-gradient(45deg, transparent 50%, #64748b 50%),
     linear-gradient(135deg, #64748b 50%, transparent 50%);
   background-position: calc(100% - 12px) 55%, calc(100% - 8px) 55%;
@@ -9676,15 +9720,15 @@ body[data-page="follow"] .follow-path-matrix-field select {
   padding-right: 1.4rem;
 }
 
-body[data-page="follow"] .follow-path-matrix-field input[type="number"]:focus,
-body[data-page="follow"] .follow-path-matrix-field select:focus {
+body[data-page="follow"] .follow-path-matrix-field input[type="number"]:focus, body[data-page="replay"] .follow-path-matrix-field input[type="number"]:focus,
+body[data-page="follow"] .follow-path-matrix-field select:focus, body[data-page="replay"] .follow-path-matrix-field select:focus {
   outline: 2px solid color-mix(in srgb, var(--pm-accent) 32%, transparent);
   outline-offset: 1px;
   border-color: color-mix(in srgb, var(--pm-accent) 40%, #cbd5e1);
 }
 
 /* 隔夜 / 闸门 / 模式：同框语言 */
-body[data-page="follow"] .follow-path-matrix-box {
+body[data-page="follow"] .follow-path-matrix-box, body[data-page="replay"] .follow-path-matrix-box {
   display: grid;
   grid-template-rows: 1fr auto;
   gap: 6px;
@@ -9701,38 +9745,38 @@ body[data-page="follow"] .follow-path-matrix-box {
   transition: background-color 0.12s ease, border-color 0.12s ease;
 }
 
-body[data-page="follow"] .follow-path-matrix-box:hover {
+body[data-page="follow"] .follow-path-matrix-box:hover, body[data-page="replay"] .follow-path-matrix-box:hover {
   background: #fff;
   border-color: #cbd5e1;
 }
 
-body[data-page="follow"] .follow-path-matrix-box--check:has(input:checked) {
+body[data-page="follow"] .follow-path-matrix-box--check:has(input:checked), body[data-page="replay"] .follow-path-matrix-box--check:has(input:checked) {
   background: color-mix(in srgb, var(--pm-accent) 7%, #fff);
   border-color: color-mix(in srgb, var(--pm-accent) 28%, #e2e8f0);
 }
 
-body[data-page="follow"] .follow-path-matrix-box-text {
+body[data-page="follow"] .follow-path-matrix-box-text, body[data-page="replay"] .follow-path-matrix-box-text {
   display: grid;
   gap: 1px;
   min-width: 0;
   align-content: start;
 }
 
-body[data-page="follow"] .follow-path-matrix-box-title {
+body[data-page="follow"] .follow-path-matrix-box-title, body[data-page="replay"] .follow-path-matrix-box-title {
   font-size: 0.74rem;
   font-weight: 650;
   color: var(--pm-ink);
   line-height: 1.25;
 }
 
-body[data-page="follow"] .follow-path-matrix-box-desc {
+body[data-page="follow"] .follow-path-matrix-box-desc, body[data-page="replay"] .follow-path-matrix-box-desc {
   font-size: 0.62rem;
   color: var(--pm-muted);
   line-height: 1.3;
 }
 
-body[data-page="follow"] .follow-path-matrix-box input[type="number"],
-body[data-page="follow"] .follow-path-matrix-box select {
+body[data-page="follow"] .follow-path-matrix-box input[type="number"], body[data-page="replay"] .follow-path-matrix-box input[type="number"],
+body[data-page="follow"] .follow-path-matrix-box select, body[data-page="replay"] .follow-path-matrix-box select {
   width: 100%;
   box-sizing: border-box;
   min-height: 1.5rem;
@@ -9749,7 +9793,7 @@ body[data-page="follow"] .follow-path-matrix-box select {
   line-height: 1.2;
 }
 
-body[data-page="follow"] .follow-path-matrix-box select {
+body[data-page="follow"] .follow-path-matrix-box select, body[data-page="replay"] .follow-path-matrix-box select {
   background-image: linear-gradient(45deg, transparent 50%, #64748b 50%),
     linear-gradient(135deg, #64748b 50%, transparent 50%);
   background-position: calc(100% - 12px) 55%, calc(100% - 8px) 55%;
@@ -9758,15 +9802,15 @@ body[data-page="follow"] .follow-path-matrix-box select {
   padding-right: 1.4rem;
 }
 
-body[data-page="follow"] .follow-path-matrix-box input[type="number"]:focus,
-body[data-page="follow"] .follow-path-matrix-box select:focus {
+body[data-page="follow"] .follow-path-matrix-box input[type="number"]:focus, body[data-page="replay"] .follow-path-matrix-box input[type="number"]:focus,
+body[data-page="follow"] .follow-path-matrix-box select:focus, body[data-page="replay"] .follow-path-matrix-box select:focus {
   outline: 2px solid color-mix(in srgb, var(--pm-accent) 32%, transparent);
   outline-offset: 1px;
   border-color: color-mix(in srgb, var(--pm-accent) 40%, #cbd5e1);
 }
 
-body[data-page="follow"] .follow-path-matrix-box--check,
-body[data-page="follow"] .follow-path-matrix-box--select {
+body[data-page="follow"] .follow-path-matrix-box--check, body[data-page="replay"] .follow-path-matrix-box--check,
+body[data-page="follow"] .follow-path-matrix-box--select, body[data-page="replay"] .follow-path-matrix-box--select {
   grid-template-rows: 1fr;
   grid-template-columns: 1fr auto;
   align-items: center;
@@ -9774,12 +9818,12 @@ body[data-page="follow"] .follow-path-matrix-box--select {
   cursor: pointer;
 }
 
-body[data-page="follow"] .follow-path-matrix-box--select {
+body[data-page="follow"] .follow-path-matrix-box--select, body[data-page="replay"] .follow-path-matrix-box--select {
   grid-template-columns: minmax(0, 1fr) minmax(7.5rem, 42%);
   cursor: default;
 }
 
-body[data-page="follow"] .follow-path-matrix-box--check input[type="checkbox"] {
+body[data-page="follow"] .follow-path-matrix-box--check input[type="checkbox"], body[data-page="replay"] .follow-path-matrix-box--check input[type="checkbox"] {
   width: 0.95rem;
   height: 0.95rem;
   flex: 0 0 auto;
@@ -9789,39 +9833,39 @@ body[data-page="follow"] .follow-path-matrix-box--check input[type="checkbox"] {
 }
 
 @media (max-width: 720px) {
-  body[data-page="follow"] .follow-path-matrix-toolbar {
+  body[data-page="follow"] .follow-path-matrix-toolbar, body[data-page="replay"] .follow-path-matrix-toolbar {
     justify-content: flex-start;
   }
-  body[data-page="follow"] .follow-path-matrix-meta {
+  body[data-page="follow"] .follow-path-matrix-meta, body[data-page="replay"] .follow-path-matrix-meta {
     justify-content: flex-start;
   }
-  body[data-page="follow"] .follow-path-matrix-actions {
+  body[data-page="follow"] .follow-path-matrix-actions, body[data-page="replay"] .follow-path-matrix-actions {
     justify-content: flex-start;
   }
-  body[data-page="follow"] .follow-path-matrix-actions .follow-path-matrix-status {
+  body[data-page="follow"] .follow-path-matrix-actions .follow-path-matrix-status, body[data-page="replay"] .follow-path-matrix-actions .follow-path-matrix-status {
     max-width: 100%;
     flex: 1 1 100%;
   }
-  body[data-page="follow"] .follow-path-matrix-meta > * + *::before {
+  body[data-page="follow"] .follow-path-matrix-meta > * + *::before, body[data-page="replay"] .follow-path-matrix-meta > * + *::before {
     margin: 0 6px;
   }
-  body[data-page="follow"] .follow-path-matrix-panels {
+  body[data-page="follow"] .follow-path-matrix-panels, body[data-page="replay"] .follow-path-matrix-panels {
     grid-template-columns: 1fr;
     grid-template-rows: none;
   }
-  body[data-page="follow"] .follow-path-matrix-panel {
+  body[data-page="follow"] .follow-path-matrix-panel, body[data-page="replay"] .follow-path-matrix-panel {
     border-right: 0;
     border-bottom: 1px solid var(--pm-line);
   }
-  body[data-page="follow"] .follow-path-matrix-panel:last-child {
+  body[data-page="follow"] .follow-path-matrix-panel:last-child, body[data-page="replay"] .follow-path-matrix-panel:last-child {
     border-bottom: 0;
   }
-  body[data-page="follow"] .follow-path-matrix-panel:nth-child(2n),
-  body[data-page="follow"] .follow-path-matrix-panel:nth-last-child(-n + 2) {
+  body[data-page="follow"] .follow-path-matrix-panel:nth-child(2n), body[data-page="replay"] .follow-path-matrix-panel:nth-child(2n),
+  body[data-page="follow"] .follow-path-matrix-panel:nth-last-child(-n + 2), body[data-page="replay"] .follow-path-matrix-panel:nth-last-child(-n + 2) {
     border-right: 0;
     border-bottom: 1px solid var(--pm-line);
   }
-  body[data-page="follow"] .follow-path-matrix-panel:last-child {
+  body[data-page="follow"] .follow-path-matrix-panel:last-child, body[data-page="replay"] .follow-path-matrix-panel:last-child {
     border-bottom: 0;
   }
 }
@@ -10060,8 +10104,9 @@ body[data-page="follow"] .follow-secondary-fold > .follow-ops-card {
   overflow: hidden;
 }
 
-/* 做 T：卡体内再套一层规则 / 表单框 */
-body[data-page="follow"] .follow-ops-t0 .paper-t0-rules,
+/* 做 T / 策略调仓：卡体内再套一层规则框 */
+body[data-page="follow"] .follow-ops-t0 .paper-t0-rules, body[data-page="replay"] .follow-ops-t0 .paper-t0-rules,
+body[data-page="follow"] .follow-rebalance-rules-card .paper-t0-rules,
 body[data-page="follow"] .follow-ops-t0 .quant-summary {
   margin: 0;
   padding: var(--paper-t0-pad-y) var(--paper-t0-pad-x);
@@ -10072,22 +10117,9 @@ body[data-page="follow"] .follow-ops-t0 .quant-summary {
   box-sizing: border-box;
 }
 
-body[data-page="follow"] .follow-ops-t0 #paper-t0-edit-fold {
-  margin: 0;
-  border: 1px solid color-mix(in srgb, var(--line) 88%, transparent);
-  border-radius: var(--paper-t0-r, 2px);
-  background: var(--bg-card, #fff);
-  overflow: hidden;
-}
-
-body[data-page="follow"] .follow-ops-t0 .paper-t0-form {
-  padding: 10px 12px 12px;
-}
-
 body[data-page="follow"] .follow-ops-t0 #paper-t0-preview[hidden],
 body[data-page="follow"] .follow-ops-t0 #paper-t0-preview:empty,
-body[data-page="follow"] .follow-ops-t0 #paper-t0-metrics:empty,
-body[data-page="follow"] .follow-ops-t0 #paper-t0-days:empty {
+body[data-page="follow"] .follow-rebalance-rules-card #paper-rebalance-section[hidden] {
   display: none !important;
   margin: 0 !important;
   padding: 0 !important;
@@ -10095,17 +10127,16 @@ body[data-page="follow"] .follow-ops-t0 #paper-t0-days:empty {
 }
 
 /* 回测结果栈：仅用卡体 gap，子块不再叠加外边距 */
-body[data-page="follow"] .follow-ops-t0 .follow-card-body > #paper-t0-metrics,
-body[data-page="follow"] .follow-ops-t0 .follow-card-body > #paper-t0-viz,
 body[data-page="follow"] .follow-ops-t0 .follow-card-body > #paper-t0-preview,
-body[data-page="follow"] .follow-ops-t0 .follow-card-body > #paper-t0-days,
 body[data-page="follow"] .follow-ops-t0 .follow-card-body > .quant-actions-inline,
+body[data-page="follow"] .follow-rebalance-rules-card .follow-card-body > .quant-actions-inline,
+body[data-page="follow"] .follow-rebalance-rules-card .follow-card-body > #paper-rebalance-section,
 body[data-page="follow"] .follow-ops-t0 .quant-weight-table-wrap {
   margin: 0 !important;
 }
 
 body[data-page="follow"] .follow-ops-t0 #paper-t0-preview,
-body[data-page="follow"] .follow-ops-t0 #paper-t0-days {
+body[data-page="follow"] .follow-rebalance-rules-card #paper-rebalance-section {
   padding: 0;
   border: none;
   border-radius: 0;
@@ -10113,17 +10144,8 @@ body[data-page="follow"] .follow-ops-t0 #paper-t0-days {
   display: block;
 }
 
-body[data-page="follow"] .follow-ops-t0 #paper-t0-metrics {
-  border: 1px solid color-mix(in srgb, var(--line) 88%, transparent);
-  border-radius: var(--paper-t0-r, 2px);
-  padding: var(--paper-t0-pad-y) var(--paper-t0-pad-x);
-  background: color-mix(in srgb, var(--ink) 1.2%, var(--surface));
-  display: block;
-  overflow: hidden;
-  box-sizing: border-box;
-}
-
-body[data-page="follow"] .follow-ops-t0 .follow-card-body > .quant-actions-inline {
+body[data-page="follow"] .follow-ops-t0 .follow-card-body > .quant-actions-inline,
+body[data-page="follow"] .follow-rebalance-rules-card .follow-card-body > .quant-actions-inline {
   padding-top: var(--paper-t0-gap);
   border-top: 1px solid color-mix(in srgb, var(--line) 85%, transparent);
 }
@@ -10507,7 +10529,7 @@ body[data-page="follow"] .follow-head-actions > .follow-cost-model-hero > select
    交易执行 · 圆角统一为最小弧度 (2px) + 持仓框去空白 (p880)
    ========================================================================== */
 body[data-page="follow"] .follow-page,
-body[data-page="follow"] {
+body[data-page="follow"] .page-main {
   --sys-r-tier1: 2px;
   --sys-r-tier2: 2px;
   --sys-r-tier3: 2px;
@@ -10558,7 +10580,7 @@ body[data-page="follow"] .follow-page .paper-hold-action-bar,
 body[data-page="follow"] .follow-page .paper-operation-log,
 body[data-page="follow"] .follow-page .paper-origin-chip,
 body[data-page="follow"] .follow-page .paper-holdings-empty,
-body[data-page="follow"] .follow-page .paper-t0-rules,
+body[data-page="follow"] .follow-page .paper-t0-rules, body[data-page="replay"] .follow-page .paper-t0-rules,
 body[data-page="follow"] .follow-page .quant-summary,
 body[data-page="follow"] .follow-page .quant-control-band,
 body[data-page="follow"] .follow-page .quant-pro-card,
@@ -10571,11 +10593,7 @@ body[data-page="follow"] .follow-page input,
 body[data-page="follow"] .follow-page select,
 body[data-page="follow"] .follow-page textarea,
 body[data-page="follow"] .follow-page button,
-body[data-page="follow"] .follow-page .follow-ops-t0 #paper-t0-edit-fold,
 body[data-page="follow"] .follow-page .follow-ops-t0 #paper-t0-preview,
-body[data-page="follow"] .follow-page .follow-ops-t0 #paper-t0-days,
-body[data-page="follow"] .follow-page .follow-ops-t0 #paper-t0-metrics,
-body[data-page="follow"] .follow-page .follow-ops-t0 #paper-t0-viz,
 body[data-page="follow"] .follow-desk-badge,
 body[data-page="follow"] .follow-desk-guard,
 body[data-page="follow"] .follow-cost-model-hero,
@@ -10585,14 +10603,14 @@ body[data-page="follow"] .follow-head-actions .dialog-btn {
 }
 
 /* 做 T 内层卡片/图表圆角与外层 tier2 一致（覆盖各组件自带 6–10px） */
-body[data-page="follow"] .follow-ops-t0 #paper-t0-viz .paper-t0-viz-card,
-body[data-page="follow"] .follow-ops-t0 #paper-t0-viz .paper-t0-viz-chart-box,
-body[data-page="follow"] .follow-ops-t0 #paper-t0-viz .paper-t0-viz-kpi,
-body[data-page="follow"] .follow-ops-t0 #paper-t0-viz .paper-t0-viz-chip,
-body[data-page="follow"] .follow-ops-t0 #paper-t0-metrics .paper-t0-report-hero,
-body[data-page="follow"] .follow-ops-t0 #paper-t0-metrics .paper-t0-metric-section,
-body[data-page="follow"] .follow-ops-t0 #paper-t0-metrics .paper-t0-report-verdict,
-body[data-page="follow"] .follow-ops-t0 #paper-t0-metrics .paper-t0-compare-strip {
+body[data-page="replay"] .replay-t0-section #paper-t0-viz .paper-t0-viz-card,
+body[data-page="replay"] .replay-t0-section #paper-t0-viz .paper-t0-viz-chart-box,
+body[data-page="replay"] .replay-t0-section #paper-t0-viz .paper-t0-viz-kpi,
+body[data-page="replay"] .replay-t0-section #paper-t0-viz .paper-t0-viz-chip,
+body[data-page="replay"] .replay-t0-section #paper-t0-metrics .paper-t0-report-hero,
+body[data-page="replay"] .replay-t0-section #paper-t0-metrics .paper-t0-metric-section,
+body[data-page="replay"] .replay-t0-section #paper-t0-metrics .paper-t0-report-verdict,
+body[data-page="replay"] .replay-t0-section #paper-t0-metrics .paper-t0-compare-strip {
   border-radius: var(--paper-t0-r, 2px) !important;
 }
 
@@ -10658,6 +10676,10 @@ body[data-page="follow"] .paper-t0-auto-bar {
 
 body[data-page="follow"] .follow-t0-rules-card,
 body[data-page="follow"] .follow-rebalance-rules-card {
+  --paper-t0-r: 2px;
+  --paper-t0-gap: 10px;
+  --paper-t0-pad-x: 12px;
+  --paper-t0-pad-y: 10px;
   margin-top: 12px;
 }
 
@@ -11026,7 +11048,7 @@ body[data-page="follow"] .paper-t0-desk-fold {
   max-width: 100%;
 }
 
-body[data-page="follow"] .follow-ops-t0 #paper-t0-viz > #paper-t0-days:not(:empty) {
+body[data-page="replay"] .replay-t0-section #paper-t0-viz > #paper-t0-days:not(:empty) {
   display: block !important;
   margin-top: var(--paper-t0-gap, 10px) !important;
   padding-top: 10px !important;
@@ -11035,7 +11057,8 @@ body[data-page="follow"] .follow-ops-t0 #paper-t0-viz > #paper-t0-days:not(:empt
 }
 
 /* 今日预演：与盯盘状态同一套 fold / chip / board */
-body[data-page="follow"] .follow-ops-t0 #paper-t0-preview:not([hidden]):not(:empty) {
+body[data-page="follow"] .follow-ops-t0 #paper-t0-preview:not([hidden]):not(:empty),
+body[data-page="follow"] .follow-rebalance-rules-card #paper-rebalance-section:not([hidden]) {
   padding-top: 10px !important;
   border-top: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
 }
@@ -11396,8 +11419,12 @@ body[data-page="follow"] .paper-log-filter-btn.is-active {
   background: color-mix(in srgb, var(--accent) 12%, var(--surface));
 }
 
-body[data-page="follow"] .paper-t0-manual-actions {
+body[data-page="follow"] .paper-t0-manual-actions, body[data-page="replay"] .paper-t0-manual-actions {
   margin-top: 8px;
   padding-top: 8px;
   border-top: 1px dashed color-mix(in srgb, var(--border) 65%, transparent);
+}
+
+body[data-page="follow"] .follow-rebalance-exec-actions #paper-path-matrix-status:empty {
+  display: none;
 }

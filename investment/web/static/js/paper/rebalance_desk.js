@@ -1,6 +1,6 @@
 /** Paper · 自动调仓今日盯盘状态（格式对齐做 T worker desk）。 */
 
-import { stockCellHtml } from "./t0_table.js?v=p1986";
+import { stockCellHtml, stampStockFitTiers } from "./t0_table.js?v=p2261";
 
 function escapeHtml(s) {
   return String(s ?? "")
@@ -212,4 +212,5 @@ export function renderPaperRebalanceWorkerDesk(el, desk) {
     `</tr></thead><tbody>${body}</tbody></table></div>` +
     foot +
     `</div></details>`;
+  stampStockFitTiers(el);
 }

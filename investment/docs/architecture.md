@@ -1262,7 +1262,7 @@ BS → core/backtest/service.py → engine · topk_backtest · topk_weights
 |--------|------|
 | `service.py` | BacktestService 实现 |
 | `engine.py` | 单票 signal 回测 |
-| `paper_replay.py` | 产品历史回测（rank_lots） |
+| `paper_replay.py` | 产品历史回测（rank_lots；含分票贡献） |
 | `topk_backtest.py` | TopK 等权/加权回测（研究探针，≠ `/replay`） |
 | `topk_weights.py` | 权重计算（按用例拆分） |
 | `matching.py` | 成交撮合规则 |
@@ -2000,7 +2000,7 @@ flowchart LR
 
 **ExecutionSpec（v1.1）**：`lifecycle.execution` 收编两类纸面动作——**结构层调仓**（持有什么、各占多少；ŷ_trade 排序 + ŷ_EOD/ŷ_τ 买卖闸）与 **overlay 做 T**（底仓上 dual_y：y_τ 定方向 + 5m 往返 timing；不改变选股主线）。**ŷ_τ 模型共用、决策接口不同**，见 [quant.md · 策略调仓 vs 底仓做 T](quant.md#策略调仓-vs-底仓做-t)。纸面 / 做 T 回测经 `core/execution.resolve_effective_execution` 合并  
 `DEFAULT → Spec → paper.rules → 请求 → channel runtime_defaults`，禁止入口各自硬编码 `direction` / `path_mode`。  
-Web：`GET/POST /api/paper/execution` · `GET .../diff` · `POST .../reset` · 交易执行页规则卡与账户覆盖表单 · 策略晋升回显做 T 摘要。  
+Web：`GET/POST /api/paper/execution` · `GET .../diff` · `POST .../reset` · **历史回测**改调仓/做 T 规则表单；交易执行只读规格 + 预演/Worker · 策略晋升回显做 T 摘要。  
 耦合：`coupling.t0_vs_stance` = `independent` | `skip_if_avoid` | `only_if_hold`（纸面预演按持仓 stance 跳过）。
 
 **自动做 T 落账（Web Worker）**：Follow 页 Worker = 本 Web 进程内后台线程，**5 分钟轮询 + 5m 盯盘**（与 K 线周期对齐；分钟线 `use_cache` TTL ≈5min，无新 bar 跳过打网；**振幅门禁按 5m 前缀 high/low 滚动**，不足则下根 K 重试；交易时段内触达即落账，不再日终整段回放）；开关写 `data/t0_auto_worker.json`，状态写 `data/t0_intraday_state.json`，并同步 `paper.rules.t0_auto.enabled`。  
@@ -2009,7 +2009,7 @@ API：`GET/POST /api/paper/t0/worker`（启停 + 状态）· `GET /api/paper/t0/
 外部 cron 仍可用 `schedule_jobs.run_paper_t0`；`paper_daily` 链式触发需 `t0_auto.enabled` 且 `schedule=with_paper_daily`（UI 已移除 schedule 下拉，默认 `after_close`）。
 
 **自动调仓落账（Web Worker）**：Follow「策略调仓」运行卡与做 T 同结构（进程面板 → 面板外盯盘框）。每个交易日 **09:30–10:00 现价成交一次**，过点不补跑。开关与 last_run / desk 写 `data/rebalance_auto_worker.json`。  
-API：`GET/POST /api/paper/rebalance/worker`（`worker` + `desk`）。盯盘落账前按持仓占位监视，落账后开/加/清/持；上次落账文案 `时间 · 自动|手动 · 卖 n · 买 n`。手动预演仍走规则卡「预演调仓 / 确认落账」。做 T worker 在调仓未完成且仍在开盘窗内会等待。
+API：`GET/POST /api/paper/rebalance/worker`（`worker` + `desk`）。盯盘落账前按持仓占位监视，落账后开/加/清/持；上次落账文案 `时间 · 自动|手动 · 卖 n · 买 n`。手动预演仍走规则卡「手动预演 / 确认落账」。做 T worker 在调仓未完成且仍在开盘窗内会等待。
 ---
 
 ## 黑盒工厂直觉

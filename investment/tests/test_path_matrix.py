@@ -51,6 +51,7 @@ class TestPathMatrix(unittest.TestCase):
         self.assertEqual(lots.get("mode"), "rank_lots")
         self.assertIn("rank_enter", lots)
         self.assertIn("cash_floor", lots)
+        self.assertAlmostEqual(float(lots.get("cash_floor")), 0.0)
         self.assertEqual(lots.get("y_on_alpha"), 0.0)
         self.assertAlmostEqual(float(lots.get("rank_enter")), 0.012)
         self.assertAlmostEqual(float(lots.get("rank_strong")), 0.012)

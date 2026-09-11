@@ -30,6 +30,35 @@ function _kpiPct(v, { signed = true } = {}) {
   return `${n >= 0 ? "+" : "-"}${body}%`;
 }
 
+/** |y_fuse| < 0.05% → 无方向，与后端 HIT_YHAT_EPS / score_ledger 同口径。 */
+const HIT_YHAT_EPS = 0.05;
+
+function _fuseHitFromTrades(rows) {
+  let hits = 0;
+  let n = 0;
+  for (const r of rows || []) {
+    if (!r || typeof r !== "object") continue;
+    if (String(r.status || "") === "skipped") continue;
+    let yf = _kpiNum(r.y_fuse);
+    if (yf == null) {
+      const rs = _kpiNum(r.ranking_score);
+      if (rs != null) yf = rs * 100;
+    }
+    const real = _kpiNum(r.realized_cc);
+    if (yf == null || real == null) continue;
+    if (Math.abs(yf) < HIT_YHAT_EPS) continue;
+    if (Math.abs(real) < 1e-12) continue;
+    n += 1;
+    if ((yf > 0) === (real > 0)) hits += 1;
+  }
+  if (n <= 0) return { hit_rate_pct: null, hit_n: 0, hit_hits: 0 };
+  return {
+    hit_rate_pct: Math.round((hits / n) * 1000) / 10,
+    hit_n: n,
+    hit_hits: hits,
+  };
+}
+
 /**
  * 历史回测页概览 KPI（纯数据，无 DOM）。
  * 兼容完整回测结果（metrics+benchmark）与摘要顶层字段。
@@ -41,7 +70,8 @@ export function buildReplayOverviewKpis(data, { source = "" } = {}) {
       return: blank("先跑回测"),
       excess: blank("相对基准"),
       dd: blank("历史 MaxDD"),
-      win: blank("胜率"),
+      win: blank("日净值>0"),
+      hit: blank("sign(y_fuse)"),
     };
   }
   const m =
@@ -50,7 +80,6 @@ export function buildReplayOverviewKpis(data, { source = "" } = {}) {
   const ret = m.total_return_pct;
   const win = m.win_rate_pct;
   const dd = m.max_drawdown_pct;
-  const trades = m.trade_count ?? data.trade_count;
   const excess = bench.ok ? bench.excess_pct : m.excess_pct;
   const legs =
     data.alpha_beta_legs && typeof data.alpha_beta_legs === "object"
@@ -61,13 +90,30 @@ export function buildReplayOverviewKpis(data, { source = "" } = {}) {
   const exN = _kpiNum(excess);
   const ddN = _kpiNum(dd);
   const winN = _kpiNum(win);
-  const tradesN = _kpiNum(trades);
+  const daysN = _kpiNum(m.day_count ?? (Array.isArray(data.equity_curve) ? data.equity_curve.length : null));
+  let hitRate = _kpiNum(m.hit_rate_pct);
+  let hitCount = _kpiNum(m.hit_n);
+  let hitHits = _kpiNum(m.hit_hits);
+  if (hitRate == null || hitCount == null) {
+    const fb = _fuseHitFromTrades(data.sim_trades || data.trades);
+    if (hitRate == null) hitRate = _kpiNum(fb.hit_rate_pct);
+    if (hitCount == null) hitCount = _kpiNum(fb.hit_n);
+    if (hitHits == null) hitHits = _kpiNum(fb.hit_hits);
+  }
   const excessSub =
     exN == null
       ? "相对基准"
       : legs.beta_leg_approx_pct != null
         ? `超额 · β腿≈${Number(legs.beta_leg_approx_pct).toFixed(1)}%`
         : `相对 ${bench.benchmark_label || "基准"}`;
+  let hitSub = "sign(y_fuse)";
+  if (hitCount != null && hitCount > 0 && hitHits != null) {
+    hitSub = `${hitHits}/${hitCount} 笔`;
+  } else if (hitCount != null && hitCount > 0) {
+    hitSub = `${hitCount} 笔`;
+  } else if (hitRate == null) {
+    hitSub = "无方向成交";
+  }
   return {
     return: {
       value: _kpiPct(ret),
@@ -89,8 +135,14 @@ export function buildReplayOverviewKpis(data, { source = "" } = {}) {
     },
     win: {
       value: winN == null ? "—" : `${winN.toFixed(1)}%`,
-      sub: tradesN != null ? `${tradesN} 笔` : "胜率",
+      sub: daysN != null ? `${daysN} 日净值>0` : "日净值>0",
       empty: winN == null,
+      cls: "",
+    },
+    hit: {
+      value: hitRate == null ? "—" : `${hitRate.toFixed(1)}%`,
+      sub: hitSub,
+      empty: hitRate == null,
       cls: "",
     },
   };
@@ -101,12 +153,99 @@ const _REPLAY_KPI_IDS = {
   excess: "replay-kpi-excess",
   dd: "replay-kpi-dd",
   win: "replay-kpi-win",
+  hit: "replay-kpi-hit",
 };
 
 /** 把概览 KPI 写进历史回测页 DOM。 */
 export function applyReplayOverviewKpis(data, opts = {}) {
   const pack = buildReplayOverviewKpis(data, opts);
   Object.entries(_REPLAY_KPI_IDS).forEach(([key, id]) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    const item = pack[key];
+    const card = el.closest(".replay-kpi-card") || el.closest(".dashboard-kpi-card");
+    el.textContent = item.value;
+    el.classList.remove("up", "down");
+    if (item.cls) el.classList.add(item.cls);
+    if (card) card.classList.toggle("is-empty", !!item.empty);
+    const sub = document.getElementById(`${id}-sub`);
+    if (sub) sub.textContent = item.sub;
+  });
+  return pack;
+}
+
+const _REPLAY_T0_KPI_IDS = {
+  return: "replay-t0-kpi-return",
+  pnl: "replay-t0-kpi-pnl",
+  win: "replay-t0-kpi-win",
+  cover: "replay-t0-kpi-cover",
+};
+
+function _kpiMoney(v) {
+  const n = _kpiNum(v);
+  if (n == null) return "—";
+  const abs = Math.abs(n).toLocaleString("zh-CN", { maximumFractionDigits: 0 });
+  if (n > 0) return `+${abs}`;
+  if (n < 0) return `-${abs}`;
+  return abs;
+}
+
+/**
+ * 做 T 回测概览 KPI（纯数据）。
+ */
+export function buildReplayT0Kpis(data) {
+  const blank = (sub) => ({ value: "—", sub, empty: true, cls: "" });
+  if (!data || data.success === false) {
+    return {
+      return: blank("先跑回测"),
+      pnl: blank("含敞口"),
+      win: blank("做 T 日"),
+      cover: blank("完成往返率"),
+    };
+  }
+  const ret = data.cumulative_return_pct ?? data.pnl_vs_hold_mv_pct;
+  const pnl = data.t0_pnl_with_exposure ?? data.t0_pnl_total;
+  const win = data.win_rate_pct ?? data.t0_win_rate_pct;
+  const cover = data.cover_rate_pct;
+  const days = data.t0_trade_days;
+  const retN = _kpiNum(ret);
+  const pnlN = _kpiNum(pnl);
+  const winN = _kpiNum(win);
+  const coverN = _kpiNum(cover);
+  const daysN = _kpiNum(days);
+  return {
+    return: {
+      value: _kpiPct(ret),
+      sub: retN == null ? "累计收益" : "累计收益比例",
+      empty: retN == null,
+      cls: metricClass(retN),
+    },
+    pnl: {
+      value: _kpiMoney(pnl),
+      sub: "含敞口",
+      empty: pnlN == null,
+      cls: metricClass(pnlN),
+    },
+    win: {
+      value: winN == null ? "—" : `${winN.toFixed(1)}%`,
+      sub: daysN != null ? `${daysN} 日` : "做 T 日",
+      empty: winN == null,
+      cls: "",
+    },
+    cover: {
+      value: coverN == null ? "—" : `${coverN.toFixed(1)}%`,
+      sub: "完成往返率",
+      empty: coverN == null,
+      cls: "",
+    },
+  };
+}
+
+/** 把做 T KPI 写进历史回测页 DOM。 */
+export function applyReplayT0Kpis(data) {
+  if (!document.getElementById("replay-t0-kpi-row")) return null;
+  const pack = buildReplayT0Kpis(data);
+  Object.entries(_REPLAY_T0_KPI_IDS).forEach(([key, id]) => {
     const el = document.getElementById(id);
     if (!el) return;
     const item = pack[key];
@@ -232,6 +371,8 @@ export function buildPortfolioBacktestSummaryText(data) {
     ? ` · 成交 ${
         data.params.execution_mode === "open_930"
           ? "09:30开"
+          : data.params.execution_mode === "minute_5m"
+            ? `${data.params.fill_clock || "5m"}成交`
           : data.params.execution_mode === "next_open"
             ? "次日开"
             : "收盘"
@@ -281,14 +422,12 @@ export function buildPortfolioBacktestSummaryText(data) {
     : "";
   const cashInit = Number(data.params?.initial_cash ?? data.request?.initial_cash);
   const cashFloor = Number(data.params?.cash_floor ?? data.request?.cash_floor);
-  const cashNote =
-    Number.isFinite(cashInit) || Number.isFinite(cashFloor)
-      ? ` · 初始${
-          Number.isFinite(cashInit) ? `${Math.round(cashInit / 10000)}万` : "—"
-        }/地板${
-          Number.isFinite(cashFloor) ? `${Math.round(cashFloor / 10000)}万` : "—"
-        }`
-      : "";
+  const cashNote = Number.isFinite(cashInit)
+    ? ` · 初始${Math.round(cashInit / 10000)}万` +
+      (Number.isFinite(cashFloor) && cashFloor > 0
+        ? `/地板${Math.round(cashFloor / 10000)}万`
+        : "")
+    : "";
   const sess = String(data.params?.session_day || "").slice(0, 10);
   const sessNote = /^\d{4}-\d{2}-\d{2}$/.test(sess) ? ` · 含当日 ${sess}` : "";
   const bench = data.benchmark || {};

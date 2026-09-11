@@ -9,7 +9,8 @@ import { fmtScore, fmtTableScore, scoreCls, resolveTradeScore, resolveEodScore }
 import { truncateStockName, watchingNameSpanHtml, watchingNameFromEl, applyWatchingNameEl, normalizeProbeCode } from "./names.js";
 import { renderWatchingHoldings as renderWatchingHoldingsHtml } from "./watching_holdings.js";
 import { buildWatchingDqMetaText, buildWatchingDqFoldSummary, buildWatchingDqTableHtml } from "./watching_dq_ui.js";
-import { watchingScoreDetail, sentimentBadgeHtml, renderWatchingBuildPlan as renderWatchingBuildPlanHtml, renderWatchingWatchTableFallback, buildWatchingWatchRows, buildWatchingNewsTitleHtml, buildWatchingNewsMetaText, buildWatchingNewsListHtml, WATCHING_NEWS_AI_LOADING_HTML, buildWatchingNewsAiAnalysisHtml, buildWatchingNewsAiErrorHtml, describeWatchingSource, matchWatchlistSource, truncateText, sentimentLabelZh, shortOriginLabel } from "./watching_render.js?v=p2121";
+import { watchingScoreDetail, sentimentBadgeHtml, renderWatchingBuildPlan as renderWatchingBuildPlanHtml, renderWatchingWatchTableFallback, buildWatchingWatchRows, buildWatchingNewsTitleHtml, buildWatchingNewsMetaText, buildWatchingNewsListHtml, WATCHING_NEWS_AI_LOADING_HTML, buildWatchingNewsAiAnalysisHtml, buildWatchingNewsAiErrorHtml, describeWatchingSource, matchWatchlistSource, truncateText, sentimentLabelZh, shortOriginLabel } from "./watching_render.js?v=p2261";
+import { ensureFitTierMap } from "./fit_tier_ui.js";
 import {
   buildWatchingScoreDisplay,
   buildWatchingInsightsGridPatch,
@@ -1725,6 +1726,7 @@ export function installWatching(q) {
       grid.setRows(rows);
       state.watchingGrid = grid;
       state.watchingGridReady = true;
+      void ensureFitTierMap(watchTable);
       updateWatchingPickCount();
       syncWatchingSelectAllState();
       paintWatchingYhatHist(
@@ -1737,6 +1739,7 @@ export function installWatching(q) {
       state.watchingGrid = null;
       state.watchingGridReady = false;
       renderWatchingWatchTableFallback(rows);
+      void ensureFitTierMap(watchTable);
       paintWatchingYhatHist(
         rows
           .filter((r) => Number.isFinite(r.scoreNum) && r.code)
@@ -1784,16 +1787,9 @@ export function installWatching(q) {
   function setPoolMeta(text) {
     const msg = String(text || "");
     const busy = /正在|加载中|拉取|刷新中|分析中/.test(msg);
-    for (const id of ["quant-watching-meta", "replay-pool-meta"]) {
-      const el = document.getElementById(id);
-      if (!el) continue;
-      let shown = msg;
-      if (id === "replay-pool-meta") {
-        const mPool = msg.match(/观察\s+(\d+)\s*只/);
-        if (mPool) shown = `观察池 ${mPool[1]} 只`;
-        else if (/尚未创建|未创建/.test(msg)) shown = "观察池：—";
-      }
-      el.textContent = shown;
+    const el = document.getElementById("quant-watching-meta");
+    if (el) {
+      el.textContent = msg;
       el.classList.toggle("is-busy", busy);
     }
     // 与卡头 meta 同步概览 KPI（嵌套模块若被缓存漏掉显式调用时仍能写上）

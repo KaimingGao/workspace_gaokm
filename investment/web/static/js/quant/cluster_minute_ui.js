@@ -1,4 +1,4 @@
-import { setProStatusChip } from "./factor_corr_ui.js";
+import { setProStatusChip, syncOverviewMinute } from "./factor_corr_ui.js";
 import {
   fmtDuration,
   fmtAgeSec,
@@ -53,6 +53,7 @@ export function installClusterMinuteUi(q) {
   const MIN_SPAN_DAYS = 30;
 
   let inflight = null;
+  let kpiInflight = null;
   let jobFailure = null;
   let jobSuccess = null;
   let lastPolledJob = null;
@@ -163,7 +164,7 @@ export function installClusterMinuteUi(q) {
       esc,
       mode: "running",
       hint: topup
-        ? `今日已拉跳过 · 对齐跳过 · 近 ${TOPUP_LOOKBACK_DAYS} 日 merge · 约 4 并发 · 缺/短全窗口`
+        ? `今日已拉跳过 · 对齐跳过 · 近 ${TOPUP_LOOKBACK_DAYS} 日 merge · 新浪近端 · 约 4 并发 · 缺/短才打东财`
         : "逐只串行 · 东财/BaoStock 30 日历日 · 新浪/腾讯有数则跳过 BaoStock · 各源间隔 10s · Ready% 为 span≥30d 覆盖（与 Job 进度不同步刷新）",
     });
   }
@@ -294,7 +295,6 @@ export function installClusterMinuteUi(q) {
   function renderCoverageBar(data) {
     const total = Math.max(0, Number(data.universe_count) || 0);
     const ok = Number(data.cached_ok) || 0;
-    const short = Number(data.short) || 0;
     const pct = total > 0 ? Math.round((1000 * ok) / total) / 10 : 0;
     if (covPct) covPct.textContent = total > 0 ? `${pct}% ready` : "—";
 
@@ -305,30 +305,20 @@ export function installClusterMinuteUi(q) {
     }
 
     const dist = Array.isArray(data.span_distribution) ? data.span_distribution : [];
-    const minSpan = Number(data.min_span_days) || MIN_SPAN_DAYS;
-    const shortLabel = `<${minSpan}d`;
-    // 累计三档始终展示（含 0），避免全员落在 20–29d 时细档被滤掉、看起来「没变化」
-    const fineOrder = [shortLabel, "<20d", "<10d"];
+    const fineOrder = ["<90d", "<60d", "<30d"];
     const shortBucketState = (bucket) => {
-      if (bucket === "<10d") return "is-bad";
-      if (bucket === "<20d") return "is-warn";
+      if (bucket === "<30d") return "is-bad";
+      if (bucket === "<60d") return "is-warn";
       return "is-warn";
     };
     const byBucket = new Map(fineOrder.map((k) => [k, 0]));
     dist
       .filter((row) => String(row.bucket || "").startsWith("<"))
       .forEach((row) => {
-        const label = String(row.bucket || shortLabel);
-        byBucket.set(label, Number(row.count) || 0);
+        const label = String(row.bucket || "");
+        if (byBucket.has(label)) byBucket.set(label, Number(row.count) || 0);
       });
-    if (short > 0 && !(Number(byBucket.get(shortLabel)) > 0)) {
-      byBucket.set(shortLabel, short);
-    }
-    const ordered = [
-      ...fineOrder,
-      ...[...byBucket.keys()].filter((k) => !fineOrder.includes(k)),
-    ];
-    const rows = ordered.map((label) => ({
+    const rows = fineOrder.map((label) => ({
       label,
       count: byBucket.get(label) || 0,
       state: shortBucketState(label),
@@ -337,7 +327,7 @@ export function installClusterMinuteUi(q) {
     }));
     const hasShort = rows.some((r) => (Number(r.count) || 0) > 0);
     renderBarRows(covBody, hasShort ? rows : [], {
-      emptyText: `无 ${shortLabel}`,
+      emptyText: "无 <90d",
       head,
     });
   }
@@ -509,19 +499,30 @@ export function installClusterMinuteUi(q) {
     }
     renderContextStrip(data);
     renderKpis(data);
+    try {
+      syncOverviewMinute(data);
+    } catch (_) {
+      /* overview optional */
+    }
     renderCoverageBar(data);
     renderLabelPortrait(data);
     renderFoot(data);
   }
 
   async function refreshCoverageKpis() {
+    if (kpiInflight) return kpiInflight;
     const limit = typeof readWatchingLimit === "function" ? readWatchingLimit() : 100;
-    const { ok, data } = await apiFetch(
-      `/api/quant/cluster-minute/status?watching_limit=${encodeURIComponent(limit)}&min_span_days=${MIN_SPAN_DAYS}`
-    );
-    if (!ok || !data?.success) return null;
-    paint(data, { skipHead: true });
-    return data;
+    kpiInflight = (async () => {
+      const { ok, data } = await apiFetch(
+        `/api/quant/cluster-minute/status?watching_limit=${encodeURIComponent(limit)}&min_span_days=${MIN_SPAN_DAYS}&include_label_portrait=0`
+      );
+      if (!ok || !data?.success) return null;
+      paint(data, { skipHead: true });
+      return data;
+    })().finally(() => {
+      kpiInflight = null;
+    });
+    return kpiInflight;
   }
 
   async function refreshStatus() {

@@ -5,9 +5,9 @@ import { escapeHtml as defaultEscapeHtml } from "../shared.js";
 import { researchGridHtml as defaultResearchGridHtml, metricCell as defaultMetricCell } from "./research_grid.js";
 import { fmtPct as defaultFmtPct, metricClass as defaultMetricClass } from "./bt_result.js";
 import { fmtScore, scoreCls } from "../paper/fmt.js";
-import { buildT0TradeTableHtml, pickDetailDays } from "../paper/t0_table.js?v=p1986";
-import { buildT0MetricCards } from "../paper/t0_report.js?v=p1877";
 import { watchingNameSpanHtml } from "./names.js";
+import { fitTierBadgeForCode } from "./fit_tier_ui.js";
+
 
 /**
  * @param {{
@@ -104,7 +104,10 @@ export function createBtTablesUi(deps = {}) {
           if (col.id === "name") {
             return (
               `<div class="watching-stock" title="${esc(d.name + " " + d.code)}">` +
+              `<span class="watching-name-row">` +
               watchingNameSpanHtml(d.name) +
+              fitTierBadgeForCode(d.code, { escapeHtml: esc }) +
+              `</span>` +
               `<span class="watching-code-sub">${esc(d.code)}</span></div>`
             );
           }
@@ -265,28 +268,6 @@ export function createBtTablesUi(deps = {}) {
     return { html, showChart: true };
   }
 
-  function buildT0BacktestMetrics(data) {
-    return buildT0MetricCards(data).map((row) => ({
-      label: row.label,
-      value: esc(String(row.value ?? "—")),
-      cls: row.cls || "",
-    }));
-  }
-
-  function buildT0BacktestDaysHtml(data) {
-    if (!data || !data.success) return "";
-    const days = pickDetailDays(data);
-    if (!days.length) {
-      return `<p class="quant-trades-caption">区间内无做 T 成交日</p>`;
-    }
-    return buildT0TradeTableHtml({
-      data,
-      days,
-      caption: `<p class="quant-trades-caption">做 T 日明细（最多 20 条，新→旧）</p>`,
-      maxRows: 20,
-    });
-  }
-
   function buildCrossSectionResult(data) {
     if (!data || !data.success) {
       return {
@@ -360,7 +341,10 @@ export function createBtTablesUi(deps = {}) {
             `<div class="watching-stock" title="${esc(
               (d.name || "") + " " + (d.code || "")
             )}">` +
+            `<span class="watching-name-row">` +
             watchingNameSpanHtml(d.name || d.code) +
+            fitTierBadgeForCode(d.code, { escapeHtml: esc }) +
+            `</span>` +
             `<span class="watching-code-sub">${esc(d.code || "")}</span></div>`
           );
         }
@@ -431,13 +415,147 @@ export function createBtTablesUi(deps = {}) {
     return { html, clear: false, hideChart: false };
   }
 
+  function _fmtContribDate(v) {
+    const s = String(v || "").trim();
+    return s ? esc(s.slice(0, 10)) : "—";
+  }
+
+  function _fmtContribShares(v) {
+    const n = Number(v);
+    if (!Number.isFinite(n) || n <= 0) return "—";
+    return esc(Math.round(n).toLocaleString("zh-CN"));
+  }
+
+  function _fmtContribPct(v) {
+    const n = Number(v);
+    if (v == null || v === "" || !Number.isFinite(n)) {
+      return { text: "—", cls: "" };
+    }
+    const sign = n > 0 ? "+" : "";
+    return { text: `${sign}${n.toFixed(2)}%`, cls: mcls(n) };
+  }
+
+  function _fmtContribPnl(v) {
+    const n = Number(v);
+    if (!Number.isFinite(n)) return "—";
+    return n.toLocaleString("zh-CN", { maximumFractionDigits: 0 });
+  }
+
+  function renderReplayStockContribHtml(rows) {
+    const list = Array.isArray(rows) ? rows : [];
+    if (!list.length) return "";
+    const watchingNameByCode = getWatchingNameByCode();
+    const maxAbs = Math.max(1, ...list.map((r) => Math.abs(Number(r.pnl || 0))));
+    const n = list.length;
+    const totalPnl = list.reduce((s, r) => s + Number(r.pnl || 0), 0);
+    const best = [...list].sort((a, b) => Number(b.pnl || 0) - Number(a.pnl || 0))[0];
+    const worst = [...list].sort((a, b) => Number(a.pnl || 0) - Number(b.pnl || 0))[0];
+    const bestName =
+      (best && (watchingNameByCode[best.stock_code] || best.stock_name || best.stock_code)) || "";
+    const worstName =
+      (worst && (watchingNameByCode[worst.stock_code] || worst.stock_name || worst.stock_code)) || "";
+    const metaBits = [`${n} 只`, `合计 ${_fmtContribPnl(totalPnl)}`].filter(Boolean);
+    const tipBits = [
+      "分票贡献：持仓盯市盈亏合计；贡献%=盈亏/回测本金。佣金印花走现金，不进本表。",
+      best && bestName ? `贡献最大：${bestName} ${_fmtContribPnl(best.pnl)}` : null,
+      worst && worst !== best && worstName
+        ? `拖累最大：${worstName} ${_fmtContribPnl(worst.pnl)}`
+        : null,
+    ].filter(Boolean);
+    const body = list
+      .map((r) => {
+        const code = String(r.stock_code || "").trim();
+        const fullName = watchingNameByCode[code] || r.stock_name || code || "—";
+        const pnl = Number(r.pnl || 0);
+        const cls = mcls(pnl);
+        const ret = _fmtContribPct(r.return_pct);
+        const contrib = _fmtContribPct(r.contrib_pct);
+        const barW = Math.max(4, Math.round((Math.abs(pnl) / maxAbs) * 48));
+        const overnight = Number(r.overnight_pnl || 0);
+        const intraday = Number(r.intraday_pnl || 0);
+        const title = fullName && code && fullName !== code ? `${fullName} ${code}` : fullName || code;
+        return (
+          `<tr class="paper-t0-contrib-row" data-code="${esc(code)}" data-name="${esc(fullName)}">` +
+          `<td class="rebalance-stock paper-t0-col-stock watching-stock" title="${esc(title)}">` +
+          `<span class="watching-name-row">` +
+          watchingNameSpanHtml(fullName) +
+          fitTierBadgeForCode(code, { escapeHtml: esc }) +
+          `</span>` +
+          (code ? `<span class="watching-code-sub">${esc(code)}</span>` : "") +
+          `</td>` +
+          `<td class="num paper-t0-col-viz-days" title="窗口内有持仓的交易日">${esc(
+            String(r.hold_days ?? 0)
+          )}</td>` +
+          `<td class="num paper-t0-col-viz-lr" title="买入笔 / 卖出笔">${esc(
+            `${r.buy_count ?? 0}/${r.sell_count ?? 0}`
+          )}</td>` +
+          `<td class="num paper-t0-col-viz-shares" title="窗口末日持股">${_fmtContribShares(
+            r.shares_end
+          )}</td>` +
+          `<td class="paper-t0-col-viz-dt" title="首次持有日">${_fmtContribDate(r.first_date)}</td>` +
+          `<td class="paper-t0-col-viz-dt" title="末次持有日">${_fmtContribDate(r.last_date)}</td>` +
+          `<td class="num paper-t0-col-viz-ret ${ret.cls}" title="盈亏 / 日均占用资金">${esc(
+            ret.text
+          )}</td>` +
+          `<td class="num paper-t0-col-viz-pct ${contrib.cls}" title="盈亏 / 回测本金">${esc(
+            contrib.text
+          )}</td>` +
+          `<td class="num paper-t0-col-pnl ${cls} has-tip" title="${esc(
+            `盯市 ${pnl.toFixed(0)} · 隔夜 ${_fmtContribPnl(overnight)} · 当日 ${_fmtContribPnl(
+              intraday
+            )} · 条长∝|PnL|`
+          )}">` +
+          `<span class="paper-t0-viz-pnl-bar" style="width:${barW}px" aria-hidden="true"></span>` +
+          `<span class="paper-t0-viz-pnl-num">${esc(_fmtContribPnl(pnl))}</span>` +
+          `</td>` +
+          `</tr>`
+        );
+      })
+      .join("");
+    return (
+      `<section class="paper-t0-viz-contrib replay-stock-contrib-section">` +
+      `<div class="paper-t0-viz-contrib-head">` +
+      `<div class="paper-t0-viz-contrib-title-block">` +
+      `<h4>分票贡献</h4>` +
+      `<span class="paper-t0-viz-contrib-meta has-tip" title="${esc(tipBits.join("\n"))}">${esc(
+        metaBits.join(" · ")
+      )}</span>` +
+      `</div>` +
+      `<p class="paper-t0-viz-contrib-hint">持仓盯市合计 · 贡献%=盈亏/回测本金 · 点股票名看日线</p>` +
+      `</div>` +
+      `<div class="quant-weight-table-wrap paper-t0-viz-stock-wrap watching-table-scroll">` +
+      `<table class="quant-weight-table paper-t0-table paper-t0-viz-stock-table replay-stock-contrib-table">` +
+      `<colgroup>` +
+      `<col class="paper-t0-col-stock" />` +
+      `<col class="paper-t0-col-viz-days" />` +
+      `<col class="paper-t0-col-viz-lr" />` +
+      `<col class="paper-t0-col-viz-shares" />` +
+      `<col class="paper-t0-col-viz-dt" />` +
+      `<col class="paper-t0-col-viz-dt" />` +
+      `<col class="paper-t0-col-viz-ret" />` +
+      `<col class="paper-t0-col-viz-pct" />` +
+      `<col class="paper-t0-col-pnl" />` +
+      `</colgroup>` +
+      `<thead><tr class="paper-t0-contrib-head">` +
+      `<th scope="col" class="paper-t0-col-stock">股票</th>` +
+      `<th scope="col" class="paper-t0-col-viz-days num" title="窗口内有持仓的交易日">持有日</th>` +
+      `<th scope="col" class="paper-t0-col-viz-lr num" title="买入笔 / 卖出笔">买/卖</th>` +
+      `<th scope="col" class="paper-t0-col-viz-shares num" title="窗口末日持股">期末</th>` +
+      `<th scope="col" class="paper-t0-col-viz-dt" title="首次持有日">首日</th>` +
+      `<th scope="col" class="paper-t0-col-viz-dt" title="末次持有日">末日</th>` +
+      `<th scope="col" class="paper-t0-col-viz-ret num" title="盈亏 / 日均占用资金">收益%</th>` +
+      `<th scope="col" class="paper-t0-col-viz-pct num" title="盈亏 / 回测本金">贡献%</th>` +
+      `<th scope="col" class="paper-t0-col-pnl num" title="持仓盯市盈亏；条长∝|PnL|">PnL</th>` +
+      `</tr></thead><tbody>${body}</tbody></table></div></section>`
+    );
+  }
+
   return {
     renderAttributionTablesHtml,
     renderIcEquityAlignHtml,
     renderQuantileTableHtml,
-    buildT0BacktestMetrics,
-    buildT0BacktestDaysHtml,
     buildCrossSectionResult,
     renderScoreIcHtml,
+    renderReplayStockContribHtml,
   };
 }

@@ -240,6 +240,55 @@ class TestClusterLive(unittest.TestCase):
             act2 = load_active_cluster_weights()
             self.assertIsNotNone(act2)
 
+    def test_promote_writes_research_sidecar_no_live_fallback(self):
+        from core.research.holdout import research_model_path, scoring_model_role_context
+        from core.signal.cluster.live import (
+            load_cluster_return_models_by_code,
+            promote_cluster_artifact,
+        )
+
+        live_rm = self._rm(0.6, 0.4)
+        research_rm = self._rm(0.1, 0.9)
+        art = self._artifact()
+        art["clusters"] = [
+            {
+                "label": "G1",
+                "cluster_id": 0,
+                "return_model": live_rm,
+                "return_model_research": research_rm,
+            },
+            {
+                "label": "G2",
+                "cluster_id": 1,
+                "return_model": self._rm(0.3, 0.7),
+                "return_model_research": self._rm(0.05, 0.95),
+            },
+        ]
+        for meta in art["code_map"].values():
+            if meta.get("cluster_label") == "G1":
+                meta["return_model_research"] = research_rm
+            else:
+                meta["return_model_research"] = self._rm(0.05, 0.95)
+
+        with _live_tmp() as paths:
+            out = promote_cluster_artifact(art)
+            self.assertTrue(out["success"], out)
+            research_path = research_model_path(paths["active"])
+            self.assertTrue(os.path.isfile(research_path), research_path)
+            live_models = load_cluster_return_models_by_code()
+            self.assertAlmostEqual(
+                live_models["600519"].coefficients["momentum"], 0.6, places=4
+            )
+            with scoring_model_role_context("research"):
+                research_models = load_cluster_return_models_by_code()
+            self.assertAlmostEqual(
+                research_models["600519"].coefficients["momentum"], 0.1, places=4
+            )
+            os.remove(research_path)
+            with scoring_model_role_context("research"):
+                empty = load_cluster_return_models_by_code()
+            self.assertEqual(empty, {})
+
     def test_set_mode_active_requires_health(self):
         from core.signal.cluster.live import (
             promote_cluster_artifact,
@@ -559,6 +608,8 @@ class TestClusterLive(unittest.TestCase):
                 set_cluster_scoring_mode("shadow")
                 st = cluster_status_public(include_audit=True)
             self.assertTrue(st["success"])
+            self.assertIn("research", st)
+            self.assertIn("exists", st["research"])
             act = st.get("active") or {}
             self.assertEqual(act.get("source_created_at"), "2026-08-01T00:00:00Z")
             self.assertTrue(act.get("promoted_at"))
@@ -575,6 +626,10 @@ class TestClusterLive(unittest.TestCase):
             self.assertIn("turnover_est", ev)
             self.assertIn("exposure_summary", ev)
             self.assertTrue((ev.get("gate") or {}).get("ok"))
+            st_light = cluster_status_public(include_audit=False, light=True)
+            self.assertTrue(st_light.get("success"))
+            self.assertIn("research", st_light)
+            self.assertIn("exists", st_light["research"])
 
     def _all_oos_fail_artifact(self):
         art = self._artifact()

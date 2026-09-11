@@ -19,6 +19,7 @@ from web.schemas import (
     PathRidgeRequest,
     CxRidgeRequest,
     TpdRidgeRequest,
+    RRidgeRequest,
     RemRidgeRequest,
     TauRidgeRequest,
     ThresholdSuggestRequest,
@@ -118,6 +119,8 @@ def quant_tau_ridge(body: TauRidgeRequest) -> Dict[str, Any]:
             note=body.note,
             tau_hm=body.tau_hm,
             force_promote=body.force_promote,
+            persist_role=body.persist_role,
+            holdout_trading_days=body.holdout_trading_days,
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
@@ -183,6 +186,8 @@ def quant_on_ridge(body: OnRidgeRequest) -> Dict[str, Any]:
             theme_boost=body.theme_boost,
             persist=body.persist,
             note=body.note,
+            persist_role=body.persist_role,
+            holdout_trading_days=body.holdout_trading_days,
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
@@ -213,6 +218,8 @@ def quant_path_ridge(body: PathRidgeRequest) -> Dict[str, Any]:
             persist=body.persist,
             force_promote=body.force_promote,
             note=body.note,
+            persist_role=body.persist_role,
+            holdout_trading_days=body.holdout_trading_days,
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
@@ -241,6 +248,8 @@ def quant_cx_ridge(body: CxRidgeRequest) -> Dict[str, Any]:
             persist=body.persist,
             force_promote=body.force_promote,
             note=body.note,
+            persist_role=body.persist_role,
+            holdout_trading_days=body.holdout_trading_days,
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
@@ -269,6 +278,8 @@ def quant_tpd_ridge(body: TpdRidgeRequest) -> Dict[str, Any]:
             persist=body.persist,
             force_promote=body.force_promote,
             note=body.note,
+            persist_role=body.persist_role,
+            holdout_trading_days=body.holdout_trading_days,
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
@@ -279,6 +290,36 @@ def quant_tpd_ridge_model() -> Dict[str, Any]:
     """读取已 promote 的 ŷ_tpd 模型（若有）。"""
     try:
         return deps.quant.get_tpd_ridge_model()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@router.post("/api/quant/r-ridge")
+def quant_r_ridge(body: RRidgeRequest) -> Dict[str, Any]:
+    """ŷ_r Ridge：与 ŷ_τ 同 X → price(τ)/close−1 + 时间 OOS；可选 persist。不进调仓。"""
+    try:
+        return deps.quant.run_r_ridge_experiment(
+            lookback=body.lookback,
+            watching_limit=body.watching_limit,
+            ridge_lambda=body.ridge_lambda,
+            gap_trigger_pct=body.gap_trigger_pct,
+            minute_period=body.minute_period,
+            minute_lookback_days=body.minute_lookback_days,
+            persist=body.persist,
+            force_promote=body.force_promote,
+            note=body.note,
+            persist_role=body.persist_role,
+            holdout_trading_days=body.holdout_trading_days,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@router.get("/api/quant/r-ridge/model")
+def quant_r_ridge_model() -> Dict[str, Any]:
+    """读取已 promote 的 ŷ_r 模型（若有）。"""
+    try:
+        return deps.quant.get_r_ridge_model()
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 

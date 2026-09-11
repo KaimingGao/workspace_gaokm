@@ -73,7 +73,40 @@ def resolve_stock_name(
     if not c:
         return str(fallback or "").strip()
     mapped = _load_a_code_name_map().get(c) or ""
-    return mapped or str(fallback or "").strip()
+    return mapped or (str(fallback or "").strip() if str(fallback or "").strip() != c else "")
+
+
+def stamp_resolved_stock_names(
+    rows: Any,
+    *,
+    name_by_code: Optional[Dict[str, str]] = None,
+) -> None:
+    """把码表中文名写进行；``stock_name`` 等于代码时也替换。"""
+    seq: Any = [rows] if isinstance(rows, dict) else rows
+    for row in seq or []:
+        if not isinstance(row, dict):
+            continue
+        code = str(row.get("stock_code") or "").strip()
+        if code:
+            nm = resolve_stock_name(
+                code,
+                fallback=str(row.get("stock_name") or ""),
+                name_by_code=name_by_code,
+            )
+            if nm and nm != code:
+                row["stock_name"] = nm
+        meta = row.get("meta")
+        if isinstance(meta, dict):
+            mc = str(meta.get("stock_code") or code).strip()
+            if not mc:
+                continue
+            mnm = resolve_stock_name(
+                mc,
+                fallback=str(meta.get("stock_name") or ""),
+                name_by_code=name_by_code,
+            )
+            if mnm and mnm != mc:
+                meta["stock_name"] = mnm
 
 
 def _state_path() -> str:

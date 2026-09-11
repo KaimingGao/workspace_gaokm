@@ -528,11 +528,12 @@ export function createFactorIcUi(deps) {
   /**
    * ŷ_τ / ŷ_ON Ridge 因子系数表：仅入模因子；KPI + 双向 β 图 + 表内条形。
    * @param {object|null} rm return_model 或含 coefficients 的报告块
-   * @param {{ oos?: object, head?: "tau"|"on"|"path"|"cx"|"tpd" } } [opts]
+   * @param {{ oos?: object, head?: "tau"|"on"|"path"|"cx"|"tpd"|"r" } } [opts]
    */
   function remCoefTableHtml(rm, opts = {}) {
     if (!rm || typeof rm !== "object") return "";
     const isOn = opts.head === "on";
+    const isR = opts.head === "r";
     const isTpd = opts.head === "tpd";
     const isCxHead = opts.head === "cx";
     const isCx = isCxHead || isTpd;
@@ -676,6 +677,8 @@ export function createFactorIcUi(deps) {
         ? "暂无 ŷ_path 入模因子"
         : isOn
           ? "暂无 ŷ_ON 入模因子"
+          : isR
+            ? "暂无 ŷ_r 入模因子"
           : "暂无 rem 入模因子";
       return `<p class="sub">${emptyMsg}</p>`;
     }
@@ -709,6 +712,8 @@ export function createFactorIcUi(deps) {
           : "extreme_order(low,high)"
         : isOn
           ? "open[T+1]/close[T]-1"
+          : isR
+            ? "price[τ]/close[T]-1"
           : "close[T]/open[T]-1");
     const ySpec = compactYSpecFormula(ySpecRaw, ySpecObj);
     const ySpecClocks = _tauClocksFromYSpec(ySpecRaw, ySpecObj);
@@ -734,7 +739,7 @@ export function createFactorIcUi(deps) {
         : "";
     const posN = rows.filter((r) => r.ols >= 0).length;
     const negN = rows.length - posN;
-    const yhatTag = isPath ? pathTag : isOn ? "ŷ_ON" : "ŷ_τ";
+    const yhatTag = isPath ? pathTag : isOn ? "ŷ_ON" : isR ? "ŷ_r" : "ŷ_τ";
     const ySpecTip =
       `${yhatTag} 训练标签 · ${ySpec}` +
       (ySpecClocks.length >= 2
@@ -756,18 +761,34 @@ export function createFactorIcUi(deps) {
     const interceptTip = isCx
       ? "去均值后加回标签均值（∈[0,1]）"
       : "模型截距（%）";
-    const nTip =
-      "全面板完整行（OOS 后重估 β）；状态栏「面板 n」含缺测行，OOS n 含同日多 τ";
+    const nTip = oos.holdout_trading_days != null
+      ? "执行套全样本入模行；Holdout 只改研究套训/测，不改此数"
+      : "全面板完整行（OOS 后重估 β）；状态栏「面板 n」含缺测行，OOS n 含同日多 τ";
     const oosIcTip = isCx
-      ? "按交易日 90/10 样本外 Spearman；括号 n 含 19 个 τ，票×日看 by_τ"
-      : "时间切分样本外 IC";
+      ? "Holdout 样本外 Spearman；括号 n 含多 τ，票×日看 by_τ"
+      : oos.holdout_trading_days != null
+        ? `Holdout ${oos.holdout_trading_days} 日样本外 IC`
+        : "时间切分样本外 IC";
 
     const metrics =
       `<div class="quant-rem-coef-spec-metrics" role="group" aria-label="${esc(
-        isPath ? `${isTpd ? "tpd" : isCxHead ? "cx" : "path"} 模型摘要` : isOn ? "on 模型摘要" : "τ 模型摘要"
+        isPath ? `${isTpd ? "tpd" : isCxHead ? "cx" : "path"} 模型摘要` : isOn ? "on 模型摘要" : isR ? "r 模型摘要" : "τ 模型摘要"
       )}">` +
       (intercept != null ? kpi("截距", intercept.toFixed(3), interceptTip) : "") +
       (nFmt != null ? kpi("样本 n", nFmt, nTip) : "") +
+      (oos.holdout_trading_days != null && Number.isFinite(Number(oos.holdout_trading_days))
+        ? kpi(
+            "Holdout",
+            `${Number(oos.holdout_trading_days)}日`,
+            "近 N 个交易日不进研究套训练"
+          )
+        : "") +
+      (oos.n_train != null && Number.isFinite(Number(oos.n_train))
+        ? kpi("训 n", Number(oos.n_train).toLocaleString("en-US"), "研究套训练集")
+        : "") +
+      (oos.n_test != null && Number.isFinite(Number(oos.n_test))
+        ? kpi("测 n", Number(oos.n_test).toLocaleString("en-US"), "Holdout 样本外")
+        : "") +
       (r2 != null ? kpi("R²", r2.toFixed(3), "全面板样本内拟合优度，非 OOS") : "") +
       (lam != null ? kpi("λ", lam, "Ridge 收缩") : "") +
       (oos.ic != null && Number.isFinite(Number(oos.ic))
@@ -914,7 +935,7 @@ export function createFactorIcUi(deps) {
     const head =
       `<div class="quant-rem-coef-head">` +
       `<div class="quant-rem-coef-head-main">` +
-      `<span class="quant-rem-coef-title">${isPath ? `${pathTag} 系数表` : isOn ? "ŷ_ON 系数表" : "ŷ_τ 系数表"}</span>` +
+      `<span class="quant-rem-coef-title">${isPath ? `${pathTag} 系数表` : isOn ? "ŷ_ON 系数表" : isR ? "ŷ_r 系数表" : "ŷ_τ 系数表"}</span>` +
       `<span class="quant-rem-coef-sub">按 |β| 降序 · 标准化斜率</span>` +
       `</div>` +
       `<div class="quant-rem-coef-legend" aria-hidden="true">` +
