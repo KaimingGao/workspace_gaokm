@@ -16,6 +16,7 @@ class QuantFollowMixin:
         *,
         lookback: int = 30,
         initial_shares: float = 1000,
+        initial_cash: Optional[float] = None,
         rules: Optional[dict] = None,
         from_paper: bool = False,
         codes: Optional[list] = None,
@@ -24,11 +25,23 @@ class QuantFollowMixin:
     ) -> Dict[str, Any]:
         """研究做T回测：强制 5m 第一触达（已删除日线模拟）。"""
         from quant.research.t0_backtest import (
+            T0_BT_VIRTUAL_CASH,
+            T0_BT_VIRTUAL_SHARES,
             run_t0_backtest_for_code,
             run_t0_backtest_for_holdings,
         )
 
         _ = (use_minute, compare_daily)
+        try:
+            v_shares = float(initial_shares if initial_shares is not None else T0_BT_VIRTUAL_SHARES)
+        except (TypeError, ValueError):
+            v_shares = T0_BT_VIRTUAL_SHARES
+        v_shares = max(100.0, min(v_shares, 100_000.0))
+        try:
+            v_cash = float(initial_cash if initial_cash is not None else T0_BT_VIRTUAL_CASH)
+        except (TypeError, ValueError):
+            v_cash = T0_BT_VIRTUAL_CASH
+        v_cash = max(10_000.0, min(v_cash, 1.0e8))
         if from_paper or codes is not None or not str(code or "").strip():
             holdings, paper = self._t0_holdings_for_backtest(codes=codes, code=code)
             out = run_t0_backtest_for_holdings(
@@ -38,12 +51,15 @@ class QuantFollowMixin:
                 paper=paper if from_paper else None,
                 use_minute=True,
                 compare_daily=False,
+                virtual_shares=v_shares,
+                virtual_cash=v_cash,
             )
         else:
             out = run_t0_backtest_for_code(
                 code,
                 lookback=lookback,
-                initial_shares=initial_shares,
+                initial_shares=v_shares,
+                initial_cash=v_cash,
                 rules=rules,
                 use_minute=True,
                 compare_daily=False,
@@ -56,6 +72,8 @@ class QuantFollowMixin:
                     "code": str(code or "").strip(),
                     "from_paper": bool(from_paper),
                     "codes": list(codes) if codes else None,
+                    "initial_shares": v_shares,
+                    "initial_cash": v_cash,
                 },
             )
             try:

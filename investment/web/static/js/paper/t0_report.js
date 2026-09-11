@@ -569,8 +569,8 @@ export function buildT0ReportHtml(data, opts = {}) {
   const sm = data.viz?.summary || {};
   const evalDays = data.eval_days ?? (Number(data.t0_trade_days || 0) + Number(data.skip_days || 0));
   const virtNote = data.virtual_sizing
-    ? `虚拟仓每票 ${Number(data.virtual_shares || 10000).toLocaleString("zh-CN")} 股` +
-      ` · 现金 ${(Number(data.virtual_cash || 5e6) / 10000).toFixed(0)} 万`
+    ? `虚拟仓每票 ${Number(data.virtual_shares || 1000).toLocaleString("zh-CN")} 股` +
+      ` · 本金 ${(Number(data.virtual_cash || 2e5) / 10000).toFixed(0)} 万`
     : null;
   const hero =
     `<header class="paper-t0-report-hero">` +
@@ -578,7 +578,7 @@ export function buildT0ReportHtml(data, opts = {}) {
     `<div class="paper-t0-report-scope">${escapeText(scope)}</div>` +
     `<div class="paper-t0-report-net ${heroPrimaryCls}">${escapeText(heroPrimary)}</div>` +
     `<div class="paper-t0-report-sub">` +
-    (cumRet != null ? "累计收益比例" : "含敞口净 PnL") +
+    (cumRet != null ? "累计收益比例（本金）" : "含敞口净 PnL") +
     ` · 评估 ${evalDays || "—"} 日 · ${escapeText(pathLabel(data))}` +
     (virtNote ? ` · ${escapeText(virtNote)}` : "") +
     `</div>` +

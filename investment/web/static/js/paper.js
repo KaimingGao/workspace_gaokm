@@ -45,8 +45,8 @@ import { renderPaperRulesHtml } from "./paper/rules_ui.js?v=p1658";
 import {
   renderExecutionRulesHtml,
   normalizeExecutionView,
-} from "./paper/execution_ui.js?v=p2202";
-import { applyExecutionToUi } from "./paper/execution_forms.js?v=p2202";
+} from "./paper/execution_ui.js?v=p2274";
+import { applyExecutionToUi } from "./paper/execution_forms.js?v=p2274";
 import { buildPaperLogsView, buildPaperLogsCsv } from "./paper/logs_ui.js?v=p2157";
 import { downloadBlob } from "./shared.js";
 import {
@@ -2811,13 +2811,12 @@ export function initPaper(ctx) {
     return msg || "请求失败";
   };
 
-  /** 手动预演 / 落账共用：状态行 spinner + 当前按钮禁用 */
+  /** 与策略调仓「手动预演」对齐：按钮只禁用不转圈；进度写在旁行。 */
   const setT0ActionBusy = (btn, busy, msg) => {
     if (btn) {
       btn.disabled = !!busy;
-      btn.classList.toggle("is-busy", !!busy);
-      if (busy) btn.setAttribute("aria-busy", "true");
-      else btn.removeAttribute("aria-busy");
+      btn.classList.remove("is-busy");
+      btn.removeAttribute("aria-busy");
     }
     if (paperT0ActionStatus) {
       paperT0ActionStatus.classList.toggle("is-busy", !!busy);

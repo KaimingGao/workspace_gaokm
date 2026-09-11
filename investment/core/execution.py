@@ -994,8 +994,8 @@ def validate_execution_patch(raw: Any) -> Tuple[bool, Dict[str, Any], List[str]]
         t0_out["y_tau_exit_price_skip_sell_then_buy"] = bool(
             t0_in.get("y_tau_exit_price_skip_sell_then_buy")
         )
-    if "t0_stop_on_close" in t0_in:
-        t0_out["t0_stop_on_close"] = bool(t0_in.get("t0_stop_on_close"))
+    if t0_in:
+        t0_out["t0_stop_on_close"] = True
 
     coupling_out: Dict[str, Any] = {}
     if coupling_in is not None:

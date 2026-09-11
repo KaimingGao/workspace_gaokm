@@ -195,11 +195,10 @@ export function renderExecutionRulesHtml(execution) {
         const stb = Number(t0.t0_stop_pct_sell_then_buy);
         const arm = Number(t0.t0_stop_arm_bars);
         const armLbl = Number.isFinite(arm) ? `${Math.round(arm)}根` : "1根";
-        const conf = t0.t0_stop_on_close === false ? "触价" : "收盘";
         const fmt = (n) => (Number.isFinite(n) && n > 0 ? `${n}%` : "关");
-        return `正${fmt(bts)}/反${fmt(stb)}·${armLbl}·${conf}`;
+        return `正${fmt(bts)}/反${fmt(stb)}·${armLbl}·收盘`;
       })(),
-      "相对该轮第一腿成交价；正T跌破卖旧 / 反T涨破买回；多轮共用同一套%；延迟与收盘确认共用"
+      "相对该轮第一腿成交价；正T跌破卖旧 / 反T涨破买回；多轮共用同一套%；延迟共用；止损固定收盘破线确认"
     ) +
     specKpi(
       "追价",
@@ -456,7 +455,6 @@ export function fillExecutionForm(root, execution) {
     "t0_stop_arm_bars",
     t0.t0_stop_arm_bars != null ? t0.t0_stop_arm_bars : 1
   );
-  set("t0_stop_on_close", t0.t0_stop_on_close !== false);
   _restoreT0Lookback(root);
 }
 
@@ -557,7 +555,7 @@ export function collectExecutionForm(root) {
     t0_stop_pct_buy_then_sell: Math.max(0, Math.min(num("t0_stop_pct_buy_then_sell", 1.2), 20)),
     t0_stop_pct_sell_then_buy: Math.max(0, Math.min(num("t0_stop_pct_sell_then_buy", 1.2), 20)),
     t0_stop_arm_bars: Math.max(0, Math.min(Math.round(num("t0_stop_arm_bars", 1)), 48)),
-    t0_stop_on_close: chk("t0_stop_on_close", true),
+    t0_stop_on_close: true,
   };
   t0.y_tau_leg1_prior = t0.y_tau_leg1_prior_mode !== "off";
   // 振幅下限已从表单与门禁下线（不再写入 / 强制 0.2）
@@ -785,12 +783,51 @@ export function resolveT0BacktestScope(root, evt = {}) {
 }
 
 /**
+ * 做T回测本金 / 每票股数（表单专用，不写入 execution 规则）。
+ * @param {HTMLElement|null} root
+ */
+export function readT0BtSizing(root) {
+  const panel = t0PanelRoot(root);
+  const num = (name, fallback) => {
+    const el = panel && panel.querySelector(`[name="${name}"]`);
+    if (!el || el.value === "") return fallback;
+    const n = Number(el.value);
+    return Number.isFinite(n) ? n : fallback;
+  };
+  let shares = Math.round(num("t0_bt_shares", 1000) / 100) * 100;
+  shares = Math.max(100, Math.min(shares, 100000));
+  let cash = num("t0_bt_cash", 200000);
+  cash = Math.max(10000, Math.min(cash, 1e8));
+  return { shares, cash };
+}
+
+/**
+ * 用上次回测结果回填本金 / 股数（有值才写，避免冲掉表单默认）。
+ * @param {HTMLElement|null} root
+ * @param {object} data
+ */
+export function fillT0BtSizing(root, data) {
+  const panel = t0PanelRoot(root);
+  if (!panel || !data) return;
+  const set = (name, val) => {
+    const el = panel.querySelector(`[name="${name}"]`);
+    if (!el || val == null || !Number.isFinite(Number(val))) return;
+    el.value = String(val);
+  };
+  const shares = data.virtual_shares ?? data.request?.initial_shares;
+  const cash = data.virtual_cash ?? data.request?.initial_cash;
+  if (shares != null) set("t0_bt_shares", shares);
+  if (cash != null) set("t0_bt_cash", cash);
+}
+
+/**
  * 做T回测请求体：直接读表单当前值（不必先点保存）。
  * @param {{ useMinute?: boolean, onlySelected?: boolean, selectedCode?: string }} opts
  */
 export function collectT0BacktestBody(root, opts = {}) {
   const patch = collectExecutionForm(root) || { t0: {} };
   const t0 = patch.t0 || {};
+  const sizing = readT0BtSizing(root);
   let lookback = persistT0Lookback(root) ?? 10;
   // 全持仓：回看自动封顶，否则 10 日×20+ 票易超前端超时
   if (!opts.onlySelected) {
@@ -923,7 +960,9 @@ export function collectT0BacktestBody(root, opts = {}) {
     t0_stop_pct_sell_then_buy:
       t0.t0_stop_pct_sell_then_buy != null ? t0.t0_stop_pct_sell_then_buy : 1.2,
     t0_stop_arm_bars: t0.t0_stop_arm_bars != null ? t0.t0_stop_arm_bars : 1,
-    t0_stop_on_close: t0.t0_stop_on_close !== false,
+    t0_stop_on_close: true,
+    initial_shares: sizing.shares,
+    initial_cash: sizing.cash,
   };
   if (t0.min_range_pct_sell_then_buy != null) body.min_range_pct_sell_then_buy = t0.min_range_pct_sell_then_buy;
   if (t0.min_range_pct_buy_then_sell != null) body.min_range_pct_buy_then_sell = t0.min_range_pct_buy_then_sell;

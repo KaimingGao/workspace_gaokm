@@ -253,7 +253,7 @@
   >
     <header class="dashboard-section-head quant-section-head replay-section-head replay-run-head">
       <h3 id="replay-section-t0-title" class="dashboard-section-title">做 T 回测</h3>
-      <p class="quant-fingerprint replay-pool-meta">持仓 5m 第一触达 · 研究模型 · 不写账本</p>
+      <p class="quant-fingerprint replay-pool-meta">每票 1000 股 · 本金 20 万 · 5m 第一触达 · 不写账本</p>
       <p id="paper-t0-progress" class="quant-fingerprint paper-progress-status replay-run-progress" hidden aria-live="polite">
         <span id="paper-t0-progress-text">回测中…</span>
       </p>
@@ -306,6 +306,20 @@
                   <input type="hidden" name="direction" value="dual_y" />
                   <input type="hidden" name="path_mode" value="first_touch" />
                   <input type="hidden" name="t0_vs_stance" value="independent" />
+                  <label
+                    class="paper-t0-field"
+                    title="做 T 回测账户本金（元）。默认 20 万。累计收益比例的分母。保存规则不改此项。"
+                  >
+                    <span>本金</span>
+                    <input type="number" name="t0_bt_cash" min="10000" max="100000000" step="10000" value="200000" />
+                  </label>
+                  <label
+                    class="paper-t0-field"
+                    title="每票虚拟底仓股数；默认 1000。保存规则不改此项。"
+                  >
+                    <span>股数/票</span>
+                    <input type="number" name="t0_bt_shares" min="100" max="100000" step="100" value="1000" />
+                  </label>
                   <label
                     class="paper-t0-field"
                     title="v6：超额带宽 ĉ±δ，δ=开盘×此%/100；收价破上带反T、破下带正T；默认 3"
@@ -395,17 +409,10 @@
                   </label>
                   <label
                     class="paper-t0-field"
-                    title="正/反T止损共用：入场后跳过 N 根 5m 再启用（默认 1≈5 分钟）"
+                    title="正/反T止损共用：入场后跳过 N 根 5m 再启用（默认 1≈5 分钟）。止损固定收盘破线确认。"
                   >
                     <span>止损延迟根</span>
                     <input type="number" name="t0_stop_arm_bars" min="0" max="48" step="1" value="1" />
-                  </label>
-                  <label
-                    class="paper-t0-field"
-                    title="正/反T止损共用：开=收盘破线才触发；关=影线刺破即触发（更易被扫）"
-                  >
-                    <span>止损收盘确认</span>
-                    <input type="checkbox" name="t0_stop_on_close" checked />
                   </label>
                   </div>
                 </fieldset>

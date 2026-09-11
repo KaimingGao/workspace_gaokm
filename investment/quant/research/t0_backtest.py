@@ -14,10 +14,10 @@ from core.t0.config import T0_TRADE_DAYS_SAMPLE_UI_LIMIT
 
 logger = logging.getLogger(__name__)
 
-# 持仓做T回测：只用纸面股票池，仓位/现金用虚拟假设（放宽实盘约束）
+# 持仓做T回测：只用纸面股票池；仓位/本金用虚拟假设（与调仓回测默认本金对齐）
 T0_BT_DEFAULT_LOOKBACK = 10
-T0_BT_VIRTUAL_SHARES = 10_000.0
-T0_BT_VIRTUAL_CASH = 5_000_000.0
+T0_BT_VIRTUAL_SHARES = 1_000.0
+T0_BT_VIRTUAL_CASH = 200_000.0
 
 def _fill_t0_viz_stock_names(viz: Any, *, stock_code: str, stock_name: Optional[str]) -> None:
     """点位/贡献行补股票名，避免累计 PnL / 散点 tip 只剩代码。"""
@@ -650,8 +650,8 @@ def run_t0_backtest_for_holdings(
 ) -> Dict[str, Any]:
     """对持仓列表逐票回测并汇总（研究用，不改账本）。
 
-    股票池取自纸面持仓；仓位/现金默认虚拟假设（每票 ``virtual_shares``、
-    研究现金 ``virtual_cash``），放宽小仓/现金不足对正T低吸的约束，主看累计收益比例。
+    股票池取自纸面持仓；仓位/本金默认虚拟假设（每票 ``virtual_shares``、
+    账户本金 ``virtual_cash``，默认 1000 股 / 20 万）。累计收益比例 = 含敞口净 PnL / 本金。
     """
     if not holdings:
         return {
@@ -924,14 +924,14 @@ def run_t0_backtest_for_holdings(
         "rules": _rules_summary(cfg),
         "scope_label": (
             f"纸面股票池 {len(ok)}/{len(holdings)} 只 · 虚拟每票{int(v_shares)}股"
-            f" · 现金{int(v_cash / 10000)}万"
+            f" · 本金{int(v_cash / 10000)}万"
         ),
         "note": (
-            "按纸面股票池回测；仓位/现金为虚拟假设"
-            f"（每票 {int(v_shares)} 股 · 研究现金 {int(v_cash):,}）；"
+            "按纸面股票池回测；仓位/本金为虚拟假设"
+            f"（每票 {int(v_shares)} 股 · 本金 {int(v_cash):,}）；"
             "仅 5m 第一触达（有分钟缓存时日线自动对齐覆盖窗口）；"
             f"direction={cfg.get('direction')} · path=first_touch；非实盘。"
-            "主看累计收益比例（含敞口净PnL / 虚拟底仓市值）。"
+            "主看累计收益比例（含敞口净PnL / 本金）。"
         ),
     }
     failed = [x for x in per if not x.get("success")]
@@ -956,15 +956,20 @@ def run_t0_backtest_for_holdings(
         "note": "含T轨相对「不做T」：贡献≈做T含敞口净PnL合计",
     }
     out.update(derive_t0_quality_metrics(out))
-    # 累计收益比例：含敞口净 PnL / 虚拟底仓市值
+    # 累计收益比例：含敞口净 PnL / 本金（账户级，不按票相乘）
     net = float(out.get("t0_pnl_with_exposure") or contrib)
-    if total_hold_mv > 1e-9:
+    if v_cash > 1e-9:
+        out["cumulative_return_pct"] = round(net / v_cash * 100.0, 4)
+    elif total_hold_mv > 1e-9:
         out["cumulative_return_pct"] = round(net / total_hold_mv * 100.0, 4)
-        out["pnl_vs_hold_mv_pct"] = out["cumulative_return_pct"]
     else:
         out["cumulative_return_pct"] = None
-    # 相对「底仓+研究现金」的备选口径（每票独立现金，合计 = n * cash）
-    capital = total_hold_mv + v_cash * max(len(ok), 1)
+    if total_hold_mv > 1e-9:
+        out["pnl_vs_hold_mv_pct"] = round(net / total_hold_mv * 100.0, 4)
+    else:
+        out["pnl_vs_hold_mv_pct"] = out.get("cumulative_return_pct")
+    # 相对「底仓+本金」的备选口径（本金账户级）
+    capital = total_hold_mv + v_cash
     if capital > 1e-9:
         out["cumulative_return_vs_capital_pct"] = round(net / capital * 100.0, 4)
     else:
@@ -995,12 +1000,15 @@ def run_t0_backtest_for_holdings(
         )
         out.update(derive_t0_quality_metrics(out))
         out["viz"] = ok[0].get("viz") or out.get("viz")
-        # 单票合并后重算累计收益比例（虚拟底仓）
+        # 单票合并后重算累计收益比例（本金）
         net1 = float(out.get("t0_pnl_with_exposure") or out.get("t0_pnl_total") or 0)
         hmv1 = float(out.get("hold_mv_start") or 0)
-        if hmv1 > 1e-9:
+        if v_cash > 1e-9:
+            out["cumulative_return_pct"] = round(net1 / v_cash * 100.0, 4)
+        elif hmv1 > 1e-9:
             out["cumulative_return_pct"] = round(net1 / hmv1 * 100.0, 4)
-            out["pnl_vs_hold_mv_pct"] = out["cumulative_return_pct"]
+        if hmv1 > 1e-9:
+            out["pnl_vs_hold_mv_pct"] = round(net1 / hmv1 * 100.0, 4)
         cap1 = hmv1 + v_cash
         out["cumulative_return_vs_capital_pct"] = (
             round(net1 / cap1 * 100.0, 4) if cap1 > 1e-9 else None

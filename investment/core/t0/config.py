@@ -777,7 +777,7 @@ def load_t0_rules(override: Optional[dict] = None) -> Dict[str, Any]:
     except (TypeError, ValueError):
         arm_bars = 1
     cfg["t0_stop_arm_bars"] = max(0, min(arm_bars, 48))
-    cfg["t0_stop_on_close"] = coerce_cfg_bool(cfg.get("t0_stop_on_close"), True)
+    cfg["t0_stop_on_close"] = True
     from core.t0.score_policy import normalize_y_tau_map
 
     cfg["y_tau_map"] = normalize_y_tau_map(cfg.get("y_tau_map"))

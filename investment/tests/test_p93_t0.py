@@ -4261,6 +4261,8 @@ class TestT0HoldingsVirtualSizing(unittest.TestCase):
                 [{"stock_code": "600519", "stock_name": "茅台", "shares": 200, "cost": 34}],
                 lookback=20,
             )
+        self.assertEqual(m.T0_BT_VIRTUAL_SHARES, 1_000.0)
+        self.assertEqual(m.T0_BT_VIRTUAL_CASH, 200_000.0)
         kwargs = mocked.call_args.kwargs
         self.assertEqual(kwargs["initial_shares"], m.T0_BT_VIRTUAL_SHARES)
         self.assertEqual(kwargs["initial_cash"], m.T0_BT_VIRTUAL_CASH)
@@ -4269,8 +4271,53 @@ class TestT0HoldingsVirtualSizing(unittest.TestCase):
         self.assertTrue(kwargs.get("skip_quote"))
         self.assertEqual(kwargs.get("compare_no_t0"), False)
         self.assertEqual(kwargs.get("stock_name"), "茅台")
-        self.assertAlmostEqual(float(out["cumulative_return_pct"]), 0.1)
+        self.assertAlmostEqual(float(out["cumulative_return_pct"]), 0.5)
         self.assertIn("虚拟每票", out.get("scope_label") or "")
+        self.assertIn("本金", out.get("scope_label") or "")
+
+    def test_holdings_passes_custom_virtual_sizing(self):
+        from unittest.mock import patch
+
+        from quant.research import t0_backtest as m
+
+        fake = {
+            "success": True,
+            "stock_code": "600519",
+            "t0_pnl_total": 200.0,
+            "exposure_pnl_total": 0.0,
+            "t0_trade_days": 1,
+            "t0_cover_days": 1,
+            "skip_days": 0,
+            "signal_skip_days": 0,
+            "sell_then_buy_days": 1,
+            "buy_then_sell_days": 0,
+            "sell_then_buy_pnl": 200.0,
+            "buy_then_sell_pnl": 0.0,
+            "sell_then_buy_cover_days": 1,
+            "buy_then_sell_cover_days": 0,
+            "uncover_days": 0,
+            "minute_path_days": 1,
+            "missing_minute_days": 0,
+            "hold_mv_start": 50_000.0,
+            "t0_win_days": 1,
+            "t0_loss_days": 0,
+            "trade_days_sample": [],
+            "days": [],
+            "viz": None,
+        }
+        with patch.object(m, "run_t0_backtest_for_code", return_value=dict(fake)) as mocked:
+            out = m.run_t0_backtest_for_holdings(
+                [{"stock_code": "600519", "stock_name": "茅台"}],
+                lookback=10,
+                virtual_shares=2000,
+                virtual_cash=300_000,
+            )
+        kwargs = mocked.call_args.kwargs
+        self.assertEqual(kwargs["initial_shares"], 2000)
+        self.assertEqual(kwargs["initial_cash"], 300_000)
+        self.assertAlmostEqual(float(out["cumulative_return_pct"]), round(200.0 / 300_000 * 100.0, 4))
+        self.assertEqual(out["virtual_shares"], 2000)
+        self.assertEqual(out["virtual_cash"], 300_000)
 
     def test_holdings_deadline_starts_before_tau_pool(self):
         import inspect

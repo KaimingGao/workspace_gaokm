@@ -6,8 +6,8 @@ import { portfolioBtScoreFloorPayload as buildBtScoreFloorPayload, mergeScoringF
 import { truncateStockName, watchingNameSpanHtml } from "./names.js";
 import { ensureFitTierMap } from "./fit_tier_ui.js";
 import { downloadBlob } from "../shared.js";
-import { collectPathMatrixForm, collectExecutionForm } from "../paper/execution_ui.js?v=p2202";
-import { initExecutionRuleForms } from "../paper/execution_forms.js?v=p2202";
+import { collectPathMatrixForm, collectExecutionForm, readT0BtSizing, fillT0BtSizing } from "../paper/execution_ui.js?v=p2274";
+import { initExecutionRuleForms } from "../paper/execution_forms.js?v=p2274";
 
 const _V =
   (typeof window !== "undefined" && window.__ASSET_V__) || "dev";
@@ -1458,6 +1458,7 @@ export function installBacktest(q) {
   function paintReplayT0(data) {
     renderPaperT0(replayT0PaintEls(), data);
     applyReplayT0Kpis(data);
+    fillT0BtSizing(document.getElementById("paper-t0-form"), data);
   }
 
   function renderT0BacktestResult(data) {
@@ -1720,12 +1721,16 @@ export function installBacktest(q) {
     const t0Form = document.getElementById("paper-t0-form");
     const pack = t0Form ? collectExecutionForm(t0Form) : null;
     const t0 = (pack && pack.t0) || {};
+    const sizing = readT0BtSizing(t0Form);
     return {
       from_paper: true,
       lookback,
       use_minute: true,
       compare_daily: false,
       ...t0,
+      t0_stop_on_close: true,
+      initial_shares: sizing.shares,
+      initial_cash: sizing.cash,
     };
   }
 

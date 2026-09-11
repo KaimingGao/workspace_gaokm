@@ -2,7 +2,7 @@
 
 import { yTauMapScoreTip } from "./execution_ui.js";
 import { renderT0Viz, wireT0SkipTips } from "./t0_viz.js?v=p2261";
-import { buildT0ReportHtml, fmtT0DirDays } from "./t0_report.js?v=p1906";
+import { buildT0ReportHtml, fmtT0DirDays } from "./t0_report.js?v=p2270";
 import {
   buildT0TradeTableHtml,
   pickDetailDays,
@@ -225,8 +225,10 @@ function previewResultsToTradeDays(results) {
 export function renderPaperT0Preview(els, data) {
   const { previewEl, confirmEl } = els || {};
   if (!previewEl) return;
-  // 保证预演结果始终紧挨「手动预演」按钮行下方
-  const actions = document.querySelector(".paper-t0-manual-actions");
+  // 只跟做 T 的「手动预演」行（#paper-t0-run）。两边都叫 .paper-t0-manual-actions，
+  // document.querySelector 会命中策略调仓那一块，把预演结果挪到调仓卡下。
+  const t0Run = document.getElementById("paper-t0-run");
+  const actions = t0Run && t0Run.closest(".paper-t0-manual-actions");
   if (actions && previewEl.previousElementSibling !== actions) {
     actions.insertAdjacentElement("afterend", previewEl);
   }

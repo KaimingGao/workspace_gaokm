@@ -52,6 +52,12 @@ class TestT0V6WebWire(unittest.TestCase):
         self.assertNotIn("t0_slots_roll_unused", d)
         self.assertAlmostEqual(d.get("t0_close_band_delta_pct", 3.0), 3.0)
         self.assertEqual(d["t0_slots_max_rounds"], 5)
+        self.assertTrue(load_t0_rules({"t0_stop_on_close": False})["t0_stop_on_close"])
+
+    def test_backtest_schema_defaults_cash_and_shares(self):
+        req = T0BacktestRequest()
+        self.assertEqual(req.initial_shares, 1000)
+        self.assertEqual(req.initial_cash, 200_000)
 
     def test_patch_accepts_close_band_thresholds(self):
         ok, norm, errs = validate_execution_patch(

@@ -245,7 +245,7 @@ bound = ref × (1 + move_pct / 100)
 | 反 T | 涨破 `卖价 × (1 + stop_pct%)` | `t0_stop_pct_sell_then_buy`（默认 1.2%） |
 
 - 延迟 `t0_stop_arm_bars`（默认 1 根）后生效
-- 默认 `t0_stop_on_close=True`（收盘确认），关则触价即止损
+- 止损固定收盘破线确认（`t0_stop_on_close=True`，表单不再提供开关）
 - 止损 leg2 不受 τ 出场价闸约束
 
 ### 6.5 收盘强平 / 敞口
@@ -315,6 +315,14 @@ bound = ref × (1 + move_pct / 100)
 
 `simulate_t0_day` 中 `high ≈ low` 的票不做 T。
 
+### 9.5 虚拟仓与本金
+
+`/replay` 做 T 回测只用纸面股票名单；仓位/本金走表单「共用」：
+
+- **股数/票** 默认 1000（`initial_shares`）
+- **本金** 默认 20 万（`initial_cash`），也是累计收益比例的分母
+- 不写账本；保存规则不改这两项
+
 ---
 
 ## 10. 纸面与实盘执行
@@ -361,6 +369,7 @@ bound = ref × (1 + move_pct / 100)
 | `t0_pm_degrade` | 13:00 | 午后禁新开 leg1 |
 | `t0_stop_pct_*` | 1.2 | 止损百分比 |
 | `t0_stop_arm_bars` | 1 | 止损延迟根数 |
+| `t0_stop_on_close` | True | 止损固定收盘破线确认（表单无开关） |
 | `y_enter_enabled` | True | 门槛1 启用（关则本档不参与 OR） |
 | `y_enter_alt_enabled` | True | 门槛2 启用（关则本档不参与 OR） |
 | `r_tau_enter` | 0 | 门槛1 \|R̂_τ\| 入场下限（%；0=关） |

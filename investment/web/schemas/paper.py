@@ -62,6 +62,12 @@ class T0BacktestRequest(BaseModel):
     from_paper: bool = True
     lookback: int = Field(default=10, ge=10, le=500)
     initial_shares: float = Field(default=1000, ge=100, le=100000)
+    initial_cash: float = Field(
+        default=200_000,
+        ge=10_000,
+        le=1e8,
+        description="做 T 回测本金（元）；累计收益比例分母",
+    )
     t0_ratio: float = Field(default=1.0, ge=0.05, le=1.0)
     must_cover_same_day: bool = True
     must_cover_same_day_sell_then_buy: Optional[bool] = Field(default=None)
@@ -420,8 +426,8 @@ class T0BacktestRequest(BaseModel):
         description="正/反T止损：入场后跳过 N 根 5m 再启用",
     )
     t0_stop_on_close: Optional[bool] = Field(
-        default=None,
-        description="正/反T止损：true=收盘破线才触发",
+        default=True,
+        description="正/反T止损固定收盘破线确认；表单已去掉，入参忽略",
     )
 
 

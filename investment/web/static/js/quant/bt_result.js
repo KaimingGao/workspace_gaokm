@@ -216,7 +216,7 @@ export function buildReplayT0Kpis(data) {
   return {
     return: {
       value: _kpiPct(ret),
-      sub: retN == null ? "累计收益" : "累计收益比例",
+      sub: retN == null ? "累计收益" : "相对本金",
       empty: retN == null,
       cls: metricClass(retN),
     },

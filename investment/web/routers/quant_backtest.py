@@ -121,11 +121,11 @@ def quant_t0_backtest(body: T0BacktestRequest) -> Dict[str, Any]:
             "t0_stop_pct_buy_then_sell",
             "t0_stop_pct_sell_then_buy",
             "t0_stop_arm_bars",
-            "t0_stop_on_close",
         ):
             val = getattr(body, yk, None)
             if val is not None:
                 rules[yk] = val
+        rules["t0_stop_on_close"] = True
 
         code = (body.code or "").strip()
         from_paper = bool(body.from_paper)
@@ -138,6 +138,7 @@ def quant_t0_backtest(body: T0BacktestRequest) -> Dict[str, Any]:
             code,
             lookback=body.lookback,
             initial_shares=body.initial_shares,
+            initial_cash=body.initial_cash,
             rules=rules,
             from_paper=from_paper,
             codes=body.codes,
