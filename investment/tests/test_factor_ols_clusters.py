@@ -660,6 +660,53 @@ class TestFactorOlsClusters(unittest.TestCase):
         self.assertEqual(hold_fail.get("reason"), "refit_failed")
         self.assertIsNone(hold_fail.get("ic"))
 
+    def test_cluster_yhat_accuracy_mse_and_open_hit(self):
+        from quant.research.partition_loss import (
+            _metrics_from_pred_act,
+            cluster_yhat_accuracy,
+        )
+
+        hit = _metrics_from_pred_act(
+            [1.0, 1.2, -1.0, -0.8, 1.1, -1.3],
+            [0.8, 0.9, -0.7, -1.0, 1.0, -0.9],
+            holdout_ratio=0.3,
+            n_full=6,
+        )
+        self.assertTrue(hit["ok"])
+        self.assertEqual(hit["sign_hit"], 1.0)
+        self.assertGreater(float(hit["mse"]), 0.0)
+        skip = _metrics_from_pred_act(
+            [0.01] * 6,
+            [1.0] * 6,
+            holdout_ratio=0.3,
+            n_full=6,
+        )
+        self.assertIsNone(skip["sign_hit"])
+        self.assertEqual(skip["n_signed"], 0)
+
+        dates = [f"2026-01-{i:02d}" for i in range(1, 13)]
+        xs = [{"momentum": float(i)} for i in range(12)]
+        ys = [float(i) for i in range(12)]
+        rm = {
+            "intercept": 0.0,
+            "coefficients": {"momentum": 1.0},
+            "standardized": False,
+            "z_means": {},
+            "z_stds": {},
+        }
+        acc = cluster_yhat_accuracy(
+            rm,
+            xs,
+            ys,
+            dates,
+            train_days=dates[:6],
+            live_model=rm,
+        )
+        self.assertEqual(acc.get("source"), "holdout")
+        self.assertIsNotNone(acc.get("mse"))
+        self.assertEqual(acc.get("open_hit_rate"), acc.get("sign_hit"))
+        self.assertEqual(acc.get("sign_hit"), 1.0)
+
     def test_score_partition_skip_oos_gate_reports_progress(self):
         """满池选区：跳过组权 OOS 辅门禁，但仍打 holdout，并回组进度。"""
         from unittest.mock import patch
@@ -1091,7 +1138,7 @@ class TestFactorOlsClusters(unittest.TestCase):
         self.assertIn("同组共用一套因子系数", html)
         self.assertIn("quant-global-fold", html)
         self.assertIn("quant-section-factors-title", html)
-        self.assertIn(">ŷ_EOD</", html)
+        self.assertIn(">ŷ_oo</", html)
         self.assertIn("quant-section-global-title", html)
         self.assertIn(">对照</", html)
         self.assertIn("quant-section-probe-title", html)

@@ -7,10 +7,10 @@
              定向锚优先 y_tau_oc（映射前）；剩余映射分仅供融合/对照，不定向
   y_on     — 尾盘是否强制回补
   y_nowcast— 对照 nc；|nc|≥enter；|nc|>strong 须与 y_τ 同号（OC 开比 y_nc_oc）
-  y_path   — 分钟极值时间序 signed range%；与 y_τ 联合准入（同号+双 enter，可分正反）
+  y_hl     — 分钟极值时间序 signed range%（旧键 y_path）；与 y_τ 联合准入（同号+双 enter，可分正反）
 
 选向分数：开盘可预计算开盘 Z；**确认根（前 N 根齐窗）用前缀分钟因果重算**
-ŷ_τ / ŷ_path 后再 dual_y 定方向。禁止用全日/未发生分钟做开盘选向。
+ŷ_τ / ŷ_hl 后再 dual_y 定方向。禁止用全日/未发生分钟做开盘选向。
 """
 
 from __future__ import annotations
@@ -38,8 +38,8 @@ DEFAULT_RATIO_TAU_SOFT_BAND = 0.20  # 写死：|ŷ_τ| 刚过入场线时压目�
 DEFAULT_TAU_NOWCAST_SIGN_EPS = 0.05  # 写死：τ↔nowcast 异号闸死区
 DEFAULT_NC_ENTER = 0.01
 DEFAULT_NC_STRONG = 0.2
-DEFAULT_PATH_ENTER = 0.0  # ŷ_path 极值序 %；|ŷ|≤enter 横盘跳过；与 y_tau_enter 同尺度
-DEFAULT_PATH_STRONG = 5.0  # |y_path|>此值时须与 y_τ 同号；≤则允许异号
+DEFAULT_PATH_ENTER = 0.0  # ŷ_hl 极值序 %；|ŷ|≤enter 横盘跳过；与 y_tau_enter 同尺度
+DEFAULT_PATH_STRONG = 5.0  # |y_hl|>此值时须与 y_τ 同号；≤则允许异号
 DEFAULT_GAP_TIER_PCT = 1.0
 
 # dual_y 下 y_τ 符号 → 正/反 T（映射见 minute_path）
@@ -133,6 +133,8 @@ def _slim_formula_terms(
     }
     if expl.get("head") is not None:
         out["head"] = expl.get("head")
+    if expl.get("model_role") is not None:
+        out["model_role"] = expl.get("model_role")
     for meta_k in (
         "y_eod",
         "y_tau",
@@ -297,6 +299,30 @@ def tip_fields_from_item(item: Optional[dict]) -> Dict[str, Any]:
         out["formula_terms_path"] = path_terms
         out["score_formula_terms_path"] = path_terms
 
+    r_terms = _slim_formula_terms(
+        item.get("formula_terms_r") or item.get("score_formula_terms_r"),
+        limit=12,
+    )
+    if not r_terms or not (r_terms.get("terms") or r_terms.get("total") is not None):
+        try:
+            from core.research.r_ridge import explain_r_prediction, load_r_model
+
+            feats_r = item.get("features_tau") if isinstance(item.get("features_tau"), dict) else {}
+            if not feats_r:
+                feats_r = (
+                    item.get("features_path")
+                    if isinstance(item.get("features_path"), dict)
+                    else {}
+                )
+            expl_r = explain_r_prediction(feats_r, model_doc=load_r_model())
+            r_terms = _slim_formula_terms(expl_r, limit=12)
+        except Exception:  # noqa: BLE001
+            logger.debug("r tip explain fallback failed", exc_info=True)
+            r_terms = None
+    if r_terms and (r_terms.get("terms") or r_terms.get("total") is not None):
+        out["formula_terms_r"] = r_terms
+        out["score_formula_terms_r"] = r_terms
+
     try:
         from core.research.path_ridge import path_tip_model_snapshot
 
@@ -379,6 +405,10 @@ def tip_fields_from_item(item: Optional[dict]) -> Dict[str, Any]:
         "cluster_label",
         "weight_source",
         "y_spec_tau",
+        "y_spec_τc",
+        "y_spec_r",
+        "y_τc_ridge",
+        "y_τc_source",
         "nowcast_K",
         "nowcast_vs",
         "nowcast_as_of",
@@ -403,6 +433,14 @@ def pack_day_scores(score_snap: Optional[dict]) -> Optional[Dict[str, Any]]:
         "y_tau",
         "y_tau_oc",
         "y_trade",
+        "residual",
+        "r_hat",
+        "y_oo",
+        "y_oc",
+        "y_τc",
+        "y_τc_ridge",
+        "y_τc_source",
+        "ranking",
         "y_on",
         "y_on_path",
         "y_nowcast",
@@ -649,9 +687,9 @@ def scores_from_item(item: Optional[dict]) -> Dict[str, Optional[float]]:
     if y_nowcast is None:
         y_nowcast = _f(item.get("predicted_score_nowcast"))
 
-    y_path = _f(item.get("y_path"))
-    if y_path is None:
-        y_path = _f(item.get("predicted_score_path"))
+    from core.research.path_panel import pick_y_hl, write_y_hl
+
+    y_path = pick_y_hl(item)
 
     y_complexity_hat = None
     try:
@@ -686,9 +724,26 @@ def scores_from_item(item: Optional[dict]) -> Dict[str, Optional[float]]:
         "y_on": y_on,
         "y_nowcast": y_nowcast,
         "y_path": y_path,
+        "y_hl": y_path,
         "y_check": y_check,
         "eod_trust": eod_trust,
     }
+    if y_path is not None:
+        try:
+            write_y_hl(out, y_path)
+        except Exception:  # noqa: BLE001
+            out["y_hl"] = y_path
+            out["predicted_score_hl"] = y_path
+            out["predicted_score_path"] = y_path
+    try:
+        from core.signal.yhat_windows import stamp_window_scores
+
+        _win = stamp_window_scores(item)
+        for k in ("y_oo", "y_oc", "y_τc", "y_co", "ranking", "residual", "r_hat"):
+            if _win.get(k) is not None:
+                out[k] = _win[k]
+    except Exception:  # noqa: BLE001
+        logger.debug("stamp_window_scores failed", exc_info=True)
     if y_complexity_hat is not None:
         try:
             from core.research.cx_panel import write_y_complexity_hat
@@ -728,7 +783,15 @@ def scores_from_item(item: Optional[dict]) -> Dict[str, Optional[float]]:
 
         y_r_hat = pick_y_r_hat(item)
         if y_r_hat is not None:
-            write_y_r_hat(out, y_r_hat)
+            src_τc = item.get("y_τc")
+            if src_τc is None:
+                src_τc = item.get("predicted_score_τc")
+            if src_τc is None:
+                write_y_r_hat(out, y_r_hat, model_doc=item)
+            else:
+                out["predicted_score_r"] = float(y_r_hat)
+                out["y_r_hat"] = float(y_r_hat)
+                out["y_r"] = float(y_r_hat)
         y_r_lab = pick_y_r_label(item)
         if y_r_lab is not None:
             write_y_r_label(out, y_r_lab)
@@ -756,11 +819,14 @@ def scores_from_item(item: Optional[dict]) -> Dict[str, Optional[float]]:
         gap = _f(item["features_tau"].get("gap_pct"))
     if gap is not None:
         out["gap_pct"] = gap
-    status = item.get("y_path_status")
+    from core.research.path_panel import pick_y_hl_error, pick_y_hl_status, write_y_hl_error, write_y_hl_status
+
+    status = pick_y_hl_status(item)
     if status:
-        out["y_path_status"] = str(status)
-    if item.get("y_path_error"):
-        out["y_path_error"] = str(item.get("y_path_error"))
+        write_y_hl_status(out, status)
+    err = pick_y_hl_error(item)
+    if err:
+        write_y_hl_error(out, err)
     for k in (
         "nowcast_K",
         "nowcast_vs",
@@ -777,6 +843,16 @@ def scores_from_item(item: Optional[dict]) -> Dict[str, Optional[float]]:
         if v is not None and v != "" and v != {}:
             out[k] = v
     out.update(tip_fields_from_item(item))
+    try:
+        from core.signal.yhat_windows import Y_TC_SOURCE_REMAINING, stamp_remaining_y_τc
+
+        stamp_remaining_y_τc(out)
+        if out.get("y_τc_source") == Y_TC_SOURCE_REMAINING and out.get("y_τc") is not None:
+            rem_v = float(out["y_τc"])
+            out["residual"] = rem_v
+            out["r_hat"] = rem_v
+    except Exception:  # noqa: BLE001
+        logger.debug("stamp remaining y_τc in scores_from_item failed", exc_info=True)
     nc_cc = _nowcast_cc_pct(out)
     if nc_cc is not None:
         out["y_nc"] = nc_cc
@@ -791,19 +867,22 @@ def scores_from_item(item: Optional[dict]) -> Dict[str, Optional[float]]:
 
 
 def _y_path_missing_reason(scores: dict) -> str:
-    status = str(scores.get("y_path_status") or "")
+    from core.research.path_panel import pick_y_hl_error, pick_y_hl_status
+
+    status = pick_y_hl_status(scores)
+    err = pick_y_hl_error(scores)
     detail = {
-        "no_model": "path_ridge 模型未 promote（/quant → ŷ_path 拟合/启用）",
-        "feature_missing": "path 开盘特征不足",
+        "no_model": "path_ridge 模型未 promote（/quant → ŷ_hl 拟合/启用）",
+        "feature_missing": "HL 开盘特征不足",
         "minute_feats_missing": "开盘 Z 特征不足（09:30 信息集）",
         "minute_data_missing": "非开盘时刻缺分钟小包（数据缺失）",
-        "open_z": "开盘 Z path（09:30 / 无分钟，对齐研究）",
-        "predict_none": "path 模型无法出分",
-        "error": scores.get("y_path_error") or "path 预测异常",
+        "open_z": "开盘 Z HL（09:30 / 无分钟，对齐研究）",
+        "predict_none": "HL 模型无法出分",
+        "error": err or "HL 预测异常",
     }.get(status)
     if detail:
-        return f"dual_y：缺 y_path（{detail}）"
-    return "dual_y：缺 y_path（path_ridge 未加载或未算分）"
+        return f"dual_y：缺 y_hl（{detail}）"
+    return "dual_y：缺 y_hl（path_ridge 未加载或未算分）"
 
 
 def scores_from_ledger_row(row: Optional[dict]) -> Dict[str, Optional[float]]:
@@ -821,6 +900,10 @@ def scores_from_ledger_row(row: Optional[dict]) -> Dict[str, Optional[float]]:
         "predicted_score_path": row.get("yhat_path")
         if row.get("yhat_path") is not None
         else row.get("predicted_score_path"),
+        "predicted_score_hl": row.get("yhat_hl")
+        if row.get("yhat_hl") is not None
+        else (row.get("predicted_score_hl") if row.get("predicted_score_hl") is not None else row.get("yhat_path")),
+        "y_hl": row.get("y_hl") if row.get("y_hl") is not None else row.get("y_path"),
         "y_check": row.get("y_check"),
         "eod_trust": row.get("eod_trust"),
     }
@@ -944,6 +1027,14 @@ def t0_confidence_scale(scores: dict, cfg: dict) -> float:
     strengths: List[float] = []
 
     y_trade = _f(scores.get("y_trade"))
+    try:
+        from core.signal.yhat_windows import t0_residual_pct
+
+        residual_mag = t0_residual_pct(scores)
+        if residual_mag is not None:
+            y_trade = residual_mag
+    except Exception:  # noqa: BLE001
+        pass
     if y_trade is not None:
         mag = abs(y_trade)
         if mag < floor:
@@ -1034,7 +1125,7 @@ def _tau_path_same_sign(
     *,
     sign_eps: float = 1e-9,
 ) -> bool:
-    """y_τ 与 y_path 同号（均非零）。"""
+    """y_τ 与 y_hl 同号（均非零）。"""
     if y_tau is None or y_path is None:
         return False
     if abs(float(y_tau)) <= sign_eps or abs(float(y_path)) <= sign_eps:
@@ -1051,7 +1142,7 @@ def _tau_path_enter_gate(
     """同号且各自过门槛：正侧 y>enter；负侧 y<-enter。"""
     if not _tau_path_same_sign(y_tau, y_path):
         return False, (
-            f"dual_y：y_τ={y_tau:.3f}% 与 y_path={y_path:.3f}% 异号跳过"
+            f"dual_y：y_τ={y_tau:.3f}% 与 y_hl={y_path:.3f}% 异号跳过"
         )
     te, pe = float(tau_enter), float(path_enter)
     yt, yp = float(y_tau), float(y_path)
@@ -1059,11 +1150,11 @@ def _tau_path_enter_gate(
         if yt <= te:
             return False, f"dual_y：y_τ={yt:.3f}%≤{te}% 未过门槛"
         if yp <= pe:
-            return False, f"dual_y：y_path={yp:.3f}%≤{pe}% 未过门槛"
+            return False, f"dual_y：y_hl={yp:.3f}%≤{pe}% 未过门槛"
         return True, None
     if yt < -te:
         if yp >= -pe:
-            return False, f"dual_y：y_path={yp:.3f}%≥-{pe}% 未过门槛"
+            return False, f"dual_y：y_hl={yp:.3f}%≥-{pe}% 未过门槛"
         return True, None
     return False, f"dual_y：y_τ={yt:.3f}% 未过门槛"
 
@@ -1274,7 +1365,7 @@ def _attach_y_path_to_item(
     hist_bars: Optional[Sequence[dict]] = None,
     allow_open_z: bool = True,
 ) -> None:
-    """即时算分后补 ŷ_path（开盘 Z ± 分钟小包 → path_ridge）。
+    """即时算分后补 ŷ_hl（开盘 Z ± 分钟小包 → path_ridge）。
 
     - ``allow_open_z=True``（默认，日初 / 09:30 信息集）：无分钟小包时用开盘 Z 出分，
       status=``open_z``（对齐研究 09:30）。
@@ -1284,6 +1375,15 @@ def _attach_y_path_to_item(
     """
     if not isinstance(item, dict):
         return
+    from core.research.path_panel import (
+        clear_y_hl,
+        path_features_from_open_row,
+        pick_y_hl,
+        write_y_hl,
+        write_y_hl_error,
+        write_y_hl_status,
+    )
+
     feats_tau = item.get("features_tau") if isinstance(item.get("features_tau"), dict) else {}
     row: Dict[str, Any] = dict(feats_tau)
     if row.get("gap_pct") is None:
@@ -1291,7 +1391,6 @@ def _attach_y_path_to_item(
     hist = [b for b in (hist_bars or []) if isinstance(b, dict)]
     open_z_only = not _minute_pack_present(row)
     try:
-        from core.research.path_panel import path_features_from_open_row
         from core.research.path_ridge import (
             explain_path_prediction,
             load_path_model,
@@ -1300,14 +1399,13 @@ def _attach_y_path_to_item(
 
         model = load_path_model()
         if model is None:
-            if _f(item.get("y_path")) is None:
-                item["y_path_status"] = "no_model"
+            if pick_y_hl(item) is None:
+                write_y_hl_status(item, "no_model")
             return
         if open_z_only and not allow_open_z:
             # 盘中模式且特征仍无小包：不是「没分钟线」，而是特征未带上
-            item["y_path_status"] = "feature_missing"
-            item.pop("y_path", None)
-            item.pop("predicted_score_path", None)
+            write_y_hl_status(item, "feature_missing")
+            clear_y_hl(item)
             return
         prev = hist[-1] if hist else None
         path_feats = path_features_from_open_row(row, hist=hist, prev_bar=prev)
@@ -1329,9 +1427,9 @@ def _attach_y_path_to_item(
         except Exception:  # noqa: BLE001
             logger.debug("attach path lag feats failed", exc_info=True)
         status_ok = "open_z" if open_z_only else "ok"
-        existing = _f(item.get("y_path"))
+        existing = pick_y_hl(item)
         if existing is not None:
-            item["y_path_status"] = status_ok
+            write_y_hl_status(item, status_ok)
             item.pop("_minute_data_missing", None)
             if not isinstance(item.get("features_path"), dict):
                 ft = dict(feats_tau)
@@ -1350,15 +1448,14 @@ def _attach_y_path_to_item(
             return
         if not any(v is not None for v in path_feats.values()):
             if open_z_only:
-                item["y_path_status"] = "minute_feats_missing"
+                write_y_hl_status(item, "minute_feats_missing")
             else:
-                item["y_path_status"] = "feature_missing"
+                write_y_hl_status(item, "feature_missing")
             return
         y_path = predict_path_from_features(path_feats, model_doc=model)
         if y_path is not None:
-            item["y_path"] = y_path
-            item["predicted_score_path"] = y_path
-            item["y_path_status"] = status_ok
+            write_y_hl(item, y_path)
+            write_y_hl_status(item, status_ok)
             item.pop("_minute_data_missing", None)
             ft = dict(feats_tau)
             for k, v in path_feats.items():
@@ -1370,16 +1467,16 @@ def _attach_y_path_to_item(
                 item["formula_terms_path"] = expl
                 item["score_formula_terms_path"] = expl
         else:
-            item["y_path_status"] = "predict_none"
+            write_y_hl_status(item, "predict_none")
     except Exception as exc:  # noqa: BLE001
-        item["y_path_status"] = "error"
-        item["y_path_error"] = str(exc)[:120]
-        logger.debug("attach y_path failed", exc_info=True)
+        write_y_hl_status(item, "error")
+        write_y_hl_error(item, str(exc)[:120])
+        logger.debug("attach y_hl failed", exc_info=True)
     finally:
         try:
             _attach_y_complexity_to_item(item, hist_bars=hist_bars, allow_open_z=allow_open_z)
         except Exception:  # noqa: BLE001
-            logger.debug("attach y_complexity failed", exc_info=True)
+            logger.debug("attach y_cx failed", exc_info=True)
         try:
             _attach_y_r_to_item(item, allow_open_z=allow_open_z)
         except Exception:  # noqa: BLE001
@@ -1403,14 +1500,25 @@ def _attach_y_r_to_item(
     if open_z_only and not allow_open_z:
         return
     try:
-        from core.research.r_ridge import load_r_model, predict_r_from_features, write_y_r_hat
+        from core.research.r_ridge import (
+            explain_r_prediction,
+            load_r_model,
+            predict_r_from_features,
+            write_y_r_hat,
+        )
 
         model = load_r_model()
-        if model is None:
-            return
-        y_r = predict_r_from_features(feats, model_doc=model)
-        if y_r is not None:
-            write_y_r_hat(item, float(y_r))
+        if model is not None:
+            y_r = predict_r_from_features(feats, model_doc=model)
+            if y_r is not None:
+                write_y_r_hat(item, float(y_r), model_doc=model)
+                expl = explain_r_prediction(feats, model_doc=model)
+                if expl:
+                    item["formula_terms_r"] = expl
+                    item["score_formula_terms_r"] = expl
+        from core.signal.yhat_windows import stamp_remaining_y_τc
+
+        stamp_remaining_y_τc(item)
     except Exception:  # noqa: BLE001
         logger.debug("attach y_r predict failed", exc_info=True)
 
@@ -1423,7 +1531,7 @@ def _attach_y_complexity_to_item(
     stock_code: Optional[str] = None,
     asof_date: Optional[str] = None,
 ) -> None:
-    """即时补 ŷ_complexity / ŷ_tpd（同特征、独立 β）；缺模型/缺前缀则不出分（缺分不挡入场闸）。"""
+    """即时补 ŷ_cx / ŷ_tpd（同特征、独立 β）；缺模型/缺前缀则不出分（缺分不挡入场闸）。"""
     if not isinstance(item, dict):
         return
     feats_tau = item.get("features_tau") if isinstance(item.get("features_tau"), dict) else {}
@@ -1506,7 +1614,7 @@ def _attach_y_complexity_to_item(
                 ):
                     fp[k] = path_feats.get(k)
     except Exception:  # noqa: BLE001
-        logger.debug("attach y_complexity/y_tpd predict failed", exc_info=True)
+        logger.debug("attach y_cx/y_tpd predict failed", exc_info=True)
 
 
 def _inject_minute_pack_from_prefix(
@@ -1637,7 +1745,7 @@ def predict_path_from_prefix_minutes(
     day_bar: Optional[dict] = None,
     hist_bars: Optional[Sequence[dict]] = None,
 ) -> Optional[float]:
-    """用开盘 Z + **已到达前缀**分钟小包即时估 ŷ_path（确认根因果，无全日前视）。"""
+    """用开盘 Z + **已到达前缀**分钟小包即时估 ŷ_hl（确认根因果，无全日前视）。"""
     if not isinstance(score_snap, dict):
         return None
     bars = [b for b in (minute_prefix or []) if isinstance(b, dict)]
@@ -1814,12 +1922,13 @@ def rescore_scores_at_fixed_prefix(
     fallback = dict(open_snap or {}) if isinstance(open_snap, dict) else {}
 
     def _missing(reason: str = "minute_data_missing") -> Dict[str, Any]:
+        from core.research.path_panel import clear_y_hl, write_y_hl_status
+
         out = dict(fallback)
-        out["y_path_status"] = reason
+        write_y_hl_status(out, reason)
         out["_minute_data_missing"] = True
         out["_score_source"] = "prefix_minute_missing"
-        out.pop("y_path", None)
-        out.pop("predicted_score_path", None)
+        clear_y_hl(out)
         out.pop("predicted_score_complexity", None)
         out.pop("y_complexity_hat", None)
         out.pop("predicted_score_cx", None)
@@ -1914,7 +2023,7 @@ def attach_portrait_dual_scores(
     tau_hm: str = "10:30",
     prefix_bars: Optional[int] = None,
 ) -> Dict[str, Any]:
-    """日结果补画像用 ŷ_τ_oc / ŷ_path（**前 N 根**因果分钟）。
+    """日结果补画像用 ŷ_τ_oc / ŷ_hl（**前 N 根**因果分钟）。
 
     不再默认截到 10:30；N 取 ``prefix_bars`` / 日结果 / ``T0_LAST_LEG1_PREFIX_BARS``。
     """
@@ -1999,15 +2108,21 @@ def attach_portrait_dual_scores(
     if y_path_p is not None:
         y_path_f = round(float(y_path_p), 4)
         out["y_path_portrait"] = y_path_f
+        out["y_hl_portrait"] = y_path_f
         sc["y_path_portrait"] = y_path_f
+        sc["y_hl_portrait"] = y_path_f
         feats["y_path_portrait"] = y_path_f
-        # 兼容旧画像读 y_path：仅当决策快照缺 path 时回填
-        if _f(out.get("y_path")) is None and _f(sc.get("y_path")) is None:
-            out["y_path"] = y_path_f
-            sc["y_path"] = y_path_f
+        feats["y_hl_portrait"] = y_path_f
+        # 兼容旧画像读 y_path：仅当决策快照缺 HL 时回填
+        from core.research.path_panel import pick_y_hl, write_y_hl, write_y_hl_status
+
+        if pick_y_hl(out) is None and pick_y_hl(sc) is None:
+            write_y_hl(out, y_path_f)
+            write_y_hl(sc, y_path_f)
+            feats["y_hl"] = y_path_f
             feats["y_path"] = y_path_f
-            out["y_path_status"] = "portrait_causal"
-            sc["y_path_status"] = "portrait_causal"
+            write_y_hl_status(out, "portrait_causal")
+            write_y_hl_status(sc, "portrait_causal")
     out["portrait_prefix_bars"] = n_pref
     out["portrait_prefix_hm"] = hm
     sc["portrait_prefix_bars"] = n_pref
@@ -2045,9 +2160,9 @@ def resolve_dual_y_direction(
 
     1. |y_trade|≥y_trade_enter（入场下限）
     2. 有 y_τ（方向锚）
-    3. path 开且可得 ŷ_path：y_τ·y_path 同号且各过**侧向** enter；
+    3. path 开且可得 ŷ_hl：y_τ·y_hl 同号且各过**侧向** enter；
        否则 |y_τ|≥侧向 y_tau_enter（反T / 正T）
-    4. path 必填但缺 ŷ_path → 跳过
+    4. path 必填但缺 ŷ_hl → 跳过
     5. 有 y_trade：|y_trade|>y_trade_strong 须与**定方向** y_τ（OC）同号（fixed_* / eod_next 跳过）
     6. 有 y_eod：|y_eod|≥y_eod_enter；|y_eod|>y_eod_strong 须与定方向 y_τ（OC）同号（fixed_* / eod_next 跳过）
     7. 可选 nc：|nc|≥y_nc_enter；|nc|>y_nc_strong 须与同量纲 τ 同号（异号闸关则跳过整步）
@@ -2122,6 +2237,15 @@ def resolve_dual_y_direction(
     if y_tau_mapped is None:
         y_tau_mapped = _f(scores.get("predicted_score_blend_tau_cc"))
     y_trade = _f(scores.get("y_trade"))
+    residual = None
+    try:
+        from core.signal.yhat_windows import t0_residual_pct
+
+        residual = t0_residual_pct(scores)
+    except Exception:  # noqa: BLE001
+        residual = None
+    mag = residual if residual is not None else y_trade
+    mag_label = "residual" if residual is not None else "y_trade"
     y_nowcast = _f(scores.get("y_nowcast"))
     y_path = _f(scores.get("y_path"))
     y_check = scores.get("y_check")
@@ -2146,6 +2270,7 @@ def resolve_dual_y_direction(
         "y_tau_mapped": y_tau_mapped,
         "dual_score_window": "eod_next" if eod_next else scores.get("dual_score_window"),
         "y_trade": y_trade,
+        "residual": mag,
         "y_on": _f(scores.get("y_on")),
         "y_nowcast": y_nowcast,
         "y_path": y_path,
@@ -2169,23 +2294,23 @@ def resolve_dual_y_direction(
         "y_trade_floor": trade_enter,
     }
 
-    if y_trade is None and y_tau is None and y_eod is None:
+    if mag is None and y_tau is None and y_eod is None:
         return {
             "direction": None,
             "skip": True,
             "direction_score": None,
-            "direction_reason": "dual_y：缺 y_eod/y_τ/y_trade（即时算分失败）",
+            "direction_reason": "dual_y：缺 mag/y_τ（即时算分失败）",
             "features": features,
             "signal_skip": True,
         }
 
-    if y_trade is not None and abs(y_trade) < trade_enter:
+    if mag is not None and abs(mag) < trade_enter:
         return {
             "direction": None,
             "skip": True,
-            "direction_score": y_tau if y_tau is not None else y_trade,
+            "direction_score": y_tau if y_tau is not None else mag,
             "direction_reason": (
-                f"dual_y：|y_trade|={abs(y_trade):.3f}%<{trade_enter}% 未过入场"
+                f"dual_y：|{mag_label}|={abs(mag):.3f}%<{trade_enter}% 未过入场"
             ),
             "features": features,
             "signal_skip": True,
@@ -2280,12 +2405,12 @@ def resolve_dual_y_direction(
         and tau_map not in ("fixed_sell_then_buy", "fixed_buy_then_sell")
         and y_tau is not None
     )
-    if y_trade is not None and allow_strong_sign:
+    if mag is not None and allow_strong_sign:
         trade_ok, trade_reason = _strong_head_tau_sign_gate(
-            y_trade,
+            mag,
             float(y_tau),
             trade_strong,
-            "y_trade",
+            mag_label,
             sign_eps=sign_eps,
             tau_label="y_τ",
         )
@@ -2295,7 +2420,7 @@ def resolve_dual_y_direction(
                 "skip": True,
                 "direction_score": y_tau,
                 "direction_reason": trade_reason
-                or "dual_y：强 y_trade 与 y_τ 异号跳过",
+                or f"dual_y：强 {mag_label} 与 y_τ 异号跳过",
                 "features": features,
                 "signal_skip": True,
             }
@@ -2436,8 +2561,8 @@ def resolve_dual_y_direction(
     path_note = ""
     if use_path and y_path is not None and _tau_path_same_sign(y_tau, y_path):
         path_note = (
-            f"；y_path={y_path:.3f}%同号过闸"
-            f"({side_tag} τ>{side_tau:.3f}%,path>{side_path:.3f}%)"
+            f"；y_hl={y_path:.3f}%同号过闸"
+            f"({side_tag} τ>{side_tau:.3f}%,hl>{side_path:.3f}%)"
         )
 
     return {

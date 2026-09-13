@@ -583,6 +583,88 @@ class TestPaperReplayEngine(unittest.TestCase):
         }
         self.assertFalse(hold_days & fill_days, "持仓腿不应与同日开/加/清重叠")
 
+    def test_sim_converters_copy_y_co(self):
+        from core.backtest.paper_replay import (
+            _hold_to_sim,
+            _ledger_trades_to_sim,
+            _skip_to_sim,
+        )
+
+        rows = _ledger_trades_to_sim(
+            [
+                {
+                    "side": "buy",
+                    "stock_code": "600000",
+                    "as_of": "2026-09-10",
+                    "shares": 200,
+                    "price": 10,
+                    "y_oo": 1.0,
+                    "y_oc": 0.5,
+                    "y_on": 0.2,
+                    "ranking": 1.2,
+                    "ranking_score": 0.012,
+                }
+            ]
+        )
+        self.assertEqual(len(rows), 1)
+        self.assertAlmostEqual(float(rows[0]["y_co"]), 0.2)
+        self.assertAlmostEqual(float(rows[0]["y_on"]), 0.2)
+        self.assertAlmostEqual(float(rows[0]["y_oo"]), 1.0)
+
+        sk = _skip_to_sim(
+            {
+                "stock_code": "600000",
+                "reason": "现金不足",
+                "y_co": 0.3,
+                "y_oo": 1.1,
+                "ranking": 0.8,
+            },
+            "2026-09-10",
+        )
+        self.assertAlmostEqual(float(sk["y_co"]), 0.3)
+        self.assertAlmostEqual(float(sk["y_on"]), 0.3)
+
+        hold = _hold_to_sim(
+            {
+                "stock_code": "600000",
+                "y_oo": 1.0,
+                "y_oc": 0.4,
+                "y_co": 0.25,
+                "ranking": 0.9,
+                "ranking_score": 0.009,
+                "reason": "ranking≥0% 持有",
+            },
+            "2026-09-10",
+            {"stock_code": "600000", "shares": 200, "cost": 10.0},
+            date_maps={"600000": {"2026-09-10": {"open": 10.0, "close": 10.2}}},
+            prices={"600000": 10.0},
+        )
+        self.assertAlmostEqual(float(hold["y_co"]), 0.25)
+        self.assertAlmostEqual(float(hold["y_on"]), 0.25)
+
+    def test_sim_trades_keep_y_co_from_ranking(self):
+        stock_bars = {"600519": _bars(16, step=0.5)}
+        dates = [b["date"] for b in stock_bars["600519"]]
+        rankings = {
+            d: [{**_rank_row("600519", 2.0), "y_co": 0.35, "y_on": 0.35}]
+            for d in dates
+        }
+        with _offline_rebalance_patches():
+            out = backtest_paper_replay(
+                stock_bars,
+                top_k=1,
+                min_history=8,
+                rankings_by_date=rankings,
+                cost_model="zero",
+                initial_cash=200_000.0,
+            )
+        self.assertTrue(out.get("success"), out.get("error"))
+        filled = [s for s in (out.get("sim_trades") or []) if s.get("status") == "filled"]
+        self.assertTrue(filled)
+        for s in filled:
+            self.assertAlmostEqual(float(s.get("y_co")), 0.35, msg=s)
+            self.assertAlmostEqual(float(s.get("y_on")), 0.35, msg=s)
+
     def test_default_top_k_is_universe_size(self):
         stock_bars = {
             "600519": _bars(20, step=0.5),

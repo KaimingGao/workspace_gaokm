@@ -37,6 +37,30 @@ def _bars(n: int = 40, start: float = 10.0):
     return out
 
 
+def _bars_gapped(n: int = 40, start: float = 10.0):
+    from datetime import date, timedelta
+
+    out = []
+    px = start
+    d0 = date(2025, 6, 1)
+    for i in range(n):
+        o = px * (1.0 + (0.012 if i % 4 == 0 else -0.008 if i % 4 == 1 else 0.003))
+        c = o * (1.012 if i % 3 else 0.988)
+        day = d0 + timedelta(days=i)
+        out.append(
+            {
+                "date": day.isoformat(),
+                "open": round(o, 4),
+                "high": round(max(o, c) * 1.02, 4),
+                "low": round(min(o, c) * 0.98, 4),
+                "close": round(c, 4),
+                "volume": 1e6 + i * 1e5,
+            }
+        )
+        px = c
+    return out
+
+
 class TestOnPanel(unittest.TestCase):
     def test_on_panel_label_is_fwd_open_open(self):
         from core.research.on_panel import collect_on_panel
@@ -54,6 +78,48 @@ class TestOnPanel(unittest.TestCase):
         self.assertIn("ret_oc", xs[0])
         self.assertIn("y_on_today", xs[0])
         self.assertIn("overnight_gap", metas[0])
+
+    def test_on_panel_enriched_features_are_pit(self):
+        from core.research.on_panel import ON_Z_FEATURES, collect_on_panel
+
+        bars = _bars_gapped(40)
+        xs, ys, _, _ = collect_on_panel(bars, stock_code="000001", min_history=12)
+        self.assertGreater(len(xs), 5)
+        row = xs[0]
+        skip_cs = {"sector_gap_breadth", "theme_day", "gap_vs_sector"}
+        for k in ON_Z_FEATURES:
+            if k in skip_cs:
+                continue
+            self.assertIn(k, row, k)
+        i = 12
+        prev = bars[i - 1]
+        prev2 = bars[i - 2]
+        b_t = bars[i]
+        gap = (float(b_t["open"]) / float(prev["close"]) - 1.0) * 100.0
+        yest_gap = (float(prev["open"]) / float(prev2["close"]) - 1.0) * 100.0
+        loc = (float(prev["close"]) - float(prev["low"])) / (
+            float(prev["high"]) - float(prev["low"])
+        )
+        self.assertAlmostEqual(float(row["gap_pct"]), gap, places=4)
+        self.assertAlmostEqual(float(row["yest_gap"]), yest_gap, places=4)
+        self.assertNotAlmostEqual(float(row["yest_gap"]), float(row["gap_pct"]), places=2)
+        self.assertAlmostEqual(float(row["yest_close_loc"]), loc, places=4)
+        self.assertGreaterEqual(float(row["yest_close_loc"]), 0.0)
+        self.assertLessEqual(float(row["yest_close_loc"]), 1.0)
+        self.assertIsNotNone(row["yclose_loc"])
+        self.assertIsNotNone(row["mom3_pct"])
+        self.assertIsNotNone(row["yest_range_pct"])
+        self.assertIsNotNone(row["yest_vol_ratio"])
+        self.assertIsNotNone(row["on_ma5"])
+        self.assertAlmostEqual(float(row["dist_to_up_limit"]), 10.0 - float(row["ret_cc"]), places=3)
+
+    def test_dist_to_up_limit_uses_board(self):
+        from core.research.on_panel import dist_to_up_limit_pct
+
+        self.assertAlmostEqual(dist_to_up_limit_pct(8.0, "600000"), 2.0, places=3)
+        self.assertAlmostEqual(dist_to_up_limit_pct(8.0, "300750"), 12.0, places=3)
+        self.assertIsNone(dist_to_up_limit_pct(8.0, None))
+        self.assertIsNone(dist_to_up_limit_pct(8.0, ""))
 
     def test_build_features_from_quote_bars(self):
         from core.research.on_panel import build_on_features_from_quote_bars
@@ -120,6 +186,10 @@ class TestOnRidgeFit(unittest.TestCase):
         self.assertEqual(
             (rm.get("y_spec") or {}).get("formula"), "open[T+1]/close[T]-1"
         )
+        extras = rm.get("extra_features") or []
+        self.assertIn("yest_close_loc", extras)
+        self.assertIn("yest_gap", extras)
+        self.assertIn("dist_to_up_limit", extras)
         with tempfile.TemporaryDirectory() as tmp:
             live = os.path.join(tmp, "live")
             os.makedirs(live, exist_ok=True)

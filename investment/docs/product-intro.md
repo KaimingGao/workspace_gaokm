@@ -137,10 +137,11 @@ quant_panel.html
 
 | 预测头 | 含义 | 用途 |
 |--------|------|------|
-| **ŷ_EOD** | 预估 close[T]/close[T-1]−1 | 排序、开仓方向判断 |
-| **ŷ_τ** | 预估 close[T]/open[T]−1 | 买入闸（buy gate）、做T 信号 |
-| **ŷ_trade** | w·ŷ_EOD + w·(缺口∘ŷ_τ) | 交易决策综合分 |
-| **ŷ_nowcast** | 顺序 Kalman（EOD→open→分钟τ） | 默认影子，不替换 predicted_score |
+| **ŷ_oo** | 预估 open[T+1]/open[T]−1 | ranking 输入 |
+| **ŷ_oc** | 预估 close[T]/open[T]−1 | ranking 输入；做 T 方向 |
+| **ŷ_τc** | 预估 close[T]/price(τ)−1 | 做 T 旁路验证（不进 ĉ） |
+| **ŷ_co** | 预估 open[T+1]/close[T]−1 | 经 w_co 叠进 ŷ_oc |
+| **ranking** | w_oo·ŷ_oo + w_oc·((1+ŷ_oc)(1+w_co·ŷ_co)−1) | 调仓排序 / 卖门槛 |
 
 关键逻辑：
 - **买入闸**：`buy_passes_tau_gate()` — 仅当 ŷ_τ 超过阈值时才允许买入，过滤"方向对但买入时机差"的票
@@ -171,15 +172,16 @@ quant_panel.html
 
 > 详细数学推导见 [rebalance-logic.md](./rebalance-logic.md)。
 
-调仓系统按 **y_fuse / y_on ranking** 以 200/500 股加减仓，现金用完即止。
+调仓系统按 **ranking = w_oo·ŷ_oo + w_oc·((1+ŷ_oc)(1+w_co·ŷ_co)−1)** 以 200/500 股加减仓，现金用完即止。
 
 ### 4.1 核心概念
 
 | 概念 | 含义 |
 |------|------|
-| **y_fuse** | 预期 open[T]→close[T]（trade⊕nowcast 按缺口映剩余） |
-| **y_on** | 预期隔夜 close[T]→open[T+1] |
-| **ranking** | (1 + y_fuse/100) × (1 + α × y_on/100) − 1，展示百分数；α 默认 0；α=1 对齐 T 开→T+1 开 |
+| **ŷ_oo** | 预期 open[T]→open[T+1] |
+| **ŷ_oc** | 预期 open[T]→close[T] |
+| **ŷ_co** | 预期隔夜 close[T]→open[T+1] |
+| **ranking** | w_oo·ŷ_oo + w_oc·((1+ŷ_oc)(1+w_co·ŷ_co)−1)；w_co 默认 0 |
 | **rank入场 / rank强** | 选股下限 / 500 股门槛 |
 | **持仓市值上限** | live 默认 15 万；本笔将超则跳过。历史回测不限 |
 
@@ -189,8 +191,7 @@ quant_panel.html
 
 ```
 每个交易日 09:30 打分；历史回测按所选调仓时间用 5 分钟价成交：
-  y_fuse = remaining(w_trade·ŷ_trade + w_nc·ŷ_nowcast, gap)  # open[T]→close[T]
-  ranking = (1 + y_fuse/100) × (1 + α × y_on/100) − 1  # α=1 对齐 T 开→T+1 开
+  ranking = w_oo·ŷ_oo + w_oc·((1+ŷ_oc)(1+w_co·ŷ_co)−1)
   已持仓且 ranking < 0 → 清仓（T+1 可卖）
   ranking > rank入场 → 开仓或加仓（live 受观察池容量与持仓市值上限；历史回测用全部观察池）
   ranking > rank强 → 500 股，否则 200 股

@@ -1,7 +1,7 @@
-"""ŷ_r Ridge：与 ŷ_τ 同因子键（开盘 Z + 早盘前缀分钟小包）→ price(τ)/close−1。
+"""ŷ_τc Ridge（旧名 ŷ_r）：与 ŷ_τ 同因子键 → 分钟 close[T]/price(τ)−1。
 
-语义对齐 R_τ：真值 = (C_τ / C_eod − 1)×100；R̂_τ 现由 (C/ĉ_τ−1)×100 从 ŷ_τ 间接得到。
-研究枢纽拟合；盘中写 ŷ_r 供成交明细对照。不进调仓、不进 ĉ / 选腿。
+盘中写 y_τc。表列优先 remaining(ŷ_oc)；Ridge 进 y_τc_ridge / 旁路。不进调仓 ranking。
+旧模型公式仍为 price/close 时，write 时反几何成 ŷ_τc。
 """
 
 from __future__ import annotations
@@ -74,7 +74,7 @@ def pick_y_r_hat(*objs: Any) -> Optional[float]:
 
 
 def pick_y_r_label(*objs: Any) -> Optional[float]:
-    """全日 R_τ 真值 price(τ)/close−1（百分点）。"""
+    """全日 ŷ_τc 真值 分钟 close[T]/price(τ)−1（百分点）。"""
     for obj in objs:
         if not isinstance(obj, dict):
             continue
@@ -85,11 +85,52 @@ def pick_y_r_label(*objs: Any) -> Optional[float]:
     return None
 
 
-def write_y_r_hat(dest: Dict[str, Any], val: float) -> None:
+def _formula_from_model_doc(model_doc: Any) -> Optional[str]:
+    if not isinstance(model_doc, dict):
+        return None
+    from core.signal.yhat_windows import pc_formula_of
+
+    spec = pc_formula_of(model_doc)
+    if spec:
+        return spec
+    rm = (
+        model_doc.get("return_model")
+        if isinstance(model_doc.get("return_model"), dict)
+        else None
+    )
+    return pc_formula_of(rm) if rm else None
+
+
+def write_y_r_hat(dest: Dict[str, Any], val: float, *, formula: Any = None, model_doc: Any = None) -> None:
     x = float(val)
     dest["predicted_score_r"] = x
     dest["y_r_hat"] = x
     dest["y_r"] = x
+    from core.signal.yhat_windows import (
+        FORMULA_TC,
+        invert_price_over_close,
+        pc_formula_is_legacy,
+        pc_formula_of,
+        write_y_τc,
+    )
+
+    spec = formula
+    if spec is None:
+        spec = _formula_from_model_doc(model_doc)
+    if spec is None:
+        spec = pc_formula_of(dest)
+    # 现行 Ridge 已是 close[T]/price(τ)−1。缺公式不得当旧簿 price/close 反几何，
+    # 否则 ŷ_τc 符号被翻掉，成交明细预估值会一侧倒。
+    if spec is None:
+        spec = FORMULA_TC
+    dest["y_spec_r"] = {"formula": str(spec), "unit": "pct"}
+    if pc_formula_is_legacy(str(spec)):
+        pc = invert_price_over_close(x)
+        dest["y_spec_τc"] = {"formula": FORMULA_TC, "unit": "pct", "from": "legacy_invert"}
+    else:
+        pc = x
+        dest["y_spec_τc"] = {"formula": str(spec), "unit": "pct"}
+    write_y_τc(dest, pc)
 
 
 def write_y_r_label(dest: Dict[str, Any], val: float) -> None:
@@ -104,7 +145,7 @@ def pack_y_r_fields(day: Optional[dict]) -> Dict[str, Any]:
 
 
 def r_realized_pct(price_tau: Any, close: Any) -> Optional[float]:
-    """C_τ / 收盘 − 1（百分点，四位）。"""
+    """close[T]/price(τ) − 1（百分点，四位）。"""
     v = y_r_pct(price_tau, close)
     return round(float(v), 4) if v is not None else None
 
@@ -121,7 +162,7 @@ def fit_r_ridge_report(
     tau_hm: str = "10:30",
     tau_grid: Optional[Sequence[str]] = None,
 ) -> Dict[str, Any]:
-    """池化拟合 ŷ_r + 时间 OOS。特征同 ŷ_τ；标签 = price(τ)/close−1。"""
+    """池化拟合 ŷ_τc + 时间 OOS。特征同 ŷ_τ；标签 = 分钟 close[T]/price(τ)−1。"""
     live_hm = str(tau_hm or "10:30").strip() or "10:30"
     if live_hm.lower() in ("", "open"):
         live_hm = "10:30"
@@ -226,7 +267,7 @@ def fit_r_ridge_report(
         "y_label_mean": round(y_mean, 6),
         "holdout_trading_days": hold_n,
         "theme_boost": theme_boost if use_theme_weights else None,
-        "target": "price_tau_over_close",
+        "target": "close_over_price_tau",
         "tau": live_hm,
         "tau_grid": list(grid),
         "minute_tau_hm": live_hm,
@@ -271,17 +312,17 @@ def fit_r_ridge_report(
     model["intercept_demeaned"] = round(float(fit.get("intercept") or 0.0), 6)
     model["y_label_mean"] = round(y_mean_all, 6)
     model["y_demeaned"] = True
-    model["horizon_mode"] = "price_tau_over_close"
-    model["target"] = "price_tau_over_close"
-    y_formula = format_shared_tau_formula("price[τ]/close[T]-1", grid or [live_hm])
+    model["horizon_mode"] = "close_over_price_tau"
+    model["target"] = "close_over_price_tau"
+    y_formula = format_shared_tau_formula("close[T]/price[τ]-1", grid or [live_hm])
     model["y_spec"] = {
         "formula": y_formula,
         "unit": "pct",
         "tau": live_hm,
         "tau_grid": list(grid),
         "note": (
-            "与 ŷ_τ 同 X（开盘 Z + ≤τ 分钟小包）；标签=price(τ)/close−1（百分点），"
-            "语义对齐 R_τ=(C/ĉ−1)。不进调仓、不进 ĉ / 选腿。"
+            "与 ŷ_τ 同 X（开盘 Z + ≤τ 分钟小包）；标签=分钟 close[T]/price(τ)−1（百分点）。"
+            "主字段 y_τc；进做 T residual / ĉ。"
         ),
     }
     model["extra_features"] = list(TAU_Z_FEATURES)
@@ -309,12 +350,12 @@ def fit_r_ridge_report(
         "return_model": model,
         "return_model_research": research_model,
         "schema": "r_ridge_v1",
-        "target": "price_tau_over_close",
+        "target": "close_over_price_tau",
         "minute_tau_hm": live_hm,
         "tau_grid": list(grid),
         "dual_score_head": "y_r",
         "note": (
-            "ŷ_r：price(τ)/close−1；对照 R̂_τ。不进调仓、不进 ĉ / 选腿；成交明细展示。"
+            "ŷ_τc：price(τ)→close(T)。进做 T residual / ĉ；不进调仓 ranking。"
         ),
     }
     attach_holdout_meta(report, split_meta)
@@ -481,3 +522,28 @@ def predict_r_from_features(
     if not preds or preds[0] is None:
         return None
     return float(preds[0])
+
+
+def explain_r_prediction(
+    features: Optional[Dict[str, Any]],
+    *,
+    model_doc: Optional[Dict[str, Any]] = None,
+) -> Optional[Dict[str, Any]]:
+    """结构化拆解 ŷ_τc（与 ``predict_r_from_features`` 同口径），供 tip 表格。"""
+    from core.research.tau_ridge import explain_tau_prediction
+
+    doc = model_doc if model_doc is not None else load_r_model()
+    expl = explain_tau_prediction(features, model_doc=doc)
+    if not expl:
+        return None
+    out = dict(expl)
+    out["head"] = "r"
+    role = None
+    if isinstance(doc, dict):
+        role = doc.get("model_role")
+        rm = doc.get("return_model") if isinstance(doc.get("return_model"), dict) else {}
+        if not role:
+            role = rm.get("model_role")
+    if role:
+        out["model_role"] = str(role)
+    return out

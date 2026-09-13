@@ -216,6 +216,42 @@ class TestWatchingInsights(unittest.TestCase):
         self.assertEqual(item["pe"], 18.2)
         self.assertEqual(item["pb"], 7.1)
 
+    def test_insight_passes_y_τc(self):
+        """数据中心表列 resolveYτcScore 读 y_τc；须从 score_item 透传到 insights。"""
+        from core.watching.insights import build_watching_insights
+
+        fake_score = {
+            "success": True,
+            "quote": {"success": True, "stock_code": "600519", "change_raw": 0.5},
+            "signal_item": {
+                "score": 1.0,
+                "predicted_score": 1.0,
+                "predicted_score_eod": 1.0,
+                "predicted_score_eod_rem": 0.9,
+                "predicted_score_tau": 0.4,
+                "y_τc": 0.85,
+                "predicted_score_τc": 0.85,
+                "y_r": 0.85,
+                "hard_reject": False,
+                "factors": {"volume_ratio": 1.0},
+            },
+        }
+        with patch("core.signal.score_stock.score_stock", return_value=fake_score), patch(
+            "core.watching.insights._spot_valuation_map",
+            return_value={},
+        ), patch(
+            "core.research.tau_ridge.load_tau_model", return_value=None
+        ), patch(
+            "core.research.tau_ridge.predict_tau_from_features", return_value=None
+        ), patch(
+            "core.data.facade.get_bars", return_value={"bars": []}
+        ):
+            out = build_watching_insights(["600519"])
+        item = out["items"][0]
+        self.assertAlmostEqual(item.get("y_τc"), 0.85, places=6)
+        self.assertAlmostEqual(item.get("predicted_score_τc"), 0.85, places=6)
+        self.assertAlmostEqual(item.get("y_r"), 0.85, places=6)
+
     def test_insight_one_uses_offline_only(self):
         """数据中心算分默认 offline_only + 不打实时 quote。"""
         from core.watching.insights import _insight_one

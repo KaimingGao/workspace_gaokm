@@ -21,7 +21,7 @@ export function createRebalanceReportController(deps) {
     fmtPathScore,
     Y_EOD_TITLE,
     Y_TAU_TITLE,
-    Y_PATH_TITLE,
+    Y_HL_TITLE,
     Y_ON_TITLE,
     Y_NOWCAST_TITLE,
     TRADE_TITLE,
@@ -164,7 +164,7 @@ function emptyFloorHint({
     return shown ? ` · ranking入场≥${shown}` : "";
   }
   if (minScore != null && Number.isFinite(Number(minScore))) {
-    return ` · ŷ_EOD≥${Number(minScore)}%`;
+    return ` · ŷ_oo≥${Number(minScore)}%`;
   }
   return "";
 }
@@ -453,7 +453,7 @@ function renderRebalanceReport(
           const reason = escapeText(String(s.reason || "跳过"));
           const gate =
             s.eod_gate_score != null
-              ? ` · ŷ_EOD ${escapeText(String(s.eod_gate_score))}`
+              ? ` · ŷ_oo ${escapeText(String(s.eod_gate_score))}`
               : "";
           return `<li><code>${code}</code>${
             name ? ` ${name}` : ""
@@ -727,7 +727,7 @@ function renderRebalanceReport(
       formula = tempDiv.textContent || tempDiv.innerText || "";
       html +=
         `<div class="score-formula-section">` +
-        `<div class="score-section-title">ŷ_EOD 公式</div>` +
+        `<div class="score-section-title">ŷ_oo 公式</div>` +
         `<div class="score-formula">${escapeText(formula)}</div>` +
         `</div>`;
     }
@@ -793,7 +793,7 @@ function renderRebalanceReport(
       } else if (r.y_check && String(r.y_check) !== "ok") {
         scoreTip = `Y·EOD 校验 ${String(r.y_check)} · 悬停看分歧/σ`;
       } else if (belowMin) {
-        scoreTip = "低于 ŷ_EOD 门槛";
+        scoreTip = "低于 ŷ_oo 门槛";
       } else {
         scoreTip = TRADE_TITLE;
       }
@@ -801,9 +801,9 @@ function renderRebalanceReport(
       const singleHeadBadge = singleHead
         ? `<span class="watching-single-head-badge" title="${escapeText(
             head === "single_tau"
-              ? "ŷ_trade 单头降级：仅 ŷ_τ（缺 ŷ_EOD）· 与双头票不同量纲"
+              ? "ŷ_trade 单头降级：仅 ŷ_oc（缺 ŷ_oo）· 与双头票不同量纲"
               : head === "single_eod"
-                ? "ŷ_trade 单头降级：仅 ŷ_EOD（缺 ŷ_τ）· 与双头票不同量纲"
+                ? "ŷ_trade 单头降级：仅 ŷ_oo（缺 ŷ_oc）· 与双头票不同量纲"
                 : "ŷ_trade 单头降级 · 与双头票不同量纲"
           )}">单</span>`
         : "";
@@ -831,31 +831,33 @@ function renderRebalanceReport(
       const scoreEod = resolveEodScore(r);
       const scoreEodShown =
         scoreEod != null ? fmtTableScore(r, scoreEod) : "—";
-      const scoreEodTitle = scoreEod == null ? "暂无 ŷ_EOD" : Y_EOD_TITLE;
+      const scoreEodTitle = scoreEod == null ? "暂无 ŷ_oo" : Y_EOD_TITLE;
       const scoreTau = resolveTauScore(r);
       const scoreTauShown =
         scoreTau != null ? fmtTableScore(r, scoreTau) : "—";
-      const scoreTauTitle = scoreTau == null ? "暂无 ŷ_τ" : Y_TAU_TITLE;
+      const scoreTauTitle = scoreTau == null ? "暂无 ŷ_oc" : Y_TAU_TITLE;
       const scorePath = resolvePathScore(r);
       const scorePathShown = fmtPathScore(scorePath);
-      const scorePathTitle = scorePath == null ? "暂无 ŷ_path" : Y_PATH_TITLE;
+      const scorePathTitle = scorePath == null ? "暂无 ŷ_hl" : Y_HL_TITLE;
       const scoreOn = resolveOnScore(r);
       const scoreOnShown =
         scoreOn != null ? fmtTableScore(r, scoreOn) : "—";
-      const scoreOnTitle = scoreOn == null ? "暂无 ŷ_ON" : Y_ON_TITLE;
+      const scoreOnTitle = scoreOn == null ? "暂无 ŷ_co" : Y_ON_TITLE;
       const scoreNowcast = resolveNowcastScore(r);
       const scoreNowcastShown =
         scoreNowcast != null ? fmtTableScore(r, scoreNowcast) : "—";
       const scoreNowcastTitle =
-        scoreNowcast == null ? "暂无 nowcast · 有 ŷ_EOD 与 ŷ_τ 后可见" : Y_NOWCAST_TITLE;
-      const fuseRaw = Number(r.y_fuse != null ? r.y_fuse : r.y_fusion);
+        scoreNowcast == null ? "暂无 nowcast · 有 ŷ_oo 与 ŷ_oc 后可见" : Y_NOWCAST_TITLE;
+      const fuseRaw = Number(
+        r.ranking != null ? r.ranking : r.y_fuse != null ? r.y_fuse : r.y_fusion
+      );
       const scoreFuse = Number.isFinite(fuseRaw) ? fuseRaw : null;
       const scoreFuseShown =
         scoreFuse != null ? fmtTableScore(r, scoreFuse) : "—";
       const scoreFuseTitle =
         scoreFuse == null
-          ? "暂无 y_fuse"
-          : "y_fuse · open[T]→close[T]（CC 融合按缺口映剩余）";
+          ? "暂无 ranking"
+          : "ranking · w·ŷ_oo + w·(ŷ_oc∘w_co·ŷ_co)";
       const rankRaw = Number(
         r.ranking_score != null ? r.ranking_score : r.ranking
       );
@@ -874,7 +876,7 @@ function renderRebalanceReport(
       const scoreRankTitle =
         scoreRank == null
           ? "暂无 rank"
-          : `rank · ranking=(1+y_fuse/100)×(1+α×y_on/100)−1，展示百分数；<0% 清仓；过入场才开/加${rankOrd}`;
+          : `rank · ranking=w·ŷ_oo + w·(ŷ_oc∘w_co·ŷ_co)，展示百分数；<0% 清仓；过入场才开/加${rankOrd}`;
       const tipDetailJson = escapeText(
         JSON.stringify(tipDetailPayload(r))
       );
@@ -1134,14 +1136,14 @@ function renderRebalanceReport(
     `<div class="rebalance-th num" role="columnheader" title="上一交易日收盘价">昨收</div>` +
     `<div class="rebalance-th num" role="columnheader" title="最新成交价">现价</div>` +
     `<div class="rebalance-th num" role="columnheader" title="相对昨收的当日涨跌幅">涨跌</div>` +
-    `<div class="rebalance-th num" role="columnheader" title="ŷ_EOD · 隔夜主轴">y_eod</div>` +
-    `<div class="rebalance-th num" role="columnheader" title="ŷ_τ · τ→收盘剩余">y_τ</div>` +
-    `<div class="rebalance-th num" role="columnheader" title="ŷ_path · 极值序">y_path</div>` +
-    `<div class="rebalance-th num" role="columnheader" title="ŷ_ON · open 链旁路">y_on</div>` +
+    `<div class="rebalance-th num" role="columnheader" title="ŷ_oo · 隔夜主轴">y_oo</div>` +
+    `<div class="rebalance-th num" role="columnheader" title="ŷ_oc · open→close">y_oc</div>` +
+    `<div class="rebalance-th num" role="columnheader" title="ŷ_hl · 极值序">y_hl</div>` +
+    `<div class="rebalance-th num" role="columnheader" title="ŷ_co · close→次日开">y_co</div>` +
     `<div class="rebalance-th num" role="columnheader" title="ŷ_trade · 排序/卖门槛">y_trade</div>` +
     `<div class="rebalance-th num" role="columnheader" title="nowcast（nc）· 对照昨收">y_nc</div>` +
-    `<div class="rebalance-th num" role="columnheader" title="y_fuse · open[T]→close[T]（CC 融合按缺口映剩余）">y_fuse</div>` +
-    `<div class="rebalance-th num" role="columnheader" title="rank · ranking=(1+y_fuse/100)×(1+α×y_on/100)−1，展示百分数">rank</div>` +
+    `<div class="rebalance-th num" role="columnheader" title="ranking · w·ŷ_oo + w·(ŷ_oc∘w_co·ŷ_co)">ranking</div>` +
+    `<div class="rebalance-th num" role="columnheader" title="rank · ranking=w·ŷ_oo + w·(ŷ_oc∘w_co·ŷ_co)，展示百分数">rank</div>` +
     `<div class="rebalance-th num" role="columnheader">股数</div>` +
     `<div class="rebalance-th num" role="columnheader">变动</div>` +
     `<div class="rebalance-th rebalance-th-decision" role="columnheader" title="悬停看原因">决策</div>` +

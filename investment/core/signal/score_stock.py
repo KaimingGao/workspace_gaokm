@@ -1213,6 +1213,7 @@ def score_stock(
                 bars,
                 gap_pct=gap_v,
                 ret_open_to_tau=feats.get("ret_open_to_tau"),
+                stock_code=code,
             )
             on_feats["sector_gap_breadth"] = sector_breadth
             on_feats["theme_day"] = feats.get("theme_day")

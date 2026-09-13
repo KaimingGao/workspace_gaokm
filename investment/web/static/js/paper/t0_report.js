@@ -187,12 +187,6 @@ export function buildT0MetricCards(data) {
   ];
 }
 
-function _pct1(v) {
-  const n = Number(v);
-  if (!Number.isFinite(n)) return null;
-  return Math.round(n * 1000) / 10;
-}
-
 function _hitTone(pct) {
   if (pct == null || !Number.isFinite(Number(pct))) return "";
   const p = Number(pct);
@@ -200,21 +194,6 @@ function _hitTone(pct) {
   if (p >= 55) return "is-ok";
   if (p >= 45) return "is-soft";
   return "is-weak";
-}
-
-function _signBarHtml(pack) {
-  const pos = Number(pack?.pos) || 0;
-  const neg = Number(pack?.neg) || 0;
-  const tot = pos + neg;
-  if (!tot) return "";
-  const posW = (pos / tot) * 100;
-  const negW = 100 - posW;
-  return (
-    `<div class="paper-t0-portrait-signbar" aria-hidden="true">` +
-    `<span class="is-pos" style="width:${posW.toFixed(1)}%"></span>` +
-    `<span class="is-neg" style="width:${negW.toFixed(1)}%"></span>` +
-    `</div>`
-  );
 }
 
 function _fillBarHtml(traded, total) {
@@ -242,20 +221,7 @@ function _coverBarHtml(have, total) {
   );
 }
 
-function _statCard(label, primary, { tip = "", sub = "", tone = "", bar = "" } = {}) {
-  const tipAttr = tip ? ` title="${escapeText(tip)}"` : "";
-  const toneCls = tone ? ` ${tone}` : "";
-  return (
-    `<div class="paper-t0-portrait-stat${toneCls}"${tipAttr}>` +
-    `<span class="paper-t0-portrait-stat-k">${escapeText(label)}</span>` +
-    `<span class="paper-t0-portrait-stat-v">${primary ?? "—"}</span>` +
-    (sub ? `<span class="paper-t0-portrait-stat-n">${sub}</span>` : "") +
-    (bar || "") +
-    `</div>`
-  );
-}
-
-/** 回测样本画像：分层宇宙 / 标签 / 预估 / 成交子集 / 分槽位 */
+/** 回测样本画像：样本日摘要 + 分槽位 */
 function buildPortraitSectionHtml(portrait) {
   if (!portrait || typeof portrait !== "object") return "";
 
@@ -270,17 +236,6 @@ function buildPortraitSectionHtml(portrait) {
   const participate =
     Number.isFinite(nAll) && nAll > 0 ? (nTr / nAll) * 100 : null;
 
-  const fmtShareParts = (pack) => {
-    if (!pack) return { primary: "—", sub: "", bar: "" };
-    const pos = pack.pos ?? 0;
-    const neg = pack.neg ?? 0;
-    const share = _pct1(pack.pos_share);
-    const primary =
-      share != null ? `+${pos}/−${neg}` : pos || neg ? `+${pos}/−${neg}` : "—";
-    const sub = share != null ? `${share}% 为正` : "";
-    return { primary, sub, bar: _signBarHtml(pack) };
-  };
-
   const fmtHitParts = (pack) => {
     if (!pack || pack.hit_rate_pct == null) {
       return { primary: "—", sub: "", tone: "" };
@@ -294,35 +249,8 @@ function buildPortraitSectionHtml(portrait) {
     };
   };
 
-  const fmtRateParts = (rate, n) => {
-    if (rate == null || !Number.isFinite(Number(rate))) {
-      return { primary: "—", sub: "", tone: "" };
-    }
-    const pct = Number(rate) * 100;
-    return {
-      primary: `${pct.toFixed(1)}%`,
-      sub: n != null ? `n=${n}` : "",
-      tone: _hitTone(pct),
-    };
-  };
-
-  const tauL = fmtShareParts(portrait.label_tau);
-  const pathL = fmtShareParts(portrait.label_path);
-  const labelSame = fmtRateParts(
-    portrait.label_joint && portrait.label_joint.same_sign_rate,
-    portrait.label_joint && portrait.label_joint.signed_n
-  );
-  const predSame = fmtRateParts(
-    portrait.pred_joint && portrait.pred_joint.same_sign_rate,
-    portrait.pred_joint && portrait.pred_joint.signed_n
-  );
-  const tauHit = fmtHitParts(portrait.tau_hit);
-  const pathHit = fmtHitParts(portrait.path_hit);
-  const tradedTau = fmtHitParts(portrait.traded && portrait.traded.tau_hit);
-  const tradedPath = fmtHitParts(portrait.traded && portrait.traded.path_hit);
-
   const universe =
-    `<div class="paper-t0-portrait-universe" title="全部回测日（含跳过）；主指标按全样本；成交为子集">` +
+    `<div class="paper-t0-portrait-universe" title="全部回测日（含跳过）">` +
     `<div class="paper-t0-portrait-universe-main">` +
     `<span class="paper-t0-portrait-universe-n">${
       Number.isFinite(nAll) ? escapeText(String(nAll)) : "—"
@@ -340,73 +268,6 @@ function buildPortraitSectionHtml(portrait) {
     `</div>` +
     _fillBarHtml(nTr, nAll) +
     `</div>`;
-
-  const band = (title, tip, cards) =>
-    `<div class="paper-t0-portrait-band" title="${escapeText(tip)}">` +
-    `<div class="paper-t0-portrait-band-h">${escapeText(title)}</div>` +
-    `<div class="paper-t0-portrait-band-grid">${cards.join("")}</div>` +
-    `</div>`;
-
-  const labelsBand = band(
-    "标签分布",
-    "真实标签：τ=open→close；path=极值序；同号=双侧非零",
-    [
-      _statCard("τ标签", escapeText(tauL.primary), {
-        tip: "全样本 tau_realized（open→close）正/负",
-        sub: escapeText(tauL.sub),
-        bar: tauL.bar,
-      }),
-      _statCard("path标签", escapeText(pathL.primary), {
-        tip: "全样本 path_realized（极值序）正/负",
-        sub: escapeText(pathL.sub),
-        bar: pathL.bar,
-      }),
-      _statCard("标签同号", escapeText(labelSame.primary), {
-        tip: "真实 τ OC 与 path 同号率（双侧非零）",
-        sub: escapeText(labelSame.sub),
-        tone: labelSame.tone,
-      }),
-    ]
-  );
-
-  const predBand = band(
-    "预估命中 · 全样本",
-    "日级用 09:35 扫描前缀 ŷ ↔ 全日标签（勿与成交子集、晚钟分槽混读）",
-    [
-      _statCard("ŷ同号", escapeText(predSame.primary), {
-        tip: "ŷ_τ_portrait_oc 与 ŷ_path_portrait 同号（前N根因果）",
-        sub: escapeText(predSame.sub),
-        tone: predSame.tone,
-      }),
-      _statCard("τ命中", escapeText(tauHit.primary), {
-        tip: "ŷ_τ_portrait_oc vs tau_realized",
-        sub: escapeText(tauHit.sub),
-        tone: tauHit.tone,
-      }),
-      _statCard("path命中", escapeText(pathHit.primary), {
-        tip: "ŷ_path_portrait vs path_realized",
-        sub: escapeText(pathHit.sub),
-        tone: pathHit.tone,
-      }),
-    ]
-  );
-
-  const tradedBand = band(
-    `成交子集${nTr ? ` · n=${nTr}` : ""}`,
-    "仅该日有做 T 成交的样本；n 小时结论仅供参考",
-    [
-      _statCard("成交τ命中", escapeText(tradedTau.primary), {
-        tip: "仅成交日；ŷ_τ vs tau_realized",
-        sub: escapeText(tradedTau.sub),
-        tone: tradedTau.tone,
-      }),
-      _statCard("成交path命中", escapeText(tradedPath.primary), {
-        tip: "仅成交日 path 预估命中",
-        sub: escapeText(tradedPath.sub),
-        tone: tradedPath.tone,
-      }),
-    ]
-  );
 
   const slotRows = ((portrait.by_slot && portrait.by_slot.slots) || [])
     .filter((s) => s && s.hm)
@@ -440,7 +301,7 @@ function buildPortraitSectionHtml(portrait) {
       : yhatCoverN > 0 &&
           slotSampleN > 0 &&
           yhatCoverN / slotSampleN < 0.25
-        ? `<p class="paper-t0-portrait-slots-warn">槽位 τ/path ŷ 覆盖偏低（最多 ${yhatCoverN}/${slotSampleN}）：缺分钟日无扫描分；请用最新回测引擎重跑以保留 close_band_scan。</p>`
+        ? `<p class="paper-t0-portrait-slots-warn">槽位 R_τ/y_oc/y_τc ŷ 覆盖偏低（最多 ${yhatCoverN}/${slotSampleN}）：缺分钟日无扫描分；请用最新回测引擎重跑以保留 close_band_scan。</p>`
         : "";
 
   const fmtHitCell = (pack) => {
@@ -454,22 +315,11 @@ function buildPortraitSectionHtml(portrait) {
     );
   };
 
-  const fmtRateCell = (rate, n) => {
-    const p = fmtRateParts(rate, n);
-    if (p.primary === "—") return `<span class="is-empty">—</span>`;
-    return (
-      `<span class="paper-t0-portrait-cell ${p.tone}">` +
-      `<b>${escapeText(p.primary)}</b>` +
-      (p.sub ? `<small>${escapeText(p.sub)}</small>` : "") +
-      `</span>`
-    );
-  };
-
   const slotTable =
     slotRows.length > 0
       ? `<div class="paper-t0-portrait-slots" title="${escapeText(
           (portrait.by_slot && portrait.by_slot.note) ||
-            "各钟 ŷ_τ/path ↔ 天级 label；样本与日级对齐；缺该钟 ŷ 计 flat；成/跳=该钟是否成交"
+            "各钟 R_τ / y_oc / y_τc ↔ 天级 label；样本与日级对齐；缺该钟 ŷ 计 flat；成/跳=该钟是否成交"
         )}">` +
         `<div class="paper-t0-portrait-slots-head">` +
         `<span>分槽位</span>` +
@@ -485,11 +335,14 @@ function buildPortraitSectionHtml(portrait) {
         `<th>槽位</th>` +
         `<th title="有该钟扫描 ŷ / 与日级同样本；旧回测无 scan 则仅破带钟有ŷ">覆盖</th>` +
         `<th title="该钟破带成交 / 样本">成交</th>` +
-        `<th title="ŷ_τ ↔ ŷ_path 同号（有ŷ子集）">ŷ同号</th>` +
-        `<th title="ŷ_τ ↔ tau_realized">τ命中</th>` +
-        `<th title="ŷ_path ↔ path_realized">path命中</th>` +
-        `<th title="该钟已成交子集 · τ">成交τ</th>` +
-        `<th title="该钟已成交子集 · path">成交path</th>` +
+        `<th title="R̂_τ ↔ close[T]/price(τ)−1">R_τ</th>` +
+        `<th title="ŷ_oc ↔ open→close">y_oc</th>` +
+        `<th title="ŷ_τc ↔ close[T]/price(τ)−1">y_τc</th>` +
+        `<th title="破带方向是否与 ŷ_τc 向 C_τ 回归同向（反T remaining&lt;0，正T&gt;0）；不是剩余窗命中率">旁路</th>` +
+        `<th title="该钟已成交子集 · R_τ">成交R_τ</th>` +
+        `<th title="该钟已成交子集 · y_oc">成交y_oc</th>` +
+        `<th title="该钟已成交子集 · y_τc">成交y_τc</th>` +
+        `<th title="该钟已成交子集 · 旁路顺带">成交旁路</th>` +
         `</tr></thead><tbody>` +
         slotRows
           .map((s) => {
@@ -497,7 +350,6 @@ function buildPortraitSectionHtml(portrait) {
             const nSlotTr = Number(s.n_traded) || 0;
             const nY = Number(s.n_with_yhat) || 0;
             const coverLow = nSlot > 0 && nY / nSlot < 0.25;
-            const predJ = s.pred_joint || {};
             const traded = s.traded || {};
             return (
               `<tr class="${coverLow ? "is-cover-low" : ""}">` +
@@ -516,11 +368,14 @@ function buildPortraitSectionHtml(portrait) {
               `</span>` +
               _fillBarHtml(nSlotTr, nSlot) +
               `</td>` +
-              `<td>${fmtRateCell(predJ.same_sign_rate, predJ.signed_n)}</td>` +
-              `<td>${fmtHitCell(s.tau_hit)}</td>` +
-              `<td>${fmtHitCell(s.path_hit)}</td>` +
-              `<td>${fmtHitCell(traded.tau_hit)}</td>` +
-              `<td>${fmtHitCell(traded.path_hit)}</td>` +
+              `<td>${fmtHitCell(s.r_tau_hit)}</td>` +
+              `<td>${fmtHitCell(s.oc_hit)}</td>` +
+              `<td>${fmtHitCell(s.y_tc_hit)}</td>` +
+              `<td>${fmtHitCell(s.y_tc_band)}</td>` +
+              `<td>${fmtHitCell(traded.r_tau_hit)}</td>` +
+              `<td>${fmtHitCell(traded.oc_hit)}</td>` +
+              `<td>${fmtHitCell(traded.y_tc_hit)}</td>` +
+              `<td>${fmtHitCell(traded.y_tc_band)}</td>` +
               `</tr>`
             );
           })
@@ -532,14 +387,9 @@ function buildPortraitSectionHtml(portrait) {
     `<section class="paper-t0-metric-section is-portrait">` +
     `<div class="paper-t0-portrait-head">` +
     `<h4 class="paper-t0-metric-section-title">回测样本画像</h4>` +
-    `<p class="paper-t0-portrait-lead">全样本标签与因果 ŷ 命中（日级=09:35 前缀；分槽=该钟扫描 ŷ vs 全日标签，同拟合 by_tau；越晚通常越高。成交命中才是开轮时点质量）</p>` +
+    `<p class="paper-t0-portrait-lead">分槽位：该钟扫描 ŷ vs 全日标签；成交=该钟是否破带开轮；旁路=破带方向↔ŷ_τc向C_τ回归</p>` +
     `</div>` +
     universe +
-    `<div class="paper-t0-portrait-bands">` +
-    labelsBand +
-    predBand +
-    tradedBand +
-    `</div>` +
     slotTable +
     `</section>`
   );

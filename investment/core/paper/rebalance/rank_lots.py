@@ -1,14 +1,14 @@
-"""策略调仓：9:30 用 y_fuse / y_on 排序，按 200/500 股下单。
+"""策略调仓：9:30 用 rank=w_oo·ŷ_oo + w_oc·((1+ŷ_oc)(1+w_co·ŷ_co)−1) 排序，按 200/500 股下单。
 
 规则（live 与历史回测共用）：
   - 持有周期 = T 开盘 → T+1 开盘
-  - y_fuse = 加权(y_trade, y_nowcast) 按缺口映成 open[T]→close[T]（百分点）
-  - y_on 表示预期隔夜 close[T]→open[T+1]（百分点）
-  - ranking = (1 + y_fuse/100) × (1 + α × y_on/100) − 1；缺 y_on 视为 0
-  - α=1 时 ranking ≈ open[T]→open[T+1]。展示百分数（×100）。α 默认 0：隔夜不参与，清仓等价于 y_fuse < 0
+  - ŷ_oo = open[T]→open[T+1]（现网 predicted_score，第二步换标签）
+  - ŷ_oc = open[T]→close[T]（现网 y_tau）
+  - ranking = w_oo·ŷ_oo + w_oc·((1+ŷ_oc)(1+w_co·ŷ_co)−1)；ŷ 为净收益，落盘为百分点
+    w_co 默认 0（不叠隔夜）；缺 ŷ_co 则退回 ŷ_oc
   - 已持仓且 ranking < 0 → 清仓（T+1 可卖部分）
-  - ranking_score > rank入场 的票按分数取 Top-K：建仓或加仓
-  - ranking_score > rank强 → 500 股，否则 200 股
+  - ranking > rank入场 的票按分数取 Top-K：建仓或加仓
+  - ranking > rank强 → 500 股，否则 200 股
   - 不留现金地板：现金不够该手则跳过（强档买不下先退基础手数）；live 另受持仓市值上限约束
 """
 
@@ -103,25 +103,28 @@ def clamp_fusion_weight(raw: Any, default: float = 0.5) -> float:
 
 
 def ranking_score(
-    y_fuse: Optional[float],
-    y_on: Optional[float],
+    y_oo: Optional[float],
+    y_oc: Optional[float],
     *,
+    w_oo: float = 0.5,
+    w_oc: float = 0.5,
     y_on_alpha: float = DEFAULT_Y_ON_ALPHA,
+    y_fuse: Optional[float] = None,
+    y_on: Optional[float] = None,
+    w_co: Optional[float] = None,
+    y_co: Optional[float] = None,
 ) -> Optional[float]:
-    """y_fuse=open[T]→close[T]、y_on=close[T]→open[T+1]（百分点）；缺 y_on 视为 0。
+    """w_oo·ŷ_oo + w_oc·((1+ŷ_oc)(1+w_co·ŷ_co)−1)；落盘百分点 → 净收益（÷100）。"""
+    _ = y_fuse
+    from core.signal.yhat_windows import fuse_pct, oc_with_co
 
-    返回净收益（小数，展示×100 为百分数）。
-    ranking = (1 + y_fuse/100) × (1 + α × y_on/100) − 1；α 默认 0（隔夜不参与）。
-    α=1 时对齐持有腿 open[T]→open[T+1]。
-    """
-    yf = _f(y_fuse)
-    if yf is None:
+    wc = float(w_co) if w_co is not None else float(y_on_alpha or 0.0)
+    co = y_co if y_co is not None else y_on
+    right = oc_with_co(y_oc, co, wc)
+    fused = fuse_pct(y_oo, right, w_left=w_oo, w_right=w_oc)
+    if fused is None:
         return None
-    yo = _f(y_on)
-    if yo is None:
-        yo = 0.0
-    alpha = clamp_y_on_alpha(y_on_alpha)
-    return (1.0 + float(yf) / 100.0) * (1.0 + alpha * float(yo) / 100.0) - 1.0
+    return float(fused) / 100.0
 
 
 def _normalize_lot(n: Any, default: int) -> int:
@@ -254,45 +257,42 @@ def get_rank_lot_cfg(
         "cash_floor_scaled": abs(float(floor) - float(floor_cfg)) > 1e-6,
         "holdings_mv_cap": mv_cap,
         "top_k": k,
-        "fusion_w_trade": float(pm.get("fusion_w_trade") or 0.5),
-        "fusion_w_nowcast": float(pm.get("fusion_w_nowcast") or 0.5),
-        "y_on_alpha": clamp_y_on_alpha(pm.get("y_on_alpha")),
+        "fusion_w_oo": float(pm.get("fusion_w_oo") or 0.5),
+        "fusion_w_oc": float(pm.get("fusion_w_oc") or 0.5),
+        "fusion_w_pc": float(pm.get("fusion_w_pc") or 0.5),
+        "fusion_w_trade": float(pm.get("fusion_w_oo") or pm.get("fusion_w_trade") or 0.5),
+        "fusion_w_nowcast": float(pm.get("fusion_w_oc") or pm.get("fusion_w_nowcast") or 0.5),
+        "fusion_w_co": float(pm.get("fusion_w_co") if pm.get("fusion_w_co") is not None else (pm.get("y_on_alpha") or 0.0)),
+        "y_on_alpha": float(pm.get("fusion_w_co") if pm.get("fusion_w_co") is not None else (pm.get("y_on_alpha") or 0.0)),
         "lot_base": LOT_BASE,
         "lot_strong": LOT_STRONG,
     }
 
 
-def y_fuse_of(item: Optional[dict], cfg: Optional[dict] = None) -> Optional[float]:
-    from core.paper.rebalance.path_matrix import (
-        fuse_trade_nowcast_oc,
-        get_path_matrix_cfg,
-        open_gap_pct_of,
-        scores_from_rebalance_item,
-    )
+def ranking_pct_of(item: Optional[dict], cfg: Optional[dict] = None) -> Optional[float]:
+    """调仓 ranking 百分点 = w_oo·ŷ_oo + w_oc·(ŷ_oc ∘ w_co·ŷ_co)。
+
+    有 ŷ_oo/ŷ_oc 则现算；显式 ``ranking`` 优先。``y_fuse`` 只在两头都抽不出时
+    当 ranking 旧别名，不当 ŷ_oo（避免把融合分再和 ŷ_oc 融一次）。
+    """
+    from core.signal.yhat_windows import fusion_w_co_from_cfg, fusion_weights_from_cfg, ranking_pct
 
     if not isinstance(item, dict):
         return None
-    direct = _f(item.get("y_fuse") or item.get("y_fusion"))
+    direct = _f(item.get("ranking") or item.get("ranking_pct"))
     if direct is not None:
         return direct
-    sc = scores_from_rebalance_item(item)
-    rules = get_path_matrix_cfg(cfg)
-    return fuse_trade_nowcast_oc(
-        sc.get("y_trade"),
-        sc.get("y_nowcast"),
-        w_trade=float(rules.get("fusion_w_trade") or 0.5),
-        w_nowcast=float(rules.get("fusion_w_nowcast") or 0.5),
-        gap_pct=open_gap_pct_of(item),
-    )
+    w_oo, w_oc = fusion_weights_from_cfg(cfg)
+    w_co = fusion_w_co_from_cfg(cfg)
+    fused = ranking_pct(item, w_oo=w_oo, w_oc=w_oc, w_co=w_co)
+    if fused is not None:
+        return fused
+    return _f(item.get("y_fuse"))
 
 
-def _heads(item: Optional[dict]) -> Tuple[Optional[float], Optional[float]]:
-    from core.paper.rebalance.path_matrix import scores_from_rebalance_item
-
-    if not isinstance(item, dict):
-        return None, None
-    sc = scores_from_rebalance_item(item)
-    return sc.get("y_trade"), sc.get("y_nowcast")
+def y_fuse_of(item: Optional[dict], cfg: Optional[dict] = None) -> Optional[float]:
+    """兼容旧名：返回 ranking 百分点（不再做 trade/nowcast 缺口映射）。"""
+    return ranking_pct_of(item, cfg)
 
 
 def y_tau_of(item: Optional[dict]) -> Optional[float]:
@@ -307,21 +307,43 @@ def y_tau_of(item: Optional[dict]) -> Optional[float]:
 
 def _debug_scores(
     item: Optional[dict],
-    yf: Optional[float],
-    yo: Optional[float],
+    ranking_pct: Optional[float],
+    y_oc: Optional[float],
     rs: Optional[float],
     **extra: Any,
 ) -> Dict[str, Any]:
-    yt, yn = _heads(item)
+    from core.paper.rebalance.path_matrix import scores_from_rebalance_item
+    from core.signal.yhat_windows import pick_y_co, residual_pct
+
+    sc = scores_from_rebalance_item(item)
+    y_oo = sc.get("y_oo")
+    oc = y_oc if y_oc is not None else sc.get("y_oc")
+    y_co = sc.get("y_co")
+    if y_co is None:
+        y_co = pick_y_co(item)
+    if y_co is None:
+        y_co = y_on_of(item)
     ytau = y_tau_of(item)
+    y_τc = sc.get("y_τc")
+    ranking = ranking_pct if ranking_pct is not None else sc.get("ranking")
+    residual = sc.get("residual")
+    if residual is None:
+        residual = residual_pct(item)
     out: Dict[str, Any] = {
-        "y_fuse": yf,
-        "y_on": yo,
+        "y_oo": y_oo,
+        "y_oc": oc,
+        "y_co": y_co,
+        "y_on": y_co,
+        "y_τc": y_τc,
+        "ranking": ranking,
+        "y_fuse": ranking,
         "ranking_score": rs,
-        "y_trade": yt,
-        "y_nowcast": yn,
+        "residual": residual,
         "y_tau": ytau,
         "predicted_score_tau": ytau,
+        "predicted_score": y_oo,
+        "predicted_score_eod": y_oo,
+        "predicted_score_on": y_co,
     }
     out.update({k: v for k, v in extra.items() if v is not None})
     return out
@@ -382,7 +404,10 @@ def plan_rank_lot_day(
     mv_cap = max(0.0, mv_cap)
     top_k = max(1, int(cfg.get("top_k") or 15))
     lot_base, lot_strong_sh = _lot_sizes_from_cfg(cfg)
-    y_on_alpha = clamp_y_on_alpha(cfg.get("y_on_alpha"))
+    from core.signal.yhat_windows import fusion_w_co_from_cfg, fusion_weights_from_cfg, pick_y_oc
+
+    w_oo, w_oc = fusion_weights_from_cfg(cfg)
+    w_co = fusion_w_co_from_cfg(cfg)
     t0_blocks = cfg.get("t0_sell_blocks")
     if not isinstance(t0_blocks, dict):
         try:
@@ -421,9 +446,9 @@ def plan_rank_lot_day(
     for h in held_rows:
         code = str(h.get("stock_code") or "").strip()
         item = item_by.get(code) or {}
-        yf = y_fuse_of(item, cfg)
-        yo = y_on_of(item)
-        rs = ranking_score(yf, yo, y_on_alpha=y_on_alpha)
+        rp = ranking_pct_of(item, cfg)
+        yoc = pick_y_oc(item)
+        rs = None if rp is None else float(rp) / 100.0
         name = _display_name(code, item.get("stock_name"), h.get("stock_name"))
         held_sh = float(h.get("shares") or 0)
         if item.get("hard_reject") or (rs is not None and float(rs) < 0.0):
@@ -436,7 +461,7 @@ def plan_rank_lot_day(
                         "side": "sell",
                         "action": ACTION_SKIP,
                         "reason": t0_reason,
-                        **_debug_scores(item, yf, yo, rs, y_on_alpha=y_on_alpha),
+                        **_debug_scores(item, rp, yoc, rs),
                     }
                 )
                 holds.append(
@@ -446,7 +471,7 @@ def plan_rank_lot_day(
                         "shares": held_sh,
                         "action": ACTION_HOLD,
                         "reason": t0_reason,
-                        **_debug_scores(item, yf, yo, rs, y_on_alpha=y_on_alpha),
+                        **_debug_scores(item, rp, yoc, rs),
                     }
                 )
                 continue
@@ -460,7 +485,7 @@ def plan_rank_lot_day(
                         "side": "sell",
                         "action": ACTION_SKIP,
                         "reason": t1.get("reason") or "T+1 不可卖 / 不足一手",
-                        **_debug_scores(item, yf, yo, rs, y_on_alpha=y_on_alpha),
+                        **_debug_scores(item, rp, yoc, rs),
                     }
                 )
                 continue
@@ -481,7 +506,7 @@ def plan_rank_lot_day(
                     "action": ACTION_EXIT,
                     "matrix_action": ACTION_EXIT,
                     "reason": reason,
-                    **_debug_scores(item, yf, yo, rs, y_on_alpha=y_on_alpha),
+                    **_debug_scores(item, rp, yoc, rs),
                 }
             )
         else:
@@ -492,7 +517,7 @@ def plan_rank_lot_day(
                     "shares": held_sh,
                     "action": ACTION_HOLD,
                     "reason": "ranking≥0% 持有",
-                    **_debug_scores(item, yf, yo, rs, y_on_alpha=y_on_alpha),
+                    **_debug_scores(item, rp, yoc, rs),
                 }
             )
 
@@ -512,12 +537,12 @@ def plan_rank_lot_day(
             continue
         if item.get("hard_reject"):
             continue
-        yf = y_fuse_of(item, cfg)
-        yo = y_on_of(item)
-        rs = ranking_score(yf, yo, y_on_alpha=y_on_alpha)
+        rp = ranking_pct_of(item, cfg)
+        yoc = pick_y_oc(item)
+        rs = None if rp is None else float(rp) / 100.0
         if rs is None or float(rs) <= float(rank_enter):
             continue
-        cand.append((float(rs), item, yf, yo))
+        cand.append((float(rs), item, rp, yoc))
     cand.sort(key=lambda t: (-t[0], str(t[1].get("stock_code") or "")))
     cand = cand[:top_k]
 
@@ -542,11 +567,11 @@ def plan_rank_lot_day(
             mv_sim += float(sh) * float(px)
     buys: List[dict] = []
     rank_n = len(cand)
-    for i, (rs, item, yf, yo) in enumerate(cand, start=1):
+    for i, (rs, item, rp, yoc) in enumerate(cand, start=1):
         code = str(item.get("stock_code") or "").strip()
         if not code:
             continue
-        dbg = _debug_scores(item, yf, yo, rs, rank_i=i, rank_n=rank_n, y_on_alpha=y_on_alpha)
+        dbg = _debug_scores(item, rp, yoc, rs, rank_i=i, rank_n=rank_n)
         px = _f(prices.get(code))
         if px is None or px <= 0:
             skips.append(
@@ -635,7 +660,9 @@ def plan_rank_lot_day(
         "cash_floor": cash_floor,
         "holdings_mv_cap": mv_cap,
         "holdings_mv_after_plan": round(mv_sim, 2),
-        "y_on_alpha": y_on_alpha,
+        "fusion_w_oo": w_oo,
+        "fusion_w_oc": w_oc,
+        "fusion_w_co": w_co,
         "top_k": top_k,
     }
 
@@ -663,6 +690,7 @@ __all__ = [
     "scale_cash_floor_to_account",
     "lot_shares_for_rank",
     "plan_rank_lot_day",
+    "ranking_pct_of",
     "ranking_score",
     "y_fuse_of",
     "y_on_of",

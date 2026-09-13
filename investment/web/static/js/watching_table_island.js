@@ -68,57 +68,57 @@ const COLS = [
     width: 68,
     num: true,
     sortable: true,
-    title: "相对昨收的涨跌幅 %。与 EOD / ŷ_trade 同一口径",
+    title: "相对昨收的涨跌幅 %",
   },
   {
     id: "score_eod",
-    label: "y_eod",
+    label: "y_oo",
     width: 82,
     num: true,
     sortable: true,
     headClass: "watching-col-y",
     cellClass: "watching-col-y",
-    title: "ŷ_EOD · 隔夜主轴 open[T]/open[T−1]−1（%）",
+    title: "ŷ_oo · open[T]→open[T+1]（%）",
   },
   {
     id: "score_tau",
-    label: "y_τ",
+    label: "y_oc",
     width: 82,
     num: true,
     sortable: true,
     headClass: "watching-col-y",
     cellClass: "watching-col-y",
-    title: "ŷ_τ · T收/T开（拟合原值；τ 闸同源）",
+    title: "ŷ_oc · open[T]→close[T]（拟合原值；τ 闸同源）",
   },
   {
     id: "score_on",
-    label: "y_on",
+    label: "y_co",
     width: 82,
     num: true,
     sortable: true,
     headClass: "watching-col-y",
     cellClass: "watching-col-y",
-    title: "隔夜 open · 旁路",
+    title: "ŷ_co · close[T]→open[T+1]（对照）",
   },
   {
     id: "score",
-    label: "y_trade",
+    label: "ranking",
     width: 94,
     num: true,
     sortable: true,
     headClass: "watching-col-y watching-col-y-trade",
     cellClass: "watching-col-y watching-col-y-trade",
-    title: "双头融合 · 排序/卖门槛",
+    title: "ranking = w·ŷ_oo + w·(ŷ_oc∘w_co·ŷ_co) · 排序/卖门槛",
   },
   {
     id: "score_nowcast",
-    label: "y_nc",
+    label: "y_τc",
     width: 82,
     num: true,
     sortable: true,
     headClass: "watching-col-y",
     cellClass: "watching-col-y",
-    title: "Kalman 合成 · 昨收口径 · 不进决策",
+    title: "ŷ_τc · close[T]/price(τ)−1 · 与 remaining(ŷ_oc) 融合成 R̂_τ / ĉ",
   },
   {
     id: "stance",
@@ -232,9 +232,9 @@ export async function mountWatchingTableIsland(host, options = {}) {
         const head = d.dualScoreHead || "";
         const headTitle =
           head === "single_tau"
-            ? "ŷ_trade 单头降级：仅 ŷ_τ（缺 ŷ_EOD）· 与双头票不同量纲"
+            ? "ŷ_trade 单头降级：仅 ŷ_oc（缺 ŷ_oo）· 与双头票不同量纲"
             : head === "single_eod"
-              ? "ŷ_trade 单头降级：仅 ŷ_EOD（缺 ŷ_τ）· 与双头票不同量纲"
+              ? "ŷ_trade 单头降级：仅 ŷ_oo（缺 ŷ_oc）· 与双头票不同量纲"
               : "ŷ_trade 单头降级 · 与双头票不同量纲";
         const badges = [];
         if (singleHead) {
@@ -249,7 +249,7 @@ export async function mountWatchingTableIsland(host, options = {}) {
           const yMap = {
             conflict: ["歧", "Y·EOD 校验：双头分歧 · 降低今日执行信任"],
             low_conf: ["弱", "Y·EOD 校验：低置信"],
-            missing_tau: ["缺τ", "Y·EOD 校验：缺 ŷ_τ"],
+            missing_tau: ["缺τ", "Y·EOD 校验：缺 ŷ_oc"],
             single_head: ["单", "Y·EOD 校验：单头降级"],
           };
           const [t, tip] = yMap[yCheck] || ["校", `Y·EOD 校验：${yCheck}`];
@@ -275,7 +275,7 @@ export async function mountWatchingTableIsland(host, options = {}) {
         );
       }
       if (col.id === "score_eod" || col.id === "score_tau" || col.id === "score_on" || col.id === "score_nowcast") {
-        const tipMap = { score_eod: "eod", score_tau: "tau", score_on: "on", score_nowcast: "nowcast" };
+        const tipMap = { score_eod: "eod", score_tau: "tau", score_on: "on", score_nowcast: "r" };
         const skinMap = { score_eod: "eod", score_tau: "tau", score_on: "on", score_nowcast: "nowcast" };
         const textKey =
           col.id === "score_eod"

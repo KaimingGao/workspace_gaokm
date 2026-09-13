@@ -166,12 +166,16 @@ def row_from_scored_item(
         yhat_nowcast = _to_float(item.get("yhat_nowcast"))
     if yhat_nowcast is not None and abs(float(yhat_nowcast)) > 20.0:
         yhat_nowcast = None
-    yhat_path = _to_float(item.get("predicted_score_path"))
+    yhat_path = _to_float(item.get("predicted_score_hl"))
+    if yhat_path is None:
+        yhat_path = _to_float(item.get("y_hl"))
+    if yhat_path is None:
+        yhat_path = _to_float(item.get("predicted_score_path"))
     if yhat_path is None:
         yhat_path = _to_float(item.get("yhat_path"))
     if yhat_path is None:
         yhat_path = _to_float(item.get("y_path"))
-    # path 头为 signed range%；勿用 EOD 的 >20 守卫；>|120| 多为旧 ±100 脏值
+    # HL 头为 signed range%；勿用 EOD 的 >20 守卫；>|120| 多为旧 ±100 脏值
     if yhat_path is not None and abs(float(yhat_path)) > 120.0:
         yhat_path = None
     terms = _terms_top(

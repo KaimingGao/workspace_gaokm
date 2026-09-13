@@ -38,7 +38,7 @@ export function watchingPoolMetaText(wlLen, paperN, maxSize) {
   return `观察 ${wlLen} 只 · 已持 ${paperN}/${wlLen} · 上限 ${maxSize || "—"}`;
 }
 
-/** @param {{ pool?: number|string|null, held?: number|string|null, maxSize?: number|string|null, buyPct?: number|null, mu?: number|null, med?: number|null, n?: number|null, eodMu?: number|null, eodMed?: number|null, eodN?: number|null }} opts */
+/** @param {{ pool?: number|string|null, held?: number|string|null, maxSize?: number|string|null, buyPct?: number|null, n?: number|null, eodMu?: number|null, eodMed?: number|null, eodN?: number|null }} opts */
 export function applyWatchingOverviewKpis(opts = {}) {
   const set = (id, value, sub, empty) => {
     const el = document.getElementById(id);
@@ -56,8 +56,6 @@ export function applyWatchingOverviewKpis(opts = {}) {
   const held = opts.held;
   const maxSize = opts.maxSize;
   const buyPct = opts.buyPct;
-  const mu = opts.mu;
-  const med = opts.med;
   const n = opts.n;
   const eodMu = opts.eodMu;
   const eodMed = opts.eodMed;
@@ -84,18 +82,9 @@ export function applyWatchingOverviewKpis(opts = {}) {
     set(
       "watching-kpi-buy",
       txt,
-      n != null ? `n=${n}` : "ŷ_EOD 过买门槛占比",
+      n != null ? `n=${n}` : "ŷ_oo 过买门槛占比",
       buyPct == null || !Number.isFinite(buyPct)
     );
-  }
-  if (mu !== undefined) {
-    const txt =
-      mu == null || !Number.isFinite(mu) ? "—" : `${Number(mu).toFixed(2)}%`;
-    const sub =
-      med != null && Number.isFinite(med)
-        ? `med ${Number(med).toFixed(2)}%`
-        : "ŷ_trade 截面均值";
-    set("watching-kpi-mu", txt, sub, mu == null || !Number.isFinite(mu));
   }
   if (eodMu !== undefined) {
     const txt =

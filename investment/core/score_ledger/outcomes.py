@@ -19,7 +19,7 @@ def _realized_from_bars(
     as_of: str,
     horizon_days: int,
 ) -> Optional[float]:
-    """(close[as_of+h] / close[as_of] - 1) * 100。"""
+    """ŷ_oo 对账：(open[as_of+h] / open[as_of] - 1) * 100。"""
     from core.market.calendar import next_trading_day
 
     d0 = date_key(as_of)
@@ -37,11 +37,11 @@ def _realized_from_bars(
     d1 = next_trading_day(d0, n=max(1, int(horizon_days or 1)))
     if not d1 or d1 not in by_date:
         return None
-    c0 = _lio._to_float(by_date[d0].get("close"))
-    c1 = _lio._to_float(by_date[d1].get("close"))
-    if c0 is None or c1 is None or c0 <= 0:
+    o0 = _lio._to_float(by_date[d0].get("open"))
+    o1 = _lio._to_float(by_date[d1].get("open"))
+    if o0 is None or o1 is None or o0 <= 0:
         return None
-    return (c1 / c0 - 1.0) * 100.0
+    return (o1 / o0 - 1.0) * 100.0
 
 
 def _realized_tau_from_bars(

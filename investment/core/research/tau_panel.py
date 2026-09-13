@@ -94,7 +94,7 @@ def _open_to_close_pct(open_px: float, close_px: float) -> Optional[float]:
 
 
 def y_r_pct(price_tau: Any, close: Any) -> Optional[float]:
-    """R_τ 真值（百分点）：price(τ)/close − 1。与 R̂_τ=(C/ĉ−1)×100 同几何。"""
+    """ŷ_τc 真值（百分点）：close[T]/price(τ) − 1。旧名 y_r。"""
     try:
         p = float(price_tau)
         c = float(close)
@@ -102,13 +102,32 @@ def y_r_pct(price_tau: Any, close: Any) -> Optional[float]:
         return None
     if p <= 0 or c <= 0:
         return None
-    return (p / c - 1.0) * 100.0
+    return (c / p - 1.0) * 100.0
+
+
+def _τc_close_px(meta: Any) -> Optional[float]:
+    """τ→收标签只用分钟收，避免日线/分钟价空间混除。"""
+    if not isinstance(meta, dict):
+        return None
+    c = meta.get("close_minute")
+    if c is None or c == "":
+        return None
+    try:
+        x = float(c)
+    except (TypeError, ValueError):
+        return None
+    if x != x or x <= 0:
+        return None
+    return x
 
 
 def relabel_tau_panels_as_r(
     enriched: Sequence[Dict[str, Any]],
 ) -> List[Dict[str, Any]]:
-    """把 τ 面板的 OC 标签换成 y_r = price(τ)/close − 1（百分点）。缺价则丢行。"""
+    """把 τ 面板的 OC 标签换成 ŷ_τc = close_minute[T]/price(τ) − 1（百分点）。
+
+    分子分母都在分钟价空间。缺分钟收则丢行（不用日线 close 垫）。
+    """
     out: List[Dict[str, Any]] = []
     for p in enriched or []:
         if not isinstance(p, dict):
@@ -123,7 +142,8 @@ def relabel_tau_panels_as_r(
         metas: List[Dict[str, Any]] = []
         for i in range(n):
             m = metas_in[i] if isinstance(metas_in[i], dict) else {}
-            yr = y_r_pct(m.get("price_tau"), m.get("close"))
+            close_px = _τc_close_px(m)
+            yr = y_r_pct(m.get("price_tau"), close_px)
             if yr is None:
                 continue
             xs.append(xs_in[i])
@@ -131,6 +151,7 @@ def relabel_tau_panels_as_r(
             dates.append(dates_in[i])
             meta = dict(m)
             meta["y_r"] = float(yr)
+            meta["y_τc"] = float(yr)
             metas.append(meta)
         if len(ys) < 4:
             continue

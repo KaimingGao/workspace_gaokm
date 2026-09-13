@@ -19,10 +19,10 @@ def _signal_item(**extra):
         "stock_name": "测试",
         "y_trade": 1.5,
         "predicted_score_blend": 1.5,
-        "predicted_score": 0.9,
-        "predicted_score_eod": 0.9,
-        "predicted_score_tau": 0.7,
-        "score_rem": 0.7,
+        "predicted_score": 1.8,
+        "predicted_score_eod": 1.8,
+        "predicted_score_tau": 1.2,
+        "score_rem": 1.2,
         "y_path": 2.5,
         "predicted_score_path": 2.5,
         "y_nowcast": 1.1,
@@ -76,14 +76,15 @@ class TestWatchingMatrixPreview(unittest.TestCase):
         report = out.get("rebalance_report") or []
         self.assertGreaterEqual(len(report), 1)
         self.assertEqual(report[0].get("decision"), "买入")
-        self.assertEqual(report[0].get("predicted_score_eod"), 0.9)
-        self.assertEqual(report[0].get("predicted_score_tau"), 0.7)
+        self.assertEqual(report[0].get("predicted_score_eod"), 1.8)
+        self.assertEqual(report[0].get("predicted_score_tau"), 1.2)
         self.assertEqual(report[0].get("predicted_score_on"), 0.2)
         self.assertEqual(report[0].get("predicted_score_path"), 2.5)
-        self.assertAlmostEqual(float(report[0].get("y_trade")), 1.5)
-        self.assertIsNotNone(report[0].get("y_fuse"))
-        self.assertIsNotNone(report[0].get("ranking_score"))
         self.assertEqual(float(out["buy_trades"][0].get("shares") or 0), 500)
+        self.assertAlmostEqual(float(report[0].get("y_trade")), 1.5)
+        self.assertAlmostEqual(float(report[0].get("ranking")), 1.5)
+        self.assertAlmostEqual(float(report[0].get("y_fuse")), 1.5)
+        self.assertIsNotNone(report[0].get("ranking_score"))
         self.assertEqual(paper.get("cash"), 1_000_000)
         self.assertEqual(paper.get("holdings") or [], [])
 
@@ -182,7 +183,9 @@ class TestWatchingMatrixPreview(unittest.TestCase):
             predicted_score_path=0.05,
             y_trade=0.18,
             predicted_score_blend=0.18,
+            predicted_score=0.4,
             predicted_score_eod=0.18,
+            predicted_score_tau=0.2,
         )
         with patch(
             "core.paper.rebalance.watching_matrix._watching_codes",
@@ -307,7 +310,7 @@ class TestWatchingMatrixPreview(unittest.TestCase):
         self.assertEqual(report[0].get("decision"), "跳过")
         self.assertIn("现金不足", str(report[0].get("reason") or ""))
         self.assertAlmostEqual(float(report[0].get("y_trade")), 3.0)
-        self.assertAlmostEqual(float(report[0].get("predicted_score_eod")), 0.9)
+        self.assertAlmostEqual(float(report[0].get("predicted_score_eod")), 1.8)
 
     def test_matrix_mode_service_confirm_writes(self):
         from services.paper_trades import PaperTradesMixin

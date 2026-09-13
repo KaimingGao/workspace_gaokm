@@ -39,7 +39,8 @@ function _fuseHitFromTrades(rows) {
   for (const r of rows || []) {
     if (!r || typeof r !== "object") continue;
     if (String(r.status || "") === "skipped" || String(r.status || "") === "held") continue;
-    let yf = _kpiNum(r.y_fuse);
+    let yf = _kpiNum(r.ranking);
+    if (yf == null) yf = _kpiNum(r.y_fuse);
     if (yf == null) {
       const rs = _kpiNum(r.ranking_score);
       if (rs != null) yf = rs * 100;
@@ -71,7 +72,7 @@ export function buildReplayOverviewKpis(data, { source = "" } = {}) {
       excess: blank("相对基准"),
       dd: blank("历史 MaxDD"),
       win: blank("日净值>0"),
-      hit: blank("sign(y_fuse)"),
+      hit: blank("sign(ranking)"),
     };
   }
   const m =
@@ -106,7 +107,7 @@ export function buildReplayOverviewKpis(data, { source = "" } = {}) {
       : legs.beta_leg_approx_pct != null
         ? `超额 · β腿≈${Number(legs.beta_leg_approx_pct).toFixed(1)}%`
         : `相对 ${bench.benchmark_label || "基准"}`;
-  let hitSub = "sign(y_fuse)";
+  let hitSub = "sign(ranking)";
   if (hitCount != null && hitCount > 0 && hitHits != null) {
     hitSub = `${hitHits}/${hitCount} 笔`;
   } else if (hitCount != null && hitCount > 0) {
@@ -388,10 +389,10 @@ export function buildPortfolioBacktestSummaryText(data) {
     eng === "paper_replay" || eng === "rank_lots"
       ? ""
       : tauOff
-        ? " · 选股 ŷ_EOD·关τ闸"
+        ? " · 选股 ŷ_oo·关τ闸"
         : data.params?.apply_tau_buy_gate === true
           ? " · 选股 ŷ_trade·τ闸开"
-          : " · 选股 ŷ_EOD·关τ闸";
+          : " · 选股 ŷ_oo·关τ闸";
   const engNote =
     eng === "topk_research"
       ? " · 引擎 研究Top-K（已下线）"
@@ -518,7 +519,7 @@ export function buildPortfolioBacktestCards(data, { escapeHtml: esc, fmtPct: fmt
       value: esc(
         params.apply_tau_buy_gate === true || data.request?.apply_tau_buy_gate === true
           ? "ŷ_trade · τ闸开"
-          : "ŷ_EOD · 关τ闸"
+          : "ŷ_oo · 关τ闸"
       ),
     },
     { label: "OOS", value: esc(String(oosLabel)), cls: oosFailed ? "down" : "" },
@@ -674,13 +675,12 @@ export function buildPortfolioBacktestCards(data, { escapeHtml: esc, fmtPct: fmt
 }
 
 /**
- * @param {{ escapeHtml?: typeof escapeHtml, fmtPct?: typeof fmtPct, metricClass?: typeof metricClass, researchGridHtml: Function }} deps
+ * @param {{ escapeHtml?: typeof escapeHtml, fmtPct?: typeof fmtPct, metricClass?: typeof metricClass }} deps
  */
 export function createBtResultRenderers(deps) {
   const esc = deps.escapeHtml || escapeHtml;
   const fmt = deps.fmtPct || fmtPct;
   const mcls = deps.metricClass || metricClass;
-  const researchGridHtml = deps.researchGridHtml;
 
   function renderMetricCards(host, items) {
     if (!host) return;
@@ -710,95 +710,6 @@ export function createBtResultRenderers(deps) {
     el.textContent = text;
     if (warn) el.classList.add("down");
     else el.classList.remove("down");
-  }
-
-  function renderFitGapPanel(data) {
-    const el = document.getElementById("quant-fit-gap");
-    if (!el) return;
-    if (!data || !data.ok) {
-      el.innerHTML = "";
-      return;
-    }
-    const hints = data.hints || [];
-    const dd = data.day_diff || {};
-    const rz = data.realization || {};
-    const corr =
-      rz.corr != null && Number.isFinite(Number(rz.corr))
-        ? Number(rz.corr).toFixed(3)
-        : "—";
-    const te =
-      rz.tracking_error_pct != null && Number.isFinite(Number(rz.tracking_error_pct))
-        ? `${Number(rz.tracking_error_pct).toFixed(2)}%`
-        : "—";
-    const aligned = dd.aligned_days ?? rz.aligned_days ?? "—";
-    const corrNum = Number(rz.corr);
-    const corrCls =
-      Number.isFinite(corrNum) && corrNum < 0.3
-        ? "down"
-        : Number.isFinite(corrNum) && corrNum >= 0.5
-          ? "up"
-          : "";
-    let html =
-      `<div class="quant-validation-strip" aria-label="拟合 KPI">` +
-      `<div class="quant-validation-kpi"><span class="k">Corr</span><span class="v ${corrCls}">${esc(corr)}</span></div>` +
-      `<div class="quant-validation-kpi"><span class="k">TE</span><span class="v">${esc(te)}</span></div>` +
-      `<div class="quant-validation-kpi"><span class="k">对齐日</span><span class="v">${esc(String(aligned))}</span></div>` +
-      `<div class="quant-validation-kpi"><span class="k">warn</span><span class="v ${(data.warn_count || 0) > 0 ? "down" : ""}">${esc(String(data.warn_count ?? 0))}</span></div>` +
-      `</div>` +
-      `<p class="quant-trades-caption">回测–纸面落差归因（启发式）</p>` +
-      researchGridHtml(
-        [
-          { id: "level", label: "级别", widthPct: 14, center: true },
-          { id: "code", label: "码", widthPct: 22 },
-          { id: "message", label: "说明", flex: true },
-        ],
-        hints.map((h) => ({
-          level: h.level || "info",
-          code: h.code || "",
-          message: h.message || "",
-          isWarn: (h.level || "") === "warn",
-        })),
-        (col, d) => esc(d[col.id] ?? "—"),
-        {
-          emptyText: "无归因项",
-          rowClass: (d) => (d.isWarn ? "down" : ""),
-        }
-      );
-    if (dd && (dd.aligned_days != null || (dd.day_gaps || []).length)) {
-      html +=
-        `<p class="quant-trades-caption">同窗日 Diff · 对齐 ${esc(
-          String(dd.aligned_days ?? 0)
-        )} · 纸面独有 ${esc(String(dd.paper_only_days ?? 0))} · 回测独有 ${esc(
-          String(dd.bt_only_days ?? 0)
-        )}</p>`;
-      const gaps = (dd.day_gaps || []).slice(0, 8);
-      if (gaps.length) {
-        html += researchGridHtml(
-          [
-            { id: "date", label: "日", widthPct: 22 },
-            { id: "paper_ret_pct", label: "纸面%", widthPct: 18, center: true },
-            { id: "bt_ret_pct", label: "回测%", widthPct: 18, center: true },
-            { id: "gap_pp", label: "Δpp", widthPct: 18, center: true },
-          ],
-          gaps.map((g) => ({
-            date: g.date || "—",
-            paper_ret_pct:
-              g.paper_ret_pct != null ? Number(g.paper_ret_pct).toFixed(2) : "—",
-            bt_ret_pct:
-              g.bt_ret_pct != null ? Number(g.bt_ret_pct).toFixed(2) : "—",
-            gap_pp: g.gap_pp != null ? Number(g.gap_pp).toFixed(2) : "—",
-            isWarn: Math.abs(Number(g.gap_pp) || 0) >= 1,
-          })),
-          (col, d) => esc(d[col.id] ?? "—"),
-          {
-            emptyText: "无日差样本",
-            rowClass: (d) => (d.isWarn ? "down" : ""),
-          }
-        );
-      }
-    }
-    html += `<p class="quant-sub">${esc(data.note || "")} · 常驻拟合见 <a href="/quant">研究枢纽</a> · 北极星见 <a href="/follow">交易执行</a></p>`;
-    el.innerHTML = html;
   }
 
   /** OOS + Walk-forward 稳健性条（验证台第一眼） */
@@ -860,7 +771,6 @@ export function createBtResultRenderers(deps) {
   return {
     renderMetricCards,
     renderBtScopeNote,
-    renderFitGapPanel,
     renderRobustnessPanel,
     buildPortfolioBacktestCards: buildCards,
   };

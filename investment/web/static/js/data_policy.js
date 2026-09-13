@@ -23,13 +23,13 @@ export const DATA_ARTIFACTS = [
     id: "day_bars",
     name: "日 K 仓",
     write: "研究枢纽「增量补齐」/「强更日 K」；页头「可拉远端」同源增量补齐",
-    read: "ŷ_EOD · IC/OOS · 仅本地仓时的现价回退",
+    read: "ŷ_oo · IC/OOS · 仅本地仓时的现价回退",
   },
   {
     id: "minute_bars",
     name: "5m 仓",
     write: "研究枢纽「增量补齐」/「强更 5m」；页头「可拉远端」同源增量补齐",
-    read: "ŷ_τ@10:30 分钟小包 · ŷ_path · 做T回测/预演路径 · 涨跌 tip",
+    read: "ŷ_oc@10:30 分钟小包 · ŷ_hl · 做T回测/预演路径 · 涨跌 tip",
   },
   {
     id: "scores",
@@ -83,12 +83,12 @@ export function t0DataFoot() {
 
 /** 研究枢纽分钟区补充 */
 export function minuteHubFoot() {
-  return "下游：ŷ_τ@10:30 · ŷ_path · 预演调仓 · 做T回测 · 涨跌 tip；Ready≠消费端 as-of 齐";
+  return "下游：ŷ_oc@10:30 · ŷ_hl · 预演调仓 · 做T回测 · 涨跌 tip；Ready≠消费端 as-of 齐";
 }
 
 /** 研究枢纽日线区补充 */
 export function dayBarsHubFoot() {
-  return "下游：ŷ_EOD / 分组 OLS · ≠ 5m；日常增量补齐 · 仓坏用强更日 K；「刷新 watching」只改名单";
+  return "下游：ŷ_oo / 分组 OLS · ≠ 5m；日常增量补齐 · 仓坏用强更日 K；「刷新 watching」只改名单";
 }
 
 /** 数据中心页头路径说明 */

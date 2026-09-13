@@ -1,5 +1,5 @@
 /**
- * ŷ_τ_tree / ŷ_r_tree 影子对照：KPI + 分 τ 曲线 + 增益条。
+ * ŷ_oc_tree / ŷ_τc_tree 影子对照：KPI + 分 τ 曲线 + 增益条。
  * 不写 live / 不进回测。
  */
 import { escapeHtml } from "../shared.js";
@@ -328,8 +328,8 @@ function tauPanel(treeOos, ridgeOos) {
 export function treeReportHtml(data, opts = {}) {
   if (!data || typeof data !== "object" || !data.success) return "";
   const isR = opts.head === "r";
-  const headName = isR ? "ŷ_r_tree" : "ŷ_τ_tree";
-  const ySpec = isR ? "price(τ)/close−1" : "open→close";
+  const headName = isR ? "ŷ_τc_tree" : "ŷ_oc_tree";
+  const ySpec = isR ? "close/price(τ)−1" : "open→close";
   const boost = data.oos || {};
   const ridge = data.ridge_oos || {};
   const delta = data.delta_vs_ridge || {};

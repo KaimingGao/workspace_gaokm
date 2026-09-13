@@ -1272,6 +1272,36 @@ function extractClusterHealth(cl) {
   const singleton = !!(cl && (cl.singleton || outlier));
   const hasModel = !!(rm && rm.coefficients);
 
+  const acc = (cl && cl.yhat_acc && typeof cl.yhat_acc === "object") ? cl.yhat_acc : {};
+  const mseRaw =
+    acc.mse != null
+      ? Number(acc.mse)
+      : cl && cl.mse != null
+        ? Number(cl.mse)
+        : ols && ols.mse != null
+          ? Number(ols.mse)
+          : null;
+  const mse = mseRaw != null && Number.isFinite(mseRaw) ? mseRaw : null;
+  const openHitRaw =
+    acc.open_hit_rate != null
+      ? Number(acc.open_hit_rate)
+      : acc.sign_hit != null
+        ? Number(acc.sign_hit)
+        : cl && cl.open_hit_rate != null
+          ? Number(cl.open_hit_rate)
+          : cl && cl.sign_hit != null
+            ? Number(cl.sign_hit)
+            : null;
+  const openHit =
+    openHitRaw != null && Number.isFinite(openHitRaw) ? openHitRaw : null;
+  const accN =
+    acc.n_signed != null && Number.isFinite(Number(acc.n_signed))
+      ? Number(acc.n_signed)
+      : acc.n != null && Number.isFinite(Number(acc.n))
+        ? Number(acc.n)
+        : null;
+  const accSource = acc.source ? String(acc.source) : "";
+
   return {
     r2,
     icMean,
@@ -1290,6 +1320,10 @@ function extractClusterHealth(cl) {
     singleton,
     outlier,
     hasModel,
+    mse,
+    openHit,
+    accN,
+    accSource,
   };
 }
 
@@ -1428,9 +1462,12 @@ export function buildClustersHealthMatrixHtml(
   const tYhat = (v) => (v == null ? null : Math.max(-1, Math.min(1, (v || 0) / 3)));
   const tScore = (v) =>
     v == null ? null : Math.max(-1, Math.min(1, (Number(v) - 50) / 50));
+  const tOpen = (v) =>
+    v == null ? null : Math.max(-1, Math.min(1, (Number(v) - 0.5) / 0.12));
 
   const f2 = (x) => (x == null || !Number.isFinite(Number(x)) ? "—" : Number(x).toFixed(2));
   const f3 = (x) => (x == null || !Number.isFinite(Number(x)) ? "—" : Number(x).toFixed(3));
+  const f4 = (x) => (x == null || !Number.isFinite(Number(x)) ? "—" : Number(x).toFixed(4));
   const fSigned = (x, digits = 2) => {
     if (x == null || !Number.isFinite(Number(x))) return "—";
     const n = Number(x);
@@ -1447,6 +1484,17 @@ export function buildClustersHealthMatrixHtml(
   const avgDelta = avg(rows.map((r) => r.deltaOos).filter((v) => v != null));
   const avgTight = avg(rows.map((r) => r.tightScore).filter((v) => v != null));
   const avgScore = avg(rows.map((r) => r.score).filter((v) => v != null));
+  const avgMse = avg(rows.map((r) => r.mse).filter((v) => v != null));
+  const avgOpen = avg(rows.map((r) => r.openHit).filter((v) => v != null));
+  const tMse = (v) => {
+    if (v == null || !Number.isFinite(Number(v))) return null;
+    const ref = avgMse != null && avgMse > 1e-6 ? avgMse : 4;
+    return Math.max(-1, Math.min(1, (ref - Number(v)) / Math.max(0.5, ref)));
+  };
+  const fPct = (x) =>
+    x == null || !Number.isFinite(Number(x))
+      ? "—"
+      : `${(Number(x) * 100).toFixed(1)}%`;
   const scoredRows = rows.filter((r) => !r.skipped && r.score != null);
   let best = null;
   let worst = null;
@@ -1490,6 +1538,8 @@ export function buildClustersHealthMatrixHtml(
         )
       : "") +
     kpi("均R²", f2(avgR2), "各组 OLS R² 均值") +
+    kpi("均MSE", f4(avgMse), "各组 ŷ_oo Holdout MSE 均值 · 越低越好") +
+    kpi("均开盘", fPct(avgOpen), "各组开盘命中率均值 · sign(ŷ_oo)=sign(open→open)") +
     kpi("均ICIR", f2(avgIcir), "各组 ICIR 均值") +
     kpi("均ΔOOS", fSigned(avgDelta), "ŷ−heuristic 增益均值 (pp)") +
     kpi("均同质", f2(avgTight), "同质分均值（越高越紧）") +
@@ -1508,8 +1558,10 @@ export function buildClustersHealthMatrixHtml(
     ["只", "组成员数"],
     ["档", "A 强=过门且 IC/ICIR>0 且 ŷOOS>0；B 中=过门未达强；C 弱=未过/跳过/单票"],
     ["R²", "组 OLS R²；≥0.7 偏绿"],
+    ["MSE", "ŷ_oo Holdout MSE=mean((y−ŷ)²)；越低越好（相对组均着色）"],
     ["IC", "组截面 Spearman IC 均值"],
     ["ICIR", "组 Spearman IC 信息比；正红负绿"],
+    ["开盘", "开盘命中率：sign(ŷ_oo)=sign(open[T+1]/open[T]−1)；|ŷ|<0.05% 不计"],
     ["ŷOOS", "研究臂 OOS 收益%；正红负绿"],
     ["ΔOOS", "ŷ−heuristic 增益 (pp)；正红负绿"],
     ["同质", "1−均β距/cap；越高越同质"],
@@ -1577,12 +1629,20 @@ export function buildClustersHealthMatrixHtml(
         `<td class="yhat-mx-td num" style="${qualityCellBg(tR2(r.r2))}" title="R² ${f3(
           r.r2
         )}">${esc(f2(r.r2))}</td>` +
+        `<td class="yhat-mx-td num" style="${qualityCellBg(tMse(r.mse))}" title="MSE ${
+          r.mse == null ? "—" : f4(r.mse)
+        }${r.accSource ? " · " + r.accSource : ""}">${esc(f4(r.mse))}</td>` +
         `<td class="yhat-mx-td num" style="${signedReturnCellBg(tIc(r.icMean))}" title="IC ${f3(
           r.icMean
         )}">${esc(f3(r.icMean))}</td>` +
         `<td class="yhat-mx-td num" style="${signedReturnCellBg(tIcir(r.icir))}" title="ICIR ${f3(
           r.icir
         )}">${esc(f2(r.icir))}</td>` +
+        `<td class="yhat-mx-td num" style="${qualityCellBg(tOpen(r.openHit))}" title="开盘命中 ${
+          r.openHit == null ? "—" : fPct(r.openHit)
+        }${r.accN != null ? " · n=" + r.accN : ""}${
+          r.accSource ? " · " + r.accSource : ""
+        }">${esc(fPct(r.openHit))}</td>` +
         `<td class="yhat-mx-td num" style="${signedReturnCellBg(tYhat(r.yhatOos))}" title="ŷ OOS ${f2(
           r.yhatOos
         )}% · 基线 ${f2(r.baseOosRet)}%">${

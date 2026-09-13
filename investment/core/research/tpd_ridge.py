@@ -201,7 +201,7 @@ def fit_tpd_ridge_report(
         "note": (
             "TPD=连续 5m 段内方向反转次数/有效内点（午休跳空不计）；"
             "y_tpd∈[0,1]，0=无反转、1=每根都反转。特征=开盘 Z + ≤τ 前缀 + tpd_lag1/ma5 + complexity_lag1/ma5。"
-            " 与 ŷ_complexity 共享开盘 Z 与路径小包。OOS 看 IC / 中位命中，不看方向命中。"
+            " 与 ŷ_cx 共享开盘 Z 与路径小包。OOS 看 IC / 中位命中，不看方向命中。"
         ),
     }
     model["extra_features"] = list(TPD_Z_FEATURES)

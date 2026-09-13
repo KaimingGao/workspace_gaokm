@@ -56,7 +56,6 @@ class TestExecutionResolve(unittest.TestCase):
             rules={
                 "y_path_enter": 0.2,
                 "y_tau_enter": 0.01,
-                "r_tau_enter": 0.01,
                 "y_enter_alt_enabled": False,
             },
             channel="backtest",
@@ -74,7 +73,7 @@ class TestExecutionResolve(unittest.TestCase):
         )
         # |y_path| 低于 path 入场视为横盘
         self.assertIsNotNone(skip)
-        self.assertIn("y_path", skip)
+        self.assertIn("y_hl", skip)
         self.assertIn("横盘", skip)
 
     def test_request_explicit_path_enter_side_still_wins(self):
@@ -189,6 +188,63 @@ class TestExecutionResolve(unittest.TestCase):
         apply_execution_patch_to_paper(paper, norm)
         view = execution_public_view(resolve_effective_execution(paper=paper, channel="paper"))
         self.assertTrue(view["t0"]["must_cover_same_day"])
+
+    def test_public_view_keeps_residual_weights(self):
+        from core.execution import (
+            apply_execution_patch_to_paper,
+            execution_public_view,
+            resolve_effective_execution,
+            validate_execution_patch,
+        )
+
+        ok, norm, errs = validate_execution_patch(
+            {
+                "t0": {
+                    "fusion_w_tc": 0.8,
+                    "fusion_w_τc": 0.8,
+                    "residual_w_oc": 0.2,
+                    "residual_w_mode": "fixed",
+                }
+            }
+        )
+        self.assertTrue(ok, errs)
+        self.assertAlmostEqual(float(norm["t0"]["fusion_w_tc"]), 0.8)
+        self.assertAlmostEqual(float(norm["t0"]["residual_w_oc"]), 0.2)
+        paper = {"strategy_id": "short_conservative", "rules": {}}
+        apply_execution_patch_to_paper(paper, norm)
+        view = execution_public_view(
+            resolve_effective_execution(paper=paper, channel="paper")
+        )
+        self.assertAlmostEqual(float(view["t0"]["fusion_w_tc"]), 0.8)
+        self.assertAlmostEqual(float(view["t0"]["fusion_w_τc"]), 0.8)
+        self.assertAlmostEqual(float(view["t0"]["residual_w_oc"]), 0.2)
+        self.assertEqual(view["t0"]["residual_w_mode"], "fixed")
+
+    def test_public_view_keeps_y_tc_strong(self):
+        from core.execution import (
+            apply_execution_patch_to_paper,
+            execution_public_view,
+            resolve_effective_execution,
+            validate_execution_patch,
+        )
+
+        ok, norm, errs = validate_execution_patch({"t0": {"y_tc_strong": 0.3}})
+        self.assertTrue(ok, errs)
+        self.assertAlmostEqual(float(norm["t0"]["y_tc_strong"]), 0.3)
+        paper = {
+            "strategy_id": "short_conservative",
+            "rules": {"t0": {"y_tc_validate": False, "y_tc_strong": 0.5}},
+        }
+        applied = apply_execution_patch_to_paper(paper, norm)
+        self.assertTrue(applied.get("ok"), applied)
+        self.assertNotIn("y_tc_validate", (paper.get("rules") or {}).get("t0") or {})
+        self.assertAlmostEqual(
+            float(((paper.get("rules") or {}).get("t0") or {})["y_tc_strong"]), 0.3
+        )
+        view = execution_public_view(
+            resolve_effective_execution(paper=paper, channel="paper")
+        )
+        self.assertAlmostEqual(float(view["t0"]["y_tc_strong"]), 0.3)
 
     def test_validate_patch_allows_y_tau_map(self):
         from core.execution import validate_execution_patch

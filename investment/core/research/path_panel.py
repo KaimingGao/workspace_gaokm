@@ -1,12 +1,14 @@
-"""ŷ_path 训练面板：与 ŷ_τ 同因子集（开盘 Z + 早盘前缀分钟小包）→ 全日极值时间序。
+"""ŷ_hl 训练面板：与 ŷ_τ 同因子集（开盘 Z + 早盘前缀分钟小包）→ 全日极值时间序。
 
 标签（相对锚价 ref 的百分点）：
-  先 low 后 high → y_path = (high−low)/ref×100
-  先 high 后 low → y_path = (low−high)/ref×100
+  先 low 后 high → y_hl = (high−low)/ref×100
+  先 high 后 low → y_hl = (low−high)/ref×100
 
-``first_touch_path_label`` 保留供触价对照；训练与 path实 用 ``extreme_order_path_label``。
+规范名 ``y_hl``；旧键 ``y_path`` / ``predicted_score_path`` 仍可读可写。
 
-无未来函数：特征 = 开盘信息集 + ≤τ（默认 10:30）分钟前缀 + 历史真实 path（path_lag1 / path_ma5，不含当日）；
+``first_touch_path_label`` 保留供触价对照；训练与 HL 实用 ``extreme_order_path_label``。
+
+无未来函数：特征 = 开盘信息集 + ≤τ（默认 10:30）分钟前缀 + 历史真实 HL（path_lag1 / path_ma5，不含当日）；
 标签可用全日分钟极值序。
 """
 
@@ -73,6 +75,75 @@ def _f(x: Any) -> Optional[float]:
     if v != v:
         return None
     return v
+
+
+Y_HL_HAT_KEYS = (
+    "y_hl",
+    "predicted_score_hl",
+    "y_path",
+    "predicted_score_path",
+)
+Y_HL_STATUS_KEYS = ("y_hl_status", "y_path_status")
+Y_HL_ERROR_KEYS = ("y_hl_error", "y_path_error")
+
+
+def pick_y_hl(*objs: Any) -> Optional[float]:
+    """盘中/日级 ŷ_hl；兼容旧键 y_path / predicted_score_path。"""
+    for obj in objs:
+        if not isinstance(obj, dict):
+            continue
+        for k in Y_HL_HAT_KEYS:
+            v = _f(obj.get(k))
+            if v is not None:
+                return v
+    return None
+
+
+def write_y_hl(dest: Dict[str, Any], val: float) -> None:
+    x = float(val)
+    dest["y_hl"] = x
+    dest["predicted_score_hl"] = x
+    dest["y_path"] = x
+    dest["predicted_score_path"] = x
+
+
+def clear_y_hl(dest: Dict[str, Any]) -> None:
+    for k in Y_HL_HAT_KEYS:
+        dest.pop(k, None)
+
+
+def pick_y_hl_status(*objs: Any) -> str:
+    for obj in objs:
+        if not isinstance(obj, dict):
+            continue
+        for k in Y_HL_STATUS_KEYS:
+            s = str(obj.get(k) or "").strip()
+            if s:
+                return s
+    return ""
+
+
+def write_y_hl_status(dest: Dict[str, Any], status: str) -> None:
+    s = str(status or "")
+    dest["y_hl_status"] = s
+    dest["y_path_status"] = s
+
+
+def pick_y_hl_error(*objs: Any) -> str:
+    for obj in objs:
+        if not isinstance(obj, dict):
+            continue
+        for k in Y_HL_ERROR_KEYS:
+            s = str(obj.get(k) or "").strip()
+            if s:
+                return s
+    return ""
+
+
+def write_y_hl_error(dest: Dict[str, Any], error: str) -> None:
+    s = str(error or "")
+    dest["y_hl_error"] = s
+    dest["y_path_error"] = s
 
 
 def _yclose_loc(prev_bar: Optional[dict], open_px: float) -> Optional[float]:
@@ -418,7 +489,7 @@ def attach_path_realized(
     sell_trig_pct: float = 2.0,
     buy_trig_pct: float = 1.5,
 ) -> Dict[str, Any]:
-    """把真实极值序标签写入日结果（signed (H−L)/ref %，与 ŷ_path 同尺度）。"""
+    """把真实极值序标签写入日结果（signed (H−L)/ref %，与 ŷ_hl 同尺度）。"""
     out: Dict[str, Any] = dict(day or {})
     minute_open = None
     for b in minute_bars or []:
@@ -469,7 +540,7 @@ def path_features_from_open_row(
 ) -> Dict[str, Optional[float]]:
     """从 τ 开盘/前缀行补齐 PATH_Z（含分钟小包键；缺则 None）。
 
-    形状键 t_hi_frac / t_lo_frac 一并写出供 ŷ_path；ŷ_complexity / ŷ_tpd / ŷ_τ 拟合不用。
+    形状键 t_hi_frac / t_lo_frac 一并写出供 ŷ_hl；ŷ_cx / ŷ_tpd / ŷ_τ 拟合不用。
     """
     out: Dict[str, Optional[float]] = {}
     for k in PATH_Z_FEATURES + MINUTE_TAU_SHAPE_KEYS:

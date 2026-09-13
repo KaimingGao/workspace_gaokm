@@ -1,4 +1,4 @@
-"""ŷ_path 路径头面板与 Ridge 测试。"""
+"""ŷ_hl 路径头面板与 Ridge 测试。"""
 
 from __future__ import annotations
 
@@ -458,7 +458,7 @@ class TestPathRidgeFit(unittest.TestCase):
                 self.assertTrue(forced.get("success"), forced)
                 doc = load_path_model()
                 self.assertIsNotNone(doc)
-                self.assertEqual(doc.get("dual_score_head"), "y_path")
+                self.assertEqual(doc.get("dual_score_head"), "y_hl")
                 self.assertEqual(doc.get("schema"), "path_ridge_v4")
                 self.assertEqual(doc.get("sell_trig_pct"), 1.0)
                 self.assertEqual(doc.get("tau_grid"), report.get("tau_grid"))
@@ -739,6 +739,16 @@ class PathLagFeatureTests(unittest.TestCase):
         )
         self.assertNotIn("path_range_lag1", feats)
         self.assertNotIn("path_sign_streak", feats)
+
+    def test_y_hl_aliases_read_legacy_y_path(self):
+        from core.research.path_panel import pick_y_hl, write_y_hl
+
+        dest = {}
+        write_y_hl(dest, 1.25)
+        self.assertAlmostEqual(dest["y_hl"], 1.25)
+        self.assertAlmostEqual(dest["y_path"], 1.25)
+        self.assertAlmostEqual(pick_y_hl({"y_path": -0.4}), -0.4)
+        self.assertAlmostEqual(pick_y_hl({"y_hl": 2.0, "y_path": -9.0}), 2.0)
 
 
 if __name__ == "__main__":

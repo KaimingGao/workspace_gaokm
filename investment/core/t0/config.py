@@ -140,8 +140,15 @@ _DEAD_T0_KEYS = (
     "y_path_abandon_bars",
     "y_path_abandon_bars_buy_then_sell",
     "y_path_abandon_bars_sell_then_buy",
-    # score 先验地板已由 α·δ 封顶替代，旧 overlay 丢弃
+    # score 先验平移带宽已下线，旧 overlay 丢弃
     "y_tau_leg1_prior_band_floor",
+    "y_tau_leg1_prior",
+    "y_tau_leg1_prior_mode",
+    "y_tau_leg1_prior_risk",
+    "y_tau_leg1_prior_shift_scale",
+    # 表单已下线：超额 r 入场闸（误标 R̂_τ，实际是 |C/C_τ−1|）
+    "r_tau_enter",
+    "r_tau_enter_alt",
 )
 
 
@@ -206,16 +213,24 @@ DEFAULT_T0_RULES: Dict[str, Any] = {
     "y_tau_enter_buy_then_sell": 0.0,
     "y_enter_enabled": True,  # 门槛1 启用；关则本档不参与 OR
     "y_enter_alt_enabled": True,  # 门槛2 启用；关则本档不参与 OR
-    "r_tau_enter": 0.0,  # 门槛1 |R̂_τ| 入场；范围 0–1.0；0=关
-    "r_tau_enter_alt": 0.0,  # 门槛2 |R̂_τ| 入场；缺键跟随 r_tau_enter
+    "fusion_w_τc": 0.5,  # residual 融合：ŷ_τc 权
+    "fusion_w_tc": 0.5,
+    "residual_w_oc": 0.5,  # residual 融合：remaining(ŷ_oc) 权
+    "residual_w_mode": "fixed",  # fixed | inv_var
     "y_path_enter": 0.0,
     "y_path_enter_sell_then_buy": 0.0,
     "y_path_enter_buy_then_sell": 0.0,
     "y_path_strong": 5.0,
-    "y_complexity_max": 1.0,  # ŷ_complexity∈[0,1]；>此值太折跳过；默认 1.00≈关
+    "y_tc_strong": 1.0,  # ŷ_τc 旁路：0=任意有符号须同号；1=关
+    "y_τc_strong": 1.0,
+    "y_tc_enter": 0.0,  # 门槛1 |ŷ_τc| 入场；范围 0–100%；0=关
+    "y_τc_enter": 0.0,
+    "y_tc_enter_alt": 0.0,  # 门槛2 |ŷ_τc| 入场；缺键跟随 y_tc_enter
+    "y_τc_enter_alt": 0.0,
+    "y_complexity_max": 1.0,  # ŷ_cx∈[0,1]；>此值太折跳过；默认 1.00≈关
     "y_tpd_max": 1.0,  # ŷ_tpd∈[0,1]；>此值反转过密跳过；默认 1.00≈关
     "y_tau_enter_alt": 0.0,  # 门槛2 |y_τ| 入场；缺键跟随 y_tau_enter
-    "y_path_enter_alt": 0.0,  # 门槛2 |y_path| 入场；缺键跟随 y_path_enter
+    "y_path_enter_alt": 0.0,  # 门槛2 |y_hl| 入场；缺键跟随 y_path_enter
     "y_complexity_max_alt": 1.0,
     "y_tpd_max_alt": 1.0,
     "y_eod_enter": 0.01,
@@ -229,18 +244,15 @@ DEFAULT_T0_RULES: Dict[str, Any] = {
     "y_tau_map": "trend",
     "y_use_path": True,
     "y_path_required": False,
-    # v6 τ先验：把预估开→收 ŷ_τ 当偏移加到 ±δ 上，整条带宽平移（宽度仍 2δ），不改冻结 leg2（仍 ĉ±δ）。
-    # score=漂移 / off=对称 ±δ；s=clip(k·ŷ_τ, ±α·δ)，上沿=δ+s、下沿=−δ+s（旧 skip 并入 score）
-    "y_tau_leg1_prior_mode": "score",
-    "y_tau_leg1_prior_risk": 10.0,  # k：偏移灵敏度；s=k·ŷ_τ；范围 0–100
-    # α∈[0.1, 1.0]：|s|≤α·δ（默认 1）；α=1 时同侧可贴 0
-    "y_tau_leg1_prior_shift_scale": 1.0,
-    "y_tau_leg1_prior": True,  # 镜像：mode≠off
+    # C_τ = O×(1+clip(ŷ_oc×scale, y_oc_l, y_oc_u)/100)；upper/lower = C_τ×(1±δ/100)
+    "t0_y_oc_target_scale": 10.0,
+    "t0_y_oc_l": -3.0,
+    "t0_y_oc_u": 3.0,
     "y_gap_tier_mode": "skip_opposite",
     "y_gap_tier_pct": 1.0,
     "y_nowcast_oc_gate": False,
     # v6：收盘带宽选腿（无前缀阴阳/复合确认）
-    "t0_close_band_delta_pct": 3.0,
+    "t0_close_band_delta_pct": 3.0,  # 超额带宽 δ%：upper/lower = C_τ×(1±δ/100)；leg2 = C_τ
     # 日线 ĉ=ĉ_τ，分钟价经 S=O_d/O_m 映入同空间破带（|S−1| 超阈跳过）
     "t0_price_space_gate": True,
     "t0_price_space_max_dev_pct": 5.0,
@@ -508,8 +520,6 @@ def load_t0_rules(override: Optional[dict] = None) -> Dict[str, Any]:
         ("y_tau_enter", 0.0, 100.0, 0.0),
         ("y_tau_enter_sell_then_buy", 0.0, 100.0, 0.0),
         ("y_tau_enter_buy_then_sell", 0.0, 100.0, 0.0),
-        ("r_tau_enter", 0.0, 1.0, 0.0),
-        ("r_tau_enter_alt", 0.0, 1.0, 0.0),
         ("y_tau_enter_alt", 0.0, 100.0, 0.0),
         ("y_on_risk", 0.01, 10.0, 0.01),
         ("y_on_allow", 0.01, 10.0, 0.01),
@@ -522,11 +532,20 @@ def load_t0_rules(override: Optional[dict] = None) -> Dict[str, Any]:
         ("y_path_enter_buy_then_sell", 0.0, 100.0, 0.0),
         ("y_path_enter_alt", 0.0, 100.0, 0.0),
         ("y_path_strong", 0.0, 5.0, 5.0),
+        ("y_tc_strong", 0.0, 1.0, 1.0),
+        ("y_τc_strong", 0.0, 1.0, 1.0),
+        ("y_tc_enter", 0.0, 100.0, 0.0),
+        ("y_τc_enter", 0.0, 100.0, 0.0),
+        ("y_tc_enter_alt", 0.0, 100.0, 0.0),
+        ("y_τc_enter_alt", 0.0, 100.0, 0.0),
         ("y_complexity_max", 0.0, 1.0, 1.0),
         ("y_tpd_max", 0.0, 1.0, 1.0),
         ("y_complexity_max_alt", 0.0, 1.0, 1.0),
         ("y_tpd_max_alt", 0.0, 1.0, 1.0),
         ("y_gap_tier_pct", 0.3, 8.0, 1.0),
+        ("fusion_w_τc", 0.0, 1.0, 0.5),
+        ("fusion_w_tc", 0.0, 1.0, 0.5),
+        ("residual_w_oc", 0.0, 1.0, 0.5),
     ):
         try:
             raw = cfg.get(yk)
@@ -534,6 +553,27 @@ def load_t0_rules(override: Optional[dict] = None) -> Dict[str, Any]:
         except (TypeError, ValueError):
             val = float(default)
         cfg[yk] = max(lo, min(val, hi))
+    mode = str(cfg.get("residual_w_mode") or "fixed").strip().lower()
+    cfg["residual_w_mode"] = (
+        "inv_var"
+        if mode in ("inv_var", "inverse_var", "inverse_variance", "oos", "variance")
+        else "fixed"
+    )
+    def _w_or_default(raw: Any, default: float = 0.5) -> float:
+        try:
+            if raw is None or raw == "":
+                return float(default)
+            return float(raw)
+        except (TypeError, ValueError):
+            return float(default)
+
+    if "fusion_w_τc" in override_keys and cfg.get("fusion_w_τc") is not None:
+        cfg["fusion_w_tc"] = float(cfg["fusion_w_τc"])
+    elif "fusion_w_tc" in override_keys:
+        cfg["fusion_w_τc"] = _w_or_default(cfg.get("fusion_w_tc"))
+    else:
+        cfg["fusion_w_τc"] = _w_or_default(cfg.get("fusion_w_tc"), _w_or_default(cfg.get("fusion_w_τc")))
+        cfg["fusion_w_tc"] = float(cfg["fusion_w_τc"])
     # 旧双闸：y_tau_enter_strong 并入入场；输出同步以免旧前端读到更低门槛
     try:
         strong_legacy = cfg.get("y_tau_enter_strong")
@@ -574,37 +614,33 @@ def load_t0_rules(override: Optional[dict] = None) -> Dict[str, Any]:
     cfg["y_enter_alt_enabled"] = coerce_cfg_bool(cfg.get("y_enter_alt_enabled"), True)
     cfg["y_use_path"] = coerce_cfg_bool(cfg.get("y_use_path"), True)
     cfg["y_path_required"] = coerce_cfg_bool(cfg.get("y_path_required"), False)
-    from core.t0.close_band import normalize_y_tau_leg1_prior_mode
+    from core.t0.close_band import resolve_y_oc_target_params
 
-    if cfg.get("y_tau_leg1_prior_mode") is None or cfg.get("y_tau_leg1_prior_mode") == "":
-        # 旧布尔：False→off；True→score（量化风险抬门槛，非硬跳过）；键都缺→score
-        if "y_tau_leg1_prior" in override_keys:
-            cfg["y_tau_leg1_prior_mode"] = (
-                "score" if coerce_cfg_bool(cfg.get("y_tau_leg1_prior"), False) else "off"
-            )
-        else:
-            cfg["y_tau_leg1_prior_mode"] = "score"
-    cfg["y_tau_leg1_prior_mode"] = normalize_y_tau_leg1_prior_mode(
-        cfg.get("y_tau_leg1_prior_mode"), default="score"
-    )
-    cfg["y_tau_leg1_prior"] = cfg["y_tau_leg1_prior_mode"] != "off"
-    try:
-        raw_k = cfg.get("y_tau_leg1_prior_risk")
-        risk_k = 10.0 if raw_k is None or raw_k == "" else float(raw_k)
-    except (TypeError, ValueError):
-        risk_k = 10.0
-    cfg["y_tau_leg1_prior_risk"] = max(0.0, min(risk_k, 100.0))
-    try:
-        raw_a = cfg.get("y_tau_leg1_prior_shift_scale")
-        shift_scale = 1.0 if raw_a is None or raw_a == "" else float(raw_a)
-    except (TypeError, ValueError):
-        shift_scale = 1.0
-    from core.t0.close_band import clamp_y_tau_leg1_prior_shift_scale
-
-    cfg["y_tau_leg1_prior_shift_scale"] = clamp_y_tau_leg1_prior_shift_scale(
-        shift_scale, default=1.0
-    )
+    scale, y_oc_l, y_oc_u = resolve_y_oc_target_params(cfg)
+    cfg["t0_y_oc_target_scale"] = scale
+    cfg["t0_y_oc_l"] = y_oc_l
+    cfg["t0_y_oc_u"] = y_oc_u
     cfg["y_nowcast_oc_gate"] = coerce_cfg_bool(cfg.get("y_nowcast_oc_gate"), False)
+    # 旧双钮 y_tc_validate=关 → 1=关；旗标本身不再覆盖新表单的 τc强
+    _tc_val = cfg.get("y_tc_validate")
+    if _tc_val is None:
+        _tc_val = cfg.get("y_τc_validate")
+    if _tc_val is not None and not coerce_cfg_bool(_tc_val, True):
+        cfg["y_tc_strong"] = 1.0
+    cfg.pop("y_tc_validate", None)
+    cfg.pop("y_τc_validate", None)
+    if cfg.get("y_tc_strong") in (None, "") and cfg.get("y_τc_strong") not in (None, ""):
+        cfg["y_tc_strong"] = cfg.get("y_τc_strong")
+    cfg["y_τc_strong"] = cfg.get("y_tc_strong")
+    if cfg.get("y_tc_enter") in (None, "") and cfg.get("y_τc_enter") not in (None, ""):
+        cfg["y_tc_enter"] = cfg.get("y_τc_enter")
+    cfg["y_τc_enter"] = cfg.get("y_tc_enter")
+    if cfg.get("y_tc_enter_alt") in (None, "") and cfg.get("y_τc_enter_alt") not in (
+        None,
+        "",
+    ):
+        cfg["y_tc_enter_alt"] = cfg.get("y_τc_enter_alt")
+    cfg["y_τc_enter_alt"] = cfg.get("y_tc_enter_alt")
     legacy_exit_skip = coerce_cfg_bool(cfg.get("y_tau_exit_price_skip"), True)
     try:
         raw_legacy_exit_mult = cfg.get("y_tau_exit_price_mult")

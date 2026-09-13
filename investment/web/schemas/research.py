@@ -176,7 +176,7 @@ class OnRidgeRequest(BaseModel):
 
 
 class PathRidgeRequest(BaseModel):
-    """ŷ_path Ridge：开盘 Z + 多 τ 前缀分钟小包 + t_hi/t_lo 进度 → 全日极值序（dual_y · y_path）。"""
+    """ŷ_hl Ridge：开盘 Z + 多 τ 前缀分钟小包 + t_hi/t_lo 进度 → 全日极值序（dual_y · y_hl）。"""
 
     lookback: int = Field(default=120, ge=40, le=500)
     watching_limit: int = Field(
@@ -232,7 +232,7 @@ class PathRidgeRequest(BaseModel):
 
 
 class CxRidgeRequest(BaseModel):
-    """ŷ_complexity Ridge：开盘 Z + 多 τ 前缀分钟小包 + lag → 全日 5m 曲折度 1−D/L ∈[0,1]。"""
+    """ŷ_cx Ridge：开盘 Z + 多 τ 前缀分钟小包 + lag → 全日 5m 曲折度 1−D/L ∈[0,1]。"""
 
     lookback: int = Field(default=120, ge=40, le=500)
     watching_limit: int = Field(
@@ -320,7 +320,7 @@ class TpdRidgeRequest(BaseModel):
 
 
 class RRidgeRequest(BaseModel):
-    """ŷ_r Ridge：与 ŷ_τ 同 X → price(τ)/close−1（百分点）。对照 R̂_τ；不进调仓 / ĉ / 选腿。"""
+    """ŷ_τc Ridge：与 ŷ_oc 同 X → close[T]/price(τ)−1（百分点）。与 remaining(ŷ_oc) 融合成 R̂_τ / ĉ。"""
 
     lookback: int = Field(default=120, ge=40, le=500)
     watching_limit: int = Field(
@@ -479,7 +479,7 @@ class ClusterBarsRefreshRequest(BaseModel):
 
 
 class ClusterMinuteRefreshRequest(BaseModel):
-    """观察池 5m 分钟线预热（ŷ_path / T0 回测）。"""
+    """观察池 5m 分钟线预热（ŷ_hl / T0 回测）。"""
 
     period: str = Field(default="5", description="分钟周期；默认 5m")
     lookback_days: int = Field(default=30, ge=5, le=90)

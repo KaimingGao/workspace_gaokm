@@ -18,6 +18,20 @@ from core.t0.config import T0_LAST_LEG1_HM, load_t0_rules
 from core.t0.slots import simulate_t0_day_slots
 
 
+def _snap(y_tau, **extra):
+    """ŷ_oc 估 C_τ 夹具：C_τ=O×(1+clip(y_τ×scale, ±3)/100)，收价破带选向。"""
+    out = {
+        "y_tau": float(y_tau),
+        "y_tau_oc": float(y_tau),
+        "y_trade": 0.0,
+        "y_nowcast": 0.0,
+        "y_path": 1.0,
+        "nowcast_vs": "open",
+    }
+    out.update(extra)
+    return out
+
+
 def _cfg(overrides=None):
     """路径单测关掉 TPD 入场闸；生产默认 y_tpd_max=1.00≈关。"""
     d = dict(overrides or {})
@@ -79,9 +93,10 @@ class TestCloseBandCore(unittest.TestCase):
         }
         est = estimate_close_px(sc, open_px=100.0, prev_close=100.0)
         self.assertTrue(est["ok"])
-        # ĉ := ĉ_τ only；trade/nc 不进均价
-        self.assertAlmostEqual(est["close_px"], 101.0, places=4)
-        self.assertAlmostEqual(est["c_tau"], 101.0, places=4)
+        # C_τ = 100×(1+clip(1×10, −3, +3)/100) = 103
+        self.assertAlmostEqual(est["close_px"], 103.0, places=4)
+        self.assertAlmostEqual(est["c_tau"], 103.0, places=4)
+        self.assertAlmostEqual(est["c_oc"], 101.0, places=4)
         self.assertIsNone(est["c_trade"])
         self.assertIsNone(est["c_nowcast"])
         self.assertEqual(est["n_sources"], 1)
@@ -110,27 +125,57 @@ class TestCloseBandCore(unittest.TestCase):
         self.assertFalse(est["ok"])
         self.assertEqual(est["n_sources"], 0)
 
-    def test_freeze_opposite_band(self):
+    def test_freeze_band_target(self):
+        # 正T：C_τ=101 → 目标即 C_τ
         fr = freeze_round(
-            direction="sell_then_buy",
-            leg1_px=100.6,
-            close_px=100.0,
+            direction="buy_then_sell",
+            leg1_px=100.0,
+            close_px=101.0,
             delta_px=0.5,
             ratio=0.2,
             bar_index=0,
             hm="09:35",
         )
-        self.assertEqual(fr.leg2_target, 99.5)
+        self.assertAlmostEqual(fr.leg2_target, 101.0, places=4)
+        # 反T：同样冻在 C_τ
         fr2 = freeze_round(
-            direction="buy_then_sell",
-            leg1_px=99.4,
-            close_px=100.0,
+            direction="sell_then_buy",
+            leg1_px=100.0,
+            close_px=101.0,
             delta_px=0.5,
             ratio=0.2,
             bar_index=1,
             hm="09:40",
         )
-        self.assertEqual(fr2.leg2_target, 100.5)
+        self.assertAlmostEqual(fr2.leg2_target, 101.0, places=4)
+
+    def test_c_tau_clip_formula_and_multiplicative_band(self):
+        from core.t0.close_band import close_band_pick_direction, clip_y_oc_target_pct
+
+        # ŷ_oc=-1.12% ×10 = −11.2 → clip 到 −3
+        self.assertAlmostEqual(clip_y_oc_target_pct(-1.12), -3.0, places=6)
+        est = estimate_close_px({"y_tau": -1.12}, open_px=25.300)
+        self.assertAlmostEqual(est["c_tau"], 25.300 * (1.0 - 0.03), places=4)
+        # ŷ_oc=0.1% ×10 = 1 → 未饱和
+        est2 = estimate_close_px({"y_tau": 0.1}, open_px=100.0)
+        self.assertAlmostEqual(est2["c_tau"], 101.0, places=4)
+        c_tau = 24.541
+        d, meta = close_band_pick_direction(25.276, c_tau, 3.0, {"y_tau": -1.12}, {})
+        self.assertIsNone(d)
+        self.assertAlmostEqual(meta["upper_pct"], 3.0, places=4)
+        self.assertAlmostEqual(meta["lower_pct"], -3.0, places=4)
+        d_up, _ = close_band_pick_direction(25.300, c_tau, 3.0, {"y_tau": -1.12}, {})
+        self.assertEqual(d_up, "sell_then_buy")
+        fr = freeze_round(
+            direction="sell_then_buy",
+            leg1_px=25.060,
+            close_px=c_tau,
+            delta_px=0.736,
+            ratio=0.2,
+            bar_index=0,
+            hm="09:35",
+        )
+        self.assertAlmostEqual(fr.leg2_target, c_tau, places=4)
 
     def test_hm_cutoff(self):
         self.assertEqual(parse_bar_hm({"datetime": "2025-01-02 09:35:00"}), "09:35")
@@ -174,7 +219,7 @@ class TestCloseBandCore(unittest.TestCase):
             {"y_path_strong": 0.2, "y_use_path": True},
         )
         self.assertIsNotNone(strong_dis)
-        self.assertIn("y_path", strong_dis)
+        self.assertIn("y_hl", strong_dis)
         self.assertIn("异号", strong_dis)
         # 同号放行
         strong_ok = close_band_sign_skip_reason(
@@ -188,6 +233,84 @@ class TestCloseBandCore(unittest.TestCase):
             {"y_path_strong": 0.2, "y_use_path": False},
         )
         self.assertIsNone(off)
+
+    def test_y_tc_sidecar_skip_reason(self):
+        from core.t0.close_band import close_band_y_tc_skip_reason, y_tc_band_agree
+        from core.t0.viz import classify_t0_skip_reason
+
+        self.assertTrue(y_tc_band_agree("sell_then_buy", -0.8))
+        self.assertFalse(y_tc_band_agree("sell_then_buy", 0.8))
+        self.assertTrue(y_tc_band_agree("buy_then_sell", 0.8))
+        self.assertFalse(y_tc_band_agree("buy_then_sell", -0.8))
+        self.assertIsNone(y_tc_band_agree("sell_then_buy", 0.01))
+        self.assertIsNone(y_tc_band_agree(None, -1.0))
+
+        off = close_band_y_tc_skip_reason(
+            {"y_τc": 2.0},
+            {},
+            direction="sell_then_buy",
+            y_τc=2.0,
+        )
+        self.assertIsNone(off)
+
+        on = {"y_tc_strong": 0.5}
+        skip = close_band_y_tc_skip_reason(
+            {"y_τc": 2.0},
+            on,
+            direction="sell_then_buy",
+            y_τc=2.0,
+        )
+        self.assertIsNotNone(skip)
+        self.assertIn("旁路逆带", skip)
+        self.assertEqual(classify_t0_skip_reason(skip), "y_tc_disagree")
+
+        self.assertIsNone(
+            close_band_y_tc_skip_reason(
+                {"y_τc": -1.0},
+                on,
+                direction="sell_then_buy",
+                y_τc=-1.0,
+            )
+        )
+        self.assertIsNone(
+            close_band_y_tc_skip_reason(
+                {"y_τc": 0.2},
+                on,
+                direction="sell_then_buy",
+                y_τc=0.2,
+            )
+        )
+        self.assertIsNone(
+            close_band_y_tc_skip_reason(
+                {},
+                on,
+                direction="sell_then_buy",
+            )
+        )
+        self.assertIsNotNone(
+            close_band_y_tc_skip_reason(
+                {"y_τc": 2.0},
+                {"y_tc_strong": 0},
+                direction="sell_then_buy",
+                y_τc=2.0,
+            )
+        )
+        self.assertIsNone(
+            close_band_y_tc_skip_reason(
+                {"y_τc": 2.0},
+                {"y_tc_strong": 1},
+                direction="sell_then_buy",
+                y_τc=2.0,
+            )
+        )
+        from core.t0.config import load_t0_rules
+
+        self.assertEqual(float(load_t0_rules({})["y_tc_strong"]), 1.0)
+        migrated = load_t0_rules({"y_tc_validate": False, "y_tc_strong": 0.5})
+        self.assertEqual(float(migrated["y_tc_strong"]), 1.0)
+        self.assertNotIn("y_tc_validate", migrated)
+        kept = load_t0_rules({"y_tc_strong": 0.3})
+        self.assertAlmostEqual(float(kept["y_tc_strong"]), 0.3)
 
     def test_enter_skip_tau_and_path(self):
         from core.t0.close_band import close_band_enter_skip_reason
@@ -206,7 +329,7 @@ class TestCloseBandCore(unittest.TestCase):
         )
         self.assertIsNotNone(weak_path)
         self.assertIn("横盘", weak_path)
-        self.assertIn("y_path", weak_path)
+        self.assertIn("y_hl", weak_path)
         ok = close_band_enter_skip_reason(
             {"y_tau": -0.5, "y_path": 0.8},
             {"y_tau_enter": 0.01, "y_path_enter": 0.01},
@@ -218,7 +341,7 @@ class TestCloseBandCore(unittest.TestCase):
             {"y_tau_enter": 0.01, "y_path_enter": 0.01},
         )
         self.assertIsNotNone(no_path)
-        self.assertIn("y_path", no_path)
+        self.assertIn("y_hl", no_path)
         # 开盘-only 尚未有分钟小包：path 闸暂不适用（避免第一根真破带被误杀）
         open_only = close_band_enter_skip_reason(
             {"y_tau": 1.0, "y_path_status": "minute_feats_missing"},
@@ -248,7 +371,7 @@ class TestCloseBandCore(unittest.TestCase):
             {"y_tau_enter": 0.0, "y_path_enter": 0.0},
         )
         self.assertIsNotNone(miss_with_enter_off)
-        self.assertIn("y_path", miss_with_enter_off)
+        self.assertIn("y_hl", miss_with_enter_off)
         off = close_band_enter_skip_reason(
             {"y_tau": 0.0, "y_path": 1.0},
             {"y_tau_enter": 0.0, "y_path_enter": 0.0},
@@ -334,7 +457,7 @@ class TestCloseBandCore(unittest.TestCase):
         self.assertIsNotNone(default_on)
         self.assertIn("反转过密", default_on)
 
-    def test_enter_skip_r_tau(self):
+    def test_enter_skip_legacy_r_tau_ignored(self):
         from core.t0.close_band import close_band_enter_skip_reason
 
         cfg = {
@@ -342,43 +465,67 @@ class TestCloseBandCore(unittest.TestCase):
             "y_path_enter": 0.0,
             "y_use_path": False,
             "r_tau_enter": 0.5,
+            "r_tau_enter_alt": 0.5,
+        }
+        self.assertIsNone(
+            close_band_enter_skip_reason(
+                {"y_tau": 1.0, "y_path": 1.0}, cfg, r_pct=0.2
+            )
+        )
+        self.assertIsNone(
+            close_band_enter_skip_reason({"y_tau": 1.0, "y_path": 1.0}, cfg)
+        )
+
+    def test_enter_skip_y_tc(self):
+        from core.t0.close_band import close_band_enter_skip_reason
+        from core.t0.viz import classify_t0_skip_reason
+
+        cfg = {
+            "y_tau_enter": 0.0,
+            "y_path_enter": 0.0,
+            "y_use_path": False,
+            "y_tc_enter": 0.5,
         }
         weak = close_band_enter_skip_reason(
-            {"y_tau": 1.0, "y_path": 1.0}, cfg, r_pct=0.2
+            {"y_tau": 1.0, "y_path": 1.0, "y_τc": 0.1}, cfg
         )
         self.assertIsNotNone(weak)
-        self.assertIn("超额不足", weak)
+        self.assertIn("横盘", weak)
+        self.assertIn("ŷ_τc", weak)
+        self.assertEqual(classify_t0_skip_reason(weak), "y_tc_flat")
         ok = close_band_enter_skip_reason(
-            {"y_tau": 1.0, "y_path": 1.0}, cfg, r_pct=0.6
+            {"y_tau": 1.0, "y_path": 1.0, "y_τc": 0.8}, cfg
         )
         self.assertIsNone(ok)
-        off = close_band_enter_skip_reason(
-            {"y_tau": 1.0, "y_path": 1.0},
-            {**cfg, "r_tau_enter": 0.0},
-            r_pct=0.01,
-        )
-        self.assertIsNone(off)
         miss = close_band_enter_skip_reason(
             {"y_tau": 1.0, "y_path": 1.0}, cfg
         )
         self.assertIsNotNone(miss)
-        self.assertIn("R̂_τ 缺失", miss)
-        # r_tau_enter=0 且省略 r_pct：不挡（与既有调用兼容）
-        omitted = close_band_enter_skip_reason(
+        self.assertIn("ŷ_τc 缺失", miss)
+        self.assertEqual(classify_t0_skip_reason(miss), "y_tc_flat")
+        off = close_band_enter_skip_reason(
             {"y_tau": 1.0, "y_path": 1.0},
-            {"y_tau_enter": 0.0, "y_path_enter": 0.0, "y_use_path": False},
+            {**cfg, "y_tc_enter": 0.0},
         )
-        self.assertIsNone(omitted)
+        self.assertIsNone(off)
+        alt_ok = close_band_enter_skip_reason(
+            {"y_tau": 1.0, "y_path": 1.0, "y_τc": 0.6},
+            {
+                **cfg,
+                "y_tc_enter": 0.9,
+                "y_tc_enter_alt": 0.5,
+            },
+        )
+        self.assertIsNone(alt_ok)
 
     def test_enter_skip_return_and_risk(self):
-        """破带后每档 |y_τ| / |y_path| / |R̂_τ| 过入场，且 complexity/tpd 过上限。大 |y| 不能换高风险。"""
+        """破带后每档 |y_τ| / |ŷ_τc| / |y_path| 过入场，且 complexity/tpd 过上限。大 |y| 不能换高风险。"""
         from core.t0.close_band import close_band_enter_skip_reason
 
         cfg = {
             "y_use_path": True,
             "y_complexity_max": 0.8,
             "y_tpd_max": 0.40,
-            "r_tau_enter": 0.1,
         }
         high_y_high_risk = {
             "y_tau": 0.50,
@@ -386,7 +533,7 @@ class TestCloseBandCore(unittest.TestCase):
             "predicted_score_complexity": 0.90,
             "y_tpd_hat": 0.80,
         }
-        skip_cx = close_band_enter_skip_reason(high_y_high_risk, cfg, r_pct=0.5)
+        skip_cx = close_band_enter_skip_reason(high_y_high_risk, cfg)
         self.assertIsNotNone(skip_cx)
         self.assertIn("太折", skip_cx)
         self.assertNotIn("门槛", skip_cx)
@@ -399,7 +546,6 @@ class TestCloseBandCore(unittest.TestCase):
                 "y_tpd_hat": 0.50,
             },
             cfg,
-            r_pct=0.5,
         )
         self.assertIsNotNone(skip_tpd)
         self.assertIn("反转过密", skip_tpd)
@@ -413,21 +559,8 @@ class TestCloseBandCore(unittest.TestCase):
                     "y_tpd_hat": 0.20,
                 },
                 cfg,
-                r_pct=0.5,
             )
         )
-        r_block = close_band_enter_skip_reason(
-            {
-                "y_tau": 0.50,
-                "y_path": 0.50,
-                "predicted_score_complexity": 0.50,
-                "y_tpd_hat": 0.20,
-            },
-            cfg,
-            r_pct=0.05,
-        )
-        self.assertIsNotNone(r_block)
-        self.assertIn("超额不足", r_block)
 
         # 2026-08-26 09:40：太折，大 y 不能放行
         day_0940 = close_band_enter_skip_reason(
@@ -441,45 +574,24 @@ class TestCloseBandCore(unittest.TestCase):
                 "y_complexity_max": 0.79,
                 "y_tpd_max": 0.39,
                 "y_use_path": True,
-                "r_tau_enter": 0.0,
             },
             direction="buy_then_sell",
-            r_pct=-0.01,
         )
         self.assertIsNotNone(day_0940)
         self.assertIn("太折", day_0940)
         self.assertNotIn("门槛", day_0940)
 
-        # 门槛2：更大 |R| 且放宽风险仍可开腿
+        # 门槛2：放宽风险仍可开腿
         self.assertIsNone(
             close_band_enter_skip_reason(
                 high_y_high_risk,
                 {
                     **cfg,
-                    "r_tau_enter_alt": 0.40,
                     "y_complexity_max_alt": 1.0,
                     "y_tpd_max_alt": 1.0,
                 },
-                r_pct=0.5,
             )
         )
-        both_r_fail = close_band_enter_skip_reason(
-            {
-                "y_tau": 0.50,
-                "y_path": 0.50,
-                "predicted_score_complexity": 0.50,
-                "y_tpd_hat": 0.20,
-            },
-            {
-                **cfg,
-                "r_tau_enter_alt": 0.40,
-                "y_complexity_max_alt": 1.0,
-                "y_tpd_max_alt": 1.0,
-            },
-            r_pct=0.05,
-        )
-        self.assertIsNotNone(both_r_fail)
-        self.assertIn("超额不足", both_r_fail)
 
         from core.t0.config import load_t0_rules
 
@@ -499,7 +611,7 @@ class TestCloseBandCore(unittest.TestCase):
         self.assertAlmostEqual(loaded["y_tau_enter_alt"], 0.40)
         self.assertAlmostEqual(loaded["y_path_enter_alt"], 0.0)
         self.assertIsNotNone(
-            close_band_enter_skip_reason(high_y_high_risk, loaded, r_pct=0.2)
+            close_band_enter_skip_reason(high_y_high_risk, loaded)
         )
 
     def test_enter_gate_enabled_toggles(self):
@@ -516,10 +628,8 @@ class TestCloseBandCore(unittest.TestCase):
             "y_use_path": True,
             "y_complexity_max": 0.8,
             "y_tpd_max": 0.40,
-            "r_tau_enter": 0.1,
             "y_enter_enabled": True,
             "y_enter_alt_enabled": True,
-            "r_tau_enter_alt": 0.40,
             "y_complexity_max_alt": 1.0,
             "y_tpd_max_alt": 1.0,
         }
@@ -550,7 +660,7 @@ class TestCloseBandCore(unittest.TestCase):
         """破带 p=本根 5m close；日线 close 不同也不得替代。"""
         from core.t0.slots import simulate_t0_day_slots
 
-        # 分钟首根收 100.6 上破 ĉ=100+δ；日线 close=99.4 若误用会走下破
+        # 分钟首根收 100.6 上破 ĉ=99+δ；日线 close=99.4 若误用会走下破
         closes = [100.6] + [100.0] * 30
         mins = _mins(closes, session_open=100.0)
         bar = {
@@ -572,7 +682,6 @@ class TestCloseBandCore(unittest.TestCase):
                 "y_tau_enter": 0.0,
                 "y_path_enter": 0.0,
                 "y_use_path": False,
-                "y_tau_leg1_prior_mode": "off",
             }
         )
         out = simulate_t0_day_slots(
@@ -589,107 +698,39 @@ class TestCloseBandCore(unittest.TestCase):
             cost_params={},
             atr_pct=None,
             hist_bars=[],
-            score_snap={"y_tau": 0.0, "y_tau_oc": 0.0, "y_path": 1.0},
+            score_snap=_snap(-1.0),
         )
         self.assertEqual(out.get("direction_used"), "sell_then_buy", out)
         cb = (out.get("t0_slot_results") or [{}])[0].get("close_band") or {}
-        self.assertAlmostEqual(float(cb.get("band_r_pct") or 0), 0.6, places=2)
+        self.assertLess(float(cb.get("r_hat") or cb.get("band_r_pct") or 0), 0)
 
-    def test_tau_prior_blocks_against_leg(self):
-        from core.t0.close_band import (
-            close_band_pick_direction,
-            normalize_y_tau_leg1_prior_mode,
-            resolve_close_band_thresholds_pct,
-        )
+    def test_band_break_picks_direction(self):
+        from core.t0.close_band import close_band_pick_direction
 
-        # 旧 skip/hard 配置归一成 score，不再硬跳过
-        self.assertEqual(normalize_y_tau_leg1_prior_mode("skip"), "score")
-        self.assertEqual(normalize_y_tau_leg1_prior_mode("hard"), "score")
-        self.assertEqual(normalize_y_tau_leg1_prior_mode("off"), "off")
-        self.assertEqual(normalize_y_tau_leg1_prior_mode(None), "score")
-        # score：s=clip(k·y_τ, ±α·δ)；0<α<1 → upper=δ+s，lower=−δ+s
-        up, lo = resolve_close_band_thresholds_pct(
-            0.5, 0.3, mode="score", risk_k=1.0, shift_scale=0.9
-        )
-        self.assertAlmostEqual(up, 0.8, places=6)  # δ+0.3
-        self.assertAlmostEqual(lo, -0.2, places=6)
-        # 强看空：s 触 −αδ，upper=δ(1−α)>0，lower=−δ(1+α)
-        up_b, lo_b = resolve_close_band_thresholds_pct(
-            0.5, -1.24, mode="score", risk_k=1.0, shift_scale=0.9
-        )
-        self.assertAlmostEqual(up_b, 0.05, places=6)  # 0.5 − 0.45
-        self.assertAlmostEqual(lo_b, -0.95, places=6)  # −0.5 − 0.45
-        self.assertGreater(up_b, 0.0)
-        self.assertLess(lo_b, 0.0)
-        # 08-21 类：贴 ĉ 微幅上穿；α=0.9 时 upper=0.05 > r≈0.012% → 不开反T
-        d0, meta0 = close_band_pick_direction(
-            84.950,
-            84.940,
-            0.5,
-            {"y_tau": -1.24},
-            {
-                "y_tau_leg1_prior_mode": "score",
-                "y_tau_leg1_prior_risk": 1.0,
-                "y_tau_leg1_prior_shift_scale": 0.9,
-            },
-        )
-        self.assertIsNone(d0)
-        self.assertAlmostEqual(meta0["upper_pct"], 0.05, places=6)
-        # r=0.6% 对称会反T；y_τ=0.4 → upper=0.9，不开
-        d1, meta1 = close_band_pick_direction(
+        d0, meta0 = close_band_pick_direction(103.5, 100.0, 3.0, {"y_tau": 0.0}, {})
+        self.assertEqual(d0, "sell_then_buy")
+        self.assertAlmostEqual(meta0["r_pct"], 3.5, places=4)
+        self.assertAlmostEqual(meta0["upper_pct"], 3.0, places=4)
+
+        d1, meta1 = close_band_pick_direction(96.5, 100.0, 3.0, {"y_tau": 0.0}, {})
+        self.assertEqual(d1, "buy_then_sell")
+        self.assertAlmostEqual(meta1["r_pct"], -3.5, places=4)
+
+        d2, _ = close_band_pick_direction(101.0, 100.0, 3.0, {"y_tau": 0.0}, {})
+        self.assertIsNone(d2)
+
+        # ŷ_τc 对照字段不改选向：同一价格破上带仍反T
+        d3, _ = close_band_pick_direction(
             100.6,
             100.0,
             0.5,
-            {"y_tau": 0.4},
-            {
-                "y_tau_leg1_prior_mode": "score",
-                "y_tau_leg1_prior_risk": 1.0,
-                "y_tau_leg1_prior_shift_scale": 0.9,
-            },
+            {"y_tau": 0.4, "y_τc": -2.0},
+            {},
         )
-        self.assertIsNone(d1)
-        self.assertAlmostEqual(meta1["upper_pct"], 0.9, places=6)
-        # 同向：小幅下破即可正T
-        d2, meta2 = close_band_pick_direction(
-            99.7,
-            100.0,
-            0.5,
-            {"y_tau": 0.4},
-            {
-                "y_tau_leg1_prior_mode": "score",
-                "y_tau_leg1_prior_risk": 1.0,
-                "y_tau_leg1_prior_shift_scale": 0.9,
-            },
-        )
-        self.assertEqual(d2, "buy_then_sell")
-        self.assertGreater(meta2["lower_pct"], -0.5)
-        self.assertLess(meta2["lower_pct"], 0.0)
-        # α≥1 钳到上限 1.0：|s|≤δ，同侧可贴 0
-        up_s, lo_s = resolve_close_band_thresholds_pct(
-            0.5, 1.0, mode="score", risk_k=1.0, shift_scale=2.0
-        )
-        self.assertAlmostEqual(up_s, 1.0, places=6)  # δ + 1.0δ
-        self.assertAlmostEqual(lo_s, 0.0, places=6)
-        from core.t0.close_band import clamp_y_tau_leg1_prior_shift_scale
-
-        self.assertAlmostEqual(clamp_y_tau_leg1_prior_shift_scale(0.05), 0.1, places=6)
-        self.assertAlmostEqual(clamp_y_tau_leg1_prior_shift_scale(0.95), 0.95, places=6)
-        self.assertAlmostEqual(clamp_y_tau_leg1_prior_shift_scale(1.2), 1.0, places=6)
-        self.assertAlmostEqual(clamp_y_tau_leg1_prior_shift_scale(None), 1.0, places=6)
-        # k 与 α 分工：同等 raw 下 α 只抬 cap，不放大未触顶的 s
-        up_a, lo_a = resolve_close_band_thresholds_pct(
-            0.5, 0.2, mode="score", risk_k=1.0, shift_scale=0.9
-        )
-        up_k, lo_k = resolve_close_band_thresholds_pct(
-            0.5, 0.2, mode="score", risk_k=2.0, shift_scale=0.9
-        )
-        self.assertAlmostEqual(up_a, 0.7, places=6)  # s=0.2 未触 α·δ=0.45
-        self.assertAlmostEqual(up_k, 0.9, places=6)  # s=min(0.4, 0.45)=0.4
-        self.assertNotAlmostEqual(up_a, up_k, places=6)
+        self.assertEqual(d3, "sell_then_buy")
 
     def test_price_space_scale_and_gate(self):
         from core.t0.close_band import (
-            band_decision_return,
             map_close_px_to_minute,
             price_space_scale,
             resolve_t0_price_space,
@@ -740,10 +781,6 @@ class TestCloseBandCore(unittest.TestCase):
         self.assertAlmostEqual(mapped["close_px"], 100.0, places=4)
         self.assertAlmostEqual(mapped["close_px_daily"], 101.0, places=4)
         self.assertIsNone(mapped["c_trade"])
-        # 收益空间破带
-        self.assertEqual(band_decision_return(0.6, 0.0, 0.5), "sell_then_buy")
-        self.assertEqual(band_decision_return(-0.6, 0.0, 0.5), "buy_then_sell")
-        self.assertIsNone(band_decision_return(0.1, 0.0, 0.5))
         from core.t0.viz import classify_t0_skip_reason
 
         self.assertEqual(
@@ -815,19 +852,13 @@ class TestCloseBandCore(unittest.TestCase):
                 "t0_pm_degrade_sell_then_buy": "15:30",
                 "t0_price_space_max_dev_pct": 0.5,
                 "t0_price_space_prev_dev_pct": 0.5,
-                # 本用例测价空间映射；ŷ=0 时关掉入场闸
+                # 本用例测价空间映射；R<0 开反T
                 "y_tau_enter": 0.0,
                 "y_path_enter": 0.0,
                 "y_use_path": False,
             }
         )
-        scores = {
-            "y_tau": 0.0,
-            "y_trade": 0.0,
-            "y_nowcast": 0.0,
-            "nowcast_vs": "open",
-            "predicted_score_blend_vs": "open",
-        }
+        scores = _snap(-0.5, predicted_score_blend_vs="open")
 
         def _fake_rescore(**kwargs):
             snap = dict(kwargs.get("open_snap") or {})
@@ -957,7 +988,6 @@ class TestCloseBandCore(unittest.TestCase):
                 "y_tau_enter": 0.0,
                 "y_path_enter": 0.0,
                 "y_use_path": False,
-                "y_tau_leg1_prior_mode": "off",
             }
         )
 
@@ -994,12 +1024,16 @@ class TestCloseBandCore(unittest.TestCase):
                 hist_bars=[],
                 score_snap={"y_tau": 0.0, "y_tau_oc": 0.0, "y_path": 1.0},
             )
+        from core.t0.close_band import target_c_tau_px
+
         scan = out.get("close_band_scan") or []
         self.assertTrue(scan, out)
         for row in scan[1:4]:
-            if row.get("y_tau") is None or row.get("r_pct") is None:
+            if row.get("y_tau") is None or row.get("c_tau") is None:
                 continue
-            self.assertLess(abs(float(row["r_pct"])), 0.15, row)
+            want = target_c_tau_px(100.0, float(row["y_tau"]))
+            self.assertIsNotNone(want)
+            self.assertAlmostEqual(float(row["c_tau"]), float(want), places=3, msg=row)
 
         def _live_by_bar(**kwargs):
             prefix = [b for b in (kwargs.get("minute_prefix") or []) if isinstance(b, dict)]
@@ -1092,11 +1126,13 @@ class TestCloseBandCore(unittest.TestCase):
         self.assertIn("c", first)
         self.assertIn("c_tau", first)
         self.assertIn("y_tau", first)
-        self.assertIn("y_complexity", first)
+        self.assertIn("y_cx", first)
         self.assertIn("y_cx", first)
         self.assertIn("y_tpd", first)
         self.assertIn("upper_pct", first)
         self.assertIn("lower_pct", first)
+        self.assertIn("y_tc_agree", first)
+        self.assertIn("y_tc_skip", first)
         for row in scan:
             hm = str(row.get("hm") or "")
             self.assertLessEqual(hm, "11:00", row)
@@ -1104,7 +1140,7 @@ class TestCloseBandCore(unittest.TestCase):
 
 class TestCloseBandDayPath(unittest.TestCase):
     def test_reverse_t_opens_and_covers(self):
-        # ĉ=100, δ=0.5 → 上破卖、下破买回
+        # 超额 r=(C/C_τ−1)% 上破 → 反T 现价卖；leg2 冻结 C_τ
         closes = [100.6] + [100.0] * 8 + [99.4] + [100.0] * 20
         mins = _mins(closes)
         bar = {
@@ -1130,12 +1166,7 @@ class TestCloseBandDayPath(unittest.TestCase):
                 "y_use_path": False,
             }
         )
-        scores = {
-            "y_tau": 0.0,
-            "y_trade": 0.0,
-            "y_nowcast": 0.0,
-            "nowcast_vs": "open",
-        }
+        scores = _snap(-0.5)
         out = simulate_t0_day_slots(
             bar=bar,
             minute_bars=mins,
@@ -1164,13 +1195,70 @@ class TestCloseBandDayPath(unittest.TestCase):
             str(first.get("direction_used") or first.get("direction") or ""),
             "sell_then_buy",
         )
-        self.assertEqual((first.get("close_band") or {}).get("leg2_target"), 99.5)
+        tgt = float((first.get("close_band") or {}).get("leg2_target") or 0)
+        self.assertGreater(tgt, 0)
+        self.assertLess(tgt, 100.6)
         self.assertGreaterEqual(int(first.get("sold_qty") or 0), 100)
         n_tr = first.get("trades")
         if isinstance(n_tr, int):
             self.assertGreaterEqual(n_tr, 1)
         else:
             self.assertGreaterEqual(len(n_tr or []), 1)
+
+    def test_y_tc_sidecar_blocks_fade_when_on(self):
+        """反T 破带但 ŷ_τc 强正（续涨）：旁路开则跳过，默认关仍开轮。"""
+        closes = [100.6] + [100.0] * 28
+        mins = _mins(closes)
+        bar = {
+            "date": "2025-01-02",
+            "open": 100,
+            "high": 101,
+            "low": 99,
+            "close": 100,
+            "prev_close": 100,
+        }
+        base = {
+            "t0_close_band_delta_pct": 0.5,
+            "t0_round_ratio": 0.2,
+            "fill_mode": "trigger",
+            "t0_stop_pct_sell_then_buy": 0,
+            "t0_stop_pct_buy_then_sell": 0,
+            "must_cover_same_day": True,
+            "must_cover_same_day_sell_then_buy": True,
+            "t0_pm_degrade_sell_then_buy": "15:30",
+            "y_tau_enter": 0.0,
+            "y_path_enter": 0.0,
+            "y_use_path": False,
+        }
+        scores = _snap(0.0, **{"y_τc": 2.0, "y_tc": 2.0})
+        kwargs = dict(
+            bar=bar,
+            minute_bars=mins,
+            shares=1000,
+            cost=100,
+            sellable_shares=1000,
+            cash=200000,
+            stock_code="",
+            lot=100,
+            cost_model="none",
+            cost_params={},
+            atr_pct=None,
+            hist_bars=None,
+            score_snap=scores,
+            defer_eod=False,
+        )
+        off = simulate_t0_day_slots(cfg=_cfg(base), **kwargs)
+        self.assertFalse(off.get("skipped"), off.get("reason"))
+        on = simulate_t0_day_slots(
+            cfg=_cfg({**base, "y_tc_strong": 0.5}),
+            **kwargs,
+        )
+        self.assertTrue(on.get("skipped"), on)
+        reason = str(on.get("reason") or on.get("close_band_last_y_tc_skip") or "")
+        self.assertIn("旁路逆带", reason)
+        scan = on.get("close_band_scan") or []
+        self.assertTrue(any(r.get("y_tc_skip") for r in scan), scan[:2])
+        self.assertEqual((scan[0] or {}).get("y_tc_agree"), False)
 
     def test_strong_trade_tau_disagree_no_longer_blocks(self):
         """破带 + 强 y_trade↔y_τ 异号：v6 仍可开轮（异号闸已下线）。"""
@@ -1190,8 +1278,6 @@ class TestCloseBandDayPath(unittest.TestCase):
                 "t0_round_ratio": 0.2,
                 "y_trade_strong": 0.2,
                 "y_eod_strong": 5.0,
-                "y_tau_leg1_prior": False,
-                "y_tau_leg1_prior_mode": "off",
                 "y_use_path": False,
                 "fill_mode": "trigger",
                 "t0_stop_pct_sell_then_buy": 0,
@@ -1199,7 +1285,7 @@ class TestCloseBandDayPath(unittest.TestCase):
                 "t0_pm_degrade_sell_then_buy": "15:30",
             }
         )
-        # y_τ=-1 → ĉ=99；收 100.6 破上沿 → 反T（先验 off）
+        # y_τ=-1 → clip(-10,-3,3)=-3 → C_τ=97；收 100.6 破上沿 → 反T
         scores = {
             "y_tau": -1.0,
             "y_trade": 1.0,
@@ -1235,11 +1321,10 @@ class TestCloseBandDayPath(unittest.TestCase):
         first = rows[0]
         self.assertEqual(first.get("direction") or first.get("direction_used"), "sell_then_buy")
         cb = first.get("close_band") or {}
-        self.assertAlmostEqual(float(cb.get("close_px") or 0), 99.0, places=4)
+        self.assertAlmostEqual(float(cb.get("close_px") or 0), 97.0, places=4)
 
-    def test_tau_prior_blocks_reverse_t_on_bullish_day(self):
-        """看多日：score 抬反T门槛，温和上破不开反T。"""
-        # ĉ_τ=100.2（y_τ=0.2）；100.75 → r≈0.55%：off 破 ±0.5，score upper≈0.7 仍挡
+    def test_band_below_hat_opens_long_t(self):
+        """C 低于 C_τ×(1−δ) → 正T（ŷ_oc clip 估 C_τ；ŷ_τc 不改方向）。"""
         closes = [100.75] + [100.0] * 28
         mins = _mins(closes)
         bar = {
@@ -1256,22 +1341,11 @@ class TestCloseBandDayPath(unittest.TestCase):
                 "t0_round_ratio": 0.2,
                 "y_tau_enter": 0.01,
                 "y_path_enter": 0.0,
-                "y_tau_leg1_prior_mode": "score",
-                "y_tau_leg1_prior_risk": 1.0,
                 "fill_mode": "trigger",
-                "t0_stop_pct_sell_then_buy": 0,
-                "must_cover_same_day_sell_then_buy": True,
-                "t0_pm_degrade_sell_then_buy": "15:30",
+                "t0_stop_pct_buy_then_sell": 0,
+                "must_cover_same_day_buy_then_sell": False,
             }
         )
-        # y_τ=0.2 → ĉ=100.2；upper≈0.7；r≈0.55% < upper → 不开
-        scores = {
-            "y_tau": 0.2,
-            "y_trade": 0.0,
-            "y_nowcast": 0.0,
-            "y_path": 1.0,
-            "nowcast_vs": "open",
-        }
         out = simulate_t0_day_slots(
             bar=bar,
             minute_bars=mins,
@@ -1286,7 +1360,7 @@ class TestCloseBandDayPath(unittest.TestCase):
             cost_params={},
             atr_pct=None,
             hist_bars=None,
-            score_snap=scores,
+            score_snap=_snap(2.0),
             defer_eod=False,
         )
         rows = [
@@ -1294,47 +1368,8 @@ class TestCloseBandDayPath(unittest.TestCase):
             for r in (out.get("t0_slot_results") or [])
             if not r.get("skipped") and int(r.get("sold_qty") or 0) + int(r.get("bought_qty") or 0) > 0
         ]
-        self.assertEqual(rows, [])
-        self.assertTrue(out.get("skipped"))
-        # 对照：关先验后同价应能开反T
-        cfg_off = _cfg(
-            {
-                **{
-                    "t0_close_band_delta_pct": 0.5,
-                    "t0_round_ratio": 0.2,
-                    "y_tau_enter": 0.01,
-                    "y_path_enter": 0.0,
-                    "y_tau_leg1_prior_mode": "off",
-                    "fill_mode": "trigger",
-                    "t0_stop_pct_sell_then_buy": 0,
-                    "must_cover_same_day_sell_then_buy": True,
-                    "t0_pm_degrade_sell_then_buy": "15:30",
-                }
-            }
-        )
-        out_off = simulate_t0_day_slots(
-            bar=bar,
-            minute_bars=mins,
-            shares=1000,
-            cost=100,
-            sellable_shares=1000,
-            cfg=cfg_off,
-            cash=200000,
-            stock_code="",
-            lot=100,
-            cost_model="none",
-            cost_params={},
-            atr_pct=None,
-            hist_bars=None,
-            score_snap=scores,
-            defer_eod=False,
-        )
-        rows_off = [
-            r
-            for r in (out_off.get("t0_slot_results") or [])
-            if not r.get("skipped") and int(r.get("sold_qty") or 0) + int(r.get("bought_qty") or 0) > 0
-        ]
-        self.assertGreater(len(rows_off), 0)
+        self.assertGreater(len(rows), 0, out)
+        self.assertEqual(rows[0].get("direction") or rows[0].get("direction_used"), "buy_then_sell")
 
     def test_weak_tau_enter_blocks_band_open(self):
         """破带但 |y_τ|<y_tau_enter → 不开轮。"""
@@ -1395,10 +1430,10 @@ class TestCloseBandDayPath(unittest.TestCase):
         reason = str(out.get("close_band_last_enter_skip") or out.get("reason") or "")
         self.assertIn("横盘", reason)
 
-    def test_weak_r_tau_enter_blocks_band_open(self):
-        """破带但 |R̂_τ|<r_tau_enter → 不开轮；0=关闸，同价仍开。"""
-        # open=100, y_τ=1% → ĉ=101；δ=0.5% 对称；C=101.6 → r≈0.594% 上破但不到 0.8
-        closes = [101.6] + [101.0] * 30
+    def test_legacy_r_tau_enter_does_not_block_band_open(self):
+        """旧 r_tau_enter overlay 已下线，破带后不再因超额 r 拦开轮。"""
+        # C_τ=O×(1+clip(0×10)/100)=100；C=100.6 破 δ=0.5；r≈0.6
+        closes = [100.6] + [100.0] * 30
         mins = _mins(closes, session_open=100.0)
         bar = {
             "date": "2025-01-02",
@@ -1409,7 +1444,7 @@ class TestCloseBandDayPath(unittest.TestCase):
             "prev_close": 100,
         }
         scores = {
-            "y_tau": 1.0,
+            "y_tau": 0.0,
             "y_trade": 0.0,
             "y_nowcast": 0.0,
             "y_path": 1.0,
@@ -1424,7 +1459,6 @@ class TestCloseBandDayPath(unittest.TestCase):
                     "y_tau_enter": 0.0,
                     "y_path_enter": 0.0,
                     "y_use_path": False,
-                    "y_tau_leg1_prior_mode": "off",
                     "r_tau_enter": r_enter,
                     "r_tau_enter_alt": r_enter,
                     "fill_mode": "trigger",
@@ -1460,18 +1494,15 @@ class TestCloseBandDayPath(unittest.TestCase):
             ]
 
         blocked = _run(0.8)
-        self.assertEqual(_filled(blocked), [])
-        self.assertTrue(blocked.get("skipped"))
-        reason = str(blocked.get("close_band_last_enter_skip") or blocked.get("reason") or "")
-        self.assertIn("超额不足", reason)
-        self.assertIn("R̂_τ", reason)
+        self.assertGreater(len(_filled(blocked)), 0)
+        self.assertFalse(blocked.get("skipped"))
 
         opened = _run(0.0)
         self.assertGreater(len(_filled(opened)), 0)
         self.assertFalse(opened.get("skipped"))
 
     def test_frozen_leg2_beats_tau_exit_target(self):
-        """有 ŷ_τ 时第二腿仍须触冻结 ĉ−δ，不能被 τ 出场价抢走。"""
+        """有 ŷ_τ 时第二腿仍须触冻结 C_τ，不能被 τ 出场价抢走。"""
         closes = [100.6] + [100.0] * 5 + [99.4] + [100.0] * 10
         mins = _mins(closes)
         bar = {

@@ -12,6 +12,8 @@ logger = logging.getLogger(__name__)
 from core.io_atomic import atomic_write_json
 from core.research.factor_ols_fit import fit_factor_ols_from_panel
 from core.research.on_panel import (
+    ON_LAG_FEAT_LABELS,
+    ON_Z_FEATURES,
     collect_on_panel,
     enrich_on_panel_breadth,
     theme_sample_weights,
@@ -25,17 +27,6 @@ from core.research.tau_ridge import (
     _subset,
 )
 
-ON_Z_FEATURES = (
-    "ret_oc",
-    "gap_pct",
-    "ret_cc",
-    "y_on_today",
-    "sector_gap_breadth",
-    "theme_day",
-    "gap_atr",
-    "gap_vs_sector",
-    "ret_open_to_tau",
-)
 ON_MIN_STD_EXEMPT = ON_Z_FEATURES
 
 
@@ -53,8 +44,9 @@ def _stack_panels(enriched: Sequence[Dict[str, Any]]) -> tuple:
 
 
 def _z_only_row(row: Optional[dict]) -> Dict[str, Optional[float]]:
+    """始终输出完整 ON_Z_FEATURES 键，避免 yest_gap / yclose_loc 被静默丢掉。"""
     src = row or {}
-    return {k: src.get(k) for k in ON_Z_FEATURES if k in src}
+    return {k: src.get(k) for k in ON_Z_FEATURES}
 
 
 def _z_only_xs(xs: Sequence[dict]) -> List[dict]:
@@ -169,6 +161,8 @@ def fit_on_ridge_report(
 
     preds_te = _predict_rows(fit, xs_te) if xs_te else []
     by_theme = _oos_by_theme(preds_te, ys_te, metas_te) if ys_te else {}
+    from core.research.path_panel import feature_fill_rates
+
     oos = {
         "n_train": len(ys_tr),
         "n_test": len(ys_te),
@@ -179,6 +173,7 @@ def fit_on_ridge_report(
         "holdout_trading_days": hold_n,
         "theme_boost": theme_boost if use_theme_weights else None,
         "target": "overnight_gap",
+        "feature_fill": feature_fill_rates(xs_z, ON_Z_FEATURES),
     }
 
     research_model = make_research_model(fit, y_mean=0.0)
@@ -224,7 +219,7 @@ def fit_on_ridge_report(
         "y_spec": dict(model.get("y_spec") or {}),
         "schema": "on_ridge_v1",
         "target": "overnight_gap",
-        "note": "ŷ_ON(Z) 估 open[T+1]/close[T]-1 隔夜缺口；与 EOD/τ 解耦",
+        "note": "ŷ_co(Z) 估 open[T+1]/close[T]-1；T-1 路径 + 开盘 Z + 昨 K 微观 + 隔夜滞后；与 EOD/τ 解耦",
     }
     attach_holdout_meta(report, split_meta)
     return report
@@ -387,16 +382,23 @@ def predict_on_from_features(
 
 
 _ON_FEAT_LABELS = {
-    "ret_oc": "开→收 %",
+    "ret_oc": "昨开→昨收 %",
     "gap_pct": "跳空 %",
-    "ret_cc": "收→收 %",
+    "ret_cc": "昨收→前收 %",
     "y_on_today": "今开/昨开 %",
     "sector_gap_breadth": "同业缺口广度",
     "theme_day": "主题日",
     "gap_atr": "缺口 / ATR",
     "gap_vs_sector": "行业相对缺口",
     "ret_open_to_tau": "开盘→τ 收益 %",
+    "yclose_loc": "今开相对昨高低",
+    "mom3_pct": "近3日动量 %",
+    "yest_close_loc": "昨收位置",
+    "yest_range_pct": "昨振幅 %",
+    "yest_vol_ratio": "昨量/均量",
+    "dist_to_up_limit": "距涨停 %",
 }
+_ON_FEAT_LABELS.update(ON_LAG_FEAT_LABELS)
 
 
 def explain_on_prediction(
@@ -464,7 +466,7 @@ def explain_on_prediction(
     terms.sort(key=lambda t: -abs(float(t.get("contrib") or 0)))
     return {
         "intercept": round(intercept, 6),
-        "terms": terms[:16],
+        "terms": terms[:24],
         "total": round(total, 6),
         "head": "on",
     }

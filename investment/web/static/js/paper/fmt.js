@@ -88,7 +88,7 @@ export function resolveGapPct(it) {
   return _numField(it.gap_pct);
 }
 
-/** ŷ_τ（开盘后）按缺口映到现价对昨收。 */
+/** ŷ_oc（开盘后）按缺口映到现价对昨收。 */
 export function liftTauVsPrevClose(it, yTau) {
   const t = _numField(yTau);
   if (t == null) return null;
@@ -131,7 +131,7 @@ function _looksLikeYhatPct(n) {
   return n != null && Number.isFinite(n) && Math.abs(n) <= 20;
 }
 
-/** 表列主分：始终 ŷ_trade / 组ŷ%；绝不返回 heuristic 0–100。口径=现价对昨收。 */
+/** 表列主分：ranking = w_oo·ŷ_oo + w_oc·(ŷ_oc ∘ w_co·ŷ_co)。 */
 export function resolveTradeScore(it) {
   if (!it || typeof it !== "object") return null;
   if (isHeuristicScoreScale(it)) {
@@ -157,6 +157,8 @@ export function resolveTradeScore(it) {
       if (_looksLikeYhatPct(n)) return n;
     }
   }
+  const ranking = _numField(it.ranking);
+  if (_looksLikeYhatPct(ranking)) return ranking;
   const eod = resolveEodScore(it);
   const tau = _numField(it.predicted_score_tau ?? it.score_rem);
   const blend = _numField(it.predicted_score_blend);
@@ -187,7 +189,7 @@ export function resolveTradeScore(it) {
     if (_looksLikeYhatPct(fused)) return fused;
   }
   if (_looksLikeYhatPct(blend)) return expressTradeVsPrevClose(it, blend);
-  // 契约：predicted_score / predicted_score_eod = ŷ_EOD；ŷ_trade = blend / decision_score / score。
+  // 契约：predicted_score / predicted_score_eod = ŷ_oo；ŷ_trade = blend / decision_score / score。
   // 旧实现把 predicted_score 放在 score 前，双头下 y_trade 塌成 y_eod（数据中心/交易执行两列相同）。
   const candidates = [
     it.decision_score,
@@ -257,7 +259,7 @@ export function resolveNowcastScore(it) {
   return resolveNowcastCcScore(it);
 }
 
-/** (1−K)·ŷ_EOD + K·(缺口∘ŷ_τ)。旧簿缺 K 时用 Kalman 默认增益。 */
+/** (1−K)·ŷ_oo + K·(缺口∘ŷ_oc)。旧簿缺 K 时用 Kalman 默认增益。 */
 export function reconstructNowcastPrevClose(it) {
   if (!it || typeof it !== "object") return null;
   const eod = resolveEodScore(it);
@@ -276,36 +278,45 @@ export function reconstructNowcastPrevClose(it) {
   return Number.isFinite(n) ? n : null;
 }
 
-export const Y_EOD_TITLE = "ŷ_EOD · 隔夜主轴 close[T]/close[T−1]−1（%）";
-export const Y_TAU_TITLE = "ŷ_τ · T收/T开（拟合原值；τ 闸同源）";
+export const Y_OO_TITLE = "ŷ_oo · open[T]→open[T+1]（%）";
+export const Y_EOD_TITLE = Y_OO_TITLE;
+export const Y_OC_TITLE = "ŷ_oc · open[T]→close[T]（拟合原值；τ 闸同源）";
+export const Y_TAU_TITLE = Y_OC_TITLE;
 export const EOD_REALIZED_TITLE =
-  "eod实 · close[T]/close[T−1]−1（与 ŷ_EOD 同标签）";
+  "oo实 · open[T+1]/open[T]−1（与 ŷ_oo 同标签）";
 export const TAU_REALIZED_TITLE =
-  "τ实 · close[T]/open[T]−1（与 ŷ_τ 同标签）";
-export const Y_ON_TITLE = "ŷ_ON · 开盘决策口径（旁路；复盘路径价见 y_on_path）";
-/** nowcast = nc：Kalman 对照昨收（与 y_trade / 涨跌同目标），不进主决策。 */
+  "oc实 · close[T]/open[T]−1（与 ŷ_oc 同标签）";
+export const Y_CO_TITLE = "ŷ_co · close[T]→open[T+1]（对照；不进 ranking）";
+export const Y_ON_TITLE = Y_CO_TITLE;
+/** nowcast = nc：Kalman 对照昨收，不进主决策。 */
 export const Y_NC_TITLE =
-  "nowcast（nc）· 对照昨收 · Kalman(ŷ_EOD, ŷ_τ)，不进决策";
-/** nowcast oc：把 nc 映到 open→close（与 y_τ 同窗口）。 */
+  "nowcast（nc）· 对照昨收 · Kalman(ŷ_oo, ŷ_oc)，不进决策";
+/** nowcast oc：把 nc 映到 open→close（与 y_oc 同窗口）。 */
 export const Y_NC_OC_TITLE =
-  "nowcast oc · nc 映到 open→close（异号闸 OC 开时对照 y_τ）";
+  "nowcast oc · nc 映到 open→close（异号闸 OC 开时对照 y_oc）";
 /** @deprecated 用 Y_NC_TITLE */
 export const Y_NOWCAST_TITLE = Y_NC_TITLE;
 
-/** ŷ_path：极值序 signed range%（path_ridge；多 τ 训 / live 单钟）；dual_y 与 y_τ 联合选向。 */
-export const Y_PATH_TITLE = "ŷ_path · 极值序 signed (H−L)/ref%";
+/** ŷ_hl：极值序 signed range%（path_ridge；多 τ 训 / live 单钟）；dual_y 与 y_τ 联合选向。 */
+export const Y_HL_TITLE = "ŷ_hl · 极值序 signed (H−L)/ref%";
+/** @deprecated 用 Y_HL_TITLE */
+export const Y_PATH_TITLE = Y_HL_TITLE;
 export const PATH_REALIZED_TITLE =
-  "path实 · 先 low→high 为正、先 high→low 为负（与 ŷ_path 同标签）";
-export const Y_COMPLEXITY_TITLE =
-  "y_complexity · 本轮前缀 ŷ（全日 1−D/L ∈[0,1]，表内×100%）· 0=直线 · 1=最折 · ŷ_complexity>门槛则跳过";
-/** @deprecated 用 Y_COMPLEXITY_TITLE */
-export const Y_CX_TITLE = Y_COMPLEXITY_TITLE;
+  "HL实 · 先 low→high 为正、先 high→low 为负（与 ŷ_hl 同标签）";
+export const Y_CX_TITLE =
+  "ŷ_cx · 本轮前缀 ŷ（全日 1−D/L ∈[0,1]，表内×100%）· 0=直线 · 1=最折 · ŷ_cx>门槛则跳过";
+/** @deprecated 用 Y_CX_TITLE */
+export const Y_COMPLEXITY_TITLE = Y_CX_TITLE;
 export const Y_TPD_TITLE =
   "y_tpd · 本轮前缀 ŷ（全日转折点密度 ∈[0,1]，表内×100%）· 0=无反转 · 1=每根都反转 · ŷ_tpd>门槛则跳过";
-export const Y_R_TITLE =
-  "ŷ_r · price(τ)/close[T]−1（百分点）· 与 R̂_τ 同几何 · 不进 ĉ / 选腿 / 调仓";
+export const Y_τc_TITLE =
+  "ŷ_τc · remaining(ŷ_oc) · close[T]/price(τ)−1 · 与真实同几何；Ridge 仅对照";
+export const Y_TC_TITLE = Y_τc_TITLE;
+export const Y_R_TITLE = Y_τc_TITLE;
+export const R_HAT_TITLE =
+  "remaining(ŷ_oc) 对照 · 不参与选腿 · 回测显示预估(真实)";
 export const R_REALIZED_TITLE =
-  "r实 · C_τ/收盘−1（与 R̂_τ 同几何；对照估超额）";
+  "τc实 · close[T]/price(τ)−1（与 ŷ_τc / R̂_τ 同标签）";
 
 /** OC 头原始 ŷ（映射前）：与组成合计 / tip 大标题同口径。 */
 function _tauOcRaw(it) {
@@ -323,7 +334,7 @@ function _tauOcRaw(it) {
   return null;
 }
 
-/** 分钟时钟剩余映射后的 ŷ_τ（决策/融合用）；无映射时与 OC 相同。 */
+/** 分钟时钟剩余映射后的 ŷ_oc（决策/融合用）；无映射时与 OC 相同。 */
 export function resolveTauMappedScore(it) {
   if (!it || typeof it !== "object") return null;
   if (isHeuristicScoreScale(it)) return null;
@@ -331,10 +342,10 @@ export function resolveTauMappedScore(it) {
   return _looksLikeYhatPct(tau) ? tau : null;
 }
 
-/** ŷ_τ 表列 / tip：Ridge 拟合原值（T收/T开），与组成合计同口径。
+/** ŷ_oc 表列 / tip：Ridge 拟合原值（T收/T开），与组成合计同口径。
 
   优先 y_tau_oc（映射前）；勿把 remaining 映射后的 predicted_score_tau 当成拟合原值，
-  否则 tip 大标题会与「合计 ŷ_τ」对不上（做T明细常见）。
+  否则 tip 大标题会与「合计 ŷ_oc」对不上（做T明细常见）。
   勿在此做缺口∘抬昨收——那只用于 ŷ_trade / nowcast 融合。
   */
 export function resolveTauScore(it) {
@@ -345,7 +356,7 @@ export function resolveTauScore(it) {
   return resolveTauMappedScore(it);
 }
 
-/** 缺口∘ŷ_τ（昨收口径）；对照用拟合原值，不进 τ 表列。 */
+/** 缺口∘ŷ_oc（昨收口径）；对照用拟合原值，不进 τ 表列。 */
 export function resolveTauLiftedScore(it) {
   if (!it || typeof it !== "object") return null;
   if (isHeuristicScoreScale(it)) return null;
@@ -355,17 +366,17 @@ export function resolveTauLiftedScore(it) {
   return _looksLikeYhatPct(lifted) ? lifted : null;
 }
 
-/** ŷ_path：极值序 signed range%（path_ridge）。 */
+/** ŷ_hl：极值序 signed range%（path_ridge）。 */
 export function resolvePathScore(it) {
   if (!it || typeof it !== "object") return null;
-  for (const c of [it.predicted_score_path, it.y_path]) {
+  for (const c of [it.predicted_score_hl, it.y_hl, it.predicted_score_path, it.y_path]) {
     const n = _numField(c);
     if (n != null) return n;
   }
   return null;
 }
 
-/** 表列 y_path：signed range %；|v|<1 用两位小数避免 0.02% 显示成 +0.0。 */
+/** 表列 y_hl：signed range %；|v|<1 用两位小数避免 0.02% 显示成 +0.0。 */
 export function fmtPathScore(v, opts = {}) {
   const empty = opts.empty ?? "—";
   // null/"" 不能走 Number()：Number(null)===0，会把「未打分」显示成 0
@@ -376,25 +387,88 @@ export function fmtPathScore(v, opts = {}) {
   return `${n > 0 ? "+" : ""}${n.toFixed(digits)}`;
 }
 
-/** ŷ_ON：隔夜缺口旁路头。 */
+/** ŷ_co：隔夜缺口对照头。 */
 export function resolveOnScore(it) {
   if (!it || typeof it !== "object") return null;
   if (isHeuristicScoreScale(it)) return null;
-  for (const c of [it.predicted_score_on, it.y_on]) {
+  for (const c of [it.y_co, it.predicted_score_co, it.predicted_score_on, it.y_on]) {
     const n = _numField(c);
     if (_looksLikeYhatPct(n)) return n;
   }
   return null;
 }
 
-/** ŷ_EOD：隔夜主轴（买门槛用这一层）。 */
+function _pcFormulaIsLegacy(formula) {
+  const s = String(formula || "")
+    .replace(/\s/g, "")
+    .replace(/（/g, "(")
+    .replace(/）/g, ")");
+  if (!s) return false;
+  const low = s.toLowerCase();
+  if (!low.includes("price") || !low.includes("close")) return false;
+  return low.indexOf("price") < low.indexOf("close");
+}
+
+function _pcFormulaOf(it) {
+  if (!it || typeof it !== "object") return "";
+  for (const key of ["y_spec_τc", "y_spec_tc", "y_spec_to", "y_spec_pc", "y_spec_r", "y_spec"]) {
+    const spec = it[key];
+    if (spec && typeof spec === "object" && spec.formula) return String(spec.formula);
+    if (spec && typeof spec !== "object") return String(spec);
+  }
+  const rm = it.return_model;
+  if (rm && typeof rm === "object") {
+    const nested = _pcFormulaOf(rm);
+    if (nested) return nested;
+  }
+  const target = String(it.horizon_mode || it.target || "")
+    .replace(/-/g, "_")
+    .toLowerCase();
+  if (target.includes("close_over_price")) return "close[T]/price[τ]-1";
+  if (target.includes("price_over_close")) return "price[τ]/close[T]-1";
+  return "";
+}
+
+/** ŷ_τc：price(τ)→close(T)。无 y_τc 时读旧簿 y_to / y_pc；再缺则看公式：现行 close/price 原样，旧 price/close 才反几何。 */
+export function resolveYτcScore(it) {
+  if (!it || typeof it !== "object") return null;
+  if (isHeuristicScoreScale(it)) return null;
+  for (const c of [
+    it["y_τc"],
+    it["predicted_score_τc"],
+    it.y_tc,
+    it.predicted_score_tc,
+    it.y_to,
+    it.predicted_score_to,
+    it.y_pc,
+    it.predicted_score_pc,
+  ]) {
+    const n = _numField(c);
+    if (_looksLikeYhatPct(n)) return n;
+  }
+  const yr = _numField(it.y_r ?? it.y_r_hat ?? it.predicted_score_r);
+  if (yr == null || !_looksLikeYhatPct(yr)) return null;
+  const formula = _pcFormulaOf(it);
+  if (formula && !_pcFormulaIsLegacy(formula)) return yr;
+  const d = 1 + yr / 100;
+  if (Math.abs(d) < 1e-12) return null;
+  const tc = (1 / d - 1) * 100;
+  return Number.isFinite(tc) ? tc : null;
+}
+
+/** @deprecated 用 resolveYτcScore */
+export function resolveTcScore(it) {
+  return resolveYτcScore(it);
+}
+
+/** ŷ_oo：open[T]→open[T+1]（调仓 ranking 输入）。 */
 export function resolveEodScore(it) {
   if (!it || typeof it !== "object") return null;
-  // OOS 失败降级：表列 score 是 0–100 启发式，不可当 ŷ_EOD%
+  // OOS 失败降级：表列 score 是 0–100 启发式，不可当 ŷ_oo%
   if (isHeuristicScoreScale(it)) {
     return null;
   }
-  for (const c of [it.scoreEodNum, it.predicted_score_eod, it.predicted_score]) {
+  for (const c of [it.scoreEodNum, it.y_oo, it.predicted_score_oo, it.predicted_score_eod, it.predicted_score]) {
     const n = _numField(c);
     if (n != null) return n;
   }
@@ -407,7 +481,7 @@ export function resolveEodScore(it) {
   return null;
 }
 
-/** (1+ŷ_EOD)/(1+已实现)−1；无已实现时退回 ŷ_EOD（尚未开盘）。 */
+/** (1+ŷ_oo)/(1+已实现)−1；无已实现时退回 ŷ_oo（尚未开盘）。 */
 export function eodRemainingAtTau(yEod, realized) {
   if (yEod == null || yEod === "") return null;
   const ye = Number(yEod);
@@ -420,7 +494,7 @@ export function eodRemainingAtTau(yEod, realized) {
   return ((1 + ye / 100) / denom - 1) * 100;
 }
 
-/** ŷ_EOD_rem：盘中有已实现/缺口时几何映射；``eod_next`` 不减缺口（信簿 rem / ŷ_EOD）。 */
+/** ŷ_oo_rem：盘中有已实现/缺口时几何映射；``eod_next`` 不减缺口（信簿 rem / ŷ_oo）。 */
 export function resolveEodRemScore(it) {
   if (!it || typeof it !== "object") return null;
   const y = resolveEodScore(it);

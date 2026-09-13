@@ -51,11 +51,11 @@ def _forward_return_pct(
     x = date_map.get(dates[idx + horizon])
     if not e or not x:
         return None
-    c0 = float(e.get("close") or 0)
-    c1 = float(x.get("close") or 0)
-    if c0 <= 0 or c1 <= 0:
+    o0 = float(e.get("open") or 0)
+    o1 = float(x.get("open") or 0)
+    if o0 <= 0 or o1 <= 0:
         return None
-    return (c1 / c0 - 1.0) * 100.0
+    return (o1 / o0 - 1.0) * 100.0
 
 
 def compute_pool_cross_section_ic(
@@ -74,7 +74,6 @@ def compute_pool_cross_section_ic(
 
     S0.2：默认按决策日 resolve 财务 PIT；可传 fundamentals_by_code 覆盖（测试/快照）。
     """
-    from core.backtest.engine import _mock_quote_from_bars
     from core.signal.cross_section_batch import score_window_as_item
 
     if not stock_bars or len(stock_bars) < 2:
@@ -148,14 +147,23 @@ def compute_pool_cross_section_ic(
         decision_date = dates[i]
         for code, dm in date_maps.items():
             start = max(0, i - max_window + 1)
-            window = [dm[d] for d in dates[start : i + 1] if d in dm]
-            if len(window) < 2:
+            hist = [dm[d] for d in dates[start:i] if d in dm]
+            if len(hist) < 2:
                 continue
-            quote = _mock_quote_from_bars(window, len(window) - 1)
+            day_bar = dm.get(decision_date) if isinstance(dm.get(decision_date), dict) else None
+            o = float((day_bar or {}).get("open") or 0) if day_bar else 0.0
+            prev_c = float((hist[-1] or {}).get("close") or 0) if hist else 0.0
+            quote = {
+                "change_raw": (
+                    round((o / prev_c - 1.0) * 100.0, 4) if o > 0 and prev_c > 0 else 0.0
+                ),
+                "price_raw": o if o > 0 else None,
+                "success": True,
+            }
             fund = _fund_for(code, decision_date)
             item = score_window_as_item(
                 code,
-                window,
+                hist,
                 horizon_days=horizon_days,
                 quote=quote,
                 fundamentals=fund,

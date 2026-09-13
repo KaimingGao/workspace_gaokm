@@ -174,6 +174,13 @@ class TestDualScoreFields(unittest.TestCase):
             gap_pct=1.0,
             feats={"gap_pct": 1.0},
             residual_delta=False,
+            config={
+                "dual_score": {
+                    "w_eod": 0.5,
+                    "w_tau": 0.5,
+                    "w_mode": "fixed",
+                }
+            },
         )
         self.assertAlmostEqual(item["realized_t1_to_tau"], 1.0, places=5)
         self.assertAlmostEqual(item["predicted_score_eod_rem"], rem, places=5)
@@ -434,6 +441,46 @@ class TestDualScoreFields(unittest.TestCase):
         self.assertNotIn("predicted_score_cal", out)
         self.assertNotIn("score_calibration_applied", out)
 
+    def test_book_fields_passes_y_τc(self):
+        from core.signal.dual_score import dual_score_book_fields
+        from core.signal.yhat_windows import invert_price_over_close
+
+        out = dual_score_book_fields(
+            {
+                "predicted_score": 1.0,
+                "y_τc": 1.25,
+                "y_r": 0.4,
+            }
+        )
+        self.assertAlmostEqual(out.get("y_τc"), 1.25, places=6)
+        self.assertAlmostEqual(out.get("predicted_score_τc"), 1.25, places=6)
+        self.assertAlmostEqual(out.get("y_r"), 0.4, places=6)
+
+        legacy = dual_score_book_fields({"y_r": 1.0, "predicted_score": 0.5})
+        expect = invert_price_over_close(1.0)
+        self.assertAlmostEqual(legacy.get("y_τc"), expect, places=6)
+        self.assertAlmostEqual(legacy.get("predicted_score_τc"), expect, places=6)
+
+    def test_book_fields_passes_formula_terms_r(self):
+        from core.signal.dual_score import dual_score_book_fields
+
+        terms = {
+            "intercept": 0.1,
+            "total": -0.4,
+            "head": "r",
+            "terms": [{"key": "gap_pct", "contrib": -0.5}],
+        }
+        out = dual_score_book_fields(
+            {
+                "predicted_score": 1.0,
+                "y_τc": -0.4,
+                "formula_terms_r": terms,
+            }
+        )
+        self.assertEqual(out.get("formula_terms_r", {}).get("head"), "r")
+        self.assertAlmostEqual(out.get("formula_terms_r", {}).get("total"), -0.4, places=6)
+        self.assertEqual(len(out.get("formula_terms_r", {}).get("terms") or []), 1)
+
     def test_eod_gate_and_decision_stay_raw_with_calibration(self):
         """闸/决策分始终 raw，即使库仍能算出 g(ŷ)。"""
         from core.signal import score_calibration as sc
@@ -476,7 +523,18 @@ class TestDualScoreFields(unittest.TestCase):
 
         item = {"predicted_score": 2.0, "score": 2.0}
         apply_tau_score_fields(
-            item, rem_yhat=-1.0, gap_pct=1.0, feats={}, residual_delta=False
+            item,
+            rem_yhat=-1.0,
+            gap_pct=1.0,
+            feats={},
+            residual_delta=False,
+            config={
+                "dual_score": {
+                    "w_eod": 0.5,
+                    "w_tau": 0.5,
+                    "w_mode": "fixed",
+                }
+            },
         )
         self.assertAlmostEqual(item["predicted_score_tau"], -1.0, places=5)
         self.assertIsNone(item.get("predicted_score_tau_delta"))

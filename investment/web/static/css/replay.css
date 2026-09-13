@@ -572,8 +572,8 @@ body[data-page="replay"] .replay-t0-section .replay-run-head {
   align-items: center;
 }
 
-body[data-page="replay"] .follow-path-matrix-panel[data-panel="rank"] .follow-path-matrix-body--row4 {
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+body[data-page="replay"] .follow-path-matrix-panel[data-panel="rank"] .follow-path-matrix-body--row3 {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 body[data-page="replay"] .follow-path-matrix-box--pair,
@@ -608,7 +608,8 @@ body[data-page="replay"] .follow-path-matrix-box-slot-label {
 }
 
 body[data-page="replay"] .follow-path-matrix-box--pair input[type="number"],
-body[data-page="replay"] .follow-path-matrix-box--solo input[type="number"] {
+body[data-page="replay"] .follow-path-matrix-box--solo input[type="number"],
+body[data-page="replay"] .follow-path-matrix-box--pair input[type="text"] {
   min-width: 0;
   width: 100%;
 }
@@ -835,14 +836,6 @@ body[data-page="replay"] .replay-page .quant-chart-nav-btn:hover {
   border-color: color-mix(in srgb, var(--accent, #1890ff) 40%, var(--line));
 }
 
-body[data-page="replay"] .replay-page .quant-bt-stock-chip {
-  margin: 0 0 6px;
-  font-size: var(--r-fs-micro, 0.68rem);
-  font-weight: 650;
-  letter-spacing: 0.02em;
-  color: var(--accent, #1890ff);
-}
-
 body[data-page="replay"] .replay-page .quant-bt-trades-host .watching-stock {
   cursor: pointer;
 }
@@ -997,33 +990,33 @@ body[data-page="replay"] .replay-t0-section .paper-t0-trades-table thead th.num 
 }
 
 body[data-page="replay"] .replay-t0-section .paper-t0-trades-wrap .paper-t0-trades-table.quant-weight-table td {
-  padding: 6px 7px;
+  padding: 6px 8px;
 }
 
 body[data-page="replay"] .replay-t0-section .paper-t0-trades-wrap .paper-t0-trades-table thead th:first-child,
 body[data-page="replay"] .replay-t0-section .paper-t0-trades-wrap .paper-t0-trades-table tbody td:first-child {
-  padding-left: 10px;
+  padding-left: 8px;
 }
 
 body[data-page="replay"] .replay-t0-section .paper-t0-trades-wrap .paper-t0-trades-table thead th:last-child,
 body[data-page="replay"] .replay-t0-section .paper-t0-trades-wrap .paper-t0-trades-table tbody td:last-child {
-  padding-right: 10px;
+  padding-right: 8px;
 }
 
 body[data-page="replay"] .replay-t0-section .paper-t0-table tbody td:first-child {
-  padding-left: 12px;
+  padding-left: 8px;
 }
 
 body[data-page="replay"] .replay-t0-section .paper-t0-trades-wrap .paper-t0-trades-table tbody td:first-child {
-  padding-left: 10px;
+  padding-left: 8px;
 }
 
 body[data-page="replay"] .replay-t0-section .paper-t0-table tbody td:last-child {
-  padding-right: 14px;
+  padding-right: 8px;
 }
 
 body[data-page="replay"] .replay-t0-section .paper-t0-trades-wrap .paper-t0-trades-table tbody td:last-child {
-  padding-right: 10px;
+  padding-right: 8px;
 }
 
 /* ── 次要折叠 ── */

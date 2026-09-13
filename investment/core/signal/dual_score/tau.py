@@ -204,6 +204,9 @@ def apply_tau_score_fields(
         )
 
     signal_item["predicted_score_eod"] = signal_item.get("predicted_score")
+    if signal_item.get("y_oo") is None and y_eod is not None:
+        signal_item["y_oo"] = y_eod
+        signal_item["predicted_score_oo"] = y_eod
     signal_item["predicted_score_eod_rem"] = eod_rem
     signal_item["predicted_score_tau_delta"] = None
     signal_item["predicted_score_tau_cascade"] = cascade
@@ -216,6 +219,11 @@ def apply_tau_score_fields(
     if y_tau_raw is not None:
         signal_item["y_tau_oc"] = y_tau_raw
         signal_item["predicted_score_tau_oc"] = y_tau_raw
+    oc = y_tau_raw if y_tau_raw is not None else y_tau
+    if oc is not None:
+        signal_item["y_oc"] = oc
+        signal_item["predicted_score_oc"] = oc
+        signal_item["y_tau"] = signal_item.get("y_tau", y_tau)
     signal_item["as_of_tau"] = as_of
     signal_item["y_spec_tau"] = y_spec
     signal_item["features_tau"] = feat_snap

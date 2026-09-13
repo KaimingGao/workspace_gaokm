@@ -1,4 +1,4 @@
-"""ŷ_path Ridge：与 ŷ_τ 同因子键（开盘 Z + 早盘前缀分钟小包）→ 极值序 signed range %。"""
+"""ŷ_hl Ridge：与 ŷ_τ 同因子键（开盘 Z + 早盘前缀分钟小包）→ 极值序 signed range %。"""
 
 from __future__ import annotations
 
@@ -285,7 +285,7 @@ def fit_path_ridge_report(
     minute_tau_hm: Optional[str] = None,
     tau_grid: Optional[Sequence[str]] = None,
 ) -> Dict[str, Any]:
-    """池化拟合 ŷ_path + 时间 OOS。
+    """池化拟合 ŷ_hl + 时间 OOS。
 
     ``tau_grid``：变长前缀少数时钟共享 β（同日标签=全日极值序，特征≤各 τ）；
     默认 ``DEFAULT_PATH_TAU_GRID``。live 决策钟见 ``minute_tau_hm``（默认 10:30）。
@@ -361,7 +361,7 @@ def fit_path_ridge_report(
             "active_features": [],
             "zscore_means": {},
             "zscore_stds": {},
-            "note": "Z 方差不足，ŷ_path 用训练均值",
+            "note": "Z 方差不足，ŷ_hl 用训练均值",
         }
 
     # OOS：demeaned 预测 + y_mean → 展示尺度
@@ -472,10 +472,11 @@ def fit_path_ridge_report(
         "minute_tau_hm": live_hm,
         "tau_grid": list(grid),
         "note": (
-            "开盘 Z + 多 τ 前缀分钟小包 + 历史真实 path → 全日极值序；供 dual_y 与 y_τ 联合选向"
+            "开盘 Z + 多 τ 前缀分钟小包 + 历史真实 HL → 全日极值序；供 dual_y 与 y_τ 联合选向"
             if grid and len(grid) > 1
-            else "开盘 Z + 前缀分钟小包 + 历史真实 path → 全日极值序；供 dual_y 与 y_τ 联合选向"
+            else "开盘 Z + 前缀分钟小包 + 历史真实 HL → 全日极值序；供 dual_y 与 y_τ 联合选向"
         ),
+        "dual_score_head": "y_hl",
     }
     attach_holdout_meta(report, split_meta)
     report["promote_gate"] = path_promote_gate(report)
@@ -622,8 +623,8 @@ def persist_path_model(
         "model_role": role_n,
         "fit_end": report.get("fit_end"),
         "eval_start": report.get("eval_start"),
-        "dual_score_head": "y_path",
-        "contract_note": "ŷ_path：开盘 Z + 多 τ 前缀分钟小包 → 全日极值序 signed range%；live=minute_tau_hm",
+        "dual_score_head": "y_hl",
+        "contract_note": "ŷ_hl：开盘 Z + 多 τ 前缀分钟小包 → 全日极值序 signed range%；live=minute_tau_hm",
     }
     path = (
         research_model_path(path_model_path())
@@ -679,7 +680,7 @@ def explain_path_prediction(
     *,
     model_doc: Optional[Dict[str, Any]] = None,
 ) -> Optional[Dict[str, Any]]:
-    """结构化拆解 ŷ_path（与 ``predict_path_from_features`` 同口径），供 tip 表格。"""
+    """结构化拆解 ŷ_hl（与 ``predict_path_from_features`` 同口径），供 tip 表格。"""
     doc = model_doc if model_doc is not None else load_path_model()
     if not doc:
         return None

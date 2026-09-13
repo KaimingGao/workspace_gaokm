@@ -1,4 +1,4 @@
-/* ══ QUANT / RESEARCH HUB ══ 研究枢纽：分组、IC、复盘、探针、因子、拟合 */
+/* ══ QUANT / RESEARCH HUB ══ 研究枢纽：分组、IC、复盘、探针、因子 */
 
 .quant-metric .val.up {
   color: var(--color-up);
@@ -53,20 +53,6 @@
 .quant-weight-table tr.is-best td {
   font-weight: 600;
   background: rgba(245, 34, 45, 0.06);
-}
-
-.quant-fit-gap-dual-host {
-  height: 168px;
-  min-height: 140px;
-}
-
-.quant-fit-gap-gap-host {
-  height: 120px;
-  min-height: 100px;
-}
-
-.quant-page .quant-fit-gap-chart {
-  max-width: 760px;
 }
 
 .quant-copy-link {
@@ -2773,15 +2759,6 @@ html[data-density="compact"] .quant-page {
   max-width: 100%;
 }
 
-.quant-bt-trades-csv {
-  margin-left: 10px;
-  vertical-align: middle;
-}
-
-.quant-trades-caption > .quant-bt-trades-csv:first-child {
-  margin-left: 0;
-}
-
 .quant-bt-trades-host {
   width: 100%;
   max-width: 100%;
@@ -3255,24 +3232,6 @@ body[data-page="replay"] .quant-bt-trades-host .watching-react-grid-cell.watchin
 }
 
 /* ——— 矩阵 卡片专业质感升级 ——— */
-.quant-page .yhat-mx-grid {
-  display: grid;
-  grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.15fr);
-  gap: 10px;
-  margin: 10px 0 8px;
-  align-items: start;
-}
-
-.quant-page .yhat-mx-grid.is-stack {
-  grid-template-columns: minmax(0, 1fr);
-}
-
-@media (max-width: 680px) {
-  .quant-page .yhat-mx-grid {
-    grid-template-columns: 1fr;
-  }
-}
-
 .quant-page .yhat-mx {
   margin: 0 0 var(--quant-gap, 8px);
   border-radius: var(--q-r, 2px);
@@ -3292,40 +3251,101 @@ body[data-page="replay"] .quant-bt-trades-host .watching-react-grid-cell.watchin
       color-mix(in srgb, var(--ink) 3%, var(--surface)) 0%,
       color-mix(in srgb, var(--line-2) 70%, var(--surface)) 100%);
   border-bottom: 1px solid color-mix(in srgb, var(--line) 88%, transparent);
-  position: relative;
-  padding-right: 2.5rem;
 }
 
-.quant-page .yhat-mx-summary::after {
-  content: "展开";
-  position: absolute;
-  top: 50%;
-  right: 14px;
-  transform: translateY(-50%);
-  font-size: 0.62rem;
-  letter-spacing: 0.06em;
-  font-weight: 600;
-  color: var(--ink-3);
-  padding: 2px 8px;
-  border-radius: var(--q-r, 2px);
-  border: 1px solid color-mix(in srgb, var(--line) 90%, transparent);
-  background: var(--surface);
-  opacity: 0.85;
+.quant-page .quant-ols-health {
+  min-width: 0;
 }
 
-.quant-page .yhat-mx[open] .yhat-mx-summary::after {
-  content: "收起";
-  color: var(--accent, #2563eb);
-  border-color: color-mix(in srgb, var(--accent, #2563eb) 28%, var(--line));
-}
-
-.quant-page .yhat-mx-health .yhat-mx-health-head {
-  padding-right: 12px;
-  cursor: default;
-}
-
-.quant-page .yhat-mx-health .yhat-mx-health-head::after {
+.quant-page .quant-ols-health:empty,
+.quant-page .quant-ols-health[hidden] {
   display: none;
+}
+
+/* 健康矩阵与下方 IC 时序同卡紧贴：去掉卡片自带底 margin，只留卡体 gap */
+.quant-page .quant-ols-health .yhat-mx {
+  margin: 0;
+}
+
+/* IC 时序：嵌在 ŷ_oo 卡内，夹在健康矩阵与一组一表之间 */
+.quant-page .quant-ic-in-cluster {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 1px solid color-mix(in srgb, var(--ink) 7%, var(--line));
+  border-radius: var(--q-r, 2px);
+  background: var(--surface);
+  overflow: hidden;
+  scroll-margin-top: 72px;
+  box-shadow:
+    0 1px 0 rgba(0, 0, 0, 0.02),
+    0 1px 2px rgba(15, 23, 42, 0.04);
+}
+
+.quant-page .quant-ic-in-cluster-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px 12px;
+  padding: 8px 12px;
+  background:
+    linear-gradient(180deg,
+      color-mix(in srgb, var(--ink) 3%, var(--surface)) 0%,
+      color-mix(in srgb, var(--line-2) 70%, var(--surface)) 100%);
+  border-bottom: 1px solid color-mix(in srgb, var(--line) 88%, transparent);
+}
+
+.quant-page .quant-ic-in-cluster-title-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px 10px;
+  min-width: 0;
+}
+
+.quant-page .quant-ic-in-cluster-title {
+  margin: 0;
+  font-size: var(--q-fs-caption, 0.75rem);
+  font-weight: var(--q-fw-label, 650);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-2);
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  line-height: 1.35;
+}
+
+.quant-page .quant-ic-in-cluster-desc {
+  margin: 0;
+  font-size: var(--q-fs-micro, 0.6875rem);
+  font-weight: 500;
+  color: var(--ink-3);
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+}
+
+.quant-page .quant-ic-in-cluster-head .quant-card-head-status {
+  margin: 0;
+  flex: 1 1 10rem;
+  min-width: 0;
+}
+
+.quant-page .quant-ic-in-cluster-tools {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.quant-page .quant-ic-in-cluster-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px 12px 12px;
 }
 
 .quant-page .yhat-mx-scroll {
@@ -4290,24 +4310,6 @@ body[data-page="replay"] .replay-page .quant-bt-trades-host .watching-react-grid
 }
 
 /* ——— 时序对比（因子 IC） ——— */
-.quant-ic-compare-body {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.quant-ic-compare-actions {
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
-.quant-ic-compare-actions .quant-fingerprint {
-  margin: 0;
-  flex: 1 1 12rem;
-  min-width: 0;
-}
-
 .quant-ic-compare-kpis {
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
@@ -4690,13 +4692,6 @@ body[data-page="replay"] .replay-page .quant-bt-trades-host .watching-react-grid
 
 .quant-page .quant-fold-panel:not([open]) > summary::after {
   content: "▸";
-}
-
-.quant-page .quant-fold-panel .quant-ic-compare-body {
-  padding: 8px 10px 10px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
 }
 
 .quant-page .quant-fold-panel .quant-control-band {
@@ -7307,10 +7302,6 @@ body[data-page="replay"] .replay-page .quant-bt-trades-host .watching-react-grid
   margin: 0;
 }
 
-.quant-page .quant-ic-compare-body.quant-pro-card-body {
-  padding: 8px 12px 12px;
-}
-
 .quant-page .quant-ic-compare-grid {
   display: grid;
   grid-template-columns: minmax(0, 1.45fr) minmax(0, 1fr);
@@ -7824,12 +7815,6 @@ html[data-density="compact"] .quant-body.dashboard-page {
   display: flex;
   flex-direction: column;
   gap: 6px;
-}
-
-/* 覆盖旧 fold 内层 body 的特化 padding（卡体本身用 .quant-pro-card-body） */
-.quant-page .quant-ic-compare-body {
-  padding: unset;
-  margin: unset;
 }
 
 .quant-page .quant-probe-body.quant-pro-card-body {
@@ -8355,16 +8340,23 @@ body[data-page="quant"] section.dashboard-section.quant-section:last-child {
   display: none;
 }
 
+.quant-page .quant-ic-in-cluster .quant-ic-compare-grid .dashboard-chart-host.quant-ic-compare-chart:empty {
+  min-height: 220px;
+  height: 240px;
+  max-height: none;
+  padding: inherit;
+}
+
+.quant-page .quant-ic-in-cluster .quant-ic-compare-grid:has(.quant-ic-compare-chart:empty) .quant-ic-chart-panel {
+  display: block;
+  min-height: 220px;
+}
+
 .quant-page .quant-factor-corr-host:empty {
   min-height: 0;
   height: 0;
   padding: 0;
   border: none;
-}
-
-/* 健康矩阵折叠态：summary 更像工具条 */
-.quant-page .yhat-mx-health:not([open]) > .yhat-mx-summary {
-  border-radius: 6px;
 }
 
 @media (max-width: 900px) {
@@ -9254,8 +9246,7 @@ body[data-page="quant"] .quant-page textarea,
 body[data-page="quant"] .quant-page button,
 body[data-page="quant"] .quant-page .quant-summary,
 body[data-page="quant"] .quant-page .quant-metrics > .quant-metric,
-body[data-page="quant"] .quant-page .dashboard-chart-host,
-body[data-page="quant"] .quant-page .yhat-mx-health:not([open]) > .yhat-mx-summary {
+body[data-page="quant"] .quant-page .dashboard-chart-host {
   border-radius: 2px !important;
 }
 
@@ -9319,8 +9310,7 @@ body[data-page="quant"] .quant-desk-note {
   border-radius: 2px !important;
 }
 
-body[data-page="quant"] .quant-page .quant-fold > summary::after,
-body[data-page="quant"] .quant-page .yhat-mx-summary::after {
+body[data-page="quant"] .quant-page .quant-fold > summary::after {
   border-radius: 2px !important;
 }
 

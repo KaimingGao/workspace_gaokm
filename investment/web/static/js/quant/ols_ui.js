@@ -154,7 +154,7 @@ export function createOlsUi(deps) {
     const reasonMap = {
       oos_not_worse: "研究臂不劣于基线（容差内）",
       insufficient_oos: "OOS 收益不足，无法判定",
-      research_no_trades: "研究臂无成交（常为 ŷ_τ 闸误杀）",
+      research_no_trades: "研究臂无成交（常为 ŷ_oc 闸误杀）",
       baseline_insufficient_oos: "基线臂 OOS 不足，无法对照",
       backtest_failed: "Top-K 回测失败",
       watching_too_small: "有效标的不足",
@@ -589,14 +589,7 @@ export function createOlsUi(deps) {
         `</article>`
       );
     });
-    const __healthHtml = buildClustersHealthMatrixHtml(clusters, {
-      escapeHtml: esc,
-      preferredLabel: pref && pref.label ? String(pref.label) : "",
-    });
     const __partsHtml = parts.join("");
-    const __matrixGrid = __healthHtml
-      ? `<div class="yhat-mx-grid is-stack">${__healthHtml}</div>`
-      : "";
     return (
       `<div class="quant-cluster-tables-head">` +
       `<span class="quant-cluster-tables-label">因子系数</span>` +
@@ -606,9 +599,21 @@ export function createOlsUi(deps) {
         ordered.filter((x) => x.fitInfo.tier === "C").length
       }</span>` +
       `</div>` +
-      __matrixGrid +
       __partsHtml
     );
+  }
+
+  /** 跨组健康矩阵 HTML；挂到 `#quant-ols-health`，夹在一组一表之前。 */
+  function buildClusterHealthHtml(data) {
+    if (!data || !data.success) return "";
+    const clusters = Array.isArray(data.clusters) ? data.clusters : [];
+    if (!clusters.length) return "";
+    const pref = data.preferred_cluster || null;
+    const healthHtml = buildClustersHealthMatrixHtml(clusters, {
+      escapeHtml: esc,
+      preferredLabel: pref && pref.label ? String(pref.label) : "",
+    });
+    return healthHtml || "";
   }
 
   function probeFactorRowsFromExp(exp) {
@@ -1229,6 +1234,7 @@ export function createOlsUi(deps) {
     clusterGroupOlsShim,
     clusterTightTopLines,
     buildClusterFactorTablesHtml,
+    buildClusterHealthHtml,
     buildClusterGroupBodyHtml,
     buildOlsClustersSummaryHtml,
     renderProbeStockVsGroupTable,

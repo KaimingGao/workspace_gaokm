@@ -1,4 +1,4 @@
-"""ŷ_r_tree：独立浅树头，标签与 ŷ_r 相同（price(τ)/close−1）。
+"""ŷ_τc_tree（旧名 ŷ_r_tree / ŷ_pc_tree）：独立浅树头，标签 close[T]/price(τ)−1。
 
 与 Ridge 同面板、同 Holdout，只写 ``r_tree_last_report.json``。
 不提供 persist / 研究套 sidecar，不进 live 打分与历史回测。
@@ -224,13 +224,13 @@ def fit_r_tree_report(
             "y_label_mean": round(float(np.mean(y_tr)), 6) if y_tr.size else None,
             "tau": live_hm,
             "tau_grid": list(grid),
-            "target": "price_tau_over_close",
+            "target": "close_over_price_tau",
         }
     )
     oos_ridge["n_train"] = len(ys_tr)
     oos_ridge["n_test"] = len(ys_te)
     oos_ridge["holdout_trading_days"] = hold_n
-    oos_ridge["target"] = "price_tau_over_close"
+    oos_ridge["target"] = "close_over_price_tau"
 
     report: Dict[str, Any] = {
         "success": True,
@@ -241,7 +241,7 @@ def fit_r_tree_report(
         "sample_count": len(ys),
         "tau": live_hm,
         "tau_grid": list(grid),
-        "target": "price_tau_over_close",
+        "target": "close_over_price_tau",
         "backend": engine,
         "hyperparams": hyper,
         "timing": {

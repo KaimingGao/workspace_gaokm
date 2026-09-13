@@ -928,7 +928,7 @@ class QuantFactorMixin:
         persist_role: str = "live",
         holdout_trading_days: int = 10,
     ) -> Dict[str, Any]:
-        """观察池 ŷ_path Ridge：开盘 Z + 多 τ 前缀分钟小包 → 全日极值序。
+        """观察池 ŷ_hl Ridge：开盘 Z + 多 τ 前缀分钟小包 → 全日极值序。
 
         默认用满观察池；分钟线**只读本地缓存**，不打远端（缺缓存的票跳过）。
         """
@@ -946,7 +946,7 @@ class QuantFactorMixin:
             save_path_last_report,
         )
 
-        # path 对照标签缺省（与旧 T0 触发% 解耦；仅用于 ŷ_path 训练/回放对照）
+        # HL 对照标签缺省（与旧 T0 触发% 解耦；仅用于 ŷ_hl 训练/回放对照）
         _PATH_RIDGE_SELL_TRIG = 2.0
         _PATH_RIDGE_BUY_TRIG = 1.5
         sell_trig = (
@@ -969,7 +969,7 @@ class QuantFactorMixin:
         if len(codes) < 2:
             return {
                 "success": False,
-                "error": "研究池至少 2 只才可跑 ŷ_path Ridge",
+                "error": "研究池至少 2 只才可跑 ŷ_hl Ridge",
                 "task": "path_ridge",
             }
 
@@ -1124,7 +1124,7 @@ class QuantFactorMixin:
                 "exists": False,
                 "path": path_model_path(),
                 "last_report_exists": bool(last),
-                "note": "尚无 ŷ_path 模型；POST /api/quant/path-ridge persist=true",
+                "note": "尚无 ŷ_hl 模型；POST /api/quant/path-ridge persist=true",
             }
             if last:
                 out["promote_gate"] = path_promote_gate(last)
@@ -1160,7 +1160,7 @@ class QuantFactorMixin:
         persist_role: str = "live",
         holdout_trading_days: int = 10,
     ) -> Dict[str, Any]:
-        """观察池 ŷ_complexity Ridge：开盘 Z + 多 τ 前缀 → 全日 5m 曲折度。只读本地 5m 缓存。"""
+        """观察池 ŷ_cx Ridge：开盘 Z + 多 τ 前缀 → 全日 5m 曲折度。只读本地 5m 缓存。"""
         from core.data.facade import bars_and_source
         from core.ports.market import group_minute_bars_by_date
         from core.research.cx_panel import DEFAULT_CX_TAU_GRID
@@ -1188,7 +1188,7 @@ class QuantFactorMixin:
         if len(codes) < 2:
             return {
                 "success": False,
-                "error": "研究池至少 2 只才可跑 ŷ_complexity Ridge",
+                "error": "研究池至少 2 只才可跑 ŷ_cx Ridge",
                 "task": "cx_ridge",
             }
 
@@ -1326,7 +1326,7 @@ class QuantFactorMixin:
                 "exists": False,
                 "path": cx_model_path(),
                 "last_report_exists": bool(last),
-                "note": "尚无 ŷ_complexity 模型；POST /api/quant/cx-ridge persist=true",
+                "note": "尚无 ŷ_cx 模型；POST /api/quant/cx-ridge persist=true",
             }
             if last:
                 out["promote_gate"] = cx_promote_gate(last)
@@ -1564,7 +1564,7 @@ class QuantFactorMixin:
         persist_role: str = "live",
         holdout_trading_days: int = 10,
     ) -> Dict[str, Any]:
-        """观察池 ŷ_r Ridge：与 ŷ_τ 同 X → price(τ)/close−1。只读本地 5m 缓存。不进调仓。"""
+        """观察池 ŷ_τc Ridge：与 ŷ_oc 同 X → close[T]/price(τ)−1。只读本地 5m 缓存。"""
         from core.data.facade import bars_and_source
         from core.watching.store import WATCHING_MAX_SIZE, read_watching
         from quant.research.r_ridge import (
@@ -1721,19 +1721,30 @@ class QuantFactorMixin:
                 out["oos"] = last.get("oos")
             return _attach_ridge_role_flags(out, r_model_path(), live_present=False)
         gate_src = last if use_last else (doc if not doc.get("_shadow") else (last or doc))
-        return _attach_ridge_role_flags(
-            {
-                **chosen,
-                "success": True,
-                "exists": True,
-                "path": r_model_path(),
-                "promoted": (not use_last) and not bool(chosen.get("_shadow")),
-                "shadow": bool(use_last) or bool(chosen.get("_shadow")),
-                "last_report_exists": bool(last),
-                "promote_gate": r_promote_gate(gate_src),
-            },
-            r_model_path(),
-        )
+        packed = {
+            **chosen,
+            "success": True,
+            "exists": True,
+            "path": r_model_path(),
+            "promoted": (not use_last) and not bool(chosen.get("_shadow")),
+            "shadow": bool(use_last) or bool(chosen.get("_shadow")),
+            "last_report_exists": bool(last),
+            "promote_gate": r_promote_gate(gate_src),
+        }
+        research_rm = packed.get("return_model_research")
+        if not isinstance(research_rm, dict):
+            if isinstance(last, dict) and isinstance(last.get("return_model_research"), dict):
+                research_rm = last["return_model_research"]
+            else:
+                research_doc = load_r_model(role="research")
+                research_rm = (
+                    research_doc.get("return_model")
+                    if isinstance(research_doc, dict)
+                    else None
+                )
+        if isinstance(research_rm, dict):
+            packed["return_model_research"] = research_rm
+        return _attach_ridge_role_flags(packed, r_model_path())
 
     def run_r_tree_experiment(
         self,

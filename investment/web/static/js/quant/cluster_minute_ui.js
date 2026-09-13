@@ -432,10 +432,10 @@ export function installClusterMinuteUi(q) {
       <div class="quant-bars-foot-item"><span class="quant-bars-foot-k">Store</span><span class="quant-bars-foot-v">${esc(backend)} · OHLCV 5m</span></div>
       <div class="quant-bars-foot-item"><span class="quant-bars-foot-k">Scope</span><span class="quant-bars-foot-v">watching · Limit ${esc(data.watching_limit ?? "—")}</span></div>
       <div class="quant-bars-foot-item"><span class="quant-bars-foot-k">强更 Job</span><span class="quant-bars-foot-v">${esc(jobLine)}</span></div>
-      <div class="quant-bars-foot-item"><span class="quant-bars-foot-k">Gate</span><span class="quant-bars-foot-v">Ready ≥ ${esc(data.min_span_days ?? MIN_SPAN_DAYS)} 交易日 · ŷ_path 软闸</span></div>
+      <div class="quant-bars-foot-item"><span class="quant-bars-foot-k">Gate</span><span class="quant-bars-foot-v">Ready ≥ ${esc(data.min_span_days ?? MIN_SPAN_DAYS)} 交易日 · ŷ_hl 软闸</span></div>
       <div class="quant-bars-foot-item"><span class="quant-bars-foot-k">Write</span><span class="quant-bars-foot-v">增量补齐 / 强更 5m · ≠ 日K · ≠ 现算 ŷ</span></div>
       <div class="quant-bars-foot-item"><span class="quant-bars-foot-k">Labels</span><span class="quant-bars-foot-v">τ=分钟开→收% · path=极值序% · 每票≤${esc(data.label_portrait?.max_days_per_code ?? 120)}d</span></div>
-      <div class="quant-bars-foot-item"><span class="quant-bars-foot-k">Downstream</span><span class="quant-bars-foot-v">ŷ_τ@10:30 · ŷ_path · 调仓 · 做T · tip</span></div>
+      <div class="quant-bars-foot-item"><span class="quant-bars-foot-k">Downstream</span><span class="quant-bars-foot-v">ŷ_oc@10:30 · ŷ_hl · 调仓 · 做T · tip</span></div>
     </div>`;
   }
 

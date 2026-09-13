@@ -13,7 +13,7 @@ def build_y_spec(
     horizon_days: Optional[int] = None,
     include_cost: bool = False,
     halt_policy: str = "keep_bar",
-    formula: str = "close[t+h]/close[t]-1",
+    formula: str = "open[T+1]/open[T]-1",
     unit: str = "pct",
     note: str = "",
     excess_mode: str = "none",
@@ -41,7 +41,8 @@ def build_y_spec(
     else:
         em = "none"
     base_note = (
-        f"y=(close[t+{h}]/close[t]-1)*100；"
+        f"y=(open[t+{h}]/open[t]-1)*100；"
+        "X 用到 T−1 收，T 开可进 quote；今收不进 X。"
         "默认不含交易成本；停牌日若无 bar 则该样本跳过。"
     )
     if em == "index":

@@ -129,17 +129,28 @@ class T0BacktestRequest(BaseModel):
         default=None,
         description="门槛2 启用；关则本档不参与入场 OR；默认开",
     )
-    r_tau_enter: Optional[float] = Field(
+    fusion_w_τc: Optional[float] = Field(
         default=None,
         ge=0.0,
         le=1.0,
-        description="门槛1 |R̂_τ| 入场下限（百分点）；范围 0–1.0；0=关",
+        description="做 T residual 融合：ŷ_τc 权重；与 residual_w_oc 归一化",
     )
-    r_tau_enter_alt: Optional[float] = Field(
+    fusion_w_tc: Optional[float] = Field(
         default=None,
         ge=0.0,
         le=1.0,
-        description="门槛2 |R̂_τ| 入场下限（百分点）；默认 0；范围 0–1.0；0=关",
+        description="fusion_w_τc 的 ASCII 别名",
+    )
+    residual_w_oc: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        le=1.0,
+        description="做 T residual 融合：remaining(ŷ_oc) 权重",
+    )
+    residual_w_mode: Optional[str] = Field(
+        default=None,
+        max_length=24,
+        description="residual 融合：fixed=固定权（默认）| inv_var=OOS 逆方差",
     )
     y_tau_enter_strong: Optional[float] = Field(
         default=None,
@@ -191,26 +202,23 @@ class T0BacktestRequest(BaseModel):
     )
     y_on_risk: Optional[float] = Field(default=None, ge=0.01, le=10.0)
     y_block_tau_nowcast_sign: Optional[bool] = None
-    y_tau_leg1_prior: Optional[bool] = Field(
-        default=None,
-        description="已弃用镜像：mode≠off；请用 y_tau_leg1_prior_mode",
-    )
-    y_tau_leg1_prior_mode: Optional[str] = Field(
-        default=None,
-        max_length=16,
-        description="v6 τ先验：ŷ_τ 当偏移加到 ±δ，整条带宽平移（宽仍 2δ）。score=漂移；off=对称 ±δ。旧 skip 并入 score",
-    )
-    y_tau_leg1_prior_risk: Optional[float] = Field(
+    t0_y_oc_target_scale: Optional[float] = Field(
         default=None,
         ge=0.0,
         le=100.0,
-        description="score：偏移灵敏度 k，s=k·ŷ_τ（再经 α·δ 封顶；范围 0–100；默认 10）",
+        description="C_τ：y_oc 放大，clip(ŷ_oc×scale, y_oc_l, y_oc_u) 的倍数，默认 10",
     )
-    y_tau_leg1_prior_shift_scale: Optional[float] = Field(
+    t0_y_oc_l: Optional[float] = Field(
         default=None,
-        ge=0.1,
-        le=1.0,
-        description="score：带宽漂移 |s|≤α·δ，α∈[0.1, 1.0]（默认 1；α=1 时同侧可贴 0）",
+        ge=-20.0,
+        le=20.0,
+        description="C_τ clip 下界（百分点，默认 −3）",
+    )
+    t0_y_oc_u: Optional[float] = Field(
+        default=None,
+        ge=-20.0,
+        le=20.0,
+        description="C_τ clip 上界（百分点，默认 +3）",
     )
     y_nc_enter: Optional[float] = Field(
         default=None,
@@ -238,31 +246,49 @@ class T0BacktestRequest(BaseModel):
         default=None,
         ge=0.0,
         le=100.0,
-        description="path 入场%：|y_path| 低于此值横盘跳过（默认 0；0=关幅度；范围 0–100%）",
+        description="HL 入场%：|y_hl| 低于此值横盘跳过（默认 0；0=关幅度；范围 0–100%）",
     )
     y_path_enter_sell_then_buy: Optional[float] = Field(
         default=None,
         ge=0.0,
         le=100.0,
-        description="dual_y：反T path 入场门槛；范围 0–100%",
+        description="dual_y：反T HL 入场门槛；范围 0–100%",
     )
     y_path_enter_buy_then_sell: Optional[float] = Field(
         default=None,
         ge=0.0,
         le=100.0,
-        description="dual_y：正T path 入场门槛；范围 0–100%",
+        description="dual_y：正T HL 入场门槛；范围 0–100%",
     )
     y_path_strong: Optional[float] = Field(
         default=None,
         ge=0.0,
         le=5.0,
-        description="path强%：|y_path| 超此值须与 y_τ 同号，异号跳过（默认 5）",
+        description="HL强%：|y_hl| 超此值须与 y_τ 同号，异号跳过（默认 5）",
+    )
+    y_tc_strong: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        le=1.0,
+        description="ŷ_τc 旁路强%：0=任意有符号须同号；1=关",
+    )
+    y_tc_enter: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        le=100.0,
+        description="门槛1 |ŷ_τc| 入场下限（百分点）；范围 0–100%；0=关",
+    )
+    y_τc_enter: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        le=100.0,
+        description="y_tc_enter 的 Unicode 别名",
     )
     y_complexity_max: Optional[float] = Field(
         default=None,
         ge=0.0,
         le=1.0,
-        description="ŷ_complexity∈[0,1] 上限：超过则太折跳过做 T（默认 1.00≈关）",
+        description="ŷ_cx∈[0,1] 上限：超过则太折跳过做 T（默认 1.00≈关）",
     )
     y_cx_max: Optional[float] = Field(
         default=None,
@@ -282,6 +308,18 @@ class T0BacktestRequest(BaseModel):
         le=100.0,
         description="门槛2 |y_τ| 入场下限（百分点）；默认 0；范围 0–100%；0=关",
     )
+    y_tc_enter_alt: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        le=100.0,
+        description="门槛2 |ŷ_τc| 入场下限（百分点）；默认 0；范围 0–100%；0=关",
+    )
+    y_τc_enter_alt: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        le=100.0,
+        description="y_tc_enter_alt 的 Unicode 别名",
+    )
     y_path_enter_alt: Optional[float] = Field(
         default=None,
         ge=0.0,
@@ -292,7 +330,7 @@ class T0BacktestRequest(BaseModel):
         default=None,
         ge=0.0,
         le=1.0,
-        description="门槛2 ŷ_complexity 上限：默认 1.00≈关；范围 0–1",
+        description="门槛2 ŷ_cx 上限：默认 1.00≈关；范围 0–1",
     )
     y_tpd_max_alt: Optional[float] = Field(
         default=None,
@@ -515,8 +553,10 @@ class PaperExecutionPatchRequest(BaseModel):
     y_tau_enter_buy_then_sell: Optional[float] = None
     y_enter_enabled: Optional[bool] = None
     y_enter_alt_enabled: Optional[bool] = None
-    r_tau_enter: Optional[float] = None
-    r_tau_enter_alt: Optional[float] = None
+    fusion_w_τc: Optional[float] = None
+    fusion_w_tc: Optional[float] = None
+    residual_w_oc: Optional[float] = None
+    residual_w_mode: Optional[str] = None
     y_ratio_cut: Optional[float] = None
     y_ratio_boost_cap: Optional[float] = None
     y_eod_prior: Optional[float] = None
@@ -527,10 +567,9 @@ class PaperExecutionPatchRequest(BaseModel):
     y_on_allow: Optional[float] = None
     y_on_risk: Optional[float] = None
     y_block_tau_nowcast_sign: Optional[bool] = None
-    y_tau_leg1_prior: Optional[bool] = None
-    y_tau_leg1_prior_mode: Optional[str] = None
-    y_tau_leg1_prior_risk: Optional[float] = None
-    y_tau_leg1_prior_shift_scale: Optional[float] = None
+    t0_y_oc_target_scale: Optional[float] = None
+    t0_y_oc_l: Optional[float] = None
+    t0_y_oc_u: Optional[float] = None
     y_nc_enter: Optional[float] = None
     y_nc_strong: Optional[float] = None
     y_nowcast_enter: Optional[float] = None
@@ -542,10 +581,15 @@ class PaperExecutionPatchRequest(BaseModel):
     y_path_enter_sell_then_buy: Optional[float] = None
     y_path_enter_buy_then_sell: Optional[float] = None
     y_path_strong: Optional[float] = None
+    y_tc_strong: Optional[float] = None
+    y_tc_enter: Optional[float] = None
+    y_τc_enter: Optional[float] = None
     y_complexity_max: Optional[float] = None
     y_cx_max: Optional[float] = None
     y_tpd_max: Optional[float] = None
     y_tau_enter_alt: Optional[float] = None
+    y_tc_enter_alt: Optional[float] = None
+    y_τc_enter_alt: Optional[float] = None
     y_path_enter_alt: Optional[float] = None
     y_complexity_max_alt: Optional[float] = None
     y_tpd_max_alt: Optional[float] = None

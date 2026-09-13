@@ -184,6 +184,7 @@ class QuantReplayMixin:
             load_replay_minute_bars,
         )
         from core.paper.rebalance.rank_lots import clamp_fusion_weight, coerce_rank_threshold
+        from core.signal.yhat_windows import FORMULA_RANKING
 
         universe_n = len(stock_bars)
         try:
@@ -279,10 +280,10 @@ class QuantReplayMixin:
             ),
             "score_axis_note": (
                 "引擎=paper_replay：每个交易日 09:30 rank_lots"
-                f"（成交 {clock} 5m · 初始 {cash / 10000:g} 万 · y_fuse/y_on · "
+                f"（成交 {clock} 5m · 初始 {cash / 10000:g} 万 · ranking={FORMULA_RANKING} · "
                 f"{lot_base_n}/{lot_strong_n} 股；"
-                f"w_trade={w_trade:g}；w_nowcast={w_nowcast:g}；"
-                f"α={y_on_alpha:g}；入场={enter:g}；强={strong:g}；"
+                f"w_oo={w_trade:g}；w_oc={w_nowcast:g}；"
+                f"w_co={y_on_alpha:g}；入场={enter:g}；强={strong:g}；"
                 f"宇宙=观察池 {universe_n} 只"
                 + (
                     f" · 档{''.join((fit_meta or {}).get('universe_fit_tiers') or [])}"

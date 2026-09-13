@@ -246,7 +246,7 @@ def quant_on_ridge_model() -> Dict[str, Any]:
 
 @router.post("/api/quant/path-ridge")
 def quant_path_ridge(body: PathRidgeRequest) -> Dict[str, Any]:
-    """ŷ_path Ridge：开盘 Z + 多 τ 前缀分钟小包 + t_hi/t_lo 进度 → 全日极值序 + 时间 OOS；可选 persist。"""
+    """ŷ_hl Ridge：开盘 Z + 多 τ 前缀分钟小包 + t_hi/t_lo 进度 → 全日极值序 + 时间 OOS；可选 persist。"""
     try:
         return deps.quant.run_path_ridge_experiment(
             lookback=body.lookback,
@@ -269,7 +269,7 @@ def quant_path_ridge(body: PathRidgeRequest) -> Dict[str, Any]:
 
 @router.get("/api/quant/path-ridge/model")
 def quant_path_ridge_model() -> Dict[str, Any]:
-    """读取已 promote 的 ŷ_path 模型（若有）。"""
+    """读取已 promote 的 ŷ_hl 模型（若有）。"""
     try:
         return deps.quant.get_path_ridge_model()
     except Exception as e:
@@ -278,7 +278,7 @@ def quant_path_ridge_model() -> Dict[str, Any]:
 
 @router.post("/api/quant/cx-ridge")
 def quant_cx_ridge(body: CxRidgeRequest) -> Dict[str, Any]:
-    """ŷ_complexity Ridge：开盘 Z + 多 τ 前缀 + lag → 全日曲折度 1−D/L ∈[0,1] + 时间 OOS；可选 persist。"""
+    """ŷ_cx Ridge：开盘 Z + 多 τ 前缀 + lag → 全日曲折度 1−D/L ∈[0,1] + 时间 OOS；可选 persist。"""
     try:
         return deps.quant.run_cx_ridge_experiment(
             lookback=body.lookback,
@@ -299,7 +299,7 @@ def quant_cx_ridge(body: CxRidgeRequest) -> Dict[str, Any]:
 
 @router.get("/api/quant/cx-ridge/model")
 def quant_cx_ridge_model() -> Dict[str, Any]:
-    """读取已 promote 的 ŷ_complexity 模型（若有）。"""
+    """读取已 promote 的 ŷ_cx 模型（若有）。"""
     try:
         return deps.quant.get_cx_ridge_model()
     except Exception as e:
@@ -338,7 +338,7 @@ def quant_tpd_ridge_model() -> Dict[str, Any]:
 
 @router.post("/api/quant/r-ridge")
 def quant_r_ridge(body: RRidgeRequest) -> Dict[str, Any]:
-    """ŷ_r Ridge：与 ŷ_τ 同 X → price(τ)/close−1 + 时间 OOS；可选 persist。不进调仓。"""
+    """ŷ_τc Ridge：与 ŷ_oc 同 X → close[T]/price(τ)−1 + 时间 OOS；可选 persist。"""
     try:
         return deps.quant.run_r_ridge_experiment(
             lookback=body.lookback,

@@ -277,6 +277,11 @@ def apply_predicted_scores_by_model(
         pred = model.predict(item.get("sub_scores") or {}) if model is not None else None
         item["predicted_score"] = pred
         item["rank_mode"] = "predicted_score"
+        if pred is not None:
+            item["y_oo"] = pred
+            item["predicted_score_oo"] = pred
+            item.setdefault("predicted_score_eod", pred)
+            item.setdefault("y_eod", pred)
         if model is not None:
             item["return_model_source"] = item.get("return_model_source") or "mapped"
         if write_rank_score and pred is not None:
@@ -313,6 +318,11 @@ def apply_predicted_scores(
         pred = model.predict(item.get("sub_scores") or {})
         item["predicted_score"] = pred
         item["rank_mode"] = "predicted_score"
+        if pred is not None:
+            item["y_oo"] = pred
+            item["predicted_score_oo"] = pred
+            item.setdefault("predicted_score_eod", pred)
+            item.setdefault("y_eod", pred)
         if write_rank_score and pred is not None:
             item["score"] = pred
         out.append(item)

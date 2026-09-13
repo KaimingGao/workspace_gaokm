@@ -1,4 +1,4 @@
-"""ŷ_complexity 曲折度标签与 Ridge。"""
+"""ŷ_cx 曲折度标签与 Ridge。"""
 
 from __future__ import annotations
 
@@ -127,7 +127,7 @@ class CxLabelTests(unittest.TestCase):
 
         self.assertEqual(pick_y_complexity_label({"y_complexity": 0.0}), 0.0)
         self.assertEqual(pick_y_complexity_label({"y_cx": 0.0}), 0.0)
-        self.assertEqual(pick_y_complexity_label({"y_complexity": 0.0, "y_cx": 0.9}), 0.0)
+        self.assertEqual(pick_y_complexity_label({"y_cx": 0.0, "y_complexity": 0.9}), 0.0)
         packed = pack_y_complexity_fields({"y_cx": 0.0, "cx_realized_reason": "flat_path"})
         self.assertEqual(packed["y_complexity"], 0.0)
         self.assertEqual(packed["y_cx"], 0.0)
@@ -195,7 +195,7 @@ class CxRidgeFitTests(unittest.TestCase):
         )
         self.assertTrue(report.get("success"), report.get("error"))
         self.assertEqual(report.get("schema"), "cx_ridge_v1")
-        self.assertEqual(report.get("dual_score_head"), "y_complexity")
+        self.assertEqual(report.get("dual_score_head"), "y_cx")
         oos = report.get("oos") or {}
         self.assertIn("ic", oos)
         self.assertIn("median_hit", oos)

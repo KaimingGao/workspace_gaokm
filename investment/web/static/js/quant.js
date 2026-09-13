@@ -11,8 +11,8 @@ import { apiFetch } from "./api_client.js";
 import { loadAndPaintMacroStrip } from "./macro_context_ui.js";
 import { renderLineChart, renderDualLineChart, renderMultiLineChart } from "./lw_charts.js";
 import { mountVirtualTable, colStyle } from "./virtual_table.js";
-import { createScoreTooltipController } from "./score_tooltip.js?v=p1734";
-import { fmtScore, scoreCls } from "./paper/fmt.js?v=p1734";
+import { createScoreTooltipController } from "./score_tooltip.js?v=p2364";
+import { fmtScore, scoreCls } from "./paper/fmt.js?v=p2298";
 import {
   defaultScoringFloors,
   mergeScoringFloors,
@@ -33,7 +33,6 @@ import { createBtTablesUi } from "./quant/bt_tables.js?v=p2261";
 import { installClusterProbe } from "./quant/domain_cluster.js";
 import { installSuggest } from "./quant/domain_suggest.js";
 import { installExportInterpret } from "./quant/domain_export.js";
-import { installFitGapHub } from "./quant/domain_fit_gap.js";
 import { loadAndRenderFactorCorr, loadAndRenderFactorIR, loadAndRenderFactorICSeries, setProStatusChip, syncOverviewFromClusters, syncOverviewTau, renderFactorSummaryCards } from "./quant/factor_corr_ui.js";
 
 const _QV =
@@ -108,7 +107,7 @@ export function initQuant(ctx) {
   } = factorMeta;
 
   const BT_SCOPE_LIVE =
-    "口径：每个交易日 09:30 rank_lots（本金默认 20 万 · y_fuse/y_on · 100/200 股）。" +
+            "口径：每个交易日 09:30 rank_lots（本金默认 20 万 · rank=w_oo·ŷ_oo+w_oc·((1+ŷ_oc)(1+w_co·ŷ_co)−1) · 100/200 股）。" +
     "净值起点 100；成本按纸面成本模型。有效≠正确：先看超额/回撤，再解读累计收益。";
   const BT_SCOPE_FROZEN =
     "以下为 quant_daily 冻结摘要，不是刚才点的回测；点「跑回测」刷新当次结果。";
@@ -154,6 +153,7 @@ export function initQuant(ctx) {
     quantCrossSummary: document.getElementById("quant-cross-summary"),
     quantCrossList: document.getElementById("quant-cross-list"),
     quantFactorList: document.getElementById("quant-factor-list"),
+    quantOlsHealth: document.getElementById("quant-ols-health"),
     quantWeightSuggest: document.getElementById("quant-weight-suggest"),
     quantWeightTable: document.getElementById("quant-weight-table"),
     quantOlsSummary: document.getElementById("quant-ols-summary"),
@@ -247,7 +247,7 @@ export function initQuant(ctx) {
     attachReadmeLinkHandler, renderReadmeLinksHtml,
   };
 
-  Object.assign(q, createBtResultRenderers({ escapeHtml, fmtPct, metricClass, researchGridHtml }));
+  Object.assign(q, createBtResultRenderers({ escapeHtml, fmtPct, metricClass }));
   Object.assign(q, createFactorIcUi({ escapeHtml, researchGridHtml, metricCell, metricClass, factorMetaByName, factorMetaByLabel, factorNameCellHtml, factorTaxonomyCellHtml }));
   Object.assign(q, createOlsUi({
     escapeHtml, researchGridHtml, metricCell, metricClass, factorNameCellHtml, factorTaxonomyCellHtml, factorMetaByName,
@@ -271,7 +271,6 @@ export function initQuant(ctx) {
   const strategy = installStrategy(q);
   const exportDomain = installExportInterpret(q);
   const scoreReviewDomain = installScoreReview(q);
-  const fitGapHub = installFitGapHub(q);
   q.watching = watching;
   q.backtest = backtest;
   q.cluster = cluster;
@@ -281,7 +280,6 @@ export function initQuant(ctx) {
   q.strategy = strategy;
   q.exportDomain = exportDomain;
   q.scoreReviewDomain = scoreReviewDomain;
-  q.fitGapHub = fitGapHub;
 
   async function renderRemCoefTable(rm, opts = {}) {
     const host = document.getElementById("quant-tau-coef-table");
@@ -356,16 +354,16 @@ export function initQuant(ctx) {
       return;
     }
     if (oos && oos.sign_hit != null && Number.isFinite(Number(oos.sign_hit))) {
-      syncOverviewTau(oos.sign_hit, extra || "ŷ_τ 命中 · open→收", "hit");
+      syncOverviewTau(oos.sign_hit, extra || "ŷ_oc 命中 · open→收", "hit");
       return;
     }
     if (oos && oos.ic != null && Number.isFinite(Number(oos.ic))) {
-      syncOverviewTau(oos.ic, extra || "ŷ_τ IC", "ic");
+      syncOverviewTau(oos.ic, extra || "ŷ_oc IC", "ic");
     }
   }
 
   /**
-   * ŷ_τ 卡头状态：chip + 可选文案 + OOS/n/时间 meta。
+   * ŷ_oc 卡头状态：chip + 可选文案 + OOS/n/时间 meta。
    * @param {HTMLElement|null} el
    * @param {{
    *   state?: "idle"|"busy"|"ok"|"warn"|"error",
@@ -507,7 +505,7 @@ export function initQuant(ctx) {
           remStatusMeta(
             "测",
             fmtRemN(oos.n_test),
-            "Holdout 样本外行数（近 N 日，ŷ_τ 含多 τ）"
+            "Holdout 样本外行数（近 N 日，ŷ_oc 含多 τ）"
           )
         );
       }
@@ -787,10 +785,9 @@ export function initQuant(ctx) {
 
   function tauTreeBusyHint(elapsedSec) {
     const s = Number(elapsedSec) || 0;
-    if (s < 8) return "拉观察池行情";
-    if (s < 25) return "组 open→close 面板";
-    if (s < 90) return "拟合 80 棵浅树 + Ridge 对照";
-    return "仍在拟合 80 棵（numpy 浅树较慢）";
+    if (s < 15) return "拉观察池行情";
+    if (s < 90) return "组 open→close 面板（满池分钟特征）";
+    return "仍在组面板（XGBoost 约数秒；慢的是组样本）";
   }
 
   function fmtTauTreeTiming(data) {
@@ -820,7 +817,13 @@ export function initQuant(ctx) {
       hyper.max_depth != null && Number.isFinite(Number(hyper.max_depth))
         ? Number(hyper.max_depth)
         : 3;
-    return `${n} 棵 · 深度 ${depth}`;
+    const engine =
+      String((data && data.backend) || "").toLowerCase() === "xgboost"
+        ? "XGBoost"
+        : String((data && data.backend) || "").toLowerCase() === "numpy_gbm"
+          ? "numpy GBM"
+          : "";
+    return [engine, `${n} 棵 · 深度 ${depth}`].filter(Boolean).join(" · ");
   }
 
   function stopTauTreeBusy() {
@@ -840,7 +843,7 @@ export function initQuant(ctx) {
     const t0 = Date.now();
     const tick = () => {
       const s = Math.max(0, Math.round((Date.now() - t0) / 1000));
-      const msg = `${tauTreeBusyHint(s)} · 已 ${fmtTauTreeSec(s)} · 满池可能数十秒到数分钟`;
+      const msg = `${tauTreeBusyHint(s)} · 已 ${fmtTauTreeSec(s)} · 满池瓶颈在组面板，约数分钟`;
       renderRemStatus(sum, {
         state: "busy",
         chip: "拟合中",
@@ -866,13 +869,13 @@ export function initQuant(ctx) {
     }
     if (data.busy) {
       box.innerHTML = `<div class="quant-tree-report is-busy"><p class="quant-attr-note">${escapeHtml(
-        data.message || "ŷ_τ_tree 拟合中…"
+        data.message || "ŷ_oc_tree 拟合中…"
       )}</p></div>`;
       return;
     }
     if (!data.success) {
       box.innerHTML = `<p class="quant-attr-note">${escapeHtml(
-        String(data.error || data.note || "ŷ_τ_tree 拟合失败")
+        String(data.error || data.note || "ŷ_oc_tree 拟合失败")
       )}</p>`;
       return;
     }
@@ -937,7 +940,7 @@ export function initQuant(ctx) {
       renderRemStatus(sum, {
         state: "idle",
         chip: "待命",
-        message: data.note || "尚无 ŷ_τ_tree",
+        message: data.note || "尚无 ŷ_oc_tree",
       });
       renderTauTreeCompare({ success: false, error: data.note || "尚无上次对照" });
       return;
@@ -959,10 +962,9 @@ export function initQuant(ctx) {
 
   function rTreeBusyHint(elapsedSec) {
     const s = Number(elapsedSec) || 0;
-    if (s < 8) return "拉观察池行情";
-    if (s < 25) return "组 price(τ)/close 面板";
-    if (s < 90) return "拟合 80 棵浅树 + Ridge 对照";
-    return "仍在拟合 80 棵（numpy 浅树较慢）";
+    if (s < 45) return "拉观察池行情 / 5m 缓存";
+    if (s < 90) return "组 close/price(τ) 面板（满池分钟特征）";
+    return "仍在组面板（XGBoost 约数秒；慢的是组样本）";
   }
 
   function stopRTreeBusy() {
@@ -982,7 +984,7 @@ export function initQuant(ctx) {
     const t0 = Date.now();
     const tick = () => {
       const s = Math.max(0, Math.round((Date.now() - t0) / 1000));
-      const msg = `${rTreeBusyHint(s)} · 已 ${fmtTauTreeSec(s)} · 满池可能数十秒到数分钟`;
+      const msg = `${rTreeBusyHint(s)} · 已 ${fmtTauTreeSec(s)} · 满池瓶颈在组面板，约数分钟`;
       renderRemStatus(sum, {
         state: "busy",
         chip: "拟合中",
@@ -1008,13 +1010,13 @@ export function initQuant(ctx) {
     }
     if (data.busy) {
       box.innerHTML = `<div class="quant-tree-report is-busy"><p class="quant-attr-note">${escapeHtml(
-        data.message || "ŷ_r_tree 拟合中…"
+        data.message || "ŷ_τc_tree 拟合中…"
       )}</p></div>`;
       return;
     }
     if (!data.success) {
       box.innerHTML = `<p class="quant-attr-note">${escapeHtml(
-        String(data.error || data.note || "ŷ_r_tree 拟合失败")
+        String(data.error || data.note || "ŷ_τc_tree 拟合失败")
       )}</p>`;
       return;
     }
@@ -1079,7 +1081,7 @@ export function initQuant(ctx) {
       renderRemStatus(sum, {
         state: "idle",
         chip: "待命",
-        message: data.note || "尚无 ŷ_r_tree",
+        message: data.note || "尚无 ŷ_τc_tree",
       });
       renderRTreeCompare({ success: false, error: data.note || "尚无上次对照" });
       return;
@@ -1199,7 +1201,7 @@ export function initQuant(ctx) {
         : null,
       oos.mae != null ? `MAE ${Number(oos.mae).toFixed(3)}` : null,
       rho != null && Number.isFinite(Number(rho))
-        ? `ρ(y_complexity,y_tpd) ${Number(rho).toFixed(3)}`
+        ? `ρ(y_cx,y_tpd) ${Number(rho).toFixed(3)}`
         : null,
       gate.ok === false
         ? `promote 闸：${(gate.blockers || []).join("；")}`
@@ -1243,7 +1245,7 @@ export function initQuant(ctx) {
       `<p class="quant-attr-note">${bits.map((b) => escapeHtml(String(b))).join(" · ")}</p>`;
   }
 
-  /** ŷ_τ 启用：不过闸也可点，确认后 force_promote。 */
+  /** ŷ_oc 启用：不过闸也可点，确认后 force_promote。 */
   let _tauPromoteGate = null;
   function syncRidgePersistPair(liveId, researchId, gate, { hasReport = true } = {}) {
     const buttons = [
@@ -1342,7 +1344,7 @@ export function initQuant(ctx) {
     if (box) box.innerHTML = "";
   }
 
-  // 轻量预填 ŷ_path 状态
+  // 轻量预填 ŷ_hl 状态
   void (async () => {
     try {
       const res = await fetch("/api/quant/path-ridge/model");
@@ -1370,7 +1372,7 @@ export function initQuant(ctx) {
   })();
 
 
-  // 轻量预填 ŷ_complexity 状态
+  // 轻量预填 ŷ_cx 状态
   void (async () => {
     try {
       const res = await fetch("/api/quant/cx-ridge/model");
@@ -1445,13 +1447,16 @@ export function initQuant(ctx) {
       paintRidgeEnableStatus(sum, data, { gate });
       syncRPersistBtn(gate, { hasReport: true });
       clearRResultBox();
-      await renderRCoefTable(data.return_model || {}, { oos });
+      await renderRCoefTable(data.return_model || {}, {
+        oos,
+        researchModel: data.return_model_research || null,
+      });
     } catch (_) {
       /* ignore */
     }
   })();
 
-  // 轻量预填 ŷ_τ KPI / 状态（不阻塞；概览用模型 OOS，不再被单日验收覆盖）
+  // 轻量预填 ŷ_oc KPI / 状态（不阻塞；概览用模型 OOS，不再被单日验收覆盖）
   void (async () => {
     try {
       const res = await fetch("/api/quant/tau-ridge/model");
@@ -1487,7 +1492,7 @@ export function initQuant(ctx) {
           !(oos.sign_hit != null && Number.isFinite(Number(oos.sign_hit))) &&
           !(oos.ic != null && Number.isFinite(Number(oos.ic)))
         ) {
-          syncOverviewTau(chip, data.promoted_at || "ŷ_τ", "text");
+          syncOverviewTau(chip, data.promoted_at || "ŷ_oc", "text");
         }
       }
     } catch (_) {
@@ -1495,7 +1500,7 @@ export function initQuant(ctx) {
     }
   })();
 
-  // 轻量预填 ŷ_ON 状态
+  // 轻量预填 ŷ_co 状态
   void (async () => {
     try {
       const res = await fetch("/api/quant/on-ridge/model");
@@ -2023,8 +2028,6 @@ export function initQuant(ctx) {
       );
     });
 
-  // 拟合 KPI 由 fit-gap domain 在渲染时写概览
-
   const oosGateTips = createScoreTooltipController();
   cluster.wireOosGateTips(els.quantOlsClusters);
   cluster.wireOosGateTips(els.quantFactorList);
@@ -2131,7 +2134,7 @@ export function initQuant(ctx) {
       busy: true,
     });
     try {
-      // 满观察池（与 ŷ_path 一致）
+      // 满观察池（与 ŷ_hl 一致）
       const tauLimit = 200;
       const res = await fetch("/api/quant/tau-ridge", {
         method: "POST",
@@ -2232,7 +2235,7 @@ export function initQuant(ctx) {
       busy: true,
     });
     try {
-      // 满观察池（与 ŷ_τ / ŷ_path 一致）
+      // 满观察池（与 ŷ_oc / ŷ_hl 一致）
       const onLimit = 200;
       const res = await fetch("/api/quant/on-ridge", {
         method: "POST",
@@ -2410,8 +2413,8 @@ export function initQuant(ctx) {
     const gate = _pathPromoteGate;
     const target =
       persistRole === "research"
-        ? "ŷ_path 研究套（path_ridge_model_research.json，供历史回测）"
-        : "ŷ_path 执行套（path_ridge_model.json，供交易执行）";
+        ? "ŷ_hl 研究套（path_ridge_model_research.json，供历史回测）"
+        : "ŷ_hl 执行套（path_ridge_model.json，供交易执行）";
     let forcePromote = false;
     if (gate && gate.ok === false) {
       const blockers = (gate.blockers || []).join("；") || "未过 OOS 闸";
@@ -2419,7 +2422,7 @@ export function initQuant(ctx) {
         return;
       }
       forcePromote = true;
-    } else if (!window.confirm(`将 ŷ_path 写入 ${target}？不改 ŷ_EOD / ŷ_τ。`)) {
+    } else if (!window.confirm(`将 ŷ_hl 写入 ${target}？不改 ŷ_oo / ŷ_oc。`)) {
       return;
     }
     try {
@@ -2603,8 +2606,8 @@ export function initQuant(ctx) {
     const gate = _cxPromoteGate;
     const target =
       persistRole === "research"
-        ? "ŷ_complexity 研究套（cx_ridge_model_research.json，供历史回测）"
-        : "ŷ_complexity 执行套（cx_ridge_model.json，供交易执行）";
+        ? "ŷ_cx 研究套（cx_ridge_model_research.json，供历史回测）"
+        : "ŷ_cx 执行套（cx_ridge_model.json，供交易执行）";
     let forcePromote = false;
     if (gate && gate.ok === false) {
       const blockers = (gate.blockers || []).join("；") || "未过 OOS 闸";
@@ -2612,7 +2615,7 @@ export function initQuant(ctx) {
         return;
       }
       forcePromote = true;
-    } else if (!window.confirm(`将 ŷ_complexity 写入 ${target}？`)) {
+    } else if (!window.confirm(`将 ŷ_cx 写入 ${target}？`)) {
       return;
     }
     try {
@@ -2874,7 +2877,7 @@ export function initQuant(ctx) {
         ? forcePromote
           ? "强制写入上次拟合…"
           : "写入上次拟合…"
-        : "ŷ_r Ridge + 时间 OOS…",
+        : "ŷ_τc Ridge + 时间 OOS…",
       busy: true,
     });
     try {
@@ -2952,7 +2955,10 @@ export function initQuant(ctx) {
       syncRPersistBtn(gate, { hasReport: true });
       const rm = data.return_model || {};
       renderRFitSummary(data);
-      await renderRCoefTable(rm, { oos });
+      await renderRCoefTable(rm, {
+        oos,
+        researchModel: data.return_model_research || null,
+      });
     } catch (err) {
       renderRemStatus(sum, {
         state: "error",
@@ -2987,8 +2993,8 @@ export function initQuant(ctx) {
     const gate = _rPromoteGate;
     const target =
       persistRole === "research"
-        ? "ŷ_r 研究套（r_ridge_model_research.json，供历史回测）"
-        : "ŷ_r 执行套（r_ridge_model.json；不改 ŷ_EOD / ŷ_τ、不进调仓）";
+        ? "ŷ_τc 研究套（r_ridge_model_research.json，供历史回测）"
+        : "ŷ_τc 执行套（r_ridge_model.json；不改 ŷ_oo / ŷ_oc、不进调仓）";
     let forcePromote = false;
     if (gate && gate.ok === false) {
       const blockers = (gate.blockers || []).join("；") || "未过 OOS 闸";
@@ -2996,7 +3002,7 @@ export function initQuant(ctx) {
         return;
       }
       forcePromote = true;
-    } else if (!window.confirm(`将 ŷ_r 写入 ${target}？不改 ŷ_EOD / ŷ_τ、不进调仓。`)) {
+    } else if (!window.confirm(`将 ŷ_τc 写入 ${target}？不改 ŷ_oo / ŷ_oc、不进调仓。`)) {
       return;
     }
     try {
@@ -3046,7 +3052,10 @@ export function initQuant(ctx) {
       });
       syncRPersistBtn(gate, { hasReport: true });
       clearRResultBox();
-      await renderRCoefTable(data.return_model || {}, { oos });
+      await renderRCoefTable(data.return_model || {}, {
+        oos,
+        researchModel: data.return_model_research || null,
+      });
     } catch (err) {
       renderRemStatus(sum, {
         state: "error",
@@ -3142,8 +3151,8 @@ export function initQuant(ctx) {
     const gate = _tauPromoteGate;
     const target =
       persistRole === "research"
-        ? "ŷ_τ 研究套（tau_ridge_model_research.json，供历史回测）"
-        : "ŷ_τ 执行套（tau_ridge_model.json，供交易执行）";
+        ? "ŷ_oc 研究套（tau_ridge_model_research.json，供历史回测）"
+        : "ŷ_oc 执行套（tau_ridge_model.json，供交易执行）";
     let forcePromote = false;
     if (gate && gate.ok === false) {
       const blockers = (gate.blockers || []).join("；") || "未过 OOS 闸";
@@ -3155,7 +3164,7 @@ export function initQuant(ctx) {
         return;
       }
       forcePromote = true;
-    } else if (!window.confirm(`将 ŷ_τ 写入 ${target}？不改 ŷ_EOD、不改聚类。`)) {
+    } else if (!window.confirm(`将 ŷ_oc 写入 ${target}？不改 ŷ_oo、不改聚类。`)) {
       return;
     }
     try {
@@ -3193,9 +3202,9 @@ export function initQuant(ctx) {
     const persistRole = (e.currentTarget && e.currentTarget.dataset.persistRole) || "live";
     const target =
       persistRole === "research"
-        ? "ŷ_ON 研究套（on_ridge_model_research.json，供历史回测）"
-        : "ŷ_ON 执行套（on_ridge_model.json，供交易执行）";
-    if (!window.confirm(`将 on / ŷ_ON 写入 ${target}？不改 ŷ_EOD / ŷ_τ、不进主排序。`)) {
+        ? "ŷ_co 研究套（on_ridge_model_research.json，供历史回测）"
+        : "ŷ_co 执行套（on_ridge_model.json，供交易执行）";
+    if (!window.confirm(`将 on / ŷ_co 写入 ${target}？不改 ŷ_oo / ŷ_oc、不进主排序。`)) {
       return;
     }
     try {
@@ -3262,9 +3271,9 @@ export function initQuant(ctx) {
           idleMessage: data.note || "尚无 live 模型",
         });
         if (!data.research_exists && !data.live_model_present) {
-          syncOverviewTau("未启用", "ŷ_τ 模型缺失", "text");
+          syncOverviewTau("未启用", "ŷ_oc 模型缺失", "text");
         } else {
-          syncOverviewTau(painted.chip, data.promoted_at || "ŷ_τ 模型", "text");
+          syncOverviewTau(painted.chip, data.promoted_at || "ŷ_oc 模型", "text");
         }
         clearRemResultBox();
         await renderRemCoefTable(null);
@@ -3278,7 +3287,7 @@ export function initQuant(ctx) {
       if (oos.sign_hit != null || (oos.ic != null && Number.isFinite(Number(oos.ic))) || tauOpenBucket(oos)) {
         syncOverviewTauFromOos(oos, chip);
       } else {
-        syncOverviewTau(chip, data.promoted_at || "ŷ_τ 模型", "text");
+        syncOverviewTau(chip, data.promoted_at || "ŷ_oc 模型", "text");
       }
       clearRemResultBox();
       await renderRemCoefTable(data.return_model || {}, { oos });

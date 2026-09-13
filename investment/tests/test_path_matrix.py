@@ -22,33 +22,39 @@ class TestPathMatrix(unittest.TestCase):
         base.update(kwargs)
         return get_path_matrix_cfg({"path_matrix": base})
 
-    def test_fuse_trade_nowcast(self):
-        from core.paper.rebalance.path_matrix import fuse_trade_nowcast
+    def test_fuse_pct(self):
+        from core.signal.yhat_windows import fuse_pct
 
-        self.assertAlmostEqual(fuse_trade_nowcast(1.0, 3.0, w_trade=0.5, w_nowcast=0.5), 2.0)
-        self.assertAlmostEqual(fuse_trade_nowcast(1.0, None), 1.0)
-        self.assertIsNone(fuse_trade_nowcast(None, None))
+        self.assertAlmostEqual(fuse_pct(1.0, 3.0, w_left=0.5, w_right=0.5), 2.0)
+        self.assertAlmostEqual(fuse_pct(1.0, None), 1.0)
+        self.assertIsNone(fuse_pct(None, None))
 
-    def test_fuse_trade_nowcast_oc_strips_gap(self):
-        from core.paper.rebalance.path_matrix import fuse_trade_nowcast_oc
+    def test_ranking_fuses_oo_oc(self):
+        from core.signal.yhat_windows import ranking_pct, residual_pct, invert_price_over_close
 
-        cc = fuse_trade_nowcast_oc(2.0, 1.0, w_trade=0.5, w_nowcast=0.5)
-        self.assertAlmostEqual(cc, 1.5)
-        oc = fuse_trade_nowcast_oc(2.0, 1.0, w_trade=0.5, w_nowcast=0.5, gap_pct=1.0)
-        expect = round(((1.0 + 1.5 / 100.0) / (1.0 + 1.0 / 100.0) - 1.0) * 100.0, 6)
-        self.assertAlmostEqual(oc, expect)
+        item = {"predicted_score": 2.0, "y_tau": 1.0}
+        self.assertAlmostEqual(ranking_pct(item), 1.5)
+        self.assertAlmostEqual(invert_price_over_close(1.0), round((1.0 / 1.01 - 1.0) * 100.0, 10))
+        item_r = {"y_tau": 2.0, "y_r": 1.0, "ret_open_to_tau": 0.0}
+        pc = invert_price_over_close(1.0)
+        rem = 2.0
+        self.assertAlmostEqual(residual_pct(item_r), 0.5 * pc + 0.5 * rem)
+        from core.signal.yhat_windows import t0_residual_pct
+
+        self.assertIsNone(t0_residual_pct({"y_tau": 2.0}))
+        self.assertAlmostEqual(t0_residual_pct(item_r), 0.5 * pc + 0.5 * rem)
 
     def test_reads_rank_lots_key_first(self):
         from core.paper.rebalance.path_matrix import get_path_matrix_cfg
 
         cfg = get_path_matrix_cfg(
             {
-                "rank_lots": {"rank_enter": 0.02, "y_on_alpha": 1.0},
-                "path_matrix": {"rank_enter": 0.012, "y_on_alpha": 0.0},
+                "rank_lots": {"rank_enter": 0.02, "fusion_w_oo": 0.6, "fusion_w_oc": 0.4},
+                "path_matrix": {"rank_enter": 0.012, "fusion_w_oo": 0.4},
             }
         )
         self.assertAlmostEqual(cfg["rank_enter"], 0.02)
-        self.assertAlmostEqual(cfg["y_on_alpha"], 1.0)
+        self.assertAlmostEqual(cfg["fusion_w_oo"], 0.6)
         self.assertEqual(cfg["mode"], "rank_lots")
 
     def test_execution_default_has_rank_lots(self):
@@ -70,6 +76,13 @@ class TestPathMatrix(unittest.TestCase):
         self.assertEqual(pm.get("mode"), "rank_lots")
         self.assertAlmostEqual(float(pm.get("holdings_mv_cap")), 150000.0)
 
+    def test_y_on_alpha_maps_to_fusion_w_co(self):
+        cfg = self._cfg(y_on_alpha=0.4)
+        self.assertAlmostEqual(cfg["fusion_w_co"], 0.4)
+        self.assertAlmostEqual(cfg["y_on_alpha"], 0.4)
+        cfg0 = self._cfg()
+        self.assertAlmostEqual(cfg0["fusion_w_co"], 0.0)
+
     def test_legacy_rank_thresholds_coerced_to_net(self):
         cfg = self._cfg(rank_enter=1.01, rank_strong=1.02)
         self.assertAlmostEqual(cfg["rank_enter"], 0.01)
@@ -78,11 +91,10 @@ class TestPathMatrix(unittest.TestCase):
         self.assertAlmostEqual(cfg0["rank_enter"], 0.01)
         self.assertAlmostEqual(cfg0["rank_strong"], 0.02)
 
-    def test_y_on_alpha_clamped(self):
-        cfg = self._cfg(y_on_alpha=99)
-        self.assertEqual(cfg["y_on_alpha"], 10.0)
-        cfg0 = self._cfg(y_on_alpha=-1)
-        self.assertEqual(cfg0["y_on_alpha"], 0.0)
+    def test_legacy_trade_weights_map_to_oo_oc(self):
+        cfg = self._cfg(fusion_w_trade=0.7, fusion_w_nowcast=0.3)
+        self.assertAlmostEqual(cfg["fusion_w_oo"], 0.7)
+        self.assertAlmostEqual(cfg["fusion_w_oc"], 0.3)
 
 
 if __name__ == "__main__":

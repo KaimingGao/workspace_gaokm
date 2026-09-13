@@ -76,7 +76,7 @@
   display: block;
   width: 100%;
   max-width: 100%;
-  height: 184px;
+  height: 160px;
   box-sizing: border-box;
 }
 
@@ -2621,8 +2621,8 @@ body[data-page="watching"] .watching-page > .dashboard-section.watching-section 
   line-height: var(--sys-lh-snug, 1.35);
 }
 
-/* ŷ 无数据时不占版面 */
-body[data-page="watching"] .watching-section-yhat:has(#watching-yhat-hist-wrap[hidden]) {
+/* ŷ_oo 截面无数据时不占版面 */
+body[data-page="watching"] #watching-yhat-hist-wrap[hidden] {
   display: none !important;
 }
 
@@ -2650,7 +2650,7 @@ body[data-page="watching"] .watching-kpi-row {
 
 body[data-page="watching"] .watching-kpi-row .dashboard-kpi-row-body {
   display: grid !important;
-  grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+  grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
   gap: 10px;
   align-items: stretch;
   width: 100%;
@@ -2839,7 +2839,7 @@ body[data-page="watching"] .watching-page .quant-pro-card-body {
 
 body[data-page="watching"] .watching-watchlist-body {
   padding: 10px 12px 0;
-  gap: 10px;
+  gap: 4px;
 }
 
 /* L3 控制带（搜索 · 对齐 follow control-band） */
@@ -3007,21 +3007,33 @@ body[data-page="watching"] .research-dock .watching-yhat-series {
   border-top: 1px solid color-mix(in srgb, var(--line) 80%, transparent);
 }
 
-/* ŷ 卡：卡头内 meta + 图例 */
-body[data-page="watching"] .watching-yhat-card > .watching-yhat-hist {
+/* ŷ_oo 截面：嵌在搜索框与主表之间 */
+body[data-page="watching"] .watching-watchlist-body > .watching-yhat-hist {
   display: flex;
   flex-direction: column;
+  margin: 0;
+  padding: 6px 10px 2px;
+  border: 1px solid color-mix(in srgb, var(--line) 88%, transparent);
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--ink) 1.5%, var(--bg-elevated, var(--surface)));
 }
 
-body[data-page="watching"] .watching-yhat-card .watching-yhat-hist-head {
+body[data-page="watching"] .watching-watchlist-body > .watching-yhat-hist + .watching-watch-block,
+body[data-page="watching"] .watching-watchlist-body > .watching-yhat-hist + #watching-align-grid,
+body[data-page="watching"] .watching-watchlist-body > .watching-yhat-hist + #research-dock {
+  margin-top: 0;
+}
+
+body[data-page="watching"] .watching-watchlist-card .watching-yhat-hist-head {
   align-items: flex-start;
+  margin-bottom: 4px;
 }
 
-body[data-page="watching"] .watching-yhat-card .watching-yhat-hist-titles {
+body[data-page="watching"] .watching-watchlist-card .watching-yhat-hist-titles {
   flex: 1 1 12rem;
 }
 
-body[data-page="watching"] .watching-yhat-card .yhat-hist-legend {
+body[data-page="watching"] .watching-watchlist-card .yhat-hist-legend {
   margin: 0;
   flex-wrap: wrap;
   justify-content: flex-end;
@@ -3450,7 +3462,7 @@ body[data-page="watching"] .watching-overview-band {
 
 body[data-page="watching"] .watching-kpi-row .dashboard-kpi-row-body {
   display: grid !important;
-  grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+  grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
   gap: 8px;
   width: 100%;
 }
@@ -3571,7 +3583,10 @@ body[data-page="watching"] .watching-page .quant-pro-card-body {
 
 body[data-page="watching"] .watching-watchlist-body {
   padding: 8px 10px 0;
-  gap: 8px;
+}
+
+body[data-page="watching"] .watching-page .watching-watchlist-body {
+  gap: 4px;
 }
 
 /* ── L3 控制带 / 搜索 ── */
@@ -3731,10 +3746,9 @@ body[data-page="watching"] .watching-card-tools #btn-research-dock {
 }
 
 /* ── ŷ 卡头：mono 统计，图例收紧 ── */
-body[data-page="watching"] .watching-yhat-card .watching-yhat-hist-meta-primary,
-body[data-page="watching"] .watching-yhat-card .watching-yhat-hist-meta-aux,
-body[data-page="watching"] .watching-yhat-card .watching-yhat-hist-meta-layer,
-body[data-page="watching"] .watching-yhat-card .yhat-hist-filter {
+body[data-page="watching"] .watching-watchlist-card .watching-yhat-hist-meta-primary,
+body[data-page="watching"] .watching-watchlist-card .watching-yhat-hist-meta-aux,
+body[data-page="watching"] .watching-watchlist-card .yhat-hist-filter {
   font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
   font-size: var(--w-fs-caption);
   font-variant-numeric: tabular-nums;
@@ -3742,7 +3756,7 @@ body[data-page="watching"] .watching-yhat-card .yhat-hist-filter {
   line-height: 1.35;
 }
 
-body[data-page="watching"] .watching-yhat-card .yhat-hist-legend {
+body[data-page="watching"] .watching-watchlist-card .yhat-hist-legend {
   gap: 4px 8px;
   font-size: var(--w-fs-micro);
   color: var(--ink-3);

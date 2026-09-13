@@ -12,7 +12,7 @@ const { watchingScoreDetail } = await import(
 const { fitTierBadgeForCode } = await import(
   `./fit_tier_ui.js?v=${encodeURIComponent(_V)}`
 );
-const { resolveTradeScore, resolveNowcastScore } = await import(
+const { resolveTradeScore, resolveNowcastScore, compoundPct } = await import(
   `../paper/fmt.js?v=${encodeURIComponent(_V)}`
 );
 
@@ -23,11 +23,11 @@ export const BT_SIM_TRADE_COLS_BASE = [
   { id: "name", label: "股票", flex: true, title: "点击名称看日线" },
   {
     id: "score",
-    label: "ŷ_EOD",
+    label: "ŷ_oo",
     widthPct: 6.5,
     num: true,
     sortable: true,
-    title: "历史 Top-K 表列 = ŷ_EOD（选股键）· 关 τ 闸 · 悬停可看字段；日线通常无可靠 ŷ_τ",
+    title: "历史 Top-K 表列 = ŷ_oo（选股键）· 关 τ 闸 · 悬停可看字段；日线通常无可靠 ŷ_oc",
   },
   {
     id: "score_nowcast",
@@ -295,30 +295,30 @@ export const BT_LEDGER_TRADE_COLS = [
   },
   {
     id: "y_fuse",
-    label: "y_fuse",
+    label: "y_oo",
     widthPct: 12,
     widthMin: "8.8rem",
     num: true,
     sortable: true,
-    title: "格式 预估(真实)。y_fuse=open[T]→close[T]；真实=收盘/开盘。对照用，不进决策。",
+    title: "格式 预估(真实)。预估=ŷ_oo；真实=次日开/今日开。对照用。",
   },
   {
     id: "y_tau",
-    label: "y_τ",
+    label: "y_oc",
     widthPct: 12,
     widthMin: "8.8rem",
     num: true,
     sortable: true,
-    title: "格式 预估(真实)，与 y_fuse 预估同一套百分数。预估=ŷ_τ；真实=收盘/开盘。对照用，不进决策。",
+    title: "格式 预估(真实)。预估=ŷ_oc；真实=收盘/开盘。对照用，不进决策。",
   },
   {
     id: "y_on",
-    label: "y_on",
+    label: "y_co",
     widthPct: 12,
     widthMin: "8.8rem",
     num: true,
     sortable: true,
-    title: "格式 预估(真实)。真实=次日开/今日收。对照用，不进决策。",
+    title: "格式 预估(真实)。预估=ŷ_co；真实=次日开/今日收。对照用，不进决策。",
   },
   {
     id: "ranking",
@@ -327,7 +327,7 @@ export const BT_LEDGER_TRADE_COLS = [
     widthMin: "5.4rem",
     num: true,
     sortable: true,
-    title: "ranking = (1+y_fuse/100)×(1+α×y_on/100)−1，展示百分数。y_fuse=open[T]→close[T]。α 默认 0（隔夜不参与）；α=1 对齐 T 开→T+1 开。<0% 清仓；过 Rank入场% 建仓；过 Rank强% 买 200 股。",
+    title: "rank=w_oo·ŷ_oo+w_oc·((1+ŷ_oc)(1+w_co·ŷ_co)−1)",
   },
 ];
 
@@ -424,6 +424,23 @@ function _fmtWan(v) {
   return n.toLocaleString("zh-CN", { maximumFractionDigits: 0 });
 }
 
+/** 日头现金/净值：本金 20 万时 万两位会把盯市抹成「20万」。百万以下用元。 */
+function _fmtBookYuan(v) {
+  const n = _numOrNull(v);
+  if (n == null) return "—";
+  if (Math.abs(n) >= 1e6) {
+    return `${(n / 10000).toLocaleString("zh-CN", {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    })}万`;
+  }
+  const intish = Math.abs(n - Math.round(n)) < 1e-9;
+  return n.toLocaleString("zh-CN", {
+    maximumFractionDigits: intish ? 0 : 2,
+    minimumFractionDigits: intish ? 0 : 2,
+  });
+}
+
 function _actionMeta(r) {
   const skipped = String(r.status || "") === "skipped";
   const raw = String(r.action || r.matrix_action || "").toLowerCase();
@@ -451,35 +468,34 @@ export function buildLedgerTradeRow(r, i, deps) {
   const side = String(r.side || "").toLowerCase();
   const buy = side === "buy";
   const skipped = String(r.status || "") === "skipped";
-  const yf = _numOrNull(r.y_fuse != null ? r.y_fuse : r.predicted_score);
-  const yo = _numOrNull(r.y_on);
+  const yf = _numOrNull(r.y_oo != null ? r.y_oo : r.predicted_score_eod);
+  const yo = _numOrNull(r.y_co != null ? r.y_co : r.y_on);
   const ytau = _numOrNull(
-    r.y_tau != null ? r.y_tau : r.predicted_score_tau
+    r.y_oc != null ? r.y_oc : r.y_tau != null ? r.y_tau : r.predicted_score_tau
   );
   const rk = _numOrNull(r.ranking_score);
-  const yt = _numOrNull(r.y_trade);
-  const yn = _numOrNull(r.y_nowcast);
+  const rankingPct =
+    rk != null ? rk * 100 : _numOrNull(r.ranking != null ? r.ranking : r.y_fuse);
   const rCc = _numOrNull(r.realized_cc);
   const rOn = _numOrNull(r.realized_on);
   const rTau = _numOrNull(r.realized_tau);
+  const rOo = rTau != null && rOn != null ? compoundPct(rTau, rOn) : null;
   const act = _actionMeta(r);
   const actionTip = _legReason(r);
   const fuseTip = [
-    yf != null ? `y_fuse ${fmtScore(yf)}` : "",
-    rTau != null ? `真实 收盘/开盘 ${fmtScore(rTau, { signed: true })}` : "真实 —",
-    yt != null ? `y_trade ${fmtScore(yt)}` : "",
-    yn != null ? `y_nowcast ${fmtScore(yn)}` : "",
+    yf != null ? `ŷ_oo ${fmtScore(yf, { signed: true })}` : "ŷ_oo —",
+    rOo != null ? `真实 次日开/今日开 ${fmtScore(rOo, { signed: true })}` : "真实 —",
   ]
     .filter(Boolean)
     .join(" · ");
   const onTip = [
-    yo != null ? `y_on ${fmtScore(yo)}` : "",
+    yo != null ? `ŷ_co ${fmtScore(yo, { signed: true })}` : "ŷ_co —",
     rOn != null ? `真实 次日开/今日收 ${fmtScore(rOn, { signed: true })}` : "真实 —",
   ]
     .filter(Boolean)
     .join(" · ");
   const tauTip = [
-    ytau != null ? `y_τ ${fmtScore(ytau, { signed: true })}` : "",
+    ytau != null ? `ŷ_oc ${fmtScore(ytau, { signed: true })}` : "ŷ_oc —",
     rTau != null ? `真实 收盘/开盘 ${fmtScore(rTau, { signed: true })}` : "真实 —",
   ]
     .filter(Boolean)
@@ -522,10 +538,13 @@ export function buildLedgerTradeRow(r, i, deps) {
     y_onNum: yo,
     y_onText: fmtScore(yo, { signed: true }),
     y_onCls: _scoreClsOf(scoreCls, yo),
-    rankingNum: rk == null ? null : rk * 100,
-    rankingText: rk == null ? "—" : fmtScore(rk * 100, { signed: true }),
-    rankingCls: _scoreClsOf(scoreCls, rk),
+    rankingNum: rankingPct,
+    rankingText: rankingPct == null ? "—" : fmtScore(rankingPct, { signed: true }),
+    rankingCls: _scoreClsOf(scoreCls, rankingPct),
     y_onTip: onTip,
+    realizedOoNum: rOo,
+    realizedOoText: rOo == null ? "" : fmtScore(rOo, { signed: true }),
+    realizedOoCls: _scoreClsOf(scoreCls, rOo),
     realizedCcNum: rCc,
     realizedCcText: rCc == null ? "" : fmtScore(rCc, { signed: true }),
     realizedCcCls: _scoreClsOf(scoreCls, rCc),
@@ -603,10 +622,10 @@ export function buildLedgerDayRow(day, meta) {
     nKeep: meta ? meta.nKeep : 0,
     nSkip: meta ? meta.nSkip : 0,
     cashNum: cash,
-    cashText: _fmtWan(cash),
+    cashText: _fmtBookYuan(cash),
     nHold,
     equityNum: equity,
-    equityText: _fmtWan(equity),
+    equityText: _fmtBookYuan(equity),
   };
 }
 
@@ -652,13 +671,7 @@ export function buildLedgerTradeRows(legs, deps) {
 }
 
 export function ledgerTradesCaptionHtml() {
-  return (
-    `<p class="quant-trades-caption">` +
-    `<button type="button" id="quant-bt-trades-csv" class="dialog-btn secondary quant-bt-trades-csv">下载 CSV</button>` +
-    `</p>` +
-    `<p id="quant-bt-stock-chip" class="quant-bt-stock-chip" hidden></p>` +
-    `<div class="quant-bt-trades-host"></div>`
-  );
+  return `<div class="quant-bt-trades-host"></div>`;
 }
 
 export function buildLedgerTradesCsv(rows, nameByCode = {}) {
@@ -782,7 +795,7 @@ export function buildSimTradeRow(r, i, deps) {
   // 与持仓/观察池同源：修历史成交里塌成 EOD 的旧 blend
   const blendRaw = resolveTradeScore(r);
   const nowcastScore = resolveNowcastScore(r);
-  // 表列：历史日线路径无可靠 τ → 展示/选股键均为 ŷ_EOD；有 τ 时才用 ŷ_trade
+  // 表列：历史日线路径无可靠 τ → 展示/选股键均为 ŷ_oo；有 τ 时才用 ŷ_trade
   const hasTau =
     (r.predicted_score_tau != null && Number.isFinite(Number(r.predicted_score_tau))) ||
     (r.score_rem != null && Number.isFinite(Number(r.score_rem)));
@@ -794,8 +807,8 @@ export function buildSimTradeRow(r, i, deps) {
       ? eodScore
       : blendRaw;
   const scoreColTitleBase = hasTau
-    ? "ŷ_trade = w·ŷ_EOD + w·(缺口∘ŷ_τ) · 现价对昨收 · 悬停看组成"
-    : "ŷ_EOD（历史 Top-K 选股键）· 日线无可靠 ŷ_τ · 关 τ 闸";
+    ? "ŷ_trade = w·ŷ_oo + w·(缺口∘ŷ_oc) · 现价对昨收 · 悬停看组成"
+    : "ŷ_oo（历史 Top-K 选股键）· 日线无可靠 ŷ_oc · 关 τ 闸";
   const singleHead =
     r.dual_score_single_head === true ||
     String(r.dual_score_head || "") === "single_eod" ||
@@ -833,7 +846,7 @@ export function buildSimTradeRow(r, i, deps) {
     eodRem = eodScore;
   }
   const scoreDetail = watchingScoreDetail({
-    // tip ① 优先 predicted_score=ŷ_EOD；表列展示用 blend
+    // tip ① 优先 predicted_score=ŷ_oo；表列展示用 blend
     score: eodScore != null ? eodScore : blendScore,
     predicted_score: eodScore != null ? eodScore : blendScore,
     predicted_score_tau:
@@ -919,7 +932,7 @@ export function buildSimTradeRow(r, i, deps) {
     scoreNowcastCls: scoreCls(nowcastScore),
     scoreNowcastTitle:
       nowcastScore == null
-        ? "暂无 nowcast · 日线路径常无 ŷ_τ"
+        ? "暂无 nowcast · 日线路径常无 ŷ_oc"
         : "nowcast（nc）· 对照昨收，不进决策",
     status: formatSimStatus(st),
   };
@@ -937,9 +950,8 @@ export function simTradesCaptionHtml({ rowsLen, filled, skipped, showIntent }) {
     `模拟成交账（含涨跌停跳过）· ${rowsLen} 笔` +
     `（成交 ${filled}` +
     (skipped ? ` · 跳过 ${skipped}` : "") +
-    `）· 按买入日新→旧 · 信号日→次日买入 · 表列 ŷ_EOD（历史选股键；关 τ 闸，日线无可靠 ŷ_τ）` +
+    `）· 按买入日新→旧 · 信号日→次日买入 · 表列 ŷ_oo（历史选股键；关 τ 闸，日线无可靠 ŷ_oc）` +
     (showIntent ? "" : " · 意图价=买入价已省略") +
-    `<button type="button" id="quant-bt-trades-csv" class="dialog-btn secondary quant-bt-trades-csv">下载 CSV</button>` +
     `</p>` +
     `<div class="quant-bt-trades-host"></div>`
   );
@@ -1005,7 +1017,7 @@ function _dayBandHtml(d, escapeHtml) {
     `<time class="bt-ledger-day-date">${escapeHtml(d.date || "")}</time>` +
     (chips.length ? `<span class="bt-ledger-day-flows">${chips.join("")}</span>` : "") +
     (cashBits
-      ? `<span class="bt-ledger-day-cash">${escapeHtml(cashBits)}</span>`
+      ? `<span class="bt-ledger-day-cash" title="净值=现金+收盘市值">${escapeHtml(cashBits)}</span>`
       : "") +
     `</div>`
   );
@@ -1083,7 +1095,7 @@ export function btTradesCellHtml(col, d, deps) {
   }
   if (col.id === "y_fuse") {
     return _stackScoreHtml(
-      _predRealHtml(d.y_fuseText, d.y_fuseCls, d.realizedTauText, d.realizedTauCls, escapeHtml),
+      _predRealHtml(d.y_fuseText, d.y_fuseCls, d.realizedOoText, d.realizedOoCls, escapeHtml),
       d.y_fuseTip,
       escapeHtml
     );
@@ -1108,7 +1120,7 @@ export function btTradesCellHtml(col, d, deps) {
         d.rankingCls || ""
       )}">${escapeHtml(d.rankingText || "—")}</span>`,
       d.rankingText && d.rankingText !== "—"
-        ? `ranking ${d.rankingText} = (1+y_fuse/100)×(1+α×y_on/100)−1，展示百分数`
+        ? `rank ${d.rankingText} = w_oo·ŷ_oo + w_oc·((1+ŷ_oc)(1+w_co·ŷ_co)−1)`
         : "",
       escapeHtml
     );
@@ -1122,9 +1134,9 @@ export function btTradesCellHtml(col, d, deps) {
     const head = d.dualScoreHead || "";
     const headTitle =
       head === "single_tau"
-        ? "ŷ_trade 单头降级：仅 ŷ_τ（缺 ŷ_EOD）· 与双头票不同量纲"
+        ? "ŷ_trade 单头降级：仅 ŷ_oc（缺 ŷ_oo）· 与双头票不同量纲"
         : head === "single_eod"
-          ? "ŷ_trade 单头降级：仅 ŷ_EOD（缺 ŷ_τ）· 与双头票不同量纲"
+          ? "ŷ_trade 单头降级：仅 ŷ_oo（缺 ŷ_oc）· 与双头票不同量纲"
           : "ŷ_trade 单头降级 · 与双头票不同量纲";
     const badge = singleHead
       ? `<span class="watching-single-head-badge" title="${escapeHtml(

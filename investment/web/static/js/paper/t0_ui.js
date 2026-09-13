@@ -1,8 +1,8 @@
 /** Paper · 做T 指标与预演表渲染（从 paper.js 抽出）。 */
 
-import { yTauMapScoreTip } from "./execution_ui.js";
-import { renderT0Viz, wireT0SkipTips } from "./t0_viz.js?v=p2261";
-import { buildT0ReportHtml, fmtT0DirDays } from "./t0_report.js?v=p2270";
+import { yTauMapScoreTip } from "./execution_ui.js?v=p2353";
+import { renderT0Viz, wireT0SkipTips } from "./t0_viz.js?v=p2364";
+import { buildT0ReportHtml, fmtT0DirDays } from "./t0_report.js?v=p2353";
 import {
   buildT0TradeTableHtml,
   pickDetailDays,
@@ -12,7 +12,7 @@ import {
   wireT0DayDebugExpand,
   wireT0ProcessTips,
   stampStockFitTiers,
-} from "./t0_table.js?v=p2261";
+} from "./t0_table.js?v=p2364";
 
 function escapeHtml(s) {
   return String(s ?? "")
@@ -31,15 +31,22 @@ function buildZeroTradeHint(data) {
     (reasonText.includes("振幅") &&
       !reasonText.includes("空间用尽") &&
       !reasonText.includes("ŷ_path") &&
-      !reasonText.includes("y_path"));
+      !reasonText.includes("y_path") &&
+      !reasonText.includes("ŷ_hl") &&
+      !reasonText.includes("y_hl"));
   const prefixVsPathSkip =
     reasonText.includes("空间用尽") ||
     reasonText.includes(">|ŷ_path|") ||
+    reasonText.includes(">|ŷ_hl|") ||
     (reasonText.includes("前缀振幅") &&
-      (reasonText.includes("ŷ_path") || reasonText.includes("y_path")));
+      (reasonText.includes("ŷ_path") ||
+        reasonText.includes("y_path") ||
+        reasonText.includes("ŷ_hl") ||
+        reasonText.includes("y_hl")));
   const tauEntrySkip =
     reasonText.includes("τ带") ||
     reasonText.includes("τ入场") ||
+    reasonText.includes("oc入场") ||
     (reasonText.includes("开盘×(1+") &&
       (reasonText.includes("买价") || reasonText.includes("卖价")) &&
       !reasonText.includes("τ出场"));
@@ -67,7 +74,7 @@ function buildZeroTradeHint(data) {
         : multiSlotMiss
           ? "各轮均未开仓；看明细槽位 reason，或放宽带宽 δ / 检查 ĉ_τ"
           : tauExitSkip
-            ? "第二腿出场价未过 open×(1+(clamp(ŷ_τ×裕度,min,max)+价偏)/100)；可调裕度/价偏或关 τ卖价闸/τ买价闸"
+            ? "第二腿出场价未过 open×(1+(clamp(ŷ_oc×裕度,min,max)+价偏)/100)；可调裕度/价偏或关 τ卖价闸/τ买价闸"
             : tauEntrySkip
               ? "历史：触发根入场价未过τ带（v6 已下线，第一腿按确认根收盘）；重跑预演后应消失"
               : prefixVsPathSkip
@@ -173,7 +180,7 @@ export function renderPaperT0(els, data) {
     `<div class="paper-t0-days-head">` +
     `<h4 class="paper-t0-days-title">成交明细</h4>` +
     `<p class="quant-trades-caption">${captionBits.join(" · ")}` +
-    ` · <span title="${escapeHtml(yTauMapScoreTip())}">收盘带宽</span>` +
+    ` · <span title="${escapeHtml(yTauMapScoreTip())}">C_τ 破带</span>` +
     ` · <span title="y_* 为该行「日」列会话快照（做T决策时冻结）；5m 路径仓在研究枢纽写入；≠持仓实时分 / ≠调仓ŷ开关">会话快照ŷ · 5m仓</span></p>` +
     `</div>`;
 
@@ -306,7 +313,7 @@ export function renderPaperT0Preview(els, data) {
           `<p class="quant-trades-caption">成交 ${tradeDays.length} · 跳过 ${skipN}` +
           escapeHtml(skipHint) +
           ` · 正${buyThenSellN}/反${sellThenBuyN}` +
-          ` · <span title="${tip}">收盘带宽</span>` +
+          ` · <span title="${tip}">C_τ 破带</span>` +
           ` · <span title="y_* 为该成交会话日快照，不是持仓表实时分">会话日快照分</span></p>` +
           `</div>`,
         maxRows: Math.max(T0_TRADE_TABLE_MAX_ROWS, days.length),
@@ -437,7 +444,7 @@ export function renderPaperT0WorkerTrades(el, { t0Auto, execution, liveScoresByC
         showDelete: true,
         showRealized: false,
       }) +
-      `<p class="paper-t0-desk-foot" title="${tip}">收盘带宽 · 删除将冲正账本</p>` +
+      `<p class="paper-t0-desk-foot" title="${tip}">C_τ 破带 · 删除将冲正账本</p>` +
       `</div>`
   );
   stampStockFitTiers(el);
@@ -485,6 +492,8 @@ function classifyDeskNote(note, locked) {
   if (locked) {
     if (r.includes("超额不足") || r.includes("R̂_τ 缺失") || r.includes("|R̂_τ|"))
       return { id: "r_tau_flat", label: "R不足" };
+    if (r.includes("ŷ_τc") && (r.includes("横盘") || r.includes("缺失") || r.includes("未过入场")))
+      return { id: "y_tc_flat", label: "TC横盘" };
     if (r.includes("横盘")) return { id: "y_tau_flat", label: "τ横盘" };
     if (r.includes("y_trade") || r.includes("幅度不足")) return { id: "y_trade_weak", label: "幅度" };
     if (r.includes("异号")) return { id: "trade_tau_sign", label: "异号" };
@@ -495,9 +504,9 @@ function classifyDeskNote(note, locked) {
     return { id: "locked", label: "终锁" };
   }
   if (r.includes("τ出场")) return { id: "tau_exit", label: "出场价" };
-  if (r.includes("τ带") || r.includes("τ入场") || (r.includes("开盘×(1+") && (r.includes("买价") || r.includes("卖价"))))
+  if (r.includes("τ带") || r.includes("τ入场") || r.includes("oc入场") || (r.includes("开盘×(1+") && (r.includes("买价") || r.includes("卖价"))))
     return { id: "tau_entry", label: "入场价" };
-  if (r.includes("空间用尽") || (r.includes("前缀振幅") && (r.includes("ŷ_path") || r.includes("y_path"))))
+  if (r.includes("空间用尽") || (r.includes("前缀振幅") && (r.includes("ŷ_path") || r.includes("y_path") || r.includes("ŷ_hl") || r.includes("y_hl"))))
     return { id: "prefix_vs_path", label: "空间用尽" };
   if (r.includes("振幅不足") || (r.includes("振幅") && !r.includes("前缀")))
     return { id: "amplitude", label: "振幅" };

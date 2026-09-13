@@ -1,12 +1,10 @@
 """策略调仓配置（rank_lots）。
 
-Follow / 历史回测 / 自动调仓都走 ``rank_lots``。本模块只提供
-``rank_enter`` / ``rank_strong`` / ``cash_floor`` / ``holdings_mv_cap`` /
-融合权重 / ``y_on_alpha``，以及 ``scores_from_rebalance_item`` /
-``fuse_trade_nowcast_oc``（y_fuse = open[T]→close[T]）。
+Follow / 历史回测 / 自动调仓都走 ``rank_lots``。
+rank = w_oo·ŷ_oo + w_oc·((1+ŷ_oc)(1+w_co·ŷ_co)−1)。w_co 默认 0。
+ŷ_trade / ŷ_nowcast / y_fuse 已下线。
 
 配置键优先 ``rebalance_timing.rank_lots``，仍认旧键 ``path_matrix``。
-λ / 同号闸 / 横截面 TopK 已删除。
 """
 
 from __future__ import annotations
@@ -16,6 +14,19 @@ from typing import Any, Dict, Optional
 
 logger = logging.getLogger(__name__)
 
+from core.signal.yhat_windows import (  # noqa: F401
+    fuse_pct,
+    fusion_w_co_from_cfg,
+    fusion_weights_from_cfg,
+    pick_y_co,
+    pick_y_oc,
+    pick_y_oo,
+    pick_y_τc,
+    ranking_pct,
+    residual_pct,
+    stamp_window_scores,
+)
+
 DEFAULT_PATH_MATRIX: Dict[str, Any] = {
     "enabled": True,
     "mode": "rank_lots",
@@ -23,9 +34,11 @@ DEFAULT_PATH_MATRIX: Dict[str, Any] = {
     "rank_strong": 0.012,
     "cash_floor": 0.0,
     "holdings_mv_cap": 150_000.0,
-    "fusion_w_trade": 0.5,
-    "fusion_w_nowcast": 0.5,
-    "y_on_alpha": 0.0,
+    "fusion_w_oo": 0.5,
+    "fusion_w_oc": 0.5,
+    "fusion_w_co": 0.0,
+    "fusion_w_pc": 0.5,
+    "residual_w_oc": 0.5,
 }
 
 
@@ -73,6 +86,14 @@ def get_path_matrix_cfg(
         for k, v in raw.items():
             if k in out and v is not None:
                 out[k] = v
+        if raw.get("fusion_w_oo") is None and raw.get("fusion_w_trade") is not None:
+            out["fusion_w_oo"] = raw.get("fusion_w_trade")
+        if raw.get("fusion_w_oc") is None and raw.get("fusion_w_nowcast") is not None:
+            out["fusion_w_oc"] = raw.get("fusion_w_nowcast")
+        if raw.get("fusion_w_pc") is None and raw.get("residual_w_pc") is not None:
+            out["fusion_w_pc"] = raw.get("residual_w_pc")
+        if raw.get("fusion_w_co") is None and raw.get("y_on_alpha") is not None:
+            out["fusion_w_co"] = raw.get("y_on_alpha")
     out["mode"] = "rank_lots"
     out["enabled"] = bool(out.get("enabled"))
     for key, default, lo, hi in (
@@ -80,9 +101,11 @@ def get_path_matrix_cfg(
         ("rank_strong", 0.012, 0.0, 10.0),
         ("cash_floor", 0.0, 0.0, 1.0e8),
         ("holdings_mv_cap", 150_000.0, 0.0, 1.0e8),
-        ("fusion_w_trade", 0.5, 0.0, 1.0),
-        ("fusion_w_nowcast", 0.5, 0.0, 1.0),
-        ("y_on_alpha", 0.0, 0.0, 10.0),
+        ("fusion_w_oo", 0.5, 0.0, 1.0),
+        ("fusion_w_oc", 0.5, 0.0, 1.0),
+        ("fusion_w_co", 0.0, 0.0, 10.0),
+        ("fusion_w_pc", 0.5, 0.0, 1.0),
+        ("residual_w_oc", 0.5, 0.0, 1.0),
     ):
         try:
             out[key] = max(lo, min(float(out.get(key, default)), hi))
@@ -100,129 +123,57 @@ def get_path_matrix_cfg(
         elif abs(v - 0.20) < 1e-6:
             v = 0.02
         out[rk] = v
-    wt = float(out["fusion_w_trade"])
-    wn = float(out["fusion_w_nowcast"])
-    s = wt + wn
-    if s <= 1e-12:
-        out["fusion_w_trade"], out["fusion_w_nowcast"] = 0.5, 0.5
-    else:
-        out["fusion_w_trade"], out["fusion_w_nowcast"] = wt / s, wn / s
+    w_oo, w_oc = fusion_weights_from_cfg(out)
+    out["fusion_w_oo"], out["fusion_w_oc"] = w_oo, w_oc
+    w_co = fusion_w_co_from_cfg(out)
+    out["fusion_w_co"] = w_co
+    out["y_on_alpha"] = w_co
+    # 旧键镜像，避免未改的 UI 读空
+    out["fusion_w_trade"] = w_oo
+    out["fusion_w_nowcast"] = w_oc
     if float(out["rank_strong"]) < float(out["rank_enter"]):
         out["rank_strong"] = float(out["rank_enter"])
     out["cash_floor"] = 0.0
     return out
 
 
-def fuse_trade_nowcast(
-    y_trade: Optional[float],
-    y_nowcast: Optional[float],
-    *,
-    w_trade: float = 0.5,
-    w_nowcast: float = 0.5,
-) -> Optional[float]:
-    """加权融合（昨收口径）；缺一侧则用另一侧；都缺则 None。"""
-    wt = max(0.0, float(w_trade))
-    wn = max(0.0, float(w_nowcast))
-    t = _f(y_trade)
-    n = _f(y_nowcast)
-    if t is None and n is None:
-        return None
-    if t is None:
-        return float(n)
-    if n is None:
-        return float(t)
-    s = wt + wn
-    if s <= 1e-12:
-        return 0.5 * float(t) + 0.5 * float(n)
-    return (wt * float(t) + wn * float(n)) / s
+def scores_from_rebalance_item(
+    item: Optional[dict],
+    cfg: Optional[dict] = None,
+) -> Dict[str, Optional[float]]:
+    """从调仓行抽出 ŷ_oo / ŷ_oc / ŷ_τc / ŷ_co 与 ranking / residual。"""
+    stamped = stamp_window_scores(item, cfg)
+    y_path = None
+    if isinstance(item, dict):
+        from core.research.path_panel import pick_y_hl, write_y_hl
 
-
-def open_gap_pct_of(item: Optional[dict]) -> Optional[float]:
-    """开盘缺口 open[T]/close[T−1]−1（%）。09:30 已实现，用来把 CC 映成 OC。"""
-    if not isinstance(item, dict):
-        return None
-    g = _f(item.get("gap_pct"))
-    if g is not None:
-        return g
-    feats = item.get("features_tau")
-    if isinstance(feats, dict):
-        g = _f(feats.get("gap_pct"))
-        if g is not None:
-            return g
-    return _f(item.get("realized_t1_to_tau"))
-
-
-def fuse_trade_nowcast_oc(
-    y_trade: Optional[float],
-    y_nowcast: Optional[float],
-    *,
-    w_trade: float = 0.5,
-    w_nowcast: float = 0.5,
-    gap_pct: Optional[float] = None,
-) -> Optional[float]:
-    """调仓 y_fuse：CC 融合后按缺口映成 open[T]→close[T]。
-
-    ŷ_trade / ŷ_nowcast 训练在 close[T]/close[T−1]−1；09:30 缺口已实现，
-    remaining=(1+cc)/(1+gap)−1 才是持有腿 Open(T)→Close(T)。无缺口则退回 CC。
-    """
-    cc = fuse_trade_nowcast(
-        y_trade,
-        y_nowcast,
-        w_trade=w_trade,
-        w_nowcast=w_nowcast,
-    )
-    if cc is None:
-        return None
-    try:
-        from core.signal.nowcast_kf import remaining_at_tau
-
-        oc = remaining_at_tau(cc, gap_pct)
-    except Exception:  # noqa: BLE001
-        logger.debug("remaining_at_tau failed", exc_info=True)
-        oc = cc
-    return oc if oc is not None else cc
-
-
-def scores_from_rebalance_item(item: Optional[dict]) -> Dict[str, Optional[float]]:
-    """从调仓行 / signal_item 抽四分数（字段与 dual_y 对齐）。"""
-    if not isinstance(item, dict):
-        return {"y_trade": None, "y_path": None, "y_nowcast": None, "y_on": None}
-
-    y_trade = _f(item.get("y_trade"))
-    if y_trade is None:
-        y_trade = _f(item.get("predicted_score_blend"))
-    if y_trade is None:
-        y_trade = _f(item.get("decision_score"))
-    if y_trade is None:
-        y_trade = _f(item.get("predicted_score"))
-    if y_trade is not None and abs(y_trade) > 20.0:
-        y_trade = None
-
-    y_path = _f(item.get("y_path"))
-    if y_path is None:
-        y_path = _f(item.get("predicted_score_path"))
-
-    y_nowcast = _f(item.get("y_nowcast"))
-    if y_nowcast is None:
-        y_nowcast = _f(item.get("predicted_score_nowcast"))
-
-    y_on = _f(item.get("y_on"))
-    if y_on is None:
-        y_on = _f(item.get("predicted_score_on"))
-
-    return {
-        "y_trade": y_trade,
-        "y_path": y_path,
-        "y_nowcast": y_nowcast,
-        "y_on": y_on,
-    }
+        y_path = pick_y_hl(item)
+        if y_path is not None:
+            write_y_hl(stamped, y_path)
+        else:
+            stamped["y_path"] = None
+            stamped["y_hl"] = None
+    else:
+        stamped["y_path"] = None
+        stamped["y_hl"] = None
+    stamped["y_on"] = stamped.get("y_co")
+    stamped["y_tau"] = stamped.get("y_oc")
+    if stamped.get("ranking") is not None:
+        stamped["y_fuse"] = stamped.get("ranking")
+    return stamped
 
 
 __all__ = [
     "DEFAULT_PATH_MATRIX",
-    "fuse_trade_nowcast",
-    "fuse_trade_nowcast_oc",
+    "fuse_pct",
+    "fusion_w_co_from_cfg",
     "get_path_matrix_cfg",
-    "open_gap_pct_of",
+    "pick_y_co",
+    "pick_y_oc",
+    "pick_y_oo",
+    "pick_y_τc",
+    "ranking_pct",
+    "residual_pct",
     "scores_from_rebalance_item",
+    "stamp_window_scores",
 ]

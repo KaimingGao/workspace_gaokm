@@ -587,6 +587,45 @@ def _fit_research_group_return_model(
     return make_research_model(rm, y_mean=0.0)
 
 
+def _attach_cluster_yhat_accuracy(
+    cluster: Dict[str, Any],
+    *,
+    xs: Sequence[Dict[str, Any]],
+    ys: Sequence[float],
+    dates: Sequence[str],
+    train_days: Sequence[str],
+) -> None:
+    """组 ŷ_oo Holdout MSE / 开盘命中率，写入 ``yhat_acc``。"""
+    from quant.research.partition_loss import cluster_yhat_accuracy
+
+    rm_research = cluster.get("return_model_research")
+    rm_live = cluster.get("return_model")
+    rm_eval = rm_research if isinstance(rm_research, dict) else rm_live
+    acc = cluster_yhat_accuracy(
+        rm_eval if isinstance(rm_eval, dict) else None,
+        xs,
+        ys,
+        dates,
+        train_days=train_days,
+        live_model=rm_live if isinstance(rm_live, dict) else None,
+    )
+    cluster["yhat_acc"] = {
+        "mse": acc.get("mse"),
+        "sign_hit": acc.get("sign_hit"),
+        "open_hit_rate": acc.get("open_hit_rate") or acc.get("sign_hit"),
+        "n": acc.get("n"),
+        "n_signed": acc.get("n_signed"),
+        "n_hold": acc.get("n_hold"),
+        "source": acc.get("source"),
+        "rmse": acc.get("rmse"),
+        "note": (
+            "ŷ_oo Holdout · MSE=mean((y−ŷ)²)；开盘命中=sign(ŷ)=sign(open→open)，|ŷ|≥0.05%"
+            if acc.get("source") == "holdout"
+            else "ŷ_oo 全样本（Holdout 过短）· MSE / 开盘命中"
+        ),
+    }
+
+
 def build_train_window_beta_matrix(
     codes: Sequence[str],
     panel_by_code: Dict[str, Dict[str, Any]],
@@ -1981,6 +2020,13 @@ def compute_factor_ols_cluster_report(
                 cluster["return_model_research"] = None
             cluster["member_beta_gaps"] = []
             cluster["soft_hetero"] = {"enabled": False, "refit": False}
+            _attach_cluster_yhat_accuracy(
+                cluster,
+                xs=all_xs,
+                ys=all_ys,
+                dates=row_dates,
+                train_days=research_train_days,
+            )
             clusters.append(cluster)
             continue
 
@@ -2169,6 +2215,13 @@ def compute_factor_ols_cluster_report(
                 all_xs=all_xs,
                 all_ys=all_ys,
             )
+        _attach_cluster_yhat_accuracy(
+            cluster,
+            xs=all_xs,
+            ys=all_ys,
+            dates=row_dates,
+            train_days=research_train_days,
+        )
         clusters.append(cluster)
 
     for cl in clusters:

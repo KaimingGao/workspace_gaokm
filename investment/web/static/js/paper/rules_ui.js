@@ -57,9 +57,14 @@ export function renderPaperRulesHtml(data) {
       "rank",
       `入场${(Number(enter) * 100).toFixed(1)}% · 强${(Number(strong) * 100).toFixed(1)}%`,
     ]);
-    const alpha = pm.y_on_alpha != null ? Number(pm.y_on_alpha) : 0;
+    const alpha =
+      pm.fusion_w_co != null
+        ? Number(pm.fusion_w_co)
+        : pm.y_on_alpha != null
+          ? Number(pm.y_on_alpha)
+          : 0;
     if (Number.isFinite(alpha)) {
-      chips.push(["α_on", Number(alpha).toFixed(alpha % 1 === 0 ? 0 : 1)]);
+      chips.push(["w_co", Number(alpha).toFixed(alpha % 1 === 0 ? 0 : 1)]);
     }
   }
   if (exe.effective_hash) {

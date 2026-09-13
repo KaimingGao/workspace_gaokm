@@ -1,4 +1,4 @@
-"""纸面可实现回放：每个交易日按调仓钟走 rank_lots（y_fuse/y_on · 100/200 股）。
+"""纸面可实现回放：每个交易日按调仓钟走 rank_lots（rank=w_oo·ŷ_oo + w_oc·((1+ŷ_oc)(1+w_co·ŷ_co)−1) · 100/200 股）。
 
 分数仍是 09:30 开盘信息集。成交默认用 5 分钟 K：09:30 取首根开盘（≈集合竞价/开盘价），
 09:35–10:00 用该档 5 分钟 K 收盘。无分钟时 09:30 回退日 K 开盘，其它钟跳过该票。
@@ -906,6 +906,8 @@ def _infer_skip_side(sk: dict) -> str:
 
 
 def _skip_to_sim(sk: dict, day: str) -> dict:
+    from core.signal.yhat_windows import pick_y_τc
+
     side = _infer_skip_side(sk)
     return {
         "stock_code": sk.get("stock_code"),
@@ -919,8 +921,14 @@ def _skip_to_sim(sk: dict, day: str) -> dict:
         "status": "skipped",
         "action": "skip",
         "matrix_action": "skip",
-        "y_fuse": sk.get("y_fuse"),
-        "y_on": sk.get("y_on"),
+        "y_fuse": sk.get("ranking") if sk.get("ranking") is not None else sk.get("y_fuse"),
+        "ranking": sk.get("ranking") if sk.get("ranking") is not None else sk.get("y_fuse"),
+        "y_oo": sk.get("y_oo"),
+        "y_oc": sk.get("y_oc"),
+        "y_co": sk.get("y_co") if sk.get("y_co") is not None else sk.get("y_on"),
+        "y_τc": pick_y_τc(sk),
+        "residual": sk.get("residual"),
+        "y_on": sk.get("y_on") if sk.get("y_on") is not None else sk.get("y_co"),
         "y_tau": sk.get("y_tau")
         if sk.get("y_tau") is not None
         else sk.get("predicted_score_tau"),
@@ -973,7 +981,9 @@ def _hold_to_sim(
         open_date = str(
             (holding or {}).get("bought_date") or (holding or {}).get("bought_at") or ""
         )[:10]
-    yf = (plan_h or {}).get("y_fuse")
+    yf = (plan_h or {}).get("ranking")
+    if yf is None:
+        yf = (plan_h or {}).get("y_fuse")
     ytau = (plan_h or {}).get("y_tau")
     if ytau is None:
         ytau = (plan_h or {}).get("predicted_score_tau")
@@ -996,7 +1006,16 @@ def _hold_to_sim(
         "action": "hold",
         "matrix_action": "hold",
         "y_fuse": yf,
-        "y_on": (plan_h or {}).get("y_on"),
+        "ranking": (plan_h or {}).get("ranking") if (plan_h or {}).get("ranking") is not None else yf,
+        "y_oo": (plan_h or {}).get("y_oo"),
+        "y_oc": (plan_h or {}).get("y_oc"),
+        "y_co": (plan_h or {}).get("y_co")
+        if (plan_h or {}).get("y_co") is not None
+        else (plan_h or {}).get("y_on"),
+        "residual": (plan_h or {}).get("residual"),
+        "y_on": (plan_h or {}).get("y_on")
+        if (plan_h or {}).get("y_on") is not None
+        else (plan_h or {}).get("y_co"),
         "y_tau": ytau,
         "predicted_score_tau": (plan_h or {}).get("predicted_score_tau")
         if (plan_h or {}).get("predicted_score_tau") is not None
@@ -1023,7 +1042,9 @@ def _ledger_trades_to_sim(trades: Sequence[dict]) -> List[dict]:
         if side not in ("buy", "sell"):
             continue
         day = str(t.get("as_of") or t.get("ts") or "")[:10]
-        yf = t.get("y_fuse")
+        yf = t.get("ranking")
+        if yf is None:
+            yf = t.get("y_fuse")
         if yf is None:
             yf = t.get("y_trade") if t.get("y_trade") is not None else t.get("score")
         row: Dict[str, Any] = {
@@ -1039,7 +1060,12 @@ def _ledger_trades_to_sim(trades: Sequence[dict]) -> List[dict]:
             "status": "filled",
             "action": t.get("action") or t.get("matrix_action"),
             "y_fuse": yf,
-            "y_on": t.get("y_on"),
+            "ranking": t.get("ranking") if t.get("ranking") is not None else yf,
+            "y_oo": t.get("y_oo"),
+            "y_oc": t.get("y_oc"),
+            "y_co": t.get("y_co") if t.get("y_co") is not None else t.get("y_on"),
+            "residual": t.get("residual"),
+            "y_on": t.get("y_on") if t.get("y_on") is not None else t.get("y_co"),
             "y_tau": t.get("y_tau")
             if t.get("y_tau") is not None
             else t.get("predicted_score_tau"),
@@ -1129,7 +1155,9 @@ def fuse_hit_metrics(rows: Sequence[dict]) -> Tuple[Optional[float], int, int]:
             continue
         if str(r.get("status") or "") in ("skipped", "held"):
             continue
-        yf = _fnum(r.get("y_fuse"))
+        yf = _fnum(r.get("ranking"))
+        if yf is None:
+            yf = _fnum(r.get("y_fuse"))
         if yf is None:
             rs = _fnum(r.get("ranking_score"))
             if rs is not None:
@@ -1454,6 +1482,7 @@ def _items_from_injected_ranking(rows: Sequence[dict]) -> List[dict]:
             yf = row.get("score")
         if yf is not None:
             row["y_fuse"] = yf
+            row.setdefault("ranking", yf)
             row.setdefault("y_trade", yf)
         out.append(row)
     return out
@@ -1485,7 +1514,7 @@ def backtest_paper_replay(
     lot_base: Optional[int] = None,
     lot_strong: Optional[int] = None,
 ) -> Dict[str, Any]:
-    """策略调仓历史回测：09:30 算 y_fuse/y_on，按调仓钟 5m 价成交（手数可配，默认 100/200）。"""
+    """策略调仓历史回测：09:30 算 rank=w_oo·ŷ_oo + w_oc·((1+ŷ_oc)(1+w_co·ŷ_co)−1)，按调仓钟 5m 价成交（手数可配，默认 100/200）。"""
     from core.research.holdout import (
         MODEL_ROLE_RESEARCH,
         current_scoring_model_role,
@@ -1597,6 +1626,8 @@ def backtest_paper_replay(
         "cash_floor": floor,
         "holdings_mv_cap": 0.0,
         "y_on_alpha": alpha,
+        "fusion_w_oo": w_trade,
+        "fusion_w_oc": w_nowcast,
         "fusion_w_trade": w_trade,
         "fusion_w_nowcast": w_nowcast,
     }
@@ -1611,6 +1642,9 @@ def backtest_paper_replay(
     rl_cfg["lot_base"] = lot_base_n
     rl_cfg["lot_strong"] = lot_strong_n
     rl_cfg["y_on_alpha"] = alpha
+    rl_cfg["fusion_w_co"] = alpha
+    rl_cfg["fusion_w_oo"] = w_trade
+    rl_cfg["fusion_w_oc"] = w_nowcast
     rl_cfg["fusion_w_trade"] = w_trade
     rl_cfg["fusion_w_nowcast"] = w_nowcast
     rl_cfg["rank_enter"] = enter
@@ -1664,6 +1698,7 @@ def backtest_paper_replay(
     }
     name_by_code = _watching_name_map()
     stock_acc: Dict[str, dict] = {}
+    prev_scored_by_code: Dict[str, dict] = {}
     prev_equity = float(initial_cash)
     if lookback is not None:
         first_i = max(1, int(trade_start))
@@ -1717,6 +1752,21 @@ def backtest_paper_replay(
                 on_model_doc=on_model_doc,
                 tau_model_doc=tau_model_doc,
             )
+            have = {str(it.get("stock_code") or "") for it in scored}
+            for h in paper.get("holdings") or []:
+                if not isinstance(h, dict):
+                    continue
+                code = str(h.get("stock_code") or "").strip()
+                if not code or code in have:
+                    continue
+                extra = prev_scored_by_code.get(code)
+                scored.append(dict(extra) if extra else {"stock_code": code})
+                have.add(code)
+        prev_scored_by_code = {
+            str(it.get("stock_code") or "").strip(): it
+            for it in scored
+            if isinstance(it, dict) and str(it.get("stock_code") or "").strip()
+        }
         _stamp_stock_names(scored, name_by_code)
         _stamp_stock_names(paper.get("holdings") or [], name_by_code)
 
@@ -1961,10 +2011,11 @@ def backtest_paper_replay(
         + ("；缺分钟跳过该票" if clock != "09:30" else "；缺分钟回退日开盘")
         + "）"
     )
+    from core.signal.yhat_windows import FORMULA_RANKING
+
     note = (
-        f"引擎={ENGINE_ID}：每个交易日 09:30 开盘算 y_fuse/y_on，{fill_note}；"
-        f"ranking=(1+y_fuse/100)×(1+α×y_on/100)−1 α={alpha:g}；"
-        f"y_fuse=open→close 权 w_trade={w_trade:g} w_nowcast={w_nowcast:g}；ranking<0 清仓；"
+        f"引擎={ENGINE_ID}：每个交易日 09:30 开盘算 ranking={FORMULA_RANKING}，{fill_note}；"
+        f"ranking 权 w_oo={w_trade:g} w_oc={w_nowcast:g} w_co={alpha:g}；ranking<0 清仓；"
         f"过 rank入场={rl_cfg.get('rank_enter')} 按分数买（开加上限=观察池 {top_k} 只，现金不够则停），"
         f"过 rank强={rl_cfg.get('rank_strong')} 买 {int(rl_cfg.get('lot_strong') or REPLAY_LOT_STRONG)} "
         f"否则 {int(rl_cfg.get('lot_base') or REPLAY_LOT_BASE)} 股；"

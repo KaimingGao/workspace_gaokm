@@ -723,6 +723,7 @@ def _dual_y_threshold_skip(reason: str) -> bool:
         for x in (
             "横盘跳过",
             "|y_path|",
+            "|y_hl|",
             "未过门槛",
             "预期幅度不足",
             "未过入场",

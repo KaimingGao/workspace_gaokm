@@ -57,15 +57,10 @@
           <div class="dashboard-kpi-card quant-pro-kpi-card watching-kpi-card is-empty" data-kpi="buy">
             <div class="dashboard-kpi-label quant-pro-kpi-label watching-kpi-label">≥买门</div>
             <div class="dashboard-kpi-value quant-pro-kpi-value watching-kpi-value" id="watching-kpi-buy">—</div>
-            <div class="dashboard-kpi-sub quant-pro-kpi-sub watching-kpi-sub" id="watching-kpi-buy-sub">ŷ_EOD 过买门槛占比</div>
-          </div>
-          <div class="dashboard-kpi-card quant-pro-kpi-card watching-kpi-card is-empty" data-kpi="mu">
-            <div class="dashboard-kpi-label quant-pro-kpi-label watching-kpi-label">ŷ_trade μ</div>
-            <div class="dashboard-kpi-value quant-pro-kpi-value watching-kpi-value" id="watching-kpi-mu">—</div>
-            <div class="dashboard-kpi-sub quant-pro-kpi-sub watching-kpi-sub" id="watching-kpi-mu-sub">表列主分</div>
+            <div class="dashboard-kpi-sub quant-pro-kpi-sub watching-kpi-sub" id="watching-kpi-buy-sub">ŷ_oo 过买门槛占比</div>
           </div>
           <div class="dashboard-kpi-card quant-pro-kpi-card watching-kpi-card is-empty" data-kpi="eod">
-            <div class="dashboard-kpi-label quant-pro-kpi-label watching-kpi-label">ŷ_EOD μ</div>
+            <div class="dashboard-kpi-label quant-pro-kpi-label watching-kpi-label">ŷ_oo μ</div>
             <div class="dashboard-kpi-value quant-pro-kpi-value watching-kpi-value" id="watching-kpi-eod">—</div>
             <div class="dashboard-kpi-sub quant-pro-kpi-sub watching-kpi-sub" id="watching-kpi-eod-sub">隔夜主轴 · 对涨跌</div>
           </div>
@@ -76,74 +71,18 @@
           <span class="quant-pro-path-num watching-path-num">1</span> 选池
         </a>
         <span class="quant-path-sep quant-pro-path-sep watching-path-sep" aria-hidden="true">/</span>
-        <a class="quant-path-step quant-pro-path-step watching-path-step" href="#watching-section-yhat" data-step="yhat" data-state="idle">
-          <span class="quant-pro-path-num watching-path-num">2</span> ŷ 截面
-        </a>
-        <span class="quant-path-sep quant-pro-path-sep watching-path-sep" aria-hidden="true">/</span>
         <a class="quant-path-step quant-pro-path-step watching-path-step" href="#watching-section-watchlist" data-step="watchlist" data-state="idle">
-          <span class="quant-pro-path-num watching-path-num">3</span> 名单
+          <span class="quant-pro-path-num watching-path-num">2</span> 名单
         </a>
         <span class="quant-path-sep quant-pro-path-sep watching-path-sep" aria-hidden="true">/</span>
         <a class="quant-path-step quant-pro-path-step watching-path-step" href="/follow" data-step="follow" data-state="idle">
-          <span class="quant-pro-path-num watching-path-num">4</span> 交易执行
+          <span class="quant-pro-path-num watching-path-num">3</span> 交易执行
         </a>
       </nav>
     </div>
   </section>
 
-  <!-- ② ŷ 截面（有评分后显示） -->
-  <section
-    class="dashboard-section quant-section watching-section watching-section-yhat"
-    id="watching-section-yhat"
-    aria-labelledby="watching-section-yhat-title"
-  >
-    <header class="dashboard-section-head quant-section-head watching-section-head">
-      <h3 id="watching-section-yhat-title" class="dashboard-section-title">ŷ 截面</h3>
-      <p class="dashboard-section-desc quant-section-desc">预测分分布 · 点击箱筛选名单</p>
-    </header>
-    <div class="dashboard-card quant-pro-card watching-yhat-card">
-      <div class="yhat-viz-block watching-yhat-hist" id="watching-yhat-hist-wrap" hidden>
-        <div class="dashboard-card-head quant-pro-card-head quant-card-head--tools watching-card-head watching-yhat-hist-head">
-          <div class="watching-yhat-hist-titles">
-            <p class="quant-fingerprint quant-card-head-status">ŷ_trade 截面分布</p>
-            <p id="watching-yhat-hist-meta" class="quant-sub watching-yhat-hist-meta-primary"></p>
-            <p id="watching-yhat-hist-meta-aux" class="quant-sub watching-yhat-hist-meta-aux"></p>
-            <p id="watching-yhat-hist-meta-eod" class="quant-sub watching-yhat-hist-meta-layer"></p>
-            <p id="watching-yhat-hist-filter" class="quant-sub yhat-hist-filter" hidden></p>
-          </div>
-          <div class="dashboard-card-tools quant-pro-card-tools watching-card-tools">
-            <ul class="yhat-hist-legend" aria-label="图例">
-              <li class="is-mu"><span class="yhat-hist-swatch is-line"></span>μ</li>
-              <li class="is-med"><span class="yhat-hist-swatch is-dash"></span>med</li>
-              <li class="is-hold"><span class="yhat-hist-swatch is-dash"></span>持门</li>
-              <li class="is-buy"><span class="yhat-hist-swatch is-dash"></span>买门</li>
-              <li class="is-zone-buy"><span class="yhat-hist-swatch is-band"></span>≥买</li>
-            </ul>
-            <button
-              type="button"
-              id="watching-yhat-hist-clear"
-              class="dialog-btn secondary yhat-hist-clear"
-              hidden
-              title="清除直方图筛选"
-            >清除筛选</button>
-          </div>
-        </div>
-        <div class="quant-pro-card-body watching-card-body">
-          <div class="yhat-hist-stage">
-            <canvas
-              id="watching-yhat-hist"
-              class="yhat-hist-canvas"
-              width="920"
-              height="184"
-              aria-label="ŷ_trade 直方图，悬停查看箱内票，点击筛选观察表"
-            ></canvas>
-          </div>
-        </div>
-      </div>
-    </div>
-  </section>
-
-  <!-- ③ 观察名单（搜索 + 主表 · Dock）——对齐交易执行「持仓」卡 -->
+  <!-- ② 观察名单（搜索 + ŷ_oo 截面 + 主表 · Dock）——对齐交易执行「持仓」卡 -->
   <section
     class="dashboard-section quant-section watching-section watching-watchlist-section"
     id="watching-section-watchlist"
@@ -152,7 +91,7 @@
     <header class="dashboard-section-head quant-section-head watching-section-head">
       <h3 id="watching-section-watchlist-title" class="dashboard-section-title">观察名单</h3>
       <p class="dashboard-section-desc quant-section-desc">
-        行情 · eod / trade / nowcast · 倾向 · 勾选后加入纸面 · 共
+        行情 · y_oo / y_oc / ranking · 倾向 · 勾选后加入纸面 · 共
         <span id="watching-holdings-count" class="watching-section-count"></span>
         只
       </p>
@@ -187,6 +126,42 @@
           <div class="quant-oos-band watching-oos-band">
             <span class="quant-oos-band-label">选池</span>
             <span class="quant-oos-band-text">搜索加入长期名单；勾选后可「加入纸面」开仓</span>
+          </div>
+        </div>
+
+        <div class="yhat-viz-block watching-yhat-hist" id="watching-yhat-hist-wrap" hidden>
+          <div class="dashboard-card-head quant-pro-card-head quant-card-head--tools watching-card-head watching-yhat-hist-head">
+            <div class="watching-yhat-hist-titles">
+              <p class="quant-fingerprint quant-card-head-status">ŷ_oo 截面分布</p>
+              <p id="watching-yhat-hist-meta" class="quant-sub watching-yhat-hist-meta-primary"></p>
+              <p id="watching-yhat-hist-meta-aux" class="quant-sub watching-yhat-hist-meta-aux"></p>
+              <p id="watching-yhat-hist-filter" class="quant-sub yhat-hist-filter" hidden></p>
+            </div>
+            <div class="dashboard-card-tools quant-pro-card-tools watching-card-tools">
+              <ul class="yhat-hist-legend" aria-label="图例">
+                <li class="is-mu"><span class="yhat-hist-swatch is-line"></span>μ</li>
+                <li class="is-med"><span class="yhat-hist-swatch is-dash"></span>med</li>
+                <li class="is-hold"><span class="yhat-hist-swatch is-dash"></span>持门</li>
+                <li class="is-buy"><span class="yhat-hist-swatch is-dash"></span>买门</li>
+                <li class="is-zone-buy"><span class="yhat-hist-swatch is-band"></span>≥买</li>
+              </ul>
+              <button
+                type="button"
+                id="watching-yhat-hist-clear"
+                class="dialog-btn secondary yhat-hist-clear"
+                hidden
+                title="清除直方图筛选"
+              >清除筛选</button>
+            </div>
+          </div>
+          <div class="yhat-hist-stage">
+            <canvas
+              id="watching-yhat-hist"
+              class="yhat-hist-canvas"
+              width="920"
+              height="160"
+              aria-label="ŷ_oo 直方图，悬停查看箱内票，点击筛选观察表"
+            ></canvas>
           </div>
         </div>
 
@@ -307,7 +282,7 @@
     </div>
   </div>
 
-  <!-- ④ 次要折叠：建仓记录（对齐交易执行「交易记录」） -->
+  <!-- ③ 次要折叠：建仓记录（对齐交易执行「交易记录」） -->
   <section
     class="dashboard-section quant-section watching-section watching-section-secondary watching-build-log-section"
     id="watching-section-build-log"
@@ -326,7 +301,7 @@
     </details>
   </section>
 
-  <!-- ⑤ 次要折叠：数据质量 -->
+  <!-- ④ 次要折叠：数据质量 -->
   <section
     class="dashboard-section quant-section watching-section watching-section-secondary"
     id="watching-section-dq"

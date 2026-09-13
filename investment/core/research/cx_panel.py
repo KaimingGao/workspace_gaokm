@@ -1,19 +1,21 @@
-"""ŷ_complexity 训练面板：开盘 Z + 早盘前缀分钟小包 → 全日 5m 路径曲折度。
+"""ŷ_cx 训练面板：开盘 Z + 早盘前缀分钟小包 → 全日 5m 路径曲折度。
 
 标签（Kaufman 效率比的补，有界、无量纲）：
 
     D = |C_last − C_first|     全日 5m 收价首末位移
     L = Σ |ΔC|                 相邻 5m 路径长（午休/停牌跳空不计入）
-    y_complexity = 1 − min(1, D/L)     ∈ [0, 1]
+    y_cx = 1 − min(1, D/L)     ∈ [0, 1]
 
-0 = 直线（曲折度最低）；1 = 最折。与波动率不同：单边趋势可以振幅大但 y_complexity 低。
+0 = 直线（曲折度最低）；1 = 最折。与波动率不同：单边趋势可以振幅大但 y_cx 低。
+
+规范名 ``y_cx``；旧键 ``y_complexity`` / ``predicted_score_complexity`` 仍可读可写。
 
 无未来函数：特征 = 开盘 Z + ≤τ 分钟前缀 + 历史真实曲折度
 （complexity_lag1 / complexity_ma5，不含当日）以及 TPD 滞后
 （tpd_lag1 / tpd_ma5；旧键 complexity_tpd_lag* 仍可读）。
-ŷ_complexity 与 ŷ_tpd 共用同一套 X（开盘 Z、路径小包、滞后），只换标签。
-研究枢纽拟合；做 T 入场用盘中前缀 ŷ_complexity，ŷ_complexity > y_complexity_max 则跳过
-（不用全日 realized 标签）。旧键 y_cx / cx_lag1 仍可读。
+ŷ_cx 与 ŷ_tpd 共用同一套 X（开盘 Z、路径小包、滞后），只换标签。
+研究枢纽拟合；做 T 入场用盘中前缀 ŷ_cx，ŷ_cx > y_complexity_max（别名 y_cx_max）则跳过
+（不用全日 realized 标签）。
 """
 
 from __future__ import annotations
@@ -51,7 +53,7 @@ CX_LAG_KEY_ALIASES = (
     ("complexity_lag1", "cx_lag1"),
     ("complexity_ma5", "cx_ma5"),
 )
-# TPD 滞后（两头共用键）：ŷ_complexity 当形状因子，ŷ_tpd 当本头自回归
+# TPD 滞后（两头共用键）：ŷ_cx 当形状因子，ŷ_tpd 当本头自回归
 TPD_LAG_FEATURES = ("tpd_lag1", "tpd_ma5")
 CX_TPD_LAG_FEATURES = TPD_LAG_FEATURES
 TPD_LAG_FEAT_LABELS = {
@@ -72,16 +74,16 @@ CX_TPD_LAG_KEY_ALIASES = (
     ("complexity_tpd_ma5", "cx_tpd_ma5"),
 )
 Y_COMPLEXITY_HAT_KEYS = (
-    "predicted_score_complexity",
-    "y_complexity_hat",
     "predicted_score_cx",
     "y_cx_hat",
+    "predicted_score_complexity",
+    "y_complexity_hat",
 )
 Y_COMPLEXITY_LABEL_KEYS = (
-    "y_complexity",
-    "complexity_realized",
     "y_cx",
     "cx_realized",
+    "y_complexity",
+    "complexity_realized",
 )
 Y_TPD_HAT_KEYS = (
     "predicted_score_tpd",
@@ -259,7 +261,7 @@ def cx_as_unit_01(
 
 
 def pick_y_complexity_hat(*objs: Any) -> Optional[float]:
-    """盘中 ŷ_complexity；兼容 predicted_score_cx / y_cx_hat。"""
+    """盘中 ŷ_cx；兼容 y_complexity_hat / predicted_score_complexity。"""
     for obj in objs:
         if not isinstance(obj, dict):
             continue
@@ -420,7 +422,7 @@ def cx_complexity_label(
     min_bars: int = CX_MIN_BARS,
     max_step_min: int = CX_MAX_STEP_MIN,
 ) -> Tuple[Optional[float], str, Dict[str, Any]]:
-    """全日 5m 收价路径曲折度 1−D/L ∈ [0,1]（y_complexity）；直线≈0。"""
+    """全日 5m 收价路径曲折度 1−D/L ∈ [0,1]（y_cx）；直线≈0。"""
     pts = _ordered_closes(minute_bars)
     meta: Dict[str, Any] = {
         "n_bars": len(pts),
@@ -796,7 +798,7 @@ def build_cx_panels_from_bars(
     tau_grid: Optional[Sequence[str]] = None,
     label: str = "complexity",
 ) -> List[Dict[str, Any]]:
-    """批量：特征与 ŷ_τ / ŷ_path 对齐。
+    """批量：特征与 ŷ_τ / ŷ_hl 对齐。
 
     ``label="complexity"``：y=全日 5m 曲折度 1−D/L。
     ``label="tpd"``：y=全日转折点密度（午休跳空不计）。

@@ -2,14 +2,14 @@
  * 交易执行 · 持仓主表（共享 virtual_table 内核，与数据中心同方案）。
  */
 
-import { fmtPriceUnit, fmtPct, metricCls, fmtTableScore, fmtPathScore, scoreCls, resolveTradeScore, resolveEodScore, resolveTauScore, resolvePathScore, resolveOnScore, resolveNowcastScore, isHeuristicScoreScale, Y_EOD_TITLE, Y_TAU_TITLE, Y_PATH_TITLE, Y_ON_TITLE, Y_NOWCAST_TITLE } from "./paper/fmt.js?v=p1737";
-import { sentimentBadgeHtml, watchingScoreDetail } from "./quant/watching_render.js?v=p1734";
+import { fmtPriceUnit, fmtPct, metricCls, fmtTableScore, fmtPathScore, scoreCls, resolveTradeScore, resolveEodScore, resolveTauScore, resolvePathScore, resolveOnScore, resolveYτcScore, isHeuristicScoreScale, Y_EOD_TITLE, Y_TAU_TITLE, Y_HL_TITLE, Y_ON_TITLE, Y_τc_TITLE } from "./paper/fmt.js?v=p2346";
+import { sentimentBadgeHtml, watchingScoreDetail } from "./quant/watching_render.js?v=p2364";
 import {
   isSingleHeadItem,
   singleHeadBadgeHtml,
   yCheckBadgeHtml,
-} from "./quant/watching_insights_ui.js?v=p1457";
-import { TRADE_TITLE, formatPrevCloseDisplay, formatOpenDisplay, resolveOpenPx } from "./quant/watching_quotes_ui.js?v=p1227";
+} from "./quant/watching_insights_ui.js?v=p2346";
+import { TRADE_TITLE, formatPrevCloseDisplay, formatOpenDisplay, resolveOpenPx } from "./quant/watching_quotes_ui.js?v=p2298";
 import { buildHoldingSharesTip } from "./paper/holding_lots_tip.js?v=p1227";
 import { holdingT0BadgeHtml } from "./paper/holding_t0_badge.js?v=p1526";
 import { fitTierBadgeForCode, ensureFitTierMap } from "./quant/fit_tier_ui.js?v=p2261";
@@ -48,7 +48,7 @@ export function holdingToRow(
   const scoreTau = resolveTauScore(h);
   const scorePath = resolvePathScore(h);
   const scoreOn = resolveOnScore(h);
-  const scoreNowcast = resolveNowcastScore(h);
+  const scoreNowcast = resolveYτcScore(h);
   const belowMin = !!h.below_min_score;
   const minScore = h.min_score;
   const hardReject = !!h.hard_reject;
@@ -78,14 +78,14 @@ export function holdingToRow(
       : singleHead
         ? `ŷ_trade 单头降级（${String(h.dual_score_head || "single")}）· 悬停看详情`
       : belowMin
-        ? `低于ŷ_EOD门槛 ${minScore ?? "—"}（表列为 ŷ_trade）· 悬停看详情`
+        ? `低于ŷ_oo门槛 ${minScore ?? "—"}（表列为 ŷ_trade）· 悬停看详情`
         : TRADE_TITLE;
-  const scoreEodTitle = scoreEod == null ? "暂无 ŷ_EOD" : Y_EOD_TITLE;
-  const scoreTauTitle = scoreTau == null ? "暂无 ŷ_τ" : Y_TAU_TITLE;
-  const scorePathTitle = scorePath == null ? "暂无 ŷ_path" : Y_PATH_TITLE;
-  const scoreOnTitle = scoreOn == null ? "暂无 ŷ_ON" : Y_ON_TITLE;
+  const scoreEodTitle = scoreEod == null ? "暂无 ŷ_oo" : Y_EOD_TITLE;
+  const scoreTauTitle = scoreTau == null ? "暂无 ŷ_oc" : Y_TAU_TITLE;
+  const scorePathTitle = scorePath == null ? "暂无 ŷ_hl" : Y_HL_TITLE;
+  const scoreOnTitle = scoreOn == null ? "暂无 ŷ_co" : Y_ON_TITLE;
   const scoreNowcastTitle =
-    scoreNowcast == null ? "暂无 nowcast · 有 ŷ_EOD 与 ŷ_τ 后可见" : Y_NOWCAST_TITLE;
+    scoreNowcast == null ? "暂无 ŷ_τc" : Y_τc_TITLE;
   const fmtSignedPct = (v) => {
     if (v == null || v === "") return "—";
     const n = Number(v);
@@ -223,11 +223,11 @@ const COLS = [
     width: 68,
     num: true,
     sortable: true,
-    title: "相对昨收的涨跌幅 %。与 EOD / ŷ_trade 同一口径",
+    title: "相对昨收的涨跌幅 %",
   },
   {
     id: "score_eod",
-    label: "y_eod",
+    label: "y_oo",
     width: 82,
     num: true,
     sortable: true,
@@ -237,7 +237,7 @@ const COLS = [
   },
   {
     id: "score_tau",
-    label: "y_τ",
+    label: "y_oc",
     width: 82,
     num: true,
     sortable: true,
@@ -247,17 +247,17 @@ const COLS = [
   },
   {
     id: "score_path",
-    label: "y_path",
+    label: "y_hl",
     width: 82,
     num: true,
     sortable: true,
     headClass: "watching-col-y",
     cellClass: "watching-col-y",
-    title: Y_PATH_TITLE,
+    title: Y_HL_TITLE,
   },
   {
     id: "score_on",
-    label: "y_on",
+    label: "y_co",
     width: 82,
     num: true,
     sortable: true,
@@ -267,23 +267,23 @@ const COLS = [
   },
   {
     id: "score",
-    label: "y_trade",
+    label: "ranking",
     width: 94,
     num: true,
     sortable: true,
     headClass: "watching-col-y watching-col-y-trade",
     cellClass: "watching-col-y watching-col-y-trade",
-    title: "双头融合 · 排序/卖门槛",
+    title: TRADE_TITLE,
   },
   {
     id: "score_nowcast",
-    label: "y_nc",
+    label: "y_τc",
     width: 82,
     num: true,
     sortable: true,
     headClass: "watching-col-y",
     cellClass: "watching-col-y",
-    title: Y_NOWCAST_TITLE,
+    title: Y_τc_TITLE,
   },
   { id: "cost", label: "成本", width: 78, num: true, title: "持仓加权平均成本" },
   {
@@ -472,7 +472,7 @@ export async function mountHoldingsTableIsland(host, options = {}) {
           score_tau: "tau",
           score_path: "path",
           score_on: "on",
-          score_nowcast: "nowcast",
+          score_nowcast: "r",
         };
         const skinMap = {
           score_eod: "eod",

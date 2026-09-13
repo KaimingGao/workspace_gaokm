@@ -442,7 +442,7 @@ def build_cluster_minute_status(
         "span_distribution": dist,
         "label_portrait": label_portrait,
         "bars_backend": backend,
-        "note": "5m 分钟线本地仓；供 ŷ_path / T0 回测 / tail_anomaly",
+        "note": "5m 分钟线本地仓；供 ŷ_hl / T0 回测 / tail_anomaly",
         "refresh_job": _minute_refresh_job_snapshot(),
     }
 

@@ -5,11 +5,11 @@ import { ensureWarehouseTopup } from "../data_warehouse_topup.js";
 import { renderLineChart } from "../lw_charts.js";
 import { syncOverviewUniverse } from "./factor_corr_ui.js";
 import { mountVirtualTable, colStyle } from "../virtual_table.js";
-import { fmtScore, fmtTableScore, scoreCls, resolveTradeScore, resolveEodScore } from "../paper/fmt.js?v=p1734";
+import { fmtScore, fmtTableScore, scoreCls, resolveTradeScore, resolveEodScore } from "../paper/fmt.js?v=p2298";
 import { truncateStockName, watchingNameSpanHtml, watchingNameFromEl, applyWatchingNameEl, normalizeProbeCode } from "./names.js";
 import { renderWatchingHoldings as renderWatchingHoldingsHtml } from "./watching_holdings.js";
 import { buildWatchingDqMetaText, buildWatchingDqFoldSummary, buildWatchingDqTableHtml } from "./watching_dq_ui.js";
-import { watchingScoreDetail, sentimentBadgeHtml, renderWatchingBuildPlan as renderWatchingBuildPlanHtml, renderWatchingWatchTableFallback, buildWatchingWatchRows, buildWatchingNewsTitleHtml, buildWatchingNewsMetaText, buildWatchingNewsListHtml, WATCHING_NEWS_AI_LOADING_HTML, buildWatchingNewsAiAnalysisHtml, buildWatchingNewsAiErrorHtml, describeWatchingSource, matchWatchlistSource, truncateText, sentimentLabelZh, shortOriginLabel } from "./watching_render.js?v=p2261";
+import { watchingScoreDetail, sentimentBadgeHtml, renderWatchingBuildPlan as renderWatchingBuildPlanHtml, renderWatchingWatchTableFallback, buildWatchingWatchRows, buildWatchingNewsTitleHtml, buildWatchingNewsMetaText, buildWatchingNewsListHtml, WATCHING_NEWS_AI_LOADING_HTML, buildWatchingNewsAiAnalysisHtml, buildWatchingNewsAiErrorHtml, describeWatchingSource, matchWatchlistSource, truncateText, sentimentLabelZh, shortOriginLabel } from "./watching_render.js?v=p2364";
 import { ensureFitTierMap } from "./fit_tier_ui.js";
 import {
   buildWatchingScoreDisplay,
@@ -25,7 +25,7 @@ import {
   buildWatchingInsightsNativeFields,
   isOosFailedItem,
   oosFailedBadgeHtml,
-} from "./watching_insights_ui.js?v=p2025";
+} from "./watching_insights_ui.js?v=p2346";
 import {
   parseWatchingVolume,
   formatWatchingChg,
@@ -34,21 +34,20 @@ import {
   buildWatchingQuotesStatusText,
   buildWatchingQuotesErrorStatus,
   withQuoteGap,
-} from "./watching_quotes_ui.js?v=p1221";
+} from "./watching_quotes_ui.js?v=p2298";
 import {
   watchingBuildInvalidTip,
   watchingBuildTitleText,
   buildWatchingBuildPayload,
   watchingBuildModeUiConfig,
 } from "./watching_build_ui.js";
-import { mountScoreHistogram, summarizeScores } from "./yhat_viz.js";
+import { mountScoreHistogram } from "./yhat_viz.js";
 import { defaultScoringFloors, mergeScoringFloors } from "./scoring.js";
 import {
   formatRefreshStats,
   buildWatchingNameByCode,
   watchingPoolMetaText,
   applyWatchingOverviewKpis,
-  formatYhatLayerMeta,
   watchingQuantListHtml,
   watchingPanelShellFlags,
   applyWatchingPanelShell,
@@ -133,49 +132,45 @@ export function installWatching(q) {
 
   function collectWatchingYhatItems() {
     const insightBy = state.watchingInsightByCode || {};
-    const mergeLayer = (code, row) => {
+    const pickOo = (code, row) => {
       const it = insightBy[watchingCodeKey(code)] || row;
-      return {
-        scoreEod: resolveEodScore(it) ?? resolveEodScore(row),
-      };
+      const n =
+        row && row.scoreEodNum != null && Number.isFinite(Number(row.scoreEodNum))
+          ? Number(row.scoreEodNum)
+          : resolveEodScore(it) ?? resolveEodScore(row);
+      return n;
     };
     const out = [];
     if (state.watchingGrid && state.watchingGridReady) {
       for (const r of state.watchingGrid.getData() || []) {
-        const n =
-          r.scoreNum != null
-            ? Number(r.scoreNum)
-            : r.predicted_score != null
-              ? Number(r.predicted_score)
-              : Number(r.score);
-        if (!Number.isFinite(n) || !r.code) continue;
-        const code = String(r.code);
+        if (!r.code) continue;
+        const n = pickOo(r.code, r);
+        if (!Number.isFinite(n)) continue;
         out.push({
-          code,
+          code: String(r.code),
           name: r.name || "",
           score: n,
-          ...mergeLayer(code, r),
         });
       }
       return out;
     }
     const watchTable = document.getElementById("watching-watchlist-table");
     watchTable?.querySelectorAll("tr[data-code]").forEach((tr) => {
-      const n = Number(tr.dataset.score);
       const code = String(tr.dataset.code || "").trim();
-      if (!code || !Number.isFinite(n)) return;
+      if (!code) return;
+      const row = {
+        scoreEodNum: Number(tr.dataset.scoreEod),
+      };
+      const n = pickOo(code, row);
+      if (!Number.isFinite(n)) return;
       const name =
         tr.querySelector(".watching-name-text")?.getAttribute("data-full-name") ||
         tr.querySelector(".watching-name-text")?.textContent ||
         "";
-      const row = {
-        scoreEodNum: Number(tr.dataset.scoreEod),
-      };
       out.push({
         code,
         name,
         score: n,
-        ...mergeLayer(code, row),
       });
     });
     return out;
@@ -265,16 +260,14 @@ export function installWatching(q) {
       applyYhatHistTableFilter(null);
       applyWatchingOverviewKpis({
         buyPct: null,
-        mu: null,
-        med: null,
         n: null,
         eodMu: null,
         eodMed: null,
         eodN: null,
       });
-      const metaEod = document.getElementById("watching-yhat-hist-meta-eod");
       if (meta) meta.textContent = "";
-      if (metaEod) metaEod.textContent = "";
+      const metaAux = document.getElementById("watching-yhat-hist-meta-aux");
+      if (metaAux) metaAux.textContent = "";
       return;
     }
     wrap.hidden = false;
@@ -291,14 +284,9 @@ export function installWatching(q) {
       if (pack) {
         const f = (x, d = 2) =>
           x != null && Number.isFinite(x) ? Number(x).toFixed(d) : "—";
-        const floorsBuy = floors.min_predicted_score;
-        const eodPack = summarizeScores(
-          items.map((it) => it.scoreEod),
-          { buyFloor: floorsBuy }
-        );
         const pos =
           pack.pct_pos != null
-            ? `ŷ_trade>0 ${(pack.pct_pos * 100).toFixed(0)}%`
+            ? `ŷ_oo>0 ${(pack.pct_pos * 100).toFixed(0)}%`
             : null;
         if (meta) {
           meta.textContent = [pos, `n=${pack.n}`].filter(Boolean).join(" · ");
@@ -306,7 +294,7 @@ export function installWatching(q) {
         const metaAux = document.getElementById("watching-yhat-hist-meta-aux");
         if (metaAux) {
           metaAux.textContent = [
-            `ŷ_trade μ ${f(pack.mean)}%`,
+            `ŷ_oo μ ${f(pack.mean)}%`,
             `med ${f(pack.median)}%`,
             `IQR [${f(pack.p25)}, ${f(pack.p75)}]`,
             pack.std != null && Number.isFinite(pack.std)
@@ -316,20 +304,12 @@ export function installWatching(q) {
             .filter(Boolean)
             .join(" · ");
         }
-        const metaEod = document.getElementById("watching-yhat-hist-meta-eod");
-        if (metaEod) {
-          metaEod.textContent = formatYhatLayerMeta("ŷ_EOD", eodPack, {
-            buy: true,
-          });
-        }
         applyWatchingOverviewKpis({
-          buyPct: eodPack.n ? eodPack.pct_above_buy : null,
-          mu: pack.mean,
-          med: pack.median,
-          n: eodPack.n || pack.n,
-          eodMu: eodPack.mean,
-          eodMed: eodPack.median,
-          eodN: eodPack.n || null,
+          buyPct: pack.n ? pack.pct_above_buy : null,
+          n: pack.n,
+          eodMu: pack.mean,
+          eodMed: pack.median,
+          eodN: pack.n || null,
         });
       }
     });
@@ -1228,7 +1208,6 @@ export function installWatching(q) {
       searchWrap: document.getElementById("watching-search-wrap"),
       sectionEls: [
         document.getElementById("watching-section-intake"),
-        document.getElementById("watching-section-yhat"),
         document.getElementById("watching-section-watchlist"),
         document.getElementById("watching-section-build-log"),
         document.getElementById("watching-section-dq"),
@@ -1729,22 +1708,14 @@ export function installWatching(q) {
       void ensureFitTierMap(watchTable);
       updateWatchingPickCount();
       syncWatchingSelectAllState();
-      paintWatchingYhatHist(
-        rows
-          .filter((r) => Number.isFinite(r.scoreNum) && r.code)
-          .map((r) => ({ code: r.code, name: r.name || "", score: r.scoreNum }))
-      );
+      paintWatchingYhatHist();
     } catch (err) {
       console.warn("[watching] 虚拟表挂载失败，回退原生表", err);
       state.watchingGrid = null;
       state.watchingGridReady = false;
       renderWatchingWatchTableFallback(rows);
       void ensureFitTierMap(watchTable);
-      paintWatchingYhatHist(
-        rows
-          .filter((r) => Number.isFinite(r.scoreNum) && r.code)
-          .map((r) => ({ code: r.code, name: r.name || "", score: r.scoreNum }))
-      );
+      paintWatchingYhatHist();
     }
   }
 

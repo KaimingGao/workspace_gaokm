@@ -52,9 +52,10 @@ def _slot_rules(**kwargs):
         "direction": "buy_then_sell",
         "t0_close_band_delta_pct": 0.01,
         "t0_round_ratio": 0.2,
-        "r_tau_enter": 0.01,
         "y_tpd_max": 1.0,
-        "y_tau_leg1_prior_mode": "off",
+        "t0_y_oc_target_scale": 1.0,
+        "t0_y_oc_l": -20.0,
+        "t0_y_oc_u": 20.0,
         "min_range_pct": 0.1,
         "min_range_pct_buy_then_sell": 0.1,
         "t0_pm_degrade": "",
@@ -491,6 +492,7 @@ class TestT0Slots(unittest.TestCase):
         )
         self.assertAlmostEqual(out["y_tau_portrait_oc"], 1.2)
         self.assertAlmostEqual(out["y_path_portrait"], -0.5)
+        self.assertAlmostEqual(out["y_hl_portrait"], -0.5)
 
     def test_attach_slot_fit_portrait_from_causal_snap(self):
         """跳过轮也要写入该钟因果画像分（拟合 by_tau 口径）。"""
@@ -550,6 +552,8 @@ class TestT0Slots(unittest.TestCase):
         rules = _slot_rules(
             direction="buy_then_sell",
             t0_close_band_delta_pct=10.0,
+            y_enter_enabled=False,
+            y_enter_alt_enabled=False,
             min_range_pct=0.0,
             min_range_pct_buy_then_sell=0.0,
             min_range_pct_sell_then_buy=0.0,

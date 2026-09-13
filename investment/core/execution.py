@@ -70,8 +70,10 @@ ALLOWED_T0_PATCH_KEYS = frozenset(
         "y_tau_enter_buy_then_sell",
         "y_enter_enabled",
         "y_enter_alt_enabled",
-        "r_tau_enter",
-        "r_tau_enter_alt",
+        "fusion_w_τc",
+        "fusion_w_tc",
+        "residual_w_oc",
+        "residual_w_mode",
         "y_tau_enter_alt",
         "y_path_enter_alt",
         "y_on_risk",
@@ -82,14 +84,19 @@ ALLOWED_T0_PATCH_KEYS = frozenset(
         "y_nowcast_enter",
         "y_tau_map",
         "y_use_path",
-        "y_tau_leg1_prior",
-        "y_tau_leg1_prior_mode",
-        "y_tau_leg1_prior_risk",
-        "y_tau_leg1_prior_shift_scale",
+        "t0_y_oc_target_scale",
+        "t0_y_oc_l",
+        "t0_y_oc_u",
         "y_path_enter",
         "y_path_enter_sell_then_buy",
         "y_path_enter_buy_then_sell",
         "y_path_strong",
+        "y_tc_strong",
+        "y_τc_strong",
+        "y_tc_enter",
+        "y_τc_enter",
+        "y_tc_enter_alt",
+        "y_τc_enter_alt",
         "y_complexity_max",
         "y_cx_max",
         "y_tpd_max",
@@ -170,8 +177,10 @@ DEFAULT_T0_OVERLAY: Dict[str, Any] = {
     "y_tau_enter_buy_then_sell": 0.0,
     "y_enter_enabled": True,
     "y_enter_alt_enabled": True,
-    "r_tau_enter": 0.0,
-    "r_tau_enter_alt": 0.0,
+    "fusion_w_τc": 0.5,
+    "fusion_w_tc": 0.5,
+    "residual_w_oc": 0.5,
+    "residual_w_mode": "fixed",
     "y_tau_enter_alt": 0.0,
     "y_path_enter_alt": 0.0,
     "y_trade_enter": 0.01,
@@ -184,14 +193,19 @@ DEFAULT_T0_OVERLAY: Dict[str, Any] = {
     "y_nc_strong": 0.2,
     "y_nowcast_oc_gate": False,
     "y_use_path": True,
-    "y_tau_leg1_prior": True,
-    "y_tau_leg1_prior_mode": "score",
-    "y_tau_leg1_prior_risk": 10.0,
-    "y_tau_leg1_prior_shift_scale": 1.0,
+    "t0_y_oc_target_scale": 10.0,
+    "t0_y_oc_l": -3.0,
+    "t0_y_oc_u": 3.0,
     "y_path_enter": 0.0,
     "y_path_enter_sell_then_buy": 0.0,
     "y_path_enter_buy_then_sell": 0.0,
     "y_path_strong": 5.0,
+    "y_tc_strong": 1.0,
+    "y_τc_strong": 1.0,
+    "y_tc_enter": 0.0,
+    "y_τc_enter": 0.0,
+    "y_tc_enter_alt": 0.0,
+    "y_τc_enter_alt": 0.0,
     "y_complexity_max": 1.0,
     "y_cx_max": 1.0,
     "y_tpd_max": 1.0,
@@ -236,7 +250,7 @@ DEFAULT_REBALANCE_TIMING: Dict[str, Any] = {
     "open_fill_until_hm": "10:00",
     "pending_chase_interval_min": 10,
     "pending_chase_eod_hm": "14:50",
-    # 策略调仓：09:30 rank_lots（y_fuse/y_on · 200/500 股）
+    # 策略调仓：09:30 rank_lots（ranking=w_oo·ŷ_oo+w_oc·(ŷ_oc∘w_co·ŷ_co) · 200/500 股）
     "rank_lots": {
         "enabled": True,
         "mode": "rank_lots",
@@ -244,6 +258,9 @@ DEFAULT_REBALANCE_TIMING: Dict[str, Any] = {
         "rank_strong": 0.012,
         "cash_floor": 0.0,
         "holdings_mv_cap": 150000.0,
+        "fusion_w_oo": 0.5,
+        "fusion_w_oc": 0.5,
+        "fusion_w_co": 0.0,
         "fusion_w_trade": 0.5,
         "fusion_w_nowcast": 0.5,
         "y_on_alpha": 0.0,
@@ -256,6 +273,9 @@ DEFAULT_REBALANCE_TIMING: Dict[str, Any] = {
         "rank_strong": 0.012,
         "cash_floor": 0.0,
         "holdings_mv_cap": 150000.0,
+        "fusion_w_oo": 0.5,
+        "fusion_w_oc": 0.5,
+        "fusion_w_co": 0.0,
         "fusion_w_trade": 0.5,
         "fusion_w_nowcast": 0.5,
         "y_on_alpha": 0.0,
@@ -724,8 +744,18 @@ def execution_public_view(bundle: Dict[str, Any]) -> Dict[str, Any]:
             "y_tau_enter_buy_then_sell": t0.get("y_tau_enter_buy_then_sell"),
             "y_enter_enabled": t0.get("y_enter_enabled"),
             "y_enter_alt_enabled": t0.get("y_enter_alt_enabled"),
-            "r_tau_enter": t0.get("r_tau_enter"),
-            "r_tau_enter_alt": t0.get("r_tau_enter_alt"),
+            "fusion_w_τc": (
+                t0.get("fusion_w_τc")
+                if t0.get("fusion_w_τc") is not None
+                else t0.get("fusion_w_tc")
+            ),
+            "fusion_w_tc": (
+                t0.get("fusion_w_tc")
+                if t0.get("fusion_w_tc") is not None
+                else t0.get("fusion_w_τc")
+            ),
+            "residual_w_oc": t0.get("residual_w_oc"),
+            "residual_w_mode": t0.get("residual_w_mode"),
             "y_tau_enter_alt": t0.get("y_tau_enter_alt"),
             "y_path_enter_alt": t0.get("y_path_enter_alt"),
             "y_on_risk": t0.get("y_on_risk"),
@@ -736,14 +766,23 @@ def execution_public_view(bundle: Dict[str, Any]) -> Dict[str, Any]:
             "y_nowcast_enter": t0.get("y_nowcast_enter") or t0.get("y_nc_strong"),
             "y_tau_map": t0.get("y_tau_map"),
             "y_use_path": t0.get("y_use_path"),
-            "y_tau_leg1_prior": t0.get("y_tau_leg1_prior"),
-            "y_tau_leg1_prior_mode": t0.get("y_tau_leg1_prior_mode"),
-            "y_tau_leg1_prior_risk": t0.get("y_tau_leg1_prior_risk"),
-            "y_tau_leg1_prior_shift_scale": t0.get("y_tau_leg1_prior_shift_scale"),
+            "t0_y_oc_target_scale": t0.get("t0_y_oc_target_scale"),
+            "t0_y_oc_l": t0.get("t0_y_oc_l"),
+            "t0_y_oc_u": t0.get("t0_y_oc_u"),
             "y_path_enter": t0.get("y_path_enter"),
             "y_path_enter_sell_then_buy": t0.get("y_path_enter_sell_then_buy"),
             "y_path_enter_buy_then_sell": t0.get("y_path_enter_buy_then_sell"),
             "y_path_strong": t0.get("y_path_strong"),
+            "y_tc_strong": t0.get("y_tc_strong"),
+            "y_τc_strong": t0.get("y_τc_strong") or t0.get("y_tc_strong"),
+            "y_tc_enter": t0.get("y_tc_enter")
+            if t0.get("y_tc_enter") not in (None, "")
+            else t0.get("y_τc_enter"),
+            "y_τc_enter": t0.get("y_τc_enter") or t0.get("y_tc_enter"),
+            "y_tc_enter_alt": t0.get("y_tc_enter_alt")
+            if t0.get("y_tc_enter_alt") not in (None, "")
+            else t0.get("y_τc_enter_alt"),
+            "y_τc_enter_alt": t0.get("y_τc_enter_alt") or t0.get("y_tc_enter_alt"),
             "y_complexity_max": (
                 t0.get("y_complexity_max")
                 if t0.get("y_complexity_max") not in (None, "")
@@ -1038,6 +1077,9 @@ def validate_execution_patch(raw: Any) -> Tuple[bool, Dict[str, Any], List[str]]
                         if pm.get("holdings_mv_cap") is not None
                         else 150_000.0
                     ),
+                    "fusion_w_oo": float(pm.get("fusion_w_oo") or 0.5),
+                    "fusion_w_oc": float(pm.get("fusion_w_oc") or 0.5),
+                    "fusion_w_co": float(pm.get("fusion_w_co") if pm.get("fusion_w_co") is not None else 0.0),
                     "fusion_w_trade": float(pm.get("fusion_w_trade") or 0.5),
                     "fusion_w_nowcast": float(pm.get("fusion_w_nowcast") or 0.5),
                     "y_on_alpha": float(pm.get("y_on_alpha") if pm.get("y_on_alpha") is not None else 0.0),
@@ -1078,6 +1120,8 @@ def apply_execution_patch_to_paper(
         new_t0 = dict(prev_t0)
         new_t0.update(t0_patch)
         new_t0["t0_ratio"] = 1.0
+        for stale in ("y_tc_validate", "y_τc_validate"):
+            new_t0.pop(stale, None)
         rules["t0"] = new_t0
 
     exe = dict(rules.get("execution") or {}) if isinstance(rules.get("execution"), dict) else {}

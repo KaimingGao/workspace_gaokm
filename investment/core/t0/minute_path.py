@@ -324,18 +324,12 @@ def _score_y_tau(score_snap: Optional[dict]) -> Optional[float]:
 
 
 def _score_y_path(score_snap: Optional[dict]) -> Optional[float]:
-    """从分数快照取 ŷ_path（极值序 signed range%）。"""
+    """从分数快照取 ŷ_hl（极值序 signed range%）。"""
     if not isinstance(score_snap, dict):
         return None
-    for key in ("y_path", "predicted_score_path"):
-        raw = score_snap.get(key)
-        if raw is None or raw == "":
-            continue
-        try:
-            return float(raw)
-        except (TypeError, ValueError):
-            continue
-    return None
+    from core.research.path_panel import pick_y_hl
+
+    return pick_y_hl(score_snap)
 
 
 _TAU_EXIT_PREFIX = "y_tau_exit_price"
@@ -804,7 +798,7 @@ def _first_touch_sell_then_buy(
                 trigger=fill_sell,
                 at=ts,
                 leg_kind="trigger",
-                note="反T卖出（收盘带宽破带）",
+                note="反T卖出（C>upper）",
             )
             shares_now -= qty
             sold_qty = qty
@@ -812,7 +806,7 @@ def _first_touch_sell_then_buy(
             sell_level = float(sold_price)
             touch_sell_at = ts
             leg1_idx = idx
-            # v6：冻结 ĉ−δ 优先；无冻结才回退 τ / 平盘
+            # v6：冻结 C_τ 优先；无冻结才回退 τ / 平盘
             if leg2_target_px is not None and float(leg2_target_px) > 0:
                 chase_buy_level = float(leg2_target_px)
             else:
@@ -1264,14 +1258,14 @@ def _first_touch_buy_then_sell(
                 trigger=buy_level,
                 at=ts,
                 leg_kind="trigger",
-                note="正T加仓（收盘带宽破带；新股T+1锁仓）",
+                note="正T加仓（C<lower；新股T+1锁仓）",
             )
             shares_now += qty
             bought_qty = qty
             buy_price = fill_buy
             touch_buy_at = ts
             sell_old_qty = min(bought_qty, sell_old_cap)
-            # v6：冻结 ĉ+δ 优先；无冻结才回退 τ / 平盘
+            # v6：冻结 C_τ 优先；无冻结才回退 τ / 平盘
             if leg2_target_px is not None and float(leg2_target_px) > 0:
                 chase_sell_level = float(leg2_target_px)
             else:
@@ -1765,9 +1759,9 @@ def simulate_t0_day_minute(
     tau_pool_day: Optional[dict] = None,
     defer_eod: bool = False,
 ) -> Dict[str, Any]:
-    """单日做 T：v6 收盘带宽逐根扫描 → 破带开轮；冻结 leg2；止损/追价共用。
+    """单日做 T：v6 逐根 C 相对 C_τ 破带开轮；leg2 冻结 C_τ；止损/追价共用。
 
-    开盘可预计算开盘-only 快照；各触发根前用前缀因果重算 ŷ 估 ĉ。
+    开盘可预计算开盘-only 快照；各触发根前用前缀因果重算 ŷ_oc 估 C_τ。
     ``defer_eod=True`` 时盘中前缀不强平（纸面整单/Worker）。
     """
     from core.t0.score_policy import (

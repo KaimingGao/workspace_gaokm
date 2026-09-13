@@ -16,22 +16,22 @@ import {
   resolveTauScore,
   resolvePathScore,
   resolveOnScore,
-  resolveNowcastScore,
+  resolveYτcScore,
   isHeuristicScoreScale,
   Y_EOD_TITLE,
   Y_TAU_TITLE,
-  Y_PATH_TITLE,
+  Y_HL_TITLE,
   Y_ON_TITLE,
-  Y_NOWCAST_TITLE,
-} from "./fmt.js?v=p1734";
+  Y_τc_TITLE,
+} from "./fmt.js?v=p2346";
 import { paginateItems, renderPagerHtml } from "../api_client.js";
-import { watchingScoreDetail } from "../quant/watching_render.js?v=p1734";
+import { watchingScoreDetail } from "../quant/watching_render.js?v=p2364";
 import {
   isSingleHeadItem,
   singleHeadBadgeHtml,
   yCheckBadgeHtml,
-} from "../quant/watching_insights_ui.js?v=p1457";
-import { TRADE_TITLE, formatPrevCloseDisplay, formatOpenDisplay } from "../quant/watching_quotes_ui.js?v=p1227";
+} from "../quant/watching_insights_ui.js?v=p2346";
+import { TRADE_TITLE, formatPrevCloseDisplay, formatOpenDisplay } from "../quant/watching_quotes_ui.js?v=p2298";
 import { buildHoldingSharesTip } from "./holding_lots_tip.js?v=p1227";
 import { holdingT0BadgeHtml } from "./holding_t0_badge.js?v=p1526";
 import { fitTierBadgeForCode } from "../quant/fit_tier_ui.js?v=p2261";
@@ -119,11 +119,11 @@ export function buildPaperHoldingsTableHtml({
             : key === "score_tau"
               ? `${Y_TAU_TITLE} · 点击排序`
             : key === "score_path"
-              ? `${Y_PATH_TITLE} · 点击排序`
+              ? `${Y_HL_TITLE} · 点击排序`
             : key === "score_on"
               ? `${Y_ON_TITLE} · 点击排序`
             : key === "score_nowcast"
-              ? `${Y_NOWCAST_TITLE} · 点击排序`
+              ? `${Y_τc_TITLE} · 点击排序`
             : key === "pnl"
             ? "浮盈亏 = 现价 − 成本价（相对成本的浮动盈亏 %）· 点击排序"
             : key === "chg"
@@ -150,7 +150,7 @@ export function buildPaperHoldingsTableHtml({
       const scoreTau = resolveTauScore(h);
       const scorePath = resolvePathScore(h);
       const scoreOn = resolveOnScore(h);
-      const scoreNowcast = resolveNowcastScore(h);
+      const scoreNowcast = resolveYτcScore(h);
       const belowMin = !!h.below_min_score;
       const hardReject = !!h.hard_reject;
       const scoreBase = fmtTableScore(h, score);
@@ -172,7 +172,7 @@ export function buildPaperHoldingsTableHtml({
           : singleHead
             ? `ŷ_trade 单头降级（${String(h.dual_score_head || "single")}）· 悬停看详情`
           : belowMin
-            ? `低于ŷ_EOD门槛 ${h.min_score ?? "—"}（表列为 ŷ_trade）· 悬停看详情`
+            ? `低于ŷ_oo门槛 ${h.min_score ?? "—"}（表列为 ŷ_trade）· 悬停看详情`
             : TRADE_TITLE;
       const oosFailed =
         !!h.oos_failed ||
@@ -183,12 +183,12 @@ export function buildPaperHoldingsTableHtml({
         : "";
       const singleHeadBadge = singleHead ? singleHeadBadgeHtml(h, escapeText) : "";
       const yCheckBadge = yCheckBadgeHtml(h, escapeText);
-      const scoreEodTitle = scoreEod == null ? "暂无 ŷ_EOD" : Y_EOD_TITLE;
-      const scoreTauTitle = scoreTau == null ? "暂无 ŷ_τ" : Y_TAU_TITLE;
-      const scorePathTitle = scorePath == null ? "暂无 ŷ_path" : Y_PATH_TITLE;
-      const scoreOnTitle = scoreOn == null ? "暂无 ŷ_ON" : Y_ON_TITLE;
+      const scoreEodTitle = scoreEod == null ? "暂无 ŷ_oo" : Y_EOD_TITLE;
+      const scoreTauTitle = scoreTau == null ? "暂无 ŷ_oc" : Y_TAU_TITLE;
+      const scorePathTitle = scorePath == null ? "暂无 ŷ_hl" : Y_HL_TITLE;
+      const scoreOnTitle = scoreOn == null ? "暂无 ŷ_co" : Y_ON_TITLE;
       const scoreNowcastTitle =
-        scoreNowcast == null ? "暂无 nowcast · 有 ŷ_EOD 与 ŷ_τ 后可见" : Y_NOWCAST_TITLE;
+        scoreNowcast == null ? "暂无 ŷ_τc" : Y_τc_TITLE;
       const origin = String(h.origin || "");
       const originLabel = h.origin_label || "—";
       const originTitle = ORIGIN_HINT[origin] || "早期记录未标出处";
@@ -288,7 +288,7 @@ export function buildPaperHoldingsTableHtml({
         )}">${escapeText(scoreShown)}${singleHeadBadge}${yCheckBadge}</td>` +
         `<td class="num paper-hold-score watching-score-nowcast has-tip ${scoreCls(
           scoreNowcast
-        )}" data-score-detail="${scoreDetailJson}" data-score-tip="nowcast" title="${escapeText(
+        )}" data-score-detail="${scoreDetailJson}" data-score-tip="r" title="${escapeText(
           scoreNowcastTitle
         )}">${escapeText(scoreNowcastShown)}</td>` +
         `<td class="num paper-hold-cost" title="持仓加权平均成本">${fmtPriceUnit(
@@ -327,12 +327,12 @@ export function buildPaperHoldingsTableHtml({
     `<th title="今日开盘价">今开</th>` +
     `<th title="最新成交价">现价</th>` +
     `${sortThHtml("涨跌", "chg")}` +
-    `${sortThHtml("y_eod", "score_eod")}` +
-    `${sortThHtml("y_τ", "score_tau")}` +
-    `${sortThHtml("y_path", "score_path")}` +
-    `${sortThHtml("y_on", "score_on")}` +
-    `${sortThHtml("y_trade", "score")}` +
-    `${sortThHtml("y_nc", "score_nowcast")}` +
+    `${sortThHtml("y_oo", "score_eod")}` +
+    `${sortThHtml("y_oc", "score_tau")}` +
+    `${sortThHtml("y_hl", "score_path")}` +
+    `${sortThHtml("y_co", "score_on")}` +
+    `${sortThHtml("ranking", "score")}` +
+    `${sortThHtml("y_τc", "score_nowcast")}` +
     `<th title="持仓加权平均成本">成本</th>` +
     `${sortThHtml("市值", "market_value")}` +
     `${sortThHtml("浮盈亏", "pnl")}` +

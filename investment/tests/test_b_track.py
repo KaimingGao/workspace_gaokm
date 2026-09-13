@@ -101,7 +101,7 @@ class TestB2YSpec(unittest.TestCase):
         self.assertEqual(y["horizon_days"], 5)
         self.assertFalse(y["include_cost"])
         self.assertEqual(y["track"], "B2")
-        self.assertIn("close", y["formula"])
+        self.assertIn("open", y["formula"])
 
     def test_fit_gap_mentions_y_spec(self):
         from core.fit_gap import fit_gap_hints

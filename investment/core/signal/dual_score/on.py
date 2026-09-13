@@ -14,17 +14,9 @@ DEFAULT_Y_SPEC_ON: Dict[str, Any] = {
     "note": "真实隔夜缺口（T 收盘→T+1 开盘）；风控旁路，不进主排序",
 }
 
-_ON_FEATURE_KEYS = (
-    "ret_oc",
-    "gap_pct",
-    "ret_cc",
-    "y_on_today",
-    "sector_gap_breadth",
-    "theme_day",
-    "gap_atr",
-    "gap_vs_sector",
-    "ret_open_to_tau",
-)
+from core.research.on_panel import ON_Z_FEATURES
+
+_ON_FEATURE_KEYS = ON_Z_FEATURES
 
 
 def features_on_snapshot(feats: Optional[Dict[str, Any]]) -> Dict[str, Any]:
@@ -78,6 +70,10 @@ def apply_on_score_fields(
     feat_snap = features_on_snapshot(merge_on_features(feats, prior))
 
     signal_item["predicted_score_on"] = on_yhat
+    if on_yhat is not None:
+        signal_item["y_co"] = on_yhat
+        signal_item["predicted_score_co"] = on_yhat
+        signal_item["y_on"] = on_yhat
     signal_item["y_spec_on"] = y_spec
     signal_item["features_on"] = feat_snap
     signal_item["on_y_spec"] = y_spec.get("formula")
@@ -133,6 +129,14 @@ def ensure_formula_terms_on(item: Optional[dict]) -> Optional[Dict[str, Any]]:
         "ret_oc",
         "ret_cc",
         "y_on_today",
+        "yclose_loc",
+        "mom3_pct",
+        "yest_close_loc",
+        "yest_range_pct",
+        "yest_vol_ratio",
+        "dist_to_up_limit",
+        "yest_gap",
+        "on_ma5",
     ):
         v = item.get(k)
         if v is not None and v != "":
@@ -216,7 +220,12 @@ def attach_on_score_pit(
         from core.research.on_panel import build_on_features_from_quote_bars
         from core.research.on_ridge import predict_on_from_features
 
-        feats = build_on_features_from_quote_bars(quote, bars, gap_pct=gap_pct)
+        feats = build_on_features_from_quote_bars(
+            quote,
+            bars,
+            gap_pct=gap_pct,
+            stock_code=str(signal_item.get("stock_code") or "").strip() or None,
+        )
         if gap_pct is not None:
             feats["gap_pct"] = gap_pct
         if sector_gap_breadth is not None:

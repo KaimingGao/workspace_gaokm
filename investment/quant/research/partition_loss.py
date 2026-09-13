@@ -291,6 +291,52 @@ def collect_group_chrono_holdout(
     }
 
 
+# 与 τ `_sign_hit` 同门槛：|ŷ|<0.05% 无方向，不进开盘命中分母
+SIGN_HIT_MIN_ABS = 0.05
+SIGN_HIT_MIN_N = 5
+
+
+def _empty_yhat_metrics(holdout_ratio: float) -> Dict[str, Any]:
+    return {
+        "ok": False,
+        "n": 0,
+        "ic": None,
+        "rmse": None,
+        "mse": None,
+        "r2": None,
+        "sign_hit": None,
+        "n_signed": 0,
+        "holdout_ratio": float(holdout_ratio),
+    }
+
+
+def _sign_hit_from_pred_act(
+    preds: Sequence[float],
+    acts: Sequence[float],
+    *,
+    min_abs: float = SIGN_HIT_MIN_ABS,
+    min_n: int = SIGN_HIT_MIN_N,
+) -> Tuple[Optional[float], int]:
+    """sign(ŷ)=sign(y)；|ŷ|<min_abs 无方向，跳过。返回 (命中率, 有方向 n)。"""
+    hits = 0
+    n = 0
+    thr = float(min_abs)
+    for p, y in zip(preds, acts):
+        try:
+            pv = float(p)
+            yv = float(y)
+        except (TypeError, ValueError):
+            continue
+        if abs(pv) < thr:
+            continue
+        n += 1
+        if (pv > 0 and yv > 0) or (pv < 0 and yv < 0):
+            hits += 1
+    if n < int(min_n):
+        return None, int(n)
+    return round(hits / float(n), 4), int(n)
+
+
 def _metrics_from_pred_act(
     preds: Sequence[float],
     acts: Sequence[float],
@@ -301,14 +347,7 @@ def _metrics_from_pred_act(
 ) -> Dict[str, Any]:
     from core.signal.factors.meta.corr import pearson_with_reason
 
-    empty: Dict[str, Any] = {
-        "ok": False,
-        "n": 0,
-        "ic": None,
-        "rmse": None,
-        "r2": None,
-        "holdout_ratio": float(holdout_ratio),
-    }
+    empty = _empty_yhat_metrics(holdout_ratio)
     p_h = [float(v) for v in preds]
     a_h = [float(v) for v in acts]
     n = min(len(p_h), len(a_h))
@@ -317,13 +356,15 @@ def _metrics_from_pred_act(
     p_h, a_h = p_h[:n], a_h[:n]
     ic, _reason = pearson_with_reason(p_h, a_h)
     err = [float(p_h[i]) - float(a_h[i]) for i in range(n)]
-    rmse = float(math.sqrt(sum(e * e for e in err) / max(1, len(err))))
+    mse = float(sum(e * e for e in err) / max(1, len(err)))
+    rmse = float(math.sqrt(mse))
     y_bar = float(sum(a_h) / len(a_h))
     ss_tot = sum((float(a_h[i]) - y_bar) ** 2 for i in range(n))
     ss_res = sum(e * e for e in err)
     r2 = None
     if ss_tot > 1e-12:
         r2 = float(max(0.0, min(1.0, 1.0 - ss_res / ss_tot)))
+    sign_hit, n_signed = _sign_hit_from_pred_act(p_h, a_h)
     try:
         from core.signal.ic_contract import annotate_ic_block
 
@@ -349,6 +390,9 @@ def _metrics_from_pred_act(
         "ic_role": _ic_ann.get("ic_role"),
         "is_primary_ic": False,
         "rmse": round(rmse, 4),
+        "mse": round(mse, 6),
+        "sign_hit": sign_hit,
+        "n_signed": int(n_signed),
         "r2": None if r2 is None else round(float(r2), 4),
         "holdout_ratio": float(holdout_ratio),
         "reason": reason,
@@ -363,17 +407,10 @@ def score_yhat_on_rows(
     holdout_ratio: float = 0.3,
     n_full: Optional[int] = None,
 ) -> Dict[str, Any]:
-    """用已有 return_model 在给定行上算 ŷ vs y 的 IC / RMSE / R²。"""
+    """用已有 return_model 在给定行上算 ŷ vs y 的 IC / RMSE / MSE / 开盘命中。"""
     from core.signal.return_score import ReturnScoreModel
 
-    empty: Dict[str, Any] = {
-        "ok": False,
-        "n": 0,
-        "ic": None,
-        "rmse": None,
-        "r2": None,
-        "holdout_ratio": float(holdout_ratio),
-    }
+    empty = _empty_yhat_metrics(holdout_ratio)
     model = ReturnScoreModel.from_dict(return_model)
     if model is None:
         return {**empty, "reason": "no_return_model"}
@@ -423,12 +460,8 @@ def yhat_holdout_metrics(
     pairs = _pair_rows(xs, ys)
     if len(pairs) < 6:
         return {
-            "ok": False,
+            **_empty_yhat_metrics(holdout_ratio),
             "n": len(pairs),
-            "ic": None,
-            "rmse": None,
-            "r2": None,
-            "holdout_ratio": float(holdout_ratio),
             "reason": "too_few_pairs",
         }
     _train, hold, ratio = split_chrono_holdout_pairs(pairs, holdout_ratio=holdout_ratio)
@@ -460,12 +493,7 @@ def yhat_group_holdout_metrics(
     - ``cut_date``：宇宙日历切分日（优先于按票比例）。
     """
     empty: Dict[str, Any] = {
-        "ok": False,
-        "n": 0,
-        "ic": None,
-        "rmse": None,
-        "r2": None,
-        "holdout_ratio": float(holdout_ratio),
+        **_empty_yhat_metrics(holdout_ratio),
         "refit": False,
         "cut_date": str(cut_date or "").strip()[:10] or None,
     }
@@ -522,6 +550,79 @@ def yhat_group_holdout_metrics(
     out["split_mode"] = split.get("split_mode")
     if not out.get("ok") and not out.get("reason"):
         out["reason"] = "score_failed"
+    return out
+
+
+def cluster_yhat_accuracy(
+    return_model: Optional[Dict[str, Any]],
+    xs: Sequence[Dict[str, Any]],
+    ys: Sequence[float],
+    dates: Sequence[str],
+    *,
+    train_days: Optional[Sequence[str]] = None,
+    live_model: Optional[Dict[str, Any]] = None,
+    holdout_ratio: float = 0.3,
+) -> Dict[str, Any]:
+    """组 ŷ_oo 准确度：Holdout MSE + 开盘命中率（sign(ŷ)=sign(open→open)）。
+
+    优先用 ``return_model``（研究套）评训练日以外的行；尾段过短则退回
+    全样本 + ``live_model``（或同一模型）。
+    """
+    empty = {
+        **_empty_yhat_metrics(holdout_ratio),
+        "source": None,
+        "open_hit_rate": None,
+    }
+    allowed = {str(d)[:10] for d in (train_days or []) if str(d)[:10]}
+    n = min(len(xs or []), len(ys or []), len(dates or []))
+    hold_xs: List[Dict[str, Any]] = []
+    hold_ys: List[float] = []
+    all_xs: List[Dict[str, Any]] = []
+    all_ys: List[float] = []
+    for i in range(n):
+        row = xs[i]
+        if not isinstance(row, dict):
+            continue
+        try:
+            yv = float(ys[i])
+        except (TypeError, ValueError):
+            continue
+        if not math.isfinite(yv):
+            continue
+        all_xs.append(row)
+        all_ys.append(yv)
+        d = str(dates[i] or "").strip()[:10]
+        if allowed and d not in allowed:
+            hold_xs.append(row)
+            hold_ys.append(yv)
+
+    rm_hold = return_model if isinstance(return_model, dict) else None
+    rm_live = live_model if isinstance(live_model, dict) else rm_hold
+    if hold_xs and rm_hold and len(hold_ys) >= SIGN_HIT_MIN_N:
+        out = score_yhat_on_rows(
+            rm_hold,
+            hold_xs,
+            hold_ys,
+            holdout_ratio=holdout_ratio,
+            n_full=len(all_ys),
+        )
+        out["source"] = "holdout"
+        out["open_hit_rate"] = out.get("sign_hit")
+        out["n_hold"] = len(hold_ys)
+        return out
+    if not all_xs or not rm_live:
+        empty["reason"] = "no_model_or_rows"
+        return empty
+    out = score_yhat_on_rows(
+        rm_live,
+        all_xs,
+        all_ys,
+        holdout_ratio=holdout_ratio,
+        n_full=len(all_ys),
+    )
+    out["source"] = "in_sample"
+    out["open_hit_rate"] = out.get("sign_hit")
+    out["n_hold"] = len(hold_ys)
     return out
 
 

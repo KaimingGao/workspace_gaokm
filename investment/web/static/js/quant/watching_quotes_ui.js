@@ -120,7 +120,7 @@ export function withQuoteGap(it, quoteLike) {
   return { ...it, gap_pct: g, predicted_score_blend_vs: "", predicted_score_blend_cal_vs: "" };
 }
 
-export const TRADE_TITLE = "双头融合 · 排序/卖门槛";
+export const TRADE_TITLE = "ranking · w·ŷ_oo + w·(ŷ_oc∘w_co·ŷ_co)";
 
 export function formatWatchingMarketLabel(market) {
   const m = String(market || "").toUpperCase();

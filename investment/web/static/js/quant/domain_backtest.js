@@ -1,12 +1,12 @@
 import { apiFetch } from "../api_client.js";
 import { renderLineChart, renderDualLineChart, renderMultiLineChart, renderNavBarChart } from "../lw_charts.js";
 import { fmtScore, scoreCls } from "../paper/fmt.js";
-import { renderPaperT0 } from "../paper/t0_ui.js?v=p2261";
+import { renderPaperT0 } from "../paper/t0_ui.js?v=p2364";
 import { portfolioBtScoreFloorPayload as buildBtScoreFloorPayload, mergeScoringFloors } from "./scoring.js";
 import { truncateStockName, watchingNameSpanHtml } from "./names.js";
 import { ensureFitTierMap } from "./fit_tier_ui.js";
 import { downloadBlob } from "../shared.js";
-import { collectPathMatrixForm, collectExecutionForm, readT0BtSizing, fillT0BtSizing } from "../paper/execution_ui.js?v=p2274";
+import { collectPathMatrixForm, collectExecutionForm, readT0BtSizing, fillT0BtSizing } from "../paper/execution_ui.js?v=p2353";
 import { initExecutionRuleForms } from "../paper/execution_forms.js?v=p2274";
 
 const _V =
@@ -85,7 +85,7 @@ export function sliceCurveToDateWindow(series, days = TOPK_NAV_CHART_WINDOW_DAYS
 /** Quant domain: backtest */
 export function installBacktest(q) {
   const { on, els, state, ctx, escapeHtml, apiFetch, setQuantMeta, setBusyText, btSimScoreTips, watchingNameFromEl } = q;
-  const { fmtPct, metricClass, renderMetricCards, renderBtScopeNote, renderFitGapPanel, renderRobustnessPanel, buildPortfolioBacktestCards, BT_SCOPE_LIVE, BT_SCOPE_FROZEN, readHorizonDays, quantBtBusyIds } = q;
+  const { fmtPct, metricClass, renderMetricCards, renderBtScopeNote, renderRobustnessPanel, buildPortfolioBacktestCards, BT_SCOPE_LIVE, BT_SCOPE_FROZEN, readHorizonDays, quantBtBusyIds } = q;
   const { renderAttributionTablesHtml, renderIcEquityAlignHtml, renderQuantileTableHtml, buildCrossSectionResult, renderScoreIcHtml, renderReplayStockContribHtml } = q;
   const { researchGridHtml, metricCell } = q;
 
@@ -144,7 +144,6 @@ export function installBacktest(q) {
     const titleEl = document.getElementById("quant-chart-title");
     const hintEl = document.getElementById("quant-chart-axis-hint");
     const navBtn = document.getElementById("quant-chart-nav-mode");
-    const chip = document.getElementById("quant-bt-stock-chip");
     const stock = mode === "stock";
     if (titleEl) {
       titleEl.textContent = stock
@@ -165,18 +164,6 @@ export function installBacktest(q) {
           : BT_NAV_HINT;
     }
     if (navBtn) navBtn.hidden = !stock;
-    if (chip) {
-      if (stock && (name || code)) {
-        chip.hidden = false;
-        chip.textContent = `日线 ${name || ""} ${code || ""} · 再点名称回到净值`.replace(
-          /\s+/g,
-          " "
-        ).trim();
-      } else {
-        chip.hidden = true;
-        chip.textContent = "";
-      }
-    }
   }
 
   function restoreNavChart() {
@@ -264,13 +251,6 @@ export function installBacktest(q) {
       }
     }
     paintStockKline(c, state.btChartStockName || c);
-  }
-
-  function bindBtTradesCsv() {
-    const csvBtn = document.getElementById("quant-bt-trades-csv");
-    if (!csvBtn || csvBtn.dataset.wired === "1") return;
-    csvBtn.dataset.wired = "1";
-    csvBtn.addEventListener("click", () => downloadSimTradesCsv(state.lastSimTrades));
   }
 
   function bindBtTradesStockClicks(api) {
@@ -414,17 +394,6 @@ export function installBacktest(q) {
     if (!iso) return "—";
     const s = String(iso);
     return s.length > 19 ? s.slice(0, 19).replace("T", " ") : s.replace("T", " ");
-  }
-
-  async function loadFitGapForBacktest(bt) {
-    if (isReplayDesk()) return;
-    const { ok, data } = await apiFetch("/api/ops/fit-gap", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ result: bt || {} }),
-    });
-    if (ok) renderFitGapPanel(data);
-    else renderFitGapPanel(null);
   }
 
   function frozenBtCaliber(ps) {
@@ -1175,7 +1144,6 @@ export function installBacktest(q) {
         rowAttrs: btTradeRowAttrs,
       });
       bindBtTradesStockClicks(state.btTradesTableApi);
-      bindBtTradesCsv();
       state.btTradesTableApi.setRows(rows);
       void ensureFitTierMap(els.quantBtTrades);
       return;
@@ -1190,7 +1158,6 @@ export function installBacktest(q) {
       skipped,
       showIntent,
     });
-    bindBtTradesCsv();
     const host = els.quantBtTrades.querySelector(".quant-bt-trades-host");
     state.btTradesTableApi = mountVirtualTable(host, {
       columns: btSimTradeColumns(showIntent),
@@ -1284,7 +1251,6 @@ export function installBacktest(q) {
       renderScoreIc(null);
       renderIcEquityAlign(null);
       renderQuantileTable(null);
-      renderFitGapPanel(null);
       const expBtn = document.getElementById("quant-backtest-report-export");
       if (expBtn) expBtn.disabled = true;
       clearBtTradesTable();
@@ -1625,7 +1591,6 @@ export function installBacktest(q) {
         (data.benchmark && data.benchmark.benchmark_label) || null,
         data.ic_equity_align
       );
-      loadFitGapForBacktest(data).catch(() => {});
 
       // 北极星仪表化（前端缓存）：滚动夏普 / 卡玛 / TTM 等
       try {
@@ -1839,7 +1804,6 @@ export function installBacktest(q) {
     formatFactorWeightsNote,
     formatSimStatus,
     formatSnapshotAt,
-    loadFitGapForBacktest,
     loadLastBacktestSnapshot,
     restoreLastPortfolioBacktest,
     restoreLastT0Backtest,

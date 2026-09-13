@@ -27,6 +27,7 @@ def dual_score_book_fields(item: Optional[dict]) -> Dict[str, Any]:
     避免簿内旧戳（如 f1 / 旧 w_*）误导 tip。
     旧簿无 ``formula_terms_tau`` 时现场补全组成表。
     返回前对齐 ŷ_trade（修 eod_next 塌成 EOD 的旧 blend）。
+    数据中心 / 持仓表列 ŷ_τc 走本函数透传（含旧簿 y_r 反几何）。
     """
     if not isinstance(item, dict):
         return {}
@@ -73,6 +74,22 @@ def dual_score_book_fields(item: Optional[dict]) -> Dict[str, Any]:
         live_w = {"w_eod": 0.5, "w_tau": 0.5, "w_mode": "fixed", "mode": "blend"}
     formula_terms_tau = ensure_formula_terms_tau(work)
     formula_terms_on = ensure_formula_terms_on(work)
+    formula_terms_r = work.get("formula_terms_r") or work.get("score_formula_terms_r")
+    if not (isinstance(formula_terms_r, dict) and formula_terms_r.get("terms")):
+        try:
+            from core.research.r_ridge import explain_r_prediction, load_r_model
+
+            feats_r = work.get("features_tau") if isinstance(work.get("features_tau"), dict) else {}
+            if not feats_r:
+                feats_r = (
+                    work.get("features_path")
+                    if isinstance(work.get("features_path"), dict)
+                    else {}
+                )
+            formula_terms_r = explain_r_prediction(feats_r, model_doc=load_r_model())
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in dual_score.py", exc_info=True)
+            formula_terms_r = None
     score_formula_tau = work.get("score_formula_tau") or format_tau_formula_string(
         formula_terms_tau
     )
@@ -82,6 +99,14 @@ def dual_score_book_fields(item: Optional[dict]) -> Dict[str, Any]:
     fill = work.get("features_tau_fill")
     if not isinstance(fill, dict):
         fill = features_tau_fill_diag(work.get("features_tau"))
+    try:
+        from core.signal.yhat_windows import pick_y_τc, write_y_τc
+
+        ytc = pick_y_τc(work)
+        if ytc is not None:
+            write_y_τc(work, ytc)
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in dual_score.py", exc_info=True)
     # 权重优先簿内已算（含 theme/variance）；缺则用当前配置
     return {
         "predicted_score_eod": work.get("predicted_score_eod", work.get("predicted_score")),
@@ -128,6 +153,19 @@ def dual_score_book_fields(item: Optional[dict]) -> Dict[str, Any]:
         "y_tau_to_close": work.get("y_tau_to_close"),
         "y_tau_to_close_src": work.get("y_tau_to_close_src"),
         "y_state": work.get("y_state"),
+        "y_τc": work.get("y_τc"),
+        "predicted_score_τc": work.get("predicted_score_τc"),
+        "y_r": work.get("y_r"),
+        "y_r_hat": work.get("y_r_hat"),
+        "predicted_score_r": work.get("predicted_score_r"),
+        "y_spec_τc": work.get("y_spec_τc"),
+        "y_spec_r": work.get("y_spec_r"),
+        "formula_terms_r": formula_terms_r
+        or work.get("formula_terms_r")
+        or work.get("score_formula_terms_r"),
+        "score_formula_terms_r": formula_terms_r
+        or work.get("score_formula_terms_r")
+        or work.get("formula_terms_r"),
         "predicted_score_on": work.get("predicted_score_on"),
         "y_spec_on": work.get("y_spec_on"),
         "features_on": work.get("features_on"),

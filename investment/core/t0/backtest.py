@@ -305,7 +305,6 @@ def backtest_t0_on_bars(
         f"direction={cfg.get('direction')} · y_tau_map={cfg.get('y_tau_map')} · "
         f"y_score_source={cfg.get('y_score_source')} · "
         f"y_tau_enter=±{cfg.get('y_tau_enter')}%；"
-        f"r_tau_enter=|{cfg.get('r_tau_enter')}|%；"
         + "仅 5m 第一触达（缺分钟日跳过，已删除日线模拟）；"
         + (
             f"评估窗 {len(bars)} 日 · 因子缓冲 {max(0, len(history) - len(bars))} 日；"
@@ -790,9 +789,15 @@ def _walk_t0(
             "y_tau_enter_buy_then_sell": cfg.get("y_tau_enter_buy_then_sell"),
             "y_enter_enabled": cfg.get("y_enter_enabled"),
             "y_enter_alt_enabled": cfg.get("y_enter_alt_enabled"),
-            "r_tau_enter": cfg.get("r_tau_enter"),
-            "r_tau_enter_alt": cfg.get("r_tau_enter_alt"),
             "y_tau_enter_alt": cfg.get("y_tau_enter_alt"),
+            "y_tc_enter": cfg.get("y_tc_enter")
+            if cfg.get("y_tc_enter") not in (None, "")
+            else cfg.get("y_τc_enter"),
+            "y_τc_enter": cfg.get("y_τc_enter") or cfg.get("y_tc_enter"),
+            "y_tc_enter_alt": cfg.get("y_tc_enter_alt")
+            if cfg.get("y_tc_enter_alt") not in (None, "")
+            else cfg.get("y_τc_enter_alt"),
+            "y_τc_enter_alt": cfg.get("y_τc_enter_alt") or cfg.get("y_tc_enter_alt"),
             "y_path_enter_alt": cfg.get("y_path_enter_alt"),
             "y_on_risk": cfg.get("y_on_risk"),
             "y_on_allow": cfg.get("y_on_allow"),
@@ -802,10 +807,9 @@ def _walk_t0(
             "y_nowcast_enter": cfg.get("y_nowcast_enter") or cfg.get("y_nc_strong"),
             "y_tau_map": cfg.get("y_tau_map"),
             "y_use_path": cfg.get("y_use_path"),
-            "y_tau_leg1_prior": cfg.get("y_tau_leg1_prior"),
-            "y_tau_leg1_prior_mode": cfg.get("y_tau_leg1_prior_mode"),
-            "y_tau_leg1_prior_risk": cfg.get("y_tau_leg1_prior_risk"),
-            "y_tau_leg1_prior_shift_scale": cfg.get("y_tau_leg1_prior_shift_scale"),
+            "t0_y_oc_target_scale": cfg.get("t0_y_oc_target_scale"),
+            "t0_y_oc_l": cfg.get("t0_y_oc_l"),
+            "t0_y_oc_u": cfg.get("t0_y_oc_u"),
             "y_path_enter": cfg.get("y_path_enter"),
             "y_path_enter_sell_then_buy": cfg.get("y_path_enter_sell_then_buy"),
             "y_path_enter_buy_then_sell": cfg.get("y_path_enter_buy_then_sell"),

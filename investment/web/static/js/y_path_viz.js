@@ -42,10 +42,10 @@ function signCls(v) {
 function tauCloseSrcLabel(src) {
   const s = String(src || "");
   if (s === "feature") return "分钟特征";
-  if (s === "tau_oc_adj") return "ŷ_τ−open→τ";
-  if (s === "tau_rem") return "ŷ_τ(剩余窗)";
+  if (s === "tau_oc_adj") return "ŷ_oc−open→τ";
+  if (s === "tau_rem") return "ŷ_oc(剩余窗)";
   if (s === "eod_rem_proxy") return "EOD_rem 代理";
-  if (s === "tau_oc_proxy") return "ŷ_τ 代理";
+  if (s === "tau_oc_proxy") return "ŷ_oc 代理";
   return s || "代理";
 }
 

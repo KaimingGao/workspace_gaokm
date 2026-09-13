@@ -38,10 +38,9 @@ def _mins(date, points):
 
 
 def _scores_flat():
-    """三源全 0 + nowcast 锚 open → ĉ ≈ open，便于 ±δ 破带。
+    """三源全 0 + nowcast 锚 open。R=0 时不开轮；需方向时用 _scores_r。
 
-    y_path 取弱正值：过默认 path 入场（0），但低于 path强（5），
-    避免 y_τ≈0 时被「强 path 异号」挡住破带夹具。
+    y_path 取弱正值：过默认 path 入场（0），但低于 path强（5）。
     """
     return {
         "y_tau": 0.0,
@@ -50,6 +49,12 @@ def _scores_flat():
         "nowcast_vs": "open",
         "y_path": 0.05,
     }
+
+
+def _scores_r(sign):
+    """R̂_τ 符号选向：>0 正T，<0 反T。"""
+    s = float(sign)
+    return {**_scores_flat(), "y_tau": s, "y_tau_oc": s}
 
 
 def _mins_hl(date=None, o=100, high=105, low=98, close=101, bar=None):
@@ -117,14 +122,15 @@ def _rules(**kwargs):
         # 路径用例默认零价偏，避免与生产 ±默认纠缠断言
         "y_tau_exit_price_bias_buy_then_sell": 0.0,
         "y_tau_exit_price_bias_sell_then_buy": 0.0,
-        # 路径/撮合单测不绑 ŷ_τ / path / R̂ / TPD 入场；生产默认见 overlay
+        # 路径/撮合单测不绑 ŷ_τ / path / TPD 入场；生产默认见 overlay
         "y_tau_enter": 0.0,
         "y_path_enter": 0.0,
         "y_use_path": False,
-        "r_tau_enter": 0.01,
         "y_tpd_max": 1.0,
         "y_enter_alt_enabled": False,
-        "y_tau_leg1_prior_mode": "off",
+        "t0_y_oc_target_scale": 1.0,
+        "t0_y_oc_l": -20.0,
+        "t0_y_oc_u": 20.0,
         # 路径用例与生产「反T当日回补」解耦
         "must_cover_same_day_sell_then_buy": False,
     }
@@ -434,7 +440,10 @@ class TestT0Core(unittest.TestCase):
         self.assertTrue(d["y_enter_alt_enabled"])
         self.assertAlmostEqual(d["y_tau_enter_alt"], 0.0)
         self.assertAlmostEqual(d["y_path_enter_alt"], 0.0)
-        self.assertAlmostEqual(d["r_tau_enter_alt"], 0.0)
+        self.assertAlmostEqual(d["y_tc_enter"], 0.0)
+        self.assertAlmostEqual(d["y_tc_enter_alt"], 0.0)
+        self.assertNotIn("r_tau_enter", d)
+        self.assertNotIn("r_tau_enter_alt", d)
         self.assertAlmostEqual(d["y_complexity_max_alt"], 1.0)
         self.assertAlmostEqual(d["y_tpd_max_alt"], 1.0)
         self.assertFalse(d["y_nowcast_oc_gate"])
@@ -443,6 +452,10 @@ class TestT0Core(unittest.TestCase):
         self.assertEqual(d["y_nowcast_enter"], 0.2)
         self.assertNotIn("y_path_abandon_bars", d)
         self.assertNotIn("y_tau_leg1_prior_band_floor", d)
+        self.assertNotIn("y_tau_leg1_prior_mode", d)
+        self.assertNotIn("y_tau_leg1_prior", d)
+        self.assertNotIn("y_tau_leg1_prior_risk", d)
+        self.assertNotIn("y_tau_leg1_prior_shift_scale", d)
         self.assertNotIn("y_prefix_segment_enabled", d)
         self.assertNotIn("y_prefix_segment_enabled_sell_then_buy", d)
         self.assertNotIn("y_prefix_segment_enabled_buy_then_sell", d)
@@ -457,11 +470,9 @@ class TestT0Core(unittest.TestCase):
         self.assertAlmostEqual(float(d.get("t0_round_ratio") or 0), 0.4)
         self.assertAlmostEqual(float(d.get("t0_price_space_max_dev_pct") or 0), 5.0)
         self.assertAlmostEqual(float(d.get("t0_price_space_prev_dev_pct") or 0), 5.0)
-        self.assertEqual(d["r_tau_enter"], 0.0)
-        self.assertEqual(d["y_tau_leg1_prior_mode"], "score")
-        self.assertTrue(d["y_tau_leg1_prior"])
-        self.assertAlmostEqual(float(d["y_tau_leg1_prior_risk"]), 10.0)
-        self.assertAlmostEqual(float(d["y_tau_leg1_prior_shift_scale"]), 1.0)
+        self.assertAlmostEqual(float(d.get("t0_y_oc_target_scale") or 0), 10.0)
+        self.assertAlmostEqual(float(d.get("t0_y_oc_l") or 0), -3.0)
+        self.assertAlmostEqual(float(d.get("t0_y_oc_u") or 0), 3.0)
         self.assertNotIn("y_tau_entry_price_skip", d)
         self.assertNotIn("y_tau_entry_price_skip_buy_then_sell", d)
         self.assertNotIn("y_tau_entry_price_skip_sell_then_buy", d)
@@ -552,7 +563,7 @@ class TestT0Core(unittest.TestCase):
 
 
     def test_no_trigger_when_range_ok_but_levels_miss(self):
-        """带内震荡未破 ĉ±δ → 不开 leg1。"""
+        """带内震荡未破 C_τ×(1±δ) → 不开 leg1。"""
         bar = _bar("2026-01-10", 100, 105, 98.5, 100)
         mins = _mins(
             "2026-01-10",
@@ -1199,7 +1210,7 @@ class TestT0Core(unittest.TestCase):
         self.assertAlmostEqual(bound, 97.3, places=4)
 
     def test_open_only_path_attached_from_open_z(self):
-        """缺分钟小包时仍用开盘 Z 写 ŷ_path（对齐研究 09:30）。"""
+        """缺分钟小包时仍用开盘 Z 写 ŷ_hl（对齐研究 09:30）。"""
         from core.t0.score_policy import _attach_y_path_to_item
 
         item = {
@@ -1235,7 +1246,7 @@ class TestT0Core(unittest.TestCase):
         self.assertNotEqual(item.get("y_path_status"), "open_z")
 
     def test_attach_portrait_y_path_fills_for_score_portrait(self):
-        """选向无 path 时，日结果仍补因果 ŷ_path 供画像。"""
+        """选向无 HL 时，日结果仍补因果 ŷ_hl 供画像。"""
         from core.t0.score_policy import attach_portrait_dual_scores
         from core.t0.viz import build_score_portrait, extract_scores
 
@@ -1286,7 +1297,7 @@ class TestT0Core(unittest.TestCase):
         self.assertAlmostEqual(float(sc.get("y_tau_portrait_oc")), 0.9, places=4)
 
     def test_leg2_uses_frozen_close_band_not_tau(self):
-        """v6：第二腿触冻结 ĉ−δ，不被 τ 出场价抢走。"""
+        """v6：第二腿触冻结 C_τ，不被 τ 出场价抢走。"""
         d = "2024-02-03"
         bar = _bar(d, 100, 106, 94, 100)
         mins = _mins_hl(bar=bar)
@@ -1296,7 +1307,7 @@ class TestT0Core(unittest.TestCase):
             cost=100,
             cash=50000,
             minute_bars=mins,
-            scores=_scores_flat(),
+            scores=_scores_r(-0.5),
             rules=_rules_path(
                 fill_mode="trigger",
                 t0_close_band_delta_pct=0.01,
@@ -1310,8 +1321,12 @@ class TestT0Core(unittest.TestCase):
         self.assertTrue(out.get("success"), out)
         buys = [t for t in out.get("trades") or [] if str(t.get("side", "")).endswith("buy")]
         self.assertEqual(len(buys), 1, out)
-        # ĉ≈100, δ=0.01 → leg2=99.99；τ 出场若优先生效会偏离
-        self.assertAlmostEqual(float(buys[0].get("trigger") or 0), 99.99, places=2)
+        frozen = (out.get("t0_slot_results") or [{}])[0].get("close_band") or {}
+        tgt = float(frozen.get("leg2_target") or 0)
+        self.assertGreater(tgt, 0)
+        self.assertAlmostEqual(float(buys[0].get("trigger") or 0), tgt, places=2)
+        # τ 出场×2 会远低于现价，不得抢走冻结目标
+        self.assertNotAlmostEqual(float(buys[0].get("trigger") or 0), 99.0, places=1)
 
     def test_backtest_minute_by_date_sets_first_touch(self):
         bars = []
@@ -1649,30 +1664,30 @@ class TestDualYDirection(unittest.TestCase):
         self.assertIn("y_trade_floor", cfg)
         self.assertEqual(cfg["y_tau_enter"], 0.0)
         self.assertEqual(cfg["y_tau_enter_strong"], 0.0)
-        self.assertEqual(cfg["r_tau_enter"], 0.0)
+        self.assertNotIn("r_tau_enter", cfg)
         self.assertEqual(cfg["y_score_source"], "compute")
         self.assertTrue(cfg["y_enter_enabled"])
         self.assertTrue(cfg["y_enter_alt_enabled"])
         self.assertEqual(cfg["y_tau_enter_alt"], 0.0)
         self.assertEqual(cfg["y_path_enter_alt"], 0.0)
-        self.assertEqual(cfg["r_tau_enter_alt"], 0.0)
+        self.assertEqual(cfg["y_tc_enter"], 0.0)
+        self.assertEqual(cfg["y_tc_enter_alt"], 0.0)
+        self.assertNotIn("r_tau_enter_alt", cfg)
         self.assertEqual(cfg["y_complexity_max_alt"], 1.0)
         self.assertEqual(cfg["y_tpd_max_alt"], 1.0)
 
-    def test_r_tau_enter_clamped_to_range(self):
-        self.assertEqual(load_t0_rules({"r_tau_enter": 0.0})["r_tau_enter"], 0.0)
-        self.assertEqual(load_t0_rules({"r_tau_enter": 0.01})["r_tau_enter"], 0.01)
-        self.assertEqual(load_t0_rules({"r_tau_enter": 1.0})["r_tau_enter"], 1.0)
-        self.assertEqual(load_t0_rules({"r_tau_enter": 1.5})["r_tau_enter"], 1.0)
-        self.assertEqual(load_t0_rules({"r_tau_enter_alt": 0.0})["r_tau_enter_alt"], 0.0)
-        self.assertEqual(load_t0_rules({"r_tau_enter_alt": 1.5})["r_tau_enter_alt"], 1.0)
-        self.assertEqual(load_t0_rules({"y_tau_leg1_prior_risk": 100})["y_tau_leg1_prior_risk"], 100.0)
-        self.assertEqual(load_t0_rules({"y_tau_leg1_prior_risk": 150})["y_tau_leg1_prior_risk"], 100.0)
+    def test_legacy_r_tau_enter_is_dropped(self):
+        cfg = load_t0_rules({"r_tau_enter": 0.5, "r_tau_enter_alt": 1.5})
+        self.assertNotIn("r_tau_enter", cfg)
+        self.assertNotIn("r_tau_enter_alt", cfg)
+        self.assertEqual(load_t0_rules({"t0_y_oc_target_scale": 100})["t0_y_oc_target_scale"], 100.0)
+        self.assertEqual(load_t0_rules({"t0_y_oc_target_scale": 150})["t0_y_oc_target_scale"], 100.0)
 
-    def test_tau_prior_skip_mode_maps_to_score(self):
-        cfg = load_t0_rules({"y_tau_leg1_prior_mode": "skip"})
-        self.assertEqual(cfg["y_tau_leg1_prior_mode"], "score")
-        self.assertTrue(cfg["y_tau_leg1_prior"])
+    def test_legacy_tau_prior_keys_are_dropped(self):
+        cfg = load_t0_rules({"y_tau_leg1_prior_mode": "skip", "y_tau_leg1_prior_risk": 100})
+        self.assertNotIn("y_tau_leg1_prior_mode", cfg)
+        self.assertNotIn("y_tau_leg1_prior", cfg)
+        self.assertNotIn("y_tau_leg1_prior_risk", cfg)
 
     def test_y_tau_enter_strong_migrates_into_enter(self):
         cfg = load_t0_rules({"y_tau_enter": 0.4, "y_tau_enter_strong": 0.6})
@@ -1937,6 +1952,25 @@ class TestDualYDirection(unittest.TestCase):
         self.assertNotIn("noise", tip.get("features_on") or {})
         self.assertIsNotNone(tip.get("formula_terms_on"))
 
+    def test_tip_fields_include_formula_terms_r(self):
+        from core.t0.score_policy import tip_fields_from_item
+
+        tip = tip_fields_from_item(
+            {
+                "features_tau": {"gap_pct": 1.2, "ret_open_to_tau": 0.3},
+                "formula_terms_r": {
+                    "intercept": 0.05,
+                    "total": -0.4,
+                    "head": "r",
+                    "terms": [{"key": "gap_pct", "label": "缺口", "contrib": -0.45}],
+                },
+                "y_spec_τc": {"formula": "close[T]/price[τ]-1", "unit": "pct"},
+            }
+        )
+        self.assertEqual(tip.get("formula_terms_r", {}).get("head"), "r")
+        self.assertAlmostEqual(tip.get("formula_terms_r", {}).get("total"), -0.4, places=6)
+        self.assertEqual(tip.get("y_spec_τc", {}).get("formula"), "close[T]/price[τ]-1")
+
     def test_compute_scores_from_bars_pit(self):
         from core.t0.score_policy import (
             clear_score_model_cache,
@@ -1990,7 +2024,18 @@ class TestDualYDirection(unittest.TestCase):
         }
         from core.signal.dual_score import align_trade_score_fields
 
-        align_trade_score_fields(item, write_score=False, refresh_window=False)
+        align_trade_score_fields(
+            item,
+            write_score=False,
+            refresh_window=False,
+            config={
+                "dual_score": {
+                    "w_eod": 0.5,
+                    "w_tau": 0.5,
+                    "w_mode": "fixed",
+                }
+            },
+        )
         sc = scores_from_item(item)
         self.assertAlmostEqual(sc["y_eod"], 2.5, places=4)
         self.assertNotAlmostEqual(sc["y_trade"], 2.5, places=3)
@@ -2555,6 +2600,49 @@ class TestDualYDirection(unittest.TestCase):
             shares=1000,
         )
         self.assertFalse(weak.get("skip"), weak.get("direction_reason"))
+
+    def test_dual_y_residual_fuses_pc_oc(self):
+        from core.t0.score_policy import resolve_dual_y_direction
+
+        cfg = {
+            "y_tau_enter": 0.05,
+            "y_trade_enter": 0.2,
+            "y_trade_strong": 0.1,
+            "y_eod_enter": 0.0,
+            "y_use_path": False,
+            "y_block_tau_nowcast_sign": False,
+        }
+        ok = resolve_dual_y_direction(
+            scores={
+                "y_trade": 0.0,
+                "y_tau": 0.40,
+                "y_pc": 0.40,
+                "y_eod": 0.20,
+                "ret_open_to_tau": 0.0,
+            },
+            cfg=cfg,
+            cash=50000,
+            shares=1000,
+        )
+        self.assertFalse(ok.get("skip"), ok.get("direction_reason"))
+        self.assertEqual(ok.get("direction"), "buy_then_sell")
+        self.assertAlmostEqual(float(ok["features"]["residual"]), 0.40)
+
+        blocked = resolve_dual_y_direction(
+            scores={
+                "y_trade": 0.50,
+                "y_tau": 0.40,
+                "y_pc": -0.80,
+                "y_eod": 0.20,
+                "ret_open_to_tau": 0.0,
+            },
+            cfg=cfg,
+            cash=50000,
+            shares=1000,
+        )
+        self.assertTrue(blocked.get("skip"), blocked)
+        self.assertIn("residual", blocked.get("direction_reason") or "")
+
     def test_dual_y_strong_gate_uses_config_defaults(self):
         from core.t0.score_policy import resolve_dual_y_direction
 
@@ -2842,7 +2930,7 @@ class TestDualYDirection(unittest.TestCase):
         )
         self.assertFalse(out.get("skip"))
         self.assertEqual(out.get("direction"), "buy_then_sell")
-        self.assertIn("y_path", out.get("direction_reason") or "")
+        self.assertIn("y_hl", out.get("direction_reason") or "")
 
     def test_dual_y_path_disagree_skips(self):
         from core.t0.score_policy import resolve_dual_y_direction
@@ -2876,7 +2964,7 @@ class TestDualYDirection(unittest.TestCase):
             shares=1000,
         )
         self.assertTrue(out.get("skip"))
-        self.assertIn("y_path", out.get("direction_reason") or "")
+        self.assertIn("y_hl", out.get("direction_reason") or "")
         self.assertIn("未过门槛", out.get("direction_reason") or "")
 
     def test_dual_y_tau_below_enter_skips(self):
@@ -3764,6 +3852,56 @@ class TestT0Viz(unittest.TestCase):
         self.assertEqual(port["tau_hit"]["hit"], 2)
         self.assertEqual(port["tau_hit"]["miss"], 0)
 
+    def test_score_portrait_r_oc_tc_hits(self):
+        """画像三命中：R_τ / y_oc / y_τc 各自对标签。"""
+        from core.t0.viz import build_score_portrait
+
+        days = [
+            {
+                "date": "2026-03-01",
+                "open": 10.0,
+                "close": 10.2,
+                "skipped": True,
+                "close_band_scan": [
+                    {
+                        "hm": "09:35",
+                        "c": 10.0,
+                        "y_tau": 1.8,
+                        "y_oc": 1.8,
+                        "y_τc": 1.5,
+                        "r_hat": 1.6,
+                        "r_realized": 2.0,
+                    }
+                ],
+                "scores": {"tau_realized": 2.0},
+            },
+            {
+                "date": "2026-03-02",
+                "open": 10.0,
+                "close": 9.8,
+                "skipped": True,
+                "close_band_scan": [
+                    {
+                        "hm": "09:35",
+                        "c": 10.0,
+                        "y_tau": -1.0,
+                        "y_oc": -1.0,
+                        "y_τc": 1.0,
+                        "r_hat": 1.0,
+                        "r_realized": -2.0,
+                    }
+                ],
+                "scores": {"tau_realized": -2.0},
+            },
+        ]
+        port = build_score_portrait(days)
+        self.assertEqual(port["oc_hit"]["hit"], 2)
+        self.assertEqual(port["oc_hit"]["miss"], 0)
+        self.assertEqual(port["r_tau_hit"]["hit"], 1)
+        self.assertEqual(port["r_tau_hit"]["miss"], 1)
+        self.assertEqual(port["y_tc_hit"]["hit"], 1)
+        self.assertEqual(port["y_tc_hit"]["miss"], 1)
+
     def test_backtest_includes_viz(self):
         bars = [_bar("d0", 100, 105, 98, 101) for _ in range(25)]
         for i, b in enumerate(bars):
@@ -3822,6 +3960,10 @@ class TestT0Viz(unittest.TestCase):
         self.assertEqual(
             classify_t0_skip_reason("|R̂_τ|=0.200%<0.5% 未过入场（超额不足）"),
             "r_tau_flat",
+        )
+        self.assertEqual(
+            classify_t0_skip_reason("|ŷ_τc|=0.200%<0.5% 未过入场（横盘）"),
+            "y_tc_flat",
         )
         self.assertEqual(
             classify_t0_skip_reason(
@@ -3966,7 +4108,7 @@ class TestT0Viz(unittest.TestCase):
         )
         self.assertEqual(
             summarize_skip_reason_label("dual_y：|y_path|=1.1<30.0 横盘跳过"),
-            "y_path横盘",
+            "y_hl横盘",
         )
         self.assertEqual(
             summarize_skip_reason_label("dual_y：|y_trade|=0.002%<0.01% 未过入场"),
@@ -4109,6 +4251,71 @@ class TestT0Viz(unittest.TestCase):
         self.assertAlmostEqual(float(scatter[0]["y_tau"]), 0.132, places=3)
         self.assertEqual(scatter[0]["outcome"], "signal_skip")
         self.assertEqual(scatter[0].get("skip_category"), "y_trade_weak")
+
+    def test_scatter_r_pct_includes_reverse_t_without_y_tau(self):
+        from core.t0.viz import build_t0_viz_payload
+
+        days = [
+            {
+                "date": "2026-09-11",
+                "stock_code": "600584",
+                "stock_name": "长电科技",
+                "t0_slots_enabled": True,
+                "bought_qty": 100,
+                "sold_qty": 100,
+                "pnl": -10,
+                "close_band_scan": [
+                    {"hm": "09:35", "r_pct": -1.38, "y_tau": 1.48},
+                ],
+                "t0_slot_results": [
+                    {
+                        "id": "r1",
+                        "hm": "09:35",
+                        "skipped": False,
+                        "direction": "buy_then_sell",
+                        "bought_qty": 100,
+                        "sold_qty": 100,
+                        "scores": {"y_tau": 1.48, "y_oc": 1.48},
+                        "close_band": {"r_pct": -1.38},
+                    }
+                ],
+            },
+            {
+                "date": "2026-09-01",
+                "stock_code": "000938",
+                "stock_name": "紫光股份",
+                "t0_slots_enabled": True,
+                "bought_qty": 100,
+                "sold_qty": 100,
+                "pnl": 5,
+                "close_band_scan": [
+                    {"hm": "09:35", "r_pct": 3.77},
+                ],
+                "t0_slot_results": [
+                    {
+                        "id": "r1",
+                        "hm": "09:35",
+                        "skipped": False,
+                        "direction": "sell_then_buy",
+                        "bought_qty": 100,
+                        "sold_qty": 100,
+                        "scores": {"y_to": -3.6},
+                        "close_band": {"r_pct": 3.77},
+                    }
+                ],
+            },
+        ]
+        viz = build_t0_viz_payload(days)
+        scatter = viz.get("y_tau_scatter") or []
+        traded = [p for p in scatter if p.get("outcome") == "traded"]
+        self.assertEqual(len(traded), 2)
+        rps = sorted(float(p["r_pct"]) for p in traded)
+        self.assertAlmostEqual(rps[0], -1.38, places=2)
+        self.assertAlmostEqual(rps[1], 3.77, places=2)
+        dirs = {p.get("direction") for p in traded}
+        self.assertEqual(dirs, {"buy_then_sell", "sell_then_buy"})
+        rev = next(p for p in traded if p.get("direction") == "sell_then_buy")
+        self.assertIsNone(rev.get("y_tau"))
 
     def test_attach_summary_to_viz(self):
         from core.t0.viz import attach_summary_to_viz, build_t0_viz_payload

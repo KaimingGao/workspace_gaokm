@@ -93,7 +93,7 @@ flowchart LR
 |----------|----------|------------|--------|
 | **事实输入** | 当时可见的价量、财务、资讯、账本 | `ports` · `fetch_daily_bars` · fundamentals · sentiment · `watching` / `paper` | 基本面多为 **snapshot**（非完整 PIT）；须在质量/文档标明 |
 | **清洗门禁** | 能否进入生产估计 | `normalize_bars` · `assess_quality` · `allows_production_score` · manifest `adjust_policy` | thin/empty/fallback → `hard_reject`，不硬塞分 |
-| **Alpha 估计** | 已发生形态对「相对吸引力」的影响 | `factor_registry` · `score_bars`→sub_scores · `ReturnScoreModel`（β）· **多目标多头**：ŷ_EOD / ŷ_τ / ŷ_ON / ŷ_path · **blend 融合** · **分组 bagging**（cluster OLS）· `compute_buy_stance` | 方法论见 [design-spine · 预估方法论](design-spine.md#预估方法论)；生产主排序 = **EOD ŷ**；τ/path 等独立 Ridge + OOS；融合见 [quant §2.5](quant.md#25-双层-predicted_scoreŷ_eod--ŷ_τ)；组 β 仅 `active` 进主分（FH0）；`heuristic_score` **仅研究对照**；LLM **不改**分 |
+| **Alpha 估计** | 已发生形态对「相对吸引力」的影响 | `factor_registry` · `score_bars`→sub_scores · `ReturnScoreModel`（β）· **多目标多头**：ŷ_EOD / ŷ_τ / ŷ_ON / ŷ_hl · **blend 融合** · **分组 bagging**（cluster OLS）· `compute_buy_stance` | 方法论见 [design-spine · 预估方法论](design-spine.md#预估方法论)；生产主排序 = **EOD ŷ**；τ/HL 等独立 Ridge + OOS；融合见 [quant §2.5](quant.md#25-双层-predicted_scoreŷ_eod--ŷ_τ)；组 β 仅 `active` 进主分（FH0）；`heuristic_score` **仅研究对照**；LLM **不改**分 |
 | **Risk 估计** | 已发生敞口对「能买多少 / 要不要停」的影响 | `check_account_risk` · `optimize_weights` · `strategy_monitor`（回撤 · 滚动 IC · 行业覆盖） · 成本 `simple_cn` | 监控 **只告警**；不自动改权、不代客下单 |
 | **验证** | 同一规则在历史上是否仍有效 | `backtest` · OOS/regime · `wf_slices` · IC / `weight_suggest` · 纸面 `ops_report` 五问 | 研究结果 ≠ 实盘保证；OOS 失败须可见 |
 | **动作** | 估计如何变成可审计行为 | 观察 · 人建仓 · `run_daily_cycle` / 横截面调仓 · `paper_daily` · DecisionRecord | **现行不接 OMS**（策略验证）；配置变更走 feedback → **人审 promote** |
@@ -151,8 +151,8 @@ flowchart LR
 | 任务 | 主要频率 | 主要目标头 | 融合 / 门控 | 代码落点 |
 |------|----------|------------|-------------|----------|
 | **调仓：谁更强 / 买不买** | 日线 + 开盘缺口 | **ŷ_EOD**（多日前瞻）· **ŷ_τ**（买入闸）· **ŷ_ON** | **ŷ_trade** = blend(ŷ_EOD, 缺口∘ŷ_τ)；过 EOD floor + τ 闸 | `dual_score/` · `paper_rebalance` |
-| **做 T：正 / 反 / 跳过** | 开盘 Z + **5m 前缀** | **y_τ** 定方向 · **y_path** 极值序 · \|y_trade\| 幅度闸 | `dual_y`：`resolve_dual_y_direction`；与 τ **因子对齐、β 独立** | `core/t0/score_policy.py` · `path_ridge` |
-| **执行：何时触价** | **5m** 第一触达 | 卖/买触发 % · 固定前缀振幅/阴阳占比 | 与估计层分离；缺分钟跳过 | `core/t0/` · `minute_path` |
+| **做 T：正 / 反 / 跳过** | 开盘 Z + **5m 前缀** | **C_τ** 破带选向 · **y_hl / y_cx / y_tpd** 分钟K形状旁路 | clip(ŷ_oc×放大) 估 C_τ 后对称 ±δ 真破带；形状头 **不进 C_τ / ranking** | `core/t0/close_band.py` · `path_ridge` |
+| **执行：何时触价** | **5m** 第一触达 | leg1=触发根收盘；leg2 冻结 C_τ | 与估计层分离；缺分钟跳过 | `core/t0/` · `minute_path` |
 
 详见 [quant.md · 策略调仓 vs 底仓做 T](quant.md#策略调仓-vs-底仓做-t) · [quant.md · 双层 ŷ §2.5](quant.md#25-双层-predicted_scoreŷ_eod--ŷ_τ) · [quant.md · y_path](quant.md#predicted_scoreŷ全链路)。
 
@@ -164,7 +164,7 @@ flowchart LR
 | **Nowcast / Kalman** | Ensemble（序贯融合） | EOD 先验 → open → 当前 τ；\(R\) 来自 τ OOS 分层；默认 **对照列**，`use_as_rank_key=false` |
 | **分组 OLS / Ridge** | Bagging（宇宙子集） | 观察池按主题/相似度 **聚类** → 组内独立 fit β / Ridge；`active` 组才进 live ŷ（FH0）；OOS 失败率闸 |
 | **多 Ridge 头** | Multi-target（非堆叠单分） | `tau_ridge` · `on_ridge` · `path_ridge` 各自 artifact；**不**改组 β |
-| **close_band 收盘带宽** | 破带涌现 | 每根前缀 ŷ_τ→Ĉ；**5m 收价 C**（非日收）破 `ĉ±δ` 定正/反 T；\|y_τ\|/\|y_path\| 准入（path 可关）；score 先验平移门槛 |
+| **close_band 做 T** | 超额带宽 | 每根前缀 ŷ_oc clip 估 C_τ；收价破上带反T、破下带正T；leg2=`C_τ`；ŷ_τc 旁路验证（默认关） |
 | **影子簿 / promote** | Bagging 的工程化验收 | 新头先 shadow · OOS 对照 active → **人审 promote** 才切换 live |
 
 **尚未默认启用、须 eval + 人审**：GBDT blend、端到端 NN（见 [quant.md · 演进路径](quant.md#工业常见因子分类对照本仓库)）。原则不变：新模型须证明 **相对现行 ensemble 的增量**，且不得黑盒改写 `stance_label`。

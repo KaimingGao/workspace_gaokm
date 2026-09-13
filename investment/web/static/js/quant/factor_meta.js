@@ -142,12 +142,12 @@ export function classifyFactor(name, meta) {
   return fallback;
 }
 
-/** ŷ_τ 开盘/截面特征不在因子注册表，本地兜底注释。 */
+/** ŷ_oc 开盘/截面特征不在因子注册表，本地兜底注释。 */
 export const TAU_FEAT_META = {
   gap_pct: {
     label: "跳空 %",
     description:
-      "开盘相对昨收的跳空幅度（%）。ŷ_τ 默认用它预测 open→close；τ=open 时即隔夜缺口。",
+      "开盘相对昨收的跳空幅度（%）。ŷ_oc 默认用它预测 open→close；τ=open 时即隔夜缺口。",
   },
   open_gap: {
     label: "开盘缺口",
@@ -177,7 +177,7 @@ export const TAU_FEAT_META = {
   ret_open_to_tau: {
     label: "开盘→τ 收益 %",
     description:
-      "开盘到 τ 时刻已实现收益（%）。τ=open 时为 0；分钟 τ 默认≈10:30。ŷ_τ 标签仍是 open→close；此特征是已实现前缀（会抬高 OC 命中，需警惕）。",
+      "开盘到 τ 时刻已实现收益（%）。τ=open 时为 0；分钟 τ 默认≈10:30。ŷ_oc 标签仍是 open→close；此特征是已实现前缀（会抬高 OC 命中，需警惕）。",
   },
   ret_prev_to_tau: {
     label: "昨收→τ 收益 %",
@@ -240,12 +240,12 @@ export const TAU_FEAT_META = {
   t_hi_frac: {
     label: "最高点相对前缀进度",
     description:
-      "前缀首次最高价时刻相对开盘的进度 0–1。ŷ_path 入模，补 path_sign 的时间位置。",
+      "前缀首次最高价时刻相对开盘的进度 0–1。ŷ_hl 入模，补 path_sign 的时间位置。",
   },
   t_lo_frac: {
     label: "最低点相对前缀进度",
     description:
-      "前缀首次最低价时刻相对开盘的进度 0–1。ŷ_path 入模，补 path_sign 的时间位置。",
+      "前缀首次最低价时刻相对开盘的进度 0–1。ŷ_hl 入模，补 path_sign 的时间位置。",
   },
   yclose_loc: {
     label: "昨收位置",
@@ -257,7 +257,7 @@ export const TAU_FEAT_META = {
   },
 };
 
-/** ŷ_ON 路径/开盘 Z 特征（不在因子注册表）。 */
+/** ŷ_co 路径/开盘 Z 特征（不在因子注册表）。 */
 export const ON_FEAT_META = {
   ret_oc: {
     label: "昨开→昨收 %",
@@ -280,6 +280,39 @@ export const ON_FEAT_META = {
   gap_atr: TAU_FEAT_META.gap_atr,
   gap_vs_sector: TAU_FEAT_META.gap_vs_sector,
   ret_open_to_tau: TAU_FEAT_META.ret_open_to_tau,
+  yclose_loc: {
+    label: "今开相对昨高低",
+    description:
+      "今开在昨高低中的位置 0–1。与 τ 头同源；刻画跳空落在昨路径的哪一段。",
+  },
+  mom3_pct: TAU_FEAT_META.mom3_pct,
+  yest_close_loc: {
+    label: "昨收位置",
+    description:
+      "昨收在昨高低中的位置 0–1。近高收盘常伴隔夜惯性；与 yclose_loc（今开相对昨高低）互补。",
+  },
+  yest_range_pct: {
+    label: "昨振幅 %",
+    description: "昨 (最高−最低)/收盘 ×100。隔夜波动代理，开盘可得。",
+  },
+  yest_vol_ratio: {
+    label: "昨量/均量",
+    description: "昨成交量 / 此前均量。放量日隔夜更易消化消息；MA 不含昨日本身。",
+  },
+  dist_to_up_limit: {
+    label: "距涨停 %",
+    description:
+      "昨收到涨停剩余空间（百分点）。主板约 10、创业/科创约 20。近涨停隔夜惯性更强。",
+  },
+  yest_gap: {
+    label: "昨隔夜缺口 %",
+    description:
+      "open[T−1]/close[T−2]−1。上一跳隔夜，不是今日 gap_pct；用于隔夜自相关。",
+  },
+  on_ma5: {
+    label: "近5日隔夜缺口均 %",
+    description: "T−1 之前最多 5 个交易日真实隔夜缺口均值。不含今日 gap_pct。",
+  },
 };
 
 /**

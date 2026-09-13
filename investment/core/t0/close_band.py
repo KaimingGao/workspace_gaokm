@@ -1,6 +1,11 @@
-"""v6 收盘带宽选腿：每根 5m 用前缀 ŷ_τ 估 ĉ_τ → 收价 C 破带定方向 → leg1 后冻结 leg2。
+"""v6 做 T 选腿：每根 5m 用前缀 ŷ_oc 估目标价 C_τ → 收价 C 相对 ±δ 破带定方向。
 
-path 仅入场校验；y_trade / y_eod / y_nowcast 不参与估 ĉ 与选腿。
+C_τ = O×(1 + clip(ŷ_oc×scale, y_oc_l, y_oc_u)/100)。
+upper = C_τ×(1+δ/100)，lower = C_τ×(1−δ/100)。
+C > upper → 反T；C < lower → 正T。leg2 冻结在 C_τ。
+ŷ_τc 不参与估 C_τ / 选腿 / 目标价；
+可选旁路：``y_tc_strong`` 破带后 |ŷ_τc| 超阈且逆带则跳过（0=任意有符号须同号；1=关）。
+path 仅入场校验；y_trade / y_eod / y_nowcast 不参与。
 """
 
 from __future__ import annotations
@@ -27,35 +32,177 @@ def _pct_to_px(anchor: float, pct: float) -> Optional[float]:
     return float(anchor) * (1.0 + float(pct) / 100.0)
 
 
+DEFAULT_Y_OC_TARGET_SCALE = 10.0
+DEFAULT_Y_OC_L = -3.0
+DEFAULT_Y_OC_U = 3.0
+Y_OC_TARGET_SCALE_MIN = 0.0
+Y_OC_TARGET_SCALE_MAX = 100.0
+Y_OC_CLIP_ABS_MAX = 20.0
+
+
+def resolve_y_oc_target_params(cfg: Optional[dict] = None) -> tuple[float, float, float]:
+    """C_τ 公式参数：scale、y_oc_l、y_oc_u（百分点）。缺键用默认 10 / −3 / +3。"""
+    cfg_d = cfg if isinstance(cfg, dict) else {}
+
+    def _clamp(key: str, default: float, lo: float, hi: float) -> float:
+        try:
+            raw = cfg_d.get(key)
+            v = float(default if raw is None or raw == "" else raw)
+        except (TypeError, ValueError):
+            v = float(default)
+        if v != v:  # NaN
+            v = float(default)
+        return max(lo, min(hi, v))
+
+    scale = _clamp(
+        "t0_y_oc_target_scale",
+        DEFAULT_Y_OC_TARGET_SCALE,
+        Y_OC_TARGET_SCALE_MIN,
+        Y_OC_TARGET_SCALE_MAX,
+    )
+    lo = _clamp("t0_y_oc_l", DEFAULT_Y_OC_L, -Y_OC_CLIP_ABS_MAX, Y_OC_CLIP_ABS_MAX)
+    hi = _clamp("t0_y_oc_u", DEFAULT_Y_OC_U, -Y_OC_CLIP_ABS_MAX, Y_OC_CLIP_ABS_MAX)
+    if lo > hi:
+        lo, hi = hi, lo
+    return scale, lo, hi
+
+
+def clip_y_oc_target_pct(
+    y_oc: float,
+    *,
+    scale: float = DEFAULT_Y_OC_TARGET_SCALE,
+    y_oc_l: float = DEFAULT_Y_OC_L,
+    y_oc_u: float = DEFAULT_Y_OC_U,
+) -> float:
+    """clip(ŷ_oc×scale, y_oc_l, y_oc_u)；输入输出均为百分点。"""
+    yt = float(y_oc) * float(scale)
+    lo, hi = float(y_oc_l), float(y_oc_u)
+    if lo > hi:
+        lo, hi = hi, lo
+    return max(lo, min(hi, yt))
+
+
+def target_c_tau_px(
+    price: float,
+    y_oc: float,
+    *,
+    scale: float = DEFAULT_Y_OC_TARGET_SCALE,
+    y_oc_l: float = DEFAULT_Y_OC_L,
+    y_oc_u: float = DEFAULT_Y_OC_U,
+) -> Optional[float]:
+    """C_τ = price × (1 + clip(ŷ_oc×scale, y_oc_l, y_oc_u)/100)。"""
+    try:
+        p = float(price)
+    except (TypeError, ValueError):
+        return None
+    if p <= 0:
+        return None
+    clipped = clip_y_oc_target_pct(y_oc, scale=scale, y_oc_l=y_oc_l, y_oc_u=y_oc_u)
+    return p * (1.0 + clipped / 100.0)
+
+
+def close_band_edges_px(
+    c_tau: float,
+    delta_pct: float,
+) -> tuple[Optional[float], Optional[float]]:
+    """upper = C_τ×(1+δ/100)，lower = C_τ×(1−δ/100)。"""
+    try:
+        mid = float(c_tau)
+        d = max(0.0, float(delta_pct))
+    except (TypeError, ValueError):
+        return None, None
+    if mid <= 0:
+        return None, None
+    return round(mid * (1.0 - d / 100.0), 4), round(mid * (1.0 + d / 100.0), 4)
+
+
 def scores_close_components(
     scores: Optional[dict],
     *,
     open_px: float,
     prev_close: Optional[float] = None,
+    price_tau: Optional[float] = None,
+    cfg: Optional[dict] = None,
 ) -> Dict[str, Optional[float]]:
-    """由 ŷ_τ 推导绝对收盘价 ĉ_τ（该根前缀因果分；标签 open→close）。
+    """估 C_τ：O×(1+clip(ŷ_oc×scale, y_oc_l, y_oc_u)/100)。ŷ_τc 只对照。
 
-    估 ĉ 优先用**日线** open（与训标签同空间）；slots 再经
-    ``map_close_px_to_minute``（S=O_d/O_m）映回分钟触价。
-    trade / nowcast **不进** ĉ（保留键位为 None，避免旧 UI 误读均价）。
+    估用**日线** open；slots 再经 ``map_close_px_to_minute`` 映回分钟触价。
+    remaining(ŷ_oc) / ŷ_τc 写入返回值供扫描表，不参与选腿。
+    ``c_oc`` 为未 clip 的 O×(1+ŷ_oc/100)，不进破带。
     """
+    from core.signal.yhat_windows import (
+        pick_y_oc,
+        pick_y_τc,
+        remaining_oc,
+        ret_open_to_tau_of,
+        ret_open_to_tau_pct,
+    )
     from core.t0.score_policy import scores_from_item
 
-    _ = prev_close  # 兼容旧调用；τ 只锚 open
+    _ = prev_close
     raw = scores if isinstance(scores, dict) else {}
     sc = scores_from_item(raw)
-    y_tau = sc.get("y_tau")
-    c_tau = _pct_to_px(open_px, y_tau) if y_tau is not None else None
-
+    y_oc = pick_y_oc(raw)
+    if y_oc is None:
+        y_oc = sc.get("y_tau")
+    y_τc_ridge = pick_y_τc(raw)
+    if str(raw.get("y_τc_source") or "") == "remaining_oc":
+        y_τc_ridge = _f(raw.get("y_τc_ridge"))
+        if y_τc_ridge is None:
+            y_τc_ridge = _f(raw.get("y_r")) or _f(raw.get("y_r_hat")) or _f(
+                raw.get("predicted_score_r")
+            )
+    y_tau = y_oc
+    scale, y_oc_l, y_oc_u = resolve_y_oc_target_params(cfg)
+    y_oc_target = (
+        clip_y_oc_target_pct(y_oc, scale=scale, y_oc_l=y_oc_l, y_oc_u=y_oc_u)
+        if y_oc is not None
+        else None
+    )
+    c_hat = _pct_to_px(open_px, y_oc_target) if y_oc_target is not None else None
+    c_oc = _pct_to_px(open_px, y_oc) if y_oc is not None else None
+    pt = _f(price_tau)
+    if pt is None or pt <= 0:
+        feats = raw.get("features_tau") if isinstance(raw.get("features_tau"), dict) else {}
+        pt = _f(raw.get("price_tau")) or _f(feats.get("price_tau")) or _f(feats.get("price"))
+    rot = ret_open_to_tau_pct(open_px, pt)
+    if rot is None:
+        rot = ret_open_to_tau_of(raw)
+    rem = remaining_oc(y_oc, rot, open_px=open_px, price_tau=pt)
+    # 表列 ŷ_τc = remaining(ŷ_oc)；Ridge 只进旁路。缺 remaining 才退回 Ridge。
+    y_τc = rem if rem is not None else y_τc_ridge
+    y_τc_source = (
+        "remaining_oc" if rem is not None else ("ridge" if y_τc_ridge is not None else None)
+    )
+    c_τc = _pct_to_px(pt, y_τc) if y_τc is not None and pt is not None and pt > 0 else None
+    c_rem = _pct_to_px(pt, rem) if rem is not None and pt is not None and pt > 0 else None
+    source = "y_oc" if c_hat is not None else None
+    n_src = 1 if c_hat is not None else 0
     return {
-        "c_tau": round(c_tau, 4) if c_tau is not None else None,
+        "c_tau": round(c_hat, 4) if c_hat is not None else None,
+        "c_τc": round(c_τc, 4) if c_τc is not None else None,
+        "c_oc": round(c_oc, 4) if c_oc is not None else None,
+        "c_rem": round(c_rem, 4) if c_rem is not None else None,
+        "c_hat_source": source,
         "c_trade": None,
         "c_nowcast": None,
         "y_tau": y_tau,
+        "y_oc": y_oc,
+        "y_oc_target": round(float(y_oc_target), 6) if y_oc_target is not None else None,
+        "t0_y_oc_target_scale": scale,
+        "t0_y_oc_l": y_oc_l,
+        "t0_y_oc_u": y_oc_u,
+        "y_τc": y_τc,
+        "y_τc_ridge": y_τc_ridge,
+        "y_τc_source": y_τc_source,
+        "remaining_oc": round(float(rem), 6) if rem is not None else None,
+        "r_hat": round(float(rem), 6) if rem is not None else None,
+        "residual": round(float(rem), 6) if rem is not None else None,
         "y_trade": sc.get("y_trade"),
         "y_nowcast": sc.get("y_nowcast"),
         "trade_vs": None,
         "nowcast_vs": None,
+        "n_heads": n_src,
     }
 
 
@@ -64,20 +211,30 @@ def estimate_close_px(
     *,
     open_px: float,
     prev_close: Optional[float] = None,
+    price_tau: Optional[float] = None,
+    cfg: Optional[dict] = None,
 ) -> Dict[str, Any]:
-    """ĉ := ĉ_τ = O×(1+y_τ/100)。缺 y_τ → 不可估。
+    """C_τ := O×(1+clip(ŷ_oc×scale, y_oc_l, y_oc_u)/100)。缺 ŷ_oc → 不可估。
 
-    扫描传入**该根前缀**因果 ŷ_τ（研究枢纽 OC 头；开盘 Z + ≤该根分钟）。
-    破带比较 price = **本根 5m 收价 C**（经 S 映分钟空间），非日线收。
+    扫描传入**该根前缀**因果 ŷ_oc。破带比较 price = **本根 5m 收价 C**。
+    ``price_tau`` 仅用于 remaining / ŷ_τc 对照字段，不改 C_τ。
+    ``cfg`` 提供 scale / y_oc_l / y_oc_u（默认 10 / −3 / +3）。
     """
-    parts = scores_close_components(scores, open_px=open_px, prev_close=prev_close)
+    parts = scores_close_components(
+        scores,
+        open_px=open_px,
+        prev_close=prev_close,
+        price_tau=price_tau,
+        cfg=cfg,
+    )
     c_tau = parts.get("c_tau")
+    n_heads = int(parts.get("n_heads") or 0)
     if c_tau is None:
         return {**parts, "close_px": None, "n_sources": 0, "ok": False}
     return {
         **parts,
         "close_px": round(float(c_tau), 4),
-        "n_sources": 1,
+        "n_sources": max(1, n_heads),
         "ok": True,
     }
 
@@ -100,8 +257,8 @@ def band_decision(
 ) -> Optional[str]:
     """收价破带 → 方向；带内 → None。
 
-    高于 ĉ+δ → sell_then_buy（反T）；低于 ĉ−δ → buy_then_sell（正T）。
-    对称门槛；带 y_τ 非对称请用 ``close_band_pick_direction``。
+    高于 C_τ+δ_px → sell_then_buy（反T）；低于 C_τ−δ_px → buy_then_sell（正T）。
+    生产路径用 ``close_band_pick_direction``（相对 C_τ 的 ±δ% 乘法带）。
     """
     try:
         c = float(bar_close)
@@ -118,74 +275,13 @@ def band_decision(
     return None
 
 
-SHIFT_SCALE_MIN = 0.1
-SHIFT_SCALE_MAX = 1.0
-
-
-def clamp_y_tau_leg1_prior_shift_scale(
-    raw: Any,
-    *,
-    default: float = 1.0,
-) -> float:
-    """score 先验 α：默认 1.0，钳制到 [0.1, 1.0]。
-
-    α=1 时同向下沿可贴 0（须 r<0 才正T / r>0 才反T）；对侧带宽变为 2δ。
-    """
-    try:
-        if raw is None or raw == "":
-            a = float(default)
-        else:
-            a = float(raw)
-    except (TypeError, ValueError):
-        a = float(default)
-    if a != a:  # NaN
-        return float(default)
-    return max(SHIFT_SCALE_MIN, min(SHIFT_SCALE_MAX, float(a)))
-
-
-def resolve_close_band_thresholds_pct(
-    delta_pct: float,
-    y_tau: Optional[float] = None,
-    *,
-    mode: str = "score",
-    risk_k: float = 1.0,
-    shift_scale: float = 0.9,
-) -> tuple[float, float]:
-    """局部超额 r=(p/ĉ−1)×100 的上下门槛（百分点）。
-
-    默认：``r > δ → 反T``，``r < −δ → 正T``。
-    ``score`` 模式：
-
-    - ``s = clip(k·y_τ, −α·δ, +α·δ)``（α∈[0.1, 1.0]）
-    - ``upper = δ+s``，``lower = −δ+s``
-      （α<1 ⇒ upper>0>lower；α=1 时同侧可贴 0）
-    """
-    d = max(0.0, float(delta_pct))
-    mode_n = normalize_y_tau_leg1_prior_mode(mode, default="score")
-    if mode_n != "score" or y_tau is None:
-        return d, -d
-    try:
-        k = max(0.0, float(risk_k))
-        yt = float(y_tau)
-        alpha = clamp_y_tau_leg1_prior_shift_scale(shift_scale, default=0.9)
-    except (TypeError, ValueError):
-        return d, -d
-    shift_cap = alpha * d
-    shift = k * yt
-    if shift_cap > 0:
-        shift = max(-shift_cap, min(shift_cap, shift))
-    else:
-        shift = 0.0
-    return d + shift, -d + shift
-
-
 def band_decision_by_excess_pct(
     bar_close: float,
     close_px: float,
     upper_pct: float,
     lower_pct: float,
 ) -> Optional[str]:
-    """用 r=(p/Ĉ−1)×100 相对非对称门槛选腿；``bar_close``=本根 5m 收价 C。"""
+    """用 r=(C/C_τ−1)×100 相对 ±δ 选腿；``bar_close``=本根 5m 收价 C。"""
     try:
         p = float(bar_close)
         mid = float(close_px)
@@ -210,40 +306,23 @@ def close_band_pick_direction(
     scores: Optional[dict] = None,
     cfg: Optional[dict] = None,
 ) -> tuple[Optional[str], Dict[str, Any]]:
-    """破带选腿：对称 δ，或 score 模式下按 y_τ 平移门槛。
+    """破带选腿：C 相对 C_τ 的 ±δ（乘法带）。
 
     ``bar_close``：**当前 5m 根收价 C**（分钟 ``mb.close``），不是日线收盘价。
-    ``close_px``：分钟价空间下的 Ĉ。
+    ``close_px``：分钟价空间下的 C_τ。
+    ŷ_τc 旁路在选向之后（``close_band_y_tc_skip_reason``）。
 
-    Returns (direction, meta) where meta 含 r_pct / upper_pct / lower_pct / y_tau / mode。
+    Returns (direction, meta) where meta 含 r_pct / upper_pct / lower_pct / y_tau。
     """
-    from core.t0.score_policy import (
-        _cfg_float,
-        resolve_direction_y_tau,
-        scores_from_item,
-    )
+    from core.t0.score_policy import resolve_direction_y_tau, scores_from_item
 
-    cfg_d = cfg if isinstance(cfg, dict) else {}
-    mode = normalize_y_tau_leg1_prior_mode(
-        cfg_d.get("y_tau_leg1_prior_mode", cfg_d.get("y_tau_leg1_prior")),
-        default="score",
-    )
-    k = _cfg_float(cfg_d, "y_tau_leg1_prior_risk", 10.0)
-    k = max(0.0, min(float(k), 100.0))
-    shift_scale = clamp_y_tau_leg1_prior_shift_scale(
-        cfg_d.get("y_tau_leg1_prior_shift_scale"), default=1.0
-    )
+    d = max(0.0, float(delta_pct))
+    upper, lower = d, -d
+    direction = band_decision_by_excess_pct(bar_close, close_px, upper, lower)
     raw = scores if isinstance(scores, dict) else {}
     sc = scores_from_item(raw)
     y_tau = resolve_direction_y_tau(sc)
-    upper, lower = resolve_close_band_thresholds_pct(
-        float(delta_pct),
-        float(y_tau) if y_tau is not None else None,
-        mode=mode,
-        risk_k=k,
-        shift_scale=shift_scale,
-    )
-    direction = band_decision_by_excess_pct(bar_close, close_px, upper, lower)
+    scale, y_oc_l, y_oc_u = resolve_y_oc_target_params(cfg)
     r_pct = None
     try:
         p, mid = float(bar_close), float(close_px)
@@ -251,40 +330,19 @@ def close_band_pick_direction(
             r_pct = (p / mid - 1.0) * 100.0
     except (TypeError, ValueError):
         r_pct = None
+    lo_px, up_px = close_band_edges_px(close_px, d)
     return direction, {
-        "mode": mode,
         "y_tau": y_tau,
-        "prior_risk_k": k,
-        "shift_scale": shift_scale,
         "r_pct": r_pct,
         "upper_pct": upper,
         "lower_pct": lower,
-        "delta_pct": float(delta_pct),
+        "delta_pct": d,
+        "lower_px": lo_px,
+        "upper_px": up_px,
+        "t0_y_oc_target_scale": scale,
+        "t0_y_oc_l": y_oc_l,
+        "t0_y_oc_u": y_oc_u,
     }
-
-
-def band_decision_return(
-    r_now_pct: float,
-    r_hat_pct: float,
-    delta_pct: float,
-) -> Optional[str]:
-    """收益空间破带：r_now = p_m/O_m−1（%），相对 r_hat±δ。
-
-    与绝对价破带在常数缩放假设下等价。
-    """
-    try:
-        r = float(r_now_pct)
-        mid = float(r_hat_pct)
-        d = float(delta_pct)
-    except (TypeError, ValueError):
-        return None
-    if d < 0:
-        return None
-    if r > mid + d:
-        return "sell_then_buy"
-    if r < mid - d:
-        return "buy_then_sell"
-    return None
 
 
 # |日线开/分钟开 − 1| 超此百分比 → price_space_mismatch（可配）
@@ -309,16 +367,16 @@ def resolve_t0_price_space(
     *,
     daily_bar: Optional[dict] = None,
 ) -> Dict[str, Any]:
-    """做 T 价空间：日线训/估 ĉ，分钟价用 S 映回（或收益空间等价）。
+    """做 T 价空间：日线训/估 C_τ，分钟价用 S 映回。
 
     - ``minute_open`` / ``minute_prev``：执行锚（分钟首开 / 附带昨收）
-    - ``daily_open`` / ``daily_prev``：日线 bar 的开/昨收（估 ĉ 优先）
+    - ``daily_open`` / ``daily_prev``：日线 bar 的开/昨收（估 C_τ 优先）
     - ``daily_bar``：可选，显式原始日 K（勿传 ``_day_ohlc_from_minutes`` 合成结果）
     - ``scale`` = O_d/O_m；无日线开则 1.0（纯分钟回退）
     - ``skip_reason``：|O_d/O_m−1| 或 |P_d/P_m−1| 超阈（P=昨收）
 
-    估 ĉ 用 ``estimate_open`` / ``estimate_prev``（有日线则日线）；
-    破带/触价用分钟：``close_px_m = ĉ_d / scale``。
+    估 C_τ 用 ``estimate_open`` / ``estimate_prev``（有日线则日线）；
+    破带/触价用分钟：``close_px_m = C_τ_d / scale``。
     """
     cfg_d = cfg if isinstance(cfg, dict) else {}
     # 分钟锚：只用 minute_bars；日线锚：优先显式 daily_bar，避免被分钟合成 OHLC 污染
@@ -420,7 +478,7 @@ def map_close_px_to_minute(
     *,
     scale: float,
 ) -> Optional[float]:
-    """ĉ_d → 分钟价空间：ĉ_m = ĉ_d / S = ĉ_d * O_m/O_d（收盘目标价）。"""
+    """C_τ_d → 分钟价空间：C_τ_m = C_τ_d / S = C_τ_d * O_m/O_d。"""
     try:
         c = float(close_px_daily)
         s = float(scale)
@@ -436,7 +494,7 @@ def map_close_components_to_minute(
     *,
     scale: float,
 ) -> Dict[str, Any]:
-    """把日线空间 c_* / ĉ 映到分钟；保留 *_daily 供对账。"""
+    """把日线空间 c_* / C_τ 映到分钟；保留 *_daily 供对账。"""
     raw = est if isinstance(est, dict) else {}
     out: Dict[str, Any] = {
         "close_px_daily": raw.get("close_px"),
@@ -493,11 +551,12 @@ def close_band_sign_skip_reason(
     scores: Optional[dict],
     cfg: Optional[dict] = None,
 ) -> Optional[str]:
-    """path 强同 τ：|y_path|>y_path_strong 时须与 y_τ 同号，异号则跳过。
+    """HL 强同 τ：|y_hl|>y_path_strong 时须与 y_τ 同号，异号则跳过。
 
-    trade/eod 强闸已下线；仅 path。y_use_path 关或无 y_path 时不拦。
-    y_path_strong≤0：任意非零 |y_path| 都要求同号。
+    trade/eod 强闸已下线；仅 HL。y_use_path 关或无 y_hl 时不拦。
+    y_path_strong≤0：任意非零 |y_hl| 都要求同号。
     """
+    from core.research.path_panel import pick_y_hl
     from core.t0.config import coerce_cfg_bool
     from core.t0.score_policy import (
         DEFAULT_PATH_STRONG,
@@ -512,12 +571,12 @@ def close_band_sign_skip_reason(
         return None
     raw = scores if isinstance(scores, dict) else {}
     sc = scores_from_item(raw)
-    y_path = sc.get("y_path")
+    y_path = pick_y_hl(sc, raw)
     if y_path is None:
         return None
     y_tau = resolve_direction_y_tau(sc)
     if y_tau is None:
-        # 强 path 需要对照 τ；缺 τ 时交给入场闸（τ enter）处理
+        # 强 HL 需要对照 τ；缺 τ 时交给入场闸（τ enter）处理
         return None
     path_strong = _cfg_float(cfg_d, "y_path_strong", DEFAULT_PATH_STRONG)
     path_strong = max(0.0, min(float(path_strong), 5.0))
@@ -525,7 +584,7 @@ def close_band_sign_skip_reason(
         float(y_path),
         float(y_tau),
         path_strong,
-        "y_path",
+        "y_hl",
         tau_label="y_τ",
     )
     if ok:
@@ -533,64 +592,135 @@ def close_band_sign_skip_reason(
     # 去掉 dual_y 前缀，贴近 close_band 其它 skip 文案
     if reason and reason.startswith("dual_y："):
         return reason[len("dual_y：") :]
-    return reason or "强 y_path 与 y_τ 异号跳过"
+    return reason or "强 y_hl 与 y_τ 异号跳过"
 
 
-def normalize_y_tau_leg1_prior_mode(raw: Any, *, default: str = "score") -> str:
-    """日线先验模式：off | score（按 y_τ 平移破带门槛）。旧 skip/hard 并入 score。"""
-    if raw is False or raw is None:
-        if raw is False:
-            return "off"
-        return str(default or "score")
-    if raw is True:
-        return "score"
-    s = str(raw).strip().lower()
-    if s in {"", "none"}:
-        return str(default or "score")
-    if s in {"0", "off", "false", "no", "disable", "disabled"}:
-        return "off"
-    if s in {"1", "true", "yes", "on", "score", "soft", "raise", "scale", "skip", "hard", "block"}:
-        return "score"
-    return str(default or "score")
+Y_TC_BAND_EPS = 0.05  # |ŷ_τc| 低于此视为无投票（与符号命中死区同）
+DEFAULT_Y_TC_STRONG = 1.0  # 0=任意有符号须同号；1=关
+
+
+def _pick_y_tc_for_band(
+    scores: Optional[dict] = None,
+    y_τc: Optional[float] = None,
+) -> Optional[float]:
+    y = _f(y_τc)
+    if y is not None:
+        return y
+    from core.signal.yhat_windows import pick_y_τc
+
+    raw = scores if isinstance(scores, dict) else {}
+    y = _f(raw.get("y_τc_ridge"))
+    if y is not None:
+        return y
+    # 表列可能已是 remaining(ŷ_oc)；旁路须用独立 Ridge，否则与破带同号恒成立。
+    if str(raw.get("y_τc_source") or "") == "remaining_oc":
+        y = _f(raw.get("y_r")) or _f(raw.get("y_r_hat")) or _f(raw.get("predicted_score_r"))
+        return y
+    y = pick_y_τc(raw)
+    if y is not None:
+        return y
+    return _f(raw.get("y_τc")) or _f(raw.get("y_tc"))
+
+
+def y_tc_band_agree(
+    direction: Optional[str],
+    y_τc: Optional[float],
+    *,
+    eps: float = Y_TC_BAND_EPS,
+) -> Optional[bool]:
+    """破带方向是否与 ŷ_τc 向 ĉ 回归同向。
+
+    反T（价在 ĉ 上）期望 remaining<0；正T 期望 remaining>0。
+    缺方向 / 缺 ŷ_τc / |ŷ_τc|≤eps → None（不投票）。
+    """
+    d = str(direction or "").strip()
+    y = _f(y_τc)
+    if d not in ("sell_then_buy", "buy_then_sell") or y is None:
+        return None
+    try:
+        thr = abs(float(eps))
+    except (TypeError, ValueError):
+        thr = Y_TC_BAND_EPS
+    if abs(float(y)) <= thr + 1e-12:
+        return None
+    if d == "sell_then_buy":
+        return float(y) < 0.0
+    return float(y) > 0.0
+
+
+def close_band_y_tc_skip_reason(
+    scores: Optional[dict],
+    cfg: Optional[dict] = None,
+    *,
+    direction: Optional[str] = None,
+    y_τc: Optional[float] = None,
+) -> Optional[str]:
+    """旁路：|ŷ_τc| 超 ``y_tc_strong`` 且逆带（剩余窗说趋势续）则跳过。
+
+    不改 ĉ / 选向 / 目标价。``y_tc_strong>=1``（默认）关闸；``=0`` 任意有符号须同号；缺 ŷ_τc 不拦。
+    """
+    from core.t0.score_policy import _cfg_float
+
+    cfg_d = cfg if isinstance(cfg, dict) else {}
+    d = str(direction or "").strip()
+    if d not in ("sell_then_buy", "buy_then_sell"):
+        return None
+    y = _pick_y_tc_for_band(scores, y_τc)
+    if y is None:
+        return None
+    strong = _cfg_float(cfg_d, "y_tc_strong", DEFAULT_Y_TC_STRONG)
+    if cfg_d.get("y_τc_strong") not in (None, "") and cfg_d.get("y_tc_strong") in (
+        None,
+        "",
+    ):
+        strong = _cfg_float(cfg_d, "y_τc_strong", DEFAULT_Y_TC_STRONG)
+    strong = max(0.0, min(float(strong), 1.0))
+    if strong >= 1.0 - 1e-12:
+        return None
+    if abs(float(y)) <= float(strong) + 1e-12:
+        return None
+    agree = y_tc_band_agree(d, y, eps=0.0)
+    if agree is not False:
+        return None
+    side = "反T" if d == "sell_then_buy" else "正T"
+    want = "remaining<0" if d == "sell_then_buy" else "remaining>0"
+    return f"ŷ_τc={float(y):+.3f}% 与{side}旁路逆带跳过（期望{want}）"
 
 
 def _enter_profile_skip_reason(
     *,
     y_tau: Optional[float],
     y_path: Optional[float],
-    r_enter: float,
-    r_pct: Optional[float],
+    y_tc: Optional[float] = None,
     y_complexity_u: Optional[float],
     y_tpd_u: Optional[float],
     tau_enter: float,
     path_enter: float,
+    tc_enter: float = 0.0,
     cx_max: float,
     tpd_max: float,
     use_path: bool,
 ) -> Optional[str]:
-    """一组 |y_τ| / |y_path| / |R̂_τ| / complexity / tpd 入场闸；缺 hat 的风险不挡。"""
+    """一组 |y_τ| / |ŷ_τc| / |y_hl| / ŷ_cx / tpd 入场闸；缺 hat 的风险不挡。"""
     if tau_enter > 0:
         if y_tau is None:
             return "y_τ 缺失，未过入场门槛"
         yt = float(y_tau)
         if abs(yt) < tau_enter - 1e-12:
             return f"|y_τ|={abs(yt):.3f}%<{tau_enter:g}% 未过入场（横盘）"
+    tc_enter = max(0.0, min(float(tc_enter), 100.0))
+    if tc_enter > 0:
+        if y_tc is None:
+            return "ŷ_τc 缺失，未过入场门槛"
+        ytc = float(y_tc)
+        if abs(ytc) < tc_enter - 1e-12:
+            return f"|ŷ_τc|={abs(ytc):.3f}%<{tc_enter:g}% 未过入场（横盘）"
     if use_path and y_path is not None and path_enter > 0:
         yp = float(y_path)
         if abs(yp) < path_enter - 1e-12:
-            return f"|y_path|={abs(yp):.3f}%<{path_enter:g}% 未过入场（横盘）"
-    r_enter = max(0.0, min(float(r_enter), 1.0))
-    if r_enter > 0:
-        if r_pct is None:
-            return "R̂_τ 缺失，未过入场门槛"
-        try:
-            rv = abs(float(r_pct))
-        except (TypeError, ValueError):
-            return "R̂_τ 缺失，未过入场门槛"
-        if rv < r_enter - 1e-12:
-            return f"|R̂_τ|={rv:.3f}%<{r_enter:g}% 未过入场（超额不足）"
+            return f"|y_hl|={abs(yp):.3f}%<{path_enter:g}% 未过入场（横盘）"
     if y_complexity_u is not None and y_complexity_u > cx_max + 1e-12:
-        return f"y_complexity={y_complexity_u:.3f}>{cx_max:g} 太折跳过"
+        return f"y_cx={y_complexity_u:.3f}>{cx_max:g} 太折跳过"
     if y_tpd_u is not None and y_tpd_u > tpd_max + 1e-12:
         return f"y_tpd={y_tpd_u:.3f}>{tpd_max:g} 反转过密跳过"
     return None
@@ -618,12 +748,14 @@ def close_band_enter_skip_reason(
     direction: Optional[str] = None,
     r_pct: Optional[float] = None,
 ) -> Optional[str]:
-    """入场：启用中的门槛1 ∪ 门槛2。每档 |y_τ|、|y_path|、|R̂_τ| 过入场，且 complexity/tpd 过上限。
+    """入场：启用中的门槛1 ∪ 门槛2。每档 |y_τ|、|ŷ_τc|、|y_hl| 过入场，且 ŷ_cx/tpd 过上限。
 
+    ``r_pct`` 仅兼容旧调用，不再入闸（超额带宽 δ 已选向）。
     ``y_enter_enabled`` / ``y_enter_alt_enabled`` 关则该档不参与 OR；两档都关则不开腿。
     缺键时门槛2 跟随门槛1，避免未配置的备选把风险放行。
-    y_use_path 时缺 y_path 仍跳过（开盘 minute_feats_missing 除外）；分钟缺失共用。
+    y_use_path 时缺 y_hl 仍跳过（开盘 minute_feats_missing 除外）；分钟缺失共用。
     """
+    _ = r_pct
     from core.t0.score_policy import (
         DEFAULT_PATH_ENTER,
         DEFAULT_TAU_ENTER,
@@ -650,17 +782,25 @@ def close_band_enter_skip_reason(
         path_enter = max(0.0, min(float(path_enter), 100.0))
 
     y_tau = resolve_direction_y_tau(sc)
+    y_tc = _pick_y_tc_for_band(raw)
+    tc_enter = _cfg_float(cfg_d, "y_tc_enter", 0.0)
+    if cfg_d.get("y_τc_enter") not in (None, "") and cfg_d.get("y_tc_enter") in (
+        None,
+        "",
+    ):
+        tc_enter = _cfg_float(cfg_d, "y_τc_enter", 0.0)
+    tc_enter = max(0.0, min(float(tc_enter), 100.0))
 
-    status = str(
-        sc.get("y_path_status") or raw.get("y_path_status") or ""
-    ).strip()
+    from core.research.path_panel import pick_y_hl, pick_y_hl_status
+
+    status = pick_y_hl_status(sc, raw)
     if raw.get("_minute_data_missing") or status == "minute_data_missing":
         return "分钟数据缺失（非 09:30 须有分钟小包）"
 
     use_path = coerce_cfg_bool(cfg_d.get("y_use_path"), True)
-    y_path = sc.get("y_path")
+    y_path = pick_y_hl(sc, raw)
     if use_path and y_path is None and status != "minute_feats_missing":
-        return "y_path 缺失，未过入场门槛"
+        return "y_hl 缺失，未过入场门槛"
 
     from core.research.cx_panel import pick_y_complexity_hat, pick_y_tpd_hat
 
@@ -674,9 +814,6 @@ def close_band_enter_skip_reason(
     tpd_max = max(0.0, min(float(tpd_max), 1.0))
     y_tpd_u = pick_y_tpd_hat(sc, raw)
 
-    r_enter = _cfg_float(cfg_d, "r_tau_enter", 0.0)
-    r_enter = max(0.0, min(float(r_enter), 1.0))
-
     gate1_on = coerce_cfg_bool(cfg_d.get("y_enter_enabled"), True)
     gate2_on = coerce_cfg_bool(cfg_d.get("y_enter_alt_enabled"), True)
 
@@ -685,12 +822,12 @@ def close_band_enter_skip_reason(
         skip = _enter_profile_skip_reason(
             y_tau=y_tau,
             y_path=y_path,
-            r_enter=r_enter,
-            r_pct=r_pct,
+            y_tc=y_tc,
             y_complexity_u=y_complexity_u,
             y_tpd_u=y_tpd_u,
             tau_enter=tau_enter,
             path_enter=path_enter,
+            tc_enter=tc_enter,
             cx_max=cx_max,
             tpd_max=tpd_max,
             use_path=use_path,
@@ -706,9 +843,15 @@ def close_band_enter_skip_reason(
         path_enter_alt = _cfg_or_follow(
             cfg_d, "y_path_enter_alt", path_enter, lo=0.0, hi=100.0
         )
-        r_enter_alt = _cfg_or_follow(
-            cfg_d, "r_tau_enter_alt", r_enter, lo=0.0, hi=1.0
+        tc_enter_alt = _cfg_or_follow(
+            cfg_d, "y_tc_enter_alt", tc_enter, lo=0.0, hi=100.0
         )
+        if cfg_d.get("y_τc_enter_alt") not in (None, "") and cfg_d.get(
+            "y_tc_enter_alt"
+        ) in (None, ""):
+            tc_enter_alt = _cfg_or_follow(
+                cfg_d, "y_τc_enter_alt", tc_enter, lo=0.0, hi=100.0
+            )
         cx_max_alt = _cfg_or_follow(
             cfg_d, "y_complexity_max_alt", cx_max, lo=0.0, hi=1.0
         )
@@ -718,12 +861,12 @@ def close_band_enter_skip_reason(
         skip_alt = _enter_profile_skip_reason(
             y_tau=y_tau,
             y_path=y_path,
-            r_enter=r_enter_alt,
-            r_pct=r_pct,
+            y_tc=y_tc,
             y_complexity_u=y_complexity_u,
             y_tpd_u=y_tpd_u,
             tau_enter=tau_enter_alt,
             path_enter=path_enter_alt,
+            tc_enter=tc_enter_alt,
             cx_max=cx_max_alt,
             tpd_max=tpd_max_alt,
             use_path=use_path,
@@ -769,18 +912,14 @@ def freeze_round(
     bar_index: int,
     hm: str = "",
 ) -> FrozenRound:
-    """按方向冻结 leg2：反T→ĉ−δ；正T→ĉ+δ。"""
+    """冻结 leg2：目标交易价 = C_τ。"""
     d = str(direction or "").strip().lower()
     mid = float(close_px)
     band = float(delta_px)
-    if d == "sell_then_buy":
-        leg2 = mid - band
-    else:
-        leg2 = mid + band
     return FrozenRound(
         direction=d,
         leg1_px=float(leg1_px),
-        leg2_target=round(float(leg2), 4),
+        leg2_target=round(mid, 4),
         close_px=round(mid, 4),
         delta_px=round(band, 4),
         ratio=float(ratio),

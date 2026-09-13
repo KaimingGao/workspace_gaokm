@@ -1,7 +1,7 @@
-"""ŷ_complexity Ridge：与 ŷ_τ 同因子键（开盘 Z + 早盘前缀分钟小包）→ 全日曲折度 1−D/L ∈ [0,1]。
+"""ŷ_cx Ridge：与 ŷ_τ 同因子键（开盘 Z + 早盘前缀分钟小包）→ 全日曲折度 1−D/L ∈ [0,1]。
 
 标签非有符号收益，OOS 看 Spearman IC 与中位命中（≈50% 即无信息），不用方向命中。
-研究枢纽拟合；做 T 入场：ŷ_complexity > y_complexity_max 则跳过。
+研究枢纽拟合；做 T 入场：ŷ_cx > y_complexity_max 则跳过。
 """
 
 from __future__ import annotations
@@ -161,7 +161,7 @@ def _oos_by_tau(
 
 
 def cx_promote_gate(report: Optional[Dict[str, Any]]) -> Dict[str, Any]:
-    """promote 闸：n 与 Spearman IC（y_complexity 无方向命中）。"""
+    """promote 闸：n 与 Spearman IC（y_cx 无方向命中）。"""
     rep = report if isinstance(report, dict) else {}
     oos = rep.get("oos") if isinstance(rep.get("oos"), dict) else {}
     n = oos.get("n_valid")
@@ -214,7 +214,7 @@ def fit_cx_ridge_report(
     minute_tau_hm: Optional[str] = None,
     tau_grid: Optional[Sequence[str]] = None,
 ) -> Dict[str, Any]:
-    """池化拟合 ŷ_complexity + 时间 OOS。"""
+    """池化拟合 ŷ_cx + 时间 OOS。"""
     live_hm = str(minute_tau_hm or DEFAULT_CX_MINUTE_TAU_HM).strip() or DEFAULT_CX_MINUTE_TAU_HM
     grid = normalize_minute_tau_grid(
         tau_hm=live_hm,
@@ -278,7 +278,7 @@ def fit_cx_ridge_report(
             "active_features": [],
             "zscore_means": {},
             "zscore_stds": {},
-            "note": "Z 方差不足，ŷ_complexity 用训练均值",
+            "note": "Z 方差不足，ŷ_cx 用训练均值",
         }
 
     oos: Dict[str, Any] = {"n_train": len(ys_tr), "n_test": len(test_idx)}
@@ -337,7 +337,7 @@ def fit_cx_ridge_report(
         "tau_grid": list(grid),
         "note": (
             "Kaufman 1−ER：D=全日 5m 收价首末位移，L=邻根路径长（午休跳空不计）；"
-            "y_complexity∈[0,1]，0≈直线、1=最折。特征=开盘 Z + ≤τ 前缀"
+            "y_cx∈[0,1]，0≈直线、1=最折。特征=开盘 Z + ≤τ 前缀"
             " + complexity_lag1/ma5 + tpd_lag1/ma5；"
             "标签=全日 1−D/L（不变）。TPD（转折点密度）补 1−D/L 的中间形状盲区。OOS 看 IC / 中位命中，不看方向命中。"
         ),
@@ -362,8 +362,8 @@ def fit_cx_ridge_report(
         "target": "path_complexity_5m_er",
         "minute_tau_hm": live_hm,
         "tau_grid": list(grid),
-        "dual_score_head": "y_complexity",
-        "note": "开盘 Z + 多 τ 前缀 + 历史真实曲折度 → 全日曲折度 [0,1]；ŷ_complexity>y_complexity_max 跳过做 T",
+        "dual_score_head": "y_cx",
+        "note": "开盘 Z + 多 τ 前缀 + 历史真实曲折度 → 全日曲折度 [0,1]；ŷ_cx>y_complexity_max 跳过做 T",
     }
     attach_holdout_meta(report, split_meta)
     report["promote_gate"] = cx_promote_gate(report)
@@ -499,7 +499,7 @@ def persist_cx_model(
         "fit_end": report.get("fit_end"),
         "eval_start": report.get("eval_start"),
         "holdout_trading_days": report.get("holdout_trading_days"),
-        "dual_score_head": "y_complexity",
+        "dual_score_head": "y_cx",
     }
     path = (
         research_model_path(cx_model_path())
@@ -520,7 +520,7 @@ def predict_cx_from_features(
     *,
     model_doc: Optional[Dict[str, Any]] = None,
 ) -> Optional[float]:
-    """开盘 Z + 前缀分钟 + 历史真实曲折度 → ŷ_complexity ∈ [0,1]（旧 ×100 模型自动折算）。"""
+    """开盘 Z + 前缀分钟 + 历史真实曲折度 → ŷ_cx ∈ [0,1]（旧 ×100 模型自动折算）。"""
     doc = model_doc if model_doc is not None else load_cx_model()
     if not doc:
         return None

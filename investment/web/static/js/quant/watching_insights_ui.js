@@ -2,8 +2,8 @@
  * 观察池 insights 列格式化与 score 单元格 HTML（纯数据 / 字符串）。
  */
 import { escapeHtml as defaultEscapeHtml } from "../shared.js";
-import { resolveTradeScore, resolveEodScore, resolveTauScore, resolveOnScore, resolveNowcastScore, fmtTableScore, isHeuristicScoreScale, Y_EOD_TITLE, Y_TAU_TITLE, Y_ON_TITLE, Y_NOWCAST_TITLE } from "../paper/fmt.js?v=p1472";
-import { TRADE_TITLE, withQuoteGap } from "./watching_quotes_ui.js?v=p1227";
+import { resolveTradeScore, resolveEodScore, resolveTauScore, resolveOnScore, resolveYτcScore, fmtTableScore, isHeuristicScoreScale, Y_EOD_TITLE, Y_TAU_TITLE, Y_ON_TITLE, Y_τc_TITLE } from "../paper/fmt.js?v=p2346";
+import { TRADE_TITLE, withQuoteGap } from "./watching_quotes_ui.js?v=p2298";
 
 export function isOosFailedItem(it) {
   if (!it || typeof it !== "object") return false;
@@ -32,11 +32,11 @@ export function singleHeadBadgeHtml(it, escapeHtml = defaultEscapeHtml) {
     (it.predicted_score_tau != null || it.score_rem != null);
   let title = "ŷ_trade 单头降级 · 与双头票不同量纲";
   if (head === "single_tau") {
-    title = "ŷ_trade 单头降级：仅 ŷ_τ（缺 ŷ_EOD）· 与双头票不同量纲";
+    title = "ŷ_trade 单头降级：仅 ŷ_oc（缺 ŷ_oo）· 与双头票不同量纲";
   } else if (head === "single_eod" && tau && (win === "eod_next" || tauInTrade === false)) {
-    title = "收盘后 ŷ_trade=ŷ_EOD（τ 对照保留，不进融合）";
+    title = "收盘后 ŷ_trade=ŷ_oo（τ 对照保留，不进融合）";
   } else if (head === "single_eod") {
-    title = "ŷ_trade 单头降级：仅 ŷ_EOD（缺 ŷ_τ）· 与双头票不同量纲";
+    title = "ŷ_trade 单头降级：仅 ŷ_oo（缺 ŷ_oc）· 与双头票不同量纲";
   }
   return `<span class="watching-single-head-badge" title="${escapeHtml(
     title
@@ -49,7 +49,7 @@ export function yCheckBadgeHtml(it, escapeHtml = defaultEscapeHtml) {
   const labels = {
     conflict: { text: "歧", title: "Y·EOD 校验：双头分歧 · 降低今日执行信任" },
     low_conf: { text: "弱", title: "Y·EOD 校验：低置信（分歧或 σ 偏大）" },
-    missing_tau: { text: "缺τ", title: "Y·EOD 校验：缺 ŷ_τ" },
+    missing_tau: { text: "缺τ", title: "Y·EOD 校验：缺 ŷ_oc" },
     single_head: { text: "单", title: "Y·EOD 校验：单头降级" },
   };
   const pack = labels[check] || {
@@ -95,7 +95,7 @@ export function buildWatchingScoreDisplay(it, fmtScore, watchingScoreDetail) {
   const scoreEodNum = resolveEodScore(it);
   const scoreTauNum = resolveTauScore(it);
   const scoreOnNum = resolveOnScore(it);
-  const scoreNowcastNum = resolveNowcastScore(it);
+  const scoreNowcastNum = resolveYτcScore(it);
   const belowMin = !!it.below_min_score;
   const singleHead = isSingleHeadItem(it);
   const yCheck = String(it.y_check || "");
@@ -117,17 +117,17 @@ export function buildWatchingScoreDisplay(it, fmtScore, watchingScoreDetail) {
     : singleHead
       ? `ŷ_trade 单头降级（${String(it.dual_score_head || "single")}）· 悬停看详情`
     : belowMin
-      ? `低于 ŷ_EOD 门槛（表列 y_trade）`
+      ? `低于 ŷ_oo 门槛（表列 y_trade）`
       : it.return_model_source === "oos_failed_global"
         ? "OOS 失败 · 组/全局 ŷ 对照"
         : it.return_model_source === "cluster_shadow_fallback"
           ? "缺全局模型 · 组 ŷ shadow"
           : TRADE_TITLE;
-  const scoreEodTitle = scoreEodNum == null ? "暂无 ŷ_EOD" : Y_EOD_TITLE;
-  const scoreTauTitle = scoreTauNum == null ? "暂无 ŷ_τ" : Y_TAU_TITLE;
-  const scoreOnTitle = scoreOnNum == null ? "暂无 ŷ_ON" : Y_ON_TITLE;
+  const scoreEodTitle = scoreEodNum == null ? "暂无 ŷ_oo" : Y_EOD_TITLE;
+  const scoreTauTitle = scoreTauNum == null ? "暂无 ŷ_oc" : Y_TAU_TITLE;
+  const scoreOnTitle = scoreOnNum == null ? "暂无 ŷ_co" : Y_ON_TITLE;
   const scoreNowcastTitle =
-    scoreNowcastNum == null ? "暂无 nowcast · 有 ŷ_EOD 与 ŷ_τ 后可见" : Y_NOWCAST_TITLE;
+    scoreNowcastNum == null ? "暂无 ŷ_τc" : Y_τc_TITLE;
   return {
     scoreNum,
     scoreEodNum,
@@ -340,7 +340,7 @@ export function buildWatchingOnScoreCellHtml(disp, scoreClsFn, escapeHtml = defa
   );
 }
 
-/** nowcast（nc）列；nowcast oc 见做 T 表 y_nc_oc。 */
+/** y_τc 列；Kalman nowcast 见 y_nc。 */
 export function buildWatchingNowcastScoreCellHtml(disp, scoreClsFn, escapeHtml = defaultEscapeHtml) {
   return buildWatchingYScoreCellHtml(
     {
@@ -348,7 +348,7 @@ export function buildWatchingNowcastScoreCellHtml(disp, scoreClsFn, escapeHtml =
       num: disp.scoreNowcastNum,
       title: disp.scoreNowcastTitle,
       detail: disp.scoreDetail,
-      tip: "nowcast",
+      tip: "r",
       skin: "nowcast",
     },
     scoreClsFn,

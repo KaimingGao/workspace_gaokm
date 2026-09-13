@@ -2,8 +2,8 @@
  * 观察池 HTML 渲染 helpers（纯字符串 / 轻量 DOM 写入）。
  */
 import { escapeHtml } from "../shared.js";
-import { fmtTableScore } from "../paper/fmt.js?v=p1734";
-import { marketPriorDetailFields, tailAnomalyDetailFields, overheatDetailFields } from "../score_tooltip.js?v=p1734";
+import { fmtTableScore } from "../paper/fmt.js?v=p2298";
+import { marketPriorDetailFields, tailAnomalyDetailFields, overheatDetailFields } from "../score_tooltip.js?v=p2364";
 import { watchingNameSpanHtml } from "./names.js";
 import { fitTierBadgeForCode } from "./fit_tier_ui.js";
 
@@ -75,7 +75,7 @@ export function matchWatchlistSource(code, sourceDescs) {
 }
 
 export function watchingScoreDetail(it) {
-  // nowcast / ŷ_EOD / ŷ_τ / 缺口放前：data-score-detail 过长时避免被截掉
+  // nowcast / ŷ_oo / ŷ_oc / 缺口放前：data-score-detail 过长时避免被截掉
   const terms = slimFormulaTerms((it && it.score_formula_terms) || null, 10);
   const tauTerms = slimFormulaTerms(
     (it && (it.formula_terms_tau || it.score_formula_terms_tau)) || null,
@@ -126,9 +126,40 @@ export function watchingScoreDetail(it) {
   }
   return JSON.stringify({
     stock_code: (it && (it.stock_code || it.code)) || null,
-    // ŷ_τ OC 靠前，防止 data-score-detail 截断后 tip 退化成剩余映射分
+    // ŷ_oc OC 靠前，防止 data-score-detail 截断后 tip 退化成剩余映射分
     y_tau_oc: yTauOc,
     predicted_score_tau_oc: yTauOc,
+    y_to: it && (it.y_to != null ? it.y_to : it.y_pc != null ? it.y_pc : it.y_r),
+    y_pc: it && (it.y_pc != null ? it.y_pc : it.y_to),
+    y_r: it && (it.y_r != null ? it.y_r : it.y_r_hat),
+    predicted_score_r: it && (it.predicted_score_r != null ? it.predicted_score_r : it.y_r_hat),
+    "y_τc":
+      it &&
+      (it["y_τc"] != null
+        ? it["y_τc"]
+        : it.predicted_score_τc != null
+          ? it.predicted_score_τc
+          : it.y_r != null
+            ? it.y_r
+            : it.y_r_hat),
+    predicted_score_τc:
+      it &&
+      (it.predicted_score_τc != null
+        ? it.predicted_score_τc
+        : it["y_τc"] != null
+          ? it["y_τc"]
+          : it.predicted_score_r),
+    y_spec_τc: (it && it.y_spec_τc) || null,
+    y_spec_r: (it && it.y_spec_r) || null,
+    formula_terms_r: slimFormulaTerms(
+      (it && (it.formula_terms_r || it.score_formula_terms_r)) || null,
+      12
+    ),
+    ret_open_to_tau:
+      it &&
+      (it.features_tau && it.features_tau.ret_open_to_tau != null
+        ? it.features_tau.ret_open_to_tau
+        : it.ret_open_to_tau),
     predicted_score_tau:
       it &&
       (it.predicted_score_tau != null
@@ -145,10 +176,11 @@ export function watchingScoreDetail(it) {
     nowcast_x_prior: it && it.nowcast_x_prior,
     predicted_score_eod: it && it.predicted_score_eod,
     predicted_score_on: it && it.predicted_score_on,
-    predicted_score_path: it && (it.predicted_score_path != null ? it.predicted_score_path : it.y_path),
-    y_path: it && it.y_path,
-    y_path_status: (it && it.y_path_status) || null,
-    y_path_error: (it && it.y_path_error) || null,
+    predicted_score_path: it && (it.predicted_score_hl != null ? it.predicted_score_hl : (it.predicted_score_path != null ? it.predicted_score_path : it.y_hl != null ? it.y_hl : it.y_path)),
+    y_path: it && (it.y_hl != null ? it.y_hl : it.y_path),
+    y_hl: it && (it.y_hl != null ? it.y_hl : it.y_path),
+    y_path_status: (it && (it.y_hl_status || it.y_path_status)) || null,
+    y_path_error: (it && (it.y_hl_error || it.y_path_error)) || null,
     features_path: (it && it.features_path) || null,
     formula_terms_path: slimFormulaTerms(
       (it && (it.formula_terms_path || it.score_formula_terms_path)) || null,
@@ -245,6 +277,7 @@ function slimFormulaTerms(expl, maxTerms = 10) {
     y_tau_raw: expl.y_tau_raw != null ? expl.y_tau_raw : null,
     terms: kept,
     head: expl.head,
+    model_role: expl.model_role || null,
   };
 }
 
@@ -457,30 +490,30 @@ export function renderWatchingWatchTableFallback(rows, { onPickCountUpdate } = {
         )}" data-q="score_eod" data-score-tip="eod" data-score-detail="${escapeHtml(
           d.scoreDetail || ""
         )}" title="${escapeHtml(
-          d.scoreEodTitle || "ŷ_EOD"
+          d.scoreEodTitle || "ŷ_oo"
         )}">${escapeHtml(String(d.scoreEod ?? "—"))}</td>` +
         `<td class="num watching-col-num watching-score-cell watching-score-tau paper-hold-score has-tip ${escapeHtml(
           d.scoreTauCls || ""
         )}" data-q="score_tau" data-score-tip="tau" data-score-detail="${escapeHtml(
           d.scoreDetail || ""
         )}" title="${escapeHtml(
-          d.scoreTauTitle || "ŷ_τ"
+          d.scoreTauTitle || "ŷ_oc"
         )}">${escapeHtml(String(d.scoreTau ?? "—"))}</td>` +
         `<td class="num watching-col-num watching-score-cell watching-score-on paper-hold-score has-tip ${escapeHtml(
           d.scoreOnCls || ""
         )}" data-q="score_on" data-score-tip="on" data-score-detail="${escapeHtml(
           d.scoreDetail || ""
         )}" title="${escapeHtml(
-          d.scoreOnTitle || "ŷ_ON"
+          d.scoreOnTitle || "ŷ_co"
         )}">${escapeHtml(String(d.scoreOn ?? "—"))}</td>` +
         (() => {
           const singleHead = !!d.scoreSingleHead;
           const head = d.dualScoreHead || "";
           const headTitle =
             head === "single_tau"
-              ? "ŷ_trade 单头降级：仅 ŷ_τ（缺 ŷ_EOD）· 与双头票不同量纲"
+              ? "ŷ_trade 单头降级：仅 ŷ_oc（缺 ŷ_oo）· 与双头票不同量纲"
               : head === "single_eod"
-                ? "ŷ_trade 单头降级：仅 ŷ_EOD（缺 ŷ_τ）· 与双头票不同量纲"
+                ? "ŷ_trade 单头降级：仅 ŷ_oo（缺 ŷ_oc）· 与双头票不同量纲"
                 : "ŷ_trade 单头降级 · 与双头票不同量纲";
           const badge = singleHead
             ? `<span class="watching-single-head-badge" title="${escapeHtml(
@@ -499,10 +532,10 @@ export function renderWatchingWatchTableFallback(rows, { onPickCountUpdate } = {
         })() +
         `<td class="num watching-col-num watching-score-cell watching-score-nowcast paper-hold-score has-tip ${escapeHtml(
           d.scoreNowcastCls || ""
-        )}" data-q="score_nowcast" data-score-tip="nowcast" data-score-detail="${escapeHtml(
+        )}" data-q="score_nowcast" data-score-tip="r" data-score-detail="${escapeHtml(
           d.scoreDetail || ""
         )}" title="${escapeHtml(
-          d.scoreNowcastTitle || "ŷ_nowcast"
+          d.scoreNowcastTitle || "ŷ_τc"
         )}">${escapeHtml(String(d.scoreNowcast ?? "—"))}</td>` +
         `<td data-q="stance">${escapeHtml(String(d.stance ?? "—"))}</td>` +
         `<td class="num watching-col-num" data-q="excess">${escapeHtml(String(d.excess ?? "—"))}</td>` +
@@ -524,11 +557,11 @@ export function renderWatchingWatchTableFallback(rows, { onPickCountUpdate } = {
     `<th class="watching-col-num" title="今日开盘价">今开</th>` +
     `<th class="watching-col-num" title="最新成交价">现价</th>` +
     `<th class="watching-col-num" title="相对昨收的涨跌幅（与 Y 列同一口径）">涨跌</th>` +
-    `<th class="watching-col-num" title="ŷ_EOD · 隔夜主轴">y_eod</th>` +
-    `<th class="watching-col-num" title="ŷ_τ · T收/T开（拟合原值；τ 闸同源）">y_τ</th>` +
-    `<th class="watching-col-num" title="ŷ_ON · open 链旁路">y_on</th>` +
-    `<th class="watching-col-num" title="ŷ_trade · 排序/卖门槛">y_trade</th>` +
-    `<th class="watching-col-num" title="nowcast（nc）· 对照昨收">y_nc</th>` +
+    `<th class="watching-col-num" title="ŷ_oo · open[T]→open[T+1]">y_oo</th>` +
+    `<th class="watching-col-num" title="ŷ_oc · open[T]→close[T]">y_oc</th>` +
+    `<th class="watching-col-num" title="ŷ_co · close[T]→open[T+1]">y_co</th>` +
+    `<th class="watching-col-num" title="ranking · w·ŷ_oo + w·(ŷ_oc∘w_co·ŷ_co)">ranking</th>` +
+    `<th class="watching-col-num" title="ŷ_τc · price(τ)→close[T]">y_τc</th>` +
     `<th title="规则倾向（买入 / 观望等），不是 ŷ 本身">倾向</th>` +
     `<th class="watching-col-num" title="相对基准（指数）的超额收益">超额</th>` +
     `<th class="watching-col-num" title="成交量">量</th>` +
@@ -596,19 +629,19 @@ export function buildWatchingWatchRows(wl, names, paperCodes, scores, deps) {
       scoreEod: "…",
       scoreEodNum: null,
       scoreEodCls: "",
-      scoreEodTitle: "暂无 ŷ_EOD",
+      scoreEodTitle: "暂无 ŷ_oo",
       scoreTau: "…",
       scoreTauNum: null,
       scoreTauCls: "",
-      scoreTauTitle: "暂无 ŷ_τ",
+      scoreTauTitle: "暂无 ŷ_oc",
       scoreOn: "…",
       scoreOnNum: null,
       scoreOnCls: "",
-      scoreOnTitle: "暂无 ŷ_ON",
+      scoreOnTitle: "暂无 ŷ_co",
       scoreNowcast: "…",
       scoreNowcastNum: null,
       scoreNowcastCls: "",
-      scoreNowcastTitle: "暂无 nowcast · 有 ŷ_EOD 与 ŷ_τ 后可见",
+      scoreNowcastTitle: "暂无 nowcast · 有 ŷ_oo 与 ŷ_oc 后可见",
       stance: "…",
       excess: "…",
       excessNum: null,

@@ -1886,6 +1886,11 @@ a.dialog-btn[aria-disabled="true"] {
   border-color: rgba(14, 165, 233, 0.22);
 }
 
+.score-layer-r {
+  background: linear-gradient(180deg, #eef2ff 0%, #e0e7ff 100%);
+  border-color: rgba(99, 102, 241, 0.24);
+}
+
 .score-layer-blend {
   background: linear-gradient(180deg, #f0fdf4 0%, #dcfce7 100%);
   border-color: rgba(34, 197, 94, 0.22);
@@ -2491,21 +2496,7 @@ a.dialog-btn[aria-disabled="true"] {
    排查：若卡片外壳或 ŷ 条带样式丢失，先确认此处是否误删；
          .yhat-mx-* 矩阵样式保留，未动。
    ──────────────────────────────────────────────────────────── */
-/* 跨组对照矩阵（健康 + β 跨组） */
-.yhat-mx-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 10px;
-  margin: 8px 0 6px;
-  align-items: start;
-}
-
-@media (max-width: 680px) {
-  .yhat-mx-grid {
-    grid-template-columns: 1fr;
-  }
-}
-
+/* 跨组健康矩阵 */
 .yhat-mx {
   margin: 8px 0 6px;
   padding: 6px 8px 6px;

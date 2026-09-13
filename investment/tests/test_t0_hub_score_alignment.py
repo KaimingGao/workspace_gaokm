@@ -1,4 +1,4 @@
-"""做 T 前缀重算 vs 研究枢纽 compute 路径：ŷ_τ / ŷ_path 同源验收。"""
+"""做 T 前缀重算 vs 研究枢纽 compute 路径：ŷ_τ / ŷ_hl 同源验收。"""
 
 from __future__ import annotations
 

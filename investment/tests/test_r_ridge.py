@@ -1,4 +1,4 @@
-"""ŷ_r：price(τ)/close−1 标签与 Ridge。"""
+"""ŷ_τc：close[T]/price(τ)−1 标签与 Ridge。"""
 
 from __future__ import annotations
 
@@ -39,7 +39,7 @@ class YRPctTests(unittest.TestCase):
     def test_y_r_pct_matches_geometry(self):
         from core.research.tau_panel import y_r_pct
 
-        self.assertAlmostEqual(y_r_pct(69.20, 68.12), (69.20 / 68.12 - 1.0) * 100.0, places=6)
+        self.assertAlmostEqual(y_r_pct(69.20, 68.12), (68.12 / 69.20 - 1.0) * 100.0, places=6)
         self.assertIsNone(y_r_pct(0, 68.12))
         self.assertIsNone(y_r_pct(69.20, None))
 
@@ -64,11 +64,11 @@ class YRPctTests(unittest.TestCase):
                 "2025-06-06",
             ],
             "metas": [
-                {"price_tau": 10.5, "close": 10.0},
-                {"price_tau": 9.8, "close": 10.0},
-                {"price_tau": None, "close": 10.0},
-                {"price_tau": 10.2, "close": 10.1},
-                {"price_tau": 10.1, "close": 10.0},
+                {"price_tau": 10.5, "close": 11.0, "close_minute": 10.0},
+                {"price_tau": 9.8, "close": 11.0, "close_minute": 10.0},
+                {"price_tau": None, "close": 11.0, "close_minute": 10.0},
+                {"price_tau": 10.2, "close": 11.0, "close_minute": 10.1},
+                {"price_tau": 10.1, "close": 11.0, "close_minute": 10.0},
             ],
         }
         out = relabel_tau_panels_as_r([panel])
@@ -76,6 +76,17 @@ class YRPctTests(unittest.TestCase):
         self.assertEqual(len(out[0]["ys"]), 4)
         self.assertAlmostEqual(out[0]["ys"][0], yr, places=6)
         self.assertIn("y_r", out[0]["metas"][0])
+
+    def test_relabel_drops_daily_close_only_rows(self):
+        from core.research.tau_panel import relabel_tau_panels_as_r
+
+        panel = {
+            "xs": [{"gap_pct": 1.0}] * 5,
+            "ys": [1.0, 2.0, 3.0, 4.0, 5.0],
+            "dates": [f"2025-06-0{i}" for i in range(2, 7)],
+            "metas": [{"price_tau": 10.0, "close": 11.0} for _ in range(5)],
+        }
+        self.assertEqual(relabel_tau_panels_as_r([panel]), [])
 
 
 class RRidgeFitTests(unittest.TestCase):
@@ -120,7 +131,7 @@ class RRidgeFitTests(unittest.TestCase):
         self.assertTrue(report.get("success"), msg=report)
         self.assertEqual(report.get("schema"), "r_ridge_v1")
         self.assertEqual(report.get("dual_score_head"), "y_r")
-        self.assertEqual(report.get("target"), "price_tau_over_close")
+        self.assertEqual(report.get("target"), "close_over_price_tau")
         y_spec = (report.get("return_model") or {}).get("y_spec") or {}
         self.assertIn("price", str(y_spec.get("formula") or ""))
         self.assertEqual(y_spec.get("unit"), "pct")
@@ -150,7 +161,36 @@ class YRDisplayOnlyTests(unittest.TestCase):
         self.assertAlmostEqual(sc.get("y_tau"), 1.2)
         self.assertAlmostEqual(sc.get("predicted_score_r"), 0.85)
         self.assertAlmostEqual(sc.get("y_r"), 0.85)
+        self.assertAlmostEqual(sc.get("y_τc"), 0.85)
         self.assertAlmostEqual(sc.get("r_realized"), 0.4)
+
+    def test_scores_from_item_does_not_invert_bare_y_r(self):
+        from core.t0.score_policy import scores_from_item
+
+        sc = scores_from_item({"y_tau_oc": 0.1, "y_r": -0.8})
+        self.assertAlmostEqual(sc.get("y_τc"), -0.8, places=6)
+        self.assertAlmostEqual(sc.get("y_r"), -0.8, places=6)
+
+    def test_explain_r_prediction_head(self):
+        from core.research.r_ridge import explain_r_prediction
+
+        model = {
+            "model_role": "research",
+            "return_model": {
+                "coefficients": {"gap_pct": 0.5},
+                "intercept": 0.1,
+                "zscore_means": {"gap_pct": 0.0},
+                "zscore_stds": {"gap_pct": 1.0},
+                "active_features": ["gap_pct"],
+            }
+        }
+        expl = explain_r_prediction({"gap_pct": 2.0}, model_doc=model)
+        self.assertIsNotNone(expl)
+        self.assertEqual(expl.get("head"), "r")
+        self.assertEqual(expl.get("model_role"), "research")
+        self.assertAlmostEqual(float(expl.get("total")), 1.1, places=5)
+        keys = [t.get("key") for t in (expl.get("terms") or [])]
+        self.assertIn("gap_pct", keys)
 
     def test_close_band_enter_does_not_read_y_r(self):
         from core.t0 import close_band

@@ -1,7 +1,7 @@
 /** 做T回测可视化（canvas + CSS，无外部图表库）。 */
 
 import { paperMetricClass } from "./fmt.js";
-import { SKIP_CAT_TIP, stockCellHtml, stampStockFitTiers } from "./t0_table.js?v=p2261";
+import { SKIP_CAT_TIP, stockCellHtml, stampStockFitTiers } from "./t0_table.js?v=p2364";
 
 const THEME = {
   actual: "#2563eb",
@@ -39,6 +39,7 @@ const SKIP_CAT_COLORS = {
   // 门槛不足 · 冷钢蓝 / 青灰
   y_eod_flat: "#3d6a8a",
   y_tau_flat: "#3a7a72",
+  y_tc_flat: "#3d6e7a",
   r_tau_flat: "#4a6e7a",
   y_tau_weak: "#5a7d8c",
   y_path_flat: "#7a6a55",
@@ -48,6 +49,7 @@ const SKIP_CAT_COLORS = {
   tau_leg1_prior: "#a0653a",
   trade_tau_sign: "#c45c4a",
   y_path_disagree: "#6b4c7a",
+  y_tc_disagree: "#4c6b8a",
   conflict: "#a04848",
   // 前缀 / 空间 / 缺口 · 海石青 + 一枚赭石
   path_abandon: "#3f6f68",
@@ -676,22 +678,102 @@ function wireDailyActivityHover(canvas) {
   });
 }
 
-/** y_τ 散点 — 时间轴 + 分区着色 */
+function scatterYR(p) {
+  if (!p) return null;
+  const hat = Number(p.r_hat != null ? p.r_hat : p.r_pct);
+  if (Number.isFinite(hat)) return hat;
+  const y = Number(p.y_oc != null ? p.y_oc : p.y_tau);
+  return Number.isFinite(y) ? y : null;
+}
+
+function scatterSlotFilled(s) {
+  if (!s || s.skipped) return false;
+  return Number(s.sold_qty || 0) > 0 || Number(s.bought_qty || 0) > 0;
+}
+
+/** 旧 payload 散点只有 ŷ_oc 且丢掉反 T；用 days 的 R̂_τ 补点。 */
+function attachRpctToScatter(points, days) {
+  const baked = Array.isArray(points) ? points.slice() : [];
+  if (!Array.isArray(days) || !days.length) return baked;
+  const byKey = new Map();
+  for (const d of days) {
+    if (!d || typeof d !== "object") continue;
+    const date = String(d.date || "").slice(0, 10);
+    const code = String(d.stock_code || "");
+    const scan = {};
+    for (const row of d.close_band_scan || []) {
+      if (!row || !row.hm) continue;
+      scan[String(row.hm).slice(0, 5)] = row;
+    }
+    const slots = (d.t0_slot_results || []).filter(scatterSlotFilled);
+    for (const s of slots) {
+      const hm = String(s.hm || s.t0_slot_hm || "").slice(0, 5);
+      const row = (hm && scan[hm]) || {};
+      const cb = s.close_band && typeof s.close_band === "object" ? s.close_band : {};
+      const rp = Number(
+        row.r_hat != null ? row.r_hat : row.r_pct != null ? row.r_pct : cb.r_hat != null ? cb.r_hat : cb.r_pct
+      );
+      if (!Number.isFinite(rp)) continue;
+      const scores = s.scores && typeof s.scores === "object" ? s.scores : {};
+      const yt =
+        scores.y_oc != null
+          ? Number(scores.y_oc)
+          : scores.y_tau != null
+            ? Number(scores.y_tau)
+            : row.y_tau != null
+              ? Number(row.y_tau)
+              : null;
+      byKey.set(`${date}|${code}|${hm}`, {
+        date,
+        stock_code: code,
+        stock_name: d.stock_name,
+        r_pct: rp,
+        y_tau: Number.isFinite(yt) ? yt : null,
+        y_oc: Number.isFinite(yt) ? yt : null,
+        outcome: "traded",
+        direction: s.direction,
+        t0_slot_hm: hm,
+      });
+    }
+  }
+  if (!byKey.size) return baked;
+  const seen = new Set();
+  const out = baked.map((p) => {
+    const hm = String(p.t0_slot_hm || "").slice(0, 5);
+    const k = `${String(p.date || "").slice(0, 10)}|${p.stock_code || ""}|${hm}`;
+    const extra = byKey.get(k);
+    if (!extra) return p;
+    seen.add(k);
+    return {
+      ...p,
+      r_pct: p.r_pct != null ? p.r_pct : extra.r_pct,
+      y_oc: p.y_oc != null ? p.y_oc : extra.y_oc,
+    };
+  });
+  for (const [k, extra] of byKey) {
+    if (!seen.has(k)) out.push(extra);
+  }
+  return out;
+}
+
+/** R̂_τ 散点 — 纵轴 R̂_τ；点色=选向。 */
 function drawYtauScatter(canvas, points, threshold = 0, { hoverIdx = null, nameByCode = {} } = {}) {
   if (!canvas || !points || !points.length) return null;
   const { w, h } = getChartSize(canvas);
   const ctx = setupCanvas(canvas, w, h);
   ctx.clearRect(0, 0, w, h);
 
+  const enterOn = Number(threshold) > 0;
   const sorted = points
-    .filter((p) => Number.isFinite(Number(p.y_tau)))
+    .filter((p) => scatterYR(p) != null)
     .slice()
     .sort((a, b) => String(a.date).localeCompare(String(b.date)));
   if (!sorted.length) return null;
 
-  const ys = sorted.map((p) => Number(p.y_tau));
-  const minY = Math.min(-0.55, ...ys, -threshold - 0.05);
-  const maxY = Math.max(0.55, ...ys, threshold + 0.05);
+  const ys = sorted.map((p) => scatterYR(p));
+  const band = enterOn ? Number(threshold) : 0;
+  const minY = Math.min(-0.55, ...ys, enterOn ? -band - 0.05 : 0);
+  const maxY = Math.max(0.55, ...ys, enterOn ? band + 0.05 : 0);
   const span = maxY - minY || 1;
   const pad = { l: 40, r: 10, t: 12, b: 26 };
   const plotW = w - pad.l - pad.r;
@@ -707,12 +789,10 @@ function drawYtauScatter(canvas, points, threshold = 0, { hoverIdx = null, nameB
     return pad.l + (base + jitter) * plotW;
   };
 
-  ctx.fillStyle = THEME.buyThenSellLight;
-  ctx.fillRect(pad.l, yLine(maxY), plotW, yLine(threshold) - yLine(maxY));
-  ctx.fillStyle = THEME.sellThenBuyLight;
-  ctx.fillRect(pad.l, yLine(-threshold), plotW, yLine(minY) - yLine(-threshold));
-  ctx.fillStyle = "rgba(148,163,184,0.07)";
-  ctx.fillRect(pad.l, yLine(threshold), plotW, yLine(-threshold) - yLine(threshold));
+  if (enterOn) {
+    ctx.fillStyle = "rgba(148,163,184,0.12)";
+    ctx.fillRect(pad.l, yLine(band), plotW, yLine(-band) - yLine(band));
+  }
 
   drawHGrid(ctx, pad, w, h, [
     { frac: 0, label: fmtNum(maxY, 2) },
@@ -720,22 +800,24 @@ function drawYtauScatter(canvas, points, threshold = 0, { hoverIdx = null, nameB
     { frac: 1, label: fmtNum(minY, 2) },
   ]);
 
-  ctx.setLineDash([5, 4]);
-  ctx.strokeStyle = THEME.gridStrong;
-  ctx.lineWidth = 1;
-  [threshold, -threshold].forEach((lv) => {
-    const y = yLine(lv);
-    ctx.beginPath();
-    ctx.moveTo(pad.l, y);
-    ctx.lineTo(w - pad.r, y);
-    ctx.stroke();
-    ctx.fillStyle = THEME.axis;
-    ctx.font = FONT_SM;
-    ctx.textAlign = "right";
-    ctx.textBaseline = "middle";
-    ctx.fillText(lv > 0 ? `+${threshold}%` : `-${threshold}%`, pad.l - 4, y);
-  });
-  ctx.setLineDash([]);
+  if (enterOn) {
+    ctx.setLineDash([5, 4]);
+    ctx.strokeStyle = THEME.gridStrong;
+    ctx.lineWidth = 1;
+    [band, -band].forEach((lv) => {
+      const y = yLine(lv);
+      ctx.beginPath();
+      ctx.moveTo(pad.l, y);
+      ctx.lineTo(w - pad.r, y);
+      ctx.stroke();
+      ctx.fillStyle = THEME.axis;
+      ctx.font = FONT_SM;
+      ctx.textAlign = "right";
+      ctx.textBaseline = "middle";
+      ctx.fillText(lv > 0 ? `+${band}%` : `−${band}%`, pad.l - 4, y);
+    });
+    ctx.setLineDash([]);
+  }
 
   let nTraded = 0;
   let nSkip = 0;
@@ -745,14 +827,14 @@ function drawYtauScatter(canvas, points, threshold = 0, { hoverIdx = null, nameB
   const pts = [];
 
   sorted.forEach((p, i) => {
-    const yv = Number(p.y_tau);
+    const yv = scatterYR(p);
     const x = xAt(p, i);
     const y = yLine(yv);
     const traded = p.outcome === "traded";
     if (traded) {
       nTraded += 1;
       if (p.direction === "buy_then_sell") nBuyThenSell += 1;
-      else nSellThenBuy += 1;
+      else if (p.direction === "sell_then_buy") nSellThenBuy += 1;
     } else {
       nSkip += 1;
       if (yv < -0.1) nSkipNeg += 1;
@@ -761,9 +843,12 @@ function drawYtauScatter(canvas, points, threshold = 0, { hoverIdx = null, nameB
     const color = traded
       ? p.direction === "buy_then_sell"
         ? THEME.buyThenSell
-        : THEME.sellThenBuy
+        : p.direction === "sell_then_buy"
+          ? THEME.sellThenBuy
+          : THEME.actual
       : THEME.signalSkip;
     const r = traded ? 4.5 : 3.5;
+    const yOc = Number(p.y_oc != null ? p.y_oc : p.y_tau);
     pts.push({
       i,
       x,
@@ -772,6 +857,8 @@ function drawYtauScatter(canvas, points, threshold = 0, { hoverIdx = null, nameB
       color,
       traded,
       y_tau: yv,
+      r_pct: yv,
+      y_oc: Number.isFinite(yOc) ? yOc : null,
       date: p.date,
       direction: p.direction,
       outcome: p.outcome,
@@ -868,7 +955,7 @@ function wireYtauScatterHover(canvas) {
     const pt = meta && meta.pts && meta.pts[idx];
     if (!tipEl) {
       canvas.title = pt
-        ? `${fmtDateShort(pt.date)} ${pt.stock_name || pt.stock_code || ""} y_τ ${fmtNum(pt.y_tau, 2)}%`
+        ? `${fmtDateShort(pt.date)} ${pt.stock_name || pt.stock_code || ""} R̂_τ ${fmtNum(pt.r_pct, 2)}%`
         : "";
       return;
     }
@@ -888,7 +975,10 @@ function wireYtauScatterHover(canvas) {
     tipEl.innerHTML =
       `<strong>${esc(String(pt.date || "").slice(0, 10))}${name ? ` · ${esc(name)}` : ""}</strong>` +
       `<span class="paper-t0-viz-chart-hover-meta">` +
-      `y_τ ${esc(fmtNum(pt.y_tau, 2))}% · ${esc(dir)}` +
+      `R̂_τ ${esc(fmtNum(pt.r_pct, 2))}% · ${esc(dir)}` +
+      (pt.y_oc != null && Number.isFinite(Number(pt.y_oc))
+        ? ` · ŷ_oc ${esc(fmtNum(pt.y_oc, 2))}%`
+        : "") +
       `</span>` +
       (skipTip ? `<p>${esc(skipTip)}</p>` : "");
     if (ev && box) {
@@ -1105,7 +1195,7 @@ function renderKpiRow(summary) {
     [
       "ŷ覆盖",
       sm.score_coverage_pct != null ? `${sm.score_coverage_pct}%` : null,
-      "有 y_τ 快照的评估日占比",
+      "有 ŷ_oc 快照的评估日占比",
     ],
     [
       "往返率",
@@ -1113,18 +1203,22 @@ function renderKpiRow(summary) {
       "卖出回补或买入卖回完成比例",
     ],
     [
-      "τ门槛",
-      sm.y_tau_enter != null ? `|y_τ|≥${sm.y_tau_enter}%` : null,
-      "|y_τ| 低于入场则横盘跳过",
+      "oc门槛",
+      sm.y_tau_enter != null && Number.isFinite(Number(sm.y_tau_enter))
+        ? Number(sm.y_tau_enter) > 0
+          ? `|ŷ_oc|≥${sm.y_tau_enter}%`
+          : "关"
+        : null,
+      "|ŷ_oc| 低于 oc入场则横盘跳过；0=关",
     ],
     [
-      "R门槛",
-      sm.r_tau_enter != null && Number.isFinite(Number(sm.r_tau_enter))
-        ? Number(sm.r_tau_enter) > 0
-          ? `|R̂_τ|≥${sm.r_tau_enter}%`
+      "TC门槛",
+      sm.y_tc_enter != null && Number.isFinite(Number(sm.y_tc_enter))
+        ? Number(sm.y_tc_enter) > 0
+          ? `|ŷ_τc|≥${sm.y_tc_enter}%`
           : "关"
-        : `|R̂_τ|≥0.1%`,
-      "|R̂_τ| 低于入场则超额不足跳过（0–1.0%；0=关）",
+        : null,
+      "|ŷ_τc| 低于 TC入场则横盘跳过；0=关",
     ],
     [
       "信号跳过",
@@ -1134,19 +1228,19 @@ function renderKpiRow(summary) {
     [
       "τ·OC命中",
       sm.tau_oc_hit_rate_pct != null ? `${sm.tau_oc_hit_rate_pct}%` : null,
-      "成交日 y_τ 符号 vs 实际 open→close",
+      "成交日 ŷ_oc 符号 vs 实际 open→close",
     ],
     [
       "path一致",
       sm.path_agree_rate_pct != null ? `${sm.path_agree_rate_pct}%` : null,
-      "成交日 y_τ 与 y_path 同号率",
+      "成交日 ŷ_oc 与 y_path 同号率",
     ],
   ];
   if (sm.avg_y_tau_traded != null) {
-    chips.push(["成交τ̄", `${fmtNum(sm.avg_y_tau_traded, 2)}%`, "成交日平均 y_τ"]);
+    chips.push(["成交oc̄", `${fmtNum(sm.avg_y_tau_traded, 2)}%`, "成交日平均 ŷ_oc"]);
   }
   if (sm.avg_y_tau_signal_skip != null) {
-    chips.push(["跳过τ̄", `${fmtNum(sm.avg_y_tau_signal_skip, 2)}%`, "信号跳过日平均 y_τ"]);
+    chips.push(["跳过oc̄", `${fmtNum(sm.avg_y_tau_signal_skip, 2)}%`, "信号跳过日平均 ŷ_oc"]);
   }
   const html = chips
     .filter(([, v]) => v != null)
@@ -1601,6 +1695,10 @@ export function renderT0Viz(host, data) {
     (viz.daily_activity && viz.daily_activity.length > 1) ||
     (viz.y_tau_scatter && viz.y_tau_scatter.length) ||
     (viz.stock_contrib && viz.stock_contrib.length);
+  const scatterPts = attachRpctToScatter(
+    viz.y_tau_scatter,
+    data.days || data.trade_days_sample
+  );
   if (!hasContent) {
     if (host._t0VizRo) host._t0VizRo.disconnect();
     host.hidden = true;
@@ -1609,7 +1707,6 @@ export function renderT0Viz(host, data) {
   }
 
   const ds = viz.direction_split || {};
-  const tauEnter = sm.y_tau_enter != null ? sm.y_tau_enter : 0;
   const cards = [];
 
   if (viz.cumulative_pnl && viz.cumulative_pnl.length) {
@@ -1640,17 +1737,17 @@ export function renderT0Viz(host, data) {
     );
   }
 
-  if (viz.y_tau_scatter && viz.y_tau_scatter.length) {
+  if (scatterPts && scatterPts.length) {
     cards.push(
       vizCard(
-        "y_τ 散点",
-        `|y_τ|≥${tauEnter}% 门槛 · 中间灰带=|y_τ|<τ · 橙=信号跳过 · 悬停看点`,
+        "R̂_τ 散点",
+        "正R=正T · 负R=反T · 点色=正/反T · 橙=信号跳过 · 悬停看点",
         chartCanvas("scatter"),
         `<div data-role="scatter-foot"></div>`,
         legendChips([
           { color: THEME.buyThenSell, label: "正T成交" },
           { color: THEME.sellThenBuy, label: "反T成交" },
-          { color: THEME.signalSkip, label: "信号跳过(含负τ)" },
+          { color: THEME.signalSkip, label: "信号跳过" },
         ])
       )
     );
@@ -1744,8 +1841,8 @@ export function renderT0Viz(host, data) {
     const sc = host.querySelector('canvas[data-viz="scatter"]');
     if (sc) {
       sc._scatNameByCode = stockNameByCode(viz);
-      sc._scatThreshold = tauEnter;
-      const meta = drawYtauScatter(sc, viz.y_tau_scatter, tauEnter, {
+      sc._scatThreshold = 0;
+      const meta = drawYtauScatter(sc, scatterPts, 0, {
         hoverIdx: sc._scatHoverIdx,
         nameByCode: sc._scatNameByCode,
       });
@@ -1756,9 +1853,8 @@ export function renderT0Viz(host, data) {
           `<span>成交 <b>${meta.nTraded}</b>（正${meta.nBuyThenSell}/反${meta.nSellThenBuy}）</span>`,
           `<span>信号跳过 <b>${meta.nSkip}</b></span>`,
           meta.nSkipNeg > 0
-            ? `<span>负τ跳过(≤−0.1%) <b>${meta.nSkipNeg}</b> · 多在灰带|y_τ|&lt;τ</span>`
+            ? `<span>R̂_τ&lt;0 跳过 <b>${meta.nSkipNeg}</b></span>`
             : "",
-          `<span>门槛 |y_τ|≥${meta.threshold}%</span>`,
         ]
           .filter(Boolean)
           .join('<span class="sep">·</span>');

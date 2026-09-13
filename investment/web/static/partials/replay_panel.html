@@ -94,10 +94,10 @@
             <div class="dashboard-kpi-value quant-pro-kpi-value replay-kpi-value" id="replay-kpi-win">—</div>
             <div class="dashboard-kpi-sub quant-pro-kpi-sub replay-kpi-sub" id="replay-kpi-win-sub">日净值&gt;0</div>
           </div>
-          <div class="dashboard-kpi-card quant-pro-kpi-card replay-kpi-card is-empty" data-kpi="hit" title="成交腿 sign(y_fuse)=sign(当日收/开盘−1)；|y_fuse|&lt;0.05% 无方向；跳过不计">
+          <div class="dashboard-kpi-card quant-pro-kpi-card replay-kpi-card is-empty" data-kpi="hit" title="成交腿 sign(ranking)=sign(当日收/开盘−1)；|ranking|&lt;0.05% 无方向；跳过不计">
             <div class="dashboard-kpi-label quant-pro-kpi-label replay-kpi-label">命中率</div>
             <div class="dashboard-kpi-value quant-pro-kpi-value replay-kpi-value" id="replay-kpi-hit">—</div>
-            <div class="dashboard-kpi-sub quant-pro-kpi-sub replay-kpi-sub" id="replay-kpi-hit-sub">sign(y_fuse)</div>
+            <div class="dashboard-kpi-sub quant-pro-kpi-sub replay-kpi-sub" id="replay-kpi-hit-sub">sign(ranking)</div>
           </div>
         </div>
       </div>
@@ -109,45 +109,38 @@
                 <section class="follow-path-matrix-panel" data-panel="mode" aria-labelledby="pm-panel-mode">
                   <header class="follow-path-matrix-panel-head">
                     <h4 id="pm-panel-mode" class="follow-path-matrix-panel-title">分数融合</h4>
-                    <p class="follow-path-matrix-panel-note">一层 y_trade＝昨收口径；二层 y_fuse＝open[T]→close[T]（CC 融合按缺口映剩余）；y_on＝close[T]→open[T+1]</p>
+                    <p class="follow-path-matrix-panel-note">rank＝w_oo·ŷ_oo + w_oc·((1+ŷ_oc)(1+w_co·ŷ_co)−1)</p>
                   </header>
-                  <div class="follow-path-matrix-body follow-path-matrix-body--row4">
-                    <label class="follow-path-matrix-box" title="y_trade 中 ŷ_EOD_rem 权重；与 w_τ 一并归一化">
+                  <div class="follow-path-matrix-body follow-path-matrix-body--row3">
+                    <label class="follow-path-matrix-box" title="rank 中 ŷ_oo 权重；与 w_oc 一并归一化">
                       <span class="follow-path-matrix-box-text">
-                        <span class="follow-path-matrix-box-title">w_EOD</span>
-                        <span class="follow-path-matrix-box-desc">y_trade</span>
-                      </span>
-                      <input type="number" name="pm_w_eod" min="0" max="1" step="0.05" value="0.5" />
-                    </label>
-                    <label class="follow-path-matrix-box" title="y_trade 中 ŷ_τ 权重；与 w_EOD 一并归一化">
-                      <span class="follow-path-matrix-box-text">
-                        <span class="follow-path-matrix-box-title">w_τ</span>
-                        <span class="follow-path-matrix-box-desc">y_trade</span>
-                      </span>
-                      <input type="number" name="pm_w_tau" min="0" max="1" step="0.05" value="0.5" />
-                    </label>
-                    <label class="follow-path-matrix-box" title="y_fuse 中 y_trade 权重；与 nc 权重一并归一化">
-                      <span class="follow-path-matrix-box-text">
-                        <span class="follow-path-matrix-box-title">w_trade</span>
-                        <span class="follow-path-matrix-box-desc">y_fuse</span>
+                        <span class="follow-path-matrix-box-title">w_oo</span>
+                        <span class="follow-path-matrix-box-desc">ŷ_oo</span>
                       </span>
                       <input type="number" name="pm_fusion_w_trade" min="0" max="1" step="0.05" value="0.5" />
                     </label>
-                    <label class="follow-path-matrix-box" title="y_fuse 中 y_nowcast 权重；与 trade 权重一并归一化">
+                    <label class="follow-path-matrix-box" title="rank 中 ŷ_oc 权重；与 w_oo 一并归一化">
                       <span class="follow-path-matrix-box-text">
-                        <span class="follow-path-matrix-box-title">w_nc</span>
-                        <span class="follow-path-matrix-box-desc">y_fuse</span>
+                        <span class="follow-path-matrix-box-title">w_oc</span>
+                        <span class="follow-path-matrix-box-desc">ŷ_oc</span>
                       </span>
                       <input type="number" name="pm_fusion_w_nc" min="0" max="1" step="0.05" value="0.5" />
+                    </label>
+                    <label class="follow-path-matrix-box" title="叠进 ŷ_oc 的隔夜系数，(1+ŷ_oc)(1+w_co·ŷ_co)−1。范围 0～10；0=不叠。">
+                      <span class="follow-path-matrix-box-text">
+                        <span class="follow-path-matrix-box-title">w_co</span>
+                        <span class="follow-path-matrix-box-desc">ŷ_co</span>
+                      </span>
+                      <input type="number" name="pm_y_on_alpha" min="0" max="10" step="0.1" value="0" aria-label="w_co" />
                     </label>
                   </div>
                 </section>
                 <section class="follow-path-matrix-panel" data-panel="rank" aria-labelledby="pm-panel-rank">
                   <header class="follow-path-matrix-panel-head">
                     <h4 id="pm-panel-rank" class="follow-path-matrix-panel-title">ranking 门槛</h4>
-                    <p class="follow-path-matrix-panel-note">ranking=(1+y_fuse/100)×(1+α×y_on/100)−1，展示百分数。α=0 隔夜不参与；α=1 对齐 T 开→T+1 开。过入场买入场股数；过强买强档股数。</p>
+                    <p class="follow-path-matrix-panel-note">rank＝w_oo·ŷ_oo + w_oc·((1+ŷ_oc)(1+w_co·ŷ_co)−1)</p>
                   </header>
-                  <div class="follow-path-matrix-body follow-path-matrix-body--row4">
+                  <div class="follow-path-matrix-body follow-path-matrix-body--row3">
                     <div
                       class="follow-path-matrix-box follow-path-matrix-box--pair"
                       title="过入场阈值才建仓/加仓，买右侧股数。阈值默认 1.2%；股数整百，默认 100。保存规则不改交易执行 200 股。"
@@ -181,20 +174,6 @@
                         <label class="follow-path-matrix-box-slot">
                           <span class="follow-path-matrix-box-slot-label">股数</span>
                           <input type="number" name="pm_lot_strong" min="100" max="10000" step="100" value="200" aria-label="强档股数" />
-                        </label>
-                      </div>
-                    </div>
-                    <div
-                      class="follow-path-matrix-box follow-path-matrix-box--solo"
-                      title="隔夜系数 α，范围 0～10。ranking=(1+y_fuse/100)×(1+α×y_on/100)−1。默认 0：隔夜不参与；1：按原权重乘入，对齐 T 开→T+1 开"
-                    >
-                      <span class="follow-path-matrix-box-text">
-                        <span class="follow-path-matrix-box-title">α_on</span>
-                      </span>
-                      <div class="follow-path-matrix-box-pair">
-                        <label class="follow-path-matrix-box-slot">
-                          <span class="follow-path-matrix-box-slot-label">系数</span>
-                          <input type="number" name="pm_y_on_alpha" min="0" max="10" step="0.1" value="0" aria-label="α_on" />
                         </label>
                       </div>
                     </div>
@@ -251,7 +230,7 @@
           ></div>
         </div>
         <p id="quant-portfolio-legend" class="quant-sub">
-          每个交易日 09:30 对全部观察池按 y_fuse/y_on 调仓；手数看上方入场/强档股数。横轴为本次全部交易日。
+          每个交易日 09:30 对全部观察池按 rank=w_oo·ŷ_oo + w_oc·((1+ŷ_oc)(1+w_co·ŷ_co)−1) 调仓；手数看上方入场/强档股数。横轴为本次全部交易日。
         </p>
         <div id="quant-bt-stock-contrib" class="replay-stock-contrib" hidden aria-label="分票贡献"></div>
         <div id="quant-bt-trades" class="quant-weight-table-wrap" aria-label="成交流水"></div>
@@ -336,7 +315,28 @@
                   </label>
                   <label
                     class="paper-t0-field"
-                    title="v6：超额带宽 ĉ±δ，δ=开盘×此%/100；收价破上带反T、破下带正T；默认 3"
+                    title="目标交易价 C_τ = O×(1+clip(ŷ_oc×放大, y_oc_l, y_oc_u)/100)。y_oc 放大默认 10：ŷ_oc=−0.3% 即触 clip 下界 −3%。"
+                  >
+                    <span>y_oc 放大</span>
+                    <input type="number" name="t0_y_oc_target_scale" min="0" max="100" step="0.5" value="10" />
+                  </label>
+                  <label
+                    class="paper-t0-field"
+                    title="clip(ŷ_oc×scale) 下界，百分点。默认 −3。"
+                  >
+                    <span>ŷ_oc下界</span>
+                    <input type="number" name="t0_y_oc_l" min="-20" max="20" step="0.1" value="-3" />
+                  </label>
+                  <label
+                    class="paper-t0-field"
+                    title="clip(ŷ_oc×scale) 上界，百分点。默认 +3。"
+                  >
+                    <span>ŷ_oc上界</span>
+                    <input type="number" name="t0_y_oc_u" min="-20" max="20" step="0.1" value="3" />
+                  </label>
+                  <label
+                    class="paper-t0-field"
+                    title="v6：upper=C_τ×(1+δ/100)，lower=C_τ×(1−δ/100)。C>upper 反T、C<lower 正T；leg2 冻结 C_τ。默认 3。ŷ_τc 不参与。"
                   >
                     <span>超额带宽δ%</span>
                     <input type="number" name="t0_close_band_delta_pct" min="0" max="10" step="0.05" value="3" />
@@ -385,41 +385,17 @@
                   </label>
                   <label
                     class="paper-t0-field"
-                    title="开：须有 y_path（缺则跳过）；关：缺 path 也可开轮。|y_path| 入场幅度见门槛1/门槛2 的 path入场%。"
+                    title="|y_hl| 超过此值须与 ŷ_oc 同号，异号则跳过；默认 5；0=任意非零 HL 都要求同号。缺 y_hl 跳过（开盘分钟缺失除外）。"
                   >
-                    <span>用path</span>
-                    <input type="checkbox" name="y_use_path" checked />
-                  </label>
-                  <label
-                    class="paper-t0-field"
-                    title="|y_path| 超过此值须与 y_τ 同号，异号则跳过；默认 5；0=任意非零 path 都要求同号。"
-                  >
-                    <span>path强%</span>
+                    <span>HL强%</span>
                     <input type="number" name="y_path_strong" min="0" max="5" step="0.01" value="5" />
                   </label>
                   <label
                     class="paper-t0-field"
-                    title="把预估开→收 ŷ_τ 当偏移加到 ±δ 上，整条带宽平移（宽仍 2δ），不改冻结 leg2（仍 ĉ±δ）。抬门槛：s=clip(k·ŷ_τ,±α·δ)，上沿=δ+s、下沿=−δ+s；关=对称 ±δ（ĉ 已含 ŷ_τ，残差常小于 δ，成交会少；可略降 δ）"
+                    title="ŷ_τc 旁路：破带后须向 C_τ 回归（反T remaining&lt;0，正T&gt;0）。|ŷ_τc| 超过此值且逆带则跳过。0=任意有符号都要求同号；1=关。不改 C_τ。"
                   >
-                    <span>τ先验</span>
-                    <select name="y_tau_leg1_prior_mode">
-                      <option value="score" selected>抬门槛</option>
-                      <option value="off">关</option>
-                    </select>
-                  </label>
-                  <label
-                    class="paper-t0-field"
-                    title="带宽漂移灵敏度：偏移 s=k·ŷ_τ（再经 α·δ 封顶）；范围 0–100；默认 k=10"
-                  >
-                    <span>先验风险k</span>
-                    <input type="number" name="y_tau_leg1_prior_risk" min="0" max="100" step="0.1" value="10" />
-                  </label>
-                  <label
-                    class="paper-t0-field"
-                    title="带宽最多漂移 α·δ：α∈[0.1, 1.0]；α=1 时同侧可贴 0（须收价越过 ĉ 才开仓）；默认 1"
-                  >
-                    <span>shift上限α</span>
-                    <input type="number" name="y_tau_leg1_prior_shift_scale" min="0.1" max="1.0" step="0.05" value="1" />
+                    <span>τc强%</span>
+                    <input type="number" name="y_tc_strong" min="0" max="1.00" step="0.01" value="1.00" />
                   </label>
                   <label
                     class="paper-t0-field"
@@ -434,7 +410,7 @@
                 <div class="paper-t0-cfg-gates">
                 <fieldset class="paper-t0-cfg-block is-gate-1">
                   <legend>门槛1</legend>
-                  <p class="paper-t0-cfg-hint quant-sub">|y_τ|、|y_path|、|R̂_τ| 过入场，且 complexity / tpd 过上限。关启用则本档不参与 OR。缺 path / 分钟缺失见共用区。</p>
+                  <p class="paper-t0-cfg-hint quant-sub">|ŷ_oc|、|ŷ_τc|、|y_hl| 过入场，且 ŷ_cx / tpd 过上限。关启用则本档不参与 OR。缺 HL / 分钟缺失见共用区。</p>
                   <div class="paper-t0-form-grid is-quad">
                   <label
                     class="paper-t0-field"
@@ -445,37 +421,37 @@
                   </label>
                   <label
                     class="paper-t0-field"
-                    title="门槛1 |ŷ_τ| 低于此值视为横盘跳过；范围 0–100%；0=关；默认 0。"
+                    title="门槛1 |ŷ_oc| 低于此值视为横盘跳过；范围 0–100%；0=关；默认 0。"
                   >
-                    <span>τ入场%</span>
+                    <span>oc入场%</span>
                     <input type="number" name="y_tau_enter" min="0" max="100" step="0.01" value="0" />
                   </label>
                   <label
                     class="paper-t0-field"
-                    title="门槛1 |ŷ_path| 低于此值视为横盘跳过；范围 0–100%；0=关幅度；默认 0。"
+                    title="门槛1 |ŷ_τc| 低于此值视为横盘跳过；范围 0–100%；0=关；默认 0。"
                   >
-                    <span>path入场%</span>
+                    <span>TC入场%</span>
+                    <input type="number" name="y_tc_enter" min="0" max="100" step="0.01" value="0" />
+                  </label>
+                  <label
+                    class="paper-t0-field"
+                    title="门槛1 |ŷ_hl| 低于此值视为横盘跳过；范围 0–100%；0=关幅度；默认 0。"
+                  >
+                    <span>HL入场%</span>
                     <input type="number" name="y_path_enter" min="0" max="100" step="0.01" value="0" />
                   </label>
                   <label
                     class="paper-t0-field"
-                    title="门槛1 |R̂_τ| 低于此值即使收价破带也不开轮；与超额带宽δ独立；范围 0–1.0；0=关；默认 0。"
+                    title="ŷ_cx∈[0,1]（0=直线，1=最折）。超过此值太折则跳过做 T；范围 0–1；默认 1.00≈关。闸用盘中前缀 ŷ_cx，不是收盘后的全日 label。"
                   >
-                    <span>R入场%</span>
-                    <input type="number" name="r_tau_enter" min="0" max="1.0" step="0.01" value="0" />
-                  </label>
-                  <label
-                    class="paper-t0-field"
-                    title="ŷ_complexity∈[0,1]（0=直线，1=最折）。超过此值太折则跳过做 T；范围 0–1；默认 1.00≈关。闸用盘中前缀 ŷ_complexity，不是收盘后的全日 label。"
-                  >
-                    <span>complexity门槛</span>
+                    <span>CX上界</span>
                     <input type="number" name="y_complexity_max" min="0" max="1.00" step="0.01" value="1.00" />
                   </label>
                   <label
                     class="paper-t0-field"
                     title="ŷ_tpd∈[0,1]（0=无反转，1=每根都反转）。超过此值反转过密则跳过做 T；范围 0.00–1.00；默认 1.00≈关。闸用盘中前缀 ŷ_tpd，不是收盘后的全日 label。"
                   >
-                    <span>tpd门槛</span>
+                    <span>tpd上界</span>
                     <input type="number" name="y_tpd_max" min="0" max="1.00" step="0.01" value="1.00" />
                   </label>
                   </div>
@@ -483,7 +459,7 @@
 
                 <fieldset class="paper-t0-cfg-block is-gate-2">
                   <legend>门槛2</legend>
-                  <p class="paper-t0-cfg-hint quant-sub">|y_τ|、|y_path|、|R̂_τ| 过入场，且 complexity / tpd 过上限。关启用则本档不参与 OR。缺 path / 分钟缺失见共用区。</p>
+                  <p class="paper-t0-cfg-hint quant-sub">|ŷ_oc|、|ŷ_τc|、|y_hl| 过入场，且 ŷ_cx / tpd 过上限。关启用则本档不参与 OR。缺 HL / 分钟缺失见共用区。</p>
                   <div class="paper-t0-form-grid is-quad">
                   <label
                     class="paper-t0-field"
@@ -494,37 +470,37 @@
                   </label>
                   <label
                     class="paper-t0-field"
-                    title="门槛2 |ŷ_τ| 低于此值视为横盘跳过；范围 0–100%；0=关；默认 0。"
+                    title="门槛2 |ŷ_oc| 低于此值视为横盘跳过；范围 0–100%；0=关；默认 0。"
                   >
-                    <span>τ入场%</span>
+                    <span>oc入场%</span>
                     <input type="number" name="y_tau_enter_alt" min="0" max="100" step="0.01" value="0" />
                   </label>
                   <label
                     class="paper-t0-field"
-                    title="门槛2 |ŷ_path| 低于此值视为横盘跳过；范围 0–100%；0=关幅度；默认 0。"
+                    title="门槛2 |ŷ_τc| 低于此值视为横盘跳过；范围 0–100%；0=关；默认 0。"
                   >
-                    <span>path入场%</span>
+                    <span>TC入场%</span>
+                    <input type="number" name="y_tc_enter_alt" min="0" max="100" step="0.01" value="0" />
+                  </label>
+                  <label
+                    class="paper-t0-field"
+                    title="门槛2 |ŷ_hl| 低于此值视为横盘跳过；范围 0–100%；0=关幅度；默认 0。"
+                  >
+                    <span>HL入场%</span>
                     <input type="number" name="y_path_enter_alt" min="0" max="100" step="0.01" value="0" />
                   </label>
                   <label
                     class="paper-t0-field"
-                    title="门槛2 |R̂_τ| 低于此值即使收价破带也不开轮；与超额带宽δ独立；范围 0–1.0；0=关；默认 0。"
+                    title="ŷ_cx∈[0,1]（0=直线，1=最折）。超过此值太折则跳过做 T；范围 0–1；默认 1.00≈关。闸用盘中前缀 ŷ_cx，不是收盘后的全日 label。"
                   >
-                    <span>R入场%</span>
-                    <input type="number" name="r_tau_enter_alt" min="0" max="1.0" step="0.01" value="0" />
-                  </label>
-                  <label
-                    class="paper-t0-field"
-                    title="ŷ_complexity∈[0,1]（0=直线，1=最折）。超过此值太折则跳过做 T；范围 0–1；默认 1.00≈关。闸用盘中前缀 ŷ_complexity，不是收盘后的全日 label。"
-                  >
-                    <span>complexity门槛</span>
+                    <span>CX上界</span>
                     <input type="number" name="y_complexity_max_alt" min="0" max="1.00" step="0.01" value="1.00" />
                   </label>
                   <label
                     class="paper-t0-field"
                     title="ŷ_tpd∈[0,1]（0=无反转，1=每根都反转）。超过此值反转过密则跳过做 T；范围 0.00–1.00；默认 1.00≈关。闸用盘中前缀 ŷ_tpd，不是收盘后的全日 label。"
                   >
-                    <span>tpd门槛</span>
+                    <span>tpd上界</span>
                     <input type="number" name="y_tpd_max_alt" min="0" max="1.00" step="0.01" value="1.00" />
                   </label>
                   </div>
@@ -534,7 +510,7 @@
                 <div class="paper-t0-cfg-sides">
                 <fieldset class="paper-t0-cfg-block is-buy-then-sell">
                   <legend>正 T</legend>
-                  <p class="paper-t0-cfg-hint quant-sub">先买后卖；选腿仅收盘带宽；第二腿=冻结对侧带；止损/中点追价/回补仍生效。</p>
+                  <p class="paper-t0-cfg-hint quant-sub">先买后卖；选腿仅收盘带宽；第二腿=冻结 C_τ；止损/中点追价/回补仍生效。</p>
                   <div class="paper-t0-form-grid is-quad">
                   <label
                     class="paper-t0-field has-tip"
@@ -569,7 +545,7 @@
 
                 <fieldset class="paper-t0-cfg-block is-sell-then-buy">
                   <legend>反 T</legend>
-                  <p class="paper-t0-cfg-hint quant-sub">先卖后买；选腿仅收盘带宽；第二腿=冻结对侧带；止损/中点追价/回补仍生效。</p>
+                  <p class="paper-t0-cfg-hint quant-sub">先卖后买；选腿仅收盘带宽；第二腿=冻结 C_τ；止损/中点追价/回补仍生效。</p>
                   <div class="paper-t0-form-grid is-quad">
                   <label
                     class="paper-t0-field has-tip"

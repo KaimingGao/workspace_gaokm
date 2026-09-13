@@ -104,7 +104,7 @@ function clusterOosCounts(data) {
   return { pass, n };
 }
 
-/** 组内 ŷ_EOD 截面 IC 为正的日占比（均值）；不是 ŷ 与收益同号率。 */
+/** 组内 ŷ_oo 截面 IC 为正的日占比（均值）；不是 ŷ 与收益同号率。 */
 function clusterIcPosRatio(data) {
   const clusters = Array.isArray(data && data.clusters) ? data.clusters : [];
   const xs = [];
@@ -255,7 +255,7 @@ export function syncOverviewMinute(data) {
   );
 }
 
-/** 分组结果 → ŷ_EOD 卡 */
+/** 分组结果 → ŷ_oo 卡 */
 export function syncOverviewFromClusters(data) {
   if (!data || data.success === false) return;
   const clusters = Array.isArray(data.clusters) ? data.clusters : [];
@@ -289,7 +289,7 @@ export function syncOverviewFromClusters(data) {
   paintOverviewEod();
 }
 
-/** 命中率（0–1 或已是百分比）→ ŷ_EOD 卡副文案（无 OOS 计数时） */
+/** 命中率（0–1 或已是百分比）→ ŷ_oo 卡副文案（无 OOS 计数时） */
 export function syncOverviewHit(hitRate, subText) {
   let pct = Number(hitRate);
   if (!Number.isFinite(pct)) return;
@@ -309,7 +309,7 @@ export function syncOverviewHit(hitRate, subText) {
   setProOverviewKpi("eod", `${overviewPack.k} 组`, sub, st);
 }
 
-/** live 状态 → 落地卡，并补 ŷ_EOD mode */
+/** live 状态 → 落地卡，并补 ŷ_oo mode */
 export function syncOverviewLanding(data) {
   if (!data || data.success === false) return;
   const cs = data.cluster_scoring || {};
@@ -327,7 +327,7 @@ export function syncOverviewLanding(data) {
   paintOverviewEod();
 }
 
-/** ŷ_τ 复盘 / τ 模型 → 概览副轴 KPI
+/** ŷ_oc 复盘 / τ 模型 → 概览副轴 KPI
  * @param {"hit"|"ic"|"text"} mode
  */
 export function syncOverviewTau(value, subText, mode = "hit") {
@@ -335,7 +335,7 @@ export function syncOverviewTau(value, subText, mode = "hit") {
     setProOverviewKpi(
       "tau",
       value != null ? String(value) : "—",
-      subText != null ? String(subText) : "ŷ_τ",
+      subText != null ? String(subText) : "ŷ_oc",
       "is-mid"
     );
     return;
@@ -345,7 +345,7 @@ export function syncOverviewTau(value, subText, mode = "hit") {
     setProOverviewKpi(
       "tau",
       "—",
-      subText != null ? String(subText) : "ŷ_τ",
+      subText != null ? String(subText) : "ŷ_oc",
       "is-empty"
     );
     return;
@@ -355,7 +355,7 @@ export function syncOverviewTau(value, subText, mode = "hit") {
     setProOverviewKpi(
       "tau",
       `IC ${n.toFixed(2)}`,
-      subText != null ? String(subText) : "ŷ_τ IC",
+      subText != null ? String(subText) : "ŷ_oc IC",
       st
     );
     return;
@@ -366,17 +366,11 @@ export function syncOverviewTau(value, subText, mode = "hit") {
   setProOverviewKpi(
     "tau",
     `${pct.toFixed(0)}%`,
-    subText != null ? String(subText) : "ŷ_τ 命中 · open→收",
+    subText != null ? String(subText) : "ŷ_oc 命中 · open→收",
     st
   );
 }
 
-
-/** 纸面拟合已退出概览（仍在页内「纸面拟合」区）。 */
-export function syncOverviewFit(_corr, _te, _subText) {}
-
-/** 拟合落差不再写概览 KPI。 */
-export function syncOverviewFromFitGap(_data) {}
 
 /** 从 IC/分组结果渲染因子摘要卡网格 */
 export function renderFactorSummaryCards(data, metaByName) {

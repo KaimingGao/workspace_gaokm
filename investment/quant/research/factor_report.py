@@ -12,13 +12,9 @@ from core.signal.scorer import score_bars
 
 
 def _forward_return(bars: List[dict], idx: int, horizon: int) -> Optional[float]:
-    if idx + horizon >= len(bars):
-        return None
-    entry = bars[idx].get("close")
-    exit_p = bars[idx + horizon].get("close")
-    if not entry:
-        return None
-    return (exit_p / entry - 1.0) * 100.0
+    from core.signal.yhat_windows import forward_oo_pct
+
+    return forward_oo_pct(bars, idx, horizon)
 
 
 def _resolve_fund_for_day(
@@ -79,21 +75,16 @@ def compute_factor_ic_report(
     pit_hits = 0
     pit_miss = 0
 
+    from core.signal.yhat_windows import pit_oo_window_quote
+
     n = len(bars or [])
     for i in range(min_history - 1, n - horizon_days):
         start = max(0, i - max_window + 1)
-        window = bars[start : i + 1]
-        quote = {
-            "change_raw": 0.0,
-            "price_raw": bars[i]["close"],
-        }
-        if i >= 1:
-            c0 = bars[i - 1]["close"]
-            c1 = bars[i]["close"]
-            if c0:
-                quote["change_raw"] = round((c1 / c0 - 1.0) * 100.0, 4)
+        window, quote = pit_oo_window_quote(bars, i, start)
+        if len(window) < 2:
+            continue
 
-        idx_slice = index_bars[start : i + 1] if index_bars else None
+        idx_slice = index_bars[start:i] if index_bars else None
         decision_date = str((bars[i] or {}).get("date") or "")[:10]
         day_fund = _resolve_fund_for_day(
             stock_code,

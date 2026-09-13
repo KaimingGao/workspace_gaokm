@@ -320,15 +320,22 @@ _SCORE_PASSTHROUGH_KEYS = (
     "score_rem",
     "predicted_score_blend",
     "predicted_score_path",
+    "predicted_score_hl",
     "predicted_score_nowcast",
     "predicted_score_on",
     "decision_score",
     "y_trade",
     "y_path",
+    "y_hl",
     "y_nowcast",
     "y_nc",
     "y_on",
     "y_tau",
+    "y_oo",
+    "y_oc",
+    "y_τc",
+    "ranking",
+    "residual",
     "y_fuse",
     "ranking_score",
     "dual_score_window",
@@ -357,7 +364,9 @@ def _score_fields_for_report(item: dict, scores: Dict[str, Optional[float]]) -> 
                 out[k] = item.get(k)
     # 分项 ŷ 覆盖同名键；ŷ_EOD / ŷ_τ 仍走 item 透传
     yt = scores.get("y_trade")
-    yp = scores.get("y_path")
+    from core.research.path_panel import pick_y_hl
+
+    yp = pick_y_hl(scores)
     yn = scores.get("y_nowcast")
     yo = scores.get("y_on")
     if yt is not None:
@@ -366,8 +375,9 @@ def _score_fields_for_report(item: dict, scores: Dict[str, Optional[float]]) -> 
         out["decision_score"] = yt
         out["score"] = yt
     if yp is not None:
-        out["y_path"] = yp
-        out.setdefault("predicted_score_path", yp)
+        from core.research.path_panel import write_y_hl
+
+        write_y_hl(out, yp)
     if yn is not None:
         out["y_nowcast"] = yn
         out["y_nc"] = yn
@@ -382,23 +392,27 @@ def _score_fields_for_report(item: dict, scores: Dict[str, Optional[float]]) -> 
     return out
 
 
-def _row_score_payload(item: Optional[dict], src: Optional[dict] = None) -> Dict[str, Any]:
-    """表列用分项 ŷ，不把 y_fuse 塞进 y_trade。"""
+def _row_score_payload(
+    item: Optional[dict],
+    src: Optional[dict] = None,
+    cfg: Optional[dict] = None,
+) -> Dict[str, Any]:
+    """表列用分项 ŷ；ranking 别名 y_fuse，不把融合分塞进 y_trade。"""
     from core.paper.rebalance.rank_lots import y_on_of, y_tau_of
     from core.paper.rebalance.path_matrix import scores_from_rebalance_item
 
     item = item if isinstance(item, dict) else {}
     src = src if isinstance(src, dict) else {}
-    sc = scores_from_rebalance_item(item)
+    sc = scores_from_rebalance_item(item, cfg)
     yt = _f(src.get("y_trade"))
     if yt is None:
         yt = sc.get("y_trade")
     yn = _f(src.get("y_nowcast") if src.get("y_nowcast") is not None else src.get("y_nc"))
     if yn is None:
         yn = sc.get("y_nowcast")
-    yp = _f(src.get("y_path") if src.get("y_path") is not None else src.get("predicted_score_path"))
-    if yp is None:
-        yp = _f(item.get("y_path") if item.get("y_path") is not None else item.get("predicted_score_path"))
+    from core.research.path_panel import pick_y_hl
+
+    yp = pick_y_hl(src, item, sc)
     yo = _f(src.get("y_on"))
     if yo is None:
         yo = y_on_of(item)
@@ -409,8 +423,16 @@ def _row_score_payload(item: Optional[dict], src: Optional[dict] = None) -> Dict
         item,
         {"y_trade": yt, "y_path": yp, "y_nowcast": yn, "y_on": yo, "y_tau": ytau},
     )
-    yf = src.get("y_fuse")
+    for k in ("y_oo", "y_oc", "y_τc", "ranking", "residual"):
+        if sc.get(k) is not None:
+            payload[k] = sc.get(k)
+    yf = src.get("ranking")
+    if yf is None:
+        yf = src.get("y_fuse")
+    if yf is None:
+        yf = payload.get("ranking")
     if yf is not None:
+        payload["ranking"] = yf
         payload["y_fuse"] = yf
     rs = src.get("ranking_score")
     if rs is not None:
@@ -457,6 +479,12 @@ def _apply_one_leg(
         k: leg.get(k)
         for k in (
             "y_fuse",
+            "ranking",
+            "y_oo",
+            "y_oc",
+            "y_co",
+            "y_τc",
+            "residual",
             "y_on",
             "y_tau",
             "predicted_score_tau",
@@ -654,7 +682,7 @@ def simulate_watching_matrix_preview(
     dry_run: bool = True,
     offline_only: bool = True,
 ) -> Dict[str, Any]:
-    """观察池算分 + rank_lots（y_fuse/y_on · 200/500 股）。默认 offline；dry_run 不写仓。"""
+    """观察池算分 + rank_lots（ranking=fuse(ŷ_oo,ŷ_oc) · 200/500 股）。默认 offline；dry_run 不写仓。"""
     from core.paper.ledger import mark_to_market
     from core.paper.rebalance.rank_lots import (
         ACTION_ADD,
@@ -795,7 +823,7 @@ def simulate_watching_matrix_preview(
             "stock_name": name,
             "matrix_mode": True,
             "price": px,
-            **_row_score_payload(item, src),
+            **_row_score_payload(item, src, rl_cfg),
         }
 
     def _leg_row(leg: dict, *, side: str) -> dict:

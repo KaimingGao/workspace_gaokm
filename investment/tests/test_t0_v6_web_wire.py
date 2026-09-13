@@ -85,6 +85,14 @@ class TestT0V6WebWire(unittest.TestCase):
         self.assertNotIn("t0_confirm_dev_pct", fields)
         self.assertNotIn("y_path_abandon_bars", fields)
         self.assertIn("t0_close_band_delta_pct", fields)
+        self.assertIn("t0_y_oc_target_scale", fields)
+        self.assertIn("t0_y_oc_l", fields)
+        self.assertIn("t0_y_oc_u", fields)
+        self.assertIn("y_tc_enter", fields)
+        self.assertIn("y_tc_enter_alt", fields)
+        self.assertNotIn("r_tau_enter", fields)
+        self.assertNotIn("r_tau_enter_alt", fields)
+        self.assertNotIn("y_tau_leg1_prior_mode", fields)
 
 
 if __name__ == "__main__":

@@ -8,7 +8,7 @@ import {
 import { postClusterLive as postClusterLiveApi, formatClusterApiError } from "./cluster_api.js";
 import { clusterLandingHtml } from "./cluster_landing.js?v=p2253";
 import { PROBE_EMPTY_CLUSTER_FAILED, PROBE_EMPTY_NO_CLUSTER, PROBE_EMPTY_COMPARE_FAILED, probePickerTriggerHtml, probePickerIdentityHtml, summarizeProbeHeterogeneity, buildProbeReadySummaryHtml, buildProbeNotReadySummaryHtml, buildProbeSingletonSummaryHtml, buildProbeNotInClusterPlainText, buildProbeHeteroSummaryHtml, buildProbeMetaSingleton, buildProbeMetaNotInCluster, buildProbeMetaHetero, buildProbePickerMenuHtml, probeStatusBadge, openProbeFold } from "./probe_ui.js";
-import { createScoreTooltipController } from "../score_tooltip.js?v=p1734";
+import { createScoreTooltipController } from "../score_tooltip.js?v=p2364";
 import {
   syncOverviewFromClusters,
   syncOverviewLanding,
@@ -19,7 +19,7 @@ import {
 /** Quant domain: cluster */
 export function installClusterProbe(q) {
   const { on, els, state, ctx, escapeHtml, apiFetch, setQuantMeta, setBusyText, normalizeProbeCode } = q;
-  const { readHorizonDays, readRidgeLambda, readClusterK, ensureFactorMeta, factorMetaByName, clusterNameByCodeFromData, buildClusterFactorTablesHtml, buildClusterGroupBodyHtml, buildOlsClustersSummaryHtml, renderProbeStockVsGroupTableHtml, isProbeSingletonCluster, factorIcWeightMergedHtml, oosGateTipHtml, parseOosGateReason, buildCrossSectionResult, oosGateStatusMeta, probeFactorRowsFromExp, probeIcFieldsFromRow, probeIcMapFromExperiment, probeIcMapFromGroupPanel } = q;
+  const { readHorizonDays, readRidgeLambda, readClusterK, ensureFactorMeta, factorMetaByName, clusterNameByCodeFromData, buildClusterFactorTablesHtml, buildClusterHealthHtml, buildClusterGroupBodyHtml, buildOlsClustersSummaryHtml, renderProbeStockVsGroupTableHtml, isProbeSingletonCluster, factorIcWeightMergedHtml, oosGateTipHtml, parseOosGateReason, buildCrossSectionResult, oosGateStatusMeta, probeFactorRowsFromExp, probeIcFieldsFromRow, probeIcMapFromExperiment, probeIcMapFromGroupPanel } = q;
   const oosGateTips = createScoreTooltipController();
 
   function applyProbePickerSelection(code, { silent } = {}) {
@@ -78,6 +78,7 @@ export function installClusterProbe(q) {
     try {
       // 进度挂分组卡头（三点脉冲）；页顶 meta 不抢主标题下的说明位
       if (els.quantFactorList) els.quantFactorList.innerHTML = "";
+      paintClusterHealth("");
       // 进页优先恢复上次落盘分组，避免刷新重算/命中旧缓存导致组变
       setBusyText(els.quantOlsSummary, "恢复上次分组…", { busy: true });
       let restored = null;
@@ -654,12 +655,26 @@ export function installClusterProbe(q) {
     bodyEl.removeAttribute("data-cluster-lazy");
   }
 
+  function paintClusterHealth(html) {
+    const host = els.quantOlsHealth;
+    if (!host) return;
+    const body = String(html || "").trim();
+    host.innerHTML = body;
+    host.hidden = !body;
+  }
+
   function renderClusterFactorTables() {
     if (!els.quantFactorList) return false;
-    const html = buildClusterFactorTablesHtml(state.quantLastOlsClusters, {
+    const data = state.quantLastOlsClusters;
+    const html = buildClusterFactorTablesHtml(data, {
       lastFactorPanelForMerge: state.lastFactorPanelForMerge,
       lazyTables: true,
     });
+    paintClusterHealth(
+      typeof buildClusterHealthHtml === "function"
+        ? buildClusterHealthHtml(data)
+        : ""
+    );
     if (!html) return false;
     wireClusterFactorLazyHydrate();
     els.quantFactorList.innerHTML = html;
@@ -720,6 +735,7 @@ export function installClusterProbe(q) {
     }
     if (!els.quantFactorList) return;
     if (renderClusterFactorTables()) return;
+    paintClusterHealth("");
     const html = factorIcWeightMergedHtml(
       state.lastFactorPanelForMerge,
       state.lastWeightSuggestForMerge,

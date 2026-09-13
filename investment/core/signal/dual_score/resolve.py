@@ -81,7 +81,7 @@ DEFAULT_DUAL_SCORE: Dict[str, Any] = {
         "formula": "close[T]/open[T]-1",
         "unit": "pct",
         "tau": "open",
-        "note": "ŷ_trade = w·ŷ_EOD + w·(缺口∘ŷ_τ)；不替换 EOD predicted_score",
+        "note": "ŷ_oc = close[T]/open[T]−1；ranking = w·ŷ_oo + w·ŷ_oc",
     },
 }
 

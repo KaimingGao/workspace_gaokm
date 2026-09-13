@@ -4,7 +4,7 @@
 import { escapeHtml as defaultEscapeHtml } from "../shared.js";
 import { researchGridHtml as defaultResearchGridHtml, metricCell as defaultMetricCell } from "./research_grid.js";
 import { metricClass as defaultMetricClass } from "./bt_result.js";
-import { classifyFactor, isRemovedFactor } from "./factor_meta.js";
+import { classifyFactor, isRemovedFactor, ON_FEAT_META } from "./factor_meta.js";
 
 /**
  * @param {{
@@ -459,9 +459,15 @@ export function createFactorIcUi(deps) {
     ret_vs_sector: "开→τ 相对板块 %",
     t_hi_frac: "最高点相对前缀进度",
     t_lo_frac: "最低点相对前缀进度",
-    ret_oc: "开→收 %",
-    ret_cc: "收→收 %",
+    ret_oc: "昨开→昨收 %",
+    ret_cc: "昨收→前收 %",
     y_on_today: "今开/昨开 %",
+    yest_close_loc: "昨收位置",
+    yest_range_pct: "昨振幅 %",
+    yest_vol_ratio: "昨量/均量",
+    dist_to_up_limit: "距涨停 %",
+    yest_gap: "昨隔夜缺口 %",
+    on_ma5: "近5日隔夜缺口均 %",
     // 与 factor_registry 对齐的兜底中文（meta 未加载时仍可读）
     momentum: "动量",
     volume_price: "量价",
@@ -526,7 +532,7 @@ export function createFactorIcUi(deps) {
   }
 
   /**
-   * ŷ_τ / ŷ_ON Ridge 因子系数表：仅入模因子；KPI + 双向 β 图 + 表内条形。
+   * ŷ_oc / ŷ_co Ridge 因子系数表：仅入模因子；KPI + 双向 β 图 + 表内条形。
    * @param {object|null} rm return_model 或含 coefficients 的报告块
    * @param {{ oos?: object, head?: "tau"|"on"|"path"|"cx"|"tpd"|"r" } } [opts]
    */
@@ -538,7 +544,7 @@ export function createFactorIcUi(deps) {
     const isCxHead = opts.head === "cx";
     const isCx = isCxHead || isTpd;
     const isPath = opts.head === "path" || isCx;
-    const pathTag = isTpd ? "ŷ_tpd" : isCxHead ? "ŷ_complexity" : "ŷ_path";
+    const pathTag = isTpd ? "ŷ_tpd" : isCxHead ? "ŷ_cx" : "ŷ_hl";
     const coefs =
       rm.coefficients && typeof rm.coefficients === "object" ? rm.coefficients : {};
     const means =
@@ -578,16 +584,24 @@ export function createFactorIcUi(deps) {
       "t_hi_frac",
       "t_lo_frac",
     ]);
-    const onExtra = new Set([
+    const onPathExtra = new Set([
       "ret_oc",
-      "gap_pct",
       "ret_cc",
       "y_on_today",
+      "yest_close_loc",
+      "yest_range_pct",
+      "yest_vol_ratio",
+    ]);
+    const onOpenExtra = new Set([
+      "gap_pct",
       "sector_gap_breadth",
       "theme_day",
       "gap_atr",
       "gap_vs_sector",
       "ret_open_to_tau",
+      "yclose_loc",
+      "mom3_pct",
+      "dist_to_up_limit",
     ]);
     const histLagExtra = new Set([
       "complexity_lag1",
@@ -604,6 +618,8 @@ export function createFactorIcUi(deps) {
       "tau_ma5",
       "path_lag1",
       "path_ma5",
+      "yest_gap",
+      "on_ma5",
     ]);
     const pathExtra = new Set([
       "gap_pct",
@@ -639,7 +655,10 @@ export function createFactorIcUi(deps) {
           else if (pathExtra.has(name) || remOpenExtra.has(name)) kind = "开盘";
           else kind = "其它";
         } else if (isOn) {
-          kind = onExtra.has(name) ? "路径" : "其它";
+          if (histLagExtra.has(name)) kind = "历史";
+          else if (onOpenExtra.has(name)) kind = "开盘";
+          else if (onPathExtra.has(name)) kind = "路径";
+          else kind = "其它";
         } else if (remMinuteExtra.has(name)) {
           kind = "分钟";
         } else if (remOpenExtra.has(name)) {
@@ -649,7 +668,12 @@ export function createFactorIcUi(deps) {
         }
         return {
           name,
-          label: isCx && histLagExtra.has(name) ? name : remFactorDisplayLabel(name),
+          label:
+            isOn && ON_FEAT_META[name] && ON_FEAT_META[name].label
+              ? ON_FEAT_META[name].label
+              : isCx && histLagExtra.has(name)
+                ? name
+                : remFactorDisplayLabel(name),
           ols,
           abs: Math.abs(ols),
           kind,
@@ -672,17 +696,27 @@ export function createFactorIcUi(deps) {
       const emptyMsg = isTpd
         ? "暂无 ŷ_tpd 入模因子"
         : isCxHead
-        ? "暂无 ŷ_complexity 入模因子"
+        ? "暂无 ŷ_cx 入模因子"
         : isPath
-        ? "暂无 ŷ_path 入模因子"
+        ? "暂无 ŷ_hl 入模因子"
         : isOn
-          ? "暂无 ŷ_ON 入模因子"
+          ? "暂无 ŷ_co 入模因子"
           : isR
-            ? "暂无 ŷ_r 入模因子"
+            ? "暂无 ŷ_τc 入模因子"
           : "暂无 rem 入模因子";
       return `<p class="sub">${emptyMsg}</p>`;
     }
 
+    const researchRm =
+      opts.researchModel && typeof opts.researchModel === "object"
+        ? opts.researchModel
+        : null;
+    const researchIntercept =
+      researchRm &&
+      researchRm.intercept != null &&
+      Number.isFinite(Number(researchRm.intercept))
+        ? Number(researchRm.intercept)
+        : null;
     const intercept =
       rm.intercept != null && Number.isFinite(Number(rm.intercept))
         ? Number(rm.intercept)
@@ -739,7 +773,7 @@ export function createFactorIcUi(deps) {
         : "";
     const posN = rows.filter((r) => r.ols >= 0).length;
     const negN = rows.length - posN;
-    const yhatTag = isPath ? pathTag : isOn ? "ŷ_ON" : isR ? "ŷ_r" : "ŷ_τ";
+    const yhatTag = isPath ? pathTag : isOn ? "ŷ_co" : isR ? "ŷ_τc" : "ŷ_oc";
     const ySpecTip =
       `${yhatTag} 训练标签 · ${ySpec}` +
       (ySpecClocks.length >= 2
@@ -760,7 +794,9 @@ export function createFactorIcUi(deps) {
         : null;
     const interceptTip = isCx
       ? "去均值后加回标签均值（∈[0,1]）"
-      : "模型截距（%）";
+      : isR
+        ? "执行套截距：全样本标签均值 + α_dm。观察/持仓用。做 T 回测走研究套，数字会不同。"
+        : "模型截距（%）";
     const nTip = oos.holdout_trading_days != null
       ? "执行套全样本入模行；Holdout 只改研究套训/测，不改此数"
       : "全面板完整行（OOS 后重估 β）；状态栏「面板 n」含缺测行，OOS n 含同日多 τ";
@@ -774,7 +810,18 @@ export function createFactorIcUi(deps) {
       `<div class="quant-rem-coef-spec-metrics" role="group" aria-label="${esc(
         isPath ? `${isTpd ? "tpd" : isCxHead ? "cx" : "path"} 模型摘要` : isOn ? "on 模型摘要" : isR ? "r 模型摘要" : "τ 模型摘要"
       )}">` +
-      (intercept != null ? kpi("截距", intercept.toFixed(3), interceptTip) : "") +
+      (intercept != null
+        ? kpi(isR ? "执行套" : "截距", intercept.toFixed(3), interceptTip)
+        : "") +
+      (isR &&
+      researchIntercept != null &&
+      (intercept == null || Math.abs(researchIntercept - intercept) > 1e-4)
+        ? kpi(
+            "研究套",
+            researchIntercept.toFixed(3),
+            "Holdout 训练集截距 · 做 T 回测 / 历史验证用"
+          )
+        : "") +
       (nFmt != null ? kpi("样本 n", nFmt, nTip) : "") +
       (oos.holdout_trading_days != null && Number.isFinite(Number(oos.holdout_trading_days))
         ? kpi(
@@ -935,7 +982,7 @@ export function createFactorIcUi(deps) {
     const head =
       `<div class="quant-rem-coef-head">` +
       `<div class="quant-rem-coef-head-main">` +
-      `<span class="quant-rem-coef-title">${isPath ? `${pathTag} 系数表` : isOn ? "ŷ_ON 系数表" : isR ? "ŷ_r 系数表" : "ŷ_τ 系数表"}</span>` +
+      `<span class="quant-rem-coef-title">${isPath ? `${pathTag} 系数表` : isOn ? "ŷ_co 系数表" : isR ? "ŷ_τc 系数表" : "ŷ_oc 系数表"}</span>` +
       `<span class="quant-rem-coef-sub">按 |β| 降序 · 标准化斜率</span>` +
       `</div>` +
       `<div class="quant-rem-coef-legend" aria-hidden="true">` +
@@ -994,7 +1041,7 @@ export function createFactorIcUi(deps) {
         r.kind === "历史" && zh ? zh : r.label || r.name || "因子";
       const key = r.name ? `（${r.name}）` : "";
       if (isOn) {
-        return `${shown}${key}：T-1 路径 / 开盘 Z，用于估 open[T+1]/close[T]−1。正 β 表示该值偏高时 ŷ_ON 更高。`;
+        return `${shown}${key}：T-1 路径 / 开盘 Z，用于估 open[T+1]/close[T]−1。正 β 表示该值偏高时 ŷ_co 更高。`;
       }
       if (r.kind === "分钟") {
         return `${shown}${key}：≤τ 的 5m 路径摘要。正 β 表示该值偏高时 ${yhatTag} 更高。`;
@@ -1099,7 +1146,7 @@ export function createFactorIcUi(deps) {
         return fmtEmptyCell();
       },
       {
-        emptyText: isOn ? "暂无 ŷ_ON 入模因子" : "暂无 rem 入模因子",
+        emptyText: isOn ? "暂无 ŷ_co 入模因子" : "暂无 rem 入模因子",
         rowClass: (r) => {
           const bits = [];
           if (r && r.scanHot) bits.push("is-scan-hot");
