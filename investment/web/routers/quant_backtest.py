@@ -150,7 +150,6 @@ def quant_t0_backtest(body: T0BacktestRequest) -> Dict[str, Any]:
             from_paper=from_paper,
             codes=body.codes,
             use_minute=True,
-            compare_daily=False,
         )
         if isinstance(out, dict) and out.get("success"):
             if out.get("from_holdings") and int(out.get("ok_count") or 0) > 1:

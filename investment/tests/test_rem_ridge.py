@@ -1,4 +1,4 @@
-"""R0/R1/R2 ŷ_τ 面板与事件/舆情扩展测试（`tau_*` 为主，`rem_*` 兼容别名仍覆盖）。"""
+"""R0/R1/R2 ŷ_τ 面板与事件/舆情扩展测试（`tau_*` 为主）。"""
 
 from __future__ import annotations
 
@@ -39,9 +39,9 @@ def _bars(n: int = 40, start: float = 10.0):
 
 class TestRemPanel(unittest.TestCase):
     def test_open_panel_shapes(self):
-        from core.research.rem_panel import collect_rem_open_panel
+        from core.research.tau_panel import collect_tau_open_panel
 
-        xs, ys, dates, metas = collect_rem_open_panel(_bars(35), stock_code="000001")
+        xs, ys, dates, metas = collect_tau_open_panel(_bars(35), stock_code="000001")
         self.assertGreater(len(ys), 5)
         self.assertEqual(len(xs), len(ys))
         self.assertIn("gap_pct", xs[0])
@@ -51,15 +51,15 @@ class TestRemPanel(unittest.TestCase):
         self.assertNotIn("y_rem", metas[0])
 
     def test_breadth_and_theme_weights(self):
-        from core.research.rem_panel import (
+        from core.research.tau_panel import (
             attach_cross_section_breadth,
-            collect_rem_open_panel,
+            collect_tau_open_panel,
             theme_sample_weights,
         )
 
         panels = []
         for code, start in (("A", 10.0), ("B", 20.0), ("C", 15.0)):
-            xs, ys, dates, metas = collect_rem_open_panel(
+            xs, ys, dates, metas = collect_tau_open_panel(
                 _bars(30, start=start), stock_code=code
             )
             panels.append(
@@ -72,7 +72,7 @@ class TestRemPanel(unittest.TestCase):
         self.assertEqual(len(w), len(enriched[0]["metas"]))
 
     def test_sector_relative_gap_uses_peer_median(self):
-        from core.research.rem_panel import (
+        from core.research.tau_panel import (
             gap_vs_sector_value,
             sector_gap_reference_by_code,
         )
@@ -92,7 +92,7 @@ class TestRemPanel(unittest.TestCase):
         self.assertAlmostEqual(gap_vs_sector_value(5.0, ref["000001"]), 2.5)
 
     def test_gap_atr_scales_by_volatility(self):
-        from core.research.rem_panel import gap_atr_from_hist
+        from core.research.tau_panel import gap_atr_from_hist
 
         quiet = [
             {"high": 10.1, "low": 9.9, "close": 10.0},
@@ -174,14 +174,6 @@ class TestRemRidgeFit(unittest.TestCase):
         )
         self.assertIn("gap_pct", meta1.get("min_std_exempt") or [])
 
-    def test_tau_aliases_match_canonical(self):
-        from core.research import tau_ridge as tr
-        from core.research import rem_ridge as rr
-
-        self.assertIs(tr.load_tau_model, rr.load_rem_model)
-        self.assertIs(tr.predict_tau_from_features, rr.predict_rem_from_features)
-        self.assertEqual(tr.TAU_Z_FEATURES, rr.REM_Z_FEATURES)
-
     def test_oos_by_tau_buckets(self):
         from core.research.tau_ridge import _oos_by_tau
 
@@ -195,7 +187,7 @@ class TestRemRidgeFit(unittest.TestCase):
         self.assertAlmostEqual(by["10:30"]["sign_hit"], 0.5)
 
     def test_fit_synthetic_pool(self):
-        from quant.research.tau_ridge import fit_tau_ridge_report, persist_tau_model
+        from core.research.tau_ridge import fit_tau_ridge_report, persist_tau_model
 
         stock_bars = [
             {"code": "A", "bars": _bars(40, 10)},
@@ -263,7 +255,7 @@ class TestRemRidgeFit(unittest.TestCase):
                 self.assertEqual(saved.get("schema"), "tau_ridge_v11")
                 self.assertTrue(os.path.isfile(os.path.join(live, "tau_ridge_model.json")))
                 self.assertTrue(os.path.isfile(os.path.join(live, "rem_ridge_model.json")))
-                from quant.research.tau_ridge import load_tau_model, predict_tau_from_features
+                from core.research.tau_ridge import load_tau_model, predict_tau_from_features
 
                 doc = load_tau_model()
                 self.assertIsNotNone(doc)
@@ -284,7 +276,7 @@ class TestRemRidgeFit(unittest.TestCase):
                 # 缺特征按均值填 z=0，应能出数（不再因部分特征缺失整段 None）
                 self.assertIsNotNone(yhat)
                 self.assertTrue(doc.get("return_model"))
-                from quant.research.tau_ridge import explain_tau_prediction
+                from core.research.tau_ridge import explain_tau_prediction
 
                 expl = explain_tau_prediction(
                     {
@@ -331,7 +323,7 @@ class TestRemRidgeFit(unittest.TestCase):
         self.assertTrue(ok.get("ok"))
 
     def test_persist_uses_last_report_without_refit(self):
-        from quant.research.tau_ridge import (
+        from core.research.tau_ridge import (
             persist_tau_model,
             save_tau_last_report,
             load_tau_last_report,
@@ -363,7 +355,7 @@ class TestRemRidgeFit(unittest.TestCase):
                 self.assertIsNotNone(last)
                 saved = persist_tau_model(last, note="from last")
                 self.assertTrue(saved.get("success"), saved)
-                from quant.research.tau_ridge import load_tau_model
+                from core.research.tau_ridge import load_tau_model
 
                 doc = load_tau_model()
                 self.assertAlmostEqual(
@@ -372,7 +364,7 @@ class TestRemRidgeFit(unittest.TestCase):
                 )
 
     def test_load_falls_back_to_legacy_rem_filename(self):
-        from quant.research.tau_ridge import load_tau_model, persist_tau_model
+        from core.research.tau_ridge import load_tau_model, persist_tau_model
 
         dummy = {
             "success": True,

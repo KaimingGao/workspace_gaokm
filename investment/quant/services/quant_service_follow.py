@@ -21,7 +21,6 @@ class QuantFollowMixin:
         from_paper: bool = False,
         codes: Optional[list] = None,
         use_minute: bool = True,
-        compare_daily: bool = False,
     ) -> Dict[str, Any]:
         """研究做T回测：强制 5m 第一触达（已删除日线模拟）。"""
         from quant.research.t0_backtest import (
@@ -31,7 +30,7 @@ class QuantFollowMixin:
             run_t0_backtest_for_holdings,
         )
 
-        _ = (use_minute, compare_daily)
+        _ = use_minute
         try:
             v_shares = float(initial_shares if initial_shares is not None else T0_BT_VIRTUAL_SHARES)
         except (TypeError, ValueError):
@@ -50,7 +49,6 @@ class QuantFollowMixin:
                 rules=rules,
                 paper=paper if from_paper else None,
                 use_minute=True,
-                compare_daily=False,
                 virtual_shares=v_shares,
                 virtual_cash=v_cash,
             )
@@ -62,7 +60,6 @@ class QuantFollowMixin:
                 initial_cash=v_cash,
                 rules=rules,
                 use_minute=True,
-                compare_daily=False,
             )
         if isinstance(out, dict) and out.get("success"):
             out.setdefault(

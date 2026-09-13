@@ -803,7 +803,6 @@ export function collectT0BacktestBody(root, opts = {}) {
     from_paper: true,
     lookback,
     use_minute: true,
-    compare_daily: false,
     t0_ratio: 1.0,
     fill_mode: "trigger",
     fill_mode_sell_then_buy: "trigger",

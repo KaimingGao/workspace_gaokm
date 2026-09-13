@@ -201,7 +201,6 @@ def backtest_t0_on_bars(
     cost_config: Optional[dict] = None,
     stock_code: str = "",
     minute_by_date: Optional[Dict[str, List[dict]]] = None,
-    compare_daily: bool = False,
     require_minute: bool = False,
     bars_history: Optional[List[dict]] = None,
     eval_lookback: Optional[int] = None,
@@ -214,7 +213,7 @@ def backtest_t0_on_bars(
     ``bars`` = 评估窗内交易日；``bars_history``（可选）= 含 warmup 的全量日线，
     供 dual_y / ATR 的 hist_prior，不改变评估窗长度。
     ``tau_pool_by_date``：按日截面缺口（与刷簿 ŷ_τ 特征对齐）。
-    compare_daily / require_minute 形参保留兼容；require_minute=True 且无 minute_by_date 时直接失败。
+    require_minute=True 且无 minute_by_date 时直接失败。
     ``cost_config`` 缺省时用 CostPort 研究费率（禁止隐式零成本抬高 PnL）。
     """
     from core.research.holdout import (
@@ -234,7 +233,6 @@ def backtest_t0_on_bars(
         # 6 票即可把 240s 时限吃光。_scoring_models 已按 role 分桶，不会误用 live。
         with scoring_model_role_context(MODEL_ROLE_RESEARCH):
             return backtest_t0_on_bars(bars, **params)
-    _ = compare_daily  # 保留形参兼容旧调用
     if require_minute and not minute_by_date:
         return {
             "success": False,

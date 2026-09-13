@@ -128,13 +128,11 @@ class TestTauBoost(unittest.TestCase):
                 self.assertIsNone(load_tau_model())
 
     def test_backend_numpy_forced(self):
-        from core.research.tau_boost import fit_tau_boost_report as alias_fit
         from core.research.tau_tree import fit_tau_tree_report, resolve_tree_backend
 
         self.assertEqual(resolve_tree_backend("numpy_gbm"), "numpy_gbm")
         auto = resolve_tree_backend(None)
         self.assertIn(auto, {"xgboost", "numpy_gbm"})
-        self.assertIs(alias_fit, fit_tau_tree_report)
 
     def test_xgboost_native_train_no_sklearn(self):
         try:

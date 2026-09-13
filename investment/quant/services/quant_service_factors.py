@@ -428,7 +428,7 @@ class QuantFactorMixin:
         from core.data.facade import bars_and_source
         from core.signal.dual_score import get_dual_score_cfg
         from core.watching.store import WATCHING_MAX_SIZE, read_watching
-        from quant.research.tau_ridge import (
+        from core.research.tau_ridge import (
             fit_tau_ridge_report,
             load_tau_last_report,
             load_tau_model,
@@ -560,7 +560,7 @@ class QuantFactorMixin:
         return report
 
     def get_tau_ridge_model(self) -> Dict[str, Any]:
-        from quant.research.tau_ridge import (
+        from core.research.tau_ridge import (
             load_tau_last_report,
             load_tau_model,
             tau_model_path,
@@ -651,7 +651,7 @@ class QuantFactorMixin:
         from core.data.facade import bars_and_source
         from core.signal.dual_score import get_dual_score_cfg
         from core.watching.store import WATCHING_MAX_SIZE, read_watching
-        from quant.research.tau_tree import (
+        from core.research.tau_tree import (
             fit_tau_tree_report,
             save_tau_tree_last_report,
         )
@@ -758,7 +758,7 @@ class QuantFactorMixin:
         return report
 
     def get_tau_tree_last_report(self) -> Dict[str, Any]:
-        from quant.research.tau_tree import (
+        from core.research.tau_tree import (
             load_tau_tree_last_report,
             tau_tree_last_report_path,
         )
@@ -804,7 +804,7 @@ class QuantFactorMixin:
         """R0+：观察池 ŷ_ON Ridge；可选 persist live 模型。默认用满观察池。"""
         from core.data.facade import bars_and_source
         from core.watching.store import WATCHING_MAX_SIZE, read_watching
-        from quant.research.on_ridge import (
+        from core.research.on_ridge import (
             fit_on_ridge_report,
             load_on_last_report,
             load_on_model,
@@ -876,7 +876,7 @@ class QuantFactorMixin:
         return _attach_ridge_role_flags(report, on_model_path())
 
     def get_on_ridge_model(self) -> Dict[str, Any]:
-        from quant.research.on_ridge import (
+        from core.research.on_ridge import (
             load_on_last_report,
             load_on_model,
             on_model_path,
@@ -936,7 +936,7 @@ class QuantFactorMixin:
         from core.ports.market import group_minute_bars_by_date
         from core.store import load_minute_cache
         from core.watching.store import WATCHING_MAX_SIZE, read_watching
-        from quant.research.path_ridge import (
+        from core.research.path_ridge import (
             fit_path_ridge_report,
             load_path_last_report,
             load_path_model,
@@ -1108,7 +1108,7 @@ class QuantFactorMixin:
         return _attach_ridge_role_flags(report, path_model_path())
 
     def get_path_ridge_model(self) -> Dict[str, Any]:
-        from quant.research.path_ridge import (
+        from core.research.path_ridge import (
             load_path_last_report,
             load_path_model,
             path_model_path,
@@ -1166,7 +1166,7 @@ class QuantFactorMixin:
         from core.research.cx_panel import DEFAULT_CX_TAU_GRID
         from core.store import load_minute_cache
         from core.watching.store import WATCHING_MAX_SIZE, read_watching
-        from quant.research.cx_ridge import (
+        from core.research.cx_ridge import (
             cx_model_path,
             cx_promote_gate,
             fit_cx_ridge_report,
@@ -1310,7 +1310,7 @@ class QuantFactorMixin:
         return _attach_ridge_role_flags(report, cx_model_path())
 
     def get_cx_ridge_model(self) -> Dict[str, Any]:
-        from quant.research.cx_ridge import (
+        from core.research.cx_ridge import (
             cx_model_path,
             cx_promote_gate,
             load_cx_last_report,
@@ -1368,7 +1368,7 @@ class QuantFactorMixin:
         from core.research.cx_panel import DEFAULT_CX_TAU_GRID
         from core.store import load_minute_cache
         from core.watching.store import WATCHING_MAX_SIZE, read_watching
-        from quant.research.tpd_ridge import (
+        from core.research.tpd_ridge import (
             fit_tpd_ridge_report,
             load_tpd_last_report,
             load_tpd_model,
@@ -1512,7 +1512,7 @@ class QuantFactorMixin:
         return _attach_ridge_role_flags(report, tpd_model_path())
 
     def get_tpd_ridge_model(self) -> Dict[str, Any]:
-        from quant.research.tpd_ridge import (
+        from core.research.tpd_ridge import (
             load_tpd_last_report,
             load_tpd_model,
             tpd_model_path,
@@ -1567,7 +1567,7 @@ class QuantFactorMixin:
         """观察池 ŷ_τc Ridge：与 ŷ_oc 同 X → close[T]/price(τ)−1。只读本地 5m 缓存。"""
         from core.data.facade import bars_and_source
         from core.watching.store import WATCHING_MAX_SIZE, read_watching
-        from quant.research.r_ridge import (
+        from core.research.r_ridge import (
             fit_r_ridge_report,
             load_r_last_report,
             load_r_model,
@@ -1698,7 +1698,7 @@ class QuantFactorMixin:
         return _attach_ridge_role_flags(report, r_model_path())
 
     def get_r_ridge_model(self) -> Dict[str, Any]:
-        from quant.research.r_ridge import (
+        from core.research.r_ridge import (
             load_r_last_report,
             load_r_model,
             r_model_path,
@@ -1765,7 +1765,7 @@ class QuantFactorMixin:
 
         from core.data.facade import bars_and_source
         from core.watching.store import WATCHING_MAX_SIZE, read_watching
-        from quant.research.r_tree import (
+        from core.research.r_tree import (
             fit_r_tree_report,
             save_r_tree_last_report,
         )
@@ -1889,7 +1889,7 @@ class QuantFactorMixin:
         return report
 
     def get_r_tree_last_report(self) -> Dict[str, Any]:
-        from quant.research.r_tree import (
+        from core.research.r_tree import (
             load_r_tree_last_report,
             r_tree_last_report_path,
         )
@@ -2364,7 +2364,8 @@ class QuantFactorMixin:
             logger.debug("catch except Exception: in quant_service_factors.py", exc_info=True)
             n_watch_all = watch_limit
         n_watch = min(n_watch_all, watch_limit) if n_watch_all else watch_limit
-        job_total = max(10, n_watch + 5)
+        # 进度分母=观察池真实票数（与 5m Job 一致；不再 +5 垫高）
+        job_total = max(1, n_watch)
         phase = "增量补齐日 K…" if mode_s == "topup" else "整窗强更日 K…"
 
         job_id = cluster_bars_refresh_job.start(
@@ -2375,11 +2376,10 @@ class QuantFactorMixin:
 
         def _progress(msg: str, cur: int = 0, tot: int = 0) -> None:
             t = max(1, int(tot or n_watch or 1))
-            c = max(0, int(cur or 0))
-            mapped = max(1, min(job_total - 1, int(job_total * min(1.0, c / t))))
+            c = max(0, min(t, int(cur or 0)))
             cluster_bars_refresh_job.update(
-                current=mapped,
-                total=job_total,
+                current=c,
+                total=t,
                 message=str(msg or phase),
                 job_id=job_id,
             )

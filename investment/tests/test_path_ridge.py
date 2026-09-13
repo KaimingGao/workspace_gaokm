@@ -376,7 +376,7 @@ class TestPathRidgeHelpers(unittest.TestCase):
 
 class TestPathRidgeFit(unittest.TestCase):
     def test_fit_and_persist(self):
-        from quant.research.path_ridge import (
+        from core.research.path_ridge import (
             fit_path_ridge_report,
             load_path_model,
             persist_path_model,
@@ -470,7 +470,7 @@ class TestPathRidgeFit(unittest.TestCase):
                 self.assertIsNotNone(yhat)
 
     def test_load_path_model_falls_back_to_last_report(self):
-        from quant.research.path_ridge import (
+        from core.research.path_ridge import (
             fit_path_ridge_report,
             load_path_model,
             save_path_last_report,
@@ -605,8 +605,8 @@ class TestPathRidgeService(unittest.TestCase):
         class Svc(QuantFactorMixin):
             pass
 
-        with patch("quant.research.path_ridge.load_path_model", return_value=None), patch(
-            "quant.research.path_ridge.load_path_last_report", return_value=None
+        with patch("core.research.path_ridge.load_path_model", return_value=None), patch(
+            "core.research.path_ridge.load_path_last_report", return_value=None
         ):
             out = Svc().get_path_ridge_model()
         self.assertFalse(out.get("exists"))

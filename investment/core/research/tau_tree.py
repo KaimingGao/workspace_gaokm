@@ -44,7 +44,6 @@ from core.research.tau_ridge import (
 from core.signal.minute_tau_feats import MINUTE_TAU_FEAT_LABELS
 
 TREE_SCHEMA = "tau_tree_shadow_v1"
-BOOST_SCHEMA = TREE_SCHEMA  # 旧对照别名
 TREE_HEAD = "y_tau_tree"
 DEFAULT_N_ESTIMATORS = 80
 DEFAULT_MAX_DEPTH = 3
@@ -108,11 +107,6 @@ def load_tau_tree_last_report() -> Optional[Dict[str, Any]]:
         if isinstance(doc, dict) and doc.get("success"):
             return doc
     return None
-
-
-resolve_boost_backend = resolve_tree_backend
-save_tau_boost_last_report = save_tau_tree_last_report
-load_tau_boost_last_report = load_tau_tree_last_report
 
 
 def _design_matrix(
@@ -678,6 +672,3 @@ def fit_tau_tree_report(
     }
     attach_holdout_meta(report, split_meta)
     return report
-
-
-fit_tau_boost_report = fit_tau_tree_report

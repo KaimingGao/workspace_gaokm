@@ -998,19 +998,3 @@ def explain_tau_prediction(
         "head": "tau",
     }
 
-# --- Backward-compatible aliases (deprecated; prefer tau_* names) ---
-REM_FEATURE_EXTRA = TAU_FEATURE_EXTRA
-REM_Z_FEATURES = TAU_Z_FEATURES
-REM_MIN_STD_EXEMPT = TAU_MIN_STD_EXEMPT
-REM_FIT_DROP_ALIASES = TAU_FIT_DROP_ALIASES
-build_rem_panels_from_bars = build_tau_panels_from_bars
-fit_rem_ridge_report = fit_tau_ridge_report
-rem_model_path = tau_model_path
-rem_last_report_path = tau_last_report_path
-save_rem_last_report = save_tau_last_report
-load_rem_last_report = load_tau_last_report
-persist_rem_model = persist_tau_model
-load_rem_model = load_tau_model
-predict_rem_from_features = predict_tau_from_features
-explain_rem_prediction = explain_tau_prediction
-

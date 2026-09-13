@@ -144,130 +144,6 @@ export function createBtTablesUi(deps = {}) {
     return html;
   }
 
-  function renderIcEquityAlignHtml(align) {
-    if (!align) return "";
-    if (!align.ok) {
-      return `<p class="quant-trades-caption">IC↔净值对齐：${esc(
-        align.reason || "不可用"
-      )}</p>`;
-    }
-    const pos = align.pos_ic || {};
-    const neg = align.neg_ic || {};
-    const spread = align.avg_return_spread_pp;
-    const favor = align.aligned_favor_pos_ic;
-    const headCls = favor === false ? " down" : "";
-    const head =
-      `<p class="quant-trades-caption${headCls}">IC↔净值对齐 · ${align.period_count ?? "—"} 期` +
-      (spread != null
-        ? ` · 正IC窗均收益−非正 ${Number(spread) >= 0 ? "+" : ""}${spread}pp`
-        : "") +
-      (favor === false ? " · ⚠正IC窗未优于非正" : favor ? " · 同向" : "") +
-      `</p>`;
-    return (
-      head +
-      researchGridHtml(
-        [
-          { id: "bucket", label: "分桶", widthPct: 18 },
-          { id: "n", label: "期数", widthPct: 12, num: true },
-          { id: "avg", label: "均期收益", widthPct: 16, num: true },
-          { id: "win", label: "胜率", widthPct: 14, num: true },
-          { id: "tot", label: "复利累计", widthPct: 16, num: true },
-          { id: "note", label: "", flex: true },
-        ],
-        [
-          {
-            bucket: "正IC窗",
-            n: String(pos.count ?? "—"),
-            avgText: pos.avg_return_pct != null ? `${pos.avg_return_pct}%` : "—",
-            avgCls: mcls(pos.avg_return_pct),
-            win: pos.win_rate_pct != null ? `${pos.win_rate_pct}%` : "—",
-            totText:
-              pos.total_return_compound_pct != null
-                ? `${pos.total_return_compound_pct}%`
-                : "—",
-            totCls: mcls(pos.total_return_compound_pct),
-            note: "",
-          },
-          {
-            bucket: "非正IC窗",
-            n: String(neg.count ?? "—"),
-            avgText: neg.avg_return_pct != null ? `${neg.avg_return_pct}%` : "—",
-            avgCls: mcls(neg.avg_return_pct),
-            win: neg.win_rate_pct != null ? `${neg.win_rate_pct}%` : "—",
-            totText:
-              neg.total_return_compound_pct != null
-                ? `${neg.total_return_compound_pct}%`
-                : "—",
-            totCls: mcls(neg.total_return_compound_pct),
-            note: "",
-          },
-        ],
-        (col, d) => {
-          if (col.id === "avg") return metricCell(d.avgText, d.avgCls);
-          if (col.id === "tot") return metricCell(d.totText, d.totCls);
-          if (col.id === "bucket") return esc(d.bucket);
-          return esc(d[col.id] ?? "—");
-        }
-      ) +
-      (align.note ? `<p class="sub">${esc(align.note)}</p>` : "")
-    );
-  }
-
-  function renderQuantileTableHtml(qb) {
-    if (!qb) return { html: "", showChart: false };
-    if (!qb.ok) {
-      return {
-        html: `<p class="quant-trades-caption">分层回测：${esc(
-          qb.reason || "不可用"
-        )}</p>`,
-        showChart: false,
-      };
-    }
-    const mono = qb.monotonic_increasing;
-    const ls = qb.q_high_minus_q_low_pct;
-    const warn = mono === false ? " · 非单调（打分区分度弱或噪声大）" : "";
-    const head =
-      `<p class="quant-trades-caption${mono === false ? " down" : ""}">分层 Q1–Q${
-        qb.n_quantiles || 5
-      } · ${qb.fold_count ?? "—"} 期` +
-      (ls != null ? ` · Q高−Q低 ${Number(ls) >= 0 ? "+" : ""}${ls}%` : "") +
-      (mono === true ? " · 单调↑" : warn) +
-      `</p>`;
-    const rows = qb.quantiles || [];
-    if (!rows.length) {
-      return { html: head, showChart: false };
-    }
-    const html =
-      head +
-      researchGridHtml(
-        [
-          { id: "label", label: "分层", widthPct: 18 },
-          { id: "ret", label: "累计收益", widthPct: 16, num: true },
-          { id: "win", label: "胜率", widthPct: 14, num: true },
-          { id: "n", label: "期数", widthPct: 12, num: true },
-          { id: "eq", label: "终值", widthPct: 14, num: true },
-          { id: "note", label: "", flex: true },
-        ],
-        rows.map((r) => ({
-          label: r.label || `Q${r.quantile}`,
-          retText:
-            r.total_return_pct != null ? `${Number(r.total_return_pct).toFixed(2)}%` : "—",
-          retCls: mcls(r.total_return_pct),
-          win: r.win_rate_pct != null ? `${Number(r.win_rate_pct).toFixed(1)}%` : "—",
-          n: String(r.trade_count ?? "—"),
-          eq: r.final_equity != null ? String(r.final_equity) : "—",
-          note: "",
-        })),
-        (col, d) => {
-          if (col.id === "ret") return metricCell(d.retText, d.retCls);
-          if (col.id === "label") return esc(d.label);
-          return esc(d[col.id] ?? "—");
-        }
-      ) +
-      (qb.note ? `<p class="sub">${esc(qb.note)}</p>` : "");
-    return { html, showChart: true };
-  }
-
   function buildCrossSectionResult(data) {
     if (!data || !data.success) {
       return {
@@ -552,8 +428,6 @@ export function createBtTablesUi(deps = {}) {
 
   return {
     renderAttributionTablesHtml,
-    renderIcEquityAlignHtml,
-    renderQuantileTableHtml,
     buildCrossSectionResult,
     renderScoreIcHtml,
     renderReplayStockContribHtml,

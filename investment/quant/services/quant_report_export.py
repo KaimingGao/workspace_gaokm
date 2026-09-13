@@ -1239,37 +1239,6 @@ def build_portfolio_backtest_markdown_lines(ps: Dict[str, Any]) -> List[str]:
     elif sic.get("reason"):
         lines.append(f"- 截面 IC：不可用（{sic.get('reason')}）")
 
-    qb = ps.get("quantile_backtest") or {}
-    if qb.get("ok"):
-        mono = "单调↑" if qb.get("monotonic_increasing") else "非单调"
-        lines.append(
-            f"- 分层：{mono} · Q高−Q低 {qb.get('q_high_minus_q_low_pct')}% · 期数 {qb.get('fold_count')}"
-        )
-        lines.append("")
-        lines.append("| 分层 | 累计收益% | 胜率% | 期数 | 终值 |")
-        lines.append("| --- | ---: | ---: | ---: | ---: |")
-        for row in qb.get("quantiles") or []:
-            lines.append(
-                f"| {row.get('label') or ''} | {row.get('total_return_pct')} | "
-                f"{row.get('win_rate_pct')} | {row.get('trade_count')} | {row.get('final_equity')} |"
-            )
-        ls_curve = qb.get("long_short_equity_curve") or []
-        if ls_curve:
-            lines.append(
-                f"- Q高−Q低终值：{(ls_curve[-1] or {}).get('equity')}（起点100）"
-            )
-        lines.append("")
-
-    align = ps.get("ic_equity_align") or {}
-    if align.get("ok"):
-        pos = align.get("pos_ic") or {}
-        neg = align.get("neg_ic") or {}
-        favor = "同向" if align.get("aligned_favor_pos_ic") else "⚠正IC窗未优于非正"
-        lines.append(
-            f"- IC↔净值对齐：{favor} · 正IC窗均 {pos.get('avg_return_pct')}% "
-            f"vs 非正 {neg.get('avg_return_pct')}% · 差 {align.get('avg_return_spread_pp')}pp"
-        )
-
     hints = ps.get("promote_hints") or []
     if hints:
         lines.append("- Promote 提示：")

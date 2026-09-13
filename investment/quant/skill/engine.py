@@ -125,7 +125,6 @@ class QuantEngine:
                 from_paper=from_paper,
                 codes=params.get("codes"),
                 use_minute=True,
-                compare_daily=False,
             )
 
         if task == "weight_suggest":

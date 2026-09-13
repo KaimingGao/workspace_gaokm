@@ -8,7 +8,7 @@ from unittest.mock import patch
 
 class TestRemTheme(unittest.TestCase):
     def test_theme_from_breadth(self):
-        from core.research.rem_theme import resolve_theme_day
+        from core.research.tau_theme import resolve_theme_day
 
         self.assertEqual(
             resolve_theme_day(sector_breadth=0.6, gap_pct=0.1, gap_trigger_pct=2.0),

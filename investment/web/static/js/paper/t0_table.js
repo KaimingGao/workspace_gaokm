@@ -21,7 +21,7 @@ import {
   R_REALIZED_TITLE,
   resolvePathScore,
   fmtPathScore,
-} from "./fmt.js?v=p2346";
+} from "./fmt.js?v=p2368";
 import {
   adaptiveSizingDayTip,
   yTauMapScoreTip,
@@ -189,6 +189,7 @@ const T0_TRADE_COL_W = {
   ctau: "76px",
   bandLo: "64px",
   bandUp: "64px",
+  rtau: "126px",
   yr: "126px",
   process: "280px",
   retPct: "80px",
@@ -754,6 +755,7 @@ function pickScoreNum(d, key) {
       key === "y_r" ||
       key === "r_hat" ||
       key === "residual" ||
+      key === "remaining_oc" ||
       key === "r_realized" ||
       key === "y_r_realized" ||
       key === "y_τc" ||
@@ -1116,6 +1118,63 @@ function pickRRealized(d, predHost) {
   };
 }
 
+function pickRtauHat(d) {
+  if (!d || typeof d !== "object") return null;
+  const raw =
+    pickScoreNum(d, "r_hat") ??
+    pickScoreNum(d, "residual") ??
+    pickScoreNum(d, "remaining_oc") ??
+    (d.r_hat != null && Number.isFinite(Number(d.r_hat)) ? Number(d.r_hat) : null) ??
+    (d.residual != null && Number.isFinite(Number(d.residual)) ? Number(d.residual) : null) ??
+    (d.remaining_oc != null && Number.isFinite(Number(d.remaining_oc))
+      ? Number(d.remaining_oc)
+      : null);
+  return raw != null && Number.isFinite(raw) ? raw : null;
+}
+
+function pickRtauRealized(d, predHost) {
+  const pack = pickRRealized(d, predHost);
+  if (pack.n == null) {
+    return { text: "—", n: null, tip: R_REALIZED_TITLE, agree: null };
+  }
+  const pred = pickRtauHat(predHost) ?? pickRtauHat(d);
+  const agree = _signAgree(pred, pack.n);
+  return {
+    text: pack.text,
+    n: pack.n,
+    tip:
+      R_REALIZED_TITLE +
+      (agree === true ? " · 与 R̂_τ 同号" : agree === false ? " · 与 R̂_τ 异号" : ""),
+    agree,
+  };
+}
+
+/** 槽位 R̂_τ；回测配对 close[T]/price(τ)−1，格式同 y_τ：预估值(真实值)。 */
+function rtauMergedCellHtml(host, dayRef, showRealized = true, scoreDetailJson = "") {
+  const predHost = host || dayRef;
+  const realHost = dayRef || host;
+  const pred = pickRtauHat(predHost) ?? pickRtauHat(realHost);
+  const predTxt = pred != null ? fmtRtauPct(pred) : "—";
+  const pr = showRealized
+    ? pickRtauRealized(realHost, predHost)
+    : { n: null, tip: R_REALIZED_TITLE };
+  const agreeCls = predRealizedAgreeCls(pr, showRealized);
+  const tipParts = [pred != null ? `${R_HAT_TITLE} · R̂_τ=${pred.toFixed(3)}` : R_HAT_TITLE];
+  if (showRealized) {
+    tipParts.push(pr.n != null ? pr.tip : R_REALIZED_TITLE);
+    if (pr.agree === true) tipParts.push("预测与真实同号");
+    else if (pr.agree === false) tipParts.push("预测与真实异号");
+  }
+  const html = fmtPredRealizedHtml(predTxt, pred, pr, showRealized);
+  return (
+    `<td class="num paper-t0-col-rtau paper-t0-col-y paper-t0-col-y-rtau paper-t0-y-score paper-t0-y-merged has-tip${agreeCls}" ` +
+    `data-score-tip="r" data-score-detail="${scoreDetailJson}" ` +
+    `title="${escapeText(tipParts.join(" · "))}">` +
+    `<span class="paper-t0-y-combo">${html}</span>` +
+    `</td>`
+  );
+}
+
 /** 槽位 ŷ_τc；回测配对 C_τ/收盘−1，格式同 y_τ：预估值(真实值)。 */
 function rMergedCellHtml(host, dayRef, showRealized = true, scoreDetailJson = "") {
   const predHost = host || dayRef;
@@ -1318,7 +1377,9 @@ function tradeScoreHost(day, host) {
       ? Number(scanRow.r_hat)
       : scanRow.residual != null
         ? Number(scanRow.residual)
-        : null;
+        : scanRow.remaining_oc != null
+          ? Number(scanRow.remaining_oc)
+          : null;
   if (rHat != null && Number.isFinite(rHat)) {
     scores.r_hat = rHat;
     scores.residual = rHat;
@@ -1435,6 +1496,11 @@ function t0DayScoreItem(d, fallback = {}, rules = {}, liveByCode = null) {
       scores.y_r = Number(srR);
       yR = Number(srR);
     }
+    const srRhat = sr.r_hat ?? sr.residual ?? sr.remaining_oc;
+    if (srRhat != null && Number.isFinite(Number(srRhat))) {
+      scores.r_hat = Number(srRhat);
+      scores.residual = Number(srRhat);
+    }
   }
   const code = String(
     d.stock_code || fallback.stock_code || scores.stock_code || ""
@@ -1512,6 +1578,9 @@ function t0DayScoreItem(d, fallback = {}, rules = {}, liveByCode = null) {
     predicted_score_r: slotSnapMode ? yR : scores.predicted_score_r ?? yR,
     y_r_hat: slotSnapMode ? yR : scores.y_r_hat ?? yR,
     y_r: slotSnapMode ? yR : scores.y_r ?? yR,
+    r_hat: scores.r_hat ?? d.r_hat ?? null,
+    residual: scores.residual ?? scores.r_hat ?? d.residual ?? null,
+    remaining_oc: scores.remaining_oc ?? d.remaining_oc ?? null,
     "y_τc":
       scores["y_τc"] ??
       scores.predicted_score_τc ??
@@ -2683,8 +2752,9 @@ function tradeColgroup(showStock, showReason = false, showDelete = false, showRe
     t0Col("paper-t0-col-ctau", "ctau") +
     t0Col("paper-t0-col-band-lo", "bandLo") +
     t0Col("paper-t0-col-band-up", "bandUp") +
-    t0Col("paper-t0-col-yr", "yr") +
+    t0Col("paper-t0-col-rtau", "rtau") +
     t0Col("paper-t0-col-tau", "tau") +
+    t0Col("paper-t0-col-yr", "yr") +
     t0Col("paper-t0-col-path", "path") +
     (showRealized ? t0Col("paper-t0-col-cx", "cx") + t0Col("paper-t0-col-tpd", "tpd") : "") +
     t0Col("paper-t0-col-process", "process") +
@@ -2787,8 +2857,10 @@ function tradeTableColCount(ctx) {
   let n = 1;
   if (ctx.showStock) n += 1;
   n += 7; // O L H C Ĉ_τ lower upper
+  n += 1; // R_τ
+  n += 1; // y_oc
   n += 1; // y_τc
-  n += 2; // y_oc y_hl
+  n += 1; // y_hl
   if (ctx.showRealized) n += 2; // y_cx y_tpd
   n += 1; // process
   n += 3; // ret pnl exp
@@ -2803,6 +2875,11 @@ function fmtScanPredReal(pred, real) {
   const r = finiteRtauNum(real);
   if (p != null && r != null) return `${predTxt}(${fmtRtauPct(r)})`;
   return predTxt;
+}
+
+function scanRtauPred(r) {
+  if (!r || typeof r !== "object") return null;
+  return r.r_hat ?? r.residual ?? r.remaining_oc;
 }
 
 function scanYtcPred(r) {
@@ -2925,6 +3002,7 @@ function buildCloseBandScanExpandRow(d, dayKey, colSpan, rules) {
         .filter(Boolean)
         .join(" · ");
       const ytcReal = r.r_realized ?? r.y_r_realized;
+      const rtauTxt = fmtScanPredReal(scanRtauPred(r), ytcReal);
       const ytcTxt = fmtScanPredReal(scanYtcPred(r), ytcReal);
       const yocTxt = fmtScanPredReal(scanYocPred(r), ocReal);
       const yhlTxt = fmtPathScore(r.y_hl ?? r.y_path);
@@ -2943,8 +3021,9 @@ function buildCloseBandScanExpandRow(d, dayKey, colSpan, rules) {
         `<td class="num paper-t0-scan-px">${escapeText(fmtBarPx(r.c))}</td>` +
         `<td class="num paper-t0-scan-px">${escapeText(fmtBarPx(r.c_tau ?? r.c_hat))}</td>` +
         tradeBandEdgeCells(r.c_tau ?? r.c_hat, d, rules, r) +
-        `<td class="num paper-t0-scan-y" title="${escapeText(ytcTxt)}">${escapeText(ytcTxt)}</td>` +
+        `<td class="num paper-t0-scan-y" title="${escapeText(rtauTxt)}">${escapeText(rtauTxt)}</td>` +
         `<td class="num paper-t0-scan-y" title="${escapeText(yocTxt)}">${escapeText(yocTxt)}</td>` +
+        `<td class="num paper-t0-scan-y" title="${escapeText(ytcTxt)}">${escapeText(ytcTxt)}</td>` +
         `<td class="num paper-t0-scan-y" title="${escapeText(yhlTxt)}">${escapeText(yhlTxt)}</td>` +
         `<td class="num paper-t0-scan-y" title="${escapeText(ycxTxt)}">${escapeText(ycxTxt)}</td>` +
         `<td class="num paper-t0-scan-y" title="${escapeText(ytpdTxt)}">${escapeText(ytpdTxt)}</td>` +
@@ -2960,7 +3039,7 @@ function buildCloseBandScanExpandRow(d, dayKey, colSpan, rules) {
     `<div class="paper-t0-scan-debug-wrap">` +
     closeBandScanTitleHtml(d) +
     `<table class="paper-t0-scan-debug">` +
-    `<colgroup><col span="15"></colgroup>` +
+    `<colgroup><col span="16"></colgroup>` +
     `<thead><tr>` +
     `<th class="paper-t0-scan-hm">钟</th>` +
     `<th class="num paper-t0-scan-px">O</th>` +
@@ -2970,8 +3049,9 @@ function buildCloseBandScanExpandRow(d, dayKey, colSpan, rules) {
     `<th class="num paper-t0-scan-px" title="C_τ = O×(1+clip(ŷ_oc×scale, y_oc_l, y_oc_u)/100) · 主显分钟映后">Ĉ_τ</th>` +
     `<th class="num paper-t0-scan-px" title="破带下沿 = Ĉ_τ×(1+lower%/100)；C<lower → 正T">lower</th>` +
     `<th class="num paper-t0-scan-px" title="破带上沿 = Ĉ_τ×(1+upper%/100)；C>upper → 反T">upper</th>` +
-    `<th class="num paper-t0-scan-y" title="${escapeText(Y_R_TITLE)} · 预估(真实 close[T]/price(τ)−1)">y_τc</th>` +
+    `<th class="num paper-t0-scan-y" title="${escapeText(R_HAT_TITLE)} · 预估(真实 close[T]/price(τ)−1)">R_τ</th>` +
     `<th class="num paper-t0-scan-y" title="ŷ_oc · 预估(真实 open→close)">y_oc</th>` +
+    `<th class="num paper-t0-scan-y" title="${escapeText(Y_R_TITLE)} · 预估(真实 close[T]/price(τ)−1)">y_τc</th>` +
     `<th class="num paper-t0-scan-y">y_hl</th>` +
     `<th class="num paper-t0-scan-y" title="${escapeText(Y_CX_TITLE)}">y_cx</th>` +
     `<th class="num paper-t0-scan-y" title="${escapeText(Y_TPD_TITLE)}">y_tpd</th>` +
@@ -3047,7 +3127,7 @@ function renderTradeDayHtml(d, ctx) {
     );
     const slotYRealized = showRealized;
     return (
-      rMergedCellHtml(scoreHost, dayRef || d, slotYRealized, scoreDetailJson) +
+      rtauMergedCellHtml(scoreHost, dayRef || d, slotYRealized, scoreDetailJson) +
       yPctMergedCellHtml(
         "tau",
         scoreHost,
@@ -3059,6 +3139,7 @@ function renderTradeDayHtml(d, ctx) {
         liveByCode,
         dayRef || d
       ) +
+      rMergedCellHtml(scoreHost, dayRef || d, slotYRealized, scoreDetailJson) +
       pathMergedCellHtml(scoreHost, fallback, rules, scoreDetailJson, slotYRealized, liveByCode) +
       (showRealized
         ? cxMergedCellHtml(scoreHost, dayRef || d, slotYRealized) +
@@ -3095,7 +3176,7 @@ function renderTradeDayHtml(d, ctx) {
   const dateInner = hasScan
     ? `<button type="button" class="paper-t0-day-debug-toggle" data-t0-day-id="${escapeText(
         dayKey
-      )}" title="展开 11:00 前每根扫描（OLHC · Ĉ_τ · lower · upper · y_τc · y_oc · y_hl · y_cx · y_tpd）" aria-expanded="false">${escapeText(
+      )}" title="展开 11:00 前每根扫描（OLHC · Ĉ_τ · lower · upper · R_τ · y_oc · y_τc · y_hl · y_cx · y_tpd）" aria-expanded="false">${escapeText(
         dayText
       )}<span class="paper-t0-day-debug-caret" aria-hidden="true">▾</span></button>`
     : escapeText(dayText);
@@ -3195,12 +3276,15 @@ export function buildT0TradeTableHtml(opts) {
     `<th scope="col" class="paper-t0-col-ctau num" title="C_τ = O×(1+clip(ŷ_oc×scale, y_oc_l, y_oc_u)/100) · 主显分钟映后（破带用）；悬停看日原">Ĉ_τ</th>` +
     `<th scope="col" class="paper-t0-col-band-lo num" title="破带下沿 = Ĉ_τ×(1+lower%/100)；C<lower → 正T">lower</th>` +
     `<th scope="col" class="paper-t0-col-band-up num" title="破带上沿 = Ĉ_τ×(1+upper%/100)；C>upper → 反T">upper</th>` +
-    `<th scope="col" class="paper-t0-col-yr num paper-t0-col-y paper-t0-col-y-r" title="${escapeText(
-      `${Y_R_TITLE}${slotYHint}`
-    )}">y_τc</th>` +
+    `<th scope="col" class="paper-t0-col-rtau num paper-t0-col-y paper-t0-col-y-rtau" title="${escapeText(
+      `${R_HAT_TITLE}${slotYHint}`
+    )}">R_τ</th>` +
     `<th scope="col" class="paper-t0-col-tau num paper-t0-col-y paper-t0-col-y-tau" title="${escapeText(
       `${scoreTip}${slotYHint}${tauGateHint}`
     )}">y_oc</th>` +
+    `<th scope="col" class="paper-t0-col-yr num paper-t0-col-y paper-t0-col-y-r" title="${escapeText(
+      `${Y_R_TITLE}${slotYHint}`
+    )}">y_τc</th>` +
     `<th scope="col" class="paper-t0-col-path num paper-t0-col-y paper-t0-col-y-path" title="${escapeText(
       `${Y_HL_TITLE}${slotYHint}`
     )}">y_hl</th>` +

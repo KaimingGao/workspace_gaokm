@@ -1,7 +1,7 @@
 import { apiFetch } from "../api_client.js";
 import { renderLineChart, renderDualLineChart, renderMultiLineChart, renderNavBarChart } from "../lw_charts.js";
 import { fmtScore, scoreCls } from "../paper/fmt.js";
-import { renderPaperT0 } from "../paper/t0_ui.js?v=p2364";
+import { renderPaperT0 } from "../paper/t0_ui.js?v=p2368";
 import { portfolioBtScoreFloorPayload as buildBtScoreFloorPayload, mergeScoringFloors } from "./scoring.js";
 import { truncateStockName, watchingNameSpanHtml } from "./names.js";
 import { ensureFitTierMap } from "./fit_tier_ui.js";
@@ -54,17 +54,6 @@ const {
 /** Top-K 净值图横轴只展示最近 N 个自然日（含末日）。 */
 export const TOPK_NAV_CHART_WINDOW_DAYS = 15;
 
-/** Q1（灰）→ Qn（绿）；与 domain_watching 分层色板一致。 */
-const Q_COLORS = [
-  "#9ca3af",
-  "#93c5fd",
-  "#60a5fa",
-  "#34d399",
-  "#059669",
-  "#047857",
-  "#065f46",
-];
-
 function _curvePointDate(p) {
   return String((p && (p.date || p.ts || p.time)) || "").slice(0, 10);
 }
@@ -86,28 +75,8 @@ export function sliceCurveToDateWindow(series, days = TOPK_NAV_CHART_WINDOW_DAYS
 export function installBacktest(q) {
   const { on, els, state, ctx, escapeHtml, apiFetch, setQuantMeta, setBusyText, btSimScoreTips, watchingNameFromEl } = q;
   const { fmtPct, metricClass, renderMetricCards, renderBtScopeNote, renderRobustnessPanel, buildPortfolioBacktestCards, BT_SCOPE_LIVE, BT_SCOPE_FROZEN, readHorizonDays, quantBtBusyIds } = q;
-  const { renderAttributionTablesHtml, renderIcEquityAlignHtml, renderQuantileTableHtml, buildCrossSectionResult, renderScoreIcHtml, renderReplayStockContribHtml } = q;
+  const { renderAttributionTablesHtml, buildCrossSectionResult, renderScoreIcHtml, renderReplayStockContribHtml } = q;
   const { researchGridHtml, metricCell } = q;
-
-  function buildIcAlignMarkers(align) {
-    const periods = (align && align.ok && align.periods_tail) || [];
-    const out = [];
-    const seen = new Set();
-    periods.forEach((p) => {
-      const t = String(p.end_date || "").slice(0, 10);
-      if (!/^\d{4}-\d{2}-\d{2}$/.test(t) || seen.has(t)) return;
-      seen.add(t);
-      const pos = p.bucket === "pos";
-      out.push({
-        time: t,
-        position: "belowBar",
-        color: pos ? "#059669" : "#9ca3af",
-        shape: "circle",
-        text: pos ? "+" : "−",
-      });
-    });
-    return out.slice(-40);
-  }
 
   function isReplayDesk() {
     return typeof document !== "undefined" && document.body?.getAttribute("data-page") === "replay";
@@ -533,8 +502,7 @@ export function installBacktest(q) {
         data.equity_curve,
         "回测无足够交易点",
         (data.benchmark && data.benchmark.ok && data.benchmark.equity_curve) || null,
-        (data.benchmark && data.benchmark.benchmark_label) || null,
-        data.ic_equity_align
+        (data.benchmark && data.benchmark.benchmark_label) || null
       );
       markReplayRestored(at);
     } catch (_) {
@@ -717,7 +685,7 @@ export function installBacktest(q) {
     return m;
   }
 
-  async function paintPortfolioChart(curve, emptyText, benchCurve, benchLabel, icAlign) {
+  async function paintPortfolioChart(curve, emptyText, benchCurve, benchLabel) {
     const host = els.quantPortfolioChart;
     if (!host) return;
     state.lastNavChart = {
@@ -725,7 +693,6 @@ export function installBacktest(q) {
       emptyText: emptyText || "",
       benchCurve: benchCurve || null,
       benchLabel: benchLabel || null,
-      icAlign: icAlign || null,
     };
     const hadStock = state.btChartMode === "stock" || !!state.btChartStockCode;
     state.btChartMode = "nav";
@@ -747,7 +714,6 @@ export function installBacktest(q) {
         };
       });
     const fullWindow = isReplayDesk();
-    const markers = fullWindow ? [] : buildIcAlignMarkers(icAlign);
     const windowed = fullWindow ? (Array.isArray(curve) ? curve : []) : sliceCurveToDateWindow(curve);
     const windowedBench = fullWindow
       ? Array.isArray(benchCurve)
@@ -757,10 +723,6 @@ export function installBacktest(q) {
     const winStart = _curvePointDate(windowed[0] || {});
     const pts = toPts(windowed);
     const bpts = toPts(windowedBench);
-    const winMarkers =
-      winStart && /^\d{4}-\d{2}-\d{2}$/.test(winStart)
-        ? markers.filter((m) => String(m.time || "") >= winStart)
-        : markers;
     const axisHint = fullWindow
       ? `横轴全部 ${pts.length || 0} 个交易日。`
       : "横轴近15日。";
@@ -784,88 +746,22 @@ export function installBacktest(q) {
       if (legendEl) {
         legendEl.textContent = fullWindow
           ? `rank_lots（蓝）vs ${benchLabel || "基准"}（绿）。起点 100。${axisHint}`
-          : `rank_lots 净值（蓝）vs ${benchLabel || "基准"}（绿）。` +
-            (markers.length
-              ? `标记：绿点=正IC窗结束 · 灰点=非正IC窗。${axisHint}`
-              : `起点 100；${axisHint}`) +
+          : `rank_lots 净值（蓝）vs ${benchLabel || "基准"}（绿）。起点 100；${axisHint}` +
             "超额看指标卡，勿只看绝对累计。";
       }
       await renderDualLineChart(host, pts, bpts, {
         emptyText,
         disableZoom: !fullWindow,
-        markers: winMarkers,
       });
       return;
     }
     if (legendEl) {
       legendEl.textContent = fullWindow
         ? `rank_lots 净值。起点 100。${axisHint}`
-        : "rank_lots 净值（非研究独立腿）。起点 100。" +
-          (markers.length
-            ? " 标记：绿点=正IC窗结束 · 灰点=非正IC窗。"
-            : " 单线=当次回测；对照时蓝=中性化、绿=未中性化ŷ。") +
+        : "rank_lots 净值（非研究独立腿）。起点 100。单线=当次回测；对照时蓝=中性化、绿=未中性化ŷ。" +
           ` ${axisHint}`;
     }
-    await renderLineChart(host, pts, { emptyText, disableZoom: !fullWindow, markers: winMarkers });
-  }
-
-  async function paintQuantileChart(qb) {
-    const chartWrap = document.getElementById("quant-quantile-chart-wrap");
-    const chartHost = document.getElementById("quant-quantile-chart");
-    if (!chartHost || !chartWrap) return;
-    try {
-      const rows = (qb && qb.quantiles) || [];
-      const series = rows
-        .map((r, i) => {
-          const curve = r.equity_curve_tail || r.equity_curve || [];
-          if (!curve.length) return null;
-          const n = rows.length;
-          const isEdge = i === 0 || i === n - 1;
-          return {
-            label: r.label || `Q${r.quantile}`,
-            color: Q_COLORS[Math.min(i, Q_COLORS.length - 1)],
-            lineWidth: isEdge ? 2.5 : 1.5,
-            points: curve.map((p, j) => {
-              const t = String(p.date || "").slice(0, 10);
-              return {
-                time: /^\d{4}-\d{2}-\d{2}$/.test(t)
-                  ? t
-                  : new Date(Date.UTC(2020, 0, 1 + j)).toISOString().slice(0, 10),
-                value: Number(p.equity ?? p.value),
-              };
-            }),
-          };
-        })
-        .filter(Boolean);
-      const ls = (qb && qb.long_short_equity_curve) || [];
-      if (ls.length >= 2) {
-        series.push({
-          label: "Q高−Q低",
-          color: "#b45309",
-          lineWidth: 2.5,
-          points: ls.map((p, j) => {
-            const t = String(p.date || "").slice(0, 10);
-            return {
-              time: /^\d{4}-\d{2}-\d{2}$/.test(t)
-                ? t
-                : new Date(Date.UTC(2020, 0, 1 + j)).toISOString().slice(0, 10),
-              value: Number(p.equity ?? p.value),
-            };
-          }),
-        });
-      }
-      if (series.length < 2) {
-        chartWrap.hidden = true;
-        return;
-      }
-      chartWrap.hidden = false;
-      await renderMultiLineChart(chartHost, series, {
-        emptyText: "分层曲线不足",
-        disableZoom: true,
-      });
-    } catch (_) {
-      chartWrap.hidden = true;
-    }
+    await renderLineChart(host, pts, { emptyText, disableZoom: !fullWindow });
   }
 
   function readUnitWeight(id, fallback) {
@@ -1227,12 +1123,6 @@ export function installBacktest(q) {
       ) + `<p class="quant-attr-note">${escapeHtml(ca.note || "")}</p>`;
   }
 
-  function renderIcEquityAlign(align) {
-    const el = document.getElementById("quant-ic-align");
-    if (!el) return;
-    el.innerHTML = renderIcEquityAlignHtml(align);
-  }
-
   function renderNeutralCompareTable(source, targetEl, opts = {}) {
     renderNeutralCompareTableHtml(source, targetEl || els.quantNeutralCompareTable, opts);
   }
@@ -1249,8 +1139,6 @@ export function installBacktest(q) {
       renderSignalFillTable(null);
       renderUniversePanel(null);
       renderScoreIc(null);
-      renderIcEquityAlign(null);
-      renderQuantileTable(null);
       const expBtn = document.getElementById("quant-backtest-report-export");
       if (expBtn) expBtn.disabled = true;
       clearBtTradesTable();
@@ -1291,8 +1179,6 @@ export function installBacktest(q) {
     renderAttributionTables(data.attribution);
     renderRegimeBuckets(data.regime_buckets, data.macro_context_summary);
     renderScoreIc(data.score_ic);
-    renderIcEquityAlign(data.ic_equity_align);
-    renderQuantileTable(data.quantile_backtest);
     // 信号–成交已并入模拟成交账
     renderSignalFillTable(null);
     state.lastBacktestPack = {
@@ -1305,24 +1191,6 @@ export function installBacktest(q) {
 
     renderBtTradesTable(data);
     renderStockContribTable(data);
-  }
-
-  function renderQuantileTable(qb) {
-    const el = document.getElementById("quant-quantile-table");
-    const chartWrap = document.getElementById("quant-quantile-chart-wrap");
-    const chartHost = document.getElementById("quant-quantile-chart");
-    if (!el) return;
-    if (!qb) {
-      el.innerHTML = "";
-      if (chartWrap) chartWrap.hidden = true;
-      if (chartHost) chartHost.replaceChildren();
-      return;
-    }
-    const { html, showChart } = renderQuantileTableHtml(qb);
-    el.innerHTML = html;
-    if (chartWrap) chartWrap.hidden = !showChart;
-    if (!showChart && chartHost) chartHost.replaceChildren();
-    if (showChart) paintQuantileChart(qb);
   }
 
   function renderRegimeBuckets(rb, macroSummary) {
@@ -1588,8 +1456,7 @@ export function installBacktest(q) {
         data.equity_curve,
         "回测无足够交易点",
         (data.benchmark && data.benchmark.ok && data.benchmark.equity_curve) || null,
-        (data.benchmark && data.benchmark.benchmark_label) || null,
-        data.ic_equity_align
+        (data.benchmark && data.benchmark.benchmark_label) || null
       );
 
       // 北极星仪表化（前端缓存）：滚动夏普 / 卡玛 / TTM 等
@@ -1691,7 +1558,6 @@ export function installBacktest(q) {
       from_paper: true,
       lookback,
       use_minute: true,
-      compare_daily: false,
       ...t0,
       t0_stop_on_close: true,
       initial_shares: sizing.shares,
@@ -1796,7 +1662,6 @@ export function installBacktest(q) {
   initExecutionRuleForms().catch(() => {});
 
   return {
-    buildIcAlignMarkers,
     clearBtTradesTable,
     downloadSimTradesCsv,
     fitReturnScoreModel,
@@ -1811,16 +1676,13 @@ export function installBacktest(q) {
     paintIcChart,
     paintNeutralCompareChart,
     paintPortfolioChart,
-    paintQuantileChart,
     portfolioBtScoreFloorPayload,
     readPortfolioBtParams,
     renderAttributionTables,
     renderBtTradesTable,
     renderCostAssumptions,
-    renderIcEquityAlign,
     renderNeutralCompareTable,
     renderPortfolioBacktestResult,
-    renderQuantileTable,
     renderRegimeBuckets,
     renderScoreIc,
     renderSignalFillTable,

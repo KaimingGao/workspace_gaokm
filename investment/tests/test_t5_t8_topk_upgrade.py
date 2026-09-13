@@ -11,7 +11,6 @@ if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
 from core.backtest.pool_ic import compute_pool_cross_section_ic
-from core.backtest.quantile_backtest import backtest_score_quantiles, _split_quantiles
 from core.backtest.topk_backtest import apply_topk_dropout
 from core.backtest.topk_benchmark import build_topk_benchmark_summary
 from core.backtest.universe_filters import filter_universe_bars, _is_st_name
@@ -80,17 +79,6 @@ class TestUniverseFilters(unittest.TestCase):
         self.assertTrue(any(d["stock_code"] == "600001" for d in dropped))
 
 
-class TestQuantileSplit(unittest.TestCase):
-    def test_split_five(self):
-        scored = [(f"c{i}", float(i)) for i in range(10)]
-        buckets = _split_quantiles(scored, 5)
-        self.assertEqual(len(buckets), 5)
-        self.assertEqual(sum(len(b) for b in buckets), 10)
-        # lowest scores in Q1
-        self.assertEqual(buckets[0][0][0], "c0")
-        self.assertEqual(buckets[-1][-1][0], "c9")
-
-
 class TestBenchmarkFlat(unittest.TestCase):
     def test_excess_equals_strategy_when_bench_flat(self):
         flat = [{"date": f"2024-01-{i+1:02d}", "close": 100.0} for i in range(20)]
@@ -155,34 +143,6 @@ class TestAmountFilter(unittest.TestCase):
         self.assertEqual(meta["min_avg_amount_pctile"], 50)
 
 
-class TestIcEquityAlign(unittest.TestCase):
-    def test_pos_ic_window_higher_avg(self):
-        from core.backtest.ic_equity_align import align_ic_to_equity_periods
-
-        score_ic = {
-            "ok": True,
-            "ic_series_tail": [
-                {"date": "2024-01-01", "ic": 0.2},
-                {"date": "2024-01-04", "ic": 0.1},
-                {"date": "2024-01-07", "ic": -0.2},
-                {"date": "2024-01-10", "ic": -0.1},
-            ],
-        }
-        equity = [
-            {"date": "2024-01-01", "equity": 100, "return_pct": 0},
-            {"date": "2024-01-04", "equity": 105, "return_pct": 5},
-            {"date": "2024-01-07", "equity": 110.25, "return_pct": 5},
-            {"date": "2024-01-10", "equity": 108, "return_pct": -2},
-            {"date": "2024-01-13", "equity": 106, "return_pct": -1.85},
-        ]
-        out = align_ic_to_equity_periods(score_ic, equity)
-        self.assertTrue(out.get("ok"))
-        self.assertIsNotNone(out.get("avg_return_spread_pp"))
-        self.assertGreater(out["pos_ic"]["count"] + out["neg_ic"]["count"], 1)
-        # 正 IC 期初对应 +5/+5，非正对应负收益 → 应同向
-        self.assertTrue(out.get("aligned_favor_pos_ic"))
-
-
 class TestPromoteHintsShape(unittest.TestCase):
     def test_hint_dict_shape(self):
         # 与 quant_service_replay 组装约定一致
@@ -231,43 +191,6 @@ class TestPoolIcSmoke(unittest.TestCase):
         self.assertIn("ic_rolling_tail", out)
         self.assertIn("positive_ic_days", out)
         self.assertGreaterEqual(len(out["ic_series_tail"]), 3)
-
-
-class TestLongShortCurve(unittest.TestCase):
-    def test_ls_compounds_from_period_spread(self):
-        from core.backtest.quantile_backtest import _build_long_short_equity_curve
-
-        high = [
-            {"date": "2024-01-01", "equity": 100},
-            {"date": "2024-01-04", "equity": 110},
-            {"date": "2024-01-07", "equity": 121},
-        ]
-        low = [
-            {"date": "2024-01-01", "equity": 100},
-            {"date": "2024-01-04", "equity": 100},
-            {"date": "2024-01-07", "equity": 100},
-        ]
-        curve = _build_long_short_equity_curve(high, low)
-        self.assertGreaterEqual(len(curve), 2)
-        self.assertEqual(curve[0]["equity"], 100.0)
-        # +10% then +10% vs flat → ~21%
-        self.assertGreater(curve[-1]["equity"], 120)
-
-
-class TestQuantileEngineSmoke(unittest.TestCase):
-    def test_monotonic_flag_present(self):
-        # synthetic rising drift across names — engine may or may not be mono; just structure
-        stock_bars = {
-            f"S{i}": _synth_bars(70, start=8.0 + i * 0.2, drift=0.002 + i * 0.0005)
-            for i in range(8)
-        }
-        out = backtest_score_quantiles(stock_bars, n_quantiles=5, horizon_days=3, min_names=5)
-        self.assertIn("ok", out)
-        self.assertIn("monotonic_increasing", out)
-        self.assertIn("quantiles", out)
-        self.assertIn("long_short_equity_curve", out)
-        if out.get("ok"):
-            self.assertEqual(len(out["quantiles"]), 5)
 
 
 class TestSimTradeRowHeuristicKw(unittest.TestCase):

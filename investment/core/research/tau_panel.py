@@ -944,7 +944,3 @@ def collect_tau_intraday_panel(
             )
     return xs, ys, dates, metas
 
-# --- Backward-compatible aliases (deprecated) ---
-collect_rem_open_panel = collect_tau_open_panel
-collect_rem_tau_panel = collect_tau_intraday_panel
-

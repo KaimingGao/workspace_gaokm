@@ -112,6 +112,47 @@ class TestClusterBarsStatus(unittest.TestCase):
         self.assertFalse(build.call_args_list[1].kwargs.get("force_latest_bars"))
         self.assertTrue(build.call_args_list[1].kwargs.get("full_window_bars"))
 
+    def test_bars_refresh_job_total_matches_watchlist(self):
+        import tempfile
+        import time
+
+        from core.job_progress import JobProgress
+        from quant.services.quant_service import QuantService
+
+        watch = [f"{i:06d}" for i in range(160)]
+        fake = {
+            "success": True,
+            "universe_count": 160,
+            "bars_refresh": {"total": 160, "remote_count": 0},
+        }
+
+        def _run(*, progress_cb=None, **_kwargs):
+            if progress_cb:
+                progress_cb("拉日线 160/160", 160, 160)
+            return fake
+
+        with tempfile.TemporaryDirectory() as td:
+            path = os.path.join(td, "cluster_bars.json")
+            slot = JobProgress(name="cluster-bars-refresh", persist_path=path)
+            svc = QuantService()
+            with patch("core.job_progress.cluster_bars_refresh_job", slot), patch(
+                "core.watching.store.read_watching",
+                return_value={"watchlist": watch},
+            ), patch.object(svc, "run_cluster_bars_refresh", side_effect=_run):
+                out = svc.start_cluster_bars_refresh_job(watching_limit=200)
+                self.assertTrue(out.get("background"))
+                self.assertEqual(out["job"]["total"], 160)
+                for _ in range(50):
+                    snap = slot.get()
+                    if snap.get("status") in ("done", "failed"):
+                        break
+                    time.sleep(0.05)
+                snap = slot.get()
+                self.assertEqual(snap["status"], "done")
+                self.assertEqual(snap["total"], 160)
+                self.assertEqual(snap["current"], 160)
+                self.assertIn("160/160", str(snap.get("message") or ""))
+
 
 if __name__ == "__main__":
     unittest.main()

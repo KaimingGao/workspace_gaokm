@@ -155,7 +155,7 @@ class TestOnPanel(unittest.TestCase):
 
 class TestOnRidgeFit(unittest.TestCase):
     def test_fit_and_persist(self):
-        from quant.research.on_ridge import (
+        from core.research.on_ridge import (
             fit_on_ridge_report,
             load_on_model,
             persist_on_model,
@@ -244,7 +244,7 @@ class TestOnScoreAttach(unittest.TestCase):
         self.assertIsNone(item.get("predicted_score_on"))
 
     def test_load_on_model_falls_back_to_last_report(self):
-        from quant.research.on_ridge import (
+        from core.research.on_ridge import (
             fit_on_ridge_report,
             load_on_model,
             load_on_last_report,

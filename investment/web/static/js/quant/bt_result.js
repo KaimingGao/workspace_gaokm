@@ -265,29 +265,12 @@ export function applyReplayT0Kpis(data) {
 export function buildResearchCurves(result) {
   if (!result || !result.success) return null;
   const sic = result.score_ic || {};
-  const qb = result.quantile_backtest || {};
   const bench = result.benchmark || {};
-  const align = result.ic_equity_align || {};
   return {
     equity_curve: result.equity_curve || [],
     benchmark_equity_curve: bench.equity_curve || [],
     ic_series_tail: sic.ic_series_tail || [],
     ic_rolling_tail: sic.ic_rolling_tail || [],
-    quantile_curves: (qb.quantiles || []).map((r) => ({
-      label: r.label,
-      quantile: r.quantile,
-      equity_curve_tail: r.equity_curve_tail || [],
-    })),
-    long_short_equity_curve: qb.long_short_equity_curve || [],
-    ic_equity_align: align.ok
-      ? {
-          avg_return_spread_pp: align.avg_return_spread_pp,
-          aligned_favor_pos_ic: align.aligned_favor_pos_ic,
-          pos_ic: align.pos_ic,
-          neg_ic: align.neg_ic,
-          periods_tail: align.periods_tail || [],
-        }
-      : align,
   };
 }
 
@@ -415,12 +398,6 @@ export function buildPortfolioBacktestSummaryText(data) {
     : sic.reason
       ? ` · IC略 ${sic.reason}`
       : "";
-  const qb = data.quantile_backtest || {};
-  const qNote = qb.ok
-    ? qb.monotonic_increasing
-      ? ` · 分层单调↑ Q差${qb.q_high_minus_q_low_pct ?? "—"}%`
-      : ` · 分层非单调 Q差${qb.q_high_minus_q_low_pct ?? "—"}%`
-    : "";
   const cashInit = Number(data.params?.initial_cash ?? data.request?.initial_cash);
   const cashFloor = Number(data.params?.cash_floor ?? data.request?.cash_floor);
   const cashNote = Number.isFinite(cashInit)
@@ -446,9 +423,8 @@ export function buildPortfolioBacktestSummaryText(data) {
       : "") +
     ` · 交易日 ${data.params?.trade_days ?? data.params?.common_dates ?? "—"} · 交易 ${m.trade_count} · 累计 ${m.total_return_pct}% · 胜率 ${m.win_rate_pct}% · 成本 ${
       costModel === "simple_cn" ? "A股简化" : costModel
-    }${data.params?.neutralize ? ` · 中性化 ${data.params?.neutralized_rebalances || 0} 次` : ""}${fundNote}${oosNote}${regimeNote}${dqNote}${costCmpNote}${wfNote}${attrNote}${pitNote}${auditNote}${matchNote}${scoreAxisNote}${engNote}${cashNote}${dropNote}${dropoutNote}${icNote}${qNote}${benchNote}${sessNote}`;
-  const qBad = qb.ok && qb.monotonic_increasing === false;
-  return { text, warn: !!(oosFailed || qBad) };
+    }${data.params?.neutralize ? ` · 中性化 ${data.params?.neutralized_rebalances || 0} 次` : ""}${fundNote}${oosNote}${regimeNote}${dqNote}${costCmpNote}${wfNote}${attrNote}${pitNote}${auditNote}${matchNote}${scoreAxisNote}${engNote}${cashNote}${dropNote}${dropoutNote}${icNote}${benchNote}${sessNote}`;
+  return { text, warn: !!oosFailed };
 }
 
 /** @returns {Array<{ label: string, value: string, cls?: string }>} */
@@ -577,14 +553,6 @@ export function buildPortfolioBacktestCards(data, { escapeHtml: esc, fmtPct: fmt
         cls: Number(sic.positive_ic_ratio) >= 0.55 ? "" : "down",
       });
     }
-  }
-  const align = data.ic_equity_align || {};
-  if (align.ok && align.avg_return_spread_pp != null) {
-    cards.push({
-      label: "IC窗收益差",
-      value: `${Number(align.avg_return_spread_pp) >= 0 ? "+" : ""}${align.avg_return_spread_pp}pp`,
-      cls: align.aligned_favor_pos_ic === false ? "down" : mcls(align.avg_return_spread_pp),
-    });
   }
   if (cc.ok) {
     const gap = cc.return_gap_pp;

@@ -1368,7 +1368,6 @@ class TestT0Core(unittest.TestCase):
                 "t0_slots_max_rounds": 0,
             },
             minute_by_date=mins,
-            compare_daily=False,
             require_minute=True,
         )
         self.assertTrue(report["success"])

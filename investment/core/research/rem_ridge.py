@@ -1,5 +1,0 @@
-"""Deprecated alias: use ``core.research.tau_ridge`` (ŷ_τ / open→close 头)。"""
-from core.research import tau_ridge as _m
-from core.research.tau_ridge import *  # noqa: F401,F403
-
-__all__ = [n for n in dir(_m) if not n.startswith("_")]

@@ -89,7 +89,6 @@ class T0BacktestRequest(BaseModel):
     min_range_pct_sell_then_buy: Optional[float] = Field(default=None, ge=0.0, le=30.0)
     min_range_pct_buy_then_sell: Optional[float] = Field(default=None, ge=0.0, le=30.0)
     use_minute: bool = True
-    compare_daily: bool = False  # 已废弃：日线模拟已删除
     use_atr: Optional[bool] = None
     y_trade_enter: Optional[float] = Field(
         default=None, ge=0.0, le=5.0, description="dual_y：|y_trade|入场下限（收益百分点）"
