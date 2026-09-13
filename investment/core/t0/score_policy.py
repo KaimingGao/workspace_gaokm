@@ -844,13 +844,9 @@ def scores_from_item(item: Optional[dict]) -> Dict[str, Optional[float]]:
             out[k] = v
     out.update(tip_fields_from_item(item))
     try:
-        from core.signal.yhat_windows import Y_TC_SOURCE_REMAINING, stamp_remaining_y_τc
+        from core.signal.yhat_windows import stamp_remaining_y_τc
 
         stamp_remaining_y_τc(out)
-        if out.get("y_τc_source") == Y_TC_SOURCE_REMAINING and out.get("y_τc") is not None:
-            rem_v = float(out["y_τc"])
-            out["residual"] = rem_v
-            out["r_hat"] = rem_v
     except Exception:  # noqa: BLE001
         logger.debug("stamp remaining y_τc in scores_from_item failed", exc_info=True)
     nc_cc = _nowcast_cc_pct(out)

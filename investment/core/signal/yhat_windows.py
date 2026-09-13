@@ -27,6 +27,7 @@ FORMULA_TC_REMAINING = "remaining(ŷ_oc)=(1+ŷ_oc)/(1+open→τ)−1"
 FORMULA_RANKING = "w_oo·ŷ_oo + w_oc·((1+ŷ_oc)(1+w_co·ŷ_co)−1)"
 FORMULA_RESIDUAL = "w_τc·ŷ_τc + w_oc·remaining(ŷ_oc)"
 Y_TC_SOURCE_REMAINING = "remaining_oc"
+Y_TC_SOURCE_RIDGE = "ridge"
 
 
 def _f(x: Any) -> Optional[float]:
@@ -215,10 +216,9 @@ def stamp_remaining_y_τc(
     open_px: Optional[float] = None,
     price_tau: Optional[float] = None,
 ) -> Optional[float]:
-    """表列 ŷ_τc = remaining(ŷ_oc, open→τ)。Ridge 进 y_τc_ridge / y_r，不盖表列。
+    """remaining(ŷ_oc) 写入 R̂_τ（r_hat / remaining_oc）；ŷ_τc 保持 Ridge 模型预估。
 
-    独立 Ridge 截距常把预估钉在正侧；remaining 与真实 close/price(τ)−1 同几何，能出负号。
-    缺 ŷ_oc / 开→τ 则保留已有 ŷ_τc。
+    旧簿若把 remaining 盖进 y_τc，则从 y_τc_ridge / y_r 还原表列，避免与 R_τ 重复。
     """
     if not isinstance(dest, dict):
         return None
@@ -229,23 +229,26 @@ def stamp_remaining_y_τc(
         open_px=open_px,
         price_tau=price_tau,
     )
-    if rem is None:
-        return pick_y_τc(dest)
     ridge = _f(dest.get("y_τc_ridge"))
     if ridge is None:
         ridge = _f(dest.get("y_r"))
-        if ridge is None:
-            ridge = _f(dest.get("y_r_hat"))
-        if ridge is None:
-            ridge = _f(dest.get("predicted_score_r"))
-        if ridge is None and str(dest.get("y_τc_source") or "") != Y_TC_SOURCE_REMAINING:
-            ridge = _f(dest.get("y_τc"))
+    if ridge is None:
+        ridge = _f(dest.get("y_r_hat"))
+    if ridge is None:
+        ridge = _f(dest.get("predicted_score_r"))
+    src = str(dest.get("y_τc_source") or "")
+    if ridge is None and src != Y_TC_SOURCE_REMAINING:
+        ridge = _f(dest.get("y_τc"))
+    if rem is not None:
+        dest["remaining_oc"] = float(rem)
+        dest["r_hat"] = float(rem)
+        dest["residual"] = float(rem)
     if ridge is not None:
         dest["y_τc_ridge"] = float(ridge)
-    write_y_τc(dest, rem)
-    dest["y_τc_source"] = Y_TC_SOURCE_REMAINING
-    dest["y_spec_τc"] = {"formula": FORMULA_TC_REMAINING, "unit": "pct"}
-    return rem
+        write_y_τc(dest, ridge)
+        dest["y_τc_source"] = Y_TC_SOURCE_RIDGE
+        dest["y_spec_τc"] = {"formula": FORMULA_TC, "unit": "pct"}
+    return rem if rem is not None else ridge
 
 
 def forward_oo_pct(
@@ -580,6 +583,7 @@ __all__ = [
     "FORMULA_RANKING",
     "FORMULA_RESIDUAL",
     "Y_TC_SOURCE_REMAINING",
+    "Y_TC_SOURCE_RIDGE",
     "compound_pct",
     "forward_oo_pct",
     "fuse_pct",

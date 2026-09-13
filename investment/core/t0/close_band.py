@@ -127,10 +127,12 @@ def scores_close_components(
     """估 C_τ：O×(1+clip(ŷ_oc×scale, y_oc_l, y_oc_u)/100)。ŷ_τc 只对照。
 
     估用**日线** open；slots 再经 ``map_close_px_to_minute`` 映回分钟触价。
-    remaining(ŷ_oc) / ŷ_τc 写入返回值供扫描表，不参与选腿。
+    remaining(ŷ_oc) 写入 R̂_τ；ŷ_τc 为 Ridge 预估 price→close。均不参与选腿。
     ``c_oc`` 为未 clip 的 O×(1+ŷ_oc/100)，不进破带。
     """
     from core.signal.yhat_windows import (
+        Y_TC_SOURCE_REMAINING,
+        Y_TC_SOURCE_RIDGE,
         pick_y_oc,
         pick_y_τc,
         remaining_oc,
@@ -146,7 +148,7 @@ def scores_close_components(
     if y_oc is None:
         y_oc = sc.get("y_tau")
     y_τc_ridge = pick_y_τc(raw)
-    if str(raw.get("y_τc_source") or "") == "remaining_oc":
+    if str(raw.get("y_τc_source") or "") == Y_TC_SOURCE_REMAINING:
         y_τc_ridge = _f(raw.get("y_τc_ridge"))
         if y_τc_ridge is None:
             y_τc_ridge = _f(raw.get("y_r")) or _f(raw.get("y_r_hat")) or _f(
@@ -169,11 +171,9 @@ def scores_close_components(
     if rot is None:
         rot = ret_open_to_tau_of(raw)
     rem = remaining_oc(y_oc, rot, open_px=open_px, price_tau=pt)
-    # 表列 ŷ_τc = remaining(ŷ_oc)；Ridge 只进旁路。缺 remaining 才退回 Ridge。
-    y_τc = rem if rem is not None else y_τc_ridge
-    y_τc_source = (
-        "remaining_oc" if rem is not None else ("ridge" if y_τc_ridge is not None else None)
-    )
+    # 表列 ŷ_τc = Ridge 预估 price→close；R̂_τ = remaining(ŷ_oc, price)。
+    y_τc = y_τc_ridge
+    y_τc_source = Y_TC_SOURCE_RIDGE if y_τc_ridge is not None else None
     c_τc = _pct_to_px(pt, y_τc) if y_τc is not None and pt is not None and pt > 0 else None
     c_rem = _pct_to_px(pt, rem) if rem is not None and pt is not None and pt > 0 else None
     source = "y_oc" if c_hat is not None else None

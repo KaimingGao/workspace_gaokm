@@ -310,11 +310,11 @@ export const Y_COMPLEXITY_TITLE = Y_CX_TITLE;
 export const Y_TPD_TITLE =
   "y_tpd · 本轮前缀 ŷ（全日转折点密度 ∈[0,1]，表内×100%）· 0=无反转 · 1=每根都反转 · ŷ_tpd>门槛则跳过";
 export const Y_τc_TITLE =
-  "ŷ_τc · remaining(ŷ_oc) · close[T]/price(τ)−1 · 与真实同几何；Ridge 仅对照";
+  "ŷ_τc · Ridge 预估 close[T]/price(τ)−1 · 模型 price→close";
 export const Y_TC_TITLE = Y_τc_TITLE;
 export const Y_R_TITLE = Y_τc_TITLE;
 export const R_HAT_TITLE =
-  "R̂_τ · remaining(ŷ_oc) · close[T]/price(τ)−1 · 不参与选腿 · 预估(真实)";
+  "R̂_τ · remaining(ŷ_oc, price) · close[T]/price(τ)−1 · 由 ŷ_oc 与现价推导 · 不参与选腿 · 预估(真实)";
 export const R_REALIZED_TITLE =
   "τc实 · close[T]/price(τ)−1（与 ŷ_τc / R̂_τ 同标签）";
 
@@ -429,10 +429,29 @@ function _pcFormulaOf(it) {
   return "";
 }
 
-/** ŷ_τc：price(τ)→close(T)。无 y_τc 时读旧簿 y_to / y_pc；再缺则看公式：现行 close/price 原样，旧 price/close 才反几何。 */
+/** ŷ_τc：Ridge 模型预估 price(τ)→close(T)。旧簿若把 remaining 盖进 y_τc，改读 Ridge。 */
 export function resolveYτcScore(it) {
   if (!it || typeof it !== "object") return null;
   if (isHeuristicScoreScale(it)) return null;
+  const rem = _numField(it.remaining_oc ?? it.r_hat ?? it.residual);
+  const src = String(it.y_τc_source || "");
+  const ridge = _numField(it.y_τc_ridge);
+
+  const fromYr = () => {
+    const yr = _numField(it.y_r ?? it.y_r_hat ?? it.predicted_score_r);
+    if (yr == null || !_looksLikeYhatPct(yr)) return null;
+    const formula = _pcFormulaOf(it);
+    if (formula && !_pcFormulaIsLegacy(formula)) return yr;
+    const d = 1 + yr / 100;
+    if (Math.abs(d) < 1e-12) return null;
+    const tc = (1 / d - 1) * 100;
+    return Number.isFinite(tc) ? tc : null;
+  };
+
+  if (src === "remaining_oc") {
+    if (ridge != null && _looksLikeYhatPct(ridge)) return ridge;
+    return fromYr();
+  }
   for (const c of [
     it["y_τc"],
     it["predicted_score_τc"],
@@ -444,16 +463,15 @@ export function resolveYτcScore(it) {
     it.predicted_score_pc,
   ]) {
     const n = _numField(c);
-    if (_looksLikeYhatPct(n)) return n;
+    if (!_looksLikeYhatPct(n)) continue;
+    if (rem != null && Math.abs(n - rem) < 1e-3) {
+      const model = ridge != null && _looksLikeYhatPct(ridge) ? ridge : fromYr();
+      if (model != null && Math.abs(model - rem) > 1e-3) return model;
+    }
+    return n;
   }
-  const yr = _numField(it.y_r ?? it.y_r_hat ?? it.predicted_score_r);
-  if (yr == null || !_looksLikeYhatPct(yr)) return null;
-  const formula = _pcFormulaOf(it);
-  if (formula && !_pcFormulaIsLegacy(formula)) return yr;
-  const d = 1 + yr / 100;
-  if (Math.abs(d) < 1e-12) return null;
-  const tc = (1 / d - 1) * 100;
-  return Number.isFinite(tc) ? tc : null;
+  if (ridge != null && _looksLikeYhatPct(ridge)) return ridge;
+  return fromYr();
 }
 
 /** @deprecated 用 resolveYτcScore */

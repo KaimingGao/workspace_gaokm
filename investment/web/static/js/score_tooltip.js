@@ -22,7 +22,7 @@ import {
   Y_HL_TITLE,
   Y_NC_TITLE,
   Y_NC_OC_TITLE,
-} from "./paper/fmt.js?v=p2346";
+} from "./paper/fmt.js?v=p2369";
 import { renderYPathVizHtml } from "./y_path_viz.js?v=p2297";
 import { hydrateTailAnomalyCharts } from "./tail_anomaly_chart.js";
 import { ON_FEAT_META } from "./quant/factor_meta.js?v=p1226";
@@ -578,7 +578,7 @@ function hasRFormulaTerms(raw) {
   );
 }
 
-/** y_τc 列 tip：表列=remaining(ŷ_oc)；Ridge 仅对照（截距常一侧倒）。 */
+/** y_τc 列 tip：表列=Ridge 模型预估 price→close；remaining(ŷ_oc) 仅对照（那是 R_τ）。 */
 function formatCompactRTip(raw) {
   const fit = resolveYτcScore(raw);
   const fitTxt = fit == null ? "—" : `${fmtSigned(fit, 3)}%`;
@@ -592,19 +592,30 @@ function formatCompactRTip(raw) {
         ? Number(raw.ret_open_to_tau)
         : null;
   const yOc = resolveTauScore(raw);
-  const remOc = yOc != null && rot != null ? remainingAtTauPct(yOc, rot) : null;
+  const remOc =
+    raw && raw.remaining_oc != null && Number.isFinite(Number(raw.remaining_oc))
+      ? Number(raw.remaining_oc)
+      : raw && raw.r_hat != null && Number.isFinite(Number(raw.r_hat))
+        ? Number(raw.r_hat)
+        : yOc != null && rot != null
+          ? remainingAtTauPct(yOc, rot)
+          : null;
   const ridgeRaw = raw && (raw.y_τc_ridge ?? raw.y_r ?? raw.y_r_hat ?? raw.predicted_score_r);
   const ridge =
     ridgeRaw != null && Number.isFinite(Number(ridgeRaw)) ? Number(ridgeRaw) : null;
-  const src = String((raw && raw.y_τc_source) || "");
-  const fromRem = src === "remaining_oc" || (fit != null && remOc != null && Math.abs(fit - remOc) < 1e-3);
-  const ySpec = fromRem
-    ? "remaining(ŷ_oc)=(1+ŷ_oc)/(1+open→τ)−1"
-    : (raw && raw.y_spec_τc && raw.y_spec_τc.formula) ||
-      (raw && raw.y_spec_r && raw.y_spec_r.formula) ||
-      "close[T]/price(τ)−1";
+  const ySpec =
+    (raw && raw.y_spec_τc && raw.y_spec_τc.formula) ||
+    (raw && raw.y_spec_r && raw.y_spec_r.formula) ||
+    "close[T]/price(τ)−1";
   const rows = [];
-  if (
+  if (remOc != null && Number.isFinite(remOc) && (fit == null || Math.abs(remOc - fit) > 1e-3)) {
+    rows.push(
+      `<div class="score-layer-row"><span>R̂_τ remaining(ŷ_oc)</span>` +
+        `<span class="num ${signCls(remOc)}">${escapeText(
+          fmtSigned(remOc, 3)
+        )}%</span></div>`
+    );
+  } else if (
     ridge != null &&
     fit != null &&
     Number.isFinite(ridge) &&
@@ -614,18 +625,6 @@ function formatCompactRTip(raw) {
       `<div class="score-layer-row"><span>Ridge 对照</span>` +
         `<span class="num ${signCls(ridge)}">${escapeText(
           fmtSigned(ridge, 3)
-        )}%</span></div>`
-    );
-  } else if (
-    remOc != null &&
-    fit != null &&
-    Number.isFinite(remOc) &&
-    Math.abs(remOc - fit) > 1e-3
-  ) {
-    rows.push(
-      `<div class="score-layer-row"><span>remaining(ŷ_oc)</span>` +
-        `<span class="num ${signCls(remOc)}">${escapeText(
-          fmtSigned(remOc, 3)
         )}%</span></div>`
     );
   }
@@ -675,18 +674,71 @@ function formatCompactRTip(raw) {
       );
     }
   }
-  const hint = fromRem
-    ? `τ=${escapeText(tau)} · ${escapeText(String(ySpec))} · 与表列 / 真实 close[T]/price(τ)−1 同口径`
-    : hasTerms
-      ? `τ=${escapeText(tau)} · ${escapeText(String(ySpec))} · 与表列 / 组成合计同口径`
-      : `τ=${escapeText(tau)} · ${escapeText(String(ySpec))} · 与 ŷ_oc 同因子 · 对照列`;
+  const hint = hasTerms
+    ? `τ=${escapeText(tau)} · ${escapeText(String(ySpec))} · Ridge 模型预估 price→close`
+    : `τ=${escapeText(tau)} · ${escapeText(String(ySpec))} · 与 ŷ_oc 同因子 · 模型预估`;
   return (
     `<div class="score-layer score-layer-r">` +
     `<div class="score-layer-head">` +
-    `<div class="score-hero-label">ŷ_τc · remaining(ŷ_oc)</div>` +
+    `<div class="score-hero-label">ŷ_τc · Ridge</div>` +
     `<div class="score-hero-value ${signCls(fit)}">${escapeText(fitTxt)}</div>` +
     `</div>` +
     `<div class="score-hero-hint">${hint}</div>` +
+    (rows.length
+      ? `<div class="score-layer-compose">${rows.join("")}</div>`
+      : "") +
+    `</div>`
+  );
+}
+
+/** R_τ 列 tip：由 ŷ_oc 与现价推导 remaining price→close。 */
+function formatCompactRtauTip(raw) {
+  const feat = (raw && raw.features_tau) || {};
+  const rot =
+    feat.ret_open_to_tau != null && Number.isFinite(Number(feat.ret_open_to_tau))
+      ? Number(feat.ret_open_to_tau)
+      : raw && raw.ret_open_to_tau != null && Number.isFinite(Number(raw.ret_open_to_tau))
+        ? Number(raw.ret_open_to_tau)
+        : null;
+  const yOc = resolveTauScore(raw);
+  const remStored =
+    raw && raw.remaining_oc != null && Number.isFinite(Number(raw.remaining_oc))
+      ? Number(raw.remaining_oc)
+      : raw && raw.r_hat != null && Number.isFinite(Number(raw.r_hat))
+        ? Number(raw.r_hat)
+        : raw && raw.residual != null && Number.isFinite(Number(raw.residual))
+          ? Number(raw.residual)
+          : null;
+  const remCalc = yOc != null && rot != null ? remainingAtTauPct(yOc, rot) : null;
+  const rem = remStored != null ? remStored : remCalc;
+  const remTxt = rem == null ? "—" : `${fmtSigned(rem, 3)}%`;
+  const rows = [];
+  if (yOc != null) {
+    rows.push(
+      `<div class="score-layer-row"><span>ŷ_oc open→close</span>` +
+        `<span class="num ${signCls(yOc)}">${escapeText(fmtSigned(yOc, 3))}%</span></div>`
+    );
+  }
+  if (rot != null) {
+    rows.push(
+      `<div class="score-layer-row"><span>开盘→τ 已实现</span>` +
+        `<span class="num ${signCls(rot)}">${escapeText(fmtSigned(rot, 3))}%</span></div>`
+    );
+  }
+  const ytc = resolveYτcScore(raw);
+  if (ytc != null && (rem == null || Math.abs(ytc - rem) > 1e-3)) {
+    rows.push(
+      `<div class="score-layer-row"><span>ŷ_τc Ridge 对照</span>` +
+        `<span class="num ${signCls(ytc)}">${escapeText(fmtSigned(ytc, 3))}%</span></div>`
+    );
+  }
+  return (
+    `<div class="score-layer score-layer-rtau">` +
+    `<div class="score-layer-head">` +
+    `<div class="score-hero-label">R̂_τ · remaining(ŷ_oc)</div>` +
+    `<div class="score-hero-value ${signCls(rem)}">${escapeText(remTxt)}</div>` +
+    `</div>` +
+    `<div class="score-hero-hint">由 ŷ_oc 与现价推导 price→close · (1+ŷ_oc)/(1+open→τ)−1</div>` +
     (rows.length
       ? `<div class="score-layer-compose">${rows.join("")}</div>`
       : "") +
@@ -2111,12 +2163,18 @@ export function createScoreTooltipController() {
     if (tip === "nc_oc") return "nc_oc";
     if (tip === "tau" || tip === "rem") return "tau";
     if (tip === "r" || tip === "τc" || tip === "tc" || tip === "pc") return "r";
+    if (tip === "rtau" || tip === "r_tau" || tip === "rhat") return "rtau";
     if (tip === "path") return "path";
     if (tip === "on") return "on";
     if (tip === "trade" || tip === "score") return "trade";
     if (cell.classList.contains("watching-score-eod")) return "eod";
     if (cell.classList.contains("watching-score-nowcast")) return "nowcast";
     if (cell.classList.contains("watching-score-tau")) return "tau";
+    if (
+      cell.classList.contains("paper-t0-col-y-rtau") ||
+      cell.classList.contains("paper-t0-col-rtau")
+    )
+      return "rtau";
     if (
       cell.classList.contains("paper-t0-col-y-r") ||
       cell.classList.contains("paper-t0-col-yr")
@@ -2245,6 +2303,12 @@ export function createScoreTooltipController() {
         formatCompactRTip(raw),
         formatFormulaTermsSection(raw, { key: "r" }),
       ].filter(Boolean);
+      showCompactScoreTip(cell, parts.join(""), { sticky });
+      return;
+    }
+
+    if (tipMode === "rtau") {
+      const parts = [formatCompactRtauTip(raw)].filter(Boolean);
       showCompactScoreTip(cell, parts.join(""), { sticky });
       return;
     }

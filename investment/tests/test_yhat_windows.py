@@ -148,9 +148,11 @@ class CloseHatTests(unittest.TestCase):
         from core.signal.yhat_windows import remaining_oc
 
         rem = remaining_oc(1.0, open_px=100.0, price_tau=50.0)
-        self.assertAlmostEqual(est.get("y_τc"), rem, places=6)
+        self.assertAlmostEqual(est.get("y_τc"), 2.0, places=6)
         self.assertAlmostEqual(est.get("y_τc_ridge"), 2.0, places=6)
-        self.assertEqual(est.get("y_τc_source"), "remaining_oc")
+        self.assertEqual(est.get("y_τc_source"), "ridge")
+        self.assertAlmostEqual(est.get("r_hat"), rem, places=6)
+        self.assertAlmostEqual(est.get("remaining_oc"), rem, places=6)
 
     def test_estimate_does_not_fuse_remaining_into_hat(self):
         from core.t0.close_band import estimate_close_px
@@ -170,8 +172,9 @@ class CloseHatTests(unittest.TestCase):
         self.assertEqual(est.get("c_hat_source"), "y_oc")
         self.assertAlmostEqual(est["close_px"], open_px * (1.0 + 3.0 / 100.0), places=4)
         self.assertAlmostEqual(est["r_hat"], rem, places=5)
-        self.assertAlmostEqual(est["y_τc"], rem, places=6)
+        self.assertAlmostEqual(est["y_τc"], y_τc, places=6)
         self.assertAlmostEqual(est.get("y_τc_ridge"), y_τc, places=6)
+        self.assertEqual(est.get("y_τc_source"), "ridge")
 
     def test_estimate_falls_back_to_oc(self):
         from core.t0.close_band import estimate_close_px
@@ -195,12 +198,30 @@ class StampRemainingYtcTests(unittest.TestCase):
         self.assertLess(rem, 0.0)
         got = stamp_remaining_y_τc(dest)
         self.assertAlmostEqual(got, rem, places=6)
-        self.assertAlmostEqual(dest["y_τc"], rem, places=6)
+        self.assertAlmostEqual(dest["y_τc"], 1.4, places=6)
         self.assertAlmostEqual(dest["y_τc_ridge"], 1.4, places=6)
-        self.assertEqual(dest["y_τc_source"], "remaining_oc")
+        self.assertEqual(dest["y_τc_source"], "ridge")
+        self.assertAlmostEqual(dest["r_hat"], rem, places=6)
+        self.assertAlmostEqual(dest["remaining_oc"], rem, places=6)
         self.assertAlmostEqual(dest["y_r"], 1.4, places=6)
 
-    def test_scores_from_item_prefers_remaining_over_ridge(self):
+    def test_stamp_restores_ridge_when_ytc_was_remaining(self):
+        from core.signal.yhat_windows import remaining_oc, stamp_remaining_y_τc
+
+        rem = remaining_oc(0.5, 2.0)
+        dest = {
+            "y_oc": 0.5,
+            "y_τc": rem,
+            "y_τc_ridge": 1.4,
+            "y_τc_source": "remaining_oc",
+            "features_tau": {"ret_open_to_tau": 2.0},
+        }
+        stamp_remaining_y_τc(dest)
+        self.assertAlmostEqual(dest["y_τc"], 1.4, places=6)
+        self.assertEqual(dest["y_τc_source"], "ridge")
+        self.assertAlmostEqual(dest["r_hat"], rem, places=6)
+
+    def test_scores_from_item_keeps_ridge_and_stamps_remaining_as_r_hat(self):
         from core.t0.score_policy import scores_from_item
         from core.signal.yhat_windows import remaining_oc
 
@@ -214,9 +235,12 @@ class StampRemainingYtcTests(unittest.TestCase):
             }
         )
         rem = remaining_oc(0.5, 2.0)
-        self.assertAlmostEqual(sc.get("y_τc"), rem, places=6)
-        self.assertLess(sc.get("y_τc"), 0.0)
+        self.assertAlmostEqual(sc.get("y_τc"), 1.4, places=6)
         self.assertAlmostEqual(sc.get("y_τc_ridge"), 1.4, places=6)
+        self.assertEqual(sc.get("y_τc_source"), "ridge")
+        self.assertAlmostEqual(sc.get("r_hat"), rem, places=6)
+        self.assertAlmostEqual(sc.get("remaining_oc"), rem, places=6)
+        self.assertLess(sc.get("r_hat"), 0.0)
         self.assertAlmostEqual(sc.get("y_r"), 1.4, places=6)
 
 

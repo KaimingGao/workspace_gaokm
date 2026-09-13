@@ -1,6 +1,6 @@
 """ŷ_τc Ridge（旧名 ŷ_r）：与 ŷ_τ 同因子键 → 分钟 close[T]/price(τ)−1。
 
-盘中写 y_τc。表列优先 remaining(ŷ_oc)；Ridge 进 y_τc_ridge / 旁路。不进调仓 ranking。
+盘中写 y_τc（Ridge 预估 price→close）。remaining(ŷ_oc) 进 R̂_τ / r_hat。不进调仓 ranking。
 旧模型公式仍为 price/close 时，write 时反几何成 ŷ_τc。
 """
 

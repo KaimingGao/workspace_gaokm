@@ -21,11 +21,8 @@ import {
   R_REALIZED_TITLE,
   resolvePathScore,
   fmtPathScore,
-} from "./fmt.js?v=p2368";
-import {
-  adaptiveSizingDayTip,
-  yTauMapScoreTip,
-} from "./execution_ui.js?v=p2353";
+} from "./fmt.js?v=p2370";
+import { adaptiveSizingDayTip } from "./execution_ui.js?v=p2353";
 import { watchingScoreDetail } from "../quant/watching_render.js?v=p2364";
 import {
   fitTierBadgeForCode,
@@ -41,7 +38,52 @@ const Y_COMPLEXITY_HAT_KEYS = [
 ];
 
 const Y_TPD_HAT_KEYS = ["predicted_score_tpd", "y_tpd_hat"];
-const Y_R_HAT_KEYS = ["y_τc", "predicted_score_τc", "y_tc", "predicted_score_tc", "y_to", "predicted_score_to", "y_pc", "predicted_score_pc", "predicted_score_r", "y_r_hat", "y_r"];
+const Y_R_HAT_KEYS = ["y_τc_ridge", "predicted_score_r", "y_r_hat", "y_r", "y_τc", "predicted_score_τc", "y_tc", "predicted_score_tc", "y_to", "predicted_score_to", "y_pc", "predicted_score_pc"];
+
+function finiteYhatNum(v) {
+  if (v == null || v === "") return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
+/** ŷ_τc = Ridge 模型预估 price→close。旧簿 remaining 盖进 y_τc 时改读 Ridge。 */
+function pickYtcModel(r) {
+  if (!r || typeof r !== "object") return null;
+  const from = (obj) => {
+    if (!obj || typeof obj !== "object") return null;
+    const rem =
+      finiteYhatNum(obj.remaining_oc) ??
+      finiteYhatNum(obj.r_hat) ??
+      finiteYhatNum(obj.residual);
+    const src = String(obj.y_τc_source || "");
+    const ridge =
+      finiteYhatNum(obj.y_τc_ridge) ??
+      finiteYhatNum(obj.predicted_score_r) ??
+      finiteYhatNum(obj.y_r_hat) ??
+      finiteYhatNum(obj.y_r);
+    const ytc =
+      finiteYhatNum(obj["y_τc"]) ??
+      finiteYhatNum(obj.predicted_score_τc) ??
+      finiteYhatNum(obj.y_tc) ??
+      finiteYhatNum(obj.predicted_score_tc) ??
+      finiteYhatNum(obj.y_to) ??
+      finiteYhatNum(obj.predicted_score_to) ??
+      finiteYhatNum(obj.y_pc) ??
+      finiteYhatNum(obj.predicted_score_pc);
+    if (src === "remaining_oc") return ridge;
+    if (
+      ytc != null &&
+      rem != null &&
+      Math.abs(ytc - rem) < 1e-4 &&
+      ridge != null &&
+      Math.abs(ridge - rem) > 1e-4
+    ) {
+      return ridge;
+    }
+    return ytc ?? ridge;
+  };
+  return from(r) ?? from(r.scores);
+}
 
 function writeComplexityHat(obj, val) {
   if (obj == null || val == null || !Number.isFinite(Number(val))) return;
@@ -469,7 +511,7 @@ function slotYhat(r, dayHost) {
     slotYNum(sc, Y_COMPLEXITY_HAT_KEYS) ??
     slotYNum(ft, Y_COMPLEXITY_HAT_KEYS);
   let yTpd = slotYNum(sc, Y_TPD_HAT_KEYS) ?? slotYNum(ft, Y_TPD_HAT_KEYS);
-  let yR = slotYNum(sc, Y_R_HAT_KEYS) ?? slotYNum(ft, Y_R_HAT_KEYS);
+  let yR = pickYtcModel(sc) ?? pickYtcModel(ft);
   let yTrade =
     slotYNum(sc, ["y_trade", "predicted_score_blend", "decision_score"]) ??
     slotYNum(ft, ["y_trade"]);
@@ -632,6 +674,7 @@ function slotDayRow(d, r, rows) {
     y_r_realized: rReal,
     r_hat: rHat,
     residual: rHat,
+    remaining_oc: rHat,
     y_trade: yhat.y_trade,
     y_nowcast: yhat.y_nowcast,
     scores: slotScores,
@@ -1059,24 +1102,7 @@ function tpdMergedCellHtml(host, dayRef, showRealized = true) {
 }
 
 function pickRPred(d) {
-  const raw =
-    pickScoreNum(d, "y_τc") ??
-    pickScoreNum(d, "predicted_score_τc") ??
-    pickScoreNum(d, "y_tc") ??
-    pickScoreNum(d, "predicted_score_tc") ??
-    pickScoreNum(d, "y_to") ??
-    pickScoreNum(d, "predicted_score_to") ??
-    pickScoreNum(d, "y_pc") ??
-    pickScoreNum(d, "predicted_score_pc") ??
-    pickScoreNum(d, "predicted_score_r") ??
-    pickScoreNum(d, "y_r_hat") ??
-    pickScoreNum(d, "y_r") ??
-    (d?.y_to != null && Number.isFinite(Number(d.y_to)) ? Number(d.y_to) : null) ??
-    (d?.predicted_score_r != null && Number.isFinite(Number(d.predicted_score_r))
-      ? Number(d.predicted_score_r)
-      : null) ??
-    (d?.y_r_hat != null && Number.isFinite(Number(d.y_r_hat)) ? Number(d.y_r_hat) : null) ??
-    (d?.y_r != null && Number.isFinite(Number(d.y_r)) ? Number(d.y_r) : null);
+  const raw = pickYtcModel(d);
   return raw != null && Number.isFinite(raw) ? raw : null;
 }
 
@@ -1168,7 +1194,7 @@ function rtauMergedCellHtml(host, dayRef, showRealized = true, scoreDetailJson =
   const html = fmtPredRealizedHtml(predTxt, pred, pr, showRealized);
   return (
     `<td class="num paper-t0-col-rtau paper-t0-col-y paper-t0-col-y-rtau paper-t0-y-score paper-t0-y-merged has-tip${agreeCls}" ` +
-    `data-score-tip="r" data-score-detail="${scoreDetailJson}" ` +
+    `data-score-tip="rtau" data-score-detail="${scoreDetailJson}" ` +
     `title="${escapeText(tipParts.join(" · "))}">` +
     `<span class="paper-t0-y-combo">${html}</span>` +
     `</td>`
@@ -1305,12 +1331,7 @@ function tradeScoreHost(day, host) {
       : scanRow.y_tau != null
         ? Number(scanRow.y_tau)
         : null;
-  const yTc =
-    scanRow["y_τc"] != null
-      ? Number(scanRow["y_τc"])
-      : scanRow.y_tc != null
-        ? Number(scanRow.y_tc)
-        : null;
+  const yTc = pickYtcModel(scanRow);
   const yPath =
     scanRow.y_hl != null
       ? Number(scanRow.y_hl)
@@ -1371,7 +1392,11 @@ function tradeScoreHost(day, host) {
     scores["y_τc"] = yTc;
     scores.y_tc = yTc;
     scores.predicted_score_τc = yTc;
+    scores.y_τc_source = "ridge";
   }
+  const yTcRidge = finiteYhatNum(scanRow.y_τc_ridge) ?? (yR != null && Number.isFinite(yR) ? yR : null);
+  if (yTcRidge != null) scores.y_τc_ridge = yTcRidge;
+  if (scanRow.y_τc_source) scores.y_τc_source = scanRow.y_τc_source === "remaining_oc" ? "ridge" : scanRow.y_τc_source;
   const rHat =
     scanRow.r_hat != null
       ? Number(scanRow.r_hat)
@@ -1383,6 +1408,7 @@ function tradeScoreHost(day, host) {
   if (rHat != null && Number.isFinite(rHat)) {
     scores.r_hat = rHat;
     scores.residual = rHat;
+    scores.remaining_oc = rHat;
   }
   const rReal =
     scanRow.r_realized != null
@@ -1415,6 +1441,9 @@ function tradeScoreHost(day, host) {
     y_r_realized: rReal != null && Number.isFinite(rReal) ? rReal : host.y_r_realized,
     r_hat: rHat != null && Number.isFinite(rHat) ? rHat : host.r_hat,
     residual: rHat != null && Number.isFinite(rHat) ? rHat : host.residual,
+    remaining_oc: rHat != null && Number.isFinite(rHat) ? rHat : host.remaining_oc,
+    y_τc_ridge: yTcRidge != null ? yTcRidge : host.y_τc_ridge,
+    y_τc_source: scores.y_τc_source || host.y_τc_source,
     direction_score:
       yTau != null && Number.isFinite(yTau) ? yTau : host.direction_score,
     scores,
@@ -1581,7 +1610,10 @@ function t0DayScoreItem(d, fallback = {}, rules = {}, liveByCode = null) {
     r_hat: scores.r_hat ?? d.r_hat ?? null,
     residual: scores.residual ?? scores.r_hat ?? d.residual ?? null,
     remaining_oc: scores.remaining_oc ?? d.remaining_oc ?? null,
+    y_τc_ridge: scores.y_τc_ridge ?? d.y_τc_ridge ?? null,
+    y_τc_source: scores.y_τc_source ?? d.y_τc_source ?? null,
     "y_τc":
+      pickYtcModel({ ...scores, ...d }) ??
       scores["y_τc"] ??
       scores.predicted_score_τc ??
       (slotSnapMode ? yR : scores.y_r ?? yR),
@@ -2883,8 +2915,7 @@ function scanRtauPred(r) {
 }
 
 function scanYtcPred(r) {
-  if (!r || typeof r !== "object") return null;
-  return r["y_τc"] ?? r.y_tc ?? r.predicted_score_r ?? r.y_r_hat ?? r.y_r;
+  return pickYtcModel(r);
 }
 
 function scanYocPred(r) {
@@ -3049,9 +3080,9 @@ function buildCloseBandScanExpandRow(d, dayKey, colSpan, rules) {
     `<th class="num paper-t0-scan-px" title="C_τ = O×(1+clip(ŷ_oc×scale, y_oc_l, y_oc_u)/100) · 主显分钟映后">Ĉ_τ</th>` +
     `<th class="num paper-t0-scan-px" title="破带下沿 = Ĉ_τ×(1+lower%/100)；C<lower → 正T">lower</th>` +
     `<th class="num paper-t0-scan-px" title="破带上沿 = Ĉ_τ×(1+upper%/100)；C>upper → 反T">upper</th>` +
-    `<th class="num paper-t0-scan-y" title="${escapeText(R_HAT_TITLE)} · 预估(真实 close[T]/price(τ)−1)">R_τ</th>` +
+    `<th class="num paper-t0-scan-y" title="${escapeText(R_HAT_TITLE)} · remaining(ŷ_oc, price)→close">R_τ</th>` +
     `<th class="num paper-t0-scan-y" title="ŷ_oc · 预估(真实 open→close)">y_oc</th>` +
-    `<th class="num paper-t0-scan-y" title="${escapeText(Y_R_TITLE)} · 预估(真实 close[T]/price(τ)−1)">y_τc</th>` +
+    `<th class="num paper-t0-scan-y" title="${escapeText(Y_R_TITLE)} · Ridge 预估 price→close">y_τc</th>` +
     `<th class="num paper-t0-scan-y">y_hl</th>` +
     `<th class="num paper-t0-scan-y" title="${escapeText(Y_CX_TITLE)}">y_cx</th>` +
     `<th class="num paper-t0-scan-y" title="${escapeText(Y_TPD_TITLE)}">y_tpd</th>` +
@@ -3256,7 +3287,6 @@ export function buildT0TradeTableHtml(opts) {
   const showStock = shouldShowStockColumn(data, tableDays);
   const showTime = daysHaveIntradayTime(tableDays);
   const rules = (data && data.rules) || {};
-  const scoreTip = yTauMapScoreTip();
   const fallback = {
     stock_code: data.stock_code,
     stock_name: data.stock_name,
@@ -3264,8 +3294,6 @@ export function buildT0TradeTableHtml(opts) {
 
   const pairHint = showRealized ? " · 显示：预估值(真实值)" : "";
   const slotYHint = rules.t0_slots_enabled ? ` · 本轮 ŷ${pairHint}` : pairHint;
-  const tauGateHint =
-    " · 选向：C_τ=O×(1+clip(ŷ_oc×scale)/100)，C 相对 ±δ 破上带反T、破下带正T；leg2=C_τ；ŷ_τc 不参与";
   const head =
     (showStock ? `<th scope="col" class="paper-t0-col-stock">股票</th>` : "") +
     `<th scope="col" class="paper-t0-col-date" title="有可展开扫描数据时点击日展开 11:00 前调试">日</th>` +
@@ -3280,7 +3308,7 @@ export function buildT0TradeTableHtml(opts) {
       `${R_HAT_TITLE}${slotYHint}`
     )}">R_τ</th>` +
     `<th scope="col" class="paper-t0-col-tau num paper-t0-col-y paper-t0-col-y-tau" title="${escapeText(
-      `${scoreTip}${slotYHint}${tauGateHint}`
+      `${Y_TAU_TITLE}${slotYHint}`
     )}">y_oc</th>` +
     `<th scope="col" class="paper-t0-col-yr num paper-t0-col-y paper-t0-col-y-r" title="${escapeText(
       `${Y_R_TITLE}${slotYHint}`

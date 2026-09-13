@@ -1064,8 +1064,8 @@ def _build_close_band_scan_trace(
                     else None
                 ),
                 "y_τc": (
-                    round(float(y_tc_scan if y_tc_scan is not None else y_r), 4)
-                    if (y_tc_scan is not None or y_r is not None)
+                    round(float(y_tc_ridge if y_tc_ridge is not None else y_r), 4)
+                    if (y_tc_ridge is not None or y_r is not None)
                     else None
                 ),
                 "y_τc_ridge": (
@@ -1073,8 +1073,8 @@ def _build_close_band_scan_trace(
                 ),
                 "y_τc_source": y_tc_source,
                 "y_tc": (
-                    round(float(y_tc_scan if y_tc_scan is not None else y_r), 4)
-                    if (y_tc_scan is not None or y_r is not None)
+                    round(float(y_tc_ridge if y_tc_ridge is not None else y_r), 4)
+                    if (y_tc_ridge is not None or y_r is not None)
                     else None
                 ),
                 "remaining_oc": (
