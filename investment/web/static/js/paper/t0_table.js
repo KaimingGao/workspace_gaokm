@@ -21,7 +21,7 @@ import {
   R_REALIZED_TITLE,
   resolvePathScore,
   fmtPathScore,
-} from "./fmt.js?v=p2372";
+} from "./fmt.js?v=p2377";
 import { adaptiveSizingDayTip } from "./execution_ui.js?v=p2353";
 import { watchingScoreDetail } from "../quant/watching_render.js?v=p2364";
 import {
@@ -1144,8 +1144,32 @@ function pickRRealized(d, predHost) {
   };
 }
 
+function rtauHatFromCtauPx(cTau, price) {
+  const hat = finitePosPx(cTau);
+  const px = finitePosPx(price);
+  if (hat == null || px == null) return null;
+  return (hat / px - 1) * 100;
+}
+
 function pickRtauHat(d) {
   if (!d || typeof d !== "object") return null;
+  const scan = d._scan_score_row && typeof d._scan_score_row === "object" ? d._scan_score_row : null;
+  const slot = d.t0_slot_focus ? focusedSlotRow(d) : null;
+  const slotCb = slotCloseBand(slot);
+  const dayCb = d.close_band && typeof d.close_band === "object" ? d.close_band : null;
+  const cTau =
+    finitePosPx(scan && (scan.c_tau ?? scan.c_hat)) ??
+    finitePosPx(d.c_tau) ??
+    finitePosPx(slotCb && (slotCb.c_tau ?? slotCb.c_hat ?? slotCb.close_px)) ??
+    finitePosPx(dayCb && (dayCb.c_tau ?? dayCb.c_hat ?? dayCb.close_px));
+  const hm = String(d.t0_slot_hm || "").trim().slice(0, 5);
+  const ohlc = hm ? slotOhlcFromScan(d, hm) : { c: null };
+  const price =
+    finitePosPx(scan && scan.c) ??
+    finitePosPx(d.bar_c) ??
+    finitePosPx(ohlc && ohlc.c);
+  const fromBand = rtauHatFromCtauPx(cTau, price);
+  if (fromBand != null) return fromBand;
   const raw =
     pickScoreNum(d, "r_hat") ??
     pickScoreNum(d, "residual") ??
@@ -1175,7 +1199,7 @@ function pickRtauRealized(d, predHost) {
   };
 }
 
-/** 槽位 R̂_τ；回测配对 close[T]/price(τ)−1，格式同 y_τ：预估值(真实值)。 */
+/** 槽位 R̂_τ = Ĉ_τ/price(τ)−1；回测配对 close[T]/price(τ)−1，格式同 y_τ：预估值(真实值)。 */
 function rtauMergedCellHtml(host, dayRef, showRealized = true, scoreDetailJson = "") {
   const predHost = host || dayRef;
   const realHost = dayRef || host;
@@ -1444,6 +1468,8 @@ function tradeScoreHost(day, host) {
     remaining_oc: rHat != null && Number.isFinite(rHat) ? rHat : host.remaining_oc,
     y_τc_ridge: yTcRidge != null ? yTcRidge : host.y_τc_ridge,
     y_τc_source: scores.y_τc_source || host.y_τc_source,
+    c_tau: finitePosPx(scanRow.c_tau ?? scanRow.c_hat) ?? host.c_tau,
+    bar_c: finitePosPx(scanRow.c) ?? host.bar_c,
     direction_score:
       yTau != null && Number.isFinite(yTau) ? yTau : host.direction_score,
     scores,
@@ -1610,6 +1636,16 @@ function t0DayScoreItem(d, fallback = {}, rules = {}, liveByCode = null) {
     r_hat: scores.r_hat ?? d.r_hat ?? null,
     residual: scores.residual ?? scores.r_hat ?? d.residual ?? null,
     remaining_oc: scores.remaining_oc ?? d.remaining_oc ?? null,
+    c_tau: finitePosPx(d.c_tau) ?? finitePosPx(scanHost?._scan_score_row?.c_tau) ?? finitePosPx(slotCloseBand(slot)?.c_tau),
+    bar_c: finitePosPx(d.bar_c) ?? finitePosPx(scanHost?._scan_score_row?.c),
+    y_oc_target:
+      finiteYhatNum(scores.y_oc_target) ??
+      finiteYhatNum(d.y_oc_target) ??
+      finiteYhatNum(slotCloseBand(slot)?.y_oc_target),
+    t0_y_oc_target_scale:
+      finiteYhatNum(scores.t0_y_oc_target_scale) ??
+      finiteYhatNum(d.t0_y_oc_target_scale) ??
+      finiteYhatNum(slotCloseBand(slot)?.t0_y_oc_target_scale),
     y_τc_ridge: scores.y_τc_ridge ?? d.y_τc_ridge ?? null,
     y_τc_source: scores.y_τc_source ?? d.y_τc_source ?? null,
     "y_τc":
@@ -2911,6 +2947,8 @@ function fmtScanPredReal(pred, real) {
 
 function scanRtauPred(r) {
   if (!r || typeof r !== "object") return null;
+  const fromBand = rtauHatFromCtauPx(r.c_tau ?? r.c_hat, r.c);
+  if (fromBand != null) return fromBand;
   return r.r_hat ?? r.residual ?? r.remaining_oc;
 }
 
@@ -3080,7 +3118,7 @@ function buildCloseBandScanExpandRow(d, dayKey, colSpan, rules) {
     `<th class="num paper-t0-scan-px" title="C_τ = O×(1+clip(ŷ_oc×scale, y_oc_l, y_oc_u)/100) · 主显分钟映后">Ĉ_τ</th>` +
     `<th class="num paper-t0-scan-px" title="破带下沿 = Ĉ_τ×(1+lower%/100)；C<lower → 正T">lower</th>` +
     `<th class="num paper-t0-scan-px" title="破带上沿 = Ĉ_τ×(1+upper%/100)；C>upper → 反T">upper</th>` +
-    `<th class="num paper-t0-scan-y" title="${escapeText(R_HAT_TITLE)} · remaining(ŷ_oc, price)→close">R_τ</th>` +
+    `<th class="num paper-t0-scan-y" title="${escapeText(R_HAT_TITLE)} · Ĉ_τ/C−1">R_τ</th>` +
     `<th class="num paper-t0-scan-y" title="ŷ_oc · 预估(真实 open→close)">y_oc</th>` +
     `<th class="num paper-t0-scan-y" title="${escapeText(Y_R_TITLE)} · Ridge 预估 price→close">y_τc</th>` +
     `<th class="num paper-t0-scan-y">y_hl</th>` +

@@ -521,10 +521,12 @@ def _r_pct_for_unit(day: dict, unit: Optional[dict] = None) -> Optional[float]:
         hm = str(unit.get("t0_slot_hm") or unit.get("hm") or "")[:5]
     row = _scan_row_at_hm(day, hm) if hm else None
     if row is not None:
-        rp = _f(row.get("r_hat"))
+        from core.t0.close_band import r_hat_from_c_tau_px
+
+        rp = r_hat_from_c_tau_px(row.get("c_tau") or row.get("c_hat"), row.get("c"))
         if rp is not None:
             return rp
-        rp = _f(row.get("r_pct"))
+        rp = _f(row.get("r_hat"))
         if rp is not None:
             return rp
     blobs = []
@@ -620,8 +622,26 @@ def resolve_y_tc_for_portrait(sc: Dict[str, Optional[float]]) -> Optional[float]
     return None
 
 
+def _r_hat_from_scan_ctau(day: dict, unit: Optional[dict] = None) -> Optional[float]:
+    """R̂_τ = Ĉ_τ/C−1（与成交明细价带同目标）。"""
+    from core.t0.close_band import r_hat_from_c_tau_px
+
+    hm = ""
+    if isinstance(unit, dict):
+        hm = str(unit.get("t0_slot_hm") or unit.get("hm") or "")[:5]
+    row = _scan_row_at_hm(day, hm) if hm else None
+    if row is None and isinstance(unit, dict):
+        row = unit if unit.get("c_tau") is not None or unit.get("c") is not None else None
+    if not isinstance(row, dict):
+        return None
+    return r_hat_from_c_tau_px(row.get("c_tau") or row.get("c_hat"), row.get("c") or row.get("bar_c"))
+
+
 def resolve_r_hat_for_portrait(day: dict, unit: Optional[dict] = None) -> Optional[float]:
     """画像 R_τ 命中用 R̂_τ。"""
+    band = _r_hat_from_scan_ctau(day, unit)
+    if band is not None:
+        return band
     sc = extract_scores(unit or day)
     v = _f(sc.get("r_hat")) or _f(sc.get("residual"))
     if v is not None:

@@ -314,7 +314,7 @@ export const Y_τc_TITLE =
 export const Y_TC_TITLE = Y_τc_TITLE;
 export const Y_R_TITLE = Y_τc_TITLE;
 export const R_HAT_TITLE =
-  "R̂_τ · remaining(ŷ_oc, price) · close[T]/price(τ)−1 · 由 ŷ_oc 与现价推导 · 不参与选腿 · 预估(真实)";
+  "R̂_τ · Ĉ_τ/price(τ)−1 · remaining(clip(ŷ_oc×scale), price) · 与 Ĉ_τ 同目标 · 不参与选腿 · 预估(真实)";
 export const R_REALIZED_TITLE =
   "τc实 · close[T]/price(τ)−1（与 ŷ_τc / R̂_τ 同标签）";
 

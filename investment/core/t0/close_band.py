@@ -32,6 +32,15 @@ def _pct_to_px(anchor: float, pct: float) -> Optional[float]:
     return float(anchor) * (1.0 + float(pct) / 100.0)
 
 
+def r_hat_from_c_tau_px(c_tau: Any, price_tau: Any) -> Optional[float]:
+    """R̂_τ = Ĉ_τ / price(τ) − 1（百分点）。与价带同一目标收。"""
+    mid = _f(c_tau)
+    px = _f(price_tau)
+    if mid is None or px is None or mid <= 0 or px <= 0:
+        return None
+    return (float(mid) / float(px) - 1.0) * 100.0
+
+
 DEFAULT_Y_OC_TARGET_SCALE = 10.0
 DEFAULT_Y_OC_L = -3.0
 DEFAULT_Y_OC_U = 3.0
@@ -127,7 +136,8 @@ def scores_close_components(
     """估 C_τ：O×(1+clip(ŷ_oc×scale, y_oc_l, y_oc_u)/100)。ŷ_τc 只对照。
 
     估用**日线** open；slots 再经 ``map_close_px_to_minute`` 映回分钟触价。
-    remaining(ŷ_oc) 写入 R̂_τ；ŷ_τc 为 Ridge 预估 price→close。均不参与选腿。
+    remaining(clip(ŷ_oc×scale)) 写入 R̂_τ（= Ĉ_τ/price(τ)−1，与价带同目标）；
+    remaining_oc 仍为未 clip 的 remaining(ŷ_oc)。ŷ_τc 为 Ridge 预估。均不参与选腿。
     ``c_oc`` 为未 clip 的 O×(1+ŷ_oc/100)，不进破带。
     """
     from core.signal.yhat_windows import (
@@ -171,7 +181,11 @@ def scores_close_components(
     if rot is None:
         rot = ret_open_to_tau_of(raw)
     rem = remaining_oc(y_oc, rot, open_px=open_px, price_tau=pt)
-    # 表列 ŷ_τc = Ridge 预估 price→close；R̂_τ = remaining(ŷ_oc, price)。
+    rem_target = remaining_oc(y_oc_target, rot, open_px=open_px, price_tau=pt)
+    if rem_target is None:
+        rem_target = r_hat_from_c_tau_px(c_hat, pt)
+    r_hat = rem_target if rem_target is not None else rem
+    # 表列 ŷ_τc = Ridge 预估 price→close；R̂_τ = Ĉ_τ/price(τ)−1。
     y_τc = y_τc_ridge
     y_τc_source = Y_TC_SOURCE_RIDGE if y_τc_ridge is not None else None
     c_τc = _pct_to_px(pt, y_τc) if y_τc is not None and pt is not None and pt > 0 else None
@@ -196,8 +210,8 @@ def scores_close_components(
         "y_τc_ridge": y_τc_ridge,
         "y_τc_source": y_τc_source,
         "remaining_oc": round(float(rem), 6) if rem is not None else None,
-        "r_hat": round(float(rem), 6) if rem is not None else None,
-        "residual": round(float(rem), 6) if rem is not None else None,
+        "r_hat": round(float(r_hat), 6) if r_hat is not None else None,
+        "residual": round(float(r_hat), 6) if r_hat is not None else None,
         "y_trade": sc.get("y_trade"),
         "y_nowcast": sc.get("y_nowcast"),
         "trade_vs": None,
@@ -217,7 +231,8 @@ def estimate_close_px(
     """C_τ := O×(1+clip(ŷ_oc×scale, y_oc_l, y_oc_u)/100)。缺 ŷ_oc → 不可估。
 
     扫描传入**该根前缀**因果 ŷ_oc。破带比较 price = **本根 5m 收价 C**。
-    ``price_tau`` 仅用于 remaining / ŷ_τc 对照字段，不改 C_τ。
+    ``price_tau`` 用于 R̂_τ / ŷ_τc 对照字段，不改 C_τ。
+    R̂_τ = Ĉ_τ/price(τ)−1（clip 后目标）；remaining_oc 为未 clip 的 remaining(ŷ_oc)。
     ``cfg`` 提供 scale / y_oc_l / y_oc_u（默认 10 / −3 / +3）。
     """
     parts = scores_close_components(

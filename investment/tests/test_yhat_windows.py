@@ -148,11 +148,13 @@ class CloseHatTests(unittest.TestCase):
         from core.signal.yhat_windows import remaining_oc
 
         rem = remaining_oc(1.0, open_px=100.0, price_tau=50.0)
+        rem_band = remaining_oc(3.0, open_px=100.0, price_tau=50.0)
         self.assertAlmostEqual(est.get("y_τc"), 2.0, places=6)
         self.assertAlmostEqual(est.get("y_τc_ridge"), 2.0, places=6)
         self.assertEqual(est.get("y_τc_source"), "ridge")
-        self.assertAlmostEqual(est.get("r_hat"), rem, places=6)
         self.assertAlmostEqual(est.get("remaining_oc"), rem, places=6)
+        self.assertAlmostEqual(est.get("r_hat"), rem_band, places=6)
+        self.assertAlmostEqual(est.get("r_hat"), (103.0 / 50.0 - 1.0) * 100.0, places=6)
 
     def test_estimate_does_not_fuse_remaining_into_hat(self):
         from core.t0.close_band import estimate_close_px
@@ -161,6 +163,7 @@ class CloseHatTests(unittest.TestCase):
         open_px, price_tau = 100.0, 101.0
         y_oc, y_τc = 2.0, 0.9
         rem = remaining_oc(y_oc, open_px=open_px, price_tau=price_tau)
+        rem_band = remaining_oc(3.0, open_px=open_px, price_tau=price_tau)
         est = estimate_close_px(
             {"y_tau": y_oc, "y_τc": y_τc},
             open_px=open_px,
@@ -171,7 +174,9 @@ class CloseHatTests(unittest.TestCase):
         self.assertTrue(est["ok"])
         self.assertEqual(est.get("c_hat_source"), "y_oc")
         self.assertAlmostEqual(est["close_px"], open_px * (1.0 + 3.0 / 100.0), places=4)
-        self.assertAlmostEqual(est["r_hat"], rem, places=5)
+        self.assertAlmostEqual(est["remaining_oc"], rem, places=5)
+        self.assertAlmostEqual(est["r_hat"], rem_band, places=5)
+        self.assertAlmostEqual(est["r_hat"], (est["close_px"] / price_tau - 1.0) * 100.0, places=5)
         self.assertAlmostEqual(est["y_τc"], y_τc, places=6)
         self.assertAlmostEqual(est.get("y_τc_ridge"), y_τc, places=6)
         self.assertEqual(est.get("y_τc_source"), "ridge")
@@ -182,6 +187,33 @@ class CloseHatTests(unittest.TestCase):
         est = estimate_close_px({"y_tau": 1.0}, open_px=100.0, prev_close=90.0)
         self.assertAlmostEqual(est["close_px"], 103.0, places=4)
         self.assertEqual(est.get("c_hat_source"), "y_oc")
+
+    def test_r_hat_matches_c_tau_over_price_when_clip_binds(self):
+        from core.t0.close_band import estimate_close_px, r_hat_from_c_tau_px
+        from core.signal.yhat_windows import remaining_oc
+
+        open_px, price_tau = 32.5, 32.27
+        y_oc = -0.913934
+        cfg = {"t0_y_oc_target_scale": 10.0, "t0_y_oc_l": -6.0, "t0_y_oc_u": 6.0}
+        est = estimate_close_px(
+            {"y_tau": y_oc, "y_τc": -0.2089},
+            open_px=open_px,
+            prev_close=open_px,
+            price_tau=price_tau,
+            cfg=cfg,
+        )
+        self.assertTrue(est["ok"])
+        self.assertAlmostEqual(est["close_px"], 30.55, places=2)
+        self.assertAlmostEqual(est["y_oc_target"], -6.0, places=6)
+        rem_raw = remaining_oc(y_oc, open_px=open_px, price_tau=price_tau)
+        self.assertAlmostEqual(est["remaining_oc"], rem_raw, places=4)
+        self.assertAlmostEqual(
+            est["r_hat"],
+            r_hat_from_c_tau_px(est["close_px"], price_tau),
+            places=5,
+        )
+        self.assertLess(est["r_hat"], -5.0)
+        self.assertGreater(est["remaining_oc"], -1.0)
 
 
 class StampRemainingYtcTests(unittest.TestCase):
