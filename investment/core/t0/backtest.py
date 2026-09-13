@@ -729,6 +729,7 @@ def _walk_t0(
         "success": True,
         "task": "t0_backtest",
         "stock_code": stock_code,
+        "score_model_role": "research",
         "bar_count": len(bars),
         "initial_shares": initial_shares,
         "initial_cost": round(cost, 4),

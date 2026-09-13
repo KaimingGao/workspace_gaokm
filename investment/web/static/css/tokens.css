@@ -964,7 +964,7 @@ html[data-theme="dark"] .follow-fold.quant-fold > summary::before {
   border-left-color: var(--ink-2);
 }
 
-html[data-theme="dark"] .rebalance-table td.num {
+html[data-theme="dark"] .rebalance-table .num {
   color-scheme: dark;
 }
 

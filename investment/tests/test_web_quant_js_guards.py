@@ -880,7 +880,10 @@ class TestWebQuantJsGuards(unittest.TestCase):
         ui_js = self._read("web", "static", "js", "paper", "t0_ui.js")
         self.assertIn("fmtPredRealizedText", table_js)
         self.assertIn("showRealized = true", table_js)
-        self.assertEqual(ui_js.count("showRealized: false"), 2)
+        self.assertEqual(ui_js.count("showRealized: false"), 1)
+        self.assertIn("previewShowRealized", ui_js)
+        self.assertIn("研究套ŷ", ui_js)
+        self.assertIn("执行套ŷ", ui_js)
 
     def test_holdings_table_has_t0_column(self):
         island_js = self._read("web", "static", "js", "holdings_table_island.js")
@@ -901,6 +904,32 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("resolvePathScore", island_js)
         self.assertIn("score_path: \"path\"", island_js)
         self.assertIn('sortThHtml("y_hl", "score_path")', ui_js)
+        self.assertIn("表列为 ranking", ui_js)
+        self.assertNotIn("表列为 ŷ_trade", ui_js)
+        self.assertLess(
+            ui_js.find('sortThHtml("y_oc", "score_tau")'),
+            ui_js.find('sortThHtml("y_co", "score_on")'),
+        )
+        self.assertLess(
+            ui_js.find('sortThHtml("y_co", "score_on")'),
+            ui_js.find('sortThHtml("y_τc", "score_nowcast")'),
+        )
+        self.assertLess(
+            ui_js.find('sortThHtml("y_τc", "score_nowcast")'),
+            ui_js.find('sortThHtml("y_hl", "score_path")'),
+        )
+        self.assertLess(
+            island_js.find('label: "y_oc"'),
+            island_js.find('label: "y_co"'),
+        )
+        self.assertLess(
+            island_js.find('label: "y_co"'),
+            island_js.find('label: "y_τc"'),
+        )
+        self.assertLess(
+            island_js.find('label: "y_τc"'),
+            island_js.find('label: "y_hl"'),
+        )
         self.assertIn("resolvePathScore", ui_js)
         self.assertIn('data-score-tip="path"', ui_js)
         self.assertIn('data-score-tip="r"', ui_js)
@@ -1678,6 +1707,11 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("paper-rebalance-worker-enabled", paper)
         self.assertIn("renderPaperRebalanceWorkerDesk", paper)
         self.assertIn("rebalance_desk.js", paper)
+        self.assertNotIn("Y_NOWCAST_TITLE", paper)
+        self.assertNotIn("TRADE_TITLE", paper)
+        self.assertNotIn("paper-rebalance-close", paper)
+        self.assertNotIn('bit("ŷ_trade", trade)', paper)
+        self.assertIn('bit("ranking", trade)', paper)
         desk_js = self._read("web", "static", "js", "paper", "rebalance_desk.js")
         self.assertIn("今日盯盘状态", desk_js)
         self.assertIn("renderPaperRebalanceWorkerDesk", desk_js)
@@ -1705,7 +1739,24 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("fmtRankEnterPct", report)
         self.assertIn('role="columnheader" title="ranking', report)
         self.assertIn(">ranking</div>", report)
-        self.assertIn(">rank</div>", report)
+        self.assertNotIn(">rank</div>", report)
+        self.assertNotIn(">y_trade</div>", report)
+        self.assertNotIn(">y_nc</div>", report)
+        self.assertLess(
+            report.find('title="ŷ_oc · open→close">y_oc</div>'),
+            report.find('title="ŷ_co · close→次日开">y_co</div>'),
+        )
+        self.assertLess(
+            report.find('title="ŷ_co · close→次日开">y_co</div>'),
+            report.find('title="ŷ_hl · 极值序">y_hl</div>'),
+        )
+        css = self._read("web", "static", "css", "base.css")
+        self.assertIn("repeat(11, minmax(4.25rem, 1fr))", css)
+        self.assertNotIn("rebalance-score-nowcast", css)
+        self.assertNotIn("paper-rebalance-close", css)
+        self.assertNotIn(".rebalance-reason", css)
+        follow_css = self._read("web", "static", "css", "follow.css")
+        self.assertIn("repeat(11, minmax(4.25rem, 1fr))", follow_css)
         css = self._read("web", "static", "css", "follow.css")
         self.assertNotIn("follow-path-matrix-strategy", css)
         self.assertNotIn("follow-path-matrix-roles", css)

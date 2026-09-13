@@ -1,7 +1,7 @@
 /** Paper · 做T 指标与预演表渲染（从 paper.js 抽出）。 */
 
 import { yTauMapScoreTip } from "./execution_ui.js?v=p2353";
-import { renderT0Viz, wireT0SkipTips } from "./t0_viz.js?v=p2370";
+import { renderT0Viz, wireT0SkipTips } from "./t0_viz.js?v=p2372";
 import { buildT0ReportHtml, fmtT0DirDays } from "./t0_report.js?v=p2353";
 import {
   buildT0TradeTableHtml,
@@ -12,7 +12,7 @@ import {
   wireT0DayDebugExpand,
   wireT0ProcessTips,
   stampStockFitTiers,
-} from "./t0_table.js?v=p2370";
+} from "./t0_table.js?v=p2372";
 
 function escapeHtml(s) {
   return String(s ?? "")
@@ -20,6 +20,33 @@ function escapeHtml(s) {
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;");
+}
+
+function scoreRoleCaption(data) {
+  const role = String(
+    (data && (data.score_model_role || data.scoring_model_role)) || ""
+  ).toLowerCase();
+  const isBt =
+    String((data && data.task) || "") === "t0_backtest" ||
+    !!(data && data.from_holdings);
+  if (role === "research" || (!role && isBt)) {
+    return `<span title="历史回测加载研究套（Holdout 训练，近 N 日不进训练）。交易执行盘中预演用执行套全样本，近 Holdout 日 ŷ 会不同。">研究套ŷ</span>`;
+  }
+  if (role === "live") {
+    return `<span title="交易执行执行套（全样本 live）。历史回测做 T 走研究套，近 Holdout 日 ŷ 会不同。">执行套ŷ</span>`;
+  }
+  return `<span title="y_* 为该行「日」列会话快照（做T决策时冻结）；5m 路径仓在研究枢纽写入；≠持仓实时分 / ≠调仓ŷ开关">会话快照ŷ</span>`;
+}
+
+function previewShowRealized(days) {
+  return (days || []).some(
+    (d) =>
+      d &&
+      (d.tau_realized != null ||
+        d.eod_realized != null ||
+        d.r_realized != null ||
+        (d.scores && (d.scores.tau_realized != null || d.scores.r_realized != null)))
+  );
 }
 
 function buildZeroTradeHint(data) {
@@ -154,7 +181,8 @@ export function renderPaperT0(els, data) {
     daysEl.innerHTML =
       `<div class="paper-t0-days-head">` +
       `<h4 class="paper-t0-days-title">成交明细</h4>` +
-      `<p class="quant-trades-caption">${trades}${skip} · 样本为空</p>` +
+      `<p class="quant-trades-caption">${trades}${skip} · 样本为空` +
+      ` · ${scoreRoleCaption(data)}</p>` +
       `</div>`;
     renderT0Viz(vizEl, data);
     finishT0Days(vizEl, daysEl, tipCtrl);
@@ -181,7 +209,7 @@ export function renderPaperT0(els, data) {
     `<h4 class="paper-t0-days-title">成交明细</h4>` +
     `<p class="quant-trades-caption">${captionBits.join(" · ")}` +
     ` · <span title="${escapeHtml(yTauMapScoreTip())}">C_τ 破带</span>` +
-    ` · <span title="y_* 为该行「日」列会话快照（做T决策时冻结）；5m 路径仓在研究枢纽写入；≠持仓实时分 / ≠调仓ŷ开关">会话快照ŷ · 5m仓</span></p>` +
+    ` · ${scoreRoleCaption(data)} · 5m仓</p>` +
     `</div>`;
 
   daysEl.innerHTML = buildT0TradeTableHtml({
@@ -277,8 +305,8 @@ export function renderPaperT0Preview(els, data) {
   const keepOpen = prevFold ? !!prevFold.open : true;
   const openAttr = keepOpen ? " open" : "";
   const sess =
-    data.session_date ||
     (days.find((d) => d && d.date) || {}).date ||
+    data.session_date ||
     "";
   const chips =
     `<span class="paper-t0-desk-chips">` +
@@ -314,11 +342,12 @@ export function renderPaperT0Preview(els, data) {
           escapeHtml(skipHint) +
           ` · 正${buyThenSellN}/反${sellThenBuyN}` +
           ` · <span title="${tip}">C_τ 破带</span>` +
-          ` · <span title="y_* 为该成交会话日快照，不是持仓表实时分">会话日快照分</span></p>` +
+          ` · ${scoreRoleCaption(tableData)}` +
+          `</p>` +
           `</div>`,
         maxRows: Math.max(T0_TRADE_TABLE_MAX_ROWS, days.length),
         preserveOrder: true,
-        showRealized: false,
+        showRealized: previewShowRealized(days),
       })
     : `<p class="paper-t0-desk-empty">无持仓结果</p>`;
   previewEl.innerHTML =

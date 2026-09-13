@@ -1929,6 +1929,84 @@ class TestDualYDirection(unittest.TestCase):
         params = inspect.signature(fetch_daily_bars).parameters
         self.assertEqual(params["limit"].default, 40)
 
+    def test_paper_t0_daily_bar_limit_covers_eod_hist(self):
+        """纸面预演日线须含当日 + 40 根 T−1，否则比回测 EOD 窗少 1 根。"""
+        import inspect
+
+        from core.t0.score_policy import (
+            T0_PAPER_DAILY_BAR_LIMIT,
+            _EOD_FACTOR_BAR_LIMIT,
+        )
+        from services import paper_trades as pt
+
+        self.assertGreaterEqual(int(T0_PAPER_DAILY_BAR_LIMIT), int(_EOD_FACTOR_BAR_LIMIT) + 1)
+        src = inspect.getsource(pt.PaperTradesMixin._simulate_t0_impl)
+        self.assertIn("T0_PAPER_DAILY_BAR_LIMIT", src)
+        self.assertNotIn("limit=40", src)
+
+    def test_simulate_t0_on_holdings_passes_tau_pool_day(self):
+        """预演须把持仓缺口截面传进单日模拟，否则 rescore 退回单票池、ŷ 相对回测会漂。"""
+        from unittest.mock import patch
+
+        from core.t0.rules import simulate_t0_on_holdings
+
+        paper = {
+            "cash": 200000,
+            "holdings": [
+                {"stock_code": "600875", "stock_name": "东方电气", "shares": 300, "cost": 25.0}
+            ],
+        }
+        hist = [
+            {"date": f"2026-08-{i:02d}", "open": 24.0, "high": 24.2, "low": 23.8, "close": 24.1}
+            for i in range(1, 21)
+        ]
+        day = {
+            "date": "2026-09-11",
+            "open": 25.3,
+            "high": 25.5,
+            "low": 25.0,
+            "close": 25.1,
+            "prev_close": 25.6,
+        }
+        mins = [
+            {
+                "date": "2026-09-11",
+                "datetime": f"2026-09-11 09:{35 + i * 5:02d}:00",
+                "open": 25.3,
+                "high": 25.4,
+                "low": 25.2,
+                "close": 25.25,
+            }
+            for i in range(3)
+        ]
+        captured = {}
+
+        def _fake_sim(**kwargs):
+            captured["tau_pool_day"] = kwargs.get("tau_pool_day")
+            return {
+                "success": True,
+                "skipped": True,
+                "reason": "test skip",
+                "trades": [],
+                "pnl": 0.0,
+                "date": "2026-09-11",
+            }
+
+        with patch("core.t0.rules.simulate_t0_day", side_effect=_fake_sim):
+            with patch("core.paper.tplus1.session_date", return_value="2026-09-11"):
+                out = simulate_t0_on_holdings(
+                    paper,
+                    bars_by_code={"600875": day},
+                    hist_bars_by_code={"600875": hist},
+                    minute_bars_by_code={"600875": mins},
+                    dry_run=True,
+                )
+        self.assertTrue(out.get("success"), out)
+        pool = captured.get("tau_pool_day")
+        self.assertIsInstance(pool, dict)
+        self.assertIn("pool_gaps", pool)
+        self.assertEqual(out.get("score_model_role"), "live")
+
     def test_tip_fields_include_features_on(self):
         from core.t0.score_policy import tip_fields_from_item
 

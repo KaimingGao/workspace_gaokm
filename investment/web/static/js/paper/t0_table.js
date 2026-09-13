@@ -21,7 +21,7 @@ import {
   R_REALIZED_TITLE,
   resolvePathScore,
   fmtPathScore,
-} from "./fmt.js?v=p2370";
+} from "./fmt.js?v=p2372";
 import { adaptiveSizingDayTip } from "./execution_ui.js?v=p2353";
 import { watchingScoreDetail } from "../quant/watching_render.js?v=p2364";
 import {

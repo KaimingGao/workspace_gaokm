@@ -62,6 +62,8 @@ _MIN_HIST_BARS = 16
 _EOD_FACTOR_BAR_LIMIT = 40
 # 做 T 回测：评估窗与因子窗分离；warmup 仅供 hist_prior，不进成交明细
 T0_BACKTEST_SCORE_WARMUP = max(_MIN_HIST_BARS + 8, 40)
+# 纸面预演 / Worker：须含「当日 + 40 根 T−1 及更早」，否则 EOD 周线切桶比回测少 1 根
+T0_PAPER_DAILY_BAR_LIMIT = T0_BACKTEST_SCORE_WARMUP + 1
 
 # 进程内轻量缓存：回测逐日重算时复用模型句柄
 _MODEL_CACHE: Dict[str, Any] = {}
@@ -849,6 +851,12 @@ def scores_from_item(item: Optional[dict]) -> Dict[str, Optional[float]]:
         stamp_remaining_y_τc(out)
     except Exception:  # noqa: BLE001
         logger.debug("stamp remaining y_τc in scores_from_item failed", exc_info=True)
+    try:
+        from core.research.holdout import current_scoring_model_role
+
+        out["_score_model_role"] = current_scoring_model_role()
+    except Exception:  # noqa: BLE001
+        logger.debug("stamp score model role failed", exc_info=True)
     nc_cc = _nowcast_cc_pct(out)
     if nc_cc is not None:
         out["y_nc"] = nc_cc
@@ -3324,6 +3332,35 @@ def active_book_codes_for_tau_pool(*, cap: int = 120) -> List[str]:
     """分池簿已停用：不再提供刷簿宇宙。"""
     _ = cap
     return []
+
+
+def build_tau_pool_from_holding_bars(
+    hist_bars_by_code: Optional[Dict[str, Sequence[dict]]] = None,
+    day_bars_by_code: Optional[Dict[str, dict]] = None,
+) -> Dict[str, Dict[str, Any]]:
+    """用已 hydrate 的持仓日线建 τ 截面（簿停用时即持仓池，与回测 holdings 池同构）。
+
+    缺截面时 ``rescore`` 会退回单票 ``_tau_cross_section_kwargs``，ŷ_oc / R_τ 会漂。
+    """
+    codes: List[str] = []
+    for src in (hist_bars_by_code or {}, day_bars_by_code or {}):
+        for k in src.keys():
+            c = str(k or "").strip()
+            if c and c not in codes:
+                codes.append(c)
+    bars_map: Dict[str, List[dict]] = {}
+    for code in codes:
+        hist = list((hist_bars_by_code or {}).get(code) or [])
+        seq = [b for b in hist if isinstance(b, dict)]
+        day = (day_bars_by_code or {}).get(code)
+        if isinstance(day, dict):
+            dkey = str(day.get("date") or "")[:10]
+            last = str((seq[-1].get("date") if seq else "") or "")[:10]
+            if dkey and dkey != last:
+                seq = seq + [day]
+        if len(seq) >= 2:
+            bars_map[code] = seq
+    return build_tau_pool_by_date(bars_map)
 
 
 def compute_scores_map_from_bars(

@@ -881,6 +881,7 @@ def run_t0_backtest_for_holdings(
         "success": bool(ok),
         "task": "t0_backtest",
         "from_holdings": True,
+        "score_model_role": "research",
         "virtual_sizing": True,
         "virtual_shares": v_shares,
         "virtual_cash": v_cash,

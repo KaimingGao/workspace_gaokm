@@ -1581,6 +1581,7 @@ class PaperTradesMixin:
         """simulate_t0 的加锁实现：拉行情 → 做T模拟 → 写账本。"""
         from core.data.facade import bars_and_source
         from core.t0.rules import atr_pct_from_bars, simulate_t0_on_holdings
+        from core.t0.score_policy import T0_PAPER_DAILY_BAR_LIMIT
 
         paper = load_paper(self.path)
 
@@ -1652,7 +1653,7 @@ class PaperTradesMixin:
             code = str(h.get("stock_code") or "")
             if not code:
                 return None
-            bars, _src = bars_and_source(code, limit=40)
+            bars, _src = bars_and_source(code, limit=T0_PAPER_DAILY_BAR_LIMIT)
             if not bars:
                 return None
             by_day: Dict[str, Any] = {}
@@ -1867,6 +1868,14 @@ class PaperTradesMixin:
             defer_eod=defer_eod,
         )
         result["execution"] = execution_public_view(bundle)
+        result["session_date"] = session_date
+        result["session_closed"] = bool(session_closed)
+        try:
+            from core.research.holdout import current_scoring_model_role
+
+            result["score_model_role"] = current_scoring_model_role()
+        except Exception:  # noqa: BLE001
+            logger.debug("stamp paper t0 score_model_role failed", exc_info=True)
         if dry_run:
             miss = sum(
                 1
@@ -2177,6 +2186,7 @@ class PaperTradesMixin:
         from core.execution import execution_public_view, resolve_effective_execution, strip_execution_meta
         from core.paper.tplus1 import sellable_shares as t1_sellable
         from core.t0.config import T0_INTRADAY_MINUTE_CACHE_HOURS, T0_INTRADAY_MINUTE_LOOKBACK_DAYS
+        from core.t0.score_policy import T0_PAPER_DAILY_BAR_LIMIT
         from core.t0.intraday import (
             accept_intraday_dual_y_scores,
             align_session_day_context,
@@ -2280,7 +2290,7 @@ class PaperTradesMixin:
                 st0 = stock_states.get(code) if isinstance(stock_states.get(code), dict) else {}
                 if not force_session_close and str(st0.get("phase") or "") in ("done", "skipped"):
                     continue
-                bars, _src = bars_and_source(code, limit=40)
+                bars, _src = bars_and_source(code, limit=T0_PAPER_DAILY_BAR_LIMIT)
                 if not bars:
                     continue
                 minute_by_day: Dict[str, list] = {}

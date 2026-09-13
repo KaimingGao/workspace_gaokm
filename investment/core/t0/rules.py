@@ -295,6 +295,7 @@ def simulate_t0_on_holdings(
     log_source: str = "paper_t0",
     skip_codes: Optional[Any] = None,
     defer_eod: bool = False,
+    tau_pool_by_date: Optional[Dict[str, dict]] = None,
 ) -> Dict[str, Any]:
     """对纸面持仓逐票跑单日做 T（需传入当日 bar）。
 
@@ -305,6 +306,7 @@ def simulate_t0_on_holdings(
     scores_by_code：code → dual_y ŷ 快照。
     skip_codes：盘中已落账腿的代码，跳过以防整单回放重复落账。
     defer_eod：盘中整单为 True，避免半日分钟误强平。
+    tau_pool_by_date：按日缺口截面；缺省用持仓日线现场建（与回测同构）。
     """
     from core.execution import stance_allows_t0
 
@@ -319,6 +321,17 @@ def simulate_t0_on_holdings(
         coup = (exe.get("coupling") if isinstance(exe, dict) else None) or {}
     coup_mode = str((coup or {}).get("t0_vs_stance") or "independent")
     skip_set = {str(c) for c in (skip_codes or []) if str(c or "").strip()}
+    tau_pool = tau_pool_by_date if isinstance(tau_pool_by_date, dict) else None
+    if tau_pool is None and (hist_bars_by_code or bars_by_code):
+        try:
+            from core.t0.score_policy import build_tau_pool_from_holding_bars
+
+            tau_pool = build_tau_pool_from_holding_bars(
+                hist_bars_by_code, bars_by_code
+            )
+        except Exception:  # noqa: BLE001
+            logger.debug("holdings tau_pool build failed", exc_info=True)
+            tau_pool = None
 
     holdings = []
     for h in paper.get("holdings") or []:
@@ -436,6 +449,11 @@ def simulate_t0_on_holdings(
         if scores_by_code and code in scores_by_code:
             score_snap = scores_by_code.get(code)
 
+        dkey = str(bar.get("date") or "")[:10]
+        pool_day = None
+        if tau_pool and dkey:
+            pool_day = tau_pool.get(dkey) if isinstance(tau_pool.get(dkey), dict) else None
+
         day = simulate_t0_day(
             bar=bar,
             shares=shares,
@@ -449,6 +467,7 @@ def simulate_t0_on_holdings(
             hist_bars=hist,
             minute_bars=mins,
             scores=score_snap,
+            tau_pool_day=pool_day,
             defer_eod=bool(defer_eod),
         )
         if mins and len(mins) >= 2 and day.get("path_mode") == "first_touch":
@@ -613,7 +632,7 @@ def simulate_t0_on_holdings(
         paper["cash"] = round(working_cash, 2)
         paper["updated_at"] = _now_iso()
 
-    return {
+    out = {
         "success": True,
         "task": "t0_simulate",
         "dry_run": dry_run,
@@ -634,3 +653,10 @@ def simulate_t0_on_holdings(
             + (f" · 耦合跳过 {coupling_skip_count}" if coupling_skip_count else "")
         ),
     }
+    try:
+        from core.research.holdout import current_scoring_model_role
+
+        out["score_model_role"] = current_scoring_model_role()
+    except Exception:  # noqa: BLE001
+        logger.debug("stamp score_model_role failed", exc_info=True)
+    return out

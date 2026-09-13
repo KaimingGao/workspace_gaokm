@@ -12,19 +12,15 @@ export function createRebalanceReportController(deps) {
     fmtPct,
     fmtTableScore,
     scoreCls,
-    resolveTradeScore,
     resolveEodScore,
     resolveTauScore,
     resolvePathScore,
     resolveOnScore,
-    resolveNowcastScore,
     fmtPathScore,
     Y_EOD_TITLE,
     Y_TAU_TITLE,
     Y_HL_TITLE,
     Y_ON_TITLE,
-    Y_NOWCAST_TITLE,
-    TRADE_TITLE,
     isHeuristicScoreScale,
     renderOpsReport,
     showValidateNext,
@@ -216,11 +212,22 @@ function renderRebalanceReport(
 
   if (opsReport) renderOpsReport(opsReport, { forceShow: true });
   else if (matrixPreview) renderOpsReport(null);
-  // 按分数降序展示（无分排后）
+  // 按 ranking 降序展示（无分排后）
   report = Array.isArray(report)
     ? [...report].sort((a, b) => {
-        const as = resolveTradeScore(a);
-        const bs = resolveTradeScore(b);
+        const rankingOf = (r) => {
+          const n = Number(
+            r &&
+              (r.ranking != null
+                ? r.ranking
+                : r.y_fuse != null
+                  ? r.y_fuse
+                  : r.y_fusion)
+          );
+          return Number.isFinite(n) ? n : null;
+        };
+        const as = rankingOf(a);
+        const bs = rankingOf(b);
         if (as == null && bs == null) return 0;
         if (as == null) return 1;
         if (bs == null) return -1;
@@ -762,72 +769,6 @@ function renderRebalanceReport(
   const rows = report
     .map((r, idx) => {
       const cls = decisionClass[r.decision] || "rebalance-hold";
-      let tradeScore = resolveTradeScore(r);
-      let scoreText = tradeScore != null ? fmtTableScore(r, tradeScore) : "—";
-      if (scoreText === "—" && r.hard_reject) {
-        scoreText = "拒";
-      }
-      const belowMin = !!r.below_min_score;
-      const scoreShown =
-        scoreText !== "—" && scoreText !== "拒" && belowMin
-          ? `${scoreText}↓`
-          : scoreText;
-      let scoreClass = scoreCls(tradeScore);
-      if (belowMin) scoreClass += " below-min";
-      if (r.hard_reject) scoreClass += " score-reject";
-      const singleHead =
-        r.dual_score_single_head === true ||
-        String(r.dual_score_head || "") === "single_eod" ||
-        String(r.dual_score_head || "") === "single_tau";
-      if (singleHead) scoreClass += " score-single-head";
-      let scoreTip = "";
-      if (r.hard_reject) {
-        scoreTip = String(r.reject_reason || "硬拒绝 · 无收益分");
-      } else if (isHeuristicScoreScale(r)) {
-        scoreTip =
-          tradeScore != null
-            ? "OOS 失败 · 表列组/全局 ŷ% · heuristic 见 tip"
-            : "OOS 失败 · 无 ŷ% · tip 看 heuristic(0–100)";
-      } else if (singleHead) {
-        scoreTip = `ŷ_trade 单头降级（${String(r.dual_score_head || "single")}）· 悬停看详情`;
-      } else if (r.y_check && String(r.y_check) !== "ok") {
-        scoreTip = `Y·EOD 校验 ${String(r.y_check)} · 悬停看分歧/σ`;
-      } else if (belowMin) {
-        scoreTip = "低于 ŷ_oo 门槛";
-      } else {
-        scoreTip = TRADE_TITLE;
-      }
-      const head = String(r.dual_score_head || "");
-      const singleHeadBadge = singleHead
-        ? `<span class="watching-single-head-badge" title="${escapeText(
-            head === "single_tau"
-              ? "ŷ_trade 单头降级：仅 ŷ_oc（缺 ŷ_oo）· 与双头票不同量纲"
-              : head === "single_eod"
-                ? "ŷ_trade 单头降级：仅 ŷ_oo（缺 ŷ_oc）· 与双头票不同量纲"
-                : "ŷ_trade 单头降级 · 与双头票不同量纲"
-          )}">单</span>`
-        : "";
-      const yCheck = String(r.y_check || "");
-      const yCheckBadge =
-        yCheck && yCheck !== "ok"
-          ? `<span class="watching-y-check-badge is-${escapeText(
-              yCheck
-            )}" title="${escapeText(
-              yCheck === "conflict"
-                ? "Y·EOD 校验：双头分歧"
-                : yCheck === "low_conf"
-                  ? "Y·EOD 校验：低置信"
-                  : `Y·EOD 校验：${yCheck}`
-            )}">${escapeText(
-              yCheck === "conflict"
-                ? "歧"
-                : yCheck === "low_conf"
-                  ? "弱"
-                  : yCheck === "missing_tau"
-                    ? "缺τ"
-                    : "校"
-            )}</span>`
-          : "";
       const scoreEod = resolveEodScore(r);
       const scoreEodShown =
         scoreEod != null ? fmtTableScore(r, scoreEod) : "—";
@@ -843,28 +784,12 @@ function renderRebalanceReport(
       const scoreOnShown =
         scoreOn != null ? fmtTableScore(r, scoreOn) : "—";
       const scoreOnTitle = scoreOn == null ? "暂无 ŷ_co" : Y_ON_TITLE;
-      const scoreNowcast = resolveNowcastScore(r);
-      const scoreNowcastShown =
-        scoreNowcast != null ? fmtTableScore(r, scoreNowcast) : "—";
-      const scoreNowcastTitle =
-        scoreNowcast == null ? "暂无 nowcast · 有 ŷ_oo 与 ŷ_oc 后可见" : Y_NOWCAST_TITLE;
       const fuseRaw = Number(
         r.ranking != null ? r.ranking : r.y_fuse != null ? r.y_fuse : r.y_fusion
       );
       const scoreFuse = Number.isFinite(fuseRaw) ? fuseRaw : null;
       const scoreFuseShown =
         scoreFuse != null ? fmtTableScore(r, scoreFuse) : "—";
-      const scoreFuseTitle =
-        scoreFuse == null
-          ? "暂无 ranking"
-          : "ranking · w·ŷ_oo + w·(ŷ_oc∘w_co·ŷ_co)";
-      const rankRaw = Number(
-        r.ranking_score != null ? r.ranking_score : r.ranking
-      );
-      const scoreRank = Number.isFinite(rankRaw) ? rankRaw : null;
-      const rankPct = scoreRank != null ? scoreRank * 100 : null;
-      const scoreRankShown =
-        rankPct != null ? fmtTableScore(r, rankPct) : "—";
       const rankI = Number(r.rank_i);
       const rankN = Number(r.rank_n);
       const rankOrd =
@@ -873,10 +798,10 @@ function renderRebalanceReport(
           : Number.isFinite(rankI)
             ? ` · 候选第 ${rankI}`
             : "";
-      const scoreRankTitle =
-        scoreRank == null
-          ? "暂无 rank"
-          : `rank · ranking=w·ŷ_oo + w·(ŷ_oc∘w_co·ŷ_co)，展示百分数；<0% 清仓；过入场才开/加${rankOrd}`;
+      const scoreFuseTitle =
+        scoreFuse == null
+          ? "暂无 ranking"
+          : `ranking · w·ŷ_oo + w·(ŷ_oc∘w_co·ŷ_co)；<0% 清仓；过入场才开/加${rankOrd}`;
       const tipDetailJson = escapeText(
         JSON.stringify(tipDetailPayload(r))
       );
@@ -1069,32 +994,20 @@ function renderRebalanceReport(
         )}" role="cell" ` +
         `data-score-detail="${tipDetailJson}" data-score-tip="tau" ` +
         `title="${escapeText(scoreTauTitle)}">${escapeText(scoreTauShown)}</div>` +
-        `<div class="num rebalance-score-path paper-hold-score watching-score-path has-tip ${scoreCls(
-          scorePath
-        )}" role="cell" ` +
-        `data-score-detail="${tipDetailJson}" data-score-tip="path" ` +
-        `title="${escapeText(scorePathTitle)}">${escapeText(scorePathShown)}</div>` +
         `<div class="num rebalance-score-on paper-hold-score watching-score-on has-tip ${scoreCls(
           scoreOn
         )}" role="cell" ` +
         `data-score-detail="${tipDetailJson}" data-score-tip="on" ` +
         `title="${escapeText(scoreOnTitle)}">${escapeText(scoreOnShown)}</div>` +
-        `<div class="num rebalance-score paper-hold-score has-tip ${scoreClass}" ` +
-        `role="cell" data-score-detail="${tipDetailJson}" data-score-tip="trade" ` +
-        `title="${escapeText(scoreTip)}">${escapeText(scoreShown)}${singleHeadBadge}${yCheckBadge}</div>` +
-        `<div class="num rebalance-score-nowcast paper-hold-score watching-score-nowcast has-tip ${scoreCls(
-          scoreNowcast
+        `<div class="num rebalance-score-path paper-hold-score watching-score-path has-tip ${scoreCls(
+          scorePath
         )}" role="cell" ` +
-        `data-score-detail="${tipDetailJson}" data-score-tip="nowcast" ` +
-        `title="${escapeText(scoreNowcastTitle)}">${escapeText(scoreNowcastShown)}</div>` +
+        `data-score-detail="${tipDetailJson}" data-score-tip="path" ` +
+        `title="${escapeText(scorePathTitle)}">${escapeText(scorePathShown)}</div>` +
         `<div class="num rebalance-score-fuse rebalance-score paper-hold-score has-tip ${scoreCls(
           scoreFuse
         )}" role="cell" ` +
         `title="${escapeText(scoreFuseTitle)}">${escapeText(scoreFuseShown)}</div>` +
-        `<div class="num rebalance-score-rank rebalance-score paper-hold-score has-tip ${scoreCls(
-          rankPct
-        )}" role="cell" ` +
-        `title="${escapeText(scoreRankTitle)}">${escapeText(scoreRankShown)}</div>` +
         `<div class="num rebalance-shares" role="cell">` +
         `<span class="rebalance-shares-old">${escapeText(
           String(
@@ -1138,12 +1051,9 @@ function renderRebalanceReport(
     `<div class="rebalance-th num" role="columnheader" title="相对昨收的当日涨跌幅">涨跌</div>` +
     `<div class="rebalance-th num" role="columnheader" title="ŷ_oo · 隔夜主轴">y_oo</div>` +
     `<div class="rebalance-th num" role="columnheader" title="ŷ_oc · open→close">y_oc</div>` +
-    `<div class="rebalance-th num" role="columnheader" title="ŷ_hl · 极值序">y_hl</div>` +
     `<div class="rebalance-th num" role="columnheader" title="ŷ_co · close→次日开">y_co</div>` +
-    `<div class="rebalance-th num" role="columnheader" title="ŷ_trade · 排序/卖门槛">y_trade</div>` +
-    `<div class="rebalance-th num" role="columnheader" title="nowcast（nc）· 对照昨收">y_nc</div>` +
+    `<div class="rebalance-th num" role="columnheader" title="ŷ_hl · 极值序">y_hl</div>` +
     `<div class="rebalance-th num" role="columnheader" title="ranking · w·ŷ_oo + w·(ŷ_oc∘w_co·ŷ_co)">ranking</div>` +
-    `<div class="rebalance-th num" role="columnheader" title="rank · ranking=w·ŷ_oo + w·(ŷ_oc∘w_co·ŷ_co)，展示百分数">rank</div>` +
     `<div class="rebalance-th num" role="columnheader">股数</div>` +
     `<div class="rebalance-th num" role="columnheader">变动</div>` +
     `<div class="rebalance-th rebalance-th-decision" role="columnheader" title="悬停看原因">决策</div>` +
@@ -1182,7 +1092,7 @@ function renderRebalanceReport(
   });
 
   scoreTips.bindHost(container, {
-    scoreSelector: ".rebalance-score[data-score-detail]",
+    scoreSelector: "[data-score-detail]",
   });
   void ensureFitTierMap(container);
 

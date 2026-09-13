@@ -172,7 +172,7 @@ export function buildPaperHoldingsTableHtml({
           : singleHead
             ? `ŷ_trade 单头降级（${String(h.dual_score_head || "single")}）· 悬停看详情`
           : belowMin
-            ? `低于ŷ_oo门槛 ${h.min_score ?? "—"}（表列为 ŷ_trade）· 悬停看详情`
+            ? `低于ŷ_oo门槛 ${h.min_score ?? "—"}（表列为 ranking）· 悬停看详情`
             : TRADE_TITLE;
       const oosFailed =
         !!h.oos_failed ||
@@ -268,16 +268,21 @@ export function buildPaperHoldingsTableHtml({
         )}" data-score-detail="${scoreDetailJson}" data-score-tip="tau" title="${escapeText(
           scoreTauTitle
         )}">${escapeText(scoreTauShown)}</td>` +
-        `<td class="num paper-hold-score watching-score-path has-tip ${scoreCls(
-          scorePath
-        )}" data-score-detail="${scoreDetailJson}" data-score-tip="path" title="${escapeText(
-          scorePathTitle
-        )}">${escapeText(scorePathShown)}</td>` +
         `<td class="num paper-hold-score watching-score-on has-tip ${scoreCls(
           scoreOn
         )}" data-score-detail="${scoreDetailJson}" data-score-tip="on" title="${escapeText(
           scoreOnTitle
         )}">${escapeText(scoreOnShown)}</td>` +
+        `<td class="num paper-hold-score watching-score-nowcast has-tip ${scoreCls(
+          scoreNowcast
+        )}" data-score-detail="${scoreDetailJson}" data-score-tip="r" title="${escapeText(
+          scoreNowcastTitle
+        )}">${escapeText(scoreNowcastShown)}</td>` +
+        `<td class="num paper-hold-score watching-score-path has-tip ${scoreCls(
+          scorePath
+        )}" data-score-detail="${scoreDetailJson}" data-score-tip="path" title="${escapeText(
+          scorePathTitle
+        )}">${escapeText(scorePathShown)}</td>` +
         `<td class="num paper-hold-score has-tip ${scoreCls(score)}${
           belowMin ? " score-below-min" : ""
         }${hardReject ? " score-reject" : ""}${
@@ -286,11 +291,6 @@ export function buildPaperHoldingsTableHtml({
         `data-score-detail="${scoreDetailJson}" data-score-tip="trade" title="${escapeText(
           scoreTitle
         )}">${escapeText(scoreShown)}${singleHeadBadge}${yCheckBadge}</td>` +
-        `<td class="num paper-hold-score watching-score-nowcast has-tip ${scoreCls(
-          scoreNowcast
-        )}" data-score-detail="${scoreDetailJson}" data-score-tip="r" title="${escapeText(
-          scoreNowcastTitle
-        )}">${escapeText(scoreNowcastShown)}</td>` +
         `<td class="num paper-hold-cost" title="持仓加权平均成本">${fmtPriceUnit(
           h.cost,
           h.unit,
@@ -329,10 +329,10 @@ export function buildPaperHoldingsTableHtml({
     `${sortThHtml("涨跌", "chg")}` +
     `${sortThHtml("y_oo", "score_eod")}` +
     `${sortThHtml("y_oc", "score_tau")}` +
-    `${sortThHtml("y_hl", "score_path")}` +
     `${sortThHtml("y_co", "score_on")}` +
-    `${sortThHtml("ranking", "score")}` +
     `${sortThHtml("y_τc", "score_nowcast")}` +
+    `${sortThHtml("y_hl", "score_path")}` +
+    `${sortThHtml("ranking", "score")}` +
     `<th title="持仓加权平均成本">成本</th>` +
     `${sortThHtml("市值", "market_value")}` +
     `${sortThHtml("浮盈亏", "pnl")}` +

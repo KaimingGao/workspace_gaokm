@@ -78,7 +78,7 @@ export function holdingToRow(
       : singleHead
         ? `ŷ_trade 单头降级（${String(h.dual_score_head || "single")}）· 悬停看详情`
       : belowMin
-        ? `低于ŷ_oo门槛 ${minScore ?? "—"}（表列为 ŷ_trade）· 悬停看详情`
+        ? `低于ŷ_oo门槛 ${minScore ?? "—"}（表列为 ranking）· 悬停看详情`
         : TRADE_TITLE;
   const scoreEodTitle = scoreEod == null ? "暂无 ŷ_oo" : Y_EOD_TITLE;
   const scoreTauTitle = scoreTau == null ? "暂无 ŷ_oc" : Y_TAU_TITLE;
@@ -246,16 +246,6 @@ const COLS = [
     title: Y_TAU_TITLE,
   },
   {
-    id: "score_path",
-    label: "y_hl",
-    width: 82,
-    num: true,
-    sortable: true,
-    headClass: "watching-col-y",
-    cellClass: "watching-col-y",
-    title: Y_HL_TITLE,
-  },
-  {
     id: "score_on",
     label: "y_co",
     width: 82,
@@ -266,16 +256,6 @@ const COLS = [
     title: Y_ON_TITLE,
   },
   {
-    id: "score",
-    label: "ranking",
-    width: 94,
-    num: true,
-    sortable: true,
-    headClass: "watching-col-y watching-col-y-trade",
-    cellClass: "watching-col-y watching-col-y-trade",
-    title: TRADE_TITLE,
-  },
-  {
     id: "score_nowcast",
     label: "y_τc",
     width: 82,
@@ -284,6 +264,26 @@ const COLS = [
     headClass: "watching-col-y",
     cellClass: "watching-col-y",
     title: Y_τc_TITLE,
+  },
+  {
+    id: "score_path",
+    label: "y_hl",
+    width: 82,
+    num: true,
+    sortable: true,
+    headClass: "watching-col-y",
+    cellClass: "watching-col-y",
+    title: Y_HL_TITLE,
+  },
+  {
+    id: "score",
+    label: "ranking",
+    width: 94,
+    num: true,
+    sortable: true,
+    headClass: "watching-col-y watching-col-y-trade",
+    cellClass: "watching-col-y watching-col-y-trade",
+    title: TRADE_TITLE,
   },
   { id: "cost", label: "成本", width: 78, num: true, title: "持仓加权平均成本" },
   {

@@ -1425,50 +1425,6 @@ a.dialog-btn[aria-disabled="true"] {
   background: var(--surface);
 }
 
-.rebalance-table {
-  width: 100%;
-  border-collapse: separate;
-  border-spacing: 0;
-  font-size: 0.78rem;
-  background: transparent;
-  min-width: 640px;
-}
-
-.rebalance-table thead th {
-  text-align: left;
-  padding: 8px 10px;
-  color: var(--ink-3);
-  font-weight: 600;
-  white-space: nowrap;
-  font-size: 0.68rem;
-  letter-spacing: 0.02em;
-  border-bottom: 1px solid var(--line);
-  background: var(--bg-accent, var(--line-2));
-}
-
-.rebalance-table td.num {
-  text-align: right;
-  font-variant-numeric: tabular-nums;
-}
-
-.rebalance-table td {
-  padding: 9px 10px;
-  border-bottom: 1px solid var(--line-2);
-  vertical-align: middle;
-}
-
-.rebalance-table tbody tr:last-child td {
-  border-bottom: none;
-}
-
-.rebalance-table tbody tr.is-expandable {
-  cursor: pointer;
-}
-
-.rebalance-table tbody tr.is-expandable:hover {
-  background: rgba(23, 105, 170, 0.04);
-}
-
 .rebalance-stock {
   min-width: 6.5rem;
 }
@@ -1617,35 +1573,12 @@ a.dialog-btn[aria-disabled="true"] {
   color: var(--ink-3);
 }
 
-.rebalance-reason {
-  color: var(--ink-2);
-  font-size: 0.72rem;
-  line-height: 1.4;
-  white-space: normal;
-  max-width: none;
-}
-
 .rebalance-row-expanded {
   background: color-mix(in srgb, var(--accent) 5%, transparent) !important;
 }
 
-.rebalance-score.has-tip,
-.rebalance-score-nowcast.has-tip {
+.rebalance-score.has-tip {
   cursor: help;
-}
-
-.rebalance-detail-row td {
-  padding: 0 10px 10px;
-  background: rgba(23, 105, 170, 0.03);
-  border-bottom: 1px solid var(--line-2);
-  white-space: normal;
-}
-
-#paper-rebalance-close {
-  padding: 4px 10px;
-  font-size: 16px;
-  line-height: 1;
-  border-radius: 6px;
 }
 
 #paper-rebalance-preview-note:not([hidden]) {
@@ -4129,10 +4062,10 @@ html[data-density="compact"] .table-pager {
 }
 
 .rebalance-table {
-  /* 股票吃左侧弹性；后列定宽；决策列随文案加长，避免 ellipsis 截断 */
-  --rebalance-cols: minmax(6.5rem, 1fr) 4.25rem 4.25rem 4.25rem 4.5rem 4.5rem 4.5rem 4.5rem 4.5rem 4.5rem 4.5rem 4.5rem 6.25rem 3.5rem minmax(9rem, max-content);
-  width: max(100%, 77rem);
-  min-width: 77rem;
+  /* 股票略宽，其余 11 列等分；下限防挤扁，多余宽度均分 */
+  --rebalance-cols: minmax(6.75rem, 1.15fr) repeat(11, minmax(4.25rem, 1fr));
+  width: 100%;
+  min-width: 60rem;
   font-size: 0.78rem;
   background: transparent;
 }
@@ -4144,7 +4077,7 @@ html[data-density="compact"] .table-pager {
   align-items: center;
   width: 100%;
   box-sizing: border-box;
-  column-gap: 10px;
+  column-gap: 8px;
 }
 
 .rebalance-table-head {
@@ -4189,8 +4122,10 @@ html[data-density="compact"] .table-pager {
 .rebalance-th.rebalance-th-decision,
 .rebalance-decision {
   text-align: right;
-  justify-self: end;
-  padding-right: 10px !important;
+  justify-self: stretch;
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
   overflow: visible;
 }
 
@@ -4221,9 +4156,14 @@ html[data-density="compact"] .table-pager {
   font-weight: 600;
 }
 
+.rebalance-table-head > :first-child,
+.rebalance-row > :first-child {
+  padding-left: 12px;
+}
+
 .rebalance-table-head > :last-child,
 .rebalance-row > :last-child {
-  padding-right: 8px;
+  padding-right: 12px;
 }
 
 .rebalance-table-body .rebalance-row:last-of-type {
@@ -4341,7 +4281,7 @@ html[data-density="compact"] .table-pager {
 }
 
 .rebalance-shares-arrow {
-  margin: 0 5px;
+  margin: 0 3px;
   color: color-mix(in srgb, var(--ink-3) 70%, transparent);
   flex: 0 0 auto;
   font-size: 10px;
@@ -4351,19 +4291,6 @@ html[data-density="compact"] .table-pager {
   font-weight: 650;
   color: var(--ink);
 }
-
-.rebalance-score-nowcast.watching-score-nowcast {
-  font-weight: 500;
-  opacity: 0.9;
-}
-
-.rebalance-score-nowcast.score-up { color: var(--color-up); }
-
-.rebalance-score-nowcast.score-down { color: var(--color-down); }
-
-.rebalance-score-nowcast.score-flat { color: var(--ink-2); }
-
-.rebalance-score-nowcast.score-na { color: var(--ink-3); font-weight: 500; }
 
 .rebalance-change {
   font-weight: 650;
@@ -4405,8 +4332,7 @@ html[data-density="compact"] .table-pager {
   letter-spacing: -0.01em;
 }
 
-.rebalance-score.has-tip,
-.rebalance-score-nowcast.has-tip {
+.rebalance-score.has-tip {
   cursor: help;
 }
 
@@ -4474,10 +4400,6 @@ html[data-density="compact"] .table-pager {
   color: var(--ink-3);
   border-color: var(--line);
   font-weight: 600;
-}
-
-.rebalance-reason {
-  display: none;
 }
 
 .log-row {
@@ -4559,19 +4481,4 @@ html[data-density="compact"] .table-pager {
   #paper-t0-action-status.is-busy {
     animation: none;
   }
-}
-
-/* ============================================================
- * 10. BUTTONS: HERO SECTION / DIALOG
- * ============================================================ */
-#paper-rebalance-close {
-  padding: 4px 10px;
-  font-size: 14px;
-  line-height: 1;
-  border-radius: 6px;
-  width: 28px;
-  height: 28px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
 }
