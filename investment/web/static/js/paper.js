@@ -7,7 +7,7 @@ import {
   metricCls,
   fmtTableScore,
   scoreCls,
-  resolveTradeScore,
+  resolveRankingScore,
   resolveEodScore,
   resolveTauScore,
   resolvePathScore,
@@ -19,14 +19,14 @@ import {
   Y_ON_TITLE,
   scoreSeriesStats,
   isHeuristicScoreScale,
-} from "./paper/fmt.js?v=p2298";
+} from "./paper/fmt.js?v=p2389";
 import { drawSeries, appendLiveNavPoint } from "./paper/chart.js?v=p1163";
 import { renderOpsReport as renderOpsReportEl } from "./paper/ops_ui.js";
 import {
   loadHoldingsSort,
   persistHoldingsSort as persistHoldingsSortSaved,
   sortHoldings as sortHoldingsRows,
-} from "./paper/holdings_sort.js?v=p1457";
+} from "./paper/holdings_sort.js?v=p2389";
 import {
   renderLineChart,
   loadLightweightCharts,
@@ -37,23 +37,23 @@ import {
   buildPaperHoldingsTableHtml,
   buildPaperOriginBarHtml,
   buildPaperHoldActionBarHtml,
-} from "./paper/holdings_ui.js?v=p2376";
+} from "./paper/holdings_ui.js?v=p2389";
 import { renderPaperRulesHtml } from "./paper/rules_ui.js?v=p2298";
 import {
   renderExecutionRulesHtml,
   normalizeExecutionView,
-} from "./paper/execution_ui.js?v=p2353";
-import { applyExecutionToUi } from "./paper/execution_forms.js?v=p2274";
+} from "./paper/execution_ui.js?v=p2389";
+import { applyExecutionToUi } from "./paper/execution_forms.js?v=p2389";
 import { buildPaperLogsView, buildPaperLogsCsv } from "./paper/logs_ui.js?v=p2157";
 import { downloadBlob } from "./shared.js";
 import {
   renderPaperT0Preview as renderPaperT0PreviewUi,
   renderPaperT0WorkerTrades as renderPaperT0WorkerTradesUi,
   renderPaperT0WorkerDesk as renderPaperT0WorkerDeskUi,
-} from "./paper/t0_ui.js?v=p2377";
+} from "./paper/t0_ui.js?v=p2389";
 import { renderPaperRebalanceWorkerDesk as renderPaperRebalanceWorkerDeskUi } from "./paper/rebalance_desk.js?v=p2297";
-import { wireT0SkipTips } from "./paper/t0_viz.js?v=p2377";
-import { wireT0ProcessTips, wireT0DayDebugExpand } from "./paper/t0_table.js?v=p2377";
+import { wireT0SkipTips } from "./paper/t0_viz.js?v=p2389";
+import { wireT0ProcessTips, wireT0DayDebugExpand } from "./paper/t0_table.js?v=p2389";
 import { wireHoldingsChgTips } from "./paper/holding_chg_tip.js?v=p2297";
 import { createHoldingsIslandController } from "./paper/holdings_island.js";
 import { createClusterRebalanceController } from "./paper/cluster_rebalance.js?v=p2088";
@@ -64,7 +64,7 @@ import {
 } from "./data_offline.js";
 import { rebalanceDataFoot, t0DataFoot } from "./data_policy.js?v=p1736";
 import { ensureWarehouseTopup } from "./data_warehouse_topup.js";
-import { createRebalanceReportController } from "./paper/rebalance_report.js?v=p2373";
+import { createRebalanceReportController } from "./paper/rebalance_report.js?v=p2381";
 import { waitPaperJob as waitPaperJobPoll } from "./paper/job_poll.js?v=p1416";
 import { renderFollowNorthStar as renderFollowNorthStarUi } from "./paper/north_star_ui.js?v=p2182";
 import {
@@ -80,7 +80,7 @@ import {
   tailAnomalyDetailFields,
   overheatDetailFields,
   createScoreTooltipController,
-} from "./score_tooltip.js?v=p2377";
+} from "./score_tooltip.js?v=p2389";
 
 import { formatDailySteps, runDaily } from "./shared.js";
 
@@ -842,14 +842,14 @@ export function initPaper(ctx) {
       if (!holdingsScoreStatsEl) return;
       const list = Array.isArray(rows) ? rows : [];
       const eod = scoreSeriesStats(list.map(resolveEodScore));
-      const trade = scoreSeriesStats(list.map(resolveTradeScore));
+      const ranking = scoreSeriesStats(list.map(resolveRankingScore));
       const bit = (label, pack) =>
         pack.n
           ? `${label} μ ${Number(pack.mean).toFixed(2)}% · med ${Number(
               pack.median
             ).toFixed(2)}% · n=${pack.n}`
           : null;
-      holdingsScoreStatsEl.textContent = [bit("ŷ_oo", eod), bit("ranking", trade)]
+      holdingsScoreStatsEl.textContent = [bit("ŷ_oo", eod), bit("ranking", ranking)]
         .filter(Boolean)
         .join(" · ");
     };
@@ -1652,7 +1652,7 @@ export function initPaper(ctx) {
         );
         if (holdingsScoreStatsEl) {
           const eod = scoreSeriesStats(holdings.map(resolveEodScore));
-          const trade = scoreSeriesStats(holdings.map(resolveTradeScore));
+          const ranking = scoreSeriesStats(holdings.map(resolveRankingScore));
           const bit = (label, pack) =>
             pack.n
               ? `${label} μ ${Number(pack.mean).toFixed(2)}% · med ${Number(
@@ -1661,7 +1661,7 @@ export function initPaper(ctx) {
               : null;
           holdingsScoreStatsEl.textContent = [
             bit("ŷ_oo", eod),
-            bit("ranking", trade),
+            bit("ranking", ranking),
           ]
             .filter(Boolean)
             .join(" · ");

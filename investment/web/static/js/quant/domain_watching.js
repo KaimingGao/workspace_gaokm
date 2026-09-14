@@ -5,11 +5,11 @@ import { ensureWarehouseTopup } from "../data_warehouse_topup.js";
 import { renderLineChart } from "../lw_charts.js";
 import { syncOverviewUniverse } from "./factor_corr_ui.js";
 import { mountVirtualTable, colStyle } from "../virtual_table.js";
-import { fmtScore, fmtTableScore, scoreCls, resolveTradeScore, resolveEodScore } from "../paper/fmt.js?v=p2298";
+import { fmtScore, fmtTableScore, scoreCls, resolveRankingScore, resolveEodScore } from "../paper/fmt.js?v=p2389";
 import { truncateStockName, watchingNameSpanHtml, watchingNameFromEl, applyWatchingNameEl, normalizeProbeCode } from "./names.js";
 import { renderWatchingHoldings as renderWatchingHoldingsHtml } from "./watching_holdings.js";
 import { buildWatchingDqMetaText, buildWatchingDqFoldSummary, buildWatchingDqTableHtml } from "./watching_dq_ui.js";
-import { watchingScoreDetail, sentimentBadgeHtml, renderWatchingBuildPlan as renderWatchingBuildPlanHtml, renderWatchingWatchTableFallback, buildWatchingWatchRows, buildWatchingNewsTitleHtml, buildWatchingNewsMetaText, buildWatchingNewsListHtml, WATCHING_NEWS_AI_LOADING_HTML, buildWatchingNewsAiAnalysisHtml, buildWatchingNewsAiErrorHtml, describeWatchingSource, matchWatchlistSource, truncateText, sentimentLabelZh, shortOriginLabel } from "./watching_render.js?v=p2364";
+import { watchingScoreDetail, sentimentBadgeHtml, renderWatchingBuildPlan as renderWatchingBuildPlanHtml, renderWatchingWatchTableFallback, buildWatchingWatchRows, buildWatchingNewsTitleHtml, buildWatchingNewsMetaText, buildWatchingNewsListHtml, WATCHING_NEWS_AI_LOADING_HTML, buildWatchingNewsAiAnalysisHtml, buildWatchingNewsAiErrorHtml, describeWatchingSource, matchWatchlistSource, truncateText, sentimentLabelZh, shortOriginLabel } from "./watching_render.js?v=p2389";
 import { ensureFitTierMap } from "./fit_tier_ui.js";
 import {
   buildWatchingScoreDisplay,
@@ -25,7 +25,7 @@ import {
   buildWatchingInsightsNativeFields,
   isOosFailedItem,
   oosFailedBadgeHtml,
-} from "./watching_insights_ui.js?v=p2346";
+} from "./watching_insights_ui.js?v=p2389";
 import {
   parseWatchingVolume,
   formatWatchingChg,
@@ -34,7 +34,7 @@ import {
   buildWatchingQuotesStatusText,
   buildWatchingQuotesErrorStatus,
   withQuoteGap,
-} from "./watching_quotes_ui.js?v=p2298";
+} from "./watching_quotes_ui.js?v=p2389";
 import {
   watchingBuildInvalidTip,
   watchingBuildTitleText,
@@ -586,6 +586,7 @@ export function installWatching(q) {
         if (!raw) return null;
         const parsed = JSON.parse(raw);
         if (!parsed || !parsed.timestamp) return null;
+        if (parsed.ver !== "rk2") return null;
         if (Date.now() - parsed.timestamp >= 4 * 3600 * 1000) return null;
         return parsed;
       } catch (_) {
@@ -601,14 +602,15 @@ export function installWatching(q) {
           const code = String((it && (it.stock_code || it.code)) || "").trim();
           if (!code) continue;
           if (it && it.ok !== false) itemsByCode[code] = it;
-          const trade = resolveTradeScore(it);
-          if (trade != null && Math.abs(Number(trade)) <= 20) {
-            scoresByCode[code] = trade;
+          const ranking = resolveRankingScore(it);
+          if (ranking != null && Math.abs(Number(ranking)) <= 20) {
+            scoresByCode[code] = ranking;
           }
         }
         localStorage.setItem(
           "watching_insights_cache",
           JSON.stringify({
+            ver: "rk2",
             timestamp: Date.now(),
             scoresByCode,
             itemsByCode,
@@ -1620,7 +1622,7 @@ export function installWatching(q) {
       const raw = localStorage.getItem("watching_insights_cache");
       if (raw) {
         const parsed = JSON.parse(raw);
-        if (parsed && parsed.timestamp && Date.now() - parsed.timestamp < 4 * 3600 * 1000) {
+        if (parsed && parsed.ver === "rk2" && parsed.timestamp && Date.now() - parsed.timestamp < 4 * 3600 * 1000) {
           cachedScores = parsed.scoresByCode || {};
         }
       }

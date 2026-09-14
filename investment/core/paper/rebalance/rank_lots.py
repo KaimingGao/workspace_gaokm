@@ -109,13 +109,11 @@ def ranking_score(
     w_oo: float = 0.5,
     w_oc: float = 0.5,
     y_on_alpha: float = DEFAULT_Y_ON_ALPHA,
-    y_fuse: Optional[float] = None,
     y_on: Optional[float] = None,
     w_co: Optional[float] = None,
     y_co: Optional[float] = None,
 ) -> Optional[float]:
     """w_oo·ŷ_oo + w_oc·((1+ŷ_oc)(1+w_co·ŷ_co)−1)；落盘百分点 → 净收益（÷100）。"""
-    _ = y_fuse
     from core.signal.yhat_windows import fuse_pct, oc_with_co
 
     wc = float(w_co) if w_co is not None else float(y_on_alpha or 0.0)
@@ -272,27 +270,22 @@ def get_rank_lot_cfg(
 def ranking_pct_of(item: Optional[dict], cfg: Optional[dict] = None) -> Optional[float]:
     """调仓 ranking 百分点 = w_oo·ŷ_oo + w_oc·(ŷ_oc ∘ w_co·ŷ_co)。
 
-    有 ŷ_oo/ŷ_oc 则现算；显式 ``ranking`` 优先。``y_fuse`` 只在两头都抽不出时
-    当 ranking 旧别名，不当 ŷ_oo（避免把融合分再和 ŷ_oc 融一次）。
+    有 ŷ_oo/ŷ_oc 一律现算，不信落盘 ``ranking`` / ``y_fuse``（旧戳可能是 ŷ_trade）。
+    两头都抽不出时才回退显式 ranking，再回退 y_fuse。
     """
     from core.signal.yhat_windows import fusion_w_co_from_cfg, fusion_weights_from_cfg, ranking_pct
 
     if not isinstance(item, dict):
         return None
-    direct = _f(item.get("ranking") or item.get("ranking_pct"))
-    if direct is not None:
-        return direct
     w_oo, w_oc = fusion_weights_from_cfg(cfg)
     w_co = fusion_w_co_from_cfg(cfg)
     fused = ranking_pct(item, w_oo=w_oo, w_oc=w_oc, w_co=w_co)
     if fused is not None:
         return fused
+    direct = _f(item.get("ranking") or item.get("ranking_pct"))
+    if direct is not None:
+        return direct
     return _f(item.get("y_fuse"))
-
-
-def y_fuse_of(item: Optional[dict], cfg: Optional[dict] = None) -> Optional[float]:
-    """兼容旧名：返回 ranking 百分点（不再做 trade/nowcast 缺口映射）。"""
-    return ranking_pct_of(item, cfg)
 
 
 def y_tau_of(item: Optional[dict]) -> Optional[float]:
@@ -692,7 +685,6 @@ __all__ = [
     "plan_rank_lot_day",
     "ranking_pct_of",
     "ranking_score",
-    "y_fuse_of",
     "y_on_of",
     "y_tau_of",
 ]

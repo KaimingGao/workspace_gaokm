@@ -2,14 +2,14 @@
  * 交易执行 · 持仓主表（共享 virtual_table 内核，与数据中心同方案）。
  */
 
-import { fmtPriceUnit, fmtPct, metricCls, fmtTableScore, fmtPathScore, scoreCls, resolveTradeScore, resolveEodScore, resolveTauScore, resolvePathScore, resolveOnScore, resolveYτcScore, isHeuristicScoreScale, Y_EOD_TITLE, Y_TAU_TITLE, Y_HL_TITLE, Y_ON_TITLE, Y_τc_TITLE } from "./paper/fmt.js?v=p2346";
-import { sentimentBadgeHtml, watchingScoreDetail } from "./quant/watching_render.js?v=p2364";
+import { fmtPriceUnit, fmtPct, metricCls, fmtTableScore, fmtPathScore, scoreCls, resolveRankingScore, resolveEodScore, resolveTauScore, resolvePathScore, resolveOnScore, resolveYτcScore, isHeuristicScoreScale, Y_EOD_TITLE, Y_TAU_TITLE, Y_HL_TITLE, Y_ON_TITLE, Y_τc_TITLE } from "./paper/fmt.js?v=p2389";
+import { sentimentBadgeHtml, watchingScoreDetail } from "./quant/watching_render.js?v=p2389";
 import {
   isSingleHeadItem,
   singleHeadBadgeHtml,
   yCheckBadgeHtml,
-} from "./quant/watching_insights_ui.js?v=p2346";
-import { TRADE_TITLE, formatPrevCloseDisplay, formatOpenDisplay, resolveOpenPx } from "./quant/watching_quotes_ui.js?v=p2298";
+} from "./quant/watching_insights_ui.js?v=p2389";
+import { RANKING_TITLE, formatPrevCloseDisplay, formatOpenDisplay, resolveOpenPx } from "./quant/watching_quotes_ui.js?v=p2389";
 import { buildHoldingSharesTip } from "./paper/holding_lots_tip.js?v=p1227";
 import { holdingT0BadgeHtml } from "./paper/holding_t0_badge.js?v=p1526";
 import { fitTierBadgeForCode, ensureFitTierMap } from "./quant/fit_tier_ui.js?v=p2261";
@@ -43,7 +43,7 @@ export function holdingToRow(
   const code = String(h.stock_code || "").trim();
   const name = h.stock_name || code || "";
   const pnl = h.pnl_pct;
-  const score = resolveTradeScore(h);
+  const score = resolveRankingScore(h);
   const scoreEod = resolveEodScore(h);
   const scoreTau = resolveTauScore(h);
   const scorePath = resolvePathScore(h);
@@ -76,10 +76,10 @@ export function holdingToRow(
         ? "OOS 失败 · 表列组/全局 ŷ% · heuristic 见 tip"
         : "OOS 失败 · 无 ŷ% · tip 看 heuristic(0–100)"
       : singleHead
-        ? `ŷ_trade 单头降级（${String(h.dual_score_head || "single")}）· 悬停看详情`
+        ? `ranking 单头降级（${String(h.dual_score_head || "single")}）· 悬停看详情`
       : belowMin
         ? `低于ŷ_oo门槛 ${minScore ?? "—"}（表列为 ranking）· 悬停看详情`
-        : TRADE_TITLE;
+        : RANKING_TITLE;
   const scoreEodTitle = scoreEod == null ? "暂无 ŷ_oo" : Y_EOD_TITLE;
   const scoreTauTitle = scoreTau == null ? "暂无 ŷ_oc" : Y_TAU_TITLE;
   const scorePathTitle = scorePath == null ? "暂无 ŷ_hl" : Y_HL_TITLE;
@@ -281,9 +281,9 @@ const COLS = [
     width: 94,
     num: true,
     sortable: true,
-    headClass: "watching-col-y watching-col-y-trade",
-    cellClass: "watching-col-y watching-col-y-trade",
-    title: TRADE_TITLE,
+    headClass: "watching-col-y watching-col-y-ranking",
+    cellClass: "watching-col-y watching-col-y-ranking",
+    title: RANKING_TITLE,
   },
   { id: "cost", label: "成本", width: 78, num: true, title: "持仓加权平均成本" },
   {
@@ -462,7 +462,7 @@ export async function mountHoldingsTableIsland(host, options = {}) {
         }
         return (
           `<span class="paper-hold-score has-tip ${escapeHtml(d.scoreCls || "")}" ` +
-          `data-score-detail="${escapeHtml(detail)}" data-score-tip="trade" title="${escapeHtml(title)}">` +
+          `data-score-detail="${escapeHtml(detail)}" data-score-tip="ranking" title="${escapeHtml(title)}">` +
           `${escapeHtml(d.scoreText || "—")}${badge}</span>`
         );
       }

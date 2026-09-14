@@ -1029,8 +1029,8 @@ def _topk_score_axis_note(ps: Optional[dict] = None) -> str:
         return "每个交易日 09:30 按 y_fuse/y_on ranking 调仓（对齐历史回测页）"
     tau_on = params.get("apply_tau_buy_gate")
     if tau_on is True:
-        return "选股键=ŷ_trade · τ 闸开（非默认历史路径）"
-    return "选股键=ŷ_EOD · 关 τ 闸（日线无可靠分钟 τ；≠ live ŷ_trade）"
+        return "选股键=ranking · τ 闸开（非默认历史路径）"
+    return "选股键=ŷ_EOD · 关 τ 闸（日线无可靠分钟 τ；≠ live ranking）"
 
 
 def _paper_max_positions_for_report() -> Optional[int]:

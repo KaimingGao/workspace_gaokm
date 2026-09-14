@@ -1738,7 +1738,7 @@ flowchart TD
 | 频控 | 拉取后同样 sleep 10s |
 | 开关 | `INVESTMENT_MINUTE_SINA_TX_FALLBACK` 默认 `1` |
 
-补 Missing 近端 / T0 当日触达；新浪约 20 交易日，可能仍短于 Ready≥30d。有数则 **不再打 BaoStock**。
+补 Missing 近端 / T0 当日触达；新浪约 20 交易日，对齐 Ready≥20d。有数则 **不再打 BaoStock**。
 
 ### BaoStock — 近 30 日 · 最后
 
@@ -1763,7 +1763,7 @@ flowchart TD
 |------|------|
 | `POST /api/schedule/run` · `kind=minute_warmup` | `_minute_warmup_core`；默认 `skip_em=False`（东财→新浪/腾讯，有数则跳过 BaoStock） |
 | Web 量化台 · **强更 5m** | `POST /api/quant/cluster-minute/refresh` → 后台 Job `cluster-minute-refresh` |
-| 状态 | `GET /api/quant/cluster-minute/status`（Ready ≥30d 等）· `GET /api/jobs/cluster-minute-refresh` |
+| 状态 | `GET /api/quant/cluster-minute/status`（Ready ≥20d 等）· `GET /api/jobs/cluster-minute-refresh` |
 
 每只票：东财（可 skip）→ 新浪/腾讯（仅当前仍空；有数则跳过 BaoStock）→ BaoStock（两源都空，或东财过短）；各源间隔 10s。**已 Ready** 则跳过远端。
 
@@ -1775,7 +1775,7 @@ flowchart TD
 |------|------|------|
 | `INVESTMENT_MINUTE_WARMUP_SKIP_EM` | `0` | 批量预热/强更跳过东财（`1`=新浪/腾讯→BaoStock） |
 | `INVESTMENT_MINUTE_WARMUP_SKIP_IF_READY` | `1` | 本地已 Ready 则跳过远端拉取 |
-| `INVESTMENT_MINUTE_WARMUP_READY_MIN_SPAN_DAYS` | `30` | Ready 闸：有 bar 的交易日数 |
+| `INVESTMENT_MINUTE_WARMUP_READY_MIN_SPAN_DAYS` | `20` | Ready 闸：有 bar 的交易日数 |
 | `INVESTMENT_MINUTE_WARMUP_STALE_HOURS` | `24` | Ready 闸：`fetched_at` 超过则重拉 |
 | `INVESTMENT_MINUTE_FETCH_DELAY_SEC` | `10` | 东财 / 新浪腾讯 / BaoStock 分钟远端拉取后间隔（秒） |
 | `INVESTMENT_MINUTE_BS_FALLBACK` | `1` | 是否启用 BaoStock 备用 |

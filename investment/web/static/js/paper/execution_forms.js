@@ -11,7 +11,7 @@ import {
   renderExecutionDiffHtml,
   renderExecutionRulesHtml,
   renderRebalanceRulesHtml,
-} from "./execution_ui.js?v=p2353";
+} from "./execution_ui.js?v=p2389";
 
 async function postJson(url, body, { timeoutMs = 12000, method = "POST" } = {}) {
   const ac = new AbortController();
@@ -150,7 +150,7 @@ export async function initExecutionRuleForms() {
         const dualData = await dualRes.json().catch(() => ({}));
         if (!dualRes.ok || dualData.success === false) {
           setPathMatrixStatus(
-            dualData.detail || dualData.error || "y_fuse 已保存，y_trade 权重未写入",
+            dualData.detail || dualData.error || "ranking 权已保存，dual_score 权重未写入",
             { error: true }
           );
           applyExecutionToUi(data.execution);

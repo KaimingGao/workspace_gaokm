@@ -1,4 +1,139 @@
 {
   "enabled": false,
-  "updated_at": 1789335576.7108638
+  "updated_at": 1789363198.8432739,
+  "last_run_session": "2026-09-14",
+  "last_run_ts": 1789349635.163959,
+  "last_fill_action": "immediate",
+  "last_buy_count": 5,
+  "last_sell_count": 4,
+  "last_note": "开盘窗：无隔夜单，按现价成交",
+  "last_source": "auto",
+  "last_desk": {
+    "session_date": "2026-09-14",
+    "filled": true,
+    "source": "auto",
+    "note": "开盘窗：无隔夜单，按现价成交",
+    "rows": [
+      {
+        "stock_code": "000938",
+        "stock_name": "紫光股份",
+        "action": "exit",
+        "phase": "done",
+        "shares": 500.0,
+        "ranking_score": -0.00462418,
+        "reason": "ranking=-0.462%<0% 清仓",
+        "held": true
+      },
+      {
+        "stock_code": "302132",
+        "stock_name": "中航成飞",
+        "action": "exit",
+        "phase": "done",
+        "shares": 500.0,
+        "ranking_score": -0.0011114659999999998,
+        "reason": "ranking=-0.111%<0% 清仓",
+        "held": true
+      },
+      {
+        "stock_code": "600584",
+        "stock_name": "长电科技",
+        "action": "exit",
+        "phase": "done",
+        "shares": 500.0,
+        "ranking_score": -0.00012760800000000003,
+        "reason": "ranking=-0.013%<0% 清仓",
+        "held": true
+      },
+      {
+        "stock_code": "601899",
+        "stock_name": "紫金矿业",
+        "action": "exit",
+        "phase": "done",
+        "shares": 500.0,
+        "ranking_score": -0.0038724359999999995,
+        "reason": "ranking=-0.387%<0% 清仓",
+        "held": true
+      },
+      {
+        "stock_code": "600104",
+        "stock_name": "上汽集团",
+        "action": "open",
+        "phase": "done",
+        "shares": 200.0,
+        "ranking_score": 0.007959444,
+        "reason": "ranking=0.796%>入场0.5% 买200股",
+        "held": false
+      },
+      {
+        "stock_code": "600183",
+        "stock_name": "生益科技",
+        "action": "open",
+        "phase": "done",
+        "shares": 500.0,
+        "ranking_score": 0.027169670000000003,
+        "reason": "ranking=2.717%>1% 买500股",
+        "held": false
+      },
+      {
+        "stock_code": "600869",
+        "stock_name": "远东股份",
+        "action": "open",
+        "phase": "done",
+        "shares": 500.0,
+        "ranking_score": 0.034782846000000006,
+        "reason": "ranking=3.478%>1% 买500股",
+        "held": false
+      },
+      {
+        "stock_code": "601288",
+        "stock_name": "农业银行",
+        "action": "open",
+        "phase": "done",
+        "shares": 200.0,
+        "ranking_score": 0.005345182,
+        "reason": "ranking=0.535%>入场0.5% 买200股",
+        "held": false
+      },
+      {
+        "stock_code": "601606",
+        "stock_name": "长城军工",
+        "action": "open",
+        "phase": "done",
+        "shares": 500.0,
+        "ranking_score": 0.011857826,
+        "reason": "ranking=1.186%>1% 买500股",
+        "held": false
+      },
+      {
+        "stock_code": "688012",
+        "stock_name": "中微公司",
+        "action": "skip",
+        "phase": "skip",
+        "shares": 0.0,
+        "ranking_score": 0.005001812000000001,
+        "reason": "持仓市值将超过上限 150000",
+        "held": false
+      },
+      {
+        "stock_code": "600150",
+        "stock_name": "中国船舶",
+        "action": "hold",
+        "phase": "hold",
+        "shares": 0.0,
+        "ranking_score": 0.0026254280000000004,
+        "reason": "ranking≥0% 持有",
+        "held": true
+      },
+      {
+        "stock_code": "600875",
+        "stock_name": "东方电气",
+        "action": "hold",
+        "phase": "hold",
+        "shares": 0.0,
+        "ranking_score": 0.003005734,
+        "reason": "ranking≥0% 持有",
+        "held": true
+      }
+    ]
+  }
 }

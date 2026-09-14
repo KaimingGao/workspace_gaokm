@@ -214,17 +214,17 @@
         <div id="quant-minute-progress" class="quant-bars-progress" hidden aria-live="polite" aria-label="5m 强更进度"></div>
         <div id="quant-minute-context-strip" class="quant-bars-context-strip" aria-live="polite"></div>
         <div class="quant-bars-kpi-row" id="quant-minute-kpis" aria-label="分钟覆盖 KPI">
-          <div class="quant-bars-kpi quant-pro-kpi-card dashboard-kpi-card" data-minute-kpi="ok" title="交易日跨度 ≥ 30 天（ŷ_hl 软闸）">
+          <div class="quant-bars-kpi quant-pro-kpi-card dashboard-kpi-card" data-minute-kpi="ok" title="交易日跨度 ≥ 20 天（ŷ_hl 软闸）">
             <span class="quant-pro-kpi-label">Ready</span>
             <span class="quant-pro-kpi-value" id="quant-minute-kpi-ok">—</span>
-            <span class="quant-pro-kpi-sub" id="quant-minute-kpi-ok-sub">≥30d · — / —</span>
+            <span class="quant-pro-kpi-sub" id="quant-minute-kpi-ok-sub">≥20d · — / —</span>
           </div>
           <div class="quant-bars-kpi quant-pro-kpi-card dashboard-kpi-card" data-minute-kpi="span" title="有缓存标的的交易日跨度中位数">
             <span class="quant-pro-kpi-label">Span med</span>
             <span class="quant-pro-kpi-value" id="quant-minute-kpi-span">—</span>
             <span class="quant-pro-kpi-sub" id="quant-minute-kpi-span-sub">交易日</span>
           </div>
-          <div class="quant-bars-kpi quant-pro-kpi-card dashboard-kpi-card" data-minute-kpi="short" title="有缓存但跨度 &lt; 30 交易日">
+          <div class="quant-bars-kpi quant-pro-kpi-card dashboard-kpi-card" data-minute-kpi="short" title="有缓存但跨度 &lt; 20 交易日">
             <span class="quant-pro-kpi-label">Short</span>
             <span class="quant-pro-kpi-value" id="quant-minute-kpi-short">—</span>
             <span class="quant-pro-kpi-sub">跨度不足</span>
@@ -449,7 +449,7 @@
                 <strong>不进聚类、不改 ŷ_oo</strong>。启用后只影响主题日 soft hold / τ 闸；表列主分仍是 ŷ_oo。
                 融合权重在
                 <a class="quant-hero-link" href="/follow">交易执行 · 分数融合</a>
-                （一层 y_trade，二层 y_fuse；仅 blend）。分钟**训练**网格含开盘 Z + 午后训练钟
+                （ranking＝w_oo·ŷ_oo + w_oc·ŷ_oc；仅 blend）。分钟**训练**网格含开盘 Z + 午后训练钟
                 <code>09:30|09:35|…|11:00</code>（09:30 无前缀；早盘每 5m 共享 β；不含 13:00 / 14:00；**做T执行 v6 收盘带宽**：每 5m 扫至 11:00，收价破 C_τ×(1±δ) 开 leg1，path 不进 C_τ）；live 调仓钟仍是 10:30。
                 研究套 holdout 天数在页顶概览 <strong>Holdout日</strong>（默认 10），ŷ_oc / ŷ_τc / ŷ_co / ŷ_oc_tree / ŷ_τc_tree / ŷ_hl / ŷ_cx / ŷ_tpd 共用。
               </p>

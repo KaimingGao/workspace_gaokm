@@ -20,7 +20,12 @@ from core.signal.dual_score.tau import (
 from core.signal.dual_score.on import ensure_formula_terms_on
 
 
-def dual_score_book_fields(item: Optional[dict]) -> Dict[str, Any]:
+def dual_score_book_fields(
+    item: Optional[dict],
+    *,
+    rank_cfg: Optional[dict] = None,
+    paper: Optional[dict] = None,
+) -> Dict[str, Any]:
     """簿/观察行透传字段。
 
     ``dual_score_fusion`` / ``dual_score_weights`` 一律用当前配置，
@@ -107,6 +112,25 @@ def dual_score_book_fields(item: Optional[dict]) -> Dict[str, Any]:
             write_y_τc(work, ytc)
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
         logger.debug("catch except Exception: in dual_score.py", exc_info=True)
+    try:
+        from core.signal.yhat_windows import stamp_window_scores
+        from core.paper.rebalance.path_matrix import get_path_matrix_cfg
+
+        cfg = rank_cfg if isinstance(rank_cfg, dict) else get_path_matrix_cfg(paper=paper)
+        stamped = stamp_window_scores(work, cfg)
+        if stamped.get("ranking") is not None:
+            work["ranking"] = stamped.get("ranking")
+        if stamped.get("y_oo") is not None:
+            work["y_oo"] = stamped.get("y_oo")
+        if stamped.get("y_oc") is not None:
+            work["y_oc"] = stamped.get("y_oc")
+        if stamped.get("y_co") is not None:
+            work["y_co"] = stamped.get("y_co")
+        work["fusion_w_oo"] = cfg.get("fusion_w_oo")
+        work["fusion_w_oc"] = cfg.get("fusion_w_oc")
+        work["fusion_w_co"] = cfg.get("fusion_w_co")
+    except Exception:  # noqa: BLE001
+        logger.debug("stamp ranking in book_fields failed", exc_info=True)
     # 权重优先簿内已算（含 theme/variance）；缺则用当前配置
     return {
         "predicted_score_eod": work.get("predicted_score_eod", work.get("predicted_score")),
@@ -178,5 +202,12 @@ def dual_score_book_fields(item: Optional[dict]) -> Dict[str, Any]:
         "score_formula_on": work.get("score_formula_on"),
         "on_y_spec": work.get("on_y_spec"),
         "dual_score_on_head": work.get("dual_score_on_head"),
+        "ranking": work.get("ranking"),
+        "y_oo": work.get("y_oo"),
+        "y_oc": work.get("y_oc"),
+        "y_co": work.get("y_co"),
+        "fusion_w_oo": work.get("fusion_w_oo"),
+        "fusion_w_oc": work.get("fusion_w_oc"),
+        "fusion_w_co": work.get("fusion_w_co"),
     }
 

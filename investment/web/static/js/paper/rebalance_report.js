@@ -628,6 +628,13 @@ function renderRebalanceReport(
   function tipDetailPayload(r) {
     return {
       stock_code: r.stock_code || r.code || null,
+      ranking: r.ranking != null ? r.ranking : r.y_fuse != null ? r.y_fuse : r.y_fusion,
+      y_oo: r.y_oo,
+      y_oc: r.y_oc,
+      y_co: r.y_co != null ? r.y_co : r.y_on,
+      fusion_w_oo: r.fusion_w_oo != null ? r.fusion_w_oo : r.fusion_w_trade,
+      fusion_w_oc: r.fusion_w_oc != null ? r.fusion_w_oc : r.fusion_w_nowcast,
+      fusion_w_co: r.fusion_w_co != null ? r.fusion_w_co : r.y_on_alpha,
       predicted_score_nowcast: r.predicted_score_nowcast,
       nowcast_vs: r.nowcast_vs || null,
       nowcast_as_of: r.nowcast_as_of || null,

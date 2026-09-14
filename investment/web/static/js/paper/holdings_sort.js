@@ -1,6 +1,6 @@
 /** Holdings sort helpers extracted from paper.js (W0.1). */
 
-import { resolveTradeScore, resolveEodScore, resolveTauScore, resolvePathScore, resolveOnScore, resolveNowcastScore } from "./fmt.js?v=p2298";
+import { resolveRankingScore, resolveEodScore, resolveTauScore, resolvePathScore, resolveOnScore, resolveNowcastScore } from "./fmt.js?v=p2389";
 
 export function loadHoldingsSort() {
   let key = "market_value";
@@ -53,8 +53,8 @@ export function sortHoldings(list, key, dir) {
       return asc ? av.localeCompare(bv) : bv.localeCompare(av);
     }
     if (k === "score") {
-      av = resolveTradeScore(a);
-      bv = resolveTradeScore(b);
+      av = resolveRankingScore(a);
+      bv = resolveRankingScore(b);
       av = av == null ? NaN : av;
       bv = bv == null ? NaN : bv;
     } else if (k === "score_eod") {

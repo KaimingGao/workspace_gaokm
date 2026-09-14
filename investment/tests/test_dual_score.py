@@ -635,6 +635,21 @@ class TestDualScoreFields(unittest.TestCase):
         self.assertIsNotNone(row.get("nowcast_K"))
         self.assertNotAlmostEqual(row["predicted_score_nowcast"], 1.2, places=3)
 
+    def test_book_fields_stamps_ranking_from_rank_cfg(self):
+        from core.signal.dual_score import dual_score_book_fields
+
+        out = dual_score_book_fields(
+            {
+                "predicted_score_eod": 2.30,
+                "y_oo": 2.30,
+                "y_oc": 5.69,
+            },
+            rank_cfg={"fusion_w_oo": 0.8, "fusion_w_oc": 0.2, "fusion_w_co": 0.0},
+        )
+        self.assertAlmostEqual(float(out.get("fusion_w_oo")), 0.8)
+        self.assertAlmostEqual(float(out.get("fusion_w_oc")), 0.2)
+        self.assertAlmostEqual(float(out.get("ranking")), 0.8 * 2.30 + 0.2 * 5.69, places=4)
+
     def test_tau_shadow_book_reranks(self):
         from core.signal.dual_score import build_tau_shadow_book, compare_book_overlap
 

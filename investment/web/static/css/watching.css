@@ -537,7 +537,7 @@ body[data-page="watching"] .watching-react-grid-cell.watching-col-score_nowcast 
   padding-right: 10px;
 }
 
-.follow-page .paper-holdings-react-grid .watching-react-grid-cell.watching-col-y-trade {
+.follow-page .paper-holdings-react-grid .watching-react-grid-cell.watching-col-y-ranking {
   gap: 3px;
   justify-content: flex-end;
 }
@@ -2202,7 +2202,7 @@ html[data-density="compact"] .quant-page .quant-research-grid .watching-react-gr
   padding-right: 8px;
 }
 
-/* ŷ 四列底色：EOD · τ · ON · TRADE */
+/* ŷ 列底色：y_oo · y_oc · y_co · y_τc · ranking */
 .watching-react-grid-cell.watching-col-score_eod {
   background: color-mix(in srgb, var(--ink) 5%, var(--surface));
 }
@@ -3096,11 +3096,11 @@ body[data-page="watching"] .watching-watchlist-card .watching-react-grid-cell.wa
   padding-left: 10px;
 }
 
-body[data-page="watching"] .watching-watchlist-card .watching-react-grid-cell.watching-col-y.watching-col-score_nowcast {
+body[data-page="watching"] .watching-watchlist-card .watching-react-grid-cell.watching-col-y.watching-col-score {
   padding-right: 10px;
 }
 
-body[data-page="watching"] .watching-watchlist-card .watching-react-grid-cell.watching-col-y-trade {
+body[data-page="watching"] .watching-watchlist-card .watching-react-grid-cell.watching-col-y-ranking {
   gap: 3px;
   justify-content: flex-end;
 }

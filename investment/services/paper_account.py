@@ -60,9 +60,18 @@ class PaperAccountMixin:
                 log.debug("get_scoring_horizon_days failed", exc_info=True)
                 horizon = 1
             gate = selection_min_score(paper)
+            try:
+                from core.paper.rebalance.path_matrix import get_path_matrix_cfg
+
+                rank_cfg = get_path_matrix_cfg(paper=paper)
+            except Exception:  # noqa: BLE001
+                log.debug("holding rank_cfg skipped", exc_info=True)
+                rank_cfg = None
 
             def _pack_item(item: dict, *, cluster_mode=None) -> Dict[str, Any]:
-                return svc.pack_holding_row(item, cluster_mode=cluster_mode)
+                return svc.pack_holding_row(
+                    item, cluster_mode=cluster_mode, rank_cfg=rank_cfg
+                )
 
             score_by_code: Dict[str, Any] = {}
             missing = list(holding_codes)

@@ -1504,6 +1504,8 @@ def backtest_paper_replay(
     rank_enter: Optional[float] = None,
     rank_strong: Optional[float] = None,
     y_on_alpha: Optional[float] = None,
+    fusion_w_oo: Optional[float] = None,
+    fusion_w_oc: Optional[float] = None,
     fusion_w_trade: Optional[float] = None,
     fusion_w_nowcast: Optional[float] = None,
     include_session_day: bool = True,
@@ -1590,12 +1592,14 @@ def backtest_paper_replay(
     alpha = clamp_y_on_alpha(
         DEFAULT_Y_ON_ALPHA if y_on_alpha is None else y_on_alpha
     )
-    w_trade = clamp_fusion_weight(
-        REPLAY_FUSION_W_TRADE if fusion_w_trade is None else fusion_w_trade,
+    raw_oo = fusion_w_oo if fusion_w_oo is not None else fusion_w_trade
+    raw_oc = fusion_w_oc if fusion_w_oc is not None else fusion_w_nowcast
+    w_oo = clamp_fusion_weight(
+        REPLAY_FUSION_W_TRADE if raw_oo is None else raw_oo,
         REPLAY_FUSION_W_TRADE,
     )
-    w_nowcast = clamp_fusion_weight(
-        REPLAY_FUSION_W_NOWCAST if fusion_w_nowcast is None else fusion_w_nowcast,
+    w_oc = clamp_fusion_weight(
+        REPLAY_FUSION_W_NOWCAST if raw_oc is None else raw_oc,
         REPLAY_FUSION_W_NOWCAST,
     )
     enter = coerce_rank_threshold(
@@ -1626,10 +1630,10 @@ def backtest_paper_replay(
         "cash_floor": floor,
         "holdings_mv_cap": 0.0,
         "y_on_alpha": alpha,
-        "fusion_w_oo": w_trade,
-        "fusion_w_oc": w_nowcast,
-        "fusion_w_trade": w_trade,
-        "fusion_w_nowcast": w_nowcast,
+        "fusion_w_oo": w_oo,
+        "fusion_w_oc": w_oc,
+        "fusion_w_trade": w_oo,
+        "fusion_w_nowcast": w_oc,
     }
     paper.setdefault("rules", {})["execution"] = {
         "rebalance_timing": {
@@ -1643,10 +1647,10 @@ def backtest_paper_replay(
     rl_cfg["lot_strong"] = lot_strong_n
     rl_cfg["y_on_alpha"] = alpha
     rl_cfg["fusion_w_co"] = alpha
-    rl_cfg["fusion_w_oo"] = w_trade
-    rl_cfg["fusion_w_oc"] = w_nowcast
-    rl_cfg["fusion_w_trade"] = w_trade
-    rl_cfg["fusion_w_nowcast"] = w_nowcast
+    rl_cfg["fusion_w_oo"] = w_oo
+    rl_cfg["fusion_w_oc"] = w_oc
+    rl_cfg["fusion_w_trade"] = w_oo
+    rl_cfg["fusion_w_nowcast"] = w_oc
     rl_cfg["rank_enter"] = enter
     rl_cfg["rank_strong"] = strong
     rl_cfg["holdings_mv_cap"] = 0.0
@@ -2015,7 +2019,7 @@ def backtest_paper_replay(
 
     note = (
         f"引擎={ENGINE_ID}：每个交易日 09:30 开盘算 ranking={FORMULA_RANKING}，{fill_note}；"
-        f"ranking 权 w_oo={w_trade:g} w_oc={w_nowcast:g} w_co={alpha:g}；ranking<0 清仓；"
+        f"ranking 权 w_oo={w_oo:g} w_oc={w_oc:g} w_co={alpha:g}；ranking<0 清仓；"
         f"过 rank入场={rl_cfg.get('rank_enter')} 按分数买（开加上限=观察池 {top_k} 只，现金不够则停），"
         f"过 rank强={rl_cfg.get('rank_strong')} 买 {int(rl_cfg.get('lot_strong') or REPLAY_LOT_STRONG)} "
         f"否则 {int(rl_cfg.get('lot_base') or REPLAY_LOT_BASE)} 股；"
@@ -2039,8 +2043,10 @@ def backtest_paper_replay(
             "rank_enter": rl_cfg.get("rank_enter"),
             "rank_strong": rl_cfg.get("rank_strong"),
             "y_on_alpha": alpha,
-            "fusion_w_trade": w_trade,
-            "fusion_w_nowcast": w_nowcast,
+            "fusion_w_oo": w_oo,
+            "fusion_w_oc": w_oc,
+            "fusion_w_trade": w_oo,
+            "fusion_w_nowcast": w_oc,
             "lot_base": int(rl_cfg.get("lot_base") or REPLAY_LOT_BASE),
             "lot_strong": int(rl_cfg.get("lot_strong") or REPLAY_LOT_STRONG),
             "cost_model": cost_model,

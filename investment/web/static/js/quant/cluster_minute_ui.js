@@ -51,7 +51,13 @@ export function installClusterMinuteUi(q) {
 
   const esc = typeof escapeHtml === "function" ? escapeHtml : (s) => String(s ?? "");
   const LOOKBACK_DAYS = 30;
-  const MIN_SPAN_DAYS = 30;
+  const MIN_SPAN_DAYS = 20;
+  const FETCH_DELAY_SEC = 10;
+  const SINA_TX_HINT = "新浪/腾讯（约1023根·5m）";
+  const FULL_WARMUP_HINT =
+    `逐只串行 · 东财主窗 ${LOOKBACK_DAYS} 日历日 · 东财空才打${SINA_TX_HINT} · 有数跳过 BaoStock · 各源间隔 ${FETCH_DELAY_SEC}s`;
+  const FULL_WARMUP_HINT_RUNNING =
+    `${FULL_WARMUP_HINT} · Ready% 为本地交易日≥${MIN_SPAN_DAYS} 覆盖（≠ Job 进度）`;
 
   let inflight = null;
   let kpiInflight = null;
@@ -115,7 +121,7 @@ export function installClusterMinuteUi(q) {
           ? bits.join(" · ")
           : topup
             ? `增量补齐 · 近 ${TOPUP_LOOKBACK_DAYS} 日 · 约 4 并发`
-            : "逐只串行 · 东财/BaoStock 30 日历日 · 新浪/腾讯有数则跳过 BaoStock · 各源间隔 10s",
+            : FULL_WARMUP_HINT,
     });
   }
 
@@ -165,8 +171,8 @@ export function installClusterMinuteUi(q) {
       esc,
       mode: "running",
       hint: topup
-        ? `今日已拉跳过 · 对齐跳过 · 近 ${TOPUP_LOOKBACK_DAYS} 日 merge · 新浪近端 · 约 4 并发 · 缺/短才打东财`
-        : "逐只串行 · 东财/BaoStock 30 日历日 · 新浪/腾讯有数则跳过 BaoStock · 各源间隔 10s · Ready% 为 span≥30d 覆盖（与 Job 进度不同步刷新）",
+        ? `今日已拉跳过 · 对齐跳过 · 近 ${TOPUP_LOOKBACK_DAYS} 日 merge · ${SINA_TX_HINT} · 约 4 并发 · 缺/短才打东财`
+        : FULL_WARMUP_HINT_RUNNING,
     });
   }
 
@@ -306,10 +312,10 @@ export function installClusterMinuteUi(q) {
     }
 
     const dist = Array.isArray(data.span_distribution) ? data.span_distribution : [];
-    const fineOrder = ["<90d", "<60d", "<30d"];
+    const fineOrder = ["<10d", "<20d", "<30d"];
     const shortBucketState = (bucket) => {
-      if (bucket === "<30d") return "is-bad";
-      if (bucket === "<60d") return "is-warn";
+      if (bucket === "<10d") return "is-bad";
+      if (bucket === "<20d") return "is-warn";
       return "is-warn";
     };
     const byBucket = new Map(fineOrder.map((k) => [k, 0]));
@@ -328,7 +334,7 @@ export function installClusterMinuteUi(q) {
     }));
     const hasShort = rows.some((r) => (Number(r.count) || 0) > 0);
     renderBarRows(covBody, hasShort ? rows : [], {
-      emptyText: "无 <90d",
+      emptyText: "无 <30d",
       head,
     });
   }

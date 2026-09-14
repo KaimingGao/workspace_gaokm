@@ -1,7 +1,7 @@
 """分钟线近端备：新浪主 · 腾讯备。
 
 分钟只支持从现在往前 ``count`` 根；新浪 ``datalen`` 实测上限约 1023（5m ≈ 20 交易日），
-补不了 Ready≥30d（约 20 交易日）。东财空或 skip_em 时启用；有数则不再打 BaoStock。
+刚够 Ready≥20d。东财空或 skip_em 时启用；有数则不再打 BaoStock。
 """
 
 from __future__ import annotations

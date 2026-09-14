@@ -198,8 +198,18 @@ export function renderRebalanceRulesHtml(execution) {
       : pm.y_on_alpha != null
         ? Number(pm.y_on_alpha)
         : 0;
-  const wt = pm.fusion_w_trade != null ? Number(pm.fusion_w_trade) : 0.5;
-  const wn = pm.fusion_w_nowcast != null ? Number(pm.fusion_w_nowcast) : 0.5;
+  const wt =
+    pm.fusion_w_oo != null
+      ? Number(pm.fusion_w_oo)
+      : pm.fusion_w_trade != null
+        ? Number(pm.fusion_w_trade)
+        : 0.5;
+  const wn =
+    pm.fusion_w_oc != null
+      ? Number(pm.fusion_w_oc)
+      : pm.fusion_w_nowcast != null
+        ? Number(pm.fusion_w_nowcast)
+        : 0.5;
   const cap = pm.holdings_mv_cap != null ? Number(pm.holdings_mv_cap) : 150000;
   const fmtN = (n, d) => (Number.isFinite(n) ? n.toFixed(d) : "—");
   const capLbl = Number.isFinite(cap) && cap > 0 ? `${Math.round(cap / 10000)}万` : "不限";
@@ -594,12 +604,12 @@ export function fillPathMatrixForm(root, execution) {
     pm.holdings_mv_cap != null ? pm.holdings_mv_cap : 150000
   );
   set(
-    "pm_fusion_w_trade",
-    pm.fusion_w_trade != null ? pm.fusion_w_trade : 0.5
+    "pm_fusion_w_oo",
+    pm.fusion_w_oo != null ? pm.fusion_w_oo : pm.fusion_w_trade != null ? pm.fusion_w_trade : 0.5
   );
   set(
     "pm_fusion_w_nc",
-    pm.fusion_w_nowcast != null ? pm.fusion_w_nowcast : 0.5
+    pm.fusion_w_oc != null ? pm.fusion_w_oc : pm.fusion_w_nowcast != null ? pm.fusion_w_nowcast : 0.5
   );
 }
 
@@ -611,7 +621,7 @@ function _normWeightPair(a, b) {
   return { a: x / s, b: y / s };
 }
 
-/** 填 y_trade 一层权重（signal_config.dual_score）。 */
+/** 填 dual_score 一层权重（w_eod / w_tau；做 T ŷ_trade）。 */
 export function fillDualScoreForm(root, ds) {
   if (!root || !ds) return;
   const set = (name, val) => {
@@ -654,6 +664,15 @@ export function collectPathMatrixForm(root) {
     const n = Number(el.value);
     return Number.isFinite(n) ? n : fallback;
   };
+  const numFirst = (names, fallback) => {
+    for (const name of names) {
+      const el = root.querySelector(`[name="${name}"]`);
+      if (!el || el.value === "") continue;
+      const n = Number(el.value);
+      if (Number.isFinite(n)) return n;
+    }
+    return fallback;
+  };
   let enter = rankPctToScore(num("pm_rank_enter", RANK_PCT_DEFAULT));
   let strong = rankPctToScore(num("pm_rank_strong", RANK_PCT_DEFAULT));
   if (strong < enter) strong = enter;
@@ -663,15 +682,15 @@ export function collectPathMatrixForm(root) {
     mvEl && mvEl.value !== ""
       ? Math.max(0, Math.min(num("pm_holdings_mv_cap", 150000), 1e8))
       : 150000;
-  let wTrade = Math.max(0, Math.min(num("pm_fusion_w_trade", 0.5), 1));
-  let wNc = Math.max(0, Math.min(num("pm_fusion_w_nc", 0.5), 1));
-  const wSum = wTrade + wNc;
+  let wOo = Math.max(0, Math.min(numFirst(["pm_fusion_w_oo", "pm_fusion_w_trade"], 0.5), 1));
+  let wOc = Math.max(0, Math.min(numFirst(["pm_fusion_w_nc", "pm_fusion_w_oc"], 0.5), 1));
+  const wSum = wOo + wOc;
   if (wSum <= 1e-12) {
-    wTrade = 0.5;
-    wNc = 0.5;
+    wOo = 0.5;
+    wOc = 0.5;
   } else {
-    wTrade /= wSum;
-    wNc /= wSum;
+    wOo /= wSum;
+    wOc /= wSum;
   }
   return {
     lock: true,
@@ -684,10 +703,10 @@ export function collectPathMatrixForm(root) {
         y_on_alpha: Math.round(yOnAlpha * 1000) / 1000,
         fusion_w_co: Math.round(yOnAlpha * 1000) / 1000,
         holdings_mv_cap: Math.round(mvCap),
-        fusion_w_oo: Math.round(wTrade * 1000) / 1000,
-        fusion_w_oc: Math.round(wNc * 1000) / 1000,
-        fusion_w_trade: Math.round(wTrade * 1000) / 1000,
-        fusion_w_nowcast: Math.round(wNc * 1000) / 1000,
+        fusion_w_oo: Math.round(wOo * 1000) / 1000,
+        fusion_w_oc: Math.round(wOc * 1000) / 1000,
+        fusion_w_trade: Math.round(wOo * 1000) / 1000,
+        fusion_w_nowcast: Math.round(wOc * 1000) / 1000,
       },
       path_matrix: {
         enabled: true,
@@ -697,10 +716,10 @@ export function collectPathMatrixForm(root) {
         y_on_alpha: Math.round(yOnAlpha * 1000) / 1000,
         fusion_w_co: Math.round(yOnAlpha * 1000) / 1000,
         holdings_mv_cap: Math.round(mvCap),
-        fusion_w_oo: Math.round(wTrade * 1000) / 1000,
-        fusion_w_oc: Math.round(wNc * 1000) / 1000,
-        fusion_w_trade: Math.round(wTrade * 1000) / 1000,
-        fusion_w_nowcast: Math.round(wNc * 1000) / 1000,
+        fusion_w_oo: Math.round(wOo * 1000) / 1000,
+        fusion_w_oc: Math.round(wOc * 1000) / 1000,
+        fusion_w_trade: Math.round(wOo * 1000) / 1000,
+        fusion_w_nowcast: Math.round(wOc * 1000) / 1000,
       },
     },
   };

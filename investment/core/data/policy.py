@@ -95,7 +95,7 @@ def minute_warmup_skip_em() -> bool:
 
 
 MINUTE_WARMUP_STALE_HOURS = 24.0
-MINUTE_WARMUP_READY_MIN_SPAN_DAYS = 30
+MINUTE_WARMUP_READY_MIN_SPAN_DAYS = 20
 MINUTE_WARMUP_MAX_CAL_GAP_DAYS = 4
 
 
@@ -106,7 +106,7 @@ def minute_warmup_skip_if_ready() -> bool:
 
 
 def minute_warmup_ready_min_span_days() -> int:
-    """与 UI Ready 闸一致，默认 30 交易日（有 bar 的日数）。"""
+    """与 UI Ready 闸一致，默认 20 交易日（有 bar 的日数；对齐东财/新浪约 30 日历日）。"""
     raw = os.environ.get(
         "INVESTMENT_MINUTE_WARMUP_READY_MIN_SPAN_DAYS", str(MINUTE_WARMUP_READY_MIN_SPAN_DAYS)
     )

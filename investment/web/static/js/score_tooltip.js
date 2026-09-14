@@ -4,9 +4,12 @@
 
 import {
   escapeText,
-  fuseOrthogonalTrade,
+  fusionWeightsFromItem,
+  fusionWCoFromItem,
   liftTauVsPrevClose,
   nowcastOcPct,
+  ocWithCoPct,
+  pickYOcFitted,
   resolveEodScore,
   resolveGapPct,
   resolveNowcastScore,
@@ -15,15 +18,14 @@ import {
   resolvePathScore,
   resolveTauLiftedScore,
   resolveTauScore,
-  resolveTradeScore,
+  resolveRankingScore,
   resolveYτcScore,
   compoundPct,
   fmtPathScore,
   Y_HL_TITLE,
   Y_NC_TITLE,
   Y_NC_OC_TITLE,
-} from "./paper/fmt.js?v=p2377";
-import { renderYPathVizHtml } from "./y_path_viz.js?v=p2297";
+} from "./paper/fmt.js?v=p2389";
 import { hydrateTailAnomalyCharts } from "./tail_anomaly_chart.js";
 import { ON_FEAT_META } from "./quant/factor_meta.js?v=p1226";
 
@@ -98,31 +100,6 @@ function resolveTau(raw) {
     if (Number.isFinite(n)) return n;
   }
   return null;
-}
-
-function resolveWeights(raw) {
-  const w = (raw && raw.dual_score_weights) || {};
-  let we = Number(w.w_eod);
-  let wt = Number(w.w_tau);
-  if (!Number.isFinite(we)) we = 0.5;
-  if (!Number.isFinite(wt)) wt = 0.5;
-  const win = String((raw && raw.dual_score_window) || w.window || "");
-  if (win !== "eod_next" && wt <= 1e-12 && resolveTau(raw) != null) {
-    wt = 0.5;
-  }
-  return { w_eod: we, w_tau: wt };
-}
-
-function resolveBlend(raw) {
-  // 与表列同源：ŷ_trade = w·ŷ_oo + w·(缺口∘ŷ_oc)
-  const trade = resolveTradeScore(raw);
-  if (trade != null) return trade;
-  const eod = resolveEodScore(raw);
-  const yt = resolveTau(raw);
-  const fused = fuseOrthogonalTrade(raw, eod, liftTauVsPrevClose(raw, yt));
-  if (fused != null) return fused;
-  if (eod != null) return eod;
-  return resolveYhat(raw);
 }
 
 const TAU_FEAT_LABELS = {
@@ -914,7 +891,6 @@ export function formatNowcastSection(raw) {
   const k = raw && raw.nowcast_K != null ? Number(raw.nowcast_K) : null;
   const q = raw && raw.nowcast_q != null ? Number(raw.nowcast_q) : null;
   const asOf = raw && raw.nowcast_as_of ? String(raw.nowcast_as_of) : "";
-  const blend = resolveBlend(raw);
   const rows = [];
   const eodN = yEod == null || yEod === "" ? null : Number(yEod);
   const priorN =
@@ -941,13 +917,6 @@ export function formatNowcastSection(raw) {
       `<div class="score-layer-row"><span>K</span><span class="num">${escapeText(
         k.toFixed(3)
       )}</span></div>`
-    );
-  }
-  if (blend != null && Number.isFinite(Number(blend))) {
-    rows.push(
-      `<div class="score-layer-row"><span>ŷ_trade</span><span class="num ${signCls(
-        blend
-      )}">${escapeText(`${fmtSigned(Number(blend), 2)}%`)}</span></div>`
     );
   }
   rows.push(
@@ -1087,26 +1056,29 @@ export function formatNcOcSection(raw) {
   );
 }
 
-/** 融合分：w·ŷ_oo + w·(缺口∘ŷ_oc)，同为现价对昨收。 */
+/** 融合分：ranking = w_oo·ŷ_oo + w_oc·((1+ŷ_oc)(1+w_co·ŷ_co)−1)。与表列同源。 */
 export function formatBlendScoreSection(raw) {
-  const blend = resolveBlend(raw);
+  const blend = resolveRankingScore(raw);
   const yEod = resolveEodScore(raw);
-  const yt = resolveTau(raw);
-  const ytCc = liftTauVsPrevClose(raw, yt);
-  const { w_eod, w_tau } = resolveWeights(raw);
+  const yt = pickYOcFitted(raw);
+  const yCo = resolveOnScore(raw);
+  const { wOo, wOc } = fusionWeightsFromItem(raw);
+  const wCo = fusionWCoFromItem(raw);
+  const ocRight = ocWithCoPct(yt, yCo, wCo);
   const blendTxt = blend == null ? "—" : `${fmtSigned(blend, 2)}%`;
   const eodN = yEod == null || yEod === "" ? null : Number(yEod);
   const tN = yt == null || yt === "" ? null : Number(yt);
-  const tCcN = ytCc == null || ytCc === "" ? null : Number(ytCc);
+  const coN = yCo == null || yCo === "" ? null : Number(yCo);
+  const rightN = ocRight == null || ocRight === "" ? null : Number(ocRight);
   const eodTxt = eodN == null || !Number.isFinite(eodN) ? "—" : `${fmtSigned(eodN, 2)}%`;
   const tTxt = tN == null || !Number.isFinite(tN) ? "—" : `${fmtSigned(tN, 2)}%`;
-  const tCcTxt = tCcN == null || !Number.isFinite(tCcN) ? "—" : `${fmtSigned(tCcN, 2)}%`;
-  const wTxt = `w_EOD=${Number(w_eod).toFixed(2)} · w_τ=${Number(w_tau).toFixed(2)}`;
-  const wMode =
-    raw && raw.dual_score_weights && raw.dual_score_weights.w_mode
-      ? String(raw.dual_score_weights.w_mode)
-      : "fixed";
-  const hint = `${wTxt} · ${wMode} · 现价对昨收 · 表列 trade`;
+  const coTxt = coN == null || !Number.isFinite(coN) ? "—" : `${fmtSigned(coN, 2)}%`;
+  const wTxt = `w_oo=${Number(wOo).toFixed(2)} · w_oc=${Number(wOc).toFixed(2)}`;
+  const arith =
+    eodN != null && Number.isFinite(eodN) && rightN != null && Number.isFinite(rightN)
+      ? ` · ${Number(wOo).toFixed(2)}×${fmtSigned(eodN, 2)}+${Number(wOc).toFixed(2)}×${fmtSigned(rightN, 2)}`
+      : "";
+  const hint = `${wTxt}${arith} · 与表列 ranking 同式`;
   const head =
     raw && raw.dual_score_head != null
       ? String(raw.dual_score_head)
@@ -1114,14 +1086,8 @@ export function formatBlendScoreSection(raw) {
         ? "single"
         : "";
   let headHint = "";
-  const win = raw && raw.dual_score_window != null ? String(raw.dual_score_window) : "";
-  const tauInTrade =
-    raw && raw.dual_score_weights && raw.dual_score_weights.tau_in_trade;
   if (head === "single_eod" && tN != null && Number.isFinite(tN)) {
-    headHint =
-      win === "eod_next" || tauInTrade === false
-        ? " · 收盘后 trade=ŷ_oo（τ 仍对照，不进融合）"
-        : " · 单头：trade=ŷ_oo（τ 未进融合）";
+    headHint = " · 单头：ranking=ŷ_oo（缺 ŷ_oc 权）";
   } else if (head === "single_eod") {
     headHint = " · 单头降级：仅 ŷ_oo（缺 ŷ_oc）";
   } else if (head === "single_tau") {
@@ -1129,35 +1095,20 @@ export function formatBlendScoreSection(raw) {
   } else if (head === "blend") {
     headHint = " · 双头融合";
   }
-  const cascade =
-    raw && raw.predicted_score_tau_cascade != null
-      ? Number(raw.predicted_score_tau_cascade)
-      : null;
-  const cascadeTxt =
-    cascade == null || !Number.isFinite(cascade)
-      ? null
-      : `${fmtSigned(cascade, 3)}%`;
   const rows = [
-    `<div class="score-layer-row"><span>ŷ_oo</span><span class="num ${signCls(
+    `<div class="score-layer-row"><span>ŷ_oo ×${Number(wOo).toFixed(2)}</span><span class="num ${signCls(
       eodN
     )}">${escapeText(eodTxt)}</span></div>`,
-    `<div class="score-layer-row"><span>ŷ_oc</span><span class="num ${signCls(
+    `<div class="score-layer-row"><span>ŷ_oc ×${Number(wOc).toFixed(2)}</span><span class="num ${signCls(
       tN
     )}">${escapeText(tTxt)}</span></div>`,
-    `<div class="score-layer-row"><span>ŷ_oc 昨收</span><span class="num ${signCls(
-      tCcN
-    )}">${escapeText(tCcTxt)}</span></div>`,
-    `<div class="score-layer-row score-layer-row-total"><span>ŷ_trade</span><span class="num ${signCls(
+    `<div class="score-layer-row"><span>ŷ_co</span><span class="num ${signCls(
+      coN
+    )}">${escapeText(coTxt)}${wCo > 1e-12 ? ` · ×${Number(wCo).toFixed(2)}` : " · 不进"}</span></div>`,
+    `<div class="score-layer-row score-layer-row-total"><span>ranking</span><span class="num ${signCls(
       blend
     )}">${escapeText(blendTxt)}</span></div>`,
   ];
-  if (cascadeTxt) {
-    rows.push(
-      `<div class="score-layer-row"><span>ŷ_cascade·影</span><span class="num ${signCls(
-        cascade
-      )}">${escapeText(cascadeTxt)}</span></div>`
-    );
-  }
   const yCheck = raw && raw.y_check != null ? String(raw.y_check) : "";
   const yDisagree =
     raw && raw.y_disagree != null && Number.isFinite(Number(raw.y_disagree))
@@ -1190,19 +1141,17 @@ export function formatBlendScoreSection(raw) {
       }</span></div>`
     );
   }
-  const yPathHtml = renderYPathVizHtml(raw);
   return (
     `<div class="score-layer score-layer-blend${
       head.startsWith("single") || (yCheck && yCheck !== "ok") ? " is-warn" : ""
     }">` +
     `<div class="score-layer-head">` +
-    `<div class="score-hero-label">ŷ_trade · 正交加权${
+    `<div class="score-hero-label">ranking · w·ŷ_oo + w·(ŷ_oc∘w_co·ŷ_co)${
       head.startsWith("single") ? " · 单头" : ""
     }${yCheck && yCheck !== "ok" ? " · Y校验" : ""}</div>` +
     `<div class="score-hero-value ${signCls(blend)}">${escapeText(blendTxt)}</div>` +
     `</div>` +
     `<div class="score-hero-hint">${escapeText(hint + headHint)}</div>` +
-    (yPathHtml ? yPathHtml : "") +
     `<div class="score-layer-compose">${rows.join("")}</div>` +
     `</div>`
   );
@@ -1365,7 +1314,7 @@ export function formatFormulaTermsSection(raw, opts = {}) {
 
   const caption =
     key === "tau"
-      ? "β×z = 贡献；合计=Ridge 拟合原值（T收/T开），与表列 ŷ_oc / τ 闸同口径。昨收（缺口∘ŷ_oc）只用于 ŷ_trade 融合对照。"
+      ? "β×z = 贡献；合计=Ridge 拟合原值（T收/T开），与表列 ŷ_oc / τ 闸同口径。"
       : key === "r"
         ? "β×z = 贡献；合计=Ridge 拟合原值（T收/τ价）。做 T 回测走研究套截距（Holdout 训练）；研究枢纽系数表默认展示执行套全样本截距。"
         : key === "path"
@@ -2175,7 +2124,7 @@ export function createScoreTooltipController() {
   }
 
   function resolveScoreTipMode(cell) {
-    if (!cell) return "trade";
+    if (!cell) return "ranking";
     const tip = String(cell.dataset.scoreTip || "").trim().toLowerCase();
     if (tip === "eod") return "eod";
     if (tip === "nowcast" || tip === "nc") return "nowcast";
@@ -2185,7 +2134,7 @@ export function createScoreTooltipController() {
     if (tip === "rtau" || tip === "r_tau" || tip === "rhat") return "rtau";
     if (tip === "path") return "path";
     if (tip === "on") return "on";
-    if (tip === "trade" || tip === "score") return "trade";
+    if (tip === "ranking" || tip === "trade" || tip === "score") return "ranking";
     if (cell.classList.contains("watching-score-eod")) return "eod";
     if (cell.classList.contains("watching-score-nowcast")) return "nowcast";
     if (cell.classList.contains("watching-score-tau")) return "tau";
@@ -2201,7 +2150,7 @@ export function createScoreTooltipController() {
       return "r";
     if (cell.classList.contains("watching-score-path")) return "path";
     if (cell.classList.contains("watching-score-on")) return "on";
-    return "trade";
+    return "ranking";
   }
 
   function showCompactScoreTip(cell, html, { sticky = false } = {}) {
@@ -2383,18 +2332,18 @@ export function createScoreTooltipController() {
       return;
     }
 
-    if (tipMode === "trade") {
+    if (tipMode === "ranking") {
       let blendHtml = formatBlendScoreSection(raw);
       if (!blendHtml) {
-        const trade = resolveTradeScore(raw);
-        const val = trade == null ? "—" : `${fmtSigned(trade, 2)}%`;
+        const ranked = resolveRankingScore(raw);
+        const val = ranked == null ? "—" : `${fmtSigned(ranked, 2)}%`;
         blendHtml =
           `<div class="score-layer score-layer-blend">` +
           `<div class="score-layer-head">` +
-          `<div class="score-hero-label">y_trade</div>` +
-          `<div class="score-hero-value ${signCls(trade)}">${escapeText(val)}</div>` +
+          `<div class="score-hero-label">ranking</div>` +
+          `<div class="score-hero-value ${signCls(ranked)}">${escapeText(val)}</div>` +
           `</div>` +
-          `<div class="score-hero-hint">双头融合 · 排序/卖门槛</div>` +
+          `<div class="score-hero-hint">w·ŷ_oo + w·(ŷ_oc∘w_co·ŷ_co) · 排序/卖门槛</div>` +
           `</div>`;
       }
       showCompactScoreTip(cell, blendHtml, { sticky });
@@ -2463,7 +2412,7 @@ export function createScoreTooltipController() {
       return;
 
     let html = '<div class="score-detail">';
-    // trade 列：先 ŷ_trade 组成，再拆 ŷ_oc / ŷ_oo（g 只在 eod 列，nowcast 只在 nowcast 列）
+    // ranking 列：先融合组成，再拆 ŷ_oc / ŷ_oo（g 只在 eod 列，nowcast 只在 nowcast 列）
     html += formatBlendScoreSection(raw);
     html += formatRemScoreSection(raw);
     html += formatFormulaTermsSection(raw, { key: "tau" });

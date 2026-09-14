@@ -1,13 +1,13 @@
 import { apiFetch } from "../api_client.js";
 import { renderLineChart, renderDualLineChart, renderMultiLineChart, renderNavBarChart } from "../lw_charts.js";
 import { fmtScore, scoreCls } from "../paper/fmt.js";
-import { renderPaperT0 } from "../paper/t0_ui.js?v=p2377";
+import { renderPaperT0 } from "../paper/t0_ui.js?v=p2389";
 import { portfolioBtScoreFloorPayload as buildBtScoreFloorPayload, mergeScoringFloors } from "./scoring.js";
 import { truncateStockName, watchingNameSpanHtml } from "./names.js";
 import { ensureFitTierMap } from "./fit_tier_ui.js";
 import { downloadBlob } from "../shared.js";
-import { collectPathMatrixForm, collectExecutionForm, readT0BtSizing, fillT0BtSizing } from "../paper/execution_ui.js?v=p2353";
-import { initExecutionRuleForms } from "../paper/execution_forms.js?v=p2274";
+import { collectPathMatrixForm, collectExecutionForm, readT0BtSizing, fillT0BtSizing } from "../paper/execution_ui.js?v=p2389";
+import { initExecutionRuleForms } from "../paper/execution_forms.js?v=p2389";
 
 const _V =
   (typeof window !== "undefined" && window.__ASSET_V__) || "dev";
@@ -373,8 +373,8 @@ export function installBacktest(q) {
       const lb = p.lookback != null ? p.lookback : "—";
       const clock = p.fill_clock || "09:30";
       const alpha = p.y_on_alpha != null ? p.y_on_alpha : "—";
-      const wt = p.fusion_w_trade != null ? p.fusion_w_trade : "—";
-      const wn = p.fusion_w_nowcast != null ? p.fusion_w_nowcast : "—";
+      const wt = p.fusion_w_oo != null ? p.fusion_w_oo : p.fusion_w_trade != null ? p.fusion_w_trade : "—";
+      const wn = p.fusion_w_oc != null ? p.fusion_w_oc : p.fusion_w_nowcast != null ? p.fusion_w_nowcast : "—";
       const lotB = p.lot_base != null ? p.lot_base : "—";
       const lotS = p.lot_strong != null ? p.lot_strong : "—";
       const n = Number(p.rank_enter);
@@ -410,13 +410,16 @@ export function installBacktest(q) {
       const el = form.querySelector(`[name="${name}"]`);
       if (el) el.value = String(val);
     };
-    if (req.fusion_w_trade != null) {
-      setVal("quant-w-trade", req.fusion_w_trade);
-      setName("pm_fusion_w_trade", req.fusion_w_trade);
+    const wOo = req.fusion_w_oo != null ? req.fusion_w_oo : req.fusion_w_trade;
+    const wOc = req.fusion_w_oc != null ? req.fusion_w_oc : req.fusion_w_nowcast;
+    if (wOo != null) {
+      setVal("quant-w-oo", wOo);
+      setName("pm_fusion_w_oo", wOo);
+      setName("pm_fusion_w_trade", wOo);
     }
-    if (req.fusion_w_nowcast != null) {
-      setVal("quant-w-nowcast", req.fusion_w_nowcast);
-      setName("pm_fusion_w_nc", req.fusion_w_nowcast);
+    if (wOc != null) {
+      setVal("quant-w-nowcast", wOc);
+      setName("pm_fusion_w_nc", wOc);
     }
     if (req.y_on_alpha != null) {
       setVal("quant-on-alpha", req.y_on_alpha);
@@ -830,13 +833,17 @@ export function installBacktest(q) {
       const lots = pack && pack.rebalance_timing && pack.rebalance_timing.rank_lots;
       if (lots) {
         return {
-          fusion_w_trade: lots.fusion_w_trade,
-          fusion_w_nowcast: lots.fusion_w_nowcast,
+          fusion_w_oo: lots.fusion_w_oo,
+          fusion_w_oc: lots.fusion_w_oc,
+          fusion_w_trade: lots.fusion_w_oo,
+          fusion_w_nowcast: lots.fusion_w_oc,
         };
       }
     }
     return {
-      fusion_w_trade: readUnitWeight("quant-w-trade", 0.6),
+      fusion_w_oo: readUnitWeight("quant-w-oo", 0.6),
+      fusion_w_oc: readUnitWeight("quant-w-nowcast", 0.4),
+      fusion_w_trade: readUnitWeight("quant-w-oo", 0.6),
       fusion_w_nowcast: readUnitWeight("quant-w-nowcast", 0.4),
     };
   }
@@ -1382,6 +1389,8 @@ export function installBacktest(q) {
         min_avg_amount_pctile,
         benchmark_code,
         y_on_alpha,
+        fusion_w_oo,
+        fusion_w_oc,
         fusion_w_trade,
         fusion_w_nowcast,
         rank_enter,
@@ -1400,8 +1409,10 @@ export function installBacktest(q) {
         min_avg_amount_pctile,
         benchmark_code,
         y_on_alpha,
-        fusion_w_trade,
-        fusion_w_nowcast,
+        fusion_w_oo: fusion_w_oo != null ? fusion_w_oo : fusion_w_trade,
+        fusion_w_oc: fusion_w_oc != null ? fusion_w_oc : fusion_w_nowcast,
+        fusion_w_trade: fusion_w_oo != null ? fusion_w_oo : fusion_w_trade,
+        fusion_w_nowcast: fusion_w_oc != null ? fusion_w_oc : fusion_w_nowcast,
         rank_enter,
         rank_strong,
         initial_cash,

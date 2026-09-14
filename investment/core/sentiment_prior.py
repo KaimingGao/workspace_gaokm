@@ -3,7 +3,7 @@
 契约：
   ŷ = ReturnScoreModel(...)     ← 唯一生产排序轴
   S = score_headlines(...)      ← 参考徽章（看空/看多）
-  live 调仓 = rank_lots(y_fuse, y_on)  ← 不读 S
+  live 调仓 = rank_lots(ranking=w·ŷ_oo+w·ŷ_oc)  ← 不读 S
 """
 
 from __future__ import annotations

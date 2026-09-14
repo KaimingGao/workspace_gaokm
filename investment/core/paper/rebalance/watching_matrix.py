@@ -397,8 +397,8 @@ def _row_score_payload(
     src: Optional[dict] = None,
     cfg: Optional[dict] = None,
 ) -> Dict[str, Any]:
-    """表列用分项 ŷ；ranking 别名 y_fuse，不把融合分塞进 y_trade。"""
-    from core.paper.rebalance.rank_lots import y_on_of, y_tau_of
+    """表列用分项 ŷ；ranking 现算（别名 y_fuse），不把融合分塞进 y_trade。"""
+    from core.paper.rebalance.rank_lots import ranking_pct_of, y_on_of, y_tau_of
     from core.paper.rebalance.path_matrix import scores_from_rebalance_item
 
     item = item if isinstance(item, dict) else {}
@@ -426,11 +426,9 @@ def _row_score_payload(
     for k in ("y_oo", "y_oc", "y_τc", "ranking", "residual"):
         if sc.get(k) is not None:
             payload[k] = sc.get(k)
-    yf = src.get("ranking")
+    yf = ranking_pct_of(item, cfg)
     if yf is None:
-        yf = src.get("y_fuse")
-    if yf is None:
-        yf = payload.get("ranking")
+        yf = ranking_pct_of(src, cfg)
     if yf is not None:
         payload["ranking"] = yf
         payload["y_fuse"] = yf
@@ -1055,8 +1053,11 @@ def simulate_watching_matrix_preview(
                 "cash_floor_configured": rl_cfg.get("cash_floor_configured"),
                 "cash_floor_scaled": bool(rl_cfg.get("cash_floor_scaled")),
                 "holdings_mv_cap": rl_cfg.get("holdings_mv_cap"),
-                "fusion_w_trade": rl_cfg.get("fusion_w_trade"),
-                "fusion_w_nowcast": rl_cfg.get("fusion_w_nowcast"),
+                "fusion_w_oo": rl_cfg.get("fusion_w_oo"),
+                "fusion_w_oc": rl_cfg.get("fusion_w_oc"),
+                "fusion_w_co": rl_cfg.get("fusion_w_co"),
+                "fusion_w_trade": rl_cfg.get("fusion_w_oo") or rl_cfg.get("fusion_w_trade"),
+                "fusion_w_nowcast": rl_cfg.get("fusion_w_oc") or rl_cfg.get("fusion_w_nowcast"),
                 "y_on_alpha": rl_cfg.get("y_on_alpha"),
             },
             "by_action": by_action,

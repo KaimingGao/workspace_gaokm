@@ -305,6 +305,51 @@ class TestWatchingInsights(unittest.TestCase):
             _insight_one("600519", offline_only=False)
         self.assertFalse(captured.get("offline_only"))
 
+    def test_insight_one_stamps_ranking_from_paper_fusion(self):
+        """数据中心 ranking 用 paper rank_lots 权，与交易执行同式。"""
+        from core.watching.insights import _insight_one
+
+        paper = {
+            "rules": {
+                "execution": {
+                    "rebalance_timing": {
+                        "rank_lots": {
+                            "fusion_w_oo": 0.8,
+                            "fusion_w_oc": 0.2,
+                            "fusion_w_co": 0.0,
+                        }
+                    }
+                }
+            }
+        }
+
+        def _fake_score(code, **kw):
+            return {
+                "success": True,
+                "quote": {"success": True, "stock_code": code, "price_raw": 10.0},
+                "signal_item": {
+                    "stock_code": code,
+                    "score": -3.65,
+                    "predicted_score": 2.30,
+                    "predicted_score_eod": 2.30,
+                    "y_oo": 2.30,
+                    "y_oc": 5.69,
+                    "predicted_score_blend": -3.65,
+                    "hard_reject": False,
+                },
+            }
+
+        with patch("core.signal.score_stock.score_stock", side_effect=_fake_score), patch(
+            "core.watching.insights._spot_valuation_map", return_value={}
+        ), patch("core.watching.insights._hydrate_insight_tau_fields"), patch(
+            "core.stance.compute_buy_stance",
+            return_value={"stance_code": "wait", "stance_label": "观望"},
+        ):
+            row = _insight_one("600869", paper_ctx=paper)
+        self.assertAlmostEqual(float(row.get("fusion_w_oo")), 0.8)
+        self.assertAlmostEqual(float(row.get("fusion_w_oc")), 0.2)
+        self.assertAlmostEqual(float(row.get("ranking")), 0.8 * 2.30 + 0.2 * 5.69, places=4)
+
     def test_insight_quote_bars_offline_no_live_quote(self):
         from core.watching.insights import _insight_quote_bars
 

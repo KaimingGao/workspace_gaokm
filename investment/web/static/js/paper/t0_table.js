@@ -5,7 +5,7 @@ import {
   paperMetricClass,
   fmtTableScore,
   compoundPct,
-  resolveTradeScore,
+  resolveYTradeScore,
   resolveEodScore,
   resolveTauScore,
   resolveOnScore,
@@ -21,9 +21,9 @@ import {
   R_REALIZED_TITLE,
   resolvePathScore,
   fmtPathScore,
-} from "./fmt.js?v=p2377";
-import { adaptiveSizingDayTip } from "./execution_ui.js?v=p2353";
-import { watchingScoreDetail } from "../quant/watching_render.js?v=p2364";
+} from "./fmt.js?v=p2381";
+import { adaptiveSizingDayTip } from "./execution_ui.js?v=p2389";
+import { watchingScoreDetail } from "../quant/watching_render.js?v=p2389";
 import {
   fitTierBadgeForCode,
   ensureFitTierMap,
@@ -1566,7 +1566,7 @@ function t0DayScoreItem(d, fallback = {}, rules = {}, liveByCode = null) {
       : null;
   const liveEod = slotSnapMode ? null : live ? resolveEodScore(live) : null;
   const liveTau = slotSnapMode ? null : live ? resolveTauScore(live) : null;
-  const liveTrade = slotSnapMode ? null : live ? resolveTradeScore(live) : null;
+  const liveTrade = slotSnapMode ? null : live ? resolveYTradeScore(live) : null;
   const liveOn = slotSnapMode ? null : live ? resolveOnScore(live) : null;
   const liveNc = slotSnapMode ? null : live ? resolveNowcastScore(live) : null;
   const livePath = slotSnapMode ? null : live ? resolvePathScore(live) : null;
@@ -1606,8 +1606,6 @@ function t0DayScoreItem(d, fallback = {}, rules = {}, liveByCode = null) {
     ...scores,
     stock_code: code || null,
     stock_name: d.stock_name || fallback.stock_name || scores.stock_name || null,
-    // 槽位行：锁存决策 y_trade，避免 resolveTradeScore 按 gap 再 fuse
-    _t0_lock_trade: !!slotSnapMode,
     predicted_score_eod: dayEod ?? liveEod,
     predicted_score: dayEod ?? scores.predicted_score ?? liveEod,
     predicted_score_tau: slotSnapMode ? yTau : dayTau ?? liveTau,

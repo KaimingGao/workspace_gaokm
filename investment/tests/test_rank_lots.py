@@ -198,11 +198,13 @@ class TestPlanRankLotDay(unittest.TestCase):
             0.5 * 2.0 + 0.5 * right,
         )
 
-    def test_direct_ranking_not_overridden(self):
+    def test_heads_override_stale_ranking_stamp(self):
         from core.paper.rebalance.rank_lots import ranking_pct_of
 
-        item = {"ranking": 1.2, "predicted_score": 3.0, "y_tau": 0.0}
-        self.assertAlmostEqual(ranking_pct_of(item, _cfg()), 1.2)
+        item = {"ranking": -3.65, "predicted_score": 2.30, "y_oc": 5.69, "y_tau": 0.08}
+        self.assertAlmostEqual(ranking_pct_of(item, _cfg()), 0.5 * 2.30 + 0.5 * 5.69)
+        # 无 ŷ_oo/ŷ_oc 才信落盘 ranking
+        self.assertAlmostEqual(ranking_pct_of({"ranking": 1.2}, _cfg()), 1.2)
 
     def test_y_fuse_fallback_when_heads_missing(self):
         from core.paper.rebalance.rank_lots import ranking_pct_of

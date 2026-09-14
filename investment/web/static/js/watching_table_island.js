@@ -101,16 +101,6 @@ const COLS = [
     title: "ŷ_co · close[T]→open[T+1]（对照）",
   },
   {
-    id: "score",
-    label: "ranking",
-    width: 94,
-    num: true,
-    sortable: true,
-    headClass: "watching-col-y watching-col-y-trade",
-    cellClass: "watching-col-y watching-col-y-trade",
-    title: "ranking = w·ŷ_oo + w·(ŷ_oc∘w_co·ŷ_co) · 排序/卖门槛",
-  },
-  {
     id: "score_nowcast",
     label: "y_τc",
     width: 82,
@@ -119,6 +109,16 @@ const COLS = [
     headClass: "watching-col-y",
     cellClass: "watching-col-y",
     title: "ŷ_τc · close[T]/price(τ)−1 · 与 remaining(ŷ_oc) 融合成 R̂_τ / ĉ",
+  },
+  {
+    id: "score",
+    label: "ranking",
+    width: 94,
+    num: true,
+    sortable: true,
+    headClass: "watching-col-y watching-col-y-ranking",
+    cellClass: "watching-col-y watching-col-y-ranking",
+    title: "ranking = w·ŷ_oo + w·(ŷ_oc∘w_co·ŷ_co) · 排序/卖门槛",
   },
   {
     id: "stance",
@@ -232,10 +232,10 @@ export async function mountWatchingTableIsland(host, options = {}) {
         const head = d.dualScoreHead || "";
         const headTitle =
           head === "single_tau"
-            ? "ŷ_trade 单头降级：仅 ŷ_oc（缺 ŷ_oo）· 与双头票不同量纲"
+            ? "ranking 单头降级：仅 ŷ_oc（缺 ŷ_oo）· 与双头票不同量纲"
             : head === "single_eod"
-              ? "ŷ_trade 单头降级：仅 ŷ_oo（缺 ŷ_oc）· 与双头票不同量纲"
-              : "ŷ_trade 单头降级 · 与双头票不同量纲";
+              ? "ranking 单头降级：仅 ŷ_oo（缺 ŷ_oc）· 与双头票不同量纲"
+              : "ranking 单头降级 · 与双头票不同量纲";
         const badges = [];
         if (singleHead) {
           badges.push(
@@ -270,7 +270,7 @@ export async function mountWatchingTableIsland(host, options = {}) {
           `<span class="watching-score-cell paper-hold-score has-tip${signCls}${
             below ? " score-below-min" : ""
           }${singleHead ? " score-single-head" : ""}" ` +
-          `data-score-detail="${escapeHtml(detail)}" data-score-tip="trade" title="${escapeHtml(title)}">` +
+          `data-score-detail="${escapeHtml(detail)}" data-score-tip="ranking" title="${escapeHtml(title)}">` +
           `${escapeHtml(text)}${badges.join("")}</span>`
         );
       }

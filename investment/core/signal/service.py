@@ -97,14 +97,23 @@ class SignalService:
         _bump_metric("rank_cluster_ok" if book.success else "rank_cluster_fail")
         return book
 
-    def book_fields(self, item: Optional[dict]) -> Dict[str, Any]:
-        """仅双层 ŷ 透传字段（不整包翻写 signal_item，避免污染观察/持仓摘要）。"""
+    def book_fields(
+        self,
+        item: Optional[dict],
+        *,
+        rank_cfg: Optional[dict] = None,
+        paper: Optional[dict] = None,
+    ) -> Dict[str, Any]:
+        """仅双层 ŷ 透传字段（不整包翻写 signal_item，避免污染观察/持仓摘要）。
+
+        ``paper`` / ``rank_cfg``：数据中心与持仓共用 rank_lots 权（fusion_w_oo/oc/co）。
+        """
         if not isinstance(item, dict) or not item:
             return {}
         try:
             from core.signal.dual_score import dual_score_book_fields
 
-            return dict(dual_score_book_fields(item) or {})
+            return dict(dual_score_book_fields(item, rank_cfg=rank_cfg, paper=paper) or {})
         except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
             logger.debug("catch except Exception: in service.py", exc_info=True)
             return {}
@@ -130,8 +139,13 @@ class SignalService:
         item: Optional[dict],
         *,
         cluster_mode: Any = None,
+        rank_cfg: Optional[dict] = None,
     ) -> Dict[str, Any]:
-        """持仓表列行：heuristic 不进表列 score；ŷ 走 decision_score。"""
+        """持仓表列行：heuristic 不进表列 score；ŷ 走 decision_score。
+
+        ``rank_cfg`` 为 rank_lots 权（fusion_w_oo/oc/co）；缺则默认 0.5/0.5/0。
+        表列 ranking 由 ŷ_oo/ŷ_oc 现算，不用 dual_score 缺口抬升的 ŷ_trade。
+        """
         from core.signal.dual_score import (
             decision_score_for_item,
             is_heuristic_score_scale,
@@ -206,9 +220,30 @@ class SignalService:
                     "heuristic_score",
                     "score_track",
                     "eod_trust",
+                    "ranking",
+                    "fusion_w_oo",
+                    "fusion_w_oc",
+                    "fusion_w_co",
                 )
             ):
                 out[k] = v
+        try:
+            from core.paper.rebalance.path_matrix import get_path_matrix_cfg
+            from core.signal.yhat_windows import stamp_window_scores
+
+            cfg = rank_cfg if isinstance(rank_cfg, dict) else get_path_matrix_cfg()
+            stamped = stamp_window_scores(packed, cfg)
+            for k in ("y_oo", "y_oc", "y_co", "y_τc", "ranking"):
+                if stamped.get(k) is not None:
+                    out[k] = stamped[k]
+            if cfg.get("fusion_w_oo") is not None:
+                out["fusion_w_oo"] = cfg.get("fusion_w_oo")
+            if cfg.get("fusion_w_oc") is not None:
+                out["fusion_w_oc"] = cfg.get("fusion_w_oc")
+            if cfg.get("fusion_w_co") is not None:
+                out["fusion_w_co"] = cfg.get("fusion_w_co")
+        except Exception:  # noqa: BLE001
+            logger.debug("stamp holding ranking failed", exc_info=True)
         sr = ScoreResult.from_score_stock(
             {"success": True, "stock_code": packed.get("stock_code"), "signal_item": packed}
         )

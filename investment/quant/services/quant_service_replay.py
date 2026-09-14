@@ -67,6 +67,8 @@ class QuantReplayMixin:
         benchmark_code: str = "000300",
         persist_curve: bool = True,
         y_on_alpha: float = 0.0,
+        fusion_w_oo: Optional[float] = None,
+        fusion_w_oc: Optional[float] = None,
         fusion_w_trade: float = 0.6,
         fusion_w_nowcast: float = 0.4,
         rank_enter: float = 0.012,
@@ -194,8 +196,10 @@ class QuantReplayMixin:
         if alpha != alpha:
             alpha = 0.0
         y_on_alpha = max(0.0, min(1.0, alpha))
-        w_trade = clamp_fusion_weight(fusion_w_trade, REPLAY_FUSION_W_TRADE)
-        w_nowcast = clamp_fusion_weight(fusion_w_nowcast, REPLAY_FUSION_W_NOWCAST)
+        raw_oo = fusion_w_oo if fusion_w_oo is not None else fusion_w_trade
+        raw_oc = fusion_w_oc if fusion_w_oc is not None else fusion_w_nowcast
+        w_oo = clamp_fusion_weight(raw_oo, REPLAY_FUSION_W_TRADE)
+        w_oc = clamp_fusion_weight(raw_oc, REPLAY_FUSION_W_NOWCAST)
         enter = coerce_rank_threshold(rank_enter, REPLAY_RANK_ENTER)
         strong = coerce_rank_threshold(rank_strong, REPLAY_RANK_STRONG)
         enter = max(0.0, min(1.0, float(enter)))
@@ -241,8 +245,10 @@ class QuantReplayMixin:
             initial_cash=cash,
             cash_floor=REPLAY_CASH_FLOOR,
             y_on_alpha=y_on_alpha,
-            fusion_w_trade=w_trade,
-            fusion_w_nowcast=w_nowcast,
+            fusion_w_oo=w_oo,
+            fusion_w_oc=w_oc,
+            fusion_w_trade=w_oo,
+            fusion_w_nowcast=w_oc,
             rank_enter=enter,
             rank_strong=strong,
             lookback=int(lookback),
@@ -268,8 +274,10 @@ class QuantReplayMixin:
             "initial_cash": cash,
             "cash_floor": REPLAY_CASH_FLOOR,
             "y_on_alpha": y_on_alpha,
-            "fusion_w_trade": w_trade,
-            "fusion_w_nowcast": w_nowcast,
+            "fusion_w_oo": w_oo,
+            "fusion_w_oc": w_oc,
+            "fusion_w_trade": w_oo,
+            "fusion_w_nowcast": w_oc,
             "rank_enter": enter,
             "rank_strong": strong,
             "fill_clock": clock,
@@ -282,7 +290,7 @@ class QuantReplayMixin:
                 "引擎=paper_replay：每个交易日 09:30 rank_lots"
                 f"（成交 {clock} 5m · 初始 {cash / 10000:g} 万 · ranking={FORMULA_RANKING} · "
                 f"{lot_base_n}/{lot_strong_n} 股；"
-                f"w_oo={w_trade:g}；w_oc={w_nowcast:g}；"
+                f"w_oo={w_oo:g}；w_oc={w_oc:g}；"
                 f"w_co={y_on_alpha:g}；入场={enter:g}；强={strong:g}；"
                 f"宇宙=观察池 {universe_n} 只"
                 + (

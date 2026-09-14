@@ -537,6 +537,26 @@ class TestWatchingMatrixUniverseFitTiers(unittest.TestCase):
         self.assertFalse(fit.get("unrestricted"))
         self.assertEqual(fit.get("n_kept_held"), 1)
 
+    def test_row_score_payload_heads_override_stale_ranking(self):
+        from core.paper.rebalance.watching_matrix import _row_score_payload
+
+        item = {
+            "stock_code": "600000",
+            "predicted_score": 2.30,
+            "y_oc": 5.69,
+            "ranking": -3.65,
+            "y_fuse": -3.65,
+            "y_trade": -3.65,
+            "predicted_score_blend": -3.65,
+        }
+        payload = _row_score_payload(
+            item, item, {"fusion_w_oo": 0.5, "fusion_w_oc": 0.5, "fusion_w_co": 0.0}
+        )
+        expect = 0.5 * 2.30 + 0.5 * 5.69
+        self.assertAlmostEqual(float(payload["ranking"]), expect)
+        self.assertAlmostEqual(float(payload["y_fuse"]), expect)
+        self.assertAlmostEqual(float(payload["y_trade"]), -3.65)
+
 
 if __name__ == "__main__":
     unittest.main()

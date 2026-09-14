@@ -12,7 +12,7 @@ const { watchingScoreDetail } = await import(
 const { fitTierBadgeForCode } = await import(
   `./fit_tier_ui.js?v=${encodeURIComponent(_V)}`
 );
-const { resolveTradeScore, resolveNowcastScore, compoundPct } = await import(
+const { resolveRankingScore, resolveNowcastScore, compoundPct } = await import(
   `../paper/fmt.js?v=${encodeURIComponent(_V)}`
 );
 
@@ -793,9 +793,9 @@ export function buildSimTradeRow(r, i, deps) {
       ? Number(r.predicted_score)
       : null;
   // 与持仓/观察池同源：修历史成交里塌成 EOD 的旧 blend
-  const blendRaw = resolveTradeScore(r);
+  const blendRaw = resolveRankingScore(r);
   const nowcastScore = resolveNowcastScore(r);
-  // 表列：历史日线路径无可靠 τ → 展示/选股键均为 ŷ_oo；有 τ 时才用 ŷ_trade
+  // 表列：历史日线路径无可靠 τ → 展示/选股键均为 ŷ_oo；有 τ 时才用 ranking
   const hasTau =
     (r.predicted_score_tau != null && Number.isFinite(Number(r.predicted_score_tau))) ||
     (r.score_rem != null && Number.isFinite(Number(r.score_rem)));
@@ -807,14 +807,14 @@ export function buildSimTradeRow(r, i, deps) {
       ? eodScore
       : blendRaw;
   const scoreColTitleBase = hasTau
-    ? "ŷ_trade = w·ŷ_oo + w·(缺口∘ŷ_oc) · 现价对昨收 · 悬停看组成"
+    ? "ranking = w·ŷ_oo + w·(ŷ_oc∘w_co·ŷ_co) · 悬停看组成"
     : "ŷ_oo（历史 Top-K 选股键）· 日线无可靠 ŷ_oc · 关 τ 闸";
   const singleHead =
     r.dual_score_single_head === true ||
     String(r.dual_score_head || "") === "single_eod" ||
     String(r.dual_score_head || "") === "single_tau";
   const scoreColTitle = singleHead
-    ? `ŷ_trade 单头降级（${String(r.dual_score_head || "single")}）· 悬停看详情`
+    ? `ranking 单头降级（${String(r.dual_score_head || "single")}）· 悬停看详情`
     : scoreColTitleBase;
   let gapPct =
     r.gap_pct != null && Number.isFinite(Number(r.gap_pct)) ? Number(r.gap_pct) : null;
@@ -846,6 +846,14 @@ export function buildSimTradeRow(r, i, deps) {
     eodRem = eodScore;
   }
   const scoreDetail = watchingScoreDetail({
+    // ranking 头/权进 tip，与表列同式
+    ranking: r.ranking,
+    y_oo: r.y_oo != null ? r.y_oo : eodScore,
+    y_oc: r.y_oc != null ? r.y_oc : r.y_tau_oc,
+    y_co: r.y_co != null ? r.y_co : r.y_on,
+    fusion_w_oo: r.fusion_w_oo != null ? r.fusion_w_oo : r.fusion_w_trade,
+    fusion_w_oc: r.fusion_w_oc != null ? r.fusion_w_oc : r.fusion_w_nowcast,
+    fusion_w_co: r.fusion_w_co != null ? r.fusion_w_co : r.y_on_alpha,
     // tip ① 优先 predicted_score=ŷ_oo；表列展示用 blend
     score: eodScore != null ? eodScore : blendScore,
     predicted_score: eodScore != null ? eodScore : blendScore,
@@ -1134,10 +1142,10 @@ export function btTradesCellHtml(col, d, deps) {
     const head = d.dualScoreHead || "";
     const headTitle =
       head === "single_tau"
-        ? "ŷ_trade 单头降级：仅 ŷ_oc（缺 ŷ_oo）· 与双头票不同量纲"
+        ? "ranking 单头降级：仅 ŷ_oc（缺 ŷ_oo）· 与双头票不同量纲"
         : head === "single_eod"
-          ? "ŷ_trade 单头降级：仅 ŷ_oo（缺 ŷ_oc）· 与双头票不同量纲"
-          : "ŷ_trade 单头降级 · 与双头票不同量纲";
+          ? "ranking 单头降级：仅 ŷ_oo（缺 ŷ_oc）· 与双头票不同量纲"
+          : "ranking 单头降级 · 与双头票不同量纲";
     const badge = singleHead
       ? `<span class="watching-single-head-badge" title="${escapeHtml(
           headTitle
@@ -1152,7 +1160,7 @@ export function btTradesCellHtml(col, d, deps) {
       `<span class="bt-trade-score paper-hold-score has-tip ${escapeHtml(
         d.scoreCls || ""
       )}" ` +
-      `data-score-detail="${escapeHtml(d.scoreDetail)}" data-score-tip="trade" ` +
+      `data-score-detail="${escapeHtml(d.scoreDetail)}" data-score-tip="ranking" ` +
       `title="${escapeHtml(title)}">${escapeHtml(d.scoreText)}${badge}</span>`
     );
   }

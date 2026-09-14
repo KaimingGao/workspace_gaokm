@@ -28,17 +28,29 @@ class PaperReplayBacktestRequest(BaseModel):
         le=1.0,
         description="历史回测 ranking 隔夜系数 α；0=不乘 y_on，1=按原权重乘入",
     )
+    fusion_w_oo: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        le=1.0,
+        description="ranking 中 ŷ_oo 权重；缺则用 fusion_w_trade",
+    )
+    fusion_w_oc: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        le=1.0,
+        description="ranking 中 ŷ_oc 权重；缺则用 fusion_w_nowcast",
+    )
     fusion_w_trade: float = Field(
         default=0.6,
         ge=0.0,
         le=1.0,
-        description="历史回测 y_fuse 中 y_trade 权重；与 fusion_w_nowcast 一并归一化",
+        description="旧别名 fusion_w_oo",
     )
     fusion_w_nowcast: float = Field(
         default=0.4,
         ge=0.0,
         le=1.0,
-        description="历史回测 y_fuse 中 y_nowcast 权重；与 fusion_w_trade 一并归一化",
+        description="旧别名 fusion_w_oc",
     )
     rank_enter: float = Field(
         default=0.012,
@@ -120,17 +132,29 @@ class PortfolioBacktestRequest(BaseModel):
         le=1.0,
         description="历史回测 ranking 隔夜系数 α；0=不乘 y_on，1=按原权重乘入",
     )
+    fusion_w_oo: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        le=1.0,
+        description="ranking 中 ŷ_oo 权重；缺则用 fusion_w_trade",
+    )
+    fusion_w_oc: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        le=1.0,
+        description="ranking 中 ŷ_oc 权重；缺则用 fusion_w_nowcast",
+    )
     fusion_w_trade: float = Field(
         default=0.6,
         ge=0.0,
         le=1.0,
-        description="历史回测 y_fuse 中 y_trade 权重；与 fusion_w_nowcast 一并归一化",
+        description="旧别名 fusion_w_oo",
     )
     fusion_w_nowcast: float = Field(
         default=0.4,
         ge=0.0,
         le=1.0,
-        description="历史回测 y_fuse 中 y_nowcast 权重；与 fusion_w_trade 一并归一化",
+        description="旧别名 fusion_w_oc",
     )
     rank_enter: float = Field(
         default=0.012,

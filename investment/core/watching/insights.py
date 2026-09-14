@@ -81,7 +81,20 @@ def _insight_cache_stamp() -> str:
         bars_gen = ",".join(bits)
     except Exception:  # noqa: BLE001
         logger.debug("insight cache stamp bars gen failed", exc_info=True)
-    return f"{win}|{asof}|{ver}|{bars_gen}"
+    fusion = ""
+    try:
+        from core.paper.rebalance.path_matrix import get_path_matrix_cfg
+        from core.paper import load_paper
+        from core.paths import PAPER_PATH
+
+        paper = load_paper(PAPER_PATH) if os.path.isfile(PAPER_PATH) else None
+        cfg = get_path_matrix_cfg(paper=paper)
+        fusion = (
+            f"{cfg.get('fusion_w_oo')},{cfg.get('fusion_w_oc')},{cfg.get('fusion_w_co')}"
+        )
+    except Exception:  # noqa: BLE001
+        logger.debug("insight cache stamp fusion failed", exc_info=True)
+    return f"{win}|{asof}|{ver}|{bars_gen}|rk{fusion}"
 
 
 def _memo_get(code: str, stamp: str) -> Optional[Dict[str, Any]]:
@@ -429,11 +442,35 @@ def _insight_quote_bars(
     return q, b
 
 
+def _stamp_insight_ranking(
+    out: Dict[str, Any], paper_ctx: Optional[dict] = None
+) -> None:
+    """观察行 ranking 与交易执行同权：paper rank_lots fusion_w_oo/oc/co。"""
+    if not isinstance(out, dict):
+        return
+    try:
+        from core.paper.rebalance.path_matrix import get_path_matrix_cfg
+        from core.signal.yhat_windows import stamp_window_scores
+
+        cfg = get_path_matrix_cfg(paper=paper_ctx)
+        stamped = stamp_window_scores(out, cfg)
+        for k in ("ranking", "y_oo", "y_oc", "y_co"):
+            if stamped.get(k) is not None:
+                out[k] = stamped[k]
+        out["fusion_w_oo"] = cfg.get("fusion_w_oo")
+        out["fusion_w_oc"] = cfg.get("fusion_w_oc")
+        out["fusion_w_co"] = cfg.get("fusion_w_co")
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("stamp insight ranking failed", exc_info=True)
+
+
 def _hydrate_insight_tau_fields(
     out: Dict[str, Any],
     item: dict,
     quote: Optional[dict] = None,
     bars: Optional[list] = None,
+    *,
+    paper_ctx: Optional[dict] = None,
 ) -> None:
     """簿行常只有 ŷ_EOD：用行情缺口现场写出 ŷ_trade（昨收口径）。
 
@@ -511,8 +548,9 @@ def _hydrate_insight_tau_fields(
         win = refresh_dual_score_window(sig, quote=q, bars=b)
         fuse = win != "eod_next"
         attach_dual_score_pit(sig, quote=q, bars=b, fuse_intraday=fuse)
-        out.update(get_default_signal_service().book_fields(sig))
+        out.update(get_default_signal_service().book_fields(sig, paper=paper_ctx))
         _finalize_insight_trade_fields(out)
+        _stamp_insight_ranking(out, paper_ctx)
         return
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
         logger.debug("catch except Exception: in watching_insights.py", exc_info=True)
@@ -556,7 +594,7 @@ def _hydrate_insight_tau_fields(
 
             merge = dict(item or {})
             merge.update(out)
-            out.update(get_default_signal_service().book_fields(merge))
+            out.update(get_default_signal_service().book_fields(merge, paper=paper_ctx))
         except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
             logger.debug("catch except Exception: in watching_insights.py", exc_info=True)
             pass
@@ -727,15 +765,16 @@ def _insight_one(
         try:
             if not _is_heuristic_score_scale(out):
                 # 只合并双层 ŷ 字段；勿 annotate_item 整包，以免污染 score/stance
-                out.update(get_default_signal_service().book_fields(item))
+                out.update(get_default_signal_service().book_fields(item, paper=paper_ctx))
                 _sanitize_heuristic_yhat_fields(out, item)
         except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
             logger.debug("catch except Exception: in watching_insights.py", exc_info=True)
             pass
         if out.get("predicted_score_eod_rem") is None and not _is_heuristic_score_scale(out):
-            _hydrate_insight_tau_fields(out, item, quote, None)
+            _hydrate_insight_tau_fields(out, item, quote, None, paper_ctx=paper_ctx)
         else:
             _finalize_insight_trade_fields(out)
+        _stamp_insight_ranking(out, paper_ctx)
         # 选股门槛仅标注，不抹掉分数
         try:
             from core.signal.score_display import annotate_score_gate
@@ -748,6 +787,7 @@ def _insight_one(
             out["min_score"] = None
             out["below_min_score"] = False
         _finalize_insight_trade_fields(out)
+        _stamp_insight_ranking(out, paper_ctx)
         reasons = item.get("reasons") or []
         out["score_reasons"] = list(reasons) if isinstance(reasons, list) else []
         # 缺全局模型时提示（不阻断）

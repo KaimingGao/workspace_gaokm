@@ -415,8 +415,6 @@ body[data-page="replay"] .replay-lookback-field {
 
 body[data-page="replay"] .replay-lookback-field #quant-lookback,
 body[data-page="replay"] .replay-lookback-field #paper-t0-lookback,
-body[data-page="replay"] .replay-fusion-field #quant-w-trade,
-body[data-page="replay"] .replay-fusion-field #quant-w-nowcast,
 body[data-page="replay"] .replay-on-alpha-field #quant-on-alpha,
 body[data-page="replay"] .replay-rank-field #quant-rank-enter,
 body[data-page="replay"] .replay-rank-field #quant-rank-strong {

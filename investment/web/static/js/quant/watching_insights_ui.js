@@ -2,8 +2,8 @@
  * 观察池 insights 列格式化与 score 单元格 HTML（纯数据 / 字符串）。
  */
 import { escapeHtml as defaultEscapeHtml } from "../shared.js";
-import { resolveTradeScore, resolveEodScore, resolveTauScore, resolveOnScore, resolveYτcScore, fmtTableScore, isHeuristicScoreScale, Y_EOD_TITLE, Y_TAU_TITLE, Y_ON_TITLE, Y_τc_TITLE } from "../paper/fmt.js?v=p2346";
-import { TRADE_TITLE, withQuoteGap } from "./watching_quotes_ui.js?v=p2298";
+import { resolveRankingScore, resolveEodScore, resolveTauScore, resolveOnScore, resolveYτcScore, fmtTableScore, isHeuristicScoreScale, Y_EOD_TITLE, Y_TAU_TITLE, Y_ON_TITLE, Y_τc_TITLE } from "../paper/fmt.js?v=p2389";
+import { RANKING_TITLE, withQuoteGap } from "./watching_quotes_ui.js?v=p2389";
 
 export function isOosFailedItem(it) {
   if (!it || typeof it !== "object") return false;
@@ -30,13 +30,13 @@ export function singleHeadBadgeHtml(it, escapeHtml = defaultEscapeHtml) {
   const tau =
     it &&
     (it.predicted_score_tau != null || it.score_rem != null);
-  let title = "ŷ_trade 单头降级 · 与双头票不同量纲";
+  let title = "ranking 单头降级 · 与双头票不同量纲";
   if (head === "single_tau") {
-    title = "ŷ_trade 单头降级：仅 ŷ_oc（缺 ŷ_oo）· 与双头票不同量纲";
+    title = "ranking 单头降级：仅 ŷ_oc（缺 ŷ_oo）· 与双头票不同量纲";
   } else if (head === "single_eod" && tau && (win === "eod_next" || tauInTrade === false)) {
-    title = "收盘后 ŷ_trade=ŷ_oo（τ 对照保留，不进融合）";
+    title = "收盘后 ranking=ŷ_oo（τ 对照保留，不进融合）";
   } else if (head === "single_eod") {
-    title = "ŷ_trade 单头降级：仅 ŷ_oo（缺 ŷ_oc）· 与双头票不同量纲";
+    title = "ranking 单头降级：仅 ŷ_oo（缺 ŷ_oc）· 与双头票不同量纲";
   }
   return `<span class="watching-single-head-badge" title="${escapeHtml(
     title
@@ -91,7 +91,7 @@ export function formatWatchingExcessTitle(it) {
  * @param {(it: object) => string} watchingScoreDetail
  */
 export function buildWatchingScoreDisplay(it, fmtScore, watchingScoreDetail) {
-  const scoreNum = resolveTradeScore(it);
+  const scoreNum = resolveRankingScore(it);
   const scoreEodNum = resolveEodScore(it);
   const scoreTauNum = resolveTauScore(it);
   const scoreOnNum = resolveOnScore(it);
@@ -115,14 +115,14 @@ export function buildWatchingScoreDisplay(it, fmtScore, watchingScoreDetail) {
     : yCheckFail
       ? `Y·EOD 校验 ${yCheck} · 悬停看分歧/σ`
     : singleHead
-      ? `ŷ_trade 单头降级（${String(it.dual_score_head || "single")}）· 悬停看详情`
+      ? `ranking 单头降级（${String(it.dual_score_head || "single")}）· 悬停看详情`
     : belowMin
-      ? `低于 ŷ_oo 门槛（表列 y_trade）`
+      ? `低于 ŷ_oo 门槛（表列为 ranking）`
       : it.return_model_source === "oos_failed_global"
         ? "OOS 失败 · 组/全局 ŷ 对照"
         : it.return_model_source === "cluster_shadow_fallback"
           ? "缺全局模型 · 组 ŷ shadow"
-          : TRADE_TITLE;
+          : RANKING_TITLE;
   const scoreEodTitle = scoreEodNum == null ? "暂无 ŷ_oo" : Y_EOD_TITLE;
   const scoreTauTitle = scoreTauNum == null ? "暂无 ŷ_oc" : Y_TAU_TITLE;
   const scoreOnTitle = scoreOnNum == null ? "暂无 ŷ_co" : Y_ON_TITLE;
@@ -260,7 +260,7 @@ export function buildWatchingScoreCellHtml(
     )}${belowMin ? " score-below-min" : ""}${
       singleHead ? " score-single-head" : ""
     }${yCheck && yCheck !== "ok" ? " score-y-check-fail" : ""}" ` +
-    `data-score-detail="${esc(scoreDetail)}" data-score-tip="trade" title="${esc(scoreTitle)}">` +
+    `data-score-detail="${esc(scoreDetail)}" data-score-tip="ranking" title="${esc(scoreTitle)}">` +
     `${esc(scoreText)}${badges.join("")}</span>`
   );
 }

@@ -11,7 +11,7 @@ import {
   fmtTableScore,
   fmtPathScore,
   scoreCls,
-  resolveTradeScore,
+  resolveRankingScore,
   resolveEodScore,
   resolveTauScore,
   resolvePathScore,
@@ -23,15 +23,15 @@ import {
   Y_HL_TITLE,
   Y_ON_TITLE,
   Y_τc_TITLE,
-} from "./fmt.js?v=p2346";
+} from "./fmt.js?v=p2389";
 import { paginateItems, renderPagerHtml } from "../api_client.js";
-import { watchingScoreDetail } from "../quant/watching_render.js?v=p2364";
+import { watchingScoreDetail } from "../quant/watching_render.js?v=p2389";
 import {
   isSingleHeadItem,
   singleHeadBadgeHtml,
   yCheckBadgeHtml,
-} from "../quant/watching_insights_ui.js?v=p2346";
-import { TRADE_TITLE, formatPrevCloseDisplay, formatOpenDisplay } from "../quant/watching_quotes_ui.js?v=p2298";
+} from "../quant/watching_insights_ui.js?v=p2389";
+import { RANKING_TITLE, formatPrevCloseDisplay, formatOpenDisplay } from "../quant/watching_quotes_ui.js?v=p2389";
 import { buildHoldingSharesTip } from "./holding_lots_tip.js?v=p1227";
 import { holdingT0BadgeHtml } from "./holding_t0_badge.js?v=p1526";
 import { fitTierBadgeForCode } from "../quant/fit_tier_ui.js?v=p2261";
@@ -113,7 +113,7 @@ export function buildPaperHoldingsTableHtml({
       key === "code"
         ? "股票代码 · 点击排序"
         : key === "score"
-          ? `${TRADE_TITLE} · 点击排序`
+          ? `${RANKING_TITLE} · 点击排序`
             : key === "score_eod"
             ? `${Y_EOD_TITLE} · 点击排序`
             : key === "score_tau"
@@ -127,7 +127,7 @@ export function buildPaperHoldingsTableHtml({
             : key === "pnl"
             ? "浮盈亏 = 现价 − 成本价（相对成本的浮动盈亏 %）· 点击排序"
             : key === "chg"
-              ? "相对昨收的涨跌幅 %。与 EOD / ŷ_trade 同一口径 · 点击排序"
+              ? "相对昨收的涨跌幅 % · 点击排序"
               : "市值 = 现价 × 股数 · 点击排序";
     return (
       `<th class="paper-hold-sort${active ? " is-sorted" : ""}" ` +
@@ -145,7 +145,7 @@ export function buildPaperHoldingsTableHtml({
       const code = h.stock_code || "";
       const pnl = h.pnl_pct;
       const startDate = h.bought_date || "—";
-      const score = resolveTradeScore(h);
+      const score = resolveRankingScore(h);
       const scoreEod = resolveEodScore(h);
       const scoreTau = resolveTauScore(h);
       const scorePath = resolvePathScore(h);
@@ -170,10 +170,10 @@ export function buildPaperHoldingsTableHtml({
             ? "OOS 失败 · 表列组/全局 ŷ% · heuristic 见 tip"
             : "OOS 失败 · 无 ŷ% · tip 看 heuristic(0–100)"
           : singleHead
-            ? `ŷ_trade 单头降级（${String(h.dual_score_head || "single")}）· 悬停看详情`
+            ? `ranking 单头降级（${String(h.dual_score_head || "single")}）· 悬停看详情`
           : belowMin
             ? `低于ŷ_oo门槛 ${h.min_score ?? "—"}（表列为 ranking）· 悬停看详情`
-            : TRADE_TITLE;
+            : RANKING_TITLE;
       const oosFailed =
         !!h.oos_failed ||
         isHeuristicScoreScale(h) ||
@@ -288,7 +288,7 @@ export function buildPaperHoldingsTableHtml({
         }${hardReject ? " score-reject" : ""}${
           singleHead ? " score-single-head" : ""
         }" ` +
-        `data-score-detail="${scoreDetailJson}" data-score-tip="trade" title="${escapeText(
+        `data-score-detail="${scoreDetailJson}" data-score-tip="ranking" title="${escapeText(
           scoreTitle
         )}">${escapeText(scoreShown)}${singleHeadBadge}${yCheckBadge}</td>` +
         `<td class="num paper-hold-cost" title="持仓加权平均成本">${fmtPriceUnit(

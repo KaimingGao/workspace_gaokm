@@ -45,8 +45,8 @@ class TestClusterMinuteStatus(unittest.TestCase):
         self.assertEqual(
             st["span_distribution"],
             [
-                {"bucket": "<90d", "count": 1},
-                {"bucket": "<60d", "count": 1},
+                {"bucket": "<10d", "count": 0},
+                {"bucket": "<20d", "count": 0},
                 {"bucket": "<30d", "count": 1},
             ],
         )
@@ -57,7 +57,7 @@ class TestClusterMinuteStatus(unittest.TestCase):
         watch = ["A", "B", "C", "D", "E"]
 
         def _snap(code: str, *, period: str = "5"):
-            spans = {"A": 95, "B": 70, "C": 45, "D": 25, "E": None}
+            spans = {"A": 95, "B": 25, "C": 15, "D": 8, "E": None}
             if spans.get(code) is None:
                 return None
             return {
@@ -73,17 +73,17 @@ class TestClusterMinuteStatus(unittest.TestCase):
             "quant.research.cluster_minute_status.build_minute_label_portrait",
             return_value={"success": True, "tau": {}, "path": {}, "joint": {}},
         ):
-            st = build_cluster_minute_status(watching_limit=100, min_span_days=30)
-        self.assertEqual(st["cached_ok"], 3)
-        self.assertEqual(st["short"], 1)
+            st = build_cluster_minute_status(watching_limit=100, min_span_days=20)
+        self.assertEqual(st["cached_ok"], 2)
+        self.assertEqual(st["short"], 2)
         self.assertEqual(st["missing"], 1)
-        # 累计（含已过 Ready 闸）：B70+C45+D25 → <90d；C45+D25 → <60d；D25 → <30d
+        # 累计（含已过 Ready 闸）：D8 → <10d；C15+D8 → <20d；B25+C15+D8 → <30d
         self.assertEqual(
             st["span_distribution"],
             [
-                {"bucket": "<90d", "count": 3},
-                {"bucket": "<60d", "count": 2},
-                {"bucket": "<30d", "count": 1},
+                {"bucket": "<10d", "count": 1},
+                {"bucket": "<20d", "count": 2},
+                {"bucket": "<30d", "count": 3},
             ],
         )
 
@@ -111,8 +111,8 @@ class TestClusterMinuteStatus(unittest.TestCase):
             },
         ):
             ok, _, reason = minute_cache_ready("000001")
-        self.assertFalse(ok)
-        self.assertEqual(reason, "short")
+        self.assertTrue(ok)
+        self.assertEqual(reason, "ready")
 
         with patch(
             "quant.research.cluster_minute_status._minute_snapshot_for_code",
@@ -129,7 +129,7 @@ class TestClusterMinuteStatus(unittest.TestCase):
         with patch(
             "quant.research.cluster_minute_status._minute_snapshot_for_code",
             return_value={
-                "span_days": 29,
+                "span_days": 19,
                 "fetched_at": datetime.now().isoformat(timespec="seconds"),
                 "date_max": datetime.now().strftime("%Y-%m-%d"),
             },
@@ -260,7 +260,7 @@ class TestClusterMinuteStatus(unittest.TestCase):
             if code == "600050":
                 # Short 但今日已拉过且会话齐窗 → 应跳过，避免新浪近端空转
                 return {
-                    "span_days": 23,
+                    "span_days": 15,
                     "date_max": "2026-08-31",
                     "bar_count": 1071,
                     "fetched_at": today,

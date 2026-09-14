@@ -137,7 +137,7 @@ export async function ensureWarehouseTopup(opts = {}) {
       lookback_days: 30,
       watching_limit: watchingLimit,
       period: "5",
-      min_span_days: 30,
+      min_span_days: 20,
       mode: "topup",
       topup_lookback_days: 5,
     };

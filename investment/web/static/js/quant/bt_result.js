@@ -374,7 +374,7 @@ export function buildPortfolioBacktestSummaryText(data) {
       : tauOff
         ? " · 选股 ŷ_oo·关τ闸"
         : data.params?.apply_tau_buy_gate === true
-          ? " · 选股 ŷ_trade·τ闸开"
+          ? " · 选股 ranking·τ闸开"
           : " · 选股 ŷ_oo·关τ闸";
   const engNote =
     eng === "topk_research"
@@ -494,7 +494,7 @@ export function buildPortfolioBacktestCards(data, { escapeHtml: esc, fmtPct: fmt
       label: "选股口径",
       value: esc(
         params.apply_tau_buy_gate === true || data.request?.apply_tau_buy_gate === true
-          ? "ŷ_trade · τ闸开"
+          ? "ranking · τ闸开"
           : "ŷ_oo · 关τ闸"
       ),
     },

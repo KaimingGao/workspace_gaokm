@@ -106,7 +106,7 @@ export function gapPctFromQuote(q) {
   return (open / prev - 1) * 100;
 }
 
-/** 洞察行缺 gap 时用行情补上，并清 vs，逼 resolveTradeScore 按昨收重算。 */
+/** 洞察行缺 gap 时用行情补上（nowcast 对照；不改 ranking）。 */
 export function withQuoteGap(it, quoteLike) {
   if (!it || typeof it !== "object") return it;
   const had = it.gap_pct;
@@ -120,7 +120,7 @@ export function withQuoteGap(it, quoteLike) {
   return { ...it, gap_pct: g, predicted_score_blend_vs: "", predicted_score_blend_cal_vs: "" };
 }
 
-export const TRADE_TITLE = "ranking · w·ŷ_oo + w·(ŷ_oc∘w_co·ŷ_co)";
+export const RANKING_TITLE = "ranking · w·ŷ_oo + w·(ŷ_oc∘w_co·ŷ_co)";
 
 export function formatWatchingMarketLabel(market) {
   const m = String(market || "").toUpperCase();

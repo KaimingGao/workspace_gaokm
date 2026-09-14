@@ -59,8 +59,15 @@ def rank_cluster_pools(
     return get_default_signal_service().rank_cluster_pools(codes, **kw).as_dict()
 
 
-def pack_holding_row(item: Optional[dict], *, cluster_mode: Any = None) -> Dict[str, Any]:
-    return get_default_signal_service().pack_holding_row(item, cluster_mode=cluster_mode)
+def pack_holding_row(
+    item: Optional[dict],
+    *,
+    cluster_mode: Any = None,
+    rank_cfg: Optional[dict] = None,
+) -> Dict[str, Any]:
+    return get_default_signal_service().pack_holding_row(
+        item, cluster_mode=cluster_mode, rank_cfg=rank_cfg
+    )
 
 
 def book_fields(item: Optional[dict]) -> Dict[str, Any]:

@@ -2,8 +2,8 @@
  * 观察池 HTML 渲染 helpers（纯字符串 / 轻量 DOM 写入）。
  */
 import { escapeHtml } from "../shared.js";
-import { fmtTableScore } from "../paper/fmt.js?v=p2298";
-import { marketPriorDetailFields, tailAnomalyDetailFields, overheatDetailFields } from "../score_tooltip.js?v=p2364";
+import { fmtTableScore } from "../paper/fmt.js?v=p2389";
+import { marketPriorDetailFields, tailAnomalyDetailFields, overheatDetailFields } from "../score_tooltip.js?v=p2389";
 import { watchingNameSpanHtml } from "./names.js";
 import { fitTierBadgeForCode } from "./fit_tier_ui.js";
 
@@ -126,6 +126,15 @@ export function watchingScoreDetail(it) {
   }
   return JSON.stringify({
     stock_code: (it && (it.stock_code || it.code)) || null,
+    // ranking 权/头靠前：data-score-detail 截断时 tip 仍与表列同式
+    ranking: it && it.ranking,
+    y_oo: it && it.y_oo,
+    y_oc: it && it.y_oc,
+    y_co: it && it.y_co,
+    fusion_w_oo: it && it.fusion_w_oo,
+    fusion_w_oc: it && it.fusion_w_oc,
+    fusion_w_co: it && it.fusion_w_co,
+    y_on_alpha: it && it.y_on_alpha,
     // ŷ_oc OC 靠前，防止 data-score-detail 截断后 tip 退化成剩余映射分
     y_tau_oc: yTauOc,
     predicted_score_tau_oc: yTauOc,
@@ -213,7 +222,6 @@ export function watchingScoreDetail(it) {
     y_check: (it && it.y_check) || null,
     y_disagree: it && it.y_disagree,
     y_sigma: it && it.y_sigma,
-    y_mu: it && it.y_mu,
     eod_trust: it && it.eod_trust,
     y_tau_to_close: it && it.y_tau_to_close,
     y_tau_to_close_src: it && it.y_tau_to_close_src,
@@ -506,15 +514,22 @@ export function renderWatchingWatchTableFallback(rows, { onPickCountUpdate } = {
         )}" title="${escapeHtml(
           d.scoreOnTitle || "ŷ_co"
         )}">${escapeHtml(String(d.scoreOn ?? "—"))}</td>` +
+        `<td class="num watching-col-num watching-score-cell watching-score-nowcast paper-hold-score has-tip ${escapeHtml(
+          d.scoreNowcastCls || ""
+        )}" data-q="score_nowcast" data-score-tip="r" data-score-detail="${escapeHtml(
+          d.scoreDetail || ""
+        )}" title="${escapeHtml(
+          d.scoreNowcastTitle || "ŷ_τc"
+        )}">${escapeHtml(String(d.scoreNowcast ?? "—"))}</td>` +
         (() => {
           const singleHead = !!d.scoreSingleHead;
           const head = d.dualScoreHead || "";
           const headTitle =
             head === "single_tau"
-              ? "ŷ_trade 单头降级：仅 ŷ_oc（缺 ŷ_oo）· 与双头票不同量纲"
+              ? "ranking 单头降级：仅 ŷ_oc（缺 ŷ_oo）· 与双头票不同量纲"
               : head === "single_eod"
-                ? "ŷ_trade 单头降级：仅 ŷ_oo（缺 ŷ_oc）· 与双头票不同量纲"
-                : "ŷ_trade 单头降级 · 与双头票不同量纲";
+                ? "ranking 单头降级：仅 ŷ_oo（缺 ŷ_oc）· 与双头票不同量纲"
+                : "ranking 单头降级 · 与双头票不同量纲";
           const badge = singleHead
             ? `<span class="watching-single-head-badge" title="${escapeHtml(
                 headTitle
@@ -523,20 +538,13 @@ export function renderWatchingWatchTableFallback(rows, { onPickCountUpdate } = {
           return (
             `<td class="num watching-col-num watching-score-cell paper-hold-score has-tip ${escapeHtml(
               d.scoreCls || ""
-            )}${singleHead ? " score-single-head" : ""}" data-q="score" data-score-tip="trade" data-score-detail="${escapeHtml(
+            )}${singleHead ? " score-single-head" : ""}" data-q="score" data-score-tip="ranking" data-score-detail="${escapeHtml(
               d.scoreDetail || ""
-            )}" title="${escapeHtml(d.scoreTitle || "ŷ_trade")}">${escapeHtml(
+            )}" title="${escapeHtml(d.scoreTitle || "ranking")}">${escapeHtml(
               String(d.score ?? "—")
             )}${badge}</td>`
           );
         })() +
-        `<td class="num watching-col-num watching-score-cell watching-score-nowcast paper-hold-score has-tip ${escapeHtml(
-          d.scoreNowcastCls || ""
-        )}" data-q="score_nowcast" data-score-tip="r" data-score-detail="${escapeHtml(
-          d.scoreDetail || ""
-        )}" title="${escapeHtml(
-          d.scoreNowcastTitle || "ŷ_τc"
-        )}">${escapeHtml(String(d.scoreNowcast ?? "—"))}</td>` +
         `<td data-q="stance">${escapeHtml(String(d.stance ?? "—"))}</td>` +
         `<td class="num watching-col-num" data-q="excess">${escapeHtml(String(d.excess ?? "—"))}</td>` +
         `<td class="num watching-col-num" data-q="vol">${escapeHtml(String(d.vol ?? "—"))}</td>` +
@@ -560,8 +568,8 @@ export function renderWatchingWatchTableFallback(rows, { onPickCountUpdate } = {
     `<th class="watching-col-num" title="ŷ_oo · open[T]→open[T+1]">y_oo</th>` +
     `<th class="watching-col-num" title="ŷ_oc · open[T]→close[T]">y_oc</th>` +
     `<th class="watching-col-num" title="ŷ_co · close[T]→open[T+1]">y_co</th>` +
-    `<th class="watching-col-num" title="ranking · w·ŷ_oo + w·(ŷ_oc∘w_co·ŷ_co)">ranking</th>` +
     `<th class="watching-col-num" title="ŷ_τc · price(τ)→close[T]">y_τc</th>` +
+    `<th class="watching-col-num" title="ranking · w·ŷ_oo + w·(ŷ_oc∘w_co·ŷ_co)">ranking</th>` +
     `<th title="规则倾向（买入 / 观望等），不是 ŷ 本身">倾向</th>` +
     `<th class="watching-col-num" title="相对基准（指数）的超额收益">超额</th>` +
     `<th class="watching-col-num" title="成交量">量</th>` +

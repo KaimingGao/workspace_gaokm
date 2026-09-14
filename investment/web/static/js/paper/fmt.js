@@ -42,23 +42,6 @@ function _numField(v) {
   return Number.isFinite(n) ? n : null;
 }
 
-/** 正交加权 ŷ_trade；权重缺省 0.5/0.5。允许单头。 */
-export function fuseOrthogonalTrade(it, left, right) {
-  const a = _numField(left);
-  const b = _numField(right);
-  if (a == null && b == null) return null;
-  const w = (it && it.dual_score_weights) || {};
-  let we = Number(w.w_eod);
-  let wt = Number(w.w_tau);
-  if (!Number.isFinite(we)) we = 0.5;
-  if (!Number.isFinite(wt)) wt = 0.5;
-  const s = we + wt;
-  if (a == null) return b;
-  if (b == null) return a;
-  if (Math.abs(s) < 1e-12) return 0.5 * a + 0.5 * b;
-  return (we * a + wt * b) / s;
-}
-
 /** (1+a%)(1+b%)−1，百分点。 */
 export function compoundPct(a, b) {
   const fa = Number(a);
@@ -97,20 +80,6 @@ export function liftTauVsPrevClose(it, yTau) {
   const lifted = compoundPct(gap, t);
   return lifted != null && Number.isFinite(lifted) ? lifted : t;
 }
-export function expressTradeVsPrevClose(it, yOc) {
-  if (yOc == null || !Number.isFinite(Number(yOc))) return null;
-  const n = Number(yOc);
-  if (!it || typeof it !== "object") return n;
-  if (isHeuristicScoreScale(it)) return n;
-  const vs = String(it.predicted_score_blend_vs || it.predicted_score_blend_cal_vs || "");
-  if (vs === "prev_close") return n;
-  if (String(it.dual_score_window || "") === "eod_next") return n;
-  const gap = resolveGapPct(it);
-  if (gap == null) return n;
-  const lifted = compoundPct(gap, n);
-  return lifted != null && Number.isFinite(lifted) ? lifted : n;
-}
-
 /** 是否为 0–100 启发式轨（表列仍只展示 ŷ%；heuristic 只在 tip）。 */
 export function isHeuristicScoreScale(it) {
   if (!it || typeof it !== "object") return false;
@@ -131,8 +100,93 @@ function _looksLikeYhatPct(n) {
   return n != null && Number.isFinite(n) && Math.abs(n) <= 20;
 }
 
-/** 表列主分：ranking = w_oo·ŷ_oo + w_oc·(ŷ_oc ∘ w_co·ŷ_co)。 */
-export function resolveTradeScore(it) {
+/** rank_lots 权：fusion_w_oo / fusion_w_oc；旧键 fusion_w_trade / fusion_w_nowcast。 */
+export function fusionWeightsFromItem(it) {
+  const d = it && typeof it === "object" ? it : {};
+  let wOo = _numField(d.fusion_w_oo);
+  if (wOo == null) wOo = _numField(d.fusion_w_trade);
+  let wOc = _numField(d.fusion_w_oc);
+  if (wOc == null) wOc = _numField(d.fusion_w_nowcast);
+  if (wOo == null) wOo = 0.5;
+  if (wOc == null) wOc = 0.5;
+  wOo = Math.max(0, Math.min(1, wOo));
+  wOc = Math.max(0, Math.min(1, wOc));
+  const s = wOo + wOc;
+  if (s <= 1e-12) return { wOo: 0.5, wOc: 0.5 };
+  return { wOo: wOo / s, wOc: wOc / s };
+}
+
+/** 隔夜叠入 ŷ_oc 的系数；默认 0。 */
+export function fusionWCoFromItem(it) {
+  const d = it && typeof it === "object" ? it : {};
+  let w = _numField(d.fusion_w_co);
+  if (w == null) w = _numField(d.y_on_alpha);
+  if (w == null) return 0;
+  return Math.max(0, Math.min(10, w));
+}
+
+function fusePct(left, right, wLeft, wRight) {
+  const a = _numField(left);
+  const b = _numField(right);
+  if (a == null && b == null) return null;
+  if (a == null) return b;
+  if (b == null) return a;
+  let wl = Number(wLeft);
+  let wr = Number(wRight);
+  if (!Number.isFinite(wl)) wl = 0.5;
+  if (!Number.isFinite(wr)) wr = 0.5;
+  wl = Math.max(0, wl);
+  wr = Math.max(0, wr);
+  const s = wl + wr;
+  if (s <= 1e-12) return 0.5 * a + 0.5 * b;
+  return (wl * a + wr * b) / s;
+}
+
+/** ((1+ŷ_oc)(1+w_co·ŷ_co)−1)×100。w_co=0 或缺 ŷ_co 则 ŷ_oc。 */
+export function ocWithCoPct(yOc, yCo, wCo) {
+  const oc = _numField(yOc);
+  if (oc == null) return null;
+  const co = _numField(yCo);
+  let wc = Number(wCo);
+  if (!Number.isFinite(wc)) wc = 0;
+  if (co == null || wc <= 1e-12) return oc;
+  return compoundPct(oc, wc * co);
+}
+
+/** 拟合 ŷ_oc（open→close）；勿用 remaining 映射后的 predicted_score_tau。 */
+export function pickYOcFitted(it) {
+  if (!it || typeof it !== "object") return null;
+  for (const c of [it.y_oc, it.predicted_score_oc, it.y_tau_oc, it.predicted_score_tau_oc]) {
+    const n = _numField(c);
+    if (_looksLikeYhatPct(n)) return n;
+  }
+  return resolveTauScore(it);
+}
+
+function hasFusionWeights(it) {
+  if (!it || typeof it !== "object") return false;
+  return (
+    _numField(it.fusion_w_oo) != null ||
+    _numField(it.fusion_w_trade) != null ||
+    _numField(it.fusion_w_oc) != null ||
+    _numField(it.fusion_w_nowcast) != null
+  );
+}
+
+/** 表列 ranking = w_oo·ŷ_oo + w_oc·((1+ŷ_oc)(1+w_co·ŷ_co)−1)。不用 dual_score 缺口抬升。 */
+export function rankingPct(it) {
+  if (!it || typeof it !== "object") return null;
+  const oo = resolveEodScore(it);
+  const oc = pickYOcFitted(it);
+  const co = resolveOnScore(it);
+  const { wOo, wOc } = fusionWeightsFromItem(it);
+  const wCo = fusionWCoFromItem(it);
+  const fused = fusePct(oo, ocWithCoPct(oc, co, wCo), wOo, wOc);
+  return _looksLikeYhatPct(fused) ? fused : null;
+}
+
+/** 表列主分：ranking = w_oo·ŷ_oo + w_oc·(ŷ_oc ∘ w_co·ŷ_co)。不做 T ŷ_trade。 */
+export function resolveRankingScore(it) {
   if (!it || typeof it !== "object") return null;
   if (isHeuristicScoreScale(it)) {
     for (const c of [
@@ -150,66 +204,25 @@ export function resolveTradeScore(it) {
     }
     return null;
   }
-  // 做 T 槽位快照：禁止 gap/fuse 重算覆盖决策用 y_trade（否则外表≠各轮明细）
-  if (it._t0_lock_trade) {
-    for (const c of [it.y_trade, it.decision_score, it.predicted_score_blend, it.score]) {
-      const n = _numField(c);
-      if (_looksLikeYhatPct(n)) return n;
-    }
-  }
-  const ranking = _numField(it.ranking);
-  if (_looksLikeYhatPct(ranking)) return ranking;
-  const eod = resolveEodScore(it);
-  const tau = _numField(it.predicted_score_tau ?? it.score_rem);
-  const blend = _numField(it.predicted_score_blend);
-  const win = String(it.dual_score_window || "");
-  const eodNext = win === "eod_next";
-  const weights = it.dual_score_weights;
-  const weightsWin =
-    weights && weights.window != null ? String(weights.window) : "";
-  // 收盘后 / eod_next 才剥离 τ；盘中 tau_in_trade=false 多为旧簿残留
-  const tauStripped =
-    eodNext ||
-    weightsWin === "eod_next" ||
-    (String(it.dual_score_head || "") === "single_eod" && tau != null);
-  const stale =
-    !tauStripped &&
-    blend != null &&
-    eod != null &&
-    tau != null &&
-    Math.abs(blend - eod) < 1e-9 &&
-    Math.abs(tau - eod) > 1e-6;
-  const needCc =
-    !tauStripped &&
-    resolveGapPct(it) != null &&
-    String(it.predicted_score_blend_vs || "") !== "prev_close";
-  if (!tauStripped && (blend == null || stale || needCc)) {
-    const tauCc = liftTauVsPrevClose(it, tau);
-    const fused = fuseOrthogonalTrade(it, eod, tauCc);
-    if (_looksLikeYhatPct(fused)) return fused;
-  }
-  if (_looksLikeYhatPct(blend)) return expressTradeVsPrevClose(it, blend);
-  // 契约：predicted_score / predicted_score_eod = ŷ_oo；ŷ_trade = blend / decision_score / score。
-  // 旧实现把 predicted_score 放在 score 前，双头下 y_trade 塌成 y_eod（数据中心/交易执行两列相同）。
-  const candidates = [
-    it.decision_score,
-    it.y_trade,
-    it.score,
-    it.predicted_score_blend,
-    it.score_cluster,
-    it.score_global,
-  ];
-  const eodProbe = _numField(it.predicted_score_eod) ?? _numField(it.predicted_score);
-  const ps = _numField(it.predicted_score);
-  if (ps != null && (eodProbe == null || Math.abs(ps - eodProbe) > 1e-9)) {
-    candidates.push(it.predicted_score);
-  }
-  for (const c of candidates) {
+  const ranked = rankingPct(it);
+  const stamped = _numField(it.ranking);
+  // 有 fusion_w 才现算；否则缺权会按 0.5/0.5 把 tip 算歪，信落盘 ranking
+  if (hasFusionWeights(it) && _looksLikeYhatPct(ranked)) return ranked;
+  if (_looksLikeYhatPct(stamped)) return stamped;
+  if (_looksLikeYhatPct(ranked)) return ranked;
+  return null;
+}
+
+/** @deprecated 表列 ranking；请用 resolveRankingScore。做 T 用 resolveYTradeScore。 */
+export const resolveTradeScore = resolveRankingScore;
+
+/** 做 T 主分 ŷ_trade（blend），不是调仓 ranking。 */
+export function resolveYTradeScore(it) {
+  if (!it || typeof it !== "object") return null;
+  if (isHeuristicScoreScale(it)) return null;
+  for (const c of [it.y_trade, it.decision_score, it.predicted_score_blend]) {
     const n = _numField(c);
-    if (_numField(it.heuristic_score) != null && n != null && Math.abs(n - _numField(it.heuristic_score)) < 1e-6 && Math.abs(n) > 20) {
-      continue;
-    }
-    if (_looksLikeYhatPct(n)) return expressTradeVsPrevClose(it, n);
+    if (_looksLikeYhatPct(n)) return n;
   }
   return null;
 }

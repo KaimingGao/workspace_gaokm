@@ -20,13 +20,13 @@ DEFAULT_TOPUP_LOOKBACK_DAYS = 5
 DEFAULT_TOPUP_WORKERS = 4
 DEFAULT_LABEL_MAX_DAYS = 120
 # Span mix 累计档：有缓存标的按跨度同时计入更宽档（与 Ready 闸独立）
-SPAN_MIX_CUTS = (90, 60, 30)
+SPAN_MIX_CUTS = (10, 20, 30)
 _LABEL_PORTRAIT_TTL_SEC = 90.0
 _label_portrait_cache: Dict[str, Any] = {"key": None, "at": 0.0, "payload": None}
 
 
 def _span_mix_bucket_keys() -> List[str]:
-    """固定 ``<90d`` / ``<60d`` / ``<30d``（宽→严）。"""
+    """固定 ``<10d`` / ``<20d`` / ``<30d``（严→宽）。"""
     return [f"<{int(c)}d" for c in SPAN_MIX_CUTS if int(c) > 0]
 
 def _resolve_watching_codes(*, watching_limit: int = 200) -> List[str]:
@@ -385,7 +385,7 @@ def build_cluster_minute_status(
             cached_ok += 1
         else:
             short += 1
-        # 累计：span=45 → <90d 与 <60d；与 Ready 是否过闸无关
+        # 累计：span=15 → <20d 与 <30d；与 Ready 是否过闸无关
         for key in bucket_keys:
             try:
                 cut = int(str(key).strip("<>d"))
@@ -406,7 +406,7 @@ def build_cluster_minute_status(
     except Exception:  # noqa: BLE001
         backend = "unknown"
 
-    # 三档均返回（含 0），便于 UI 固定画出 <90d / <60d / <30d
+    # 三档均返回（含 0），便于 UI 固定画出 <10d / <20d / <30d
     dist = [{"bucket": k, "count": int(span_buckets.get(k, 0) or 0)} for k in bucket_keys]
 
     label_portrait: Optional[Dict[str, Any]] = None

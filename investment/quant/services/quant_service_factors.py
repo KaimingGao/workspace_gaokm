@@ -2438,7 +2438,7 @@ class QuantFactorMixin:
         *,
         watching_limit: int = 200,
         period: str = "5",
-        min_span_days: int = 30,
+        min_span_days: int = 20,
         include_label_portrait: bool = True,
     ) -> Dict[str, Any]:
         """观察池 5m 分钟缓存覆盖（研究枢纽 UI）。"""
