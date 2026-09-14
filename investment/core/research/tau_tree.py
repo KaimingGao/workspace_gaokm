@@ -21,6 +21,8 @@ from core.io_atomic import atomic_write_json
 from core.research.factor_ols_fit import fit_factor_ols_from_panel
 from core.research.tau_panel import (
     TAU_LAG_FEAT_LABELS,
+    T30_LAG_FEAT_LABELS,
+    T60_LAG_FEAT_LABELS,
     theme_sample_weights,
 )
 from core.research.tau_ridge import (
@@ -427,7 +429,12 @@ def _importance_rows(
     names: Sequence[str],
     gain: np.ndarray,
 ) -> List[Dict[str, Any]]:
-    labels = {**dict(MINUTE_TAU_FEAT_LABELS), **dict(TAU_LAG_FEAT_LABELS)}
+    labels = {
+        **dict(MINUTE_TAU_FEAT_LABELS),
+        **dict(TAU_LAG_FEAT_LABELS),
+        **dict(T30_LAG_FEAT_LABELS),
+        **dict(T60_LAG_FEAT_LABELS),
+    }
     total = float(np.sum(np.clip(gain, 0.0, None)))
     rows: List[Dict[str, Any]] = []
     for i, name in enumerate(names):
@@ -455,6 +462,7 @@ def _fit_ridge_oos(
     ridge_lambda: float,
     theme_boost: float,
     use_theme_weights: bool,
+    min_std_exempt: Optional[Sequence[str]] = None,
 ) -> Tuple[Dict[str, Any], List[Optional[float]]]:
     weights = (
         theme_sample_weights(metas_tr, theme_boost=theme_boost)
@@ -470,7 +478,9 @@ def _fit_ridge_oos(
         ridge_lambda=ridge_lambda,
         standardize=True,
         sample_weights=weights,
-        min_std_exempt=list(TAU_MIN_STD_EXEMPT),
+        min_std_exempt=list(
+            min_std_exempt if min_std_exempt is not None else TAU_MIN_STD_EXEMPT
+        ),
         collinearity_policy="keep_all",
     )
     if not fit.get("success"):

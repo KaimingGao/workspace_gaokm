@@ -162,6 +162,24 @@ class TestMinuteTauPack(unittest.TestCase):
         self.assertAlmostEqual(feats2["sector_ret_to_tau"], 0.8, places=6)
         self.assertAlmostEqual(feats2["ret_vs_sector"], 1.2, places=6)
 
+    def test_apply_sector_ret_last_30m_cs(self):
+        from core.signal.minute_tau_feats import apply_sector_ret_last_30m_cs
+
+        feats = apply_sector_ret_last_30m_cs({"ret_last_30m": 2.0}, 0.5)
+        self.assertAlmostEqual(feats["sector_ret_last_30m"], 0.5, places=6)
+        self.assertAlmostEqual(feats["ret_last_30m_vs_sector"], 1.5, places=6)
+        kept = apply_sector_ret_last_30m_cs(
+            {"ret_last_30m": 2.0, "sector_ret_last_30m": 0.8}, 0.1
+        )
+        self.assertAlmostEqual(kept["sector_ret_last_30m"], 0.8, places=6)
+        overwritten = apply_sector_ret_last_30m_cs(
+            {"ret_last_30m": 2.0, "sector_ret_last_30m": 0.8},
+            0.1,
+            overwrite=True,
+        )
+        self.assertAlmostEqual(overwritten["sector_ret_last_30m"], 0.1, places=6)
+        self.assertAlmostEqual(overwritten["ret_last_30m_vs_sector"], 1.9, places=6)
+
     def test_attach_sector_ret_cs_if_missing_fills_serve_path(self):
         from unittest.mock import patch
 

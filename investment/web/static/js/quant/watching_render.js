@@ -2,8 +2,8 @@
  * 观察池 HTML 渲染 helpers（纯字符串 / 轻量 DOM 写入）。
  */
 import { escapeHtml } from "../shared.js";
-import { fmtTableScore } from "../paper/fmt.js?v=p2389";
-import { marketPriorDetailFields, tailAnomalyDetailFields, overheatDetailFields } from "../score_tooltip.js?v=p2389";
+import { fmtTableScore } from "../paper/fmt.js?v=p2396";
+import { marketPriorDetailFields, tailAnomalyDetailFields, overheatDetailFields } from "../score_tooltip.js?v=p2396";
 import { watchingNameSpanHtml } from "./names.js";
 import { fitTierBadgeForCode } from "./fit_tier_ui.js";
 
@@ -162,6 +162,66 @@ export function watchingScoreDetail(it) {
     y_spec_r: (it && it.y_spec_r) || null,
     formula_terms_r: slimFormulaTerms(
       (it && (it.formula_terms_r || it.score_formula_terms_r)) || null,
+      12
+    ),
+    "y_τ30":
+      it &&
+      (it["y_τ30"] != null
+        ? it["y_τ30"]
+        : it.y_t30 != null
+          ? it.y_t30
+          : it.predicted_score_t30 != null
+            ? it.predicted_score_t30
+            : it.y_t30_hat),
+    y_t30: it && (it.y_t30 != null ? it.y_t30 : it["y_τ30"]),
+    predicted_score_t30:
+      it &&
+      (it.predicted_score_t30 != null
+        ? it.predicted_score_t30
+        : it.y_t30_hat != null
+          ? it.y_t30_hat
+          : it["y_τ30"]),
+    y_t30_hat: it && (it.y_t30_hat != null ? it.y_t30_hat : it.predicted_score_t30),
+    y_t30_realized: it && (it.y_t30_realized != null ? it.y_t30_realized : it.t30_realized),
+    t30_realized: it && (it.t30_realized != null ? it.t30_realized : it.y_t30_realized),
+    y_spec_τ30: (it && (it.y_spec_τ30 || it.y_spec_t30)) || null,
+    y_spec_t30: (it && (it.y_spec_t30 || it.y_spec_τ30)) || null,
+    formula_terms_t30: slimFormulaTerms(
+      (it && (it.formula_terms_t30 || it.score_formula_terms_t30)) || null,
+      12
+    ),
+    score_formula_terms_t30: slimFormulaTerms(
+      (it && (it.score_formula_terms_t30 || it.formula_terms_t30)) || null,
+      12
+    ),
+    "y_τ60":
+      it &&
+      (it["y_τ60"] != null
+        ? it["y_τ60"]
+        : it.y_t60 != null
+          ? it.y_t60
+          : it.predicted_score_t60 != null
+            ? it.predicted_score_t60
+            : it.y_t60_hat),
+    y_t60: it && (it.y_t60 != null ? it.y_t60 : it["y_τ60"]),
+    predicted_score_t60:
+      it &&
+      (it.predicted_score_t60 != null
+        ? it.predicted_score_t60
+        : it.y_t60_hat != null
+          ? it.y_t60_hat
+          : it["y_τ60"]),
+    y_t60_hat: it && (it.y_t60_hat != null ? it.y_t60_hat : it.predicted_score_t60),
+    y_t60_realized: it && (it.y_t60_realized != null ? it.y_t60_realized : it.t60_realized),
+    t60_realized: it && (it.t60_realized != null ? it.t60_realized : it.y_t60_realized),
+    y_spec_τ60: (it && (it.y_spec_τ60 || it.y_spec_t60)) || null,
+    y_spec_t60: (it && (it.y_spec_t60 || it.y_spec_τ60)) || null,
+    formula_terms_t60: slimFormulaTerms(
+      (it && (it.formula_terms_t60 || it.score_formula_terms_t60)) || null,
+      12
+    ),
+    score_formula_terms_t60: slimFormulaTerms(
+      (it && (it.score_formula_terms_t60 || it.formula_terms_t60)) || null,
       12
     ),
     ret_open_to_tau:

@@ -82,6 +82,9 @@ QUANT_OLS_CLUSTERS_JOB_PATH = os.path.join(JOBS_DIR, "quant_ols_clusters.json")
 CLUSTER_BARS_REFRESH_JOB_PATH = os.path.join(JOBS_DIR, "cluster_bars_refresh.json")
 CLUSTER_MINUTE_REFRESH_JOB_PATH = os.path.join(JOBS_DIR, "cluster_minute_refresh.json")
 CHAT_JOB_PATH = os.path.join(JOBS_DIR, "chat.json")
+T30_RIDGE_JOB_PATH = os.path.join(JOBS_DIR, "t30_ridge.json")
+T60_RIDGE_JOB_PATH = os.path.join(JOBS_DIR, "t60_ridge.json")
+R_RIDGE_JOB_PATH = os.path.join(JOBS_DIR, "r_ridge.json")
 
 
 def cluster_weights_versioned_path(version: int) -> str:

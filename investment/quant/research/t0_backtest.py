@@ -112,16 +112,10 @@ _BT_RULES_VIEW_KEYS = (
     "direction",
     "path_mode",
     "minute_period",
-    "min_range_pct",
-    "min_range_pct_sell_then_buy",
-    "min_range_pct_buy_then_sell",
-    "use_atr",
-    "atr_window",
     "must_cover_same_day",
     "must_cover_same_day_sell_then_buy",
     "must_cover_same_day_buy_then_sell",
     "y_trade_enter",
-    "y_trade_strong",
     "y_trade_floor",
     "y_tau_enter",
     "y_tau_enter_sell_then_buy",
@@ -134,21 +128,25 @@ _BT_RULES_VIEW_KEYS = (
     "y_tc_enter_alt",
     "y_τc_enter_alt",
     "y_path_enter_alt",
-    "y_eod_prior",
-    "y_eod_enter",
-    "y_eod_strong",
-    "y_eod_tau_sign_gate",
-    "y_trade_tau_sign_gate",
+    "y_t30_strong",
+    "y_τ30_strong",
+    "y_t30_enter",
+    "y_τ30_enter",
+    "y_t30_enter_alt",
+    "y_τ30_enter_alt",
+    "y_t60_strong",
+    "y_τ60_strong",
+    "y_t60_enter",
+    "y_τ60_enter",
+    "y_t60_enter_alt",
+    "y_τ60_enter_alt",
+    "y_tc_strong",
+    "y_τc_strong",
     "y_on_allow",
     "y_on_risk",
-    "y_block_tau_nowcast_sign",
     "t0_y_oc_target_scale",
     "t0_y_oc_l",
     "t0_y_oc_u",
-    "y_nc_enter",
-    "y_nc_strong",
-    "y_nowcast_enter",
-    "y_tau_map",
     "y_use_path",
     "y_path_enter",
     "y_path_enter_sell_then_buy",
@@ -160,9 +158,6 @@ _BT_RULES_VIEW_KEYS = (
     "y_complexity_max_alt",
     "y_tpd_max_alt",
     "y_path_required",
-    "y_gap_tier_mode",
-    "y_gap_tier_pct",
-    "y_nowcast_oc_gate",
     "t0_close_band_delta_pct",
     "t0_price_space_gate",
     "t0_price_space_max_dev_pct",
@@ -188,8 +183,6 @@ _BT_RULES_VIEW_KEYS = (
     "t0_slots_enabled",
     "t0_slots",
     "t0_slots_max_rounds",
-    "y_ratio_cut",
-    "y_ratio_boost_cap",
     "y_score_source",
 )
 
@@ -201,9 +194,6 @@ def _bt_rules_view(bt_rules: dict) -> Dict[str, Any]:
     for k in _BT_RULES_VIEW_KEYS:
         if k in src and src[k] is not None:
             out[k] = src[k]
-    if str(src.get("direction") or "") != "dual_y":
-        if src.get("dir_enter") is not None:
-            out["dir_enter"] = src.get("dir_enter")
     return out
 
 

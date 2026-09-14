@@ -108,6 +108,26 @@ export function renderExecutionRulesHtml(execution) {
       "破带后 ŷ_τc 须向 C_τ 回归；τc强%=0 任意有符号须同号，1=关。不改 C_τ。"
     ) +
     specKpi(
+      "τ30强",
+      (() => {
+        const s = Number(t0.y_t30_strong ?? t0.y_τ30_strong);
+        if (!Number.isFinite(s) || s >= 1) return "关";
+        if (s <= 0) return "全顺带";
+        return `|ŷ_τ30|>${s}%逆带跳过`;
+      })(),
+      "破带后 ŷ_τ30 须与方向同号（后 30 交易分钟）；0=任意有符号须同号，1=关。不改 C_τ。"
+    ) +
+    specKpi(
+      "τ60强",
+      (() => {
+        const s = Number(t0.y_t60_strong ?? t0.y_τ60_strong);
+        if (!Number.isFinite(s) || s >= 1) return "关";
+        if (s <= 0) return "全顺带";
+        return `|ŷ_τ60|>${s}%逆带跳过`;
+      })(),
+      "破带后 ŷ_τ60 须与方向同号（后 60 交易分钟）；0=任意有符号须同号，1=关。不改 C_τ。"
+    ) +
+    specKpi(
       "门槛1",
       (() => {
         if (t0.y_enter_enabled === false) return "关";
@@ -119,11 +139,15 @@ export function renderExecutionRulesHtml(execution) {
         const tauLbl = Number.isFinite(tau) ? (tau > 0 ? `|oc|≥${tau}%` : "oc关") : "oc关";
         const tcLbl = Number.isFinite(tc) ? (tc > 0 ? `|tc|≥${tc}%` : "tc关") : "tc关";
         const pathLblG = Number.isFinite(path) ? (path > 0 ? `|path|≥${path}%` : "path关") : "path关";
+        const t30 = Number(t0.y_t30_enter ?? t0.y_τ30_enter);
+        const t60 = Number(t0.y_t60_enter ?? t0.y_τ60_enter);
+        const t30Lbl = Number.isFinite(t30) ? (t30 > 0 ? `|t30|≥${t30}%` : "t30关") : "t30关";
+        const t60Lbl = Number.isFinite(t60) ? (t60 > 0 ? `|t60|≥${t60}%` : "t60关") : "t60关";
         const cxLbl = Number.isFinite(cx) ? (cx >= 1 ? "cx关" : `cx≤${cx}`) : "cx关";
         const tpdLbl = Number.isFinite(tpd) ? (tpd >= 1 ? "tpd关" : `tpd≤${tpd}`) : "tpd关";
-        return `${tauLbl}·${tcLbl}·${pathLblG}·${cxLbl}·${tpdLbl}`;
+        return `${tauLbl}·${tcLbl}·${pathLblG}·${t30Lbl}·${t60Lbl}·${cxLbl}·${tpdLbl}`;
       })(),
-      "门槛1：启用时 |ŷ_oc| / |ŷ_τc| / |y_hl| 入场 + cx/tpd 风险"
+      "门槛1：启用时 |ŷ_oc| / |ŷ_τc| / |y_hl| / |ŷ_τ30| / |ŷ_τ60| 入场 + cx/tpd 风险"
     ) +
     specKpi(
       "门槛2",
@@ -137,11 +161,15 @@ export function renderExecutionRulesHtml(execution) {
         const tauLbl = Number.isFinite(tau) ? (tau > 0 ? `|oc|≥${tau}%` : "oc关") : "oc关";
         const tcLbl = Number.isFinite(tc) ? (tc > 0 ? `|tc|≥${tc}%` : "tc关") : "tc关";
         const pathLblG = Number.isFinite(path) ? (path > 0 ? `|path|≥${path}%` : "path关") : "path关";
+        const t30 = Number(t0.y_t30_enter_alt ?? t0.y_τ30_enter_alt);
+        const t60 = Number(t0.y_t60_enter_alt ?? t0.y_τ60_enter_alt);
+        const t30Lbl = Number.isFinite(t30) ? (t30 > 0 ? `|t30|≥${t30}%` : "t30关") : "t30关";
+        const t60Lbl = Number.isFinite(t60) ? (t60 > 0 ? `|t60|≥${t60}%` : "t60关") : "t60关";
         const cxLbl = Number.isFinite(cx) ? (cx >= 1 ? "cx关" : `cx≤${cx}`) : "cx关";
         const tpdLbl = Number.isFinite(tpd) ? (tpd >= 1 ? "tpd关" : `tpd≤${tpd}`) : "tpd关";
-        return `${tauLbl}·${tcLbl}·${pathLblG}·${cxLbl}·${tpdLbl}`;
+        return `${tauLbl}·${tcLbl}·${pathLblG}·${t30Lbl}·${t60Lbl}·${cxLbl}·${tpdLbl}`;
       })(),
-      "门槛2：启用时 |ŷ_oc| / |ŷ_τc| / |y_hl| 入场 + cx/tpd 风险"
+      "门槛2：启用时 |ŷ_oc| / |ŷ_τc| / |y_hl| / |ŷ_τ30| / |ŷ_τ60| 入场 + cx/tpd 风险"
     ) +
     specKpi("路径", pathLbl, "分钟触价路径") +
     specKpi("成交", fillLbl, "全量触价 trigger；表单不再提供 mid/optimistic") +
@@ -360,6 +388,54 @@ export function fillExecutionForm(root, execution) {
     })()
   );
   set(
+    "y_t30_strong",
+    (() => {
+      const n = Number(t0.y_t30_strong ?? t0.y_τ30_strong);
+      if (!Number.isFinite(n)) return 0;
+      return Math.max(0, Math.min(n, 1));
+    })()
+  );
+  set(
+    "y_t30_enter",
+    (() => {
+      const n = Number(t0.y_t30_enter ?? t0.y_τ30_enter);
+      if (!Number.isFinite(n)) return 0;
+      return Math.max(0, Math.min(n, 100));
+    })()
+  );
+  set(
+    "y_t30_enter_alt",
+    (() => {
+      const n = Number(t0.y_t30_enter_alt ?? t0.y_τ30_enter_alt);
+      if (!Number.isFinite(n)) return 0;
+      return Math.max(0, Math.min(n, 100));
+    })()
+  );
+  set(
+    "y_t60_strong",
+    (() => {
+      const n = Number(t0.y_t60_strong ?? t0.y_τ60_strong);
+      if (!Number.isFinite(n)) return 0;
+      return Math.max(0, Math.min(n, 1));
+    })()
+  );
+  set(
+    "y_t60_enter",
+    (() => {
+      const n = Number(t0.y_t60_enter ?? t0.y_τ60_enter);
+      if (!Number.isFinite(n)) return 0;
+      return Math.max(0, Math.min(n, 100));
+    })()
+  );
+  set(
+    "y_t60_enter_alt",
+    (() => {
+      const n = Number(t0.y_t60_enter_alt ?? t0.y_τ60_enter_alt);
+      if (!Number.isFinite(n)) return 0;
+      return Math.max(0, Math.min(n, 100));
+    })()
+  );
+  set(
     "y_complexity_max",
     (() => {
       const n = Number(t0.y_complexity_max ?? t0.y_cx_max);
@@ -482,6 +558,18 @@ export function collectExecutionForm(root) {
     y_path_strong: Math.max(0, Math.min(num("y_path_strong", 5), 5)),
     y_tc_strong: Math.max(0, Math.min(num("y_tc_strong", 1), 1)),
     y_τc_strong: Math.max(0, Math.min(num("y_tc_strong", 1), 1)),
+    y_t30_strong: Math.max(0, Math.min(num("y_t30_strong", 0), 1)),
+    y_τ30_strong: Math.max(0, Math.min(num("y_t30_strong", 0), 1)),
+    y_t30_enter: Math.max(0, Math.min(num("y_t30_enter", 0), 100)),
+    y_τ30_enter: Math.max(0, Math.min(num("y_t30_enter", 0), 100)),
+    y_t30_enter_alt: Math.max(0, Math.min(num("y_t30_enter_alt", 0), 100)),
+    y_τ30_enter_alt: Math.max(0, Math.min(num("y_t30_enter_alt", 0), 100)),
+    y_t60_strong: Math.max(0, Math.min(num("y_t60_strong", 0), 1)),
+    y_τ60_strong: Math.max(0, Math.min(num("y_t60_strong", 0), 1)),
+    y_t60_enter: Math.max(0, Math.min(num("y_t60_enter", 0), 100)),
+    y_τ60_enter: Math.max(0, Math.min(num("y_t60_enter", 0), 100)),
+    y_t60_enter_alt: Math.max(0, Math.min(num("y_t60_enter_alt", 0), 100)),
+    y_τ60_enter_alt: Math.max(0, Math.min(num("y_t60_enter_alt", 0), 100)),
     y_complexity_max: (() => {
       const n = num("y_complexity_max", 1);
       if (!Number.isFinite(n)) return 1;
@@ -522,10 +610,6 @@ export function collectExecutionForm(root) {
     t0_stop_arm_bars: Math.max(0, Math.min(Math.round(num("t0_stop_arm_bars", 1)), 48)),
     t0_stop_on_close: true,
   };
-  // 振幅下限已从表单与门禁下线（不再写入 / 强制 0.2）
-  t0.min_range_pct_sell_then_buy = 0;
-  t0.min_range_pct_buy_then_sell = 0;
-  t0.min_range_pct = 0;
   return {
     lock: true,
     t0,
@@ -919,6 +1003,66 @@ export function collectT0BacktestBody(root, opts = {}) {
       if (!Number.isFinite(n)) return 1;
       return Math.max(0, Math.min(n, 1));
     })(),
+    y_t30_strong: (() => {
+      const n = Number(t0.y_t30_strong ?? t0.y_τ30_strong);
+      if (!Number.isFinite(n)) return 0;
+      return Math.max(0, Math.min(n, 1));
+    })(),
+    y_τ30_strong: (() => {
+      const n = Number(t0.y_t30_strong ?? t0.y_τ30_strong);
+      if (!Number.isFinite(n)) return 0;
+      return Math.max(0, Math.min(n, 1));
+    })(),
+    y_t30_enter: (() => {
+      const n = Number(t0.y_t30_enter ?? t0.y_τ30_enter);
+      if (!Number.isFinite(n)) return 0;
+      return Math.max(0, Math.min(n, 100));
+    })(),
+    y_τ30_enter: (() => {
+      const n = Number(t0.y_t30_enter ?? t0.y_τ30_enter);
+      if (!Number.isFinite(n)) return 0;
+      return Math.max(0, Math.min(n, 100));
+    })(),
+    y_t30_enter_alt: (() => {
+      const n = Number(t0.y_t30_enter_alt ?? t0.y_τ30_enter_alt);
+      if (!Number.isFinite(n)) return 0;
+      return Math.max(0, Math.min(n, 100));
+    })(),
+    y_τ30_enter_alt: (() => {
+      const n = Number(t0.y_t30_enter_alt ?? t0.y_τ30_enter_alt);
+      if (!Number.isFinite(n)) return 0;
+      return Math.max(0, Math.min(n, 100));
+    })(),
+    y_t60_strong: (() => {
+      const n = Number(t0.y_t60_strong ?? t0.y_τ60_strong);
+      if (!Number.isFinite(n)) return 0;
+      return Math.max(0, Math.min(n, 1));
+    })(),
+    y_τ60_strong: (() => {
+      const n = Number(t0.y_t60_strong ?? t0.y_τ60_strong);
+      if (!Number.isFinite(n)) return 0;
+      return Math.max(0, Math.min(n, 1));
+    })(),
+    y_t60_enter: (() => {
+      const n = Number(t0.y_t60_enter ?? t0.y_τ60_enter);
+      if (!Number.isFinite(n)) return 0;
+      return Math.max(0, Math.min(n, 100));
+    })(),
+    y_τ60_enter: (() => {
+      const n = Number(t0.y_t60_enter ?? t0.y_τ60_enter);
+      if (!Number.isFinite(n)) return 0;
+      return Math.max(0, Math.min(n, 100));
+    })(),
+    y_t60_enter_alt: (() => {
+      const n = Number(t0.y_t60_enter_alt ?? t0.y_τ60_enter_alt);
+      if (!Number.isFinite(n)) return 0;
+      return Math.max(0, Math.min(n, 100));
+    })(),
+    y_τ60_enter_alt: (() => {
+      const n = Number(t0.y_t60_enter_alt ?? t0.y_τ60_enter_alt);
+      if (!Number.isFinite(n)) return 0;
+      return Math.max(0, Math.min(n, 100));
+    })(),
     y_complexity_max: (() => {
       const n = Number(t0.y_complexity_max ?? t0.y_cx_max);
       if (!Number.isFinite(n)) return 1;
@@ -964,10 +1108,6 @@ export function collectT0BacktestBody(root, opts = {}) {
     initial_shares: sizing.shares,
     initial_cash: sizing.cash,
   };
-  if (t0.min_range_pct_sell_then_buy != null) body.min_range_pct_sell_then_buy = t0.min_range_pct_sell_then_buy;
-  if (t0.min_range_pct_buy_then_sell != null) body.min_range_pct_buy_then_sell = t0.min_range_pct_buy_then_sell;
-  if (t0.min_range_pct != null) body.min_range_pct = t0.min_range_pct;
-  else body.min_range_pct = 0;
   if (opts.onlySelected && opts.selectedCode) body.code = opts.selectedCode;
   return body;
 }

@@ -20,6 +20,10 @@ from web.schemas import (
     CxRidgeRequest,
     TpdRidgeRequest,
     RRidgeRequest,
+    T30RidgeRequest,
+    T60RidgeRequest,
+    T30TreeRequest,
+    T60TreeRequest,
     RTreeRequest,
     RemRidgeRequest,
     TauRidgeRequest,
@@ -338,21 +342,27 @@ def quant_tpd_ridge_model() -> Dict[str, Any]:
 
 @router.post("/api/quant/r-ridge")
 def quant_r_ridge(body: RRidgeRequest) -> Dict[str, Any]:
-    """ŷ_τc Ridge：与 ŷ_oc 同 X → close[T]/price(τ)−1 + 时间 OOS；可选 persist。"""
+    """ŷ_τc Ridge：与 ŷ_oc 同 X → close[T]/price(τ)−1 + 时间 OOS；可选 persist。
+
+    ``persist=true`` / ``sync=true`` 同步；否则入队 ``GET /api/jobs/r-ridge``。
+    """
+    kwargs = dict(
+        lookback=body.lookback,
+        watching_limit=body.watching_limit,
+        ridge_lambda=body.ridge_lambda,
+        gap_trigger_pct=body.gap_trigger_pct,
+        minute_period=body.minute_period,
+        minute_lookback_days=body.minute_lookback_days,
+        persist=body.persist,
+        force_promote=body.force_promote,
+        note=body.note,
+        persist_role=body.persist_role,
+        holdout_trading_days=body.holdout_trading_days,
+    )
     try:
-        return deps.quant.run_r_ridge_experiment(
-            lookback=body.lookback,
-            watching_limit=body.watching_limit,
-            ridge_lambda=body.ridge_lambda,
-            gap_trigger_pct=body.gap_trigger_pct,
-            minute_period=body.minute_period,
-            minute_lookback_days=body.minute_lookback_days,
-            persist=body.persist,
-            force_promote=body.force_promote,
-            note=body.note,
-            persist_role=body.persist_role,
-            holdout_trading_days=body.holdout_trading_days,
-        )
+        if body.persist or body.sync:
+            return deps.quant.run_r_ridge_experiment(**kwargs)
+        return deps.quant.start_r_ridge_job(**kwargs)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
@@ -362,6 +372,78 @@ def quant_r_ridge_model() -> Dict[str, Any]:
     """读取已 promote 的 ŷ_r 模型（若有）。"""
     try:
         return deps.quant.get_r_ridge_model()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@router.post("/api/quant/t30-ridge")
+def quant_t30_ridge(body: T30RidgeRequest) -> Dict[str, Any]:
+    """ŷ_τ30 Ridge：与 ŷ_oc 同 X → price(τ⊕30m)/price(τ)−1 + 时间 OOS；可选 persist。
+
+    ``persist=true`` / ``sync=true`` 同步；否则入队 ``GET /api/jobs/t30-ridge``。
+    """
+    kwargs = dict(
+        lookback=body.lookback,
+        watching_limit=body.watching_limit,
+        ridge_lambda=body.ridge_lambda,
+        gap_trigger_pct=body.gap_trigger_pct,
+        minute_period=body.minute_period,
+        minute_lookback_days=body.minute_lookback_days,
+        persist=body.persist,
+        force_promote=body.force_promote,
+        note=body.note,
+        persist_role=body.persist_role,
+        holdout_trading_days=body.holdout_trading_days,
+    )
+    try:
+        if body.persist or body.sync:
+            return deps.quant.run_t30_ridge_experiment(**kwargs)
+        return deps.quant.start_t30_ridge_job(**kwargs)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@router.get("/api/quant/t30-ridge/model")
+def quant_t30_ridge_model() -> Dict[str, Any]:
+    """读取已 promote 的 ŷ_τ30 模型（若有）。"""
+    try:
+        return deps.quant.get_t30_ridge_model()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@router.post("/api/quant/t60-ridge")
+def quant_t60_ridge(body: T60RidgeRequest) -> Dict[str, Any]:
+    """ŷ_τ60 Ridge：与 ŷ_oc 同 X → price(τ⊕60m)/price(τ)−1 + 时间 OOS；可选 persist。
+
+    ``persist=true`` / ``sync=true`` 同步；否则入队 ``GET /api/jobs/t60-ridge``。
+    """
+    kwargs = dict(
+        lookback=body.lookback,
+        watching_limit=body.watching_limit,
+        ridge_lambda=body.ridge_lambda,
+        gap_trigger_pct=body.gap_trigger_pct,
+        minute_period=body.minute_period,
+        minute_lookback_days=body.minute_lookback_days,
+        persist=body.persist,
+        force_promote=body.force_promote,
+        note=body.note,
+        persist_role=body.persist_role,
+        holdout_trading_days=body.holdout_trading_days,
+    )
+    try:
+        if body.persist or body.sync:
+            return deps.quant.run_t60_ridge_experiment(**kwargs)
+        return deps.quant.start_t60_ridge_job(**kwargs)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@router.get("/api/quant/t60-ridge/model")
+def quant_t60_ridge_model() -> Dict[str, Any]:
+    """读取已 promote 的 ŷ_τ60 模型（若有）。"""
+    try:
+        return deps.quant.get_t60_ridge_model()
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
@@ -389,6 +471,60 @@ def quant_r_tree_last() -> Dict[str, Any]:
     """读取上次 ŷ_r_tree（r_tree_last_report.json）；不进打分。"""
     try:
         return deps.quant.get_r_tree_last_report()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@router.post("/api/quant/t30-tree")
+def quant_t30_tree(body: T30TreeRequest) -> Dict[str, Any]:
+    """ŷ_τ30_tree 影子头 + 同 Holdout Ridge；不写 live / 研究套，不进回测。"""
+    try:
+        return deps.quant.run_t30_tree_experiment(
+            lookback=body.lookback,
+            watching_limit=body.watching_limit,
+            ridge_lambda=body.ridge_lambda,
+            gap_trigger_pct=body.gap_trigger_pct,
+            theme_boost=body.theme_boost,
+            tau_hm=body.tau_hm,
+            holdout_trading_days=body.holdout_trading_days,
+            backend=body.backend,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@router.get("/api/quant/t30-tree/last")
+def quant_t30_tree_last() -> Dict[str, Any]:
+    """读取上次 ŷ_τ30_tree（t30_tree_last_report.json）；不进打分。"""
+    try:
+        return deps.quant.get_t30_tree_last_report()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@router.post("/api/quant/t60-tree")
+def quant_t60_tree(body: T60TreeRequest) -> Dict[str, Any]:
+    """ŷ_τ60_tree 影子头 + 同 Holdout Ridge；不写 live / 研究套，不进回测。"""
+    try:
+        return deps.quant.run_t60_tree_experiment(
+            lookback=body.lookback,
+            watching_limit=body.watching_limit,
+            ridge_lambda=body.ridge_lambda,
+            gap_trigger_pct=body.gap_trigger_pct,
+            theme_boost=body.theme_boost,
+            tau_hm=body.tau_hm,
+            holdout_trading_days=body.holdout_trading_days,
+            backend=body.backend,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@router.get("/api/quant/t60-tree/last")
+def quant_t60_tree_last() -> Dict[str, Any]:
+    """读取上次 ŷ_τ60_tree（t60_tree_last_report.json）；不进打分。"""
+    try:
+        return deps.quant.get_t60_tree_last_report()
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 

@@ -13,6 +13,7 @@ from core.io_atomic import atomic_write_json
 from core.research.factor_ols_fit import fit_factor_ols_from_panel
 from core.research.tau_panel import (
     TAU_LAG_FEAT_LABELS,
+    T30_LAG_FEAT_LABELS,
     TAU_LAG_FEATURES,
     attach_cross_section_breadth,
     collect_tau_intraday_panel,
@@ -908,6 +909,7 @@ _TAU_FEAT_LABELS = {
     "yclose_loc": "昨收位置",
     "mom3_pct": "近3日动量 %",
     **TAU_LAG_FEAT_LABELS,
+    **T30_LAG_FEAT_LABELS,
     **MINUTE_TAU_FEAT_LABELS,
 }
 

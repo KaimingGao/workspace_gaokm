@@ -20,6 +20,108 @@ def _clock_minutes_to_hm(total: int) -> str:
     return f"{h:02d}:{m:02d}"
 
 
+# A 股连续竞价：09:30–11:30 + 13:00–15:00 = 240 交易分钟
+_SESSION_AM_START = 9 * 60 + 30
+_SESSION_AM_END = 11 * 60 + 30
+_SESSION_PM_START = 13 * 60
+_SESSION_PM_END = 15 * 60
+SESSION_TRADING_MINUTES = 240
+HORIZON_T30_MIN = 30
+HORIZON_T60_MIN = 60
+
+
+def session_elapsed(hm: str) -> Optional[float]:
+    """壁钟 → 当日已过交易分钟：09:30=0，11:30=120，13:00=120，15:00=240。
+
+    午休（11:30–13:00 开区间）视为 120。开盘前 / 收盘后返回 None。
+    """
+    clock = _hm_to_clock_minutes(hm)
+    if clock is None:
+        return None
+    if _SESSION_AM_START <= clock <= _SESSION_AM_END:
+        return float(clock - _SESSION_AM_START)
+    if _SESSION_PM_START <= clock <= _SESSION_PM_END:
+        return float(120 + (clock - _SESSION_PM_START))
+    if _SESSION_AM_END < clock < _SESSION_PM_START:
+        return 120.0
+    return None
+
+
+def session_clock(elapsed: float) -> Optional[str]:
+    """交易分钟 → 壁钟。elapsed=120 → 11:30；>240 或 <0 → None。"""
+    try:
+        e = int(round(float(elapsed)))
+    except (TypeError, ValueError):
+        return None
+    if e < 0 or e > SESSION_TRADING_MINUTES:
+        return None
+    if e <= 120:
+        return _clock_minutes_to_hm(_SESSION_AM_START + e)
+    return _clock_minutes_to_hm(_SESSION_PM_START + (e - 120))
+
+
+def add_session_minutes(hm: str, add: int = HORIZON_T30_MIN) -> Optional[str]:
+    """交易时钟加法（跳过午休）。不足剩余则 None：14:30+30=15:00，14:35+30=None。"""
+    elapsed = session_elapsed(hm)
+    if elapsed is None:
+        return None
+    try:
+        delta = float(add)
+    except (TypeError, ValueError):
+        return None
+    target = elapsed + delta
+    if target > float(SESSION_TRADING_MINUTES):
+        return None
+    return session_clock(target)
+
+
+def sub_session_minutes(hm: str, sub: int = HORIZON_T30_MIN) -> Optional[str]:
+    """交易时钟减法（跳过午休）。不足已过则 None：10:00−30=09:30，09:50−30=None。"""
+    elapsed = session_elapsed(hm)
+    if elapsed is None:
+        return None
+    try:
+        delta = float(sub)
+    except (TypeError, ValueError):
+        return None
+    target = elapsed - delta
+    if target < 0:
+        return None
+    return session_clock(target)
+
+
+def session_remain(hm: str) -> Optional[float]:
+    """距 15:00 剩余交易分钟：09:30=240，14:30=30，15:00=0。"""
+    elapsed = session_elapsed(hm)
+    if elapsed is None:
+        return None
+    return float(SESSION_TRADING_MINUTES) - float(elapsed)
+
+
+def horizon_crosses_lunch(
+    tau_hm: str,
+    *,
+    add_min: int = HORIZON_T30_MIN,
+) -> Optional[float]:
+    """τ⊕N 是否跨午休：11:15→13:15、11:30→13:30 为 1；11:00→11:30 为 0。"""
+    start = session_elapsed(tau_hm)
+    end_hm = add_session_minutes(tau_hm, add_min)
+    if start is None or not end_hm:
+        return None
+    end = session_elapsed(end_hm)
+    if end is None:
+        return None
+    return 1.0 if start <= 120.0 and end > 120.0 else 0.0
+
+
+def tau_clock_allows_t30(hm: str, *, horizon_min: int = HORIZON_T30_MIN) -> bool:
+    return add_session_minutes(hm, horizon_min) is not None
+
+
+def tau_clock_allows_t60(hm: str, *, horizon_min: int = HORIZON_T60_MIN) -> bool:
+    return add_session_minutes(hm, horizon_min) is not None
+
+
 def minute_tau_grid_5m_range(
     start_hm: str = "09:30",
     end_hm: str = "11:00",
@@ -63,3 +165,13 @@ DEFAULT_T0_TRAIN_TAU_GRID_5M: tuple = tuple(
 )
 # 研究枢纽默认：仅 09:30…11:00（与做 T v6 leg1 窗口对齐）
 DEFAULT_MINUTE_TAU_GRID: tuple = DEFAULT_T0_TRAIN_TAU_GRID_5M
+# ŷ_τ30：全日 5m，止于 14:30（其后不足 30 交易分钟）
+DEFAULT_T30_TRAIN_TAU_GRID: tuple = tuple(
+    minute_tau_grid_5m_range("09:30", "11:30", include_open=True)
+    + minute_tau_grid_5m_range("13:05", "14:30", include_open=True)
+)
+# ŷ_τ60：全日 5m，止于 14:00（其后不足 60 交易分钟）
+DEFAULT_T60_TRAIN_TAU_GRID: tuple = tuple(
+    minute_tau_grid_5m_range("09:30", "11:30", include_open=True)
+    + minute_tau_grid_5m_range("13:05", "14:00", include_open=True)
+)

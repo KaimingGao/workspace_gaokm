@@ -45,8 +45,7 @@ def t0_dir_label(direction: Optional[str]) -> str:
 # fill_mode: trigger | mid | optimistic；可分侧 fill_mode_*
 #
 # direction:
-#   dual_y  — y_trade 资格 · y_τ 主方向 · y_eod 目标价同向回升 · y_on 回补
-#   y_tau_map — trend|fixed_sell_then_buy|fixed_buy_then_sell
+#   dual_y  — v6 收盘带宽选腿（C 相对 C_τ 破带）；y_on 回补
 #   （sell_then_buy / buy_then_sell / auto / signal 仅单测可显式传入）
 #
 # path_mode: 仅 first_touch（分钟时间序第一触达）。
@@ -149,6 +148,39 @@ _DEAD_T0_KEYS = (
     # 表单已下线：超额 r 入场闸（误标 R̂_τ，实际是 |C/C_τ−1|）
     "r_tau_enter",
     "r_tau_enter_alt",
+    # v6 收盘带宽：dual_y 选向 / 振幅下限 / ATR / 缺口档 / trade·eod 强闸已不参与开腿
+    "min_range_pct",
+    "min_range_pct_sell_then_buy",
+    "min_range_pct_buy_then_sell",
+    "y_tau_map",
+    "y_gap_tier_mode",
+    "y_gap_tier_pct",
+    "y_trade_strong",
+    "y_eod_strong",
+    "y_eod_enter",
+    "y_eod_prior",
+    "y_trade_tau_sign_gate",
+    "y_eod_tau_sign_gate",
+    "y_block_tau_nowcast_sign",
+    "y_block_trade_tau_sign",
+    "y_nowcast_oc_gate",
+    "y_nc_enter",
+    "y_nc_strong",
+    "y_nowcast_enter",
+    "use_atr",
+    "atr_window",
+    "atr_sell_mult",
+    "atr_buy_mult",
+    "dir_enter",
+    "auto_strong_pct",
+    "auto_weak_pct",
+    "w_gap",
+    "w_yclose_loc",
+    "w_mom3",
+    "w_gap_atr",
+    "y_ratio_boost_cap",
+    "y_ratio_cut",
+    "y_block_conflict",
 )
 
 
@@ -188,25 +220,10 @@ DEFAULT_T0_RULES: Dict[str, Any] = {
     "fill_mode_sell_then_buy": "trigger",
     "fill_mode_buy_then_sell": "trigger",
     "direction": "dual_y",
-    "auto_strong_pct": 0.5,
-    "auto_weak_pct": 0.5,
-    "dir_enter": 0.1,
-    "w_gap": 0.45,
-    "w_yclose_loc": 0.20,
-    "w_mom3": 0.20,
-    "w_gap_atr": 0.15,
     "path_mode": "first_touch",
     "minute_period": "5",
-    "min_range_pct": 0.0,
-    "min_range_pct_sell_then_buy": 0.0,
-    "min_range_pct_buy_then_sell": 0.0,
-    "use_atr": False,
-    "atr_window": 14,
-    "atr_sell_mult": 0.9,
-    "atr_buy_mult": 0.7,
-    # dual_y 阈值（百分比点）：*_enter 入场下限；*_strong 超强须与 τ 同号
+    # dual_y 阈值（百分比点）：*_enter 入场下限（v6 入场闸 / 回补）
     "y_trade_enter": 0.01,
-    "y_trade_strong": 0.2,
     "y_tau_enter": 0.0,
     # 反T / 正T 分侧入场；缺省与 y_tau_enter 同
     "y_tau_enter_sell_then_buy": 0.0,
@@ -223,6 +240,18 @@ DEFAULT_T0_RULES: Dict[str, Any] = {
     "y_path_strong": 5.0,
     "y_tc_strong": 1.0,  # ŷ_τc 旁路：0=任意有符号须同号；1=关
     "y_τc_strong": 1.0,
+    "y_t30_strong": 0.0,  # ŷ_τ30 旁路：0=任意有符号须同号；1=关
+    "y_τ30_strong": 0.0,
+    "y_t30_enter": 0.0,
+    "y_τ30_enter": 0.0,
+    "y_t30_enter_alt": 0.0,
+    "y_τ30_enter_alt": 0.0,
+    "y_t60_strong": 0.0,
+    "y_τ60_strong": 0.0,
+    "y_t60_enter": 0.0,
+    "y_τ60_enter": 0.0,
+    "y_t60_enter_alt": 0.0,
+    "y_τ60_enter_alt": 0.0,
     "y_tc_enter": 0.0,  # 门槛1 |ŷ_τc| 入场；范围 0–100%；0=关
     "y_τc_enter": 0.0,
     "y_tc_enter_alt": 0.0,  # 门槛2 |ŷ_τc| 入场；缺键跟随 y_tc_enter
@@ -233,24 +262,14 @@ DEFAULT_T0_RULES: Dict[str, Any] = {
     "y_path_enter_alt": 0.0,  # 门槛2 |y_hl| 入场；缺键跟随 y_path_enter
     "y_complexity_max_alt": 1.0,
     "y_tpd_max_alt": 1.0,
-    "y_eod_enter": 0.01,
-    "y_eod_strong": 0.2,
-    "y_eod_prior": 0.01,
     "y_on_risk": 0.01,
     "y_on_allow": 0.01,
-    "y_block_tau_nowcast_sign": True,
-    "y_nc_enter": 0.01,
-    "y_nc_strong": 0.2,
-    "y_tau_map": "trend",
     "y_use_path": True,
     "y_path_required": False,
     # C_τ = O×(1+clip(ŷ_oc×scale, y_oc_l, y_oc_u)/100)；upper/lower = C_τ×(1±δ/100)
     "t0_y_oc_target_scale": 10.0,
     "t0_y_oc_l": -3.0,
     "t0_y_oc_u": 3.0,
-    "y_gap_tier_mode": "skip_opposite",
-    "y_gap_tier_pct": 1.0,
-    "y_nowcast_oc_gate": False,
     # v6：收盘带宽选腿（无前缀阴阳/复合确认）
     "t0_close_band_delta_pct": 3.0,  # 超额带宽 δ%：upper/lower = C_τ×(1±δ/100)；leg2 = C_τ
     # 日线 ĉ=ĉ_τ，分钟价经 S=O_d/O_m 映入同空间破带（|S−1| 超阈跳过）
@@ -271,8 +290,6 @@ DEFAULT_T0_RULES: Dict[str, Any] = {
     "y_tau_exit_price_bias_sell_then_buy": -1.0,
     "y_tau_exit_price_move_min": -100.0,
     "y_tau_exit_price_move_max": 100.0,
-    "y_ratio_boost_cap": 2.0,
-    "y_ratio_cut": 0.60,
     # 午后闸：到点后禁新开；已开未平则第二腿中点追价（与止损并存：止损管亏、追价管软卖）
     "t0_pm_degrade": "13:00",
     "t0_pm_degrade_sell_then_buy": "13:00",
@@ -412,9 +429,6 @@ def _migrate_dual_y_gate_keys(cfg: dict, override_keys: Optional[set] = None) ->
         if legacy is not None and legacy != "":
             cfg["y_trade_enter"] = legacy
     for new_key, old_key in (
-        ("y_trade_strong", "y_trade_tau_sign_gate"),
-        ("y_eod_strong", "y_eod_tau_sign_gate"),
-        ("y_nc_strong", "y_nowcast_enter"),
         ("y_complexity_max", "y_cx_max"),
     ):
         if new_key in keys:
@@ -431,12 +445,6 @@ def _sync_dual_y_gate_legacy_aliases(cfg: dict) -> None:
     """写出旧键别名，避免未升级的 overlay / 外部脚本读不到。"""
     if cfg.get("y_trade_enter") is not None:
         cfg["y_trade_floor"] = cfg["y_trade_enter"]
-    if cfg.get("y_trade_strong") is not None:
-        cfg["y_trade_tau_sign_gate"] = cfg["y_trade_strong"]
-    if cfg.get("y_eod_strong") is not None:
-        cfg["y_eod_tau_sign_gate"] = cfg["y_eod_strong"]
-    if cfg.get("y_nc_strong") is not None:
-        cfg["y_nowcast_enter"] = cfg["y_nc_strong"]
     if cfg.get("y_complexity_max") is not None:
         cfg["y_cx_max"] = cfg["y_complexity_max"]
 
@@ -454,25 +462,6 @@ def load_t0_rules(override: Optional[dict] = None) -> Dict[str, Any]:
     cfg["t0_ratio"] = max(0.05, min(float(cfg.get("t0_ratio") or 1.0), 1.0))
     # 纸面/回测生效路径在 core.execution.resolve 再强制为 1.0
     cfg["lot_size"] = max(1, int(cfg.get("lot_size") or 100))
-    cfg["auto_strong_pct"] = max(0.0, min(float(cfg.get("auto_strong_pct") or 0.5), 5.0))
-    cfg["auto_weak_pct"] = max(0.0, min(float(cfg.get("auto_weak_pct") or 0.5), 5.0))
-    cfg["dir_enter"] = max(0.05, min(float(cfg.get("dir_enter") or 0.1), 1.0))
-    for wk in ("w_gap", "w_yclose_loc", "w_mom3", "w_gap_atr"):
-        cfg[wk] = max(0.0, min(float(cfg.get(wk) or 0.0), 1.0))
-    # 归一化权重
-    wsum = (
-        float(cfg["w_gap"])
-        + float(cfg["w_yclose_loc"])
-        + float(cfg["w_mom3"])
-        + float(cfg["w_gap_atr"])
-    )
-    if wsum <= 1e-9:
-        cfg["w_gap"], cfg["w_yclose_loc"], cfg["w_mom3"], cfg["w_gap_atr"] = 0.45, 0.20, 0.20, 0.15
-    else:
-        cfg["w_gap"] = round(float(cfg["w_gap"]) / wsum, 4)
-        cfg["w_yclose_loc"] = round(float(cfg["w_yclose_loc"]) / wsum, 4)
-        cfg["w_mom3"] = round(float(cfg["w_mom3"]) / wsum, 4)
-        cfg["w_gap_atr"] = round(float(cfg["w_gap_atr"]) / wsum, 4)
     fill = str(cfg.get("fill_mode") or "trigger").strip().lower()
     if fill not in {"trigger", "mid", "optimistic"}:
         fill = "trigger"
@@ -507,26 +496,17 @@ def load_t0_rules(override: Optional[dict] = None) -> Dict[str, Any]:
         )
     # legacy 键与正T侧对齐（旧读端，T+1 规则决定当日卖旧仓可行性）
     cfg["must_cover_same_day"] = cfg["must_cover_same_day_buy_then_sell"]
-    cfg["use_atr"] = coerce_cfg_bool(cfg.get("use_atr"), False)
     cfg["direction"] = normalize_t0_direction(cfg.get("direction"), default="dual_y")
     # override_keys 已在函数开头定义
     _migrate_dual_y_gate_keys(cfg, override_keys)
     for yk, lo, hi, default in (
-        ("y_eod_prior", 0.01, 5.0, 0.01),
-        ("y_eod_enter", 0.01, 5.0, 0.01),
-        ("y_eod_strong", 0.05, 5.0, 0.2),
         ("y_trade_enter", 0.01, 5.0, 0.01),
-        ("y_trade_strong", 0.05, 5.0, 0.2),
         ("y_tau_enter", 0.0, 100.0, 0.0),
         ("y_tau_enter_sell_then_buy", 0.0, 100.0, 0.0),
         ("y_tau_enter_buy_then_sell", 0.0, 100.0, 0.0),
         ("y_tau_enter_alt", 0.0, 100.0, 0.0),
         ("y_on_risk", 0.01, 10.0, 0.01),
         ("y_on_allow", 0.01, 10.0, 0.01),
-        ("y_ratio_boost_cap", 1.0, 2.0, 2.0),
-        ("y_ratio_cut", 0.2, 1.0, 0.60),
-        ("y_nc_enter", 0.01, 10.0, 0.01),
-        ("y_nc_strong", 0.05, 10.0, 0.2),
         ("y_path_enter", 0.0, 100.0, 0.0),
         ("y_path_enter_sell_then_buy", 0.0, 100.0, 0.0),
         ("y_path_enter_buy_then_sell", 0.0, 100.0, 0.0),
@@ -534,6 +514,18 @@ def load_t0_rules(override: Optional[dict] = None) -> Dict[str, Any]:
         ("y_path_strong", 0.0, 5.0, 5.0),
         ("y_tc_strong", 0.0, 1.0, 1.0),
         ("y_τc_strong", 0.0, 1.0, 1.0),
+        ("y_t30_strong", 0.0, 1.0, 0.0),
+        ("y_τ30_strong", 0.0, 1.0, 0.0),
+        ("y_t30_enter", 0.0, 100.0, 0.0),
+        ("y_τ30_enter", 0.0, 100.0, 0.0),
+        ("y_t30_enter_alt", 0.0, 100.0, 0.0),
+        ("y_τ30_enter_alt", 0.0, 100.0, 0.0),
+        ("y_t60_strong", 0.0, 1.0, 0.0),
+        ("y_τ60_strong", 0.0, 1.0, 0.0),
+        ("y_t60_enter", 0.0, 100.0, 0.0),
+        ("y_τ60_enter", 0.0, 100.0, 0.0),
+        ("y_t60_enter_alt", 0.0, 100.0, 0.0),
+        ("y_τ60_enter_alt", 0.0, 100.0, 0.0),
         ("y_tc_enter", 0.0, 100.0, 0.0),
         ("y_τc_enter", 0.0, 100.0, 0.0),
         ("y_tc_enter_alt", 0.0, 100.0, 0.0),
@@ -542,7 +534,6 @@ def load_t0_rules(override: Optional[dict] = None) -> Dict[str, Any]:
         ("y_tpd_max", 0.0, 1.0, 1.0),
         ("y_complexity_max_alt", 0.0, 1.0, 1.0),
         ("y_tpd_max_alt", 0.0, 1.0, 1.0),
-        ("y_gap_tier_pct", 0.3, 8.0, 1.0),
         ("fusion_w_τc", 0.0, 1.0, 0.5),
         ("fusion_w_tc", 0.0, 1.0, 0.5),
         ("residual_w_oc", 0.0, 1.0, 0.5),
@@ -602,14 +593,6 @@ def load_t0_rules(override: Optional[dict] = None) -> Dict[str, Any]:
 
     cfg["y_trade_enter"] = normalize_y_trade_enter(cfg.get("y_trade_enter"))
     _sync_dual_y_gate_legacy_aliases(cfg)
-    # 异号闸：新键 τ↔nowcast；旧 y_block_trade_tau_sign 迁移一次
-    if "y_block_tau_nowcast_sign" in cfg:
-        cfg["y_block_tau_nowcast_sign"] = coerce_cfg_bool(cfg.get("y_block_tau_nowcast_sign"))
-    elif "y_block_trade_tau_sign" in cfg:
-        cfg["y_block_tau_nowcast_sign"] = coerce_cfg_bool(cfg.get("y_block_trade_tau_sign"))
-    else:
-        cfg["y_block_tau_nowcast_sign"] = True
-    cfg.pop("y_block_trade_tau_sign", None)
     cfg["y_enter_enabled"] = coerce_cfg_bool(cfg.get("y_enter_enabled"), True)
     cfg["y_enter_alt_enabled"] = coerce_cfg_bool(cfg.get("y_enter_alt_enabled"), True)
     cfg["y_use_path"] = coerce_cfg_bool(cfg.get("y_use_path"), True)
@@ -620,7 +603,6 @@ def load_t0_rules(override: Optional[dict] = None) -> Dict[str, Any]:
     cfg["t0_y_oc_target_scale"] = scale
     cfg["t0_y_oc_l"] = y_oc_l
     cfg["t0_y_oc_u"] = y_oc_u
-    cfg["y_nowcast_oc_gate"] = coerce_cfg_bool(cfg.get("y_nowcast_oc_gate"), False)
     # 旧双钮 y_tc_validate=关 → 1=关；旗标本身不再覆盖新表单的 τc强
     _tc_val = cfg.get("y_tc_validate")
     if _tc_val is None:
@@ -632,6 +614,30 @@ def load_t0_rules(override: Optional[dict] = None) -> Dict[str, Any]:
     if cfg.get("y_tc_strong") in (None, "") and cfg.get("y_τc_strong") not in (None, ""):
         cfg["y_tc_strong"] = cfg.get("y_τc_strong")
     cfg["y_τc_strong"] = cfg.get("y_tc_strong")
+    if cfg.get("y_t30_strong") in (None, "") and cfg.get("y_τ30_strong") not in (None, ""):
+        cfg["y_t30_strong"] = cfg.get("y_τ30_strong")
+    cfg["y_τ30_strong"] = cfg.get("y_t30_strong")
+    if cfg.get("y_t30_enter") in (None, "") and cfg.get("y_τ30_enter") not in (None, ""):
+        cfg["y_t30_enter"] = cfg.get("y_τ30_enter")
+    cfg["y_τ30_enter"] = cfg.get("y_t30_enter")
+    if cfg.get("y_t30_enter_alt") in (None, "") and cfg.get("y_τ30_enter_alt") not in (
+        None,
+        "",
+    ):
+        cfg["y_t30_enter_alt"] = cfg.get("y_τ30_enter_alt")
+    cfg["y_τ30_enter_alt"] = cfg.get("y_t30_enter_alt")
+    if cfg.get("y_t60_strong") in (None, "") and cfg.get("y_τ60_strong") not in (None, ""):
+        cfg["y_t60_strong"] = cfg.get("y_τ60_strong")
+    cfg["y_τ60_strong"] = cfg.get("y_t60_strong")
+    if cfg.get("y_t60_enter") in (None, "") and cfg.get("y_τ60_enter") not in (None, ""):
+        cfg["y_t60_enter"] = cfg.get("y_τ60_enter")
+    cfg["y_τ60_enter"] = cfg.get("y_t60_enter")
+    if cfg.get("y_t60_enter_alt") in (None, "") and cfg.get("y_τ60_enter_alt") not in (
+        None,
+        "",
+    ):
+        cfg["y_t60_enter_alt"] = cfg.get("y_τ60_enter_alt")
+    cfg["y_τ60_enter_alt"] = cfg.get("y_t60_enter_alt")
     if cfg.get("y_tc_enter") in (None, "") and cfg.get("y_τc_enter") not in (None, ""):
         cfg["y_tc_enter"] = cfg.get("y_τc_enter")
     cfg["y_τc_enter"] = cfg.get("y_tc_enter")
@@ -729,10 +735,6 @@ def load_t0_rules(override: Optional[dict] = None) -> Dict[str, Any]:
     cfg["y_tau_exit_price_bias"] = cfg["y_tau_exit_price_bias_buy_then_sell"]
     cfg["y_tau_exit_price_move_min"] = cfg["y_tau_exit_price_move_min_buy_then_sell"]
     cfg["y_tau_exit_price_move_max"] = cfg["y_tau_exit_price_move_max_buy_then_sell"]
-    gap_mode = str(cfg.get("y_gap_tier_mode") or "skip_opposite").strip().lower()
-    if gap_mode not in {"off", "none", "false", "0", "skip_opposite", "revert"}:
-        gap_mode = "skip_opposite"
-    cfg["y_gap_tier_mode"] = gap_mode
     # 主仓 breakglass 回注的有效 τ 门槛（可选）
     try:
         eff = cfg.get("y_tau_enter_effective")
@@ -814,9 +816,6 @@ def load_t0_rules(override: Optional[dict] = None) -> Dict[str, Any]:
         arm_bars = 1
     cfg["t0_stop_arm_bars"] = max(0, min(arm_bars, 48))
     cfg["t0_stop_on_close"] = True
-    from core.t0.score_policy import normalize_y_tau_map
-
-    cfg["y_tau_map"] = normalize_y_tau_map(cfg.get("y_tau_map"))
     y_src = str(cfg.get("y_score_source") or "compute").strip().lower()
     if y_src in {"book", "cluster", "cluster_book"}:
         y_src = "live_book"
@@ -837,24 +836,6 @@ def load_t0_rules(override: Optional[dict] = None) -> Dict[str, Any]:
     if period not in {"1", "5", "15", "30", "60"}:
         period = "5"
     cfg["minute_period"] = period
-    cfg["atr_window"] = max(3, min(int(cfg.get("atr_window") or 14), 60))
-    cfg["atr_sell_mult"] = max(0.2, min(float(cfg.get("atr_sell_mult") or 0.9), 3.0))
-    cfg["atr_buy_mult"] = max(0.2, min(float(cfg.get("atr_buy_mult") or 0.7), 3.0))
-    if cfg.get("min_range_pct") is not None:
-        # 0=振幅下限门禁关（Web 已下线）；兼容旧盘仍可读字段
-        cfg["min_range_pct"] = max(0.0, min(float(cfg["min_range_pct"]), 30.0))
-    for mr_side, base_mr in (
-        ("min_range_pct_sell_then_buy", "min_range_pct"),
-        ("min_range_pct_buy_then_sell", "min_range_pct"),
-    ):
-        raw_mr = cfg.get(mr_side)
-        if raw_mr is None or raw_mr == "":
-            cfg[mr_side] = cfg.get(base_mr)
-        else:
-            try:
-                cfg[mr_side] = max(0.0, min(float(raw_mr), 30.0))
-            except (TypeError, ValueError):
-                cfg[mr_side] = cfg.get(base_mr)
     cfg["t0_slots_enabled"] = True
     raw_max_rounds = cfg.get("t0_slots_max_rounds")
     if raw_max_rounds is None or raw_max_rounds == "":
@@ -910,12 +891,6 @@ def apply_side_exec_params(cfg: dict, direction: Optional[str]) -> Dict[str, Any
     if direction not in {"sell_then_buy", "buy_then_sell"}:
         return out
     suf = "_buy_then_sell" if direction == "buy_then_sell" else "_sell_then_buy"
-    mr = out.get(f"min_range_pct{suf}")
-    if mr is not None and mr != "":
-        try:
-            out["min_range_pct"] = max(0.0, min(float(mr), 30.0))
-        except (TypeError, ValueError):
-            pass
     fm = out.get(f"fill_mode{suf}")
     if fm is not None and str(fm).strip():
         fs = str(fm).strip().lower()

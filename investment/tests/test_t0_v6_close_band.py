@@ -518,6 +518,66 @@ class TestCloseBandCore(unittest.TestCase):
         )
         self.assertIsNone(alt_ok)
 
+    def test_enter_skip_y_t30(self):
+        from core.t0.close_band import close_band_enter_skip_reason
+        from core.t0.viz import classify_t0_skip_reason
+
+        cfg = {
+            "y_tau_enter": 0.0,
+            "y_path_enter": 0.0,
+            "y_use_path": False,
+            "y_t30_enter": 0.5,
+        }
+        weak = close_band_enter_skip_reason(
+            {"y_tau": 1.0, "y_path": 1.0, "y_τ30": 0.2}, cfg
+        )
+        self.assertIsNotNone(weak)
+        self.assertIn("横盘", weak)
+        self.assertIn("ŷ_τ30", weak)
+        self.assertEqual(classify_t0_skip_reason(weak), "y_t30_flat")
+        self.assertIsNone(
+            close_band_enter_skip_reason(
+                {"y_tau": 1.0, "y_path": 1.0, "y_τ30": 0.8}, cfg
+            )
+        )
+        miss = close_band_enter_skip_reason({"y_tau": 1.0, "y_path": 1.0}, cfg)
+        self.assertIsNone(miss)
+        alt_ok = close_band_enter_skip_reason(
+            {"y_tau": 1.0, "y_path": 1.0, "y_τ30": 0.2},
+            {**cfg, "y_t30_enter": 0.9, "y_t30_enter_alt": 0.1},
+        )
+        self.assertIsNone(alt_ok)
+
+    def test_enter_skip_y_t60(self):
+        from core.t0.close_band import close_band_enter_skip_reason
+        from core.t0.viz import classify_t0_skip_reason
+
+        cfg = {
+            "y_tau_enter": 0.0,
+            "y_path_enter": 0.0,
+            "y_use_path": False,
+            "y_t60_enter": 0.5,
+        }
+        weak = close_band_enter_skip_reason(
+            {"y_tau": 1.0, "y_path": 1.0, "y_τ60": 0.2}, cfg
+        )
+        self.assertIsNotNone(weak)
+        self.assertIn("横盘", weak)
+        self.assertIn("ŷ_τ60", weak)
+        self.assertEqual(classify_t0_skip_reason(weak), "y_t60_flat")
+        self.assertIsNone(
+            close_band_enter_skip_reason(
+                {"y_tau": 1.0, "y_path": 1.0, "y_τ60": 0.8}, cfg
+            )
+        )
+        miss = close_band_enter_skip_reason({"y_tau": 1.0, "y_path": 1.0}, cfg)
+        self.assertIsNone(miss)
+        alt_ok = close_band_enter_skip_reason(
+            {"y_tau": 1.0, "y_path": 1.0, "y_τ60": 0.2},
+            {**cfg, "y_t60_enter": 0.9, "y_t60_enter_alt": 0.1},
+        )
+        self.assertIsNone(alt_ok)
+
     def test_enter_skip_return_and_risk(self):
         """破带后每档 |y_τ| / |ŷ_τc| / |y_path| 过入场，且 complexity/tpd 过上限。大 |y| 不能换高风险。"""
         from core.t0.close_band import close_band_enter_skip_reason
@@ -682,6 +742,8 @@ class TestCloseBandCore(unittest.TestCase):
                 "y_tau_enter": 0.0,
                 "y_path_enter": 0.0,
                 "y_use_path": False,
+                "y_t30_strong": 1,
+                "y_t60_strong": 1,
             }
         )
         out = simulate_t0_day_slots(

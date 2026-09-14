@@ -144,6 +144,26 @@ class RRidgeFitTests(unittest.TestCase):
         self.assertGreater(int(oos.get("n_train") or 0), int(oos.get("n_test") or 0))
         self.assertEqual(report.get("eval_start"), oos.get("eval_start"))
 
+    def test_save_last_report_stamps_fitted_at(self):
+        import json
+        import tempfile
+        from unittest.mock import patch
+
+        from core.research.r_ridge import save_r_last_report
+
+        report = {
+            "success": True,
+            "return_model": {"intercept": 0.1, "coefficients": {"gap_pct": 0.2}},
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "r_ridge_last_report.json")
+            with patch("core.research.r_ridge.r_last_report_path", return_value=path):
+                save_r_last_report(report)
+            self.assertTrue(report.get("fitted_at"))
+            with open(path, encoding="utf-8") as f:
+                doc = json.load(f)
+            self.assertEqual(doc.get("fitted_at"), report["fitted_at"])
+
 
 class YRDisplayOnlyTests(unittest.TestCase):
     def test_scores_from_item_passes_y_r(self):

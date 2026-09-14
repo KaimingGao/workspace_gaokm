@@ -25,6 +25,21 @@ _SLOT_STALE_POLICY: Dict[str, Dict[str, Any]] = {
         "stuck_start_sec": 360.0,
         "label": "分组任务",
     },
+    "t30-ridge": {
+        "stale_sec": 1800.0,
+        "stuck_start_sec": 900.0,
+        "label": "ŷ_τ30 拟合",
+    },
+    "t60-ridge": {
+        "stale_sec": 1800.0,
+        "stuck_start_sec": 900.0,
+        "label": "ŷ_τ60 拟合",
+    },
+    "r-ridge": {
+        "stale_sec": 1800.0,
+        "stuck_start_sec": 900.0,
+        "label": "ŷ_τc 拟合",
+    },
     "paper": {
         "stale_sec": 600.0,
         "stuck_start_sec": 300.0,
@@ -430,6 +445,9 @@ class JobRegistry:
             "paper",
             "chat",
             "quant-ols-clusters",
+            "t30-ridge",
+            "t60-ridge",
+            "r-ridge",
         ):
             self.slot(name)
         with self._lock:
@@ -446,6 +464,9 @@ try:
         CLUSTER_MINUTE_REFRESH_JOB_PATH,
         PAPER_JOB_PATH,
         QUANT_OLS_CLUSTERS_JOB_PATH,
+        R_RIDGE_JOB_PATH,
+        T30_RIDGE_JOB_PATH,
+        T60_RIDGE_JOB_PATH,
     )
 
     paper_job = job_registry.slot("paper", persist_path=PAPER_JOB_PATH)
@@ -459,6 +480,9 @@ try:
         "cluster-minute-refresh", persist_path=CLUSTER_MINUTE_REFRESH_JOB_PATH
     )
     chat_job = job_registry.slot("chat", persist_path=CHAT_JOB_PATH)
+    t30_ridge_job = job_registry.slot("t30-ridge", persist_path=T30_RIDGE_JOB_PATH)
+    t60_ridge_job = job_registry.slot("t60-ridge", persist_path=T60_RIDGE_JOB_PATH)
+    r_ridge_job = job_registry.slot("r-ridge", persist_path=R_RIDGE_JOB_PATH)
 except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
     logger.debug("catch except Exception: in job_progress.py", exc_info=True)
     paper_job = job_registry.slot("paper")
@@ -466,3 +490,6 @@ except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流
     cluster_bars_refresh_job = job_registry.slot("cluster-bars-refresh")
     cluster_minute_refresh_job = job_registry.slot("cluster-minute-refresh")
     chat_job = job_registry.slot("chat")
+    t30_ridge_job = job_registry.slot("t30-ridge")
+    t60_ridge_job = job_registry.slot("t60-ridge")
+    r_ridge_job = job_registry.slot("r-ridge")

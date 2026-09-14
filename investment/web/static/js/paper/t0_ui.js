@@ -1,8 +1,8 @@
 /** Paper · 做T 指标与预演表渲染（从 paper.js 抽出）。 */
 
-import { yTauMapScoreTip } from "./execution_ui.js?v=p2389";
-import { renderT0Viz, wireT0SkipTips } from "./t0_viz.js?v=p2389";
-import { buildT0ReportHtml, fmtT0DirDays } from "./t0_report.js?v=p2353";
+import { yTauMapScoreTip } from "./execution_ui.js?v=p2402";
+import { renderT0Viz, wireT0SkipTips } from "./t0_viz.js?v=p2402";
+import { buildT0ReportHtml, fmtT0DirDays } from "./t0_report.js?v=p2396";
 import {
   buildT0TradeTableHtml,
   pickDetailDays,
@@ -12,7 +12,7 @@ import {
   wireT0DayDebugExpand,
   wireT0ProcessTips,
   stampStockFitTiers,
-} from "./t0_table.js?v=p2389";
+} from "./t0_table.js?v=p2402";
 
 function escapeHtml(s) {
   return String(s ?? "")
@@ -144,7 +144,7 @@ function finishT0Days(vizEl, daysEl, tipCtrl) {
   if (daysEl && daysEl.dataset.scoreTipWired !== "1" && typeof tipCtrl.bindHost === "function") {
     tipCtrl.bindHost(daysEl, {
       scoreSelector:
-        ".paper-t0-y-score[data-score-detail], .paper-t0-dir-score[data-score-detail]",
+        ".paper-t0-y-score[data-score-detail], .paper-t0-dir-score[data-score-detail], [data-score-tip=\"t30\"][data-score-detail], [data-score-tip=\"t60\"][data-score-detail]",
     });
   }
 }
@@ -521,6 +521,26 @@ function classifyDeskNote(note, locked) {
   if (locked) {
     if (r.includes("超额不足") || r.includes("R̂_τ 缺失") || r.includes("|R̂_τ|"))
       return { id: "r_tau_flat", label: "R不足" };
+    if (
+      (r.includes("ŷ_τ60") || r.includes("y_τ60") || r.includes("y_t60")) &&
+      (r.includes("横盘") || r.includes("缺失") || r.includes("未过"))
+    )
+      return { id: "y_t60_flat", label: "τ60横盘" };
+    if (
+      (r.includes("ŷ_τ60") || r.includes("y_τ60") || r.includes("y_t60")) &&
+      (r.includes("旁路") || r.includes("逆带"))
+    )
+      return { id: "y_t60_disagree", label: "τ60逆带" };
+    if (
+      (r.includes("ŷ_τ30") || r.includes("y_τ30") || r.includes("y_t30")) &&
+      (r.includes("横盘") || r.includes("缺失") || r.includes("未过"))
+    )
+      return { id: "y_t30_flat", label: "τ30横盘" };
+    if (
+      (r.includes("ŷ_τ30") || r.includes("y_τ30") || r.includes("y_t30")) &&
+      (r.includes("旁路") || r.includes("逆带"))
+    )
+      return { id: "y_t30_disagree", label: "τ30逆带" };
     if (r.includes("ŷ_τc") && (r.includes("横盘") || r.includes("缺失") || r.includes("未过入场")))
       return { id: "y_tc_flat", label: "TC横盘" };
     if (r.includes("横盘")) return { id: "y_tau_flat", label: "τ横盘" };

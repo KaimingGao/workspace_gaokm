@@ -1,5 +1,5 @@
 /**
- * ŷ_oc_tree / ŷ_τc_tree 影子对照：KPI + 分 τ 曲线 + 增益条。
+ * ŷ_oc_tree / ŷ_τc_tree / ŷ_τ30_tree 影子对照：KPI + 分 τ 曲线 + 增益条。
  * 不写 live / 不进回测。
  */
 import { escapeHtml } from "../shared.js";
@@ -323,13 +323,28 @@ function tauPanel(treeOos, ridgeOos) {
 
 /**
  * @param {object} data 拟合报告
- * @param {{ head?: "tau"|"r" }} [opts]
+ * @param {{ head?: "tau"|"r"|"t30"|"t60" }} [opts]
  */
 export function treeReportHtml(data, opts = {}) {
   if (!data || typeof data !== "object" || !data.success) return "";
   const isR = opts.head === "r";
-  const headName = isR ? "ŷ_τc_tree" : "ŷ_oc_tree";
-  const ySpec = isR ? "close/price(τ)−1" : "open→close";
+  const isT30 = opts.head === "t30";
+  const isT60 = opts.head === "t60";
+  const headName = isT60
+    ? "ŷ_τ60_tree"
+    : isT30
+      ? "ŷ_τ30_tree"
+      : isR
+        ? "ŷ_τc_tree"
+        : "ŷ_oc_tree";
+  const ySpec = isT60
+    ? "price(τ⊕60m)/price(τ)−1"
+    : isT30
+    ? "price(τ⊕30m)/price(τ)−1"
+    : isR
+      ? "close/price(τ)−1"
+      : "open→close";
+  const headKey = isT60 ? "t60" : isT30 ? "t30" : isR ? "r" : "tau";
   const boost = data.oos || {};
   const ridge = data.ridge_oos || {};
   const delta = data.delta_vs_ridge || {};
@@ -488,7 +503,7 @@ export function treeReportHtml(data, opts = {}) {
         ? `<div class="quant-tree-lower">${gain}${tau}</div>`
         : "";
   return (
-    `<div class="quant-tree-report" data-head="${isR ? "r" : "tau"}">` +
+    `<div class="quant-tree-report" data-head="${headKey}">` +
     meta +
     `<div class="quant-tree-verdict is-${escapeHtml(verdict.tone)}">` +
     `<div class="quant-tree-verdict-main">` +

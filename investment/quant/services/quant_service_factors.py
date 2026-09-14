@@ -52,6 +52,26 @@ def _select_ridge_desk_doc(
     return None, False
 
 
+def _last_report_path_from_live(live_path: str) -> str:
+    """``r_ridge_model.json`` → ``r_ridge_last_report.json``。"""
+    p = str(live_path or "")
+    if p.endswith("_model.json"):
+        return p[: -len("_model.json")] + "_last_report.json"
+    return ""
+
+
+def _file_mtime_iso(path: str) -> Optional[str]:
+    try:
+        if not path or not os.path.isfile(path):
+            return None
+        from datetime import datetime, timezone
+
+        ts = os.path.getmtime(path)
+        return datetime.fromtimestamp(ts, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    except OSError:
+        return None
+
+
 def _attach_ridge_role_flags(
     out: Dict[str, Any],
     live_path: str,
@@ -68,7 +88,98 @@ def _attach_ridge_role_flags(
     if live_present is None:
         live_present = bool(live_path and os.path.isfile(live_path))
     out["live_model_present"] = bool(live_present)
+    fitted = out.get("fitted_at")
+    if not fitted:
+        fitted = _file_mtime_iso(_last_report_path_from_live(live_path))
+    if not fitted:
+        fitted = out.get("promoted_at") or flags.get("research_promoted_at")
+    if fitted:
+        out["fitted_at"] = fitted
     return out
+
+
+def _start_ridge_fit_job(
+    *,
+    slot: Any,
+    kind: str,
+    message: str,
+    worker_fn: Any,
+    watching_limit: int = 200,
+) -> Dict[str, Any]:
+    """Ridge 拟合入队：立刻返回 ``background=true``，心跳防 5min 误杀。"""
+    import threading
+
+    slot.reclaim_if_stale()
+    if slot.is_running():
+        return {
+            "ok": True,
+            "success": True,
+            "background": True,
+            "reused": True,
+            "job": slot.get(),
+        }
+
+    try:
+        from core.watching.store import read_watching
+
+        n_watch_all = len(list((read_watching() or {}).get("watchlist") or []))
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in quant_service_factors.py", exc_info=True)
+        n_watch_all = watching_limit
+    cap = max(1, int(watching_limit or 200))
+    n_watch = min(n_watch_all, cap) if n_watch_all else cap
+    job_total = max(1, n_watch)
+    job_id = slot.start(kind=kind, total=job_total, message=message)
+
+    def _worker() -> None:
+        stop_hb = threading.Event()
+
+        def _heartbeat() -> None:
+            while not stop_hb.wait(8.0):
+                if not slot.touch(job_id=job_id):
+                    return
+
+        hb = threading.Thread(target=_heartbeat, name=f"{kind}-hb-{job_id}", daemon=True)
+        hb.start()
+        try:
+            if slot.is_cancel_requested():
+                slot.finish(error="已取消", job_id=job_id)
+                return
+            result = worker_fn()
+            if slot.is_cancel_requested():
+                slot.finish(error="已取消", job_id=job_id)
+                return
+            if not isinstance(result, dict):
+                slot.finish(error="拟合无返回", job_id=job_id)
+                return
+            if not result.get("success"):
+                slot.finish(
+                    error=str(result.get("error") or "拟合失败"),
+                    result=result,
+                    job_id=job_id,
+                )
+                return
+            slot.update(
+                current=job_total,
+                total=job_total,
+                message="完成",
+                job_id=job_id,
+            )
+            slot.finish(result=result, job_id=job_id)
+        except Exception as e:
+            logger.exception("unexpected error in %s worker", kind)
+            slot.finish(error=str(e), job_id=job_id)
+        finally:
+            stop_hb.set()
+
+    threading.Thread(target=_worker, name=f"{kind}-{job_id}", daemon=True).start()
+    return {
+        "ok": True,
+        "success": True,
+        "background": True,
+        "job": slot.get(),
+    }
+
 
 # ============================================================
 # 跑分组阶段编号（共 13 主阶段）
@@ -1746,6 +1857,505 @@ class QuantFactorMixin:
             packed["return_model_research"] = research_rm
         return _attach_ridge_role_flags(packed, r_model_path())
 
+    def run_t30_ridge_experiment(
+        self,
+        *,
+        lookback: int = 120,
+        watching_limit: int = 200,
+        ridge_lambda: float = 1.0,
+        gap_trigger_pct: float = 2.0,
+        minute_period: str = "5",
+        minute_lookback_days: int = 150,
+        persist: bool = False,
+        note: str = "",
+        force_promote: bool = False,
+        persist_role: str = "live",
+        holdout_trading_days: int = 10,
+    ) -> Dict[str, Any]:
+        """观察池 ŷ_τ30 Ridge：与 ŷ_oc 同 X → price(τ⊕30m)/price(τ)−1。只读本地 5m 缓存。"""
+        from core.data.facade import bars_and_source
+        from core.watching.store import WATCHING_MAX_SIZE, read_watching
+        from core.research.t30_ridge import (
+            fit_t30_ridge_report,
+            load_t30_last_report,
+            load_t30_model,
+            persist_t30_model,
+            t30_model_path,
+            t30_promote_gate,
+            save_t30_last_report,
+        )
+
+        uni = read_watching()
+        pool = [
+            str(c).strip()
+            for c in (uni.get("watchlist") or [])
+            if str(c).strip()
+        ]
+        cap = max(2, min(int(WATCHING_MAX_SIZE), 500))
+        limit = max(2, min(int(watching_limit or cap), cap))
+        codes = pool[:limit]
+        if len(codes) < 2:
+            return {
+                "success": False,
+                "error": "研究池至少 2 只才可跑 ŷ_τ30 Ridge",
+                "task": "t30_ridge",
+            }
+
+        if persist:
+            last = load_t30_last_report()
+            if last:
+                saved = persist_t30_model(
+                    last,
+                    note=note or "persist last t30 report",
+                    force=bool(force_promote),
+                    role=persist_role,
+                )
+                out = dict(last)
+                out["persisted"] = saved
+                out["from_last_report"] = True
+                out["promote_gate"] = saved.get("promote_gate") or t30_promote_gate(last)
+                if saved.get("promoted_at"):
+                    out["promoted_at"] = saved["promoted_at"]
+                return _attach_ridge_role_flags(out, t30_model_path())
+
+        period = str(minute_period or "5").strip() or "5"
+        mlook = max(20, min(int(minute_lookback_days or 90), 240))
+        stock_bars: List[Dict[str, Any]] = []
+        minute_hit = 0
+        minute_codes_miss = 0
+        for code in codes:
+            bars, _src = bars_and_source(code, limit=lookback + 40)
+            if not bars:
+                continue
+            row: Dict[str, Any] = {"code": str(code), "bars": bars}
+            try:
+                from core.ports.market import resolve_market_code
+                from core.store import load_minute_cache
+
+                mkt, pure = resolve_market_code(str(code))
+                packed = load_minute_cache(
+                    mkt or "CN",
+                    pure or str(code),
+                    period,
+                    min_bars=1,
+                    ignore_age=True,
+                )
+                if packed:
+                    mb, _meta = packed
+                    if mb:
+                        row["minute_bars"] = mb
+                        minute_hit += 1
+                    else:
+                        minute_codes_miss += 1
+                else:
+                    minute_codes_miss += 1
+            except Exception:  # noqa: BLE001
+                logger.debug("t30 ridge minute cache miss for %s", code, exc_info=True)
+                minute_codes_miss += 1
+            stock_bars.append(row)
+
+        if minute_hit < 1:
+            return {
+                "success": False,
+                "error": (
+                    f"无本地分钟缓存（period={period} · 池 {len(codes)} 只）；"
+                    "请先「强更 5m」，拟合不再拉远端"
+                ),
+                "task": "t30_ridge",
+                "minute_period": period,
+                "watching_limit": limit,
+                "watching_pool_size": len(pool),
+                "minute_cache_only": True,
+                "minute_codes_miss": minute_codes_miss,
+            }
+
+        report = fit_t30_ridge_report(
+            stock_bars,
+            ridge_lambda=ridge_lambda,
+            gap_trigger_pct=gap_trigger_pct,
+            holdout_trading_days=holdout_trading_days,
+        )
+        report["watching_limit"] = limit
+        report["watching_pool_size"] = len(pool)
+        report["lookback"] = lookback
+        report["minute_period"] = period
+        report["minute_lookback_days"] = mlook
+        report["minute_codes_hit"] = minute_hit
+        report["minute_codes_miss"] = minute_codes_miss
+        report["minute_codes_universe"] = len(codes)
+        report["minute_cache_only"] = True
+        if report.get("success"):
+            save_t30_last_report(report)
+        if persist and report.get("success"):
+            saved = persist_t30_model(
+                report,
+                note=note or "api t30-ridge persist",
+                force=bool(force_promote),
+                role=persist_role,
+            )
+            report["persisted"] = saved
+            report["promote_gate"] = saved.get("promote_gate") or t30_promote_gate(report)
+            if saved.get("promoted_at"):
+                report["promoted_at"] = saved["promoted_at"]
+        else:
+            report["persisted"] = {"success": False, "skipped": True}
+            live = load_t30_model()
+            report["live_model_present"] = bool(live)
+            if report.get("success") and not report.get("promote_gate"):
+                report["promote_gate"] = t30_promote_gate(report)
+        return _attach_ridge_role_flags(report, t30_model_path())
+
+    def get_t30_ridge_model(self) -> Dict[str, Any]:
+        from core.research.t30_ridge import (
+            load_t30_last_report,
+            load_t30_model,
+            t30_model_path,
+            t30_promote_gate,
+        )
+
+        doc = load_t30_model()
+        last = load_t30_last_report()
+        chosen, use_last = _select_ridge_desk_doc(doc, last)
+        if not chosen:
+            out = {
+                "success": False,
+                "exists": False,
+                "path": t30_model_path(),
+                "last_report_exists": bool(last),
+                "note": "尚无 ŷ_τ30 模型；POST /api/quant/t30-ridge persist=true",
+            }
+            if last:
+                out["promote_gate"] = t30_promote_gate(last)
+                out["oos"] = last.get("oos")
+            return _attach_ridge_role_flags(out, t30_model_path(), live_present=False)
+        gate_src = last if use_last else (doc if not doc.get("_shadow") else (last or doc))
+        packed = {
+            **chosen,
+            "success": True,
+            "exists": True,
+            "path": t30_model_path(),
+            "promoted": (not use_last) and not bool(chosen.get("_shadow")),
+            "shadow": bool(use_last) or bool(chosen.get("_shadow")),
+            "last_report_exists": bool(last),
+            "promote_gate": t30_promote_gate(gate_src),
+        }
+        research_rm = packed.get("return_model_research")
+        if not isinstance(research_rm, dict):
+            if isinstance(last, dict) and isinstance(last.get("return_model_research"), dict):
+                research_rm = last["return_model_research"]
+            else:
+                research_doc = load_t30_model(role="research")
+                research_rm = (
+                    research_doc.get("return_model")
+                    if isinstance(research_doc, dict)
+                    else None
+                )
+        if isinstance(research_rm, dict):
+            packed["return_model_research"] = research_rm
+        return _attach_ridge_role_flags(packed, t30_model_path())
+
+    def start_t30_ridge_job(
+        self,
+        *,
+        lookback: int = 120,
+        watching_limit: int = 200,
+        ridge_lambda: float = 1.0,
+        gap_trigger_pct: float = 2.0,
+        minute_period: str = "5",
+        minute_lookback_days: int = 150,
+        note: str = "",
+        holdout_trading_days: int = 10,
+        **_ignored: Any,
+    ) -> Dict[str, Any]:
+        """后台 ŷ_τ30 拟合；轮询 ``GET /api/jobs/t30-ridge``。不写盘。"""
+        from core.job_progress import t30_ridge_job
+
+        kwargs = dict(
+            lookback=lookback,
+            watching_limit=watching_limit,
+            ridge_lambda=ridge_lambda,
+            gap_trigger_pct=gap_trigger_pct,
+            minute_period=minute_period,
+            minute_lookback_days=minute_lookback_days,
+            persist=False,
+            note=note or "",
+            holdout_trading_days=holdout_trading_days,
+        )
+        return _start_ridge_fit_job(
+            slot=t30_ridge_job,
+            kind="t30_ridge",
+            message="ŷ_τ30 拟合中…",
+            watching_limit=int(watching_limit or 200),
+            worker_fn=lambda: self.run_t30_ridge_experiment(**kwargs),
+        )
+
+    def run_t60_ridge_experiment(
+        self,
+        *,
+        lookback: int = 120,
+        watching_limit: int = 200,
+        ridge_lambda: float = 1.0,
+        gap_trigger_pct: float = 2.0,
+        minute_period: str = "5",
+        minute_lookback_days: int = 150,
+        persist: bool = False,
+        note: str = "",
+        force_promote: bool = False,
+        persist_role: str = "live",
+        holdout_trading_days: int = 10,
+    ) -> Dict[str, Any]:
+        """观察池 ŷ_τ60 Ridge：与 ŷ_oc 同 X → price(τ⊕60m)/price(τ)−1。只读本地 5m 缓存。"""
+        from core.data.facade import bars_and_source
+        from core.watching.store import WATCHING_MAX_SIZE, read_watching
+        from core.research.t60_ridge import (
+            fit_t60_ridge_report,
+            load_t60_last_report,
+            load_t60_model,
+            persist_t60_model,
+            t60_model_path,
+            t60_promote_gate,
+            save_t60_last_report,
+        )
+
+        uni = read_watching()
+        pool = [
+            str(c).strip()
+            for c in (uni.get("watchlist") or [])
+            if str(c).strip()
+        ]
+        cap = max(2, min(int(WATCHING_MAX_SIZE), 500))
+        limit = max(2, min(int(watching_limit or cap), cap))
+        codes = pool[:limit]
+        if len(codes) < 2:
+            return {
+                "success": False,
+                "error": "研究池至少 2 只才可跑 ŷ_τ60 Ridge",
+                "task": "t60_ridge",
+            }
+
+        if persist:
+            last = load_t60_last_report()
+            if last:
+                saved = persist_t60_model(
+                    last,
+                    note=note or "persist last t60 report",
+                    force=bool(force_promote),
+                    role=persist_role,
+                )
+                out = dict(last)
+                out["persisted"] = saved
+                out["from_last_report"] = True
+                out["promote_gate"] = saved.get("promote_gate") or t60_promote_gate(last)
+                if saved.get("promoted_at"):
+                    out["promoted_at"] = saved["promoted_at"]
+                return _attach_ridge_role_flags(out, t60_model_path())
+
+        period = str(minute_period or "5").strip() or "5"
+        mlook = max(20, min(int(minute_lookback_days or 90), 240))
+        stock_bars: List[Dict[str, Any]] = []
+        minute_hit = 0
+        minute_codes_miss = 0
+        for code in codes:
+            bars, _src = bars_and_source(code, limit=lookback + 40)
+            if not bars:
+                continue
+            row: Dict[str, Any] = {"code": str(code), "bars": bars}
+            try:
+                from core.ports.market import resolve_market_code
+                from core.store import load_minute_cache
+
+                mkt, pure = resolve_market_code(str(code))
+                packed = load_minute_cache(
+                    mkt or "CN",
+                    pure or str(code),
+                    period,
+                    min_bars=1,
+                    ignore_age=True,
+                )
+                if packed:
+                    mb, _meta = packed
+                    if mb:
+                        row["minute_bars"] = mb
+                        minute_hit += 1
+                    else:
+                        minute_codes_miss += 1
+                else:
+                    minute_codes_miss += 1
+            except Exception:  # noqa: BLE001
+                logger.debug("t60 ridge minute cache miss for %s", code, exc_info=True)
+                minute_codes_miss += 1
+            stock_bars.append(row)
+
+        if minute_hit < 1:
+            return {
+                "success": False,
+                "error": (
+                    f"无本地分钟缓存（period={period} · 池 {len(codes)} 只）；"
+                    "请先「强更 5m」，拟合不再拉远端"
+                ),
+                "task": "t60_ridge",
+                "minute_period": period,
+                "watching_limit": limit,
+                "watching_pool_size": len(pool),
+                "minute_cache_only": True,
+                "minute_codes_miss": minute_codes_miss,
+            }
+
+        report = fit_t60_ridge_report(
+            stock_bars,
+            ridge_lambda=ridge_lambda,
+            gap_trigger_pct=gap_trigger_pct,
+            holdout_trading_days=holdout_trading_days,
+        )
+        report["watching_limit"] = limit
+        report["watching_pool_size"] = len(pool)
+        report["lookback"] = lookback
+        report["minute_period"] = period
+        report["minute_lookback_days"] = mlook
+        report["minute_codes_hit"] = minute_hit
+        report["minute_codes_miss"] = minute_codes_miss
+        report["minute_codes_universe"] = len(codes)
+        report["minute_cache_only"] = True
+        if report.get("success"):
+            save_t60_last_report(report)
+        if persist and report.get("success"):
+            saved = persist_t60_model(
+                report,
+                note=note or "api t60-ridge persist",
+                force=bool(force_promote),
+                role=persist_role,
+            )
+            report["persisted"] = saved
+            report["promote_gate"] = saved.get("promote_gate") or t60_promote_gate(report)
+            if saved.get("promoted_at"):
+                report["promoted_at"] = saved["promoted_at"]
+        else:
+            report["persisted"] = {"success": False, "skipped": True}
+            live = load_t60_model()
+            report["live_model_present"] = bool(live)
+            if report.get("success") and not report.get("promote_gate"):
+                report["promote_gate"] = t60_promote_gate(report)
+        return _attach_ridge_role_flags(report, t60_model_path())
+
+    def get_t60_ridge_model(self) -> Dict[str, Any]:
+        from core.research.t60_ridge import (
+            load_t60_last_report,
+            load_t60_model,
+            t60_model_path,
+            t60_promote_gate,
+        )
+
+        doc = load_t60_model()
+        last = load_t60_last_report()
+        chosen, use_last = _select_ridge_desk_doc(doc, last)
+        if not chosen:
+            out = {
+                "success": False,
+                "exists": False,
+                "path": t60_model_path(),
+                "last_report_exists": bool(last),
+                "note": "尚无 ŷ_τ60 模型；POST /api/quant/t60-ridge persist=true",
+            }
+            if last:
+                out["promote_gate"] = t60_promote_gate(last)
+                out["oos"] = last.get("oos")
+            return _attach_ridge_role_flags(out, t60_model_path(), live_present=False)
+        gate_src = last if use_last else (doc if not doc.get("_shadow") else (last or doc))
+        packed = {
+            **chosen,
+            "success": True,
+            "exists": True,
+            "path": t60_model_path(),
+            "promoted": (not use_last) and not bool(chosen.get("_shadow")),
+            "shadow": bool(use_last) or bool(chosen.get("_shadow")),
+            "last_report_exists": bool(last),
+            "promote_gate": t60_promote_gate(gate_src),
+        }
+        research_rm = packed.get("return_model_research")
+        if not isinstance(research_rm, dict):
+            if isinstance(last, dict) and isinstance(last.get("return_model_research"), dict):
+                research_rm = last["return_model_research"]
+            else:
+                research_doc = load_t60_model(role="research")
+                research_rm = (
+                    research_doc.get("return_model")
+                    if isinstance(research_doc, dict)
+                    else None
+                )
+        if isinstance(research_rm, dict):
+            packed["return_model_research"] = research_rm
+        return _attach_ridge_role_flags(packed, t60_model_path())
+
+    def start_t60_ridge_job(
+        self,
+        *,
+        lookback: int = 120,
+        watching_limit: int = 200,
+        ridge_lambda: float = 1.0,
+        gap_trigger_pct: float = 2.0,
+        minute_period: str = "5",
+        minute_lookback_days: int = 150,
+        note: str = "",
+        holdout_trading_days: int = 10,
+        **_ignored: Any,
+    ) -> Dict[str, Any]:
+        """后台 ŷ_τ60 拟合；轮询 ``GET /api/jobs/t60-ridge``。不写盘。"""
+        from core.job_progress import t60_ridge_job
+
+        kwargs = dict(
+            lookback=lookback,
+            watching_limit=watching_limit,
+            ridge_lambda=ridge_lambda,
+            gap_trigger_pct=gap_trigger_pct,
+            minute_period=minute_period,
+            minute_lookback_days=minute_lookback_days,
+            persist=False,
+            note=note or "",
+            holdout_trading_days=holdout_trading_days,
+        )
+        return _start_ridge_fit_job(
+            slot=t60_ridge_job,
+            kind="t60_ridge",
+            message="ŷ_τ60 拟合中…",
+            watching_limit=int(watching_limit or 200),
+            worker_fn=lambda: self.run_t60_ridge_experiment(**kwargs),
+        )
+
+    def start_r_ridge_job(
+        self,
+        *,
+        lookback: int = 120,
+        watching_limit: int = 200,
+        ridge_lambda: float = 1.0,
+        gap_trigger_pct: float = 2.0,
+        minute_period: str = "5",
+        minute_lookback_days: int = 150,
+        note: str = "",
+        holdout_trading_days: int = 10,
+        **_ignored: Any,
+    ) -> Dict[str, Any]:
+        """后台 ŷ_τc 拟合；轮询 ``GET /api/jobs/r-ridge``。不写盘。"""
+        from core.job_progress import r_ridge_job
+
+        kwargs = dict(
+            lookback=lookback,
+            watching_limit=watching_limit,
+            ridge_lambda=ridge_lambda,
+            gap_trigger_pct=gap_trigger_pct,
+            minute_period=minute_period,
+            minute_lookback_days=minute_lookback_days,
+            persist=False,
+            note=note or "",
+            holdout_trading_days=holdout_trading_days,
+        )
+        return _start_ridge_fit_job(
+            slot=r_ridge_job,
+            kind="r_ridge",
+            message="ŷ_τc 拟合中…",
+            watching_limit=int(watching_limit or 200),
+            worker_fn=lambda: self.run_r_ridge_experiment(**kwargs),
+        )
+
     def run_r_tree_experiment(
         self,
         *,
@@ -1911,6 +2521,340 @@ class QuantFactorMixin:
         out["live_hook"] = False
         out["backtest_hook"] = False
         out.setdefault("head", "y_r_tree")
+        return out
+
+    def run_t30_tree_experiment(
+        self,
+        *,
+        lookback: int = 120,
+        watching_limit: int = 200,
+        ridge_lambda: float = 1.0,
+        gap_trigger_pct: float = 2.0,
+        theme_boost: float = 1.5,
+        tau_hm: Optional[str] = None,
+        holdout_trading_days: int = 10,
+        backend: Optional[str] = None,
+        minute_period: str = "5",
+        minute_lookback_days: int = 150,
+    ) -> Dict[str, Any]:
+        """ŷ_τ30_tree 影子头：同面板 Holdout vs Ridge。只写 last_report，不进 live / 回测。"""
+        import time
+
+        from core.data.facade import bars_and_source
+        from core.watching.store import WATCHING_MAX_SIZE, read_watching
+        from core.research.t30_tree import (
+            fit_t30_tree_report,
+            save_t30_tree_last_report,
+        )
+
+        uni = read_watching()
+        pool = [
+            str(c).strip()
+            for c in (uni.get("watchlist") or [])
+            if str(c).strip()
+        ]
+        cap = max(2, min(int(WATCHING_MAX_SIZE), 500))
+        limit = max(2, min(int(watching_limit or cap), cap))
+        codes = pool[:limit]
+        if len(codes) < 2:
+            return {
+                "success": False,
+                "error": "研究池至少 2 只才可跑 ŷ_τ30_tree",
+                "task": "t30_tree",
+                "head": "y_t30_tree",
+                "live_hook": False,
+                "backtest_hook": False,
+            }
+
+        live_hm = str(tau_hm or "10:30").strip() or "10:30"
+        if live_hm.lower() in ("", "open"):
+            live_hm = "10:30"
+        period = str(minute_period or "5").strip() or "5"
+        mlook = max(20, min(int(minute_lookback_days or 90), 240))
+        stock_bars: List[Dict[str, Any]] = []
+        minute_hit = 0
+        minute_codes_miss = 0
+        t_bars0 = time.perf_counter()
+        for code in codes:
+            bars, _src = bars_and_source(code, limit=lookback + 40)
+            if not bars:
+                continue
+            row: Dict[str, Any] = {"code": str(code), "bars": bars}
+            try:
+                from core.ports.market import resolve_market_code
+                from core.store import load_minute_cache
+
+                mkt, pure = resolve_market_code(str(code))
+                packed = load_minute_cache(
+                    mkt or "CN",
+                    pure or str(code),
+                    period,
+                    min_bars=1,
+                    ignore_age=True,
+                )
+                if packed:
+                    mb, _meta = packed
+                    if mb:
+                        row["minute_bars"] = mb
+                        minute_hit += 1
+                    else:
+                        minute_codes_miss += 1
+                else:
+                    minute_codes_miss += 1
+            except Exception:  # noqa: BLE001
+                logger.debug("t30 tree minute cache miss for %s", code, exc_info=True)
+                minute_codes_miss += 1
+            stock_bars.append(row)
+        bars_s = round(time.perf_counter() - t_bars0, 2)
+
+        if minute_hit < 1:
+            return {
+                "success": False,
+                "error": (
+                    f"无本地分钟缓存（period={period} · 池 {len(codes)} 只）；"
+                    "请先「强更 5m」，拟合不再拉远端"
+                ),
+                "task": "t30_tree",
+                "head": "y_t30_tree",
+                "minute_period": period,
+                "watching_limit": limit,
+                "watching_pool_size": len(pool),
+                "minute_cache_only": True,
+                "minute_codes_miss": minute_codes_miss,
+                "live_hook": False,
+                "backtest_hook": False,
+            }
+
+        report = fit_t30_tree_report(
+            stock_bars,
+            ridge_lambda=ridge_lambda,
+            gap_trigger_pct=gap_trigger_pct,
+            theme_boost=theme_boost,
+            tau_hm=live_hm,
+            holdout_trading_days=holdout_trading_days,
+            backend=backend,
+        )
+        report["watching_limit"] = limit
+        report["watching_pool_size"] = len(pool)
+        report["lookback"] = lookback
+        report["minute_period"] = period
+        report["minute_lookback_days"] = mlook
+        report["minute_codes_hit"] = minute_hit
+        report["minute_codes_miss"] = minute_codes_miss
+        report["minute_codes_universe"] = len(codes)
+        report["minute_cache_hit"] = minute_hit
+        report["minute_cache_universe"] = len(codes)
+        report["minute_cache_only"] = True
+        timing = dict(report.get("timing") or {}) if isinstance(report.get("timing"), dict) else {}
+        timing["bars_s"] = bars_s
+        fit_s = timing.get("fit_s")
+        try:
+            total_s = bars_s + (float(fit_s) if fit_s is not None else 0.0)
+        except (TypeError, ValueError):
+            total_s = bars_s
+        timing["total_s"] = round(float(total_s), 2)
+        report["timing"] = timing
+        report["live_hook"] = False
+        report["backtest_hook"] = False
+        report["persisted"] = {
+            "success": False,
+            "skipped": True,
+            "reason": "shadow_only",
+        }
+        if report.get("success"):
+            save_t30_tree_last_report(report)
+        return report
+
+    def get_t30_tree_last_report(self) -> Dict[str, Any]:
+        from core.research.t30_tree import (
+            load_t30_tree_last_report,
+            t30_tree_last_report_path,
+        )
+
+        last = load_t30_tree_last_report()
+        if not last:
+            return {
+                "success": False,
+                "exists": False,
+                "path": t30_tree_last_report_path(),
+                "live_hook": False,
+                "backtest_hook": False,
+                "head": "y_t30_tree",
+                "note": "尚无 ŷ_τ30_tree；POST /api/quant/t30-tree",
+            }
+        out = dict(last)
+        out["exists"] = True
+        out["path"] = t30_tree_last_report_path()
+        out["live_hook"] = False
+        out["backtest_hook"] = False
+        out.setdefault("head", "y_t30_tree")
+        return out
+
+    def run_t60_tree_experiment(
+        self,
+        *,
+        lookback: int = 120,
+        watching_limit: int = 200,
+        ridge_lambda: float = 1.0,
+        gap_trigger_pct: float = 2.0,
+        theme_boost: float = 1.5,
+        tau_hm: Optional[str] = None,
+        holdout_trading_days: int = 10,
+        backend: Optional[str] = None,
+        minute_period: str = "5",
+        minute_lookback_days: int = 150,
+    ) -> Dict[str, Any]:
+        """ŷ_τ60_tree 影子头：同面板 Holdout vs Ridge。只写 last_report，不进 live / 回测。"""
+        import time
+
+        from core.data.facade import bars_and_source
+        from core.watching.store import WATCHING_MAX_SIZE, read_watching
+        from core.research.t60_tree import (
+            fit_t60_tree_report,
+            save_t60_tree_last_report,
+        )
+
+        uni = read_watching()
+        pool = [
+            str(c).strip()
+            for c in (uni.get("watchlist") or [])
+            if str(c).strip()
+        ]
+        cap = max(2, min(int(WATCHING_MAX_SIZE), 500))
+        limit = max(2, min(int(watching_limit or cap), cap))
+        codes = pool[:limit]
+        if len(codes) < 2:
+            return {
+                "success": False,
+                "error": "研究池至少 2 只才可跑 ŷ_τ60_tree",
+                "task": "t60_tree",
+                "head": "y_t60_tree",
+                "live_hook": False,
+                "backtest_hook": False,
+            }
+
+        live_hm = str(tau_hm or "10:30").strip() or "10:30"
+        if live_hm.lower() in ("", "open"):
+            live_hm = "10:30"
+        period = str(minute_period or "5").strip() or "5"
+        mlook = max(20, min(int(minute_lookback_days or 90), 240))
+        stock_bars: List[Dict[str, Any]] = []
+        minute_hit = 0
+        minute_codes_miss = 0
+        t_bars0 = time.perf_counter()
+        for code in codes:
+            bars, _src = bars_and_source(code, limit=lookback + 40)
+            if not bars:
+                continue
+            row: Dict[str, Any] = {"code": str(code), "bars": bars}
+            try:
+                from core.ports.market import resolve_market_code
+                from core.store import load_minute_cache
+
+                mkt, pure = resolve_market_code(str(code))
+                packed = load_minute_cache(
+                    mkt or "CN",
+                    pure or str(code),
+                    period,
+                    min_bars=1,
+                    ignore_age=True,
+                )
+                if packed:
+                    mb, _meta = packed
+                    if mb:
+                        row["minute_bars"] = mb
+                        minute_hit += 1
+                    else:
+                        minute_codes_miss += 1
+                else:
+                    minute_codes_miss += 1
+            except Exception:  # noqa: BLE001
+                logger.debug("t60 tree minute cache miss for %s", code, exc_info=True)
+                minute_codes_miss += 1
+            stock_bars.append(row)
+        bars_s = round(time.perf_counter() - t_bars0, 2)
+
+        if minute_hit < 1:
+            return {
+                "success": False,
+                "error": (
+                    f"无本地分钟缓存（period={period} · 池 {len(codes)} 只）；"
+                    "请先「强更 5m」，拟合不再拉远端"
+                ),
+                "task": "t60_tree",
+                "head": "y_t60_tree",
+                "minute_period": period,
+                "watching_limit": limit,
+                "watching_pool_size": len(pool),
+                "minute_cache_only": True,
+                "minute_codes_miss": minute_codes_miss,
+                "live_hook": False,
+                "backtest_hook": False,
+            }
+
+        report = fit_t60_tree_report(
+            stock_bars,
+            ridge_lambda=ridge_lambda,
+            gap_trigger_pct=gap_trigger_pct,
+            theme_boost=theme_boost,
+            tau_hm=live_hm,
+            holdout_trading_days=holdout_trading_days,
+            backend=backend,
+        )
+        report["watching_limit"] = limit
+        report["watching_pool_size"] = len(pool)
+        report["lookback"] = lookback
+        report["minute_period"] = period
+        report["minute_lookback_days"] = mlook
+        report["minute_codes_hit"] = minute_hit
+        report["minute_codes_miss"] = minute_codes_miss
+        report["minute_codes_universe"] = len(codes)
+        report["minute_cache_hit"] = minute_hit
+        report["minute_cache_universe"] = len(codes)
+        report["minute_cache_only"] = True
+        timing = dict(report.get("timing") or {}) if isinstance(report.get("timing"), dict) else {}
+        timing["bars_s"] = bars_s
+        fit_s = timing.get("fit_s")
+        try:
+            total_s = bars_s + (float(fit_s) if fit_s is not None else 0.0)
+        except (TypeError, ValueError):
+            total_s = bars_s
+        timing["total_s"] = round(float(total_s), 2)
+        report["timing"] = timing
+        report["live_hook"] = False
+        report["backtest_hook"] = False
+        report["persisted"] = {
+            "success": False,
+            "skipped": True,
+            "reason": "shadow_only",
+        }
+        if report.get("success"):
+            save_t60_tree_last_report(report)
+        return report
+
+    def get_t60_tree_last_report(self) -> Dict[str, Any]:
+        from core.research.t60_tree import (
+            load_t60_tree_last_report,
+            t60_tree_last_report_path,
+        )
+
+        last = load_t60_tree_last_report()
+        if not last:
+            return {
+                "success": False,
+                "exists": False,
+                "path": t60_tree_last_report_path(),
+                "live_hook": False,
+                "backtest_hook": False,
+                "head": "y_t60_tree",
+                "note": "尚无 ŷ_τ60_tree；POST /api/quant/t60-tree",
+            }
+        out = dict(last)
+        out["exists"] = True
+        out["path"] = t60_tree_last_report_path()
+        out["live_hook"] = False
+        out["backtest_hook"] = False
+        out.setdefault("head", "y_t60_tree")
         return out
 
     def run_factor_ols_pool_experiment(

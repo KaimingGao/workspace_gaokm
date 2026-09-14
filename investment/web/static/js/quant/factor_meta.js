@@ -215,6 +215,89 @@ export const TAU_FEAT_META = {
     label: "近15m 收益 %",
     description: "τ 前约 15 分钟（约 3 根 5m）收益（%）。刻画临门动量。",
   },
+  ret_last_5m: {
+    label: "近5m 收益 %",
+    description: "ŷ_τ30 专用。末根 5m 收益（%）：closes[-1]/closes[-2]−1。需 ≥2 根前缀。",
+  },
+  ret_last_30m: {
+    label: "近30交易分钟收益 %",
+    description:
+      "ŷ_τ30 专用。P_τ / P_{τ⊖30} − 1（交易时钟，跳过午休）。开盘后不足 30 交易分钟留空；τ⊖30=09:30 且缺根时用开盘价。",
+  },
+  session_elapsed: {
+    label: "已过交易分钟（09:30=0）",
+    description:
+      "ŷ_τ30 专用。09:30=0，11:30=120，13:00=120，14:30=210。午休不计入。",
+  },
+  session_remain: {
+    label: "距收盘剩余交易分钟",
+    description: "ŷ_τ30 专用。240 − session_elapsed（到 15:00）。",
+  },
+  crosses_lunch: {
+    label: "未来30m是否跨午休",
+    description:
+      "ŷ_τ30 专用。1 当 elapsed(τ)≤120 且 elapsed(τ⊕30)>120（11:15→13:15、11:30→13:30）；11:00→11:30 为 0。",
+  },
+  session_vwap_dev: {
+    label: "τ价相对会话VWAP %",
+    description:
+      "ŷ_τ30 专用。(P_τ − VWAP_{09:30→τ}) / P_τ。VWAP 用 5m typical×量；正值=现价在会话均价之上。",
+  },
+  vol_last_30m_vs_avg: {
+    label: "近30m量/前缀均量",
+    description:
+      "ŷ_τ30 专用。近 30 交易分钟 5m 均量 / 开盘→τ 前缀均量。>1 表示临门相对放量。",
+  },
+  sector_ret_last_30m: {
+    label: "板块中位近30m %",
+    description:
+      "ŷ_τ30 专用。同日同钟池内 ret_last_30m 中位数（%）。与开→τ 的 sector_ret_to_tau 窗口不同。",
+  },
+  ret_last_30m_vs_sector: {
+    label: "近30m相对板块 %",
+    description: "ŷ_τ30 专用。个股 ret_last_30m − 板块中位近30m（%）。",
+  },
+  t30_lag1: {
+    label: "昨同钟真实 τ⊕30m %",
+    description:
+      "ŷ_τ30 专用。同一决策钟昨日已实现 price(τ⊕30m)/price(τ)−1。日期严格早于 asof。",
+  },
+  t30_ma5: {
+    label: "近5日同钟真实 τ⊕30m 均 %",
+    description:
+      "ŷ_τ30 专用。同一决策钟近 5 个交易日已实现 τ⊕30m 收益均值。日期严格早于 asof。",
+  },
+  ret_last_60m: {
+    label: "近60交易分钟收益 %",
+    description: "ŷ_τ60 专用。交易时钟 ⊖60m 到 τ 的收益（%）；跳过午休。",
+  },
+  crosses_lunch_60: {
+    label: "未来60m是否跨午休",
+    description: "ŷ_τ60 专用。τ⊕60m 是否跨 11:30–13:00。与 30m 的 crosses_lunch 分开。",
+  },
+  vol_last_60m_vs_avg: {
+    label: "近60m量/前缀均量",
+    description: "ŷ_τ60 专用。近 60 交易分钟均量 / 前缀均量。",
+  },
+  sector_ret_last_60m: {
+    label: "板块中位近60m %",
+    description:
+      "ŷ_τ60 专用。同日同钟池内 ret_last_60m 中位数（%）。与开→τ 的 sector_ret_to_tau 窗口不同。",
+  },
+  ret_last_60m_vs_sector: {
+    label: "近60m相对板块 %",
+    description: "ŷ_τ60 专用。个股 ret_last_60m − 板块中位近60m（%）。",
+  },
+  t60_lag1: {
+    label: "昨同钟真实 τ⊕60m %",
+    description:
+      "ŷ_τ60 专用。同一决策钟昨日已实现 price(τ⊕60m)/price(τ)−1。日期严格早于 asof。",
+  },
+  t60_ma5: {
+    label: "近5日同钟真实 τ⊕60m 均 %",
+    description:
+      "ŷ_τ60 专用。同一决策钟近 5 个交易日已实现 τ⊕60m 收益均值。日期严格早于 asof。",
+  },
   realized_vol: {
     label: "前缀已实现波动 %",
     description: "开盘→τ 的 5m 收益标准差（%）。路径噪声强度。",

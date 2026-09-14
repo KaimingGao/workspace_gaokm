@@ -42,28 +42,8 @@ ALLOWED_T0_PATCH_KEYS = frozenset(
         "direction",
         "path_mode",
         "minute_period",
-        "min_range_pct",
-        "min_range_pct_sell_then_buy",
-        "min_range_pct_buy_then_sell",
-        "use_atr",
-        "atr_window",
-        "atr_sell_mult",
-        "atr_buy_mult",
-        "dir_enter",
-        "auto_strong_pct",
-        "auto_weak_pct",
-        "w_gap",
-        "w_yclose_loc",
-        "w_mom3",
-        "w_gap_atr",
         "y_trade_enter",
-        "y_trade_strong",
-        "y_eod_prior",
-        "y_eod_enter",
-        "y_eod_strong",
         "y_trade_floor",
-        "y_eod_tau_sign_gate",
-        "y_trade_tau_sign_gate",
         "y_tau_enter",
         "y_tau_enter_strong",
         "y_tau_enter_sell_then_buy",
@@ -78,11 +58,6 @@ ALLOWED_T0_PATCH_KEYS = frozenset(
         "y_path_enter_alt",
         "y_on_risk",
         "y_on_allow",
-        "y_block_tau_nowcast_sign",
-        "y_nc_enter",
-        "y_nc_strong",
-        "y_nowcast_enter",
-        "y_tau_map",
         "y_use_path",
         "t0_y_oc_target_scale",
         "t0_y_oc_l",
@@ -93,6 +68,18 @@ ALLOWED_T0_PATCH_KEYS = frozenset(
         "y_path_strong",
         "y_tc_strong",
         "y_τc_strong",
+        "y_t30_strong",
+        "y_τ30_strong",
+        "y_t30_enter",
+        "y_τ30_enter",
+        "y_t30_enter_alt",
+        "y_τ30_enter_alt",
+        "y_t60_strong",
+        "y_τ60_strong",
+        "y_t60_enter",
+        "y_τ60_enter",
+        "y_t60_enter_alt",
+        "y_τ60_enter_alt",
         "y_tc_enter",
         "y_τc_enter",
         "y_tc_enter_alt",
@@ -103,9 +90,6 @@ ALLOWED_T0_PATCH_KEYS = frozenset(
         "y_complexity_max_alt",
         "y_tpd_max_alt",
         "y_path_required",
-        "y_gap_tier_mode",
-        "y_gap_tier_pct",
-        "y_nowcast_oc_gate",
         "t0_close_band_delta_pct",
         "t0_price_space_gate",
         "t0_price_space_max_dev_pct",
@@ -127,8 +111,6 @@ ALLOWED_T0_PATCH_KEYS = frozenset(
         "y_tau_exit_price_bias_sell_then_buy",
         "y_tau_exit_price_move_min_sell_then_buy",
         "y_tau_exit_price_move_max_sell_then_buy",
-        "y_ratio_boost_cap",
-        "y_ratio_cut",
         "y_score_source",
         "t0_pm_degrade",
         "t0_pm_degrade_sell_then_buy",
@@ -163,13 +145,9 @@ DEFAULT_T0_OVERLAY: Dict[str, Any] = {
     "fill_mode": "trigger",
     "fill_mode_sell_then_buy": "trigger",
     "fill_mode_buy_then_sell": "trigger",
-    "use_atr": False,
     "must_cover_same_day": True,
     "must_cover_same_day_sell_then_buy": True,
     "must_cover_same_day_buy_then_sell": True,
-    "min_range_pct": 0.0,
-    "min_range_pct_sell_then_buy": 0.0,
-    "min_range_pct_buy_then_sell": 0.0,
     "ref": "open",
     "lot_size": 100,
     "y_tau_enter": 0.0,
@@ -184,14 +162,7 @@ DEFAULT_T0_OVERLAY: Dict[str, Any] = {
     "y_tau_enter_alt": 0.0,
     "y_path_enter_alt": 0.0,
     "y_trade_enter": 0.01,
-    "y_trade_strong": 0.2,
-    "y_eod_prior": 0.01,
-    "y_eod_enter": 0.01,
-    "y_eod_strong": 0.2,
     "y_on_allow": 0.01,
-    "y_nc_enter": 0.01,
-    "y_nc_strong": 0.2,
-    "y_nowcast_oc_gate": False,
     "y_use_path": True,
     "t0_y_oc_target_scale": 10.0,
     "t0_y_oc_l": -3.0,
@@ -202,6 +173,18 @@ DEFAULT_T0_OVERLAY: Dict[str, Any] = {
     "y_path_strong": 5.0,
     "y_tc_strong": 1.0,
     "y_τc_strong": 1.0,
+    "y_t30_strong": 0.0,
+    "y_τ30_strong": 0.0,
+    "y_t30_enter": 0.0,
+    "y_τ30_enter": 0.0,
+    "y_t30_enter_alt": 0.0,
+    "y_τ30_enter_alt": 0.0,
+    "y_t60_strong": 0.0,
+    "y_τ60_strong": 0.0,
+    "y_t60_enter": 0.0,
+    "y_τ60_enter": 0.0,
+    "y_t60_enter_alt": 0.0,
+    "y_τ60_enter_alt": 0.0,
     "y_tc_enter": 0.0,
     "y_τc_enter": 0.0,
     "y_tc_enter_alt": 0.0,
@@ -211,7 +194,6 @@ DEFAULT_T0_OVERLAY: Dict[str, Any] = {
     "y_tpd_max": 1.0,
     "y_complexity_max_alt": 1.0,
     "y_tpd_max_alt": 1.0,
-    "y_gap_tier_pct": 1.0,
     "t0_close_band_delta_pct": 3.0,
     "t0_price_space_gate": True,
     "t0_price_space_max_dev_pct": 5.0,
@@ -227,7 +209,6 @@ DEFAULT_T0_OVERLAY: Dict[str, Any] = {
     "y_tau_exit_price_skip_sell_then_buy": True,
     "y_tau_exit_price_mult_sell_then_buy": 1.0,
     "y_tau_exit_price_bias_sell_then_buy": -1.0,
-    "y_block_tau_nowcast_sign": True,
     "t0_pm_degrade": "13:00",
     "t0_pm_degrade_sell_then_buy": "13:00",
     "t0_pm_degrade_buy_then_sell": "13:00",
@@ -575,9 +556,6 @@ def resolve_effective_execution(
                 "fill_mode",
                 "direction",
                 "path_mode",
-                "use_atr",
-                "dir_enter",
-                "min_range_pct",
             )
         },
         "coupling": coupling,
@@ -722,22 +700,11 @@ def execution_public_view(bundle: Dict[str, Any]) -> Dict[str, Any]:
             "fill_mode_buy_then_sell": t0.get("fill_mode_buy_then_sell"),
             "direction": t0.get("direction"),
             "path_mode": t0.get("path_mode"),
-            "use_atr": t0.get("use_atr"),
-            "atr_window": t0.get("atr_window"),
-            "min_range_pct": t0.get("min_range_pct"),
-            "min_range_pct_sell_then_buy": t0.get("min_range_pct_sell_then_buy"),
-            "min_range_pct_buy_then_sell": t0.get("min_range_pct_buy_then_sell"),
             "ref": t0.get("ref"),
             "lot_size": t0.get("lot_size"),
             "minute_period": t0.get("minute_period"),
             "y_trade_enter": t0.get("y_trade_enter") or t0.get("y_trade_floor"),
-            "y_trade_strong": t0.get("y_trade_strong") or t0.get("y_trade_tau_sign_gate"),
-            "y_eod_prior": t0.get("y_eod_prior"),
-            "y_eod_enter": t0.get("y_eod_enter"),
-            "y_eod_strong": t0.get("y_eod_strong") or t0.get("y_eod_tau_sign_gate"),
             "y_trade_floor": t0.get("y_trade_floor") or t0.get("y_trade_enter"),
-            "y_eod_tau_sign_gate": t0.get("y_eod_tau_sign_gate") or t0.get("y_eod_strong"),
-            "y_trade_tau_sign_gate": t0.get("y_trade_tau_sign_gate") or t0.get("y_trade_strong"),
             "y_tau_enter": t0.get("y_tau_enter"),
             "y_tau_enter_strong": t0.get("y_tau_enter"),
             "y_tau_enter_sell_then_buy": t0.get("y_tau_enter_sell_then_buy"),
@@ -760,11 +727,6 @@ def execution_public_view(bundle: Dict[str, Any]) -> Dict[str, Any]:
             "y_path_enter_alt": t0.get("y_path_enter_alt"),
             "y_on_risk": t0.get("y_on_risk"),
             "y_on_allow": t0.get("y_on_allow"),
-            "y_block_tau_nowcast_sign": t0.get("y_block_tau_nowcast_sign"),
-            "y_nc_enter": t0.get("y_nc_enter"),
-            "y_nc_strong": t0.get("y_nc_strong") or t0.get("y_nowcast_enter"),
-            "y_nowcast_enter": t0.get("y_nowcast_enter") or t0.get("y_nc_strong"),
-            "y_tau_map": t0.get("y_tau_map"),
             "y_use_path": t0.get("y_use_path"),
             "t0_y_oc_target_scale": t0.get("t0_y_oc_target_scale"),
             "t0_y_oc_l": t0.get("t0_y_oc_l"),
@@ -775,6 +737,26 @@ def execution_public_view(bundle: Dict[str, Any]) -> Dict[str, Any]:
             "y_path_strong": t0.get("y_path_strong"),
             "y_tc_strong": t0.get("y_tc_strong"),
             "y_τc_strong": t0.get("y_τc_strong") or t0.get("y_tc_strong"),
+            "y_t30_strong": t0.get("y_t30_strong"),
+            "y_τ30_strong": t0.get("y_τ30_strong") or t0.get("y_t30_strong"),
+            "y_t30_enter": t0.get("y_t30_enter")
+            if t0.get("y_t30_enter") not in (None, "")
+            else t0.get("y_τ30_enter"),
+            "y_τ30_enter": t0.get("y_τ30_enter") or t0.get("y_t30_enter"),
+            "y_t30_enter_alt": t0.get("y_t30_enter_alt")
+            if t0.get("y_t30_enter_alt") not in (None, "")
+            else t0.get("y_τ30_enter_alt"),
+            "y_τ30_enter_alt": t0.get("y_τ30_enter_alt") or t0.get("y_t30_enter_alt"),
+            "y_t60_strong": t0.get("y_t60_strong"),
+            "y_τ60_strong": t0.get("y_τ60_strong") or t0.get("y_t60_strong"),
+            "y_t60_enter": t0.get("y_t60_enter")
+            if t0.get("y_t60_enter") not in (None, "")
+            else t0.get("y_τ60_enter"),
+            "y_τ60_enter": t0.get("y_τ60_enter") or t0.get("y_t60_enter"),
+            "y_t60_enter_alt": t0.get("y_t60_enter_alt")
+            if t0.get("y_t60_enter_alt") not in (None, "")
+            else t0.get("y_τ60_enter_alt"),
+            "y_τ60_enter_alt": t0.get("y_τ60_enter_alt") or t0.get("y_t60_enter_alt"),
             "y_tc_enter": t0.get("y_tc_enter")
             if t0.get("y_tc_enter") not in (None, "")
             else t0.get("y_τc_enter"),
@@ -797,9 +779,6 @@ def execution_public_view(bundle: Dict[str, Any]) -> Dict[str, Any]:
             "y_complexity_max_alt": t0.get("y_complexity_max_alt"),
             "y_tpd_max_alt": t0.get("y_tpd_max_alt"),
             "y_path_required": t0.get("y_path_required"),
-            "y_gap_tier_mode": t0.get("y_gap_tier_mode"),
-            "y_gap_tier_pct": t0.get("y_gap_tier_pct"),
-            "y_nowcast_oc_gate": t0.get("y_nowcast_oc_gate"),
             "t0_close_band_delta_pct": t0.get("t0_close_band_delta_pct"),
             "t0_price_space_gate": t0.get("t0_price_space_gate"),
             "t0_price_space_max_dev_pct": t0.get("t0_price_space_max_dev_pct"),
@@ -841,8 +820,6 @@ def execution_public_view(bundle: Dict[str, Any]) -> Dict[str, Any]:
             "y_tau_exit_price_move_max_sell_then_buy": t0.get(
                 "y_tau_exit_price_move_max_sell_then_buy"
             ),
-            "y_ratio_boost_cap": t0.get("y_ratio_boost_cap"),
-            "y_ratio_cut": t0.get("y_ratio_cut"),
             "y_score_source": t0.get("y_score_source"),
             "t0_pm_degrade": t0.get("t0_pm_degrade"),
             "t0_pm_degrade_sell_then_buy": t0.get("t0_pm_degrade_sell_then_buy"),
@@ -879,13 +856,6 @@ def execution_public_view(bundle: Dict[str, Any]) -> Dict[str, Any]:
         "path_model_shadow": path_model_shadow,
         "path_last_report_exists": path_last_report_exists,
     }
-    # 旧 signal 选向字段：仅非 dual_y 时透出，避免与 y_τ 门槛混淆
-    if str(t0.get("direction") or "") != "dual_y":
-        view["t0"]["dir_enter"] = t0.get("dir_enter")
-        view["t0"]["w_gap"] = t0.get("w_gap")
-        view["t0"]["w_yclose_loc"] = t0.get("w_yclose_loc")
-        view["t0"]["w_mom3"] = t0.get("w_mom3")
-        view["t0"]["w_gap_atr"] = t0.get("w_gap_atr")
     return view
 
 
@@ -954,13 +924,6 @@ def validate_execution_patch(raw: Any) -> Tuple[bool, Dict[str, Any], List[str]]
             }
         }
 
-    # 旧异号键 → τ↔nowcast
-    if "y_block_tau_nowcast_sign" not in t0_in and "y_block_trade_tau_sign" in t0_in:
-        t0_in["y_block_tau_nowcast_sign"] = t0_in.pop("y_block_trade_tau_sign")
-    elif "y_block_trade_tau_sign" in t0_in:
-        t0_in.pop("y_block_trade_tau_sign", None)
-    # 已下线键：忽略
-    t0_in.pop("y_block_conflict", None)
     drop_dead_t0_keys(t0_in)
 
     unknown = [k for k in t0_in.keys() if k not in ALLOWED_T0_PATCH_KEYS]
@@ -1001,18 +964,12 @@ def validate_execution_patch(raw: Any) -> Tuple[bool, Dict[str, Any], List[str]]
     # enabled 等 bool
     if "enabled" in t0_in:
         t0_out["enabled"] = bool(t0_in.get("enabled"))
-    if "use_atr" in t0_in:
-        t0_out["use_atr"] = bool(t0_in.get("use_atr"))
     if "must_cover_same_day" in t0_in:
         t0_out["must_cover_same_day"] = bool(t0_in.get("must_cover_same_day"))
     if "must_cover_same_day_sell_then_buy" in t0_in:
         t0_out["must_cover_same_day_sell_then_buy"] = bool(t0_in.get("must_cover_same_day_sell_then_buy"))
     if "must_cover_same_day_buy_then_sell" in t0_in:
         t0_out["must_cover_same_day_buy_then_sell"] = bool(t0_in.get("must_cover_same_day_buy_then_sell"))
-    if "y_block_tau_nowcast_sign" in t0_in:
-        t0_out["y_block_tau_nowcast_sign"] = bool(t0_in.get("y_block_tau_nowcast_sign"))
-    if "y_nowcast_oc_gate" in t0_in:
-        t0_out["y_nowcast_oc_gate"] = bool(t0_in.get("y_nowcast_oc_gate"))
     if "y_use_path" in t0_in:
         t0_out["y_use_path"] = bool(t0_in.get("y_use_path"))
     if "y_enter_enabled" in t0_in:

@@ -326,6 +326,14 @@ export const Y_τc_TITLE =
   "ŷ_τc · Ridge 预估 close[T]/price(τ)−1 · 模型 price→close";
 export const Y_TC_TITLE = Y_τc_TITLE;
 export const Y_R_TITLE = Y_τc_TITLE;
+export const Y_T30_TITLE =
+  "ŷ_τ30 · Ridge 预估 price(τ⊕30m)/price(τ)−1 · 做 T 旁路，不进 C_τ";
+export const T30_REALIZED_TITLE =
+  "τ30实 · price(τ⊕30m)/price(τ)−1（与 ŷ_τ30 同标签）";
+export const Y_T60_TITLE =
+  "ŷ_τ60 · Ridge 预估 price(τ⊕60m)/price(τ)−1 · 做 T 旁路，不进 C_τ";
+export const T60_REALIZED_TITLE =
+  "τ60实 · price(τ⊕60m)/price(τ)−1（与 ŷ_τ60 同标签）";
 export const R_HAT_TITLE =
   "R̂_τ · Ĉ_τ/price(τ)−1 · remaining(clip(ŷ_oc×scale), price) · 与 Ĉ_τ 同目标 · 不参与选腿 · 预估(真实)";
 export const R_REALIZED_TITLE =
@@ -490,6 +498,28 @@ export function resolveYτcScore(it) {
 /** @deprecated 用 resolveYτcScore */
 export function resolveTcScore(it) {
   return resolveYτcScore(it);
+}
+
+/** ŷ_τ30：Ridge 预估 price(τ⊕30m)/price(τ)−1。 */
+export function resolveYT30Score(it) {
+  if (!it || typeof it !== "object") return null;
+  if (isHeuristicScoreScale(it)) return null;
+  for (const c of [it["y_τ30"], it.y_t30, it.predicted_score_t30, it.y_t30_hat]) {
+    const n = _numField(c);
+    if (n != null && _looksLikeYhatPct(n)) return n;
+  }
+  return null;
+}
+
+/** ŷ_τ60：Ridge 预估 price(τ⊕60m)/price(τ)−1。 */
+export function resolveYT60Score(it) {
+  if (!it || typeof it !== "object") return null;
+  if (isHeuristicScoreScale(it)) return null;
+  for (const c of [it["y_τ60"], it.y_t60, it.predicted_score_t60, it.y_t60_hat]) {
+    const n = _numField(c);
+    if (n != null && _looksLikeYhatPct(n)) return n;
+  }
+  return null;
 }
 
 /** ŷ_oo：open[T]→open[T+1]（调仓 ranking 输入）。 */

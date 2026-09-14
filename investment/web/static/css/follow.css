@@ -4362,7 +4362,7 @@ body[data-page="replay"] .replay-t0-section .paper-t0-viz-stock-table {
 
 .paper-t0-portrait-slot-table {
   width: 100%;
-  min-width: 720px;
+  min-width: 980px;
   border-collapse: collapse;
   font-size: 0.72rem;
 }
@@ -4907,14 +4907,14 @@ body[data-page="replay"] .replay-t0-section .paper-t0-table {
 }
 
 .paper-t0-scan-debug col {
-  width: calc(100% / 16);
+  width: calc(100% / 18);
 }
 
 .paper-t0-scan-debug th,
 .paper-t0-scan-debug td,
 .paper-t0-scan-debug td.paper-t0-col-band-lo,
 .paper-t0-scan-debug td.paper-t0-col-band-up {
-  width: calc(100% / 16);
+  width: calc(100% / 18);
   min-width: 0;
   max-width: none;
   box-sizing: border-box;
@@ -4956,9 +4956,9 @@ body[data-page="replay"] .replay-t0-section .paper-t0-table {
   text-align: left;
 }
 
-/* Ĉ_τ | lower | upper | R_τ · y_oc | y_τc | y_hl | y_cx | y_tpd */
-.paper-t0-scan-debug th:nth-child(n + 6):nth-child(-n + 14),
-.paper-t0-scan-debug td:nth-child(n + 6):nth-child(-n + 14) {
+/* Ĉ_τ | lower | upper | R_τ · y_oc | y_τc | y_τ30 | y_τ60 | y_hl | y_cx | y_tpd */
+.paper-t0-scan-debug th:nth-child(n + 6):nth-child(-n + 16),
+.paper-t0-scan-debug td:nth-child(n + 6):nth-child(-n + 16) {
   border-left: 1px solid color-mix(in srgb, var(--ink) 14%, transparent);
 }
 
@@ -4980,7 +4980,7 @@ body[data-page="replay"] .replay-t0-section .paper-t0-trades-wrap .paper-t0-trad
 body[data-page="replay"] .replay-t0-section .paper-t0-trades-wrap .paper-t0-trades-table.quant-weight-table .paper-t0-scan-debug td,
 body[data-page="replay"] .replay-t0-section .paper-t0-trades-wrap .paper-t0-trades-table.quant-weight-table .paper-t0-scan-debug td.paper-t0-col-band-lo,
 body[data-page="replay"] .replay-t0-section .paper-t0-trades-wrap .paper-t0-trades-table.quant-weight-table .paper-t0-scan-debug td.paper-t0-col-band-up {
-  width: calc(100% / 16);
+  width: calc(100% / 18);
   min-width: 0;
   max-width: none;
   padding: 4px 8px;
@@ -5017,6 +5017,7 @@ body[data-page="replay"] .replay-t0-section .paper-t0-trades-wrap .paper-t0-trad
 .paper-t0-trades-table thead th.paper-t0-col-y-cx,
 .paper-t0-trades-table thead th.paper-t0-col-y-tpd,
 .paper-t0-trades-table thead th.paper-t0-col-y-r,
+.paper-t0-trades-table thead th.paper-t0-col-y-t30,
 .paper-t0-trades-table thead th.paper-t0-col-y-rtau,
 .paper-t0-trades-table thead th.paper-t0-col-o,
 .paper-t0-trades-table thead th.paper-t0-col-l,
@@ -5187,7 +5188,9 @@ body[data-page="replay"] .replay-t0-section .paper-t0-trades-wrap .paper-t0-trad
 .paper-t0-trades-table th.paper-t0-col-y-tpd,
 .paper-t0-trades-table td.paper-t0-col-y-tpd,
 .paper-t0-trades-table th.paper-t0-col-y-rtau,
-.paper-t0-trades-table td.paper-t0-col-y-rtau {
+.paper-t0-trades-table td.paper-t0-col-y-rtau,
+.paper-t0-trades-table th.paper-t0-col-y-t30,
+.paper-t0-trades-table td.paper-t0-col-y-t30 {
   padding-left: 8px;
   padding-right: 8px;
 }
@@ -5222,6 +5225,10 @@ body[data-page="replay"] .replay-t0-section .paper-t0-trades-wrap .paper-t0-trad
 .paper-t0-trades-table tbody td.paper-t0-col-rtau,
 .paper-t0-trades-table thead th.paper-t0-col-yr,
 .paper-t0-trades-table tbody td.paper-t0-col-yr,
+.paper-t0-trades-table thead th.paper-t0-col-yt30,
+.paper-t0-trades-table tbody td.paper-t0-col-yt30,
+.paper-t0-trades-table thead th.paper-t0-col-yt60,
+.paper-t0-trades-table tbody td.paper-t0-col-yt60,
 .paper-t0-trades-table thead th.paper-t0-col-cx,
 .paper-t0-trades-table tbody td.paper-t0-col-cx,
 .paper-t0-trades-table thead th.paper-t0-col-tpd,
@@ -5231,7 +5238,7 @@ body[data-page="replay"] .replay-t0-section .paper-t0-trades-wrap .paper-t0-trad
   padding-left: 8px;
 }
 
-/* 价带 | Ĉ_τ | lower | upper | R_τ | y_oc | y_τc | y_hl | y_cx | y_tpd | 过程 | 结果：左边线作分区 */
+/* 价带 | Ĉ_τ | lower | upper | R_τ | y_oc | y_τc | y_τ30 | y_τ60 | y_hl | y_cx | y_tpd | 过程 | 结果：左边线作分区 */
 .paper-t0-trades-table thead th.paper-t0-col-o,
 .paper-t0-trades-table tbody td.paper-t0-col-o {
   border-left: 1px solid color-mix(in srgb, var(--ink) 10%, transparent);
@@ -5260,6 +5267,18 @@ body[data-page="replay"] .replay-t0-section .paper-t0-trades-wrap .paper-t0-trad
 .paper-t0-trades-table tbody td.paper-t0-col-yr {
   border-left: 1px solid color-mix(in srgb, var(--ink) 10%, transparent);
   box-shadow: inset 3px 0 0 color-mix(in srgb, #d97706 28%, transparent);
+}
+
+.paper-t0-trades-table thead th.paper-t0-col-yt30,
+.paper-t0-trades-table tbody td.paper-t0-col-yt30 {
+  border-left: 1px solid color-mix(in srgb, var(--ink) 10%, transparent);
+  box-shadow: inset 3px 0 0 color-mix(in srgb, #0284c7 28%, transparent);
+}
+
+.paper-t0-trades-table thead th.paper-t0-col-yt60,
+.paper-t0-trades-table tbody td.paper-t0-col-yt60 {
+  border-left: 1px solid color-mix(in srgb, var(--ink) 10%, transparent);
+  box-shadow: inset 3px 0 0 color-mix(in srgb, #0369a1 28%, transparent);
 }
 
 .paper-t0-trades-table thead th.paper-t0-col-path,
@@ -5672,7 +5691,11 @@ body[data-page="replay"] .replay-t0-section .paper-t0-trades-wrap .paper-t0-trad
 .paper-t0-trades-table tbody tr:hover td.paper-t0-col-y-tau,
 .paper-t0-trades-table tbody tr:hover td.paper-t0-col-y-path,
 .paper-t0-trades-table tbody tr:hover td.paper-t0-col-y-cx,
-.paper-t0-trades-table tbody tr:hover td.paper-t0-col-y-tpd {
+.paper-t0-trades-table tbody tr:hover td.paper-t0-col-y-tpd,
+.paper-t0-trades-table tbody tr:hover td.paper-t0-col-yt30,
+.paper-t0-trades-table tbody tr:hover td.paper-t0-col-y-t30,
+.paper-t0-trades-table tbody tr:hover td.paper-t0-col-yt60,
+.paper-t0-trades-table tbody tr:hover td.paper-t0-col-y-t60 {
   background: color-mix(in srgb, var(--accent) 6%, var(--bg-card, var(--surface)));
 }
 
@@ -5869,6 +5892,8 @@ body[data-page="replay"] .replay-t0-section .paper-t0-trades-wrap .paper-t0-trad
 .paper-t0-col-tpd { width: 126px; min-width: 126px; }
 .paper-t0-col-rtau { width: 126px; min-width: 126px; }
 .paper-t0-col-yr { width: 126px; min-width: 126px; }
+.paper-t0-col-yt30 { width: 126px; min-width: 126px; }
+.paper-t0-col-yt60 { width: 126px; min-width: 126px; }
 .paper-t0-col-trade { width: 140px; min-width: 140px; }
 .paper-t0-col-on { width: 88px; min-width: 88px; }
 .paper-t0-col-nc { width: 148px; min-width: 148px; }
@@ -5888,7 +5913,9 @@ body[data-page="replay"] .replay-t0-section .paper-t0-trades-wrap .paper-t0-trad
 .paper-t0-trades-table td.paper-t0-col-band-lo,
 .paper-t0-trades-table td.paper-t0-col-band-up,
 .paper-t0-trades-table td.paper-t0-col-rtau,
-.paper-t0-trades-table td.paper-t0-col-yr {
+.paper-t0-trades-table td.paper-t0-col-yr,
+.paper-t0-trades-table td.paper-t0-col-yt30,
+.paper-t0-trades-table td.paper-t0-col-yt60 {
   font-variant-numeric: tabular-nums;
   font-family: var(--font-mono, ui-monospace, monospace);
   font-size: 0.78rem;

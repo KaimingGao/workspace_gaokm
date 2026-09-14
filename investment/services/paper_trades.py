@@ -1580,7 +1580,7 @@ class PaperTradesMixin:
     ) -> Dict[str, Any]:
         """simulate_t0 的加锁实现：拉行情 → 做T模拟 → 写账本。"""
         from core.data.facade import bars_and_source
-        from core.t0.rules import atr_pct_from_bars, simulate_t0_on_holdings
+        from core.t0.rules import simulate_t0_on_holdings
         from core.t0.score_policy import T0_PAPER_DAILY_BAR_LIMIT
 
         paper = load_paper(self.path)
@@ -1739,12 +1739,12 @@ class PaperTradesMixin:
                 hist = list(bars[:-1])
                 day_key = str(bar.get("date") or "")[:10]
                 minute_day = list(by_day.get(day_key) or []) or None
-                atr = atr_pct_from_bars(hist, 14) if hist else None
+                atr = None
                 return code, bar, hist, atr, minute_day
             bar = dict(aligned.get("bar") or {})
             hist = list(aligned.get("hist") or [])
             minute_day = list(aligned.get("minute_bars") or []) or None
-            atr = atr_pct_from_bars(hist, 14) if hist else None
+            atr = None
             return code, bar, hist, atr, minute_day
 
         bars_by_code: Dict[str, Any] = {}
@@ -2197,7 +2197,6 @@ class PaperTradesMixin:
             should_process_intraday_stock,
             unlock_retryable_skipped,
         )
-        from core.t0.rules import atr_pct_from_bars
 
         with paper_write_lock(self.path):
             paper = load_paper(self.path)
@@ -2340,7 +2339,6 @@ class PaperTradesMixin:
                 ):
                     continue
 
-                atr = atr_pct_from_bars(hist_by_code.get(code) or [], 14)
                 scores = None
                 if str(eff_t0.get("direction") or "") == "dual_y":
                     try:
@@ -2376,7 +2374,7 @@ class PaperTradesMixin:
                         "minute_bars": minute_bars,
                         "cfg": dict(eff_t0),
                         "sellable": sellable,
-                        "atr_pct": atr,
+                        "atr_pct": None,
                         "hist_bars": hist_by_code.get(code),
                         "scores": scores,
                         "stance_code": stance_by_code.get(code),

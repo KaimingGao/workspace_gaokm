@@ -1,7 +1,7 @@
 /** 做T回测可视化（canvas + CSS，无外部图表库）。 */
 
 import { paperMetricClass } from "./fmt.js";
-import { SKIP_CAT_TIP, stockCellHtml, stampStockFitTiers } from "./t0_table.js?v=p2389";
+import { SKIP_CAT_TIP, stockCellHtml, stampStockFitTiers } from "./t0_table.js?v=p2402";
 
 const THEME = {
   actual: "#2563eb",
@@ -40,6 +40,8 @@ const SKIP_CAT_COLORS = {
   y_eod_flat: "#3d6a8a",
   y_tau_flat: "#3a7a72",
   y_tc_flat: "#3d6e7a",
+  y_t30_flat: "#6a8894",
+  y_t60_flat: "#5a7884",
   r_tau_flat: "#4a6e7a",
   y_tau_weak: "#5a7d8c",
   y_path_flat: "#7a6a55",
@@ -50,6 +52,8 @@ const SKIP_CAT_COLORS = {
   trade_tau_sign: "#c45c4a",
   y_path_disagree: "#6b4c7a",
   y_tc_disagree: "#4c6b8a",
+  y_t30_disagree: "#3d7a8a",
+  y_t60_disagree: "#2d6a7a",
   conflict: "#a04848",
   // 前缀 / 空间 / 缺口 · 海石青 + 一枚赭石
   path_abandon: "#3f6f68",
@@ -1229,6 +1233,26 @@ function renderKpiRow(summary) {
       "τ·OC命中",
       sm.tau_oc_hit_rate_pct != null ? `${sm.tau_oc_hit_rate_pct}%` : null,
       "成交日 ŷ_oc 符号 vs 实际 open→close",
+    ],
+    [
+      "τ30命中",
+      sm.t30_pred_hit_rate_pct != null ? `${sm.t30_pred_hit_rate_pct}%` : null,
+      "ŷ_τ30 符号 vs price(τ⊕30m)/price(τ)−1",
+    ],
+    [
+      "τ30旁路",
+      sm.t30_band_hit_rate_pct != null ? `${sm.t30_band_hit_rate_pct}%` : null,
+      "破带方向与 ŷ_τ30 后 30 交易分钟同号率",
+    ],
+    [
+      "τ60命中",
+      sm.t60_pred_hit_rate_pct != null ? `${sm.t60_pred_hit_rate_pct}%` : null,
+      "ŷ_τ60 符号 vs price(τ⊕60m)/price(τ)−1",
+    ],
+    [
+      "τ60旁路",
+      sm.t60_band_hit_rate_pct != null ? `${sm.t60_band_hit_rate_pct}%` : null,
+      "破带方向与 ŷ_τ60 后 60 交易分钟同号率",
     ],
     [
       "path一致",

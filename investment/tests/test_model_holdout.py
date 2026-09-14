@@ -103,6 +103,27 @@ class TestHoldoutSplit(unittest.TestCase):
             self.assertEqual(flags["research_path"], research_path)
             self.assertEqual(flags["research_promoted_at"], "2026-09-10T12:00:00")
 
+    def test_attach_ridge_role_flags_fitted_at_from_last_report(self):
+        import json
+
+        from quant.services.quant_service_factors import _attach_ridge_role_flags
+
+        with tempfile.TemporaryDirectory() as tmp:
+            live_path = os.path.join(tmp, "r_ridge_model.json")
+            last_path = os.path.join(tmp, "r_ridge_last_report.json")
+            with open(last_path, "w", encoding="utf-8") as f:
+                json.dump({"success": True, "return_model": {"intercept": 0}}, f)
+            kept = _attach_ridge_role_flags(
+                {"fitted_at": "2026-09-01T00:00:00Z"},
+                live_path,
+                live_present=False,
+            )
+            self.assertEqual(kept["fitted_at"], "2026-09-01T00:00:00Z")
+            from_mtime = _attach_ridge_role_flags(
+                {"success": True}, live_path, live_present=False
+            )
+            self.assertTrue(from_mtime.get("fitted_at"))
+
     def test_select_persist_return_model(self):
         report = {
             "return_model": {"coefficients": {"a": 1.0}},

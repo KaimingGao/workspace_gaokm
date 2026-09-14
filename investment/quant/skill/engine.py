@@ -108,12 +108,10 @@ class QuantEngine:
                 "t0_ratio": params.get("t0_ratio"),
                 "must_cover_same_day": bool(params.get("must_cover_same_day")),
             }
-            for key in ("fill_mode", "direction", "min_range_pct", "y_tau_map"):
+            for key in ("fill_mode", "direction"):
                 if params.get(key) is not None:
                     rules[key] = params.get(key)
             rules["path_mode"] = "first_touch"
-            if "use_atr" in params:
-                rules["use_atr"] = bool(params.get("use_atr"))
             from_paper = bool(params.get("from_paper"))
             if not str(code or "").strip():
                 from_paper = True

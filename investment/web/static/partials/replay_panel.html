@@ -399,6 +399,20 @@
                   </label>
                   <label
                     class="paper-t0-field"
+                    title="ŷ_τ30 旁路：破带后后 30 交易分钟须与方向同号（反T&lt;0，正T&gt;0）。0=任意有符号须同号；1=关。不改 C_τ。"
+                  >
+                    <span>τ30强%</span>
+                    <input type="number" name="y_t30_strong" min="0" max="1.00" step="0.01" value="0" />
+                  </label>
+                  <label
+                    class="paper-t0-field"
+                    title="ŷ_τ60 旁路：破带后后 60 交易分钟须与方向同号（反T&lt;0，正T&gt;0）。0=任意有符号须同号；1=关。不改 C_τ。"
+                  >
+                    <span>τ60强%</span>
+                    <input type="number" name="y_t60_strong" min="0" max="1.00" step="0.01" value="0" />
+                  </label>
+                  <label
+                    class="paper-t0-field"
                     title="正/反T止损共用：入场后跳过 N 根 5m 再启用（默认 1≈5 分钟）。止损固定收盘破线确认。"
                   >
                     <span>止损延迟根</span>
@@ -410,7 +424,7 @@
                 <div class="paper-t0-cfg-gates">
                 <fieldset class="paper-t0-cfg-block is-gate-1">
                   <legend>门槛1</legend>
-                  <p class="paper-t0-cfg-hint quant-sub">|ŷ_oc|、|ŷ_τc|、|y_hl| 过入场，且 ŷ_cx / tpd 过上限。关启用则本档不参与 OR。缺 HL / 分钟缺失见共用区。</p>
+                  <p class="paper-t0-cfg-hint quant-sub">|ŷ_oc|、|ŷ_τc|、|y_hl|、|ŷ_τ30|、|ŷ_τ60| 过入场，且 ŷ_cx / tpd 过上限。关启用则本档不参与 OR。缺 HL / 分钟缺失见共用区。</p>
                   <div class="paper-t0-form-grid is-quad">
                   <label
                     class="paper-t0-field"
@@ -442,6 +456,20 @@
                   </label>
                   <label
                     class="paper-t0-field"
+                    title="门槛1 |ŷ_τ30| 低于此值视为横盘跳过；范围 0–100%；0=关；默认 0。缺 ŷ_τ30 不拦。"
+                  >
+                    <span>τ30入场%</span>
+                    <input type="number" name="y_t30_enter" min="0" max="100" step="0.01" value="0" />
+                  </label>
+                  <label
+                    class="paper-t0-field"
+                    title="门槛1 |ŷ_τ60| 低于此值视为横盘跳过；范围 0–100%；0=关；默认 0。缺 ŷ_τ60 不拦。"
+                  >
+                    <span>τ60入场%</span>
+                    <input type="number" name="y_t60_enter" min="0" max="100" step="0.01" value="0" />
+                  </label>
+                  <label
+                    class="paper-t0-field"
                     title="ŷ_cx∈[0,1]（0=直线，1=最折）。超过此值太折则跳过做 T；范围 0–1；默认 1.00≈关。闸用盘中前缀 ŷ_cx，不是收盘后的全日 label。"
                   >
                     <span>CX上界</span>
@@ -459,7 +487,7 @@
 
                 <fieldset class="paper-t0-cfg-block is-gate-2">
                   <legend>门槛2</legend>
-                  <p class="paper-t0-cfg-hint quant-sub">|ŷ_oc|、|ŷ_τc|、|y_hl| 过入场，且 ŷ_cx / tpd 过上限。关启用则本档不参与 OR。缺 HL / 分钟缺失见共用区。</p>
+                  <p class="paper-t0-cfg-hint quant-sub">|ŷ_oc|、|ŷ_τc|、|y_hl|、|ŷ_τ30|、|ŷ_τ60| 过入场，且 ŷ_cx / tpd 过上限。关启用则本档不参与 OR。缺 HL / 分钟缺失见共用区。</p>
                   <div class="paper-t0-form-grid is-quad">
                   <label
                     class="paper-t0-field"
@@ -488,6 +516,20 @@
                   >
                     <span>HL入场%</span>
                     <input type="number" name="y_path_enter_alt" min="0" max="100" step="0.01" value="0" />
+                  </label>
+                  <label
+                    class="paper-t0-field"
+                    title="门槛2 |ŷ_τ30| 低于此值视为横盘跳过；范围 0–100%；0=关；默认 0。缺 ŷ_τ30 不拦。"
+                  >
+                    <span>τ30入场%</span>
+                    <input type="number" name="y_t30_enter_alt" min="0" max="100" step="0.01" value="0" />
+                  </label>
+                  <label
+                    class="paper-t0-field"
+                    title="门槛2 |ŷ_τ60| 低于此值视为横盘跳过；范围 0–100%；0=关；默认 0。缺 ŷ_τ60 不拦。"
+                  >
+                    <span>τ60入场%</span>
+                    <input type="number" name="y_t60_enter_alt" min="0" max="100" step="0.01" value="0" />
                   </label>
                   <label
                     class="paper-t0-field"

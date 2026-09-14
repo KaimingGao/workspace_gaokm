@@ -430,6 +430,15 @@ export function createFactorIcUi(deps) {
     mom3_pct: "近3日动量 %",
     tau_lag1: "昨真实开→收 %",
     tau_ma5: "近5日真实开→收均 %",
+    t30_lag1: "昨同钟真实 τ⊕30m %",
+    t30_ma5: "近5日同钟真实 τ⊕30m 均 %",
+    ret_last_60m: "近60交易分钟收益 %",
+    crosses_lunch_60: "未来60m是否跨午休",
+    vol_last_60m_vs_avg: "近60m量/前缀均量",
+    sector_ret_last_60m: "板块中位近60m %",
+    ret_last_60m_vs_sector: "近60m相对板块 %",
+    t60_lag1: "昨同钟真实 τ⊕60m %",
+    t60_ma5: "近5日同钟真实 τ⊕60m 均 %",
     path_lag1: "昨真实极值序 %",
     path_ma5: "近5日真实极值序均 %",
     complexity_lag1: "昨真实曲折度",
@@ -452,6 +461,15 @@ export function createFactorIcUi(deps) {
     pullback_from_high: "自高回撤 %",
     bounce_from_low: "自低反弹 %",
     ret_last_15m: "近15m 收益 %",
+    ret_last_5m: "近5m 收益 %",
+    ret_last_30m: "近30交易分钟收益 %",
+    session_elapsed: "已过交易分钟（09:30=0）",
+    session_remain: "距收盘剩余交易分钟",
+    crosses_lunch: "未来30m是否跨午休",
+    session_vwap_dev: "τ价相对会话VWAP %",
+    vol_last_30m_vs_avg: "近30m量/前缀均量",
+    sector_ret_last_30m: "板块中位近30m %",
+    ret_last_30m_vs_sector: "近30m相对板块 %",
     realized_vol: "前缀已实现波动 %",
     vol_last3_vs_avg: "近3根量/均量",
     tau_elapsed_min: "τ距开盘分钟",
@@ -534,12 +552,14 @@ export function createFactorIcUi(deps) {
   /**
    * ŷ_oc / ŷ_co Ridge 因子系数表：仅入模因子；KPI + 双向 β 图 + 表内条形。
    * @param {object|null} rm return_model 或含 coefficients 的报告块
-   * @param {{ oos?: object, head?: "tau"|"on"|"path"|"cx"|"tpd"|"r" } } [opts]
+   * @param {{ oos?: object, head?: "tau"|"on"|"path"|"cx"|"tpd"|"r"|"t30"|"t60" } } [opts]
    */
   function remCoefTableHtml(rm, opts = {}) {
     if (!rm || typeof rm !== "object") return "";
     const isOn = opts.head === "on";
-    const isR = opts.head === "r";
+    const isT30 = opts.head === "t30";
+    const isT60 = opts.head === "t60";
+    const isR = opts.head === "r" || isT30 || isT60;
     const isTpd = opts.head === "tpd";
     const isCxHead = opts.head === "cx";
     const isCx = isCxHead || isTpd;
@@ -576,6 +596,15 @@ export function createFactorIcUi(deps) {
       "pullback_from_high",
       "bounce_from_low",
       "ret_last_15m",
+      "ret_last_5m",
+      "ret_last_30m",
+      "session_elapsed",
+      "session_remain",
+      "crosses_lunch",
+      "session_vwap_dev",
+      "vol_last_30m_vs_avg",
+      "sector_ret_last_30m",
+      "ret_last_30m_vs_sector",
       "realized_vol",
       "vol_last3_vs_avg",
       "tau_elapsed_min",
@@ -616,6 +645,10 @@ export function createFactorIcUi(deps) {
       "tpd_ma5",
       "tau_lag1",
       "tau_ma5",
+      "t30_lag1",
+      "t30_ma5",
+      "t60_lag1",
+      "t60_ma5",
       "path_lag1",
       "path_ma5",
       "yest_gap",
@@ -702,7 +735,11 @@ export function createFactorIcUi(deps) {
         : isOn
           ? "暂无 ŷ_co 入模因子"
           : isR
-            ? "暂无 ŷ_τc 入模因子"
+            ? isT60
+              ? "暂无 ŷ_τ60 入模因子"
+              : isT30
+              ? "暂无 ŷ_τ30 入模因子"
+              : "暂无 ŷ_τc 入模因子"
           : "暂无 rem 入模因子";
       return `<p class="sub">${emptyMsg}</p>`;
     }
@@ -773,7 +810,7 @@ export function createFactorIcUi(deps) {
         : "";
     const posN = rows.filter((r) => r.ols >= 0).length;
     const negN = rows.length - posN;
-    const yhatTag = isPath ? pathTag : isOn ? "ŷ_co" : isR ? "ŷ_τc" : "ŷ_oc";
+    const yhatTag = isPath ? pathTag : isOn ? "ŷ_co" : isT60 ? "ŷ_τ60" : isT30 ? "ŷ_τ30" : isR ? "ŷ_τc" : "ŷ_oc";
     const ySpecTip =
       `${yhatTag} 训练标签 · ${ySpec}` +
       (ySpecClocks.length >= 2
@@ -808,7 +845,7 @@ export function createFactorIcUi(deps) {
 
     const metrics =
       `<div class="quant-rem-coef-spec-metrics" role="group" aria-label="${esc(
-        isPath ? `${isTpd ? "tpd" : isCxHead ? "cx" : "path"} 模型摘要` : isOn ? "on 模型摘要" : isR ? "r 模型摘要" : "τ 模型摘要"
+        isPath ? `${isTpd ? "tpd" : isCxHead ? "cx" : "path"} 模型摘要` : isOn ? "on 模型摘要" : isT60 ? "t60 模型摘要" : isT30 ? "t30 模型摘要" : isR ? "r 模型摘要" : "τ 模型摘要"
       )}">` +
       (intercept != null
         ? kpi(isR ? "执行套" : "截距", intercept.toFixed(3), interceptTip)
@@ -982,7 +1019,7 @@ export function createFactorIcUi(deps) {
     const head =
       `<div class="quant-rem-coef-head">` +
       `<div class="quant-rem-coef-head-main">` +
-      `<span class="quant-rem-coef-title">${isPath ? `${pathTag} 系数表` : isOn ? "ŷ_co 系数表" : isR ? "ŷ_τc 系数表" : "ŷ_oc 系数表"}</span>` +
+      `<span class="quant-rem-coef-title">${isPath ? `${pathTag} 系数表` : isOn ? "ŷ_co 系数表" : isT60 ? "ŷ_τ60 系数表" : isT30 ? "ŷ_τ30 系数表" : isR ? "ŷ_τc 系数表" : "ŷ_oc 系数表"}</span>` +
       `<span class="quant-rem-coef-sub">按 |β| 降序 · 标准化斜率</span>` +
       `</div>` +
       `<div class="quant-rem-coef-legend" aria-hidden="true">` +

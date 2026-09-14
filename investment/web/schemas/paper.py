@@ -77,27 +77,9 @@ class T0BacktestRequest(BaseModel):
     fill_mode_buy_then_sell: Optional[str] = Field(default=None, max_length=16)
     direction: Optional[str] = Field(default=None, max_length=16)
     path_mode: Optional[str] = Field(default=None, max_length=16)
-    dir_enter: Optional[float] = Field(
-        default=None,
-        ge=0.05,
-        le=1.0,
-        description="已废弃于 dual_y；仅旧 signal 选向 |score| 门槛（约 ±1），默认 0.35",
-    )
-    min_range_pct: Optional[float] = Field(
-        default=None, ge=0.0, le=30.0, description="已下线：振幅下限%（0=关）"
-    )
-    min_range_pct_sell_then_buy: Optional[float] = Field(default=None, ge=0.0, le=30.0)
-    min_range_pct_buy_then_sell: Optional[float] = Field(default=None, ge=0.0, le=30.0)
     use_minute: bool = True
-    use_atr: Optional[bool] = None
     y_trade_enter: Optional[float] = Field(
-        default=None, ge=0.0, le=5.0, description="dual_y：|y_trade|入场下限（收益百分点）"
-    )
-    y_trade_strong: Optional[float] = Field(
-        default=None,
-        ge=0.05,
-        le=5.0,
-        description="dual_y：|y_trade|>此值须与 y_τ 同号（默认 0.2%）",
+        default=None, ge=0.0, le=5.0,         description="dual_y：|y_trade|入场下限（收益百分点）"
     )
     y_trade_floor: Optional[float] = Field(
         default=None, ge=0.0, le=5.0, description="已弃用：别名 y_trade_enter"
@@ -157,50 +139,10 @@ class T0BacktestRequest(BaseModel):
         le=100.0,
         description="已弃用：并入 y_tau_enter（load 时取 max）",
     )
-    y_ratio_cut: Optional[float] = Field(
-        default=None,
-        ge=0.2,
-        le=1.0,
-        description="目标价弱信号下限倍数（相对基准触发，默认 0.6）",
-    )
-    y_ratio_boost_cap: Optional[float] = Field(
-        default=None,
-        ge=1.0,
-        le=2.0,
-        description="目标价强信号上限倍数（相对基准触发，默认 2.0）",
-    )
-    y_eod_prior: Optional[float] = Field(
-        default=None, ge=0.01, le=5.0, description="dual_y：|y_eod|同向略抬目标价信心门槛（收益百分点）"
-    )
-    y_eod_enter: Optional[float] = Field(
-        default=None,
-        ge=0.01,
-        le=5.0,
-        description="dual_y：可得 ŷ_eod 时 |y_eod| 准入下限（收益百分点，默认 0.01）",
-    )
-    y_eod_strong: Optional[float] = Field(
-        default=None,
-        ge=0.05,
-        le=5.0,
-        description="dual_y：|y_eod|>此值须与 y_τ 同号（默认 0.2%）",
-    )
-    y_eod_tau_sign_gate: Optional[float] = Field(
-        default=None,
-        ge=0.05,
-        le=5.0,
-        description="已弃用：别名 y_eod_strong",
-    )
-    y_trade_tau_sign_gate: Optional[float] = Field(
-        default=None,
-        ge=0.05,
-        le=5.0,
-        description="已弃用：别名 y_trade_strong",
-    )
     y_on_allow: Optional[float] = Field(
         default=None, ge=0.01, le=10.0, description="dual_y：|y_on|隔夜放行门槛（收益百分点）"
     )
     y_on_risk: Optional[float] = Field(default=None, ge=0.01, le=10.0)
-    y_block_tau_nowcast_sign: Optional[bool] = None
     t0_y_oc_target_scale: Optional[float] = Field(
         default=None,
         ge=0.0,
@@ -218,27 +160,6 @@ class T0BacktestRequest(BaseModel):
         ge=-20.0,
         le=20.0,
         description="C_τ clip 上界（百分点，默认 +3）",
-    )
-    y_nc_enter: Optional[float] = Field(
-        default=None,
-        ge=0.01,
-        le=10.0,
-        description="dual_y：|nc| 入场下限（收益百分点，默认 0.01）",
-    )
-    y_nc_strong: Optional[float] = Field(
-        default=None,
-        ge=0.05,
-        le=10.0,
-        description="dual_y：|nc|>此值须与 y_τ 同号（默认 0.2%）",
-    )
-    y_nowcast_enter: Optional[float] = Field(
-        default=None,
-        ge=0.05,
-        le=10.0,
-        description="已弃用：别名 y_nc_strong",
-    )
-    y_tau_map: Optional[str] = Field(
-        default=None, max_length=24, description="scalp|trend|fixed_sell_then_buy|fixed_buy_then_sell"
     )
     y_use_path: Optional[bool] = None
     y_path_enter: Optional[float] = Field(
@@ -270,6 +191,78 @@ class T0BacktestRequest(BaseModel):
         ge=0.0,
         le=1.0,
         description="ŷ_τc 旁路强%：0=任意有符号须同号；1=关",
+    )
+    y_t30_strong: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        le=1.0,
+        description="ŷ_τ30 旁路强%：0=任意有符号须同号；1=关",
+    )
+    y_τ30_strong: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        le=1.0,
+        description="y_t30_strong 的 Unicode 别名",
+    )
+    y_t30_enter: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        le=100.0,
+        description="门槛1 |ŷ_τ30| 入场下限（百分点）；0=关；缺 ŷ_τ30 不拦",
+    )
+    y_τ30_enter: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        le=100.0,
+        description="y_t30_enter 的 Unicode 别名",
+    )
+    y_t30_enter_alt: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        le=100.0,
+        description="门槛2 |ŷ_τ30| 入场下限（百分点）；0=关；缺 ŷ_τ30 不拦",
+    )
+    y_τ30_enter_alt: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        le=100.0,
+        description="y_t30_enter_alt 的 Unicode 别名",
+    )
+    y_t60_strong: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        le=1.0,
+        description="ŷ_τ60 旁路强%：0=任意有符号须同号；1=关",
+    )
+    y_τ60_strong: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        le=1.0,
+        description="y_t60_strong 的 Unicode 别名",
+    )
+    y_t60_enter: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        le=100.0,
+        description="门槛1 |ŷ_τ60| 入场下限（百分点）；0=关；缺 ŷ_τ60 不拦",
+    )
+    y_τ60_enter: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        le=100.0,
+        description="y_t60_enter 的 Unicode 别名",
+    )
+    y_t60_enter_alt: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        le=100.0,
+        description="门槛2 |ŷ_τ60| 入场下限（百分点）；0=关；缺 ŷ_τ60 不拦",
+    )
+    y_τ60_enter_alt: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        le=100.0,
+        description="y_t60_enter_alt 的 Unicode 别名",
     )
     y_tc_enter: Optional[float] = Field(
         default=None,
@@ -338,9 +331,6 @@ class T0BacktestRequest(BaseModel):
         description="门槛2 ŷ_tpd 上限：默认 1.00≈关",
     )
     y_path_required: Optional[bool] = None
-    y_gap_tier_mode: Optional[str] = Field(default=None, max_length=24)
-    y_gap_tier_pct: Optional[float] = Field(default=None, ge=0.3, le=8.0)
-    y_nowcast_oc_gate: Optional[bool] = None
     t0_close_band_delta_pct: Optional[float] = Field(default=None, ge=0.0, le=10.0)
     t0_price_space_gate: Optional[bool] = Field(
         default=None, description="日分价空间门禁：|O_d/O_m−1| 超阈跳过"
@@ -535,16 +525,10 @@ class PaperExecutionPatchRequest(BaseModel):
     fill_mode_buy_then_sell: Optional[str] = None
     direction: Optional[str] = None
     path_mode: Optional[str] = None
-    dir_enter: Optional[float] = None
-    min_range_pct: Optional[float] = None
-    min_range_pct_sell_then_buy: Optional[float] = None
-    min_range_pct_buy_then_sell: Optional[float] = None
-    use_atr: Optional[bool] = None
     must_cover_same_day: Optional[bool] = None
     must_cover_same_day_sell_then_buy: Optional[bool] = None
     must_cover_same_day_buy_then_sell: Optional[bool] = None
     y_trade_enter: Optional[float] = None
-    y_trade_strong: Optional[float] = None
     y_trade_floor: Optional[float] = None
     y_tau_enter: Optional[float] = None
     y_tau_enter_strong: Optional[float] = None
@@ -556,31 +540,29 @@ class PaperExecutionPatchRequest(BaseModel):
     fusion_w_tc: Optional[float] = None
     residual_w_oc: Optional[float] = None
     residual_w_mode: Optional[str] = None
-    y_ratio_cut: Optional[float] = None
-    y_ratio_boost_cap: Optional[float] = None
-    y_eod_prior: Optional[float] = None
-    y_eod_enter: Optional[float] = None
-    y_eod_strong: Optional[float] = None
-    y_eod_tau_sign_gate: Optional[float] = None
-    y_trade_tau_sign_gate: Optional[float] = None
     y_on_allow: Optional[float] = None
     y_on_risk: Optional[float] = None
-    y_block_tau_nowcast_sign: Optional[bool] = None
     t0_y_oc_target_scale: Optional[float] = None
     t0_y_oc_l: Optional[float] = None
     t0_y_oc_u: Optional[float] = None
-    y_nc_enter: Optional[float] = None
-    y_nc_strong: Optional[float] = None
-    y_nowcast_enter: Optional[float] = None
-    y_tau_map: Optional[str] = Field(
-        default=None, max_length=24, description="scalp|trend|fixed_sell_then_buy|fixed_buy_then_sell"
-    )
     y_use_path: Optional[bool] = None
     y_path_enter: Optional[float] = None
     y_path_enter_sell_then_buy: Optional[float] = None
     y_path_enter_buy_then_sell: Optional[float] = None
     y_path_strong: Optional[float] = None
     y_tc_strong: Optional[float] = None
+    y_t30_strong: Optional[float] = None
+    y_τ30_strong: Optional[float] = None
+    y_t30_enter: Optional[float] = None
+    y_τ30_enter: Optional[float] = None
+    y_t30_enter_alt: Optional[float] = None
+    y_τ30_enter_alt: Optional[float] = None
+    y_t60_strong: Optional[float] = None
+    y_τ60_strong: Optional[float] = None
+    y_t60_enter: Optional[float] = None
+    y_τ60_enter: Optional[float] = None
+    y_t60_enter_alt: Optional[float] = None
+    y_τ60_enter_alt: Optional[float] = None
     y_tc_enter: Optional[float] = None
     y_τc_enter: Optional[float] = None
     y_complexity_max: Optional[float] = None
@@ -593,9 +575,6 @@ class PaperExecutionPatchRequest(BaseModel):
     y_complexity_max_alt: Optional[float] = None
     y_tpd_max_alt: Optional[float] = None
     y_path_required: Optional[bool] = None
-    y_gap_tier_mode: Optional[str] = None
-    y_gap_tier_pct: Optional[float] = None
-    y_nowcast_oc_gate: Optional[bool] = None
     t0_close_band_delta_pct: Optional[float] = None
     t0_price_space_gate: Optional[bool] = None
     t0_price_space_max_dev_pct: Optional[float] = None

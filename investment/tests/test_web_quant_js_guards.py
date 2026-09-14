@@ -230,6 +230,39 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("ŷ_τc", panel)
         self.assertIn("price(τ)→close(T) · 做 T residual / ĉ · 不进 ranking", panel)
         self.assertIn("主字段 <code>y_τc</code>", panel)
+        self.assertIn("/api/quant/t30-ridge", quant_js)
+        self.assertIn('jobName: "t30-ridge"', quant_js)
+        self.assertIn("/api/quant/t60-ridge", quant_js)
+        self.assertIn('jobName: "t60-ridge"', quant_js)
+        self.assertIn('jobName: "r-ridge"', quant_js)
+        self.assertIn("/api/jobs/${jobName}", quant_js)
+        self.assertIn("pollRidgeJobUntilDone", quant_js)
+        self.assertIn("awaitRidgeFitIfBackground", quant_js)
+        self.assertIn("连接中断", quant_js)
+        self.assertIn("quant-t30-ridge-run", panel)
+        self.assertIn("quant-section-t30", panel)
+        self.assertIn("ŷ_τ30", panel)
+        self.assertIn("quant-t60-ridge-run", panel)
+        self.assertIn("quant-section-t60", panel)
+        self.assertIn("ŷ_τ60", panel)
+        self.assertIn("ret_last_5m", panel)
+        self.assertIn("ret_last_30m", panel)
+        self.assertIn("session_elapsed", panel)
+        self.assertIn("session_remain", panel)
+        self.assertIn("crosses_lunch", panel)
+        self.assertIn("t30_lag1", panel)
+        self.assertIn("t30_ma5", panel)
+        self.assertIn("ret_last_60m", panel)
+        self.assertIn("crosses_lunch_60", panel)
+        self.assertIn("t60_lag1", panel)
+        self.assertIn("t60_ma5", panel)
+        self.assertIn("vol_last_60m_vs_avg", panel)
+        self.assertIn("sector_ret_last_60m", panel)
+        self.assertIn("ret_last_60m_vs_sector", panel)
+        self.assertIn("session_vwap_dev", panel)
+        self.assertIn("vol_last_30m_vs_avg", panel)
+        self.assertIn("sector_ret_last_30m", panel)
+        self.assertIn("ret_last_30m_vs_sector", panel)
         self.assertNotIn("ŷ_τo", panel)
         self.assertNotIn("旧名 y_to / y_pc", panel)
         self.assertIn(">ŷ_oo</", panel)
@@ -240,6 +273,14 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("ŷ_τc_tree", panel)
         self.assertIn("quant-section-r-tree", panel)
         self.assertIn("/api/quant/r-tree", quant_js)
+        self.assertIn("quant-t30-tree-run", panel)
+        self.assertIn("ŷ_τ30_tree", panel)
+        self.assertIn("quant-section-t30-tree", panel)
+        self.assertIn("/api/quant/t30-tree", quant_js)
+        self.assertIn("quant-t60-tree-run", panel)
+        self.assertIn("ŷ_τ60_tree", panel)
+        self.assertIn("quant-section-t60-tree", panel)
+        self.assertIn("/api/quant/t60-tree", quant_js)
         self.assertIn("tpd_lag1", panel)
         self.assertIn("tpd_ma5", panel)
         self.assertIn("complexity_tpd_lag1", panel)
@@ -764,12 +805,14 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertNotIn("tauGateHint", table_js)
         self.assertNotIn("选向：C_τ=", table_js)
         self.assertIn(')}">y_τc</th>', table_js)
+        self.assertIn(')}">y_τ30</th>', table_js)
+        self.assertIn(')}">y_τ60</th>', table_js)
         self.assertIn(')}">R_τ</th>', table_js)
         self.assertIn(')}">y_hl</th>', table_js)
         self.assertIn(')}">y_cx</th>', table_js)
         self.assertIn(')}">y_tpd</th>', table_js)
         css = self._read("web", "static", "css", "follow.css")
-        self.assertIn("R_τ | y_oc | y_τc | y_hl | y_cx | y_tpd", css)
+        self.assertIn("R_τ | y_oc | y_τc | y_τ30 | y_τ60 | y_hl | y_cx | y_tpd", css)
         self.assertIn("价带 | Ĉ_τ | lower | upper | R_τ", css)
         ctau_rule = css.index(
             "thead th.paper-t0-col-ctau,\n.paper-t0-trades-table tbody td.paper-t0-col-ctau {\n  border-left:"
@@ -780,18 +823,28 @@ class TestWebQuantJsGuards(unittest.TestCase):
         yr_rule = css.index(
             "thead th.paper-t0-col-yr,\n.paper-t0-trades-table tbody td.paper-t0-col-yr {\n  border-left:"
         )
+        yt30_rule = css.index(
+            "thead th.paper-t0-col-yt30,\n.paper-t0-trades-table tbody td.paper-t0-col-yt30 {\n  border-left:"
+        )
+        yt60_rule = css.index(
+            "thead th.paper-t0-col-yt60,\n.paper-t0-trades-table tbody td.paper-t0-col-yt60 {\n  border-left:"
+        )
         tau_rule = css.index("thead th.paper-t0-col-tau")
         path_rule = css.index("thead th.paper-t0-col-path,\n.paper-t0-trades-table tbody td.paper-t0-col-path {\n  border-left:")
         cx_rule = css.index("thead th.paper-t0-col-cx,\n.paper-t0-trades-table tbody td.paper-t0-col-cx {\n  border-left:")
         tpd_rule = css.index("thead th.paper-t0-col-tpd,\n.paper-t0-trades-table tbody td.paper-t0-col-tpd {\n  border-left:")
         self.assertLess(ctau_rule, rtau_rule)
         self.assertLess(rtau_rule, yr_rule)
-        self.assertLess(yr_rule, path_rule)
+        self.assertLess(yr_rule, yt30_rule)
+        self.assertLess(yt30_rule, yt60_rule)
+        self.assertLess(yt60_rule, path_rule)
         self.assertLess(tau_rule, path_rule)
         self.assertLess(path_rule, cx_rule)
         self.assertLess(cx_rule, tpd_rule)
         self.assertIn("function rtauMergedCellHtml", table_js)
         self.assertIn("function rMergedCellHtml", table_js)
+        self.assertIn("function t30MergedCellHtml", table_js)
+        self.assertIn("function t60MergedCellHtml", table_js)
         self.assertIn("function slotRRealizedNum", table_js)
         self.assertIn("fmtRtauPct(pred)", table_js)
         self.assertIn("function cxMergedCellHtml", table_js)
@@ -801,6 +854,14 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("tpdMergedCellHtml(scoreHost, dayRef || d, slotYRealized)", table_js)
         self.assertIn("rtauMergedCellHtml(scoreHost, dayRef || d, slotYRealized, scoreDetailJson)", table_js)
         self.assertIn("rMergedCellHtml(scoreHost, dayRef || d, slotYRealized, scoreDetailJson)", table_js)
+        self.assertIn("t30MergedCellHtml(scoreHost, dayRef || d, slotYRealized, t30DetailJson)", table_js)
+        self.assertIn("t60MergedCellHtml(scoreHost, dayRef || d, slotYRealized, t60DetailJson)", table_js)
+        self.assertIn("function t30TipPayload", table_js)
+        self.assertIn("function t30TipDetailAttr", table_js)
+        self.assertIn("function t60TipPayload", table_js)
+        self.assertIn("function t60TipDetailAttr", table_js)
+        self.assertIn('data-score-tip="t30"', table_js)
+        self.assertIn('data-score-tip="t60"', table_js)
         self.assertNotIn("paper-t0-col-next", table_js)
         self.assertNotIn(')}">y_next</th>', table_js)
         self.assertNotIn("nextMergedCellHtml", table_js)
@@ -821,6 +882,11 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn('pullback_from_high: "自高回撤 %"', tip_js)
         self.assertIn("PATH_FEAT_LABELS[k]", tip_js)
         self.assertIn('key === "path" && k && PATH_FEAT_LABELS[k]', tip_js)
+        self.assertIn('ret_last_30m: "近30交易分钟收益 %"', tip_js)
+        self.assertIn('session_vwap_dev: "τ价相对会话VWAP %"', tip_js)
+        self.assertIn('t30_lag1: "昨同钟真实 τ⊕30m %"', tip_js)
+        self.assertIn('t60_lag1: "昨同钟真实 τ⊕60m %"', tip_js)
+        self.assertIn('key === "tau" || key === "r" || key === "t30" || key === "t60"', tip_js)
 
     def test_y_nc_resolve_helpers_remain_in_fmt(self):
         fmt_js = self._read("web", "static", "js", "paper", "fmt.js")
@@ -836,6 +902,10 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("Y_τc_TITLE", fmt_js)
         self.assertIn("Y_TC_TITLE", fmt_js)
         self.assertIn("Y_R_TITLE", fmt_js)
+        self.assertIn("Y_T30_TITLE", fmt_js)
+        self.assertIn("T30_REALIZED_TITLE", fmt_js)
+        self.assertIn("Y_T60_TITLE", fmt_js)
+        self.assertIn("T60_REALIZED_TITLE", fmt_js)
         self.assertIn("R_REALIZED_TITLE", fmt_js)
         self.assertIn("R_HAT_TITLE", fmt_js)
         self.assertIn("nowcast = nc", fmt_js)
@@ -938,6 +1008,8 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn('cx: "126px"', table_js)
         self.assertIn('tpd: "126px"', table_js)
         self.assertIn('yr: "126px"', table_js)
+        self.assertIn('yt30: "126px"', table_js)
+        self.assertIn('yt60: "126px"', table_js)
         self.assertIn('rtau: "126px"', table_js)
         self.assertIn('process: "280px"', table_js)
         self.assertIn("fmtTradeDate", table_js)
@@ -948,6 +1020,8 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn(".paper-t0-col-tpd { width: 126px; min-width: 126px; }", css)
         self.assertIn(".paper-t0-col-rtau { width: 126px; min-width: 126px; }", css)
         self.assertIn(".paper-t0-col-yr { width: 126px; min-width: 126px; }", css)
+        self.assertIn(".paper-t0-col-yt30 { width: 126px; min-width: 126px; }", css)
+        self.assertIn(".paper-t0-col-yt60 { width: 126px; min-width: 126px; }", css)
         self.assertIn(".paper-t0-col-date", css)
 
     def test_live_t0_tables_omit_realized_pair(self):
@@ -1073,6 +1147,8 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn('data-score-tip="tau"', table_js)
         self.assertIn('data-score-tip="r"', table_js)
         self.assertIn('data-score-tip="rtau"', table_js)
+        self.assertIn('data-score-tip="t30"', table_js)
+        self.assertIn('data-score-tip="t60"', table_js)
         self.assertIn("function pickYtcModel", table_js)
         tip_js = self._read("web", "static", "js", "score_tooltip.js")
         self.assertIn("本槽未跑 OC Ridge", tip_js)
@@ -1081,6 +1157,10 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("remainingAtTauPct", tip_js)
         self.assertIn("function formatCompactRTip", tip_js)
         self.assertIn("function formatCompactRtauTip", tip_js)
+        self.assertIn("function formatCompactT30Tip", tip_js)
+        self.assertIn("function formatCompactT60Tip", tip_js)
+        self.assertIn("ŷ_τ30 · Ridge", tip_js)
+        self.assertIn("ŷ_τ60 · Ridge", tip_js)
         self.assertIn("截距 α（研究套）", tip_js)
         self.assertIn("做 T 回测走研究套截距", tip_js)
         self.assertIn("ŷ_τc · Ridge", tip_js)
@@ -1090,6 +1170,8 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("y_to: it && (it.y_to != null ? it.y_to", wr)
         self.assertIn("ret_open_to_tau", wr)
         self.assertIn("formula_terms_r", wr)
+        self.assertIn("formula_terms_t30", wr)
+        self.assertIn("formula_terms_t60", wr)
         self.assertIn("bar_prefix", table_js)
         self.assertIn("tradeScoreHost", table_js)
         self.assertIn("scanRowForHm", table_js)
@@ -1112,6 +1194,8 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("n += 1; // R_τ", table_js)
         self.assertIn("n += 1; // y_oc", table_js)
         self.assertIn("n += 1; // y_τc", table_js)
+        self.assertIn("n += 1; // y_τ30", table_js)
+        self.assertIn("n += 1; // y_τ60", table_js)
         self.assertIn("n += 1; // y_hl", table_js)
         self.assertIn("if (ctx.showRealized) n += 2; // y_cx y_tpd", table_js)
         self.assertIn("n += 7; // O L H C Ĉ_τ lower upper", table_js)
@@ -1121,12 +1205,12 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn(">lower</th>", table_js)
         self.assertNotIn("fmtScanPct(r.upper_pct)", table_js)
         self.assertNotIn("fmtScanPct(r.lower_pct)", table_js)
-        self.assertIn("nth-child(n + 6):nth-child(-n + 14)", self._read("web", "static", "css", "follow.css"))
+        self.assertIn("nth-child(n + 6):nth-child(-n + 16)", self._read("web", "static", "css", "follow.css"))
         self.assertIn("paper-t0-scan-ohlc-check", self._read("web", "static", "css", "follow.css"))
         follow_css = self._read("web", "static", "css", "follow.css")
         self.assertIn(".paper-t0-scan-debug col {", follow_css)
-        self.assertIn("width: calc(100% / 16);", follow_css)
-        self.assertIn('<colgroup><col span="16"></colgroup>', table_js)
+        self.assertIn("width: calc(100% / 18);", follow_css)
+        self.assertIn('<colgroup><col span="18"></colgroup>', table_js)
         self.assertIn("slotClock", table_js)
         self.assertIn("paper-t0-slot-cont", table_js)
         self.assertIn("applyTdRowspan", table_js)
@@ -1159,7 +1243,7 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertNotIn("fmtSlotKlineTd", table_js)
         self.assertNotIn("paper-t0-slot-kline", table_js)
         self.assertNotIn("5m×6", table_js)
-        # 主表头列序：日 → O/L/H/C/Ĉ_τ → lower → upper → R_τ → y_oc → y_τc → y_hl → y_cx → y_tpd → 过程
+        # 主表头列序：日 → O/L/H/C/Ĉ_τ → lower → upper → R_τ → y_oc → y_τc → y_τ30 → y_τ60 → y_hl → y_cx → y_tpd → 过程
         date_th = table_js.find('class="paper-t0-col-date">日</th>')
         o_th = table_js.find('class="paper-t0-col-o num" title="本轮触发根 5m 开盘">O</th>')
         l_th = table_js.find('class="paper-t0-col-l num" title="本轮触发根 5m 最低">L</th>')
@@ -1171,6 +1255,8 @@ class TestWebQuantJsGuards(unittest.TestCase):
         rtau_th = table_js.find(')}">R_τ</th>')
         tau_th = table_js.find(')}">y_oc</th>')
         yr_th = table_js.find(')}">y_τc</th>')
+        yt30_th = table_js.find(')}">y_τ30</th>')
+        yt60_th = table_js.find(')}">y_τ60</th>')
         path_th = table_js.find(')}">y_hl</th>')
         cx_th = table_js.find('class="paper-t0-col-cx num paper-t0-col-y paper-t0-col-y-cx"')
         tpd_th = table_js.find('class="paper-t0-col-tpd num paper-t0-col-y paper-t0-col-y-tpd"')
@@ -1190,7 +1276,9 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertLess(up_th, rtau_th)
         self.assertLess(rtau_th, tau_th)
         self.assertLess(tau_th, yr_th)
-        self.assertLess(yr_th, path_th)
+        self.assertLess(yr_th, yt30_th)
+        self.assertLess(yt30_th, yt60_th)
+        self.assertLess(yt60_th, path_th)
         self.assertLess(path_th, cx_th)
         self.assertLess(cx_th, tpd_th)
         self.assertLess(tpd_th, process_th)
@@ -1253,6 +1341,12 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("正${meta.nBuyThenSell}/反${meta.nSellThenBuy}", viz)
         self.assertIn("skip_scope", viz)
         self.assertIn("skip_round_count", viz)
+        self.assertIn('t30_pred_hit_rate_pct', viz)
+        self.assertIn("τ30命中", viz)
+        self.assertIn("τ30旁路", viz)
+        self.assertIn('t60_pred_hit_rate_pct', viz)
+        self.assertIn("τ60命中", viz)
+        self.assertIn("τ60旁路", viz)
         report = self._read("web", "static", "js", "paper", "t0_report.js")
         self.assertIn("data.buy_then_sell_pnl", report)
         self.assertIn("fmtT0DirDays", report)
@@ -1277,16 +1371,27 @@ class TestWebQuantJsGuards(unittest.TestCase):
         lead_css = follow_css[follow_css.find(".paper-t0-portrait-lead") :]
         self.assertIn("white-space: nowrap", lead_css[:240])
         self.assertNotIn("max-width: 36rem", lead_css[:240])
+        self.assertIn("min-width: 980px", follow_css[follow_css.find(".paper-t0-portrait-slot-table") :][:200])
         self.assertNotIn("eod命中", report)
         self.assertNotIn("trade命中", report)
         self.assertIn("有ŷ", report)
         self.assertIn("成/跳", report)
         self.assertIn(">旁路</th>", report)
         self.assertIn("y_tc_band", report)
+        self.assertIn(">τ30旁路</th>", report)
+        self.assertIn("y_t30_hit", report)
+        self.assertIn("y_t30_band", report)
+        self.assertIn('title="ŷ_τ30 ↔ price(τ⊕30m)/price(τ)−1">y_τ30</th>', report)
+        self.assertIn(">τ60旁路</th>", report)
+        self.assertIn("y_t60_hit", report)
+        self.assertIn("y_t60_band", report)
+        self.assertIn('title="ŷ_τ60 ↔ price(τ⊕60m)/price(τ)−1">y_τ60</th>', report)
         self.assertIn("close_band_scan", report)
         self.assertNotIn("R_τ命中", report)
         self.assertNotIn("y_oc命中", report)
         self.assertNotIn("y_τc命中", report)
+        self.assertNotIn("y_τ30命中", report)
+        self.assertNotIn("y_τ60命中", report)
         self.assertNotIn("标签分布", report)
         self.assertNotIn("预估命中 · 全样本", report)
         self.assertNotIn('name="sell_trigger_pct_long"', panel)
@@ -1447,7 +1552,31 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("组 close/price(τ) 面板", js)
         self.assertIn("拉观察池行情 / 5m 缓存", js)
         self.assertNotIn("quant-r-tree-persist", panel)
+        self.assertIn("quant-t30-tree-run", panel)
+        self.assertIn("quant-t30-tree-result", panel)
+        self.assertIn("quant-section-t30-tree", panel)
+        self.assertIn("/api/quant/t30-tree", js)
+        self.assertIn("runT30Tree", js)
+        self.assertIn("renderT30TreeCompare", js)
+        self.assertIn("startT30TreeBusy", js)
+        self.assertIn("stopT30TreeBusy", js)
+        self.assertIn("t30TreeBusyHint", js)
+        self.assertIn("组 price(τ⊕30m)/price(τ) 面板", js)
+        self.assertNotIn("quant-t30-tree-persist", panel)
+        self.assertIn("quant-t60-tree-run", panel)
+        self.assertIn("quant-t60-tree-result", panel)
+        self.assertIn("quant-section-t60-tree", panel)
+        self.assertIn("/api/quant/t60-tree", js)
+        self.assertIn("runT60Tree", js)
+        self.assertIn("renderT60TreeCompare", js)
+        self.assertIn("startT60TreeBusy", js)
+        self.assertIn("stopT60TreeBusy", js)
+        self.assertIn("t60TreeBusyHint", js)
+        self.assertIn("组 price(τ⊕60m)/price(τ) 面板", js)
+        self.assertNotIn("quant-t60-tree-persist", panel)
         self.assertIn("quant-r-ridge-persist-research", panel)
+        self.assertIn("quant-t30-ridge-persist-research", panel)
+        self.assertIn("quant-t60-ridge-persist-research", panel)
         self.assertIn("启用研究", panel)
         self.assertIn("启用执行", panel)
         self.assertIn("persist_role", js)
@@ -1469,6 +1598,8 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("holdout_trading_days", suggest)
         self.assertIn("readHoldoutTradingDays", suggest)
         self.assertIn('remStatusMeta(\n            "Holdout"', js.replace("\r\n", "\n"))
+        self.assertIn('remStatusMeta(\n          "拟合"', js.replace("\r\n", "\n"))
+        self.assertIn("src.fitted_at", js)
         self.assertIn("训", js)
         self.assertIn("Holdout ${Number(holdN)}日", js)
         self.assertIn("旁路 · 分钟K形状", panel)
@@ -1481,6 +1612,8 @@ class TestWebQuantJsGuards(unittest.TestCase):
         for sid in (
             "quant-section-tau-tree",
             "quant-section-r-tree",
+            "quant-section-t30-tree",
+            "quant-section-t60-tree",
             "quant-section-path",
             "quant-section-cx",
             "quant-section-tpd",
@@ -1497,6 +1630,8 @@ class TestWebQuantJsGuards(unittest.TestCase):
             "quant-section-factors",
             "quant-section-tau",
             "quant-section-r",
+            "quant-section-t30",
+            "quant-section-t60",
             "quant-section-on",
         ):
             self.assertRegex(
@@ -1510,9 +1645,13 @@ class TestWebQuantJsGuards(unittest.TestCase):
         order = [
             "quant-section-tau",
             "quant-section-r",
+            "quant-section-t30",
+            "quant-section-t60",
             "quant-section-on",
             "quant-section-tau-tree",
             "quant-section-r-tree",
+            "quant-section-t30-tree",
+            "quant-section-t60-tree",
             "quant-section-path",
         ]
         idxs = [panel.find(f'id="{sid}"') for sid in order]
@@ -2031,6 +2170,16 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn('name="y_tc_strong"', panel)
         self.assertIn('name="y_tc_strong" min="0" max="1.00"', panel)
         self.assertIn(">τc强%</span>", panel)
+        self.assertIn('name="y_t30_strong"', panel)
+        self.assertIn(">τ30强%</span>", panel)
+        self.assertIn('name="y_t30_enter"', panel)
+        self.assertIn('name="y_t30_enter_alt"', panel)
+        self.assertIn(">τ30入场%</span>", panel)
+        self.assertIn('name="y_t60_strong"', panel)
+        self.assertIn(">τ60强%</span>", panel)
+        self.assertIn('name="y_t60_enter"', panel)
+        self.assertIn('name="y_t60_enter_alt"', panel)
+        self.assertIn(">τ60入场%</span>", panel)
         self.assertIn(">HL入场%</span>", panel)
         self.assertIn(">oc入场%</span>", panel)
         self.assertIn(">TC入场%</span>", panel)
@@ -2046,8 +2195,18 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn(">tpd上界</span>", panel)
         self.assertIn("<legend>门槛1</legend>", panel)
         self.assertIn("<legend>门槛2</legend>", panel)
+        g1 = panel.find("<legend>门槛1</legend>")
+        g2 = panel.find("<legend>门槛2</legend>")
+        self.assertLess(g1, panel.find('name="y_t30_enter"'))
+        self.assertLess(panel.find('name="y_t30_enter"'), g2)
+        self.assertLess(g2, panel.find('name="y_t30_enter_alt"'))
+        self.assertLess(g1, panel.find('name="y_t60_enter"'))
+        self.assertLess(panel.find('name="y_t60_enter"'), g2)
+        self.assertLess(g2, panel.find('name="y_t60_enter_alt"'))
+        self.assertLess(panel.find('name="y_t30_strong"'), g1)
+        self.assertLess(panel.find('name="y_t60_strong"'), g1)
         gate_hint = (
-            "|ŷ_oc|、|ŷ_τc|、|y_hl| 过入场，且 ŷ_cx / tpd 过上限。"
+            "|ŷ_oc|、|ŷ_τc|、|y_hl|、|ŷ_τ30|、|ŷ_τ60| 过入场，且 ŷ_cx / tpd 过上限。"
             "关启用则本档不参与 OR。缺 HL / 分钟缺失见共用区。"
         )
         self.assertEqual(panel.count(gate_hint), 2)
@@ -2133,6 +2292,10 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn('Math.min(num("y_path_enter_alt", 0), 100)', ui)
         self.assertIn('Math.min(num("y_tc_enter", 0), 100)', ui)
         self.assertIn('Math.min(num("y_tc_enter_alt", 0), 100)', ui)
+        self.assertIn('Math.min(num("y_t30_enter", 0), 100)', ui)
+        self.assertIn('Math.min(num("y_t30_enter_alt", 0), 100)', ui)
+        self.assertIn('Math.min(num("y_t60_enter", 0), 100)', ui)
+        self.assertIn('Math.min(num("y_t60_enter_alt", 0), 100)', ui)
         self.assertNotIn("r_tau_enter", ui)
         self.assertNotIn("r_tau_enter_alt", ui)
         self.assertNotIn("fusion_w_tc", ui)
@@ -2141,11 +2304,11 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn('"门槛1"', ui)
         self.assertIn('"门槛2"', ui)
         self.assertIn(
-            '"门槛1：启用时 |ŷ_oc| / |ŷ_τc| / |y_hl| 入场 + cx/tpd 风险"',
+            '"门槛1：启用时 |ŷ_oc| / |ŷ_τc| / |y_hl| / |ŷ_τ30| / |ŷ_τ60| 入场 + cx/tpd 风险"',
             ui,
         )
         self.assertIn(
-            '"门槛2：启用时 |ŷ_oc| / |ŷ_τc| / |y_hl| 入场 + cx/tpd 风险"',
+            '"门槛2：启用时 |ŷ_oc| / |ŷ_τc| / |y_hl| / |ŷ_τ30| / |ŷ_τ60| 入场 + cx/tpd 风险"',
             ui,
         )
         self.assertNotIn("启用且门槛1 未过时", ui)
@@ -2159,6 +2322,12 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertNotIn('set("y_tc_validate"', ui)
         self.assertNotIn(">τc旁路</span>", ui)
         self.assertIn("y_tc_strong", ui)
+        self.assertIn("y_t30_strong", ui)
+        self.assertIn("y_t60_strong", ui)
+        self.assertIn("y_t30_enter", ui)
+        self.assertIn("y_t30_enter_alt", ui)
+        self.assertIn("y_t60_enter", ui)
+        self.assertIn("y_t60_enter_alt", ui)
         self.assertIn("y_tc_enter", ui)
         self.assertIn("y_tc_enter_alt", ui)
         self.assertIn("y_complexity_max", ui)

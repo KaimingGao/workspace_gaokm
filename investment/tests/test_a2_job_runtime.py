@@ -48,6 +48,13 @@ class TestA2JobRuntime(unittest.TestCase):
         names = {p["slot"] for p in policies}
         self.assertIn("paper", names)
         self.assertIn("quant-ols-clusters", names)
+        self.assertIn("t30-ridge", names)
+        self.assertIn("t60-ridge", names)
+        self.assertIn("r-ridge", names)
+        t30_p = next(p for p in policies if p["slot"] == "t30-ridge")
+        self.assertGreaterEqual(float(t30_p.get("stale_sec") or 0), 1800.0)
+        t60_p = next(p for p in policies if p["slot"] == "t60-ridge")
+        self.assertGreaterEqual(float(t60_p.get("stale_sec") or 0), 1800.0)
         paper_p = next(p for p in policies if p["slot"] == "paper")
         self.assertTrue(paper_p.get("persisted"))
 

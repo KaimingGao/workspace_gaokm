@@ -246,14 +246,82 @@ class TestExecutionResolve(unittest.TestCase):
         )
         self.assertAlmostEqual(float(view["t0"]["y_tc_strong"]), 0.3)
 
-    def test_validate_patch_allows_y_tau_map(self):
+    def test_public_view_keeps_y_t30_strong(self):
+        from core.execution import (
+            apply_execution_patch_to_paper,
+            execution_public_view,
+            resolve_effective_execution,
+            validate_execution_patch,
+        )
+
+        ok, norm, errs = validate_execution_patch({"t0": {"y_t30_strong": 0.2}})
+        self.assertTrue(ok, errs)
+        self.assertAlmostEqual(float(norm["t0"]["y_t30_strong"]), 0.2)
+        paper = {"strategy_id": "short_conservative", "rules": {}}
+        applied = apply_execution_patch_to_paper(paper, norm)
+        self.assertTrue(applied.get("ok"), applied)
+        view = execution_public_view(
+            resolve_effective_execution(paper=paper, channel="paper")
+        )
+        self.assertAlmostEqual(float(view["t0"]["y_t30_strong"]), 0.2)
+
+    def test_public_view_keeps_y_t60_strong(self):
+        from core.execution import (
+            apply_execution_patch_to_paper,
+            execution_public_view,
+            resolve_effective_execution,
+            validate_execution_patch,
+        )
+
+        ok, norm, errs = validate_execution_patch({"t0": {"y_t60_strong": 0.2}})
+        self.assertTrue(ok, errs)
+        self.assertAlmostEqual(float(norm["t0"]["y_t60_strong"]), 0.2)
+        paper = {"strategy_id": "short_conservative", "rules": {}}
+        applied = apply_execution_patch_to_paper(paper, norm)
+        self.assertTrue(applied.get("ok"), applied)
+        view = execution_public_view(
+            resolve_effective_execution(paper=paper, channel="paper")
+        )
+        self.assertAlmostEqual(float(view["t0"]["y_t60_strong"]), 0.2)
+
+    def test_public_view_keeps_y_t30_t60_enter(self):
+        from core.execution import (
+            apply_execution_patch_to_paper,
+            execution_public_view,
+            resolve_effective_execution,
+            validate_execution_patch,
+        )
+
+        ok, norm, errs = validate_execution_patch(
+            {
+                "t0": {
+                    "y_t30_enter": 0.4,
+                    "y_t30_enter_alt": 0.2,
+                    "y_t60_enter": 0.6,
+                    "y_t60_enter_alt": 0.3,
+                }
+            }
+        )
+        self.assertTrue(ok, errs)
+        paper = {"strategy_id": "short_conservative", "rules": {}}
+        applied = apply_execution_patch_to_paper(paper, norm)
+        self.assertTrue(applied.get("ok"), applied)
+        view = execution_public_view(
+            resolve_effective_execution(paper=paper, channel="paper")
+        )
+        self.assertAlmostEqual(float(view["t0"]["y_t30_enter"]), 0.4)
+        self.assertAlmostEqual(float(view["t0"]["y_t30_enter_alt"]), 0.2)
+        self.assertAlmostEqual(float(view["t0"]["y_t60_enter"]), 0.6)
+        self.assertAlmostEqual(float(view["t0"]["y_t60_enter_alt"]), 0.3)
+
+    def test_validate_patch_drops_y_tau_map(self):
         from core.execution import validate_execution_patch
 
         ok, norm, errs = validate_execution_patch(
             {"t0": {"y_tau_map": "trend", "y_score_source": "compute"}}
         )
         self.assertTrue(ok, errs)
-        self.assertEqual(norm["t0"]["y_tau_map"], "trend")
+        self.assertNotIn("y_tau_map", norm["t0"])
         self.assertEqual(norm["t0"]["y_score_source"], "compute")
 
     def test_validate_patch_allows_pm_chase_risk_keys(self):
@@ -275,14 +343,13 @@ class TestExecutionResolve(unittest.TestCase):
         self.assertAlmostEqual(defaults["t0_stop_pct_buy_then_sell"], 1.2)
         self.assertEqual(defaults["t0_stop_arm_bars"], 1)
         self.assertTrue(defaults["t0_stop_on_close"])
-        self.assertTrue(defaults["y_block_tau_nowcast_sign"])
+        self.assertNotIn("y_block_tau_nowcast_sign", defaults)
         self.assertNotIn("t0_adverse_stop_pct", defaults)
         self.assertNotIn("t0_time_stop", defaults)
 
         ok, norm, errs = validate_execution_patch(
             {
                 "t0": {
-                    "y_block_tau_nowcast_sign": True,
                     "t0_pm_degrade_sell_then_buy": "13:00",
                     "t0_pm_degrade_buy_then_sell": "14:00",
                     "t0_stop_pct_buy_then_sell": 1.2,
@@ -306,7 +373,7 @@ class TestExecutionResolve(unittest.TestCase):
         self.assertAlmostEqual(float(view["t0"]["t0_stop_pct_buy_then_sell"]), 1.2)
         self.assertEqual(view["t0"]["t0_pm_chase_interval_min"], 10)
         self.assertNotIn("t0_adverse_stop_pct", view["t0"])
-        self.assertTrue(view["t0"]["y_block_tau_nowcast_sign"])
+        self.assertNotIn("y_block_tau_nowcast_sign", view["t0"])
 
         ok_dead, norm_dead, errs_dead = validate_execution_patch(
             {
@@ -360,17 +427,17 @@ class TestExecutionResolve(unittest.TestCase):
         self.assertAlmostEqual(float(d["y_tau_exit_price_mult_buy_then_sell"]), 1.0)
         self.assertAlmostEqual(float(d["y_tau_exit_price_mult_sell_then_buy"]), 1.0)
 
-    def test_validate_patch_preserves_y_nowcast_oc_gate_false(self):
+    def test_validate_patch_drops_y_nowcast_oc_gate(self):
         from core.execution import validate_execution_patch
 
         ok, norm, errs = validate_execution_patch(
             {"t0": {"y_nowcast_oc_gate": False, "y_use_path": False}}
         )
         self.assertTrue(ok, errs)
-        self.assertFalse(norm["t0"]["y_nowcast_oc_gate"])
+        self.assertNotIn("y_nowcast_oc_gate", norm["t0"])
         self.assertFalse(norm["t0"]["y_use_path"])
 
-    def test_rules_summary_includes_nowcast_oc_gate(self):
+    def test_rules_summary_omits_dropped_dual_y_gates(self):
         from quant.research.t0_backtest import _rules_summary
 
         out = _rules_summary(
@@ -379,18 +446,26 @@ class TestExecutionResolve(unittest.TestCase):
                 "y_nowcast_oc_gate": False,
                 "y_nc_strong": 6.0,
                 "y_ratio_boost_cap": 2.0,
+                "y_t30_enter_alt": 0.2,
+                "y_τ30_enter_alt": 0.2,
+                "y_t60_enter_alt": 0.3,
+                "y_τ60_enter_alt": 0.3,
             }
         )
-        self.assertFalse(out["y_nowcast_oc_gate"])
-        self.assertEqual(out["y_nc_strong"], 6.0)
-        self.assertEqual(out["y_ratio_boost_cap"], 2.0)
+        self.assertNotIn("y_nowcast_oc_gate", out)
+        self.assertNotIn("y_nc_strong", out)
+        self.assertNotIn("y_ratio_boost_cap", out)
+        self.assertAlmostEqual(float(out["y_t30_enter_alt"]), 0.2)
+        self.assertAlmostEqual(float(out["y_τ30_enter_alt"]), 0.2)
+        self.assertAlmostEqual(float(out["y_t60_enter_alt"]), 0.3)
+        self.assertAlmostEqual(float(out["y_τ60_enter_alt"]), 0.3)
 
-    def test_coerce_cfg_bool_and_paper_oc_gate(self):
+    def test_coerce_cfg_bool_and_dropped_oc_gate(self):
         from core.execution import resolve_t0_rules
         from core.t0.config import coerce_cfg_bool, load_t0_rules
 
         self.assertFalse(coerce_cfg_bool("false"))
-        self.assertFalse(load_t0_rules({"y_nowcast_oc_gate": "false"})["y_nowcast_oc_gate"])
+        self.assertNotIn("y_nowcast_oc_gate", load_t0_rules({"y_nowcast_oc_gate": "false"}))
         resolved = resolve_t0_rules(
             paper={
                 "strategy_id": "short_conservative",
@@ -400,7 +475,7 @@ class TestExecutionResolve(unittest.TestCase):
             channel="backtest",
             has_minute=True,
         )
-        self.assertFalse(resolved["y_nowcast_oc_gate"])
+        self.assertNotIn("y_nowcast_oc_gate", resolved)
 
     def test_validate_and_apply_patch(self):
         from core.execution import (

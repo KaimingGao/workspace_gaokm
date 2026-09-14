@@ -10,7 +10,7 @@ from core.research.cx_panel import pack_y_complexity_fields, pack_y_tpd_fields
 from core.research.r_ridge import pack_y_r_fields
 from core.t0.config import T0_TRADE_DAYS_SAMPLE_UI_LIMIT, load_t0_rules
 from core.t0.minute_path import T0_INTENTIONAL_ABANDON_EXITS
-from core.t0.rules import _t0_qty_lots, atr_pct_from_bars, simulate_t0_day
+from core.t0.rules import _t0_qty_lots, simulate_t0_day
 
 
 def _research_cash_for_buy_then_sell(
@@ -88,7 +88,6 @@ def _t0_range_fields(day: Dict[str, Any]) -> Dict[str, Any]:
         "range_mode",
         "prefix_bars",
         "range_pct",
-        "min_range_pct",
         "price_space",
         "price_space_scale",
         "price_space_mode",
@@ -300,7 +299,7 @@ def backtest_t0_on_bars(
         primary["score_warmup_bars"] = max(0, len(history) - len(bars))
     primary["note"] = (
         "底仓做T回测；默认 trigger 成交；"
-        f"direction={cfg.get('direction')} · y_tau_map={cfg.get('y_tau_map')} · "
+        f"direction={cfg.get('direction')} · "
         f"y_score_source={cfg.get('y_score_source')} · "
         f"y_tau_enter=±{cfg.get('y_tau_enter')}%；"
         + "仅 5m 第一触达（缺分钟日跳过，已删除日线模拟）；"
@@ -391,7 +390,6 @@ def _walk_t0(
     mixed_days = 0
     minute_days = 0
     missing_minute_days = 0
-    atr_window = int(cfg.get("atr_window") or 14)
     hold_mv_start = round(shares * cost, 2)
     # 已删除日线模拟：无分钟覆盖的交易日一律跳过
     if str(cfg.get("direction") or "") == "dual_y" and stock_code:
@@ -440,9 +438,6 @@ def _walk_t0(
                 if cash < need * 0.95:
                     cash = max(cash, need)
         hist_prior = history[:gi]
-        # ATR 仅用 T−1 及更早，避免当日振幅前视抬触发价
-        atr = atr_pct_from_bars(hist_prior, atr_window) if cfg.get("use_atr") else None
-        atr_for_dir = atr
         mins = None
         used_minute = False
         if minute_by_date and dkey:
@@ -510,7 +505,6 @@ def _walk_t0(
             cost_config=cost_config,
             stock_code=stock_code,
             cash=cash,
-            atr_pct=atr if atr is not None else atr_for_dir,
             hist_bars=hist_prior,
             minute_bars=mins,
             scores=score_snap,
@@ -770,19 +764,9 @@ def _walk_t0(
             "direction": cfg["direction"],
             "path_mode": cfg.get("path_mode"),
             "minute_period": cfg.get("minute_period"),
-            "min_range_pct": cfg.get("min_range_pct"),
-            "min_range_pct_sell_then_buy": cfg.get("min_range_pct_sell_then_buy"),
-            "min_range_pct_buy_then_sell": cfg.get("min_range_pct_buy_then_sell"),
-            "use_atr": cfg.get("use_atr"),
             "ref": cfg.get("ref"),
             "y_trade_enter": cfg.get("y_trade_enter") or cfg.get("y_trade_floor"),
-            "y_trade_strong": cfg.get("y_trade_strong") or cfg.get("y_trade_tau_sign_gate"),
-            "y_eod_prior": cfg.get("y_eod_prior"),
-            "y_eod_enter": cfg.get("y_eod_enter"),
-            "y_eod_strong": cfg.get("y_eod_strong") or cfg.get("y_eod_tau_sign_gate"),
             "y_trade_floor": cfg.get("y_trade_floor") or cfg.get("y_trade_enter"),
-            "y_eod_tau_sign_gate": cfg.get("y_eod_tau_sign_gate") or cfg.get("y_eod_strong"),
-            "y_trade_tau_sign_gate": cfg.get("y_trade_tau_sign_gate") or cfg.get("y_trade_strong"),
             "y_tau_enter": cfg.get("y_tau_enter"),
             "y_tau_enter_sell_then_buy": cfg.get("y_tau_enter_sell_then_buy"),
             "y_tau_enter_buy_then_sell": cfg.get("y_tau_enter_buy_then_sell"),
@@ -800,11 +784,6 @@ def _walk_t0(
             "y_path_enter_alt": cfg.get("y_path_enter_alt"),
             "y_on_risk": cfg.get("y_on_risk"),
             "y_on_allow": cfg.get("y_on_allow"),
-            "y_block_tau_nowcast_sign": cfg.get("y_block_tau_nowcast_sign"),
-            "y_nc_enter": cfg.get("y_nc_enter"),
-            "y_nc_strong": cfg.get("y_nc_strong") or cfg.get("y_nowcast_enter"),
-            "y_nowcast_enter": cfg.get("y_nowcast_enter") or cfg.get("y_nc_strong"),
-            "y_tau_map": cfg.get("y_tau_map"),
             "y_use_path": cfg.get("y_use_path"),
             "t0_y_oc_target_scale": cfg.get("t0_y_oc_target_scale"),
             "t0_y_oc_l": cfg.get("t0_y_oc_l"),
@@ -827,9 +806,6 @@ def _walk_t0(
             "y_complexity_max_alt": cfg.get("y_complexity_max_alt"),
             "y_tpd_max_alt": cfg.get("y_tpd_max_alt"),
             "y_path_required": cfg.get("y_path_required"),
-            "y_gap_tier_mode": cfg.get("y_gap_tier_mode"),
-            "y_gap_tier_pct": cfg.get("y_gap_tier_pct"),
-            "y_nowcast_oc_gate": cfg.get("y_nowcast_oc_gate"),
             "t0_close_band_delta_pct": cfg.get("t0_close_band_delta_pct"),
             "t0_price_space_gate": cfg.get("t0_price_space_gate"),
             "t0_price_space_max_dev_pct": cfg.get("t0_price_space_max_dev_pct"),
@@ -885,8 +861,6 @@ def _walk_t0(
             "t0_stop_on_close": cfg.get("t0_stop_on_close"),
             "t0_slots_enabled": cfg.get("t0_slots_enabled"),
             "t0_slots": cfg.get("t0_slots"),
-            "y_ratio_cut": cfg.get("y_ratio_cut"),
-            "y_ratio_boost_cap": cfg.get("y_ratio_boost_cap"),
             "y_score_source": cfg.get("y_score_source"),
         },
         "days": days[-30:],
