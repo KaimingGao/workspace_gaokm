@@ -467,6 +467,12 @@ def _slot_public_scores(row: dict) -> dict:
             "predicted_score_t60",
             "y_t60_realized",
             "t60_realized",
+            "y_τ90",
+            "y_t90",
+            "y_t90_hat",
+            "predicted_score_t90",
+            "y_t90_realized",
+            "t90_realized",
             "y_eod",
             "y_trade",
             "y_on",
@@ -839,14 +845,16 @@ def _build_close_band_scan_trace(
     tau_pool_day: Optional[dict],
     trigger_hms: Optional[set] = None,
 ) -> List[dict]:
-    """11:00 前每根 5m：OLHC + R̂_τ + y_r/y_τ30/y_τ60/y_τ/y_hl/y_cx/y_tpd（debug 展开用）。"""
+    """11:00 前每根 5m：OLHC + R̂_τ + y_r/y_τ30/y_τ60/y_τ90/y_τ/y_hl/y_cx/y_tpd（debug 展开用）。"""
     from core.t0.close_band import (
         close_band_enter_skip_reason,
         close_band_pick_direction,
         close_band_sign_skip_reason,
         close_band_y_tc_skip_reason,
         close_band_y_t30_skip_reason,
+        close_band_y_tw_skip_reason,
         close_band_y_t60_skip_reason,
+        close_band_y_t90_skip_reason,
         estimate_close_px,
         y_tc_band_agree,
         hm_allows_leg1,
@@ -954,9 +962,11 @@ def _build_close_band_scan_trace(
         y_r = None
         y_t30 = None
         y_t60 = None
+        y_t90 = None
         r_realized = None
         y_t30_realized = None
         y_t60_realized = None
+        y_t90_realized = None
         r_pct = None
         upper_pct = None
         lower_pct = None
@@ -972,7 +982,9 @@ def _build_close_band_scan_trace(
         sign_skip = None
         y_tc_skip = None
         y_t30_skip = None
+        y_tw_skip = None
         y_t60_skip = None
+        y_t90_skip = None
         y_tc_agree = None
         minute_missing = bool(
             isinstance(gate_snap, dict)
@@ -1031,9 +1043,17 @@ def _build_close_band_scan_trace(
                                     gate_snap, cfg, direction=direction
                                 )
                                 if not y_t30_skip:
-                                    y_t60_skip = close_band_y_t60_skip_reason(
+                                    y_tw_skip = close_band_y_tw_skip_reason(
                                         gate_snap, cfg, direction=direction
                                     )
+                                    if not y_tw_skip:
+                                        y_t60_skip = close_band_y_t60_skip_reason(
+                                            gate_snap, cfg, direction=direction
+                                        )
+                                        if not y_t60_skip:
+                                            y_t90_skip = close_band_y_t90_skip_reason(
+                                                gate_snap, cfg, direction=direction
+                                            )
 
         if isinstance(gate_snap, dict):
             from core.t0.score_policy import scores_from_item
@@ -1062,12 +1082,16 @@ def _build_close_band_scan_trace(
             from core.research.t30_ridge import t30_realized_pct
             from core.research.t60_ridge import pick_y_t60_hat as _pick_t60
             from core.research.t60_ridge import t60_realized_pct
-            from core.research.tau_panel import HORIZON_T60_MIN, price_at_tau_plus_session
+            from core.research.t90_ridge import pick_y_t90_hat as _pick_t90
+            from core.research.t90_ridge import t90_realized_pct
+            from core.research.tau_panel import HORIZON_T60_MIN, HORIZON_T90_MIN, price_at_tau_plus_session
 
             y_t30_hat = _pick_t30(sc, gate_snap)
             y_t30 = round(float(y_t30_hat), 4) if y_t30_hat is not None else None
             y_t60_hat = _pick_t60(sc, gate_snap)
             y_t60 = round(float(y_t60_hat), 4) if y_t60_hat is not None else None
+            y_t90_hat = _pick_t90(sc, gate_snap)
+            y_t90 = round(float(y_t90_hat), 4) if y_t90_hat is not None else None
             if trade_date and hm:
                 _, px30 = price_at_tau_plus_session(
                     mins, trade_date=trade_date, tau_hm=str(hm)[:5]
@@ -1080,6 +1104,13 @@ def _build_close_band_scan_trace(
                     add_min=HORIZON_T60_MIN,
                 )
                 y_t60_realized = t60_realized_pct(c, px60)
+                _, px90 = price_at_tau_plus_session(
+                    mins,
+                    trade_date=trade_date,
+                    tau_hm=str(hm)[:5],
+                    add_min=HORIZON_T90_MIN,
+                )
+                y_t90_realized = t90_realized_pct(c, px90)
             daily_c = None
             try:
                 daily_c = float((day_anchor or {}).get("close") or 0)
@@ -1126,6 +1157,12 @@ def _build_close_band_scan_trace(
                 "predicted_score_t60": y_t60,
                 "y_t60_realized": y_t60_realized,
                 "t60_realized": y_t60_realized,
+                "y_τ90": y_t90,
+                "y_t90": y_t90,
+                "y_t90_hat": y_t90,
+                "predicted_score_t90": y_t90,
+                "y_t90_realized": y_t90_realized,
+                "t90_realized": y_t90_realized,
                 "r_realized": r_realized,
                 "y_r_realized": r_realized,
                 "r_pct": round(float(r_pct), 4) if r_pct is not None else None,
@@ -1165,7 +1202,9 @@ def _build_close_band_scan_trace(
                 "sign_skip": sign_skip,
                 "y_tc_skip": y_tc_skip,
                 "y_t30_skip": y_t30_skip,
+                "y_tw_skip": y_tw_skip,
                 "y_t60_skip": y_t60_skip,
+                "y_t90_skip": y_t90_skip,
                 "y_tc_agree": y_tc_agree,
                 "minute_missing": minute_missing,
                 "leg1": bool(hm and hm[:5] in triggers),
@@ -1235,7 +1274,9 @@ def simulate_t0_day_slots(
         close_band_sign_skip_reason,
         close_band_y_tc_skip_reason,
         close_band_y_t30_skip_reason,
+        close_band_y_tw_skip_reason,
         close_band_y_t60_skip_reason,
+        close_band_y_t90_skip_reason,
         day_price_space_payload,
         estimate_close_px,
         freeze_round,
@@ -1295,7 +1336,9 @@ def simulate_t0_day_slots(
     last_enter_skip: Optional[str] = None
     last_y_tc_skip: Optional[str] = None
     last_y_t30_skip: Optional[str] = None
+    last_y_tw_skip: Optional[str] = None
     last_y_t60_skip: Optional[str] = None
+    last_y_t90_skip: Optional[str] = None
     last_tplus1_skip: Optional[str] = None
     open_snap = score_snap if isinstance(score_snap, dict) else None
     code = str(stock_code or "").strip()
@@ -1477,6 +1520,14 @@ def simulate_t0_day_slots(
         if y_t30_skip:
             last_y_t30_skip = y_t30_skip
             continue
+        y_tw_skip = close_band_y_tw_skip_reason(
+            gate_snap,
+            cfg,
+            direction=direction,
+        )
+        if y_tw_skip:
+            last_y_tw_skip = y_tw_skip
+            continue
         y_t60_skip = close_band_y_t60_skip_reason(
             gate_snap,
             cfg,
@@ -1484,6 +1535,14 @@ def simulate_t0_day_slots(
         )
         if y_t60_skip:
             last_y_t60_skip = y_t60_skip
+            continue
+        y_t90_skip = close_band_y_t90_skip_reason(
+            gate_snap,
+            cfg,
+            direction=direction,
+        )
+        if y_t90_skip:
+            last_y_t90_skip = y_t90_skip
             continue
 
         remain = max_pos - used_ratio
@@ -1715,11 +1774,23 @@ def simulate_t0_day_slots(
             merged["direction_reason"] = last_y_t30_skip
             merged["reason"] = last_y_t30_skip
             merged["signal_skip"] = True
+    if last_y_tw_skip:
+        merged["close_band_last_y_tw_skip"] = last_y_tw_skip
+        if merged.get("skipped") and not merged.get("direction_reason"):
+            merged["direction_reason"] = last_y_tw_skip
+            merged["reason"] = last_y_tw_skip
+            merged["signal_skip"] = True
     if last_y_t60_skip:
         merged["close_band_last_y_t60_skip"] = last_y_t60_skip
         if merged.get("skipped") and not merged.get("direction_reason"):
             merged["direction_reason"] = last_y_t60_skip
             merged["reason"] = last_y_t60_skip
+            merged["signal_skip"] = True
+    if last_y_t90_skip:
+        merged["close_band_last_y_t90_skip"] = last_y_t90_skip
+        if merged.get("skipped") and not merged.get("direction_reason"):
+            merged["direction_reason"] = last_y_t90_skip
+            merged["reason"] = last_y_t90_skip
             merged["signal_skip"] = True
     if last_tplus1_skip:
         if merged.get("skipped") and not merged.get("direction_reason"):

@@ -154,6 +154,36 @@ class TestPersistLastT0Backtest(unittest.TestCase):
             save_ui.assert_not_called()
 
 
+class TestStartT0BacktestJob(unittest.TestCase):
+    def test_start_job_returns_background_and_finishes(self):
+        import time
+
+        from core.job_progress import t0_backtest_job
+        from quant.services.quant_service import QuantService
+
+        svc = QuantService()
+        fake = {
+            "success": True,
+            "t0_pnl_total": 1.0,
+            "from_holdings": True,
+            "ok_count": 1,
+        }
+        if t0_backtest_job.is_running():
+            t0_backtest_job.force_fail("test-reset")
+        with patch.object(svc, "run_t0_backtest", return_value=dict(fake)):
+            out = svc.start_t0_backtest_job(from_paper=True, lookback=10)
+            self.assertTrue(out.get("background"))
+            self.assertTrue(out.get("job", {}).get("id"))
+            snap = None
+            for _ in range(80):
+                snap = t0_backtest_job.get()
+                if snap.get("status") in ("done", "failed"):
+                    break
+                time.sleep(0.05)
+            self.assertEqual((snap or {}).get("status"), "done")
+            self.assertTrue((snap.get("result") or {}).get("success"))
+
+
 class TestFillT0VizStockNames(unittest.TestCase):
     def test_fills_empty_point_names(self):
         from quant.research.t0_backtest import _fill_t0_viz_stock_names

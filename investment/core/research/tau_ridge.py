@@ -50,6 +50,22 @@ TAU_Z_FEATURES = (
 TAU_MIN_STD_EXEMPT = TAU_FEATURE_EXTRA + MINUTE_TAU_ALL_KEYS
 # open_gap ≡ gap_pct，只拟合其一，避免 Ridge 双计
 TAU_FIT_DROP_ALIASES = frozenset({"open_gap"})
+# ŷ_τ30/60/90 不要吃 ŷ_τ 的 OC 路径形状。HL/回撤/振幅在 30–90m 前瞻上共线对冲，
+# ŷ 被压到训练均值（做 T 回测里多数 |ŷ_τ30|/|ŷ_τ60|<0.1%）。
+TAU_HORIZON_DROP_OC_SHAPE = frozenset(
+    {
+        "range_pct",
+        "loc_hl",
+        "up_extent",
+        "down_extent",
+        "path_sign",
+        "pullback_from_high",
+        "bounce_from_low",
+        "realized_vol",
+        "vol_last3_vs_avg",
+        "tau_elapsed_min",
+    }
+)
 
 
 def _stack_panels(

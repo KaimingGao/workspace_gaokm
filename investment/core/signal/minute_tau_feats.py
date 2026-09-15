@@ -52,17 +52,22 @@ MINUTE_TAU_FEAT_LABELS = {
     "ret_last_5m": "近5m 收益 %",
     "ret_last_30m": "近30交易分钟收益 %",
     "ret_last_60m": "近60交易分钟收益 %",
+    "ret_last_90m": "近90交易分钟收益 %",
     "session_elapsed": "已过交易分钟（09:30=0）",
     "session_remain": "距收盘剩余交易分钟",
     "crosses_lunch": "未来30m是否跨午休",
     "crosses_lunch_60": "未来60m是否跨午休",
+    "crosses_lunch_90": "未来90m是否跨午休",
     "session_vwap_dev": "τ价相对会话VWAP %",
     "vol_last_30m_vs_avg": "近30m量/前缀均量",
     "vol_last_60m_vs_avg": "近60m量/前缀均量",
+    "vol_last_90m_vs_avg": "近90m量/前缀均量",
     "sector_ret_last_30m": "板块中位近30m %",
     "ret_last_30m_vs_sector": "近30m相对板块 %",
     "sector_ret_last_60m": "板块中位近60m %",
     "ret_last_60m_vs_sector": "近60m相对板块 %",
+    "sector_ret_last_90m": "板块中位近90m %",
+    "ret_last_90m_vs_sector": "近90m相对板块 %",
     "realized_vol": "前缀已实现波动 %",
     "vol_last3_vs_avg": "近3根量/均量",
     "tau_elapsed_min": "τ距开盘分钟",
@@ -102,6 +107,21 @@ T60_SEQ_PACK_KEYS = T60_SEQ_TRAIL_KEYS + (
 T60_SEQ_CS_KEYS = (
     "sector_ret_last_60m",
     "ret_last_60m_vs_sector",
+)
+T90_SEQ_TRAIL_KEYS = (
+    "ret_last_5m",
+    "ret_last_90m",
+    "session_elapsed",
+    "session_remain",
+    "crosses_lunch_90",
+)
+T90_SEQ_PACK_KEYS = T90_SEQ_TRAIL_KEYS + (
+    "session_vwap_dev",
+    "vol_last_90m_vs_avg",
+)
+T90_SEQ_CS_KEYS = (
+    "sector_ret_last_90m",
+    "ret_last_90m_vs_sector",
 )
 
 
@@ -383,18 +403,15 @@ def _typical_px(h: Optional[float], l: Optional[float], c: float) -> float:
     return (hh + ll + c) / 3.0
 
 
-def _extract_horizon_seq_pack(
+def _extract_multi_horizon_seq_packs(
     minute_bars: Sequence[dict],
     *,
     trade_date: str,
     tau_hm: str,
     open_px: Optional[float] = None,
-    trail_min: int = 30,
-    ret_key: str = "ret_last_30m",
-    vol_key: str = "vol_last_30m_vs_avg",
-    lunch_key: str = "crosses_lunch",
+    horizons: Sequence[Tuple[int, str, str, str]],
 ) -> Dict[str, float]:
-    """交易时钟 + 近 5m / trail + VWAP/量比（PIT，≤τ）。缺根留空。"""
+    """共用 ≤τ 前缀，一次写出多视界序列键（交易时钟 + 近 5m + VWAP + trail 收益/量比）。"""
     from core.signal.minute_tau_grid import (
         horizon_crosses_lunch,
         session_elapsed,
@@ -409,9 +426,10 @@ def _extract_horizon_seq_pack(
         rem = session_remain(tau_hm)
         if rem is not None:
             out["session_remain"] = float(rem)
-    cross = horizon_crosses_lunch(tau_hm, add_min=int(trail_min))
-    if cross is not None:
-        out[lunch_key] = float(cross)
+    for trail_min, _ret_key, _vol_key, lunch_key in horizons:
+        cross = horizon_crosses_lunch(tau_hm, add_min=int(trail_min))
+        if cross is not None:
+            out[lunch_key] = float(cross)
 
     bars = _day_bars_upto_tau(
         minute_bars, trade_date=trade_date, tau_hm=tau_hm
@@ -441,8 +459,12 @@ def _extract_horizon_seq_pack(
         vwap = dollar / vol_sum
         out["session_vwap_dev"] = round((px_now - vwap) / px_now * 100.0, 6)
 
-    prev_hm = sub_session_minutes(tau_hm, int(trail_min))
-    if prev_hm:
+    prefix_vols = [v for _hm, _c, v, _typ in rows]
+    open_fallback: Optional[float] = None
+    for trail_min, ret_key, vol_key, _lunch_key in horizons:
+        prev_hm = sub_session_minutes(tau_hm, int(trail_min))
+        if not prev_hm:
+            continue
         want = str(prev_hm).replace(":", "")[:4]
         px_prev: Optional[float] = None
         trail_vols: List[float] = []
@@ -452,20 +474,66 @@ def _extract_horizon_seq_pack(
             if hm > want:
                 trail_vols.append(v)
         if px_prev is None and want == "0930":
-            o = _f(open_px)
-            if o is None or o <= 0:
-                o = _f(bars[0].get("open")) if bars else None
-            if o is not None and o > 0:
-                px_prev = float(o)
+            if open_fallback is None:
+                o = _f(open_px)
+                if o is None or o <= 0:
+                    o = _f(bars[0].get("open")) if bars else None
+                open_fallback = float(o) if o is not None and o > 0 else 0.0
+            if open_fallback > 0:
+                px_prev = open_fallback
         if px_prev is not None and px_prev > 0 and px_now is not None and px_now > 0:
             out[ret_key] = round((px_now / px_prev - 1.0) * 100.0, 6)
-        prefix_vols = [v for _hm, _c, v, _typ in rows]
         if trail_vols and prefix_vols:
             last_avg = sum(trail_vols) / float(len(trail_vols))
             avg = sum(prefix_vols) / float(len(prefix_vols))
             if avg > 1e-12:
                 out[vol_key] = round(last_avg / avg, 6)
     return out
+
+
+def _extract_horizon_seq_pack(
+    minute_bars: Sequence[dict],
+    *,
+    trade_date: str,
+    tau_hm: str,
+    open_px: Optional[float] = None,
+    trail_min: int = 30,
+    ret_key: str = "ret_last_30m",
+    vol_key: str = "vol_last_30m_vs_avg",
+    lunch_key: str = "crosses_lunch",
+) -> Dict[str, float]:
+    """交易时钟 + 近 5m / trail + VWAP/量比（PIT，≤τ）。缺根留空。"""
+    return _extract_multi_horizon_seq_packs(
+        minute_bars,
+        trade_date=trade_date,
+        tau_hm=tau_hm,
+        open_px=open_px,
+        horizons=((int(trail_min), ret_key, vol_key, lunch_key),),
+    )
+
+
+_T30_T60_T90_HORIZONS: Tuple[Tuple[int, str, str, str], ...] = (
+    (30, "ret_last_30m", "vol_last_30m_vs_avg", "crosses_lunch"),
+    (60, "ret_last_60m", "vol_last_60m_vs_avg", "crosses_lunch_60"),
+    (90, "ret_last_90m", "vol_last_90m_vs_avg", "crosses_lunch_90"),
+)
+
+
+def extract_t30_t60_t90_seq_packs(
+    minute_bars: Sequence[dict],
+    *,
+    trade_date: str,
+    tau_hm: str,
+    open_px: Optional[float] = None,
+) -> Dict[str, float]:
+    """一次走 ≤τ 前缀，写出 ŷ_τ30 / ŷ_τ60 / ŷ_τ90 序列键。"""
+    return _extract_multi_horizon_seq_packs(
+        minute_bars,
+        trade_date=trade_date,
+        tau_hm=tau_hm,
+        open_px=open_px,
+        horizons=_T30_T60_T90_HORIZONS,
+    )
 
 
 def extract_t30_seq_pack(
@@ -508,6 +576,26 @@ def extract_t60_seq_pack(
     )
 
 
+def extract_t90_seq_pack(
+    minute_bars: Sequence[dict],
+    *,
+    trade_date: str,
+    tau_hm: str,
+    open_px: Optional[float] = None,
+) -> Dict[str, float]:
+    """ŷ_τ90 序列特征：交易时钟 + 近 5m/90m + VWAP/量比（PIT，≤τ）。缺根留空。"""
+    return _extract_horizon_seq_pack(
+        minute_bars,
+        trade_date=trade_date,
+        tau_hm=tau_hm,
+        open_px=open_px,
+        trail_min=90,
+        ret_key="ret_last_90m",
+        vol_key="vol_last_90m_vs_avg",
+        lunch_key="crosses_lunch_90",
+    )
+
+
 def attach_ret_vs_sector(feats: Dict[str, Any]) -> None:
     """有 ret_open_to_tau 与 sector_ret_to_tau 时写 ret_vs_sector。"""
     if not isinstance(feats, dict):
@@ -539,6 +627,17 @@ def attach_ret_last_60m_vs_sector(feats: Dict[str, Any]) -> None:
     if a is None or b is None:
         return
     feats["ret_last_60m_vs_sector"] = round(float(a) - float(b), 6)
+
+
+def attach_ret_last_90m_vs_sector(feats: Dict[str, Any]) -> None:
+    """有 ret_last_90m 与 sector_ret_last_90m 时写相对板块。"""
+    if not isinstance(feats, dict):
+        return
+    a = _f(feats.get("ret_last_90m"))
+    b = _f(feats.get("sector_ret_last_90m"))
+    if a is None or b is None:
+        return
+    feats["ret_last_90m_vs_sector"] = round(float(a) - float(b), 6)
 
 
 def sector_ret_median(peer_rets: Sequence[Any]) -> Optional[float]:
@@ -613,10 +712,28 @@ def apply_sector_ret_last_60m_cs(
     return out
 
 
+def apply_sector_ret_last_90m_cs(
+    feats: Optional[Dict[str, Any]],
+    sector_ret_last_90m: Optional[float],
+    *,
+    overwrite: bool = False,
+) -> Dict[str, Any]:
+    """写入截面近 90 交易分钟中位，并派生 ``ret_last_90m_vs_sector``。"""
+    out = dict(feats or {})
+    sret = _f(sector_ret_last_90m)
+    if sret is not None and (overwrite or out.get("sector_ret_last_90m") is None):
+        out["sector_ret_last_90m"] = round(float(sret), 6)
+    if overwrite:
+        out.pop("ret_last_90m_vs_sector", None)
+    attach_ret_last_90m_vs_sector(out)
+    return out
+
+
 # (trade_date, tau_hm) → 池中位；做 T 回测同日多票复用
 _SECTOR_RET_CACHE: Dict[Tuple[str, str], Optional[float]] = {}
 _SECTOR_RET_30M_CACHE: Dict[Tuple[str, str], Optional[float]] = {}
 _SECTOR_RET_60M_CACHE: Dict[Tuple[str, str], Optional[float]] = {}
+_SECTOR_RET_90M_CACHE: Dict[Tuple[str, str], Optional[float]] = {}
 # 同伴分钟线进程缓存：回测 20 日×4 槽会反复 load_minute_cache，未缓存时单票可卡 ~1 分钟
 _PEER_MINUTE_BARS: Dict[str, List[dict]] = {}
 _PEER_CODES_MEMO: Optional[List[str]] = None
@@ -628,6 +745,7 @@ def clear_sector_ret_cache() -> None:
     _SECTOR_RET_CACHE.clear()
     _SECTOR_RET_30M_CACHE.clear()
     _SECTOR_RET_60M_CACHE.clear()
+    _SECTOR_RET_90M_CACHE.clear()
     _PEER_MINUTE_BARS.clear()
     _MINUTE_BY_DATE_INDEX.clear()
     _PEER_CODES_MEMO = None
@@ -952,6 +1070,112 @@ def attach_sector_ret_last_60m_cs_if_missing(
         attach_ret_last_60m_vs_sector(out)
         return out
     return apply_sector_ret_last_60m_cs(out, sret)
+
+
+def resolve_sector_ret_last_90m(
+    trade_date: str,
+    tau_hm: str = "10:30",
+    *,
+    codes: Optional[Sequence[str]] = None,
+    known_rets: Optional[Sequence[Any]] = None,
+    cap: int = _SECTOR_RET_DEFAULT_CAP,
+    use_cache: bool = True,
+) -> Optional[float]:
+    """解析 ``sector_ret_last_90m``：同伴 ``ret_last_90m`` 中位；复用开→τ 同伴分钟仓。"""
+    day = str(trade_date or "")[:10]
+    hm = str(tau_hm or "10:30").strip() or "10:30"
+    if len(day) < 10:
+        return None
+
+    if known_rets is not None:
+        return sector_ret_median(known_rets)
+
+    cache_key = (day, hm)
+    if use_cache and cache_key in _SECTOR_RET_90M_CACHE:
+        return _SECTOR_RET_90M_CACHE[cache_key]
+
+    peer_codes = [str(c).strip() for c in (codes or []) if str(c or "").strip()]
+    if not peer_codes:
+        peer_codes = _peer_codes_for_sector_ret(cap=max(8, int(cap or _SECTOR_RET_DEFAULT_CAP)))
+    if not peer_codes:
+        if use_cache:
+            _SECTOR_RET_90M_CACHE[cache_key] = None
+        return None
+
+    rets: List[float] = []
+    try:
+        from core.ports.market import resolve_market_code
+        from core.store import load_minute_cache
+    except Exception:
+        if use_cache:
+            _SECTOR_RET_90M_CACHE[cache_key] = None
+        return None
+
+    for raw in peer_codes[: max(8, int(cap or _SECTOR_RET_DEFAULT_CAP))]:
+        code_key = str(raw or "").strip()
+        if not code_key:
+            continue
+        bars = _PEER_MINUTE_BARS.get(code_key)
+        if bars is None:
+            try:
+                mkt, pure = resolve_market_code(code_key)
+                packed = load_minute_cache(
+                    mkt or "CN",
+                    pure or code_key,
+                    period="5",
+                    min_bars=6,
+                    ignore_age=True,
+                )
+            except Exception:
+                _PEER_MINUTE_BARS[code_key] = []
+                continue
+            if not packed:
+                _PEER_MINUTE_BARS[code_key] = []
+                continue
+            bars = list(packed[0] or [])
+            _PEER_MINUTE_BARS[code_key] = bars
+        if len(bars) < 2:
+            continue
+        pack = extract_t90_seq_pack(
+            bars,
+            trade_date=day,
+            tau_hm=hm,
+        )
+        rot = _f(pack.get("ret_last_90m"))
+        if rot is not None:
+            rets.append(float(rot))
+
+    med = sector_ret_median(rets)
+    if use_cache:
+        _SECTOR_RET_90M_CACHE[cache_key] = med
+    return med
+
+
+def attach_sector_ret_last_90m_cs_if_missing(
+    feats: Optional[Dict[str, Any]],
+    *,
+    trade_date: str,
+    tau_hm: str = "10:30",
+) -> Dict[str, Any]:
+    """live / 前缀补近 90m 截面。缺则 Ridge 把 CS 当 z=0。"""
+    out = dict(feats or {})
+    if out.get("ret_last_90m") is None:
+        return out
+    if out.get("sector_ret_last_90m") is not None:
+        attach_ret_last_90m_vs_sector(out)
+        return out
+    day = str(trade_date or "")[:10]
+    hm = str(tau_hm or "10:30").strip()[:5] or "10:30"
+    if len(day) < 10:
+        return out
+    try:
+        sret = resolve_sector_ret_last_90m(day, hm)
+    except Exception:
+        sret = None
+    if sret is None:
+        attach_ret_last_90m_vs_sector(out)
+        return out
+    return apply_sector_ret_last_90m_cs(out, sret)
 
 
 def _peer_codes_for_sector_ret(*, cap: int = _SECTOR_RET_DEFAULT_CAP) -> List[str]:

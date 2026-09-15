@@ -79,6 +79,34 @@ class TestFileLockAndPaperTrim(unittest.TestCase):
             with open(path, encoding="utf-8") as f:
                 self.assertIn("ok", f.read())
 
+    def test_atomic_write_json_concurrent_unique_tmp(self):
+        """并发写同一路径不得因共用 .tmp 触发 FileNotFoundError。"""
+        import json
+        import threading
+
+        from core.io_atomic import atomic_write_json
+
+        with tempfile.TemporaryDirectory() as td:
+            path = os.path.join(td, "last_t0_backtest.json")
+            errors = []
+
+            def _write(i):
+                try:
+                    atomic_write_json(path, {"i": i, "ok": True})
+                except Exception as e:
+                    errors.append(e)
+
+            threads = [threading.Thread(target=_write, args=(i,)) for i in range(8)]
+            for t in threads:
+                t.start()
+            for t in threads:
+                t.join(timeout=5)
+            self.assertEqual(errors, [])
+            with open(path, encoding="utf-8") as f:
+                data = json.load(f)
+            self.assertTrue(data.get("ok"))
+            self.assertIn("i", data)
+
     def test_trim_trades_on_save(self):
         from core.paper import MAX_TRADES, save_paper, load_paper
 

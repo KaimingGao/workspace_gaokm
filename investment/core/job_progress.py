@@ -35,10 +35,20 @@ _SLOT_STALE_POLICY: Dict[str, Dict[str, Any]] = {
         "stuck_start_sec": 900.0,
         "label": "ŷ_τ60 拟合",
     },
+    "t90-ridge": {
+        "stale_sec": 1800.0,
+        "stuck_start_sec": 900.0,
+        "label": "ŷ_τ90 拟合",
+    },
     "r-ridge": {
         "stale_sec": 1800.0,
         "stuck_start_sec": 900.0,
         "label": "ŷ_τc 拟合",
+    },
+    "t0-backtest": {
+        "stale_sec": 1800.0,
+        "stuck_start_sec": 900.0,
+        "label": "做 T 回测",
     },
     "paper": {
         "stale_sec": 600.0,
@@ -142,22 +152,32 @@ class JobProgress:
                     except (TypeError, ValueError):
                         result_bytes = 0
                     if result_bytes > 80_000:
-                        payload["result"] = {
-                            "ok": result.get("ok", True),
-                            "persisted_truncated": True,
-                            "observation_pool_count": result.get(
-                                "observation_pool_count"
-                            ),
-                            "new_trades": result.get("new_trades")
-                            or result.get("buy_trades"),
-                            "sell_trades": result.get("sell_trades"),
-                            "cash_impact": result.get("cash_impact"),
-                            "risk_gate": result.get("risk_gate"),
-                            "ops_report": result.get("ops_report"),
-                            "rebalance_report": (
-                                result.get("rebalance_report") or []
-                            )[:30],
-                        }
+                        if self.name == "t0-backtest":
+                            payload["result"] = {
+                                "success": result.get("success"),
+                                "ok": result.get("success"),
+                                "persisted_truncated": True,
+                                "task": result.get("task") or "t0_backtest",
+                                "ok_count": result.get("ok_count"),
+                                "t0_pnl_total": result.get("t0_pnl_total"),
+                            }
+                        else:
+                            payload["result"] = {
+                                "ok": result.get("ok", True),
+                                "persisted_truncated": True,
+                                "observation_pool_count": result.get(
+                                    "observation_pool_count"
+                                ),
+                                "new_trades": result.get("new_trades")
+                                or result.get("buy_trades"),
+                                "sell_trades": result.get("sell_trades"),
+                                "cash_impact": result.get("cash_impact"),
+                                "risk_gate": result.get("risk_gate"),
+                                "ops_report": result.get("ops_report"),
+                                "rebalance_report": (
+                                    result.get("rebalance_report") or []
+                                )[:30],
+                            }
             atomic_write_json(path, payload)
         except OSError:
             pass
@@ -376,6 +396,7 @@ class JobProgress:
                 or msg.startswith("排队")
                 or msg.startswith("启动")
                 or msg.startswith("合并宇宙")
+                or msg.startswith("回测入队")
             )
             threshold = stuck_start_sec if stuck_at_start else stale_sec
             if stale < threshold:
@@ -447,7 +468,9 @@ class JobRegistry:
             "quant-ols-clusters",
             "t30-ridge",
             "t60-ridge",
+            "t90-ridge",
             "r-ridge",
+            "t0-backtest",
         ):
             self.slot(name)
         with self._lock:
@@ -467,6 +490,8 @@ try:
         R_RIDGE_JOB_PATH,
         T30_RIDGE_JOB_PATH,
         T60_RIDGE_JOB_PATH,
+        T90_RIDGE_JOB_PATH,
+        T0_BACKTEST_JOB_PATH,
     )
 
     paper_job = job_registry.slot("paper", persist_path=PAPER_JOB_PATH)
@@ -482,7 +507,9 @@ try:
     chat_job = job_registry.slot("chat", persist_path=CHAT_JOB_PATH)
     t30_ridge_job = job_registry.slot("t30-ridge", persist_path=T30_RIDGE_JOB_PATH)
     t60_ridge_job = job_registry.slot("t60-ridge", persist_path=T60_RIDGE_JOB_PATH)
+    t90_ridge_job = job_registry.slot("t90-ridge", persist_path=T90_RIDGE_JOB_PATH)
     r_ridge_job = job_registry.slot("r-ridge", persist_path=R_RIDGE_JOB_PATH)
+    t0_backtest_job = job_registry.slot("t0-backtest", persist_path=T0_BACKTEST_JOB_PATH)
 except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
     logger.debug("catch except Exception: in job_progress.py", exc_info=True)
     paper_job = job_registry.slot("paper")
@@ -492,4 +519,6 @@ except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流
     chat_job = job_registry.slot("chat")
     t30_ridge_job = job_registry.slot("t30-ridge")
     t60_ridge_job = job_registry.slot("t60-ridge")
+    t90_ridge_job = job_registry.slot("t90-ridge")
     r_ridge_job = job_registry.slot("r-ridge")
+    t0_backtest_job = job_registry.slot("t0-backtest")

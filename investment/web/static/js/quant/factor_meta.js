@@ -298,6 +298,37 @@ export const TAU_FEAT_META = {
     description:
       "ŷ_τ60 专用。同一决策钟近 5 个交易日已实现 τ⊕60m 收益均值。日期严格早于 asof。",
   },
+  ret_last_90m: {
+    label: "近90交易分钟收益 %",
+    description: "ŷ_τ90 专用。交易时钟 ⊖90m 到 τ 的收益（%）；跳过午休。",
+  },
+  crosses_lunch_90: {
+    label: "未来90m是否跨午休",
+    description: "ŷ_τ90 专用。τ⊕90m 是否跨 11:30–13:00。与 30m / 60m 的 crosses_lunch 分开。",
+  },
+  vol_last_90m_vs_avg: {
+    label: "近90m量/前缀均量",
+    description: "ŷ_τ90 专用。近 90 交易分钟均量 / 前缀均量。",
+  },
+  sector_ret_last_90m: {
+    label: "板块中位近90m %",
+    description:
+      "ŷ_τ90 专用。同日同钟池内 ret_last_90m 中位数（%）。与开→τ 的 sector_ret_to_tau 窗口不同。",
+  },
+  ret_last_90m_vs_sector: {
+    label: "近90m相对板块 %",
+    description: "ŷ_τ90 专用。个股 ret_last_90m − 板块中位近90m（%）。",
+  },
+  t90_lag1: {
+    label: "昨同钟真实 τ⊕90m %",
+    description:
+      "ŷ_τ90 专用。同一决策钟昨日已实现 price(τ⊕90m)/price(τ)−1。日期严格早于 asof。",
+  },
+  t90_ma5: {
+    label: "近5日同钟真实 τ⊕90m 均 %",
+    description:
+      "ŷ_τ90 专用。同一决策钟近 5 个交易日已实现 τ⊕90m 收益均值。日期严格早于 asof。",
+  },
   realized_vol: {
     label: "前缀已实现波动 %",
     description: "开盘→τ 的 5m 收益标准差（%）。路径噪声强度。",

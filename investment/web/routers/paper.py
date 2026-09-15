@@ -116,6 +116,8 @@ def paper_execution_save(body: PaperExecutionPatchRequest | None = None) -> Dict
             ("y_τc_strong", getattr(req, "y_tc_strong", None)),
             ("y_t30_strong", getattr(req, "y_t30_strong", None)),
             ("y_τ30_strong", getattr(req, "y_τ30_strong", None) if getattr(req, "y_τ30_strong", None) not in (None, "") else getattr(req, "y_t30_strong", None)),
+            ("y_tw_strong", getattr(req, "y_tw_strong", None)),
+            ("y_τw_strong", getattr(req, "y_τw_strong", None) if getattr(req, "y_τw_strong", None) not in (None, "") else getattr(req, "y_tw_strong", None)),
             ("y_t30_enter", getattr(req, "y_t30_enter", None)),
             ("y_τ30_enter", getattr(req, "y_τ30_enter", None) if getattr(req, "y_τ30_enter", None) not in (None, "") else getattr(req, "y_t30_enter", None)),
             ("y_t30_enter_alt", getattr(req, "y_t30_enter_alt", None)),
@@ -126,6 +128,12 @@ def paper_execution_save(body: PaperExecutionPatchRequest | None = None) -> Dict
             ("y_τ60_enter", getattr(req, "y_τ60_enter", None) if getattr(req, "y_τ60_enter", None) not in (None, "") else getattr(req, "y_t60_enter", None)),
             ("y_t60_enter_alt", getattr(req, "y_t60_enter_alt", None)),
             ("y_τ60_enter_alt", getattr(req, "y_τ60_enter_alt", None) if getattr(req, "y_τ60_enter_alt", None) not in (None, "") else getattr(req, "y_t60_enter_alt", None)),
+            ("y_t90_strong", getattr(req, "y_t90_strong", None)),
+            ("y_τ90_strong", getattr(req, "y_τ90_strong", None) if getattr(req, "y_τ90_strong", None) not in (None, "") else getattr(req, "y_t90_strong", None)),
+            ("y_t90_enter", getattr(req, "y_t90_enter", None)),
+            ("y_τ90_enter", getattr(req, "y_τ90_enter", None) if getattr(req, "y_τ90_enter", None) not in (None, "") else getattr(req, "y_t90_enter", None)),
+            ("y_t90_enter_alt", getattr(req, "y_t90_enter_alt", None)),
+            ("y_τ90_enter_alt", getattr(req, "y_τ90_enter_alt", None) if getattr(req, "y_τ90_enter_alt", None) not in (None, "") else getattr(req, "y_t90_enter_alt", None)),
             (
                 "y_complexity_max",
                 getattr(req, "y_complexity_max", None)
@@ -176,6 +184,9 @@ def paper_execution_save(body: PaperExecutionPatchRequest | None = None) -> Dict
             ("t0_stop_pct_sell_then_buy", req.t0_stop_pct_sell_then_buy),
             ("t0_stop_arm_bars", req.t0_stop_arm_bars),
             ("t0_stop_on_close", req.t0_stop_on_close),
+            ("t0_giveback_pct_buy_then_sell", req.t0_giveback_pct_buy_then_sell),
+            ("t0_giveback_pct_sell_then_buy", req.t0_giveback_pct_sell_then_buy),
+            ("t0_giveback_arm_pct", req.t0_giveback_arm_pct),
         ):
             if v is not None and k not in t0:
                 t0[k] = v

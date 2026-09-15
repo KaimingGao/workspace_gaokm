@@ -265,6 +265,25 @@ class TestExecutionResolve(unittest.TestCase):
         )
         self.assertAlmostEqual(float(view["t0"]["y_t30_strong"]), 0.2)
 
+    def test_public_view_keeps_y_tw_strong(self):
+        from core.execution import (
+            apply_execution_patch_to_paper,
+            execution_public_view,
+            resolve_effective_execution,
+            validate_execution_patch,
+        )
+
+        ok, norm, errs = validate_execution_patch({"t0": {"y_tw_strong": 1.5}})
+        self.assertTrue(ok, errs)
+        self.assertAlmostEqual(float(norm["t0"]["y_tw_strong"]), 1.5)
+        paper = {"strategy_id": "short_conservative", "rules": {}}
+        applied = apply_execution_patch_to_paper(paper, norm)
+        self.assertTrue(applied.get("ok"), applied)
+        view = execution_public_view(
+            resolve_effective_execution(paper=paper, channel="paper")
+        )
+        self.assertAlmostEqual(float(view["t0"]["y_tw_strong"]), 1.5)
+
     def test_public_view_keeps_y_t60_strong(self):
         from core.execution import (
             apply_execution_patch_to_paper,
@@ -284,6 +303,25 @@ class TestExecutionResolve(unittest.TestCase):
         )
         self.assertAlmostEqual(float(view["t0"]["y_t60_strong"]), 0.2)
 
+    def test_public_view_keeps_y_t90_strong(self):
+        from core.execution import (
+            apply_execution_patch_to_paper,
+            execution_public_view,
+            resolve_effective_execution,
+            validate_execution_patch,
+        )
+
+        ok, norm, errs = validate_execution_patch({"t0": {"y_t90_strong": 0.2}})
+        self.assertTrue(ok, errs)
+        self.assertAlmostEqual(float(norm["t0"]["y_t90_strong"]), 0.2)
+        paper = {"strategy_id": "short_conservative", "rules": {}}
+        applied = apply_execution_patch_to_paper(paper, norm)
+        self.assertTrue(applied.get("ok"), applied)
+        view = execution_public_view(
+            resolve_effective_execution(paper=paper, channel="paper")
+        )
+        self.assertAlmostEqual(float(view["t0"]["y_t90_strong"]), 0.2)
+
     def test_public_view_keeps_y_t30_t60_enter(self):
         from core.execution import (
             apply_execution_patch_to_paper,
@@ -299,6 +337,8 @@ class TestExecutionResolve(unittest.TestCase):
                     "y_t30_enter_alt": 0.2,
                     "y_t60_enter": 0.6,
                     "y_t60_enter_alt": 0.3,
+                    "y_t90_enter": 0.7,
+                    "y_t90_enter_alt": 0.4,
                 }
             }
         )
@@ -313,6 +353,8 @@ class TestExecutionResolve(unittest.TestCase):
         self.assertAlmostEqual(float(view["t0"]["y_t30_enter_alt"]), 0.2)
         self.assertAlmostEqual(float(view["t0"]["y_t60_enter"]), 0.6)
         self.assertAlmostEqual(float(view["t0"]["y_t60_enter_alt"]), 0.3)
+        self.assertAlmostEqual(float(view["t0"]["y_t90_enter"]), 0.7)
+        self.assertAlmostEqual(float(view["t0"]["y_t90_enter_alt"]), 0.4)
 
     def test_validate_patch_drops_y_tau_map(self):
         from core.execution import validate_execution_patch
@@ -343,6 +385,9 @@ class TestExecutionResolve(unittest.TestCase):
         self.assertAlmostEqual(defaults["t0_stop_pct_buy_then_sell"], 1.2)
         self.assertEqual(defaults["t0_stop_arm_bars"], 1)
         self.assertTrue(defaults["t0_stop_on_close"])
+        self.assertAlmostEqual(defaults["t0_giveback_pct_buy_then_sell"], 0.6)
+        self.assertAlmostEqual(defaults["t0_giveback_pct_sell_then_buy"], 0.6)
+        self.assertAlmostEqual(defaults["t0_giveback_arm_pct"], 0.4)
         self.assertNotIn("y_block_tau_nowcast_sign", defaults)
         self.assertNotIn("t0_adverse_stop_pct", defaults)
         self.assertNotIn("t0_time_stop", defaults)
@@ -450,6 +495,8 @@ class TestExecutionResolve(unittest.TestCase):
                 "y_τ30_enter_alt": 0.2,
                 "y_t60_enter_alt": 0.3,
                 "y_τ60_enter_alt": 0.3,
+                "y_t90_enter_alt": 0.4,
+                "y_τ90_enter_alt": 0.4,
             }
         )
         self.assertNotIn("y_nowcast_oc_gate", out)
@@ -459,6 +506,8 @@ class TestExecutionResolve(unittest.TestCase):
         self.assertAlmostEqual(float(out["y_τ30_enter_alt"]), 0.2)
         self.assertAlmostEqual(float(out["y_t60_enter_alt"]), 0.3)
         self.assertAlmostEqual(float(out["y_τ60_enter_alt"]), 0.3)
+        self.assertAlmostEqual(float(out["y_t90_enter_alt"]), 0.4)
+        self.assertAlmostEqual(float(out["y_τ90_enter_alt"]), 0.4)
 
     def test_coerce_cfg_bool_and_dropped_oc_gate(self):
         from core.execution import resolve_t0_rules

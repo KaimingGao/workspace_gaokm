@@ -6,7 +6,7 @@ import { portfolioBtScoreFloorPayload as buildBtScoreFloorPayload, mergeScoringF
 import { truncateStockName, watchingNameSpanHtml } from "./names.js";
 import { ensureFitTierMap } from "./fit_tier_ui.js";
 import { downloadBlob } from "../shared.js";
-import { collectPathMatrixForm, collectExecutionForm, readT0BtSizing, fillT0BtSizing } from "../paper/execution_ui.js?v=p2402";
+import { collectPathMatrixForm, collectExecutionForm, readT0BtSizing, fillT0BtSizing } from "../paper/execution_ui.js?v=p2404";
 import { initExecutionRuleForms } from "../paper/execution_forms.js?v=p2389";
 
 const _V =
@@ -1542,16 +1542,18 @@ export function installBacktest(q) {
 
   function restoreLastT0Backtest() {
     const metricsEl = els.quantT0Metrics || document.getElementById("paper-t0-metrics");
-    const btn = document.getElementById("paper-t0-backtest");
     if (!isReplayDesk() || !metricsEl) return Promise.resolve();
-    if (btn && btn.disabled) return Promise.resolve();
     if (metricsEl.dataset.liveRun === "1") return Promise.resolve();
-    return fetch("/api/quant/last-t0-backtest")
-      .then((res) => res.json())
-      .then((pack) => {
-        if (!pack || pack.empty || !pack.result || !pack.result.success) return;
-        if (metricsEl.dataset.liveRun === "1") return;
-        paintReplayT0(pack.result);
+    return resumeReplayT0JobIfRunning()
+      .then((resumed) => {
+        if (resumed || metricsEl.dataset.liveRun === "1") return;
+        return fetch("/api/quant/last-t0-backtest")
+          .then((res) => res.json())
+          .then((pack) => {
+            if (!pack || pack.empty || !pack.result || !pack.result.success) return;
+            if (metricsEl.dataset.liveRun === "1") return;
+            paintReplayT0(pack.result);
+          });
       })
       .catch(() => {});
   }
@@ -1593,6 +1595,158 @@ export function installBacktest(q) {
     progress.hidden = false;
   }
 
+  let t0BtPollInflight = null;
+
+  function fmtT0JobSec(ms) {
+    const s = Math.max(1, Math.round(Number(ms) / 1000));
+    if (s < 60) return `${s}s`;
+    const m = Math.floor(s / 60);
+    const r = s % 60;
+    return `${m}分${String(r).padStart(2, "0")}秒`;
+  }
+
+  function sleepMs(ms) {
+    return new Promise((r) => setTimeout(r, ms));
+  }
+
+  function t0JobPaintable(result) {
+    return !!(
+      result &&
+      result.success &&
+      !result.persisted_truncated
+    );
+  }
+
+  async function fetchLastT0Snapshot() {
+    const pack = await fetch("/api/quant/last-t0-backtest").then((res) => res.json());
+    if (pack && pack.result && pack.result.success) return pack.result;
+    return null;
+  }
+
+  async function applyFinishedT0Job(job) {
+    const metricsEl = els.quantT0Metrics || document.getElementById("paper-t0-metrics");
+    if (job && (job.status === "failed" || job.error) && !t0JobPaintable(job.result)) {
+      setReplayT0Progress({
+        busy: false,
+        message: job.error || "回测失败",
+      });
+      renderT0BacktestResult(null);
+      return;
+    }
+    let data = t0JobPaintable(job && job.result) ? job.result : null;
+    if (!data) {
+      try {
+        data = await fetchLastT0Snapshot();
+      } catch (_) {
+        data = null;
+      }
+    }
+    if (data && data.success) {
+      if (metricsEl) metricsEl.dataset.liveRun = "1";
+      paintReplayT0(data);
+      setReplayT0Progress({ busy: false, hide: true });
+      return;
+    }
+    setReplayT0Progress({
+      busy: false,
+      message: (job && job.error) || (data && data.error) || "回测失败",
+    });
+    renderT0BacktestResult(null);
+  }
+
+  async function pollT0BacktestJob(jobId) {
+    const pollStarted = Date.now();
+    const absoluteCapMs = 40 * 60 * 1000;
+    let netFailStreak = 0;
+    let sawOwnJob = false;
+    while (true) {
+      if (Date.now() - pollStarted > absoluteCapMs) {
+        throw new Error("回测超时（>40 分钟）。可先在研究页预热 5m，或缩小回看窗后重试");
+      }
+      let data = {};
+      let ok = false;
+      let status = 0;
+      try {
+        const res = await fetch("/api/jobs/t0-backtest?progress=1");
+        status = res.status;
+        data = await res.json().catch(() => ({}));
+        ok = res.ok;
+      } catch (_) {
+        netFailStreak += 1;
+        setReplayT0Progress({
+          busy: true,
+          message: `回测中… ${fmtT0JobSec(Date.now() - pollStarted)} · 服务短暂断开，重连中（${netFailStreak}）`,
+        });
+        await sleepMs(Math.min(4000, 500 * netFailStreak));
+        continue;
+      }
+      if (!ok && (!status || status === 0 || status >= 500)) {
+        netFailStreak += 1;
+        setReplayT0Progress({
+          busy: true,
+          message: `回测中… ${fmtT0JobSec(Date.now() - pollStarted)} · 服务短暂断开，重连中（${netFailStreak}）`,
+        });
+        await sleepMs(Math.min(4000, 500 * netFailStreak));
+        continue;
+      }
+      netFailStreak = 0;
+      const job = (data && data.job) || {};
+      const sameJob = !jobId || !job.id || job.id === jobId;
+      if (sameJob && job.id) sawOwnJob = true;
+      if (job.status === "idle" || !job.id) {
+        if (sawOwnJob || Date.now() - pollStarted > 2500) {
+          throw new Error("回测已中断（可能服务重启），请再点做 T 回测");
+        }
+        await sleepMs(400);
+        continue;
+      }
+      if (!sameJob) {
+        throw new Error("做 T 回测已被其它任务覆盖，请重试");
+      }
+      if (job.status === "failed") {
+        throw new Error(job.error || "回测失败");
+      }
+      if (job.status === "done") {
+        const full = await fetch("/api/jobs/t0-backtest").then((res) => res.json().catch(() => ({})));
+        return ((full && full.job) || job);
+      }
+      const hint = job.message || "回测中（持仓·5m/选向）…";
+      setReplayT0Progress({
+        busy: true,
+        message: `回测中… ${fmtT0JobSec(Date.now() - pollStarted)} · ${hint}`,
+      });
+      await sleepMs(1200);
+    }
+  }
+
+  function awaitT0BacktestJob(jobId) {
+    if (t0BtPollInflight) return t0BtPollInflight;
+    t0BtPollInflight = pollT0BacktestJob(jobId).finally(() => {
+      t0BtPollInflight = null;
+    });
+    return t0BtPollInflight;
+  }
+
+  async function resumeReplayT0JobIfRunning() {
+    try {
+      const jr = await fetch("/api/jobs/t0-backtest?progress=1").then((res) =>
+        res.json().catch(() => ({}))
+      );
+      const job = (jr && jr.job) || {};
+      if (job.status !== "running" || !job.id) return false;
+      setReplayT0Progress({ busy: true, message: job.message || "回测中…" });
+      const done = await awaitT0BacktestJob(job.id);
+      await applyFinishedT0Job(done);
+      return true;
+    } catch (err) {
+      setReplayT0Progress({
+        busy: false,
+        message: String((err && err.message) || err || "回测中断"),
+      });
+      return true;
+    }
+  }
+
   function wirePaperT0Backtest() {
     const btn = document.getElementById("paper-t0-backtest");
     if (!btn || btn.dataset.wired === "1") return;
@@ -1610,7 +1764,7 @@ export function installBacktest(q) {
     btn.addEventListener("click", async (e) => {
       e.preventDefault();
       if (btn.disabled) return;
-      setReplayT0Progress({ busy: true, message: "回测中（持仓·5m/选向）…" });
+      setReplayT0Progress({ busy: true, message: "回测入队…" });
       const ac = typeof AbortController !== "undefined" ? new AbortController() : null;
       const timer =
         ac &&
@@ -1620,7 +1774,7 @@ export function installBacktest(q) {
           } catch (_) {
             /* ignore */
           }
-        }, 300000);
+        }, 30000);
       try {
         const body = collectReplayT0BacktestBody();
         const res = await fetch("/api/quant/t0-backtest", {
@@ -1630,7 +1784,21 @@ export function installBacktest(q) {
           signal: ac ? ac.signal : undefined,
         });
         const data = await res.json().catch(() => ({}));
-        if (!res.ok || !data.success) {
+        if (!res.ok) {
+          setReplayT0Progress({
+            busy: false,
+            message: data.error || data.detail || "回测入队失败",
+          });
+          renderT0BacktestResult(null);
+          return;
+        }
+        if (data.background) {
+          const jobId = data.job && data.job.id;
+          const done = await awaitT0BacktestJob(jobId);
+          await applyFinishedT0Job(done);
+          return;
+        }
+        if (!data.success) {
           setReplayT0Progress({
             busy: false,
             message: data.error || data.detail || "回测失败",
@@ -1647,7 +1815,7 @@ export function installBacktest(q) {
           busy: false,
           message: t0FetchErrorMessage(
             err,
-            "回测连接中断或超时。服务刚重启、持仓过多或 5m 未预热时会出现；请刷新后重试或缩小回看窗"
+            "回测入队失败或连接中断。服务刚重启时请稍候刷新再试"
           ),
         });
       } finally {

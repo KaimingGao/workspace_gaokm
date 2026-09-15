@@ -185,7 +185,7 @@ def _slim_features_tau(feats: Any, *, limit: int = 24) -> Optional[Dict[str, Any
         return None
     # 先保住 τ Z 键，避免 dict 截断丢掉 gap_pct / breadth / 分钟小包
     from core.signal.minute_tau_feats import MINUTE_TAU_ALL_KEYS, MINUTE_TAU_SHAPE_KEYS
-    from core.research.tau_panel import T30_SEQ_FEATURES, T60_SEQ_FEATURES
+    from core.research.tau_panel import T30_SEQ_FEATURES, T60_SEQ_FEATURES, T90_SEQ_FEATURES
 
     pin = (
         "gap_pct",
@@ -198,7 +198,7 @@ def _slim_features_tau(feats: Any, *, limit: int = 24) -> Optional[Dict[str, Any
         "mom3_pct",
         "tau_lag1",
         "tau_ma5",
-    ) + MINUTE_TAU_ALL_KEYS + MINUTE_TAU_SHAPE_KEYS + T30_SEQ_FEATURES + T60_SEQ_FEATURES
+    ) + MINUTE_TAU_ALL_KEYS + MINUTE_TAU_SHAPE_KEYS + T30_SEQ_FEATURES + T60_SEQ_FEATURES + T90_SEQ_FEATURES
     out: Dict[str, Any] = {}
     lim = max(len(pin) + 4, int(limit))
 
@@ -374,6 +374,30 @@ def tip_fields_from_item(item: Optional[dict]) -> Dict[str, Any]:
         out["formula_terms_t60"] = t60_terms
         out["score_formula_terms_t60"] = t60_terms
 
+    t90_terms = _slim_formula_terms(
+        item.get("formula_terms_t90") or item.get("score_formula_terms_t90"),
+        limit=12,
+    )
+    if not t90_terms or not (t90_terms.get("terms") or t90_terms.get("total") is not None):
+        try:
+            from core.research.t90_ridge import explain_t90_prediction, load_t90_model
+
+            feats_t90 = item.get("features_tau") if isinstance(item.get("features_tau"), dict) else {}
+            if not feats_t90:
+                feats_t90 = (
+                    item.get("features_path")
+                    if isinstance(item.get("features_path"), dict)
+                    else {}
+                )
+            expl_t90 = explain_t90_prediction(feats_t90, model_doc=load_t90_model())
+            t90_terms = _slim_formula_terms(expl_t90, limit=12)
+        except Exception:  # noqa: BLE001
+            logger.debug("t90 tip explain fallback failed", exc_info=True)
+            t90_terms = None
+    if t90_terms and (t90_terms.get("terms") or t90_terms.get("total") is not None):
+        out["formula_terms_t90"] = t90_terms
+        out["score_formula_terms_t90"] = t90_terms
+
     try:
         from core.research.path_ridge import path_tip_model_snapshot
 
@@ -521,6 +545,12 @@ def pack_day_scores(score_snap: Optional[dict]) -> Optional[Dict[str, Any]]:
         "predicted_score_t60",
         "y_t60_realized",
         "t60_realized",
+        "y_τ90",
+        "y_t90",
+        "y_t90_hat",
+        "predicted_score_t90",
+        "y_t90_realized",
+        "t90_realized",
         "y_check",
         "eod_trust",
         "y_nc",
@@ -908,6 +938,25 @@ def scores_from_item(item: Optional[dict]) -> Dict[str, Optional[float]]:
             out["y_t60_hat"] = y_t60
             out["y_t60"] = y_t60
             out["y_τ60"] = y_t60
+    try:
+        from core.research.t90_ridge import pick_y_t90_hat, write_y_t90_hat
+
+        y_t90 = pick_y_t90_hat(item)
+        if y_t90 is not None:
+            write_y_t90_hat(out, y_t90)
+    except Exception:  # noqa: BLE001
+        y_t90 = _f(item.get("predicted_score_t90"))
+        if y_t90 is None:
+            y_t90 = _f(item.get("y_t90_hat"))
+        if y_t90 is None:
+            y_t90 = _f(item.get("y_τ90"))
+        if y_t90 is None:
+            y_t90 = _f(item.get("y_t90"))
+        if y_t90 is not None:
+            out["predicted_score_t90"] = y_t90
+            out["y_t90_hat"] = y_t90
+            out["y_t90"] = y_t90
+            out["y_τ90"] = y_t90
     if y_tau_oc is not None:
         out["y_tau_oc"] = y_tau_oc
         out["predicted_score_tau_oc"] = y_tau_oc
@@ -1594,6 +1643,10 @@ def _attach_y_path_to_item(
             _attach_y_t60_to_item(item, allow_open_z=allow_open_z, hist_bars=hist_bars)
         except Exception:  # noqa: BLE001
             logger.debug("attach y_t60 failed", exc_info=True)
+        try:
+            _attach_y_t90_to_item(item, allow_open_z=allow_open_z, hist_bars=hist_bars)
+        except Exception:  # noqa: BLE001
+            logger.debug("attach y_t90 failed", exc_info=True)
 
 
 def _attach_y_r_to_item(
@@ -1650,6 +1703,27 @@ def _tau_clock_from_item(item: dict) -> Optional[str]:
     return None
 
 
+def _minute_prefix_from_item(item: dict) -> List[dict]:
+    if not isinstance(item, dict):
+        return []
+    for k in ("_minute_prefix", "minute_prefix", "minute_bars"):
+        raw = item.get(k)
+        if isinstance(raw, list) and raw:
+            return [b for b in raw if isinstance(b, dict)]
+    return []
+
+
+def _open_px_from_item(item: dict) -> Optional[float]:
+    if not isinstance(item, dict):
+        return None
+    day = item.get("day_bar") if isinstance(item.get("day_bar"), dict) else {}
+    v = _f(day.get("open"))
+    if v is not None:
+        return v
+    feats = item.get("features_tau") if isinstance(item.get("features_tau"), dict) else {}
+    return _f(feats.get("open")) or _f(item.get("open"))
+
+
 def _attach_y_t30_to_item(
     item: dict,
     *,
@@ -1679,7 +1753,11 @@ def _attach_y_t30_to_item(
             predict_t30_from_features,
             write_y_t30_hat,
         )
-        from core.research.tau_panel import T30_SEQ_FEATURES, attach_t30_lag_features
+        from core.research.tau_panel import (
+            T30_SEQ_FEATURES,
+            attach_t30_lag_features,
+            attach_tau_lag_features,
+        )
         from core.signal.minute_tau_feats import (
             T30_SEQ_TRAIL_KEYS,
             attach_sector_ret_last_30m_cs_if_missing,
@@ -1693,10 +1771,19 @@ def _attach_y_t30_to_item(
         if len(asof) < 10 and isinstance(item.get("day_bar"), dict):
             asof = str(item["day_bar"].get("date") or "")[:10]
         if hm and any(feats.get(k) is None for k in T30_SEQ_TRAIL_KEYS):
-            seq = extract_t30_seq_pack([], trade_date=asof, tau_hm=hm)
+            seq = extract_t30_seq_pack(
+                _minute_prefix_from_item(item),
+                trade_date=asof,
+                tau_hm=hm,
+                open_px=_open_px_from_item(item),
+            )
             for k, v in seq.items():
                 if v is not None and feats.get(k) is None:
                     feats[k] = v
+        if hm:
+            feats = attach_tau_lag_features(
+                feats, hist_bars=hist_bars or [], asof_date=asof
+            )
         code = str(item.get("stock_code") or item.get("code") or "").strip()
         if hm and code:
             feats = attach_t30_lag_features(
@@ -1712,7 +1799,7 @@ def _attach_y_t30_to_item(
             )
         ft = item.get("features_tau")
         if isinstance(ft, dict):
-            for k in T30_SEQ_FEATURES:
+            for k in list(T30_SEQ_FEATURES) + ["tau_lag1", "tau_ma5"]:
                 if feats.get(k) is not None:
                     ft[k] = feats[k]
         model = load_t30_model()
@@ -1759,7 +1846,11 @@ def _attach_y_t60_to_item(
             predict_t60_from_features,
             write_y_t60_hat,
         )
-        from core.research.tau_panel import T60_SEQ_FEATURES, attach_t60_lag_features
+        from core.research.tau_panel import (
+            T60_SEQ_FEATURES,
+            attach_t60_lag_features,
+            attach_tau_lag_features,
+        )
         from core.signal.minute_tau_feats import (
             T60_SEQ_TRAIL_KEYS,
             attach_sector_ret_last_60m_cs_if_missing,
@@ -1773,10 +1864,19 @@ def _attach_y_t60_to_item(
         if len(asof) < 10 and isinstance(item.get("day_bar"), dict):
             asof = str(item["day_bar"].get("date") or "")[:10]
         if hm and any(feats.get(k) is None for k in T60_SEQ_TRAIL_KEYS):
-            seq = extract_t60_seq_pack([], trade_date=asof, tau_hm=hm)
+            seq = extract_t60_seq_pack(
+                _minute_prefix_from_item(item),
+                trade_date=asof,
+                tau_hm=hm,
+                open_px=_open_px_from_item(item),
+            )
             for k, v in seq.items():
                 if v is not None and feats.get(k) is None:
                     feats[k] = v
+        if hm:
+            feats = attach_tau_lag_features(
+                feats, hist_bars=hist_bars or [], asof_date=asof
+            )
         code = str(item.get("stock_code") or item.get("code") or "").strip()
         if hm and code:
             feats = attach_t60_lag_features(
@@ -1792,7 +1892,7 @@ def _attach_y_t60_to_item(
             )
         ft = item.get("features_tau")
         if isinstance(ft, dict):
-            for k in T60_SEQ_FEATURES:
+            for k in list(T60_SEQ_FEATURES) + ["tau_lag1", "tau_ma5"]:
                 if feats.get(k) is not None:
                     ft[k] = feats[k]
         model = load_t60_model()
@@ -1808,6 +1908,99 @@ def _attach_y_t60_to_item(
             item["score_formula_terms_t60"] = expl
     except Exception:  # noqa: BLE001
         logger.debug("attach y_t60 predict failed", exc_info=True)
+
+
+def _attach_y_t90_to_item(
+    item: dict,
+    *,
+    allow_open_z: bool = True,
+    hist_bars: Optional[Sequence[dict]] = None,
+) -> None:
+    """即时补 ŷ_τ90（ŷ_τ X + 序列特征）；τ⊕90 越界 / 缺模型则不出分。不进 C_τ。"""
+    if not isinstance(item, dict):
+        return
+    from core.signal.minute_tau_grid import tau_clock_allows_t90
+
+    hm = _tau_clock_from_item(item)
+    if hm and not tau_clock_allows_t90(hm):
+        return
+    feats = item.get("features_tau") if isinstance(item.get("features_tau"), dict) else {}
+    if not feats:
+        feats = item.get("features_path") if isinstance(item.get("features_path"), dict) else {}
+    if not feats:
+        return
+    open_z_only = not _minute_pack_present(feats)
+    if open_z_only and not allow_open_z:
+        return
+    try:
+        from core.research.t90_ridge import (
+            explain_t90_prediction,
+            load_t90_model,
+            predict_t90_from_features,
+            write_y_t90_hat,
+        )
+        from core.research.tau_panel import (
+            T90_SEQ_FEATURES,
+            attach_t90_lag_features,
+            attach_tau_lag_features,
+        )
+        from core.signal.minute_tau_feats import (
+            T90_SEQ_TRAIL_KEYS,
+            attach_sector_ret_last_90m_cs_if_missing,
+            extract_t90_seq_pack,
+        )
+
+        feats = dict(feats)
+        asof = str(
+            item.get("date") or item.get("as_of") or item.get("trade_date") or ""
+        )[:10]
+        if len(asof) < 10 and isinstance(item.get("day_bar"), dict):
+            asof = str(item["day_bar"].get("date") or "")[:10]
+        if hm and any(feats.get(k) is None for k in T90_SEQ_TRAIL_KEYS):
+            seq = extract_t90_seq_pack(
+                _minute_prefix_from_item(item),
+                trade_date=asof,
+                tau_hm=hm,
+                open_px=_open_px_from_item(item),
+            )
+            for k, v in seq.items():
+                if v is not None and feats.get(k) is None:
+                    feats[k] = v
+        if hm:
+            feats = attach_tau_lag_features(
+                feats, hist_bars=hist_bars or [], asof_date=asof
+            )
+        code = str(item.get("stock_code") or item.get("code") or "").strip()
+        if hm and code:
+            feats = attach_t90_lag_features(
+                feats,
+                hist_bars=hist_bars or [],
+                asof_date=asof,
+                tau_hm=hm,
+                stock_code=code,
+            )
+        if hm:
+            feats = attach_sector_ret_last_90m_cs_if_missing(
+                feats, trade_date=asof, tau_hm=hm
+            )
+        ft = item.get("features_tau")
+        if isinstance(ft, dict):
+            for k in list(T90_SEQ_FEATURES) + ["tau_lag1", "tau_ma5"]:
+                if feats.get(k) is not None:
+                    ft[k] = feats[k]
+        model = load_t90_model()
+        if model is None:
+            return
+        y_hat = predict_t90_from_features(feats, model_doc=model)
+        if y_hat is None:
+            return
+        write_y_t90_hat(item, float(y_hat))
+        expl = explain_t90_prediction(feats, model_doc=model)
+        if expl:
+            item["formula_terms_t90"] = expl
+            item["score_formula_terms_t90"] = expl
+    except Exception:  # noqa: BLE001
+        logger.debug("attach y_t90 predict failed", exc_info=True)
 
 
 def _attach_y_complexity_to_item(
@@ -1929,13 +2122,15 @@ def _inject_minute_pack_from_prefix(
             T30_SEQ_PACK_KEYS,
             T60_SEQ_CS_KEYS,
             T60_SEQ_PACK_KEYS,
+            T90_SEQ_CS_KEYS,
+            T90_SEQ_PACK_KEYS,
             attach_ret_vs_sector,
             attach_sector_ret_last_30m_cs_if_missing,
             attach_sector_ret_last_60m_cs_if_missing,
+            attach_sector_ret_last_90m_cs_if_missing,
             clear_minute_tau_pack_keys,
             extract_minute_tau_pack,
-            extract_t30_seq_pack,
-            extract_t60_seq_pack,
+            extract_t30_t60_t90_seq_packs,
         )
 
         open_px = None
@@ -1952,35 +2147,29 @@ def _inject_minute_pack_from_prefix(
         )
         # 只清路径小包；截面已进 ŷ，inject 不得抹掉
         merged = clear_minute_tau_pack_keys(dict(feats), include_cs=False)
-        for k in T30_SEQ_PACK_KEYS + T30_SEQ_CS_KEYS + T60_SEQ_PACK_KEYS + T60_SEQ_CS_KEYS:
+        for k in T30_SEQ_PACK_KEYS + T30_SEQ_CS_KEYS + T60_SEQ_PACK_KEYS + T60_SEQ_CS_KEYS + T90_SEQ_PACK_KEYS + T90_SEQ_CS_KEYS:
             merged.pop(k, None)
         if pack:
             for k, v in pack.items():
                 if v is not None:
                     merged[k] = v
             attach_ret_vs_sector(merged)
-        seq = extract_t30_seq_pack(
+        seq_all = extract_t30_t60_t90_seq_packs(
             minute_prefix,
             trade_date=day,
             tau_hm=hm or "10:30",
             open_px=open_px,
         )
-        for k, v in seq.items():
-            if v is not None:
-                merged[k] = v
-        seq60 = extract_t60_seq_pack(
-            minute_prefix,
-            trade_date=day,
-            tau_hm=hm or "10:30",
-            open_px=open_px,
-        )
-        for k, v in seq60.items():
+        for k, v in seq_all.items():
             if v is not None:
                 merged[k] = v
         merged = attach_sector_ret_last_30m_cs_if_missing(
             merged, trade_date=day, tau_hm=hm or "10:30"
         )
         merged = attach_sector_ret_last_60m_cs_if_missing(
+            merged, trade_date=day, tau_hm=hm or "10:30"
+        )
+        merged = attach_sector_ret_last_90m_cs_if_missing(
             merged, trade_date=day, tau_hm=hm or "10:30"
         )
         item["features_tau"] = merged
@@ -2042,10 +2231,11 @@ def _attach_prefix_minute_sector_feats(
         apply_sector_ret_cs,
         apply_sector_ret_last_30m_cs,
         apply_sector_ret_last_60m_cs,
-        extract_t30_seq_pack,
-        extract_t60_seq_pack,
+        apply_sector_ret_last_90m_cs,
+        extract_t30_t60_t90_seq_packs,
         resolve_sector_ret_last_30m,
         resolve_sector_ret_last_60m,
+        resolve_sector_ret_last_90m,
         resolve_sector_ret_to_tau,
     )
 
@@ -2064,15 +2254,18 @@ def _attach_prefix_minute_sector_feats(
     except Exception:  # noqa: BLE001
         logger.debug("prefix sector_ret_to_tau attach failed", exc_info=True)
     try:
-        seq = extract_t30_seq_pack(
+        seq_all = extract_t30_t60_t90_seq_packs(
             minute_bars,
             trade_date=str(trade_date or "")[:10],
             tau_hm=str(tau_hm or "10:00"),
             open_px=open_px,
         )
-        for k, v in seq.items():
+        for k, v in seq_all.items():
             if v is not None:
                 out[k] = v
+    except Exception:  # noqa: BLE001
+        logger.debug("prefix t30/t60/t90 seq attach failed", exc_info=True)
+    try:
         sret30 = resolve_sector_ret_last_30m(
             str(trade_date or "")[:10], str(tau_hm or "10:00")
         )
@@ -2080,21 +2273,19 @@ def _attach_prefix_minute_sector_feats(
     except Exception:  # noqa: BLE001
         logger.debug("prefix t30 seq/cs attach failed", exc_info=True)
     try:
-        seq60 = extract_t60_seq_pack(
-            minute_bars,
-            trade_date=str(trade_date or "")[:10],
-            tau_hm=str(tau_hm or "10:00"),
-            open_px=open_px,
-        )
-        for k, v in seq60.items():
-            if v is not None:
-                out[k] = v
         sret60 = resolve_sector_ret_last_60m(
             str(trade_date or "")[:10], str(tau_hm or "10:00")
         )
         out = apply_sector_ret_last_60m_cs(out, sret60, overwrite=True)
     except Exception:  # noqa: BLE001
         logger.debug("prefix t60 seq/cs attach failed", exc_info=True)
+    try:
+        sret90 = resolve_sector_ret_last_90m(
+            str(trade_date or "")[:10], str(tau_hm or "10:00")
+        )
+        out = apply_sector_ret_last_90m_cs(out, sret90, overwrite=True)
+    except Exception:  # noqa: BLE001
+        logger.debug("prefix t90 seq/cs attach failed", exc_info=True)
     return out
 
 
@@ -2306,6 +2497,10 @@ def rescore_scores_at_fixed_prefix(
         out.pop("y_t60_hat", None)
         out.pop("y_t60", None)
         out.pop("y_τ60", None)
+        out.pop("predicted_score_t90", None)
+        out.pop("y_t90_hat", None)
+        out.pop("y_t90", None)
+        out.pop("y_τ90", None)
         return out
 
     if not raw or not isinstance(day_bar, dict):
@@ -2351,7 +2546,9 @@ def rescore_scores_at_fixed_prefix(
     if dkey and not out.get("date"):
         out["date"] = dkey
     # 禁止 silently 用开盘 Z 冒充盘中 path
+    out["_minute_prefix"] = prefix
     _attach_y_path_to_item(out, hist_bars=hist_bars, allow_open_z=False)
+    out.pop("_minute_prefix", None)
     out["_score_source"] = src
     out["_score_prefix_hm"] = hm
     out["_score_prefix_bars"] = len(prefix)
@@ -3554,7 +3751,10 @@ def compute_scores_from_bars(
                 item["eod_trust"] = st.get("eod_trust")
         except Exception:  # noqa: BLE001
             logger.debug("build_y_state in compute failed", exc_info=True)
+        if allow_minute and minute_bars:
+            item["_minute_prefix"] = [b for b in minute_bars if isinstance(b, dict)]
         _attach_y_path_to_item(item, hist_bars=hist)
+        item.pop("_minute_prefix", None)
         try:
             from core.signal.dual_score import align_trade_score_fields
 

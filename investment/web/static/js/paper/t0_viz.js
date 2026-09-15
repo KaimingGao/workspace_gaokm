@@ -1,7 +1,7 @@
 /** 做T回测可视化（canvas + CSS，无外部图表库）。 */
 
 import { paperMetricClass } from "./fmt.js";
-import { SKIP_CAT_TIP, stockCellHtml, stampStockFitTiers } from "./t0_table.js?v=p2402";
+import { SKIP_CAT_TIP, stockCellHtml, stampStockFitTiers } from "./t0_table.js?v=p2404";
 
 const THEME = {
   actual: "#2563eb",
@@ -42,6 +42,7 @@ const SKIP_CAT_COLORS = {
   y_tc_flat: "#3d6e7a",
   y_t30_flat: "#6a8894",
   y_t60_flat: "#5a7884",
+  y_t90_flat: "#4a6874",
   r_tau_flat: "#4a6e7a",
   y_tau_weak: "#5a7d8c",
   y_path_flat: "#7a6a55",
@@ -53,7 +54,9 @@ const SKIP_CAT_COLORS = {
   y_path_disagree: "#6b4c7a",
   y_tc_disagree: "#4c6b8a",
   y_t30_disagree: "#3d7a8a",
+  y_tw_disagree: "#2a6e82",
   y_t60_disagree: "#2d6a7a",
+  y_t90_disagree: "#1d5a6a",
   conflict: "#a04848",
   // 前缀 / 空间 / 缺口 · 海石青 + 一枚赭石
   path_abandon: "#3f6f68",
@@ -1253,6 +1256,16 @@ function renderKpiRow(summary) {
       "τ60旁路",
       sm.t60_band_hit_rate_pct != null ? `${sm.t60_band_hit_rate_pct}%` : null,
       "破带方向与 ŷ_τ60 后 60 交易分钟同号率",
+    ],
+    [
+      "τ90命中",
+      sm.t90_pred_hit_rate_pct != null ? `${sm.t90_pred_hit_rate_pct}%` : null,
+      "ŷ_τ90 符号 vs price(τ⊕90m)/price(τ)−1",
+    ],
+    [
+      "τ90旁路",
+      sm.t90_band_hit_rate_pct != null ? `${sm.t90_band_hit_rate_pct}%` : null,
+      "破带方向与 ŷ_τ90 后 90 交易分钟同号率",
     ],
     [
       "path一致",

@@ -2,8 +2,8 @@
  * 观察池 HTML 渲染 helpers（纯字符串 / 轻量 DOM 写入）。
  */
 import { escapeHtml } from "../shared.js";
-import { fmtTableScore } from "../paper/fmt.js?v=p2396";
-import { marketPriorDetailFields, tailAnomalyDetailFields, overheatDetailFields } from "../score_tooltip.js?v=p2396";
+import { fmtTableScore } from "../paper/fmt.js?v=p2404";
+import { marketPriorDetailFields, tailAnomalyDetailFields, overheatDetailFields } from "../score_tooltip.js?v=p2404";
 import { watchingNameSpanHtml } from "./names.js";
 import { fitTierBadgeForCode } from "./fit_tier_ui.js";
 
@@ -222,6 +222,36 @@ export function watchingScoreDetail(it) {
     ),
     score_formula_terms_t60: slimFormulaTerms(
       (it && (it.score_formula_terms_t60 || it.formula_terms_t60)) || null,
+      12
+    ),
+    "y_τ90":
+      it &&
+      (it["y_τ90"] != null
+        ? it["y_τ90"]
+        : it.y_t90 != null
+          ? it.y_t90
+          : it.predicted_score_t90 != null
+            ? it.predicted_score_t90
+            : it.y_t90_hat),
+    y_t90: it && (it.y_t90 != null ? it.y_t90 : it["y_τ90"]),
+    predicted_score_t90:
+      it &&
+      (it.predicted_score_t90 != null
+        ? it.predicted_score_t90
+        : it.y_t90_hat != null
+          ? it.y_t90_hat
+          : it["y_τ90"]),
+    y_t90_hat: it && (it.y_t90_hat != null ? it.y_t90_hat : it.predicted_score_t90),
+    y_t90_realized: it && (it.y_t90_realized != null ? it.y_t90_realized : it.t90_realized),
+    t90_realized: it && (it.t90_realized != null ? it.t90_realized : it.y_t90_realized),
+    y_spec_τ90: (it && (it.y_spec_τ90 || it.y_spec_t90)) || null,
+    y_spec_t90: (it && (it.y_spec_t90 || it.y_spec_τ90)) || null,
+    formula_terms_t90: slimFormulaTerms(
+      (it && (it.formula_terms_t90 || it.score_formula_terms_t90)) || null,
+      12
+    ),
+    score_formula_terms_t90: slimFormulaTerms(
+      (it && (it.score_formula_terms_t90 || it.formula_terms_t90)) || null,
       12
     ),
     ret_open_to_tau:

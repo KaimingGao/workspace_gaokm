@@ -11,7 +11,7 @@ import { apiFetch } from "./api_client.js";
 import { loadAndPaintMacroStrip } from "./macro_context_ui.js";
 import { renderLineChart, renderDualLineChart, renderMultiLineChart } from "./lw_charts.js";
 import { mountVirtualTable, colStyle } from "./virtual_table.js";
-import { createScoreTooltipController } from "./score_tooltip.js?v=p2396";
+import { createScoreTooltipController } from "./score_tooltip.js?v=p2404";
 import { fmtScore, scoreCls } from "./paper/fmt.js?v=p2389";
 import {
   defaultScoringFloors,
@@ -781,6 +781,22 @@ export function initQuant(ctx) {
         : "";
     host.innerHTML = html || "";
   }
+  async function renderT90CoefTable(rm, opts = {}) {
+    const host = document.getElementById("quant-t90-coef-table");
+    if (!host) return;
+    try {
+      if (typeof q.ensureFactorMeta === "function") {
+        await q.ensureFactorMeta();
+      }
+    } catch (_) {
+      /* ignore */
+    }
+    const html =
+      typeof q.remCoefTableHtml === "function"
+        ? q.remCoefTableHtml(rm, { ...opts, head: "t90" })
+        : "";
+    host.innerHTML = html || "";
+  }
 
   function clearPathResultBox() {
     const box = document.getElementById("quant-path-result");
@@ -1425,6 +1441,148 @@ export function initQuant(ctx) {
     });
     renderT60TreeCompare(data);
   }
+  let t90TreeBusyTimer = null;
+
+  function t90TreeBusyHint(elapsedSec) {
+    const s = Number(elapsedSec) || 0;
+    if (s < 45) return "拉观察池行情 / 5m 缓存";
+    if (s < 90) return "组 price(τ⊕90m)/price(τ) 面板（满池分钟特征）";
+    return "仍在组面板（XGBoost 约数秒；慢的是组样本）";
+  }
+
+  function stopT90TreeBusy() {
+    if (t90TreeBusyTimer) {
+      clearInterval(t90TreeBusyTimer);
+      t90TreeBusyTimer = null;
+    }
+    const btn = document.getElementById("quant-t90-tree-run");
+    if (btn) btn.disabled = false;
+  }
+
+  function startT90TreeBusy() {
+    stopT90TreeBusy();
+    const sum = document.getElementById("quant-t90-tree-summary");
+    const btn = document.getElementById("quant-t90-tree-run");
+    if (btn) btn.disabled = true;
+    const t0 = Date.now();
+    const tick = () => {
+      const s = Math.max(0, Math.round((Date.now() - t0) / 1000));
+      const msg = `${t90TreeBusyHint(s)} · 已 ${fmtTauTreeSec(s)} · 满池瓶颈在组面板，约数分钟`;
+      renderRemStatus(sum, {
+        state: "busy",
+        chip: "拟合中",
+        message: msg,
+        busy: true,
+      });
+      renderT90TreeCompare({
+        busy: true,
+        success: false,
+        message: msg,
+      });
+    };
+    tick();
+    t90TreeBusyTimer = setInterval(tick, 1000);
+  }
+
+  function renderT90TreeCompare(data) {
+    const box = document.getElementById("quant-t90-tree-result");
+    if (!box) return;
+    if (!data || typeof data !== "object") {
+      box.innerHTML = "";
+      return;
+    }
+    if (data.busy) {
+      box.innerHTML = `<div class="quant-tree-report is-busy"><p class="quant-attr-note">${escapeHtml(
+        data.message || "ŷ_τ90_tree 拟合中…"
+      )}</p></div>`;
+      return;
+    }
+    if (!data.success) {
+      box.innerHTML = `<p class="quant-attr-note">${escapeHtml(
+        String(data.error || data.note || "ŷ_τ90_tree 拟合失败")
+      )}</p>`;
+      return;
+    }
+    box.innerHTML = treeReportHtml(data, { head: "t90" });
+  }
+
+  async function runT90Tree() {
+    const sum = document.getElementById("quant-t90-tree-summary");
+    startT90TreeBusy();
+    try {
+      const t90Limit = 200;
+      const res = await fetch("/api/quant/t90-tree", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          lookback: 120,
+          watching_limit: t90Limit,
+          ridge_lambda: 1.0,
+          holdout_trading_days: readHoldoutTradingDays(),
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      stopT90TreeBusy();
+      if (!res.ok || !data.success) {
+        renderRemStatus(sum, {
+          state: "error",
+          chip: "失败",
+          message: String(data.error || data.note || data.detail || `HTTP ${res.status}`),
+          error: true,
+        });
+        renderT90TreeCompare({
+          success: false,
+          error: data.error || data.note || `HTTP ${res.status}`,
+        });
+        return;
+      }
+      const timingMsg = fmtTauTreeTiming(data);
+      renderRemStatus(sum, {
+        state: "ok",
+        chip: "已拟合",
+        message: [tauTreeHyperBits(data), timingMsg, "影子头 · 未写盘"]
+          .filter(Boolean)
+          .join(" · "),
+        oos: data.oos || {},
+        sampleCount: data.sample_count,
+      });
+      renderT90TreeCompare(data);
+    } finally {
+      stopT90TreeBusy();
+    }
+  }
+
+  async function loadT90TreeLast() {
+    const sum = document.getElementById("quant-t90-tree-summary");
+    renderRemStatus(sum, {
+      state: "busy",
+      chip: "读取中",
+      message: "上次影子对照…",
+      busy: true,
+    });
+    const res = await fetch("/api/quant/t90-tree/last");
+    const data = await res.json().catch(() => ({}));
+    if (!data.exists || !data.success) {
+      renderRemStatus(sum, {
+        state: "idle",
+        chip: "待命",
+        message: data.note || "尚无 ŷ_τ90_tree",
+      });
+      renderT90TreeCompare({ success: false, error: data.note || "尚无上次对照" });
+      return;
+    }
+    const timingMsg = fmtTauTreeTiming(data);
+    renderRemStatus(sum, {
+      state: "ok",
+      chip: "上次",
+      message: [tauTreeHyperBits(data), timingMsg, "影子头 · 未写盘"]
+        .filter(Boolean)
+        .join(" · "),
+      oos: data.oos || {},
+      sampleCount: data.sample_count,
+    });
+    renderT90TreeCompare(data);
+  }
 
   function renderPathFitSummary(data) {
     const box = document.getElementById("quant-path-result");
@@ -1627,6 +1785,33 @@ export function initQuant(ctx) {
     box.innerHTML =
       `<p class="quant-attr-note">${bits.map((b) => escapeHtml(String(b))).join(" · ")}</p>`;
   }
+  function renderT90FitSummary(data) {
+    const box = document.getElementById("quant-t90-result");
+    if (!box || !data || typeof data !== "object") return;
+    const oos = data.oos || {};
+    const gate = data.promote_gate || {};
+    const bits = [
+      data.minute_codes_hit != null
+        ? `分钟覆盖 ${data.minute_codes_hit}/${data.minute_codes_universe ?? "—"} 票`
+        : null,
+      ...ridgeFitNBits(data),
+      oos.sign_hit != null
+        ? `OOS 命中 ${(Number(oos.sign_hit) * 100).toFixed(1)}%（n=${oos.n_valid ?? oos.n_test ?? "—"}）`
+        : null,
+      oos.ic != null ? `OOS IC ${Number(oos.ic).toFixed(3)}` : null,
+      gate.ok === false
+        ? `promote 闸：${(gate.blockers || []).join("；")}`
+        : gate.ok === true
+          ? "promote 闸：通过（强桶）"
+          : null,
+      Array.isArray(gate.warnings) && gate.warnings.length
+        ? `软提示：${gate.warnings.join("；")}`
+        : null,
+    ].filter(Boolean);
+    if (!bits.length) return;
+    box.innerHTML =
+      `<p class="quant-attr-note">${bits.map((b) => escapeHtml(String(b))).join(" · ")}</p>`;
+  }
 
   /** ŷ_oc 启用：不过闸也可点，确认后 force_promote。 */
   let _tauPromoteGate = null;
@@ -1756,6 +1941,21 @@ export function initQuant(ctx) {
 
   function clearT60ResultBox() {
     const box = document.getElementById("quant-t60-result");
+    if (box) box.innerHTML = "";
+  }
+  let _t90PromoteGate = null;
+  function syncT90PersistBtn(gate, { hasReport = true } = {}) {
+    _t90PromoteGate = gate && typeof gate === "object" ? gate : null;
+    syncRidgePersistPair(
+      "quant-t90-ridge-persist",
+      "quant-t90-ridge-persist-research",
+      _t90PromoteGate,
+      { hasReport }
+    );
+  }
+
+  function clearT90ResultBox() {
+    const box = document.getElementById("quant-t90-result");
     if (box) box.innerHTML = "";
   }
 
@@ -1923,6 +2123,35 @@ export function initQuant(ctx) {
       syncT60PersistBtn(gate, { hasReport: true });
       clearT60ResultBox();
       await renderT60CoefTable(data.return_model || {}, {
+        oos,
+        researchModel: data.return_model_research || null,
+      });
+    } catch (_) {
+      /* ignore */
+    }
+  })();
+  // 轻量预填 ŷ_τ90 状态
+  void (async () => {
+    try {
+      const res = await fetch("/api/quant/t90-ridge/model");
+      const data = await res.json().catch(() => ({}));
+      const sum = document.getElementById("quant-t90-summary");
+      if (!sum) return;
+      if (!data.exists) {
+        paintRidgeEnableStatus(sum, data);
+        syncT90PersistBtn(data.promote_gate, {
+          hasReport: !!data.last_report_exists,
+        });
+        clearT90ResultBox();
+        await renderT90CoefTable(null);
+        return;
+      }
+      const oos = data.oos || {};
+      const gate = data.promote_gate || null;
+      paintRidgeEnableStatus(sum, data, { gate });
+      syncT90PersistBtn(gate, { hasReport: true });
+      clearT90ResultBox();
+      await renderT90CoefTable(data.return_model || {}, {
         oos,
         researchModel: data.return_model_research || null,
       });
@@ -4062,6 +4291,212 @@ export function initQuant(ctx) {
       });
     }
   });
+  async function runT90Ridge({ persist = false, forcePromote = false, persistRole = "live" } = {}) {
+    const sum = document.getElementById("quant-t90-summary");
+    renderRemStatus(sum, {
+      state: "busy",
+      chip: persist ? "写入中" : "拟合中",
+      message: persist
+        ? forcePromote
+          ? "强制写入上次拟合…"
+          : "写入上次拟合…"
+        : "ŷ_τ90 Ridge + 时间 OOS…",
+      busy: true,
+    });
+    try {
+      const res = await fetch("/api/quant/t90-ridge", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          lookback: 120,
+          watching_limit: 200,
+          ridge_lambda: 1.0,
+          minute_period: "5",
+          minute_lookback_days: 150,
+          holdout_trading_days: readHoldoutTradingDays(),
+          persist: !!persist,
+          persist_role: persistRole || "live",
+          force_promote: !!forcePromote,
+          note: persist
+            ? forcePromote
+              ? `ui t90 force promote ${persistRole}`
+              : `ui t90 promote ${persistRole}`
+            : "",
+        }),
+      });
+      const posted = await res.json().catch(() => ({}));
+      const awaited = await awaitRidgeFitIfBackground(res, posted, {
+        persist: !!persist,
+        jobName: "t90-ridge",
+        modelPath: "/api/quant/t90-ridge/model",
+        sumEl: sum,
+        label: "ŷ_τ90",
+      });
+      const data = awaited.data || {};
+      const httpOk = awaited.httpOk;
+      const gate = data.promote_gate || (data.persisted && data.persisted.promote_gate) || null;
+      const persistFailed =
+        persist &&
+        data.persisted &&
+        data.persisted.success === false &&
+        !data.persisted.skipped;
+      if (!httpOk || (!data.success && !persistFailed) || persistFailed) {
+        const err =
+          (data.persisted && data.persisted.error) ||
+          (data && (data.detail || data.error)) ||
+          `HTTP ${res.status}`;
+        const gateNote =
+          gate && Array.isArray(gate.blockers) && gate.blockers.length
+            ? ` · 闸：${gate.blockers.join("；")}`
+            : "";
+        renderRemStatus(sum, {
+          state: "error",
+          chip: persistFailed ? "未过闸" : "失败",
+          message: String(err) + gateNote,
+          error: true,
+        });
+        if (!persistFailed) {
+          clearT90ResultBox();
+          renderT90CoefTable(null);
+        }
+        syncT90PersistBtn(gate, { hasReport: true });
+        return;
+      }
+      const oos = data.oos || {};
+      const gateMsg =
+        gate && !gate.ok
+          ? ` · 未过 promote 闸（${(gate.blockers || []).join("；")}；可强制启用）`
+          : gate && gate.ok
+            ? " · 可启用研究 / 启用执行"
+            : "";
+      paintRidgeEnableStatus(sum, data, {
+        persistOk: !!persist,
+        persistRole,
+        justFitted: !persist,
+        message: persist
+          ? forcePromote && gate && !gate.ok
+            ? `已跳过闸：${(gate.blockers || []).join("；")}`
+            : ""
+          : `未写盘${gateMsg}`,
+        oos,
+        sampleCount: data.sample_count,
+        promotedAt: persist
+          ? data.promoted_at || (data.persisted && data.persisted.promoted_at)
+          : data.promoted_at,
+      });
+      syncT90PersistBtn(gate, { hasReport: true });
+      const rm = data.return_model || {};
+      renderT90FitSummary(data);
+      await renderT90CoefTable(rm, {
+        oos,
+        researchModel: data.return_model_research || null,
+      });
+    } catch (err) {
+      renderRemStatus(sum, {
+        state: "error",
+        chip: "失败",
+        message: describeNetworkFetchError(err),
+        error: true,
+      });
+      throw err;
+    }
+  }
+
+  on("quant-t90-ridge-run", "click", async (e) => {
+    e.preventDefault();
+    try {
+      await runT90Ridge({ persist: false });
+    } catch (err) {
+      const sum = document.getElementById("quant-t90-summary");
+      renderRemStatus(sum, {
+        state: "error",
+        chip: "失败",
+        message: describeNetworkFetchError(err),
+        error: true,
+      });
+    }
+  });
+
+  on("quant-t90-ridge-persist", "click", onT90PersistClick);
+  on("quant-t90-ridge-persist-research", "click", onT90PersistClick);
+  async function onT90PersistClick(e) {
+    e.preventDefault();
+    const persistRole = (e.currentTarget && e.currentTarget.dataset.persistRole) || "live";
+    const gate = _t90PromoteGate;
+    const target =
+      persistRole === "research"
+        ? "ŷ_τ90 研究套（t90_ridge_model_research.json）"
+        : "ŷ_τ90 执行套（t90_ridge_model.json；做 T 旁路，不改 C_τ）";
+    let forcePromote = false;
+    if (gate && gate.ok === false) {
+      const blockers = (gate.blockers || []).join("；") || "未过 OOS 闸";
+      if (!window.confirm(`promote 未过闸：${blockers}\n\n仍强制写入 ${target} 吗？`)) {
+        return;
+      }
+      forcePromote = true;
+    } else if (!window.confirm(`将 ŷ_τ90 写入 ${target}？不进 ranking、不改 C_τ。`)) {
+      return;
+    }
+    try {
+      await runT90Ridge({ persist: true, forcePromote, persistRole });
+    } catch (err) {
+      const sum = document.getElementById("quant-t90-summary");
+      renderRemStatus(sum, {
+        state: "error",
+        chip: "失败",
+        message: describeNetworkFetchError(err),
+        error: true,
+      });
+    }
+  }
+
+  on("quant-t90-ridge-status", "click", async (e) => {
+    e.preventDefault();
+    const sum = document.getElementById("quant-t90-summary");
+    renderRemStatus(sum, {
+      state: "busy",
+      chip: "读取中",
+      message: "live 模型…",
+      busy: true,
+    });
+    try {
+      const res = await fetch("/api/quant/t90-ridge/model");
+      const data = await res.json().catch(() => ({}));
+      if (!data.exists) {
+        paintRidgeEnableStatus(sum, data, {
+          idleMessage: data.note || "尚无 live 模型",
+        });
+        syncT90PersistBtn(data.promote_gate, {
+          hasReport: !!data.last_report_exists,
+        });
+        clearT90ResultBox();
+        await renderT90CoefTable(null);
+        return;
+      }
+      const oos = data.oos || {};
+      const gate = data.promote_gate || null;
+      paintRidgeEnableStatus(sum, data, {
+        gate,
+        message:
+          gate && !gate.ok
+            ? `promote 闸：${(gate.blockers || []).join("；")}（可强制启用）`
+            : undefined,
+      });
+      syncT90PersistBtn(gate, { hasReport: true });
+      clearT90ResultBox();
+      await renderT90CoefTable(data.return_model || {}, {
+        oos,
+        researchModel: data.return_model_research || null,
+      });
+    } catch (err) {
+      renderRemStatus(sum, {
+        state: "error",
+        chip: "失败",
+        message: String(err.message || err),
+        error: true,
+      });
+    }
+  });
 
   on("quant-tau-ridge-run", "click", async (e) => {
     e.preventDefault();
@@ -4196,6 +4631,36 @@ export function initQuant(ctx) {
       await loadT60TreeLast();
     } catch (err) {
       renderT60TreeCompare({
+        success: false,
+        error: String(err.message || err),
+      });
+    }
+  });
+  on("quant-t90-tree-run", "click", async (e) => {
+    e.preventDefault();
+    try {
+      await runT90Tree();
+    } catch (err) {
+      const sum = document.getElementById("quant-t90-tree-summary");
+      renderRemStatus(sum, {
+        state: "error",
+        chip: "失败",
+        message: String(err.message || err),
+        error: true,
+      });
+      renderT90TreeCompare({
+        success: false,
+        error: String(err.message || err),
+      });
+    }
+  });
+
+  on("quant-t90-tree-status", "click", async (e) => {
+    e.preventDefault();
+    try {
+      await loadT90TreeLast();
+    } catch (err) {
+      renderT90TreeCompare({
         success: false,
         error: String(err.message || err),
       });

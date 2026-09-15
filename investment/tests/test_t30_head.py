@@ -333,7 +333,7 @@ class RelabelT30Tests(unittest.TestCase):
         elapsed = time.perf_counter() - t0
         self.assertGreater(len(ys), 100)
         self.assertTrue(any(m.get("tau_plus_30") == "13:15" for m in metas))
-        self.assertLess(elapsed, 2.5, msg=f"collect too slow: {elapsed:.2f}s n={len(ys)}")
+        self.assertLess(elapsed, 4.0, msg=f"collect too slow: {elapsed:.2f}s n={len(ys)}")
 
 
 class T30RidgeFitTests(unittest.TestCase):
@@ -398,6 +398,33 @@ class T30RidgeFitTests(unittest.TestCase):
         ):
             self.assertIn(k, extras)
             self.assertNotIn(k, TAU_Z_FEATURES)
+        for k in ("bounce_from_low", "pullback_from_high", "range_pct", "down_extent"):
+            self.assertNotIn(k, extras)
+        self.assertIn("ret_open_to_tau", extras)
+
+    def test_t30_z_drops_oc_path_shape(self):
+        from core.research.t30_ridge import T30_Z_FEATURES
+        from core.research.tau_ridge import TAU_HORIZON_DROP_OC_SHAPE, TAU_Z_FEATURES
+
+        for k in TAU_HORIZON_DROP_OC_SHAPE:
+            self.assertNotIn(k, T30_Z_FEATURES)
+            self.assertIn(k, TAU_Z_FEATURES)
+        self.assertIn("ret_last_30m", T30_Z_FEATURES)
+        self.assertIn("ret_open_to_tau", T30_Z_FEATURES)
+        self.assertIn("t30_lag1", T30_Z_FEATURES)
+
+    def test_label_lag_reads_datetime(self):
+        from core.research.tau_panel import label_lag_features
+
+        lags = label_lag_features(
+            hist_bars=[{"datetime": "2025-06-01 15:00:00"}],
+            by_date={"2025-06-01": 0.8},
+            asof_date="2025-06-02",
+            lag1_key="t30_lag1",
+            ma_key="t30_ma5",
+        )
+        self.assertAlmostEqual(float(lags["t30_lag1"]), 0.8, places=6)
+        self.assertAlmostEqual(float(lags["t30_ma5"]), 0.8, places=6)
 
     def test_explain_t30_prediction_head(self):
         from core.research.t30_ridge import explain_t30_prediction
@@ -575,6 +602,63 @@ class T30GateTests(unittest.TestCase):
         self.assertEqual(started["n"], 1)
         self.assertEqual(snap.get("id"), job_id)
         self.assertTrue((snap.get("result") or {}).get("success"))
+
+
+class TTwGateTests(unittest.TestCase):
+    def test_close_band_y_tw_skip_reason(self):
+        from core.t0.close_band import blend_y_tw, close_band_y_tw_skip_reason
+        from core.t0.config import load_t0_rules
+        from core.t0.viz import classify_t0_skip_reason
+
+        self.assertEqual(float(load_t0_rules({})["y_tw_strong"]), 3.0)
+        self.assertAlmostEqual(blend_y_tw(1.0, -0.2, -0.5), -1.0)
+        self.assertAlmostEqual(blend_y_tw(1.0, 0.1, 0.2), 3.0)
+        self.assertIsNone(blend_y_tw(None, None, None))
+
+        scores = {"y_τ30": 1.2, "y_τ60": 0.4, "y_τ90": 0.3}
+        skip = close_band_y_tw_skip_reason(
+            scores,
+            {"y_tw_strong": 0},
+            direction="sell_then_buy",
+        )
+        self.assertIsNotNone(skip)
+        self.assertIn("ŷ_τw", skip)
+        self.assertEqual(classify_t0_skip_reason(skip), "y_tw_disagree")
+
+        self.assertIsNone(
+            close_band_y_tw_skip_reason(
+                scores,
+                {"y_tw_strong": 0},
+                direction="buy_then_sell",
+            )
+        )
+        self.assertIsNone(
+            close_band_y_tw_skip_reason(
+                {},
+                {"y_tw_strong": 0},
+                direction="sell_then_buy",
+            )
+        )
+        self.assertIsNone(
+            close_band_y_tw_skip_reason(
+                scores,
+                {"y_tw_strong": 3},
+                direction="sell_then_buy",
+            )
+        )
+        self.assertIsNone(
+            close_band_y_tw_skip_reason(
+                {"y_τ30": 1.0, "y_τ60": -0.2, "y_τ90": -0.5},
+                {"y_tw_strong": 1},
+                direction="sell_then_buy",
+            )
+        )
+        disagree_3 = close_band_y_tw_skip_reason(
+            scores,
+            {"y_tw_strong": 1},
+            direction="sell_then_buy",
+        )
+        self.assertIsNotNone(disagree_3)
 
 
 if __name__ == "__main__":

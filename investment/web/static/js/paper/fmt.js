@@ -334,6 +334,15 @@ export const Y_T60_TITLE =
   "ŷ_τ60 · Ridge 预估 price(τ⊕60m)/price(τ)−1 · 做 T 旁路，不进 C_τ";
 export const T60_REALIZED_TITLE =
   "τ60实 · price(τ⊕60m)/price(τ)−1（与 ŷ_τ60 同标签）";
+export const Y_T90_TITLE =
+  "ŷ_τ90 · Ridge 预估 price(τ⊕90m)/price(τ)−1 · 做 T 旁路，不进 C_τ";
+export const T90_REALIZED_TITLE =
+  "τ90实 · price(τ⊕90m)/price(τ)−1（与 ŷ_τ90 同标签）";
+/** τ 后窗口符号和：ŷ_τw = f(ŷ_τ30)+f(ŷ_τ60)+f(ŷ_τ90)；f(x)=1 if x>0 else −1 */
+export const Y_TW_TITLE =
+  "ŷ_τw · τ后窗口符号和 f(ŷ_τ30)+f(ŷ_τ60)+f(ŷ_τ90)；f(x)=1 if x>0 else −1 · 旁路，不进 C_τ";
+export const TW_REALIZED_TITLE =
+  "τw实 · f(τ30实)+f(τ60实)+f(τ90实)；f(x)=1 if x>0 else −1（缺头不计）";
 export const R_HAT_TITLE =
   "R̂_τ · Ĉ_τ/price(τ)−1 · remaining(clip(ŷ_oc×scale), price) · 与 Ĉ_τ 同目标 · 不参与选腿 · 预估(真实)";
 export const R_REALIZED_TITLE =
@@ -520,6 +529,52 @@ export function resolveYT60Score(it) {
     if (n != null && _looksLikeYhatPct(n)) return n;
   }
   return null;
+}
+/** ŷ_τ90：Ridge 预估 price(τ⊕90m)/price(τ)−1。 */
+export function resolveYT90Score(it) {
+  if (!it || typeof it !== "object") return null;
+  if (isHeuristicScoreScale(it)) return null;
+  for (const c of [it["y_τ90"], it.y_t90, it.predicted_score_t90, it.y_t90_hat]) {
+    const n = _numField(c);
+    if (n != null && _looksLikeYhatPct(n)) return n;
+  }
+  return null;
+}
+
+/** f(x)=1 if x>0 else −1；缺分不计。 */
+export function yTwSign(x) {
+  const n = _numField(x);
+  if (n == null) return null;
+  return n > 0 ? 1 : -1;
+}
+
+/** ŷ_τw = f(ŷ_τ30)+f(ŷ_τ60)+f(ŷ_τ90)；三头齐时 ∈ {−3,−1,+1,+3}。 */
+export function blendYtw(y30, y60, y90) {
+  let sum = 0;
+  let n = 0;
+  for (const s of [yTwSign(y30), yTwSign(y60), yTwSign(y90)]) {
+    if (s == null) continue;
+    sum += s;
+    n += 1;
+  }
+  if (n === 0) return null;
+  return sum;
+}
+
+/** ŷ_τw 表列：符号和，非百分比。 */
+export function fmtYtwVote(n) {
+  const v = _numField(n);
+  if (v == null) return "—";
+  const k = Math.round(v);
+  if (k > 0) return `+${k}`;
+  return String(k);
+}
+
+/** ŷ_τw：由 ŷ_τ30/60/90 现算符号和；不读旧加权落盘。 */
+export function resolveYTWScore(it) {
+  if (!it || typeof it !== "object") return null;
+  if (isHeuristicScoreScale(it)) return null;
+  return blendYtw(resolveYT30Score(it), resolveYT60Score(it), resolveYT90Score(it));
 }
 
 /** ŷ_oo：open[T]→open[T+1]（调仓 ranking 输入）。 */

@@ -189,8 +189,8 @@ class T0BacktestRequest(BaseModel):
     y_tc_strong: Optional[float] = Field(
         default=None,
         ge=0.0,
-        le=1.0,
-        description="ŷ_τc 旁路强%：0=任意有符号须同号；1=关",
+        le=100.0,
+        description="ŷ_τc 旁路强%：0=任意有符号须同号；100=关",
     )
     y_t30_strong: Optional[float] = Field(
         default=None,
@@ -203,6 +203,18 @@ class T0BacktestRequest(BaseModel):
         ge=0.0,
         le=1.0,
         description="y_t30_strong 的 Unicode 别名",
+    )
+    y_tw_strong: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        le=3.0,
+        description="ŷ_τw 旁路：0=任意有符号须同号；3=关",
+    )
+    y_τw_strong: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        le=3.0,
+        description="y_tw_strong 的 Unicode 别名",
     )
     y_t30_enter: Optional[float] = Field(
         default=None,
@@ -263,6 +275,42 @@ class T0BacktestRequest(BaseModel):
         ge=0.0,
         le=100.0,
         description="y_t60_enter_alt 的 Unicode 别名",
+    )
+    y_t90_strong: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        le=1.0,
+        description="ŷ_τ90 旁路强%：0=任意有符号须同号；1=关",
+    )
+    y_τ90_strong: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        le=1.0,
+        description="y_t90_strong 的 Unicode 别名",
+    )
+    y_t90_enter: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        le=100.0,
+        description="门槛1 |ŷ_τ90| 入场下限（百分点）；0=关；缺 ŷ_τ90 不拦",
+    )
+    y_τ90_enter: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        le=100.0,
+        description="y_t90_enter 的 Unicode 别名",
+    )
+    y_t90_enter_alt: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        le=100.0,
+        description="门槛2 |ŷ_τ90| 入场下限（百分点）；0=关；缺 ŷ_τ90 不拦",
+    )
+    y_τ90_enter_alt: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        le=100.0,
+        description="y_t90_enter_alt 的 Unicode 别名",
     )
     y_tc_enter: Optional[float] = Field(
         default=None,
@@ -456,6 +504,28 @@ class T0BacktestRequest(BaseModel):
         default=True,
         description="正/反T止损固定收盘破线确认；表单已去掉，入参忽略",
     )
+    t0_giveback_pct_buy_then_sell: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        le=20.0,
+        description="正T自高回吐%（相对入场后峰值）；0=关；须先涨过激活%",
+    )
+    t0_giveback_pct_sell_then_buy: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        le=20.0,
+        description="反T自低回吐%（相对入场后谷值）；0=关；须先跌过激活%",
+    )
+    t0_giveback_arm_pct: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        le=20.0,
+        description="回吐激活%：正T自买价上涨 / 反T自卖价下跌达到此值后才启用回吐",
+    )
+    sync: bool = Field(
+        default=False,
+        description="true=同步跑（单测）；默认入队 Job，轮询 GET /api/jobs/t0-backtest",
+    )
 
 
 class PaperT0Request(BaseModel):
@@ -553,6 +623,8 @@ class PaperExecutionPatchRequest(BaseModel):
     y_tc_strong: Optional[float] = None
     y_t30_strong: Optional[float] = None
     y_τ30_strong: Optional[float] = None
+    y_tw_strong: Optional[float] = None
+    y_τw_strong: Optional[float] = None
     y_t30_enter: Optional[float] = None
     y_τ30_enter: Optional[float] = None
     y_t30_enter_alt: Optional[float] = None
@@ -563,6 +635,12 @@ class PaperExecutionPatchRequest(BaseModel):
     y_τ60_enter: Optional[float] = None
     y_t60_enter_alt: Optional[float] = None
     y_τ60_enter_alt: Optional[float] = None
+    y_t90_strong: Optional[float] = None
+    y_τ90_strong: Optional[float] = None
+    y_t90_enter: Optional[float] = None
+    y_τ90_enter: Optional[float] = None
+    y_t90_enter_alt: Optional[float] = None
+    y_τ90_enter_alt: Optional[float] = None
     y_tc_enter: Optional[float] = None
     y_τc_enter: Optional[float] = None
     y_complexity_max: Optional[float] = None
@@ -611,4 +689,7 @@ class PaperExecutionPatchRequest(BaseModel):
     t0_stop_pct_sell_then_buy: Optional[float] = None
     t0_stop_arm_bars: Optional[int] = None
     t0_stop_on_close: Optional[bool] = None
+    t0_giveback_pct_buy_then_sell: Optional[float] = None
+    t0_giveback_pct_sell_then_buy: Optional[float] = None
+    t0_giveback_arm_pct: Optional[float] = None
 

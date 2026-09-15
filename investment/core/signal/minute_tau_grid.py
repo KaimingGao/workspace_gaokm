@@ -28,6 +28,7 @@ _SESSION_PM_END = 15 * 60
 SESSION_TRADING_MINUTES = 240
 HORIZON_T30_MIN = 30
 HORIZON_T60_MIN = 60
+HORIZON_T90_MIN = 90
 
 
 def session_elapsed(hm: str) -> Optional[float]:
@@ -122,6 +123,10 @@ def tau_clock_allows_t60(hm: str, *, horizon_min: int = HORIZON_T60_MIN) -> bool
     return add_session_minutes(hm, horizon_min) is not None
 
 
+def tau_clock_allows_t90(hm: str, *, horizon_min: int = HORIZON_T90_MIN) -> bool:
+    return add_session_minutes(hm, horizon_min) is not None
+
+
 def minute_tau_grid_5m_range(
     start_hm: str = "09:30",
     end_hm: str = "11:00",
@@ -174,4 +179,9 @@ DEFAULT_T30_TRAIN_TAU_GRID: tuple = tuple(
 DEFAULT_T60_TRAIN_TAU_GRID: tuple = tuple(
     minute_tau_grid_5m_range("09:30", "11:30", include_open=True)
     + minute_tau_grid_5m_range("13:05", "14:00", include_open=True)
+)
+# ŷ_τ90：全日 5m，止于 13:30（其后不足 90 交易分钟）
+DEFAULT_T90_TRAIN_TAU_GRID: tuple = tuple(
+    minute_tau_grid_5m_range("09:30", "11:30", include_open=True)
+    + minute_tau_grid_5m_range("13:05", "13:30", include_open=True)
 )

@@ -439,6 +439,13 @@ export function createFactorIcUi(deps) {
     ret_last_60m_vs_sector: "近60m相对板块 %",
     t60_lag1: "昨同钟真实 τ⊕60m %",
     t60_ma5: "近5日同钟真实 τ⊕60m 均 %",
+    ret_last_90m: "近90交易分钟收益 %",
+    crosses_lunch_90: "未来90m是否跨午休",
+    vol_last_90m_vs_avg: "近90m量/前缀均量",
+    sector_ret_last_90m: "板块中位近90m %",
+    ret_last_90m_vs_sector: "近90m相对板块 %",
+    t90_lag1: "昨同钟真实 τ⊕90m %",
+    t90_ma5: "近5日同钟真实 τ⊕90m 均 %",
     path_lag1: "昨真实极值序 %",
     path_ma5: "近5日真实极值序均 %",
     complexity_lag1: "昨真实曲折度",
@@ -552,14 +559,15 @@ export function createFactorIcUi(deps) {
   /**
    * ŷ_oc / ŷ_co Ridge 因子系数表：仅入模因子；KPI + 双向 β 图 + 表内条形。
    * @param {object|null} rm return_model 或含 coefficients 的报告块
-   * @param {{ oos?: object, head?: "tau"|"on"|"path"|"cx"|"tpd"|"r"|"t30"|"t60" } } [opts]
+   * @param {{ oos?: object, head?: "tau"|"on"|"path"|"cx"|"tpd"|"r"|"t30"|"t60"|"t90" } } [opts]
    */
   function remCoefTableHtml(rm, opts = {}) {
     if (!rm || typeof rm !== "object") return "";
     const isOn = opts.head === "on";
     const isT30 = opts.head === "t30";
     const isT60 = opts.head === "t60";
-    const isR = opts.head === "r" || isT30 || isT60;
+    const isT90 = opts.head === "t90";
+    const isR = opts.head === "r" || isT30 || isT60 || isT90;
     const isTpd = opts.head === "tpd";
     const isCxHead = opts.head === "cx";
     const isCx = isCxHead || isTpd;
@@ -598,13 +606,23 @@ export function createFactorIcUi(deps) {
       "ret_last_15m",
       "ret_last_5m",
       "ret_last_30m",
+      "ret_last_60m",
+      "ret_last_90m",
       "session_elapsed",
       "session_remain",
       "crosses_lunch",
+      "crosses_lunch_60",
+      "crosses_lunch_90",
       "session_vwap_dev",
       "vol_last_30m_vs_avg",
+      "vol_last_60m_vs_avg",
+      "vol_last_90m_vs_avg",
       "sector_ret_last_30m",
       "ret_last_30m_vs_sector",
+      "sector_ret_last_60m",
+      "ret_last_60m_vs_sector",
+      "sector_ret_last_90m",
+      "ret_last_90m_vs_sector",
       "realized_vol",
       "vol_last3_vs_avg",
       "tau_elapsed_min",
@@ -649,6 +667,8 @@ export function createFactorIcUi(deps) {
       "t30_ma5",
       "t60_lag1",
       "t60_ma5",
+      "t90_lag1",
+      "t90_ma5",
       "path_lag1",
       "path_ma5",
       "yest_gap",
@@ -845,7 +865,7 @@ export function createFactorIcUi(deps) {
 
     const metrics =
       `<div class="quant-rem-coef-spec-metrics" role="group" aria-label="${esc(
-        isPath ? `${isTpd ? "tpd" : isCxHead ? "cx" : "path"} 模型摘要` : isOn ? "on 模型摘要" : isT60 ? "t60 模型摘要" : isT30 ? "t30 模型摘要" : isR ? "r 模型摘要" : "τ 模型摘要"
+        isPath ? `${isTpd ? "tpd" : isCxHead ? "cx" : "path"} 模型摘要` : isOn ? "on 模型摘要" : isT90 ? "t90 模型摘要" : isT60 ? "t60 模型摘要" : isT30 ? "t30 模型摘要" : isR ? "r 模型摘要" : "τ 模型摘要"
       )}">` +
       (intercept != null
         ? kpi(isR ? "执行套" : "截距", intercept.toFixed(3), interceptTip)

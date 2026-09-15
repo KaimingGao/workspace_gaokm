@@ -41,8 +41,8 @@ _MINUTE_FETCH_TIMEOUT_SEC = 12.0
 # A股全日约 48 根 5m；≥40 或末根≥14:55 视为齐窗（缺尾缓存会触发补拉）
 _MINUTE_SESSION_MIN_BARS = 40
 _MINUTE_SESSION_END_HM = (14, 55)
-# 前端 fetch 约 300s abort（Safari 常报 Failed to fetch）；整批须含 τ 池在此前返回。
-_HOLDINGS_DEADLINE_SEC = 240.0
+# Web 默认后台 Job + 轮询，不再卡前端 300s abort；整批含 τ 池须在此前回。
+_HOLDINGS_DEADLINE_SEC = 900.0
 _QUOTE_TIMEOUT_SEC = 4.0
 
 
@@ -130,6 +130,8 @@ _BT_RULES_VIEW_KEYS = (
     "y_path_enter_alt",
     "y_t30_strong",
     "y_τ30_strong",
+    "y_tw_strong",
+    "y_τw_strong",
     "y_t30_enter",
     "y_τ30_enter",
     "y_t30_enter_alt",
@@ -140,6 +142,12 @@ _BT_RULES_VIEW_KEYS = (
     "y_τ60_enter",
     "y_t60_enter_alt",
     "y_τ60_enter_alt",
+    "y_t90_strong",
+    "y_τ90_strong",
+    "y_t90_enter",
+    "y_τ90_enter",
+    "y_t90_enter_alt",
+    "y_τ90_enter_alt",
     "y_tc_strong",
     "y_τc_strong",
     "y_on_allow",
@@ -180,6 +188,9 @@ _BT_RULES_VIEW_KEYS = (
     "t0_stop_pct_sell_then_buy",
     "t0_stop_arm_bars",
     "t0_stop_on_close",
+    "t0_giveback_pct_buy_then_sell",
+    "t0_giveback_pct_sell_then_buy",
+    "t0_giveback_arm_pct",
     "t0_slots_enabled",
     "t0_slots",
     "t0_slots_max_rounds",
@@ -633,6 +644,8 @@ def run_t0_backtest_for_holdings(
     use_minute: bool = True,
     virtual_shares: float = T0_BT_VIRTUAL_SHARES,
     virtual_cash: float = T0_BT_VIRTUAL_CASH,
+    progress_cb: Optional[Callable[..., None]] = None,
+    cancel_cb: Optional[Callable[[], bool]] = None,
 ) -> Dict[str, Any]:
     """对持仓列表逐票回测并汇总（研究用，不改账本）。
 
@@ -664,6 +677,8 @@ def run_t0_backtest_for_holdings(
                 use_minute=use_minute,
                 virtual_shares=virtual_shares,
                 virtual_cash=virtual_cash,
+                progress_cb=progress_cb,
+                cancel_cb=cancel_cb,
             )
 
     from core.execution import resolve_t0_rules, strip_execution_meta
@@ -703,9 +718,36 @@ def run_t0_backtest_for_holdings(
     )
     eval_lb = max(10, int(lookback or T0_BT_DEFAULT_LOOKBACK))
     fetch_n = eval_lb + int(T0_BACKTEST_SCORE_WARMUP) + 5
+    n_hold = max(1, len(holdings))
+
+    def _emit(cur: int, tot: int, msg: str) -> None:
+        if not progress_cb:
+            return
+        try:
+            progress_cb(int(cur), int(tot), str(msg or ""))
+        except Exception:  # noqa: BLE001
+            logger.debug("t0 holdings progress_cb failed", exc_info=True)
+
+    def _cancelled() -> bool:
+        if not cancel_cb:
+            return False
+        try:
+            return bool(cancel_cb())
+        except Exception:  # noqa: BLE001
+            logger.debug("t0 holdings cancel_cb failed", exc_info=True)
+            return False
+
+    if _cancelled():
+        return {
+            "success": False,
+            "error": "已取消",
+            "task": "t0_backtest",
+        }
+
     per: List[Dict[str, Any]] = []
     t_deadline = time.time() + float(_HOLDINGS_DEADLINE_SEC)
     t_tau = time.time()
+    _emit(0, n_hold, "建 τ 截面（持仓+活跃簿）…")
     tau_pool = build_tau_pool_by_date(
         load_bars_by_code_for_tau_pool(pool_codes, limit=fetch_n)
     )
@@ -728,10 +770,18 @@ def run_t0_backtest_for_holdings(
     minute_path_days = 0
     missing_minute_days = 0
 
-    for h in holdings:
+    for i, h in enumerate(holdings):
         code = str(h.get("stock_code") or "").strip()
         if not code:
             continue
+        if _cancelled():
+            return {
+                "success": False,
+                "error": "已取消",
+                "task": "t0_backtest",
+            }
+        label = str(h.get("stock_name") or code)
+        _emit(i, n_hold, f"回测 {label}（{i + 1}/{n_hold}）…")
         if time.time() >= t_deadline:
             one = {
                 "success": False,
@@ -789,6 +839,7 @@ def run_t0_backtest_for_holdings(
             minute_path_days += int(one.get("minute_path_days") or 0)
             missing_minute_days += int(one.get("missing_minute_days") or 0)
 
+    _emit(n_hold, n_hold, "汇总…")
     ok = [x for x in per if x.get("success")]
     if not ok:
         failed = [x for x in per if not x.get("success")]

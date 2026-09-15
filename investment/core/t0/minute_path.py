@@ -39,6 +39,82 @@ T0_INTENTIONAL_ABANDON_EXITS = frozenset(
 T0_PENDING_EXIT = "defer_eod_pending"
 
 
+def _t0_giveback_params(cfg: dict, direction: str) -> Tuple[float, float]:
+    """正/反T自极值回吐：(giveback_pct, arm_pct)。giveback≤0 关。
+
+    正T：入场后高点回撤 giveback% 则提前卖旧仓；须先涨过 arm% 才激活。
+    反T：入场后低点反弹 giveback% 则提前买回；须先跌过 arm% 才激活。
+    """
+    key = (
+        "t0_giveback_pct_buy_then_sell"
+        if direction == "buy_then_sell"
+        else "t0_giveback_pct_sell_then_buy"
+    )
+    try:
+        raw = (cfg or {}).get(key)
+        pct = float(0.0 if raw is None or raw == "" else raw)
+    except (TypeError, ValueError):
+        pct = 0.0
+    pct = max(0.0, min(pct, 20.0))
+    try:
+        raw_arm = (cfg or {}).get("t0_giveback_arm_pct")
+        arm = float(0.0 if raw_arm is None or raw_arm == "" else raw_arm)
+    except (TypeError, ValueError):
+        arm = 0.0
+    arm = max(0.0, min(arm, 20.0))
+    return pct, arm
+
+
+def _bts_giveback_fill_px(
+    *,
+    peak_high: float,
+    buy_price: float,
+    close: float,
+    hi: float,
+    giveback_pct: float,
+    arm_pct: float,
+    target_px: Optional[float],
+) -> Optional[float]:
+    """正T自高回吐：已激活且收盘从峰值回撤够，且本根未触 C_τ。返回成交价。"""
+    if giveback_pct <= 0 or peak_high <= 0 or buy_price <= 0 or close <= 0:
+        return None
+    if peak_high + 1e-12 < buy_price * (1.0 + arm_pct / 100.0):
+        return None
+    if target_px is not None and float(target_px) > 0 and hi + 1e-12 >= float(target_px):
+        return None
+    level = peak_high * (1.0 - giveback_pct / 100.0)
+    if close > level + 1e-12:
+        return None
+    if close + 1e-12 < buy_price:
+        return None
+    return float(close)
+
+
+def _stb_giveback_fill_px(
+    *,
+    trough_low: float,
+    sold_price: float,
+    close: float,
+    lo: float,
+    giveback_pct: float,
+    arm_pct: float,
+    target_px: Optional[float],
+) -> Optional[float]:
+    """反T自低回吐：已激活且收盘从低点反弹够，且本根未触 C_τ。返回成交价。"""
+    if giveback_pct <= 0 or trough_low <= 0 or sold_price <= 0 or close <= 0:
+        return None
+    if trough_low > sold_price * (1.0 - arm_pct / 100.0) + 1e-12:
+        return None
+    if target_px is not None and float(target_px) > 0 and lo <= float(target_px) + 1e-12:
+        return None
+    level = trough_low * (1.0 + giveback_pct / 100.0)
+    if close + 1e-12 < level:
+        return None
+    if close > sold_price + 1e-12:
+        return None
+    return float(close)
+
+
 def _t0_stop_params(cfg: dict, direction: str) -> Tuple[float, int, bool]:
     """正/反T止损：(pct, arm_bars, on_close)。pct≤0 表示关。
 
@@ -767,8 +843,10 @@ def _first_touch_sell_then_buy(
     chase_buy_level: Optional[float] = None
     last_chase_min: Optional[int] = None
     stop_pct, stop_arm_bars, stop_on_close = _t0_stop_params(cfg, "sell_then_buy")
+    giveback_pct, giveback_arm_pct = _t0_giveback_params(cfg, "sell_then_buy")
     leg1_idx: Optional[int] = None
     stop_level: Optional[float] = None
+    trough_low: Optional[float] = None
     sell_level = float(ref or 0)
 
     for idx, mb in enumerate(minute_bars):
@@ -875,6 +953,56 @@ def _first_touch_sell_then_buy(
                         touch_cover_at = ts
                         exit_reason = "stop_loss"
                         continue
+
+            if lo > 0:
+                trough_low = lo if trough_low is None else min(float(trough_low), lo)
+            # 午后交给中点追价；盘中自低反弹则提前买回（本根已触 C_τ 则不抢）
+            if (
+                not pm_hit
+                and giveback_pct > 0
+                and trough_low is not None
+                and sold_qty > 0
+                and leg1_idx is not None
+                and (idx - leg1_idx) > stop_arm_bars
+            ):
+                fill_gb = _stb_giveback_fill_px(
+                    trough_low=float(trough_low),
+                    sold_price=float(sold_price),
+                    close=close,
+                    lo=lo,
+                    giveback_pct=giveback_pct,
+                    arm_pct=giveback_arm_pct,
+                    target_px=chase_buy_level,
+                )
+                if fill_gb is not None and _account_can_buy(
+                    cash0 + cash_delta,
+                    shares=sold_qty,
+                    price=fill_gb,
+                    cost_model=cost_model,
+                    cost_params=cost_params,
+                ):
+                    gb_level = float(trough_low) * (1.0 + giveback_pct / 100.0)
+                    cash_delta += append_t0_leg(
+                        trades,
+                        cost_model=cost_model,
+                        cost_params=cost_params,
+                        side="t0_buy",
+                        stock_code=stock_code,
+                        shares=sold_qty,
+                        price=fill_gb,
+                        trigger=gb_level,
+                        at=ts,
+                        leg_kind="giveback",
+                        note=(
+                            f"反T自低回吐买回（回吐{giveback_pct:.2f}%·"
+                            f"激活{giveback_arm_pct:.2f}%·低{float(trough_low):.4f}）"
+                        ),
+                    )
+                    shares_now += sold_qty
+                    covered = sold_qty
+                    touch_cover_at = ts
+                    exit_reason = "giveback"
+                    continue
 
             # 第二腿：v6 冻结带宽目标优先；否则 τ 出场 / 平盘 / 追价
             if leg2_target_px is not None and float(leg2_target_px) > 0:
@@ -1216,8 +1344,10 @@ def _first_touch_buy_then_sell(
     chase_sell_level: Optional[float] = None
     last_chase_min: Optional[int] = None
     stop_pct, stop_arm_bars, stop_on_close = _t0_stop_params(cfg, "buy_then_sell")
+    giveback_pct, giveback_arm_pct = _t0_giveback_params(cfg, "buy_then_sell")
     leg1_idx: Optional[int] = None
     stop_level: Optional[float] = None
+    peak_high: Optional[float] = None
 
     for idx, mb in enumerate(minute_bars):
         hi = float(mb.get("high") or 0)
@@ -1324,6 +1454,51 @@ def _first_touch_buy_then_sell(
                     sold_back = sell_old_qty
                     touch_sell_at = ts
                     exit_reason = "stop_loss"
+                    continue
+
+            if hi > 0:
+                peak_high = hi if peak_high is None else max(float(peak_high), hi)
+            # 午后交给中点追价；盘中自高回撤则提前卖旧仓（本根已触 C_τ 则不抢）
+            if (
+                not pm_hit
+                and giveback_pct > 0
+                and peak_high is not None
+                and sell_old_qty > 0
+                and buy_price > 0
+                and leg1_idx is not None
+                and (idx - leg1_idx) > stop_arm_bars
+            ):
+                fill_gb = _bts_giveback_fill_px(
+                    peak_high=float(peak_high),
+                    buy_price=float(buy_price),
+                    close=close,
+                    hi=hi,
+                    giveback_pct=giveback_pct,
+                    arm_pct=giveback_arm_pct,
+                    target_px=chase_sell_level,
+                )
+                if fill_gb is not None:
+                    gb_level = float(peak_high) * (1.0 - giveback_pct / 100.0)
+                    cash_delta += append_t0_leg(
+                        trades,
+                        cost_model=cost_model,
+                        cost_params=cost_params,
+                        side="t0_sell",
+                        stock_code=stock_code,
+                        shares=sell_old_qty,
+                        price=fill_gb,
+                        trigger=gb_level,
+                        at=ts,
+                        leg_kind="giveback",
+                        note=(
+                            f"正T自高回吐卖旧仓（回吐{giveback_pct:.2f}%·"
+                            f"激活{giveback_arm_pct:.2f}%·高{float(peak_high):.4f}）"
+                        ),
+                    )
+                    shares_now -= sell_old_qty
+                    sold_back = sell_old_qty
+                    touch_sell_at = ts
+                    exit_reason = "giveback"
                     continue
 
             if leg2_target_px is not None and float(leg2_target_px) > 0:

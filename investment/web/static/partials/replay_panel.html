@@ -392,10 +392,10 @@
                   </label>
                   <label
                     class="paper-t0-field"
-                    title="ŷ_τc 旁路：破带后须向 C_τ 回归（反T remaining&lt;0，正T&gt;0）。|ŷ_τc| 超过此值且逆带则跳过。0=任意有符号都要求同号；1=关。不改 C_τ。"
+                    title="ŷ_τw 旁路：破带后符号票 f(ŷ_τ30)+f(ŷ_τ60)+f(ŷ_τ90) 须与方向同号（反T&lt;0，正T&gt;0）。|ŷ_τw| 超此值且逆带则跳过。0=任意有符号须同号；3=关。不改 C_τ。"
                   >
-                    <span>τc强%</span>
-                    <input type="number" name="y_tc_strong" min="0" max="1.00" step="0.01" value="1.00" />
+                    <span>τw强</span>
+                    <input type="number" name="y_tw_strong" min="0" max="3" step="0.1" value="3" />
                   </label>
                   <label
                     class="paper-t0-field"
@@ -413,10 +413,31 @@
                   </label>
                   <label
                     class="paper-t0-field"
+                    title="ŷ_τ90 旁路：破带后后 90 交易分钟须与方向同号（反T&lt;0，正T&gt;0）。0=任意有符号须同号；1=关。不改 C_τ。"
+                  >
+                    <span>τ90强%</span>
+                    <input type="number" name="y_t90_strong" min="0" max="1.00" step="0.01" value="0" />
+                  </label>
+                  <label
+                    class="paper-t0-field"
+                    title="ŷ_τc 旁路：破带后须向 C_τ 回归（反T remaining&lt;0，正T&gt;0）。|ŷ_τc| 超过此值且逆带则跳过。0=任意有符号都要求同号；100=关。不改 C_τ。"
+                  >
+                    <span>τc强%</span>
+                    <input type="number" name="y_tc_strong" min="0" max="100" step="0.01" value="100" />
+                  </label>
+                  <label
+                    class="paper-t0-field"
                     title="正/反T止损共用：入场后跳过 N 根 5m 再启用（默认 1≈5 分钟）。止损固定收盘破线确认。"
                   >
                     <span>止损延迟根</span>
                     <input type="number" name="t0_stop_arm_bars" min="0" max="48" step="1" value="1" />
+                  </label>
+                  <label
+                    class="paper-t0-field"
+                    title="回吐激活%：正T自买价上涨、反T自卖价下跌达到此值后，才允许自高/自低回吐提前做第二腿。0=不要求涨跌幅（仍须回吐%&gt;0）。"
+                  >
+                    <span>回吐激活%</span>
+                    <input type="number" name="t0_giveback_arm_pct" min="0" max="20" step="0.1" value="0.4" />
                   </label>
                   </div>
                 </fieldset>
@@ -424,7 +445,7 @@
                 <div class="paper-t0-cfg-gates">
                 <fieldset class="paper-t0-cfg-block is-gate-1">
                   <legend>门槛1</legend>
-                  <p class="paper-t0-cfg-hint quant-sub">|ŷ_oc|、|ŷ_τc|、|y_hl|、|ŷ_τ30|、|ŷ_τ60| 过入场，且 ŷ_cx / tpd 过上限。关启用则本档不参与 OR。缺 HL / 分钟缺失见共用区。</p>
+                  <p class="paper-t0-cfg-hint quant-sub">|ŷ_oc|、|ŷ_τc|、|y_hl|、|ŷ_τ30|、|ŷ_τ60|、|ŷ_τ90| 过入场，且 ŷ_cx / tpd 过上限。关启用则本档不参与 OR。缺 HL / 分钟缺失见共用区。</p>
                   <div class="paper-t0-form-grid is-quad">
                   <label
                     class="paper-t0-field"
@@ -470,6 +491,13 @@
                   </label>
                   <label
                     class="paper-t0-field"
+                    title="门槛1 |ŷ_τ90| 低于此值视为横盘跳过；范围 0–100%；0=关；默认 0。缺 ŷ_τ90 不拦。"
+                  >
+                    <span>τ90入场%</span>
+                    <input type="number" name="y_t90_enter" min="0" max="100" step="0.01" value="0" />
+                  </label>
+                  <label
+                    class="paper-t0-field"
                     title="ŷ_cx∈[0,1]（0=直线，1=最折）。超过此值太折则跳过做 T；范围 0–1；默认 1.00≈关。闸用盘中前缀 ŷ_cx，不是收盘后的全日 label。"
                   >
                     <span>CX上界</span>
@@ -487,7 +515,7 @@
 
                 <fieldset class="paper-t0-cfg-block is-gate-2">
                   <legend>门槛2</legend>
-                  <p class="paper-t0-cfg-hint quant-sub">|ŷ_oc|、|ŷ_τc|、|y_hl|、|ŷ_τ30|、|ŷ_τ60| 过入场，且 ŷ_cx / tpd 过上限。关启用则本档不参与 OR。缺 HL / 分钟缺失见共用区。</p>
+                  <p class="paper-t0-cfg-hint quant-sub">|ŷ_oc|、|ŷ_τc|、|y_hl|、|ŷ_τ30|、|ŷ_τ60|、|ŷ_τ90| 过入场，且 ŷ_cx / tpd 过上限。关启用则本档不参与 OR。缺 HL / 分钟缺失见共用区。</p>
                   <div class="paper-t0-form-grid is-quad">
                   <label
                     class="paper-t0-field"
@@ -533,6 +561,13 @@
                   </label>
                   <label
                     class="paper-t0-field"
+                    title="门槛2 |ŷ_τ90| 低于此值视为横盘跳过；范围 0–100%；0=关；默认 0。缺 ŷ_τ90 不拦。"
+                  >
+                    <span>τ90入场%</span>
+                    <input type="number" name="y_t90_enter_alt" min="0" max="100" step="0.01" value="0" />
+                  </label>
+                  <label
+                    class="paper-t0-field"
                     title="ŷ_cx∈[0,1]（0=直线，1=最折）。超过此值太折则跳过做 T；范围 0–1；默认 1.00≈关。闸用盘中前缀 ŷ_cx，不是收盘后的全日 label。"
                   >
                     <span>CX上界</span>
@@ -552,7 +587,7 @@
                 <div class="paper-t0-cfg-sides">
                 <fieldset class="paper-t0-cfg-block is-buy-then-sell">
                   <legend>正 T</legend>
-                  <p class="paper-t0-cfg-hint quant-sub">先买后卖；选腿仅收盘带宽；第二腿=冻结 C_τ；止损/中点追价/回补仍生效。</p>
+                  <p class="paper-t0-cfg-hint quant-sub">先买后卖；选腿仅收盘带宽；第二腿=冻结 C_τ；止损/自高回吐/中点追价/回补仍生效。</p>
                   <div class="paper-t0-form-grid is-quad">
                   <label
                     class="paper-t0-field has-tip"
@@ -560,6 +595,13 @@
                   >
                     <span>止损%</span>
                     <input type="number" name="t0_stop_pct_buy_then_sell" min="0" max="20" step="0.1" value="1.2" />
+                  </label>
+                  <label
+                    class="paper-t0-field has-tip"
+                    title="正T自高回吐%：加仓后先涨过「回吐激活%」，再从盘中高点回撤此%（收盘确认）则提前卖旧仓，不必等 C_τ 或跌破买价。0=关。午后仍走中点追价。本根已触 C_τ 则不抢。"
+                  >
+                    <span>回吐%</span>
+                    <input type="number" name="t0_giveback_pct_buy_then_sell" min="0" max="20" step="0.1" value="0.6" />
                   </label>
                   <label
                     class="paper-t0-field"
@@ -587,7 +629,7 @@
 
                 <fieldset class="paper-t0-cfg-block is-sell-then-buy">
                   <legend>反 T</legend>
-                  <p class="paper-t0-cfg-hint quant-sub">先卖后买；选腿仅收盘带宽；第二腿=冻结 C_τ；止损/中点追价/回补仍生效。</p>
+                  <p class="paper-t0-cfg-hint quant-sub">先卖后买；选腿仅收盘带宽；第二腿=冻结 C_τ；止损/自低回吐/中点追价/回补仍生效。</p>
                   <div class="paper-t0-form-grid is-quad">
                   <label
                     class="paper-t0-field has-tip"
@@ -595,6 +637,13 @@
                   >
                     <span>止损%</span>
                     <input type="number" name="t0_stop_pct_sell_then_buy" min="0" max="20" step="0.1" value="1.2" />
+                  </label>
+                  <label
+                    class="paper-t0-field has-tip"
+                    title="反T自低回吐%：卖出后先跌过「回吐激活%」，再从盘中低点反弹此%（收盘确认）则提前买回，不必等 C_τ 或涨破卖价。0=关。午后仍走中点追价。本根已触 C_τ 则不抢。"
+                  >
+                    <span>回吐%</span>
+                    <input type="number" name="t0_giveback_pct_sell_then_buy" min="0" max="20" step="0.1" value="0.6" />
                   </label>
                   <label
                     class="paper-t0-field"

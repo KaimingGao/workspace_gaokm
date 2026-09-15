@@ -1,7 +1,8 @@
-"""ŷ_τ30 Ridge：ŷ_τ 的 X + 序列特征 → price(τ⊕30m)/price(τ)−1。
+"""ŷ_τ30 Ridge：开盘 Z + 开→τ 收益/截面 + 序列特征 → price(τ⊕30m)/price(τ)−1。
 
 盘中写 y_τ30。做 T 破带后同号旁路闸；不进 C_τ / ranking。
 τ⊕30 超出当日交易时段则不训、不预。
+不含 ŷ_τ 的 OC 路径形状（HL/回撤/振幅），避免共线把 ŷ 压到 0。
 序列键（ret_last_5m / ret_last_30m / session_* / crosses_lunch /
 session_vwap_dev / vol_last_30m_vs_avg / sector_ret_last_30m /
 ret_last_30m_vs_sector / t30_lag*）只进本头，不进 TAU_Z_FEATURES。
@@ -28,6 +29,7 @@ from core.research.tau_panel import (
 )
 from core.research.tau_ridge import (
     TAU_FIT_DROP_ALIASES,
+    TAU_HORIZON_DROP_OC_SHAPE,
     TAU_MIN_STD_EXEMPT,
     TAU_Z_FEATURES,
     _ic,
@@ -53,7 +55,9 @@ from core.signal.minute_tau_grid import (
 Y_T30_HAT_KEYS = ("predicted_score_t30", "y_t30_hat", "y_τ30", "y_t30")
 Y_T30_LABEL_KEYS = ("t30_realized", "y_t30_realized")
 FORMULA_T30 = "price[τ+30m]/price[τ]-1"
-T30_Z_FEATURES = TAU_Z_FEATURES + T30_SEQ_FEATURES
+T30_Z_FEATURES = tuple(
+    k for k in (TAU_Z_FEATURES + T30_SEQ_FEATURES) if k not in TAU_HORIZON_DROP_OC_SHAPE
+)
 T30_MIN_STD_EXEMPT = TAU_MIN_STD_EXEMPT + T30_SEQ_FEATURES
 
 t30_promote_gate = tau_promote_gate
@@ -209,7 +213,7 @@ def fit_t30_ridge_report(
         standardize=True,
         sample_weights=weights,
         min_std_exempt=list(T30_MIN_STD_EXEMPT),
-        collinearity_policy="keep_all",
+        collinearity_policy="drop_redundant",
     )
     if not fit.get("success"):
         fit = {
@@ -288,7 +292,7 @@ def fit_t30_ridge_report(
         standardize=True,
         sample_weights=w_all,
         min_std_exempt=list(T30_MIN_STD_EXEMPT),
-        collinearity_policy="keep_all",
+        collinearity_policy="drop_redundant",
     )
     model = dict(fit_full if fit_full.get("success") else fit)
     try:
@@ -307,10 +311,11 @@ def fit_t30_ridge_report(
         "tau": live_hm,
         "tau_grid": list(grid),
         "note": (
-            "X = 开盘 Z + ≤τ 分钟小包 + ŷ_τ30 序列特征"
+            "X = 开盘 Z + 开→τ 收益/截面 + ŷ_τ30 序列特征"
             "（ret_last_5m / ret_last_30m / session_elapsed / session_remain / "
             "crosses_lunch / session_vwap_dev / vol_last_30m_vs_avg / "
             "sector_ret_last_30m / ret_last_30m_vs_sector / t30_lag1 / t30_ma5）；"
+            "不含 ŷ_τ 的 OC 路径形状（HL/回撤/振幅，避免共线把 ŷ 压到 0）。"
             "标签=price(τ⊕30 交易分钟)/price(τ)−1。"
             "主字段 y_τ30；做 T 破带同号旁路；不进 C_τ / ranking。"
         ),

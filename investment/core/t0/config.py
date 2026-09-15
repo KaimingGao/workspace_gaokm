@@ -238,10 +238,12 @@ DEFAULT_T0_RULES: Dict[str, Any] = {
     "y_path_enter_sell_then_buy": 0.0,
     "y_path_enter_buy_then_sell": 0.0,
     "y_path_strong": 5.0,
-    "y_tc_strong": 1.0,  # ŷ_τc 旁路：0=任意有符号须同号；1=关
-    "y_τc_strong": 1.0,
+    "y_tc_strong": 100.0,  # ŷ_τc 旁路：0=任意有符号须同号；100=关
+    "y_τc_strong": 100.0,
     "y_t30_strong": 0.0,  # ŷ_τ30 旁路：0=任意有符号须同号；1=关
     "y_τ30_strong": 0.0,
+    "y_tw_strong": 3.0,  # ŷ_τw 票数旁路：0=任意有符号须同号；3=关
+    "y_τw_strong": 3.0,
     "y_t30_enter": 0.0,
     "y_τ30_enter": 0.0,
     "y_t30_enter_alt": 0.0,
@@ -252,6 +254,12 @@ DEFAULT_T0_RULES: Dict[str, Any] = {
     "y_τ60_enter": 0.0,
     "y_t60_enter_alt": 0.0,
     "y_τ60_enter_alt": 0.0,
+    "y_t90_strong": 0.0,
+    "y_τ90_strong": 0.0,
+    "y_t90_enter": 0.0,
+    "y_τ90_enter": 0.0,
+    "y_t90_enter_alt": 0.0,
+    "y_τ90_enter_alt": 0.0,
     "y_tc_enter": 0.0,  # 门槛1 |ŷ_τc| 入场；范围 0–100%；0=关
     "y_τc_enter": 0.0,
     "y_tc_enter_alt": 0.0,  # 门槛2 |ŷ_τc| 入场；缺键跟随 y_tc_enter
@@ -305,6 +313,10 @@ DEFAULT_T0_RULES: Dict[str, Any] = {
     "t0_stop_pct_sell_then_buy": 1.2,
     "t0_stop_arm_bars": 1,
     "t0_stop_on_close": True,
+    # 自极值回吐：冲高/探底后回撤则提前第二腿（0=关）；午后仍走中点追价
+    "t0_giveback_pct_buy_then_sell": 0.6,
+    "t0_giveback_pct_sell_then_buy": 0.6,
+    "t0_giveback_arm_pct": 0.4,
     # dual_y 分数来源：compute=开盘信息集即时算（默认）；live_book/ledger 仅兜底或对照
     "y_score_source": "compute",
     # v6：收盘带宽多轮（每轮 40% 至满仓）；11:00 后不开 leg1；午后仅 leg2
@@ -512,10 +524,12 @@ def load_t0_rules(override: Optional[dict] = None) -> Dict[str, Any]:
         ("y_path_enter_buy_then_sell", 0.0, 100.0, 0.0),
         ("y_path_enter_alt", 0.0, 100.0, 0.0),
         ("y_path_strong", 0.0, 5.0, 5.0),
-        ("y_tc_strong", 0.0, 1.0, 1.0),
-        ("y_τc_strong", 0.0, 1.0, 1.0),
+        ("y_tc_strong", 0.0, 100.0, 100.0),
+        ("y_τc_strong", 0.0, 100.0, 100.0),
         ("y_t30_strong", 0.0, 1.0, 0.0),
         ("y_τ30_strong", 0.0, 1.0, 0.0),
+        ("y_tw_strong", 0.0, 3.0, 3.0),
+        ("y_τw_strong", 0.0, 3.0, 3.0),
         ("y_t30_enter", 0.0, 100.0, 0.0),
         ("y_τ30_enter", 0.0, 100.0, 0.0),
         ("y_t30_enter_alt", 0.0, 100.0, 0.0),
@@ -526,6 +540,12 @@ def load_t0_rules(override: Optional[dict] = None) -> Dict[str, Any]:
         ("y_τ60_enter", 0.0, 100.0, 0.0),
         ("y_t60_enter_alt", 0.0, 100.0, 0.0),
         ("y_τ60_enter_alt", 0.0, 100.0, 0.0),
+        ("y_t90_strong", 0.0, 1.0, 0.0),
+        ("y_τ90_strong", 0.0, 1.0, 0.0),
+        ("y_t90_enter", 0.0, 100.0, 0.0),
+        ("y_τ90_enter", 0.0, 100.0, 0.0),
+        ("y_t90_enter_alt", 0.0, 100.0, 0.0),
+        ("y_τ90_enter_alt", 0.0, 100.0, 0.0),
         ("y_tc_enter", 0.0, 100.0, 0.0),
         ("y_τc_enter", 0.0, 100.0, 0.0),
         ("y_tc_enter_alt", 0.0, 100.0, 0.0),
@@ -603,12 +623,12 @@ def load_t0_rules(override: Optional[dict] = None) -> Dict[str, Any]:
     cfg["t0_y_oc_target_scale"] = scale
     cfg["t0_y_oc_l"] = y_oc_l
     cfg["t0_y_oc_u"] = y_oc_u
-    # 旧双钮 y_tc_validate=关 → 1=关；旗标本身不再覆盖新表单的 τc强
+    # 旧双钮 y_tc_validate=关 → 100=关；旗标本身不再覆盖新表单的 τc强
     _tc_val = cfg.get("y_tc_validate")
     if _tc_val is None:
         _tc_val = cfg.get("y_τc_validate")
     if _tc_val is not None and not coerce_cfg_bool(_tc_val, True):
-        cfg["y_tc_strong"] = 1.0
+        cfg["y_tc_strong"] = 100.0
     cfg.pop("y_tc_validate", None)
     cfg.pop("y_τc_validate", None)
     if cfg.get("y_tc_strong") in (None, "") and cfg.get("y_τc_strong") not in (None, ""):
@@ -617,6 +637,9 @@ def load_t0_rules(override: Optional[dict] = None) -> Dict[str, Any]:
     if cfg.get("y_t30_strong") in (None, "") and cfg.get("y_τ30_strong") not in (None, ""):
         cfg["y_t30_strong"] = cfg.get("y_τ30_strong")
     cfg["y_τ30_strong"] = cfg.get("y_t30_strong")
+    if cfg.get("y_tw_strong") in (None, "") and cfg.get("y_τw_strong") not in (None, ""):
+        cfg["y_tw_strong"] = cfg.get("y_τw_strong")
+    cfg["y_τw_strong"] = cfg.get("y_tw_strong")
     if cfg.get("y_t30_enter") in (None, "") and cfg.get("y_τ30_enter") not in (None, ""):
         cfg["y_t30_enter"] = cfg.get("y_τ30_enter")
     cfg["y_τ30_enter"] = cfg.get("y_t30_enter")
@@ -638,6 +661,18 @@ def load_t0_rules(override: Optional[dict] = None) -> Dict[str, Any]:
     ):
         cfg["y_t60_enter_alt"] = cfg.get("y_τ60_enter_alt")
     cfg["y_τ60_enter_alt"] = cfg.get("y_t60_enter_alt")
+    if cfg.get("y_t90_strong") in (None, "") and cfg.get("y_τ90_strong") not in (None, ""):
+        cfg["y_t90_strong"] = cfg.get("y_τ90_strong")
+    cfg["y_τ90_strong"] = cfg.get("y_t90_strong")
+    if cfg.get("y_t90_enter") in (None, "") and cfg.get("y_τ90_enter") not in (None, ""):
+        cfg["y_t90_enter"] = cfg.get("y_τ90_enter")
+    cfg["y_τ90_enter"] = cfg.get("y_t90_enter")
+    if cfg.get("y_t90_enter_alt") in (None, "") and cfg.get("y_τ90_enter_alt") not in (
+        None,
+        "",
+    ):
+        cfg["y_t90_enter_alt"] = cfg.get("y_τ90_enter_alt")
+    cfg["y_τ90_enter_alt"] = cfg.get("y_t90_enter_alt")
     if cfg.get("y_tc_enter") in (None, "") and cfg.get("y_τc_enter") not in (None, ""):
         cfg["y_tc_enter"] = cfg.get("y_τc_enter")
     cfg["y_τc_enter"] = cfg.get("y_tc_enter")
@@ -816,6 +851,22 @@ def load_t0_rules(override: Optional[dict] = None) -> Dict[str, Any]:
         arm_bars = 1
     cfg["t0_stop_arm_bars"] = max(0, min(arm_bars, 48))
     cfg["t0_stop_on_close"] = True
+
+    def _norm_giveback(raw: Any, default: float) -> float:
+        try:
+            if raw is None or raw == "":
+                return default
+            return max(0.0, min(float(raw), 20.0))
+        except (TypeError, ValueError):
+            return default
+
+    cfg["t0_giveback_pct_buy_then_sell"] = _norm_giveback(
+        cfg.get("t0_giveback_pct_buy_then_sell"), 0.6
+    )
+    cfg["t0_giveback_pct_sell_then_buy"] = _norm_giveback(
+        cfg.get("t0_giveback_pct_sell_then_buy"), 0.6
+    )
+    cfg["t0_giveback_arm_pct"] = _norm_giveback(cfg.get("t0_giveback_arm_pct"), 0.4)
     y_src = str(cfg.get("y_score_source") or "compute").strip().lower()
     if y_src in {"book", "cluster", "cluster_book"}:
         y_src = "live_book"

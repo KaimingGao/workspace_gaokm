@@ -19,134 +19,146 @@ from web.schemas import (
 
 router = APIRouter(tags=["quant"])
 
+_T0_RULE_KEYS = (
+    "fill_mode_sell_then_buy",
+    "fill_mode_buy_then_sell",
+    "y_trade_enter",
+    "y_trade_floor",
+    "y_tau_enter",
+    "y_tau_enter_strong",
+    "y_tau_enter_sell_then_buy",
+    "y_tau_enter_buy_then_sell",
+    "y_enter_enabled",
+    "y_enter_alt_enabled",
+    "fusion_w_τc",
+    "fusion_w_tc",
+    "residual_w_oc",
+    "residual_w_mode",
+    "y_tau_enter_alt",
+    "y_tc_enter",
+    "y_τc_enter",
+    "y_tc_enter_alt",
+    "y_τc_enter_alt",
+    "y_path_enter_alt",
+    "y_on_allow",
+    "y_on_risk",
+    "t0_y_oc_target_scale",
+    "t0_y_oc_l",
+    "t0_y_oc_u",
+    "y_use_path",
+    "y_path_enter",
+    "y_path_enter_sell_then_buy",
+    "y_path_enter_buy_then_sell",
+    "y_path_strong",
+    "y_tc_strong",
+    "y_τc_strong",
+    "y_t30_strong",
+    "y_τ30_strong",
+    "y_tw_strong",
+    "y_τw_strong",
+    "y_t30_enter",
+    "y_τ30_enter",
+    "y_t30_enter_alt",
+    "y_τ30_enter_alt",
+    "y_t60_strong",
+    "y_τ60_strong",
+    "y_t60_enter",
+    "y_τ60_enter",
+    "y_t60_enter_alt",
+    "y_τ60_enter_alt",
+    "y_t90_strong",
+    "y_τ90_strong",
+    "y_t90_enter",
+    "y_τ90_enter",
+    "y_t90_enter_alt",
+    "y_τ90_enter_alt",
+    "y_complexity_max",
+    "y_cx_max",
+    "y_tpd_max",
+    "y_complexity_max_alt",
+    "y_tpd_max_alt",
+    "y_path_required",
+    "t0_close_band_delta_pct",
+    "t0_price_space_gate",
+    "t0_price_space_max_dev_pct",
+    "t0_price_space_prev_dev_pct",
+    "t0_round_ratio",
+    "t0_max_position_pct",
+    "t0_slots_max_rounds",
+    "t0_slots_enabled",
+    "y_tau_exit_price_skip",
+    "y_tau_exit_price_mult",
+    "y_tau_exit_price_skip_buy_then_sell",
+    "y_tau_exit_price_mult_buy_then_sell",
+    "y_tau_exit_price_skip_sell_then_buy",
+    "y_tau_exit_price_mult_sell_then_buy",
+    "y_tau_exit_price_bias",
+    "y_tau_exit_price_move_min",
+    "y_tau_exit_price_move_max",
+    "y_tau_exit_price_bias_buy_then_sell",
+    "y_tau_exit_price_move_min_buy_then_sell",
+    "y_tau_exit_price_move_max_buy_then_sell",
+    "y_tau_exit_price_bias_sell_then_buy",
+    "y_tau_exit_price_move_min_sell_then_buy",
+    "y_tau_exit_price_move_max_sell_then_buy",
+    "must_cover_same_day_sell_then_buy",
+    "must_cover_same_day_buy_then_sell",
+    "t0_pm_degrade_sell_then_buy",
+    "t0_pm_degrade_buy_then_sell",
+    "t0_pm_chase_interval_min",
+    "t0_pm_chase_interval_min_sell_then_buy",
+    "t0_pm_chase_interval_min_buy_then_sell",
+    "t0_stop_pct_buy_then_sell",
+    "t0_stop_pct_sell_then_buy",
+    "t0_stop_arm_bars",
+    "t0_giveback_pct_buy_then_sell",
+    "t0_giveback_pct_sell_then_buy",
+    "t0_giveback_arm_pct",
+)
+
+
+def _t0_backtest_kwargs(body: T0BacktestRequest) -> Dict[str, Any]:
+    rules = {
+        "t0_ratio": body.t0_ratio,
+        "must_cover_same_day": body.must_cover_same_day,
+    }
+    if body.fill_mode:
+        rules["fill_mode"] = body.fill_mode
+    if body.direction:
+        rules["direction"] = body.direction
+    rules["path_mode"] = "first_touch"
+    for yk in _T0_RULE_KEYS:
+        val = getattr(body, yk, None)
+        if val is not None:
+            rules[yk] = val
+    rules["t0_stop_on_close"] = True
+
+    code = (body.code or "").strip()
+    from_paper = bool(body.from_paper)
+    # 旧前端写死 code=茅台 且未声明 from_paper：视为「测全部模拟持仓」，勿当成单票研究
+    legacy_default = code in {"茅台", "贵州茅台"} and body.codes is None
+    if from_paper and legacy_default:
+        code = ""
+    return {
+        "code": code,
+        "lookback": body.lookback,
+        "initial_shares": body.initial_shares,
+        "initial_cash": body.initial_cash,
+        "rules": rules,
+        "from_paper": from_paper,
+        "codes": body.codes,
+        "use_minute": True,
+    }
+
 
 @router.post("/api/quant/t0-backtest")
 def quant_t0_backtest(body: T0BacktestRequest) -> Dict[str, Any]:
+    """做 T 回测。默认入队 ``GET /api/jobs/t0-backtest``；``sync=true`` 同步（单测）。"""
     try:
-        rules = {
-            "t0_ratio": body.t0_ratio,
-            "must_cover_same_day": body.must_cover_same_day,
-        }
-        if body.fill_mode:
-            rules["fill_mode"] = body.fill_mode
-        if body.direction:
-            rules["direction"] = body.direction
-        rules["path_mode"] = "first_touch"
-        for yk in (
-            "fill_mode_sell_then_buy",
-            "fill_mode_buy_then_sell",
-            "y_trade_enter",
-            "y_trade_floor",
-            "y_tau_enter",
-            "y_tau_enter_strong",
-            "y_tau_enter_sell_then_buy",
-            "y_tau_enter_buy_then_sell",
-            "y_enter_enabled",
-            "y_enter_alt_enabled",
-            "fusion_w_τc",
-            "fusion_w_tc",
-            "residual_w_oc",
-            "residual_w_mode",
-            "y_tau_enter_alt",
-            "y_tc_enter",
-            "y_τc_enter",
-            "y_tc_enter_alt",
-            "y_τc_enter_alt",
-            "y_path_enter_alt",
-            "y_on_allow",
-            "y_on_risk",
-            "t0_y_oc_target_scale",
-            "t0_y_oc_l",
-            "t0_y_oc_u",
-            "y_use_path",
-            "y_path_enter",
-            "y_path_enter_sell_then_buy",
-            "y_path_enter_buy_then_sell",
-            "y_path_strong",
-            "y_tc_strong",
-            "y_τc_strong",
-            "y_t30_strong",
-            "y_τ30_strong",
-            "y_t30_enter",
-            "y_τ30_enter",
-            "y_t30_enter_alt",
-            "y_τ30_enter_alt",
-            "y_t60_strong",
-            "y_τ60_strong",
-            "y_t60_enter",
-            "y_τ60_enter",
-            "y_t60_enter_alt",
-            "y_τ60_enter_alt",
-            "y_complexity_max",
-            "y_cx_max",
-            "y_tpd_max",
-            "y_complexity_max_alt",
-            "y_tpd_max_alt",
-            "y_path_required",
-            "t0_close_band_delta_pct",
-            "t0_price_space_gate",
-            "t0_price_space_max_dev_pct",
-            "t0_price_space_prev_dev_pct",
-            "t0_round_ratio",
-            "t0_max_position_pct",
-            "t0_slots_max_rounds",
-            "t0_slots_enabled",
-            "y_tau_exit_price_skip",
-            "y_tau_exit_price_mult",
-            "y_tau_exit_price_skip_buy_then_sell",
-            "y_tau_exit_price_mult_buy_then_sell",
-            "y_tau_exit_price_skip_sell_then_buy",
-            "y_tau_exit_price_mult_sell_then_buy",
-            "y_tau_exit_price_bias",
-            "y_tau_exit_price_move_min",
-            "y_tau_exit_price_move_max",
-            "y_tau_exit_price_bias_buy_then_sell",
-            "y_tau_exit_price_move_min_buy_then_sell",
-            "y_tau_exit_price_move_max_buy_then_sell",
-            "y_tau_exit_price_bias_sell_then_buy",
-            "y_tau_exit_price_move_min_sell_then_buy",
-            "y_tau_exit_price_move_max_sell_then_buy",
-            "must_cover_same_day_sell_then_buy",
-            "must_cover_same_day_buy_then_sell",
-            "t0_pm_degrade_sell_then_buy",
-            "t0_pm_degrade_buy_then_sell",
-            "t0_pm_chase_interval_min",
-            "t0_pm_chase_interval_min_sell_then_buy",
-            "t0_pm_chase_interval_min_buy_then_sell",
-            "t0_stop_pct_buy_then_sell",
-            "t0_stop_pct_sell_then_buy",
-            "t0_stop_arm_bars",
-        ):
-            val = getattr(body, yk, None)
-            if val is not None:
-                rules[yk] = val
-        rules["t0_stop_on_close"] = True
-
-        code = (body.code or "").strip()
-        from_paper = bool(body.from_paper)
-        # 旧前端写死 code=茅台 且未声明 from_paper：视为「测全部模拟持仓」，勿当成单票研究
-        legacy_default = code in {"茅台", "贵州茅台"} and body.codes is None
-        if from_paper and legacy_default:
-            code = ""
-
-        out = deps.quant.run_t0_backtest(
-            code,
-            lookback=body.lookback,
-            initial_shares=body.initial_shares,
-            initial_cash=body.initial_cash,
-            rules=rules,
-            from_paper=from_paper,
-            codes=body.codes,
-            use_minute=True,
-        )
-        if isinstance(out, dict) and out.get("success"):
-            if out.get("from_holdings") and int(out.get("ok_count") or 0) > 1:
-                out["scope_label"] = f"模拟持仓 {out.get('ok_count')} 只"
-            elif out.get("from_holdings"):
-                out["scope_label"] = f"模拟持仓 · {out.get('stock_name') or out.get('stock_code') or '单票'}"
-            else:
-                out["scope_label"] = f"研究标的 · {out.get('stock_name') or code or '—'}"
-        return out
+        kwargs = _t0_backtest_kwargs(body)
+        if body.sync:
+            return deps.quant.run_t0_backtest(**kwargs)
+        return deps.quant.start_t0_backtest_job(**kwargs)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 

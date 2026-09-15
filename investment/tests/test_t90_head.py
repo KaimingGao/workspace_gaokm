@@ -1,4 +1,4 @@
-"""ŷ_τ60：交易时钟 ⊕60m、标签 relabel、Ridge、做 T 旁路闸。"""
+"""ŷ_τ90：交易时钟 ⊕90m、标签 relabel、Ridge、做 T 旁路闸。"""
 
 from __future__ import annotations
 
@@ -44,12 +44,12 @@ class SessionClockTests(unittest.TestCase):
         self.assertEqual(session_elapsed("11:30"), 120.0)
         self.assertEqual(session_elapsed("13:00"), 120.0)
         self.assertEqual(session_elapsed("14:00"), 180.0)
-        self.assertEqual(add_session_minutes("09:30", 60), "10:30")
-        self.assertEqual(add_session_minutes("11:00", 60), "13:30")
-        self.assertEqual(add_session_minutes("11:30", 60), "14:00")
-        self.assertEqual(add_session_minutes("14:00", 60), "15:00")
-        self.assertIsNone(add_session_minutes("14:05", 60))
-        self.assertIsNone(add_session_minutes("15:00", 60))
+        self.assertEqual(add_session_minutes("09:30", 90), "11:00")
+        self.assertEqual(add_session_minutes("11:00", 90), "14:00")
+        self.assertEqual(add_session_minutes("11:30", 90), "14:30")
+        self.assertEqual(add_session_minutes("13:30", 90), "15:00")
+        self.assertIsNone(add_session_minutes("13:35", 90))
+        self.assertIsNone(add_session_minutes("14:00", 90))
 
     def test_sub_session_and_lunch_flags(self):
         from core.signal.minute_tau_grid import (
@@ -58,71 +58,71 @@ class SessionClockTests(unittest.TestCase):
             sub_session_minutes,
         )
 
-        self.assertEqual(sub_session_minutes("10:30", 60), "09:30")
-        self.assertEqual(sub_session_minutes("13:30", 60), "11:00")
-        self.assertIsNone(sub_session_minutes("10:00", 60))
-        self.assertEqual(horizon_crosses_lunch("11:00", add_min=60), 1.0)
-        self.assertEqual(horizon_crosses_lunch("10:30", add_min=60), 0.0)
-        self.assertEqual(horizon_crosses_lunch("11:30", add_min=60), 1.0)
-        self.assertEqual(session_remain("14:00"), 60.0)
+        self.assertEqual(sub_session_minutes("11:00", 90), "09:30")
+        self.assertEqual(sub_session_minutes("14:00", 90), "11:00")
+        self.assertIsNone(sub_session_minutes("10:30", 90))
+        self.assertEqual(horizon_crosses_lunch("11:00", add_min=90), 1.0)
+        self.assertEqual(horizon_crosses_lunch("09:30", add_min=90), 0.0)
+        self.assertEqual(horizon_crosses_lunch("11:30", add_min=90), 1.0)
+        self.assertEqual(session_remain("13:30"), 90.0)
 
-    def test_extract_t60_seq_pack_trail_and_clock(self):
-        from core.signal.minute_tau_feats import extract_t60_seq_pack
+    def test_extract_t90_seq_pack_trail_and_clock(self):
+        from core.signal.minute_tau_feats import extract_t90_seq_pack
 
         dkey = "2025-06-02"
         bars = []
         px = 10.0
-        for total in range(9 * 60 + 30, 10 * 60 + 30 + 1, 5):
+        for total in range(9 * 60 + 30, 11 * 60 + 1, 5):
             hm = f"{total // 60:02d}:{total % 60:02d}"
             c = px + (total - (9 * 60 + 30)) * 0.01
             bars.append(_bar(dkey, hm, c, open_px=px))
-        pack = extract_t60_seq_pack(
-            bars, trade_date=dkey, tau_hm="10:30", open_px=px
+        pack = extract_t90_seq_pack(
+            bars, trade_date=dkey, tau_hm="11:00", open_px=px
         )
-        self.assertEqual(pack.get("session_elapsed"), 60.0)
-        self.assertEqual(pack.get("session_remain"), 180.0)
-        self.assertEqual(pack.get("crosses_lunch_60"), 0.0)
+        self.assertEqual(pack.get("session_elapsed"), 90.0)
+        self.assertEqual(pack.get("session_remain"), 150.0)
+        self.assertEqual(pack.get("crosses_lunch_90"), 1.0)
         self.assertNotIn("crosses_lunch", pack)
         self.assertAlmostEqual(
-            pack["ret_last_5m"], (10.6 / 10.55 - 1.0) * 100.0, places=4
+            pack["ret_last_5m"], (10.9 / 10.85 - 1.0) * 100.0, places=4
         )
         self.assertAlmostEqual(
-            pack["ret_last_60m"], (10.6 / 10.0 - 1.0) * 100.0, places=4
+            pack["ret_last_90m"], (10.9 / 10.0 - 1.0) * 100.0, places=4
         )
         self.assertIn("session_vwap_dev", pack)
         self.assertGreater(pack["session_vwap_dev"], 0.0)
-        self.assertAlmostEqual(pack["vol_last_60m_vs_avg"], 1.0, places=4)
-        lunch = extract_t60_seq_pack([], trade_date=dkey, tau_hm="11:00")
-        self.assertEqual(lunch.get("crosses_lunch_60"), 1.0)
+        self.assertAlmostEqual(pack["vol_last_90m_vs_avg"], 1.0, places=4)
+        lunch = extract_t90_seq_pack([], trade_date=dkey, tau_hm="11:00")
+        self.assertEqual(lunch.get("crosses_lunch_90"), 1.0)
         self.assertEqual(lunch.get("session_elapsed"), 90.0)
         self.assertIsNone(lunch.get("session_vwap_dev"))
-        early = extract_t60_seq_pack([], trade_date=dkey, tau_hm="10:00")
-        self.assertIsNone(early.get("ret_last_60m"))
-        self.assertIsNone(early.get("vol_last_60m_vs_avg"))
-        self.assertEqual(early.get("session_elapsed"), 30.0)
-        noon_t30 = extract_t60_seq_pack([], trade_date=dkey, tau_hm="11:00")
-        self.assertEqual(noon_t30.get("crosses_lunch_60"), 1.0)
+        early = extract_t90_seq_pack([], trade_date=dkey, tau_hm="10:30")
+        self.assertIsNone(early.get("ret_last_90m"))
+        self.assertIsNone(early.get("vol_last_90m_vs_avg"))
+        self.assertEqual(early.get("session_elapsed"), 60.0)
+        open_pack = extract_t90_seq_pack([], trade_date=dkey, tau_hm="09:30")
+        self.assertEqual(open_pack.get("crosses_lunch_90"), 0.0)
 
-    def test_extract_t60_seq_pack_vol_ratio_uses_last_60m(self):
-        from core.signal.minute_tau_feats import extract_t60_seq_pack
+    def test_extract_t90_seq_pack_vol_ratio_uses_last_90m(self):
+        from core.signal.minute_tau_feats import extract_t90_seq_pack
 
         dkey = "2025-06-02"
         bars = []
         px = 10.0
-        for i, total in enumerate(range(9 * 60 + 30, 10 * 60 + 30 + 1, 5)):
+        for i, total in enumerate(range(9 * 60 + 30, 11 * 60 + 1, 5)):
             hm = f"{total // 60:02d}:{total % 60:02d}"
             c = px + i * 0.01
             vol = 400 if i == 0 else 1200
             bars.append(_bar(dkey, hm, c, open_px=px, volume=vol))
-        pack = extract_t60_seq_pack(
-            bars, trade_date=dkey, tau_hm="10:30", open_px=px
+        pack = extract_t90_seq_pack(
+            bars, trade_date=dkey, tau_hm="11:00", open_px=px
         )
-        # 13 根：首根 400，后 12 根（>09:30）1200
+        # 19 根：首根 400，后 18 根（>09:30）1200
         self.assertAlmostEqual(
-            pack["vol_last_60m_vs_avg"], 1200.0 / (14800.0 / 13.0), places=4
+            pack["vol_last_90m_vs_avg"], 1200.0 / (22000.0 / 19.0), places=4
         )
 
-    def test_cross_section_attaches_t60_sector_ret(self):
+    def test_cross_section_attaches_t90_sector_ret(self):
         from core.research.tau_panel import attach_cross_section_breadth
 
         panels = [
@@ -137,14 +137,14 @@ class SessionClockTests(unittest.TestCase):
                         "stock_code": "600000",
                         "gap_pct": 1.0,
                         "tau": "10:30",
-                        "ret_last_60m": 1.0,
+                        "ret_last_90m": 1.0,
                     },
                     {
                         "date": "2025-06-02",
                         "stock_code": "600000",
                         "gap_pct": 1.0,
                         "tau": "11:00",
-                        "ret_last_60m": 2.0,
+                        "ret_last_90m": 2.0,
                     },
                 ],
             },
@@ -159,86 +159,87 @@ class SessionClockTests(unittest.TestCase):
                         "stock_code": "600001",
                         "gap_pct": 1.0,
                         "tau": "10:30",
-                        "ret_last_60m": 3.0,
+                        "ret_last_90m": 3.0,
                     },
                     {
                         "date": "2025-06-02",
                         "stock_code": "600001",
                         "gap_pct": 1.0,
                         "tau": "11:00",
-                        "ret_last_60m": 4.0,
+                        "ret_last_90m": 4.0,
                     },
                 ],
             },
         ]
         out = attach_cross_section_breadth(panels)
-        self.assertAlmostEqual(out[0]["xs"][0]["sector_ret_last_60m"], 2.0, places=6)
-        self.assertAlmostEqual(out[0]["xs"][0]["ret_last_60m_vs_sector"], -1.0, places=6)
-        self.assertAlmostEqual(out[1]["xs"][0]["ret_last_60m_vs_sector"], 1.0, places=6)
-        self.assertAlmostEqual(out[0]["xs"][1]["sector_ret_last_60m"], 3.0, places=6)
+        self.assertAlmostEqual(out[0]["xs"][0]["sector_ret_last_90m"], 2.0, places=6)
+        self.assertAlmostEqual(out[0]["xs"][0]["ret_last_90m_vs_sector"], -1.0, places=6)
+        self.assertAlmostEqual(out[1]["xs"][0]["ret_last_90m_vs_sector"], 1.0, places=6)
+        self.assertAlmostEqual(out[0]["xs"][1]["sector_ret_last_90m"], 3.0, places=6)
 
-    def test_t60_grid_stops_at_1400(self):
-        from core.signal.minute_tau_grid import DEFAULT_T60_TRAIN_TAU_GRID
+    def test_t90_grid_stops_at_1330(self):
+        from core.signal.minute_tau_grid import DEFAULT_T90_TRAIN_TAU_GRID
 
-        self.assertIn("09:30", DEFAULT_T60_TRAIN_TAU_GRID)
-        self.assertIn("11:30", DEFAULT_T60_TRAIN_TAU_GRID)
-        self.assertIn("13:05", DEFAULT_T60_TRAIN_TAU_GRID)
-        self.assertIn("14:00", DEFAULT_T60_TRAIN_TAU_GRID)
-        self.assertNotIn("13:00", DEFAULT_T60_TRAIN_TAU_GRID)
-        self.assertNotIn("14:05", DEFAULT_T60_TRAIN_TAU_GRID)
+        self.assertIn("09:30", DEFAULT_T90_TRAIN_TAU_GRID)
+        self.assertIn("11:30", DEFAULT_T90_TRAIN_TAU_GRID)
+        self.assertIn("13:05", DEFAULT_T90_TRAIN_TAU_GRID)
+        self.assertIn("13:30", DEFAULT_T90_TRAIN_TAU_GRID)
+        self.assertNotIn("13:00", DEFAULT_T90_TRAIN_TAU_GRID)
+        self.assertNotIn("13:35", DEFAULT_T90_TRAIN_TAU_GRID)
+        self.assertNotIn("14:00", DEFAULT_T90_TRAIN_TAU_GRID)
 
 
-class RelabelT60Tests(unittest.TestCase):
-    def test_y_t60_pct_geometry(self):
-        from core.research.tau_panel import y_t60_pct
+class RelabelT90Tests(unittest.TestCase):
+    def test_y_t90_pct_geometry(self):
+        from core.research.tau_panel import y_t90_pct
 
-        self.assertAlmostEqual(y_t60_pct(10.0, 10.5), 5.0, places=6)
-        self.assertIsNone(y_t60_pct(0, 10.5))
-        self.assertIsNone(y_t60_pct(10.0, None))
+        self.assertAlmostEqual(y_t90_pct(10.0, 10.5), 5.0, places=6)
+        self.assertIsNone(y_t90_pct(0, 10.5))
+        self.assertIsNone(y_t90_pct(10.0, None))
 
     def test_relabel_keeps_horizon_rows_and_drops_missing(self):
-        from core.research.tau_panel import relabel_tau_panels_as_t60, y_t60_pct
+        from core.research.tau_panel import relabel_tau_panels_as_t90, y_t90_pct
 
-        yt = y_t60_pct(10.0, 10.3)
+        yt = y_t90_pct(10.0, 10.3)
         panel = {
             "xs": [{"gap_pct": 1.0}] * 5,
             "ys": [1.0, 2.0, 3.0, 4.0, 5.0],
             "dates": [f"2025-06-0{i}" for i in range(2, 7)],
             "metas": [
-                {"price_tau": 10.0, "price_tau60": 10.3, "tau": "09:35", "tau_plus_60": "10:35"},
-                {"price_tau": 10.0, "price_tau60": 9.8, "tau": "11:00", "tau_plus_60": "13:30"},
-                {"price_tau": 10.0, "price_tau60": None, "tau": "14:05"},
-                {"price_tau": 10.1, "price_tau60": 10.2, "tau": "10:00", "tau_plus_60": "11:00"},
-                {"price_tau": 10.2, "price_tau60": 10.4, "tau": "10:30", "tau_plus_60": "11:30"},
+                {"price_tau": 10.0, "price_tau90": 10.3, "tau": "09:35", "tau_plus_90": "11:05"},
+                {"price_tau": 10.0, "price_tau90": 9.8, "tau": "11:00", "tau_plus_90": "14:00"},
+                {"price_tau": 10.0, "price_tau90": None, "tau": "13:35"},
+                {"price_tau": 10.1, "price_tau90": 10.2, "tau": "10:00", "tau_plus_90": "13:00"},
+                {"price_tau": 10.2, "price_tau90": 10.4, "tau": "10:30", "tau_plus_90": "13:30"},
             ],
         }
-        out = relabel_tau_panels_as_t60([panel])
+        out = relabel_tau_panels_as_t90([panel])
         self.assertEqual(len(out), 1)
         self.assertEqual(len(out[0]["ys"]), 4)
         self.assertAlmostEqual(out[0]["ys"][0], yt, places=6)
-        self.assertIn("y_τ60", out[0]["metas"][0])
+        self.assertIn("y_τ90", out[0]["metas"][0])
 
-    def test_relabel_attaches_same_clock_t60_lags(self):
-        from core.research.tau_panel import relabel_tau_panels_as_t60
+    def test_relabel_attaches_same_clock_t90_lags(self):
+        from core.research.tau_panel import relabel_tau_panels_as_t90
 
         dates = [f"2025-06-{i:02d}" for i in range(2, 8)]
         xs = [{"gap_pct": 1.0} for _ in dates]
         metas = [
             {
                 "price_tau": 10.0,
-                "price_tau60": 10.0 * (1.0 + (i + 1) * 0.01),
+                "price_tau90": 10.0 * (1.0 + (i + 1) * 0.01),
                 "tau": "10:30",
             }
             for i in range(len(dates))
         ]
-        out = relabel_tau_panels_as_t60(
+        out = relabel_tau_panels_as_t90(
             [{"xs": xs, "ys": [0.0] * len(dates), "dates": dates, "metas": metas}]
         )
         self.assertEqual(len(out), 1)
         last = out[0]["xs"][-1]
-        self.assertAlmostEqual(float(last["t60_lag1"]), 5.0, places=5)
-        self.assertAlmostEqual(float(last["t60_ma5"]), 3.0, places=5)
-        self.assertIsNone(out[0]["xs"][0].get("t60_lag1"))
+        self.assertAlmostEqual(float(last["t90_lag1"]), 5.0, places=5)
+        self.assertAlmostEqual(float(last["t90_ma5"]), 3.0, places=5)
+        self.assertIsNone(out[0]["xs"][0].get("t90_lag1"))
 
     def test_collect_stamps_lunch_crossing_price(self):
         from core.research.tau_panel import collect_tau_intraday_panel
@@ -273,30 +274,30 @@ class RelabelT60Tests(unittest.TestCase):
         xs, ys, dates, metas = collect_tau_intraday_panel(
             daily,
             minutes,
-            tau_grid=["11:00", "14:05"],
+            tau_grid=["11:00", "13:35"],
             min_history=5,
             stock_code="600000",
         )
         lunch = [m for m in metas if m.get("tau") == "11:00"]
-        late = [m for m in metas if m.get("tau") == "14:05"]
+        late = [m for m in metas if m.get("tau") == "13:35"]
         self.assertTrue(lunch)
-        self.assertEqual(lunch[0].get("tau_plus_60"), "13:30")
-        self.assertIsNotNone(lunch[0].get("price_tau60"))
-        self.assertEqual(lunch[0].get("crosses_lunch_60"), 1.0)
+        self.assertEqual(lunch[0].get("tau_plus_90"), "14:00")
+        self.assertIsNotNone(lunch[0].get("price_tau90"))
+        self.assertEqual(lunch[0].get("crosses_lunch_90"), 1.0)
         self.assertEqual(lunch[0].get("session_elapsed"), 90.0)
         lunch_i = next(i for i, m in enumerate(metas) if m.get("tau") == "11:00")
-        self.assertNotIn("ret_last_60m", xs[lunch_i])
-        self.assertNotIn("crosses_lunch_60", xs[lunch_i])
+        self.assertNotIn("ret_last_90m", xs[lunch_i])
+        self.assertNotIn("crosses_lunch_90", xs[lunch_i])
         self.assertTrue(late)
-        self.assertIsNone(late[0].get("tau_plus_60"))
-        self.assertIsNone(late[0].get("price_tau60"))
+        self.assertIsNone(late[0].get("tau_plus_90"))
+        self.assertIsNone(late[0].get("price_tau90"))
 
-    def test_collect_day_index_keeps_t60_grid_fast(self):
+    def test_collect_day_index_keeps_t90_grid_fast(self):
         """按日切条后，全日 τ 网格不得再扫整段分钟历史。"""
         import time
 
         from core.research.tau_panel import collect_tau_intraday_panel
-        from core.signal.minute_tau_grid import DEFAULT_T60_TRAIN_TAU_GRID
+        from core.signal.minute_tau_grid import DEFAULT_T90_TRAIN_TAU_GRID
 
         d0 = date(2024, 1, 2)
         daily = []
@@ -329,19 +330,20 @@ class RelabelT60Tests(unittest.TestCase):
         xs, ys, _dates, metas = collect_tau_intraday_panel(
             daily,
             minutes,
-            tau_grid=list(DEFAULT_T60_TRAIN_TAU_GRID),
+            tau_grid=list(DEFAULT_T90_TRAIN_TAU_GRID),
             min_history=5,
             stock_code="600000",
         )
         elapsed = time.perf_counter() - t0
         self.assertGreater(len(ys), 100)
-        self.assertTrue(any(m.get("tau_plus_60") == "13:30" for m in metas))
+        self.assertTrue(any(m.get("tau_plus_90") == "14:00" for m in metas))
+        self.assertTrue(any(m.get("tau_plus_90") == "15:00" for m in metas))
         self.assertLess(elapsed, 4.0, msg=f"collect too slow: {elapsed:.2f}s n={len(ys)}")
 
 
-class T60RidgeFitTests(unittest.TestCase):
+class T90RidgeFitTests(unittest.TestCase):
     def test_fit_report_runs_on_synthetic(self):
-        from core.research.t60_ridge import T60_Z_FEATURES, fit_t60_ridge_report
+        from core.research.t90_ridge import T90_Z_FEATURES, fit_t90_ridge_report
         from core.research.tau_ridge import TAU_Z_FEATURES
 
         d0 = date(2025, 6, 2)
@@ -372,32 +374,32 @@ class T60RidgeFitTests(unittest.TestCase):
                 }
             )
             px = close
-        report = fit_t60_ridge_report(
+        report = fit_t90_ridge_report(
             [{"code": "600000", "bars": daily, "minute_bars": minutes}],
             ridge_lambda=1.0,
             tau_grid=["09:30", "09:50", "11:00"],
             holdout_trading_days=5,
         )
         self.assertTrue(report.get("success"), msg=report)
-        self.assertEqual(report.get("schema"), "t60_ridge_v1")
-        self.assertEqual(report.get("dual_score_head"), "y_t60")
-        self.assertEqual(report.get("target"), "price_tau_plus_60")
+        self.assertEqual(report.get("schema"), "t90_ridge_v1")
+        self.assertEqual(report.get("dual_score_head"), "y_t90")
+        self.assertEqual(report.get("target"), "price_tau_plus_90")
         y_spec = (report.get("return_model") or {}).get("y_spec") or {}
-        self.assertIn("60", str(y_spec.get("formula") or ""))
+        self.assertIn("90", str(y_spec.get("formula") or ""))
         extras = (report.get("return_model") or {}).get("extra_features") or []
-        self.assertEqual(list(extras), list(T60_Z_FEATURES))
+        self.assertEqual(list(extras), list(T90_Z_FEATURES))
         for k in (
             "ret_last_5m",
-            "ret_last_60m",
+            "ret_last_90m",
             "session_elapsed",
             "session_remain",
-            "crosses_lunch_60",
+            "crosses_lunch_90",
             "session_vwap_dev",
-            "vol_last_60m_vs_avg",
-            "sector_ret_last_60m",
-            "ret_last_60m_vs_sector",
-            "t60_lag1",
-            "t60_ma5",
+            "vol_last_90m_vs_avg",
+            "sector_ret_last_90m",
+            "ret_last_90m_vs_sector",
+            "t90_lag1",
+            "t90_ma5",
         ):
             self.assertIn(k, extras)
             self.assertNotIn(k, TAU_Z_FEATURES)
@@ -406,8 +408,8 @@ class T60RidgeFitTests(unittest.TestCase):
             self.assertNotIn(k, extras)
         self.assertIn("ret_open_to_tau", extras)
 
-    def test_explain_t60_prediction_head(self):
-        from core.research.t60_ridge import explain_t60_prediction
+    def test_explain_t90_prediction_head(self):
+        from core.research.t90_ridge import explain_t90_prediction
 
         model = {
             "model_role": "research",
@@ -419,68 +421,68 @@ class T60RidgeFitTests(unittest.TestCase):
                 "active_features": ["gap_pct"],
             },
         }
-        expl = explain_t60_prediction({"gap_pct": 2.0}, model_doc=model)
+        expl = explain_t90_prediction({"gap_pct": 2.0}, model_doc=model)
         self.assertIsNotNone(expl)
-        self.assertEqual(expl.get("head"), "t60")
+        self.assertEqual(expl.get("head"), "t90")
         self.assertAlmostEqual(float(expl.get("total")), 1.1, places=5)
 
 
-class T60GateTests(unittest.TestCase):
-    def test_close_band_y_t60_skip_reason(self):
-        from core.t0.close_band import close_band_y_t60_skip_reason
+class T90GateTests(unittest.TestCase):
+    def test_close_band_y_t90_skip_reason(self):
+        from core.t0.close_band import close_band_y_t90_skip_reason
         from core.t0.config import load_t0_rules
         from core.t0.viz import classify_t0_skip_reason
 
-        self.assertEqual(float(load_t0_rules({})["y_t60_strong"]), 0.0)
-        self.assertEqual(float(load_t0_rules({})["y_t60_enter"]), 0.0)
-        self.assertEqual(float(load_t0_rules({})["y_t60_enter_alt"]), 0.0)
+        self.assertEqual(float(load_t0_rules({})["y_t90_strong"]), 0.0)
+        self.assertEqual(float(load_t0_rules({})["y_t90_enter"]), 0.0)
+        self.assertEqual(float(load_t0_rules({})["y_t90_enter_alt"]), 0.0)
 
-        skip = close_band_y_t60_skip_reason(
-            {"y_τ60": 1.2},
-            {"y_t60_strong": 0},
+        skip = close_band_y_t90_skip_reason(
+            {"y_τ90": 1.2},
+            {"y_t90_strong": 0},
             direction="sell_then_buy",
         )
         self.assertIsNotNone(skip)
-        self.assertIn("ŷ_τ60", skip)
-        self.assertEqual(classify_t0_skip_reason(skip), "y_t60_disagree")
+        self.assertIn("ŷ_τ90", skip)
+        self.assertEqual(classify_t0_skip_reason(skip), "y_t90_disagree")
 
         self.assertIsNone(
-            close_band_y_t60_skip_reason(
-                {"y_τ60": -1.2},
-                {"y_t60_strong": 0},
+            close_band_y_t90_skip_reason(
+                {"y_τ90": -1.2},
+                {"y_t90_strong": 0},
                 direction="sell_then_buy",
             )
         )
         self.assertIsNone(
-            close_band_y_t60_skip_reason(
+            close_band_y_t90_skip_reason(
                 {},
-                {"y_t60_strong": 0},
+                {"y_t90_strong": 0},
                 direction="sell_then_buy",
             )
         )
         self.assertIsNone(
-            close_band_y_t60_skip_reason(
-                {"y_τ60": 1.2},
-                {"y_t60_strong": 1},
+            close_band_y_t90_skip_reason(
+                {"y_τ90": 1.2},
+                {"y_t90_strong": 1},
                 direction="sell_then_buy",
             )
         )
         self.assertIsNone(
-            close_band_y_t60_skip_reason(
-                {"y_τ60": 1.2},
-                {"y_t60_strong": 0},
+            close_band_y_t90_skip_reason(
+                {"y_τ90": 1.2},
+                {"y_t90_strong": 0},
                 direction="buy_then_sell",
             )
         )
         self.assertIsNone(
-            close_band_y_t60_skip_reason(
-                {"y_τ60": 0.2},
-                {"y_t60_strong": 0, "y_t60_enter": 0.5},
+            close_band_y_t90_skip_reason(
+                {"y_τ90": 0.2},
+                {"y_t90_strong": 0, "y_t90_enter": 0.5},
                 direction="buy_then_sell",
             )
         )
 
-    def test_enter_skip_y_t60(self):
+    def test_enter_skip_y_t90(self):
         from core.t0.close_band import close_band_enter_skip_reason
         from core.t0.viz import classify_t0_skip_reason
 
@@ -488,16 +490,16 @@ class T60GateTests(unittest.TestCase):
             "y_tau_enter": 0.0,
             "y_path_enter": 0.0,
             "y_use_path": False,
-            "y_t60_enter": 0.5,
+            "y_t90_enter": 0.5,
         }
         weak = close_band_enter_skip_reason(
-            {"y_tau": 1.0, "y_path": 1.0, "y_τ60": 0.2}, cfg
+            {"y_tau": 1.0, "y_path": 1.0, "y_τ90": 0.2}, cfg
         )
         self.assertIsNotNone(weak)
-        self.assertEqual(classify_t0_skip_reason(weak), "y_t60_flat")
+        self.assertEqual(classify_t0_skip_reason(weak), "y_t90_flat")
         self.assertIsNone(
             close_band_enter_skip_reason(
-                {"y_tau": 1.0, "y_path": 1.0, "y_τ60": 0.8}, cfg
+                {"y_tau": 1.0, "y_path": 1.0, "y_τ90": 0.8}, cfg
             )
         )
         self.assertIsNone(
@@ -505,19 +507,19 @@ class T60GateTests(unittest.TestCase):
         )
         self.assertIsNone(
             close_band_enter_skip_reason(
-                {"y_tau": 1.0, "y_path": 1.0, "y_τ60": 0.2},
-                {**cfg, "y_t60_enter": 0.9, "y_t60_enter_alt": 0.1},
+                {"y_tau": 1.0, "y_path": 1.0, "y_τ90": 0.2},
+                {**cfg, "y_t90_enter": 0.9, "y_t90_enter_alt": 0.1},
             )
         )
 
-    def test_scores_from_item_passes_y_t60(self):
+    def test_scores_from_item_passes_y_t90(self):
         from core.t0.score_policy import scores_from_item
 
-        sc = scores_from_item({"y_tau_oc": 1.2, "y_τ60": 0.4, "predicted_score_t60": 0.4})
-        self.assertAlmostEqual(sc.get("y_τ60"), 0.4)
-        self.assertAlmostEqual(sc.get("y_t60"), 0.4)
+        sc = scores_from_item({"y_tau_oc": 1.2, "y_τ90": 0.4, "predicted_score_t90": 0.4})
+        self.assertAlmostEqual(sc.get("y_τ90"), 0.4)
+        self.assertAlmostEqual(sc.get("y_t90"), 0.4)
 
-    def test_score_portrait_t60_hits(self):
+    def test_score_portrait_t90_hits(self):
         from core.t0.viz import build_score_portrait, build_score_portrait_by_slot
 
         days = [
@@ -532,8 +534,8 @@ class T60GateTests(unittest.TestCase):
                         "hm": "09:35",
                         "c": 10.0,
                         "y_tau": 1.8,
-                        "y_τ60": 0.02,
-                        "y_t60_realized": 0.40,
+                        "y_τ90": 0.02,
+                        "y_t90_realized": 0.40,
                         "pick": "buy_then_sell",
                     }
                 ],
@@ -549,35 +551,35 @@ class T60GateTests(unittest.TestCase):
                         "hm": "09:35",
                         "c": 10.0,
                         "y_tau": -1.0,
-                        "y_τ60": -0.03,
-                        "y_t60_realized": 0.50,
+                        "y_τ90": -0.03,
+                        "y_t90_realized": 0.50,
                         "pick": "buy_then_sell",
                     }
                 ],
             },
         ]
         port = build_score_portrait(days)
-        self.assertEqual(port["y_t60_hit"]["hit"], 1)
-        self.assertEqual(port["y_t60_hit"]["miss"], 1)
-        self.assertEqual(port["y_t60_band"]["hit"], 1)
-        self.assertEqual(port["y_t60_band"]["miss"], 1)
+        self.assertEqual(port["y_t90_hit"]["hit"], 1)
+        self.assertEqual(port["y_t90_hit"]["miss"], 1)
+        self.assertEqual(port["y_t90_band"]["hit"], 1)
+        self.assertEqual(port["y_t90_band"]["miss"], 1)
         slots = {
             s["hm"]: s for s in (build_score_portrait_by_slot(days).get("slots") or [])
         }
         s = slots["09:35"]
-        self.assertEqual(s["y_t60_hit"]["hit"], 1)
-        self.assertEqual(s["y_t60_hit"]["miss"], 1)
-        self.assertEqual(s["y_t60_band"]["hit"], 1)
-        self.assertEqual(s["y_t60_band"]["miss"], 1)
+        self.assertEqual(s["y_t90_hit"]["hit"], 1)
+        self.assertEqual(s["y_t90_hit"]["miss"], 1)
+        self.assertEqual(s["y_t90_band"]["hit"], 1)
+        self.assertEqual(s["y_t90_band"]["miss"], 1)
 
-    def test_scan_row_carries_y_t60_realized(self):
+    def test_scan_row_carries_y_t90_realized(self):
         from core.t0.config import load_t0_rules
         from core.t0.slots import _build_close_band_scan_trace
 
         dkey = "2025-06-03"
         mins = []
         for hm in _times_am_pm():
-            px = 10.5 if hm >= "10:30" else 10.0
+            px = 10.5 if hm >= "11:00" else 10.0
             mins.append(_bar(dkey, hm, px))
         bar = {
             "date": dkey,
@@ -592,25 +594,25 @@ class T60GateTests(unittest.TestCase):
             bar=bar,
             daily_bar=bar,
             cfg=load_t0_rules({}),
-            score_snap={"y_tau": 0.0, "y_tau_oc": 0.0, "y_τ60": 1.2},
+            score_snap={"y_tau": 0.0, "y_tau_oc": 0.0, "y_τ90": 1.2},
             stock_code="",
             hist_bars=[],
             tau_pool_day=None,
         )
         row930 = next((r for r in rows if str(r.get("hm") or "")[:5] == "09:30"), None)
         self.assertIsNotNone(row930, rows[:3] if rows else rows)
-        self.assertAlmostEqual(float(row930.get("y_t60_realized")), 5.0, places=3)
-        self.assertAlmostEqual(float(row930.get("t60_realized")), 5.0, places=3)
-        self.assertAlmostEqual(float(row930.get("y_τ60")), 1.2, places=3)
+        self.assertAlmostEqual(float(row930.get("y_t90_realized")), 5.0, places=3)
+        self.assertAlmostEqual(float(row930.get("t90_realized")), 5.0, places=3)
+        self.assertAlmostEqual(float(row930.get("y_τ90")), 1.2, places=3)
 
-    def test_start_t60_ridge_job_returns_background(self):
+    def test_start_t90_ridge_job_returns_background(self):
         import time
 
-        from core.job_progress import t60_ridge_job
+        from core.job_progress import t90_ridge_job
         from quant.services.quant_service_factors import QuantFactorMixin
 
-        if t60_ridge_job.is_running():
-            t60_ridge_job.force_fail("test reset")
+        if t90_ridge_job.is_running():
+            t90_ridge_job.force_fail("test reset")
         svc = QuantFactorMixin()
         started = {"n": 0}
 
@@ -619,18 +621,18 @@ class T60GateTests(unittest.TestCase):
             time.sleep(0.25)
             return {"success": True, "return_model": {"intercept": 0.0}}
 
-        svc.run_t60_ridge_experiment = _fake
+        svc.run_t90_ridge_experiment = _fake
         t0 = time.time()
-        out = svc.start_t60_ridge_job(watching_limit=2)
+        out = svc.start_t90_ridge_job(watching_limit=2)
         self.assertLess(time.time() - t0, 0.2)
         self.assertTrue(out.get("background"))
         self.assertTrue(out.get("success"))
         job_id = (out.get("job") or {}).get("id")
         self.assertTrue(job_id)
         deadline = time.time() + 4
-        while time.time() < deadline and t60_ridge_job.is_running():
+        while time.time() < deadline and t90_ridge_job.is_running():
             time.sleep(0.05)
-        snap = t60_ridge_job.get()
+        snap = t90_ridge_job.get()
         self.assertEqual(snap.get("status"), "done")
         self.assertEqual(started["n"], 1)
         self.assertEqual(snap.get("id"), job_id)
