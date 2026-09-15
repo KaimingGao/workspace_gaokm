@@ -695,6 +695,7 @@ export function fillPathMatrixForm(root, execution) {
   set("pm_rank_enter_alt", rankScoreToPct(pm.rank_enter_alt != null ? pm.rank_enter_alt : pm.rank_enter));
   set("pm_y_enter_enabled", pm.y_enter_enabled !== false);
   set("pm_y_enter_alt_enabled", pm.y_enter_alt_enabled !== false);
+  set("pm_y_hl_enabled", pm.y_hl_enabled !== false);
   const pctEnter = (raw, fallback = 0.1) => {
     const n = Number(raw);
     if (!Number.isFinite(n)) return fallback;
@@ -812,6 +813,7 @@ export function collectPathMatrixForm(root) {
   }
   const yEnterOn = chk("pm_y_enter_enabled", true);
   const yEnterAltOn = chk("pm_y_enter_alt_enabled", true);
+  const yHlOn = chk("pm_y_hl_enabled", true);
   const yOoEnter = pctEnter("pm_y_oo_enter", 0.1);
   const yOcEnter = pctEnter("pm_y_oc_enter", 0.1);
   const yHlEnter = pctEnter("pm_y_hl_enter", 0.1);
@@ -826,6 +828,7 @@ export function collectPathMatrixForm(root) {
         rank_enter_alt: enterAlt,
         y_enter_enabled: yEnterOn,
         y_enter_alt_enabled: yEnterAltOn,
+        y_hl_enabled: yHlOn,
         y_oo_enter: Math.round(yOoEnter * 1000) / 1000,
         y_oc_enter: Math.round(yOcEnter * 1000) / 1000,
         y_hl_enter: Math.round(yHlEnter * 1000) / 1000,

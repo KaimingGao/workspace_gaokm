@@ -1885,6 +1885,7 @@ def backtest_paper_replay(
     rank_enter_alt: Optional[float] = None,
     y_enter_enabled: Optional[bool] = None,
     y_enter_alt_enabled: Optional[bool] = None,
+    y_hl_enabled: Optional[bool] = None,
     y_oo_enter: Optional[float] = None,
     y_oc_enter: Optional[float] = None,
     y_hl_enter: Optional[float] = None,
@@ -2017,6 +2018,7 @@ def backtest_paper_replay(
         "fusion_w_nowcast": w_oc,
         "y_enter_enabled": True if y_enter_enabled is None else bool(y_enter_enabled),
         "y_enter_alt_enabled": True if y_enter_alt_enabled is None else bool(y_enter_alt_enabled),
+        "y_hl_enabled": True if y_hl_enabled is None else bool(y_hl_enabled),
         "y_oo_enter": 0.1 if y_oo_enter is None else y_oo_enter,
         "y_oc_enter": 0.1 if y_oc_enter is None else y_oc_enter,
         "y_hl_enter": 0.1 if y_hl_enter is None else y_hl_enter,
@@ -2045,6 +2047,7 @@ def backtest_paper_replay(
     rl_cfg["rank_enter_alt"] = replay_lots["rank_enter_alt"]
     rl_cfg["y_enter_enabled"] = replay_lots["y_enter_enabled"]
     rl_cfg["y_enter_alt_enabled"] = replay_lots["y_enter_alt_enabled"]
+    rl_cfg["y_hl_enabled"] = replay_lots["y_hl_enabled"]
     rl_cfg["y_oo_enter"] = replay_lots["y_oo_enter"]
     rl_cfg["y_oc_enter"] = replay_lots["y_oc_enter"]
     rl_cfg["y_hl_enter"] = replay_lots["y_hl_enter"]
@@ -2115,7 +2118,6 @@ def backtest_paper_replay(
             tau_pool_by_date = {}
     name_by_code = _watching_name_map()
     stock_acc: Dict[str, dict] = {}
-    prev_scored_by_code: Dict[str, dict] = {}
     prev_equity = float(initial_cash)
     if lookback is not None:
         first_i = max(1, int(trade_start))
@@ -2160,11 +2162,8 @@ def backtest_paper_replay(
             have = {str(it.get("stock_code") or "") for it in scored}
             for code in held_codes:
                 if code and code not in have:
-                    prev_rows = rankings_by_date.get(dates[i - 1]) or []
-                    extra = _items_from_injected_ranking(
-                        [r for r in prev_rows if str(r.get("stock_code")) == code]
-                    )
-                    scored.extend(extra or [{"stock_code": code}])
+                    # 当日名单没有该票：不沿用昨日 ŷ（与真实打分路径一致）。
+                    scored.append({"stock_code": code})
         else:
             scored = _score_open_day(
                 stock_bars=stock_bars,
@@ -2186,8 +2185,8 @@ def backtest_paper_replay(
                 code = str(h.get("stock_code") or "").strip()
                 if not code or code in have:
                     continue
-                extra = prev_scored_by_code.get(code)
-                scored.append(dict(extra) if extra else {"stock_code": code})
+                # 当日未打上分不要沿用昨日 ŷ，否则明细预估值会冻住。
+                scored.append({"stock_code": code})
                 have.add(code)
             if clock != "09:30":
                 scored, n_pref = rescore_replay_y_oc_at_clock(
@@ -2204,11 +2203,6 @@ def backtest_paper_replay(
                 constraints["tau_prefix_rescored"] = int(
                     constraints.get("tau_prefix_rescored") or 0
                 ) + int(n_pref)
-        prev_scored_by_code = {
-            str(it.get("stock_code") or "").strip(): it
-            for it in scored
-            if isinstance(it, dict) and str(it.get("stock_code") or "").strip()
-        }
         _stamp_stock_names(scored, name_by_code)
         _stamp_stock_names(paper.get("holdings") or [], name_by_code)
 
@@ -2483,7 +2477,7 @@ def backtest_paper_replay(
 
     note = (
         f"引擎={ENGINE_ID}：每个交易日 ranking={FORMULA_RANKING}，{fill_note}；{oc_note}；"
-        f"ranking 权 w_oo={w_oo:g} w_oc={w_oc:g} w_co={alpha:g}；ranking<0 清仓；"
+        f"ranking 权 w_oo={w_oo:g} w_oc={w_oc:g} w_co={alpha:g}；ranking<0 或缺分清仓；"
         f"门槛1∪门槛2 过入场（rank入场={rl_cfg.get('rank_enter')}）按分数买（开加上限=观察池 {top_k} 只，现金不够则停），"
         f"每笔 {int(rl_cfg.get('lot_base') or REPLAY_LOT_BASE)} 股；"
         f"不留现金地板；T+1；成本={cost_model}；≠ topk_research。"
@@ -2508,6 +2502,7 @@ def backtest_paper_replay(
             "rank_enter_alt": rl_cfg.get("rank_enter_alt"),
             "y_enter_enabled": rl_cfg.get("y_enter_enabled"),
             "y_enter_alt_enabled": rl_cfg.get("y_enter_alt_enabled"),
+            "y_hl_enabled": rl_cfg.get("y_hl_enabled"),
             "y_oo_enter": rl_cfg.get("y_oo_enter"),
             "y_oc_enter": rl_cfg.get("y_oc_enter"),
             "y_hl_enter": rl_cfg.get("y_hl_enter"),

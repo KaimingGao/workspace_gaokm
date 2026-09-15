@@ -88,6 +88,22 @@ class TestOverheatFactor(unittest.TestCase):
         self.assertTrue(result.get("paper_hard_reject") or result.get("mom3_chase_risk"))
         self.assertIn("overheat", result.get("sub_scores") or {})
 
+    def test_score_window_as_item_keeps_overheated(self):
+        from core.signal.cross_section_batch import score_window_as_item
+
+        bars = _overheated_bars()
+        last = bars[-1]
+        quote = {
+            "open": last.get("open"),
+            "close": last.get("close"),
+            "change_raw": 1.0,
+        }
+        item = score_window_as_item("600869", bars, horizon_days=1, quote=quote)
+        self.assertIsNotNone(item)
+        self.assertEqual(item.get("stock_code"), "600869")
+        self.assertFalse(item.get("hard_reject"))
+        self.assertTrue(item.get("paper_hard_reject") or item.get("mom_chase_risk"))
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -135,6 +135,7 @@ class TestT3WeightMode(unittest.TestCase):
         self.assertEqual(body.y_oo_enter, 0.1)
         self.assertEqual(body.y_hl_enter, 0.1)
         self.assertTrue(body.y_enter_enabled)
+        self.assertTrue(body.y_hl_enabled)
         self.assertIsNone(body.universe_fit_tiers)
         self.assertFalse(hasattr(body, "engine"))
         self.assertFalse(hasattr(body, "top_k"))

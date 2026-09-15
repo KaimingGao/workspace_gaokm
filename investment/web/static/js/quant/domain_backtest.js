@@ -456,6 +456,10 @@ export function installBacktest(q) {
       const el = form && form.querySelector('[name="pm_y_enter_alt_enabled"]');
       if (el) el.checked = !!req.y_enter_alt_enabled;
     }
+    if (req.y_hl_enabled != null) {
+      const el = form && form.querySelector('[name="pm_y_hl_enabled"]');
+      if (el) el.checked = !!req.y_hl_enabled;
+    }
   }
 
   function applyUniverseFitTiers(tiers) {
@@ -893,6 +897,7 @@ export function installBacktest(q) {
           rank_enter_alt: lots.rank_enter_alt,
           y_enter_enabled: lots.y_enter_enabled,
           y_enter_alt_enabled: lots.y_enter_alt_enabled,
+          y_hl_enabled: lots.y_hl_enabled,
           y_oo_enter: lots.y_oo_enter,
           y_oc_enter: lots.y_oc_enter,
           y_hl_enter: lots.y_hl_enter,
@@ -987,6 +992,7 @@ export function installBacktest(q) {
           rank_enter_alt: p.rank_enter_alt,
           y_enter_enabled: p.y_enter_enabled,
           y_enter_alt_enabled: p.y_enter_alt_enabled,
+          y_hl_enabled: p.y_hl_enabled !== false,
           y_oo_enter: p.y_oo_enter,
           y_oc_enter: p.y_oc_enter,
           y_hl_enter: p.y_hl_enter,
@@ -1512,6 +1518,7 @@ export function installBacktest(q) {
         rank_enter_alt,
         y_enter_enabled,
         y_enter_alt_enabled,
+        y_hl_enabled,
         y_oo_enter,
         y_oc_enter,
         y_hl_enter,
@@ -1550,6 +1557,7 @@ export function installBacktest(q) {
         rank_enter_alt,
         y_enter_enabled,
         y_enter_alt_enabled,
+        y_hl_enabled: y_hl_enabled !== false,
         y_oo_enter,
         y_oc_enter,
         y_hl_enter,
@@ -1632,18 +1640,23 @@ export function installBacktest(q) {
 
   function setQuantBtBusy(busy, message) {
     state.btBusy = !!busy;
-    if (els.quantBtProgress) {
-      els.quantBtProgress.hidden = !busy;
-      els.quantBtProgress.classList.toggle("is-busy", !!busy);
+    const progress =
+      document.getElementById("quant-bt-progress") || els.quantBtProgress;
+    const textEl =
+      document.getElementById("quant-bt-progress-text") || els.quantBtProgressText;
+    if (progress) {
+      progress.classList.toggle("is-busy", !!busy);
+      progress.hidden = !busy;
+      if (!busy) progress.removeAttribute("title");
       if (busy) {
         try {
-          els.quantBtProgress.scrollIntoView({ behavior: "smooth", block: "nearest" });
+          progress.scrollIntoView({ behavior: "smooth", block: "nearest" });
         } catch (_) {
           /* ignore */
         }
       }
     }
-    if (els.quantBtProgressText && message) els.quantBtProgressText.textContent = message;
+    if (textEl && message) textEl.textContent = message;
     for (const id of quantBtBusyIds) {
       const el = document.getElementById(id);
       if (el) el.disabled = !!busy;
@@ -1860,6 +1873,7 @@ export function installBacktest(q) {
   }
 
   async function resumePortfolioBacktestJobIfRunning() {
+    let tookBusy = false;
     try {
       const jr = await fetch("/api/jobs/portfolio-backtest?progress=1").then((res) =>
         res.json().catch(() => ({}))
@@ -1867,14 +1881,16 @@ export function installBacktest(q) {
       const job = (jr && jr.job) || {};
       if (job.status !== "running" || !job.id) return false;
       const started = jobStartedMs(job, Date.now());
+      tookBusy = true;
       setQuantBtBusy(true, job.message || "回测中…");
       const done = await awaitPortfolioBacktestJob(job.id, started, "");
       await applyFinishedPortfolioJob(done, started);
       return true;
     } catch (err) {
       paintPortfolioBacktestFail(String((err && err.message) || err || "回测中断"));
-      setQuantBtBusy(false);
       return true;
+    } finally {
+      if (tookBusy) setQuantBtBusy(false);
     }
   }
 

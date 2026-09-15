@@ -228,6 +228,60 @@ class TestWatchingMatrixPreview(unittest.TestCase):
         self.assertEqual(report[0].get("predicted_score_eod"), 0.18)
         self.assertEqual(out.get("empty_reason"), "no_executable_changes")
 
+    def test_rejected_held_exits(self):
+        """打分拒评的已持仓：清仓，不装成 ranking≥0 续持。"""
+        from core.paper.rebalance.watching_matrix import simulate_watching_matrix_preview
+
+        paper = {
+            "cash": 500_000,
+            "holdings": [
+                {
+                    "stock_code": "601111",
+                    "stock_name": "中国国航",
+                    "shares": 1400,
+                    "cost": 5.86,
+                }
+            ],
+            "rules": {"max_positions": 5, "position_pct": 0.2},
+        }
+        with patch(
+            "core.paper.rebalance.watching_matrix._watching_codes",
+            return_value=(
+                ["601111"],
+                {"n_watch": 1, "n_total": 1, "name_by_code": {"601111": "中国国航"}},
+            ),
+        ), patch(
+            "core.paper.rebalance.watching_matrix._score_pool",
+            return_value=(
+                [],
+                [{"stock_code": "601111", "reason": "日线数据不足"}],
+            ),
+        ), patch(
+            "core.paper.rebalance.watching_matrix._quote_px",
+            return_value=5.94,
+        ), patch(
+            "core.paper.ledger.mark_to_market",
+            return_value={
+                "equity": 500_000 + 1400 * 5.94,
+                "cash": 500_000,
+                "holdings": [
+                    {
+                        "stock_code": "601111",
+                        "stock_name": "中国国航",
+                        "shares": 1400,
+                        "price": 5.94,
+                    }
+                ],
+            },
+        ):
+            out = simulate_watching_matrix_preview(paper, dry_run=True)
+
+        self.assertTrue(out.get("ok"))
+        sells = out.get("sell_trades") or []
+        self.assertGreaterEqual(len(sells), 1)
+        self.assertEqual(sells[0].get("stock_code"), "601111")
+        self.assertIn("hard_reject", str(sells[0].get("reason") or ""))
+
     def test_oos_failed_excluded_from_buys(self):
         from core.paper.rebalance.watching_matrix import simulate_watching_matrix_preview
 

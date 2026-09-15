@@ -1110,6 +1110,10 @@ body[data-page="replay"] .replay-page .quant-neutral-frozen > summary {
   max-width: 100%;
 }
 
+.paper-progress-status[hidden] {
+  display: none !important;
+}
+
 .paper-progress-status.is-busy {
   animation: paper-progress-status-pulse 1.35s ease-in-out infinite;
 }

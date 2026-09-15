@@ -6,7 +6,8 @@
   - ŷ_oc = open[T]→close[T]（现网 y_tau）
   - ranking = w_oo·ŷ_oo + w_oc·((1+ŷ_oc)(1+w_co·ŷ_co)−1)；ŷ 为净收益，落盘为百分点
     w_co 默认 1（叠隔夜）；缺 ŷ_co 则退回 ŷ_oc
-  - 已持仓且 ranking < 0 → 清仓（T+1 可卖部分）
+  - 已持仓且 ranking < 0、缺 ranking、或 hard_reject → 清仓（T+1 可卖部分）
+    过热 paper_hard_reject 不因此清仓；缺分不能假装 ranking≥0 续持
   - 门槛1 ∪ 门槛2 过入场（ŷ_oo / ŷ_oc / ranking / y_hl）的票按分数取 Top-K：建仓或加仓
   - ranking > rank强 → 500 股，否则 200 股（回测可改为单一手数）
   - 不留现金地板：现金不够该手则跳过（强档买不下先退基础手数）；live 另受持仓市值上限约束
@@ -153,6 +154,21 @@ def _enter_profile_skip_reason(
     return None
 
 
+def held_exit_reason(item: Optional[dict], rs: Optional[float]) -> Optional[str]:
+    """已持仓清仓理由；None = 续持。
+
+    入场缺 ranking 会拦；持仓缺 ranking 不能假装 ≥0 续持。
+    ``paper_hard_reject``（过热）不走这里。
+    """
+    if isinstance(item, dict) and item.get("hard_reject"):
+        return "hard_reject 清仓"
+    if rs is None:
+        return "ranking 缺失 清仓"
+    if float(rs) < 0.0:
+        return f"ranking={float(rs) * 100.0:.3f}%<0% 清仓"
+    return None
+
+
 def rank_lot_enter_skip_reason(
     item: Optional[dict],
     cfg: Optional[dict],
@@ -162,7 +178,7 @@ def rank_lot_enter_skip_reason(
     """入场：启用中的门槛1 ∪ 门槛2。每档 ŷ_oo、ŷ_oc、ranking、y_hl 过入场。
 
     ``y_enter_enabled`` / ``y_enter_alt_enabled`` 关则该档不参与 OR；两档都关则不开/不加。
-    缺键时门槛2 跟随门槛1。缺 ŷ_oo / ŷ_oc / y_hl 不拦。
+    ``y_hl_enabled`` 关则门槛1/2 都不看 y_hl。缺键时门槛2 跟随门槛1。缺 ŷ_oo / ŷ_oc / y_hl 不拦。
     """
     from core.paper.rebalance.path_matrix import scores_from_rebalance_item
     from core.research.path_panel import pick_y_hl
@@ -188,6 +204,8 @@ def rank_lot_enter_skip_reason(
 
     gate1_on = coerce_cfg_bool(cfg_d.get("y_enter_enabled"), True)
     gate2_on = coerce_cfg_bool(cfg_d.get("y_enter_alt_enabled"), True)
+    hl_on = coerce_cfg_bool(cfg_d.get("y_hl_enabled"), True)
+    y_hl_enter_eff = y_hl_enter if hl_on else 0.0
 
     skip = None
     if gate1_on:
@@ -199,7 +217,7 @@ def rank_lot_enter_skip_reason(
             y_oo_enter=y_oo_enter,
             y_oc_enter=y_oc_enter,
             rank_enter=rank_enter,
-            y_hl_enter=y_hl_enter,
+            y_hl_enter=y_hl_enter_eff,
         )
         if skip is None:
             return None
@@ -230,7 +248,11 @@ def rank_lot_enter_skip_reason(
                     10.0,
                 ),
             ),
-            y_hl_enter=_follow("y_hl_enter_alt", y_hl_enter, 0.0, 100.0),
+            y_hl_enter=(
+                0.0
+                if not hl_on
+                else _follow("y_hl_enter_alt", y_hl_enter, 0.0, 100.0)
+            ),
         )
         if skip_alt is None:
             return None
@@ -413,6 +435,7 @@ def get_rank_lot_cfg(
         "lot_strong": LOT_STRONG,
         "y_enter_enabled": bool(pm.get("y_enter_enabled", True)),
         "y_enter_alt_enabled": bool(pm.get("y_enter_alt_enabled", True)),
+        "y_hl_enabled": bool(pm.get("y_hl_enabled", True)),
         "y_oo_enter": float(pm.get("y_oo_enter") if pm.get("y_oo_enter") is not None else DEFAULT_Y_OO_ENTER),
         "y_oc_enter": float(pm.get("y_oc_enter") if pm.get("y_oc_enter") is not None else DEFAULT_Y_OC_ENTER),
         "y_hl_enter": float(pm.get("y_hl_enter") if pm.get("y_hl_enter") is not None else DEFAULT_Y_HL_ENTER),
@@ -698,7 +721,8 @@ def plan_rank_lot_day(
         rs = None if rp is None else float(rp) / 100.0
         name = _display_name(code, item.get("stock_name"), h.get("stock_name"))
         held_sh = float(h.get("shares") or 0)
-        if item.get("hard_reject") or (rs is not None and float(rs) < 0.0):
+        exit_why = held_exit_reason(item, rs)
+        if exit_why:
             t0_reason = str(t0_blocks.get(code) or "").strip()
             if t0_reason:
                 skips.append(
@@ -739,11 +763,6 @@ def plan_rank_lot_day(
             px = _f(prices.get(code))
             if px is not None and px > 0:
                 cash_sim += float(sell_sh) * float(px)
-            reason = (
-                "hard_reject 清仓"
-                if item.get("hard_reject")
-                else f"ranking={rs * 100.0:.3f}%<0% 清仓"
-            )
             sells.append(
                 {
                     "side": "sell",
@@ -752,7 +771,7 @@ def plan_rank_lot_day(
                     "shares": float(sell_sh),
                     "action": ACTION_EXIT,
                     "matrix_action": ACTION_EXIT,
-                    "reason": reason,
+                    "reason": exit_why,
                     **_debug_scores(item, rp, yoc, rs),
                 }
             )
@@ -784,6 +803,14 @@ def plan_rank_lot_day(
             continue
         if item.get("hard_reject"):
             continue
+        try:
+            from core.signal.overheat_gate import paper_overheat_block
+
+            oh_block, _oh_reason = paper_overheat_block(item)
+            if oh_block:
+                continue
+        except Exception:  # noqa: BLE001
+            logger.debug("paper overheat gate in rank_lots skipped", exc_info=True)
         rp = ranking_pct_of(item, cfg)
         yoc = pick_y_oc(item)
         rs = None if rp is None else float(rp) / 100.0
@@ -936,6 +963,7 @@ __all__ = [
     "aux_yhat_fields",
     "coerce_rank_threshold",
     "get_rank_lot_cfg",
+    "held_exit_reason",
     "scale_cash_floor_to_account",
     "lot_shares_for_rank",
     "plan_rank_lot_day",

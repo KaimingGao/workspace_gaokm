@@ -142,7 +142,7 @@
               <div class="paper-t0-cfg-gates">
                 <fieldset class="paper-t0-cfg-block is-gate-1">
                   <legend>门槛1</legend>
-                  <p class="paper-t0-cfg-hint quant-sub">ŷ_oo、ŷ_oc、ranking、y_hl 过入场。关启用则本档不参与 OR。缺分不拦。0=关该项。</p>
+                  <p class="paper-t0-cfg-hint quant-sub">ŷ_oo、ŷ_oc、ranking、y_hl 过入场。关启用则本档不参与 OR。缺分不拦。0=关该项。关「启用 y_hl」则门槛1/2 都不看 y_hl。</p>
                   <div class="paper-t0-form-grid is-quad">
                     <label class="paper-t0-field" title="开=本档参与入场 OR；关=忽略门槛1。两档都关则不开/不加。">
                       <span>启用</span>
@@ -160,7 +160,11 @@
                       <span>rank 入场%</span>
                       <input type="number" name="pm_rank_enter" min="0" max="10" step="0.01" value="0.1" aria-label="门槛1 rank 入场" />
                     </label>
-                    <label class="paper-t0-field" title="门槛1 y_hl 低于此值视为未过入场；范围 0–100；0=关；默认 0.1。缺 y_hl 不拦。">
+                    <label class="paper-t0-field" title="开=门槛1/2 都看 y_hl 入场；关=完全不看 y_hl（入场数字无效）。">
+                      <span>启用 y_hl</span>
+                      <input type="checkbox" name="pm_y_hl_enabled" checked />
+                    </label>
+                    <label class="paper-t0-field" title="门槛1 y_hl 低于此值视为未过入场；范围 0–100%；0=关；默认 0.1%。缺 y_hl 不拦。启用 y_hl 关时不看此项。">
                       <span>y_hl 入场</span>
                       <input type="number" name="pm_y_hl_enter" min="0" max="100" step="0.01" value="0.1" />
                     </label>
@@ -169,7 +173,7 @@
 
                 <fieldset class="paper-t0-cfg-block is-gate-2">
                   <legend>门槛2</legend>
-                  <p class="paper-t0-cfg-hint quant-sub">ŷ_oo、ŷ_oc、ranking、y_hl 过入场。关启用则本档不参与 OR。缺分不拦。缺键跟随门槛1。</p>
+                  <p class="paper-t0-cfg-hint quant-sub">ŷ_oo、ŷ_oc、ranking、y_hl 过入场。关启用则本档不参与 OR。缺分不拦。缺键跟随门槛1。关「启用 y_hl」则本档也不看 y_hl。</p>
                   <div class="paper-t0-form-grid is-quad">
                     <label class="paper-t0-field" title="开=本档参与入场 OR；关=忽略门槛2。两档都关则不开/不加。">
                       <span>启用</span>
@@ -187,7 +191,7 @@
                       <span>rank 入场%</span>
                       <input type="number" name="pm_rank_enter_alt" min="0" max="10" step="0.01" value="0.1" aria-label="门槛2 rank 入场" />
                     </label>
-                    <label class="paper-t0-field" title="门槛2 y_hl 低于此值视为未过入场；范围 0–100；0=关；默认 0.1。缺键跟随门槛1。">
+                    <label class="paper-t0-field" title="门槛2 y_hl 低于此值视为未过入场；范围 0–100%；0=关；默认 0.1%。缺键跟随门槛1。启用 y_hl 关时不看此项。">
                       <span>y_hl 入场</span>
                       <input type="number" name="pm_y_hl_enter_alt" min="0" max="100" step="0.01" value="0.1" />
                     </label>

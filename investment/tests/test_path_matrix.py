@@ -73,6 +73,7 @@ class TestPathMatrix(unittest.TestCase):
         self.assertAlmostEqual(float(lots.get("holdings_mv_cap")), 150000.0)
         self.assertAlmostEqual(float(lots.get("y_oo_enter")), 0.1)
         self.assertAlmostEqual(float(lots.get("y_hl_enter")), 0.1)
+        self.assertTrue(lots.get("y_hl_enabled"))
         # 旧键仍与 rank_lots 同结构，读盘兼容
         pm = DEFAULT_REBALANCE_TIMING.get("path_matrix") or {}
         self.assertEqual(pm.get("mode"), "rank_lots")

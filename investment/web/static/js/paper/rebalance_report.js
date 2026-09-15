@@ -796,7 +796,7 @@ function renderRebalanceReport(
       const scoreFuseTitle =
         scoreFuse == null
           ? "暂无 ranking"
-          : `ranking · w·ŷ_oo + w·(ŷ_oc∘w_co·ŷ_co)；<0% 清仓；过入场才开/加${rankOrd}`;
+          : `ranking · w·ŷ_oo + w·(ŷ_oc∘w_co·ŷ_co)；<0% 或缺分清仓；过入场才开/加${rankOrd}`;
       const tipDetailJson = escapeText(
         JSON.stringify(tipDetailPayload(r))
       );
@@ -911,7 +911,7 @@ function renderRebalanceReport(
       } else if (decision.includes("卖出")) {
         decisionTip = reasonText
           ? `${reasonText}；点「确认落账」后才成交`
-          : "策略调仓卖出：ranking<0 清仓；点「确认落账」后才成交";
+          : "策略调仓卖出：ranking<0 或缺分清仓；点「确认落账」后才成交";
       } else if (reasonText) {
         decisionTip = reasonText;
       }

@@ -772,9 +772,20 @@ def simulate_watching_matrix_preview(
         for it in scored
         if str(it.get("stock_code") or "").strip()
     }
+    rejected_by = {
+        str(r.get("stock_code") or "").strip(): r
+        for r in (rejected or [])
+        if isinstance(r, dict) and str(r.get("stock_code") or "").strip()
+    }
     for code in held_codes:
         if code not in item_by_code:
-            item_by_code[code] = {"stock_code": code, "hard_reject": False}
+            rej = rejected_by.get(code) or {}
+            stub: Dict[str, Any] = {"stock_code": code}
+            why = str(rej.get("reason") or "").strip()
+            if why:
+                stub["hard_reject"] = True
+                stub["reject_reason"] = why
+            item_by_code[code] = stub
         name = _resolve_report_name(
             code,
             item=item_by_code.get(code),

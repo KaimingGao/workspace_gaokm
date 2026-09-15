@@ -42,6 +42,7 @@ DEFAULT_PATH_MATRIX: Dict[str, Any] = {
     "residual_w_oc": 0.5,
     "y_enter_enabled": True,
     "y_enter_alt_enabled": True,
+    "y_hl_enabled": True,
     "y_oo_enter": 0.1,
     "y_oc_enter": 0.1,
     "y_hl_enter": 0.1,
@@ -109,6 +110,7 @@ def get_path_matrix_cfg(
 
     out["y_enter_enabled"] = coerce_cfg_bool(out.get("y_enter_enabled"), True)
     out["y_enter_alt_enabled"] = coerce_cfg_bool(out.get("y_enter_alt_enabled"), True)
+    out["y_hl_enabled"] = coerce_cfg_bool(out.get("y_hl_enabled"), True)
     for key, default, lo, hi in (
         ("rank_enter", 0.001, 0.0, 10.0),
         ("rank_strong", 0.001, 0.0, 10.0),

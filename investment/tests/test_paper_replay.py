@@ -445,8 +445,16 @@ class TestPaperReplayEngine(unittest.TestCase):
         dates = [b["date"] for b in stock_bars["600519"]]
         rankings = {}
         for i, d in enumerate(dates):
-            code = "600519" if (i % 2 == 0) else "600036"
-            rankings[d] = [_rank_row(code, 2.0)]
+            if i % 2 == 0:
+                rankings[d] = [
+                    _rank_row("600519", 2.0),
+                    _rank_row("600036", 0.05),
+                ]
+            else:
+                rankings[d] = [
+                    _rank_row("600036", 2.0),
+                    _rank_row("600519", 0.05),
+                ]
 
         with _offline_rebalance_patches():
             out = backtest_paper_replay(
@@ -460,6 +468,37 @@ class TestPaperReplayEngine(unittest.TestCase):
         self.assertTrue(out.get("success"), out.get("error"))
         sells = [t for t in (out.get("trades") or []) if t.get("side") == "sell"]
         self.assertEqual(sells, [], "未进 Top-K 不应卖出")
+
+    def test_missing_ranking_exits_held(self):
+        """当日打不上分：清仓，不假装 ranking≥0 续持。"""
+        stock_bars = {
+            "600519": _bars(20, step=0.5),
+        }
+        dates = [b["date"] for b in stock_bars["600519"]]
+        rankings = {}
+        for i, d in enumerate(dates):
+            if i <= 10:
+                rankings[d] = [_rank_row("600519", 2.0)]
+            else:
+                rankings[d] = []
+
+        with _offline_rebalance_patches():
+            out = backtest_paper_replay(
+                stock_bars,
+                top_k=1,
+                min_history=8,
+                rankings_by_date=rankings,
+                cost_model="zero",
+                initial_cash=1_000_000.0,
+            )
+        self.assertTrue(out.get("success"), out.get("error"))
+        sells = [t for t in (out.get("trades") or []) if t.get("side") == "sell"]
+        self.assertGreaterEqual(len(sells), 1, "缺 ranking 应卖出")
+        sim = [t for t in (out.get("sim_trades") or []) if t.get("side") == "sell"]
+        self.assertTrue(
+            any("缺失" in str(t.get("reason") or "") for t in sim + sells),
+            f"expected ranking-missing exit, sells={sells[:2]!r} sim={sim[:2]!r}",
+        )
 
     def test_stamp_stock_names_prefers_watching_map(self):
         from core.backtest.paper_replay import _stamp_stock_names
@@ -946,6 +985,31 @@ class TestOpenDayYhat(unittest.TestCase):
         self.assertEqual(out[0].get("date"), "2026-03-10")
         self.assertAlmostEqual(float(out[0]["y_hl"]), 1.25)
         self.assertNotIn("y_τ30", out[0])
+
+    def test_score_open_day_includes_overheated(self):
+        from core.backtest.paper_replay import _score_open_day
+        from tests.test_signal import _overheated_bars
+
+        bars = _overheated_bars()
+        dates = [str(b["date"]) for b in bars]
+        date_maps = {"600869": {str(b["date"]): b for b in bars}}
+        scored = _score_open_day(
+            stock_bars={"600869": bars},
+            dates=dates,
+            date_maps=date_maps,
+            day_i=len(dates) - 1,
+            max_window=30,
+            horizon_days=1,
+            cfg=None,
+            cluster_models={},
+            global_model=None,
+            tau_model_doc={},
+        )
+        codes = {str(it.get("stock_code") or "") for it in scored}
+        self.assertIn("600869", codes)
+        row = next(it for it in scored if str(it.get("stock_code")) == "600869")
+        self.assertTrue(row.get("paper_hard_reject") or row.get("mom_chase_risk"))
+        self.assertFalse(row.get("hard_reject"))
 
 
 class TestRealizedYhatWindows(unittest.TestCase):

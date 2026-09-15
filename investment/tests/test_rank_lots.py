@@ -1,4 +1,4 @@
-"""rank_lots：ranking 净收益百分数、200/500 股、ranking<0 清仓、现金约束。"""
+"""rank_lots：ranking 净收益百分数、200/500 股、ranking<0 / 缺分清仓、现金约束。"""
 
 from __future__ import annotations
 
@@ -321,6 +321,103 @@ class TestPlanRankLotDay(unittest.TestCase):
         self.assertEqual(float(out["sells"][0]["shares"]), 200)
         self.assertEqual(out["buys"], [])
 
+    def test_missing_ranking_exits_held(self):
+        """当日打不上分：不能假装 ranking≥0 续持。"""
+        from core.paper.rebalance.rank_lots import plan_rank_lot_day
+
+        held = {
+            "stock_code": "600000",
+            "stock_name": "测",
+            "shares": 200,
+            "lots": [
+                {
+                    "shares": 200,
+                    "bought_at": "2026-03-09T09:30:00.000",
+                    "bought_date": "2026-03-09",
+                }
+            ],
+        }
+        out = plan_rank_lot_day(
+            scored=[{"stock_code": "600000"}],
+            holdings=[held],
+            cash=800_000,
+            prices={"600000": 10.0},
+            cfg=_cfg(),
+            as_of="2026-03-10",
+        )
+        self.assertEqual(len(out["sells"]), 1)
+        self.assertEqual(out["sells"][0]["action"], "exit")
+        self.assertIn("缺失", out["sells"][0]["reason"])
+        self.assertEqual(out["holds"], [])
+
+    def test_zero_ranking_holds(self):
+        from core.paper.rebalance.rank_lots import plan_rank_lot_day
+
+        held = {
+            "stock_code": "600000",
+            "shares": 200,
+            "lots": [
+                {
+                    "shares": 200,
+                    "bought_at": "2026-03-09T09:30:00.000",
+                    "bought_date": "2026-03-09",
+                }
+            ],
+        }
+        out = plan_rank_lot_day(
+            scored=[{"stock_code": "600000", "y_fuse": 0.0, "y_on": 0.0}],
+            holdings=[held],
+            cash=800_000,
+            prices={"600000": 10.0},
+            cfg=_cfg(),
+            as_of="2026-03-10",
+        )
+        self.assertEqual(out["sells"], [])
+        self.assertIn("600000", [h["stock_code"] for h in out["holds"]])
+
+    def test_hard_reject_exits_even_if_ranking_positive(self):
+        from core.paper.rebalance.rank_lots import plan_rank_lot_day
+
+        held = {
+            "stock_code": "600000",
+            "shares": 200,
+            "lots": [
+                {
+                    "shares": 200,
+                    "bought_at": "2026-03-09T09:30:00.000",
+                    "bought_date": "2026-03-09",
+                }
+            ],
+        }
+        out = plan_rank_lot_day(
+            scored=[
+                {
+                    "stock_code": "600000",
+                    "y_fuse": 2.0,
+                    "y_on": 0.0,
+                    "hard_reject": True,
+                    "reject_reason": "日线数据不足",
+                }
+            ],
+            holdings=[held],
+            cash=800_000,
+            prices={"600000": 10.0},
+            cfg=_cfg(),
+            as_of="2026-03-10",
+        )
+        self.assertEqual(len(out["sells"]), 1)
+        self.assertEqual(out["sells"][0]["action"], "exit")
+        self.assertEqual(out["sells"][0]["reason"], "hard_reject 清仓")
+
+    def test_held_exit_reason_unit(self):
+        from core.paper.rebalance.rank_lots import held_exit_reason
+
+        self.assertEqual(held_exit_reason({}, None), "ranking 缺失 清仓")
+        self.assertEqual(held_exit_reason({"hard_reject": True}, 0.02), "hard_reject 清仓")
+        self.assertIsNone(held_exit_reason({}, 0.0))
+        self.assertIsNone(held_exit_reason({}, 0.001))
+        self.assertIn("<0%", held_exit_reason({}, -0.001) or "")
+
     def test_negative_oo_held_if_oc_lifts_ranking(self):
         from core.paper.rebalance.rank_lots import plan_rank_lot_day
 
@@ -347,6 +444,54 @@ class TestPlanRankLotDay(unittest.TestCase):
         )
         self.assertEqual(out["sells"], [])
         self.assertIn("600000", [h["stock_code"] for h in out["holds"]])
+
+    def test_paper_hard_reject_blocks_open_not_hold(self):
+        from core.paper.rebalance.rank_lots import plan_rank_lot_day
+
+        scored = [
+            {
+                "stock_code": "600869",
+                "stock_name": "远东股份",
+                "predicted_score": 2.588,
+                "y_tau": 0.143,
+                "paper_hard_reject": True,
+                "paper_reject_reason": "近5日涨幅过大",
+            }
+        ]
+        opened = plan_rank_lot_day(
+            scored=scored,
+            holdings=[],
+            cash=1_000_000,
+            prices={"600869": 22.0},
+            cfg=_cfg(rank_enter=0.0),
+        )
+        self.assertEqual(opened["buys"], [])
+
+        held = {
+            "stock_code": "600869",
+            "stock_name": "远东股份",
+            "shares": 200,
+            "lots": [
+                {
+                    "shares": 200,
+                    "bought_at": "2026-09-07T09:30:00.000",
+                    "bought_date": "2026-09-07",
+                }
+            ],
+        }
+        held_out = plan_rank_lot_day(
+            scored=scored,
+            holdings=[held],
+            cash=800_000,
+            prices={"600869": 22.0},
+            cfg=_cfg(rank_enter=0.0),
+            as_of="2026-09-09",
+        )
+        self.assertEqual(held_out["sells"], [])
+        self.assertEqual(held_out["buys"], [])
+        hold_row = next(h for h in held_out["holds"] if h.get("stock_code") == "600869")
+        self.assertAlmostEqual(float(hold_row["y_oo"]), 2.588)
+        self.assertAlmostEqual(float(hold_row["y_oc"]), 0.143)
 
     def test_oc_weight_zero_ignores_tau_on_exit(self):
         from core.paper.rebalance.rank_lots import plan_rank_lot_day
@@ -725,6 +870,25 @@ class TestEnterGates(unittest.TestCase):
             rank_lot_enter_skip_reason(
                 {"y_tau": 1.0, "y_hl": 1.0},
                 self._cfg(y_oo_enter=0.1),
+                rs=0.02,
+            )
+        )
+
+    def test_y_hl_enabled_off_ignores_threshold(self):
+        from core.paper.rebalance.rank_lots import rank_lot_enter_skip_reason
+
+        item = self._item(y_hl=-5.0)
+        skip = rank_lot_enter_skip_reason(
+            item,
+            self._cfg(y_hl_enter=0.1, y_hl_enter_alt=0.1),
+            rs=0.02,
+        )
+        self.assertIsNotNone(skip)
+        self.assertIn("y_hl", skip)
+        self.assertIsNone(
+            rank_lot_enter_skip_reason(
+                item,
+                self._cfg(y_hl_enter=0.1, y_hl_enter_alt=0.1, y_hl_enabled=False),
                 rs=0.02,
             )
         )

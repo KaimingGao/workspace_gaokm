@@ -363,6 +363,17 @@ def score_and_rank_watching(
     }
     return picks, meta
 
+_OVERHEAT_ITEM_KEYS = (
+    "paper_hard_reject",
+    "paper_reject_reason",
+    "overheat",
+    "overheat_scale",
+    "mom_chase_risk",
+    "reject_reason",
+    "factors",
+)
+
+
 def score_bars_as_item(
     code: str,
     scored: dict,
@@ -381,6 +392,10 @@ def score_bars_as_item(
         "regime": scored.get("regime") or {},
         "hard_reject": scored.get("hard_reject"),
     }
+    src = scored if isinstance(scored, dict) else {}
+    for k in _OVERHEAT_ITEM_KEYS:
+        if k in src and src.get(k) is not None:
+            item[k] = src.get(k)
     if sector is not None:
         item["sector"] = sector
     if market_cap is not None:
@@ -409,6 +424,10 @@ def score_window_as_item(
         config=config,
         fundamentals=fundamentals,
         required_factor_keys=required_factor_keys,
+        # 与 score_stock 一致：过热只标 paper_hard_reject，不掐死 ŷ。
+        # 否则回测持仓一旦 mom5≥10% 就会从打分名单消失，明细预估值冻在最后一天。
+        mom3_hard_reject=False,
+        stock_code=str(code or "").strip() or None,
     )
     if scored.get("hard_reject"):
         return None

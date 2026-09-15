@@ -179,6 +179,7 @@ def _portfolio_backtest_kwargs(body: PaperReplayBacktestRequest) -> Dict[str, An
         "rank_enter_alt": body.rank_enter_alt,
         "y_enter_enabled": body.y_enter_enabled,
         "y_enter_alt_enabled": body.y_enter_alt_enabled,
+        "y_hl_enabled": body.y_hl_enabled,
         "y_oo_enter": body.y_oo_enter,
         "y_oc_enter": body.y_oc_enter,
         "y_hl_enter": body.y_hl_enter,
