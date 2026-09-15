@@ -35,7 +35,7 @@
       <div class="replay-run-toolbar" aria-label="回测窗">
         <label
           class="platform-field quant-pro-field replay-lookback-field replay-clock-field"
-          title="成交用该时刻 5 分钟 K。09:30 用首根开盘价；其后用该根收盘价。ŷ_oo 始终开盘；ŷ_oc 在成交钟>09:30 时用截至该钟的 5m 前缀重算（与做 T 同钟对齐）。缺分钟则跳过该票（09:30 可回退日开盘）。有分钟且共用框「日分价闸」开时，日开/分开或日昨/分昨错位超阈则该票当日跳过。"
+          title="成交用该时刻 5 分钟 K。09:30 用首根开盘价；其后用该根收盘价。ŷ_oo 始终开盘；ŷ_oc 在成交钟>09:30 时用截至该钟的 5m 前缀重算（与做 T 同钟对齐）。缺分钟则跳过该票（09:30 可回退日开盘）。有分钟且「其他」里日分价闸开时，日开/分开或日昨/分昨错位超阈则该票当日跳过。"
         >
           <span class="quant-pro-field-label">调仓时间</span>
           <select id="quant-fill-clock">
@@ -102,104 +102,135 @@
         </div>
       </div>
     </div>
-    <div class="follow-path-matrix replay-rb-matrix" id="follow-path-matrix" aria-label="策略调仓规则">
-            <form id="paper-path-matrix-form" class="paper-t0-form follow-path-matrix-form" autocomplete="off">
+    <div class="follow-path-matrix" id="follow-path-matrix" aria-label="策略调仓规则">
+            <form id="paper-path-matrix-form" class="follow-path-matrix-form" autocomplete="off">
               <input type="hidden" id="paper-strategy" value="short_conservative" />
-              <fieldset class="paper-t0-cfg-block is-shared">
-                <legend>共用</legend>
-                <p class="paper-t0-cfg-hint quant-sub">rank＝w_oo·ŷ_oo + w_oc·((1+ŷ_oc)(1+w_co·ŷ_co)−1)。每笔股数 / 本金 / 日分价闸只用于调仓回测，保存规则不改交易执行 200/500 与市值帽。</p>
-                <div class="paper-t0-form-grid is-quad">
-                  <label class="paper-t0-field" title="rank 中 ŷ_oo 权重；与 w_oc 一并归一化。默认 0.6。">
-                    <span>w_oo</span>
-                    <input type="number" name="pm_fusion_w_oo" min="0" max="1" step="0.05" value="0.6" />
-                  </label>
-                  <label class="paper-t0-field" title="rank 中 ŷ_oc 权重；与 w_oo 一并归一化。默认 0.4。">
-                    <span>w_oc</span>
-                    <input type="number" name="pm_fusion_w_nc" min="0" max="1" step="0.05" value="0.4" />
-                  </label>
-                  <label class="paper-t0-field" title="叠进 ŷ_oc 的隔夜系数，(1+ŷ_oc)(1+w_co·ŷ_co)−1。范围 0～10；0=不叠。默认 1.0。">
-                    <span>w_co</span>
-                    <input type="number" name="pm_y_on_alpha" min="0" max="10" step="0.1" value="1" aria-label="w_co" />
-                  </label>
-                  <label class="paper-t0-field" title="调仓回测每笔股数；整百。默认 200。保存规则不改交易执行 200/500。">
-                    <span>每笔股数</span>
-                    <input type="number" name="pm_lot_base" min="100" max="10000" step="100" value="200" aria-label="每笔股数" />
-                  </label>
-                  <label class="paper-t0-field" title="回测全部本金（元）。默认 20 万。跑回测用这个数当起始现金；不套持仓市值帽。保存规则不改交易执行市值上限。">
-                    <span>本金金额</span>
-                    <input type="number" name="pm_initial_cash" min="10000" max="100000000" step="10000" value="200000" aria-label="本金金额" />
-                  </label>
-                  <label
-                    class="paper-t0-field"
-                    title="开：有分钟时 |日开/分开−1| 或 |日昨/分昨−1| 超阈则该票当日跳过（price_space_mismatch）。阈与做 T 共用（默认 5%）。关：不拦，仍记错位次数。只用于调仓回测，不改交易执行。"
-                  >
-                    <span>日分价闸</span>
-                    <input type="checkbox" name="pm_price_space_gate" checked />
-                  </label>
-                </div>
-              </fieldset>
-
-              <div class="paper-t0-cfg-gates">
-                <fieldset class="paper-t0-cfg-block is-gate-1">
-                  <legend>门槛1</legend>
-                  <p class="paper-t0-cfg-hint quant-sub">ŷ_oo、ŷ_oc、ranking、y_hl 过入场。关启用则本档不参与 OR。缺分不拦。0=关该项。关「启用 y_hl」则门槛1/2 都不看 y_hl。</p>
-                  <div class="paper-t0-form-grid is-quad">
-                    <label class="paper-t0-field" title="开=本档参与入场 OR；关=忽略门槛1。两档都关则不开/不加。">
-                      <span>启用</span>
-                      <input type="checkbox" name="pm_y_enter_enabled" checked />
+              <input type="hidden" name="pm_y_oo_enter" value="0.1" />
+              <input type="hidden" name="pm_y_oc_enter" value="0.1" />
+              <div class="follow-path-matrix-panels">
+                <section class="follow-path-matrix-panel" data-panel="mode" aria-labelledby="pm-panel-mode">
+                  <header class="follow-path-matrix-panel-head">
+                    <h4 id="pm-panel-mode" class="follow-path-matrix-panel-title">分数融合</h4>
+                    <p class="follow-path-matrix-panel-note">rank＝w_oo·ŷ_oo + w_oc·((1+ŷ_oc)(1+w_co·ŷ_co)−1)</p>
+                  </header>
+                  <div class="follow-path-matrix-body follow-path-matrix-body--row3">
+                    <label class="follow-path-matrix-box" title="rank 中 ŷ_oo 权重；与 w_oc 一并归一化。默认 0.6。">
+                      <span class="follow-path-matrix-box-text">
+                        <span class="follow-path-matrix-box-title">w_oo</span>
+                        <span class="follow-path-matrix-box-desc">ŷ_oo</span>
+                      </span>
+                      <input type="number" name="pm_fusion_w_oo" min="0" max="1" step="0.05" value="0.6" />
                     </label>
-                    <label class="paper-t0-field" title="门槛1 ŷ_oo 低于此值视为未过入场；范围 0–100%；0=关；默认 0.1%。缺 ŷ_oo 不拦。">
-                      <span>y_oo 入场%</span>
-                      <input type="number" name="pm_y_oo_enter" min="0" max="100" step="0.01" value="0.1" />
+                    <label class="follow-path-matrix-box" title="rank 中 ŷ_oc 权重；与 w_oo 一并归一化。默认 0.4。">
+                      <span class="follow-path-matrix-box-text">
+                        <span class="follow-path-matrix-box-title">w_oc</span>
+                        <span class="follow-path-matrix-box-desc">ŷ_oc</span>
+                      </span>
+                      <input type="number" name="pm_fusion_w_nc" min="0" max="1" step="0.05" value="0.4" />
                     </label>
-                    <label class="paper-t0-field" title="门槛1 ŷ_oc 低于此值视为未过入场；范围 0–100%；0=关；默认 0.1%。缺 ŷ_oc 不拦。">
-                      <span>y_oc 入场%</span>
-                      <input type="number" name="pm_y_oc_enter" min="0" max="100" step="0.01" value="0.1" />
+                    <label class="follow-path-matrix-box" title="叠进 ŷ_oc 的隔夜系数，(1+ŷ_oc)(1+w_co·ŷ_co)−1。范围 0～10；0=不叠。默认 1.0。">
+                      <span class="follow-path-matrix-box-text">
+                        <span class="follow-path-matrix-box-title">w_co</span>
+                        <span class="follow-path-matrix-box-desc">ŷ_co</span>
+                      </span>
+                      <input type="number" name="pm_y_on_alpha" min="0" max="10" step="0.1" value="1" aria-label="w_co" />
                     </label>
-                    <label class="paper-t0-field" title="门槛1 ranking 低于此值视为未过入场；范围 0–10%；0=仍须 ranking&gt;0。默认 0.1%。">
-                      <span>rank 入场%</span>
-                      <input type="number" name="pm_rank_enter" min="0" max="10" step="0.01" value="0.1" aria-label="门槛1 rank 入场" />
+                  </div>
+                </section>
+                <section class="follow-path-matrix-panel" data-panel="rank" aria-labelledby="pm-panel-rank">
+                  <header class="follow-path-matrix-panel-head">
+                    <h4 id="pm-panel-rank" class="follow-path-matrix-panel-title">ranking 门槛</h4>
+                    <p class="follow-path-matrix-panel-note">rank＝w_oo·ŷ_oo + w_oc·((1+ŷ_oc)(1+w_co·ŷ_co)−1)</p>
+                  </header>
+                  <div class="follow-path-matrix-body follow-path-matrix-body--row2">
+                    <div
+                      class="follow-path-matrix-box follow-path-matrix-box--pair"
+                      title="过入场阈值才建仓/加仓，买右侧股数。阈值默认 0.1%；股数整百，默认 200。保存规则不改交易执行 200 股。"
+                    >
+                      <span class="follow-path-matrix-box-text">
+                        <span class="follow-path-matrix-box-title">入场</span>
+                      </span>
+                      <div class="follow-path-matrix-box-pair">
+                        <label class="follow-path-matrix-box-slot">
+                          <span class="follow-path-matrix-box-slot-label">阈值%</span>
+                          <input type="number" name="pm_rank_enter" min="0" max="10" step="0.01" value="0.1" aria-label="入场阈值" />
+                        </label>
+                        <label class="follow-path-matrix-box-slot">
+                          <span class="follow-path-matrix-box-slot-label">股数</span>
+                          <input type="number" name="pm_lot_base" min="100" max="10000" step="100" value="200" aria-label="入场股数" />
+                        </label>
+                      </div>
+                    </div>
+                    <div
+                      class="follow-path-matrix-box follow-path-matrix-box--pair"
+                      title="过强阈值买右侧强档股数，否则买入场股数。阈值默认 0.1%；股数整百且不少于入场，默认 200。保存规则不改交易执行 500 否则 200。"
+                    >
+                      <span class="follow-path-matrix-box-text">
+                        <span class="follow-path-matrix-box-title">强档</span>
+                      </span>
+                      <div class="follow-path-matrix-box-pair">
+                        <label class="follow-path-matrix-box-slot">
+                          <span class="follow-path-matrix-box-slot-label">阈值%</span>
+                          <input type="number" name="pm_rank_strong" min="0" max="10" step="0.01" value="0.1" aria-label="强阈值" />
+                        </label>
+                        <label class="follow-path-matrix-box-slot">
+                          <span class="follow-path-matrix-box-slot-label">股数</span>
+                          <input type="number" name="pm_lot_strong" min="100" max="10000" step="100" value="200" aria-label="强档股数" />
+                        </label>
+                      </div>
+                    </div>
+                  </div>
+                </section>
+                <section class="follow-path-matrix-panel" data-panel="other" aria-labelledby="pm-panel-other">
+                  <header class="follow-path-matrix-panel-head">
+                    <h4 id="pm-panel-other" class="follow-path-matrix-panel-title">其他</h4>
+                    <p class="follow-path-matrix-panel-note">本金 / 日分价闸只用于调仓回测；关「启用 y_hl」则不看 y_hl 入场</p>
+                  </header>
+                  <div class="follow-path-matrix-body follow-path-matrix-body--row4">
+                    <label
+                      class="follow-path-matrix-box"
+                      title="回测全部本金（元）。默认 20 万。跑回测用这个数当起始现金；不套持仓市值帽。保存规则不改交易执行市值上限。"
+                    >
+                      <span class="follow-path-matrix-box-text">
+                        <span class="follow-path-matrix-box-title">本金</span>
+                        <span class="follow-path-matrix-box-desc">元</span>
+                      </span>
+                      <input type="number" name="pm_initial_cash" min="10000" max="100000000" step="10000" value="200000" aria-label="本金" />
                     </label>
-                    <label class="paper-t0-field" title="开=门槛1/2 都看 y_hl 入场；关=完全不看 y_hl（入场数字无效）。">
-                      <span>启用 y_hl</span>
+                    <label
+                      class="follow-path-matrix-box"
+                      title="开：有分钟时 |日开/分开−1| 或 |日昨/分昨−1| 超阈则该票当日跳过（price_space_mismatch）。阈与做 T 共用（默认 5%）。关：不拦，仍记错位次数。只用于调仓回测，不改交易执行。"
+                    >
+                      <span class="follow-path-matrix-box-text">
+                        <span class="follow-path-matrix-box-title">日分价闸</span>
+                        <span class="follow-path-matrix-box-desc">错价跳过</span>
+                      </span>
+                      <input type="checkbox" name="pm_price_space_gate" checked />
+                    </label>
+                    <label
+                      class="follow-path-matrix-box"
+                      title="开=门槛1/2 都看 y_hl 入场；关=完全不看 y_hl（入场数字无效）。"
+                    >
+                      <span class="follow-path-matrix-box-text">
+                        <span class="follow-path-matrix-box-title">启用 y_hl</span>
+                        <span class="follow-path-matrix-box-desc">入场开关</span>
+                      </span>
                       <input type="checkbox" name="pm_y_hl_enabled" checked />
                     </label>
-                    <label class="paper-t0-field" title="门槛1 y_hl 低于此值视为未过入场；范围 0–100%；0=关；默认 0.1%。缺 y_hl 不拦。启用 y_hl 关时不看此项。">
-                      <span>y_hl 入场</span>
+                    <label
+                      class="follow-path-matrix-box"
+                      title="y_hl 低于此值视为未过入场；范围 0–100%；0=关；默认 0.1%。缺 y_hl 不拦。启用 y_hl 关时不看此项。"
+                    >
+                      <span class="follow-path-matrix-box-text">
+                        <span class="follow-path-matrix-box-title">y_hl 入场</span>
+                        <span class="follow-path-matrix-box-desc">百分点</span>
+                      </span>
                       <input type="number" name="pm_y_hl_enter" min="0" max="100" step="0.01" value="0.1" />
                     </label>
                   </div>
-                </fieldset>
-
-                <fieldset class="paper-t0-cfg-block is-gate-2">
-                  <legend>门槛2</legend>
-                  <p class="paper-t0-cfg-hint quant-sub">ŷ_oo、ŷ_oc、ranking、y_hl 过入场。关启用则本档不参与 OR。缺分不拦。缺键跟随门槛1。关「启用 y_hl」则本档也不看 y_hl。</p>
-                  <div class="paper-t0-form-grid is-quad">
-                    <label class="paper-t0-field" title="开=本档参与入场 OR；关=忽略门槛2。两档都关则不开/不加。">
-                      <span>启用</span>
-                      <input type="checkbox" name="pm_y_enter_alt_enabled" checked />
-                    </label>
-                    <label class="paper-t0-field" title="门槛2 ŷ_oo 低于此值视为未过入场；范围 0–100%；0=关；默认 0.1%。缺 ŷ_oo 不拦。">
-                      <span>y_oo 入场%</span>
-                      <input type="number" name="pm_y_oo_enter_alt" min="0" max="100" step="0.01" value="0.1" />
-                    </label>
-                    <label class="paper-t0-field" title="门槛2 ŷ_oc 低于此值视为未过入场；范围 0–100%；0=关；默认 0.1%。缺 ŷ_oc 不拦。">
-                      <span>y_oc 入场%</span>
-                      <input type="number" name="pm_y_oc_enter_alt" min="0" max="100" step="0.01" value="0.1" />
-                    </label>
-                    <label class="paper-t0-field" title="门槛2 ranking 低于此值视为未过入场；范围 0–10%；0=仍须 ranking&gt;0。默认 0.1%。">
-                      <span>rank 入场%</span>
-                      <input type="number" name="pm_rank_enter_alt" min="0" max="10" step="0.01" value="0.1" aria-label="门槛2 rank 入场" />
-                    </label>
-                    <label class="paper-t0-field" title="门槛2 y_hl 低于此值视为未过入场；范围 0–100%；0=关；默认 0.1%。缺键跟随门槛1。启用 y_hl 关时不看此项。">
-                      <span>y_hl 入场</span>
-                      <input type="number" name="pm_y_hl_enter_alt" min="0" max="100" step="0.01" value="0.1" />
-                    </label>
-                  </div>
-                </fieldset>
+                </section>
               </div>
-
-              <div class="follow-path-matrix-footer replay-rb-matrix-footer" aria-label="调仓操作">
+              <div class="follow-path-matrix-footer" aria-label="调仓操作">
                 <div class="follow-path-matrix-actions">
                   <button type="submit" class="dialog-btn secondary" id="paper-path-matrix-save">保存</button>
                   <button type="button" class="dialog-btn secondary" id="paper-path-matrix-reset">恢复默认</button>
@@ -235,7 +266,7 @@
           ></div>
         </div>
         <p id="quant-portfolio-legend" class="quant-sub">
-          每个交易日 09:30 对全部观察池按 rank=w_oo·ŷ_oo + w_oc·((1+ŷ_oc)(1+w_co·ŷ_co)−1) 调仓；手数看上方每笔股数。门槛1 ∪ 门槛2 过入场。横轴为本次全部交易日。
+          每个交易日 09:30 对全部观察池按 rank=w_oo·ŷ_oo + w_oc·((1+ŷ_oc)(1+w_co·ŷ_co)−1) 调仓；手数看上方入场/强档股数。横轴为本次全部交易日。
         </p>
         <div id="quant-bt-stock-contrib" class="replay-stock-contrib" hidden aria-label="分票贡献"></div>
         <div id="quant-bt-trades" class="quant-weight-table-wrap" aria-label="成交流水"></div>

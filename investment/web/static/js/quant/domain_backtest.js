@@ -413,6 +413,7 @@ export function installBacktest(q) {
       if (req.fill_clock != null) setVal("quant-fill-clock", clampFillClock(req.fill_clock));
       if (req.initial_cash != null) setName("pm_initial_cash", req.initial_cash);
       if (req.lot_base != null) setName("pm_lot_base", req.lot_base);
+      if (req.lot_strong != null) setName("pm_lot_strong", req.lot_strong);
       if (req.universe_fit_tiers != null) applyUniverseFitTiers(req.universe_fit_tiers);
       if (req.price_space_gate != null) {
         const el = form && form.querySelector('[name="pm_price_space_gate"]');
@@ -432,11 +433,11 @@ export function installBacktest(q) {
       setName("pm_y_on_alpha", req.y_on_alpha);
     }
     const enterPct = scoreToRankPct(req.rank_enter);
-    const enterAltPct = scoreToRankPct(req.rank_enter_alt != null ? req.rank_enter_alt : req.rank_enter);
     if (enterPct) {
       setName("pm_rank_enter", enterPct);
     }
-    if (enterAltPct) setName("pm_rank_enter_alt", enterAltPct);
+    const strongPct = scoreToRankPct(req.rank_strong != null ? req.rank_strong : req.rank_enter);
+    if (strongPct) setName("pm_rank_strong", strongPct);
     const setPct = (name, val) => {
       if (val == null || val === "") return;
       const n = Number(val);
@@ -445,17 +446,6 @@ export function installBacktest(q) {
     setPct("pm_y_oo_enter", req.y_oo_enter);
     setPct("pm_y_oc_enter", req.y_oc_enter);
     setPct("pm_y_hl_enter", req.y_hl_enter);
-    setPct("pm_y_oo_enter_alt", req.y_oo_enter_alt);
-    setPct("pm_y_oc_enter_alt", req.y_oc_enter_alt);
-    setPct("pm_y_hl_enter_alt", req.y_hl_enter_alt);
-    if (req.y_enter_enabled != null) {
-      const el = form && form.querySelector('[name="pm_y_enter_enabled"]');
-      if (el) el.checked = !!req.y_enter_enabled;
-    }
-    if (req.y_enter_alt_enabled != null) {
-      const el = form && form.querySelector('[name="pm_y_enter_alt_enabled"]');
-      if (el) el.checked = !!req.y_enter_alt_enabled;
-    }
     if (req.y_hl_enabled != null) {
       const el = form && form.querySelector('[name="pm_y_hl_enabled"]');
       if (el) el.checked = !!req.y_hl_enabled;
@@ -825,12 +815,15 @@ export function installBacktest(q) {
       return clampReplayLot(el && el.value, fallback);
     };
     let lot_base = val("pm_lot_base", 200);
+    let lot_strong = val("pm_lot_strong", lot_base);
+    if (lot_strong < lot_base) lot_strong = lot_base;
     const setIf = (name, v) => {
       const el = form && form.querySelector(`[name="${name}"]`);
       if (el && el.value !== String(v)) el.value = String(v);
     };
     setIf("pm_lot_base", lot_base);
-    return { lot_base, lot_strong: lot_base };
+    setIf("pm_lot_strong", lot_strong);
+    return { lot_base, lot_strong };
   }
 
   function readPriceSpaceGate() {
@@ -893,7 +886,7 @@ export function installBacktest(q) {
       if (lots) {
         return {
           rank_enter: lots.rank_enter,
-          rank_strong: lots.rank_enter,
+          rank_strong: lots.rank_strong,
           rank_enter_alt: lots.rank_enter_alt,
           y_enter_enabled: lots.y_enter_enabled,
           y_enter_alt_enabled: lots.y_enter_alt_enabled,
@@ -980,25 +973,8 @@ export function installBacktest(q) {
           universe_fit_tiers: p.universe_fit_tiers,
           initial_cash: p.initial_cash,
           lot_base: p.lot_base,
-          lot_strong: p.lot_base,
+          lot_strong: p.lot_strong,
           price_space_gate: p.price_space_gate !== false,
-          fusion_w_oo: p.fusion_w_oo,
-          fusion_w_oc: p.fusion_w_oc,
-          fusion_w_trade: p.fusion_w_oo,
-          fusion_w_nowcast: p.fusion_w_oc,
-          y_on_alpha: p.y_on_alpha,
-          rank_enter: p.rank_enter,
-          rank_strong: p.rank_enter,
-          rank_enter_alt: p.rank_enter_alt,
-          y_enter_enabled: p.y_enter_enabled,
-          y_enter_alt_enabled: p.y_enter_alt_enabled,
-          y_hl_enabled: p.y_hl_enabled !== false,
-          y_oo_enter: p.y_oo_enter,
-          y_oc_enter: p.y_oc_enter,
-          y_hl_enter: p.y_hl_enter,
-          y_oo_enter_alt: p.y_oo_enter_alt,
-          y_oc_enter_alt: p.y_oc_enter_alt,
-          y_hl_enter_alt: p.y_hl_enter_alt,
         })
       );
     } catch (_err) {
@@ -1009,7 +985,7 @@ export function installBacktest(q) {
   function restoreReplayDeskPrefs() {
     const prefs = readReplayDeskPrefs();
     if (!prefs) return false;
-    applyPortfolioBtParams(prefs, { rules: true, desk: true });
+    applyPortfolioBtParams(prefs, { rules: false, desk: true });
     restoreFillClock(prefs.fill_clock);
     return true;
   }

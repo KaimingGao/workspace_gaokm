@@ -51,8 +51,8 @@ export function renderPaperRulesHtml(data) {
         ? timing.path_matrix
         : null);
   if (pm) {
-    const enter = coerceRankChip(pm.rank_enter, 0.012);
-    const strong = coerceRankChip(pm.rank_strong, 0.012);
+    const enter = coerceRankChip(pm.rank_enter, 0.001);
+    const strong = coerceRankChip(pm.rank_strong, 0.001);
     chips.push([
       "rank",
       `入场${(Number(enter) * 100).toFixed(1)}% · 强${(Number(strong) * 100).toFixed(1)}%`,
