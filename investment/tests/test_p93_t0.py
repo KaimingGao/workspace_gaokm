@@ -1490,8 +1490,8 @@ class TestT0Core(unittest.TestCase):
             return_value=0.05,
         ):
             _attach_y_path_to_item(item, hist_bars=[])
-        self.assertEqual(item.get("y_path_status"), "open_z")
-        self.assertAlmostEqual(float(item.get("y_path")), 0.05, places=6)
+        self.assertEqual(item.get("y_hl_status"), "open_z")
+        self.assertAlmostEqual(float(item.get("y_hl")), 0.05, places=6)
 
     def test_intraday_attach_refuses_open_z_without_minute_pack(self):
         """盘中前缀：无分钟小包不得退回开盘 Z（feature_missing，非 open_z）。"""
@@ -1506,9 +1506,9 @@ class TestT0Core(unittest.TestCase):
             return_value={"coefficients": {"gap_pct": 1.0}},
         ):
             _attach_y_path_to_item(item, hist_bars=[], allow_open_z=False)
-        self.assertEqual(item.get("y_path_status"), "feature_missing")
-        self.assertIsNone(item.get("y_path"))
-        self.assertNotEqual(item.get("y_path_status"), "open_z")
+        self.assertEqual(item.get("y_hl_status"), "feature_missing")
+        self.assertIsNone(item.get("y_hl"))
+        self.assertNotEqual(item.get("y_hl_status"), "open_z")
 
     def test_attach_portrait_y_path_fills_for_score_portrait(self):
         """选向无 HL 时，日结果仍补因果 ŷ_hl 供画像。"""
@@ -1549,7 +1549,7 @@ class TestT0Core(unittest.TestCase):
                 day_bar=_bar(d, 100, 102, 99, 101),
                 prefix_bars=4,
             )
-        self.assertAlmostEqual(float(out.get("y_path_portrait")), 1.2, places=4)
+        self.assertAlmostEqual(float(out.get("y_hl_portrait")), 1.2, places=4)
         self.assertAlmostEqual(float(out.get("y_tau_portrait_oc")), 0.9, places=4)
         self.assertEqual(int(out.get("portrait_prefix_bars") or 0), 4)
         sc = extract_scores(out)
@@ -2193,12 +2193,12 @@ class TestDualYDirection(unittest.TestCase):
                 "predicted_score_tau": 0.8,
             }
         )
-        self.assertAlmostEqual(sc["y_on"], 0.2)
+        self.assertAlmostEqual(sc["y_co"], 0.2)
         self.assertAlmostEqual(sc["y_on_path"], 3.5)
         packed = __import__(
             "core.t0.score_policy", fromlist=["pack_day_scores"]
         ).pack_day_scores(sc)
-        self.assertAlmostEqual(packed["y_on"], 0.2)
+        self.assertAlmostEqual(packed["y_co"], 0.2)
         self.assertAlmostEqual(packed["y_on_path"], 3.5)
 
     def test_eod_factor_bar_limit_matches_score_stock(self):
@@ -2611,6 +2611,64 @@ class TestDualYDirection(unittest.TestCase):
         self.assertTrue(captured.get("index_bars"))
         self.assertEqual(len(captured["index_bars"]), 24)
         self.assertEqual(captured.get("fundamentals", {}).get("market_cap"), 1e11)
+
+    def test_compute_scores_reuses_eod_window_across_minute_prefix(self):
+        """同一交易日多根 5m 前缀只建一次 EOD 因子窗。"""
+        from unittest.mock import patch
+
+        from core.t0.score_policy import clear_score_model_cache, compute_scores_from_bars
+
+        clear_score_model_cache()
+        hist = [
+            _bar(f"2025-10-{(i % 28) + 1:02d}", 10 + i * 0.1, 11, 9, 10 + i * 0.1)
+            for i in range(24)
+        ]
+        day = _bar("2025-11-01", 12.0, 12.5, 11.5, 12.2)
+        n_window = {"n": 0}
+
+        def _fake_window(code, window, **kwargs):
+            n_window["n"] += 1
+            return {
+                "stock_code": code,
+                "sub_scores": {"relative_strength": 85.0, "momentum": 50.0},
+                "predicted_score": 0.5,
+                "success": True,
+            }
+
+        prefix_a = [{"datetime": "2025-11-01 09:35:00", "open": 12, "high": 12.1, "low": 11.9, "close": 12.0}]
+        prefix_b = prefix_a + [
+            {"datetime": "2025-11-01 09:40:00", "open": 12.0, "high": 12.2, "low": 11.9, "close": 12.1}
+        ]
+        with patch(
+            "core.signal.cross_section_batch.score_window_as_item", side_effect=_fake_window
+        ), patch(
+            "core.t0.score_policy._scoring_models",
+            return_value=(None, {}, None),
+        ), patch(
+            "core.signal.dual_score.attach_dual_score_pit", side_effect=lambda it, **kw: it
+        ), patch(
+            "core.signal.return_score.apply_predicted_scores_by_model",
+            side_effect=lambda items, *a, **k: list(items),
+        ):
+            compute_scores_from_bars(
+                "601600",
+                hist,
+                day_bar=day,
+                fundamentals={"market_cap": 1e11},
+                minute_bars=prefix_a,
+                use_minute_tau=True,
+                minute_tau_hm="09:35",
+            )
+            compute_scores_from_bars(
+                "601600",
+                hist,
+                day_bar=day,
+                fundamentals={"market_cap": 1e11},
+                minute_bars=prefix_b,
+                use_minute_tau=True,
+                minute_tau_hm="09:40",
+            )
+        self.assertEqual(n_window["n"], 1)
 
     def test_compute_scores_passes_required_factor_keys(self):
         """G69 等组 β 含 amihud；T0 须传 required_factor_keys，否则 regime 会滤掉非流动性。"""
@@ -4996,6 +5054,7 @@ class TestT0HoldingsVirtualSizing(unittest.TestCase):
         self.assertGreaterEqual(m._HOLDINGS_DEADLINE_SEC, 600.0)
         self.assertLessEqual(m._HOLDINGS_DEADLINE_SEC, 1200.0)
         self.assertIn("progress_cb", src)
+        self.assertIn("_one_progress", src)
         self.assertIn("scoring_model_role_context(MODEL_ROLE_RESEARCH)", src)
 
     def test_t0_walk_does_not_clear_score_cache_per_stock(self):
@@ -5006,6 +5065,10 @@ class TestT0HoldingsVirtualSizing(unittest.TestCase):
         src = inspect.getsource(m.backtest_t0_on_bars)
         self.assertIn("scoring_model_role_context(MODEL_ROLE_RESEARCH)", src)
         self.assertNotIn("clear_score_model_cache", src)
+        walk_src = inspect.getsource(m._walk_t0)
+        self.assertIn("progress_cb", walk_src)
+        sig = inspect.signature(m._walk_t0)
+        self.assertIn("progress_cb", sig.parameters)
 
     def test_fetch_minute_prefers_complete_local_cache(self):
         from unittest.mock import patch

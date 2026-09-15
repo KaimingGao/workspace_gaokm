@@ -1,7 +1,7 @@
 """策略调仓配置（rank_lots）。
 
 Follow / 历史回测 / 自动调仓都走 ``rank_lots``。
-rank = w_oo·ŷ_oo + w_oc·((1+ŷ_oc)(1+w_co·ŷ_co)−1)。w_co 默认 0。
+rank = w_oo·ŷ_oo + w_oc·((1+ŷ_oc)(1+w_co·ŷ_co)−1)。w_co 默认 1。
 ŷ_trade / ŷ_nowcast / y_fuse 已下线。
 
 配置键优先 ``rebalance_timing.rank_lots``，仍认旧键 ``path_matrix``。
@@ -30,15 +30,24 @@ from core.signal.yhat_windows import (  # noqa: F401
 DEFAULT_PATH_MATRIX: Dict[str, Any] = {
     "enabled": True,
     "mode": "rank_lots",
-    "rank_enter": 0.012,
-    "rank_strong": 0.012,
+    "rank_enter": 0.001,
+    "rank_strong": 0.001,
+    "rank_enter_alt": 0.001,
     "cash_floor": 0.0,
     "holdings_mv_cap": 150_000.0,
-    "fusion_w_oo": 0.5,
-    "fusion_w_oc": 0.5,
-    "fusion_w_co": 0.0,
+    "fusion_w_oo": 0.6,
+    "fusion_w_oc": 0.4,
+    "fusion_w_co": 1.0,
     "fusion_w_pc": 0.5,
     "residual_w_oc": 0.5,
+    "y_enter_enabled": True,
+    "y_enter_alt_enabled": True,
+    "y_oo_enter": 0.1,
+    "y_oc_enter": 0.1,
+    "y_hl_enter": 0.1,
+    "y_oo_enter_alt": 0.1,
+    "y_oc_enter_alt": 0.1,
+    "y_hl_enter_alt": 0.1,
 }
 
 
@@ -96,22 +105,33 @@ def get_path_matrix_cfg(
             out["fusion_w_co"] = raw.get("y_on_alpha")
     out["mode"] = "rank_lots"
     out["enabled"] = bool(out.get("enabled"))
+    from core.t0.config import coerce_cfg_bool
+
+    out["y_enter_enabled"] = coerce_cfg_bool(out.get("y_enter_enabled"), True)
+    out["y_enter_alt_enabled"] = coerce_cfg_bool(out.get("y_enter_alt_enabled"), True)
     for key, default, lo, hi in (
-        ("rank_enter", 0.012, 0.0, 10.0),
-        ("rank_strong", 0.012, 0.0, 10.0),
+        ("rank_enter", 0.001, 0.0, 10.0),
+        ("rank_strong", 0.001, 0.0, 10.0),
+        ("rank_enter_alt", 0.001, 0.0, 10.0),
         ("cash_floor", 0.0, 0.0, 1.0e8),
         ("holdings_mv_cap", 150_000.0, 0.0, 1.0e8),
-        ("fusion_w_oo", 0.5, 0.0, 1.0),
-        ("fusion_w_oc", 0.5, 0.0, 1.0),
-        ("fusion_w_co", 0.0, 0.0, 10.0),
+        ("fusion_w_oo", 0.6, 0.0, 1.0),
+        ("fusion_w_oc", 0.4, 0.0, 1.0),
+        ("fusion_w_co", 1.0, 0.0, 10.0),
         ("fusion_w_pc", 0.5, 0.0, 1.0),
         ("residual_w_oc", 0.5, 0.0, 1.0),
+        ("y_oo_enter", 0.1, 0.0, 100.0),
+        ("y_oc_enter", 0.1, 0.0, 100.0),
+        ("y_hl_enter", 0.1, 0.0, 100.0),
+        ("y_oo_enter_alt", 0.1, 0.0, 100.0),
+        ("y_oc_enter_alt", 0.1, 0.0, 100.0),
+        ("y_hl_enter_alt", 0.1, 0.0, 100.0),
     ):
         try:
             out[key] = max(lo, min(float(out.get(key, default)), hi))
         except (TypeError, ValueError):
             out[key] = float(default)
-    for rk in ("rank_enter", "rank_strong"):
+    for rk in ("rank_enter", "rank_strong", "rank_enter_alt"):
         v = float(out[rk])
         if v >= 0.5:
             if abs(v - 1.0) < 1e-9:
@@ -134,6 +154,16 @@ def get_path_matrix_cfg(
     if float(out["rank_strong"]) < float(out["rank_enter"]):
         out["rank_strong"] = float(out["rank_enter"])
     out["cash_floor"] = 0.0
+    if isinstance(raw, dict):
+        if raw.get("rank_enter_alt") in (None, ""):
+            out["rank_enter_alt"] = float(out["rank_enter"])
+        for src, alt in (
+            ("y_oo_enter", "y_oo_enter_alt"),
+            ("y_oc_enter", "y_oc_enter_alt"),
+            ("y_hl_enter", "y_hl_enter_alt"),
+        ):
+            if raw.get(alt) in (None, ""):
+                out[alt] = float(out[src])
     return out
 
 
@@ -151,12 +181,9 @@ def scores_from_rebalance_item(
         if y_path is not None:
             write_y_hl(stamped, y_path)
         else:
-            stamped["y_path"] = None
             stamped["y_hl"] = None
     else:
-        stamped["y_path"] = None
         stamped["y_hl"] = None
-    stamped["y_on"] = stamped.get("y_co")
     stamped["y_tau"] = stamped.get("y_oc")
     if stamped.get("ranking") is not None:
         stamped["y_fuse"] = stamped.get("ranking")

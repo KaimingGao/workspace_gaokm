@@ -3,7 +3,7 @@
 ŷ_oo       预估 open[T+1]/open[T]−1（分组 β；主字段 y_oo，别名 predicted_score）
 ŷ_oc       预估 close[T]/open[T]−1（主字段 y_oc，别名 y_tau）
 ŷ_τc       预估 close[T]/price[τ]−1（主字段 y_τc；做 T residual / ĉ）
-ŷ_co       预估 open[T+1]/close[T]−1（主字段 y_co，别名 y_on；对照）
+ŷ_co       预估 open[T+1]/close[T]−1（主字段 y_co；旧键 y_on 可读）
 ranking    = w·ŷ_oo + w·ŷ_oc
 residual   = w·ŷ_τc + w·remaining(ŷ_oc)   # R̂_τ = close[T]/price(τ)−1
 

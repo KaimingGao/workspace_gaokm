@@ -478,7 +478,7 @@ class TestT0Slots(unittest.TestCase):
             }
         )
         self.assertAlmostEqual(extra["scores"]["y_tau"], 0.8)
-        self.assertAlmostEqual(extra["scores"]["y_path"], 1.2)
+        self.assertAlmostEqual(extra["scores"]["y_hl"], 1.2)
         self.assertAlmostEqual(extra["scores"]["predicted_score_complexity"], 0.42)
         self.assertAlmostEqual(extra["scores"]["y_complexity_hat"], 0.42)
         self.assertAlmostEqual(extra["scores"]["predicted_score_cx"], 0.42)
@@ -499,8 +499,8 @@ class TestT0Slots(unittest.TestCase):
             }
         )
         self.assertAlmostEqual(out["y_tau_portrait_oc"], 1.2)
-        self.assertAlmostEqual(out["y_path_portrait"], -0.5)
         self.assertAlmostEqual(out["y_hl_portrait"], -0.5)
+        self.assertNotIn("y_path_portrait", out)
 
     def test_attach_slot_fit_portrait_from_causal_snap(self):
         """跳过轮也要写入该钟因果画像分（拟合 by_tau 口径）。"""
@@ -540,9 +540,9 @@ class TestT0Slots(unittest.TestCase):
         )
         sc = out.get("scores") or {}
         self.assertIsNotNone(sc.get("y_tau_portrait_oc"))
-        self.assertIsNotNone(sc.get("y_path_portrait"))
+        self.assertIsNotNone(sc.get("y_hl_portrait"))
         self.assertAlmostEqual(float(sc["y_tau_portrait_oc"]), 0.7, places=3)
-        self.assertAlmostEqual(float(sc["y_path_portrait"]), 1.1, places=3)
+        self.assertAlmostEqual(float(sc["y_hl_portrait"]), 1.1, places=3)
 
     def test_backtest_all_miss_day_keeps_portrait_scores(self):
         """多轮均未成交时，日级仍须保留因果 ŷ 画像。"""
@@ -597,7 +597,7 @@ class TestT0Slots(unittest.TestCase):
         self.assertTrue(day0.get("skipped"), day0)
         sc = day0.get("scores") or {}
         self.assertIsNotNone(sc.get("y_tau_portrait_oc"), sc)
-        self.assertIsNotNone(sc.get("y_path_portrait"), sc)
+        self.assertIsNotNone(sc.get("y_hl_portrait"), sc)
 
     def test_slot_meta_extra_stamps_hm(self):
         from core.t0.slots import _slot_meta_extra

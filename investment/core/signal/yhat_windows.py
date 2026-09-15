@@ -3,7 +3,7 @@
 ŷ_oo  open(T)→open(T+1)   主字段 y_oo / predicted_score_oo；别名 predicted_score
 ŷ_oc  open(T)→close(T)    主字段 y_oc；别名 y_tau
 ŷ_τc  price(τ)→close(T)   主字段 y_τc（旧簿 y_to / y_pc / y_r 可读；旧 y_r=price/close 则反几何）
-ŷ_co  close(T)→open(T+1)  主字段 y_co；别名 y_on（对照，不融合）
+ŷ_co  close(T)→open(T+1)  主字段 y_co；旧键 y_on 可读
 
 rank     = w_oo·ŷ_oo + w_oc·((1+ŷ_oc)(1+w_co·ŷ_co)−1)
            ŷ 为净收益；w_co 默认 0；缺 ŷ_co 则退回 ŷ_oc

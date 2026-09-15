@@ -6,8 +6,8 @@ import { portfolioBtScoreFloorPayload as buildBtScoreFloorPayload, mergeScoringF
 import { truncateStockName, watchingNameSpanHtml } from "./names.js";
 import { ensureFitTierMap } from "./fit_tier_ui.js";
 import { downloadBlob } from "../shared.js";
-import { collectPathMatrixForm, collectExecutionForm, readT0BtSizing, fillT0BtSizing } from "../paper/execution_ui.js?v=p2426";
-import { initExecutionRuleForms } from "../paper/execution_forms.js?v=p2389";
+import { collectPathMatrixForm, collectExecutionForm, readT0BtSizing, fillT0BtSizing } from "../paper/execution_ui.js?v=p2434";
+import { initExecutionRuleForms } from "../paper/execution_forms.js?v=p2434";
 
 const _V =
   (typeof window !== "undefined" && window.__ASSET_V__) || "dev";
@@ -376,14 +376,14 @@ export function installBacktest(q) {
       const wt = p.fusion_w_oo != null ? p.fusion_w_oo : p.fusion_w_trade != null ? p.fusion_w_trade : "—";
       const wn = p.fusion_w_oc != null ? p.fusion_w_oc : p.fusion_w_nowcast != null ? p.fusion_w_nowcast : "—";
       const lotB = p.lot_base != null ? p.lot_base : "—";
-      const lotS = p.lot_strong != null ? p.lot_strong : "—";
       const n = Number(p.rank_enter);
-      const enter = Number.isFinite(n) ? `${(n * 100).toFixed(1)}%` : "—";
+      const enter = Number.isFinite(n) ? `${(n * 100).toFixed(2)}%` : "—";
       const tiers = Array.isArray(p.universe_fit_tiers)
         ? p.universe_fit_tiers.join("")
         : "";
       const tierBit = tiers && tiers !== "ABC" ? ` · 档${tiers}` : "";
-      return `lb${lb} · ${clock} · ${lotB}/${lotS} · w${wt}/${wn} · α${alpha} · 入场${enter}${tierBit} · ${cost}`;
+      const psBit = p.price_space_gate === false ? " · 日分价关" : "";
+      return `lb${lb} · ${clock} · ${lotB}股 · w${wt}/${wn} · α${alpha} · 入场${enter}${tierBit}${psBit} · ${cost}`;
     }
     // 仅兼容旧日报冻结摘要（研究 Top-K 独立腿）
     return `K${p.top_k ?? "—"} · h${p.horizon_days ?? "—"} · ${cost}`;
@@ -392,53 +392,70 @@ export function installBacktest(q) {
   function scoreToRankPct(score) {
     const n = Number(score);
     if (!Number.isFinite(n)) return "";
-    return (n * 100).toFixed(1);
+    return (n * 100).toFixed(2);
   }
 
-  function applyPortfolioBtParams(req) {
+  function applyPortfolioBtParams(req, { rules = true, desk = true } = {}) {
     if (!req || typeof req !== "object") return;
     const setVal = (id, val) => {
       const el = document.getElementById(id);
       if (!el || val == null || val === "") return;
       el.value = String(val);
     };
-    if (req.lookback != null) setVal("quant-lookback", req.lookback);
-    if (req.fill_clock != null) setVal("quant-fill-clock", clampFillClock(req.fill_clock));
     const form = document.getElementById("paper-path-matrix-form");
     const setName = (name, val) => {
       if (!form || val == null || val === "") return;
       const el = form.querySelector(`[name="${name}"]`);
       if (el) el.value = String(val);
     };
+    if (desk) {
+      if (req.lookback != null) setVal("quant-lookback", req.lookback);
+      if (req.fill_clock != null) setVal("quant-fill-clock", clampFillClock(req.fill_clock));
+      if (req.initial_cash != null) setName("pm_initial_cash", req.initial_cash);
+      if (req.lot_base != null) setName("pm_lot_base", req.lot_base);
+      if (req.universe_fit_tiers != null) applyUniverseFitTiers(req.universe_fit_tiers);
+      if (req.price_space_gate != null) {
+        const el = form && form.querySelector('[name="pm_price_space_gate"]');
+        if (el && el.type === "checkbox") el.checked = req.price_space_gate !== false;
+      }
+    }
+    if (!rules) return;
     const wOo = req.fusion_w_oo != null ? req.fusion_w_oo : req.fusion_w_trade;
     const wOc = req.fusion_w_oc != null ? req.fusion_w_oc : req.fusion_w_nowcast;
     if (wOo != null) {
-      setVal("quant-w-oo", wOo);
       setName("pm_fusion_w_oo", wOo);
-      setName("pm_fusion_w_trade", wOo);
     }
     if (wOc != null) {
-      setVal("quant-w-nowcast", wOc);
       setName("pm_fusion_w_nc", wOc);
     }
     if (req.y_on_alpha != null) {
-      setVal("quant-on-alpha", req.y_on_alpha);
       setName("pm_y_on_alpha", req.y_on_alpha);
     }
     const enterPct = scoreToRankPct(req.rank_enter);
-    const strongPct = scoreToRankPct(req.rank_strong);
+    const enterAltPct = scoreToRankPct(req.rank_enter_alt != null ? req.rank_enter_alt : req.rank_enter);
     if (enterPct) {
-      setVal("quant-rank-enter", enterPct);
       setName("pm_rank_enter", enterPct);
     }
-    if (strongPct) {
-      setVal("quant-rank-strong", strongPct);
-      setName("pm_rank_strong", strongPct);
+    if (enterAltPct) setName("pm_rank_enter_alt", enterAltPct);
+    const setPct = (name, val) => {
+      if (val == null || val === "") return;
+      const n = Number(val);
+      if (Number.isFinite(n)) setName(name, n);
+    };
+    setPct("pm_y_oo_enter", req.y_oo_enter);
+    setPct("pm_y_oc_enter", req.y_oc_enter);
+    setPct("pm_y_hl_enter", req.y_hl_enter);
+    setPct("pm_y_oo_enter_alt", req.y_oo_enter_alt);
+    setPct("pm_y_oc_enter_alt", req.y_oc_enter_alt);
+    setPct("pm_y_hl_enter_alt", req.y_hl_enter_alt);
+    if (req.y_enter_enabled != null) {
+      const el = form && form.querySelector('[name="pm_y_enter_enabled"]');
+      if (el) el.checked = !!req.y_enter_enabled;
     }
-    if (req.initial_cash != null) setName("pm_initial_cash", req.initial_cash);
-    if (req.lot_base != null) setName("pm_lot_base", req.lot_base);
-    if (req.lot_strong != null) setName("pm_lot_strong", req.lot_strong);
-    applyUniverseFitTiers(req.universe_fit_tiers);
+    if (req.y_enter_alt_enabled != null) {
+      const el = form && form.querySelector('[name="pm_y_enter_alt_enabled"]');
+      if (el) el.checked = !!req.y_enter_alt_enabled;
+    }
   }
 
   function applyUniverseFitTiers(tiers) {
@@ -485,18 +502,27 @@ export function installBacktest(q) {
     if (!isReplayDesk()) return;
     if (state.btBusy) return;
     try {
+      const resumed = await resumePortfolioBacktestJobIfRunning();
+      if (resumed || state.btBusy) return;
+    } catch (_) {
+      /* fall through to snapshot */
+    }
+    try {
       const res = await fetch("/api/quant/last-portfolio-backtest");
       const pack = await res.json();
       if (state.btBusy) return;
       if (!pack || pack.empty || !pack.result || !pack.result.success) {
-        await hydrateReplayUniverseFromLive();
+        if (!restoreReplayDeskPrefs()) await hydrateReplayUniverseFromLive();
         return;
       }
       const data = pack.result;
       const at = formatSnapshotAt(pack.saved_at);
-      applyPortfolioBtParams(data.request || data.params);
       const req = data.request || data.params || {};
-      if (!Array.isArray(req.universe_fit_tiers)) {
+      const hasPrefs = !!readReplayDeskPrefs();
+      // 上次回测只恢复净值/成交；表单以「保存」为准，勿用上次跑参盖掉已存配置
+      applyPortfolioBtParams(req, { rules: false, desk: !hasPrefs });
+      restoreReplayDeskPrefs();
+      if (!hasPrefs && !Array.isArray(req.universe_fit_tiers)) {
         await hydrateReplayUniverseFromLive();
       }
       renderPortfolioBacktestResult(data);
@@ -767,16 +793,6 @@ export function installBacktest(q) {
     await renderLineChart(host, pts, { emptyText, disableZoom: !fullWindow });
   }
 
-  function readUnitWeight(id, fallback) {
-    const el = document.getElementById(id);
-    let v = fallback;
-    if (el && el.value !== "") {
-      const n = Number(el.value);
-      if (Number.isFinite(n)) v = n;
-    }
-    return Math.round(Math.max(0, Math.min(1, v)) * 1000) / 1000;
-  }
-
   function readInitialCash() {
     const form = document.getElementById("paper-path-matrix-form");
     const el = form && form.querySelector('[name="pm_initial_cash"]');
@@ -804,16 +820,20 @@ export function installBacktest(q) {
       const el = form && form.querySelector(`[name="${name}"]`);
       return clampReplayLot(el && el.value, fallback);
     };
-    let lot_base = val("pm_lot_base", 100);
-    let lot_strong = val("pm_lot_strong", 200);
-    if (lot_strong < lot_base) lot_strong = lot_base;
+    let lot_base = val("pm_lot_base", 200);
     const setIf = (name, v) => {
       const el = form && form.querySelector(`[name="${name}"]`);
       if (el && el.value !== String(v)) el.value = String(v);
     };
     setIf("pm_lot_base", lot_base);
-    setIf("pm_lot_strong", lot_strong);
-    return { lot_base, lot_strong };
+    return { lot_base, lot_strong: lot_base };
+  }
+
+  function readPriceSpaceGate() {
+    const form = document.getElementById("paper-path-matrix-form");
+    const el = form && form.querySelector('[name="pm_price_space_gate"]');
+    if (!el) return true;
+    return !!el.checked;
   }
 
   function readYOnAlpha() {
@@ -823,7 +843,7 @@ export function installBacktest(q) {
       const n = Number(el.value);
       if (Number.isFinite(n)) return Math.max(0, Math.min(10, n));
     }
-    return readUnitWeight("quant-on-alpha", 0);
+    return 1;
   }
 
   function readFusionWeights() {
@@ -841,16 +861,16 @@ export function installBacktest(q) {
       }
     }
     return {
-      fusion_w_oo: readUnitWeight("quant-w-oo", 0.6),
-      fusion_w_oc: readUnitWeight("quant-w-nowcast", 0.4),
-      fusion_w_trade: readUnitWeight("quant-w-oo", 0.6),
-      fusion_w_nowcast: readUnitWeight("quant-w-nowcast", 0.4),
+      fusion_w_oo: 0.6,
+      fusion_w_oc: 0.4,
+      fusion_w_trade: 0.6,
+      fusion_w_nowcast: 0.4,
     };
   }
 
-  const RANK_PCT_DEFAULT = 1.2;
+  const RANK_PCT_DEFAULT = 0.1;
 
-  /** 表单为百分数（1.2 → 1.2%）；引擎仍用 0.012。 */
+  /** 表单为百分数（0.1 → 0.1%）；引擎仍用 0.001。 */
   function rankPctToScore(raw, fallbackPct = RANK_PCT_DEFAULT) {
     let pct = fallbackPct;
     if (raw != null && raw !== "") {
@@ -867,15 +887,23 @@ export function installBacktest(q) {
       const pack = collectPathMatrixForm(form);
       const lots = pack && pack.rebalance_timing && pack.rebalance_timing.rank_lots;
       if (lots) {
-        return { rank_enter: lots.rank_enter, rank_strong: lots.rank_strong };
+        return {
+          rank_enter: lots.rank_enter,
+          rank_strong: lots.rank_enter,
+          rank_enter_alt: lots.rank_enter_alt,
+          y_enter_enabled: lots.y_enter_enabled,
+          y_enter_alt_enabled: lots.y_enter_alt_enabled,
+          y_oo_enter: lots.y_oo_enter,
+          y_oc_enter: lots.y_oc_enter,
+          y_hl_enter: lots.y_hl_enter,
+          y_oo_enter_alt: lots.y_oo_enter_alt,
+          y_oc_enter_alt: lots.y_oc_enter_alt,
+          y_hl_enter_alt: lots.y_hl_enter_alt,
+        };
       }
     }
-    const enterEl = document.getElementById("quant-rank-enter");
-    const strongEl = document.getElementById("quant-rank-strong");
-    let enter = rankPctToScore(enterEl && enterEl.value);
-    let strong = rankPctToScore(strongEl && strongEl.value);
-    if (strong < enter) strong = enter;
-    return { rank_enter: enter, rank_strong: strong };
+    const enter = rankPctToScore();
+    return { rank_enter: enter, rank_strong: enter };
   }
 
   const FILL_CLOCK_KEY = "paper.replay.fill_clock";
@@ -922,56 +950,82 @@ export function installBacktest(q) {
     if (el) el.value = clampFillClock(v);
   }
 
+  const REPLAY_DESK_PREFS_KEY = "paper.replay.desk_prefs";
+
+  function readReplayDeskPrefs() {
+    try {
+      const raw = localStorage.getItem(REPLAY_DESK_PREFS_KEY);
+      if (!raw) return null;
+      const o = JSON.parse(raw);
+      return o && typeof o === "object" ? o : null;
+    } catch (_err) {
+      return null;
+    }
+  }
+
+  function persistReplayDeskPrefs() {
+    if (!isReplayDesk()) return;
+    try {
+      const p = readPortfolioBtParams();
+      localStorage.setItem(
+        REPLAY_DESK_PREFS_KEY,
+        JSON.stringify({
+          lookback: p.lookback,
+          fill_clock: p.fill_clock,
+          universe_fit_tiers: p.universe_fit_tiers,
+          initial_cash: p.initial_cash,
+          lot_base: p.lot_base,
+          lot_strong: p.lot_base,
+          price_space_gate: p.price_space_gate !== false,
+          fusion_w_oo: p.fusion_w_oo,
+          fusion_w_oc: p.fusion_w_oc,
+          fusion_w_trade: p.fusion_w_oo,
+          fusion_w_nowcast: p.fusion_w_oc,
+          y_on_alpha: p.y_on_alpha,
+          rank_enter: p.rank_enter,
+          rank_strong: p.rank_enter,
+          rank_enter_alt: p.rank_enter_alt,
+          y_enter_enabled: p.y_enter_enabled,
+          y_enter_alt_enabled: p.y_enter_alt_enabled,
+          y_oo_enter: p.y_oo_enter,
+          y_oc_enter: p.y_oc_enter,
+          y_hl_enter: p.y_hl_enter,
+          y_oo_enter_alt: p.y_oo_enter_alt,
+          y_oc_enter_alt: p.y_oc_enter_alt,
+          y_hl_enter_alt: p.y_hl_enter_alt,
+        })
+      );
+    } catch (_err) {
+      /* ignore */
+    }
+  }
+
+  function restoreReplayDeskPrefs() {
+    const prefs = readReplayDeskPrefs();
+    if (!prefs) return false;
+    applyPortfolioBtParams(prefs, { rules: true, desk: true });
+    restoreFillClock(prefs.fill_clock);
+    return true;
+  }
+
   function readPortfolioBtParams() {
     const lbEl = document.getElementById("quant-lookback");
-    const wmEl = document.getElementById("quant-weight-mode");
-    const dropEl = document.getElementById("quant-dropout-n");
-    const stEl = document.getElementById("quant-exclude-st");
-    const amtEl = document.getElementById("quant-min-amount-pctile");
-    const benchEl = document.getElementById("quant-benchmark-code");
     let lookback = 30;
-    let weightMode = "score_budget";
-    let dropoutN = 0;
-    let excludeSt = true;
-    let minAvgAmountPctile = null;
-    let benchmarkCode = "000300";
     if (lbEl && lbEl.value !== "") {
       const n = Number(lbEl.value);
       if (Number.isFinite(n)) lookback = Math.max(10, Math.min(500, Math.round(n)));
     }
-    if (wmEl && wmEl.value) {
-      const allowed = new Set(["equal", "score_budget", "risk_parity_lite"]);
-      if (allowed.has(String(wmEl.value))) weightMode = String(wmEl.value);
-    }
-    if (dropEl && dropEl.value !== "") {
-      const n = Number(dropEl.value);
-      if (Number.isFinite(n)) dropoutN = Math.max(0, Math.min(10, Math.round(n)));
-    }
-    if (stEl) excludeSt = !!stEl.checked;
-    if (amtEl && amtEl.value !== "") {
-      const n = Number(amtEl.value);
-      if (Number.isFinite(n) && n > 0) {
-        minAvgAmountPctile = Math.max(0, Math.min(90, n));
-      }
-    }
-    if (benchEl && benchEl.value) {
-      const allowedB = new Set(["000300", "000905", "399006", "pool"]);
-      if (allowedB.has(String(benchEl.value))) benchmarkCode = String(benchEl.value);
-    }
-    const rankMode = "predicted_score";
     return {
       lookback,
       horizon_days: 1,
-      weight_mode: weightMode,
-      dropout_n: dropoutN,
-      exclude_st: excludeSt,
-      min_avg_amount_pctile: minAvgAmountPctile,
-      benchmark_code: benchmarkCode,
-      rank_mode: rankMode,
+      exclude_st: true,
+      min_avg_amount_pctile: null,
+      benchmark_code: "000300",
       y_on_alpha: readYOnAlpha(),
       initial_cash: readInitialCash(),
       fill_clock: readFillClock(),
       universe_fit_tiers: readUniverseFitTiers(),
+      price_space_gate: readPriceSpaceGate(),
       ...readReplayLots(),
       ...readFusionWeights(),
       ...readRankThresholds(),
@@ -1368,17 +1422,77 @@ export function installBacktest(q) {
       );
   }
 
+  function paintPortfolioBacktestFail(failText) {
+    const text = String(failText || "回测失败");
+    writePortfolioSummary(text, { error: true });
+    renderPortfolioBacktestResult(null);
+    paintPortfolioChart([], text);
+  }
+
+  function applyLivePortfolioResult(data, elapsed) {
+    const summary = buildPortfolioBacktestSummaryText(data);
+    const elapsedBit = elapsed ? ` · 耗时 ${elapsed}` : "";
+    writePortfolioSummary(`${summary.text}${elapsedBit}`, { error: !!summary.warn });
+    state.neutralCompareSource = null;
+    renderNeutralCompareTable(null);
+    renderPortfolioBacktestResult(data);
+    paintPortfolioChart(
+      data.equity_curve,
+      "回测无足够交易点",
+      (data.benchmark && data.benchmark.ok && data.benchmark.equity_curve) || null,
+      (data.benchmark && data.benchmark.benchmark_label) || null
+    );
+    try {
+      const curve =
+        data.equity_curve_tail ||
+        (Array.isArray(data.equity_curve) ? data.equity_curve.slice(-120) : []);
+      if (Array.isArray(curve) && curve.length) {
+        localStorage.setItem(
+          "investment_northstar_last_backtest",
+          JSON.stringify({ at: Date.now(), curve })
+        );
+      }
+    } catch (_) {
+      /* ignore */
+    }
+    persistReplayDeskPrefs();
+  }
+
+  function fmtBtElapsed(started) {
+    const sec = Math.max(1, Math.round((Date.now() - Number(started || Date.now())) / 1000));
+    return sec < 60
+      ? `${sec}s`
+      : `${Math.floor(sec / 60)}m${String(sec % 60).padStart(2, "0")}s`;
+  }
+
+  function jobStartedMs(job, fallback) {
+    const n = Number(job && job.started_at);
+    if (Number.isFinite(n) && n > 0) return n < 1e12 ? n * 1000 : n;
+    return fallback;
+  }
+
+  function portfolioJobHint(job, ctx) {
+    const msg = String((job && job.message) || "").trim();
+    const cur = Number((job && job.current) || 0);
+    const tot = Number((job && job.total) || 0);
+    const bits = [];
+    if (msg && msg !== "回测中…") bits.push(msg);
+    if (Number.isFinite(tot) && tot > 1) {
+      const pct = Math.max(0, Math.min(100, Math.round((Math.max(0, cur) / tot) * 100)));
+      bits.push(`${Math.max(0, Math.round(cur))}/${Math.round(tot)}（${pct}%）`);
+    }
+    if (ctx) bits.push(ctx);
+    return bits.filter(Boolean).join(" · ");
+  }
+
   async function runPortfolioBacktest() {
     const watchN = Object.keys(state.watchingNameByCode || {}).length;
     const started = Date.now();
-    const fmtElapsed = () => {
-      const sec = Math.max(1, Math.round((Date.now() - started) / 1000));
-      return sec < 60
-        ? `${sec}s`
-        : `${Math.floor(sec / 60)}m${String(sec % 60).padStart(2, "0")}s`;
+    let lastHint = "";
+    const refreshBusy = () => {
+      const hint = lastHint ? ` · ${lastHint}` : "";
+      setQuantBtBusy(true, `回测中… ${fmtBtElapsed(started)}${hint}`);
     };
-    const busyBase = "回测中…";
-    const refreshBusy = () => setQuantBtBusy(true, `${busyBase} ${fmtElapsed()}`);
     refreshBusy();
     const tick = setInterval(refreshBusy, 1000);
     try {
@@ -1395,12 +1509,30 @@ export function installBacktest(q) {
         fusion_w_nowcast,
         rank_enter,
         rank_strong,
+        rank_enter_alt,
+        y_enter_enabled,
+        y_enter_alt_enabled,
+        y_oo_enter,
+        y_oc_enter,
+        y_hl_enter,
+        y_oo_enter_alt,
+        y_oc_enter_alt,
+        y_hl_enter_alt,
         initial_cash,
         fill_clock,
         lot_base,
         lot_strong,
         universe_fit_tiers,
+        price_space_gate,
       } = readPortfolioBtParams();
+      const cashWan = Number.isFinite(Number(initial_cash))
+        ? String(Number(initial_cash) / 10000).replace(/\.0$/, "")
+        : "20";
+      const ctx = [watchN ? `${watchN}只` : "", `${lookback}日`, fill_clock, `本金${cashWan}万`]
+        .filter(Boolean)
+        .join(" · ");
+      lastHint = ctx;
+      refreshBusy();
       const payload = {
         lookback,
         apply_costs: true,
@@ -1415,17 +1547,25 @@ export function installBacktest(q) {
         fusion_w_nowcast: fusion_w_oc != null ? fusion_w_oc : fusion_w_nowcast,
         rank_enter,
         rank_strong,
+        rank_enter_alt,
+        y_enter_enabled,
+        y_enter_alt_enabled,
+        y_oo_enter,
+        y_oc_enter,
+        y_hl_enter,
+        y_oo_enter_alt,
+        y_oc_enter_alt,
+        y_hl_enter_alt,
         initial_cash,
         fill_clock,
         lot_base,
         lot_strong,
         universe_fit_tiers,
+        price_space_gate,
         include_benchmark: true,
       };
       const ctrl = typeof AbortController !== "undefined" ? new AbortController() : null;
-      const heavyRun = watchN >= 40 || lookback >= 90;
-      const abortMs = heavyRun ? 1200000 : 480000;
-      const timer = ctrl ? setTimeout(() => ctrl.abort(), abortMs) : null;
+      const timer = ctrl ? setTimeout(() => ctrl.abort(), 30000) : null;
       let res;
       try {
         res = await fetch("/api/quant/portfolio-backtest", {
@@ -1439,51 +1579,41 @@ export function installBacktest(q) {
           err && (err.name === "AbortError" || /abort/i.test(String(err)))
         );
         const failMsg = aborted
-          ? `回测超时未返回（满池 + lookback 长时常见，需 10～20 分钟）。可试：lookback 60，或等分组任务跑完再点。`
+          ? "回测入队失败或连接中断。服务刚重启时请稍候刷新再试"
           : String((err && err.message) || err || "回测请求失败");
-        writePortfolioSummary(failMsg, { error: true });
-        renderPortfolioBacktestResult(null);
-        paintPortfolioChart([], "回测失败");
+        paintPortfolioBacktestFail(failMsg);
         return { success: false, error: failMsg };
       } finally {
         if (timer) clearTimeout(timer);
       }
       const data = await res.json().catch(() => ({}));
-      if (!res.ok || !data.success) {
+      if (!res.ok) {
         const failText = buildPortfolioBacktestFailText(data, res.status);
-        writePortfolioSummary(failText, { error: true });
-        renderPortfolioBacktestResult(null);
-        paintPortfolioChart([], failText || "回测失败");
+        paintPortfolioBacktestFail(failText);
         return data;
       }
-      const summary = buildPortfolioBacktestSummaryText(data);
-      const elapsed = fmtElapsed();
-      writePortfolioSummary(`${summary.text} · 耗时 ${elapsed}`, { error: !!summary.warn });
-      // Top-K 单曲线与中性化对照无关：清掉日报/上次对照块，避免曲线前残留「绝对分…百分点」
-      state.neutralCompareSource = null;
-      renderNeutralCompareTable(null);
-      renderPortfolioBacktestResult(data);
-      paintPortfolioChart(
-        data.equity_curve,
-        "回测无足够交易点",
-        (data.benchmark && data.benchmark.ok && data.benchmark.equity_curve) || null,
-        (data.benchmark && data.benchmark.benchmark_label) || null
-      );
-
-      // 北极星仪表化（前端缓存）：滚动夏普 / 卡玛 / TTM 等
-      try {
-        const curve =
-          data.equity_curve_tail ||
-          (Array.isArray(data.equity_curve) ? data.equity_curve.slice(-120) : []);
-        if (Array.isArray(curve) && curve.length) {
-          localStorage.setItem(
-            "investment_northstar_last_backtest",
-            JSON.stringify({ at: Date.now(), curve })
-          );
+      if (data.background) {
+        const jobId = data.job && data.job.id;
+        const jobStart = jobStartedMs(data.job, started);
+        try {
+          const done = await awaitPortfolioBacktestJob(jobId, jobStart, ctx, (hint) => {
+            lastHint = hint || ctx;
+            refreshBusy();
+          });
+          await applyFinishedPortfolioJob(done, jobStart);
+          return (done && done.result) || data;
+        } catch (err) {
+          const failMsg = String((err && err.message) || err || "回测失败");
+          paintPortfolioBacktestFail(failMsg);
+          return { success: false, error: failMsg };
         }
-      } catch (_) {
-        /* ignore */
       }
+      if (!data.success) {
+        const failText = buildPortfolioBacktestFailText(data, res.status);
+        paintPortfolioBacktestFail(failText);
+        return data;
+      }
+      applyLivePortfolioResult(data, fmtBtElapsed(started));
       return data;
     } finally {
       clearInterval(tick);
@@ -1607,6 +1737,145 @@ export function installBacktest(q) {
 
   function sleepMs(ms) {
     return new Promise((r) => setTimeout(r, ms));
+  }
+
+  let portfolioBtPollInflight = null;
+
+  function portfolioJobPaintable(result) {
+    return !!(result && result.success && !result.persisted_truncated);
+  }
+
+  async function fetchLastPortfolioSnapshotResult() {
+    const pack = await fetch("/api/quant/last-portfolio-backtest").then((res) => res.json());
+    if (pack && pack.result && pack.result.success) return pack.result;
+    return null;
+  }
+
+  async function applyFinishedPortfolioJob(job, started) {
+    const elapsed = fmtBtElapsed(started || Date.now());
+    if (job && (job.status === "failed" || job.error) && !portfolioJobPaintable(job.result)) {
+      paintPortfolioBacktestFail(job.error || "回测失败");
+      return;
+    }
+    let data = portfolioJobPaintable(job && job.result) ? job.result : null;
+    if (!data) {
+      try {
+        data = await fetchLastPortfolioSnapshotResult();
+      } catch (_) {
+        data = null;
+      }
+    }
+    if (data && data.success) {
+      applyLivePortfolioResult(data, elapsed);
+      return;
+    }
+    paintPortfolioBacktestFail((job && job.error) || (data && data.error) || "回测失败");
+  }
+
+  async function pollPortfolioBacktestJob(jobId, started, ctx, onHint) {
+    const pollStarted = started || Date.now();
+    const absoluteCapMs = 40 * 60 * 1000;
+    let netFailStreak = 0;
+    let sawOwnJob = false;
+    while (true) {
+      if (Date.now() - pollStarted > absoluteCapMs) {
+        throw new Error("回测超时（>40 分钟）。可先缩小回看窗，或等日线/分钟预热后再点");
+      }
+      let data = {};
+      let ok = false;
+      let status = 0;
+      try {
+        const res = await fetch("/api/jobs/portfolio-backtest?progress=1");
+        status = res.status;
+        data = await res.json().catch(() => ({}));
+        ok = res.ok;
+      } catch (_) {
+        netFailStreak += 1;
+        lastHintSafe(
+          onHint,
+          `服务短暂断开，重连中（${netFailStreak}）${ctx ? ` · ${ctx}` : ""}`
+        );
+        setQuantBtBusy(
+          true,
+          `回测中… ${fmtBtElapsed(pollStarted)} · 服务短暂断开，重连中（${netFailStreak}）`
+        );
+        await sleepMs(Math.min(4000, 500 * netFailStreak));
+        continue;
+      }
+      if (!ok && (!status || status === 0 || status >= 500)) {
+        netFailStreak += 1;
+        lastHintSafe(
+          onHint,
+          `服务短暂断开，重连中（${netFailStreak}）${ctx ? ` · ${ctx}` : ""}`
+        );
+        setQuantBtBusy(
+          true,
+          `回测中… ${fmtBtElapsed(pollStarted)} · 服务短暂断开，重连中（${netFailStreak}）`
+        );
+        await sleepMs(Math.min(4000, 500 * netFailStreak));
+        continue;
+      }
+      netFailStreak = 0;
+      const job = (data && data.job) || {};
+      const sameJob = !jobId || !job.id || job.id === jobId;
+      if (sameJob && job.id) sawOwnJob = true;
+      if (job.status === "idle" || !job.id) {
+        if (sawOwnJob || Date.now() - pollStarted > 2500) {
+          throw new Error("回测已中断（可能服务重启），请再点调仓回测");
+        }
+        await sleepMs(400);
+        continue;
+      }
+      if (!sameJob) {
+        throw new Error("调仓回测已被其它任务覆盖，请重试");
+      }
+      if (job.status === "failed") {
+        throw new Error(job.error || "回测失败");
+      }
+      if (job.status === "done") {
+        const full = await fetch("/api/jobs/portfolio-backtest").then((res) =>
+          res.json().catch(() => ({}))
+        );
+        return (full && full.job) || job;
+      }
+      const hint = portfolioJobHint(job, ctx) || "回测中…";
+      lastHintSafe(onHint, hint);
+      setQuantBtBusy(true, `回测中… ${fmtBtElapsed(pollStarted)} · ${hint}`);
+      await sleepMs(1200);
+    }
+  }
+
+  function lastHintSafe(onHint, hint) {
+    if (typeof onHint === "function") onHint(hint);
+  }
+
+  function awaitPortfolioBacktestJob(jobId, started, ctx, onHint) {
+    if (portfolioBtPollInflight) return portfolioBtPollInflight;
+    portfolioBtPollInflight = pollPortfolioBacktestJob(jobId, started, ctx, onHint).finally(
+      () => {
+        portfolioBtPollInflight = null;
+      }
+    );
+    return portfolioBtPollInflight;
+  }
+
+  async function resumePortfolioBacktestJobIfRunning() {
+    try {
+      const jr = await fetch("/api/jobs/portfolio-backtest?progress=1").then((res) =>
+        res.json().catch(() => ({}))
+      );
+      const job = (jr && jr.job) || {};
+      if (job.status !== "running" || !job.id) return false;
+      const started = jobStartedMs(job, Date.now());
+      setQuantBtBusy(true, job.message || "回测中…");
+      const done = await awaitPortfolioBacktestJob(job.id, started, "");
+      await applyFinishedPortfolioJob(done, started);
+      return true;
+    } catch (err) {
+      paintPortfolioBacktestFail(String((err && err.message) || err || "回测中断"));
+      setQuantBtBusy(false);
+      return true;
+    }
   }
 
   function t0JobPaintable(result) {
@@ -1836,9 +2105,23 @@ export function installBacktest(q) {
     }
   }
 
+  function wireReplayPriceSpaceGate() {
+    const form = document.getElementById("paper-path-matrix-form");
+    const el = form && form.querySelector('[name="pm_price_space_gate"]');
+    if (!el || el.dataset.wired === "1") return;
+    el.dataset.wired = "1";
+    el.addEventListener("change", () => persistReplayDeskPrefs());
+  }
+
   wirePaperT0Backtest();
   wireReplayFillClock();
-  initExecutionRuleForms().catch(() => {});
+  wireReplayPriceSpaceGate();
+  if (typeof window !== "undefined") {
+    window.addEventListener("investment-replay-desk-persist", () => persistReplayDeskPrefs());
+  }
+  initExecutionRuleForms()
+    .then(() => restoreReplayDeskPrefs())
+    .catch(() => {});
 
   return {
     clearBtTradesTable,

@@ -15,6 +15,7 @@
 
 from __future__ import annotations
 
+import copy
 import logging
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
@@ -69,6 +70,11 @@ T0_PAPER_DAILY_BAR_LIMIT = T0_BACKTEST_SCORE_WARMUP + 1
 _MODEL_CACHE: Dict[str, Any] = {}
 # 单日 τ 截面缓存：day → build_tau_pool_by_date 条目
 _TAU_XS_DAY_CACHE: Dict[str, Dict[str, Any]] = {}
+# 同一交易日多根 5m 前缀重算时，EOD 因子窗不变；缓存避免每根重跑 score_window
+_EOD_ITEM_CACHE: Dict[tuple, dict] = {}
+_EOD_ITEM_CACHE_MAX = 256
+# 本地估值/财务：按代码缓存，避免逐根 5m 打盘
+_FUND_CACHE: Dict[str, Any] = {}
 
 
 def _f(x: Any) -> Optional[float]:
@@ -520,8 +526,11 @@ def pack_day_scores(score_snap: Optional[dict]) -> Optional[Dict[str, Any]]:
         "ranking",
         "y_on",
         "y_on_path",
+        "y_co",
         "y_nowcast",
         "y_path",
+        "y_hl",
+        "y_hl_portrait",
         "predicted_score_complexity",
         "y_complexity_hat",
         "predicted_score_cx",
@@ -579,6 +588,27 @@ def pack_day_scores(score_snap: Optional[dict]) -> Optional[Dict[str, Any]]:
     src = score_snap.get("_score_source")
     if src:
         out["_score_source"] = src
+    try:
+        from core.research.path_panel import pick_y_hl, write_y_hl
+        from core.signal.yhat_windows import pick_y_co
+
+        yhl = pick_y_hl(out) or pick_y_hl(score_snap)
+        if yhl is not None:
+            write_y_hl(out, yhl)
+            out.pop("y_path", None)
+            out.pop("predicted_score_path", None)
+        yco = pick_y_co(out) or pick_y_co(score_snap)
+        if yco is not None:
+            out["y_co"] = yco
+            out.pop("y_on", None)
+        yhlp = _f(out.get("y_hl_portrait"))
+        if yhlp is None:
+            yhlp = _f(out.get("y_path_portrait"))
+        if yhlp is not None:
+            out["y_hl_portrait"] = yhlp
+            out.pop("y_path_portrait", None)
+    except Exception:  # noqa: BLE001
+        logger.debug("pack_day_scores canonical y_hl/y_co failed", exc_info=True)
     return out or None
 
 
@@ -604,8 +634,11 @@ def attach_day_scores(
             "y_trade",
             "y_on",
             "y_on_path",
+            "y_co",
             "y_nowcast",
             "y_path",
+            "y_hl",
+            "y_hl_portrait",
             "predicted_score_complexity",
             "y_complexity_hat",
             "predicted_score_cx",
@@ -709,8 +742,9 @@ def scores_from_item(item: Optional[dict]) -> Dict[str, Optional[float]]:
             "y_eod": None,
             "y_tau": None,
             "y_trade": None,
-            "y_on": None,
+            "y_co": None,
             "y_nowcast": None,
+            "y_hl": None,
             "y_check": None,
             "eod_trust": None,
         }
@@ -770,9 +804,9 @@ def scores_from_item(item: Optional[dict]) -> Dict[str, Optional[float]]:
     if y_trade is not None and abs(y_trade) > 20.0:
         y_trade = None
 
-    y_on = _f(item.get("y_on"))
-    if y_on is None:
-        y_on = _f(item.get("predicted_score_on"))
+    from core.signal.yhat_windows import pick_y_co
+
+    y_co = pick_y_co(item)
 
     y_on_path = _f(item.get("y_on_path"))
     if y_on_path is None:
@@ -784,7 +818,7 @@ def scores_from_item(item: Optional[dict]) -> Dict[str, Optional[float]]:
 
     from core.research.path_panel import pick_y_hl, write_y_hl
 
-    y_path = pick_y_hl(item)
+    y_hl = pick_y_hl(item)
 
     y_complexity_hat = None
     try:
@@ -816,20 +850,18 @@ def scores_from_item(item: Optional[dict]) -> Dict[str, Optional[float]]:
         "y_eod": y_eod,
         "y_tau": y_tau,
         "y_trade": y_trade,
-        "y_on": y_on,
+        "y_co": y_co,
         "y_nowcast": y_nowcast,
-        "y_path": y_path,
-        "y_hl": y_path,
+        "y_hl": y_hl,
         "y_check": y_check,
         "eod_trust": eod_trust,
     }
-    if y_path is not None:
+    if y_hl is not None:
         try:
-            write_y_hl(out, y_path)
+            write_y_hl(out, y_hl)
         except Exception:  # noqa: BLE001
-            out["y_hl"] = y_path
-            out["predicted_score_hl"] = y_path
-            out["predicted_score_path"] = y_path
+            out["y_hl"] = y_hl
+            out["predicted_score_hl"] = y_hl
     try:
         from core.signal.yhat_windows import stamp_window_scores
 
@@ -1530,6 +1562,7 @@ def _attach_y_path_to_item(
     *,
     hist_bars: Optional[Sequence[dict]] = None,
     allow_open_z: bool = True,
+    include_tau_horizons: bool = True,
 ) -> None:
     """即时算分后补 ŷ_hl（开盘 Z ± 分钟小包 → path_ridge）。
 
@@ -1647,6 +1680,8 @@ def _attach_y_path_to_item(
             _attach_y_r_to_item(item, allow_open_z=allow_open_z)
         except Exception:  # noqa: BLE001
             logger.debug("attach y_r failed", exc_info=True)
+        if not include_tau_horizons:
+            return
         try:
             _attach_y_t30_to_item(item, allow_open_z=allow_open_z, hist_bars=hist_bars)
         except Exception:  # noqa: BLE001
@@ -2474,6 +2509,7 @@ def rescore_scores_at_fixed_prefix(
     tau_pool_day: Optional[dict] = None,
     fuse_intraday: bool = True,
     open_snap: Optional[dict] = None,
+    include_tau_horizons: bool = True,
 ) -> Dict[str, Any]:
     """用已发生分钟前缀重算 dual_y（因果；≥1 根即可，含 09:35 首根）。
 
@@ -2559,7 +2595,12 @@ def rescore_scores_at_fixed_prefix(
         out["date"] = dkey
     # 禁止 silently 用开盘 Z 冒充盘中 path
     out["_minute_prefix"] = prefix
-    _attach_y_path_to_item(out, hist_bars=hist_bars, allow_open_z=False)
+    _attach_y_path_to_item(
+        out,
+        hist_bars=hist_bars,
+        allow_open_z=False,
+        include_tau_horizons=include_tau_horizons,
+    )
     out.pop("_minute_prefix", None)
     out["_score_source"] = src
     out["_score_prefix_hm"] = hm
@@ -2658,11 +2699,17 @@ def attach_portrait_dual_scores(
             snap, prefix, day_bar=day_ref, tau_hm=hm, hist_bars=hist_bars
         )
 
-    y_path_p = _f(out.get("y_path_portrait"))
+    y_path_p = _f(out.get("y_hl_portrait"))
+    if y_path_p is None:
+        y_path_p = _f(out.get("y_path_portrait"))
     if y_path_p is None and isinstance(out.get("scores"), dict):
-        y_path_p = _f(out["scores"].get("y_path_portrait"))
+        y_path_p = _f(out["scores"].get("y_hl_portrait"))
+        if y_path_p is None:
+            y_path_p = _f(out["scores"].get("y_path_portrait"))
     if y_path_p is None and str(snap.get("_score_source") or "") == "prefix_causal":
-        y_path_p = _f(snap.get("y_path"))
+        from core.research.path_panel import pick_y_hl
+
+        y_path_p = pick_y_hl(snap)
     if y_path_p is None:
         y_path_p = predict_path_from_prefix_minutes(
             snap,
@@ -2684,20 +2731,15 @@ def attach_portrait_dual_scores(
         feats["y_tau_portrait_oc"] = y_tau_f
     if y_path_p is not None:
         y_path_f = round(float(y_path_p), 4)
-        out["y_path_portrait"] = y_path_f
         out["y_hl_portrait"] = y_path_f
-        sc["y_path_portrait"] = y_path_f
         sc["y_hl_portrait"] = y_path_f
-        feats["y_path_portrait"] = y_path_f
         feats["y_hl_portrait"] = y_path_f
-        # 兼容旧画像读 y_path：仅当决策快照缺 HL 时回填
         from core.research.path_panel import pick_y_hl, write_y_hl, write_y_hl_status
 
         if pick_y_hl(out) is None and pick_y_hl(sc) is None:
             write_y_hl(out, y_path_f)
             write_y_hl(sc, y_path_f)
             feats["y_hl"] = y_path_f
-            feats["y_path"] = y_path_f
             write_y_hl_status(out, "portrait_causal")
             write_y_hl_status(sc, "portrait_causal")
     out["portrait_prefix_bars"] = n_pref
@@ -2777,13 +2819,13 @@ def resolve_dual_y_direction(
     tau_enter_buy_then_sell = side_tau_enter(
         {**cfg, "y_tau_enter": tau_enter}, for_buy_then_sell=True
     )
-    path_enter = _cfg_float(cfg, "y_path_enter", tau_enter)
+    path_enter = _cfg_float(cfg, "y_hl_enter", _cfg_float(cfg, "y_path_enter", tau_enter))
     path_enter_sell_then_buy = side_path_enter(
-        {**cfg, "y_path_enter": path_enter, "y_tau_enter": tau_enter},
+        {**cfg, "y_hl_enter": path_enter, "y_tau_enter": tau_enter},
         for_buy_then_sell=False,
     )
     path_enter_buy_then_sell = side_path_enter(
-        {**cfg, "y_path_enter": path_enter, "y_tau_enter": tau_enter},
+        {**cfg, "y_hl_enter": path_enter, "y_tau_enter": tau_enter},
         for_buy_then_sell=True,
     )
 
@@ -2824,7 +2866,11 @@ def resolve_dual_y_direction(
     mag = residual if residual is not None else y_trade
     mag_label = "residual" if residual is not None else "y_trade"
     y_nowcast = _f(scores.get("y_nowcast"))
-    y_path = _f(scores.get("y_path"))
+    from core.research.path_panel import pick_y_hl
+    from core.signal.yhat_windows import pick_y_co
+
+    y_path = pick_y_hl(scores)
+    y_co = pick_y_co(scores)
     y_check = scores.get("y_check")
     gap_pct = _f(scores.get("gap_pct"))
     if gap_pct is None and isinstance(scores.get("features_tau"), dict):
@@ -2848,17 +2894,17 @@ def resolve_dual_y_direction(
         "dual_score_window": "eod_next" if eod_next else scores.get("dual_score_window"),
         "y_trade": y_trade,
         "residual": mag,
-        "y_on": _f(scores.get("y_on")),
+        "y_co": y_co,
         "y_nowcast": y_nowcast,
-        "y_path": y_path,
+        "y_hl": y_path,
         "y_check": y_check,
         "gap_pct": gap_pct,
         "y_tau_enter": tau_enter,
         "y_tau_enter_sell_then_buy": tau_enter_sell_then_buy,
         "y_tau_enter_buy_then_sell": tau_enter_buy_then_sell,
-        "y_path_enter": path_enter,
-        "y_path_enter_sell_then_buy": path_enter_sell_then_buy,
-        "y_path_enter_buy_then_sell": path_enter_buy_then_sell,
+        "y_hl_enter": path_enter,
+        "y_hl_enter_sell_then_buy": path_enter_sell_then_buy,
+        "y_hl_enter_buy_then_sell": path_enter_buy_then_sell,
         "y_nc_enter": nc_enter,
         "y_nc_strong": nc_strong,
         "y_nowcast_enter": nc_strong,
@@ -2909,9 +2955,9 @@ def resolve_dual_y_direction(
             "y_tau_enter": tau_enter,
             "y_tau_enter_sell_then_buy": tau_enter_sell_then_buy,
             "y_tau_enter_buy_then_sell": tau_enter_buy_then_sell,
-            "y_path_enter": path_enter,
-            "y_path_enter_sell_then_buy": path_enter_sell_then_buy,
-            "y_path_enter_buy_then_sell": path_enter_buy_then_sell,
+            "y_hl_enter": path_enter,
+            "y_hl_enter_sell_then_buy": path_enter_sell_then_buy,
+            "y_hl_enter_buy_then_sell": path_enter_buy_then_sell,
         },
         y_tau,
     )
@@ -3191,7 +3237,9 @@ def resolve_cover_policy(
             "allow_overnight": False,
         }
 
-    y_on = _f(scores.get("y_on"))
+    from core.signal.yhat_windows import pick_y_co
+
+    y_on = pick_y_co(scores)
     y_trade = _f(scores.get("y_trade"))
     trade_floor = trade_mag_floor(cfg)
     on_risk = _cfg_float(cfg, "y_on_risk", DEFAULT_ON_RISK)
@@ -3264,7 +3312,7 @@ def scores_have_any(scores: Optional[dict]) -> bool:
         return False
     return any(
         _f(scores.get(k)) is not None
-        for k in ("y_eod", "y_tau", "y_trade", "y_on", "y_path")
+        for k in ("y_eod", "y_tau", "y_trade", "y_co", "y_on", "y_hl", "y_path")
     )
 
 
@@ -3435,6 +3483,8 @@ def clear_score_model_cache() -> None:
     """测试 / 热更模型后清空缓存。"""
     _MODEL_CACHE.clear()
     _TAU_XS_DAY_CACHE.clear()
+    _EOD_ITEM_CACHE.clear()
+    _FUND_CACHE.clear()
 
 
 def _tau_cross_section_kwargs(code: str, day_key: str) -> Dict[str, Any]:
@@ -3510,6 +3560,9 @@ def _t0_local_fundamentals(code: str) -> Optional[dict]:
     raw = str(code or "").strip()
     if not raw:
         return None
+    if raw in _FUND_CACHE:
+        hit = _FUND_CACHE.get(raw)
+        return hit if isinstance(hit, dict) and hit else None
     try:
         from core.valuation_em import merge_cached_valuation
 
@@ -3522,7 +3575,81 @@ def _t0_local_fundamentals(code: str) -> Optional[dict]:
         fundamentals = merge_local_fundamentals_snapshot(raw, fundamentals) or fundamentals
     except Exception:  # noqa: BLE001
         logger.debug("t0 fundamentals snapshot merge failed", exc_info=True)
-    return fundamentals if isinstance(fundamentals, dict) and fundamentals else None
+    out = fundamentals if isinstance(fundamentals, dict) and fundamentals else None
+    _FUND_CACHE[raw] = out
+    return out
+
+
+def _eod_item_cache_key(
+    raw: str,
+    hist: Sequence[dict],
+    day: Optional[dict],
+    quote: Optional[dict],
+    *,
+    pool_gaps: Optional[Sequence[float]],
+    sector_gap_breadth: Optional[float],
+    sector_gap_median: Optional[float],
+    horizon_days: int,
+    fund_fp: tuple,
+    idx_n: int,
+) -> tuple:
+    hist_end = str((hist[-1] or {}).get("date") or "")[:10] if hist else ""
+    day_d = str((day or {}).get("date") or "")[:10]
+    q = quote if isinstance(quote, dict) else {}
+    try:
+        open_px = round(
+            float(q.get("price") if q.get("price") is not None else (day or {}).get("open") or 0),
+            6,
+        )
+    except (TypeError, ValueError):
+        open_px = 0.0
+    try:
+        med = round(float(sector_gap_median), 8) if sector_gap_median is not None else None
+    except (TypeError, ValueError):
+        med = None
+    try:
+        br = round(float(sector_gap_breadth), 8) if sector_gap_breadth is not None else None
+    except (TypeError, ValueError):
+        br = None
+    gaps = tuple(
+        round(float(g), 6)
+        for g in (pool_gaps or [])
+        if g is not None
+    )
+    return (
+        str(raw),
+        hist_end,
+        len(hist),
+        day_d,
+        open_px,
+        med,
+        br,
+        gaps,
+        int(horizon_days or 1),
+        tuple(fund_fp or ()),
+        int(idx_n),
+    )
+
+
+def _fund_cache_fp(fund: Optional[dict]) -> tuple:
+    if not isinstance(fund, dict) or not fund:
+        return ()
+    out = []
+    for k in ("market_cap", "pe_ttm", "pb", "ps_ttm", "roe"):
+        if k not in fund:
+            continue
+        try:
+            out.append((k, round(float(fund.get(k)), 6)))
+        except (TypeError, ValueError):
+            out.append((k, str(fund.get(k))[:32]))
+    return tuple(out)
+
+
+def _clone_eod_item(item: dict) -> dict:
+    try:
+        return copy.deepcopy(item)
+    except Exception:  # noqa: BLE001
+        return dict(item)
 
 
 def compute_scores_from_bars(
@@ -3631,38 +3758,59 @@ def compute_scores_from_bars(
     try:
         # EOD 因子窗与刷簿 score_stock(limit=40) 对齐；τ/ATR 仍用更长 hist
         eod_hist = hist[-int(_EOD_FACTOR_BAR_LIMIT) :]
-        item = score_window_as_item(
+        eod_key = _eod_item_cache_key(
             raw,
-            list(eod_hist),
+            hist,
+            day,
+            q,
+            pool_gaps=pool_gaps,
+            sector_gap_breadth=sector_gap_breadth,
+            sector_gap_median=sector_gap_median,
             horizon_days=max(1, int(horizon_days or 1)),
-            quote=q,
-            index_bars=idx or None,
-            fundamentals=fund,
-            required_factor_keys=required_factor_keys or None,
+            fund_fp=_fund_cache_fp(fund),
+            idx_n=len(idx),
         )
-        if not item:
-            return scores_from_item(None)
-        scored = apply_predicted_scores_by_model(
-            [item],
-            models or {},
-            default_model=default_rm,
-        )
-        item = scored[0] if scored else item
+        cached = _EOD_ITEM_CACHE.get(eod_key)
+        if isinstance(cached, dict) and cached:
+            item = _clone_eod_item(cached)
+        else:
+            item = score_window_as_item(
+                raw,
+                list(eod_hist),
+                horizon_days=max(1, int(horizon_days or 1)),
+                quote=q,
+                index_bars=idx or None,
+                fundamentals=fund,
+                required_factor_keys=required_factor_keys or None,
+            )
+            if not item:
+                return scores_from_item(None)
+            scored = apply_predicted_scores_by_model(
+                [item],
+                models or {},
+                default_model=default_rm,
+            )
+            item = scored[0] if scored else item
+            if item.get("predicted_score") is not None and item.get("predicted_score_eod") is None:
+                item["predicted_score_eod"] = item.get("predicted_score")
+            gaps = [float(g) for g in (pool_gaps or []) if g is not None]
+            if gaps:
+                item["_pool_gaps"] = gaps
+            if sector_gap_breadth is not None:
+                try:
+                    item["sector_gap_breadth"] = float(sector_gap_breadth)
+                except (TypeError, ValueError):
+                    pass
+            if sector_gap_median is not None:
+                try:
+                    item["_sector_gap_median"] = float(sector_gap_median)
+                except (TypeError, ValueError):
+                    pass
+            if len(_EOD_ITEM_CACHE) >= int(_EOD_ITEM_CACHE_MAX):
+                _EOD_ITEM_CACHE.clear()
+            _EOD_ITEM_CACHE[eod_key] = _clone_eod_item(item)
         if item.get("predicted_score") is not None and item.get("predicted_score_eod") is None:
             item["predicted_score_eod"] = item.get("predicted_score")
-        gaps = [float(g) for g in (pool_gaps or []) if g is not None]
-        if gaps:
-            item["_pool_gaps"] = gaps
-        if sector_gap_breadth is not None:
-            try:
-                item["sector_gap_breadth"] = float(sector_gap_breadth)
-            except (TypeError, ValueError):
-                pass
-        if sector_gap_median is not None:
-            try:
-                item["_sector_gap_median"] = float(sector_gap_median)
-            except (TypeError, ValueError):
-                pass
         allow_minute = True if use_minute_tau is None else bool(use_minute_tau)
         if allow_minute and sector_ret_to_tau is not None:
             try:
@@ -3720,7 +3868,9 @@ def compute_scores_from_bars(
             path_feats = item.get("features_on")
             # 恢复开盘决策口径
             item["predicted_score_on"] = open_on
-            item["y_on"] = open_on
+            if open_on is not None:
+                item["y_co"] = open_on
+                item["predicted_score_co"] = open_on
             if open_feats:
                 item["features_on"] = open_feats
             if path_on is not None:

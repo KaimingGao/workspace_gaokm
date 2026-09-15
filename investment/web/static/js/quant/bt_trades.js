@@ -12,9 +12,14 @@ const { watchingScoreDetail } = await import(
 const { fitTierBadgeForCode } = await import(
   `./fit_tier_ui.js?v=${encodeURIComponent(_V)}`
 );
-const { resolveRankingScore, resolveNowcastScore, compoundPct } = await import(
-  `../paper/fmt.js?v=${encodeURIComponent(_V)}`
-);
+const {
+  resolveRankingScore,
+  resolveNowcastScore,
+  compoundPct,
+  resolvePathScore,
+  fmtPathScore,
+  Y_HL_TITLE,
+} = await import(`../paper/fmt.js?v=${encodeURIComponent(_V)}`);
 
 export const BT_SIM_TRADE_COLS_BASE = [
   { id: "signal", label: "信号日", widthPct: 9 },
@@ -323,11 +328,20 @@ export const BT_LEDGER_TRADE_COLS = [
   {
     id: "ranking",
     label: "ranking",
-    widthPct: 11,
+    widthPct: 8,
     widthMin: "5.4rem",
     num: true,
     sortable: true,
     title: "rank=w_oo·ŷ_oo+w_oc·((1+ŷ_oc)(1+w_co·ŷ_co)−1)",
+  },
+  {
+    id: "y_hl",
+    label: "y_hl",
+    widthPct: 8,
+    widthMin: "5.2rem",
+    num: true,
+    sortable: true,
+    title: Y_HL_TITLE,
   },
 ];
 
@@ -480,6 +494,14 @@ export function buildLedgerTradeRow(r, i, deps) {
   const rOn = _numOrNull(r.realized_on);
   const rTau = _numOrNull(r.realized_tau);
   const rOo = rTau != null && rOn != null ? compoundPct(rTau, rOn) : null;
+  const yhl = resolvePathScore(r);
+  const rhl = _numOrNull(
+    r.y_hl_realized != null
+      ? r.y_hl_realized
+      : r.path_realized != null
+        ? r.path_realized
+        : r.y_path_realized
+  );
   const act = _actionMeta(r);
   const actionTip = _legReason(r);
   const fuseTip = [
@@ -497,6 +519,12 @@ export function buildLedgerTradeRow(r, i, deps) {
   const tauTip = [
     ytau != null ? `ŷ_oc ${fmtScore(ytau, { signed: true })}` : "ŷ_oc —",
     rTau != null ? `真实 收盘/开盘 ${fmtScore(rTau, { signed: true })}` : "真实 —",
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  const yhlTip = [
+    yhl != null ? `ŷ_hl ${fmtPathScore(yhl)}` : "ŷ_hl —",
+    rhl != null ? `真实极值序 ${fmtPathScore(rhl)}` : "",
   ]
     .filter(Boolean)
     .join(" · ");
@@ -541,6 +569,10 @@ export function buildLedgerTradeRow(r, i, deps) {
     rankingNum: rankingPct,
     rankingText: rankingPct == null ? "—" : fmtScore(rankingPct, { signed: true }),
     rankingCls: _scoreClsOf(scoreCls, rankingPct),
+    y_hlNum: yhl,
+    y_hlText: yhl == null ? "—" : fmtPathScore(yhl),
+    y_hlCls: _scoreClsOf(scoreCls, yhl),
+    y_hlTip: yhlTip,
     y_onTip: onTip,
     realizedOoNum: rOo,
     realizedOoText: rOo == null ? "" : fmtScore(rOo, { signed: true }),
@@ -554,6 +586,9 @@ export function buildLedgerTradeRow(r, i, deps) {
     realizedTauNum: rTau,
     realizedTauText: rTau == null ? "" : fmtScore(rTau, { signed: true }),
     realizedTauCls: _scoreClsOf(scoreCls, rTau),
+    realizedHlNum: rhl,
+    realizedHlText: rhl == null ? "" : fmtPathScore(rhl),
+    realizedHlCls: _scoreClsOf(scoreCls, rhl),
   };
 }
 
@@ -688,15 +723,15 @@ export function buildLedgerTradesCsv(rows, nameByCode = {}) {
     "price",
     "cum_cost",
     "cost",
-    "y_fuse",
-    "y_tau",
-    "y_trade",
-    "y_nowcast",
-    "y_on",
-    "ranking_score",
+    "y_oo",
+    "y_oc",
+    "y_co",
+    "ranking",
+    "y_hl",
     "realized_cc",
     "realized_tau",
     "realized_on",
+    "y_hl_realized",
     "cash_after",
     "n_holdings",
     "equity_after",
@@ -721,17 +756,19 @@ export function buildLedgerTradesCsv(rows, nameByCode = {}) {
       r.price ?? "",
       r.cum_cost ?? "",
       cost,
-      r.y_fuse ?? r.predicted_score ?? "",
-      r.y_tau ?? r.predicted_score_tau ?? "",
-      r.y_trade ?? "",
-      r.y_nowcast ?? "",
-      r.y_on ?? "",
-      r.ranking_score != null && Number.isFinite(Number(r.ranking_score))
-        ? (Number(r.ranking_score) * 100).toFixed(4)
-        : "",
+      r.y_oo ?? r.y_fuse ?? r.predicted_score ?? "",
+      r.y_oc ?? r.y_tau ?? r.predicted_score_tau ?? "",
+      r.y_co ?? r.y_on ?? "",
+      r.ranking != null
+        ? r.ranking
+        : r.ranking_score != null && Number.isFinite(Number(r.ranking_score))
+          ? (Number(r.ranking_score) * 100).toFixed(4)
+          : r.y_fuse ?? "",
+      r.y_hl ?? r.predicted_score_hl ?? r.y_path ?? "",
       r.realized_cc ?? "",
       r.realized_tau ?? "",
       r.realized_on ?? "",
+      r.y_hl_realized ?? r.path_realized ?? r.y_path_realized ?? "",
       r.cash_after ?? "",
       r.n_holdings ?? "",
       r.equity_after ?? "",
@@ -980,6 +1017,7 @@ const BT_TRADES_NUM_KEYS = {
   y_tau: "y_tauNum",
   y_on: "y_onNum",
   ranking: "rankingNum",
+  y_hl: "y_hlNum",
 };
 
 /** Virtual-table compare callback for sim trades. */
@@ -1049,6 +1087,16 @@ function _predRealHtml(predText, predCls, realText, realCls, escapeHtml) {
     )}">(${escapeHtml(real)})</span>` +
     `</span>`
   );
+}
+
+function _optPredRealHtml(predText, predCls, realText, realCls, escapeHtml) {
+  const hasReal = realText && realText !== "—";
+  if (!hasReal) {
+    return `<span class="bt-trade-score bt-stack-main paper-hold-score ${escapeHtml(
+      predCls || ""
+    )}">${escapeHtml(predText || "—")}</span>`;
+  }
+  return _predRealHtml(predText, predCls, realText, realCls, escapeHtml);
 }
 
 function _stackScoreHtml(topHtml, tip, escapeHtml) {
@@ -1130,6 +1178,13 @@ export function btTradesCellHtml(col, d, deps) {
       d.rankingText && d.rankingText !== "—"
         ? `rank ${d.rankingText} = w_oo·ŷ_oo + w_oc·((1+ŷ_oc)(1+w_co·ŷ_co)−1)`
         : "",
+      escapeHtml
+    );
+  }
+  if (col.id === "y_hl") {
+    return _stackScoreHtml(
+      _optPredRealHtml(d.y_hlText, d.y_hlCls, d.realizedHlText, d.realizedHlCls, escapeHtml),
+      d.y_hlTip,
       escapeHtml
     );
   }

@@ -414,10 +414,7 @@ body[data-page="replay"] .replay-lookback-field {
 }
 
 body[data-page="replay"] .replay-lookback-field #quant-lookback,
-body[data-page="replay"] .replay-lookback-field #paper-t0-lookback,
-body[data-page="replay"] .replay-on-alpha-field #quant-on-alpha,
-body[data-page="replay"] .replay-rank-field #quant-rank-enter,
-body[data-page="replay"] .replay-rank-field #quant-rank-strong {
+body[data-page="replay"] .replay-lookback-field #paper-t0-lookback {
   width: 4.5rem;
   min-width: 4.5rem;
 }
@@ -570,48 +567,6 @@ body[data-page="replay"] .replay-t0-section .replay-run-head {
   align-items: center;
 }
 
-body[data-page="replay"] .follow-path-matrix-panel[data-panel="rank"] .follow-path-matrix-body--row3 {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-}
-
-body[data-page="replay"] .follow-path-matrix-box--pair,
-body[data-page="replay"] .follow-path-matrix-box--solo {
-  cursor: default;
-  grid-template-rows: auto auto;
-}
-
-body[data-page="replay"] .follow-path-matrix-box-pair {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  gap: 6px;
-  align-items: end;
-}
-
-body[data-page="replay"] .follow-path-matrix-box--solo .follow-path-matrix-box-pair {
-  grid-template-columns: minmax(0, 1fr);
-}
-
-body[data-page="replay"] .follow-path-matrix-box-slot {
-  display: grid;
-  gap: 2px;
-  min-width: 0;
-  cursor: pointer;
-}
-
-body[data-page="replay"] .follow-path-matrix-box-slot-label {
-  font-size: 0.62rem;
-  color: var(--pm-muted, var(--ink-3));
-  line-height: 1.2;
-  font-weight: 650;
-}
-
-body[data-page="replay"] .follow-path-matrix-box--pair input[type="number"],
-body[data-page="replay"] .follow-path-matrix-box--solo input[type="number"],
-body[data-page="replay"] .follow-path-matrix-box--pair input[type="text"] {
-  min-width: 0;
-  width: 100%;
-}
-
 /* ── 做 T 回测：KPI / 结果卡对齐调仓回测；规则表与归因沿用交易执行 ── */
 body[data-page="replay"] .replay-t0-section {
   --paper-t0-r: 2px;
@@ -638,18 +593,32 @@ body[data-page="replay"] .replay-t0-matrix .paper-t0-form {
   flex-direction: column;
 }
 
+body[data-page="replay"] .replay-rb-matrix .paper-t0-form.follow-path-matrix-form {
+  margin: 0;
+  padding: 10px 12px 12px;
+  display: flex;
+  flex-direction: column;
+}
+
 body[data-page="replay"] .replay-t0-matrix .paper-t0-field input,
 body[data-page="replay"] .replay-t0-matrix .paper-t0-field select {
   border-radius: 6px !important;
 }
 
-body[data-page="replay"] .replay-t0-matrix-footer {
+body[data-page="replay"] .replay-rb-matrix .paper-t0-field input,
+body[data-page="replay"] .replay-rb-matrix .paper-t0-field select {
+  border-radius: 6px !important;
+}
+
+body[data-page="replay"] .replay-t0-matrix-footer,
+body[data-page="replay"] .replay-rb-matrix-footer {
   padding: 8px 0 0;
   margin: 4px 0 0;
   border-top: 1px solid color-mix(in srgb, var(--line) 82%, #94a3b8);
 }
 
-body[data-page="replay"] .replay-t0-matrix-footer .follow-path-matrix-actions {
+body[data-page="replay"] .replay-t0-matrix-footer .follow-path-matrix-actions,
+body[data-page="replay"] .replay-rb-matrix-footer .follow-path-matrix-actions {
   flex-wrap: wrap;
 }
 
@@ -854,7 +823,8 @@ body[data-page="replay"] .replay-page .bt-ledger-grid .watching-react-grid-row.i
 body[data-page="replay"] .replay-page .bt-ledger-grid .watching-react-grid-cell.watching-col-y_fuse,
 body[data-page="replay"] .replay-page .bt-ledger-grid .watching-react-grid-cell.watching-col-y_tau,
 body[data-page="replay"] .replay-page .bt-ledger-grid .watching-react-grid-cell.watching-col-y_on,
-body[data-page="replay"] .replay-page .bt-ledger-grid .watching-react-grid-cell.watching-col-ranking {
+body[data-page="replay"] .replay-page .bt-ledger-grid .watching-react-grid-cell.watching-col-ranking,
+body[data-page="replay"] .replay-page .bt-ledger-grid .watching-react-grid-cell.watching-col-y_hl {
   justify-content: flex-end;
   align-items: center;
 }

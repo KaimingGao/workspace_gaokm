@@ -5,10 +5,10 @@
   - ŷ_oo = open[T]→open[T+1]（现网 predicted_score，第二步换标签）
   - ŷ_oc = open[T]→close[T]（现网 y_tau）
   - ranking = w_oo·ŷ_oo + w_oc·((1+ŷ_oc)(1+w_co·ŷ_co)−1)；ŷ 为净收益，落盘为百分点
-    w_co 默认 0（不叠隔夜）；缺 ŷ_co 则退回 ŷ_oc
+    w_co 默认 1（叠隔夜）；缺 ŷ_co 则退回 ŷ_oc
   - 已持仓且 ranking < 0 → 清仓（T+1 可卖部分）
-  - ranking > rank入场 的票按分数取 Top-K：建仓或加仓
-  - ranking > rank强 → 500 股，否则 200 股
+  - 门槛1 ∪ 门槛2 过入场（ŷ_oo / ŷ_oc / ranking / y_hl）的票按分数取 Top-K：建仓或加仓
+  - ranking > rank强 → 500 股，否则 200 股（回测可改为单一手数）
   - 不留现金地板：现金不够该手则跳过（强档买不下先退基础手数）；live 另受持仓市值上限约束
 """
 
@@ -19,12 +19,15 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_RANK_ENTER = 0.012
-DEFAULT_RANK_STRONG = 0.012
+DEFAULT_RANK_ENTER = 0.001
+DEFAULT_RANK_STRONG = 0.001
 DEFAULT_CASH_FLOOR = 0.0
 DEFAULT_HOLDINGS_MV_CAP = 150_000.0
 DEFAULT_INITIAL_CASH = 1_000_000.0
-DEFAULT_Y_ON_ALPHA = 0.0
+DEFAULT_Y_ON_ALPHA = 1.0
+DEFAULT_Y_OO_ENTER = 0.1
+DEFAULT_Y_OC_ENTER = 0.1
+DEFAULT_Y_HL_ENTER = 0.1
 Y_ON_ALPHA_MAX = 10.0
 LOT_BASE = 200
 LOT_STRONG = 500
@@ -100,6 +103,147 @@ def clamp_fusion_weight(raw: Any, default: float = 0.5) -> float:
     if v is None:
         return max(0.0, min(1.0, float(default)))
     return max(0.0, min(1.0, float(v)))
+
+
+def _pct_enter_skip(val: Optional[float], thresh: float, label: str) -> Optional[str]:
+    """百分点入场：0=关；缺分不拦；否则须大于门槛。"""
+    th = float(thresh or 0.0)
+    if th <= 0:
+        return None
+    if val is None:
+        return None
+    if float(val) <= th + 1e-12:
+        return f"{label}={float(val):.3f}%<{th:g}% 未过入场"
+    return None
+
+
+def _rank_enter_skip(rs: Optional[float], thresh: float) -> Optional[str]:
+    """ranking 入场：0=仍须 ranking>0；缺失则拦。rs 为净收益。"""
+    th = float(thresh or 0.0)
+    if rs is None:
+        return "ranking 缺失"
+    if th <= 0:
+        if float(rs) <= 0:
+            return "ranking≤0 未过入场"
+        return None
+    if float(rs) <= th:
+        return f"ranking={float(rs) * 100.0:.3f}%<{th * 100.0:g}% 未过入场"
+    return None
+
+
+def _enter_profile_skip_reason(
+    *,
+    y_oo: Optional[float],
+    y_oc: Optional[float],
+    y_hl: Optional[float],
+    rs: Optional[float],
+    y_oo_enter: float,
+    y_oc_enter: float,
+    rank_enter: float,
+    y_hl_enter: float,
+) -> Optional[str]:
+    for skip in (
+        _pct_enter_skip(y_oo, y_oo_enter, "ŷ_oo"),
+        _pct_enter_skip(y_oc, y_oc_enter, "ŷ_oc"),
+        _rank_enter_skip(rs, rank_enter),
+        _pct_enter_skip(y_hl, y_hl_enter, "y_hl"),
+    ):
+        if skip is not None:
+            return skip
+    return None
+
+
+def rank_lot_enter_skip_reason(
+    item: Optional[dict],
+    cfg: Optional[dict],
+    *,
+    rs: Optional[float],
+) -> Optional[str]:
+    """入场：启用中的门槛1 ∪ 门槛2。每档 ŷ_oo、ŷ_oc、ranking、y_hl 过入场。
+
+    ``y_enter_enabled`` / ``y_enter_alt_enabled`` 关则该档不参与 OR；两档都关则不开/不加。
+    缺键时门槛2 跟随门槛1。缺 ŷ_oo / ŷ_oc / y_hl 不拦。
+    """
+    from core.paper.rebalance.path_matrix import scores_from_rebalance_item
+    from core.research.path_panel import pick_y_hl
+    from core.t0.config import coerce_cfg_bool
+
+    cfg_d = cfg if isinstance(cfg, dict) else {}
+    sc = scores_from_rebalance_item(item, cfg_d)
+    y_oo = sc.get("y_oo")
+    y_oc = sc.get("y_oc")
+    y_hl = pick_y_hl(sc, item) if isinstance(item, dict) or isinstance(sc, dict) else None
+
+    def _enter_f(key: str, default: float, lo: float, hi: float) -> float:
+        v = _f(cfg_d.get(key))
+        if v is None:
+            return max(lo, min(float(default), hi))
+        return max(lo, min(float(v), hi))
+
+    y_oo_enter = _enter_f("y_oo_enter", DEFAULT_Y_OO_ENTER, 0.0, 100.0)
+    y_oc_enter = _enter_f("y_oc_enter", DEFAULT_Y_OC_ENTER, 0.0, 100.0)
+    y_hl_enter = _enter_f("y_hl_enter", DEFAULT_Y_HL_ENTER, 0.0, 100.0)
+    rank_enter = coerce_rank_threshold(cfg_d.get("rank_enter"), DEFAULT_RANK_ENTER)
+    rank_enter = max(0.0, min(float(rank_enter), 10.0))
+
+    gate1_on = coerce_cfg_bool(cfg_d.get("y_enter_enabled"), True)
+    gate2_on = coerce_cfg_bool(cfg_d.get("y_enter_alt_enabled"), True)
+
+    skip = None
+    if gate1_on:
+        skip = _enter_profile_skip_reason(
+            y_oo=y_oo,
+            y_oc=y_oc,
+            y_hl=y_hl,
+            rs=rs,
+            y_oo_enter=y_oo_enter,
+            y_oc_enter=y_oc_enter,
+            rank_enter=rank_enter,
+            y_hl_enter=y_hl_enter,
+        )
+        if skip is None:
+            return None
+
+    skip_alt = None
+    if gate2_on:
+        def _follow(key: str, follow: float, lo: float, hi: float) -> float:
+            if cfg_d.get(key) in (None, ""):
+                return max(lo, min(float(follow), hi))
+            return _enter_f(key, follow, lo, hi)
+
+        skip_alt = _enter_profile_skip_reason(
+            y_oo=y_oo,
+            y_oc=y_oc,
+            y_hl=y_hl,
+            rs=rs,
+            y_oo_enter=_follow("y_oo_enter_alt", y_oo_enter, 0.0, 100.0),
+            y_oc_enter=_follow("y_oc_enter_alt", y_oc_enter, 0.0, 100.0),
+            rank_enter=max(
+                0.0,
+                min(
+                    coerce_rank_threshold(
+                        cfg_d.get("rank_enter_alt")
+                        if cfg_d.get("rank_enter_alt") not in (None, "")
+                        else rank_enter,
+                        rank_enter,
+                    ),
+                    10.0,
+                ),
+            ),
+            y_hl_enter=_follow("y_hl_enter_alt", y_hl_enter, 0.0, 100.0),
+        )
+        if skip_alt is None:
+            return None
+
+    if not gate1_on and not gate2_on:
+        return "门槛1/2 均未启用"
+    if gate1_on and gate2_on:
+        if skip_alt == skip:
+            return skip
+        return f"门槛1 {skip}；门槛2 {skip_alt}"
+    if gate1_on:
+        return skip
+    return skip_alt
 
 
 def ranking_score(
@@ -250,20 +394,31 @@ def get_rank_lot_cfg(
     return {
         "rank_enter": enter,
         "rank_strong": strong,
+        "rank_enter_alt": coerce_rank_threshold(
+            pm.get("rank_enter_alt", enter), enter
+        ),
         "cash_floor": floor,
         "cash_floor_configured": floor_cfg,
         "cash_floor_scaled": abs(float(floor) - float(floor_cfg)) > 1e-6,
         "holdings_mv_cap": mv_cap,
         "top_k": k,
-        "fusion_w_oo": float(pm.get("fusion_w_oo") or 0.5),
-        "fusion_w_oc": float(pm.get("fusion_w_oc") or 0.5),
+        "fusion_w_oo": float(pm.get("fusion_w_oo") or 0.6),
+        "fusion_w_oc": float(pm.get("fusion_w_oc") or 0.4),
         "fusion_w_pc": float(pm.get("fusion_w_pc") or 0.5),
-        "fusion_w_trade": float(pm.get("fusion_w_oo") or pm.get("fusion_w_trade") or 0.5),
-        "fusion_w_nowcast": float(pm.get("fusion_w_oc") or pm.get("fusion_w_nowcast") or 0.5),
-        "fusion_w_co": float(pm.get("fusion_w_co") if pm.get("fusion_w_co") is not None else (pm.get("y_on_alpha") or 0.0)),
-        "y_on_alpha": float(pm.get("fusion_w_co") if pm.get("fusion_w_co") is not None else (pm.get("y_on_alpha") or 0.0)),
+        "fusion_w_trade": float(pm.get("fusion_w_oo") or pm.get("fusion_w_trade") or 0.6),
+        "fusion_w_nowcast": float(pm.get("fusion_w_oc") or pm.get("fusion_w_nowcast") or 0.4),
+        "fusion_w_co": float(pm.get("fusion_w_co") if pm.get("fusion_w_co") is not None else (pm.get("y_on_alpha") if pm.get("y_on_alpha") is not None else DEFAULT_Y_ON_ALPHA)),
+        "y_on_alpha": float(pm.get("fusion_w_co") if pm.get("fusion_w_co") is not None else (pm.get("y_on_alpha") if pm.get("y_on_alpha") is not None else DEFAULT_Y_ON_ALPHA)),
         "lot_base": LOT_BASE,
         "lot_strong": LOT_STRONG,
+        "y_enter_enabled": bool(pm.get("y_enter_enabled", True)),
+        "y_enter_alt_enabled": bool(pm.get("y_enter_alt_enabled", True)),
+        "y_oo_enter": float(pm.get("y_oo_enter") if pm.get("y_oo_enter") is not None else DEFAULT_Y_OO_ENTER),
+        "y_oc_enter": float(pm.get("y_oc_enter") if pm.get("y_oc_enter") is not None else DEFAULT_Y_OC_ENTER),
+        "y_hl_enter": float(pm.get("y_hl_enter") if pm.get("y_hl_enter") is not None else DEFAULT_Y_HL_ENTER),
+        "y_oo_enter_alt": float(pm.get("y_oo_enter_alt") if pm.get("y_oo_enter_alt") is not None else pm.get("y_oo_enter") if pm.get("y_oo_enter") is not None else DEFAULT_Y_OO_ENTER),
+        "y_oc_enter_alt": float(pm.get("y_oc_enter_alt") if pm.get("y_oc_enter_alt") is not None else pm.get("y_oc_enter") if pm.get("y_oc_enter") is not None else DEFAULT_Y_OC_ENTER),
+        "y_hl_enter_alt": float(pm.get("y_hl_enter_alt") if pm.get("y_hl_enter_alt") is not None else pm.get("y_hl_enter") if pm.get("y_hl_enter") is not None else DEFAULT_Y_HL_ENTER),
     }
 
 
@@ -298,6 +453,105 @@ def y_tau_of(item: Optional[dict]) -> Optional[float]:
     return _f(item.get("score_rem"))
 
 
+# 对照头透传键（不进 ranking）。旧 y_path / y_path_realized 只读，不落新行。
+AUX_YHAT_KEYS = (
+    "y_τ30",
+    "y_t30",
+    "predicted_score_t30",
+    "y_t30_hat",
+    "y_t30_realized",
+    "t30_realized",
+    "y_τ60",
+    "y_t60",
+    "predicted_score_t60",
+    "y_t60_hat",
+    "y_t60_realized",
+    "t60_realized",
+    "y_τ90",
+    "y_t90",
+    "predicted_score_t90",
+    "y_t90_hat",
+    "y_t90_realized",
+    "t90_realized",
+    "y_τw",
+    "y_tw",
+    "y_hl",
+    "predicted_score_hl",
+    "y_hl_realized",
+)
+
+
+def aux_yhat_fields(
+    item: Optional[dict],
+    *,
+    include_tau_horizons: bool = True,
+) -> Dict[str, Any]:
+    """对照头 y_hl；可选 y_τw / y_τ30 / y_τ60 / y_τ90。不进 ranking。"""
+    if not isinstance(item, dict):
+        return {}
+    out: Dict[str, Any] = {}
+    try:
+        from core.research.path_panel import pick_y_hl, write_y_hl
+        from core.research.t30_ridge import pick_y_t30_hat, pick_y_t30_label
+        from core.research.t60_ridge import pick_y_t60_hat, pick_y_t60_label
+        from core.research.t90_ridge import pick_y_t90_hat, pick_y_t90_label
+        from core.t0.close_band import blend_y_tw
+    except Exception:  # noqa: BLE001
+        logger.debug("aux yhat imports failed", exc_info=True)
+        return {}
+
+    y30 = pick_y_t30_hat(item) if include_tau_horizons else None
+    y60 = pick_y_t60_hat(item) if include_tau_horizons else None
+    y90 = pick_y_t90_hat(item) if include_tau_horizons else None
+    if y30 is not None:
+        out["y_τ30"] = y30
+        out["y_t30"] = y30
+        out["predicted_score_t30"] = y30
+        out["y_t30_hat"] = y30
+    if y60 is not None:
+        out["y_τ60"] = y60
+        out["y_t60"] = y60
+        out["predicted_score_t60"] = y60
+        out["y_t60_hat"] = y60
+    if y90 is not None:
+        out["y_τ90"] = y90
+        out["y_t90"] = y90
+        out["predicted_score_t90"] = y90
+        out["y_t90_hat"] = y90
+    r30 = pick_y_t30_label(item) if include_tau_horizons else None
+    r60 = pick_y_t60_label(item) if include_tau_horizons else None
+    r90 = pick_y_t90_label(item) if include_tau_horizons else None
+    if r30 is not None:
+        out["y_t30_realized"] = r30
+        out["t30_realized"] = r30
+    if r60 is not None:
+        out["y_t60_realized"] = r60
+        out["t60_realized"] = r60
+    if r90 is not None:
+        out["y_t90_realized"] = r90
+        out["t90_realized"] = r90
+    yhl = pick_y_hl(item)
+    if yhl is not None:
+        write_y_hl(out, yhl)
+    rhl = _f(item.get("y_hl_realized"))
+    if rhl is None:
+        rhl = _f(item.get("path_realized"))
+    if rhl is None:
+        rhl = _f(item.get("y_path_realized"))
+    if rhl is not None:
+        out["y_hl_realized"] = rhl
+    if include_tau_horizons:
+        yw = blend_y_tw(y30, y60, y90)
+        if yw is None:
+            yw = _f(item.get("y_τw"))
+        if yw is None:
+            yw = _f(item.get("y_tw"))
+        if yw is not None:
+            out["y_τw"] = yw
+            out["y_tw"] = yw
+    return out
+
+
 def _debug_scores(
     item: Optional[dict],
     ranking_pct: Optional[float],
@@ -314,8 +568,6 @@ def _debug_scores(
     y_co = sc.get("y_co")
     if y_co is None:
         y_co = pick_y_co(item)
-    if y_co is None:
-        y_co = y_on_of(item)
     ytau = y_tau_of(item)
     y_τc = sc.get("y_τc")
     ranking = ranking_pct if ranking_pct is not None else sc.get("ranking")
@@ -326,7 +578,6 @@ def _debug_scores(
         "y_oo": y_oo,
         "y_oc": oc,
         "y_co": y_co,
-        "y_on": y_co,
         "y_τc": y_τc,
         "ranking": ranking,
         "y_fuse": ranking,
@@ -338,20 +589,23 @@ def _debug_scores(
         "predicted_score_eod": y_oo,
         "predicted_score_on": y_co,
     }
+    out.update(aux_yhat_fields(item))
     out.update({k: v for k, v in extra.items() if v is not None})
     return out
 
 
 def y_on_of(item: Optional[dict]) -> Optional[float]:
-    from core.paper.rebalance.path_matrix import scores_from_rebalance_item
+    """旧名；等同 pick_y_co（可读 y_on / predicted_score_on）。"""
+    from core.signal.yhat_windows import pick_y_co
 
     if not isinstance(item, dict):
         return None
-    sc = scores_from_rebalance_item(item)
-    yo = sc.get("y_on")
-    if yo is not None:
-        return yo
-    return _f(item.get("y_on") or item.get("predicted_score_on"))
+    y = pick_y_co(item)
+    if y is not None:
+        return y
+    from core.paper.rebalance.path_matrix import scores_from_rebalance_item
+
+    return _f(scores_from_rebalance_item(item).get("y_co"))
 
 
 def _is_oos_failed(item: Optional[dict]) -> bool:
@@ -533,7 +787,7 @@ def plan_rank_lot_day(
         rp = ranking_pct_of(item, cfg)
         yoc = pick_y_oc(item)
         rs = None if rp is None else float(rp) / 100.0
-        if rs is None or float(rs) <= float(rank_enter):
+        if rank_lot_enter_skip_reason(item, cfg, rs=rs):
             continue
         cand.append((float(rs), item, rp, yoc))
     cand.sort(key=lambda t: (-t[0], str(t[1].get("stock_code") or "")))
@@ -678,13 +932,18 @@ __all__ = [
     "clamp_y_on_alpha",
     "LOT_STRONG",
     "account_ref_equity",
+    "AUX_YHAT_KEYS",
+    "aux_yhat_fields",
     "coerce_rank_threshold",
     "get_rank_lot_cfg",
     "scale_cash_floor_to_account",
     "lot_shares_for_rank",
     "plan_rank_lot_day",
     "ranking_pct_of",
-    "ranking_score",
+    "rank_lot_enter_skip_reason",
+    "DEFAULT_Y_OO_ENTER",
+    "DEFAULT_Y_OC_ENTER",
+    "DEFAULT_Y_HL_ENTER",
     "y_on_of",
     "y_tau_of",
 ]

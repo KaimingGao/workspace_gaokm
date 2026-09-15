@@ -4,7 +4,7 @@
   先 low 后 high → y_hl = (high−low)/ref×100
   先 high 后 low → y_hl = (low−high)/ref×100
 
-规范名 ``y_hl``；旧键 ``y_path`` / ``predicted_score_path`` 仍可读可写。
+规范名 ``y_hl``；旧键 ``y_path`` / ``predicted_score_path`` 仍可读，不再双写。
 
 ``first_touch_path_label`` 保留供触价对照；训练与 HL 实用 ``extreme_order_path_label``。
 
@@ -103,8 +103,6 @@ def write_y_hl(dest: Dict[str, Any], val: float) -> None:
     x = float(val)
     dest["y_hl"] = x
     dest["predicted_score_hl"] = x
-    dest["y_path"] = x
-    dest["predicted_score_path"] = x
 
 
 def clear_y_hl(dest: Dict[str, Any]) -> None:
@@ -124,9 +122,7 @@ def pick_y_hl_status(*objs: Any) -> str:
 
 
 def write_y_hl_status(dest: Dict[str, Any], status: str) -> None:
-    s = str(status or "")
-    dest["y_hl_status"] = s
-    dest["y_path_status"] = s
+    dest["y_hl_status"] = str(status or "")
 
 
 def pick_y_hl_error(*objs: Any) -> str:
@@ -141,9 +137,7 @@ def pick_y_hl_error(*objs: Any) -> str:
 
 
 def write_y_hl_error(dest: Dict[str, Any], error: str) -> None:
-    s = str(error or "")
-    dest["y_hl_error"] = s
-    dest["y_path_error"] = s
+    dest["y_hl_error"] = str(error or "")
 
 
 def _yclose_loc(prev_bar: Optional[dict], open_px: float) -> Optional[float]:

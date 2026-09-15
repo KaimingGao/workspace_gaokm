@@ -28,6 +28,7 @@ class TestP94QuantServiceMixins(unittest.TestCase):
             "config_summary",
             "run_factor_experiment",
             "run_portfolio_backtest",
+            "start_portfolio_backtest_job",
             "run_t0_backtest",
             "start_t0_backtest_job",
             "load_last_t0_backtest",

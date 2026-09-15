@@ -122,14 +122,19 @@ class TestT3WeightMode(unittest.TestCase):
         self.assertFalse(hasattr(research, "engine"))
 
         body = PaperReplayBacktestRequest()
-        self.assertEqual(body.y_on_alpha, 0.0)
+        self.assertEqual(body.y_on_alpha, 1.0)
         self.assertEqual(body.fusion_w_trade, 0.6)
         self.assertEqual(body.fusion_w_nowcast, 0.4)
-        self.assertEqual(body.rank_enter, 0.012)
-        self.assertEqual(body.rank_strong, 0.012)
+        self.assertEqual(body.rank_enter, 0.001)
+        self.assertEqual(body.rank_strong, 0.001)
         self.assertEqual(body.fill_clock, "09:30")
-        self.assertEqual(body.lot_base, 100)
+        self.assertEqual(body.lot_base, 200)
         self.assertEqual(body.lot_strong, 200)
+        self.assertEqual(body.initial_cash, 200_000.0)
+        self.assertTrue(body.price_space_gate)
+        self.assertEqual(body.y_oo_enter, 0.1)
+        self.assertEqual(body.y_hl_enter, 0.1)
+        self.assertTrue(body.y_enter_enabled)
         self.assertIsNone(body.universe_fit_tiers)
         self.assertFalse(hasattr(body, "engine"))
         self.assertFalse(hasattr(body, "top_k"))
@@ -156,7 +161,7 @@ class TestT3WeightMode(unittest.TestCase):
         self.assertEqual(PaperReplayBacktestRequest(y_on_alpha=0.5).y_on_alpha, 0.5)
         self.assertEqual(PaperReplayBacktestRequest(y_on_alpha=1).y_on_alpha, 1.0)
         with self.assertRaises(ValidationError):
-            PaperReplayBacktestRequest(y_on_alpha=1.1)
+            PaperReplayBacktestRequest(y_on_alpha=10.1)
         with self.assertRaises(ValidationError):
             PaperReplayBacktestRequest(y_on_alpha=-0.1)
 

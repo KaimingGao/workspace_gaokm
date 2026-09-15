@@ -189,3 +189,32 @@ class TestPersistLastPortfolioBacktest(unittest.TestCase):
             )
             self.assertTrue(out2.get("success"))
             save_ui.assert_called()
+
+
+class TestStartPortfolioBacktestJob(unittest.TestCase):
+    def test_start_job_returns_background_and_finishes(self):
+        import time
+
+        from core.job_progress import portfolio_backtest_job
+        from quant.services.quant_service import QuantService
+
+        svc = QuantService()
+        fake = {
+            "success": True,
+            "metrics": {"trade_count": 1, "total_return_pct": 1.0},
+            "equity_curve": [{"date": "2026-01-10", "equity": 100.0}],
+        }
+        if portfolio_backtest_job.is_running():
+            portfolio_backtest_job.force_fail("test-reset")
+        with patch.object(svc, "run_portfolio_backtest", return_value=dict(fake)):
+            out = svc.start_portfolio_backtest_job(lookback=10, include_benchmark=False)
+            self.assertTrue(out.get("background"))
+            self.assertTrue(out.get("job", {}).get("id"))
+            snap = None
+            for _ in range(80):
+                snap = portfolio_backtest_job.get()
+                if snap.get("status") in ("done", "failed"):
+                    break
+                time.sleep(0.05)
+            self.assertEqual((snap or {}).get("status"), "done")
+            self.assertTrue((snap.get("result") or {}).get("success"))

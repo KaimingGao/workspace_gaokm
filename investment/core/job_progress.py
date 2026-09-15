@@ -50,6 +50,11 @@ _SLOT_STALE_POLICY: Dict[str, Dict[str, Any]] = {
         "stuck_start_sec": 900.0,
         "label": "做 T 回测",
     },
+    "portfolio-backtest": {
+        "stale_sec": 1800.0,
+        "stuck_start_sec": 900.0,
+        "label": "调仓回测",
+    },
     "paper": {
         "stale_sec": 600.0,
         "stuck_start_sec": 300.0,
@@ -160,6 +165,16 @@ class JobProgress:
                                 "task": result.get("task") or "t0_backtest",
                                 "ok_count": result.get("ok_count"),
                                 "t0_pnl_total": result.get("t0_pnl_total"),
+                            }
+                        elif self.name == "portfolio-backtest":
+                            metrics = result.get("metrics") if isinstance(result.get("metrics"), dict) else {}
+                            payload["result"] = {
+                                "success": result.get("success"),
+                                "ok": result.get("success"),
+                                "persisted_truncated": True,
+                                "task": result.get("task") or "portfolio_backtest",
+                                "trade_count": metrics.get("trade_count")
+                                or result.get("trade_count"),
                             }
                         else:
                             payload["result"] = {
@@ -471,6 +486,7 @@ class JobRegistry:
             "t90-ridge",
             "r-ridge",
             "t0-backtest",
+            "portfolio-backtest",
         ):
             self.slot(name)
         with self._lock:
@@ -492,6 +508,7 @@ try:
         T60_RIDGE_JOB_PATH,
         T90_RIDGE_JOB_PATH,
         T0_BACKTEST_JOB_PATH,
+        PORTFOLIO_BACKTEST_JOB_PATH,
     )
 
     paper_job = job_registry.slot("paper", persist_path=PAPER_JOB_PATH)
@@ -510,6 +527,9 @@ try:
     t90_ridge_job = job_registry.slot("t90-ridge", persist_path=T90_RIDGE_JOB_PATH)
     r_ridge_job = job_registry.slot("r-ridge", persist_path=R_RIDGE_JOB_PATH)
     t0_backtest_job = job_registry.slot("t0-backtest", persist_path=T0_BACKTEST_JOB_PATH)
+    portfolio_backtest_job = job_registry.slot(
+        "portfolio-backtest", persist_path=PORTFOLIO_BACKTEST_JOB_PATH
+    )
 except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
     logger.debug("catch except Exception: in job_progress.py", exc_info=True)
     paper_job = job_registry.slot("paper")
@@ -522,3 +542,4 @@ except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流
     t90_ridge_job = job_registry.slot("t90-ridge")
     r_ridge_job = job_registry.slot("r-ridge")
     t0_backtest_job = job_registry.slot("t0-backtest")
+    portfolio_backtest_job = job_registry.slot("portfolio-backtest")

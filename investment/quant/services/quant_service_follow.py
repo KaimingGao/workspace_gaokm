@@ -82,6 +82,7 @@ class QuantFollowMixin:
                 initial_cash=v_cash,
                 rules=rules,
                 use_minute=True,
+                progress_cb=progress_cb,
             )
         if isinstance(out, dict) and out.get("success"):
             out.setdefault(

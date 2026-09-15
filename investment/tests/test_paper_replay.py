@@ -24,6 +24,7 @@ from core.backtest.paper_replay import (
     fuse_hit_metrics,
     mock_quote_from_bar,
     realized_yhat_windows,
+    rescore_replay_y_oc_at_clock,
 )
 from core.paper.replay_ctx import paper_replay_context
 from core.paper.tplus1 import add_buy_lot, clip_sell_shares
@@ -43,6 +44,32 @@ def _bars(n: int = 25, *, step: float = 0.4, start: float = 100.0):
                 "volume": 100000 + i * 1000,
             }
         )
+    return out
+
+
+def _minutes_aligned(stock_bars, *, close_delta=0.4, open_scale=1.0, prev_close=None):
+    """按日线开对齐的 09:35 分钟根；open_scale 可造开盘错位。"""
+    out = {}
+    for code, bars in (stock_bars or {}).items():
+        by_d = {}
+        for b in bars or []:
+            d = str((b or {}).get("date") or "")
+            if not d:
+                continue
+            o = float((b or {}).get("open") or 0)
+            mo = o * float(open_scale)
+            row = {
+                "date": d,
+                "datetime": f"{d} 09:35:00",
+                "open": mo,
+                "high": mo + abs(float(close_delta)) + 0.1,
+                "low": mo - 0.1,
+                "close": mo + float(close_delta),
+            }
+            if prev_close is not None:
+                row["prev_close"] = float(prev_close)
+            by_d[d] = [row]
+        out[str(code)] = by_d
     return out
 
 
@@ -608,7 +635,7 @@ class TestPaperReplayEngine(unittest.TestCase):
         )
         self.assertEqual(len(rows), 1)
         self.assertAlmostEqual(float(rows[0]["y_co"]), 0.2)
-        self.assertAlmostEqual(float(rows[0]["y_on"]), 0.2)
+        self.assertNotIn("y_on", rows[0])
         self.assertAlmostEqual(float(rows[0]["y_oo"]), 1.0)
 
         sk = _skip_to_sim(
@@ -622,7 +649,7 @@ class TestPaperReplayEngine(unittest.TestCase):
             "2026-09-10",
         )
         self.assertAlmostEqual(float(sk["y_co"]), 0.3)
-        self.assertAlmostEqual(float(sk["y_on"]), 0.3)
+        self.assertNotIn("y_on", sk)
 
         hold = _hold_to_sim(
             {
@@ -640,7 +667,49 @@ class TestPaperReplayEngine(unittest.TestCase):
             prices={"600000": 10.0},
         )
         self.assertAlmostEqual(float(hold["y_co"]), 0.25)
-        self.assertAlmostEqual(float(hold["y_on"]), 0.25)
+        self.assertNotIn("y_on", hold)
+
+    def test_sim_converters_copy_aux_yhat(self):
+        from core.backtest.paper_replay import (
+            _hold_to_sim,
+            _ledger_trades_to_sim,
+            _skip_to_sim,
+        )
+
+        src = {
+            "side": "buy",
+            "stock_code": "600000",
+            "as_of": "2026-09-10",
+            "shares": 200,
+            "price": 10,
+            "y_oo": 1.0,
+            "ranking": 1.2,
+            "y_τ30": 0.2,
+            "y_τ60": -0.1,
+            "y_τ90": 0.3,
+            "y_hl": 1.5,
+        }
+        rows = _ledger_trades_to_sim([src])
+        self.assertEqual(len(rows), 1)
+        self.assertNotIn("y_τ30", rows[0])
+        self.assertNotIn("y_τw", rows[0])
+        self.assertAlmostEqual(float(rows[0]["y_hl"]), 1.5)
+
+        sk = _skip_to_sim({**src, "reason": "现金不足"}, "2026-09-10")
+        self.assertNotIn("y_τ60", sk)
+        self.assertNotIn("y_τw", sk)
+        self.assertAlmostEqual(float(sk["y_hl"]), 1.5)
+
+        hold = _hold_to_sim(
+            src,
+            "2026-09-10",
+            {"stock_code": "600000", "shares": 200, "cost": 10.0},
+            date_maps={"600000": {"2026-09-10": {"open": 10.0, "close": 10.2}}},
+            prices={"600000": 10.0},
+        )
+        self.assertNotIn("y_τ90", hold)
+        self.assertNotIn("y_τw", hold)
+        self.assertAlmostEqual(float(hold["y_hl"]), 1.5)
 
     def test_sim_trades_keep_y_co_from_ranking(self):
         stock_bars = {"600519": _bars(16, step=0.5)}
@@ -663,7 +732,7 @@ class TestPaperReplayEngine(unittest.TestCase):
         self.assertTrue(filled)
         for s in filled:
             self.assertAlmostEqual(float(s.get("y_co")), 0.35, msg=s)
-            self.assertAlmostEqual(float(s.get("y_on")), 0.35, msg=s)
+            self.assertNotIn("y_on", s, msg=s)
 
     def test_default_top_k_is_universe_size(self):
         stock_bars = {
@@ -821,6 +890,62 @@ class TestOpenDayYhat(unittest.TestCase):
             return
         self.assertNotEqual(yn, 0)
         self.assertNotEqual(nc, 0)
+
+    def test_attach_open_yhat_heads_calls_path_attach(self):
+        from core.backtest.paper_replay import _attach_open_yhat_heads
+
+        seen = []
+
+        def _fake_path(item, hist_bars=None, allow_open_z=True, **_kwargs):
+            seen.append(
+                (
+                    item.get("stock_code"),
+                    bool(allow_open_z),
+                    len(hist_bars or []),
+                )
+            )
+            item["y_hl"] = 1.25
+
+        entries = [
+            {
+                "stock_code": "600519",
+                "predicted_score": 1.2,
+                "predicted_score_eod": 1.2,
+            }
+        ]
+        window = [
+            {
+                "date": "2026-03-09",
+                "open": 9.9,
+                "high": 10.1,
+                "low": 9.8,
+                "close": 10.0,
+                "volume": 1,
+            }
+        ]
+        with patch(
+            "core.t0.score_policy._attach_y_path_to_item",
+            side_effect=_fake_path,
+        ):
+            out = _attach_open_yhat_heads(
+                entries,
+                quotes={
+                    "600519": {
+                        "open": 10.2,
+                        "prev_close": 10.0,
+                        "date": "2026-03-10",
+                    }
+                },
+                windows={"600519": window},
+                tau_model_doc={},
+            )
+        self.assertEqual(len(seen), 1)
+        self.assertEqual(seen[0][0], "600519")
+        self.assertTrue(seen[0][1])
+        self.assertEqual(seen[0][2], 1)
+        self.assertEqual(out[0].get("date"), "2026-03-10")
+        self.assertAlmostEqual(float(out[0]["y_hl"]), 1.25)
+        self.assertNotIn("y_τ30", out[0])
 
 
 class TestRealizedYhatWindows(unittest.TestCase):
@@ -1376,32 +1501,7 @@ class TestReplayMinuteFill(unittest.TestCase):
         }
         dates = [b["date"] for b in stock_bars["600519"]]
         rankings = {d: [_rank_row("600519", 2.0)] for d in dates}
-        minutes = {
-            "600519": {
-                d: [
-                    {
-                        "date": d,
-                        "datetime": f"{d} 09:35:00",
-                        "open": 80.0,
-                        "high": 81.0,
-                        "low": 79.5,
-                        "close": 80.5,
-                    }
-                ]
-                for d in dates
-            },
-            "600036": {
-                d: [
-                    {
-                        "date": d,
-                        "datetime": f"{d} 09:35:00",
-                        "open": 70.0,
-                        "close": 70.2,
-                    }
-                ]
-                for d in dates
-            },
-        }
+        minutes = _minutes_aligned(stock_bars, close_delta=0.4)
         with _offline_rebalance_patches():
             out = backtest_paper_replay(
                 stock_bars,
@@ -1411,6 +1511,7 @@ class TestReplayMinuteFill(unittest.TestCase):
                 cost_model="zero",
                 fill_clock="09:35",
                 minute_bars_by_code=minutes,
+                price_space_cfg={"t0_price_space_gate": True},
             )
         self.assertTrue(out.get("success"), out.get("error"))
         self.assertEqual(out["params"]["fill_clock"], "09:35")
@@ -1421,8 +1522,8 @@ class TestReplayMinuteFill(unittest.TestCase):
             if t.get("side") == "buy" and t.get("stock_code") == "600519"
         ]
         self.assertTrue(buys)
-        self.assertAlmostEqual(float(buys[0].get("price") or 0), 80.5, places=4)
         daily_open = float(stock_bars["600519"][8]["open"])
+        self.assertAlmostEqual(float(buys[0].get("price") or 0), daily_open + 0.4, places=4)
         self.assertNotAlmostEqual(float(buys[0].get("price") or 0), daily_open, places=2)
 
     def test_935_skips_when_minute_missing(self):
@@ -1446,6 +1547,141 @@ class TestReplayMinuteFill(unittest.TestCase):
         buys = [t for t in (out.get("trades") or []) if t.get("side") == "buy"]
         self.assertEqual(buys, [])
         self.assertGreater(int((out.get("constraints_hit") or {}).get("minute_skips") or 0), 0)
+
+    def test_price_space_check_open_and_prev(self):
+        from core.backtest.paper_replay import replay_price_space_check
+
+        day = {"open": 100.0, "prev_close": 99.0}
+        mins = [{"datetime": "2026-03-10 09:35:00", "open": 100.2, "prev_close": 99.1}]
+        skip, seen = replay_price_space_check(
+            day, mins, {"t0_price_space_max_dev_pct": 5.0, "t0_price_space_prev_dev_pct": 5.0}
+        )
+        self.assertIsNone(skip)
+        self.assertFalse(seen)
+        bad_open = replay_price_space_check(
+            {"open": 110.0, "prev_close": 99.0},
+            mins,
+            {"t0_price_space_max_dev_pct": 0.25, "t0_price_space_prev_dev_pct": 5.0},
+        )
+        self.assertIsNotNone(bad_open[0])
+        self.assertIn("price_space_mismatch", str(bad_open[0]))
+        self.assertTrue(bad_open[1])
+        bad_prev = replay_price_space_check(
+            {"open": 100.0, "prev_close": 110.0},
+            [{"datetime": "2026-03-10 09:35:00", "open": 100.0, "prev_close": 100.0}],
+            {"t0_price_space_max_dev_pct": 5.0, "t0_price_space_prev_dev_pct": 0.25},
+        )
+        self.assertIsNotNone(bad_prev[0])
+        self.assertIn("P_d/P_m", str(bad_prev[0]))
+        off = replay_price_space_check(
+            {"open": 110.0, "prev_close": 99.0},
+            mins,
+            {
+                "t0_price_space_gate": False,
+                "t0_price_space_max_dev_pct": 0.25,
+                "t0_price_space_prev_dev_pct": 0.25,
+            },
+        )
+        self.assertIsNone(off[0])
+        self.assertTrue(off[1])
+        none_m, seen_m = replay_price_space_check(day, [], {"t0_price_space_gate": True})
+        self.assertIsNone(none_m)
+        self.assertFalse(seen_m)
+
+    def test_engine_skips_open_mismatch(self):
+        stock_bars = {
+            "600519": _bars(16, step=0.5),
+            "600036": _bars(16, step=0.3),
+        }
+        dates = [b["date"] for b in stock_bars["600519"]]
+        rankings = {d: [_rank_row("600519", 2.0)] for d in dates}
+        minutes = _minutes_aligned(stock_bars, close_delta=0.4, open_scale=0.8)
+        tight = {
+            "t0_price_space_gate": True,
+            "t0_price_space_max_dev_pct": 0.25,
+            "t0_price_space_prev_dev_pct": 5.0,
+        }
+        with _offline_rebalance_patches():
+            out = backtest_paper_replay(
+                stock_bars,
+                top_k=1,
+                min_history=8,
+                rankings_by_date=rankings,
+                cost_model="zero",
+                fill_clock="09:35",
+                minute_bars_by_code=minutes,
+                price_space_cfg=tight,
+            )
+        self.assertTrue(out.get("success"), out.get("error"))
+        buys = [t for t in (out.get("trades") or []) if t.get("side") == "buy"]
+        self.assertEqual(buys, [])
+        hits = out.get("constraints_hit") or {}
+        self.assertGreater(int(hits.get("price_space_skips") or 0), 0)
+        self.assertGreater(int(hits.get("price_space_mismatch_seen") or 0), 0)
+        skips = [
+            t
+            for t in (out.get("sim_trades") or [])
+            if t.get("status") == "skipped"
+            and "price_space_mismatch" in str(t.get("reason") or "")
+        ]
+        self.assertTrue(skips)
+
+    def test_engine_fills_when_price_space_gate_off(self):
+        stock_bars = {
+            "600519": _bars(16, step=0.5),
+            "600036": _bars(16, step=0.3),
+        }
+        dates = [b["date"] for b in stock_bars["600519"]]
+        rankings = {d: [_rank_row("600519", 2.0)] for d in dates}
+        minutes = _minutes_aligned(stock_bars, close_delta=0.4, open_scale=0.8)
+        with _offline_rebalance_patches():
+            out = backtest_paper_replay(
+                stock_bars,
+                top_k=1,
+                min_history=8,
+                rankings_by_date=rankings,
+                cost_model="zero",
+                fill_clock="09:35",
+                minute_bars_by_code=minutes,
+                price_space_cfg={"t0_price_space_gate": False},
+            )
+        self.assertTrue(out.get("success"), out.get("error"))
+        buys = [
+            t
+            for t in (out.get("trades") or [])
+            if t.get("side") == "buy" and t.get("stock_code") == "600519"
+        ]
+        self.assertTrue(buys)
+        daily_open = float(stock_bars["600519"][8]["open"])
+        self.assertAlmostEqual(
+            float(buys[0].get("price") or 0), daily_open * 0.8 + 0.4, places=3
+        )
+        hits = out.get("constraints_hit") or {}
+        self.assertEqual(int(hits.get("price_space_skips") or 0), 0)
+        self.assertGreater(int(hits.get("price_space_mismatch_seen") or 0), 0)
+        self.assertFalse(out["params"].get("price_space_gate"))
+
+    def test_0930_fill_not_used_as_open_gate(self):
+        """闸比分钟首开，不比 09:30 成交价（首根收盘可走出阈外）。"""
+        from core.backtest.paper_replay import replay_fill_px, replay_price_space_check
+
+        daily = {"open": 100.0, "prev_close": 99.5}
+        mins = [
+            {
+                "datetime": "2026-03-10 09:30:00",
+                "open": 100.1,
+                "close": 108.0,
+                "prev_close": 99.6,
+            }
+        ]
+        skip, seen = replay_price_space_check(
+            daily, mins, {"t0_price_space_max_dev_pct": 1.0, "t0_price_space_prev_dev_pct": 1.0}
+        )
+        self.assertIsNone(skip)
+        self.assertFalse(seen)
+        fill = replay_fill_px(daily_bar=daily, minute_bars=mins, fill_clock="09:30")
+        self.assertAlmostEqual(fill, 108.0, places=4)
+        self.assertGreater(abs(fill / 100.0 - 1.0) * 100.0, 1.0)
 
 
 class TestReplayCalendar(unittest.TestCase):
@@ -1610,6 +1846,247 @@ class TestFuseHitMetrics(unittest.TestCase):
         self.assertIsNone(pct)
         self.assertEqual(n, 0)
         self.assertEqual(hits, 0)
+
+
+class TestReplayPrefixYoc(unittest.TestCase):
+    def _dates(self):
+        return [f"2026-03-{i:02d}" for i in range(1, 16)]
+
+    def _date_maps(self, dates, code="600519"):
+        rows = {}
+        for i, d in enumerate(dates):
+            close = 10.0 + i * 0.1
+            rows[d] = {
+                "date": d,
+                "open": close - 0.05,
+                "high": close + 0.1,
+                "low": close - 0.1,
+                "close": close,
+                "volume": 1000,
+            }
+        return {code: rows}
+
+    def test_0930_keeps_open_y_oc(self):
+        dates = self._dates()
+        item = {"stock_code": "600519", "y_oo": 0.8, "y_oc": 0.197, "ranking": 0.5}
+        out, n = rescore_replay_y_oc_at_clock(
+            [item],
+            clock="09:30",
+            dates=dates,
+            date_maps=self._date_maps(dates),
+            minute_maps={},
+            max_window=12,
+            day_i=10,
+            cfg={"fusion_w_oo": 0.5, "fusion_w_oc": 0.5, "fusion_w_co": 0.0},
+        )
+        self.assertEqual(n, 0)
+        self.assertAlmostEqual(float(out[0]["y_oc"]), 0.197, places=6)
+        self.assertAlmostEqual(float(out[0]["y_oo"]), 0.8, places=6)
+
+    def test_apply_prefix_keeps_oo_updates_oc_and_ranking(self):
+        from core.backtest.paper_replay import _apply_prefix_oc
+
+        item = {
+            "stock_code": "600519",
+            "y_oo": 0.8,
+            "predicted_score": 0.8,
+            "predicted_score_eod": 0.8,
+            "y_trade": 0.8,
+            "y_oc": 0.197,
+            "y_co": 0.0,
+        }
+        live = {
+            "_score_source": "prefix_causal",
+            "y_oc": -0.70,
+            "y_tau": -0.70,
+            "predicted_score_tau": -0.70,
+            "y_tau_oc": -0.70,
+        }
+        cfg = {"fusion_w_oo": 0.5, "fusion_w_oc": 0.5, "fusion_w_co": 0.0}
+        self.assertTrue(_apply_prefix_oc(item, live, cfg))
+        self.assertAlmostEqual(float(item["y_oo"]), 0.8, places=6)
+        self.assertAlmostEqual(float(item["y_oc"]), -0.70, places=6)
+        self.assertLess(float(item["ranking"]), 0.2)
+
+    def test_apply_prefix_copies_aux_yhat(self):
+        from core.backtest.paper_replay import _apply_prefix_oc
+
+        item = {
+            "stock_code": "600519",
+            "y_oo": 0.8,
+            "predicted_score": 0.8,
+            "predicted_score_eod": 0.8,
+            "y_trade": 0.8,
+            "y_oc": 0.197,
+            "y_co": 0.0,
+            "y_τ30": 0.05,
+            "y_hl": 0.4,
+        }
+        live = {
+            "_score_source": "prefix_causal",
+            "y_oc": -0.70,
+            "y_tau": -0.70,
+            "predicted_score_tau": -0.70,
+            "y_tau_oc": -0.70,
+            "y_τ30": 0.2,
+            "y_τ60": -0.1,
+            "y_τ90": 0.3,
+            "y_hl": 1.5,
+        }
+        cfg = {"fusion_w_oo": 0.5, "fusion_w_oc": 0.5, "fusion_w_co": 0.0}
+        self.assertTrue(_apply_prefix_oc(item, live, cfg))
+        self.assertNotIn("y_τ30", item)
+        self.assertNotIn("y_τ60", item)
+        self.assertNotIn("y_τ90", item)
+        self.assertNotIn("y_τw", item)
+        self.assertAlmostEqual(float(item["y_hl"]), 1.5)
+
+    def test_935_calls_t0_rescore_with_same_prefix(self):
+        dates = self._dates()
+        code = "600519"
+        date_maps = self._date_maps(dates, code)
+        day_i = 12
+        day = dates[day_i]
+        prefix = [
+            {
+                "date": day,
+                "datetime": f"{day} 09:35:00",
+                "open": 11.6,
+                "high": 11.73,
+                "low": 11.5,
+                "close": 11.51,
+            }
+        ]
+        open_item = {
+            "stock_code": code,
+            "y_oo": 0.5,
+            "predicted_score": 0.5,
+            "predicted_score_eod": 0.5,
+            "y_oc": 0.197,
+            "y_co": 0.0,
+        }
+        live = {
+            "_score_source": "prefix_causal",
+            "y_oc": -0.70,
+            "y_tau": -0.70,
+            "predicted_score_tau": -0.70,
+            "y_tau_oc": -0.70,
+        }
+        with patch(
+            "core.t0.score_policy.rescore_scores_at_fixed_prefix",
+            return_value=live,
+        ) as rs:
+            out, n = rescore_replay_y_oc_at_clock(
+                [dict(open_item)],
+                clock="09:35",
+                dates=dates,
+                date_maps=date_maps,
+                minute_maps={code: {day: prefix}},
+                max_window=30,
+                day_i=day_i,
+                cfg={"fusion_w_oo": 0.5, "fusion_w_oc": 0.5, "fusion_w_co": 0.0},
+            )
+        self.assertEqual(n, 1)
+        self.assertAlmostEqual(float(out[0]["y_oc"]), -0.70, places=6)
+        self.assertAlmostEqual(float(out[0]["y_oo"]), 0.5, places=6)
+        self.assertTrue(rs.called)
+        kw = rs.call_args.kwargs
+        self.assertEqual(kw.get("stock_code"), code)
+        self.assertEqual(len(kw.get("minute_prefix") or []), 1)
+        self.assertEqual(kw["minute_prefix"][0]["datetime"], f"{day} 09:35:00")
+        self.assertFalse(kw.get("include_tau_horizons"))
+        self.assertAlmostEqual(float((kw.get("open_snap") or {}).get("y_oc")), 0.197, places=6)
+
+    def test_935_matches_t0_rescore_y_oc(self):
+        from core.t0.score_policy import (
+            _minute_bars_until_hm,
+            rescore_scores_at_fixed_prefix,
+            scores_have_any,
+        )
+
+        dates = self._dates()
+        code = "600519"
+        date_maps = self._date_maps(dates, code)
+        day_i = 12
+        day = dates[day_i]
+        hist = [date_maps[code][d] for d in dates[:day_i]]
+        day_bar = dict(date_maps[code][day])
+        day_bar["prev_close"] = hist[-1]["close"]
+        prefix = [
+            {
+                "date": day,
+                "datetime": f"{day} 09:35:00",
+                "open": float(day_bar["open"]),
+                "high": float(day_bar["open"]) + 0.1,
+                "low": float(day_bar["open"]) - 0.2,
+                "close": float(day_bar["open"]) - 0.12,
+            }
+        ]
+        open_item = {
+            "stock_code": code,
+            "y_oo": 0.5,
+            "predicted_score": 0.5,
+            "predicted_score_eod": 0.5,
+            "y_oc": 0.197,
+        }
+        t0 = rescore_scores_at_fixed_prefix(
+            stock_code=code,
+            minute_prefix=prefix,
+            day_bar=day_bar,
+            hist_bars=hist,
+            fuse_intraday=True,
+            open_snap=open_item,
+        )
+        if not scores_have_any(t0) or str(t0.get("_score_source") or "") != "prefix_causal":
+            self.skipTest("τ 模型未加载，跳过 ŷ_oc 数值对齐")
+        y_t0 = t0.get("y_oc")
+        if y_t0 is None:
+            y_t0 = t0.get("y_tau") or t0.get("predicted_score_tau")
+        if y_t0 is None:
+            self.skipTest("做 T rescore 未出 ŷ_oc")
+        minute_maps = {code: {day: prefix}}
+        out, n = rescore_replay_y_oc_at_clock(
+            [dict(open_item)],
+            clock="09:35",
+            dates=dates,
+            date_maps=date_maps,
+            minute_maps=minute_maps,
+            max_window=30,
+            day_i=day_i,
+            cfg={"fusion_w_oo": 0.5, "fusion_w_oc": 0.5, "fusion_w_co": 0.0},
+        )
+        self.assertGreaterEqual(n, 1)
+        self.assertAlmostEqual(float(out[0]["y_oc"]), float(y_t0), places=6)
+        self.assertAlmostEqual(float(out[0]["y_oo"]), 0.5, places=6)
+        cut = _minute_bars_until_hm(prefix, tau_hm="09:35")
+        self.assertEqual(len(cut), 1)
+
+    def test_injected_rankings_skip_prefix_rescore(self):
+        stock_bars = {
+            "600519": _bars(16, step=0.5),
+            "600036": _bars(16, step=0.3),
+        }
+        dates = [b["date"] for b in stock_bars["600519"]]
+        rankings = {}
+        for d in dates:
+            row = _rank_row("600519", 2.0)
+            row["y_oc"] = 0.197
+            row["y_oo"] = 0.8
+            rankings[d] = [row]
+        minutes = _minutes_aligned({"600519": stock_bars["600519"]}, close_delta=0.4)
+        with _offline_rebalance_patches():
+            out = backtest_paper_replay(
+                stock_bars,
+                top_k=1,
+                min_history=8,
+                rankings_by_date=rankings,
+                cost_model="zero",
+                fill_clock="09:35",
+                minute_bars_by_code=minutes,
+            )
+        self.assertTrue(out.get("success"), out.get("error"))
+        self.assertIsNone(out["params"].get("y_oc_prefix_clock"))
+        self.assertEqual(int((out.get("constraints_hit") or {}).get("tau_prefix_rescored") or 0), 0)
 
 
 if __name__ == "__main__":

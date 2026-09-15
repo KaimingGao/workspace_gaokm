@@ -229,7 +229,7 @@ function termFeatLabel(t, key) {
   if (key === "on" && k && ON_FEAT_META[k] && ON_FEAT_META[k].label) {
     return ON_FEAT_META[k].label;
   }
-  if ((key === "tau" || key === "r" || key === "t30" || key === "t60" || key === "t90" || key === "path" || key === "hl") && k && TAU_FEAT_LABELS[k]) {
+  if ((key === "tau" || key === "r" || key === "t30" || key === "t60" || key === "t90" || key === "hl") && k && TAU_FEAT_LABELS[k]) {
     return TAU_FEAT_LABELS[k];
   }
   if (t && t.label && String(t.label) !== String(k || "")) {
@@ -1537,7 +1537,7 @@ export function formatFormulaTermsSection(raw, opts = {}) {
             ? raw && (raw.formula_terms_t60 || raw.score_formula_terms_t60)
             : key === "t90"
             ? raw && (raw.formula_terms_t90 || raw.score_formula_terms_t90)
-            : key === "path" || key === "hl"
+            : key === "hl"
               ? raw && (raw.formula_terms_path || raw.score_formula_terms_path)
             : key === "on"
           ? raw && (raw.formula_terms_on || raw.score_formula_terms_on)
@@ -1557,7 +1557,7 @@ export function formatFormulaTermsSection(raw, opts = {}) {
             ? "ŷ_τ60 组成"
           : key === "t90"
             ? "ŷ_τ90 组成"
-          : key === "path" || key === "hl"
+          : key === "hl"
             ? "ŷ_hl 组成"
           : key === "on"
           ? "ŷ_co 组成"
@@ -1573,7 +1573,7 @@ export function formatFormulaTermsSection(raw, opts = {}) {
             ? "合计 ŷ_τ60（τ⊕60m/τ价）"
           : key === "t90"
             ? "合计 ŷ_τ90（τ⊕90m/τ价）"
-          : key === "path" || key === "hl"
+          : key === "hl"
             ? "合计 ŷ_hl（极值序）"
           : key === "on"
           ? "合计 ŷ_co"
@@ -1647,7 +1647,7 @@ export function formatFormulaTermsSection(raw, opts = {}) {
             ? "β×z = 贡献；合计=Ridge 拟合原值（price(τ⊕60m)/price(τ)−1）。做 T 旁路，不进 C_τ。"
           : key === "t90"
             ? "β×z = 贡献；合计=Ridge 拟合原值（price(τ⊕90m)/price(τ)−1）。做 T 旁路，不进 C_τ。"
-          : key === "path" || key === "hl"
+          : key === "hl"
             ? "β×z = 贡献；合计=Ridge 拟合原值（极值序 signed (H−L)/ref%）。做 T 同号闸 / 入场。"
           : "β×z = 贡献；条长∝|贡献|";
   const role = String((expl && expl.model_role) || "").toLowerCase();
@@ -2644,7 +2644,7 @@ export function createScoreTooltipController() {
     if (tipMode === "hl") {
       const parts = [
         formatCompactHlTip(raw),
-        formatFormulaTermsSection(raw, { key: "path" }),
+        formatFormulaTermsSection(raw, { key: "hl" }),
       ].filter(Boolean);
       showCompactScoreTip(cell, parts.join(""), { sticky });
       return;

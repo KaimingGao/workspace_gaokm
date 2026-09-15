@@ -157,31 +157,51 @@ def quant_t0_backtest(body: T0BacktestRequest) -> Dict[str, Any]:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
+def _portfolio_backtest_kwargs(body: PaperReplayBacktestRequest) -> Dict[str, Any]:
+    w_oo = body.fusion_w_oo if body.fusion_w_oo is not None else body.fusion_w_trade
+    w_oc = body.fusion_w_oc if body.fusion_w_oc is not None else body.fusion_w_nowcast
+    return {
+        "codes": body.codes,
+        "lookback": body.lookback,
+        "apply_costs": body.apply_costs,
+        "fetch_fundamentals": body.fetch_fundamentals,
+        "exclude_st": body.exclude_st,
+        "min_avg_amount_pctile": body.min_avg_amount_pctile,
+        "include_benchmark": body.include_benchmark,
+        "benchmark_code": body.benchmark_code,
+        "y_on_alpha": body.y_on_alpha,
+        "fusion_w_oo": w_oo,
+        "fusion_w_oc": w_oc,
+        "fusion_w_trade": w_oo,
+        "fusion_w_nowcast": w_oc,
+        "rank_enter": body.rank_enter,
+        "rank_strong": body.rank_strong,
+        "rank_enter_alt": body.rank_enter_alt,
+        "y_enter_enabled": body.y_enter_enabled,
+        "y_enter_alt_enabled": body.y_enter_alt_enabled,
+        "y_oo_enter": body.y_oo_enter,
+        "y_oc_enter": body.y_oc_enter,
+        "y_hl_enter": body.y_hl_enter,
+        "y_oo_enter_alt": body.y_oo_enter_alt,
+        "y_oc_enter_alt": body.y_oc_enter_alt,
+        "y_hl_enter_alt": body.y_hl_enter_alt,
+        "initial_cash": body.initial_cash,
+        "fill_clock": body.fill_clock,
+        "lot_base": body.lot_base,
+        "lot_strong": body.lot_strong,
+        "universe_fit_tiers": body.universe_fit_tiers,
+        "price_space_gate": body.price_space_gate,
+    }
+
+
 @router.post("/api/quant/portfolio-backtest")
 def quant_portfolio_backtest(body: PaperReplayBacktestRequest) -> Dict[str, Any]:
+    """调仓回测。默认入队 ``GET /api/jobs/portfolio-backtest``；``sync=true`` 同步（单测）。"""
     try:
-        return deps.quant.run_portfolio_backtest(
-            codes=body.codes,
-            lookback=body.lookback,
-            apply_costs=body.apply_costs,
-            fetch_fundamentals=body.fetch_fundamentals,
-            exclude_st=body.exclude_st,
-            min_avg_amount_pctile=body.min_avg_amount_pctile,
-            include_benchmark=body.include_benchmark,
-            benchmark_code=body.benchmark_code,
-            y_on_alpha=body.y_on_alpha,
-            fusion_w_oo=body.fusion_w_oo if body.fusion_w_oo is not None else body.fusion_w_trade,
-            fusion_w_oc=body.fusion_w_oc if body.fusion_w_oc is not None else body.fusion_w_nowcast,
-            fusion_w_trade=body.fusion_w_oo if body.fusion_w_oo is not None else body.fusion_w_trade,
-            fusion_w_nowcast=body.fusion_w_oc if body.fusion_w_oc is not None else body.fusion_w_nowcast,
-            rank_enter=body.rank_enter,
-            rank_strong=body.rank_strong,
-            initial_cash=body.initial_cash,
-            fill_clock=body.fill_clock,
-            lot_base=body.lot_base,
-            lot_strong=body.lot_strong,
-            universe_fit_tiers=body.universe_fit_tiers,
-        )
+        kwargs = _portfolio_backtest_kwargs(body)
+        if body.sync:
+            return deps.quant.run_portfolio_backtest(**kwargs)
+        return deps.quant.start_portfolio_backtest_job(**kwargs)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 

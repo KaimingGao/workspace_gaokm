@@ -67,10 +67,12 @@ class TestPathMatrix(unittest.TestCase):
         self.assertIn("rank_enter", lots)
         self.assertIn("cash_floor", lots)
         self.assertAlmostEqual(float(lots.get("cash_floor")), 0.0)
-        self.assertEqual(lots.get("y_on_alpha"), 0.0)
-        self.assertAlmostEqual(float(lots.get("rank_enter")), 0.012)
-        self.assertAlmostEqual(float(lots.get("rank_strong")), 0.012)
+        self.assertEqual(lots.get("y_on_alpha"), 1.0)
+        self.assertAlmostEqual(float(lots.get("rank_enter")), 0.001)
+        self.assertAlmostEqual(float(lots.get("rank_strong")), 0.001)
         self.assertAlmostEqual(float(lots.get("holdings_mv_cap")), 150000.0)
+        self.assertAlmostEqual(float(lots.get("y_oo_enter")), 0.1)
+        self.assertAlmostEqual(float(lots.get("y_hl_enter")), 0.1)
         # 旧键仍与 rank_lots 同结构，读盘兼容
         pm = DEFAULT_REBALANCE_TIMING.get("path_matrix") or {}
         self.assertEqual(pm.get("mode"), "rank_lots")
@@ -81,7 +83,7 @@ class TestPathMatrix(unittest.TestCase):
         self.assertAlmostEqual(cfg["fusion_w_co"], 0.4)
         self.assertAlmostEqual(cfg["y_on_alpha"], 0.4)
         cfg0 = self._cfg()
-        self.assertAlmostEqual(cfg0["fusion_w_co"], 0.0)
+        self.assertAlmostEqual(cfg0["fusion_w_co"], 1.0)
 
     def test_legacy_rank_thresholds_coerced_to_net(self):
         cfg = self._cfg(rank_enter=1.01, rank_strong=1.02)

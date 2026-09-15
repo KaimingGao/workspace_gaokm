@@ -243,25 +243,27 @@ export function renderRebalanceRulesHtml(execution) {
     (timing.path_matrix && typeof timing.path_matrix === "object" && timing.path_matrix) ||
     {};
   const enter = rankScoreToPct(pm.rank_enter);
-  const strong = rankScoreToPct(pm.rank_strong);
+  const enterAlt = rankScoreToPct(
+    pm.rank_enter_alt != null ? pm.rank_enter_alt : pm.rank_enter
+  );
   const alpha =
     pm.fusion_w_co != null
       ? Number(pm.fusion_w_co)
       : pm.y_on_alpha != null
         ? Number(pm.y_on_alpha)
-        : 0;
+        : 1;
   const wt =
     pm.fusion_w_oo != null
       ? Number(pm.fusion_w_oo)
       : pm.fusion_w_trade != null
         ? Number(pm.fusion_w_trade)
-        : 0.5;
+        : 0.6;
   const wn =
     pm.fusion_w_oc != null
       ? Number(pm.fusion_w_oc)
       : pm.fusion_w_nowcast != null
         ? Number(pm.fusion_w_nowcast)
-        : 0.5;
+        : 0.4;
   const cap = pm.holdings_mv_cap != null ? Number(pm.holdings_mv_cap) : 150000;
   const fmtN = (n, d) => (Number.isFinite(n) ? n.toFixed(d) : "—");
   const capLbl = Number.isFinite(cap) && cap > 0 ? `${Math.round(cap / 10000)}万` : "不限";
@@ -271,10 +273,10 @@ export function renderRebalanceRulesHtml(execution) {
     `<h4 class="paper-t0-spec-head-title">生效调仓</h4>` +
     `<div class="paper-t0-spec-kpi-strip" aria-label="调仓核心参数">` +
     specKpi("模式", "rank_lots", "09:30 开盘 · 现价 200/500 股") +
-    specKpi("入场", `${fmtN(Number(enter), 1)}%`, "ranking 须大于此值才建仓/加仓") +
-    specKpi("强买", `${fmtN(Number(strong), 1)}%`, "超过买 500 股，否则 200") +
     specKpi("w_co", fmtN(alpha, 1), "叠进 ŷ_oc 的隔夜系数；0=不叠") +
     specKpi("ranking", `${fmtN(wt, 2)}/${fmtN(wn, 2)}`, "w_oo / w_oc") +
+    specKpi("门槛1", `${fmtN(Number(enter), 2)}%`, "rank 入场；另有 ŷ_oo / ŷ_oc / y_hl") +
+    specKpi("门槛2", `${fmtN(Number(enterAlt), 2)}%`, "备选 rank 入场；OR 门槛1") +
     specKpi("市值上限", capLbl, "本笔将超则跳过该买") +
     `</div></header></div>`
   );
@@ -645,14 +647,14 @@ function coerceRankThreshold(raw, fallback) {
   return n;
 }
 
-const RANK_PCT_DEFAULT = 1.2;
+const RANK_PCT_DEFAULT = 0.1;
 
-/** 引擎净收益小数 → 表单百分数（0.012 → 1.2）。 */
+/** 引擎净收益小数 → 表单百分数（0.001 → 0.1）。 */
 function rankScoreToPct(raw, fallbackPct = RANK_PCT_DEFAULT) {
   const score = coerceRankThreshold(raw, fallbackPct / 100);
   const pct = Number(score) * 100;
   if (!Number.isFinite(pct)) return fallbackPct;
-  return Math.round(Math.max(0, Math.min(10, pct)) * 10) / 10;
+  return Math.round(Math.max(0, Math.min(10, pct)) * 100) / 100;
 }
 
 /** 表单百分数 → 引擎净收益小数（1.2 → 0.012）。 */
@@ -690,10 +692,23 @@ export function fillPathMatrixForm(root, execution) {
     el.value = String(val);
   };
   set("pm_rank_enter", rankScoreToPct(pm.rank_enter));
-  set("pm_rank_strong", rankScoreToPct(pm.rank_strong));
+  set("pm_rank_enter_alt", rankScoreToPct(pm.rank_enter_alt != null ? pm.rank_enter_alt : pm.rank_enter));
+  set("pm_y_enter_enabled", pm.y_enter_enabled !== false);
+  set("pm_y_enter_alt_enabled", pm.y_enter_alt_enabled !== false);
+  const pctEnter = (raw, fallback = 0.1) => {
+    const n = Number(raw);
+    if (!Number.isFinite(n)) return fallback;
+    return Math.max(0, Math.min(100, n));
+  };
+  set("pm_y_oo_enter", pctEnter(pm.y_oo_enter));
+  set("pm_y_oc_enter", pctEnter(pm.y_oc_enter));
+  set("pm_y_hl_enter", pctEnter(pm.y_hl_enter));
+  set("pm_y_oo_enter_alt", pctEnter(pm.y_oo_enter_alt != null ? pm.y_oo_enter_alt : pm.y_oo_enter));
+  set("pm_y_oc_enter_alt", pctEnter(pm.y_oc_enter_alt != null ? pm.y_oc_enter_alt : pm.y_oc_enter));
+  set("pm_y_hl_enter_alt", pctEnter(pm.y_hl_enter_alt != null ? pm.y_hl_enter_alt : pm.y_hl_enter));
   set(
     "pm_y_on_alpha",
-    pm.fusion_w_co != null ? pm.fusion_w_co : pm.y_on_alpha != null ? pm.y_on_alpha : 0
+    pm.fusion_w_co != null ? pm.fusion_w_co : pm.y_on_alpha != null ? pm.y_on_alpha : 1
   );
   set(
     "pm_holdings_mv_cap",
@@ -701,11 +716,11 @@ export function fillPathMatrixForm(root, execution) {
   );
   set(
     "pm_fusion_w_oo",
-    pm.fusion_w_oo != null ? pm.fusion_w_oo : pm.fusion_w_trade != null ? pm.fusion_w_trade : 0.5
+    pm.fusion_w_oo != null ? pm.fusion_w_oo : pm.fusion_w_trade != null ? pm.fusion_w_trade : 0.6
   );
   set(
     "pm_fusion_w_nc",
-    pm.fusion_w_oc != null ? pm.fusion_w_oc : pm.fusion_w_nowcast != null ? pm.fusion_w_nowcast : 0.5
+    pm.fusion_w_oc != null ? pm.fusion_w_oc : pm.fusion_w_nowcast != null ? pm.fusion_w_nowcast : 0.4
   );
 }
 
@@ -770,53 +785,66 @@ export function collectPathMatrixForm(root) {
     return fallback;
   };
   let enter = rankPctToScore(num("pm_rank_enter", RANK_PCT_DEFAULT));
-  let strong = rankPctToScore(num("pm_rank_strong", RANK_PCT_DEFAULT));
-  if (strong < enter) strong = enter;
-  const yOnAlpha = Math.max(0, Math.min(num("pm_y_on_alpha", 0), 10));
+  let enterAlt = rankPctToScore(num("pm_rank_enter_alt", RANK_PCT_DEFAULT));
+  const chk = (name, fallback = true) => {
+    const el = root.querySelector(`[name="${name}"]`);
+    if (!el) return fallback;
+    return !!el.checked;
+  };
+  const pctEnter = (name, fallback = 0.1) => {
+    return Math.max(0, Math.min(100, num(name, fallback)));
+  };
+  const yOnAlpha = Math.max(0, Math.min(num("pm_y_on_alpha", 1), 10));
   const mvEl = root.querySelector('[name="pm_holdings_mv_cap"]');
   const mvCap =
     mvEl && mvEl.value !== ""
       ? Math.max(0, Math.min(num("pm_holdings_mv_cap", 150000), 1e8))
       : 150000;
-  let wOo = Math.max(0, Math.min(numFirst(["pm_fusion_w_oo", "pm_fusion_w_trade"], 0.5), 1));
-  let wOc = Math.max(0, Math.min(numFirst(["pm_fusion_w_nc", "pm_fusion_w_oc"], 0.5), 1));
+  let wOo = Math.max(0, Math.min(numFirst(["pm_fusion_w_oo", "pm_fusion_w_trade"], 0.6), 1));
+  let wOc = Math.max(0, Math.min(numFirst(["pm_fusion_w_nc", "pm_fusion_w_oc"], 0.4), 1));
   const wSum = wOo + wOc;
   if (wSum <= 1e-12) {
-    wOo = 0.5;
-    wOc = 0.5;
+    wOo = 0.6;
+    wOc = 0.4;
   } else {
     wOo /= wSum;
     wOc /= wSum;
   }
+  const yEnterOn = chk("pm_y_enter_enabled", true);
+  const yEnterAltOn = chk("pm_y_enter_alt_enabled", true);
+  const yOoEnter = pctEnter("pm_y_oo_enter", 0.1);
+  const yOcEnter = pctEnter("pm_y_oc_enter", 0.1);
+  const yHlEnter = pctEnter("pm_y_hl_enter", 0.1);
+  const yOoEnterAlt = pctEnter("pm_y_oo_enter_alt", yOoEnter);
+  const yOcEnterAlt = pctEnter("pm_y_oc_enter_alt", yOcEnter);
+  const yHlEnterAlt = pctEnter("pm_y_hl_enter_alt", yHlEnter);
+  const lots = {
+        enabled: true,
+        mode: "rank_lots",
+        rank_enter: enter,
+        rank_strong: enter,
+        rank_enter_alt: enterAlt,
+        y_enter_enabled: yEnterOn,
+        y_enter_alt_enabled: yEnterAltOn,
+        y_oo_enter: Math.round(yOoEnter * 1000) / 1000,
+        y_oc_enter: Math.round(yOcEnter * 1000) / 1000,
+        y_hl_enter: Math.round(yHlEnter * 1000) / 1000,
+        y_oo_enter_alt: Math.round(yOoEnterAlt * 1000) / 1000,
+        y_oc_enter_alt: Math.round(yOcEnterAlt * 1000) / 1000,
+        y_hl_enter_alt: Math.round(yHlEnterAlt * 1000) / 1000,
+        y_on_alpha: Math.round(yOnAlpha * 1000) / 1000,
+        fusion_w_co: Math.round(yOnAlpha * 1000) / 1000,
+        holdings_mv_cap: Math.round(mvCap),
+        fusion_w_oo: Math.round(wOo * 1000) / 1000,
+        fusion_w_oc: Math.round(wOc * 1000) / 1000,
+        fusion_w_trade: Math.round(wOo * 1000) / 1000,
+        fusion_w_nowcast: Math.round(wOc * 1000) / 1000,
+  };
   return {
     lock: true,
     rebalance_timing: {
-      rank_lots: {
-        enabled: true,
-        mode: "rank_lots",
-        rank_enter: enter,
-        rank_strong: strong,
-        y_on_alpha: Math.round(yOnAlpha * 1000) / 1000,
-        fusion_w_co: Math.round(yOnAlpha * 1000) / 1000,
-        holdings_mv_cap: Math.round(mvCap),
-        fusion_w_oo: Math.round(wOo * 1000) / 1000,
-        fusion_w_oc: Math.round(wOc * 1000) / 1000,
-        fusion_w_trade: Math.round(wOo * 1000) / 1000,
-        fusion_w_nowcast: Math.round(wOc * 1000) / 1000,
-      },
-      path_matrix: {
-        enabled: true,
-        mode: "rank_lots",
-        rank_enter: enter,
-        rank_strong: strong,
-        y_on_alpha: Math.round(yOnAlpha * 1000) / 1000,
-        fusion_w_co: Math.round(yOnAlpha * 1000) / 1000,
-        holdings_mv_cap: Math.round(mvCap),
-        fusion_w_oo: Math.round(wOo * 1000) / 1000,
-        fusion_w_oc: Math.round(wOc * 1000) / 1000,
-        fusion_w_trade: Math.round(wOo * 1000) / 1000,
-        fusion_w_nowcast: Math.round(wOc * 1000) / 1000,
-      },
+      rank_lots: { ...lots },
+      path_matrix: { ...lots },
     },
   };
 }

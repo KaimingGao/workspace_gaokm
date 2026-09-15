@@ -300,7 +300,7 @@ ML 视角见 [机器学习视角 · 四件套对照](#四件套对照)。
 要点：
 
 - **不是**把调仓用过的 τ 再抄一遍赚第二遍 Alpha；是 **同一预测头、两种决策接口**（结构层 vs timing overlay）。
-- 做 T 默认 **`y_score_source=compute`**：开盘信息集（昨收因子 + 今开缺口）**即时重算** ŷ_oc 估 C_τ，不读冻结账本；与调仓扫池 **公式同源、时点可不同**。
+- 做 T 默认 **`y_score_source=compute`**：开盘信息集（昨收因子 + 今开缺口）**即时重算** ŷ_oc 估 C_τ，不读冻结账本；与调仓扫池 **公式同源**。历史调仓回测成交钟>09:30 时 ŷ_oc 用截至该钟的前缀重算（与做 T 该钟同路径）；live 调仓仍钉开盘 Z。
 - 上午刚通过 τ 买入闸的票，下午做 T 仍会重算 ŷ 问「今天怎么动底仓」；带宽未破或 \|y_τ\|/\|y_path\| 未过入场时 **0 成交** 也正常。
 - 归因应分开：调仓 PnL（`origin=strategy`）vs 做 T leg（`t0_batch`）。双层 ŷ 契约见 [§2.5](quant.md#25-双层-predicted_scoreŷ_eod--ŷ_τ) · 实现 `core/signal/dual_score/` · `core/t0/close_band.py`。
 
@@ -951,7 +951,7 @@ python3 research/paper_run.py --init
 【层 3 · ŷ_τc】同 ŷ_oc 的 X → y_τc
          → 预测 close[T]/price[τ]−1 → residual / ĉ（枢纽拟合 UI 已下线）
 
-【对照 · ŷ_co】隔夜缺口 → y_co（别名 y_on）；经 w_co 叠进 ŷ_oc（默认 w_co=0）
+【对照 · ŷ_co】隔夜缺口 → y_co（旧键 y_on 可读）；经 w_co 叠进 ŷ_oc（默认 w_co=0）
 ```
 
 生产选股真源仍是 **层 1 回归 ŷ（因子系数 β）**，不是启发式 0–100 分。  
@@ -1012,13 +1012,13 @@ y_{\mathrm{oo}} = \bigl(\mathrm{open}[t+h] / \mathrm{open}[t] - 1\bigr) \times 1
 | **ŷ_oo** | `y_oo` / `predicted_score` | \(X_{\le T-1}\) + T 开 quote | \(\mathrm{open}[T+1]/\mathrm{open}[T]-1\) | ranking 输入 |
 | **ŷ_oc** | `y_oc` / `y_tau` | \(Z_{\le\tau}\) | \(\mathrm{close}[T]/\mathrm{open}[T]-1\) | ranking 输入；做 T 估 C_τ |
 | **ŷ_τc** | `y_τc` | 同 ŷ_oc | \(\mathrm{close}[T]/\mathrm{price}[\tau]-1\) | 枢纽拟合 UI 已下线；做 T **已下线**（ŷ_τ30/60/90 覆盖剩余窗）；数据中心 / 持仓主表不列；residual / ĉ 仍可读 |
-| **ŷ_co** | `y_co` / `y_on` | 隔夜缺口头 | \(\mathrm{open}[T+1]/\mathrm{close}[T]-1\) | 经 w_co 叠进 ŷ_oc |
+| **ŷ_co** | `y_co` | 隔夜缺口头 | \(\mathrm{open}[T+1]/\mathrm{close}[T]-1\) | 经 w_co 叠进 ŷ_oc；旧键 `y_on` 可读 |
 
 ```text
 ŷ_oo      = f(X_{T-1}, O_T; β_cluster)                     # 组 β；标签 open[T+1]/open[T]−1
 ŷ_oc      = g(Z_≤τ; γ)                                     # 标签 close[T]/open[T]−1
 ŷ_τc      = h(Z_≤τ; ρ)                                     # 标签 close[T]/price[τ]−1；对照
-ranking   = w_oo·ŷ_oo + w_oc·((1+ŷ_oc)(1+w_co·ŷ_co)−1)   # ŷ 净收益；w_co 默认 0
+ranking   = w_oo·ŷ_oo + w_oc·((1+ŷ_oc)(1+w_co·ŷ_co)−1)   # ŷ 净收益；w_co 默认 1
 C_τ       = O×(1+clip(ŷ_oc×scale, y_oc_l, y_oc_u)/100)   # 做 T；ŷ_τc 不融进 C_τ
 ```
 
@@ -1152,13 +1152,13 @@ EOD 锚在 **收**，与 open 链 **并列**（选股主轴），不是 open 链
 
 曾试过 ŷ_next（下一窗 VWAP）与 ŷ_r（\(C/C_r\)）作做 T 研究头；OOS 符号命中约 50%，已从枢纽下线，不进 T0 闸。
 
-**分钟 K 形状**：`y_hl` 进做 T 同号闸与入场（键名 `y_hl_*`；旧 `y_path_*` 加载时迁移）；研究枢纽保留 ŷ_hl 拟合入口。`y_cx` / `y_tpd` 验证后**暂不用于调仓与做 T**，枢纽 / 历史回测 / 数据中心入口已下线；后端 `POST /api/quant/path-ridge` · `cx-ridge` · `tpd-ridge` 仍保留。旧键 `y_path` / `y_complexity` 仍可读。
+**分钟 K 形状**：`y_hl` 进做 T 同号闸与入场（键名 `y_hl_*`；旧 `y_path_*` 加载时迁移）；研究枢纽保留 ŷ_hl 拟合入口。`y_cx` / `y_tpd` 验证后**暂不用于调仓与做 T**，枢纽 / 历史回测 / 数据中心入口已下线；后端 `POST /api/quant/path-ridge` · `cx-ridge` · `tpd-ridge` 仍保留。旧键 `y_path` / `y_on` 仍可读，新分不再双写。
 
 **做 T 曲折度头 \(y_{\mathrm{cx}}\)**（已下线）：标签 \(y_{\mathrm{cx}}=1-D/L\in[0,1]\)。拟合 `POST /api/quant/cx-ridge`，落盘 `cx_ridge_model.json`。不进 T0 闸 / 成交明细列。
 
 **做 T 转折点密度头 \(y_{\mathrm{tpd}}\)**（已下线）：拟合 `POST /api/quant/tpd-ridge`。不进 T0 闸 / 成交明细列。
 
-**做 T 路径头 \(y_{\mathrm{hl}}\)**：极值序 signed range%。拟合 `POST /api/quant/path-ridge`。不进 ranking、不进 \(C_\tau\)；做 T 用 `y_hl_strong` 同号闸与 `y_hl_enter` 入场。旧键 `y_path_*`。
+**做 T 路径头 \(y_{\mathrm{hl}}\)**：极值序 signed range%。拟合 `POST /api/quant/path-ridge`。不进 ranking、不进 \(C_\tau\)；做 T 用 `y_hl_strong` 同号闸与 `y_hl_enter` 入场。旧键 `y_path_*` 加载时迁到 `y_hl_*`，新分不再双写。
 
 ---
 
@@ -1339,12 +1339,12 @@ score_stock(code) 续——
 ## 5. 回测链（paper_replay / rank_lots）
 
 入口：历史回测页 / 日报轻量摘要 · `backtest_paper_replay`  
-（Web：`run_portfolio_backtest`；日报：`summarize_portfolio_backtest`）。
+（Web：默认入队 `GET /api/jobs/portfolio-backtest`，`sync=true` 才同步跑 `run_portfolio_backtest`；日报：`summarize_portfolio_backtest`）。
 
 产品回测与 live Follow 同一套 **rank_lots**：每个交易日 09:30 用 y_fuse / y_on 排序，按手数开/加/清仓。历史成交用 5 分钟 K（调仓时间 09:30–10:00）。  
 `topk_research`（`backtest_topk_equal_weight`）只作研究探针（组 OOS / 权建议 OOS / 分池合成对照），**不进 `/replay`**。中性化对照研究口与 lookback×K 参数网格已下线。
 
-成功回测落盘 `data/last_portfolio_backtest.json`。打开 `/replay` 时 `GET /api/quant/last-portfolio-backtest` 恢复 KPI / 净值 / 分票贡献 / 成交账，**不重跑**；点「跑回测」才重算。日报摘要仍走 `summarize_portfolio_backtest`，不覆盖这份落盘。
+成功回测落盘 `data/last_portfolio_backtest.json`。打开 `/replay` 时 `GET /api/quant/last-portfolio-backtest` 恢复 KPI / 净值 / 分票贡献 / 成交账，**不重跑**；点「跑回测」才重算（默认后台 Job，进度条带日期 / 日序号 / 观察池只数）。**表单以「保存」为准**（权重/门槛写入交易执行覆盖；本金/手数/回测窗/成交钟本页记住），刷新不用上次回测请求盖掉已存配置。日报摘要仍走 `summarize_portfolio_backtest`，不覆盖这份落盘。
 
 ### 5.1 分数口径（历史 vs live）
 
@@ -1352,8 +1352,9 @@ score_stock(code) 续——
 |--|--|--|
 | 选股排序键 | **y_fuse / y_on**（09:30 ranking） | 同左 |
 | 宇宙 | 全部观察池（现金用完即止） | 观察池 + 持仓市值上限（默认 15 万）；开加不按 `max_positions` 截断 |
-| 手数 | 回测默认 100 / 200 股（表单可改；强档买不下则退入场手数） | live 200 / 500 股 |
-| 成交 | 开盘 rank_lots；T+1；本金默认 **20 万**（表单可改，不留地板）；**5m 成交钟**默认 09:30（可选至 10:00） | 同规则，账本为 `paper.json`；live 另受 15 万市值帽；现价 |
+| 手数 | 回测默认 200 股（表单「每笔股数」；不改 live 200/500） | live 200 / 500 股 |
+| 成交 | 开盘 rank_lots；T+1；本金默认 **20 万**（表单可改，不留地板）；**5m 成交钟**默认 09:30（可选至 10:00）；共用框「日分价闸」默认开（有分钟时日分价错位 skip；阈跟做 T） | 同规则，账本为 `paper.json`；live 另受 15 万市值帽；现价；**不**套日分价闸 |
+| 成交明细 | ranking 后对照 y_hl（开盘 Z 挂分；成交钟>09:30 随前缀）。不挂 y_τw / y_τ30 / y_τ60 / y_τ90 | live 仍可透传对照头 |
 
 回测合成 paper 必须写 `rebalance_timing.rank_lots`（`get_path_matrix_cfg` 优先该键）。只写旧键 `path_matrix` 时，其它 live 缺省（如持仓市值帽）会漏进合成账本。
 

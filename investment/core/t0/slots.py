@@ -280,14 +280,10 @@ def _promote_causal_portrait_fields(packed: dict) -> dict:
                 if out.get(k) is not None:
                     out["y_tau_portrait_oc"] = out.get(k)
                     break
-        if out.get("y_path_portrait") is None:
-            yp = out.get("y_hl") if out.get("y_hl") is not None else out.get("y_path")
-            if yp is not None:
-                out["y_path_portrait"] = yp
         if out.get("y_hl_portrait") is None:
-            yp = out.get("y_path_portrait")
+            yp = out.get("y_hl") if out.get("y_hl") is not None else out.get("y_path")
             if yp is None:
-                yp = out.get("y_hl") if out.get("y_hl") is not None else out.get("y_path")
+                yp = out.get("y_path_portrait")
             if yp is not None:
                 out["y_hl_portrait"] = yp
     return out
@@ -366,13 +362,13 @@ def attach_slot_fit_portrait_scores(
             if isinstance(packed_day.get("scores"), dict)
             else {}
         )
-        for k in ("y_tau_portrait_oc", "y_path_portrait", "portrait_prefix_bars", "portrait_prefix_hm"):
+        for k in ("y_tau_portrait_oc", "y_hl_portrait", "y_path_portrait", "portrait_prefix_bars", "portrait_prefix_hm"):
             if packed_day.get(k) is not None:
                 sc[k] = packed_day.get(k)
                 live[k] = packed_day.get(k)
         if str(live.get("_score_source") or "") != "prefix_causal":
             # 仍标记为该钟前缀画像（拟合对照），即使重算失败只靠 open_snap 预测
-            if sc.get("y_tau_portrait_oc") is not None or sc.get("y_path_portrait") is not None:
+            if sc.get("y_tau_portrait_oc") is not None or sc.get("y_hl_portrait") is not None or sc.get("y_path_portrait") is not None:
                 live["_score_source"] = live.get("_score_source") or "slot_portrait"
                 live["_score_prefix_hm"] = hm
                 live["_score_prefix_bars"] = prefix_n
@@ -441,7 +437,9 @@ def _slot_public_scores(row: dict) -> dict:
         slim = {}
         for k in (
             "y_tau",
+            "y_hl",
             "y_path",
+            "y_co",
             "y_hl",
             "predicted_score_hl",
             "predicted_score_complexity",
@@ -481,6 +479,7 @@ def _slot_public_scores(row: dict) -> dict:
             "gap_pct",
             "y_tau_oc",
             "y_tau_portrait_oc",
+            "y_hl_portrait",
             "y_path_portrait",
         ):
             if feats.get(k) is not None:
@@ -930,7 +929,7 @@ def _build_close_band_scan_trace(
             except Exception:  # noqa: BLE001
                 live_snap = {
                     **(dict(open_snap) if isinstance(open_snap, dict) else {}),
-                    "y_path_status": "minute_data_missing",
+                    "y_hl_status": "minute_data_missing",
                     "_minute_data_missing": True,
                 }
         elif code and is_open_hm and len(mins[: idx + 1]) >= 1:
@@ -990,7 +989,7 @@ def _build_close_band_scan_trace(
             isinstance(gate_snap, dict)
             and (
                 gate_snap.get("_minute_data_missing")
-                or str(gate_snap.get("y_path_status") or "").strip()
+                or str(gate_snap.get("y_hl_status") or gate_snap.get("y_path_status") or "").strip()
                 == "minute_data_missing"
             )
             and not is_open_hm
@@ -1137,7 +1136,6 @@ def _build_close_band_scan_trace(
                 "c": round(c, 4),
                 "c_tau": c_tau,
                 "y_tau": y_tau,
-                "y_path": y_path,
                 "y_hl": y_path,
                 "y_complexity": y_complexity,
                 "y_cx": y_complexity,
@@ -1432,7 +1430,7 @@ def simulate_t0_day_slots(
                 logger.debug("close-band rescore failed", exc_info=True)
                 live_snap = {
                     **(dict(open_snap) if isinstance(open_snap, dict) else {}),
-                    "y_path_status": "minute_data_missing",
+                    "y_hl_status": "minute_data_missing",
                     "_minute_data_missing": True,
                     "_score_source": "prefix_minute_missing",
                 }
@@ -1458,7 +1456,7 @@ def simulate_t0_day_slots(
             isinstance(snap_for_gate, dict)
             and (
                 snap_for_gate.get("_minute_data_missing")
-                or str(snap_for_gate.get("y_path_status") or "").strip()
+                or str(snap_for_gate.get("y_hl_status") or snap_for_gate.get("y_path_status") or "").strip()
                 == "minute_data_missing"
             )
             and not is_open_hm

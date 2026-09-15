@@ -66,18 +66,30 @@ class QuantReplayMixin:
         include_benchmark: bool = True,
         benchmark_code: str = "000300",
         persist_curve: bool = True,
-        y_on_alpha: float = 0.0,
+        y_on_alpha: float = 1.0,
         fusion_w_oo: Optional[float] = None,
         fusion_w_oc: Optional[float] = None,
         fusion_w_trade: float = 0.6,
         fusion_w_nowcast: float = 0.4,
-        rank_enter: float = 0.012,
-        rank_strong: float = 0.012,
+        rank_enter: float = 0.001,
+        rank_strong: float = 0.001,
+        rank_enter_alt: Optional[float] = None,
+        y_enter_enabled: bool = True,
+        y_enter_alt_enabled: bool = True,
+        y_oo_enter: float = 0.1,
+        y_oc_enter: float = 0.1,
+        y_hl_enter: float = 0.1,
+        y_oo_enter_alt: Optional[float] = None,
+        y_oc_enter_alt: Optional[float] = None,
+        y_hl_enter_alt: Optional[float] = None,
         initial_cash: Optional[float] = None,
         fill_clock: str = "09:30",
         lot_base: Optional[int] = None,
         lot_strong: Optional[int] = None,
         universe_fit_tiers: Optional[Sequence[str]] = None,
+        price_space_gate: Optional[bool] = None,
+        progress_cb: Optional[Any] = None,
+        cancel_cb: Optional[Any] = None,
         **legacy_kw: Any,
     ) -> Dict[str, Any]:
         from core.strategy import backtest_portfolio_defaults
@@ -94,6 +106,27 @@ class QuantReplayMixin:
         max_positions = max(1, int(bt_def.get("max_positions") or 20))
         exclude_st = bool(exclude_st if exclude_st is not None else bt_def["exclude_st"])
 
+        def _emit(msg: str, cur: int = 0, tot: int = 1) -> None:
+            if progress_cb is None:
+                return
+            try:
+                progress_cb(str(msg or "回测中…"), int(cur or 0), max(1, int(tot or 1)))
+            except Exception:  # noqa: BLE001
+                logger.debug("portfolio progress_cb failed", exc_info=True)
+
+        def _cancelled() -> bool:
+            if cancel_cb is None:
+                return False
+            try:
+                return bool(cancel_cb())
+            except Exception:  # noqa: BLE001
+                logger.debug("portfolio cancel_cb failed", exc_info=True)
+                return False
+
+        if _cancelled():
+            return {"success": False, "error": "已取消", "cancelled": True}
+
+        _emit("解析观察池…")
         resolved = resolve_replay_candidates(codes)
         if not resolved.get("ok", True) and resolved.get("error"):
             return {"success": False, "error": resolved["error"], "universe": resolved}
@@ -140,6 +173,9 @@ class QuantReplayMixin:
                 "universe": {**resolved, "fit_tiers": fit_meta},
             }
 
+        if _cancelled():
+            return {"success": False, "error": "已取消", "cancelled": True}
+        _emit(f"加载日线 {len(candidates)} 只…")
         stock_bars, failures, fundamentals_by_code = load_portfolio_stock_bars(
             candidates,
             lookback=lookback,
@@ -171,6 +207,9 @@ class QuantReplayMixin:
                 },
             }
 
+        if _cancelled():
+            return {"success": False, "error": "已取消", "cancelled": True}
+
         from core.backtest.paper_replay import (
             REPLAY_CASH_FLOOR,
             REPLAY_FILL_CLOCK,
@@ -195,7 +234,7 @@ class QuantReplayMixin:
             alpha = 0.0
         if alpha != alpha:
             alpha = 0.0
-        y_on_alpha = max(0.0, min(1.0, alpha))
+        y_on_alpha = max(0.0, min(10.0, alpha))
         raw_oo = fusion_w_oo if fusion_w_oo is not None else fusion_w_trade
         raw_oc = fusion_w_oc if fusion_w_oc is not None else fusion_w_nowcast
         w_oo = clamp_fusion_weight(raw_oo, REPLAY_FUSION_W_TRADE)
@@ -211,7 +250,11 @@ class QuantReplayMixin:
         )
         lot_base_n, lot_strong_n = clamp_replay_lot_pair(lot_base, lot_strong)
         clock = clamp_replay_fill_clock(fill_clock, REPLAY_FILL_CLOCK)
+        gate_on = True if price_space_gate is None else bool(price_space_gate)
         minute_span = min(max(int(lookback or 30) + 20, 15), 120)
+        if _cancelled():
+            return {"success": False, "error": "已取消", "cancelled": True}
+        _emit(f"加载分钟线 {clock} · {universe_n} 只…")
         minute_bars, minute_meta = load_replay_minute_bars(
             list(stock_bars.keys()),
             lookback_days=minute_span,
@@ -237,6 +280,9 @@ class QuantReplayMixin:
                     "fill_clock": clock,
                 },
             }
+        if _cancelled():
+            return {"success": False, "error": "已取消", "cancelled": True}
+        _emit(f"逐日调仓 {clock} · {int(lookback)} 日…")
         result = backtest_paper_replay(
             stock_bars,
             top_k=universe_n,
@@ -251,11 +297,25 @@ class QuantReplayMixin:
             fusion_w_nowcast=w_oc,
             rank_enter=enter,
             rank_strong=strong,
+            rank_enter_alt=rank_enter_alt,
+            y_enter_enabled=y_enter_enabled,
+            y_enter_alt_enabled=y_enter_alt_enabled,
+            y_oo_enter=y_oo_enter,
+            y_oc_enter=y_oc_enter,
+            y_hl_enter=y_hl_enter,
+            y_oo_enter_alt=y_oo_enter_alt,
+            y_oc_enter_alt=y_oc_enter_alt,
+            y_hl_enter_alt=y_hl_enter_alt,
             lookback=int(lookback),
             fill_clock=clock,
             minute_bars_by_code=minute_bars,
             lot_base=lot_base_n,
             lot_strong=lot_strong_n,
+            price_space_cfg=(
+                None if price_space_gate is None else {"price_space_gate": gate_on}
+            ),
+            progress_cb=progress_cb,
+            cancel_cb=cancel_cb,
         )
         result["loaded_stocks"] = list(stock_bars.keys())
         result["failures"] = failures
@@ -280,24 +340,35 @@ class QuantReplayMixin:
             "fusion_w_nowcast": w_oc,
             "rank_enter": enter,
             "rank_strong": strong,
+            "rank_enter_alt": rank_enter_alt,
+            "y_enter_enabled": bool(y_enter_enabled),
+            "y_enter_alt_enabled": bool(y_enter_alt_enabled),
+            "y_oo_enter": y_oo_enter,
+            "y_oc_enter": y_oc_enter,
+            "y_hl_enter": y_hl_enter,
+            "y_oo_enter_alt": y_oo_enter_alt,
+            "y_oc_enter_alt": y_oc_enter_alt,
+            "y_hl_enter_alt": y_hl_enter_alt,
             "fill_clock": clock,
             "lot_base": lot_base_n,
             "lot_strong": lot_strong_n,
             "universe_fit_tiers": list(
                 (fit_meta or {}).get("universe_fit_tiers") or ["A", "B", "C"]
             ),
+            "price_space_gate": gate_on,
             "score_axis_note": (
                 "引擎=paper_replay：每个交易日 09:30 rank_lots"
                 f"（成交 {clock} 5m · 初始 {cash / 10000:g} 万 · ranking={FORMULA_RANKING} · "
                 f"{lot_base_n}/{lot_strong_n} 股；"
                 f"w_oo={w_oo:g}；w_oc={w_oc:g}；"
-                f"w_co={y_on_alpha:g}；入场={enter:g}；强={strong:g}；"
+                f"w_co={y_on_alpha:g}；门槛1/2 入场；"
                 f"宇宙=观察池 {universe_n} 只"
                 + (
                     f" · 档{''.join((fit_meta or {}).get('universe_fit_tiers') or [])}"
                     if not (fit_meta or {}).get("unrestricted", True)
                     else ""
                 )
+                + ("；日分价闸开" if gate_on else "；日分价闸关")
                 + f"，开加不按纸面 max_positions={max_positions} 截断）；"
                 "现金用完即止。"
             ),
@@ -316,7 +387,10 @@ class QuantReplayMixin:
                 else "候选=全部观察池；开加不按纸面持仓上限截断（≠研究 Top-K 独立腿）。"
             ),
         }
+        if result.get("cancelled"):
+            return result
         if include_benchmark and result.get("success"):
+            _emit("挂基准…")
             try:
                 from core.backtest.topk_benchmark import build_topk_benchmark_summary
                 from core.research.bt_excess_attach import attach_benchmark_excess
@@ -449,6 +523,103 @@ class QuantReplayMixin:
         from core.backtest_result_store import load_last_portfolio_backtest as load_snap
 
         return load_snap()
+
+    def start_portfolio_backtest_job(
+        self,
+        **kwargs: Any,
+    ) -> Dict[str, Any]:
+        """后台调仓回测；轮询 ``GET /api/jobs/portfolio-backtest``。"""
+        import threading
+
+        from core.job_progress import portfolio_backtest_job
+
+        lookback = int(kwargs.get("lookback") or 30)
+        portfolio_backtest_job.reclaim_if_stale()
+        if portfolio_backtest_job.is_running():
+            return {
+                "ok": True,
+                "success": True,
+                "background": True,
+                "reused": True,
+                "job": portfolio_backtest_job.get(),
+            }
+
+        job_id = portfolio_backtest_job.start(
+            kind="portfolio_backtest",
+            total=max(1, lookback),
+            message="回测入队…",
+        )
+
+        def _progress(msg: str = "", cur: int = 0, tot: int = 0) -> None:
+            portfolio_backtest_job.update(
+                current=max(0, int(cur or 0)),
+                total=max(1, int(tot or lookback)),
+                message=str(msg or "回测中…"),
+                job_id=job_id,
+            )
+
+        def _worker() -> None:
+            stop_hb = threading.Event()
+
+            def _heartbeat() -> None:
+                while not stop_hb.wait(8.0):
+                    if not portfolio_backtest_job.touch(job_id=job_id):
+                        return
+
+            hb = threading.Thread(
+                target=_heartbeat, name=f"portfolio-backtest-hb-{job_id}", daemon=True
+            )
+            hb.start()
+            try:
+                if portfolio_backtest_job.is_cancel_requested():
+                    portfolio_backtest_job.finish(error="已取消", job_id=job_id)
+                    return
+                result = self.run_portfolio_backtest(
+                    progress_cb=_progress,
+                    cancel_cb=portfolio_backtest_job.is_cancel_requested,
+                    **kwargs,
+                )
+                if portfolio_backtest_job.is_cancel_requested() or (
+                    isinstance(result, dict) and result.get("cancelled")
+                ):
+                    portfolio_backtest_job.finish(
+                        error="已取消",
+                        result=result if isinstance(result, dict) else None,
+                        job_id=job_id,
+                    )
+                    return
+                if not isinstance(result, dict):
+                    portfolio_backtest_job.finish(error="回测无返回", job_id=job_id)
+                    return
+                if not result.get("success"):
+                    portfolio_backtest_job.finish(
+                        error=str(result.get("error") or "回测失败"),
+                        result=result,
+                        job_id=job_id,
+                    )
+                    return
+                portfolio_backtest_job.update(
+                    current=max(1, int((result.get("params") or {}).get("n_days") or lookback)),
+                    total=max(1, int((result.get("params") or {}).get("n_days") or lookback)),
+                    message="完成",
+                    job_id=job_id,
+                )
+                portfolio_backtest_job.finish(result=result, job_id=job_id)
+            except Exception as e:
+                logger.exception("unexpected error in portfolio backtest worker")
+                portfolio_backtest_job.finish(error=str(e), job_id=job_id)
+            finally:
+                stop_hb.set()
+
+        threading.Thread(
+            target=_worker, name=f"portfolio-backtest-{job_id}", daemon=True
+        ).start()
+        return {
+            "ok": True,
+            "success": True,
+            "background": True,
+            "job": portfolio_backtest_job.get(),
+        }
 
     def fit_return_score_model(self, **kwargs: Any) -> Dict[str, Any]:
         from core.signal.return_score_store import fit_watching_return_model

@@ -134,9 +134,40 @@ class TestPlanRankLotDay(unittest.TestCase):
         self.assertAlmostEqual(float(buy["y_oo"]), 2.0)
         self.assertAlmostEqual(float(buy["y_oc"]), 1.0)
         self.assertAlmostEqual(float(buy["y_co"]), 0.4)
-        self.assertAlmostEqual(float(buy["y_on"]), 0.4)
+        self.assertNotIn("y_on", buy)
         self.assertAlmostEqual(float(buy["ranking"]), 1.5)
         self.assertEqual(int(buy["rank_i"]), 1)
+
+    def test_stamps_aux_yhat_after_ranking(self):
+        from core.paper.rebalance.rank_lots import plan_rank_lot_day
+
+        scored = [
+            {
+                "stock_code": "600000",
+                "stock_name": "分项",
+                "predicted_score": 2.0,
+                "y_tau": 1.0,
+                "y_co": 0.4,
+                "y_τ30": 0.2,
+                "y_τ60": -0.1,
+                "y_τ90": 0.3,
+                "y_hl": 1.5,
+            }
+        ]
+        out = plan_rank_lot_day(
+            scored=scored,
+            holdings=[],
+            cash=1_000_000,
+            prices={"600000": 10.0},
+            cfg=_cfg(),
+        )
+        buy = out["buys"][0]
+        self.assertAlmostEqual(float(buy["y_τ30"]), 0.2)
+        self.assertAlmostEqual(float(buy["y_τ60"]), -0.1)
+        self.assertAlmostEqual(float(buy["y_τ90"]), 0.3)
+        self.assertAlmostEqual(float(buy["y_hl"]), 1.5)
+        self.assertAlmostEqual(float(buy["y_τw"]), 1.0)
+        self.assertNotIn("y_w", buy)
 
     def test_fuse_weights_oo_oc(self):
         from core.paper.rebalance.rank_lots import plan_rank_lot_day
@@ -616,6 +647,87 @@ class TestYTauOf(unittest.TestCase):
         self.assertEqual(y_tau_of({"predicted_score_tau": 0.9}), 0.9)
         self.assertEqual(y_tau_of({"score_rem": 0.3}), 0.3)
         self.assertIsNone(y_tau_of({}))
+
+
+class TestEnterGates(unittest.TestCase):
+    def _item(self, **extra):
+        row = {
+            "predicted_score": 2.0,
+            "y_tau": 1.0,
+            "y_hl": 1.0,
+        }
+        row.update(extra)
+        return row
+
+    def _cfg(self, **extra):
+        base = {
+            "rank_enter": 0.001,
+            "y_oo_enter": 0.0,
+            "y_oc_enter": 0.0,
+            "y_hl_enter": 0.0,
+            "y_enter_enabled": True,
+            "y_enter_alt_enabled": True,
+        }
+        base.update(extra)
+        return base
+
+    def test_or_across_gates(self):
+        from core.paper.rebalance.rank_lots import rank_lot_enter_skip_reason
+
+        item = self._item()
+        self.assertIsNone(
+            rank_lot_enter_skip_reason(
+                item,
+                self._cfg(rank_enter=0.02, rank_enter_alt=0.01),
+                rs=0.015,
+            )
+        )
+        skip = rank_lot_enter_skip_reason(
+            item,
+            self._cfg(rank_enter=0.02, rank_enter_alt=0.02),
+            rs=0.015,
+        )
+        self.assertIsNotNone(skip)
+        self.assertIn("ranking", skip)
+
+    def test_y_oo_enter_blocks(self):
+        from core.paper.rebalance.rank_lots import rank_lot_enter_skip_reason
+
+        skip = rank_lot_enter_skip_reason(
+            self._item(predicted_score=0.05),
+            self._cfg(y_oo_enter=0.1, y_oo_enter_alt=0.1),
+            rs=0.02,
+        )
+        self.assertIsNotNone(skip)
+        self.assertIn("ŷ_oo", skip)
+        self.assertIsNone(
+            rank_lot_enter_skip_reason(
+                self._item(predicted_score=0.05),
+                self._cfg(y_oo_enter=0.1, y_oo_enter_alt=0.0),
+                rs=0.02,
+            )
+        )
+
+    def test_both_gates_off(self):
+        from core.paper.rebalance.rank_lots import rank_lot_enter_skip_reason
+
+        skip = rank_lot_enter_skip_reason(
+            self._item(),
+            self._cfg(y_enter_enabled=False, y_enter_alt_enabled=False),
+            rs=0.02,
+        )
+        self.assertEqual(skip, "门槛1/2 均未启用")
+
+    def test_missing_y_oo_does_not_block(self):
+        from core.paper.rebalance.rank_lots import rank_lot_enter_skip_reason
+
+        self.assertIsNone(
+            rank_lot_enter_skip_reason(
+                {"y_tau": 1.0, "y_hl": 1.0},
+                self._cfg(y_oo_enter=0.1),
+                rs=0.02,
+            )
+        )
 
 
 if __name__ == "__main__":

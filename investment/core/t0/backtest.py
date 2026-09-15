@@ -4,7 +4,7 @@
 import logging
 
 logger = logging.getLogger(__name__)
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 from core.research.cx_panel import pack_y_complexity_fields, pack_y_tpd_fields
 from core.research.r_ridge import pack_y_r_fields
@@ -205,6 +205,7 @@ def backtest_t0_on_bars(
     eval_lookback: Optional[int] = None,
     tau_pool_by_date: Optional[Dict[str, Dict[str, Any]]] = None,
     stock_name: str = "",
+    progress_cb: Optional[Callable[..., Any]] = None,
 ) -> Dict[str, Any]:
     """Walk 底仓做 T。
 
@@ -289,6 +290,7 @@ def backtest_t0_on_bars(
         bars_history=history,
         tau_pool_by_date=tau_pool_by_date,
         stock_name=str(stock_name or ""),
+        progress_cb=progress_cb,
     )
     if not primary.get("success"):
         return primary
@@ -333,6 +335,7 @@ def _walk_t0(
     bars_history: Optional[List[dict]] = None,
     tau_pool_by_date: Optional[Dict[str, Dict[str, Any]]] = None,
     stock_name: str = "",
+    progress_cb: Optional[Callable[..., Any]] = None,
 ) -> Dict[str, Any]:
     cfg = load_t0_rules(rules)
     # 回测禁 live_book / ledger 前视
@@ -400,7 +403,14 @@ def _walk_t0(
         except Exception:  # noqa: BLE001
             logger.debug("t0 score model warm failed", exc_info=True)
 
+    n_eval = len(bars)
     for i, bar in enumerate(bars):
+        if progress_cb:
+            try:
+                nm = str(stock_name or stock_code or "").strip() or "—"
+                progress_cb(i, n_eval, f"回测 {nm} {i + 1}/{n_eval} 日")
+            except Exception:  # noqa: BLE001
+                logger.debug("t0 day progress_cb failed", exc_info=True)
         dkey = str(bar.get("date") or "")
         gi = hist_index_by_date.get(dkey, i if history is bars else None)
         if gi is None:

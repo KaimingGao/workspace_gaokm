@@ -154,7 +154,7 @@ class TestWebApi(unittest.TestCase):
         with patch.object(deps.quant, "run_portfolio_backtest", return_value=mock_out) as run_bt:
             res = self.client.post(
                 "/api/quant/portfolio-backtest",
-                json={"codes": ["600519", "600036"], "top_k": 2, "lookback": 80},
+                json={"codes": ["600519", "600036"], "top_k": 2, "lookback": 80, "sync": True},
             )
         self.assertEqual(res.status_code, 200)
         data = res.json()
@@ -191,6 +191,7 @@ class TestWebApi(unittest.TestCase):
                     "engine": "topk_research",
                     "top_k": 3,
                     "horizon_days": 3,
+                    "sync": True,
                 },
             )
         self.assertEqual(res.status_code, 200)
@@ -199,6 +200,27 @@ class TestWebApi(unittest.TestCase):
         self.assertNotIn("top_k", kwargs)
         self.assertNotIn("horizon_days", kwargs)
         self.assertEqual(kwargs.get("lookback"), 30)
+
+    def test_quant_portfolio_backtest_defaults_to_job(self):
+        if self.client is None:
+            self.skipTest("fastapi not installed")
+
+        mock = {
+            "ok": True,
+            "success": True,
+            "background": True,
+            "job": {"id": "abc", "status": "running", "kind": "portfolio_backtest"},
+        }
+        with patch.object(
+            deps.quant, "start_portfolio_backtest_job", return_value=mock
+        ) as started:
+            res = self.client.post(
+                "/api/quant/portfolio-backtest",
+                json={"codes": ["600519"], "lookback": 30},
+            )
+        self.assertEqual(res.status_code, 200)
+        self.assertTrue(res.json()["background"])
+        started.assert_called_once()
 
     def test_quant_param_grid_gone(self):
         if self.client is None:

@@ -8,6 +8,8 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
+from core.paper.rebalance.rank_lots import AUX_YHAT_KEYS
+
 logger = logging.getLogger(__name__)
 
 
@@ -319,21 +321,19 @@ _SCORE_PASSTHROUGH_KEYS = (
     "predicted_score_rem",
     "score_rem",
     "predicted_score_blend",
-    "predicted_score_path",
-    "predicted_score_hl",
     "predicted_score_nowcast",
     "predicted_score_on",
     "decision_score",
     "y_trade",
-    "y_path",
-    "y_hl",
     "y_nowcast",
     "y_nc",
     "y_on",
     "y_tau",
     "y_oo",
     "y_oc",
+    "y_co",
     "y_τc",
+    *AUX_YHAT_KEYS,
     "ranking",
     "residual",
     "y_fuse",
@@ -368,7 +368,9 @@ def _score_fields_for_report(item: dict, scores: Dict[str, Optional[float]]) -> 
 
     yp = pick_y_hl(scores)
     yn = scores.get("y_nowcast")
-    yo = scores.get("y_on")
+    yo = scores.get("y_co")
+    if yo is None:
+        yo = scores.get("y_on")
     if yt is not None:
         out["y_trade"] = yt
         out["predicted_score_blend"] = yt
@@ -383,7 +385,8 @@ def _score_fields_for_report(item: dict, scores: Dict[str, Optional[float]]) -> 
         out["y_nc"] = yn
         out.setdefault("predicted_score_nowcast", yn)
     if yo is not None:
-        out["y_on"] = yo
+        out["y_co"] = yo
+        out.setdefault("predicted_score_co", yo)
         out.setdefault("predicted_score_on", yo)
     ytau = scores.get("y_tau")
     if ytau is not None:
@@ -398,8 +401,9 @@ def _row_score_payload(
     cfg: Optional[dict] = None,
 ) -> Dict[str, Any]:
     """表列用分项 ŷ；ranking 现算（别名 y_fuse），不把融合分塞进 y_trade。"""
-    from core.paper.rebalance.rank_lots import ranking_pct_of, y_on_of, y_tau_of
+    from core.paper.rebalance.rank_lots import aux_yhat_fields, ranking_pct_of, y_tau_of
     from core.paper.rebalance.path_matrix import scores_from_rebalance_item
+    from core.signal.yhat_windows import pick_y_co
 
     item = item if isinstance(item, dict) else {}
     src = src if isinstance(src, dict) else {}
@@ -413,15 +417,15 @@ def _row_score_payload(
     from core.research.path_panel import pick_y_hl
 
     yp = pick_y_hl(src, item, sc)
-    yo = _f(src.get("y_on"))
+    yo = pick_y_co(src)
     if yo is None:
-        yo = y_on_of(item)
+        yo = pick_y_co(item)
     ytau = _f(src.get("y_tau") if src.get("y_tau") is not None else src.get("predicted_score_tau"))
     if ytau is None:
         ytau = y_tau_of(item)
     payload = _score_fields_for_report(
         item,
-        {"y_trade": yt, "y_path": yp, "y_nowcast": yn, "y_on": yo, "y_tau": ytau},
+        {"y_trade": yt, "y_hl": yp, "y_nowcast": yn, "y_co": yo, "y_tau": ytau},
     )
     for k in ("y_oo", "y_oc", "y_τc", "ranking", "residual"):
         if sc.get(k) is not None:
@@ -435,6 +439,8 @@ def _row_score_payload(
     rs = src.get("ranking_score")
     if rs is not None:
         payload["ranking_score"] = rs
+    payload.update(aux_yhat_fields(src))
+    payload.update(aux_yhat_fields(item))
     return payload
 
 
@@ -490,6 +496,7 @@ def _apply_one_leg(
             "reason",
             "y_trade",
             "y_nowcast",
+            *AUX_YHAT_KEYS,
             "rank_i",
             "rank_n",
             "lot_kind",
@@ -534,7 +541,6 @@ def _apply_one_leg(
                 "note": f"矩阵调仓 · {note}",
                 "matrix_action": leg.get("matrix_action"),
                 "y_trade": leg.get("y_trade"),
-                "y_path": leg.get("y_path"),
                 **rank_fields,
             },
             fee_info,
@@ -585,7 +591,6 @@ def _apply_one_leg(
             "note": f"矩阵调仓 · {note}",
             "matrix_action": leg.get("matrix_action"),
             "y_trade": leg.get("y_trade"),
-            "y_path": leg.get("y_path"),
             **rank_fields,
         },
         fee_info,

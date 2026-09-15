@@ -426,6 +426,7 @@ def run_t0_backtest_for_code(
     tau_pool_by_date: Optional[Dict[str, Any]] = None,
     stock_name: Optional[str] = None,
     skip_quote: bool = False,
+    progress_cb: Optional[Callable[..., None]] = None,
 ) -> Dict[str, Any]:
     from core.research.holdout import (
         MODEL_ROLE_RESEARCH,
@@ -448,6 +449,7 @@ def run_t0_backtest_for_code(
                 tau_pool_by_date=tau_pool_by_date,
                 stock_name=stock_name,
                 skip_quote=skip_quote,
+                progress_cb=progress_cb,
             )
 
     from core.data.facade import bars_and_source as fetch_daily_bars
@@ -561,6 +563,7 @@ def run_t0_backtest_for_code(
         stock_name=str(
             (quote.get("stock_name") if quote.get("success") else None) or stock_name or ""
         ),
+        progress_cb=progress_cb,
     )
     try:
         from core.t0.costs import default_t0_research_cost_config, resolve_t0_cost_context
@@ -788,6 +791,10 @@ def run_t0_backtest_for_holdings(
             continue
         # 只用纸面股票名单；股数/成本走虚拟仓（成本由日线开窗决定）
         t_one = time.time()
+
+        def _one_progress(_cur: int, _tot: int, msg: str) -> None:
+            _emit(i, n_hold, f"{msg}（{i + 1}/{n_hold}）")
+
         one = run_t0_backtest_for_code(
             code,
             lookback=lookback,
@@ -801,6 +808,7 @@ def run_t0_backtest_for_holdings(
             tau_pool_by_date=tau_pool,
             stock_name=h.get("stock_name"),
             skip_quote=True,
+            progress_cb=_one_progress,
         )
         logger.debug(
             "t0 holdings bt %s ok=%s elapsed=%.1fs remain=%.1fs",

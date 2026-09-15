@@ -283,7 +283,7 @@ class StampPrimaryTests(unittest.TestCase):
         item = apply_on_score_fields({}, on_yhat=0.8)
         self.assertAlmostEqual(item["y_co"], 0.8)
         self.assertAlmostEqual(item["predicted_score_co"], 0.8)
-        self.assertAlmostEqual(item["y_on"], 0.8)
+        self.assertNotIn("y_on", item)
 
     def test_ranking_compounds_oc_with_co(self):
         from core.signal.yhat_windows import oc_with_co, ranking_pct

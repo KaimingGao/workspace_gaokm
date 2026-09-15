@@ -643,8 +643,6 @@ function slotDayRow(d, r, rows) {
   if (yhat.y_hl != null) {
     if (slotScores.y_hl == null) slotScores.y_hl = yhat.y_hl;
     if (slotScores.predicted_score_hl == null) slotScores.predicted_score_hl = yhat.y_hl;
-    if (slotScores.y_path == null) slotScores.y_path = yhat.y_hl;
-    if (slotScores.predicted_score_path == null) slotScores.predicted_score_path = yhat.y_hl;
   }
   if (yhat.y_t60 != null) {
     if (slotScores["y_τ60"] == null) slotScores["y_τ60"] = yhat.y_t60;
@@ -731,8 +729,6 @@ function slotDayRow(d, r, rows) {
     y_r_realized: rReal,
     y_hl: yhat.y_hl,
     predicted_score_hl: yhat.y_hl,
-    y_path: yhat.y_hl,
-    predicted_score_path: yhat.y_hl,
     path_realized: d.path_realized,
     "y_τ30": yhat.y_t30,
     y_t30: yhat.y_t30,
@@ -1247,8 +1243,6 @@ function hlTipPayload(it) {
   return {
     y_hl: yhat,
     predicted_score_hl: it.predicted_score_hl ?? yhat,
-    y_path: it.y_path ?? yhat,
-    predicted_score_path: it.predicted_score_path ?? yhat,
     path_realized: real,
     y_path_realized: it.y_path_realized ?? real,
     formula_terms_path: terms,
@@ -1271,8 +1265,6 @@ function hlScanTipItem(scanRow, day) {
   return {
     y_hl: yhat,
     predicted_score_hl: scanRow && (scanRow.predicted_score_hl ?? yhat),
-    y_path: scanRow && (scanRow.y_path ?? yhat),
-    predicted_score_path: scanRow && (scanRow.predicted_score_path ?? yhat),
     path_realized: (scanRow && scanRow.path_realized) || (day && day.path_realized),
     y_path_realized: (scanRow && scanRow.y_path_realized) || (day && day.path_realized),
     formula_terms_path:
@@ -1898,8 +1890,6 @@ function tradeScoreHost(day, host) {
   if (yHl != null && Number.isFinite(yHl)) {
     scores.y_hl = yHl;
     scores.predicted_score_hl = yHl;
-    scores.y_path = yHl;
-    scores.predicted_score_path = yHl;
   }
   const t30Real =
     scanRow.y_t30_realized != null
@@ -1960,9 +1950,6 @@ function tradeScoreHost(day, host) {
     y_hl: yHl != null && Number.isFinite(yHl) ? yHl : host.y_hl,
     predicted_score_hl:
       yHl != null && Number.isFinite(yHl) ? yHl : host.predicted_score_hl,
-    y_path: yHl != null && Number.isFinite(yHl) ? yHl : host.y_path,
-    predicted_score_path:
-      yHl != null && Number.isFinite(yHl) ? yHl : host.predicted_score_path,
     y_t30_realized:
       t30Real != null && Number.isFinite(t30Real) ? t30Real : host.y_t30_realized,
     t30_realized: t30Real != null && Number.isFinite(t30Real) ? t30Real : host.t30_realized,
@@ -2111,8 +2098,6 @@ function t0DayScoreItem(d, fallback = {}, rules = {}, liveByCode = null) {
     if (srHl != null && Number.isFinite(Number(srHl))) {
       scores.y_hl = Number(srHl);
       scores.predicted_score_hl = Number(srHl);
-      scores.y_path = Number(srHl);
-      scores.predicted_score_path = Number(srHl);
       yHl = Number(srHl);
     }
     const srT90r = sr.y_t90_realized ?? sr.t90_realized;
@@ -2215,9 +2200,6 @@ function t0DayScoreItem(d, fallback = {}, rules = {}, liveByCode = null) {
     y_hl: slotSnapMode ? yHl : scores.y_hl ?? scores.predicted_score_hl ?? scores.y_path ?? yHl,
     predicted_score_hl:
       slotSnapMode ? yHl : scores.predicted_score_hl ?? scores.y_hl ?? scores.y_path ?? yHl,
-    y_path: slotSnapMode ? yHl : scores.y_path ?? scores.y_hl ?? yHl,
-    predicted_score_path:
-      slotSnapMode ? yHl : scores.predicted_score_path ?? scores.y_path ?? yHl,
     path_realized: scores.path_realized ?? d.path_realized ?? null,
     y_path_realized: scores.y_path_realized ?? d.y_path_realized ?? null,
     formula_terms_path:

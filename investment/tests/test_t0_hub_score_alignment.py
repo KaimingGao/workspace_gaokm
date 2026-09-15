@@ -117,7 +117,7 @@ class TestT0HubScoreAlignment(unittest.TestCase):
             }
         )
         self.assertAlmostEqual(float(resolve_direction_y_tau(sc)), 0.23, places=6)
-        self.assertAlmostEqual(float(sc["y_path"]), 0.59, places=6)
+        self.assertAlmostEqual(float(sc["y_hl"]), 0.59, places=6)
         self.assertAlmostEqual(float(sc["y_tau"]), 0.23, places=6)
 
 

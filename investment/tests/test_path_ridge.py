@@ -746,7 +746,7 @@ class PathLagFeatureTests(unittest.TestCase):
         dest = {}
         write_y_hl(dest, 1.25)
         self.assertAlmostEqual(dest["y_hl"], 1.25)
-        self.assertAlmostEqual(dest["y_path"], 1.25)
+        self.assertNotIn("y_path", dest)
         self.assertAlmostEqual(pick_y_hl({"y_path": -0.4}), -0.4)
         self.assertAlmostEqual(pick_y_hl({"y_hl": 2.0, "y_path": -9.0}), 2.0)
 

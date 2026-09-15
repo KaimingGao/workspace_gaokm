@@ -239,31 +239,49 @@ DEFAULT_REBALANCE_TIMING: Dict[str, Any] = {
     "rank_lots": {
         "enabled": True,
         "mode": "rank_lots",
-        "rank_enter": 0.012,
-        "rank_strong": 0.012,
+        "rank_enter": 0.001,
+        "rank_strong": 0.001,
+        "rank_enter_alt": 0.001,
         "cash_floor": 0.0,
         "holdings_mv_cap": 150000.0,
-        "fusion_w_oo": 0.5,
-        "fusion_w_oc": 0.5,
-        "fusion_w_co": 0.0,
-        "fusion_w_trade": 0.5,
-        "fusion_w_nowcast": 0.5,
-        "y_on_alpha": 0.0,
+        "fusion_w_oo": 0.6,
+        "fusion_w_oc": 0.4,
+        "fusion_w_co": 1.0,
+        "fusion_w_trade": 0.6,
+        "fusion_w_nowcast": 0.4,
+        "y_on_alpha": 1.0,
+        "y_enter_enabled": True,
+        "y_enter_alt_enabled": True,
+        "y_oo_enter": 0.1,
+        "y_oc_enter": 0.1,
+        "y_hl_enter": 0.1,
+        "y_oo_enter_alt": 0.1,
+        "y_oc_enter_alt": 0.1,
+        "y_hl_enter_alt": 0.1,
     },
     # 旧键：读盘仍认；写入与 rank_lots 同步
     "path_matrix": {
         "enabled": True,
         "mode": "rank_lots",
-        "rank_enter": 0.012,
-        "rank_strong": 0.012,
+        "rank_enter": 0.001,
+        "rank_strong": 0.001,
+        "rank_enter_alt": 0.001,
         "cash_floor": 0.0,
         "holdings_mv_cap": 150000.0,
-        "fusion_w_oo": 0.5,
-        "fusion_w_oc": 0.5,
-        "fusion_w_co": 0.0,
-        "fusion_w_trade": 0.5,
-        "fusion_w_nowcast": 0.5,
-        "y_on_alpha": 0.0,
+        "fusion_w_oo": 0.6,
+        "fusion_w_oc": 0.4,
+        "fusion_w_co": 1.0,
+        "fusion_w_trade": 0.6,
+        "fusion_w_nowcast": 0.4,
+        "y_on_alpha": 1.0,
+        "y_enter_enabled": True,
+        "y_enter_alt_enabled": True,
+        "y_oo_enter": 0.1,
+        "y_oc_enter": 0.1,
+        "y_hl_enter": 0.1,
+        "y_oo_enter_alt": 0.1,
+        "y_oc_enter_alt": 0.1,
+        "y_hl_enter_alt": 0.1,
     },
 }
 
@@ -1038,20 +1056,45 @@ def validate_execution_patch(raw: Any) -> Tuple[bool, Dict[str, Any], List[str]]
                 lots = {
                     "enabled": bool(pm.get("enabled")),
                     "mode": "rank_lots",
-                    "rank_enter": float(pm.get("rank_enter") or 0.012),
-                    "rank_strong": float(pm.get("rank_strong") or 0.012),
+                    "rank_enter": float(pm.get("rank_enter") or 0.001),
+                    "rank_strong": float(pm.get("rank_strong") or 0.001),
+                    "rank_enter_alt": float(
+                        pm.get("rank_enter_alt")
+                        if pm.get("rank_enter_alt") is not None
+                        else pm.get("rank_enter") or 0.001
+                    ),
                     "cash_floor": 0.0,
                     "holdings_mv_cap": float(
                         pm.get("holdings_mv_cap")
                         if pm.get("holdings_mv_cap") is not None
                         else 150_000.0
                     ),
-                    "fusion_w_oo": float(pm.get("fusion_w_oo") or 0.5),
-                    "fusion_w_oc": float(pm.get("fusion_w_oc") or 0.5),
-                    "fusion_w_co": float(pm.get("fusion_w_co") if pm.get("fusion_w_co") is not None else 0.0),
-                    "fusion_w_trade": float(pm.get("fusion_w_trade") or 0.5),
-                    "fusion_w_nowcast": float(pm.get("fusion_w_nowcast") or 0.5),
-                    "y_on_alpha": float(pm.get("y_on_alpha") if pm.get("y_on_alpha") is not None else 0.0),
+                    "fusion_w_oo": float(pm.get("fusion_w_oo") or 0.6),
+                    "fusion_w_oc": float(pm.get("fusion_w_oc") or 0.4),
+                    "fusion_w_co": float(pm.get("fusion_w_co") if pm.get("fusion_w_co") is not None else 1.0),
+                    "fusion_w_trade": float(pm.get("fusion_w_trade") or 0.6),
+                    "fusion_w_nowcast": float(pm.get("fusion_w_nowcast") or 0.4),
+                    "y_on_alpha": float(pm.get("y_on_alpha") if pm.get("y_on_alpha") is not None else 1.0),
+                    "y_enter_enabled": bool(pm.get("y_enter_enabled", True)),
+                    "y_enter_alt_enabled": bool(pm.get("y_enter_alt_enabled", True)),
+                    "y_oo_enter": float(pm.get("y_oo_enter") if pm.get("y_oo_enter") is not None else 0.1),
+                    "y_oc_enter": float(pm.get("y_oc_enter") if pm.get("y_oc_enter") is not None else 0.1),
+                    "y_hl_enter": float(pm.get("y_hl_enter") if pm.get("y_hl_enter") is not None else 0.1),
+                    "y_oo_enter_alt": float(
+                        pm.get("y_oo_enter_alt")
+                        if pm.get("y_oo_enter_alt") is not None
+                        else pm.get("y_oo_enter") if pm.get("y_oo_enter") is not None else 0.1
+                    ),
+                    "y_oc_enter_alt": float(
+                        pm.get("y_oc_enter_alt")
+                        if pm.get("y_oc_enter_alt") is not None
+                        else pm.get("y_oc_enter") if pm.get("y_oc_enter") is not None else 0.1
+                    ),
+                    "y_hl_enter_alt": float(
+                        pm.get("y_hl_enter_alt")
+                        if pm.get("y_hl_enter_alt") is not None
+                        else pm.get("y_hl_enter") if pm.get("y_hl_enter") is not None else 0.1
+                    ),
                 }
                 timing_out["rank_lots"] = lots
                 timing_out["path_matrix"] = lots

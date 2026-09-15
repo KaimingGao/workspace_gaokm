@@ -1,10 +1,16 @@
-"""纸面可实现回放：每个交易日按调仓钟走 rank_lots（rank=w_oo·ŷ_oo + w_oc·((1+ŷ_oc)(1+w_co·ŷ_co)−1) · 100/200 股）。
+"""纸面可实现回放：每个交易日按调仓钟走 rank_lots（rank=w_oo·ŷ_oo + w_oc·((1+ŷ_oc)(1+w_co·ŷ_co)−1) · 200 股）。
 
-分数仍是 09:30 开盘信息集。成交默认用 5 分钟 K：09:30 取首根开盘（≈集合竞价/开盘价），
-09:35–10:00 用该档 5 分钟 K 收盘。无分钟时 09:30 回退日 K 开盘，其它钟跳过该票。
+ŷ_oo 始终是 09:30 开盘信息集。ŷ_oc：09:30 成交钟用开盘 Z（``use_minute_tau=False``）；
+09:35–10:00 用截至该钟的 5m 前缀重算（与做 T ``rescore_scores_at_fixed_prefix`` 同路径）。
+对照列 ŷ_hl 走开盘 Z 挂上；成交钟>09:30 随前缀重算。不挂 ŷ_τw / ŷ_τ30/60/90（调仓回测不用）。
+成交价：09:30 取首根开盘（≈集合竞价/开盘价），其后用该档 5 分钟 K 收盘。
+无分钟时 09:30 回退日 K 开盘，其它钟跳过该票。
+有分钟时复用做 T ``resolve_t0_price_space``：|日开/分开−1| 或 |日昨/分昨−1|
+超阈则该票当日 skip（``price_space_mismatch``）；比的是开/昨收锚，不是成交价。
+live Follow 不走此闸。
 
 与 ``topk_research``（独立腿聚合）并列。本金默认 20 万（表单可改）、不留现金地板（买到现金不够为止）；T+1 仍生效。
-历史回测手数 100/200（live 仍为 200/500）。
+历史回测手数默认 200（live 仍为 200/500）。
 """
 
 from __future__ import annotations
@@ -17,7 +23,7 @@ from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 logger = logging.getLogger(__name__)
 
 ENGINE_ID = "paper_replay"
-REPLAY_LOT_BASE = 100
+REPLAY_LOT_BASE = 200
 REPLAY_LOT_STRONG = 200
 REPLAY_LOT_MIN = 100
 REPLAY_LOT_MAX = 10_000
@@ -25,9 +31,9 @@ REPLAY_INITIAL_CASH = 200_000.0
 REPLAY_CASH_FLOOR = 0.0
 REPLAY_INITIAL_CASH_MIN = 10_000.0
 REPLAY_INITIAL_CASH_MAX = 1.0e8
-# 历史回测 / 日报 / live rank_lots 缺省均为 1.2%。
-REPLAY_RANK_ENTER = 0.012
-REPLAY_RANK_STRONG = 0.012
+# 历史回测 / 日报 / live rank_lots 缺省均为 0.1%。
+REPLAY_RANK_ENTER = 0.001
+REPLAY_RANK_STRONG = 0.001
 REPLAY_FUSION_W_TRADE = 0.6
 REPLAY_FUSION_W_NOWCAST = 0.4
 # 调仓成交钟：与 A 股 5 分钟 K 对齐（首根通常标 09:35 = 09:30–09:35）。
@@ -139,6 +145,148 @@ def replay_fill_px(
         if _minute_bar_hm(b) == clock:
             return _fpx(b.get("close")) or _fpx(b.get("open"))
     return None
+
+
+def replay_price_space_cfg(override: Optional[dict] = None) -> Dict[str, Any]:
+    """日分价闸阈值：默认跟做 T 同一套（闸开、开盘差 5%、昨收差 5%）。"""
+    from core.t0.close_band import DEFAULT_PRICE_SPACE_MAX_DEV_PCT
+    from core.t0.config import load_t0_rules
+
+    cfg = load_t0_rules(override if isinstance(override, dict) else None)
+    try:
+        max_dev = float(
+            cfg.get("t0_price_space_max_dev_pct", DEFAULT_PRICE_SPACE_MAX_DEV_PCT)
+        )
+    except (TypeError, ValueError):
+        max_dev = float(DEFAULT_PRICE_SPACE_MAX_DEV_PCT)
+    try:
+        prev_dev = float(
+            cfg.get("t0_price_space_prev_dev_pct", max_dev)
+        )
+    except (TypeError, ValueError):
+        prev_dev = float(max_dev)
+    return {
+        "t0_price_space_gate": bool(cfg.get("t0_price_space_gate", True)),
+        "t0_price_space_max_dev_pct": max(0.0, min(max_dev, 5.0)),
+        "t0_price_space_prev_dev_pct": max(0.0, min(prev_dev, 5.0)),
+    }
+
+
+def replay_price_space_check(
+    daily_bar: Optional[dict],
+    minute_bars: Optional[Sequence[dict]] = None,
+    cfg: Optional[dict] = None,
+) -> Tuple[Optional[str], bool]:
+    """返回 ``(skip_reason, mismatch_seen)``。
+
+    有分钟才比日开 vs 分钟首开、日昨 vs 分昨；无分钟 → (None, False)。
+    ``mismatch_seen`` 不论闸开/关；``skip_reason`` 仅闸开时非空。
+    """
+    mins = [b for b in (minute_bars or []) if isinstance(b, dict)]
+    if not mins:
+        return None, False
+    cfg_d = cfg if isinstance(cfg, dict) else replay_price_space_cfg()
+    from core.t0.close_band import resolve_t0_price_space
+
+    day = daily_bar if isinstance(daily_bar, dict) else None
+    probe = dict(cfg_d)
+    probe["t0_price_space_gate"] = True
+    space = resolve_t0_price_space(day, mins, probe, daily_bar=day)
+    raw = space.get("skip_reason") if isinstance(space, dict) else None
+    seen = bool(raw)
+    if not seen:
+        return None, False
+    if cfg_d.get("t0_price_space_gate") is False:
+        return None, True
+    return str(raw), True
+
+
+def _stamp_replay_prev_close(
+    bar: Optional[dict],
+    *,
+    date_maps: Dict[str, Dict[str, dict]],
+    dates: Sequence[str],
+    code: str,
+    day_i: int,
+) -> Optional[dict]:
+    if not isinstance(bar, dict):
+        return None
+    out = dict(bar)
+    if out.get("prev_close") is None and day_i > 0 and day_i <= len(dates):
+        prev = (date_maps.get(code) or {}).get(dates[day_i - 1]) or {}
+        pc = _fpx((prev or {}).get("close"))
+        if pc is None:
+            pc = _fpx((prev or {}).get("open"))
+        if pc is not None:
+            out["prev_close"] = pc
+    return out
+
+
+def _load_replay_price_space_cfg(
+    override: Optional[dict] = None,
+) -> Dict[str, Any]:
+    ov: Dict[str, Any] = {}
+    try:
+        from core.execution import resolve_effective_execution
+        from core.paper.ledger import load_paper
+
+        live = load_paper()
+        bundle = resolve_effective_execution(
+            paper=live if isinstance(live, dict) else None,
+            channel="backtest",
+            has_minute=True,
+        )
+        raw = ((bundle.get("overlays") or {}).get("t0")) or {}
+        if isinstance(raw, dict):
+            for k in (
+                "t0_price_space_gate",
+                "t0_price_space_max_dev_pct",
+                "t0_price_space_prev_dev_pct",
+            ):
+                if raw.get(k) is not None:
+                    ov[k] = raw[k]
+    except Exception:  # noqa: BLE001
+        logger.debug("replay price_space cfg from execution failed", exc_info=True)
+    if isinstance(override, dict):
+        gate = override.get("t0_price_space_gate")
+        if gate is None:
+            gate = override.get("price_space_gate")
+        if gate is not None:
+            ov["t0_price_space_gate"] = bool(gate)
+        for k in ("t0_price_space_max_dev_pct", "t0_price_space_prev_dev_pct"):
+            if override.get(k) is not None:
+                ov[k] = override[k]
+    return replay_price_space_cfg(ov or None)
+
+
+def _apply_price_space_plan_skips(
+    plan: dict,
+    mismatch: Dict[str, str],
+) -> None:
+    """无分钟价的买卖：把「无有效报价」改成日分价错位；拟卖且无成交价则改 skip。"""
+    if not mismatch or not isinstance(plan, dict):
+        return
+    skips = [sk for sk in (plan.get("skips") or []) if isinstance(sk, dict)]
+    for sk in skips:
+        c = str(sk.get("stock_code") or "").strip()
+        if c in mismatch:
+            sk["reason"] = mismatch[c]
+    kept_sells: List[dict] = []
+    for leg in plan.get("sells") or []:
+        if not isinstance(leg, dict):
+            continue
+        c = str(leg.get("stock_code") or "").strip()
+        if c in mismatch:
+            row = dict(leg)
+            row["side"] = "sell"
+            row["action"] = "skip"
+            row["matrix_action"] = "skip"
+            row["reason"] = mismatch[c]
+            skips.append(row)
+        else:
+            kept_sells.append(leg)
+    plan["sells"] = kept_sells
+    plan["skips"] = skips
 
 
 def _local_minute_by_date(
@@ -887,6 +1035,9 @@ _DEBUG_SKIP_KEYS = (
     "不足一手",
     "cash_floor",
     "锁定",
+    "price_space_mismatch",
+    "价空间",
+    "日分价",
 )
 
 
@@ -905,11 +1056,54 @@ def _infer_skip_side(sk: dict) -> str:
     return "buy"
 
 
+_REPLAY_TAU_HORIZON_KEYS = (
+    "y_τw",
+    "y_tw",
+    "y_τ30",
+    "y_t30",
+    "predicted_score_t30",
+    "y_t30_hat",
+    "y_t30_realized",
+    "t30_realized",
+    "y_τ60",
+    "y_t60",
+    "predicted_score_t60",
+    "y_t60_hat",
+    "y_t60_realized",
+    "t60_realized",
+    "y_τ90",
+    "y_t90",
+    "predicted_score_t90",
+    "y_t90_hat",
+    "y_t90_realized",
+    "t90_realized",
+)
+
+
+def _strip_replay_tau_horizons(row: dict) -> dict:
+    """调仓回测明细不挂 ŷ_τw / ŷ_τ30/60/90。"""
+    for k in _REPLAY_TAU_HORIZON_KEYS:
+        row.pop(k, None)
+    return row
+
+
+def _merge_aux_yhat(row: dict, src: Optional[dict]) -> dict:
+    try:
+        from core.paper.rebalance.rank_lots import aux_yhat_fields
+    except Exception:  # noqa: BLE001
+        logger.debug("aux_yhat_fields import failed", exc_info=True)
+        return _strip_replay_tau_horizons(row)
+    extra = aux_yhat_fields(src, include_tau_horizons=False)
+    if extra:
+        row.update(extra)
+    return _strip_replay_tau_horizons(row)
+
+
 def _skip_to_sim(sk: dict, day: str) -> dict:
     from core.signal.yhat_windows import pick_y_τc
 
     side = _infer_skip_side(sk)
-    return {
+    row = {
         "stock_code": sk.get("stock_code"),
         "stock_name": sk.get("stock_name"),
         "side": side,
@@ -928,7 +1122,6 @@ def _skip_to_sim(sk: dict, day: str) -> dict:
         "y_co": sk.get("y_co") if sk.get("y_co") is not None else sk.get("y_on"),
         "y_τc": pick_y_τc(sk),
         "residual": sk.get("residual"),
-        "y_on": sk.get("y_on") if sk.get("y_on") is not None else sk.get("y_co"),
         "y_tau": sk.get("y_tau")
         if sk.get("y_tau") is not None
         else sk.get("predicted_score_tau"),
@@ -936,13 +1129,12 @@ def _skip_to_sim(sk: dict, day: str) -> dict:
         if sk.get("predicted_score_tau") is not None
         else sk.get("y_tau"),
         "ranking_score": sk.get("ranking_score"),
-        "y_trade": sk.get("y_trade"),
-        "y_nowcast": sk.get("y_nowcast"),
         "rank_i": sk.get("rank_i"),
         "rank_n": sk.get("rank_n"),
         "lot_kind": sk.get("lot_kind"),
         "reason": sk.get("reason") or "跳过",
     }
+    return _merge_aux_yhat(row, sk)
 
 
 def _hold_to_sim(
@@ -993,7 +1185,7 @@ def _hold_to_sim(
         else None
     )
     name = (holding or {}).get("stock_name") or (plan_h or {}).get("stock_name")
-    return {
+    row = {
         "stock_code": code,
         "stock_name": name,
         "side": "hold",
@@ -1013,16 +1205,11 @@ def _hold_to_sim(
         if (plan_h or {}).get("y_co") is not None
         else (plan_h or {}).get("y_on"),
         "residual": (plan_h or {}).get("residual"),
-        "y_on": (plan_h or {}).get("y_on")
-        if (plan_h or {}).get("y_on") is not None
-        else (plan_h or {}).get("y_co"),
         "y_tau": ytau,
         "predicted_score_tau": (plan_h or {}).get("predicted_score_tau")
         if (plan_h or {}).get("predicted_score_tau") is not None
         else ytau,
         "ranking_score": (plan_h or {}).get("ranking_score"),
-        "y_trade": (plan_h or {}).get("y_trade"),
-        "y_nowcast": (plan_h or {}).get("y_nowcast"),
         "predicted_score": yf,
         "score": yf,
         "reason": (plan_h or {}).get("reason") or "ranking≥0% 持有",
@@ -1030,6 +1217,7 @@ def _hold_to_sim(
         "cost_price": cost,
         "cum_cost": cum_cost,
     }
+    return _merge_aux_yhat(row, plan_h)
 
 
 def _ledger_trades_to_sim(trades: Sequence[dict]) -> List[dict]:
@@ -1065,7 +1253,6 @@ def _ledger_trades_to_sim(trades: Sequence[dict]) -> List[dict]:
             "y_oc": t.get("y_oc"),
             "y_co": t.get("y_co") if t.get("y_co") is not None else t.get("y_on"),
             "residual": t.get("residual"),
-            "y_on": t.get("y_on") if t.get("y_on") is not None else t.get("y_co"),
             "y_tau": t.get("y_tau")
             if t.get("y_tau") is not None
             else t.get("predicted_score_tau"),
@@ -1073,8 +1260,6 @@ def _ledger_trades_to_sim(trades: Sequence[dict]) -> List[dict]:
             if t.get("predicted_score_tau") is not None
             else t.get("y_tau"),
             "ranking_score": t.get("ranking_score"),
-            "y_trade": t.get("y_trade"),
-            "y_nowcast": t.get("y_nowcast"),
             "rank_i": t.get("rank_i"),
             "rank_n": t.get("rank_n"),
             "lot_kind": t.get("lot_kind"),
@@ -1089,6 +1274,7 @@ def _ledger_trades_to_sim(trades: Sequence[dict]) -> List[dict]:
             "cost_price": t.get("cost_price"),
             "cum_cost": t.get("cum_cost"),
         }
+        _merge_aux_yhat(row, t)
         if side == "buy":
             row["entry_date"] = day
             row["entry_price"] = t.get("price")
@@ -1284,6 +1470,8 @@ def _attach_open_yhat_heads(
 ) -> List[dict]:
     """heuristic 窗口分 → 分组 ŷ_EOD；09:30 PIT 挂 ŷ_τ / nowcast；开盘特征打 y_on。
 
+    对照头 ŷ_hl 走开盘 Z（与 live ``score_stock`` 同路径），不进 ranking。
+    调仓回测不挂 ŷ_τ30/60/90 / ŷ_τw。
     无 ŷ_τ 时 nowcast 退回 ŷ_EOD 先验，不写假 0。缺 nowcast 则 fuse 只用 y_trade。
     """
     from core.signal.return_score import (
@@ -1333,6 +1521,12 @@ def _attach_open_yhat_heads(
         apply_on_score_fields = None  # type: ignore[assignment]
         logger.debug("on-head imports failed", exc_info=True)
 
+    try:
+        from core.t0.score_policy import _attach_y_path_to_item
+    except Exception:  # noqa: BLE001
+        _attach_y_path_to_item = None  # type: ignore[assignment]
+        logger.debug("path-head import failed", exc_info=True)
+
     for it in items:
         if not isinstance(it, dict):
             continue
@@ -1369,6 +1563,25 @@ def _attach_open_yhat_heads(
         nc = it.get("predicted_score_nowcast")
         if nc is not None:
             it["y_nowcast"] = nc
+        if code:
+            q = quotes.get(code) or {}
+            d = str(it.get("date") or it.get("as_of") or it.get("trade_date") or "")[:10]
+            if len(d) < 10:
+                d = str(q.get("date") or q.get("trade_date") or "")[:10]
+            if len(d) >= 10:
+                it.setdefault("date", d)
+                it.setdefault("as_of", d)
+                it.setdefault("trade_date", d)
+        if _attach_y_path_to_item is not None and code:
+            try:
+                _attach_y_path_to_item(
+                    it,
+                    hist_bars=windows.get(code) or [],
+                    allow_open_z=True,
+                    include_tau_horizons=False,
+                )
+            except Exception:  # noqa: BLE001
+                logger.debug("attach open y_hl failed for %s", code, exc_info=True)
         if (
             apply_on_score_fields is None
             or build_on_features_from_quote_bars is None
@@ -1462,6 +1675,159 @@ def _score_open_day(
     )
 
 
+# 前缀 ŷ_oc 写入调仓行；不覆盖 ŷ_oo / ŷ_EOD。
+_OC_PREFIX_KEYS = (
+    "y_oc",
+    "y_tau",
+    "y_tau_oc",
+    "predicted_score_tau",
+    "predicted_score_oc",
+    "predicted_score_tau_oc",
+    "features_tau",
+    "features_tau_fill",
+    "formula_terms_tau",
+    "score_formula_terms_tau",
+    "factor_coefficients_tau",
+    "as_of_tau",
+    "_score_source",
+    "_score_prefix_hm",
+    "_score_prefix_bars",
+    "remaining_oc",
+    "r_hat",
+    "residual",
+    "y_τc",
+    "predicted_score_τc",
+    "y_τc_ridge",
+    "y_τc_source",
+)
+
+
+def _replay_hist_and_day_bar(
+    code: str,
+    *,
+    dates: Sequence[str],
+    date_maps: Dict[str, Dict[str, dict]],
+    day_i: int,
+    max_window: int,
+) -> Tuple[List[dict], Optional[dict]]:
+    """rescore 用：hist=昨收窗；day_bar=今日 K（补 prev_close）。"""
+    if day_i <= 0:
+        return [], None
+    hist = _window_for_code(code, dates, date_maps, day_i - 1, max_window)
+    bar = (date_maps.get(code) or {}).get(dates[day_i])
+    if not isinstance(bar, dict):
+        return hist, None
+    day_bar = dict(bar)
+    if not day_bar.get("date"):
+        day_bar["date"] = dates[day_i]
+    if day_bar.get("prev_close") is None and hist:
+        prev_c = (hist[-1] or {}).get("close")
+        if prev_c is not None:
+            day_bar["prev_close"] = prev_c
+    return hist, day_bar
+
+
+def _apply_prefix_oc(item: dict, live: dict, cfg: Optional[dict]) -> bool:
+    """把前缀因果 ŷ_oc 写进开盘行，重算 ranking；ŷ_oo 保持开盘头。
+
+    对照头 y_hl 随前缀结果覆盖（缺分则保留开盘 Z）。调仓回测不挂 ŷ_τw / ŷ_τ30/60/90。
+    """
+    from core.signal.yhat_windows import pick_y_oc, pick_y_oo, stamp_window_scores
+
+    if str(live.get("_score_source") or "") != "prefix_causal":
+        return False
+    y_oo = pick_y_oo(item)
+    y_eod = item.get("predicted_score_eod")
+    if y_eod is None:
+        y_eod = item.get("predicted_score")
+    y_trade = item.get("y_trade")
+    for k in _OC_PREFIX_KEYS:
+        if k in live:
+            item[k] = live.get(k)
+    _merge_aux_yhat(item, live)
+    if y_oo is not None:
+        item["y_oo"] = y_oo
+        item["predicted_score_eod"] = y_eod if y_eod is not None else y_oo
+        item["predicted_score"] = item["predicted_score_eod"]
+    if y_trade is not None:
+        item["y_trade"] = y_trade
+    win = stamp_window_scores(item, cfg)
+    for k, v in win.items():
+        if v is not None:
+            item[k] = v
+    if item.get("ranking") is not None:
+        item["y_fuse"] = item["ranking"]
+    if item.get("y_oc") is None:
+        oc = pick_y_oc(item)
+        if oc is not None:
+            item["y_oc"] = oc
+    if item.get("y_tau") is None:
+        item["y_tau"] = item.get("y_oc")
+    return pick_y_oc(item) is not None
+
+
+def rescore_replay_y_oc_at_clock(
+    scored: Sequence[dict],
+    *,
+    clock: str,
+    dates: Sequence[str],
+    date_maps: Dict[str, Dict[str, dict]],
+    minute_maps: Dict[str, Dict[str, List[dict]]],
+    max_window: int,
+    day_i: int,
+    cfg: Optional[dict] = None,
+    tau_pool_day: Optional[dict] = None,
+) -> Tuple[List[dict], int]:
+    """成交钟>09:30：用截至该钟的 5m 前缀重算 ŷ_oc（与做 T rescore 同路径）。
+
+    09:30 或无前缀则保持开盘 Z。返回 (行, 成功重算数)。
+    """
+    items = [dict(it) if isinstance(it, dict) else it for it in (scored or [])]
+    head = clamp_replay_fill_clock(clock)
+    if head == "09:30" or day_i <= 0 or day_i >= len(dates):
+        return items, 0
+    from core.t0.score_policy import _minute_bars_until_hm, rescore_scores_at_fixed_prefix
+
+    day = dates[day_i]
+    n_ok = 0
+    for it in items:
+        if not isinstance(it, dict):
+            continue
+        code = str(it.get("stock_code") or "").strip()
+        if not code:
+            continue
+        mins = (minute_maps.get(code) or {}).get(day) or []
+        prefix = _minute_bars_until_hm(mins, tau_hm=head)
+        if len(prefix) < 1:
+            continue
+        hist, day_bar = _replay_hist_and_day_bar(
+            code,
+            dates=dates,
+            date_maps=date_maps,
+            day_i=day_i,
+            max_window=max_window,
+        )
+        if not isinstance(day_bar, dict) or len(hist) < 2:
+            continue
+        try:
+            live = rescore_scores_at_fixed_prefix(
+                stock_code=code,
+                minute_prefix=prefix,
+                day_bar=day_bar,
+                hist_bars=hist,
+                tau_pool_day=tau_pool_day,
+                fuse_intraday=True,
+                open_snap=dict(it),
+                include_tau_horizons=False,
+            )
+        except Exception:  # noqa: BLE001
+            logger.debug("replay prefix y_oc rescore failed %s %s", code, day, exc_info=True)
+            continue
+        if _apply_prefix_oc(it, live if isinstance(live, dict) else {}, cfg):
+            n_ok += 1
+    return items, n_ok
+
+
 def _items_from_injected_ranking(rows: Sequence[dict]) -> List[dict]:
     """测试/日报注入行：ŷ 当作 y_fuse；有 y_on 则带上。"""
     out: List[dict] = []
@@ -1500,6 +1866,7 @@ def backtest_paper_replay(
     rankings_by_date: Optional[Dict[str, List[dict]]] = None,
     yhat_horizon_days: int = 1,
     progress_cb: Optional[Callable[..., Any]] = None,
+    cancel_cb: Optional[Callable[[], bool]] = None,
     cash_floor: Optional[float] = None,
     rank_enter: Optional[float] = None,
     rank_strong: Optional[float] = None,
@@ -1515,8 +1882,18 @@ def backtest_paper_replay(
     minute_bars_by_code: Optional[Dict[str, Dict[str, List[dict]]]] = None,
     lot_base: Optional[int] = None,
     lot_strong: Optional[int] = None,
+    rank_enter_alt: Optional[float] = None,
+    y_enter_enabled: Optional[bool] = None,
+    y_enter_alt_enabled: Optional[bool] = None,
+    y_oo_enter: Optional[float] = None,
+    y_oc_enter: Optional[float] = None,
+    y_hl_enter: Optional[float] = None,
+    y_oo_enter_alt: Optional[float] = None,
+    y_oc_enter_alt: Optional[float] = None,
+    y_hl_enter_alt: Optional[float] = None,
+    price_space_cfg: Optional[dict] = None,
 ) -> Dict[str, Any]:
-    """策略调仓历史回测：09:30 算 rank=w_oo·ŷ_oo + w_oc·((1+ŷ_oc)(1+w_co·ŷ_co)−1)，按调仓钟 5m 价成交（手数可配，默认 100/200）。"""
+    """策略调仓历史回测：ŷ_oo 09:30 开盘；ŷ_oc 随成交钟前缀重算（09:30=开盘 Z），按调仓钟 5m 价成交。"""
     from core.research.holdout import (
         MODEL_ROLE_RESEARCH,
         current_scoring_model_role,
@@ -1549,6 +1926,7 @@ def backtest_paper_replay(
 
     clock = clamp_replay_fill_clock(fill_clock)
     minute_maps = minute_bars_by_code if isinstance(minute_bars_by_code, dict) else {}
+    ps_cfg = _load_replay_price_space_cfg(price_space_cfg)
 
     session_day = None
     n_overlay = 0
@@ -1627,6 +2005,9 @@ def backtest_paper_replay(
         "mode": "rank_lots",
         "rank_enter": enter,
         "rank_strong": strong,
+        "rank_enter_alt": coerce_rank_threshold(
+            enter if rank_enter_alt is None else rank_enter_alt, enter
+        ),
         "cash_floor": floor,
         "holdings_mv_cap": 0.0,
         "y_on_alpha": alpha,
@@ -1634,6 +2015,14 @@ def backtest_paper_replay(
         "fusion_w_oc": w_oc,
         "fusion_w_trade": w_oo,
         "fusion_w_nowcast": w_oc,
+        "y_enter_enabled": True if y_enter_enabled is None else bool(y_enter_enabled),
+        "y_enter_alt_enabled": True if y_enter_alt_enabled is None else bool(y_enter_alt_enabled),
+        "y_oo_enter": 0.1 if y_oo_enter is None else y_oo_enter,
+        "y_oc_enter": 0.1 if y_oc_enter is None else y_oc_enter,
+        "y_hl_enter": 0.1 if y_hl_enter is None else y_hl_enter,
+        "y_oo_enter_alt": y_oo_enter_alt,
+        "y_oc_enter_alt": y_oc_enter_alt,
+        "y_hl_enter_alt": y_hl_enter_alt,
     }
     paper.setdefault("rules", {})["execution"] = {
         "rebalance_timing": {
@@ -1653,6 +2042,18 @@ def backtest_paper_replay(
     rl_cfg["fusion_w_nowcast"] = w_oc
     rl_cfg["rank_enter"] = enter
     rl_cfg["rank_strong"] = strong
+    rl_cfg["rank_enter_alt"] = replay_lots["rank_enter_alt"]
+    rl_cfg["y_enter_enabled"] = replay_lots["y_enter_enabled"]
+    rl_cfg["y_enter_alt_enabled"] = replay_lots["y_enter_alt_enabled"]
+    rl_cfg["y_oo_enter"] = replay_lots["y_oo_enter"]
+    rl_cfg["y_oc_enter"] = replay_lots["y_oc_enter"]
+    rl_cfg["y_hl_enter"] = replay_lots["y_hl_enter"]
+    if y_oo_enter_alt is not None:
+        rl_cfg["y_oo_enter_alt"] = y_oo_enter_alt
+    if y_oc_enter_alt is not None:
+        rl_cfg["y_oc_enter_alt"] = y_oc_enter_alt
+    if y_hl_enter_alt is not None:
+        rl_cfg["y_hl_enter_alt"] = y_hl_enter_alt
     rl_cfg["holdings_mv_cap"] = 0.0
     rl_cfg["t0_sell_blocks"] = {}
 
@@ -1699,7 +2100,19 @@ def backtest_paper_replay(
         "rebalance_days": 0,
         "minute_skips": 0,
         "minute_fills": 0,
+        "tau_prefix_rescored": 0,
+        "price_space_skips": 0,
+        "price_space_mismatch_seen": 0,
     }
+    tau_pool_by_date: Dict[str, Dict[str, Any]] = {}
+    if clock != "09:30" and rankings_by_date is None and minute_maps:
+        try:
+            from core.t0.score_policy import build_tau_pool_by_date
+
+            tau_pool_by_date = build_tau_pool_by_date(stock_bars) or {}
+        except Exception:  # noqa: BLE001
+            logger.debug("replay tau pool build failed", exc_info=True)
+            tau_pool_by_date = {}
     name_by_code = _watching_name_map()
     stock_acc: Dict[str, dict] = {}
     prev_scored_by_code: Dict[str, dict] = {}
@@ -1722,6 +2135,16 @@ def backtest_paper_replay(
 
     for i in range(first_i, n):
         day = dates[i]
+        if cancel_cb is not None:
+            try:
+                if cancel_cb():
+                    return {
+                        "success": False,
+                        "error": "已取消",
+                        "cancelled": True,
+                    }
+            except Exception:  # noqa: BLE001
+                logger.debug("paper_replay cancel_cb failed", exc_info=True)
         if progress_cb is not None:
             try:
                 progress_cb(f"{day} {clock}", i - first_i + 1, max(1, n - first_i))
@@ -1766,6 +2189,21 @@ def backtest_paper_replay(
                 extra = prev_scored_by_code.get(code)
                 scored.append(dict(extra) if extra else {"stock_code": code})
                 have.add(code)
+            if clock != "09:30":
+                scored, n_pref = rescore_replay_y_oc_at_clock(
+                    scored,
+                    clock=clock,
+                    dates=dates,
+                    date_maps=date_maps,
+                    minute_maps=minute_maps,
+                    max_window=max_window,
+                    day_i=i,
+                    cfg=rl_cfg,
+                    tau_pool_day=tau_pool_by_date.get(day) or {},
+                )
+                constraints["tau_prefix_rescored"] = int(
+                    constraints.get("tau_prefix_rescored") or 0
+                ) + int(n_pref)
         prev_scored_by_code = {
             str(it.get("stock_code") or "").strip(): it
             for it in scored
@@ -1776,6 +2214,7 @@ def backtest_paper_replay(
 
         prices: Dict[str, float] = {}
         seen_px: set = set()
+        mismatch_reason: Dict[str, str] = {}
         for code in list(stock_bars.keys()) + [
             str(h.get("stock_code") or "") for h in (paper.get("holdings") or [])
         ]:
@@ -1787,6 +2226,20 @@ def backtest_paper_replay(
             if not bar:
                 continue
             mins = (minute_maps.get(c) or {}).get(day) or []
+            day_bar = _stamp_replay_prev_close(
+                bar,
+                date_maps=date_maps,
+                dates=dates,
+                code=c,
+                day_i=i,
+            )
+            skip_ps, seen_ps = replay_price_space_check(day_bar, mins, ps_cfg)
+            if seen_ps:
+                constraints["price_space_mismatch_seen"] += 1
+            if skip_ps:
+                mismatch_reason[c] = skip_ps
+                constraints["price_space_skips"] += 1
+                continue
             px = replay_fill_px(
                 daily_bar=bar, minute_bars=mins, fill_clock=clock
             )
@@ -1811,6 +2264,7 @@ def backtest_paper_replay(
                 cfg=rl_cfg,
                 as_of=day,
             )
+            _apply_price_space_plan_skips(plan, mismatch_reason)
             sell_trades = []
             buy_trades = []
             for leg in plan.get("sells") or []:
@@ -2013,16 +2467,25 @@ def backtest_paper_replay(
     fill_note = (
         f"成交={clock} 5m（09:30=首根开盘，其后该档收盘"
         + ("；缺分钟跳过该票" if clock != "09:30" else "；缺分钟回退日开盘")
+        + (
+            "；日分价错位跳过"
+            if ps_cfg.get("t0_price_space_gate") is not False
+            else "；日分价闸关"
+        )
         + "）"
+    )
+    oc_note = (
+        "ŷ_oc=开盘 Z"
+        if clock == "09:30"
+        else f"ŷ_oc=截至 {clock} 的 5m 前缀（与做 T rescore 同路径；ŷ_oo 仍开盘）"
     )
     from core.signal.yhat_windows import FORMULA_RANKING
 
     note = (
-        f"引擎={ENGINE_ID}：每个交易日 09:30 开盘算 ranking={FORMULA_RANKING}，{fill_note}；"
+        f"引擎={ENGINE_ID}：每个交易日 ranking={FORMULA_RANKING}，{fill_note}；{oc_note}；"
         f"ranking 权 w_oo={w_oo:g} w_oc={w_oc:g} w_co={alpha:g}；ranking<0 清仓；"
-        f"过 rank入场={rl_cfg.get('rank_enter')} 按分数买（开加上限=观察池 {top_k} 只，现金不够则停），"
-        f"过 rank强={rl_cfg.get('rank_strong')} 买 {int(rl_cfg.get('lot_strong') or REPLAY_LOT_STRONG)} "
-        f"否则 {int(rl_cfg.get('lot_base') or REPLAY_LOT_BASE)} 股；"
+        f"门槛1∪门槛2 过入场（rank入场={rl_cfg.get('rank_enter')}）按分数买（开加上限=观察池 {top_k} 只，现金不够则停），"
+        f"每笔 {int(rl_cfg.get('lot_base') or REPLAY_LOT_BASE)} 股；"
         f"不留现金地板；T+1；成本={cost_model}；≠ topk_research。"
     )
     if session_day:
@@ -2042,6 +2505,15 @@ def backtest_paper_replay(
             "cash_floor": floor,
             "rank_enter": rl_cfg.get("rank_enter"),
             "rank_strong": rl_cfg.get("rank_strong"),
+            "rank_enter_alt": rl_cfg.get("rank_enter_alt"),
+            "y_enter_enabled": rl_cfg.get("y_enter_enabled"),
+            "y_enter_alt_enabled": rl_cfg.get("y_enter_alt_enabled"),
+            "y_oo_enter": rl_cfg.get("y_oo_enter"),
+            "y_oc_enter": rl_cfg.get("y_oc_enter"),
+            "y_hl_enter": rl_cfg.get("y_hl_enter"),
+            "y_oo_enter_alt": rl_cfg.get("y_oo_enter_alt"),
+            "y_oc_enter_alt": rl_cfg.get("y_oc_enter_alt"),
+            "y_hl_enter_alt": rl_cfg.get("y_hl_enter_alt"),
             "y_on_alpha": alpha,
             "fusion_w_oo": w_oo,
             "fusion_w_oc": w_oc,
@@ -2052,6 +2524,12 @@ def backtest_paper_replay(
             "cost_model": cost_model,
             "execution_mode": exec_mode,
             "fill_clock": clock,
+            "price_space_gate": bool(ps_cfg.get("t0_price_space_gate", True)),
+            "price_space_max_dev_pct": ps_cfg.get("t0_price_space_max_dev_pct"),
+            "price_space_prev_dev_pct": ps_cfg.get("t0_price_space_prev_dev_pct"),
+            "y_oc_prefix_clock": (
+                None if clock == "09:30" or rankings_by_date is not None else clock
+            ),
             "minute_codes": len(minute_maps),
             "horizon_days": 1,
             "stock_count": len(stock_bars),

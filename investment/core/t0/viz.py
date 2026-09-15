@@ -396,11 +396,13 @@ def extract_scores(day: dict) -> Dict[str, Optional[float]]:
         "t90_realized": _pick("t90_realized") or _pick("y_t90_realized"),
         "r_hat": r_hat,
         "ret_open_to_tau": ret_ot,
+        "y_hl": y_path,
         "y_path": y_path,
-        "y_path_portrait": _pick("y_path_portrait"),
+        "y_hl_portrait": _pick("y_hl_portrait") or _pick("y_path_portrait"),
         "y_eod": _pick("y_eod"),
         "y_trade": _pick("y_trade"),
-        "y_on": _pick("y_on"),
+        "y_co": _pick("y_co") or _pick("y_on"),
+        "y_on": _pick("y_co") or _pick("y_on"),
         "gap_pct": gap,
     }
 
@@ -713,10 +715,8 @@ def _scores_from_scan_row(row: dict) -> Dict[str, Any]:
         sc["t90_realized"] = y_t90_r
     if y_path is not None:
         sc["y_hl_portrait"] = y_path
-        sc["y_path_portrait"] = y_path
         sc["y_hl"] = y_path
         sc["predicted_score_hl"] = y_path
-        sc["y_path"] = y_path
     if r_hat is not None:
         sc["r_hat"] = r_hat
         sc["residual"] = r_hat
@@ -1950,7 +1950,7 @@ def build_y_tau_attribution(days: Sequence[dict]) -> Dict[str, Any]:
                 "date": str(unit.get("date") or d.get("date") or "")[:10],
                 "direction": direction,
                 "y_tau": y_tau,
-                "y_path": sc.get("y_path"),
+                "y_hl": sc.get("y_hl") if sc.get("y_hl") is not None else sc.get("y_path"),
                 "gap_pct": sc.get("gap_pct"),
                 "gap_bin": gap_bin,
                 "oc_real_pct": oc,
@@ -2119,7 +2119,9 @@ def build_y_path_attribution(
             continue
         for unit in iter_traded_attribution_units(d):
             sc = extract_scores(unit)
-            y_path = sc.get("y_path")
+            y_path = sc.get("y_hl")
+            if y_path is None:
+                y_path = sc.get("y_path")
             y_tau = sc.get("y_tau")
             if y_tau is None and isinstance(unit.get("direction_features"), dict):
                 y_tau = unit["direction_features"].get("y_tau")
@@ -2658,11 +2660,15 @@ def build_t0_viz_payload(
                     "stock_code": code,
                     "stock_name": name,
                     "y_tau": first_sc.get("y_tau"),
-                    "y_path": first_sc.get("y_path"),
+                    "y_hl": first_sc.get("y_hl")
+                    if first_sc.get("y_hl") is not None
+                    else first_sc.get("y_path"),
                     "gap_pct": first_sc.get("gap_pct"),
                     "y_eod": first_sc.get("y_eod"),
                     "y_trade": first_sc.get("y_trade"),
-                    "y_on": first_sc.get("y_on"),
+                    "y_co": first_sc.get("y_co")
+                    if first_sc.get("y_co") is not None
+                    else first_sc.get("y_on"),
                     "sold_qty": int(d.get("sold_qty") or 0),
                     "covered_qty": int(d.get("covered_qty") or 0),
                     "bought_qty": int(d.get("bought_qty") or 0),

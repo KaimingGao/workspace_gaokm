@@ -73,7 +73,6 @@ def apply_on_score_fields(
     if on_yhat is not None:
         signal_item["y_co"] = on_yhat
         signal_item["predicted_score_co"] = on_yhat
-        signal_item["y_on"] = on_yhat
     signal_item["y_spec_on"] = y_spec
     signal_item["features_on"] = feat_snap
     signal_item["on_y_spec"] = y_spec.get("formula")

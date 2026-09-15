@@ -160,6 +160,11 @@ export async function initExecutionRuleForms() {
       }
       setPathMatrixStatus(okMsg);
       applyExecutionToUi(data.execution);
+      try {
+        window.dispatchEvent(new CustomEvent("investment-replay-desk-persist"));
+      } catch (_) {
+        /* ignore */
+      }
       return true;
     } catch (err) {
       setPathMatrixStatus(
@@ -176,7 +181,7 @@ export async function initExecutionRuleForms() {
     paperPathMatrixForm.dataset.wired = "1";
     paperPathMatrixForm.addEventListener("submit", async (e) => {
       e.preventDefault();
-      await savePathMatrix({ okMsg: "已保存" });
+      await savePathMatrix({ okMsg: "已保存 · 刷新后仍用此配置" });
     });
   }
 

@@ -23,9 +23,9 @@ class PaperReplayBacktestRequest(BaseModel):
     include_benchmark: bool = True
     benchmark_code: str = "000300"
     y_on_alpha: float = Field(
-        default=0.0,
+        default=1.0,
         ge=0.0,
-        le=1.0,
+        le=10.0,
         description="历史回测 ranking 隔夜系数 α；0=不乘 y_on，1=按原权重乘入",
     )
     fusion_w_oo: Optional[float] = Field(
@@ -53,16 +53,60 @@ class PaperReplayBacktestRequest(BaseModel):
         description="旧别名 fusion_w_oc",
     )
     rank_enter: float = Field(
-        default=0.012,
+        default=0.001,
         ge=0.0,
         le=10.0,
-        description="历史回测 ranking 入场下限（净收益，0.012=1.2%；UI 用百分数）",
+        description="门槛1 ranking 入场下限（净收益，0.001=0.1%；UI 用百分数）",
     )
     rank_strong: float = Field(
-        default=0.012,
+        default=0.001,
         ge=0.0,
         le=10.0,
-        description="历史回测 ranking 强手门槛（净收益，0.012=1.2%；超过买 200 股）",
+        description="历史回测 ranking 强手门槛（净收益；回测单一手数时与入场同）",
+    )
+    rank_enter_alt: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        le=10.0,
+        description="门槛2 ranking 入场下限；缺则跟随门槛1",
+    )
+    y_enter_enabled: bool = Field(default=True, description="门槛1 启用")
+    y_enter_alt_enabled: bool = Field(default=True, description="门槛2 启用")
+    y_oo_enter: float = Field(
+        default=0.1,
+        ge=0.0,
+        le=100.0,
+        description="门槛1 ŷ_oo 入场下限（百分点）；0=关；缺分不拦",
+    )
+    y_oc_enter: float = Field(
+        default=0.1,
+        ge=0.0,
+        le=100.0,
+        description="门槛1 ŷ_oc 入场下限（百分点）；0=关；缺分不拦",
+    )
+    y_hl_enter: float = Field(
+        default=0.1,
+        ge=0.0,
+        le=100.0,
+        description="门槛1 y_hl 入场下限（百分点）；0=关；缺分不拦",
+    )
+    y_oo_enter_alt: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        le=100.0,
+        description="门槛2 ŷ_oo 入场下限；缺则跟随门槛1",
+    )
+    y_oc_enter_alt: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        le=100.0,
+        description="门槛2 ŷ_oc 入场下限；缺则跟随门槛1",
+    )
+    y_hl_enter_alt: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        le=100.0,
+        description="门槛2 y_hl 入场下限；缺则跟随门槛1",
     )
     initial_cash: float = Field(
         default=200_000.0,
@@ -75,20 +119,28 @@ class PaperReplayBacktestRequest(BaseModel):
         description="调仓成交钟 09:30–10:00 每 5 分钟；成交用该档 5 分钟 K（09:30 用首根开盘）",
     )
     lot_base: int = Field(
-        default=100,
+        default=200,
         ge=100,
         le=10000,
-        description="历史回测入场手数（股）。默认 100；整百。保存规则不改交易执行 200/500",
+        description="历史回测每笔股数。默认 200；整百。保存规则不改交易执行 200/500",
     )
     lot_strong: int = Field(
         default=200,
         ge=100,
         le=10000,
-        description="历史回测强档手数（股）。默认 200；须 ≥ 入场手数。保存规则不改交易执行 200/500",
+        description="历史回测强档手数（股）。默认与每笔股数相同",
     )
     universe_fit_tiers: Optional[list] = Field(
         default=None,
         description="观察池拟合档过滤（A/B/C 可多选）。空则用 live cluster_scoring.universe_fit_tiers；满三档=不过滤",
+    )
+    price_space_gate: bool = Field(
+        default=True,
+        description="调仓回测日分价闸：有分钟时 |日开/分开−1| 或 |日昨/分昨−1| 超阈则跳过。阈与做 T 共用。不改 live",
+    )
+    sync: bool = Field(
+        default=False,
+        description="true=同步跑（单测）；默认入队 Job，轮询 GET /api/jobs/portfolio-backtest",
     )
 
 

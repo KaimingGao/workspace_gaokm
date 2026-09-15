@@ -2898,7 +2898,8 @@ html[data-density="compact"] .quant-page {
 .quant-bt-trades-host .watching-react-grid-cell.watching-col-y_fuse,
 .quant-bt-trades-host .watching-react-grid-cell.watching-col-y_tau,
 .quant-bt-trades-host .watching-react-grid-cell.watching-col-y_on,
-.quant-bt-trades-host .watching-react-grid-cell.watching-col-ranking {
+.quant-bt-trades-host .watching-react-grid-cell.watching-col-ranking,
+.quant-bt-trades-host .watching-react-grid-cell.watching-col-y_hl {
   display: flex;
   justify-content: flex-end;
   align-items: center;
