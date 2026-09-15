@@ -14,12 +14,9 @@ export function createRebalanceReportController(deps) {
     scoreCls,
     resolveEodScore,
     resolveTauScore,
-    resolvePathScore,
     resolveOnScore,
-    fmtPathScore,
     Y_EOD_TITLE,
     Y_TAU_TITLE,
-    Y_HL_TITLE,
     Y_ON_TITLE,
     isHeuristicScoreScale,
     renderOpsReport,
@@ -643,12 +640,6 @@ function renderRebalanceReport(
       nowcast_x_prior: r.nowcast_x_prior,
       predicted_score_eod: r.predicted_score_eod,
       predicted_score_tau: r.predicted_score_tau,
-      predicted_score_path: r.predicted_score_path != null ? r.predicted_score_path : r.y_path,
-      y_path: r.y_path,
-      y_path_status: r.y_path_status || null,
-      y_path_error: r.y_path_error || null,
-      features_path: r.features_path || null,
-      formula_terms_path: r.formula_terms_path || r.score_formula_terms_path,
       predicted_score_on: r.predicted_score_on,
       y_fuse: r.y_fuse != null ? r.y_fuse : r.y_fusion,
       ranking_score: r.ranking_score != null ? r.ranking_score : r.ranking,
@@ -784,9 +775,6 @@ function renderRebalanceReport(
       const scoreTauShown =
         scoreTau != null ? fmtTableScore(r, scoreTau) : "—";
       const scoreTauTitle = scoreTau == null ? "暂无 ŷ_oc" : Y_TAU_TITLE;
-      const scorePath = resolvePathScore(r);
-      const scorePathShown = fmtPathScore(scorePath);
-      const scorePathTitle = scorePath == null ? "暂无 ŷ_hl" : Y_HL_TITLE;
       const scoreOn = resolveOnScore(r);
       const scoreOnShown =
         scoreOn != null ? fmtTableScore(r, scoreOn) : "—";
@@ -1006,11 +994,6 @@ function renderRebalanceReport(
         )}" role="cell" ` +
         `data-score-detail="${tipDetailJson}" data-score-tip="on" ` +
         `title="${escapeText(scoreOnTitle)}">${escapeText(scoreOnShown)}</div>` +
-        `<div class="num rebalance-score-path paper-hold-score watching-score-path has-tip ${scoreCls(
-          scorePath
-        )}" role="cell" ` +
-        `data-score-detail="${tipDetailJson}" data-score-tip="path" ` +
-        `title="${escapeText(scorePathTitle)}">${escapeText(scorePathShown)}</div>` +
         `<div class="num rebalance-score-fuse rebalance-score paper-hold-score has-tip ${scoreCls(
           scoreFuse
         )}" role="cell" ` +
@@ -1059,7 +1042,6 @@ function renderRebalanceReport(
     `<div class="rebalance-th num" role="columnheader" title="ŷ_oo · 隔夜主轴">y_oo</div>` +
     `<div class="rebalance-th num" role="columnheader" title="ŷ_oc · open→close">y_oc</div>` +
     `<div class="rebalance-th num" role="columnheader" title="ŷ_co · close→次日开">y_co</div>` +
-    `<div class="rebalance-th num" role="columnheader" title="ŷ_hl · 极值序">y_hl</div>` +
     `<div class="rebalance-th num" role="columnheader" title="ranking · w·ŷ_oo + w·(ŷ_oc∘w_co·ŷ_co)">ranking</div>` +
     `<div class="rebalance-th num" role="columnheader">股数</div>` +
     `<div class="rebalance-th num" role="columnheader">变动</div>` +

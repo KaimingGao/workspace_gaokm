@@ -161,36 +161,53 @@ class T0BacktestRequest(BaseModel):
         le=20.0,
         description="C_τ clip 上界（百分点，默认 +3）",
     )
-    y_use_path: Optional[bool] = None
-    y_path_enter: Optional[float] = Field(
+    y_hl_enter: Optional[float] = Field(
         default=None,
         ge=0.0,
         le=100.0,
         description="HL 入场%：|y_hl| 低于此值横盘跳过（默认 0；0=关幅度；范围 0–100%）",
     )
-    y_path_enter_sell_then_buy: Optional[float] = Field(
+    y_path_enter: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        le=100.0,
+        description="y_hl_enter 旧键",
+    )
+    y_hl_enter_sell_then_buy: Optional[float] = Field(
         default=None,
         ge=0.0,
         le=100.0,
         description="dual_y：反T HL 入场门槛；范围 0–100%",
     )
-    y_path_enter_buy_then_sell: Optional[float] = Field(
+    y_path_enter_sell_then_buy: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        le=100.0,
+        description="y_hl_enter_sell_then_buy 旧键",
+    )
+    y_hl_enter_buy_then_sell: Optional[float] = Field(
         default=None,
         ge=0.0,
         le=100.0,
         description="dual_y：正T HL 入场门槛；范围 0–100%",
     )
-    y_path_strong: Optional[float] = Field(
+    y_path_enter_buy_then_sell: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        le=100.0,
+        description="y_hl_enter_buy_then_sell 旧键",
+    )
+    y_hl_strong: Optional[float] = Field(
         default=None,
         ge=0.0,
         le=5.0,
         description="HL强%：|y_hl| 超此值须与 y_τ 同号，异号跳过（默认 5）",
     )
-    y_tc_strong: Optional[float] = Field(
+    y_path_strong: Optional[float] = Field(
         default=None,
         ge=0.0,
-        le=100.0,
-        description="ŷ_τc 旁路强%：0=任意有符号须同号；100=关",
+        le=5.0,
+        description="y_hl_strong 旧键",
     )
     y_t30_strong: Optional[float] = Field(
         default=None,
@@ -312,72 +329,25 @@ class T0BacktestRequest(BaseModel):
         le=100.0,
         description="y_t90_enter_alt 的 Unicode 别名",
     )
-    y_tc_enter: Optional[float] = Field(
-        default=None,
-        ge=0.0,
-        le=100.0,
-        description="门槛1 |ŷ_τc| 入场下限（百分点）；范围 0–100%；0=关",
-    )
-    y_τc_enter: Optional[float] = Field(
-        default=None,
-        ge=0.0,
-        le=100.0,
-        description="y_tc_enter 的 Unicode 别名",
-    )
-    y_complexity_max: Optional[float] = Field(
-        default=None,
-        ge=0.0,
-        le=1.0,
-        description="ŷ_cx∈[0,1] 上限：超过则太折跳过做 T（默认 1.00≈关）",
-    )
-    y_cx_max: Optional[float] = Field(
-        default=None,
-        ge=0.0,
-        le=1.0,
-        description="legacy alias of y_complexity_max",
-    )
-    y_tpd_max: Optional[float] = Field(
-        default=None,
-        ge=0.0,
-        le=1.0,
-        description="ŷ_tpd∈[0,1] 上限：超过则反转过密跳过做 T（默认 1.00≈关）",
-    )
     y_tau_enter_alt: Optional[float] = Field(
         default=None,
         ge=0.0,
         le=100.0,
         description="门槛2 |y_τ| 入场下限（百分点）；默认 0；范围 0–100%；0=关",
     )
-    y_tc_enter_alt: Optional[float] = Field(
+    y_hl_enter_alt: Optional[float] = Field(
         default=None,
         ge=0.0,
         le=100.0,
-        description="门槛2 |ŷ_τc| 入场下限（百分点）；默认 0；范围 0–100%；0=关",
-    )
-    y_τc_enter_alt: Optional[float] = Field(
-        default=None,
-        ge=0.0,
-        le=100.0,
-        description="y_tc_enter_alt 的 Unicode 别名",
+        description="门槛2 |y_hl| 入场下限（百分点）；默认 0；范围 0–100%；0=关幅度",
     )
     y_path_enter_alt: Optional[float] = Field(
         default=None,
         ge=0.0,
         le=100.0,
-        description="门槛2 |y_path| 入场下限（百分点）；默认 0；范围 0–100%；0=关幅度",
+        description="y_hl_enter_alt 旧键",
     )
-    y_complexity_max_alt: Optional[float] = Field(
-        default=None,
-        ge=0.0,
-        le=1.0,
-        description="门槛2 ŷ_cx 上限：默认 1.00≈关；范围 0–1",
-    )
-    y_tpd_max_alt: Optional[float] = Field(
-        default=None,
-        ge=0.0,
-        le=1.0,
-        description="门槛2 ŷ_tpd 上限：默认 1.00≈关",
-    )
+    y_hl_required: Optional[bool] = None
     y_path_required: Optional[bool] = None
     t0_close_band_delta_pct: Optional[float] = Field(default=None, ge=0.0, le=10.0)
     t0_price_space_gate: Optional[bool] = Field(
@@ -615,12 +585,14 @@ class PaperExecutionPatchRequest(BaseModel):
     t0_y_oc_target_scale: Optional[float] = None
     t0_y_oc_l: Optional[float] = None
     t0_y_oc_u: Optional[float] = None
-    y_use_path: Optional[bool] = None
+    y_hl_enter: Optional[float] = None
     y_path_enter: Optional[float] = None
+    y_hl_enter_sell_then_buy: Optional[float] = None
     y_path_enter_sell_then_buy: Optional[float] = None
+    y_hl_enter_buy_then_sell: Optional[float] = None
     y_path_enter_buy_then_sell: Optional[float] = None
+    y_hl_strong: Optional[float] = None
     y_path_strong: Optional[float] = None
-    y_tc_strong: Optional[float] = None
     y_t30_strong: Optional[float] = None
     y_τ30_strong: Optional[float] = None
     y_tw_strong: Optional[float] = None
@@ -641,17 +613,10 @@ class PaperExecutionPatchRequest(BaseModel):
     y_τ90_enter: Optional[float] = None
     y_t90_enter_alt: Optional[float] = None
     y_τ90_enter_alt: Optional[float] = None
-    y_tc_enter: Optional[float] = None
-    y_τc_enter: Optional[float] = None
-    y_complexity_max: Optional[float] = None
-    y_cx_max: Optional[float] = None
-    y_tpd_max: Optional[float] = None
     y_tau_enter_alt: Optional[float] = None
-    y_tc_enter_alt: Optional[float] = None
-    y_τc_enter_alt: Optional[float] = None
+    y_hl_enter_alt: Optional[float] = None
     y_path_enter_alt: Optional[float] = None
-    y_complexity_max_alt: Optional[float] = None
-    y_tpd_max_alt: Optional[float] = None
+    y_hl_required: Optional[bool] = None
     y_path_required: Optional[bool] = None
     t0_close_band_delta_pct: Optional[float] = None
     t0_price_space_gate: Optional[bool] = None

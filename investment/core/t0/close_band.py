@@ -3,8 +3,7 @@
 C_τ = O×(1 + clip(ŷ_oc×scale, y_oc_l, y_oc_u)/100)。
 upper = C_τ×(1+δ/100)，lower = C_τ×(1−δ/100)。
 C > upper → 反T；C < lower → 正T。leg2 冻结在 C_τ。
-ŷ_τc 不参与估 C_τ / 选腿 / 目标价；
-可选旁路：``y_tc_strong`` 破带后 |ŷ_τc| 超阈且逆带则跳过（0=任意有符号须同号；100=关）。
+ŷ_τc 已下线（ŷ_τ30/60/90 覆盖剩余窗租用）；
 ``y_t30_strong`` 同语义看 ŷ_τ30（默认 0=有符号须同号；1=关）。缺分不拦。
 ``y_tw_strong`` 同语义看 ŷ_τw 符号票（默认 3=关；0=有符号须同号）。缺全部分不拦。
 ``y_t60_strong`` 同语义看 ŷ_τ60；``y_t90_strong`` 同语义看 ŷ_τ90。
@@ -328,7 +327,7 @@ def close_band_pick_direction(
 
     ``bar_close``：**当前 5m 根收价 C**（分钟 ``mb.close``），不是日线收盘价。
     ``close_px``：分钟价空间下的 C_τ。
-    ŷ_τc 旁路在选向之后（``close_band_y_tc_skip_reason``）。
+    ŷ_τ30/60/90 旁路在选向之后。
 
     Returns (direction, meta) where meta 含 r_pct / upper_pct / lower_pct / y_tau。
     """
@@ -569,13 +568,13 @@ def close_band_sign_skip_reason(
     scores: Optional[dict],
     cfg: Optional[dict] = None,
 ) -> Optional[str]:
-    """HL 强同 τ：|y_hl|>y_path_strong 时须与 y_τ 同号，异号则跳过。
+    """HL 强同 τ：|y_hl|>y_hl_strong 时须与 y_τ 同号，异号则跳过。
 
-    trade/eod 强闸已下线；仅 HL。y_use_path 关或无 y_hl 时不拦。
-    y_path_strong≤0：任意非零 |y_hl| 都要求同号。
+    trade/eod 强闸已下线；仅 HL。无 y_hl 时不拦。
+    y_hl_strong≤0：任意非零 |y_hl| 都要求同号。
+    旧键 y_path_strong 仅作未走 load_t0_rules 的直传兼容。
     """
     from core.research.path_panel import pick_y_hl
-    from core.t0.config import coerce_cfg_bool
     from core.t0.score_policy import (
         DEFAULT_PATH_STRONG,
         _cfg_float,
@@ -585,8 +584,6 @@ def close_band_sign_skip_reason(
     )
 
     cfg_d = cfg if isinstance(cfg, dict) else {}
-    if not coerce_cfg_bool(cfg_d.get("y_use_path"), True):
-        return None
     raw = scores if isinstance(scores, dict) else {}
     sc = scores_from_item(raw)
     y_path = pick_y_hl(sc, raw)
@@ -596,18 +593,20 @@ def close_band_sign_skip_reason(
     if y_tau is None:
         # 强 HL 需要对照 τ；缺 τ 时交给入场闸（τ enter）处理
         return None
-    path_strong = _cfg_float(cfg_d, "y_path_strong", DEFAULT_PATH_STRONG)
-    path_strong = max(0.0, min(float(path_strong), 5.0))
+    if cfg_d.get("y_hl_strong") not in (None, ""):
+        hl_strong = _cfg_float(cfg_d, "y_hl_strong", DEFAULT_PATH_STRONG)
+    else:
+        hl_strong = _cfg_float(cfg_d, "y_path_strong", DEFAULT_PATH_STRONG)
+    hl_strong = max(0.0, min(float(hl_strong), 5.0))
     ok, reason = _strong_head_tau_sign_gate(
         float(y_path),
         float(y_tau),
-        path_strong,
+        hl_strong,
         "y_hl",
         tau_label="y_τ",
     )
     if ok:
         return None
-    # 去掉 dual_y 前缀，贴近 close_band 其它 skip 文案
     if reason and reason.startswith("dual_y："):
         return reason[len("dual_y：") :]
     return reason or "强 y_hl 与 y_τ 异号跳过"
@@ -617,7 +616,6 @@ Y_TC_BAND_EPS = 0.05  # |ŷ_τc| 低于此视为无投票（与符号命中死�
 Y_T30_HIT_EPS = 0.0  # 30m |ŷ| 中位约 0.02%，不可套用 τc 的 0.05；与旁路闸「有符号即投票」同口径
 Y_T60_HIT_EPS = 0.0
 Y_T90_HIT_EPS = 0.0
-DEFAULT_Y_TC_STRONG = 100.0  # 0=任意有符号须同号；100=关
 DEFAULT_Y_T30_STRONG = 0.0  # ŷ_τ30 旁路：默认开（有符号须同号）
 DEFAULT_Y_T30_ENTER = 0.0
 DEFAULT_Y_T60_STRONG = 0.0
@@ -625,29 +623,6 @@ DEFAULT_Y_T60_ENTER = 0.0
 DEFAULT_Y_T90_STRONG = 0.0
 DEFAULT_Y_T90_ENTER = 0.0
 DEFAULT_Y_TW_STRONG = 3.0  # ŷ_τw 票数旁路：0=任意有符号须同号；3=关
-
-
-def _pick_y_tc_for_band(
-    scores: Optional[dict] = None,
-    y_τc: Optional[float] = None,
-) -> Optional[float]:
-    y = _f(y_τc)
-    if y is not None:
-        return y
-    from core.signal.yhat_windows import pick_y_τc
-
-    raw = scores if isinstance(scores, dict) else {}
-    y = _f(raw.get("y_τc_ridge"))
-    if y is not None:
-        return y
-    # 表列可能已是 remaining(ŷ_oc)；旁路须用独立 Ridge，否则与破带同号恒成立。
-    if str(raw.get("y_τc_source") or "") == "remaining_oc":
-        y = _f(raw.get("y_r")) or _f(raw.get("y_r_hat")) or _f(raw.get("predicted_score_r"))
-        return y
-    y = pick_y_τc(raw)
-    if y is not None:
-        return y
-    return _f(raw.get("y_τc")) or _f(raw.get("y_tc"))
 
 
 def y_tc_band_agree(
@@ -713,36 +688,9 @@ def close_band_y_tc_skip_reason(
     direction: Optional[str] = None,
     y_τc: Optional[float] = None,
 ) -> Optional[str]:
-    """旁路：|ŷ_τc| 超 ``y_tc_strong`` 且逆带（剩余窗说趋势续）则跳过。
-
-    不改 ĉ / 选向 / 目标价。``y_tc_strong>=100``（默认）关闸；``=0`` 任意有符号须同号；缺 ŷ_τc 不拦。
-    """
-    from core.t0.score_policy import _cfg_float
-
-    cfg_d = cfg if isinstance(cfg, dict) else {}
-    d = str(direction or "").strip()
-    if d not in ("sell_then_buy", "buy_then_sell"):
-        return None
-    y = _pick_y_tc_for_band(scores, y_τc)
-    if y is None:
-        return None
-    strong = _cfg_float(cfg_d, "y_tc_strong", DEFAULT_Y_TC_STRONG)
-    if cfg_d.get("y_τc_strong") not in (None, "") and cfg_d.get("y_tc_strong") in (
-        None,
-        "",
-    ):
-        strong = _cfg_float(cfg_d, "y_τc_strong", DEFAULT_Y_TC_STRONG)
-    strong = max(0.0, min(float(strong), 100.0))
-    if strong >= 100.0 - 1e-12:
-        return None
-    if abs(float(y)) <= float(strong) + 1e-12:
-        return None
-    agree = y_tc_band_agree(d, y, eps=0.0)
-    if agree is not False:
-        return None
-    side = "反T" if d == "sell_then_buy" else "正T"
-    want = "remaining<0" if d == "sell_then_buy" else "remaining>0"
-    return f"ŷ_τc={float(y):+.3f}% 与{side}旁路逆带跳过（期望{want}）"
+    """已下线：ŷ_τc 旁路由 ŷ_τ30/60/90 覆盖，恒不跳过。"""
+    _ = (scores, cfg, direction, y_τc)
+    return None
 
 
 def _pick_y_t30_for_band(
@@ -993,7 +941,6 @@ def _enter_profile_skip_reason(
     *,
     y_tau: Optional[float],
     y_path: Optional[float],
-    y_tc: Optional[float] = None,
     y_t30: Optional[float] = None,
     y_t60: Optional[float] = None,
     y_t90: Optional[float] = None,
@@ -1001,7 +948,6 @@ def _enter_profile_skip_reason(
     y_tpd_u: Optional[float],
     tau_enter: float,
     path_enter: float,
-    tc_enter: float = 0.0,
     t30_enter: float = 0.0,
     t60_enter: float = 0.0,
     t90_enter: float = 0.0,
@@ -1009,20 +955,13 @@ def _enter_profile_skip_reason(
     tpd_max: float,
     use_path: bool,
 ) -> Optional[str]:
-    """一组 |y_τ| / |ŷ_τc| / |y_hl| / |ŷ_τ30| / |ŷ_τ60| / |ŷ_τ90| / ŷ_cx / tpd 入场闸；缺 hat 的风险不挡。"""
+    """一组 |y_τ| / |y_hl| / |ŷ_τ30| / |ŷ_τ60| / |ŷ_τ90| 入场闸；ŷ_cx / tpd 已下线。"""
     if tau_enter > 0:
         if y_tau is None:
             return "y_τ 缺失，未过入场门槛"
         yt = float(y_tau)
         if abs(yt) < tau_enter - 1e-12:
             return f"|y_τ|={abs(yt):.3f}%<{tau_enter:g}% 未过入场（横盘）"
-    tc_enter = max(0.0, min(float(tc_enter), 100.0))
-    if tc_enter > 0:
-        if y_tc is None:
-            return "ŷ_τc 缺失，未过入场门槛"
-        ytc = float(y_tc)
-        if abs(ytc) < tc_enter - 1e-12:
-            return f"|ŷ_τc|={abs(ytc):.3f}%<{tc_enter:g}% 未过入场（横盘）"
     t30_enter = max(0.0, min(float(t30_enter), 100.0))
     if t30_enter > 0 and y_t30 is not None:
         yt30 = float(y_t30)
@@ -1042,10 +981,7 @@ def _enter_profile_skip_reason(
         yp = float(y_path)
         if abs(yp) < path_enter - 1e-12:
             return f"|y_hl|={abs(yp):.3f}%<{path_enter:g}% 未过入场（横盘）"
-    if y_complexity_u is not None and y_complexity_u > cx_max + 1e-12:
-        return f"y_cx={y_complexity_u:.3f}>{cx_max:g} 太折跳过"
-    if y_tpd_u is not None and y_tpd_u > tpd_max + 1e-12:
-        return f"y_tpd={y_tpd_u:.3f}>{tpd_max:g} 反转过密跳过"
+    _ = (y_complexity_u, y_tpd_u, cx_max, tpd_max)
     return None
 
 
@@ -1071,12 +1007,13 @@ def close_band_enter_skip_reason(
     direction: Optional[str] = None,
     r_pct: Optional[float] = None,
 ) -> Optional[str]:
-    """入场：启用中的门槛1 ∪ 门槛2。每档 |y_τ|、|ŷ_τc|、|y_hl|、|ŷ_τ30|、|ŷ_τ60|、|ŷ_τ90| 过入场，且 ŷ_cx/tpd 过上限。
+    """入场：启用中的门槛1 ∪ 门槛2。每档 |y_τ|、|y_hl|、|ŷ_τ30|、|ŷ_τ60|、|ŷ_τ90| 过入场。
 
     ``r_pct`` 仅兼容旧调用，不再入闸（超额带宽 δ 已选向）。
     ``y_enter_enabled`` / ``y_enter_alt_enabled`` 关则该档不参与 OR；两档都关则不开腿。
     缺键时门槛2 跟随门槛1，避免未配置的备选把风险放行。
-    y_use_path 时缺 y_hl 仍跳过（开盘 minute_feats_missing 除外）；分钟缺失共用。
+    缺 y_hl 默认不拦（与 ŷ_τ30 同）；``y_hl_required`` 时缺分跳过（开盘 minute_feats_missing 除外）。
+    分钟缺失共用。ŷ_cx / ŷ_tpd 已下线，不入闸。
     """
     _ = r_pct
     from core.t0.score_policy import (
@@ -1085,7 +1022,7 @@ def close_band_enter_skip_reason(
         _cfg_float,
         resolve_direction_y_tau,
         scores_from_item,
-        side_path_enter,
+        side_hl_enter,
         side_tau_enter,
     )
     from core.t0.config import coerce_cfg_bool
@@ -1097,23 +1034,17 @@ def close_band_enter_skip_reason(
     if d in ("sell_then_buy", "buy_then_sell"):
         for_bts = d == "buy_then_sell"
         tau_enter = float(side_tau_enter(cfg_d, for_buy_then_sell=for_bts))
-        path_enter = float(side_path_enter(cfg_d, for_buy_then_sell=for_bts))
+        path_enter = float(side_hl_enter(cfg_d, for_buy_then_sell=for_bts))
     else:
         tau_enter = _cfg_float(cfg_d, "y_tau_enter", DEFAULT_TAU_ENTER)
         tau_enter = max(0.0, min(float(tau_enter), 100.0))
-        path_enter = _cfg_float(cfg_d, "y_path_enter", DEFAULT_PATH_ENTER)
+        if cfg_d.get("y_hl_enter") not in (None, ""):
+            path_enter = _cfg_float(cfg_d, "y_hl_enter", DEFAULT_PATH_ENTER)
+        else:
+            path_enter = _cfg_float(cfg_d, "y_path_enter", DEFAULT_PATH_ENTER)
         path_enter = max(0.0, min(float(path_enter), 100.0))
 
     y_tau = resolve_direction_y_tau(sc)
-    y_tc = _pick_y_tc_for_band(raw)
-    tc_enter = _cfg_float(cfg_d, "y_tc_enter", 0.0)
-    if cfg_d.get("y_τc_enter") not in (None, "") and cfg_d.get("y_tc_enter") in (
-        None,
-        "",
-    ):
-        tc_enter = _cfg_float(cfg_d, "y_τc_enter", 0.0)
-    tc_enter = max(0.0, min(float(tc_enter), 100.0))
-
     y_t30 = _pick_y_t30_for_band(raw)
     t30_enter = _cfg_float(cfg_d, "y_t30_enter", DEFAULT_Y_T30_ENTER)
     if cfg_d.get("y_τ30_enter") not in (None, "") and cfg_d.get("y_t30_enter") in (
@@ -1145,22 +1076,12 @@ def close_band_enter_skip_reason(
     if raw.get("_minute_data_missing") or status == "minute_data_missing":
         return "分钟数据缺失（非 09:30 须有分钟小包）"
 
-    use_path = coerce_cfg_bool(cfg_d.get("y_use_path"), True)
     y_path = pick_y_hl(sc, raw)
-    if use_path and y_path is None and status != "minute_feats_missing":
+    hl_required = coerce_cfg_bool(cfg_d.get("y_hl_required"), False)
+    if not hl_required and cfg_d.get("y_path_required") not in (None, ""):
+        hl_required = coerce_cfg_bool(cfg_d.get("y_path_required"), False)
+    if hl_required and y_path is None and status != "minute_feats_missing":
         return "y_hl 缺失，未过入场门槛"
-
-    from core.research.cx_panel import pick_y_complexity_hat, pick_y_tpd_hat
-
-    if cfg_d.get("y_complexity_max") not in (None, ""):
-        cx_max = _cfg_float(cfg_d, "y_complexity_max", 1.0)
-    else:
-        cx_max = _cfg_float(cfg_d, "y_cx_max", 1.0)
-    cx_max = max(0.0, min(float(cx_max), 1.0))
-    y_complexity_u = pick_y_complexity_hat(sc, raw)
-    tpd_max = _cfg_float(cfg_d, "y_tpd_max", 0.40)
-    tpd_max = max(0.0, min(float(tpd_max), 1.0))
-    y_tpd_u = pick_y_tpd_hat(sc, raw)
 
     gate1_on = coerce_cfg_bool(cfg_d.get("y_enter_enabled"), True)
     gate2_on = coerce_cfg_bool(cfg_d.get("y_enter_alt_enabled"), True)
@@ -1170,21 +1091,19 @@ def close_band_enter_skip_reason(
         skip = _enter_profile_skip_reason(
             y_tau=y_tau,
             y_path=y_path,
-            y_tc=y_tc,
             y_t30=y_t30,
             y_t60=y_t60,
             y_t90=y_t90,
-            y_complexity_u=y_complexity_u,
-            y_tpd_u=y_tpd_u,
+            y_complexity_u=None,
+            y_tpd_u=None,
             tau_enter=tau_enter,
             path_enter=path_enter,
-            tc_enter=tc_enter,
             t30_enter=t30_enter,
             t60_enter=t60_enter,
             t90_enter=t90_enter,
-            cx_max=cx_max,
-            tpd_max=tpd_max,
-            use_path=use_path,
+            cx_max=1.0,
+            tpd_max=1.0,
+            use_path=True,
         )
         if skip is None:
             return None
@@ -1195,16 +1114,13 @@ def close_band_enter_skip_reason(
             cfg_d, "y_tau_enter_alt", tau_enter, lo=0.0, hi=100.0
         )
         path_enter_alt = _cfg_or_follow(
-            cfg_d, "y_path_enter_alt", path_enter, lo=0.0, hi=100.0
+            cfg_d, "y_hl_enter_alt", path_enter, lo=0.0, hi=100.0
         )
-        tc_enter_alt = _cfg_or_follow(
-            cfg_d, "y_tc_enter_alt", tc_enter, lo=0.0, hi=100.0
-        )
-        if cfg_d.get("y_τc_enter_alt") not in (None, "") and cfg_d.get(
-            "y_tc_enter_alt"
-        ) in (None, ""):
-            tc_enter_alt = _cfg_or_follow(
-                cfg_d, "y_τc_enter_alt", tc_enter, lo=0.0, hi=100.0
+        if cfg_d.get("y_hl_enter_alt") in (None, "") and cfg_d.get(
+            "y_path_enter_alt"
+        ) not in (None, ""):
+            path_enter_alt = _cfg_or_follow(
+                cfg_d, "y_path_enter_alt", path_enter, lo=0.0, hi=100.0
             )
         t30_enter_alt = _cfg_or_follow(
             cfg_d, "y_t30_enter_alt", t30_enter, lo=0.0, hi=100.0
@@ -1233,30 +1149,22 @@ def close_band_enter_skip_reason(
             t90_enter_alt = _cfg_or_follow(
                 cfg_d, "y_τ90_enter_alt", t90_enter, lo=0.0, hi=100.0
             )
-        cx_max_alt = _cfg_or_follow(
-            cfg_d, "y_complexity_max_alt", cx_max, lo=0.0, hi=1.0
-        )
-        tpd_max_alt = _cfg_or_follow(
-            cfg_d, "y_tpd_max_alt", tpd_max, lo=0.0, hi=1.0
-        )
         skip_alt = _enter_profile_skip_reason(
             y_tau=y_tau,
             y_path=y_path,
-            y_tc=y_tc,
             y_t30=y_t30,
             y_t60=y_t60,
             y_t90=y_t90,
-            y_complexity_u=y_complexity_u,
-            y_tpd_u=y_tpd_u,
+            y_complexity_u=None,
+            y_tpd_u=None,
             tau_enter=tau_enter_alt,
             path_enter=path_enter_alt,
-            tc_enter=tc_enter_alt,
             t30_enter=t30_enter_alt,
             t60_enter=t60_enter_alt,
             t90_enter=t90_enter_alt,
-            cx_max=cx_max_alt,
-            tpd_max=tpd_max_alt,
-            use_path=use_path,
+            cx_max=1.0,
+            tpd_max=1.0,
+            use_path=True,
         )
         if skip_alt is None:
             return None

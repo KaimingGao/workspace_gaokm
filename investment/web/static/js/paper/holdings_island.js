@@ -58,9 +58,7 @@ export function createHoldingsIslandController(deps) {
           key === "score" ||
           key === "score_eod" ||
           key === "score_tau" ||
-          key === "score_path" ||
           key === "score_on" ||
-          key === "score_nowcast" ||
           key === "pnl" ||
           key === "chg"
         ) {

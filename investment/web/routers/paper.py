@@ -97,23 +97,26 @@ def paper_execution_save(body: PaperExecutionPatchRequest | None = None) -> Dict
             ("residual_w_oc", getattr(req, "residual_w_oc", None)),
             ("residual_w_mode", getattr(req, "residual_w_mode", None)),
             ("y_tau_enter_alt", getattr(req, "y_tau_enter_alt", None)),
-            ("y_tc_enter", getattr(req, "y_tc_enter", None)),
-            ("y_τc_enter", getattr(req, "y_τc_enter", None) if getattr(req, "y_τc_enter", None) not in (None, "") else getattr(req, "y_tc_enter", None)),
-            ("y_tc_enter_alt", getattr(req, "y_tc_enter_alt", None)),
-            ("y_τc_enter_alt", getattr(req, "y_τc_enter_alt", None) if getattr(req, "y_τc_enter_alt", None) not in (None, "") else getattr(req, "y_tc_enter_alt", None)),
-            ("y_path_enter_alt", getattr(req, "y_path_enter_alt", None)),
+            ("y_hl_enter_alt", getattr(req, "y_hl_enter_alt", None)
+             if getattr(req, "y_hl_enter_alt", None) not in (None, "")
+             else getattr(req, "y_path_enter_alt", None)),
             ("y_on_allow", req.y_on_allow),
             ("y_on_risk", req.y_on_risk),
             ("t0_y_oc_target_scale", getattr(req, "t0_y_oc_target_scale", None)),
             ("t0_y_oc_l", getattr(req, "t0_y_oc_l", None)),
             ("t0_y_oc_u", getattr(req, "t0_y_oc_u", None)),
-            ("y_use_path", req.y_use_path),
-            ("y_path_enter", req.y_path_enter),
-            ("y_path_enter_sell_then_buy", req.y_path_enter_sell_then_buy),
-            ("y_path_enter_buy_then_sell", req.y_path_enter_buy_then_sell),
-            ("y_path_strong", getattr(req, "y_path_strong", None)),
-            ("y_tc_strong", getattr(req, "y_tc_strong", None)),
-            ("y_τc_strong", getattr(req, "y_tc_strong", None)),
+            ("y_hl_enter", getattr(req, "y_hl_enter", None)
+             if getattr(req, "y_hl_enter", None) not in (None, "")
+             else req.y_path_enter),
+            ("y_hl_enter_sell_then_buy", getattr(req, "y_hl_enter_sell_then_buy", None)
+             if getattr(req, "y_hl_enter_sell_then_buy", None) not in (None, "")
+             else req.y_path_enter_sell_then_buy),
+            ("y_hl_enter_buy_then_sell", getattr(req, "y_hl_enter_buy_then_sell", None)
+             if getattr(req, "y_hl_enter_buy_then_sell", None) not in (None, "")
+             else req.y_path_enter_buy_then_sell),
+            ("y_hl_strong", getattr(req, "y_hl_strong", None)
+             if getattr(req, "y_hl_strong", None) not in (None, "")
+             else getattr(req, "y_path_strong", None)),
             ("y_t30_strong", getattr(req, "y_t30_strong", None)),
             ("y_τ30_strong", getattr(req, "y_τ30_strong", None) if getattr(req, "y_τ30_strong", None) not in (None, "") else getattr(req, "y_t30_strong", None)),
             ("y_tw_strong", getattr(req, "y_tw_strong", None)),
@@ -134,22 +137,9 @@ def paper_execution_save(body: PaperExecutionPatchRequest | None = None) -> Dict
             ("y_τ90_enter", getattr(req, "y_τ90_enter", None) if getattr(req, "y_τ90_enter", None) not in (None, "") else getattr(req, "y_t90_enter", None)),
             ("y_t90_enter_alt", getattr(req, "y_t90_enter_alt", None)),
             ("y_τ90_enter_alt", getattr(req, "y_τ90_enter_alt", None) if getattr(req, "y_τ90_enter_alt", None) not in (None, "") else getattr(req, "y_t90_enter_alt", None)),
-            (
-                "y_complexity_max",
-                getattr(req, "y_complexity_max", None)
-                if getattr(req, "y_complexity_max", None) not in (None, "")
-                else getattr(req, "y_cx_max", None),
-            ),
-            (
-                "y_cx_max",
-                getattr(req, "y_complexity_max", None)
-                if getattr(req, "y_complexity_max", None) not in (None, "")
-                else getattr(req, "y_cx_max", None),
-            ),
-            ("y_tpd_max", getattr(req, "y_tpd_max", None)),
-            ("y_complexity_max_alt", getattr(req, "y_complexity_max_alt", None)),
-            ("y_tpd_max_alt", getattr(req, "y_tpd_max_alt", None)),
-            ("y_path_required", req.y_path_required),
+            ("y_hl_required", getattr(req, "y_hl_required", None)
+             if getattr(req, "y_hl_required", None) is not None
+             else req.y_path_required),
             ("t0_close_band_delta_pct", getattr(req, "t0_close_band_delta_pct", None)),
             ("t0_price_space_gate", getattr(req, "t0_price_space_gate", None)),
             ("t0_price_space_max_dev_pct", getattr(req, "t0_price_space_max_dev_pct", None)),

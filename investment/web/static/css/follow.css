@@ -646,7 +646,7 @@ body[data-page="follow"] .follow-pending-grid.watching-react-grid {
 
 .follow-page .rebalance-table {
   /* 与 base.css 同步：股票略宽，其余列等分 */
-  --rebalance-cols: minmax(6.75rem, 1.15fr) repeat(11, minmax(4.25rem, 1fr));
+  --rebalance-cols: minmax(6.75rem, 1.15fr) repeat(10, minmax(4.25rem, 1fr));
   font-size: 0.78rem;
 }
 
@@ -4907,14 +4907,14 @@ body[data-page="replay"] .replay-t0-section .paper-t0-table {
 }
 
 .paper-t0-scan-debug col {
-  width: calc(100% / 20);
+  width: calc(100% / 17);
 }
 
 .paper-t0-scan-debug th,
 .paper-t0-scan-debug td,
 .paper-t0-scan-debug td.paper-t0-col-band-lo,
 .paper-t0-scan-debug td.paper-t0-col-band-up {
-  width: calc(100% / 20);
+  width: calc(100% / 17);
   min-width: 0;
   max-width: none;
   box-sizing: border-box;
@@ -4956,9 +4956,9 @@ body[data-page="replay"] .replay-t0-section .paper-t0-table {
   text-align: left;
 }
 
-/* Ĉ_τ | lower | upper | R_τ · y_oc | y_τc | y_τw | y_τ30 | y_τ60 | y_τ90 | y_hl | y_cx | y_tpd */
-.paper-t0-scan-debug th:nth-child(n + 6):nth-child(-n + 18),
-.paper-t0-scan-debug td:nth-child(n + 6):nth-child(-n + 18) {
+/* Ĉ_τ | lower | upper | R_τ · y_oc | y_τw | y_τ30 | y_τ60 | y_τ90 | y_hl */
+.paper-t0-scan-debug th:nth-child(n + 6):nth-child(-n + 15),
+.paper-t0-scan-debug td:nth-child(n + 6):nth-child(-n + 15) {
   border-left: 1px solid color-mix(in srgb, var(--ink) 14%, transparent);
 }
 
@@ -4980,7 +4980,7 @@ body[data-page="replay"] .replay-t0-section .paper-t0-trades-wrap .paper-t0-trad
 body[data-page="replay"] .replay-t0-section .paper-t0-trades-wrap .paper-t0-trades-table.quant-weight-table .paper-t0-scan-debug td,
 body[data-page="replay"] .replay-t0-section .paper-t0-trades-wrap .paper-t0-trades-table.quant-weight-table .paper-t0-scan-debug td.paper-t0-col-band-lo,
 body[data-page="replay"] .replay-t0-section .paper-t0-trades-wrap .paper-t0-trades-table.quant-weight-table .paper-t0-scan-debug td.paper-t0-col-band-up {
-  width: calc(100% / 20);
+  width: calc(100% / 17);
   min-width: 0;
   max-width: none;
   padding: 4px 8px;
@@ -5013,10 +5013,6 @@ body[data-page="replay"] .replay-t0-section .paper-t0-trades-wrap .paper-t0-trad
 .paper-t0-trades-table thead th.num,
 .paper-t0-trades-table thead th.paper-t0-col-y,
 .paper-t0-trades-table thead th.paper-t0-col-y-tau,
-.paper-t0-trades-table thead th.paper-t0-col-y-path,
-.paper-t0-trades-table thead th.paper-t0-col-y-cx,
-.paper-t0-trades-table thead th.paper-t0-col-y-tpd,
-.paper-t0-trades-table thead th.paper-t0-col-y-r,
 .paper-t0-trades-table thead th.paper-t0-col-y-tw,
 .paper-t0-trades-table thead th.paper-t0-col-y-t30,
 .paper-t0-trades-table thead th.paper-t0-col-y-rtau,
@@ -5053,9 +5049,6 @@ body[data-page="replay"] .replay-t0-section .paper-t0-trades-wrap .paper-t0-trad
 .paper-t0-trades-table thead th.paper-t0-col-y,
 .paper-t0-trades-table thead th.paper-t0-col-y-eod,
 .paper-t0-trades-table thead th.paper-t0-col-y-tau,
-.paper-t0-trades-table thead th.paper-t0-col-y-path,
-.paper-t0-trades-table thead th.paper-t0-col-y-cx,
-.paper-t0-trades-table thead th.paper-t0-col-y-tpd,
 .paper-t0-trades-table thead th.paper-t0-col-y-on,
 .paper-t0-trades-table thead th.paper-t0-col-y-trade,
 .paper-t0-trades-table thead th.paper-t0-col-y-nc {
@@ -5182,14 +5175,10 @@ body[data-page="replay"] .replay-t0-section .paper-t0-trades-wrap .paper-t0-trad
 .paper-t0-trades-table td.paper-t0-col-y,
 .paper-t0-trades-table th.paper-t0-col-y-tau,
 .paper-t0-trades-table td.paper-t0-col-y-tau,
-.paper-t0-trades-table th.paper-t0-col-y-path,
-.paper-t0-trades-table td.paper-t0-col-y-path,
-.paper-t0-trades-table th.paper-t0-col-y-cx,
-.paper-t0-trades-table td.paper-t0-col-y-cx,
-.paper-t0-trades-table th.paper-t0-col-y-tpd,
-.paper-t0-trades-table td.paper-t0-col-y-tpd,
 .paper-t0-trades-table th.paper-t0-col-y-rtau,
 .paper-t0-trades-table td.paper-t0-col-y-rtau,
+.paper-t0-trades-table th.paper-t0-col-y-hl,
+.paper-t0-trades-table td.paper-t0-col-y-hl,
 .paper-t0-trades-table th.paper-t0-col-y-tw,
 .paper-t0-trades-table td.paper-t0-col-y-tw,
 .paper-t0-trades-table th.paper-t0-col-y-t30,
@@ -5226,8 +5215,6 @@ body[data-page="replay"] .replay-t0-section .paper-t0-trades-wrap .paper-t0-trad
 .paper-t0-trades-table tbody td.paper-t0-col-tau,
 .paper-t0-trades-table thead th.paper-t0-col-rtau,
 .paper-t0-trades-table tbody td.paper-t0-col-rtau,
-.paper-t0-trades-table thead th.paper-t0-col-yr,
-.paper-t0-trades-table tbody td.paper-t0-col-yr,
 .paper-t0-trades-table thead th.paper-t0-col-ytw,
 .paper-t0-trades-table tbody td.paper-t0-col-ytw,
 .paper-t0-trades-table thead th.paper-t0-col-yt30,
@@ -5236,16 +5223,14 @@ body[data-page="replay"] .replay-t0-section .paper-t0-trades-wrap .paper-t0-trad
 .paper-t0-trades-table tbody td.paper-t0-col-yt60,
 .paper-t0-trades-table thead th.paper-t0-col-yt90,
 .paper-t0-trades-table tbody td.paper-t0-col-yt90,
-.paper-t0-trades-table thead th.paper-t0-col-cx,
-.paper-t0-trades-table tbody td.paper-t0-col-cx,
-.paper-t0-trades-table thead th.paper-t0-col-tpd,
-.paper-t0-trades-table tbody td.paper-t0-col-tpd,
+.paper-t0-trades-table thead th.paper-t0-col-yhl,
+.paper-t0-trades-table tbody td.paper-t0-col-yhl,
 .paper-t0-trades-table thead th.paper-t0-col-ret,
 .paper-t0-trades-table tbody td.paper-t0-col-ret {
   padding-left: 8px;
 }
 
-/* 价带 | Ĉ_τ | lower | upper | R_τ | y_oc | y_τc | y_τw | y_τ30 | y_τ60 | y_τ90 | y_hl | y_cx | y_tpd | 过程 | 结果：左边线作分区 */
+/* 价带 | Ĉ_τ | lower | upper | R_τ | y_oc | y_τw | y_τ30 | y_τ60 | y_τ90 | y_hl | 过程 | 结果：左边线作分区 */
 .paper-t0-trades-table thead th.paper-t0-col-o,
 .paper-t0-trades-table tbody td.paper-t0-col-o {
   border-left: 1px solid color-mix(in srgb, var(--ink) 10%, transparent);
@@ -5268,12 +5253,6 @@ body[data-page="replay"] .replay-t0-section .paper-t0-trades-wrap .paper-t0-trad
 .paper-t0-trades-table tbody td.paper-t0-col-tau {
   border-left: 1px solid color-mix(in srgb, var(--ink) 10%, transparent);
   box-shadow: inset 3px 0 0 color-mix(in srgb, #2563eb 24%, transparent);
-}
-
-.paper-t0-trades-table thead th.paper-t0-col-yr,
-.paper-t0-trades-table tbody td.paper-t0-col-yr {
-  border-left: 1px solid color-mix(in srgb, var(--ink) 10%, transparent);
-  box-shadow: inset 3px 0 0 color-mix(in srgb, #d97706 28%, transparent);
 }
 
 .paper-t0-trades-table thead th.paper-t0-col-ytw,
@@ -5300,21 +5279,10 @@ body[data-page="replay"] .replay-t0-section .paper-t0-trades-wrap .paper-t0-trad
   box-shadow: inset 3px 0 0 color-mix(in srgb, #075985 28%, transparent);
 }
 
-.paper-t0-trades-table thead th.paper-t0-col-path,
-.paper-t0-trades-table tbody td.paper-t0-col-path {
-  border-left: 1px solid color-mix(in srgb, var(--ink) 12%, transparent);
-}
-
-.paper-t0-trades-table thead th.paper-t0-col-cx,
-.paper-t0-trades-table tbody td.paper-t0-col-cx {
-  border-left: 1px solid color-mix(in srgb, var(--ink) 12%, transparent);
+.paper-t0-trades-table thead th.paper-t0-col-yhl,
+.paper-t0-trades-table tbody td.paper-t0-col-yhl {
+  border-left: 1px solid color-mix(in srgb, var(--ink) 10%, transparent);
   box-shadow: inset 3px 0 0 color-mix(in srgb, #7c3aed 28%, transparent);
-}
-
-.paper-t0-trades-table thead th.paper-t0-col-tpd,
-.paper-t0-trades-table tbody td.paper-t0-col-tpd {
-  border-left: 1px solid color-mix(in srgb, var(--ink) 12%, transparent);
-  box-shadow: inset 3px 0 0 color-mix(in srgb, #0891b2 28%, transparent);
 }
 
 .paper-t0-trades-table thead th.paper-t0-col-process,
@@ -5346,9 +5314,7 @@ body[data-page="replay"] .replay-t0-section .paper-t0-trades-wrap .paper-t0-trad
 }
 
 .paper-t0-trades-table thead th.paper-t0-col-tau,
-.paper-t0-trades-table thead th.paper-t0-col-path,
-.paper-t0-trades-table tbody td.paper-t0-col-tau,
-.paper-t0-trades-table tbody td.paper-t0-col-path {
+.paper-t0-trades-table tbody td.paper-t0-col-tau {
   background: color-mix(in srgb, #2563eb 4%, var(--bg-card, var(--surface)));
 }
 
@@ -5366,8 +5332,7 @@ body[data-page="replay"] .replay-t0-section .paper-t0-trades-wrap .paper-t0-trad
   );
 }
 
-.paper-t0-trades-table tbody tr:nth-child(even) td.paper-t0-col-tau,
-.paper-t0-trades-table tbody tr:nth-child(even) td.paper-t0-col-path {
+.paper-t0-trades-table tbody tr:nth-child(even) td.paper-t0-col-tau {
   background: color-mix(
     in srgb,
     #2563eb 5%,
@@ -5383,8 +5348,7 @@ body[data-page="replay"] .replay-t0-section .paper-t0-trades-wrap .paper-t0-trad
 .paper-t0-trades-table tbody tr:hover td.paper-t0-col-band-lo,
 .paper-t0-trades-table tbody tr:hover td.paper-t0-col-band-up,
 .paper-t0-trades-table tbody tr:hover td.paper-t0-col-rtau,
-.paper-t0-trades-table tbody tr:hover td.paper-t0-col-tau,
-.paper-t0-trades-table tbody tr:hover td.paper-t0-col-path {
+.paper-t0-trades-table tbody tr:hover td.paper-t0-col-tau {
   background: color-mix(in srgb, var(--accent) 6%, var(--bg-card, var(--surface)));
 }
 
@@ -5602,15 +5566,13 @@ body[data-page="replay"] .replay-t0-section .paper-t0-trades-wrap .paper-t0-trad
   border-right: 1px solid color-mix(in srgb, var(--ink) 12%, transparent);
 }
 
-/* 信号带：y_τ → y_path 等宽轨；内边距交给列宽，避免 ŷ(label) 挤或空 */
+/* 信号带：y_τ 等宽轨；内边距交给列宽，避免 ŷ(label) 挤或空 */
 .paper-t0-table th.paper-t0-col-y-tau,
 .paper-t0-table td.paper-t0-col-y-tau,
 .paper-t0-table th.paper-t0-col-y-trade,
 .paper-t0-table td.paper-t0-col-y-trade,
 .paper-t0-table th.paper-t0-col-y-nc,
-.paper-t0-table td.paper-t0-col-y-nc,
-.paper-t0-table th.paper-t0-col-y-path,
-.paper-t0-table td.paper-t0-col-y-path {
+.paper-t0-table td.paper-t0-col-y-nc {
   background: transparent;
   padding-left: 8px;
   padding-right: 8px;
@@ -5619,8 +5581,7 @@ body[data-page="replay"] .replay-t0-section .paper-t0-trades-wrap .paper-t0-trad
 
 .paper-t0-table thead th.paper-t0-col-y-tau,
 .paper-t0-table thead th.paper-t0-col-y-trade,
-.paper-t0-table thead th.paper-t0-col-y-nc,
-.paper-t0-table thead th.paper-t0-col-y-path {
+.paper-t0-table thead th.paper-t0-col-y-nc {
   background: transparent;
   letter-spacing: 0.03em;
 }
@@ -5644,13 +5605,9 @@ body[data-page="replay"] .replay-t0-section .paper-t0-trades-wrap .paper-t0-trad
 }
 
 .paper-t0-trades-table thead th.paper-t0-col-tau,
-.paper-t0-trades-table thead th.paper-t0-col-path,
 .paper-t0-trades-table thead th.paper-t0-col-y-tau,
-.paper-t0-trades-table thead th.paper-t0-col-y-path,
 .paper-t0-trades-table tbody td.paper-t0-col-tau,
-.paper-t0-trades-table tbody td.paper-t0-col-path,
-.paper-t0-trades-table tbody td.paper-t0-col-y-tau,
-.paper-t0-trades-table tbody td.paper-t0-col-y-path {
+.paper-t0-trades-table tbody td.paper-t0-col-y-tau {
   background: color-mix(in srgb, #2563eb 4%, var(--bg-card, var(--surface)));
   letter-spacing: 0;
 }
@@ -5677,9 +5634,7 @@ body[data-page="replay"] .replay-t0-section .paper-t0-trades-wrap .paper-t0-trad
 }
 
 .paper-t0-trades-table tbody tr:nth-child(even) td.paper-t0-col-tau,
-.paper-t0-trades-table tbody tr:nth-child(even) td.paper-t0-col-path,
-.paper-t0-trades-table tbody tr:nth-child(even) td.paper-t0-col-y-tau,
-.paper-t0-trades-table tbody tr:nth-child(even) td.paper-t0-col-y-path {
+.paper-t0-trades-table tbody tr:nth-child(even) td.paper-t0-col-y-tau {
   background: color-mix(
     in srgb,
     #2563eb 5%,
@@ -5706,11 +5661,9 @@ body[data-page="replay"] .replay-t0-section .paper-t0-trades-wrap .paper-t0-trad
 .paper-t0-trades-table tbody tr:hover td.paper-t0-col-rtau,
 .paper-t0-trades-table tbody tr:hover td.paper-t0-col-y-rtau,
 .paper-t0-trades-table tbody tr:hover td.paper-t0-col-tau,
-.paper-t0-trades-table tbody tr:hover td.paper-t0-col-path,
 .paper-t0-trades-table tbody tr:hover td.paper-t0-col-y-tau,
-.paper-t0-trades-table tbody tr:hover td.paper-t0-col-y-path,
-.paper-t0-trades-table tbody tr:hover td.paper-t0-col-y-cx,
-.paper-t0-trades-table tbody tr:hover td.paper-t0-col-y-tpd,
+.paper-t0-trades-table tbody tr:hover td.paper-t0-col-yhl,
+.paper-t0-trades-table tbody tr:hover td.paper-t0-col-y-hl,
 .paper-t0-trades-table tbody tr:hover td.paper-t0-col-ytw,
 .paper-t0-trades-table tbody tr:hover td.paper-t0-col-y-tw,
 .paper-t0-trades-table tbody tr:hover td.paper-t0-col-yt30,
@@ -5722,54 +5675,7 @@ body[data-page="replay"] .replay-t0-section .paper-t0-trades-wrap .paper-t0-trad
   background: color-mix(in srgb, var(--accent) 6%, var(--bg-card, var(--surface)));
 }
 
-.paper-t0-trades-table thead th.paper-t0-col-cx,
-.paper-t0-trades-table tbody td.paper-t0-col-cx {
-  background: color-mix(in srgb, #7c3aed 4.5%, var(--bg-card, var(--surface)));
-  color: var(--ink);
-}
-
-.paper-t0-trades-table tbody tr:nth-child(even) td.paper-t0-col-cx {
-  background: color-mix(
-    in srgb,
-    #7c3aed 6%,
-    color-mix(in srgb, var(--line-2) 40%, var(--bg-card, var(--surface)))
-  );
-}
-
-.paper-t0-trades-table tbody tr:hover td.paper-t0-col-cx {
-  background: color-mix(in srgb, #7c3aed 8%, var(--bg-card, var(--surface)));
-}
-
-.paper-t0-trades-table td.paper-t0-col-cx.is-cx-high {
-  font-weight: 600;
-  color: color-mix(in srgb, #7c3aed 42%, var(--ink));
-}
-
-.paper-t0-trades-table thead th.paper-t0-col-tpd,
-.paper-t0-trades-table tbody td.paper-t0-col-tpd {
-  background: color-mix(in srgb, #0891b2 4.5%, var(--bg-card, var(--surface)));
-  color: var(--ink);
-}
-
-.paper-t0-trades-table tbody tr:nth-child(even) td.paper-t0-col-tpd {
-  background: color-mix(
-    in srgb,
-    #0891b2 6%,
-    color-mix(in srgb, var(--line-2) 40%, var(--bg-card, var(--surface)))
-  );
-}
-
-.paper-t0-trades-table tbody tr:hover td.paper-t0-col-tpd {
-  background: color-mix(in srgb, #0891b2 8%, var(--bg-card, var(--surface)));
-}
-
-.paper-t0-trades-table td.paper-t0-col-tpd.is-tpd-high {
-  font-weight: 600;
-  color: color-mix(in srgb, #0891b2 42%, var(--ink));
-}
-
 .paper-t0-table td.paper-t0-y-merged,
-.paper-t0-table td.paper-t0-path-merged,
 .paper-t0-trades-table td.paper-t0-col-ctau {
   line-height: 1.25;
   vertical-align: middle;
@@ -5778,28 +5684,21 @@ body[data-page="replay"] .replay-t0-section .paper-t0-trades-wrap .paper-t0-trad
   text-overflow: unset;
 }
 
-.paper-t0-table td.paper-t0-y-merged .paper-t0-y-combo,
-.paper-t0-table td.paper-t0-path-merged .paper-t0-path-combo,
-.paper-t0-table td.paper-t0-path-merged .paper-t0-y-combo {
+.paper-t0-table td.paper-t0-y-merged .paper-t0-y-combo {
   display: inline-block;
   font-variant-numeric: tabular-nums;
   font-feature-settings: "tnum" 1;
 }
 
-.paper-t0-table td.paper-t0-y-merged .paper-t0-y-combo .paper-t0-y-sep:first-of-type,
-.paper-t0-table td.paper-t0-path-merged .paper-t0-y-combo .paper-t0-y-sep:first-of-type {
+.paper-t0-table td.paper-t0-y-merged .paper-t0-y-combo .paper-t0-y-sep:first-of-type {
   margin-left: 0.22em;
 }
 
-.paper-t0-table td.paper-t0-y-merged.is-path-hit .paper-t0-y-combo,
-.paper-t0-table td.paper-t0-path-merged.is-path-hit .paper-t0-path-combo,
-.paper-t0-table td.paper-t0-path-merged.is-path-hit .paper-t0-y-combo {
+.paper-t0-table td.paper-t0-y-merged.is-path-hit .paper-t0-y-combo {
   font-weight: 600;
 }
 
-.paper-t0-table td.paper-t0-y-merged.is-path-miss .paper-t0-y-combo,
-.paper-t0-table td.paper-t0-path-merged.is-path-miss .paper-t0-path-combo,
-.paper-t0-table td.paper-t0-path-merged.is-path-miss .paper-t0-y-combo {
+.paper-t0-table td.paper-t0-y-merged.is-path-miss .paper-t0-y-combo {
   opacity: 0.88;
 }
 
@@ -5910,11 +5809,8 @@ body[data-page="replay"] .replay-t0-section .paper-t0-trades-wrap .paper-t0-trad
 }
 .paper-t0-col-eod { width: 88px; min-width: 88px; }
 .paper-t0-col-tau { width: 126px; min-width: 126px; }
-.paper-t0-col-path { width: 126px; min-width: 126px; }
-.paper-t0-col-cx { width: 126px; min-width: 126px; }
-.paper-t0-col-tpd { width: 126px; min-width: 126px; }
 .paper-t0-col-rtau { width: 126px; min-width: 126px; }
-.paper-t0-col-yr { width: 126px; min-width: 126px; }
+.paper-t0-col-yhl { width: 126px; min-width: 126px; }
 .paper-t0-col-ytw { width: 126px; min-width: 126px; }
 .paper-t0-col-yt30 { width: 126px; min-width: 126px; }
 .paper-t0-col-yt60 { width: 126px; min-width: 126px; }
@@ -5938,7 +5834,7 @@ body[data-page="replay"] .replay-t0-section .paper-t0-trades-wrap .paper-t0-trad
 .paper-t0-trades-table td.paper-t0-col-band-lo,
 .paper-t0-trades-table td.paper-t0-col-band-up,
 .paper-t0-trades-table td.paper-t0-col-rtau,
-.paper-t0-trades-table td.paper-t0-col-yr,
+.paper-t0-trades-table td.paper-t0-col-yhl,
 .paper-t0-trades-table td.paper-t0-col-ytw,
 .paper-t0-trades-table td.paper-t0-col-yt30,
 .paper-t0-trades-table td.paper-t0-col-yt60,
@@ -6997,8 +6893,7 @@ html[data-density="compact"] .follow-page #paper-chart.lw-host {
 .follow-page .paper-holdings-react-grid .watching-react-grid-cell.watching-col-score,
 .follow-page .paper-holdings-react-grid .watching-react-grid-cell.watching-col-score_eod,
 .follow-page .paper-holdings-react-grid .watching-react-grid-cell.watching-col-score_tau,
-.follow-page .paper-holdings-react-grid .watching-react-grid-cell.watching-col-score_on,
-.follow-page .paper-holdings-react-grid .watching-react-grid-cell.watching-col-score_nowcast {
+.follow-page .paper-holdings-react-grid .watching-react-grid-cell.watching-col-score_on {
   display: flex;
   align-items: center;
   justify-content: flex-end;
@@ -7011,8 +6906,7 @@ html[data-density="compact"] .follow-page #paper-chart.lw-host {
 .follow-page .paper-holdings-react-grid .watching-react-grid-cell.watching-col-score .paper-hold-score,
 .follow-page .paper-holdings-react-grid .watching-react-grid-cell.watching-col-score_eod .paper-hold-score,
 .follow-page .paper-holdings-react-grid .watching-react-grid-cell.watching-col-score_tau .paper-hold-score,
-.follow-page .paper-holdings-react-grid .watching-react-grid-cell.watching-col-score_on .paper-hold-score,
-.follow-page .paper-holdings-react-grid .watching-react-grid-cell.watching-col-score_nowcast .paper-hold-score {
+.follow-page .paper-holdings-react-grid .watching-react-grid-cell.watching-col-score_on .paper-hold-score {
   display: inline-flex;
   align-items: center;
   justify-content: flex-end;

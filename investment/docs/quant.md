@@ -350,7 +350,7 @@ watchlist
 |------|------|
 | 目标 | **底仓 overlay**：在既定持仓上对可卖量做日内往返，验 timing 规则；**非**独立选股 Alpha（见上节对照表） |
 | 语义 | A 股 **底仓做 T（T+1）**：**正 T** 先买后卖、**反 T** 先卖后买（枚举顺序，**不是**严格低吸高卖）。**选腿**看 **超额带宽**：ŷ_oc clip 估 C_τ，收价 C 相对 C_τ 破上带反T、破下带正T；**ŷ_τc 不参与**。**不做** dual_y 方向锁 / 前缀确认。禁卖当日新买股 |
-| 选向 | 每根用**截至该根前缀**的 ŷ_oc 估 `C_τ=O×(1+clip(ŷ_oc×scale, y_oc_l, y_oc_u)/100)`（默认放大 10、clip ±3）。超额 `r=(C/C_τ−1)×100` 相对 ±δ（默认 3%）选向：**破上带 → 反T** 现价卖，leg2=`C_τ`；**破下带 → 正T** 现价买，leg2=`C_τ`。ŷ_τc 不进 C_τ；`y_tc_strong` 破带后强逆带跳过（0=任意有符号须同号；默认 100=关）。**门槛1 / 门槛2**（过任一已启用档即可）：每档 \|y_τ\| / \|ŷ_τc\| / \|y_path\| 过入场 AND complexity/tpd 过上限（入场默认 0=关；complexity/tpd 默认 1≈关）。`y_enter_enabled` / `y_enter_alt_enabled` 关则该档不参与。\|y_path\|>`y_path_strong`（默认 5%）须与 y_τ 同号。截止 **11:00** 后不开 leg1；每轮默认 **40%**，累计至 **100%**。日分价空间与 S 门禁同前。 |
+| 选向 | 每根用**截至该根前缀**的 ŷ_oc 估 `C_τ=O×(1+clip(ŷ_oc×scale, y_oc_l, y_oc_u)/100)`（默认放大 10、clip ±3）。超额 `r=(C/C_τ−1)×100` 相对 ±δ（默认 3%）选向：**破上带 → 反T** 现价卖，leg2=`C_τ`；**破下带 → 正T** 现价买，leg2=`C_τ`。**门槛1 / 门槛2**（过任一已启用档即可）：每档 \|y_τ\| / \|y_hl\| / \|ŷ_τ30\| / \|ŷ_τ60\| / \|ŷ_τ90\| 过入场（入场默认 0=关；ŷ_cx/ŷ_tpd 不入闸）。`y_enter_enabled` / `y_enter_alt_enabled` 关则该档不参与。\|y_hl\|>`y_hl_strong`（默认 5%）须与 y_τ 同号（旧键 `y_path_*` 加载时迁到 `y_hl_*`）。破带后 ŷ_τ30/60/90/τw 旁路。截止 **11:00** 后不开 leg1；每轮默认 **40%**，累计至 **100%**。日分价空间与 S 门禁同前。 |
 | 策略共用 | 多轮**共用一套**止损配方：冻结 leg2 触价、止损%（默认 1.2%）/ 延迟根 / 收盘确认、fill、午后追价。leg1 成交瞬间冻结方向与 leg2 目标价；之后新 ŷ 不影响本轮。**午后追价允许在冻结目标上改触发价**（执行降级） |
 | 动仓 | 每轮 **日初可卖 × t0_round_ratio（默认 40%）**；累计不超过 `t0_max_position_pct`（默认 100%）；`t0_slots_max_rounds` 默认 5 |
 | 目标价 | **leg2 = 冻结 C_τ**（优先于 τ 出场闸）；止损 / 中点追价 / EOD 仍挂 leg1 |
@@ -374,7 +374,7 @@ A 股 T+1 下 **正 T = 先买后卖**，**反 T = 先卖后买**（腿顺序，
 | C < C_τ×(1−δ/100) | 正 T（先买） | 触发根收盘买 | C_τ |
 | 带内或缺 C_τ | — | 本轮跳过 | — |
 
-表中 O/L/H/C 均为触发根 5m OHLC；**C 为本根收价，非日线收**。`C_τ=O×(1+clip(ŷ_oc×scale, y_oc_l, y_oc_u)/100)`。**ŷ_τc 不进**估 C_τ / 选向 / 目标价（可选旁路闸，默认关）。path **不进** 选向。过 **已启用的门槛1 或 门槛2**（每档 \|y_τ\| / \|y_path\| 入场 AND complexity/tpd 风险）。截止 **11:00** 后不开 leg1；每轮 **40%** 至满仓上限。
+表中 O/L/H/C 均为触发根 5m OHLC；**C 为本根收价，非日线收**。`C_τ=O×(1+clip(ŷ_oc×scale, y_oc_l, y_oc_u)/100)`。**ŷ_τc 不进**估 C_τ / 选向 / 目标价（可选旁路闸，默认关）。y_hl **不进** 选向，只做同号闸与入场。过 **已启用的门槛1 或 门槛2**（每档 \|y_τ\| / \|y_hl\| / \|ŷ_τ30\| / \|ŷ_τ60\| / \|ŷ_τ90\| 入场）。截止 **11:00** 后不开 leg1；每轮 **40%** 至满仓上限。
 
 侧向配置后缀同枚举（`*_buy_then_sell` / `*_sell_then_buy`）。旧 `long_t`/`reverse_t`、阴阳占比 / 复合确认 / 环境闸 / 固定前缀 / 四轮确认钟键已下线，加载时丢弃。
 
@@ -949,7 +949,7 @@ python3 research/paper_run.py --init
          → 预测 close[T]/open[T]−1 → ranking 输入 + 做 T 方向
 
 【层 3 · ŷ_τc】同 ŷ_oc 的 X → y_τc
-         → 预测 close[T]/price[τ]−1 → 做 T residual / ĉ
+         → 预测 close[T]/price[τ]−1 → residual / ĉ（枢纽拟合 UI 已下线）
 
 【对照 · ŷ_co】隔夜缺口 → y_co（别名 y_on）；经 w_co 叠进 ŷ_oc（默认 w_co=0）
 ```
@@ -1011,7 +1011,7 @@ y_{\mathrm{oo}} = \bigl(\mathrm{open}[t+h] / \mathrm{open}[t] - 1\bigr) \times 1
 |----|------|--------|-----------|----------|
 | **ŷ_oo** | `y_oo` / `predicted_score` | \(X_{\le T-1}\) + T 开 quote | \(\mathrm{open}[T+1]/\mathrm{open}[T]-1\) | ranking 输入 |
 | **ŷ_oc** | `y_oc` / `y_tau` | \(Z_{\le\tau}\) | \(\mathrm{close}[T]/\mathrm{open}[T]-1\) | ranking 输入；做 T 估 C_τ |
-| **ŷ_τc** | `y_τc` | 同 ŷ_oc | \(\mathrm{close}[T]/\mathrm{price}[\tau]-1\) | 做 T **旁路验证**（不进 C_τ）；开闸时强逆带跳过 |
+| **ŷ_τc** | `y_τc` | 同 ŷ_oc | \(\mathrm{close}[T]/\mathrm{price}[\tau]-1\) | 枢纽拟合 UI 已下线；做 T **已下线**（ŷ_τ30/60/90 覆盖剩余窗）；数据中心 / 持仓主表不列；residual / ĉ 仍可读 |
 | **ŷ_co** | `y_co` / `y_on` | 隔夜缺口头 | \(\mathrm{open}[T+1]/\mathrm{close}[T]-1\) | 经 w_co 叠进 ŷ_oc |
 
 ```text
@@ -1082,7 +1082,7 @@ C_τ       = O×(1+clip(ŷ_oc×scale, y_oc_l, y_oc_u)/100)   # 做 T；ŷ_τc �
 | F3 以后 | 盘中窗以 ŷ_τ 为主（影子簿达标） | 未做 |
 | P3 决策 bandit | 只学闸/听谁，不进 score | 未做 |
 
-**研究枢纽 UI（信息架构）**：主路径「ŷ_oo → IC 时序 → ŷ_oc → 交易执行」；IC 时序嵌在 ŷ_oo 卡内（跨组健康矩阵与一组一表之间）；ŷ_oc 为次级 CTA，不与「跑分组」并列主按钮；数据中心 / 交易执行表列 eod / trade / nowcast；残差 = ŷ_trade − 涨跌；eod 列 = ŷ_EOD；nowcast 列 = Kalman 权昨收口径对照，不进决策。训练：`POST /api/quant/tau-ridge` → `tau_ridge_model.json`（旧 `rem-ridge` / `rem_ridge_*` 兼容）。ŷ_τ 特征另含 PIT **`tau_lag1` / `tau_ma5`**（过去交易日真实 open→close，不含当日）。账本复盘页、τ/nowcast 单日验收条与校准 g(ŷ) 展示已下线（`score_ledger` IO / series 仍在；相关 HTTP 已 stub；`score_calibration.py` 库保留）。
+**研究枢纽 UI（信息架构）**：主路径「ŷ_oo → IC 时序 → ŷ_oc → 交易执行」；IC 时序嵌在 ŷ_oo 卡内（跨组健康矩阵与一组一表之间）；ŷ_oc 为次级 CTA，不与「跑分组」并列主按钮；数据中心 / 交易执行表列 y_oo / y_oc / y_co / ranking；ŷ_τc / nowcast 不进主表。训练：`POST /api/quant/tau-ridge` → `tau_ridge_model.json`（旧 `rem-ridge` / `rem_ridge_*` 兼容）。ŷ_τ 特征另含 PIT **`tau_lag1` / `tau_ma5`**（过去交易日真实 open→close，不含当日）。账本复盘页、τ/nowcast 单日验收条与校准 g(ŷ) 展示已下线（`score_ledger` IO / series 仍在；相关 HTTP 已 stub；`score_calibration.py` 库保留）。
 
 建模、训练面板、OOS 与字段细节见 [quant.md · τ 契约升级 §9](quant.md#14-决策时刻-τ-契约--双层-predicted_score--分组目标升级)；盘中落地阶段见 [quant.md · 盘中剩余收益头](quant.md#13-盘中剩余收益头intraday-residual方案)。
 
@@ -1152,13 +1152,13 @@ EOD 锚在 **收**，与 open 链 **并列**（选股主轴），不是 open 链
 
 曾试过 ŷ_next（下一窗 VWAP）与 ŷ_r（\(C/C_r\)）作做 T 研究头；OOS 符号命中约 50%，已从枢纽下线，不进 T0 闸。
 
-**分钟 K 形状旁路**（独立 `y_spec`，禁止写入 `predicted_score` / ŷ_oo / ŷ_oc / ŷ_τc，**不进 ranking、不进 `ĉ`**）：三头都用开盘 Z + 早盘 5m 前缀拟合 **全日分钟 K 形状**，只做 T 准入 / 风险闸。规范名 `y_hl` / `y_cx` / `y_tpd`；旧键 `y_path` / `y_complexity` 仍可读。
+**分钟 K 形状**：`y_hl` 进做 T 同号闸与入场（键名 `y_hl_*`；旧 `y_path_*` 加载时迁移）；研究枢纽保留 ŷ_hl 拟合入口。`y_cx` / `y_tpd` 验证后**暂不用于调仓与做 T**，枢纽 / 历史回测 / 数据中心入口已下线；后端 `POST /api/quant/path-ridge` · `cx-ridge` · `tpd-ridge` 仍保留。旧键 `y_path` / `y_complexity` 仍可读。
 
-**做 T 曲折度头 \(y_{\mathrm{cx}}\)**：标签 \(y_{\mathrm{cx}}=1-D/L\in[0,1]\)：\(D=|C_{\mathrm{last}}-C_{\mathrm{first}}|\)（全日 5m 收价首末），\(L=\sum|\Delta C|\)（相邻 5m 路径长；午休跳空不计入）。0 = 直线，1 = 最折；**不是波动率**。特征=开盘 Z + 路径小包 + PIT `complexity_lag1`/`ma5` 与 `tpd_lag1`/`ma5`（与 \(y_{\mathrm{tpd}}\) 同 X，只换标签）。网格 `09:30…11:00`。OOS 按交易日 **90/10**，Spearman IC 与中位命中；过门后**全面板再拟合**写入 β。拟合 `POST /api/quant/cx-ridge`，落盘 `cx_ridge_model.json`。v6 入场：盘中前缀 \(\hat y_{\mathrm{cx}}>y\_complexity\_max\)（0.00–1.00，默认 1.00≈关）则跳过；缺 ŷ_cx 不挡。回测成交明细日级列显示 ŷ_cx（label）（×100%）；实时做 T 表不显示全日 label。旧键 `y_complexity` / `y_cx_max` / `cx_lag1` 仍可读。旧 ×100 模型预测会自动 /100。改特征后请重新拟合。
+**做 T 曲折度头 \(y_{\mathrm{cx}}\)**（已下线）：标签 \(y_{\mathrm{cx}}=1-D/L\in[0,1]\)。拟合 `POST /api/quant/cx-ridge`，落盘 `cx_ridge_model.json`。不进 T0 闸 / 成交明细列。
 
-**做 T 转折点密度头 \(y_{\mathrm{tpd}}\)**：形状旁路；与曲折度**同一面板、同一套 X、同一 90/10 与全面板再拟合**，只换标签。\(y_{\mathrm{tpd}}\in[0,1]\)=连续 5m 段内方向反转次数/有效内点（午休跳空不计）。OOS 早盘 IC 高多半来自 `tpd_ma5` 票质；看 `OOS.by_tau` 的 09:30→11:00 斜率才是前缀增量。拟合 `POST /api/quant/tpd-ridge`，落盘 `tpd_ridge_model.json`。v6：\(\hat y_{\mathrm{tpd}}>y\_tpd\_max\)（默认 1.00≈关）则跳过。
+**做 T 转折点密度头 \(y_{\mathrm{tpd}}\)**（已下线）：拟合 `POST /api/quant/tpd-ridge`。不进 T0 闸 / 成交明细列。
 
-**做 T 路径头 \(y_{\mathrm{hl}}\)**：形状旁路（极值序）。训练侧特征可与 \(y_\tau\) **对齐**（开盘 Z + 早盘前缀分钟小包），另加 PIT **`path_lag1` / `path_ma5`**（过去有 5m 的交易日真实极值序标签，不含当日）与 **`t_hi_frac` / `t_lo_frac`**。各轮触发前因果重算 ŷ（含 `sector_ret_to_tau`）；**仅 09:30 / 开盘信息集**允许无分钟小包并用开盘 Z 挂 ŷ_hl（status=`open_z`）；**非 09:30** 前缀重算必须带出分钟小包，否则 `minute_data_missing`（数据缺失，不做腿）。有分钟前缀后再升为带小包的 HL。训练默认 **多 τ 网格** `09:30|09:35|…|11:00` 每 5m 共享 β（同日标签=全日极值序，特征≤各 τ；09:30 无分钟前缀只留开盘 Z；不含 13:00 / 14:00；看 `OOS.by_tau`）；live 调仓决策钟默认 `10:30`。切分与全面板再拟合同 τ。标签：先 low→high 则 \((H-L)/\mathrm{ref}\%\)，先 high→low 则 \((L-H)/\mathrm{ref}\%\)。**v6 做 T 选腿**（收盘带宽）：每 5m 扫描至 **11:00**；\(C_\tau=O\times(1+\mathrm{clip}(\hat y_{oc}\times\mathrm{scale})/100)\)（开盘锚），**HL 不进** \(C_\tau\)（仅 \|y_hl\| 入场 + \|y_hl\|>`y_path_strong` 须同 τ）；收价 \(>C_\tau\times(1+\delta/100)\) → 反T，\(<C_\tau\times(1-\delta/100)\) → 正T；带内或缺 \(C_\tau\) → 跳过。第二腿冻结 \(C_\tau\) 优先于 τ 出场价闸；午后追价可改触发价。规划：`path_ridge_model.json`（β 与 τ 独立，因子键与多 τ 训法对齐）。改特征后请重新拟合。旧键 `y_path` / `predicted_score_path` 仍可读。
+**做 T 路径头 \(y_{\mathrm{hl}}\)**：极值序 signed range%。拟合 `POST /api/quant/path-ridge`。不进 ranking、不进 \(C_\tau\)；做 T 用 `y_hl_strong` 同号闸与 `y_hl_enter` 入场。旧键 `y_path_*`。
 
 ---
 
@@ -1247,7 +1247,7 @@ score_stock(code) 续——
 | `features_tau` | gap/theme/breadth 快照 | τ 特征留痕 |
 | `gap_pct` / `realized_t1_to_tau` | 缺口 / 昨收→τ | 已实现 |
 | `predicted_score_blend` | ŷ_trade | 盘中：w·ŷ_EOD + w·(缺口∘ŷ_τ)；**收盘后 eod_next：= ŷ_EOD** |
-| `predicted_score_nowcast` | ŷ_nowcast | Kalman 权昨收口径对照；表列「nowcast」，不进决策 |
+| `predicted_score_nowcast` | ŷ_nowcast | Kalman 权昨收口径对照；不进数据中心 / 持仓主表，不进决策 |
 | `nowcast_vs` | `prev_close` | 落盘口径；缺缺口时可能为 `open` |
 | `dual_score_fusion` | `"blend"` | 正交加权 |
 

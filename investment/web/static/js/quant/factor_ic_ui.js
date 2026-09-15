@@ -573,6 +573,19 @@ export function createFactorIcUi(deps) {
     const isCx = isCxHead || isTpd;
     const isPath = opts.head === "path" || isCx;
     const pathTag = isTpd ? "ŷ_tpd" : isCxHead ? "ŷ_cx" : "ŷ_hl";
+    const yhatTag = isPath
+      ? pathTag
+      : isOn
+        ? "ŷ_co"
+        : isT90
+          ? "ŷ_τ90"
+          : isT60
+            ? "ŷ_τ60"
+            : isT30
+              ? "ŷ_τ30"
+              : opts.head === "r"
+                ? "ŷ_τc"
+                : "ŷ_oc";
     const coefs =
       rm.coefficients && typeof rm.coefficients === "object" ? rm.coefficients : {};
     const means =
@@ -746,22 +759,7 @@ export function createFactorIcUi(deps) {
       .sort((a, b) => b.abs - a.abs)
       .map((r, i) => ({ ...r, rank: i + 1 }));
     if (!rows.length) {
-      const emptyMsg = isTpd
-        ? "暂无 ŷ_tpd 入模因子"
-        : isCxHead
-        ? "暂无 ŷ_cx 入模因子"
-        : isPath
-        ? "暂无 ŷ_hl 入模因子"
-        : isOn
-          ? "暂无 ŷ_co 入模因子"
-          : isR
-            ? isT60
-              ? "暂无 ŷ_τ60 入模因子"
-              : isT30
-              ? "暂无 ŷ_τ30 入模因子"
-              : "暂无 ŷ_τc 入模因子"
-          : "暂无 rem 入模因子";
-      return `<p class="sub">${emptyMsg}</p>`;
+      return `<p class="sub">暂无 ${yhatTag} 入模因子</p>`;
     }
 
     const researchRm =
@@ -803,9 +801,15 @@ export function createFactorIcUi(deps) {
           : "extreme_order(low,high)"
         : isOn
           ? "open[T+1]/close[T]-1"
-          : isR
-            ? "price[τ]/close[T]-1"
-          : "close[T]/open[T]-1");
+          : isT90
+            ? "price[τ+90m]/price[τ]-1"
+            : isT60
+              ? "price[τ+60m]/price[τ]-1"
+              : isT30
+                ? "price[τ+30m]/price[τ]-1"
+                : opts.head === "r"
+                  ? "price[τ]/close[T]-1"
+                  : "close[T]/open[T]-1");
     const ySpec = compactYSpecFormula(ySpecRaw, ySpecObj);
     const ySpecClocks = _tauClocksFromYSpec(ySpecRaw, ySpecObj);
     const oos = opts.oos || {};
@@ -830,7 +834,6 @@ export function createFactorIcUi(deps) {
         : "";
     const posN = rows.filter((r) => r.ols >= 0).length;
     const negN = rows.length - posN;
-    const yhatTag = isPath ? pathTag : isOn ? "ŷ_co" : isT60 ? "ŷ_τ60" : isT30 ? "ŷ_τ30" : isR ? "ŷ_τc" : "ŷ_oc";
     const ySpecTip =
       `${yhatTag} 训练标签 · ${ySpec}` +
       (ySpecClocks.length >= 2
@@ -1039,7 +1042,7 @@ export function createFactorIcUi(deps) {
     const head =
       `<div class="quant-rem-coef-head">` +
       `<div class="quant-rem-coef-head-main">` +
-      `<span class="quant-rem-coef-title">${isPath ? `${pathTag} 系数表` : isOn ? "ŷ_co 系数表" : isT60 ? "ŷ_τ60 系数表" : isT30 ? "ŷ_τ30 系数表" : isR ? "ŷ_τc 系数表" : "ŷ_oc 系数表"}</span>` +
+      `<span class="quant-rem-coef-title">${yhatTag} 系数表</span>` +
       `<span class="quant-rem-coef-sub">按 |β| 降序 · 标准化斜率</span>` +
       `</div>` +
       `<div class="quant-rem-coef-legend" aria-hidden="true">` +

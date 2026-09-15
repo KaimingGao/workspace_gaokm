@@ -151,7 +151,7 @@ flowchart LR
 | 任务 | 主要频率 | 主要目标头 | 融合 / 门控 | 代码落点 |
 |------|----------|------------|-------------|----------|
 | **调仓：谁更强 / 买不买** | 日线 + 开盘缺口 | **ŷ_EOD**（多日前瞻）· **ŷ_τ**（买入闸）· **ŷ_ON** | **ŷ_trade** = blend(ŷ_EOD, 缺口∘ŷ_τ)；过 EOD floor + τ 闸 | `dual_score/` · `paper_rebalance` |
-| **做 T：正 / 反 / 跳过** | 开盘 Z + **5m 前缀** | **C_τ** 破带选向 · **y_hl / y_cx / y_tpd** 分钟K形状旁路 | clip(ŷ_oc×放大) 估 C_τ 后对称 ±δ 真破带；形状头 **不进 C_τ / ranking** | `core/t0/close_band.py` · `path_ridge` |
+| **做 T：正 / 反 / 跳过** | 开盘 Z + **5m 前缀** | **C_τ** 破带选向 · **y_hl** 同号闸/入场 | clip(ŷ_oc×放大) 估 C_τ 后对称 ±δ 真破带；y_hl **不进 C_τ / ranking**；y_cx / y_tpd 不入闸 | `core/t0/close_band.py` · `path_ridge` |
 | **执行：何时触价** | **5m** 第一触达 | leg1=触发根收盘；leg2 冻结 C_τ | 与估计层分离；缺分钟跳过 | `core/t0/` · `minute_path` |
 
 详见 [quant.md · 策略调仓 vs 底仓做 T](quant.md#策略调仓-vs-底仓做-t) · [quant.md · 双层 ŷ §2.5](quant.md#25-双层-predicted_scoreŷ_eod--ŷ_τ) · [quant.md · y_path](quant.md#predicted_scoreŷ全链路)。

@@ -2,7 +2,7 @@
  * 交易执行 · 持仓主表（共享 virtual_table 内核，与数据中心同方案）。
  */
 
-import { fmtPriceUnit, fmtPct, metricCls, fmtTableScore, fmtPathScore, scoreCls, resolveRankingScore, resolveEodScore, resolveTauScore, resolvePathScore, resolveOnScore, resolveYτcScore, isHeuristicScoreScale, Y_EOD_TITLE, Y_TAU_TITLE, Y_HL_TITLE, Y_ON_TITLE, Y_τc_TITLE } from "./paper/fmt.js?v=p2389";
+import { fmtPriceUnit, fmtPct, metricCls, fmtTableScore, scoreCls, resolveRankingScore, resolveEodScore, resolveTauScore, resolveOnScore, isHeuristicScoreScale, Y_EOD_TITLE, Y_TAU_TITLE, Y_ON_TITLE } from "./paper/fmt.js?v=p2389";
 import { sentimentBadgeHtml, watchingScoreDetail } from "./quant/watching_render.js?v=p2389";
 import {
   isSingleHeadItem,
@@ -46,9 +46,7 @@ export function holdingToRow(
   const score = resolveRankingScore(h);
   const scoreEod = resolveEodScore(h);
   const scoreTau = resolveTauScore(h);
-  const scorePath = resolvePathScore(h);
   const scoreOn = resolveOnScore(h);
-  const scoreNowcast = resolveYτcScore(h);
   const belowMin = !!h.below_min_score;
   const minScore = h.min_score;
   const hardReject = !!h.hard_reject;
@@ -58,9 +56,7 @@ export function holdingToRow(
   if (scoreText === "—" && hardReject) scoreText = "拒";
   const scoreEodText = fmtTableScore(h, scoreEod);
   const scoreTauText = fmtTableScore(h, scoreTau);
-  const scorePathText = fmtPathScore(scorePath);
   const scoreOnText = fmtTableScore(h, scoreOn);
-  const scoreNowcastText = fmtTableScore(h, scoreNowcast);
   const origin = String(h.origin || "");
   const mv = Number(h.market_value ?? h.market_value_approx);
   const oosFailed =
@@ -82,10 +78,7 @@ export function holdingToRow(
         : RANKING_TITLE;
   const scoreEodTitle = scoreEod == null ? "暂无 ŷ_oo" : Y_EOD_TITLE;
   const scoreTauTitle = scoreTau == null ? "暂无 ŷ_oc" : Y_TAU_TITLE;
-  const scorePathTitle = scorePath == null ? "暂无 ŷ_hl" : Y_HL_TITLE;
   const scoreOnTitle = scoreOn == null ? "暂无 ŷ_co" : Y_ON_TITLE;
-  const scoreNowcastTitle =
-    scoreNowcast == null ? "暂无 ŷ_τc" : Y_τc_TITLE;
   const fmtSignedPct = (v) => {
     if (v == null || v === "") return "—";
     const n = Number(v);
@@ -137,23 +130,11 @@ export function holdingToRow(
       scoreTau != null && Number.isFinite(Number(scoreTau)) ? Number(scoreTau) : null,
     scoreTauCls: scoreCls(scoreTau),
     scoreTauTitle,
-    scorePathText,
-    scorePathNum:
-      scorePath != null && Number.isFinite(Number(scorePath)) ? Number(scorePath) : null,
-    scorePathCls: scoreCls(scorePath),
-    scorePathTitle,
     scoreOnText,
     scoreOnNum:
       scoreOn != null && Number.isFinite(Number(scoreOn)) ? Number(scoreOn) : null,
     scoreOnCls: scoreCls(scoreOn),
     scoreOnTitle,
-    scoreNowcastText,
-    scoreNowcastNum:
-      scoreNowcast != null && Number.isFinite(Number(scoreNowcast))
-        ? Number(scoreNowcast)
-        : null,
-    scoreNowcastCls: scoreCls(scoreNowcast),
-    scoreNowcastTitle,
     scoreDetail: watchingScoreDetail(h),
     chgText,
     chgCls: metricCls(chg),
@@ -256,26 +237,6 @@ const COLS = [
     title: Y_ON_TITLE,
   },
   {
-    id: "score_nowcast",
-    label: "y_τc",
-    width: 82,
-    num: true,
-    sortable: true,
-    headClass: "watching-col-y",
-    cellClass: "watching-col-y",
-    title: Y_τc_TITLE,
-  },
-  {
-    id: "score_path",
-    label: "y_hl",
-    width: 82,
-    num: true,
-    sortable: true,
-    headClass: "watching-col-y",
-    cellClass: "watching-col-y",
-    title: Y_HL_TITLE,
-  },
-  {
     id: "score",
     label: "ranking",
     width: 94,
@@ -324,9 +285,7 @@ function compare(id, a, b) {
   if (id === "score") return numCmp(Number(a.scoreNum), Number(b.scoreNum));
   if (id === "score_eod") return numCmp(Number(a.scoreEodNum), Number(b.scoreEodNum));
   if (id === "score_tau") return numCmp(Number(a.scoreTauNum), Number(b.scoreTauNum));
-  if (id === "score_path") return numCmp(Number(a.scorePathNum), Number(b.scorePathNum));
   if (id === "score_on") return numCmp(Number(a.scoreOnNum), Number(b.scoreOnNum));
-  if (id === "score_nowcast") return numCmp(Number(a.scoreNowcastNum), Number(b.scoreNowcastNum));
   if (id === "pnl") return numCmp(Number(a.pnlNum), Number(b.pnlNum));
   if (id === "chg") return numCmp(Number(a.chgNum), Number(b.chgNum));
   if (id === "open") return numCmp(Number(a.openNum), Number(b.openNum));
@@ -466,51 +425,35 @@ export async function mountHoldingsTableIsland(host, options = {}) {
           `${escapeHtml(d.scoreText || "—")}${badge}</span>`
         );
       }
-      if (col.id === "score_eod" || col.id === "score_tau" || col.id === "score_path" || col.id === "score_on" || col.id === "score_nowcast") {
+      if (col.id === "score_eod" || col.id === "score_tau" || col.id === "score_on") {
         const tipMap = {
           score_eod: "eod",
           score_tau: "tau",
-          score_path: "path",
           score_on: "on",
-          score_nowcast: "r",
         };
         const skinMap = {
           score_eod: "eod",
           score_tau: "tau",
-          score_path: "path",
           score_on: "on",
-          score_nowcast: "nowcast",
         };
         const textKey =
           col.id === "score_eod"
             ? "scoreEodText"
             : col.id === "score_tau"
               ? "scoreTauText"
-              : col.id === "score_path"
-                ? "scorePathText"
-                : col.id === "score_on"
-                  ? "scoreOnText"
-                  : "scoreNowcastText";
+              : "scoreOnText";
         const clsKey =
           col.id === "score_eod"
             ? "scoreEodCls"
             : col.id === "score_tau"
               ? "scoreTauCls"
-              : col.id === "score_path"
-                ? "scorePathCls"
-                : col.id === "score_on"
-                  ? "scoreOnCls"
-                  : "scoreNowcastCls";
+              : "scoreOnCls";
         const titleKey =
           col.id === "score_eod"
             ? "scoreEodTitle"
             : col.id === "score_tau"
               ? "scoreTauTitle"
-              : col.id === "score_path"
-                ? "scorePathTitle"
-                : col.id === "score_on"
-                  ? "scoreOnTitle"
-                  : "scoreNowcastTitle";
+              : "scoreOnTitle";
         const detail = d.scoreDetail || "";
         const title = d[titleKey] || "";
         const text = d[textKey] || "—";

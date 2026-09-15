@@ -110,8 +110,7 @@
 body[data-page="watching"] .watching-react-grid-cell.watching-col-score,
 body[data-page="watching"] .watching-react-grid-cell.watching-col-score_eod,
 body[data-page="watching"] .watching-react-grid-cell.watching-col-score_tau,
-body[data-page="watching"] .watching-react-grid-cell.watching-col-score_on,
-body[data-page="watching"] .watching-react-grid-cell.watching-col-score_nowcast {
+body[data-page="watching"] .watching-react-grid-cell.watching-col-score_on {
   display: flex;
   align-items: center;
   justify-content: flex-end;
@@ -124,8 +123,7 @@ body[data-page="watching"] .watching-react-grid-cell.watching-col-score_nowcast 
 body[data-page="watching"] .watching-react-grid-cell.watching-col-score .watching-score-cell,
 body[data-page="watching"] .watching-react-grid-cell.watching-col-score_eod .watching-score-cell,
 body[data-page="watching"] .watching-react-grid-cell.watching-col-score_tau .watching-score-cell,
-body[data-page="watching"] .watching-react-grid-cell.watching-col-score_on .watching-score-cell,
-body[data-page="watching"] .watching-react-grid-cell.watching-col-score_nowcast .watching-score-cell {
+body[data-page="watching"] .watching-react-grid-cell.watching-col-score_on .watching-score-cell {
   display: inline-flex;
   align-items: center;
   justify-content: flex-end;
@@ -533,7 +531,7 @@ body[data-page="watching"] .watching-react-grid-cell.watching-col-score_nowcast 
   padding-left: 10px;
 }
 
-.follow-page .paper-holdings-react-grid .watching-react-grid-cell.watching-col-y.watching-col-score_nowcast {
+.follow-page .paper-holdings-react-grid .watching-react-grid-cell.watching-col-y.watching-col-score_on {
   padding-right: 10px;
 }
 
@@ -546,8 +544,7 @@ body[data-page="watching"] .watching-react-grid-cell.watching-col-score_nowcast 
 .follow-page .paper-holdings-react-grid .watching-react-grid-cell.watching-col-score,
 .follow-page .paper-holdings-react-grid .watching-react-grid-cell.watching-col-score_eod,
 .follow-page .paper-holdings-react-grid .watching-react-grid-cell.watching-col-score_tau,
-.follow-page .paper-holdings-react-grid .watching-react-grid-cell.watching-col-score_on,
-.follow-page .paper-holdings-react-grid .watching-react-grid-cell.watching-col-score_nowcast {
+.follow-page .paper-holdings-react-grid .watching-react-grid-cell.watching-col-score_on {
   min-width: 0;
 }
 
@@ -2202,7 +2199,7 @@ html[data-density="compact"] .quant-page .quant-research-grid .watching-react-gr
   padding-right: 8px;
 }
 
-/* ŷ 列底色：y_oo · y_oc · y_co · y_τc · ranking */
+/* ŷ 列底色：y_oo · y_oc · y_co · ranking */
 .watching-react-grid-cell.watching-col-score_eod {
   background: color-mix(in srgb, var(--ink) 5%, var(--surface));
 }
@@ -2211,9 +2208,6 @@ html[data-density="compact"] .quant-page .quant-research-grid .watching-react-gr
 }
 .watching-react-grid-cell.watching-col-score_on {
   background: color-mix(in srgb, var(--accent) 6%, var(--surface));
-}
-.watching-react-grid-cell.watching-col-score_nowcast {
-  background: color-mix(in srgb, var(--accent) 4%, var(--surface));
 }
 .watching-react-grid-cell.watching-col-score {
   background: color-mix(in srgb, var(--accent) 12%, var(--surface));
@@ -2226,9 +2220,6 @@ html[data-density="compact"] .quant-page .quant-research-grid .watching-react-gr
 }
 .watching-react-grid-row.is-head .watching-react-grid-cell.watching-col-score_on {
   background: color-mix(in srgb, var(--accent) 9%, var(--surface));
-}
-.watching-react-grid-row.is-head .watching-react-grid-cell.watching-col-score_nowcast {
-  background: color-mix(in srgb, var(--accent) 7%, var(--surface));
 }
 .watching-react-grid-row.is-head .watching-react-grid-cell.watching-col-score {
   background: color-mix(in srgb, var(--accent) 16%, var(--surface));
@@ -3659,8 +3650,7 @@ body[data-page="watching"] .watching-watchlist-card .watching-react-grid-row.is-
 body[data-page="watching"] .watching-watchlist-card .watching-react-grid-row.is-head .watching-react-grid-cell.watching-col-score,
 body[data-page="watching"] .watching-watchlist-card .watching-react-grid-row.is-head .watching-react-grid-cell.watching-col-score_eod,
 body[data-page="watching"] .watching-watchlist-card .watching-react-grid-row.is-head .watching-react-grid-cell.watching-col-score_tau,
-body[data-page="watching"] .watching-watchlist-card .watching-react-grid-row.is-head .watching-react-grid-cell.watching-col-score_on,
-body[data-page="watching"] .watching-watchlist-card .watching-react-grid-row.is-head .watching-react-grid-cell.watching-col-score_nowcast {
+body[data-page="watching"] .watching-watchlist-card .watching-react-grid-row.is-head .watching-react-grid-cell.watching-col-score_on {
   text-transform: none;
   letter-spacing: 0.02em;
 }

@@ -18,7 +18,7 @@ import json
 from copy import deepcopy
 from typing import Any, Dict, List, Optional, Tuple
 
-from core.t0.config import drop_dead_t0_keys, load_t0_rules
+from core.t0.config import drop_dead_t0_keys, load_t0_rules, migrate_y_path_keys_to_hl
 
 DEFAULT_COUPLING: Dict[str, Any] = {
     "t0_vs_stance": "independent",  # independent | skip_if_avoid | only_if_hold
@@ -55,19 +55,21 @@ ALLOWED_T0_PATCH_KEYS = frozenset(
         "residual_w_oc",
         "residual_w_mode",
         "y_tau_enter_alt",
+        "y_hl_enter_alt",
         "y_path_enter_alt",
         "y_on_risk",
         "y_on_allow",
-        "y_use_path",
         "t0_y_oc_target_scale",
         "t0_y_oc_l",
         "t0_y_oc_u",
+        "y_hl_enter",
+        "y_hl_enter_sell_then_buy",
+        "y_hl_enter_buy_then_sell",
+        "y_hl_strong",
         "y_path_enter",
         "y_path_enter_sell_then_buy",
         "y_path_enter_buy_then_sell",
         "y_path_strong",
-        "y_tc_strong",
-        "y_τc_strong",
         "y_t30_strong",
         "y_τ30_strong",
         "y_tw_strong",
@@ -88,15 +90,7 @@ ALLOWED_T0_PATCH_KEYS = frozenset(
         "y_τ90_enter",
         "y_t90_enter_alt",
         "y_τ90_enter_alt",
-        "y_tc_enter",
-        "y_τc_enter",
-        "y_tc_enter_alt",
-        "y_τc_enter_alt",
-        "y_complexity_max",
-        "y_cx_max",
-        "y_tpd_max",
-        "y_complexity_max_alt",
-        "y_tpd_max_alt",
+        "y_hl_required",
         "y_path_required",
         "t0_close_band_delta_pct",
         "t0_price_space_gate",
@@ -171,19 +165,16 @@ DEFAULT_T0_OVERLAY: Dict[str, Any] = {
     "residual_w_oc": 0.5,
     "residual_w_mode": "fixed",
     "y_tau_enter_alt": 0.0,
-    "y_path_enter_alt": 0.0,
+    "y_hl_enter_alt": 0.0,
     "y_trade_enter": 0.01,
     "y_on_allow": 0.01,
-    "y_use_path": True,
     "t0_y_oc_target_scale": 10.0,
     "t0_y_oc_l": -3.0,
     "t0_y_oc_u": 3.0,
-    "y_path_enter": 0.0,
-    "y_path_enter_sell_then_buy": 0.0,
-    "y_path_enter_buy_then_sell": 0.0,
-    "y_path_strong": 5.0,
-    "y_tc_strong": 100.0,
-    "y_τc_strong": 100.0,
+    "y_hl_enter": 0.0,
+    "y_hl_enter_sell_then_buy": 0.0,
+    "y_hl_enter_buy_then_sell": 0.0,
+    "y_hl_strong": 5.0,
     "y_t30_strong": 0.0,
     "y_τ30_strong": 0.0,
     "y_tw_strong": 3.0,
@@ -204,15 +195,6 @@ DEFAULT_T0_OVERLAY: Dict[str, Any] = {
     "y_τ90_enter": 0.0,
     "y_t90_enter_alt": 0.0,
     "y_τ90_enter_alt": 0.0,
-    "y_tc_enter": 0.0,
-    "y_τc_enter": 0.0,
-    "y_tc_enter_alt": 0.0,
-    "y_τc_enter_alt": 0.0,
-    "y_complexity_max": 1.0,
-    "y_cx_max": 1.0,
-    "y_tpd_max": 1.0,
-    "y_complexity_max_alt": 1.0,
-    "y_tpd_max_alt": 1.0,
     "t0_close_band_delta_pct": 3.0,
     "t0_price_space_gate": True,
     "t0_price_space_max_dev_pct": 5.0,
@@ -311,7 +293,7 @@ _REBALANCE_KEYS = (
 # 表单只写共用键时，下层 DEFAULT_T0_OVERLAY / 纸面里的分侧默认值必须让路，
 # 否则 load_t0_rules 会把分侧 0 当成「显式覆盖」，闸仍走 overlay 默认。
 _SHARED_TO_SIDE_KEYS: Tuple[Tuple[str, Tuple[str, ...]], ...] = (
-    ("y_path_enter", ("y_path_enter_buy_then_sell", "y_path_enter_sell_then_buy")),
+    ("y_hl_enter", ("y_hl_enter_buy_then_sell", "y_hl_enter_sell_then_buy")),
     ("y_tau_enter", ("y_tau_enter_buy_then_sell", "y_tau_enter_sell_then_buy")),
 )
 
@@ -414,6 +396,7 @@ def _layer_t0(
 
     merged: dict = {}
     for name, layer in layers:
+        migrate_y_path_keys_to_hl(layer)
         for k, v in layer.items():
             if v is None:
                 continue
@@ -746,19 +729,26 @@ def execution_public_view(bundle: Dict[str, Any]) -> Dict[str, Any]:
             "residual_w_oc": t0.get("residual_w_oc"),
             "residual_w_mode": t0.get("residual_w_mode"),
             "y_tau_enter_alt": t0.get("y_tau_enter_alt"),
-            "y_path_enter_alt": t0.get("y_path_enter_alt"),
+            "y_hl_enter_alt": t0.get("y_hl_enter_alt")
+            if t0.get("y_hl_enter_alt") not in (None, "")
+            else t0.get("y_path_enter_alt"),
             "y_on_risk": t0.get("y_on_risk"),
             "y_on_allow": t0.get("y_on_allow"),
-            "y_use_path": t0.get("y_use_path"),
             "t0_y_oc_target_scale": t0.get("t0_y_oc_target_scale"),
             "t0_y_oc_l": t0.get("t0_y_oc_l"),
             "t0_y_oc_u": t0.get("t0_y_oc_u"),
-            "y_path_enter": t0.get("y_path_enter"),
-            "y_path_enter_sell_then_buy": t0.get("y_path_enter_sell_then_buy"),
-            "y_path_enter_buy_then_sell": t0.get("y_path_enter_buy_then_sell"),
-            "y_path_strong": t0.get("y_path_strong"),
-            "y_tc_strong": t0.get("y_tc_strong"),
-            "y_τc_strong": t0.get("y_τc_strong") or t0.get("y_tc_strong"),
+            "y_hl_enter": t0.get("y_hl_enter")
+            if t0.get("y_hl_enter") not in (None, "")
+            else t0.get("y_path_enter"),
+            "y_hl_enter_sell_then_buy": t0.get("y_hl_enter_sell_then_buy")
+            if t0.get("y_hl_enter_sell_then_buy") not in (None, "")
+            else t0.get("y_path_enter_sell_then_buy"),
+            "y_hl_enter_buy_then_sell": t0.get("y_hl_enter_buy_then_sell")
+            if t0.get("y_hl_enter_buy_then_sell") not in (None, "")
+            else t0.get("y_path_enter_buy_then_sell"),
+            "y_hl_strong": t0.get("y_hl_strong")
+            if t0.get("y_hl_strong") not in (None, "")
+            else t0.get("y_path_strong"),
             "y_t30_strong": t0.get("y_t30_strong"),
             "y_τ30_strong": t0.get("y_τ30_strong") or t0.get("y_t30_strong"),
             "y_tw_strong": t0.get("y_tw_strong"),
@@ -791,28 +781,9 @@ def execution_public_view(bundle: Dict[str, Any]) -> Dict[str, Any]:
             if t0.get("y_t90_enter_alt") not in (None, "")
             else t0.get("y_τ90_enter_alt"),
             "y_τ90_enter_alt": t0.get("y_τ90_enter_alt") or t0.get("y_t90_enter_alt"),
-            "y_tc_enter": t0.get("y_tc_enter")
-            if t0.get("y_tc_enter") not in (None, "")
-            else t0.get("y_τc_enter"),
-            "y_τc_enter": t0.get("y_τc_enter") or t0.get("y_tc_enter"),
-            "y_tc_enter_alt": t0.get("y_tc_enter_alt")
-            if t0.get("y_tc_enter_alt") not in (None, "")
-            else t0.get("y_τc_enter_alt"),
-            "y_τc_enter_alt": t0.get("y_τc_enter_alt") or t0.get("y_tc_enter_alt"),
-            "y_complexity_max": (
-                t0.get("y_complexity_max")
-                if t0.get("y_complexity_max") not in (None, "")
-                else t0.get("y_cx_max")
-            ),
-            "y_cx_max": (
-                t0.get("y_complexity_max")
-                if t0.get("y_complexity_max") not in (None, "")
-                else t0.get("y_cx_max")
-            ),
-            "y_tpd_max": t0.get("y_tpd_max"),
-            "y_complexity_max_alt": t0.get("y_complexity_max_alt"),
-            "y_tpd_max_alt": t0.get("y_tpd_max_alt"),
-            "y_path_required": t0.get("y_path_required"),
+            "y_hl_required": t0.get("y_hl_required")
+            if t0.get("y_hl_required") is not None
+            else t0.get("y_path_required"),
             "t0_close_band_delta_pct": t0.get("t0_close_band_delta_pct"),
             "t0_price_space_gate": t0.get("t0_price_space_gate"),
             "t0_price_space_max_dev_pct": t0.get("t0_price_space_max_dev_pct"),
@@ -961,6 +932,7 @@ def validate_execution_patch(raw: Any) -> Tuple[bool, Dict[str, Any], List[str]]
             }
         }
 
+    migrate_y_path_keys_to_hl(t0_in)
     drop_dead_t0_keys(t0_in)
 
     unknown = [k for k in t0_in.keys() if k not in ALLOWED_T0_PATCH_KEYS]
@@ -987,7 +959,7 @@ def validate_execution_patch(raw: Any) -> Tuple[bool, Dict[str, Any], List[str]]
         ("y_tau_exit_price_skip", ("y_tau_exit_price_skip_buy_then_sell",)),
         ("fill_mode", ("fill_mode_buy_then_sell",)),
         ("must_cover_same_day", ("must_cover_same_day_buy_then_sell",)),
-        ("y_path_enter", ("y_path_enter_buy_then_sell", "y_path_enter_sell_then_buy")),
+        ("y_hl_enter", ("y_hl_enter_buy_then_sell", "y_hl_enter_sell_then_buy")),
         ("y_tau_enter", ("y_tau_enter_buy_then_sell", "y_tau_enter_sell_then_buy")),
     )
     for legacy, sides in _legacy_side_expand:
@@ -1007,16 +979,19 @@ def validate_execution_patch(raw: Any) -> Tuple[bool, Dict[str, Any], List[str]]
         t0_out["must_cover_same_day_sell_then_buy"] = bool(t0_in.get("must_cover_same_day_sell_then_buy"))
     if "must_cover_same_day_buy_then_sell" in t0_in:
         t0_out["must_cover_same_day_buy_then_sell"] = bool(t0_in.get("must_cover_same_day_buy_then_sell"))
-    if "y_use_path" in t0_in:
-        t0_out["y_use_path"] = bool(t0_in.get("y_use_path"))
     if "y_enter_enabled" in t0_in:
         t0_out["y_enter_enabled"] = bool(t0_in.get("y_enter_enabled"))
     if "y_enter_alt_enabled" in t0_in:
         t0_out["y_enter_alt_enabled"] = bool(t0_in.get("y_enter_alt_enabled"))
     if "t0_price_space_gate" in t0_in:
         t0_out["t0_price_space_gate"] = bool(t0_in.get("t0_price_space_gate"))
-    if "y_path_required" in t0_in:
-        t0_out["y_path_required"] = bool(t0_in.get("y_path_required"))
+    if "y_hl_required" in t0_in or "y_path_required" in t0_in:
+        raw_req = (
+            t0_in.get("y_hl_required")
+            if "y_hl_required" in t0_in
+            else t0_in.get("y_path_required")
+        )
+        t0_out["y_hl_required"] = bool(raw_req)
     if "y_tau_exit_price_skip" in t0_in:
         t0_out["y_tau_exit_price_skip"] = bool(t0_in.get("y_tau_exit_price_skip"))
     if "y_tau_exit_price_skip_buy_then_sell" in t0_in:
@@ -1114,7 +1089,16 @@ def apply_execution_patch_to_paper(
         new_t0 = dict(prev_t0)
         new_t0.update(t0_patch)
         new_t0["t0_ratio"] = 1.0
-        for stale in ("y_tc_validate", "y_τc_validate"):
+        for stale in (
+            "y_tc_validate",
+            "y_τc_validate",
+            "y_tc_strong",
+            "y_τc_strong",
+            "y_tc_enter",
+            "y_τc_enter",
+            "y_tc_enter_alt",
+            "y_τc_enter_alt",
+        ):
             new_t0.pop(stale, None)
         rules["t0"] = new_t0
 

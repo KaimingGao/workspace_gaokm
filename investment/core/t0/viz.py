@@ -627,7 +627,11 @@ def _scores_from_scan_row(row: dict) -> Dict[str, Any]:
     """扫描行 y_τ / y_path / R̂_τ / y_τc → 画像字段（该钟前缀）。"""
     sc: Dict[str, Any] = {}
     y_tau = row.get("y_tau")
-    y_path = row.get("y_path")
+    y_path = row.get("y_hl")
+    if y_path is None:
+        y_path = row.get("predicted_score_hl")
+    if y_path is None:
+        y_path = row.get("y_path")
     y_oc = row.get("y_oc")
     if y_oc is None:
         y_oc = y_tau
@@ -708,7 +712,10 @@ def _scores_from_scan_row(row: dict) -> Dict[str, Any]:
         sc["y_t90_realized"] = y_t90_r
         sc["t90_realized"] = y_t90_r
     if y_path is not None:
+        sc["y_hl_portrait"] = y_path
         sc["y_path_portrait"] = y_path
+        sc["y_hl"] = y_path
+        sc["predicted_score_hl"] = y_path
         sc["y_path"] = y_path
     if r_hat is not None:
         sc["r_hat"] = r_hat
@@ -1508,6 +1515,7 @@ def _build_score_portrait_from_units(
         },
         "tau_hit": _hit_pack(tau_hit),
         "path_hit": _hit_pack(path_hit),
+        "y_hl_hit": _hit_pack(path_hit),
         "eod_hit": _hit_pack(eod_hit),
         "trade_hit": _hit_pack(trade_hit),
         "r_tau_hit": _hit_pack(r_tau_hit),
@@ -1527,6 +1535,7 @@ def _build_score_portrait_from_units(
         "note": note
         or (
             f"scope={scope_s}；R_τ↔close[T]/price(τ)−1；y_oc↔open→close；"
+            "y_hl↔极值序 signed (H−L)/ref%；"
             "y_τc↔close[T]/price(τ)−1；y_τ30↔price(τ⊕30m)/price(τ)−1；"
             "y_τ60↔price(τ⊕60m)/price(τ)−1；"
             "y_τ90↔price(τ⊕90m)/price(τ)−1；"
@@ -1591,7 +1600,7 @@ def build_score_portrait_by_slot(days: Sequence[dict]) -> Dict[str, Any]:
         if not units:
             continue
         note = (
-            f"槽位 {hm}：本钟扫描 R̂_τ / ŷ_oc / ŷ_τc / ŷ_τ30 / ŷ_τ60 / ŷ_τ90 ↔ 全日或同钟标签；"
+            f"槽位 {hm}：本钟扫描 R̂_τ / ŷ_oc / ŷ_hl / ŷ_τc / ŷ_τ30 / ŷ_τ60 / ŷ_τ90 ↔ 全日或同钟标签；"
             "样本=与日级同样本；缺该钟ŷ计flat；成交子集=该钟已破带成交"
         )
         all_port = _build_score_portrait_from_units(
@@ -1626,7 +1635,7 @@ def build_score_portrait_by_slot(days: Sequence[dict]) -> Dict[str, Any]:
         "n_slots": len(slots),
         "n_days": len(eligible),
         "note": (
-            "分槽位画像：各钟 R̂_τ / ŷ_oc / ŷ_τc / ŷ_τ30 / ŷ_τ60 / ŷ_τ90 对标签；"
+            "分槽位画像：各钟 R̂_τ / ŷ_oc / ŷ_hl / ŷ_τc / ŷ_τ30 / ŷ_τ60 / ŷ_τ90 对标签；"
             "旁路=该钟破带方向是否与 ŷ_τc 向 ĉ 回归同向；"
             "τ30旁路=破带方向是否与 ŷ_τ30 后 30 交易分钟同号；"
             "τ60旁路=破带方向是否与 ŷ_τ60 后 60 交易分钟同号；"
@@ -1802,6 +1811,7 @@ def _merge_score_portraits(
             },
             "tau_hit": _hit_pack(tau_hit),
             "path_hit": _hit_pack(path_hit),
+            "y_hl_hit": _hit_pack(path_hit),
             "eod_hit": _hit_pack(eod_hit),
             "trade_hit": _hit_pack(trade_hit),
             "r_tau_hit": _hit_pack(r_tau_hit),
@@ -2501,7 +2511,6 @@ def _summary_from_counts(
         "cover_rate_pct": round(cover_n / traded_n * 100.0, 2) if traded_n else None,
         "score_coverage_pct": round(score_seen / score_total * 100.0, 2) if score_total else None,
         "y_tau_enter": _f(cfg.get("y_tau_enter")) if cfg.get("y_tau_enter") is not None else 0.0,
-        "y_tc_enter": _f(cfg.get("y_tc_enter") if cfg.get("y_tc_enter") not in (None, "") else cfg.get("y_τc_enter")) or 0.0,
         "y_trade_enter": _f(cfg.get("y_trade_enter") or cfg.get("y_trade_floor")) or 0.15,
         "y_trade_floor": _f(cfg.get("y_trade_floor") or cfg.get("y_trade_enter")) or 0.15,
     }
@@ -2743,11 +2752,15 @@ def build_t0_viz_payload(
     ]
     y_tau_attribution = build_y_tau_attribution(days)
     path_enter = 0.02
-    if isinstance(rules, dict) and rules.get("y_path_enter") is not None:
-        try:
-            path_enter = float(rules.get("y_path_enter"))
-        except (TypeError, ValueError):
-            path_enter = 0.02
+    if isinstance(rules, dict):
+        raw_hl = rules.get("y_hl_enter")
+        if raw_hl is None:
+            raw_hl = rules.get("y_path_enter")
+        if raw_hl is not None:
+            try:
+                path_enter = float(raw_hl)
+            except (TypeError, ValueError):
+                path_enter = 0.02
     y_path_attribution = build_y_path_attribution(days, path_enter=path_enter)
     score_portrait = build_backtest_score_portrait(days)
 
@@ -2975,7 +2988,11 @@ def merge_t0_viz_payloads(
 
     y_path_attribution = _merge_y_path_attribution(
         [p.get("y_path_attribution") for p in (payloads or []) if isinstance(p, dict)],
-        path_enter=float((rules or {}).get("y_path_enter") or 0.02),
+        path_enter=float(
+            (rules or {}).get("y_hl_enter")
+            or (rules or {}).get("y_path_enter")
+            or 0.02
+        ),
     )
     path_sm = (
         y_path_attribution.get("summary")

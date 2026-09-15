@@ -139,7 +139,7 @@ quant_panel.html
 |--------|------|------|
 | **ŷ_oo** | 预估 open[T+1]/open[T]−1 | ranking 输入 |
 | **ŷ_oc** | 预估 close[T]/open[T]−1 | ranking 输入；做 T 方向 |
-| **ŷ_τc** | 预估 close[T]/price(τ)−1 | 做 T 旁路验证（不进 ĉ） |
+| **ŷ_τc** | 预估 close[T]/price(τ)−1 | 研究拟合仍保留；做 T / 数据中心表列已下线 |
 | **ŷ_co** | 预估 open[T+1]/close[T]−1 | 经 w_co 叠进 ŷ_oc |
 | **ranking** | w_oo·ŷ_oo + w_oc·((1+ŷ_oc)(1+w_co·ŷ_co)−1) | 调仓排序 / 卖门槛 |
 

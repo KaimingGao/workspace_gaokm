@@ -773,39 +773,29 @@ def _walk_t0(
             "y_enter_enabled": cfg.get("y_enter_enabled"),
             "y_enter_alt_enabled": cfg.get("y_enter_alt_enabled"),
             "y_tau_enter_alt": cfg.get("y_tau_enter_alt"),
-            "y_tc_enter": cfg.get("y_tc_enter")
-            if cfg.get("y_tc_enter") not in (None, "")
-            else cfg.get("y_τc_enter"),
-            "y_τc_enter": cfg.get("y_τc_enter") or cfg.get("y_tc_enter"),
-            "y_tc_enter_alt": cfg.get("y_tc_enter_alt")
-            if cfg.get("y_tc_enter_alt") not in (None, "")
-            else cfg.get("y_τc_enter_alt"),
-            "y_τc_enter_alt": cfg.get("y_τc_enter_alt") or cfg.get("y_tc_enter_alt"),
-            "y_path_enter_alt": cfg.get("y_path_enter_alt"),
+            "y_hl_enter_alt": cfg.get("y_hl_enter_alt")
+            if cfg.get("y_hl_enter_alt") not in (None, "")
+            else cfg.get("y_path_enter_alt"),
             "y_on_risk": cfg.get("y_on_risk"),
             "y_on_allow": cfg.get("y_on_allow"),
-            "y_use_path": cfg.get("y_use_path"),
             "t0_y_oc_target_scale": cfg.get("t0_y_oc_target_scale"),
             "t0_y_oc_l": cfg.get("t0_y_oc_l"),
             "t0_y_oc_u": cfg.get("t0_y_oc_u"),
-            "y_path_enter": cfg.get("y_path_enter"),
-            "y_path_enter_sell_then_buy": cfg.get("y_path_enter_sell_then_buy"),
-            "y_path_enter_buy_then_sell": cfg.get("y_path_enter_buy_then_sell"),
-            "y_path_strong": cfg.get("y_path_strong"),
-            "y_complexity_max": (
-                cfg.get("y_complexity_max")
-                if cfg.get("y_complexity_max") not in (None, "")
-                else cfg.get("y_cx_max")
-            ),
-            "y_cx_max": (
-                cfg.get("y_complexity_max")
-                if cfg.get("y_complexity_max") not in (None, "")
-                else cfg.get("y_cx_max")
-            ),
-            "y_tpd_max": cfg.get("y_tpd_max"),
-            "y_complexity_max_alt": cfg.get("y_complexity_max_alt"),
-            "y_tpd_max_alt": cfg.get("y_tpd_max_alt"),
-            "y_path_required": cfg.get("y_path_required"),
+            "y_hl_enter": cfg.get("y_hl_enter")
+            if cfg.get("y_hl_enter") not in (None, "")
+            else cfg.get("y_path_enter"),
+            "y_hl_enter_sell_then_buy": cfg.get("y_hl_enter_sell_then_buy")
+            if cfg.get("y_hl_enter_sell_then_buy") not in (None, "")
+            else cfg.get("y_path_enter_sell_then_buy"),
+            "y_hl_enter_buy_then_sell": cfg.get("y_hl_enter_buy_then_sell")
+            if cfg.get("y_hl_enter_buy_then_sell") not in (None, "")
+            else cfg.get("y_path_enter_buy_then_sell"),
+            "y_hl_strong": cfg.get("y_hl_strong")
+            if cfg.get("y_hl_strong") not in (None, "")
+            else cfg.get("y_path_strong"),
+            "y_hl_required": cfg.get("y_hl_required")
+            if cfg.get("y_hl_required") is not None
+            else cfg.get("y_path_required"),
             "t0_close_band_delta_pct": cfg.get("t0_close_band_delta_pct"),
             "t0_price_space_gate": cfg.get("t0_price_space_gate"),
             "t0_price_space_max_dev_pct": cfg.get("t0_price_space_max_dev_pct"),

@@ -1,7 +1,7 @@
 /** 做T回测可视化（canvas + CSS，无外部图表库）。 */
 
 import { paperMetricClass } from "./fmt.js";
-import { SKIP_CAT_TIP, stockCellHtml, stampStockFitTiers } from "./t0_table.js?v=p2404";
+import { SKIP_CAT_TIP, stockCellHtml, stampStockFitTiers } from "./t0_table.js?v=p2426";
 
 const THEME = {
   actual: "#2563eb",
@@ -1219,15 +1219,6 @@ function renderKpiRow(summary) {
       "|ŷ_oc| 低于 oc入场则横盘跳过；0=关",
     ],
     [
-      "TC门槛",
-      sm.y_tc_enter != null && Number.isFinite(Number(sm.y_tc_enter))
-        ? Number(sm.y_tc_enter) > 0
-          ? `|ŷ_τc|≥${sm.y_tc_enter}%`
-          : "关"
-        : null,
-      "|ŷ_τc| 低于 TC入场则横盘跳过；0=关",
-    ],
-    [
       "信号跳过",
       sm.signal_skip_rate_pct != null ? `${sm.signal_skip_rate_pct}%` : null,
       "dual_y / 异号 / 幅度不足等信号层跳过占比",
@@ -1268,9 +1259,9 @@ function renderKpiRow(summary) {
       "破带方向与 ŷ_τ90 后 90 交易分钟同号率",
     ],
     [
-      "path一致",
-      sm.path_agree_rate_pct != null ? `${sm.path_agree_rate_pct}%` : null,
-      "成交日 ŷ_oc 与 y_path 同号率",
+      "HL命中",
+      sm.path_pred_hit_rate_pct != null ? `${sm.path_pred_hit_rate_pct}%` : null,
+      "成交日 ŷ_hl 符号 vs 真实极值序 signed (H−L)/ref%",
     ],
   ];
   if (sm.avg_y_tau_traded != null) {

@@ -336,7 +336,7 @@
                   </label>
                   <label
                     class="paper-t0-field"
-                    title="v6：upper=C_τ×(1+δ/100)，lower=C_τ×(1−δ/100)。C>upper 反T、C<lower 正T；leg2 冻结 C_τ。默认 3。ŷ_τc 不参与。"
+                    title="v6：upper=C_τ×(1+δ/100)，lower=C_τ×(1−δ/100)。C>upper 反T、C<lower 正T；leg2 冻结 C_τ。默认 3。"
                   >
                     <span>超额带宽δ%</span>
                     <input type="number" name="t0_close_band_delta_pct" min="0" max="10" step="0.05" value="3" />
@@ -385,10 +385,10 @@
                   </label>
                   <label
                     class="paper-t0-field"
-                    title="|y_hl| 超过此值须与 ŷ_oc 同号，异号则跳过；默认 5；0=任意非零 HL 都要求同号。缺 y_hl 跳过（开盘分钟缺失除外）。"
+                    title="|y_hl| 超过此值须与 ŷ_oc 同号，异号则跳过；默认 5；0=任意非零 HL 都要求同号。"
                   >
                     <span>HL强%</span>
-                    <input type="number" name="y_path_strong" min="0" max="5" step="0.01" value="5" />
+                    <input type="number" name="y_hl_strong" min="0" max="5" step="0.01" value="5" />
                   </label>
                   <label
                     class="paper-t0-field"
@@ -420,13 +420,6 @@
                   </label>
                   <label
                     class="paper-t0-field"
-                    title="ŷ_τc 旁路：破带后须向 C_τ 回归（反T remaining&lt;0，正T&gt;0）。|ŷ_τc| 超过此值且逆带则跳过。0=任意有符号都要求同号；100=关。不改 C_τ。"
-                  >
-                    <span>τc强%</span>
-                    <input type="number" name="y_tc_strong" min="0" max="100" step="0.01" value="100" />
-                  </label>
-                  <label
-                    class="paper-t0-field"
                     title="正/反T止损共用：入场后跳过 N 根 5m 再启用（默认 1≈5 分钟）。止损固定收盘破线确认。"
                   >
                     <span>止损延迟根</span>
@@ -445,7 +438,7 @@
                 <div class="paper-t0-cfg-gates">
                 <fieldset class="paper-t0-cfg-block is-gate-1">
                   <legend>门槛1</legend>
-                  <p class="paper-t0-cfg-hint quant-sub">|ŷ_oc|、|ŷ_τc|、|y_hl|、|ŷ_τ30|、|ŷ_τ60|、|ŷ_τ90| 过入场，且 ŷ_cx / tpd 过上限。关启用则本档不参与 OR。缺 HL / 分钟缺失见共用区。</p>
+                  <p class="paper-t0-cfg-hint quant-sub">|ŷ_oc|、|y_hl|、|ŷ_τ30|、|ŷ_τ60|、|ŷ_τ90| 过入场。关启用则本档不参与 OR。缺分不拦；分钟缺失见共用区。</p>
                   <div class="paper-t0-form-grid is-quad">
                   <label
                     class="paper-t0-field"
@@ -463,17 +456,10 @@
                   </label>
                   <label
                     class="paper-t0-field"
-                    title="门槛1 |ŷ_τc| 低于此值视为横盘跳过；范围 0–100%；0=关；默认 0。"
-                  >
-                    <span>TC入场%</span>
-                    <input type="number" name="y_tc_enter" min="0" max="100" step="0.01" value="0" />
-                  </label>
-                  <label
-                    class="paper-t0-field"
-                    title="门槛1 |ŷ_hl| 低于此值视为横盘跳过；范围 0–100%；0=关幅度；默认 0。"
+                    title="门槛1 |y_hl| 低于此值视为横盘跳过；范围 0–100%；0=关；默认 0。缺 y_hl 不拦。"
                   >
                     <span>HL入场%</span>
-                    <input type="number" name="y_path_enter" min="0" max="100" step="0.01" value="0" />
+                    <input type="number" name="y_hl_enter" min="0" max="100" step="0.01" value="0" />
                   </label>
                   <label
                     class="paper-t0-field"
@@ -496,26 +482,12 @@
                     <span>τ90入场%</span>
                     <input type="number" name="y_t90_enter" min="0" max="100" step="0.01" value="0" />
                   </label>
-                  <label
-                    class="paper-t0-field"
-                    title="ŷ_cx∈[0,1]（0=直线，1=最折）。超过此值太折则跳过做 T；范围 0–1；默认 1.00≈关。闸用盘中前缀 ŷ_cx，不是收盘后的全日 label。"
-                  >
-                    <span>CX上界</span>
-                    <input type="number" name="y_complexity_max" min="0" max="1.00" step="0.01" value="1.00" />
-                  </label>
-                  <label
-                    class="paper-t0-field"
-                    title="ŷ_tpd∈[0,1]（0=无反转，1=每根都反转）。超过此值反转过密则跳过做 T；范围 0.00–1.00；默认 1.00≈关。闸用盘中前缀 ŷ_tpd，不是收盘后的全日 label。"
-                  >
-                    <span>tpd上界</span>
-                    <input type="number" name="y_tpd_max" min="0" max="1.00" step="0.01" value="1.00" />
-                  </label>
                   </div>
                 </fieldset>
 
                 <fieldset class="paper-t0-cfg-block is-gate-2">
                   <legend>门槛2</legend>
-                  <p class="paper-t0-cfg-hint quant-sub">|ŷ_oc|、|ŷ_τc|、|y_hl|、|ŷ_τ30|、|ŷ_τ60|、|ŷ_τ90| 过入场，且 ŷ_cx / tpd 过上限。关启用则本档不参与 OR。缺 HL / 分钟缺失见共用区。</p>
+                  <p class="paper-t0-cfg-hint quant-sub">|ŷ_oc|、|y_hl|、|ŷ_τ30|、|ŷ_τ60|、|ŷ_τ90| 过入场。关启用则本档不参与 OR。缺分不拦；分钟缺失见共用区。</p>
                   <div class="paper-t0-form-grid is-quad">
                   <label
                     class="paper-t0-field"
@@ -533,17 +505,10 @@
                   </label>
                   <label
                     class="paper-t0-field"
-                    title="门槛2 |ŷ_τc| 低于此值视为横盘跳过；范围 0–100%；0=关；默认 0。"
-                  >
-                    <span>TC入场%</span>
-                    <input type="number" name="y_tc_enter_alt" min="0" max="100" step="0.01" value="0" />
-                  </label>
-                  <label
-                    class="paper-t0-field"
-                    title="门槛2 |ŷ_hl| 低于此值视为横盘跳过；范围 0–100%；0=关幅度；默认 0。"
+                    title="门槛2 |y_hl| 低于此值视为横盘跳过；范围 0–100%；0=关；默认 0。缺键跟随门槛1。"
                   >
                     <span>HL入场%</span>
-                    <input type="number" name="y_path_enter_alt" min="0" max="100" step="0.01" value="0" />
+                    <input type="number" name="y_hl_enter_alt" min="0" max="100" step="0.01" value="0" />
                   </label>
                   <label
                     class="paper-t0-field"
@@ -565,20 +530,6 @@
                   >
                     <span>τ90入场%</span>
                     <input type="number" name="y_t90_enter_alt" min="0" max="100" step="0.01" value="0" />
-                  </label>
-                  <label
-                    class="paper-t0-field"
-                    title="ŷ_cx∈[0,1]（0=直线，1=最折）。超过此值太折则跳过做 T；范围 0–1；默认 1.00≈关。闸用盘中前缀 ŷ_cx，不是收盘后的全日 label。"
-                  >
-                    <span>CX上界</span>
-                    <input type="number" name="y_complexity_max_alt" min="0" max="1.00" step="0.01" value="1.00" />
-                  </label>
-                  <label
-                    class="paper-t0-field"
-                    title="ŷ_tpd∈[0,1]（0=无反转，1=每根都反转）。超过此值反转过密则跳过做 T；范围 0.00–1.00；默认 1.00≈关。闸用盘中前缀 ŷ_tpd，不是收盘后的全日 label。"
-                  >
-                    <span>tpd上界</span>
-                    <input type="number" name="y_tpd_max_alt" min="0" max="1.00" step="0.01" value="1.00" />
                   </label>
                   </div>
                 </fieldset>

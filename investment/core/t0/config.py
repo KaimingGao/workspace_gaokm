@@ -153,6 +153,30 @@ _DEAD_T0_KEYS = (
     "min_range_pct_sell_then_buy",
     "min_range_pct_buy_then_sell",
     "y_tau_map",
+    # ŷ_τc 租用已由 ŷ_τ30/60/90 覆盖
+    "y_tc_strong",
+    "y_τc_strong",
+    "y_tc_enter",
+    "y_τc_enter",
+    "y_tc_enter_alt",
+    "y_τc_enter_alt",
+    "y_tc_validate",
+    "y_τc_validate",
+    # 旧 y_path_* 闸键：load 时迁到 y_hl_* 后再丢
+    "y_path_enter",
+    "y_path_enter_sell_then_buy",
+    "y_path_enter_buy_then_sell",
+    "y_path_enter_alt",
+    "y_path_strong",
+    "y_use_path",
+    "y_use_hl",
+    "y_path_required",
+    # ŷ_cx / ŷ_tpd 验证后暂不用于调仓与做 T
+    "y_complexity_max",
+    "y_cx_max",
+    "y_tpd_max",
+    "y_complexity_max_alt",
+    "y_tpd_max_alt",
     "y_gap_tier_mode",
     "y_gap_tier_pct",
     "y_trade_strong",
@@ -182,6 +206,35 @@ _DEAD_T0_KEYS = (
     "y_ratio_cut",
     "y_block_conflict",
 )
+
+
+_Y_PATH_TO_HL = (
+    ("y_path_enter", "y_hl_enter"),
+    ("y_path_enter_sell_then_buy", "y_hl_enter_sell_then_buy"),
+    ("y_path_enter_buy_then_sell", "y_hl_enter_buy_then_sell"),
+    ("y_path_enter_alt", "y_hl_enter_alt"),
+    ("y_path_strong", "y_hl_strong"),
+    ("y_path_required", "y_hl_required"),
+)
+
+
+def migrate_y_path_keys_to_hl(cfg: dict, override_keys: Optional[set] = None) -> None:
+    """旧 overlay ``y_path_*`` → ``y_hl_*``。新键已显式覆盖时不抢。"""
+    if not isinstance(cfg, dict):
+        return
+    keys = override_keys
+    for old_key, new_key in _Y_PATH_TO_HL:
+        explicit_new = (
+            keys is not None and new_key in keys and cfg.get(new_key) not in (None, "")
+        )
+        if explicit_new:
+            cfg.pop(old_key, None)
+            continue
+        if cfg.get(old_key) not in (None, ""):
+            cfg[new_key] = cfg[old_key]
+            if keys is not None:
+                keys.add(new_key)
+        cfg.pop(old_key, None)
 
 
 def drop_dead_t0_keys(cfg: dict) -> None:
@@ -230,16 +283,12 @@ DEFAULT_T0_RULES: Dict[str, Any] = {
     "y_tau_enter_buy_then_sell": 0.0,
     "y_enter_enabled": True,  # 门槛1 启用；关则本档不参与 OR
     "y_enter_alt_enabled": True,  # 门槛2 启用；关则本档不参与 OR
-    "fusion_w_τc": 0.5,  # residual 融合：ŷ_τc 权
-    "fusion_w_tc": 0.5,
-    "residual_w_oc": 0.5,  # residual 融合：remaining(ŷ_oc) 权
-    "residual_w_mode": "fixed",  # fixed | inv_var
-    "y_path_enter": 0.0,
-    "y_path_enter_sell_then_buy": 0.0,
-    "y_path_enter_buy_then_sell": 0.0,
-    "y_path_strong": 5.0,
-    "y_tc_strong": 100.0,  # ŷ_τc 旁路：0=任意有符号须同号；100=关
-    "y_τc_strong": 100.0,
+    "y_hl_enter": 0.0,
+    "y_hl_enter_sell_then_buy": 0.0,
+    "y_hl_enter_buy_then_sell": 0.0,
+    "y_hl_enter_alt": 0.0,
+    "y_hl_strong": 5.0,  # |y_hl| 超此值须与 y_τ 同号；≤则允许异号
+    "y_hl_required": False,
     "y_t30_strong": 0.0,  # ŷ_τ30 旁路：0=任意有符号须同号；1=关
     "y_τ30_strong": 0.0,
     "y_tw_strong": 3.0,  # ŷ_τw 票数旁路：0=任意有符号须同号；3=关
@@ -260,20 +309,13 @@ DEFAULT_T0_RULES: Dict[str, Any] = {
     "y_τ90_enter": 0.0,
     "y_t90_enter_alt": 0.0,
     "y_τ90_enter_alt": 0.0,
-    "y_tc_enter": 0.0,  # 门槛1 |ŷ_τc| 入场；范围 0–100%；0=关
-    "y_τc_enter": 0.0,
-    "y_tc_enter_alt": 0.0,  # 门槛2 |ŷ_τc| 入场；缺键跟随 y_tc_enter
-    "y_τc_enter_alt": 0.0,
-    "y_complexity_max": 1.0,  # ŷ_cx∈[0,1]；>此值太折跳过；默认 1.00≈关
-    "y_tpd_max": 1.0,  # ŷ_tpd∈[0,1]；>此值反转过密跳过；默认 1.00≈关
     "y_tau_enter_alt": 0.0,  # 门槛2 |y_τ| 入场；缺键跟随 y_tau_enter
-    "y_path_enter_alt": 0.0,  # 门槛2 |y_hl| 入场；缺键跟随 y_path_enter
-    "y_complexity_max_alt": 1.0,
-    "y_tpd_max_alt": 1.0,
+    "fusion_w_τc": 0.5,  # residual 融合：ŷ_τc 权
+    "fusion_w_tc": 0.5,
+    "residual_w_oc": 0.5,  # residual 融合：remaining(ŷ_oc) 权
+    "residual_w_mode": "fixed",  # fixed | inv_var
     "y_on_risk": 0.01,
     "y_on_allow": 0.01,
-    "y_use_path": True,
-    "y_path_required": False,
     # C_τ = O×(1+clip(ŷ_oc×scale, y_oc_l, y_oc_u)/100)；upper/lower = C_τ×(1±δ/100)
     "t0_y_oc_target_scale": 10.0,
     "t0_y_oc_l": -3.0,
@@ -440,25 +482,12 @@ def _migrate_dual_y_gate_keys(cfg: dict, override_keys: Optional[set] = None) ->
         legacy = cfg.get("y_trade_floor")
         if legacy is not None and legacy != "":
             cfg["y_trade_enter"] = legacy
-    for new_key, old_key in (
-        ("y_complexity_max", "y_cx_max"),
-    ):
-        if new_key in keys:
-            continue
-        if old_key in keys and cfg.get(old_key) is not None and cfg.get(old_key) != "":
-            cfg[new_key] = cfg[old_key]
-        elif cfg.get(new_key) is None or cfg.get(new_key) == "":
-            legacy = cfg.get(old_key)
-            if legacy is not None and legacy != "":
-                cfg[new_key] = legacy
 
 
 def _sync_dual_y_gate_legacy_aliases(cfg: dict) -> None:
     """写出旧键别名，避免未升级的 overlay / 外部脚本读不到。"""
     if cfg.get("y_trade_enter") is not None:
         cfg["y_trade_floor"] = cfg["y_trade_enter"]
-    if cfg.get("y_complexity_max") is not None:
-        cfg["y_cx_max"] = cfg["y_complexity_max"]
 
 
 def load_t0_rules(override: Optional[dict] = None) -> Dict[str, Any]:
@@ -470,6 +499,7 @@ def load_t0_rules(override: Optional[dict] = None) -> Dict[str, Any]:
         for k, v in ov.items():
             if v is not None:
                 cfg[k] = v
+    migrate_y_path_keys_to_hl(cfg, override_keys)
     drop_dead_t0_keys(cfg)
     cfg["t0_ratio"] = max(0.05, min(float(cfg.get("t0_ratio") or 1.0), 1.0))
     # 纸面/回测生效路径在 core.execution.resolve 再强制为 1.0
@@ -519,13 +549,11 @@ def load_t0_rules(override: Optional[dict] = None) -> Dict[str, Any]:
         ("y_tau_enter_alt", 0.0, 100.0, 0.0),
         ("y_on_risk", 0.01, 10.0, 0.01),
         ("y_on_allow", 0.01, 10.0, 0.01),
-        ("y_path_enter", 0.0, 100.0, 0.0),
-        ("y_path_enter_sell_then_buy", 0.0, 100.0, 0.0),
-        ("y_path_enter_buy_then_sell", 0.0, 100.0, 0.0),
-        ("y_path_enter_alt", 0.0, 100.0, 0.0),
-        ("y_path_strong", 0.0, 5.0, 5.0),
-        ("y_tc_strong", 0.0, 100.0, 100.0),
-        ("y_τc_strong", 0.0, 100.0, 100.0),
+        ("y_hl_enter", 0.0, 100.0, 0.0),
+        ("y_hl_enter_sell_then_buy", 0.0, 100.0, 0.0),
+        ("y_hl_enter_buy_then_sell", 0.0, 100.0, 0.0),
+        ("y_hl_enter_alt", 0.0, 100.0, 0.0),
+        ("y_hl_strong", 0.0, 5.0, 5.0),
         ("y_t30_strong", 0.0, 1.0, 0.0),
         ("y_τ30_strong", 0.0, 1.0, 0.0),
         ("y_tw_strong", 0.0, 3.0, 3.0),
@@ -546,14 +574,6 @@ def load_t0_rules(override: Optional[dict] = None) -> Dict[str, Any]:
         ("y_τ90_enter", 0.0, 100.0, 0.0),
         ("y_t90_enter_alt", 0.0, 100.0, 0.0),
         ("y_τ90_enter_alt", 0.0, 100.0, 0.0),
-        ("y_tc_enter", 0.0, 100.0, 0.0),
-        ("y_τc_enter", 0.0, 100.0, 0.0),
-        ("y_tc_enter_alt", 0.0, 100.0, 0.0),
-        ("y_τc_enter_alt", 0.0, 100.0, 0.0),
-        ("y_complexity_max", 0.0, 1.0, 1.0),
-        ("y_tpd_max", 0.0, 1.0, 1.0),
-        ("y_complexity_max_alt", 0.0, 1.0, 1.0),
-        ("y_tpd_max_alt", 0.0, 1.0, 1.0),
         ("fusion_w_τc", 0.0, 1.0, 0.5),
         ("fusion_w_tc", 0.0, 1.0, 0.5),
         ("residual_w_oc", 0.0, 1.0, 0.5),
@@ -595,12 +615,13 @@ def load_t0_rules(override: Optional[dict] = None) -> Dict[str, Any]:
     except (TypeError, ValueError):
         pass
     cfg["y_tau_enter_strong"] = float(cfg["y_tau_enter"])
-    # 侧向门槛：未显式覆盖时跟随 y_tau_enter / y_path_enter（兼容旧纸面）
+    cfg["y_hl_required"] = coerce_cfg_bool(cfg.get("y_hl_required"), False)
+    # 侧向门槛：未显式覆盖时跟随 y_tau_enter / y_hl_enter（兼容旧纸面）
     for side_key, base_key in (
         ("y_tau_enter_sell_then_buy", "y_tau_enter"),
         ("y_tau_enter_buy_then_sell", "y_tau_enter"),
-        ("y_path_enter_sell_then_buy", "y_path_enter"),
-        ("y_path_enter_buy_then_sell", "y_path_enter"),
+        ("y_hl_enter_sell_then_buy", "y_hl_enter"),
+        ("y_hl_enter_buy_then_sell", "y_hl_enter"),
     ):
         if side_key not in override_keys or cfg.get(side_key) is None or cfg.get(side_key) == "":
             cfg[side_key] = float(cfg[base_key])
@@ -615,25 +636,12 @@ def load_t0_rules(override: Optional[dict] = None) -> Dict[str, Any]:
     _sync_dual_y_gate_legacy_aliases(cfg)
     cfg["y_enter_enabled"] = coerce_cfg_bool(cfg.get("y_enter_enabled"), True)
     cfg["y_enter_alt_enabled"] = coerce_cfg_bool(cfg.get("y_enter_alt_enabled"), True)
-    cfg["y_use_path"] = coerce_cfg_bool(cfg.get("y_use_path"), True)
-    cfg["y_path_required"] = coerce_cfg_bool(cfg.get("y_path_required"), False)
     from core.t0.close_band import resolve_y_oc_target_params
 
     scale, y_oc_l, y_oc_u = resolve_y_oc_target_params(cfg)
     cfg["t0_y_oc_target_scale"] = scale
     cfg["t0_y_oc_l"] = y_oc_l
     cfg["t0_y_oc_u"] = y_oc_u
-    # 旧双钮 y_tc_validate=关 → 100=关；旗标本身不再覆盖新表单的 τc强
-    _tc_val = cfg.get("y_tc_validate")
-    if _tc_val is None:
-        _tc_val = cfg.get("y_τc_validate")
-    if _tc_val is not None and not coerce_cfg_bool(_tc_val, True):
-        cfg["y_tc_strong"] = 100.0
-    cfg.pop("y_tc_validate", None)
-    cfg.pop("y_τc_validate", None)
-    if cfg.get("y_tc_strong") in (None, "") and cfg.get("y_τc_strong") not in (None, ""):
-        cfg["y_tc_strong"] = cfg.get("y_τc_strong")
-    cfg["y_τc_strong"] = cfg.get("y_tc_strong")
     if cfg.get("y_t30_strong") in (None, "") and cfg.get("y_τ30_strong") not in (None, ""):
         cfg["y_t30_strong"] = cfg.get("y_τ30_strong")
     cfg["y_τ30_strong"] = cfg.get("y_t30_strong")
@@ -673,15 +681,6 @@ def load_t0_rules(override: Optional[dict] = None) -> Dict[str, Any]:
     ):
         cfg["y_t90_enter_alt"] = cfg.get("y_τ90_enter_alt")
     cfg["y_τ90_enter_alt"] = cfg.get("y_t90_enter_alt")
-    if cfg.get("y_tc_enter") in (None, "") and cfg.get("y_τc_enter") not in (None, ""):
-        cfg["y_tc_enter"] = cfg.get("y_τc_enter")
-    cfg["y_τc_enter"] = cfg.get("y_tc_enter")
-    if cfg.get("y_tc_enter_alt") in (None, "") and cfg.get("y_τc_enter_alt") not in (
-        None,
-        "",
-    ):
-        cfg["y_tc_enter_alt"] = cfg.get("y_τc_enter_alt")
-    cfg["y_τc_enter_alt"] = cfg.get("y_tc_enter_alt")
     legacy_exit_skip = coerce_cfg_bool(cfg.get("y_tau_exit_price_skip"), True)
     try:
         raw_legacy_exit_mult = cfg.get("y_tau_exit_price_mult")

@@ -36,8 +36,8 @@ class TestExecutionResolve(unittest.TestCase):
         self.assertEqual(bundle["t0"]["direction"], "dual_y")
         self.assertEqual(bundle["t0_sources"].get("t0_ratio"), "paper")
 
-    def test_request_path_enter_follows_side_keys(self):
-        """表单只改 path入场% 时，分侧闸必须跟随，不能停在 overlay 默认 0。"""
+    def test_request_path_enter_migrates_to_hl(self):
+        """旧 y_path_enter overlay 迁到 y_hl_enter，入场闸生效。"""
         from core.execution import resolve_t0_rules, strip_execution_meta
         from core.t0.close_band import close_band_enter_skip_reason
 
@@ -46,8 +46,6 @@ class TestExecutionResolve(unittest.TestCase):
             "rules": {
                 "t0": {
                     "y_path_enter": 0.01,
-                    "y_path_enter_buy_then_sell": 0.01,
-                    "y_path_enter_sell_then_buy": 0.01,
                 }
             },
         }
@@ -62,45 +60,44 @@ class TestExecutionResolve(unittest.TestCase):
             has_minute=True,
         )
         cfg = strip_execution_meta(raw)
-        self.assertAlmostEqual(float(cfg["y_path_enter"]), 0.2)
-        self.assertAlmostEqual(float(cfg["y_path_enter_buy_then_sell"]), 0.2)
-        self.assertAlmostEqual(float(cfg["y_path_enter_sell_then_buy"]), 0.2)
+        self.assertNotIn("y_path_enter", cfg)
+        self.assertAlmostEqual(float(cfg["y_hl_enter"]), 0.2)
+        self.assertAlmostEqual(float(cfg["y_hl_enter_buy_then_sell"]), 0.2)
         skip = close_band_enter_skip_reason(
             {"y_tau": 0.54, "y_path": 0.18},
             cfg,
             direction="buy_then_sell",
             r_pct=-0.067,
         )
-        # |y_path| 低于 path 入场视为横盘
         self.assertIsNotNone(skip)
         self.assertIn("y_hl", skip)
-        self.assertIn("横盘", skip)
 
-    def test_request_explicit_path_enter_side_still_wins(self):
+    def test_request_explicit_hl_enter_kept(self):
         from core.execution import resolve_t0_rules, strip_execution_meta
 
         cfg = strip_execution_meta(
             resolve_t0_rules(
                 rules={
-                    "y_path_enter": 0.2,
-                    "y_path_enter_buy_then_sell": 0.05,
+                    "y_hl_enter": 0.2,
+                    "y_hl_enter_buy_then_sell": 0.05,
                 },
                 channel="backtest",
                 has_minute=True,
             )
         )
-        self.assertAlmostEqual(float(cfg["y_path_enter"]), 0.2)
-        self.assertAlmostEqual(float(cfg["y_path_enter_buy_then_sell"]), 0.05)
-        self.assertAlmostEqual(float(cfg["y_path_enter_sell_then_buy"]), 0.2)
+        self.assertNotIn("y_path_enter", cfg)
+        self.assertAlmostEqual(float(cfg["y_hl_enter"]), 0.2)
+        self.assertAlmostEqual(float(cfg["y_hl_enter_buy_then_sell"]), 0.05)
 
-    def test_validate_patch_expands_path_enter_sides(self):
+    def test_validate_patch_migrates_path_enter(self):
         from core.execution import validate_execution_patch
 
         ok, norm, errs = validate_execution_patch({"t0": {"y_path_enter": 0.2}})
         self.assertTrue(ok, errs)
-        self.assertAlmostEqual(float(norm["t0"]["y_path_enter"]), 0.2)
-        self.assertAlmostEqual(float(norm["t0"]["y_path_enter_buy_then_sell"]), 0.2)
-        self.assertAlmostEqual(float(norm["t0"]["y_path_enter_sell_then_buy"]), 0.2)
+        self.assertNotIn("y_path_enter", norm["t0"])
+        self.assertAlmostEqual(float(norm["t0"]["y_hl_enter"]), 0.2)
+        self.assertAlmostEqual(float(norm["t0"]["y_hl_enter_buy_then_sell"]), 0.2)
+        self.assertAlmostEqual(float(norm["t0"]["y_hl_enter_sell_then_buy"]), 0.2)
         from core.execution import resolve_t0_rules, strip_execution_meta
 
         raw = resolve_t0_rules(
@@ -220,31 +217,34 @@ class TestExecutionResolve(unittest.TestCase):
         self.assertAlmostEqual(float(view["t0"]["residual_w_oc"]), 0.2)
         self.assertEqual(view["t0"]["residual_w_mode"], "fixed")
 
-    def test_public_view_keeps_y_tc_strong(self):
+    def test_public_view_drops_y_tc_strong(self):
         from core.execution import (
             apply_execution_patch_to_paper,
             execution_public_view,
             resolve_effective_execution,
             validate_execution_patch,
         )
+        from core.t0.config import load_t0_rules
 
         ok, norm, errs = validate_execution_patch({"t0": {"y_tc_strong": 0.3}})
         self.assertTrue(ok, errs)
-        self.assertAlmostEqual(float(norm["t0"]["y_tc_strong"]), 0.3)
+        self.assertNotIn("y_tc_strong", (norm.get("t0") or {}))
         paper = {
             "strategy_id": "short_conservative",
             "rules": {"t0": {"y_tc_validate": False, "y_tc_strong": 0.5}},
         }
-        applied = apply_execution_patch_to_paper(paper, norm)
+        ok2, patch, errs2 = validate_execution_patch({"t0": {"y_t30_strong": 0.0}})
+        self.assertTrue(ok2, errs2)
+        applied = apply_execution_patch_to_paper(paper, patch)
         self.assertTrue(applied.get("ok"), applied)
-        self.assertNotIn("y_tc_validate", (paper.get("rules") or {}).get("t0") or {})
-        self.assertAlmostEqual(
-            float(((paper.get("rules") or {}).get("t0") or {})["y_tc_strong"]), 0.3
-        )
+        t0 = (paper.get("rules") or {}).get("t0") or {}
+        self.assertNotIn("y_tc_validate", t0)
+        self.assertNotIn("y_tc_strong", t0)
         view = execution_public_view(
             resolve_effective_execution(paper=paper, channel="paper")
         )
-        self.assertAlmostEqual(float(view["t0"]["y_tc_strong"]), 0.3)
+        self.assertNotIn("y_tc_strong", view["t0"])
+        self.assertNotIn("y_tc_strong", load_t0_rules(t0))
 
     def test_public_view_keeps_y_t30_strong(self):
         from core.execution import (
@@ -480,7 +480,8 @@ class TestExecutionResolve(unittest.TestCase):
         )
         self.assertTrue(ok, errs)
         self.assertNotIn("y_nowcast_oc_gate", norm["t0"])
-        self.assertFalse(norm["t0"]["y_use_path"])
+        self.assertNotIn("y_use_path", norm["t0"])
+        self.assertNotIn("y_use_hl", norm["t0"])
 
     def test_rules_summary_omits_dropped_dual_y_gates(self):
         from quant.research.t0_backtest import _rules_summary

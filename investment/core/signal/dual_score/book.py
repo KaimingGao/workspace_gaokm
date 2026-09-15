@@ -32,7 +32,7 @@ def dual_score_book_fields(
     避免簿内旧戳（如 f1 / 旧 w_*）误导 tip。
     旧簿无 ``formula_terms_tau`` 时现场补全组成表。
     返回前对齐 ŷ_trade（修 eod_next 塌成 EOD 的旧 blend）。
-    数据中心 / 持仓表列 ŷ_τc 走本函数透传（含旧簿 y_r 反几何）。
+    ŷ_τc 仍透传给 tip（含旧簿 y_r 反几何）；数据中心 / 持仓主表不再列。
     """
     if not isinstance(item, dict):
         return {}

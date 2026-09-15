@@ -2041,9 +2041,10 @@ export function initQuant(ctx) {
     }
   })();
 
-  // 轻量预填 ŷ_r 状态
+  // 轻量预填 ŷ_r 状态（枢纽 UI 已下线时跳过）
   void (async () => {
     try {
+      if (!document.getElementById("quant-r-summary")) return;
       const res = await fetch("/api/quant/r-ridge/model");
       const data = await res.json().catch(() => ({}));
       const sum = document.getElementById("quant-r-summary");

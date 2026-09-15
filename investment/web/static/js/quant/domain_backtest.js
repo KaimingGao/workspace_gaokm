@@ -1,12 +1,12 @@
 import { apiFetch } from "../api_client.js";
 import { renderLineChart, renderDualLineChart, renderMultiLineChart, renderNavBarChart } from "../lw_charts.js";
 import { fmtScore, scoreCls } from "../paper/fmt.js";
-import { renderPaperT0 } from "../paper/t0_ui.js?v=p2397";
+import { renderPaperT0 } from "../paper/t0_ui.js?v=p2426";
 import { portfolioBtScoreFloorPayload as buildBtScoreFloorPayload, mergeScoringFloors } from "./scoring.js";
 import { truncateStockName, watchingNameSpanHtml } from "./names.js";
 import { ensureFitTierMap } from "./fit_tier_ui.js";
 import { downloadBlob } from "../shared.js";
-import { collectPathMatrixForm, collectExecutionForm, readT0BtSizing, fillT0BtSizing } from "../paper/execution_ui.js?v=p2404";
+import { collectPathMatrixForm, collectExecutionForm, readT0BtSizing, fillT0BtSizing } from "../paper/execution_ui.js?v=p2426";
 import { initExecutionRuleForms } from "../paper/execution_forms.js?v=p2389";
 
 const _V =

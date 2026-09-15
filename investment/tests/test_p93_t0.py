@@ -680,19 +680,23 @@ class TestT0Core(unittest.TestCase):
         self.assertNotIn("sell_trigger_pct_sell_then_buy", d)
         self.assertNotIn("sell_trigger_pct_long", d)
         self.assertNotIn("buy_trigger_pct_reverse", d)
-        self.assertEqual(d["y_path_enter"], 0.0)
+        self.assertNotIn("y_path_enter", d)
         self.assertEqual(d["y_tau_enter"], 0.0)
-        self.assertTrue(d["y_use_path"])
-        self.assertEqual(d["y_path_strong"], 5.0)
-        self.assertAlmostEqual(d["y_complexity_max"], 1.0)
-        self.assertAlmostEqual(d["y_cx_max"], 1.0)
-        self.assertAlmostEqual(d["y_tpd_max"], 1.0)
+        self.assertAlmostEqual(d["y_hl_strong"], 5.0)
+        self.assertAlmostEqual(d["y_hl_enter"], 0.0)
+        self.assertNotIn("y_use_hl", d)
+        self.assertNotIn("y_use_path", d)
+        self.assertNotIn("y_path_strong", d)
+        self.assertNotIn("y_complexity_max", d)
+        self.assertNotIn("y_cx_max", d)
+        self.assertNotIn("y_tpd_max", d)
         self.assertTrue(d["y_enter_enabled"])
         self.assertTrue(d["y_enter_alt_enabled"])
         self.assertAlmostEqual(d["y_tau_enter_alt"], 0.0)
-        self.assertAlmostEqual(d["y_path_enter_alt"], 0.0)
-        self.assertAlmostEqual(d["y_tc_enter"], 0.0)
-        self.assertAlmostEqual(d["y_tc_enter_alt"], 0.0)
+        self.assertAlmostEqual(d["y_hl_enter_alt"], 0.0)
+        self.assertNotIn("y_path_enter_alt", d)
+        self.assertNotIn("y_tc_enter", d)
+        self.assertNotIn("y_tc_enter_alt", d)
         self.assertAlmostEqual(d["y_t30_enter"], 0.0)
         self.assertAlmostEqual(d["y_t30_enter_alt"], 0.0)
         self.assertAlmostEqual(d["y_t60_enter"], 0.0)
@@ -701,8 +705,8 @@ class TestT0Core(unittest.TestCase):
         self.assertAlmostEqual(d["y_t90_enter_alt"], 0.0)
         self.assertNotIn("r_tau_enter", d)
         self.assertNotIn("r_tau_enter_alt", d)
-        self.assertAlmostEqual(d["y_complexity_max_alt"], 1.0)
-        self.assertAlmostEqual(d["y_tpd_max_alt"], 1.0)
+        self.assertNotIn("y_complexity_max_alt", d)
+        self.assertNotIn("y_tpd_max_alt", d)
         self.assertNotIn("y_nowcast_oc_gate", d)
         self.assertNotIn("y_nc_enter", d)
         self.assertNotIn("y_nc_strong", d)
@@ -1938,9 +1942,10 @@ class TestDualYDirection(unittest.TestCase):
         self.assertTrue(cfg["y_enter_enabled"])
         self.assertTrue(cfg["y_enter_alt_enabled"])
         self.assertEqual(cfg["y_tau_enter_alt"], 0.0)
-        self.assertEqual(cfg["y_path_enter_alt"], 0.0)
-        self.assertEqual(cfg["y_tc_enter"], 0.0)
-        self.assertEqual(cfg["y_tc_enter_alt"], 0.0)
+        self.assertAlmostEqual(cfg["y_hl_enter_alt"], 0.0)
+        self.assertNotIn("y_path_enter_alt", cfg)
+        self.assertNotIn("y_tc_enter", cfg)
+        self.assertNotIn("y_tc_enter_alt", cfg)
         self.assertEqual(cfg["y_t30_enter"], 0.0)
         self.assertEqual(cfg["y_t30_enter_alt"], 0.0)
         self.assertEqual(cfg["y_t60_enter"], 0.0)
@@ -1948,8 +1953,8 @@ class TestDualYDirection(unittest.TestCase):
         self.assertEqual(cfg["y_t90_enter"], 0.0)
         self.assertEqual(cfg["y_t90_enter_alt"], 0.0)
         self.assertNotIn("r_tau_enter_alt", cfg)
-        self.assertEqual(cfg["y_complexity_max_alt"], 1.0)
-        self.assertEqual(cfg["y_tpd_max_alt"], 1.0)
+        self.assertNotIn("y_complexity_max_alt", cfg)
+        self.assertNotIn("y_tpd_max_alt", cfg)
 
     def test_legacy_r_tau_enter_is_dropped(self):
         cfg = load_t0_rules({"r_tau_enter": 0.5, "r_tau_enter_alt": 1.5})
@@ -1978,9 +1983,10 @@ class TestDualYDirection(unittest.TestCase):
         # 0 = 关闭入场闸（close-band / dual_y 均识别 enter≤0）
         off = load_t0_rules({"y_tau_enter": 0.0, "y_path_enter": 0.0})
         self.assertEqual(off["y_tau_enter"], 0.0)
-        self.assertEqual(off["y_path_enter"], 0.0)
+        self.assertAlmostEqual(off["y_hl_enter"], 0.0)
+        self.assertNotIn("y_path_enter", off)
 
-    def test_enter_pct_range_0_to_100_complexity_0_to_1(self):
+    def test_enter_pct_range_0_to_100_complexity_dropped(self):
         cfg = load_t0_rules(
             {
                 "y_tau_enter": 10.0,
@@ -1989,10 +1995,12 @@ class TestDualYDirection(unittest.TestCase):
             }
         )
         self.assertEqual(cfg["y_tau_enter"], 10.0)
-        self.assertEqual(cfg["y_path_enter"], 12.0)
-        self.assertEqual(cfg["y_complexity_max"], 0.0)
+        self.assertAlmostEqual(cfg["y_hl_enter"], 12.0)
+        self.assertNotIn("y_path_enter", cfg)
+        self.assertNotIn("y_complexity_max", cfg)
         self.assertEqual(cfg["y_tau_enter_alt"], 0.0)
-        self.assertEqual(cfg["y_path_enter_alt"], 0.0)
+        self.assertAlmostEqual(cfg["y_hl_enter_alt"], 0.0)
+        self.assertNotIn("y_path_enter_alt", cfg)
         hi = load_t0_rules(
             {
                 "y_tau_enter": 150.0,
@@ -2002,9 +2010,11 @@ class TestDualYDirection(unittest.TestCase):
             }
         )
         self.assertEqual(hi["y_tau_enter"], 100.0)
-        self.assertEqual(hi["y_path_enter"], 100.0)
+        self.assertAlmostEqual(hi["y_hl_enter"], 100.0)
+        self.assertNotIn("y_path_enter", hi)
         self.assertEqual(hi["y_tau_enter_alt"], 100.0)
-        self.assertEqual(hi["y_path_enter_alt"], 100.0)
+        self.assertAlmostEqual(hi["y_hl_enter_alt"], 100.0)
+        self.assertNotIn("y_path_enter_alt", hi)
 
     def test_side_tau_enter_defaults_follow_base(self):
         cfg = load_t0_rules({"y_tau_enter": 0.4})
@@ -2110,7 +2120,7 @@ class TestDualYDirection(unittest.TestCase):
         self.assertEqual(out.get("direction"), "sell_then_buy")
         self.assertAlmostEqual(float(out.get("direction_score")), -0.78)
 
-        # path 开：OC 与 path 异号 → 跳过（不得用映射后同号蒙混过关）
+        # ŷ_hl 入场闸已下线：OC 与 path 异号不再挡腿
         cfg_path = load_dual_y_lib_cfg(
             {
                 "y_use_path": True,
@@ -2132,8 +2142,8 @@ class TestDualYDirection(unittest.TestCase):
             cash=1e5,
             shares=1000,
         )
-        self.assertTrue(blocked.get("skip"))
-        self.assertIn("异号", blocked.get("direction_reason") or "")
+        self.assertFalse(blocked.get("skip"), blocked.get("direction_reason"))
+        self.assertEqual(blocked.get("direction"), "sell_then_buy")
 
     def test_scores_from_item_y_tau_is_oc_not_mapped(self):
         from core.t0.score_policy import scores_from_item
@@ -3222,7 +3232,7 @@ class TestDualYDirection(unittest.TestCase):
             cost=100,
             cash=50000,
             rules=rules,
-            scores={**_scores_flat(), "y_trade": 1.20, "y_eod": -0.40, "y_path": -8.0},
+            scores={**_scores_flat(), "y_trade": 1.20, "y_eod": -0.40},
             minute_bars=_mins_hl(bar=bar),
         )
         weak = simulate_t0_day(
@@ -3231,7 +3241,7 @@ class TestDualYDirection(unittest.TestCase):
             cost=100,
             cash=50000,
             rules=rules,
-            scores={**_scores_flat(), "y_trade": 0.20, "y_eod": -0.40, "y_path": -8.0},
+            scores={**_scores_flat(), "y_trade": 0.20, "y_eod": -0.40},
             minute_bars=_mins_hl(bar=bar),
         )
         self.assertTrue(strong["success"])
@@ -3299,7 +3309,6 @@ class TestDualYDirection(unittest.TestCase):
         )
         self.assertFalse(out.get("skip"))
         self.assertEqual(out.get("direction"), "buy_then_sell")
-        self.assertIn("y_hl", out.get("direction_reason") or "")
 
     def test_dual_y_path_disagree_skips(self):
         from core.t0.score_policy import resolve_dual_y_direction
@@ -3315,8 +3324,8 @@ class TestDualYDirection(unittest.TestCase):
             cash=50000,
             shares=1000,
         )
-        self.assertTrue(out.get("skip"))
-        self.assertIn("异号", out.get("direction_reason") or "")
+        self.assertFalse(out.get("skip"))
+        self.assertEqual(out.get("direction"), "buy_then_sell")
 
     def test_dual_y_path_below_enter_skips(self):
         from core.t0.score_policy import resolve_dual_y_direction
@@ -3332,9 +3341,8 @@ class TestDualYDirection(unittest.TestCase):
             cash=50000,
             shares=1000,
         )
-        self.assertTrue(out.get("skip"))
-        self.assertIn("y_hl", out.get("direction_reason") or "")
-        self.assertIn("未过门槛", out.get("direction_reason") or "")
+        self.assertFalse(out.get("skip"))
+        self.assertEqual(out.get("direction"), "buy_then_sell")
 
     def test_dual_y_tau_below_enter_skips(self):
         from core.t0.score_policy import resolve_dual_y_direction
@@ -3400,23 +3408,6 @@ class TestDualYDirection(unittest.TestCase):
             cash=50000,
             shares=1000,
         )
-        self.assertTrue(out.get("skip"))
-        self.assertIn("异号", out.get("direction_reason") or "")
-
-    def test_dual_y_path_weak_passes_when_path_off(self):
-        from core.t0.score_policy import resolve_dual_y_direction
-
-        out = resolve_dual_y_direction(
-            scores={"y_trade": 0.3, "y_tau": 0.8, "y_path": 10.0},
-            cfg={
-                "y_tau_enter": 0.25,
-                "y_path_enter": 30.0,
-                "y_use_path": False,
-                "y_block_tau_nowcast_sign": False,
-            },
-            cash=50000,
-            shares=1000,
-        )
         self.assertFalse(out.get("skip"))
         self.assertEqual(out.get("direction"), "buy_then_sell")
 
@@ -3439,8 +3430,25 @@ class TestDualYDirection(unittest.TestCase):
             cash=100000,
             shares=1000,
         )
-        self.assertTrue(out.get("skip"))
-        self.assertIn("未 promote", out.get("direction_reason") or "")
+        self.assertFalse(out.get("skip"))
+        self.assertEqual(out.get("direction"), "buy_then_sell")
+
+    def test_dual_y_path_weak_passes_when_path_off(self):
+        from core.t0.score_policy import resolve_dual_y_direction
+
+        out = resolve_dual_y_direction(
+            scores={"y_trade": 0.3, "y_tau": 0.8, "y_path": 10.0},
+            cfg={
+                "y_tau_enter": 0.25,
+                "y_path_enter": 30.0,
+                "y_use_path": False,
+                "y_block_tau_nowcast_sign": False,
+            },
+            cash=50000,
+            shares=1000,
+        )
+        self.assertFalse(out.get("skip"))
+        self.assertEqual(out.get("direction"), "buy_then_sell")
 
     def test_dual_y_gap_tier_skips_high_gap_reverse(self):
         from core.t0.score_policy import resolve_dual_y_direction
@@ -3917,6 +3925,7 @@ class TestT0Viz(unittest.TestCase):
         self.assertEqual(port["tau_hit"]["miss"], 1)
         self.assertEqual(port["path_hit"]["hit"], 1)
         self.assertEqual(port["path_hit"]["miss"], 1)
+        self.assertEqual(port["y_hl_hit"], port["path_hit"])
         self.assertEqual(port["path_by_pred_sign"]["pred_neg"]["miss"], 1)
 
         all_port = build_backtest_score_portrait(days)

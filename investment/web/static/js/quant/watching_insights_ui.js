@@ -2,7 +2,7 @@
  * 观察池 insights 列格式化与 score 单元格 HTML（纯数据 / 字符串）。
  */
 import { escapeHtml as defaultEscapeHtml } from "../shared.js";
-import { resolveRankingScore, resolveEodScore, resolveTauScore, resolveOnScore, resolveYτcScore, fmtTableScore, isHeuristicScoreScale, Y_EOD_TITLE, Y_TAU_TITLE, Y_ON_TITLE, Y_τc_TITLE } from "../paper/fmt.js?v=p2389";
+import { resolveRankingScore, resolveEodScore, resolveTauScore, resolveOnScore, fmtTableScore, isHeuristicScoreScale, Y_EOD_TITLE, Y_TAU_TITLE, Y_ON_TITLE } from "../paper/fmt.js?v=p2389";
 import { RANKING_TITLE, withQuoteGap } from "./watching_quotes_ui.js?v=p2389";
 
 export function isOosFailedItem(it) {
@@ -95,7 +95,6 @@ export function buildWatchingScoreDisplay(it, fmtScore, watchingScoreDetail) {
   const scoreEodNum = resolveEodScore(it);
   const scoreTauNum = resolveTauScore(it);
   const scoreOnNum = resolveOnScore(it);
-  const scoreNowcastNum = resolveYτcScore(it);
   const belowMin = !!it.below_min_score;
   const singleHead = isSingleHeadItem(it);
   const yCheck = String(it.y_check || "");
@@ -107,7 +106,6 @@ export function buildWatchingScoreDisplay(it, fmtScore, watchingScoreDetail) {
   const scoreEodText = fmtTableScore(it, scoreEodNum);
   const scoreTauText = fmtTableScore(it, scoreTauNum);
   const scoreOnText = fmtTableScore(it, scoreOnNum);
-  const scoreNowcastText = fmtTableScore(it, scoreNowcastNum);
   const scoreTitle = isHeuristicScoreScale(it)
     ? scoreNum != null
       ? "OOS 失败 · 表列组/全局 ŷ% · heuristic 见 tip"
@@ -126,14 +124,11 @@ export function buildWatchingScoreDisplay(it, fmtScore, watchingScoreDetail) {
   const scoreEodTitle = scoreEodNum == null ? "暂无 ŷ_oo" : Y_EOD_TITLE;
   const scoreTauTitle = scoreTauNum == null ? "暂无 ŷ_oc" : Y_TAU_TITLE;
   const scoreOnTitle = scoreOnNum == null ? "暂无 ŷ_co" : Y_ON_TITLE;
-  const scoreNowcastTitle =
-    scoreNowcastNum == null ? "暂无 ŷ_τc" : Y_τc_TITLE;
   return {
     scoreNum,
     scoreEodNum,
     scoreTauNum,
     scoreOnNum,
-    scoreNowcastNum,
     belowMin,
     singleHead,
     yCheck,
@@ -144,16 +139,13 @@ export function buildWatchingScoreDisplay(it, fmtScore, watchingScoreDetail) {
     scoreEodText,
     scoreTauText,
     scoreOnText,
-    scoreNowcastText,
     scoreTitle,
     scoreEodTitle,
     scoreTauTitle,
     scoreOnTitle,
-    scoreNowcastTitle,
     scoreEodCls: scoreClsName(scoreEodNum),
     scoreTauCls: scoreClsName(scoreTauNum),
     scoreOnCls: scoreClsName(scoreOnNum),
-    scoreNowcastCls: scoreClsName(scoreNowcastNum),
   };
 }
 
@@ -183,7 +175,7 @@ export function buildWatchingInsightsGridPatch(it, row, deps) {
   const { fmtScore, scoreCls, parseWatchingVolume, watchingScoreDetail } = deps;
   const excess = formatWatchingExcess(scored);
   const excessTitle = formatWatchingExcessTitle(scored);
-  const { scoreNum, scoreEodNum, scoreTauNum, scoreOnNum, scoreNowcastNum, belowMin, singleHead, yCheck, yCheckFail, dualScoreHead, scoreDetail, scoreText, scoreEodText, scoreTauText, scoreOnText, scoreNowcastText, scoreTitle, scoreEodTitle, scoreTauTitle, scoreOnTitle, scoreNowcastTitle, scoreEodCls, scoreTauCls, scoreOnCls, scoreNowcastCls } =
+  const { scoreNum, scoreEodNum, scoreTauNum, scoreOnNum, belowMin, singleHead, yCheck, yCheckFail, dualScoreHead, scoreDetail, scoreText, scoreEodText, scoreTauText, scoreOnText, scoreTitle, scoreEodTitle, scoreTauTitle, scoreOnTitle, scoreEodCls, scoreTauCls, scoreOnCls } =
     buildWatchingScoreDisplay(scored, fmtScore, watchingScoreDetail);
   const volNum = it.volume != null ? parseWatchingVolume(it.volume) : NaN;
   return {
@@ -201,10 +193,6 @@ export function buildWatchingInsightsGridPatch(it, row, deps) {
     scoreOnNum,
     scoreOnCls,
     scoreOnTitle,
-    scoreNowcast: scoreNowcastText,
-    scoreNowcastNum,
-    scoreNowcastCls,
-    scoreNowcastTitle,
     scoreCls: `${scoreCls(scoreNum)}${singleHead ? " score-single-head" : ""}${
       yCheckFail ? " score-y-check-fail" : ""
     }`.trim(),
@@ -340,22 +328,6 @@ export function buildWatchingOnScoreCellHtml(disp, scoreClsFn, escapeHtml = defa
   );
 }
 
-/** y_τc 列；Kalman nowcast 见 y_nc。 */
-export function buildWatchingNowcastScoreCellHtml(disp, scoreClsFn, escapeHtml = defaultEscapeHtml) {
-  return buildWatchingYScoreCellHtml(
-    {
-      text: disp.scoreNowcastText,
-      num: disp.scoreNowcastNum,
-      title: disp.scoreNowcastTitle,
-      detail: disp.scoreDetail,
-      tip: "r",
-      skin: "nowcast",
-    },
-    scoreClsFn,
-    escapeHtml
-  );
-}
-
 export function buildWatchingInsightsStatusText(okN, total, items, meta) {
   const srcSample = (items || []).find((x) => x && x.weight_source) || {};
   const mode = srcSample.cluster_mode || "";
@@ -384,7 +356,6 @@ export function buildWatchingInsightsGridErrorPatch(d) {
     scoreEod: row.scoreEod === "…" ? "—" : row.scoreEod,
     scoreTau: row.scoreTau === "…" ? "—" : row.scoreTau,
     scoreOn: row.scoreOn === "…" ? "—" : row.scoreOn,
-    scoreNowcast: row.scoreNowcast === "…" ? "—" : row.scoreNowcast,
     stance: row.stance === "…" ? "—" : row.stance,
     excess: row.excess === "…" ? "—" : row.excess,
     volr: row.volr === "…" ? "—" : row.volr,

@@ -1491,14 +1491,14 @@ def simulate_t0_day_slots(
         )
         if not direction:
             continue
-        # |y_τ| / |ŷ_τc| / |y_path| 入场（path 可关）；ŷ 用该根前缀
+        # |y_τ| / |y_path| 入场（path 可关）；ŷ 用该根前缀
         enter_skip = close_band_enter_skip_reason(
             gate_snap, cfg, direction=direction, r_pct=band_meta.get("r_pct")
         )
         if enter_skip:
             last_enter_skip = enter_skip
             continue
-        # |y_path|>y_path_strong 须与 y_τ 同号（trade/eod 强闸已下线）
+        # |y_hl|>y_hl_strong 须与 y_τ 同号（trade/eod 强闸已下线）
         sign_skip = close_band_sign_skip_reason(gate_snap, cfg)
         if sign_skip:
             last_sign_skip = sign_skip

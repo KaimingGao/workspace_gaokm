@@ -1134,17 +1134,29 @@ def side_tau_enter(cfg: dict, *, for_buy_then_sell: bool) -> float:
     return max(0.0, v)
 
 
-def side_path_enter(cfg: dict, *, for_buy_then_sell: bool) -> float:
-    """正/反 path 入场；缺省回退 y_path_enter（再缺则用对应侧 τ enter）。
+def side_hl_enter(cfg: dict, *, for_buy_then_sell: bool) -> float:
+    """正/反 y_hl 入场；缺省回退 y_hl_enter（再缺则旧 y_path_enter / 对应侧 τ enter）。
 
-    返回值 ≥0；0 表示关闭该侧 path 入场闸。
+    返回值 ≥0；0 表示关闭该侧 HL 入场闸。
     """
     tau_side = side_tau_enter(cfg, for_buy_then_sell=for_buy_then_sell)
-    base = _cfg_float(cfg, "y_path_enter", tau_side)
-    key = "y_path_enter_buy_then_sell" if for_buy_then_sell else "y_path_enter_sell_then_buy"
-    raw = _f(cfg.get(key))
+    base = _f(cfg.get("y_hl_enter"))
+    if base is None:
+        base = _cfg_float(cfg, "y_path_enter", tau_side)
+    key_new = "y_hl_enter_buy_then_sell" if for_buy_then_sell else "y_hl_enter_sell_then_buy"
+    key_old = (
+        "y_path_enter_buy_then_sell" if for_buy_then_sell else "y_path_enter_sell_then_buy"
+    )
+    raw = _f(cfg.get(key_new))
+    if raw is None:
+        raw = _f(cfg.get(key_old))
     v = float(base if raw is None else raw)
     return max(0.0, v)
+
+
+def side_path_enter(cfg: dict, *, for_buy_then_sell: bool) -> float:
+    """兼容旧名；等同 side_hl_enter。"""
+    return side_hl_enter(cfg, for_buy_then_sell=for_buy_then_sell)
 
 
 def enters_for_y_tau(cfg: dict, y_tau: float) -> Tuple[float, float, bool]:
@@ -2823,8 +2835,8 @@ def resolve_dual_y_direction(
         _tau_cc_for_sign_gate(float(y_tau), gap_pct) if y_tau is not None else None
     )
 
-    use_path = bool(cfg.get("y_use_path", True))
-    path_required = bool(cfg.get("y_path_required", False))
+    use_path = False
+    path_required = False
     use_nowcast_oc = coerce_cfg_bool(cfg.get("y_nowcast_oc_gate"), False)
 
     features = {

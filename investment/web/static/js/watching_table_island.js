@@ -12,7 +12,6 @@ function compare(id, a, b) {
   if (id === "score_eod") return numSortKey(a, "scoreEodNum") - numSortKey(b, "scoreEodNum");
   if (id === "score_tau") return numSortKey(a, "scoreTauNum") - numSortKey(b, "scoreTauNum");
   if (id === "score_on") return numSortKey(a, "scoreOnNum") - numSortKey(b, "scoreOnNum");
-  if (id === "score_nowcast") return numSortKey(a, "scoreNowcastNum") - numSortKey(b, "scoreNowcastNum");
   if (id === "vol") return numSortKey(a, "volNum") - numSortKey(b, "volNum");
   if (id === "excess") return numSortKey(a, "excessNum") - numSortKey(b, "excessNum");
   if (id === "chg") return numSortKey(a, "chgNum") - numSortKey(b, "chgNum");
@@ -99,16 +98,6 @@ const COLS = [
     headClass: "watching-col-y",
     cellClass: "watching-col-y",
     title: "ŷ_co · close[T]→open[T+1]（对照）",
-  },
-  {
-    id: "score_nowcast",
-    label: "y_τc",
-    width: 82,
-    num: true,
-    sortable: true,
-    headClass: "watching-col-y",
-    cellClass: "watching-col-y",
-    title: "ŷ_τc · close[T]/price(τ)−1 · 与 remaining(ŷ_oc) 融合成 R̂_τ / ĉ",
   },
   {
     id: "score",
@@ -274,33 +263,27 @@ export async function mountWatchingTableIsland(host, options = {}) {
           `${escapeHtml(text)}${badges.join("")}</span>`
         );
       }
-      if (col.id === "score_eod" || col.id === "score_tau" || col.id === "score_on" || col.id === "score_nowcast") {
-        const tipMap = { score_eod: "eod", score_tau: "tau", score_on: "on", score_nowcast: "r" };
-        const skinMap = { score_eod: "eod", score_tau: "tau", score_on: "on", score_nowcast: "nowcast" };
+      if (col.id === "score_eod" || col.id === "score_tau" || col.id === "score_on") {
+        const tipMap = { score_eod: "eod", score_tau: "tau", score_on: "on" };
+        const skinMap = { score_eod: "eod", score_tau: "tau", score_on: "on" };
         const textKey =
           col.id === "score_eod"
             ? "scoreEod"
             : col.id === "score_tau"
               ? "scoreTau"
-              : col.id === "score_on"
-                ? "scoreOn"
-                : "scoreNowcast";
+              : "scoreOn";
         const clsKey =
           col.id === "score_eod"
             ? "scoreEodCls"
             : col.id === "score_tau"
               ? "scoreTauCls"
-              : col.id === "score_on"
-                ? "scoreOnCls"
-                : "scoreNowcastCls";
+              : "scoreOnCls";
         const titleKey =
           col.id === "score_eod"
             ? "scoreEodTitle"
             : col.id === "score_tau"
               ? "scoreTauTitle"
-              : col.id === "score_on"
-                ? "scoreOnTitle"
-                : "scoreNowcastTitle";
+              : "scoreOnTitle";
         const text = d[textKey] != null && d[textKey] !== "" ? String(d[textKey]) : "—";
         const detail = d.scoreDetail || "";
         const title = d[titleKey] || "";

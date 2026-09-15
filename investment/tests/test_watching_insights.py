@@ -217,7 +217,7 @@ class TestWatchingInsights(unittest.TestCase):
         self.assertEqual(item["pb"], 7.1)
 
     def test_insight_passes_y_τc(self):
-        """数据中心表列 resolveYτcScore 读 y_τc；须从 score_item 透传到 insights。"""
+        """insights 仍透传 y_τc 给 tip；主表不再列。"""
         from core.watching.insights import build_watching_insights
 
         fake_score = {

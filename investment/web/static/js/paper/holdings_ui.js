@@ -9,20 +9,15 @@ import {
   fmtPct,
   metricCls,
   fmtTableScore,
-  fmtPathScore,
   scoreCls,
   resolveRankingScore,
   resolveEodScore,
   resolveTauScore,
-  resolvePathScore,
   resolveOnScore,
-  resolveYτcScore,
   isHeuristicScoreScale,
   Y_EOD_TITLE,
   Y_TAU_TITLE,
-  Y_HL_TITLE,
   Y_ON_TITLE,
-  Y_τc_TITLE,
 } from "./fmt.js?v=p2389";
 import { paginateItems, renderPagerHtml } from "../api_client.js";
 import { watchingScoreDetail } from "../quant/watching_render.js?v=p2389";
@@ -118,12 +113,8 @@ export function buildPaperHoldingsTableHtml({
             ? `${Y_EOD_TITLE} · 点击排序`
             : key === "score_tau"
               ? `${Y_TAU_TITLE} · 点击排序`
-            : key === "score_path"
-              ? `${Y_HL_TITLE} · 点击排序`
             : key === "score_on"
               ? `${Y_ON_TITLE} · 点击排序`
-            : key === "score_nowcast"
-              ? `${Y_τc_TITLE} · 点击排序`
             : key === "pnl"
             ? "浮盈亏 = 现价 − 成本价（相对成本的浮动盈亏 %）· 点击排序"
             : key === "chg"
@@ -148,9 +139,7 @@ export function buildPaperHoldingsTableHtml({
       const score = resolveRankingScore(h);
       const scoreEod = resolveEodScore(h);
       const scoreTau = resolveTauScore(h);
-      const scorePath = resolvePathScore(h);
       const scoreOn = resolveOnScore(h);
-      const scoreNowcast = resolveYτcScore(h);
       const belowMin = !!h.below_min_score;
       const hardReject = !!h.hard_reject;
       const scoreBase = fmtTableScore(h, score);
@@ -159,9 +148,7 @@ export function buildPaperHoldingsTableHtml({
       if (scoreShown === "—" && hardReject) scoreShown = "拒";
       const scoreEodShown = fmtTableScore(h, scoreEod);
       const scoreTauShown = fmtTableScore(h, scoreTau);
-      const scorePathShown = fmtPathScore(scorePath);
       const scoreOnShown = fmtTableScore(h, scoreOn);
-      const scoreNowcastShown = fmtTableScore(h, scoreNowcast);
       const singleHead = isSingleHeadItem(h);
       const scoreTitle = hardReject
         ? String(h.reject_reason || "硬拒绝 · 无收益分")
@@ -185,10 +172,7 @@ export function buildPaperHoldingsTableHtml({
       const yCheckBadge = yCheckBadgeHtml(h, escapeText);
       const scoreEodTitle = scoreEod == null ? "暂无 ŷ_oo" : Y_EOD_TITLE;
       const scoreTauTitle = scoreTau == null ? "暂无 ŷ_oc" : Y_TAU_TITLE;
-      const scorePathTitle = scorePath == null ? "暂无 ŷ_hl" : Y_HL_TITLE;
       const scoreOnTitle = scoreOn == null ? "暂无 ŷ_co" : Y_ON_TITLE;
-      const scoreNowcastTitle =
-        scoreNowcast == null ? "暂无 ŷ_τc" : Y_τc_TITLE;
       const origin = String(h.origin || "");
       const originLabel = h.origin_label || "—";
       const originTitle = ORIGIN_HINT[origin] || "早期记录未标出处";
@@ -273,16 +257,6 @@ export function buildPaperHoldingsTableHtml({
         )}" data-score-detail="${scoreDetailJson}" data-score-tip="on" title="${escapeText(
           scoreOnTitle
         )}">${escapeText(scoreOnShown)}</td>` +
-        `<td class="num paper-hold-score watching-score-nowcast has-tip ${scoreCls(
-          scoreNowcast
-        )}" data-score-detail="${scoreDetailJson}" data-score-tip="r" title="${escapeText(
-          scoreNowcastTitle
-        )}">${escapeText(scoreNowcastShown)}</td>` +
-        `<td class="num paper-hold-score watching-score-path has-tip ${scoreCls(
-          scorePath
-        )}" data-score-detail="${scoreDetailJson}" data-score-tip="path" title="${escapeText(
-          scorePathTitle
-        )}">${escapeText(scorePathShown)}</td>` +
         `<td class="num paper-hold-score has-tip ${scoreCls(score)}${
           belowMin ? " score-below-min" : ""
         }${hardReject ? " score-reject" : ""}${
@@ -330,8 +304,6 @@ export function buildPaperHoldingsTableHtml({
     `${sortThHtml("y_oo", "score_eod")}` +
     `${sortThHtml("y_oc", "score_tau")}` +
     `${sortThHtml("y_co", "score_on")}` +
-    `${sortThHtml("y_τc", "score_nowcast")}` +
-    `${sortThHtml("y_hl", "score_path")}` +
     `${sortThHtml("ranking", "score")}` +
     `<th title="持仓加权平均成本">成本</th>` +
     `${sortThHtml("市值", "market_value")}` +

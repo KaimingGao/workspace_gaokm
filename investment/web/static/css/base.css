@@ -3856,7 +3856,7 @@ html[data-density="compact"] .table-pager {
 
 .rebalance-table {
   /* 股票略宽，其余 11 列等分；下限防挤扁，多余宽度均分 */
-  --rebalance-cols: minmax(6.75rem, 1.15fr) repeat(11, minmax(4.25rem, 1fr));
+  --rebalance-cols: minmax(6.75rem, 1.15fr) repeat(10, minmax(4.25rem, 1fr));
   width: 100%;
   min-width: 60rem;
   font-size: 0.78rem;

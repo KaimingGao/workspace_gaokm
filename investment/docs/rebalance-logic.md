@@ -51,7 +51,7 @@
 | **ranking** | w_oo·ŷ_oo + w_oc·((1+ŷ_oc)(1+w_co·ŷ_co)−1) | 调仓排序。ŷ 为净收益；w_co 默认 0 |
 | **residual** | w_τc·ŷ_τc + w_oc·remaining(ŷ_oc) | 研究对照。做 T 主分是 ŷ_oc 估 ĉ + 超额带宽；ŷ_τc 只做可选旁路闸 |
 | ŷ_co | 隔夜 close[T]→open[T+1] | 经 w_co 几何叠进 ŷ_oc；w_co=0 时不进 ranking |
-| ŷ_hl / ŷ_cx / ŷ_tpd（旧名 ŷ_path / ŷ_complexity） | 分钟K形状旁路 | **不做**策略调仓闸；只进底仓做 T（极值序准入 / 曲折度·TPD 风险闸） |
+| ŷ_hl / ŷ_cx / ŷ_tpd（旧名 ŷ_path / ŷ_complexity） | 分钟K形状 | **不做**策略调仓闸。ŷ_hl 进底仓做 T 同号闸/入场；ŷ_cx / ŷ_tpd 暂不入闸 |
 
 未买但 ranking ≥ 0 → **续持**，不因排名靠后而卖。
 

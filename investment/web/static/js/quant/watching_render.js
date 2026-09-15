@@ -275,18 +275,6 @@ export function watchingScoreDetail(it) {
     nowcast_x_prior: it && it.nowcast_x_prior,
     predicted_score_eod: it && it.predicted_score_eod,
     predicted_score_on: it && it.predicted_score_on,
-    predicted_score_path: it && (it.predicted_score_hl != null ? it.predicted_score_hl : (it.predicted_score_path != null ? it.predicted_score_path : it.y_hl != null ? it.y_hl : it.y_path)),
-    y_path: it && (it.y_hl != null ? it.y_hl : it.y_path),
-    y_hl: it && (it.y_hl != null ? it.y_hl : it.y_path),
-    y_path_status: (it && (it.y_hl_status || it.y_path_status)) || null,
-    y_path_error: (it && (it.y_hl_error || it.y_path_error)) || null,
-    features_path: (it && it.features_path) || null,
-    formula_terms_path: slimFormulaTerms(
-      (it && (it.formula_terms_path || it.score_formula_terms_path)) || null,
-      12
-    ),
-    path_tip_model: (it && it.path_tip_model) || null,
-    y_path_enter: it && it.y_path_enter != null ? it.y_path_enter : null,
     predicted_score: it && it.predicted_score != null ? it.predicted_score : it && it.score,
     score: it && it.score != null ? it.score : it && it.predicted_score,
     predicted_score_blend: it && it.predicted_score_blend,
@@ -604,13 +592,6 @@ export function renderWatchingWatchTableFallback(rows, { onPickCountUpdate } = {
         )}" title="${escapeHtml(
           d.scoreOnTitle || "ŷ_co"
         )}">${escapeHtml(String(d.scoreOn ?? "—"))}</td>` +
-        `<td class="num watching-col-num watching-score-cell watching-score-nowcast paper-hold-score has-tip ${escapeHtml(
-          d.scoreNowcastCls || ""
-        )}" data-q="score_nowcast" data-score-tip="r" data-score-detail="${escapeHtml(
-          d.scoreDetail || ""
-        )}" title="${escapeHtml(
-          d.scoreNowcastTitle || "ŷ_τc"
-        )}">${escapeHtml(String(d.scoreNowcast ?? "—"))}</td>` +
         (() => {
           const singleHead = !!d.scoreSingleHead;
           const head = d.dualScoreHead || "";
@@ -658,7 +639,6 @@ export function renderWatchingWatchTableFallback(rows, { onPickCountUpdate } = {
     `<th class="watching-col-num" title="ŷ_oo · open[T]→open[T+1]">y_oo</th>` +
     `<th class="watching-col-num" title="ŷ_oc · open[T]→close[T]">y_oc</th>` +
     `<th class="watching-col-num" title="ŷ_co · close[T]→open[T+1]">y_co</th>` +
-    `<th class="watching-col-num" title="ŷ_τc · price(τ)→close[T]">y_τc</th>` +
     `<th class="watching-col-num" title="ranking · w·ŷ_oo + w·(ŷ_oc∘w_co·ŷ_co)">ranking</th>` +
     `<th title="规则倾向（买入 / 观望等），不是 ŷ 本身">倾向</th>` +
     `<th class="watching-col-num" title="相对基准（指数）的超额收益">超额</th>` +
@@ -736,10 +716,6 @@ export function buildWatchingWatchRows(wl, names, paperCodes, scores, deps) {
       scoreOnNum: null,
       scoreOnCls: "",
       scoreOnTitle: "暂无 ŷ_co",
-      scoreNowcast: "…",
-      scoreNowcastNum: null,
-      scoreNowcastCls: "",
-      scoreNowcastTitle: "暂无 nowcast · 有 ŷ_oo 与 ŷ_oc 后可见",
       stance: "…",
       excess: "…",
       excessNum: null,

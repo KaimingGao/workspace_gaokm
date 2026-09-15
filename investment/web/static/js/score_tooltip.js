@@ -15,7 +15,6 @@ import {
   resolveNowcastScore,
   resolveNowcastCcScore,
   resolveOnScore,
-  resolvePathScore,
   resolveTauLiftedScore,
   resolveTauScore,
   resolveRankingScore,
@@ -26,12 +25,12 @@ import {
   blendYtw,
   yTwSign,
   fmtYtwVote,
+  resolvePathScore,
   compoundPct,
-  fmtPathScore,
-  Y_HL_TITLE,
   Y_NC_TITLE,
   Y_NC_OC_TITLE,
-} from "./paper/fmt.js?v=p2404";
+  Y_HL_TITLE,
+} from "./paper/fmt.js?v=p2426";
 import { hydrateTailAnomalyCharts } from "./tail_anomaly_chart.js";
 import { ON_FEAT_META } from "./quant/factor_meta.js?v=p1226";
 
@@ -159,52 +158,9 @@ const TAU_FEAT_LABELS = {
   tau_elapsed_min: "τ距开盘分钟",
   sector_ret_to_tau: "板块中位开→τ %",
   ret_vs_sector: "开→τ 相对板块 %",
-};
-
-const PATH_FEAT_LABELS = {
-  gap_pct: "跳空 %",
-  sector_gap_breadth: "同业缺口广度",
-  theme_day: "主题日",
-  gap_atr: "缺口 / ATR",
-  gap_vs_sector: "行业相对缺口",
-  yclose_loc: "昨收位置",
-  mom3_pct: "近3日动量 %",
-  path_lag1: "昨真实极值序 %",
-  path_ma5: "近5日真实极值序均 %",
-    complexity_lag1: "昨真实曲折度",
-    complexity_ma5: "近5日真实曲折度均",
-    tpd_lag1: "昨真实反转密度",
-    tpd_ma5: "近5日真实反转密度均",
-    cx_lag1: "昨真实曲折度",
-    cx_ma5: "近5日真实曲折度均",
-  ret_open_to_tau: "开盘→τ 收益 %",
-  ret_prev_to_tau: "昨收→τ 收益 %",
-  range_pct: "前缀振幅 %",
-  loc_hl: "HL 位置 0–1",
-  up_extent: "相对开盘上探 %",
-  down_extent: "相对开盘下探 %",
-  path_sign: "路径符号(+先低后高)",
-  pullback_from_high: "自高回撤 %",
-  bounce_from_low: "自低反弹 %",
-  ret_last_15m: "近15m 收益 %",
-  realized_vol: "前缀已实现波动 %",
-  vol_last3_vs_avg: "近3根量/均量",
-  tau_elapsed_min: "τ距开盘分钟",
-  sector_ret_to_tau: "板块中位开→τ %",
-  ret_vs_sector: "开→τ 相对板块 %",
   t_hi_frac: "最高点相对前缀进度",
   t_lo_frac: "最低点相对前缀进度",
 };
-
-function resolvePathEnter(raw) {
-  const pathEnterRaw =
-    raw && raw.y_path_enter != null
-      ? Number(raw.y_path_enter)
-      : raw && raw.rules && raw.rules.y_path_enter != null
-        ? Number(raw.rules.y_path_enter)
-        : 0.02;
-  return Number.isFinite(pathEnterRaw) ? pathEnterRaw : 0.02;
-}
 
 /** ŷ_oo：表列 score · 含因子组成。 */
 export function formatScoreHero(raw) {
@@ -273,11 +229,7 @@ function termFeatLabel(t, key) {
   if (key === "on" && k && ON_FEAT_META[k] && ON_FEAT_META[k].label) {
     return ON_FEAT_META[k].label;
   }
-  // path/τ：优先中文名表，避免后端旧 payload 把 label 写成英文 key
-  if (key === "path" && k && PATH_FEAT_LABELS[k]) {
-    return PATH_FEAT_LABELS[k];
-  }
-  if ((key === "tau" || key === "r" || key === "t30" || key === "t60" || key === "t90") && k && TAU_FEAT_LABELS[k]) {
+  if ((key === "tau" || key === "r" || key === "t30" || key === "t60" || key === "t90" || key === "path" || key === "hl") && k && TAU_FEAT_LABELS[k]) {
     return TAU_FEAT_LABELS[k];
   }
   if (t && t.label && String(t.label) !== String(k || "")) {
@@ -286,7 +238,6 @@ function termFeatLabel(t, key) {
   return (
     FACTOR_LABELS[k] ||
     TAU_FEAT_LABELS[k] ||
-    PATH_FEAT_LABELS[k] ||
     (t && t.label) ||
     k ||
     "—"
@@ -318,111 +269,6 @@ function formatCompactEodTip(raw) {
     gate +
     `</div>`
   );
-}
-
-/** y_path 列 tip：头值=拟合原值（=组成合计=表列）；因子表见 formatFormulaTermsSection。 */
-function formatCompactPathTip(raw) {
-  const fit = resolvePathScore(raw);
-  const fitTxt = fit == null ? "—" : fmtPathScore(fit);
-  const pathEnter = resolvePathEnter(raw);
-  const below = fit != null && Math.abs(fit) <= pathEnter;
-  let bias = "";
-  if (fit != null && Number.isFinite(fit) && Math.abs(fit) > pathEnter) {
-    bias = fit > 0 ? "先低后高·正T" : "先高后低·反T";
-  }
-  const status = String((raw && raw.y_path_status) || "");
-  const statusNote =
-    status && status !== "ok"
-      ? ` · ${(raw && raw.y_path_error) || status}`
-      : "";
-  let gate = "";
-  if (pathEnter != null) {
-    gate = `<div class="score-hero-gate${below ? " is-warn" : ""}">path 准入：与 τ 同号且各过 enter（path ${escapeText(
-      String(pathEnter)
-    )}%）${below ? " · path未过下限" : ""}${
-      bias ? ` · ${escapeText(bias)}` : ""
-    }</div>`;
-  }
-  return (
-    `<div class="score-layer score-layer-path">` +
-    `<div class="score-layer-head">` +
-    `<div class="score-hero-label">ŷ_hl · 极值序（拟合）</div>` +
-    `<div class="score-hero-value ${signCls(fit)}">${escapeText(fitTxt)}</div>` +
-    `</div>` +
-    `<div class="score-hero-hint">signed range% · 与表列 / 组成合计 / path 闸同口径${escapeText(
-      statusNote
-    )}</div>` +
-    gate +
-    `</div>`
-  );
-}
-
-/** 缺 formula_terms_path 时用 path_tip_model + 开盘特征现场重算组成。 */
-function rebuildPathFormulaTerms(raw) {
-  const existing =
-    (raw && (raw.formula_terms_path || raw.score_formula_terms_path)) || null;
-  if (
-    existing &&
-    typeof existing === "object" &&
-    Array.isArray(existing.terms) &&
-    existing.terms.length
-  ) {
-    return existing;
-  }
-  const model = (raw && raw.path_tip_model) || null;
-  if (!model || typeof model !== "object") return null;
-  const coefs = model.coefficients || {};
-  const means = model.zscore_means || {};
-  const stds = model.zscore_stds || {};
-  const active = Array.isArray(model.active_features)
-    ? model.active_features
-    : Object.keys(coefs);
-  const feats =
-    (raw && raw.features_path) ||
-    (raw && raw.features_tau) ||
-    {};
-  const intercept = Number(model.intercept) || 0;
-  const terms = [];
-  let total = intercept;
-  for (const name of active) {
-    if (coefs[name] == null) continue;
-    const beta = Number(coefs[name]);
-    if (!Number.isFinite(beta)) continue;
-    let z = 0;
-    let note = "";
-    const v = feats[name];
-    if (v == null || v === "") {
-      note = "缺特征·z≈0";
-    } else {
-      const fv = Number(v);
-      if (!Number.isFinite(fv)) {
-        note = "缺特征·z≈0";
-      } else {
-        const mu = Number(means[name]) || 0;
-        let sd = Number(stds[name]);
-        if (!Number.isFinite(sd) || Math.abs(sd) < 1e-9) sd = 1;
-        z = (fv - mu) / sd;
-      }
-    }
-    const contrib = beta * z;
-    total += contrib;
-    terms.push({
-      key: String(name),
-      label: PATH_FEAT_LABELS[name] || name,
-      beta,
-      z,
-      contrib,
-      ...(note ? { note } : {}),
-    });
-  }
-  if (!terms.length && Math.abs(intercept) < 1e-12) return null;
-  terms.sort((a, b) => Math.abs(b.contrib) - Math.abs(a.contrib));
-  return {
-    intercept,
-    terms: terms.slice(0, 16),
-    total,
-    head: "path",
-  };
 }
 
 function pickTauToPct(raw) {
@@ -591,6 +437,14 @@ function hasT30FormulaTerms(raw) {
     raw &&
     ((raw.formula_terms_t30 && (raw.formula_terms_t30.terms || []).length) ||
       (raw.score_formula_terms_t30 && (raw.score_formula_terms_t30.terms || []).length))
+  );
+}
+
+function hasPathFormulaTerms(raw) {
+  return !!(
+    raw &&
+    ((raw.formula_terms_path && (raw.formula_terms_path.terms || []).length) ||
+      (raw.score_formula_terms_path && (raw.score_formula_terms_path.terms || []).length))
   );
 }
 
@@ -815,6 +669,43 @@ function formatCompactT30Tip(raw) {
     (rows.length
       ? `<div class="score-layer-compose">${rows.join("")}</div>`
       : "") +
+    `</div>`
+  );
+}
+
+function formatCompactHlTip(raw) {
+  const fit = resolvePathScore(raw);
+  const fitTxt = fit == null ? "—" : `${fmtSigned(fit, 3)}%`;
+  const hasTerms = hasPathFormulaTerms(raw);
+  const realRaw = raw && (raw.path_realized ?? raw.y_path_realized ?? raw.hl_realized);
+  const real =
+    realRaw != null && Number.isFinite(Number(realRaw)) ? Number(realRaw) : null;
+  const rows = [];
+  if (real != null) {
+    const agree =
+      fit != null && Math.abs(fit) > 1e-12 && Math.abs(real) > 1e-12
+        ? fit * real > 0
+          ? "同号"
+          : "异号"
+        : "";
+    rows.push(
+      `<div class="score-layer-row"><span>真实极值序</span>` +
+        `<span class="num ${signCls(real)}">${escapeText(fmtSigned(real, 3))}%${
+          agree ? ` · ${agree}` : ""
+        }</span></div>`
+    );
+  }
+  const hint = hasTerms
+    ? `${escapeText(Y_HL_TITLE)} · Ridge path`
+    : escapeText(Y_HL_TITLE);
+  return (
+    `<div class="score-layer score-layer-hl">` +
+    `<div class="score-layer-head">` +
+    `<div class="score-hero-label">ŷ_hl · 极值序</div>` +
+    `<div class="score-hero-value ${signCls(fit)}">${escapeText(fitTxt)}</div>` +
+    `</div>` +
+    `<div class="score-hero-hint">${hint}</div>` +
+    (rows.length ? `<div class="score-layer-compose">${rows.join("")}</div>` : "") +
     `</div>`
   );
 }
@@ -1646,10 +1537,10 @@ export function formatFormulaTermsSection(raw, opts = {}) {
             ? raw && (raw.formula_terms_t60 || raw.score_formula_terms_t60)
             : key === "t90"
             ? raw && (raw.formula_terms_t90 || raw.score_formula_terms_t90)
+            : key === "path" || key === "hl"
+              ? raw && (raw.formula_terms_path || raw.score_formula_terms_path)
             : key === "on"
           ? raw && (raw.formula_terms_on || raw.score_formula_terms_on)
-          : key === "path"
-            ? raw && (raw.formula_terms_path || raw.score_formula_terms_path)
             : raw && (raw.formula_terms || raw.score_formula_terms);
   if (!expl || typeof expl !== "object") return "";
   const terms = Array.isArray(expl.terms) ? expl.terms : [];
@@ -1666,10 +1557,10 @@ export function formatFormulaTermsSection(raw, opts = {}) {
             ? "ŷ_τ60 组成"
           : key === "t90"
             ? "ŷ_τ90 组成"
+          : key === "path" || key === "hl"
+            ? "ŷ_hl 组成"
           : key === "on"
           ? "ŷ_co 组成"
-          : key === "path"
-            ? "ŷ_hl 组成"
             : "ŷ_oo 组成";
   const totalLabel =
     key === "tau"
@@ -1682,10 +1573,10 @@ export function formatFormulaTermsSection(raw, opts = {}) {
             ? "合计 ŷ_τ60（τ⊕60m/τ价）"
           : key === "t90"
             ? "合计 ŷ_τ90（τ⊕90m/τ价）"
+          : key === "path" || key === "hl"
+            ? "合计 ŷ_hl（极值序）"
           : key === "on"
           ? "合计 ŷ_co"
-          : key === "path"
-            ? "合计 ŷ_hl"
             : "合计 ŷ_oo";
 
   const rows = terms
@@ -1756,8 +1647,8 @@ export function formatFormulaTermsSection(raw, opts = {}) {
             ? "β×z = 贡献；合计=Ridge 拟合原值（price(τ⊕60m)/price(τ)−1）。做 T 旁路，不进 C_τ。"
           : key === "t90"
             ? "β×z = 贡献；合计=Ridge 拟合原值（price(τ⊕90m)/price(τ)−1）。做 T 旁路，不进 C_τ。"
-          : key === "path"
-          ? "β×z = 贡献；合计=path_ridge 拟合原值（signed range%），与表列 y_path / dual_y 闸同口径。"
+          : key === "path" || key === "hl"
+            ? "β×z = 贡献；合计=Ridge 拟合原值（极值序 signed (H−L)/ref%）。做 T 同号闸 / 入场。"
           : "β×z = 贡献；条长∝|贡献|";
   const role = String((expl && expl.model_role) || "").toLowerCase();
   const alphaName =
@@ -1786,9 +1677,7 @@ export function formatFormulaTermsSection(raw, opts = {}) {
     `<td class="score-ft-name">${escapeText(totalLabel)}</td>` +
     `<td class="num">—</td>` +
     `<td class="num">—</td>` +
-    `<td class="num ${signCls(expl.total)}">${escapeText(
-      key === "path" ? total : `${total}%`
-    )}</td>` +
+    `<td class="num ${signCls(expl.total)}">${escapeText(`${total}%`)}</td>` +
     `</tr>` +
     `</tbody></table>` +
     `<div class="score-formula-caption">${escapeText(caption)}</div>` +
@@ -2309,7 +2198,7 @@ export function formatT0DirectionDetail(raw) {
     `<div class="score-hero-value ${signCls(score)}">${escapeText(scoreTxt)}</div>` +
     `<div class="score-hero-hint">收益百分点 · 与表列 ŷ% 同口径 · dual_y 主方向</div>` +
     `<div class="score-hero-semantics">` +
-    `语义：τ 定正/反 T；trade/τ/path/eod 各独立下限；path 开时 τ·path 同号且双过闸；|eod|&gt;强闸须与 τ 同号` +
+    `语义：τ 定正/反 T；ŷ_oc / ŷ_τ30 / ŷ_τ60 / ŷ_τ90 过入场；选腿仅收盘带宽` +
     `</div>` +
     `<div class="score-hero-gate">门槛 ±${escapeText(String(enter))}% · ${escapeText(
       decision
@@ -2321,30 +2210,18 @@ export function formatT0DirectionDetail(raw) {
   const yKeys = [
     ["y_eod", "y_oo"],
     ["y_tau", "y_oc"],
-    ["y_hl", "y_hl"],
     ["y_trade", "y_trade"],
     ["y_on", "y_co"],
     ["y_nowcast", "nowcast"],
   ];
-  const pathEnter = resolvePathEnter(raw);
   const yRows = yKeys
     .map(([k, label]) => {
-      const v =
-        k === "y_hl"
-          ? feats.y_hl ?? scores.y_hl ?? feats.y_path ?? scores.y_path
-          : feats[k] ?? scores[k];
+      const v = feats[k] ?? scores[k];
       if (v == null || v === "") return "";
       const n = Number(v);
-      let txt;
-      let hint = "";
-      if (k === "y_hl") {
-        txt = Number.isFinite(n) ? fmtPathScore(n) : String(v);
-        hint = `${Y_HL_TITLE} · |y_hl|>${pathEnter}`;
-      } else {
-        txt = Number.isFinite(n) ? `${fmtSigned(n, 3)}%` : String(v);
-      }
+      const txt = Number.isFinite(n) ? `${fmtSigned(n, 3)}%` : String(v);
       return (
-        `<div class="score-row"${hint ? ` title="${escapeText(hint)}"` : ""}>` +
+        `<div class="score-row">` +
         `<span class="k">${escapeText(label)}</span>` +
         `<span class="v ${signCls(n)}">${escapeText(txt)}</span></div>`
       );
@@ -2573,9 +2450,9 @@ export function createScoreTooltipController() {
     if (tip === "t30" || tip === "τ30" || tip === "yt30") return "t30";
     if (tip === "t60" || tip === "τ60" || tip === "yt60") return "t60";
     if (tip === "t90" || tip === "τ90" || tip === "yt90") return "t90";
+    if (tip === "hl" || tip === "path" || tip === "yhl") return "hl";
     if (tip === "tw" || tip === "τw" || tip === "ytw") return "tw";
     if (tip === "rtau" || tip === "r_tau" || tip === "rhat") return "rtau";
-    if (tip === "path") return "path";
     if (tip === "on") return "on";
     if (tip === "ranking" || tip === "trade" || tip === "score") return "ranking";
     if (cell.classList.contains("watching-score-eod")) return "eod";
@@ -2586,11 +2463,6 @@ export function createScoreTooltipController() {
       cell.classList.contains("paper-t0-col-rtau")
     )
       return "rtau";
-    if (
-      cell.classList.contains("paper-t0-col-y-r") ||
-      cell.classList.contains("paper-t0-col-yr")
-    )
-      return "r";
     if (
       cell.classList.contains("paper-t0-col-y-t30") ||
       cell.classList.contains("paper-t0-col-yt30")
@@ -2607,11 +2479,15 @@ export function createScoreTooltipController() {
     )
       return "t90";
     if (
+      cell.classList.contains("paper-t0-col-y-hl") ||
+      cell.classList.contains("paper-t0-col-yhl")
+    )
+      return "hl";
+    if (
       cell.classList.contains("paper-t0-col-y-tw") ||
       cell.classList.contains("paper-t0-col-ytw")
     )
       return "tw";
-    if (cell.classList.contains("watching-score-path")) return "path";
     if (cell.classList.contains("watching-score-on")) return "on";
     return "ranking";
   }
@@ -2765,6 +2641,15 @@ export function createScoreTooltipController() {
       return;
     }
 
+    if (tipMode === "hl") {
+      const parts = [
+        formatCompactHlTip(raw),
+        formatFormulaTermsSection(raw, { key: "path" }),
+      ].filter(Boolean);
+      showCompactScoreTip(cell, parts.join(""), { sticky });
+      return;
+    }
+
     if (tipMode === "tw") {
       const parts = [formatCompactTWTip(raw)].filter(Boolean);
       showCompactScoreTip(cell, parts.join(""), { sticky });
@@ -2782,48 +2667,6 @@ export function createScoreTooltipController() {
         formatCompactOnTip(raw),
         formatFormulaTermsSection(raw, { key: "on" }),
       ].filter(Boolean);
-      showCompactScoreTip(cell, parts.join(""), { sticky });
-      return;
-    }
-
-    if (tipMode === "path") {
-      const rebuilt = rebuildPathFormulaTerms(raw);
-      if (rebuilt) {
-        raw.formula_terms_path = rebuilt;
-        raw.score_formula_terms_path = rebuilt;
-      }
-      let termsHtml = formatFormulaTermsSection(raw, { key: "path" });
-      if (!termsHtml) {
-        const feat = (raw && (raw.features_path || raw.features_tau)) || {};
-        const featRows = Object.entries(PATH_FEAT_LABELS)
-          .map(([k, label]) => {
-            const v = feat[k];
-            if (v == null || v === "") return "";
-            const n = Number(v);
-            if (!Number.isFinite(n)) return "";
-            return (
-              `<tr>` +
-              `<td class="score-ft-name">${escapeText(label)}</td>` +
-              `<td class="num">—</td>` +
-              `<td class="num ${signCls(n)}">${escapeText(fmtSigned(n, 2))}</td>` +
-              `<td class="num">—</td>` +
-              `</tr>`
-            );
-          })
-          .filter(Boolean)
-          .join("");
-        if (featRows) {
-          termsHtml =
-            `<div class="score-formula-section">` +
-            `<div class="score-section-title">ŷ_hl 组成</div>` +
-            `<table class="score-formula-table">` +
-            `<thead><tr><th>因子</th><th>β</th><th>z/原值</th><th>贡献</th></tr></thead>` +
-            `<tbody>${featRows}</tbody></table>` +
-            `<div class="score-formula-caption">暂无 β·z 拆解（重跑回测后可见完整组成）</div>` +
-            `</div>`;
-        }
-      }
-      const parts = [formatCompactPathTip(raw), termsHtml].filter(Boolean);
       showCompactScoreTip(cell, parts.join(""), { sticky });
       return;
     }
