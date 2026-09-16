@@ -201,6 +201,7 @@ def score_stock(
     sector_gap_median: Optional[float] = None,
     quote_timeout: float = 15.0,
     offline_only: bool = False,
+    use_minute_tau: Optional[bool] = None,
 ) -> Dict[str, Any]:
     """拉行情 + 日线 + score_bars，返回 signal_item 形状 dict。
 
@@ -216,7 +217,8 @@ def score_stock(
     ``quote_timeout``：单票行情秒数（分池刷簿宜 ≤6，避免对照长时间挂起）。
     ``offline_only=True``：日线只用本地缓存（研究枢纽强更），不补远端；
     无传入行情时用末根日线合成 quote，不打实时行情。
-    分钟 τ 小包例外：仓里没有 ``minute_tau_hm`` 该根时仍拉 5m，禁止用收盘顶 τ。
+    ``use_minute_tau``：None=跟随 ``enable_minute_tau``（调仓因果末根 ≤10:00）；
+    False=只用开盘 Z；True=强制并分钟小包（观察池 / 持仓表 / 自动调仓）。
 
     cluster_mode: None=读 signal_config.cluster_scoring；
     off — 不用组 β；shadow — 可算 score_cluster 对照，主分仍全局/空；
@@ -1121,20 +1123,24 @@ def score_stock(
             )
         # τ 头只吃 Z；日线 sub_scores 已在 ŷ_EOD，勿再塞进 feats
 
-        # 分钟 τ 小包：≤ minute_tau_hm 重切；仓无该根则拉 5m；切不出不标该钟
+        # 分钟 τ 小包：调仓因果末根（≤10:00）；观察池/持仓表同窗
         as_of_tau_override = None
         y_spec_override = None
         try:
             from core.signal.dual_score import get_dual_score_cfg
 
             ds_cfg = get_dual_score_cfg()
-            if ds_cfg.get("enable_minute_tau"):
+            allow_minute = (
+                bool(use_minute_tau)
+                if use_minute_tau is not None
+                else bool(ds_cfg.get("enable_minute_tau"))
+            )
+            if allow_minute:
                 from core.signal.minute_tau_feats import (
                     attach_sector_ret_cs_if_missing,
                     merge_minute_tau_pack_into_feats,
                 )
 
-                hm = str(ds_cfg.get("minute_tau_hm") or "10:30")
                 trade_day = ""
                 if bars:
                     trade_day = str((bars[-1] or {}).get("date") or "")[:10]
@@ -1179,14 +1185,18 @@ def score_stock(
                     trade_date=trade_day,
                     open_px=open_px,
                     prev_close=prev_c,
-                    tau_hm=hm,
+                    causal_rebalance=True,
                     load_cache_if_missing=True,
                     fetch_if_missing=True,
                 )
                 # 与 attach_dual_score_pit / 做 T 前缀同口径：补板块开→τ，禁止 CS 缺省 z=0
-                feats = attach_sector_ret_cs_if_missing(
-                    feats, trade_date=trade_day, tau_hm=hm
-                )
+                pack_hm = None
+                if as_of_tau_override and "T" in str(as_of_tau_override):
+                    pack_hm = str(as_of_tau_override).split("T", 1)[1][:5]
+                if pack_hm:
+                    feats = attach_sector_ret_cs_if_missing(
+                        feats, trade_date=trade_day, tau_hm=pack_hm
+                    )
         except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
             logger.debug("catch except Exception: in score_stock.py", exc_info=True)
             logger.debug("minute tau attach skipped for %s", code, exc_info=True)

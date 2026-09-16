@@ -300,7 +300,7 @@ ML 视角见 [机器学习视角 · 四件套对照](#四件套对照)。
 要点：
 
 - **不是**把调仓用过的 τ 再抄一遍赚第二遍 Alpha；是 **同一预测头、两种决策接口**（结构层 vs timing overlay）。
-- 做 T 默认 **`y_score_source=compute`**：开盘信息集（昨收因子 + 今开缺口）**即时重算** ŷ_oc 估 C_τ，不读冻结账本；与调仓扫池 **公式同源**。历史调仓回测成交钟>09:30 时 ŷ_oc 用截至该钟的前缀重算（与做 T 该钟同路径）；live 调仓仍钉开盘 Z。
+- 做 T 默认 **`y_score_source=compute`**：开盘信息集（昨收因子 + 今开缺口）**即时重算** ŷ_oc 估 C_τ，不读冻结账本；与调仓扫池 **公式同源**。历史调仓回测成交钟>09:30 时 ŷ_oc 用截至该钟的前缀重算（与做 T 该钟同路径）；live 调仓 ŷ_oc 用因果末根 5m（≤10:00，`causal_rebalance`）。
 - 上午刚通过 τ 买入闸的票，下午做 T 仍会重算 ŷ 问「今天怎么动底仓」；带宽未破或 \|y_τ\|/\|y_path\| 未过入场时 **0 成交** 也正常。
 - 归因应分开：调仓 PnL（`origin=strategy`）vs 做 T leg（`t0_batch`）。双层 ŷ 契约见 [§2.5](quant.md#25-双层-predicted_scoreŷ_eod--ŷ_τ) · 实现 `core/signal/dual_score/` · `core/t0/close_band.py`。
 
@@ -1052,7 +1052,7 @@ C_τ       = O×(1+clip(ŷ_oc×scale, y_oc_l, y_oc_u)/100)   # 做 T；ŷ_τc �
 - 排序：默认仍 ŷ_trade（blend）。仅当 `nowcast.use_as_rank_key=true` 才改 `rank_key`（A3 门禁）。
 - 影子簿：刷簿即写 `cluster_book_nowcast_shadow.json`（不依赖 `nowcast.enabled`）；`meta.nordhaus_revision_slope` 为截面修正效率（接近 0 才考虑升主排序）。冻结账本同步 `{as_of}.nowcast_shadow.json`。枢纽 N3 验收条 / HTTP 已下线；库函数 `build_nowcast_shadow_review` 仍在。无快照时 Jaccard 按当日账本 Top-K(ŷ_nowcast) vs Top-K(ŷ) 估。
 - `w_mode=kalman`：两点等价 Kalman 权（含同一套自适应 \(Q\)）；默认 `fixed`。
-- 网格：`nowcast.taus` 允许 `eod|open|09:45|10:30|14:00`；默认 `eod|open`。分钟档不叠用（只取当前已到达档）。分钟 τ：**live** 调仓决策钟 `minute_tau_hm=10:30`（≈12×5m）；**训练**用变长前缀网格 `minute_tau_grid` 默认 `09:30|09:35|…|11:00` 每 5m 共享 β（非整根独立标签；09:30 无分钟前缀只留开盘 Z；不含 13:00 / 14:00；**做T执行 v6 收盘带宽**：每 5m 扫描至 11:00，收价破 C_τ×(1±δ) 开 leg1，path 不进 C_τ），仍依赖 `enable_minute_tau`。nowcast 网格不随做T槽位改。
+- 网格：`nowcast.taus` 允许 `eod|open|09:45|10:30|14:00`；默认 `eod|open`。分钟档不叠用（只取当前已到达档）。分钟 τ：**live** 调仓前缀=因果末根 5m（≤10:00，`causal_rebalance`）；**训练**用变长前缀网格 `DEFAULT_MINUTE_TAU_GRID` 默认 `09:30|09:35|…|11:00` 每 5m 共享 β（非整根独立标签；09:30 无分钟前缀只留开盘 Z；不含 13:00 / 14:00；**做T执行 v6 收盘带宽**：每 5m 扫描至 11:00，收价破 C_τ×(1±δ) 开 leg1，path 不进 C_τ），仍依赖 `enable_minute_tau`。nowcast 网格不随做T槽位改。
 
 **Y(τ) 高维状态（校验层）**
 

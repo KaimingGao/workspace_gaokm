@@ -16,8 +16,9 @@ import {
   resolveOnScore,
   isHeuristicScoreScale,
   Y_EOD_TITLE,
-  Y_TAU_TITLE,
+  Y_OC_REBALANCE_TITLE,
   Y_ON_TITLE,
+  RANKING_REBALANCE_TITLE,
 } from "./fmt.js?v=p2389";
 import { paginateItems, renderPagerHtml } from "../api_client.js";
 import { watchingScoreDetail } from "../quant/watching_render.js?v=p2389";
@@ -26,7 +27,7 @@ import {
   singleHeadBadgeHtml,
   yCheckBadgeHtml,
 } from "../quant/watching_insights_ui.js?v=p2389";
-import { RANKING_TITLE, formatPrevCloseDisplay, formatOpenDisplay } from "../quant/watching_quotes_ui.js?v=p2389";
+import { formatPrevCloseDisplay, formatOpenDisplay } from "../quant/watching_quotes_ui.js?v=p2389";
 import { buildHoldingSharesTip } from "./holding_lots_tip.js?v=p1227";
 import { holdingT0BadgeHtml } from "./holding_t0_badge.js?v=p1526";
 import { fitTierBadgeForCode } from "../quant/fit_tier_ui.js?v=p2261";
@@ -108,11 +109,11 @@ export function buildPaperHoldingsTableHtml({
       key === "code"
         ? "股票代码 · 点击排序"
         : key === "score"
-          ? `${RANKING_TITLE} · 点击排序`
+          ? `${RANKING_REBALANCE_TITLE} · 点击排序`
             : key === "score_eod"
             ? `${Y_EOD_TITLE} · 点击排序`
             : key === "score_tau"
-              ? `${Y_TAU_TITLE} · 点击排序`
+              ? `${Y_OC_REBALANCE_TITLE} · 点击排序`
             : key === "score_on"
               ? `${Y_ON_TITLE} · 点击排序`
             : key === "pnl"
@@ -160,7 +161,7 @@ export function buildPaperHoldingsTableHtml({
             ? `ranking 单头降级（${String(h.dual_score_head || "single")}）· 悬停看详情`
           : belowMin
             ? `低于ŷ_oo门槛 ${h.min_score ?? "—"}（表列为 ranking）· 悬停看详情`
-            : RANKING_TITLE;
+            : RANKING_REBALANCE_TITLE;
       const oosFailed =
         !!h.oos_failed ||
         isHeuristicScoreScale(h) ||
@@ -171,7 +172,7 @@ export function buildPaperHoldingsTableHtml({
       const singleHeadBadge = singleHead ? singleHeadBadgeHtml(h, escapeText) : "";
       const yCheckBadge = yCheckBadgeHtml(h, escapeText);
       const scoreEodTitle = scoreEod == null ? "暂无 ŷ_oo" : Y_EOD_TITLE;
-      const scoreTauTitle = scoreTau == null ? "暂无 ŷ_oc" : Y_TAU_TITLE;
+      const scoreTauTitle = scoreTau == null ? "暂无 ŷ_oc" : Y_OC_REBALANCE_TITLE;
       const scoreOnTitle = scoreOn == null ? "暂无 ŷ_co" : Y_ON_TITLE;
       const origin = String(h.origin || "");
       const originLabel = h.origin_label || "—";

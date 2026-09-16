@@ -533,8 +533,8 @@ class QuantFactorMixin:
     ) -> Dict[str, Any]:
         """R0：观察池 ŷ_τ 头 Ridge；可选 persist live 模型。
 
-        默认用满观察池。``tau_hm`` 缺省跟随 ``dual_score``：
-        enable_minute_tau 时用 minute_tau_hm，否则 open。
+        默认用满观察池。``tau_hm`` 缺省跟随 ``dual_score.enable_minute_tau``：
+        开则训 09:30…做 T 11:00 网格，否则 open。
         """
         from core.data.facade import bars_and_source
         from core.signal.dual_score import get_dual_score_cfg
@@ -585,21 +585,15 @@ class QuantFactorMixin:
                 )
 
         ds = get_dual_score_cfg()
+        from core.signal.minute_tau_grid import DEFAULT_MINUTE_TAU_GRID, TRAIN_TAU_END_HM
+
         if tau_hm is None:
-            if ds.get("enable_minute_tau"):
-                tau_key = str(ds.get("minute_tau_hm") or "10:30")
-            else:
-                tau_key = "open"
+            use_minute = bool(ds.get("enable_minute_tau"))
         else:
-            tau_key = str(tau_hm or "open").strip() or "open"
-        use_minute = tau_key.lower() not in ("", "open")
-        tau_grid = None
-        if use_minute:
-            raw_grid = ds.get("minute_tau_grid")
-            if isinstance(raw_grid, (list, tuple)) and raw_grid:
-                tau_grid = [str(x).strip() for x in raw_grid if str(x).strip()]
-            else:
-                tau_grid = None  # fit 内用 DEFAULT_MINUTE_TAU_GRID
+            tau_key_raw = str(tau_hm or "open").strip() or "open"
+            use_minute = tau_key_raw.lower() not in ("", "open")
+        tau_key = TRAIN_TAU_END_HM if use_minute else "open"
+        tau_grid = list(DEFAULT_MINUTE_TAU_GRID) if use_minute else None
 
         stock_bars: List[Dict[str, Any]] = []
         minute_hit = 0
@@ -787,19 +781,15 @@ class QuantFactorMixin:
             }
 
         ds = get_dual_score_cfg()
+        from core.signal.minute_tau_grid import DEFAULT_MINUTE_TAU_GRID, TRAIN_TAU_END_HM
+
         if tau_hm is None:
-            if ds.get("enable_minute_tau"):
-                tau_key = str(ds.get("minute_tau_hm") or "10:30")
-            else:
-                tau_key = "open"
+            use_minute = bool(ds.get("enable_minute_tau"))
         else:
-            tau_key = str(tau_hm or "open").strip() or "open"
-        use_minute = tau_key.lower() not in ("", "open")
-        tau_grid = None
-        if use_minute:
-            raw_grid = ds.get("minute_tau_grid")
-            if isinstance(raw_grid, (list, tuple)) and raw_grid:
-                tau_grid = [str(x).strip() for x in raw_grid if str(x).strip()]
+            tau_key_raw = str(tau_hm or "open").strip() or "open"
+            use_minute = tau_key_raw.lower() not in ("", "open")
+        tau_key = TRAIN_TAU_END_HM if use_minute else "open"
+        tau_grid = list(DEFAULT_MINUTE_TAU_GRID) if use_minute else None
 
         stock_bars: List[Dict[str, Any]] = []
         minute_hit = 0
@@ -1158,16 +1148,9 @@ class QuantFactorMixin:
                 "minute_codes_miss": minute_codes_miss,
             }
 
-        from core.signal.dual_score import get_dual_score_cfg
+        from core.signal.minute_tau_grid import DEFAULT_MINUTE_TAU_GRID
 
-        ds = get_dual_score_cfg() or {}
-        path_tau_hm = str(ds.get("minute_tau_hm") or "10:30")
-        raw_grid = ds.get("minute_tau_grid")
-        path_tau_grid = (
-            [str(x).strip() for x in raw_grid if str(x).strip()]
-            if isinstance(raw_grid, (list, tuple)) and raw_grid
-            else None
-        )
+        path_tau_grid = list(DEFAULT_MINUTE_TAU_GRID)
         report = fit_path_ridge_report(
             stock_bars,
             minute_by_code_date=minute_by_code_date,
@@ -1175,7 +1158,6 @@ class QuantFactorMixin:
             gap_trigger_pct=gap_trigger_pct,
             sell_trig_pct=sell_trig,
             buy_trig_pct=buy_trig,
-            minute_tau_hm=path_tau_hm,
             tau_grid=path_tau_grid,
             holdout_trading_days=holdout_trading_days,
         )

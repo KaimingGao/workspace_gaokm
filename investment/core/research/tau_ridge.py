@@ -658,17 +658,23 @@ def fit_tau_ridge_report(
         "tau": tau_key,
         "tau_grid": list(grid) if grid else None,
         "note": (
-            "变长前缀少数时钟共享 β；标签=日线 open→close；"
-            "τ 越晚 OC hit 通常越高（开→τ 已实现垫高），看 by_tau；live 决策钟=minute_tau_hm"
+            "变长前缀 5m 槽共享 β；标签=日线 open→close；"
+            "τ 越晚 OC hit 通常越高（开→τ 已实现垫高），看 by_tau；"
+            "live 调仓前缀=因果末根（≤10:00）"
             if use_minute
             else "Z-only open→close；demean+theme_day+yclose/mom3+tau_lag1/ma5；live 与 ŷ_EOD 正交加权成 ŷ_trade"
         ),
     }
     model["extra_features"] = list(TAU_Z_FEATURES)
     model["feat_labels"] = {**dict(MINUTE_TAU_FEAT_LABELS), **dict(TAU_LAG_FEAT_LABELS)}
+    if use_minute:
+        from core.signal.minute_tau_grid import LIVE_PREFIX_CAUSAL_REBALANCE
+
+        model["live_prefix"] = LIVE_PREFIX_CAUSAL_REBALANCE
     model["model_role"] = "live"
-    for k in ("y_spec", "extra_features", "feat_labels", "horizon_mode", "target", "residualized"):
-        research_model[k] = model.get(k)
+    for k in ("y_spec", "extra_features", "feat_labels", "horizon_mode", "target", "residualized", "live_prefix"):
+        if model.get(k) is not None:
+            research_model[k] = model.get(k)
 
     report = {
         "success": True,
@@ -681,12 +687,13 @@ def fit_tau_ridge_report(
         "return_model_research": research_model,
         "tau": tau_key,
         "tau_grid": list(grid) if grid else None,
+        "live_prefix": model.get("live_prefix"),
         "y_spec": dict(model.get("y_spec") or {}),
         "schema": "tau_ridge_v11",
         "target": target,
         "residualized": False,
         "note": (
-            "ŷ_τ(Z) 变长前缀少数时钟共享 β；OC 标签；OOS.by_tau；按日 OOS；与 EOD 解耦"
+            "ŷ_τ(Z) 变长前缀 5m 槽共享 β；OC 标签；OOS.by_tau；按日 OOS；live 调仓=因果末根"
             if use_minute
             else "ŷ_τ(Z) 独立估 open→close；theme+|gap|；yclose_loc/mom3；PIT tau_lag1/ma5；与 EOD 解耦"
         ),

@@ -2,14 +2,14 @@
  * 交易执行 · 持仓主表（共享 virtual_table 内核，与数据中心同方案）。
  */
 
-import { fmtPriceUnit, fmtPct, metricCls, fmtTableScore, scoreCls, resolveRankingScore, resolveEodScore, resolveTauScore, resolveOnScore, isHeuristicScoreScale, Y_EOD_TITLE, Y_TAU_TITLE, Y_ON_TITLE } from "./paper/fmt.js?v=p2389";
+import { fmtPriceUnit, fmtPct, metricCls, fmtTableScore, scoreCls, resolveRankingScore, resolveEodScore, resolveTauScore, resolveOnScore, isHeuristicScoreScale, Y_EOD_TITLE, Y_OC_REBALANCE_TITLE, Y_ON_TITLE, RANKING_REBALANCE_TITLE } from "./paper/fmt.js?v=p2389";
 import { sentimentBadgeHtml, watchingScoreDetail } from "./quant/watching_render.js?v=p2389";
 import {
   isSingleHeadItem,
   singleHeadBadgeHtml,
   yCheckBadgeHtml,
 } from "./quant/watching_insights_ui.js?v=p2389";
-import { RANKING_TITLE, formatPrevCloseDisplay, formatOpenDisplay, resolveOpenPx } from "./quant/watching_quotes_ui.js?v=p2389";
+import { formatPrevCloseDisplay, formatOpenDisplay, resolveOpenPx } from "./quant/watching_quotes_ui.js?v=p2389";
 import { buildHoldingSharesTip } from "./paper/holding_lots_tip.js?v=p1227";
 import { holdingT0BadgeHtml } from "./paper/holding_t0_badge.js?v=p1526";
 import { fitTierBadgeForCode, ensureFitTierMap } from "./quant/fit_tier_ui.js?v=p2261";
@@ -75,9 +75,9 @@ export function holdingToRow(
         ? `ranking 单头降级（${String(h.dual_score_head || "single")}）· 悬停看详情`
       : belowMin
         ? `低于ŷ_oo门槛 ${minScore ?? "—"}（表列为 ranking）· 悬停看详情`
-        : RANKING_TITLE;
+        : RANKING_REBALANCE_TITLE;
   const scoreEodTitle = scoreEod == null ? "暂无 ŷ_oo" : Y_EOD_TITLE;
-  const scoreTauTitle = scoreTau == null ? "暂无 ŷ_oc" : Y_TAU_TITLE;
+  const scoreTauTitle = scoreTau == null ? "暂无 ŷ_oc" : Y_OC_REBALANCE_TITLE;
   const scoreOnTitle = scoreOn == null ? "暂无 ŷ_co" : Y_ON_TITLE;
   const fmtSignedPct = (v) => {
     if (v == null || v === "") return "—";
@@ -224,7 +224,7 @@ const COLS = [
     sortable: true,
     headClass: "watching-col-y",
     cellClass: "watching-col-y",
-    title: Y_TAU_TITLE,
+    title: Y_OC_REBALANCE_TITLE,
   },
   {
     id: "score_on",
@@ -244,7 +244,7 @@ const COLS = [
     sortable: true,
     headClass: "watching-col-y watching-col-y-ranking",
     cellClass: "watching-col-y watching-col-y-ranking",
-    title: RANKING_TITLE,
+    title: RANKING_REBALANCE_TITLE,
   },
   { id: "cost", label: "成本", width: 78, num: true, title: "持仓加权平均成本" },
   {

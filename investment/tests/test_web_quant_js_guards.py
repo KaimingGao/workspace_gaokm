@@ -1058,7 +1058,7 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertNotIn(">y_τc</th>", render)
         self.assertLess(
             render.find('title="ŷ_co · close[T]→open[T+1]">y_co</th>'),
-            render.find('title="ranking · w·ŷ_oo + w·(ŷ_oc∘w_co·ŷ_co)">ranking</th>'),
+            render.find('title="${RANKING_REBALANCE_TITLE}">ranking</th>'),
         )
         self.assertIn("fusion_w_oo: it && it.fusion_w_oo", render)
         self.assertNotIn("fusion_w_trade: it && it.fusion_w_trade", render)
@@ -1078,7 +1078,7 @@ class TestWebQuantJsGuards(unittest.TestCase):
         insights = self._read("web", "static", "js", "quant", "watching_insights_ui.js")
         self.assertNotIn("表列 y_trade", insights)
         self.assertIn("表列为 ranking", insights)
-        self.assertIn("RANKING_TITLE", insights)
+        self.assertIn("RANKING_REBALANCE_TITLE", insights)
         quotes = self._read("web", "static", "js", "quant", "watching_quotes_ui.js")
         self.assertIn("export const RANKING_TITLE", quotes)
         self.assertNotIn("export const TRADE_TITLE", quotes)
@@ -1090,6 +1090,35 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn('parsed.ver !== "rk2"', watching)
         self.assertIn('ver: "rk2"', watching)
         self.assertNotIn("watching_quotes_ui.js?v=p2298", insights)
+
+    def test_watching_holdings_tables_rebalance_tau_titles(self):
+        """数据中心观察池 / 持仓表列头用 09:30–10:00 调仓因果前缀 ŷ。"""
+        fmt = self._read("web", "static", "js", "paper", "fmt.js")
+        self.assertIn("export const Y_OC_REBALANCE_TITLE", fmt)
+        self.assertIn("export const RANKING_REBALANCE_TITLE", fmt)
+        self.assertIn("09:30–10:00", fmt)
+        watching = self._read("web", "static", "js", "watching_table_island.js")
+        self.assertIn("Y_OC_REBALANCE_TITLE", watching)
+        self.assertIn("RANKING_REBALANCE_TITLE", watching)
+        holdings = self._read("web", "static", "js", "holdings_table_island.js")
+        self.assertIn("Y_OC_REBALANCE_TITLE", holdings)
+        self.assertIn("RANKING_REBALANCE_TITLE", holdings)
+        ui = self._read("web", "static", "js", "paper", "holdings_ui.js")
+        self.assertIn("Y_OC_REBALANCE_TITLE", ui)
+        self.assertIn("RANKING_REBALANCE_TITLE", ui)
+        insights = self._read("web", "static", "js", "quant", "watching_insights_ui.js")
+        self.assertIn("Y_OC_REBALANCE_TITLE", insights)
+        self.assertIn("RANKING_REBALANCE_TITLE", insights)
+        policy = self._read("web", "static", "js", "data_policy.js")
+        minute = self._read("web", "static", "js", "quant", "cluster_minute_ui.js")
+        panel = self._read("web", "static", "partials", "quant_panel.html")
+        self.assertNotIn("ŷ_oc@10:30", policy)
+        self.assertNotIn("ŷ_oc@10:30", minute)
+        self.assertNotIn("ŷ_oc@10:30", panel)
+        self.assertNotIn("决策钟默认 10:30", panel)
+        self.assertIn("ŷ_oc 因果前缀≤10:00", policy)
+        self.assertIn("ŷ_oc 因果前缀≤10:00", minute)
+        self.assertIn("ŷ_oc 因果前缀≤10:00", panel)
 
     def test_follow_panel_nc_terminology(self):
         panel = self._read("web", "static", "partials", "follow_panel.html")
@@ -1138,8 +1167,23 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("showRealized = true", table_js)
         self.assertEqual(ui_js.count("showRealized: false"), 1)
         self.assertIn("previewShowRealized", ui_js)
+        self.assertIn("already_booked", ui_js)
+        self.assertIn("已落账腿只展示不回放", ui_js)
         self.assertIn("研究套ŷ", ui_js)
         self.assertIn("执行套ŷ", ui_js)
+
+    def test_t0_ledger_splits_rounds_like_backtest(self):
+        table_js = self._read("web", "static", "js", "paper", "t0_table.js")
+        ui_js = self._read("web", "static", "js", "paper", "t0_ui.js")
+        self.assertIn("splitSlots: true", ui_js)
+        self.assertIn("minute_path: true", ui_js)
+        self.assertIn("买卖时间在过程列", ui_js)
+        self.assertNotIn("const splitSlots = !showDelete;", table_js)
+        self.assertIn("splitSlots: splitSlotsOpt", table_js)
+        self.assertIn("function hostsFromTrades", table_js)
+        self.assertIn("function pairOppositeLegs", table_js)
+        self.assertIn("collectLegRecords(d).some((l) => !!l.time)", table_js)
+        self.assertIn("expandSlotTradeDays", ui_js)
 
     def test_holdings_table_has_t0_column(self):
         island_js = self._read("web", "static", "js", "holdings_table_island.js")
@@ -1426,6 +1470,8 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("仅成交槽位", t0_ui_js)
         self.assertIn("卖不掉旧仓", t0_ui_js)
         self.assertIn('label: "仓/钱"', t0_ui_js)
+        self.assertIn("今日无新成交", t0_ui_js)
+        self.assertNotIn("无持仓结果", t0_ui_js)
         self.assertIn("slotYhatBit", table_js)
         self.assertIn("buy_fill", table_js)
         self.assertIn("remaskTraceFills", table_js)

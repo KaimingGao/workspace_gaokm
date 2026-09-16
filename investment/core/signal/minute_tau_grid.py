@@ -4,9 +4,6 @@ from __future__ import annotations
 
 from typing import List, Optional, Sequence
 
-# 午后钟仅兼容旧配置/手工传入；研究枢纽 y_τ / y_path 默认拟合不含 13:00 / 14:00
-DEFAULT_AFTERNOON_TRAIN_TAU_GRID = ("13:00", "14:00")
-
 
 def _hm_to_clock_minutes(hm: str) -> Optional[int]:
     s = str(hm or "").strip().replace(":", "")
@@ -164,11 +161,26 @@ def format_shared_tau_formula(base: str, grid: Optional[Sequence[str]] = None) -
     return base_s
 
 
-# 早盘 leg1：09:30 开盘 Z + 09:35…11:00 每 5m（共享 β；与做 T 逐根 rescore 对齐）
+def _t0_leg1_end_hm() -> str:
+    """ŷ_oc 训练窗终点 = 做 T 第一腿最晚钟。"""
+    try:
+        from core.t0.config import T0_LAST_LEG1_HM
+
+        return str(T0_LAST_LEG1_HM or "11:00").strip()[:5] or "11:00"
+    except Exception:  # noqa: BLE001
+        return "11:00"
+
+
+# 自动调仓窗结束（auto_worker.WINDOW_UNTIL）；live ŷ_oc 前缀不超过此时
+REBALANCE_TAU_CAP_HM = "10:00"
+LIVE_PREFIX_CAUSAL_REBALANCE = "causal_rebalance"
+TRAIN_TAU_END_HM = _t0_leg1_end_hm()
+
+# 早盘 leg1：09:30 开盘 Z + 每 5m 至做 T 扫描止（共享 β）
 DEFAULT_T0_TRAIN_TAU_GRID_5M: tuple = tuple(
-    minute_tau_grid_5m_range("09:30", "11:00", include_open=True)
+    minute_tau_grid_5m_range("09:30", TRAIN_TAU_END_HM, include_open=True)
 )
-# 研究枢纽默认：仅 09:30…11:00（与做 T v6 leg1 窗口对齐）
+# 研究枢纽默认：与做 T v6 leg1 窗口对齐
 DEFAULT_MINUTE_TAU_GRID: tuple = DEFAULT_T0_TRAIN_TAU_GRID_5M
 # ŷ_τ30：全日 5m，止于 14:30（其后不足 30 交易分钟）
 DEFAULT_T30_TRAIN_TAU_GRID: tuple = tuple(

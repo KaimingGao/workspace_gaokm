@@ -8,7 +8,7 @@
 
 ``first_touch_path_label`` 保留供触价对照；训练与 HL 实用 ``extreme_order_path_label``。
 
-无未来函数：特征 = 开盘信息集 + ≤τ（默认 10:30）分钟前缀 + 历史真实 HL（path_lag1 / path_ma5，不含当日）；
+无未来函数：特征 = 开盘信息集 + ≤τ（训练窗至做 T 11:00）分钟前缀 + 历史真实 HL（path_lag1 / path_ma5，不含当日）；
 标签可用全日分钟极值序。
 """
 
@@ -59,9 +59,9 @@ PATH_SHAPE_FEATURES = MINUTE_TAU_PATH_SHAPE_KEYS
 PATH_RIDGE_FEATURES = PATH_Z_FEATURES + PATH_SHAPE_FEATURES + PATH_LAG_FEATURES
 # live：code → {date: y_path}，避免每根 5m 扫描重算历史极值序
 _PATH_REALIZED_BY_CODE: Dict[str, Dict[str, float]] = {}
-# path live 默认决策钟（与 dual_score / τ 头一致；做 T 选腿已改 v6 收盘带宽）
-DEFAULT_PATH_MINUTE_TAU_HM = "10:30"
-# 训练多 τ 默认网格（09:30…11:00 每 5m；与 τ 头 / dual_score.minute_tau_grid 一致）
+# path 拟合元数据：训练窗终点跟做 T 11:00；live 打分走因果末根
+DEFAULT_PATH_MINUTE_TAU_HM = "11:00"
+# 训练多 τ 默认网格（09:30…做 T 11:00 每 5m）
 DEFAULT_PATH_TAU_GRID = DEFAULT_MINUTE_TAU_GRID
 
 
@@ -707,7 +707,7 @@ def build_path_panels_from_bars(
 
     特征与 ŷ_τ 对齐（开盘 Z + ≤τ 分钟小包）；标签仍用全日极值序。
     ``tau_grid`` 非空：同日多 τ 各一行、标签相同、共享 β（与 τ 头变长前缀同款）。
-    ``tau_grid is None``：单点 ``minute_tau_hm``（默认 10:30）。
+    ``tau_grid is None``：单点 ``minute_tau_hm``（默认训练窗终点）。
     """
     minute_map = minute_by_code_date if isinstance(minute_by_code_date, dict) else {}
     if tau_grid is not None:

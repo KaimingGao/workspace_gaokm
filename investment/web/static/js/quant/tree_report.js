@@ -64,7 +64,7 @@ function metaCell(k, v, extra = "") {
 }
 
 function pickTauAnchors(keys) {
-  const want = ["09:30", "09:35", "10:30", "11:00"];
+  const want = ["09:30", "09:35", "10:00", "11:00"];
   const have = new Set(keys);
   const out = want.filter((k) => have.has(k));
   if (out.length >= 2) return out;
@@ -97,7 +97,7 @@ function dualSpark(keys, treeBy, ridgeBy) {
       if (v == null) return null;
       const x = padX + (i / Math.max(1, keys.length - 1)) * (w - 2 * padX);
       const y = h - padY - ((v - lo) / span) * (h - 2 * padY);
-      return { x, y, t: keys[i], live: keys[i] === "10:30" };
+      return { x, y, t: keys[i], live: keys[i] === "10:00" };
     });
   const pa = xy(a).filter(Boolean);
   const pb = xy(b).filter(Boolean);
@@ -290,7 +290,7 @@ function tauPanel(treeOos, ridgeOos) {
       const rv = tauHit(ridgeBy, t);
       const d = tv != null && rv != null ? tv - rv : null;
       const tone = d == null ? "flat" : deltaTone(d);
-      const live = t === "10:30";
+      const live = t === "10:00";
       const open = t === "09:30";
       return (
         `<span class="quant-tree-tau-tick${live ? " is-live" : ""}${

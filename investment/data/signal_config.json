@@ -92,7 +92,6 @@
     "enable_cascade_shadow": true,
     "enable_tau_shadow_book": false,
     "enable_minute_tau": true,
-    "minute_tau_hm": "10:30",
     "nowcast": {
       "enabled": false,
       "write_shadow": false,

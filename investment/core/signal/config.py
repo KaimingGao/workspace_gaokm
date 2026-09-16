@@ -12,7 +12,6 @@ from copy import deepcopy
 from typing import Any, Dict, Iterator, List, Optional, Tuple
 
 from core.paths import DATA_DIR
-from core.signal.minute_tau_grid import DEFAULT_MINUTE_TAU_GRID
 
 SIGNAL_CONFIG_PATH = os.path.join(DATA_DIR, "signal_config.json")
 
@@ -98,8 +97,6 @@ DEFAULT_SIGNAL_CONFIG: Dict[str, Any] = {
         "enable_cascade_shadow": True,
         "enable_tau_shadow_book": False,
         "enable_minute_tau": False,
-        "minute_tau_hm": "10:30",
-        "minute_tau_grid": list(DEFAULT_MINUTE_TAU_GRID),
         "nowcast": {
             "enabled": False,
             "write_shadow": False,

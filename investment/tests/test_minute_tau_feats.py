@@ -330,6 +330,9 @@ class TestMinuteTauPack(unittest.TestCase):
         self.assertEqual(len(morning), 19)
         self.assertEqual(DEFAULT_T0_TRAIN_TAU_GRID_5M, tuple(morning))
         self.assertEqual(tuple(DEFAULT_MINUTE_TAU_GRID), tuple(morning))
+        from core.signal.minute_tau_grid import TRAIN_TAU_END_HM
+
+        self.assertEqual(TRAIN_TAU_END_HM, T0_LAST_LEG1_HM)
         self.assertNotIn("13:00", DEFAULT_MINUTE_TAU_GRID)
         self.assertNotIn("14:00", DEFAULT_MINUTE_TAU_GRID)
 
@@ -360,6 +363,145 @@ class TestMinuteTauPack(unittest.TestCase):
         self.assertIn("09:30", DEFAULT_MINUTE_TAU_GRID)
         self.assertIn("09:35", DEFAULT_MINUTE_TAU_GRID)
         self.assertIn(T0_LAST_LEG1_HM, DEFAULT_MINUTE_TAU_GRID)
+
+    def test_causal_rebalance_tau_hm_morning_and_afternoon_cap(self):
+        from core.signal.minute_tau_feats import causal_rebalance_tau_hm
+
+        day = "2026-08-28"
+        only_open = [
+            {
+                "date": day,
+                "datetime": f"{day} 09:30:00",
+                "open": 10.0,
+                "high": 10.1,
+                "low": 9.9,
+                "close": 10.05,
+                "volume": 500,
+            }
+        ]
+        self.assertEqual(
+            causal_rebalance_tau_hm(only_open, trade_date=day), "09:30"
+        )
+        self.assertEqual(
+            causal_rebalance_tau_hm(_bars(day), trade_date=day), "09:55"
+        )
+        afternoon = _bars(day) + [
+            {
+                "date": day,
+                "datetime": f"{day} 10:00:00",
+                "open": 10.1,
+                "high": 10.2,
+                "low": 10.0,
+                "close": 10.12,
+                "volume": 800,
+            },
+            {
+                "date": day,
+                "datetime": f"{day} 10:30:00",
+                "open": 10.12,
+                "high": 10.3,
+                "low": 10.1,
+                "close": 10.2,
+                "volume": 900,
+            },
+            {
+                "date": day,
+                "datetime": f"{day} 14:00:00",
+                "open": 10.4,
+                "high": 10.5,
+                "low": 10.3,
+                "close": 10.45,
+                "volume": 700,
+            },
+        ]
+        self.assertEqual(
+            causal_rebalance_tau_hm(afternoon, trade_date=day), "10:00"
+        )
+        self.assertIsNone(causal_rebalance_tau_hm([], trade_date=day))
+
+    def test_merge_causal_rebalance_does_not_fetch_future_clock(self):
+        from unittest.mock import patch
+
+        from core.signal.minute_tau_feats import merge_minute_tau_pack_into_feats
+
+        day = "2026-08-28"
+        morning = [
+            {
+                "date": day,
+                "datetime": f"{day} 09:30:00",
+                "open": 10.0,
+                "high": 10.1,
+                "low": 9.9,
+                "close": 10.05,
+                "volume": 500,
+            }
+        ]
+        with patch(
+            "core.signal.minute_tau_feats._load_minute_bars_from_cache",
+            return_value=morning,
+        ), patch(
+            "core.signal.minute_tau_feats._fetch_minute_bars_for_tau",
+            return_value=_bars(day)
+            + [
+                {
+                    "date": day,
+                    "datetime": f"{day} 10:30:00",
+                    "open": 10.1,
+                    "high": 10.2,
+                    "low": 10.0,
+                    "close": 10.15,
+                    "volume": 1000,
+                }
+            ],
+        ) as fetch_fn:
+            feats, as_of, _ = merge_minute_tau_pack_into_feats(
+                {"gap_pct": 0.5},
+                code="000568",
+                trade_date=day,
+                open_px=10.0,
+                causal_rebalance=True,
+                load_cache_if_missing=True,
+                fetch_if_missing=True,
+            )
+        fetch_fn.assert_not_called()
+        self.assertEqual(as_of, f"{day}T09:30:00+08:00")
+        self.assertAlmostEqual(feats["ret_open_to_tau"], 0.5, places=4)
+
+    def test_merge_causal_rebalance_caps_afternoon_prefix(self):
+        from core.signal.minute_tau_feats import merge_minute_tau_pack_into_feats
+
+        day = "2026-08-28"
+        bars = _bars(day) + [
+            {
+                "date": day,
+                "datetime": f"{day} 10:00:00",
+                "open": 10.1,
+                "high": 10.2,
+                "low": 10.0,
+                "close": 10.2,
+                "volume": 800,
+            },
+            {
+                "date": day,
+                "datetime": f"{day} 14:00:00",
+                "open": 10.5,
+                "high": 10.6,
+                "low": 10.4,
+                "close": 10.55,
+                "volume": 700,
+            },
+        ]
+        feats, as_of, y_spec = merge_minute_tau_pack_into_feats(
+            {},
+            trade_date=day,
+            open_px=10.0,
+            minute_bars=bars,
+            causal_rebalance=True,
+            load_cache_if_missing=False,
+        )
+        self.assertEqual(as_of, f"{day}T10:00:00+08:00")
+        self.assertEqual((y_spec or {}).get("tau"), "10:00")
+        self.assertAlmostEqual(feats["ret_open_to_tau"], 2.0, places=4)
 
     def test_open_clock_keeps_open_z_without_minute_pack(self):
         """09:30 无 ≤τ 分钟根：仍留开盘 Z 行（训练网格含开盘档，不做T）。"""
@@ -479,6 +621,7 @@ class TestMinuteTauPack(unittest.TestCase):
             },
             trade_date=day,
             open_px=10.0,
+            tau_hm="10:30",
             minute_bars=_bars(day)
             + [
                 {
@@ -680,7 +823,6 @@ class TestMinuteTauPack(unittest.TestCase):
             "core.signal.dual_score.resolve.get_dual_score_cfg",
             return_value={
                 "enable_minute_tau": True,
-                "minute_tau_hm": "10:30",
                 "tau": "open",
                 "y_spec": {"formula": "close[T]/open[T]-1"},
             },
@@ -739,7 +881,6 @@ class TestMinuteTauPack(unittest.TestCase):
             "core.signal.dual_score.resolve.get_dual_score_cfg",
             return_value={
                 "enable_minute_tau": True,
-                "minute_tau_hm": "10:30",
                 "tau": "open",
                 "y_spec": {"formula": "close[T]/open[T]-1"},
             },
@@ -807,7 +948,6 @@ class TestMinuteTauPack(unittest.TestCase):
             "core.signal.dual_score.resolve.get_dual_score_cfg",
             return_value={
                 "enable_minute_tau": True,
-                "minute_tau_hm": "10:30",
                 "tau": "open",
                 "y_spec": {"formula": "close[T]/open[T]-1"},
             },
@@ -850,7 +990,6 @@ class TestMinuteTauPack(unittest.TestCase):
             "core.signal.dual_score.resolve.get_dual_score_cfg",
             return_value={
                 "enable_minute_tau": True,
-                "minute_tau_hm": "10:30",
                 "tau": "open",
                 "y_spec": {"formula": "close[T]/open[T]-1"},
             },
@@ -913,7 +1052,6 @@ class TestMinuteTauPack(unittest.TestCase):
             "core.signal.dual_score.resolve.get_dual_score_cfg",
             return_value={
                 "enable_minute_tau": True,
-                "minute_tau_hm": "10:30",
                 "tau": "open",
                 "y_spec": {"formula": "close[T]/open[T]-1"},
             },

@@ -177,7 +177,7 @@ export const TAU_FEAT_META = {
   ret_open_to_tau: {
     label: "开盘→τ 收益 %",
     description:
-      "开盘到 τ 时刻已实现收益（%）。τ=open 时为 0；分钟 τ 默认≈10:30。ŷ_oc 标签仍是 open→close；此特征是已实现前缀（会抬高 OC 命中，需警惕）。",
+      "开盘到 τ 时刻已实现收益（%）。τ=open 时为 0；分钟 τ 为变长前缀（调仓截钟≤10:00）。ŷ_oc 标签仍是 open→close；此特征是已实现前缀（会抬高 OC 命中，需警惕）。",
   },
   ret_prev_to_tau: {
     label: "昨收→τ 收益 %",

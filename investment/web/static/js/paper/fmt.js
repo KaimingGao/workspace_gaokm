@@ -295,6 +295,11 @@ export const Y_OO_TITLE = "ŷ_oo · open[T]→open[T+1]（%）";
 export const Y_EOD_TITLE = Y_OO_TITLE;
 export const Y_OC_TITLE = "ŷ_oc · open[T]→close[T]（拟合原值；τ 闸同源）";
 export const Y_TAU_TITLE = Y_OC_TITLE;
+/** 数据中心观察池 / 持仓表：ŷ_oc 用 09:30–10:00 调仓因果前缀 */
+export const Y_OC_REBALANCE_TITLE =
+  "ŷ_oc · 09:30–10:00 因果前缀 open[T]→close[T]";
+export const RANKING_REBALANCE_TITLE =
+  "ranking · 09:30–10:00 ŷ · w·ŷ_oo + w·(ŷ_oc∘w_co·ŷ_co)";
 export const EOD_REALIZED_TITLE =
   "oo实 · open[T+1]/open[T]−1（与 ŷ_oo 同标签）";
 export const TAU_REALIZED_TITLE =

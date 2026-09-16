@@ -1126,6 +1126,56 @@ class TestSessionOverlay(unittest.TestCase):
         self.assertAlmostEqual(float(out["600000"][-1]["open"]), 10.2)
         self.assertEqual(out["600000"][-1]["date"], "2026-09-08")
 
+    def test_overlay_parses_yuan_open_not_last(self):
+        from core.backtest.paper_replay import overlay_session_day_bars
+        from core.market.calendar import prev_trading_day
+
+        last = prev_trading_day("2026-09-08")
+        bar = {
+            "date": last,
+            "open": 10.0,
+            "high": 11.0,
+            "low": 9.0,
+            "close": 10.5,
+            "volume": 1,
+        }
+        stock = {"600000": [dict(bar)]}
+        out, session, n = overlay_session_day_bars(
+            stock,
+            now=datetime(2026, 9, 8, 10, 0, 0),
+            quotes_by_code={
+                "600000": {"open": "10.2元", "price": "99.0元", "last": 99.0},
+            },
+            fetch_quotes=False,
+        )
+        self.assertEqual(session, "2026-09-08")
+        self.assertEqual(n, 1)
+        self.assertAlmostEqual(float(out["600000"][-1]["open"]), 10.2)
+
+    def test_overlay_skips_when_only_last(self):
+        from core.backtest.paper_replay import overlay_session_day_bars
+        from core.market.calendar import prev_trading_day
+
+        last = prev_trading_day("2026-09-08")
+        bar = {
+            "date": last,
+            "open": 10.0,
+            "high": 11.0,
+            "low": 9.0,
+            "close": 10.5,
+            "volume": 1,
+        }
+        stock = {"600000": [dict(bar)]}
+        out, session, n = overlay_session_day_bars(
+            stock,
+            now=datetime(2026, 9, 8, 10, 0, 0),
+            quotes_by_code={"600000": {"price": 99.0, "last": 99.0}},
+            fetch_quotes=False,
+        )
+        self.assertEqual(n, 0)
+        self.assertIsNone(session)
+        self.assertEqual(out["600000"][-1]["date"], last)
+
     def test_realized_none_on_overlay(self):
         from core.backtest.paper_replay import overlay_session_day_bars
 

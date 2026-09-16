@@ -411,7 +411,7 @@ def attach_dual_score_pit(
     ``sector_ret_to_tau``：开→τ 池中位（与训练 ``attach_cross_section_breadth`` 同口径）；
     缺省时尽力从活跃簿分钟仓聚合，再写 ``ret_vs_sector``。
     ``minute_bars``：可选 ≤τ 分钟线；``enable_minute_tau`` 时并入分钟小包（亦可读本地缓存）。
-    ``minute_tau_hm``：因果 τ 钟（如固定前缀末根）；有分钟输入时优先于此，禁默默回退 10:30 截面。
+    ``minute_tau_hm``：因果 τ 钟（固定前缀末根）；无钟则开盘 Z 或调仓因果末根。
     ``use_minute_tau=False``：强制开盘 Z（做 T 开盘预计算）；不读分钟仓/缓存。
     无 ŷ_τ 模型时仍写契约字段（ŷ_τ=None，ŷ_trade 退回 ŷ_EOD）。
     ``fuse_intraday=False`` / 簿上 ``dual_score_window=eod_next``：
@@ -452,25 +452,15 @@ def attach_dual_score_pit(
             return ts.split("T", 1)[1][:5] or None
         return None
 
-    # 因果钟：显式 > 条目标记 > 传入分钟末根 >（无分钟输入时）配置钟
+    # 因果钟：显式参数 > 条目标记；无钟则开盘 Z 或调仓因果末根（不读遗留 minute_tau_hm）
     effective_hm = str(minute_tau_hm or "").strip()[:5] or None
     if not effective_hm:
-        raw_hm = signal_item.get("_minute_tau_hm") or signal_item.get("minute_tau_hm")
+        raw_hm = signal_item.get("_minute_tau_hm")
         effective_hm = str(raw_hm or "").strip()[:5] or None
     if not effective_hm and minute_bars:
         effective_hm = _hm_from_minute_bars(minute_bars)
-    cfg_hm = str(cfg.get("minute_tau_hm") or "10:30").strip()[:5] or "10:30"
-    # 有显式前缀分钟时不得用配置 10:30 做截面回退
-    causal_prefix = bool(minute_bars) or bool(minute_tau_hm) or bool(
-        signal_item.get("_minute_tau_hm")
-    )
-    pack_hm = effective_hm or (None if causal_prefix else cfg_hm) or cfg_hm
-    sector_hm = effective_hm or (None if causal_prefix else cfg_hm)
-    if sector_hm is None and causal_prefix:
-        # 有前缀但解析不出钟：宁可不写截面，也不回退 10:30
-        sector_hm = None
-    elif sector_hm is None:
-        sector_hm = cfg_hm
+    pack_hm = effective_hm
+    sector_hm = effective_hm
     gap_v = None
     try:
         from core.event_prior import gap_pct_from_quote_bars, get_event_prior_cfg
@@ -625,20 +615,35 @@ def attach_dual_score_pit(
                     prev_c = float((b[-2] or {}).get("close") or 0.0) or None
                 except (TypeError, ValueError):
                     prev_c = None
-            hm = str(pack_hm or cfg_hm)
-            # 显式传入分钟（含空前缀）只切该序列；None 才读仓/缺根拉 5m
+            # 显式传入分钟（含空前缀）只切该序列；None 才读仓。无钟则开盘 Z。
             no_prefix = minute_bars is None
-            feats, as_of_tau_override, y_spec_override = merge_minute_tau_pack_into_feats(
-                feats,
-                code=str(signal_item.get("stock_code") or ""),
-                trade_date=trade_day,
-                open_px=open_px,
-                prev_close=prev_c,
-                tau_hm=hm,
-                minute_bars=minute_bars,
-                load_cache_if_missing=no_prefix,
-                fetch_if_missing=no_prefix,
-            )
+            if pack_hm:
+                feats, as_of_tau_override, y_spec_override = merge_minute_tau_pack_into_feats(
+                    feats,
+                    code=str(signal_item.get("stock_code") or ""),
+                    trade_date=trade_day,
+                    open_px=open_px,
+                    prev_close=prev_c,
+                    tau_hm=pack_hm,
+                    minute_bars=minute_bars,
+                    load_cache_if_missing=no_prefix,
+                    fetch_if_missing=False,
+                )
+            elif no_prefix:
+                feats, as_of_tau_override, y_spec_override = merge_minute_tau_pack_into_feats(
+                    feats,
+                    code=str(signal_item.get("stock_code") or ""),
+                    trade_date=trade_day,
+                    open_px=open_px,
+                    prev_close=prev_c,
+                    causal_rebalance=True,
+                    load_cache_if_missing=True,
+                    fetch_if_missing=True,
+                )
+            else:
+                from core.signal.minute_tau_feats import clear_minute_tau_pack_keys
+
+                clear_minute_tau_pack_keys(feats)
         except Exception:  # noqa: BLE001
             logger.debug("minute tau pack attach in dual_score_pit failed", exc_info=True)
             from core.signal.minute_tau_feats import clear_minute_tau_pack_keys

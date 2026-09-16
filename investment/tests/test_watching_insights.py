@@ -278,6 +278,7 @@ class TestWatchingInsights(unittest.TestCase):
         self.assertTrue(captured.get("offline_only"))
         self.assertTrue(captured.get("skip_sentiment"))
         self.assertTrue(captured.get("skip_fundamentals"))
+        self.assertIs(captured.get("use_minute_tau"), True)
         self.assertEqual(row.get("stock_code"), "600519")
         gq.assert_not_called()
 
@@ -304,6 +305,7 @@ class TestWatchingInsights(unittest.TestCase):
         ):
             _insight_one("600519", offline_only=False)
         self.assertFalse(captured.get("offline_only"))
+        self.assertIs(captured.get("use_minute_tau"), True)
 
     def test_insight_one_stamps_ranking_from_paper_fusion(self):
         """数据中心 ranking 用 paper rank_lots 权，与交易执行同式。"""
@@ -369,6 +371,44 @@ class TestWatchingInsights(unittest.TestCase):
         self.assertTrue(gb.call_args.kwargs.get("offline_only"))
         gq.assert_not_called()
 
+
+class TestHoldingScoresCausalRebalance(unittest.TestCase):
+    def test_compute_holding_scores_uses_causal_rebalance(self):
+        """交易执行持仓表算分走 09:30–10:00 调仓因果前缀。"""
+        from services.paper_account import PaperAccountMixin
+
+        captured = {}
+
+        class _R:
+            def as_dict(self):
+                return {
+                    "success": True,
+                    "signal_item": {"stock_code": "600519", "score": 1.0},
+                }
+
+        class _Svc:
+            def score_one(self, code, **kw):
+                captured.update(kw)
+                return _R()
+
+            def pack_holding_row(self, item, **kw):
+                return dict(item)
+
+        mixin = PaperAccountMixin()
+        paper = {"holdings": [{"stock_code": "600519"}]}
+        summary = {"holdings": [{"stock_code": "600519"}]}
+        with patch(
+            "core.signal.service.get_default_signal_service",
+            return_value=_Svc(),
+        ), patch(
+            "core.signal.score_display.annotate_score_gate",
+            return_value={"min_score": 0, "below_min_score": False},
+        ), patch(
+            "core.signal.score_display.selection_min_score",
+            return_value=0,
+        ):
+            mixin._compute_holding_scores(paper, summary)
+        self.assertIs(captured.get("use_minute_tau"), True)
 
 
 if __name__ == "__main__":

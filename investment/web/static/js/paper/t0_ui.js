@@ -5,6 +5,7 @@ import { renderT0Viz, wireT0SkipTips } from "./t0_viz.js?v=p2426";
 import { buildT0ReportHtml, fmtT0DirDays } from "./t0_report.js?v=p2426";
 import {
   buildT0TradeTableHtml,
+  expandSlotTradeDays,
   pickDetailDays,
   pickTradeDays,
   stockCellHtml,
@@ -277,7 +278,7 @@ export function renderPaperT0Preview(els, data) {
   const days = previewResultsToTradeDays(allRows);
   const tradeDays = days;
   const skipRows = allRows.filter((r) => r && r.skipped);
-  const tradeN = (data.trades || []).length;
+  const tradeN = days.reduce((n, d) => n + ((d.trades || []).length), 0);
   const pnl = data.pnl_total ?? 0;
   const exposure = data.exposure_pnl_total ?? 0;
   const skipN = data.skip_count ?? skipRows.length;
@@ -300,7 +301,11 @@ export function renderPaperT0Preview(els, data) {
     t0_trade_days: tradeDays.length,
   };
   previewEl.hidden = false;
-  if (confirmEl) confirmEl.hidden = tradeN === 0 && !(data.pnl_total > 0);
+  const newTradeN = allRows.reduce((n, r) => {
+    if (!r || r.skipped || r.already_booked) return n;
+    return n + ((r.trades || []).length);
+  }, 0);
+  if (confirmEl) confirmEl.hidden = newTradeN === 0;
   const prevFold = previewEl.querySelector("details.paper-t0-preview-fold");
   const keepOpen = prevFold ? !!prevFold.open : true;
   const openAttr = keepOpen ? " open" : "";
@@ -349,7 +354,13 @@ export function renderPaperT0Preview(els, data) {
         preserveOrder: true,
         showRealized: previewShowRealized(days),
       })
-    : `<p class="paper-t0-desk-empty">无持仓结果</p>`;
+    : `<p class="paper-t0-desk-empty">${
+        skipRows.length
+          ? `今日无新成交 · 跳过 ${skipN}/${allRows.length}${escapeHtml(skipHint)}`
+          : allRows.length
+            ? "今日无成交腿"
+            : escapeHtml(String(data.note || "无持仓，跳过做T"))
+      }</p>`;
   previewEl.innerHTML =
     `<details class="paper-t0-desk-fold paper-t0-preview-fold"${openAttr}>` +
     `<summary class="paper-t0-desk-fold-sum">` +
@@ -358,7 +369,7 @@ export function renderPaperT0Preview(els, data) {
     `</summary>` +
     `<div class="paper-t0-desk-board">` +
     tradeBlock +
-    `<p class="paper-t0-desk-foot" title="${tip}">预演不改账本 · 确认「手动落账」后才写入 · τ = y_τ</p>` +
+    `<p class="paper-t0-desk-foot" title="${tip}">已落账腿只展示不回放 · 确认「手动落账」只写入新成交 · τ = y_τ</p>` +
     `</div></details>`;
   stampStockFitTiers(previewEl);
 }
@@ -376,6 +387,7 @@ function workerLastRunToTableData(lastRun, execution) {
       ...r,
       direction: r.direction || r.direction_used,
       date: iso || sess,
+      minute_path: true,
     };
   });
   const traded = pickTradeDays({ trade_days_sample: days, days });
@@ -439,10 +451,11 @@ export function renderPaperT0WorkerTrades(el, { t0Auto, execution, liveScoresByC
   const tag = data.workerTag || "—";
   const sellThenBuyN = days.filter((d) => d.direction === "sell_then_buy").length;
   const buyThenSellN = days.filter((d) => d.direction === "buy_then_sell").length;
+  const rowN = expandSlotTradeDays(days, { splitSlots: true }).length;
   const countLabel =
-    days.length > T0_TRADE_TABLE_MAX_ROWS
-      ? `${days.length} 笔 · 表内 ${T0_TRADE_TABLE_MAX_ROWS}`
-      : `${days.length} 笔`;
+    rowN > T0_TRADE_TABLE_MAX_ROWS
+      ? `${rowN} 笔 · 表内 ${T0_TRADE_TABLE_MAX_ROWS}`
+      : `${rowN} 笔`;
   const chips =
     `<span class="paper-t0-desk-chips">` +
     (data.sessionDate
@@ -472,8 +485,9 @@ export function renderPaperT0WorkerTrades(el, { t0Auto, execution, liveScoresByC
         maxRows: T0_TRADE_TABLE_MAX_ROWS,
         showDelete: true,
         showRealized: false,
+        splitSlots: true,
       }) +
-      `<p class="paper-t0-desk-foot" title="${tip}">C_τ 破带 · 删除将冲正账本</p>` +
+      `<p class="paper-t0-desk-foot" title="${tip}">一笔一行 · 买卖时间在过程列 · 删除按票冲正</p>` +
       `</div>`
   );
   stampStockFitTiers(el);

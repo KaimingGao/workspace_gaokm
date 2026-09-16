@@ -29,7 +29,7 @@ export const DATA_ARTIFACTS = [
     id: "minute_bars",
     name: "5m 仓",
     write: "研究枢纽「增量补齐」/「强更 5m」；页头「可拉远端」同源增量补齐",
-    read: "ŷ_oc@10:30 分钟小包 · 做T回测/预演路径 · 涨跌 tip",
+    read: "ŷ_oc 因果前缀≤10:00 分钟小包 · 做T回测/预演路径 · 涨跌 tip",
   },
   {
     id: "scores",
@@ -83,7 +83,7 @@ export function t0DataFoot() {
 
 /** 研究枢纽分钟区补充 */
 export function minuteHubFoot() {
-  return "下游：ŷ_oc@10:30 · 预演调仓 · 做T回测 · 涨跌 tip；Ready≠消费端 as-of 齐";
+  return "下游：ŷ_oc 因果前缀≤10:00 · 预演调仓 · 做T回测 · 涨跌 tip；Ready≠消费端 as-of 齐";
 }
 
 /** 研究枢纽日线区补充 */

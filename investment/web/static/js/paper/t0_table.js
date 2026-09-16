@@ -435,23 +435,11 @@ function slotFilled(r) {
 }
 
 /** 同日各轮拆成独立日对象（测试/导出用）；成交表明细用 rowspan，不拆行。 */
-function expandSlotTradeDays(days, { splitSlots = true } = {}) {
+export function expandSlotTradeDays(days, { splitSlots = true } = {}) {
   if (!splitSlots) return days || [];
   const out = [];
   for (const d of days || []) {
-    const rows = Array.isArray(d?.t0_slot_results) ? d.t0_slot_results : [];
-    if (!rows.length) {
-      out.push(d);
-      continue;
-    }
-    const filled = rows.filter(slotFilled);
-    if (!filled.length) {
-      out.push(d);
-      continue;
-    }
-    for (const r of filled) {
-      out.push(slotDayRow(d, r, rows));
-    }
+    out.push(...tradeDaySlotHosts(d, true));
   }
   return sortSlotTradeDays(out);
 }
@@ -2710,7 +2698,8 @@ function fmtDayReturnPct(d) {
 /** 结构化过程列 HTML（卖/买 chip + 箭头链；多轮按时钟分组） */
 export function legProcessFlowHtml(d) {
   const groups = processGroupsForRow(d);
-  const showTimes = !!d.minute_path;
+  const showTimes =
+    !!d.minute_path || collectLegRecords(d).some((l) => !!l.time);
   if (groups) {
     const shown = groups.filter((g) => (g.legs || []).length || g.skipped);
     if (shown.length) {
@@ -3512,12 +3501,85 @@ function applyTdRowspan(html, span) {
   return html.replace("<td ", `<td rowspan="${n}" `);
 }
 
+function hostFromTradeGroup(d, slotTrades, sid) {
+  const first = slotTrades && slotTrades[0];
+  const hm =
+    String((first && first.t0_slot_hm) || "").trim() ||
+    fmtT0LegTime(first && first.at) ||
+    "";
+  return {
+    ...d,
+    t0_slot: String(sid || ""),
+    t0_slot_hm: hm,
+    t0_slot_focus: true,
+    minute_path: true,
+    trades: slotTrades,
+    sell_price: undefined,
+    buy_price: undefined,
+    sell_at: undefined,
+    buy_at: undefined,
+    sell_shares: undefined,
+    buy_shares: undefined,
+    forward_trace: remaskTraceFills(d.forward_trace, slotTrades),
+  };
+}
+
+function pairOppositeLegs(trades) {
+  const sorted = (trades || [])
+    .slice()
+    .sort((a, b) => tradeAtSortKey(a && a.at) - tradeAtSortKey(b && b.at));
+  const groups = [];
+  let i = 0;
+  while (i < sorted.length) {
+    const a = sorted[i];
+    const b = sorted[i + 1];
+    const sa = legSideKind(a && a.side);
+    const sb = b ? legSideKind(b.side) : "";
+    if (sa && sb && sa !== sb) {
+      groups.push([a, b]);
+      i += 2;
+    } else {
+      groups.push([a]);
+      i += 1;
+    }
+  }
+  return groups;
+}
+
+function hostsFromTrades(d) {
+  const trades = (Array.isArray(d?.trades) ? d.trades : []).filter(
+    (t) => t && (t.side || t.shares || t.price)
+  );
+  if (trades.length <= 1) return [d];
+  const bySlot = new Map();
+  for (const t of trades) {
+    const id = String(t.t0_slot || "").trim();
+    if (!id) continue;
+    if (!bySlot.has(id)) bySlot.set(id, []);
+    bySlot.get(id).push(t);
+  }
+  if (bySlot.size > 1) {
+    return [...bySlot.entries()].map(([sid, slotTrades]) =>
+      hostFromTradeGroup(d, slotTrades, sid)
+    );
+  }
+  const paired = pairOppositeLegs(trades);
+  if (paired.length > 1) {
+    return paired.map((group) =>
+      hostFromTradeGroup(d, group, (group[0] && group[0].t0_slot) || "")
+    );
+  }
+  return [d];
+}
+
 function tradeDaySlotHosts(d, splitSlots) {
+  if (!splitSlots) return [d];
   const rows = Array.isArray(d?.t0_slot_results) ? d.t0_slot_results : [];
-  if (!splitSlots || !rows.length) return [d];
-  const filled = rows.filter((r) => r && typeof r === "object" && slotFilled(r));
-  if (!filled.length) return [d];
-  return filled.map((r) => slotDayRow(d, r, rows));
+  if (rows.length) {
+    const filled = rows.filter((r) => r && typeof r === "object" && slotFilled(r));
+    if (filled.length) return filled.map((r) => slotDayRow(d, r, rows));
+  }
+  return hostsFromTrades(d);
 }
 
 function tradeTableColCount(ctx) {
@@ -3953,7 +4015,7 @@ function renderTradeDayHtml(d, ctx) {
 
 /**
  * 成交明细表（纸面 / 量化回测共用）
- * @param {{ data?: object, days: object[], caption?: string, maxRows?: number, showReason?: boolean, preserveOrder?: boolean, showDelete?: boolean, showRealized?: boolean }} opts
+ * @param {{ data?: object, days: object[], caption?: string, maxRows?: number, showReason?: boolean, preserveOrder?: boolean, showDelete?: boolean, showRealized?: boolean, splitSlots?: boolean }} opts
  */
 export function buildT0TradeTableHtml(opts) {
   const {
@@ -3965,6 +4027,7 @@ export function buildT0TradeTableHtml(opts) {
     preserveOrder = false,
     showDelete = false,
     showRealized = true,
+    splitSlots: splitSlotsOpt,
     liveScoresByCode = null,
   } = opts || {};
   if (!days || !days.length) return caption || "";
@@ -4020,7 +4083,7 @@ export function buildT0TradeTableHtml(opts) {
     (showReason ? `<th scope="col" class="paper-t0-col-reason">说明</th>` : "") +
     (showDelete ? `<th scope="col" class="paper-t0-col-act">操作</th>` : "");
 
-  const splitSlots = !showDelete;
+  const splitSlots = splitSlotsOpt != null ? !!splitSlotsOpt : !showDelete;
   const viewDays = preserveOrder
     ? tableDays.slice(0, maxRows)
     : tableDays.slice(-maxRows).reverse();

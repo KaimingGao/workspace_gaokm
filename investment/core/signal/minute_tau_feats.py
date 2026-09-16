@@ -221,7 +221,7 @@ def _day_bars_upto_tau(
     tau_hm: str,
 ) -> List[dict]:
     day = str(trade_date or "")[:10]
-    target = str(tau_hm or "10:30").replace(":", "")
+    target = str(tau_hm or "").replace(":", "")
     if not day or not target:
         return []
     seq = minute_bars or []
@@ -248,7 +248,7 @@ def prefix_has_tau_clock(
     tau_hm: str,
 ) -> bool:
     """当日 ≤τ 前缀是否含 τ 这一根（有根才可把 as_of 标成该钟）。"""
-    target = str(tau_hm or "10:30").replace(":", "")[:4]
+    target = str(tau_hm or "").replace(":", "")[:4]
     if len(target) < 4:
         return False
     for b in _day_bars_upto_tau(
@@ -257,6 +257,55 @@ def prefix_has_tau_clock(
         if _bar_hm(b) == target:
             return True
     return False
+
+
+def _day_minute_bars(
+    minute_bars: Sequence[dict],
+    *,
+    trade_date: str,
+) -> List[dict]:
+    day = str(trade_date or "")[:10]
+    if len(day) < 10:
+        return []
+    out: List[dict] = []
+    for b in minute_bars or []:
+        if not isinstance(b, dict):
+            continue
+        d = _bar_date(b)
+        if len(d) < 10:
+            dt = str(b.get("datetime") or "")
+            d = dt[:10] if len(dt) >= 10 else d
+        if d == day:
+            out.append(b)
+    return out
+
+
+def causal_rebalance_tau_hm(
+    minute_bars: Optional[Sequence[dict]] = None,
+    *,
+    trade_date: str,
+    cap_hm: Optional[str] = None,
+) -> Optional[str]:
+    """调仓 ŷ_oc 因果钟：当日已有 5m 末根，且不超过调仓窗结束（默认 10:00）。
+
+    无当日根 / 尚无 09:30 根 → None（只用开盘 Z）。
+    """
+    from core.signal.minute_tau_grid import REBALANCE_TAU_CAP_HM
+
+    day = str(trade_date or "")[:10]
+    cap = str(cap_hm or REBALANCE_TAU_CAP_HM).replace(":", "")[:4]
+    if len(day) < 10 or len(cap) < 4:
+        return None
+    last = ""
+    for b in _day_minute_bars(minute_bars or [], trade_date=day):
+        hm = _bar_hm(b)
+        if not hm or hm > cap:
+            continue
+        if hm >= last:
+            last = hm
+    if not last:
+        return None
+    return _format_hm_colon(last)
 
 
 def clear_minute_tau_pack_keys(
@@ -1303,22 +1352,23 @@ def merge_minute_tau_pack_into_feats(
     trade_date: str,
     open_px: Optional[float] = None,
     prev_close: Optional[float] = None,
-    tau_hm: str = "10:30",
+    tau_hm: Optional[str] = None,
     minute_bars: Optional[Sequence[dict]] = None,
     load_cache_if_missing: bool = True,
     max_age_hours: float = 36.0,
     fetch_if_missing: bool = False,
+    causal_rebalance: bool = False,
 ) -> Tuple[Dict[str, Any], Optional[str], Optional[Dict[str, Any]]]:
     """把 ≤τ 分钟小包并入 feats。有根则按 τ **覆盖**旧开→τ（禁收盘 leftover）。
 
     返回 ``(feats, as_of_tau_override, y_spec_override)``。
     ``minute_bars`` 优先（因果前缀，不拉网）；缺则读本地 5m 仓。
-    ``fetch_if_missing``：仓里没有 τ 这一根时拉 5m（live / 持仓）。
+    ``causal_rebalance``：钟 = 当日已有 5m 末根且 ≤10:00；无根则开盘 Z。
+    ``fetch_if_missing``：无当日分钟时拉 5m；因果模式不为未来钟拉 K。
     切不出包：清掉分钟键，``as_of`` 不标 τ。
     """
     out = dict(feats or {})
     day = str(trade_date or "")[:10]
-    hm = str(tau_hm or "10:30").strip()[:5] or "10:30"
     if len(day) < 10:
         clear_minute_tau_pack_keys(out)
         return out, None, None
@@ -1328,15 +1378,29 @@ def merge_minute_tau_pack_into_feats(
     if not bars and load_cache_if_missing and code:
         bars = _load_minute_bars_from_cache(code, max_age_hours=max_age_hours)
 
-    if (
-        fetch_if_missing
-        and code
-        and not passed_bars
-        and not prefix_has_tau_clock(bars, trade_date=day, tau_hm=hm)
-    ):
-        fetched = _fetch_minute_bars_for_tau(code)
-        if fetched:
-            bars = fetched
+    day_bars = _day_minute_bars(bars, trade_date=day)
+    if fetch_if_missing and code and not passed_bars:
+        need_fetch = not day_bars
+        if not causal_rebalance:
+            hm_req = str(tau_hm or "").strip()[:5]
+            need_fetch = (not hm_req) or not prefix_has_tau_clock(
+                bars, trade_date=day, tau_hm=hm_req
+            )
+        if need_fetch:
+            fetched = _fetch_minute_bars_for_tau(code)
+            if fetched:
+                bars = fetched
+
+    if causal_rebalance:
+        hm = causal_rebalance_tau_hm(bars, trade_date=day)
+        if not hm:
+            clear_minute_tau_pack_keys(out)
+            return out, None, None
+    else:
+        hm = str(tau_hm or "").strip()[:5]
+        if not hm:
+            clear_minute_tau_pack_keys(out)
+            return out, None, None
 
     pack = extract_minute_tau_pack(
         bars,

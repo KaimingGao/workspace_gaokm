@@ -37,6 +37,7 @@ class PaperAccountMixin:
         """计算当前持仓的评分，合并到 summary.holdings 中。
 
         经 SignalService ``score_one``（默认 ``offline_only``，带超时）。
+        表列 ŷ 用 09:30–10:00 调仓因果前缀（``use_minute_tau=True``）。
         **不**经 observation_pool / min_score TopN。
         """
         holdings = paper.get("holdings") or []
@@ -86,6 +87,7 @@ class PaperAccountMixin:
                         skip_sentiment=True,
                         offline_only=bool(offline_only),
                         quote_timeout=3.0 if offline_only else 8.0,
+                        use_minute_tau=True,
                     )
                     raw = (
                         result.as_dict()

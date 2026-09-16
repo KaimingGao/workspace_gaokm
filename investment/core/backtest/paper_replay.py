@@ -450,11 +450,19 @@ def _replay_calendar(
 
 
 def _fpx(v: Any) -> Optional[float]:
-    try:
+    if v is None:
+        return None
+    if isinstance(v, (int, float)):
         n = float(v)
+        return n if n > 0 and n == n else None
+    s = str(v).replace("元", "").replace(",", "").strip()
+    if not s:
+        return None
+    try:
+        n = float(s)
     except (TypeError, ValueError):
         return None
-    return n if n > 0 else None
+    return n if n > 0 and n == n else None
 
 
 DAY_LEG_TOP = 8
@@ -830,16 +838,10 @@ def _lookup_quote(quotes: Dict[str, Any], code: str) -> dict:
 
 
 def _quote_open_px(q: Any) -> Optional[float]:
+    """只要今开。现价/昨收不能冒充开盘，否则盘中回测会把 last 喂进 09:30 ŷ。"""
     if not isinstance(q, dict):
         return None
-    return (
-        _fpx(q.get("open"))
-        or _fpx(q.get("open_raw"))
-        or _fpx(q.get("price_raw"))
-        or _fpx(q.get("price"))
-        or _fpx(q.get("last"))
-        or _fpx(q.get("close"))
-    )
+    return _fpx(q.get("open")) or _fpx(q.get("open_raw"))
 
 
 def overlay_session_day_bars(
@@ -850,8 +852,9 @@ def overlay_session_day_bars(
     fetch_quotes: bool = True,
     fill_clock: str = REPLAY_FILL_CLOCK,
 ) -> Tuple[Dict[str, List[dict]], Optional[str], int]:
-    """仓里还没有当日日 K 时，用现价开盘补一根，让调仓钟能跑到当天。
+    """仓里还没有当日日 K 时，用今开补一根，让调仓钟能跑到当天。
 
+    只要报价 open / open_raw（可带「元」）；现价 last 不能冒充开盘。
     特征仍只用昨收。成交优先 5m；无分钟时 09:30 用今开。真实收盘 / 隔夜 label 不写。
     仅当覆盖率日历末日恰好是上一交易日才补，避免测试夹具或过期仓跳到今天。
     """

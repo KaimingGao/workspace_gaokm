@@ -71,7 +71,7 @@ class TauRidgeRequest(BaseModel):
     note: str = Field(default="", max_length=200)
     tau_hm: Optional[str] = Field(
         default=None,
-        description="open | 09:45 | 10:30；缺省跟随 dual_score.enable_minute_tau / minute_tau_hm",
+        description="open | 09:45 | 10:30；缺省跟随 dual_score.enable_minute_tau（开则训 09:30…11:00 网格）",
         max_length=8,
     )
 
@@ -100,7 +100,7 @@ class TauTreeRequest(BaseModel):
     )
     tau_hm: Optional[str] = Field(
         default=None,
-        description="open | 09:45 | 10:30；缺省跟随 dual_score.enable_minute_tau / minute_tau_hm",
+        description="open | 09:45 | 10:30；缺省跟随 dual_score.enable_minute_tau（开则训 09:30…11:00 网格）",
         max_length=8,
     )
     backend: Optional[str] = Field(

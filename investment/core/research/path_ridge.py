@@ -13,7 +13,6 @@ logger = logging.getLogger(__name__)
 from core.io_atomic import atomic_write_json
 from core.research.factor_ols_fit import fit_factor_ols_from_panel
 from core.research.path_panel import (
-    DEFAULT_PATH_MINUTE_TAU_HM,
     DEFAULT_PATH_TAU_GRID,
     PATH_LAG_FEAT_LABELS,
     PATH_RIDGE_FEATURES,
@@ -287,10 +286,12 @@ def fit_path_ridge_report(
 ) -> Dict[str, Any]:
     """池化拟合 ŷ_hl + 时间 OOS。
 
-    ``tau_grid``：变长前缀少数时钟共享 β（同日标签=全日极值序，特征≤各 τ）；
-    默认 ``DEFAULT_PATH_TAU_GRID``。live 决策钟见 ``minute_tau_hm``（默认 10:30）。
+    ``tau_grid``：变长前缀 5m 槽共享 β（同日标签=全日极值序，特征≤各 τ）；
+    默认 ``DEFAULT_PATH_TAU_GRID``。live 调仓前缀=因果末根（≤10:00）。
     """
-    live_hm = str(minute_tau_hm or DEFAULT_PATH_MINUTE_TAU_HM).strip() or DEFAULT_PATH_MINUTE_TAU_HM
+    from core.signal.minute_tau_grid import LIVE_PREFIX_CAUSAL_REBALANCE, TRAIN_TAU_END_HM
+
+    live_hm = str(minute_tau_hm or TRAIN_TAU_END_HM).strip() or TRAIN_TAU_END_HM
     grid = normalize_minute_tau_grid(
         tau_hm=live_hm,
         tau_grid=list(tau_grid) if tau_grid is not None else list(DEFAULT_PATH_TAU_GRID),
@@ -436,8 +437,8 @@ def fit_path_ridge_report(
     y_formula = format_shared_tau_formula("extreme_order(low,high)", grid or [live_hm])
     if grid and len(grid) > 1:
         y_note = (
-            "变长前缀少数时钟共享 β；标签=全日极值序 signed range%；"
-            "τ 越晚特征更贴标签，看 OOS.by_tau；live 决策钟=minute_tau_hm；"
+            "变长前缀 5m 槽共享 β；标签=全日极值序 signed range%；"
+            "τ 越晚特征更贴标签，看 OOS.by_tau；live 调仓前缀=因果末根（≤10:00）；"
             "另含 PIT path_lag1/path_ma5"
         )
     else:
@@ -451,10 +452,10 @@ def fit_path_ridge_report(
     }
     model["extra_features"] = list(PATH_RIDGE_FEATURES)
     model["feat_labels"] = {**dict(MINUTE_TAU_FEAT_LABELS), **dict(PATH_LAG_FEAT_LABELS)}
-    model["minute_tau_hm"] = live_hm
+    model["live_prefix"] = LIVE_PREFIX_CAUSAL_REBALANCE
     model["tau_grid"] = list(grid)
     model["model_role"] = "live"
-    for k in ("y_spec", "extra_features", "feat_labels", "minute_tau_hm", "tau_grid", "path_label_mode"):
+    for k in ("y_spec", "extra_features", "feat_labels", "live_prefix", "tau_grid", "path_label_mode"):
         research_model[k] = model.get(k)
 
     report = {
@@ -469,8 +470,8 @@ def fit_path_ridge_report(
         "target": "extreme_order_signed_range",
         "sell_trig_pct": float(sell_trig_pct),
         "buy_trig_pct": float(buy_trig_pct),
-        "minute_tau_hm": live_hm,
         "tau_grid": list(grid),
+        "live_prefix": LIVE_PREFIX_CAUSAL_REBALANCE,
         "note": (
             "开盘 Z + 多 τ 前缀分钟小包 + 历史真实 HL → 全日极值序；供 dual_y 与 y_τ 联合选向"
             if grid and len(grid) > 1
@@ -617,14 +618,14 @@ def persist_path_model(
         "schema": report.get("schema") or "path_ridge_v4",
         "sell_trig_pct": report.get("sell_trig_pct", rm.get("sell_trig_pct")),
         "buy_trig_pct": report.get("buy_trig_pct", rm.get("buy_trig_pct")),
-        "minute_tau_hm": report.get("minute_tau_hm") or rm.get("minute_tau_hm"),
+        "live_prefix": report.get("live_prefix") or rm.get("live_prefix"),
         "tau_grid": report.get("tau_grid") or rm.get("tau_grid"),
         "promote_gate": gate,
         "model_role": role_n,
         "fit_end": report.get("fit_end"),
         "eval_start": report.get("eval_start"),
         "dual_score_head": "y_hl",
-        "contract_note": "ŷ_hl：开盘 Z + 多 τ 前缀分钟小包 → 全日极值序 signed range%；live=minute_tau_hm",
+        "contract_note": "ŷ_hl：开盘 Z + 多 τ 前缀分钟小包 → 全日极值序 signed range%；live=causal_rebalance",
     }
     path = (
         research_model_path(path_model_path())

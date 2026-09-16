@@ -1837,6 +1837,7 @@ class PaperTradesMixin:
 
         # 盘中已落账腿的票禁止整单回放，避免在已变簿上再开一轮
         skip_codes: set = set()
+        stocks_st: dict = {}
         try:
             from core.market.calendar import resolve_session_date
             from core.signal.session_pit import shanghai_now
@@ -1845,7 +1846,9 @@ class PaperTradesMixin:
             sess = resolve_session_date(now=shanghai_now())
             ist = load_intraday_state()
             if str(ist.get("session_date") or "") == str(sess or ""):
-                stocks_st = ist.get("stocks") if isinstance(ist.get("stocks"), dict) else {}
+                stocks_st = (
+                    ist.get("stocks") if isinstance(ist.get("stocks"), dict) else {}
+                )
                 for c, st in stocks_st.items():
                     if isinstance(st, dict) and int(st.get("legs_written") or 0) > 0:
                         skip_codes.add(str(c))
@@ -1867,6 +1870,15 @@ class PaperTradesMixin:
             skip_codes=skip_codes or None,
             defer_eod=defer_eod,
         )
+        if dry_run and stocks_st:
+            try:
+                from core.t0.intraday import overlay_booked_t0_on_preview
+
+                overlay_booked_t0_on_preview(
+                    result, stocks_st=stocks_st, session_date=session_date
+                )
+            except Exception:  # noqa: BLE001
+                logger.debug("overlay booked t0 preview failed", exc_info=True)
         result["execution"] = execution_public_view(bundle)
         result["session_date"] = session_date
         result["session_closed"] = bool(session_closed)

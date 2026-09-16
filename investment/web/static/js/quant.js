@@ -818,6 +818,7 @@ export function initQuant(ctx) {
     const byTau = oos.by_tau || {};
     const nd =
       (byTau["09:30"] && byTau["09:30"].n) ||
+      (byTau["10:00"] && byTau["10:00"].n) ||
       (byTau["10:30"] && byTau["10:30"].n) ||
       null;
     if (oos.ic != null) {

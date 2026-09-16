@@ -462,7 +462,8 @@ class TestPathRidgeFit(unittest.TestCase):
                 self.assertEqual(doc.get("schema"), "path_ridge_v4")
                 self.assertEqual(doc.get("sell_trig_pct"), 1.0)
                 self.assertEqual(doc.get("tau_grid"), report.get("tau_grid"))
-                self.assertEqual(doc.get("minute_tau_hm"), report.get("minute_tau_hm"))
+                self.assertEqual(doc.get("live_prefix"), report.get("live_prefix"))
+                self.assertEqual(doc.get("live_prefix"), "causal_rebalance")
                 yhat = predict_path_from_features(
                     {"gap_pct": 1.2, "gap_atr": 0.5, "theme_day": 0.1},
                     model_doc=doc,

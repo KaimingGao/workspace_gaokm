@@ -1,6 +1,7 @@
 /**
  * 数据中心主表 · 纯 DOM 虚拟滚动（共享 virtual_table 内核）。
  */
+import { Y_OC_REBALANCE_TITLE, RANKING_REBALANCE_TITLE } from "./paper/fmt.js?v=p2389";
 
 function numSortKey(row, key) {
   const n = Number(row?.[key]);
@@ -87,7 +88,7 @@ const COLS = [
     sortable: true,
     headClass: "watching-col-y",
     cellClass: "watching-col-y",
-    title: "ŷ_oc · open[T]→close[T]（拟合原值；τ 闸同源）",
+    title: Y_OC_REBALANCE_TITLE,
   },
   {
     id: "score_on",
@@ -107,7 +108,7 @@ const COLS = [
     sortable: true,
     headClass: "watching-col-y watching-col-y-ranking",
     cellClass: "watching-col-y watching-col-y-ranking",
-    title: "ranking = w·ŷ_oo + w·(ŷ_oc∘w_co·ŷ_co) · 排序/卖门槛",
+    title: RANKING_REBALANCE_TITLE,
   },
   {
     id: "stance",

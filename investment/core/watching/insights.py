@@ -94,7 +94,7 @@ def _insight_cache_stamp() -> str:
         )
     except Exception:  # noqa: BLE001
         logger.debug("insight cache stamp fusion failed", exc_info=True)
-    return f"{win}|{asof}|{ver}|{bars_gen}|rk{fusion}"
+    return f"{win}|{asof}|{ver}|{bars_gen}|rk{fusion}|causal_rebal"
 
 
 def _memo_get(code: str, stamp: str) -> Optional[Dict[str, Any]]:
@@ -705,7 +705,9 @@ def _insight_one(
     paper_ctx: Optional[dict] = None,
     offline_only: bool = True,
 ) -> Dict[str, Any]:
-    """单票轻量摘要：SignalService；默认 ``offline_only`` 与策略调仓对齐。"""
+    """单票轻量摘要：SignalService；默认 ``offline_only`` 与策略调仓对齐。
+    表列 ŷ 为 09:30–10:00 调仓因果前缀（``use_minute_tau=True``）。
+    """
     out = _blank(code, added_at=added_at)
     use_offline = bool(offline_only)
     try:
@@ -720,6 +722,7 @@ def _insight_one(
             skip_sentiment=True,
             offline_only=use_offline,
             quote_timeout=5.0 if use_offline else 8.0,
+            use_minute_tau=True,
         )
         scored = result.as_dict()
         quote = (scored or {}).get("quote") or {}

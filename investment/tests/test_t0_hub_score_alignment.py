@@ -122,8 +122,8 @@ class TestT0HubScoreAlignment(unittest.TestCase):
 
 
 class TestHoldingsTauOpenZAlignment(unittest.TestCase):
-    def test_score_stock_open_z_matches_t0_1030_when_cache_present(self):
-        """持仓开盘 Z + 截面补齐后，ŷ_τ 与做 T 10:30 前缀同值。"""
+    def test_score_stock_causal_prefix_matches_t0_at_same_clock(self):
+        """持仓 score_stock 调仓因果末根（≤10:00）与做 T 同钟 rescore 同值。"""
         from core.ports.market import resolve_market_code
         from core.signal.score_stock import score_stock
         from core.store import load_daily_cache, load_minute_cache
@@ -162,6 +162,10 @@ class TestHoldingsTauOpenZAlignment(unittest.TestCase):
             self.assertIn(k, present, fill)
 
         asof = str(it.get("as_of_tau") or "")[:10]
+        asof_hm = ""
+        raw_asof = str(it.get("as_of_tau") or "")
+        if "T" in raw_asof:
+            asof_hm = raw_asof.split("T", 1)[1][:5]
         if len(asof) < 10:
             asof = str((daily[-1] or {}).get("date") or "")[:10]
         hist = [b for b in daily if str(b.get("date") or "")[:10] < asof]
@@ -171,9 +175,11 @@ class TestHoldingsTauOpenZAlignment(unittest.TestCase):
         day_bar = dict(day_bars[-1])
         if day_bar.get("prev_close") is None:
             day_bar["prev_close"] = hist[-1].get("close")
-        prefix = _minute_bars_until_hm(mbars, "10:30")
+        prefix_hm = asof_hm or "10:00"
+        prefix = _minute_bars_until_hm(mbars, prefix_hm)
         if len(prefix) < 1:
-            self.skipTest("无 10:30 前缀")
+            self.skipTest(f"无 {prefix_hm} 前缀")
+        self.assertLessEqual(prefix_hm, "10:00")
         sc = rescore_scores_at_fixed_prefix(
             stock_code=code,
             minute_prefix=prefix,

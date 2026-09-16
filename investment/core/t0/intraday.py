@@ -155,6 +155,117 @@ def load_intraday_state() -> Dict[str, Any]:
         return {}
 
 
+def _trades_from_intraday_stock(st: dict) -> List[dict]:
+    snap = st.get("day_snapshot") if isinstance(st.get("day_snapshot"), dict) else {}
+    raw = snap.get("trades")
+    if isinstance(raw, list) and any(isinstance(t, dict) for t in raw):
+        return [dict(t) for t in raw if isinstance(t, dict)]
+    out: List[dict] = []
+    rounds = st.get("rounds") if isinstance(st.get("rounds"), dict) else {}
+    for rnd in rounds.values():
+        if not isinstance(rnd, dict):
+            continue
+        ds = rnd.get("day_snapshot") if isinstance(rnd.get("day_snapshot"), dict) else {}
+        legs = ds.get("trade_legs") or ds.get("trades")
+        if isinstance(legs, list):
+            out.extend(dict(t) for t in legs if isinstance(t, dict))
+    return out
+
+
+def booked_t0_preview_row(
+    code: str,
+    *,
+    stock_name: str = "",
+    st: Optional[dict] = None,
+    session_date: Optional[str] = None,
+) -> Optional[dict]:
+    """把已落账盘中快照编成预演行：只展示，不回放。"""
+    if not isinstance(st, dict):
+        return None
+    trades = _trades_from_intraday_stock(st)
+    if not trades:
+        return None
+    snap = st.get("day_snapshot") if isinstance(st.get("day_snapshot"), dict) else {}
+    direction = (
+        str(snap.get("direction_used") or snap.get("direction") or st.get("direction") or "")
+        .strip()
+    )
+    date = str(snap.get("date") or session_date or "")[:10]
+    try:
+        pnl = float(snap.get("pnl") or 0)
+    except (TypeError, ValueError):
+        pnl = 0.0
+    try:
+        exposure = float(snap.get("exposure_pnl") or 0)
+    except (TypeError, ValueError):
+        exposure = 0.0
+    return {
+        "stock_code": str(code),
+        "stock_name": stock_name or st.get("stock_name") or "",
+        "success": True,
+        "skipped": False,
+        "already_booked": True,
+        "preview_source": "intraday_booked",
+        "date": date,
+        "direction": direction,
+        "direction_used": direction,
+        "trades": trades,
+        "pnl": pnl,
+        "exposure_pnl": exposure,
+        "minute_path": True,
+        "path_mode": "first_touch",
+        "reason": None,
+        "note": "已自动落账，预演只展示",
+    }
+
+
+def overlay_booked_t0_on_preview(
+    result: dict,
+    *,
+    stocks_st: Optional[dict] = None,
+    session_date: Optional[str] = None,
+) -> dict:
+    """dry_run：跳过回放的已落账票，改挂盘中成交快照，让预演表看得到上午腿。"""
+    if not isinstance(result, dict) or not isinstance(stocks_st, dict):
+        return result
+    rows = list(result.get("results") or [])
+    extra_trades: List[dict] = []
+    extra_pnl = 0.0
+    extra_exp = 0.0
+    shown = 0
+    for i, row in enumerate(rows):
+        if not isinstance(row, dict) or not row.get("skipped"):
+            continue
+        if str(row.get("skip_category") or "") != "intraday_legs_open":
+            continue
+        code = str(row.get("stock_code") or "")
+        st = stocks_st.get(code)
+        booked = booked_t0_preview_row(
+            code,
+            stock_name=str(row.get("stock_name") or ""),
+            st=st if isinstance(st, dict) else None,
+            session_date=session_date,
+        )
+        if not booked:
+            continue
+        rows[i] = booked
+        extra_trades.extend(booked.get("trades") or [])
+        extra_pnl += float(booked.get("pnl") or 0)
+        extra_exp += float(booked.get("exposure_pnl") or 0)
+        shown += 1
+    if not shown:
+        return result
+    result["results"] = rows
+    result["trades"] = list(result.get("trades") or []) + extra_trades
+    result["pnl_total"] = round(float(result.get("pnl_total") or 0) + extra_pnl, 2)
+    result["exposure_pnl_total"] = round(
+        float(result.get("exposure_pnl_total") or 0) + extra_exp, 2
+    )
+    result["skip_count"] = max(0, int(result.get("skip_count") or 0) - shown)
+    result["booked_preview_count"] = shown
+    return result
+
+
 REBALANCE_T0_BLOCK_BUY_THEN_SELL = "做T正T进行中（已买待卖旧仓），调仓跳过卖出"
 REBALANCE_T0_BLOCK_SELL_THEN_BUY = "做T反T已卖待回补，调仓跳过重复卖出"
 

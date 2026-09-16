@@ -775,7 +775,17 @@ class TestDualScoreFields(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             path = os.path.join(td, "signal_config.json")
             with open(path, "w", encoding="utf-8") as f:
-                json.dump({"dual_score": {"fusion_mode": "f1"}, "weights": {"x": 1}}, f)
+                json.dump(
+                    {
+                        "dual_score": {
+                            "fusion_mode": "f1",
+                            "minute_tau_hm": "10:30",
+                            "minute_tau_grid": ["09:30", "10:30"],
+                        },
+                        "weights": {"x": 1},
+                    },
+                    f,
+                )
             os.environ["INVESTMENT_SIGNAL_CONFIG"] = path
             try:
                 import core.signal.config as cfg_mod
@@ -796,8 +806,12 @@ class TestDualScoreFields(unittest.TestCase):
                     raw = json.load(f)
                 self.assertEqual(raw["weights"], {"x": 1})
                 self.assertEqual(raw["dual_score"]["fusion_mode"], "blend")
+                self.assertNotIn("minute_tau_hm", raw["dual_score"])
+                self.assertNotIn("minute_tau_grid", raw["dual_score"])
                 pub = read_dual_score_public()
                 self.assertEqual(pub["fusion_mode"], "blend")
+                self.assertNotIn("minute_tau_hm", pub)
+                self.assertNotIn("minute_tau_grid", pub)
             finally:
                 os.environ.pop("INVESTMENT_SIGNAL_CONFIG", None)
                 import core.signal.config as cfg_mod

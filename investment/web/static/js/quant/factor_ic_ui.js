@@ -65,7 +65,7 @@ export function createFactorIcUi(deps) {
     };
     add(sorted[0]);
     if (sorted.length > 1) add(sorted[1]);
-    add("10:30");
+    add("10:00");
     add(sorted[sorted.length - 1]);
     return out;
   }
@@ -96,7 +96,7 @@ export function createFactorIcUi(deps) {
         t,
         x,
         y,
-        live: t === "10:30",
+        live: t === "10:00",
         anchor: anchors.includes(t),
       });
     });
@@ -943,7 +943,7 @@ export function createFactorIcUi(deps) {
       ? "曲折度标签无方向；τ 分桶看 IC / 中位命中，≈50% 中位命中即无信息"
       : isPath
       ? "极值序标签下 τ 越晚特征更贴标签，命中易虚高；优先分档对照，live 仍用决策钟"
-      : "OC 标签下 τ 越晚命中通常越高（开→τ 已实现垫高）；看开盘/首根/10:30/11:00，不必逐钟";
+      : "OC 标签下 τ 越晚命中通常越高（开→τ 已实现垫高）；看开盘/首根/10:00/11:00，不必逐钟";
     const byTauHit = (t) => {
       const b = (byTau && byTau[t]) || {};
       if (isCx) {
@@ -969,11 +969,11 @@ export function createFactorIcUi(deps) {
         b.ic != null && Number.isFinite(Number(b.ic))
           ? Number(b.ic).toFixed(2)
           : "—";
-      const live = t === "10:30";
+      const live = t === "10:00";
       return (
         `<span class="quant-rem-coef-spec-tick${
           live ? " is-live" : ""
-        }" title="${esc(`${t} · n=${b.n ?? "—"} · ${isCx ? "IC" : "hit"}=${hit} · IC=${ic}${live ? " · live 决策钟" : ""}`)}">` +
+        }" title="${esc(`${t} · n=${b.n ?? "—"} · ${isCx ? "IC" : "hit"}=${hit} · IC=${ic}${live ? " · 调仓截钟" : ""}`)}">` +
         `<span class="quant-rem-coef-spec-tick-k">${esc(t)}</span>` +
         `<span class="quant-rem-coef-spec-tick-v">${esc(hit)}</span>` +
         `</span>`

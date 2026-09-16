@@ -1903,6 +1903,63 @@ class TestT0Core(unittest.TestCase):
         self.assertTrue(row.get("skipped"))
         self.assertEqual(row.get("skip_category"), "intraday_legs_open")
 
+    def test_overlay_booked_t0_preview_shows_auto_fills(self):
+        """dry_run 不回放已落账票，但预演表挂上盘中成交快照。"""
+        from core.t0.intraday import overlay_booked_t0_on_preview
+
+        result = {
+            "success": True,
+            "trades": [],
+            "pnl_total": 0.0,
+            "exposure_pnl_total": 0.0,
+            "skip_count": 2,
+            "results": [
+                {
+                    "stock_code": "600875",
+                    "stock_name": "东方电气",
+                    "skipped": True,
+                    "skip_category": "intraday_legs_open",
+                    "trades": [],
+                },
+                {
+                    "stock_code": "600660",
+                    "stock_name": "福耀玻璃",
+                    "skipped": True,
+                    "reason": "正T：可卖旧仓 0 股",
+                    "trades": [],
+                },
+            ],
+        }
+        stocks_st = {
+            "600875": {
+                "stock_name": "东方电气",
+                "legs_written": 2,
+                "direction": "sell_then_buy",
+                "day_snapshot": {
+                    "date": "2026-09-16",
+                    "direction": "sell_then_buy",
+                    "pnl": -42.18,
+                    "exposure_pnl": 0.0,
+                    "trades": [
+                        {"side": "t0_sell", "shares": 100, "price": 23.66},
+                        {"side": "t0_buy", "shares": 100, "price": 23.97},
+                    ],
+                },
+            }
+        }
+        out = overlay_booked_t0_on_preview(
+            result, stocks_st=stocks_st, session_date="2026-09-16"
+        )
+        self.assertEqual(out.get("booked_preview_count"), 1)
+        self.assertEqual(out.get("skip_count"), 1)
+        self.assertEqual(len(out.get("trades") or []), 2)
+        booked = (out.get("results") or [])[0]
+        self.assertTrue(booked.get("already_booked"))
+        self.assertFalse(booked.get("skipped"))
+        self.assertEqual(len(booked.get("trades") or []), 2)
+        still_skip = (out.get("results") or [])[1]
+        self.assertTrue(still_skip.get("skipped"))
+
     def test_routing_and_skill_task(self):
         self.assertEqual(infer_quant_task("茅台底仓做T回测一下"), "t0_backtest")
         self.assertIn("t0_backtest", AVAILABLE_TASKS)
