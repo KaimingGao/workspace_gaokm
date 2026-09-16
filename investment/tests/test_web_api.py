@@ -200,6 +200,32 @@ class TestWebApi(unittest.TestCase):
         self.assertNotIn("top_k", kwargs)
         self.assertNotIn("horizon_days", kwargs)
         self.assertEqual(kwargs.get("lookback"), 30)
+        self.assertEqual(kwargs.get("score_model_role"), "research")
+
+    def test_quant_portfolio_backtest_passes_live_score_model_role(self):
+        if self.client is None:
+            self.skipTest("fastapi not installed")
+
+        mock_out = {
+            "success": True,
+            "loaded_stocks": ["600519"],
+            "params": {"engine": "paper_replay"},
+            "metrics": {"trade_count": 0, "total_return_pct": 0.0, "win_rate_pct": 0.0},
+            "trade_count": 0,
+            "equity_curve": [],
+        }
+        with patch.object(deps.quant, "run_portfolio_backtest", return_value=mock_out) as run_bt:
+            res = self.client.post(
+                "/api/quant/portfolio-backtest",
+                json={
+                    "codes": ["600519"],
+                    "lookback": 30,
+                    "score_model_role": "live",
+                    "sync": True,
+                },
+            )
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(run_bt.call_args.kwargs.get("score_model_role"), "live")
 
     def test_quant_portfolio_backtest_defaults_to_job(self):
         if self.client is None:

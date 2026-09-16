@@ -49,6 +49,8 @@ DEFAULT_PATH_MATRIX: Dict[str, Any] = {
     "y_oo_enter_alt": 0.1,
     "y_oc_enter_alt": 0.1,
     "y_hl_enter_alt": 0.1,
+    # 调仓成交钟：自动调仓 / 手动预演窗口起点；止于 10:00。与历史回测 fill_clock 同源。
+    "fill_clock": "09:30",
 }
 
 
@@ -166,6 +168,15 @@ def get_path_matrix_cfg(
         ):
             if raw.get(alt) in (None, ""):
                 out[alt] = float(out[src])
+    try:
+        from core.backtest.paper_replay import REPLAY_FILL_CLOCK, clamp_replay_fill_clock
+
+        out["fill_clock"] = clamp_replay_fill_clock(
+            out.get("fill_clock"), REPLAY_FILL_CLOCK
+        )
+    except Exception:  # noqa: BLE001
+        logger.debug("clamp fill_clock failed", exc_info=True)
+        out["fill_clock"] = "09:30"
     return out
 
 

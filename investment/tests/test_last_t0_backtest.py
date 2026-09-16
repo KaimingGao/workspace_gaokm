@@ -153,6 +153,26 @@ class TestPersistLastT0Backtest(unittest.TestCase):
             self.assertFalse(out.get("success"))
             save_ui.assert_not_called()
 
+    def test_single_code_backtest_passes_paper_for_cs_pool(self):
+        from quant.services.quant_service import QuantService
+
+        svc = QuantService()
+        paper = {"holdings": [{"stock_code": "600183"}, {"stock_code": "600875"}]}
+        with patch.object(
+            svc,
+            "_t0_holdings_for_backtest",
+            return_value=(paper["holdings"], paper),
+        ) as hold_fn, patch(
+            "quant.research.t0_backtest.run_t0_backtest_for_code",
+            return_value={"success": True, "stock_code": "600183"},
+        ) as run, patch(
+            "core.backtest_result_store.save_last_t0_backtest",
+        ):
+            out = svc.run_t0_backtest(code="600183", lookback=10)
+        hold_fn.assert_called_with()
+        self.assertIs(run.call_args.kwargs.get("paper"), paper)
+        self.assertTrue(out.get("success"))
+
 
 class TestStartT0BacktestJob(unittest.TestCase):
     def test_start_job_returns_background_and_finishes(self):

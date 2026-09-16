@@ -65,6 +65,7 @@ export function createClusterRebalanceController(deps) {
       }
       const sellN = (data.sell_trades || []).length;
       const buyN = (data.buy_trades || []).length;
+      const waitClock = String(data.fill_action || "") === "wait_clock";
       const report = data.rebalance_report || [];
       const poolN = data.observation_pool_count ?? "—";
       const scoredN = data.scored_count ?? "—";
@@ -82,10 +83,13 @@ export function createClusterRebalanceController(deps) {
         /挂.*开盘|收盘后不成交/.test(note);
 
       if (dryRun) {
-        followMatrixPreviewPending = true;
-        const canConfirm = sellN + buyN > 0 && data.confirm_supported !== false;
+        followMatrixPreviewPending = !waitClock;
+        const canConfirm =
+          !waitClock && sellN + buyN > 0 && data.confirm_supported !== false;
         setPaperMetaText(
-          `矩阵预演 · 观察池 ${poolN} · 已打分 ${scoredN} · 卖 ${sellN} · 买 ${buyN}` +
+          waitClock
+            ? String(data.note || "未到调仓时间")
+            : `矩阵预演 · 观察池 ${poolN} · 已打分 ${scoredN} · 卖 ${sellN} · 买 ${buyN}` +
             (turnPct != null ? ` · 换手 ${turnPct}%` : "") +
             (oosEx > 0 ? ` · OOS过滤 ${oosEx}` : "") +
             (actBits ? ` · ${actBits}` : "") +
@@ -122,7 +126,9 @@ export function createClusterRebalanceController(deps) {
             previewNote.textContent = "";
           } else {
             previewNote.hidden = false;
-            previewNote.textContent = "预演 · 无可执行买卖";
+            previewNote.textContent = waitClock
+              ? String(data.note || "未到调仓时间")
+              : "预演 · 无可执行买卖";
           }
         }
         showProgress(

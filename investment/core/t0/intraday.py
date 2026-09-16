@@ -731,15 +731,20 @@ def should_process_intraday_stock(
     *,
     force_session_close: bool = False,
 ) -> bool:
-    """无新 5m K 线且已终态则跳过，避免重复打网。"""
-    if force_session_close:
-        phase = str((stock_state or {}).get("phase") or PHASE_IDLE)
-        return phase not in (PHASE_DONE, PHASE_SKIPPED)
+    """无新 5m 则跳过。已成交票遇新 K / 收盘收尾仍刷新落账扫描 ŷ，不再开腿。"""
     st = stock_state or {}
     phase = str(st.get("phase") or PHASE_IDLE)
-    if phase in (PHASE_DONE, PHASE_SKIPPED):
-        return False
     last = str(st.get("last_bar_ts") or "")
+    if phase == PHASE_SKIPPED:
+        return False
+    if force_session_close:
+        return True
+    if phase == PHASE_DONE:
+        if not latest_bar_ts:
+            return True
+        if not last:
+            return True
+        return latest_bar_ts > last
     if not latest_bar_ts:
         return True
     if not last:
@@ -1237,12 +1242,18 @@ def _process_holding_slots(
     log_source: str,
     paper: dict,
     force_session_close: bool = False,
+    tau_pool_day: Optional[dict] = None,
 ) -> Tuple[dict, List[dict], dict]:
     """多轮独立做 T 盘中增量（v6：全日收盘带宽扫描后按轮增量落账）。"""
     from core.t0.costs import resolve_t0_cost_context, t0_leg_cash_delta
     from core.t0.minute_path import _day_ohlc_from_minutes
     from core.t0.rules import _skip_result
-    from core.t0.slots import _open_leg1_cash_lock, _slot_trade_legs, simulate_t0_day_slots
+    from core.t0.slots import (
+        _open_leg1_cash_lock,
+        _slot_trade_legs,
+        refresh_close_band_scan,
+        simulate_t0_day_slots,
+    )
     from core.t0.score_policy import attach_day_scores, scores_have_any
 
     st = dict(stock_state or {})
@@ -1271,6 +1282,30 @@ def _process_holding_slots(
         st.setdefault("phase", PHASE_IDLE)
         st["wait_reason"] = "分钟线不足，等待下一根 5m"
         return st, [], {}
+
+    booked = (
+        int(st.get("legs_written") or 0) > 0
+        and str(st.get("phase") or "") == PHASE_DONE
+    )
+    if booked:
+        snap = refresh_close_band_scan(
+            dict(st.get("day_snapshot") or {}),
+            minute_bars=minute_bars,
+            bar=bar,
+            daily_bar=dict(bar) if isinstance(bar, dict) else None,
+            cfg=cfg,
+            score_snap=scores if isinstance(scores, dict) else None,
+            stock_code=code,
+            hist_bars=hist_bars,
+            tau_pool_day=tau_pool_day,
+        )
+        snap["stock_code"] = code
+        if holding.get("stock_name"):
+            snap["stock_name"] = holding.get("stock_name")
+        if minute_bars:
+            st["last_bar_ts"] = latest_minute_bar_ts(minute_bars)
+        st["day_snapshot"] = snap
+        return st, [], snap
 
     if str(cfg.get("direction") or "") == "dual_y" and not scores_have_any(scores):
         st.setdefault("phase", PHASE_IDLE)
@@ -1311,6 +1346,7 @@ def _process_holding_slots(
         session_bar=bar_session,
         defer_eod=not bool(force_session_close),
         daily_bar=dict(bar) if isinstance(bar, dict) else None,
+        tau_pool_day=tau_pool_day,
     )
     slot_rows = list(day_out.get("t0_slot_results") or [])
     all_applied: List[dict] = []
@@ -1445,6 +1481,7 @@ def process_holding_intraday(
     applied_legs: int,
     force_dual_y_gate: bool = False,
     force_session_close: bool = False,
+    tau_pool_day: Optional[dict] = None,
 ) -> Tuple[dict, List[dict], dict]:
     """返回 (new_stock_state, new_trades, day_snapshot)。"""
     _ = applied_legs, force_dual_y_gate
@@ -1466,6 +1503,7 @@ def process_holding_intraday(
         log_source=log_source,
         paper=paper,
         force_session_close=bool(force_session_close),
+        tau_pool_day=tau_pool_day,
     )
 
 
@@ -1519,6 +1557,7 @@ def run_intraday_session_tick(
             applied_legs=int((stocks.get(code) or {}).get("legs_written") or 0),
             force_dual_y_gate=bool(ctx.get("force_dual_y_gate")),
             force_session_close=bool(ctx.get("force_session_close")),
+            tau_pool_day=ctx.get("tau_pool_day"),
         )
         stocks[code] = st
         if applied:

@@ -206,6 +206,7 @@ def backtest_t0_on_bars(
     tau_pool_by_date: Optional[Dict[str, Dict[str, Any]]] = None,
     stock_name: str = "",
     progress_cb: Optional[Callable[..., Any]] = None,
+    score_model_role: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Walk 底仓做 T。
 
@@ -217,21 +218,23 @@ def backtest_t0_on_bars(
     ``cost_config`` 缺省时用 CostPort 研究费率（禁止隐式零成本抬高 PnL）。
     """
     from core.research.holdout import (
-        MODEL_ROLE_RESEARCH,
         current_scoring_model_role,
+        normalize_backtest_model_role,
         scoring_model_role_context,
     )
 
-    if current_scoring_model_role() != MODEL_ROLE_RESEARCH:
+    requested = normalize_backtest_model_role(score_model_role)
+    if current_scoring_model_role() != requested:
         import inspect
 
         allowed = inspect.signature(backtest_t0_on_bars).parameters
         params = {
             k: v for k, v in locals().items() if k in allowed and k != "bars"
         }
+        params["score_model_role"] = requested
         # 不在这里清模型缓存：逐票回测会进本函数多次，清缓存会把研究套反复从盘重载，
         # 6 票即可把 240s 时限吃光。_scoring_models 已按 role 分桶，不会误用 live。
-        with scoring_model_role_context(MODEL_ROLE_RESEARCH):
+        with scoring_model_role_context(requested):
             return backtest_t0_on_bars(bars, **params)
     if require_minute and not minute_by_date:
         return {
@@ -729,11 +732,13 @@ def _walk_t0(
         rules=cfg,
         initial_shares=initial_shares,
     )
+    from core.research.holdout import current_scoring_model_role
+
     report: Dict[str, Any] = {
         "success": True,
         "task": "t0_backtest",
         "stock_code": stock_code,
-        "score_model_role": "research",
+        "score_model_role": current_scoring_model_role(),
         "bar_count": len(bars),
         "initial_shares": initial_shares,
         "initial_cost": round(cost, 4),

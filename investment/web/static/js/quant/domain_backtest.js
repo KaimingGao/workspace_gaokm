@@ -39,9 +39,6 @@ const {
 const { renderNeutralCompareTable: renderNeutralCompareTableHtml } = await import(
   `./neutral_compare.js?v=${encodeURIComponent(_V)}`
 );
-const { buildUniversePanelHtml } = await import(
-  `./universe_ui.js?v=${encodeURIComponent(_V)}`
-);
 const {
   fmtPct,
   metricClass,
@@ -383,7 +380,8 @@ export function installBacktest(q) {
         : "";
       const tierBit = tiers && tiers !== "ABC" ? ` · 档${tiers}` : "";
       const psBit = p.price_space_gate === false ? " · 日分价关" : "";
-      return `lb${lb} · ${clock} · ${lotB}股 · w${wt}/${wn} · α${alpha} · 入场${enter}${tierBit}${psBit} · ${cost}`;
+      const role = String(p.score_model_role || "").toLowerCase() === "live" ? "执行" : "研究";
+      return `lb${lb} · ${clock} · ${lotB}股 · w${wt}/${wn} · α${alpha} · 入场${enter}${tierBit}${psBit} · ${role} · ${cost}`;
     }
     // 仅兼容旧日报冻结摘要（研究 Top-K 独立腿）
     return `K${p.top_k ?? "—"} · h${p.horizon_days ?? "—"} · ${cost}`;
@@ -410,6 +408,7 @@ export function installBacktest(q) {
     };
     if (desk) {
       if (req.lookback != null) setVal("quant-lookback", req.lookback);
+      if (req.score_model_role != null) applyScoreModelRole("quant-score-model-role", req.score_model_role);
       if (req.fill_clock != null) setVal("quant-fill-clock", clampFillClock(req.fill_clock));
       if (req.initial_cash != null) setName("pm_initial_cash", req.initial_cash);
       if (req.lot_base != null) setName("pm_lot_base", req.lot_base);
@@ -969,6 +968,8 @@ export function installBacktest(q) {
         REPLAY_DESK_PREFS_KEY,
         JSON.stringify({
           lookback: p.lookback,
+          score_model_role: p.score_model_role,
+          t0_score_model_role: readScoreModelRole("paper-t0-score-model-role"),
           fill_clock: p.fill_clock,
           universe_fit_tiers: p.universe_fit_tiers,
           initial_cash: p.initial_cash,
@@ -986,8 +987,23 @@ export function installBacktest(q) {
     const prefs = readReplayDeskPrefs();
     if (!prefs) return false;
     applyPortfolioBtParams(prefs, { rules: false, desk: true });
+    if (prefs.t0_score_model_role != null) {
+      applyScoreModelRole("paper-t0-score-model-role", prefs.t0_score_model_role);
+    }
     restoreFillClock(prefs.fill_clock);
     return true;
+  }
+
+  function readScoreModelRole(id) {
+    const el = document.getElementById(id);
+    const v = String((el && el.value) || "research").toLowerCase();
+    return v === "live" ? "live" : "research";
+  }
+
+  function applyScoreModelRole(id, role) {
+    const el = document.getElementById(id);
+    if (!el || role == null || role === "") return;
+    el.value = String(role).toLowerCase() === "live" ? "live" : "research";
   }
 
   function readPortfolioBtParams() {
@@ -999,6 +1015,7 @@ export function installBacktest(q) {
     }
     return {
       lookback,
+      score_model_role: readScoreModelRole("quant-score-model-role"),
       horizon_days: 1,
       exclude_st: true,
       min_avg_amount_pctile: null,
@@ -1180,7 +1197,6 @@ export function installBacktest(q) {
       renderAttributionTables(null);
       renderRegimeBuckets(null);
       renderSignalFillTable(null);
-      renderUniversePanel(null);
       renderScoreIc(null);
       const expBtn = document.getElementById("quant-backtest-report-export");
       if (expBtn) expBtn.disabled = true;
@@ -1216,7 +1232,6 @@ export function installBacktest(q) {
     }
     renderMetricCards(els.quantBtMetrics, buildPortfolioBacktestCards(data));
     renderRobustnessPanel(data);
-    renderUniversePanel(data.universe);
     renderWfSlices(data.wf_slices);
     renderCostAssumptions(data.cost_assumptions);
     renderAttributionTables(data.attribution);
@@ -1336,16 +1351,19 @@ export function installBacktest(q) {
     renderPaperT0(replayT0PaintEls(), data);
     applyReplayT0Kpis(data);
     fillT0BtSizing(document.getElementById("paper-t0-form"), data);
+    const req = (data && data.request) || {};
+    const lbEl = document.getElementById("paper-t0-lookback");
+    if (lbEl && req.lookback != null && Number.isFinite(Number(req.lookback))) {
+      lbEl.value = String(req.lookback);
+    }
+    applyScoreModelRole(
+      "paper-t0-score-model-role",
+      req.score_model_role || data.score_model_role
+    );
   }
 
   function renderT0BacktestResult(data) {
     paintReplayT0(data);
-  }
-
-  function renderUniversePanel(uni) {
-    const el = document.getElementById("quant-universe-panel");
-    if (!el) return;
-    el.innerHTML = buildUniversePanelHtml(uni);
   }
 
   function renderWfSlices(wf) {
@@ -1481,6 +1499,7 @@ export function installBacktest(q) {
       await ensureScoringFloors();
       const {
         lookback,
+        score_model_role,
         exclude_st,
         min_avg_amount_pctile,
         benchmark_code,
@@ -1511,13 +1530,15 @@ export function installBacktest(q) {
       const cashWan = Number.isFinite(Number(initial_cash))
         ? String(Number(initial_cash) / 10000).replace(/\.0$/, "")
         : "20";
-      const ctx = [watchN ? `${watchN}只` : "", `${lookback}日`, fill_clock, `本金${cashWan}万`]
+      const roleLbl = score_model_role === "live" ? "执行" : "研究";
+      const ctx = [watchN ? `${watchN}只` : "", `${lookback}日`, fill_clock, roleLbl, `本金${cashWan}万`]
         .filter(Boolean)
         .join(" · ");
       lastHint = ctx;
       refreshBusy();
       const payload = {
         lookback,
+        score_model_role,
         apply_costs: true,
         fetch_fundamentals: false,
         exclude_st,
@@ -1691,6 +1712,7 @@ export function installBacktest(q) {
       lookback,
       use_minute: true,
       ...t0,
+      score_model_role: readScoreModelRole("paper-t0-score-model-role"),
       t0_stop_on_close: true,
       initial_shares: sizing.shares,
       initial_cash: sizing.cash,
@@ -2105,9 +2127,19 @@ export function installBacktest(q) {
     el.addEventListener("change", () => persistReplayDeskPrefs());
   }
 
+  function wireReplayModelRole() {
+    ["quant-score-model-role", "paper-t0-score-model-role"].forEach((id) => {
+      const el = document.getElementById(id);
+      if (!el || el.dataset.wired === "1") return;
+      el.dataset.wired = "1";
+      el.addEventListener("change", () => persistReplayDeskPrefs());
+    });
+  }
+
   wirePaperT0Backtest();
   wireReplayFillClock();
   wireReplayPriceSpaceGate();
+  wireReplayModelRole();
   if (typeof window !== "undefined") {
     window.addEventListener("investment-replay-desk-persist", () => persistReplayDeskPrefs());
   }
@@ -2141,7 +2173,6 @@ export function installBacktest(q) {
     renderScoreIc,
     renderSignalFillTable,
     renderT0BacktestResult,
-    renderUniversePanel,
     renderWfSlices,
     runPortfolioBacktest,
     setBtTradesCaption,

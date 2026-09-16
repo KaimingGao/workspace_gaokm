@@ -10,7 +10,7 @@ logger = logging.getLogger(__name__)
 def resolve_replay_candidates(
     codes: Optional[Sequence[str]] = None,
 ) -> Dict[str, Any]:
-    """解析回测候选：显式 codes，否则 validation_universe（watching − exclude）。"""
+    """解析回测候选：显式 codes，否则 validation_universe（观察池，或 include_only）。"""
     from core.validation_universe import resolve_validation_codes
 
     if codes:
@@ -89,6 +89,7 @@ class QuantReplayMixin:
         lot_strong: Optional[int] = None,
         universe_fit_tiers: Optional[Sequence[str]] = None,
         price_space_gate: Optional[bool] = None,
+        score_model_role: Optional[str] = None,
         progress_cb: Optional[Any] = None,
         cancel_cb: Optional[Any] = None,
         **legacy_kw: Any,
@@ -283,6 +284,9 @@ class QuantReplayMixin:
             }
         if _cancelled():
             return {"success": False, "error": "已取消", "cancelled": True}
+        from core.research.holdout import normalize_backtest_model_role
+
+        role = normalize_backtest_model_role(score_model_role)
         _emit(f"逐日调仓 {clock} · {int(lookback)} 日…")
         result = backtest_paper_replay(
             stock_bars,
@@ -318,6 +322,7 @@ class QuantReplayMixin:
             ),
             progress_cb=progress_cb,
             cancel_cb=cancel_cb,
+            score_model_role=role,
         )
         result["loaded_stocks"] = list(stock_bars.keys())
         result["failures"] = failures
@@ -359,6 +364,7 @@ class QuantReplayMixin:
                 (fit_meta or {}).get("universe_fit_tiers") or ["A", "B", "C"]
             ),
             "price_space_gate": gate_on,
+            "score_model_role": role,
             "score_axis_note": (
                 "引擎=paper_replay：每个交易日 09:30 rank_lots"
                 f"（成交 {clock} 5m · 初始 {cash / 10000:g} 万 · ranking={FORMULA_RANKING} · "

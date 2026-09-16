@@ -1,4 +1,4 @@
-"""策略验证宇宙（V0.5）：可配置纳入/排除；空财务码治理。"""
+"""策略验证宇宙（V0.5）：观察池（可选 include_only）；空财务码治理。"""
 
 
 import logging
@@ -21,7 +21,7 @@ def default_universe() -> Dict[str, Any]:
         "include_only": [],
         "min_codes": 5,
         "min_trading_days": 40,
-        "note": "include_only 非空时仅用该列表；否则 watching − exclude。B1：min_codes/min_trading_days 供闸门。",
+        "note": "include_only 非空时仅用该列表；否则=观察池。屏蔽某票从观察池删除。B1：min_codes/min_trading_days 供闸门。",
     }
 
 
@@ -37,7 +37,8 @@ def load_validation_universe(*, path: Optional[str] = None) -> Dict[str, Any]:
     out = default_universe()
     if isinstance(data, dict):
         out.update(data)
-    out["exclude_codes"] = [str(c).strip() for c in (out.get("exclude_codes") or []) if str(c).strip()]
+    # exclude_codes 已废弃：屏蔽某票请从观察池删除，读盘不再带回旧名单。
+    out["exclude_codes"] = []
     out["include_only"] = [str(c).strip() for c in (out.get("include_only") or []) if str(c).strip()]
     return out
 
@@ -49,9 +50,7 @@ def save_validation_universe(
     merged = default_universe()
     if isinstance(payload, dict):
         merged.update(payload)
-    merged["exclude_codes"] = [
-        str(c).strip() for c in (merged.get("exclude_codes") or []) if str(c).strip()
-    ]
+    merged["exclude_codes"] = []
     merged["include_only"] = [
         str(c).strip() for c in (merged.get("include_only") or []) if str(c).strip()
     ]
@@ -64,12 +63,11 @@ def resolve_validation_codes(
     watching_codes: Optional[Sequence[str]] = None,
     universe: Optional[dict] = None,
 ) -> Dict[str, Any]:
-    """解析验证用股票宇宙。"""
+    """解析验证用股票宇宙：观察池，或 include_only。不再扣 exclude。"""
     uni = universe or load_validation_universe()
-    include = list(uni.get("include_only") or [])
-    exclude = set(uni.get("exclude_codes") or [])
+    include = [str(c).strip() for c in (uni.get("include_only") or []) if str(c).strip()]
     if include:
-        codes = [c for c in include if c not in exclude]
+        codes = include
         source = "include_only"
     else:
         if watching_codes is None:
@@ -81,14 +79,13 @@ def resolve_validation_codes(
                 logger.debug("catch except Exception: in validation_universe.py", exc_info=True)
                 watching_codes = []
         codes = [str(c).strip() for c in (watching_codes or []) if str(c).strip()]
-        codes = [c for c in codes if c not in exclude]
-        source = "watching_minus_exclude"
+        source = "watching"
     return {
         "ok": True,
         "codes": codes,
         "count": len(codes),
         "source": source,
-        "excluded": sorted(exclude),
+        "excluded": [],
         "universe": uni,
         "min_codes": int(uni.get("min_codes") or 5),
         "min_trading_days": int(uni.get("min_trading_days") or 40),
@@ -140,40 +137,8 @@ def empty_fundamentals_report(
         "real_multi_point": cov.get("real_multi_point"),
         "real_multi_coverage": cov.get("real_multi_coverage"),
         **meta,
-        "note": "可将 empty_codes 写入 validation_universe.exclude_codes，或跑 fundamentals_warmup。",
+        "note": "空财务请 fundamentals_warmup，或从观察池删除该票。",
     }
-
-
-def exclude_empty_fundamentals(
-    *,
-    write: bool = False,
-    codes: Optional[Sequence[str]] = None,
-    path: Optional[str] = None,
-) -> Dict[str, Any]:
-    """将空财务码并入 validation_universe.exclude_codes（可选写盘）。"""
-    empty_rep = empty_fundamentals_report(codes=codes)
-    empty = [str(c).strip() for c in (empty_rep.get("empty_codes") or []) if str(c).strip()]
-    uni = load_validation_universe(path=path)
-    before = list(uni.get("exclude_codes") or [])
-    merged = sorted(set(before) | set(empty))
-    added = sorted(set(merged) - set(before))
-    uni["exclude_codes"] = merged
-    out: Dict[str, Any] = {
-        "ok": True,
-        "wrote": False,
-        "empty_codes": empty,
-        "added_excludes": added,
-        "exclude_codes": merged,
-        "universe": uni,
-        "note": "空财务码建议移出验证宇宙；write=true 才落盘。",
-    }
-    if write and added:
-        save_validation_universe(uni, path=path)
-        out["wrote"] = True
-    elif write:
-        out["wrote"] = False
-        out["note"] = "无新增 exclude；未改盘。"
-    return out
 
 
 def build_validation_hygiene_report(
@@ -228,7 +193,7 @@ def build_validation_hygiene_report(
     actions: List[str] = []
     if empty_rep.get("empty_count"):
         actions.append(
-            f"空财务 {empty_rep.get('empty_count')} 只 → exclude 或 fundamentals_warmup/ingest"
+            f"空财务 {empty_rep.get('empty_count')} 只 → 观察池删除或 fundamentals_warmup/ingest"
         )
     if thin_or_empty:
         actions.append(f"日线 thin/empty {len(thin_or_empty)} 只 → bars_warmup")
@@ -266,17 +231,14 @@ def prepare_validation_universe(
     sentiment_limit: int = 5,
     codes: Optional[Sequence[str]] = None,
 ) -> Dict[str, Any]:
-    """一键准备验证宇宙：卫生报告 + 可选 exclude 空财务 + 日线/舆情预热。
+    """一键准备验证宇宙：卫生报告 + 日线/舆情预热。
 
+    write_excludes 已废弃（忽略）：屏蔽某票请从观察池删除。
     不占用 schedule 槽位内部再开槽；可被 schedule kind=validation_prepare 调用。
     """
+    _ = write_excludes
     hygiene = build_validation_hygiene_report(codes=codes)
     code_list = list((hygiene.get("universe") or {}).get("codes") or [])
-    exclude_out = exclude_empty_fundamentals(write=bool(write_excludes), codes=code_list)
-    if write_excludes and exclude_out.get("added_excludes"):
-        # 排除后重算宇宙
-        hygiene = build_validation_hygiene_report()
-        code_list = list((hygiene.get("universe") or {}).get("codes") or [])
 
     bars_summary: Dict[str, Any] = {"skipped": True}
     if warmup_bars and code_list:
@@ -311,7 +273,10 @@ def prepare_validation_universe(
         "ok": True,
         "kind": "validation_prepare",
         "hygiene": hygiene,
-        "exclude": exclude_out,
+        "exclude": {
+            "skipped": True,
+            "note": "exclude 已废弃；屏蔽请从观察池删除。",
+        },
         "bars_warmup": bars_summary,
         "sentiment_warmup": sentiment_summary,
         "note": "验证宇宙准备完成；舆情仍 prior-only，不进 ŷ。",

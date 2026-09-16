@@ -469,6 +469,8 @@ class TestExecutionResolve(unittest.TestCase):
         req = T0BacktestRequest()
         d = load_t0_rules()
         self.assertEqual(req.lookback, 10)
+        self.assertEqual(req.score_model_role, "research")
+        self.assertEqual(T0BacktestRequest(score_model_role="live").score_model_role, "live")
         self.assertAlmostEqual(float(d["y_tau_exit_price_mult_buy_then_sell"]), 1.0)
         self.assertAlmostEqual(float(d["y_tau_exit_price_mult_sell_then_buy"]), 1.0)
 

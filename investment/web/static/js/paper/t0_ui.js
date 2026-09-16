@@ -31,10 +31,10 @@ function scoreRoleCaption(data) {
     String((data && data.task) || "") === "t0_backtest" ||
     !!(data && data.from_holdings);
   if (role === "research" || (!role && isBt)) {
-    return `<span title="历史回测加载研究套（Holdout 训练，近 N 日不进训练）。交易执行盘中预演用执行套全样本，近 Holdout 日 ŷ 会不同。">研究套ŷ</span>`;
+    return `<span title="研究套 Holdout。调仓/做 T 门槛对 ŷ 敏感，研究套参数未必适用于执行套；选「执行」测 live。">研究套ŷ</span>`;
   }
   if (role === "live") {
-    return `<span title="交易执行执行套（全样本 live）。历史回测做 T 走研究套，近 Holdout 日 ŷ 会不同。">执行套ŷ</span>`;
+    return `<span title="执行套（全样本 live）。与自动调仓 / 自动做 T 同一套。门槛沿用当前规则，ŷ 换系数后结果可能翻转。">执行套ŷ</span>`;
   }
   return `<span title="y_* 为该行「日」列会话快照（做T决策时冻结）；5m 路径仓在研究枢纽写入；≠持仓实时分 / ≠调仓ŷ开关">会话快照ŷ</span>`;
 }

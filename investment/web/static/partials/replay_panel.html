@@ -35,7 +35,7 @@
       <div class="replay-run-toolbar" aria-label="回测窗">
         <label
           class="platform-field quant-pro-field replay-lookback-field replay-clock-field"
-          title="成交用该时刻 5 分钟 K。09:30 用首根开盘价；其后用该根收盘价。ŷ_oo 始终开盘；ŷ_oc 在成交钟>09:30 时用截至该钟的 5m 前缀重算（与做 T 同钟对齐）。缺分钟则跳过该票（09:30 可回退日开盘）。有分钟且「其他」里日分价闸开时，日开/分开或日昨/分昨错位超阈则该票当日跳过。"
+          title="成交用该时刻 5 分钟 K。09:30 用首根开盘价；其后用该根收盘价。ŷ_oo 始终开盘；ŷ_oc 在成交钟>09:30 时用截至该钟的 5m 前缀重算。保存规则后，自动调仓与手动预演也从这个钟开始、到 10:00 结束。缺分钟则跳过该票（09:30 可回退日开盘）。有分钟且「其他」里日分价闸开时，日开/分开或日昨/分昨错位超阈则该票当日跳过。"
         >
           <span class="quant-pro-field-label">调仓时间</span>
           <select id="quant-fill-clock">
@@ -54,6 +54,16 @@
         >
           <span class="quant-pro-field-label">回测窗口</span>
           <input id="quant-lookback" type="number" min="10" max="500" value="30" />
+        </label>
+        <label
+          class="platform-field quant-pro-field replay-lookback-field replay-model-field"
+          title="研究套：Holdout（近 N 日不进训练），默认历史验证。执行套：live 全样本，与自动调仓同一套。调仓门槛对 ŷ 敏感、不鲁棒，研究套参数未必适用于执行套，故可在此对照。"
+        >
+          <span class="quant-pro-field-label">模型</span>
+          <select id="quant-score-model-role">
+            <option value="research" selected>研究</option>
+            <option value="live">执行</option>
+          </select>
         </label>
         <fieldset
           class="platform-field quant-pro-field replay-lookback-field replay-fit-tier-field"
@@ -274,7 +284,7 @@
     </div>
   </section>
 
-  <!-- ③ 做 T 回测：历史验证，加载研究套模型 -->
+  <!-- ③ 做 T 回测：历史验证默认研究套；门槛敏感，可选手动切执行套对照 -->
   <section
     class="dashboard-section quant-section replay-section replay-run-section replay-t0-section"
     id="replay-section-t0"
@@ -294,7 +304,17 @@
           <span class="quant-pro-field-label">回测窗口</span>
           <input id="paper-t0-lookback" type="number" min="10" max="60" step="1" value="10" />
         </label>
-        <button type="button" id="paper-t0-backtest" class="dialog-btn" title="5m 第一触达回测：加载研究套模型；规则读下方表单。缺该日5m则跳过。">跑回测</button>
+        <label
+          class="platform-field quant-pro-field replay-lookback-field replay-model-field"
+          title="研究套：Holdout（近 N 日不进训练），默认历史验证。执行套：live 全样本，与自动做 T 同一套。做 T 门槛对 ŷ 敏感、不鲁棒，研究套参数未必适用于执行套，故可在此对照。"
+        >
+          <span class="quant-pro-field-label">模型</span>
+          <select id="paper-t0-score-model-role">
+            <option value="research" selected>研究</option>
+            <option value="live">执行</option>
+          </select>
+        </label>
+        <button type="button" id="paper-t0-backtest" class="dialog-btn" title="5m 第一触达回测：默认研究套；选执行则用 live 系数（门槛对 ŷ 敏感，研究套未必代表自动做 T）。规则读下方表单。缺该日5m则跳过。">跑回测</button>
       </div>
     </header>
     <div class="replay-overview-band" id="replay-t0-overview">

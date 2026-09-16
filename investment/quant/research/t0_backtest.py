@@ -427,15 +427,17 @@ def run_t0_backtest_for_code(
     stock_name: Optional[str] = None,
     skip_quote: bool = False,
     progress_cb: Optional[Callable[..., None]] = None,
+    score_model_role: Optional[str] = None,
 ) -> Dict[str, Any]:
     from core.research.holdout import (
-        MODEL_ROLE_RESEARCH,
         current_scoring_model_role,
+        normalize_backtest_model_role,
         scoring_model_role_context,
     )
 
-    if current_scoring_model_role() != MODEL_ROLE_RESEARCH:
-        with scoring_model_role_context(MODEL_ROLE_RESEARCH):
+    requested = normalize_backtest_model_role(score_model_role)
+    if current_scoring_model_role() != requested:
+        with scoring_model_role_context(requested):
             return run_t0_backtest_for_code(
                 code,
                 lookback=lookback,
@@ -450,16 +452,24 @@ def run_t0_backtest_for_code(
                 stock_name=stock_name,
                 skip_quote=skip_quote,
                 progress_cb=progress_cb,
+                score_model_role=requested,
             )
 
     from core.data.facade import bars_and_source as fetch_daily_bars
 
     _ = use_minute  # 日线模拟已删除；强制分钟
+    try:
+        from core.signal.minute_tau_feats import clear_sector_ret_cache
+
+        clear_sector_ret_cache()
+    except Exception:  # noqa: BLE001
+        pass
     from core.t0.score_policy import (
         T0_BACKTEST_SCORE_WARMUP,
-        active_book_codes_for_tau_pool,
         build_tau_pool_by_date,
         load_bars_by_code_for_tau_pool,
+        set_t0_cs_universe_codes,
+        t0_cs_universe_codes,
     )
 
     eval_lb = max(10, int(lookback or T0_BT_DEFAULT_LOOKBACK))
@@ -532,16 +542,21 @@ def run_t0_backtest_for_code(
             "minute_meta": minute_meta,
         }
 
-    # ŷ_τ 截面：调用方未传时，用活跃簿宇宙（与刷簿同构）补 pool_gaps
+    # ŷ_τ 截面：与盯盘同池（纸面持仓 ∪ 本票）；调用方已传入则复用
     tau_pool = tau_pool_by_date if isinstance(tau_pool_by_date, dict) else None
+    pool_codes = t0_cs_universe_codes(str(sym), paper=paper)
+    set_t0_cs_universe_codes(pool_codes)
     if tau_pool is None:
-        pool_codes = active_book_codes_for_tau_pool(cap=120)
-        if str(sym) not in pool_codes:
-            pool_codes = [str(sym)] + list(pool_codes)
         bars_by_code = load_bars_by_code_for_tau_pool(pool_codes, limit=fetch_n)
         if str(sym) not in bars_by_code and bars_all:
             bars_by_code[str(sym)] = list(bars_all)
         tau_pool = build_tau_pool_by_date(bars_by_code)
+        try:
+            from core.t0.score_policy import seed_tau_cross_section_pool
+
+            seed_tau_cross_section_pool(tau_pool)
+        except Exception:  # noqa: BLE001
+            pass
 
     cost = float(
         initial_cost
@@ -564,6 +579,7 @@ def run_t0_backtest_for_code(
             (quote.get("stock_name") if quote.get("success") else None) or stock_name or ""
         ),
         progress_cb=progress_cb,
+        score_model_role=requested,
     )
     try:
         from core.t0.costs import default_t0_research_cost_config, resolve_t0_cost_context
@@ -619,6 +635,7 @@ def run_t0_backtest_for_code(
             stock_code=str(sym),
             minute_by_date=None,
             require_minute=False,
+            score_model_role=requested,
         )
         if hold_only.get("success"):
             t0_pnl = float(report.get("t0_pnl_with_exposure") or report.get("t0_pnl_total") or 0)
@@ -643,6 +660,7 @@ def run_t0_backtest_for_holdings(
     virtual_cash: float = T0_BT_VIRTUAL_CASH,
     progress_cb: Optional[Callable[..., None]] = None,
     cancel_cb: Optional[Callable[[], bool]] = None,
+    score_model_role: Optional[str] = None,
 ) -> Dict[str, Any]:
     """对持仓列表逐票回测并汇总（研究用，不改账本）。
 
@@ -658,13 +676,14 @@ def run_t0_backtest_for_holdings(
         }
 
     from core.research.holdout import (
-        MODEL_ROLE_RESEARCH,
         current_scoring_model_role,
+        normalize_backtest_model_role,
         scoring_model_role_context,
     )
 
-    if current_scoring_model_role() != MODEL_ROLE_RESEARCH:
-        with scoring_model_role_context(MODEL_ROLE_RESEARCH):
+    requested = normalize_backtest_model_role(score_model_role)
+    if current_scoring_model_role() != requested:
+        with scoring_model_role_context(requested):
             return run_t0_backtest_for_holdings(
                 holdings,
                 lookback=lookback,
@@ -676,6 +695,7 @@ def run_t0_backtest_for_holdings(
                 virtual_cash=virtual_cash,
                 progress_cb=progress_cb,
                 cancel_cb=cancel_cb,
+                score_model_role=requested,
             )
 
     from core.execution import resolve_t0_rules, strip_execution_meta
@@ -697,22 +717,23 @@ def run_t0_backtest_for_holdings(
     v_shares = max(100.0, float(virtual_shares or T0_BT_VIRTUAL_SHARES))
     v_cash = max(0.0, float(virtual_cash if virtual_cash is not None else T0_BT_VIRTUAL_CASH))
 
-    # 持仓 ∪ 活跃簿宇宙 → 共享 τ 截面（与刷簿同构，避免逐票缺 sector_gap_breadth）
+    # 持仓池 → 共享 τ 截面（与盯盘同构，避免逐票缺 sector_gap_breadth）
+    try:
+        from core.signal.minute_tau_feats import clear_sector_ret_cache
+
+        clear_sector_ret_cache()
+    except Exception:  # noqa: BLE001
+        pass
     from core.t0.score_policy import (
         T0_BACKTEST_SCORE_WARMUP,
-        active_book_codes_for_tau_pool,
         build_tau_pool_by_date,
         load_bars_by_code_for_tau_pool,
+        set_t0_cs_universe_codes,
+        t0_cs_universe_codes,
     )
 
-    hold_codes = [
-        str(h.get("stock_code") or "").strip()
-        for h in holdings
-        if str(h.get("stock_code") or "").strip()
-    ]
-    pool_codes = list(
-        dict.fromkeys(hold_codes + active_book_codes_for_tau_pool(cap=120))
-    )
+    pool_codes = t0_cs_universe_codes(holdings=holdings, paper=paper)
+    set_t0_cs_universe_codes(pool_codes)
     eval_lb = max(10, int(lookback or T0_BT_DEFAULT_LOOKBACK))
     fetch_n = eval_lb + int(T0_BACKTEST_SCORE_WARMUP) + 5
     n_hold = max(1, len(holdings))
@@ -744,10 +765,16 @@ def run_t0_backtest_for_holdings(
     per: List[Dict[str, Any]] = []
     t_deadline = time.time() + float(_HOLDINGS_DEADLINE_SEC)
     t_tau = time.time()
-    _emit(0, n_hold, "建 τ 截面（持仓+活跃簿）…")
+    _emit(0, n_hold, "建 τ 截面（持仓池）…")
     tau_pool = build_tau_pool_by_date(
         load_bars_by_code_for_tau_pool(pool_codes, limit=fetch_n)
     )
+    try:
+        from core.t0.score_policy import seed_tau_cross_section_pool
+
+        seed_tau_cross_section_pool(tau_pool)
+    except Exception:  # noqa: BLE001
+        pass
     logger.info(
         "t0 holdings bt tau_pool n=%s elapsed=%.1fs remain=%.1fs holdings=%s",
         len(pool_codes),
@@ -809,6 +836,7 @@ def run_t0_backtest_for_holdings(
             stock_name=h.get("stock_name"),
             skip_quote=True,
             progress_cb=_one_progress,
+            score_model_role=requested,
         )
         logger.debug(
             "t0 holdings bt %s ok=%s elapsed=%.1fs remain=%.1fs",
@@ -924,7 +952,7 @@ def run_t0_backtest_for_holdings(
         "success": bool(ok),
         "task": "t0_backtest",
         "from_holdings": True,
-        "score_model_role": "research",
+        "score_model_role": current_scoring_model_role(),
         "virtual_sizing": True,
         "virtual_shares": v_shares,
         "virtual_cash": v_cash,

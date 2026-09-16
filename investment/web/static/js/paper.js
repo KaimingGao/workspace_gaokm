@@ -1370,10 +1370,19 @@ export function initPaper(ctx) {
       tone: lastRunTone,
     });
 
+    const subEl = document.getElementById("paper-rebalance-worker-sub");
+    if (subEl && w.window_label) {
+      subEl.textContent = `每个交易日 ${w.window_label} 现价成交一次 · 过点不补跑`;
+    }
+
     if (hintEl) {
       const hints = [];
       if (!w.enabled) {
-        hints.push("后台 worker 已关闭；打开右侧「运行」即按已保存规则在 09:30–10:00 现价成交一次");
+        hints.push(
+          `后台 worker 已关闭；打开右侧「运行」即按已保存规则在 ${
+            w.window_label || "调仓时间–10:00"
+          } 现价成交一次`
+        );
       } else if (!running) {
         hints.push("开关已开但线程未就绪，请稍候或重启 Web");
       } else if (w.in_window) {

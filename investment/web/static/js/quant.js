@@ -27,7 +27,6 @@ import {
 } from "./quant/names.js";
 import { createResearchParams } from "./quant/params.js";
 import { createFactorMetaCache } from "./quant/factor_meta.js";
-import { buildUniversePanelHtml } from "./quant/universe_ui.js";
 import { researchGridHtml, metricCell } from "./quant/research_grid.js";
 import { createBtTablesUi } from "./quant/bt_tables.js?v=p2261";
 import { installClusterProbe } from "./quant/domain_cluster.js";
@@ -238,7 +237,7 @@ export function initQuant(ctx) {
     factorDescription, factorNameCellHtml, factorTaxonomyCellHtml,
     BT_SCOPE_LIVE, BT_SCOPE_FROZEN, quantBtBusyIds, PRESET_FLAG_LABELS, QUANT_EXPORT_PRESETS,
     setQuantMeta, setBusyText, watchingScoreTips, btSimScoreTips,
-    buildUniversePanelHtml, buildResearchCurves,
+    buildResearchCurves,
     truncateStockName, watchingNameSpanHtml, watchingNameFromEl, applyWatchingNameEl, normalizeProbeCode,
     fmtScore, scoreCls, mountVirtualTable, colStyle,
     renderLineChart, renderDualLineChart, renderMultiLineChart,

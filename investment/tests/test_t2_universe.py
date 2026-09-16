@@ -14,7 +14,7 @@ class TestResolveReplayCandidates(unittest.TestCase):
         self.assertEqual(out["codes"], ["600519", "600036"])
         self.assertEqual(out["source"], "explicit")
 
-    def test_watching_minus_exclude(self):
+    def test_watching_universe(self):
         from quant.services.quant_service_replay import resolve_replay_candidates
 
         with patch(
@@ -31,9 +31,10 @@ class TestResolveReplayCandidates(unittest.TestCase):
                 },
             ):
                 out = resolve_replay_candidates(None)
-        self.assertEqual(out["codes"], ["A", "C"])
-        self.assertEqual(out["source"], "watching_minus_exclude")
+        self.assertEqual(out["codes"], ["A", "B", "C"])
+        self.assertEqual(out["source"], "watching")
         self.assertEqual(out["watching_count"], 3)
+        self.assertEqual(out["excluded"], [])
 
 
 if __name__ == "__main__":

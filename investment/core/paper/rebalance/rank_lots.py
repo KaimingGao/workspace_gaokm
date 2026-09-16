@@ -1,4 +1,4 @@
-"""策略调仓：9:30 用 rank=w_oo·ŷ_oo + w_oc·((1+ŷ_oc)(1+w_co·ŷ_co)−1) 排序，按 200/500 股下单。
+"""策略调仓：fill_clock～10:00 用 rank=w_oo·ŷ_oo + w_oc·((1+ŷ_oc)(1+w_co·ŷ_co)−1) 排序，按 200/500 股下单。
 
 规则（live 与历史回测共用）：
   - 持有周期 = T 开盘 → T+1 开盘
@@ -442,6 +442,7 @@ def get_rank_lot_cfg(
         "y_oo_enter_alt": float(pm.get("y_oo_enter_alt") if pm.get("y_oo_enter_alt") is not None else pm.get("y_oo_enter") if pm.get("y_oo_enter") is not None else DEFAULT_Y_OO_ENTER),
         "y_oc_enter_alt": float(pm.get("y_oc_enter_alt") if pm.get("y_oc_enter_alt") is not None else pm.get("y_oc_enter") if pm.get("y_oc_enter") is not None else DEFAULT_Y_OC_ENTER),
         "y_hl_enter_alt": float(pm.get("y_hl_enter_alt") if pm.get("y_hl_enter_alt") is not None else pm.get("y_hl_enter") if pm.get("y_hl_enter") is not None else DEFAULT_Y_HL_ENTER),
+        "fill_clock": str(pm.get("fill_clock") or "09:30"),
     }
 
 

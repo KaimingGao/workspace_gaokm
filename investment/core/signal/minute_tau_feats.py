@@ -800,6 +800,51 @@ def clear_sector_ret_cache() -> None:
     _PEER_CODES_MEMO = None
 
 
+def _peer_minute_bars_for_tau(
+    code_key: str,
+    *,
+    trade_date: str,
+    tau_hm: str,
+) -> List[dict]:
+    """同伴 5m：内存仓若缺当日 τ 根则回磁盘重载，避免早盘空仓一直顶到收盘。"""
+    key = str(code_key or "").strip()
+    day = str(trade_date or "")[:10]
+    hm = str(tau_hm or "").strip()[:5]
+    if not key:
+        return []
+
+    def _covers(rows: Sequence[dict]) -> bool:
+        if not rows:
+            return False
+        if len(day) < 10 or not hm:
+            return True
+        try:
+            return prefix_has_tau_clock(rows, trade_date=day, tau_hm=hm)
+        except Exception:
+            return bool(rows)
+
+    bars = _PEER_MINUTE_BARS.get(key)
+    if bars is not None and _covers(bars):
+        return list(bars)
+    try:
+        from core.ports.market import resolve_market_code
+        from core.store import load_minute_cache
+
+        mkt, pure = resolve_market_code(key)
+        packed = load_minute_cache(
+            mkt or "CN",
+            pure or key,
+            period="5",
+            min_bars=2,
+            ignore_age=True,
+        )
+    except Exception:
+        packed = None
+    rows = list((packed[0] if packed else None) or [])
+    _PEER_MINUTE_BARS[key] = rows
+    return rows
+
+
 def resolve_sector_ret_to_tau(
     trade_date: str,
     tau_hm: str = "10:30",
@@ -834,37 +879,11 @@ def resolve_sector_ret_to_tau(
         return None
 
     rets: List[float] = []
-    try:
-        from core.ports.market import resolve_market_code
-        from core.store import load_minute_cache
-    except Exception:
-        if use_cache:
-            _SECTOR_RET_CACHE[cache_key] = None
-        return None
-
     for raw in peer_codes[: max(8, int(cap or _SECTOR_RET_DEFAULT_CAP))]:
         code_key = str(raw or "").strip()
         if not code_key:
             continue
-        bars = _PEER_MINUTE_BARS.get(code_key)
-        if bars is None:
-            try:
-                mkt, pure = resolve_market_code(code_key)
-                packed = load_minute_cache(
-                    mkt or "CN",
-                    pure or code_key,
-                    period="5",
-                    min_bars=2,
-                    ignore_age=True,
-                )
-            except Exception:
-                _PEER_MINUTE_BARS[code_key] = []
-                continue
-            if not packed:
-                _PEER_MINUTE_BARS[code_key] = []
-                continue
-            bars = list(packed[0] or [])
-            _PEER_MINUTE_BARS[code_key] = bars
+        bars = _peer_minute_bars_for_tau(code_key, trade_date=day, tau_hm=hm)
         if len(bars) < 2:
             continue
         pack = extract_minute_tau_pack(
@@ -940,37 +959,11 @@ def resolve_sector_ret_last_30m(
         return None
 
     rets: List[float] = []
-    try:
-        from core.ports.market import resolve_market_code
-        from core.store import load_minute_cache
-    except Exception:
-        if use_cache:
-            _SECTOR_RET_30M_CACHE[cache_key] = None
-        return None
-
     for raw in peer_codes[: max(8, int(cap or _SECTOR_RET_DEFAULT_CAP))]:
         code_key = str(raw or "").strip()
         if not code_key:
             continue
-        bars = _PEER_MINUTE_BARS.get(code_key)
-        if bars is None:
-            try:
-                mkt, pure = resolve_market_code(code_key)
-                packed = load_minute_cache(
-                    mkt or "CN",
-                    pure or code_key,
-                    period="5",
-                    min_bars=6,
-                    ignore_age=True,
-                )
-            except Exception:
-                _PEER_MINUTE_BARS[code_key] = []
-                continue
-            if not packed:
-                _PEER_MINUTE_BARS[code_key] = []
-                continue
-            bars = list(packed[0] or [])
-            _PEER_MINUTE_BARS[code_key] = bars
+        bars = _peer_minute_bars_for_tau(code_key, trade_date=day, tau_hm=hm)
         if len(bars) < 2:
             continue
         pack = extract_t30_seq_pack(
@@ -1046,37 +1039,11 @@ def resolve_sector_ret_last_60m(
         return None
 
     rets: List[float] = []
-    try:
-        from core.ports.market import resolve_market_code
-        from core.store import load_minute_cache
-    except Exception:
-        if use_cache:
-            _SECTOR_RET_60M_CACHE[cache_key] = None
-        return None
-
     for raw in peer_codes[: max(8, int(cap or _SECTOR_RET_DEFAULT_CAP))]:
         code_key = str(raw or "").strip()
         if not code_key:
             continue
-        bars = _PEER_MINUTE_BARS.get(code_key)
-        if bars is None:
-            try:
-                mkt, pure = resolve_market_code(code_key)
-                packed = load_minute_cache(
-                    mkt or "CN",
-                    pure or code_key,
-                    period="5",
-                    min_bars=6,
-                    ignore_age=True,
-                )
-            except Exception:
-                _PEER_MINUTE_BARS[code_key] = []
-                continue
-            if not packed:
-                _PEER_MINUTE_BARS[code_key] = []
-                continue
-            bars = list(packed[0] or [])
-            _PEER_MINUTE_BARS[code_key] = bars
+        bars = _peer_minute_bars_for_tau(code_key, trade_date=day, tau_hm=hm)
         if len(bars) < 2:
             continue
         pack = extract_t60_seq_pack(
@@ -1152,37 +1119,11 @@ def resolve_sector_ret_last_90m(
         return None
 
     rets: List[float] = []
-    try:
-        from core.ports.market import resolve_market_code
-        from core.store import load_minute_cache
-    except Exception:
-        if use_cache:
-            _SECTOR_RET_90M_CACHE[cache_key] = None
-        return None
-
     for raw in peer_codes[: max(8, int(cap or _SECTOR_RET_DEFAULT_CAP))]:
         code_key = str(raw or "").strip()
         if not code_key:
             continue
-        bars = _PEER_MINUTE_BARS.get(code_key)
-        if bars is None:
-            try:
-                mkt, pure = resolve_market_code(code_key)
-                packed = load_minute_cache(
-                    mkt or "CN",
-                    pure or code_key,
-                    period="5",
-                    min_bars=6,
-                    ignore_age=True,
-                )
-            except Exception:
-                _PEER_MINUTE_BARS[code_key] = []
-                continue
-            if not packed:
-                _PEER_MINUTE_BARS[code_key] = []
-                continue
-            bars = list(packed[0] or [])
-            _PEER_MINUTE_BARS[code_key] = bars
+        bars = _peer_minute_bars_for_tau(code_key, trade_date=day, tau_hm=hm)
         if len(bars) < 2:
             continue
         pack = extract_t90_seq_pack(
@@ -1227,19 +1168,44 @@ def attach_sector_ret_last_90m_cs_if_missing(
     return apply_sector_ret_last_90m_cs(out, sret)
 
 
-def _peer_codes_for_sector_ret(*, cap: int = _SECTOR_RET_DEFAULT_CAP) -> List[str]:
-    """同伴宇宙：活跃簿 → 观察池 → 本地分钟仓代码。"""
+def set_peer_codes_for_sector_ret(codes: Optional[Sequence[str]]) -> None:
+    """盯盘/回测注入同伴宇宙（持仓码）；空则下次仍走持仓宇宙/观察池。"""
     global _PEER_CODES_MEMO
+    out: List[str] = []
+    seen = set()
+    for raw in codes or []:
+        c = str(raw or "").strip()
+        if not c or c in seen:
+            continue
+        seen.add(c)
+        out.append(c)
+    _PEER_CODES_MEMO = out or None
+
+
+def peer_codes_for_sector_ret(*, cap: int = _SECTOR_RET_DEFAULT_CAP) -> List[str]:
+    """公开同伴宇宙：注入持仓码优先，不把观察池写进 memo。"""
+    return _peer_codes_for_sector_ret(cap=cap)
+
+
+def _peer_codes_for_sector_ret(*, cap: int = _SECTOR_RET_DEFAULT_CAP) -> List[str]:
+    """同伴宇宙：注入码 / 持仓宇宙 → 观察池 → 本地分钟仓。兜底不写 memo。"""
     n = max(8, int(cap or _SECTOR_RET_DEFAULT_CAP))
     if _PEER_CODES_MEMO is not None:
         return list(_PEER_CODES_MEMO[:n])
+    try:
+        from core.t0.score_policy import current_t0_cs_universe_codes
+
+        injected = current_t0_cs_universe_codes()
+        if injected:
+            return list(injected[:n])
+    except Exception:
+        pass
     try:
         from core.t0.score_policy import active_book_codes_for_tau_pool
 
         codes = active_book_codes_for_tau_pool(cap=n)
         if codes:
-            _PEER_CODES_MEMO = list(codes)
-            return list(_PEER_CODES_MEMO[:n])
+            return list(codes[:n])
     except Exception:
         pass
     try:
@@ -1263,10 +1229,8 @@ def _peer_codes_for_sector_ret(*, cap: int = _SECTOR_RET_DEFAULT_CAP) -> List[st
                     seen.add(c)
                     out.append(c)
                     if len(out) >= n:
-                        _PEER_CODES_MEMO = out
                         return list(out)
             if out:
-                _PEER_CODES_MEMO = out
                 return list(out)
     except Exception:
         pass
@@ -1286,9 +1250,7 @@ def _peer_codes_for_sector_ret(*, cap: int = _SECTOR_RET_DEFAULT_CAP) -> List[st
             ).fetchall()
         finally:
             conn.close()
-        out = [str(r[0]).strip() for r in rows if r and str(r[0]).strip()]
-        _PEER_CODES_MEMO = out
-        return list(out)
+        return [str(r[0]).strip() for r in rows if r and str(r[0]).strip()]
     except Exception:
         return []
 
@@ -1417,7 +1379,23 @@ def merge_minute_tau_pack_into_feats(
         if v is None or v == "":
             continue
         out[k] = v
-    attach_ret_vs_sector(out)
+    try:
+        seq_all = extract_t30_t60_t90_seq_packs(
+            bars,
+            trade_date=day,
+            tau_hm=hm,
+            open_px=open_px,
+        )
+        for k, v in seq_all.items():
+            if v is not None:
+                out[k] = v
+    except Exception:
+        pass
+    if _PEER_CODES_MEMO:
+        out = attach_sector_ret_cs_if_missing(out, trade_date=day, tau_hm=hm)
+        out = attach_sector_ret_last_30m_cs_if_missing(out, trade_date=day, tau_hm=hm)
+        out = attach_sector_ret_last_60m_cs_if_missing(out, trade_date=day, tau_hm=hm)
+        out = attach_sector_ret_last_90m_cs_if_missing(out, trade_date=day, tau_hm=hm)
     clock_ok = prefix_has_tau_clock(bars, trade_date=day, tau_hm=hm)
     prefix = _day_bars_upto_tau(bars, trade_date=day, tau_hm=hm)
     if clock_ok:

@@ -175,9 +175,11 @@ export function renderPaperRebalanceWorkerDesk(el, desk) {
     })
     .join("");
 
+  const clock = String(desk.fill_clock || "09:30").slice(0, 5);
+  const windowLbl = desk.window_label || `${clock}–10:00`;
   const foot = desk.filled
     ? `<p class="paper-t0-desk-foot">今日已调仓。开/加/清为已落账手数；rank 为当时 ranking。过 10:00 不补跑。</p>`
-    : `<p class="paper-t0-desk-foot">落账前按持仓占位监视；09:30–10:00 现价成交一次后换成开/加/清/持。</p>`;
+    : `<p class="paper-t0-desk-foot">落账前按持仓占位监视；${windowLbl} 现价成交一次后换成开/加/清/持。</p>`;
 
   el.innerHTML =
     `<details class="paper-t0-desk-fold"${openAttr}>` +

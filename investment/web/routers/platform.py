@@ -41,7 +41,7 @@ class ScheduleBody(BaseModel):
     # fundamentals_warmup
     ingest_history: Optional[bool] = True
     ingest_max_points: int = Field(default=8, ge=1, le=24)
-    # validation_prepare
+    # validation_prepare（write_excludes 已废弃，忽略）
     write_excludes: bool = False
     warmup_bars: Optional[bool] = True
     warmup_sentiment: Optional[bool] = True
@@ -239,7 +239,7 @@ class ValidationPrepareBody(BaseModel):
 
 @router.post("/api/ops/validation-prepare")
 def ops_validation_prepare(body: ValidationPrepareBody | None = None) -> Dict[str, Any]:
-    """一键准备验证宇宙（可写 exclude + 预热日线/舆情 history）。"""
+    """一键准备验证宇宙（预热日线/舆情 history；write_excludes 已废弃忽略）。"""
     body = body or ValidationPrepareBody()
     return deps.platform.run_validation_prepare(
         codes=body.codes,

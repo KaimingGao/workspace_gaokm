@@ -36,6 +36,7 @@ class QuantFollowMixin:
         use_minute: bool = True,
         progress_cb: Optional[Callable[..., None]] = None,
         cancel_cb: Optional[Callable[[], bool]] = None,
+        score_model_role: Optional[str] = None,
     ) -> Dict[str, Any]:
         """研究做T回测：强制 5m 第一触达（已删除日线模拟）。"""
         from quant.research.t0_backtest import (
@@ -44,6 +45,9 @@ class QuantFollowMixin:
             run_t0_backtest_for_code,
             run_t0_backtest_for_holdings,
         )
+        from core.research.holdout import normalize_backtest_model_role
+
+        role = normalize_backtest_model_role(score_model_role)
 
         _ = use_minute
         try:
@@ -68,6 +72,7 @@ class QuantFollowMixin:
                 virtual_cash=v_cash,
                 progress_cb=progress_cb,
                 cancel_cb=cancel_cb,
+                score_model_role=role,
             )
         else:
             if progress_cb:
@@ -75,14 +80,17 @@ class QuantFollowMixin:
                     progress_cb(0, 1, f"回测 {code or '标的'}…")
                 except Exception:  # noqa: BLE001
                     logger.debug("t0 progress_cb failed", exc_info=True)
+            _, paper = self._t0_holdings_for_backtest()
             out = run_t0_backtest_for_code(
                 code,
                 lookback=lookback,
                 initial_shares=v_shares,
                 initial_cash=v_cash,
                 rules=rules,
+                paper=paper,
                 use_minute=True,
                 progress_cb=progress_cb,
+                score_model_role=role,
             )
         if isinstance(out, dict) and out.get("success"):
             out.setdefault(
@@ -94,6 +102,7 @@ class QuantFollowMixin:
                     "codes": list(codes) if codes else None,
                     "initial_shares": v_shares,
                     "initial_cash": v_cash,
+                    "score_model_role": role,
                 },
             )
             _attach_t0_scope_label(out, code=str(code or "").strip())
@@ -117,6 +126,7 @@ class QuantFollowMixin:
         from_paper: bool = False,
         codes: Optional[list] = None,
         use_minute: bool = True,
+        score_model_role: Optional[str] = None,
     ) -> Dict[str, Any]:
         """后台做 T 回测；轮询 ``GET /api/jobs/t0-backtest``。"""
         import threading
@@ -179,6 +189,7 @@ class QuantFollowMixin:
                     use_minute=use_minute,
                     progress_cb=_progress,
                     cancel_cb=t0_backtest_job.is_cancel_requested,
+                    score_model_role=score_model_role,
                 )
                 if t0_backtest_job.is_cancel_requested():
                     t0_backtest_job.finish(error="已取消", job_id=job_id)

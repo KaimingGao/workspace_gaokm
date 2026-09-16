@@ -142,6 +142,7 @@ def _t0_backtest_kwargs(body: T0BacktestRequest) -> Dict[str, Any]:
         "from_paper": from_paper,
         "codes": body.codes,
         "use_minute": True,
+        "score_model_role": body.score_model_role,
     }
 
 
@@ -192,6 +193,7 @@ def _portfolio_backtest_kwargs(body: PaperReplayBacktestRequest) -> Dict[str, An
         "lot_strong": body.lot_strong,
         "universe_fit_tiers": body.universe_fit_tiers,
         "price_space_gate": body.price_space_gate,
+        "score_model_role": body.score_model_role,
     }
 
 

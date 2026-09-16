@@ -419,6 +419,12 @@ body[data-page="replay"] .replay-lookback-field #paper-t0-lookback {
   min-width: 4.5rem;
 }
 
+body[data-page="replay"] .replay-model-field #quant-score-model-role,
+body[data-page="replay"] .replay-model-field #paper-t0-score-model-role {
+  width: 4.5rem;
+  min-width: 4.5rem;
+}
+
 body[data-page="replay"] .replay-clock-field #quant-fill-clock {
   width: 5.5rem;
   min-width: 5.5rem;

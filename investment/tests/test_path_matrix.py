@@ -74,10 +74,17 @@ class TestPathMatrix(unittest.TestCase):
         self.assertAlmostEqual(float(lots.get("y_oo_enter")), 0.1)
         self.assertAlmostEqual(float(lots.get("y_hl_enter")), 0.1)
         self.assertTrue(lots.get("y_hl_enabled"))
+        self.assertEqual(lots.get("fill_clock"), "09:30")
         # 旧键仍与 rank_lots 同结构，读盘兼容
         pm = DEFAULT_REBALANCE_TIMING.get("path_matrix") or {}
         self.assertEqual(pm.get("mode"), "rank_lots")
         self.assertAlmostEqual(float(pm.get("holdings_mv_cap")), 150000.0)
+
+    def test_fill_clock_passthrough(self):
+        cfg = self._cfg(fill_clock="09:40")
+        self.assertEqual(cfg["fill_clock"], "09:40")
+        cfg_bad = self._cfg(fill_clock="11:00")
+        self.assertEqual(cfg_bad["fill_clock"], "09:30")
 
     def test_y_on_alpha_maps_to_fusion_w_co(self):
         cfg = self._cfg(y_on_alpha=0.4)

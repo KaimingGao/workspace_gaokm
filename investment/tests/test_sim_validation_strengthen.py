@@ -72,83 +72,53 @@ class TestAmountNormalize(unittest.TestCase):
 
 
 class TestValidationHygiene(unittest.TestCase):
-    def test_exclude_empty_and_hygiene(self):
+    def test_hygiene_report(self):
+        from core import validation_universe as vu
+
+        with patch(
+            "core.data.coverage.build_data_coverage",
+            return_value={
+                "ok": True,
+                "items": [
+                    {"stock_code": "BBB002", "quality_level": "good", "stale": False}
+                ],
+            },
+        ), patch(
+            "core.sentiment.build_sentiment_panel_coverage",
+            return_value={
+                "ok": True,
+                "missing_count": 0,
+                "covered": 1,
+                "total": 1,
+            },
+        ), patch(
+            "core.sample_ops.fundamentals_history_coverage",
+            return_value={
+                "empty_codes": [],
+                "total": 1,
+                "real_multi_coverage": 1.0,
+            },
+        ):
+            rep = vu.build_validation_hygiene_report(codes=["BBB002"])
+        self.assertTrue(rep.get("ok"))
+        self.assertIn("actions", rep)
+
+    def test_save_clears_exclude_codes(self):
         from core import validation_universe as vu
 
         with tempfile.TemporaryDirectory() as td:
             path = os.path.join(td, "validation_universe.json")
             vu.save_validation_universe(
                 {
-                    "exclude_codes": [],
-                    "include_only": ["AAA001", "BBB002"],
+                    "exclude_codes": ["01024", "茅台"],
+                    "include_only": ["600000"],
                     "min_codes": 1,
                 },
                 path=path,
             )
-            with patch.object(
-                vu,
-                "empty_fundamentals_report",
-                return_value={
-                    "ok": True,
-                    "empty_codes": ["AAA001"],
-                    "empty_count": 1,
-                    "total": 2,
-                    "real_multi_coverage": 0.5,
-                },
-            ), patch.object(
-                vu,
-                "load_validation_universe",
-                side_effect=lambda path=None: vu.load_validation_universe(path=path or path),
-            ):
-                # load via real path
-                pass
-
-            # 直接用 path 参数走真实 load/save
-            with patch(
-                "core.sample_ops.fundamentals_history_coverage",
-                return_value={
-                    "empty_codes": ["AAA001"],
-                    "total": 2,
-                    "real_multi_point": 1,
-                    "real_multi_coverage": 0.5,
-                },
-            ):
-                out = vu.exclude_empty_fundamentals(write=True, path=path)
-            self.assertTrue(out["wrote"])
-            self.assertIn("AAA001", out["exclude_codes"])
             loaded = vu.load_validation_universe(path=path)
-            self.assertIn("AAA001", loaded["exclude_codes"])
-
-            with patch(
-                "core.data.coverage.build_data_coverage",
-                return_value={
-                    "ok": True,
-                    "items": [
-                        {"stock_code": "BBB002", "quality_level": "good", "stale": False}
-                    ],
-                },
-            ), patch(
-                "core.sentiment.build_sentiment_panel_coverage",
-                return_value={
-                    "ok": True,
-                    "missing_count": 0,
-                    "covered": 1,
-                    "total": 1,
-                },
-            ), patch(
-                "core.sample_ops.fundamentals_history_coverage",
-                return_value={
-                    "empty_codes": [],
-                    "total": 1,
-                    "real_multi_coverage": 1.0,
-                },
-            ):
-                # resolve uses include_only minus exclude
-                rep = vu.build_validation_hygiene_report()
-                # may use default universe path; call with explicit codes
-                rep = vu.build_validation_hygiene_report(codes=["BBB002"])
-            self.assertTrue(rep.get("ok"))
-            self.assertIn("actions", rep)
+            self.assertEqual(loaded["exclude_codes"], [])
+            self.assertEqual(loaded["include_only"], ["600000"])
 
 
 class TestSentimentDegradedPrior(unittest.TestCase):

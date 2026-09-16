@@ -625,6 +625,81 @@ def _write_t0_auto_last_run(paper: dict, *, result: dict, source: str) -> None:
     paper["rules"] = rules
 
 
+def _patch_t0_last_run_scans(
+    paper: dict,
+    snaps: Optional[list],
+    *,
+    session_date: Optional[str] = None,
+) -> bool:
+    """已落账票：用最新 day_snapshot 覆盖扫描 ŷ / OHLC，不改成交腿。"""
+    rules = dict(paper.get("rules") or {})
+    cfg = _normalize_t0_auto(rules.get("t0_auto"))
+    lr = cfg.get("last_run") if isinstance(cfg.get("last_run"), dict) else None
+    if not isinstance(lr, dict):
+        return False
+    sess = str(session_date or lr.get("session_date") or "")[:10]
+    prev = str(lr.get("session_date") or "")[:10]
+    if sess and prev and sess != prev:
+        return False
+    rows = lr.get("results")
+    if not isinstance(rows, list) or not rows:
+        return False
+    by_code = {
+        str(s.get("stock_code") or "").strip(): s
+        for s in (snaps or [])
+        if isinstance(s, dict) and str(s.get("stock_code") or "").strip()
+    }
+    if not by_code:
+        return False
+    overlay_keys = (
+        "close_band_scan",
+        "scores",
+        "open",
+        "high",
+        "low",
+        "close",
+        "price_space",
+        "price_space_scale",
+        "price_space_mode",
+        "prefix_bars",
+    )
+    changed = False
+    patched: List[dict] = []
+    for raw in rows:
+        if not isinstance(raw, dict):
+            patched.append(raw)
+            continue
+        code = str(raw.get("stock_code") or "").strip()
+        snap = by_code.get(code)
+        if not isinstance(snap, dict):
+            patched.append(raw)
+            continue
+        merged = dict(raw)
+        hit = False
+        for k in overlay_keys:
+            if k not in snap:
+                continue
+            val = snap.get(k)
+            if val in (None, [], {}):
+                continue
+            if merged.get(k) != val:
+                merged[k] = val
+                hit = True
+        if not hit:
+            patched.append(raw)
+            continue
+        slim = _compact_t0_result_rows([merged])
+        patched.append(slim[0] if slim else merged)
+        changed = True
+    if not changed:
+        return False
+    lr["results"] = patched
+    cfg["last_run"] = lr
+    rules["t0_auto"] = cfg
+    paper["rules"] = rules
+    return True
+
+
 def _trade_session_date(trade: dict) -> str:
     for key in ("at", "ts", "date"):
         raw = str(trade.get(key) or "").strip()
@@ -1178,6 +1253,35 @@ class PaperTradesMixin:
         )
 
         paper_ro = load_paper(self.path)
+        try:
+            from core.paper.rebalance.auto_worker import (
+                before_auto_rebalance_window,
+                rebalance_fill_clock,
+                rebalance_window_label,
+            )
+
+            if before_auto_rebalance_window(paper=paper_ro):
+                clock = rebalance_fill_clock(paper_ro)
+                window = rebalance_window_label(paper_ro)
+                note = f"未到调仓时间 {clock}，窗口 {window}；到点后再预演/落账"
+                return {
+                    "success": True,
+                    "ok": True,
+                    "mode": "watching_matrix",
+                    "dry_run": bool(dry_run),
+                    "matrix_mode": True,
+                    "fill_action": "wait_clock",
+                    "fill_clock": clock,
+                    "window_label": window,
+                    "confirm_supported": False,
+                    "sell_trades": [],
+                    "buy_trades": [],
+                    "rebalance_report": [],
+                    "note": note,
+                    "empty_reason": "wait_clock",
+                }
+        except Exception:  # noqa: BLE001
+            logger.debug("rebalance fill_clock gate skipped", exc_info=True)
         token0 = _paper_mutation_token(paper_ro)
         work = copy.deepcopy(paper_ro)
         holdings_before = copy.deepcopy(work.get("holdings") or [])
@@ -2289,8 +2393,18 @@ class PaperTradesMixin:
                 except Exception:  # noqa: BLE001
                     logger.debug("intraday stance hydrate failed", exc_info=True)
 
-            holdings_ctx: List[dict] = []
+            try:
+                from core.signal.minute_tau_feats import clear_sector_ret_cache
+                from core.t0.score_policy import set_t0_cs_universe_codes, t0_cs_universe_codes
+
+                clear_sector_ret_cache()
+                set_t0_cs_universe_codes(t0_cs_universe_codes(holdings=holdings))
+            except Exception:  # noqa: BLE001
+                logger.debug("intraday clear_sector_ret_cache failed", exc_info=True)
+
+            loaded_rows: List[dict] = []
             hist_by_code: Dict[str, list] = {}
+            day_bars_by_code: Dict[str, dict] = {}
             y_src = str(eff_t0.get("y_score_source") or "compute")
             force_dual_y_gate = bool(force_session_close) or past_morning_close()
             state_dirty = unlocked_any
@@ -2299,8 +2413,6 @@ class PaperTradesMixin:
                 if not code:
                     continue
                 st0 = stock_states.get(code) if isinstance(stock_states.get(code), dict) else {}
-                if not force_session_close and str(st0.get("phase") or "") in ("done", "skipped"):
-                    continue
                 bars, _src = bars_and_source(code, limit=T0_PAPER_DAILY_BAR_LIMIT)
                 if not bars:
                     continue
@@ -2341,8 +2453,63 @@ class PaperTradesMixin:
 
                 bar = dict(aligned.get("bar") or {})
                 hist_by_code[code] = list(aligned.get("hist") or [])
-                minute_bars = list(aligned.get("minute_bars") or [])
+                day_bars_by_code[code] = bar
+                loaded_rows.append(
+                    {
+                        "code": code,
+                        "holding": h,
+                        "bar": bar,
+                        "minute_bars": list(aligned.get("minute_bars") or []),
+                        "st0": st0,
+                    }
+                )
 
+            tau_pool_day = None
+            try:
+                from core.t0.score_policy import (
+                    build_tau_pool_from_holding_bars,
+                    seed_tau_cross_section_day,
+                )
+
+                pool = build_tau_pool_from_holding_bars(hist_by_code, day_bars_by_code)
+                tau_pool_day = (pool or {}).get(str(sess or "")[:10]) or None
+                seed_tau_cross_section_day(str(sess or "")[:10], tau_pool_day)
+            except Exception:  # noqa: BLE001
+                logger.debug("intraday tau_pool build failed", exc_info=True)
+                tau_pool_day = None
+
+            scores_by_code: Dict[str, Any] = {}
+            if str(eff_t0.get("direction") or "") == "dual_y" and hist_by_code:
+                try:
+                    from core.t0.score_policy import (
+                        load_scores_map_for_codes,
+                        resolve_score_as_of,
+                    )
+
+                    first_code = next(iter(hist_by_code), "")
+                    as_of_score = resolve_score_as_of(
+                        hist_bars=hist_by_code.get(first_code) or [],
+                        day_bar=day_bars_by_code.get(first_code),
+                    )
+                    scores_by_code = load_scores_map_for_codes(
+                        list(hist_by_code.keys()),
+                        as_of=as_of_score or None,
+                        source=y_src,
+                        hist_bars_by_code=hist_by_code,
+                        day_bars_by_code=day_bars_by_code,
+                        allow_fallback=(y_src != "compute"),
+                        rules=eff_t0,
+                    )
+                except Exception:  # noqa: BLE001
+                    logger.debug("intraday batch scores failed", exc_info=True)
+                    scores_by_code = {}
+
+            holdings_ctx: List[dict] = []
+            for row in loaded_rows:
+                code = str(row.get("code") or "")
+                st0 = row.get("st0") if isinstance(row.get("st0"), dict) else {}
+                minute_bars = list(row.get("minute_bars") or [])
+                bar = row.get("bar") or {}
                 latest_ts = latest_minute_bar_ts(minute_bars)
                 if not should_process_intraday_stock(
                     st0,
@@ -2353,35 +2520,17 @@ class PaperTradesMixin:
 
                 scores = None
                 if str(eff_t0.get("direction") or "") == "dual_y":
-                    try:
-                        from core.t0.score_policy import (
-                            load_scores_map_for_codes,
-                            resolve_score_as_of,
-                        )
-
-                        hist_c = hist_by_code.get(code) or []
-                        as_of_score = resolve_score_as_of(
-                            hist_bars=hist_c, day_bar=bar
-                        )
-                        raw_scores = load_scores_map_for_codes(
-                            [code],
-                            as_of=as_of_score or None,
-                            source=y_src,
-                            hist_bars_by_code={code: hist_c},
-                            day_bars_by_code={code: bar},
-                            allow_fallback=(y_src != "compute"),
-                            rules=eff_t0,
-                        ).get(code)
-                        scores = accept_intraday_dual_y_scores(raw_scores, source=y_src)
-                    except Exception:  # noqa: BLE001
-                        scores = None
+                    scores = accept_intraday_dual_y_scores(
+                        scores_by_code.get(code), source=y_src
+                    )
 
                 as_of = str(sess or bar.get("date") or "")[:10]
-                sellable = t1_sellable(h, as_of=as_of or None)
+                holding = row.get("holding") or {}
+                sellable = t1_sellable(holding, as_of=as_of or None)
                 holdings_ctx.append(
                     {
                         "code": code,
-                        "holding": h,
+                        "holding": holding,
                         "bar": bar,
                         "minute_bars": minute_bars,
                         "cfg": dict(eff_t0),
@@ -2393,6 +2542,7 @@ class PaperTradesMixin:
                         "coupling_mode": coup_mode,
                         "force_dual_y_gate": force_dual_y_gate,
                         "force_session_close": bool(force_session_close),
+                        "tau_pool_day": tau_pool_day,
                     }
                 )
 
@@ -2452,6 +2602,11 @@ class PaperTradesMixin:
                     },
                     source=str(log_source or "paper_t0_auto"),
                 )
+            _patch_t0_last_run_scans(
+                paper,
+                tick_out.get("results"),
+                session_date=tick_out.get("session_date"),
+            )
 
             paper["updated_at"] = _now_iso()
             summary = mark_to_market(paper)

@@ -316,7 +316,11 @@ def _counts(rows: List[dict]) -> Dict[str, int]:
     return out
 
 
-def _note_for_phase(phase: str, *, aligned: bool, n: int, enabled: bool) -> str:
+def _note_for_phase(
+    phase: str, *, aligned: bool, n: int, enabled: bool, fill_clock: str = "09:30"
+) -> str:
+    clock = str(fill_clock or "09:30")[:5]
+    window = f"{clock}–10:00"
     if phase == PHASE_RUNNING:
         return "正在现价落账…"
     if phase == PHASE_DONE:
@@ -326,16 +330,16 @@ def _note_for_phase(phase: str, *, aligned: bool, n: int, enabled: bool) -> str:
             else "今日已调仓（明细未写入盯盘）"
         )
     if phase == PHASE_WATCH:
-        return "开盘窗内监视 · 现价成交一次后本表换成落账动作"
+        return f"开盘窗内监视 · 现价成交一次后本表换成落账动作"
     if phase == PHASE_WAIT:
-        return "等待 09:30 开盘窗 · 按已保存 rank_lots 规则现价成交一次"
+        return f"等待 {clock} 开盘窗 · 按已保存 rank_lots 规则现价成交一次"
     if phase == PHASE_MISSED:
         return "已过 10:00，今日不再补跑"
     if phase == PHASE_HOLIDAY:
         return "非交易日"
     if not enabled:
         return (
-            "后台未开；打开「运行」后将在 09:30–10:00 现价落账"
+            f"后台未开；打开「运行」后将在 {window} 现价落账"
             if n
             else "尚无持仓或 Worker 未开"
         )
@@ -353,6 +357,8 @@ def build_rebalance_desk_status(
         already_ran_today,
         last_run_session,
         load_enabled_flag,
+        rebalance_fill_clock,
+        rebalance_window_label,
         resolve_session,
     )
 
@@ -370,6 +376,8 @@ def build_rebalance_desk_status(
     )
 
     paper = _load_paper_safe()
+    clock = rebalance_fill_clock(paper)
+    window = rebalance_window_label(paper)
     if aligned and (filled_today or phase == PHASE_DONE):
         rows = list(persisted.get("rows") or [])
         state_aligned = True
@@ -381,7 +389,7 @@ def build_rebalance_desk_status(
     else:
         reason = {
             PHASE_WATCH: "开盘窗内监视",
-            PHASE_WAIT: "等待 09:30 开盘窗",
+            PHASE_WAIT: f"等待 {clock} 开盘窗",
             PHASE_RUNNING: "正在落账",
             PHASE_HOLIDAY: "非交易日",
             PHASE_STOPPED: "等待 Worker 开盘窗落账",
@@ -403,7 +411,13 @@ def build_rebalance_desk_status(
         "exit_count": int(counts.get("exit") or 0),
         "rows": rows,
         "note": _note_for_phase(
-            phase, aligned=state_aligned, n=len(rows), enabled=enabled
+            phase,
+            aligned=state_aligned,
+            n=len(rows),
+            enabled=enabled,
+            fill_clock=clock,
         ),
+        "fill_clock": clock,
+        "window_label": window,
         "source": str(persisted.get("source") or "") if aligned else "",
     }

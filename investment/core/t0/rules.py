@@ -329,6 +329,21 @@ def simulate_t0_on_holdings(
             tau_pool = build_tau_pool_from_holding_bars(
                 hist_bars_by_code, bars_by_code
             )
+            try:
+                from core.t0.score_policy import (
+                    seed_tau_cross_section_pool,
+                    set_t0_cs_universe_codes,
+                    t0_cs_universe_codes,
+                )
+
+                seed_tau_cross_section_pool(tau_pool)
+                set_t0_cs_universe_codes(
+                    t0_cs_universe_codes(
+                        holdings=paper.get("holdings") if isinstance(paper, dict) else None
+                    )
+                )
+            except Exception:  # noqa: BLE001
+                logger.debug("holdings tau_pool seed failed", exc_info=True)
         except Exception:  # noqa: BLE001
             logger.debug("holdings tau_pool build failed", exc_info=True)
             tau_pool = None

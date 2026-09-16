@@ -116,7 +116,7 @@ function emptyReasonLabel(code) {
     cash_below_floor: "现金不足，无法买入",
     buys_blocked: "买入被风控/规则拦截",
     risk_blocked: "风控整批拦截",
-    no_executable_changes: "无可执行买卖",
+    wait_clock: "未到调仓时间",
     book_constraints_empty: "簿约束装填后为空",
     no_mapped_scores: "无可用评分映射",
     empty_book: "选股簿为空",

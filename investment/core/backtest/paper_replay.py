@@ -1897,22 +1897,25 @@ def backtest_paper_replay(
     y_oc_enter_alt: Optional[float] = None,
     y_hl_enter_alt: Optional[float] = None,
     price_space_cfg: Optional[dict] = None,
+    score_model_role: Optional[str] = None,
 ) -> Dict[str, Any]:
     """策略调仓历史回测：ŷ_oo 09:30 开盘；ŷ_oc 随成交钟前缀重算（09:30=开盘 Z），按调仓钟 5m 价成交。"""
     from core.research.holdout import (
-        MODEL_ROLE_RESEARCH,
         current_scoring_model_role,
+        normalize_backtest_model_role,
         scoring_model_role_context,
     )
 
-    if current_scoring_model_role() != MODEL_ROLE_RESEARCH:
+    requested = normalize_backtest_model_role(score_model_role)
+    if current_scoring_model_role() != requested:
         import inspect
 
         allowed = inspect.signature(backtest_paper_replay).parameters
         params = {
             k: v for k, v in locals().items() if k in allowed and k != "stock_bars"
         }
-        with scoring_model_role_context(MODEL_ROLE_RESEARCH):
+        params["score_model_role"] = requested
+        with scoring_model_role_context(requested):
             return backtest_paper_replay(stock_bars, **params)
     from core.backtest.engine import _trade_metrics
     from core.paper.rebalance.rank_lots import (
@@ -2533,6 +2536,7 @@ def backtest_paper_replay(
             "horizon_days": 1,
             "stock_count": len(stock_bars),
             "lookback": int(lookback) if lookback is not None else None,
+            "score_model_role": current_scoring_model_role(),
             "common_dates": max(0, n - first_i),
             "trade_days": max(0, n - first_i),
             "end_date": dates[-1] if dates else None,

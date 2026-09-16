@@ -889,7 +889,7 @@ def run_validation_prepare(
     warmup_sentiment: bool = True,
     limit: int = 60,
 ) -> Dict[str, Any]:
-    """验证宇宙一键准备：卫生报告 + 可选 exclude + 日线/舆情预热。"""
+    """验证宇宙一键准备：卫生报告 + 日线/舆情预热。"""
     slot = job_registry.slot("schedule")
     if slot.is_running():
         return {"ok": False, "error": "已有调度任务在运行", "job": slot.get()}

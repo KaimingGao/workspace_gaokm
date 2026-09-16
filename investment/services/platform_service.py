@@ -169,7 +169,7 @@ class PlatformService:
         self,
         *,
         codes: Optional[list] = None,
-        write_excludes: bool = False,
+        write_excludes: bool = False,  # 已废弃，忽略
         warmup_bars: bool = True,
         warmup_sentiment: bool = True,
         bars_limit: int = 60,

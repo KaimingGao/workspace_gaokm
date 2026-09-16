@@ -1825,8 +1825,8 @@ flowchart TD
 
 | 项 | 约定 |
 |----|------|
-| 配置 | `data/validation_universe.json`：`include_only` 非空则只用该列表，否则 `watching − exclude_codes` |
-| 空财务 | `GET /api/ops/empty-fundamentals`；长期拉不到的码写入 `exclude_codes`，勿用 demo ladder 冒充覆盖 |
+| 配置 | `data/validation_universe.json`：`include_only` 非空则只用该列表，否则=观察池。屏蔽某票从观察池删除 |
+| 空财务 | `GET /api/ops/empty-fundamentals`；长期拉不到的码从观察池删除，勿用 demo ladder 冒充覆盖 |
 | 真实多期入库 | `python3 research/sample_ops_run.py ingest-history --codes …`；调度 `fundamentals_warmup` **默认**串联 ingest（可传 `ingest_history=false` 关闭） |
 | 禁止 | `seed-ladder` / `synthetic_demo` 点不得计入「策略已验证」；闸门看 `real_multi_coverage` |
 
@@ -2008,7 +2008,7 @@ API：`GET/POST /api/paper/t0/worker`（启停 + 状态）· `GET /api/paper/t0/
 手动补跑：Follow「手动预演 / 手动落账」· `POST /api/paper/t0`（不依赖 Worker）。`run_web.py` lifespan 启动时若 worker 开关为 ON 则自动 restore；进程退出 stop。  
 外部 cron 仍可用 `schedule_jobs.run_paper_t0`；`paper_daily` 链式触发需 `t0_auto.enabled` 且 `schedule=with_paper_daily`（UI 已移除 schedule 下拉，默认 `after_close`）。
 
-**自动调仓落账（Web Worker）**：Follow「策略调仓」运行卡与做 T 同结构（进程面板 → 面板外盯盘框）。每个交易日 **09:30–10:00 现价成交一次**，过点不补跑。开关与 last_run / desk 写 `data/rebalance_auto_worker.json`。  
+**自动调仓落账（Web Worker）**：Follow「策略调仓」运行卡与做 T 同结构（进程面板 → 面板外盯盘框）。每个交易日在已保存 **fill_clock～10:00** 现价成交一次（默认 09:30），过点不补跑。开关与 last_run / desk 写 `data/rebalance_auto_worker.json`。  
 API：`GET/POST /api/paper/rebalance/worker`（`worker` + `desk`）。盯盘落账前按持仓占位监视，落账后开/加/清/持；上次落账文案 `时间 · 自动|手动 · 卖 n · 买 n`。手动预演仍走规则卡「手动预演 / 确认落账」。做 T worker 在调仓未完成且仍在开盘窗内会等待。
 ---
 

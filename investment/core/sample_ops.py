@@ -629,7 +629,7 @@ def sample_status(
 ) -> Dict[str, Any]:
     """一屏：TTM / PIT history / 纸面快照 / 拦截标注 覆盖（含 demo 纪律）。
 
-    财务覆盖默认只扫 **验证宇宙**（watching−exclude），不把 store 里历史港股/脏键算进空码。
+    财务覆盖默认只扫 **验证宇宙**（观察池 / include_only），不把 store 里历史港股/脏键算进空码。
     """
     from core.north_star import compute_ttm_metrics, load_ttm_events, summarize_risk_blocks
     from core.paths import STORE_DIR
@@ -647,10 +647,7 @@ def sample_status(
             if name.endswith(".json") and not name.startswith("."):
                 store_codes.append(name[:-5])
     uni_set = set(uni_codes)
-    excluded = set(resolved.get("excluded") or [])
     orphans = [c for c in store_codes if c not in uni_set]
-    orphan_excluded = [c for c in orphans if c in excluded]
-    orphan_other = [c for c in orphans if c not in excluded]
 
     snaps = list((paper or {}).get("snapshots") or [])
     snap_n = len(snaps)
@@ -691,16 +688,11 @@ def sample_status(
             )
     except (TypeError, ValueError):
         pass
-    if orphan_excluded:
+    if orphans:
         discipline["warnings"].append(
-            f"store 残留已排除码 {len(orphan_excluded)} 只（旧港股/脏键），不计入覆盖；"
-            "可删 data/store/fundamentals 对应 json"
-        )
-    if orphan_other:
-        discipline["warnings"].append(
-            f"store 有 {len(orphan_other)} 只不在验证宇宙："
-            + ", ".join(orphan_other[:8])
-            + ("…" if len(orphan_other) > 8 else "")
+            f"store 有 {len(orphans)} 只不在验证宇宙："
+            + ", ".join(orphans[:8])
+            + ("…" if len(orphans) > 8 else "")
         )
     if not discipline["warnings"]:
         discipline["warnings"].append("未检测到明显演示污染标记")
@@ -746,7 +738,7 @@ def sample_status(
             "store_orphan_codes": orphans[:40],
             "store_orphan_count": len(orphans),
             "note": (
-                "覆盖仅统计验证宇宙（watching−exclude）；"
+                "覆盖仅统计验证宇宙（观察池）；"
                 "store 孤儿不计入空码。real_multi 不含仅 synthetic_demo ladder。"
             ),
         },

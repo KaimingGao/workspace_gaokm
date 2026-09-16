@@ -1,6 +1,6 @@
 """Web 内自动调仓后台 worker。
 
-每个交易日仅 09:30–10:00 现价成交一次；过点不补跑、不挂开盘单。
+每个交易日仅在已保存 ``fill_clock``～10:00 现价成交一次；过点不补跑、不挂开盘单。
 开关与 last_run_session 持久化到 data/rebalance_auto_worker.json。
 """
 
@@ -14,10 +14,36 @@ from typing import Any, Dict, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
-WINDOW_AFTER = (9, 30)
+WINDOW_AFTER = (9, 30)  # 缺配置时的默认起点；实际读 rank_lots.fill_clock
 WINDOW_UNTIL = (10, 0)
 TICK_INTERVAL_SEC = 30.0
 IDLE_TICK_INTERVAL_SEC = 60.0
+
+
+def rebalance_fill_clock(paper: Optional[dict] = None) -> str:
+    """策略调仓成交钟：与历史回测 fill_clock 同源，默认 09:30。"""
+    try:
+        from core.backtest.paper_replay import REPLAY_FILL_CLOCK, clamp_replay_fill_clock
+        from core.paper.rebalance.rank_lots import get_rank_lot_cfg
+
+        cfg = get_rank_lot_cfg(paper)
+        return clamp_replay_fill_clock(cfg.get("fill_clock"), REPLAY_FILL_CLOCK)
+    except Exception:  # noqa: BLE001
+        logger.debug("resolve rebalance fill_clock failed", exc_info=True)
+        return "09:30"
+
+
+def rebalance_window_after_hm(paper: Optional[dict] = None) -> Tuple[int, int]:
+    clock = rebalance_fill_clock(paper)
+    try:
+        hh, mm = clock.split(":")
+        return int(hh), int(mm)
+    except (TypeError, ValueError):
+        return WINDOW_AFTER
+
+
+def rebalance_window_label(paper: Optional[dict] = None) -> str:
+    return f"{rebalance_fill_clock(paper)}–10:00"
 
 
 def _now_ts() -> float:
@@ -116,17 +142,31 @@ def is_trading_session(now: Any = None) -> bool:
         return n.weekday() < 5
 
 
-def in_auto_rebalance_window(now: Any = None) -> bool:
+def in_auto_rebalance_window(now: Any = None, *, paper: Optional[dict] = None) -> bool:
     if not is_trading_session(now):
         return False
     hm = _shanghai_hm(now)
-    return WINDOW_AFTER <= hm < WINDOW_UNTIL
+    after = rebalance_window_after_hm(paper)
+    if after >= WINDOW_UNTIL:
+        return hm == WINDOW_UNTIL
+    return after <= hm < WINDOW_UNTIL
 
 
-def after_auto_rebalance_window(now: Any = None) -> bool:
+def after_auto_rebalance_window(now: Any = None, *, paper: Optional[dict] = None) -> bool:
     if not is_trading_session(now):
         return False
-    return _shanghai_hm(now) >= WINDOW_UNTIL
+    after = rebalance_window_after_hm(paper)
+    hm = _shanghai_hm(now)
+    if after >= WINDOW_UNTIL:
+        return hm > WINDOW_UNTIL
+    return hm >= WINDOW_UNTIL
+
+
+def before_auto_rebalance_window(now: Any = None, *, paper: Optional[dict] = None) -> bool:
+    """交易日且尚未到 fill_clock。"""
+    if not is_trading_session(now):
+        return False
+    return _shanghai_hm(now) < rebalance_window_after_hm(paper)
 
 
 def already_ran_today(now: Any = None) -> bool:
@@ -201,6 +241,8 @@ class RebalanceAutoWorker:
                 "last_note": persisted.get("last_note") or "",
                 "last_source": persisted.get("last_source") or "",
                 "in_window": in_auto_rebalance_window(),
+                "fill_clock": rebalance_fill_clock(),
+                "window_label": rebalance_window_label(),
                 "tick_interval_sec": interval,
             }
             if alive and rt.get("last_tick_ts"):
@@ -306,7 +348,7 @@ class RebalanceAutoWorker:
             if after_auto_rebalance_window():
                 self._set_tick("错过开盘窗", session=sess)
             else:
-                self._set_tick("等待下一开盘", session=sess)
+                self._set_tick(f"等待 {rebalance_fill_clock()} 开盘窗", session=sess)
             return
 
         svc = PaperService(PAPER_PATH)

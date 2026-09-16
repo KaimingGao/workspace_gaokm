@@ -10,6 +10,7 @@ from core.research.holdout import (
     MODEL_ROLE_LIVE,
     MODEL_ROLE_RESEARCH,
     current_scoring_model_role,
+    normalize_backtest_model_role,
     research_model_path,
     research_sidecar_flags,
     scoring_model_role_context,
@@ -135,6 +136,14 @@ class TestHoldoutSplit(unittest.TestCase):
         role, rm = select_persist_return_model(report, role="live")
         self.assertEqual(role, MODEL_ROLE_LIVE)
         self.assertEqual(rm["coefficients"]["a"], 1.0)
+
+    def test_normalize_backtest_model_role_defaults_research(self):
+        self.assertEqual(normalize_backtest_model_role(None), MODEL_ROLE_RESEARCH)
+        self.assertEqual(normalize_backtest_model_role(""), MODEL_ROLE_RESEARCH)
+        self.assertEqual(normalize_backtest_model_role("research"), MODEL_ROLE_RESEARCH)
+        self.assertEqual(normalize_backtest_model_role("live"), MODEL_ROLE_LIVE)
+        self.assertEqual(normalize_backtest_model_role("执行"), MODEL_ROLE_LIVE)
+        self.assertEqual(normalize_backtest_model_role("execution"), MODEL_ROLE_LIVE)
 
     def test_scoring_context_does_not_leak(self):
         self.assertEqual(current_scoring_model_role(), MODEL_ROLE_LIVE)

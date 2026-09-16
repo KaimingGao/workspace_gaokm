@@ -1077,6 +1077,130 @@ class TestMinuteTauPack(unittest.TestCase):
         self.assertTrue(all(h.startswith("10:00") for h in seen_hm), seen_hm)
         self.assertNotIn("10:30", seen_hm)
 
+    def test_peer_minute_bars_reload_if_tau_missing(self):
+        from unittest.mock import patch
+
+        from core.signal import minute_tau_feats as m
+
+        m.clear_sector_ret_cache()
+        morning = [
+            {
+                "date": "2026-09-16",
+                "datetime": "2026-09-16 09:35:00",
+                "open": 10,
+                "high": 10.1,
+                "low": 9.9,
+                "close": 10,
+                "volume": 1,
+            }
+        ]
+        full = morning + [
+            {
+                "date": "2026-09-16",
+                "datetime": "2026-09-16 10:40:00",
+                "open": 10.2,
+                "high": 10.3,
+                "low": 10.1,
+                "close": 10.25,
+                "volume": 1,
+            }
+        ]
+        m._PEER_MINUTE_BARS["000001"] = morning
+        with patch(
+            "core.ports.market.resolve_market_code", return_value=("CN", "000001")
+        ), patch("core.store.load_minute_cache", return_value=(full,)) as load:
+            bars = m._peer_minute_bars_for_tau(
+                "000001", trade_date="2026-09-16", tau_hm="10:40"
+            )
+        load.assert_called_once()
+        self.assertEqual(len(bars), 2)
+        self.assertEqual(bars[-1]["datetime"], "2026-09-16 10:40:00")
+        with patch("core.store.load_minute_cache") as load2:
+            again = m._peer_minute_bars_for_tau(
+                "000001", trade_date="2026-09-16", tau_hm="10:40"
+            )
+        load2.assert_not_called()
+        self.assertEqual(len(again), 2)
+
+    def test_peer_fallback_does_not_stick_into_memo(self):
+        from unittest.mock import mock_open, patch
+
+        from core.signal import minute_tau_feats as m
+        from core.t0.score_policy import clear_score_model_cache
+
+        m.clear_sector_ret_cache()
+        clear_score_model_cache()
+        with patch(
+            "core.t0.score_policy.current_t0_cs_universe_codes", return_value=[]
+        ), patch(
+            "core.t0.score_policy.active_book_codes_for_tau_pool", return_value=[]
+        ), patch("os.path.isfile", return_value=True), patch(
+            "builtins.open", mock_open(read_data='{"watchlist": ["WL001"]}')
+        ):
+            first = m._peer_codes_for_sector_ret()
+        self.assertEqual(first, ["WL001"])
+        self.assertIsNone(m._PEER_CODES_MEMO)
+        m.set_peer_codes_for_sector_ret(["600183", "600875"])
+        self.assertEqual(m._peer_codes_for_sector_ret()[:2], ["600183", "600875"])
+        m.clear_sector_ret_cache()
+
+    def test_merge_minute_pack_attaches_sibling_cs(self):
+        from unittest.mock import patch
+
+        from core.signal.minute_tau_feats import merge_minute_tau_pack_into_feats
+        from core.signal import minute_tau_feats as m
+
+        day = "2026-08-28"
+        mins = _bars(day) + [
+            {
+                "date": day,
+                "datetime": f"{day} 10:30:00",
+                "open": 10.1,
+                "high": 10.2,
+                "low": 10.0,
+                "close": 10.15,
+                "volume": 1000,
+            }
+        ]
+        m.set_peer_codes_for_sector_ret(["600183", "600875"])
+        try:
+            with patch(
+                "core.signal.minute_tau_feats.resolve_sector_ret_to_tau",
+                return_value=0.4,
+            ), patch(
+                "core.signal.minute_tau_feats.resolve_sector_ret_last_30m",
+                return_value=0.1,
+            ), patch(
+                "core.signal.minute_tau_feats.resolve_sector_ret_last_60m",
+                return_value=0.2,
+            ), patch(
+                "core.signal.minute_tau_feats.resolve_sector_ret_last_90m",
+                return_value=0.3,
+            ), patch(
+                "core.signal.minute_tau_feats.extract_t30_t60_t90_seq_packs",
+                return_value={
+                    "ret_last_30m": 1.0,
+                    "ret_last_60m": 1.1,
+                    "ret_last_90m": 1.2,
+                },
+            ):
+                feats, _, _ = merge_minute_tau_pack_into_feats(
+                    {"gap_pct": 0.5},
+                    trade_date=day,
+                    open_px=10.0,
+                    prev_close=9.9,
+                    tau_hm="10:30",
+                    minute_bars=mins,
+                    load_cache_if_missing=False,
+                )
+        finally:
+            m.clear_sector_ret_cache()
+        self.assertAlmostEqual(feats["sector_ret_to_tau"], 0.4, places=6)
+        self.assertAlmostEqual(feats["sector_ret_last_30m"], 0.1, places=6)
+        self.assertAlmostEqual(feats["sector_ret_last_60m"], 0.2, places=6)
+        self.assertAlmostEqual(feats["sector_ret_last_90m"], 0.3, places=6)
+        self.assertIn("ret_vs_sector", feats)
+
 
 if __name__ == "__main__":
     unittest.main()

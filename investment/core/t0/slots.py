@@ -1240,6 +1240,48 @@ def _attach_close_band_scan(
     return day_out
 
 
+def refresh_close_band_scan(
+    day: Optional[dict],
+    *,
+    minute_bars: Sequence[dict],
+    bar: Optional[dict],
+    daily_bar: Optional[dict] = None,
+    cfg: Optional[dict] = None,
+    score_snap: Optional[dict] = None,
+    stock_code: str = "",
+    hist_bars: Optional[Sequence[dict]] = None,
+    tau_pool_day: Optional[dict] = None,
+) -> dict:
+    """已成交票：用当前前缀重扫 11:00 前每根 ŷ，不改已落账腿。"""
+    out = dict(day or {})
+    cfg_d = cfg if isinstance(cfg, dict) else {}
+    slots = [r for r in (out.get("t0_slot_results") or []) if isinstance(r, dict)]
+    out = _attach_close_band_scan(
+        out,
+        minute_bars=minute_bars,
+        bar=bar,
+        daily_bar=daily_bar if daily_bar is not None else bar,
+        cfg=cfg_d,
+        score_snap=score_snap,
+        stock_code=stock_code,
+        hist_bars=hist_bars,
+        tau_pool_day=tau_pool_day,
+        slot_outs=slots,
+    )
+    try:
+        from core.t0.minute_path import _day_ohlc_from_minutes
+
+        ohlc = _day_ohlc_from_minutes(
+            minute_bars, bar if isinstance(bar, dict) else None
+        )
+        for k in ("open", "high", "low", "close"):
+            if ohlc.get(k) is not None:
+                out[k] = ohlc.get(k)
+    except Exception:  # noqa: BLE001
+        logger.debug("refresh_close_band_scan ohlc failed", exc_info=True)
+    return out
+
+
 def simulate_t0_day_slots(
     *,
     bar: dict,
@@ -1811,6 +1853,7 @@ def simulate_t0_day_slots(
 
 __all__ = [
     "simulate_t0_day_slots",
+    "refresh_close_band_scan",
     "slot_budget_t0_ratio",
     "_open_close_band_round",
     "_slot_trade_legs",

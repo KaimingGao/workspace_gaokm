@@ -21,6 +21,41 @@ def _dt(hour: int, minute: int) -> datetime:
 
 
 class TestAutoRebalanceWindow(unittest.TestCase):
+    def test_window_follows_fill_clock(self):
+        from core.paper.rebalance.auto_worker import (
+            after_auto_rebalance_window,
+            in_auto_rebalance_window,
+        )
+
+        with patch(
+            "core.paper.rebalance.auto_worker.is_trading_session",
+            return_value=True,
+        ), patch(
+            "core.paper.rebalance.auto_worker.rebalance_fill_clock",
+            return_value="09:40",
+        ):
+            self.assertFalse(in_auto_rebalance_window(_dt(9, 39)))
+            self.assertTrue(in_auto_rebalance_window(_dt(9, 40)))
+            self.assertTrue(in_auto_rebalance_window(_dt(9, 59)))
+            self.assertFalse(in_auto_rebalance_window(_dt(10, 0)))
+            self.assertFalse(after_auto_rebalance_window(_dt(9, 59)))
+            self.assertTrue(after_auto_rebalance_window(_dt(10, 0)))
+
+    def test_before_window(self):
+        from core.paper.rebalance.auto_worker import before_auto_rebalance_window
+
+        with patch(
+            "core.paper.rebalance.auto_worker.is_trading_session",
+            return_value=True,
+        ), patch(
+            "core.paper.rebalance.auto_worker.rebalance_fill_clock",
+            return_value="09:40",
+        ):
+            self.assertTrue(before_auto_rebalance_window(_dt(9, 30)))
+            self.assertTrue(before_auto_rebalance_window(_dt(9, 39)))
+            self.assertFalse(before_auto_rebalance_window(_dt(9, 40)))
+            self.assertFalse(before_auto_rebalance_window(_dt(10, 1)))
+
     def test_window_0930_to_1000(self):
         from core.paper.rebalance.auto_worker import (
             after_auto_rebalance_window,
@@ -30,6 +65,9 @@ class TestAutoRebalanceWindow(unittest.TestCase):
         with patch(
             "core.paper.rebalance.auto_worker.is_trading_session",
             return_value=True,
+        ), patch(
+            "core.paper.rebalance.auto_worker.rebalance_fill_clock",
+            return_value="09:30",
         ):
             self.assertFalse(in_auto_rebalance_window(_dt(9, 29)))
             self.assertTrue(in_auto_rebalance_window(_dt(9, 30)))

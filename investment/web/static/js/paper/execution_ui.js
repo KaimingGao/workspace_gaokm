@@ -272,7 +272,7 @@ export function renderRebalanceRulesHtml(execution) {
     `<header class="paper-t0-spec-head">` +
     `<h4 class="paper-t0-spec-head-title">生效调仓</h4>` +
     `<div class="paper-t0-spec-kpi-strip" aria-label="调仓核心参数">` +
-    specKpi("模式", "rank_lots", "09:30 开盘 · 现价 200/500 股") +
+    specKpi("调仓窗", `${pm.fill_clock || "09:30"}～10:00`, "现价成交一次 · live 200/500 股") +
     specKpi("w_co", fmtN(alpha, 1), "叠进 ŷ_oc 的隔夜系数；0=不叠") +
     specKpi("ranking", `${fmtN(wt, 2)}/${fmtN(wn, 2)}`, "w_oo / w_oc") +
     specKpi("入场", `${fmtN(Number(enter), 2)}%`, "ranking 入场；与历史回测「入场·阈值%」同一键") +
@@ -714,6 +714,11 @@ export function fillPathMatrixForm(root, execution) {
     "pm_fusion_w_nc",
     pm.fusion_w_oc != null ? pm.fusion_w_oc : pm.fusion_w_nowcast != null ? pm.fusion_w_nowcast : 0.4
   );
+  const clockEl = document.getElementById("quant-fill-clock");
+  if (clockEl && pm.fill_clock) {
+    const v = String(pm.fill_clock).replace("：", ":").trim().slice(0, 5);
+    if (clockEl.querySelector(`option[value="${v}"]`)) clockEl.value = v;
+  }
 }
 
 function _normWeightPair(a, b) {
@@ -827,6 +832,10 @@ export function collectPathMatrixForm(root) {
         fusion_w_trade: Math.round(wOo * 1000) / 1000,
         fusion_w_nowcast: Math.round(wOc * 1000) / 1000,
   };
+  const clockEl = document.getElementById("quant-fill-clock");
+  if (clockEl && clockEl.value) {
+    lots.fill_clock = String(clockEl.value).replace("：", ":").trim().slice(0, 5);
+  }
   return {
     lock: true,
     rebalance_timing: {

@@ -2805,6 +2805,125 @@ class TestDualYDirection(unittest.TestCase):
         ref = (day.get("ref_by_code") or {}).get("600000")
         self.assertIsNotNone(ref)
 
+    def test_holding_tau_pool_seeds_gap_breadth_for_live_fallback(self):
+        """盯盘缺簿宇宙时：持仓缺口池写入日缓存，单票兜底不再缺 同业缺口广度。"""
+        from core.t0.score_policy import (
+            _TAU_XS_DAY_CACHE,
+            _tau_cross_section_kwargs,
+            build_tau_pool_from_holding_bars,
+            seed_tau_cross_section_day,
+        )
+
+        _TAU_XS_DAY_CACHE.pop("2026-09-16", None)
+        hist = {
+            "600183": [_bar("2026-09-15", 148, 150, 147, 149.0)],
+            "600875": [_bar("2026-09-15", 24, 25, 23, 24.5)],
+        }
+        days = {
+            "600183": _bar("2026-09-16", 151, 155, 147, 154.0),
+            "600875": _bar("2026-09-16", 26, 27, 25, 26.2),
+        }
+        days["600183"]["prev_close"] = 149.0
+        days["600875"]["prev_close"] = 24.5
+        pool = build_tau_pool_from_holding_bars(hist, days)
+        day = pool.get("2026-09-16") or {}
+        self.assertGreaterEqual(len(day.get("pool_gaps") or []), 2)
+        self.assertIsNotNone(day.get("sector_gap_breadth"))
+        seed_tau_cross_section_day("2026-09-16", day)
+        xs = _tau_cross_section_kwargs("600183", "2026-09-16")
+        self.assertIsNotNone(xs.get("sector_gap_breadth"))
+        self.assertEqual(len(xs.get("pool_gaps") or []), len(day.get("pool_gaps") or []))
+        _TAU_XS_DAY_CACHE.pop("2026-09-16", None)
+
+    def test_tau_xs_fallback_does_not_cache_empty_pool(self):
+        from unittest.mock import patch
+
+        from core.t0.score_policy import (
+            _TAU_XS_DAY_CACHE,
+            _tau_cross_section_kwargs,
+            seed_tau_cross_section_day,
+        )
+
+        _TAU_XS_DAY_CACHE.pop("2026-09-16", None)
+        with patch(
+            "core.t0.score_policy.active_book_codes_for_tau_pool", return_value=[]
+        ), patch(
+            "core.t0.score_policy.load_bars_by_code_for_tau_pool",
+            return_value={"600183": [_bar("2026-09-15", 148, 150, 147, 149)]},
+        ):
+            xs = _tau_cross_section_kwargs("600183", "2026-09-16")
+        self.assertEqual(xs, {})
+        self.assertNotIn("2026-09-16", _TAU_XS_DAY_CACHE)
+        seed_tau_cross_section_day(
+            "2026-09-16",
+            {"pool_gaps": [1.0, -0.5], "sector_gap_breadth": 0.5, "ref_by_code": {}},
+        )
+        filled = _tau_cross_section_kwargs("600183", "2026-09-16")
+        self.assertAlmostEqual(float(filled.get("sector_gap_breadth") or -1), 0.5)
+        _TAU_XS_DAY_CACHE.pop("2026-09-16", None)
+
+    def test_t0_cs_universe_matches_live_and_backtest(self):
+        """盯盘与做T回测共用纸面持仓池；单票回测并入同一宇宙。"""
+        from core.signal.minute_tau_feats import peer_codes_for_sector_ret
+        from core.t0.score_policy import (
+            clear_score_model_cache,
+            current_t0_cs_universe_codes,
+            set_t0_cs_universe_codes,
+            t0_cs_universe_codes,
+        )
+
+        paper = {
+            "holdings": [
+                {"stock_code": "600183"},
+                {"stock_code": "600875"},
+            ]
+        }
+        live = t0_cs_universe_codes(holdings=paper["holdings"])
+        bt = t0_cs_universe_codes("600183", paper=paper)
+        self.assertEqual(live, ["600183", "600875"])
+        self.assertEqual(bt, live)
+        set_t0_cs_universe_codes(live)
+        self.assertEqual(current_t0_cs_universe_codes(), live)
+        self.assertEqual(peer_codes_for_sector_ret()[:2], live)
+        clear_score_model_cache()
+
+    def test_tau_xs_fallback_uses_cs_universe_memo(self):
+        from unittest.mock import patch
+
+        from core.t0.score_policy import (
+            _TAU_XS_DAY_CACHE,
+            _tau_cross_section_kwargs,
+            clear_score_model_cache,
+            set_t0_cs_universe_codes,
+        )
+
+        clear_score_model_cache()
+        _TAU_XS_DAY_CACHE.pop("2026-09-16", None)
+        set_t0_cs_universe_codes(["600183", "600875"])
+        bars = {
+            "600183": [
+                _bar("2026-09-15", 148, 150, 147, 149.0),
+                _bar("2026-09-16", 151, 155, 147, 154.0),
+            ],
+            "600875": [
+                _bar("2026-09-15", 24, 25, 23, 24.5),
+                _bar("2026-09-16", 26, 27, 25, 26.2),
+            ],
+        }
+        bars["600183"][-1]["prev_close"] = 149.0
+        bars["600875"][-1]["prev_close"] = 24.5
+        with patch(
+            "core.t0.score_policy.load_bars_by_code_for_tau_pool",
+            return_value=bars,
+        ) as load:
+            xs = _tau_cross_section_kwargs("600183", "2026-09-16")
+        self.assertEqual(set(load.call_args[0][0]), {"600183", "600875"})
+        self.assertIsNotNone(xs.get("sector_gap_breadth"))
+        self.assertGreaterEqual(len(xs.get("pool_gaps") or []), 2)
+        self.assertIsNotNone(xs.get("sector_gap_median"))
+        clear_score_model_cache()
+        _TAU_XS_DAY_CACHE.pop("2026-09-16", None)
+
     def test_attach_dual_score_pit_prefers_sector_gap_median(self):
         """gap_vs_sector = gap − sector_gap_median（同行参照，非池中位数）。"""
         from core.signal.dual_score.tau import attach_dual_score_pit
@@ -4891,14 +5010,20 @@ class TestT0Api(unittest.TestCase):
             "t0_pnl_total": 120.5,
             "t0_win_rate_pct": 60.0,
         }
-        with patch.object(deps.quant, "run_t0_backtest", return_value=mock):
+        with patch.object(deps.quant, "run_t0_backtest", return_value=mock) as run_bt:
             client = TestClient(web_app.app)
             res = client.post(
                 "/api/quant/t0-backtest",
-                json={"code": "茅台", "from_paper": False, "sync": True},
+                json={
+                    "code": "茅台",
+                    "from_paper": False,
+                    "sync": True,
+                    "score_model_role": "live",
+                },
             )
         self.assertEqual(res.status_code, 200)
         self.assertTrue(res.json()["success"])
+        self.assertEqual(run_bt.call_args.kwargs.get("score_model_role"), "live")
 
     def test_t0_backtest_api_defaults_to_job(self):
         try:
@@ -4923,6 +5048,7 @@ class TestT0Api(unittest.TestCase):
         self.assertEqual(res.status_code, 200)
         self.assertTrue(res.json()["background"])
         started.assert_called_once()
+        self.assertEqual(started.call_args.kwargs.get("score_model_role"), "research")
 
     def test_index_has_t0_controls(self):
         follow = os.path.join(ROOT, "web", "static", "partials", "follow_panel.html")
@@ -4970,6 +5096,7 @@ class TestT0Api(unittest.TestCase):
         self.assertIn("paper-t0-viz", text)
         self.assertIn("paper-t0-days", text)
         self.assertIn("paper-t0-lookback", text)
+        self.assertIn("paper-t0-score-model-role", text)
         self.assertIn("replay-section-t0", text)
         self.assertIn("paper-t0-form", text)
         self.assertIn("replay-t0-kpi-row", text)
@@ -5108,7 +5235,8 @@ class TestT0HoldingsVirtualSizing(unittest.TestCase):
         self.assertLessEqual(m._HOLDINGS_DEADLINE_SEC, 1200.0)
         self.assertIn("progress_cb", src)
         self.assertIn("_one_progress", src)
-        self.assertIn("scoring_model_role_context(MODEL_ROLE_RESEARCH)", src)
+        self.assertIn("scoring_model_role_context(requested)", src)
+        self.assertIn("normalize_backtest_model_role", src)
 
     def test_t0_walk_does_not_clear_score_cache_per_stock(self):
         import inspect
@@ -5116,10 +5244,13 @@ class TestT0HoldingsVirtualSizing(unittest.TestCase):
         from core.t0 import backtest as m
 
         src = inspect.getsource(m.backtest_t0_on_bars)
-        self.assertIn("scoring_model_role_context(MODEL_ROLE_RESEARCH)", src)
+        self.assertIn("scoring_model_role_context(requested)", src)
+        self.assertIn("normalize_backtest_model_role", src)
         self.assertNotIn("clear_score_model_cache", src)
         walk_src = inspect.getsource(m._walk_t0)
         self.assertIn("progress_cb", walk_src)
+        self.assertIn("from core.research.holdout import current_scoring_model_role", walk_src)
+        self.assertIn("current_scoring_model_role()", walk_src)
         sig = inspect.signature(m._walk_t0)
         self.assertIn("progress_cb", sig.parameters)
 
@@ -5300,7 +5431,7 @@ class TestIntradaySkipLogic(unittest.TestCase):
         self.assertFalse(
             should_process_intraday_stock(st, "2026-08-24 10:05:00", force_session_close=False)
         )
-        self.assertFalse(
+        self.assertTrue(
             should_process_intraday_stock(st, "2026-08-24 10:10:00", force_session_close=False)
         )
 
@@ -5319,13 +5450,87 @@ class TestIntradaySkipLogic(unittest.TestCase):
         self.assertTrue(
             should_process_intraday_stock(st, "2026-08-24 14:55:00", force_session_close=True)
         )
-        self.assertFalse(
+        self.assertTrue(
             should_process_intraday_stock(
                 {"phase": "done", "last_bar_ts": "2026-08-24 15:00:00"},
                 "2026-08-24 15:00:00",
                 force_session_close=True,
             )
         )
+        self.assertFalse(
+            should_process_intraday_stock(
+                {"phase": "skipped", "last_bar_ts": "2026-08-24 15:00:00"},
+                "2026-08-24 15:00:00",
+                force_session_close=True,
+            )
+        )
+
+    def test_done_holding_refreshes_scan_without_new_trades(self):
+        from unittest.mock import patch
+
+        from core.t0.intraday import PHASE_DONE, process_holding_intraday
+
+        bar = _bar("2026-09-16", 150, 157, 147, 154)
+        holding = {
+            "stock_code": "600183",
+            "stock_name": "生益科技",
+            "shares": 500,
+            "cost": 150,
+        }
+        old_trades = [
+            {"side": "t0_buy", "price": 150.1, "shares": 100, "at": "2026-09-16 09:45:00"},
+            {"side": "t0_sell", "price": 152.07, "shares": 100, "at": "2026-09-16 10:35:00"},
+        ]
+        st0 = {
+            "phase": PHASE_DONE,
+            "legs_written": 2,
+            "last_bar_ts": "2026-09-16 10:40:00",
+            "day_snapshot": {
+                "stock_code": "600183",
+                "trades": old_trades,
+                "close_band_scan": [{"hm": "09:45", "y_oc": -0.73}],
+                "close": 152.6,
+            },
+        }
+        refreshed = {
+            "stock_code": "600183",
+            "trades": old_trades,
+            "close_band_scan": [{"hm": "09:45", "y_oc": -0.62}],
+            "close": 154.48,
+        }
+        paper = {"cash": 50000, "holdings": [holding], "trades": [], "rules": {}}
+        with patch(
+            "core.t0.slots.refresh_close_band_scan", return_value=dict(refreshed)
+        ) as ref, patch("core.t0.slots.simulate_t0_day_slots") as sim:
+            st, trades, snap = process_holding_intraday(
+                code="600183",
+                holding=holding,
+                stock_state=st0,
+                minute_bars=_mins_lh(bar=bar),
+                bar=bar,
+                cfg=_rules(t0_ratio=0.4, direction="dual_y"),
+                sellable=500,
+                cash=50000,
+                atr_pct=None,
+                hist_bars=None,
+                scores=_scores_flat(),
+                stance_code=None,
+                coupling_mode="independent",
+                as_of="2026-09-16",
+                log_source="test",
+                paper=paper,
+                applied_legs=2,
+                tau_pool_day={"pool_gaps": [1.0]},
+            )
+        sim.assert_not_called()
+        ref.assert_called_once()
+        self.assertEqual(ref.call_args.kwargs.get("tau_pool_day"), {"pool_gaps": [1.0]})
+        self.assertEqual(trades, [])
+        self.assertEqual(st.get("phase"), PHASE_DONE)
+        self.assertEqual(st.get("legs_written"), 2)
+        self.assertEqual(snap["close_band_scan"][0]["y_oc"], -0.62)
+        self.assertEqual(snap["trades"], old_trades)
+        self.assertEqual(paper.get("trades"), [])
 
     def test_build_intraday_desk_status_locked_rows(self):
         import tempfile
@@ -6245,6 +6450,56 @@ class TestT0AutoLastRunDetail(unittest.TestCase):
         self.assertNotIn("_t0_score_snap", row["t0_slot_results"][0])
         self.assertEqual(row["trades"][0]["t0_slot"], "r1")
         self.assertEqual(row["trades"][0]["ts"], "2026-09-10T10:29:15.941")
+
+    def test_patch_last_run_scans_keeps_trades(self):
+        from services.paper_trades import _patch_t0_last_run_scans
+
+        paper = {
+            "rules": {
+                "t0_auto": {
+                    "enabled": True,
+                    "last_run": {
+                        "session_date": "2026-09-16",
+                        "trade_count": 2,
+                        "pnl_total": -12.5,
+                        "results": [
+                            {
+                                "stock_code": "600183",
+                                "pnl": -12.5,
+                                "close": 152.6,
+                                "close_band_scan": [{"hm": "09:45", "y_oc": -0.73}],
+                                "trades": [
+                                    {
+                                        "side": "t0_buy",
+                                        "price": 150.1,
+                                        "shares": 100,
+                                        "at": "2026-09-16 09:45:00",
+                                    }
+                                ],
+                            }
+                        ],
+                    },
+                }
+            }
+        }
+        self.assertTrue(
+            _patch_t0_last_run_scans(
+                paper,
+                [
+                    {
+                        "stock_code": "600183",
+                        "close": 154.48,
+                        "close_band_scan": [{"hm": "09:45", "y_oc": -0.62}],
+                    }
+                ],
+                session_date="2026-09-16",
+            )
+        )
+        row = paper["rules"]["t0_auto"]["last_run"]["results"][0]
+        self.assertEqual(row["close_band_scan"][0]["y_oc"], -0.62)
+        self.assertEqual(row["close"], 154.48)
+        self.assertEqual(row["pnl"], -12.5)
+        self.assertEqual(row["trades"][0]["price"], 150.1)
 
     def test_hydrate_last_run_from_intraday_snapshot(self):
         from unittest.mock import patch

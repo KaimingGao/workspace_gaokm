@@ -640,6 +640,7 @@ def attach_dual_score_pit(
         try:
             from core.signal.minute_tau_feats import (
                 apply_sector_ret_cs,
+                peer_codes_for_sector_ret,
                 resolve_sector_ret_to_tau,
                 sector_ret_median,
             )
@@ -669,7 +670,9 @@ def attach_dual_score_pit(
                         or bool(cfg.get("enable_minute_tau"))
                     )
                 ):
-                    sret = resolve_sector_ret_to_tau(trade_day, hm)
+                    sret = resolve_sector_ret_to_tau(
+                        trade_day, hm, codes=peer_codes_for_sector_ret() or None
+                    )
             if sret is not None:
                 feats = apply_sector_ret_cs(feats, sret)
         except Exception:  # noqa: BLE001

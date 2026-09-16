@@ -51,7 +51,8 @@ class TestV0SampleDiscipline(unittest.TestCase):
             watching_codes=["A", "B"],
             universe={"exclude_codes": ["B"], "include_only": []},
         )
-        self.assertEqual(out["codes"], ["A"])
+        self.assertEqual(out["codes"], ["A", "B"])
+        self.assertEqual(out["source"], "watching")
         empty = empty_fundamentals_report(codes=["NOPE999"])
         self.assertIn("NOPE999", empty["empty_codes"])
 

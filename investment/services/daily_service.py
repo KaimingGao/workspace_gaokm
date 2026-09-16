@@ -158,12 +158,15 @@ class DailyRunService:
                 from core.paper.rebalance.auto_worker import (
                     already_ran_today,
                     after_auto_rebalance_window,
+                    rebalance_window_label,
                 )
 
                 if already_ran_today():
                     skip_reason = "今日已开盘调仓"
                 elif after_auto_rebalance_window():
-                    skip_reason = "已过 09:30–10:00 开盘窗，日更不补跑、不挂开盘单"
+                    skip_reason = (
+                        f"已过 {rebalance_window_label()} 开盘窗，日更不补跑、不挂开盘单"
+                    )
             except Exception:  # noqa: BLE001
                 logger.debug("auto-rebalance daily skip check failed", exc_info=True)
                 skip_reason = ""

@@ -437,6 +437,7 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertNotIn("quant-score-ic", replay)
         self.assertNotIn("有票后点「跑回测」", replay)
         self.assertIn('id="quant-lookback"', replay)
+        self.assertIn('id="quant-score-model-role"', replay)
         self.assertIn('id="quant-universe-tier-a"', replay)
         self.assertIn('id="quant-universe-tier-b"', replay)
         self.assertIn('id="quant-universe-tier-c"', replay)
@@ -501,6 +502,16 @@ class TestWebQuantJsGuards(unittest.TestCase):
         )
         self.assertIn('id="paper-t0-backtest" class="dialog-btn" title=', replay)
         self.assertNotIn("\n          跑回测\n", replay)
+        self.assertLess(
+            replay.find('id="paper-t0-lookback"'),
+            replay.find('id="paper-t0-score-model-role"'),
+        )
+        self.assertLess(
+            replay.find('id="quant-lookback"'),
+            replay.find('id="quant-score-model-role"'),
+        )
+        self.assertIn(">研究</option>", replay)
+        self.assertIn(">执行</option>", replay)
         self.assertLess(
             replay.find('id="paper-t0-progress"'),
             replay.find('id="paper-t0-lookback"'),
@@ -600,6 +611,10 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("initial_cash", bt_js)
         self.assertIn("readFillClock", bt_js)
         self.assertIn("fill_clock", bt_js)
+        self.assertIn("readScoreModelRole", bt_js)
+        self.assertIn("score_model_role", bt_js)
+        self.assertIn("paper-t0-score-model-role", bt_js)
+        self.assertIn("quant-score-model-role", bt_js)
         self.assertIn("readPriceSpaceGate", bt_js)
         self.assertIn("price_space_gate", bt_js)
         self.assertIn("readReplayLots", bt_js)
@@ -698,6 +713,8 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("function applyPortfolioBtParams(req, { rules = true, desk = true } = {})", bt_js)
         self.assertIn("persistReplayDeskPrefs", bt_js)
         self.assertIn("restoreReplayDeskPrefs", bt_js)
+        self.assertIn("score_model_role: p.score_model_role", bt_js)
+        self.assertIn("wireReplayModelRole", bt_js)
         self.assertIn("paper.replay.desk_prefs", bt_js)
         self.assertIn("rules: false", bt_js)
         self.assertIn("applyPortfolioBtParams(prefs, { rules: false, desk: true })", bt_js)
@@ -1682,6 +1699,7 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("initial_shares: sizing.shares", replay_js)
         self.assertIn("initial_cash: sizing.cash", replay_js)
         self.assertIn("t0_stop_on_close: true", replay_js)
+        self.assertIn("score_model_role: readScoreModelRole", replay_js)
         self.assertIn("/api/jobs/t0-backtest", replay_js)
         self.assertIn("pollT0BacktestJob", replay_js)
         self.assertIn("resumeReplayT0JobIfRunning", replay_js)
@@ -2119,6 +2137,8 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertNotIn("pm_y_oc_enter_alt", exe_ui)
         self.assertNotIn("pm_y_hl_enter_alt", exe_ui)
         self.assertIn("pm_y_hl_enabled", exe_ui)
+        self.assertIn("fill_clock", exe_ui)
+        self.assertIn('specKpi("调仓窗"', exe_ui)
         self.assertNotIn("pm_lot_base", exe_ui)
         self.assertNotIn("pm_price_space_gate", exe_ui)
         self.assertNotIn("pm_lot_strong", exe_ui)

@@ -2,6 +2,9 @@
 
 研究模型（``research``）：近 N 个交易日不进训练，专供历史回测（调仓 + 做 T）。
 执行模型（``live``）：全部已实现标签，专供交易执行（自动/手动调仓与做 T）。
+
+调仓与做 T 门槛对 ŷ 敏感、不鲁棒：研究套系数上调好的参数，换执行套后
+同一套规则可能翻转。历史回测默认研究套；显式选执行套才能对照 live。
 """
 
 from __future__ import annotations
@@ -25,6 +28,17 @@ def normalize_model_role(role: Optional[str]) -> str:
     if raw in {"research", "holdout", "oos", "backtest"}:
         return MODEL_ROLE_RESEARCH
     return MODEL_ROLE_LIVE
+
+
+def normalize_backtest_model_role(role: Optional[str] = None) -> str:
+    """回测默认研究套；仅显式 live / 执行 才用执行套。
+
+    研究套参数未必适用于执行套（门槛对 ŷ 敏感），故须显式选择才切 live。
+    """
+    raw = str(role or "").strip().lower()
+    if raw in {"live", "execution", "exec", "full", "执行"}:
+        return MODEL_ROLE_LIVE
+    return MODEL_ROLE_RESEARCH
 
 
 def current_scoring_model_role() -> str:
