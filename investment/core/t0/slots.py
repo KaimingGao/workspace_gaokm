@@ -22,6 +22,37 @@ logger = logging.getLogger(__name__)
 _PENDING_PREFIX = "多轮待成交"
 
 
+def _is_scan_tip_key(key: str) -> bool:
+    """扫描行只贴该钟因子拆解；不要把日级 ŷ 标量或隔夜项盖进去。"""
+    if key in {"as_of_tau", "gap_pct", "features_tau"}:
+        return True
+    if key.startswith("y_spec"):
+        return True
+    if key.endswith("_on"):
+        return False
+    return key.startswith(("formula_terms_", "score_formula_terms_"))
+
+
+def _attach_scan_row_tip_fields(row: dict, live_snap: Optional[dict]) -> None:
+    """扫描行带上该钟前缀因子；否则 tip 会落到日级 scores（预演 09:45 vs 回测 10:40）。"""
+    if not isinstance(row, dict) or not isinstance(live_snap, dict):
+        return
+    try:
+        from core.t0.score_policy import tip_fields_from_item
+
+        tips = tip_fields_from_item(live_snap)
+    except Exception:  # noqa: BLE001
+        logger.debug("scan row tip fields failed", exc_info=True)
+        return
+    if not isinstance(tips, dict):
+        return
+    for k, v in tips.items():
+        if v is not None and _is_scan_tip_key(str(k)):
+            row[k] = v
+    if row.get("as_of_tau") is None and row.get("hm"):
+        row["as_of_tau"] = row.get("hm")
+
+
 def _norm_trade_at(raw: Any) -> str:
     """统一成交/分钟时间串，避免 ``YYYY-MM-DD HH:MM`` 与 ``…T…`` 字典序前窥。"""
     s = str(raw or "").strip().replace("T", " ")
@@ -1126,88 +1157,88 @@ def _build_close_band_scan_trace(
         if y_tau is not None:
             y_tau = round(float(y_tau), 4)
 
-        rows.append(
-            {
-                "hm": hm,
-                "idx": idx,
-                "o": round(o, 4) if o > 0 else None,
-                "l": round(l, 4) if l > 0 else None,
-                "h": round(h, 4) if h > 0 else None,
-                "c": round(c, 4),
-                "c_tau": c_tau,
-                "y_tau": y_tau,
-                "y_hl": y_path,
-                "y_complexity": y_complexity,
-                "y_cx": y_complexity,
-                "y_tpd": y_tpd,
-                "y_r": y_r,
-                "predicted_score_r": y_r,
-                "y_r_hat": y_r,
-                "y_τ30": y_t30,
-                "y_t30": y_t30,
-                "y_t30_hat": y_t30,
-                "predicted_score_t30": y_t30,
-                "y_t30_realized": y_t30_realized,
-                "t30_realized": y_t30_realized,
-                "y_τ60": y_t60,
-                "y_t60": y_t60,
-                "y_t60_hat": y_t60,
-                "predicted_score_t60": y_t60,
-                "y_t60_realized": y_t60_realized,
-                "t60_realized": y_t60_realized,
-                "y_τ90": y_t90,
-                "y_t90": y_t90,
-                "y_t90_hat": y_t90,
-                "predicted_score_t90": y_t90,
-                "y_t90_realized": y_t90_realized,
-                "t90_realized": y_t90_realized,
-                "r_realized": r_realized,
-                "y_r_realized": r_realized,
-                "r_pct": round(float(r_pct), 4) if r_pct is not None else None,
-                "r_hat": round(float(r_hat), 4) if r_hat is not None else None,
-                "residual": round(float(r_hat), 4) if r_hat is not None else None,
-                "y_oc": (
-                    round(float(y_oc_scan if y_oc_scan is not None else y_tau), 4)
-                    if (y_oc_scan is not None or y_tau is not None)
-                    else None
-                ),
-                "y_τc": (
-                    round(float(y_tc_ridge if y_tc_ridge is not None else y_r), 4)
-                    if (y_tc_ridge is not None or y_r is not None)
-                    else None
-                ),
-                "y_τc_ridge": (
-                    round(float(y_tc_ridge), 4) if y_tc_ridge is not None else None
-                ),
-                "y_τc_source": y_tc_source,
-                "y_tc": (
-                    round(float(y_tc_ridge if y_tc_ridge is not None else y_r), 4)
-                    if (y_tc_ridge is not None or y_r is not None)
-                    else None
-                ),
-                "remaining_oc": (
-                    round(float(remaining_oc_v), 4) if remaining_oc_v is not None else None
-                ),
-                "c_hat_source": c_hat_source,
-                "upper_pct": (
-                    round(float(upper_pct), 4) if upper_pct is not None else None
-                ),
-                "lower_pct": (
-                    round(float(lower_pct), 4) if lower_pct is not None else None
-                ),
-                "pick": direction,
-                "enter_skip": enter_skip,
-                "sign_skip": sign_skip,
-                "y_tc_skip": y_tc_skip,
-                "y_t30_skip": y_t30_skip,
-                "y_tw_skip": y_tw_skip,
-                "y_t60_skip": y_t60_skip,
-                "y_t90_skip": y_t90_skip,
-                "y_tc_agree": y_tc_agree,
-                "minute_missing": minute_missing,
-                "leg1": bool(hm and hm[:5] in triggers),
-            }
-        )
+        row = {
+            "hm": hm,
+            "idx": idx,
+            "o": round(o, 4) if o > 0 else None,
+            "l": round(l, 4) if l > 0 else None,
+            "h": round(h, 4) if h > 0 else None,
+            "c": round(c, 4),
+            "c_tau": c_tau,
+            "y_tau": y_tau,
+            "y_hl": y_path,
+            "y_complexity": y_complexity,
+            "y_cx": y_complexity,
+            "y_tpd": y_tpd,
+            "y_r": y_r,
+            "predicted_score_r": y_r,
+            "y_r_hat": y_r,
+            "y_τ30": y_t30,
+            "y_t30": y_t30,
+            "y_t30_hat": y_t30,
+            "predicted_score_t30": y_t30,
+            "y_t30_realized": y_t30_realized,
+            "t30_realized": y_t30_realized,
+            "y_τ60": y_t60,
+            "y_t60": y_t60,
+            "y_t60_hat": y_t60,
+            "predicted_score_t60": y_t60,
+            "y_t60_realized": y_t60_realized,
+            "t60_realized": y_t60_realized,
+            "y_τ90": y_t90,
+            "y_t90": y_t90,
+            "y_t90_hat": y_t90,
+            "predicted_score_t90": y_t90,
+            "y_t90_realized": y_t90_realized,
+            "t90_realized": y_t90_realized,
+            "r_realized": r_realized,
+            "y_r_realized": r_realized,
+            "r_pct": round(float(r_pct), 4) if r_pct is not None else None,
+            "r_hat": round(float(r_hat), 4) if r_hat is not None else None,
+            "residual": round(float(r_hat), 4) if r_hat is not None else None,
+            "y_oc": (
+                round(float(y_oc_scan if y_oc_scan is not None else y_tau), 4)
+                if (y_oc_scan is not None or y_tau is not None)
+                else None
+            ),
+            "y_τc": (
+                round(float(y_tc_ridge if y_tc_ridge is not None else y_r), 4)
+                if (y_tc_ridge is not None or y_r is not None)
+                else None
+            ),
+            "y_τc_ridge": (
+                round(float(y_tc_ridge), 4) if y_tc_ridge is not None else None
+            ),
+            "y_τc_source": y_tc_source,
+            "y_tc": (
+                round(float(y_tc_ridge if y_tc_ridge is not None else y_r), 4)
+                if (y_tc_ridge is not None or y_r is not None)
+                else None
+            ),
+            "remaining_oc": (
+                round(float(remaining_oc_v), 4) if remaining_oc_v is not None else None
+            ),
+            "c_hat_source": c_hat_source,
+            "upper_pct": (
+                round(float(upper_pct), 4) if upper_pct is not None else None
+            ),
+            "lower_pct": (
+                round(float(lower_pct), 4) if lower_pct is not None else None
+            ),
+            "pick": direction,
+            "enter_skip": enter_skip,
+            "sign_skip": sign_skip,
+            "y_tc_skip": y_tc_skip,
+            "y_t30_skip": y_t30_skip,
+            "y_tw_skip": y_tw_skip,
+            "y_t60_skip": y_t60_skip,
+            "y_t90_skip": y_t90_skip,
+            "y_tc_agree": y_tc_agree,
+            "minute_missing": minute_missing,
+            "leg1": bool(hm and hm[:5] in triggers),
+        }
+        _attach_scan_row_tip_fields(row, live_snap if isinstance(live_snap, dict) else None)
+        rows.append(row)
     return rows
 
 

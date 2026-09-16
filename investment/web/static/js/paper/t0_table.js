@@ -1120,9 +1120,10 @@ function t30TipDetailAttr(it) {
   return escapeText(JSON.stringify(t30TipPayload(it)));
 }
 
-function t30ScanTipItem(scanRow, day) {
+/** 扫描行 tip 的该钟因子；缺则回退日级 scores（旧簿）。 */
+function scanTipFeatHost(scanRow, day) {
   const scores =
-    day && day.scores && typeof day.scores === "object" ? day.scores : {};
+    (day && day.scores && typeof day.scores === "object" ? day.scores : {}) || {};
   const feats =
     (scanRow && scanRow.features_tau) ||
     scores.features_tau ||
@@ -1131,6 +1132,11 @@ function t30ScanTipItem(scanRow, day) {
       typeof day.direction_features === "object" &&
       day.direction_features.features_tau) ||
     null;
+  return { scores, feats };
+}
+
+function t30ScanTipItem(scanRow, day) {
+  const { scores, feats } = scanTipFeatHost(scanRow, day);
   return {
     "y_τ30": scanRow && (scanRow["y_τ30"] ?? scanRow.y_t30),
     y_t30: scanRow && (scanRow.y_t30 ?? scanRow["y_τ30"]),
@@ -1144,8 +1150,28 @@ function t30ScanTipItem(scanRow, day) {
     y_spec_τ30: (scanRow && (scanRow.y_spec_τ30 || scanRow.y_spec_t30)) || scores.y_spec_τ30,
     features_tau: feats,
     as_of_tau: (scanRow && (scanRow.hm || scanRow.as_of_tau)) || scores.as_of_tau,
-    gap_pct: scores.gap_pct ?? (feats && feats.gap_pct) ?? null,
+    gap_pct: (feats && feats.gap_pct) ?? scores.gap_pct ?? null,
   };
+}
+
+function tauScanTipItem(scanRow, day) {
+  const { scores, feats } = scanTipFeatHost(scanRow, day);
+  const yoc = scanRow && (scanRow.y_oc ?? scanRow.y_tau);
+  return {
+    y_oc: yoc,
+    y_tau: scanRow && (scanRow.y_tau ?? scanRow.y_oc),
+    predicted_score_tau: yoc,
+    formula_terms_tau: (scanRow && scanRow.formula_terms_tau) || scores.formula_terms_tau,
+    score_formula_terms_tau:
+      (scanRow && scanRow.score_formula_terms_tau) || scores.score_formula_terms_tau,
+    features_tau: feats,
+    as_of_tau: (scanRow && (scanRow.hm || scanRow.as_of_tau)) || scores.as_of_tau,
+    gap_pct: (feats && feats.gap_pct) ?? scores.gap_pct ?? null,
+  };
+}
+
+function tauTipDetailAttr(scanRow, day) {
+  return escapeText(JSON.stringify(tauScanTipItem(scanRow, day)));
 }
 
 function pickT30Pred(d) {
@@ -2098,6 +2124,19 @@ function t0DayScoreItem(d, fallback = {}, rules = {}, liveByCode = null) {
       scores.r_hat = Number(srRhat);
       scores.residual = Number(srRhat);
     }
+    if (sr.features_tau && typeof sr.features_tau === "object") {
+      scores.features_tau = sr.features_tau;
+    }
+    for (const k of Object.keys(sr)) {
+      if (
+        (k.startsWith("formula_terms_") || k.startsWith("score_formula_terms_")) &&
+        sr[k] != null
+      ) {
+        scores[k] = sr[k];
+      }
+    }
+    if (sr.as_of_tau || sr.hm) scores.as_of_tau = sr.as_of_tau || sr.hm;
+    if (sr.gap_pct != null) scores.gap_pct = sr.gap_pct;
   }
   const code = String(
     d.stock_code || fallback.stock_code || scores.stock_code || ""
@@ -3788,7 +3827,10 @@ function buildCloseBandScanExpandRow(d, dayKey, colSpan, rules) {
         `<td class="num paper-t0-scan-px">${escapeText(fmtBarPx(r.c_tau ?? r.c_hat))}</td>` +
         tradeBandEdgeCells(r.c_tau ?? r.c_hat, d, rules, r) +
         `<td class="num paper-t0-scan-y" title="${escapeText(rtauTxt)}">${escapeText(rtauTxt)}</td>` +
-        `<td class="num paper-t0-scan-y" title="${escapeText(yocTxt)}">${escapeText(yocTxt)}</td>` +
+        `<td class="num paper-t0-scan-y paper-t0-y-score has-tip" data-score-tip="tau" data-score-detail="${tauTipDetailAttr(
+          r,
+          d
+        )}" title="${escapeText(`${Y_TAU_TITLE} · ${yocTxt}`)}">${escapeText(yocTxt)}</td>` +
         `<td class="num paper-t0-scan-y paper-t0-y-score paper-t0-col-ytw has-tip" data-score-tip="tw" data-score-detail="${twTipDetailAttr(
           twScanTipItem(r, d)
         )}" title="${escapeText(`${Y_TW_TITLE} · ${ytwTxt}`)}">${escapeText(ytwTxt)}</td>` +

@@ -356,6 +356,21 @@ def _fetch_minute_by_date(
         return {}, {"ok": False, "error": str(e), "period": period}
 
 
+def _seed_peer_minutes_from_by_date(code: str, by_date: Optional[dict]) -> None:
+    """把回测已取到的 5m 写入同伴仓，与预演 hydrate 同源。"""
+    try:
+        from core.signal.minute_tau_feats import seed_peer_minute_bars
+
+        flat: List[dict] = []
+        for rows in (by_date or {}).values():
+            if isinstance(rows, list):
+                flat.extend([b for b in rows if isinstance(b, dict)])
+        if flat:
+            seed_peer_minute_bars(str(code), flat)
+    except Exception:  # noqa: BLE001
+        logger.debug("t0 backtest peer minute seed failed", exc_info=True)
+
+
 def _quote_for_backtest(code: str, *, timeout_sec: float = _QUOTE_TIMEOUT_SEC) -> Dict[str, Any]:
     """解析名称/代码；超时则退回原串，避免腾讯行情拖死整次回测。"""
     try:
@@ -546,6 +561,12 @@ def run_t0_backtest_for_code(
     tau_pool = tau_pool_by_date if isinstance(tau_pool_by_date, dict) else None
     pool_codes = t0_cs_universe_codes(str(sym), paper=paper)
     set_t0_cs_universe_codes(pool_codes)
+    _seed_peer_minutes_from_by_date(str(sym), minute_by_date)
+    for extra in pool_codes:
+        if str(extra) == str(sym):
+            continue
+        loc, _ = _local_minute_by_date(str(extra), period)
+        _seed_peer_minutes_from_by_date(str(extra), loc)
     if tau_pool is None:
         bars_by_code = load_bars_by_code_for_tau_pool(pool_codes, limit=fetch_n)
         if str(sym) not in bars_by_code and bars_all:
@@ -734,6 +755,10 @@ def run_t0_backtest_for_holdings(
 
     pool_codes = t0_cs_universe_codes(holdings=holdings, paper=paper)
     set_t0_cs_universe_codes(pool_codes)
+    period_seed = str(cfg.get("minute_period") or "5")
+    for extra in pool_codes:
+        loc, _ = _local_minute_by_date(str(extra), period_seed)
+        _seed_peer_minutes_from_by_date(str(extra), loc)
     eval_lb = max(10, int(lookback or T0_BT_DEFAULT_LOOKBACK))
     fetch_n = eval_lb + int(T0_BACKTEST_SCORE_WARMUP) + 5
     n_hold = max(1, len(holdings))

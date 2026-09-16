@@ -1,7 +1,7 @@
 import { apiFetch } from "../api_client.js";
 import { renderLineChart, renderDualLineChart, renderMultiLineChart, renderNavBarChart } from "../lw_charts.js";
 import { fmtScore, scoreCls } from "../paper/fmt.js";
-import { renderPaperT0 } from "../paper/t0_ui.js?v=p2426";
+import { renderPaperT0 } from "../paper/t0_ui.js?v=p2461";
 import { portfolioBtScoreFloorPayload as buildBtScoreFloorPayload, mergeScoringFloors } from "./scoring.js";
 import { truncateStockName, watchingNameSpanHtml } from "./names.js";
 import { ensureFitTierMap } from "./fit_tier_ui.js";
@@ -996,7 +996,8 @@ export function installBacktest(q) {
 
   function readScoreModelRole(id) {
     const el = document.getElementById(id);
-    const v = String((el && el.value) || "research").toLowerCase();
+    const fallback = id === "paper-t0-score-model-role" ? "live" : "research";
+    const v = String((el && el.value) || fallback).toLowerCase();
     return v === "live" ? "live" : "research";
   }
 

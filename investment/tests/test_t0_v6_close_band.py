@@ -1140,7 +1140,6 @@ class TestCloseBandCore(unittest.TestCase):
         self.assertIn("c_tau", first)
         self.assertIn("y_tau", first)
         self.assertIn("y_cx", first)
-        self.assertIn("y_cx", first)
         self.assertIn("y_tpd", first)
         self.assertIn("upper_pct", first)
         self.assertIn("lower_pct", first)
@@ -1149,6 +1148,49 @@ class TestCloseBandCore(unittest.TestCase):
         for row in scan:
             hm = str(row.get("hm") or "")
             self.assertLessEqual(hm, "11:00", row)
+
+    def test_scan_row_carries_prefix_features_tau(self):
+        """扫描行带该钟 features_tau，不把日级 10:40 因子贴到 09:45 tip。"""
+        from core.t0.slots import _attach_scan_row_tip_fields
+
+        row = {"hm": "09:45"}
+        _attach_scan_row_tip_fields(
+            row,
+            {
+                "y_tau": -0.7,
+                "features_tau": {
+                    "ret_open_to_tau": -0.596,
+                    "sector_ret_to_tau": -0.026,
+                    "ret_vs_sector": -0.57,
+                },
+                "formula_terms_tau": {"intercept": 0.1, "terms": []},
+                "formula_terms_on": {"intercept": 9, "terms": [{"key": "gap_pct"}]},
+                "as_of_tau": "09:45",
+            },
+        )
+        self.assertAlmostEqual(row["features_tau"]["ret_vs_sector"], -0.57, places=4)
+        self.assertAlmostEqual(row["features_tau"]["sector_ret_to_tau"], -0.026, places=4)
+        self.assertEqual(row.get("as_of_tau"), "09:45")
+        self.assertNotIn("formula_terms_on", row)
+        self.assertNotIn("y_tau", row)
+        later = {"hm": "10:40"}
+        _attach_scan_row_tip_fields(
+            later,
+            {
+                "features_tau": {
+                    "ret_open_to_tau": 0.589,
+                    "sector_ret_to_tau": -0.779,
+                    "ret_vs_sector": 1.368,
+                },
+                "as_of_tau": "10:40",
+            },
+        )
+        self.assertAlmostEqual(later["features_tau"]["ret_vs_sector"], 1.368, places=4)
+        self.assertNotAlmostEqual(
+            float(row["features_tau"]["ret_vs_sector"]),
+            float(later["features_tau"]["ret_vs_sector"]),
+            places=3,
+        )
 
 
 class TestCloseBandDayPath(unittest.TestCase):

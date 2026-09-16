@@ -1122,6 +1122,43 @@ class TestMinuteTauPack(unittest.TestCase):
         load2.assert_not_called()
         self.assertEqual(len(again), 2)
 
+    def test_seed_peer_minute_bars_overrides_stale_same_clock(self):
+        """本轮补拉的 09:45 必须盖掉早盘内存仓，否则 sector_ret 用残缺价。"""
+        from unittest.mock import patch
+
+        from core.signal import minute_tau_feats as m
+
+        m.clear_sector_ret_cache()
+        stale = [
+            {
+                "date": "2026-09-16",
+                "datetime": "2026-09-16 09:45:00",
+                "open": 10,
+                "high": 10.1,
+                "low": 9.9,
+                "close": 10.0,
+            }
+        ]
+        fresh = [
+            {
+                "date": "2026-09-16",
+                "datetime": "2026-09-16 09:45:00",
+                "open": 10,
+                "high": 10.2,
+                "low": 9.8,
+                "close": 10.4,
+            }
+        ]
+        m._PEER_MINUTE_BARS["600183"] = stale
+        m.seed_peer_minute_bars("600183", fresh)
+        with patch("core.store.load_minute_cache") as load:
+            bars = m._peer_minute_bars_for_tau(
+                "600183", trade_date="2026-09-16", tau_hm="09:45"
+            )
+        load.assert_not_called()
+        self.assertEqual(bars[-1]["close"], 10.4)
+        m.clear_sector_ret_cache()
+
     def test_peer_fallback_does_not_stick_into_memo(self):
         from unittest.mock import mock_open, patch
 

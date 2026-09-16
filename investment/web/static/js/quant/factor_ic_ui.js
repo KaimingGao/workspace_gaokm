@@ -855,7 +855,7 @@ export function createFactorIcUi(deps) {
     const interceptTip = isCx
       ? "去均值后加回标签均值（∈[0,1]）"
       : isR
-        ? "执行套截距：全样本标签均值 + α_dm。观察/持仓用。做 T 回测走研究套，数字会不同。"
+        ? "执行套截距：全样本标签均值 + α_dm。观察/持仓 / 做 T 回测默认用这套。选研究套 Holdout 时数字会不同。"
         : "模型截距（%）";
     const nTip = oos.holdout_trading_days != null
       ? "执行套全样本入模行；Holdout 只改研究套训/测，不改此数"

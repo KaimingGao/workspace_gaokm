@@ -284,7 +284,7 @@
     </div>
   </section>
 
-  <!-- ③ 做 T 回测：历史验证默认研究套；门槛敏感，可选手动切执行套对照 -->
+  <!-- ③ 做 T 回测：默认执行套（对照手动预演）；可选研究套做 Holdout -->
   <section
     class="dashboard-section quant-section replay-section replay-run-section replay-t0-section"
     id="replay-section-t0"
@@ -306,15 +306,15 @@
         </label>
         <label
           class="platform-field quant-pro-field replay-lookback-field replay-model-field"
-          title="研究套：Holdout（近 N 日不进训练），默认历史验证。执行套：live 全样本，与自动做 T 同一套。做 T 门槛对 ŷ 敏感、不鲁棒，研究套参数未必适用于执行套，故可在此对照。"
+          title="执行套：live 全样本，与手动预演 / 自动做 T 同一套，默认对照交易执行。研究套：Holdout（近 N 日不进训练）；门槛对 ŷ 敏感，ŷ 可能翻转（如 y_τw）。"
         >
           <span class="quant-pro-field-label">模型</span>
           <select id="paper-t0-score-model-role">
-            <option value="research" selected>研究</option>
-            <option value="live">执行</option>
+            <option value="live" selected>执行</option>
+            <option value="research">研究</option>
           </select>
         </label>
-        <button type="button" id="paper-t0-backtest" class="dialog-btn" title="5m 第一触达回测：默认研究套；选执行则用 live 系数（门槛对 ŷ 敏感，研究套未必代表自动做 T）。规则读下方表单。缺该日5m则跳过。">跑回测</button>
+        <button type="button" id="paper-t0-backtest" class="dialog-btn" title="5m 第一触达回测：默认执行套（与手动预演同一套 live）。选研究则用 Holdout 系数，ŷ 可能翻转。规则读下方表单。缺该日5m则跳过。">跑回测</button>
       </div>
     </header>
     <div class="replay-overview-band" id="replay-t0-overview">

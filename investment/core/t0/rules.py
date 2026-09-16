@@ -347,6 +347,12 @@ def simulate_t0_on_holdings(
         except Exception:  # noqa: BLE001
             logger.debug("holdings tau_pool build failed", exc_info=True)
             tau_pool = None
+    try:
+        from core.signal.minute_tau_feats import seed_peer_minute_bars_map
+
+        seed_peer_minute_bars_map(minute_bars_by_code)
+    except Exception:  # noqa: BLE001
+        logger.debug("holdings peer minute seed failed", exc_info=True)
 
     holdings = []
     for h in paper.get("holdings") or []:

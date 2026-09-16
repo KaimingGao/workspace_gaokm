@@ -512,6 +512,15 @@ class TestWebQuantJsGuards(unittest.TestCase):
         )
         self.assertIn(">研究</option>", replay)
         self.assertIn(">执行</option>", replay)
+        self.assertIn('id="paper-t0-score-model-role"', replay)
+        self.assertIn(
+            '<option value="live" selected>执行</option>',
+            replay[replay.find('id="paper-t0-score-model-role"') :],
+        )
+        self.assertIn(
+            '<option value="research" selected>研究</option>',
+            replay[replay.find('id="quant-score-model-role"') :],
+        )
         self.assertLess(
             replay.find('id="paper-t0-progress"'),
             replay.find('id="paper-t0-lookback"'),
@@ -614,6 +623,7 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("readScoreModelRole", bt_js)
         self.assertIn("score_model_role", bt_js)
         self.assertIn("paper-t0-score-model-role", bt_js)
+        self.assertIn('id === "paper-t0-score-model-role" ? "live"', bt_js)
         self.assertIn("quant-score-model-role", bt_js)
         self.assertIn("readPriceSpaceGate", bt_js)
         self.assertIn("price_space_gate", bt_js)
@@ -1204,6 +1214,24 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("collectLegRecords(d).some((l) => !!l.time)", table_js)
         self.assertIn("expandSlotTradeDays", ui_js)
 
+    def test_t0_ledger_preserves_scroll_on_poll_rerender(self):
+        ui_js = self._read("web", "static", "js", "paper", "t0_ui.js")
+        paper_js = self._read("web", "static", "js", "paper.js")
+        self.assertIn("function replaceDeskHtml", ui_js)
+        self.assertIn("scrollLeft", ui_js)
+        self.assertIn("scrollTop", ui_js)
+        self.assertIn(".paper-t0-trades-wrap", ui_js)
+        self.assertIn("replaceDeskHtml(el,", ui_js)
+        self.assertIn("requestAnimationFrame", ui_js)
+        self.assertIn("startT0RunPoll", paper_js)
+        self.assertIn("refreshT0RunPanel", paper_js)
+        start = ui_js.find("export function renderPaperT0WorkerTrades")
+        self.assertGreaterEqual(start, 0)
+        nxt = ui_js.find("\nexport function", start + 10)
+        chunk = ui_js[start : nxt if nxt > start else start + 8000]
+        self.assertIn("replaceDeskHtml", chunk)
+        self.assertNotIn("el.innerHTML =", chunk)
+
     def test_holdings_table_has_t0_column(self):
         island_js = self._read("web", "static", "js", "holdings_table_island.js")
         badge_js = self._read("web", "static", "js", "paper", "holding_t0_badge.js")
@@ -1311,6 +1339,11 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("compoundPct(rot, yR)", table_js)
         self.assertIn("ret_open_to_tau", table_js)
         self.assertIn('data-score-tip="tau"', table_js)
+        self.assertIn("function scanTipFeatHost", table_js)
+        self.assertIn("t30ScanTipItem", table_js)
+        self.assertIn("tauScanTipItem", table_js)
+        self.assertIn("tauTipDetailAttr", table_js)
+        self.assertIn("sr.features_tau", table_js)
         self.assertNotIn('data-score-tip="r"', table_js)
         self.assertIn('data-score-tip="rtau"', table_js)
         self.assertIn('data-score-tip="t30"', table_js)
@@ -1333,7 +1366,7 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("f(x)=1 if x>0 else −1", tip_js)
         self.assertIn("function fmtScanYtw", table_js)
         self.assertIn("截距 α（研究套）", tip_js)
-        self.assertIn("做 T 回测走研究套截距", tip_js)
+        self.assertIn("做 T 回测默认执行套截距", tip_js)
         self.assertIn("ŷ_τc · Ridge", tip_js)
         self.assertIn("R̂_τ · Ĉ_τ/price(τ)−1", tip_js)
         self.assertIn('key === "r"', tip_js)

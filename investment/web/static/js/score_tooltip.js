@@ -1640,7 +1640,7 @@ export function formatFormulaTermsSection(raw, opts = {}) {
     key === "tau"
       ? "β×z = 贡献；合计=Ridge 拟合原值（T收/T开），与表列 ŷ_oc / τ 闸同口径。"
       : key === "r"
-        ? "β×z = 贡献；合计=Ridge 拟合原值（T收/τ价）。做 T 回测走研究套截距（Holdout 训练）；研究枢纽系数表默认展示执行套全样本截距。"
+        ? "β×z = 贡献；合计=Ridge 拟合原值（T收/τ价）。做 T 回测默认执行套截距（对照手动预演）；选研究套才用 Holdout。研究枢纽系数表默认展示执行套全样本截距。"
         : key === "t30"
           ? "β×z = 贡献；合计=Ridge 拟合原值（price(τ⊕30m)/price(τ)−1）。做 T 旁路，不进 C_τ。"
           : key === "t60"

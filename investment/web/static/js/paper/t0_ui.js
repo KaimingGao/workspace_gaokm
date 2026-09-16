@@ -1,7 +1,7 @@
 /** Paper · 做T 指标与预演表渲染（从 paper.js 抽出）。 */
 
 import { yTauMapScoreTip } from "./execution_ui.js?v=p2426";
-import { renderT0Viz, wireT0SkipTips } from "./t0_viz.js?v=p2426";
+import { renderT0Viz, wireT0SkipTips } from "./t0_viz.js?v=p2461";
 import { buildT0ReportHtml, fmtT0DirDays } from "./t0_report.js?v=p2426";
 import {
   buildT0TradeTableHtml,
@@ -13,7 +13,7 @@ import {
   wireT0DayDebugExpand,
   wireT0ProcessTips,
   stampStockFitTiers,
-} from "./t0_table.js?v=p2426";
+} from "./t0_table.js?v=p2461";
 
 function escapeHtml(s) {
   return String(s ?? "")
@@ -31,10 +31,10 @@ function scoreRoleCaption(data) {
     String((data && data.task) || "") === "t0_backtest" ||
     !!(data && data.from_holdings);
   if (role === "research" || (!role && isBt)) {
-    return `<span title="研究套 Holdout。调仓/做 T 门槛对 ŷ 敏感，研究套参数未必适用于执行套；选「执行」测 live。">研究套ŷ</span>`;
+    return `<span title="研究套 Holdout。与手动预演（执行套）不是同一套系数，ŷ 可能翻转。对照交易执行请选「执行」再跑。">研究套ŷ</span>`;
   }
   if (role === "live") {
-    return `<span title="执行套（全样本 live）。与自动调仓 / 自动做 T 同一套。门槛沿用当前规则，ŷ 换系数后结果可能翻转。">执行套ŷ</span>`;
+    return `<span title="执行套（全样本 live）。与手动预演 / 自动做 T 同一套。括号里是真实标签，不是另一套模型的 ŷ。">执行套ŷ</span>`;
   }
   return `<span title="y_* 为该行「日」列会话快照（做T决策时冻结）；5m 路径仓在研究枢纽写入；≠持仓实时分 / ≠调仓ŷ开关">会话快照ŷ</span>`;
 }
@@ -374,6 +374,69 @@ export function renderPaperT0Preview(els, data) {
   stampStockFitTiers(previewEl);
 }
 
+const DESK_SCROLL_SEL = ".paper-t0-trades-wrap, .paper-t0-desk-wrap";
+const lastDeskHtml = new WeakMap();
+const deskViewGen = new WeakMap();
+
+function captureDeskView(el) {
+  if (!el) return null;
+  const wraps = Array.prototype.map.call(el.querySelectorAll(DESK_SCROLL_SEL), (wrap) => ({
+    left: wrap.scrollLeft || 0,
+    top: wrap.scrollTop || 0,
+  }));
+  return {
+    hostLeft: el.scrollLeft || 0,
+    hostTop: el.scrollTop || 0,
+    wraps,
+    fs: !!el.querySelector(".paper-t0-trades-panel.is-fs"),
+  };
+}
+
+function restoreDeskView(el, view) {
+  if (!el || !view) return;
+  el.scrollLeft = view.hostLeft || 0;
+  el.scrollTop = view.hostTop || 0;
+  const wraps = el.querySelectorAll(DESK_SCROLL_SEL);
+  for (let i = 0; i < wraps.length; i += 1) {
+    const pos = view.wraps[i] || view.wraps[0];
+    if (!pos) continue;
+    wraps[i].scrollLeft = pos.left || 0;
+    wraps[i].scrollTop = pos.top || 0;
+  }
+  if (!view.fs) return;
+  const panel = el.querySelector("[data-trades-panel]");
+  if (!panel) return;
+  panel.classList.add("is-fs");
+  const btn = panel.querySelector("[data-trades-fs-toggle]");
+  if (btn) {
+    btn.textContent = "退出";
+    btn.setAttribute("aria-pressed", "true");
+    btn.title = "退出全屏（Esc）";
+  }
+  if (typeof document !== "undefined" && document.body) {
+    document.body.classList.add("paper-t0-trades-fs-open");
+  }
+}
+
+/** Worker 轮询会整表重绘；内容未变则跳过，变了也要还原横/纵滚动。 */
+function replaceDeskHtml(el, html) {
+  if (!el) return false;
+  const next = html == null ? "" : String(html);
+  if (lastDeskHtml.get(el) === next) return false;
+  const view = captureDeskView(el);
+  const gen = (deskViewGen.get(el) || 0) + 1;
+  deskViewGen.set(el, gen);
+  lastDeskHtml.set(el, next);
+  el.innerHTML = next;
+  const apply = () => {
+    if (deskViewGen.get(el) !== gen) return;
+    restoreDeskView(el, view);
+  };
+  apply();
+  if (typeof requestAnimationFrame === "function") requestAnimationFrame(apply);
+  return true;
+}
+
 function workerLastRunToTableData(lastRun, execution) {
   const results = ((lastRun && lastRun.results) || []).filter(
     (r) => r && !r.skipped && (r.trades || []).length
@@ -410,7 +473,7 @@ export function renderPaperT0WorkerTrades(el, { t0Auto, execution, liveScoresByC
   const lr = (t0Auto && t0Auto.last_run) || null;
   if (!lr || lr.ts == null) {
     el.hidden = true;
-    el.innerHTML = "";
+    replaceDeskHtml(el, "");
     return;
   }
   el.hidden = false;
@@ -429,9 +492,12 @@ export function renderPaperT0WorkerTrades(el, { t0Auto, execution, liveScoresByC
 
   const results = lr.results || [];
   if (!results.length) {
-    el.innerHTML = foldShell(
-      `<span class="paper-t0-desk-fold-meta">尚无成交</span>`,
-      `<p class="paper-t0-desk-empty">尚无成交明细 · 有买/卖落账后显示</p>`
+    replaceDeskHtml(
+      el,
+      foldShell(
+        `<span class="paper-t0-desk-fold-meta">尚无成交</span>`,
+        `<p class="paper-t0-desk-empty">尚无成交明细 · 有买/卖落账后显示</p>`
+      )
     );
     return;
   }
@@ -441,9 +507,12 @@ export function renderPaperT0WorkerTrades(el, { t0Auto, execution, liveScoresByC
   };
   const days = pickTradeDays(data);
   if (!days.length) {
-    el.innerHTML = foldShell(
-      `<span class="paper-t0-desk-fold-meta">尚无成交</span>`,
-      `<p class="paper-t0-desk-empty">尚无成交明细 · 有买/卖落账后显示</p>`
+    replaceDeskHtml(
+      el,
+      foldShell(
+        `<span class="paper-t0-desk-fold-meta">尚无成交</span>`,
+        `<p class="paper-t0-desk-empty">尚无成交明细 · 有买/卖落账后显示</p>`
+      )
     );
     return;
   }
@@ -476,21 +545,24 @@ export function renderPaperT0WorkerTrades(el, { t0Auto, execution, liveScoresByC
         `<span class="paper-t0-desk-chip-v">${sellThenBuyN}</span></span>`
       : "") +
     `</span>`;
-  el.innerHTML = foldShell(
-    chips,
-    `<div class="paper-t0-desk-board">` +
-      buildT0TradeTableHtml({
-        data,
-        days,
-        maxRows: T0_TRADE_TABLE_MAX_ROWS,
-        showDelete: true,
-        showRealized: false,
-        splitSlots: true,
-      }) +
-      `<p class="paper-t0-desk-foot" title="${tip}">一笔一行 · 买卖时间在过程列 · 删除按票冲正</p>` +
-      `</div>`
+  const replaced = replaceDeskHtml(
+    el,
+    foldShell(
+      chips,
+      `<div class="paper-t0-desk-board">` +
+        buildT0TradeTableHtml({
+          data,
+          days,
+          maxRows: T0_TRADE_TABLE_MAX_ROWS,
+          showDelete: true,
+          showRealized: false,
+          splitSlots: true,
+        }) +
+        `<p class="paper-t0-desk-foot" title="${tip}">一笔一行 · 买卖时间在过程列 · 删除按票冲正</p>` +
+        `</div>`
+    )
   );
-  stampStockFitTiers(el);
+  if (replaced) stampStockFitTiers(el);
 }
 
 const DESK_PHASE_LABEL = {
@@ -623,7 +695,7 @@ export function renderPaperT0WorkerDesk(el, desk) {
   if (!el) return;
   if (!desk || !Array.isArray(desk.rows)) {
     el.hidden = true;
-    el.innerHTML = "";
+    replaceDeskHtml(el, "");
     return;
   }
   el.hidden = false;
@@ -646,17 +718,19 @@ export function renderPaperT0WorkerDesk(el, desk) {
   )}</span>`;
 
   if (!desk.rows.length) {
-    el.innerHTML =
+    replaceDeskHtml(
+      el,
       `<details class="paper-t0-desk-fold"${openAttr}>` +
-      `<summary class="paper-t0-desk-fold-sum">` +
-      `<span class="paper-t0-desk-fold-title">今日盯盘状态</span>` +
-      sessLine +
-      `<span class="paper-t0-desk-chips">${chips || ""}</span>` +
-      `</summary>` +
-      `<p class="paper-t0-desk-empty">${escapeHtml(
-        desk.note || "尚无今日盘中状态"
-      )}</p>` +
-      `</details>`;
+        `<summary class="paper-t0-desk-fold-sum">` +
+        `<span class="paper-t0-desk-fold-title">今日盯盘状态</span>` +
+        sessLine +
+        `<span class="paper-t0-desk-chips">${chips || ""}</span>` +
+        `</summary>` +
+        `<p class="paper-t0-desk-empty">${escapeHtml(
+          desk.note || "尚无今日盘中状态"
+        )}</p>` +
+        `</details>`
+    );
     return;
   }
 
@@ -710,38 +784,40 @@ export function renderPaperT0WorkerDesk(el, desk) {
       ? `<p class="paper-t0-desk-foot">终锁票当日不再重评门槛；带宽未破仍可随 5m 推进。删除后 Worker 可重新监视（不改账本）。</p>`
       : `<p class="paper-t0-desk-foot">≥11:30 无成交腿一律终锁；有腿票继续盯盘至收盘回补。删除仅去盘中状态。</p>`;
 
-  el.innerHTML =
+  const replaced = replaceDeskHtml(
+    el,
     `<details class="paper-t0-desk-fold"${openAttr}>` +
-    `<summary class="paper-t0-desk-fold-sum">` +
-    `<span class="paper-t0-desk-fold-title">今日盯盘状态</span>` +
-    sessLine +
-    `<span class="paper-t0-desk-chips">${chips}</span>` +
-    `</summary>` +
-    staleBanner +
-    `<div class="paper-t0-desk-board">` +
-    `<div class="quant-weight-table-wrap paper-t0-desk-wrap">` +
-    `<table class="quant-weight-table paper-t0-table paper-t0-desk-table">` +
-    `<colgroup>` +
-    `<col class="paper-t0-col-stock" />` +
-    `<col class="paper-t0-col-dir" />` +
-    `<col class="paper-t0-col-phase" />` +
-    `<col class="paper-t0-col-legs" />` +
-    `<col class="paper-t0-col-clock" />` +
-    `<col class="paper-t0-col-cat" />` +
-    `<col class="paper-t0-col-reason" />` +
-    `<col class="paper-t0-col-act" />` +
-    `</colgroup>` +
-    `<thead><tr>` +
-    `<th scope="col" class="paper-t0-col-stock">标的</th>` +
-    `<th scope="col" class="paper-t0-col-dir">方向</th>` +
-    `<th scope="col" class="paper-t0-col-phase">阶段</th>` +
-    `<th scope="col" class="num paper-t0-col-legs">腿</th>` +
-    `<th scope="col" class="num paper-t0-col-clock">最近K</th>` +
-    `<th scope="col" class="paper-t0-col-cat">类别</th>` +
-    `<th scope="col" class="paper-t0-col-reason">说明</th>` +
-    `<th scope="col" class="paper-t0-col-act">操作</th>` +
-    `</tr></thead><tbody>${body}</tbody></table></div>` +
-    foot +
-    `</div></details>`;
-  stampStockFitTiers(el);
+      `<summary class="paper-t0-desk-fold-sum">` +
+      `<span class="paper-t0-desk-fold-title">今日盯盘状态</span>` +
+      sessLine +
+      `<span class="paper-t0-desk-chips">${chips}</span>` +
+      `</summary>` +
+      staleBanner +
+      `<div class="paper-t0-desk-board">` +
+      `<div class="quant-weight-table-wrap paper-t0-desk-wrap">` +
+      `<table class="quant-weight-table paper-t0-table paper-t0-desk-table">` +
+      `<colgroup>` +
+      `<col class="paper-t0-col-stock" />` +
+      `<col class="paper-t0-col-dir" />` +
+      `<col class="paper-t0-col-phase" />` +
+      `<col class="paper-t0-col-legs" />` +
+      `<col class="paper-t0-col-clock" />` +
+      `<col class="paper-t0-col-cat" />` +
+      `<col class="paper-t0-col-reason" />` +
+      `<col class="paper-t0-col-act" />` +
+      `</colgroup>` +
+      `<thead><tr>` +
+      `<th scope="col" class="paper-t0-col-stock">标的</th>` +
+      `<th scope="col" class="paper-t0-col-dir">方向</th>` +
+      `<th scope="col" class="paper-t0-col-phase">阶段</th>` +
+      `<th scope="col" class="num paper-t0-col-legs">腿</th>` +
+      `<th scope="col" class="num paper-t0-col-clock">最近K</th>` +
+      `<th scope="col" class="paper-t0-col-cat">类别</th>` +
+      `<th scope="col" class="paper-t0-col-reason">说明</th>` +
+      `<th scope="col" class="paper-t0-col-act">操作</th>` +
+      `</tr></thead><tbody>${body}</tbody></table></div>` +
+      foot +
+      `</div></details>`
+  );
+  if (replaced) stampStockFitTiers(el);
 }

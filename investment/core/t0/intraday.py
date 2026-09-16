@@ -186,6 +186,7 @@ def booked_t0_preview_row(
     if not trades:
         return None
     snap = st.get("day_snapshot") if isinstance(st.get("day_snapshot"), dict) else {}
+    snap = dict(snap)
     direction = (
         str(snap.get("direction_used") or snap.get("direction") or st.get("direction") or "")
         .strip()
@@ -199,24 +200,61 @@ def booked_t0_preview_row(
         exposure = float(snap.get("exposure_pnl") or 0)
     except (TypeError, ValueError):
         exposure = 0.0
-    return {
-        "stock_code": str(code),
-        "stock_name": stock_name or st.get("stock_name") or "",
-        "success": True,
-        "skipped": False,
-        "already_booked": True,
-        "preview_source": "intraday_booked",
-        "date": date,
-        "direction": direction,
-        "direction_used": direction,
-        "trades": trades,
-        "pnl": pnl,
-        "exposure_pnl": exposure,
-        "minute_path": True,
-        "path_mode": "first_touch",
-        "reason": None,
-        "note": "已自动落账，预演只展示",
-    }
+    # 预演表要 OHLC / ŷ / 槽位扫描；只留成交腿会画出空单元格。
+    row = dict(snap)
+    row.update(
+        {
+            "stock_code": str(code),
+            "stock_name": stock_name or st.get("stock_name") or snap.get("stock_name") or "",
+            "success": True,
+            "skipped": False,
+            "already_booked": True,
+            "preview_source": "intraday_booked",
+            "date": date,
+            "direction": direction,
+            "direction_used": direction,
+            "trades": trades,
+            "pnl": pnl,
+            "exposure_pnl": exposure,
+            "minute_path": True,
+            "path_mode": snap.get("path_mode") or "first_touch",
+            "reason": None,
+            "note": "已自动落账，预演只展示",
+        }
+    )
+    row.pop("skip_category", None)
+    # ŷ / 扫描必须由本轮重算填回；快照里的早盘分会和回测漂。
+    row.pop("close_band_scan", None)
+    row.pop("scores", None)
+    return row
+
+
+def overlay_booked_sources(ist: Optional[dict]) -> dict:
+    """盘中 stocks 优先；results 里已落账快照补缺（Worker 只写 results 时预演仍能贴腿）。"""
+    if not isinstance(ist, dict):
+        return {}
+    stocks = dict(ist.get("stocks") or {}) if isinstance(ist.get("stocks"), dict) else {}
+    results = ist.get("results") if isinstance(ist.get("results"), list) else []
+    for snap in results:
+        if not isinstance(snap, dict):
+            continue
+        code = str(snap.get("stock_code") or "").strip()
+        if not code:
+            continue
+        trades = snap.get("trades")
+        if not isinstance(trades, list) or not trades:
+            continue
+        existing = stocks.get(code)
+        if isinstance(existing, dict) and _trades_from_intraday_stock(existing):
+            continue
+        stocks[code] = {
+            "stock_name": snap.get("stock_name")
+            or (existing.get("stock_name") if isinstance(existing, dict) else ""),
+            "legs_written": len(trades),
+            "direction": snap.get("direction") or snap.get("direction_used"),
+            "day_snapshot": snap,
+        }
+    return stocks
 
 
 def overlay_booked_t0_on_preview(
@@ -225,20 +263,22 @@ def overlay_booked_t0_on_preview(
     stocks_st: Optional[dict] = None,
     session_date: Optional[str] = None,
 ) -> dict:
-    """dry_run：跳过回放的已落账票，改挂盘中成交快照，让预演表看得到上午腿。"""
+    """dry_run：已落账票用盘中成交腿，ŷ / 扫描用本轮重算（勿贴早盘快照）。"""
     if not isinstance(result, dict) or not isinstance(stocks_st, dict):
         return result
     rows = list(result.get("results") or [])
-    extra_trades: List[dict] = []
-    extra_pnl = 0.0
-    extra_exp = 0.0
     shown = 0
     for i, row in enumerate(rows):
-        if not isinstance(row, dict) or not row.get("skipped"):
+        if not isinstance(row, dict):
             continue
-        if str(row.get("skip_category") or "") != "intraday_legs_open":
+        if row.get("skipped") and str(row.get("skip_category") or "") not in (
+            "intraday_legs_open",
+            "",
+        ):
             continue
         code = str(row.get("stock_code") or "")
+        if not code:
+            continue
         st = stocks_st.get(code)
         booked = booked_t0_preview_row(
             code,
@@ -248,20 +288,44 @@ def overlay_booked_t0_on_preview(
         )
         if not booked:
             continue
+        for k in (
+            "close_band_scan",
+            "scores",
+            "open",
+            "high",
+            "low",
+            "close",
+        ):
+            if row.get(k) is not None:
+                booked[k] = row.get(k)
         rows[i] = booked
-        extra_trades.extend(booked.get("trades") or [])
-        extra_pnl += float(booked.get("pnl") or 0)
-        extra_exp += float(booked.get("exposure_pnl") or 0)
         shown += 1
     if not shown:
         return result
     result["results"] = rows
-    result["trades"] = list(result.get("trades") or []) + extra_trades
-    result["pnl_total"] = round(float(result.get("pnl_total") or 0) + extra_pnl, 2)
-    result["exposure_pnl_total"] = round(
-        float(result.get("exposure_pnl_total") or 0) + extra_exp, 2
-    )
-    result["skip_count"] = max(0, int(result.get("skip_count") or 0) - shown)
+    trades: List[dict] = []
+    pnl_total = 0.0
+    exp_total = 0.0
+    skip_n = 0
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        if row.get("skipped") and not row.get("already_booked"):
+            skip_n += 1
+            continue
+        trades.extend([t for t in (row.get("trades") or []) if isinstance(t, dict)])
+        try:
+            pnl_total += float(row.get("pnl") or 0)
+        except (TypeError, ValueError):
+            pass
+        try:
+            exp_total += float(row.get("exposure_pnl") or 0)
+        except (TypeError, ValueError):
+            pass
+    result["trades"] = trades
+    result["pnl_total"] = round(pnl_total, 2)
+    result["exposure_pnl_total"] = round(exp_total, 2)
+    result["skip_count"] = skip_n
     result["booked_preview_count"] = shown
     return result
 
@@ -1288,8 +1352,11 @@ def _process_holding_slots(
         and str(st.get("phase") or "") == PHASE_DONE
     )
     if booked:
+        base = dict(st.get("day_snapshot") or {})
+        base.pop("close_band_scan", None)
+        base.pop("scores", None)
         snap = refresh_close_band_scan(
-            dict(st.get("day_snapshot") or {}),
+            base,
             minute_bars=minute_bars,
             bar=bar,
             daily_bar=dict(bar) if isinstance(bar, dict) else None,

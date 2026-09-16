@@ -1940,6 +1940,20 @@ class TestT0Core(unittest.TestCase):
                     "direction": "sell_then_buy",
                     "pnl": -42.18,
                     "exposure_pnl": 0.0,
+                    "open": 23.5,
+                    "close": 23.8,
+                    "scores": {"y_tau": 0.12, "y_oc": 0.12, "y_τ30": -0.4},
+                    "t0_slot_results": [
+                        {
+                            "id": "r1",
+                            "hm": "09:35",
+                            "sold_qty": 100,
+                            "covered_qty": 100,
+                            "trades": 2,
+                            "close_band": {"c_tau": 23.55},
+                        }
+                    ],
+                    "close_band_scan": [{"hm": "09:35", "o": 23.52, "c": 23.48}],
                     "trades": [
                         {"side": "t0_sell", "shares": 100, "price": 23.66},
                         {"side": "t0_buy", "shares": 100, "price": 23.97},
@@ -1957,8 +1971,164 @@ class TestT0Core(unittest.TestCase):
         self.assertTrue(booked.get("already_booked"))
         self.assertFalse(booked.get("skipped"))
         self.assertEqual(len(booked.get("trades") or []), 2)
+        self.assertEqual(booked.get("open"), 23.5)
+        self.assertEqual(booked.get("close"), 23.8)
+        self.assertIsNone(booked.get("scores"))
+        self.assertFalse(booked.get("close_band_scan"))
+        self.assertEqual(len(booked.get("t0_slot_results") or []), 1)
         still_skip = (out.get("results") or [])[1]
         self.assertTrue(still_skip.get("skipped"))
+
+    def test_overlay_prefers_fresh_preview_scan_over_booked_snapshot(self):
+        """已落账预演：本轮重扫 ŷ 盖掉早盘快照（生益科技 09:45 y_oc 漂）。"""
+        from core.t0.intraday import overlay_booked_t0_on_preview
+
+        result = {
+            "success": True,
+            "trades": [],
+            "pnl_total": 0.0,
+            "exposure_pnl_total": 0.0,
+            "skip_count": 1,
+            "results": [
+                {
+                    "stock_code": "600183",
+                    "stock_name": "生益科技",
+                    "skipped": True,
+                    "skip_category": "intraday_legs_open",
+                    "trades": [],
+                    "close_band_scan": [{"hm": "09:45", "y_oc": -0.62}],
+                    "scores": {"y_oc": -0.62},
+                    "close": 154.48,
+                }
+            ],
+        }
+        stocks_st = {
+            "600183": {
+                "stock_name": "生益科技",
+                "legs_written": 2,
+                "direction": "sell_then_buy",
+                "day_snapshot": {
+                    "date": "2026-09-16",
+                    "direction": "sell_then_buy",
+                    "pnl": -12.5,
+                    "close": 152.6,
+                    "close_band_scan": [{"hm": "09:45", "y_oc": -0.73}],
+                    "trades": [
+                        {"side": "t0_sell", "shares": 200, "price": 150.06},
+                        {"side": "t0_buy", "shares": 200, "price": 152.07},
+                    ],
+                },
+            }
+        }
+        out = overlay_booked_t0_on_preview(
+            result, stocks_st=stocks_st, session_date="2026-09-16"
+        )
+        booked = (out.get("results") or [])[0]
+        self.assertTrue(booked.get("already_booked"))
+        self.assertEqual(len(booked.get("trades") or []), 2)
+        self.assertEqual(booked.get("close_band_scan")[0]["y_oc"], -0.62)
+        self.assertEqual((booked.get("scores") or {}).get("y_oc"), -0.62)
+        self.assertEqual(booked.get("close"), 154.48)
+        self.assertAlmostEqual(float(booked.get("pnl") or 0), -12.5)
+
+    def test_overlay_keeps_simulated_scan_when_row_not_skipped(self):
+        """预演不跳过已落账票时：成交用快照，ŷ 用本轮 simulate。"""
+        from core.t0.intraday import overlay_booked_t0_on_preview
+
+        result = {
+            "success": True,
+            "trades": [{"side": "t0_sell", "price": 1}],
+            "pnl_total": 9.0,
+            "exposure_pnl_total": 0.0,
+            "skip_count": 0,
+            "results": [
+                {
+                    "stock_code": "600183",
+                    "stock_name": "生益科技",
+                    "skipped": False,
+                    "trades": [{"side": "t0_sell", "price": 1}],
+                    "pnl": 9.0,
+                    "close_band_scan": [{"hm": "09:45", "y_oc": -0.62}],
+                    "close": 154.48,
+                }
+            ],
+        }
+        stocks_st = {
+            "600183": {
+                "legs_written": 2,
+                "day_snapshot": {
+                    "date": "2026-09-16",
+                    "pnl": -12.5,
+                    "close": 152.6,
+                    "close_band_scan": [{"hm": "09:45", "y_oc": -0.73}],
+                    "trades": [
+                        {"side": "t0_sell", "shares": 200, "price": 150.06},
+                        {"side": "t0_buy", "shares": 200, "price": 152.07},
+                    ],
+                },
+            }
+        }
+        out = overlay_booked_t0_on_preview(
+            result, stocks_st=stocks_st, session_date="2026-09-16"
+        )
+        booked = (out.get("results") or [])[0]
+        self.assertTrue(booked.get("already_booked"))
+        self.assertEqual(len(booked.get("trades") or []), 2)
+        self.assertEqual(booked.get("close_band_scan")[0]["y_oc"], -0.62)
+        self.assertEqual(booked.get("close"), 154.48)
+        self.assertAlmostEqual(float(booked.get("pnl") or 0), -12.5)
+        self.assertEqual(len(out.get("trades") or []), 2)
+
+    def test_overlay_booked_sources_fills_from_results(self):
+        """Worker 只写 results 时，预演仍能贴已落账腿。"""
+        from core.t0.intraday import overlay_booked_sources, overlay_booked_t0_on_preview
+
+        ist = {
+            "session_date": "2026-09-16",
+            "stocks": {},
+            "results": [
+                {
+                    "stock_code": "600183",
+                    "stock_name": "生益科技",
+                    "direction": "sell_then_buy",
+                    "date": "2026-09-16",
+                    "pnl": -424.12,
+                    "trades": [
+                        {"side": "t0_sell", "shares": 200, "price": 150.10},
+                        {"side": "t0_buy", "shares": 200, "price": 152.07},
+                    ],
+                }
+            ],
+        }
+        src = overlay_booked_sources(ist)
+        self.assertIn("600183", src)
+        self.assertEqual(
+            len((src["600183"].get("day_snapshot") or {}).get("trades") or []), 2
+        )
+        result = {
+            "success": True,
+            "trades": [],
+            "pnl_total": 0.0,
+            "exposure_pnl_total": 0.0,
+            "skip_count": 0,
+            "results": [
+                {
+                    "stock_code": "600183",
+                    "stock_name": "生益科技",
+                    "skipped": False,
+                    "trades": [],
+                    "close_band_scan": [{"hm": "09:45", "y_oc": -0.70}],
+                    "close": 154.48,
+                }
+            ],
+        }
+        out = overlay_booked_t0_on_preview(
+            result, stocks_st=src, session_date="2026-09-16"
+        )
+        booked = (out.get("results") or [])[0]
+        self.assertTrue(booked.get("already_booked"))
+        self.assertEqual(len(booked.get("trades") or []), 2)
+        self.assertEqual(booked.get("close_band_scan")[0]["y_oc"], -0.70)
 
     def test_routing_and_skill_task(self):
         self.assertEqual(infer_quant_task("茅台底仓做T回测一下"), "t0_backtest")
@@ -2346,6 +2516,20 @@ class TestDualYDirection(unittest.TestCase):
         self.assertIsInstance(pool, dict)
         self.assertIn("pool_gaps", pool)
         self.assertEqual(out.get("score_model_role"), "live")
+
+    def test_simulate_t0_on_holdings_seeds_peer_minutes(self):
+        """预演须把持仓 5m 写入同伴仓，否则 sector_ret 读早盘残缺仓、ŷ 相对回测漂。"""
+        import inspect
+
+        from core.t0.rules import simulate_t0_on_holdings
+        from services.paper_trades import PaperTradesMixin
+
+        src = inspect.getsource(simulate_t0_on_holdings)
+        self.assertIn("seed_peer_minute_bars_map", src)
+        impl = inspect.getsource(PaperTradesMixin._simulate_t0_impl)
+        self.assertIn("skip_codes=None if dry_run", impl)
+        self.assertIn("_sync_preview_scans_to_ledgers", impl)
+        self.assertNotIn("_attach_fresh_scan_to_booked_preview", impl)
 
     def test_tip_fields_include_features_on(self):
         from core.t0.score_policy import tip_fields_from_item
@@ -6500,6 +6684,97 @@ class TestT0AutoLastRunDetail(unittest.TestCase):
         self.assertEqual(row["close"], 154.48)
         self.assertEqual(row["pnl"], -12.5)
         self.assertEqual(row["trades"][0]["price"], 150.1)
+
+    def test_sync_preview_scans_to_ledgers_patches_last_run_and_snapshot(self):
+        """午夜后日历滚日时，仍按成交日把预演 ŷ 写回 last_run / 盘中快照。"""
+        import tempfile
+        from unittest.mock import patch
+
+        from core.paper import load_paper, save_paper
+        from services.paper_trades import _sync_preview_scans_to_ledgers
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "paper.json")
+            paper = {
+                "cash": 100000,
+                "holdings": [],
+                "trades": [],
+                "operation_log": [],
+                "rules": {
+                    "t0_auto": {
+                        "enabled": True,
+                        "last_run": {
+                            "session_date": "2026-09-16",
+                            "trade_count": 2,
+                            "pnl_total": -12.5,
+                            "results": [
+                                {
+                                    "stock_code": "600183",
+                                    "date": "2026-09-16",
+                                    "close": 152.6,
+                                    "close_band_scan": [{"hm": "09:45", "y_oc": -0.73}],
+                                    "scores": {"y_oc": -0.73},
+                                    "trades": [
+                                        {
+                                            "side": "t0_sell",
+                                            "price": 150.06,
+                                            "shares": 200,
+                                        }
+                                    ],
+                                }
+                            ],
+                        },
+                    }
+                },
+            }
+            save_paper(paper, path)
+            state = {
+                "session_date": "2026-09-16",
+                "stocks": {
+                    "600183": {
+                        "day_snapshot": {
+                            "date": "2026-09-16",
+                            "close": 152.6,
+                            "close_band_scan": [{"hm": "09:45", "y_oc": -0.73}],
+                            "scores": {"y_oc": -0.73},
+                        }
+                    }
+                },
+            }
+            saved_state = {}
+
+            def _save_state(st):
+                saved_state.clear()
+                saved_state.update(st)
+
+            result = {
+                "results": [
+                    {
+                        "stock_code": "600183",
+                        "date": "2026-09-16",
+                        "close": 154.48,
+                        "close_band_scan": [
+                            {"hm": "09:45", "y_oc": -0.62, "y_tw": 1}
+                        ],
+                        "scores": {"y_oc": -0.62},
+                    }
+                ]
+            }
+            with patch(
+                "core.t0.intraday.load_intraday_state", return_value=state
+            ), patch(
+                "core.t0.intraday.save_intraday_state", side_effect=_save_state
+            ):
+                _sync_preview_scans_to_ledgers(
+                    result, paper_path=path, session_date="2026-09-17"
+                )
+            lr = load_paper(path)["rules"]["t0_auto"]["last_run"]["results"][0]
+            self.assertEqual(lr["close_band_scan"][0]["y_oc"], -0.62)
+            self.assertEqual(lr["close"], 154.48)
+            self.assertEqual(lr["trades"][0]["price"], 150.06)
+            snap = saved_state["stocks"]["600183"]["day_snapshot"]
+            self.assertEqual(snap["close_band_scan"][0]["y_oc"], -0.62)
+            self.assertEqual(snap["close"], 154.48)
 
     def test_hydrate_last_run_from_intraday_snapshot(self):
         from unittest.mock import patch

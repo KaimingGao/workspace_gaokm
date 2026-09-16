@@ -700,6 +700,63 @@ def _patch_t0_last_run_scans(
     return True
 
 
+def _sync_preview_scans_to_ledgers(
+    result: dict,
+    *,
+    paper_path: str,
+    session_date: Optional[str] = None,
+) -> None:
+    """预演重扫后写回 last_run / 盘中快照，今日成交表不再顶着早盘 ŷ。"""
+    scan_sess = _t0_session_date_from_result(result) or str(session_date or "")[:10]
+    rows = [r for r in (result.get("results") or []) if isinstance(r, dict)]
+    if not rows:
+        return
+    try:
+        with paper_write_lock(paper_path):
+            paper = load_paper(paper_path)
+            if _patch_t0_last_run_scans(paper, rows, session_date=scan_sess):
+                save_paper(paper, paper_path)
+    except Exception:  # noqa: BLE001
+        logger.debug("preview patch last_run scans failed", exc_info=True)
+    try:
+        from core.t0.intraday import load_intraday_state, save_intraday_state
+
+        state = load_intraday_state()
+        st_sess = str(state.get("session_date") or "")[:10]
+        if scan_sess and st_sess and scan_sess != st_sess:
+            return
+        stocks = state.get("stocks") if isinstance(state.get("stocks"), dict) else {}
+        dirty = False
+        for row in rows:
+            code = str(row.get("stock_code") or "").strip()
+            st = stocks.get(code) if isinstance(stocks.get(code), dict) else None
+            if not code or not isinstance(st, dict):
+                continue
+            snap = st.get("day_snapshot") if isinstance(st.get("day_snapshot"), dict) else None
+            if not isinstance(snap, dict):
+                continue
+            hit = False
+            if row.get("close_band_scan"):
+                snap["close_band_scan"] = row.get("close_band_scan")
+                hit = True
+            if row.get("scores"):
+                snap["scores"] = row.get("scores")
+                hit = True
+            for k in ("open", "high", "low", "close"):
+                if row.get(k) is not None and snap.get(k) != row.get(k):
+                    snap[k] = row.get(k)
+                    hit = True
+            if hit:
+                st["day_snapshot"] = snap
+                stocks[code] = st
+                dirty = True
+        if dirty:
+            state["stocks"] = stocks
+            save_intraday_state(state)
+    except Exception:  # noqa: BLE001
+        logger.debug("preview sync intraday scans failed", exc_info=True)
+
+
 def _trade_session_date(trade: dict) -> str:
     for key in ("at", "ts", "date"):
         raw = str(trade.get(key) or "").strip()
@@ -1942,6 +1999,8 @@ class PaperTradesMixin:
         # 盘中已落账腿的票禁止整单回放，避免在已变簿上再开一轮
         skip_codes: set = set()
         stocks_st: dict = {}
+        ist: dict = {}
+        ist_aligned = False
         try:
             from core.market.calendar import resolve_session_date
             from core.signal.session_pit import shanghai_now
@@ -1949,13 +2008,25 @@ class PaperTradesMixin:
 
             sess = resolve_session_date(now=shanghai_now())
             ist = load_intraday_state()
-            if str(ist.get("session_date") or "") == str(sess or ""):
+            ist_sess = str(ist.get("session_date") or "")[:10]
+            bar_days = {
+                str((b or {}).get("date") or "")[:10]
+                for b in (bars_by_code or {}).values()
+                if isinstance(b, dict)
+            }
+            # 收盘后日历可能滚到下一交易日；预演仍按已 hydrate 的 bar 日对上盘中快照。
+            if ist_sess and (
+                ist_sess == str(sess or "")
+                or (dry_run and ist_sess in bar_days)
+            ):
+                ist_aligned = True
                 stocks_st = (
                     ist.get("stocks") if isinstance(ist.get("stocks"), dict) else {}
                 )
-                for c, st in stocks_st.items():
-                    if isinstance(st, dict) and int(st.get("legs_written") or 0) > 0:
-                        skip_codes.add(str(c))
+                if not dry_run:
+                    for c, st in stocks_st.items():
+                        if isinstance(st, dict) and int(st.get("legs_written") or 0) > 0:
+                            skip_codes.add(str(c))
         except Exception:  # noqa: BLE001
             logger.debug("load open intraday legs for simulate_t0 failed", exc_info=True)
 
@@ -1971,18 +2042,24 @@ class PaperTradesMixin:
             coupling=bundle.get("coupling"),
             scores_by_code=scores_by_code or None,
             log_source=str(log_source or "paper_t0"),
-            skip_codes=skip_codes or None,
+            skip_codes=None if dry_run else (skip_codes or None),
             defer_eod=defer_eod,
         )
-        if dry_run and stocks_st:
+        if dry_run and ist_aligned:
             try:
-                from core.t0.intraday import overlay_booked_t0_on_preview
+                from core.t0.intraday import overlay_booked_sources, overlay_booked_t0_on_preview
 
-                overlay_booked_t0_on_preview(
-                    result, stocks_st=stocks_st, session_date=session_date
-                )
+                overlay_src = overlay_booked_sources(ist)
             except Exception:  # noqa: BLE001
-                logger.debug("overlay booked t0 preview failed", exc_info=True)
+                overlay_src = stocks_st
+                logger.debug("overlay booked sources failed", exc_info=True)
+            if overlay_src:
+                try:
+                    overlay_booked_t0_on_preview(
+                        result, stocks_st=overlay_src, session_date=session_date
+                    )
+                except Exception:  # noqa: BLE001
+                    logger.debug("overlay booked t0 preview failed", exc_info=True)
         result["execution"] = execution_public_view(bundle)
         result["session_date"] = session_date
         result["session_closed"] = bool(session_closed)
@@ -2003,6 +2080,12 @@ class PaperTradesMixin:
                 note = str(result.get("note") or "").strip()
                 hint = f"预演补拉后仍缺 5m · {miss} 只已跳过"
                 result["note"] = f"{note} · {hint}" if note else hint
+            try:
+                _sync_preview_scans_to_ledgers(
+                    result, paper_path=self.path, session_date=session_date
+                )
+            except Exception:  # noqa: BLE001
+                logger.debug("preview ledger scan sync failed", exc_info=True)
             return {"ok": True, **result}
 
         _write_t0_auto_last_run(paper, result=result, source=str(log_source or "paper_t0"))
@@ -2477,6 +2560,18 @@ class PaperTradesMixin:
             except Exception:  # noqa: BLE001
                 logger.debug("intraday tau_pool build failed", exc_info=True)
                 tau_pool_day = None
+            try:
+                from core.signal.minute_tau_feats import seed_peer_minute_bars_map
+
+                seed_peer_minute_bars_map(
+                    {
+                        str(r.get("code")): r.get("minute_bars")
+                        for r in loaded_rows
+                        if r.get("code") and r.get("minute_bars")
+                    }
+                )
+            except Exception:  # noqa: BLE001
+                logger.debug("intraday peer minute seed failed", exc_info=True)
 
             scores_by_code: Dict[str, Any] = {}
             if str(eff_t0.get("direction") or "") == "dual_y" and hist_by_code:

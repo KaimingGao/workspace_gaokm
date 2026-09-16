@@ -800,6 +800,56 @@ def clear_sector_ret_cache() -> None:
     _PEER_CODES_MEMO = None
 
 
+def _flush_sector_ret_medians() -> None:
+    _SECTOR_RET_CACHE.clear()
+    _SECTOR_RET_30M_CACHE.clear()
+    _SECTOR_RET_60M_CACHE.clear()
+    _SECTOR_RET_90M_CACHE.clear()
+
+
+def seed_peer_minute_bars(
+    code: str,
+    bars: Optional[Sequence[dict]],
+    *,
+    flush_cs: bool = True,
+) -> None:
+    """把本轮已 hydrate 的 5m 写入同伴仓。
+
+    预演补拉 / 回测刷新后，内存仓若仍顶着早盘残缺日，``sector_ret_*`` 会漂，
+    ŷ_oc / ŷ_τ30/60/90 / Ĉ_τ 就和历史回测对不齐。
+    """
+    key = str(code or "").strip()
+    rows = [b for b in (bars or []) if isinstance(b, dict)]
+    if not key or not rows:
+        return
+    days = {d for b in rows if len(d := _bar_date(b)) >= 10}
+    kept: List[dict] = []
+    for b in _PEER_MINUTE_BARS.get(key) or []:
+        if not isinstance(b, dict):
+            continue
+        d = _bar_date(b)
+        if len(d) >= 10 and d in days:
+            continue
+        kept.append(b)
+    _PEER_MINUTE_BARS[key] = kept + list(rows)
+    if flush_cs:
+        _flush_sector_ret_medians()
+
+
+def seed_peer_minute_bars_map(
+    bars_by_code: Optional[Dict[str, Sequence[dict]]],
+) -> None:
+    seeded = False
+    for raw, bars in (bars_by_code or {}).items():
+        rows = [b for b in (bars or []) if isinstance(b, dict)]
+        if not rows:
+            continue
+        seed_peer_minute_bars(str(raw), rows, flush_cs=False)
+        seeded = True
+    if seeded:
+        _flush_sector_ret_medians()
+
+
 def _peer_minute_bars_for_tau(
     code_key: str,
     *,
