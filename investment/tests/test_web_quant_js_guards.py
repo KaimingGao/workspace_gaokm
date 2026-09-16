@@ -733,6 +733,7 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertNotIn("bt-stack-v", trades_js)
         self.assertNotIn("y_tradeText", trades_js)
         self.assertNotIn("y_nowcastText", trades_js)
+        self.assertNotIn('id: "score_nowcast"', trades_js)
         self.assertNotIn("rowHeight: 58", bt_js)
         trades_css = self._read("web", "static", "css", "quant.css")
         self.assertNotIn("bt-stack-leg", trades_css)
@@ -1015,6 +1016,7 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("R_REALIZED_TITLE", fmt_js)
         self.assertIn("R_HAT_TITLE", fmt_js)
         self.assertIn("nowcast = nc", fmt_js)
+        self.assertNotIn("reconstructNowcastPrevClose", fmt_js)
         self.assertIn("_pcFormulaIsLegacy", fmt_js)
         self.assertIn("_pcFormulaOf", fmt_js)
 

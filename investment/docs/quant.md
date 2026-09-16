@@ -1022,7 +1022,7 @@ ranking   = w_oo·ŷ_oo + w_oc·((1+ŷ_oc)(1+w_co·ŷ_co)−1)   # ŷ 净收益�
 C_τ       = O×(1+clip(ŷ_oc×scale, y_oc_l, y_oc_u)/100)   # 做 T；ŷ_τc 不融进 C_τ
 ```
 
-收盘后（`dual_score_window=eod_next`）：日线已完整；**表列 / 排序 ŷ_trade = ŷ_EOD**（剥离当日 ŷ_τ，避免 `缺口∘ŷ_τ≈今日涨跌` 泄漏进 T+1 决策）。τ 买入闸同样不吃当日 ŷ_τ；**nowcast 对照列仍吃 ŷ_τ**，不能塌成 ŷ_EOD。仅当 `nowcast.use_as_rank_key=true` 时，收盘后 nowcast 才退回 EOD。
+收盘后（`dual_score_window=eod_next`）：日线已完整；**表列 / 排序 ŷ_trade = ŷ_oo**（剥离当日 ŷ_τ，避免 `缺口∘ŷ_τ≈今日涨跌` 泄漏进 T+1 决策）。τ 买入闸同样不吃当日 ŷ_τ。
 
 **硬规则**
 
@@ -1034,33 +1034,17 @@ C_τ       = O×(1+clip(ŷ_oc×scale, y_oc_l, y_oc_u)/100)   # 做 T；ŷ_τc �
 6. **已知局限**：大跳空日 gap 信息可能在 ŷ_EOD（标签含隔夜）与 ŷ_τ（显式吃 gap）两端重叠；属信息相关而非训练耦合，权重可调。分钟特征含 `ret_open_to_tau` 时，OC 命中易被已实现段垫高——**τ 越晚 hit 通常越高**（见 OOS `by_tau`），应以各档 **IC** 而非总体 hit 做人审。  
 7. **调仓 vs 做 T**：ŷ_τ **模型共用**，调仓侧为买入闸 + ŷ_trade 成分，做 T 侧为估 `C_τ` 的源 + 5m 破带执行；详见 [策略调仓 vs 底仓做 T · ŷ_τ 分工](quant.md#策略调仓-vs-底仓做-t)。
 
-**Nowcast / Kalman（对照分）**
+**Nowcast / Kalman（已退役）**
 
-固定事件：终点钉在 T 收。内部状态是剩余收益 \(x(\tau)=\mathrm{close}[T]/\mathrm{price}[\tau]-1\)；**落盘 `predicted_score_nowcast` 抬回现价对昨收**，与 ŷ_trade / 涨跌同一口径：
+对照层 `predicted_score_nowcast` / `w_mode=kalman` / `nowcast_kf.py` 已下线：刷簿不再写 nowcast 字段；`w_mode=kalman` 回退为 `fixed`。剩余窗几何见 `core/signal/yhat_geom.py`。账本/做 T 仅透传 leftover `y_nowcast`（默认闸关）。影子簿 `cluster_book_nowcast_shadow.json` 与 N3 验收 HTTP 已 stub。
 
-\[
-\hat y_{\mathrm{nowcast}}=(1-K)\,\hat y_{\mathrm{EOD}}+K\,(\text{缺口}\circ\hat y_\tau)
-\]
-
-观测是该 τ 的模型 ŷ，不是 T 收。顺序：EOD 先验 → open →（可选）分钟 τ。同一 ŷ_τ 只观测一次。表列「nowcast」与校准一样只做对照，不进排序/闸。
-
-- \(Q\)：`nowcast.q_process`；主题日 / `|gap|≥gap_q_trigger_pct` 放大（`theme_q_boost` / `gap_q_boost`，上限 4×）。不要再叠一层时间衰减权。
-- \(R\)：τ OOS `by_tau` → `by_theme`（当日 `theme_day`）→ `residual_var`。只用已落盘的前向 OOS，不用当日误差。
-- **EOD 先验 \(P_0\)**：`nowcast.prior_var` → 分组 `mean_holdout_rmse²`（`cluster_last_report`）→ `dual_score.eod_residual_var`。
-- **标签对齐**：分钟 as_of 时，ŷ_τ 为 open→close，把 ŷ_τ 几何映到剩余窗再进 blend / Kalman；仅当落盘模型仍是旧 `horizon_mode=tau_to_close` 时禁止再映（防双重扣减）。`enable_minute_tau` 或已有 `ret_open_to_tau` 时自动把当前分钟时钟并进滤波路径。
-- 字段：`predicted_score_nowcast`（昨收口径）/ `nowcast_vs=prev_close` / `nowcast_as_of` / `nowcast_K` / `nowcast_x_prior`（昨收先验=ŷ_EOD）。**不覆盖** `predicted_score`。
-- 排序：默认仍 ŷ_trade（blend）。仅当 `nowcast.use_as_rank_key=true` 才改 `rank_key`（A3 门禁）。
-- 影子簿：刷簿即写 `cluster_book_nowcast_shadow.json`（不依赖 `nowcast.enabled`）；`meta.nordhaus_revision_slope` 为截面修正效率（接近 0 才考虑升主排序）。冻结账本同步 `{as_of}.nowcast_shadow.json`。枢纽 N3 验收条 / HTTP 已下线；库函数 `build_nowcast_shadow_review` 仍在。无快照时 Jaccard 按当日账本 Top-K(ŷ_nowcast) vs Top-K(ŷ) 估。
-- `w_mode=kalman`：两点等价 Kalman 权（含同一套自适应 \(Q\)）；默认 `fixed`。
-- 网格：`nowcast.taus` 允许 `eod|open|09:45|10:30|14:00`；默认 `eod|open`。分钟档不叠用（只取当前已到达档）。分钟 τ：**live** 调仓前缀=因果末根 5m（≤10:00，`causal_rebalance`）；**训练**用变长前缀网格 `DEFAULT_MINUTE_TAU_GRID` 默认 `09:30|09:35|…|11:00` 每 5m 共享 β（非整根独立标签；09:30 无分钟前缀只留开盘 Z；不含 13:00 / 14:00；**做T执行 v6 收盘带宽**：每 5m 扫描至 11:00，收价破 C_τ×(1±δ) 开 leg1，path 不进 C_τ），仍依赖 `enable_minute_tau`。nowcast 网格不随做T槽位改。
+分钟 τ：**live** 调仓前缀=因果末根 5m（≤10:00，`causal_rebalance`）；**训练**用变长前缀网格 `DEFAULT_MINUTE_TAU_GRID` 默认 `09:30|09:35|…|11:00` 每 5m 共享 β（非整根独立标签；09:30 无分钟前缀只留开盘 Z；不含 13:00 / 14:00；**做T执行 v6 收盘带宽**：每 5m 扫描至 11:00，收价破 C_τ×(1±δ) 开 leg1，path 不进 C_τ），仍依赖 `enable_minute_tau`。
 
 **Y(τ) 高维状态（校验层）**
 
 装配字段（不改 `predicted_score`）：`y_mu` / `y_sigma` / `y_disagree` / `y_check` / `eod_trust`（整包 `y_state`）。  
 `y_check ∈ {ok, conflict, low_conf, missing_tau, single_head}`：用 EOD_rem 与 τ 的分歧/σ 决定**今日是否信任 EOD 去执行**。  
-选股入池仍看 ŷ_EOD；`filter_buys`（默认开）时 conflict/missing_tau 拦新买；建簿 defer 优先 ok。`scale_weights`（默认开）时目标仓位 × `eod_trust`（不归一留现金）。路径段 `tau_to_close`：分钟特征优先，否则 ŷ_τ 标签代理。展示：tip +「歧/弱」角标。实现：`core/signal/y_state.py`。
-
-实现：`core/signal/nowcast_kf.py`。
+选股入池仍看 ŷ_oo；`filter_buys`（默认开）时 conflict/missing_tau 拦新买；建簿 defer 优先 ok。`scale_weights`（默认开）时目标仓位 × `eod_trust`（不归一留现金）。路径段 `tau_to_close`：分钟特征优先，否则 ŷ_τ 标签代理。展示：tip +「歧/弱」角标。实现：`core/signal/y_state.py`。
 
 **融合阶梯（摘要）**
 
@@ -1074,8 +1058,8 @@ C_τ       = O×(1+clip(ŷ_oc×scale, y_oc_l, y_oc_u)/100)   # 做 T；ŷ_τc �
 | P0 Z 齐套 | 刷簿池截面 + tip 合并 `features_tau`；启用后轻量刷簿；`features_tau_fill` | **已落地** |
 | P0 rem 满池 / 主题分层 OOS | `watching_limit` 默认 36；`oos.by_theme` | **已落地** |
 | P1 分钟 τ | 研究轨 `enable_minute_tau` + `tau_hm`；`sector_ret_to_tau`；默认仍关 | **接线已落地**（人审开开关后训） |
-| P2 融合补强 | `w_mode=theme_boost\|variance\|kalman`；`predicted_score_tau_cascade` 影子 | **研究轨已落地**（默认 `w_mode=fixed`） |
-| **Nowcast / Kalman** | 顺序滤波 EOD→open→当前分钟 τ；自适应 \(Q\)；\(R\) 走 τ OOS 分层；Nordhaus 影子诊断 | **已落地**（默认 `taus=[eod,open]`；`use_as_rank_key=false`） |
+| P2 融合补强 | `w_mode=theme_boost\|variance`；`predicted_score_tau_cascade` 影子 | **研究轨已落地**（默认 `w_mode=fixed`） |
+| **Nowcast / Kalman** | 顺序滤波对照层 | **已退役**（不再写 `predicted_score_nowcast`；`w_mode=kalman`→`fixed`） |
 | **校准层 g(ŷ)** | Isotonic 库仍在（`score_calibration.py`）。HTTP fit/persist **已 stub**（`deprecated: true`）。展示 overlay 已下线 | **库保留 · 入口已下线** |
 | **Alpha/IC 补强** | 超额分账 · 主 IC=截面 Spearman · yhat/残差 y 研究开关 | **已接线**（见 [alpha-ic-strengthen.md](archive/alpha-ic-strengthen.md)；`yhat_residual`/`excess_mode` 默认关） |
 | 分钟 τ 特征 | 缓存命中时写 `ret_open_to_tau` | **可选**（`enable_minute_tau`，默认关） |
@@ -1237,8 +1221,8 @@ score_stock(code) 续——
 
 | 字段 | 值 | 说明 |
 |------|----|------|
-| `predicted_score_eod` | = `predicted_score` | EOD 原值备份 |
-| `predicted_score_eod_rem` | (1+ŷ_EOD)/(1+缺口)−1 | 派生对照（y_state / nowcast）；**不进** ŷ_trade |
+| `predicted_score_eod` / `predicted_score_oo` / `y_oo` | = `predicted_score` | ŷ_oo 原值（旧键 EOD） |
+| `predicted_score_eod_rem` | (1+ŷ_oo)/(1+缺口)−1 | 派生对照（y_state）；**不进** ŷ_trade |
 | `predicted_score_tau_delta` | 旧残差头 Δ | 仅兼容；现网 τ 头直接出 ŷ_τ |
 | `predicted_score_tau` | ŷ_τ 头 | close[T]/open[T]−1 |
 | `score_rem` / `predicted_score_rem` | = ŷ_τ | **已废弃写入语义**；仍双写/可读，等同 `predicted_score_tau` |
@@ -1246,9 +1230,7 @@ score_stock(code) 续——
 | `y_spec_tau` | `{formula, tau, unit, note}` | τ 标签规范 |
 | `features_tau` | gap/theme/breadth 快照 | τ 特征留痕 |
 | `gap_pct` / `realized_t1_to_tau` | 缺口 / 昨收→τ | 已实现 |
-| `predicted_score_blend` | ŷ_trade | 盘中：w·ŷ_EOD + w·(缺口∘ŷ_τ)；**收盘后 eod_next：= ŷ_EOD** |
-| `predicted_score_nowcast` | ŷ_nowcast | Kalman 权昨收口径对照；不进数据中心 / 持仓主表，不进决策 |
-| `nowcast_vs` | `prev_close` | 落盘口径；缺缺口时可能为 `open` |
+| `predicted_score_blend` | ŷ_trade | 盘中：w·ŷ_oo + w·(缺口∘ŷ_τ)；**收盘后 eod_next：= ŷ_oo** |
 | `dual_score_fusion` | `"blend"` | 正交加权 |
 
 ### 4.3 ON 打分链（层 3 · 隔夜缺口，风控旁路）

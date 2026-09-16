@@ -253,14 +253,6 @@ def build_nowcast_shadow_review(
         vs = _nowcast_vs_eod_from_ledger(ledger)
 
     nordhaus = nordhaus_meta
-    if nordhaus is None and len(priors) >= 3:
-        try:
-            from core.signal.nowcast_kf import nordhaus_revision_slope
-
-            nordhaus = nordhaus_revision_slope(priors, posts)
-        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-            logger.debug("catch except Exception: in score_ledger.py", exc_info=True)
-            nordhaus = None
 
     ic = _spearman_ic(xs, ys)
     return {

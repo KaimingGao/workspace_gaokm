@@ -227,68 +227,27 @@ export function resolveYTradeScore(it) {
   return null;
 }
 
-/** 簿字段 predicted_score_nowcast（可能失真；仅 fallback）。 */
+/** leftover nowcast 簿字段（仅 fallback；刷簿不再写入）。 */
 function _nowcastFromBookField(it) {
   const n = _numField(it.predicted_score_nowcast);
   if (n == null || !_looksLikeYhatPct(n)) return null;
-  const vs = String(it.nowcast_vs || "");
-  if (vs === "prev_close" || String(it.dual_score_window || "") === "eod_next") {
-    return n;
-  }
-  const gap = resolveGapPct(it);
-  if (gap == null) return n;
-  const lifted = compoundPct(gap, n);
-  return lifted != null && Number.isFinite(lifted) ? lifted : n;
+  return n;
 }
 
-/** nowcast = nc：Kalman 对照昨收（EOD+τ+gap 可重算时优先于失真 raw）。 */
+/** nowcast = nc：仅读 leftover，不再 Kalman 重算。 */
 export function resolveNowcastCcScore(it) {
   if (!it || typeof it !== "object") return null;
   if (isHeuristicScoreScale(it)) return null;
-  const fused = reconstructNowcastPrevClose(it);
   const persisted = _numField(it.y_nc);
-  const booked = _nowcastFromBookField(it);
-  const eod = resolveEodScore(it);
-  if (fused != null) {
-    const ref = persisted ?? booked;
-    if (ref == null) return fused;
-    if (
-      eod != null &&
-      Math.abs(ref - eod) < 1e-4 &&
-      Math.abs(fused - eod) > 5e-4
-    ) {
-      return fused;
-    }
-    if (Math.abs(ref - fused) > 0.5) return fused;
-  }
-  if (persisted != null) return persisted;
+  if (persisted != null && _looksLikeYhatPct(persisted)) return persisted;
   const yn = _numField(it.y_nowcast ?? it.y_nc);
   if (yn != null && _looksLikeYhatPct(yn)) return yn;
-  return booked;
+  return _nowcastFromBookField(it);
 }
 
-/** @deprecated 与 resolveNowcastCcScore 同源（nowcast = nc）。 */
+/** @deprecated 与 resolveNowcastCcScore 同源（nowcast = nc leftover）。 */
 export function resolveNowcastScore(it) {
   return resolveNowcastCcScore(it);
-}
-
-/** (1−K)·ŷ_oo + K·(缺口∘ŷ_oc)。旧簿缺 K 时用 Kalman 默认增益。 */
-export function reconstructNowcastPrevClose(it) {
-  if (!it || typeof it !== "object") return null;
-  const eod = resolveEodScore(it);
-  const tauCc = liftTauVsPrevClose(
-    it,
-    it.predicted_score_tau != null ? it.predicted_score_tau : it.score_rem
-  );
-  let k = _numField(it.nowcast_K);
-  if (k == null && it.dual_score_weights) {
-    k = _numField(it.dual_score_weights.nowcast_K);
-  }
-  if (k == null) k = 1.05 / 2.05; // ve=1, q=0.05, R=1
-  if (eod == null || tauCc == null) return null;
-  if (k < 0 || k > 1) return null;
-  const n = (1 - k) * eod + k * tauCc;
-  return Number.isFinite(n) ? n : null;
 }
 
 export const Y_OO_TITLE = "ŷ_oo · open[T]→open[T+1]（%）";
@@ -306,12 +265,12 @@ export const TAU_REALIZED_TITLE =
   "oc实 · close[T]/open[T]−1（与 ŷ_oc 同标签）";
 export const Y_CO_TITLE = "ŷ_co · close[T]→open[T+1]（对照；不进 ranking）";
 export const Y_ON_TITLE = Y_CO_TITLE;
-/** nowcast = nc：Kalman 对照昨收，不进主决策。 */
+/** leftover nowcast = nc：旧簿对照昨收，不进主决策。 */
 export const Y_NC_TITLE =
-  "nowcast（nc）· 对照昨收 · Kalman(ŷ_oo, ŷ_oc)，不进决策";
-/** nowcast oc：把 nc 映到 open→close（与 y_oc 同窗口）。 */
+  "nowcast（nc）· leftover 对照昨收，不进决策";
+/** leftover nowcast oc：把 nc 映到 open→close（与 y_oc 同窗口）。 */
 export const Y_NC_OC_TITLE =
-  "nowcast oc · nc 映到 open→close（异号闸 OC 开时对照 y_oc）";
+  "nowcast oc · leftover nc 映到 open→close（异号闸 OC 开时对照 y_oc）";
 /** @deprecated 用 Y_NC_TITLE */
 export const Y_NOWCAST_TITLE = Y_NC_TITLE;
 
@@ -381,7 +340,7 @@ export function resolveTauMappedScore(it) {
 
   优先 y_tau_oc（映射前）；勿把 remaining 映射后的 predicted_score_tau 当成拟合原值，
   否则 tip 大标题会与「合计 ŷ_oc」对不上（做T明细常见）。
-  勿在此做缺口∘抬昨收——那只用于 ŷ_trade / nowcast 融合。
+  勿在此做缺口∘抬昨收——那只用于 ŷ_trade 融合。
   */
 export function resolveTauScore(it) {
   if (!it || typeof it !== "object") return null;

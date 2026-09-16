@@ -389,26 +389,15 @@ def build_y_state(
     else:
         try:
             from core.research.tau_ridge import load_tau_model
-            from core.signal.nowcast_kf import rem_label_is_open_to_close
+            from core.signal.yhat_geom import rem_label_is_open_to_close
 
             rem_oc = rem_label_is_open_to_close(load_tau_model())
         except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
             logger.debug("catch except Exception: in y_state.py", exc_info=True)
             rem_oc = None
 
-    # 路径均值：优先 nowcast（若启用为排序或已有值且配置 prefer），默认 trade
+    # 路径均值：ŷ_trade
     mu = trade
-    nc = _f(it.get("predicted_score_nowcast"))
-    try:
-        from core.signal.dual_score import get_dual_score_cfg
-
-        dual = get_dual_score_cfg(config)
-        ncfg = dual.get("nowcast") if isinstance(dual.get("nowcast"), dict) else {}
-        if ncfg.get("use_as_rank_key") and nc is not None:
-            mu = nc
-    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in y_state.py", exc_info=True)
-        pass
 
     check = resolve_eod_check(
         eod_rem=eod_rem,

@@ -216,9 +216,7 @@ class TestEodNextFusion(unittest.TestCase):
         self.assertAlmostEqual(item["predicted_score_tau"], 0.8)
         self.assertAlmostEqual(rank_key_for_item(item), 1.2)
         self.assertFalse((item.get("dual_score_weights") or {}).get("tau_in_trade"))
-        # nowcast 对照仍吃 ŷ_τ，不能塌成 ŷ_EOD
-        self.assertEqual(item["nowcast_as_of"], "open")
-        self.assertNotAlmostEqual(item["predicted_score_nowcast"], 1.2, places=3)
+        self.assertNotIn("predicted_score_nowcast", item)
 
     def test_eod_next_skips_stale_tau_buy_gate(self):
         from core.signal.dual_score import buy_passes_tau_gate
@@ -420,7 +418,7 @@ class TestEodNextFusion(unittest.TestCase):
         from unittest.mock import patch
 
         from core.signal.dual_score import align_trade_score_fields
-        from core.signal.nowcast_kf import compound_pct
+        from core.signal.yhat_geom import compound_pct
 
         y_eod, y_tau, gap = 2.5, -0.04, 0.26
         item = {
@@ -441,7 +439,9 @@ class TestEodNextFusion(unittest.TestCase):
         cn = timezone(timedelta(hours=8))
         midday = datetime(2026, 8, 26, 12, 30, tzinfo=cn)
         with patch("core.signal.session_pit.shanghai_now", return_value=midday):
-            align_trade_score_fields(item)
+            align_trade_score_fields(
+                item, config={"dual_score": {"w_oo": 0.5, "w_tau": 0.5}}
+            )
         self.assertEqual(item["dual_score_window"], "intraday")
         tau_cc = compound_pct(gap, y_tau)
         expect = 0.5 * y_eod + 0.5 * tau_cc

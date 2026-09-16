@@ -1592,7 +1592,7 @@ def attach_calibrated_scores(
                 left,
                 right,
                 gap_pct=_f(item.get("gap_pct")),
-                w_eod=float(cfg.get("w_eod") or 0.5),
+                w_eod=float(cfg.get("w_oo") if cfg.get("w_oo") is not None else cfg.get("w_eod") or 0.5),
                 w_tau=float(cfg.get("w_tau") or 0.5),
             )
             if cc is not None and (has_eod or has_tau):

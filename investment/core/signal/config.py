@@ -80,33 +80,24 @@ DEFAULT_SIGNAL_CONFIG: Dict[str, Any] = {
         "enable_calibration": False,
         "horizon_days": 1,
     },
-    # 双层 ŷ：EOD predicted_score + τ predicted_score_tau（见 dual_score / docs §2.5）
+    # 双层 ŷ：ŷ_oo predicted_score + τ predicted_score_tau（见 dual_score / docs §2.5）
     "dual_score": {
-        "fusion_mode": "blend",  # ŷ_trade = w·ŷ_EOD + w·(缺口∘ŷ_τ)；买入另须 ŷ_τ≥floor
+        "fusion_mode": "blend",  # ŷ_trade = w·ŷ_oo + w·(缺口∘ŷ_τ)；买入另须 ŷ_τ≥floor
         "tau": "open",
         "min_predicted_score_tau": 0.1,  # 基线；全池无人过闸时见 tau_freeze_breakglass
         "tau_freeze_breakglass": True,
         "min_predicted_score_tau_relax": None,  # None = 0.5 × 基线
         # rem 未推 ŷ_τ 时阻断买入（与 DEFAULT_DUAL_SCORE 一致；缺模型勿静默放行）
         "block_buy_if_tau_missing": True,
+        "w_oo": 0.5,
         "w_eod": 0.5,
         "w_tau": 0.5,
-        "w_mode": "fixed",  # fixed | theme_boost | variance | kalman
+        "w_mode": "fixed",  # fixed | theme_boost | variance
         "theme_w_tau_boost": 1.25,
         "eod_residual_var": 1.0,
         "enable_cascade_shadow": True,
         "enable_tau_shadow_book": False,
         "enable_minute_tau": False,
-        "nowcast": {
-            "enabled": False,
-            "write_shadow": False,
-            "use_as_rank_key": False,
-            "taus": ["eod", "open"],
-            "q_process": 0.05,
-            "theme_q_boost": 2.0,
-            "gap_q_trigger_pct": 2.0,
-            "gap_q_boost": 2.0,
-        },
     },
     # stance 门槛按收益分 ŷ%（百分点）
     "stance_thresholds": {

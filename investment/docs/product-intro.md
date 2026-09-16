@@ -146,7 +146,7 @@ quant_panel.html
 关键逻辑：
 - **买入闸**：`buy_passes_tau_gate()` — 仅当 ŷ_τ 超过阈值时才允许买入，过滤"方向对但买入时机差"的票
 - **EOD gate**：`eod_gate_score_for_item()` — 调仓开/加仓时的方向确认
-- **nowcast 影子**：`nowcast_kf.py` 实现 Kalman 滤波，仅作对照不参与决策
+- **ŷ_oo**：主字段 `y_oo` / `predicted_score_oo`（旧键 `predicted_score_eod` / `predicted_score` 可读）
 
 ### 3.5 横截面排序
 

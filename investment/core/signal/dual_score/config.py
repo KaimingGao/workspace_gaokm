@@ -20,7 +20,8 @@ def read_dual_score_public() -> Dict[str, Any]:
         "tau": cfg.get("tau"),
         "min_predicted_score_tau": cfg.get("min_predicted_score_tau"),
         "block_buy_if_tau_missing": bool(cfg.get("block_buy_if_tau_missing")),
-        "w_eod": cfg.get("w_eod"),
+        "w_oo": cfg.get("w_oo"),
+        "w_eod": cfg.get("w_oo"),
         "w_tau": cfg.get("w_tau"),
         "w_mode": cfg.get("w_mode"),
         "theme_w_tau_boost": cfg.get("theme_w_tau_boost"),
@@ -28,9 +29,8 @@ def read_dual_score_public() -> Dict[str, Any]:
         "enable_cascade_shadow": bool(cfg.get("enable_cascade_shadow")),
         "enable_tau_shadow_book": bool(cfg.get("enable_tau_shadow_book")),
         "enable_minute_tau": bool(cfg.get("enable_minute_tau")),
-        "nowcast": cfg.get("nowcast"),
         "y_spec": cfg.get("y_spec"),
-        "note": "簿排序用 ŷ_trade=w·ŷ_EOD+w·(缺口∘ŷ_τ)；主 score 仍 EOD；ŷ_nowcast 为 Kalman 影子；买入另过 τ 闸",
+        "note": "簿排序用 ŷ_trade=w·ŷ_oo+w·(缺口∘ŷ_τ)；主 score 仍 ŷ_oo；买入另过 τ 闸",
     }
 
 
@@ -38,6 +38,7 @@ def save_dual_score(
     *,
     fusion_mode: Optional[str] = None,
     min_predicted_score_tau: Optional[float] = None,
+    w_oo: Optional[float] = None,
     w_eod: Optional[float] = None,
     w_tau: Optional[float] = None,
     w_mode: Optional[str] = None,
@@ -67,15 +68,17 @@ def save_dual_score(
     if min_predicted_score_tau is not None:
         dual["min_predicted_score_tau"] = float(min_predicted_score_tau)
         changed["min_predicted_score_tau"] = float(min_predicted_score_tau)
-    if w_eod is not None:
-        dual["w_eod"] = float(w_eod)
-        changed["w_eod"] = float(w_eod)
+    w_write = w_oo if w_oo is not None else w_eod
+    if w_write is not None:
+        dual["w_oo"] = float(w_write)
+        dual["w_eod"] = float(w_write)
+        changed["w_oo"] = float(w_write)
     if w_tau is not None:
         dual["w_tau"] = float(w_tau)
         changed["w_tau"] = float(w_tau)
     if w_mode is not None:
         mode_w = str(w_mode or "fixed").strip().lower()
-        if mode_w not in ("fixed", "theme_boost", "variance", "kalman"):
+        if mode_w not in ("fixed", "theme_boost", "variance"):
             mode_w = "fixed"
         dual["w_mode"] = mode_w
         changed["w_mode"] = mode_w
@@ -86,17 +89,21 @@ def save_dual_score(
     if not changed:
         return {
             "success": False,
-            "error": "未提供可写字段（fusion_mode / min_predicted_score_tau / w_eod / w_tau / w_mode）",
+            "error": "未提供可写字段（fusion_mode / min_predicted_score_tau / w_oo / w_tau / w_mode）",
             "signal_config_weights_touched": False,
         }
 
     # 融合分权重兜底
-    if dual.get("w_eod") is None:
-        dual["w_eod"] = 0.5
+    if dual.get("w_oo") is None and dual.get("w_eod") is not None:
+        dual["w_oo"] = dual.get("w_eod")
+    if dual.get("w_oo") is None:
+        dual["w_oo"] = 0.5
+    dual["w_eod"] = dual.get("w_oo")
     if dual.get("w_tau") is None:
         dual["w_tau"] = 0.5
     dual.pop("minute_tau_hm", None)
     dual.pop("minute_tau_grid", None)
+    dual.pop("nowcast", None)
 
     raw["dual_score"] = dual
     atomic_write_json(path, raw)

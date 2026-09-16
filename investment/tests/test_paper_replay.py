@@ -875,7 +875,7 @@ class TestOpenDayYhat(unittest.TestCase):
         self.assertIsNotNone(out[0].get("y_trade"))
         self.assertGreater(float(out[0]["y_trade"]), 0.5)
 
-    def test_attach_open_nowcast_follows_eod_when_no_tau(self):
+    def test_attach_open_heads_writes_y_oo_not_nowcast(self):
         from core.backtest.paper_replay import _attach_open_yhat_heads
 
         entries = [
@@ -909,9 +909,9 @@ class TestOpenDayYhat(unittest.TestCase):
             tau_model_doc={},
         )
         self.assertAlmostEqual(float(out[0]["y_trade"]), 1.2, places=3)
-        yn = out[0].get("y_nowcast")
-        self.assertIsNotNone(yn)
-        self.assertAlmostEqual(float(yn), 1.2, places=3)
+        self.assertIsNone(out[0].get("y_nowcast"))
+        self.assertIsNone(out[0].get("predicted_score_nowcast"))
+        self.assertAlmostEqual(float(out[0].get("y_oo")), 1.2, places=3)
 
     def test_attach_open_nowcast_missing_is_none_not_zero(self):
         from core.backtest.paper_replay import _attach_open_yhat_heads
@@ -925,10 +925,8 @@ class TestOpenDayYhat(unittest.TestCase):
         )
         yn = out[0].get("y_nowcast")
         nc = out[0].get("predicted_score_nowcast")
-        if yn is None and nc is None:
-            return
-        self.assertNotEqual(yn, 0)
-        self.assertNotEqual(nc, 0)
+        self.assertIsNone(yn)
+        self.assertIsNone(nc)
 
     def test_attach_open_yhat_heads_calls_path_attach(self):
         from core.backtest.paper_replay import _attach_open_yhat_heads

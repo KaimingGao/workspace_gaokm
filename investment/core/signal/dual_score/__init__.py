@@ -32,7 +32,6 @@ from core.signal.dual_score.fusion import (
 )
 from core.signal.dual_score.resolve import (
     DEFAULT_DUAL_SCORE,
-    align_nowcast_score_fields,
     align_trade_score_fields,
     buy_passes_tau_gate,
     compute_predicted_score_blend,
@@ -45,14 +44,13 @@ from core.signal.dual_score.resolve import (
     rank_key_for_item,
     resolve_predicted_score_eod,
     resolve_predicted_score_eod_rem,
+    resolve_predicted_score_oo,
     resolve_predicted_score_tau,
     resolve_tau_buy_floor_for_pool,
 )
 from core.signal.dual_score.shadow import (
-    build_nowcast_shadow_book,
     build_tau_shadow_book,
     compare_book_overlap,
-    nowcast_shadow_alerts,
 )
 
 # 单测 patch 路径：core.signal.dual_score._eod_return_model_for_item
@@ -76,12 +74,10 @@ __all__ = [
     "_TAU_CORE_Z_KEYS",
     "_TAU_FEATURE_KEYS",
     "_eod_return_model_for_item",
-    "align_nowcast_score_fields",
     "align_trade_score_fields",
     "apply_tau_score_fields",
     "attach_dual_score_bulk",
     "attach_dual_score_pit",
-    "build_nowcast_shadow_book",
     "build_tau_shadow_book",
     "buy_passes_tau_gate",
     "cascade_tau_shadow",
@@ -104,7 +100,6 @@ __all__ = [
     "lift_tau_vs_prev_close",
     "merge_tau_features",
     "normalize_fusion_mode",
-    "nowcast_shadow_alerts",
     "rank_key_field",
     "rank_key_for_item",
     "realized_t1_to_tau_pct",
@@ -113,6 +108,7 @@ __all__ = [
     "resolve_fusion_weights",
     "resolve_predicted_score_eod",
     "resolve_predicted_score_eod_rem",
+    "resolve_predicted_score_oo",
     "resolve_predicted_score_tau",
     "resolve_tau_buy_floor_for_pool",
     "stamp_trade_prev_close",

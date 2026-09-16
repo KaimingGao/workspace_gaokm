@@ -7,13 +7,11 @@ from typing import Any, Dict, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
-from core.signal.nowcast_kf import (
-    adaptive_process_q,
+from core.signal.yhat_geom import (
     compound_pct,
-    kalman_fusion_weights,
     rem_obs_var,
     remaining_at_tau,
-    resolve_eod_prior_var,
+    resolve_oo_prior_var,
 )
 
 
@@ -42,9 +40,9 @@ def eod_remaining_at_tau(
     y_eod: Optional[float],
     realized_pct: Optional[float],
 ) -> Optional[float]:
-    """把 ŷ_EOD（昨收→收）严格映成与 ŷ_τ 同一目标：T 收相对 T 开。
+    """把 ŷ_oo 严格映成与 ŷ_τ 同一目标：T 收相对 T 开。
 
-    实现见 ``nowcast_kf.remaining_at_tau``。
+    实现见 ``yhat_geom.remaining_at_tau``。
     """
     return remaining_at_tau(y_eod, realized_pct)
 
@@ -56,6 +54,17 @@ def _as_float(v: Any) -> Optional[float]:
         return float(v)
     except (TypeError, ValueError):
         return None
+
+
+def _cfg_w_oo(cfg: Dict[str, Any]) -> float:
+    """读盘：w_oo 优先，旧键 w_eod 回退。"""
+    raw = cfg.get("w_oo")
+    if raw is None:
+        raw = cfg.get("w_eod")
+    try:
+        return float(raw if raw is not None else 0.5)
+    except (TypeError, ValueError):
+        return 0.5
 
 
 def fuse_remaining_heads(
@@ -219,18 +228,22 @@ def resolve_item_fusion_weights(
     )
     repaired = False
     book_w = item.get("dual_score_weights") if isinstance(item, dict) else None
-    if isinstance(book_w, dict) and book_w.get("w_eod") is not None:
+    if isinstance(book_w, dict):
         try:
-            we = float(book_w.get("w_eod"))
-            wt_raw = book_w.get("w_tau")
-            wt = float(wt_raw if wt_raw is not None else 1.0 - we)
+            we_raw = book_w.get("w_oo")
+            if we_raw is None:
+                we_raw = book_w.get("w_eod")
+            if we_raw is not None:
+                we = float(we_raw)
+                wt_raw = book_w.get("w_tau")
+                wt = float(wt_raw if wt_raw is not None else 1.0 - we)
         except (TypeError, ValueError):
             pass
     if eod_next:
         wt = 0.0
     elif tau_v is not None and wt <= 1e-12:
         # 旧簿 eod_next stamp：w_τ=0 / tau_in_trade=false，窗口已回 intraday 须恢复双头权
-        _, wt_cfg, _ = resolve_fusion_weights(
+        we, wt_cfg, _ = resolve_fusion_weights(
             cfg, feats=feats, rem_model_doc=rem_model_doc
         )
         wt = wt_cfg
@@ -253,6 +266,7 @@ def stamp_item_fusion_weights(
     base = dict(prev) if isinstance(prev, dict) else {}
     item["dual_score_weights"] = {
         **base,
+        "w_oo": round(float(w_eod), 6),
         "w_eod": round(float(w_eod), 6),
         "w_tau": round(0.0 if eod_next else float(w_tau), 6),
         "tau_in_trade": bool(not eod_next and tau_available),
@@ -349,16 +363,15 @@ def resolve_fusion_weights(
     feats: Optional[Dict[str, Any]] = None,
     rem_model_doc: Optional[Dict[str, Any]] = None,
 ) -> Tuple[float, float, str]:
-    """决策层合成权。返回 (w_eod, w_tau, mode_note)。"""
-    try:
-        we = float(cfg.get("w_eod") if cfg.get("w_eod") is not None else 0.5)
-    except (TypeError, ValueError):
-        we = 0.5
+    """决策层合成权。返回 (w_oo, w_tau, mode_note)。"""
+    we = _cfg_w_oo(cfg)
     try:
         wt = float(cfg.get("w_tau") if cfg.get("w_tau") is not None else 0.5)
     except (TypeError, ValueError):
         wt = 0.5
     mode = str(cfg.get("w_mode") or "fixed").strip().lower()
+    if mode == "kalman":
+        mode = "fixed"
     note = "fixed"
     if mode == "theme_boost":
         theme = 0.0
@@ -376,60 +389,23 @@ def resolve_fusion_weights(
             note = f"theme_boost×{boost:g}"
         else:
             note = "theme_boost(off)"
-    elif mode in ("variance", "kalman"):
+    elif mode == "variance":
         rem_ok = isinstance(rem_model_doc, dict) and bool(rem_model_doc)
         if not rem_ok:
-            # 缺 ŷ_τ 模型时勿静默当 fixed：告警 + note 降级标记
-            import logging
-
-            logging.getLogger(__name__).warning(
-                "resolve_fusion_weights: w_mode=%s but tau_model missing/empty; "
-                "fallback to fixed w_eod/w_tau",
-                mode,
+            logger.warning(
+                "resolve_fusion_weights: w_mode=variance but tau_model missing/empty; "
+                "fallback to fixed w_oo/w_tau"
             )
-            note = f"{mode}→fixed(tau_missing)"
-        elif mode == "variance":
-            ve, ve_src = resolve_eod_prior_var(
+            note = "variance→fixed(tau_missing)"
+        else:
+            ve, ve_src = resolve_oo_prior_var(
                 cfg_var=cfg.get("eod_residual_var"),
-                prior_var=(
-                    (cfg.get("nowcast") or {}).get("prior_var")
-                    if isinstance(cfg.get("nowcast"), dict)
-                    else None
-                ),
             )
             theme = feats.get("theme_day") if isinstance(feats, dict) else None
             vt = rem_obs_var(rem_model_doc, default=1.0, theme_day=theme)
-            # 精度 ∝ 1/var
             we = 1.0 / ve
             wt = 1.0 / vt
             note = f"variance(ve={ve:g}/{ve_src},vt={vt:g})"
-        else:
-            ve, ve_src = resolve_eod_prior_var(
-                cfg_var=cfg.get("eod_residual_var"),
-                prior_var=(
-                    (cfg.get("nowcast") or {}).get("prior_var")
-                    if isinstance(cfg.get("nowcast"), dict)
-                    else None
-                ),
-            )
-            theme = feats.get("theme_day") if isinstance(feats, dict) else None
-            gap = feats.get("gap_pct") if isinstance(feats, dict) else None
-            vt = rem_obs_var(rem_model_doc, default=1.0, theme_day=theme)
-            nc = cfg.get("nowcast") if isinstance(cfg.get("nowcast"), dict) else {}
-            q, q_note = adaptive_process_q(
-                nc.get("q_process"),
-                theme_day=theme,
-                gap_pct=gap,
-                theme_q_boost=nc.get("theme_q_boost"),
-                gap_q_trigger_pct=nc.get("gap_q_trigger_pct"),
-                gap_q_boost=nc.get("gap_q_boost"),
-            )
-            we, wt, _k, note = kalman_fusion_weights(
-                prior_var=ve, obs_var=vt, q_process=q
-            )
-            note = f"{note}|ve={ve_src}"
-            if q_note and q_note not in ("base", "q=0"):
-                note = f"{note}|{q_note}"
     else:
         mode = "fixed"
         note = "fixed"

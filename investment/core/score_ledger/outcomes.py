@@ -80,13 +80,12 @@ def _realized_remaining_for_nowcast(
     nowcast_as_of: Optional[str] = None,
     code: Optional[str] = None,
 ) -> Optional[float]:
-    """对账 ŷ_nowcast：open/eod 用 OC；分钟 as_of 用 close/price[τ]−1（有分钟缓存时）。"""
-    try:
-        from core.signal.nowcast_kf import normalize_tau_label
-
-        clock = normalize_tau_label(nowcast_as_of or "open")
-    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in score_ledger.py", exc_info=True)
+    """对账 leftover ŷ_nowcast：open/eod 用 OC；分钟 as_of 用 close/price[τ]−1。"""
+    clock = str(nowcast_as_of or "open").strip().lower()
+    if "t" in clock and len(clock) >= 5:
+        rest = str(nowcast_as_of).split("T", 1)[-1]
+        clock = rest[:5] if len(rest) >= 5 else clock
+    if clock in ("", "eod", "open") or clock < "09:35":
         clock = "open"
     oc = _realized_tau_from_bars(bars, as_of, horizon_days)
     if clock in ("", "eod", "open"):

@@ -6,7 +6,7 @@
   y_τ      — 盘中主方向（开→收 OC 拟合）；正/反 T 可分 enter（y_tau_enter_buy_then_sell / _sell_then_buy）
              定向锚优先 y_tau_oc（映射前）；剩余映射分仅供融合/对照，不定向
   y_on     — 尾盘是否强制回补
-  y_nowcast— 对照 nc；|nc|≥enter；|nc|>strong 须与 y_τ 同号（OC 开比 y_nc_oc）
+  y_nowcast— leftover 对照 nc（刷簿不再写入；默认闸关）
   y_hl     — 分钟极值时间序 signed range%（旧键 y_path）；与 y_τ 联合准入（同号+双 enter，可分正反）
 
 选向分数：开盘可预计算开盘 Z；**确认根（前 N 根齐窗）用前缀分钟因果重算**
@@ -748,7 +748,11 @@ def scores_from_item(item: Optional[dict]) -> Dict[str, Optional[float]]:
             "y_check": None,
             "eod_trust": None,
         }
-    y_eod = _f(item.get("y_eod"))
+    y_eod = _f(item.get("y_oo"))
+    if y_eod is None:
+        y_eod = _f(item.get("predicted_score_oo"))
+    if y_eod is None:
+        y_eod = _f(item.get("y_eod"))
     if y_eod is None:
         y_eod = _f(item.get("predicted_score_eod"))
     if y_eod is None:
@@ -1431,85 +1435,10 @@ def _nowcast_oc_pct(y_nowcast_cc: Optional[float], gap_pct: Optional[float]) -> 
 
 
 def _nowcast_cc_pct(scores: dict) -> Optional[float]:
-    """nowcast = nc：Kalman 对照昨收 (1−K)·ŷ_EOD + K·(缺口∘ŷ_τ)。"""
+    """已退役：仅读旧簿 leftover，不再 Kalman 重算。"""
     if not isinstance(scores, dict):
         return None
-    item: Dict[str, Any] = {
-        "predicted_score_eod": scores.get("predicted_score_eod") or scores.get("y_eod"),
-        "predicted_score_tau": scores.get("predicted_score_tau") or scores.get("y_tau"),
-        "predicted_score_nowcast": scores.get("predicted_score_nowcast") or scores.get("y_nowcast"),
-        "gap_pct": scores.get("gap_pct"),
-        "features_tau": scores.get("features_tau"),
-        "nowcast_K": scores.get("nowcast_K"),
-        "nowcast_vs": scores.get("nowcast_vs"),
-        "nowcast_as_of": scores.get("nowcast_as_of"),
-        "nowcast_q": scores.get("nowcast_q"),
-        "dual_score_weights": scores.get("dual_score_weights"),
-        "as_of_tau": scores.get("as_of_tau") or scores.get("rem_tau"),
-        "dual_score_window": scores.get("dual_score_window"),
-    }
-    if isinstance(item.get("features_tau"), dict) and item.get("gap_pct") is None:
-        ft = item["features_tau"]
-        if ft.get("gap_pct") is not None:
-            item["gap_pct"] = ft.get("gap_pct")
-    try:
-        from core.signal.dual_score.resolve import align_nowcast_score_fields
-
-        align_nowcast_score_fields(item)
-    except Exception:  # noqa: BLE001
-        logger.debug("_nowcast_cc_pct align_nowcast failed", exc_info=True)
-
-    eod = _f(item.get("predicted_score_eod"))
-    tau = _f(item.get("predicted_score_tau"))
-    gap = _f(item.get("gap_pct"))
-    feats = item.get("features_tau") if isinstance(item.get("features_tau"), dict) else {}
-
-    if eod is not None and tau is not None:
-        try:
-            from core.signal.nowcast_kf import as_process_q, run_live_nowcast
-
-            as_of = str(item.get("as_of_tau") or item.get("rem_tau") or "open")
-            q_raw = item.get("nowcast_q")
-            pack = run_live_nowcast(
-                y_eod=eod,
-                y_tau=tau,
-                gap_pct=gap,
-                ret_open_to_tau=feats.get("ret_open_to_tau"),
-                as_of=as_of,
-                q_process=as_process_q(q_raw, 0.05) if q_raw is not None else 0.05,
-                theme_day=feats.get("theme_day"),
-                allow_minute=feats.get("ret_open_to_tau") is not None,
-            )
-            nc = _f(pack.get("predicted_score_nowcast"))
-            if nc is not None:
-                return round(float(nc), 4)
-        except Exception:  # noqa: BLE001
-            logger.debug("_nowcast_cc_pct run_live_nowcast failed", exc_info=True)
-
-    from core.signal.dual_score.fusion import lift_tau_vs_prev_close
-    from core.signal.nowcast_kf import compound_pct
-
-    vs = str(item.get("nowcast_vs") or scores.get("nowcast_vs") or "").strip().lower()
-    raw = _f(item.get("predicted_score_nowcast"))
-    if raw is None:
-        raw = _f(scores.get("y_nowcast"))
-    if raw is None:
-        raw = _f(scores.get("predicted_score_nowcast"))
-    tau_cc = lift_tau_vs_prev_close(tau, gap)
-    k = _f(item.get("nowcast_K"))
-    if k is None and isinstance(item.get("dual_score_weights"), dict):
-        k = _f(item["dual_score_weights"].get("nowcast_K"))
-    if k is None:
-        k = 1.05 / 2.05
-    if eod is not None and tau_cc is not None and k is not None and 0 <= k <= 1:
-        return round((1.0 - k) * eod + k * tau_cc, 4)
-    if raw is not None and gap is not None and vs not in ("prev_close", "eod_next"):
-        lifted = compound_pct(gap, raw)
-        if lifted is not None:
-            return round(float(lifted), 4)
-    if raw is not None and vs == "prev_close":
-        return raw
-    return raw
+    return _f(scores.get("y_nowcast")) or _f(scores.get("predicted_score_nowcast"))
 
 
 def _gap_tier_direction_override(
@@ -2835,7 +2764,7 @@ def resolve_dual_y_direction(
     elif "y_block_trade_tau_sign" in cfg:
         block_tau_nc = bool(cfg.get("y_block_trade_tau_sign"))
     else:
-        block_tau_nc = True
+        block_tau_nc = False
     sign_eps = float(DEFAULT_TAU_NOWCAST_SIGN_EPS)
     nc_enter = _cfg_float(cfg, "y_nc_enter", DEFAULT_NC_ENTER)
     nc_enter = max(0.01, min(float(nc_enter), 10.0))

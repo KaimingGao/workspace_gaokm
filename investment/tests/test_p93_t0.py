@@ -3664,7 +3664,7 @@ class TestDualYDirection(unittest.TestCase):
         self.assertEqual(out.get("direction"), "sell_then_buy")
 
     def test_dual_y_strong_sign_gate_uses_direction_tau_oc(self):
-        from core.signal.nowcast_kf import compound_pct
+        from core.signal.yhat_geom import compound_pct
         from core.t0.score_policy import resolve_dual_y_direction
 
         # 大高开：τ_cc 与正 ŷ_trade 同号，但定方向 τ_oc 为负 → 强闸须按 OC 跳过
@@ -3811,8 +3811,8 @@ class TestDualYDirection(unittest.TestCase):
         self.assertIn("y_nc", reason)
         self.assertTrue("y_τ_cc" in reason or "异号" in reason)
 
-    def test_nc_recomputes_from_kalman_not_stale_raw(self):
-        """raw predicted_score_nowcast=-0.4 误标 prev_close 时，y_nc 应 Kalman 重算。"""
+    def test_nc_leftover_is_not_kalman_recomputed(self):
+        """nowcast 已退役：leftover 原样透传，不再 Kalman 重算。"""
         from core.t0.score_policy import scores_from_item
 
         scores = scores_from_item(
@@ -3825,9 +3825,7 @@ class TestDualYDirection(unittest.TestCase):
                 "features_tau": {"gap_pct": -6.23},
             }
         )
-        nc = float(scores.get("y_nc") or 0)
-        self.assertLess(nc, -1.0)
-        self.assertNotAlmostEqual(nc, -0.40, places=1)
+        self.assertAlmostEqual(float(scores.get("y_nc")), -0.40, places=2)
 
     def test_scores_from_item_persists_y_nc_oc(self):
         from core.t0.score_policy import scores_from_item
@@ -3842,10 +3840,8 @@ class TestDualYDirection(unittest.TestCase):
                 "features_tau": {"gap_pct": -6.23},
             }
         )
-        self.assertIsNotNone(scores.get("y_nc"))
+        self.assertAlmostEqual(float(scores.get("y_nc")), -0.40, places=2)
         self.assertIsNotNone(scores.get("y_nc_oc"))
-        self.assertGreater(float(scores["y_nc_oc"]), 0)
-        self.assertLess(float(scores["y_nc"]), 0)
 
     def test_path_panel_first_touch_label(self):
         from core.research.path_panel import first_touch_path_label

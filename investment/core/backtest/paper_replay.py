@@ -1471,11 +1471,10 @@ def _attach_open_yhat_heads(
     tau_model_doc: Any = None,
     cfg: Optional[dict] = None,
 ) -> List[dict]:
-    """heuristic 窗口分 → 分组 ŷ_EOD；09:30 PIT 挂 ŷ_τ / nowcast；开盘特征打 y_on。
+    """heuristic 窗口分 → 分组 ŷ_oo；09:30 PIT 挂 ŷ_τ；开盘特征打 y_on。
 
     对照头 ŷ_hl 走开盘 Z（与 live ``score_stock`` 同路径），不进 ranking。
-    调仓回测不挂 ŷ_τ30/60/90 / ŷ_τw。
-    无 ŷ_τ 时 nowcast 退回 ŷ_EOD 先验，不写假 0。缺 nowcast 则 fuse 只用 y_trade。
+    调仓回测不挂 ŷ_τ30/60/90 / ŷ_τw。nowcast 已退役，不再写 y_nowcast。
     """
     from core.signal.return_score import (
         apply_predicted_scores,
@@ -1537,6 +1536,8 @@ def _attach_open_yhat_heads(
         pred = it.get("predicted_score")
         if pred is not None:
             it.setdefault("predicted_score_eod", pred)
+            it.setdefault("predicted_score_oo", pred)
+            it.setdefault("y_oo", pred)
             it.setdefault("y_trade", pred)
         if attach_dual_score_pit is not None and code:
             try:
@@ -1550,7 +1551,7 @@ def _attach_open_yhat_heads(
                     fuse_intraday=True,
                 )
             except Exception:  # noqa: BLE001
-                logger.debug("attach open nowcast failed for %s", code, exc_info=True)
+                logger.debug("attach open yhat heads failed for %s", code, exc_info=True)
         if align_trade_score_fields is not None:
             try:
                 align_trade_score_fields(
@@ -1563,9 +1564,9 @@ def _attach_open_yhat_heads(
             it["y_trade"] = blend
         elif it.get("y_trade") is None and pred is not None:
             it["y_trade"] = pred
-        nc = it.get("predicted_score_nowcast")
-        if nc is not None:
-            it["y_nowcast"] = nc
+        it.pop("predicted_score_nowcast", None)
+        it.pop("y_nowcast", None)
+        it.pop("y_nc", None)
         if code:
             q = quotes.get(code) or {}
             d = str(it.get("date") or it.get("as_of") or it.get("trade_date") or "")[:10]

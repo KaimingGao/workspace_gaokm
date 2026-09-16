@@ -55,9 +55,15 @@ def dual_score_book_fields(
         live_fusion = cfg.get("fusion_mode")
         book_w = work.get("dual_score_weights")
         win = work.get("dual_score_window")
-        if isinstance(book_w, dict) and book_w.get("w_eod") is not None:
+        if isinstance(book_w, dict) and (
+            book_w.get("w_oo") is not None or book_w.get("w_eod") is not None
+        ):
+            w_oo = book_w.get("w_oo")
+            if w_oo is None:
+                w_oo = book_w.get("w_eod")
             live_w = {
-                "w_eod": book_w.get("w_eod"),
+                "w_oo": w_oo,
+                "w_eod": w_oo,
                 "w_tau": book_w.get("w_tau"),
                 "w_mode": book_w.get("w_mode") or cfg.get("w_mode") or "fixed",
                 "w_note": book_w.get("w_note"),
@@ -66,8 +72,12 @@ def dual_score_book_fields(
                 "window": book_w.get("window") or win,
             }
         else:
+            w_oo = cfg.get("w_oo")
+            if w_oo is None:
+                w_oo = cfg.get("w_eod")
             live_w = {
-                "w_eod": cfg.get("w_eod"),
+                "w_oo": w_oo,
+                "w_eod": w_oo,
                 "w_tau": cfg.get("w_tau"),
                 "w_mode": cfg.get("w_mode") or "fixed",
                 "mode": "blend",
@@ -76,7 +86,13 @@ def dual_score_book_fields(
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
         logger.debug("catch except Exception: in dual_score.py", exc_info=True)
         live_fusion = "blend"
-        live_w = {"w_eod": 0.5, "w_tau": 0.5, "w_mode": "fixed", "mode": "blend"}
+        live_w = {
+            "w_oo": 0.5,
+            "w_eod": 0.5,
+            "w_tau": 0.5,
+            "w_mode": "fixed",
+            "mode": "blend",
+        }
     formula_terms_tau = ensure_formula_terms_tau(work)
     formula_terms_on = ensure_formula_terms_on(work)
     formula_terms_r = work.get("formula_terms_r") or work.get("score_formula_terms_r")
@@ -134,6 +150,8 @@ def dual_score_book_fields(
     # 权重优先簿内已算（含 theme/variance）；缺则用当前配置
     return {
         "predicted_score_eod": work.get("predicted_score_eod", work.get("predicted_score")),
+        "predicted_score_oo": work.get("predicted_score_oo", work.get("y_oo")),
+        "y_oo": work.get("y_oo"),
         "predicted_score_eod_rem": work.get("predicted_score_eod_rem"),
         "predicted_score_tau": work.get("predicted_score_tau", work.get("score_rem")),
         "predicted_score_tau_delta": work.get("predicted_score_tau_delta"),
@@ -142,13 +160,6 @@ def dual_score_book_fields(
         "predicted_score_blend_tau_cc": work.get("predicted_score_blend_tau_cc"),
         "predicted_score_blend_vs": work.get("predicted_score_blend_vs"),
         "decision_score": work.get("decision_score"),
-        "predicted_score_nowcast": work.get("predicted_score_nowcast"),
-        "nowcast_vs": work.get("nowcast_vs"),
-        "nowcast_as_of": work.get("nowcast_as_of"),
-        "nowcast_K": work.get("nowcast_K"),
-        "nowcast_x_prior": work.get("nowcast_x_prior"),
-        "nowcast_q": work.get("nowcast_q"),
-        "nowcast_revisions": work.get("nowcast_revisions"),
         "realized_t1_to_tau": work.get("realized_t1_to_tau"),
         "score_rem": work.get("score_rem"),
         "predicted_score_rem": work.get("predicted_score_rem"),
@@ -167,7 +178,6 @@ def dual_score_book_fields(
         "dual_score_window": work.get("dual_score_window"),
         "dual_score_head": work.get("dual_score_head"),
         "dual_score_single_head": bool(work.get("dual_score_single_head")),
-        "nowcast_P": work.get("nowcast_P"),
         "y_mu": work.get("y_mu"),
         "y_sigma": work.get("y_sigma"),
         "y_disagree": work.get("y_disagree"),

@@ -93,7 +93,7 @@ class DualScoreRequest(BaseModel):
     )
     w_mode: Optional[str] = Field(
         default=None,
-        description="fixed | theme_boost | variance | kalman；kalman 只改 blend 权，默认不改排序键",
+        description="fixed | theme_boost | variance；kalman 已退役并回退为 fixed",
     )
     block_buy_if_tau_missing: Optional[bool] = None
     note: str = Field(default="", max_length=500)

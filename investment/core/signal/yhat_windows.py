@@ -367,7 +367,7 @@ def remaining_oc(
     if rot is None:
         return None
     try:
-        from core.signal.nowcast_kf import remaining_at_tau
+        from core.signal.yhat_geom import remaining_at_tau
 
         return remaining_at_tau(y_oc, rot)
     except Exception:  # noqa: BLE001
@@ -402,7 +402,7 @@ def residual_inv_var_weights(
     if v_tc is None or v_oc is None:
         return None
     try:
-        from core.signal.nowcast_kf import remap_variance
+        from core.signal.yhat_geom import remap_variance
 
         v_oc_m = remap_variance(v_oc, ret_open_to_tau)
     except Exception:  # noqa: BLE001

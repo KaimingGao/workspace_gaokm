@@ -14,7 +14,6 @@ const { fitTierBadgeForCode } = await import(
 );
 const {
   resolveRankingScore,
-  resolveNowcastScore,
   compoundPct,
   resolvePathScore,
   fmtPathScore,
@@ -33,14 +32,6 @@ export const BT_SIM_TRADE_COLS_BASE = [
     num: true,
     sortable: true,
     title: "历史 Top-K 表列 = ŷ_oo（选股键）· 关 τ 闸 · 悬停可看字段；日线通常无可靠 ŷ_oc",
-  },
-  {
-    id: "score_nowcast",
-    label: "y_nc",
-    widthPct: 6,
-    num: true,
-    sortable: true,
-    title: "nowcast（nc）· 对照昨收，不进决策",
   },
   {
     id: "intent",
@@ -112,8 +103,6 @@ export function flattenTradesToSimLegs(trades) {
         predicted_score_tau: l.predicted_score_tau,
         predicted_score_blend: l.predicted_score_blend,
         predicted_score_eod_rem: l.predicted_score_eod_rem,
-        predicted_score_nowcast: l.predicted_score_nowcast,
-        nowcast_vs: l.nowcast_vs,
         realized_t1_to_tau: l.realized_t1_to_tau,
         score_rem: l.score_rem != null ? l.score_rem : l.predicted_score_rem,
         formula_terms_tau: l.formula_terms_tau || l.score_formula_terms_tau,
@@ -831,7 +820,6 @@ export function buildSimTradeRow(r, i, deps) {
       : null;
   // 与持仓/观察池同源：修历史成交里塌成 EOD 的旧 blend
   const blendRaw = resolveRankingScore(r);
-  const nowcastScore = resolveNowcastScore(r);
   // 表列：历史日线路径无可靠 τ → 展示/选股键均为 ŷ_oo；有 τ 时才用 ranking
   const hasTau =
     (r.predicted_score_tau != null && Number.isFinite(Number(r.predicted_score_tau))) ||
@@ -903,13 +891,7 @@ export function buildSimTradeRow(r, i, deps) {
     predicted_score_blend: blendRaw != null ? blendRaw : blendScore,
     predicted_score_eod_rem: eodRem,
     predicted_score_tau_delta: r.predicted_score_tau_delta,
-    predicted_score_nowcast: r.predicted_score_nowcast,
-    nowcast_vs: r.nowcast_vs || null,
     dual_score_window: r.dual_score_window || null,
-    nowcast_as_of: r.nowcast_as_of || null,
-    nowcast_K: r.nowcast_K,
-    nowcast_q: r.nowcast_q,
-    nowcast_x_prior: r.nowcast_x_prior,
     predicted_score_eod: eodScore,
     realized_t1_to_tau: realized,
     score_rem: r.score_rem != null ? r.score_rem : r.predicted_score_rem,
@@ -972,13 +954,6 @@ export function buildSimTradeRow(r, i, deps) {
     scoreTitle: scoreColTitle,
     scoreSingleHead: singleHead,
     dualScoreHead: r.dual_score_head || null,
-    scoreNowcastNum: nowcastScore,
-    scoreNowcastText: fmtScore(nowcastScore),
-    scoreNowcastCls: scoreCls(nowcastScore),
-    scoreNowcastTitle:
-      nowcastScore == null
-        ? "暂无 nowcast · 日线路径常无 ŷ_oc"
-        : "nowcast（nc）· 对照昨收，不进决策",
     status: formatSimStatus(st),
   };
 }
@@ -1008,7 +983,6 @@ const BT_TRADES_NUM_KEYS = {
   sell: "sellNum",
   intent: "intentNum",
   score: "scoreNum",
-  score_nowcast: "scoreNowcastNum",
   shares: "sharesNum",
   price: "priceNum",
   basis: "basisNum",
@@ -1217,23 +1191,6 @@ export function btTradesCellHtml(col, d, deps) {
       )}" ` +
       `data-score-detail="${escapeHtml(d.scoreDetail)}" data-score-tip="ranking" ` +
       `title="${escapeHtml(title)}">${escapeHtml(d.scoreText)}${badge}</span>`
-    );
-  }
-  if (col.id === "score_nowcast") {
-    const title =
-      d.scoreNowcastTitle || "nowcast（nc）· 对照昨收，不进决策";
-    const text = d.scoreNowcastText != null ? d.scoreNowcastText : "—";
-    if (!d.scoreDetail) {
-      return `<span class="bt-trade-score watching-score-nowcast paper-hold-score ${escapeHtml(
-        d.scoreNowcastCls || ""
-      )}">${escapeHtml(text)}</span>`;
-    }
-    return (
-      `<span class="bt-trade-score watching-score-nowcast paper-hold-score has-tip ${escapeHtml(
-        d.scoreNowcastCls || ""
-      )}" ` +
-      `data-score-detail="${escapeHtml(d.scoreDetail)}" data-score-tip="nowcast" ` +
-      `title="${escapeHtml(title)}">${escapeHtml(text)}</span>`
     );
   }
   if (col.id === "intent") return escapeHtml(d.intentText);

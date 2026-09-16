@@ -17,16 +17,9 @@ from core.signal.dual_score.fusion import (
     stamp_trade_prev_close,
     unlifted_trade_blend_stale,
 )
-from core.signal.nowcast_kf import (
-    DEFAULT_NOWCAST,
-    as_process_q,
-    merge_nowcast_cfg,
-    resolve_eod_prior_var,
-    run_live_nowcast,
-)
 
 DEFAULT_DUAL_SCORE: Dict[str, Any] = {
-    # 正交加权：簿排序用 ŷ_trade=blend(ŷ_EOD, 缺口∘ŷ_τ)；买入另须 ŷ_τ≥floor
+    # 正交加权：簿排序用 ŷ_trade=blend(ŷ_oo, 缺口∘ŷ_τ)；买入另须 ŷ_τ≥floor
     "fusion_mode": "blend",
     "tau": "open",
     # 基线门槛；全池无人过闸时见 tau_freeze_breakglass
@@ -37,9 +30,10 @@ DEFAULT_DUAL_SCORE: Dict[str, Any] = {
     # breakglass 最少有效 τ 样本；过少不放宽，避免 1–2 票噪声降全局闸
     "tau_freeze_breakglass_min_n": 3,
     "block_buy_if_tau_missing": True,
+    "w_oo": 0.5,
     "w_eod": 0.5,
     "w_tau": 0.5,
-    # fixed | theme_boost | variance | kalman — 决策层合成权，不改两套 Ridge
+    # fixed | theme_boost | variance — 决策层合成权，不改两套 Ridge
     "w_mode": "fixed",
     # theme_boost：主题日把 w_τ 乘以此系数后再归一
     "theme_w_tau_boost": 1.25,
@@ -51,8 +45,6 @@ DEFAULT_DUAL_SCORE: Dict[str, Any] = {
     "enable_tau_shadow_book": False,
     # 有本地分钟缓存时附加 ret_open_to_tau（默认关；开后仍不拉网）
     "enable_minute_tau": False,
-    # nowcast / Kalman：默认只写影子字段，不改排序键
-    "nowcast": dict(DEFAULT_NOWCAST),
     # 高维 Y(τ)：校验 / 展示 / 过滤（不改 predicted_score 语义）
     "y_state": {
         "enabled": True,
@@ -94,6 +86,7 @@ def _dual_patch_from_config(config: Optional[dict]) -> Dict[str, Any]:
         return dict(nested)
     # 已展开：含 w_eod / fusion 等，且不像完整 signal_config（无 weights/scoring）
     markers = (
+        "w_oo",
         "w_eod",
         "w_tau",
         "fusion_mode",
@@ -102,7 +95,6 @@ def _dual_patch_from_config(config: Optional[dict]) -> Dict[str, Any]:
         "tau_freeze_breakglass",
         "tau",
         "enable_tau_shadow_book",
-        "nowcast",
         "w_mode",
         "y_state",
     )
@@ -125,11 +117,12 @@ def get_dual_score_cfg(config: Optional[dict] = None) -> Dict[str, Any]:
             config = {}
     raw = dict(DEFAULT_DUAL_SCORE)
     raw["y_state"] = dict(DEFAULT_DUAL_SCORE.get("y_state") or {})
-    raw["nowcast"] = dict(DEFAULT_DUAL_SCORE.get("nowcast") or {})
     patch = _dual_patch_from_config(config)
     y_spec_patch = patch.pop("y_spec", None)
     y_state_patch = patch.pop("y_state", None)
-    nowcast_patch = patch.pop("nowcast", None)
+    patch.pop("nowcast", None)
+    patch_has_w_oo = "w_oo" in patch
+    patch_has_w_eod = "w_eod" in patch
     raw.update(patch)
     if isinstance(y_spec_patch, dict):
         ys = dict(DEFAULT_DUAL_SCORE.get("y_spec") or {})
@@ -149,10 +142,6 @@ def get_dual_score_cfg(config: Optional[dict] = None) -> Dict[str, Any]:
         if isinstance(rank_p, dict):
             ys["book_check_rank"] = dict(rank_p)
         raw["y_state"] = ys
-    if isinstance(nowcast_patch, dict):
-        nc = dict(DEFAULT_DUAL_SCORE.get("nowcast") or {})
-        nc.update(nowcast_patch)
-        raw["nowcast"] = nc
     raw["fusion_mode"] = normalize_fusion_mode(raw.get("fusion_mode"))
     tau = str(raw.get("tau") or "open").strip().lower() or "open"
     raw["tau"] = tau
@@ -181,10 +170,20 @@ def get_dual_score_cfg(config: Optional[dict] = None) -> Dict[str, Any]:
     except (TypeError, ValueError):
         raw["tau_freeze_breakglass_min_n"] = 3
     raw["block_buy_if_tau_missing"] = bool(raw.get("block_buy_if_tau_missing", True))
+    if patch_has_w_oo:
+        w_oo_raw = raw.get("w_oo")
+    elif patch_has_w_eod:
+        w_oo_raw = raw.get("w_eod")
+    else:
+        w_oo_raw = raw.get("w_oo")
+        if w_oo_raw is None:
+            w_oo_raw = raw.get("w_eod")
     try:
-        raw["w_eod"] = float(raw["w_eod"] if raw.get("w_eod") is not None else 0.5)
+        w_oo = float(w_oo_raw if w_oo_raw is not None else 0.5)
     except (TypeError, ValueError):
-        raw["w_eod"] = 0.5
+        w_oo = 0.5
+    raw["w_oo"] = w_oo
+    raw["w_eod"] = w_oo
     try:
         raw["w_tau"] = float(raw["w_tau"] if raw.get("w_tau") is not None else 0.5)
     except (TypeError, ValueError):
@@ -194,11 +193,11 @@ def get_dual_score_cfg(config: Optional[dict] = None) -> Dict[str, Any]:
     raw["enable_minute_tau"] = bool(raw.get("enable_minute_tau", False))
     raw.pop("minute_tau_hm", None)
     raw.pop("minute_tau_grid", None)
+    raw.pop("nowcast", None)
     w_mode = str(raw.get("w_mode") or "fixed").strip().lower()
-    if w_mode not in ("fixed", "theme_boost", "variance", "kalman"):
+    if w_mode not in ("fixed", "theme_boost", "variance"):
         w_mode = "fixed"
     raw["w_mode"] = w_mode
-    raw["nowcast"] = merge_nowcast_cfg(raw.get("nowcast"))
     try:
         raw["theme_w_tau_boost"] = float(
             raw["theme_w_tau_boost"]
@@ -238,6 +237,7 @@ def dual_track_score_fields(item: Optional[dict]) -> Dict[str, Any]:
     for k in (
         "heuristic_score",
         "predicted_score",
+        "predicted_score_oo",
         "predicted_score_eod",
         "score_cluster",
         "score_global",
@@ -268,13 +268,13 @@ def _yhat_pct_field(item: dict, *keys: str) -> Optional[float]:
     return None
 
 
-def resolve_predicted_score_eod(item: Optional[dict]) -> Optional[float]:
-    """读取 ŷ_EOD。
+def resolve_predicted_score_oo(item: Optional[dict]) -> Optional[float]:
+    """读取 ŷ_oo。
 
-    优先 ``predicted_score_eod`` / ``predicted_score``。
+    优先 ``y_oo`` / ``predicted_score_oo`` / ``predicted_score_eod`` / ``predicted_score``。
     ``score`` 仅作启发式/遗留回退；若 ``score`` 与 ``predicted_score_blend`` 数值相同，
-    视为 align 后的 ŷ_trade，不再当 EOD（避免买入闸吃到 blend）。
-    OOS heuristic：禁止 0–100；若仍有组/全局 ŷ% 则用作 EOD 兼容（rank / T0）。
+    视为 align 后的 ŷ_trade，不再当 ŷ_oo（避免买入闸吃到 blend）。
+    OOS heuristic：禁止 0–100；若仍有组/全局 ŷ% 则用作 ŷ_oo 兼容（rank / T0）。
     """
     if not isinstance(item, dict):
         return None
@@ -283,11 +283,13 @@ def resolve_predicted_score_eod(item: Optional[dict]) -> Optional[float]:
             item,
             "score_cluster",
             "score_global",
+            "y_oo",
+            "predicted_score_oo",
             "predicted_score_eod",
             "predicted_score",
             "score",
         )
-    for k in ("predicted_score_eod", "predicted_score"):
+    for k in ("y_oo", "predicted_score_oo", "predicted_score_eod", "predicted_score"):
         v = item.get(k)
         if v is None:
             continue
@@ -320,6 +322,9 @@ def resolve_predicted_score_eod(item: Optional[dict]) -> Optional[float]:
         except (TypeError, ValueError):
             pass
     return score_f
+
+
+resolve_predicted_score_eod = resolve_predicted_score_oo
 
 
 def resolve_predicted_score_tau(item: Optional[dict]) -> Optional[float]:
@@ -369,7 +374,7 @@ def compute_predicted_score_blend(
     y_eod = resolve_predicted_score_eod(item)
     y_t = None if eod_next else resolve_predicted_score_tau(item)
     rem_doc = None
-    if str(cfg.get("w_mode") or "") in ("variance", "kalman"):
+    if str(cfg.get("w_mode") or "") == "variance":
         try:
             from core.research.tau_ridge import load_tau_model
 
@@ -531,12 +536,12 @@ def align_trade_score_fields(
                 stale_zero_w_tau = float(bw.get("w_tau") or 0.0) <= 1e-12
             except (TypeError, ValueError):
                 stale_zero_w_tau = False
-        # kalman/variance：决策层权可能已收敛到 0，但簿上仍留旧 w_τ>0 + 含 τ 的 blend
+        # variance：决策层权可能已收敛到 0，但簿上仍留旧 w_τ>0 + 含 τ 的 blend
         if not stale_zero_w_tau and blend is not None and y_eod_f is not None:
             try:
                 cfg_w = get_dual_score_cfg(config)
                 w_mode = str(cfg_w.get("w_mode") or "fixed")
-                if w_mode in ("variance", "kalman"):
+                if w_mode == "variance":
                     feats = (
                         item.get("features_tau")
                         if isinstance(item.get("features_tau"), dict)
@@ -567,68 +572,6 @@ def align_trade_score_fields(
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
         logger.debug("catch except Exception: in dual_score.py", exc_info=True)
         pass
-    align_nowcast_score_fields(item, config=config)
-    return item
-
-
-def align_nowcast_score_fields(
-    item: Optional[dict],
-    *,
-    config: Optional[dict] = None,
-) -> Optional[dict]:
-    """就地修旧簿：收盘后 nowcast 塌成 ŷ_EOD 且丢掉 K。对照列仍吃 ŷ_τ。"""
-    if not isinstance(item, dict) or is_heuristic_score_scale(item):
-        return item
-    y_eod = resolve_predicted_score_eod(item)
-    y_tau = resolve_predicted_score_tau(item)
-    if y_eod is None or y_tau is None:
-        return item
-    nc = _as_float(item.get("predicted_score_nowcast"))
-    k_now = _as_float(item.get("nowcast_K"))
-    as_of = str(item.get("nowcast_as_of") or "").strip().lower()
-    collapsed = (
-        nc is None
-        or (k_now is None and abs(float(nc) - float(y_eod)) < 1e-4)
-        or (as_of in ("", "eod") and abs(float(nc) - float(y_eod)) < 1e-4)
-    )
-    if not collapsed:
-        return item
-    cfg = get_dual_score_cfg(config)
-    nc_cfg = (
-        cfg.get("nowcast") if isinstance(cfg.get("nowcast"), dict) else merge_nowcast_cfg(None)
-    )
-    # 升成排序键时收盘后仍不把当日 OC 融进下一期
-    if bool(nc_cfg.get("use_as_rank_key")) and str(item.get("dual_score_window") or "") == "eod_next":
-        return item
-    feats = item.get("features_tau") if isinstance(item.get("features_tau"), dict) else {}
-    ve, _ve_src = resolve_eod_prior_var(
-        cfg_var=cfg.get("eod_residual_var"),
-        prior_var=nc_cfg.get("prior_var"),
-        prefer_cluster=False,
-    )
-    as_of_tau = str(item.get("as_of_tau") or item.get("rem_tau") or cfg.get("tau") or "open")
-    pack = run_live_nowcast(
-        y_eod=y_eod,
-        y_tau=y_tau,
-        gap_pct=item_gap_pct(item),
-        ret_open_to_tau=feats.get("ret_open_to_tau"),
-        as_of=as_of_tau,
-        taus=nc_cfg.get("taus"),
-        prior_var=ve,
-        q_process=as_process_q(nc_cfg.get("q_process"), 0.05),
-        theme_day=feats.get("theme_day"),
-        nowcast_cfg=nc_cfg,
-        allow_minute=bool(cfg.get("enable_minute_tau")) or feats.get("ret_open_to_tau") is not None,
-    )
-    item["predicted_score_nowcast"] = pack.get("predicted_score_nowcast")
-    item["nowcast_vs"] = pack.get("nowcast_vs") or "prev_close"
-    item["nowcast_as_of"] = pack.get("nowcast_as_of")
-    item["nowcast_K"] = pack.get("nowcast_K")
-    item["nowcast_q"] = pack.get("nowcast_q")
-    item["nowcast_x_prior"] = pack.get("nowcast_x_prior")
-    item["nowcast_P"] = pack.get("nowcast_P")
-    item["nowcast_revisions"] = pack.get("nowcast_revisions") or []
-    item["nowcast_path"] = pack.get("nowcast_path")
     return item
 
 
@@ -642,16 +585,13 @@ def decision_score_for_item(
 
 
 def rank_key_field(*, config: Optional[dict] = None) -> str:
-    """簿 / 回测上的 rank_key 字段名。默认 blend；opt-in 才是 nowcast。"""
-    cfg = get_dual_score_cfg(config)
-    nc = cfg.get("nowcast") if isinstance(cfg.get("nowcast"), dict) else {}
-    if nc.get("use_as_rank_key"):
-        return "predicted_score_nowcast"
+    """簿 / 回测上的 rank_key 字段名。默认 blend。"""
+    _ = config
     return "predicted_score_blend"
 
 
 def rank_key_for_item(item: Optional[dict], *, config: Optional[dict] = None) -> Optional[float]:
-    """排序键：默认 ŷ_trade（blend）。``nowcast.use_as_rank_key`` 才改用 Kalman 分。
+    """排序键：ŷ_trade（blend）。
 
     ``dual_score_window=eod_next``（收盘后）：一律停用 τ 侧，避免旧簿上
     被今日已实现收益污染的 blend 直接进入 T+1 前瞻决策。
@@ -659,16 +599,8 @@ def rank_key_for_item(item: Optional[dict], *, config: Optional[dict] = None) ->
     if not isinstance(item, dict):
         return None
     cfg = get_dual_score_cfg(config)
-    nc = cfg.get("nowcast") if isinstance(cfg.get("nowcast"), dict) else {}
-    if nc.get("use_as_rank_key"):
-        n = item.get("predicted_score_nowcast")
-        if n is not None:
-            try:
-                return float(n)
-            except (TypeError, ValueError):
-                pass
     eod_next = str(item.get("dual_score_window") or "") == "eod_next"
-    y_eod = resolve_predicted_score_eod(item)
+    y_eod = resolve_predicted_score_oo(item)
     tau = None if eod_next else resolve_predicted_score_tau(item)
     stored = item.get("predicted_score_blend")
     try:

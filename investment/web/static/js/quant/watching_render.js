@@ -75,7 +75,7 @@ export function matchWatchlistSource(code, sourceDescs) {
 }
 
 export function watchingScoreDetail(it) {
-  // nowcast / ŷ_oo / ŷ_oc / 缺口放前：data-score-detail 过长时避免被截掉
+  // ŷ_oo / ŷ_oc / 缺口放前：data-score-detail 过长时避免被截掉
   const terms = slimFormulaTerms((it && it.score_formula_terms) || null, 10);
   const tauTerms = slimFormulaTerms(
     (it && (it.formula_terms_tau || it.score_formula_terms_tau)) || null,
@@ -267,12 +267,6 @@ export function watchingScoreDetail(it) {
           ? it.score_rem
           : it.predicted_score_rem),
     gap_pct: gapPct,
-    predicted_score_nowcast: it && it.predicted_score_nowcast,
-    nowcast_vs: (it && it.nowcast_vs) || null,
-    nowcast_as_of: (it && it.nowcast_as_of) || null,
-    nowcast_K: it && it.nowcast_K,
-    nowcast_q: it && it.nowcast_q,
-    nowcast_x_prior: it && it.nowcast_x_prior,
     predicted_score_eod: it && it.predicted_score_eod,
     predicted_score_on: it && it.predicted_score_on,
     predicted_score: it && it.predicted_score != null ? it.predicted_score : it && it.score,

@@ -23,14 +23,10 @@ from core.signal.dual_score.resolve import (
     is_heuristic_score_scale,
     resolve_predicted_score_eod,
 )
-from core.signal.nowcast_kf import (
+from core.signal.yhat_geom import (
     align_rem_yhat_to_clock,
-    as_process_q,
-    merge_nowcast_cfg,
-    normalize_tau_label,
     rem_label_is_open_to_close,
-    resolve_eod_prior_var,
-    run_live_nowcast,
+    resolve_oo_prior_var,
 )
 
 from core.signal.minute_tau_feats import MINUTE_TAU_ALL_KEYS, MINUTE_TAU_SHAPE_KEYS
@@ -114,8 +110,8 @@ def apply_tau_score_fields(
     ŷ_trade = w·ŷ_EOD + w·(缺口∘ŷ_τ)；ŷ_EOD_rem 只作派生对照，不进融合。
     ``residual_delta`` 已废弃，忽略。
     ``fuse_intraday=False``（收盘后 eod_next）：τ 买入闸不吃当日 ŷ_τ；
-    主排序分 ŷ_trade 停用 τ 侧（缺口∘ŷ_τ ≈ 今日已实现涨跌幅，会污染 T+1 前瞻决策）；
-    nowcast / cascade 对照列仍吃 ŷ_τ，避免塌成 ŷ_EOD。
+    主排序分 ŷ_trade 停用 τ 侧（缺口∘ŷ_τ ≈ 今日已实现涨跌幅，会污染 T+1 前瞻决策）。
+    cascade 对照列仍吃 ŷ_τ，避免塌成 ŷ_oo。
     """
     _ = residual_delta
     cfg = get_dual_score_cfg(config)
@@ -143,7 +139,7 @@ def apply_tau_score_fields(
     y_eod = resolve_predicted_score_eod(signal_item)
     fuse = bool(fuse_intraday)
     eod_rem = y_eod if not fuse else eod_remaining_at_tau(y_eod, realized)
-    clock = normalize_tau_label(as_of) if fuse else "eod"
+    clock = str(as_of or tau) if fuse else "eod"
     y_tau_raw = rem_yhat
     y_tau = (
         align_rem_yhat_to_clock(
@@ -166,27 +162,8 @@ def apply_tau_score_fields(
     if not fuse:
         w_note = f"{w_note}|eod_next(tau_stripped)"
 
-    nc = cfg.get("nowcast") if isinstance(cfg.get("nowcast"), dict) else merge_nowcast_cfg(None)
-    ve, ve_src = resolve_eod_prior_var(
+    ve, ve_src = resolve_oo_prior_var(
         cfg_var=cfg.get("eod_residual_var"),
-        prior_var=nc.get("prior_var"),
-    )
-    allow_minute = bool(cfg.get("enable_minute_tau")) or ret_ot is not None
-    # 对照列始终吃 ŷ_τ；仅当 nowcast 被升成排序键且已收盘，才不把当日 OC 融进下一期
-    nc_rank = bool(nc.get("use_as_rank_key")) and not fuse
-    nowcast_pack = run_live_nowcast(
-        y_eod=y_eod,
-        y_tau=None if nc_rank else y_tau_raw,
-        gap_pct=None if nc_rank else gap_pct,
-        ret_open_to_tau=None if nc_rank else ret_ot,
-        as_of="eod" if nc_rank else str(as_of or tau),
-        taus=nc.get("taus"),
-        prior_var=ve,
-        rem_model_doc=rem_model_doc,
-        q_process=as_process_q(nc.get("q_process"), 0.05),
-        theme_day=None if nc_rank else feat_snap.get("theme_day"),
-        nowcast_cfg=nc,
-        allow_minute=False if nc_rank else allow_minute,
     )
 
     rem_intercept = None
@@ -204,7 +181,7 @@ def apply_tau_score_fields(
         )
 
     signal_item["predicted_score_eod"] = signal_item.get("predicted_score")
-    if signal_item.get("y_oo") is None and y_eod is not None:
+    if y_eod is not None:
         signal_item["y_oo"] = y_eod
         signal_item["predicted_score_oo"] = y_eod
     signal_item["predicted_score_eod_rem"] = eod_rem
@@ -266,10 +243,6 @@ def apply_tau_score_fields(
     formula_terms_tau["y_tau_cc"] = signal_item.get("predicted_score_blend_tau_cc")
     formula_terms_tau["trade"] = trade
     formula_terms_tau["cascade"] = cascade
-    formula_terms_tau["nowcast"] = nowcast_pack.get("predicted_score_nowcast")
-    formula_terms_tau["nowcast_K"] = nowcast_pack.get("nowcast_K")
-    formula_terms_tau["nowcast_q"] = nowcast_pack.get("nowcast_q")
-    formula_terms_tau["nowcast_path"] = nowcast_pack.get("nowcast_path")
     formula_terms_tau["rem_oc"] = rem_label_is_open_to_close(rem_model_doc)
     formula_terms_tau["head"] = (
         "tau_oc" if rem_label_is_open_to_close(rem_model_doc) else "tau_rem"
@@ -281,26 +254,33 @@ def apply_tau_score_fields(
     signal_item["predicted_score_blend"] = trade
     signal_item["dual_score_head"] = head_meta.get("dual_score_head")
     signal_item["dual_score_single_head"] = bool(head_meta.get("single_head"))
-    signal_item["predicted_score_nowcast"] = nowcast_pack.get("predicted_score_nowcast")
-    signal_item["nowcast_vs"] = nowcast_pack.get("nowcast_vs") or "prev_close"
-    signal_item["nowcast_as_of"] = nowcast_pack.get("nowcast_as_of")
-    signal_item["nowcast_revisions"] = nowcast_pack.get("nowcast_revisions") or []
-    signal_item["nowcast_K"] = nowcast_pack.get("nowcast_K")
-    signal_item["nowcast_P"] = nowcast_pack.get("nowcast_P")
-    signal_item["nowcast_x_prior"] = nowcast_pack.get("nowcast_x_prior")
-    signal_item["nowcast_q"] = nowcast_pack.get("nowcast_q")
-    signal_item["nowcast_q_note"] = nowcast_pack.get("nowcast_q_note")
-    signal_item["nowcast_path"] = nowcast_pack.get("nowcast_path")
+    for _dead in (
+        "predicted_score_nowcast",
+        "nowcast_vs",
+        "nowcast_as_of",
+        "nowcast_revisions",
+        "nowcast_K",
+        "nowcast_P",
+        "nowcast_x_prior",
+        "nowcast_q",
+        "nowcast_q_note",
+        "nowcast_path",
+        "y_nowcast",
+        "y_nc",
+    ):
+        signal_item.pop(_dead, None)
+    w_mode = str(cfg.get("w_mode") or "fixed").strip().lower()
+    if w_mode == "kalman":
+        w_mode = "fixed"
     signal_item["dual_score_weights"] = {
+        "w_oo": round(we, 6),
         "w_eod": round(we, 6),
         "w_tau": round(0.0 if not fuse else wt, 6),
-        "w_mode": cfg.get("w_mode") or "fixed",
+        "w_mode": w_mode,
         "w_note": w_note,
         "mode": "blend",
         "tau_available": y_tau is not None,
         "tau_in_trade": bool(fuse and y_tau_for_trade is not None),
-        "nowcast_K": nowcast_pack.get("nowcast_K"),
-        "nowcast_q": nowcast_pack.get("nowcast_q"),
         "eod_prior_var": round(ve, 6),
         "eod_prior_var_src": ve_src,
         "window": "intraday" if fuse else "eod_next",
@@ -416,8 +396,7 @@ def attach_dual_score_pit(
     无 ŷ_τ 模型时仍写契约字段（ŷ_τ=None，ŷ_trade 退回 ŷ_EOD）。
     ``fuse_intraday=False`` / 簿上 ``dual_score_window=eod_next``：
     - τ 买入闸不吃当日 ŷ_τ；
-    - 主排序分 ŷ_trade 停用 τ 侧（缺口∘ŷ_τ ≈ T日已实现涨跌幅，不得污染 T+1 前瞻决策）；
-    - nowcast / cascade 对照列仍吃 ŷ_τ（研究对照，不改排序键）。
+    - 主排序分 ŷ_trade 停用 τ 侧（缺口∘ŷ_τ ≈ T日已实现涨跌幅，不得污染 T+1 前瞻决策）。
     """
     if not isinstance(signal_item, dict):
         return signal_item
