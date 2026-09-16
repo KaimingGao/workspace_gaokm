@@ -9,7 +9,6 @@ import {
   resolveEodScore,
   resolveTauScore,
   resolveOnScore,
-  resolveNowcastScore,
   Y_TAU_TITLE,
   TAU_REALIZED_TITLE,
   Y_HL_TITLE,
@@ -2028,7 +2027,6 @@ function t0DayScoreItem(d, fallback = {}, rules = {}, liveByCode = null) {
   let yTau = pickScoreNum(d, "y_tau");
   let yTrade = pickScoreNum(d, "y_trade");
   let yOn = pickScoreNum(d, "y_on");
-  let yNc = pickScoreNum(d, "y_nowcast");
   let yR =
     pickScoreNum(d, "predicted_score_r") ??
     pickScoreNum(d, "y_r_hat") ??
@@ -2149,7 +2147,6 @@ function t0DayScoreItem(d, fallback = {}, rules = {}, liveByCode = null) {
   const liveTau = slotSnapMode ? null : live ? resolveTauScore(live) : null;
   const liveTrade = slotSnapMode ? null : live ? resolveYTradeScore(live) : null;
   const liveOn = slotSnapMode ? null : live ? resolveOnScore(live) : null;
-  const liveNc = slotSnapMode ? null : live ? resolveNowcastScore(live) : null;
   const dayEod = scores.predicted_score_eod ?? yEod;
   const dayTau = scores.predicted_score_tau ?? scores.score_rem ?? yTau;
   const ftTau =
@@ -2173,7 +2170,6 @@ function t0DayScoreItem(d, fallback = {}, rules = {}, liveByCode = null) {
   const dayTrade =
     scores.predicted_score_blend ?? scores.decision_score ?? scores.score ?? yTrade;
   const dayOn = scores.predicted_score_on ?? yOn;
-  const dayNc = scores.predicted_score_nowcast ?? yNc;
   const filledFromLive =
     !slotSnapMode &&
     live &&
@@ -2196,7 +2192,6 @@ function t0DayScoreItem(d, fallback = {}, rules = {}, liveByCode = null) {
     decision_score: slotSnapMode ? yTrade : dayTrade ?? scores.decision_score ?? liveTrade,
     score: slotSnapMode ? yTrade : dayTrade ?? scores.score ?? liveTrade,
     predicted_score_on: dayOn ?? liveOn,
-    predicted_score_nowcast: dayNc ?? liveNc,
     predicted_score_r: slotSnapMode ? yR : scores.predicted_score_r ?? yR,
     y_r_hat: slotSnapMode ? yR : scores.y_r_hat ?? yR,
     y_r: slotSnapMode ? yR : scores.y_r ?? yR,
@@ -2352,37 +2347,6 @@ function t0DayScoreItem(d, fallback = {}, rules = {}, liveByCode = null) {
       scores.gap_pct ??
       feats.gap_pct ??
       null,
-    y_nc: dayNc ?? feats.y_nc ?? scores.y_nc ?? liveNc ?? null,
-    y_nc_oc:
-      feats.y_nc_oc ??
-      feats.y_nowcast_oc ??
-      scores.y_nc_oc ??
-      scores.y_nowcast_oc ??
-      live?.y_nc_oc ??
-      null,
-    y_nowcast_oc_gate:
-      feats.y_nowcast_oc_gate ??
-      scores.y_nowcast_oc_gate ??
-      (rules.y_nowcast_oc_gate != null ? rules.y_nowcast_oc_gate : null),
-    nowcast_compare_label: feats.nowcast_compare_label ?? scores.nowcast_compare_label ?? null,
-    y_nc_enter:
-      feats.y_nc_enter ??
-      scores.y_nc_enter ??
-      (rules.y_nc_enter != null ? rules.y_nc_enter : null),
-    y_nc_strong:
-      feats.y_nc_strong ??
-      scores.y_nc_strong ??
-      (rules.y_nc_strong != null ? rules.y_nc_strong : null) ??
-      feats.y_nowcast_enter ??
-      scores.y_nowcast_enter ??
-      (rules.y_nowcast_enter != null ? rules.y_nowcast_enter : null),
-    y_nowcast_enter:
-      feats.y_nowcast_enter ??
-      scores.y_nowcast_enter ??
-      rules.y_nowcast_enter ??
-      feats.y_nc_strong ??
-      scores.y_nc_strong ??
-      (rules.y_nc_strong != null ? rules.y_nc_strong : null),
     predicted_score_eod_rem:
       scores.predicted_score_eod_rem ?? live?.predicted_score_eod_rem ?? null,
     y_spec_tau: scores.y_spec_tau || live?.y_spec_tau || null,

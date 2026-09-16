@@ -4032,20 +4032,16 @@ class TestDualYDirection(unittest.TestCase):
         )
         self.assertFalse(allowed.get("skip"), allowed.get("direction_reason"))
 
-    def test_nowcast_oc_gate_uses_oc_not_cc(self):
-        from core.t0.score_policy import _nowcast_oc_pct, resolve_dual_y_direction
+    def test_nowcast_gate_is_retired(self):
+        """Kalman / y_nc 闸已下线：旧键 + leftover nowcast 不再拦做 T。"""
+        from core.t0.score_policy import resolve_dual_y_direction, scores_from_item
 
-        oc = _nowcast_oc_pct(1.0, 2.0)
-        self.assertIsNotNone(oc)
-        self.assertLess(float(oc), 0.0)
-        # CC 与 y_τ 同号，但 OC 异号 → 应跳过
-        blocked = resolve_dual_y_direction(
+        out = resolve_dual_y_direction(
             scores={
                 "y_trade": 0.3,
                 "y_tau": 0.70,
                 "y_nowcast": 1.0,
                 "gap_pct": 2.0,
-                "nowcast_vs": "prev_close",
             },
             cfg={
                 "y_tau_enter": 0.25,
@@ -4054,97 +4050,25 @@ class TestDualYDirection(unittest.TestCase):
                 "y_nowcast_oc_gate": True,
                 "y_gap_tier_mode": "off",
                 "y_nc_strong": 0.5,
-                "y_tau_nowcast_sign_eps": 0.05,
             },
             cash=50000,
             shares=1000,
         )
-        self.assertTrue(blocked.get("skip"))
-        self.assertIn("y_nc_oc", blocked.get("direction_reason") or "")
-        # OC 同号 → 不拦
-        ok = resolve_dual_y_direction(
-            scores={
-                "y_trade": 0.3,
-                "y_tau": 0.70,
-                "y_nowcast": 2.5,
-                "gap_pct": 2.0,
-                "nowcast_vs": "prev_close",
-            },
-            cfg={
-                "y_tau_enter": 0.25,
-                "y_use_path": False,
-                "y_block_tau_nowcast_sign": True,
-                "y_nowcast_oc_gate": True,
-                "y_gap_tier_mode": "off",
-                "y_tau_nowcast_sign_eps": 0.05,
-            },
-            cash=50000,
-            shares=1000,
-        )
-        self.assertFalse(ok.get("skip"))
-
-    def test_sign_gate_uses_table_y_nc_when_oc_off(self):
-        """y_nc（昨收 Kalman）与 y_τ_cc 异号 → OC 关时仍应拦（同量纲）。"""
-        from core.t0.score_policy import resolve_dual_y_direction
-
-        # ŷ_EOD 大负、ŷ_τ 正：nc 偏负，τ_cc 为正 → 同量纲异号
-        blocked = resolve_dual_y_direction(
-            scores={
-                "y_trade": 0.05,
-                "y_tau": 0.80,
-                "y_eod": -3.0,
-                "gap_pct": 0.0,
-            },
-            cfg={
-                "y_tau_enter": 0.02,
-                "y_use_path": False,
-                "y_block_tau_nowcast_sign": True,
-                "y_nowcast_oc_gate": False,
-                "y_nc_strong": 0.5,
-                "y_nc_enter": 0.01,
-                "y_trade_strong": 5.0,
-                "y_eod_strong": 5.0,
-                "y_gap_tier_mode": "off",
-            },
-            cash=50000,
-            shares=1000,
-        )
-        self.assertTrue(blocked.get("skip"))
-        reason = blocked.get("direction_reason") or ""
-        self.assertIn("y_nc", reason)
-        self.assertTrue("y_τ_cc" in reason or "异号" in reason)
-
-    def test_nc_leftover_is_not_kalman_recomputed(self):
-        """nowcast 已退役：leftover 原样透传，不再 Kalman 重算。"""
-        from core.t0.score_policy import scores_from_item
-
+        self.assertFalse(out.get("skip"), out.get("direction_reason"))
+        reason = str(out.get("direction_reason") or "")
+        self.assertNotIn("y_nc", reason)
+        self.assertNotIn("nowcast", reason)
         scores = scores_from_item(
             {
                 "y_eod": 0.08,
                 "y_tau": 0.12,
                 "predicted_score_nowcast": -0.40,
-                "nowcast_vs": "prev_close",
                 "gap_pct": -6.23,
-                "features_tau": {"gap_pct": -6.23},
             }
         )
-        self.assertAlmostEqual(float(scores.get("y_nc")), -0.40, places=2)
-
-    def test_scores_from_item_persists_y_nc_oc(self):
-        from core.t0.score_policy import scores_from_item
-
-        scores = scores_from_item(
-            {
-                "y_eod": 0.08,
-                "y_tau": 0.12,
-                "predicted_score_nowcast": -0.40,
-                "nowcast_vs": "prev_close",
-                "gap_pct": -6.23,
-                "features_tau": {"gap_pct": -6.23},
-            }
-        )
-        self.assertAlmostEqual(float(scores.get("y_nc")), -0.40, places=2)
-        self.assertIsNotNone(scores.get("y_nc_oc"))
+        self.assertAlmostEqual(float(scores.get("y_nowcast")), -0.40, places=2)
+        self.assertIsNone(scores.get("y_nc"))
+        self.assertIsNone(scores.get("y_nc_oc"))
 
     def test_path_panel_first_touch_label(self):
         from core.research.path_panel import first_touch_path_label

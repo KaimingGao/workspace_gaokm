@@ -1,7 +1,7 @@
 /** Paper · 做T 指标与预演表渲染（从 paper.js 抽出）。 */
 
 import { yTauMapScoreTip } from "./execution_ui.js?v=p2426";
-import { renderT0Viz, wireT0SkipTips } from "./t0_viz.js?v=p2461";
+import { renderT0Viz, wireT0SkipTips } from "./t0_viz.js?v=p2462";
 import { buildT0ReportHtml, fmtT0DirDays } from "./t0_report.js?v=p2426";
 import {
   buildT0TradeTableHtml,
@@ -13,7 +13,7 @@ import {
   wireT0DayDebugExpand,
   wireT0ProcessTips,
   stampStockFitTiers,
-} from "./t0_table.js?v=p2461";
+} from "./t0_table.js?v=p2462";
 
 function escapeHtml(s) {
   return String(s ?? "")

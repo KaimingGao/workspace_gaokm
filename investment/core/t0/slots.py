@@ -505,8 +505,6 @@ def _slot_public_scores(row: dict) -> dict:
             "y_eod",
             "y_trade",
             "y_on",
-            "y_nc",
-            "y_nowcast",
             "gap_pct",
             "y_tau_oc",
             "y_tau_portrait_oc",

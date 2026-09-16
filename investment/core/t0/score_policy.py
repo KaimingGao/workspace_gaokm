@@ -6,7 +6,6 @@
   y_τ      — 盘中主方向（开→收 OC 拟合）；正/反 T 可分 enter（y_tau_enter_buy_then_sell / _sell_then_buy）
              定向锚优先 y_tau_oc（映射前）；剩余映射分仅供融合/对照，不定向
   y_on     — 尾盘是否强制回补
-  y_nowcast— leftover 对照 nc（刷簿不再写入；默认闸关）
   y_hl     — 分钟极值时间序 signed range%（旧键 y_path）；与 y_τ 联合准入（同号+双 enter，可分正反）
 
 选向分数：开盘可预计算开盘 Z；**确认根（前 N 根齐窗）用前缀分钟因果重算**
@@ -36,9 +35,7 @@ DEFAULT_RATIO_BOOST_CAP = 2.0
 DEFAULT_RATIO_CUT = 0.60
 DEFAULT_EOD_ALIGN_BOOST = 1.10  # 写死：ŷ_eod 同向略抬目标价
 DEFAULT_RATIO_TAU_SOFT_BAND = 0.20  # 写死：|ŷ_τ| 刚过入场线时压目标价
-DEFAULT_TAU_NOWCAST_SIGN_EPS = 0.05  # 写死：τ↔nowcast 异号闸死区
-DEFAULT_NC_ENTER = 0.01
-DEFAULT_NC_STRONG = 0.2
+DEFAULT_TAU_NOWCAST_SIGN_EPS = 0.05  # 写死：强头与 τ 同号闸死区
 DEFAULT_PATH_ENTER = 0.0  # ŷ_hl 极值序 %；|ŷ|≤enter 横盘跳过；与 y_tau_enter 同尺度
 DEFAULT_PATH_STRONG = 5.0  # |y_hl|>此值时须与 y_τ 同号；≤则允许异号
 DEFAULT_GAP_TIER_PCT = 1.0
@@ -564,8 +561,6 @@ def pack_day_scores(score_snap: Optional[dict]) -> Optional[Dict[str, Any]]:
         "t90_realized",
         "y_check",
         "eod_trust",
-        "y_nc",
-        "y_nc_oc",
         "y_tau_portrait_oc",
         "y_path_portrait",
         "gap_pct",
@@ -654,8 +649,6 @@ def attach_day_scores(
             "y_r_realized",
             "y_check",
             "eod_trust",
-            "y_nc",
-            "y_nc_oc",
             "gap_pct",
         ):
             if feats.get(k) is None and snap.get(k) is not None:
@@ -1045,16 +1038,6 @@ def scores_from_item(item: Optional[dict]) -> Dict[str, Optional[float]]:
         out["_score_model_role"] = current_scoring_model_role()
     except Exception:  # noqa: BLE001
         logger.debug("stamp score model role failed", exc_info=True)
-    nc_cc = _nowcast_cc_pct(out)
-    if nc_cc is not None:
-        out["y_nc"] = nc_cc
-        gap_for_oc = _f(out.get("gap_pct"))
-        if gap_for_oc is None and isinstance(out.get("features_tau"), dict):
-            gap_for_oc = _f(out["features_tau"].get("gap_pct"))
-        if gap_for_oc is not None:
-            nc_oc = _nowcast_oc_pct(nc_cc, gap_for_oc)
-            if nc_oc is not None:
-                out["y_nc_oc"] = nc_oc
     return out
 
 
@@ -1418,29 +1401,6 @@ def _path_direction_sign(y_path: Optional[float], path_enter: float) -> int:
     if y_path < -thr:
         return -1
     return 0
-
-
-def _nowcast_oc_pct(y_nowcast_cc: Optional[float], gap_pct: Optional[float]) -> Optional[float]:
-    """nowcast oc：nc（昨收）→ open→close（与 y_τ 同窗口）。"""
-    if y_nowcast_cc is None or gap_pct is None:
-        return None
-    try:
-        g = float(gap_pct) / 100.0
-        cc = float(y_nowcast_cc) / 100.0
-    except (TypeError, ValueError):
-        return None
-    denom = 1.0 + g
-    if abs(denom) < 1e-9:
-        return None
-    oc = ((1.0 + cc) / denom - 1.0) * 100.0
-    return round(oc, 4)
-
-
-def _nowcast_cc_pct(scores: dict) -> Optional[float]:
-    """已退役：仅读旧簿 leftover，不再 Kalman 重算。"""
-    if not isinstance(scores, dict):
-        return None
-    return _f(scores.get("y_nowcast")) or _f(scores.get("predicted_score_nowcast"))
 
 
 def _gap_tier_direction_override(
@@ -2722,13 +2682,10 @@ def resolve_dual_y_direction(
     4. path 必填但缺 ŷ_hl → 跳过
     5. 有 y_trade：|y_trade|>y_trade_strong 须与**定方向** y_τ（OC）同号（fixed_* / eod_next 跳过）
     6. 有 y_eod：|y_eod|≥y_eod_enter；|y_eod|>y_eod_strong 须与定方向 y_τ（OC）同号（fixed_* / eod_next 跳过）
-    7. 可选 nc：|nc|≥y_nc_enter；|nc|>y_nc_strong 须与同量纲 τ 同号（异号闸关则跳过整步）
     通过后 y_τ（OC 拟合）映射正/反 T；y_eod_prior 仅抬目标价。
     定向锚见 ``resolve_direction_y_tau``（优先 y_tau_oc）。
     说明：trade/eod 强闸必须对比方向 τ，避免大缺口下 τ_cc 与 OC 异号时「表上 trade↔τ 冲突却放行」。
     """
-    from core.t0.config import coerce_cfg_bool
-
     trade_enter = trade_mag_floor(cfg)
     eod_prior = _cfg_float(cfg, "y_eod_prior", DEFAULT_EOD_PRIOR)
     eod_enter = _cfg_float(cfg, "y_eod_enter", DEFAULT_EOD_ENTER)
@@ -2767,22 +2724,7 @@ def resolve_dual_y_direction(
         for_buy_then_sell=True,
     )
 
-    # 新键优先；旧 y_block_trade_tau_sign 仅作迁移别名；皆缺则默认开
-    if "y_block_tau_nowcast_sign" in cfg:
-        block_tau_nc = bool(cfg.get("y_block_tau_nowcast_sign"))
-    elif "y_block_trade_tau_sign" in cfg:
-        block_tau_nc = bool(cfg.get("y_block_trade_tau_sign"))
-    else:
-        block_tau_nc = False
     sign_eps = float(DEFAULT_TAU_NOWCAST_SIGN_EPS)
-    nc_enter = _cfg_float(cfg, "y_nc_enter", DEFAULT_NC_ENTER)
-    nc_enter = max(0.01, min(float(nc_enter), 10.0))
-    nc_strong = _cfg_float(
-        cfg,
-        "y_nc_strong",
-        _cfg_float(cfg, "y_nowcast_enter", DEFAULT_NC_STRONG),
-    )
-    nc_strong = max(0.05, min(float(nc_strong), 10.0))
     tau_map = normalize_y_tau_map(cfg.get("y_tau_map"))
 
     y_eod = _f(scores.get("y_eod"))
@@ -2803,7 +2745,6 @@ def resolve_dual_y_direction(
         residual = None
     mag = residual if residual is not None else y_trade
     mag_label = "residual" if residual is not None else "y_trade"
-    y_nowcast = _f(scores.get("y_nowcast"))
     from core.research.path_panel import pick_y_hl
     from core.signal.yhat_windows import pick_y_co
 
@@ -2814,14 +2755,13 @@ def resolve_dual_y_direction(
     if gap_pct is None and isinstance(scores.get("features_tau"), dict):
         gap_pct = _f(scores["features_tau"].get("gap_pct"))
     eod_next = _scores_eod_next(scores if isinstance(scores, dict) else {})
-    # 昨收口径 τ：供 y_eod / y_trade / nc(CC) 同量纲同号闸
+    # 昨收口径 τ：供 y_eod / y_trade 同量纲同号闸
     y_tau_cc = (
         _tau_cc_for_sign_gate(float(y_tau), gap_pct) if y_tau is not None else None
     )
 
     use_path = False
     path_required = False
-    use_nowcast_oc = coerce_cfg_bool(cfg.get("y_nowcast_oc_gate"), False)
 
     features = {
         "y_eod": y_eod,
@@ -2833,7 +2773,6 @@ def resolve_dual_y_direction(
         "y_trade": y_trade,
         "residual": mag,
         "y_co": y_co,
-        "y_nowcast": y_nowcast,
         "y_hl": y_path,
         "y_check": y_check,
         "gap_pct": gap_pct,
@@ -2843,9 +2782,6 @@ def resolve_dual_y_direction(
         "y_hl_enter": path_enter,
         "y_hl_enter_sell_then_buy": path_enter_sell_then_buy,
         "y_hl_enter_buy_then_sell": path_enter_buy_then_sell,
-        "y_nc_enter": nc_enter,
-        "y_nc_strong": nc_strong,
-        "y_nowcast_enter": nc_strong,
         "y_eod_enter": eod_enter,
         "y_eod_strong": eod_strong,
         "y_trade_enter": trade_enter,
@@ -3018,66 +2954,6 @@ def resolve_dual_y_direction(
                     "signal_skip": True,
                 }
 
-    # 可选：y_τ 与 nc 联合闸（入场 + 强同 τ；OC 开时用 y_nc_oc）
-    nc_cc = _nowcast_cc_pct(scores) if isinstance(scores, dict) else None
-    if nc_cc is not None:
-        features["y_nc"] = nc_cc
-    nc_compare = nc_cc
-    nc_label = "y_nc"
-    if nc_cc is not None and gap_pct is not None:
-        nc_oc = _nowcast_oc_pct(nc_cc, gap_pct)
-        if nc_oc is not None:
-            features["y_nc_oc"] = nc_oc
-            if use_nowcast_oc:
-                nc_compare = nc_oc
-                nc_label = "y_nc_oc"
-    features["y_nowcast_oc_gate"] = use_nowcast_oc
-    features["nowcast_compare_label"] = nc_label
-    # eod_next：不与已实现 τ 做 nc 同号闸
-    if (
-        block_tau_nc
-        and not eod_next
-        and nc_compare is not None
-        and abs(y_tau) >= sign_eps
-    ):
-        if abs(nc_compare) < nc_enter:
-            return {
-                "direction": None,
-                "skip": True,
-                "direction_score": y_tau,
-                "direction_reason": (
-                    f"dual_y：|{nc_label}|={abs(nc_compare):.3f}%<{nc_enter}% 未过入场"
-                ),
-                "features": features,
-                "signal_skip": True,
-            }
-        # OC 闸：nc_oc vs y_τ(OC)；CC 闸：nc vs y_τ_cc（昨收）
-        if use_nowcast_oc or nc_label == "y_nc_oc":
-            tau_for_nc = float(y_tau)
-            tau_nc_label = "y_τ"
-        else:
-            tau_for_nc = float(y_tau_cc) if y_tau_cc is not None else float(y_tau)
-            tau_nc_label = "y_τ_cc" if y_tau_cc is not None else "y_τ"
-        nc_ok, nc_reason = _strong_head_tau_sign_gate(
-            nc_compare,
-            tau_for_nc,
-            nc_strong,
-            nc_label,
-            sign_eps=sign_eps,
-            tau_label=tau_nc_label,
-        )
-        if not nc_ok:
-            return {
-                "direction": None,
-                "skip": True,
-                "direction_score": y_tau,
-                "direction_reason": nc_reason or (
-                    f"dual_y：强 {nc_label} 与 {tau_nc_label} 异号跳过"
-                ),
-                "features": features,
-                "signal_skip": True,
-            }
-
     # y_eod 仅标注 / 目标价同向回升（t0_confidence_scale）
     prior = 0
     if y_eod is not None:
@@ -3112,13 +2988,6 @@ def resolve_dual_y_direction(
             "signal_skip": True,
         }
 
-    nc_note = ""
-    if y_nowcast is not None and (y_nowcast * y_tau) > 0 and abs(y_nowcast) >= abs(y_tau):
-        nc_note = f"；nowcast={y_nowcast:.3f}%同向增强(影子)"
-        features["nowcast_align"] = True
-    else:
-        features["nowcast_align"] = False
-
     path_note = ""
     if use_path and y_path is not None and _tau_path_same_sign(y_tau, y_path):
         path_note = (
@@ -3135,7 +3004,6 @@ def resolve_dual_y_direction(
             + (f"；y_eod先验={prior:+d}" if prior else "")
             + (f"；y_trade={y_trade:.3f}%" if y_trade is not None else "")
             + path_note
-            + nc_note
         ),
         "features": {**features, "y_tau_map": tau_map},
         "signal_skip": False,
