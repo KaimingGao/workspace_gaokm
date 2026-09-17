@@ -340,6 +340,50 @@ class TestOnScoreAttach(unittest.TestCase):
         self.assertAlmostEqual(out.get("predicted_score_on"), -0.42)
         self.assertEqual(out.get("features_on"), {"gap_pct": 1.2})
 
+    def test_overlay_on_cross_section_copies_gap_vs_sector(self):
+        from core.signal.dual_score.on import overlay_on_cross_section
+
+        out = overlay_on_cross_section(
+            {"ret_oc": 2.3, "gap_pct": -0.96},
+            {"gap_vs_sector": -0.4076, "theme_day": 0.0, "sector_gap_breadth": 0.0},
+            sector_gap_breadth=0.0,
+        )
+        self.assertEqual(out["gap_vs_sector"], -0.4076)
+        self.assertEqual(out["theme_day"], 0.0)
+        self.assertEqual(out["sector_gap_breadth"], 0.0)
+        self.assertEqual(out["ret_oc"], 2.3)
+
+    def test_attach_on_score_pit_uses_tau_gap_vs_sector(self):
+        from core.signal.dual_score.on import attach_on_score_pit
+
+        bars = _bars(25)
+        captured = {}
+
+        def _pred(feats, model_doc=None):
+            captured["feats"] = dict(feats or {})
+            return -0.256
+
+        item = {
+            "stock_code": "600183",
+            "features_tau": {"gap_vs_sector": -0.4076, "theme_day": 0.0},
+        }
+        with patch("core.research.on_ridge.predict_on_from_features", side_effect=_pred):
+            with patch(
+                "core.research.on_ridge.load_on_model",
+                return_value={"return_model": {"intercept": -0.12, "coefficients": {}}},
+            ):
+                attach_on_score_pit(
+                    item,
+                    quote={
+                        "date": bars[-1]["date"],
+                        "open": bars[-1]["open"],
+                        "price_raw": bars[-1]["close"],
+                    },
+                    bars=bars,
+                )
+        self.assertEqual(captured["feats"].get("gap_vs_sector"), -0.4076)
+        self.assertAlmostEqual(float(item.get("y_co")), -0.256)
+
     def test_ensure_formula_terms_on_refreshes_stale_z(self):
         from core.signal.dual_score.on import ensure_formula_terms_on
 

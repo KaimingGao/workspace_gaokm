@@ -1584,6 +1584,7 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertNotIn("slotRtauEnterPct", table_js)
         self.assertIn("fmtScanPredReal", table_js)
         self.assertIn("scanYocReal", table_js)
+        self.assertIn("const pack = pickTauRealized(d);", table_js)
         self.assertIn("scanRtauPred", table_js)
         self.assertIn("rtauHatFromCtauPx", table_js)
         self.assertIn("Ĉ_τ/C−1", table_js)

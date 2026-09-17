@@ -1997,8 +1997,9 @@ class TestT0Core(unittest.TestCase):
                     "skip_category": "intraday_legs_open",
                     "trades": [],
                     "close_band_scan": [{"hm": "09:45", "y_oc": -0.62}],
-                    "scores": {"y_oc": -0.62},
-                    "close": 154.48,
+                    "scores": {"y_oc": -0.62, "tau_realized": -4.56},
+                    "close": 146.03,
+                    "tau_realized": -4.56,
                 }
             ],
         }
@@ -2012,6 +2013,7 @@ class TestT0Core(unittest.TestCase):
                     "direction": "sell_then_buy",
                     "pnl": -12.5,
                     "close": 152.6,
+                    "tau_realized": -1.30,
                     "close_band_scan": [{"hm": "09:45", "y_oc": -0.73}],
                     "trades": [
                         {"side": "t0_sell", "shares": 200, "price": 150.06},
@@ -2028,8 +2030,53 @@ class TestT0Core(unittest.TestCase):
         self.assertEqual(len(booked.get("trades") or []), 2)
         self.assertEqual(booked.get("close_band_scan")[0]["y_oc"], -0.62)
         self.assertEqual((booked.get("scores") or {}).get("y_oc"), -0.62)
-        self.assertEqual(booked.get("close"), 154.48)
+        self.assertEqual((booked.get("scores") or {}).get("tau_realized"), -4.56)
+        self.assertEqual(booked.get("close"), 146.03)
+        self.assertAlmostEqual(float(booked.get("tau_realized") or 0), -4.56)
         self.assertAlmostEqual(float(booked.get("pnl") or 0), -12.5)
+
+    def test_refresh_stamps_tau_realized_from_daily_close_not_last_minute(self):
+        """重扫 OHLC 可用分钟末价；y_oc 真实值必须用日 K 收（对照回测）。"""
+        from core.t0.slots import refresh_close_band_scan
+
+        daily = {
+            "date": "2026-09-17",
+            "open": 153.0,
+            "close": 146.03,
+            "prev_close": 154.5,
+        }
+        mins = [
+            {
+                "datetime": "2026-09-17 09:35:00",
+                "open": 153.0,
+                "high": 156.0,
+                "low": 152.8,
+                "close": 154.49,
+            },
+            {
+                "datetime": "2026-09-17 11:00:00",
+                "open": 152.24,
+                "high": 152.3,
+                "low": 151.59,
+                "close": 151.01,
+            },
+        ]
+        day = {
+            "date": "2026-09-17",
+            "open": 153.0,
+            "close": 151.01,
+            "tau_realized": -1.30,
+            "t0_slot_results": [],
+        }
+        with patch("core.t0.slots._attach_close_band_scan", side_effect=lambda d, **_k: d):
+            out = refresh_close_band_scan(
+                day, minute_bars=mins, bar=daily, daily_bar=daily
+            )
+        self.assertAlmostEqual(float(out["close"]), 146.03)
+        self.assertAlmostEqual(float(out["tau_realized"]), (146.03 / 153.0 - 1) * 100, places=3)
+        ps = out.get("price_space") or {}
+        self.assertAlmostEqual(float(ps.get("minute_close")), 151.01)
+        self.assertAlmostEqual(float(ps.get("daily_close")), 146.03)
 
     def test_overlay_keeps_simulated_scan_when_row_not_skipped(self):
         """预演不跳过已落账票时：成交用快照，ŷ 用本轮 simulate。"""

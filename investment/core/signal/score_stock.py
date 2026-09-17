@@ -1248,7 +1248,10 @@ def score_stock(
         try:
             from core.research.on_panel import build_on_features_from_quote_bars
             from core.research.on_ridge import load_on_model, predict_on_from_features
-            from core.signal.dual_score.on import apply_on_score_fields
+            from core.signal.dual_score.on import (
+                apply_on_score_fields,
+                overlay_on_cross_section,
+            )
 
             on_feats = build_on_features_from_quote_bars(
                 quote,
@@ -1260,8 +1263,11 @@ def score_stock(
                 prev_close=open_t_info.get("prev_close"),
                 trade_date=open_t_info.get("trade_day"),
             )
-            on_feats["sector_gap_breadth"] = sector_breadth
-            on_feats["theme_day"] = feats.get("theme_day")
+            on_feats = overlay_on_cross_section(
+                on_feats,
+                feats,
+                sector_gap_breadth=sector_breadth,
+            )
             on_model_doc = load_on_model()
             on_yhat = predict_on_from_features(on_feats, model_doc=on_model_doc)
             apply_on_score_fields(

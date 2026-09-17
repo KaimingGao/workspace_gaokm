@@ -3651,12 +3651,10 @@ function scanYhlPred(r) {
 }
 
 function scanYocReal(d) {
-  const n = finiteRtauNum(d && d.tau_realized);
-  if (n != null) return n;
-  const o = Number(d && d.open);
-  const c = Number(d && d.close);
-  if (Number.isFinite(o) && Number.isFinite(c) && o > 0) return (c / o - 1) * 100;
-  return null;
+  // 与主表 pickTauRealized 同口径：scores/feats 优先，再顶层，再日 K 开→收。
+  // 勿只读顶层 tau_realized——已落账预演会留下早盘末价快照。
+  const pack = pickTauRealized(d);
+  return pack && pack.n != null ? pack.n : null;
 }
 
 function fmtScanPick(pick) {

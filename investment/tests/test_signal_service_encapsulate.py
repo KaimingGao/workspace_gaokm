@@ -299,6 +299,26 @@ class TestSignalServiceWrap(unittest.TestCase):
         self.assertAlmostEqual(float(row.get("fusion_w_oo")), 0.8)
         self.assertAlmostEqual(float(row.get("fusion_w_oc")), 0.2)
 
+    def test_pack_holding_row_keeps_on_features(self):
+        from core.signal.service import SignalService
+
+        row = SignalService().pack_holding_row(
+            {
+                "stock_code": "600183",
+                "predicted_score": 1.07,
+                "y_oo": 1.07,
+                "y_oc": -0.05,
+                "y_co": -0.256,
+                "predicted_score_on": -0.256,
+                "features_on": {"gap_vs_sector": -0.4076, "ret_oc": 2.3},
+                "formula_terms_on": {"total": -0.256, "terms": []},
+                "y_spec_on": {"formula": "open[T+1]/close[T]-1"},
+            },
+            rank_cfg={"fusion_w_oo": 0.6, "fusion_w_oc": 0.4, "fusion_w_co": 1.0},
+        )
+        self.assertEqual((row.get("features_on") or {}).get("gap_vs_sector"), -0.4076)
+        self.assertAlmostEqual(float(row.get("y_co")), -0.256)
+
     def test_gate_reexports(self):
         from core.signal_service import (
             SCALE_YHAT,

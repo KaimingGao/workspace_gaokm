@@ -223,9 +223,12 @@ def booked_t0_preview_row(
         }
     )
     row.pop("skip_category", None)
-    # ŷ / 扫描必须由本轮重算填回；快照里的早盘分会和回测漂。
+    # ŷ / 扫描 / 开→收真实值必须由本轮重算填回；快照里的早盘分会和回测漂。
     row.pop("close_band_scan", None)
     row.pop("scores", None)
+    row.pop("tau_realized", None)
+    row.pop("eod_realized", None)
+    row.pop("path_realized", None)
     return row
 
 
@@ -288,6 +291,8 @@ def overlay_booked_t0_on_preview(
         )
         if not booked:
             continue
+        # ŷ / 扫描 / 开→收真实值用本轮重算。tau_realized 必须盖掉早盘快照，
+        # 否则扫描表 y_oc 括号仍是盘中末价（如 151.01→−1.30%），回测用全日收。
         for k in (
             "close_band_scan",
             "scores",
@@ -295,9 +300,21 @@ def overlay_booked_t0_on_preview(
             "high",
             "low",
             "close",
+            "tau_realized",
+            "eod_realized",
+            "path_realized",
+            "price_space",
+            "price_space_scale",
+            "price_space_mode",
         ):
             if row.get(k) is not None:
                 booked[k] = row.get(k)
+            elif k in (
+                "tau_realized",
+                "eod_realized",
+                "path_realized",
+            ):
+                booked.pop(k, None)
         rows[i] = booked
         shown += 1
     if not shown:

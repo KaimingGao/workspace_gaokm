@@ -42,6 +42,30 @@ def merge_on_features(
     return out
 
 
+def overlay_on_cross_section(
+    on_feats: Optional[Dict[str, Any]],
+    tau_feats: Optional[Dict[str, Any]] = None,
+    *,
+    sector_gap_breadth: Any = None,
+) -> Dict[str, Any]:
+    """把 τ 头已算的截面写进 ŷ_co 特征。
+
+    score_stock 原先只抄 breadth / theme_day，漏了 gap_vs_sector。
+    观察页 hydrate 会从 features_tau 补上，持仓页直接用 score_one，两边 y_co 就会分叉。
+    """
+    out = dict(on_feats or {})
+    src = tau_feats if isinstance(tau_feats, dict) else {}
+    if sector_gap_breadth is not None:
+        out["sector_gap_breadth"] = sector_gap_breadth
+    elif src.get("sector_gap_breadth") is not None:
+        out["sector_gap_breadth"] = src.get("sector_gap_breadth")
+    for k in ("theme_day", "gap_vs_sector"):
+        v = src.get(k)
+        if v is not None and v != "":
+            out[k] = v
+    return out
+
+
 def apply_on_score_fields(
     signal_item: Dict[str, Any],
     *,
@@ -235,17 +259,19 @@ def attach_on_score_pit(
         )
         if gap_pct is not None:
             feats["gap_pct"] = gap_pct
-        if sector_gap_breadth is not None:
-            feats["sector_gap_breadth"] = sector_gap_breadth
+        feats = overlay_on_cross_section(
+            feats,
+            signal_item.get("features_tau")
+            if isinstance(signal_item.get("features_tau"), dict)
+            else None,
+            sector_gap_breadth=sector_gap_breadth,
+        )
         if theme_day is not None:
             feats["theme_day"] = theme_day
         elif signal_item.get("theme_day") is not None:
             feats.setdefault("theme_day", signal_item.get("theme_day"))
         if signal_item.get("gap_vs_sector") is not None:
             feats.setdefault("gap_vs_sector", signal_item.get("gap_vs_sector"))
-        ft = signal_item.get("features_tau")
-        if isinstance(ft, dict) and ft.get("gap_vs_sector") is not None:
-            feats.setdefault("gap_vs_sector", ft.get("gap_vs_sector"))
         prior = signal_item.get("features_on")
         if isinstance(prior, dict):
             feats = merge_on_features(feats, prior)

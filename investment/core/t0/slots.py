@@ -1303,9 +1303,28 @@ def refresh_close_band_scan(
         ohlc = _day_ohlc_from_minutes(
             minute_bars, bar if isinstance(bar, dict) else None
         )
-        for k in ("open", "high", "low", "close"):
+        # 开/高/低可用分钟合成；收盘锚与 y_oc 真实值必须用日 K，勿用可见末根。
+        for k in ("open", "high", "low"):
             if ohlc.get(k) is not None:
                 out[k] = ohlc.get(k)
+        min_c = ohlc.get("close")
+        ps = dict(out["price_space"]) if isinstance(out.get("price_space"), dict) else {}
+        if min_c is not None:
+            ps["minute_close"] = min_c
+        anchor = daily_bar if isinstance(daily_bar, dict) else bar
+        if isinstance(anchor, dict) and anchor.get("close") is not None:
+            ps["daily_close"] = anchor.get("close")
+            out["close"] = anchor.get("close")
+        if ps:
+            out["price_space"] = ps
+        from core.t0.score_policy import attach_eod_tau_realized
+
+        out = attach_eod_tau_realized(
+            out,
+            open_px=anchor.get("open") if isinstance(anchor, dict) else None,
+            close_px=anchor.get("close") if isinstance(anchor, dict) else None,
+            prev_close=anchor.get("prev_close") if isinstance(anchor, dict) else None,
+        )
     except Exception:  # noqa: BLE001
         logger.debug("refresh_close_band_scan ohlc failed", exc_info=True)
     return out
