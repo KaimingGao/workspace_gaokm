@@ -205,7 +205,7 @@ def score_bars(
             reject_reason = f"近3日涨幅过大({mom3:.1f}%)，短线追高风险高"
             mom3_notes.append(reject_reason)
         else:
-            mom3_notes.append(f"近3日涨幅 {mom3:.1f}%（不硬拒，交给 ŷ / 纸面过热闸）")
+            mom3_notes.append(f"近3日涨幅 {mom3:.1f}%（不硬拒，交给 ŷ / 过热标注）")
 
     if mom3 is not None and mom3 <= loss_min:
         if apply_mom3_reject:
@@ -213,7 +213,7 @@ def score_bars(
             reject_reason = f"近3日跌幅过大({mom3:.1f}%)，短线动能偏弱"
             mom3_notes.append(reject_reason)
         else:
-            mom3_notes.append(f"近3日跌幅 {mom3:.1f}%（不硬拒，交给 ŷ / 纸面过热闸）")
+            mom3_notes.append(f"近3日跌幅 {mom3:.1f}%（不硬拒，交给 ŷ / 过热标注）")
 
     if mom5 is not None and mom5 >= gain5_max:
         msg = f"近5日涨幅过大({mom5:.1f}%≥{gain5_max:g}%)"
@@ -222,7 +222,7 @@ def score_bars(
             reject_reason = reject_reason or msg
             mom3_notes.append(msg)
         else:
-            mom3_notes.append(f"{msg}（不硬拒，交给纸面过热闸）")
+            mom3_notes.append(f"{msg}（不硬拒，交给过热标注）")
 
     last_change = None
     if quote and quote.get("change_raw") is not None:
@@ -246,7 +246,7 @@ def score_bars(
             reject_reason = reject_reason or msg
             mom3_notes.append(msg)
         else:
-            mom3_notes.append(f"{msg}（不硬拒，交给纸面过热闸）")
+            mom3_notes.append(f"{msg}（不硬拒，交给过热标注）")
 
     # 前置风控检查
     risk_config = cfg.get("pre_trade_risk", {})

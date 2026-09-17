@@ -1,4 +1,4 @@
-"""过热因子与纸面闸单测。"""
+"""过热因子与标注单测。"""
 
 import os
 import sys
@@ -14,7 +14,6 @@ from core.signal.factors.overheat import score_from_raw, score_overheat
 from core.signal.overheat_gate import (
     annotate_item_overheat,
     evaluate_overheat_gate,
-    paper_overheat_block,
 )
 from core.signal.scorer import score_bars
 from tests.test_signal import _overheated_bars
@@ -40,12 +39,12 @@ class TestOverheatFactor(unittest.TestCase):
             mom3=5.0,
             mom5=10.5,
             day_gain=1.0,
-            config={"hard_reject": {"mom5_gain_max_pct": 10, "paper_buy_enforce": True}},
+            config={"hard_reject": {"mom5_gain_max_pct": 10}},
         )
         self.assertTrue(g["hit"])
         self.assertIn("近5日", g["reason"])
 
-    def test_annotate_paper_hard_reject_without_production_hard_reject(self):
+    def test_annotate_overheat_without_production_hard_reject(self):
         item = {
             "stock_code": "000938",
             "predicted_score": 1.07,
@@ -57,35 +56,24 @@ class TestOverheatFactor(unittest.TestCase):
             config={
                 "hard_reject": {
                     "mom5_gain_max_pct": 10,
-                    "paper_buy_enforce": True,
                     "soft_scale_yhat": False,
                 }
             },
         )
         self.assertTrue(gate["hit"])
-        self.assertTrue(item.get("paper_hard_reject"))
+        self.assertTrue(item.get("mom_chase_risk"))
+        self.assertFalse(item.get("paper_hard_reject"))
         self.assertFalse(item.get("hard_reject"))
         self.assertEqual(item.get("predicted_score"), 1.07)
         self.assertIsNotNone(item.get("predicted_score_overheat_scaled"))
         self.assertLess(item["predicted_score_overheat_scaled"], 1.07)
 
-    def test_paper_block_helper(self):
-        item = {
-            "factors": {"momentum_5d": 11.0, "momentum_3d": 4.0, "last_change": 1.0},
-            "predicted_score": 1.5,
-        }
-        blocked, reason = paper_overheat_block(
-            item,
-            config={"hard_reject": {"mom5_gain_max_pct": 10, "paper_buy_enforce": True}},
-        )
-        self.assertTrue(blocked)
-        self.assertTrue(reason)
-
     def test_score_bars_production_path_keeps_overheat_meta(self):
         # 生产同款：mom3_hard_reject=False 不掐死，但仍标注
         result = score_bars(_overheated_bars(), horizon_days=1, mom3_hard_reject=False)
         self.assertFalse(result.get("hard_reject"))
-        self.assertTrue(result.get("paper_hard_reject") or result.get("mom3_chase_risk"))
+        self.assertTrue(result.get("mom_chase_risk") or result.get("mom3_chase_risk"))
+        self.assertFalse(result.get("paper_hard_reject"))
         self.assertIn("overheat", result.get("sub_scores") or {})
 
     def test_score_window_as_item_keeps_overheated(self):
@@ -102,7 +90,8 @@ class TestOverheatFactor(unittest.TestCase):
         self.assertIsNotNone(item)
         self.assertEqual(item.get("stock_code"), "600869")
         self.assertFalse(item.get("hard_reject"))
-        self.assertTrue(item.get("paper_hard_reject") or item.get("mom_chase_risk"))
+        self.assertTrue(item.get("mom_chase_risk"))
+        self.assertFalse(item.get("paper_hard_reject"))
 
 
 if __name__ == "__main__":

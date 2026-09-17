@@ -62,7 +62,6 @@ DEFAULT_SIGNAL_CONFIG: Dict[str, Any] = {
         "mom5_gain_max_pct": 10.0,
         "day_gain_max_pct": 6.0,
         "soft_reject": False,
-        "paper_buy_enforce": True,
         "soft_scale_yhat": False,
     },
     # FH3：rank.min_score 已 deprecated；生产选股门槛只认 scoring.min_predicted_score
@@ -76,8 +75,6 @@ DEFAULT_SIGNAL_CONFIG: Dict[str, Any] = {
         # 滞回：买入/入簿 ŷ≥+1%；卖出仅 ŷ<-1%；中间带持有不因未进簿清仓
         "min_predicted_score": 1.0,
         "min_hold_predicted_score": -1.0,
-        # 校准层已下线；标志仅兼容旧配置，不进决策
-        "enable_calibration": False,
         "horizon_days": 1,
     },
     # 双层 ŷ：ŷ_oo predicted_score + τ predicted_score_tau（见 dual_score / docs §2.5）
@@ -300,6 +297,16 @@ def load_signal_config(*, reload: bool = False) -> Dict[str, Any]:
     if floor_warns:
         cfg.setdefault("_config_warnings", [])
         cfg["_config_warnings"] = list(cfg.get("_config_warnings") or []) + floor_warns
+    hr = cfg.get("hard_reject")
+    if isinstance(hr, dict) and "paper_buy_enforce" in hr:
+        hr = dict(hr)
+        hr.pop("paper_buy_enforce", None)
+        cfg["hard_reject"] = hr
+    scoring = cfg.get("scoring")
+    if isinstance(scoring, dict) and "enable_calibration" in scoring:
+        scoring = dict(scoring)
+        scoring.pop("enable_calibration", None)
+        cfg["scoring"] = scoring
     _cached = cfg
     return _apply_overlays(deepcopy(cfg))
 

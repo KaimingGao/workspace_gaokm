@@ -30,7 +30,12 @@ def read_dual_score_public() -> Dict[str, Any]:
         "enable_tau_shadow_book": bool(cfg.get("enable_tau_shadow_book")),
         "enable_minute_tau": bool(cfg.get("enable_minute_tau")),
         "y_spec": cfg.get("y_spec"),
-        "note": "簿排序用 ŷ_trade=w·ŷ_oo+w·(缺口∘ŷ_τ)；主 score 仍 ŷ_oo；买入另过 τ 闸",
+        "note": (
+            "主 score 仍 ŷ_oo（入池地板 min_predicted_score）。"
+            "盘中簿 ŷ_trade=w_oo·ŷ_oo+w_tau·(缺口∘ŷ_τ)；收盘 eod_next 剥离 τ。"
+            "调仓 rank_lots 用独立 fusion_w_oo/oc，不是 dual_score.w_*。"
+            "买入另过 τ 闸。"
+        ),
     }
 
 

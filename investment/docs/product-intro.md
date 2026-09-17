@@ -124,38 +124,36 @@ quant_panel.html
 
 ### 3.3 打分流水线
 
-`scorer.score_bars()` 对因子做加权聚合：
+`score_bars()` 仍算因子 `sub_scores`（ŷ 输入）。**生产 `score` / `predicted_score` 是组 OLS/Ridge 的 ŷ%**，不是 0–100 规则加权总分。规则综合分仅研究对照（`heuristic_score`）。
 
-1. **因子计算**：`compute_configured_factors()` 按配置计算各因子原始值
-2. **交互项奖励**：`_interaction_bonus()` — 动量×量价、反转×波动等交叉项
-3. **非线性压缩**：`_sigmoid_score()` — 将线性分数压缩到更平滑的分布
-4. **加权汇总**：按配置权重输出 0-100 的 `predicted_score`
+入池地板认 `scoring.min_predicted_score`（现网 0.4%）。`rank.min_score=55` 只服务启发式遗留，不进 ŷ 买入门。
 
 ### 3.4 双预测头融合（Dual Score）
 
-核心创新：`core/signal/dual_score/` 实现两层独立预测头：
+`core/signal/dual_score/` 维护独立标签的预测头；**调仓 ranking** 与 **盘中簿 ŷ_trade** 不是同一套权重。
 
 | 预测头 | 含义 | 用途 |
 |--------|------|------|
-| **ŷ_oo** | 预估 open[T+1]/open[T]−1 | ranking 输入 |
-| **ŷ_oc** | 预估 close[T]/open[T]−1 | ranking 输入；做 T 方向 |
+| **ŷ_oo** | 预估 open[T+1]/open[T]−1 | 主字段 / 入池地板；收盘后排序；调仓 ranking 成分 |
+| **ŷ_oc** | 预估 close[T]/open[T]−1 | 调仓 ranking 成分；盘中 ŷ_trade；做 T 估 C_τ |
 | **ŷ_τc** | 预估 close[T]/price(τ)−1 | 研究拟合仍保留；做 T / 数据中心表列已下线 |
-| **ŷ_co** | 预估 open[T+1]/close[T]−1 | 经 w_co 叠进 ŷ_oc |
-| **ranking** | w_oo·ŷ_oo + w_oc·((1+ŷ_oc)(1+w_co·ŷ_co)−1) | 调仓排序 / 卖门槛 |
+| **ŷ_co** | 预估 open[T+1]/close[T]−1 | 经 w_co 叠进 ŷ_oc（调仓默认 w_co=0） |
+| **调仓 ranking** | fusion_w_oo·ŷ_oo + fusion_w_oc·((1+ŷ_oc)(1+w_co·ŷ_co)−1) | 纸面 rank_lots（默认 0.6 / 0.4） |
+| **盘中 ŷ_trade** | dual_score blend：w_oo·ŷ_oo + w_tau·(缺口∘ŷ_τ) | 现网 **w_oo=0, w_tau=1**；收盘 eod_next 回到 ŷ_oo |
 
 关键逻辑：
-- **买入闸**：`buy_passes_tau_gate()` — 仅当 ŷ_τ 超过阈值时才允许买入，过滤"方向对但买入时机差"的票
-- **EOD gate**：`eod_gate_score_for_item()` — 调仓开/加仓时的方向确认
+- **买入闸**：`buy_passes_tau_gate()` — 仅当 ŷ_τ 超过阈值时才允许买入
+- **EOD gate**：`eod_gate_score_for_item()` — 开/加仓方向确认（读 raw ŷ_oo）
 - **ŷ_oo**：主字段 `y_oo` / `predicted_score_oo`（旧键 `predicted_score_eod` / `predicted_score` 可读）
 
 ### 3.5 横截面排序
 
-`cross_section.rank_cross_section()` 对观察池批量打分并排序：
+`cross_section.rank_cross_section()` 对观察池批量打分：
 
-- **输入**：`watching.json` 中的 watchlist（最多 50 只）
+- **输入**：`watching.json` 的 watchlist（**上限 200**；现网可到 160 只）
 - **处理**：逐股 `score_stock()`，质量门禁过滤
-- **输出**：按 `predicted_score` 降序的 Top N（默认 10，最多 30）
-- **配置**：`min_score`（最低分阈值）、`horizon_days`（预测周期 1-10 天）
+- **入簿截断**：`cluster_scoring.max_names`（默认 40，硬顶 80）——这是簿长，不是训练宇宙
+- **配置**：生产门槛 `min_predicted_score`；`horizon_days`（现网 1）
 
 ### 3.6 质量门禁
 
@@ -172,7 +170,7 @@ quant_panel.html
 
 > 详细数学推导见 [rebalance-logic.md](./rebalance-logic.md)。
 
-调仓系统按 **ranking = w_oo·ŷ_oo + w_oc·((1+ŷ_oc)(1+w_co·ŷ_co)−1)** 以 200/500 股加减仓，现金用完即止。
+调仓系统按 **ranking = w_oo·ŷ_oo + w_oc·((1+ŷ_oc)(1+w_co·ŷ_co)−1)** 以 200/500 股开仓或加仓，未过入场则清仓，现金用完即止。
 
 ### 4.1 核心概念
 
@@ -192,18 +190,17 @@ quant_panel.html
 ```
 每个交易日 09:30 打分；历史回测按所选调仓时间用 5 分钟价成交：
   ranking = w_oo·ŷ_oo + w_oc·((1+ŷ_oc)(1+w_co·ŷ_co)−1)
-  已持仓且 ranking < 0、缺 ranking 或 hard_reject → 清仓（T+1 可卖）
-  ranking > rank入场 → 开仓或加仓（live 受观察池容量与持仓市值上限；历史回测用全部观察池）
+  已持仓且未过入场、缺 ranking 或 hard_reject → 清仓（T+1 可卖）
+  ranking > rank入场（可选 y_oo>0 / y_oc>0 / y_hl>0）→ 开仓或加仓
   ranking > rank强 → 500 股，否则 200 股
-  现金不够该手 → 跳过该买
-  未买且 ranking ≥ 0 → 持有；缺 ranking 不清成持有
+  现金不够该手 → 缩到整百（最少一手）；仍买不起才跳过
 ```
 
 ### 4.3 手数与现金
 
-- ranking &gt; rank强（默认 0.012 / 1.2%）→ live **500 股** / 回测 **200 股**，否则 live **200** / 回测 **100**；回测 200 买不下则退 100
-- 不留现金地板：现金不够该手则跳过。live 另受持仓市值上限（默认 15 万）；**历史回测** 本金默认 20 万（表单可改）、不套市值帽
-- 未买但 ranking ≥ 0 **不卖**；缺 ranking 清仓
+- ranking &gt; rank强（默认 0.012 / 1.2%）→ live **500 股** / 回测默认 **200 股**（表单可改），否则 live **200**；买不下整手则缩到整百，最少一手
+- 不留现金地板：现金不够该手则缩到整百（最少一手）。live 另受持仓市值上限（默认 15 万）；**历史回测** 本金默认 20 万（表单可改）、不套市值帽
+- 未过入场的已持仓 **清仓**；缺 ranking 清仓。无「持」动作。
 
 ### 4.4 风控约束
 
@@ -221,7 +218,7 @@ live：`watching_matrix.simulate_watching_matrix_preview`；历史：`backtest_p
 1. 09:30 对观察池打 y_fuse / y_on
 2. `plan_rank_lot_day` 出买卖清单
 3. 现金是否够该手
-4. 预演或落账（盘中现价；收盘后可挂次日开盘）
+4. 预演或落账（仅已保存调仓时间～10:00 现价；过点不补跑、不挂开盘单）
 5. 输出调仓报告
 
 ### 4.6 模式
@@ -234,72 +231,60 @@ live：`watching_matrix.simulate_watching_matrix_preview`；历史：`backtest_p
 
 ## 五、做T 策略说明
 
-> 详细规则与盈亏计算见 [t0-logic.md](./t0-logic.md)。
+> 现行配方是 **v6 收盘带宽**。规则与盈亏计算见 [t0-logic.md](./t0-logic.md)。
 
-做T（T+0）是在持有底仓的前提下，利用日内波动做高抛低吸，降低持仓成本。
+做 T 是在**已持底仓**上的日内 timing overlay，不是独立选股。正 T = 先买后卖，反 T = 先卖后买（腿顺序，不是「低吸高卖」保证）。
 
 ### 5.1 核心概念
 
 | 概念 | 含义 |
 |------|------|
-| **底仓** | 已持有的股票仓位，做T 不改变底仓数量 |
-| **正向T** | 先买后卖（低买高卖），日内完成 |
-| **反向T** | 先卖后买（高卖低买），日内完成 |
-| **触发** | 价格/信号满足条件时生成做T 单 |
-| **手数** | 单次做T 的股数，受底仓和资金约束 |
+| **底仓** | 调仓已持有的仓；做 T 不改选股主线 |
+| **正 T** | 先买后卖（`buy_then_sell`） |
+| **反 T** | 先卖后买（`sell_then_buy`） |
+| **C_τ** | `O×(1+clip(ŷ_oc×scale)/100)` 估的目标收价 |
+| **δ** | 超额带宽（默认 3%）：C 破上带反 T、破下带正 T |
 
-### 5.2 策略类型
+### 5.2 现网策略（v6）
 
-| 类型 | 逻辑 | 适用场景 |
-|------|------|----------|
-| **ŷ_τ 驱动** | ŷ_τ 超过阈值触发正向T，跌破阈值触发反向T | 信号明确的票 |
-| **网格** | 固定价格间隔挂买卖单 | 震荡行情 |
-| **均线偏离** | 价格偏离均线超过阈值时回归做T | 趋势行情 |
+**网格挂单 / 均线偏离不是现网做 T。** 现网只跑一套：
+
+1. 每 5 分钟用截至该根前缀重算 ŷ_oc，估 C_τ
+2. 该根收价相对 C_τ×(1±δ) 破带才开第一腿（截止 11:00）
+3. 第一腿为触发根收盘价；第二腿冻结为 C_τ
+4. 入场过门槛 1 或门槛 2（\|y_τ\| / \|y_hl\| / ŷ_τ30/60/90）；\|y_hl\| 过大须与 y_τ 同号
+5. 每轮默认可卖量的 40%，累计不超过底仓 100%
 
 ### 5.3 执行流程
 
-做T 在 `core/t0/` 中实现，由 `execution.py` 统一编排：
+`core/t0/` · Follow Worker **5 分钟**盯盘；缺分钟则跳过该日。纸面 `POST /api/paper/t0` 默认 dry_run，`confirm=true` 才写账。
 
 ```
-定时轮询持有底仓的股票：
-  1. 取实时行情（最新价、买卖盘）
-  2. 计算 ŷ_τ 或技术指标
-  3. 判断触发条件：
-     - 正向T：信号强 + 有可用现金 + 未达日内上限
-     - 反向T：信号弱 + 有底仓可卖 + 未达日内上限
-  4. 生成做T 单（限价/市价）
-  5. 提交撮合执行
-  6. 配对平单：检测反向条件，平掉做T 仓位
-  7. 记录盈亏
+持仓底仓 → 5m 前缀估 C_τ → 收价破带选向 → 开 leg1
+        → 共用止损 / 冻结 C_τ 挂 leg2 → 11:00 后只收第二腿
 ```
 
-### 5.4 风控参数
+### 5.4 风控参数（与 t0-logic 对齐）
 
-| 参数 | 说明 | 默认值 |
-|------|------|--------|
-| `t0_enabled` | 总开关 | True |
-| `t0_max_lots_per_day` | 日内最大做T 手数 | 3 |
-| `t0_profit_target` | 单笔止盈比例 | 0.3% |
-| `t0_stop_loss` | 单笔止损比例 | 0.5% |
-| `t0_min_spread` | 最小价差要求 | 0.1% |
-| `t0_cooldown_sec` | 两次做T 间隔 | 300s |
-| `t0_max_position_pct` | 做T 仓位占底仓比例上限 | 50% |
+| 参数 | 说明 | 默认 |
+|------|------|------|
+| 破带 δ | 相对 C_τ 的超额带宽 | 3% |
+| 开仓截止 | 此后不开 leg1 | 11:00 |
+| `t0_round_ratio` | 每轮占日初可卖 | 40% |
+| `t0_max_position_pct` | 累计上限 | 100% |
+| 止损 | 相对成交价 | 1.2% |
+| `fill_mode` | 回测成交 | `trigger`（触价假设） |
 
-### 5.5 盈亏计算
+### 5.5 盈亏
 
-做T 盈亏在 `core/t0/pnl.py` 中实现，采用 **配对清算**：
-
-- 正向T 盈亏 = (卖出价 − 买入价) × 股数 − 手续费
-- 反向T 盈亏 = (卖出价 − 买回价) × 股数 − 手续费
-- 未平单按收盘价估值（浮盈浮亏）
-- 已实现盈亏计入当日 PnL，影响做T 专用余额
+已实现 round-trip 价差（手续费后），不是底仓浮动盈亏。正/反 T 应与 `origin=strategy` 调仓 PnL 分开归因。未平腿按规则挂目标 / 止损 / 收盘处理。
 
 ### 5.6 与调仓的关系
 
-- 做T **不改变底仓数量**，调仓的目标权重仍按底仓计算
-- 做T 仓位单独管理（`t0_position`），不计入持仓权重
-- 做T 盈亏独立核算，与底仓盈亏分离
-- 调仓时若有未平的做T 仓位，优先平仓再执行调仓
+- 做 T **不改变选股结构**；在既定底仓上 overlay
+- 未平腿时调仓跳过该票卖出
+- 资金回流会进次日现金 / 净值，归因必须分层
+- ŷ_τ **模型共用、决策不重复**：调仓侧是买入闸 + ŷ_trade 成分；做 T 侧是估 C_τ
 
 ---
 
@@ -312,7 +297,7 @@ live：`watching_matrix.simulate_watching_matrix_preview`；历史：`backtest_p
 | 双预测头 | `core/signal/dual_score/` |
 | 横截面排序 | `core/signal/cross_section.py` |
 | 调仓引擎 | `core/paper/rebalance/rank_lots.py`, `watching_matrix.py` |
-| 做T 引擎 | `core/t0/strategy.py`, `core/t0/engine.py` |
+| 做T 引擎 | `core/t0/`（`close_band.py` · `score_policy.py` · `slots.py`） |
 | 模拟盘撮合 | `core/execution.py`, `core/paper/` |
 | Web 后端 | `web/app.py`, `web/routers/` |
 | Web 前端 | `web/static/partials/`, `web/static/js/` |

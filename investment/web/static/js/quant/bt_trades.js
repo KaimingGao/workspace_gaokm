@@ -17,6 +17,9 @@ const {
   compoundPct,
   resolvePathScore,
   fmtPathScore,
+  Y_EOD_TITLE,
+  Y_OC_REBALANCE_TITLE,
+  Y_ON_TITLE,
   Y_HL_TITLE,
 } = await import(`../paper/fmt.js?v=${encodeURIComponent(_V)}`);
 
@@ -257,7 +260,7 @@ export function isRankLotsLedger(legs, dataOrTrades) {
 }
 
 export const BT_LEDGER_TRADE_COLS = [
-  { id: "action", label: "动作", widthPct: 8, widthMin: "5.4rem", title: "开/加/清/持/跳过；跳过行下方为原因" },
+  { id: "action", label: "动作", widthPct: 8, widthMin: "5.4rem", title: "开/加/清/跳过；跳过行下方为原因" },
   { id: "name", label: "股票", flex: true, flexMin: "6.8rem", title: "点击名称看日线" },
   {
     id: "open_date",
@@ -265,7 +268,7 @@ export const BT_LEDGER_TRADE_COLS = [
     widthPct: 8,
     widthMin: "6.8rem",
     sortable: true,
-    title: "该持仓最早买入日；开仓=当日，加仓/清仓/持=原开日",
+    title: "该持仓最早买入日；开仓=当日，加仓/减仓/清仓/持=原开日",
   },
   { id: "shares", label: "股数", widthPct: 6, widthMin: "3.6rem", num: true, sortable: true },
   {
@@ -294,7 +297,7 @@ export const BT_LEDGER_TRADE_COLS = [
     widthMin: "8.8rem",
     num: true,
     sortable: true,
-    title: "格式 预估(真实)。预估=ŷ_oo；真实=次日开/今日开。对照用。",
+    title: `${Y_EOD_TITLE} · 预估(真实)：次日开/今日开`,
   },
   {
     id: "y_tau",
@@ -303,7 +306,7 @@ export const BT_LEDGER_TRADE_COLS = [
     widthMin: "8.8rem",
     num: true,
     sortable: true,
-    title: "格式 预估(真实)。预估=ŷ_oc；真实=收盘/开盘。对照用，不进决策。",
+    title: `${Y_OC_REBALANCE_TITLE} · 预估(真实)：收盘/开盘 · 对照，不进决策`,
   },
   {
     id: "y_on",
@@ -312,7 +315,7 @@ export const BT_LEDGER_TRADE_COLS = [
     widthMin: "8.8rem",
     num: true,
     sortable: true,
-    title: "格式 预估(真实)。预估=ŷ_co；真实=次日开/今日收。对照用，不进决策。",
+    title: `${Y_ON_TITLE} · 预估(真实)：次日开/今日收 · 对照，不进决策`,
   },
   {
     id: "ranking",
@@ -330,7 +333,7 @@ export const BT_LEDGER_TRADE_COLS = [
     widthMin: "5.2rem",
     num: true,
     sortable: true,
-    title: Y_HL_TITLE,
+    title: `${Y_HL_TITLE} · 预估(真实)：极值序`,
   },
 ];
 
@@ -451,6 +454,7 @@ function _actionMeta(r) {
   if (skipped || raw === "skip") return { key: "skip", text: "跳过" };
   if (raw === "open") return { key: "open", text: "开" };
   if (raw === "add") return { key: "add", text: "加" };
+  if (raw === "reduce") return { key: "reduce", text: "减" };
   if (raw === "exit") return { key: "exit", text: "清" };
   if (raw === "hold" || side === "hold") return { key: "hold", text: "持" };
   if (side === "buy") return { key: "open", text: "买" };
@@ -463,7 +467,25 @@ function _legReason(r) {
   return s;
 }
 
+function _fusionFromReplayParams(params) {
+  const p = params && typeof params === "object" ? params : {};
+  const wOo = p.fusion_w_oo != null ? p.fusion_w_oo : p.fusion_w_trade;
+  const wOc = p.fusion_w_oc != null ? p.fusion_w_oc : p.fusion_w_nowcast;
+  const wCo = p.fusion_w_co != null ? p.fusion_w_co : p.y_on_alpha;
+  return { fusion_w_oo: wOo, fusion_w_oc: wOc, fusion_w_co: wCo };
+}
+
 export function buildLedgerTradeRow(r, i, deps) {
+  const fw = _fusionFromReplayParams((deps && deps.params) || (deps && deps.request));
+  r = {
+    ...r,
+    fusion_w_oo: r.fusion_w_oo != null ? r.fusion_w_oo : fw.fusion_w_oo,
+    fusion_w_oc: r.fusion_w_oc != null ? r.fusion_w_oc : fw.fusion_w_oc,
+    fusion_w_co: r.fusion_w_co != null ? r.fusion_w_co : fw.fusion_w_co,
+    fusion_w_trade: r.fusion_w_trade != null ? r.fusion_w_trade : fw.fusion_w_oo,
+    fusion_w_nowcast: r.fusion_w_nowcast != null ? r.fusion_w_nowcast : fw.fusion_w_oc,
+    y_on_alpha: r.y_on_alpha != null ? r.y_on_alpha : fw.fusion_w_co,
+  };
   const nameByCode = deps.nameByCode || {};
   const { fmtScore, scoreCls } = deps;
   const code = String(r.stock_code || "").trim();
@@ -482,7 +504,10 @@ export function buildLedgerTradeRow(r, i, deps) {
   const rCc = _numOrNull(r.realized_cc);
   const rOn = _numOrNull(r.realized_on);
   const rTau = _numOrNull(r.realized_tau);
-  const rOo = rTau != null && rOn != null ? compoundPct(rTau, rOn) : null;
+  let rOo = _numOrNull(r.realized_oo);
+  if (rOo == null && rTau != null && rOn != null) {
+    rOo = compoundPct(rTau, rOn);
+  }
   const yhl = resolvePathScore(r);
   const rhl = _numOrNull(
     r.y_hl_realized != null
@@ -495,13 +520,13 @@ export function buildLedgerTradeRow(r, i, deps) {
   const actionTip = _legReason(r);
   const fuseTip = [
     yf != null ? `ŷ_oo ${fmtScore(yf, { signed: true })}` : "ŷ_oo —",
-    rOo != null ? `真实 次日开/今日开 ${fmtScore(rOo, { signed: true })}` : "真实 —",
+    rOo != null ? `真实 次日开/今日开 ${fmtScore(rOo, { signed: true })}` : "真实 —（待次日开）",
   ]
     .filter(Boolean)
     .join(" · ");
   const onTip = [
     yo != null ? `ŷ_co ${fmtScore(yo, { signed: true })}` : "ŷ_co —",
-    rOn != null ? `真实 次日开/今日收 ${fmtScore(rOn, { signed: true })}` : "真实 —",
+    rOn != null ? `真实 次日开/今日收 ${fmtScore(rOn, { signed: true })}` : "真实 —（待次日开）",
   ]
     .filter(Boolean)
     .join(" · ");
@@ -517,6 +542,22 @@ export function buildLedgerTradeRow(r, i, deps) {
   ]
     .filter(Boolean)
     .join(" · ");
+  const scoreDetail = watchingScoreDetail({
+    ...r,
+    y_oo: yf,
+    predicted_score_eod: yf != null ? yf : r.predicted_score_eod,
+    predicted_score: yf != null ? yf : r.predicted_score,
+    y_oc: ytau,
+    y_tau: ytau,
+    predicted_score_tau: ytau != null ? ytau : r.predicted_score_tau,
+    y_co: yo,
+    predicted_score_on: yo != null ? yo : r.predicted_score_on,
+    ranking: rankingPct != null ? rankingPct : r.ranking,
+    y_hl: yhl,
+    predicted_score_hl: yhl,
+    y_hl_realized: rhl,
+    path_realized: rhl,
+  });
   const sharesNum = skipped ? null : _numOrNull(r.shares);
   const priceNum = skipped
     ? null
@@ -563,6 +604,7 @@ export function buildLedgerTradeRow(r, i, deps) {
     y_hlCls: _scoreClsOf(scoreCls, yhl),
     y_hlTip: yhlTip,
     y_onTip: onTip,
+    scoreDetail,
     realizedOoNum: rOo,
     realizedOoText: rOo == null ? "" : fmtScore(rOo, { signed: true }),
     realizedOoCls: _scoreClsOf(scoreCls, rOo),
@@ -601,6 +643,7 @@ function _dayMeta(legs, day) {
     if (act.key === "open") nOpen += 1;
     else if (act.key === "add") nAdd += 1;
     else if (act.key === "exit") nExit += 1;
+    else if (act.key === "reduce") nExit += 1;
     else if (act.key === "hold") nKeep += 1;
     else if (act.key === "skip") nSkip += 1;
     if (cash == null) cash = _numOrNull(r.cash_after);
@@ -720,6 +763,7 @@ export function buildLedgerTradesCsv(rows, nameByCode = {}) {
     "realized_cc",
     "realized_tau",
     "realized_on",
+    "realized_oo",
     "y_hl_realized",
     "cash_after",
     "n_holdings",
@@ -757,6 +801,7 @@ export function buildLedgerTradesCsv(rows, nameByCode = {}) {
       r.realized_cc ?? "",
       r.realized_tau ?? "",
       r.realized_on ?? "",
+      r.realized_oo ?? "",
       r.y_hl_realized ?? r.path_realized ?? r.y_path_realized ?? "",
       r.cash_after ?? "",
       r.n_holdings ?? "",
@@ -1073,9 +1118,17 @@ function _optPredRealHtml(predText, predCls, realText, realCls, escapeHtml) {
   return _predRealHtml(predText, predCls, realText, realCls, escapeHtml);
 }
 
-function _stackScoreHtml(topHtml, tip, escapeHtml) {
+function _stackScoreHtml(topHtml, tip, escapeHtml, scoreTip, scoreDetail) {
   const t = tip ? ` title="${escapeHtml(tip)}"` : "";
-  return `<span class="bt-stack-score"${t}>${topHtml}</span>`;
+  if (!scoreDetail || !scoreTip) {
+    return `<span class="bt-stack-score"${t}>${topHtml}</span>`;
+  }
+  return (
+    `<span class="bt-stack-score bt-trade-score paper-hold-score has-tip" ` +
+    `data-score-detail="${escapeHtml(scoreDetail)}" data-score-tip="${escapeHtml(
+      scoreTip
+    )}"${t}>${topHtml}</span>`
+  );
 }
 
 /**
@@ -1105,7 +1158,11 @@ export function btTradesCellHtml(col, d, deps) {
     const cls = d.actionKey ? `bt-trade-action is-${d.actionKey}` : "bt-trade-action";
     const tip = d.actionTip ? ` title="${escapeHtml(d.actionTip)}"` : "";
     const badge = `<span class="${cls}"${tip}>${escapeHtml(d.actionText || "—")}</span>`;
-    if (d.skipped && d.actionTip) {
+    const showWhy =
+      !!d.actionTip &&
+      (d.skipped ||
+        (d.actionKey === "hold" && !/持有\s*$/.test(String(d.actionTip))));
+    if (showWhy) {
       return (
         `<span class="bt-trade-action-wrap">` +
         badge +
@@ -1125,23 +1182,29 @@ export function btTradesCellHtml(col, d, deps) {
   }
   if (col.id === "y_fuse") {
     return _stackScoreHtml(
-      _predRealHtml(d.y_fuseText, d.y_fuseCls, d.realizedOoText, d.realizedOoCls, escapeHtml),
-      d.y_fuseTip,
-      escapeHtml
+      _optPredRealHtml(d.y_fuseText, d.y_fuseCls, d.realizedOoText, d.realizedOoCls, escapeHtml),
+      d.y_fuseTip || Y_EOD_TITLE,
+      escapeHtml,
+      "eod",
+      d.scoreDetail
     );
   }
   if (col.id === "y_tau") {
     return _stackScoreHtml(
       _predRealHtml(d.y_tauText, d.y_tauCls, d.realizedTauText, d.realizedTauCls, escapeHtml),
-      d.y_tauTip,
-      escapeHtml
+      d.y_tauTip || Y_OC_REBALANCE_TITLE,
+      escapeHtml,
+      "tau",
+      d.scoreDetail
     );
   }
   if (col.id === "y_on") {
     return _stackScoreHtml(
-      _predRealHtml(d.y_onText, d.y_onCls, d.realizedOnText, d.realizedOnCls, escapeHtml),
-      d.y_onTip,
-      escapeHtml
+      _optPredRealHtml(d.y_onText, d.y_onCls, d.realizedOnText, d.realizedOnCls, escapeHtml),
+      d.y_onTip || Y_ON_TITLE,
+      escapeHtml,
+      "on",
+      d.scoreDetail
     );
   }
   if (col.id === "ranking") {
@@ -1152,14 +1215,18 @@ export function btTradesCellHtml(col, d, deps) {
       d.rankingText && d.rankingText !== "—"
         ? `rank ${d.rankingText} = w_oo·ŷ_oo + w_oc·((1+ŷ_oc)(1+w_co·ŷ_co)−1)`
         : "",
-      escapeHtml
+      escapeHtml,
+      "ranking",
+      d.scoreDetail
     );
   }
   if (col.id === "y_hl") {
     return _stackScoreHtml(
       _optPredRealHtml(d.y_hlText, d.y_hlCls, d.realizedHlText, d.realizedHlCls, escapeHtml),
-      d.y_hlTip,
-      escapeHtml
+      d.y_hlTip || Y_HL_TITLE,
+      escapeHtml,
+      "hl",
+      d.scoreDetail
     );
   }
   if (col.id === "ret") {

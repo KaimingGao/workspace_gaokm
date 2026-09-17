@@ -56,13 +56,6 @@ class TestP1QualityGate(unittest.TestCase):
         from core.signal.score_stock import score_stock
         from datetime import datetime, timedelta
 
-        quote = {
-            "success": True,
-            "stock_code": "600519",
-            "stock_name": "茅台",
-            "price": 100,
-            "change": 1.0,
-        }
         today = datetime.now().date()
         bars = [
             {
@@ -75,6 +68,16 @@ class TestP1QualityGate(unittest.TestCase):
             }
             for i in range(1, 25)
         ]
+        quote = {
+            "success": True,
+            "stock_code": "600519",
+            "stock_name": "茅台",
+            "price": 100,
+            "change": 1.0,
+            "open": 10,
+            "prev_close": 9.9,
+            "date": str(bars[-1]["date"]),
+        }
         with patch(
             "core.signal.score_stock.fetch_daily_bars",
             return_value=(bars, "akshare_cn_daily"),

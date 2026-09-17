@@ -2842,7 +2842,8 @@ html[data-density="compact"] .quant-page {
   background: color-mix(in srgb, var(--danger, #f5222d) 12%, transparent);
 }
 
-.quant-bt-trades-host .bt-trade-action.is-exit {
+.quant-bt-trades-host .bt-trade-action.is-exit,
+.quant-bt-trades-host .bt-trade-action.is-reduce {
   color: var(--ok, #16a34a);
   background: color-mix(in srgb, var(--ok, #16a34a) 12%, transparent);
 }

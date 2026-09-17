@@ -259,6 +259,55 @@ def prefix_has_tau_clock(
     return False
 
 
+_OPEN_T_HM_MIN = 9 * 60 + 30
+_OPEN_T_HM_MAX = 9 * 60 + 35
+
+
+def session_first_minute_open(
+    minute_bars: Optional[Sequence[dict]] = None,
+    trade_date: str = "",
+) -> Optional[float]:
+    """T 日 09:30–09:35 根的 ``open``。更晚才出现的第一根不当今开；不用 close。"""
+    day = str(trade_date or "")[:10]
+    if len(day) < 10:
+        return None
+    first_tmin: Optional[int] = None
+    first_open: Optional[float] = None
+    for b in _day_minute_bars(minute_bars or [], trade_date=day):
+        tmin = _hm_minutes(_bar_hm(b))
+        if tmin is None:
+            continue
+        o = _f(b.get("open"))
+        if o is None or o <= 0:
+            continue
+        if first_tmin is None or tmin < first_tmin:
+            first_tmin = tmin
+            first_open = o
+    if first_tmin is None or first_open is None:
+        return None
+    if first_tmin < _OPEN_T_HM_MIN or first_tmin > _OPEN_T_HM_MAX:
+        return None
+    return float(first_open)
+
+
+def minutes_for_open_t(
+    code: str,
+    *,
+    fetch: bool = False,
+    max_age_hours: float = 36.0,
+) -> List[dict]:
+    """给 ``resolve_open_t`` 备 5m：先本地仓，缺且 fetch 再拉网。"""
+    raw = str(code or "").strip()
+    if not raw:
+        return []
+    bars = _load_minute_bars_from_cache(raw, max_age_hours=float(max_age_hours))
+    if bars:
+        return bars
+    if fetch:
+        return _fetch_minute_bars_for_tau(raw) or []
+    return []
+
+
 def _day_minute_bars(
     minute_bars: Sequence[dict],
     *,

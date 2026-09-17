@@ -61,6 +61,14 @@ def _insight_cache_stamp() -> str:
         asof = str(expected_latest_daily_bar_date() or "")
     except Exception:  # noqa: BLE001
         logger.debug("insight cache stamp asof failed", exc_info=True)
+    sess = ""
+    try:
+        from core.market.calendar import resolve_session_date
+        from core.signal.session_pit import shanghai_now
+
+        sess = str(resolve_session_date(now=shanghai_now()) or "")
+    except Exception:  # noqa: BLE001
+        logger.debug("insight cache stamp session failed", exc_info=True)
     ver = ""
     try:
         from core.signal.cluster.pointer import resolve_cluster_weights_path
@@ -94,7 +102,7 @@ def _insight_cache_stamp() -> str:
         )
     except Exception:  # noqa: BLE001
         logger.debug("insight cache stamp fusion failed", exc_info=True)
-    return f"{win}|{asof}|{ver}|{bars_gen}|rk{fusion}|causal_rebal"
+    return f"{win}|{asof}|{sess}|{ver}|{bars_gen}|rk{fusion}|causal_rebal"
 
 
 def _memo_get(code: str, stamp: str) -> Optional[Dict[str, Any]]:
@@ -416,6 +424,8 @@ def _insight_quote_bars(
                     close = last.get("close")
                     if close is not None:
                         prev = b[-2] if len(b) >= 2 and isinstance(b[-2], dict) else {}
+                        prev_c = prev.get("close") if prev else last.get("pre_close")
+                        last_d = str(last.get("date") or last.get("trade_date") or "")[:10]
                         q = {
                             "success": True,
                             "stock_code": str(code),
@@ -424,7 +434,9 @@ def _insight_quote_bars(
                             "open": last.get("open"),
                             "high": last.get("high"),
                             "low": last.get("low"),
-                            "pre_close": prev.get("close") if prev else last.get("pre_close"),
+                            "pre_close": prev_c,
+                            "prev_close": prev_c,
+                            "date": last_d,
                             "data_source": "offline_daily_synth",
                         }
                 except Exception:  # noqa: BLE001
@@ -471,6 +483,7 @@ def _hydrate_insight_tau_fields(
     bars: Optional[list] = None,
     *,
     paper_ctx: Optional[dict] = None,
+    force: bool = False,
 ) -> None:
     """簿行常只有 ŷ_EOD：用行情缺口现场写出 ŷ_trade（昨收口径）。
 
@@ -501,9 +514,10 @@ def _hydrate_insight_tau_fields(
         q, b = _insight_quote_bars(code, quote=q, bars=b)
     gap = None
     try:
-        from core.event_prior import gap_pct_from_quote_bars
+        from core.signal.session_pit import resolve_minute_tau_trade_date, resolve_open_t
 
-        gap = gap_pct_from_quote_bars(q, b)
+        trade_day = resolve_minute_tau_trade_date(q, b)
+        gap = resolve_open_t(q, b, trade_day=trade_day).get("gap_pct")
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
         logger.debug("catch except Exception: in watching_insights.py", exc_info=True)
         gap = None
@@ -514,7 +528,7 @@ def _hydrate_insight_tau_fields(
     if gap is not None:
         out["gap_pct"] = gap
     already_rem = out.get("predicted_score_eod_rem") is not None
-    if already_rem and gap is None:
+    if already_rem and gap is None and not force:
         # 无新缺口不重映 rem，但仍对齐 ŷ_trade（修旧簿 eod_next 塌成 EOD）
         _finalize_insight_trade_fields(out)
         return
@@ -764,6 +778,7 @@ def _insight_one(
         out["factor_coefficients"] = item.get("factor_coefficients")
         out["sub_scores"] = item.get("sub_scores") or {}
         out["score_formula_terms"] = item.get("score_formula_terms")
+        asof_eod = item.get("eod_feature_as_of")
         _sanitize_heuristic_yhat_fields(out, item)
         try:
             if not _is_heuristic_score_scale(out):
@@ -773,10 +788,33 @@ def _insight_one(
         except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
             logger.debug("catch except Exception: in watching_insights.py", exc_info=True)
             pass
-        if out.get("predicted_score_eod_rem") is None and not _is_heuristic_score_scale(out):
-            _hydrate_insight_tau_fields(out, item, quote, None, paper_ctx=paper_ctx)
+        tau_asof = str(out.get("as_of_tau") or item.get("as_of_tau") or "")[:10]
+        sess = ""
+        try:
+            from core.market.calendar import resolve_session_date
+            from core.signal.session_pit import shanghai_now
+
+            sess = str(resolve_session_date(now=shanghai_now()) or "")[:10]
+        except Exception:  # noqa: BLE001
+            logger.debug("insight session date failed", exc_info=True)
+        tau_stale = bool(sess and len(tau_asof) >= 10 and tau_asof < sess)
+        if (
+            not _is_heuristic_score_scale(out)
+            and (out.get("predicted_score_eod_rem") is None or tau_stale)
+        ):
+            _hydrate_insight_tau_fields(
+                out, item, quote, None, paper_ctx=paper_ctx, force=tau_stale
+            )
         else:
             _finalize_insight_trade_fields(out)
+        if asof_eod:
+            out["eod_feature_as_of"] = asof_eod
+        if item.get("factor_anomaly"):
+            out["factor_anomaly"] = item.get("factor_anomaly")
+        if item.get("open_t") is not None:
+            out["open_t"] = item.get("open_t")
+        if item.get("open_t_source"):
+            out["open_t_source"] = item.get("open_t_source")
         _stamp_insight_ranking(out, paper_ctx)
         # 选股门槛仅标注，不抹掉分数
         try:

@@ -440,6 +440,40 @@ class TestDualScoreFields(unittest.TestCase):
         self.assertNotIn("predicted_score_cal", out)
         self.assertNotIn("score_calibration_applied", out)
 
+    def test_book_fields_passes_eod_feature_as_of(self):
+        from core.signal.dual_score import dual_score_book_fields
+
+        out = dual_score_book_fields(
+            {
+                "predicted_score": 1.0,
+                "eod_feature_as_of": "2026-09-16",
+                "dual_score_window": "intraday",
+            }
+        )
+        self.assertEqual(out.get("eod_feature_as_of"), "2026-09-16")
+        self.assertEqual(out.get("dual_score_window"), "intraday")
+
+    def test_book_fields_passes_factor_anomaly(self):
+        from core.signal.dual_score import dual_score_book_fields
+
+        fa = {
+            "ok": False,
+            "fatal_tau": True,
+            "fatal_eod": False,
+            "issues": [{"kind": "pit", "code": "as_of_tau", "reason": "τ日错位"}],
+        }
+        out = dual_score_book_fields(
+            {
+                "predicted_score": 1.0,
+                "y_oo": 1.0,
+                "y_oc": 0.4,
+                "factor_anomaly": fa,
+            }
+        )
+        self.assertEqual(out.get("factor_anomaly"), fa)
+        self.assertIsNone(out.get("y_oc"))
+        self.assertIsNone(out.get("ranking"))
+
     def test_book_fields_passes_y_τc(self):
         from core.signal.dual_score import dual_score_book_fields
         from core.signal.yhat_windows import invert_price_over_close
@@ -480,42 +514,24 @@ class TestDualScoreFields(unittest.TestCase):
         self.assertAlmostEqual(out.get("formula_terms_r", {}).get("total"), -0.4, places=6)
         self.assertEqual(len(out.get("formula_terms_r", {}).get("terms") or []), 1)
 
-    def test_eod_gate_and_decision_stay_raw_with_calibration(self):
-        """闸/决策分始终 raw，即使库仍能算出 g(ŷ)。"""
-        from core.signal import score_calibration as sc
+    def test_eod_gate_and_decision_stay_raw(self):
+        """闸/决策分始终 raw；陈旧校准字段不参与。"""
         from core.signal.dual_score import (
             decision_score_for_item,
             eod_gate_score_for_item,
         )
 
-        doc = {
-            "enabled": True,
-            "heads": {
-                "eod": {"knots_x": [0.0, 2.0], "knots_y": [0.5, 1.0]},
-                "tau": {"knots_x": [0.0, 1.0], "knots_y": [0.0, 2.0]},
-            },
-        }
         item = {
             "predicted_score": 2.0,
             "predicted_score_eod": 2.0,
             "predicted_score_eod_rem": 1.0,
             "predicted_score_tau": 0.5,
             "predicted_score_blend": 0.75,
+            "predicted_score_cal": 1.0,
+            "score_calibration_applied": True,
         }
-        orig_en = sc.calibration_enabled
-        orig_load = sc.load_calibration_model
-        sc.calibration_enabled = lambda model_doc=None: True  # type: ignore
-        sc.load_calibration_model = lambda: doc  # type: ignore
-        try:
-            self.assertAlmostEqual(eod_gate_score_for_item(item), 2.0, places=5)
-            self.assertAlmostEqual(decision_score_for_item(item), 0.75, places=5)
-            sc.attach_calibrated_scores(item, model_doc=doc, force=True)
-            self.assertAlmostEqual(item["predicted_score_cal"], 1.0, places=5)
-            self.assertFalse(item.get("score_calibration_applied"))
-            self.assertTrue(item.get("score_calibration_enabled"))
-        finally:
-            sc.calibration_enabled = orig_en  # type: ignore
-            sc.load_calibration_model = orig_load  # type: ignore
+        self.assertAlmostEqual(eod_gate_score_for_item(item), 2.0, places=5)
+        self.assertAlmostEqual(decision_score_for_item(item), 0.75, places=5)
 
     def test_legacy_rem_not_added_to_eod_rem(self):
         from core.signal.dual_score import apply_tau_score_fields

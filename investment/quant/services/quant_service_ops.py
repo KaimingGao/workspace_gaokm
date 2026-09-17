@@ -332,30 +332,6 @@ class QuantOpsMixin:
             "error": "昨日复盘 HTTP 已下线",
         }
 
-    def fit_score_calibration(self, **_kwargs: Any) -> Dict[str, Any]:
-        return {
-            "success": False,
-            "deprecated": True,
-            "error": "校准层已下线；不再拟合或写入 live",
-        }
-
-    def persist_score_calibration(self, **_kwargs: Any) -> Dict[str, Any]:
-        return {
-            "success": False,
-            "deprecated": True,
-            "error": "校准层已下线；不再拟合或写入 live",
-        }
-
-    def get_score_calibration_model(self) -> Dict[str, Any]:
-        return {
-            "success": False,
-            "deprecated": True,
-            "error": "校准层已下线",
-            "enabled": False,
-            "live": None,
-            "last_report": None,
-        }
-
     def list_score_ledger_dates(self, *, limit: int = 30) -> Dict[str, Any]:
         """昨日复盘 HTTP 已下线。"""
         _ = limit

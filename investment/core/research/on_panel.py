@@ -396,47 +396,80 @@ def build_on_features_from_quote_bars(
     gap_pct: Optional[float] = None,
     ret_open_to_tau: Optional[float] = None,
     stock_code: Optional[str] = None,
+    open_t: Optional[float] = None,
+    prev_close: Optional[float] = None,
+    trade_date: Optional[str] = None,
 ) -> Dict[str, Optional[float]]:
     """Live / PIT：用最新 bar + quote 构造 ON 头特征。
 
     特征口径与训练一致：ret_oc/ret_cc 取 T-1 已实现值（开盘时 close[T] 不可用）。
+    ``open_t`` / ``prev_close`` / ``trade_date``：与 ``resolve_open_t`` 同源；
+    昨 K 合成 quote.open 不得当 open[T]。
     """
     b = list(bars or [])
     if len(b) < 3:
         return {}
-    asof = ""
+    asof = str(trade_date or "")[:10]
     code = str(stock_code or "").strip()
     if quote:
-        asof = str(quote.get("date") or quote.get("trade_date") or "")[:10]
+        if len(asof) < 10:
+            asof = str(quote.get("date") or quote.get("trade_date") or "")[:10]
         if not code:
             code = str(quote.get("stock_code") or quote.get("code") or "").strip()
-    hist = hist_bars_pit(b, asof_date=asof)
-    cur = b[-1]
-    prev = b[-2] if len(b) >= 2 else {}
-    prev2 = b[-3] if len(b) >= 3 else {}
-    o_t = _parse_open_price(quote)
-    if o_t is None or o_t <= 0:
+    last = b[-1] if isinstance(b[-1], dict) else {}
+    last_d = str(last.get("date") or last.get("trade_date") or "")[:10]
+    # 仓停在 T−1：最后一根就是昨 K，不要把 T−2 当成昨
+    cache_behind = bool(asof and last_d and last_d < asof)
+    if cache_behind:
+        hist = list(b)
+        prev = last
+        prev2 = b[-2] if len(b) >= 2 and isinstance(b[-2], dict) else {}
+        cur = last
+    else:
+        hist = hist_bars_pit(b, asof_date=asof)
+        cur = last
+        prev = b[-2] if len(b) >= 2 else {}
+        prev2 = b[-3] if len(b) >= 3 else {}
+    o_t = None
+    if open_t is not None:
         try:
-            o_t = float(cur.get("open") or 0.0)
+            o_t = float(open_t)
+            if o_t <= 0:
+                o_t = None
         except (TypeError, ValueError):
-            o_t = 0.0
+            o_t = None
+    # 昨 K 合成 quote（date≠T）不能当今开；回测 mock quote.date=T 仍可用。
+    q_day = ""
+    if isinstance(quote, dict):
+        q_day = str(quote.get("date") or quote.get("trade_date") or "")[:10]
+    quote_is_trade_day = bool(asof and q_day == asof)
+    if o_t is None and (not cache_behind or quote_is_trade_day):
+        o_t = _parse_open_price(quote)
+        if o_t is None or o_t <= 0:
+            if not cache_behind:
+                try:
+                    o_t = float(cur.get("open") or 0.0)
+                except (TypeError, ValueError):
+                    o_t = 0.0
+    if o_t is None:
+        o_t = 0.0
     c_t = _parse_close_price(quote, cur)
     if c_t is None:
         c_t = 0.0
     try:
-        pc = float(prev.get("close") or 0.0)
+        pc = float(prev_close) if prev_close is not None else float(prev.get("close") or 0.0)
         o_prev = float(prev.get("open") or 0.0)
         ppc = float(prev2.get("close") or 0.0)
     except (TypeError, ValueError):
         return {}
-    if min(o_t, c_t, pc, o_prev) <= 0:
+    if o_t is None or o_t <= 0 or pc <= 0 or o_prev <= 0:
         return {}
     g = gap_pct
     if g is None:
         g = _gap_pct(pc, o_t)
     return intraday_on_feature_row(
         open_t=o_t,
-        close_t=c_t,
+        close_t=c_t if c_t and c_t > 0 else o_t,
         prev_close=pc,
         prev_open=o_prev,
         prev_prev_close=ppc,

@@ -1,7 +1,7 @@
 import { apiFetch } from "../api_client.js";
 import { renderLineChart, renderDualLineChart, renderMultiLineChart, renderNavBarChart } from "../lw_charts.js";
 import { fmtScore, scoreCls } from "../paper/fmt.js";
-import { renderPaperT0 } from "../paper/t0_ui.js?v=p2462";
+import { renderPaperT0 } from "../paper/t0_ui.js?v=p2467";
 import { portfolioBtScoreFloorPayload as buildBtScoreFloorPayload, mergeScoringFloors } from "./scoring.js";
 import { truncateStockName, watchingNameSpanHtml } from "./names.js";
 import { ensureFitTierMap } from "./fit_tier_ui.js";
@@ -437,18 +437,26 @@ export function installBacktest(q) {
     }
     const strongPct = scoreToRankPct(req.rank_strong != null ? req.rank_strong : req.rank_enter);
     if (strongPct) setName("pm_rank_strong", strongPct);
-    const setPct = (name, val) => {
-      if (val == null || val === "") return;
-      const n = Number(val);
-      if (Number.isFinite(n)) setName(name, n);
+    const setChk = (name, val, fallback) => {
+      const el = form && form.querySelector(`[name="${name}"]`);
+      if (!el || el.type !== "checkbox") return;
+      el.checked = val != null ? !!val : fallback;
     };
-    setPct("pm_y_oo_enter", req.y_oo_enter);
-    setPct("pm_y_oc_enter", req.y_oc_enter);
-    setPct("pm_y_hl_enter", req.y_hl_enter);
-    if (req.y_hl_enabled != null) {
-      const el = form && form.querySelector('[name="pm_y_hl_enabled"]');
-      if (el) el.checked = !!req.y_hl_enabled;
-    }
+    setChk(
+      "pm_y_oo_gt0",
+      req.y_oo_gt0,
+      req.y_oo_oc_enabled === true
+    );
+    setChk(
+      "pm_y_oc_gt0",
+      req.y_oc_gt0,
+      req.y_oo_oc_enabled === true
+    );
+    setChk(
+      "pm_y_hl_gt0",
+      req.y_hl_gt0,
+      req.y_hl_enabled !== false
+    );
   }
 
   function applyUniverseFitTiers(tiers) {
@@ -889,13 +897,9 @@ export function installBacktest(q) {
           rank_enter_alt: lots.rank_enter_alt,
           y_enter_enabled: lots.y_enter_enabled,
           y_enter_alt_enabled: lots.y_enter_alt_enabled,
-          y_hl_enabled: lots.y_hl_enabled,
-          y_oo_enter: lots.y_oo_enter,
-          y_oc_enter: lots.y_oc_enter,
-          y_hl_enter: lots.y_hl_enter,
-          y_oo_enter_alt: lots.y_oo_enter_alt,
-          y_oc_enter_alt: lots.y_oc_enter_alt,
-          y_hl_enter_alt: lots.y_hl_enter_alt,
+          y_oo_gt0: lots.y_oo_gt0 === true,
+          y_oc_gt0: lots.y_oc_gt0 === true,
+          y_hl_gt0: lots.y_hl_gt0 !== false,
         };
       }
     }
@@ -1043,6 +1047,14 @@ export function installBacktest(q) {
     void ensureFitTierMap(el);
   }
 
+  function wireBtTradesScoreTips() {
+    if (!els.quantBtTrades || els.quantBtTrades.dataset.scoreTipWired === "1") return;
+    btSimScoreTips.bindHost(els.quantBtTrades, {
+      scoreSelector:
+        ".bt-trade-score[data-score-detail], .paper-hold-score[data-score-detail], .bt-stack-score[data-score-detail]",
+    });
+  }
+
   function renderBtTradesTable(dataOrTrades) {
     if (!els.quantBtTrades) return;
     const fillEl = document.getElementById("quant-signal-fill");
@@ -1081,6 +1093,10 @@ export function installBacktest(q) {
         ...rowDeps,
         curve,
         metaLegs: legs,
+        params:
+          (!Array.isArray(dataOrTrades) &&
+            (dataOrTrades.params || dataOrTrades.request)) ||
+          {},
       });
       const skipNote = !filledLegs.length && legs.length
         ? `<p class="quant-trades-caption">暂无成交 · ${legs.length} 笔跳过（现金不足 / T+1 等）</p>`
@@ -1103,6 +1119,7 @@ export function installBacktest(q) {
       bindBtTradesStockClicks(state.btTradesTableApi);
       state.btTradesTableApi.setRows(rows);
       void ensureFitTierMap(els.quantBtTrades);
+      wireBtTradesScoreTips();
       return;
     }
     const filled = legs.filter((r) => (r.status || "filled") === "filled").length;
@@ -1131,11 +1148,7 @@ export function installBacktest(q) {
     bindBtTradesStockClicks(state.btTradesTableApi);
     state.btTradesTableApi.setRows(rows);
     void ensureFitTierMap(els.quantBtTrades);
-    if (els.quantBtTrades.dataset.scoreTipWired !== "1") {
-      btSimScoreTips.bindHost(els.quantBtTrades, {
-        scoreSelector: ".bt-trade-score[data-score-detail], .paper-hold-score[data-score-detail]",
-      });
-    }
+    wireBtTradesScoreTips();
   }
 
   function renderCostAssumptions(ca) {
@@ -1514,13 +1527,9 @@ export function installBacktest(q) {
         rank_enter_alt,
         y_enter_enabled,
         y_enter_alt_enabled,
-        y_hl_enabled,
-        y_oo_enter,
-        y_oc_enter,
-        y_hl_enter,
-        y_oo_enter_alt,
-        y_oc_enter_alt,
-        y_hl_enter_alt,
+        y_oo_gt0,
+        y_oc_gt0,
+        y_hl_gt0,
         initial_cash,
         fill_clock,
         lot_base,
@@ -1555,13 +1564,9 @@ export function installBacktest(q) {
         rank_enter_alt,
         y_enter_enabled,
         y_enter_alt_enabled,
-        y_hl_enabled: y_hl_enabled !== false,
-        y_oo_enter,
-        y_oc_enter,
-        y_hl_enter,
-        y_oo_enter_alt,
-        y_oc_enter_alt,
-        y_hl_enter_alt,
+        y_oo_gt0: y_oo_gt0 === true,
+        y_oc_gt0: y_oc_gt0 === true,
+        y_hl_gt0: y_hl_gt0 !== false,
         initial_cash,
         fill_clock,
         lot_base,

@@ -82,9 +82,15 @@ class TestWatchingMatrixPreview(unittest.TestCase):
         self.assertEqual(report[0].get("predicted_score_hl"), 2.5)
         self.assertEqual(report[0].get("y_hl"), 2.5)
         self.assertEqual(float(out["buy_trades"][0].get("shares") or 0), 500)
-        self.assertAlmostEqual(float(report[0].get("y_trade")), 1.5)
-        self.assertAlmostEqual(float(report[0].get("ranking")), 1.5)
-        self.assertAlmostEqual(float(report[0].get("y_fuse")), 1.5)
+        from core.paper.rebalance.rank_lots import ranking_pct_of
+
+        expect_rank = ranking_pct_of(
+            _signal_item(),
+            {"fusion_w_oo": 0.6, "fusion_w_oc": 0.4, "fusion_w_co": 1.0},
+        )
+        self.assertAlmostEqual(float(report[0].get("ranking")), expect_rank)
+        self.assertAlmostEqual(float(report[0].get("y_fuse")), expect_rank)
+        self.assertIsNotNone(report[0].get("y_trade"))
         self.assertIsNotNone(report[0].get("ranking_score"))
         self.assertEqual(paper.get("cash"), 1_000_000)
         self.assertEqual(paper.get("holdings") or [], [])
@@ -131,7 +137,7 @@ class TestWatchingMatrixPreview(unittest.TestCase):
         self.assertLess(float(paper.get("cash") or 0), 1_000_000)
 
     def test_adverse_path_still_opens(self):
-        """低/负 y_path 不再拦开仓；ranking 过入场即可买。"""
+        """缺 y_hl 不拦开仓；ranking 过入场即可买（旧 y_path 键现等同 y_hl，有值且低于入场会拦）。"""
         from core.paper.rebalance.watching_matrix import simulate_watching_matrix_preview
 
         paper = {
@@ -139,7 +145,7 @@ class TestWatchingMatrixPreview(unittest.TestCase):
             "holdings": [],
             "rules": {"max_positions": 5, "position_pct": 0.2},
         }
-        item = _signal_item(y_path=-2.5, predicted_score_path=-2.5)
+        item = _signal_item(y_path=None, predicted_score_path=None)
         with patch(
             "core.paper.rebalance.watching_matrix._watching_codes",
             return_value=(["600000"], {"n_watch": 1, "n_total": 1}),
@@ -161,8 +167,8 @@ class TestWatchingMatrixPreview(unittest.TestCase):
         acts = (out.get("path_matrix") or {}).get("by_action") or {}
         self.assertEqual(int(acts.get("skip_window") or 0), 0)
 
-    def test_held_nonneg_does_not_sell(self):
-        """已持仓 ranking≥0：不因未过入场而卖。"""
+    def test_held_fail_enter_exits(self):
+        """已持仓未过入场闸：清仓。"""
         from core.paper.rebalance.watching_matrix import simulate_watching_matrix_preview
 
         paper = {
@@ -180,8 +186,8 @@ class TestWatchingMatrixPreview(unittest.TestCase):
         item = _signal_item(
             stock_code="601111",
             stock_name="中国国航",
-            y_path=0.05,
-            predicted_score_path=0.05,
+            y_path=-0.05,
+            predicted_score_path=-0.05,
             y_trade=0.18,
             predicted_score_blend=0.18,
             predicted_score=0.4,
@@ -220,13 +226,94 @@ class TestWatchingMatrixPreview(unittest.TestCase):
 
         self.assertTrue(out.get("ok"))
         self.assertEqual(len(out.get("buy_trades") or []), 0)
-        self.assertEqual(len(out.get("sell_trades") or []), 0)
+        self.assertEqual(len(out.get("sell_trades") or []), 1)
+        self.assertEqual(out["sell_trades"][0].get("action"), "exit")
         report = out.get("rebalance_report") or []
         self.assertEqual(len(report), 1)
         self.assertEqual(report[0].get("stock_code"), "601111")
-        self.assertEqual(report[0].get("decision"), "持有")
+        self.assertEqual(report[0].get("decision"), "卖出")
         self.assertEqual(report[0].get("predicted_score_eod"), 0.18)
-        self.assertEqual(out.get("empty_reason"), "no_executable_changes")
+
+    def test_held_fail_rank_enter_exits_all(self):
+        """已持仓 ranking 未过入场：整笔清仓。"""
+        from core.paper.rebalance.watching_matrix import simulate_watching_matrix_preview
+
+        paper = {
+            "cash": 500_000,
+            "holdings": [
+                {
+                    "stock_code": "601111",
+                    "stock_name": "中国国航",
+                    "shares": 1400,
+                    "cost": 5.86,
+                    "lots": [
+                        {
+                            "shares": 1400,
+                            "bought_at": "2026-03-09T09:30:00.000",
+                            "bought_date": "2026-03-09",
+                        }
+                    ],
+                }
+            ],
+            "rules": {"max_positions": 5, "position_pct": 0.2, "horizon_days": 3},
+        }
+        item = _signal_item(
+            stock_code="601111",
+            stock_name="中国国航",
+            y_path=0.02,
+            predicted_score_path=0.02,
+            y_trade=0.02,
+            predicted_score_blend=0.02,
+            predicted_score=0.02,
+            predicted_score_eod=0.02,
+            predicted_score_tau=0.02,
+            y_on=0.0,
+            predicted_score_on=0.0,
+            y_co=0.0,
+        )
+        with patch(
+            "core.paper.rebalance.watching_matrix._watching_codes",
+            return_value=(
+                ["601111"],
+                {"n_watch": 1, "n_total": 1, "name_by_code": {"601111": "中国国航"}},
+            ),
+        ), patch(
+            "core.paper.rebalance.watching_matrix._score_pool",
+            return_value=([item], []),
+        ), patch(
+            "core.paper.rebalance.watching_matrix._quote_px",
+            return_value=5.94,
+        ), patch(
+            "core.t0.intraday.load_rebalance_t0_sell_blocks",
+            return_value={},
+        ), patch(
+            "core.paper.ledger.mark_to_market",
+            return_value={
+                "equity": 500_000 + 1400 * 5.94,
+                "cash": 500_000,
+                "holdings": [
+                    {
+                        "stock_code": "601111",
+                        "stock_name": "中国国航",
+                        "shares": 1400,
+                        "price": 5.94,
+                        "change_pct": 1.02,
+                    }
+                ],
+            },
+        ):
+            out = simulate_watching_matrix_preview(paper, dry_run=True)
+
+        self.assertTrue(out.get("ok"))
+        self.assertEqual(len(out.get("buy_trades") or []), 0)
+        self.assertEqual(len(out.get("sell_trades") or []), 1)
+        self.assertEqual(out["sell_trades"][0].get("action"), "exit")
+        self.assertEqual(float(out["sell_trades"][0].get("shares") or 0), 1400)
+        report = out.get("rebalance_report") or []
+        self.assertEqual(len(report), 1)
+        self.assertEqual(report[0].get("decision"), "卖出")
+        self.assertEqual(float(report[0].get("shares_change") or 0), -1400)
+        self.assertEqual(float(report[0].get("new_shares") or 0), 0)
 
     def test_rejected_held_exits(self):
         """打分拒评的已持仓：清仓，不装成 ranking≥0 续持。"""
@@ -419,6 +506,9 @@ class TestWatchingMatrixPreview(unittest.TestCase):
             svc.path = path
 
             with patch(
+                "core.paper.rebalance.auto_worker.rebalance_window_gate",
+                return_value=None,
+            ), patch(
                 "core.paper.rebalance.watching_matrix.simulate_watching_matrix_preview",
             ) as sim, patch(
                 "core.paper.open_fill.apply_next_open_commit",
@@ -526,6 +616,68 @@ class TestApplyLegOpenCost(unittest.TestCase):
         self.assertEqual(sell["open_date"], "2026-03-10")
         self.assertAlmostEqual(float(sell["cost_price"]), 11.0)
         self.assertAlmostEqual(float(sell["cum_cost"]), 22000.0)
+
+    def test_apply_one_leg_keeps_formula_terms(self):
+        from core.paper.rebalance.watching_matrix import _apply_one_leg
+
+        paper = {
+            "cash": 1_000_000.0,
+            "holdings": [],
+            "trades": [],
+            "cost_model": "zero",
+        }
+        terms = {
+            "score_formula_terms": {
+                "total": 1.2,
+                "terms": [{"key": "momentum", "contrib": 0.4}],
+            },
+            "formula_terms_tau": {
+                "total": 0.8,
+                "terms": [{"key": "gap_pct", "contrib": 0.1}],
+            },
+            "formula_terms_on": {
+                "total": 0.2,
+                "terms": [{"key": "overnight", "contrib": 0.2}],
+            },
+            "formula_terms_path": {
+                "total": 1.5,
+                "terms": [{"key": "range_pct", "contrib": 0.3}],
+            },
+        }
+        buy, err = _apply_one_leg(
+            paper,
+            {
+                "side": "buy",
+                "stock_code": "600519",
+                "shares": 200,
+                "price": 10.0,
+                "action": "open",
+                "y_oo": 1.2,
+                **terms,
+            },
+            as_of="2026-03-10",
+        )
+        self.assertIsNone(err)
+        self.assertEqual(buy["score_formula_terms"]["total"], 1.2)
+        self.assertEqual(buy["formula_terms_tau"]["total"], 0.8)
+        self.assertEqual(buy["formula_terms_on"]["total"], 0.2)
+        self.assertEqual(buy["formula_terms_path"]["total"], 1.5)
+
+        sell, err = _apply_one_leg(
+            paper,
+            {
+                "side": "sell",
+                "stock_code": "600519",
+                "shares": 200,
+                "price": 11.0,
+                "action": "exit",
+                **terms,
+            },
+            as_of="2026-03-11",
+        )
+        self.assertIsNone(err, err)
+        self.assertEqual(sell["score_formula_terms"]["total"], 1.2)
+        self.assertEqual(sell["formula_terms_tau"]["total"], 0.8)
 
 
 class TestWatchingMatrixUniverseFitTiers(unittest.TestCase):

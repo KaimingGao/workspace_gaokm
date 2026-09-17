@@ -435,9 +435,27 @@ class TestEventBreadth(unittest.TestCase):
         from core.event_prior import compute_sector_gap_breadth_live
 
         quotes = {
-            "000001": {"success": True, "open": "10.2元", "price_raw": 10.5, "change_raw": 2.0},
-            "000002": {"success": True, "open": "20.4元", "price_raw": 20.0, "change_raw": -1.0},
-            "600000": {"success": True, "open": "8.2元", "price_raw": 8.0, "change_raw": 1.0},
+            "000001": {
+                "success": True,
+                "open": "10.2元",
+                "prev_close": 10.0,
+                "price_raw": 10.5,
+                "change_raw": 2.0,
+            },
+            "000002": {
+                "success": True,
+                "open": "20.4元",
+                "prev_close": 20.61,
+                "price_raw": 20.0,
+                "change_raw": -1.0,
+            },
+            "600000": {
+                "success": True,
+                "open": "8.2元",
+                "prev_close": 8.12,
+                "price_raw": 8.0,
+                "change_raw": 1.0,
+            },
         }
         with patch(
             "core.portfolio_optimize.load_sector_map",
@@ -461,9 +479,27 @@ class TestEventBreadth(unittest.TestCase):
         from core.event_prior import compute_sector_gap_breadth_live
 
         quotes = {
-            "000001": {"success": True, "open": "10.3元", "price_raw": 10.5, "change_raw": 2.0},
-            "000002": {"success": True, "open": "20.0元", "price_raw": 20.0, "change_raw": 0.0},
-            "600000": {"success": True, "open": "8.24元", "price_raw": 8.0, "change_raw": 1.0},
+            "000001": {
+                "success": True,
+                "open": "10.3元",
+                "prev_close": 10.098,
+                "price_raw": 10.5,
+                "change_raw": 2.0,
+            },
+            "000002": {
+                "success": True,
+                "open": "20.0元",
+                "prev_close": 20.0,
+                "price_raw": 20.0,
+                "change_raw": 0.0,
+            },
+            "600000": {
+                "success": True,
+                "open": "8.24元",
+                "prev_close": 8.0,
+                "price_raw": 8.0,
+                "change_raw": 1.0,
+            },
         }
         with patch("core.ports.market.batch_query_quotes", return_value={}):
             out = compute_sector_gap_breadth_live(

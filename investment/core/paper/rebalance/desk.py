@@ -19,11 +19,12 @@ MAX_DESK_ROWS = 80
 
 _ACTION_RANK = {
     "exit": 0,
-    "open": 1,
-    "add": 2,
-    "skip": 3,
-    "hold": 4,
-    "watch": 5,
+    "reduce": 1,
+    "open": 2,
+    "add": 3,
+    "skip": 4,
+    "hold": 5,
+    "watch": 6,
 }
 
 
@@ -32,6 +33,7 @@ def resolve_desk_phase(
     enabled: bool = False,
     inflight: bool = False,
     now: Any = None,
+    paper: Optional[dict] = None,
 ) -> str:
     from core.paper.rebalance.auto_worker import (
         already_ran_today,
@@ -46,9 +48,9 @@ def resolve_desk_phase(
         return PHASE_DONE
     if not is_trading_session(now):
         return PHASE_HOLIDAY
-    if in_auto_rebalance_window(now):
+    if in_auto_rebalance_window(now, paper=paper):
         return PHASE_WATCH if enabled else PHASE_STOPPED
-    if after_auto_rebalance_window(now):
+    if after_auto_rebalance_window(now, paper=paper):
         return PHASE_MISSED
     return PHASE_WAIT if enabled else PHASE_STOPPED
 
@@ -96,7 +98,7 @@ def _phase_for_action(action: Optional[str], *, filled: bool) -> str:
     act = str(action or "").strip().lower()
     if not filled:
         return PHASE_WATCH
-    if act in ("open", "add", "exit"):
+    if act in ("open", "add", "exit", "reduce"):
         return PHASE_DONE
     if act == "hold":
         return "hold"
@@ -148,7 +150,7 @@ def desk_rows_from_result(result: Optional[dict], *, filled: bool = True) -> Lis
             if not code or code in seen:
                 continue
             use_act = str(leg.get("action") or act or "").strip().lower()
-            if use_act not in ("open", "add", "exit"):
+            if use_act not in ("open", "add", "exit", "reduce"):
                 use_act = "add" if float(leg.get("old_shares") or 0) > 0 else "open"
                 if act == "exit":
                     use_act = "exit"
@@ -161,7 +163,7 @@ def desk_rows_from_result(result: Optional[dict], *, filled: bool = True) -> Lis
                     shares=leg.get("shares"),
                     ranking_score=leg.get("ranking_score"),
                     reason=str(leg.get("reason") or ""),
-                    held=use_act in ("add", "exit"),
+                    held=use_act in ("add", "exit", "reduce"),
                 )
             )
     for s in src.get("risk_budget_skips") or src.get("apply_skips") or []:
@@ -297,6 +299,7 @@ def _counts(rows: List[dict]) -> Dict[str, int]:
         "open": 0,
         "add": 0,
         "exit": 0,
+        "reduce": 0,
         "hold": 0,
         "skip": 0,
         "done": 0,
@@ -325,7 +328,7 @@ def _note_for_phase(
         return "正在现价落账…"
     if phase == PHASE_DONE:
         return (
-            "今日已调仓 · 开/加/清为已落账；持=ranking≥0 未动；跳=地板/T+1/OOS 等"
+            "今日已调仓 · 开/加/减/清为已落账；持=ranking>入场未动；跳=地板/T+1/OOS 等"
             if aligned
             else "今日已调仓（明细未写入盯盘）"
         )
@@ -351,7 +354,7 @@ def build_rebalance_desk_status(
     worker: Optional[dict] = None,
     now: Any = None,
 ) -> Dict[str, Any]:
-    """今日调仓盯盘：窗内按持仓占位监视，落账后展示开/加/清/持。"""
+    """今日调仓盯盘：窗内按持仓占位监视，落账后展示开/加/减/清/持。"""
     from core.paper.rebalance.auto_worker import (
         _load_state,
         already_ran_today,
@@ -366,7 +369,8 @@ def build_rebalance_desk_status(
     enabled = bool(w.get("enabled") if "enabled" in w else load_enabled_flag())
     inflight = bool(w.get("inflight"))
     sess = resolve_session(now)
-    phase = resolve_desk_phase(enabled=enabled, inflight=inflight, now=now)
+    paper = _load_paper_safe()
+    phase = resolve_desk_phase(enabled=enabled, inflight=inflight, now=now, paper=paper)
     persisted = _load_state().get("last_desk")
     persisted = persisted if isinstance(persisted, dict) else {}
     persisted_sess = str(persisted.get("session_date") or "")[:10]
@@ -374,8 +378,6 @@ def build_rebalance_desk_status(
     filled_today = already_ran_today(now) or (
         aligned and bool(persisted.get("filled"))
     )
-
-    paper = _load_paper_safe()
     clock = rebalance_fill_clock(paper)
     window = rebalance_window_label(paper)
     if aligned and (filled_today or phase == PHASE_DONE):
@@ -409,6 +411,7 @@ def build_rebalance_desk_status(
         "counts": counts,
         "open_count": int(counts.get("open") or 0) + int(counts.get("add") or 0),
         "exit_count": int(counts.get("exit") or 0),
+        "reduce_count": int(counts.get("reduce") or 0),
         "rows": rows,
         "note": _note_for_phase(
             phase,

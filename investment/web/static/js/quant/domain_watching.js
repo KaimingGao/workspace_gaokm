@@ -9,7 +9,7 @@ import { fmtScore, fmtTableScore, scoreCls, resolveRankingScore, resolveEodScore
 import { truncateStockName, watchingNameSpanHtml, watchingNameFromEl, applyWatchingNameEl, normalizeProbeCode } from "./names.js";
 import { renderWatchingHoldings as renderWatchingHoldingsHtml } from "./watching_holdings.js";
 import { buildWatchingDqMetaText, buildWatchingDqFoldSummary, buildWatchingDqTableHtml } from "./watching_dq_ui.js";
-import { watchingScoreDetail, sentimentBadgeHtml, renderWatchingBuildPlan as renderWatchingBuildPlanHtml, renderWatchingWatchTableFallback, buildWatchingWatchRows, buildWatchingNewsTitleHtml, buildWatchingNewsMetaText, buildWatchingNewsListHtml, WATCHING_NEWS_AI_LOADING_HTML, buildWatchingNewsAiAnalysisHtml, buildWatchingNewsAiErrorHtml, describeWatchingSource, matchWatchlistSource, truncateText, sentimentLabelZh, shortOriginLabel } from "./watching_render.js?v=p2389";
+import { watchingScoreDetail, sentimentBadgeHtml, renderWatchingBuildPlan as renderWatchingBuildPlanHtml, renderWatchingWatchTableFallback, buildWatchingWatchRows, buildWatchingNewsTitleHtml, buildWatchingNewsMetaText, buildWatchingNewsListHtml, WATCHING_NEWS_AI_LOADING_HTML, buildWatchingNewsAiAnalysisHtml, buildWatchingNewsAiErrorHtml, describeWatchingSource, matchWatchlistSource, truncateText, sentimentLabelZh, shortOriginLabel } from "./watching_render.js?v=p2469";
 import { ensureFitTierMap } from "./fit_tier_ui.js";
 import {
   buildWatchingScoreDisplay,
@@ -578,13 +578,36 @@ export function installWatching(q) {
     // 每批单独超时（对齐后端 batch≈90s）；勿用总时钟，否则 100 票 3 批必触发「摘要超时」
     const chunkTimeoutMs = 95000;
     const insightDeps = { fmtScore, scoreCls, parseWatchingVolume, watchingScoreDetail };
+    const WATCHING_INSIGHTS_CACHE_VER = "rk3";
+
+    function shanghaiDateKey(d = new Date()) {
+      try {
+        return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Shanghai" }).format(d);
+      } catch (_) {
+        const y = d.getFullYear();
+        const m = String(d.getMonth() + 1).padStart(2, "0");
+        const day = String(d.getDate()).padStart(2, "0");
+        return `${y}-${m}-${day}`;
+      }
+    }
+
+    function insightTauSessionDay(it) {
+      const tau = String((it && (it.as_of_tau || it.rem_tau)) || "");
+      if (tau.includes("T") && tau.length >= 10) return tau.slice(0, 10);
+      return "";
+    }
+
+    function isStaleInsightTau(it, sessionDay = shanghaiDateKey()) {
+      const day = insightTauSessionDay(it);
+      return !!(day && sessionDay && day < sessionDay);
+    }
     const readInsightsStore = () => {
       try {
         const raw = localStorage.getItem("watching_insights_cache");
         if (!raw) return null;
         const parsed = JSON.parse(raw);
         if (!parsed || !parsed.timestamp) return null;
-        if (parsed.ver !== "rk2") return null;
+        if (parsed.ver !== WATCHING_INSIGHTS_CACHE_VER) return null;
         if (Date.now() - parsed.timestamp >= 4 * 3600 * 1000) return null;
         return parsed;
       } catch (_) {
@@ -608,7 +631,7 @@ export function installWatching(q) {
         localStorage.setItem(
           "watching_insights_cache",
           JSON.stringify({
-            ver: "rk2",
+            ver: WATCHING_INSIGHTS_CACHE_VER,
             timestamp: Date.now(),
             scoresByCode,
             itemsByCode,
@@ -735,7 +758,7 @@ export function installWatching(q) {
       const by = (store && store.itemsByCode) || {};
       for (const code of codes) {
         const it = by[String(code)] || by[watchingCodeKey(code)];
-        if (it && it.ok !== false) cachedItems.push(it);
+        if (it && it.ok !== false && !isStaleInsightTau(it)) cachedItems.push(it);
       }
     } catch (_) {}
     if (cachedItems.length) {
@@ -1612,7 +1635,7 @@ export function installWatching(q) {
       const raw = localStorage.getItem("watching_insights_cache");
       if (raw) {
         const parsed = JSON.parse(raw);
-        if (parsed && parsed.ver === "rk2" && parsed.timestamp && Date.now() - parsed.timestamp < 4 * 3600 * 1000) {
+        if (parsed && parsed.ver === "rk3" && parsed.timestamp && Date.now() - parsed.timestamp < 4 * 3600 * 1000) {
           cachedScores = parsed.scoresByCode || {};
         }
       }

@@ -562,6 +562,11 @@ def stamp_window_scores(item: Optional[dict], cfg: Optional[dict] = None) -> Dic
     y_co = pick_y_co(item)
     ranking = fuse_pct(y_oo, oc_with_co(y_oc, y_co, w_co), w_left=w_oo, w_right=w_oc)
     residual = residual_pct(item, w_pc=w_τc, w_oc=w_oc_r, cfg=cfg)
+    fa = item.get("factor_anomaly") if isinstance(item, dict) else None
+    if isinstance(fa, dict) and fa.get("fatal_tau"):
+        y_oc = None
+        y_co = None
+        ranking = None
     return {
         "y_oo": y_oo,
         "y_oc": y_oc,

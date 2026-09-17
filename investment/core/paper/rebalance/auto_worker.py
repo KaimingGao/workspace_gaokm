@@ -1,6 +1,7 @@
 """Web 内自动调仓后台 worker。
 
 每个交易日仅在已保存 ``fill_clock``～10:00 现价成交一次；过点不补跑、不挂开盘单。
+手动预演 / 确认落账与 Worker 共用该窗口。
 开关与 last_run_session 持久化到 data/rebalance_auto_worker.json。
 """
 
@@ -44,6 +45,19 @@ def rebalance_window_after_hm(paper: Optional[dict] = None) -> Tuple[int, int]:
 
 def rebalance_window_label(paper: Optional[dict] = None) -> str:
     return f"{rebalance_fill_clock(paper)}–10:00"
+
+
+def _load_paper_for_clock() -> Optional[dict]:
+    try:
+        from core.paper import load_paper
+        from core.paths import PAPER_PATH
+
+        if not os.path.isfile(PAPER_PATH):
+            return None
+        return load_paper(PAPER_PATH)
+    except Exception:  # noqa: BLE001
+        logger.debug("load paper for rebalance clock failed", exc_info=True)
+        return None
 
 
 def _now_ts() -> float:
@@ -169,6 +183,67 @@ def before_auto_rebalance_window(now: Any = None, *, paper: Optional[dict] = Non
     return _shanghai_hm(now) < rebalance_window_after_hm(paper)
 
 
+CLOCK_BLOCK_ACTIONS = ("wait_clock", "miss_window", "holiday")
+
+
+def _clock_block_payload(
+    *,
+    fill_action: str,
+    note: str,
+    paper: Optional[dict] = None,
+    dry_run: bool = False,
+) -> Dict[str, Any]:
+    return {
+        "success": True,
+        "ok": True,
+        "mode": "watching_matrix",
+        "dry_run": bool(dry_run),
+        "matrix_mode": True,
+        "fill_action": fill_action,
+        "fill_clock": rebalance_fill_clock(paper),
+        "window_label": rebalance_window_label(paper),
+        "confirm_supported": False,
+        "sell_trades": [],
+        "buy_trades": [],
+        "rebalance_report": [],
+        "note": note,
+        "empty_reason": fill_action,
+    }
+
+
+def rebalance_window_gate(
+    now: Any = None,
+    *,
+    paper: Optional[dict] = None,
+    dry_run: bool = False,
+) -> Optional[Dict[str, Any]]:
+    """窗内返回 None；窗外拦截手动预演/落账（与自动 Worker 同一窗口）。"""
+    clock = rebalance_fill_clock(paper)
+    window = rebalance_window_label(paper)
+    if in_auto_rebalance_window(now, paper=paper):
+        return None
+    if not is_trading_session(now):
+        return _clock_block_payload(
+            fill_action="holiday",
+            note=f"非交易日，窗口 {window}；过点不补跑",
+            paper=paper,
+            dry_run=dry_run,
+        )
+    if before_auto_rebalance_window(now, paper=paper):
+        return _clock_block_payload(
+            fill_action="wait_clock",
+            note=f"未到调仓时间 {clock}，窗口 {window}；到点后再预演/落账",
+            paper=paper,
+            dry_run=dry_run,
+        )
+    return _clock_block_payload(
+        fill_action="miss_window",
+        note=f"已过调仓窗口 {window}，过点不补跑、不挂开盘单",
+        paper=paper,
+        dry_run=dry_run,
+    )
+
+
 def already_ran_today(now: Any = None) -> bool:
     sess = resolve_session(now)
     return bool(sess) and last_run_session() == sess
@@ -180,7 +255,8 @@ def t0_wait_for_rebalance(now: Any = None) -> Tuple[bool, str]:
         return False, ""
     if already_ran_today(now):
         return False, ""
-    if after_auto_rebalance_window(now):
+    paper = _load_paper_for_clock()
+    if after_auto_rebalance_window(now, paper=paper):
         return False, ""
     return True, "等待调仓"
 
@@ -190,7 +266,7 @@ def should_record_follow_run(fill_action: str, now: Any = None) -> bool:
     action = str(fill_action or "").strip()
     if action not in ("immediate", ""):
         return False
-    return in_auto_rebalance_window(now)
+    return in_auto_rebalance_window(now, paper=_load_paper_for_clock())
 
 
 class RebalanceAutoWorker:
@@ -218,6 +294,7 @@ class RebalanceAutoWorker:
 
     def status(self) -> Dict[str, Any]:
         persisted = _load_state()
+        paper = _load_paper_for_clock()
         with self._lock:
             rt = dict(self._runtime)
             alive = self._thread_alive()
@@ -225,7 +302,8 @@ class RebalanceAutoWorker:
             last_sess = str(
                 rt.get("last_run_session") or persisted.get("last_run_session") or ""
             ).strip()[:10]
-            interval = TICK_INTERVAL_SEC if in_auto_rebalance_window() else IDLE_TICK_INTERVAL_SEC
+            in_window = in_auto_rebalance_window(paper=paper)
+            interval = TICK_INTERVAL_SEC if in_window else IDLE_TICK_INTERVAL_SEC
             out: Dict[str, Any] = {
                 "enabled": enabled,
                 "running": alive,
@@ -240,9 +318,9 @@ class RebalanceAutoWorker:
                 "last_sell_count": persisted.get("last_sell_count"),
                 "last_note": persisted.get("last_note") or "",
                 "last_source": persisted.get("last_source") or "",
-                "in_window": in_auto_rebalance_window(),
-                "fill_clock": rebalance_fill_clock(),
-                "window_label": rebalance_window_label(),
+                "in_window": in_window,
+                "fill_clock": rebalance_fill_clock(paper),
+                "window_label": rebalance_window_label(paper),
                 "tick_interval_sec": interval,
             }
             if alive and rt.get("last_tick_ts"):
@@ -315,7 +393,7 @@ class RebalanceAutoWorker:
                     self._runtime["last_error"] = str(e)
             wait = (
                 TICK_INTERVAL_SEC
-                if in_auto_rebalance_window()
+                if in_auto_rebalance_window(paper=_load_paper_for_clock())
                 else IDLE_TICK_INTERVAL_SEC
             )
             self._stop.wait(wait)
@@ -341,14 +419,15 @@ class RebalanceAutoWorker:
                 return
 
         sess = resolve_session()
+        paper = _load_paper_for_clock()
         if already_ran_today():
             self._set_tick("今日已调仓", session=sess)
             return
-        if not in_auto_rebalance_window():
-            if after_auto_rebalance_window():
+        if not in_auto_rebalance_window(paper=paper):
+            if after_auto_rebalance_window(paper=paper):
                 self._set_tick("错过开盘窗", session=sess)
             else:
-                self._set_tick(f"等待 {rebalance_fill_clock()} 开盘窗", session=sess)
+                self._set_tick(f"等待 {rebalance_fill_clock(paper)} 开盘窗", session=sess)
             return
 
         svc = PaperService(PAPER_PATH)
@@ -407,6 +486,9 @@ class RebalanceAutoWorker:
             return
 
         fill_action = str(out.get("fill_action") or "immediate")
+        if fill_action in CLOCK_BLOCK_ACTIONS:
+            self._set_tick(str(out.get("note") or fill_action), session=sess)
+            return
         if fill_action in ("staged", "kept_pending", "open_fill_pending", "session_chase_pending"):
             note = str(out.get("note") or fill_action)
             self._set_tick(note, session=sess)

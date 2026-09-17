@@ -1311,32 +1311,11 @@ class PaperTradesMixin:
 
         paper_ro = load_paper(self.path)
         try:
-            from core.paper.rebalance.auto_worker import (
-                before_auto_rebalance_window,
-                rebalance_fill_clock,
-                rebalance_window_label,
-            )
+            from core.paper.rebalance.auto_worker import rebalance_window_gate
 
-            if before_auto_rebalance_window(paper=paper_ro):
-                clock = rebalance_fill_clock(paper_ro)
-                window = rebalance_window_label(paper_ro)
-                note = f"未到调仓时间 {clock}，窗口 {window}；到点后再预演/落账"
-                return {
-                    "success": True,
-                    "ok": True,
-                    "mode": "watching_matrix",
-                    "dry_run": bool(dry_run),
-                    "matrix_mode": True,
-                    "fill_action": "wait_clock",
-                    "fill_clock": clock,
-                    "window_label": window,
-                    "confirm_supported": False,
-                    "sell_trades": [],
-                    "buy_trades": [],
-                    "rebalance_report": [],
-                    "note": note,
-                    "empty_reason": "wait_clock",
-                }
+            blocked = rebalance_window_gate(paper=paper_ro, dry_run=dry_run)
+            if blocked:
+                return blocked
         except Exception:  # noqa: BLE001
             logger.debug("rebalance fill_clock gate skipped", exc_info=True)
         token0 = _paper_mutation_token(paper_ro)

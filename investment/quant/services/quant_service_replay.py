@@ -76,13 +76,9 @@ class QuantReplayMixin:
         rank_enter_alt: Optional[float] = None,
         y_enter_enabled: bool = True,
         y_enter_alt_enabled: bool = True,
-        y_hl_enabled: bool = True,
-        y_oo_enter: float = 0.1,
-        y_oc_enter: float = 0.1,
-        y_hl_enter: float = 0.1,
-        y_oo_enter_alt: Optional[float] = None,
-        y_oc_enter_alt: Optional[float] = None,
-        y_hl_enter_alt: Optional[float] = None,
+        y_oo_gt0: Optional[bool] = None,
+        y_oc_gt0: Optional[bool] = None,
+        y_hl_gt0: Optional[bool] = None,
         initial_cash: Optional[float] = None,
         fill_clock: str = "09:30",
         lot_base: Optional[int] = None,
@@ -247,6 +243,12 @@ class QuantReplayMixin:
         strong = max(0.0, min(1.0, float(strong)))
         if strong < enter:
             strong = enter
+        if y_oo_gt0 is None:
+            y_oo_gt0 = bool(legacy_kw.get("y_oo_oc_enabled", False))
+        if y_oc_gt0 is None:
+            y_oc_gt0 = bool(legacy_kw.get("y_oo_oc_enabled", False))
+        if y_hl_gt0 is None:
+            y_hl_gt0 = bool(legacy_kw.get("y_hl_enabled", True))
         cash = clamp_replay_initial_cash(
             REPLAY_INITIAL_CASH if initial_cash is None else initial_cash
         )
@@ -305,13 +307,9 @@ class QuantReplayMixin:
             rank_enter_alt=rank_enter_alt,
             y_enter_enabled=y_enter_enabled,
             y_enter_alt_enabled=y_enter_alt_enabled,
-            y_hl_enabled=y_hl_enabled,
-            y_oo_enter=y_oo_enter,
-            y_oc_enter=y_oc_enter,
-            y_hl_enter=y_hl_enter,
-            y_oo_enter_alt=y_oo_enter_alt,
-            y_oc_enter_alt=y_oc_enter_alt,
-            y_hl_enter_alt=y_hl_enter_alt,
+            y_oo_gt0=bool(y_oo_gt0),
+            y_oc_gt0=bool(y_oc_gt0),
+            y_hl_gt0=bool(y_hl_gt0),
             lookback=int(lookback),
             fill_clock=clock,
             minute_bars_by_code=minute_bars,
@@ -350,13 +348,9 @@ class QuantReplayMixin:
             "rank_enter_alt": rank_enter_alt,
             "y_enter_enabled": bool(y_enter_enabled),
             "y_enter_alt_enabled": bool(y_enter_alt_enabled),
-            "y_hl_enabled": bool(y_hl_enabled),
-            "y_oo_enter": y_oo_enter,
-            "y_oc_enter": y_oc_enter,
-            "y_hl_enter": y_hl_enter,
-            "y_oo_enter_alt": y_oo_enter_alt,
-            "y_oc_enter_alt": y_oc_enter_alt,
-            "y_hl_enter_alt": y_hl_enter_alt,
+            "y_oo_gt0": bool(y_oo_gt0),
+            "y_oc_gt0": bool(y_oc_gt0),
+            "y_hl_gt0": bool(y_hl_gt0),
             "fill_clock": clock,
             "lot_base": lot_base_n,
             "lot_strong": lot_strong_n,

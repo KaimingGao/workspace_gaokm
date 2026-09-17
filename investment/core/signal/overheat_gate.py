@@ -1,13 +1,12 @@
-"""过热闸：从 factors / bars 判定纸面禁买与 ŷ 软折扣 tip。
+"""过热标注：从 factors / bars 写 tip / 对照列，不拦纸面开加。
 
-生产打分默认不 hard_reject 掐死入簿（见 score_stock.mom3_hard_reject=False）；
-纸面买入由 ``hard_reject.paper_buy_enforce`` 单独拦截。
+生产打分默认不 hard_reject 掐死入簿（见 score_stock.mom3_hard_reject=False）。
 """
 
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, Mapping, MutableMapping, Optional, Tuple
+from typing import Any, Dict, Mapping, MutableMapping, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -26,7 +25,6 @@ DEFAULT_OVERHEAT_REJECT: Dict[str, Any] = {
     "mom5_gain_max_pct": 10.0,
     "day_gain_max_pct": 6.0,
     "soft_reject": False,
-    "paper_buy_enforce": True,
     "soft_scale_yhat": False,
 }
 
@@ -46,6 +44,7 @@ def resolve_hard_reject_cfg(config: Optional[Mapping[str, Any]] = None) -> Dict[
         for k, v in hr.items():
             if v is not None:
                 cfg[k] = v
+    cfg.pop("paper_buy_enforce", None)
     return cfg
 
 
@@ -133,7 +132,6 @@ def evaluate_overheat_gate(
         "mom3": None if mom3 is None else round(float(mom3), 2),
         "mom5": None if mom5 is None else round(float(mom5), 2),
         "day_gain": None if day_gain is None else round(float(day_gain), 2),
-        "paper_buy_enforce": bool(hr.get("paper_buy_enforce", True)),
         "soft_reject": bool(hr.get("soft_reject", False)),
         "soft_scale_yhat": bool(hr.get("soft_scale_yhat", False)),
     }
@@ -144,7 +142,7 @@ def annotate_item_overheat(
     *,
     config: Optional[Mapping[str, Any]] = None,
 ) -> Dict[str, Any]:
-    """就地标注过热 meta；纸面禁买写 ``paper_hard_reject``（不改生产 hard_reject）。"""
+    """就地标注过热 meta（不改生产 hard_reject，不拦纸面开/加）。"""
     m = metrics_from_item(item)
     gate = evaluate_overheat_gate(
         mom3=m.get("mom3"),
@@ -176,12 +174,8 @@ def annotate_item_overheat(
     fac["overheat_raw_pct"] = gate["overheat_raw_pct"]
     fac["overheat_scale"] = gate["overheat_scale"]
 
-    paper_block = bool(gate["hit"] and gate["paper_buy_enforce"])
-    item["paper_hard_reject"] = paper_block
-    if paper_block:
-        item["paper_reject_reason"] = gate["reason"] or "过热追高"
-    else:
-        item.pop("paper_reject_reason", None)
+    item.pop("paper_hard_reject", None)
+    item.pop("paper_reject_reason", None)
 
     # ŷ tip：默认只写对照列；soft_scale_yhat 才改主 ŷ
     y = item.get("predicted_score")
@@ -200,23 +194,3 @@ def annotate_item_overheat(
             if item.get("predicted_score_eod") is not None:
                 item["predicted_score_eod"] = scaled
     return gate
-
-
-def paper_overheat_block(
-    item: Optional[Mapping[str, Any]],
-    *,
-    config: Optional[Mapping[str, Any]] = None,
-) -> Tuple[bool, str]:
-    """纸面买入闸：(blocked, reason)。"""
-    if item is not None and item.get("paper_hard_reject"):
-        return True, str(item.get("paper_reject_reason") or "过热追高")
-    if not isinstance(item, dict):
-        row = dict(item or {})
-        gate = annotate_item_overheat(row, config=config)
-        if row.get("paper_hard_reject"):
-            return True, str(row.get("paper_reject_reason") or gate.get("reason") or "过热追高")
-        return False, ""
-    gate = annotate_item_overheat(item, config=config)
-    if item.get("paper_hard_reject"):
-        return True, str(item.get("paper_reject_reason") or gate.get("reason") or "过热追高")
-    return False, ""

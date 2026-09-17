@@ -252,13 +252,9 @@ DEFAULT_REBALANCE_TIMING: Dict[str, Any] = {
         "y_on_alpha": 1.0,
         "y_enter_enabled": True,
         "y_enter_alt_enabled": True,
-        "y_hl_enabled": True,
-        "y_oo_enter": 0.1,
-        "y_oc_enter": 0.1,
-        "y_hl_enter": 0.1,
-        "y_oo_enter_alt": 0.1,
-        "y_oc_enter_alt": 0.1,
-        "y_hl_enter_alt": 0.1,
+        "y_oo_gt0": False,
+        "y_oc_gt0": False,
+        "y_hl_gt0": True,
         "fill_clock": "09:30",
     },
     # 旧键：读盘仍认；写入与 rank_lots 同步
@@ -278,13 +274,9 @@ DEFAULT_REBALANCE_TIMING: Dict[str, Any] = {
         "y_on_alpha": 1.0,
         "y_enter_enabled": True,
         "y_enter_alt_enabled": True,
-        "y_hl_enabled": True,
-        "y_oo_enter": 0.1,
-        "y_oc_enter": 0.1,
-        "y_hl_enter": 0.1,
-        "y_oo_enter_alt": 0.1,
-        "y_oc_enter_alt": 0.1,
-        "y_hl_enter_alt": 0.1,
+        "y_oo_gt0": False,
+        "y_oc_gt0": False,
+        "y_hl_gt0": True,
         "fill_clock": "09:30",
     },
 }
@@ -1081,25 +1073,9 @@ def validate_execution_patch(raw: Any) -> Tuple[bool, Dict[str, Any], List[str]]
                     "y_on_alpha": float(pm.get("y_on_alpha") if pm.get("y_on_alpha") is not None else 1.0),
                     "y_enter_enabled": bool(pm.get("y_enter_enabled", True)),
                     "y_enter_alt_enabled": bool(pm.get("y_enter_alt_enabled", True)),
-                    "y_hl_enabled": bool(pm.get("y_hl_enabled", True)),
-                    "y_oo_enter": float(pm.get("y_oo_enter") if pm.get("y_oo_enter") is not None else 0.1),
-                    "y_oc_enter": float(pm.get("y_oc_enter") if pm.get("y_oc_enter") is not None else 0.1),
-                    "y_hl_enter": float(pm.get("y_hl_enter") if pm.get("y_hl_enter") is not None else 0.1),
-                    "y_oo_enter_alt": float(
-                        pm.get("y_oo_enter_alt")
-                        if pm.get("y_oo_enter_alt") is not None
-                        else pm.get("y_oo_enter") if pm.get("y_oo_enter") is not None else 0.1
-                    ),
-                    "y_oc_enter_alt": float(
-                        pm.get("y_oc_enter_alt")
-                        if pm.get("y_oc_enter_alt") is not None
-                        else pm.get("y_oc_enter") if pm.get("y_oc_enter") is not None else 0.1
-                    ),
-                    "y_hl_enter_alt": float(
-                        pm.get("y_hl_enter_alt")
-                        if pm.get("y_hl_enter_alt") is not None
-                        else pm.get("y_hl_enter") if pm.get("y_hl_enter") is not None else 0.1
-                    ),
+                    "y_oo_gt0": bool(pm.get("y_oo_gt0", False)),
+                    "y_oc_gt0": bool(pm.get("y_oc_gt0", False)),
+                    "y_hl_gt0": bool(pm.get("y_hl_gt0", True)),
                     "fill_clock": str(pm.get("fill_clock") or "09:30"),
                 }
                 timing_out["rank_lots"] = lots
@@ -1171,6 +1147,10 @@ def apply_execution_patch_to_paper(
             if isinstance(rt.get("path_matrix"), dict):
                 prev_pm.update(rt["path_matrix"])
             prev_pm.update(incoming)
+            from core.paper.rebalance.path_matrix import STALE_Y_OO_OC_ENTER_KEYS
+
+            for stale in STALE_Y_OO_OC_ENTER_KEYS:
+                prev_pm.pop(stale, None)
             rt["rank_lots"] = prev_pm
             rt["path_matrix"] = prev_pm
         for k, v in timing_patch.items():

@@ -160,8 +160,8 @@ flowchart LR
 
 | 机制 | 类型 | 说明 |
 |------|------|------|
-| **ŷ_trade blend** | Ensemble（固定权融合） | `fusion_mode=blend`：\(w\cdot\hat y_{\mathrm{EOD}} + w\cdot(\text{缺口}\circ\hat y_\tau)\)；收盘后 `eod_next` 剥离当日 τ 防泄漏 |
-| **Nowcast / Kalman** | Ensemble（序贯融合） | EOD 先验 → open → 当前 τ；\(R\) 来自 τ OOS 分层；默认 **对照列**，`use_as_rank_key=false` |
+| **ŷ_trade blend** | Ensemble（固定权融合） | `fusion_mode=blend`：盘中 \(w_{\mathrm{oo}}\cdot\hat y_{\mathrm{oo}}+w_{\tau}\cdot(\text{缺口}\circ\hat y_\tau)\)。现网 **`w_oo=0, w_tau=1`**；收盘后 `eod_next` 剥离当日 τ。调仓 rank_lots 另用 `fusion_w_oo/oc`（默认 0.6/0.4） |
+| **Nowcast / Kalman** | Ensemble（序贯融合） | **已退役**：不再写 `predicted_score_nowcast`；`w_mode=kalman`→`fixed` |
 | **分组 OLS / Ridge** | Bagging（宇宙子集） | 观察池按主题/相似度 **聚类** → 组内独立 fit β / Ridge；`active` 组才进 live ŷ（FH0）；OOS 失败率闸 |
 | **多 Ridge 头** | Multi-target（非堆叠单分） | `tau_ridge` · `on_ridge` · `path_ridge` 各自 artifact；**不**改组 β |
 | **close_band 做 T** | 超额带宽 | 每根前缀 ŷ_oc clip 估 C_τ；收价破上带反T、破下带正T；leg2=`C_τ`；ŷ_τc 旁路验证（默认关） |
@@ -176,7 +176,7 @@ flowchart LR
 | 日线 | AkShare 等 · DataService | `daily` / `bars.db` |
 | 5m 分钟 | AkShare 东财（近）+ BaoStock（深） | `minute_bars`；强更见 [architecture · 分钟线采集](architecture.md#分钟线采集架构akshare--baostock) |
 
-分钟数据服务于 **path 标签 / 做 T 回测 / Worker 5m 盯盘**，不是替代日线 ŷ_EOD 的主排序轴。
+分钟数据服务于 **path 标签 / 做 T 回测 / Worker 5m 盯盘**。调仓 rank_lots 主排序仍是日线 ŷ_oo 与 ŷ_oc 的加权；盘中簿 `ŷ_trade` 现网可以把权全部放在 ŷ_τ。
 
 ### 硬边界（与 Ensemble 并存）
 

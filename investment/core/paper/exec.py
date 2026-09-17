@@ -860,15 +860,6 @@ def simulate_buys(paper: dict, pool: List[dict]) -> List[dict]:
         if item.get("hard_reject"):
             item["skip_reason"] = f"硬性拒绝：{item.get('reject_reason') or '未知原因'}"
             continue
-        try:
-            from core.signal.overheat_gate import paper_overheat_block
-
-            oh_block, oh_reason = paper_overheat_block(item)
-            if oh_block:
-                item["skip_reason"] = f"过热闸：{oh_reason or '追高风险'}"
-                continue
-        except Exception:  # noqa: BLE001
-            logger.debug("paper overheat gate in exec skipped", exc_info=True)
         score = item.get("score")
         if score is None or float(score) < min_score:
             item["skip_reason"] = f"评分{score}<{min_score:.1f}，不满足加仓阈值"

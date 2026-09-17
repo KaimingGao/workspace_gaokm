@@ -637,6 +637,14 @@ body[data-page="replay"] .follow-path-matrix-box--pair input[type="text"] {
   width: 100%;
 }
 
+body[data-page="replay"] .follow-path-matrix-box-slot input[type="checkbox"] {
+  width: 0.95rem;
+  height: 0.95rem;
+  margin: 0.275rem 0;
+  accent-color: var(--pm-accent);
+  justify-self: start;
+}
+
 body[data-page="replay"] .replay-t0-matrix .paper-t0-field input,
 body[data-page="replay"] .replay-t0-matrix .paper-t0-field select {
   border-radius: 6px !important;

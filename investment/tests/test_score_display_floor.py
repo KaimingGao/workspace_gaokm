@@ -78,10 +78,6 @@ class TestSelectionFloor(unittest.TestCase):
 
         item = {
             "predicted_score": 1.5,
-            "predicted_score_cal": 0.2,
-            "score_calibration_enabled": True,
-            # applied 恒 False；即便恶意标 True，闸仍应读 raw EOD
-            "score_calibration_applied": True,
         }
         with patch(
             "core.signal.config.load_signal_config",

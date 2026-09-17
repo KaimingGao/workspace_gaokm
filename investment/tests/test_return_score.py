@@ -176,6 +176,11 @@ class TestReturnScoreModel(unittest.TestCase):
         self.assertNotIn("heuristic_score", out[0])
         self.assertAlmostEqual(out[0]["predicted_score"], 2.0)
         self.assertAlmostEqual(out[0]["score"], 2.0)
+        terms = out[0].get("score_formula_terms") or {}
+        self.assertTrue(terms.get("terms"))
+        self.assertEqual(terms["terms"][0]["key"], "momentum")
+        self.assertAlmostEqual(float(terms["terms"][0]["contrib"]), 2.0)
+        self.assertEqual(out[0].get("formula_terms"), terms)
 
     def test_skip_minute_io_does_not_load_cache(self):
         from unittest.mock import patch

@@ -100,63 +100,21 @@ def _parse_open_price(quote: Optional[dict]) -> Optional[float]:
     return None
 
 
-def _asof_from_quote(quote: Optional[dict]) -> str:
-    if not isinstance(quote, dict):
-        return ""
-    return str(quote.get("date") or quote.get("trade_date") or "")[:10]
-
-
-def _hist_bars_for_prev_close(
-    bars: Optional[Sequence[dict]],
-    quote: Optional[dict] = None,
-    *,
-    asof_date: Optional[str] = None,
-) -> List[dict]:
-    """去掉与报价同日的 K 线，昨收取 close[T-1]。"""
-    hist = [b for b in (bars or []) if isinstance(b, dict)]
-    asof = str(asof_date or "")[:10] or _asof_from_quote(quote)
-    if not hist:
-        return []
-    last = hist[-1]
-    last_d = str(last.get("date") or "")[:10]
-    strip = bool(asof and last_d and last_d == asof)
-    if not strip and not asof and isinstance(quote, dict):
-        o = _parse_open_price(quote)
-        try:
-            bar_o = float(last.get("open") or 0.0) or None
-        except (TypeError, ValueError):
-            bar_o = None
-        if o is not None and bar_o is not None and abs(bar_o - o) <= max(1e-6, abs(o) * 1e-8):
-            strip = True
-    if strip:
-        return hist[:-1] if len(hist) >= 2 else []
-    return hist
-
-
-def _prev_close_from_bars(
-    bars: Optional[Sequence[dict]],
-    quote: Optional[dict] = None,
-    *,
-    asof_date: Optional[str] = None,
-) -> Optional[float]:
-    hist = _hist_bars_for_prev_close(bars, quote, asof_date=asof_date)
-    if not hist:
-        return None
-    last = hist[-1]
-    try:
-        return float(last.get("close"))
-    except (TypeError, ValueError):
-        return None
-
-
 def gap_pct_from_quote_bars(
     quote: Optional[dict],
     bars: Optional[Sequence[dict]] = None,
     *,
     prev_close: Optional[float] = None,
 ) -> Optional[float]:
-    """开盘相对昨收缺口（%）。只用 open[T] / close[T-1]，无未来函数。"""
-    o = _parse_open_price(quote)
+    """开盘相对昨收缺口（%）。统一 ``resolve_open_t``，不用现价涨跌反推昨收。"""
+    from core.signal.session_pit import resolve_minute_tau_trade_date, resolve_open_t
+
+    got = resolve_open_t(
+        quote,
+        bars,
+        trade_day=resolve_minute_tau_trade_date(quote, bars),
+    )
+    open_px = got.get("open")
     pc = None
     if prev_close is not None:
         try:
@@ -164,35 +122,17 @@ def gap_pct_from_quote_bars(
         except (TypeError, ValueError):
             pc = None
     if pc is None:
-        pc = _prev_close_from_bars(bars, quote)
-    if pc is None and isinstance(quote, dict):
-        # 行情常见：现价 + 涨跌幅 → 昨收；或显式 yc/prev_close
-        for k in ("prev_close", "last_close", "yc", "pre_close"):
-            if quote.get(k) is not None:
-                try:
-                    pc = float(str(quote.get(k)).replace("元", "").replace(",", ""))
-                    break
-                except (TypeError, ValueError):
-                    pass
-        if pc is None:
-            try:
-                px = quote.get("price_raw")
-                if px is None and quote.get("price") is not None:
-                    px = float(str(quote.get("price")).replace("元", "").replace(",", ""))
-                chg = quote.get("change_raw")
-                if chg is None and quote.get("change") is not None:
-                    chg = float(str(quote.get("change")).replace("%", "").replace("+", ""))
-                if px is not None and chg is not None:
-                    px_f = float(px)
-                    chg_f = float(chg)
-                    denom = 1.0 + chg_f / 100.0
-                    if denom != 0:
-                        pc = px_f / denom
-            except (TypeError, ValueError):
-                pc = None
-    if o is None or pc is None or pc <= 0:
+        pc = got.get("prev_close")
+    if open_px is None or pc is None:
         return None
-    return round((o / pc - 1.0) * 100.0, 4)
+    try:
+        o = float(open_px)
+        p = float(pc)
+    except (TypeError, ValueError):
+        return None
+    if o <= 0 or p <= 0:
+        return None
+    return round((o / p - 1.0) * 100.0, 4)
 
 
 def sector_gap_breadth(

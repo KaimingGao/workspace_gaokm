@@ -424,7 +424,7 @@ def score_window_as_item(
         config=config,
         fundamentals=fundamentals,
         required_factor_keys=required_factor_keys,
-        # 与 score_stock 一致：过热只标 paper_hard_reject，不掐死 ŷ。
+        # 与 score_stock 一致：过热只标 tip，不掐死 ŷ。
         # 否则回测持仓一旦 mom5≥10% 就会从打分名单消失，明细预估值冻在最后一天。
         mom3_hard_reject=False,
         stock_code=str(code or "").strip() or None,

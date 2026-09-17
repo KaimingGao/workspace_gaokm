@@ -282,6 +282,35 @@ class TestWatchingInsights(unittest.TestCase):
         self.assertEqual(row.get("stock_code"), "600519")
         gq.assert_not_called()
 
+    def test_insight_one_exposes_eod_feature_as_of(self):
+        from core.watching.insights import _insight_one
+
+        def _fake_score(code, **kw):
+            return {
+                "success": True,
+                "quote": {"success": True, "stock_code": code, "price_raw": 10.0},
+                "signal_item": {
+                    "stock_code": code,
+                    "score": 1.0,
+                    "predicted_score": 0.01,
+                    "hard_reject": False,
+                    "eod_feature_as_of": "2026-09-16",
+                    "dual_score_window": "intraday",
+                    "factor_anomaly": {
+                        "ok": False,
+                        "fatal_eod": False,
+                        "issues": [{"kind": "missing", "code": "open_t"}],
+                    },
+                },
+            }
+
+        with patch("core.signal.score_stock.score_stock", side_effect=_fake_score), patch(
+            "core.watching.insights._spot_valuation_map", return_value={}
+        ):
+            row = _insight_one("000001")
+        self.assertEqual(row.get("eod_feature_as_of"), "2026-09-16")
+        self.assertEqual((row.get("factor_anomaly") or {}).get("ok"), False)
+
     def test_insight_one_live_mode_allows_remote_flag(self):
         from core.watching.insights import _insight_one
 
@@ -368,6 +397,8 @@ class TestWatchingInsights(unittest.TestCase):
         self.assertTrue(q.get("success"))
         self.assertEqual(q.get("price_raw"), 10.0)
         self.assertEqual(q.get("data_source"), "offline_daily_synth")
+        self.assertEqual(q.get("date"), "2026-08-28")
+        self.assertEqual(q.get("prev_close"), 9.5)
         self.assertTrue(gb.call_args.kwargs.get("offline_only"))
         gq.assert_not_called()
 

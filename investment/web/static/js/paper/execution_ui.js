@@ -275,7 +275,7 @@ export function renderRebalanceRulesHtml(execution) {
     specKpi("调仓窗", `${pm.fill_clock || "09:30"}～10:00`, "现价成交一次 · live 200/500 股") +
     specKpi("w_co", fmtN(alpha, 1), "叠进 ŷ_oc 的隔夜系数；0=不叠") +
     specKpi("ranking", `${fmtN(wt, 2)}/${fmtN(wn, 2)}`, "w_oo / w_oc") +
-    specKpi("入场", `${fmtN(Number(enter), 2)}%`, "ranking 入场；与历史回测「入场·阈值%」同一键") +
+    specKpi("入场", `${fmtN(Number(enter), 2)}%`, "ranking 入场；与历史回测「入场·阈值%」同一键；未过则已持仓清仓") +
     specKpi("强档", `${fmtN(Number(strong), 2)}%`, "ranking 强档；与历史回测「强档·阈值%」同一键；live 过强买 500 否则 200") +
     specKpi("市值上限", capLbl, "本笔将超则跳过该买") +
     `</div></header></div>`
@@ -693,15 +693,15 @@ export function fillPathMatrixForm(root, execution) {
   };
   set("pm_rank_enter", rankScoreToPct(pm.rank_enter));
   set("pm_rank_strong", rankScoreToPct(pm.rank_strong != null ? pm.rank_strong : pm.rank_enter));
-  set("pm_y_hl_enabled", pm.y_hl_enabled !== false);
-  const pctEnter = (raw, fallback = 0.1) => {
-    const n = Number(raw);
-    if (!Number.isFinite(n)) return fallback;
-    return Math.max(0, Math.min(100, n));
-  };
-  set("pm_y_oo_enter", pctEnter(pm.y_oo_enter));
-  set("pm_y_oc_enter", pctEnter(pm.y_oc_enter));
-  set("pm_y_hl_enter", pctEnter(pm.y_hl_enter));
+  const yOoGt0 =
+    pm.y_oo_gt0 != null ? !!pm.y_oo_gt0 : pm.y_oo_oc_enabled === true;
+  const yOcGt0 =
+    pm.y_oc_gt0 != null ? !!pm.y_oc_gt0 : pm.y_oo_oc_enabled === true;
+  const yHlGt0 =
+    pm.y_hl_gt0 != null ? !!pm.y_hl_gt0 : pm.y_hl_enabled !== false;
+  set("pm_y_oo_gt0", yOoGt0);
+  set("pm_y_oc_gt0", yOcGt0);
+  set("pm_y_hl_gt0", yHlGt0);
   set(
     "pm_y_on_alpha",
     pm.fusion_w_co != null ? pm.fusion_w_co : pm.y_on_alpha != null ? pm.y_on_alpha : 1
@@ -789,9 +789,6 @@ export function collectPathMatrixForm(root) {
     if (!el) return fallback;
     return !!el.checked;
   };
-  const pctEnter = (name, fallback = 0.1) => {
-    return Math.max(0, Math.min(100, num(name, fallback)));
-  };
   const yOnAlpha = Math.max(0, Math.min(num("pm_y_on_alpha", 1), 10));
   const mvCap = 150000;
   let wOo = Math.max(0, Math.min(numFirst(["pm_fusion_w_oo", "pm_fusion_w_trade"], 0.6), 1));
@@ -804,10 +801,9 @@ export function collectPathMatrixForm(root) {
     wOo /= wSum;
     wOc /= wSum;
   }
-  const yHlOn = chk("pm_y_hl_enabled", true);
-  const yOoEnter = pctEnter("pm_y_oo_enter", 0.1);
-  const yOcEnter = pctEnter("pm_y_oc_enter", 0.1);
-  const yHlEnter = pctEnter("pm_y_hl_enter", 0.1);
+  const yOoGt0 = chk("pm_y_oo_gt0", false);
+  const yOcGt0 = chk("pm_y_oc_gt0", false);
+  const yHlGt0 = chk("pm_y_hl_gt0", true);
   // 门槛2 已下掉：alt 档跟随门槛1，两档常开（引擎契约保留）
   const lots = {
         enabled: true,
@@ -817,13 +813,9 @@ export function collectPathMatrixForm(root) {
         rank_enter_alt: enter,
         y_enter_enabled: true,
         y_enter_alt_enabled: true,
-        y_hl_enabled: yHlOn,
-        y_oo_enter: Math.round(yOoEnter * 1000) / 1000,
-        y_oc_enter: Math.round(yOcEnter * 1000) / 1000,
-        y_hl_enter: Math.round(yHlEnter * 1000) / 1000,
-        y_oo_enter_alt: Math.round(yOoEnter * 1000) / 1000,
-        y_oc_enter_alt: Math.round(yOcEnter * 1000) / 1000,
-        y_hl_enter_alt: Math.round(yHlEnter * 1000) / 1000,
+        y_oo_gt0: yOoGt0,
+        y_oc_gt0: yOcGt0,
+        y_hl_gt0: yHlGt0,
         y_on_alpha: Math.round(yOnAlpha * 1000) / 1000,
         fusion_w_co: Math.round(yOnAlpha * 1000) / 1000,
         holdings_mv_cap: Math.round(mvCap),

@@ -4631,7 +4631,7 @@ body[data-page="replay"] .replay-t0-section .paper-t0-viz-stock-table {
 
 .paper-t0-trades-panel.is-fs .paper-t0-trades-wrap,
 body[data-page="follow"] .paper-t0-trades-panel.is-fs .paper-t0-trades-wrap,
-body[data-page="follow"] .paper-t0-ledger-fold .paper-t0-trades-panel.is-fs .paper-t0-trades-wrap,
+body[data-page="follow"] .paper-t0-worker-trades .paper-t0-trades-panel.is-fs .paper-t0-trades-wrap,
 body[data-page="follow"] .paper-t0-preview-fold .paper-t0-trades-panel.is-fs .paper-t0-trades-wrap {
   flex: 1 1 auto;
   max-height: none;
@@ -9584,7 +9584,7 @@ body[data-page="follow"] .follow-path-matrix-actions #paper-adjust, body[data-pa
 
 body[data-page="follow"] .follow-path-matrix-panels, body[data-page="replay"] .follow-path-matrix-panels {
   display: grid;
-  grid-template-columns: 1fr 1fr 1fr;
+  grid-template-columns: minmax(0, 3fr) minmax(0, 3fr) minmax(0, 4fr);
   gap: 0;
   align-items: stretch;
 }
@@ -9688,6 +9688,10 @@ body[data-page="follow"] .follow-path-matrix-body--row4, body[data-page="replay"
   grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
+body[data-page="follow"] .follow-path-matrix-body--row5, body[data-page="replay"] .follow-path-matrix-body--row5 {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
 body[data-page="follow"] .follow-path-matrix-box, body[data-page="replay"] .follow-path-matrix-box {
   display: grid;
   grid-template-rows: 1fr auto;
@@ -9788,6 +9792,15 @@ body[data-page="follow"] .follow-path-matrix-box--check input[type="checkbox"], 
 
 body[data-page="follow"] .follow-path-matrix-box:not(.follow-path-matrix-box--check) > input[type="checkbox"],
 body[data-page="replay"] .follow-path-matrix-box:not(.follow-path-matrix-box--check) > input[type="checkbox"] {
+  width: 0.95rem;
+  height: 0.95rem;
+  margin: 0.275rem 0;
+  accent-color: var(--pm-accent);
+  justify-self: start;
+}
+
+body[data-page="follow"] .follow-path-matrix-box-slot input[type="checkbox"],
+body[data-page="replay"] .follow-path-matrix-box-slot input[type="checkbox"] {
   width: 0.95rem;
   height: 0.95rem;
   margin: 0.275rem 0;
@@ -10931,7 +10944,7 @@ body[data-page="follow"] .paper-t0-worker-error {
   border: 1px solid color-mix(in srgb, var(--danger, #f5222d) 22%, transparent);
 }
 
-/* 盯盘状态 + 落账明细：Worker 面板外一层嵌套框 */
+/* 今日盯盘状态（含成交表）：Worker 面板外一层嵌套框 */
 body[data-page="follow"] .paper-t0-worker-ledger {
   margin-top: 12px;
   padding: 10px 12px;
@@ -10958,12 +10971,28 @@ body[data-page="follow"] .paper-t0-worker-trades {
   max-width: 100%;
 }
 
-body[data-page="follow"] .paper-t0-worker-desk + .paper-t0-worker-trades:not([hidden]) {
+body[data-page="follow"] .paper-t0-desk-trades-slot:has(.paper-t0-worker-trades:not([hidden])) {
+  margin-top: 10px;
   padding-top: 10px;
   border-top: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
 }
 
-/* 盯盘 / 落账表：横纵可滑，表头粘顶 */
+body[data-page="follow"] .paper-t0-desk-trades-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  margin: 0 0 6px;
+}
+
+body[data-page="follow"] .paper-t0-desk-trades-title {
+  font-size: 0.74rem;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  color: var(--ink-2, #475569);
+}
+
+/* 盯盘 / 成交表：横纵可滑，表头粘顶 */
 body[data-page="follow"] .paper-t0-desk-board {
   margin-top: 8px;
   border: none;
@@ -10975,7 +11004,7 @@ body[data-page="follow"] .paper-t0-desk-board {
 }
 
 body[data-page="follow"] .paper-t0-desk-wrap,
-body[data-page="follow"] .paper-t0-ledger-fold .paper-t0-trades-wrap {
+body[data-page="follow"] .paper-t0-worker-trades .paper-t0-trades-wrap {
   margin: 0;
   width: 100%;
   max-width: 100%;
@@ -11131,7 +11160,7 @@ body[data-page="follow"] .paper-t0-desk-table {
   font-size: 0.74rem;
 }
 
-body[data-page="follow"] .paper-t0-ledger-fold .paper-t0-trades-table {
+body[data-page="follow"] .paper-t0-worker-trades .paper-t0-trades-table {
   width: max(100%, 58rem);
   min-width: 58rem;
 }

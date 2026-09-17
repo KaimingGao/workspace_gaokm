@@ -6,11 +6,12 @@
   - ŷ_oc = open[T]→close[T]（现网 y_tau）
   - ranking = w_oo·ŷ_oo + w_oc·((1+ŷ_oc)(1+w_co·ŷ_co)−1)；ŷ 为净收益，落盘为百分点
     w_co 默认 1（叠隔夜）；缺 ŷ_co 则退回 ŷ_oc
-  - 已持仓且 ranking < 0、缺 ranking、或 hard_reject → 清仓（T+1 可卖部分）
-    过热 paper_hard_reject 不因此清仓；缺分不能假装 ranking≥0 续持
-  - 门槛1 ∪ 门槛2 过入场（ŷ_oo / ŷ_oc / ranking / y_hl）的票按分数取 Top-K：建仓或加仓
+  - 过入场（ranking>入场，可选 y_oo>0 / y_oc>0 / y_hl>0）→ 开仓或加仓
+  - 已持仓且未过入场、缺 ranking、或 hard_reject → 清仓（T+1 可卖部分）
+    缺分不能假装过门槛续持；无「持」动作
   - ranking > rank强 → 500 股，否则 200 股（回测可改为单一手数）
-  - 不留现金地板：现金不够该手则跳过（强档买不下先退基础手数）；live 另受持仓市值上限约束
+  - 不留现金地板：现金不够该手则缩到整百（最少一手）；仍买不起才跳过。
+    强档买不下先试基础手数，再缩。live 另受持仓市值上限约束
 """
 
 from __future__ import annotations
@@ -26,12 +27,10 @@ DEFAULT_CASH_FLOOR = 0.0
 DEFAULT_HOLDINGS_MV_CAP = 150_000.0
 DEFAULT_INITIAL_CASH = 1_000_000.0
 DEFAULT_Y_ON_ALPHA = 1.0
-DEFAULT_Y_OO_ENTER = 0.1
-DEFAULT_Y_OC_ENTER = 0.1
-DEFAULT_Y_HL_ENTER = 0.1
 Y_ON_ALPHA_MAX = 10.0
 LOT_BASE = 200
 LOT_STRONG = 500
+LOT_MIN = 100
 
 
 def _display_name(code: str, *cands: Any) -> str:
@@ -57,6 +56,7 @@ def _display_name(code: str, *cands: Any) -> str:
 ACTION_OPEN = "open"
 ACTION_ADD = "add"
 ACTION_EXIT = "exit"
+ACTION_REDUCE = "reduce"
 ACTION_HOLD = "hold"
 ACTION_SKIP = "skip"
 
@@ -106,16 +106,35 @@ def clamp_fusion_weight(raw: Any, default: float = 0.5) -> float:
     return max(0.0, min(1.0, float(v)))
 
 
-def _pct_enter_skip(val: Optional[float], thresh: float, label: str) -> Optional[str]:
-    """百分点入场：0=关；缺分不拦；否则须大于门槛。"""
-    th = float(thresh or 0.0)
-    if th <= 0:
+def _pos_enter_skip(val: Optional[float], enabled: bool, label: str) -> Optional[str]:
+    """勾选则须 y>0；关=不看；缺分不拦。"""
+    if not enabled:
         return None
     if val is None:
         return None
-    if float(val) <= th + 1e-12:
-        return f"{label}={float(val):.3f}%<{th:g}% 未过入场"
+    if float(val) <= 0:
+        return f"{label}={float(val):.3f}≤0 未过入场"
     return None
+
+
+def _y_gt0_flags(cfg: Optional[dict]) -> Tuple[bool, bool, bool]:
+    """y_oo>0 / y_oc>0 / y_hl>0 闸。旧 y_oo_oc_enabled / y_hl_enabled 缺新键时迁入。"""
+    from core.t0.config import coerce_cfg_bool
+
+    d = cfg if isinstance(cfg, dict) else {}
+    if "y_oo_gt0" in d:
+        y_oo = coerce_cfg_bool(d.get("y_oo_gt0"), False)
+    else:
+        y_oo = coerce_cfg_bool(d.get("y_oo_oc_enabled"), False)
+    if "y_oc_gt0" in d:
+        y_oc = coerce_cfg_bool(d.get("y_oc_gt0"), False)
+    else:
+        y_oc = coerce_cfg_bool(d.get("y_oo_oc_enabled"), False)
+    if "y_hl_gt0" in d:
+        y_hl = coerce_cfg_bool(d.get("y_hl_gt0"), True)
+    else:
+        y_hl = coerce_cfg_bool(d.get("y_hl_enabled"), True)
+    return y_oo, y_oc, y_hl
 
 
 def _rank_enter_skip(rs: Optional[float], thresh: float) -> Optional[str]:
@@ -134,20 +153,20 @@ def _rank_enter_skip(rs: Optional[float], thresh: float) -> Optional[str]:
 
 def _enter_profile_skip_reason(
     *,
+    y_hl: Optional[float],
     y_oo: Optional[float],
     y_oc: Optional[float],
-    y_hl: Optional[float],
     rs: Optional[float],
-    y_oo_enter: float,
-    y_oc_enter: float,
     rank_enter: float,
-    y_hl_enter: float,
+    y_oo_gt0: bool,
+    y_oc_gt0: bool,
+    y_hl_gt0: bool,
 ) -> Optional[str]:
     for skip in (
-        _pct_enter_skip(y_oo, y_oo_enter, "ŷ_oo"),
-        _pct_enter_skip(y_oc, y_oc_enter, "ŷ_oc"),
         _rank_enter_skip(rs, rank_enter),
-        _pct_enter_skip(y_hl, y_hl_enter, "y_hl"),
+        _pos_enter_skip(y_oo, y_oo_gt0, "y_oo"),
+        _pos_enter_skip(y_oc, y_oc_gt0, "y_oc"),
+        _pos_enter_skip(y_hl, y_hl_gt0, "y_hl"),
     ):
         if skip is not None:
             return skip
@@ -155,10 +174,9 @@ def _enter_profile_skip_reason(
 
 
 def held_exit_reason(item: Optional[dict], rs: Optional[float]) -> Optional[str]:
-    """已持仓清仓理由；None = 续持。
+    """已持仓硬清仓理由；None = 再看入场闸（未过则清仓）。
 
-    入场缺 ranking 会拦；持仓缺 ranking 不能假装 ≥0 续持。
-    ``paper_hard_reject``（过热）不走这里。
+    入场缺 ranking 会拦；持仓缺 ranking 不能假装过门槛续持。
     """
     if isinstance(item, dict) and item.get("hard_reject"):
         return "hard_reject 清仓"
@@ -175,67 +193,55 @@ def rank_lot_enter_skip_reason(
     *,
     rs: Optional[float],
 ) -> Optional[str]:
-    """入场：启用中的门槛1 ∪ 门槛2。每档 ŷ_oo、ŷ_oc、ranking、y_hl 过入场。
+    """入场：启用中的门槛1 ∪ 门槛2。每档 ranking 过入场；可选 y_oo>0 / y_oc>0 / y_hl>0。
 
     ``y_enter_enabled`` / ``y_enter_alt_enabled`` 关则该档不参与 OR；两档都关则不开/不加。
-    ``y_hl_enabled`` 关则门槛1/2 都不看 y_hl。缺键时门槛2 跟随门槛1。缺 ŷ_oo / ŷ_oc / y_hl 不拦。
+    ``y_oo_gt0`` / ``y_oc_gt0`` / ``y_hl_gt0`` 开则对应 ŷ 须 >0。缺键时门槛2 跟随门槛1。缺分不拦。
     """
     from core.paper.rebalance.path_matrix import scores_from_rebalance_item
     from core.research.path_panel import pick_y_hl
+    from core.signal.yhat_windows import pick_y_oc, pick_y_oo
     from core.t0.config import coerce_cfg_bool
 
     cfg_d = cfg if isinstance(cfg, dict) else {}
     sc = scores_from_rebalance_item(item, cfg_d)
-    y_oo = sc.get("y_oo")
-    y_oc = sc.get("y_oc")
     y_hl = pick_y_hl(sc, item) if isinstance(item, dict) or isinstance(sc, dict) else None
+    y_oo = pick_y_oo(sc) if isinstance(sc, dict) else None
+    y_oc = pick_y_oc(sc) if isinstance(sc, dict) else None
+    if y_oo is None and isinstance(item, dict):
+        y_oo = pick_y_oo(item)
+    if y_oc is None and isinstance(item, dict):
+        y_oc = pick_y_oc(item)
 
-    def _enter_f(key: str, default: float, lo: float, hi: float) -> float:
-        v = _f(cfg_d.get(key))
-        if v is None:
-            return max(lo, min(float(default), hi))
-        return max(lo, min(float(v), hi))
-
-    y_oo_enter = _enter_f("y_oo_enter", DEFAULT_Y_OO_ENTER, 0.0, 100.0)
-    y_oc_enter = _enter_f("y_oc_enter", DEFAULT_Y_OC_ENTER, 0.0, 100.0)
-    y_hl_enter = _enter_f("y_hl_enter", DEFAULT_Y_HL_ENTER, 0.0, 100.0)
     rank_enter = coerce_rank_threshold(cfg_d.get("rank_enter"), DEFAULT_RANK_ENTER)
     rank_enter = max(0.0, min(float(rank_enter), 10.0))
 
     gate1_on = coerce_cfg_bool(cfg_d.get("y_enter_enabled"), True)
     gate2_on = coerce_cfg_bool(cfg_d.get("y_enter_alt_enabled"), True)
-    hl_on = coerce_cfg_bool(cfg_d.get("y_hl_enabled"), True)
-    y_hl_enter_eff = y_hl_enter if hl_on else 0.0
+    y_oo_gt0, y_oc_gt0, y_hl_gt0 = _y_gt0_flags(cfg_d)
 
     skip = None
     if gate1_on:
         skip = _enter_profile_skip_reason(
+            y_hl=y_hl,
             y_oo=y_oo,
             y_oc=y_oc,
-            y_hl=y_hl,
             rs=rs,
-            y_oo_enter=y_oo_enter,
-            y_oc_enter=y_oc_enter,
             rank_enter=rank_enter,
-            y_hl_enter=y_hl_enter_eff,
+            y_oo_gt0=y_oo_gt0,
+            y_oc_gt0=y_oc_gt0,
+            y_hl_gt0=y_hl_gt0,
         )
         if skip is None:
             return None
 
     skip_alt = None
     if gate2_on:
-        def _follow(key: str, follow: float, lo: float, hi: float) -> float:
-            if cfg_d.get(key) in (None, ""):
-                return max(lo, min(float(follow), hi))
-            return _enter_f(key, follow, lo, hi)
-
         skip_alt = _enter_profile_skip_reason(
+            y_hl=y_hl,
             y_oo=y_oo,
             y_oc=y_oc,
-            y_hl=y_hl,
             rs=rs,
-            y_oo_enter=_follow("y_oo_enter_alt", y_oo_enter, 0.0, 100.0),
-            y_oc_enter=_follow("y_oc_enter_alt", y_oc_enter, 0.0, 100.0),
             rank_enter=max(
                 0.0,
                 min(
@@ -248,11 +254,9 @@ def rank_lot_enter_skip_reason(
                     10.0,
                 ),
             ),
-            y_hl_enter=(
-                0.0
-                if not hl_on
-                else _follow("y_hl_enter_alt", y_hl_enter, 0.0, 100.0)
-            ),
+            y_oo_gt0=y_oo_gt0,
+            y_oc_gt0=y_oc_gt0,
+            y_hl_gt0=y_hl_gt0,
         )
         if skip_alt is None:
             return None
@@ -293,7 +297,7 @@ def ranking_score(
 
 def _normalize_lot(n: Any, default: int) -> int:
     try:
-        v = max(100, int(n))
+        v = max(int(LOT_MIN), int(n))
     except (TypeError, ValueError):
         v = int(default)
     return (v // 100) * 100
@@ -313,6 +317,51 @@ def lot_shares_for_rank(
     if float(score) > float(rank_strong):
         return strong
     return base
+
+
+def clip_lot_to_cash(
+    lots: int,
+    px: float,
+    cash: float,
+    cash_floor: float = 0.0,
+    *,
+    lot_min: int = LOT_MIN,
+) -> int:
+    """现金够则原手数；不够则缩到整百，最少一手。买不起一手返回 0。"""
+    try:
+        sh = int(lots or 0)
+    except (TypeError, ValueError):
+        sh = 0
+    sh = (sh // 100) * 100
+    try:
+        price = float(px)
+    except (TypeError, ValueError):
+        price = 0.0
+    if sh < int(lot_min) or price <= 0 or price != price:
+        return 0
+    try:
+        floor = float(cash_floor or 0.0)
+    except (TypeError, ValueError):
+        floor = 0.0
+    if floor != floor:
+        floor = 0.0
+    floor = max(0.0, floor)
+    try:
+        cash_f = float(cash or 0.0)
+    except (TypeError, ValueError):
+        cash_f = 0.0
+    if cash_f != cash_f:
+        cash_f = 0.0
+    need = float(sh) * price
+    if cash_f - need >= floor - 1e-6:
+        return sh
+    budget = cash_f - floor
+    if budget <= 0:
+        return 0
+    max_sh = int(budget / price // 100) * 100
+    if max_sh < int(lot_min):
+        return 0
+    return min(sh, max_sh)
 
 
 def _lot_sizes_from_cfg(cfg: Optional[dict]) -> Tuple[int, int]:
@@ -392,8 +441,8 @@ def get_rank_lot_cfg(
     strong = max(0.0, min(strong, 10.0))
     if strong < enter:
         strong = enter
+    y_oo_gt0, y_oc_gt0, y_hl_gt0 = _y_gt0_flags(pm)
     # 产品不再留现金地板（含 paper.json 里旧 50 万）。买到现金不够为止。
-    floor_cfg = 0.0
     floor = 0.0
     try:
         mv_cap = float(pm.get("holdings_mv_cap", DEFAULT_HOLDINGS_MV_CAP))
@@ -420,8 +469,8 @@ def get_rank_lot_cfg(
             pm.get("rank_enter_alt", enter), enter
         ),
         "cash_floor": floor,
-        "cash_floor_configured": floor_cfg,
-        "cash_floor_scaled": abs(float(floor) - float(floor_cfg)) > 1e-6,
+        "cash_floor_configured": 0.0,
+        "cash_floor_scaled": False,
         "holdings_mv_cap": mv_cap,
         "top_k": k,
         "fusion_w_oo": float(pm.get("fusion_w_oo") or 0.6),
@@ -435,13 +484,9 @@ def get_rank_lot_cfg(
         "lot_strong": LOT_STRONG,
         "y_enter_enabled": bool(pm.get("y_enter_enabled", True)),
         "y_enter_alt_enabled": bool(pm.get("y_enter_alt_enabled", True)),
-        "y_hl_enabled": bool(pm.get("y_hl_enabled", True)),
-        "y_oo_enter": float(pm.get("y_oo_enter") if pm.get("y_oo_enter") is not None else DEFAULT_Y_OO_ENTER),
-        "y_oc_enter": float(pm.get("y_oc_enter") if pm.get("y_oc_enter") is not None else DEFAULT_Y_OC_ENTER),
-        "y_hl_enter": float(pm.get("y_hl_enter") if pm.get("y_hl_enter") is not None else DEFAULT_Y_HL_ENTER),
-        "y_oo_enter_alt": float(pm.get("y_oo_enter_alt") if pm.get("y_oo_enter_alt") is not None else pm.get("y_oo_enter") if pm.get("y_oo_enter") is not None else DEFAULT_Y_OO_ENTER),
-        "y_oc_enter_alt": float(pm.get("y_oc_enter_alt") if pm.get("y_oc_enter_alt") is not None else pm.get("y_oc_enter") if pm.get("y_oc_enter") is not None else DEFAULT_Y_OC_ENTER),
-        "y_hl_enter_alt": float(pm.get("y_hl_enter_alt") if pm.get("y_hl_enter_alt") is not None else pm.get("y_hl_enter") if pm.get("y_hl_enter") is not None else DEFAULT_Y_HL_ENTER),
+        "y_oo_gt0": bool(y_oo_gt0),
+        "y_oc_gt0": bool(y_oc_gt0),
+        "y_hl_gt0": bool(y_hl_gt0),
         "fill_clock": str(pm.get("fill_clock") or "09:30"),
     }
 
@@ -576,6 +621,76 @@ def aux_yhat_fields(
     return out
 
 
+# 调仓明细 / 成交 tip：ŷ 组成与窗口说明。不含 ŷ_τ30/60/90（回测会剥）。
+_TIP_EXPLAIN_KEYS = (
+    "score_formula_terms",
+    "formula_terms",
+    "formula_terms_tau",
+    "score_formula_terms_tau",
+    "formula_terms_on",
+    "score_formula_terms_on",
+    "formula_terms_path",
+    "score_formula_terms_path",
+    "features_tau",
+    "features_on",
+    "y_spec_tau",
+    "y_spec_on",
+    "as_of_tau",
+    "score_formula",
+    "factor_coefficients",
+    "factor_coefficients_tau",
+    "fusion_w_oo",
+    "fusion_w_oc",
+    "fusion_w_co",
+    "y_on_alpha",
+    "dual_score_weights",
+    "dual_score_window",
+    "dual_score_head",
+)
+
+
+_TIP_FORMULA_KEYS = frozenset(
+    {
+        "score_formula_terms",
+        "formula_terms",
+        "formula_terms_tau",
+        "score_formula_terms_tau",
+        "formula_terms_on",
+        "score_formula_terms_on",
+        "formula_terms_path",
+        "score_formula_terms_path",
+    }
+)
+
+
+def _slim_tip_formula(expl: Any, limit: int = 10) -> Any:
+    """压缩组成表，避免 sim_trades / data-score-detail 过长截断。"""
+    if not isinstance(expl, dict):
+        return expl
+    terms = [t for t in (expl.get("terms") or []) if isinstance(t, dict)]
+    if len(terms) <= limit:
+        return expl
+    ranked = sorted(terms, key=lambda t: -abs(float(t.get("contrib") or 0.0)))
+    out = dict(expl)
+    out["terms"] = ranked[: max(1, int(limit))]
+    return out
+
+
+def tip_explain_fields(item: Optional[dict]) -> Dict[str, Any]:
+    """成交/跳过/持有行上的 tip 组成；缺键不写。"""
+    if not isinstance(item, dict):
+        return {}
+    out: Dict[str, Any] = {}
+    for k in _TIP_EXPLAIN_KEYS:
+        v = item.get(k)
+        if v is None:
+            continue
+        if k in _TIP_FORMULA_KEYS:
+            v = _slim_tip_formula(v)
+        out[k] = v
+    return out
+
+
 def _debug_scores(
     item: Optional[dict],
     ranking_pct: Optional[float],
@@ -614,22 +729,107 @@ def _debug_scores(
         "predicted_score_on": y_co,
     }
     out.update(aux_yhat_fields(item))
+    out.update(tip_explain_fields(item))
     out.update({k: v for k, v in extra.items() if v is not None})
     return out
 
 
-def y_on_of(item: Optional[dict]) -> Optional[float]:
-    """旧名；等同 pick_y_co（可读 y_on / predicted_score_on）。"""
-    from core.signal.yhat_windows import pick_y_co
+def _fusion_weight_fields(cfg: Optional[dict]) -> Dict[str, float]:
+    """写入成交/持有行，供 tip 与 rank_lots 决策权同套。"""
+    from core.signal.yhat_windows import fusion_w_co_from_cfg, fusion_weights_from_cfg
 
-    if not isinstance(item, dict):
-        return None
-    y = pick_y_co(item)
-    if y is not None:
-        return y
-    from core.paper.rebalance.path_matrix import scores_from_rebalance_item
+    w_oo, w_oc = fusion_weights_from_cfg(cfg)
+    w_co = fusion_w_co_from_cfg(cfg)
+    return {
+        "fusion_w_oo": w_oo,
+        "fusion_w_oc": w_oc,
+        "fusion_w_co": w_co,
+        "fusion_w_trade": w_oo,
+        "fusion_w_nowcast": w_oc,
+        "y_on_alpha": w_co,
+    }
 
-    return _f(scores_from_rebalance_item(item).get("y_co"))
+
+def _try_held_sell(
+    *,
+    h: dict,
+    code: str,
+    name: str,
+    item: dict,
+    rp: Optional[float],
+    yoc: Optional[float],
+    rs: Optional[float],
+    as_of: Optional[str],
+    prices: Dict[str, float],
+    t0_blocks: dict,
+    target_sh: float,
+    reason: str,
+    fusion_w_oo: Optional[float] = None,
+    fusion_w_oc: Optional[float] = None,
+    fusion_w_co: Optional[float] = None,
+) -> Tuple[Optional[dict], Optional[dict], float]:
+    """T+1 / 做 T 拦卖。返回 (sell, skip, cash_delta)。可卖部分一律记清仓。"""
+    from core.paper.tplus1 import clip_sell_shares
+
+    dbg = _debug_scores(
+        item,
+        rp,
+        yoc,
+        rs,
+        fusion_w_oo=fusion_w_oo,
+        fusion_w_oc=fusion_w_oc,
+        fusion_w_co=fusion_w_co,
+        fusion_w_trade=fusion_w_oo,
+        fusion_w_nowcast=fusion_w_oc,
+        y_on_alpha=fusion_w_co,
+    )
+    t0_reason = str(t0_blocks.get(code) or "").strip()
+    if t0_reason:
+        skip = {
+            "stock_code": code,
+            "stock_name": name,
+            "side": "sell",
+            "action": ACTION_SKIP,
+            "reason": t0_reason,
+            **dbg,
+        }
+        return None, skip, 0.0
+    sell_sh, t1 = clip_sell_shares(h, target_sh, as_of=as_of)
+    sell_sh = int(float(sell_sh or 0) // 100) * 100
+    if sell_sh <= 0:
+        skip = {
+            "stock_code": code,
+            "stock_name": name,
+            "side": "sell",
+            "action": ACTION_SKIP,
+            "reason": t1.get("reason") or "T+1 不可卖 / 不足一手",
+            **dbg,
+        }
+        return None, skip, 0.0
+    px = _f(prices.get(code))
+    if px is None or px <= 0:
+        skip = {
+            "stock_code": code,
+            "stock_name": name,
+            "side": "sell",
+            "shares": float(h.get("shares") or 0),
+            "action": ACTION_SKIP,
+            "reason": f"{reason} · 无有效报价未卖出",
+            **dbg,
+        }
+        return None, skip, 0.0
+    cash_delta = float(sell_sh) * float(px)
+    sell = {
+        "side": "sell",
+        "stock_code": code,
+        "stock_name": name,
+        "shares": float(sell_sh),
+        "action": ACTION_EXIT,
+        "matrix_action": ACTION_EXIT,
+        "reason": reason,
+        **dbg,
+    }
+    return sell, None, cash_delta
 
 
 def _is_oos_failed(item: Optional[dict]) -> bool:
@@ -655,10 +855,12 @@ def plan_rank_lot_day(
     prices: Dict[str, float],
     cfg: dict,
     as_of: Optional[str] = None,
+    sell_prices: Optional[Dict[str, float]] = None,
 ) -> Dict[str, Any]:
-    """一天的卖/买计划。价格用于估算现金是否够买该手；成交仍由调用方落地。"""
-    from core.paper.tplus1 import clip_sell_shares
+    """一天的卖/买计划。价格用于估算现金是否够买该手；成交仍由调用方落地。
 
+    ``sell_prices`` 缺省等于 ``prices``。历史回测可只给清仓回退价、买入仍走严格钟。
+    """
     rank_enter = coerce_rank_threshold(
         cfg.get("rank_enter"), DEFAULT_RANK_ENTER
     )
@@ -675,10 +877,13 @@ def plan_rank_lot_day(
     mv_cap = max(0.0, mv_cap)
     top_k = max(1, int(cfg.get("top_k") or 15))
     lot_base, lot_strong_sh = _lot_sizes_from_cfg(cfg)
+    px_buy = prices if isinstance(prices, dict) else {}
+    px_sell = sell_prices if isinstance(sell_prices, dict) else px_buy
     from core.signal.yhat_windows import fusion_w_co_from_cfg, fusion_weights_from_cfg, pick_y_oc
 
     w_oo, w_oc = fusion_weights_from_cfg(cfg)
     w_co = fusion_w_co_from_cfg(cfg)
+    w_fields = _fusion_weight_fields(cfg)
     t0_blocks = cfg.get("t0_sell_blocks")
     if not isinstance(t0_blocks, dict):
         try:
@@ -711,7 +916,6 @@ def plan_rank_lot_day(
 
     sells: List[dict] = []
     skips: List[dict] = []
-    holds: List[dict] = []
     cash_sim = float(cash or 0.0)
 
     for h in held_rows:
@@ -723,70 +927,33 @@ def plan_rank_lot_day(
         name = _display_name(code, item.get("stock_name"), h.get("stock_name"))
         held_sh = float(h.get("shares") or 0)
         exit_why = held_exit_reason(item, rs)
+        if not exit_why:
+            skip_enter = rank_lot_enter_skip_reason(item, cfg, rs=rs)
+            if skip_enter:
+                exit_why = f"{skip_enter} 清仓"
         if exit_why:
-            t0_reason = str(t0_blocks.get(code) or "").strip()
-            if t0_reason:
-                skips.append(
-                    {
-                        "stock_code": code,
-                        "stock_name": name,
-                        "side": "sell",
-                        "action": ACTION_SKIP,
-                        "reason": t0_reason,
-                        **_debug_scores(item, rp, yoc, rs),
-                    }
-                )
-                holds.append(
-                    {
-                        "stock_code": code,
-                        "stock_name": name,
-                        "shares": held_sh,
-                        "action": ACTION_HOLD,
-                        "reason": t0_reason,
-                        **_debug_scores(item, rp, yoc, rs),
-                    }
-                )
-                continue
-            sell_sh, t1 = clip_sell_shares(h, held_sh, as_of=as_of)
-            sell_sh = int(float(sell_sh or 0) // 100) * 100
-            if sell_sh <= 0:
-                skips.append(
-                    {
-                        "stock_code": code,
-                        "stock_name": name,
-                        "side": "sell",
-                        "action": ACTION_SKIP,
-                        "reason": t1.get("reason") or "T+1 不可卖 / 不足一手",
-                        **_debug_scores(item, rp, yoc, rs),
-                    }
-                )
-                continue
-            px = _f(prices.get(code))
-            if px is not None and px > 0:
-                cash_sim += float(sell_sh) * float(px)
-            sells.append(
-                {
-                    "side": "sell",
-                    "stock_code": code,
-                    "stock_name": name,
-                    "shares": float(sell_sh),
-                    "action": ACTION_EXIT,
-                    "matrix_action": ACTION_EXIT,
-                    "reason": exit_why,
-                    **_debug_scores(item, rp, yoc, rs),
-                }
+            sell, skip, d_cash = _try_held_sell(
+                h=h,
+                code=code,
+                name=name,
+                item=item,
+                rp=rp,
+                yoc=yoc,
+                rs=rs,
+                as_of=as_of,
+                prices=px_sell,
+                t0_blocks=t0_blocks,
+                target_sh=held_sh,
+                reason=exit_why,
+                fusion_w_oo=w_oo,
+                fusion_w_oc=w_oc,
+                fusion_w_co=w_co,
             )
-        else:
-            holds.append(
-                {
-                    "stock_code": code,
-                    "stock_name": name,
-                    "shares": held_sh,
-                    "action": ACTION_HOLD,
-                    "reason": "ranking≥0% 持有",
-                    **_debug_scores(item, rp, yoc, rs),
-                }
-            )
+            if sell:
+                cash_sim += d_cash
+                sells.append(sell)
+            if skip:
+                skips.append(skip)
 
     cand: List[Tuple[float, dict, Optional[float], Optional[float]]] = []
     for code, item in item_by.items():
@@ -804,14 +971,6 @@ def plan_rank_lot_day(
             continue
         if item.get("hard_reject"):
             continue
-        try:
-            from core.signal.overheat_gate import paper_overheat_block
-
-            oh_block, _oh_reason = paper_overheat_block(item)
-            if oh_block:
-                continue
-        except Exception:  # noqa: BLE001
-            logger.debug("paper overheat gate in rank_lots skipped", exc_info=True)
         rp = ranking_pct_of(item, cfg)
         yoc = pick_y_oc(item)
         rs = None if rp is None else float(rp) / 100.0
@@ -837,7 +996,9 @@ def plan_rank_lot_day(
             remain_sh[code] = max(0.0, float(remain_sh.get(code) or 0) - float(s.get("shares") or 0))
     mv_sim = 0.0
     for code, sh in remain_sh.items():
-        px = _f(prices.get(code))
+        px = _f(px_buy.get(code))
+        if px is None:
+            px = _f(px_sell.get(code))
         if px is not None and px > 0 and sh > 0:
             mv_sim += float(sh) * float(px)
     buys: List[dict] = []
@@ -846,8 +1007,8 @@ def plan_rank_lot_day(
         code = str(item.get("stock_code") or "").strip()
         if not code:
             continue
-        dbg = _debug_scores(item, rp, yoc, rs, rank_i=i, rank_n=rank_n)
-        px = _f(prices.get(code))
+        dbg = _debug_scores(item, rp, yoc, rs, rank_i=i, rank_n=rank_n, **w_fields)
+        px = _f(px_buy.get(code))
         if px is None or px <= 0:
             skips.append(
                 {
@@ -864,13 +1025,16 @@ def plan_rank_lot_day(
             rs, rank_strong, lot_base=lot_base, lot_strong=lot_strong_sh
         )
         lot_kind = "strong" if lots == lot_strong_sh else "base"
+        want = int(lots)
         need = float(lots) * float(px)
         if cash_sim - need < cash_floor - 1e-6 and lots > lot_base:
             lots = lot_base
             lot_kind = "base"
             need = float(lots) * float(px)
-        dbg["lot_kind"] = lot_kind
-        if cash_sim - need < cash_floor - 1e-6:
+        clipped = clip_lot_to_cash(
+            lots, px, cash_sim, cash_floor, lot_min=LOT_MIN
+        )
+        if clipped <= 0:
             skip_reason = (
                 f"现金将低于地板 {cash_floor:.0f}"
                 if cash_floor > 0
@@ -881,15 +1045,21 @@ def plan_rank_lot_day(
                     "stock_code": code,
                     "stock_name": _display_name(code, item.get("stock_name")),
                     "side": "buy",
-                    "shares": float(lots),
+                    "shares": float(want),
                     "price": float(px),
-                    "amount": round(need, 2),
+                    "amount": round(float(want) * float(px), 2),
                     "action": ACTION_SKIP,
                     "reason": skip_reason,
                     **dbg,
+                    "lot_kind": lot_kind,
                 }
             )
             continue
+        if clipped < lots:
+            lots = clipped
+            lot_kind = "clipped"
+            need = float(lots) * float(px)
+        dbg["lot_kind"] = lot_kind
         if mv_cap > 0 and mv_sim + need > mv_cap + 1e-6:
             skips.append(
                 {
@@ -916,22 +1086,29 @@ def plan_rank_lot_day(
                 "action": act,
                 "matrix_action": act,
                 "reason": (
-                    f"ranking={rs * 100.0:.3f}%>{rank_strong * 100.0:g}% 买{lots}股"
-                    if lots == lot_strong_sh
-                    else f"ranking={rs * 100.0:.3f}%>入场{rank_enter * 100.0:g}% 买{lots}股"
+                    (
+                        f"ranking={rs * 100.0:.3f}%>{rank_strong * 100.0:g}% 买{lots}股"
+                        if want == lot_strong_sh
+                        else f"ranking={rs * 100.0:.3f}%>入场{rank_enter * 100.0:g}% 买{lots}股"
+                    )
+                    + (f"（现金不够{want}）" if lots < want else "")
                 ),
                 **dbg,
             }
         )
 
+    y_oo_gt0, y_oc_gt0, y_hl_gt0 = _y_gt0_flags(cfg)
     return {
         "sells": sells,
         "buys": buys,
-        "holds": holds,
+        "holds": [],
         "skips": skips,
         "cash_after_plan": round(cash_sim, 2),
         "rank_enter": rank_enter,
         "rank_strong": rank_strong,
+        "y_oo_gt0": bool(y_oo_gt0),
+        "y_oc_gt0": bool(y_oc_gt0),
+        "y_hl_gt0": bool(y_hl_gt0),
         "cash_floor": cash_floor,
         "holdings_mv_cap": mv_cap,
         "holdings_mv_after_plan": round(mv_sim, 2),
@@ -947,6 +1124,7 @@ __all__ = [
     "ACTION_EXIT",
     "ACTION_HOLD",
     "ACTION_OPEN",
+    "ACTION_REDUCE",
     "ACTION_SKIP",
     "DEFAULT_CASH_FLOOR",
     "DEFAULT_HOLDINGS_MV_CAP",
@@ -955,13 +1133,16 @@ __all__ = [
     "DEFAULT_RANK_STRONG",
     "DEFAULT_Y_ON_ALPHA",
     "LOT_BASE",
-    "Y_ON_ALPHA_MAX",
-    "clamp_fusion_weight",
-    "clamp_y_on_alpha",
+    "LOT_MIN",
     "LOT_STRONG",
+    "Y_ON_ALPHA_MAX",
     "account_ref_equity",
     "AUX_YHAT_KEYS",
     "aux_yhat_fields",
+    "tip_explain_fields",
+    "clip_lot_to_cash",
+    "clamp_fusion_weight",
+    "clamp_y_on_alpha",
     "coerce_rank_threshold",
     "get_rank_lot_cfg",
     "held_exit_reason",
@@ -970,9 +1151,5 @@ __all__ = [
     "plan_rank_lot_day",
     "ranking_pct_of",
     "rank_lot_enter_skip_reason",
-    "DEFAULT_Y_OO_ENTER",
-    "DEFAULT_Y_OC_ENTER",
-    "DEFAULT_Y_HL_ENTER",
-    "y_on_of",
     "y_tau_of",
 ]

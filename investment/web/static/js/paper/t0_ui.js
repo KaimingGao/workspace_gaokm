@@ -467,38 +467,53 @@ function workerLastRunToTableData(lastRun, execution) {
   };
 }
 
-/** Worker 上次落账成交/跳过明细（复用回测成交表）。 */
+const T0_TRADES_HOST_ID = "paper-t0-worker-trades";
+const T0_TRADES_SLOT_SEL = "[data-t0-trades-slot]";
+
+function t0TradesHost() {
+  return typeof document === "undefined" ? null : document.getElementById(T0_TRADES_HOST_ID);
+}
+
+function t0TradesSlotHtml() {
+  return `<div class="paper-t0-desk-trades-slot" data-t0-trades-slot></div>`;
+}
+
+/** 盯盘 fold 重绘会 innerHTML 整表；先把成交表宿主挪出以免监听器被拆掉。 */
+function parkT0TradesHost(deskEl) {
+  const trades = t0TradesHost();
+  if (!trades || !deskEl || !deskEl.contains(trades)) return;
+  const ledger = document.getElementById("paper-t0-worker-ledger") || deskEl.parentNode;
+  if (ledger) ledger.appendChild(trades);
+}
+
+function mountT0TradesHost(deskEl) {
+  const trades = t0TradesHost();
+  if (!deskEl || !trades) return;
+  const slot = deskEl.querySelector(T0_TRADES_SLOT_SEL);
+  if (!slot || trades.parentNode === slot) return;
+  slot.appendChild(trades);
+}
+
+function t0TradesVisible() {
+  const trades = t0TradesHost();
+  return !!(trades && !trades.hidden);
+}
+
+/** Worker 上次落账成交（嵌在「今日盯盘状态」里，不再单独折叠）。 */
 export function renderPaperT0WorkerTrades(el, { t0Auto, execution, liveScoresByCode } = {}) {
   if (!el) return;
-  const lr = (t0Auto && t0Auto.last_run) || null;
-  if (!lr || lr.ts == null) {
+  const hide = () => {
     el.hidden = true;
     replaceDeskHtml(el, "");
+  };
+  const lr = (t0Auto && t0Auto.last_run) || null;
+  if (!lr || lr.ts == null) {
+    hide();
     return;
   }
-  el.hidden = false;
-  const prevFold = el.querySelector("details.paper-t0-ledger-fold");
-  const keepOpen = prevFold ? !!prevFold.open : false;
-  const openAttr = keepOpen ? " open" : "";
-
-  const foldShell = (metaHtml, bodyHtml) =>
-    `<details class="paper-t0-desk-fold paper-t0-ledger-fold"${openAttr}>` +
-    `<summary class="paper-t0-desk-fold-sum">` +
-    `<span class="paper-t0-desk-fold-title">落账明细</span>` +
-    metaHtml +
-    `</summary>` +
-    bodyHtml +
-    `</details>`;
-
   const results = lr.results || [];
   if (!results.length) {
-    replaceDeskHtml(
-      el,
-      foldShell(
-        `<span class="paper-t0-desk-fold-meta">尚无成交</span>`,
-        `<p class="paper-t0-desk-empty">尚无成交明细 · 有买/卖落账后显示</p>`
-      )
-    );
+    hide();
     return;
   }
   const data = {
@@ -507,15 +522,10 @@ export function renderPaperT0WorkerTrades(el, { t0Auto, execution, liveScoresByC
   };
   const days = pickTradeDays(data);
   if (!days.length) {
-    replaceDeskHtml(
-      el,
-      foldShell(
-        `<span class="paper-t0-desk-fold-meta">尚无成交</span>`,
-        `<p class="paper-t0-desk-empty">尚无成交明细 · 有买/卖落账后显示</p>`
-      )
-    );
+    hide();
     return;
   }
+  el.hidden = false;
   const tip = escapeHtml(yTauMapScoreTip());
   const tag = data.workerTag || "—";
   const sellThenBuyN = days.filter((d) => d.direction === "sell_then_buy").length;
@@ -547,22 +557,25 @@ export function renderPaperT0WorkerTrades(el, { t0Auto, execution, liveScoresByC
     `</span>`;
   const replaced = replaceDeskHtml(
     el,
-    foldShell(
-      chips,
+    `<div class="paper-t0-desk-trades-head">` +
+      `<span class="paper-t0-desk-trades-title">成交</span>` +
+      chips +
+      `</div>` +
       `<div class="paper-t0-desk-board">` +
-        buildT0TradeTableHtml({
-          data,
-          days,
-          maxRows: T0_TRADE_TABLE_MAX_ROWS,
-          showDelete: true,
-          showRealized: false,
-          splitSlots: true,
-        }) +
-        `<p class="paper-t0-desk-foot" title="${tip}">一笔一行 · 买卖时间在过程列 · 删除按票冲正</p>` +
-        `</div>`
-    )
+      buildT0TradeTableHtml({
+        data,
+        days,
+        maxRows: T0_TRADE_TABLE_MAX_ROWS,
+        showDelete: true,
+        showRealized: false,
+        splitSlots: true,
+      }) +
+      `<p class="paper-t0-desk-foot" title="${tip}">一笔一行 · 买卖时间在过程列 · 删除按票冲正</p>` +
+      `</div>`
   );
   if (replaced) stampStockFitTiers(el);
+  const desk = typeof document !== "undefined" ? document.getElementById("paper-t0-worker-desk") : null;
+  if (desk && !desk.hidden) mountT0TradesHost(desk);
 }
 
 const DESK_PHASE_LABEL = {
@@ -690,10 +703,17 @@ function deskChip(cls, label, value) {
   );
 }
 
-/** 今日盘中盯盘状态（idle / skipped 锁死 / 已一腿 / 完成）。 */
+function finishDeskRender(el, replaced) {
+  mountT0TradesHost(el);
+  if (replaced) stampStockFitTiers(el);
+}
+
+/** 今日盘中盯盘状态（idle / skipped 锁死 / 已一腿 / 完成）；成交表嵌在同一 fold。 */
 export function renderPaperT0WorkerDesk(el, desk) {
   if (!el) return;
-  if (!desk || !Array.isArray(desk.rows)) {
+  parkT0TradesHost(el);
+  const hasDesk = !!(desk && Array.isArray(desk.rows));
+  if (!hasDesk && !t0TradesVisible()) {
     el.hidden = true;
     replaceDeskHtml(el, "");
     return;
@@ -701,36 +721,43 @@ export function renderPaperT0WorkerDesk(el, desk) {
   el.hidden = false;
   const prevFold = el.querySelector("details.paper-t0-desk-fold");
   const keepOpen = prevFold ? !!prevFold.open : false;
-  const counts = desk.counts || {};
-  const lockedN = Number(desk.locked_count || 0);
-  const n = Number(desk.universe_count || desk.rows.length || 0);
-  const sess = desk.session_date || desk.state_session_date || "—";
+  const counts = (desk && desk.counts) || {};
+  const lockedN = Number((desk && desk.locked_count) || 0);
+  const n = Number((desk && (desk.universe_count || (desk.rows && desk.rows.length))) || 0);
+  const sess = (desk && (desk.session_date || desk.state_session_date)) || "—";
   const chips =
     deskChip("is-univ", "持仓", n) +
     deskChip("is-locked", "终锁", lockedN) +
     deskChip("is-idle", "监视", counts.idle) +
     deskChip("is-leg1", "一腿", counts.after_leg1) +
     deskChip("is-done", "完成", counts.done) +
-    deskChip("is-legs", "腿Σ", desk.legs_written_total);
+    deskChip("is-legs", "腿Σ", desk && desk.legs_written_total);
   const openAttr = keepOpen ? " open" : "";
   const sessLine = `<span class="paper-t0-desk-sess" title="交易日会话">${escapeHtml(
     String(sess)
   )}</span>`;
+  const foldHead =
+    `<details class="paper-t0-desk-fold"${openAttr}>` +
+    `<summary class="paper-t0-desk-fold-sum">` +
+    `<span class="paper-t0-desk-fold-title">今日盯盘状态</span>` +
+    sessLine +
+    `<span class="paper-t0-desk-chips">${chips || ""}</span>` +
+    `</summary>`;
 
-  if (!desk.rows.length) {
-    replaceDeskHtml(
+  if (!hasDesk || !desk.rows.length) {
+    const showEmpty = !t0TradesVisible();
+    const replaced = replaceDeskHtml(
       el,
-      `<details class="paper-t0-desk-fold"${openAttr}>` +
-        `<summary class="paper-t0-desk-fold-sum">` +
-        `<span class="paper-t0-desk-fold-title">今日盯盘状态</span>` +
-        sessLine +
-        `<span class="paper-t0-desk-chips">${chips || ""}</span>` +
-        `</summary>` +
-        `<p class="paper-t0-desk-empty">${escapeHtml(
-          desk.note || "尚无今日盘中状态"
-        )}</p>` +
+      foldHead +
+        (showEmpty
+          ? `<p class="paper-t0-desk-empty">${escapeHtml(
+              (desk && desk.note) || "尚无今日盘中状态"
+            )}</p>`
+          : "") +
+        t0TradesSlotHtml() +
         `</details>`
     );
+    finishDeskRender(el, replaced);
     return;
   }
 
@@ -786,12 +813,7 @@ export function renderPaperT0WorkerDesk(el, desk) {
 
   const replaced = replaceDeskHtml(
     el,
-    `<details class="paper-t0-desk-fold"${openAttr}>` +
-      `<summary class="paper-t0-desk-fold-sum">` +
-      `<span class="paper-t0-desk-fold-title">今日盯盘状态</span>` +
-      sessLine +
-      `<span class="paper-t0-desk-chips">${chips}</span>` +
-      `</summary>` +
+    foldHead +
       staleBanner +
       `<div class="paper-t0-desk-board">` +
       `<div class="quant-weight-table-wrap paper-t0-desk-wrap">` +
@@ -817,7 +839,9 @@ export function renderPaperT0WorkerDesk(el, desk) {
       `<th scope="col" class="paper-t0-col-act">操作</th>` +
       `</tr></thead><tbody>${body}</tbody></table></div>` +
       foot +
-      `</div></details>`
+      `</div>` +
+      t0TradesSlotHtml() +
+      `</details>`
   );
-  if (replaced) stampStockFitTiers(el);
+  finishDeskRender(el, replaced);
 }

@@ -70,10 +70,15 @@ class TestPathMatrix(unittest.TestCase):
         self.assertEqual(lots.get("y_on_alpha"), 1.0)
         self.assertAlmostEqual(float(lots.get("rank_enter")), 0.001)
         self.assertAlmostEqual(float(lots.get("rank_strong")), 0.001)
+        self.assertNotIn("rank_exit", lots)
+        self.assertNotIn("lot_reduce", lots)
         self.assertAlmostEqual(float(lots.get("holdings_mv_cap")), 150000.0)
-        self.assertAlmostEqual(float(lots.get("y_oo_enter")), 0.1)
-        self.assertAlmostEqual(float(lots.get("y_hl_enter")), 0.1)
-        self.assertTrue(lots.get("y_hl_enabled"))
+        self.assertNotIn("y_oo_enter", lots)
+        self.assertNotIn("y_oc_enter", lots)
+        self.assertNotIn("y_hl_enter", lots)
+        self.assertTrue(lots.get("y_hl_gt0"))
+        self.assertFalse(lots.get("y_oo_gt0"))
+        self.assertFalse(lots.get("y_oc_gt0"))
         self.assertEqual(lots.get("fill_clock"), "09:30")
         # 旧键仍与 rank_lots 同结构，读盘兼容
         pm = DEFAULT_REBALANCE_TIMING.get("path_matrix") or {}
@@ -105,6 +110,53 @@ class TestPathMatrix(unittest.TestCase):
         cfg = self._cfg(fusion_w_trade=0.7, fusion_w_nowcast=0.3)
         self.assertAlmostEqual(cfg["fusion_w_oo"], 0.7)
         self.assertAlmostEqual(cfg["fusion_w_oc"], 0.3)
+
+    def test_stale_y_oo_oc_enter_stripped(self):
+        from core.execution import apply_execution_patch_to_paper
+        from core.paper.rebalance.path_matrix import STALE_Y_OO_OC_ENTER_KEYS, get_path_matrix_cfg
+
+        cfg = get_path_matrix_cfg(
+            {
+                "rank_lots": {
+                    "y_oo_enter": 0.5,
+                    "y_oc_enter": 0.5,
+                    "y_oo_enter_alt": 0.4,
+                    "y_oc_enter_alt": 0.4,
+                    "y_hl_enter": 0.2,
+                }
+            }
+        )
+        for k in STALE_Y_OO_OC_ENTER_KEYS:
+            self.assertNotIn(k, cfg)
+        self.assertTrue(cfg.get("y_hl_gt0"))
+        self.assertFalse(cfg.get("y_oo_gt0"))
+
+        cfg_on = get_path_matrix_cfg(
+            {"rank_lots": {"y_oo_oc_enabled": True, "y_oo_oc_enter": 0.3}}
+        )
+        self.assertTrue(cfg_on["y_oo_gt0"])
+        self.assertTrue(cfg_on["y_oc_gt0"])
+        self.assertNotIn("y_oo_oc_enabled", cfg_on)
+        self.assertNotIn("y_oo_oc_enter", cfg_on)
+
+        paper = {
+            "rules": {
+                "execution": {
+                    "rebalance_timing": {
+                        "rank_lots": {"y_oo_enter": 0.5, "y_oc_enter": 0.5, "y_hl_enter": 0.2},
+                    }
+                }
+            }
+        }
+        applied = apply_execution_patch_to_paper(
+            paper,
+            {"rebalance_timing": {"rank_lots": {"y_hl_gt0": False}}},
+        )
+        self.assertTrue(applied.get("ok"), applied)
+        lots = paper["rules"]["execution"]["rebalance_timing"]["rank_lots"]
+        for k in STALE_Y_OO_OC_ENTER_KEYS:
+            self.assertNotIn(k, lots)
+        self.assertFalse(lots.get("y_hl_gt0"))
 
 
 if __name__ == "__main__":

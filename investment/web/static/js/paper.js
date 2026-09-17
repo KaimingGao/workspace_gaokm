@@ -47,7 +47,7 @@ import {
   renderPaperT0Preview as renderPaperT0PreviewUi,
   renderPaperT0WorkerTrades as renderPaperT0WorkerTradesUi,
   renderPaperT0WorkerDesk as renderPaperT0WorkerDeskUi,
-} from "./paper/t0_ui.js?v=p2462";
+} from "./paper/t0_ui.js?v=p2467";
 import { renderPaperRebalanceWorkerDesk as renderPaperRebalanceWorkerDeskUi } from "./paper/rebalance_desk.js?v=p2297";
 import { wireT0SkipTips } from "./paper/t0_viz.js?v=p2462";
 import { wireT0ProcessTips, wireT0DayDebugExpand } from "./paper/t0_table.js?v=p2462";
@@ -77,7 +77,7 @@ import {
   tailAnomalyDetailFields,
   overheatDetailFields,
   createScoreTooltipController,
-} from "./score_tooltip.js?v=p2462";
+} from "./score_tooltip.js?v=p2469";
 
 import { formatDailySteps, runDaily } from "./shared.js";
 
@@ -1139,7 +1139,7 @@ export function initPaper(ctx) {
       console.error("[follow] worker trades render failed", err);
       el.hidden = false;
       el.innerHTML =
-        `<p class="paper-t0-desk-empty">落账明细渲染失败：${escapeText(
+        `<p class="paper-t0-desk-empty">成交表渲染失败：${escapeText(
           String(err && err.message ? err.message : err)
         )}</p>`;
     }
@@ -2230,7 +2230,7 @@ export function initPaper(ctx) {
       if (!code) return;
       if (
         !window.confirm(
-          `删除 ${name}（${code}）的落账明细，并冲正对应做 T 成交腿（现金/批次）？`
+          `删除 ${name}（${code}）的做 T 成交，并冲正对应成交腿（现金/批次）？`
         )
       ) {
         return;
@@ -2299,7 +2299,7 @@ export function initPaper(ctx) {
           if (data.skipped_with_legs && data.skipped_with_legs.length) {
             window.alert(
               (data.message || "已删除") +
-                `\n已落账未删：${data.skipped_with_legs.join("、")}（可先删落账明细，或强制删除）`
+                `\n已落账未删：${data.skipped_with_legs.join("、")}（可先删成交行，或强制删除）`
             );
           }
           await refreshT0RunPanel({ quiet: true }).catch(() => {});
@@ -2318,7 +2318,7 @@ export function initPaper(ctx) {
         const ok = window.confirm(
           `${name}（${code}）已落账 ${legs} 腿。\n` +
             `删除盯盘状态可能导致 Worker 重复落第一腿。\n` +
-            `若要冲正账本请用「落账明细 → 删除」。\n仍要强制删除盯盘状态？`
+            `若要冲正账本请用成交表「删除」。\n仍要强制删除盯盘状态？`
         );
         if (!ok) return;
         await postClear({ stock_codes: [code], force: true }, clearBtn);

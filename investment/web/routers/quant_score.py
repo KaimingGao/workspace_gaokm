@@ -10,8 +10,6 @@ from fastapi import APIRouter, HTTPException
 
 from web import deps
 from web.schemas import (
-    ScoreCalibrationFitRequest,
-    ScoreCalibrationPersistRequest,
     ScoreLedgerDeleteRequest,
     ScoreLedgerFreezeRequest,
     ScoreOutcomesFillRequest,
@@ -130,32 +128,3 @@ def quant_score_outcomes_fill(body: ScoreOutcomesFillRequest) -> Dict[str, Any]:
     """昨日复盘 UI 已下线；日更仍走 fill_outcomes。"""
     _ = body
     return _review_offline()
-
-
-@router.post("/api/quant/score-calibration/fit")
-def quant_score_calibration_fit(body: ScoreCalibrationFitRequest) -> Dict[str, Any]:
-    """校准层已下线。"""
-    _ = body
-    try:
-        return deps.quant.fit_score_calibration()
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e)) from e
-
-
-@router.post("/api/quant/score-calibration/persist")
-def quant_score_calibration_persist(body: ScoreCalibrationPersistRequest) -> Dict[str, Any]:
-    """校准层已下线。"""
-    _ = body
-    try:
-        return deps.quant.persist_score_calibration()
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e)) from e
-
-
-@router.get("/api/quant/score-calibration/model")
-def quant_score_calibration_model() -> Dict[str, Any]:
-    """校准层已下线。"""
-    try:
-        return deps.quant.get_score_calibration_model()
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e)) from e

@@ -28,7 +28,7 @@ import {
   R_REALIZED_TITLE,
 } from "./fmt.js?v=p2426";
 import { adaptiveSizingDayTip } from "./execution_ui.js?v=p2426";
-import { watchingScoreDetail } from "../quant/watching_render.js?v=p2426";
+import { watchingScoreDetail } from "../quant/watching_render.js?v=p2469";
 import {
   fitTierBadgeForCode,
   ensureFitTierMap,

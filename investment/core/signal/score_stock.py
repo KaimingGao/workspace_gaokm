@@ -144,6 +144,15 @@ def _gated_reject_item(
         "data_quality_gate:fallback": "日线降级(quote_fallback)，不进生产评分",
         "data_quality_gate:empty": "无可用日线，不进生产评分",
         "data_quality_gate:thin": "日线质量 thin，不进生产评分",
+        "factor_anomaly:missing:open_t": "今开缺失，不进生产评分",
+        "factor_anomaly:missing:gap": "今开缺口缺失，不进生产评分",
+        "factor_anomaly:missing:prev_close": "昨收缺失，不进生产评分",
+        "factor_anomaly:missing:eod_as_of": "日线因子日缺失，不进生产评分",
+        "factor_anomaly:missing:sub_scores": "β 因子全部缺测，不进生产评分",
+        "factor_anomaly:pit:eod_as_of": "日线因子日错位，不进生产评分",
+        "factor_anomaly:pit:eod_intraday_leak": "盘中日线因子漏入 T 日 K，不进生产评分",
+        "factor_anomaly:pit:as_of_tau": "分钟 τ 日错位，不进生产评分",
+        "factor_anomaly:pit:last_change_vs_gap": "缺口与涨跌口径错位，不进生产评分",
     }
     reject_reason = reason_map.get(gate_reason, f"数据质量门禁：{gate_reason}")
     signal_item = {
@@ -324,10 +333,29 @@ def score_stock(
         bars = bars_from_quote_fallback(quote)
         data_source = "quote_fallback"
 
-    from core.signal.session_pit import prepare_eod_bars, quote_for_eod_score
+    from core.signal.session_pit import (
+        prepare_eod_bars,
+        quote_for_eod_score,
+        resolve_minute_tau_trade_date,
+        resolve_open_t,
+    )
 
     bars_raw = list(bars or [])
     eod_bars, eod_pit = prepare_eod_bars(bars_raw, quote)
+    trade_day = resolve_minute_tau_trade_date(quote, bars_raw)
+    open_t_info = resolve_open_t(quote, bars_raw, trade_day=trade_day)
+    if open_t_info.get("open") is None:
+        try:
+            from core.signal.minute_tau_feats import minutes_for_open_t
+
+            # ŷ_oo 只读本地 5m 仓；拉网留给后面 ŷ_oc，避免每票开盘先打行情
+            mins = minutes_for_open_t(str(code), fetch=False)
+            if mins:
+                open_t_info = resolve_open_t(
+                    quote, bars_raw, trade_day=trade_day, minute_bars=mins
+                )
+        except Exception:  # noqa: BLE001
+            logger.debug("minutes_for_open_t skipped for %s", code, exc_info=True)
     quality_bars = eod_bars if len(eod_bars) >= 2 else bars_raw
     quality = assess_quality(quality_bars or [], data_source=data_source)
     fallback = data_source in ("empty", "quote_fallback") or "fallback" in str(data_source)
@@ -345,6 +373,36 @@ def score_stock(
             gate_reason=gate_reason,
             horizon_days=horizon_days,
         )
+
+    from core.signal.factor_anomaly import (
+        apply_factor_anomaly_to_item,
+        inspect_factor_anomaly,
+        merge_anomaly_reports,
+    )
+
+    factor_anomaly = inspect_factor_anomaly(
+        eod_pit=eod_pit,
+        open_t_info=open_t_info,
+        quote=quote,
+        trade_day=trade_day,
+    )
+    if not bypass_quality_gate and factor_anomaly.get("fatal_eod"):
+        out = _gated_reject_item(
+            code=str(code),
+            name=str(name),
+            quote=quote,
+            data_source=data_source,
+            quality=quality,
+            gate_reason=str(factor_anomaly.get("gate_reason") or "factor_anomaly"),
+            horizon_days=horizon_days,
+        )
+        item = out.get("signal_item") if isinstance(out.get("signal_item"), dict) else {}
+        item["factor_anomaly"] = factor_anomaly
+        item["eod_feature_as_of"] = eod_pit.get("eod_as_of")
+        item["dual_score_window"] = eod_pit.get("dual_score_window")
+        item["open_t"] = open_t_info.get("open")
+        item["open_t_source"] = open_t_info.get("source")
+        return out
 
     cfg = load_signal_config()
     fund_cfg = cfg.get("fundamentals") or {}
@@ -596,7 +654,10 @@ def score_stock(
     if index_bars:
         idx_eod, _ = prepare_eod_bars(index_bars, quote)
     eod_quote = quote_for_eod_score(
-        quote, strip_intraday_change=bool(eod_pit.get("stripped_asof_bar"))
+        quote,
+        strip_intraday_change=bool(eod_pit.get("stripped_asof_bar")),
+        gap_pct=open_t_info.get("gap_pct"),
+        open_t=open_t_info.get("open"),
     )
     scored = score_bars(
         eod_bars,
@@ -953,6 +1014,9 @@ def score_stock(
         "feature_isomorphism_track": "X0-X5",
         "eod_feature_as_of": eod_pit.get("eod_as_of"),
         "dual_score_window": eod_pit.get("dual_score_window"),
+        "open_t": open_t_info.get("open"),
+        "open_t_source": open_t_info.get("source"),
+        "factor_anomaly": factor_anomaly,
     }
 
     _fac = scored.get("factors") if isinstance(scored.get("factors"), dict) else {}
@@ -971,13 +1035,12 @@ def score_stock(
         from core.event_prior import (
             build_event_prior_from_quote,
             compute_sector_gap_breadth_live,
-            gap_pct_from_quote_bars,
             get_event_prior_cfg,
         )
         from core.research.tau_ridge import load_tau_model, predict_tau_from_features
         from core.signal.dual_score import apply_tau_score_fields
 
-        gap_v = gap_pct_from_quote_bars(quote, bars)
+        gap_v = open_t_info.get("gap_pct")
         ep_cfg = get_event_prior_cfg()
         trigger = float(ep_cfg.get("gap_trigger_pct") or 2)
         sector_breadth = None
@@ -1027,28 +1090,10 @@ def score_stock(
                 yclose_loc_from_prev,
             )
 
-            asof = ""
-            if quote:
-                asof = str(quote.get("date") or quote.get("trade_date") or "")[:10]
-            # 实时行情常无 date；用当日会话日剥掉未完成日 K，避免 ATR 吃进今高/今低
-            if len(asof) < 10:
-                try:
-                    from datetime import datetime
-                    from zoneinfo import ZoneInfo
-
-                    asof = datetime.now(ZoneInfo("Asia/Shanghai")).strftime("%Y-%m-%d")
-                except Exception:  # noqa: BLE001
-                    if bars:
-                        asof = str((bars[-1] or {}).get("date") or "")[:10]
+            asof = str(open_t_info.get("trade_day") or trade_day or "")[:10]
             hist = hist_bars_pit(bars, asof_date=asof)
             feats["gap_atr"] = gap_atr_from_hist(gap_v, hist)
-            open_px_z = None
-            if quote:
-                open_px_z = quote.get("open") or quote.get("open_price")
-            if open_px_z is None and bars:
-                last_b = bars[-1] if isinstance(bars[-1], dict) else {}
-                if str(last_b.get("date") or "")[:10] == asof:
-                    open_px_z = last_b.get("open")
+            open_px_z = open_t_info.get("open")
             prev_b = hist[-1] if hist else None
             if open_px_z is not None:
                 try:
@@ -1123,7 +1168,7 @@ def score_stock(
             )
         # τ 头只吃 Z；日线 sub_scores 已在 ŷ_EOD，勿再塞进 feats
 
-        # 分钟 τ 小包：调仓因果末根（≤10:00）；观察池/持仓表同窗
+        # 分钟 τ 小包：调仓因果末根（≤10:00）；T=当前会话日（盘中≠昨收 K）
         as_of_tau_override = None
         y_spec_override = None
         try:
@@ -1140,45 +1185,27 @@ def score_stock(
                     attach_sector_ret_cs_if_missing,
                     merge_minute_tau_pack_into_feats,
                 )
+                from core.signal.session_pit import (
+                    daily_cache_behind_tau_session,
+                    recover_gap_pct_from_minute_pack,
+                    resolve_minute_tau_trade_date,
+                    tau_open_and_prev_close,
+                )
 
-                trade_day = ""
-                if bars:
-                    trade_day = str((bars[-1] or {}).get("date") or "")[:10]
-                if not trade_day and quote:
-                    trade_day = str(quote.get("date") or quote.get("trade_date") or "")[
-                        :10
-                    ]
-                open_px = None
-                if quote:
-                    try:
-                        open_px = float(
-                            quote.get("open")
-                            or quote.get("open_price")
-                            or 0.0
-                        ) or None
-                    except (TypeError, ValueError):
-                        open_px = None
-                if open_px is None and bars:
-                    try:
-                        open_px = float((bars[-1] or {}).get("open") or 0.0) or None
-                    except (TypeError, ValueError):
-                        open_px = None
-                prev_c = None
-                if quote:
-                    try:
-                        prev_c = float(
-                            quote.get("prev_close")
-                            or quote.get("pre_close")
-                            or quote.get("yesterday_close")
-                            or 0.0
-                        ) or None
-                    except (TypeError, ValueError):
-                        prev_c = None
-                if prev_c is None and bars and len(bars) >= 2:
-                    try:
-                        prev_c = float((bars[-2] or {}).get("close") or 0.0) or None
-                    except (TypeError, ValueError):
-                        prev_c = None
+                # 盘中 T=会话日；勿用昨收完整 K，否则 τ 停在昨天 10:00
+                trade_day = resolve_minute_tau_trade_date(quote, bars)
+                open_px = open_t_info.get("open")
+                prev_c = open_t_info.get("prev_close")
+                if open_px is None or prev_c is None:
+                    open_px, prev_c = tau_open_and_prev_close(quote, bars, trade_day)
+                if daily_cache_behind_tau_session(quote, bars, trade_day):
+                    if open_px is not None and prev_c:
+                        gap_v = round((float(open_px) / float(prev_c) - 1.0) * 100.0, 4)
+                    elif open_t_info.get("gap_pct") is not None:
+                        gap_v = open_t_info.get("gap_pct")
+                    else:
+                        gap_v = None
+                    feats["gap_pct"] = gap_v
                 feats, as_of_tau_override, y_spec_override = merge_minute_tau_pack_into_feats(
                     feats,
                     code=str(code),
@@ -1189,6 +1216,11 @@ def score_stock(
                     load_cache_if_missing=True,
                     fetch_if_missing=True,
                 )
+                if gap_v is None:
+                    recovered = recover_gap_pct_from_minute_pack(feats)
+                    if recovered is not None:
+                        gap_v = recovered
+                        feats["gap_pct"] = gap_v
                 # 与 attach_dual_score_pit / 做 T 前缀同口径：补板块开→τ，禁止 CS 缺省 z=0
                 pack_hm = None
                 if as_of_tau_override and "T" in str(as_of_tau_override):
@@ -1224,6 +1256,9 @@ def score_stock(
                 gap_pct=gap_v,
                 ret_open_to_tau=feats.get("ret_open_to_tau"),
                 stock_code=code,
+                open_t=open_t_info.get("open"),
+                prev_close=open_t_info.get("prev_close"),
+                trade_date=open_t_info.get("trade_day"),
             )
             on_feats["sector_gap_breadth"] = sector_breadth
             on_feats["theme_day"] = feats.get("theme_day")
@@ -1268,8 +1303,6 @@ def score_stock(
             "overheat",
             "overheat_scale",
             "mom_chase_risk",
-            "paper_hard_reject",
-            "paper_reject_reason",
             "predicted_score_overheat_scaled",
         ):
             if k in signal_item:
@@ -1278,6 +1311,23 @@ def score_stock(
             scored["mom3_chase_risk"] = signal_item.get("mom_chase_risk")
     except Exception:  # noqa: BLE001
         logger.debug("overheat annotate on signal_item skipped", exc_info=True)
+
+    late_anomaly = inspect_factor_anomaly(
+        eod_pit=eod_pit,
+        open_t_info=open_t_info,
+        quote=quote,
+        trade_day=trade_day,
+        as_of_tau=signal_item.get("as_of_tau"),
+        last_change=(scored.get("factors") or {}).get("last_change"),
+        gap_pct=signal_item.get("gap_pct"),
+        required_keys=required_factor_keys,
+        sub_scores=scored.get("sub_scores"),
+    )
+    factor_anomaly = merge_anomaly_reports(factor_anomaly, late_anomaly)
+    apply_factor_anomaly_to_item(
+        signal_item, factor_anomaly, bypass=bypass_quality_gate
+    )
+    quality_gated = bool(signal_item.get("quality_gate"))
 
     return {
         "success": True,
@@ -1288,6 +1338,6 @@ def score_stock(
         "scored": scored,
         "data_source": data_source,
         "data_quality": quality,
-        "quality_gate": False,
+        "quality_gate": quality_gated,
         "cluster_mode": mode,
     }

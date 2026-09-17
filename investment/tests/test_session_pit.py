@@ -195,6 +195,85 @@ class TestSessionPit(unittest.TestCase):
         )
         self.assertIsNone(q.get("change_raw"))
 
+    def test_quote_for_eod_stamps_open_gap_not_last_change(self):
+        from core.signal.session_pit import quote_for_eod_score
+
+        q = quote_for_eod_score(
+            {"change_raw": 3.2, "change": "3.20%", "open": 10.0, "price_raw": 10.4},
+            strip_intraday_change=False,
+            gap_pct=1.5,
+            open_t=10.2,
+        )
+        self.assertAlmostEqual(q.get("change_raw"), 1.5)
+        self.assertAlmostEqual(float(q.get("open_raw")), 10.2)
+        self.assertIsNone(q.get("change"))
+
+    def test_resolve_open_t_daily_then_quote_then_minute(self):
+        from core.signal.session_pit import (
+            OPEN_T_SOURCE_DAILY,
+            OPEN_T_SOURCE_MINUTE,
+            OPEN_T_SOURCE_QUOTE,
+            resolve_open_t,
+        )
+
+        bars = [
+            {"date": "2026-09-16", "open": 10.0, "close": 10.2},
+            {"date": "2026-09-17", "open": 10.4, "close": 10.5},
+        ]
+        quote = {"date": "2026-09-17", "open": 10.4, "open_raw": 10.4}
+        got = resolve_open_t(quote, bars, trade_day="2026-09-17")
+        self.assertEqual(got["source"], OPEN_T_SOURCE_DAILY)
+        self.assertAlmostEqual(got["open"], 10.4)
+        self.assertAlmostEqual(got["prev_close"], 10.2)
+        self.assertAlmostEqual(got["gap_pct"], round((10.4 / 10.2 - 1.0) * 100.0, 4))
+
+        live = {"open": 10.35, "open_raw": 10.35}
+        hist = [{"date": "2026-09-16", "open": 10.0, "close": 10.2}]
+        got2 = resolve_open_t(live, hist, trade_day="2026-09-17")
+        self.assertEqual(got2["source"], OPEN_T_SOURCE_QUOTE)
+        self.assertAlmostEqual(got2["open"], 10.35)
+        self.assertAlmostEqual(got2["prev_close"], 10.2)
+
+        synth = {"date": "2026-09-16", "open": 10.1}
+        mins = [
+            {
+                "date": "2026-09-17",
+                "datetime": "2026-09-17 09:30:00",
+                "open": 10.33,
+                "close": 10.40,
+            }
+        ]
+        got3 = resolve_open_t(
+            synth, hist, trade_day="2026-09-17", minute_bars=mins
+        )
+        self.assertEqual(got3["source"], OPEN_T_SOURCE_MINUTE)
+        self.assertAlmostEqual(got3["open"], 10.33)
+        self.assertAlmostEqual(got3["prev_close"], 10.2)
+
+        late = [
+            {
+                "date": "2026-09-17",
+                "datetime": "2026-09-17 09:40:00",
+                "open": 10.50,
+                "close": 10.55,
+            }
+        ]
+        got4 = resolve_open_t(
+            synth, hist, trade_day="2026-09-17", minute_bars=late
+        )
+        self.assertIsNone(got4["open"])
+        self.assertIsNone(got4["source"])
+
+    def test_resolve_open_t_rejects_synth_yesterday_open(self):
+        from core.signal.session_pit import resolve_open_t
+
+        bars = [{"date": "2026-09-16", "open": 10.1, "close": 10.2}]
+        synth = {"date": "2026-09-16", "open": 10.1, "prev_close": 10.0}
+        got = resolve_open_t(synth, bars, trade_day="2026-09-17")
+        self.assertIsNone(got["open"])
+        self.assertIsNone(got["gap_pct"])
+        self.assertAlmostEqual(got["prev_close"], 10.2)
+
 
 class TestEodNextFusion(unittest.TestCase):
     def test_fuse_intraday_false_strips_tau_from_trade(self):
@@ -473,6 +552,82 @@ class TestEodNextFusion(unittest.TestCase):
         self.assertFalse(item.get("dual_score_single_head"))
         self.assertTrue((item.get("dual_score_weights") or {}).get("tau_in_trade"))
         self.assertNotAlmostEqual(float(item["predicted_score_blend"]), 2.38, places=3)
+
+    def test_minute_tau_trade_date_live_uses_session_not_yesterday_bar(self):
+        """实时行情无 date：盘中 ŷ_oc 的 T 是今天，不是昨收完整 K。"""
+        from core.signal.session_pit import resolve_minute_tau_trade_date
+
+        bars = [{"date": "2026-09-16", "open": 10.0, "close": 10.2}]
+        quote = {"open": 10.3, "prev_close": 10.2}
+        now = datetime(2026, 9, 17, 11, 42)
+        self.assertEqual(
+            resolve_minute_tau_trade_date(quote, bars, now=now),
+            "2026-09-17",
+        )
+
+    def test_minute_tau_trade_date_offline_yesterday_quote_upgrades_intraday(self):
+        """offline 合成 quote.date=昨收：次日盘中仍切到会话日。"""
+        from core.signal.session_pit import resolve_minute_tau_trade_date
+
+        bars = [{"date": "2026-09-16", "open": 10.0, "close": 10.2}]
+        quote = {"date": "2026-09-16", "open": 10.0}
+        now = datetime(2026, 9, 17, 11, 42)
+        self.assertEqual(
+            resolve_minute_tau_trade_date(quote, bars, now=now),
+            "2026-09-17",
+        )
+
+    def test_minute_tau_trade_date_keeps_historical_pit_day(self):
+        """回测报价日不是「最新完整日线」时，不得被墙上时钟改成今天。"""
+        from core.signal.session_pit import resolve_minute_tau_trade_date
+
+        bars = [
+            {"date": "2026-08-13", "close": 10.0},
+            {"date": "2026-08-14", "close": 10.5},
+        ]
+        quote = {"date": "2026-08-14", "open": 10.3}
+        now = datetime(2026, 9, 17, 11, 42)
+        self.assertEqual(
+            resolve_minute_tau_trade_date(quote, bars, now=now),
+            "2026-08-14",
+        )
+
+    def test_minute_tau_trade_date_weekend_stays_last_session(self):
+        from core.signal.session_pit import resolve_minute_tau_trade_date
+
+        bars = [{"date": "2026-09-18", "close": 10.2}]
+        quote = {"date": "2026-09-18", "open": 10.0}
+        now = datetime(2026, 9, 19, 11, 42)
+        self.assertEqual(
+            resolve_minute_tau_trade_date(quote, bars, now=now),
+            "2026-09-18",
+        )
+
+    def test_tau_open_drops_yesterday_synth_keeps_live_undated(self):
+        from core.signal.session_pit import tau_open_and_prev_close
+
+        bars = [
+            {"date": "2026-09-15", "open": 9.8, "close": 10.0},
+            {"date": "2026-09-16", "open": 10.1, "close": 10.2},
+        ]
+        synth = {"date": "2026-09-16", "open": 10.1, "prev_close": 10.0}
+        o, pc = tau_open_and_prev_close(synth, bars, "2026-09-17")
+        self.assertIsNone(o)
+        self.assertAlmostEqual(pc, 10.2)
+
+        live = {"open": 10.35, "price_raw": 10.4}
+        o2, pc2 = tau_open_and_prev_close(live, bars, "2026-09-17")
+        self.assertAlmostEqual(o2, 10.35)
+        self.assertAlmostEqual(pc2, 10.2)
+
+        pit = {"date": "2026-08-14", "open": 10.3, "prev_close": 10.0}
+        pit_bars = [
+            {"date": "2026-08-13", "close": 10.0},
+            {"date": "2026-08-14", "open": 10.3, "close": 10.5},
+        ]
+        o3, pc3 = tau_open_and_prev_close(pit, pit_bars, "2026-08-14")
+        self.assertAlmostEqual(o3, 10.3)
+        self.assertAlmostEqual(pc3, 10.0)
 
 
 if __name__ == "__main__":

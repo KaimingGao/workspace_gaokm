@@ -35,7 +35,7 @@
       <div class="replay-run-toolbar" aria-label="回测窗">
         <label
           class="platform-field quant-pro-field replay-lookback-field replay-clock-field"
-          title="成交用该时刻 5 分钟 K。09:30 用首根开盘价；其后用该根收盘价。ŷ_oo 始终开盘；ŷ_oc 在成交钟>09:30 时用截至该钟的 5m 前缀重算。保存规则后，自动调仓与手动预演也从这个钟开始、到 10:00 结束。缺分钟则跳过该票（09:30 可回退日开盘）。有分钟且「其他」里日分价闸开时，日开/分开或日昨/分昨错位超阈则该票当日跳过。"
+          title="成交用该时刻 5 分钟 K。09:30 用首根开盘价；其后用该根收盘价。ŷ_oo 始终开盘；ŷ_oc 在成交钟>09:30 时用截至该钟的 5m 前缀重算。保存规则后，自动调仓与手动预演也从这个钟开始、到 10:00 结束。缺分钟：买入跳过；清仓回退该钟之后～10:00，再回退 09:30/日开盘。日分价闸只用 09:30–10:00 窗口分钟（尾盘残缺不当开盘锚）。有窗口分钟且「其他」里日分价闸开时，日开/分开或日昨/分昨错位超阈则该票当日跳过。"
         >
           <span class="quant-pro-field-label">调仓时间</span>
           <select id="quant-fill-clock">
@@ -115,8 +115,6 @@
     <div class="follow-path-matrix" id="follow-path-matrix" aria-label="策略调仓规则">
             <form id="paper-path-matrix-form" class="follow-path-matrix-form" autocomplete="off">
               <input type="hidden" id="paper-strategy" value="short_conservative" />
-              <input type="hidden" name="pm_y_oo_enter" value="0.1" />
-              <input type="hidden" name="pm_y_oc_enter" value="0.1" />
               <div class="follow-path-matrix-panels">
                 <section class="follow-path-matrix-panel" data-panel="mode" aria-labelledby="pm-panel-mode">
                   <header class="follow-path-matrix-panel-head">
@@ -155,7 +153,7 @@
                   <div class="follow-path-matrix-body follow-path-matrix-body--row2">
                     <div
                       class="follow-path-matrix-box follow-path-matrix-box--pair"
-                      title="过入场阈值才建仓/加仓，买右侧股数。阈值默认 0.1%；股数整百，默认 200。保存规则不改交易执行 200 股。"
+                      title="过入场阈值才建仓/加仓，买右侧股数。未过门槛的已持仓清仓。阈值默认 0.1%；股数整百，默认 200。保存规则不改交易执行 200 股。"
                     >
                       <span class="follow-path-matrix-box-text">
                         <span class="follow-path-matrix-box-title">入场</span>
@@ -194,9 +192,9 @@
                 <section class="follow-path-matrix-panel" data-panel="other" aria-labelledby="pm-panel-other">
                   <header class="follow-path-matrix-panel-head">
                     <h4 id="pm-panel-other" class="follow-path-matrix-panel-title">其他</h4>
-                    <p class="follow-path-matrix-panel-note">本金 / 日分价闸只用于调仓回测；关「启用 y_hl」则不看 y_hl 入场</p>
+                    <p class="follow-path-matrix-panel-note">本金 / 日分价闸只用于调仓回测；勾选则入场须 y&gt;0（缺分不拦）；未过门槛清仓</p>
                   </header>
-                  <div class="follow-path-matrix-body follow-path-matrix-body--row4">
+                  <div class="follow-path-matrix-body follow-path-matrix-body--row5">
                     <label
                       class="follow-path-matrix-box"
                       title="回测全部本金（元）。默认 20 万。跑回测用这个数当起始现金；不套持仓市值帽。保存规则不改交易执行市值上限。"
@@ -219,23 +217,33 @@
                     </label>
                     <label
                       class="follow-path-matrix-box"
-                      title="开=门槛1/2 都看 y_hl 入场；关=完全不看 y_hl（入场数字无效）。"
+                      title="开=入场须 y_oo&gt;0；关=不看。缺分不拦。未过则已持仓清仓。"
                     >
                       <span class="follow-path-matrix-box-text">
-                        <span class="follow-path-matrix-box-title">启用 y_hl</span>
-                        <span class="follow-path-matrix-box-desc">入场开关</span>
+                        <span class="follow-path-matrix-box-title">y_oo &gt; 0</span>
+                        <span class="follow-path-matrix-box-desc">入场闸</span>
                       </span>
-                      <input type="checkbox" name="pm_y_hl_enabled" checked />
+                      <input type="checkbox" name="pm_y_oo_gt0" aria-label="y_oo 大于 0" />
                     </label>
                     <label
                       class="follow-path-matrix-box"
-                      title="y_hl 低于此值视为未过入场；范围 0–100%；0=关；默认 0.1%。缺 y_hl 不拦。启用 y_hl 关时不看此项。"
+                      title="开=入场须 y_oc&gt;0；关=不看。缺分不拦。未过则已持仓清仓。"
                     >
                       <span class="follow-path-matrix-box-text">
-                        <span class="follow-path-matrix-box-title">y_hl 入场</span>
-                        <span class="follow-path-matrix-box-desc">百分点</span>
+                        <span class="follow-path-matrix-box-title">y_oc &gt; 0</span>
+                        <span class="follow-path-matrix-box-desc">入场闸</span>
                       </span>
-                      <input type="number" name="pm_y_hl_enter" min="0" max="100" step="0.01" value="0.1" />
+                      <input type="checkbox" name="pm_y_oc_gt0" aria-label="y_oc 大于 0" />
+                    </label>
+                    <label
+                      class="follow-path-matrix-box"
+                      title="开=入场须 y_hl&gt;0；关=不看。缺分不拦。未过则已持仓清仓。"
+                    >
+                      <span class="follow-path-matrix-box-text">
+                        <span class="follow-path-matrix-box-title">y_hl &gt; 0</span>
+                        <span class="follow-path-matrix-box-desc">入场闸</span>
+                      </span>
+                      <input type="checkbox" name="pm_y_hl_gt0" checked aria-label="y_hl 大于 0" />
                     </label>
                   </div>
                 </section>

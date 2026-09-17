@@ -220,6 +220,10 @@ class SignalService:
                     "heuristic_score",
                     "score_track",
                     "eod_trust",
+                    "eod_feature_as_of",
+                    "open_t",
+                    "open_t_source",
+                    "factor_anomaly",
                     "ranking",
                     "fusion_w_oo",
                     "fusion_w_oc",
@@ -236,6 +240,12 @@ class SignalService:
             for k in ("y_oo", "y_oc", "y_co", "y_τc", "ranking"):
                 if stamped.get(k) is not None:
                     out[k] = stamped[k]
+            fa = packed.get("factor_anomaly") or out.get("factor_anomaly")
+            if isinstance(fa, dict) and fa.get("fatal_tau"):
+                out["y_oc"] = None
+                out["y_co"] = None
+                out["ranking"] = None
+                out["predicted_score_tau"] = None
             if cfg.get("fusion_w_oo") is not None:
                 out["fusion_w_oo"] = cfg.get("fusion_w_oo")
             if cfg.get("fusion_w_oc") is not None:

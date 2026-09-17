@@ -145,13 +145,18 @@ def dual_score_book_fields(
         work["fusion_w_oo"] = cfg.get("fusion_w_oo")
         work["fusion_w_oc"] = cfg.get("fusion_w_oc")
         work["fusion_w_co"] = cfg.get("fusion_w_co")
+        fa = work.get("factor_anomaly")
+        if isinstance(fa, dict) and fa.get("fatal_tau"):
+            work["y_oc"] = None
+            work["y_co"] = None
+            work["ranking"] = None
+            work["predicted_score_tau"] = None
     except Exception:  # noqa: BLE001
         logger.debug("stamp ranking in book_fields failed", exc_info=True)
     # 权重优先簿内已算（含 theme/variance）；缺则用当前配置
     return {
         "predicted_score_eod": work.get("predicted_score_eod", work.get("predicted_score")),
         "predicted_score_oo": work.get("predicted_score_oo", work.get("y_oo")),
-        "y_oo": work.get("y_oo"),
         "predicted_score_eod_rem": work.get("predicted_score_eod_rem"),
         "predicted_score_tau": work.get("predicted_score_tau", work.get("score_rem")),
         "predicted_score_tau_delta": work.get("predicted_score_tau_delta"),
@@ -176,6 +181,10 @@ def dual_score_book_fields(
         "dual_score_fusion": live_fusion or "blend",
         "dual_score_weights": live_w,
         "dual_score_window": work.get("dual_score_window"),
+        "eod_feature_as_of": work.get("eod_feature_as_of"),
+        "open_t": work.get("open_t"),
+        "open_t_source": work.get("open_t_source"),
+        "factor_anomaly": work.get("factor_anomaly"),
         "dual_score_head": work.get("dual_score_head"),
         "dual_score_single_head": bool(work.get("dual_score_single_head")),
         "y_mu": work.get("y_mu"),

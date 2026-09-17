@@ -152,8 +152,64 @@ class TestOnPanel(unittest.TestCase):
         self.assertIn("y_on_today", feats)
         self.assertAlmostEqual(float(feats["gap_pct"]), 1.2)
 
+    def test_build_features_uses_open_t_when_cache_behind(self):
+        from core.research.on_panel import build_on_features_from_quote_bars
 
-class TestOnRidgeFit(unittest.TestCase):
+        bars = _bars(12)
+        yesterday = bars[-1]
+        synth = {
+            "date": yesterday["date"],
+            "open": yesterday["open"],
+            "price_raw": yesterday["close"],
+        }
+        empty = build_on_features_from_quote_bars(
+            synth,
+            bars,
+            trade_date="2026-09-17",
+        )
+        self.assertEqual(empty, {})
+
+        feats = build_on_features_from_quote_bars(
+            synth,
+            bars,
+            open_t=12.5,
+            prev_close=yesterday["close"],
+            trade_date="2026-09-17",
+        )
+        self.assertAlmostEqual(float(feats["y_on_today"]), (12.5 / yesterday["open"] - 1.0) * 100.0, places=4)
+        self.assertAlmostEqual(
+            float(feats["gap_pct"]),
+            (12.5 / yesterday["close"] - 1.0) * 100.0,
+            places=4,
+        )
+
+    def test_build_features_uses_trade_day_quote_when_cache_behind(self):
+        """回测：日线窗停在 T−1，但 quote.date=T、open=今开，必须出 ŷ_co 特征。"""
+        from core.research.on_panel import build_on_features_from_quote_bars
+
+        bars = _bars(12)
+        yesterday = bars[-1]
+        quote = {
+            "date": "2026-09-17",
+            "trade_date": "2026-09-17",
+            "open": 12.5,
+            "open_raw": 12.5,
+            "prev_close": yesterday["close"],
+            "change_raw": (12.5 / yesterday["close"] - 1.0) * 100.0,
+        }
+        feats = build_on_features_from_quote_bars(quote, bars, trade_date="2026-09-17")
+        self.assertIn("y_on_today", feats)
+        self.assertAlmostEqual(
+            float(feats["y_on_today"]),
+            (12.5 / yesterday["open"] - 1.0) * 100.0,
+            places=4,
+        )
+        self.assertAlmostEqual(
+            float(feats["gap_pct"]),
+            (12.5 / yesterday["close"] - 1.0) * 100.0,
+            places=4,
+        )
+
     def test_fit_and_persist(self):
         from core.research.on_ridge import (
             fit_on_ridge_report,

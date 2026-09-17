@@ -244,6 +244,21 @@ class ReturnScoreModel:
         )
 
 
+def _stamp_formula_terms(item: dict, model: Optional[ReturnScoreModel]) -> None:
+    """把 ŷ 组成写进条目，供悬浮 tip 的因子表。"""
+    if model is None or not isinstance(item, dict):
+        return
+    try:
+        expl = model.explain_prediction(item.get("sub_scores") or {})
+    except Exception:  # noqa: BLE001 — 组成失败不挡 ŷ
+        logger.debug("explain_prediction failed", exc_info=True)
+        return
+    if not expl:
+        return
+    item["score_formula_terms"] = expl
+    item["formula_terms"] = expl
+
+
 def apply_predicted_scores_by_model(
     entries: Sequence[dict],
     model_for_code,
@@ -286,6 +301,7 @@ def apply_predicted_scores_by_model(
             item["return_model_source"] = item.get("return_model_source") or "mapped"
         if write_rank_score and pred is not None:
             item["score"] = pred
+        _stamp_formula_terms(item, model)
         out.append(item)
     return out
 
@@ -325,6 +341,7 @@ def apply_predicted_scores(
             item.setdefault("y_eod", pred)
         if write_rank_score and pred is not None:
             item["score"] = pred
+        _stamp_formula_terms(item, model)
         out.append(item)
     return out
 

@@ -77,45 +77,17 @@ class PaperReplayBacktestRequest(BaseModel):
     )
     y_enter_enabled: bool = Field(default=True, description="门槛1 启用")
     y_enter_alt_enabled: bool = Field(default=True, description="门槛2 启用")
-    y_hl_enabled: bool = Field(
+    y_oo_gt0: bool = Field(
+        default=False,
+        description="开=入场须 y_oo>0；关=不看。缺分不拦。未过则已持仓清仓",
+    )
+    y_oc_gt0: bool = Field(
+        default=False,
+        description="开=入场须 y_oc>0；关=不看。缺分不拦。未过则已持仓清仓",
+    )
+    y_hl_gt0: bool = Field(
         default=True,
-        description="开=门槛1/2 看 y_hl 入场；关=完全不看 y_hl",
-    )
-    y_oo_enter: float = Field(
-        default=0.1,
-        ge=0.0,
-        le=100.0,
-        description="门槛1 ŷ_oo 入场下限（百分点）；0=关；缺分不拦",
-    )
-    y_oc_enter: float = Field(
-        default=0.1,
-        ge=0.0,
-        le=100.0,
-        description="门槛1 ŷ_oc 入场下限（百分点）；0=关；缺分不拦",
-    )
-    y_hl_enter: float = Field(
-        default=0.1,
-        ge=0.0,
-        le=100.0,
-        description="门槛1 y_hl 入场下限（百分点）；0=关；缺分不拦；y_hl_enabled 关时不看",
-    )
-    y_oo_enter_alt: Optional[float] = Field(
-        default=None,
-        ge=0.0,
-        le=100.0,
-        description="门槛2 ŷ_oo 入场下限；缺则跟随门槛1",
-    )
-    y_oc_enter_alt: Optional[float] = Field(
-        default=None,
-        ge=0.0,
-        le=100.0,
-        description="门槛2 ŷ_oc 入场下限；缺则跟随门槛1",
-    )
-    y_hl_enter_alt: Optional[float] = Field(
-        default=None,
-        ge=0.0,
-        le=100.0,
-        description="门槛2 y_hl 入场下限；缺则跟随门槛1；y_hl_enabled 关时不看",
+        description="开=入场须 y_hl>0；关=不看。缺分不拦。未过则已持仓清仓",
     )
     initial_cash: float = Field(
         default=200_000.0,

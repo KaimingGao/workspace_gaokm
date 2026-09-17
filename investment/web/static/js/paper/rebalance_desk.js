@@ -25,6 +25,7 @@ function actionLabel(action) {
   const a = String(action || "").toLowerCase();
   if (a === "open") return "开";
   if (a === "add") return "加";
+  if (a === "reduce") return "减";
   if (a === "exit") return "清";
   if (a === "hold") return "持";
   if (a === "skip") return "跳";
@@ -40,6 +41,9 @@ function actionCell(action) {
   }
   if (a === "exit") {
     return `<td class="paper-t0-col-dir"><span class="paper-t0-desk-dir is-sell-then-buy" title="清仓">清</span></td>`;
+  }
+  if (a === "reduce") {
+    return `<td class="paper-t0-col-dir"><span class="paper-t0-desk-dir is-sell-then-buy" title="减仓">减</span></td>`;
   }
   return `<td class="paper-t0-col-dir"><span class="paper-t0-desk-dir is-none">${escapeHtml(
     actionLabel(a)
@@ -78,6 +82,7 @@ function classifyAction(action, locked) {
   if (a === "open") return { id: "armed", label: "开仓" };
   if (a === "add") return { id: "armed", label: "加仓" };
   if (a === "exit") return { id: "deadline", label: "清仓" };
+  if (a === "reduce") return { id: "deadline", label: "减仓" };
   if (a === "hold") return { id: "watch", label: "持有" };
   return { id: "watch", label: "监视" };
 }
@@ -119,7 +124,8 @@ export function renderPaperRebalanceWorkerDesk(el, desk) {
     deskChip("is-idle", "监视", counts.watch) +
     deskChip("is-leg1", "开/加", desk.open_count) +
     deskChip("is-done", "完成", counts.done) +
-    deskChip("is-legs", "清仓", desk.exit_count);
+    deskChip("is-legs", "清仓", desk.exit_count) +
+    deskChip("is-legs", "减仓", desk.reduce_count);
   const openAttr = keepOpen ? " open" : "";
   const sessLine = `<span class="paper-t0-desk-sess" title="交易日会话">${escapeHtml(
     String(sess)
@@ -179,7 +185,7 @@ export function renderPaperRebalanceWorkerDesk(el, desk) {
   const windowLbl = desk.window_label || `${clock}–10:00`;
   const foot = desk.filled
     ? `<p class="paper-t0-desk-foot">今日已调仓。开/加/清为已落账手数；rank 为当时 ranking。过 10:00 不补跑。</p>`
-    : `<p class="paper-t0-desk-foot">落账前按持仓占位监视；${windowLbl} 现价成交一次后换成开/加/清/持。</p>`;
+    : `<p class="paper-t0-desk-foot">落账前按持仓占位监视；${windowLbl} 现价成交一次后换成开/加/清。</p>`;
 
   el.innerHTML =
     `<details class="paper-t0-desk-fold"${openAttr}>` +

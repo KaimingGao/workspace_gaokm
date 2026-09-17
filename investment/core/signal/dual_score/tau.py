@@ -386,7 +386,7 @@ def attach_dual_score_pit(
 ) -> Dict[str, Any]:
     """历史回测 / 无实时行情时：用 PIT 日线 quote·bars 挂 ŷ_τ + blend。
 
-    缺口 = open[T]/close[T−1]（与 live ``gap_pct_from_quote_bars`` 同口径）。
+    缺口 = open[T]/close[T−1]（与 live ``resolve_open_t`` 同口径）。
     ``sector_gap_breadth`` / ``sector_gap_median``：开盘缺口截面。
     ``sector_ret_to_tau``：开→τ 池中位（与训练 ``attach_cross_section_breadth`` 同口径）；
     缺省时尽力从活跃簿分钟仓聚合，再写 ``ret_vs_sector``。
@@ -441,10 +441,18 @@ def attach_dual_score_pit(
     pack_hm = effective_hm
     sector_hm = effective_hm
     gap_v = None
+    open_t_px = None
+    trade_day0 = ""
     try:
-        from core.event_prior import gap_pct_from_quote_bars, get_event_prior_cfg
+        from core.event_prior import get_event_prior_cfg
+        from core.signal.session_pit import resolve_minute_tau_trade_date, resolve_open_t
 
-        gap_v = gap_pct_from_quote_bars(q, b)
+        trade_day0 = resolve_minute_tau_trade_date(q, b)
+        open_info = resolve_open_t(
+            q, b, trade_day=trade_day0, minute_bars=minute_bars
+        )
+        gap_v = open_info.get("gap_pct")
+        open_t_px = open_info.get("open")
         ep_cfg = get_event_prior_cfg()
         trigger = float(ep_cfg.get("gap_trigger_pct") or 2)
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
@@ -484,28 +492,13 @@ def attach_dual_score_pit(
             hist_bars_pit,
         )
 
-        asof = ""
-        if isinstance(q, dict):
-            asof = str(q.get("date") or q.get("trade_date") or "")[:10]
-        if len(asof) < 10:
-            try:
-                from datetime import datetime
-                from zoneinfo import ZoneInfo
-
-                asof = datetime.now(ZoneInfo("Asia/Shanghai")).strftime("%Y-%m-%d")
-            except Exception:  # noqa: BLE001
-                if isinstance(b, (list, tuple)) and b:
-                    asof = str((b[-1] or {}).get("date") or "")[:10]
+        asof = str(trade_day0 or "")[:10]
         hist = hist_bars_pit(b, asof_date=asof)
         feats["gap_atr"] = gap_atr_from_hist(gap_v, hist)
         try:
             from core.research.tau_panel import mom3_pct_from_hist, yclose_loc_from_prev
 
-            open_px = None
-            if isinstance(q, dict):
-                open_px = q.get("open")
-                if open_px is None:
-                    open_px = q.get("price_raw")
+            open_px = open_t_px
             prev = hist[-1] if hist else None
             if open_px is not None:
                 feats["yclose_loc"] = yclose_loc_from_prev(prev, float(open_px))
@@ -557,6 +550,7 @@ def attach_dual_score_pit(
     # 分钟小包（≤τ）：与 score_stock 同源；T0 选向须 use_minute_tau=False 禁前瞻
     as_of_tau_override: Optional[str] = None
     y_spec_override: Optional[Dict[str, Any]] = None
+    trade_day = ""
     if not allow_minute:
         from core.signal.minute_tau_feats import clear_minute_tau_pack_keys
 
@@ -567,33 +561,26 @@ def attach_dual_score_pit(
     else:
         try:
             from core.signal.minute_tau_feats import merge_minute_tau_pack_into_feats
+            from core.signal.session_pit import (
+                daily_cache_behind_tau_session,
+                recover_gap_pct_from_minute_pack,
+                resolve_minute_tau_trade_date,
+                tau_open_and_prev_close,
+            )
 
-            trade_day = ""
-            if isinstance(q, dict):
-                trade_day = str(q.get("date") or q.get("trade_date") or "")[:10]
-            if len(trade_day) < 10 and isinstance(b, (list, tuple)) and b:
-                trade_day = str((b[-1] or {}).get("date") or "")[:10]
-            open_px = None
-            prev_c = None
-            if isinstance(q, dict):
-                try:
-                    open_px = float(q.get("open") or q.get("open_price") or 0.0) or None
-                except (TypeError, ValueError):
-                    open_px = None
-                try:
-                    prev_c = float(
-                        q.get("prev_close")
-                        or q.get("pre_close")
-                        or q.get("yesterday_close")
-                        or 0.0
-                    ) or None
-                except (TypeError, ValueError):
-                    prev_c = None
-            if prev_c is None and isinstance(b, (list, tuple)) and len(b) >= 2:
-                try:
-                    prev_c = float((b[-2] or {}).get("close") or 0.0) or None
-                except (TypeError, ValueError):
-                    prev_c = None
+            # 盘中 T=会话日；实时行情无 date 时勿回退到昨收完整 K
+            trade_day = resolve_minute_tau_trade_date(q, b)
+            open_px, prev_c = tau_open_and_prev_close(
+                q, b, trade_day, minute_bars=minute_bars
+            )
+            if open_px is None:
+                open_px = open_t_px
+            if daily_cache_behind_tau_session(q, b, trade_day):
+                if open_px is not None and prev_c:
+                    gap_v = round((float(open_px) / float(prev_c) - 1.0) * 100.0, 4)
+                else:
+                    gap_v = None
+                feats["gap_pct"] = gap_v
             # 显式传入分钟（含空前缀）只切该序列；None 才读仓。无钟则开盘 Z。
             no_prefix = minute_bars is None
             if pack_hm:
@@ -623,6 +610,11 @@ def attach_dual_score_pit(
                 from core.signal.minute_tau_feats import clear_minute_tau_pack_keys
 
                 clear_minute_tau_pack_keys(feats)
+            if gap_v is None:
+                recovered = recover_gap_pct_from_minute_pack(feats)
+                if recovered is not None:
+                    gap_v = recovered
+                    feats["gap_pct"] = gap_v
         except Exception:  # noqa: BLE001
             logger.debug("minute tau pack attach in dual_score_pit failed", exc_info=True)
             from core.signal.minute_tau_feats import clear_minute_tau_pack_keys
@@ -656,11 +648,10 @@ def attach_dual_score_pit(
             ):
                 sret = sector_ret_median(signal_item.get("_peer_ret_open_to_tau") or [])
             if sret is None and feats.get("sector_ret_to_tau") is None:
-                trade_day = ""
-                if isinstance(q, dict):
-                    trade_day = str(q.get("date") or q.get("trade_date") or "")[:10]
-                if len(trade_day) < 10 and isinstance(b, (list, tuple)) and b:
-                    trade_day = str((b[-1] or {}).get("date") or "")[:10]
+                if not trade_day:
+                    from core.signal.session_pit import resolve_minute_tau_trade_date
+
+                    trade_day = resolve_minute_tau_trade_date(q, b)
                 hm = str(sector_hm or "").strip()[:5] if sector_hm else None
                 if (
                     hm

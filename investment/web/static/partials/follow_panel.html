@@ -352,10 +352,10 @@
         <div class="quant-pro-card-body follow-card-body">
           <input type="hidden" id="paper-strategy" value="short_conservative" />
           <div id="paper-rebalance-rules" class="paper-t0-rules" aria-label="生效调仓规则"></div>
-          <p class="quant-sub follow-rules-edit-hint">规则在 <a class="follow-hero-link" href="/replay#replay-section-run">历史回测</a> 改；本页只预演/落账。</p>
+          <p class="quant-sub follow-rules-edit-hint">规则在 <a class="follow-hero-link" href="/replay#replay-section-run">历史回测</a> 改；本页只在已保存调仓时间～10:00 预演/落账。</p>
           <div class="quant-actions-inline paper-t0-manual-actions follow-rebalance-exec-actions">
-            <button type="button" id="paper-adjust" class="dialog-btn" title="手动预演：09:30 口径 ranking=w·ŷ_oo+w·(ŷ_oc∘w_co·ŷ_co)，过 rank入场后按 200/500 股建仓或加仓；ranking&lt;0 或缺分清仓。确认落账时成交价走行情。">手动预演</button>
-            <button type="button" id="paper-rebalance-confirm" class="dialog-btn" hidden title="确认后按矩阵预演清单落账：盘中现价成交；收盘后挂次日开盘单（涨停/跌停/停牌可能成交不了，持仓次日开盘窗才变）">
+            <button type="button" id="paper-adjust" class="dialog-btn" title="手动预演：与自动调仓同一窗口（已保存调仓时间～10:00）。窗内 ranking=w·ŷ_oo+w·(ŷ_oc∘w_co·ŷ_co)，过 rank入场后按 200/500 股建仓或加仓；ranking&lt;0 或缺分清仓。确认落账时现价成交。未到点/过点不预演、不落账。">手动预演</button>
+            <button type="button" id="paper-rebalance-confirm" class="dialog-btn" hidden title="确认后按矩阵预演清单落账：仅在已保存调仓时间～10:00 现价成交一次；过点不补跑、不挂开盘单。">
               确认落账
             </button>
             <span id="paper-path-matrix-status" class="quant-sub follow-holdings-load-status follow-ops-load-status" aria-live="polite"></span>
@@ -454,7 +454,7 @@
             <div
               class="paper-t0-worker-ledger"
               id="paper-t0-worker-ledger"
-              aria-label="今日盯盘与落账明细"
+              aria-label="今日盯盘状态"
             >
               <div
                 id="paper-t0-worker-desk"
@@ -466,7 +466,7 @@
                 id="paper-t0-worker-trades"
                 class="paper-t0-worker-trades quant-weight-table-wrap"
                 hidden
-                aria-label="做T后台落账明细"
+                aria-label="做T成交明细"
               ></div>
             </div>
           </div>

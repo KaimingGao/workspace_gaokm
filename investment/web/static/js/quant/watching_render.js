@@ -3,7 +3,7 @@
  */
 import { escapeHtml } from "../shared.js";
 import { fmtTableScore, Y_OC_REBALANCE_TITLE, RANKING_REBALANCE_TITLE } from "../paper/fmt.js?v=p2404";
-import { marketPriorDetailFields, tailAnomalyDetailFields, overheatDetailFields } from "../score_tooltip.js?v=p2404";
+import { marketPriorDetailFields, tailAnomalyDetailFields, overheatDetailFields } from "../score_tooltip.js?v=p2469";
 import { watchingNameSpanHtml } from "./names.js";
 import { fitTierBadgeForCode } from "./fit_tier_ui.js";
 
@@ -76,13 +76,20 @@ export function matchWatchlistSource(code, sourceDescs) {
 
 export function watchingScoreDetail(it) {
   // ŷ_oo / ŷ_oc / 缺口放前：data-score-detail 过长时避免被截掉
-  const terms = slimFormulaTerms((it && it.score_formula_terms) || null, 10);
+  const terms = slimFormulaTerms(
+    (it && (it.score_formula_terms || it.formula_terms)) || null,
+    10
+  );
   const tauTerms = slimFormulaTerms(
     (it && (it.formula_terms_tau || it.score_formula_terms_tau)) || null,
     12
   );
   const onTerms = slimFormulaTerms(
     (it && (it.formula_terms_on || it.score_formula_terms_on)) || null,
+    12
+  );
+  const pathTerms = slimFormulaTerms(
+    (it && (it.formula_terms_path || it.score_formula_terms_path)) || null,
     12
   );
   const hasTerms =
@@ -131,6 +138,42 @@ export function watchingScoreDetail(it) {
     y_oo: it && it.y_oo,
     y_oc: it && it.y_oc,
     y_co: it && it.y_co,
+    y_hl:
+      it &&
+      (it.y_hl != null
+        ? it.y_hl
+        : it.predicted_score_hl != null
+          ? it.predicted_score_hl
+          : it.y_path),
+    predicted_score_hl:
+      it &&
+      (it.predicted_score_hl != null
+        ? it.predicted_score_hl
+        : it.y_hl != null
+          ? it.y_hl
+          : it.y_path),
+    y_hl_realized:
+      it &&
+      (it.y_hl_realized != null
+        ? it.y_hl_realized
+        : it.path_realized != null
+          ? it.path_realized
+          : it.y_path_realized),
+    path_realized:
+      it &&
+      (it.path_realized != null
+        ? it.path_realized
+        : it.y_hl_realized != null
+          ? it.y_hl_realized
+          : it.y_path_realized),
+    // 因子组成紧跟 ŷ 值：属性截断时 compact tip 仍能画出 β·z 表
+    formula_terms: terms,
+    score_formula_terms: terms,
+    formula_terms_tau: tauTerms,
+    score_formula_terms_tau: tauTerms,
+    formula_terms_on: onTerms,
+    formula_terms_path: pathTerms,
+    score_formula_terms_path: pathTerms,
     fusion_w_oo: it && it.fusion_w_oo,
     fusion_w_oc: it && it.fusion_w_oc,
     fusion_w_co: it && it.fusion_w_co,
@@ -275,6 +318,10 @@ export function watchingScoreDetail(it) {
     predicted_score_eod_rem: it && it.predicted_score_eod_rem,
     predicted_score_tau_delta: it && it.predicted_score_tau_delta,
     dual_score_window: (it && it.dual_score_window) || null,
+    eod_feature_as_of: (it && it.eod_feature_as_of) || null,
+    open_t: it && it.open_t,
+    open_t_source: (it && it.open_t_source) || null,
+    factor_anomaly: (it && it.factor_anomaly) || null,
     realized_t1_to_tau: it && it.realized_t1_to_tau,
     score_rem: it && (it.score_rem != null ? it.score_rem : it.predicted_score_rem),
     event_prior: eventPrior,
@@ -282,9 +329,7 @@ export function watchingScoreDetail(it) {
     rem_tau: (it && it.rem_tau) || null,
     y_spec_tau: (it && it.y_spec_tau) || null,
     features_tau: (it && it.features_tau) || null,
-    formula_terms_tau: tauTerms,
     factor_coefficients_tau: coefsTau,
-    formula_terms_on: onTerms,
     features_on: (it && it.features_on) || null,
     y_spec_on: (it && it.y_spec_on) || null,
     dual_score_fusion: (it && it.dual_score_fusion) || null,
@@ -313,7 +358,6 @@ export function watchingScoreDetail(it) {
     return_model_source: (it && it.return_model_source) || "",
     score_scale: (it && it.score_scale) || "",
     heuristic_score: it && it.heuristic_score,
-    formula_terms: terms,
     factor_coefficients: coefs,
     sentiment_include_in_score: sentInc,
     sentiment_prior: (it && it.sentiment_prior) || null,

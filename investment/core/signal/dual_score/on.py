@@ -219,11 +219,19 @@ def attach_on_score_pit(
         from core.research.on_panel import build_on_features_from_quote_bars
         from core.research.on_ridge import predict_on_from_features
 
+        q = quote if isinstance(quote, dict) else {}
+        from core.signal.session_pit import resolve_minute_tau_trade_date, resolve_open_t
+
+        trade_day = resolve_minute_tau_trade_date(q, bars)
+        ot = resolve_open_t(q, bars, trade_day=trade_day)
         feats = build_on_features_from_quote_bars(
-            quote,
+            q,
             bars,
-            gap_pct=gap_pct,
+            gap_pct=gap_pct if gap_pct is not None else ot.get("gap_pct"),
             stock_code=str(signal_item.get("stock_code") or "").strip() or None,
+            open_t=ot.get("open"),
+            prev_close=ot.get("prev_close"),
+            trade_date=str(ot.get("trade_day") or trade_day or "")[:10] or None,
         )
         if gap_pct is not None:
             feats["gap_pct"] = gap_pct
@@ -351,9 +359,11 @@ def hydrate_holding_on_fields(row: dict) -> None:
     gap = row.get("gap_pct")
     if gap is None:
         try:
-            from core.event_prior import gap_pct_from_quote_bars
+            from core.signal.session_pit import resolve_minute_tau_trade_date, resolve_open_t
 
-            gap = gap_pct_from_quote_bars(quote, bars)
+            gap = resolve_open_t(
+                quote, bars, trade_day=resolve_minute_tau_trade_date(quote, bars)
+            ).get("gap_pct")
             if gap is not None:
                 row["gap_pct"] = gap
         except Exception:  # noqa: BLE001

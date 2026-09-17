@@ -8,7 +8,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
-from core.paper.rebalance.rank_lots import AUX_YHAT_KEYS
+from core.paper.rebalance.rank_lots import AUX_YHAT_KEYS, tip_explain_fields
 
 logger = logging.getLogger(__name__)
 
@@ -441,6 +441,8 @@ def _row_score_payload(
         payload["ranking_score"] = rs
     payload.update(aux_yhat_fields(src))
     payload.update(aux_yhat_fields(item))
+    payload.update(tip_explain_fields(src))
+    payload.update(tip_explain_fields(item))
     return payload
 
 
@@ -504,6 +506,7 @@ def _apply_one_leg(
         )
         if leg.get(k) is not None
     }
+    rank_fields.update(tip_explain_fields(leg))
     if as_of:
         rank_fields["as_of"] = str(as_of)[:10]
 
@@ -680,22 +683,18 @@ def simulate_watching_matrix_preview(
     paper: dict,
     *,
     top_k: Optional[int] = None,
-    buy_floor: Optional[float] = None,
-    hold_floor: Optional[float] = None,
     dry_run: bool = True,
     offline_only: bool = True,
 ) -> Dict[str, Any]:
     """观察池算分 + rank_lots（ranking=fuse(ŷ_oo,ŷ_oc) · 200/500 股）。默认 offline；dry_run 不写仓。"""
     from core.paper.ledger import mark_to_market
     from core.paper.rebalance.rank_lots import (
-        ACTION_ADD,
-        ACTION_EXIT,
         ACTION_OPEN,
+        ACTION_REDUCE,
         get_rank_lot_cfg,
         plan_rank_lot_day,
     )
 
-    _ = buy_floor, hold_floor
     rl_cfg = get_rank_lot_cfg(paper, top_k=top_k)
     k = int(rl_cfg["top_k"])
 
@@ -861,7 +860,7 @@ def simulate_watching_matrix_preview(
             row["new_shares"] = held_sh + shares
             row["shares_change"] = shares
         else:
-            row["decision"] = "卖出"
+            row["decision"] = "减仓" if act == ACTION_REDUCE else "卖出"
             row["old_shares"] = held_sh
             row["new_shares"] = max(0.0, held_sh - shares)
             row["shares_change"] = -shares
@@ -902,7 +901,7 @@ def simulate_watching_matrix_preview(
         }
         sell_trades.append(trade)
         report.append(_leg_row(leg, side="sell"))
-        decisions.append({"stock_code": code, "action": ACTION_EXIT, **leg})
+        decisions.append({"stock_code": code, **leg})
 
     for leg in plan.get("buys") or []:
         code = str(leg.get("stock_code") or "")
@@ -925,25 +924,6 @@ def simulate_watching_matrix_preview(
         for r in report
         if str(r.get("stock_code") or "").strip()
     }
-    skip_by_code = {
-        str(s.get("stock_code") or "").strip(): s
-        for s in skips
-        if str(s.get("stock_code") or "").strip()
-    }
-    for hrow in plan.get("holds") or []:
-        decisions.append(hrow)
-        code = str(hrow.get("stock_code") or "").strip()
-        if not code or code in reported:
-            continue
-        held_sh = float(held_sh_of.get(code) or 0)
-        reason = str(hrow.get("reason") or "ranking≥0% 持有")
-        sk = skip_by_code.get(code) or {}
-        sk_reason = str(sk.get("reason") or "")
-        if sk_reason and "地板" in sk_reason and sk_reason not in reason:
-            reason = f"{reason} · {sk_reason}"
-        src = {**sk, **hrow, "reason": reason}
-        report.append(_status_row(src, decision="持有", held_sh=held_sh))
-        reported.add(code)
 
     for sk in skips:
         code = str(sk.get("stock_code") or "").strip()

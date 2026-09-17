@@ -23,6 +23,7 @@ from core.backtest.paper_replay import (
     backtest_paper_replay,
     fuse_hit_metrics,
     mock_quote_from_bar,
+    realized_path_label,
     realized_yhat_windows,
     rescore_replay_y_oc_at_clock,
 )
@@ -242,6 +243,7 @@ class TestPaperReplayEngine(unittest.TestCase):
         self.assertAlmostEqual(mid.get("realized_cc"), (close_t / prev_c - 1.0) * 100.0, places=3)
         self.assertAlmostEqual(mid.get("realized_tau"), (close_t / open_t - 1.0) * 100.0, places=3)
         self.assertAlmostEqual(mid.get("realized_on"), (nxt_o / close_t - 1.0) * 100.0, places=3)
+        self.assertAlmostEqual(mid.get("realized_oo"), (nxt_o / open_t - 1.0) * 100.0, places=3)
         last_rows = [
             t
             for t in (out.get("sim_trades") or [])
@@ -249,6 +251,7 @@ class TestPaperReplayEngine(unittest.TestCase):
         ]
         if last_rows:
             self.assertIsNone(last_rows[0].get("realized_on"))
+            self.assertIsNone(last_rows[0].get("realized_oo"))
         day = str(mid.get("as_of") or "")[:10]
         curve = {
             str(p.get("date") or "")[:10]: p
@@ -437,7 +440,7 @@ class TestPaperReplayEngine(unittest.TestCase):
             )
 
     def test_leave_topk_does_not_sell(self):
-        """掉出 Top-K 但 ranking≥0：不卖。"""
+        """掉出 Top-K 但 ranking>入场：不卖。"""
         stock_bars = {
             "600519": _bars(20, step=0.5),
             "600036": _bars(20, step=0.35),
@@ -448,12 +451,12 @@ class TestPaperReplayEngine(unittest.TestCase):
             if i % 2 == 0:
                 rankings[d] = [
                     _rank_row("600519", 2.0),
-                    _rank_row("600036", 0.05),
+                    _rank_row("600036", 1.5),
                 ]
             else:
                 rankings[d] = [
                     _rank_row("600036", 2.0),
-                    _rank_row("600519", 0.05),
+                    _rank_row("600519", 1.5),
                 ]
 
         with _offline_rebalance_patches():
@@ -467,7 +470,42 @@ class TestPaperReplayEngine(unittest.TestCase):
             )
         self.assertTrue(out.get("success"), out.get("error"))
         sells = [t for t in (out.get("trades") or []) if t.get("side") == "sell"]
-        self.assertEqual(sells, [], "未进 Top-K 不应卖出")
+        self.assertEqual(sells, [], "未进 Top-K 且 ranking>入场不应卖出")
+
+    def test_fail_enter_exits_held(self):
+        """开仓后 ranking 未过入场：整笔清仓。"""
+        stock_bars = {
+            "600519": _bars(18, step=0.5),
+        }
+        dates = [b["date"] for b in stock_bars["600519"]]
+        rankings = {}
+        for i, d in enumerate(dates):
+            y = 2.0 if i <= 10 else 0.02
+            rankings[d] = [_rank_row("600519", y)]
+        with _offline_rebalance_patches():
+            out = backtest_paper_replay(
+                stock_bars,
+                top_k=1,
+                min_history=8,
+                rankings_by_date=rankings,
+                cost_model="zero",
+                initial_cash=200_000.0,
+            )
+        self.assertTrue(out.get("success"), out.get("error"))
+        sells = [
+            t
+            for t in (out.get("trades") or [])
+            if t.get("side") == "sell" and t.get("stock_code") == "600519"
+        ]
+        self.assertTrue(sells, "未过入场应清仓")
+        self.assertTrue(
+            any(
+                (t.get("action") or t.get("matrix_action")) == "exit"
+                and float(t.get("shares") or 0) >= 100
+                for t in sells
+            ),
+            sells[:3],
+        )
 
     def test_missing_ranking_exits_held(self):
         """当日打不上分：清仓，不假装 ranking≥0 续持。"""
@@ -604,8 +642,8 @@ class TestPaperReplayEngine(unittest.TestCase):
             self.assertIsNotNone(s.get("cum_cost"), s)
             self.assertGreater(float(s["cum_cost"]), 0)
 
-    def test_sim_trades_include_hold_rows(self):
-        """开仓后 ranking 落到 [0, 入场]：成交明细应有持仓腿（收盘盯市 + 真实涨跌）。"""
+    def test_sim_trades_include_exit_when_rank_fails(self):
+        """开仓后 ranking 未过入场：成交明细应有清仓腿。"""
         stock_bars = {
             "600519": _bars(18, step=0.5),
             "600036": _bars(18, step=0.3),
@@ -613,7 +651,7 @@ class TestPaperReplayEngine(unittest.TestCase):
         dates = [b["date"] for b in stock_bars["600519"]]
         rankings = {}
         for i, d in enumerate(dates):
-            y = 2.0 if i <= 9 else 0.4
+            y = 2.0 if i <= 9 else 0.02
             rankings[d] = [_rank_row("600519", y)]
         with _offline_rebalance_patches():
             out = backtest_paper_replay(
@@ -626,28 +664,81 @@ class TestPaperReplayEngine(unittest.TestCase):
             )
         self.assertTrue(out.get("success"), out.get("error"))
         sim = out.get("sim_trades") or []
-        holds = [s for s in sim if s.get("action") == "hold"]
-        self.assertTrue(holds, "续持日应写入持仓腿")
-        self.assertEqual(int((out.get("metrics") or {}).get("hold_count") or 0), len(holds))
-        for h in holds:
-            self.assertEqual(h.get("status"), "held")
-            self.assertEqual(h.get("side"), "hold")
-            self.assertEqual(h.get("stock_code"), "600519")
-            self.assertGreater(float(h.get("shares") or 0), 0)
-            self.assertIsNotNone(h.get("price"))
-            self.assertTrue(str(h.get("open_date") or "")[:10], h)
-            self.assertIsNotNone(h.get("y_fuse"))
-            self.assertIsNotNone(h.get("ranking_score"))
-            day = str(h.get("as_of") or "")[:10]
-            if day and day != dates[-1]:
-                self.assertIsNotNone(h.get("realized_cc"), h)
-        hold_days = {str(h.get("as_of") or "")[:10] for h in holds}
-        fill_days = {
-            str(s.get("as_of") or "")[:10]
+        exits = [
+            s
             for s in sim
-            if s.get("status") == "filled" and s.get("stock_code") == "600519"
-        }
-        self.assertFalse(hold_days & fill_days, "持仓腿不应与同日开/加/清重叠")
+            if s.get("action") == "exit" and s.get("stock_code") == "600519"
+        ]
+        self.assertTrue(exits, "未过入场应写入清仓腿")
+        for e in exits:
+            self.assertEqual(e.get("status"), "filled")
+            self.assertEqual(e.get("side"), "sell")
+            self.assertGreater(float(e.get("shares") or 0), 0)
+
+    def test_skip_rows_keep_scores_when_minute_fill_missing(self):
+        """09:40 缺该根分钟：拟清回退日开盘成交，不把底仓留到收盘。"""
+        stock_bars = {"600519": _bars(18, step=0.5)}
+        dates = [b["date"] for b in stock_bars["600519"]]
+        rankings = {}
+        for i, d in enumerate(dates):
+            y = 2.0 if i <= 10 else -0.8
+            rankings[d] = [
+                {
+                    **_rank_row("600519", y),
+                    "y_oo": y,
+                    "y_oc": y,
+                    "ranking": y,
+                }
+            ]
+        minutes = {"600519": {}}
+        for i, b in enumerate(stock_bars["600519"]):
+            if i > 10:
+                continue
+            d = b["date"]
+            o = float(b["open"])
+            minutes["600519"][d] = [
+                {
+                    "date": d,
+                    "datetime": f"{d} 09:40:00",
+                    "open": o,
+                    "high": o + 0.5,
+                    "low": o - 0.5,
+                    "close": o + 0.2,
+                    "prev_close": float(b.get("close") or o),
+                }
+            ]
+        with _offline_rebalance_patches():
+            out = backtest_paper_replay(
+                stock_bars,
+                top_k=1,
+                min_history=8,
+                rankings_by_date=rankings,
+                cost_model="zero",
+                initial_cash=200_000.0,
+                fill_clock="09:40",
+                minute_bars_by_code=minutes,
+                price_space_cfg={"t0_price_space_gate": False},
+            )
+        self.assertTrue(out.get("success"), out.get("error"))
+        sells = [
+            t
+            for t in (out.get("trades") or [])
+            if t.get("side") == "sell" and t.get("stock_code") == "600519"
+        ]
+        self.assertTrue(sells, "缺分钟拟清应回退日开盘卖出")
+        self.assertGreater(
+            int((out.get("constraints_hit") or {}).get("sell_px_fallback") or 0), 0
+        )
+        self.assertTrue(
+            any("回退日开盘" in str(t.get("reason") or "") for t in sells), sells
+        )
+        stuck = [
+            s
+            for s in (out.get("sim_trades") or [])
+            if s.get("stock_code") == "600519"
+            and "无有效报价未卖出" in str(s.get("reason") or "")
+        ]
+        self.assertFalse(stuck, stuck)
 
     def test_sim_converters_copy_y_co(self):
         from core.backtest.paper_replay import (
@@ -708,6 +799,28 @@ class TestPaperReplayEngine(unittest.TestCase):
         self.assertAlmostEqual(float(hold["y_co"]), 0.25)
         self.assertNotIn("y_on", hold)
 
+        from core.backtest.paper_replay import _hold_src_for_code
+
+        src = _hold_src_for_code(
+            "600000",
+            plan={
+                "holds": [],
+                "sells": [
+                    {
+                        "stock_code": "600000",
+                        "action": "exit",
+                        "reason": "ranking=-0.500%<0% 清仓",
+                        "y_oo": -0.5,
+                        "ranking": -0.5,
+                    }
+                ],
+                "skips": [],
+            },
+            scored=[],
+        )
+        self.assertAlmostEqual(float(src["y_oo"]), -0.5)
+        self.assertIn("清仓", src.get("reason") or "")
+
     def test_sim_converters_copy_aux_yhat(self):
         from core.backtest.paper_replay import (
             _hold_to_sim,
@@ -727,17 +840,22 @@ class TestPaperReplayEngine(unittest.TestCase):
             "y_τ60": -0.1,
             "y_τ90": 0.3,
             "y_hl": 1.5,
+            "formula_terms_tau": {"total": 0.8, "terms": [{"key": "gap_pct", "contrib": 0.1}]},
+            "formula_terms_path": {"total": 1.5, "terms": [{"key": "range_pct", "contrib": 0.2}]},
         }
         rows = _ledger_trades_to_sim([src])
         self.assertEqual(len(rows), 1)
         self.assertNotIn("y_τ30", rows[0])
         self.assertNotIn("y_τw", rows[0])
         self.assertAlmostEqual(float(rows[0]["y_hl"]), 1.5)
+        self.assertEqual(rows[0]["formula_terms_tau"]["total"], 0.8)
+        self.assertEqual(rows[0]["formula_terms_path"]["total"], 1.5)
 
         sk = _skip_to_sim({**src, "reason": "现金不足"}, "2026-09-10")
         self.assertNotIn("y_τ60", sk)
         self.assertNotIn("y_τw", sk)
         self.assertAlmostEqual(float(sk["y_hl"]), 1.5)
+        self.assertEqual(sk["formula_terms_tau"]["total"], 0.8)
 
         hold = _hold_to_sim(
             src,
@@ -749,6 +867,7 @@ class TestPaperReplayEngine(unittest.TestCase):
         self.assertNotIn("y_τ90", hold)
         self.assertNotIn("y_τw", hold)
         self.assertAlmostEqual(float(hold["y_hl"]), 1.5)
+        self.assertEqual(hold["formula_terms_path"]["total"], 1.5)
 
     def test_sim_trades_keep_y_co_from_ranking(self):
         stock_bars = {"600519": _bars(16, step=0.5)}
@@ -874,6 +993,10 @@ class TestOpenDayYhat(unittest.TestCase):
         self.assertAlmostEqual(float(out[0]["predicted_score"]), 1.0)
         self.assertIsNotNone(out[0].get("y_trade"))
         self.assertGreater(float(out[0]["y_trade"]), 0.5)
+        terms = out[0].get("score_formula_terms") or {}
+        self.assertTrue(terms.get("terms"))
+        self.assertEqual(terms["terms"][0]["key"], "mom3")
+        self.assertAlmostEqual(float(terms["terms"][0]["contrib"]), 0.2)
 
     def test_attach_open_heads_writes_y_oo_not_nowcast(self):
         from core.backtest.paper_replay import _attach_open_yhat_heads
@@ -1006,7 +1129,8 @@ class TestOpenDayYhat(unittest.TestCase):
         codes = {str(it.get("stock_code") or "") for it in scored}
         self.assertIn("600869", codes)
         row = next(it for it in scored if str(it.get("stock_code")) == "600869")
-        self.assertTrue(row.get("paper_hard_reject") or row.get("mom_chase_risk"))
+        self.assertTrue(row.get("mom_chase_risk") or (row.get("overheat") or {}).get("hit"))
+        self.assertFalse(row.get("paper_hard_reject"))
         self.assertFalse(row.get("hard_reject"))
 
 
@@ -1051,6 +1175,114 @@ class TestRealizedYhatWindows(unittest.TestCase):
         self.assertIsNone(miss_cc)
         self.assertIsNone(miss_on)
         self.assertIsNone(miss_tau)
+
+    def test_uses_stock_bar_after_window(self):
+        """覆盖率日历截在 T 时，仍用该票仓里的 T+1 开盘对账 ŷ_co。"""
+        bars = _bars(5, step=0.5, start=100.0)
+        all_dates = [b["date"] for b in bars]
+        window = all_dates[:-1]
+        date_maps = {"600519": {b["date"]: b for b in bars}}
+        _cc, r_on, r_tau = realized_yhat_windows(
+            "600519",
+            window[-1],
+            dates=window,
+            date_maps=date_maps,
+        )
+        close_t = float(bars[-2]["close"])
+        nxt_o = float(bars[-1]["open"])
+        self.assertIsNotNone(r_tau)
+        self.assertAlmostEqual(r_on, (nxt_o / close_t - 1.0) * 100.0, places=4)
+
+    def test_path_label_from_minutes(self):
+        day = "2026-03-03"
+        bar = {"date": day, "open": 10.0, "high": 10.5, "low": 9.8, "close": 10.2}
+        mins = [
+            {
+                "date": day,
+                "datetime": f"{day} 09:35:00",
+                "open": 10.0,
+                "high": 10.05,
+                "low": 9.8,
+                "close": 9.9,
+            },
+            {
+                "date": day,
+                "datetime": f"{day} 10:00:00",
+                "open": 9.9,
+                "high": 10.5,
+                "low": 9.9,
+                "close": 10.2,
+            },
+        ]
+        val = realized_path_label(
+            "600519",
+            day,
+            date_maps={"600519": {day: bar}},
+            minute_maps={"600519": {day: mins}},
+        )
+        self.assertIsNotNone(val)
+        self.assertGreater(float(val), 0.0)
+
+    def test_replay_stamps_y_hl_realized(self):
+        stock_bars = {
+            "600519": _bars(16, step=0.5),
+            "600036": _bars(16, step=0.3),
+        }
+        dates = [b["date"] for b in stock_bars["600519"]]
+        rankings = {d: [_rank_row("600519", 2.0)] for d in dates}
+        minutes = {}
+        for code, bars in stock_bars.items():
+            by_d = {}
+            for b in bars:
+                d = b["date"]
+                o = float(b["open"])
+                by_d[d] = [
+                    {
+                        "date": d,
+                        "datetime": f"{d} 09:35:00",
+                        "open": o,
+                        "high": o + 0.05,
+                        "low": o - 0.4,
+                        "close": o - 0.1,
+                    },
+                    {
+                        "date": d,
+                        "datetime": f"{d} 14:55:00",
+                        "open": o + 0.1,
+                        "high": o + 0.6,
+                        "low": o,
+                        "close": float(b["close"]),
+                    },
+                ]
+            minutes[code] = by_d
+        with _offline_rebalance_patches():
+            out = backtest_paper_replay(
+                stock_bars,
+                top_k=1,
+                min_history=8,
+                rankings_by_date=rankings,
+                cost_model="zero",
+                minute_bars_by_code=minutes,
+            )
+        self.assertTrue(out.get("success"), out.get("error"))
+        last = dates[-1]
+        filled = [
+            t
+            for t in (out.get("sim_trades") or [])
+            if t.get("stock_code") == "600519" and t.get("status") != "skipped"
+        ]
+        self.assertTrue(filled)
+        mid = next(t for t in filled if str(t.get("as_of") or "")[:10] != last)
+        self.assertIsNotNone(mid.get("y_hl_realized"), mid)
+        self.assertGreater(float(mid.get("y_hl_realized")), 0.0)
+        last_rows = [
+            t for t in filled if str(t.get("as_of") or "")[:10] == last
+        ]
+        if last_rows:
+            self.assertIsNone(last_rows[0].get("realized_on"))
+            self.assertIsNone(last_rows[0].get("realized_oo"))
+            self.assertIsNotNone(last_rows[0].get("y_hl_realized"))
+            self.assertIsNotNone(last_rows[0].get("realized_tau"))
 
 
 class TestSessionOverlay(unittest.TestCase):
@@ -1605,6 +1837,54 @@ class TestReplayMinuteFill(unittest.TestCase):
             replay_fill_px(daily_bar=daily, minute_bars=[], fill_clock="09:30"),
             100.0,
         )
+        afternoon = [
+            {
+                "datetime": "2026-03-10 14:45:00",
+                "open": 99.0,
+                "close": 99.5,
+            }
+        ]
+        self.assertAlmostEqual(
+            replay_fill_px(daily_bar=daily, minute_bars=afternoon, fill_clock="09:30"),
+            100.0,
+        )
+        self.assertIsNone(
+            replay_fill_px(daily_bar=daily, minute_bars=afternoon, fill_clock="09:40")
+        )
+
+    def test_sell_fill_falls_back_later_then_open(self):
+        from core.backtest.paper_replay import replay_sell_fill_px
+
+        daily = {"open": 100.0, "close": 101.0}
+        later = [
+            {
+                "datetime": "2026-03-10 09:45:00",
+                "open": 100.2,
+                "close": 100.6,
+            }
+        ]
+        px, src = replay_sell_fill_px(
+            daily_bar=daily, minute_bars=later, fill_clock="09:40"
+        )
+        self.assertAlmostEqual(px, 100.6)
+        self.assertEqual(src, "09:45")
+        px2, src2 = replay_sell_fill_px(
+            daily_bar=daily, minute_bars=[], fill_clock="09:40"
+        )
+        self.assertAlmostEqual(px2, 100.0)
+        self.assertEqual(src2, "daily_open")
+        afternoon = [
+            {
+                "datetime": "2026-03-10 14:45:00",
+                "open": 90.0,
+                "close": 91.0,
+            }
+        ]
+        px3, src3 = replay_sell_fill_px(
+            daily_bar=daily, minute_bars=afternoon, fill_clock="09:40"
+        )
+        self.assertAlmostEqual(px3, 100.0)
+        self.assertEqual(src3, "daily_open")
 
     def test_engine_fills_at_935_close(self):
         stock_bars = {
@@ -1660,6 +1940,60 @@ class TestReplayMinuteFill(unittest.TestCase):
         self.assertEqual(buys, [])
         self.assertGreater(int((out.get("constraints_hit") or {}).get("minute_skips") or 0), 0)
 
+    def test_exit_falls_back_when_only_afternoon_minutes(self):
+        stock_bars = {"600519": _bars(16, step=0.5)}
+        dates = [b["date"] for b in stock_bars["600519"]]
+        rankings = {}
+        for i, d in enumerate(dates):
+            y = 2.0 if i <= 10 else -0.8
+            rankings[d] = [_rank_row("600519", y)]
+        minutes = {"600519": {}}
+        for i, b in enumerate(stock_bars["600519"]):
+            d = b["date"]
+            o = float(b["open"])
+            if i <= 10:
+                minutes["600519"][d] = [
+                    {
+                        "date": d,
+                        "datetime": f"{d} 09:40:00",
+                        "open": o,
+                        "close": o + 0.2,
+                    }
+                ]
+            else:
+                minutes["600519"][d] = [
+                    {
+                        "date": d,
+                        "datetime": f"{d} 14:45:00",
+                        "open": o - 5,
+                        "close": o - 4,
+                    }
+                ]
+        with _offline_rebalance_patches():
+            out = backtest_paper_replay(
+                stock_bars,
+                top_k=1,
+                min_history=8,
+                rankings_by_date=rankings,
+                cost_model="zero",
+                initial_cash=200_000.0,
+                fill_clock="09:40",
+                minute_bars_by_code=minutes,
+                price_space_cfg={"t0_price_space_gate": True},
+            )
+        self.assertTrue(out.get("success"), out.get("error"))
+        sells = [
+            t
+            for t in (out.get("trades") or [])
+            if t.get("side") == "sell" and t.get("stock_code") == "600519"
+        ]
+        self.assertTrue(sells)
+        self.assertTrue(any("回退日开盘" in str(t.get("reason") or "") for t in sells))
+        for t in sells:
+            day = str(t.get("as_of") or "")[:10]
+            bar = next(b for b in stock_bars["600519"] if b["date"] == day)
+            self.assertAlmostEqual(float(t.get("price") or 0), float(bar["open"]), places=4)
+
     def test_price_space_check_open_and_prev(self):
         from core.backtest.paper_replay import replay_price_space_check
 
@@ -1699,6 +2033,13 @@ class TestReplayMinuteFill(unittest.TestCase):
         none_m, seen_m = replay_price_space_check(day, [], {"t0_price_space_gate": True})
         self.assertIsNone(none_m)
         self.assertFalse(seen_m)
+        afternoon_only, seen_a = replay_price_space_check(
+            {"open": 100.0, "prev_close": 99.0},
+            [{"datetime": "2026-03-10 14:45:00", "open": 80.0, "prev_close": 70.0}],
+            {"t0_price_space_gate": True, "t0_price_space_max_dev_pct": 0.25},
+        )
+        self.assertIsNone(afternoon_only)
+        self.assertFalse(seen_a)
 
     def test_engine_skips_open_mismatch(self):
         stock_bars = {

@@ -2009,7 +2009,7 @@ API：`GET/POST /api/paper/t0/worker`（启停 + 状态）· `GET /api/paper/t0/
 外部 cron 仍可用 `schedule_jobs.run_paper_t0`；`paper_daily` 链式触发需 `t0_auto.enabled` 且 `schedule=with_paper_daily`（UI 已移除 schedule 下拉，默认 `after_close`）。
 
 **自动调仓落账（Web Worker）**：Follow「策略调仓」运行卡与做 T 同结构（进程面板 → 面板外盯盘框）。每个交易日在已保存 **fill_clock～10:00** 现价成交一次（默认 09:30），过点不补跑。开关与 last_run / desk 写 `data/rebalance_auto_worker.json`。  
-API：`GET/POST /api/paper/rebalance/worker`（`worker` + `desk`）。盯盘落账前按持仓占位监视，落账后开/加/清/持；上次落账文案 `时间 · 自动|手动 · 卖 n · 买 n`。手动预演仍走规则卡「手动预演 / 确认落账」。做 T worker 在调仓未完成且仍在开盘窗内会等待。
+API：`GET/POST /api/paper/rebalance/worker`（`worker` + `desk`）。盯盘落账前按持仓占位监视，落账后开/加/减/清/持；上次落账文案 `时间 · 自动|手动 · 卖 n · 买 n`。手动预演 / 确认落账与 Worker 同一 fill_clock～10:00 窗口，过点不补跑、不挂开盘单。做 T worker 在调仓未完成且仍在开盘窗内会等待。
 ---
 
 ## 黑盒工厂直觉

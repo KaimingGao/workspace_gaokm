@@ -108,6 +108,10 @@ class TestClusterReturnModel(unittest.TestCase):
         )
         self.assertAlmostEqual(out[0]["predicted_score"], 80.0)
         self.assertAlmostEqual(out[1]["predicted_score"], 8.0)
+        self.assertEqual(out[0]["score_formula_terms"]["terms"][0]["key"], "momentum")
+        self.assertAlmostEqual(float(out[0]["score_formula_terms"]["terms"][0]["contrib"]), 80.0)
+        self.assertEqual(out[1]["score_formula_terms"]["terms"][0]["key"], "momentum")
+        self.assertAlmostEqual(float(out[1]["score_formula_terms"]["terms"][0]["contrib"]), 8.0)
 
 
 if __name__ == "__main__":

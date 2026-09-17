@@ -1,8 +1,8 @@
-"""评分台账与校准请求模型。"""
+"""评分台账请求模型。"""
 
 from __future__ import annotations
 
-from typing import Dict, List, Optional
+from typing import List, Optional
 
 from pydantic import BaseModel, Field
 
@@ -34,29 +34,5 @@ class ScoreLedgerDeleteRequest(BaseModel):
     dates: Optional[List[str]] = Field(default=None, description="批量日期")
     include_outcomes: bool = Field(
         default=True, description="是否同时删除 outcomes 回填文件"
-    )
-
-
-class ScoreCalibrationFitRequest(BaseModel):
-    lookback_dates: int = Field(default=90, ge=20, le=250)
-    train_frac: float = Field(default=0.75, ge=0.5, le=0.95)
-    sample_source: str = Field(
-        default="panel",
-        description="panel=分组同源全宇宙历史（默认）；auto=不足才回退账本；ledger=仅账本",
-    )
-    lookback_bars: Optional[int] = Field(
-        default=80, ge=40, le=120, description="panel 日线回看（与分组 lookback 对齐）"
-    )
-    horizon_days: Optional[int] = Field(
-        default=None, ge=1, le=10, description="前瞻收益天数；默认 scoring.horizon_days"
-    )
-    watching_limit: int = Field(default=100, ge=3, le=240)
-
-
-class ScoreCalibrationPersistRequest(BaseModel):
-    note: str = Field(default="", max_length=200)
-    enable: bool = Field(
-        default=True,
-        description="已废弃：有 knots 即 tip/校准列可读；不进排序/闸。保留字段兼容旧客户端。",
     )
 

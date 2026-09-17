@@ -14,17 +14,26 @@ from typing import Any, Dict, Optional
 
 logger = logging.getLogger(__name__)
 
-from core.signal.yhat_windows import (  # noqa: F401
-    fuse_pct,
+from core.signal.yhat_windows import (
     fusion_w_co_from_cfg,
     fusion_weights_from_cfg,
-    pick_y_co,
-    pick_y_oc,
-    pick_y_oo,
-    pick_y_τc,
-    ranking_pct,
-    residual_pct,
     stamp_window_scores,
+)
+
+# 旧分头入场闸 / 退场减仓已下线；读盘/保存时剥掉。
+STALE_Y_OO_OC_ENTER_KEYS = (
+    "y_oo_enter",
+    "y_oc_enter",
+    "y_oo_enter_alt",
+    "y_oc_enter_alt",
+    "y_hl_enter",
+    "y_hl_enter_alt",
+    "y_oo_oc_enter",
+    "y_oo_oc_enter_alt",
+    "y_hl_enabled",
+    "y_oo_oc_enabled",
+    "rank_exit",
+    "lot_reduce",
 )
 
 DEFAULT_PATH_MATRIX: Dict[str, Any] = {
@@ -42,13 +51,9 @@ DEFAULT_PATH_MATRIX: Dict[str, Any] = {
     "residual_w_oc": 0.5,
     "y_enter_enabled": True,
     "y_enter_alt_enabled": True,
-    "y_hl_enabled": True,
-    "y_oo_enter": 0.1,
-    "y_oc_enter": 0.1,
-    "y_hl_enter": 0.1,
-    "y_oo_enter_alt": 0.1,
-    "y_oc_enter_alt": 0.1,
-    "y_hl_enter_alt": 0.1,
+    "y_oo_gt0": False,
+    "y_oc_gt0": False,
+    "y_hl_gt0": True,
     # 调仓成交钟：自动调仓 / 手动预演窗口起点；止于 10:00。与历史回测 fill_clock 同源。
     "fill_clock": "09:30",
 }
@@ -112,7 +117,16 @@ def get_path_matrix_cfg(
 
     out["y_enter_enabled"] = coerce_cfg_bool(out.get("y_enter_enabled"), True)
     out["y_enter_alt_enabled"] = coerce_cfg_bool(out.get("y_enter_alt_enabled"), True)
-    out["y_hl_enabled"] = coerce_cfg_bool(out.get("y_hl_enabled"), True)
+    if isinstance(raw, dict):
+        if raw.get("y_oo_gt0") is None and raw.get("y_oo_oc_enabled") is not None:
+            out["y_oo_gt0"] = coerce_cfg_bool(raw.get("y_oo_oc_enabled"), False)
+        if raw.get("y_oc_gt0") is None and raw.get("y_oo_oc_enabled") is not None:
+            out["y_oc_gt0"] = coerce_cfg_bool(raw.get("y_oo_oc_enabled"), False)
+        if raw.get("y_hl_gt0") is None and raw.get("y_hl_enabled") is not None:
+            out["y_hl_gt0"] = coerce_cfg_bool(raw.get("y_hl_enabled"), True)
+    out["y_oo_gt0"] = coerce_cfg_bool(out.get("y_oo_gt0"), False)
+    out["y_oc_gt0"] = coerce_cfg_bool(out.get("y_oc_gt0"), False)
+    out["y_hl_gt0"] = coerce_cfg_bool(out.get("y_hl_gt0"), True)
     for key, default, lo, hi in (
         ("rank_enter", 0.001, 0.0, 10.0),
         ("rank_strong", 0.001, 0.0, 10.0),
@@ -124,12 +138,6 @@ def get_path_matrix_cfg(
         ("fusion_w_co", 1.0, 0.0, 10.0),
         ("fusion_w_pc", 0.5, 0.0, 1.0),
         ("residual_w_oc", 0.5, 0.0, 1.0),
-        ("y_oo_enter", 0.1, 0.0, 100.0),
-        ("y_oc_enter", 0.1, 0.0, 100.0),
-        ("y_hl_enter", 0.1, 0.0, 100.0),
-        ("y_oo_enter_alt", 0.1, 0.0, 100.0),
-        ("y_oc_enter_alt", 0.1, 0.0, 100.0),
-        ("y_hl_enter_alt", 0.1, 0.0, 100.0),
     ):
         try:
             out[key] = max(lo, min(float(out.get(key, default)), hi))
@@ -161,13 +169,6 @@ def get_path_matrix_cfg(
     if isinstance(raw, dict):
         if raw.get("rank_enter_alt") in (None, ""):
             out["rank_enter_alt"] = float(out["rank_enter"])
-        for src, alt in (
-            ("y_oo_enter", "y_oo_enter_alt"),
-            ("y_oc_enter", "y_oc_enter_alt"),
-            ("y_hl_enter", "y_hl_enter_alt"),
-        ):
-            if raw.get(alt) in (None, ""):
-                out[alt] = float(out[src])
     try:
         from core.backtest.paper_replay import REPLAY_FILL_CLOCK, clamp_replay_fill_clock
 
@@ -177,6 +178,8 @@ def get_path_matrix_cfg(
     except Exception:  # noqa: BLE001
         logger.debug("clamp fill_clock failed", exc_info=True)
         out["fill_clock"] = "09:30"
+    for stale in STALE_Y_OO_OC_ENTER_KEYS:
+        out.pop(stale, None)
     return out
 
 
@@ -205,15 +208,7 @@ def scores_from_rebalance_item(
 
 __all__ = [
     "DEFAULT_PATH_MATRIX",
-    "fuse_pct",
-    "fusion_w_co_from_cfg",
+    "STALE_Y_OO_OC_ENTER_KEYS",
     "get_path_matrix_cfg",
-    "pick_y_co",
-    "pick_y_oc",
-    "pick_y_oo",
-    "pick_y_τc",
-    "ranking_pct",
-    "residual_pct",
     "scores_from_rebalance_item",
-    "stamp_window_scores",
 ]

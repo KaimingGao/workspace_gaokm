@@ -283,8 +283,14 @@ class TestEventPrior(unittest.TestCase):
             should_soft_hold_for_low_score,
         )
 
-        quote = {"success": True, "open": "37.90元", "price_raw": 39.6, "change_raw": 7.03}
-        # prev ≈ 39.6 / 1.0703 ≈ 37.0；gap ≈ (37.9/37-1)*100 ≈ 2.43
+        quote = {
+            "success": True,
+            "open": "37.90元",
+            "prev_close": 37.0,
+            "price_raw": 39.6,
+            "change_raw": 7.03,
+        }
+        # gap = 37.90/37−1 ≈ 2.43；昨收须显式给出，禁止用现价涨跌反推
         gap = gap_pct_from_quote_bars(quote)
         self.assertIsNotNone(gap)
         self.assertGreater(gap, 2.0)

@@ -853,6 +853,57 @@ class TestMinuteTauPack(unittest.TestCase):
         self.assertNotEqual(call_feats.get("ret_open_to_tau"), 0)
         self.assertAlmostEqual(call_feats.get("sector_ret_to_tau"), 0.4, places=5)
 
+    def test_attach_dual_score_pit_live_as_of_tau_is_session_not_yesterday(self):
+        """盘中无 quote.date 时 as_of_tau 用会话日，不拿昨收 K 的 10:00。"""
+        from datetime import datetime, timedelta, timezone
+        from unittest.mock import patch
+
+        from core.signal.dual_score import attach_dual_score_pit
+
+        session = "2026-09-17"
+        yday = "2026-09-16"
+        item = {"stock_code": "600000", "predicted_score_eod": 0.5}
+        quote = {"open": 10.0, "prev_close": 9.9}
+        bars = [
+            {"date": yday, "open": 9.8, "high": 10.0, "low": 9.7, "close": 9.9},
+        ]
+        mins = _bars(session) + [
+            {
+                "date": session,
+                "datetime": f"{session} 10:00:00",
+                "open": 10.1,
+                "high": 10.2,
+                "low": 10.0,
+                "close": 10.12,
+                "volume": 800,
+            }
+        ]
+        now = datetime(2026, 9, 17, 11, 42, tzinfo=timezone(timedelta(hours=8)))
+        with patch(
+            "core.signal.dual_score.resolve.get_dual_score_cfg",
+            return_value={
+                "enable_minute_tau": True,
+                "tau": "open",
+                "y_spec": {"formula": "close[T]/open[T]-1"},
+            },
+        ), patch(
+            "core.signal.session_pit.shanghai_now", return_value=now
+        ), patch(
+            "core.research.tau_ridge.load_tau_model", return_value=None
+        ), patch(
+            "core.research.tau_ridge.predict_tau_from_features", return_value=0.12
+        ):
+            attach_dual_score_pit(
+                item,
+                quote=quote,
+                bars=bars,
+                minute_bars=mins,
+                fuse_intraday=True,
+            )
+        asof = str(item.get("as_of_tau") or "")
+        self.assertTrue(asof.startswith(f"{session}T"), asof)
+        self.assertNotIn(yday, asof)
+
     def test_attach_dual_score_pit_use_minute_tau_false_blocks_prefix(self):
         """做 T 选向：全日分钟不得写入 features_tau（禁前缀前瞻）。"""
         from unittest.mock import patch

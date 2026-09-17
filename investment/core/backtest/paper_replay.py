@@ -4,8 +4,10 @@
 09:35–10:00 用截至该钟的 5m 前缀重算（与做 T ``rescore_scores_at_fixed_prefix`` 同路径）。
 对照列 ŷ_hl 走开盘 Z 挂上；成交钟>09:30 随前缀重算。不挂 ŷ_τw / ŷ_τ30/60/90（调仓回测不用）。
 成交价：09:30 取首根开盘（≈集合竞价/开盘价），其后用该档 5 分钟 K 收盘。
-无分钟时 09:30 回退日 K 开盘，其它钟跳过该票。
-有分钟时复用做 T ``resolve_t0_price_space``：|日开/分开−1| 或 |日昨/分昨−1|
+无分钟时 09:30 回退日 K 开盘。其它钟：买入缺该根则跳过；清仓按该钟之后～10:00
+下一根，再回退 09:30 / 日开盘（避免缺上午 K 把底仓拿到收盘）。
+日分价闸只用 09:30–10:00 窗口内的分钟（尾盘残缺仓不当开盘锚）。
+有窗口分钟时复用做 T ``resolve_t0_price_space``：|日开/分开−1| 或 |日昨/分昨−1|
 超阈则该票当日 skip（``price_space_mismatch``）；比的是开/昨收锚，不是成交价。
 live Follow 不走此闸。
 
@@ -121,16 +123,29 @@ def _minute_bar_hm(mb: Optional[dict]) -> str:
         return ""
 
 
+def _replay_window_minutes(
+    minute_bars: Optional[Sequence[dict]] = None,
+) -> List[dict]:
+    """只留调仓窗 09:30–10:00 的 5m；尾盘残缺仓不当开盘锚。"""
+    out: List[dict] = []
+    for b in minute_bars or []:
+        if not isinstance(b, dict):
+            continue
+        if _minute_bar_hm(b) in REPLAY_FILL_CLOCKS:
+            out.append(b)
+    out.sort(key=lambda b: str(b.get("datetime") or b.get("date") or ""))
+    return out
+
+
 def replay_fill_px(
     *,
     daily_bar: Optional[dict],
     minute_bars: Optional[Sequence[dict]] = None,
     fill_clock: str = REPLAY_FILL_CLOCK,
 ) -> Optional[float]:
-    """调仓成交价：09:30=首根 5m 开盘（无分钟则日开盘）；其它钟=该档 5m 收盘。"""
+    """买入/精确钟成交价：09:30=窗内首根开盘（无则日开盘）；其它钟=该档 5m 收盘。"""
     clock = clamp_replay_fill_clock(fill_clock)
-    mins = [b for b in (minute_bars or []) if isinstance(b, dict)]
-    mins.sort(key=lambda b: str(b.get("datetime") or b.get("date") or ""))
+    mins = _replay_window_minutes(minute_bars)
     if clock == "09:30":
         if mins:
             first = mins[0]
@@ -145,6 +160,55 @@ def replay_fill_px(
         if _minute_bar_hm(b) == clock:
             return _fpx(b.get("close")) or _fpx(b.get("open"))
     return None
+
+
+def replay_sell_fill_px(
+    *,
+    daily_bar: Optional[dict],
+    minute_bars: Optional[Sequence[dict]] = None,
+    fill_clock: str = REPLAY_FILL_CLOCK,
+) -> Tuple[Optional[float], str]:
+    """清仓价：该钟 → 其后～10:00 下一根 → 09:30 / 日开盘。
+
+    返回 ``(px, source)``：``clock`` 命中该钟；``09:45`` 等为后一档；
+    ``09:30`` 为窗内首根；``daily_open`` 为日 K 开盘。
+    """
+    clock = clamp_replay_fill_clock(fill_clock)
+    exact = replay_fill_px(
+        daily_bar=daily_bar, minute_bars=minute_bars, fill_clock=clock
+    )
+    if exact is not None and exact > 0:
+        if clock == "09:30" and not _replay_window_minutes(minute_bars):
+            return exact, "daily_open"
+        return exact, "clock"
+    if clock == "09:30":
+        return None, ""
+    try:
+        idx = REPLAY_FILL_CLOCKS.index(clock)
+    except ValueError:
+        idx = 0
+    for later in REPLAY_FILL_CLOCKS[idx + 1 :]:
+        px = replay_fill_px(
+            daily_bar=daily_bar, minute_bars=minute_bars, fill_clock=later
+        )
+        if px is not None and px > 0:
+            return px, later
+    px = replay_fill_px(
+        daily_bar=daily_bar, minute_bars=minute_bars, fill_clock="09:30"
+    )
+    if px is not None and px > 0:
+        if _replay_window_minutes(minute_bars):
+            return px, "09:30"
+        return px, "daily_open"
+    return None, ""
+
+
+def _sell_fill_fallback_note(clock: str, src: str) -> str:
+    if not src or src == "clock":
+        return ""
+    if src == "daily_open":
+        return f"缺{clock}回退日开盘"
+    return f"缺{clock}回退{src}"
 
 
 def replay_price_space_cfg(override: Optional[dict] = None) -> Dict[str, Any]:
@@ -179,10 +243,10 @@ def replay_price_space_check(
 ) -> Tuple[Optional[str], bool]:
     """返回 ``(skip_reason, mismatch_seen)``。
 
-    有分钟才比日开 vs 分钟首开、日昨 vs 分昨；无分钟 → (None, False)。
+    有调仓窗分钟才比日开 vs 分钟首开、日昨 vs 分昨；无窗口分钟 → (None, False)。
     ``mismatch_seen`` 不论闸开/关；``skip_reason`` 仅闸开时非空。
     """
-    mins = [b for b in (minute_bars or []) if isinstance(b, dict)]
+    mins = _replay_window_minutes(minute_bars)
     if not mins:
         return None, False
     cfg_d = cfg if isinstance(cfg, dict) else replay_price_space_cfg()
@@ -1092,13 +1156,16 @@ def _strip_replay_tau_horizons(row: dict) -> dict:
 
 def _merge_aux_yhat(row: dict, src: Optional[dict]) -> dict:
     try:
-        from core.paper.rebalance.rank_lots import aux_yhat_fields
+        from core.paper.rebalance.rank_lots import aux_yhat_fields, tip_explain_fields
     except Exception:  # noqa: BLE001
         logger.debug("aux_yhat_fields import failed", exc_info=True)
         return _strip_replay_tau_horizons(row)
     extra = aux_yhat_fields(src, include_tau_horizons=False)
     if extra:
         row.update(extra)
+    tips = tip_explain_fields(src)
+    if tips:
+        row.update(tips)
     return _strip_replay_tau_horizons(row)
 
 
@@ -1215,12 +1282,57 @@ def _hold_to_sim(
         "ranking_score": (plan_h or {}).get("ranking_score"),
         "predicted_score": yf,
         "score": yf,
-        "reason": (plan_h or {}).get("reason") or "ranking≥0% 持有",
+        "reason": (plan_h or {}).get("reason") or "续持",
         "open_date": open_date,
         "cost_price": cost,
         "cum_cost": cum_cost,
     }
     return _merge_aux_yhat(row, plan_h)
+
+
+def _hold_src_for_code(
+    code: str,
+    *,
+    plan: Optional[dict],
+    scored: Optional[Sequence[dict]] = None,
+) -> dict:
+    """续持盯市：拟卖/跳过未成交时仍带当日 ŷ，避免空行。"""
+    c = str(code or "").strip()
+    if not c:
+        return {}
+    plan_d = plan if isinstance(plan, dict) else {}
+    for bucket in ("sells", "skips"):
+        for row in plan_d.get(bucket) or []:
+            if not isinstance(row, dict):
+                continue
+            if str(row.get("stock_code") or "").strip() == c:
+                return row
+    for it in scored or []:
+        if not isinstance(it, dict):
+            continue
+        if str(it.get("stock_code") or "").strip() != c:
+            continue
+        try:
+            from core.paper.rebalance.path_matrix import scores_from_rebalance_item
+            from core.paper.rebalance.rank_lots import ranking_pct_of
+            from core.signal.yhat_windows import pick_y_oc
+
+            sc = scores_from_rebalance_item(it)
+            rp = ranking_pct_of(it)
+            rs = None if rp is None else float(rp) / 100.0
+            yoc = pick_y_oc(it)
+            from core.paper.rebalance.rank_lots import _debug_scores
+
+            out = dict(it)
+            out.update(_debug_scores(it, rp, yoc, rs))
+            for k, v in sc.items():
+                if v is not None:
+                    out.setdefault(k, v)
+            return out
+        except Exception:  # noqa: BLE001
+            logger.debug("hold src scores failed %s", c, exc_info=True)
+            return dict(it)
+    return {}
 
 
 def _ledger_trades_to_sim(trades: Sequence[dict]) -> List[dict]:
@@ -1365,6 +1477,100 @@ def fuse_hit_metrics(rows: Sequence[dict]) -> Tuple[Optional[float], int, int]:
     return round(hits / n * 100.0, 1), n, hits
 
 
+def _bar_date_key(bar_or_date: Any) -> str:
+    if isinstance(bar_or_date, dict):
+        return str(bar_or_date.get("date") or "")[:10]
+    return str(bar_or_date or "")[:10]
+
+
+def _next_bar_after(
+    dm: Dict[str, dict],
+    day: str,
+    *,
+    dates: Sequence[str],
+    index: Optional[int] = None,
+) -> Optional[dict]:
+    """T+1 日 K：先覆盖率日历下一根，缺则用该票自己更晚的一根。
+
+    回测窗末日若仓里还有下一根（停牌后复牌、lookback 截在覆盖率日历前），
+    仍应对账 ŷ_oo / ŷ_co；不能只看 dates[i+1]。
+    """
+    d = str(day or "")[:10]
+    if not d or not isinstance(dm, dict):
+        return None
+    if index is not None and 0 <= int(index) + 1 < len(dates):
+        nxt = dm.get(dates[int(index) + 1])
+        if isinstance(nxt, dict) and not nxt.get("session_overlay"):
+            return nxt
+    later: Dict[str, dict] = {}
+    for key, bar in dm.items():
+        if not isinstance(bar, dict) or bar.get("session_overlay"):
+            continue
+        kd = _bar_date_key(key) or _bar_date_key(bar)
+        if kd > d:
+            later[kd] = bar
+    if not later:
+        return None
+    return later[min(later)]
+
+
+def realized_path_label(
+    code: str,
+    day: str,
+    *,
+    date_maps: Dict[str, Dict[str, dict]],
+    minute_maps: Optional[Dict[str, Dict[str, List[dict]]]] = None,
+    cache: Optional[Dict[Tuple[str, str], Optional[float]]] = None,
+) -> Optional[float]:
+    """同日 ŷ_hl 真实极值序。overlay / 无分钟则空。"""
+    d = str(day or "")[:10]
+    c = str(code or "").strip()
+    if not d or not c:
+        return None
+    key = (c, d)
+    if cache is not None and key in cache:
+        return cache[key]
+    dm = date_maps.get(c) or {}
+    bar = dm.get(d)
+    if isinstance(bar, dict) and bar.get("session_overlay"):
+        if cache is not None:
+            cache[key] = None
+        return None
+    mins = ((minute_maps or {}).get(c) or {}).get(d) or []
+    if not mins:
+        if cache is not None:
+            cache[key] = None
+        return None
+    try:
+        from core.research.path_panel import attach_path_realized
+    except Exception:  # noqa: BLE001
+        logger.debug("attach_path_realized import failed", exc_info=True)
+        if cache is not None:
+            cache[key] = None
+        return None
+    day_row: Dict[str, Any] = {}
+    open_px = _px(bar, "open") if isinstance(bar, dict) else None
+    if open_px is not None:
+        day_row["open"] = open_px
+    try:
+        packed = attach_path_realized(day_row, mins, ref=open_px)
+    except Exception:  # noqa: BLE001
+        logger.debug("attach_path_realized failed %s %s", c, d, exc_info=True)
+        if cache is not None:
+            cache[key] = None
+        return None
+    raw = packed.get("path_realized") if isinstance(packed, dict) else None
+    try:
+        val = float(raw) if raw is not None and raw != "" else None
+    except (TypeError, ValueError):
+        val = None
+    if val is not None and val != val:
+        val = None
+    if cache is not None:
+        cache[key] = val
+    return val
+
+
 def realized_yhat_windows(
     code: str,
     day: str,
@@ -1392,7 +1598,7 @@ def realized_yhat_windows(
     if isinstance(bar, dict) and bar.get("session_overlay"):
         return None, None, None
     prev = dm.get(dates[i - 1]) if i > 0 else None
-    nxt = dm.get(dates[i + 1]) if i + 1 < len(dates) else None
+    nxt = _next_bar_after(dm, d, dates=dates, index=i)
     r_cc = _pct_ret(_px(prev, "close"), _px(bar, "close"))
     r_on = _pct_ret(_px(bar, "close"), _px(nxt, "open"))
     r_tau = _pct_ret(_px(bar, "open"), _px(bar, "close"))
@@ -1606,7 +1812,12 @@ def _attach_open_yhat_heads(
                 quote,
                 window,
                 gap_pct=gap,
+                open_t=quote.get("open_raw") or quote.get("open"),
+                prev_close=quote.get("prev_close") or quote.get("pre_close"),
+                trade_date=quote.get("date") or quote.get("trade_date"),
             )
+            if not on_feats:
+                continue
             on_yhat = predict_on_from_features(on_feats, model_doc=on_model_doc)
             apply_on_score_fields(
                 it,
@@ -1889,13 +2100,9 @@ def backtest_paper_replay(
     rank_enter_alt: Optional[float] = None,
     y_enter_enabled: Optional[bool] = None,
     y_enter_alt_enabled: Optional[bool] = None,
-    y_hl_enabled: Optional[bool] = None,
-    y_oo_enter: Optional[float] = None,
-    y_oc_enter: Optional[float] = None,
-    y_hl_enter: Optional[float] = None,
-    y_oo_enter_alt: Optional[float] = None,
-    y_oc_enter_alt: Optional[float] = None,
-    y_hl_enter_alt: Optional[float] = None,
+    y_oo_gt0: Optional[bool] = None,
+    y_oc_gt0: Optional[bool] = None,
+    y_hl_gt0: Optional[bool] = None,
     price_space_cfg: Optional[dict] = None,
     score_model_role: Optional[str] = None,
 ) -> Dict[str, Any]:
@@ -2025,13 +2232,9 @@ def backtest_paper_replay(
         "fusion_w_nowcast": w_oc,
         "y_enter_enabled": True if y_enter_enabled is None else bool(y_enter_enabled),
         "y_enter_alt_enabled": True if y_enter_alt_enabled is None else bool(y_enter_alt_enabled),
-        "y_hl_enabled": True if y_hl_enabled is None else bool(y_hl_enabled),
-        "y_oo_enter": 0.1 if y_oo_enter is None else y_oo_enter,
-        "y_oc_enter": 0.1 if y_oc_enter is None else y_oc_enter,
-        "y_hl_enter": 0.1 if y_hl_enter is None else y_hl_enter,
-        "y_oo_enter_alt": y_oo_enter_alt,
-        "y_oc_enter_alt": y_oc_enter_alt,
-        "y_hl_enter_alt": y_hl_enter_alt,
+        "y_oo_gt0": False if y_oo_gt0 is None else bool(y_oo_gt0),
+        "y_oc_gt0": False if y_oc_gt0 is None else bool(y_oc_gt0),
+        "y_hl_gt0": True if y_hl_gt0 is None else bool(y_hl_gt0),
     }
     paper.setdefault("rules", {})["execution"] = {
         "rebalance_timing": {
@@ -2054,16 +2257,9 @@ def backtest_paper_replay(
     rl_cfg["rank_enter_alt"] = replay_lots["rank_enter_alt"]
     rl_cfg["y_enter_enabled"] = replay_lots["y_enter_enabled"]
     rl_cfg["y_enter_alt_enabled"] = replay_lots["y_enter_alt_enabled"]
-    rl_cfg["y_hl_enabled"] = replay_lots["y_hl_enabled"]
-    rl_cfg["y_oo_enter"] = replay_lots["y_oo_enter"]
-    rl_cfg["y_oc_enter"] = replay_lots["y_oc_enter"]
-    rl_cfg["y_hl_enter"] = replay_lots["y_hl_enter"]
-    if y_oo_enter_alt is not None:
-        rl_cfg["y_oo_enter_alt"] = y_oo_enter_alt
-    if y_oc_enter_alt is not None:
-        rl_cfg["y_oc_enter_alt"] = y_oc_enter_alt
-    if y_hl_enter_alt is not None:
-        rl_cfg["y_hl_enter_alt"] = y_hl_enter_alt
+    rl_cfg["y_oo_gt0"] = replay_lots["y_oo_gt0"]
+    rl_cfg["y_oc_gt0"] = replay_lots["y_oc_gt0"]
+    rl_cfg["y_hl_gt0"] = replay_lots["y_hl_gt0"]
     rl_cfg["holdings_mv_cap"] = 0.0
     rl_cfg["t0_sell_blocks"] = {}
 
@@ -2113,6 +2309,7 @@ def backtest_paper_replay(
         "tau_prefix_rescored": 0,
         "price_space_skips": 0,
         "price_space_mismatch_seen": 0,
+        "sell_px_fallback": 0,
     }
     tau_pool_by_date: Dict[str, Dict[str, Any]] = {}
     if clock != "09:30" and rankings_by_date is None and minute_maps:
@@ -2214,6 +2411,8 @@ def backtest_paper_replay(
         _stamp_stock_names(paper.get("holdings") or [], name_by_code)
 
         prices: Dict[str, float] = {}
+        sell_prices: Dict[str, float] = {}
+        sell_fallback_src: Dict[str, str] = {}
         seen_px: set = set()
         mismatch_reason: Dict[str, str] = {}
         for code in list(stock_bars.keys()) + [
@@ -2234,7 +2433,8 @@ def backtest_paper_replay(
                 code=c,
                 day_i=i,
             )
-            skip_ps, seen_ps = replay_price_space_check(day_bar, mins, ps_cfg)
+            window_mins = _replay_window_minutes(mins)
+            skip_ps, seen_ps = replay_price_space_check(day_bar, window_mins, ps_cfg)
             if seen_ps:
                 constraints["price_space_mismatch_seen"] += 1
             if skip_ps:
@@ -2242,34 +2442,57 @@ def backtest_paper_replay(
                 constraints["price_space_skips"] += 1
                 continue
             px = replay_fill_px(
-                daily_bar=bar, minute_bars=mins, fill_clock=clock
+                daily_bar=bar, minute_bars=window_mins, fill_clock=clock
             )
             if px is not None and px > 0:
                 prices[c] = px
-                if mins:
+                if window_mins:
                     constraints["minute_fills"] += 1
             elif clock != "09:30":
                 constraints["minute_skips"] += 1
+            sell_px, sell_src = replay_sell_fill_px(
+                daily_bar=bar, minute_bars=window_mins, fill_clock=clock
+            )
+            if sell_px is not None and sell_px > 0:
+                sell_prices[c] = sell_px
+                if sell_src and sell_src != "clock":
+                    sell_fallback_src[c] = sell_src
 
         cash = float(paper.get("cash") or 0)
         start_snap = _holding_snap(paper.get("holdings") or [])
+        fill_px_map = {**sell_prices, **prices}
         with paper_replay_context(
             as_of=day,
-            batch_query=_make_fill_batch_query(prices, date_maps, dates, day),
+            batch_query=_make_fill_batch_query(fill_px_map, date_maps, dates, day),
         ):
             plan = plan_rank_lot_day(
                 scored=scored,
                 holdings=list(paper.get("holdings") or []),
                 cash=cash,
                 prices=prices,
+                sell_prices=sell_prices,
                 cfg=rl_cfg,
                 as_of=day,
             )
             _apply_price_space_plan_skips(plan, mismatch_reason)
+            for leg in plan.get("sells") or []:
+                if not isinstance(leg, dict):
+                    continue
+                c = str(leg.get("stock_code") or "").strip()
+                src = sell_fallback_src.get(c) or ""
+                note = _sell_fill_fallback_note(clock, src)
+                if note:
+                    reason = str(leg.get("reason") or "").strip()
+                    if note not in reason:
+                        leg["reason"] = f"{reason} · {note}" if reason else note
+                    leg["fill_fallback"] = src
+                    constraints["sell_px_fallback"] += 1
             sell_trades = []
             buy_trades = []
             for leg in plan.get("sells") or []:
-                px = prices.get(str(leg.get("stock_code") or ""))
+                px = sell_prices.get(str(leg.get("stock_code") or ""))
+                if not px:
+                    px = prices.get(str(leg.get("stock_code") or ""))
                 if not px:
                     continue
                 sell_trades.append(
@@ -2310,11 +2533,6 @@ def backtest_paper_replay(
                 + list(applied.get("buy_trades") or [])
                 if str(t.get("stock_code") or "").strip()
             }
-            hold_by_code = {
-                str(h.get("stock_code") or "").strip(): h
-                for h in (plan.get("holds") or [])
-                if isinstance(h, dict) and str(h.get("stock_code") or "").strip()
-            }
             for h in paper.get("holdings") or []:
                 if not isinstance(h, dict):
                     continue
@@ -2323,7 +2541,7 @@ def backtest_paper_replay(
                     continue
                 debug_holds.append(
                     _hold_to_sim(
-                        hold_by_code.get(code) or {},
+                        _hold_src_for_code(code, plan=plan, scored=scored),
                         day,
                         h,
                         date_maps=date_maps,
@@ -2419,14 +2637,16 @@ def backtest_paper_replay(
         if isinstance(p, dict)
     }
     date_index = {d: i for i, d in enumerate(dates)}
+    hl_cache: Dict[Tuple[str, str], Optional[float]] = {}
 
     def _stamp_day_context(row: dict) -> dict:
         day = str(row.get("as_of") or "")[:10]
         row["cash_after"] = cash_by_day.get(day)
         row["n_holdings"] = hold_by_day.get(day)
         row["equity_after"] = equity_by_day.get(day)
+        code = str(row.get("stock_code") or "")
         r_cc, r_on, r_tau = realized_yhat_windows(
-            str(row.get("stock_code") or ""),
+            code,
             day,
             dates=dates,
             date_maps=date_maps,
@@ -2435,6 +2655,31 @@ def backtest_paper_replay(
         row["realized_cc"] = r_cc
         row["realized_on"] = r_on
         row["realized_tau"] = r_tau
+        # ŷ_oo 真实 = 次日开/今日开。两头都有才复合；缺 T+1 不回退成 ŷ_oc。
+        if r_tau is not None and r_on is not None:
+            row["realized_oo"] = round(
+                ((1.0 + float(r_tau) / 100.0) * (1.0 + float(r_on) / 100.0) - 1.0)
+                * 100.0,
+                4,
+            )
+        else:
+            row["realized_oo"] = None
+        rhl = realized_path_label(
+            code,
+            day,
+            date_maps=date_maps,
+            minute_maps=minute_maps,
+            cache=hl_cache,
+        )
+        if rhl is not None:
+            row["y_hl_realized"] = rhl
+            row["path_realized"] = rhl
+        row["fusion_w_oo"] = w_oo
+        row["fusion_w_oc"] = w_oc
+        row["fusion_w_co"] = alpha
+        row["fusion_w_trade"] = w_oo
+        row["fusion_w_nowcast"] = w_oc
+        row["y_on_alpha"] = alpha
         return row
 
     sim_trades = [_stamp_day_context(r) for r in _ledger_trades_to_sim(ledger_trades)]
@@ -2467,7 +2712,11 @@ def backtest_paper_replay(
     exec_mode = "minute_5m" if used_minutes or clock != "09:30" else "open_930"
     fill_note = (
         f"成交={clock} 5m（09:30=首根开盘，其后该档收盘"
-        + ("；缺分钟跳过该票" if clock != "09:30" else "；缺分钟回退日开盘")
+        + (
+            "；缺分钟买入跳过、清仓回退其后～10:00 再回退 09:30/日开盘"
+            if clock != "09:30"
+            else "；缺分钟回退日开盘"
+        )
         + (
             "；日分价错位跳过"
             if ps_cfg.get("t0_price_space_gate") is not False
@@ -2484,7 +2733,7 @@ def backtest_paper_replay(
 
     note = (
         f"引擎={ENGINE_ID}：每个交易日 ranking={FORMULA_RANKING}，{fill_note}；{oc_note}；"
-        f"ranking 权 w_oo={w_oo:g} w_oc={w_oc:g} w_co={alpha:g}；ranking<0 或缺分清仓；"
+        f"ranking 权 w_oo={w_oo:g} w_oc={w_oc:g} w_co={alpha:g}；未过入场则已持仓清仓；"
         f"门槛1∪门槛2 过入场（rank入场={rl_cfg.get('rank_enter')}）按分数买（开加上限=观察池 {top_k} 只，现金不够则停），"
         f"每笔 {int(rl_cfg.get('lot_base') or REPLAY_LOT_BASE)} 股；"
         f"不留现金地板；T+1；成本={cost_model}；≠ topk_research。"
@@ -2509,13 +2758,9 @@ def backtest_paper_replay(
             "rank_enter_alt": rl_cfg.get("rank_enter_alt"),
             "y_enter_enabled": rl_cfg.get("y_enter_enabled"),
             "y_enter_alt_enabled": rl_cfg.get("y_enter_alt_enabled"),
-            "y_hl_enabled": rl_cfg.get("y_hl_enabled"),
-            "y_oo_enter": rl_cfg.get("y_oo_enter"),
-            "y_oc_enter": rl_cfg.get("y_oc_enter"),
-            "y_hl_enter": rl_cfg.get("y_hl_enter"),
-            "y_oo_enter_alt": rl_cfg.get("y_oo_enter_alt"),
-            "y_oc_enter_alt": rl_cfg.get("y_oc_enter_alt"),
-            "y_hl_enter_alt": rl_cfg.get("y_hl_enter_alt"),
+            "y_oo_gt0": rl_cfg.get("y_oo_gt0"),
+            "y_oc_gt0": rl_cfg.get("y_oc_gt0"),
+            "y_hl_gt0": rl_cfg.get("y_hl_gt0"),
             "y_on_alpha": alpha,
             "fusion_w_oo": w_oo,
             "fusion_w_oc": w_oc,

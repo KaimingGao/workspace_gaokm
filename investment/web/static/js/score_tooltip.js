@@ -162,6 +162,52 @@ const TAU_FEAT_LABELS = {
   t_lo_frac: "最低点相对前缀进度",
 };
 
+function shanghaiDateKeyTip(d = new Date()) {
+  try {
+    return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Shanghai" }).format(d);
+  } catch (_) {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    return `${y}-${m}-${day}`;
+  }
+}
+
+/** ŷ_oo 因子日：盘中应是昨收完整 K，不是 ŷ_oc 的 τ 钟。 */
+function formatFactorAnomalyHint(raw) {
+  const fa = raw && raw.factor_anomaly;
+  const issues = fa && Array.isArray(fa.issues) ? fa.issues : [];
+  if (!issues.length) return "";
+  const first = issues[0] || {};
+  const kind = first.kind === "pit" ? "时间错位" : "数据缺失";
+  const why = String(first.reason || first.code || "").trim();
+  return why ? `${kind} · ${why}` : kind;
+}
+
+function formatEodAsOfHint(raw) {
+  const anom = formatFactorAnomalyHint(raw);
+  const day = String((raw && raw.eod_feature_as_of) || "").slice(0, 10);
+  const win = String((raw && raw.dual_score_window) || "");
+  const tauDay = String((raw && (raw.as_of_tau || raw.rem_tau)) || "").slice(0, 10);
+  const today = shanghaiDateKeyTip();
+  if (!day) {
+    const fallback = win === "eod_next" ? "因子日 · 收盘后完整K" : "T−1 因子";
+    return anom ? `${fallback} · ${anom}` : fallback;
+  }
+  let which = "昨收完整K";
+  if (win === "eod_next") {
+    which = "今日完整K";
+  } else if (tauDay.length >= 10 && day === tauDay) {
+    which = "盘中漏入今日K";
+  } else if (today && day === today) {
+    which = "盘中漏入今日K";
+  } else if (tauDay.length >= 10 && day < tauDay) {
+    which = "昨收完整K";
+  }
+  const base = `因子日 ${day} · ${which}`;
+  return anom ? `${base} · ${anom}` : base;
+}
+
 /** ŷ_oo：表列 score · 含因子组成。 */
 export function formatScoreHero(raw) {
   const heuristic =
@@ -212,7 +258,9 @@ export function formatScoreHero(raw) {
     `<div class="score-hero-label">ŷ_oo · 隔夜主轴</div>` +
     `<div class="score-hero-value ${signCls(y)}">${escapeText(yTxt)}</div>` +
     `</div>` +
-    `<div class="score-hero-hint">ŷ = α + Σ β·z（百分点）· T−1 因子 · 买入门槛` +
+    `<div class="score-hero-hint">ŷ = α + Σ β·z（百分点）· ${escapeText(
+      formatEodAsOfHint(raw)
+    )} · 买入门槛` +
     (raw &&
     raw.heuristic_score != null &&
     Number.isFinite(Number(raw.heuristic_score))
@@ -265,7 +313,7 @@ function formatCompactEodTip(raw) {
     `<div class="score-hero-label">y_oo</div>` +
     `<div class="score-hero-value ${signCls(y)}">${escapeText(val)}</div>` +
     `</div>` +
-    `<div class="score-hero-hint">ŷ_oo · T−1 因子 · α+Σβ·z</div>` +
+    `<div class="score-hero-hint">ŷ_oo · ${escapeText(formatEodAsOfHint(raw))} · α+Σβ·z</div>` +
     gate +
     `</div>`
   );
@@ -677,7 +725,7 @@ function formatCompactHlTip(raw) {
   const fit = resolvePathScore(raw);
   const fitTxt = fit == null ? "—" : `${fmtSigned(fit, 3)}%`;
   const hasTerms = hasPathFormulaTerms(raw);
-  const realRaw = raw && (raw.path_realized ?? raw.y_path_realized ?? raw.hl_realized);
+  const realRaw = raw && (raw.y_hl_realized ?? raw.path_realized ?? raw.y_path_realized ?? raw.hl_realized);
   const real =
     realRaw != null && Number.isFinite(Number(realRaw)) ? Number(realRaw) : null;
   const rows = [];
@@ -1944,15 +1992,15 @@ export function overheatDetailFields(it) {
         ? it.overheat_scale
         : fac.overheat_scale) ?? null;
   const level = (pack && pack.level) || null;
-  const paperHr = it.paper_hard_reject;
-  const paperReason = it.paper_reject_reason || (pack && pack.reason) || null;
+  const hit = !!(pack && pack.hit) || !!it.mom_chase_risk;
+  const ohReason = (pack && pack.reason) || null;
   const mom5 = fac.momentum_5d ?? (pack && pack.mom5) ?? null;
   const mom3 = fac.momentum_3d ?? (pack && pack.mom3) ?? null;
   if (
     sub == null &&
     rawPct == null &&
     scale == null &&
-    !paperHr &&
+    !hit &&
     mom5 == null
   ) {
     return {};
@@ -1965,14 +2013,14 @@ export function overheatDetailFields(it) {
       level,
       momentum_5d: mom5,
       momentum_3d: mom3,
-      paper_hard_reject: paperHr || false,
-      paper_reject_reason: paperReason,
+      hit,
+      reason: ohReason,
       predicted_score_overheat_scaled: it.predicted_score_overheat_scaled ?? null,
     },
   };
 }
 
-/** overheat：短期过热（heuristic 子分 + 纸面闸 tip）。 */
+/** overheat：短期过热（heuristic 子分 + tip）。 */
 export function formatOverheatSection(raw) {
   const pack = raw && raw.overheat;
   if (!pack || typeof pack !== "object") return "";
@@ -2000,10 +2048,8 @@ export function formatOverheatSection(raw) {
       `ŷ×过热 ${Number(pack.predicted_score_overheat_scaled).toFixed(3)}%（对照列）`
     );
   }
-  if (pack.paper_hard_reject) {
-    lines.push(
-      `纸面禁买：${pack.paper_reject_reason || pack.level || "过热追高"}`
-    );
+  if (pack.hit && (pack.reason || pack.level)) {
+    lines.push(`过热：${pack.reason || pack.level}`);
   } else if (pack.level && pack.level !== "none") {
     lines.push(`等级 ${pack.level}`);
   }
@@ -2726,7 +2772,7 @@ export function createScoreTooltipController() {
       !!(raw.market_prior_warnings && raw.market_prior_warnings.length) ||
       !!(raw.tail_anomaly && typeof raw.tail_anomaly === "object") ||
       !!(raw.overheat && typeof raw.overheat === "object") ||
-      !!raw.paper_hard_reject ||
+      !!raw.mom_chase_risk ||
       !!(raw.dual_score_fusion && String(raw.dual_score_fusion).trim());
 
     // 空对象（JSON 解析失败）才跳过；未打分也展示 ŷ_oo/ŷ_oc 占位，避免悬停无反应

@@ -98,8 +98,6 @@ from web.schemas.score import (
     ScoreLedgerFreezeRequest,
     ScoreOutcomesFillRequest,
     ScoreLedgerDeleteRequest,
-    ScoreCalibrationFitRequest,
-    ScoreCalibrationPersistRequest,
 )
 
 from web.schemas.quant_misc import (
@@ -180,8 +178,6 @@ __all__ = [
     "ScoreLedgerFreezeRequest",
     "ScoreOutcomesFillRequest",
     "ScoreLedgerDeleteRequest",
-    "ScoreCalibrationFitRequest",
-    "ScoreCalibrationPersistRequest",
     "QuantReportRequest",
     "QuantInterpretRequest",
     "QuantReportDeleteRequest",

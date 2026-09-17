@@ -63,7 +63,6 @@
     "mom5_gain_max_pct": 10,
     "day_gain_max_pct": 6,
     "soft_reject": false,
-    "paper_buy_enforce": true,
     "soft_scale_yhat": false
   },
   "rank": {
@@ -74,8 +73,7 @@
     "rank_mode": "predicted_score",
     "min_predicted_score": 0.4,
     "min_hold_predicted_score": 0.0,
-    "horizon_days": 1,
-    "enable_calibration": true
+    "horizon_days": 1
   },
   "dual_score": {
     "fusion_mode": "blend",

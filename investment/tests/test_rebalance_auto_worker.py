@@ -56,6 +56,114 @@ class TestAutoRebalanceWindow(unittest.TestCase):
             self.assertFalse(before_auto_rebalance_window(_dt(9, 40)))
             self.assertFalse(before_auto_rebalance_window(_dt(10, 1)))
 
+    def test_manual_gate_follows_fill_clock(self):
+        from core.paper.rebalance.auto_worker import (
+            CLOCK_BLOCK_ACTIONS,
+            rebalance_window_gate,
+        )
+
+        with patch(
+            "core.paper.rebalance.auto_worker.is_trading_session",
+            return_value=True,
+        ), patch(
+            "core.paper.rebalance.auto_worker.rebalance_fill_clock",
+            return_value="09:40",
+        ), patch(
+            "core.paper.rebalance.auto_worker.rebalance_window_label",
+            return_value="09:40–10:00",
+        ):
+            wait = rebalance_window_gate(_dt(9, 39), dry_run=True)
+            self.assertIsNotNone(wait)
+            self.assertEqual(wait["fill_action"], "wait_clock")
+            self.assertIn(wait["fill_action"], CLOCK_BLOCK_ACTIONS)
+            self.assertFalse(wait["confirm_supported"])
+            self.assertTrue(wait["dry_run"])
+            self.assertIn("09:40", wait["note"])
+
+            self.assertIsNone(rebalance_window_gate(_dt(9, 40)))
+            self.assertIsNone(rebalance_window_gate(_dt(9, 59)))
+
+            missed = rebalance_window_gate(_dt(10, 0), dry_run=False)
+            self.assertIsNotNone(missed)
+            self.assertEqual(missed["fill_action"], "miss_window")
+            self.assertFalse(missed["confirm_supported"])
+            self.assertIn("过点不补跑", missed["note"])
+
+    def test_manual_gate_holiday(self):
+        from core.paper.rebalance.auto_worker import rebalance_window_gate
+
+        with patch(
+            "core.paper.rebalance.auto_worker.is_trading_session",
+            return_value=False,
+        ), patch(
+            "core.paper.rebalance.auto_worker.rebalance_fill_clock",
+            return_value="09:30",
+        ), patch(
+            "core.paper.rebalance.auto_worker.rebalance_window_label",
+            return_value="09:30–10:00",
+        ):
+            out = rebalance_window_gate(_dt(9, 45), dry_run=True)
+            self.assertEqual(out["fill_action"], "holiday")
+            self.assertEqual(out["empty_reason"], "holiday")
+            self.assertFalse(out["confirm_supported"])
+
+    def test_manual_rebalance_skips_simulate_when_gated(self):
+        from services.paper_trades import PaperTradesMixin
+
+        paper = {
+            "strategy_id": "short_conservative",
+            "cash": 1_000_000,
+            "holdings": [],
+            "trades": [],
+            "snapshots": [],
+            "operation_log": [],
+            "updated_at": "2026-01-01T00:00:00",
+        }
+        blocked = {
+            "success": True,
+            "ok": True,
+            "mode": "watching_matrix",
+            "dry_run": True,
+            "matrix_mode": True,
+            "fill_action": "miss_window",
+            "fill_clock": "09:30",
+            "window_label": "09:30–10:00",
+            "confirm_supported": False,
+            "sell_trades": [],
+            "buy_trades": [],
+            "rebalance_report": [],
+            "note": "已过调仓窗口 09:30–10:00，过点不补跑、不挂开盘单",
+            "empty_reason": "miss_window",
+        }
+        with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as tf:
+            path = tf.name
+        try:
+            import json
+
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(paper, f)
+
+            class _T(PaperTradesMixin):
+                pass
+
+            svc = _T()
+            svc.path = path
+            with patch(
+                "core.paper.rebalance.auto_worker.rebalance_window_gate",
+                return_value=blocked,
+            ), patch(
+                "core.paper.rebalance.watching_matrix.simulate_watching_matrix_preview",
+            ) as sim:
+                out = svc.rebalance(dry_run=True)
+            self.assertEqual(out.get("fill_action"), "miss_window")
+            self.assertFalse(out.get("confirm_supported"))
+            sim.assert_not_called()
+        finally:
+            try:
+                os.unlink(path)
+            except OSError:
+                pass
+
     def test_window_0930_to_1000(self):
         from core.paper.rebalance.auto_worker import (
             after_auto_rebalance_window,
@@ -218,6 +326,50 @@ class TestRebalanceAutoWorkerTick(unittest.TestCase):
                 self.assertEqual(st.get("last_buy_count"), 1)
                 self.assertEqual(st.get("last_sell_count"), 0)
                 self.assertEqual(st.get("last_source"), "auto")
+
+    def test_wait_clock_does_not_mark(self):
+        from core.paper.rebalance.auto_worker import RebalanceAutoWorker
+
+        w = RebalanceAutoWorker()
+        w._enabled = True
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "rebalance_auto_worker.json")
+            with patch(
+                "core.paper.rebalance.auto_worker._worker_config_path",
+                return_value=path,
+            ), patch(
+                "core.paper.rebalance.auto_worker.already_ran_today",
+                return_value=False,
+            ), patch(
+                "core.paper.rebalance.auto_worker.in_auto_rebalance_window",
+                return_value=True,
+            ), patch(
+                "core.paper.rebalance.auto_worker.resolve_session",
+                return_value="2026-09-10",
+            ), patch("services.paper_service.PaperService") as svc_cls, patch(
+                "core.paper.load_paper",
+                return_value={"pending_orders": {}},
+            ):
+                inst = svc_cls.return_value
+                inst.t0_auto_status.return_value = {}
+                inst.fill_pending.return_value = {}
+                inst.rebalance.return_value = {
+                    "success": True,
+                    "ok": True,
+                    "fill_action": "wait_clock",
+                    "buy_trades": [],
+                    "sell_trades": [],
+                    "note": "未到调仓时间 09:40，窗口 09:40–10:00；到点后再预演/落账",
+                }
+                w._tick()
+            from core.paper.rebalance.auto_worker import last_run_session
+
+            with patch(
+                "core.paper.rebalance.auto_worker._worker_config_path",
+                return_value=path,
+            ):
+                self.assertEqual(last_run_session(), "")
+                self.assertIn("未到调仓时间", w.status()["last_tick_message"])
 
     def test_leftover_pending_does_not_mark(self):
         from core.paper.rebalance.auto_worker import RebalanceAutoWorker
@@ -452,6 +604,11 @@ class TestFollowPanelWorkerMarkup(unittest.TestCase):
         self.assertIn('id="follow-fold-rebalance-run"', text)
         self.assertIn("今日调仓盯盘状态", text)
         self.assertIn("自动调仓后台进程", text)
+        self.assertIn("本页只在已保存调仓时间～10:00 预演/落账", text)
+        self.assertIn("与自动调仓同一窗口", text)
+        self.assertIn("过点不补跑、不挂开盘单", text)
+        self.assertNotIn("收盘后挂次日开盘单", text)
+        self.assertNotIn("09:30 口径", text)
         run_i = text.find('id="follow-fold-rebalance-run"')
         desk_i = text.find('id="paper-rebalance-worker-desk"')
         rules_i = text.find('id="follow-fold-rebalance">')

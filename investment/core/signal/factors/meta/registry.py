@@ -394,22 +394,28 @@ def compute_configured_factors(
             "tail_anomaly",
         ):
             continue
-        score, fac_meta = compute_factor(
-            name_fac,
-            bars,
-            quote=quote,
-            index_bars=index_bars,
-            config=config,
-            last_change=last_change,
-            fundamentals=fundamentals,
-            sentiment=sentiment,
-            llm_sentiment=llm_sentiment,
-            money_flow=money_flow,
-            stock_code=code,
-            stock_name=name,
-            minute_bars=minute_bars,
-            macro=macro,
-        )
+        try:
+            score, fac_meta = compute_factor(
+                name_fac,
+                bars,
+                quote=quote,
+                index_bars=index_bars,
+                config=config,
+                last_change=last_change,
+                fundamentals=fundamentals,
+                sentiment=sentiment,
+                llm_sentiment=llm_sentiment,
+                money_flow=money_flow,
+                stock_code=code,
+                stock_name=name,
+                minute_bars=minute_bars,
+                macro=macro,
+            )
+        except Exception as e:  # noqa: BLE001 — 单因子崩了当缺测，不中断整票
+            logger.warning("compute_factor %s failed: %s", name_fac, e)
+            logger.debug("compute_factor %s traceback", name_fac, exc_info=True)
+            meta[f"{name_fac}_compute_error"] = str(e)[:200]
+            continue
         meta.update(fac_meta or {})
         # 缺输入（如规模无市值）：不进 sub_scores，ŷ 跳过该项，禁止假中性 50 进 z-score
         if isinstance(fac_meta, dict) and fac_meta.get("omit_sub_score"):
