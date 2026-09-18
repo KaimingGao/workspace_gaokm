@@ -350,10 +350,35 @@ class TestEodNextFusion(unittest.TestCase):
         ]
         attach_dual_score_pit(item, quote=quote, bars=bars)
         self.assertEqual(item["dual_score_window"], "eod_next")
-        # rem=EOD；收盘后主排序分 = ŷ_EOD（剥离 τ）
+        # 历史 asof 已换期：主排序分 = ŷ_EOD（剥离 τ）
         self.assertAlmostEqual(item["predicted_score_eod_rem"], 1.5)
         self.assertAlmostEqual(item.get("predicted_score_blend"), 1.5)
         self.assertAlmostEqual(rank_key_for_item(item), 1.5)
+
+    def test_attach_after_close_same_cycle_keeps_tau(self):
+        """收盘后同一 ŷ_oo 周期：仍 fuse ŷ_oc，不因时钟 eod_next 剥 τ。"""
+        from unittest.mock import patch
+
+        from core.signal.dual_score import apply_tau_score_fields
+        from core.signal.dual_score.tau import _resolve_fuse_intraday
+
+        item = {"predicted_score": 1.5}
+        quote = {"date": "2026-09-18", "open": 10.3}
+        bars = [
+            {"date": "2026-09-17", "open": 10.0, "close": 10.0},
+            {"date": "2026-09-18", "open": 10.3, "close": 10.5},
+        ]
+        now = datetime(2026, 9, 18, 15, 30)
+        with patch("core.signal.session_pit.shanghai_now", return_value=now):
+            fuse = _resolve_fuse_intraday(
+                item, fuse_intraday=None, quote=quote, bars=bars
+            )
+            apply_tau_score_fields(
+                item, rem_yhat=0.8, gap_pct=3.0, fuse_intraday=fuse
+            )
+        self.assertTrue(fuse)
+        self.assertEqual(item["dual_score_window"], "intraday")
+        self.assertAlmostEqual(item.get("predicted_score_tau"), 0.8)
 
     def test_mom3_hard_reject_can_be_skipped(self):
         from core.signal.scorer import score_bars

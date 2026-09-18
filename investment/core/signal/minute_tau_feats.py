@@ -407,8 +407,8 @@ def clear_minute_tau_pack_keys(
 ) -> Dict[str, Any]:
     """去掉开→τ 小包。缺根时必须清掉，禁止收盘 leftover 顶 10:30。
 
-    ``include_cs=False``：只清单票路径键，保留已算的 ``sector_ret_to_tau``
-    （做 T 前缀 inject 不得把打分用过的截面抹掉）。
+    ``include_cs=False``：只清单票路径键，保留已算的 ``sector_ret_to_tau``。
+    做 T 前缀 inject 用默认 ``include_cs=True``，再按该钟重写截面。
     形状键始终清掉（与路径小包同生命周期）。
     """
     out = feats if isinstance(feats, dict) else {}
@@ -653,7 +653,7 @@ def _extract_horizon_seq_pack(
     )
 
 
-_T30_T60_T90_HORIZONS: Tuple[Tuple[int, str, str, str], ...] = (
+_HORIZON_SEQ_PACKS: Tuple[Tuple[int, str, str, str], ...] = (
     (30, "ret_last_30m", "vol_last_30m_vs_avg", "crosses_lunch"),
     (45, "ret_last_45m", "vol_last_45m_vs_avg", "crosses_lunch_45"),
     (60, "ret_last_60m", "vol_last_60m_vs_avg", "crosses_lunch_60"),
@@ -662,7 +662,7 @@ _T30_T60_T90_HORIZONS: Tuple[Tuple[int, str, str, str], ...] = (
 )
 
 
-def extract_t30_t60_t90_seq_packs(
+def extract_horizon_seq_packs(
     minute_bars: Sequence[dict],
     *,
     trade_date: str,
@@ -675,7 +675,7 @@ def extract_t30_t60_t90_seq_packs(
         trade_date=trade_date,
         tau_hm=tau_hm,
         open_px=open_px,
-        horizons=_T30_T60_T90_HORIZONS,
+        horizons=_HORIZON_SEQ_PACKS,
     )
 
 
@@ -1151,26 +1151,6 @@ def _rebalance_cs_persist_window() -> bool:
         return False
 
 
-def _rebalance_cs_live_lock(day: str, hm: str) -> bool:
-    """周期日已过 10:30：仅 10:00 调仓截面只能读落盘，禁止用下午仓重算。
-
-    09:40 等早盘槽仍按 ≤τ 前缀重算（PIT）。把 ≤10:00 一律锁死的话，
-    09:40 未落盘时重扫会把板块项打成 z=0。
-    """
-    try:
-        from core.signal.minute_tau_grid import REBALANCE_TAU_CAP_HM
-        from core.signal.session_pit import oo_cycle_date, shanghai_now
-
-        if _norm_cs_hm(hm) != _norm_cs_hm(REBALANCE_TAU_CAP_HM):
-            return False
-        n = shanghai_now()
-        if str(day or "")[:10] != oo_cycle_date(now=n):
-            return False
-        return (n.hour, n.minute) >= (10, 30)
-    except Exception:
-        return False
-
-
 def _cs_cache_lookup(
     cache: Dict[Tuple[str, str], Optional[float]],
     cache_key: Tuple[str, str],
@@ -1180,7 +1160,7 @@ def _cs_cache_lookup(
     use_cache: bool,
     disk_field: Optional[str] = None,
 ) -> Tuple[bool, Optional[float]]:
-    """内存 → 落盘 → 10:00 锁。``hit=True`` 时不再进仓库。"""
+    """内存 → 落盘。``hit=True`` 时不再进仓库；无快照则交回调用方按 τ 前缀 PIT。"""
     if not use_cache:
         return False, None
     if cache_key in cache:
@@ -1190,8 +1170,6 @@ def _cs_cache_lookup(
         cache[cache_key] = frozen
         _SECTOR_RET_PINNED.add(cache_key)
         return True, frozen
-    # 10:30 后无落盘：按 τ 前缀从同伴重算（extract 已切到 hm），不得打成缺特征。
-    # 否则夜盘做 T 的 10:00 板块中位 z=0，对不上持仓/观察池。
     return False, None
 
 
@@ -1254,7 +1232,7 @@ def seed_peer_minute_bars(
     """把本轮已 hydrate 的 5m 写入同伴仓。
 
     预演补拉 / 回测刷新后，内存仓若仍顶着早盘残缺日，``sector_ret_*`` 会漂，
-    ŷ_oc / ŷ_τ30/60/90 / Ĉ_τ 就和历史回测对不齐。
+    ŷ_oc / ŷ_τ30/45/60/75/90 / Ĉ_τ 就和历史回测对不齐。
     """
     key = str(code or "").strip()
     rows = [b for b in (bars or []) if isinstance(b, dict)]
@@ -1432,7 +1410,7 @@ def _resolve_sector_ret_horizon(
     cap: int = _SECTOR_RET_DEFAULT_CAP,
     use_cache: bool = True,
 ) -> Optional[float]:
-    """同伴近 N 交易分钟中位：与开→τ 同口径的缓存 / 落盘 / 10:00 锁。"""
+    """同伴近 N 交易分钟中位：与开→τ 同口径的缓存 / 落盘；无快照则 PIT。"""
     day = str(trade_date or "")[:10]
     hm = str(tau_hm or "10:30").strip() or "10:30"
     if len(day) < 10:
@@ -1772,14 +1750,6 @@ def _peer_codes_for_sector_ret(*, cap: int = _SECTOR_RET_DEFAULT_CAP) -> List[st
     except Exception:
         pass
     try:
-        from core.t0.score_policy import active_book_codes_for_tau_pool
-
-        codes = active_book_codes_for_tau_pool(cap=n)
-        if codes:
-            return list(codes[:n])
-    except Exception:
-        pass
-    try:
         from core.paths import WATCHING_PATH
         import json
         import os
@@ -1951,7 +1921,7 @@ def merge_minute_tau_pack_into_feats(
             continue
         out[k] = v
     try:
-        seq_all = extract_t30_t60_t90_seq_packs(
+        seq_all = extract_horizon_seq_packs(
             bars,
             trade_date=day,
             tau_hm=hm,
@@ -1962,13 +1932,12 @@ def merge_minute_tau_pack_into_feats(
                 out[k] = v
     except Exception:
         pass
-    if _PEER_CODES_MEMO:
-        out = attach_sector_ret_cs_if_missing(out, trade_date=day, tau_hm=hm)
-        out = attach_sector_ret_last_30m_cs_if_missing(out, trade_date=day, tau_hm=hm)
-        out = attach_sector_ret_last_45m_cs_if_missing(out, trade_date=day, tau_hm=hm)
-        out = attach_sector_ret_last_60m_cs_if_missing(out, trade_date=day, tau_hm=hm)
-        out = attach_sector_ret_last_75m_cs_if_missing(out, trade_date=day, tau_hm=hm)
-        out = attach_sector_ret_last_90m_cs_if_missing(out, trade_date=day, tau_hm=hm)
+    out = attach_sector_ret_cs_if_missing(out, trade_date=day, tau_hm=hm)
+    out = attach_sector_ret_last_30m_cs_if_missing(out, trade_date=day, tau_hm=hm)
+    out = attach_sector_ret_last_45m_cs_if_missing(out, trade_date=day, tau_hm=hm)
+    out = attach_sector_ret_last_60m_cs_if_missing(out, trade_date=day, tau_hm=hm)
+    out = attach_sector_ret_last_75m_cs_if_missing(out, trade_date=day, tau_hm=hm)
+    out = attach_sector_ret_last_90m_cs_if_missing(out, trade_date=day, tau_hm=hm)
     clock_ok = prefix_has_tau_clock(bars, trade_date=day, tau_hm=hm)
     prefix = _day_bars_upto_tau(bars, trade_date=day, tau_hm=hm)
     if clock_ok:

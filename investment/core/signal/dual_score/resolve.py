@@ -364,8 +364,8 @@ def compute_predicted_score_blend(
 ) -> Optional[float]:
     """ŷ_trade = w·ŷ_EOD + w·(缺口∘ŷ_τ)，同为现价对昨收。
 
-    ``dual_score_window=eod_next``（收盘后）：停用 τ 侧融合，避免
-    缺口∘ŷ_τ ≈ T 日已实现涨跌幅泄漏进 T+1 前瞻主排序分。
+    ``dual_score_window=eod_next``：ŷ_oo 已换期，停用 τ 侧融合。
+    收盘后同一周期窗口仍是 ``intraday``，ŷ_oc 继续进 ranking。
     """
     if not isinstance(item, dict):
         return None
@@ -432,8 +432,7 @@ def align_trade_score_fields(
     重算条件：
     1) blend 缺失；
     2) 旧簿 eod_next 把 blend 写成 EOD 且 ŷ_τ 仍分叉；
-    3) ``dual_score_window=eod_next``（收盘后），一律剥离 τ 侧，
-       避免今日已实现收益（缺口∘ŷ_τ≈T日收盘涨幅）泄漏进 T+1 决策。
+    3) ``dual_score_window=eod_next``（已换期），剥离 τ 侧。
     ``write_score=False``：不改 ``score``（score_stock 主分仍为 EOD 时用）。
     """
     if not isinstance(item, dict):
@@ -525,7 +524,6 @@ def align_trade_score_fields(
         and abs(blend - y_eod_f) < 1e-9
         and abs(float(tau) - y_eod_f) > 1e-6
     )
-    # eod_next：旧簿上的 blend 可能含 τ 侧今日已实现收益，一律重算剥离
     force_recompute = eod_next and blend is not None
     unlifted = (not eod_next) and unlifted_trade_blend_stale(item, config=config)
     stale_zero_w_tau = False

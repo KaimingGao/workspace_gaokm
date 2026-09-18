@@ -364,6 +364,14 @@ class TestHoldingOrigin(_QuotePatchMixin, unittest.TestCase):
 
     def test_mark_to_market_today_pnl_from_change_pct(self):
         """今日收益 = Σ MV·chg/(100+chg)；账户%相对昨收净值。"""
+        from datetime import datetime as dt
+
+        class _InSession(dt):
+            @classmethod
+            def now(cls, tz=None):
+                n = dt(2026, 8, 18, 10, 30)
+                return n.replace(tzinfo=tz) if tz else n
+
         paper = _paper(
             cash=5000.0,
             holdings=[
@@ -387,8 +395,13 @@ class TestHoldingOrigin(_QuotePatchMixin, unittest.TestCase):
                 "change_raw": -5.0,  # 昨收 20 → 今 19；ΔMV=-100
             },
         }
-        with patch("core.ports.market.batch_query_quotes", return_value=quotes):
-            summary = mark_to_market(paper)
+        with patch("core.paper.exec.datetime", _InSession):
+            with patch(
+                "core.signal.session_pit.oo_cycle_date", return_value="2026-08-18"
+            ):
+                with patch("core.ports.market.batch_query_quotes", return_value=quotes):
+                    with patch("core.paper.exec._batch_query_quotes", return_value=quotes):
+                        summary = mark_to_market(paper)
         # 今日浮动合计 0；净值 = 5000 + 1100 + 1900 = 8000；昨收净值同为 8000
         self.assertEqual(summary["today_pnl"], 0.0)
         self.assertEqual(summary["today_pnl_pct"], 0.0)
@@ -407,14 +420,52 @@ class TestHoldingOrigin(_QuotePatchMixin, unittest.TestCase):
                 "change_raw": 0.0,
             },
         }
-        with patch("core.ports.market.batch_query_quotes", return_value=quotes2):
-            summary2 = mark_to_market(paper)
+        with patch("core.paper.exec.datetime", _InSession):
+            with patch(
+                "core.signal.session_pit.oo_cycle_date", return_value="2026-08-18"
+            ):
+                with patch("core.ports.market.batch_query_quotes", return_value=quotes2):
+                    with patch("core.paper.exec._batch_query_quotes", return_value=quotes2):
+                        summary2 = mark_to_market(paper)
         # ΔMV = 100；equity=5000+1100+2000=8100；昨收净值=8000；pct=1.25
         self.assertEqual(summary2["today_pnl"], 100.0)
         self.assertEqual(summary2["today_pnl_pct"], 1.25)
 
+    def test_mark_to_market_overnight_uses_prev_close_not_cost(self):
+        """凌晨现价=0 时按昨收盯市，不退回成本。"""
+        paper = _paper(
+            cash=5000.0,
+            holdings=[{"stock_code": "600519", "shares": 100, "cost": 10.0}],
+        )
+        quotes = {
+            "600519": {
+                "success": True,
+                "stock_code": "600519",
+                "price_raw": 0.0,
+                "prev_close": 12.75,
+                "change_raw": -100.0,
+            }
+        }
+        with patch("core.paper.exec._batch_query_quotes", return_value=quotes):
+            with patch("core.paper.exec._cached_bar_mark", return_value={}):
+                summary = mark_to_market(paper)
+        row = summary["holdings"][0]
+        self.assertAlmostEqual(row["price"], 12.75)
+        self.assertEqual(row["price_source"], "prev_close")
+        self.assertEqual(row["change_pct"], 0.0)
+        self.assertAlmostEqual(summary["equity"], 5000.0 + 1275.0)
+        self.assertAlmostEqual(row["market_value"], 1275.0)
+
     def test_mark_to_market_today_pnl_vs_prev_nav(self):
         """有昨收账本时，今日收益 = 当前净值 − 上一交易日最后快照（含卖出/跳空）。"""
+        from datetime import datetime as dt
+
+        class _InSession(dt):
+            @classmethod
+            def now(cls, tz=None):
+                n = dt(2026, 8, 18, 10, 30)
+                return n.replace(tzinfo=tz) if tz else n
+
         paper = _paper(
             cash=5000.0,
             holdings=[{"stock_code": "600519", "shares": 100, "cost": 10.0}],
@@ -432,13 +483,108 @@ class TestHoldingOrigin(_QuotePatchMixin, unittest.TestCase):
                 "change_raw": 10.0,
             },
         }
-        with patch("core.ports.market.batch_query_quotes", return_value=quotes):
-            summary = mark_to_market(paper)
+        with patch("core.paper.exec.datetime", _InSession):
+            with patch(
+                "core.signal.session_pit.oo_cycle_date", return_value="2026-08-18"
+            ):
+                with patch("core.ports.market.batch_query_quotes", return_value=quotes):
+                    with patch("core.paper.exec._batch_query_quotes", return_value=quotes):
+                        summary = mark_to_market(paper)
         # equity = 5000 + 1100 = 6100；相对昨收账本 6200 → -100 / -1.61%
         self.assertEqual(summary["today_pnl_basis"], "prev_nav")
         self.assertEqual(summary["today_pnl"], -100.0)
         self.assertAlmostEqual(summary["today_pnl_pct"], round(-100.0 / 6200.0 * 100.0, 2))
         self.assertAlmostEqual(summary["total_pnl_pct"], round((6100 / 6000 - 1) * 100.0, 2))
+
+    def test_today_pnl_is_zero_after_calendar_rollover(self):
+        """周六凌晨：日历已跨日、会话未开，今日收益为 0，不吃周五盘中快照。"""
+        from datetime import datetime as dt
+
+        class _Sat(dt):
+            @classmethod
+            def now(cls, tz=None):
+                n = dt(2026, 9, 19, 1, 36)
+                return n.replace(tzinfo=tz) if tz else n
+
+        paper = _paper(
+            cash=177343.09,
+            holdings=[
+                {"stock_code": "300122", "shares": 500, "cost": 12.33},
+                {"stock_code": "000739", "shares": 700, "cost": 23.30},
+            ],
+        )
+        paper["snapshots"] = [
+            {"ts": "2026-09-17T15:00:00", "equity": 200000.0},
+            {"ts": "2026-09-18T11:28:43", "equity": 200240.09},
+        ]
+        quotes = {
+            "300122": {
+                "success": True,
+                "stock_code": "300122",
+                "price_raw": 12.75,
+                "prev_close": 12.35,
+            },
+            "000739": {
+                "success": True,
+                "stock_code": "000739",
+                "price_raw": 23.48,
+                "prev_close": 23.09,
+            },
+        }
+        with patch("core.paper.exec.datetime", _Sat):
+            with patch("core.paper.exec._batch_query_quotes", return_value=quotes):
+                with patch(
+                    "core.signal.session_pit.oo_cycle_date", return_value="2026-09-18"
+                ):
+                    summary = mark_to_market(paper)
+        self.assertAlmostEqual(summary["equity"], 200154.09, places=2)
+        self.assertEqual(summary["today_pnl_basis"], "prev_close")
+        self.assertEqual(summary["today_pnl"], 0.0)
+        self.assertEqual(summary["today_pnl_pct"], 0.0)
+
+    def test_today_pnl_keeps_session_on_friday_evening(self):
+        """周五收盘后、日历未跨日：今日收益仍相对周四账本。"""
+        from datetime import datetime as dt
+
+        class _Fri(dt):
+            @classmethod
+            def now(cls, tz=None):
+                n = dt(2026, 9, 18, 16, 20)
+                return n.replace(tzinfo=tz) if tz else n
+
+        paper = _paper(
+            cash=177343.09,
+            holdings=[
+                {"stock_code": "300122", "shares": 500, "cost": 12.33},
+                {"stock_code": "000739", "shares": 700, "cost": 23.30},
+            ],
+        )
+        paper["snapshots"] = [
+            {"ts": "2026-09-17T15:00:00", "equity": 200000.0},
+            {"ts": "2026-09-18T11:28:43", "equity": 200240.09},
+        ]
+        quotes = {
+            "300122": {
+                "success": True,
+                "stock_code": "300122",
+                "price_raw": 12.75,
+                "prev_close": 12.35,
+            },
+            "000739": {
+                "success": True,
+                "stock_code": "000739",
+                "price_raw": 23.48,
+                "prev_close": 23.09,
+            },
+        }
+        with patch("core.paper.exec.datetime", _Fri):
+            with patch("core.paper.exec._batch_query_quotes", return_value=quotes):
+                with patch(
+                    "core.signal.session_pit.oo_cycle_date", return_value="2026-09-18"
+                ):
+                    summary = mark_to_market(paper)
+        self.assertEqual(summary["today_pnl_basis"], "prev_nav")
+        self.assertAlmostEqual(summary["today_pnl"], 154.09, places=2)
 
     def test_mark_to_market_today_pnl_cash_only(self):
         paper = _paper(cash=10000.0, holdings=[])

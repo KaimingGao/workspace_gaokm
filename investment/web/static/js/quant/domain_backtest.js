@@ -6,8 +6,8 @@ import { portfolioBtScoreFloorPayload as buildBtScoreFloorPayload, mergeScoringF
 import { truncateStockName, watchingNameSpanHtml } from "./names.js";
 import { ensureFitTierMap } from "./fit_tier_ui.js";
 import { downloadBlob } from "../shared.js";
-import { collectPathMatrixForm, collectExecutionForm, readT0BtSizing, fillT0BtSizing } from "../paper/execution_ui.js?v=p2434";
-import { initExecutionRuleForms } from "../paper/execution_forms.js?v=p2434";
+import { collectPathMatrixForm, collectExecutionForm, readT0BtSizing, fillT0BtSizing } from "../paper/execution_ui.js?v=p2497";
+import { initExecutionRuleForms } from "../paper/execution_forms.js?v=p2497";
 
 const _V =
   (typeof window !== "undefined" && window.__ASSET_V__) || "dev";

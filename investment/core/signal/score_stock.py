@@ -1111,7 +1111,7 @@ def score_stock(
                 )
             except Exception:  # noqa: BLE001
                 logger.debug("tau lag feats skipped for %s", code, exc_info=True)
-            # 与做 T compute_scores_from_bars 同构：单票缺截面时用活跃簿宇宙
+            # 与做 T 回测同构：单票缺截面时用观察池 ∪ 持仓宇宙
             if (
                 sector_breadth is None
                 or sector_gap_median is None
@@ -1306,7 +1306,6 @@ def score_stock(
         from core.signal.overheat_gate import annotate_item_overheat
 
         annotate_item_overheat(signal_item, config=cfg)
-        # 同步回 scored，便于刷簿落盘
         for k in (
             "overheat",
             "overheat_scale",

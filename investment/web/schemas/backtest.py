@@ -103,13 +103,13 @@ class PaperReplayBacktestRequest(BaseModel):
         default=200,
         ge=100,
         le=10000,
-        description="历史回测每笔股数。默认 200；整百。保存规则不改交易执行 200/500",
+        description="调仓每笔股数。默认 200；整百。保存规则同步到交易执行自动调仓",
     )
     lot_strong: int = Field(
         default=200,
         ge=100,
         le=10000,
-        description="历史回测强档手数（股）。默认与每笔股数相同",
+        description="调仓强档手数（股）。默认与每笔股数相同；保存规则同步到交易执行",
     )
     universe_fit_tiers: Optional[list] = Field(
         default=None,

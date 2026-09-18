@@ -147,6 +147,30 @@ class TestQuoteBatch(unittest.TestCase):
         self.assertFalse(out["000858"].get("success"))
 
 
+class TestQuotePrice(unittest.TestCase):
+    def test_zero_last_is_missing(self):
+        from core.ports.market import quote_mark_price, quote_price, quote_prev_close
+
+        q = {"success": True, "price_raw": 0.0, "prev_close": 12.75}
+        self.assertIsNone(quote_price(q))
+        self.assertAlmostEqual(quote_prev_close(q), 12.75)
+        self.assertAlmostEqual(quote_mark_price(q), 12.75)
+
+    def test_parse_tencent_keeps_prev_close_when_last_zero(self):
+        fields = ["0"] * 45
+        fields[1] = "智飞生物"
+        fields[2] = "300122"
+        fields[3] = "0.00"
+        fields[4] = "12.75"
+        fields[5] = "0.00"
+        fields[31] = "0"
+        fields[32] = "0"
+        out = StockAPI._parse_tencent_data("300122", "sz300122", "~".join(fields))
+        self.assertTrue(out["success"])
+        self.assertEqual(out["price_raw"], 0.0)
+        self.assertAlmostEqual(out["prev_close"], 12.75)
+
+
 class TestQuoteHandler(unittest.TestCase):
     def test_execute_empty(self):
         from skills.quote.handler import QuoteHandler

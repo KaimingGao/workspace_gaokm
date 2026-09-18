@@ -2535,11 +2535,21 @@ class PaperTradesMixin:
             tau_pool_day = None
             try:
                 from core.t0.score_policy import (
-                    build_tau_pool_from_holding_bars,
+                    build_tau_pool_watching_holdings,
                     seed_tau_cross_section_day,
+                    set_t0_cs_universe_codes,
+                    t0_cs_universe_codes,
                 )
 
-                pool = build_tau_pool_from_holding_bars(hist_by_code, day_bars_by_code)
+                set_t0_cs_universe_codes(
+                    t0_cs_universe_codes(holdings=holdings, paper=paper)
+                )
+                pool = build_tau_pool_watching_holdings(
+                    hist_by_code,
+                    day_bars_by_code,
+                    holdings=holdings,
+                    paper=paper,
+                )
                 tau_pool_day = (pool or {}).get(str(sess or "")[:10]) or None
                 seed_tau_cross_section_day(str(sess or "")[:10], tau_pool_day)
             except Exception:  # noqa: BLE001

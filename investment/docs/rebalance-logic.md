@@ -1,6 +1,6 @@
 # 策略调仓产品文档
 
-> A 股 T+1 **rank_lots** 调仓：每个交易日 09:30 用 ranking=w_oo·ŷ_oo + w_oc·(ŷ_oc∘w_co·ŷ_co) 排序，按 200/500 股开仓或加仓。非实盘、不代客下单。
+> A 股 T+1 **rank_lots** 调仓：每个交易日 09:30 用 ranking=w_oo·ŷ_oo + w_oc·(ŷ_oc∘w_co·ŷ_co) 排序，按已保存手数开仓或加仓（缺省 200/500）。非实盘、不代客下单。
 
 ---
 
@@ -8,7 +8,7 @@
 
 ### 1.1 一句话定义
 
-每个交易日 **09:30 开盘**，对观察池打 **ranking = w_oo·ŷ_oo + w_oc·(ŷ_oc ∘ w_co·ŷ_co)**（w_oo/w_oc 默认 0.6/0.4；w_co 默认 1；ŷ_oo 现网为分组 `predicted_score`，ŷ_oc 为 ŷ_τ）。门槛1 ∪ 门槛2 过入场（可选 y_oo>0 / y_oc>0 / y_hl>0）后以 **200 或 500 股** 建仓/加仓（live 开/加不按 `max_positions` 截断，受观察池容量与持仓市值上限约束，默认 15 万；**历史回测** 面向全部观察池，单一手数默认 200 股、本金 20 万，不套 15 万帽）；已持仓且 **未过入场、缺 ranking 或 hard_reject** 则清仓（仅 T+1 可卖部分）。无「持」动作。现金用完即止，不够整手则缩到整百（最少一手），不另留地板。
+每个交易日 **09:30 开盘**，对观察池打 **ranking = w_oo·ŷ_oo + w_oc·(ŷ_oc ∘ w_co·ŷ_co)**（w_oo/w_oc 默认 0.6/0.4；w_co 默认 1；ŷ_oo 现网为分组 `predicted_score`，ŷ_oc 为 ŷ_τ）。门槛1 ∪ 门槛2 过入场（可选 y_oo>0 / y_oc>0 / y_hl>0）后按已保存 **lot_base / lot_strong** 建仓/加仓（缺省 200 / 500；live 开/加不按 `max_positions` 截断，受观察池容量与持仓市值上限约束，默认 15 万；**历史回测** 面向全部观察池，本金默认 20 万，不套 15 万帽）；已持仓且 **未过入场、缺 ranking 或 hard_reject** 则清仓（仅 T+1 可卖部分）。无「持」动作。现金用完即止，不够整手则缩到整百（最少一手），不另留地板。
 
 ### 1.2 与底仓做 T 的边界
 
@@ -17,7 +17,7 @@
 | 决策问题 | 持有什么、每次加几手 | 既有底仓上日内往返 |
 | 信号头 | ranking=w_oo·ŷ_oo+w_oc·(ŷ_oc∘w_co·ŷ_co) | v6：C 相对 C_τ 破带选向，现价开第一腿 |
 | 持仓寿命 | 未过入场 / 缺分 / hard_reject 清仓；过入场则开或加 | 当日往返 |
-| 仓位单位 | 200 / 500 股 | `origin=t0`（`t0_batch`） |
+| 仓位单位 | 已保存 lot_base / lot_strong（缺省 200 / 500） | `origin=t0`（`t0_batch`） |
 | 频率 | 每个交易日在已保存「调仓时间」打分并现价一次（默认 09:30–10:00；与历史回测 fill_clock 同源） | 每 5 分钟扫至 11:00 |
 
 调仓是选股 Alpha 的载体；做 T 是调仓底仓上的 timing overlay。两者可独立运行。
@@ -35,7 +35,7 @@
 
 | 模式 | 枚举 | 适用场景 | 卖出逻辑 | 买入逻辑 |
 |------|------|----------|----------|----------|
-| **rank_lots** | 观察池 live + `paper_replay` | **生产主路径** | 未过入场、缺 ranking 或 hard_reject 清仓 | ranking>rank入场 按分数买，过 rank强买 500 否则 200 |
+| **rank_lots** | 观察池 live + `paper_replay` | **生产主路径** | 未过入场、缺 ranking 或 hard_reject 清仓 | ranking>rank入场 按分数买，过 rank强买 lot_strong 否则 lot_base |
 | **持仓规则** | `holding_rules` | 逐票规则引擎 | 单票信号扫描驱动卖出 | 按规则引擎加仓 |
 
 横截面 TopK（`simulate_cross_section_rebalance` / λ 同号闸）与分池簿已删除。live 与历史回测统一走 `rank_lots`（`watching_matrix` / `backtest_paper_replay`）。
@@ -63,7 +63,7 @@
 |------|------|------|
 | `rank_enter` | 0.001 | 门槛1 ranking 入场下限（0.1%；旧 1.01 / 101% 自动换成净收益） |
 | `rank_enter_alt` | 0.001 | 门槛2 ranking 入场；缺则跟随门槛1。两档 OR |
-| `rank_strong` | 0.001 | live 超过则买 500 股，否则 200 股；历史回测单一手数时与入场同 |
+| `rank_strong` | 0.001 | 超过则买 lot_strong，否则 lot_base；缺省 500 / 200。与历史回测表单同一键 |
 | `y_hl_gt0` | 开 | 开则入场须 y_hl>0；关=不看。缺分不拦 |
 | `y_oo_gt0` | 关 | 开则入场须 y_oo>0；关=不看。缺分不拦 |
 | `y_oc_gt0` | 关 | 开则入场须 y_oc>0；关=不看。缺分不拦 |
@@ -91,7 +91,7 @@ OOS 失败组禁止新开/加仓。配置写在 `execution.rebalance_timing.rank
 2. `ranking`：`w_oo × ŷ_oo + w_oc × ((1+ŷ_oc)(1+w_co·ŷ_co)−1)`（ŷ 为净收益；隔夜几何复合；净收益=落盘百分点÷100）。
 3. 已持仓且未过入场、缺 ranking、或 hard_reject → 清仓（T+1 可卖手数）。过热不因此清仓。
 4. 门槛1 ∪ 门槛2 过入场的票按分数买（live 受观察池容量与 `holdings_mv_cap`；历史回测面向观察池全名单、不套市值帽）：建仓或加仓。
-5. ranking &gt; rank强 → live 500 股，否则 live 200 股；历史回测默认每笔 200 股（表单「每笔股数」）。买不下则缩到整百，最少一手。
+5. ranking &gt; rank强 → lot_strong 股，否则 lot_base 股（live 与回测同一对；缺省 500 / 200）。买不下则缩到整百，最少一手。
 6. 若缩到一手仍使现金不够（含手续费）→ 跳过该买。
 
 历史回测成交与 live 不同：ŷ_oo 仍是 **09:30 开盘信息集**。ŷ_oc 随所选 **调仓时间**：09:30 用开盘 Z（`use_minute_tau=False`）；09:35–10:00 用截至该钟的 5 分钟前缀重算（与做 T `rescore_scores_at_fixed_prefix` 同路径，`use_minute_tau=True`）。买卖价取该钟 5 分钟 K——09:30 用首根开盘（无分钟则日开盘），其后用该档收盘。**买入**缺该根则跳过（`reason`＝无有效报价）。**清仓**缺该根则回退：该钟之后～10:00 下一根 → 09:30 / 日开盘（账上 `缺HH:MM回退…`；`constraints.sell_px_fallback`）。日分价闸只用 09:30–10:00 窗口分钟（尾盘残缺仓不当开盘锚）。**有窗口分钟时**复用做 T 日分价闸（`resolve_t0_price_space`）：共用框「日分价闸」默认开；`|日开/分开−1|` 或 `|日昨/分昨−1|` 超阈（默认 5%，跟做 T 配置）则该票当日 skip（`price_space_mismatch`）；比的是开/昨收锚，**不是**成交价。关闸不拦，仍记错位次数。live 自动调仓 / 手动预演窗口 = 已保存 fill_clock～10:00（默认 09:30）；到点后现价成交一次，ŷ_oc 用因果末根 5m（≤10:00），不走此闸。
@@ -102,7 +102,9 @@ OOS 失败组禁止新开/加仓。配置写在 `execution.rebalance_timing.rank
 |------|------|------|
 | `rank_enter` | 0.001 | 门槛1 ranking 入场（0.1%） |
 | `rank_enter_alt` | 0.001 | 门槛2 ranking 入场；OR 门槛1 |
-| `rank_strong` | 0.001 | live 超过买 500 股（0.1%） |
+| `rank_strong` | 0.001 | 超过买 lot_strong（0.1%） |
+| `lot_base` | 200 | 入场手数；与历史回测表单同一键；保存规则写入交易执行 |
+| `lot_strong` | 500 | 强档手数；不少于 lot_base |
 | `fusion_w_oo` | 0.6 | ŷ_oo 权重（旧键 fusion_w_trade） |
 | `fusion_w_oc` | 0.4 | ŷ_oc∘隔夜 头权重（旧键 fusion_w_nowcast） |
 | `fusion_w_co` | 1 | 叠进 ŷ_oc 的隔夜系数（别名 y_on_alpha） |
@@ -225,7 +227,7 @@ core/
 │   │   ├── __init__.py             # 再导出 match / turnover / force_trim / 配置
 │   │   ├── orchestrator.py         # 日循环 holding_rules（Follow 不走这里）
 │   │   ├── watching_matrix.py      # 观察池 live：算分 + rank_lots
-│   │   ├── rank_lots.py            # 生产调仓：ranking=w_oo·ŷ_oo+w_oc·(ŷ_oc∘w_co·ŷ_co) · 200/500 股
+│   │   ├── rank_lots.py            # 生产调仓：ranking=w_oo·ŷ_oo+w_oc·(ŷ_oc∘w_co·ŷ_co) · 已保存手数
 │   │   ├── auto_worker.py          # 09:30–10:00 自动调仓（Web 进程守护）
 │   │   ├── desk.py                 # 今日盯盘状态（对齐做 T worker desk）
 │   │   ├── path_matrix.py          # rank_lots 配置读写（仍认旧键 path_matrix）

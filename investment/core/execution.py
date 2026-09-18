@@ -259,7 +259,7 @@ DEFAULT_REBALANCE_TIMING: Dict[str, Any] = {
     "open_fill_until_hm": "10:00",
     "pending_chase_interval_min": 10,
     "pending_chase_eod_hm": "14:50",
-    # 策略调仓：fill_clock～10:00 rank_lots（ranking=w_oo·ŷ_oo+w_oc·(ŷ_oc∘w_co·ŷ_co) · 200/500 股）
+    # 策略调仓：fill_clock～10:00 rank_lots（手数与历史回测同源，缺省 200/500）
     "rank_lots": {
         "enabled": True,
         "mode": "rank_lots",
@@ -280,6 +280,8 @@ DEFAULT_REBALANCE_TIMING: Dict[str, Any] = {
         "y_oc_gt0": False,
         "y_hl_gt0": True,
         "fill_clock": "09:30",
+        "lot_base": 200,
+        "lot_strong": 500,
     },
     # 旧键：读盘仍认；写入与 rank_lots 同步
     "path_matrix": {
@@ -302,6 +304,8 @@ DEFAULT_REBALANCE_TIMING: Dict[str, Any] = {
         "y_oc_gt0": False,
         "y_hl_gt0": True,
         "fill_clock": "09:30",
+        "lot_base": 200,
+        "lot_strong": 500,
     },
 }
 
@@ -1121,6 +1125,8 @@ def validate_execution_patch(raw: Any) -> Tuple[bool, Dict[str, Any], List[str]]
                     "y_oc_gt0": bool(pm.get("y_oc_gt0", False)),
                     "y_hl_gt0": bool(pm.get("y_hl_gt0", True)),
                     "fill_clock": str(pm.get("fill_clock") or "09:30"),
+                    "lot_base": int(pm.get("lot_base") or 200),
+                    "lot_strong": int(pm.get("lot_strong") or 500),
                 }
                 timing_out["rank_lots"] = lots
                 timing_out["path_matrix"] = lots

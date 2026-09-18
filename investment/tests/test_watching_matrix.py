@@ -43,6 +43,16 @@ class TestWatchingMatrixPreview(unittest.TestCase):
         )
         self._fit.start()
         self.addCleanup(self._fit.stop)
+
+    def test_score_pool_seeds_watching_holdings_tau_cs(self):
+        import inspect
+
+        from core.paper.rebalance import watching_matrix as wm
+
+        src = inspect.getsource(wm._score_pool)
+        self.assertIn("build_tau_pool_watching_holdings", src)
+        self.assertIn("seed_tau_cross_section_pool", src)
+
     def test_preview_builds_open_trade(self):
         from core.paper.rebalance.watching_matrix import simulate_watching_matrix_preview
 

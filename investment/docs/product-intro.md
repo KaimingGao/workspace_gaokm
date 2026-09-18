@@ -170,7 +170,7 @@ quant_panel.html
 
 > 详细数学推导见 [rebalance-logic.md](./rebalance-logic.md)。
 
-调仓系统按 **ranking = w_oo·ŷ_oo + w_oc·((1+ŷ_oc)(1+w_co·ŷ_co)−1)** 以 200/500 股开仓或加仓，未过入场则清仓，现金用完即止。
+调仓系统按 **ranking = w_oo·ŷ_oo + w_oc·((1+ŷ_oc)(1+w_co·ŷ_co)−1)** 以已保存手数开仓或加仓（缺省 200/500），未过入场则清仓，现金用完即止。
 
 ### 4.1 核心概念
 
@@ -192,13 +192,13 @@ quant_panel.html
   ranking = w_oo·ŷ_oo + w_oc·((1+ŷ_oc)(1+w_co·ŷ_co)−1)
   已持仓且未过入场、缺 ranking 或 hard_reject → 清仓（T+1 可卖）
   ranking > rank入场（可选 y_oo>0 / y_oc>0 / y_hl>0）→ 开仓或加仓
-  ranking > rank强 → 500 股，否则 200 股
+  ranking > rank强 → lot_strong 股，否则 lot_base 股（缺省 500 / 200）
   现金不够该手 → 缩到整百（最少一手）；仍买不起才跳过
 ```
 
 ### 4.3 手数与现金
 
-- ranking &gt; rank强（默认 0.012 / 1.2%）→ live **500 股** / 回测默认 **200 股**（表单可改），否则 live **200**；买不下整手则缩到整百，最少一手
+- ranking &gt; rank强 → **lot_strong** 股，否则 **lot_base**（缺省 500 / 200；与历史回测表单同一键，保存规则写入交易执行）；买不下整手则缩到整百，最少一手
 - 不留现金地板：现金不够该手则缩到整百（最少一手）。live 另受持仓市值上限（默认 15 万）；**历史回测** 本金默认 20 万（表单可改）、不套市值帽
 - 未过入场的已持仓 **清仓**；缺 ranking 清仓。无「持」动作。
 

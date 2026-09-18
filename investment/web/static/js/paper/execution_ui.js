@@ -293,6 +293,11 @@ export function renderRebalanceRulesHtml(execution) {
         ? Number(pm.fusion_w_nowcast)
         : 0.4;
   const cap = pm.holdings_mv_cap != null ? Number(pm.holdings_mv_cap) : 150000;
+  const lotB = Number.isFinite(Number(pm.lot_base)) ? Math.round(Number(pm.lot_base)) : 200;
+  const lotS = Math.max(
+    lotB,
+    Number.isFinite(Number(pm.lot_strong)) ? Math.round(Number(pm.lot_strong)) : 500
+  );
   const fmtN = (n, d) => (Number.isFinite(n) ? n.toFixed(d) : "—");
   const capLbl = Number.isFinite(cap) && cap > 0 ? `${Math.round(cap / 10000)}万` : "不限";
   return (
@@ -300,11 +305,12 @@ export function renderRebalanceRulesHtml(execution) {
     `<header class="paper-t0-spec-head">` +
     `<h4 class="paper-t0-spec-head-title">生效调仓</h4>` +
     `<div class="paper-t0-spec-kpi-strip" aria-label="调仓核心参数">` +
-    specKpi("调仓窗", `${pm.fill_clock || "09:30"}～10:00`, "现价成交一次 · live 200/500 股") +
+    specKpi("调仓窗", `${pm.fill_clock || "09:30"}～10:00`, `现价成交一次 · ${lotB}/${lotS} 股`) +
     specKpi("w_co", fmtN(alpha, 1), "叠进 ŷ_oc 的隔夜系数；0=不叠") +
     specKpi("ranking", `${fmtN(wt, 2)}/${fmtN(wn, 2)}`, "w_oo / w_oc") +
     specKpi("入场", `${fmtN(Number(enter), 2)}%`, "ranking 入场；与历史回测「入场·阈值%」同一键；未过则已持仓清仓") +
-    specKpi("强档", `${fmtN(Number(strong), 2)}%`, "ranking 强档；与历史回测「强档·阈值%」同一键；live 过强买 500 否则 200") +
+    specKpi("强档", `${fmtN(Number(strong), 2)}%`, `ranking 强档；与历史回测「强档·阈值%」同一键；过强买 ${lotS} 否则 ${lotB}`) +
+    specKpi("手数", `${lotB}/${lotS}`, "与历史回测入场/强档股数同一键；保存规则后自动调仓按此下单") +
     specKpi("市值上限", capLbl, "本笔将超则跳过该买") +
     `</div></header></div>`
   );
@@ -737,6 +743,16 @@ function coerceRankThreshold(raw, fallback) {
 
 const RANK_PCT_DEFAULT = 0.1;
 
+function clampLotShares(raw, fallback) {
+  let v = fallback;
+  if (raw != null && raw !== "") {
+    const n = Number(raw);
+    if (Number.isFinite(n)) v = n;
+  }
+  v = Math.round(Math.max(100, Math.min(10000, v)));
+  return Math.floor(v / 100) * 100;
+}
+
 /** 引擎净收益小数 → 表单百分数（0.001 → 0.1）。 */
 function rankScoreToPct(raw, fallbackPct = RANK_PCT_DEFAULT) {
   const score = coerceRankThreshold(raw, fallbackPct / 100);
@@ -807,6 +823,11 @@ export function fillPathMatrixForm(root, execution) {
     const v = String(pm.fill_clock).replace("：", ":").trim().slice(0, 5);
     if (clockEl.querySelector(`option[value="${v}"]`)) clockEl.value = v;
   }
+  let lotBase = clampLotShares(pm.lot_base, 200);
+  let lotStrong = clampLotShares(pm.lot_strong, Math.max(lotBase, 500));
+  if (lotStrong < lotBase) lotStrong = lotBase;
+  set("pm_lot_base", lotBase);
+  set("pm_lot_strong", lotStrong);
 }
 
 function _normWeightPair(a, b) {
@@ -892,6 +913,9 @@ export function collectPathMatrixForm(root) {
   const yOoGt0 = chk("pm_y_oo_gt0", false);
   const yOcGt0 = chk("pm_y_oc_gt0", false);
   const yHlGt0 = chk("pm_y_hl_gt0", true);
+  let lotBase = clampLotShares(num("pm_lot_base", 200), 200);
+  let lotStrong = clampLotShares(num("pm_lot_strong", lotBase), lotBase);
+  if (lotStrong < lotBase) lotStrong = lotBase;
   // 门槛2 已下掉：alt 档跟随门槛1，两档常开（引擎契约保留）
   const lots = {
         enabled: true,
@@ -911,6 +935,8 @@ export function collectPathMatrixForm(root) {
         fusion_w_oc: Math.round(wOc * 1000) / 1000,
         fusion_w_trade: Math.round(wOo * 1000) / 1000,
         fusion_w_nowcast: Math.round(wOc * 1000) / 1000,
+        lot_base: lotBase,
+        lot_strong: lotStrong,
   };
   const clockEl = document.getElementById("quant-fill-clock");
   if (clockEl && clockEl.value) {

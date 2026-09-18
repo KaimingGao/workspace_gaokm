@@ -11,7 +11,7 @@ import {
   renderExecutionDiffHtml,
   renderExecutionRulesHtml,
   renderRebalanceRulesHtml,
-} from "./execution_ui.js?v=p2404";
+} from "./execution_ui.js?v=p2497";
 
 async function postJson(url, body, { timeoutMs = 12000, method = "POST" } = {}) {
   const ac = new AbortController();

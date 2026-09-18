@@ -772,6 +772,26 @@ class TestDualScoreFields(unittest.TestCase):
         self.assertNotIn("momentum", item["features_tau"])
         self.assertIn("features_tau_fill", item)
         self.assertEqual(item["features_tau_fill"]["filled"], 3)
+
+    def test_features_tau_snapshot_keeps_tau_lag(self):
+        from core.signal.dual_score import apply_tau_score_fields
+
+        item = {"predicted_score": 0.4}
+        apply_tau_score_fields(
+            item,
+            rem_yhat=0.1,
+            gap_pct=1.0,
+            feats={
+                "gap_pct": 1.0,
+                "tau_lag1": 0.42,
+                "tau_ma5": 0.11,
+                "momentum": 50.0,
+            },
+            residual_delta=False,
+        )
+        self.assertAlmostEqual(item["features_tau"].get("tau_lag1"), 0.42)
+        self.assertAlmostEqual(item["features_tau"].get("tau_ma5"), 0.11)
+        self.assertNotIn("momentum", item["features_tau"])
         self.assertIsNotNone(item.get("predicted_score_tau_cascade"))
 
     def test_merge_tau_features_prefers_base_keeps_prior(self):

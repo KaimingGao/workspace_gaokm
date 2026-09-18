@@ -472,29 +472,53 @@ class TestMinuteTauPack(unittest.TestCase):
                 os.remove(path)
             m.clear_sector_ret_cache()
 
-    def test_horizon_cs_after_1030_skips_warehouse_without_snapshot(self):
+    def test_horizon_cs_after_1030_without_snapshot_uses_peers_pit(self):
+        """10:30 后无落盘：近 30m 截面仍按 τ=10:00 前缀从同伴重算。"""
         import os
         import tempfile
         from datetime import datetime
         from unittest.mock import patch
 
         from core.signal import minute_tau_feats as m
-        from core.signal.minute_tau_feats import resolve_sector_ret_last_45m
+        from core.signal.minute_tau_feats import resolve_sector_ret_last_30m
 
         fd, path = tempfile.mkstemp(suffix=".json")
         os.close(fd)
         os.remove(path)
         m.clear_sector_ret_cache()
         now = datetime(2026, 9, 18, 15, 1)
+        bars = [
+            {
+                "date": "2026-09-18",
+                "datetime": "2026-09-18 09:30:00",
+                "open": 10.0,
+                "high": 10.1,
+                "low": 9.9,
+                "close": 10.0,
+            },
+            {
+                "date": "2026-09-18",
+                "datetime": "2026-09-18 10:00:00",
+                "open": 10.05,
+                "high": 10.4,
+                "low": 10.0,
+                "close": 10.35,
+            },
+        ]
         try:
             with patch.object(m, "_rebalance_cs_store_path", return_value=path), patch(
                 "core.signal.session_pit.shanghai_now", return_value=now
             ), patch(
                 "core.signal.session_pit.oo_cycle_date", return_value="2026-09-18"
             ), patch.object(
-                m, "_peer_codes_for_sector_ret", side_effect=AssertionError("warehouse")
+                m, "_peer_codes_for_sector_ret", return_value=["600000"]
+            ) as peers, patch.object(
+                m, "_peer_minute_bars_for_tau", return_value=bars
             ):
-                self.assertIsNone(resolve_sector_ret_last_45m("2026-09-18", "10:00"))
+                got = resolve_sector_ret_last_30m("2026-09-18", "10:00")
+                peers.assert_called()
+                self.assertIsNotNone(got)
+                self.assertGreater(float(got), 0.0)
         finally:
             if os.path.exists(path):
                 os.remove(path)
@@ -1637,7 +1661,7 @@ class TestMinuteTauPack(unittest.TestCase):
                 "core.signal.minute_tau_feats.resolve_sector_ret_last_90m",
                 return_value=0.3,
             ), patch(
-                "core.signal.minute_tau_feats.extract_t30_t60_t90_seq_packs",
+                "core.signal.minute_tau_feats.extract_horizon_seq_packs",
                 return_value={
                     "ret_last_30m": 1.0,
                     "ret_last_45m": 1.05,

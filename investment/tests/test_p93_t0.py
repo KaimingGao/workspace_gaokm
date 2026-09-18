@@ -2502,7 +2502,7 @@ class TestDualYDirection(unittest.TestCase):
         self.assertNotIn("limit=40", src)
 
     def test_simulate_t0_on_holdings_passes_tau_pool_day(self):
-        """预演须把持仓缺口截面传进单日模拟，否则 rescore 退回单票池、ŷ 相对回测会漂。"""
+        """预演须把观察池 ∪ 持仓缺口截面传进单日模拟，否则 rescore 退回单票池、ŷ 相对回测会漂。"""
         from unittest.mock import patch
 
         from core.t0.rules import simulate_t0_on_holdings
@@ -2573,10 +2573,14 @@ class TestDualYDirection(unittest.TestCase):
 
         src = inspect.getsource(simulate_t0_on_holdings)
         self.assertIn("seed_peer_minute_bars_map", src)
+        self.assertIn("build_tau_pool_watching_holdings", src)
+        self.assertNotIn("build_tau_pool_from_holding_bars", src)
         impl = inspect.getsource(PaperTradesMixin._simulate_t0_impl)
         self.assertIn("skip_codes=None if dry_run", impl)
         self.assertIn("_sync_preview_scans_to_ledgers", impl)
         self.assertNotIn("_attach_fresh_scan_to_booked_preview", impl)
+        tick = inspect.getsource(PaperTradesMixin.run_t0_intraday_tick)
+        self.assertIn("build_tau_pool_watching_holdings", tick)
 
     def test_tip_fields_include_features_on(self):
         from core.t0.score_policy import tip_fields_from_item
@@ -3068,7 +3072,7 @@ class TestDualYDirection(unittest.TestCase):
         self.assertIsNotNone(ref)
 
     def test_holding_tau_pool_seeds_gap_breadth_for_live_fallback(self):
-        """盯盘缺簿宇宙时：持仓缺口池写入日缓存，单票兜底不再缺 同业缺口广度。"""
+        """盯盘缺截面时：持仓缺口写入日缓存仍可补同业广度（窄池对照）。"""
         from core.t0.score_policy import (
             _TAU_XS_DAY_CACHE,
             _tau_cross_section_kwargs,
@@ -3125,7 +3129,7 @@ class TestDualYDirection(unittest.TestCase):
         _TAU_XS_DAY_CACHE.pop("2026-09-16", None)
 
     def test_t0_cs_universe_matches_live_and_backtest(self):
-        """盯盘与做T回测共用纸面持仓池；单票回测并入同一宇宙。"""
+        """盯盘与做 T 回测共用纸面持仓 ∪ 观察池；单票回测并入同一宇宙。"""
         from core.signal.minute_tau_feats import peer_codes_for_sector_ret
         from core.t0.score_policy import (
             clear_score_model_cache,
@@ -3186,6 +3190,73 @@ class TestDualYDirection(unittest.TestCase):
         self.assertIsNotNone(xs.get("sector_gap_median"))
         clear_score_model_cache()
         _TAU_XS_DAY_CACHE.pop("2026-09-16", None)
+
+    def test_tau_xs_fallback_empty_memo_uses_watching_universe(self):
+        from unittest.mock import patch
+
+        from core.t0.score_policy import (
+            _TAU_XS_DAY_CACHE,
+            _tau_cross_section_kwargs,
+            clear_score_model_cache,
+        )
+
+        clear_score_model_cache()
+        _TAU_XS_DAY_CACHE.pop("2026-09-16", None)
+        bars = {
+            "600183": [
+                _bar("2026-09-15", 148, 150, 147, 149.0),
+                _bar("2026-09-16", 151, 155, 147, 154.0),
+            ],
+            "600000": [
+                _bar("2026-09-15", 10, 11, 9, 10.0),
+                _bar("2026-09-16", 10.5, 11, 10, 10.4),
+            ],
+        }
+        bars["600183"][-1]["prev_close"] = 149.0
+        bars["600000"][-1]["prev_close"] = 10.0
+        with patch(
+            "core.t0.score_policy.t0_cs_universe_codes",
+            return_value=["600183", "600000"],
+        ) as uni, patch(
+            "core.t0.score_policy.load_bars_by_code_for_tau_pool",
+            return_value=bars,
+        ) as load:
+            xs = _tau_cross_section_kwargs("600183", "2026-09-16")
+        uni.assert_called()
+        self.assertEqual(set(load.call_args[0][0]), {"600183", "600000"})
+        self.assertGreaterEqual(len(xs.get("pool_gaps") or []), 2)
+        clear_score_model_cache()
+        _TAU_XS_DAY_CACHE.pop("2026-09-16", None)
+
+    def test_build_tau_pool_watching_holdings_merges_watch_and_holdings(self):
+        from unittest.mock import patch
+
+        from core.t0.score_policy import build_tau_pool_watching_holdings
+
+        hist = {"600183": [_bar("2026-09-15", 148, 150, 147, 149.0)]}
+        days = {"600183": _bar("2026-09-16", 151, 155, 147, 154.0)}
+        days["600183"]["prev_close"] = 149.0
+        watch_bars = {
+            "600000": [
+                _bar("2026-09-15", 10, 11, 9, 10.0),
+                _bar("2026-09-16", 10.5, 11, 10, 10.4),
+            ]
+        }
+        watch_bars["600000"][-1]["prev_close"] = 10.0
+        with patch(
+            "core.t0.score_policy.t0_cs_universe_codes",
+            return_value=["600183", "600000"],
+        ), patch(
+            "core.t0.score_policy.load_bars_by_code_for_tau_pool",
+            return_value=watch_bars,
+        ):
+            pool = build_tau_pool_watching_holdings(
+                hist, days, holdings=[{"stock_code": "600183"}]
+            )
+        day = pool.get("2026-09-16") or {}
+        self.assertEqual(len(day.get("pool_gaps") or []), 2)
+        self.assertIn("600183", day.get("gaps_by_code") or {})
+        self.assertIn("600000", day.get("gaps_by_code") or {})
 
     def test_attach_dual_score_pit_prefers_sector_gap_median(self):
         """gap_vs_sector = gap − sector_gap_median（同行参照，非池中位数）。"""

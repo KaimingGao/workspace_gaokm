@@ -12,7 +12,7 @@
 live Follow 不走此闸。
 
 与 ``topk_research``（独立腿聚合）并列。本金默认 20 万（表单可改）、不留现金地板（买到现金不够为止）；T+1 仍生效。
-历史回测手数默认 200（live 仍为 200/500）。
+历史回测手数默认 200（live 读已保存 lot_base/lot_strong，缺省 200/500）。
 """
 
 from __future__ import annotations

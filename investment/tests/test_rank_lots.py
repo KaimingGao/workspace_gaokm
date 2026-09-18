@@ -1,4 +1,4 @@
-"""rank_lots：ranking 净收益百分数、200/500 股、未过入场清仓、现金约束。"""
+"""rank_lots：ranking 净收益百分数、已保存手数、未过入场清仓、现金约束。"""
 
 from __future__ import annotations
 
@@ -1058,6 +1058,30 @@ class TestGetRankLotCfg(unittest.TestCase):
         self.assertEqual(cfg["top_k"], 100)
         cfg_full = get_rank_lot_cfg(None, top_k=WATCHING_MAX_SIZE)
         self.assertEqual(cfg_full["top_k"], WATCHING_MAX_SIZE)
+
+    def test_live_reads_saved_lot_sizes(self):
+        from core.paper.rebalance.rank_lots import get_rank_lot_cfg
+
+        cfg = get_rank_lot_cfg(
+            {
+                "rules": {
+                    "execution": {
+                        "rebalance_timing": {
+                            "rank_lots": {"lot_base": 3000, "lot_strong": 5000}
+                        }
+                    }
+                }
+            }
+        )
+        self.assertEqual(int(cfg["lot_base"]), 3000)
+        self.assertEqual(int(cfg["lot_strong"]), 5000)
+
+    def test_live_lot_default_is_200_500(self):
+        from core.paper.rebalance.rank_lots import get_rank_lot_cfg
+
+        cfg = get_rank_lot_cfg({"initial_cash": 1_000_000, "cash": 1_000_000})
+        self.assertEqual(int(cfg["lot_base"]), 200)
+        self.assertEqual(int(cfg["lot_strong"]), 500)
 
 
 class TestYTauOf(unittest.TestCase):

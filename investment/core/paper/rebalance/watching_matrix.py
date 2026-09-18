@@ -198,6 +198,21 @@ def _score_pool(
     use_offline = bool(offline_only)
     t0 = time.perf_counter()
     try:
+        from core.t0.score_policy import (
+            build_tau_pool_watching_holdings,
+            seed_tau_cross_section_pool,
+            set_t0_cs_universe_codes,
+            t0_cs_universe_codes,
+        )
+
+        uni = t0_cs_universe_codes(*list(pool))
+        set_t0_cs_universe_codes(uni)
+        seed_tau_cross_section_pool(
+            build_tau_pool_watching_holdings(extra_codes=pool)
+        )
+    except Exception:  # noqa: BLE001
+        logger.debug("watching_matrix tau CS seed failed", exc_info=True)
+    try:
         from core.signal.live_features import fetch_live_index_bars
 
         fetch_live_index_bars(market="CN", limit=75, offline_only=use_offline)
@@ -686,7 +701,7 @@ def simulate_watching_matrix_preview(
     dry_run: bool = True,
     offline_only: bool = True,
 ) -> Dict[str, Any]:
-    """观察池算分 + rank_lots（ranking=fuse(ŷ_oo,ŷ_oc) · 200/500 股）。默认 offline；dry_run 不写仓。"""
+    """观察池算分 + rank_lots（ranking=fuse(ŷ_oo,ŷ_oc) · 已保存手数）。默认 offline；dry_run 不写仓。"""
     from core.paper.ledger import mark_to_market
     from core.paper.rebalance.rank_lots import (
         ACTION_OPEN,

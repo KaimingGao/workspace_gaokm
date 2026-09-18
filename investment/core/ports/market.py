@@ -13,14 +13,37 @@ logger = logging.getLogger(__name__)
 set_market_adapter = set_adapter
 
 
+def _positive_px(raw: Any) -> Optional[float]:
+    if raw is None or raw == "":
+        return None
+    try:
+        v = float(raw)
+    except (TypeError, ValueError):
+        return None
+    return v if v > 0 else None
+
+
 def quote_price(quote: dict) -> Optional[float]:
-    raw = quote.get("price_raw")
-    if raw is not None:
-        try:
-            return float(raw)
-        except (TypeError, ValueError):
-            pass
+    """最新价。≤0 视为无有效现价（盘后/凌晨源常把现价清零）。"""
+    if not isinstance(quote, dict):
+        return None
+    return _positive_px(quote.get("price_raw"))
+
+
+def quote_prev_close(quote: dict) -> Optional[float]:
+    """昨收。凌晨现价为 0 时，这就是上一交易日收盘价。"""
+    if not isinstance(quote, dict):
+        return None
+    for key in ("prev_close", "pre_close", "yesterday_close"):
+        px = _positive_px(quote.get(key))
+        if px is not None:
+            return px
     return None
+
+
+def quote_mark_price(quote: dict) -> Optional[float]:
+    """盯市价：有效现价，否则昨收。不成交、只估值。"""
+    return quote_price(quote) or quote_prev_close(quote)
 
 
 def query_quote(code: str) -> Dict[str, Any]:

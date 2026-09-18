@@ -556,11 +556,11 @@ def _hydrate_insight_tau_fields(
     try:
         from core.signal.dual_score import attach_dual_score_pit
         from core.signal.service import get_default_signal_service
-        from core.signal.session_pit import refresh_dual_score_window
+        from core.signal.session_pit import prepare_eod_bars, refresh_dual_score_window
 
-        # 以当前时钟/行情为准，勿沿用簿上昨晚 eod_next
-        win = refresh_dual_score_window(sig, quote=q, bars=b)
-        fuse = win != "eod_next"
+        refresh_dual_score_window(sig, quote=q, bars=b)
+        _, pit = prepare_eod_bars(b, q)
+        fuse = not bool(pit.get("rolled_to_next"))
         attach_dual_score_pit(sig, quote=q, bars=b, fuse_intraday=fuse)
         out.update(get_default_signal_service().book_fields(sig, paper=paper_ctx))
         _finalize_insight_trade_fields(out)

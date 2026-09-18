@@ -750,7 +750,7 @@ def run_t0_backtest_for_holdings(
     v_shares = max(100.0, float(virtual_shares or T0_BT_VIRTUAL_SHARES))
     v_cash = max(0.0, float(virtual_cash if virtual_cash is not None else T0_BT_VIRTUAL_CASH))
 
-    # 持仓池 → 共享 τ 截面（与盯盘同构，避免逐票缺 sector_gap_breadth）
+    # 观察池 ∪ 持仓 → 共享 τ 截面（与盯盘 / 预演同构，避免逐票缺 sector_gap_breadth）
     try:
         from core.signal.minute_tau_feats import clear_sector_ret_cache
 
@@ -802,7 +802,7 @@ def run_t0_backtest_for_holdings(
     per: List[Dict[str, Any]] = []
     t_deadline = time.time() + float(_HOLDINGS_DEADLINE_SEC)
     t_tau = time.time()
-    _emit(0, n_hold, "建 τ 截面（持仓池）…")
+    _emit(0, n_hold, "建 τ 截面（观察池∪持仓）…")
     tau_pool = build_tau_pool_by_date(
         load_bars_by_code_for_tau_pool(pool_codes, limit=fetch_n)
     )

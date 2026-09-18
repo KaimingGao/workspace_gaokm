@@ -1,4 +1,4 @@
-"""策略调仓：fill_clock～10:00 用 rank=w_oo·ŷ_oo + w_oc·((1+ŷ_oc)(1+w_co·ŷ_co)−1) 排序，按 200/500 股下单。
+"""策略调仓：fill_clock～10:00 用 rank=w_oo·ŷ_oo + w_oc·((1+ŷ_oc)(1+w_co·ŷ_co)−1) 排序，按已保存手数下单。
 
 规则（live 与历史回测共用）：
   - 持有周期 = T 开盘 → T+1 开盘
@@ -9,7 +9,7 @@
   - 过入场（ranking>入场，可选 y_oo>0 / y_oc>0 / y_hl>0）→ 开仓或加仓
   - 已持仓且未过入场、缺 ranking、或 hard_reject → 清仓（T+1 可卖部分）
     缺分不能假装过门槛续持；无「持」动作
-  - ranking > rank强 → 500 股，否则 200 股（回测可改为单一手数）
+  - ranking > rank强 → lot_strong 股，否则 lot_base 股（live 与回测同一对；缺省 500 / 200）
   - 不留现金地板：现金不够该手则缩到整百（最少一手）；仍买不起才跳过。
     强档买不下先试基础手数，再缩。live 另受持仓市值上限约束
 """
@@ -31,6 +31,7 @@ Y_ON_ALPHA_MAX = 10.0
 LOT_BASE = 200
 LOT_STRONG = 500
 LOT_MIN = 100
+LOT_MAX = 10_000
 
 
 def _display_name(code: str, *cands: Any) -> str:
@@ -300,6 +301,7 @@ def _normalize_lot(n: Any, default: int) -> int:
         v = max(int(LOT_MIN), int(n))
     except (TypeError, ValueError):
         v = int(default)
+    v = min(v, int(LOT_MAX))
     return (v // 100) * 100
 
 
@@ -462,6 +464,7 @@ def get_rank_lot_cfg(
         k = max(1, min(int(top_k), pool_cap))
     else:
         k = pool_cap
+    lot_base, lot_strong = _lot_sizes_from_cfg(pm)
     return {
         "rank_enter": enter,
         "rank_strong": strong,
@@ -480,8 +483,8 @@ def get_rank_lot_cfg(
         "fusion_w_nowcast": float(pm.get("fusion_w_oc") or pm.get("fusion_w_nowcast") or 0.4),
         "fusion_w_co": float(pm.get("fusion_w_co") if pm.get("fusion_w_co") is not None else (pm.get("y_on_alpha") if pm.get("y_on_alpha") is not None else DEFAULT_Y_ON_ALPHA)),
         "y_on_alpha": float(pm.get("fusion_w_co") if pm.get("fusion_w_co") is not None else (pm.get("y_on_alpha") if pm.get("y_on_alpha") is not None else DEFAULT_Y_ON_ALPHA)),
-        "lot_base": LOT_BASE,
-        "lot_strong": LOT_STRONG,
+        "lot_base": lot_base,
+        "lot_strong": lot_strong,
         "y_enter_enabled": bool(pm.get("y_enter_enabled", True)),
         "y_enter_alt_enabled": bool(pm.get("y_enter_alt_enabled", True)),
         "y_oo_gt0": bool(y_oo_gt0),
@@ -1167,6 +1170,7 @@ __all__ = [
     "DEFAULT_RANK_STRONG",
     "DEFAULT_Y_ON_ALPHA",
     "LOT_BASE",
+    "LOT_MAX",
     "LOT_MIN",
     "LOT_STRONG",
     "Y_ON_ALPHA_MAX",

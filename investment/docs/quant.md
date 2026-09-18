@@ -1216,9 +1216,9 @@ flowchart LR
 ```text
 score_stock(code) 续——
   → gap_pct = resolve_open_t(quote, bars).gap_pct        # 开盘缺口%（今开，禁合成昨开）
-  → sector_gap_breadth / gap_vs_sector / theme_day：盯盘与做T回测共用纸面持仓池；单票缺省时从该池补，勿默认当 z=0
-  → yclose_loc / mom3_pct：昨 K 位置 + 近 3 日动量（开盘可得）
-  → feats = {gap_pct, sector_gap_breadth, theme_day, yclose_loc, mom3_pct, …}  # τ 头仅 Z
+  → sector_gap_breadth / gap_vs_sector / theme_day：盯盘 / 做 T 预演 / 回测共用观察池 ∪ 持仓；单票缺省时从该池补，勿默认当 z=0
+  → yclose_loc / mom3_pct / tau_lag1 / tau_ma5：昨 K 位置 + 近 3 日动量 + PIT 真实开→收滞后（开盘可得）
+  → feats = {gap_pct, sector_gap_breadth, theme_day, yclose_loc, mom3_pct, tau_lag1, tau_ma5, …}  # τ 头仅 Z
   → enable_minute_tau：≤τ 分钟小包（默认 10:30）+ 板块开→τ 截面 sector_ret_to_tau
   → tau_yhat = predict_tau_from_features(feats)           # tau_ridge 模型预测 ŷ_τ
   → ep = build_event_prior_from_quote(…)                  # 事件先验（soft hold / warn）
@@ -1236,7 +1236,7 @@ score_stock(code) 续——
 | `score_rem` / `predicted_score_rem` | = ŷ_τ | **已废弃写入语义**；仍双写/可读，等同 `predicted_score_tau` |
 | `as_of_tau` | `"open"` 或 `"09:45"` | τ 时刻 |
 | `y_spec_tau` | `{formula, tau, unit, note}` | τ 标签规范 |
-| `features_tau` | gap/theme/breadth 快照 | τ 特征留痕 |
+| `features_tau` | gap/theme/breadth/tau_lag 快照 | τ 特征留痕（含 PIT `tau_lag1`/`tau_ma5`） |
 | `gap_pct` / `realized_t1_to_tau` | 缺口 / 昨收→τ | 已实现 |
 | `predicted_score_blend` | ŷ_trade | 盘中：w·ŷ_oo + w·(缺口∘ŷ_τ)；**收盘后 eod_next：= ŷ_oo** |
 | `dual_score_fusion` | `"blend"` | 正交加权 |
@@ -1334,7 +1334,7 @@ score_stock(code) 续——
 产品回测与 live Follow 同一套 **rank_lots**：每个交易日 09:30 用 ranking 排序，按手数开/加/清仓（未过入场清仓，无「持」）。历史成交用 5 分钟 K（调仓时间 09:30–10:00）。  
 `topk_research`（`backtest_topk_equal_weight`）只作研究探针（组 OOS / 权建议 OOS / 分池合成对照），**不进 `/replay`**。中性化对照研究口与 lookback×K 参数网格已下线。
 
-成功回测落盘 `data/last_portfolio_backtest.json`。打开 `/replay` 时 `GET /api/quant/last-portfolio-backtest` 恢复 KPI / 净值 / 分票贡献 / 成交账，**不重跑**；点「跑回测」才重算（默认后台 Job，进度条带日期 / 日序号 / 观察池只数）。**表单以「保存」为准**（权重/门槛写入交易执行覆盖；本金/手数/回测窗/模型/成交钟本页记住），刷新不用上次回测请求盖掉已存配置。日报摘要仍走 `summarize_portfolio_backtest`，不覆盖这份落盘。
+成功回测落盘 `data/last_portfolio_backtest.json`。打开 `/replay` 时 `GET /api/quant/last-portfolio-backtest` 恢复 KPI / 净值 / 分票贡献 / 成交账，**不重跑**；点「跑回测」才重算（默认后台 Job，进度条带日期 / 日序号 / 观察池只数）。**表单以「保存」为准**（权重/门槛/手数写入交易执行覆盖；本金/回测窗/模型本页记住，成交钟两边同源），刷新不用上次回测请求盖掉已存配置。日报摘要仍走 `summarize_portfolio_backtest`，不覆盖这份落盘。
 
 ### 5.1 分数口径（历史 vs live）
 
@@ -1343,7 +1343,7 @@ score_stock(code) 续——
 | 选股排序键 | **y_fuse / y_on**（09:30 ranking） | 同左 |
 | 宇宙 | 全部观察池（现金用完即止） | 观察池 + 持仓市值上限（默认 15 万）；开加不按 `max_positions` 截断 |
 | 模型 | 默认**研究套**（Holdout）；表单「模型」可选**执行**测 live。调仓门槛对 ŷ 敏感，研究套参数未必适用于执行套 | 执行套 live |
-| 手数 | 回测默认 200 股（表单「每笔股数」；不改 live 200/500） | live 200 / 500 股 |
+| 手数 | 表单入场/强档股数；保存规则写入交易执行 | 已保存 `lot_base` / `lot_strong`（缺省 200 / 500） |
 | 成交 | 开盘 rank_lots；T+1；本金默认 **20 万**（表单可改，不留地板）；**5m 成交钟**默认 09:30（可选至 10:00）；缺该钟：买入跳过、清仓回退其后～10:00 再回退 09:30/日开盘；共用框「日分价闸」默认开（窗口分钟日分价错位 skip；阈跟做 T） | 同规则，账本为 `paper.json`；live 另受 15 万市值帽；现价；**不**套日分价闸 |
 | 成交明细 | ranking 后对照 y_hl（开盘 Z 挂分；成交钟>09:30 随前缀）。不挂 y_τw / y_τ30 / y_τ60 / y_τ90 | live 仍可透传对照头 |
 

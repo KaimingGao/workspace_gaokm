@@ -80,16 +80,31 @@ class TestPathMatrix(unittest.TestCase):
         self.assertFalse(lots.get("y_oo_gt0"))
         self.assertFalse(lots.get("y_oc_gt0"))
         self.assertEqual(lots.get("fill_clock"), "09:30")
+        self.assertEqual(int(lots.get("lot_base") or 0), 200)
+        self.assertEqual(int(lots.get("lot_strong") or 0), 500)
         # 旧键仍与 rank_lots 同结构，读盘兼容
         pm = DEFAULT_REBALANCE_TIMING.get("path_matrix") or {}
         self.assertEqual(pm.get("mode"), "rank_lots")
         self.assertAlmostEqual(float(pm.get("holdings_mv_cap")), 150000.0)
+        self.assertEqual(int(pm.get("lot_base") or 0), 200)
+        self.assertEqual(int(pm.get("lot_strong") or 0), 500)
 
     def test_fill_clock_passthrough(self):
         cfg = self._cfg(fill_clock="09:40")
         self.assertEqual(cfg["fill_clock"], "09:40")
         cfg_bad = self._cfg(fill_clock="11:00")
         self.assertEqual(cfg_bad["fill_clock"], "09:30")
+
+    def test_lot_shares_passthrough(self):
+        cfg = self._cfg(lot_base=3000, lot_strong=5000)
+        self.assertEqual(cfg["lot_base"], 3000)
+        self.assertEqual(cfg["lot_strong"], 5000)
+        cfg_clip = self._cfg(lot_base=350, lot_strong=80)
+        self.assertEqual(cfg_clip["lot_base"], 300)
+        self.assertEqual(cfg_clip["lot_strong"], 300)
+        cfg0 = self._cfg()
+        self.assertEqual(cfg0["lot_base"], 200)
+        self.assertEqual(cfg0["lot_strong"], 500)
 
     def test_y_on_alpha_maps_to_fusion_w_co(self):
         cfg = self._cfg(y_on_alpha=0.4)
@@ -157,6 +172,31 @@ class TestPathMatrix(unittest.TestCase):
         for k in STALE_Y_OO_OC_ENTER_KEYS:
             self.assertNotIn(k, lots)
         self.assertFalse(lots.get("y_hl_gt0"))
+
+    def test_save_rules_persists_lot_shares(self):
+        from core.execution import apply_execution_patch_to_paper, validate_execution_patch
+
+        ok, norm, errs = validate_execution_patch(
+            {
+                "rebalance_timing": {
+                    "rank_lots": {"lot_base": 3000, "lot_strong": 5000}
+                }
+            }
+        )
+        self.assertTrue(ok, errs)
+        saved = (norm.get("rebalance_timing") or {}).get("rank_lots") or {}
+        self.assertEqual(int(saved.get("lot_base") or 0), 3000)
+        self.assertEqual(int(saved.get("lot_strong") or 0), 5000)
+
+        paper = {"rules": {}}
+        applied = apply_execution_patch_to_paper(
+            paper,
+            {"rebalance_timing": {"rank_lots": {"lot_base": 3000, "lot_strong": 5000}}},
+        )
+        self.assertTrue(applied.get("ok"), applied)
+        lots = paper["rules"]["execution"]["rebalance_timing"]["rank_lots"]
+        self.assertEqual(int(lots.get("lot_base") or 0), 3000)
+        self.assertEqual(int(lots.get("lot_strong") or 0), 5000)
 
 
 if __name__ == "__main__":

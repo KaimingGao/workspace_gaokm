@@ -204,30 +204,24 @@ function formatFactorAnomalyHint(raw) {
 function tipTradeDay(raw) {
   const fromItem = String((raw && (raw.trade_day || raw.session_date)) || "").slice(0, 10);
   if (fromItem.length >= 10) return fromItem;
-  const win = String((raw && raw.dual_score_window) || "");
   const tauDay = String((raw && (raw.as_of_tau || raw.rem_tau)) || "").slice(0, 10);
-  const day = String((raw && raw.eod_feature_as_of) || "").slice(0, 10);
   if (tauDay.length >= 10) return tauDay;
-  if (win === "eod_next" && day.length >= 10) return day;
   return shanghaiDateKeyTip();
 }
 
 function formatEodAsOfHint(raw) {
   const anom = formatFactorAnomalyHint(raw);
   const day = String((raw && raw.eod_feature_as_of) || "").slice(0, 10);
-  const win = String((raw && raw.dual_score_window) || "");
   const tauDay = String((raw && (raw.as_of_tau || raw.rem_tau)) || "").slice(0, 10);
   const today = shanghaiDateKeyTip();
   const tradeDay = tipTradeDay(raw);
   let which = "昨收完整K";
-  if (win === "eod_next") {
-    which = "今日完整K";
-  } else if (day && tauDay.length >= 10 && day === tauDay) {
+  if (day && tauDay.length >= 10 && day === tauDay) {
     which = "盘中漏入今日K";
   } else if (day && today && day === today) {
     which = "盘中漏入今日K";
   } else if (!day) {
-    which = win === "eod_next" ? "收盘后完整K" : "T−1 因子";
+    which = "T−1 因子";
   }
   const tBit = tradeDay ? `T ${tradeDay}` : "T";
   let base = `${tBit} · ${which}`;

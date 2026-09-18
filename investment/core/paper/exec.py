@@ -20,6 +20,7 @@ from core.paper.ledger import (  # noqa: E402
     _quote_price,
     merge_origin,
 )
+from core.ports.market import quote_mark_price, quote_prev_close
 from core.paper.costs import (
     annotate_trade,
     apply_fill_price,
@@ -89,8 +90,25 @@ def _quote_open(quote: dict) -> Optional[float]:
         return None
 
 
+def _pnl_session_key(now: datetime) -> str:
+    """今日收益的会话日：09:30 前 / 周末仍算上一交易日。
+
+    不能用日历日。跨日会把当日盘中成交快照当成「昨收账本」，
+    仪表盘出现无成交的 -0.04% 这类假亏损。
+    """
+    try:
+        from core.signal.session_pit import oo_cycle_date
+
+        day = str(oo_cycle_date(now=now) or "")[:10]
+        if len(day) == 10:
+            return day
+    except Exception:
+        logger.debug("pnl session key failed", exc_info=True)
+    return now.strftime("%Y-%m-%d")
+
+
 def _prev_session_equity(paper: dict, today_str: str) -> Optional[float]:
-    """上一交易日账本净值：snapshots 里日期早于今天的最后一点。"""
+    """上一会话账本净值：snapshots 里日期早于当前会话日的最后一点。"""
     last_eq: Optional[float] = None
     for snap in paper.get("snapshots") or []:
         if not isinstance(snap, dict):
@@ -182,17 +200,24 @@ def mark_to_market(paper: dict) -> Dict[str, Any]:
         quote = quotes_by_code.get(code_s) if code_s else None
         if not isinstance(quote, dict):
             quote = {}
-        # 批量缺失时逐票补实时行情（涨跌/浮盈须跟盘）；再不行才用日线缓存
+        # 批量缺失时逐票补实时行情（涨跌/浮盈须跟盘）；再不行才用昨收/日线
         if code_s and not (
-            quote.get("success") and _quote_price(quote) is not None
+            quote.get("success") and quote_mark_price(quote) is not None
         ):
             try:
                 q1 = _query_quote(code_s) if code_s else {}
-                if isinstance(q1, dict) and q1.get("success") and _quote_price(q1) is not None:
+                if isinstance(q1, dict) and q1.get("success") and quote_mark_price(q1) is not None:
                     quote = q1
             except Exception:  # noqa: BLE001 — 单票行情失败时用日线/成本价盯市
                 logger.debug("catch except Exception: in paper_exec.py", exc_info=True)
-        price = _quote_price(quote) if quote.get("success") else None
+        last_px = _quote_price(quote) if quote.get("success") else None
+        prev_px = quote_prev_close(quote) if quote.get("success") else None
+        price = last_px if last_px is not None else prev_px
+        price_source = (
+            "quote"
+            if last_px is not None
+            else ("prev_close" if prev_px is not None else None)
+        )
         open_px = _quote_open(quote) if quote.get("success") else None
         shares = float(h.get("shares") or 0)
         cost = float(h.get("cost") or 0)
@@ -201,6 +226,7 @@ def mark_to_market(paper: dict) -> Dict[str, Any]:
             bar_mark = _cached_bar_mark(code_s)
             if bar_mark.get("price") is not None:
                 price = float(bar_mark["price"])
+                price_source = "bars_cache"
             if open_px is None and bar_mark.get("open") is not None:
                 open_px = float(bar_mark["open"])
         if price is None:
@@ -214,13 +240,18 @@ def mark_to_market(paper: dict) -> Dict[str, Any]:
                     break
             if price is None and cost > 0:
                 price = cost
+            if price is not None:
+                price_source = "book"
         mv = (price or cost) * shares
         stock_value += mv
         pnl_pct = None
         if price and cost:
             pnl_pct = round((price / cost - 1.0) * 100.0, 2)
         change_pct = None
-        if quote.get("success"):
+        # 现价被清零时涨跌幅常是垃圾值（0 或 -100），未开盘按昨收盯市则今日涨跌为 0
+        if last_px is None and price_source == "prev_close":
+            change_pct = 0.0
+        elif quote.get("success"):
             raw_ch = quote.get("change_raw")
             if raw_ch is None and quote.get("change") is not None:
                 try:
@@ -281,11 +312,7 @@ def mark_to_market(paper: dict) -> Dict[str, Any]:
                 "lots": t1["lots"],
                 "origin": h.get("origin") or None,
                 "origin_label": ORIGIN_LABELS.get(str(h.get("origin") or ""), ""),
-                "price_source": (
-                    "quote"
-                    if quote.get("success") and _quote_price(quote) is not None
-                    else ("bars_cache" if bar_mark.get("price") is not None else "book")
-                ),
+                "price_source": price_source or "book",
             }
         )
 
@@ -363,13 +390,14 @@ def mark_to_market(paper: dict) -> Dict[str, Any]:
 
     # 今日浮动：
     # - 当日回零后：相对回零价（去掉昨收），与累计同起点
-    # - 有上一交易日快照：相对昨收账本净值（含卖出/费用/跳空，可与累计衔接）
+    # - 有上一会话快照：相对昨收账本净值（含卖出/费用/跳空，可与累计衔接）
     # - 否则：按涨跌幅反推昨收，汇总 (现价−昨收)×股数（只含当前持仓）
     today_pnl: Optional[float] = None
     today_pnl_pct: Optional[float] = None
     today_pnl_basis = "prev_close"
     anchor = paper.get("pnl_anchor") if isinstance(paper.get("pnl_anchor"), dict) else None
     today_str = now.strftime("%Y-%m-%d")
+    session_key = _pnl_session_key(now)
     anchor_date = str((anchor or {}).get("date") or "")[:10]
     anchor_prices = (anchor or {}).get("prices") if isinstance(anchor, dict) else None
     use_reset_anchor = (
@@ -378,9 +406,20 @@ def mark_to_market(paper: dict) -> Dict[str, Any]:
         and isinstance(anchor_prices, dict)
         and bool(anchor_prices)
     )
-    prev_nav = _prev_session_equity(paper, today_str)
+    prev_nav = _prev_session_equity(paper, session_key)
+    # 日历已跨过会话日（周末 / 下一开盘前）：今日尚未开盘，盯市停在昨收 → 0
+    session_idle = (
+        not use_reset_anchor
+        and len(today_str) == 10
+        and len(session_key) == 10
+        and today_str > session_key
+    )
 
-    if not rows:
+    if session_idle:
+        today_pnl = 0.0
+        today_pnl_pct = 0.0
+        today_pnl_basis = "prev_close"
+    elif not rows:
         today_pnl = 0.0
         today_pnl_pct = 0.0
         if use_reset_anchor:

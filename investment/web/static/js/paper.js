@@ -39,8 +39,8 @@ import { renderPaperRulesHtml } from "./paper/rules_ui.js?v=p2298";
 import {
   renderExecutionRulesHtml,
   normalizeExecutionView,
-} from "./paper/execution_ui.js?v=p2426";
-import { applyExecutionToUi } from "./paper/execution_forms.js?v=p2426";
+} from "./paper/execution_ui.js?v=p2497";
+import { applyExecutionToUi } from "./paper/execution_forms.js?v=p2497";
 import { buildPaperLogsView, buildPaperLogsCsv } from "./paper/logs_ui.js?v=p2157";
 import { downloadBlob } from "./shared.js";
 import {

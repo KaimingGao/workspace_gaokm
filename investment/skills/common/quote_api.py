@@ -396,6 +396,7 @@ class StockAPI:
             "market": market,
             "price": price_str,
             "price_raw": price,
+            "prev_close": pre_close if pre_close else None,
             "change": f"{change_percent:+.2f}%",
             "change_raw": change_percent,
             "change_amount": change_amt_str,
@@ -447,76 +448,7 @@ class StockAPI:
             }
 
         payload = content.split('="', 1)[-1].rstrip('";\n ')
-        data = payload.split("~")
-        if len(data) < 45:
-            return {
-                "success": False,
-                "stock_code": stock_code,
-                "error": "无法解析股票数据",
-            }
-
-        market = cls._market_of(symbol)
-        currency = {"CN": "CNY", "HK": "HKD", "US": "USD"}.get(market, "CNY")
-        unit = {"CNY": "元", "HKD": "HK$", "USD": "$"}[currency]
-
-        stock_name = data[1] or stock_code
-        code_display = data[2] or stock_code
-
-        try:
-            price = float(data[3] or 0)
-            pre_close = float(data[4] or 0)
-            open_price = float(data[5] or 0)
-            volume = float(data[6] or 0)
-            # 腾讯字段：33 最高 34 最低（A股）；部分市场位置一致
-            high = float(data[33] or 0) if len(data) > 33 else 0.0
-            low = float(data[34] or 0) if len(data) > 34 else 0.0
-            # 涨跌额/幅：31 / 32
-            change_amount = float(data[31] or 0) if len(data) > 31 else (price - pre_close)
-            change_percent = float(data[32] or 0) if len(data) > 32 else (
-                (change_amount / pre_close * 100) if pre_close else 0.0
-            )
-        except (ValueError, IndexError):
-            return {
-                "success": False,
-                "stock_code": stock_code,
-                "error": "无法解析股票数据",
-            }
-
-        if price == 0 and pre_close == 0:
-            return {
-                "success": False,
-                "stock_code": stock_code,
-                "error": f"无法查询到股票「{stock_code}」的行情信息",
-            }
-
-        price_str = cls._fmt_price(price, currency, unit)
-        change_amt_str = cls._fmt_price(change_amount, currency, unit, signed=True)
-
-        return {
-            "success": True,
-            "stock_code": code_display,
-            "stock_name": stock_name,
-            "symbol": symbol,
-            "market": market,
-            "price": price_str,
-            "price_raw": price,
-            "change": f"{change_percent:+.2f}%",
-            "change_raw": change_percent,
-            "change_amount": change_amt_str,
-            "open": cls._fmt_price(open_price, currency, unit) if open_price else "",
-            "high": cls._fmt_price(high, currency, unit) if high else "",
-            "low": cls._fmt_price(low, currency, unit) if low else "",
-            "volume": cls._format_volume(volume, market),
-            "volume_raw": volume,
-            "market_cap": "",
-            "currency": currency,
-            "unit": unit,
-            "cached": False,
-            "description": (
-                f"{stock_name}({code_display})最新价{price_str}，"
-                f"{change_amt_str}，涨幅{change_percent:+.2f}%"
-            ),
-        }
+        return cls._parse_tencent_data(stock_code, symbol, payload)
 
     # ------------------------------------------------------------------ #
     # 东方财富 push2 JSON API（回退源）
@@ -727,6 +659,7 @@ class StockAPI:
             "market": market,
             "price": price_str,
             "price_raw": price,
+            "prev_close": pre_close if pre_close else None,
             "change": f"{change_percent:+.2f}%",
             "change_raw": change_percent,
             "change_amount": change_amt_str,

@@ -630,7 +630,7 @@ class PaperExecutionPatchRequest(BaseModel):
     coupling: Optional[dict] = None
     rebalance_timing: Optional[dict] = Field(
         default=None,
-        description="调仓时机；含 rank_lots.fill_clock（默认 09:30～10:00）与 200/500 股",
+        description="调仓时机；含 rank_lots.fill_clock（默认 09:30～10:00）与 lot_base/lot_strong 手数",
     )
     lock: bool = True
     note: str = ""

@@ -67,7 +67,7 @@ T0_PAPER_DAILY_BAR_LIMIT = T0_BACKTEST_SCORE_WARMUP + 1
 _MODEL_CACHE: Dict[str, Any] = {}
 # 单日 τ 截面缓存：day → build_tau_pool_by_date 条目
 _TAU_XS_DAY_CACHE: Dict[str, Dict[str, Any]] = {}
-# 盯盘 / 做T回测共用截面宇宙（纸面持仓 ∪ 当前票）；簿已停用
+# 盯盘 / 做T回测共用截面宇宙（纸面持仓 ∪ 观察池 ∪ extra）
 _CS_UNIVERSE_MEMO: Optional[List[str]] = None
 # 同一交易日多根 5m 前缀重算时，EOD 因子窗不变；缓存避免每根重跑 score_window
 _EOD_ITEM_CACHE: Dict[tuple, dict] = {}
@@ -2385,7 +2385,7 @@ def _inject_minute_pack_from_prefix(
             apply_sector_ret_last_90m_cs,
             clear_minute_tau_pack_keys,
             extract_minute_tau_pack,
-            extract_t30_t60_t90_seq_packs,
+            extract_horizon_seq_packs,
             resolve_sector_ret_last_30m,
             resolve_sector_ret_last_45m,
             resolve_sector_ret_last_60m,
@@ -2422,7 +2422,7 @@ def _inject_minute_pack_from_prefix(
             for k, v in pack.items():
                 if v is not None:
                     merged[k] = v
-        seq_all = extract_t30_t60_t90_seq_packs(
+        seq_all = extract_horizon_seq_packs(
             minute_prefix,
             trade_date=day,
             tau_hm=clock,
@@ -2590,7 +2590,7 @@ def _attach_prefix_minute_sector_feats(
         apply_sector_ret_last_60m_cs,
         apply_sector_ret_last_75m_cs,
         apply_sector_ret_last_90m_cs,
-        extract_t30_t60_t90_seq_packs,
+        extract_horizon_seq_packs,
         resolve_sector_ret_last_30m,
         resolve_sector_ret_last_45m,
         resolve_sector_ret_last_60m,
@@ -2609,64 +2609,43 @@ def _attach_prefix_minute_sector_feats(
         overwrite=True,
     )
     peer = current_t0_cs_universe_codes() or None
-    if peer:
-        try:
-            sret = resolve_sector_ret_to_tau(
-                str(trade_date or "")[:10],
-                str(tau_hm or "10:00"),
-                codes=peer,
-            )
-            out = apply_sector_ret_cs(out, sret, overwrite=True)
-        except Exception:  # noqa: BLE001
-            logger.debug("prefix sector_ret_to_tau attach failed", exc_info=True)
+    day = str(trade_date or "")[:10]
+    clock = str(tau_hm or "10:00")
     try:
-        seq_all = extract_t30_t60_t90_seq_packs(
+        sret = resolve_sector_ret_to_tau(day, clock, codes=peer)
+        out = apply_sector_ret_cs(out, sret, overwrite=True)
+    except Exception:  # noqa: BLE001
+        logger.debug("prefix sector_ret_to_tau attach failed", exc_info=True)
+    try:
+        seq_all = extract_horizon_seq_packs(
             minute_bars,
-            trade_date=str(trade_date or "")[:10],
-            tau_hm=str(tau_hm or "10:00"),
+            trade_date=day,
+            tau_hm=clock,
             open_px=open_px,
         )
         for k, v in seq_all.items():
             if v is not None:
                 out[k] = v
     except Exception:  # noqa: BLE001
-        logger.debug("prefix t30/t60/t90 seq attach failed", exc_info=True)
-    if peer:
-        try:
-            sret30 = resolve_sector_ret_last_30m(
-                str(trade_date or "")[:10], str(tau_hm or "10:00"), codes=peer
-            )
-            out = apply_sector_ret_last_30m_cs(out, sret30, overwrite=True)
-        except Exception:  # noqa: BLE001
-            logger.debug("prefix t30 seq/cs attach failed", exc_info=True)
-        try:
-            sret45 = resolve_sector_ret_last_45m(
-                str(trade_date or "")[:10], str(tau_hm or "10:00"), codes=peer
-            )
-            out = apply_sector_ret_last_45m_cs(out, sret45, overwrite=True)
-        except Exception:  # noqa: BLE001
-            logger.debug("prefix t45 seq/cs attach failed", exc_info=True)
-        try:
-            sret60 = resolve_sector_ret_last_60m(
-                str(trade_date or "")[:10], str(tau_hm or "10:00"), codes=peer
-            )
-            out = apply_sector_ret_last_60m_cs(out, sret60, overwrite=True)
-        except Exception:  # noqa: BLE001
-            logger.debug("prefix t60 seq/cs attach failed", exc_info=True)
-        try:
-            sret75 = resolve_sector_ret_last_75m(
-                str(trade_date or "")[:10], str(tau_hm or "10:00"), codes=peer
-            )
-            out = apply_sector_ret_last_75m_cs(out, sret75, overwrite=True)
-        except Exception:  # noqa: BLE001
-            logger.debug("prefix t75 seq/cs attach failed", exc_info=True)
-        try:
-            sret90 = resolve_sector_ret_last_90m(
-                str(trade_date or "")[:10], str(tau_hm or "10:00"), codes=peer
-            )
-            out = apply_sector_ret_last_90m_cs(out, sret90, overwrite=True)
-        except Exception:  # noqa: BLE001
-            logger.debug("prefix t90 seq/cs attach failed", exc_info=True)
+        logger.debug("prefix horizon seq attach failed", exc_info=True)
+    try:
+        out = apply_sector_ret_last_30m_cs(
+            out, resolve_sector_ret_last_30m(day, clock, codes=peer), overwrite=True
+        )
+        out = apply_sector_ret_last_45m_cs(
+            out, resolve_sector_ret_last_45m(day, clock, codes=peer), overwrite=True
+        )
+        out = apply_sector_ret_last_60m_cs(
+            out, resolve_sector_ret_last_60m(day, clock, codes=peer), overwrite=True
+        )
+        out = apply_sector_ret_last_75m_cs(
+            out, resolve_sector_ret_last_75m(day, clock, codes=peer), overwrite=True
+        )
+        out = apply_sector_ret_last_90m_cs(
+            out, resolve_sector_ret_last_90m(day, clock, codes=peer), overwrite=True
+        )
+    except Exception:  # noqa: BLE001
+        logger.debug("prefix horizon CS overwrite failed", exc_info=True)
     return out
 
 
@@ -3758,7 +3737,7 @@ def clear_score_model_cache() -> None:
 
 
 def seed_tau_cross_section_day(day_key: str, pool_day: Optional[dict]) -> None:
-    """把当日持仓缺口池写入截面缓存，避免单票兜底撞上已停用的空簿。"""
+    """把当日开盘缺口截面写入缓存，避免单票兜底退化成空池。"""
     dkey = str(day_key or "")[:10]
     if len(dkey) < 10 or not isinstance(pool_day, dict) or not pool_day:
         return
@@ -3851,9 +3830,10 @@ def current_t0_cs_universe_codes() -> List[str]:
 
 
 def _tau_cross_section_kwargs(code: str, day_key: str) -> Dict[str, Any]:
-    """单票缺截面时：当日缓存 / 持仓宇宙 → pool_gaps / breadth / sector_gap_median。
+    """单票缺截面时：当日缓存 / 观察池∪持仓 → pool_gaps / breadth / sector_gap_median。
 
-    空池不写入日缓存：簿停用且离线仓无当日 K 时，后续持仓池还能补上。
+    空 memo 时用 ``t0_cs_universe_codes``（与做 T 回测同宇宙），避免退化成单票。
+    空池不写入日缓存：离线仓无当日 K 时，后续观察池 ∪ 持仓还能补上。
     """
     raw = str(code or "").strip()
     dkey = str(day_key or "")[:10]
@@ -3864,8 +3844,8 @@ def _tau_cross_section_kwargs(code: str, day_key: str) -> Dict[str, Any]:
         try:
             codes = list(_CS_UNIVERSE_MEMO or [])
             if not codes:
-                codes = active_book_codes_for_tau_pool(cap=120)
-            if raw not in codes:
+                codes = t0_cs_universe_codes(raw)
+            elif raw not in codes:
                 codes = list(codes) + [raw]
             bars_map = load_bars_by_code_for_tau_pool(codes, limit=40)
             by_day = build_tau_pool_by_date(bars_map)
@@ -4066,7 +4046,7 @@ def compute_scores_from_bars(
     if q is None:
         return scores_from_item(None)
 
-    # 单票缺截面时用持仓宇宙补 gap_vs_sector / breadth（与盯盘同池）
+    # 单票缺截面时用观察池 ∪ 持仓补 gap_vs_sector / breadth（与盯盘同池）
     if (
         sector_gap_median is None
         or sector_gap_breadth is None
@@ -4430,14 +4410,11 @@ def active_book_codes_for_tau_pool(*, cap: int = 120) -> List[str]:
     return []
 
 
-def build_tau_pool_from_holding_bars(
+def _bars_map_from_holding_bars(
     hist_bars_by_code: Optional[Dict[str, Sequence[dict]]] = None,
     day_bars_by_code: Optional[Dict[str, dict]] = None,
-) -> Dict[str, Dict[str, Any]]:
-    """用已 hydrate 的持仓日线建 τ 截面（簿停用时即持仓池，与盯盘 / 回测同构）。
-
-    缺截面时 ``rescore`` 会退回单票 ``_tau_cross_section_kwargs``，ŷ_oc / R_τ 会漂。
-    """
+) -> Dict[str, List[dict]]:
+    """已 hydrate 持仓日线 → ``{code: bars}``（含当日 bar）。"""
     codes: List[str] = []
     for src in (hist_bars_by_code or {}, day_bars_by_code or {}):
         for k in src.keys():
@@ -4456,6 +4433,46 @@ def build_tau_pool_from_holding_bars(
                 seq = seq + [day]
         if len(seq) >= 2:
             bars_map[code] = seq
+    return bars_map
+
+
+def build_tau_pool_from_holding_bars(
+    hist_bars_by_code: Optional[Dict[str, Sequence[dict]]] = None,
+    day_bars_by_code: Optional[Dict[str, dict]] = None,
+) -> Dict[str, Dict[str, Any]]:
+    """仅用已 hydrate 持仓日线建 τ 截面（窄池；对照 / 单测）。"""
+    return build_tau_pool_by_date(
+        _bars_map_from_holding_bars(hist_bars_by_code, day_bars_by_code)
+    )
+
+
+def build_tau_pool_watching_holdings(
+    hist_bars_by_code: Optional[Dict[str, Sequence[dict]]] = None,
+    day_bars_by_code: Optional[Dict[str, dict]] = None,
+    *,
+    holdings: Optional[Sequence[Any]] = None,
+    paper: Optional[dict] = None,
+    extra_codes: Any = (),
+    limit: int = 40,
+) -> Dict[str, Dict[str, Any]]:
+    """观察池 ∪ 持仓日线建开盘缺口截面，与做 T 回测同口径。
+
+    已 hydrate 的持仓日线覆盖本地仓（会话对齐）；其余观察池票走 ``load_bars_by_code_for_tau_pool``。
+    """
+    extras: Sequence[Any]
+    if extra_codes is None:
+        extras = ()
+    elif isinstance(extra_codes, (list, tuple, set)):
+        extras = list(extra_codes)
+    else:
+        extras = (extra_codes,)
+    codes = t0_cs_universe_codes(*extras, holdings=holdings, paper=paper)
+    bars_map = load_bars_by_code_for_tau_pool(codes, limit=limit)
+    overlay = _bars_map_from_holding_bars(hist_bars_by_code, day_bars_by_code)
+    if overlay:
+        bars_map.update(overlay)
+    if not bars_map:
+        return {}
     return build_tau_pool_by_date(bars_map)
 
 
@@ -4602,7 +4619,7 @@ def resolve_fuse_intraday(cfg: Optional[dict] = None) -> bool:
     """回测/即时算是否融合盘中 ŷ_τ。
 
     ``dual_score_window`` / ``y_score_window`` = ``eod_next``（或 eod/close）时
-    不得 fuse，避免缺口∘ŷ_τ≈当日涨跌污染决策分。
+    不得 fuse。live 持仓/观察池不走这里，用 ``rolled_to_next``。
     """
     window = str(
         (cfg or {}).get("dual_score_window")

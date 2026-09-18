@@ -2171,7 +2171,7 @@ def collect_tau_intraday_panel(
         window = bars[max(0, i - max_window) : i]
         if len(window) < min_history:
             continue
-        from core.signal.minute_tau_feats import extract_minute_tau_pack, extract_t30_t60_t90_seq_packs
+        from core.signal.minute_tau_feats import extract_minute_tau_pack, extract_horizon_seq_packs
 
         _, c_prev_min = minute_session_open_close(prev_mins, trade_date=date_prev)
         lags = tau_lag_features(
@@ -2217,7 +2217,7 @@ def collect_tau_intraday_panel(
             elapsed = tau_elapsed_min_from_open(clock)
             if elapsed is not None:
                 row["tau_elapsed_min"] = elapsed
-            seq_all = extract_t30_t60_t90_seq_packs(
+            seq_all = extract_horizon_seq_packs(
                 day_mins,
                 trade_date=date_t,
                 tau_hm=clock,

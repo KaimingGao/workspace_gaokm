@@ -56,7 +56,19 @@ DEFAULT_PATH_MATRIX: Dict[str, Any] = {
     "y_hl_gt0": True,
     # 调仓成交钟：自动调仓 / 手动预演窗口起点；止于 10:00。与历史回测 fill_clock 同源。
     "fill_clock": "09:30",
+    # 手数：与历史回测表单同源；保存规则写入交易执行。缺省 live 200/500。
+    "lot_base": 200,
+    "lot_strong": 500,
 }
+
+
+def _clamp_lot_shares(raw: Any, default: int) -> int:
+    try:
+        v = int(raw)
+    except (TypeError, ValueError):
+        v = int(default)
+    v = max(100, min(v, 10_000))
+    return (v // 100) * 100
 
 
 def _f(x: Any) -> Optional[float]:
@@ -178,6 +190,12 @@ def get_path_matrix_cfg(
     except Exception:  # noqa: BLE001
         logger.debug("clamp fill_clock failed", exc_info=True)
         out["fill_clock"] = "09:30"
+    base = _clamp_lot_shares(out.get("lot_base"), 200)
+    strong = _clamp_lot_shares(out.get("lot_strong"), 500)
+    if strong < base:
+        strong = base
+    out["lot_base"] = base
+    out["lot_strong"] = strong
     for stale in STALE_Y_OO_OC_ENTER_KEYS:
         out.pop(stale, None)
     return out

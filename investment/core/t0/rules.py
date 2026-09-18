@@ -306,7 +306,7 @@ def simulate_t0_on_holdings(
     scores_by_code：code → dual_y ŷ 快照。
     skip_codes：盘中已落账腿的代码，跳过以防整单回放重复落账。
     defer_eod：盘中整单为 True，避免半日分钟误强平。
-    tau_pool_by_date：按日缺口截面；缺省用持仓日线现场建（与回测同构）。
+    tau_pool_by_date：按日缺口截面；缺省用观察池 ∪ 持仓日线（与做 T 回测同口径）。
     """
     from core.execution import stance_allows_t0
 
@@ -324,22 +324,25 @@ def simulate_t0_on_holdings(
     tau_pool = tau_pool_by_date if isinstance(tau_pool_by_date, dict) else None
     if tau_pool is None and (hist_bars_by_code or bars_by_code):
         try:
-            from core.t0.score_policy import build_tau_pool_from_holding_bars
+            from core.t0.score_policy import (
+                build_tau_pool_watching_holdings,
+                seed_tau_cross_section_pool,
+                set_t0_cs_universe_codes,
+                t0_cs_universe_codes,
+            )
 
-            tau_pool = build_tau_pool_from_holding_bars(
-                hist_bars_by_code, bars_by_code
+            tau_pool = build_tau_pool_watching_holdings(
+                hist_bars_by_code,
+                bars_by_code,
+                holdings=paper.get("holdings") if isinstance(paper, dict) else None,
+                paper=paper if isinstance(paper, dict) else None,
             )
             try:
-                from core.t0.score_policy import (
-                    seed_tau_cross_section_pool,
-                    set_t0_cs_universe_codes,
-                    t0_cs_universe_codes,
-                )
-
                 seed_tau_cross_section_pool(tau_pool)
                 set_t0_cs_universe_codes(
                     t0_cs_universe_codes(
-                        holdings=paper.get("holdings") if isinstance(paper, dict) else None
+                        holdings=paper.get("holdings") if isinstance(paper, dict) else None,
+                        paper=paper if isinstance(paper, dict) else None,
                     )
                 )
             except Exception:  # noqa: BLE001

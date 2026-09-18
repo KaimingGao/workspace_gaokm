@@ -29,6 +29,7 @@ from core.signal.yhat_geom import (
     resolve_oo_prior_var,
 )
 
+from core.research.tau_panel import TAU_LAG_FEATURES
 from core.signal.minute_tau_feats import MINUTE_TAU_ALL_KEYS, MINUTE_TAU_SHAPE_KEYS
 
 _TAU_FEATURE_KEYS = (
@@ -39,7 +40,7 @@ _TAU_FEATURE_KEYS = (
     "gap_vs_sector",
     "yclose_loc",
     "mom3_pct",
-) + MINUTE_TAU_ALL_KEYS
+) + MINUTE_TAU_ALL_KEYS + TAU_LAG_FEATURES
 
 _TAU_CORE_Z_KEYS = (
     "gap_pct",
@@ -109,9 +110,8 @@ def apply_tau_score_fields(
     ``rem_yhat`` 就是独立训出的 ŷ_τ（open→close），不依赖 ŷ_EOD。
     ŷ_trade = w·ŷ_EOD + w·(缺口∘ŷ_τ)；ŷ_EOD_rem 只作派生对照，不进融合。
     ``residual_delta`` 已废弃，忽略。
-    ``fuse_intraday=False``（收盘后 eod_next）：τ 买入闸不吃当日 ŷ_τ；
-    主排序分 ŷ_trade 停用 τ 侧（缺口∘ŷ_τ ≈ 今日已实现涨跌幅，会污染 T+1 前瞻决策）。
-    cascade 对照列仍吃 ŷ_τ，避免塌成 ŷ_oo。
+    ``fuse_intraday=False``（ŷ_oo 已换到下一周期）：τ 不进主排序融合。
+    收盘后同一周期仍 fuse：ŷ_oc 钉在 ≤10:00，不是当日已实现 OC。
     """
     _ = residual_delta
     cfg = get_dual_score_cfg(config)
@@ -154,7 +154,6 @@ def apply_tau_score_fields(
     we, wt, w_note = resolve_fusion_weights(
         cfg, feats=feat_snap, rem_model_doc=rem_model_doc
     )
-    # 收盘后 eod_next：τ 侧=今日已实现收益，不得参与主排序分融合
     y_tau_for_trade = y_tau if fuse else None
     head_meta = fuse_remaining_heads_meta(
         y_eod, y_tau_for_trade, w_eod=we, w_tau=wt
@@ -398,9 +397,8 @@ def attach_dual_score_pit(
     ``minute_tau_hm``：因果 τ 钟（固定前缀末根）；无钟则开盘 Z 或调仓因果末根。
     ``use_minute_tau=False``：强制开盘 Z（做 T 开盘预计算）；不读分钟仓/缓存。
     无 ŷ_τ 模型时仍写契约字段（ŷ_τ=None，ŷ_trade 退回 ŷ_EOD）。
-    ``fuse_intraday=False`` / 簿上 ``dual_score_window=eod_next``：
-    - τ 买入闸不吃当日 ŷ_τ；
-    - 主排序分 ŷ_trade 停用 τ 侧（缺口∘ŷ_τ ≈ T日已实现涨跌幅，不得污染 T+1 前瞻决策）。
+    ``fuse_intraday=False``：ŷ_oo 已换期（T+1 开盘后），τ 不进主排序。
+    收盘后同一周期默认仍 fuse。
     """
     if not isinstance(signal_item, dict):
         return signal_item
@@ -743,13 +741,13 @@ def _resolve_fuse_intraday(
     if fuse_intraday is not None:
         return bool(fuse_intraday)
     try:
-        from core.signal.session_pit import refresh_dual_score_window
+        from core.signal.session_pit import prepare_eod_bars, refresh_dual_score_window
 
-        win = refresh_dual_score_window(signal_item, quote=quote, bars=bars)
-        return win != "eod_next"
+        refresh_dual_score_window(signal_item, quote=quote, bars=bars)
+        _, pit = prepare_eod_bars(bars, quote)
+        return not bool(pit.get("rolled_to_next"))
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
         logger.debug("catch except Exception: in dual_score.py", exc_info=True)
-        # 保守：异常时不融合 τ（等价 eod_next），避免空窗旧簿误 fuse 泄漏
         return False
 
 
@@ -905,6 +903,8 @@ def ensure_formula_terms_tau(item: Optional[dict]) -> Optional[Dict[str, Any]]:
         "gap_vs_sector",
         "yclose_loc",
         "mom3_pct",
+        "tau_lag1",
+        "tau_ma5",
         "ret_open_to_tau",
     ):
         v = item.get(k)
@@ -925,6 +925,8 @@ def ensure_formula_terms_tau(item: Optional[dict]) -> Optional[Dict[str, Any]]:
             "gap_atr",
             "gap_vs_sector",
             "ret_open_to_tau",
+            "tau_lag1",
+            "tau_ma5",
         }
     has_z = any(feats.get(k) is not None for k in z_keys)
 
