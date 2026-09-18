@@ -182,6 +182,7 @@ def dual_score_book_fields(
         "dual_score_weights": live_w,
         "dual_score_window": work.get("dual_score_window"),
         "eod_feature_as_of": work.get("eod_feature_as_of"),
+        "trade_day": work.get("trade_day"),
         "open_t": work.get("open_t"),
         "open_t_source": work.get("open_t_source"),
         "factor_anomaly": work.get("factor_anomaly"),

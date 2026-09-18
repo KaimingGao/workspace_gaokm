@@ -400,6 +400,7 @@ def score_stock(
         item["factor_anomaly"] = factor_anomaly
         item["eod_feature_as_of"] = eod_pit.get("eod_as_of")
         item["dual_score_window"] = eod_pit.get("dual_score_window")
+        item["trade_day"] = str(trade_day or "")[:10] or None
         item["open_t"] = open_t_info.get("open")
         item["open_t_source"] = open_t_info.get("source")
         return out
@@ -1014,6 +1015,7 @@ def score_stock(
         "feature_isomorphism_track": "X0-X5",
         "eod_feature_as_of": eod_pit.get("eod_as_of"),
         "dual_score_window": eod_pit.get("dual_score_window"),
+        "trade_day": str(trade_day or "")[:10] or None,
         "open_t": open_t_info.get("open"),
         "open_t_source": open_t_info.get("source"),
         "factor_anomaly": factor_anomaly,

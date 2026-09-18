@@ -1,7 +1,7 @@
-"""ŷ_τ90 Ridge：开盘 Z + 开→τ 收益/截面 + 序列特征 → price(τ⊕90m)/price(τ)−1。
+"""ŷ_τ90 Ridge：开盘 Z + 开→τ 收益/截面 + 序列特征 → mean(price(τ⊕85/90/95))/price(τ)−1。
 
 盘中写 y_τ90。做 T 破带后同号旁路闸；不进 C_τ / ranking。
-τ⊕90 超出当日交易时段则不训、不预。
+τ⊕95 超出当日交易时段则不训、不预。
 不含 ŷ_τ 的 OC 路径形状（HL/回撤/振幅），避免共线把 ŷ 压到 0。
 序列键（ret_last_5m / ret_last_90m / session_* / crosses_lunch_90 /
 session_vwap_dev / vol_last_90m_vs_avg / sector_ret_last_90m /
@@ -54,7 +54,7 @@ from core.signal.minute_tau_grid import (
 
 Y_T90_HAT_KEYS = ("predicted_score_t90", "y_t90_hat", "y_τ90", "y_t90")
 Y_T90_LABEL_KEYS = ("t90_realized", "y_t90_realized")
-FORMULA_T90 = "price[τ+90m]/price[τ]-1"
+FORMULA_T90 = "mean(price[τ+85m],price[τ+90m],price[τ+95m])/price[τ]-1"
 T90_Z_FEATURES = tuple(
     k for k in (TAU_Z_FEATURES + T90_SEQ_FEATURES) if k not in TAU_HORIZON_DROP_OC_SHAPE
 )
@@ -152,7 +152,7 @@ def fit_t90_ridge_report(
     tau_hm: str = "10:30",
     tau_grid: Optional[Sequence[str]] = None,
 ) -> Dict[str, Any]:
-    """池化拟合 ŷ_τ90 + 时间 OOS。X = ŷ_τ Z + 序列特征；标签 = price(τ⊕90m)/price(τ)−1。"""
+    """池化拟合 ŷ_τ90 + 时间 OOS。X = ŷ_τ Z + 序列特征；标签 = mean(price(τ⊕85/90/95))/price(τ)−1。"""
     live_hm = str(tau_hm or "10:30").strip() or "10:30"
     if live_hm.lower() in ("", "open"):
         live_hm = "10:30"
@@ -169,7 +169,7 @@ def fit_t90_ridge_report(
     if len(ys) < 20:
         return {
             "success": False,
-            "error": f"t90 样本不足 n={len(ys)}（需≥20 且需 τ⊕90 分钟价）",
+            "error": f"t90 样本不足 n={len(ys)}（需≥20 且需 τ⊕85/90/95 三根均价）",
             "task": "t90_ridge",
             "sample_count": len(ys),
             "stock_count": len(enriched),
@@ -316,7 +316,7 @@ def fit_t90_ridge_report(
             "crosses_lunch_90 / session_vwap_dev / vol_last_90m_vs_avg / "
             "sector_ret_last_90m / ret_last_90m_vs_sector / t90_lag1 / t90_ma5）；"
             "不含 ŷ_τ 的 OC 路径形状（HL/回撤/振幅，避免共线把 ŷ 压到 0）。"
-            "标签=price(τ⊕90 交易分钟)/price(τ)−1。"
+            "标签=mean(price(τ⊕85/90/95))/price(τ)−1。"
             "主字段 y_τ90；做 T 破带同号旁路；不进 C_τ / ranking。"
         ),
     }
@@ -354,7 +354,7 @@ def fit_t90_ridge_report(
         "tau_grid": list(grid),
         "dual_score_head": "y_t90",
         "note": (
-            "ŷ_τ90：price(τ)→price(τ⊕90m)。做 T 破带同号旁路；不进 C_τ / ranking。"
+            "ŷ_τ90：price(τ)→mean(price(τ⊕85/90/95))。做 T 破带同号旁路；不进 C_τ / ranking。"
         ),
     }
     attach_holdout_meta(report, split_meta)

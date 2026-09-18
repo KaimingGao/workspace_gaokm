@@ -291,12 +291,18 @@ DEFAULT_T0_RULES: Dict[str, Any] = {
     "y_hl_required": False,
     "y_t30_strong": 0.0,  # ŷ_τ30 旁路：0=任意有符号须同号；1=关
     "y_τ30_strong": 0.0,
-    "y_tw_strong": 3.0,  # ŷ_τw 票数旁路：0=任意有符号须同号；3=关
-    "y_τw_strong": 3.0,
+    "y_tw_strong": 5.0,  # ŷ_τw 票数旁路：0=任意有符号须同号；5=关
+    "y_τw_strong": 5.0,
     "y_t30_enter": 0.0,
     "y_τ30_enter": 0.0,
     "y_t30_enter_alt": 0.0,
     "y_τ30_enter_alt": 0.0,
+    "y_t45_strong": 1.0,  # 默认关；只进 ŷ_τw
+    "y_τ45_strong": 1.0,
+    "y_t45_enter": 0.0,
+    "y_τ45_enter": 0.0,
+    "y_t45_enter_alt": 0.0,
+    "y_τ45_enter_alt": 0.0,
     "y_t60_strong": 0.0,
     "y_τ60_strong": 0.0,
     "y_t60_enter": 0.0,
@@ -309,6 +315,12 @@ DEFAULT_T0_RULES: Dict[str, Any] = {
     "y_τ90_enter": 0.0,
     "y_t90_enter_alt": 0.0,
     "y_τ90_enter_alt": 0.0,
+    "y_t75_strong": 1.0,
+    "y_τ75_strong": 1.0,
+    "y_t75_enter": 0.0,
+    "y_τ75_enter": 0.0,
+    "y_t75_enter_alt": 0.0,
+    "y_τ75_enter_alt": 0.0,
     "y_tau_enter_alt": 0.0,  # 门槛2 |y_τ| 入场；缺键跟随 y_tau_enter
     "fusion_w_τc": 0.5,  # residual 融合：ŷ_τc 权
     "fusion_w_tc": 0.5,
@@ -556,12 +568,18 @@ def load_t0_rules(override: Optional[dict] = None) -> Dict[str, Any]:
         ("y_hl_strong", 0.0, 5.0, 5.0),
         ("y_t30_strong", 0.0, 1.0, 0.0),
         ("y_τ30_strong", 0.0, 1.0, 0.0),
-        ("y_tw_strong", 0.0, 3.0, 3.0),
-        ("y_τw_strong", 0.0, 3.0, 3.0),
+        ("y_tw_strong", 0.0, 5.0, 5.0),
+        ("y_τw_strong", 0.0, 5.0, 5.0),
         ("y_t30_enter", 0.0, 100.0, 0.0),
         ("y_τ30_enter", 0.0, 100.0, 0.0),
         ("y_t30_enter_alt", 0.0, 100.0, 0.0),
         ("y_τ30_enter_alt", 0.0, 100.0, 0.0),
+        ("y_t45_strong", 0.0, 1.0, 1.0),
+        ("y_τ45_strong", 0.0, 1.0, 1.0),
+        ("y_t45_enter", 0.0, 100.0, 0.0),
+        ("y_τ45_enter", 0.0, 100.0, 0.0),
+        ("y_t45_enter_alt", 0.0, 100.0, 0.0),
+        ("y_τ45_enter_alt", 0.0, 100.0, 0.0),
         ("y_t60_strong", 0.0, 1.0, 0.0),
         ("y_τ60_strong", 0.0, 1.0, 0.0),
         ("y_t60_enter", 0.0, 100.0, 0.0),
@@ -574,6 +592,12 @@ def load_t0_rules(override: Optional[dict] = None) -> Dict[str, Any]:
         ("y_τ90_enter", 0.0, 100.0, 0.0),
         ("y_t90_enter_alt", 0.0, 100.0, 0.0),
         ("y_τ90_enter_alt", 0.0, 100.0, 0.0),
+        ("y_t75_strong", 0.0, 1.0, 1.0),
+        ("y_τ75_strong", 0.0, 1.0, 1.0),
+        ("y_t75_enter", 0.0, 100.0, 0.0),
+        ("y_τ75_enter", 0.0, 100.0, 0.0),
+        ("y_t75_enter_alt", 0.0, 100.0, 0.0),
+        ("y_τ75_enter_alt", 0.0, 100.0, 0.0),
         ("fusion_w_τc", 0.0, 1.0, 0.5),
         ("fusion_w_tc", 0.0, 1.0, 0.5),
         ("residual_w_oc", 0.0, 1.0, 0.5),
@@ -648,6 +672,13 @@ def load_t0_rules(override: Optional[dict] = None) -> Dict[str, Any]:
     if cfg.get("y_tw_strong") in (None, "") and cfg.get("y_τw_strong") not in (None, ""):
         cfg["y_tw_strong"] = cfg.get("y_τw_strong")
     cfg["y_τw_strong"] = cfg.get("y_tw_strong")
+    # 旧默认 3=三头关闸；五头满票=5。落盘 3 视为关。
+    try:
+        if abs(float(cfg.get("y_tw_strong")) - 3.0) < 1e-12:
+            cfg["y_tw_strong"] = 5.0
+            cfg["y_τw_strong"] = 5.0
+    except (TypeError, ValueError):
+        pass
     if cfg.get("y_t30_enter") in (None, "") and cfg.get("y_τ30_enter") not in (None, ""):
         cfg["y_t30_enter"] = cfg.get("y_τ30_enter")
     cfg["y_τ30_enter"] = cfg.get("y_t30_enter")
@@ -657,6 +688,18 @@ def load_t0_rules(override: Optional[dict] = None) -> Dict[str, Any]:
     ):
         cfg["y_t30_enter_alt"] = cfg.get("y_τ30_enter_alt")
     cfg["y_τ30_enter_alt"] = cfg.get("y_t30_enter_alt")
+    if cfg.get("y_t45_strong") in (None, "") and cfg.get("y_τ45_strong") not in (None, ""):
+        cfg["y_t45_strong"] = cfg.get("y_τ45_strong")
+    cfg["y_τ45_strong"] = cfg.get("y_t45_strong")
+    if cfg.get("y_t45_enter") in (None, "") and cfg.get("y_τ45_enter") not in (None, ""):
+        cfg["y_t45_enter"] = cfg.get("y_τ45_enter")
+    cfg["y_τ45_enter"] = cfg.get("y_t45_enter")
+    if cfg.get("y_t45_enter_alt") in (None, "") and cfg.get("y_τ45_enter_alt") not in (
+        None,
+        "",
+    ):
+        cfg["y_t45_enter_alt"] = cfg.get("y_τ45_enter_alt")
+    cfg["y_τ45_enter_alt"] = cfg.get("y_t45_enter_alt")
     if cfg.get("y_t60_strong") in (None, "") and cfg.get("y_τ60_strong") not in (None, ""):
         cfg["y_t60_strong"] = cfg.get("y_τ60_strong")
     cfg["y_τ60_strong"] = cfg.get("y_t60_strong")
@@ -669,6 +712,18 @@ def load_t0_rules(override: Optional[dict] = None) -> Dict[str, Any]:
     ):
         cfg["y_t60_enter_alt"] = cfg.get("y_τ60_enter_alt")
     cfg["y_τ60_enter_alt"] = cfg.get("y_t60_enter_alt")
+    if cfg.get("y_t75_strong") in (None, "") and cfg.get("y_τ75_strong") not in (None, ""):
+        cfg["y_t75_strong"] = cfg.get("y_τ75_strong")
+    cfg["y_τ75_strong"] = cfg.get("y_t75_strong")
+    if cfg.get("y_t75_enter") in (None, "") and cfg.get("y_τ75_enter") not in (None, ""):
+        cfg["y_t75_enter"] = cfg.get("y_τ75_enter")
+    cfg["y_τ75_enter"] = cfg.get("y_t75_enter")
+    if cfg.get("y_t75_enter_alt") in (None, "") and cfg.get("y_τ75_enter_alt") not in (
+        None,
+        "",
+    ):
+        cfg["y_t75_enter_alt"] = cfg.get("y_τ75_enter_alt")
+    cfg["y_τ75_enter_alt"] = cfg.get("y_t75_enter_alt")
     if cfg.get("y_t90_strong") in (None, "") and cfg.get("y_τ90_strong") not in (None, ""):
         cfg["y_t90_strong"] = cfg.get("y_τ90_strong")
     cfg["y_τ90_strong"] = cfg.get("y_t90_strong")

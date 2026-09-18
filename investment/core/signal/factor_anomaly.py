@@ -69,17 +69,18 @@ def expected_eod_as_of(
 ) -> str:
     """EOD 因子日应停在哪一天。
 
-    live：跟 ``expected_latest_daily_bar_date``（盘中昨收，收盘后今日）。
-    历史：盘中 = T−1，收盘后 = T。
+    live：ŷ_oo 周期 T 的 T−1（今收不进 X，收盘后也不滚）。
+    历史：盘中 = T−1，已完成的历史 asof = T。
     """
     n = _session_pit.shanghai_now(now)
     if live:
         try:
-            from core.market.calendar import expected_latest_daily_bar_date
+            from core.market.calendar import prev_trading_day
 
-            return str(expected_latest_daily_bar_date(now=n) or "")[:10]
+            cycle = _session_pit.oo_cycle_date(now=n)
+            return str(prev_trading_day(cycle) or "")[:10]
         except Exception:  # noqa: BLE001
-            logger.debug("expected_latest_daily_bar_date failed", exc_info=True)
+            logger.debug("expected_eod_as_of live cycle failed", exc_info=True)
             return ""
     day = _day(trade_day)
     win = str(dual_score_window or "")

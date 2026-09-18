@@ -1,8 +1,8 @@
-"""Live 日线 PIT：盘中不把未完成的 T 日 K 线喂给 ŷ_EOD。
+"""Live 日线 PIT：ŷ_oo 周期 = T 开盘 → T+1 开盘，今收不进 X。
 
-收盘后 T 日 K 线完整，ŷ_EOD 滚到预测下一期。
-盘中 ŷ_trade = w·ŷ_EOD + w·(缺口∘ŷ_τ)；收盘后 ŷ_trade = ŷ_EOD（剥离当日 τ）。
-τ 买入闸收盘后不吃当日 ŷ_τ；nowcast 对照列仍吃 ŷ_τ。
+盘中去掉未完成的 T 日 K。收盘后仍停在 T−1：周期内拟合的是 T 日 10:00 信息集，
+不把 ŷ_oo 滚到 T+1→T+2。下一交易日 09:30 才换 T。
+盘中 ŷ_trade 可融 τ；时钟 ``eod_next``（15:05 后）给做 T 闸，不改变 ŷ_oo 目标。
 """
 
 
@@ -66,6 +66,36 @@ def clock_dual_score_window(*, now: Optional[datetime] = None) -> str:
     return "eod_next"
 
 
+def oo_cycle_date(*, now: Optional[datetime] = None) -> str:
+    """当前 ŷ_oo / 调仓 10:00 分的 T 日。
+
+    交易日 09:30 起（含收盘后当晚）T=今日；次日 09:30 前仍是上一交易日。
+    周末 / 假日回退到最近已过交易日。
+    """
+    n = shanghai_now(now)
+    today = n.strftime("%Y-%m-%d")
+    t = (n.hour, n.minute)
+    trading_today = n.weekday() < 5
+    try:
+        from core.market.calendar import is_trading_day
+
+        trading_today = bool(is_trading_day(today))
+    except Exception:  # noqa: BLE001
+        logger.debug("oo_cycle_date trading-day check failed", exc_info=True)
+    if trading_today and t >= (9, 30):
+        return today
+    try:
+        from core.market.calendar import prev_trading_day, resolve_session_date
+
+        if trading_today:
+            prev = str(prev_trading_day(today) or "")[:10]
+            return prev or today
+        return str(resolve_session_date(now=n) or today)[:10]
+    except Exception:  # noqa: BLE001
+        logger.debug("oo_cycle_date prev session failed", exc_info=True)
+        return today
+
+
 def _is_latest_complete_offline_asof(asof: str, *, now: Optional[datetime] = None) -> bool:
     """报价日是否等于「此刻仓里应有的最新完整日线」（盘中=昨收）。"""
     day = str(asof or "")[:10]
@@ -90,11 +120,11 @@ def resolve_minute_tau_trade_date(
 ) -> str:
     """分钟 τ / ŷ_oc 的 T 日。
 
-    ŷ_oc = close[T]/open[T]−1，盘中 T 必须是当前会话日。
+    ŷ_oc = close[T]/open[T]−1，T 为 ŷ_oo 周期日（T 开→T+1 开，含收盘后）。
     日线仓在 15:05 前仍停在昨收完整 K；实时行情也常无 ``date``。
     若把 ``bars[-1]`` 当 T，tip 会停在昨天 10:00，并把昨路径配到今开。
 
-    历史 PIT：报价日不是「此刻仓里应有的最新完整日线」时沿用报价日。
+    历史 PIT：报价日不是当前周期 T / 最新完整日线时沿用报价日。
     """
     n = shanghai_now(now)
     q_day = quote_asof(quote)
@@ -111,12 +141,25 @@ def resolve_minute_tau_trade_date(
     except Exception:  # noqa: BLE001
         logger.debug("resolve_session_date failed in minute tau T", exc_info=True)
         session = n.strftime("%Y-%m-%d")
+    cycle = oo_cycle_date(now=n)
     win = clock_dual_score_window(now=n)
     if win == "intraday" and (not asof or _is_latest_complete_offline_asof(asof, now=n)):
         return session or asof
+    # 收盘后仍在 T 开→T+1 开周期：ŷ_oc 继续用 T 日 10:00，不要退回昨收 K
+    if cycle and (not asof or _is_latest_complete_offline_asof(asof, now=n) or asof == cycle):
+        return cycle
+    try:
+        from core.market.calendar import prev_trading_day
+
+        prev = str(prev_trading_day(cycle) or "")[:10] if cycle else ""
+    except Exception:  # noqa: BLE001
+        logger.debug("minute tau T prev day failed", exc_info=True)
+        prev = ""
+    if asof and cycle and asof == prev:
+        return cycle
     if asof:
         return asof
-    return session
+    return cycle or session
 
 
 def _last_daily_bar_date(bars: Optional[Sequence[dict]]) -> str:
@@ -302,27 +345,36 @@ def prepare_eod_bars(
     *,
     now: Optional[datetime] = None,
 ) -> Tuple[List[dict], Dict[str, Any]]:
-    """盘中去掉与报价同日的未完成 K；收盘后保留。"""
+    """ŷ_oo X 去掉当前周期 T 日 K（今收不进 X），直到 T+1 开盘。
+
+    ``dual_score_window`` 仍按沪市时钟（15:05 后 ``eod_next``）。
+    ``rolled_to_next`` 只表示 ŷ_oo 目标已换到下一周期；T 收盘不会把它翻成 True。
+    """
     hist = [b for b in (bars or []) if isinstance(b, dict)]
     asof = quote_asof(quote)
     if not asof and hist:
         asof = str(hist[-1].get("date") or "")[:10]
     final = asof_session_final(asof, now=now)
+    cycle_t = oo_cycle_date(now=now)
     stripped = False
     eod = hist
-    if hist and not final:
+    if hist:
         last_d = str(hist[-1].get("date") or "")[:10]
-        if asof and last_d == asof:
+        if last_d and last_d == cycle_t and len(hist) >= 2:
+            eod = hist[:-1]
+            stripped = True
+        elif not final and asof and last_d == asof:
             eod = hist[:-1]
             stripped = True
     eod_as_of = str(eod[-1].get("date") or "")[:10] if eod else None
     quote_day = asof or None
-    # 昨收仓：末根已完成 ≠ 今日已收盘。若按 asof_final 直接 rolled，
-    # 次日盘中会一直 eod_next，数据中心 TRADE 假「单」。
+    win = clock_dual_score_window(now=now)
+    # live 昨收仓 / 当前周期 T：窗口跟时钟。ŷ_oo 目标要到 T+1 09:30 才滚。
     # 更早的历史 asof 仍走「该会话已收盘 → eod_next」（回测/attach）。
-    if quote_day and _is_latest_complete_offline_asof(quote_day, now=now):
-        win = clock_dual_score_window(now=now)
-        rolled = win == "eod_next"
+    if quote_day and (
+        _is_latest_complete_offline_asof(quote_day, now=now) or quote_day == cycle_t
+    ):
+        rolled = False
     else:
         rolled = bool(
             final
@@ -330,13 +382,15 @@ def prepare_eod_bars(
             and quote_day
             and str(eod_as_of)[:10] == str(quote_day)[:10]
         )
-        win = "eod_next" if rolled else "intraday"
+        if rolled:
+            win = "eod_next"
     return eod, {
         "quote_as_of": quote_day,
         "eod_as_of": eod_as_of,
         "asof_final": final,
         "stripped_asof_bar": stripped,
         "rolled_to_next": rolled,
+        "oo_cycle_date": cycle_t,
         "dual_score_window": win,
     }
 

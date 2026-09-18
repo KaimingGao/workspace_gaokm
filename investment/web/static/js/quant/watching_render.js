@@ -237,6 +237,36 @@ export function watchingScoreDetail(it) {
       (it && (it.score_formula_terms_t30 || it.formula_terms_t30)) || null,
       12
     ),
+    "y_τ45":
+      it &&
+      (it["y_τ45"] != null
+        ? it["y_τ45"]
+        : it.y_t45 != null
+          ? it.y_t45
+          : it.predicted_score_t45 != null
+            ? it.predicted_score_t45
+            : it.y_t45_hat),
+    y_t45: it && (it.y_t45 != null ? it.y_t45 : it["y_τ45"]),
+    predicted_score_t45:
+      it &&
+      (it.predicted_score_t45 != null
+        ? it.predicted_score_t45
+        : it.y_t45_hat != null
+          ? it.y_t45_hat
+          : it["y_τ45"]),
+    y_t45_hat: it && (it.y_t45_hat != null ? it.y_t45_hat : it.predicted_score_t45),
+    y_t45_realized: it && (it.y_t45_realized != null ? it.y_t45_realized : it.t45_realized),
+    t45_realized: it && (it.t45_realized != null ? it.t45_realized : it.y_t45_realized),
+    y_spec_τ45: (it && (it.y_spec_τ45 || it.y_spec_t45)) || null,
+    y_spec_t45: (it && (it.y_spec_t45 || it.y_spec_τ45)) || null,
+    formula_terms_t45: slimFormulaTerms(
+      (it && (it.formula_terms_t45 || it.score_formula_terms_t45)) || null,
+      12
+    ),
+    score_formula_terms_t45: slimFormulaTerms(
+      (it && (it.score_formula_terms_t45 || it.formula_terms_t45)) || null,
+      12
+    ),
     "y_τ60":
       it &&
       (it["y_τ60"] != null
@@ -265,6 +295,36 @@ export function watchingScoreDetail(it) {
     ),
     score_formula_terms_t60: slimFormulaTerms(
       (it && (it.score_formula_terms_t60 || it.formula_terms_t60)) || null,
+      12
+    ),
+    "y_τ75":
+      it &&
+      (it["y_τ75"] != null
+        ? it["y_τ75"]
+        : it.y_t75 != null
+          ? it.y_t75
+          : it.predicted_score_t75 != null
+            ? it.predicted_score_t75
+            : it.y_t75_hat),
+    y_t75: it && (it.y_t75 != null ? it.y_t75 : it["y_τ75"]),
+    predicted_score_t75:
+      it &&
+      (it.predicted_score_t75 != null
+        ? it.predicted_score_t75
+        : it.y_t75_hat != null
+          ? it.y_t75_hat
+          : it["y_τ75"]),
+    y_t75_hat: it && (it.y_t75_hat != null ? it.y_t75_hat : it.predicted_score_t75),
+    y_t75_realized: it && (it.y_t75_realized != null ? it.y_t75_realized : it.t75_realized),
+    t75_realized: it && (it.t75_realized != null ? it.t75_realized : it.y_t75_realized),
+    y_spec_τ75: (it && (it.y_spec_τ75 || it.y_spec_t75)) || null,
+    y_spec_t75: (it && (it.y_spec_t75 || it.y_spec_τ75)) || null,
+    formula_terms_t75: slimFormulaTerms(
+      (it && (it.formula_terms_t75 || it.score_formula_terms_t75)) || null,
+      12
+    ),
+    score_formula_terms_t75: slimFormulaTerms(
+      (it && (it.score_formula_terms_t75 || it.formula_terms_t75)) || null,
       12
     ),
     "y_τ90":
@@ -319,6 +379,7 @@ export function watchingScoreDetail(it) {
     predicted_score_tau_delta: it && it.predicted_score_tau_delta,
     dual_score_window: (it && it.dual_score_window) || null,
     eod_feature_as_of: (it && it.eod_feature_as_of) || null,
+    trade_day: (it && it.trade_day) || null,
     open_t: it && it.open_t,
     open_t_source: (it && it.open_t_source) || null,
     factor_anomaly: (it && it.factor_anomaly) || null,

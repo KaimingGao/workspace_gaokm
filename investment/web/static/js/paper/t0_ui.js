@@ -145,7 +145,7 @@ function finishT0Days(vizEl, daysEl, tipCtrl) {
   if (daysEl && daysEl.dataset.scoreTipWired !== "1" && typeof tipCtrl.bindHost === "function") {
     tipCtrl.bindHost(daysEl, {
       scoreSelector:
-        ".paper-t0-y-score[data-score-detail], .paper-t0-dir-score[data-score-detail], [data-score-tip=\"t30\"][data-score-detail], [data-score-tip=\"t60\"][data-score-detail], [data-score-tip=\"t90\"][data-score-detail]",
+        ".paper-t0-y-score[data-score-detail], .paper-t0-dir-score[data-score-detail], [data-score-tip=\"t30\"][data-score-detail], [data-score-tip=\"t45\"][data-score-detail], [data-score-tip=\"t60\"][data-score-detail], [data-score-tip=\"t75\"][data-score-detail], [data-score-tip=\"t90\"][data-score-detail]",
     });
   }
 }
@@ -626,15 +626,30 @@ function classifyDeskNote(note, locked) {
     )
       return { id: "y_t90_flat", label: "τ90横盘" };
     if (
+      (r.includes("ŷ_τ75") || r.includes("y_τ75") || r.includes("y_t75")) &&
+      (r.includes("横盘") || r.includes("缺失") || r.includes("未过"))
+    )
+      return { id: "y_t75_flat", label: "τ75横盘" };
+    if (
       (r.includes("ŷ_τ60") || r.includes("y_τ60") || r.includes("y_t60")) &&
       (r.includes("横盘") || r.includes("缺失") || r.includes("未过"))
     )
       return { id: "y_t60_flat", label: "τ60横盘" };
     if (
+      (r.includes("ŷ_τ45") || r.includes("y_τ45") || r.includes("y_t45")) &&
+      (r.includes("横盘") || r.includes("缺失") || r.includes("未过"))
+    )
+      return { id: "y_t45_flat", label: "τ45横盘" };
+    if (
       (r.includes("ŷ_τ90") || r.includes("y_τ90") || r.includes("y_t90")) &&
       (r.includes("旁路") || r.includes("逆带"))
     )
       return { id: "y_t90_disagree", label: "τ90逆带" };
+    if (
+      (r.includes("ŷ_τ75") || r.includes("y_τ75") || r.includes("y_t75")) &&
+      (r.includes("旁路") || r.includes("逆带"))
+    )
+      return { id: "y_t75_disagree", label: "τ75逆带" };
     if (
       (r.includes("ŷ_τw") || r.includes("y_τw") || r.includes("y_tw")) &&
       (r.includes("旁路") || r.includes("逆带"))
@@ -645,6 +660,11 @@ function classifyDeskNote(note, locked) {
       (r.includes("旁路") || r.includes("逆带"))
     )
       return { id: "y_t60_disagree", label: "τ60逆带" };
+    if (
+      (r.includes("ŷ_τ45") || r.includes("y_τ45") || r.includes("y_t45")) &&
+      (r.includes("旁路") || r.includes("逆带"))
+    )
+      return { id: "y_t45_disagree", label: "τ45逆带" };
     if (
       (r.includes("ŷ_τ30") || r.includes("y_τ30") || r.includes("y_t30")) &&
       (r.includes("横盘") || r.includes("缺失") || r.includes("未过"))

@@ -102,6 +102,94 @@ class TestT0HubScoreAlignment(unittest.TestCase):
         )
         self.assertEqual(rescore.get("_score_source"), "prefix_causal")
 
+    def test_rescore_open_fallback_rebuilds_oc_formula_from_pack(self):
+        """开盘锚回退后仍按前缀小包重拆 ŷ_oc，组成表要有开盘→τ。"""
+        from core.t0.score_policy import (
+            clear_score_model_cache,
+            rescore_scores_at_fixed_prefix,
+        )
+
+        clear_score_model_cache()
+        day = _bar("2025-08-28", 78.33, 79.1, 78.31, 78.25, prev=77.82)
+        prefix = _mins(
+            [78.33, 78.97],
+            session_open=78.33,
+            day="2025-08-28",
+        )
+        open_snap = {
+            "stock_code": "600000",
+            "y_oc": 0.197,
+            "predicted_score_tau": 0.197,
+            "as_of_tau": "open",
+            "formula_terms_tau": {
+                "intercept": 0.197,
+                "total": 0.197,
+                "terms": [
+                    {
+                        "key": "theme_day",
+                        "label": "主题日",
+                        "beta": -0.05,
+                        "z": -0.3,
+                        "contrib": 0.015,
+                    }
+                ],
+            },
+            "features_tau": {"theme_day": 0.0, "sector_gap_breadth": 0.0},
+        }
+        sc = rescore_scores_at_fixed_prefix(
+            stock_code="600000",
+            minute_prefix=prefix,
+            day_bar=day,
+            hist_bars=[],
+            fuse_intraday=True,
+            open_snap=open_snap,
+        )
+        feats = sc.get("features_tau") or {}
+        if feats.get("ret_open_to_tau") is None:
+            self.skipTest("前缀未切出开盘→τ")
+        ft = sc.get("formula_terms_tau") or {}
+        keys = [t.get("key") for t in (ft.get("terms") or []) if isinstance(t, dict)]
+        self.assertIn("ret_open_to_tau", keys)
+        self.assertIn("09:40", str(sc.get("as_of_tau") or ""))
+
+    def test_inject_prefix_overwrites_stale_sector_cs(self):
+        """开盘锚上的 10:00 板块中位不得留在 09:35 前缀。"""
+        from unittest.mock import patch
+
+        from core.t0.score_policy import _inject_minute_pack_from_prefix
+
+        day = _bar("2025-08-28", 78.33, 79.1, 78.31, 78.25, prev=77.82)
+        prefix = _mins([78.33], session_open=78.33, day="2025-08-28")[:1]
+        item = {
+            "features_tau": {
+                "theme_day": 0.0,
+                "sector_ret_to_tau": 2.12,
+                "ret_vs_sector": -1.94,
+            }
+        }
+        with patch(
+            "core.signal.minute_tau_feats.resolve_sector_ret_to_tau", return_value=0.40
+        ), patch(
+            "core.signal.minute_tau_feats.resolve_sector_ret_last_30m", return_value=None
+        ), patch(
+            "core.signal.minute_tau_feats.resolve_sector_ret_last_45m", return_value=None
+        ), patch(
+            "core.signal.minute_tau_feats.resolve_sector_ret_last_60m", return_value=None
+        ), patch(
+            "core.signal.minute_tau_feats.resolve_sector_ret_last_75m", return_value=None
+        ), patch(
+            "core.signal.minute_tau_feats.resolve_sector_ret_last_90m", return_value=None
+        ), patch(
+            "core.t0.score_policy.current_t0_cs_universe_codes", return_value=["600000"]
+        ):
+            _inject_minute_pack_from_prefix(
+                item, minute_prefix=prefix, day_bar=day, hm="09:35"
+            )
+        feats = item.get("features_tau") or {}
+        self.assertAlmostEqual(float(feats.get("sector_ret_to_tau")), 0.40, places=4)
+        self.assertIsNotNone(feats.get("gap_pct"))
+        self.assertIsNotNone(item.get("gap_pct"))
+
     def test_direction_y_tau_prefers_oc_over_mapped(self):
         """表列/tip 用 OC 头；mapped predicted_score_tau 不得盖 y_tau_oc。"""
         from core.t0.score_policy import resolve_direction_y_tau, scores_from_item

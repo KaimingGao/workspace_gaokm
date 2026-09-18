@@ -87,6 +87,69 @@ def load_last_portfolio_backtest(path: Optional[str] = None) -> Dict[str, Any]:
 
 # 做 T 回测页只画指标 / 图 / 成交样本；逐票全日 days 不落盘。
 _T0_DROP_KEYS = ("results",)
+_T0_DAY_DROP_KEYS = ("minute_bars", "hist_bars", "_t0_score_snap")
+_T0_REWRITE_IF_LARGER = 1_500_000
+
+
+def _is_t0_feat_bulk_key(key: Any) -> bool:
+    """features / 规格 / 系数：体积大，展开 tip 不依赖；仅成交触发根保留对照。"""
+    s = str(key or "")
+    return (
+        s.startswith("score_formula")
+        or s.startswith("features_")
+        or s.startswith("y_spec")
+        or s
+        in (
+            "factor_coefficients",
+            "active_features",
+            "zscore_means",
+            "zscore_stds",
+        )
+    )
+
+
+def _is_t0_tip_bulk_key(key: Any) -> bool:
+    s = str(key or "")
+    return s.startswith("formula_terms") or _is_t0_feat_bulk_key(s)
+
+
+def _slim_t0_scan_row(row: Any) -> Optional[dict]:
+    """扫描行保留 formula_terms_*，展开日期明细各钟 tip 才有组成。
+
+    features / y_spec / 重复的 score_formula 只留 leg1，控制 last_t0 体积。
+    """
+    if not isinstance(row, dict):
+        return None
+    keep_feat = bool(row.get("leg1"))
+    out = {
+        k: v
+        for k, v in row.items()
+        if v is not None and (keep_feat or not _is_t0_feat_bulk_key(k))
+    }
+    return out or None
+
+
+def _strip_t0_tip_bulk(obj: Any) -> Any:
+    if isinstance(obj, dict):
+        return {
+            k: _strip_t0_tip_bulk(v)
+            for k, v in obj.items()
+            if not _is_t0_tip_bulk_key(k)
+        }
+    if isinstance(obj, list):
+        return [_strip_t0_tip_bulk(x) for x in obj]
+    return obj
+
+
+def _slim_t0_day(day: Any) -> Any:
+    if not isinstance(day, dict):
+        return day
+    out = {k: v for k, v in day.items() if k not in _T0_DAY_DROP_KEYS}
+    scan = out.pop("close_band_scan", None)
+    out = _strip_t0_tip_bulk(out)
+    if isinstance(scan, list):
+        out["close_band_scan"] = [r for r in (_slim_t0_scan_row(x) for x in scan) if r]
+    return out
 
 
 def _slim_t0_result(result: Dict[str, Any]) -> Dict[str, Any]:
@@ -99,6 +162,11 @@ def _slim_t0_result(result: Dict[str, Any]) -> Dict[str, Any]:
         and len(days) > len(sample) + 20
     ):
         slim["days"] = sample
+    if isinstance(slim.get("days"), list):
+        slim["days"] = [_slim_t0_day(d) for d in slim["days"]]
+        slim.pop("trade_days_sample", None)
+    elif isinstance(sample, list):
+        slim["trade_days_sample"] = [_slim_t0_day(d) for d in sample]
     if slim.get("success") is None:
         slim["success"] = True
     return slim
@@ -122,7 +190,32 @@ def save_last_t0_backtest(
 
 
 def load_last_t0_backtest(path: Optional[str] = None) -> Dict[str, Any]:
-    return _load_snapshot(path or LAST_T0_BACKTEST_PATH)
+    p = path or LAST_T0_BACKTEST_PATH
+    pack = _load_snapshot(p)
+    result = pack.get("result")
+    if not isinstance(result, dict):
+        return pack
+    slim = _slim_t0_result(result)
+    pack["result"] = slim
+    try:
+        raw_size = os.path.getsize(p) if os.path.isfile(p) else 0
+    except OSError:
+        raw_size = 0
+    if raw_size > _T0_REWRITE_IF_LARGER:
+        try:
+            from core.signal.score_display import json_safe
+
+            atomic_write_json(
+                p,
+                {
+                    "saved_at": pack.get("saved_at")
+                    or datetime.now().isoformat(timespec="seconds"),
+                    "result": json_safe(slim),
+                },
+            )
+        except Exception:  # noqa: BLE001
+            logger.debug("rewrite slim t0 snapshot failed", exc_info=True)
+    return pack
 
 
 def _load_snapshot(path: str) -> Dict[str, Any]:

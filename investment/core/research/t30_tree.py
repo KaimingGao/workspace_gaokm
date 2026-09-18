@@ -1,4 +1,4 @@
-"""ŷ_τ30_tree：独立浅树头，标签与 ŷ_τ30 相同（price(τ⊕30m)/price(τ)−1）。
+"""ŷ_τ30_tree：独立浅树头，标签与 ŷ_τ30 相同（mean(price(τ⊕25/30/35))/price(τ)−1）。
 
 与 Ridge 同面板、同 Holdout，只写 ``t30_tree_last_report.json``。
 不提供 persist / 研究套 sidecar，不进 live 打分与历史回测。
@@ -126,7 +126,7 @@ def fit_t30_tree_report(
     if len(ys) < 20:
         return {
             "success": False,
-            "error": f"树样本不足 n={len(ys)}（需≥20 且需 τ⊕30 分钟价）",
+            "error": f"树样本不足 n={len(ys)}（需≥20 且需 τ⊕25/30/35 三根均价）",
             "task": "t30_tree",
             "head": TREE_HEAD,
             "sample_count": len(ys),

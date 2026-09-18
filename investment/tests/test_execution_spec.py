@@ -322,6 +322,29 @@ class TestExecutionResolve(unittest.TestCase):
         )
         self.assertAlmostEqual(float(view["t0"]["y_t90_strong"]), 0.2)
 
+    def test_public_view_keeps_y_t45_t75_strong(self):
+        from core.execution import (
+            apply_execution_patch_to_paper,
+            execution_public_view,
+            resolve_effective_execution,
+            validate_execution_patch,
+        )
+
+        ok, norm, errs = validate_execution_patch(
+            {"t0": {"y_t45_strong": 0.2, "y_t75_strong": 0.3}}
+        )
+        self.assertTrue(ok, errs)
+        self.assertAlmostEqual(float(norm["t0"]["y_t45_strong"]), 0.2)
+        self.assertAlmostEqual(float(norm["t0"]["y_t75_strong"]), 0.3)
+        paper = {"strategy_id": "short_conservative", "rules": {}}
+        applied = apply_execution_patch_to_paper(paper, norm)
+        self.assertTrue(applied.get("ok"), applied)
+        view = execution_public_view(
+            resolve_effective_execution(paper=paper, channel="paper")
+        )
+        self.assertAlmostEqual(float(view["t0"]["y_t45_strong"]), 0.2)
+        self.assertAlmostEqual(float(view["t0"]["y_t75_strong"]), 0.3)
+
     def test_public_view_keeps_y_t30_t60_enter(self):
         from core.execution import (
             apply_execution_patch_to_paper,
@@ -335,8 +358,12 @@ class TestExecutionResolve(unittest.TestCase):
                 "t0": {
                     "y_t30_enter": 0.4,
                     "y_t30_enter_alt": 0.2,
+                    "y_t45_enter": 0.35,
+                    "y_t45_enter_alt": 0.15,
                     "y_t60_enter": 0.6,
                     "y_t60_enter_alt": 0.3,
+                    "y_t75_enter": 0.55,
+                    "y_t75_enter_alt": 0.25,
                     "y_t90_enter": 0.7,
                     "y_t90_enter_alt": 0.4,
                 }
@@ -351,8 +378,12 @@ class TestExecutionResolve(unittest.TestCase):
         )
         self.assertAlmostEqual(float(view["t0"]["y_t30_enter"]), 0.4)
         self.assertAlmostEqual(float(view["t0"]["y_t30_enter_alt"]), 0.2)
+        self.assertAlmostEqual(float(view["t0"]["y_t45_enter"]), 0.35)
+        self.assertAlmostEqual(float(view["t0"]["y_t45_enter_alt"]), 0.15)
         self.assertAlmostEqual(float(view["t0"]["y_t60_enter"]), 0.6)
         self.assertAlmostEqual(float(view["t0"]["y_t60_enter_alt"]), 0.3)
+        self.assertAlmostEqual(float(view["t0"]["y_t75_enter"]), 0.55)
+        self.assertAlmostEqual(float(view["t0"]["y_t75_enter_alt"]), 0.25)
         self.assertAlmostEqual(float(view["t0"]["y_t90_enter"]), 0.7)
         self.assertAlmostEqual(float(view["t0"]["y_t90_enter_alt"]), 0.4)
 

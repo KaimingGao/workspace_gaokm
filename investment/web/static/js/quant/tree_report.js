@@ -323,33 +323,55 @@ function tauPanel(treeOos, ridgeOos) {
 
 /**
  * @param {object} data 拟合报告
- * @param {{ head?: "tau"|"r"|"t30"|"t60"|"t90" }} [opts]
+ * @param {{ head?: "tau"|"r"|"t30"|"t45"|"t60"|"t75"|"t90" }} [opts]
  */
 export function treeReportHtml(data, opts = {}) {
   if (!data || typeof data !== "object" || !data.success) return "";
   const isR = opts.head === "r";
   const isT30 = opts.head === "t30";
+  const isT45 = opts.head === "t45";
   const isT60 = opts.head === "t60";
+  const isT75 = opts.head === "t75";
   const isT90 = opts.head === "t90";
   const headName = isT90
     ? "ŷ_τ90_tree"
+    : isT75
+    ? "ŷ_τ75_tree"
     : isT60
     ? "ŷ_τ60_tree"
+    : isT45
+    ? "ŷ_τ45_tree"
     : isT30
       ? "ŷ_τ30_tree"
       : isR
         ? "ŷ_τc_tree"
         : "ŷ_oc_tree";
   const ySpec = isT90
-    ? "price(τ⊕90m)/price(τ)−1"
+    ? "mean(price(τ⊕85/90/95))/price(τ)−1"
+    : isT75
+    ? "mean(price(τ⊕70/75/80))/price(τ)−1"
     : isT60
-    ? "price(τ⊕60m)/price(τ)−1"
+    ? "mean(price(τ⊕55/60/65))/price(τ)−1"
+    : isT45
+    ? "mean(price(τ⊕40/45/50))/price(τ)−1"
     : isT30
-    ? "price(τ⊕30m)/price(τ)−1"
+    ? "mean(price(τ⊕25/30/35))/price(τ)−1"
     : isR
       ? "close/price(τ)−1"
       : "open→close";
-  const headKey = isT90 ? "t90" : isT60 ? "t60" : isT30 ? "t30" : isR ? "r" : "tau";
+  const headKey = isT90
+    ? "t90"
+    : isT75
+      ? "t75"
+      : isT60
+        ? "t60"
+        : isT45
+          ? "t45"
+          : isT30
+            ? "t30"
+            : isR
+              ? "r"
+              : "tau";
   const boost = data.oos || {};
   const ridge = data.ridge_oos || {};
   const delta = data.delta_vs_ridge || {};

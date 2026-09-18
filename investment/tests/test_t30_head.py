@@ -48,6 +48,8 @@ class SessionClockTests(unittest.TestCase):
         self.assertEqual(add_session_minutes("11:15", 30), "13:15")
         self.assertEqual(add_session_minutes("11:30", 30), "13:30")
         self.assertEqual(add_session_minutes("14:30", 30), "15:00")
+        self.assertEqual(add_session_minutes("14:25", 35), "15:00")
+        self.assertIsNone(add_session_minutes("14:30", 35))
         self.assertIsNone(add_session_minutes("14:35", 30))
         self.assertIsNone(add_session_minutes("15:00", 30))
 
@@ -65,6 +67,14 @@ class SessionClockTests(unittest.TestCase):
         self.assertEqual(horizon_crosses_lunch("11:00"), 0.0)
         self.assertEqual(horizon_crosses_lunch("11:30"), 1.0)
         self.assertEqual(session_remain("14:30"), 30.0)
+        self.assertEqual(session_remain("14:25"), 35.0)
+
+    def test_tau_clock_allows_t30_needs_35m(self):
+        from core.signal.minute_tau_grid import tau_clock_allows_t30
+
+        self.assertTrue(tau_clock_allows_t30("14:25"))
+        self.assertFalse(tau_clock_allows_t30("14:30"))
+        self.assertFalse(tau_clock_allows_t30("14:35"))
 
     def test_extract_t30_seq_pack_trail_and_clock(self):
         from core.signal.minute_tau_feats import extract_t30_seq_pack
@@ -174,14 +184,15 @@ class SessionClockTests(unittest.TestCase):
         self.assertAlmostEqual(out[1]["xs"][0]["ret_last_30m_vs_sector"], 1.0, places=6)
         self.assertAlmostEqual(out[0]["xs"][1]["sector_ret_last_30m"], 3.0, places=6)
 
-    def test_t30_grid_stops_at_1430(self):
+    def test_t30_grid_stops_at_1425(self):
         from core.signal.minute_tau_grid import DEFAULT_T30_TRAIN_TAU_GRID
 
         self.assertIn("09:30", DEFAULT_T30_TRAIN_TAU_GRID)
         self.assertIn("11:30", DEFAULT_T30_TRAIN_TAU_GRID)
         self.assertIn("13:05", DEFAULT_T30_TRAIN_TAU_GRID)
-        self.assertIn("14:30", DEFAULT_T30_TRAIN_TAU_GRID)
+        self.assertIn("14:25", DEFAULT_T30_TRAIN_TAU_GRID)
         self.assertNotIn("13:00", DEFAULT_T30_TRAIN_TAU_GRID)
+        self.assertNotIn("14:30", DEFAULT_T30_TRAIN_TAU_GRID)
         self.assertNotIn("14:35", DEFAULT_T30_TRAIN_TAU_GRID)
 
 
@@ -192,6 +203,41 @@ class RelabelT30Tests(unittest.TestCase):
         self.assertAlmostEqual(y_t30_pct(10.0, 10.5), 5.0, places=6)
         self.assertIsNone(y_t30_pct(0, 10.5))
         self.assertIsNone(y_t30_pct(10.0, None))
+
+    def test_t30_mean_session_three_bars(self):
+        from core.research.tau_panel import price_at_t30_mean_session, y_t30_pct
+
+        dkey = "2025-06-02"
+        bars = []
+        for hm in _times_am_pm():
+            if hm == "09:55":
+                c = 10.1
+            elif hm == "10:00":
+                c = 10.4
+            elif hm == "10:05":
+                c = 10.7
+            else:
+                c = 10.0
+            bars.append(_bar(dkey, hm, c, open_px=10.0))
+        hm, px = price_at_t30_mean_session(bars, trade_date=dkey, tau_hm="09:30")
+        self.assertEqual(hm, "10:00")
+        self.assertAlmostEqual(float(px), 10.4, places=6)
+        self.assertAlmostEqual(y_t30_pct(10.0, px), 4.0, places=6)
+        late_hm, late_px = price_at_t30_mean_session(
+            bars, trade_date=dkey, tau_hm="14:30"
+        )
+        self.assertIsNone(late_hm)
+        self.assertIsNone(late_px)
+        ok_hm, ok_px = price_at_t30_mean_session(
+            bars, trade_date=dkey, tau_hm="14:25"
+        )
+        self.assertEqual(ok_hm, "14:55")
+        self.assertAlmostEqual(float(ok_px), 10.0, places=6)
+        lunch_hm, lunch_px = price_at_t30_mean_session(
+            bars, trade_date=dkey, tau_hm="11:15"
+        )
+        self.assertEqual(lunch_hm, "13:15")
+        self.assertAlmostEqual(float(lunch_px), 10.0, places=6)
 
     def test_relabel_keeps_horizon_rows_and_drops_missing(self):
         from core.research.tau_panel import relabel_tau_panels_as_t30, y_t30_pct
@@ -544,7 +590,7 @@ class T30GateTests(unittest.TestCase):
         dkey = "2025-06-03"
         mins = []
         for hm in _times_am_pm():
-            px = 10.5 if hm >= "10:00" else 10.0
+            px = 10.5 if hm >= "09:55" else 10.0
             mins.append(_bar(dkey, hm, px))
         bar = {
             "date": dkey,
@@ -610,7 +656,7 @@ class TTwGateTests(unittest.TestCase):
         from core.t0.config import load_t0_rules
         from core.t0.viz import classify_t0_skip_reason
 
-        self.assertEqual(float(load_t0_rules({})["y_tw_strong"]), 3.0)
+        self.assertEqual(float(load_t0_rules({})["y_tw_strong"]), 5.0)
         self.assertAlmostEqual(blend_y_tw(1.0, -0.2, -0.5), -1.0)
         self.assertAlmostEqual(blend_y_tw(1.0, 0.1, 0.2), 3.0)
         self.assertIsNone(blend_y_tw(None, None, None))

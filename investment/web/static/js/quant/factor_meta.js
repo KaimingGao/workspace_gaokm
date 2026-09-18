@@ -258,14 +258,45 @@ export const TAU_FEAT_META = {
     description: "ŷ_τ30 专用。个股 ret_last_30m − 板块中位近30m（%）。",
   },
   t30_lag1: {
-    label: "昨同钟真实 τ⊕30m %",
+    label: "昨同钟真实 τ⊕25/30/35均 %",
     description:
-      "ŷ_τ30 专用。同一决策钟昨日已实现 price(τ⊕30m)/price(τ)−1。日期严格早于 asof。",
+      "ŷ_τ30 专用。同一决策钟昨日已实现 mean(price(τ⊕25/30/35))/price(τ)−1。日期严格早于 asof。",
   },
   t30_ma5: {
-    label: "近5日同钟真实 τ⊕30m 均 %",
+    label: "近5日同钟真实 τ⊕25/30/35均 %",
     description:
-      "ŷ_τ30 专用。同一决策钟近 5 个交易日已实现 τ⊕30m 收益均值。日期严格早于 asof。",
+      "ŷ_τ30 专用。同一决策钟近 5 个交易日已实现 τ⊕25/30/35 均价收益均值。日期严格早于 asof。",
+  },
+  ret_last_45m: {
+    label: "近45交易分钟收益 %",
+    description: "ŷ_τ45 专用。交易时钟 ⊖45m 到 τ 的收益（%）；跳过午休。",
+  },
+  crosses_lunch_45: {
+    label: "未来45m是否跨午休",
+    description: "ŷ_τ45 专用。τ⊕45m 是否跨 11:30–13:00。与 30m 的 crosses_lunch 分开。",
+  },
+  vol_last_45m_vs_avg: {
+    label: "近45m量/前缀均量",
+    description: "ŷ_τ45 专用。近 45 交易分钟均量 / 前缀均量。",
+  },
+  sector_ret_last_45m: {
+    label: "板块中位近45m %",
+    description:
+      "ŷ_τ45 专用。同日同钟池内 ret_last_45m 中位数（%）。与开→τ 的 sector_ret_to_tau 窗口不同。",
+  },
+  ret_last_45m_vs_sector: {
+    label: "近45m相对板块 %",
+    description: "ŷ_τ45 专用。个股 ret_last_45m − 板块中位近45m（%）。",
+  },
+  t45_lag1: {
+    label: "昨同钟真实 τ⊕40/45/50均 %",
+    description:
+      "ŷ_τ45 专用。同一决策钟昨日已实现 mean(price(τ⊕40/45/50))/price(τ)−1。日期严格早于 asof。",
+  },
+  t45_ma5: {
+    label: "近5日同钟真实 τ⊕40/45/50均 %",
+    description:
+      "ŷ_τ45 专用。同一决策钟近 5 个交易日已实现 τ⊕40/45/50 均价收益均值。日期严格早于 asof。",
   },
   ret_last_60m: {
     label: "近60交易分钟收益 %",
@@ -289,14 +320,45 @@ export const TAU_FEAT_META = {
     description: "ŷ_τ60 专用。个股 ret_last_60m − 板块中位近60m（%）。",
   },
   t60_lag1: {
-    label: "昨同钟真实 τ⊕60m %",
+    label: "昨同钟真实 τ⊕55/60/65均 %",
     description:
-      "ŷ_τ60 专用。同一决策钟昨日已实现 price(τ⊕60m)/price(τ)−1。日期严格早于 asof。",
+      "ŷ_τ60 专用。同一决策钟昨日已实现 mean(price(τ⊕55/60/65))/price(τ)−1。日期严格早于 asof。",
   },
   t60_ma5: {
-    label: "近5日同钟真实 τ⊕60m 均 %",
+    label: "近5日同钟真实 τ⊕55/60/65均 %",
     description:
-      "ŷ_τ60 专用。同一决策钟近 5 个交易日已实现 τ⊕60m 收益均值。日期严格早于 asof。",
+      "ŷ_τ60 专用。同一决策钟近 5 个交易日已实现 τ⊕55/60/65 均价收益均值。日期严格早于 asof。",
+  },
+  ret_last_75m: {
+    label: "近75交易分钟收益 %",
+    description: "ŷ_τ75 专用。交易时钟 ⊖75m 到 τ 的收益（%）；跳过午休。",
+  },
+  crosses_lunch_75: {
+    label: "未来75m是否跨午休",
+    description: "ŷ_τ75 专用。τ⊕75m 是否跨 11:30–13:00。与 30m / 60m 的 crosses_lunch 分开。",
+  },
+  vol_last_75m_vs_avg: {
+    label: "近75m量/前缀均量",
+    description: "ŷ_τ75 专用。近 75 交易分钟均量 / 前缀均量。",
+  },
+  sector_ret_last_75m: {
+    label: "板块中位近75m %",
+    description:
+      "ŷ_τ75 专用。同日同钟池内 ret_last_75m 中位数（%）。与开→τ 的 sector_ret_to_tau 窗口不同。",
+  },
+  ret_last_75m_vs_sector: {
+    label: "近75m相对板块 %",
+    description: "ŷ_τ75 专用。个股 ret_last_75m − 板块中位近75m（%）。",
+  },
+  t75_lag1: {
+    label: "昨同钟真实 τ⊕70/75/80均 %",
+    description:
+      "ŷ_τ75 专用。同一决策钟昨日已实现 mean(price(τ⊕70/75/80))/price(τ)−1。日期严格早于 asof。",
+  },
+  t75_ma5: {
+    label: "近5日同钟真实 τ⊕70/75/80均 %",
+    description:
+      "ŷ_τ75 专用。同一决策钟近 5 个交易日已实现 τ⊕70/75/80 均价收益均值。日期严格早于 asof。",
   },
   ret_last_90m: {
     label: "近90交易分钟收益 %",
@@ -320,14 +382,14 @@ export const TAU_FEAT_META = {
     description: "ŷ_τ90 专用。个股 ret_last_90m − 板块中位近90m（%）。",
   },
   t90_lag1: {
-    label: "昨同钟真实 τ⊕90m %",
+    label: "昨同钟真实 τ⊕85/90/95均 %",
     description:
-      "ŷ_τ90 专用。同一决策钟昨日已实现 price(τ⊕90m)/price(τ)−1。日期严格早于 asof。",
+      "ŷ_τ90 专用。同一决策钟昨日已实现 mean(price(τ⊕85/90/95))/price(τ)−1。日期严格早于 asof。",
   },
   t90_ma5: {
-    label: "近5日同钟真实 τ⊕90m 均 %",
+    label: "近5日同钟真实 τ⊕85/90/95均 %",
     description:
-      "ŷ_τ90 专用。同一决策钟近 5 个交易日已实现 τ⊕90m 收益均值。日期严格早于 asof。",
+      "ŷ_τ90 专用。同一决策钟近 5 个交易日已实现 τ⊕85/90/95 均价收益均值。日期严格早于 asof。",
   },
   realized_vol: {
     label: "前缀已实现波动 %",

@@ -1,4 +1,4 @@
-"""ŷ_τ90_tree：独立浅树头，标签与 ŷ_τ90 相同（price(τ⊕90m)/price(τ)−1）。
+"""ŷ_τ90_tree：独立浅树头，标签与 ŷ_τ90 相同（mean(price(τ⊕85/90/95))/price(τ)−1）。
 
 与 Ridge 同面板、同 Holdout，只写 ``t90_tree_last_report.json``。
 不提供 persist / 研究套 sidecar，不进 live 打分与历史回测。
@@ -126,7 +126,7 @@ def fit_t90_tree_report(
     if len(ys) < 20:
         return {
             "success": False,
-            "error": f"树样本不足 n={len(ys)}（需≥20 且需 τ⊕90 分钟价）",
+            "error": f"树样本不足 n={len(ys)}（需≥20 且需 τ⊕85/90/95 三根均价）",
             "task": "t90_tree",
             "head": TREE_HEAD,
             "sample_count": len(ys),

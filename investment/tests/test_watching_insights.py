@@ -296,6 +296,7 @@ class TestWatchingInsights(unittest.TestCase):
                     "hard_reject": False,
                     "eod_feature_as_of": "2026-09-16",
                     "dual_score_window": "intraday",
+                    "trade_day": "2026-09-17",
                     "factor_anomaly": {
                         "ok": False,
                         "fatal_eod": False,
@@ -309,6 +310,7 @@ class TestWatchingInsights(unittest.TestCase):
         ):
             row = _insight_one("000001")
         self.assertEqual(row.get("eod_feature_as_of"), "2026-09-16")
+        self.assertEqual(row.get("trade_day"), "2026-09-17")
         self.assertEqual((row.get("factor_anomaly") or {}).get("ok"), False)
 
     def test_insight_one_live_mode_allows_remote_flag(self):

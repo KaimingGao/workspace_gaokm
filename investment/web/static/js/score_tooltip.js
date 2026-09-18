@@ -20,7 +20,9 @@ import {
   resolveRankingScore,
   resolveYτcScore,
   resolveYT30Score,
+  resolveYT45Score,
   resolveYT60Score,
+  resolveYT75Score,
   resolveYT90Score,
   blendYtw,
   yTwSign,
@@ -137,22 +139,36 @@ const TAU_FEAT_LABELS = {
   vol_last_30m_vs_avg: "近30m量/前缀均量",
   sector_ret_last_30m: "板块中位近30m %",
   ret_last_30m_vs_sector: "近30m相对板块 %",
-  t30_lag1: "昨同钟真实 τ⊕30m %",
-  t30_ma5: "近5日同钟真实 τ⊕30m 均 %",
+  t30_lag1: "昨同钟真实 τ⊕25/30/35均 %",
+  t30_ma5: "近5日同钟真实 τ⊕25/30/35均 %",
+  ret_last_45m: "近45交易分钟收益 %",
+  crosses_lunch_45: "未来45m是否跨午休",
+  vol_last_45m_vs_avg: "近45m量/前缀均量",
+  sector_ret_last_45m: "板块中位近45m %",
+  ret_last_45m_vs_sector: "近45m相对板块 %",
+  t45_lag1: "昨同钟真实 τ⊕40/45/50均 %",
+  t45_ma5: "近5日同钟真实 τ⊕40/45/50均 %",
   ret_last_60m: "近60交易分钟收益 %",
   crosses_lunch_60: "未来60m是否跨午休",
   vol_last_60m_vs_avg: "近60m量/前缀均量",
   sector_ret_last_60m: "板块中位近60m %",
   ret_last_60m_vs_sector: "近60m相对板块 %",
-  t60_lag1: "昨同钟真实 τ⊕60m %",
-  t60_ma5: "近5日同钟真实 τ⊕60m 均 %",
+  t60_lag1: "昨同钟真实 τ⊕55/60/65均 %",
+  t60_ma5: "近5日同钟真实 τ⊕55/60/65均 %",
+  ret_last_75m: "近75交易分钟收益 %",
+  crosses_lunch_75: "未来75m是否跨午休",
+  vol_last_75m_vs_avg: "近75m量/前缀均量",
+  sector_ret_last_75m: "板块中位近75m %",
+  ret_last_75m_vs_sector: "近75m相对板块 %",
+  t75_lag1: "昨同钟真实 τ⊕70/75/80均 %",
+  t75_ma5: "近5日同钟真实 τ⊕70/75/80均 %",
   ret_last_90m: "近90交易分钟收益 %",
   crosses_lunch_90: "未来90m是否跨午休",
   vol_last_90m_vs_avg: "近90m量/前缀均量",
   sector_ret_last_90m: "板块中位近90m %",
   ret_last_90m_vs_sector: "近90m相对板块 %",
-  t90_lag1: "昨同钟真实 τ⊕90m %",
-  t90_ma5: "近5日同钟真实 τ⊕90m 均 %",
+  t90_lag1: "昨同钟真实 τ⊕85/90/95均 %",
+  t90_ma5: "近5日同钟真实 τ⊕85/90/95均 %",
   realized_vol: "前缀已实现波动 %",
   vol_last3_vs_avg: "近3根量/均量",
   tau_elapsed_min: "τ距开盘分钟",
@@ -184,27 +200,42 @@ function formatFactorAnomalyHint(raw) {
   return why ? `${kind} · ${why}` : kind;
 }
 
+/** 会话 T：盘中=今天，不要把因子截止日（昨收）当成 ŷ_oo 的时间。 */
+function tipTradeDay(raw) {
+  const fromItem = String((raw && (raw.trade_day || raw.session_date)) || "").slice(0, 10);
+  if (fromItem.length >= 10) return fromItem;
+  const win = String((raw && raw.dual_score_window) || "");
+  const tauDay = String((raw && (raw.as_of_tau || raw.rem_tau)) || "").slice(0, 10);
+  const day = String((raw && raw.eod_feature_as_of) || "").slice(0, 10);
+  if (tauDay.length >= 10) return tauDay;
+  if (win === "eod_next" && day.length >= 10) return day;
+  return shanghaiDateKeyTip();
+}
+
 function formatEodAsOfHint(raw) {
   const anom = formatFactorAnomalyHint(raw);
   const day = String((raw && raw.eod_feature_as_of) || "").slice(0, 10);
   const win = String((raw && raw.dual_score_window) || "");
   const tauDay = String((raw && (raw.as_of_tau || raw.rem_tau)) || "").slice(0, 10);
   const today = shanghaiDateKeyTip();
-  if (!day) {
-    const fallback = win === "eod_next" ? "因子日 · 收盘后完整K" : "T−1 因子";
-    return anom ? `${fallback} · ${anom}` : fallback;
-  }
+  const tradeDay = tipTradeDay(raw);
   let which = "昨收完整K";
   if (win === "eod_next") {
     which = "今日完整K";
-  } else if (tauDay.length >= 10 && day === tauDay) {
+  } else if (day && tauDay.length >= 10 && day === tauDay) {
     which = "盘中漏入今日K";
-  } else if (today && day === today) {
+  } else if (day && today && day === today) {
     which = "盘中漏入今日K";
-  } else if (tauDay.length >= 10 && day < tauDay) {
-    which = "昨收完整K";
+  } else if (!day) {
+    which = win === "eod_next" ? "收盘后完整K" : "T−1 因子";
   }
-  const base = `因子日 ${day} · ${which}`;
+  const tBit = tradeDay ? `T ${tradeDay}` : "T";
+  let base = `${tBit} · ${which}`;
+  if (day && day !== tradeDay) {
+    base += ` · 因子截止 ${day}`;
+  } else if (day && which === "盘中漏入今日K") {
+    base += ` · 因子日 ${day}`;
+  }
   return anom ? `${base} · ${anom}` : base;
 }
 
@@ -277,7 +308,7 @@ function termFeatLabel(t, key) {
   if (key === "on" && k && ON_FEAT_META[k] && ON_FEAT_META[k].label) {
     return ON_FEAT_META[k].label;
   }
-  if ((key === "tau" || key === "r" || key === "t30" || key === "t60" || key === "t90" || key === "hl") && k && TAU_FEAT_LABELS[k]) {
+  if ((key === "tau" || key === "r" || key === "t30" || key === "t45" || key === "t60" || key === "t75" || key === "t90" || key === "hl") && k && TAU_FEAT_LABELS[k]) {
     return TAU_FEAT_LABELS[k];
   }
   if (t && t.label && String(t.label) !== String(k || "")) {
@@ -488,6 +519,13 @@ function hasT30FormulaTerms(raw) {
   );
 }
 
+function hasT45FormulaTerms(raw) {
+  return !!(
+    raw &&
+    ((raw.formula_terms_t45 && (raw.formula_terms_t45.terms || []).length) ||
+      (raw.score_formula_terms_t45 && (raw.score_formula_terms_t45.terms || []).length))
+  );
+}
 function hasPathFormulaTerms(raw) {
   return !!(
     raw &&
@@ -508,6 +546,14 @@ function hasT90FormulaTerms(raw) {
     raw &&
     ((raw.formula_terms_t90 && (raw.formula_terms_t90.terms || []).length) ||
       (raw.score_formula_terms_t90 && (raw.score_formula_terms_t90.terms || []).length))
+  );
+}
+
+function hasT75FormulaTerms(raw) {
+  return !!(
+    raw &&
+    ((raw.formula_terms_t75 && (raw.formula_terms_t75.terms || []).length) ||
+      (raw.score_formula_terms_t75 && (raw.score_formula_terms_t75.terms || []).length))
   );
 }
 
@@ -622,7 +668,7 @@ function formatCompactRTip(raw) {
   );
 }
 
-/** y_τ30 列 tip：Ridge 预估 price(τ⊕30m)/price(τ)−1。 */
+/** y_τ30 列 tip：Ridge 预估 mean(price(τ⊕25/30/35))/price(τ)−1。 */
 function formatCompactT30Tip(raw) {
   const fit = resolveYT30Score(raw);
   const fitTxt = fit == null ? "—" : `${fmtSigned(fit, 3)}%`;
@@ -635,7 +681,7 @@ function formatCompactT30Tip(raw) {
   const ySpec =
     (raw && raw.y_spec_τ30 && raw.y_spec_τ30.formula) ||
     (raw && raw.y_spec_t30 && raw.y_spec_t30.formula) ||
-    "price[τ+30m]/price[τ]−1";
+    "mean(price[τ+25m],price[τ+30m],price[τ+35m])/price[τ]−1";
   const rows = [];
   if (real != null) {
     const agree =
@@ -645,7 +691,7 @@ function formatCompactT30Tip(raw) {
           : "异号"
         : "";
     rows.push(
-      `<div class="score-layer-row"><span>真实 τ⊕30m</span>` +
+      `<div class="score-layer-row"><span>真实 τ⊕25/30/35均</span>` +
         `<span class="num ${signCls(real)}">${escapeText(fmtSigned(real, 3))}%${
           agree ? ` · ${agree}` : ""
         }</span></div>`
@@ -687,11 +733,21 @@ function formatCompactT30Tip(raw) {
         k === "ret_last_30m_vs_sector" ||
         k === "t30_lag1" ||
         k === "t30_ma5" ||
+        k === "ret_last_45m" ||
+        k === "sector_ret_last_45m" ||
+        k === "ret_last_45m_vs_sector" ||
+        k === "t45_lag1" ||
+        k === "t45_ma5" ||
         k === "ret_last_60m" ||
         k === "sector_ret_last_60m" ||
         k === "ret_last_60m_vs_sector" ||
         k === "t60_lag1" ||
         k === "t60_ma5" ||
+        k === "ret_last_75m" ||
+        k === "sector_ret_last_75m" ||
+        k === "ret_last_75m_vs_sector" ||
+        k === "t75_lag1" ||
+        k === "t75_ma5" ||
         k === "ret_last_90m" ||
         k === "sector_ret_last_90m" ||
         k === "ret_last_90m_vs_sector" ||
@@ -758,20 +814,20 @@ function formatCompactHlTip(raw) {
   );
 }
 
-/** y_τ60 列 tip：Ridge 预估 price(τ⊕60m)/price(τ)−1。 */
-function formatCompactT60Tip(raw) {
-  const fit = resolveYT60Score(raw);
+/** y_τ45 列 tip：Ridge 预估 mean(price(τ⊕40/45/50))/price(τ)−1。 */
+function formatCompactT45Tip(raw) {
+  const fit = resolveYT45Score(raw);
   const fitTxt = fit == null ? "—" : `${fmtSigned(fit, 3)}%`;
   const tau = String((raw && (raw.as_of_tau || raw.rem_tau)) || "open");
-  const hasTerms = hasT60FormulaTerms(raw);
+  const hasTerms = hasT45FormulaTerms(raw);
   const feat = (raw && raw.features_tau) || {};
-  const realRaw = raw && (raw.y_t60_realized ?? raw.t60_realized);
+  const realRaw = raw && (raw.y_t45_realized ?? raw.t45_realized);
   const real =
     realRaw != null && Number.isFinite(Number(realRaw)) ? Number(realRaw) : null;
   const ySpec =
-    (raw && raw.y_spec_τ60 && raw.y_spec_τ60.formula) ||
-    (raw && raw.y_spec_t60 && raw.y_spec_t60.formula) ||
-    "price[τ+60m]/price[τ]−1";
+    (raw && raw.y_spec_τ45 && raw.y_spec_τ45.formula) ||
+    (raw && raw.y_spec_t45 && raw.y_spec_t45.formula) ||
+    "mean(price[τ+40m],price[τ+45m],price[τ+50m])/price[τ]−1";
   const rows = [];
   if (real != null) {
     const agree =
@@ -781,7 +837,7 @@ function formatCompactT60Tip(raw) {
           : "异号"
         : "";
     rows.push(
-      `<div class="score-layer-row"><span>真实 τ⊕60m</span>` +
+      `<div class="score-layer-row"><span>真实 τ⊕40/45/50均</span>` +
         `<span class="num ${signCls(real)}">${escapeText(fmtSigned(real, 3))}%${
           agree ? ` · ${agree}` : ""
         }</span></div>`
@@ -824,10 +880,128 @@ function formatCompactT60Tip(raw) {
         k === "ret_last_30m_vs_sector" ||
         k === "t30_lag1" ||
         k === "t30_ma5" ||
+        k === "ret_last_45m" ||
+        k === "sector_ret_last_45m" ||
+        k === "ret_last_45m_vs_sector" ||
+        k === "t45_lag1" ||
+        k === "t45_ma5" ||
+        k === "sector_ret_last_60m" ||
+        k === "ret_last_60m_vs_sector" ||
+        k === "t45_lag1" ||
+        k === "t45_ma5" ||
+        k === "ret_last_75m" ||
+        k === "sector_ret_last_75m" ||
+        k === "ret_last_75m_vs_sector" ||
+        k === "t75_lag1" ||
+        k === "t75_ma5" ||
+        k === "ret_last_90m" ||
+        k === "sector_ret_last_90m" ||
+        k === "ret_last_90m_vs_sector" ||
+        k === "t90_lag1" ||
+        k === "t90_ma5";
+      rows.push(
+        `<div class="score-layer-row"><span>${escapeText(label)}</span><span class="num ${
+          Number.isFinite(n) ? signCls(n) : ""
+        }">${escapeText(txt)}${Number.isFinite(n) && pct ? "%" : ""}</span></div>`
+      );
+    }
+  }
+  const hint = hasTerms
+    ? `τ=${escapeText(tau)} · ${escapeText(String(ySpec))} · Ridge 模型预估 · 做 T 旁路`
+    : `τ=${escapeText(tau)} · ${escapeText(String(ySpec))} · 做 T 旁路，不进 C_τ`;
+  return (
+    `<div class="score-layer score-layer-t45">` +
+    `<div class="score-layer-head">` +
+    `<div class="score-hero-label">ŷ_τ45 · Ridge</div>` +
+    `<div class="score-hero-value ${signCls(fit)}">${escapeText(fitTxt)}</div>` +
+    `</div>` +
+    `<div class="score-hero-hint">${hint}</div>` +
+    (rows.length
+      ? `<div class="score-layer-compose">${rows.join("")}</div>`
+      : "") +
+    `</div>`
+  );
+}
+/** y_τ60 列 tip：Ridge 预估 mean(price(τ⊕55/60/65))/price(τ)−1。 */
+function formatCompactT60Tip(raw) {
+  const fit = resolveYT60Score(raw);
+  const fitTxt = fit == null ? "—" : `${fmtSigned(fit, 3)}%`;
+  const tau = String((raw && (raw.as_of_tau || raw.rem_tau)) || "open");
+  const hasTerms = hasT60FormulaTerms(raw);
+  const feat = (raw && raw.features_tau) || {};
+  const realRaw = raw && (raw.y_t60_realized ?? raw.t60_realized);
+  const real =
+    realRaw != null && Number.isFinite(Number(realRaw)) ? Number(realRaw) : null;
+  const ySpec =
+    (raw && raw.y_spec_τ60 && raw.y_spec_τ60.formula) ||
+    (raw && raw.y_spec_t60 && raw.y_spec_t60.formula) ||
+    "mean(price[τ+55m],price[τ+60m],price[τ+65m])/price[τ]−1";
+  const rows = [];
+  if (real != null) {
+    const agree =
+      fit != null && Math.abs(fit) > 1e-12 && real != null && Math.abs(real) > 1e-12
+        ? fit * real > 0
+          ? "同号"
+          : "异号"
+        : "";
+    rows.push(
+      `<div class="score-layer-row"><span>真实 τ⊕55/60/65均</span>` +
+        `<span class="num ${signCls(real)}">${escapeText(fmtSigned(real, 3))}%${
+          agree ? ` · ${agree}` : ""
+        }</span></div>`
+    );
+  }
+  const gap = raw && resolveGapPct(raw);
+  if (gap != null && Number.isFinite(Number(gap))) {
+    rows.push(
+      `<div class="score-layer-row"><span>跳空缺口</span>` +
+        `<span class="num ${signCls(gap)}">${escapeText(
+          fmtSigned(Number(gap), 2)
+        )}%</span></div>`
+    );
+  }
+  if (!hasTerms) {
+    for (const [k, label] of Object.entries(TAU_FEAT_LABELS)) {
+      if (k === "gap_pct") continue;
+      const v = feat[k];
+      if (v == null || v === "") continue;
+      if (typeof v === "boolean") {
+        rows.push(
+          `<div class="score-layer-row"><span>${escapeText(label)}</span><span>${
+            v ? "是" : "否"
+          }</span></div>`
+        );
+        continue;
+      }
+      const n = Number(v);
+      const txt = Number.isFinite(n) ? fmtSigned(n, 2) : String(v);
+      const pct =
+        k === "open_gap" ||
+        k === "gap_vs_sector" ||
+        k === "ret_open_to_tau" ||
+        k === "ret_last_5m" ||
+        k === "ret_last_30m" ||
+        k === "ret_last_60m" ||
+        k === "ret_last_15m" ||
+        k === "session_vwap_dev" ||
+        k === "sector_ret_last_30m" ||
+        k === "ret_last_30m_vs_sector" ||
+        k === "t30_lag1" ||
+        k === "t30_ma5" ||
+        k === "ret_last_45m" ||
+        k === "sector_ret_last_45m" ||
+        k === "ret_last_45m_vs_sector" ||
+        k === "t45_lag1" ||
+        k === "t45_ma5" ||
         k === "sector_ret_last_60m" ||
         k === "ret_last_60m_vs_sector" ||
         k === "t60_lag1" ||
         k === "t60_ma5" ||
+        k === "ret_last_75m" ||
+        k === "sector_ret_last_75m" ||
+        k === "ret_last_75m_vs_sector" ||
+        k === "t75_lag1" ||
+        k === "t75_ma5" ||
         k === "ret_last_90m" ||
         k === "sector_ret_last_90m" ||
         k === "ret_last_90m_vs_sector" ||
@@ -856,7 +1030,102 @@ function formatCompactT60Tip(raw) {
     `</div>`
   );
 }
-/** y_τ90 列 tip：Ridge 预估 price(τ⊕90m)/price(τ)−1。 */
+/** y_τ75 列 tip：Ridge 预估 mean(price(τ⊕70/75/80))/price(τ)−1。 */
+function formatCompactT75Tip(raw) {
+  const fit = resolveYT75Score(raw);
+  const fitTxt = fit == null ? "—" : `${fmtSigned(fit, 3)}%`;
+  const tau = String((raw && (raw.as_of_tau || raw.rem_tau)) || "open");
+  const hasTerms = hasT75FormulaTerms(raw);
+  const feat = (raw && raw.features_tau) || {};
+  const realRaw = raw && (raw.y_t75_realized ?? raw.t75_realized);
+  const real =
+    realRaw != null && Number.isFinite(Number(realRaw)) ? Number(realRaw) : null;
+  const ySpec =
+    (raw && raw.y_spec_τ75 && raw.y_spec_τ75.formula) ||
+    (raw && raw.y_spec_t75 && raw.y_spec_t75.formula) ||
+    "mean(price[τ+70m],price[τ+75m],price[τ+80m])/price[τ]−1";
+  const rows = [];
+  if (real != null) {
+    const agree =
+      fit != null && Math.abs(fit) > 1e-12 && real != null && Math.abs(real) > 1e-12
+        ? fit * real > 0
+          ? "同号"
+          : "异号"
+        : "";
+    rows.push(
+      `<div class="score-layer-row"><span>真实 τ⊕70/75/80均</span>` +
+        `<span class="num ${signCls(real)}">${escapeText(fmtSigned(real, 3))}%${
+          agree ? ` · ${agree}` : ""
+        }</span></div>`
+    );
+  }
+  const gap = raw && resolveGapPct(raw);
+  if (gap != null && Number.isFinite(Number(gap))) {
+    rows.push(
+      `<div class="score-layer-row"><span>跳空缺口</span>` +
+        `<span class="num ${signCls(gap)}">${escapeText(
+          fmtSigned(Number(gap), 2)
+        )}%</span></div>`
+    );
+  }
+  if (!hasTerms) {
+    for (const [k, label] of Object.entries(TAU_FEAT_LABELS)) {
+      if (k === "gap_pct") continue;
+      const v = feat[k];
+      if (v == null || v === "") continue;
+      if (typeof v === "boolean") {
+        rows.push(
+          `<div class="score-layer-row"><span>${escapeText(label)}</span><span>${
+            v ? "是" : "否"
+          }</span></div>`
+        );
+        continue;
+      }
+      const n = Number(v);
+      const txt = Number.isFinite(n) ? fmtSigned(n, 2) : String(v);
+      const pct =
+        k === "open_gap" ||
+        k === "gap_vs_sector" ||
+        k === "ret_open_to_tau" ||
+        k === "ret_last_5m" ||
+        k === "ret_last_30m" ||
+        k === "ret_last_90m" ||
+        k === "ret_last_15m" ||
+        k === "session_vwap_dev" ||
+        k === "sector_ret_last_30m" ||
+        k === "ret_last_30m_vs_sector" ||
+        k === "t30_lag1" ||
+        k === "t30_ma5" ||
+        k === "sector_ret_last_90m" ||
+        k === "ret_last_90m_vs_sector" ||
+        k === "t75_lag1" ||
+        k === "t75_ma5";
+      rows.push(
+        `<div class="score-layer-row"><span>${escapeText(label)}</span><span class="num ${
+          Number.isFinite(n) ? signCls(n) : ""
+        }">${escapeText(txt)}${Number.isFinite(n) && pct ? "%" : ""}</span></div>`
+      );
+    }
+  }
+  const hint = hasTerms
+    ? `τ=${escapeText(tau)} · ${escapeText(String(ySpec))} · Ridge 模型预估 · 做 T 旁路`
+    : `τ=${escapeText(tau)} · ${escapeText(String(ySpec))} · 做 T 旁路，不进 C_τ`;
+  return (
+    `<div class="score-layer score-layer-t75">` +
+    `<div class="score-layer-head">` +
+    `<div class="score-hero-label">ŷ_τ75 · Ridge</div>` +
+    `<div class="score-hero-value ${signCls(fit)}">${escapeText(fitTxt)}</div>` +
+    `</div>` +
+    `<div class="score-hero-hint">${hint}</div>` +
+    (rows.length
+      ? `<div class="score-layer-compose">${rows.join("")}</div>`
+      : "") +
+    `</div>`
+  );
+}
+
+/** y_τw 列 tip：符号和 f(ŷ_τ30)+f(ŷ_τ45)+f(ŷ_τ60)+f(ŷ_τ75)+f(ŷ_τ75)；f(x)=1 if x>0 else −1。 */
+/** y_τ90 列 tip：Ridge 预估 mean(price(τ⊕85/90/95))/price(τ)−1。 */
 function formatCompactT90Tip(raw) {
   const fit = resolveYT90Score(raw);
   const fitTxt = fit == null ? "—" : `${fmtSigned(fit, 3)}%`;
@@ -869,7 +1138,7 @@ function formatCompactT90Tip(raw) {
   const ySpec =
     (raw && raw.y_spec_τ90 && raw.y_spec_τ90.formula) ||
     (raw && raw.y_spec_t90 && raw.y_spec_t90.formula) ||
-    "price[τ+90m]/price[τ]−1";
+    "mean(price[τ+85m],price[τ+90m],price[τ+95m])/price[τ]−1";
   const rows = [];
   if (real != null) {
     const agree =
@@ -879,7 +1148,7 @@ function formatCompactT90Tip(raw) {
           : "异号"
         : "";
     rows.push(
-      `<div class="score-layer-row"><span>真实 τ⊕90m</span>` +
+      `<div class="score-layer-row"><span>真实 τ⊕85/90/95均</span>` +
         `<span class="num ${signCls(real)}">${escapeText(fmtSigned(real, 3))}%${
           agree ? ` · ${agree}` : ""
         }</span></div>`
@@ -950,21 +1219,27 @@ function formatCompactT90Tip(raw) {
   );
 }
 
-/** y_τw 列 tip：符号和 f(ŷ_τ30)+f(ŷ_τ60)+f(ŷ_τ90)；f(x)=1 if x>0 else −1。 */
+/** y_τw 列 tip：符号和 f(ŷ_τ30)+f(ŷ_τ45)+f(ŷ_τ60)+f(ŷ_τ75)+f(ŷ_τ90)；f(x)=1 if x>0 else −1。 */
 function formatCompactTWTip(raw) {
   const y30 = resolveYT30Score(raw);
+  const y45 = resolveYT45Score(raw);
   const y60 = resolveYT60Score(raw);
+  const y75 = resolveYT75Score(raw);
   const y90 = resolveYT90Score(raw);
-  const fit = blendYtw(y30, y60, y90);
+  const fit = blendYtw(y30, y60, y90, y45, y75);
   const fitTxt = fit == null ? "—" : fmtYtwVote(fit);
   const tau = String((raw && (raw.as_of_tau || raw.rem_tau)) || "open");
   const r30Raw = raw && (raw.y_t30_realized ?? raw.t30_realized);
+  const r45Raw = raw && (raw.y_t45_realized ?? raw.t45_realized);
   const r60Raw = raw && (raw.y_t60_realized ?? raw.t60_realized);
+  const r75Raw = raw && (raw.y_t75_realized ?? raw.t75_realized);
   const r90Raw = raw && (raw.y_t90_realized ?? raw.t90_realized);
   const r30 = r30Raw != null && Number.isFinite(Number(r30Raw)) ? Number(r30Raw) : null;
+  const r45 = r45Raw != null && Number.isFinite(Number(r45Raw)) ? Number(r45Raw) : null;
   const r60 = r60Raw != null && Number.isFinite(Number(r60Raw)) ? Number(r60Raw) : null;
+  const r75 = r75Raw != null && Number.isFinite(Number(r75Raw)) ? Number(r75Raw) : null;
   const r90 = r90Raw != null && Number.isFinite(Number(r90Raw)) ? Number(r90Raw) : null;
-  const real = blendYtw(r30, r60, r90);
+  const real = blendYtw(r30, r60, r90, r45, r75);
   const rows = [];
   const pushHead = (label, hat, realN) => {
     const fHat = yTwSign(hat);
@@ -983,7 +1258,9 @@ function formatCompactTWTip(raw) {
     );
   };
   pushHead("ŷ_τ30", y30, r30);
+  pushHead("ŷ_τ45", y45, r45);
   pushHead("ŷ_τ60", y60, r60);
+  pushHead("ŷ_τ75", y75, r75);
   pushHead("ŷ_τ90", y90, r90);
   if (real != null) {
     const agree =
@@ -1001,10 +1278,12 @@ function formatCompactTWTip(raw) {
   }
   const missing = [];
   if (y30 == null) missing.push("ŷ_τ30");
+  if (y45 == null) missing.push("ŷ_τ45");
   if (y60 == null) missing.push("ŷ_τ60");
+  if (y75 == null) missing.push("ŷ_τ75");
   if (y90 == null) missing.push("ŷ_τ90");
   const hint =
-    `τ=${escapeText(tau)} · ŷ_τw=f(ŷ_τ30)+f(ŷ_τ60)+f(ŷ_τ90) · f(x)=1 if x>0 else −1` +
+    `τ=${escapeText(tau)} · ŷ_τw=f(ŷ_τ30)+f(ŷ_τ45)+f(ŷ_τ60)+f(ŷ_τ75)+f(ŷ_τ90) · f(x)=1 if x>0 else −1` +
     (missing.length ? ` · 缺 ${missing.join("、")}，不计` : "");
   return (
     `<div class="score-layer score-layer-tw">` +
@@ -1581,8 +1860,12 @@ export function formatFormulaTermsSection(raw, opts = {}) {
         ? raw && (raw.formula_terms_r || raw.score_formula_terms_r)
         : key === "t30"
           ? raw && (raw.formula_terms_t30 || raw.score_formula_terms_t30)
+          : key === "t45"
+            ? raw && (raw.formula_terms_t45 || raw.score_formula_terms_t45)
           : key === "t60"
             ? raw && (raw.formula_terms_t60 || raw.score_formula_terms_t60)
+            : key === "t75"
+            ? raw && (raw.formula_terms_t75 || raw.score_formula_terms_t75)
             : key === "t90"
             ? raw && (raw.formula_terms_t90 || raw.score_formula_terms_t90)
             : key === "hl"
@@ -1591,7 +1874,10 @@ export function formatFormulaTermsSection(raw, opts = {}) {
           ? raw && (raw.formula_terms_on || raw.score_formula_terms_on)
             : raw && (raw.formula_terms || raw.score_formula_terms);
   if (!expl || typeof expl !== "object") return "";
-  const terms = Array.isArray(expl.terms) ? expl.terms : [];
+  const termsAll = Array.isArray(expl.terms) ? expl.terms : [];
+  const terms = termsAll.filter(
+    (t) => t && !String(t.note || "").includes("缺特征")
+  );
   if (!terms.length && expl.intercept == null) return "";
 
   const title =
@@ -1601,8 +1887,12 @@ export function formatFormulaTermsSection(raw, opts = {}) {
         ? "ŷ_τc 组成"
         : key === "t30"
           ? "ŷ_τ30 组成"
+          : key === "t45"
+            ? "ŷ_τ45 组成"
           : key === "t60"
             ? "ŷ_τ60 组成"
+          : key === "t75"
+            ? "ŷ_τ75 组成"
           : key === "t90"
             ? "ŷ_τ90 组成"
           : key === "hl"
@@ -1616,11 +1906,15 @@ export function formatFormulaTermsSection(raw, opts = {}) {
       : key === "r"
         ? "合计 ŷ_τc（T收/τ价）"
         : key === "t30"
-          ? "合计 ŷ_τ30（τ⊕30m/τ价）"
+          ? "合计 ŷ_τ30（τ⊕25/30/35均/τ价）"
+          : key === "t45"
+            ? "合计 ŷ_τ45（τ⊕40/45/50均/τ价）"
           : key === "t60"
-            ? "合计 ŷ_τ60（τ⊕60m/τ价）"
+            ? "合计 ŷ_τ60（τ⊕55/60/65均/τ价）"
+          : key === "t75"
+            ? "合计 ŷ_τ75（τ⊕70/75/80均/τ价）"
           : key === "t90"
-            ? "合计 ŷ_τ90（τ⊕90m/τ价）"
+            ? "合计 ŷ_τ90（τ⊕85/90/95均/τ价）"
           : key === "hl"
             ? "合计 ŷ_hl（极值序）"
           : key === "on"
@@ -1690,19 +1984,24 @@ export function formatFormulaTermsSection(raw, opts = {}) {
       : key === "r"
         ? "β×z = 贡献；合计=Ridge 拟合原值（T收/τ价）。做 T 回测默认执行套截距（对照手动预演）；选研究套才用 Holdout。研究枢纽系数表默认展示执行套全样本截距。"
         : key === "t30"
-          ? "β×z = 贡献；合计=Ridge 拟合原值（price(τ⊕30m)/price(τ)−1）。做 T 旁路，不进 C_τ。"
+          ? "β×z = 贡献；合计=Ridge 拟合原值（mean(price(τ⊕25/30/35))/price(τ)−1）。做 T 旁路，不进 C_τ。"
           : key === "t60"
-            ? "β×z = 贡献；合计=Ridge 拟合原值（price(τ⊕60m)/price(τ)−1）。做 T 旁路，不进 C_τ。"
+            ? "β×z = 贡献；合计=Ridge 拟合原值（mean(price(τ⊕55/60/65))/price(τ)−1）。做 T 旁路，不进 C_τ。"
           : key === "t90"
-            ? "β×z = 贡献；合计=Ridge 拟合原值（price(τ⊕90m)/price(τ)−1）。做 T 旁路，不进 C_τ。"
+            ? "β×z = 贡献；合计=Ridge 拟合原值（mean(price(τ⊕85/90/95))/price(τ)−1）。做 T 旁路，不进 C_τ。"
           : key === "hl"
             ? "β×z = 贡献；合计=Ridge 拟合原值（极值序 signed (H−L)/ref%）。做 T 同号闸 / 入场。"
           : "β×z = 贡献；条长∝|贡献|";
+  const missingN = Number(expl && expl.missing_n);
+  const captionMiss =
+    Number.isFinite(missingN) && missingN > 0
+      ? `另 ${missingN} 项缺特征未列出（已按均值填，贡献 0）。`
+      : "";
   const role = String((expl && expl.model_role) || "").toLowerCase();
   const alphaName =
-    key === "r" && role === "research"
+    (key === "r" || key === "tau") && role === "research"
       ? "截距 α（研究套）"
-      : key === "r" && role === "live"
+      : (key === "r" || key === "tau") && role === "live"
         ? "截距 α（执行套）"
         : "截距 α";
   return (
@@ -1728,7 +2027,9 @@ export function formatFormulaTermsSection(raw, opts = {}) {
     `<td class="num ${signCls(expl.total)}">${escapeText(`${total}%`)}</td>` +
     `</tr>` +
     `</tbody></table>` +
-    `<div class="score-formula-caption">${escapeText(caption)}</div>` +
+    `<div class="score-formula-caption">${escapeText(
+      caption + (captionMiss ? ` ${captionMiss}` : "")
+    )}</div>` +
     `</div>`
   );
 }
@@ -2244,7 +2545,7 @@ export function formatT0DirectionDetail(raw) {
     `<div class="score-hero-value ${signCls(score)}">${escapeText(scoreTxt)}</div>` +
     `<div class="score-hero-hint">收益百分点 · 与表列 ŷ% 同口径 · dual_y 主方向</div>` +
     `<div class="score-hero-semantics">` +
-    `语义：τ 定正/反 T；ŷ_oc / ŷ_τ30 / ŷ_τ60 / ŷ_τ90 过入场；选腿仅收盘带宽` +
+    `语义：τ 定正/反 T；ŷ_oc / ŷ_τ30 / ŷ_τ45 / ŷ_τ60 / ŷ_τ75 / ŷ_τ90 过入场；选腿仅收盘带宽` +
     `</div>` +
     `<div class="score-hero-gate">门槛 ±${escapeText(String(enter))}% · ${escapeText(
       decision
@@ -2494,7 +2795,9 @@ export function createScoreTooltipController() {
     if (tip === "tau" || tip === "rem") return "tau";
     if (tip === "r" || tip === "τc" || tip === "tc" || tip === "pc") return "r";
     if (tip === "t30" || tip === "τ30" || tip === "yt30") return "t30";
+    if (tip === "t45" || tip === "τ45" || tip === "yt45") return "t45";
     if (tip === "t60" || tip === "τ60" || tip === "yt60") return "t60";
+    if (tip === "t75" || tip === "τ75" || tip === "yt75") return "t75";
     if (tip === "t90" || tip === "τ90" || tip === "yt90") return "t90";
     if (tip === "hl" || tip === "path" || tip === "yhl") return "hl";
     if (tip === "tw" || tip === "τw" || tip === "ytw") return "tw";
@@ -2515,10 +2818,20 @@ export function createScoreTooltipController() {
     )
       return "t30";
     if (
+      cell.classList.contains("paper-t0-col-y-t45") ||
+      cell.classList.contains("paper-t0-col-yt45")
+    )
+      return "t45";
+    if (
       cell.classList.contains("paper-t0-col-y-t60") ||
       cell.classList.contains("paper-t0-col-yt60")
     )
       return "t60";
+    if (
+      cell.classList.contains("paper-t0-col-y-t75") ||
+      cell.classList.contains("paper-t0-col-yt75")
+    )
+      return "t75";
     if (
       cell.classList.contains("paper-t0-col-y-t90") ||
       cell.classList.contains("paper-t0-col-yt90")
@@ -2669,10 +2982,28 @@ export function createScoreTooltipController() {
       return;
     }
 
+    if (tipMode === "t45") {
+      const parts = [
+        formatCompactT45Tip(raw),
+        formatFormulaTermsSection(raw, { key: "t45" }),
+      ].filter(Boolean);
+      showCompactScoreTip(cell, parts.join(""), { sticky });
+      return;
+    }
+
     if (tipMode === "t60") {
       const parts = [
         formatCompactT60Tip(raw),
         formatFormulaTermsSection(raw, { key: "t60" }),
+      ].filter(Boolean);
+      showCompactScoreTip(cell, parts.join(""), { sticky });
+      return;
+    }
+
+    if (tipMode === "t75") {
+      const parts = [
+        formatCompactT75Tip(raw),
+        formatFormulaTermsSection(raw, { key: "t75" }),
       ].filter(Boolean);
       showCompactScoreTip(cell, parts.join(""), { sticky });
       return;

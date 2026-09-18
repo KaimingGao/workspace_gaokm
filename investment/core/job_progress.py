@@ -30,10 +30,20 @@ _SLOT_STALE_POLICY: Dict[str, Dict[str, Any]] = {
         "stuck_start_sec": 900.0,
         "label": "ŷ_τ30 拟合",
     },
+    "t45-ridge": {
+        "stale_sec": 1800.0,
+        "stuck_start_sec": 900.0,
+        "label": "ŷ_τ45 拟合",
+    },
     "t60-ridge": {
         "stale_sec": 1800.0,
         "stuck_start_sec": 900.0,
         "label": "ŷ_τ60 拟合",
+    },
+    "t75-ridge": {
+        "stale_sec": 1800.0,
+        "stuck_start_sec": 900.0,
+        "label": "ŷ_τ75 拟合",
     },
     "t90-ridge": {
         "stale_sec": 1800.0,
@@ -482,7 +492,9 @@ class JobRegistry:
             "chat",
             "quant-ols-clusters",
             "t30-ridge",
+            "t45-ridge",
             "t60-ridge",
+            "t75-ridge",
             "t90-ridge",
             "r-ridge",
             "t0-backtest",
@@ -505,7 +517,9 @@ try:
         QUANT_OLS_CLUSTERS_JOB_PATH,
         R_RIDGE_JOB_PATH,
         T30_RIDGE_JOB_PATH,
+        T45_RIDGE_JOB_PATH,
         T60_RIDGE_JOB_PATH,
+        T75_RIDGE_JOB_PATH,
         T90_RIDGE_JOB_PATH,
         T0_BACKTEST_JOB_PATH,
         PORTFOLIO_BACKTEST_JOB_PATH,
@@ -523,7 +537,9 @@ try:
     )
     chat_job = job_registry.slot("chat", persist_path=CHAT_JOB_PATH)
     t30_ridge_job = job_registry.slot("t30-ridge", persist_path=T30_RIDGE_JOB_PATH)
+    t45_ridge_job = job_registry.slot("t45-ridge", persist_path=T45_RIDGE_JOB_PATH)
     t60_ridge_job = job_registry.slot("t60-ridge", persist_path=T60_RIDGE_JOB_PATH)
+    t75_ridge_job = job_registry.slot("t75-ridge", persist_path=T75_RIDGE_JOB_PATH)
     t90_ridge_job = job_registry.slot("t90-ridge", persist_path=T90_RIDGE_JOB_PATH)
     r_ridge_job = job_registry.slot("r-ridge", persist_path=R_RIDGE_JOB_PATH)
     t0_backtest_job = job_registry.slot("t0-backtest", persist_path=T0_BACKTEST_JOB_PATH)
@@ -538,7 +554,9 @@ except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流
     cluster_minute_refresh_job = job_registry.slot("cluster-minute-refresh")
     chat_job = job_registry.slot("chat")
     t30_ridge_job = job_registry.slot("t30-ridge")
+    t45_ridge_job = job_registry.slot("t45-ridge")
     t60_ridge_job = job_registry.slot("t60-ridge")
+    t75_ridge_job = job_registry.slot("t75-ridge")
     t90_ridge_job = job_registry.slot("t90-ridge")
     r_ridge_job = job_registry.slot("r-ridge")
     t0_backtest_job = job_registry.slot("t0-backtest")

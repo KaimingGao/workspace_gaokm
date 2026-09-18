@@ -92,7 +92,27 @@ class TestInspectFactorAnomaly(unittest.TestCase):
         self.assertTrue(out["ok"])
         self.assertFalse(out["fatal_eod"])
 
-    def test_as_of_tau_mismatch_nulls_tau_only(self):
+    def test_live_after_close_eod_as_of_stays_t_minus_1(self):
+        """收盘后 ŷ_oo 仍用 T−1 日线，不把今收当因子日。"""
+        from core.signal.factor_anomaly import inspect_factor_anomaly
+
+        now = datetime(2026, 9, 17, 16, 10)
+        out = inspect_factor_anomaly(
+            eod_pit={"eod_as_of": "2026-09-16", "dual_score_window": "eod_next"},
+            open_t_info={
+                "trade_day": "2026-09-17",
+                "open": 10.2,
+                "prev_close": 10.0,
+                "gap_pct": 2.0,
+            },
+            quote={"date": "2026-09-17"},
+            trade_day="2026-09-17",
+            now=now,
+            live=True,
+        )
+        self.assertTrue(out["ok"])
+        self.assertFalse(out["fatal_eod"])
+        self.assertEqual(out["expected_eod_as_of"], "2026-09-16")
         from core.signal.factor_anomaly import (
             apply_factor_anomaly_to_item,
             inspect_factor_anomaly,

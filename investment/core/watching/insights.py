@@ -809,6 +809,13 @@ def _insight_one(
             _finalize_insight_trade_fields(out)
         if asof_eod:
             out["eod_feature_as_of"] = asof_eod
+        trade_day = str(item.get("trade_day") or "")[:10]
+        if len(trade_day) < 10:
+            trade_day = str(out.get("as_of_tau") or item.get("as_of_tau") or "")[:10]
+        if len(trade_day) < 10:
+            trade_day = sess
+        if len(trade_day) >= 10:
+            out["trade_day"] = trade_day
         if item.get("factor_anomaly"):
             out["factor_anomaly"] = item.get("factor_anomaly")
         if item.get("open_t") is not None:

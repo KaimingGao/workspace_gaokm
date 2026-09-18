@@ -1,9 +1,9 @@
-"""ŷ_τ60_tree：独立浅树头，标签与 ŷ_τ60 相同（mean(price(τ⊕55/60/65))/price(τ)−1）。
+"""ŷ_τ75_tree：独立浅树头，标签与 ŷ_τ75 相同（mean(price(τ⊕70/75/80))/price(τ)−1）。
 
-与 Ridge 同面板、同 Holdout，只写 ``t60_tree_last_report.json``。
+与 Ridge 同面板、同 Holdout，只写 ``t75_tree_last_report.json``。
 不提供 persist / 研究套 sidecar，不进 live 打分与历史回测。
 浅树引擎与 ŷ_τ_tree 相同（XGBoost 或 numpy GBM）。
-X = ŷ_τ Z + 序列特征（与 t60_ridge 同）。
+X = ŷ_τ Z + 序列特征（与 t75_ridge 同）。
 """
 
 from __future__ import annotations
@@ -20,13 +20,13 @@ logger = logging.getLogger(__name__)
 
 from core.io_atomic import atomic_write_json
 from core.research.tau_panel import (
-    relabel_tau_panels_as_t60,
+    relabel_tau_panels_as_t75,
     theme_sample_weights,
 )
-from core.research.t60_ridge import (
-    T60_MIN_STD_EXEMPT,
-    T60_Z_FEATURES,
-    _t60_z_only_xs,
+from core.research.t75_ridge import (
+    T75_MIN_STD_EXEMPT,
+    T75_Z_FEATURES,
+    _t75_z_only_xs,
 )
 from core.research.tau_ridge import (
     TAU_FIT_DROP_ALIASES,
@@ -51,45 +51,45 @@ from core.research.tau_tree import (
     _predict_xgboost,
     resolve_tree_backend,
 )
-from core.signal.minute_tau_grid import DEFAULT_T60_TRAIN_TAU_GRID
+from core.signal.minute_tau_grid import DEFAULT_T75_TRAIN_TAU_GRID
 
-TREE_SCHEMA = "t60_tree_shadow_v1"
-TREE_HEAD = "y_t60_tree"
-TREE_TARGET = "price_tau_plus_60"
+TREE_SCHEMA = "t75_tree_shadow_v1"
+TREE_HEAD = "y_t75_tree"
+TREE_TARGET = "price_tau_plus_75"
 
 
-def t60_tree_last_report_path() -> str:
+def t75_tree_last_report_path() -> str:
     from core.paths import LIVE_DIR
 
-    return os.path.join(LIVE_DIR, "t60_tree_last_report.json")
+    return os.path.join(LIVE_DIR, "t75_tree_last_report.json")
 
 
-def save_t60_tree_last_report(report: Dict[str, Any]) -> None:
+def save_t75_tree_last_report(report: Dict[str, Any]) -> None:
     if not isinstance(report, dict) or not report.get("success"):
         return
-    path = t60_tree_last_report_path()
+    path = t75_tree_last_report_path()
     os.makedirs(os.path.dirname(path), exist_ok=True)
     atomic_write_json(path, report)
 
 
-def load_t60_tree_last_report() -> Optional[Dict[str, Any]]:
+def load_t75_tree_last_report() -> Optional[Dict[str, Any]]:
     import json
 
-    path = t60_tree_last_report_path()
+    path = t75_tree_last_report_path()
     try:
         with open(path, encoding="utf-8") as f:
             doc = json.load(f)
     except OSError:
         return None
     except Exception:  # noqa: BLE001
-        logger.debug("load t60 tree last_report failed", exc_info=True)
+        logger.debug("load t75 tree last_report failed", exc_info=True)
         return None
     if isinstance(doc, dict) and doc.get("success"):
         return doc
     return None
 
 
-def fit_t60_tree_report(
+def fit_t75_tree_report(
     stock_bars: Sequence[Dict[str, Any]],
     *,
     ridge_lambda: float = 1.0,
@@ -111,7 +111,7 @@ def fit_t60_tree_report(
     live_hm = str(tau_hm or "10:30").strip() or "10:30"
     if live_hm.lower() in ("", "open"):
         live_hm = "10:30"
-    grid = list(tau_grid) if tau_grid is not None else list(DEFAULT_T60_TRAIN_TAU_GRID)
+    grid = list(tau_grid) if tau_grid is not None else list(DEFAULT_T75_TRAIN_TAU_GRID)
     t_panel0 = time.perf_counter()
     raw = build_tau_panels_from_bars(
         stock_bars,
@@ -120,14 +120,14 @@ def fit_t60_tree_report(
         tau_hm=live_hm,
         tau_grid=grid,
     )
-    enriched = relabel_tau_panels_as_t60(raw)
+    enriched = relabel_tau_panels_as_t75(raw)
     xs, ys, dates, metas = _stack_panels(enriched)
     panel_s = round(time.perf_counter() - t_panel0, 2)
     if len(ys) < 20:
         return {
             "success": False,
-            "error": f"树样本不足 n={len(ys)}（需≥20 且需 τ⊕55/60/65 三根均价）",
-            "task": "t60_tree",
+            "error": f"树样本不足 n={len(ys)}（需≥20 且需 τ⊕70/75/80 三根均价）",
+            "task": "t75_tree",
             "head": TREE_HEAD,
             "sample_count": len(ys),
             "stock_count": len(enriched),
@@ -138,7 +138,7 @@ def fit_t60_tree_report(
             "backtest_hook": False,
         }
 
-    xs_z = _t60_z_only_xs(xs)
+    xs_z = _t75_z_only_xs(xs)
     from core.research.holdout import (
         DEFAULT_HOLDOUT_TRADING_DAYS,
         attach_holdout_meta,
@@ -154,12 +154,12 @@ def fit_t60_tree_report(
     )
     xs_tr, ys_tr, metas_tr = _subset(xs_z, ys, metas, train_idx)
     xs_te, ys_te, metas_te = _subset(xs_z, ys, metas, test_idx)
-    feat_names = [k for k in T60_Z_FEATURES if k not in TAU_FIT_DROP_ALIASES]
+    feat_names = [k for k in T75_Z_FEATURES if k not in TAU_FIT_DROP_ALIASES]
     if len(ys_tr) < 16 or len(ys_te) < 8:
         return {
             "success": False,
             "error": f"Holdout 切分后样本不足 训={len(ys_tr)} 测={len(ys_te)}",
-            "task": "t60_tree",
+            "task": "t75_tree",
             "head": TREE_HEAD,
             "sample_count": len(ys),
             "schema": TREE_SCHEMA,
@@ -212,7 +212,7 @@ def fit_t60_tree_report(
         ridge_lambda=ridge_lambda,
         theme_boost=theme_boost,
         use_theme_weights=use_theme_weights,
-        min_std_exempt=T60_MIN_STD_EXEMPT,
+        min_std_exempt=T75_MIN_STD_EXEMPT,
     )
     ridge_s = round(time.perf_counter() - t_ridge0, 2)
     oos_boost = _oos_pack(boost_preds, ys_te, metas_te, use_minute=True)
@@ -240,7 +240,7 @@ def fit_t60_tree_report(
 
     report: Dict[str, Any] = {
         "success": True,
-        "task": "t60_tree",
+        "task": "t75_tree",
         "head": TREE_HEAD,
         "schema": TREE_SCHEMA,
         "stock_count": len(enriched),
@@ -265,7 +265,7 @@ def fit_t60_tree_report(
         "backtest_hook": False,
         "persisted": {"success": False, "skipped": True, "reason": "shadow_only"},
         "note": (
-            "ŷ_τ60_tree 影子头：同标签同 Holdout vs Ridge；不写 t60_ridge_model.json，"
+            "ŷ_τ75_tree 影子头：同标签同 Holdout vs Ridge；不写 t75_ridge_model.json，"
             "不进交易执行 / 历史回测"
         ),
     }

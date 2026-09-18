@@ -1014,12 +1014,22 @@ def explain_tau_prediction(
         slim.append(t)
     if slim:
         terms = slim
+    # 展示只列有实值的项。缺特征已按均值填进合计（contrib=0），不占表。
+    n_missing = sum(1 for t in terms if t.get("note"))
+    shown = [t for t in terms if not t.get("note")]
+    if shown:
+        terms = shown
     terms.sort(key=lambda t: -abs(float(t.get("contrib") or 0)))
-    # tip 默认只展示有贡献或非零 β 的前若干 + 额外 Z；截到 16 行防过长
-    return {
+    out = {
         "intercept": round(intercept, 6),
         "terms": terms[:16],
         "total": round(total, 6),
         "head": "tau",
     }
+    role = str((doc or {}).get("model_role") or "").strip()
+    if role:
+        out["model_role"] = role
+    if n_missing:
+        out["missing_n"] = int(n_missing)
+    return out
 

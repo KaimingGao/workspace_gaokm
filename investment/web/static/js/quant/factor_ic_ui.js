@@ -430,22 +430,36 @@ export function createFactorIcUi(deps) {
     mom3_pct: "近3日动量 %",
     tau_lag1: "昨真实开→收 %",
     tau_ma5: "近5日真实开→收均 %",
-    t30_lag1: "昨同钟真实 τ⊕30m %",
-    t30_ma5: "近5日同钟真实 τ⊕30m 均 %",
+    t30_lag1: "昨同钟真实 τ⊕25/30/35均 %",
+    t30_ma5: "近5日同钟真实 τ⊕25/30/35均 %",
+    ret_last_45m: "近45交易分钟收益 %",
+    crosses_lunch_45: "未来45m是否跨午休",
+    vol_last_45m_vs_avg: "近45m量/前缀均量",
+    sector_ret_last_45m: "板块中位近45m %",
+    ret_last_45m_vs_sector: "近45m相对板块 %",
+    t45_lag1: "昨同钟真实 τ⊕40/45/50均 %",
+    t45_ma5: "近5日同钟真实 τ⊕40/45/50均 %",
     ret_last_60m: "近60交易分钟收益 %",
     crosses_lunch_60: "未来60m是否跨午休",
     vol_last_60m_vs_avg: "近60m量/前缀均量",
     sector_ret_last_60m: "板块中位近60m %",
     ret_last_60m_vs_sector: "近60m相对板块 %",
-    t60_lag1: "昨同钟真实 τ⊕60m %",
-    t60_ma5: "近5日同钟真实 τ⊕60m 均 %",
+    t60_lag1: "昨同钟真实 τ⊕55/60/65均 %",
+    t60_ma5: "近5日同钟真实 τ⊕55/60/65均 %",
+    ret_last_75m: "近75交易分钟收益 %",
+    crosses_lunch_75: "未来75m是否跨午休",
+    vol_last_75m_vs_avg: "近75m量/前缀均量",
+    sector_ret_last_75m: "板块中位近75m %",
+    ret_last_75m_vs_sector: "近75m相对板块 %",
+    t75_lag1: "昨同钟真实 τ⊕70/75/80均 %",
+    t75_ma5: "近5日同钟真实 τ⊕70/75/80均 %",
     ret_last_90m: "近90交易分钟收益 %",
     crosses_lunch_90: "未来90m是否跨午休",
     vol_last_90m_vs_avg: "近90m量/前缀均量",
     sector_ret_last_90m: "板块中位近90m %",
     ret_last_90m_vs_sector: "近90m相对板块 %",
-    t90_lag1: "昨同钟真实 τ⊕90m %",
-    t90_ma5: "近5日同钟真实 τ⊕90m 均 %",
+    t90_lag1: "昨同钟真实 τ⊕85/90/95均 %",
+    t90_ma5: "近5日同钟真实 τ⊕85/90/95均 %",
     path_lag1: "昨真实极值序 %",
     path_ma5: "近5日真实极值序均 %",
     complexity_lag1: "昨真实曲折度",
@@ -559,15 +573,17 @@ export function createFactorIcUi(deps) {
   /**
    * ŷ_oc / ŷ_co Ridge 因子系数表：仅入模因子；KPI + 双向 β 图 + 表内条形。
    * @param {object|null} rm return_model 或含 coefficients 的报告块
-   * @param {{ oos?: object, head?: "tau"|"on"|"path"|"cx"|"tpd"|"r"|"t30"|"t60"|"t90" } } [opts]
+   * @param {{ oos?: object, head?: "tau"|"on"|"path"|"cx"|"tpd"|"r"|"t30"|"t45"|"t60"|"t75"|"t90" } } [opts]
    */
   function remCoefTableHtml(rm, opts = {}) {
     if (!rm || typeof rm !== "object") return "";
     const isOn = opts.head === "on";
     const isT30 = opts.head === "t30";
+    const isT45 = opts.head === "t45";
     const isT60 = opts.head === "t60";
+    const isT75 = opts.head === "t75";
     const isT90 = opts.head === "t90";
-    const isR = opts.head === "r" || isT30 || isT60 || isT90;
+    const isR = opts.head === "r" || isT30 || isT45 || isT60 || isT75 || isT90;
     const isTpd = opts.head === "tpd";
     const isCxHead = opts.head === "cx";
     const isCx = isCxHead || isTpd;
@@ -579,10 +595,14 @@ export function createFactorIcUi(deps) {
         ? "ŷ_co"
         : isT90
           ? "ŷ_τ90"
-          : isT60
-            ? "ŷ_τ60"
-            : isT30
-              ? "ŷ_τ30"
+          : isT75
+            ? "ŷ_τ75"
+            : isT60
+              ? "ŷ_τ60"
+              : isT45
+                ? "ŷ_τ45"
+                : isT30
+                  ? "ŷ_τ30"
               : opts.head === "r"
                 ? "ŷ_τc"
                 : "ŷ_oc";
@@ -619,21 +639,31 @@ export function createFactorIcUi(deps) {
       "ret_last_15m",
       "ret_last_5m",
       "ret_last_30m",
+      "ret_last_45m",
       "ret_last_60m",
+      "ret_last_75m",
       "ret_last_90m",
       "session_elapsed",
       "session_remain",
       "crosses_lunch",
+      "crosses_lunch_45",
       "crosses_lunch_60",
+      "crosses_lunch_75",
       "crosses_lunch_90",
       "session_vwap_dev",
       "vol_last_30m_vs_avg",
+      "vol_last_45m_vs_avg",
       "vol_last_60m_vs_avg",
+      "vol_last_75m_vs_avg",
       "vol_last_90m_vs_avg",
       "sector_ret_last_30m",
       "ret_last_30m_vs_sector",
+      "sector_ret_last_45m",
+      "ret_last_45m_vs_sector",
       "sector_ret_last_60m",
       "ret_last_60m_vs_sector",
+      "sector_ret_last_75m",
+      "ret_last_75m_vs_sector",
       "sector_ret_last_90m",
       "ret_last_90m_vs_sector",
       "realized_vol",
@@ -678,8 +708,12 @@ export function createFactorIcUi(deps) {
       "tau_ma5",
       "t30_lag1",
       "t30_ma5",
+      "t45_lag1",
+      "t45_ma5",
       "t60_lag1",
       "t60_ma5",
+      "t75_lag1",
+      "t75_ma5",
       "t90_lag1",
       "t90_ma5",
       "path_lag1",
@@ -802,11 +836,15 @@ export function createFactorIcUi(deps) {
         : isOn
           ? "open[T+1]/close[T]-1"
           : isT90
-            ? "price[τ+90m]/price[τ]-1"
-            : isT60
-              ? "price[τ+60m]/price[τ]-1"
-              : isT30
-                ? "price[τ+30m]/price[τ]-1"
+            ? "mean(price[τ+85m],price[τ+90m],price[τ+95m])/price[τ]-1"
+            : isT75
+              ? "mean(price[τ+70m],price[τ+75m],price[τ+80m])/price[τ]-1"
+              : isT60
+                ? "mean(price[τ+55m],price[τ+60m],price[τ+65m])/price[τ]-1"
+                : isT45
+                  ? "mean(price[τ+40m],price[τ+45m],price[τ+50m])/price[τ]-1"
+                  : isT30
+                    ? "mean(price[τ+25m],price[τ+30m],price[τ+35m])/price[τ]-1"
                 : opts.head === "r"
                   ? "price[τ]/close[T]-1"
                   : "close[T]/open[T]-1");
@@ -868,7 +906,7 @@ export function createFactorIcUi(deps) {
 
     const metrics =
       `<div class="quant-rem-coef-spec-metrics" role="group" aria-label="${esc(
-        isPath ? `${isTpd ? "tpd" : isCxHead ? "cx" : "path"} 模型摘要` : isOn ? "on 模型摘要" : isT90 ? "t90 模型摘要" : isT60 ? "t60 模型摘要" : isT30 ? "t30 模型摘要" : isR ? "r 模型摘要" : "τ 模型摘要"
+        isPath ? `${isTpd ? "tpd" : isCxHead ? "cx" : "path"} 模型摘要` : isOn ? "on 模型摘要" : isT90 ? "t90 模型摘要" : isT75 ? "t75 模型摘要" : isT60 ? "t60 模型摘要" : isT45 ? "t45 模型摘要" : isT30 ? "t30 模型摘要" : isR ? "r 模型摘要" : "τ 模型摘要"
       )}">` +
       (intercept != null
         ? kpi(isR ? "执行套" : "截距", intercept.toFixed(3), interceptTip)

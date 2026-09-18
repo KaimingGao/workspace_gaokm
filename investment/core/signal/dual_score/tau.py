@@ -383,8 +383,12 @@ def attach_dual_score_pit(
     sector_ret_to_tau: Optional[float] = None,
     use_minute_tau: Optional[bool] = None,
     minute_tau_hm: Optional[str] = None,
+    trade_day: Optional[str] = None,
 ) -> Dict[str, Any]:
     """历史回测 / 无实时行情时：用 PIT 日线 quote·bars 挂 ŷ_τ + blend。
+
+    ``trade_day``：回测 T 日。不传则 ``resolve_minute_tau_trade_date``（live 会把
+    「昨收完整日」抬到当前周期，昨天的回测夜盘会丢缺口）。
 
     缺口 = open[T]/close[T−1]（与 live ``resolve_open_t`` 同口径）。
     ``sector_gap_breadth`` / ``sector_gap_median``：开盘缺口截面。
@@ -442,12 +446,13 @@ def attach_dual_score_pit(
     sector_hm = effective_hm
     gap_v = None
     open_t_px = None
-    trade_day0 = ""
+    trade_day0 = str(trade_day or "").strip()[:10]
     try:
         from core.event_prior import get_event_prior_cfg
         from core.signal.session_pit import resolve_minute_tau_trade_date, resolve_open_t
 
-        trade_day0 = resolve_minute_tau_trade_date(q, b)
+        if len(trade_day0) < 10:
+            trade_day0 = resolve_minute_tau_trade_date(q, b)
         open_info = resolve_open_t(
             q, b, trade_day=trade_day0, minute_bars=minute_bars
         )
@@ -568,8 +573,11 @@ def attach_dual_score_pit(
                 tau_open_and_prev_close,
             )
 
-            # 盘中 T=会话日；实时行情无 date 时勿回退到昨收完整 K
-            trade_day = resolve_minute_tau_trade_date(q, b)
+            # 盘中 T=会话日；实时行情无 date 时勿回退到昨收完整 K。
+            # 回测已传入 trade_day 时不要再按墙上时钟抬到当前周期。
+            trade_day = str(trade_day0 or "").strip()[:10]
+            if len(trade_day) < 10:
+                trade_day = resolve_minute_tau_trade_date(q, b)
             open_px, prev_c = tau_open_and_prev_close(
                 q, b, trade_day, minute_bars=minute_bars
             )
@@ -647,7 +655,10 @@ def attach_dual_score_pit(
                 signal_item.get("_peer_ret_open_to_tau"), (list, tuple)
             ):
                 sret = sector_ret_median(signal_item.get("_peer_ret_open_to_tau") or [])
-            if sret is None and feats.get("sector_ret_to_tau") is None:
+            clock_cs = bool(str(pack_hm or "").strip()[:5])
+            if sret is None and (clock_cs or feats.get("sector_ret_to_tau") is None):
+                if not trade_day:
+                    trade_day = str(trade_day0 or "").strip()[:10]
                 if not trade_day:
                     from core.signal.session_pit import resolve_minute_tau_trade_date
 
@@ -665,7 +676,7 @@ def attach_dual_score_pit(
                         trade_day, hm, codes=peer_codes_for_sector_ret() or None
                     )
             if sret is not None:
-                feats = apply_sector_ret_cs(feats, sret)
+                feats = apply_sector_ret_cs(feats, sret, overwrite=clock_cs)
         except Exception:  # noqa: BLE001
             logger.debug("sector_ret_to_tau attach in dual_score_pit failed", exc_info=True)
     # 只传 τ 头 Z 特征；勿塞全日线 sub_scores（训练未用，易误导）
@@ -938,11 +949,23 @@ def ensure_formula_terms_tau(item: Optional[dict]) -> Optional[Dict[str, Any]]:
                 return True
         return has_z and not z_in_terms
 
+    def _stale_missing_pack(expl: Optional[dict]) -> bool:
+        """features_tau 已有开盘→τ，组成表仍是开盘 Z → 须重拆。"""
+        if feats.get("ret_open_to_tau") is None or not isinstance(expl, dict):
+            return False
+        keys = {
+            str(t.get("key") or "")
+            for t in (expl.get("terms") or [])
+            if isinstance(t, dict) and not t.get("note")
+        }
+        return "ret_open_to_tau" not in keys
+
     if (
         isinstance(existing, dict)
         and isinstance(existing.get("terms"), list)
         and existing["terms"]
         and not _stale_imputed_z(existing)
+        and not _stale_missing_pack(existing)
     ):
         return existing
 

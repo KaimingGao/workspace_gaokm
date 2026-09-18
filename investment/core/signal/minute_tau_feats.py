@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import json
+import logging
 import math
+import os
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 # 单票可算（无截面）
@@ -51,21 +54,31 @@ MINUTE_TAU_FEAT_LABELS = {
     "ret_last_15m": "近15m 收益 %",
     "ret_last_5m": "近5m 收益 %",
     "ret_last_30m": "近30交易分钟收益 %",
+    "ret_last_45m": "近45交易分钟收益 %",
     "ret_last_60m": "近60交易分钟收益 %",
+    "ret_last_75m": "近75交易分钟收益 %",
     "ret_last_90m": "近90交易分钟收益 %",
     "session_elapsed": "已过交易分钟（09:30=0）",
     "session_remain": "距收盘剩余交易分钟",
     "crosses_lunch": "未来30m是否跨午休",
+    "crosses_lunch_45": "未来45m是否跨午休",
     "crosses_lunch_60": "未来60m是否跨午休",
+    "crosses_lunch_75": "未来75m是否跨午休",
     "crosses_lunch_90": "未来90m是否跨午休",
     "session_vwap_dev": "τ价相对会话VWAP %",
     "vol_last_30m_vs_avg": "近30m量/前缀均量",
+    "vol_last_45m_vs_avg": "近45m量/前缀均量",
     "vol_last_60m_vs_avg": "近60m量/前缀均量",
+    "vol_last_75m_vs_avg": "近75m量/前缀均量",
     "vol_last_90m_vs_avg": "近90m量/前缀均量",
     "sector_ret_last_30m": "板块中位近30m %",
     "ret_last_30m_vs_sector": "近30m相对板块 %",
+    "sector_ret_last_45m": "板块中位近45m %",
+    "ret_last_45m_vs_sector": "近45m相对板块 %",
     "sector_ret_last_60m": "板块中位近60m %",
     "ret_last_60m_vs_sector": "近60m相对板块 %",
+    "sector_ret_last_75m": "板块中位近75m %",
+    "ret_last_75m_vs_sector": "近75m相对板块 %",
     "sector_ret_last_90m": "板块中位近90m %",
     "ret_last_90m_vs_sector": "近90m相对板块 %",
     "realized_vol": "前缀已实现波动 %",
@@ -93,6 +106,21 @@ T30_SEQ_CS_KEYS = (
     "sector_ret_last_30m",
     "ret_last_30m_vs_sector",
 )
+T45_SEQ_TRAIL_KEYS = (
+    "ret_last_5m",
+    "ret_last_45m",
+    "session_elapsed",
+    "session_remain",
+    "crosses_lunch_45",
+)
+T45_SEQ_PACK_KEYS = T45_SEQ_TRAIL_KEYS + (
+    "session_vwap_dev",
+    "vol_last_45m_vs_avg",
+)
+T45_SEQ_CS_KEYS = (
+    "sector_ret_last_45m",
+    "ret_last_45m_vs_sector",
+)
 T60_SEQ_TRAIL_KEYS = (
     "ret_last_5m",
     "ret_last_60m",
@@ -107,6 +135,21 @@ T60_SEQ_PACK_KEYS = T60_SEQ_TRAIL_KEYS + (
 T60_SEQ_CS_KEYS = (
     "sector_ret_last_60m",
     "ret_last_60m_vs_sector",
+)
+T75_SEQ_TRAIL_KEYS = (
+    "ret_last_5m",
+    "ret_last_75m",
+    "session_elapsed",
+    "session_remain",
+    "crosses_lunch_75",
+)
+T75_SEQ_PACK_KEYS = T75_SEQ_TRAIL_KEYS + (
+    "session_vwap_dev",
+    "vol_last_75m_vs_avg",
+)
+T75_SEQ_CS_KEYS = (
+    "sector_ret_last_75m",
+    "ret_last_75m_vs_sector",
 )
 T90_SEQ_TRAIL_KEYS = (
     "ret_last_5m",
@@ -612,7 +655,9 @@ def _extract_horizon_seq_pack(
 
 _T30_T60_T90_HORIZONS: Tuple[Tuple[int, str, str, str], ...] = (
     (30, "ret_last_30m", "vol_last_30m_vs_avg", "crosses_lunch"),
+    (45, "ret_last_45m", "vol_last_45m_vs_avg", "crosses_lunch_45"),
     (60, "ret_last_60m", "vol_last_60m_vs_avg", "crosses_lunch_60"),
+    (75, "ret_last_75m", "vol_last_75m_vs_avg", "crosses_lunch_75"),
     (90, "ret_last_90m", "vol_last_90m_vs_avg", "crosses_lunch_90"),
 )
 
@@ -624,7 +669,7 @@ def extract_t30_t60_t90_seq_packs(
     tau_hm: str,
     open_px: Optional[float] = None,
 ) -> Dict[str, float]:
-    """一次走 ≤τ 前缀，写出 ŷ_τ30 / ŷ_τ60 / ŷ_τ90 序列键。"""
+    """一次走 ≤τ 前缀，写出 ŷ_τ30/45/60/75/90 序列键。"""
     return _extract_multi_horizon_seq_packs(
         minute_bars,
         trade_date=trade_date,
@@ -654,6 +699,26 @@ def extract_t30_seq_pack(
     )
 
 
+def extract_t45_seq_pack(
+    minute_bars: Sequence[dict],
+    *,
+    trade_date: str,
+    tau_hm: str,
+    open_px: Optional[float] = None,
+) -> Dict[str, float]:
+    """ŷ_τ45 序列特征：交易时钟 + 近 5m/45m + VWAP/量比（PIT，≤τ）。缺根留空。"""
+    return _extract_horizon_seq_pack(
+        minute_bars,
+        trade_date=trade_date,
+        tau_hm=tau_hm,
+        open_px=open_px,
+        trail_min=45,
+        ret_key="ret_last_45m",
+        vol_key="vol_last_45m_vs_avg",
+        lunch_key="crosses_lunch_45",
+    )
+
+
 def extract_t60_seq_pack(
     minute_bars: Sequence[dict],
     *,
@@ -671,6 +736,26 @@ def extract_t60_seq_pack(
         ret_key="ret_last_60m",
         vol_key="vol_last_60m_vs_avg",
         lunch_key="crosses_lunch_60",
+    )
+
+
+def extract_t75_seq_pack(
+    minute_bars: Sequence[dict],
+    *,
+    trade_date: str,
+    tau_hm: str,
+    open_px: Optional[float] = None,
+) -> Dict[str, float]:
+    """ŷ_τ75 序列特征：交易时钟 + 近 5m/75m + VWAP/量比（PIT，≤τ）。缺根留空。"""
+    return _extract_horizon_seq_pack(
+        minute_bars,
+        trade_date=trade_date,
+        tau_hm=tau_hm,
+        open_px=open_px,
+        trail_min=75,
+        ret_key="ret_last_75m",
+        vol_key="vol_last_75m_vs_avg",
+        lunch_key="crosses_lunch_75",
     )
 
 
@@ -716,6 +801,17 @@ def attach_ret_last_30m_vs_sector(feats: Dict[str, Any]) -> None:
     feats["ret_last_30m_vs_sector"] = round(float(a) - float(b), 6)
 
 
+def attach_ret_last_45m_vs_sector(feats: Dict[str, Any]) -> None:
+    """有 ret_last_45m 与 sector_ret_last_45m 时写相对板块。"""
+    if not isinstance(feats, dict):
+        return
+    a = _f(feats.get("ret_last_45m"))
+    b = _f(feats.get("sector_ret_last_45m"))
+    if a is None or b is None:
+        return
+    feats["ret_last_45m_vs_sector"] = round(float(a) - float(b), 6)
+
+
 def attach_ret_last_60m_vs_sector(feats: Dict[str, Any]) -> None:
     """有 ret_last_60m 与 sector_ret_last_60m 时写相对板块。"""
     if not isinstance(feats, dict):
@@ -725,6 +821,17 @@ def attach_ret_last_60m_vs_sector(feats: Dict[str, Any]) -> None:
     if a is None or b is None:
         return
     feats["ret_last_60m_vs_sector"] = round(float(a) - float(b), 6)
+
+
+def attach_ret_last_75m_vs_sector(feats: Dict[str, Any]) -> None:
+    """有 ret_last_75m 与 sector_ret_last_75m 时写相对板块。"""
+    if not isinstance(feats, dict):
+        return
+    a = _f(feats.get("ret_last_75m"))
+    b = _f(feats.get("sector_ret_last_75m"))
+    if a is None or b is None:
+        return
+    feats["ret_last_75m_vs_sector"] = round(float(a) - float(b), 6)
 
 
 def attach_ret_last_90m_vs_sector(feats: Dict[str, Any]) -> None:
@@ -793,6 +900,23 @@ def apply_sector_ret_last_30m_cs(
     return out
 
 
+def apply_sector_ret_last_45m_cs(
+    feats: Optional[Dict[str, Any]],
+    sector_ret_last_45m: Optional[float],
+    *,
+    overwrite: bool = False,
+) -> Dict[str, Any]:
+    """写入截面近 45 交易分钟中位，并派生 ``ret_last_45m_vs_sector``。"""
+    out = dict(feats or {})
+    sret = _f(sector_ret_last_45m)
+    if sret is not None and (overwrite or out.get("sector_ret_last_45m") is None):
+        out["sector_ret_last_45m"] = round(float(sret), 6)
+    if overwrite:
+        out.pop("ret_last_45m_vs_sector", None)
+    attach_ret_last_45m_vs_sector(out)
+    return out
+
+
 def apply_sector_ret_last_60m_cs(
     feats: Optional[Dict[str, Any]],
     sector_ret_last_60m: Optional[float],
@@ -807,6 +931,23 @@ def apply_sector_ret_last_60m_cs(
     if overwrite:
         out.pop("ret_last_60m_vs_sector", None)
     attach_ret_last_60m_vs_sector(out)
+    return out
+
+
+def apply_sector_ret_last_75m_cs(
+    feats: Optional[Dict[str, Any]],
+    sector_ret_last_75m: Optional[float],
+    *,
+    overwrite: bool = False,
+) -> Dict[str, Any]:
+    """写入截面近 75 交易分钟中位，并派生 ``ret_last_75m_vs_sector``。"""
+    out = dict(feats or {})
+    sret = _f(sector_ret_last_75m)
+    if sret is not None and (overwrite or out.get("sector_ret_last_75m") is None):
+        out["sector_ret_last_75m"] = round(float(sret), 6)
+    if overwrite:
+        out.pop("ret_last_75m_vs_sector", None)
+    attach_ret_last_75m_vs_sector(out)
     return out
 
 
@@ -830,30 +971,278 @@ def apply_sector_ret_last_90m_cs(
 # (trade_date, tau_hm) → 池中位；做 T 回测同日多票复用
 _SECTOR_RET_CACHE: Dict[Tuple[str, str], Optional[float]] = {}
 _SECTOR_RET_30M_CACHE: Dict[Tuple[str, str], Optional[float]] = {}
+_SECTOR_RET_45M_CACHE: Dict[Tuple[str, str], Optional[float]] = {}
 _SECTOR_RET_60M_CACHE: Dict[Tuple[str, str], Optional[float]] = {}
+_SECTOR_RET_75M_CACHE: Dict[Tuple[str, str], Optional[float]] = {}
 _SECTOR_RET_90M_CACHE: Dict[Tuple[str, str], Optional[float]] = {}
 # 同伴分钟线进程缓存：回测 20 日×4 槽会反复 load_minute_cache，未缓存时单票可卡 ~1 分钟
 _PEER_MINUTE_BARS: Dict[str, List[dict]] = {}
 _PEER_CODES_MEMO: Optional[List[str]] = None
 _SECTOR_RET_DEFAULT_CAP = 24
+_SECTOR_RET_PINNED: set = set()
+_SECTOR_RET_PIN_MIN_N = 8
+
+logger = logging.getLogger(__name__)
+
+
+def _rebalance_cs_store_path() -> str:
+    from core.paths import REBALANCE_CS_10_PATH
+
+    return str(REBALANCE_CS_10_PATH)
+
+
+def _norm_cs_hm(hm: str) -> str:
+    raw = str(hm or "").strip().replace(":", "")
+    if len(raw) >= 4 and raw[:4].isdigit():
+        return f"{raw[:2]}:{raw[2:4]}"
+    return str(hm or "").strip()[:5]
+
+
+def _load_rebalance_cs_store() -> Dict[str, Any]:
+    path = _rebalance_cs_store_path()
+    try:
+        with open(path, encoding="utf-8") as f:
+            raw = json.load(f)
+    except (OSError, json.JSONDecodeError, TypeError):
+        return {}
+    return raw if isinstance(raw, dict) else {}
+
+
+def _read_rebalance_cs_disk(
+    day: str,
+    hm: str,
+    *,
+    field: Optional[str] = None,
+) -> Optional[float]:
+    """已落盘的调仓钟截面；下午补仓不得改这个中位。
+
+    ``field=None``：开→τ ``median``。``last_30m`` / ``last_45m`` / … 读嵌套中位。
+    """
+    doc = _load_rebalance_cs_store()
+    slot = doc.get(str(day or "")[:10])
+    if not isinstance(slot, dict):
+        return None
+    hit = slot.get(_norm_cs_hm(hm))
+    if isinstance(hit, dict):
+        if field:
+            nested = hit.get(field)
+            if isinstance(nested, dict):
+                return _f(nested.get("median"))
+            return _f(nested)
+        return _f(hit.get("median"))
+    if field:
+        return None
+    return _f(hit)
+
+
+def _write_rebalance_cs_disk(
+    day: str,
+    hm: str,
+    median: Optional[float],
+    *,
+    n_rets: int = 0,
+    field: Optional[str] = None,
+) -> None:
+    """周期内每字段只写一次：已有开→τ / last_30m 等不覆盖。"""
+    if median is None:
+        return
+    d = str(day or "")[:10]
+    clock = _norm_cs_hm(hm)
+    if len(d) < 10 or len(clock) < 5:
+        return
+    path = _rebalance_cs_store_path()
+    doc = _load_rebalance_cs_store()
+    slot = doc.get(d)
+    if not isinstance(slot, dict):
+        slot = {}
+    raw = slot.get(clock)
+    if isinstance(raw, dict):
+        existing = dict(raw)
+    else:
+        old = _f(raw)
+        existing = {"median": round(float(old), 6)} if old is not None else {}
+    try:
+        from core.signal.session_pit import shanghai_now
+
+        stamped = shanghai_now().isoformat()
+    except Exception:
+        stamped = ""
+    payload = {
+        "median": round(float(median), 6),
+        "n": int(n_rets or 0),
+        "stamped_at": stamped,
+    }
+    if field:
+        if existing.get(field) is not None:
+            return
+        existing[field] = payload
+    else:
+        if existing.get("median") is not None:
+            return
+        existing["median"] = payload["median"]
+        existing["n"] = payload["n"]
+        existing["stamped_at"] = payload["stamped_at"]
+    slot[clock] = existing
+    doc[d] = slot
+    parent = os.path.dirname(path)
+    if parent:
+        os.makedirs(parent, exist_ok=True)
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(doc, f, ensure_ascii=False, indent=2)
+    os.replace(tmp, path)
 
 
 def clear_sector_ret_cache() -> None:
     global _PEER_CODES_MEMO
     _SECTOR_RET_CACHE.clear()
     _SECTOR_RET_30M_CACHE.clear()
+    _SECTOR_RET_45M_CACHE.clear()
     _SECTOR_RET_60M_CACHE.clear()
+    _SECTOR_RET_75M_CACHE.clear()
     _SECTOR_RET_90M_CACHE.clear()
+    _SECTOR_RET_PINNED.clear()
     _PEER_MINUTE_BARS.clear()
     _MINUTE_BY_DATE_INDEX.clear()
     _PEER_CODES_MEMO = None
 
 
+def _rebalance_cs_hm_le_cap(hm: str) -> bool:
+    from core.signal.minute_tau_grid import REBALANCE_TAU_CAP_HM
+
+    cap = str(REBALANCE_TAU_CAP_HM).replace(":", "")[:4]
+    h = str(hm or "").replace(":", "")[:4]
+    return len(h) >= 4 and h <= cap
+
+
+def _pin_rebalance_cs_key(day: str, hm: str, n_rets: int) -> bool:
+    """钉住已到点的调仓窗（≤10:00）截面，避免 flush / 补仓把早盘中位漂掉。
+
+    09:40 在 09:40 就算出来也要钉住并落盘。若等墙钟 10:00 再钉，早盘槽
+    会在 10:30 锁之后变成缺特征（板块中位 z=0，ŷ_oc 比同钟早盘高一截）。
+    墙钟未到该 hm 时不钉，避免把未来 10:00 钉成残缺中位。
+    """
+    if int(n_rets or 0) < _SECTOR_RET_PIN_MIN_N:
+        return False
+    try:
+        from core.signal.session_pit import oo_cycle_date, shanghai_now
+
+        if not _rebalance_cs_hm_le_cap(hm):
+            return False
+        n = shanghai_now()
+        if str(day or "")[:10] != oo_cycle_date(now=n):
+            return False
+        h = str(hm or "").replace(":", "")[:4]
+        if len(h) >= 4 and (n.hour, n.minute) < (int(h[:2]), int(h[2:4])):
+            return False
+        return True
+    except Exception:
+        return False
+
+
+def _rebalance_cs_persist_window() -> bool:
+    """调仓窗截面落盘：墙钟 < 10:30。09:40 在 09:40 写；10:00 在 10:00–10:30 写。"""
+    try:
+        from core.signal.session_pit import shanghai_now
+
+        n = shanghai_now()
+        return (n.hour, n.minute) < (10, 30)
+    except Exception:
+        return False
+
+
+def _rebalance_cs_live_lock(day: str, hm: str) -> bool:
+    """周期日已过 10:30：仅 10:00 调仓截面只能读落盘，禁止用下午仓重算。
+
+    09:40 等早盘槽仍按 ≤τ 前缀重算（PIT）。把 ≤10:00 一律锁死的话，
+    09:40 未落盘时重扫会把板块项打成 z=0。
+    """
+    try:
+        from core.signal.minute_tau_grid import REBALANCE_TAU_CAP_HM
+        from core.signal.session_pit import oo_cycle_date, shanghai_now
+
+        if _norm_cs_hm(hm) != _norm_cs_hm(REBALANCE_TAU_CAP_HM):
+            return False
+        n = shanghai_now()
+        if str(day or "")[:10] != oo_cycle_date(now=n):
+            return False
+        return (n.hour, n.minute) >= (10, 30)
+    except Exception:
+        return False
+
+
+def _cs_cache_lookup(
+    cache: Dict[Tuple[str, str], Optional[float]],
+    cache_key: Tuple[str, str],
+    day: str,
+    hm: str,
+    *,
+    use_cache: bool,
+    disk_field: Optional[str] = None,
+) -> Tuple[bool, Optional[float]]:
+    """内存 → 落盘 → 10:00 锁。``hit=True`` 时不再进仓库。"""
+    if not use_cache:
+        return False, None
+    if cache_key in cache:
+        return True, cache[cache_key]
+    frozen = _read_rebalance_cs_disk(day, hm, field=disk_field)
+    if frozen is not None:
+        cache[cache_key] = frozen
+        _SECTOR_RET_PINNED.add(cache_key)
+        return True, frozen
+    # 10:30 后无落盘：按 τ 前缀从同伴重算（extract 已切到 hm），不得打成缺特征。
+    # 否则夜盘做 T 的 10:00 板块中位 z=0，对不上持仓/观察池。
+    return False, None
+
+
+def _cs_cache_store(
+    cache: Dict[Tuple[str, str], Optional[float]],
+    cache_key: Tuple[str, str],
+    day: str,
+    hm: str,
+    med: Optional[float],
+    n_rets: int,
+    *,
+    use_cache: bool,
+    disk_field: Optional[str] = None,
+) -> Optional[float]:
+    if not use_cache:
+        return med
+    cache[cache_key] = med
+    if _pin_rebalance_cs_key(day, hm, n_rets):
+        _SECTOR_RET_PINNED.add(cache_key)
+        if _rebalance_cs_persist_window():
+            try:
+                _write_rebalance_cs_disk(
+                    day, hm, med, n_rets=n_rets, field=disk_field
+                )
+            except Exception:
+                logger.debug("rebalance CS persist failed", exc_info=True)
+    return med
+
+
 def _flush_sector_ret_medians() -> None:
+    def _keep(cache: Dict[Tuple[str, str], Optional[float]]) -> Dict[Tuple[str, str], Optional[float]]:
+        return {k: cache[k] for k in _SECTOR_RET_PINNED if k in cache}
+
+    kept_oc = _keep(_SECTOR_RET_CACHE)
+    kept_30 = _keep(_SECTOR_RET_30M_CACHE)
+    kept_45 = _keep(_SECTOR_RET_45M_CACHE)
+    kept_60 = _keep(_SECTOR_RET_60M_CACHE)
+    kept_75 = _keep(_SECTOR_RET_75M_CACHE)
+    kept_90 = _keep(_SECTOR_RET_90M_CACHE)
     _SECTOR_RET_CACHE.clear()
+    _SECTOR_RET_CACHE.update(kept_oc)
     _SECTOR_RET_30M_CACHE.clear()
+    _SECTOR_RET_30M_CACHE.update(kept_30)
+    _SECTOR_RET_45M_CACHE.clear()
+    _SECTOR_RET_45M_CACHE.update(kept_45)
     _SECTOR_RET_60M_CACHE.clear()
+    _SECTOR_RET_60M_CACHE.update(kept_60)
+    _SECTOR_RET_75M_CACHE.clear()
+    _SECTOR_RET_75M_CACHE.update(kept_75)
     _SECTOR_RET_90M_CACHE.clear()
+    _SECTOR_RET_90M_CACHE.update(kept_90)
 
 
 def seed_peer_minute_bars(
@@ -966,8 +1355,11 @@ def resolve_sector_ret_to_tau(
         return sector_ret_median(known_rets)
 
     cache_key = (day, hm)
-    if use_cache and cache_key in _SECTOR_RET_CACHE:
-        return _SECTOR_RET_CACHE[cache_key]
+    hit, cached = _cs_cache_lookup(
+        _SECTOR_RET_CACHE, cache_key, day, hm, use_cache=use_cache
+    )
+    if hit:
+        return cached
 
     peer_codes = [str(c).strip() for c in (codes or []) if str(c or "").strip()]
     if not peer_codes:
@@ -995,9 +1387,9 @@ def resolve_sector_ret_to_tau(
             rets.append(float(rot))
 
     med = sector_ret_median(rets)
-    if use_cache:
-        _SECTOR_RET_CACHE[cache_key] = med
-    return med
+    return _cs_cache_store(
+        _SECTOR_RET_CACHE, cache_key, day, hm, med, len(rets), use_cache=use_cache
+    )
 
 
 def attach_sector_ret_cs_if_missing(
@@ -1027,6 +1419,71 @@ def attach_sector_ret_cs_if_missing(
     return apply_sector_ret_cs(out, sret)
 
 
+def _resolve_sector_ret_horizon(
+    cache: Dict[Tuple[str, str], Optional[float]],
+    extract_pack,
+    ret_key: str,
+    disk_field: str,
+    trade_date: str,
+    tau_hm: str = "10:30",
+    *,
+    codes: Optional[Sequence[str]] = None,
+    known_rets: Optional[Sequence[Any]] = None,
+    cap: int = _SECTOR_RET_DEFAULT_CAP,
+    use_cache: bool = True,
+) -> Optional[float]:
+    """同伴近 N 交易分钟中位：与开→τ 同口径的缓存 / 落盘 / 10:00 锁。"""
+    day = str(trade_date or "")[:10]
+    hm = str(tau_hm or "10:30").strip() or "10:30"
+    if len(day) < 10:
+        return None
+    if known_rets is not None:
+        return sector_ret_median(known_rets)
+    cache_key = (day, hm)
+    hit, cached = _cs_cache_lookup(
+        cache,
+        cache_key,
+        day,
+        hm,
+        use_cache=use_cache,
+        disk_field=disk_field,
+    )
+    if hit:
+        return cached
+    peer_codes = [str(c).strip() for c in (codes or []) if str(c or "").strip()]
+    if not peer_codes:
+        peer_codes = _peer_codes_for_sector_ret(
+            cap=max(8, int(cap or _SECTOR_RET_DEFAULT_CAP))
+        )
+    if not peer_codes:
+        if use_cache:
+            cache[cache_key] = None
+        return None
+    rets: List[float] = []
+    for raw in peer_codes[: max(8, int(cap or _SECTOR_RET_DEFAULT_CAP))]:
+        code_key = str(raw or "").strip()
+        if not code_key:
+            continue
+        bars = _peer_minute_bars_for_tau(code_key, trade_date=day, tau_hm=hm)
+        if len(bars) < 2:
+            continue
+        pack = extract_pack(bars, trade_date=day, tau_hm=hm)
+        rot = _f(pack.get(ret_key))
+        if rot is not None:
+            rets.append(float(rot))
+    med = sector_ret_median(rets)
+    return _cs_cache_store(
+        cache,
+        cache_key,
+        day,
+        hm,
+        med,
+        len(rets),
+        use_cache=use_cache,
+        disk_field=disk_field,
+    )
+
+
 def resolve_sector_ret_last_30m(
     trade_date: str,
     tau_hm: str = "10:30",
@@ -1037,47 +1494,18 @@ def resolve_sector_ret_last_30m(
     use_cache: bool = True,
 ) -> Optional[float]:
     """解析 ``sector_ret_last_30m``：同伴 ``ret_last_30m`` 中位；复用开→τ 同伴分钟仓。"""
-    day = str(trade_date or "")[:10]
-    hm = str(tau_hm or "10:30").strip() or "10:30"
-    if len(day) < 10:
-        return None
-
-    if known_rets is not None:
-        return sector_ret_median(known_rets)
-
-    cache_key = (day, hm)
-    if use_cache and cache_key in _SECTOR_RET_30M_CACHE:
-        return _SECTOR_RET_30M_CACHE[cache_key]
-
-    peer_codes = [str(c).strip() for c in (codes or []) if str(c or "").strip()]
-    if not peer_codes:
-        peer_codes = _peer_codes_for_sector_ret(cap=max(8, int(cap or _SECTOR_RET_DEFAULT_CAP)))
-    if not peer_codes:
-        if use_cache:
-            _SECTOR_RET_30M_CACHE[cache_key] = None
-        return None
-
-    rets: List[float] = []
-    for raw in peer_codes[: max(8, int(cap or _SECTOR_RET_DEFAULT_CAP))]:
-        code_key = str(raw or "").strip()
-        if not code_key:
-            continue
-        bars = _peer_minute_bars_for_tau(code_key, trade_date=day, tau_hm=hm)
-        if len(bars) < 2:
-            continue
-        pack = extract_t30_seq_pack(
-            bars,
-            trade_date=day,
-            tau_hm=hm,
-        )
-        rot = _f(pack.get("ret_last_30m"))
-        if rot is not None:
-            rets.append(float(rot))
-
-    med = sector_ret_median(rets)
-    if use_cache:
-        _SECTOR_RET_30M_CACHE[cache_key] = med
-    return med
+    return _resolve_sector_ret_horizon(
+        _SECTOR_RET_30M_CACHE,
+        extract_t30_seq_pack,
+        "ret_last_30m",
+        "last_30m",
+        trade_date,
+        tau_hm,
+        codes=codes,
+        known_rets=known_rets,
+        cap=cap,
+        use_cache=use_cache,
+    )
 
 
 def attach_sector_ret_last_30m_cs_if_missing(
@@ -1107,6 +1535,57 @@ def attach_sector_ret_last_30m_cs_if_missing(
     return apply_sector_ret_last_30m_cs(out, sret)
 
 
+def resolve_sector_ret_last_45m(
+    trade_date: str,
+    tau_hm: str = "10:30",
+    *,
+    codes: Optional[Sequence[str]] = None,
+    known_rets: Optional[Sequence[Any]] = None,
+    cap: int = _SECTOR_RET_DEFAULT_CAP,
+    use_cache: bool = True,
+) -> Optional[float]:
+    """解析 ``sector_ret_last_45m``：同伴 ``ret_last_45m`` 中位；复用开→τ 同伴分钟仓。"""
+    return _resolve_sector_ret_horizon(
+        _SECTOR_RET_45M_CACHE,
+        extract_t45_seq_pack,
+        "ret_last_45m",
+        "last_45m",
+        trade_date,
+        tau_hm,
+        codes=codes,
+        known_rets=known_rets,
+        cap=cap,
+        use_cache=use_cache,
+    )
+
+
+def attach_sector_ret_last_45m_cs_if_missing(
+    feats: Optional[Dict[str, Any]],
+    *,
+    trade_date: str,
+    tau_hm: str = "10:30",
+) -> Dict[str, Any]:
+    """live / 前缀补近 45m 截面。缺则 Ridge 把 CS 当 z=0。"""
+    out = dict(feats or {})
+    if out.get("ret_last_45m") is None:
+        return out
+    if out.get("sector_ret_last_45m") is not None:
+        attach_ret_last_45m_vs_sector(out)
+        return out
+    day = str(trade_date or "")[:10]
+    hm = str(tau_hm or "10:30").strip()[:5] or "10:30"
+    if len(day) < 10:
+        return out
+    try:
+        sret = resolve_sector_ret_last_45m(day, hm)
+    except Exception:
+        sret = None
+    if sret is None:
+        attach_ret_last_45m_vs_sector(out)
+        return out
+    return apply_sector_ret_last_45m_cs(out, sret)
+
+
 def resolve_sector_ret_last_60m(
     trade_date: str,
     tau_hm: str = "10:30",
@@ -1117,47 +1596,18 @@ def resolve_sector_ret_last_60m(
     use_cache: bool = True,
 ) -> Optional[float]:
     """解析 ``sector_ret_last_60m``：同伴 ``ret_last_60m`` 中位；复用开→τ 同伴分钟仓。"""
-    day = str(trade_date or "")[:10]
-    hm = str(tau_hm or "10:30").strip() or "10:30"
-    if len(day) < 10:
-        return None
-
-    if known_rets is not None:
-        return sector_ret_median(known_rets)
-
-    cache_key = (day, hm)
-    if use_cache and cache_key in _SECTOR_RET_60M_CACHE:
-        return _SECTOR_RET_60M_CACHE[cache_key]
-
-    peer_codes = [str(c).strip() for c in (codes or []) if str(c or "").strip()]
-    if not peer_codes:
-        peer_codes = _peer_codes_for_sector_ret(cap=max(8, int(cap or _SECTOR_RET_DEFAULT_CAP)))
-    if not peer_codes:
-        if use_cache:
-            _SECTOR_RET_60M_CACHE[cache_key] = None
-        return None
-
-    rets: List[float] = []
-    for raw in peer_codes[: max(8, int(cap or _SECTOR_RET_DEFAULT_CAP))]:
-        code_key = str(raw or "").strip()
-        if not code_key:
-            continue
-        bars = _peer_minute_bars_for_tau(code_key, trade_date=day, tau_hm=hm)
-        if len(bars) < 2:
-            continue
-        pack = extract_t60_seq_pack(
-            bars,
-            trade_date=day,
-            tau_hm=hm,
-        )
-        rot = _f(pack.get("ret_last_60m"))
-        if rot is not None:
-            rets.append(float(rot))
-
-    med = sector_ret_median(rets)
-    if use_cache:
-        _SECTOR_RET_60M_CACHE[cache_key] = med
-    return med
+    return _resolve_sector_ret_horizon(
+        _SECTOR_RET_60M_CACHE,
+        extract_t60_seq_pack,
+        "ret_last_60m",
+        "last_60m",
+        trade_date,
+        tau_hm,
+        codes=codes,
+        known_rets=known_rets,
+        cap=cap,
+        use_cache=use_cache,
+    )
 
 
 def attach_sector_ret_last_60m_cs_if_missing(
@@ -1187,6 +1637,57 @@ def attach_sector_ret_last_60m_cs_if_missing(
     return apply_sector_ret_last_60m_cs(out, sret)
 
 
+def resolve_sector_ret_last_75m(
+    trade_date: str,
+    tau_hm: str = "10:30",
+    *,
+    codes: Optional[Sequence[str]] = None,
+    known_rets: Optional[Sequence[Any]] = None,
+    cap: int = _SECTOR_RET_DEFAULT_CAP,
+    use_cache: bool = True,
+) -> Optional[float]:
+    """解析 ``sector_ret_last_75m``：同伴 ``ret_last_75m`` 中位；复用开→τ 同伴分钟仓。"""
+    return _resolve_sector_ret_horizon(
+        _SECTOR_RET_75M_CACHE,
+        extract_t75_seq_pack,
+        "ret_last_75m",
+        "last_75m",
+        trade_date,
+        tau_hm,
+        codes=codes,
+        known_rets=known_rets,
+        cap=cap,
+        use_cache=use_cache,
+    )
+
+
+def attach_sector_ret_last_75m_cs_if_missing(
+    feats: Optional[Dict[str, Any]],
+    *,
+    trade_date: str,
+    tau_hm: str = "10:30",
+) -> Dict[str, Any]:
+    """live / 前缀补近 75m 截面。缺则 Ridge 把 CS 当 z=0。"""
+    out = dict(feats or {})
+    if out.get("ret_last_75m") is None:
+        return out
+    if out.get("sector_ret_last_75m") is not None:
+        attach_ret_last_75m_vs_sector(out)
+        return out
+    day = str(trade_date or "")[:10]
+    hm = str(tau_hm or "10:30").strip()[:5] or "10:30"
+    if len(day) < 10:
+        return out
+    try:
+        sret = resolve_sector_ret_last_75m(day, hm)
+    except Exception:
+        sret = None
+    if sret is None:
+        attach_ret_last_75m_vs_sector(out)
+        return out
+    return apply_sector_ret_last_75m_cs(out, sret)
+
+
 def resolve_sector_ret_last_90m(
     trade_date: str,
     tau_hm: str = "10:30",
@@ -1197,47 +1698,18 @@ def resolve_sector_ret_last_90m(
     use_cache: bool = True,
 ) -> Optional[float]:
     """解析 ``sector_ret_last_90m``：同伴 ``ret_last_90m`` 中位；复用开→τ 同伴分钟仓。"""
-    day = str(trade_date or "")[:10]
-    hm = str(tau_hm or "10:30").strip() or "10:30"
-    if len(day) < 10:
-        return None
-
-    if known_rets is not None:
-        return sector_ret_median(known_rets)
-
-    cache_key = (day, hm)
-    if use_cache and cache_key in _SECTOR_RET_90M_CACHE:
-        return _SECTOR_RET_90M_CACHE[cache_key]
-
-    peer_codes = [str(c).strip() for c in (codes or []) if str(c or "").strip()]
-    if not peer_codes:
-        peer_codes = _peer_codes_for_sector_ret(cap=max(8, int(cap or _SECTOR_RET_DEFAULT_CAP)))
-    if not peer_codes:
-        if use_cache:
-            _SECTOR_RET_90M_CACHE[cache_key] = None
-        return None
-
-    rets: List[float] = []
-    for raw in peer_codes[: max(8, int(cap or _SECTOR_RET_DEFAULT_CAP))]:
-        code_key = str(raw or "").strip()
-        if not code_key:
-            continue
-        bars = _peer_minute_bars_for_tau(code_key, trade_date=day, tau_hm=hm)
-        if len(bars) < 2:
-            continue
-        pack = extract_t90_seq_pack(
-            bars,
-            trade_date=day,
-            tau_hm=hm,
-        )
-        rot = _f(pack.get("ret_last_90m"))
-        if rot is not None:
-            rets.append(float(rot))
-
-    med = sector_ret_median(rets)
-    if use_cache:
-        _SECTOR_RET_90M_CACHE[cache_key] = med
-    return med
+    return _resolve_sector_ret_horizon(
+        _SECTOR_RET_90M_CACHE,
+        extract_t90_seq_pack,
+        "ret_last_90m",
+        "last_90m",
+        trade_date,
+        tau_hm,
+        codes=codes,
+        known_rets=known_rets,
+        cap=cap,
+        use_cache=use_cache,
+    )
 
 
 def attach_sector_ret_last_90m_cs_if_missing(
@@ -1493,7 +1965,9 @@ def merge_minute_tau_pack_into_feats(
     if _PEER_CODES_MEMO:
         out = attach_sector_ret_cs_if_missing(out, trade_date=day, tau_hm=hm)
         out = attach_sector_ret_last_30m_cs_if_missing(out, trade_date=day, tau_hm=hm)
+        out = attach_sector_ret_last_45m_cs_if_missing(out, trade_date=day, tau_hm=hm)
         out = attach_sector_ret_last_60m_cs_if_missing(out, trade_date=day, tau_hm=hm)
+        out = attach_sector_ret_last_75m_cs_if_missing(out, trade_date=day, tau_hm=hm)
         out = attach_sector_ret_last_90m_cs_if_missing(out, trade_date=day, tau_hm=hm)
     clock_ok = prefix_has_tau_clock(bars, trade_date=day, tau_hm=hm)
     prefix = _day_bars_upto_tau(bars, trade_date=day, tau_hm=hm)

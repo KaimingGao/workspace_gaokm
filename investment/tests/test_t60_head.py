@@ -48,8 +48,17 @@ class SessionClockTests(unittest.TestCase):
         self.assertEqual(add_session_minutes("11:00", 60), "13:30")
         self.assertEqual(add_session_minutes("11:30", 60), "14:00")
         self.assertEqual(add_session_minutes("14:00", 60), "15:00")
+        self.assertEqual(add_session_minutes("13:55", 65), "15:00")
         self.assertIsNone(add_session_minutes("14:05", 60))
+        self.assertIsNone(add_session_minutes("14:00", 65))
         self.assertIsNone(add_session_minutes("15:00", 60))
+
+    def test_tau_clock_allows_t60_needs_65m(self):
+        from core.signal.minute_tau_grid import tau_clock_allows_t60
+
+        self.assertTrue(tau_clock_allows_t60("13:55"))
+        self.assertFalse(tau_clock_allows_t60("14:00"))
+        self.assertFalse(tau_clock_allows_t60("14:05"))
 
     def test_sub_session_and_lunch_flags(self):
         from core.signal.minute_tau_grid import (
@@ -177,14 +186,15 @@ class SessionClockTests(unittest.TestCase):
         self.assertAlmostEqual(out[1]["xs"][0]["ret_last_60m_vs_sector"], 1.0, places=6)
         self.assertAlmostEqual(out[0]["xs"][1]["sector_ret_last_60m"], 3.0, places=6)
 
-    def test_t60_grid_stops_at_1400(self):
+    def test_t60_grid_stops_at_1355(self):
         from core.signal.minute_tau_grid import DEFAULT_T60_TRAIN_TAU_GRID
 
         self.assertIn("09:30", DEFAULT_T60_TRAIN_TAU_GRID)
         self.assertIn("11:30", DEFAULT_T60_TRAIN_TAU_GRID)
         self.assertIn("13:05", DEFAULT_T60_TRAIN_TAU_GRID)
-        self.assertIn("14:00", DEFAULT_T60_TRAIN_TAU_GRID)
+        self.assertIn("13:55", DEFAULT_T60_TRAIN_TAU_GRID)
         self.assertNotIn("13:00", DEFAULT_T60_TRAIN_TAU_GRID)
+        self.assertNotIn("14:00", DEFAULT_T60_TRAIN_TAU_GRID)
         self.assertNotIn("14:05", DEFAULT_T60_TRAIN_TAU_GRID)
 
 
@@ -195,6 +205,41 @@ class RelabelT60Tests(unittest.TestCase):
         self.assertAlmostEqual(y_t60_pct(10.0, 10.5), 5.0, places=6)
         self.assertIsNone(y_t60_pct(0, 10.5))
         self.assertIsNone(y_t60_pct(10.0, None))
+
+    def test_t60_mean_session_three_bars(self):
+        from core.research.tau_panel import price_at_t60_mean_session, y_t60_pct
+
+        dkey = "2025-06-02"
+        bars = []
+        for hm in _times_am_pm():
+            if hm == "10:25":
+                c = 10.1
+            elif hm == "10:30":
+                c = 10.4
+            elif hm == "10:35":
+                c = 10.7
+            else:
+                c = 10.0
+            bars.append(_bar(dkey, hm, c, open_px=10.0))
+        hm, px = price_at_t60_mean_session(bars, trade_date=dkey, tau_hm="09:30")
+        self.assertEqual(hm, "10:30")
+        self.assertAlmostEqual(float(px), 10.4, places=6)
+        self.assertAlmostEqual(y_t60_pct(10.0, px), 4.0, places=6)
+        late_hm, late_px = price_at_t60_mean_session(
+            bars, trade_date=dkey, tau_hm="14:00"
+        )
+        self.assertIsNone(late_hm)
+        self.assertIsNone(late_px)
+        ok_hm, ok_px = price_at_t60_mean_session(
+            bars, trade_date=dkey, tau_hm="13:55"
+        )
+        self.assertEqual(ok_hm, "14:55")
+        self.assertAlmostEqual(float(ok_px), 10.0, places=6)
+        lunch_hm, lunch_px = price_at_t60_mean_session(
+            bars, trade_date=dkey, tau_hm="11:00"
+        )
+        self.assertEqual(lunch_hm, "13:30")
+        self.assertAlmostEqual(float(lunch_px), 10.0, places=6)
 
     def test_relabel_keeps_horizon_rows_and_drops_missing(self):
         from core.research.tau_panel import relabel_tau_panels_as_t60, y_t60_pct
@@ -577,7 +622,7 @@ class T60GateTests(unittest.TestCase):
         dkey = "2025-06-03"
         mins = []
         for hm in _times_am_pm():
-            px = 10.5 if hm >= "10:30" else 10.0
+            px = 10.5 if hm >= "10:25" else 10.0
             mins.append(_bar(dkey, hm, px))
         bar = {
             "date": dkey,

@@ -111,11 +111,11 @@ export function renderExecutionRulesHtml(execution) {
       "τw强",
       (() => {
         const s = Number(t0.y_tw_strong ?? t0.y_τw_strong);
-        if (!Number.isFinite(s) || s >= 3) return "关";
+        if (!Number.isFinite(s) || s >= 5) return "关";
         if (s <= 0) return "全顺带";
         return `|ŷ_τw|>${s}逆带跳过`;
       })(),
-      "破带后 ŷ_τw 符号票须与方向同号（反T<0，正T>0）；0=任意有符号须同号，3=关。不改 C_τ。"
+      "破带后 ŷ_τw 符号票须与方向同号（反T<0，正T>0）；0=任意有符号须同号，5=关。不改 C_τ。"
     ) +
     specKpi(
       "τ30强",
@@ -128,6 +128,16 @@ export function renderExecutionRulesHtml(execution) {
       "破带后 ŷ_τ30 须与方向同号（后 30 交易分钟）；0=任意有符号须同号，1=关。不改 C_τ。"
     ) +
     specKpi(
+      "τ45强",
+      (() => {
+        const s = Number(t0.y_t45_strong ?? t0.y_τ45_strong);
+        if (!Number.isFinite(s) || s >= 1) return "关";
+        if (s <= 0) return "全顺带";
+        return `|ŷ_τ45|>${s}%逆带跳过`;
+      })(),
+      "ŷ_τ45 旁路默认关，只进 ŷ_τw 票；0=任意有符号须同号，1=关。不改 C_τ。"
+    ) +
+    specKpi(
       "τ60强",
       (() => {
         const s = Number(t0.y_t60_strong ?? t0.y_τ60_strong);
@@ -136,6 +146,16 @@ export function renderExecutionRulesHtml(execution) {
         return `|ŷ_τ60|>${s}%逆带跳过`;
       })(),
       "破带后 ŷ_τ60 须与方向同号（后 60 交易分钟）；0=任意有符号须同号，1=关。不改 C_τ。"
+    ) +
+    specKpi(
+      "τ75强",
+      (() => {
+        const s = Number(t0.y_t75_strong ?? t0.y_τ75_strong);
+        if (!Number.isFinite(s) || s >= 1) return "关";
+        if (s <= 0) return "全顺带";
+        return `|ŷ_τ75|>${s}%逆带跳过`;
+      })(),
+      "ŷ_τ75 旁路默认关，只进 ŷ_τw 票；0=任意有符号须同号，1=关。不改 C_τ。"
     ) +
     specKpi(
       "τ90强",
@@ -156,14 +176,18 @@ export function renderExecutionRulesHtml(execution) {
         const tauLbl = Number.isFinite(tau) ? (tau > 0 ? `|oc|≥${tau}%` : "oc关") : "oc关";
         const hlLbl = Number.isFinite(hl) ? (hl > 0 ? `|hl|≥${hl}%` : "hl关") : "hl关";
         const t30 = Number(t0.y_t30_enter ?? t0.y_τ30_enter);
+        const t45 = Number(t0.y_t45_enter ?? t0.y_τ45_enter);
         const t60 = Number(t0.y_t60_enter ?? t0.y_τ60_enter);
+        const t75 = Number(t0.y_t75_enter ?? t0.y_τ75_enter);
         const t90 = Number(t0.y_t90_enter ?? t0.y_τ90_enter);
         const t30Lbl = Number.isFinite(t30) ? (t30 > 0 ? `|t30|≥${t30}%` : "t30关") : "t30关";
+        const t45Lbl = Number.isFinite(t45) ? (t45 > 0 ? `|t45|≥${t45}%` : "t45关") : "t45关";
         const t60Lbl = Number.isFinite(t60) ? (t60 > 0 ? `|t60|≥${t60}%` : "t60关") : "t60关";
+        const t75Lbl = Number.isFinite(t75) ? (t75 > 0 ? `|t75|≥${t75}%` : "t75关") : "t75关";
         const t90Lbl = Number.isFinite(t90) ? (t90 > 0 ? `|t90|≥${t90}%` : "t90关") : "t90关";
-        return `${tauLbl}·${hlLbl}·${t30Lbl}·${t60Lbl}·${t90Lbl}`;
+        return `${tauLbl}·${hlLbl}·${t30Lbl}·${t45Lbl}·${t60Lbl}·${t75Lbl}·${t90Lbl}`;
       })(),
-      "门槛1：启用时 |ŷ_oc| / |y_hl| / |ŷ_τ30| / |ŷ_τ60| / |ŷ_τ90| 入场"
+      "门槛1：启用时 |ŷ_oc| / |y_hl| / |ŷ_τ30| / |ŷ_τ45| / |ŷ_τ60| / |ŷ_τ75| / |ŷ_τ90| 入场"
     ) +
     specKpi(
       "门槛2",
@@ -174,14 +198,18 @@ export function renderExecutionRulesHtml(execution) {
         const tauLbl = Number.isFinite(tau) ? (tau > 0 ? `|oc|≥${tau}%` : "oc关") : "oc关";
         const hlLbl = Number.isFinite(hl) ? (hl > 0 ? `|hl|≥${hl}%` : "hl关") : "hl关";
         const t30 = Number(t0.y_t30_enter_alt ?? t0.y_τ30_enter_alt);
+        const t45 = Number(t0.y_t45_enter_alt ?? t0.y_τ45_enter_alt);
         const t60 = Number(t0.y_t60_enter_alt ?? t0.y_τ60_enter_alt);
+        const t75 = Number(t0.y_t75_enter_alt ?? t0.y_τ75_enter_alt);
         const t90 = Number(t0.y_t90_enter_alt ?? t0.y_τ90_enter_alt);
         const t30Lbl = Number.isFinite(t30) ? (t30 > 0 ? `|t30|≥${t30}%` : "t30关") : "t30关";
+        const t45Lbl = Number.isFinite(t45) ? (t45 > 0 ? `|t45|≥${t45}%` : "t45关") : "t45关";
         const t60Lbl = Number.isFinite(t60) ? (t60 > 0 ? `|t60|≥${t60}%` : "t60关") : "t60关";
+        const t75Lbl = Number.isFinite(t75) ? (t75 > 0 ? `|t75|≥${t75}%` : "t75关") : "t75关";
         const t90Lbl = Number.isFinite(t90) ? (t90 > 0 ? `|t90|≥${t90}%` : "t90关") : "t90关";
-        return `${tauLbl}·${hlLbl}·${t30Lbl}·${t60Lbl}·${t90Lbl}`;
+        return `${tauLbl}·${hlLbl}·${t30Lbl}·${t45Lbl}·${t60Lbl}·${t75Lbl}·${t90Lbl}`;
       })(),
-      "门槛2：启用时 |ŷ_oc| / |y_hl| / |ŷ_τ30| / |ŷ_τ60| / |ŷ_τ90| 入场"
+      "门槛2：启用时 |ŷ_oc| / |y_hl| / |ŷ_τ30| / |ŷ_τ45| / |ŷ_τ60| / |ŷ_τ75| / |ŷ_τ90| 入场"
     ) +
     specKpi("路径", pathLbl, "分钟触价路径") +
     specKpi("成交", fillLbl, "全量触价 trigger；表单不再提供 mid/optimistic") +
@@ -411,8 +439,8 @@ export function fillExecutionForm(root, execution) {
     "y_tw_strong",
     (() => {
       const n = Number(t0.y_tw_strong ?? t0.y_τw_strong);
-      if (!Number.isFinite(n)) return 3;
-      return Math.max(0, Math.min(n, 3));
+      if (!Number.isFinite(n)) return 5;
+      return Math.max(0, Math.min(n, 5));
     })()
   );
   set(
@@ -427,6 +455,30 @@ export function fillExecutionForm(root, execution) {
     "y_t30_enter_alt",
     (() => {
       const n = Number(t0.y_t30_enter_alt ?? t0.y_τ30_enter_alt);
+      if (!Number.isFinite(n)) return 0;
+      return Math.max(0, Math.min(n, 100));
+    })()
+  );
+  set(
+    "y_t45_strong",
+    (() => {
+      const n = Number(t0.y_t45_strong ?? t0.y_τ45_strong);
+      if (!Number.isFinite(n)) return 1;
+      return Math.max(0, Math.min(n, 1));
+    })()
+  );
+  set(
+    "y_t45_enter",
+    (() => {
+      const n = Number(t0.y_t45_enter ?? t0.y_τ45_enter);
+      if (!Number.isFinite(n)) return 0;
+      return Math.max(0, Math.min(n, 100));
+    })()
+  );
+  set(
+    "y_t45_enter_alt",
+    (() => {
+      const n = Number(t0.y_t45_enter_alt ?? t0.y_τ45_enter_alt);
       if (!Number.isFinite(n)) return 0;
       return Math.max(0, Math.min(n, 100));
     })()
@@ -451,6 +503,30 @@ export function fillExecutionForm(root, execution) {
     "y_t60_enter_alt",
     (() => {
       const n = Number(t0.y_t60_enter_alt ?? t0.y_τ60_enter_alt);
+      if (!Number.isFinite(n)) return 0;
+      return Math.max(0, Math.min(n, 100));
+    })()
+  );
+  set(
+    "y_t75_strong",
+    (() => {
+      const n = Number(t0.y_t75_strong ?? t0.y_τ75_strong);
+      if (!Number.isFinite(n)) return 1;
+      return Math.max(0, Math.min(n, 1));
+    })()
+  );
+  set(
+    "y_t75_enter",
+    (() => {
+      const n = Number(t0.y_t75_enter ?? t0.y_τ75_enter);
+      if (!Number.isFinite(n)) return 0;
+      return Math.max(0, Math.min(n, 100));
+    })()
+  );
+  set(
+    "y_t75_enter_alt",
+    (() => {
+      const n = Number(t0.y_t75_enter_alt ?? t0.y_τ75_enter_alt);
       if (!Number.isFinite(n)) return 0;
       return Math.max(0, Math.min(n, 100));
     })()
@@ -577,18 +653,30 @@ export function collectExecutionForm(root) {
     y_hl_enter_alt: Math.max(0, Math.min(num("y_hl_enter_alt", 0), 100)),
     y_t30_strong: Math.max(0, Math.min(num("y_t30_strong", 0), 1)),
     y_τ30_strong: Math.max(0, Math.min(num("y_t30_strong", 0), 1)),
-    y_tw_strong: Math.max(0, Math.min(num("y_tw_strong", 3), 3)),
-    y_τw_strong: Math.max(0, Math.min(num("y_tw_strong", 3), 3)),
+    y_tw_strong: Math.max(0, Math.min(num("y_tw_strong", 5), 5)),
+    y_τw_strong: Math.max(0, Math.min(num("y_tw_strong", 5), 5)),
     y_t30_enter: Math.max(0, Math.min(num("y_t30_enter", 0), 100)),
     y_τ30_enter: Math.max(0, Math.min(num("y_t30_enter", 0), 100)),
     y_t30_enter_alt: Math.max(0, Math.min(num("y_t30_enter_alt", 0), 100)),
     y_τ30_enter_alt: Math.max(0, Math.min(num("y_t30_enter_alt", 0), 100)),
+    y_t45_strong: Math.max(0, Math.min(num("y_t45_strong", 1), 1)),
+    y_τ45_strong: Math.max(0, Math.min(num("y_t45_strong", 1), 1)),
+    y_t45_enter: Math.max(0, Math.min(num("y_t45_enter", 0), 100)),
+    y_τ45_enter: Math.max(0, Math.min(num("y_t45_enter", 0), 100)),
+    y_t45_enter_alt: Math.max(0, Math.min(num("y_t45_enter_alt", 0), 100)),
+    y_τ45_enter_alt: Math.max(0, Math.min(num("y_t45_enter_alt", 0), 100)),
     y_t60_strong: Math.max(0, Math.min(num("y_t60_strong", 0), 1)),
     y_τ60_strong: Math.max(0, Math.min(num("y_t60_strong", 0), 1)),
     y_t60_enter: Math.max(0, Math.min(num("y_t60_enter", 0), 100)),
     y_τ60_enter: Math.max(0, Math.min(num("y_t60_enter", 0), 100)),
     y_t60_enter_alt: Math.max(0, Math.min(num("y_t60_enter_alt", 0), 100)),
     y_τ60_enter_alt: Math.max(0, Math.min(num("y_t60_enter_alt", 0), 100)),
+    y_t75_strong: Math.max(0, Math.min(num("y_t75_strong", 1), 1)),
+    y_τ75_strong: Math.max(0, Math.min(num("y_t75_strong", 1), 1)),
+    y_t75_enter: Math.max(0, Math.min(num("y_t75_enter", 0), 100)),
+    y_τ75_enter: Math.max(0, Math.min(num("y_t75_enter", 0), 100)),
+    y_t75_enter_alt: Math.max(0, Math.min(num("y_t75_enter_alt", 0), 100)),
+    y_τ75_enter_alt: Math.max(0, Math.min(num("y_t75_enter_alt", 0), 100)),
     y_t90_strong: Math.max(0, Math.min(num("y_t90_strong", 0), 1)),
     y_τ90_strong: Math.max(0, Math.min(num("y_t90_strong", 0), 1)),
     y_t90_enter: Math.max(0, Math.min(num("y_t90_enter", 0), 100)),
@@ -1016,13 +1104,13 @@ export function collectT0BacktestBody(root, opts = {}) {
     })(),
     y_tw_strong: (() => {
       const n = Number(t0.y_tw_strong ?? t0.y_τw_strong);
-      if (!Number.isFinite(n)) return 3;
-      return Math.max(0, Math.min(n, 3));
+      if (!Number.isFinite(n)) return 5;
+      return Math.max(0, Math.min(n, 5));
     })(),
     y_τw_strong: (() => {
       const n = Number(t0.y_tw_strong ?? t0.y_τw_strong);
-      if (!Number.isFinite(n)) return 3;
-      return Math.max(0, Math.min(n, 3));
+      if (!Number.isFinite(n)) return 5;
+      return Math.max(0, Math.min(n, 5));
     })(),
     y_t30_enter: (() => {
       const n = Number(t0.y_t30_enter ?? t0.y_τ30_enter);
@@ -1041,6 +1129,36 @@ export function collectT0BacktestBody(root, opts = {}) {
     })(),
     y_τ30_enter_alt: (() => {
       const n = Number(t0.y_t30_enter_alt ?? t0.y_τ30_enter_alt);
+      if (!Number.isFinite(n)) return 0;
+      return Math.max(0, Math.min(n, 100));
+    })(),
+    y_t45_strong: (() => {
+      const n = Number(t0.y_t45_strong ?? t0.y_τ45_strong);
+      if (!Number.isFinite(n)) return 1;
+      return Math.max(0, Math.min(n, 1));
+    })(),
+    y_τ45_strong: (() => {
+      const n = Number(t0.y_t45_strong ?? t0.y_τ45_strong);
+      if (!Number.isFinite(n)) return 1;
+      return Math.max(0, Math.min(n, 1));
+    })(),
+    y_t45_enter: (() => {
+      const n = Number(t0.y_t45_enter ?? t0.y_τ45_enter);
+      if (!Number.isFinite(n)) return 0;
+      return Math.max(0, Math.min(n, 100));
+    })(),
+    y_τ45_enter: (() => {
+      const n = Number(t0.y_t45_enter ?? t0.y_τ45_enter);
+      if (!Number.isFinite(n)) return 0;
+      return Math.max(0, Math.min(n, 100));
+    })(),
+    y_t45_enter_alt: (() => {
+      const n = Number(t0.y_t45_enter_alt ?? t0.y_τ45_enter_alt);
+      if (!Number.isFinite(n)) return 0;
+      return Math.max(0, Math.min(n, 100));
+    })(),
+    y_τ45_enter_alt: (() => {
+      const n = Number(t0.y_t45_enter_alt ?? t0.y_τ45_enter_alt);
       if (!Number.isFinite(n)) return 0;
       return Math.max(0, Math.min(n, 100));
     })(),
@@ -1071,6 +1189,36 @@ export function collectT0BacktestBody(root, opts = {}) {
     })(),
     y_τ60_enter_alt: (() => {
       const n = Number(t0.y_t60_enter_alt ?? t0.y_τ60_enter_alt);
+      if (!Number.isFinite(n)) return 0;
+      return Math.max(0, Math.min(n, 100));
+    })(),
+    y_t75_strong: (() => {
+      const n = Number(t0.y_t75_strong ?? t0.y_τ75_strong);
+      if (!Number.isFinite(n)) return 1;
+      return Math.max(0, Math.min(n, 1));
+    })(),
+    y_τ75_strong: (() => {
+      const n = Number(t0.y_t75_strong ?? t0.y_τ75_strong);
+      if (!Number.isFinite(n)) return 1;
+      return Math.max(0, Math.min(n, 1));
+    })(),
+    y_t75_enter: (() => {
+      const n = Number(t0.y_t75_enter ?? t0.y_τ75_enter);
+      if (!Number.isFinite(n)) return 0;
+      return Math.max(0, Math.min(n, 100));
+    })(),
+    y_τ75_enter: (() => {
+      const n = Number(t0.y_t75_enter ?? t0.y_τ75_enter);
+      if (!Number.isFinite(n)) return 0;
+      return Math.max(0, Math.min(n, 100));
+    })(),
+    y_t75_enter_alt: (() => {
+      const n = Number(t0.y_t75_enter_alt ?? t0.y_τ75_enter_alt);
+      if (!Number.isFinite(n)) return 0;
+      return Math.max(0, Math.min(n, 100));
+    })(),
+    y_τ75_enter_alt: (() => {
+      const n = Number(t0.y_t75_enter_alt ?? t0.y_τ75_enter_alt);
       if (!Number.isFinite(n)) return 0;
       return Math.max(0, Math.min(n, 100));
     })(),

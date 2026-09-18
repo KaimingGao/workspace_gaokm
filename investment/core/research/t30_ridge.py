@@ -1,7 +1,7 @@
-"""ŷ_τ30 Ridge：开盘 Z + 开→τ 收益/截面 + 序列特征 → price(τ⊕30m)/price(τ)−1。
+"""ŷ_τ30 Ridge：开盘 Z + 开→τ 收益/截面 + 序列特征 → mean(price(τ⊕25/30/35))/price(τ)−1。
 
 盘中写 y_τ30。做 T 破带后同号旁路闸；不进 C_τ / ranking。
-τ⊕30 超出当日交易时段则不训、不预。
+τ⊕35 超出当日交易时段则不训、不预。
 不含 ŷ_τ 的 OC 路径形状（HL/回撤/振幅），避免共线把 ŷ 压到 0。
 序列键（ret_last_5m / ret_last_30m / session_* / crosses_lunch /
 session_vwap_dev / vol_last_30m_vs_avg / sector_ret_last_30m /
@@ -54,7 +54,7 @@ from core.signal.minute_tau_grid import (
 
 Y_T30_HAT_KEYS = ("predicted_score_t30", "y_t30_hat", "y_τ30", "y_t30")
 Y_T30_LABEL_KEYS = ("t30_realized", "y_t30_realized")
-FORMULA_T30 = "price[τ+30m]/price[τ]-1"
+FORMULA_T30 = "mean(price[τ+25m],price[τ+30m],price[τ+35m])/price[τ]-1"
 T30_Z_FEATURES = tuple(
     k for k in (TAU_Z_FEATURES + T30_SEQ_FEATURES) if k not in TAU_HORIZON_DROP_OC_SHAPE
 )
@@ -152,7 +152,7 @@ def fit_t30_ridge_report(
     tau_hm: str = "10:30",
     tau_grid: Optional[Sequence[str]] = None,
 ) -> Dict[str, Any]:
-    """池化拟合 ŷ_τ30 + 时间 OOS。X = ŷ_τ Z + 序列特征；标签 = price(τ⊕30m)/price(τ)−1。"""
+    """池化拟合 ŷ_τ30 + 时间 OOS。X = ŷ_τ Z + 序列特征；标签 = mean(price(τ⊕25/30/35))/price(τ)−1。"""
     live_hm = str(tau_hm or "10:30").strip() or "10:30"
     if live_hm.lower() in ("", "open"):
         live_hm = "10:30"
@@ -169,7 +169,7 @@ def fit_t30_ridge_report(
     if len(ys) < 20:
         return {
             "success": False,
-            "error": f"t30 样本不足 n={len(ys)}（需≥20 且需 τ⊕30 分钟价）",
+            "error": f"t30 样本不足 n={len(ys)}（需≥20 且需 τ⊕25/30/35 三根均价）",
             "task": "t30_ridge",
             "sample_count": len(ys),
             "stock_count": len(enriched),
@@ -316,7 +316,7 @@ def fit_t30_ridge_report(
             "crosses_lunch / session_vwap_dev / vol_last_30m_vs_avg / "
             "sector_ret_last_30m / ret_last_30m_vs_sector / t30_lag1 / t30_ma5）；"
             "不含 ŷ_τ 的 OC 路径形状（HL/回撤/振幅，避免共线把 ŷ 压到 0）。"
-            "标签=price(τ⊕30 交易分钟)/price(τ)−1。"
+            "标签=mean(price(τ⊕25/30/35))/price(τ)−1。"
             "主字段 y_τ30；做 T 破带同号旁路；不进 C_τ / ranking。"
         ),
     }
@@ -354,7 +354,7 @@ def fit_t30_ridge_report(
         "tau_grid": list(grid),
         "dual_score_head": "y_t30",
         "note": (
-            "ŷ_τ30：price(τ)→price(τ⊕30m)。做 T 破带同号旁路；不进 C_τ / ranking。"
+            "ŷ_τ30：price(τ)→mean(price(τ⊕25/30/35))。做 T 破带同号旁路；不进 C_τ / ranking。"
         ),
     }
     attach_holdout_meta(report, split_meta)

@@ -1231,7 +1231,7 @@ function renderKpiRow(summary) {
     [
       "τ30命中",
       sm.t30_pred_hit_rate_pct != null ? `${sm.t30_pred_hit_rate_pct}%` : null,
-      "ŷ_τ30 符号 vs price(τ⊕30m)/price(τ)−1",
+      "ŷ_τ30 符号 vs mean(price(τ⊕25/30/35))/price(τ)−1",
     ],
     [
       "τ30旁路",
@@ -1239,9 +1239,19 @@ function renderKpiRow(summary) {
       "破带方向与 ŷ_τ30 后 30 交易分钟同号率",
     ],
     [
+      "τ45命中",
+      sm.t45_pred_hit_rate_pct != null ? `${sm.t45_pred_hit_rate_pct}%` : null,
+      "ŷ_τ45 符号 vs mean(price(τ⊕40/45/50))/price(τ)−1",
+    ],
+    [
+      "τ45旁路",
+      sm.t45_band_hit_rate_pct != null ? `${sm.t45_band_hit_rate_pct}%` : null,
+      "破带方向与 ŷ_τ45 后 45 交易分钟同号率",
+    ],
+    [
       "τ60命中",
       sm.t60_pred_hit_rate_pct != null ? `${sm.t60_pred_hit_rate_pct}%` : null,
-      "ŷ_τ60 符号 vs price(τ⊕60m)/price(τ)−1",
+      "ŷ_τ60 符号 vs mean(price(τ⊕55/60/65))/price(τ)−1",
     ],
     [
       "τ60旁路",
@@ -1249,9 +1259,19 @@ function renderKpiRow(summary) {
       "破带方向与 ŷ_τ60 后 60 交易分钟同号率",
     ],
     [
+      "τ75命中",
+      sm.t75_pred_hit_rate_pct != null ? `${sm.t75_pred_hit_rate_pct}%` : null,
+      "ŷ_τ75 符号 vs mean(price(τ⊕70/75/80))/price(τ)−1",
+    ],
+    [
+      "τ75旁路",
+      sm.t75_band_hit_rate_pct != null ? `${sm.t75_band_hit_rate_pct}%` : null,
+      "破带方向与 ŷ_τ75 后 75 交易分钟同号率",
+    ],
+    [
       "τ90命中",
       sm.t90_pred_hit_rate_pct != null ? `${sm.t90_pred_hit_rate_pct}%` : null,
-      "ŷ_τ90 符号 vs price(τ⊕90m)/price(τ)−1",
+      "ŷ_τ90 符号 vs mean(price(τ⊕85/90/95))/price(τ)−1",
     ],
     [
       "τ90旁路",

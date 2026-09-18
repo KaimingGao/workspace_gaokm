@@ -44,7 +44,8 @@ CLUSTER_BARS_FORCED_SESSION_PATH = os.path.join(
 # FH1：指针指向版本化 artifact；active 文件为镜像兼容层
 CLUSTER_POINTER_PATH = os.path.join(LIVE_DIR, "cluster_pointer.json")
 PROMOTE_AUDIT_PATH = os.path.join(LIVE_DIR, "promote_audit.jsonl")
-LIVE_CONFIG_MANIFEST_PATH = os.path.join(LIVE_DIR, "live_config_manifest.json")
+# 调仓 10:00 板块截面：T 开→T+1 开周期内只写一次，下午补仓不得改 10:00 中位
+REBALANCE_CS_10_PATH = os.path.join(LIVE_DIR, "rebalance_cs_10.json")
 RETURN_SCORE_MODEL_DRAFT_PATH = os.path.join(QUANT_REPORTS_DIR, "last_return_score_model.json")
 RETURN_SCORE_MODEL_ACTIVE_PATH = os.path.join(LIVE_DIR, "return_score_model_active.json")
 DAILY_LAST_RUN_PATH = os.path.join(DATA_DIR, "daily_last_run.json")
@@ -85,7 +86,9 @@ CLUSTER_BARS_REFRESH_JOB_PATH = os.path.join(JOBS_DIR, "cluster_bars_refresh.jso
 CLUSTER_MINUTE_REFRESH_JOB_PATH = os.path.join(JOBS_DIR, "cluster_minute_refresh.json")
 CHAT_JOB_PATH = os.path.join(JOBS_DIR, "chat.json")
 T30_RIDGE_JOB_PATH = os.path.join(JOBS_DIR, "t30_ridge.json")
+T45_RIDGE_JOB_PATH = os.path.join(JOBS_DIR, "t45_ridge.json")
 T60_RIDGE_JOB_PATH = os.path.join(JOBS_DIR, "t60_ridge.json")
+T75_RIDGE_JOB_PATH = os.path.join(JOBS_DIR, "t75_ridge.json")
 T90_RIDGE_JOB_PATH = os.path.join(JOBS_DIR, "t90_ridge.json")
 R_RIDGE_JOB_PATH = os.path.join(JOBS_DIR, "r_ridge.json")
 

@@ -221,6 +221,7 @@ class SignalService:
                     "score_track",
                     "eod_trust",
                     "eod_feature_as_of",
+                    "trade_day",
                     "open_t",
                     "open_t_source",
                     "factor_anomaly",

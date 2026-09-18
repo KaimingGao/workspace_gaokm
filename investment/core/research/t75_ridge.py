@@ -1,11 +1,11 @@
-"""ŷ_τ60 Ridge：开盘 Z + 开→τ 收益/截面 + 序列特征 → mean(price(τ⊕55/60/65))/price(τ)−1。
+"""ŷ_τ75 Ridge：开盘 Z + 开→τ 收益/截面 + 序列特征 → mean(price(τ⊕70/75/80))/price(τ)−1。
 
-盘中写 y_τ60。做 T 破带后同号旁路闸；不进 C_τ / ranking。
-τ⊕65 超出当日交易时段则不训、不预。
+盘中写 y_τ75。做 T 破带后同号旁路闸；不进 C_τ / ranking。
+τ⊕80 超出当日交易时段则不训、不预。
 不含 ŷ_τ 的 OC 路径形状（HL/回撤/振幅），避免共线把 ŷ 压到 0。
-序列键（ret_last_5m / ret_last_60m / session_* / crosses_lunch_60 /
-session_vwap_dev / vol_last_60m_vs_avg / sector_ret_last_60m /
-ret_last_60m_vs_sector / t60_lag*）只进本头，不进 TAU_Z_FEATURES。
+序列键（ret_last_5m / ret_last_75m / session_* / crosses_lunch_75 /
+session_vwap_dev / vol_last_75m_vs_avg / sector_ret_last_75m /
+ret_last_75m_vs_sector / t75_lag*）只进本头，不进 TAU_Z_FEATURES。
 """
 
 from __future__ import annotations
@@ -21,11 +21,11 @@ from core.io_atomic import atomic_write_json
 from core.research.factor_ols_fit import fit_factor_ols_from_panel
 from core.research.tau_panel import (
     TAU_LAG_FEAT_LABELS,
-    T60_LAG_FEAT_LABELS,
-    T60_SEQ_FEATURES,
-    relabel_tau_panels_as_t60,
+    T75_LAG_FEAT_LABELS,
+    T75_SEQ_FEATURES,
+    relabel_tau_panels_as_t75,
     theme_sample_weights,
-    y_t60_pct,
+    y_t75_pct,
 )
 from core.research.tau_ridge import (
     TAU_FIT_DROP_ALIASES,
@@ -48,28 +48,28 @@ from core.research.tau_ridge import (
 )
 from core.signal.minute_tau_feats import MINUTE_TAU_FEAT_LABELS
 from core.signal.minute_tau_grid import (
-    DEFAULT_T60_TRAIN_TAU_GRID,
+    DEFAULT_T75_TRAIN_TAU_GRID,
     format_shared_tau_formula,
 )
 
-Y_T60_HAT_KEYS = ("predicted_score_t60", "y_t60_hat", "y_τ60", "y_t60")
-Y_T60_LABEL_KEYS = ("t60_realized", "y_t60_realized")
-FORMULA_T60 = "mean(price[τ+55m],price[τ+60m],price[τ+65m])/price[τ]-1"
-T60_Z_FEATURES = tuple(
-    k for k in (TAU_Z_FEATURES + T60_SEQ_FEATURES) if k not in TAU_HORIZON_DROP_OC_SHAPE
+Y_T75_HAT_KEYS = ("predicted_score_t75", "y_t75_hat", "y_τ75", "y_t75")
+Y_T75_LABEL_KEYS = ("t75_realized", "y_t75_realized")
+FORMULA_T75 = "mean(price[τ+70m],price[τ+75m],price[τ+80m])/price[τ]-1"
+T75_Z_FEATURES = tuple(
+    k for k in (TAU_Z_FEATURES + T75_SEQ_FEATURES) if k not in TAU_HORIZON_DROP_OC_SHAPE
 )
-T60_MIN_STD_EXEMPT = TAU_MIN_STD_EXEMPT + T60_SEQ_FEATURES
+T75_MIN_STD_EXEMPT = TAU_MIN_STD_EXEMPT + T75_SEQ_FEATURES
 
-t60_promote_gate = tau_promote_gate
+t75_promote_gate = tau_promote_gate
 
 
-def _t60_z_only_row(row: Optional[dict]) -> Dict[str, Optional[float]]:
+def _t75_z_only_row(row: Optional[dict]) -> Dict[str, Optional[float]]:
     src = row or {}
-    return {k: src.get(k) for k in T60_Z_FEATURES}
+    return {k: src.get(k) for k in T75_Z_FEATURES}
 
 
-def _t60_z_only_xs(xs: Sequence[dict]) -> List[dict]:
-    return [_t60_z_only_row(r) for r in xs]
+def _t75_z_only_xs(xs: Sequence[dict]) -> List[dict]:
+    return [_t75_z_only_row(r) for r in xs]
 
 
 def _f(v: Any) -> Optional[float]:
@@ -84,63 +84,63 @@ def _f(v: Any) -> Optional[float]:
     return x
 
 
-def pick_y_t60_hat(*objs: Any) -> Optional[float]:
-    """盘中 ŷ_τ60（百分点）。"""
+def pick_y_t75_hat(*objs: Any) -> Optional[float]:
+    """盘中 ŷ_τ75（百分点）。"""
     for obj in objs:
         if not isinstance(obj, dict):
             continue
-        for k in Y_T60_HAT_KEYS:
+        for k in Y_T75_HAT_KEYS:
             v = _f(obj.get(k))
             if v is not None:
                 return v
     return None
 
 
-def pick_y_t60_label(*objs: Any) -> Optional[float]:
+def pick_y_t75_label(*objs: Any) -> Optional[float]:
     for obj in objs:
         if not isinstance(obj, dict):
             continue
-        for k in Y_T60_LABEL_KEYS:
+        for k in Y_T75_LABEL_KEYS:
             v = _f(obj.get(k))
             if v is not None:
                 return v
     return None
 
 
-def write_y_t60_hat(dest: Dict[str, Any], val: float, *, formula: Any = None) -> None:
+def write_y_t75_hat(dest: Dict[str, Any], val: float, *, formula: Any = None) -> None:
     x = float(val)
-    dest["predicted_score_t60"] = x
-    dest["y_t60_hat"] = x
-    dest["y_t60"] = x
-    dest["y_τ60"] = x
-    spec = str(formula or FORMULA_T60)
-    dest["y_spec_τ60"] = {"formula": spec, "unit": "pct"}
-    dest["y_spec_t60"] = {"formula": spec, "unit": "pct"}
+    dest["predicted_score_t75"] = x
+    dest["y_t75_hat"] = x
+    dest["y_t75"] = x
+    dest["y_τ75"] = x
+    spec = str(formula or FORMULA_T75)
+    dest["y_spec_τ75"] = {"formula": spec, "unit": "pct"}
+    dest["y_spec_t75"] = {"formula": spec, "unit": "pct"}
 
 
-def write_y_t60_label(dest: Dict[str, Any], val: float) -> None:
+def write_y_t75_label(dest: Dict[str, Any], val: float) -> None:
     x = float(val)
-    dest["t60_realized"] = x
-    dest["y_t60_realized"] = x
+    dest["t75_realized"] = x
+    dest["y_t75_realized"] = x
 
 
-def pack_y_t60_fields(day: Optional[dict]) -> Dict[str, Any]:
-    val = pick_y_t60_label(day) if isinstance(day, dict) else None
-    hat = pick_y_t60_hat(day) if isinstance(day, dict) else None
+def pack_y_t75_fields(day: Optional[dict]) -> Dict[str, Any]:
+    val = pick_y_t75_label(day) if isinstance(day, dict) else None
+    hat = pick_y_t75_hat(day) if isinstance(day, dict) else None
     return {
-        "t60_realized": val,
-        "y_t60_realized": val,
-        "y_τ60": hat,
-        "y_t60": hat,
+        "t75_realized": val,
+        "y_t75_realized": val,
+        "y_τ75": hat,
+        "y_t75": hat,
     }
 
 
-def t60_realized_pct(price_tau: Any, price_tau60: Any) -> Optional[float]:
-    v = y_t60_pct(price_tau, price_tau60)
+def t75_realized_pct(price_tau: Any, price_tau75: Any) -> Optional[float]:
+    v = y_t75_pct(price_tau, price_tau75)
     return round(float(v), 4) if v is not None else None
 
 
-def fit_t60_ridge_report(
+def fit_t75_ridge_report(
     stock_bars: Sequence[Dict[str, Any]],
     *,
     ridge_lambda: float = 1.0,
@@ -152,11 +152,11 @@ def fit_t60_ridge_report(
     tau_hm: str = "10:30",
     tau_grid: Optional[Sequence[str]] = None,
 ) -> Dict[str, Any]:
-    """池化拟合 ŷ_τ60 + 时间 OOS。X = ŷ_τ Z + 序列特征；标签 = mean(price(τ⊕55/60/65))/price(τ)−1。"""
+    """池化拟合 ŷ_τ75 + 时间 OOS。X = ŷ_τ Z + 序列特征；标签 = mean(price(τ⊕70/75/80))/price(τ)−1。"""
     live_hm = str(tau_hm or "10:30").strip() or "10:30"
     if live_hm.lower() in ("", "open"):
         live_hm = "10:30"
-    grid = list(tau_grid) if tau_grid is not None else list(DEFAULT_T60_TRAIN_TAU_GRID)
+    grid = list(tau_grid) if tau_grid is not None else list(DEFAULT_T75_TRAIN_TAU_GRID)
     raw = build_tau_panels_from_bars(
         stock_bars,
         min_history=min_history,
@@ -164,20 +164,20 @@ def fit_t60_ridge_report(
         tau_hm=live_hm,
         tau_grid=grid,
     )
-    enriched = relabel_tau_panels_as_t60(raw)
+    enriched = relabel_tau_panels_as_t75(raw)
     xs, ys, dates, metas = _stack_panels(enriched)
     if len(ys) < 20:
         return {
             "success": False,
-            "error": f"t60 样本不足 n={len(ys)}（需≥20 且需 τ⊕55/60/65 三根均价）",
-            "task": "t60_ridge",
+            "error": f"t75 样本不足 n={len(ys)}（需≥20 且需 τ⊕70/75/80 三根均价）",
+            "task": "t75_ridge",
             "sample_count": len(ys),
             "stock_count": len(enriched),
             "tau_grid": list(grid),
             "minute_tau_hm": live_hm,
         }
 
-    xs_z = _t60_z_only_xs(xs)
+    xs_z = _t75_z_only_xs(xs)
     from core.research.holdout import (
         DEFAULT_HOLDOUT_TRADING_DAYS,
         attach_holdout_meta,
@@ -200,7 +200,7 @@ def fit_t60_ridge_report(
         if use_theme_weights
         else None
     )
-    feat_names = [k for k in T60_Z_FEATURES if k not in TAU_FIT_DROP_ALIASES]
+    feat_names = [k for k in T75_Z_FEATURES if k not in TAU_FIT_DROP_ALIASES]
 
     y_mean = sum(float(y) for y in ys_tr) / max(1, len(ys_tr))
     ys_tr_dm = [float(y) - y_mean for y in ys_tr]
@@ -212,7 +212,7 @@ def fit_t60_ridge_report(
         ridge_lambda=ridge_lambda,
         standardize=True,
         sample_weights=weights,
-        min_std_exempt=list(T60_MIN_STD_EXEMPT),
+        min_std_exempt=list(T75_MIN_STD_EXEMPT),
         collinearity_policy="drop_redundant",
     )
     if not fit.get("success"):
@@ -223,7 +223,7 @@ def fit_t60_ridge_report(
             "active_features": [],
             "zscore_means": {},
             "zscore_stds": {},
-            "note": "Z 方差不足，ŷ_τ60 用训练均值",
+            "note": "Z 方差不足，ŷ_τ75 用训练均值",
         }
 
     preds_dm = _predict_rows(fit, xs_te) if xs_te else []
@@ -257,7 +257,7 @@ def fit_t60_ridge_report(
         "y_label_mean": round(y_mean, 6),
         "holdout_trading_days": hold_n,
         "theme_boost": theme_boost if use_theme_weights else None,
-        "target": "price_tau_plus_60",
+        "target": "price_tau_plus_75",
         "tau": live_hm,
         "tau_grid": list(grid),
         "minute_tau_hm": live_hm,
@@ -265,9 +265,9 @@ def fit_t60_ridge_report(
     try:
         from core.research.path_panel import feature_fill_rates
 
-        oos["feature_fill"] = feature_fill_rates(xs_z, T60_Z_FEATURES)
+        oos["feature_fill"] = feature_fill_rates(xs_z, T75_Z_FEATURES)
     except Exception:  # noqa: BLE001
-        logger.debug("t60 feature_fill failed", exc_info=True)
+        logger.debug("t75 feature_fill failed", exc_info=True)
 
     oos["label_dist"] = {
         "n_labeled": len(ys),
@@ -291,7 +291,7 @@ def fit_t60_ridge_report(
         ridge_lambda=ridge_lambda,
         standardize=True,
         sample_weights=w_all,
-        min_std_exempt=list(T60_MIN_STD_EXEMPT),
+        min_std_exempt=list(T75_MIN_STD_EXEMPT),
         collinearity_policy="drop_redundant",
     )
     model = dict(fit_full if fit_full.get("success") else fit)
@@ -302,29 +302,29 @@ def fit_t60_ridge_report(
     model["intercept_demeaned"] = round(float(fit.get("intercept") or 0.0), 6)
     model["y_label_mean"] = round(y_mean_all, 6)
     model["y_demeaned"] = True
-    model["horizon_mode"] = "price_tau_plus_60"
-    model["target"] = "price_tau_plus_60"
-    y_formula = format_shared_tau_formula(FORMULA_T60, grid or [live_hm])
+    model["horizon_mode"] = "price_tau_plus_75"
+    model["target"] = "price_tau_plus_75"
+    y_formula = format_shared_tau_formula(FORMULA_T75, grid or [live_hm])
     model["y_spec"] = {
         "formula": y_formula,
         "unit": "pct",
         "tau": live_hm,
         "tau_grid": list(grid),
         "note": (
-            "X = 开盘 Z + 开→τ 收益/截面 + ŷ_τ60 序列特征"
-            "（ret_last_5m / ret_last_60m / session_elapsed / session_remain / "
-            "crosses_lunch_60 / session_vwap_dev / vol_last_60m_vs_avg / "
-            "sector_ret_last_60m / ret_last_60m_vs_sector / t60_lag1 / t60_ma5）；"
+            "X = 开盘 Z + 开→τ 收益/截面 + ŷ_τ75 序列特征"
+            "（ret_last_5m / ret_last_75m / session_elapsed / session_remain / "
+            "crosses_lunch_75 / session_vwap_dev / vol_last_75m_vs_avg / "
+            "sector_ret_last_75m / ret_last_75m_vs_sector / t75_lag1 / t75_ma5）；"
             "不含 ŷ_τ 的 OC 路径形状（HL/回撤/振幅，避免共线把 ŷ 压到 0）。"
-            "标签=mean(price(τ⊕55/60/65))/price(τ)−1。"
-            "主字段 y_τ60；做 T 破带同号旁路；不进 C_τ / ranking。"
+            "标签=mean(price(τ⊕70/75/80))/price(τ)−1。"
+            "主字段 y_τ75；做 T 破带同号旁路；不进 C_τ / ranking。"
         ),
     }
-    model["extra_features"] = list(T60_Z_FEATURES)
+    model["extra_features"] = list(T75_Z_FEATURES)
     model["feat_labels"] = {
         **dict(MINUTE_TAU_FEAT_LABELS),
         **dict(TAU_LAG_FEAT_LABELS),
-        **dict(T60_LAG_FEAT_LABELS),
+        **dict(T75_LAG_FEAT_LABELS),
     }
     model["minute_tau_hm"] = live_hm
     model["tau_grid"] = list(grid)
@@ -342,51 +342,51 @@ def fit_t60_ridge_report(
 
     report = {
         "success": True,
-        "task": "t60_ridge",
+        "task": "t75_ridge",
         "stock_count": len(enriched),
         "sample_count": len(ys),
         "oos": oos,
         "return_model": model,
         "return_model_research": research_model,
-        "schema": "t60_ridge_v1",
-        "target": "price_tau_plus_60",
+        "schema": "t75_ridge_v1",
+        "target": "price_tau_plus_75",
         "minute_tau_hm": live_hm,
         "tau_grid": list(grid),
-        "dual_score_head": "y_t60",
+        "dual_score_head": "y_t75",
         "note": (
-            "ŷ_τ60：price(τ)→mean(price(τ⊕55/60/65))。做 T 破带同号旁路；不进 C_τ / ranking。"
+            "ŷ_τ75：price(τ)→mean(price(τ⊕70/75/80))。做 T 破带同号旁路；不进 C_τ / ranking。"
         ),
     }
     attach_holdout_meta(report, split_meta)
-    report["promote_gate"] = t60_promote_gate(report)
+    report["promote_gate"] = t75_promote_gate(report)
     return report
 
 
-def t60_model_path() -> str:
+def t75_model_path() -> str:
     from core.paths import LIVE_DIR
 
-    return os.path.join(LIVE_DIR, "t60_ridge_model.json")
+    return os.path.join(LIVE_DIR, "t75_ridge_model.json")
 
 
-def t60_last_report_path() -> str:
+def t75_last_report_path() -> str:
     from core.paths import LIVE_DIR
 
-    return os.path.join(LIVE_DIR, "t60_ridge_last_report.json")
+    return os.path.join(LIVE_DIR, "t75_ridge_last_report.json")
 
 
-_T60_MODEL_CACHE: Optional[Tuple[Tuple[float, float], Optional[Dict[str, Any]]]] = None
+_T75_MODEL_CACHE: Optional[Tuple[Tuple[float, float], Optional[Dict[str, Any]]]] = None
 
 
-def save_t60_last_report(report: Dict[str, Any]) -> None:
+def save_t75_last_report(report: Dict[str, Any]) -> None:
     if not isinstance(report, dict) or not report.get("success"):
         return
     if not isinstance(report.get("return_model"), dict):
         return
-    path = t60_last_report_path()
+    path = t75_last_report_path()
     os.makedirs(os.path.dirname(path), exist_ok=True)
     atomic_write_json(path, report)
-    global _T60_MODEL_CACHE
-    _T60_MODEL_CACHE = None
+    global _T75_MODEL_CACHE
+    _T75_MODEL_CACHE = None
 
 
 def _mtime_or_missing(path: str) -> float:
@@ -396,15 +396,15 @@ def _mtime_or_missing(path: str) -> float:
         return -1.0
 
 
-def load_t60_last_report() -> Optional[Dict[str, Any]]:
-    path = t60_last_report_path()
+def load_t75_last_report() -> Optional[Dict[str, Any]]:
+    path = t75_last_report_path()
     if not os.path.isfile(path):
         return None
     try:
         with open(path, encoding="utf-8") as f:
             doc = json.load(f)
     except Exception:  # noqa: BLE001
-        logger.debug("load_t60_last_report failed", exc_info=True)
+        logger.debug("load_t75_last_report failed", exc_info=True)
         return None
     if not isinstance(doc, dict) or not doc.get("success"):
         return None
@@ -413,7 +413,7 @@ def load_t60_last_report() -> Optional[Dict[str, Any]]:
     return doc
 
 
-def load_t60_model(*, role: Optional[str] = None) -> Optional[Dict[str, Any]]:
+def load_t75_model(*, role: Optional[str] = None) -> Optional[Dict[str, Any]]:
     from core.research.holdout import (
         MODEL_ROLE_RESEARCH,
         current_scoring_model_role,
@@ -422,13 +422,13 @@ def load_t60_model(*, role: Optional[str] = None) -> Optional[Dict[str, Any]]:
 
     role_n = role if role is not None else current_scoring_model_role()
     if role_n == MODEL_ROLE_RESEARCH:
-        return load_research_promoted_json(t60_model_path())
-    global _T60_MODEL_CACHE
-    model_p = t60_model_path()
-    report_p = t60_last_report_path()
+        return load_research_promoted_json(t75_model_path())
+    global _T75_MODEL_CACHE
+    model_p = t75_model_path()
+    report_p = t75_last_report_path()
     key = (_mtime_or_missing(model_p), _mtime_or_missing(report_p))
-    if _T60_MODEL_CACHE is not None and _T60_MODEL_CACHE[0] == key:
-        return _T60_MODEL_CACHE[1]
+    if _T75_MODEL_CACHE is not None and _T75_MODEL_CACHE[0] == key:
+        return _T75_MODEL_CACHE[1]
     doc: Optional[Dict[str, Any]] = None
     if os.path.isfile(model_p):
         try:
@@ -437,18 +437,18 @@ def load_t60_model(*, role: Optional[str] = None) -> Optional[Dict[str, Any]]:
             if isinstance(loaded, dict) and isinstance(loaded.get("return_model"), dict):
                 doc = loaded
         except Exception:  # noqa: BLE001
-            logger.debug("load_t60_model failed", exc_info=True)
+            logger.debug("load_t75_model failed", exc_info=True)
     if doc is None:
-        fallback = load_t60_last_report()
+        fallback = load_t75_last_report()
         if fallback:
             out = dict(fallback)
             out["_shadow"] = True
             doc = out
-    _T60_MODEL_CACHE = (key, doc)
+    _T75_MODEL_CACHE = (key, doc)
     return doc
 
 
-def persist_t60_model(
+def persist_t75_model(
     report: Dict[str, Any],
     *,
     note: str = "",
@@ -466,7 +466,7 @@ def persist_t60_model(
     role_n, rm = select_persist_return_model(report, role=role)
     if not isinstance(rm, dict):
         return {"success": False, "error": "return_model missing"}
-    gate = t60_promote_gate(report)
+    gate = t75_promote_gate(report)
     if not force and not gate.get("ok"):
         return {
             "success": False,
@@ -478,12 +478,12 @@ def persist_t60_model(
     doc = {
         "success": True,
         "promoted_at": now_iso_utc(),
-        "note": note or "t60_ridge promote",
+        "note": note or "t75_ridge promote",
         "return_model": rm,
         "oos": report.get("oos"),
         "sample_count": report.get("sample_count"),
         "stock_count": report.get("stock_count"),
-        "schema": report.get("schema") or "t60_ridge_v1",
+        "schema": report.get("schema") or "t75_ridge_v1",
         "minute_tau_hm": report.get("minute_tau_hm") or rm.get("minute_tau_hm"),
         "tau_grid": report.get("tau_grid") or rm.get("tau_grid"),
         "promote_gate": gate,
@@ -491,29 +491,29 @@ def persist_t60_model(
         "fit_end": report.get("fit_end"),
         "eval_start": report.get("eval_start"),
         "holdout_trading_days": report.get("holdout_trading_days"),
-        "dual_score_head": "y_t60",
+        "dual_score_head": "y_t75",
     }
     path = (
-        research_model_path(t60_model_path())
+        research_model_path(t75_model_path())
         if role_n == MODEL_ROLE_RESEARCH
-        else t60_model_path()
+        else t75_model_path()
     )
     os.makedirs(os.path.dirname(path), exist_ok=True)
     atomic_write_json(path, doc)
-    global _T60_MODEL_CACHE
-    _T60_MODEL_CACHE = None
+    global _T75_MODEL_CACHE
+    _T75_MODEL_CACHE = None
     out = dict(doc)
     out["path"] = path
     return out
 
 
-def predict_t60_from_features(
+def predict_t75_from_features(
     features: Dict[str, Optional[float]],
     *,
     model_doc: Optional[Dict[str, Any]] = None,
 ) -> Optional[float]:
-    """开盘 Z + 前缀分钟 → ŷ_τ60（百分点）。"""
-    doc = model_doc if model_doc is not None else load_t60_model()
+    """开盘 Z + 前缀分钟 → ŷ_τ75（百分点）。"""
+    doc = model_doc if model_doc is not None else load_t75_model()
     if not doc:
         return None
     rm = doc.get("return_model") or {}
@@ -523,19 +523,19 @@ def predict_t60_from_features(
     return float(preds[0])
 
 
-def explain_t60_prediction(
+def explain_t75_prediction(
     features: Optional[Dict[str, Any]],
     *,
     model_doc: Optional[Dict[str, Any]] = None,
 ) -> Optional[Dict[str, Any]]:
     from core.research.tau_ridge import explain_tau_prediction
 
-    doc = model_doc if model_doc is not None else load_t60_model()
+    doc = model_doc if model_doc is not None else load_t75_model()
     expl = explain_tau_prediction(features, model_doc=doc)
     if not expl:
         return None
     out = dict(expl)
-    out["head"] = "t60"
+    out["head"] = "t75"
     role = None
     if isinstance(doc, dict):
         role = doc.get("model_role")

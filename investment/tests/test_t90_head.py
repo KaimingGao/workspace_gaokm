@@ -48,8 +48,17 @@ class SessionClockTests(unittest.TestCase):
         self.assertEqual(add_session_minutes("11:00", 90), "14:00")
         self.assertEqual(add_session_minutes("11:30", 90), "14:30")
         self.assertEqual(add_session_minutes("13:30", 90), "15:00")
+        self.assertEqual(add_session_minutes("13:25", 95), "15:00")
         self.assertIsNone(add_session_minutes("13:35", 90))
+        self.assertIsNone(add_session_minutes("13:30", 95))
         self.assertIsNone(add_session_minutes("14:00", 90))
+
+    def test_tau_clock_allows_t90_needs_95m(self):
+        from core.signal.minute_tau_grid import tau_clock_allows_t90
+
+        self.assertTrue(tau_clock_allows_t90("13:25"))
+        self.assertFalse(tau_clock_allows_t90("13:30"))
+        self.assertFalse(tau_clock_allows_t90("13:35"))
 
     def test_sub_session_and_lunch_flags(self):
         from core.signal.minute_tau_grid import (
@@ -177,14 +186,15 @@ class SessionClockTests(unittest.TestCase):
         self.assertAlmostEqual(out[1]["xs"][0]["ret_last_90m_vs_sector"], 1.0, places=6)
         self.assertAlmostEqual(out[0]["xs"][1]["sector_ret_last_90m"], 3.0, places=6)
 
-    def test_t90_grid_stops_at_1330(self):
+    def test_t90_grid_stops_at_1325(self):
         from core.signal.minute_tau_grid import DEFAULT_T90_TRAIN_TAU_GRID
 
         self.assertIn("09:30", DEFAULT_T90_TRAIN_TAU_GRID)
         self.assertIn("11:30", DEFAULT_T90_TRAIN_TAU_GRID)
         self.assertIn("13:05", DEFAULT_T90_TRAIN_TAU_GRID)
-        self.assertIn("13:30", DEFAULT_T90_TRAIN_TAU_GRID)
+        self.assertIn("13:25", DEFAULT_T90_TRAIN_TAU_GRID)
         self.assertNotIn("13:00", DEFAULT_T90_TRAIN_TAU_GRID)
+        self.assertNotIn("13:30", DEFAULT_T90_TRAIN_TAU_GRID)
         self.assertNotIn("13:35", DEFAULT_T90_TRAIN_TAU_GRID)
         self.assertNotIn("14:00", DEFAULT_T90_TRAIN_TAU_GRID)
 
@@ -196,6 +206,41 @@ class RelabelT90Tests(unittest.TestCase):
         self.assertAlmostEqual(y_t90_pct(10.0, 10.5), 5.0, places=6)
         self.assertIsNone(y_t90_pct(0, 10.5))
         self.assertIsNone(y_t90_pct(10.0, None))
+
+    def test_t90_mean_session_three_bars(self):
+        from core.research.tau_panel import price_at_t90_mean_session, y_t90_pct
+
+        dkey = "2025-06-02"
+        bars = []
+        for hm in _times_am_pm():
+            if hm == "10:55":
+                c = 10.1
+            elif hm == "11:00":
+                c = 10.4
+            elif hm == "11:05":
+                c = 10.7
+            else:
+                c = 10.0
+            bars.append(_bar(dkey, hm, c, open_px=10.0))
+        hm, px = price_at_t90_mean_session(bars, trade_date=dkey, tau_hm="09:30")
+        self.assertEqual(hm, "11:00")
+        self.assertAlmostEqual(float(px), 10.4, places=6)
+        self.assertAlmostEqual(y_t90_pct(10.0, px), 4.0, places=6)
+        late_hm, late_px = price_at_t90_mean_session(
+            bars, trade_date=dkey, tau_hm="13:30"
+        )
+        self.assertIsNone(late_hm)
+        self.assertIsNone(late_px)
+        ok_hm, ok_px = price_at_t90_mean_session(
+            bars, trade_date=dkey, tau_hm="13:25"
+        )
+        self.assertEqual(ok_hm, "14:55")
+        self.assertAlmostEqual(float(ok_px), 10.0, places=6)
+        lunch_hm, lunch_px = price_at_t90_mean_session(
+            bars, trade_date=dkey, tau_hm="11:00"
+        )
+        self.assertEqual(lunch_hm, "14:00")
+        self.assertAlmostEqual(float(lunch_px), 10.0, places=6)
 
     def test_relabel_keeps_horizon_rows_and_drops_missing(self):
         from core.research.tau_panel import relabel_tau_panels_as_t90, y_t90_pct
@@ -337,7 +382,8 @@ class RelabelT90Tests(unittest.TestCase):
         elapsed = time.perf_counter() - t0
         self.assertGreater(len(ys), 100)
         self.assertTrue(any(m.get("tau_plus_90") == "14:00" for m in metas))
-        self.assertTrue(any(m.get("tau_plus_90") == "15:00" for m in metas))
+        self.assertTrue(any(m.get("tau_plus_90") == "14:55" for m in metas))
+        self.assertFalse(any(m.get("tau_plus_90") == "15:00" for m in metas))
         self.assertLess(elapsed, 4.0, msg=f"collect too slow: {elapsed:.2f}s n={len(ys)}")
 
 
@@ -579,7 +625,7 @@ class T90GateTests(unittest.TestCase):
         dkey = "2025-06-03"
         mins = []
         for hm in _times_am_pm():
-            px = 10.5 if hm >= "11:00" else 10.0
+            px = 10.5 if hm >= "10:55" else 10.0
             mins.append(_bar(dkey, hm, px))
         bar = {
             "date": dkey,

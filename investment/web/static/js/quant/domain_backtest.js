@@ -1690,18 +1690,25 @@ export function installBacktest(q) {
     const metricsEl = els.quantT0Metrics || document.getElementById("paper-t0-metrics");
     if (!isReplayDesk() || !metricsEl) return Promise.resolve();
     if (metricsEl.dataset.liveRun === "1") return Promise.resolve();
+    setReplayT0Progress({ busy: false, message: "恢复上次结果…", lockBtn: false });
     return resumeReplayT0JobIfRunning()
       .then((resumed) => {
         if (resumed || metricsEl.dataset.liveRun === "1") return;
         return fetch("/api/quant/last-t0-backtest")
           .then((res) => res.json())
           .then((pack) => {
-            if (!pack || pack.empty || !pack.result || !pack.result.success) return;
+            if (!pack || pack.empty || !pack.result || !pack.result.success) {
+              setReplayT0Progress({ busy: false, hide: true, lockBtn: false });
+              return;
+            }
             if (metricsEl.dataset.liveRun === "1") return;
             paintReplayT0(pack.result);
+            setReplayT0Progress({ busy: false, hide: true, lockBtn: false });
           });
       })
-      .catch(() => {});
+      .catch(() => {
+        setReplayT0Progress({ busy: false, hide: true, lockBtn: false });
+      });
   }
 
   function collectReplayT0BacktestBody() {
@@ -1725,11 +1732,11 @@ export function installBacktest(q) {
     };
   }
 
-  function setReplayT0Progress({ busy, message, hide } = {}) {
+  function setReplayT0Progress({ busy, message, hide, lockBtn } = {}) {
     const progress = document.getElementById("paper-t0-progress");
     const textEl = document.getElementById("paper-t0-progress-text");
     const btn = document.getElementById("paper-t0-backtest");
-    if (btn) btn.disabled = !!busy;
+    if (btn && lockBtn !== false) btn.disabled = !!busy;
     if (textEl && message != null) textEl.textContent = message;
     if (!progress) return;
     progress.classList.toggle("is-busy", !!busy);

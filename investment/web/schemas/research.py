@@ -175,6 +175,37 @@ class T30TreeRequest(BaseModel):
     )
 
 
+class T45TreeRequest(BaseModel):
+    """ŷ_τ45_tree 影子头：同面板 Holdout vs Ridge。无 persist，不进 live / 回测。"""
+
+    lookback: int = Field(default=120, ge=40, le=500)
+    watching_limit: int = Field(
+        default=200,
+        ge=2,
+        le=200,
+        description="观察池上限（默认满池 200）；拟合只读本地 5m 缓存",
+    )
+    ridge_lambda: float = Field(default=1.0, ge=0.0, le=100.0)
+    gap_trigger_pct: float = Field(default=2.0, ge=0.5, le=10.0)
+    theme_boost: float = Field(default=1.5, ge=0.5, le=5.0)
+    holdout_trading_days: int = Field(
+        default=10,
+        ge=1,
+        le=60,
+        description="近 N 个交易日不进训练，与 Ridge 对照共用",
+    )
+    tau_hm: Optional[str] = Field(
+        default=None,
+        description="09:45 | 10:30；缺省 10:30。open 会强制改成 10:30（ŷ_τ45 需分钟价）",
+        max_length=8,
+    )
+    backend: Optional[str] = Field(
+        default=None,
+        description="xgboost | numpy_gbm | auto（缺省：有 xgboost 用 xgboost，否则 numpy 浅树）",
+        max_length=16,
+    )
+
+
 class T60TreeRequest(BaseModel):
     """ŷ_τ60_tree 影子头：同面板 Holdout vs Ridge。无 persist，不进 live / 回测。"""
 
@@ -197,6 +228,37 @@ class T60TreeRequest(BaseModel):
     tau_hm: Optional[str] = Field(
         default=None,
         description="09:45 | 10:30；缺省 10:30。open 会强制改成 10:30（ŷ_τ60 需分钟价）",
+        max_length=8,
+    )
+    backend: Optional[str] = Field(
+        default=None,
+        description="xgboost | numpy_gbm | auto（缺省：有 xgboost 用 xgboost，否则 numpy 浅树）",
+        max_length=16,
+    )
+
+
+class T75TreeRequest(BaseModel):
+    """ŷ_τ75_tree 影子头：同面板 Holdout vs Ridge。无 persist，不进 live / 回测。"""
+
+    lookback: int = Field(default=120, ge=40, le=500)
+    watching_limit: int = Field(
+        default=200,
+        ge=2,
+        le=200,
+        description="观察池上限（默认满池 200）；拟合只读本地 5m 缓存",
+    )
+    ridge_lambda: float = Field(default=1.0, ge=0.0, le=100.0)
+    gap_trigger_pct: float = Field(default=2.0, ge=0.5, le=10.0)
+    theme_boost: float = Field(default=1.5, ge=0.5, le=5.0)
+    holdout_trading_days: int = Field(
+        default=10,
+        ge=1,
+        le=60,
+        description="近 N 个交易日不进训练，与 Ridge 对照共用",
+    )
+    tau_hm: Optional[str] = Field(
+        default=None,
+        description="09:45 | 10:30；缺省 10:30。open 会强制改成 10:30（ŷ_τ75 需分钟价）",
         max_length=8,
     )
     backend: Optional[str] = Field(
@@ -460,7 +522,7 @@ class RRidgeRequest(BaseModel):
 
 
 class T30RidgeRequest(BaseModel):
-    """ŷ_τ30 Ridge：与 ŷ_oc 同 X → price(τ⊕30m)/price(τ)−1。做 T 破带同号旁路。"""
+    """ŷ_τ30 Ridge：与 ŷ_oc 同 X → mean(price(τ⊕25/30/35))/price(τ)−1。做 T 破带同号旁路。"""
 
     lookback: int = Field(default=120, ge=40, le=500)
     watching_limit: int = Field(
@@ -507,8 +569,56 @@ class T30RidgeRequest(BaseModel):
     )
 
 
+class T45RidgeRequest(BaseModel):
+    """ŷ_τ45 Ridge：与 ŷ_oc 同 X → mean(price(τ⊕40/45/50))/price(τ)−1。做 T 破带同号旁路。"""
+
+    lookback: int = Field(default=120, ge=40, le=500)
+    watching_limit: int = Field(
+        default=200,
+        ge=2,
+        le=200,
+        description="观察池上限（默认满池 200）；拟合只读本地 5m 缓存、不拉远端",
+    )
+    ridge_lambda: float = Field(default=1.0, ge=0.0, le=100.0)
+    gap_trigger_pct: float = Field(default=2.0, ge=0.5, le=10.0)
+    minute_period: str = Field(
+        default="5",
+        max_length=4,
+        description="分钟周期；默认 5m，与做 T 回测一致",
+    )
+    minute_lookback_days: int = Field(
+        default=150,
+        ge=20,
+        le=240,
+        description="兼容字段；拟合已改为只读缓存，不再按此天数拉远端",
+    )
+    persist: bool = Field(
+        default=False,
+        description="True=人审写入模型文件（路径由 persist_role 决定）",
+    )
+    persist_role: str = Field(
+        default="live",
+        description="live=执行套 t45_ridge_model.json；research=研究套 *_research.json",
+    )
+    holdout_trading_days: int = Field(
+        default=10,
+        ge=1,
+        le=60,
+        description="近 N 个交易日不进研究套训练，专供历史回测",
+    )
+    force_promote: bool = Field(
+        default=False,
+        description="True=跳过 OOS promote 闸（仅调试）",
+    )
+    note: str = Field(default="", max_length=200)
+    sync: bool = Field(
+        default=False,
+        description="true=同步跑（单测）；默认 persist=false 时入队 Job，轮询 GET /api/jobs/t45-ridge",
+    )
+
+
 class T60RidgeRequest(BaseModel):
-    """ŷ_τ60 Ridge：与 ŷ_oc 同 X → price(τ⊕60m)/price(τ)−1。做 T 破带同号旁路。"""
+    """ŷ_τ60 Ridge：与 ŷ_oc 同 X → mean(price(τ⊕55/60/65))/price(τ)−1。做 T 破带同号旁路。"""
 
     lookback: int = Field(default=120, ge=40, le=500)
     watching_limit: int = Field(
@@ -552,6 +662,54 @@ class T60RidgeRequest(BaseModel):
     sync: bool = Field(
         default=False,
         description="true=同步跑（单测）；默认 persist=false 时入队 Job，轮询 GET /api/jobs/t60-ridge",
+    )
+
+
+class T75RidgeRequest(BaseModel):
+    """ŷ_τ75 Ridge：与 ŷ_oc 同 X → mean(price(τ⊕70/75/80))/price(τ)−1。做 T 破带同号旁路。"""
+
+    lookback: int = Field(default=120, ge=40, le=500)
+    watching_limit: int = Field(
+        default=200,
+        ge=2,
+        le=200,
+        description="观察池上限（默认满池 200）；拟合只读本地 5m 缓存、不拉远端",
+    )
+    ridge_lambda: float = Field(default=1.0, ge=0.0, le=100.0)
+    gap_trigger_pct: float = Field(default=2.0, ge=0.5, le=10.0)
+    minute_period: str = Field(
+        default="5",
+        max_length=4,
+        description="分钟周期；默认 5m，与做 T 回测一致",
+    )
+    minute_lookback_days: int = Field(
+        default=150,
+        ge=20,
+        le=240,
+        description="兼容字段；拟合已改为只读缓存，不再按此天数拉远端",
+    )
+    persist: bool = Field(
+        default=False,
+        description="True=人审写入模型文件（路径由 persist_role 决定）",
+    )
+    persist_role: str = Field(
+        default="live",
+        description="live=执行套 t75_ridge_model.json；research=研究套 *_research.json",
+    )
+    holdout_trading_days: int = Field(
+        default=10,
+        ge=1,
+        le=60,
+        description="近 N 个交易日不进研究套训练，专供历史回测",
+    )
+    force_promote: bool = Field(
+        default=False,
+        description="True=跳过 OOS promote 闸（仅调试）",
+    )
+    note: str = Field(default="", max_length=200)
+    sync: bool = Field(
+        default=False,
+        description="true=同步跑（单测）；默认 persist=false 时入队 Job，轮询 GET /api/jobs/t75-ridge",
     )
 
 
@@ -694,7 +852,7 @@ class ClusterMinuteRefreshRequest(BaseModel):
 
 
 class T90RidgeRequest(BaseModel):
-    """ŷ_τ90 Ridge：与 ŷ_oc 同 X → price(τ⊕90m)/price(τ)−1。做 T 破带同号旁路。"""
+    """ŷ_τ90 Ridge：与 ŷ_oc 同 X → mean(price(τ⊕85/90/95))/price(τ)−1。做 T 破带同号旁路。"""
 
     lookback: int = Field(default=120, ge=40, le=500)
     watching_limit: int = Field(

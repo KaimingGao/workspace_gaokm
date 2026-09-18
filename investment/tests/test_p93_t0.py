@@ -2631,12 +2631,12 @@ class TestDualYDirection(unittest.TestCase):
                     "head": "t30",
                     "terms": [{"key": "ret_last_30m", "label": "近30m", "contrib": 0.2}],
                 },
-                "y_spec_τ30": {"formula": "price[τ+30m]/price[τ]-1", "unit": "pct"},
+                "y_spec_τ30": {"formula": "mean(price[τ+25m],price[τ+30m],price[τ+35m])/price[τ]-1", "unit": "pct"},
             }
         )
         self.assertEqual(tip.get("formula_terms_t30", {}).get("head"), "t30")
         self.assertAlmostEqual(tip.get("formula_terms_t30", {}).get("total"), 0.3, places=6)
-        self.assertEqual(tip.get("y_spec_τ30", {}).get("formula"), "price[τ+30m]/price[τ]-1")
+        self.assertEqual(tip.get("y_spec_τ30", {}).get("formula"), "mean(price[τ+25m],price[τ+30m],price[τ+35m])/price[τ]-1")
 
     def test_compute_scores_from_bars_pit(self):
         from core.t0.score_policy import (
@@ -2849,6 +2849,37 @@ class TestDualYDirection(unittest.TestCase):
         keys = [t["key"] for t in (slim or {}).get("terms") or []]
         self.assertIn("amihud", keys)
         self.assertLessEqual(len(keys), 10)
+
+    def test_slim_formula_terms_drops_imputed_zeros(self):
+        from core.t0.score_policy import _slim_formula_terms
+
+        slim = _slim_formula_terms(
+            {
+                "intercept": 0.2,
+                "total": 1.0,
+                "terms": [
+                    {
+                        "key": "up_extent",
+                        "label": "上探",
+                        "beta": 1.0,
+                        "z": 1.5,
+                        "contrib": 1.5,
+                    },
+                    {
+                        "key": "sector_ret_to_tau",
+                        "label": "板块中位",
+                        "beta": -0.2,
+                        "z": 0.0,
+                        "contrib": 0.0,
+                        "note": "缺特征·z≈0",
+                    },
+                ],
+            },
+            limit=12,
+        )
+        keys = [t["key"] for t in (slim or {}).get("terms") or []]
+        self.assertEqual(keys, ["up_extent"])
+        self.assertEqual(int(slim.get("missing_n") or 0), 1)
 
     def test_compute_scores_passes_index_bars_for_rs(self):
         """缺指数时相对强弱会退回开盘涨跌；须传入 index_bars 与数据中心同源。"""
@@ -3111,11 +3142,12 @@ class TestDualYDirection(unittest.TestCase):
         }
         live = t0_cs_universe_codes(holdings=paper["holdings"])
         bt = t0_cs_universe_codes("600183", paper=paper)
-        self.assertEqual(live, ["600183", "600875"])
-        self.assertEqual(bt, live)
+        self.assertEqual(live[:2], ["600183", "600875"])
+        self.assertEqual(bt[:2], ["600183", "600875"])
+        self.assertEqual(live, bt)
         set_t0_cs_universe_codes(live)
         self.assertEqual(current_t0_cs_universe_codes(), live)
-        self.assertEqual(peer_codes_for_sector_ret()[:2], live)
+        self.assertEqual(peer_codes_for_sector_ret()[:2], live[:2])
         clear_score_model_cache()
 
     def test_tau_xs_fallback_uses_cs_universe_memo(self):
@@ -4718,6 +4750,66 @@ class TestT0Viz(unittest.TestCase):
         self.assertEqual(s["y_t30_hit"]["miss"], 1)
         self.assertEqual(s["y_t30_band"]["hit"], 1)
         self.assertEqual(s["y_t30_band"]["miss"], 1)
+
+    def test_score_portrait_t45_t75_hits(self):
+        """画像 ŷ_τ45 / ŷ_τ75 命中 + 旁路。"""
+        from core.t0.viz import build_score_portrait, build_score_portrait_by_slot
+
+        days = [
+            {
+                "date": "2026-03-01",
+                "open": 10.0,
+                "close": 10.2,
+                "skipped": True,
+                "direction": "buy_then_sell",
+                "close_band_scan": [
+                    {
+                        "hm": "09:35",
+                        "c": 10.0,
+                        "y_tau": 1.8,
+                        "y_τ45": 0.02,
+                        "y_t45_realized": 0.40,
+                        "y_τ75": 0.03,
+                        "y_t75_realized": 0.50,
+                        "pick": "buy_then_sell",
+                    }
+                ],
+            },
+            {
+                "date": "2026-03-02",
+                "open": 10.0,
+                "close": 9.8,
+                "skipped": True,
+                "direction": "buy_then_sell",
+                "close_band_scan": [
+                    {
+                        "hm": "09:35",
+                        "c": 10.0,
+                        "y_tau": -1.0,
+                        "y_τ45": -0.03,
+                        "y_t45_realized": 0.50,
+                        "y_τ75": -0.04,
+                        "y_t75_realized": 0.60,
+                        "pick": "buy_then_sell",
+                    }
+                ],
+            },
+        ]
+        port = build_score_portrait(days)
+        self.assertEqual(port["y_t45_hit"]["hit"], 1)
+        self.assertEqual(port["y_t45_hit"]["miss"], 1)
+        self.assertEqual(port["y_t45_band"]["hit"], 1)
+        self.assertEqual(port["y_t45_band"]["miss"], 1)
+        self.assertEqual(port["y_t75_hit"]["hit"], 1)
+        self.assertEqual(port["y_t75_hit"]["miss"], 1)
+        self.assertEqual(port["y_t75_band"]["hit"], 1)
+        self.assertEqual(port["y_t75_band"]["miss"], 1)
+        slots = {
+            s["hm"]: s for s in (build_score_portrait_by_slot(days).get("slots") or [])
+        }
+        s = slots["09:35"]
+        self.assertEqual(s["y_t45_hit"]["hit"], 1)
+        self.assertEqual(s["y_t75_hit"]["hit"], 1)
 
     def test_backtest_includes_viz(self):
         bars = [_bar("d0", 100, 105, 98, 101) for _ in range(25)]

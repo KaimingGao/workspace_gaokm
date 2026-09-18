@@ -291,22 +291,30 @@ export const Y_τc_TITLE =
 export const Y_TC_TITLE = Y_τc_TITLE;
 export const Y_R_TITLE = Y_τc_TITLE;
 export const Y_T30_TITLE =
-  "ŷ_τ30 · Ridge 预估 price(τ⊕30m)/price(τ)−1 · 做 T 旁路，不进 C_τ";
+  "ŷ_τ30 · Ridge 预估 mean(price(τ⊕25/30/35))/price(τ)−1 · 做 T 旁路，不进 C_τ";
 export const T30_REALIZED_TITLE =
-  "τ30实 · price(τ⊕30m)/price(τ)−1（与 ŷ_τ30 同标签）";
+  "τ30实 · mean(price(τ⊕25/30/35))/price(τ)−1（与 ŷ_τ30 同标签）";
+export const Y_T45_TITLE =
+  "ŷ_τ45 · Ridge 预估 mean(price(τ⊕40/45/50))/price(τ)−1 · 做 T 旁路，不进 C_τ";
+export const T45_REALIZED_TITLE =
+  "τ45实 · mean(price(τ⊕40/45/50))/price(τ)−1（与 ŷ_τ45 同标签）";
 export const Y_T60_TITLE =
-  "ŷ_τ60 · Ridge 预估 price(τ⊕60m)/price(τ)−1 · 做 T 旁路，不进 C_τ";
+  "ŷ_τ60 · Ridge 预估 mean(price(τ⊕55/60/65))/price(τ)−1 · 做 T 旁路，不进 C_τ";
 export const T60_REALIZED_TITLE =
-  "τ60实 · price(τ⊕60m)/price(τ)−1（与 ŷ_τ60 同标签）";
+  "τ60实 · mean(price(τ⊕55/60/65))/price(τ)−1（与 ŷ_τ60 同标签）";
+export const Y_T75_TITLE =
+  "ŷ_τ75 · Ridge 预估 mean(price(τ⊕70/75/80))/price(τ)−1 · 做 T 旁路，不进 C_τ";
+export const T75_REALIZED_TITLE =
+  "τ75实 · mean(price(τ⊕70/75/80))/price(τ)−1（与 ŷ_τ75 同标签）";
 export const Y_T90_TITLE =
-  "ŷ_τ90 · Ridge 预估 price(τ⊕90m)/price(τ)−1 · 做 T 旁路，不进 C_τ";
+  "ŷ_τ90 · Ridge 预估 mean(price(τ⊕85/90/95))/price(τ)−1 · 做 T 旁路，不进 C_τ";
 export const T90_REALIZED_TITLE =
-  "τ90实 · price(τ⊕90m)/price(τ)−1（与 ŷ_τ90 同标签）";
-/** τ 后窗口符号和：ŷ_τw = f(ŷ_τ30)+f(ŷ_τ60)+f(ŷ_τ90)；f(x)=1 if x>0 else −1 */
+  "τ90实 · mean(price(τ⊕85/90/95))/price(τ)−1（与 ŷ_τ90 同标签）";
+/** τ 后窗口符号和：ŷ_τw = f(ŷ_τ30)+f(ŷ_τ45)+f(ŷ_τ60)+f(ŷ_τ75)+f(ŷ_τ90)；f(x)=1 if x>0 else −1 */
 export const Y_TW_TITLE =
-  "ŷ_τw · τ后窗口符号和 f(ŷ_τ30)+f(ŷ_τ60)+f(ŷ_τ90)；f(x)=1 if x>0 else −1 · 旁路，不进 C_τ";
+  "ŷ_τw · τ后窗口符号和 f(ŷ_τ30)+f(ŷ_τ45)+f(ŷ_τ60)+f(ŷ_τ75)+f(ŷ_τ90)；f(x)=1 if x>0 else −1 · 旁路，不进 C_τ";
 export const TW_REALIZED_TITLE =
-  "τw实 · f(τ30实)+f(τ60实)+f(τ90实)；f(x)=1 if x>0 else −1（缺头不计）";
+  "τw实 · f(τ30实)+f(τ45实)+f(τ60实)+f(τ75实)+f(τ90实)；f(x)=1 if x>0 else −1（缺头不计）";
 export const R_HAT_TITLE =
   "R̂_τ · Ĉ_τ/price(τ)−1 · remaining(clip(ŷ_oc×scale), price) · 与 Ĉ_τ 同目标 · 不参与选腿 · 预估(真实)";
 export const R_REALIZED_TITLE =
@@ -473,7 +481,7 @@ export function resolveTcScore(it) {
   return resolveYτcScore(it);
 }
 
-/** ŷ_τ30：Ridge 预估 price(τ⊕30m)/price(τ)−1。 */
+/** ŷ_τ30：Ridge 预估 mean(price(τ⊕25/30/35))/price(τ)−1。 */
 export function resolveYT30Score(it) {
   if (!it || typeof it !== "object") return null;
   if (isHeuristicScoreScale(it)) return null;
@@ -484,7 +492,18 @@ export function resolveYT30Score(it) {
   return null;
 }
 
-/** ŷ_τ60：Ridge 预估 price(τ⊕60m)/price(τ)−1。 */
+/** ŷ_τ45：Ridge 预估 mean(price(τ⊕40/45/50))/price(τ)−1。 */
+export function resolveYT45Score(it) {
+  if (!it || typeof it !== "object") return null;
+  if (isHeuristicScoreScale(it)) return null;
+  for (const c of [it["y_τ45"], it.y_t45, it.predicted_score_t45, it.y_t45_hat]) {
+    const n = _numField(c);
+    if (n != null && _looksLikeYhatPct(n)) return n;
+  }
+  return null;
+}
+
+/** ŷ_τ60：Ridge 预估 mean(price(τ⊕55/60/65))/price(τ)−1。 */
 export function resolveYT60Score(it) {
   if (!it || typeof it !== "object") return null;
   if (isHeuristicScoreScale(it)) return null;
@@ -494,7 +513,18 @@ export function resolveYT60Score(it) {
   }
   return null;
 }
-/** ŷ_τ90：Ridge 预估 price(τ⊕90m)/price(τ)−1。 */
+
+/** ŷ_τ75：Ridge 预估 mean(price(τ⊕70/75/80))/price(τ)−1。 */
+export function resolveYT75Score(it) {
+  if (!it || typeof it !== "object") return null;
+  if (isHeuristicScoreScale(it)) return null;
+  for (const c of [it["y_τ75"], it.y_t75, it.predicted_score_t75, it.y_t75_hat]) {
+    const n = _numField(c);
+    if (n != null && _looksLikeYhatPct(n)) return n;
+  }
+  return null;
+}
+/** ŷ_τ90：Ridge 预估 mean(price(τ⊕85/90/95))/price(τ)−1。 */
 export function resolveYT90Score(it) {
   if (!it || typeof it !== "object") return null;
   if (isHeuristicScoreScale(it)) return null;
@@ -512,11 +542,11 @@ export function yTwSign(x) {
   return n > 0 ? 1 : -1;
 }
 
-/** ŷ_τw = f(ŷ_τ30)+f(ŷ_τ60)+f(ŷ_τ90)；三头齐时 ∈ {−3,−1,+1,+3}。 */
-export function blendYtw(y30, y60, y90) {
+/** ŷ_τw = f(ŷ_τ30)+f(ŷ_τ45)+f(ŷ_τ60)+f(ŷ_τ75)+f(ŷ_τ90)；五头齐时 ∈ {−5,−3,−1,+1,+3,+5}。 */
+export function blendYtw(y30, y60, y90, y45, y75) {
   let sum = 0;
   let n = 0;
-  for (const s of [yTwSign(y30), yTwSign(y60), yTwSign(y90)]) {
+  for (const s of [yTwSign(y30), yTwSign(y45), yTwSign(y60), yTwSign(y75), yTwSign(y90)]) {
     if (s == null) continue;
     sum += s;
     n += 1;
@@ -534,11 +564,17 @@ export function fmtYtwVote(n) {
   return String(k);
 }
 
-/** ŷ_τw：由 ŷ_τ30/60/90 现算符号和；不读旧加权落盘。 */
+/** ŷ_τw：由 ŷ_τ30/45/60/75/90 现算符号和；不读旧加权落盘。 */
 export function resolveYTWScore(it) {
   if (!it || typeof it !== "object") return null;
   if (isHeuristicScoreScale(it)) return null;
-  return blendYtw(resolveYT30Score(it), resolveYT60Score(it), resolveYT90Score(it));
+  return blendYtw(
+    resolveYT30Score(it),
+    resolveYT60Score(it),
+    resolveYT90Score(it),
+    resolveYT45Score(it),
+    resolveYT75Score(it)
+  );
 }
 
 /** ŷ_oo：open[T]→open[T+1]（调仓 ranking 输入）。 */

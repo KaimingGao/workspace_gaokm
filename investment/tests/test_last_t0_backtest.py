@@ -25,11 +25,37 @@ class TestLastT0BacktestStore(unittest.TestCase):
             "t0_pnl_total": 12.5,
             "t0_trade_days": 4,
             "scope_label": "模拟持仓 2 只",
-            "trade_days_sample": [{"date": "2026-09-01", "pnl": 1.0, "sold_qty": 100}],
             "days": [{"date": "2026-08-01", "skipped": True}] * 40,
             "viz": {"cumulative_pnl": [{"date": "2026-09-01", "pnl": 1.0}]},
             "results": [{"stock_code": "600519", "days": [{"x": i} for i in range(80)]}],
             "request": {"lookback": 30, "from_paper": True},
+            "trade_days_sample": [
+                {
+                    "date": "2026-09-01",
+                    "pnl": 1.0,
+                    "sold_qty": 100,
+                    "close_band_scan": [
+                        {
+                            "hm": "09:35",
+                            "c": 10.1,
+                            "y_τ30": 0.2,
+                            "y_t30_realized": 0.4,
+                            "formula_terms_t30": {"terms": [{"key": "gap_pct"}]},
+                            "features_tau": {"gap_pct": 1.0},
+                        },
+                        {
+                            "hm": "09:40",
+                            "c": 10.2,
+                            "leg1": True,
+                            "y_τ30": 0.3,
+                            "formula_terms_t30": {
+                                "terms": [{"key": "ret_last_30m", "contrib": 0.2}]
+                            },
+                            "features_tau": {"ret_last_30m": 1.1},
+                        },
+                    ],
+                }
+            ],
         }
         with tempfile.TemporaryDirectory() as tmp:
             path = os.path.join(tmp, "last_t0.json")
@@ -41,9 +67,21 @@ class TestLastT0BacktestStore(unittest.TestCase):
         result = pack["result"]
         self.assertEqual(result["t0_pnl_total"], 12.5)
         self.assertEqual(result["ok_count"], 2)
-        self.assertEqual(len(result["trade_days_sample"]), 1)
-        self.assertEqual(result["days"], result["trade_days_sample"])
+        self.assertEqual(len(result["days"]), 1)
+        self.assertNotIn("trade_days_sample", result)
         self.assertNotIn("results", result)
+        scan = (result["days"][0].get("close_band_scan") or [None])[0]
+        self.assertEqual(scan["hm"], "09:35")
+        self.assertEqual(scan["y_τ30"], 0.2)
+        self.assertEqual(scan["formula_terms_t30"]["terms"][0]["key"], "gap_pct")
+        self.assertNotIn("features_tau", scan)
+        trigger = (result["days"][0].get("close_band_scan") or [None, None])[1]
+        self.assertEqual(trigger["hm"], "09:40")
+        self.assertTrue(trigger["leg1"])
+        self.assertEqual(
+            trigger["formula_terms_t30"]["terms"][0]["key"], "ret_last_30m"
+        )
+        self.assertAlmostEqual(trigger["features_tau"]["ret_last_30m"], 1.1, places=6)
         self.assertEqual(result["request"]["lookback"], 30)
         self.assertEqual(len(result["viz"]["cumulative_pnl"]), 1)
 

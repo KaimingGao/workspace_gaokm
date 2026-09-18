@@ -195,6 +195,372 @@ class TestMinuteTauPack(unittest.TestCase):
         self.assertAlmostEqual(out["sector_ret_to_tau"], 0.84, places=6)
         self.assertAlmostEqual(out["ret_vs_sector"], -2.42, places=5)
 
+    def test_rebalance_cs_pin_survives_flush_after_1000(self):
+        from datetime import datetime
+        from unittest.mock import patch
+
+        from core.signal import minute_tau_feats as m
+
+        m.clear_sector_ret_cache()
+        key = ("2026-08-14", "10:00")
+        m._SECTOR_RET_CACHE[key] = 1.25
+        now = datetime(2026, 8, 14, 11, 0)
+        with patch("core.signal.session_pit.shanghai_now", return_value=now), patch(
+            "core.signal.session_pit.oo_cycle_date", return_value="2026-08-14"
+        ):
+            self.assertTrue(m._pin_rebalance_cs_key("2026-08-14", "10:00", 12))
+            m._SECTOR_RET_PINNED.add(key)
+            m._flush_sector_ret_medians()
+        self.assertAlmostEqual(m._SECTOR_RET_CACHE[key], 1.25, places=6)
+        m.clear_sector_ret_cache()
+
+    def test_rebalance_cs_disk_first_write_wins(self):
+        import os
+        import tempfile
+        from unittest.mock import patch
+
+        from core.signal import minute_tau_feats as m
+
+        fd, path = tempfile.mkstemp(suffix=".json")
+        os.close(fd)
+        os.remove(path)
+        m.clear_sector_ret_cache()
+        try:
+            with patch.object(m, "_rebalance_cs_store_path", return_value=path):
+                m._write_rebalance_cs_disk("2026-09-18", "10:00", 0.39, n_rets=12)
+                m._write_rebalance_cs_disk("2026-09-18", "10:00", 3.46, n_rets=80)
+                self.assertAlmostEqual(
+                    m._read_rebalance_cs_disk("2026-09-18", "10:00"), 0.39, places=4
+                )
+                self.assertAlmostEqual(
+                    m._read_rebalance_cs_disk("2026-09-18", "1000"), 0.39, places=4
+                )
+        finally:
+            if os.path.exists(path):
+                os.remove(path)
+            m.clear_sector_ret_cache()
+
+    def test_rebalance_cs_after_1030_without_snapshot_uses_peers_pit(self):
+        """10:30 后无落盘：按 τ=10:00 前缀从同伴重算，不得打成缺特征。"""
+        import os
+        import tempfile
+        from datetime import datetime
+        from unittest.mock import patch
+
+        from core.signal import minute_tau_feats as m
+        from core.signal.minute_tau_feats import resolve_sector_ret_to_tau
+
+        fd, path = tempfile.mkstemp(suffix=".json")
+        os.close(fd)
+        os.remove(path)
+        m.clear_sector_ret_cache()
+        now = datetime(2026, 9, 18, 15, 1)
+        bars = [
+            {
+                "date": "2026-09-18",
+                "datetime": "2026-09-18 09:35:00",
+                "open": 10.0,
+                "high": 10.1,
+                "low": 9.9,
+                "close": 10.05,
+            },
+            {
+                "date": "2026-09-18",
+                "datetime": "2026-09-18 10:00:00",
+                "open": 10.05,
+                "high": 10.4,
+                "low": 10.0,
+                "close": 10.35,
+            },
+        ]
+        try:
+            with patch.object(m, "_rebalance_cs_store_path", return_value=path), patch(
+                "core.signal.session_pit.shanghai_now", return_value=now
+            ), patch(
+                "core.signal.session_pit.oo_cycle_date", return_value="2026-09-18"
+            ), patch.object(
+                m, "_peer_codes_for_sector_ret", return_value=["600000"]
+            ), patch.object(
+                m, "_peer_minute_bars_for_tau", return_value=bars
+            ):
+                got = resolve_sector_ret_to_tau("2026-09-18", "10:00")
+                self.assertIsNotNone(got)
+                self.assertGreater(float(got), 0.0)
+        finally:
+            if os.path.exists(path):
+                os.remove(path)
+            m.clear_sector_ret_cache()
+
+    def test_rebalance_cs_after_1030_uses_disk_not_peers(self):
+        import os
+        import tempfile
+        from datetime import datetime
+        from unittest.mock import patch
+
+        from core.signal import minute_tau_feats as m
+        from core.signal.minute_tau_feats import resolve_sector_ret_to_tau
+
+        fd, path = tempfile.mkstemp(suffix=".json")
+        os.close(fd)
+        os.remove(path)
+        m.clear_sector_ret_cache()
+        now = datetime(2026, 9, 18, 15, 1)
+        try:
+            with patch.object(m, "_rebalance_cs_store_path", return_value=path), patch(
+                "core.signal.session_pit.shanghai_now", return_value=now
+            ), patch(
+                "core.signal.session_pit.oo_cycle_date", return_value="2026-09-18"
+            ), patch.object(
+                m, "_peer_codes_for_sector_ret", side_effect=AssertionError("warehouse")
+            ):
+                m._write_rebalance_cs_disk("2026-09-18", "10:00", 0.39, n_rets=12)
+                self.assertAlmostEqual(
+                    resolve_sector_ret_to_tau("2026-09-18", "10:00"), 0.39, places=4
+                )
+        finally:
+            if os.path.exists(path):
+                os.remove(path)
+            m.clear_sector_ret_cache()
+
+    def test_pin_0940_at_0940_not_future_1000(self):
+        from datetime import datetime
+        from unittest.mock import patch
+
+        from core.signal import minute_tau_feats as m
+
+        now = datetime(2026, 9, 18, 9, 40)
+        with patch("core.signal.session_pit.shanghai_now", return_value=now), patch(
+            "core.signal.session_pit.oo_cycle_date", return_value="2026-09-18"
+        ):
+            self.assertTrue(m._pin_rebalance_cs_key("2026-09-18", "09:40", 12))
+            self.assertFalse(m._pin_rebalance_cs_key("2026-09-18", "10:00", 12))
+
+    def test_rebalance_cs_after_1030_0940_still_uses_peers(self):
+        """09:40 不是 10:00 锁；下午重扫须能按 ≤τ 前缀重算板块中位。"""
+        import os
+        import tempfile
+        from datetime import datetime
+        from unittest.mock import patch
+
+        from core.signal import minute_tau_feats as m
+        from core.signal.minute_tau_feats import resolve_sector_ret_to_tau
+
+        fd, path = tempfile.mkstemp(suffix=".json")
+        os.close(fd)
+        os.remove(path)
+        m.clear_sector_ret_cache()
+        now = datetime(2026, 9, 18, 15, 1)
+        try:
+            with patch.object(m, "_rebalance_cs_store_path", return_value=path), patch(
+                "core.signal.session_pit.shanghai_now", return_value=now
+            ), patch(
+                "core.signal.session_pit.oo_cycle_date", return_value="2026-09-18"
+            ), patch.object(
+                m, "_peer_codes_for_sector_ret", return_value=[]
+            ) as peers:
+                self.assertIsNone(resolve_sector_ret_to_tau("2026-09-18", "09:40"))
+                peers.assert_called()
+        finally:
+            if os.path.exists(path):
+                os.remove(path)
+            m.clear_sector_ret_cache()
+
+    def test_persist_0940_at_0940_survives_afternoon_lock(self):
+        """09:40 早盘中位落盘后，下午清缓存仍能读回，不把板块项打成 z=0。"""
+        import os
+        import tempfile
+        from datetime import datetime
+        from unittest.mock import patch
+
+        from core.signal import minute_tau_feats as m
+        from core.signal.minute_tau_feats import resolve_sector_ret_to_tau
+
+        fd, path = tempfile.mkstemp(suffix=".json")
+        os.close(fd)
+        os.remove(path)
+        m.clear_sector_ret_cache()
+        morning = datetime(2026, 9, 18, 9, 40)
+        afternoon = datetime(2026, 9, 18, 15, 1)
+        try:
+            with patch.object(m, "_rebalance_cs_store_path", return_value=path), patch(
+                "core.signal.session_pit.shanghai_now", return_value=morning
+            ), patch(
+                "core.signal.session_pit.oo_cycle_date", return_value="2026-09-18"
+            ):
+                self.assertTrue(m._pin_rebalance_cs_key("2026-09-18", "09:40", 12))
+                self.assertTrue(m._rebalance_cs_persist_window())
+                m._write_rebalance_cs_disk("2026-09-18", "09:40", -0.685, n_rets=12)
+            m.clear_sector_ret_cache()
+            with patch.object(m, "_rebalance_cs_store_path", return_value=path), patch(
+                "core.signal.session_pit.shanghai_now", return_value=afternoon
+            ), patch(
+                "core.signal.session_pit.oo_cycle_date", return_value="2026-09-18"
+            ), patch.object(
+                m, "_peer_codes_for_sector_ret", side_effect=AssertionError("warehouse")
+            ):
+                self.assertAlmostEqual(
+                    resolve_sector_ret_to_tau("2026-09-18", "09:40"), -0.685, places=4
+                )
+        finally:
+            if os.path.exists(path):
+                os.remove(path)
+            m.clear_sector_ret_cache()
+
+    def test_horizon_cs_disk_shares_slot_with_oc(self):
+        """开→τ 与 last_30m 同槽分字段；互不覆盖。"""
+        import os
+        import tempfile
+        from unittest.mock import patch
+
+        from core.signal import minute_tau_feats as m
+
+        fd, path = tempfile.mkstemp(suffix=".json")
+        os.close(fd)
+        os.remove(path)
+        m.clear_sector_ret_cache()
+        try:
+            with patch.object(m, "_rebalance_cs_store_path", return_value=path):
+                m._write_rebalance_cs_disk("2026-09-18", "09:40", -0.685, n_rets=12)
+                m._write_rebalance_cs_disk(
+                    "2026-09-18", "09:40", 0.12, n_rets=12, field="last_30m"
+                )
+                m._write_rebalance_cs_disk(
+                    "2026-09-18", "09:40", 9.9, n_rets=80, field="last_30m"
+                )
+                m._write_rebalance_cs_disk("2026-09-18", "09:40", 3.46, n_rets=80)
+                self.assertAlmostEqual(
+                    m._read_rebalance_cs_disk("2026-09-18", "09:40"), -0.685, places=4
+                )
+                self.assertAlmostEqual(
+                    m._read_rebalance_cs_disk(
+                        "2026-09-18", "09:40", field="last_30m"
+                    ),
+                    0.12,
+                    places=4,
+                )
+        finally:
+            if os.path.exists(path):
+                os.remove(path)
+            m.clear_sector_ret_cache()
+
+    def test_horizon_cs_after_1030_0940_still_uses_peers(self):
+        import os
+        import tempfile
+        from datetime import datetime
+        from unittest.mock import patch
+
+        from core.signal import minute_tau_feats as m
+        from core.signal.minute_tau_feats import resolve_sector_ret_last_30m
+
+        fd, path = tempfile.mkstemp(suffix=".json")
+        os.close(fd)
+        os.remove(path)
+        m.clear_sector_ret_cache()
+        now = datetime(2026, 9, 18, 15, 1)
+        try:
+            with patch.object(m, "_rebalance_cs_store_path", return_value=path), patch(
+                "core.signal.session_pit.shanghai_now", return_value=now
+            ), patch(
+                "core.signal.session_pit.oo_cycle_date", return_value="2026-09-18"
+            ), patch.object(
+                m, "_peer_codes_for_sector_ret", return_value=[]
+            ) as peers:
+                self.assertIsNone(resolve_sector_ret_last_30m("2026-09-18", "09:40"))
+                peers.assert_called()
+        finally:
+            if os.path.exists(path):
+                os.remove(path)
+            m.clear_sector_ret_cache()
+
+    def test_horizon_cs_after_1030_skips_warehouse_without_snapshot(self):
+        import os
+        import tempfile
+        from datetime import datetime
+        from unittest.mock import patch
+
+        from core.signal import minute_tau_feats as m
+        from core.signal.minute_tau_feats import resolve_sector_ret_last_45m
+
+        fd, path = tempfile.mkstemp(suffix=".json")
+        os.close(fd)
+        os.remove(path)
+        m.clear_sector_ret_cache()
+        now = datetime(2026, 9, 18, 15, 1)
+        try:
+            with patch.object(m, "_rebalance_cs_store_path", return_value=path), patch(
+                "core.signal.session_pit.shanghai_now", return_value=now
+            ), patch(
+                "core.signal.session_pit.oo_cycle_date", return_value="2026-09-18"
+            ), patch.object(
+                m, "_peer_codes_for_sector_ret", side_effect=AssertionError("warehouse")
+            ):
+                self.assertIsNone(resolve_sector_ret_last_45m("2026-09-18", "10:00"))
+        finally:
+            if os.path.exists(path):
+                os.remove(path)
+            m.clear_sector_ret_cache()
+
+    def test_horizon_cs_pin_survives_flush(self):
+        from datetime import datetime
+        from unittest.mock import patch
+
+        from core.signal import minute_tau_feats as m
+
+        m.clear_sector_ret_cache()
+        key = ("2026-09-18", "09:40")
+        m._SECTOR_RET_30M_CACHE[key] = 0.12
+        m._SECTOR_RET_45M_CACHE[key] = 0.22
+        now = datetime(2026, 9, 18, 9, 40)
+        with patch("core.signal.session_pit.shanghai_now", return_value=now), patch(
+            "core.signal.session_pit.oo_cycle_date", return_value="2026-09-18"
+        ):
+            self.assertTrue(m._pin_rebalance_cs_key("2026-09-18", "09:40", 12))
+            m._SECTOR_RET_PINNED.add(key)
+            m._flush_sector_ret_medians()
+        self.assertAlmostEqual(m._SECTOR_RET_30M_CACHE[key], 0.12, places=6)
+        self.assertAlmostEqual(m._SECTOR_RET_45M_CACHE[key], 0.22, places=6)
+        m.clear_sector_ret_cache()
+
+    def test_persist_0940_last_30m_survives_afternoon(self):
+        import os
+        import tempfile
+        from datetime import datetime
+        from unittest.mock import patch
+
+        from core.signal import minute_tau_feats as m
+        from core.signal.minute_tau_feats import resolve_sector_ret_last_30m
+
+        fd, path = tempfile.mkstemp(suffix=".json")
+        os.close(fd)
+        os.remove(path)
+        m.clear_sector_ret_cache()
+        morning = datetime(2026, 9, 18, 9, 40)
+        afternoon = datetime(2026, 9, 18, 15, 1)
+        try:
+            with patch.object(m, "_rebalance_cs_store_path", return_value=path), patch(
+                "core.signal.session_pit.shanghai_now", return_value=morning
+            ), patch(
+                "core.signal.session_pit.oo_cycle_date", return_value="2026-09-18"
+            ):
+                m._write_rebalance_cs_disk(
+                    "2026-09-18", "09:40", 0.12, n_rets=12, field="last_30m"
+                )
+            m.clear_sector_ret_cache()
+            with patch.object(m, "_rebalance_cs_store_path", return_value=path), patch(
+                "core.signal.session_pit.shanghai_now", return_value=afternoon
+            ), patch(
+                "core.signal.session_pit.oo_cycle_date", return_value="2026-09-18"
+            ), patch.object(
+                m, "_peer_codes_for_sector_ret", side_effect=AssertionError("warehouse")
+            ):
+                self.assertAlmostEqual(
+                    resolve_sector_ret_last_30m("2026-09-18", "09:40"), 0.12, places=4
+                )
+        finally:
+            if os.path.exists(path):
+                os.remove(path)
+            m.clear_sector_ret_cache()
+
     def test_clear_pack_keys_can_keep_sector_cs(self):
         feats = {
             "ret_open_to_tau": -1.58,
@@ -1259,8 +1625,14 @@ class TestMinuteTauPack(unittest.TestCase):
                 "core.signal.minute_tau_feats.resolve_sector_ret_last_30m",
                 return_value=0.1,
             ), patch(
+                "core.signal.minute_tau_feats.resolve_sector_ret_last_45m",
+                return_value=0.15,
+            ), patch(
                 "core.signal.minute_tau_feats.resolve_sector_ret_last_60m",
                 return_value=0.2,
+            ), patch(
+                "core.signal.minute_tau_feats.resolve_sector_ret_last_75m",
+                return_value=0.25,
             ), patch(
                 "core.signal.minute_tau_feats.resolve_sector_ret_last_90m",
                 return_value=0.3,
@@ -1268,7 +1640,9 @@ class TestMinuteTauPack(unittest.TestCase):
                 "core.signal.minute_tau_feats.extract_t30_t60_t90_seq_packs",
                 return_value={
                     "ret_last_30m": 1.0,
+                    "ret_last_45m": 1.05,
                     "ret_last_60m": 1.1,
+                    "ret_last_75m": 1.15,
                     "ret_last_90m": 1.2,
                 },
             ):
@@ -1285,7 +1659,9 @@ class TestMinuteTauPack(unittest.TestCase):
             m.clear_sector_ret_cache()
         self.assertAlmostEqual(feats["sector_ret_to_tau"], 0.4, places=6)
         self.assertAlmostEqual(feats["sector_ret_last_30m"], 0.1, places=6)
+        self.assertAlmostEqual(feats["sector_ret_last_45m"], 0.15, places=6)
         self.assertAlmostEqual(feats["sector_ret_last_60m"], 0.2, places=6)
+        self.assertAlmostEqual(feats["sector_ret_last_75m"], 0.25, places=6)
         self.assertAlmostEqual(feats["sector_ret_last_90m"], 0.3, places=6)
         self.assertIn("ret_vs_sector", feats)
 

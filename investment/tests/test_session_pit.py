@@ -17,16 +17,34 @@ class TestSessionPit(unittest.TestCase):
         from core.signal.session_pit import prepare_eod_bars
 
         bars = [
-            {"date": "2026-08-14", "open": 10.0, "close": 10.0},
-            {"date": "2026-08-15", "open": 10.3, "close": 10.4},
+            {"date": "2026-09-17", "open": 10.0, "close": 10.0},
+            {"date": "2026-09-18", "open": 10.3, "close": 10.4},
         ]
-        quote = {"date": "2026-08-15", "open": 10.3, "change_raw": 4.0}
-        now = datetime(2026, 8, 15, 10, 15)
+        quote = {"date": "2026-09-18", "open": 10.3, "change_raw": 4.0}
+        now = datetime(2026, 9, 18, 10, 15)
         eod, pit = prepare_eod_bars(bars, quote, now=now)
-        self.assertEqual([b["date"] for b in eod], ["2026-08-14"])
+        self.assertEqual([b["date"] for b in eod], ["2026-09-17"])
         self.assertTrue(pit["stripped_asof_bar"])
         self.assertFalse(pit["rolled_to_next"])
         self.assertEqual(pit["dual_score_window"], "intraday")
+
+    def test_close_keeps_oo_cycle_until_next_open(self):
+        """T 收盘后 ŷ_oo 仍是 T 开→T+1 开；今收不进 X。"""
+        from core.signal.session_pit import prepare_eod_bars
+
+        bars = [
+            {"date": "2026-09-17", "open": 10.0, "close": 10.0},
+            {"date": "2026-09-18", "open": 10.3, "close": 10.5},
+        ]
+        quote = {"date": "2026-09-18", "open": 10.3}
+        now = datetime(2026, 9, 18, 15, 30)
+        eod, pit = prepare_eod_bars(bars, quote, now=now)
+        self.assertEqual([b["date"] for b in eod], ["2026-09-17"])
+        self.assertTrue(pit["stripped_asof_bar"])
+        self.assertFalse(pit["rolled_to_next"])
+        self.assertEqual(pit["eod_as_of"], "2026-09-17")
+        self.assertEqual(pit["oo_cycle_date"], "2026-09-18")
+        self.assertEqual(pit["dual_score_window"], "eod_next")
 
     def test_close_buffer_1505(self):
         from core.signal.session_pit import asof_session_final
@@ -38,28 +56,30 @@ class TestSessionPit(unittest.TestCase):
         self.assertTrue(
             asof_session_final(asof, now=datetime(2026, 8, 14, 15, 5))
         )
+
+    def test_oo_cycle_date_spans_close_until_next_open(self):
+        from core.signal.session_pit import oo_cycle_date
+
+        self.assertEqual(oo_cycle_date(now=datetime(2026, 9, 18, 10, 0)), "2026-09-18")
+        self.assertEqual(oo_cycle_date(now=datetime(2026, 9, 18, 16, 0)), "2026-09-18")
+        self.assertEqual(oo_cycle_date(now=datetime(2026, 9, 19, 10, 0)), "2026-09-18")
+        self.assertEqual(oo_cycle_date(now=datetime(2026, 9, 21, 8, 0)), "2026-09-18")
+        self.assertEqual(oo_cycle_date(now=datetime(2026, 9, 21, 9, 30)), "2026-09-21")
+
+    def test_weekend_keeps_friday_oo_cycle(self):
         from core.signal.session_pit import prepare_eod_bars
 
         bars = [
-            {"date": "2026-08-14", "open": 10.0, "close": 10.0},
-            {"date": "2026-08-15", "open": 10.3, "close": 10.5},
+            {"date": "2026-09-17", "open": 9.9, "close": 10.0},
+            {"date": "2026-09-18", "open": 10.0, "close": 10.2},
         ]
-        quote = {"date": "2026-08-15", "open": 10.3}
-        now = datetime(2026, 8, 15, 15, 30)
+        quote = {"date": "2026-09-18", "open": 10.0}
+        now = datetime(2026, 9, 19, 10, 0)  # Saturday
         eod, pit = prepare_eod_bars(bars, quote, now=now)
-        self.assertEqual(eod[-1]["date"], "2026-08-15")
-        self.assertTrue(pit["rolled_to_next"])
+        self.assertEqual([b["date"] for b in eod], ["2026-09-17"])
+        self.assertTrue(pit["stripped_asof_bar"])
+        self.assertFalse(pit["rolled_to_next"])
         self.assertEqual(pit["dual_score_window"], "eod_next")
-
-    def test_weekend_treats_last_session_as_final(self):
-        from core.signal.session_pit import prepare_eod_bars
-
-        bars = [{"date": "2026-08-14", "open": 10.0, "close": 10.2}]
-        quote = {"date": "2026-08-14", "open": 10.0}
-        now = datetime(2026, 8, 16, 10, 0)  # Sunday
-        eod, pit = prepare_eod_bars(bars, quote, now=now)
-        self.assertEqual(len(eod), 1)
-        self.assertTrue(pit["rolled_to_next"])
 
     def test_refresh_flips_stale_eod_next_after_open(self):
         """簿上昨晚 eod_next，次日盘中应翻回 intraday。"""
@@ -163,14 +183,20 @@ class TestSessionPit(unittest.TestCase):
         self.assertEqual(pit["dual_score_window"], "eod_next")
 
     def test_offline_yesterday_quote_is_eod_next_preopen(self):
+        """次日 09:30 前仍是上一周期；ŷ_oo 不滚。"""
         from core.signal.session_pit import prepare_eod_bars
 
-        bars = [{"date": "2026-09-07", "open": 10.0, "close": 10.2}]
+        bars = [
+            {"date": "2026-09-04", "open": 9.8, "close": 9.9},
+            {"date": "2026-09-07", "open": 10.0, "close": 10.2},
+        ]
         quote = {"date": "2026-09-07", "open": 10.0, "close": 10.2}
         now = datetime(2026, 9, 8, 8, 0)
-        _eod, pit = prepare_eod_bars(bars, quote, now=now)
-        self.assertTrue(pit["rolled_to_next"])
+        eod, pit = prepare_eod_bars(bars, quote, now=now)
+        self.assertEqual([b["date"] for b in eod], ["2026-09-04"])
+        self.assertFalse(pit["rolled_to_next"])
         self.assertEqual(pit["dual_score_window"], "eod_next")
+        self.assertEqual(pit["oo_cycle_date"], "2026-09-07")
 
     def test_historical_asof_stays_eod_next_at_live_midday(self):
         """更早的历史报价日：即使此刻盘中，该 asof 会话已收盘，仍 eod_next。"""
@@ -592,6 +618,18 @@ class TestEodNextFusion(unittest.TestCase):
             "2026-08-14",
         )
 
+    def test_minute_tau_trade_date_after_close_stays_on_cycle_t(self):
+        """收盘后 ŷ_oc 仍是今日 10:00，不退回昨收日。"""
+        from core.signal.session_pit import resolve_minute_tau_trade_date
+
+        bars = [{"date": "2026-09-17", "open": 10.0, "close": 10.2}]
+        quote = {"date": "2026-09-17", "open": 10.0, "close": 10.2}
+        now = datetime(2026, 9, 17, 16, 10)
+        self.assertEqual(
+            resolve_minute_tau_trade_date(quote, bars, now=now),
+            "2026-09-17",
+        )
+
     def test_minute_tau_trade_date_weekend_stays_last_session(self):
         from core.signal.session_pit import resolve_minute_tau_trade_date
 
@@ -628,6 +666,43 @@ class TestEodNextFusion(unittest.TestCase):
         o3, pc3 = tau_open_and_prev_close(pit, pit_bars, "2026-08-14")
         self.assertAlmostEqual(o3, 10.3)
         self.assertAlmostEqual(pc3, 10.0)
+
+    def test_attach_pit_trade_day_keeps_yesterday_gap_next_evening(self):
+        """回测 T=昨收完整日：夜盘墙上时钟不得把缺口抬丢。"""
+        from unittest.mock import patch
+
+        from core.signal.dual_score import attach_dual_score_pit
+
+        item = {"stock_code": "000739", "predicted_score": 1.0}
+        quote = {
+            "date": "2026-09-17",
+            "open": 10.049,
+            "open_raw": 10.049,
+            "prev_close": 10.0,
+        }
+        bars = [
+            {"date": "2026-09-16", "open": 9.9, "high": 10.1, "low": 9.8, "close": 10.0},
+            {
+                "date": "2026-09-17",
+                "open": 10.049,
+                "high": 10.2,
+                "low": 10.0,
+                "close": 10.1,
+                "prev_close": 10.0,
+            },
+        ]
+        now = datetime(2026, 9, 18, 22, 10)
+        with patch("core.signal.session_pit.shanghai_now", return_value=now):
+            out = attach_dual_score_pit(
+                dict(item),
+                quote=quote,
+                bars=bars,
+                use_minute_tau=False,
+                trade_day="2026-09-17",
+            )
+        feats = out.get("features_tau") or {}
+        self.assertAlmostEqual(float(feats.get("gap_pct")), 0.49, places=2)
+        self.assertAlmostEqual(float(out.get("gap_pct")), 0.49, places=2)
 
 
 if __name__ == "__main__":

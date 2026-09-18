@@ -229,13 +229,13 @@ class T0BacktestRequest(BaseModel):
     y_tw_strong: Optional[float] = Field(
         default=None,
         ge=0.0,
-        le=3.0,
-        description="ŷ_τw 旁路：0=任意有符号须同号；3=关",
+        le=5.0,
+        description="ŷ_τw 旁路：0=任意有符号须同号；5=关",
     )
     y_τw_strong: Optional[float] = Field(
         default=None,
         ge=0.0,
-        le=3.0,
+        le=5.0,
         description="y_tw_strong 的 Unicode 别名",
     )
     y_t30_enter: Optional[float] = Field(
@@ -261,6 +261,42 @@ class T0BacktestRequest(BaseModel):
         ge=0.0,
         le=100.0,
         description="y_t30_enter_alt 的 Unicode 别名",
+    )
+    y_t45_strong: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        le=1.0,
+        description="ŷ_τ45 旁路强%：默认关，只进 ŷ_τw 票；0=任意有符号须同号；1=关",
+    )
+    y_τ45_strong: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        le=1.0,
+        description="y_t45_strong 的 Unicode 别名",
+    )
+    y_t45_enter: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        le=100.0,
+        description="门槛1 |ŷ_τ45| 入场下限（百分点）；0=关；缺 ŷ_τ45 不拦",
+    )
+    y_τ45_enter: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        le=100.0,
+        description="y_t45_enter 的 Unicode 别名",
+    )
+    y_t45_enter_alt: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        le=100.0,
+        description="门槛2 |ŷ_τ45| 入场下限（百分点）；0=关；缺 ŷ_τ45 不拦",
+    )
+    y_τ45_enter_alt: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        le=100.0,
+        description="y_t45_enter_alt 的 Unicode 别名",
     )
     y_t60_strong: Optional[float] = Field(
         default=None,
@@ -297,6 +333,42 @@ class T0BacktestRequest(BaseModel):
         ge=0.0,
         le=100.0,
         description="y_t60_enter_alt 的 Unicode 别名",
+    )
+    y_t75_strong: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        le=1.0,
+        description="ŷ_τ75 旁路强%：默认关，只进 ŷ_τw 票；0=任意有符号须同号；1=关",
+    )
+    y_τ75_strong: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        le=1.0,
+        description="y_t75_strong 的 Unicode 别名",
+    )
+    y_t75_enter: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        le=100.0,
+        description="门槛1 |ŷ_τ75| 入场下限（百分点）；0=关；缺 ŷ_τ75 不拦",
+    )
+    y_τ75_enter: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        le=100.0,
+        description="y_t75_enter 的 Unicode 别名",
+    )
+    y_t75_enter_alt: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        le=100.0,
+        description="门槛2 |ŷ_τ75| 入场下限（百分点）；0=关；缺 ŷ_τ75 不拦",
+    )
+    y_τ75_enter_alt: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        le=100.0,
+        description="y_t75_enter_alt 的 Unicode 别名",
     )
     y_t90_strong: Optional[float] = Field(
         default=None,
@@ -606,12 +678,24 @@ class PaperExecutionPatchRequest(BaseModel):
     y_τ30_enter: Optional[float] = None
     y_t30_enter_alt: Optional[float] = None
     y_τ30_enter_alt: Optional[float] = None
+    y_t45_strong: Optional[float] = None
+    y_τ45_strong: Optional[float] = None
+    y_t45_enter: Optional[float] = None
+    y_τ45_enter: Optional[float] = None
+    y_t45_enter_alt: Optional[float] = None
+    y_τ45_enter_alt: Optional[float] = None
     y_t60_strong: Optional[float] = None
     y_τ60_strong: Optional[float] = None
     y_t60_enter: Optional[float] = None
     y_τ60_enter: Optional[float] = None
     y_t60_enter_alt: Optional[float] = None
     y_τ60_enter_alt: Optional[float] = None
+    y_t75_strong: Optional[float] = None
+    y_τ75_strong: Optional[float] = None
+    y_t75_enter: Optional[float] = None
+    y_τ75_enter: Optional[float] = None
+    y_t75_enter_alt: Optional[float] = None
+    y_τ75_enter_alt: Optional[float] = None
     y_t90_strong: Optional[float] = None
     y_τ90_strong: Optional[float] = None
     y_t90_enter: Optional[float] = None

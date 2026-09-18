@@ -146,6 +146,48 @@ class TestDualScoreFields(unittest.TestCase):
         # 缺特征日线项不进 tip
         self.assertNotIn("momentum", by_key)
 
+    def test_ensure_formula_terms_tau_refreshes_when_pack_arrives(self):
+        """features_tau 已有开盘→τ，开盘 Z 组成必须重拆。"""
+        from unittest.mock import patch
+
+        from core.signal.dual_score import ensure_formula_terms_tau
+
+        rem_doc = {
+            "return_model": {
+                "intercept": 0.2,
+                "coefficients": {
+                    "theme_day": -0.05,
+                    "ret_open_to_tau": -0.47,
+                },
+                "active_features": ["theme_day", "ret_open_to_tau"],
+                "zscore_means": {"theme_day": 0.0, "ret_open_to_tau": 0.0},
+                "zscore_stds": {"theme_day": 1.0, "ret_open_to_tau": 1.0},
+            }
+        }
+        stale = {
+            "intercept": 0.2,
+            "terms": [
+                {
+                    "key": "theme_day",
+                    "label": "主题日",
+                    "beta": -0.05,
+                    "z": -0.3,
+                    "contrib": 0.015,
+                }
+            ],
+            "total": 0.215,
+        }
+        item = {
+            "formula_terms_tau": stale,
+            "features_tau": {"theme_day": 0.0, "ret_open_to_tau": 1.25},
+        }
+        with patch("core.research.tau_ridge.load_tau_model", return_value=rem_doc):
+            expl = ensure_formula_terms_tau(item)
+        self.assertIsNotNone(expl)
+        by_key = {t["key"]: t for t in expl["terms"]}
+        self.assertIn("ret_open_to_tau", by_key)
+        self.assertNotIn("note", by_key["ret_open_to_tau"])
+
     def test_eod_remaining_and_residual_stack(self):
         from core.signal.dual_score import (
             apply_tau_score_fields,
@@ -447,10 +489,12 @@ class TestDualScoreFields(unittest.TestCase):
             {
                 "predicted_score": 1.0,
                 "eod_feature_as_of": "2026-09-16",
+                "trade_day": "2026-09-17",
                 "dual_score_window": "intraday",
             }
         )
         self.assertEqual(out.get("eod_feature_as_of"), "2026-09-16")
+        self.assertEqual(out.get("trade_day"), "2026-09-17")
         self.assertEqual(out.get("dual_score_window"), "intraday")
 
     def test_book_fields_passes_factor_anomaly(self):
