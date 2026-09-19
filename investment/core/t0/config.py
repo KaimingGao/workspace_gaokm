@@ -162,6 +162,50 @@ _DEAD_T0_KEYS = (
     "y_τc_enter_alt",
     "y_tc_validate",
     "y_τc_validate",
+    # ŷ_τ30/45/60/75/90 个股旁路已下线：只进 ŷ_τw 投票
+    "y_t30_strong",
+    "y_τ30_strong",
+    "y_t45_strong",
+    "y_τ45_strong",
+    "y_t60_strong",
+    "y_τ60_strong",
+    "y_t75_strong",
+    "y_τ75_strong",
+    "y_t90_strong",
+    "y_τ90_strong",
+    # ŷ_τ30/45/60/75/90 个股入场已下线：不考虑单独阈值
+    "y_t30_enter",
+    "y_τ30_enter",
+    "y_t30_enter_alt",
+    "y_τ30_enter_alt",
+    "y_t45_enter",
+    "y_τ45_enter",
+    "y_t45_enter_alt",
+    "y_τ45_enter_alt",
+    "y_t60_enter",
+    "y_τ60_enter",
+    "y_t60_enter_alt",
+    "y_τ60_enter_alt",
+    "y_t75_enter",
+    "y_τ75_enter",
+    "y_t75_enter_alt",
+    "y_τ75_enter_alt",
+    "y_t90_enter",
+    "y_τ90_enter",
+    "y_t90_enter_alt",
+    "y_τ90_enter_alt",
+    # 门槛1/2 |ŷ_oc| / |y_hl| 入场已下线
+    "y_enter_enabled",
+    "y_enter_alt_enabled",
+    "y_tau_enter",
+    "y_tau_enter_strong",
+    "y_tau_enter_sell_then_buy",
+    "y_tau_enter_buy_then_sell",
+    "y_tau_enter_alt",
+    "y_hl_enter",
+    "y_hl_enter_sell_then_buy",
+    "y_hl_enter_buy_then_sell",
+    "y_hl_enter_alt",
     # 旧 y_path_* 闸键：load 时迁到 y_hl_* 后再丢
     "y_path_enter",
     "y_path_enter_sell_then_buy",
@@ -277,51 +321,12 @@ DEFAULT_T0_RULES: Dict[str, Any] = {
     "minute_period": "5",
     # dual_y 阈值（百分比点）：*_enter 入场下限（v6 入场闸 / 回补）
     "y_trade_enter": 0.01,
-    "y_tau_enter": 0.0,
-    # 反T / 正T 分侧入场；缺省与 y_tau_enter 同
-    "y_tau_enter_sell_then_buy": 0.0,
-    "y_tau_enter_buy_then_sell": 0.0,
-    "y_enter_enabled": True,  # 门槛1 启用；关则本档不参与 OR
-    "y_enter_alt_enabled": True,  # 门槛2 启用；关则本档不参与 OR
-    "y_hl_enter": 0.0,
-    "y_hl_enter_sell_then_buy": 0.0,
-    "y_hl_enter_buy_then_sell": 0.0,
-    "y_hl_enter_alt": 0.0,
     "y_hl_strong": 5.0,  # |y_hl| 超此值须与 y_τ 同号；≤则允许异号
     "y_hl_required": False,
-    "y_t30_strong": 0.0,  # ŷ_τ30 旁路：0=任意有符号须同号；1=关
-    "y_τ30_strong": 0.0,
-    "y_tw_strong": 5.0,  # ŷ_τw 票数旁路：0=任意有符号须同号；5=关
+    "y_tw_strong": 5.0,  # ŷ_τw 票数旁路：0=任意有符号须同号；>=5=关
     "y_τw_strong": 5.0,
-    "y_t30_enter": 0.0,
-    "y_τ30_enter": 0.0,
-    "y_t30_enter_alt": 0.0,
-    "y_τ30_enter_alt": 0.0,
-    "y_t45_strong": 1.0,  # 默认关；只进 ŷ_τw
-    "y_τ45_strong": 1.0,
-    "y_t45_enter": 0.0,
-    "y_τ45_enter": 0.0,
-    "y_t45_enter_alt": 0.0,
-    "y_τ45_enter_alt": 0.0,
-    "y_t60_strong": 0.0,
-    "y_τ60_strong": 0.0,
-    "y_t60_enter": 0.0,
-    "y_τ60_enter": 0.0,
-    "y_t60_enter_alt": 0.0,
-    "y_τ60_enter_alt": 0.0,
-    "y_t90_strong": 0.0,
-    "y_τ90_strong": 0.0,
-    "y_t90_enter": 0.0,
-    "y_τ90_enter": 0.0,
-    "y_t90_enter_alt": 0.0,
-    "y_τ90_enter_alt": 0.0,
-    "y_t75_strong": 1.0,
-    "y_τ75_strong": 1.0,
-    "y_t75_enter": 0.0,
-    "y_τ75_enter": 0.0,
-    "y_t75_enter_alt": 0.0,
-    "y_τ75_enter_alt": 0.0,
-    "y_tau_enter_alt": 0.0,  # 门槛2 |y_τ| 入场；缺键跟随 y_tau_enter
+    "y_tw_vote_margin": 2.0,  # |p_up−0.5|≤此百分点不给 ŷ_τw 投票
+    "y_τw_vote_margin": 2.0,
     "fusion_w_τc": 0.5,  # residual 融合：ŷ_τc 权
     "fusion_w_tc": 0.5,
     "residual_w_oc": 0.5,  # residual 融合：remaining(ŷ_oc) 权
@@ -555,49 +560,13 @@ def load_t0_rules(override: Optional[dict] = None) -> Dict[str, Any]:
     _migrate_dual_y_gate_keys(cfg, override_keys)
     for yk, lo, hi, default in (
         ("y_trade_enter", 0.01, 5.0, 0.01),
-        ("y_tau_enter", 0.0, 100.0, 0.0),
-        ("y_tau_enter_sell_then_buy", 0.0, 100.0, 0.0),
-        ("y_tau_enter_buy_then_sell", 0.0, 100.0, 0.0),
-        ("y_tau_enter_alt", 0.0, 100.0, 0.0),
         ("y_on_risk", 0.01, 10.0, 0.01),
         ("y_on_allow", 0.01, 10.0, 0.01),
-        ("y_hl_enter", 0.0, 100.0, 0.0),
-        ("y_hl_enter_sell_then_buy", 0.0, 100.0, 0.0),
-        ("y_hl_enter_buy_then_sell", 0.0, 100.0, 0.0),
-        ("y_hl_enter_alt", 0.0, 100.0, 0.0),
         ("y_hl_strong", 0.0, 5.0, 5.0),
-        ("y_t30_strong", 0.0, 1.0, 0.0),
-        ("y_τ30_strong", 0.0, 1.0, 0.0),
         ("y_tw_strong", 0.0, 5.0, 5.0),
         ("y_τw_strong", 0.0, 5.0, 5.0),
-        ("y_t30_enter", 0.0, 100.0, 0.0),
-        ("y_τ30_enter", 0.0, 100.0, 0.0),
-        ("y_t30_enter_alt", 0.0, 100.0, 0.0),
-        ("y_τ30_enter_alt", 0.0, 100.0, 0.0),
-        ("y_t45_strong", 0.0, 1.0, 1.0),
-        ("y_τ45_strong", 0.0, 1.0, 1.0),
-        ("y_t45_enter", 0.0, 100.0, 0.0),
-        ("y_τ45_enter", 0.0, 100.0, 0.0),
-        ("y_t45_enter_alt", 0.0, 100.0, 0.0),
-        ("y_τ45_enter_alt", 0.0, 100.0, 0.0),
-        ("y_t60_strong", 0.0, 1.0, 0.0),
-        ("y_τ60_strong", 0.0, 1.0, 0.0),
-        ("y_t60_enter", 0.0, 100.0, 0.0),
-        ("y_τ60_enter", 0.0, 100.0, 0.0),
-        ("y_t60_enter_alt", 0.0, 100.0, 0.0),
-        ("y_τ60_enter_alt", 0.0, 100.0, 0.0),
-        ("y_t90_strong", 0.0, 1.0, 0.0),
-        ("y_τ90_strong", 0.0, 1.0, 0.0),
-        ("y_t90_enter", 0.0, 100.0, 0.0),
-        ("y_τ90_enter", 0.0, 100.0, 0.0),
-        ("y_t90_enter_alt", 0.0, 100.0, 0.0),
-        ("y_τ90_enter_alt", 0.0, 100.0, 0.0),
-        ("y_t75_strong", 0.0, 1.0, 1.0),
-        ("y_τ75_strong", 0.0, 1.0, 1.0),
-        ("y_t75_enter", 0.0, 100.0, 0.0),
-        ("y_τ75_enter", 0.0, 100.0, 0.0),
-        ("y_t75_enter_alt", 0.0, 100.0, 0.0),
-        ("y_τ75_enter_alt", 0.0, 100.0, 0.0),
+        ("y_tw_vote_margin", 0.0, 20.0, 2.0),
+        ("y_τw_vote_margin", 0.0, 20.0, 2.0),
         ("fusion_w_τc", 0.0, 1.0, 0.5),
         ("fusion_w_tc", 0.0, 1.0, 0.5),
         ("residual_w_oc", 0.0, 1.0, 0.5),
@@ -629,49 +598,26 @@ def load_t0_rules(override: Optional[dict] = None) -> Dict[str, Any]:
     else:
         cfg["fusion_w_τc"] = _w_or_default(cfg.get("fusion_w_tc"), _w_or_default(cfg.get("fusion_w_τc")))
         cfg["fusion_w_tc"] = float(cfg["fusion_w_τc"])
-    # 旧双闸：y_tau_enter_strong 并入入场；输出同步以免旧前端读到更低门槛
-    try:
-        strong_legacy = cfg.get("y_tau_enter_strong")
-        if strong_legacy is not None and strong_legacy != "":
-            strong_f = float(strong_legacy)
-            if strong_f > float(cfg["y_tau_enter"]):
-                cfg["y_tau_enter"] = max(0.01, min(strong_f, 100.0))
-    except (TypeError, ValueError):
-        pass
-    cfg["y_tau_enter_strong"] = float(cfg["y_tau_enter"])
     cfg["y_hl_required"] = coerce_cfg_bool(cfg.get("y_hl_required"), False)
-    # 侧向门槛：未显式覆盖时跟随 y_tau_enter / y_hl_enter（兼容旧纸面）
-    for side_key, base_key in (
-        ("y_tau_enter_sell_then_buy", "y_tau_enter"),
-        ("y_tau_enter_buy_then_sell", "y_tau_enter"),
-        ("y_hl_enter_sell_then_buy", "y_hl_enter"),
-        ("y_hl_enter_buy_then_sell", "y_hl_enter"),
-    ):
-        if side_key not in override_keys or cfg.get(side_key) is None or cfg.get(side_key) == "":
-            cfg[side_key] = float(cfg[base_key])
-        else:
-            try:
-                cfg[side_key] = max(0.0, min(float(cfg[side_key]), 100.0))
-            except (TypeError, ValueError):
-                cfg[side_key] = float(cfg[base_key])
     from core.t0.score_policy import normalize_y_trade_enter
 
     cfg["y_trade_enter"] = normalize_y_trade_enter(cfg.get("y_trade_enter"))
     _sync_dual_y_gate_legacy_aliases(cfg)
-    cfg["y_enter_enabled"] = coerce_cfg_bool(cfg.get("y_enter_enabled"), True)
-    cfg["y_enter_alt_enabled"] = coerce_cfg_bool(cfg.get("y_enter_alt_enabled"), True)
     from core.t0.close_band import resolve_y_oc_target_params
 
     scale, y_oc_l, y_oc_u = resolve_y_oc_target_params(cfg)
     cfg["t0_y_oc_target_scale"] = scale
     cfg["t0_y_oc_l"] = y_oc_l
     cfg["t0_y_oc_u"] = y_oc_u
-    if cfg.get("y_t30_strong") in (None, "") and cfg.get("y_τ30_strong") not in (None, ""):
-        cfg["y_t30_strong"] = cfg.get("y_τ30_strong")
-    cfg["y_τ30_strong"] = cfg.get("y_t30_strong")
     if cfg.get("y_tw_strong") in (None, "") and cfg.get("y_τw_strong") not in (None, ""):
         cfg["y_tw_strong"] = cfg.get("y_τw_strong")
     cfg["y_τw_strong"] = cfg.get("y_tw_strong")
+    if (
+        "y_tw_vote_margin" not in override_keys
+        or cfg.get("y_tw_vote_margin") in (None, "")
+    ) and cfg.get("y_τw_vote_margin") not in (None, ""):
+        cfg["y_tw_vote_margin"] = cfg.get("y_τw_vote_margin")
+    cfg["y_τw_vote_margin"] = cfg.get("y_tw_vote_margin")
     # 旧默认 3=三头关闸；五头满票=5。落盘 3 视为关。
     try:
         if abs(float(cfg.get("y_tw_strong")) - 3.0) < 1e-12:
@@ -679,63 +625,9 @@ def load_t0_rules(override: Optional[dict] = None) -> Dict[str, Any]:
             cfg["y_τw_strong"] = 5.0
     except (TypeError, ValueError):
         pass
-    if cfg.get("y_t30_enter") in (None, "") and cfg.get("y_τ30_enter") not in (None, ""):
-        cfg["y_t30_enter"] = cfg.get("y_τ30_enter")
-    cfg["y_τ30_enter"] = cfg.get("y_t30_enter")
-    if cfg.get("y_t30_enter_alt") in (None, "") and cfg.get("y_τ30_enter_alt") not in (
-        None,
-        "",
-    ):
-        cfg["y_t30_enter_alt"] = cfg.get("y_τ30_enter_alt")
-    cfg["y_τ30_enter_alt"] = cfg.get("y_t30_enter_alt")
-    if cfg.get("y_t45_strong") in (None, "") and cfg.get("y_τ45_strong") not in (None, ""):
-        cfg["y_t45_strong"] = cfg.get("y_τ45_strong")
-    cfg["y_τ45_strong"] = cfg.get("y_t45_strong")
-    if cfg.get("y_t45_enter") in (None, "") and cfg.get("y_τ45_enter") not in (None, ""):
-        cfg["y_t45_enter"] = cfg.get("y_τ45_enter")
-    cfg["y_τ45_enter"] = cfg.get("y_t45_enter")
-    if cfg.get("y_t45_enter_alt") in (None, "") and cfg.get("y_τ45_enter_alt") not in (
-        None,
-        "",
-    ):
-        cfg["y_t45_enter_alt"] = cfg.get("y_τ45_enter_alt")
-    cfg["y_τ45_enter_alt"] = cfg.get("y_t45_enter_alt")
-    if cfg.get("y_t60_strong") in (None, "") and cfg.get("y_τ60_strong") not in (None, ""):
-        cfg["y_t60_strong"] = cfg.get("y_τ60_strong")
-    cfg["y_τ60_strong"] = cfg.get("y_t60_strong")
-    if cfg.get("y_t60_enter") in (None, "") and cfg.get("y_τ60_enter") not in (None, ""):
-        cfg["y_t60_enter"] = cfg.get("y_τ60_enter")
-    cfg["y_τ60_enter"] = cfg.get("y_t60_enter")
-    if cfg.get("y_t60_enter_alt") in (None, "") and cfg.get("y_τ60_enter_alt") not in (
-        None,
-        "",
-    ):
-        cfg["y_t60_enter_alt"] = cfg.get("y_τ60_enter_alt")
-    cfg["y_τ60_enter_alt"] = cfg.get("y_t60_enter_alt")
-    if cfg.get("y_t75_strong") in (None, "") and cfg.get("y_τ75_strong") not in (None, ""):
-        cfg["y_t75_strong"] = cfg.get("y_τ75_strong")
-    cfg["y_τ75_strong"] = cfg.get("y_t75_strong")
-    if cfg.get("y_t75_enter") in (None, "") and cfg.get("y_τ75_enter") not in (None, ""):
-        cfg["y_t75_enter"] = cfg.get("y_τ75_enter")
-    cfg["y_τ75_enter"] = cfg.get("y_t75_enter")
-    if cfg.get("y_t75_enter_alt") in (None, "") and cfg.get("y_τ75_enter_alt") not in (
-        None,
-        "",
-    ):
-        cfg["y_t75_enter_alt"] = cfg.get("y_τ75_enter_alt")
-    cfg["y_τ75_enter_alt"] = cfg.get("y_t75_enter_alt")
-    if cfg.get("y_t90_strong") in (None, "") and cfg.get("y_τ90_strong") not in (None, ""):
-        cfg["y_t90_strong"] = cfg.get("y_τ90_strong")
-    cfg["y_τ90_strong"] = cfg.get("y_t90_strong")
-    if cfg.get("y_t90_enter") in (None, "") and cfg.get("y_τ90_enter") not in (None, ""):
-        cfg["y_t90_enter"] = cfg.get("y_τ90_enter")
-    cfg["y_τ90_enter"] = cfg.get("y_t90_enter")
-    if cfg.get("y_t90_enter_alt") in (None, "") and cfg.get("y_τ90_enter_alt") not in (
-        None,
-        "",
-    ):
-        cfg["y_t90_enter_alt"] = cfg.get("y_τ90_enter_alt")
-    cfg["y_τ90_enter_alt"] = cfg.get("y_t90_enter_alt")
+    from core.research.horizon_prob import migrate_horizon_gate_cfg
+
+    migrate_horizon_gate_cfg(cfg)
     legacy_exit_skip = coerce_cfg_bool(cfg.get("y_tau_exit_price_skip"), True)
     try:
         raw_legacy_exit_mult = cfg.get("y_tau_exit_price_mult")

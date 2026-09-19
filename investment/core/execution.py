@@ -44,64 +44,24 @@ ALLOWED_T0_PATCH_KEYS = frozenset(
         "minute_period",
         "y_trade_enter",
         "y_trade_floor",
-        "y_tau_enter",
-        "y_tau_enter_strong",
-        "y_tau_enter_sell_then_buy",
-        "y_tau_enter_buy_then_sell",
-        "y_enter_enabled",
-        "y_enter_alt_enabled",
         "fusion_w_τc",
         "fusion_w_tc",
         "residual_w_oc",
         "residual_w_mode",
-        "y_tau_enter_alt",
-        "y_hl_enter_alt",
-        "y_path_enter_alt",
         "y_on_risk",
         "y_on_allow",
         "t0_y_oc_target_scale",
         "t0_y_oc_l",
         "t0_y_oc_u",
-        "y_hl_enter",
-        "y_hl_enter_sell_then_buy",
-        "y_hl_enter_buy_then_sell",
         "y_hl_strong",
         "y_path_enter",
         "y_path_enter_sell_then_buy",
         "y_path_enter_buy_then_sell",
         "y_path_strong",
-        "y_t30_strong",
-        "y_τ30_strong",
         "y_tw_strong",
         "y_τw_strong",
-        "y_t30_enter",
-        "y_τ30_enter",
-        "y_t30_enter_alt",
-        "y_τ30_enter_alt",
-        "y_t45_strong",
-        "y_τ45_strong",
-        "y_t45_enter",
-        "y_τ45_enter",
-        "y_t45_enter_alt",
-        "y_τ45_enter_alt",
-        "y_t60_strong",
-        "y_τ60_strong",
-        "y_t60_enter",
-        "y_τ60_enter",
-        "y_t60_enter_alt",
-        "y_τ60_enter_alt",
-        "y_t75_strong",
-        "y_τ75_strong",
-        "y_t75_enter",
-        "y_τ75_enter",
-        "y_t75_enter_alt",
-        "y_τ75_enter_alt",
-        "y_t90_strong",
-        "y_τ90_strong",
-        "y_t90_enter",
-        "y_τ90_enter",
-        "y_t90_enter_alt",
-        "y_τ90_enter_alt",
+        "y_tw_vote_margin",
+        "y_τw_vote_margin",
         "y_hl_required",
         "y_path_required",
         "t0_close_band_delta_pct",
@@ -167,58 +127,20 @@ DEFAULT_T0_OVERLAY: Dict[str, Any] = {
     "must_cover_same_day_buy_then_sell": True,
     "ref": "open",
     "lot_size": 100,
-    "y_tau_enter": 0.0,
-    "y_tau_enter_sell_then_buy": 0.0,
-    "y_tau_enter_buy_then_sell": 0.0,
-    "y_enter_enabled": True,
-    "y_enter_alt_enabled": True,
     "fusion_w_τc": 0.5,
     "fusion_w_tc": 0.5,
     "residual_w_oc": 0.5,
     "residual_w_mode": "fixed",
-    "y_tau_enter_alt": 0.0,
-    "y_hl_enter_alt": 0.0,
     "y_trade_enter": 0.01,
     "y_on_allow": 0.01,
     "t0_y_oc_target_scale": 10.0,
     "t0_y_oc_l": -3.0,
     "t0_y_oc_u": 3.0,
-    "y_hl_enter": 0.0,
-    "y_hl_enter_sell_then_buy": 0.0,
-    "y_hl_enter_buy_then_sell": 0.0,
     "y_hl_strong": 5.0,
-    "y_t30_strong": 0.0,
-    "y_τ30_strong": 0.0,
     "y_tw_strong": 5.0,
     "y_τw_strong": 5.0,
-    "y_t30_enter": 0.0,
-    "y_τ30_enter": 0.0,
-    "y_t30_enter_alt": 0.0,
-    "y_τ30_enter_alt": 0.0,
-    "y_t45_strong": 1.0,
-    "y_τ45_strong": 1.0,
-    "y_t45_enter": 0.0,
-    "y_τ45_enter": 0.0,
-    "y_t45_enter_alt": 0.0,
-    "y_τ45_enter_alt": 0.0,
-    "y_t60_strong": 0.0,
-    "y_τ60_strong": 0.0,
-    "y_t60_enter": 0.0,
-    "y_τ60_enter": 0.0,
-    "y_t60_enter_alt": 0.0,
-    "y_τ60_enter_alt": 0.0,
-    "y_t75_strong": 1.0,
-    "y_τ75_strong": 1.0,
-    "y_t75_enter": 0.0,
-    "y_τ75_enter": 0.0,
-    "y_t75_enter_alt": 0.0,
-    "y_τ75_enter_alt": 0.0,
-    "y_t90_strong": 0.0,
-    "y_τ90_strong": 0.0,
-    "y_t90_enter": 0.0,
-    "y_τ90_enter": 0.0,
-    "y_t90_enter_alt": 0.0,
-    "y_τ90_enter_alt": 0.0,
+    "y_tw_vote_margin": 2.0,
+    "y_τw_vote_margin": 2.0,
     "t0_close_band_delta_pct": 3.0,
     "t0_price_space_gate": True,
     "t0_price_space_max_dev_pct": 5.0,
@@ -334,10 +256,7 @@ _REBALANCE_KEYS = (
 
 # 表单只写共用键时，下层 DEFAULT_T0_OVERLAY / 纸面里的分侧默认值必须让路，
 # 否则 load_t0_rules 会把分侧 0 当成「显式覆盖」，闸仍走 overlay 默认。
-_SHARED_TO_SIDE_KEYS: Tuple[Tuple[str, Tuple[str, ...]], ...] = (
-    ("y_hl_enter", ("y_hl_enter_buy_then_sell", "y_hl_enter_sell_then_buy")),
-    ("y_tau_enter", ("y_tau_enter_buy_then_sell", "y_tau_enter_sell_then_buy")),
-)
+_SHARED_TO_SIDE_KEYS: Tuple[Tuple[str, Tuple[str, ...]], ...] = ()
 
 
 def _drop_stale_side_keys(merged: dict, sources: Dict[str, str], layer: dict) -> None:
@@ -752,12 +671,6 @@ def execution_public_view(bundle: Dict[str, Any]) -> Dict[str, Any]:
             "minute_period": t0.get("minute_period"),
             "y_trade_enter": t0.get("y_trade_enter") or t0.get("y_trade_floor"),
             "y_trade_floor": t0.get("y_trade_floor") or t0.get("y_trade_enter"),
-            "y_tau_enter": t0.get("y_tau_enter"),
-            "y_tau_enter_strong": t0.get("y_tau_enter"),
-            "y_tau_enter_sell_then_buy": t0.get("y_tau_enter_sell_then_buy"),
-            "y_tau_enter_buy_then_sell": t0.get("y_tau_enter_buy_then_sell"),
-            "y_enter_enabled": t0.get("y_enter_enabled"),
-            "y_enter_alt_enabled": t0.get("y_enter_alt_enabled"),
             "fusion_w_τc": (
                 t0.get("fusion_w_τc")
                 if t0.get("fusion_w_τc") is not None
@@ -770,79 +683,18 @@ def execution_public_view(bundle: Dict[str, Any]) -> Dict[str, Any]:
             ),
             "residual_w_oc": t0.get("residual_w_oc"),
             "residual_w_mode": t0.get("residual_w_mode"),
-            "y_tau_enter_alt": t0.get("y_tau_enter_alt"),
-            "y_hl_enter_alt": t0.get("y_hl_enter_alt")
-            if t0.get("y_hl_enter_alt") not in (None, "")
-            else t0.get("y_path_enter_alt"),
             "y_on_risk": t0.get("y_on_risk"),
             "y_on_allow": t0.get("y_on_allow"),
             "t0_y_oc_target_scale": t0.get("t0_y_oc_target_scale"),
             "t0_y_oc_l": t0.get("t0_y_oc_l"),
             "t0_y_oc_u": t0.get("t0_y_oc_u"),
-            "y_hl_enter": t0.get("y_hl_enter")
-            if t0.get("y_hl_enter") not in (None, "")
-            else t0.get("y_path_enter"),
-            "y_hl_enter_sell_then_buy": t0.get("y_hl_enter_sell_then_buy")
-            if t0.get("y_hl_enter_sell_then_buy") not in (None, "")
-            else t0.get("y_path_enter_sell_then_buy"),
-            "y_hl_enter_buy_then_sell": t0.get("y_hl_enter_buy_then_sell")
-            if t0.get("y_hl_enter_buy_then_sell") not in (None, "")
-            else t0.get("y_path_enter_buy_then_sell"),
             "y_hl_strong": t0.get("y_hl_strong")
             if t0.get("y_hl_strong") not in (None, "")
             else t0.get("y_path_strong"),
-            "y_t30_strong": t0.get("y_t30_strong"),
-            "y_τ30_strong": t0.get("y_τ30_strong") or t0.get("y_t30_strong"),
             "y_tw_strong": t0.get("y_tw_strong"),
             "y_τw_strong": t0.get("y_τw_strong") or t0.get("y_tw_strong"),
-            "y_t30_enter": t0.get("y_t30_enter")
-            if t0.get("y_t30_enter") not in (None, "")
-            else t0.get("y_τ30_enter"),
-            "y_τ30_enter": t0.get("y_τ30_enter") or t0.get("y_t30_enter"),
-            "y_t30_enter_alt": t0.get("y_t30_enter_alt")
-            if t0.get("y_t30_enter_alt") not in (None, "")
-            else t0.get("y_τ30_enter_alt"),
-            "y_τ30_enter_alt": t0.get("y_τ30_enter_alt") or t0.get("y_t30_enter_alt"),
-            "y_t45_strong": t0.get("y_t45_strong"),
-            "y_τ45_strong": t0.get("y_τ45_strong") or t0.get("y_t45_strong"),
-            "y_t45_enter": t0.get("y_t45_enter")
-            if t0.get("y_t45_enter") not in (None, "")
-            else t0.get("y_τ45_enter"),
-            "y_τ45_enter": t0.get("y_τ45_enter") or t0.get("y_t45_enter"),
-            "y_t45_enter_alt": t0.get("y_t45_enter_alt")
-            if t0.get("y_t45_enter_alt") not in (None, "")
-            else t0.get("y_τ45_enter_alt"),
-            "y_τ45_enter_alt": t0.get("y_τ45_enter_alt") or t0.get("y_t45_enter_alt"),
-            "y_t60_strong": t0.get("y_t60_strong"),
-            "y_τ60_strong": t0.get("y_τ60_strong") or t0.get("y_t60_strong"),
-            "y_t60_enter": t0.get("y_t60_enter")
-            if t0.get("y_t60_enter") not in (None, "")
-            else t0.get("y_τ60_enter"),
-            "y_τ60_enter": t0.get("y_τ60_enter") or t0.get("y_t60_enter"),
-            "y_t60_enter_alt": t0.get("y_t60_enter_alt")
-            if t0.get("y_t60_enter_alt") not in (None, "")
-            else t0.get("y_τ60_enter_alt"),
-            "y_τ60_enter_alt": t0.get("y_τ60_enter_alt") or t0.get("y_t60_enter_alt"),
-            "y_t75_strong": t0.get("y_t75_strong"),
-            "y_τ75_strong": t0.get("y_τ75_strong") or t0.get("y_t75_strong"),
-            "y_t75_enter": t0.get("y_t75_enter")
-            if t0.get("y_t75_enter") not in (None, "")
-            else t0.get("y_τ75_enter"),
-            "y_τ75_enter": t0.get("y_τ75_enter") or t0.get("y_t75_enter"),
-            "y_t75_enter_alt": t0.get("y_t75_enter_alt")
-            if t0.get("y_t75_enter_alt") not in (None, "")
-            else t0.get("y_τ75_enter_alt"),
-            "y_τ75_enter_alt": t0.get("y_τ75_enter_alt") or t0.get("y_t75_enter_alt"),
-            "y_t90_strong": t0.get("y_t90_strong"),
-            "y_τ90_strong": t0.get("y_τ90_strong") or t0.get("y_t90_strong"),
-            "y_t90_enter": t0.get("y_t90_enter")
-            if t0.get("y_t90_enter") not in (None, "")
-            else t0.get("y_τ90_enter"),
-            "y_τ90_enter": t0.get("y_τ90_enter") or t0.get("y_t90_enter"),
-            "y_t90_enter_alt": t0.get("y_t90_enter_alt")
-            if t0.get("y_t90_enter_alt") not in (None, "")
-            else t0.get("y_τ90_enter_alt"),
-            "y_τ90_enter_alt": t0.get("y_τ90_enter_alt") or t0.get("y_t90_enter_alt"),
+            "y_tw_vote_margin": t0.get("y_tw_vote_margin"),
+            "y_τw_vote_margin": t0.get("y_τw_vote_margin") or t0.get("y_tw_vote_margin"),
             "y_hl_required": t0.get("y_hl_required")
             if t0.get("y_hl_required") is not None
             else t0.get("y_path_required"),
@@ -1021,8 +873,6 @@ def validate_execution_patch(raw: Any) -> Tuple[bool, Dict[str, Any], List[str]]
         ("y_tau_exit_price_skip", ("y_tau_exit_price_skip_buy_then_sell",)),
         ("fill_mode", ("fill_mode_buy_then_sell",)),
         ("must_cover_same_day", ("must_cover_same_day_buy_then_sell",)),
-        ("y_hl_enter", ("y_hl_enter_buy_then_sell", "y_hl_enter_sell_then_buy")),
-        ("y_tau_enter", ("y_tau_enter_buy_then_sell", "y_tau_enter_sell_then_buy")),
     )
     for legacy, sides in _legacy_side_expand:
         if legacy not in t0_in:
@@ -1041,10 +891,6 @@ def validate_execution_patch(raw: Any) -> Tuple[bool, Dict[str, Any], List[str]]
         t0_out["must_cover_same_day_sell_then_buy"] = bool(t0_in.get("must_cover_same_day_sell_then_buy"))
     if "must_cover_same_day_buy_then_sell" in t0_in:
         t0_out["must_cover_same_day_buy_then_sell"] = bool(t0_in.get("must_cover_same_day_buy_then_sell"))
-    if "y_enter_enabled" in t0_in:
-        t0_out["y_enter_enabled"] = bool(t0_in.get("y_enter_enabled"))
-    if "y_enter_alt_enabled" in t0_in:
-        t0_out["y_enter_alt_enabled"] = bool(t0_in.get("y_enter_alt_enabled"))
     if "t0_price_space_gate" in t0_in:
         t0_out["t0_price_space_gate"] = bool(t0_in.get("t0_price_space_gate"))
     if "y_hl_required" in t0_in or "y_path_required" in t0_in:
@@ -1173,6 +1019,47 @@ def apply_execution_patch_to_paper(
             "y_τc_enter",
             "y_tc_enter_alt",
             "y_τc_enter_alt",
+            "y_t30_strong",
+            "y_τ30_strong",
+            "y_t45_strong",
+            "y_τ45_strong",
+            "y_t60_strong",
+            "y_τ60_strong",
+            "y_t75_strong",
+            "y_τ75_strong",
+            "y_t90_strong",
+            "y_τ90_strong",
+            "y_t30_enter",
+            "y_τ30_enter",
+            "y_t30_enter_alt",
+            "y_τ30_enter_alt",
+            "y_t45_enter",
+            "y_τ45_enter",
+            "y_t45_enter_alt",
+            "y_τ45_enter_alt",
+            "y_t60_enter",
+            "y_τ60_enter",
+            "y_t60_enter_alt",
+            "y_τ60_enter_alt",
+            "y_t75_enter",
+            "y_τ75_enter",
+            "y_t75_enter_alt",
+            "y_τ75_enter_alt",
+            "y_t90_enter",
+            "y_τ90_enter",
+            "y_t90_enter_alt",
+            "y_τ90_enter_alt",
+            "y_enter_enabled",
+            "y_enter_alt_enabled",
+            "y_tau_enter",
+            "y_tau_enter_strong",
+            "y_tau_enter_sell_then_buy",
+            "y_tau_enter_buy_then_sell",
+            "y_tau_enter_alt",
+            "y_hl_enter",
+            "y_hl_enter_sell_then_buy",
+            "y_hl_enter_buy_then_sell",
+            "y_hl_enter_alt",
         ):
             new_t0.pop(stale, None)
         rules["t0"] = new_t0

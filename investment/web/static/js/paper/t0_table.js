@@ -3,6 +3,8 @@
 import {
   escapeText,
   paperMetricClass,
+  paperProbClass,
+  fmtHorizonProb,
   fmtTableScore,
   compoundPct,
   resolveYTradeScore,
@@ -146,19 +148,19 @@ export const SKIP_CAT_TIP = {
   missing_minute:
     "缺当日分钟线，无法模拟触达与成交路径。",
   y_tau_flat:
-    "入场：|ŷ_oc| 低于该档 oc入场%（门槛1 y_tau_enter / 门槛2 y_tau_enter_alt；0–100%；0=关）视为横盘。",
+    "入场：已下线。生产不考虑 |ŷ_oc| 入场档；历史回放可能仍出现。",
   y_tc_flat:
-    "入场：|ŷ_τc| 低于该档 TC入场%（门槛1 y_tc_enter / 门槛2 y_tc_enter_alt；0–100%；0=关）视为横盘。",
+    "入场：已下线。生产不考虑 |ŷ_τc| 入场档；历史回放可能仍出现。",
   y_t30_flat:
-    "入场：|ŷ_τ30| 低于该档 τ30入场%（门槛1 y_t30_enter / 门槛2 y_t30_enter_alt；0=关）视为横盘。缺 ŷ_τ30 不拦。不改 C_τ。",
+    "已下线：个股 ŷ_τ30 入场下限。生产不考虑单独阈值；历史回放可能仍出现。",
   y_t45_flat:
-    "入场：|ŷ_τ45| 低于该档 τ45入场%（门槛1 y_t45_enter / 门槛2 y_t45_enter_alt；0=关）视为横盘。缺 ŷ_τ45 不拦。不改 C_τ。默认关，只进 ŷ_τw 票。",
+    "已下线：个股 ŷ_τ45 入场下限。生产不考虑单独阈值；历史回放可能仍出现。",
   y_t60_flat:
-    "入场：|ŷ_τ60| 低于该档 τ60入场%（门槛1 y_t60_enter / 门槛2 y_t60_enter_alt；0=关）视为横盘。缺 ŷ_τ60 不拦。不改 C_τ。",
+    "已下线：个股 ŷ_τ60 入场下限。生产不考虑单独阈值；历史回放可能仍出现。",
   y_t75_flat:
-    "入场：|ŷ_τ75| 低于该档 τ75入场%（门槛1 y_t75_enter / 门槛2 y_t75_enter_alt；0=关）视为横盘。缺 ŷ_τ75 不拦。不改 C_τ。默认关，只进 ŷ_τw 票。",
+    "已下线：个股 ŷ_τ75 入场下限。生产不考虑单独阈值；历史回放可能仍出现。",
   y_t90_flat:
-    "入场：|ŷ_τ90| 低于该档 τ90入场%（门槛1 y_t90_enter / 门槛2 y_t90_enter_alt；0=关）视为横盘。缺 ŷ_τ90 不拦。不改 C_τ。",
+    "已下线：个股 ŷ_τ90 入场下限。生产不考虑单独阈值；历史回放可能仍出现。",
   r_tau_flat:
     "历史跳过类别：旧 |超额 r| 入场闸（r_tau_enter）；新跑批不再产生。",
   y_eod_flat:
@@ -166,23 +168,23 @@ export const SKIP_CAT_TIP = {
   y_tau_weak:
     "历史跳过类别（旧双闸弱信号区）；新跑批不再产生。",
   y_path_flat:
-    "入场：|ŷ_hl| 低于该档 HL入场%（门槛1 y_hl_enter / 门槛2 y_hl_enter_alt；0–100%；0=关）视为横盘。缺 y_hl 不拦。",
+    "入场：已下线。生产不考虑 |ŷ_hl| 入场档；历史回放可能仍出现。缺 y_hl 不拦。",
   y_path_disagree:
     "ŷ_hl 同号闸：|y_hl| 超 HL强%（y_hl_strong）且与 ŷ_oc 异号则跳过；0=任意非零须同号。",
   y_tc_disagree:
     "ŷ_τc 旁路：破带后剩余窗须向 C_τ 回归（反T remaining<0，正T>0）。|ŷ_τc| 超 τc强% 且逆带则跳过；0=任意有符号须同号，100=关。不改 C_τ。",
   y_t30_disagree:
-    "ŷ_τ30 旁路：破带后后 30 交易分钟须与方向同号（反T ŷ_τ30<0，正T>0）。|ŷ_τ30| 超 τ30强% 且逆带则跳过；0=任意有符号须同号，1=关。不改 C_τ。",
+    "已下线：个股 ŷ_τ30 旁路闸。生产只走 ŷ_τw 投票；历史回放可能仍出现。",
   y_t45_disagree:
-    "ŷ_τ45 旁路：默认关，只进 ŷ_τw 票。破带后后 45 交易分钟须与方向同号（反T ŷ_τ45<0，正T>0）。|ŷ_τ45| 超 τ45强% 且逆带则跳过；0=任意有符号须同号，1=关。不改 C_τ。",
+    "已下线：个股 ŷ_τ45 旁路闸。生产只走 ŷ_τw 投票；历史回放可能仍出现。",
   y_tw_disagree:
-    "ŷ_τw 旁路：破带后符号票 f(ŷ_τ30)+f(ŷ_τ45)+f(ŷ_τ60)+f(ŷ_τ75)+f(ŷ_τ90) 须与方向同号（反T ŷ_τw<0，正T>0）。|ŷ_τw| 超 τw强 且逆带则跳过；0=任意有符号须同号，5=关。不改 C_τ。",
+    "ŷ_τw 旁路：sign(p_up−0.5) 票须与方向同号（近 50% 由弃权% 决定不投票）。|ŷ_τw| **大于** τw强 且逆带则跳过；0=开，≥5=关。不改 C_τ。",
   y_t60_disagree:
-    "ŷ_τ60 旁路：破带后后 60 交易分钟须与方向同号（反T ŷ_τ60<0，正T>0）。|ŷ_τ60| 超 τ60强% 且逆带则跳过；0=任意有符号须同号，1=关。不改 C_τ。",
+    "已下线：个股 ŷ_τ60 旁路闸。生产只走 ŷ_τw 投票；历史回放可能仍出现。",
   y_t75_disagree:
-    "ŷ_τ75 旁路：默认关，只进 ŷ_τw 票。破带后后 75 交易分钟须与方向同号（反T ŷ_τ75<0，正T>0）。|ŷ_τ75| 超 τ75强% 且逆带则跳过；0=任意有符号须同号，1=关。不改 C_τ。",
+    "已下线：个股 ŷ_τ75 旁路闸。生产只走 ŷ_τw 投票；历史回放可能仍出现。",
   y_t90_disagree:
-    "ŷ_τ90 旁路：破带后后 90 交易分钟须与方向同号（反T ŷ_τ90<0，正T>0）。|ŷ_τ90| 超 τ90强% 且逆带则跳过；0=任意有符号须同号，1=关。不改 C_τ。",
+    "已下线：个股 ŷ_τ90 旁路闸。生产只走 ŷ_τw 投票；历史回放可能仍出现。",
   y_complexity_high:
     "历史跳过类别：旧 ŷ_cx 太折上限；新跑批不再产生。",
   y_cx_high:
@@ -557,7 +559,7 @@ function slotYhat(r, dayHost) {
     y_t60: yT60,
     y_t75: yT75,
     y_t90: yT90,
-    y_tw: blendYtw(yT30, yT60, yT90, yT45, yT75),
+    y_tw: blendYtw(yT30, yT60, yT90, yT45, yT75, true),
     y_trade: yTrade,
     y_nowcast: yNowcast,
   };
@@ -981,6 +983,11 @@ function _signAgree(pred, real, eps = 0.05) {
   return (pred > 0) === (real > 0);
 }
 
+function _horizonProbAgree(pUp, realPct) {
+  if (pUp == null || realPct == null) return null;
+  return (pUp > 0.5) === (realPct > 0);
+}
+
 function pickTauRealized(d) {
   let n =
     pickScoreNum(d, "tau_realized") ??
@@ -1015,16 +1022,16 @@ function fmtPredRealizedText(predTxt, pr, showRealized) {
 }
 
 /** 单段数字：按自身符号上色（A 股红涨绿跌）。 */
-function fmtSignedNumHtml(text, value) {
-  const cls = paperMetricClass(value);
+function fmtSignedNumHtml(text, value, tone = "pct") {
+  const cls = tone === "prob" ? paperProbClass(value) : paperMetricClass(value);
   return `<span class="paper-t0-y-num${cls ? ` ${cls}` : ""}">${escapeText(
     text == null || text === "" ? "—" : String(text)
   )}</span>`;
 }
 
 /** 预估与真实 label 各自独立上色：ŷ(label)。 */
-function fmtPredRealizedHtml(predTxt, predVal, pr, showRealized) {
-  const predSpan = fmtSignedNumHtml(predTxt, predVal);
+function fmtPredRealizedHtml(predTxt, predVal, pr, showRealized, tone = "pct") {
+  const predSpan = fmtSignedNumHtml(predTxt, predVal, tone);
   if (!showRealized || pr == null || pr.n == null) return predSpan;
   return (
     predSpan +
@@ -1277,7 +1284,7 @@ function pickT30Realized(d, predHost) {
     return { text: "—", n: null, tip: T30_REALIZED_TITLE, agree: null };
   }
   const pred = pickT30Pred(predHost) ?? pickT30Pred(d);
-  const agree = _signAgree(pred, n, 0);
+  const agree = _horizonProbAgree(pred, n);
   return {
     text: fmtRtauPct(n),
     n,
@@ -1293,7 +1300,7 @@ function t30MergedCellHtml(host, dayRef, showRealized = true, scoreDetailJson = 
   const predHost = host || dayRef;
   const realHost = dayRef || host;
   const pred = pickT30Pred(predHost) ?? pickT30Pred(realHost);
-  const predTxt = pred != null ? fmtRtauPct(pred) : "—";
+  const predTxt = pred != null ? fmtHorizonProb(pred) : "—";
   const pr = showRealized
     ? pickT30Realized(realHost, predHost)
     : { n: null, tip: T30_REALIZED_TITLE };
@@ -1304,7 +1311,7 @@ function t30MergedCellHtml(host, dayRef, showRealized = true, scoreDetailJson = 
     if (pr.agree === true) tipParts.push("预测与真实同号");
     else if (pr.agree === false) tipParts.push("预测与真实异号");
   }
-  const html = fmtPredRealizedHtml(predTxt, pred, pr, showRealized);
+  const html = fmtPredRealizedHtml(predTxt, pred, pr, showRealized, "prob");
   return (
     `<td class="num paper-t0-col-yt30 paper-t0-col-y paper-t0-col-y-t30 paper-t0-y-score paper-t0-y-merged has-tip${agreeCls}" ` +
     `data-score-tip="t30" data-score-detail="${scoreDetailJson}" ` +
@@ -1563,7 +1570,7 @@ function pickT45Realized(d, predHost) {
     return { text: "—", n: null, tip: T45_REALIZED_TITLE, agree: null };
   }
   const pred = pickT45Pred(predHost) ?? pickT45Pred(d);
-  const agree = _signAgree(pred, n, 0);
+  const agree = _horizonProbAgree(pred, n);
   return {
     text: fmtRtauPct(n),
     n,
@@ -1579,7 +1586,7 @@ function t45MergedCellHtml(host, dayRef, showRealized = true, scoreDetailJson = 
   const predHost = host || dayRef;
   const realHost = dayRef || host;
   const pred = pickT45Pred(predHost) ?? pickT45Pred(realHost);
-  const predTxt = pred != null ? fmtRtauPct(pred) : "—";
+  const predTxt = pred != null ? fmtHorizonProb(pred) : "—";
   const pr = showRealized
     ? pickT45Realized(realHost, predHost)
     : { n: null, tip: T45_REALIZED_TITLE };
@@ -1590,7 +1597,7 @@ function t45MergedCellHtml(host, dayRef, showRealized = true, scoreDetailJson = 
     if (pr.agree === true) tipParts.push("预测与真实同号");
     else if (pr.agree === false) tipParts.push("预测与真实异号");
   }
-  const html = fmtPredRealizedHtml(predTxt, pred, pr, showRealized);
+  const html = fmtPredRealizedHtml(predTxt, pred, pr, showRealized, "prob");
   return (
     `<td class="num paper-t0-col-yt45 paper-t0-col-y paper-t0-col-y-t45 paper-t0-y-score paper-t0-y-merged has-tip${agreeCls}" ` +
     `data-score-tip="t45" data-score-detail="${scoreDetailJson}" ` +
@@ -1636,7 +1643,7 @@ function pickT60Realized(d, predHost) {
     return { text: "—", n: null, tip: T60_REALIZED_TITLE, agree: null };
   }
   const pred = pickT60Pred(predHost) ?? pickT60Pred(d);
-  const agree = _signAgree(pred, n, 0);
+  const agree = _horizonProbAgree(pred, n);
   return {
     text: fmtRtauPct(n),
     n,
@@ -1652,7 +1659,7 @@ function t60MergedCellHtml(host, dayRef, showRealized = true, scoreDetailJson = 
   const predHost = host || dayRef;
   const realHost = dayRef || host;
   const pred = pickT60Pred(predHost) ?? pickT60Pred(realHost);
-  const predTxt = pred != null ? fmtRtauPct(pred) : "—";
+  const predTxt = pred != null ? fmtHorizonProb(pred) : "—";
   const pr = showRealized
     ? pickT60Realized(realHost, predHost)
     : { n: null, tip: T60_REALIZED_TITLE };
@@ -1663,7 +1670,7 @@ function t60MergedCellHtml(host, dayRef, showRealized = true, scoreDetailJson = 
     if (pr.agree === true) tipParts.push("预测与真实同号");
     else if (pr.agree === false) tipParts.push("预测与真实异号");
   }
-  const html = fmtPredRealizedHtml(predTxt, pred, pr, showRealized);
+  const html = fmtPredRealizedHtml(predTxt, pred, pr, showRealized, "prob");
   return (
     `<td class="num paper-t0-col-yt60 paper-t0-col-y paper-t0-col-y-t60 paper-t0-y-score paper-t0-y-merged has-tip${agreeCls}" ` +
     `data-score-tip="t60" data-score-detail="${scoreDetailJson}" ` +
@@ -1803,7 +1810,7 @@ function pickT75Realized(d, predHost) {
     return { text: "—", n: null, tip: T75_REALIZED_TITLE, agree: null };
   }
   const pred = pickT75Pred(predHost) ?? pickT75Pred(d);
-  const agree = _signAgree(pred, n, 0);
+  const agree = _horizonProbAgree(pred, n);
   return {
     text: fmtRtauPct(n),
     n,
@@ -1819,7 +1826,7 @@ function t75MergedCellHtml(host, dayRef, showRealized = true, scoreDetailJson = 
   const predHost = host || dayRef;
   const realHost = dayRef || host;
   const pred = pickT75Pred(predHost) ?? pickT75Pred(realHost);
-  const predTxt = pred != null ? fmtRtauPct(pred) : "—";
+  const predTxt = pred != null ? fmtHorizonProb(pred) : "—";
   const pr = showRealized
     ? pickT75Realized(realHost, predHost)
     : { n: null, tip: T75_REALIZED_TITLE };
@@ -1830,7 +1837,7 @@ function t75MergedCellHtml(host, dayRef, showRealized = true, scoreDetailJson = 
     if (pr.agree === true) tipParts.push("预测与真实同号");
     else if (pr.agree === false) tipParts.push("预测与真实异号");
   }
-  const html = fmtPredRealizedHtml(predTxt, pred, pr, showRealized);
+  const html = fmtPredRealizedHtml(predTxt, pred, pr, showRealized, "prob");
   return (
     `<td class="num paper-t0-col-yt75 paper-t0-col-y paper-t0-col-y-t75 paper-t0-y-score paper-t0-y-merged has-tip${agreeCls}" ` +
     `data-score-tip="t75" data-score-detail="${scoreDetailJson}" ` +
@@ -1876,7 +1883,7 @@ function pickT90Realized(d, predHost) {
     return { text: "—", n: null, tip: T90_REALIZED_TITLE, agree: null };
   }
   const pred = pickT90Pred(predHost) ?? pickT90Pred(d);
-  const agree = _signAgree(pred, n, 0);
+  const agree = _horizonProbAgree(pred, n);
   return {
     text: fmtRtauPct(n),
     n,
@@ -1892,7 +1899,7 @@ function t90MergedCellHtml(host, dayRef, showRealized = true, scoreDetailJson = 
   const predHost = host || dayRef;
   const realHost = dayRef || host;
   const pred = pickT90Pred(predHost) ?? pickT90Pred(realHost);
-  const predTxt = pred != null ? fmtRtauPct(pred) : "—";
+  const predTxt = pred != null ? fmtHorizonProb(pred) : "—";
   const pr = showRealized
     ? pickT90Realized(realHost, predHost)
     : { n: null, tip: T90_REALIZED_TITLE };
@@ -1903,7 +1910,7 @@ function t90MergedCellHtml(host, dayRef, showRealized = true, scoreDetailJson = 
     if (pr.agree === true) tipParts.push("预测与真实同号");
     else if (pr.agree === false) tipParts.push("预测与真实异号");
   }
-  const html = fmtPredRealizedHtml(predTxt, pred, pr, showRealized);
+  const html = fmtPredRealizedHtml(predTxt, pred, pr, showRealized, "prob");
   return (
     `<td class="num paper-t0-col-yt90 paper-t0-col-y paper-t0-col-y-t90 paper-t0-y-score paper-t0-y-merged has-tip${agreeCls}" ` +
     `data-score-tip="t90" data-score-detail="${scoreDetailJson}" ` +
@@ -1920,7 +1927,7 @@ function twTipPayload(it) {
   const y60 = it["y_τ60"] ?? it.y_t60 ?? it.predicted_score_t60 ?? it.y_t60_hat ?? null;
   const y75 = it["y_τ75"] ?? it.y_t75 ?? it.predicted_score_t75 ?? it.y_t75_hat ?? null;
   const y90 = it["y_τ90"] ?? it.y_t90 ?? it.predicted_score_t90 ?? it.y_t90_hat ?? null;
-  const yhat = blendYtw(y30, y60, y90, y45, y75);
+  const yhat = blendYtw(y30, y60, y90, y45, y75, true);
   const r30 = it.y_t30_realized ?? it.t30_realized ?? null;
   const r45 = it.y_t45_realized ?? it.t45_realized ?? null;
   const r60 = it.y_t60_realized ?? it.t60_realized ?? null;
@@ -1975,7 +1982,7 @@ function twScanTipItem(scanRow, day) {
   const r75 = scanRow && (scanRow.y_t75_realized ?? scanRow.t75_realized);
   const r90 = scanRow && (scanRow.y_t90_realized ?? scanRow.t90_realized);
   return {
-    "y_τw": blendYtw(y30, y60, y90, y45, y75),
+    "y_τw": blendYtw(y30, y60, y90, y45, y75, true),
     y_tw: scanRow && (scanRow.y_tw ?? scanRow["y_τw"]),
     "y_τ30": y30,
     y_t30: scanRow && (scanRow.y_t30 ?? scanRow["y_τ30"]),
@@ -1994,7 +2001,7 @@ function twScanTipItem(scanRow, day) {
 }
 
 function pickTWPred(d) {
-  return blendYtw(pickT30Pred(d), pickT60Pred(d), pickT90Pred(d), pickT45Pred(d), pickT75Pred(d));
+  return blendYtw(pickT30Pred(d), pickT60Pred(d), pickT90Pred(d), pickT45Pred(d), pickT75Pred(d), true);
 }
 
 function pickTWRealized(d, predHost) {
@@ -4008,6 +4015,14 @@ function fmtScanPredReal(pred, real) {
   return predTxt;
 }
 
+function fmtScanHorizonPredReal(pred, real) {
+  const p = finiteRtauNum(pred);
+  const predTxt = p != null ? fmtHorizonProb(p) : "—";
+  const r = finiteRtauNum(real);
+  if (p != null && r != null) return `${predTxt}(${fmtRtauPct(r)})`;
+  return predTxt;
+}
+
 function fmtScanYtw(pred, real) {
   const p = finiteYhatNum(pred);
   const predTxt = p != null ? fmtYtwVote(p) : "—";
@@ -4169,18 +4184,19 @@ function buildCloseBandScanExpandRow(d, dayKey, colSpan, rules) {
         .join(" · ");
       const ytcReal = r.r_realized ?? r.y_r_realized;
       const rtauTxt = fmtScanPredReal(scanRtauPred(r), ytcReal);
-      const yt30Txt = fmtScanPredReal(scanYt30Pred(r), r.y_t30_realized ?? r.t30_realized);
-      const yt45Txt = fmtScanPredReal(scanYt45Pred(r), r.y_t45_realized ?? r.t45_realized);
-      const yt60Txt = fmtScanPredReal(scanYt60Pred(r), r.y_t60_realized ?? r.t60_realized);
-      const yt75Txt = fmtScanPredReal(scanYt75Pred(r), r.y_t75_realized ?? r.t75_realized);
-      const yt90Txt = fmtScanPredReal(scanYt90Pred(r), r.y_t90_realized ?? r.t90_realized);
+      const yt30Txt = fmtScanHorizonPredReal(scanYt30Pred(r), r.y_t30_realized ?? r.t30_realized);
+      const yt45Txt = fmtScanHorizonPredReal(scanYt45Pred(r), r.y_t45_realized ?? r.t45_realized);
+      const yt60Txt = fmtScanHorizonPredReal(scanYt60Pred(r), r.y_t60_realized ?? r.t60_realized);
+      const yt75Txt = fmtScanHorizonPredReal(scanYt75Pred(r), r.y_t75_realized ?? r.t75_realized);
+      const yt90Txt = fmtScanHorizonPredReal(scanYt90Pred(r), r.y_t90_realized ?? r.t90_realized);
       const ytwTxt = fmtScanYtw(
         blendYtw(
           scanYt30Pred(r),
           scanYt60Pred(r),
           scanYt90Pred(r),
           scanYt45Pred(r),
-          scanYt75Pred(r)
+          scanYt75Pred(r),
+          true
         ),
         blendYtw(
           r.y_t30_realized ?? r.t30_realized,

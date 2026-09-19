@@ -205,7 +205,8 @@ def _f(v: Any) -> Optional[float]:
 
 
 _MINUTE_BY_DATE_INDEX: Dict[int, Tuple[int, Dict[str, List[dict]]]] = {}
-_MINUTE_BY_DATE_INDEX_MAX = 48
+# 观察池上限 200；按 id(bars) 钉住，须能同时覆盖全员，否则每钟重建索引
+_MINUTE_BY_DATE_INDEX_MAX = 256
 
 
 def _filter_day_bars_upto_tau(
@@ -978,7 +979,8 @@ _SECTOR_RET_90M_CACHE: Dict[Tuple[str, str], Optional[float]] = {}
 # 同伴分钟线进程缓存：回测 20 日×4 槽会反复 load_minute_cache，未缓存时单票可卡 ~1 分钟
 _PEER_MINUTE_BARS: Dict[str, List[dict]] = {}
 _PEER_CODES_MEMO: Optional[List[str]] = None
-_SECTOR_RET_DEFAULT_CAP = 24
+# 与 core.watching.store.WATCHING_MAX_SIZE / 拟合面板同宽；显式 codes= 时全员进中位
+_SECTOR_RET_DEFAULT_CAP = 200
 _SECTOR_RET_PINNED: set = set()
 _SECTOR_RET_PIN_MIN_N = 8
 
@@ -998,14 +1000,29 @@ def _norm_cs_hm(hm: str) -> str:
     return str(hm or "").strip()[:5]
 
 
+_REBALANCE_CS_DOC_MEMO: Optional[Dict[str, Any]] = None
+_REBALANCE_CS_DOC_LOADED = False
+
+
 def _load_rebalance_cs_store() -> Dict[str, Any]:
+    global _REBALANCE_CS_DOC_MEMO, _REBALANCE_CS_DOC_LOADED
+    if _REBALANCE_CS_DOC_LOADED:
+        return _REBALANCE_CS_DOC_MEMO if isinstance(_REBALANCE_CS_DOC_MEMO, dict) else {}
     path = _rebalance_cs_store_path()
     try:
         with open(path, encoding="utf-8") as f:
             raw = json.load(f)
     except (OSError, json.JSONDecodeError, TypeError):
-        return {}
-    return raw if isinstance(raw, dict) else {}
+        raw = {}
+    _REBALANCE_CS_DOC_MEMO = raw if isinstance(raw, dict) else {}
+    _REBALANCE_CS_DOC_LOADED = True
+    return _REBALANCE_CS_DOC_MEMO
+
+
+def _invalidate_rebalance_cs_doc() -> None:
+    global _REBALANCE_CS_DOC_MEMO, _REBALANCE_CS_DOC_LOADED
+    _REBALANCE_CS_DOC_MEMO = None
+    _REBALANCE_CS_DOC_LOADED = False
 
 
 def _read_rebalance_cs_disk(
@@ -1105,6 +1122,7 @@ def clear_sector_ret_cache() -> None:
     _PEER_MINUTE_BARS.clear()
     _MINUTE_BY_DATE_INDEX.clear()
     _PEER_CODES_MEMO = None
+    _invalidate_rebalance_cs_doc()
 
 
 def _rebalance_cs_hm_le_cap(hm: str) -> bool:
@@ -1266,6 +1284,87 @@ def seed_peer_minute_bars_map(
         _flush_sector_ret_medians()
 
 
+def hydrate_cs_peer_minutes(
+    already: Optional[Dict[str, Sequence[dict]]] = None,
+    *,
+    codes: Optional[Sequence[str]] = None,
+    period: str = "5",
+    lookback_days: int = 5,
+    max_age_hours: float = 36.0,
+    fetch_if_missing: bool = True,
+) -> int:
+    """截面宇宙 5m → 同伴仓。已有的保留；缺的先读本地仓，可选补拉。
+
+    拟合 ``attach_cross_section_breadth`` 对观察池全员取中位；live / 回测须灌同一宇宙。
+    """
+    uni = [str(c).strip() for c in (codes or []) if str(c or "").strip()]
+    if not uni:
+        try:
+            from core.t0.score_policy import current_t0_cs_universe_codes
+
+            uni = [
+                str(c).strip()
+                for c in (current_t0_cs_universe_codes() or [])
+                if str(c or "").strip()
+            ]
+        except Exception:
+            uni = []
+    by_code: Dict[str, List[dict]] = {}
+    for k, rows in (already or {}).items():
+        key = str(k or "").strip()
+        if not key:
+            continue
+        packed = [b for b in (rows or []) if isinstance(b, dict)]
+        if packed:
+            by_code[key] = packed
+    for code in uni:
+        if by_code.get(code):
+            continue
+        rows = _load_minute_bars_from_cache(
+            code, max_age_hours=max(float(max_age_hours), 36.0)
+        )
+        if (not rows) and fetch_if_missing:
+            try:
+                from core.ports.market import fetch_minute_bars
+
+                bars, _meta = fetch_minute_bars(
+                    code,
+                    period=str(period or "5"),
+                    use_cache=True,
+                    lookback_days=max(1, int(lookback_days or 5)),
+                    max_age_hours=float(max_age_hours),
+                )
+                rows = [b for b in (bars or []) if isinstance(b, dict)]
+            except Exception:
+                rows = []
+        if rows:
+            by_code[code] = rows
+    if by_code:
+        seed_peer_minute_bars_map(by_code)
+    return len(by_code)
+
+
+def _iter_sector_ret_peers(
+    codes: Optional[Sequence[str]],
+    *,
+    cap: int,
+) -> List[str]:
+    """训练面板：显式宇宙全员进中位；仅兜底宇宙才截 cap。"""
+    if codes is not None:
+        return [str(c).strip() for c in codes if str(c or "").strip()]
+    return _peer_codes_for_sector_ret(cap=max(8, int(cap or _SECTOR_RET_DEFAULT_CAP)))
+
+
+def _bars_have_day(rows: Sequence[dict], day: str) -> bool:
+    d = str(day or "")[:10]
+    if not rows or len(d) < 10:
+        return False
+    seq = [b for b in rows if isinstance(b, dict)]
+    if len(seq) <= 96:
+        return any(_bar_date(b) == d for b in seq)
+    return bool(_minute_bars_by_date(seq).get(d))
+
+
 def _peer_minute_bars_for_tau(
     code_key: str,
     *,
@@ -1290,8 +1389,13 @@ def _peer_minute_bars_for_tau(
             return bool(rows)
 
     bars = _PEER_MINUTE_BARS.get(key)
-    if bars is not None and _covers(bars):
-        return list(bars)
+    if bars is not None:
+        if _covers(bars):
+            # 同一 list 对象才能命中 _minute_bars_by_date 的 id 索引
+            return bars
+        # 完全没有该日（回测夹具 / 停牌）不必反复打盘；仅当日有根但未齐到 τ 才补拉
+        if not _bars_have_day(bars, day):
+            return bars
     try:
         from core.ports.market import resolve_market_code
         from core.store import load_minute_cache
@@ -1311,6 +1415,117 @@ def _peer_minute_bars_for_tau(
     return rows
 
 
+def peer_minute_seed_count() -> int:
+    """同伴 5m 已灌入内存的票数（持仓回测用来跳过重复清仓/重灌）。"""
+    return len(_PEER_MINUTE_BARS)
+
+
+def _sector_ret_cs_specs() -> Tuple[
+    Tuple[Dict[Tuple[str, str], Optional[float]], Optional[str], str],
+    ...,
+]:
+    return (
+        (_SECTOR_RET_CACHE, None, "ret_open_to_tau"),
+        (_SECTOR_RET_30M_CACHE, "last_30m", "ret_last_30m"),
+        (_SECTOR_RET_45M_CACHE, "last_45m", "ret_last_45m"),
+        (_SECTOR_RET_60M_CACHE, "last_60m", "ret_last_60m"),
+        (_SECTOR_RET_75M_CACHE, "last_75m", "ret_last_75m"),
+        (_SECTOR_RET_90M_CACHE, "last_90m", "ret_last_90m"),
+    )
+
+
+def _fill_sector_ret_caches(
+    trade_date: str,
+    tau_hm: str,
+    *,
+    codes: Optional[Sequence[str]] = None,
+    cap: int = _SECTOR_RET_DEFAULT_CAP,
+    use_cache: bool = True,
+) -> Dict[str, Optional[float]]:
+    """一次遍历同伴，同时写入开→τ 与 30/45/60/75/90m 中位。"""
+    day = str(trade_date or "")[:10]
+    hm = str(tau_hm or "10:30").strip() or "10:30"
+    specs = _sector_ret_cs_specs()
+    out: Dict[str, Optional[float]] = {ret_key: None for _c, _d, ret_key in specs}
+    if len(day) < 10:
+        return out
+    cache_key = (day, hm)
+    if use_cache:
+        complete = True
+        for cache, disk_field, ret_key in specs:
+            hit, cached = _cs_cache_lookup(
+                cache,
+                cache_key,
+                day,
+                hm,
+                use_cache=True,
+                disk_field=disk_field,
+            )
+            if hit:
+                out[ret_key] = cached
+            else:
+                complete = False
+        if complete:
+            return out
+
+    peer_codes = _iter_sector_ret_peers(codes, cap=cap)
+    if not peer_codes:
+        if use_cache:
+            for cache, disk_field, ret_key in specs:
+                _cs_cache_store(
+                    cache,
+                    cache_key,
+                    day,
+                    hm,
+                    None,
+                    0,
+                    use_cache=True,
+                    disk_field=disk_field,
+                )
+                out[ret_key] = None
+        return out
+
+    buckets: Dict[str, List[float]] = {ret_key: [] for _c, _d, ret_key in specs}
+    for raw in peer_codes:
+        code_key = str(raw or "").strip()
+        if not code_key:
+            continue
+        bars = _peer_minute_bars_for_tau(code_key, trade_date=day, tau_hm=hm)
+        if len(bars) < 2:
+            continue
+        tau_pack = extract_minute_tau_pack(bars, trade_date=day, tau_hm=hm)
+        rot = _f(tau_pack.get("ret_open_to_tau"))
+        if rot is not None:
+            buckets["ret_open_to_tau"].append(float(rot))
+        hz = extract_horizon_seq_packs(bars, trade_date=day, tau_hm=hm)
+        for ret_key in (
+            "ret_last_30m",
+            "ret_last_45m",
+            "ret_last_60m",
+            "ret_last_75m",
+            "ret_last_90m",
+        ):
+            v = _f(hz.get(ret_key))
+            if v is not None:
+                buckets[ret_key].append(float(v))
+
+    for cache, disk_field, ret_key in specs:
+        rets = buckets.get(ret_key) or []
+        med = sector_ret_median(rets)
+        stored = _cs_cache_store(
+            cache,
+            cache_key,
+            day,
+            hm,
+            med,
+            len(rets),
+            use_cache=use_cache,
+            disk_field=disk_field,
+        )
+        out[ret_key] = stored
+    return out
+
+
 def resolve_sector_ret_to_tau(
     trade_date: str,
     tau_hm: str = "10:30",
@@ -1323,6 +1538,7 @@ def resolve_sector_ret_to_tau(
     """解析 ``sector_ret_to_tau``：优先已知同伴收益，否则读活跃簿/观察池/分钟仓宇宙。
 
     与训练 ``attach_cross_section_breadth`` 一致：对 (date, τ) 下多票 ``ret_open_to_tau`` 取中位。
+    显式 ``codes``（live / 回测注入的观察池∪持仓）全员进中位，不再截 24 只。
     """
     day = str(trade_date or "")[:10]
     hm = str(tau_hm or "10:30").strip() or "10:30"
@@ -1339,35 +1555,10 @@ def resolve_sector_ret_to_tau(
     if hit:
         return cached
 
-    peer_codes = [str(c).strip() for c in (codes or []) if str(c or "").strip()]
-    if not peer_codes:
-        peer_codes = _peer_codes_for_sector_ret(cap=max(8, int(cap or _SECTOR_RET_DEFAULT_CAP)))
-    if not peer_codes:
-        if use_cache:
-            _SECTOR_RET_CACHE[cache_key] = None
-        return None
-
-    rets: List[float] = []
-    for raw in peer_codes[: max(8, int(cap or _SECTOR_RET_DEFAULT_CAP))]:
-        code_key = str(raw or "").strip()
-        if not code_key:
-            continue
-        bars = _peer_minute_bars_for_tau(code_key, trade_date=day, tau_hm=hm)
-        if len(bars) < 2:
-            continue
-        pack = extract_minute_tau_pack(
-            bars,
-            trade_date=day,
-            tau_hm=hm,
-        )
-        rot = _f(pack.get("ret_open_to_tau"))
-        if rot is not None:
-            rets.append(float(rot))
-
-    med = sector_ret_median(rets)
-    return _cs_cache_store(
-        _SECTOR_RET_CACHE, cache_key, day, hm, med, len(rets), use_cache=use_cache
+    filled = _fill_sector_ret_caches(
+        day, hm, codes=codes, cap=cap, use_cache=use_cache
     )
+    return filled.get("ret_open_to_tau")
 
 
 def attach_sector_ret_cs_if_missing(
@@ -1399,7 +1590,6 @@ def attach_sector_ret_cs_if_missing(
 
 def _resolve_sector_ret_horizon(
     cache: Dict[Tuple[str, str], Optional[float]],
-    extract_pack,
     ret_key: str,
     disk_field: str,
     trade_date: str,
@@ -1428,38 +1618,10 @@ def _resolve_sector_ret_horizon(
     )
     if hit:
         return cached
-    peer_codes = [str(c).strip() for c in (codes or []) if str(c or "").strip()]
-    if not peer_codes:
-        peer_codes = _peer_codes_for_sector_ret(
-            cap=max(8, int(cap or _SECTOR_RET_DEFAULT_CAP))
-        )
-    if not peer_codes:
-        if use_cache:
-            cache[cache_key] = None
-        return None
-    rets: List[float] = []
-    for raw in peer_codes[: max(8, int(cap or _SECTOR_RET_DEFAULT_CAP))]:
-        code_key = str(raw or "").strip()
-        if not code_key:
-            continue
-        bars = _peer_minute_bars_for_tau(code_key, trade_date=day, tau_hm=hm)
-        if len(bars) < 2:
-            continue
-        pack = extract_pack(bars, trade_date=day, tau_hm=hm)
-        rot = _f(pack.get(ret_key))
-        if rot is not None:
-            rets.append(float(rot))
-    med = sector_ret_median(rets)
-    return _cs_cache_store(
-        cache,
-        cache_key,
-        day,
-        hm,
-        med,
-        len(rets),
-        use_cache=use_cache,
-        disk_field=disk_field,
+    filled = _fill_sector_ret_caches(
+        day, hm, codes=codes, cap=cap, use_cache=use_cache
     )
+    return filled.get(ret_key)
 
 
 def resolve_sector_ret_last_30m(
@@ -1474,7 +1636,6 @@ def resolve_sector_ret_last_30m(
     """解析 ``sector_ret_last_30m``：同伴 ``ret_last_30m`` 中位；复用开→τ 同伴分钟仓。"""
     return _resolve_sector_ret_horizon(
         _SECTOR_RET_30M_CACHE,
-        extract_t30_seq_pack,
         "ret_last_30m",
         "last_30m",
         trade_date,
@@ -1525,7 +1686,6 @@ def resolve_sector_ret_last_45m(
     """解析 ``sector_ret_last_45m``：同伴 ``ret_last_45m`` 中位；复用开→τ 同伴分钟仓。"""
     return _resolve_sector_ret_horizon(
         _SECTOR_RET_45M_CACHE,
-        extract_t45_seq_pack,
         "ret_last_45m",
         "last_45m",
         trade_date,
@@ -1576,7 +1736,6 @@ def resolve_sector_ret_last_60m(
     """解析 ``sector_ret_last_60m``：同伴 ``ret_last_60m`` 中位；复用开→τ 同伴分钟仓。"""
     return _resolve_sector_ret_horizon(
         _SECTOR_RET_60M_CACHE,
-        extract_t60_seq_pack,
         "ret_last_60m",
         "last_60m",
         trade_date,
@@ -1627,7 +1786,6 @@ def resolve_sector_ret_last_75m(
     """解析 ``sector_ret_last_75m``：同伴 ``ret_last_75m`` 中位；复用开→τ 同伴分钟仓。"""
     return _resolve_sector_ret_horizon(
         _SECTOR_RET_75M_CACHE,
-        extract_t75_seq_pack,
         "ret_last_75m",
         "last_75m",
         trade_date,
@@ -1678,7 +1836,6 @@ def resolve_sector_ret_last_90m(
     """解析 ``sector_ret_last_90m``：同伴 ``ret_last_90m`` 中位；复用开→τ 同伴分钟仓。"""
     return _resolve_sector_ret_horizon(
         _SECTOR_RET_90M_CACHE,
-        extract_t90_seq_pack,
         "ret_last_90m",
         "last_90m",
         trade_date,

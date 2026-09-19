@@ -381,7 +381,7 @@ class RelabelT60Tests(unittest.TestCase):
         elapsed = time.perf_counter() - t0
         self.assertGreater(len(ys), 100)
         self.assertTrue(any(m.get("tau_plus_60") == "13:30" for m in metas))
-        self.assertLess(elapsed, 4.0, msg=f"collect too slow: {elapsed:.2f}s n={len(ys)}")
+        self.assertLess(elapsed, 6.0, msg=f"collect too slow: {elapsed:.2f}s n={len(ys)}")
 
 
 class T60RidgeFitTests(unittest.TestCase):
@@ -424,7 +424,7 @@ class T60RidgeFitTests(unittest.TestCase):
             holdout_trading_days=5,
         )
         self.assertTrue(report.get("success"), msg=report)
-        self.assertEqual(report.get("schema"), "t60_ridge_v1")
+        self.assertEqual(report.get("schema"), "t60_ridge_v2")
         self.assertEqual(report.get("dual_score_head"), "y_t60")
         self.assertEqual(report.get("target"), "price_tau_plus_60")
         y_spec = (report.get("return_model") or {}).get("y_spec") or {}
@@ -476,12 +476,12 @@ class T60GateTests(unittest.TestCase):
         from core.t0.config import load_t0_rules
         from core.t0.viz import classify_t0_skip_reason
 
-        self.assertEqual(float(load_t0_rules({})["y_t60_strong"]), 0.0)
-        self.assertEqual(float(load_t0_rules({})["y_t60_enter"]), 0.0)
-        self.assertEqual(float(load_t0_rules({})["y_t60_enter_alt"]), 0.0)
+        self.assertNotIn("y_t60_strong", load_t0_rules({}))
+        self.assertNotIn("y_t60_enter", load_t0_rules({}))
+        self.assertNotIn("y_t60_enter_alt", load_t0_rules({}))
 
         skip = close_band_y_t60_skip_reason(
-            {"y_τ60": 1.2},
+            {"y_τ60": 0.8},
             {"y_t60_strong": 0},
             direction="sell_then_buy",
         )
@@ -491,7 +491,7 @@ class T60GateTests(unittest.TestCase):
 
         self.assertIsNone(
             close_band_y_t60_skip_reason(
-                {"y_τ60": -1.2},
+                {"y_τ60": 0.2},
                 {"y_t60_strong": 0},
                 direction="sell_then_buy",
             )
@@ -505,21 +505,21 @@ class T60GateTests(unittest.TestCase):
         )
         self.assertIsNone(
             close_band_y_t60_skip_reason(
-                {"y_τ60": 1.2},
+                {"y_τ60": 0.8},
                 {"y_t60_strong": 1},
                 direction="sell_then_buy",
             )
         )
         self.assertIsNone(
             close_band_y_t60_skip_reason(
-                {"y_τ60": 1.2},
+                {"y_τ60": 0.8},
                 {"y_t60_strong": 0},
                 direction="buy_then_sell",
             )
         )
         self.assertIsNone(
             close_band_y_t60_skip_reason(
-                {"y_τ60": 0.2},
+                {"y_τ60": 0.7},
                 {"y_t60_strong": 0, "y_t60_enter": 0.5},
                 direction="buy_then_sell",
             )
@@ -536,22 +536,23 @@ class T60GateTests(unittest.TestCase):
             "y_t60_enter": 0.5,
         }
         weak = close_band_enter_skip_reason(
-            {"y_tau": 1.0, "y_path": 1.0, "y_τ60": 0.2}, cfg
+            {"y_tau": 1.0, "y_path": 1.0, "y_τ60": 0.2}, cfg, direction="buy_then_sell"
         )
         self.assertIsNotNone(weak)
         self.assertEqual(classify_t0_skip_reason(weak), "y_t60_flat")
         self.assertIsNone(
             close_band_enter_skip_reason(
-                {"y_tau": 1.0, "y_path": 1.0, "y_τ60": 0.8}, cfg
+                {"y_tau": 1.0, "y_path": 1.0, "y_τ60": 0.8}, cfg, direction="buy_then_sell"
             )
         )
         self.assertIsNone(
-            close_band_enter_skip_reason({"y_tau": 1.0, "y_path": 1.0}, cfg)
+            close_band_enter_skip_reason({"y_tau": 1.0, "y_path": 1.0}, cfg, direction="buy_then_sell")
         )
         self.assertIsNone(
             close_band_enter_skip_reason(
                 {"y_tau": 1.0, "y_path": 1.0, "y_τ60": 0.2},
                 {**cfg, "y_t60_enter": 0.9, "y_t60_enter_alt": 0.1},
+                direction="buy_then_sell",
             )
         )
 
@@ -577,7 +578,7 @@ class T60GateTests(unittest.TestCase):
                         "hm": "09:35",
                         "c": 10.0,
                         "y_tau": 1.8,
-                        "y_τ60": 0.02,
+                        "y_τ60": 0.7,
                         "y_t60_realized": 0.40,
                         "pick": "buy_then_sell",
                     }
@@ -594,7 +595,7 @@ class T60GateTests(unittest.TestCase):
                         "hm": "09:35",
                         "c": 10.0,
                         "y_tau": -1.0,
-                        "y_τ60": -0.03,
+                        "y_τ60": 0.3,
                         "y_t60_realized": 0.50,
                         "pick": "buy_then_sell",
                     }

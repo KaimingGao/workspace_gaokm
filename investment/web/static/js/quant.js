@@ -395,8 +395,29 @@ export function initQuant(ctx) {
     } = opts;
     const chipState = error ? "error" : busy ? "busy" : state;
     const metas = [];
+    const isProbOos =
+      oos &&
+      typeof oos === "object" &&
+      oos.auc != null &&
+      Number.isFinite(Number(oos.auc));
     if (oos && typeof oos === "object") {
-      if (oos.ic != null && Number.isFinite(Number(oos.ic))) {
+      if (isProbOos) {
+        metas.push(remStatusMeta("AUC", Number(oos.auc).toFixed(3), "Holdout ROC-AUC；随机≈0.50"));
+        if (oos.acc_at_50 != null && Number.isFinite(Number(oos.acc_at_50))) {
+          metas.push(
+            remStatusMeta(
+              "acc@0.5",
+              fmtRemHit(oos.acc_at_50),
+              "p_up>0.5 对窗收益>0"
+            )
+          );
+        }
+        if (oos.brier != null && Number.isFinite(Number(oos.brier))) {
+          metas.push(
+            remStatusMeta("Brier", Number(oos.brier).toFixed(3), "越小越好；0.25≈瞎猜")
+          );
+        }
+      } else if (oos.ic != null && Number.isFinite(Number(oos.ic))) {
         metas.push(remStatusMeta("OOS IC", fmtRemIc(oos.ic), "时间切分样本外 IC"));
       }
       const openTau = tauOpenBucket(oos);
@@ -405,10 +426,13 @@ export function initQuant(ctx) {
           remStatusMeta(
             "开盘",
             fmtRemHit(openTau.sign_hit),
-            "09:30 无分钟前缀 · 与旧 open 口径可比；后面的钟会被开→τ 已实现垫高"
+            isProbOos
+              ? "09:30 无分钟前缀 · p_up>0.5 对窗收益>0"
+              : "09:30 无分钟前缀 · 与旧 open 口径可比；后面的钟会被开→τ 已实现垫高"
           )
         );
       }
+      if (!isProbOos) {
       const pooledHit =
         oos.sign_hit != null && Number.isFinite(Number(oos.sign_hit))
           ? oos.sign_hit
@@ -431,6 +455,8 @@ export function initQuant(ctx) {
           remStatusMeta("中位命中", fmtRemHit(oos.median_hit), "ŷ 与 y 是否同在中位以上；≈50% 即无排序信息")
         );
       }
+      }
+      if (!isProbOos) {
       const bt = oos.by_theme || {};
       const th = bt.theme || {};
       const nm = bt.normal || {};
@@ -472,6 +498,7 @@ export function initQuant(ctx) {
             `强信号桶同号 · n=${b06.n ?? "—"}`
           )
         );
+      }
       }
       const tc = oos.theme_counts || {};
       const tcAll = tc.all || tc.oos || {};
@@ -2046,29 +2073,36 @@ export function initQuant(ctx) {
       `<p class="quant-attr-note">${bits.map((b) => escapeHtml(String(b))).join(" · ")}</p>`;
   }
 
-  function renderT30FitSummary(data) {
-    const box = document.getElementById("quant-t30-result");
-    if (!box || !data || typeof data !== "object") return;
-    const oos = data.oos || {};
-    const gate = data.promote_gate || {};
-    const bits = [
-      data.minute_codes_hit != null
+  function horizonProbFitBits(data) {
+    const oos = (data && data.oos) || {};
+    const gate = (data && data.promote_gate) || {};
+    return [
+      data && data.minute_codes_hit != null
         ? `分钟覆盖 ${data.minute_codes_hit}/${data.minute_codes_universe ?? "—"} 票`
         : null,
       ...ridgeFitNBits(data),
-      oos.sign_hit != null
-        ? `OOS 命中 ${(Number(oos.sign_hit) * 100).toFixed(1)}%（n=${oos.n_valid ?? oos.n_test ?? "—"}）`
-        : null,
-      oos.ic != null ? `OOS IC ${Number(oos.ic).toFixed(3)}` : null,
+      oos.auc != null ? `OOS AUC ${Number(oos.auc).toFixed(3)}` : null,
+      oos.acc_at_50 != null
+        ? `acc@0.5 ${(Number(oos.acc_at_50) * 100).toFixed(1)}%（n=${oos.n_valid ?? oos.n_test ?? "—"}）`
+        : oos.sign_hit != null
+          ? `OOS 命中 ${(Number(oos.sign_hit) * 100).toFixed(1)}%（n=${oos.n_valid ?? oos.n_test ?? "—"}）`
+          : null,
+      oos.brier != null ? `Brier ${Number(oos.brier).toFixed(3)}` : null,
       gate.ok === false
         ? `promote 闸：${(gate.blockers || []).join("；")}`
         : gate.ok === true
-          ? "promote 闸：通过（强桶）"
+          ? "promote 闸：通过（AUC/acc）"
           : null,
       Array.isArray(gate.warnings) && gate.warnings.length
         ? `软提示：${gate.warnings.join("；")}`
         : null,
     ].filter(Boolean);
+  }
+
+  function renderT30FitSummary(data) {
+    const box = document.getElementById("quant-t30-result");
+    if (!box || !data || typeof data !== "object") return;
+    const bits = horizonProbFitBits(data);
     if (!bits.length) return;
     box.innerHTML =
       `<p class="quant-attr-note">${bits.map((b) => escapeHtml(String(b))).join(" · ")}</p>`;
@@ -2077,26 +2111,7 @@ export function initQuant(ctx) {
   function renderT45FitSummary(data) {
     const box = document.getElementById("quant-t45-result");
     if (!box || !data || typeof data !== "object") return;
-    const oos = data.oos || {};
-    const gate = data.promote_gate || {};
-    const bits = [
-      data.minute_codes_hit != null
-        ? `分钟覆盖 ${data.minute_codes_hit}/${data.minute_codes_universe ?? "—"} 票`
-        : null,
-      ...ridgeFitNBits(data),
-      oos.sign_hit != null
-        ? `OOS 命中 ${(Number(oos.sign_hit) * 100).toFixed(1)}%（n=${oos.n_valid ?? oos.n_test ?? "—"}）`
-        : null,
-      oos.ic != null ? `OOS IC ${Number(oos.ic).toFixed(3)}` : null,
-      gate.ok === false
-        ? `promote 闸：${(gate.blockers || []).join("；")}`
-        : gate.ok === true
-          ? "promote 闸：通过（强桶）"
-          : null,
-      Array.isArray(gate.warnings) && gate.warnings.length
-        ? `软提示：${gate.warnings.join("；")}`
-        : null,
-    ].filter(Boolean);
+    const bits = horizonProbFitBits(data);
     if (!bits.length) return;
     box.innerHTML =
       `<p class="quant-attr-note">${bits.map((b) => escapeHtml(String(b))).join(" · ")}</p>`;
@@ -2104,26 +2119,7 @@ export function initQuant(ctx) {
   function renderT60FitSummary(data) {
     const box = document.getElementById("quant-t60-result");
     if (!box || !data || typeof data !== "object") return;
-    const oos = data.oos || {};
-    const gate = data.promote_gate || {};
-    const bits = [
-      data.minute_codes_hit != null
-        ? `分钟覆盖 ${data.minute_codes_hit}/${data.minute_codes_universe ?? "—"} 票`
-        : null,
-      ...ridgeFitNBits(data),
-      oos.sign_hit != null
-        ? `OOS 命中 ${(Number(oos.sign_hit) * 100).toFixed(1)}%（n=${oos.n_valid ?? oos.n_test ?? "—"}）`
-        : null,
-      oos.ic != null ? `OOS IC ${Number(oos.ic).toFixed(3)}` : null,
-      gate.ok === false
-        ? `promote 闸：${(gate.blockers || []).join("；")}`
-        : gate.ok === true
-          ? "promote 闸：通过（强桶）"
-          : null,
-      Array.isArray(gate.warnings) && gate.warnings.length
-        ? `软提示：${gate.warnings.join("；")}`
-        : null,
-    ].filter(Boolean);
+    const bits = horizonProbFitBits(data);
     if (!bits.length) return;
     box.innerHTML =
       `<p class="quant-attr-note">${bits.map((b) => escapeHtml(String(b))).join(" · ")}</p>`;
@@ -2131,26 +2127,7 @@ export function initQuant(ctx) {
   function renderT75FitSummary(data) {
     const box = document.getElementById("quant-t75-result");
     if (!box || !data || typeof data !== "object") return;
-    const oos = data.oos || {};
-    const gate = data.promote_gate || {};
-    const bits = [
-      data.minute_codes_hit != null
-        ? `分钟覆盖 ${data.minute_codes_hit}/${data.minute_codes_universe ?? "—"} 票`
-        : null,
-      ...ridgeFitNBits(data),
-      oos.sign_hit != null
-        ? `OOS 命中 ${(Number(oos.sign_hit) * 100).toFixed(1)}%（n=${oos.n_valid ?? oos.n_test ?? "—"}）`
-        : null,
-      oos.ic != null ? `OOS IC ${Number(oos.ic).toFixed(3)}` : null,
-      gate.ok === false
-        ? `promote 闸：${(gate.blockers || []).join("；")}`
-        : gate.ok === true
-          ? "promote 闸：通过（强桶）"
-          : null,
-      Array.isArray(gate.warnings) && gate.warnings.length
-        ? `软提示：${gate.warnings.join("；")}`
-        : null,
-    ].filter(Boolean);
+    const bits = horizonProbFitBits(data);
     if (!bits.length) return;
     box.innerHTML =
       `<p class="quant-attr-note">${bits.map((b) => escapeHtml(String(b))).join(" · ")}</p>`;
@@ -2158,26 +2135,7 @@ export function initQuant(ctx) {
   function renderT90FitSummary(data) {
     const box = document.getElementById("quant-t90-result");
     if (!box || !data || typeof data !== "object") return;
-    const oos = data.oos || {};
-    const gate = data.promote_gate || {};
-    const bits = [
-      data.minute_codes_hit != null
-        ? `分钟覆盖 ${data.minute_codes_hit}/${data.minute_codes_universe ?? "—"} 票`
-        : null,
-      ...ridgeFitNBits(data),
-      oos.sign_hit != null
-        ? `OOS 命中 ${(Number(oos.sign_hit) * 100).toFixed(1)}%（n=${oos.n_valid ?? oos.n_test ?? "—"}）`
-        : null,
-      oos.ic != null ? `OOS IC ${Number(oos.ic).toFixed(3)}` : null,
-      gate.ok === false
-        ? `promote 闸：${(gate.blockers || []).join("；")}`
-        : gate.ok === true
-          ? "promote 闸：通过（强桶）"
-          : null,
-      Array.isArray(gate.warnings) && gate.warnings.length
-        ? `软提示：${gate.warnings.join("；")}`
-        : null,
-    ].filter(Boolean);
+    const bits = horizonProbFitBits(data);
     if (!bits.length) return;
     box.innerHTML =
       `<p class="quant-attr-note">${bits.map((b) => escapeHtml(String(b))).join(" · ")}</p>`;
@@ -4350,7 +4308,7 @@ export function initQuant(ctx) {
         ? forcePromote
           ? "强制写入上次拟合…"
           : "写入上次拟合…"
-        : "ŷ_τ30 Ridge + 时间 OOS…",
+        : "ŷ_τ30 logistic Ridge + 时间 OOS…",
       busy: true,
     });
     try {
@@ -4557,7 +4515,7 @@ export function initQuant(ctx) {
         ? forcePromote
           ? "强制写入上次拟合…"
           : "写入上次拟合…"
-        : "ŷ_τ45 Ridge + 时间 OOS…",
+        : "ŷ_τ45 logistic Ridge + 时间 OOS…",
       busy: true,
     });
     try {
@@ -4763,7 +4721,7 @@ export function initQuant(ctx) {
         ? forcePromote
           ? "强制写入上次拟合…"
           : "写入上次拟合…"
-        : "ŷ_τ60 Ridge + 时间 OOS…",
+        : "ŷ_τ60 logistic Ridge + 时间 OOS…",
       busy: true,
     });
     try {
@@ -4969,7 +4927,7 @@ export function initQuant(ctx) {
         ? forcePromote
           ? "强制写入上次拟合…"
           : "写入上次拟合…"
-        : "ŷ_τ75 Ridge + 时间 OOS…",
+        : "ŷ_τ75 logistic Ridge + 时间 OOS…",
       busy: true,
     });
     try {
@@ -5175,7 +5133,7 @@ export function initQuant(ctx) {
         ? forcePromote
           ? "强制写入上次拟合…"
           : "写入上次拟合…"
-        : "ŷ_τ90 Ridge + 时间 OOS…",
+        : "ŷ_τ90 logistic Ridge + 时间 OOS…",
       busy: true,
     });
     try {

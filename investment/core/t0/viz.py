@@ -576,6 +576,13 @@ def _sign_hit(
     return (float(pred) > 0) == (float(real) > 0)
 
 
+def _horizon_sign_hit(pred: Optional[float], real: Optional[float]) -> Optional[bool]:
+    """ŷ_τ*=p_up vs 已实现百分点：P>0.5 对涨。"""
+    if pred is None or real is None:
+        return None
+    return (float(pred) > 0.5) == (float(real) > 0.0)
+
+
 def _bump(pack: Dict[str, int], key: str) -> None:
     pack[key] = int(pack.get(key) or 0) + 1
 
@@ -1126,6 +1133,20 @@ def _bump_sign_hit(
         _bump(pack, "flat")
 
 
+def _bump_horizon_sign_hit(
+    pack: Dict[str, int],
+    pred: Optional[float],
+    real: Optional[float],
+) -> None:
+    h = _horizon_sign_hit(pred, real)
+    if h is True:
+        _bump(pack, "hit")
+    elif h is False:
+        _bump(pack, "miss")
+    else:
+        _bump(pack, "flat")
+
+
 def _slot_fill_by_hm(day: dict) -> Dict[str, dict]:
     out: Dict[str, dict] = {}
     for r in _slot_result_rows(day):
@@ -1447,11 +1468,6 @@ def _build_score_portrait_from_units(
 ) -> Dict[str, Any]:
     """从画像单位列表累计 τ/path/eod/trade 标签与预估命中。"""
     from core.t0.close_band import (
-        Y_T30_HIT_EPS,
-        Y_T45_HIT_EPS,
-        Y_T60_HIT_EPS,
-        Y_T75_HIT_EPS,
-        Y_T90_HIT_EPS,
         y_t30_band_agree,
         y_t45_band_agree,
         y_t60_band_agree,
@@ -1607,21 +1623,11 @@ def _build_score_portrait_from_units(
         _bump_sign_hit(oc_hit, y_oc_p, tau_r, pred_eps=0.05, real_eps=0.05)
         _bump_sign_hit(y_tc_hit, y_tc_p, rem_r, pred_eps=0.05, real_eps=0.05)
         _bump_sign_hit(r_tau_hit, r_hat_p, rem_r, pred_eps=0.05, real_eps=0.05)
-        _bump_sign_hit(
-            y_t30_hit, y_t30_p, t30_r, pred_eps=Y_T30_HIT_EPS, real_eps=Y_T30_HIT_EPS
-        )
-        _bump_sign_hit(
-            y_t45_hit, y_t45_p, t45_r, pred_eps=Y_T45_HIT_EPS, real_eps=Y_T45_HIT_EPS
-        )
-        _bump_sign_hit(
-            y_t60_hit, y_t60_p, t60_r, pred_eps=Y_T60_HIT_EPS, real_eps=Y_T60_HIT_EPS
-        )
-        _bump_sign_hit(
-            y_t75_hit, y_t75_p, t75_r, pred_eps=Y_T75_HIT_EPS, real_eps=Y_T75_HIT_EPS
-        )
-        _bump_sign_hit(
-            y_t90_hit, y_t90_p, t90_r, pred_eps=Y_T90_HIT_EPS, real_eps=Y_T90_HIT_EPS
-        )
+        _bump_horizon_sign_hit(y_t30_hit, y_t30_p, t30_r)
+        _bump_horizon_sign_hit(y_t45_hit, y_t45_p, t45_r)
+        _bump_horizon_sign_hit(y_t60_hit, y_t60_p, t60_r)
+        _bump_horizon_sign_hit(y_t75_hit, y_t75_p, t75_r)
+        _bump_horizon_sign_hit(y_t90_hit, y_t90_p, t90_r)
         band_ag = y_tc_band_agree(d.get("direction") or d.get("pick"), y_tc_p)
         if band_ag is True:
             _bump(y_tc_band, "hit")

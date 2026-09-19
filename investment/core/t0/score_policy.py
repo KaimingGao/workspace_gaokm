@@ -1,15 +1,14 @@
 """多层 ŷ 驱动的 A 股底仓做 T 策略（dual_y）。
 
 角色（PIT）：
-  y_trade  — |ŷ_trade| 下限 + 强闸同 τ；额度主缩放
-  y_eod    — |ŷ_eod| 下限 + 强闸同 τ；同向略抬目标价（y_eod_prior）
   y_τ      — 盘中主方向（开→收 OC 拟合）；正/反 T 可分 enter（y_tau_enter_buy_then_sell / _sell_then_buy）
              定向锚优先 y_tau_oc（映射前）；剩余映射分仅供融合/对照，不定向
-  y_on     — 尾盘是否强制回补
   y_hl     — 分钟极值时间序 signed range%（旧键 y_path）；与 y_τ 联合准入（同号+双 enter，可分正反）
+  y_on     — 尾盘是否强制回补
+  y_trade / y_eod — **v6 已下线**：不参与选向；`load_t0_rules` 丢弃旧闸键；快照字段仅作对照
 
 选向分数：开盘可预计算开盘 Z；**确认根（前 N 根齐窗）用前缀分钟因果重算**
-ŷ_τ / ŷ_hl 后再 dual_y 定方向。禁止用全日/未发生分钟做开盘选向。
+ŷ_τ / ŷ_hl 后再 close-band 选向。禁止用全日/未发生分钟做开盘选向。
 """
 
 from __future__ import annotations
@@ -24,18 +23,9 @@ logger = logging.getLogger(__name__)
 
 # 默认阈值（ŷ 为百分比点；可用 rules 覆盖）
 DEFAULT_TRADE_ENTER = 0.01
-DEFAULT_TRADE_STRONG = 0.2  # |y_trade|>此值时须 y_trade 与 y_τ 同号
-DEFAULT_EOD_PRIOR = 0.01
-DEFAULT_EOD_ENTER = 0.01  # |y_eod| 准入下限（%点）
-DEFAULT_EOD_STRONG = 0.2  # |y_eod|>此值时须 y_eod 与 y_τ 同号
 DEFAULT_TAU_ENTER = 0.0
 DEFAULT_ON_RISK = 0.01
 DEFAULT_ON_ALLOW = 0.01
-DEFAULT_RATIO_BOOST_CAP = 2.0
-DEFAULT_RATIO_CUT = 0.60
-DEFAULT_EOD_ALIGN_BOOST = 1.10  # 写死：ŷ_eod 同向略抬目标价
-DEFAULT_RATIO_TAU_SOFT_BAND = 0.20  # 写死：|ŷ_τ| 刚过入场线时压目标价
-DEFAULT_TAU_NOWCAST_SIGN_EPS = 0.05  # 写死：强头与 τ 同号闸死区
 DEFAULT_PATH_ENTER = 0.0  # ŷ_hl 极值序 %；|ŷ|≤enter 横盘跳过；与 y_tau_enter 同尺度
 DEFAULT_PATH_STRONG = 5.0  # |y_hl|>此值时须与 y_τ 同号；≤则允许异号
 DEFAULT_GAP_TIER_PCT = 1.0
@@ -74,6 +64,9 @@ _EOD_ITEM_CACHE: Dict[tuple, dict] = {}
 _EOD_ITEM_CACHE_MAX = 256
 # 本地估值/财务：按代码缓存，避免逐根 5m 打盘
 _FUND_CACHE: Dict[str, Any] = {}
+# 同票同日前缀 ŷ：扫描 + 多轮引擎各走一遍，回测可复用
+_PREFIX_RESCORE_CACHE: Dict[tuple, dict] = {}
+_PREFIX_RESCORE_CACHE_MAX = 4096
 
 
 def _f(x: Any) -> Optional[float]:
@@ -1232,33 +1225,6 @@ def _cfg_float(cfg: dict, key: str, default: float) -> float:
         return float(default)
 
 
-def _eod_prior_sign(y_eod: Optional[float], eod_prior: float) -> int:
-    if y_eod is None:
-        return 0
-    if y_eod >= eod_prior:
-        return 1
-    if y_eod <= -eod_prior:
-        return -1
-    return 0
-
-
-def _tau_direction_sign(
-    y_tau: Optional[float],
-    tau_enter: float,
-    *,
-    tau_enter_neg: Optional[float] = None,
-) -> int:
-    if y_tau is None:
-        return 0
-    te_pos = float(tau_enter)
-    te_neg = float(tau_enter if tau_enter_neg is None else tau_enter_neg)
-    if y_tau >= te_pos:
-        return 1
-    if y_tau <= -te_neg:
-        return -1
-    return 0
-
-
 def side_tau_enter(cfg: dict, *, for_buy_then_sell: bool) -> float:
     """反T用 y_tau_enter_sell_then_buy，正T用 y_tau_enter_buy_then_sell；缺省回退 y_tau_enter。
 
@@ -1307,73 +1273,9 @@ def enters_for_y_tau(cfg: dict, y_tau: float) -> Tuple[float, float, bool]:
 
 
 def t0_confidence_scale(scores: dict, cfg: dict) -> float:
-    """ŷ 信心 → 目标价倍数：1=按配置触发；弱压低、强抬高。
-
-    沿用 ``y_ratio_*``：各路取最弱一档（min），映射到
-    ``[y_ratio_cut, y_ratio_boost_cap]``（默认 0.6～2.0）；eod 同向略抬 strength。
-    """
-    if not isinstance(scores, dict):
-        return 1.0
-
-    floor = trade_mag_floor(cfg)
-    cut = _cfg_float(cfg, "y_ratio_cut", DEFAULT_RATIO_CUT)
-    cut = max(0.2, min(float(cut), 1.0))
-    cap = _cfg_float(cfg, "y_ratio_boost_cap", DEFAULT_RATIO_BOOST_CAP)
-    cap = max(1.0, min(float(cap), 2.0))
-    if cap < cut:
-        cap = cut
-    eod_prior = _cfg_float(cfg, "y_eod_prior", DEFAULT_EOD_PRIOR)
-    # 下列曾为隐藏配置，已写死（Web 无控件）
-    eod_align_boost = float(DEFAULT_EOD_ALIGN_BOOST)
-    soft_band = float(DEFAULT_RATIO_TAU_SOFT_BAND)
-
-    strengths: List[float] = []
-
-    y_trade = _f(scores.get("y_trade"))
-    try:
-        from core.signal.yhat_windows import t0_residual_pct
-
-        residual_mag = t0_residual_pct(scores)
-        if residual_mag is not None:
-            y_trade = residual_mag
-    except Exception:  # noqa: BLE001
-        pass
-    if y_trade is not None:
-        mag = abs(y_trade)
-        if mag < floor:
-            strengths.append(0.0)
-        else:
-            span = max(0.5, floor + 1.0)
-            strengths.append(min(1.0, max(0.0, (mag - floor) / span)))
-
-    y_tau = resolve_direction_y_tau(scores)
-    tau_enter = DEFAULT_TAU_ENTER
-    tau_enter_neg = DEFAULT_TAU_ENTER
-    if y_tau is not None:
-        tau_enter = side_tau_enter(cfg, for_buy_then_sell=True)
-        tau_enter_neg = side_tau_enter(cfg, for_buy_then_sell=False)
-        te = tau_enter if y_tau >= 0 else tau_enter_neg
-        if abs(y_tau) >= te:
-            if soft_band > 0 and abs(y_tau) < te + soft_band:
-                strengths.append(0.0)
-            else:
-                span_t = max(0.5, te + 0.5)
-                strengths.append(min(1.0, max(0.0, (abs(y_tau) - te) / span_t)))
-
-    if not strengths:
-        return 1.0
-
-    strength = min(strengths)
-    y_eod = _f(scores.get("y_eod"))
-    if y_tau is not None and y_eod is not None:
-        prior = _eod_prior_sign(y_eod, eod_prior)
-        main = _tau_direction_sign(
-            y_tau, tau_enter, tau_enter_neg=tau_enter_neg
-        )
-        if prior != 0 and main != 0 and prior == main:
-            strength = min(1.0, strength * eod_align_boost)
-
-    return max(cut, min(cap, cut + (cap - cut) * strength))
+    """v6 目标价不再随 ŷ 缩放；保留以免旧调用崩。"""
+    _ = scores, cfg
+    return 1.0
 
 
 def scale_t0_ratio(base_ratio: float, scores: dict, cfg: dict) -> float:
@@ -1466,20 +1368,11 @@ def _tau_cc_for_sign_gate(
     y_tau: float,
     gap_pct: Optional[float],
 ) -> float:
-    """把 OC 口径 y_τ 抬到昨收口径，便于与 y_eod / y_trade 同量纲比号。"""
+    """把 OC 口径 y_τ 抬到昨收口径（features 对照；不再作选向闸）。"""
     from core.signal.dual_score.fusion import lift_tau_vs_prev_close
 
     lifted = lift_tau_vs_prev_close(float(y_tau), gap_pct)
     return float(lifted) if lifted is not None else float(y_tau)
-
-
-def _scores_eod_next(scores: dict) -> bool:
-    win = str(
-        (scores or {}).get("dual_score_window")
-        or (scores or {}).get("y_score_window")
-        or ""
-    ).strip().lower()
-    return win in {"eod_next", "eod", "close"}
 
 
 def _strong_head_tau_sign_gate(
@@ -2878,6 +2771,20 @@ def rescore_scores_at_fixed_prefix(
         # 非开盘信息集传空前缀 = 分钟数据缺失
         return _missing()
     hm = prefix_tau_hm_from_bars(prefix)
+    dkey = str((day_bar or {}).get("date") or "")[:10]
+    cache_key = (
+        raw,
+        dkey,
+        str(hm or ""),
+        len(prefix),
+        1 if fuse_intraday else 0,
+        1 if include_tau_horizons else 0,
+        id(open_snap) if isinstance(open_snap, dict) else 0,
+        id(tau_pool_day) if isinstance(tau_pool_day, dict) else 0,
+    )
+    cached = _PREFIX_RESCORE_CACHE.get(cache_key)
+    if cached is not None:
+        return copy.deepcopy(cached)
     sret = None
     sc: Dict[str, Any] = {}
     try:
@@ -2945,7 +2852,10 @@ def rescore_scores_at_fixed_prefix(
     out["_score_prefix_hm"] = hm
     out["_score_prefix_bars"] = len(prefix)
     out.pop("_minute_data_missing", None)
-    return out
+    if len(_PREFIX_RESCORE_CACHE) >= _PREFIX_RESCORE_CACHE_MAX:
+        _PREFIX_RESCORE_CACHE.clear()
+    _PREFIX_RESCORE_CACHE[cache_key] = out
+    return copy.deepcopy(out)
 
 
 def attach_portrait_y_path(
@@ -3114,31 +3024,14 @@ def resolve_dual_y_direction(
     cash: float,
     shares: float,
 ) -> Dict[str, Any]:
-    """dual_y 准入链（顺序固定）：
+    """dual_y 库函数选向（v6 生产走 close-band，不调用本函数）。
 
-    1. |y_trade|≥y_trade_enter（入场下限）
-    2. 有 y_τ（方向锚）
-    3. path 开且可得 ŷ_hl：y_τ·y_hl 同号且各过**侧向** enter；
-       否则 |y_τ|≥侧向 y_tau_enter（反T / 正T）
-    4. path 必填但缺 ŷ_hl → 跳过
-    5. 有 y_trade：|y_trade|>y_trade_strong 须与**定方向** y_τ（OC）同号（fixed_* / eod_next 跳过）
-    6. 有 y_eod：|y_eod|≥y_eod_enter；|y_eod|>y_eod_strong 须与定方向 y_τ（OC）同号（fixed_* / eod_next 跳过）
-    通过后 y_τ（OC 拟合）映射正/反 T；y_eod_prior 仅抬目标价。
-    定向锚见 ``resolve_direction_y_tau``（优先 y_tau_oc）。
-    说明：trade/eod 强闸必须对比方向 τ，避免大缺口下 τ_cc 与 OC 异号时「表上 trade↔τ 冲突却放行」。
+    1. 有 y_τ（方向锚）
+    2. |y_τ|≥侧向 y_tau_enter（path 链写死关闭）
+    3. 可选 gap_tier 跳过
+    4. 正 T 须有现金+仓
+    通过后 y_τ（OC）映射正/反 T。y_trade / y_eod / nowcast 不参与。
     """
-    trade_enter = trade_mag_floor(cfg)
-    eod_prior = _cfg_float(cfg, "y_eod_prior", DEFAULT_EOD_PRIOR)
-    eod_enter = _cfg_float(cfg, "y_eod_enter", DEFAULT_EOD_ENTER)
-    eod_enter = max(0.01, min(float(eod_enter), 5.0))
-    eod_strong = _cfg_float(
-        cfg, "y_eod_strong", _cfg_float(cfg, "y_eod_tau_sign_gate", DEFAULT_EOD_STRONG)
-    )
-    eod_strong = max(0.05, min(float(eod_strong), 5.0))
-    trade_strong = _cfg_float(
-        cfg, "y_trade_strong", _cfg_float(cfg, "y_trade_tau_sign_gate", DEFAULT_TRADE_STRONG)
-    )
-    trade_strong = max(0.05, min(float(trade_strong), 5.0))
     tau_enter = _cfg_float(cfg, "y_tau_enter", DEFAULT_TAU_ENTER)
     # 主仓 τ 冻结降级回注：与 buy 腿 effective floor 对齐
     eff_enter = _f(cfg.get("y_tau_enter_effective"))
@@ -3165,7 +3058,6 @@ def resolve_dual_y_direction(
         for_buy_then_sell=True,
     )
 
-    sign_eps = float(DEFAULT_TAU_NOWCAST_SIGN_EPS)
     tau_map = normalize_y_tau_map(cfg.get("y_tau_map"))
 
     y_eod = _f(scores.get("y_eod"))
@@ -3184,8 +3076,6 @@ def resolve_dual_y_direction(
         residual = t0_residual_pct(scores)
     except Exception:  # noqa: BLE001
         residual = None
-    mag = residual if residual is not None else y_trade
-    mag_label = "residual" if residual is not None else "y_trade"
     from core.research.path_panel import pick_y_hl
     from core.signal.yhat_windows import pick_y_co
 
@@ -3195,8 +3085,6 @@ def resolve_dual_y_direction(
     gap_pct = _f(scores.get("gap_pct"))
     if gap_pct is None and isinstance(scores.get("features_tau"), dict):
         gap_pct = _f(scores["features_tau"].get("gap_pct"))
-    eod_next = _scores_eod_next(scores if isinstance(scores, dict) else {})
-    # 昨收口径 τ：供 y_eod / y_trade 同量纲同号闸
     y_tau_cc = (
         _tau_cc_for_sign_gate(float(y_tau), gap_pct) if y_tau is not None else None
     )
@@ -3210,9 +3098,9 @@ def resolve_dual_y_direction(
         "y_tau_oc": y_tau,
         "y_tau_cc": y_tau_cc,
         "y_tau_mapped": y_tau_mapped,
-        "dual_score_window": "eod_next" if eod_next else scores.get("dual_score_window"),
+        "dual_score_window": scores.get("dual_score_window"),
         "y_trade": y_trade,
-        "residual": mag,
+        "residual": residual if residual is not None else y_trade,
         "y_co": y_co,
         "y_hl": y_path,
         "y_check": y_check,
@@ -3223,36 +3111,7 @@ def resolve_dual_y_direction(
         "y_hl_enter": path_enter,
         "y_hl_enter_sell_then_buy": path_enter_sell_then_buy,
         "y_hl_enter_buy_then_sell": path_enter_buy_then_sell,
-        "y_eod_enter": eod_enter,
-        "y_eod_strong": eod_strong,
-        "y_trade_enter": trade_enter,
-        "y_trade_strong": trade_strong,
-        "y_eod_tau_sign_gate": eod_strong,
-        "y_trade_tau_sign_gate": trade_strong,
-        "y_trade_floor": trade_enter,
     }
-
-    if mag is None and y_tau is None and y_eod is None:
-        return {
-            "direction": None,
-            "skip": True,
-            "direction_score": None,
-            "direction_reason": "dual_y：缺 mag/y_τ（即时算分失败）",
-            "features": features,
-            "signal_skip": True,
-        }
-
-    if mag is not None and abs(mag) < trade_enter:
-        return {
-            "direction": None,
-            "skip": True,
-            "direction_score": y_tau if y_tau is not None else mag,
-            "direction_reason": (
-                f"dual_y：|{mag_label}|={abs(mag):.3f}%<{trade_enter}% 未过入场"
-            ),
-            "features": features,
-            "signal_skip": True,
-        }
 
     if y_tau is None:
         return {
@@ -3335,74 +3194,6 @@ def resolve_dual_y_direction(
             "signal_skip": True,
         }
 
-    # eod_next：y_τ 多为已实现 OC，禁止与前瞻 ŷ_EOD/ŷ_trade 跨窗比号
-    # 强闸对照定方向 y_τ（OC），不用 τ_cc：大缺口时 τ_cc 可与 OC 异号，
-    # 若用 τ_cc 会出现「表列 trade↔τ 冲突仍开仓」。
-    allow_strong_sign = (
-        not eod_next
-        and tau_map not in ("fixed_sell_then_buy", "fixed_buy_then_sell")
-        and y_tau is not None
-    )
-    if mag is not None and allow_strong_sign:
-        trade_ok, trade_reason = _strong_head_tau_sign_gate(
-            mag,
-            float(y_tau),
-            trade_strong,
-            mag_label,
-            sign_eps=sign_eps,
-            tau_label="y_τ",
-        )
-        if not trade_ok:
-            return {
-                "direction": None,
-                "skip": True,
-                "direction_score": y_tau,
-                "direction_reason": trade_reason
-                or f"dual_y：强 {mag_label} 与 y_τ 异号跳过",
-                "features": features,
-                "signal_skip": True,
-            }
-
-    if y_eod is not None and tau_map not in ("fixed_sell_then_buy", "fixed_buy_then_sell"):
-        if abs(y_eod) < eod_enter:
-            return {
-                "direction": None,
-                "skip": True,
-                "direction_score": y_tau,
-                "direction_reason": (
-                    f"dual_y：|y_eod|={abs(y_eod):.3f}%<{eod_enter}% 未过门槛"
-                ),
-                "features": features,
-                "signal_skip": True,
-            }
-        if allow_strong_sign:
-            eod_ok, eod_reason = _strong_head_tau_sign_gate(
-                y_eod,
-                float(y_tau),
-                eod_strong,
-                "y_eod",
-                sign_eps=sign_eps,
-                tau_label="y_τ",
-            )
-            if not eod_ok:
-                return {
-                    "direction": None,
-                    "skip": True,
-                    "direction_score": y_tau,
-                    "direction_reason": eod_reason
-                    or "dual_y：强 y_eod 与 y_τ 异号跳过",
-                    "features": features,
-                    "signal_skip": True,
-                }
-
-    # y_eod 仅标注 / 目标价同向回升（t0_confidence_scale）
-    prior = 0
-    if y_eod is not None:
-        if y_eod >= eod_prior:
-            prior = 1
-        elif y_eod <= -eod_prior:
-            prior = -1
-
     main = 1 if y_tau > 0 else -1
     direction = direction_from_y_tau_sign(main, cfg)
 
@@ -3442,8 +3233,6 @@ def resolve_dual_y_direction(
         "direction_score": y_tau,
         "direction_reason": (
             f"dual_y[{tau_map}]：y_τ={y_tau:.3f}%→{t0_dir_label(direction)}"
-            + (f"；y_eod先验={prior:+d}" if prior else "")
-            + (f"；y_trade={y_trade:.3f}%" if y_trade is not None else "")
             + path_note
         ),
         "features": {**features, "y_tau_map": tau_map},
@@ -3459,10 +3248,10 @@ def resolve_cover_policy(
 ) -> Dict[str, Any]:
     """尾盘回补策略。
 
-    - **反T**：默认未触达买回则放弃回补；勾选「强制当日回补」则收盘强买。
+    - **反T**：未触达买回则收盘强买（表单「当日回补」已下线，生产常开）。
       强买按**账户余额**（开盘现金+当日累计）判断是否买得起；不够则
       ``abandon_cover_cash``。不再要求卖出净得自给自足。
-    - **正T**：默认强制卖回旧仓；表单关「当日回补」且 y_on 强烈看涨时可隔夜多头。
+    - **正T**：未卖回旧仓则收盘强制卖。
     """
     if direction == "sell_then_buy":
         if bool(cfg.get("must_cover_same_day")):
@@ -3733,6 +3522,7 @@ def clear_score_model_cache() -> None:
     _TAU_XS_DAY_CACHE.clear()
     _EOD_ITEM_CACHE.clear()
     _FUND_CACHE.clear()
+    _PREFIX_RESCORE_CACHE.clear()
     _CS_UNIVERSE_MEMO = None
 
 
@@ -3751,14 +3541,24 @@ def seed_tau_cross_section_pool(tau_pool_by_date: Optional[dict]) -> None:
         seed_tau_cross_section_day(str(dkey), pool_day)
 
 
+def t0_cs_universe_cap() -> int:
+    """与拟合观察池上限同一截面宽度。"""
+    try:
+        from core.watching.store import WATCHING_MAX_SIZE
+
+        return max(8, int(WATCHING_MAX_SIZE))
+    except Exception:  # noqa: BLE001
+        return 200
+
+
 def t0_cs_universe_codes(
     *extras: Any,
     holdings: Optional[Sequence[Any]] = None,
     paper: Optional[dict] = None,
-    cap: int = 120,
+    cap: Optional[int] = None,
 ) -> List[str]:
-    """做 T / 持仓表 / 观察池同截面：纸面持仓 ∪ 观察池 ∪ extra。"""
-    n = max(1, int(cap or 120))
+    """做 T / 持仓表 / 观察池 / 拟合同截面：纸面持仓 ∪ 观察池 ∪ extra。"""
+    n = max(1, int(cap if cap is not None else t0_cs_universe_cap()))
     out: List[str] = []
     seen = set()
 

@@ -2556,14 +2556,20 @@ class PaperTradesMixin:
                 logger.debug("intraday tau_pool build failed", exc_info=True)
                 tau_pool_day = None
             try:
-                from core.signal.minute_tau_feats import seed_peer_minute_bars_map
+                from core.signal.minute_tau_feats import hydrate_cs_peer_minutes
+                from core.t0.score_policy import current_t0_cs_universe_codes
 
-                seed_peer_minute_bars_map(
+                hydrate_cs_peer_minutes(
                     {
                         str(r.get("code")): r.get("minute_bars")
                         for r in loaded_rows
                         if r.get("code") and r.get("minute_bars")
-                    }
+                    },
+                    codes=current_t0_cs_universe_codes(),
+                    period=period,
+                    lookback_days=T0_INTRADAY_MINUTE_LOOKBACK_DAYS,
+                    max_age_hours=T0_INTRADAY_MINUTE_CACHE_HOURS,
+                    fetch_if_missing=True,
                 )
             except Exception:  # noqa: BLE001
                 logger.debug("intraday peer minute seed failed", exc_info=True)

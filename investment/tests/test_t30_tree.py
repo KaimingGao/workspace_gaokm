@@ -78,7 +78,7 @@ class TestT30Tree(unittest.TestCase):
         self.assertEqual(DEFAULT_N_ESTIMATORS, 80)
         self.assertEqual(DEFAULT_N_ESTIMATORS, TAU_N)
         self.assertEqual(TREE_HEAD, "y_t30_tree")
-        self.assertEqual(TREE_SCHEMA, "t30_tree_shadow_v1")
+        self.assertEqual(TREE_SCHEMA, "t30_tree_shadow_v2")
 
     def test_fit_shadow_vs_ridge_no_live_file(self):
         from core.research.t30_ridge import load_t30_model, persist_t30_model
@@ -106,7 +106,7 @@ class TestT30Tree(unittest.TestCase):
         self.assertTrue(report.get("success"), report.get("error"))
         self.assertEqual(report.get("task"), "t30_tree")
         self.assertEqual(report.get("head"), "y_t30_tree")
-        self.assertEqual(report.get("schema"), "t30_tree_shadow_v1")
+        self.assertEqual(report.get("schema"), "t30_tree_shadow_v2")
         self.assertEqual(report.get("backend"), "numpy_gbm")
         self.assertEqual(report.get("target"), "price_tau_plus_30")
         self.assertEqual(report.get("tau"), "10:30")
@@ -119,6 +119,8 @@ class TestT30Tree(unittest.TestCase):
         self.assertIn("sign_hit", oos)
         self.assertIn("ic", oos)
         self.assertIn("residual_var", oos)
+        self.assertIn("auc", oos)
+        self.assertIn("brier", oos)
         self.assertEqual(oos.get("target"), "price_tau_plus_30")
         self.assertIn("sign_hit", ridge)
         self.assertIn("residual_var", ridge)

@@ -35,6 +35,7 @@ from core.research.tau_ridge import (
     _theme_counts,
     build_tau_panels_from_bars,
 )
+from core.research.horizon_prob import binary_labels
 from core.research.tau_tree import (
     DEFAULT_LEARNING_RATE,
     DEFAULT_MAX_DEPTH,
@@ -53,7 +54,7 @@ from core.research.tau_tree import (
 )
 from core.signal.minute_tau_grid import DEFAULT_T90_TRAIN_TAU_GRID
 
-TREE_SCHEMA = "t90_tree_shadow_v1"
+TREE_SCHEMA = "t90_tree_shadow_v2"
 TREE_HEAD = "y_t90_tree"
 TREE_TARGET = "price_tau_plus_90"
 
@@ -169,7 +170,7 @@ def fit_t90_tree_report(
 
     x_tr, means = _design_matrix(xs_tr, feat_names)
     x_te, _ = _design_matrix(xs_te, feat_names, means=means)
-    y_tr = np.asarray(ys_tr, dtype=np.float64)
+    y_tr = np.asarray(binary_labels(ys_tr), dtype=np.float64)
     w_tr = np.asarray(
         theme_sample_weights(metas_tr, theme_boost=theme_boost)
         if use_theme_weights
@@ -185,6 +186,7 @@ def fit_t90_tree_report(
         "max_depth": int(max_depth),
         "learning_rate": float(learning_rate),
         "subsample": float(subsample),
+        "objective": "binary:logistic",
     }
     gain = np.zeros(len(feat_names), dtype=np.float64)
     boost_preds: List[Optional[float]]
@@ -195,8 +197,9 @@ def fit_t90_tree_report(
         boost_preds = [float(v) if math.isfinite(float(v)) else None for v in raw_pred]
     else:
         rng = np.random.default_rng(42)
-        pack, gain = _fit_numpy_gbm(x_tr, y_tr, w_tr, rng=rng, **hyper)
-        raw_pred = _predict_numpy_gbm(pack, x_te)
+        gbm_hyper = {k: v for k, v in hyper.items() if k != "objective"}
+        pack, gain = _fit_numpy_gbm(x_tr, y_tr, w_tr, rng=rng, **gbm_hyper)
+        raw_pred = np.clip(_predict_numpy_gbm(pack, x_te), 1e-6, 1.0 - 1e-6)
         boost_preds = [float(v) if math.isfinite(float(v)) else None for v in raw_pred]
         engine = "numpy_gbm"
     tree_s = round(time.perf_counter() - t_tree0, 2)
@@ -213,10 +216,11 @@ def fit_t90_tree_report(
         theme_boost=theme_boost,
         use_theme_weights=use_theme_weights,
         min_std_exempt=T90_MIN_STD_EXEMPT,
+        kind="prob",
     )
     ridge_s = round(time.perf_counter() - t_ridge0, 2)
-    oos_boost = _oos_pack(boost_preds, ys_te, metas_te, use_minute=True)
-    oos_ridge = _oos_pack(ridge_preds, ys_te, metas_te, use_minute=True)
+    oos_boost = _oos_pack(boost_preds, ys_te, metas_te, use_minute=True, kind="prob")
+    oos_ridge = _oos_pack(ridge_preds, ys_te, metas_te, use_minute=True, kind="prob")
     oos_boost.update(
         {
             "n_train": len(ys_tr),
@@ -243,6 +247,7 @@ def fit_t90_tree_report(
         "task": "t90_tree",
         "head": TREE_HEAD,
         "schema": TREE_SCHEMA,
+        "head_kind": "prob",
         "stock_count": len(enriched),
         "sample_count": len(ys),
         "tau": live_hm,
@@ -265,7 +270,7 @@ def fit_t90_tree_report(
         "backtest_hook": False,
         "persisted": {"success": False, "skipped": True, "reason": "shadow_only"},
         "note": (
-            "ŷ_τ90_tree 影子头：同标签同 Holdout vs Ridge；不写 t90_ridge_model.json，"
+            "ŷ_τ90_tree 影子概率头：同二分类标签同 Holdout vs logistic Ridge；不写 t90_ridge_model.json，"
             "不进交易执行 / 历史回测"
         ),
     }

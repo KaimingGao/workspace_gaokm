@@ -78,7 +78,7 @@ class TestT60Tree(unittest.TestCase):
         self.assertEqual(DEFAULT_N_ESTIMATORS, 80)
         self.assertEqual(DEFAULT_N_ESTIMATORS, TAU_N)
         self.assertEqual(TREE_HEAD, "y_t60_tree")
-        self.assertEqual(TREE_SCHEMA, "t60_tree_shadow_v1")
+        self.assertEqual(TREE_SCHEMA, "t60_tree_shadow_v2")
 
     def test_fit_shadow_vs_ridge_no_live_file(self):
         from core.research.t60_ridge import load_t60_model, persist_t60_model
@@ -106,7 +106,7 @@ class TestT60Tree(unittest.TestCase):
         self.assertTrue(report.get("success"), report.get("error"))
         self.assertEqual(report.get("task"), "t60_tree")
         self.assertEqual(report.get("head"), "y_t60_tree")
-        self.assertEqual(report.get("schema"), "t60_tree_shadow_v1")
+        self.assertEqual(report.get("schema"), "t60_tree_shadow_v2")
         self.assertEqual(report.get("backend"), "numpy_gbm")
         self.assertEqual(report.get("target"), "price_tau_plus_60")
         self.assertEqual(report.get("tau"), "10:30")

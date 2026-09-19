@@ -522,7 +522,7 @@ class RRidgeRequest(BaseModel):
 
 
 class T30RidgeRequest(BaseModel):
-    """ŷ_τ30 Ridge：与 ŷ_oc 同 X → mean(price(τ⊕25/30/35))/price(τ)−1。做 T 破带同号旁路。"""
+    """ŷ_τ30 Ridge：与 ŷ_oc 同 X → mean(price(τ⊕25/30/35))/price(τ)−1。进 ŷ_τw 投票；个股旁路闸已下线。"""
 
     lookback: int = Field(default=120, ge=40, le=500)
     watching_limit: int = Field(
@@ -570,7 +570,7 @@ class T30RidgeRequest(BaseModel):
 
 
 class T45RidgeRequest(BaseModel):
-    """ŷ_τ45 Ridge：与 ŷ_oc 同 X → mean(price(τ⊕40/45/50))/price(τ)−1。做 T 破带同号旁路。"""
+    """ŷ_τ45 Ridge：与 ŷ_oc 同 X → mean(price(τ⊕40/45/50))/price(τ)−1。进 ŷ_τw 投票；个股旁路闸已下线。"""
 
     lookback: int = Field(default=120, ge=40, le=500)
     watching_limit: int = Field(
@@ -618,7 +618,7 @@ class T45RidgeRequest(BaseModel):
 
 
 class T60RidgeRequest(BaseModel):
-    """ŷ_τ60 Ridge：与 ŷ_oc 同 X → mean(price(τ⊕55/60/65))/price(τ)−1。做 T 破带同号旁路。"""
+    """ŷ_τ60 Ridge：与 ŷ_oc 同 X → mean(price(τ⊕55/60/65))/price(τ)−1。进 ŷ_τw 投票；个股旁路闸已下线。"""
 
     lookback: int = Field(default=120, ge=40, le=500)
     watching_limit: int = Field(
@@ -666,7 +666,7 @@ class T60RidgeRequest(BaseModel):
 
 
 class T75RidgeRequest(BaseModel):
-    """ŷ_τ75 Ridge：与 ŷ_oc 同 X → mean(price(τ⊕70/75/80))/price(τ)−1。做 T 破带同号旁路。"""
+    """ŷ_τ75 Ridge：与 ŷ_oc 同 X → mean(price(τ⊕70/75/80))/price(τ)−1。进 ŷ_τw 投票；个股旁路闸已下线。"""
 
     lookback: int = Field(default=120, ge=40, le=500)
     watching_limit: int = Field(
@@ -852,7 +852,7 @@ class ClusterMinuteRefreshRequest(BaseModel):
 
 
 class T90RidgeRequest(BaseModel):
-    """ŷ_τ90 Ridge：与 ŷ_oc 同 X → mean(price(τ⊕85/90/95))/price(τ)−1。做 T 破带同号旁路。"""
+    """ŷ_τ90 Ridge：与 ŷ_oc 同 X → mean(price(τ⊕85/90/95))/price(τ)−1。进 ŷ_τw 投票；个股旁路闸已下线。"""
 
     lookback: int = Field(default=120, ge=40, le=500)
     watching_limit: int = Field(

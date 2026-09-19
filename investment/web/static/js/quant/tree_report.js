@@ -30,7 +30,7 @@ function fmtSec(v) {
 }
 
 function fmtDelta(v, { pct = false, invert = false } = {}) {
-  if (v == null || !Number.isFinite(Number(v))) return "—";
+  if (v == null || !Number.isFinite(Number(v))) return { text: "—", tone: "flat" };
   const n = Number(v);
   const sign = n > 0 ? "+" : "";
   const text = pct ? `${sign}${(n * 100).toFixed(1)}pp` : `${sign}${n.toFixed(3)}`;
@@ -346,16 +346,17 @@ export function treeReportHtml(data, opts = {}) {
       : isR
         ? "ŷ_τc_tree"
         : "ŷ_oc_tree";
+  const isHorizon = isT30 || isT45 || isT60 || isT75 || isT90;
   const ySpec = isT90
-    ? "mean(price(τ⊕85/90/95))/price(τ)−1"
+    ? "I(mean(price(τ⊕85/90/95))/price(τ)−1>0)"
     : isT75
-    ? "mean(price(τ⊕70/75/80))/price(τ)−1"
+    ? "I(mean(price(τ⊕70/75/80))/price(τ)−1>0)"
     : isT60
-    ? "mean(price(τ⊕55/60/65))/price(τ)−1"
+    ? "I(mean(price(τ⊕55/60/65))/price(τ)−1>0)"
     : isT45
-    ? "mean(price(τ⊕40/45/50))/price(τ)−1"
+    ? "I(mean(price(τ⊕40/45/50))/price(τ)−1>0)"
     : isT30
-    ? "mean(price(τ⊕25/30/35))/price(τ)−1"
+    ? "I(mean(price(τ⊕25/30/35))/price(τ)−1>0)"
     : isR
       ? "close/price(τ)−1"
       : "open→close";
@@ -396,6 +397,9 @@ export function treeReportHtml(data, opts = {}) {
   const dMse = fmtDelta(delta.residual_var, { invert: true });
   const dStrong = fmtDelta(delta.strong_sign_hit, { pct: true });
   const dOpen = fmtDelta(delta.open_sign_hit, { pct: true });
+  const dAuc = fmtDelta(delta.auc);
+  const dAcc = fmtDelta(delta.acc_at_50, { pct: true });
+  const dBrier = fmtDelta(delta.brier, { invert: true });
   const verdict = verdictPack(delta, num(openB.sign_hit), num(openR.sign_hit));
 
   const meta =
@@ -425,43 +429,112 @@ export function treeReportHtml(data, opts = {}) {
       .join("") +
     `</div>`;
 
-  const kpis =
-    `<div class="quant-tree-kpis">` +
-    kpiCard("OOS IC", fmtNum(boost.ic), fmtNum(ridge.ic), dIc, "时间切分样本外 IC") +
-    kpiCard("命中", fmtPct(boost.sign_hit), fmtPct(ridge.sign_hit), dHit, "方向命中") +
-    kpiCard(
-      "MSE",
-      fmtNum(boost.residual_var, 4),
-      fmtNum(ridge.residual_var, 4),
-      dMse,
-      "残差方差 · 越低越好"
-    ) +
-    kpiCard(
-      "|ŷ|≥0.6",
-      fmtPct(b06b.sign_hit),
-      fmtPct(b06r.sign_hit),
-      dStrong,
-      "强信号方向命中"
-    ) +
-    kpiCard(
-      "开盘命中",
-      fmtPct(openB.sign_hit),
-      fmtPct(openR.sign_hit),
-      dOpen,
-      "09:30 尚无开→τ 前缀"
-    ) +
-    `</div>`;
+  const kpis = isHorizon
+    ? `<div class="quant-tree-kpis">` +
+      kpiCard("AUC", fmtNum(boost.auc), fmtNum(ridge.auc), dAuc, "Holdout ROC-AUC") +
+      kpiCard(
+        "acc@0.5",
+        fmtPct(boost.acc_at_50 != null ? boost.acc_at_50 : boost.sign_hit),
+        fmtPct(ridge.acc_at_50 != null ? ridge.acc_at_50 : ridge.sign_hit),
+        boost.acc_at_50 != null ? dAcc : dHit,
+        "p_up>0.5 对窗收益>0"
+      ) +
+      kpiCard(
+        "Brier",
+        fmtNum(boost.brier != null ? boost.brier : boost.residual_var, 4),
+        fmtNum(ridge.brier != null ? ridge.brier : ridge.residual_var, 4),
+        dBrier,
+        "越小越好；0.25≈瞎猜"
+      ) +
+      kpiCard(
+        "开盘命中",
+        fmtPct(openB.sign_hit),
+        fmtPct(openR.sign_hit),
+        dOpen,
+        "09:30 尚无分钟前缀"
+      ) +
+      `</div>`
+    : `<div class="quant-tree-kpis">` +
+      kpiCard("OOS IC", fmtNum(boost.ic), fmtNum(ridge.ic), dIc, "时间切分样本外 IC") +
+      kpiCard("命中", fmtPct(boost.sign_hit), fmtPct(ridge.sign_hit), dHit, "方向命中") +
+      kpiCard(
+        "MSE",
+        fmtNum(boost.residual_var, 4),
+        fmtNum(ridge.residual_var, 4),
+        dMse,
+        "残差方差 · 越低越好"
+      ) +
+      kpiCard(
+        "|ŷ|≥0.6",
+        fmtPct(b06b.sign_hit),
+        fmtPct(b06r.sign_hit),
+        dStrong,
+        "强信号方向命中"
+      ) +
+      kpiCard(
+        "开盘命中",
+        fmtPct(openB.sign_hit),
+        fmtPct(openR.sign_hit),
+        dOpen,
+        "09:30 尚无开→τ 前缀"
+      ) +
+      `</div>`;
 
-  const cols = [
-    { id: "model", label: "模型", widthPct: 18 },
-    { id: "ic", label: "OOS IC", num: true, widthPct: 14 },
-    { id: "hit", label: "命中", num: true, widthPct: 14 },
-    { id: "mse", label: "MSE", num: true, widthPct: 16 },
-    { id: "strong", label: "|ŷ|≥0.6", num: true, widthPct: 14 },
-    { id: "open", label: "开盘命中", num: true, widthPct: 14 },
-    { id: "n", label: "测 n", num: true, widthPct: 10 },
-  ];
-  const rows = [
+  const cols = isHorizon
+    ? [
+        { id: "model", label: "模型", widthPct: 18 },
+        { id: "auc", label: "AUC", num: true, widthPct: 14 },
+        { id: "acc", label: "acc@0.5", num: true, widthPct: 14 },
+        { id: "brier", label: "Brier", num: true, widthPct: 16 },
+        { id: "open", label: "开盘命中", num: true, widthPct: 18 },
+        { id: "n", label: "测 n", num: true, widthPct: 10 },
+      ]
+    : [
+        { id: "model", label: "模型", widthPct: 18 },
+        { id: "ic", label: "OOS IC", num: true, widthPct: 14 },
+        { id: "hit", label: "命中", num: true, widthPct: 14 },
+        { id: "mse", label: "MSE", num: true, widthPct: 16 },
+        { id: "strong", label: "|ŷ|≥0.6", num: true, widthPct: 14 },
+        { id: "open", label: "开盘命中", num: true, widthPct: 14 },
+        { id: "n", label: "测 n", num: true, widthPct: 10 },
+      ];
+  const rows = isHorizon
+    ? [
+        {
+          id: "ridge",
+          model: "Ridge",
+          auc: fmtNum(ridge.auc),
+          acc: fmtPct(ridge.acc_at_50 != null ? ridge.acc_at_50 : ridge.sign_hit),
+          brier: fmtNum(ridge.brier != null ? ridge.brier : ridge.residual_var, 4),
+          open: fmtPct(openR.sign_hit),
+          n: fmtN(ridge.n_test),
+        },
+        {
+          id: "tree",
+          model: engine,
+          auc: fmtNum(boost.auc),
+          acc: fmtPct(boost.acc_at_50 != null ? boost.acc_at_50 : boost.sign_hit),
+          brier: fmtNum(boost.brier != null ? boost.brier : boost.residual_var, 4),
+          open: fmtPct(openB.sign_hit),
+          n: fmtN(boost.n_test),
+        },
+        {
+          id: "delta",
+          model: "树 − Ridge",
+          auc: dAuc.text,
+          acc: (boost.acc_at_50 != null ? dAcc : dHit).text,
+          brier: dBrier.text,
+          open: dOpen.text,
+          n: "—",
+          tones: {
+            auc: dAuc.tone,
+            acc: (boost.acc_at_50 != null ? dAcc : dHit).tone,
+            brier: dBrier.tone,
+            open: dOpen.tone,
+          },
+        },
+      ]
+    : [
     {
       id: "ridge",
       model: "Ridge",

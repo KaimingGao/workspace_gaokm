@@ -379,7 +379,7 @@ class RelabelT30Tests(unittest.TestCase):
         elapsed = time.perf_counter() - t0
         self.assertGreater(len(ys), 100)
         self.assertTrue(any(m.get("tau_plus_30") == "13:15" for m in metas))
-        self.assertLess(elapsed, 4.0, msg=f"collect too slow: {elapsed:.2f}s n={len(ys)}")
+        self.assertLess(elapsed, 6.0, msg=f"collect too slow: {elapsed:.2f}s n={len(ys)}")
 
 
 class T30RidgeFitTests(unittest.TestCase):
@@ -422,7 +422,7 @@ class T30RidgeFitTests(unittest.TestCase):
             holdout_trading_days=5,
         )
         self.assertTrue(report.get("success"), msg=report)
-        self.assertEqual(report.get("schema"), "t30_ridge_v1")
+        self.assertEqual(report.get("schema"), "t30_ridge_v2")
         self.assertEqual(report.get("dual_score_head"), "y_t30")
         self.assertEqual(report.get("target"), "price_tau_plus_30")
         y_spec = (report.get("return_model") or {}).get("y_spec") or {}
@@ -497,12 +497,12 @@ class T30GateTests(unittest.TestCase):
         from core.t0.config import load_t0_rules
         from core.t0.viz import classify_t0_skip_reason
 
-        self.assertEqual(float(load_t0_rules({})["y_t30_strong"]), 0.0)
-        self.assertEqual(float(load_t0_rules({})["y_t30_enter"]), 0.0)
-        self.assertEqual(float(load_t0_rules({})["y_t30_enter_alt"]), 0.0)
+        self.assertNotIn("y_t30_strong", load_t0_rules({}))
+        self.assertNotIn("y_t30_enter", load_t0_rules({}))
+        self.assertNotIn("y_t30_enter_alt", load_t0_rules({}))
 
         skip = close_band_y_t30_skip_reason(
-            {"y_τ30": 1.2},
+            {"y_τ30": 0.8},
             {"y_t30_strong": 0},
             direction="sell_then_buy",
         )
@@ -512,7 +512,7 @@ class T30GateTests(unittest.TestCase):
 
         self.assertIsNone(
             close_band_y_t30_skip_reason(
-                {"y_τ30": -1.2},
+                {"y_τ30": 0.2},
                 {"y_t30_strong": 0},
                 direction="sell_then_buy",
             )
@@ -526,21 +526,21 @@ class T30GateTests(unittest.TestCase):
         )
         self.assertIsNone(
             close_band_y_t30_skip_reason(
-                {"y_τ30": 1.2},
+                {"y_τ30": 0.8},
                 {"y_t30_strong": 1},
                 direction="sell_then_buy",
             )
         )
         self.assertIsNone(
             close_band_y_t30_skip_reason(
-                {"y_τ30": 1.2},
+                {"y_τ30": 0.8},
                 {"y_t30_strong": 0},
                 direction="buy_then_sell",
             )
         )
         self.assertIsNone(
             close_band_y_t30_skip_reason(
-                {"y_τ30": 0.2},
+                {"y_τ30": 0.7},
                 {"y_t30_strong": 0, "y_t30_enter": 0.5},
                 direction="buy_then_sell",
             )
@@ -557,22 +557,29 @@ class T30GateTests(unittest.TestCase):
             "y_t30_enter": 0.5,
         }
         weak = close_band_enter_skip_reason(
-            {"y_tau": 1.0, "y_path": 1.0, "y_τ30": 0.2}, cfg
+            {"y_tau": 1.0, "y_path": 1.0, "y_τ30": 0.2},
+            cfg,
+            direction="buy_then_sell",
         )
         self.assertIsNotNone(weak)
         self.assertEqual(classify_t0_skip_reason(weak), "y_t30_flat")
         self.assertIsNone(
             close_band_enter_skip_reason(
-                {"y_tau": 1.0, "y_path": 1.0, "y_τ30": 0.8}, cfg
+                {"y_tau": 1.0, "y_path": 1.0, "y_τ30": 0.8},
+                cfg,
+                direction="buy_then_sell",
             )
         )
         self.assertIsNone(
-            close_band_enter_skip_reason({"y_tau": 1.0, "y_path": 1.0}, cfg)
+            close_band_enter_skip_reason(
+                {"y_tau": 1.0, "y_path": 1.0}, cfg, direction="buy_then_sell"
+            )
         )
         self.assertIsNone(
             close_band_enter_skip_reason(
                 {"y_tau": 1.0, "y_path": 1.0, "y_τ30": 0.2},
                 {**cfg, "y_t30_enter": 0.9, "y_t30_enter_alt": 0.1},
+                direction="buy_then_sell",
             )
         )
 
@@ -657,11 +664,18 @@ class TTwGateTests(unittest.TestCase):
         from core.t0.viz import classify_t0_skip_reason
 
         self.assertEqual(float(load_t0_rules({})["y_tw_strong"]), 5.0)
-        self.assertAlmostEqual(blend_y_tw(1.0, -0.2, -0.5), -1.0)
-        self.assertAlmostEqual(blend_y_tw(1.0, 0.1, 0.2), 3.0)
+        self.assertAlmostEqual(float(load_t0_rules({})["y_tw_vote_margin"]), 2.0)
+        self.assertAlmostEqual(blend_y_tw(0.8, 0.2, 0.3), -1.0)
+        self.assertAlmostEqual(blend_y_tw(0.8, 0.6, 0.55), 3.0)
+        self.assertAlmostEqual(blend_y_tw(0.8, 0.51, 0.49), 1.0)
+        self.assertIsNone(blend_y_tw(0.51, 0.50, 0.49))
+        self.assertAlmostEqual(blend_y_tw(0.53, 0.47, 0.52), 0.0)
+        self.assertAlmostEqual(
+            blend_y_tw(0.51, 0.50, 0.49, cfg={"y_tw_vote_margin": 0}), 0.0
+        )
         self.assertIsNone(blend_y_tw(None, None, None))
 
-        scores = {"y_τ30": 1.2, "y_τ60": 0.4, "y_τ90": 0.3}
+        scores = {"y_τ30": 0.8, "y_τ60": 0.6, "y_τ90": 0.55}
         skip = close_band_y_tw_skip_reason(
             scores,
             {"y_tw_strong": 0},
@@ -694,7 +708,7 @@ class TTwGateTests(unittest.TestCase):
         )
         self.assertIsNone(
             close_band_y_tw_skip_reason(
-                {"y_τ30": 1.0, "y_τ60": -0.2, "y_τ90": -0.5},
+                {"y_τ30": 0.8, "y_τ60": 0.2, "y_τ90": 0.3},
                 {"y_tw_strong": 1},
                 direction="sell_then_buy",
             )

@@ -178,6 +178,12 @@ class QuantFollowMixin:
                 if t0_backtest_job.is_cancel_requested():
                     t0_backtest_job.finish(error="已取消", job_id=job_id)
                     return
+                t0_backtest_job.update(
+                    current=0,
+                    total=n_hold,
+                    message="准备回测…",
+                    job_id=job_id,
+                )
                 result = self.run_t0_backtest(
                     code,
                     lookback=lookback,

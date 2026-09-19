@@ -583,7 +583,8 @@ export function createFactorIcUi(deps) {
     const isT60 = opts.head === "t60";
     const isT75 = opts.head === "t75";
     const isT90 = opts.head === "t90";
-    const isR = opts.head === "r" || isT30 || isT45 || isT60 || isT75 || isT90;
+    const isHorizon = isT30 || isT45 || isT60 || isT75 || isT90;
+    const isR = opts.head === "r" || isHorizon;
     const isTpd = opts.head === "tpd";
     const isCxHead = opts.head === "cx";
     const isCx = isCxHead || isTpd;
@@ -848,9 +849,21 @@ export function createFactorIcUi(deps) {
                 : opts.head === "r"
                   ? "price[τ]/close[T]-1"
                   : "close[T]/open[T]-1");
-    const ySpec = compactYSpecFormula(ySpecRaw, ySpecObj);
+    const ySpecProbRaw =
+      isHorizon && (ySpecObj.unit === "prob" || String(rm.head_kind || "") === "prob")
+        ? ySpecObj.label ||
+          (String(ySpecRaw).trim().startsWith("I(")
+            ? ySpecRaw
+            : `I((${String(ySpecRaw).split("·")[0].trim() || ySpecRaw})>0)`)
+        : ySpecRaw;
+    const ySpec = compactYSpecFormula(ySpecProbRaw, ySpecObj);
     const ySpecClocks = _tauClocksFromYSpec(ySpecRaw, ySpecObj);
     const oos = opts.oos || {};
+    const useProbKpis =
+      isHorizon &&
+      ((oos.auc != null && Number.isFinite(Number(oos.auc))) ||
+        ySpecObj.unit === "prob" ||
+        String(rm.head_kind || "") === "prob");
     const openN = rows.filter((r) => r.kind === "开盘" || r.kind === "路径").length;
     const minuteN = rows.filter((r) => r.kind === "分钟").length;
     const histN = rows.filter((r) => r.kind === "历史").length;
@@ -892,9 +905,15 @@ export function createFactorIcUi(deps) {
         : null;
     const interceptTip = isCx
       ? "去均值后加回标签均值（∈[0,1]）"
-      : isR
-        ? "执行套截距：全样本标签均值 + α_dm。观察/持仓 / 做 T 回测默认用这套。选研究套 Holdout 时数字会不同。"
-        : "模型截距（%）";
+      : isHorizon
+        ? "无因子时的 p_up = sigmoid(logistic 截距)。执行套=全样本。"
+        : isR
+          ? "执行套截距：全样本标签均值 + α_dm。观察/持仓 / 做 T 回测默认用这套。选研究套 Holdout 时数字会不同。"
+          : "模型截距（%）";
+    const fmtLogitAsP = (z) => {
+      const p = 1 / (1 + Math.exp(-Number(z)));
+      return Number.isFinite(p) ? `${(p * 100).toFixed(1)}%` : "—";
+    };
     const nTip = oos.holdout_trading_days != null
       ? "执行套全样本入模行；Holdout 只改研究套训/测，不改此数"
       : "全面板完整行（OOS 后重估 β）；状态栏「面板 n」含缺测行，OOS n 含同日多 τ";
@@ -909,15 +928,23 @@ export function createFactorIcUi(deps) {
         isPath ? `${isTpd ? "tpd" : isCxHead ? "cx" : "path"} 模型摘要` : isOn ? "on 模型摘要" : isT90 ? "t90 模型摘要" : isT75 ? "t75 模型摘要" : isT60 ? "t60 模型摘要" : isT45 ? "t45 模型摘要" : isT30 ? "t30 模型摘要" : isR ? "r 模型摘要" : "τ 模型摘要"
       )}">` +
       (intercept != null
-        ? kpi(isR ? "执行套" : "截距", intercept.toFixed(3), interceptTip)
+        ? kpi(
+            useProbKpis ? "基率" : isR ? "执行套" : "截距",
+            useProbKpis ? fmtLogitAsP(intercept) : intercept.toFixed(3),
+            interceptTip
+          )
         : "") +
       (isR &&
       researchIntercept != null &&
       (intercept == null || Math.abs(researchIntercept - intercept) > 1e-4)
         ? kpi(
-            "研究套",
-            researchIntercept.toFixed(3),
-            "Holdout 训练集截距 · 做 T 回测 / 历史验证用"
+            useProbKpis ? "研究基率" : "研究套",
+            useProbKpis
+              ? fmtLogitAsP(researchIntercept)
+              : researchIntercept.toFixed(3),
+            isHorizon
+              ? "Holdout 训练集基率 · 做 T 回测 / 历史验证用"
+              : "Holdout 训练集截距 · 做 T 回测 / 历史验证用"
           )
         : "") +
       (nFmt != null ? kpi("样本 n", nFmt, nTip) : "") +
@@ -934,24 +961,39 @@ export function createFactorIcUi(deps) {
       (oos.n_test != null && Number.isFinite(Number(oos.n_test))
         ? kpi("测 n", Number(oos.n_test).toLocaleString("en-US"), "Holdout 样本外")
         : "") +
-      (r2 != null ? kpi("R²", r2.toFixed(3), "全面板样本内拟合优度，非 OOS") : "") +
-      (lam != null ? kpi("λ", lam, "Ridge 收缩") : "") +
-      (oos.ic != null && Number.isFinite(Number(oos.ic))
+      (!useProbKpis && r2 != null
+        ? kpi("R²", r2.toFixed(3), "全面板样本内拟合优度，非 OOS")
+        : "") +
+      (lam != null ? kpi("λ", lam, useProbKpis ? "logistic Ridge L2（只罚斜率）" : "Ridge 收缩") : "") +
+      (useProbKpis && oos.auc != null && Number.isFinite(Number(oos.auc))
+        ? kpi("AUC", Number(oos.auc).toFixed(3), "Holdout ROC-AUC；随机≈0.50，promote≥0.52")
+        : "") +
+      (useProbKpis && oos.acc_at_50 != null && Number.isFinite(Number(oos.acc_at_50))
+        ? kpi(
+            "acc@0.5",
+            `${(Number(oos.acc_at_50) * 100).toFixed(1)}%`,
+            "p_up>0.5 对窗收益>0"
+          )
+        : "") +
+      (useProbKpis && oos.brier != null && Number.isFinite(Number(oos.brier))
+        ? kpi("Brier", Number(oos.brier).toFixed(3), "越小越好；0.25≈瞎猜")
+        : "") +
+      (!useProbKpis && oos.ic != null && Number.isFinite(Number(oos.ic))
         ? kpi("OOS IC", Number(oos.ic).toFixed(3), oosIcTip)
         : "") +
-      (oos.sign_hit_rate != null && Number.isFinite(Number(oos.sign_hit_rate))
+      (!useProbKpis && oos.sign_hit_rate != null && Number.isFinite(Number(oos.sign_hit_rate))
         ? kpi(
             "命中",
             `${(Number(oos.sign_hit_rate) * 100).toFixed(1)}%`,
             "样本外方向命中率"
           )
-        : oos.sign_hit != null && Number.isFinite(Number(oos.sign_hit))
+        : !useProbKpis && oos.sign_hit != null && Number.isFinite(Number(oos.sign_hit))
           ? kpi(
               "命中",
               `${(Number(oos.sign_hit) * 100).toFixed(1)}%`,
               "样本外方向命中率"
             )
-          : oos.median_hit != null && Number.isFinite(Number(oos.median_hit))
+          : !useProbKpis && oos.median_hit != null && Number.isFinite(Number(oos.median_hit))
             ? kpi(
                 "中位命中",
                 `${(Number(oos.median_hit) * 100).toFixed(1)}%`,
@@ -979,6 +1021,8 @@ export function createFactorIcUi(deps) {
       ? "TPD 标签无方向；τ 分桶看 IC / 中位命中，≈50% 中位命中即无信息"
       : isCxHead
       ? "曲折度标签无方向；τ 分桶看 IC / 中位命中，≈50% 中位命中即无信息"
+      : isHorizon
+      ? "p_up>0.5 与 τ 后窗收益同号；标签不含开→τ，晚钟不会被已实现路径垫高"
       : isPath
       ? "极值序标签下 τ 越晚特征更贴标签，命中易虚高；优先分档对照，live 仍用决策钟"
       : "OC 标签下 τ 越晚命中通常越高（开→τ 已实现垫高）；看开盘/首根/10:00/11:00，不必逐钟";
@@ -1080,8 +1124,10 @@ export function createFactorIcUi(deps) {
     const head =
       `<div class="quant-rem-coef-head">` +
       `<div class="quant-rem-coef-head-main">` +
-      `<span class="quant-rem-coef-title">${yhatTag} 系数表</span>` +
-      `<span class="quant-rem-coef-sub">按 |β| 降序 · 标准化斜率</span>` +
+      `<span class="quant-rem-coef-title">${yhatTag}${useProbKpis ? " 概率头" : " 系数表"}</span>` +
+      `<span class="quant-rem-coef-sub">${
+        useProbKpis ? "按 |β| 降序 · logit 标准化斜率" : "按 |β| 降序 · 标准化斜率"
+      }</span>` +
       `</div>` +
       `<div class="quant-rem-coef-legend" aria-hidden="true">` +
       `<span class="quant-rem-leg is-pos">正β</span>` +
@@ -1101,7 +1147,9 @@ export function createFactorIcUi(deps) {
     const betaCell = (r) => {
       const pos = r.ols >= 0;
       const half = Math.max(6, (r.abs / maxAbs) * 50);
-      const tip = `β=${r.ols.toFixed(4)}：因子高 1σ → ${yhatTag} 约 ${pos ? "+" : ""}${r.ols.toFixed(3)}pp`;
+      const tip = isHorizon
+        ? `β=${r.ols.toFixed(4)}：因子高 1σ → logit ${pos ? "+" : ""}${r.ols.toFixed(3)}（p_up 随之升降）`
+        : `β=${r.ols.toFixed(4)}：因子高 1σ → ${yhatTag} 约 ${pos ? "+" : ""}${r.ols.toFixed(3)}pp`;
       return (
         `<div class="quant-rem-beta-cell" title="${esc(tip)}">` +
         `<div class="quant-rem-beta-track is-bipolar" aria-hidden="true">` +

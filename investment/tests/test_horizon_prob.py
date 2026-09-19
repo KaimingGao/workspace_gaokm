@@ -1,0 +1,96 @@
+"""τ 后窗口概率头：logistic Ridge、p_agree、闸迁移。"""
+
+from __future__ import annotations
+
+import os
+import sys
+import unittest
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if ROOT not in sys.path:
+    sys.path.insert(0, ROOT)
+
+
+class HorizonProbHelpersTests(unittest.TestCase):
+    def test_p_agree_folds_direction(self):
+        from core.research.horizon_prob import horizon_band_agree, p_agree, p_up_vote
+
+        self.assertAlmostEqual(p_agree("buy_then_sell", 0.7), 0.7)
+        self.assertAlmostEqual(p_agree("sell_then_buy", 0.7), 0.3)
+        self.assertTrue(horizon_band_agree("buy_then_sell", 0.7))
+        self.assertFalse(horizon_band_agree("sell_then_buy", 0.7))
+        self.assertTrue(horizon_band_agree("sell_then_buy", 0.3))
+        self.assertIsNone(p_agree(None, 0.7))
+        self.assertEqual(p_up_vote(0.7), 1)
+        self.assertEqual(p_up_vote(0.3), -1)
+        self.assertIsNone(p_up_vote(0.5))
+        self.assertIsNone(p_up_vote(0.52))
+        self.assertIsNone(p_up_vote(0.48))
+        self.assertIsNone(p_up_vote(0.51))
+        self.assertIsNone(p_up_vote(0.49))
+        self.assertEqual(p_up_vote(0.521), 1)
+        self.assertEqual(p_up_vote(0.479), -1)
+        self.assertEqual(p_up_vote(0.51, margin_pp=0), 1)
+        self.assertEqual(p_up_vote(0.49, margin_pp=0), -1)
+        self.assertIsNone(p_up_vote(0.54, margin_pp=5))
+        self.assertEqual(p_up_vote(0.56, margin_pp=5), 1)
+
+    def test_logistic_separates_on_synthetic(self):
+        from core.research.horizon_prob import (
+            fit_logistic_ridge_from_panel,
+            predict_p_up_rows,
+            roc_auc,
+        )
+
+        xs = []
+        ys = []
+        for i in range(40):
+            z = -1.5 + 3.0 * i / 39.0
+            xs.append({"gap_pct": z, "mom3_pct": z * 0.4})
+            ys.append(1.0 if z > 0 else 0.0)
+        fit = fit_logistic_ridge_from_panel(
+            xs,
+            ys,
+            feature_names=["gap_pct", "mom3_pct"],
+            ridge_lambda=1.0,
+            min_std_exempt=["gap_pct", "mom3_pct"],
+        )
+        self.assertTrue(fit.get("success"), fit)
+        self.assertEqual(fit.get("head_kind"), "prob")
+        preds = predict_p_up_rows(fit, xs)
+        self.assertTrue(all(p is not None and 0.0 < p < 1.0 for p in preds))
+        auc = roc_auc(preds, ys)
+        self.assertIsNotNone(auc)
+        self.assertGreater(float(auc), 0.8)
+
+    def test_migrate_old_percent_overlay(self):
+        from core.research.horizon_prob import migrate_horizon_gate_cfg
+        from core.t0.config import load_t0_rules
+
+        raw = {
+            "y_t30_strong": 0.2,
+            "y_t30_enter": 0.4,
+            "y_t60_enter": 0.55,
+            "y_t90_enter": 1.2,
+        }
+        migrate_horizon_gate_cfg(raw)
+        self.assertEqual(raw["y_t30_strong"], 0.0)
+        self.assertEqual(raw["y_t30_enter"], 0.0)
+        self.assertAlmostEqual(raw["y_t60_enter"], 0.55)
+        self.assertEqual(raw["y_t90_enter"], 0.0)
+
+        loaded = load_t0_rules(
+            {"y_t30_strong": 0.3, "y_t30_enter": 0.4, "y_t45_enter": 0.6}
+        )
+        self.assertNotIn("y_t30_strong", loaded)
+        self.assertNotIn("y_t30_enter", loaded)
+        self.assertNotIn("y_t45_enter", loaded)
+        self.assertAlmostEqual(float(load_t0_rules({})["y_tw_vote_margin"]), 2.0)
+        self.assertAlmostEqual(float(load_t0_rules({"y_tw_vote_margin": 25})["y_tw_vote_margin"]), 20.0)
+        self.assertAlmostEqual(
+            float(load_t0_rules({"y_τw_vote_margin": 3.5})["y_tw_vote_margin"]), 3.5
+        )
+
+
+if __name__ == "__main__":
+    unittest.main()

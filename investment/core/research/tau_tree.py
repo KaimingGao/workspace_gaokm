@@ -154,7 +154,12 @@ def _oos_pack(
     metas: Sequence[dict],
     *,
     use_minute: bool,
+    kind: str = "pct",
 ) -> Dict[str, Any]:
+    if str(kind or "pct") == "prob":
+        from core.research.horizon_prob import oos_prob_pack
+
+        return oos_prob_pack(preds, ys, metas, use_minute=use_minute)
     pred_list = list(preds)
     y_list = [float(y) for y in ys]
     meta_list = list(metas)
@@ -192,6 +197,9 @@ def _delta_oos(boost: Dict[str, Any], ridge: Dict[str, Any]) -> Dict[str, Any]:
         "ic": _sub(boost.get("ic"), ridge.get("ic")),
         "sign_hit": _sub(boost.get("sign_hit"), ridge.get("sign_hit")),
         "residual_var": _sub(boost.get("residual_var"), ridge.get("residual_var")),
+        "auc": _sub(boost.get("auc"), ridge.get("auc")),
+        "brier": _sub(boost.get("brier"), ridge.get("brier")),
+        "acc_at_50": _sub(boost.get("acc_at_50"), ridge.get("acc_at_50")),
         "strong_sign_hit": _sub(b06_b, b06_r),
         "open_sign_hit": _sub(open_b, open_r),
     }
@@ -386,9 +394,11 @@ def _fit_xgboost(
     max_depth: int,
     learning_rate: float,
     subsample: float,
+    objective: str = "reg:squarederror",
 ) -> Tuple[Any, np.ndarray]:
     import xgboost as xgb
 
+    obj = str(objective or "reg:squarederror").strip() or "reg:squarederror"
     dtrain = xgb.DMatrix(x, label=y, weight=w)
     booster = xgb.train(
         {
@@ -398,7 +408,7 @@ def _fit_xgboost(
             "colsample_bytree": 0.9,
             "lambda": 1.0,
             "min_child_weight": 8,
-            "objective": "reg:squarederror",
+            "objective": obj,
             "tree_method": "hist",
             "nthread": 1,
             "seed": 42,
@@ -463,12 +473,43 @@ def _fit_ridge_oos(
     theme_boost: float,
     use_theme_weights: bool,
     min_std_exempt: Optional[Sequence[str]] = None,
+    kind: str = "pct",
 ) -> Tuple[Dict[str, Any], List[Optional[float]]]:
     weights = (
         theme_sample_weights(metas_tr, theme_boost=theme_boost)
         if use_theme_weights
         else None
     )
+    if str(kind or "pct") == "prob":
+        from core.research.horizon_prob import (
+            binary_labels,
+            fit_logistic_ridge_from_panel,
+            predict_p_up_rows,
+        )
+
+        fit = fit_logistic_ridge_from_panel(
+            xs_tr,
+            binary_labels(ys_tr),
+            feature_names=feat_names,
+            ridge_lambda=ridge_lambda,
+            sample_weights=weights,
+            min_std_exempt=list(
+                min_std_exempt if min_std_exempt is not None else TAU_MIN_STD_EXEMPT
+            ),
+            collinearity_policy="keep_all",
+        )
+        if not fit.get("success"):
+            fit = {
+                "success": True,
+                "intercept": 0.0,
+                "coefficients": {},
+                "active_features": [],
+                "zscore_means": {},
+                "zscore_stds": {},
+                "head_kind": "prob",
+            }
+        preds = predict_p_up_rows(fit, xs_te) if xs_te else []
+        return fit, preds
     y_mean = sum(float(y) for y in ys_tr) / max(1, len(ys_tr))
     ys_tr_dm = [float(y) - y_mean for y in ys_tr]
     fit = fit_factor_ols_from_panel(

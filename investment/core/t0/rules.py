@@ -351,9 +351,12 @@ def simulate_t0_on_holdings(
             logger.debug("holdings tau_pool build failed", exc_info=True)
             tau_pool = None
     try:
-        from core.signal.minute_tau_feats import seed_peer_minute_bars_map
+        from core.signal.minute_tau_feats import hydrate_cs_peer_minutes
 
-        seed_peer_minute_bars_map(minute_bars_by_code)
+        hydrate_cs_peer_minutes(
+            minute_bars_by_code if isinstance(minute_bars_by_code, dict) else None,
+            fetch_if_missing=True,
+        )
     except Exception:  # noqa: BLE001
         logger.debug("holdings peer minute seed failed", exc_info=True)
 

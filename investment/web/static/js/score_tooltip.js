@@ -27,6 +27,8 @@ import {
   blendYtw,
   yTwSign,
   fmtYtwVote,
+  fmtHorizonProb,
+  readHorizonVoteMarginP,
   resolvePathScore,
   compoundPct,
   Y_NC_TITLE,
@@ -1220,7 +1222,7 @@ function formatCompactTWTip(raw) {
   const y60 = resolveYT60Score(raw);
   const y75 = resolveYT75Score(raw);
   const y90 = resolveYT90Score(raw);
-  const fit = blendYtw(y30, y60, y90, y45, y75);
+  const fit = blendYtw(y30, y60, y90, y45, y75, true);
   const fitTxt = fit == null ? "—" : fmtYtwVote(fit);
   const tau = String((raw && (raw.as_of_tau || raw.rem_tau)) || "open");
   const r30Raw = raw && (raw.y_t30_realized ?? raw.t30_realized);
@@ -1236,12 +1238,12 @@ function formatCompactTWTip(raw) {
   const real = blendYtw(r30, r60, r90, r45, r75);
   const rows = [];
   const pushHead = (label, hat, realN) => {
-    const fHat = yTwSign(hat);
+    const fHat = yTwSign(hat, true);
     const fReal = yTwSign(realN);
     const hatTxt =
       hat == null
         ? "—"
-        : `${fHat == null ? "—" : fmtYtwVote(fHat)} · ${fmtSigned(hat, 3)}%`;
+        : `${fHat == null ? "弃权" : fmtYtwVote(fHat)} · ${fmtHorizonProb(hat)}`;
     const realTxt =
       realN == null
         ? ""
@@ -1276,8 +1278,9 @@ function formatCompactTWTip(raw) {
   if (y60 == null) missing.push("ŷ_τ60");
   if (y75 == null) missing.push("ŷ_τ75");
   if (y90 == null) missing.push("ŷ_τ90");
+  const mPp = Math.round(readHorizonVoteMarginP() * 1000) / 10;
   const hint =
-    `τ=${escapeText(tau)} · ŷ_τw=f(ŷ_τ30)+f(ŷ_τ45)+f(ŷ_τ60)+f(ŷ_τ75)+f(ŷ_τ90) · f(x)=1 if x>0 else −1` +
+    `τ=${escapeText(tau)} · ŷ_τw=f(ŷ_τ30)+f(ŷ_τ45)+f(ŷ_τ60)+f(ŷ_τ75)+f(ŷ_τ90) · f=sign(p_up−0.5)；|p−0.5|≤${mPp}pp 不投票` +
     (missing.length ? ` · 缺 ${missing.join("、")}，不计` : "");
   return (
     `<div class="score-layer score-layer-tw">` +
@@ -2549,15 +2552,22 @@ export function formatT0DirectionDetail(raw) {
   const feats = (raw && raw.features) || (raw && raw.direction_features) || {};
   const scores = (raw && raw.scores) || {};
   const yKeys = [
-    ["y_eod", "y_oo"],
     ["y_tau", "y_oc"],
-    ["y_trade", "y_trade"],
-    ["y_on", "y_co"],
-    ["y_nowcast", "nowcast"],
+    ["y_hl", "y_hl"],
+    ["y_τ30", "y_τ30"],
+    ["y_τ45", "y_τ45"],
+    ["y_τ60", "y_τ60"],
+    ["y_τ75", "y_τ75"],
+    ["y_τ90", "y_τ90"],
   ];
   const yRows = yKeys
     .map(([k, label]) => {
-      const v = feats[k] ?? scores[k];
+      const alt = String(k).replace("y_τ", "y_t");
+      const v =
+        feats[k] ??
+        scores[k] ??
+        (alt !== k ? feats[alt] ?? scores[alt] : null) ??
+        (k === "y_hl" ? feats.y_path ?? scores.y_path : null);
       if (v == null || v === "") return "";
       const n = Number(v);
       const txt = Number.isFinite(n) ? `${fmtSigned(n, 3)}%` : String(v);

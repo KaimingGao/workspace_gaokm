@@ -306,7 +306,6 @@ def backtest_t0_on_bars(
         "底仓做T回测；默认 trigger 成交；"
         f"direction={cfg.get('direction')} · "
         f"y_score_source={cfg.get('y_score_source')} · "
-        f"y_tau_enter=±{cfg.get('y_tau_enter')}%；"
         + "仅 5m 第一触达（缺分钟日跳过，已删除日线模拟）；"
         + (
             f"评估窗 {len(bars)} 日 · 因子缓冲 {max(0, len(history) - len(bars))} 日；"
@@ -782,29 +781,11 @@ def _walk_t0(
             "ref": cfg.get("ref"),
             "y_trade_enter": cfg.get("y_trade_enter") or cfg.get("y_trade_floor"),
             "y_trade_floor": cfg.get("y_trade_floor") or cfg.get("y_trade_enter"),
-            "y_tau_enter": cfg.get("y_tau_enter"),
-            "y_tau_enter_sell_then_buy": cfg.get("y_tau_enter_sell_then_buy"),
-            "y_tau_enter_buy_then_sell": cfg.get("y_tau_enter_buy_then_sell"),
-            "y_enter_enabled": cfg.get("y_enter_enabled"),
-            "y_enter_alt_enabled": cfg.get("y_enter_alt_enabled"),
-            "y_tau_enter_alt": cfg.get("y_tau_enter_alt"),
-            "y_hl_enter_alt": cfg.get("y_hl_enter_alt")
-            if cfg.get("y_hl_enter_alt") not in (None, "")
-            else cfg.get("y_path_enter_alt"),
             "y_on_risk": cfg.get("y_on_risk"),
             "y_on_allow": cfg.get("y_on_allow"),
             "t0_y_oc_target_scale": cfg.get("t0_y_oc_target_scale"),
             "t0_y_oc_l": cfg.get("t0_y_oc_l"),
             "t0_y_oc_u": cfg.get("t0_y_oc_u"),
-            "y_hl_enter": cfg.get("y_hl_enter")
-            if cfg.get("y_hl_enter") not in (None, "")
-            else cfg.get("y_path_enter"),
-            "y_hl_enter_sell_then_buy": cfg.get("y_hl_enter_sell_then_buy")
-            if cfg.get("y_hl_enter_sell_then_buy") not in (None, "")
-            else cfg.get("y_path_enter_sell_then_buy"),
-            "y_hl_enter_buy_then_sell": cfg.get("y_hl_enter_buy_then_sell")
-            if cfg.get("y_hl_enter_buy_then_sell") not in (None, "")
-            else cfg.get("y_path_enter_buy_then_sell"),
             "y_hl_strong": cfg.get("y_hl_strong")
             if cfg.get("y_hl_strong") not in (None, "")
             else cfg.get("y_path_strong"),

@@ -356,10 +356,6 @@
                 <fieldset class="paper-t0-cfg-block is-shared">
                   <legend>共用</legend>
                   <div class="paper-t0-form-grid is-oct">
-                  <label class="paper-t0-field">
-                    <span>启用</span>
-                    <input type="checkbox" name="enabled" checked />
-                  </label>
                   <input type="hidden" name="direction" value="dual_y" />
                   <input type="hidden" name="path_mode" value="first_touch" />
                   <input type="hidden" name="t0_vs_stance" value="independent" />
@@ -376,41 +372,6 @@
                   >
                     <span>股数/票</span>
                     <input type="number" name="t0_bt_shares" min="100" max="100000" step="100" value="1000" />
-                  </label>
-                  <label
-                    class="paper-t0-field"
-                    title="目标交易价 C_τ = O×(1+clip(ŷ_oc×放大, y_oc_l, y_oc_u)/100)。y_oc 放大默认 10：ŷ_oc=−0.3% 即触 clip 下界 −3%。"
-                  >
-                    <span>y_oc 放大</span>
-                    <input type="number" name="t0_y_oc_target_scale" min="0" max="100" step="0.5" value="10" />
-                  </label>
-                  <label
-                    class="paper-t0-field"
-                    title="clip(ŷ_oc×scale) 下界，百分点。默认 −3。"
-                  >
-                    <span>ŷ_oc下界</span>
-                    <input type="number" name="t0_y_oc_l" min="-20" max="20" step="0.1" value="-3" />
-                  </label>
-                  <label
-                    class="paper-t0-field"
-                    title="clip(ŷ_oc×scale) 上界，百分点。默认 +3。"
-                  >
-                    <span>ŷ_oc上界</span>
-                    <input type="number" name="t0_y_oc_u" min="-20" max="20" step="0.1" value="3" />
-                  </label>
-                  <label
-                    class="paper-t0-field"
-                    title="v6：upper=C_τ×(1+δ/100)，lower=C_τ×(1−δ/100)。C>upper 反T、C<lower 正T；leg2 冻结 C_τ。默认 3。"
-                  >
-                    <span>超额带宽δ%</span>
-                    <input type="number" name="t0_close_band_delta_pct" min="0" max="10" step="0.05" value="3" />
-                  </label>
-                  <label
-                    class="paper-t0-field"
-                    title="开：|开盘差| 或 |昨收差| 超阈则跳过（price_space_mismatch）；关：不拦"
-                  >
-                    <span>日分价闸</span>
-                    <input type="checkbox" name="t0_price_space_gate" checked />
                   </label>
                   <label
                     class="paper-t0-field"
@@ -449,55 +410,6 @@
                   </label>
                   <label
                     class="paper-t0-field"
-                    title="|y_hl| 超过此值须与 ŷ_oc 同号，异号则跳过；默认 5；0=任意非零 HL 都要求同号。"
-                  >
-                    <span>HL强%</span>
-                    <input type="number" name="y_hl_strong" min="0" max="5" step="0.01" value="5" />
-                  </label>
-                  <label
-                    class="paper-t0-field"
-                    title="ŷ_τw 旁路：破带后符号票 f(ŷ_τ30)+f(ŷ_τ45)+f(ŷ_τ60)+f(ŷ_τ75)+f(ŷ_τ90) 须与方向同号（反T&lt;0，正T&gt;0）。|ŷ_τw| 超此值且逆带则跳过。0=任意有符号须同号；5=关。不改 C_τ。"
-                  >
-                    <span>τw强</span>
-                    <input type="number" name="y_tw_strong" min="0" max="5" step="0.1" value="5" />
-                  </label>
-                  <label
-                    class="paper-t0-field"
-                    title="ŷ_τ30 旁路：破带后后 30 交易分钟须与方向同号（反T&lt;0，正T&gt;0）。0=任意有符号须同号；1=关。不改 C_τ。"
-                  >
-                    <span>τ30强%</span>
-                    <input type="number" name="y_t30_strong" min="0" max="1.00" step="0.01" value="0" />
-                  </label>
-                  <label
-                    class="paper-t0-field"
-                    title="ŷ_τ45 旁路：默认关，只进 ŷ_τw 票。0=任意有符号须同号；1=关。不改 C_τ。"
-                  >
-                    <span>τ45强%</span>
-                    <input type="number" name="y_t45_strong" min="0" max="1.00" step="0.01" value="1" />
-                  </label>
-                  <label
-                    class="paper-t0-field"
-                    title="ŷ_τ60 旁路：破带后后 60 交易分钟须与方向同号（反T&lt;0，正T&gt;0）。0=任意有符号须同号；1=关。不改 C_τ。"
-                  >
-                    <span>τ60强%</span>
-                    <input type="number" name="y_t60_strong" min="0" max="1.00" step="0.01" value="0" />
-                  </label>
-                  <label
-                    class="paper-t0-field"
-                    title="ŷ_τ75 旁路：默认关，只进 ŷ_τw 票。0=任意有符号须同号；1=关。不改 C_τ。"
-                  >
-                    <span>τ75强%</span>
-                    <input type="number" name="y_t75_strong" min="0" max="1.00" step="0.01" value="1" />
-                  </label>
-                  <label
-                    class="paper-t0-field"
-                    title="ŷ_τ90 旁路：破带后后 90 交易分钟须与方向同号（反T&lt;0，正T&gt;0）。0=任意有符号须同号；1=关。不改 C_τ。"
-                  >
-                    <span>τ90强%</span>
-                    <input type="number" name="y_t90_strong" min="0" max="1.00" step="0.01" value="0" />
-                  </label>
-                  <label
-                    class="paper-t0-field"
                     title="正/反T止损共用：入场后跳过 N 根 5m 再启用（默认 1≈5 分钟）。止损固定收盘破线确认。"
                   >
                     <span>止损延迟根</span>
@@ -510,136 +422,57 @@
                     <span>回吐激活%</span>
                     <input type="number" name="t0_giveback_arm_pct" min="0" max="20" step="0.1" value="0.4" />
                   </label>
-                  </div>
-                </fieldset>
-
-                <div class="paper-t0-cfg-gates">
-                <fieldset class="paper-t0-cfg-block is-gate-1">
-                  <legend>门槛1</legend>
-                  <p class="paper-t0-cfg-hint quant-sub">|ŷ_oc|、|y_hl|、|ŷ_τ30|、|ŷ_τ45|、|ŷ_τ60|、|ŷ_τ75|、|ŷ_τ90| 过入场。关启用则本档不参与 OR。缺分不拦；分钟缺失见共用区。</p>
-                  <div class="paper-t0-form-grid is-quad">
                   <label
                     class="paper-t0-field"
-                    title="开=本档参与入场 OR；关=忽略门槛1。两档都关则破带也不开腿。"
+                    title="目标交易价 C_τ = O×(1+clip(ŷ_oc×放大, y_oc_l, y_oc_u)/100)。y_oc 放大默认 10：ŷ_oc=−0.3% 即触 clip 下界 −3%。"
                   >
-                    <span>启用</span>
-                    <input type="checkbox" name="y_enter_enabled" checked />
+                    <span>y_oc 放大</span>
+                    <input type="number" name="t0_y_oc_target_scale" min="0" max="100" step="0.5" value="10" />
                   </label>
                   <label
                     class="paper-t0-field"
-                    title="门槛1 |ŷ_oc| 低于此值视为横盘跳过；范围 0–100%；0=关；默认 0。"
+                    title="clip(ŷ_oc×scale) 下界，百分点。默认 −3。"
                   >
-                    <span>oc入场%</span>
-                    <input type="number" name="y_tau_enter" min="0" max="100" step="0.01" value="0" />
+                    <span>ŷ_oc下界</span>
+                    <input type="number" name="t0_y_oc_l" min="-20" max="20" step="0.1" value="-3" />
                   </label>
                   <label
                     class="paper-t0-field"
-                    title="门槛1 |y_hl| 低于此值视为横盘跳过；范围 0–100%；0=关；默认 0。缺 y_hl 不拦。"
+                    title="clip(ŷ_oc×scale) 上界，百分点。默认 +3。"
                   >
-                    <span>HL入场%</span>
-                    <input type="number" name="y_hl_enter" min="0" max="100" step="0.01" value="0" />
+                    <span>ŷ_oc上界</span>
+                    <input type="number" name="t0_y_oc_u" min="-20" max="20" step="0.1" value="3" />
                   </label>
                   <label
                     class="paper-t0-field"
-                    title="门槛1 |ŷ_τ30| 低于此值视为横盘跳过；范围 0–100%；0=关；默认 0。缺 ŷ_τ30 不拦。"
+                    title="v6：upper=C_τ×(1+δ/100)，lower=C_τ×(1−δ/100)。C>upper 反T、C<lower 正T；leg2 冻结 C_τ。默认 3。"
                   >
-                    <span>τ30入场%</span>
-                    <input type="number" name="y_t30_enter" min="0" max="100" step="0.01" value="0" />
+                    <span>超额带宽δ%</span>
+                    <input type="number" name="t0_close_band_delta_pct" min="0" max="10" step="0.05" value="3" />
                   </label>
                   <label
                     class="paper-t0-field"
-                    title="门槛1 |ŷ_τ45| 低于此值视为横盘跳过；范围 0–100%；0=关；默认 0。缺 ŷ_τ45 不拦。"
+                    title="|y_hl| 超过此值须与 ŷ_oc 同号，异号则跳过；默认 5；0=任意非零 HL 都要求同号。"
                   >
-                    <span>τ45入场%</span>
-                    <input type="number" name="y_t45_enter" min="0" max="100" step="0.01" value="0" />
+                    <span>HL强%</span>
+                    <input type="number" name="y_hl_strong" min="0" max="5" step="0.01" value="5" />
                   </label>
                   <label
                     class="paper-t0-field"
-                    title="门槛1 |ŷ_τ60| 低于此值视为横盘跳过；范围 0–100%；0=关；默认 0。缺 ŷ_τ60 不拦。"
+                    title="ŷ_τw 旁路：破带后符号票须与方向同号。近 50% 弃权见「弃权%」。|ŷ_τw| **大于** 此值且逆带则跳过。0=任意有符号须同号；≥5=关。不改 C_τ。"
                   >
-                    <span>τ60入场%</span>
-                    <input type="number" name="y_t60_enter" min="0" max="100" step="0.01" value="0" />
+                    <span>τw强</span>
+                    <input type="number" name="y_tw_strong" min="0" max="5" step="0.1" value="5" />
                   </label>
                   <label
                     class="paper-t0-field"
-                    title="门槛1 |ŷ_τ75| 低于此值视为横盘跳过；范围 0–100%；0=关；默认 0。缺 ŷ_τ75 不拦。"
+                    title="ŷ_τ30/45/60/75/90 预估概率距 50% 不超过此百分点则不给 ŷ_τw 投票。默认 2；0=仅恰好 50% 弃权。不改 C_τ。"
                   >
-                    <span>τ75入场%</span>
-                    <input type="number" name="y_t75_enter" min="0" max="100" step="0.01" value="0" />
-                  </label>
-                  <label
-                    class="paper-t0-field"
-                    title="门槛1 |ŷ_τ90| 低于此值视为横盘跳过；范围 0–100%；0=关；默认 0。缺 ŷ_τ90 不拦。"
-                  >
-                    <span>τ90入场%</span>
-                    <input type="number" name="y_t90_enter" min="0" max="100" step="0.01" value="0" />
+                    <span>弃权%</span>
+                    <input type="number" name="y_tw_vote_margin" min="0" max="20" step="0.5" value="2" />
                   </label>
                   </div>
                 </fieldset>
-
-                <fieldset class="paper-t0-cfg-block is-gate-2">
-                  <legend>门槛2</legend>
-                  <p class="paper-t0-cfg-hint quant-sub">|ŷ_oc|、|y_hl|、|ŷ_τ30|、|ŷ_τ45|、|ŷ_τ60|、|ŷ_τ75|、|ŷ_τ90| 过入场。关启用则本档不参与 OR。缺分不拦；分钟缺失见共用区。</p>
-                  <div class="paper-t0-form-grid is-quad">
-                  <label
-                    class="paper-t0-field"
-                    title="开=本档参与入场 OR；关=忽略门槛2。两档都关则破带也不开腿。"
-                  >
-                    <span>启用</span>
-                    <input type="checkbox" name="y_enter_alt_enabled" checked />
-                  </label>
-                  <label
-                    class="paper-t0-field"
-                    title="门槛2 |ŷ_oc| 低于此值视为横盘跳过；范围 0–100%；0=关；默认 0。"
-                  >
-                    <span>oc入场%</span>
-                    <input type="number" name="y_tau_enter_alt" min="0" max="100" step="0.01" value="0" />
-                  </label>
-                  <label
-                    class="paper-t0-field"
-                    title="门槛2 |y_hl| 低于此值视为横盘跳过；范围 0–100%；0=关；默认 0。缺键跟随门槛1。"
-                  >
-                    <span>HL入场%</span>
-                    <input type="number" name="y_hl_enter_alt" min="0" max="100" step="0.01" value="0" />
-                  </label>
-                  <label
-                    class="paper-t0-field"
-                    title="门槛2 |ŷ_τ30| 低于此值视为横盘跳过；范围 0–100%；0=关；默认 0。缺 ŷ_τ30 不拦。"
-                  >
-                    <span>τ30入场%</span>
-                    <input type="number" name="y_t30_enter_alt" min="0" max="100" step="0.01" value="0" />
-                  </label>
-                  <label
-                    class="paper-t0-field"
-                    title="门槛2 |ŷ_τ45| 低于此值视为横盘跳过；范围 0–100%；0=关；默认 0。缺 ŷ_τ45 不拦。"
-                  >
-                    <span>τ45入场%</span>
-                    <input type="number" name="y_t45_enter_alt" min="0" max="100" step="0.01" value="0" />
-                  </label>
-                  <label
-                    class="paper-t0-field"
-                    title="门槛2 |ŷ_τ60| 低于此值视为横盘跳过；范围 0–100%；0=关；默认 0。缺 ŷ_τ60 不拦。"
-                  >
-                    <span>τ60入场%</span>
-                    <input type="number" name="y_t60_enter_alt" min="0" max="100" step="0.01" value="0" />
-                  </label>
-                  <label
-                    class="paper-t0-field"
-                    title="门槛2 |ŷ_τ75| 低于此值视为横盘跳过；范围 0–100%；0=关；默认 0。缺 ŷ_τ75 不拦。"
-                  >
-                    <span>τ75入场%</span>
-                    <input type="number" name="y_t75_enter_alt" min="0" max="100" step="0.01" value="0" />
-                  </label>
-                  <label
-                    class="paper-t0-field"
-                    title="门槛2 |ŷ_τ90| 低于此值视为横盘跳过；范围 0–100%；0=关；默认 0。缺 ŷ_τ90 不拦。"
-                  >
-                    <span>τ90入场%</span>
-                    <input type="number" name="y_t90_enter_alt" min="0" max="100" step="0.01" value="0" />
-                  </label>
-                  </div>
-                </fieldset>
-                </div>
 
                 <div class="paper-t0-cfg-sides">
                 <fieldset class="paper-t0-cfg-block is-buy-then-sell">
@@ -659,13 +492,6 @@
                   >
                     <span>回吐%</span>
                     <input type="number" name="t0_giveback_pct_buy_then_sell" min="0" max="20" step="0.1" value="0.6" />
-                  </label>
-                  <label
-                    class="paper-t0-field"
-                    title="开=未卖回旧仓时收盘强制卖；关=允许隔夜多头敞口（不做 y_on 放行调参，引擎用默认门槛）"
-                  >
-                    <span>当日回补</span>
-                    <input type="checkbox" name="must_cover_same_day_buy_then_sell" checked />
                   </label>
                   <label
                     class="paper-t0-field"
@@ -701,13 +527,6 @@
                   >
                     <span>回吐%</span>
                     <input type="number" name="t0_giveback_pct_sell_then_buy" min="0" max="20" step="0.1" value="0.6" />
-                  </label>
-                  <label
-                    class="paper-t0-field"
-                    title="开=未买回时收盘强制买回；关=触不到则放弃回补（减仓）。默认可中点追价抬高买回目标。"
-                  >
-                    <span>当日回补</span>
-                    <input type="checkbox" name="must_cover_same_day_sell_then_buy" checked />
                   </label>
                   <label
                     class="paper-t0-field"

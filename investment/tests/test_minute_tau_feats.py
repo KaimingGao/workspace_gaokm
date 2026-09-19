@@ -1689,6 +1689,167 @@ class TestMinuteTauPack(unittest.TestCase):
         self.assertAlmostEqual(feats["sector_ret_last_90m"], 0.3, places=6)
         self.assertIn("ret_vs_sector", feats)
 
+    def test_resolve_sector_ret_uses_full_explicit_universe(self):
+        """显式 codes 与训练面板同口径：30 只全进中位，不再截前 24。"""
+        from statistics import median
+        from unittest.mock import patch
+
+        from core.signal import minute_tau_feats as m
+        from core.signal.minute_tau_feats import resolve_sector_ret_to_tau
+
+        codes = [f"{i:06d}" for i in range(1, 31)]
+        dummy = [
+            {"date": "2026-09-18", "datetime": "2026-09-18 09:35:00", "close": 10},
+            {"date": "2026-09-18", "datetime": "2026-09-18 10:00:00", "close": 10.1},
+        ]
+        rets = {c: float(i + 1) for i, c in enumerate(codes)}
+        seen: list = []
+
+        def _peer_bars(code_key, **_kw):
+            seen.append(str(code_key))
+            return dummy
+
+        def _extract(_bars, **_kw):
+            return {"ret_open_to_tau": rets[seen[-1]]}
+
+        m.clear_sector_ret_cache()
+        try:
+            with patch.object(m, "_peer_minute_bars_for_tau", side_effect=_peer_bars), patch.object(
+                m, "extract_minute_tau_pack", side_effect=_extract
+            ):
+                got = resolve_sector_ret_to_tau(
+                    "2026-09-18", "10:00", codes=codes, use_cache=False
+                )
+        finally:
+            m.clear_sector_ret_cache()
+        self.assertEqual(seen, codes)
+        self.assertAlmostEqual(float(got), float(median(range(1, 31))), places=6)
+
+    def test_hydrate_cs_peer_minutes_fills_missing_from_cache(self):
+        from unittest.mock import patch
+
+        from core.signal import minute_tau_feats as m
+
+        m.clear_sector_ret_cache()
+        already = {"600183": [{"date": "2026-09-18", "close": 10}]}
+        cached = [{"date": "2026-09-18", "close": 11}]
+        with patch.object(m, "_load_minute_bars_from_cache", return_value=cached) as load, patch(
+            "core.ports.market.fetch_minute_bars"
+        ) as fetch, patch.object(m, "seed_peer_minute_bars_map") as seeded:
+            n = m.hydrate_cs_peer_minutes(
+                already,
+                codes=["600183", "600875"],
+                fetch_if_missing=True,
+            )
+        self.assertEqual(n, 2)
+        load.assert_called_once_with("600875", max_age_hours=36.0)
+        fetch.assert_not_called()
+        seeded.assert_called_once()
+        by_code = seeded.call_args[0][0]
+        self.assertEqual(set(by_code), {"600183", "600875"})
+        m.clear_sector_ret_cache()
+
+    def test_peer_minute_bars_returns_cached_list_identity(self):
+        """同一 list 才能命中按日索引；复制会让 200 票每钟重建。"""
+        from unittest.mock import patch
+
+        from core.signal import minute_tau_feats as m
+
+        m.clear_sector_ret_cache()
+        rows = [
+            {
+                "date": "2026-09-16",
+                "datetime": "2026-09-16 09:35:00",
+                "open": 10,
+                "high": 10.1,
+                "low": 9.9,
+                "close": 10,
+                "volume": 1,
+            },
+            {
+                "date": "2026-09-16",
+                "datetime": "2026-09-16 10:40:00",
+                "open": 10.2,
+                "high": 10.3,
+                "low": 10.1,
+                "close": 10.25,
+                "volume": 1,
+            },
+        ]
+        m._PEER_MINUTE_BARS["000001"] = rows
+        with patch("core.store.load_minute_cache") as load:
+            a = m._peer_minute_bars_for_tau(
+                "000001", trade_date="2026-09-16", tau_hm="10:40"
+            )
+            b = m._peer_minute_bars_for_tau(
+                "000001", trade_date="2026-09-16", tau_hm="10:40"
+            )
+        load.assert_not_called()
+        self.assertIs(a, rows)
+        self.assertIs(b, rows)
+        m.clear_sector_ret_cache()
+
+    def test_peer_minute_bars_skips_reload_when_day_absent(self):
+        """内存已有仓但没有该日：不要每钟回磁盘（回测夹具日 / 停牌）。"""
+        from unittest.mock import patch
+
+        from core.signal import minute_tau_feats as m
+
+        m.clear_sector_ret_cache()
+        rows = [
+            {
+                "date": "2026-09-16",
+                "datetime": "2026-09-16 09:35:00",
+                "open": 10,
+                "high": 10.1,
+                "low": 9.9,
+                "close": 10,
+                "volume": 1,
+            }
+        ]
+        m._PEER_MINUTE_BARS["000001"] = rows
+        with patch("core.store.load_minute_cache") as load:
+            out = m._peer_minute_bars_for_tau(
+                "000001", trade_date="2026-03-02", tau_hm="09:35"
+            )
+        load.assert_not_called()
+        self.assertIs(out, rows)
+        m.clear_sector_ret_cache()
+
+    def test_resolve_sector_ret_fills_horizon_caches_together(self):
+        """一次扫同伴应同时写入开→τ 与 last_30m 中位。"""
+        from unittest.mock import patch
+
+        from core.signal import minute_tau_feats as m
+
+        dummy = [
+            {"date": "2026-09-18", "datetime": "2026-09-18 09:35:00", "close": 10},
+            {"date": "2026-09-18", "datetime": "2026-09-18 10:00:00", "close": 10.1},
+        ]
+        m.clear_sector_ret_cache()
+        try:
+            with patch.object(m, "_peer_minute_bars_for_tau", return_value=dummy), patch.object(
+                m,
+                "extract_minute_tau_pack",
+                return_value={"ret_open_to_tau": 1.0},
+            ), patch.object(
+                m,
+                "extract_horizon_seq_packs",
+                return_value={"ret_last_30m": 0.5, "ret_last_45m": 0.4},
+            ):
+                got = m.resolve_sector_ret_to_tau(
+                    "2026-09-18", "10:00", codes=["600000"], use_cache=True
+                )
+            self.assertAlmostEqual(float(got), 1.0, places=6)
+            self.assertAlmostEqual(
+                float(m._SECTOR_RET_30M_CACHE[("2026-09-18", "10:00")]), 0.5, places=6
+            )
+            self.assertAlmostEqual(
+                float(m._SECTOR_RET_45M_CACHE[("2026-09-18", "10:00")]), 0.4, places=6
+            )
+        finally:
+            m.clear_sector_ret_cache()
+
 
 if __name__ == "__main__":
     unittest.main()

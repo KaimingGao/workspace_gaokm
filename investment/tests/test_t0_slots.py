@@ -342,7 +342,7 @@ class TestT0Slots(unittest.TestCase):
                 t0_stop_pct_sell_then_buy=0,
                 y_path_strong=100.0,
             ),
-            stock_code="600519",
+            stock_code="",
             minute_bars=mins,
             scores={"y_tau": -0.1, "y_trade": -0.1, "y_eod": -0.05},
         )

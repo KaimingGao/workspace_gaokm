@@ -291,28 +291,31 @@ export const Y_τc_TITLE =
 export const Y_TC_TITLE = Y_τc_TITLE;
 export const Y_R_TITLE = Y_τc_TITLE;
 export const Y_T30_TITLE =
-  "ŷ_τ30 · Ridge 预估 mean(price(τ⊕25/30/35))/price(τ)−1 · 做 T 旁路，不进 C_τ";
+  "ŷ_τ30 · P(mean(price(τ⊕25/30/35))/price(τ)−1>0) · 做 T 旁路，不进 C_τ";
 export const T30_REALIZED_TITLE =
   "τ30实 · mean(price(τ⊕25/30/35))/price(τ)−1（与 ŷ_τ30 同标签）";
 export const Y_T45_TITLE =
-  "ŷ_τ45 · Ridge 预估 mean(price(τ⊕40/45/50))/price(τ)−1 · 做 T 旁路，不进 C_τ";
+  "ŷ_τ45 · P(mean(price(τ⊕40/45/50))/price(τ)−1>0) · 做 T 旁路，不进 C_τ";
 export const T45_REALIZED_TITLE =
   "τ45实 · mean(price(τ⊕40/45/50))/price(τ)−1（与 ŷ_τ45 同标签）";
 export const Y_T60_TITLE =
-  "ŷ_τ60 · Ridge 预估 mean(price(τ⊕55/60/65))/price(τ)−1 · 做 T 旁路，不进 C_τ";
+  "ŷ_τ60 · P(mean(price(τ⊕55/60/65))/price(τ)−1>0) · 做 T 旁路，不进 C_τ";
 export const T60_REALIZED_TITLE =
   "τ60实 · mean(price(τ⊕55/60/65))/price(τ)−1（与 ŷ_τ60 同标签）";
 export const Y_T75_TITLE =
-  "ŷ_τ75 · Ridge 预估 mean(price(τ⊕70/75/80))/price(τ)−1 · 做 T 旁路，不进 C_τ";
+  "ŷ_τ75 · P(mean(price(τ⊕70/75/80))/price(τ)−1>0) · 做 T 旁路，不进 C_τ";
 export const T75_REALIZED_TITLE =
   "τ75实 · mean(price(τ⊕70/75/80))/price(τ)−1（与 ŷ_τ75 同标签）";
 export const Y_T90_TITLE =
-  "ŷ_τ90 · Ridge 预估 mean(price(τ⊕85/90/95))/price(τ)−1 · 做 T 旁路，不进 C_τ";
+  "ŷ_τ90 · P(mean(price(τ⊕85/90/95))/price(τ)−1>0) · 做 T 旁路，不进 C_τ";
 export const T90_REALIZED_TITLE =
   "τ90实 · mean(price(τ⊕85/90/95))/price(τ)−1（与 ŷ_τ90 同标签）";
-/** τ 后窗口符号和：ŷ_τw = f(ŷ_τ30)+f(ŷ_τ45)+f(ŷ_τ60)+f(ŷ_τ75)+f(ŷ_τ90)；f(x)=1 if x>0 else −1 */
+/** τ 后窗口符号和：ŷ_τw = f(ŷ_τ30)+…+f(ŷ_τ90)；f=sign(p_up−0.5)；近 50% 弃权% 可配 */
+export const HORIZON_VOTE_MARGIN_PP = 2;
+export const HORIZON_VOTE_MARGIN_PP_MAX = 20;
+export const HORIZON_VOTE_MARGIN = 0.02;
 export const Y_TW_TITLE =
-  "ŷ_τw · τ后窗口符号和 f(ŷ_τ30)+f(ŷ_τ45)+f(ŷ_τ60)+f(ŷ_τ75)+f(ŷ_τ90)；f(x)=1 if x>0 else −1 · 旁路，不进 C_τ";
+  "ŷ_τw · τ后窗口符号和 f(ŷ_τ30)+f(ŷ_τ45)+f(ŷ_τ60)+f(ŷ_τ75)+f(ŷ_τ90)；f=sign(p_up−0.5)，近 50% 由弃权% 决定不投票 · 旁路，不进 C_τ";
 export const TW_REALIZED_TITLE =
   "τw实 · f(τ30实)+f(τ45实)+f(τ60实)+f(τ75实)+f(τ90实)；f(x)=1 if x>0 else −1（缺头不计）";
 export const R_HAT_TITLE =
@@ -481,7 +484,7 @@ export function resolveTcScore(it) {
   return resolveYτcScore(it);
 }
 
-/** ŷ_τ30：Ridge 预估 mean(price(τ⊕25/30/35))/price(τ)−1。 */
+/** ŷ_τ30：Ridge 预估 P(mean(price(τ⊕25/30/35))/price(τ)−1>0)。 */
 export function resolveYT30Score(it) {
   if (!it || typeof it !== "object") return null;
   if (isHeuristicScoreScale(it)) return null;
@@ -492,7 +495,7 @@ export function resolveYT30Score(it) {
   return null;
 }
 
-/** ŷ_τ45：Ridge 预估 mean(price(τ⊕40/45/50))/price(τ)−1。 */
+/** ŷ_τ45：Ridge 预估 P(mean(price(τ⊕40/45/50))/price(τ)−1>0)。 */
 export function resolveYT45Score(it) {
   if (!it || typeof it !== "object") return null;
   if (isHeuristicScoreScale(it)) return null;
@@ -503,7 +506,7 @@ export function resolveYT45Score(it) {
   return null;
 }
 
-/** ŷ_τ60：Ridge 预估 mean(price(τ⊕55/60/65))/price(τ)−1。 */
+/** ŷ_τ60：Ridge 预估 P(mean(price(τ⊕55/60/65))/price(τ)−1>0)。 */
 export function resolveYT60Score(it) {
   if (!it || typeof it !== "object") return null;
   if (isHeuristicScoreScale(it)) return null;
@@ -514,7 +517,7 @@ export function resolveYT60Score(it) {
   return null;
 }
 
-/** ŷ_τ75：Ridge 预估 mean(price(τ⊕70/75/80))/price(τ)−1。 */
+/** ŷ_τ75：Ridge 预估 P(mean(price(τ⊕70/75/80))/price(τ)−1>0)。 */
 export function resolveYT75Score(it) {
   if (!it || typeof it !== "object") return null;
   if (isHeuristicScoreScale(it)) return null;
@@ -524,7 +527,7 @@ export function resolveYT75Score(it) {
   }
   return null;
 }
-/** ŷ_τ90：Ridge 预估 mean(price(τ⊕85/90/95))/price(τ)−1。 */
+/** ŷ_τ90：Ridge 预估 P(mean(price(τ⊕85/90/95))/price(τ)−1>0)。 */
 export function resolveYT90Score(it) {
   if (!it || typeof it !== "object") return null;
   if (isHeuristicScoreScale(it)) return null;
@@ -535,18 +538,53 @@ export function resolveYT90Score(it) {
   return null;
 }
 
-/** f(x)=1 if x>0 else −1；缺分不计。 */
-export function yTwSign(x) {
+/** 真实涨跌票：x>0 → +1。概率票见 yTwSign(x, true)。 */
+export function clampHorizonVoteMarginPp(pp) {
+  const n = Number(pp);
+  if (!Number.isFinite(n)) return HORIZON_VOTE_MARGIN_PP;
+  return Math.max(0, Math.min(n, HORIZON_VOTE_MARGIN_PP_MAX));
+}
+
+/** 弃权%（百分点）→ |p−0.5| 概率带宽。 */
+export function horizonVoteMarginP(pp) {
+  return clampHorizonVoteMarginPp(pp) / 100;
+}
+
+/** 读做 T 表单弃权%；无表单则默认 2pp。 */
+export function readHorizonVoteMarginP(root) {
+  try {
+    const doc = root || (typeof document !== "undefined" ? document : null);
+    const el = doc && doc.querySelector ? doc.querySelector('[name="y_tw_vote_margin"]') : null;
+    if (el && el.value !== "" && el.value != null) return horizonVoteMarginP(el.value);
+  } catch (e) {
+    /* ignore */
+  }
+  return HORIZON_VOTE_MARGIN;
+}
+
+export function yTwSign(x, prob = false, marginP) {
   const n = _numField(x);
   if (n == null) return null;
+  if (prob) {
+    const band =
+      marginP == null ? readHorizonVoteMarginP() : Math.max(0, Number(marginP) || 0);
+    if (Math.abs(n - 0.5) <= band + 1e-12) return null;
+    return n > 0.5 ? 1 : -1;
+  }
   return n > 0 ? 1 : -1;
 }
 
-/** ŷ_τw = f(ŷ_τ30)+f(ŷ_τ45)+f(ŷ_τ60)+f(ŷ_τ75)+f(ŷ_τ90)；五头齐时 ∈ {−5,−3,−1,+1,+3,+5}。 */
-export function blendYtw(y30, y60, y90, y45, y75) {
+/** ŷ_τw = f(ŷ_τ30)+…；prob=true 时 f=sign(p_up−0.5) 且近 50% 弃权，否则 f=sign(收益)。 */
+export function blendYtw(y30, y60, y90, y45, y75, prob = false, marginP) {
   let sum = 0;
   let n = 0;
-  for (const s of [yTwSign(y30), yTwSign(y45), yTwSign(y60), yTwSign(y75), yTwSign(y90)]) {
+  for (const s of [
+    yTwSign(y30, prob, marginP),
+    yTwSign(y45, prob, marginP),
+    yTwSign(y60, prob, marginP),
+    yTwSign(y75, prob, marginP),
+    yTwSign(y90, prob, marginP),
+  ]) {
     if (s == null) continue;
     sum += s;
     n += 1;
@@ -573,7 +611,8 @@ export function resolveYTWScore(it) {
     resolveYT60Score(it),
     resolveYT90Score(it),
     resolveYT45Score(it),
-    resolveYT75Score(it)
+    resolveYT75Score(it),
+    true
   );
 }
 
@@ -693,4 +732,18 @@ export function paperMetricClass(v) {
   const n = Number(v);
   if (!Number.isFinite(n) || n === 0) return "";
   return n > 0 ? "up" : "down";
+}
+
+/** p_up 上色：>0.5 红涨、<0.5 绿跌。 */
+export function paperProbClass(p) {
+  const n = Number(p);
+  if (!Number.isFinite(n) || Math.abs(n - 0.5) < 1e-12) return "";
+  return n > 0.5 ? "up" : "down";
+}
+
+/** ŷ_τ* 概率：0.552 → 55.2%。 */
+export function fmtHorizonProb(p) {
+  const n = Number(p);
+  if (!Number.isFinite(n)) return "—";
+  return `${(n * 100).toFixed(1)}%`;
 }

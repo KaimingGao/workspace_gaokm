@@ -117,57 +117,19 @@ _BT_RULES_VIEW_KEYS = (
     "must_cover_same_day_buy_then_sell",
     "y_trade_enter",
     "y_trade_floor",
-    "y_tau_enter",
-    "y_tau_enter_sell_then_buy",
-    "y_tau_enter_buy_then_sell",
-    "y_enter_enabled",
-    "y_enter_alt_enabled",
-    "y_tau_enter_alt",
-    "y_hl_enter_alt",
-    "y_path_enter_alt",
-    "y_t30_strong",
-    "y_τ30_strong",
+    "fusion_w_τc",
+    "fusion_w_tc",
+    "residual_w_oc",
+    "residual_w_mode",
     "y_tw_strong",
     "y_τw_strong",
-    "y_t30_enter",
-    "y_τ30_enter",
-    "y_t30_enter_alt",
-    "y_τ30_enter_alt",
-    "y_t45_strong",
-    "y_τ45_strong",
-    "y_t45_enter",
-    "y_τ45_enter",
-    "y_t45_enter_alt",
-    "y_τ45_enter_alt",
-    "y_t60_strong",
-    "y_τ60_strong",
-    "y_t60_enter",
-    "y_τ60_enter",
-    "y_t60_enter_alt",
-    "y_τ60_enter_alt",
-    "y_t75_strong",
-    "y_τ75_strong",
-    "y_t75_enter",
-    "y_τ75_enter",
-    "y_t75_enter_alt",
-    "y_τ75_enter_alt",
-    "y_t90_strong",
-    "y_τ90_strong",
-    "y_t90_enter",
-    "y_τ90_enter",
-    "y_t90_enter_alt",
-    "y_τ90_enter_alt",
+    "y_tw_vote_margin",
+    "y_τw_vote_margin",
     "y_on_allow",
     "y_on_risk",
     "t0_y_oc_target_scale",
     "t0_y_oc_l",
     "t0_y_oc_u",
-    "y_hl_enter",
-    "y_path_enter",
-    "y_hl_enter_sell_then_buy",
-    "y_path_enter_sell_then_buy",
-    "y_hl_enter_buy_then_sell",
-    "y_path_enter_buy_then_sell",
     "y_hl_strong",
     "y_path_strong",
     "y_hl_required",
@@ -368,19 +330,75 @@ def _fetch_minute_by_date(
         return {}, {"ok": False, "error": str(e), "period": period}
 
 
-def _seed_peer_minutes_from_by_date(code: str, by_date: Optional[dict]) -> None:
+def _flatten_minute_by_date(by_date: Optional[dict]) -> List[dict]:
+    flat: List[dict] = []
+    for rows in (by_date or {}).values():
+        if isinstance(rows, list):
+            flat.extend([b for b in rows if isinstance(b, dict)])
+    return flat
+
+
+def _seed_peer_minutes_from_by_date(
+    code: str, by_date: Optional[dict], *, flush_cs: bool = True
+) -> None:
     """把回测已取到的 5m 写入同伴仓，与预演 hydrate 同源。"""
     try:
         from core.signal.minute_tau_feats import seed_peer_minute_bars
 
-        flat: List[dict] = []
-        for rows in (by_date or {}).values():
-            if isinstance(rows, list):
-                flat.extend([b for b in rows if isinstance(b, dict)])
+        flat = _flatten_minute_by_date(by_date)
         if flat:
-            seed_peer_minute_bars(str(code), flat)
+            seed_peer_minute_bars(str(code), flat, flush_cs=flush_cs)
     except Exception:  # noqa: BLE001
         logger.debug("t0 backtest peer minute seed failed", exc_info=True)
+
+
+def _seed_pool_minutes(
+    codes: List[str],
+    period: str,
+    *,
+    lookback_days: int = 90,
+    progress_cb: Optional[Callable[..., None]] = None,
+    cancel_cb: Optional[Callable[[], bool]] = None,
+    label: str = "加载截面 5m",
+) -> int:
+    """观察池∪持仓 5m → 同伴仓。
+
+    与持仓同一套 ``_fetch_minute_by_date``：齐窗用缓存，缺尾/无缓存补拉。
+    不因图快改读本地残缺仓。返回写入票数。
+    """
+    from core.signal.minute_tau_feats import seed_peer_minute_bars_map
+
+    n = len(codes)
+    by_code: Dict[str, List[dict]] = {}
+    last_emit = 0.0
+    title = str(label or "加载截面 5m").strip() or "加载截面 5m"
+    span = min(max(int(lookback_days or 90), 10), 120)
+    for i, raw in enumerate(codes):
+        if cancel_cb:
+            try:
+                if cancel_cb():
+                    break
+            except Exception:  # noqa: BLE001
+                logger.debug("t0 pool minute cancel_cb failed", exc_info=True)
+        code = str(raw or "").strip()
+        now = time.time()
+        if progress_cb and (i == 0 or i + 1 == n or now - last_emit >= 0.4):
+            try:
+                progress_cb(i, n, f"{title} {i + 1}/{n}…")
+            except Exception:  # noqa: BLE001
+                logger.debug("t0 pool minute progress_cb failed", exc_info=True)
+            last_emit = now
+        if not code:
+            continue
+        loc, _ = _fetch_minute_by_date(
+            code, period=period, lookback_days=span
+        )
+        flat = _flatten_minute_by_date(loc)
+        if flat:
+            by_code[code] = flat
+    if by_code:
+        seed_peer_minute_bars_map(by_code)
+    return len(by_code)
 
 
 def _quote_for_backtest(code: str, *, timeout_sec: float = _QUOTE_TIMEOUT_SEC) -> Dict[str, Any]:
@@ -485,12 +503,22 @@ def run_t0_backtest_for_code(
     from core.data.facade import bars_and_source as fetch_daily_bars
 
     _ = use_minute  # 日线模拟已删除；强制分钟
-    try:
-        from core.signal.minute_tau_feats import clear_sector_ret_cache
+    tau_pool_given = isinstance(tau_pool_by_date, dict)
+    reuse_cs = False
+    if tau_pool_given:
+        try:
+            from core.signal.minute_tau_feats import peer_minute_seed_count
 
-        clear_sector_ret_cache()
-    except Exception:  # noqa: BLE001
-        pass
+            reuse_cs = int(peer_minute_seed_count() or 0) > 0
+        except Exception:  # noqa: BLE001
+            reuse_cs = False
+    if not reuse_cs:
+        try:
+            from core.signal.minute_tau_feats import clear_sector_ret_cache
+
+            clear_sector_ret_cache()
+        except Exception:  # noqa: BLE001
+            pass
     from core.t0.score_policy import (
         T0_BACKTEST_SCORE_WARMUP,
         build_tau_pool_by_date,
@@ -573,12 +601,21 @@ def run_t0_backtest_for_code(
     tau_pool = tau_pool_by_date if isinstance(tau_pool_by_date, dict) else None
     pool_codes = t0_cs_universe_codes(str(sym), paper=paper)
     set_t0_cs_universe_codes(pool_codes)
-    _seed_peer_minutes_from_by_date(str(sym), minute_by_date)
-    for extra in pool_codes:
-        if str(extra) == str(sym):
-            continue
-        loc, _ = _local_minute_by_date(str(extra), period)
-        _seed_peer_minutes_from_by_date(str(extra), loc)
+    _seed_peer_minutes_from_by_date(str(sym), minute_by_date, flush_cs=not reuse_cs)
+    extras = [c for c in pool_codes if str(c) != str(sym)]
+
+    def _extra_progress(_cur: int, _tot: int, msg: str) -> None:
+        if progress_cb:
+            progress_cb(0, 1, msg)
+
+    if not reuse_cs:
+        _seed_pool_minutes(
+            extras,
+            period,
+            lookback_days=minute_span,
+            progress_cb=_extra_progress if progress_cb else None,
+            label="加载截面 5m",
+        )
     if tau_pool is None:
         bars_by_code = load_bars_by_code_for_tau_pool(pool_codes, limit=fetch_n)
         if str(sym) not in bars_by_code and bars_all:
@@ -750,29 +787,6 @@ def run_t0_backtest_for_holdings(
     v_shares = max(100.0, float(virtual_shares or T0_BT_VIRTUAL_SHARES))
     v_cash = max(0.0, float(virtual_cash if virtual_cash is not None else T0_BT_VIRTUAL_CASH))
 
-    # 观察池 ∪ 持仓 → 共享 τ 截面（与盯盘 / 预演同构，避免逐票缺 sector_gap_breadth）
-    try:
-        from core.signal.minute_tau_feats import clear_sector_ret_cache
-
-        clear_sector_ret_cache()
-    except Exception:  # noqa: BLE001
-        pass
-    from core.t0.score_policy import (
-        T0_BACKTEST_SCORE_WARMUP,
-        build_tau_pool_by_date,
-        load_bars_by_code_for_tau_pool,
-        set_t0_cs_universe_codes,
-        t0_cs_universe_codes,
-    )
-
-    pool_codes = t0_cs_universe_codes(holdings=holdings, paper=paper)
-    set_t0_cs_universe_codes(pool_codes)
-    period_seed = str(cfg.get("minute_period") or "5")
-    for extra in pool_codes:
-        loc, _ = _local_minute_by_date(str(extra), period_seed)
-        _seed_peer_minutes_from_by_date(str(extra), loc)
-    eval_lb = max(10, int(lookback or T0_BT_DEFAULT_LOOKBACK))
-    fetch_n = eval_lb + int(T0_BACKTEST_SCORE_WARMUP) + 5
     n_hold = max(1, len(holdings))
 
     def _emit(cur: int, tot: int, msg: str) -> None:
@@ -791,6 +805,43 @@ def run_t0_backtest_for_holdings(
         except Exception:  # noqa: BLE001
             logger.debug("t0 holdings cancel_cb failed", exc_info=True)
             return False
+
+    _emit(0, n_hold, "准备回测…")
+    # 成交只走持仓。ŷ 板块分钟收益 / 日线缺口 breadth 必须与盯盘同宇宙
+    # （观察池∪持仓）。截面 5m 与持仓同一套 fetch：齐窗用缓存，缺尾/无缓存补拉，
+    # 不因图快只读本地残缺仓。
+    try:
+        from core.signal.minute_tau_feats import clear_sector_ret_cache
+
+        clear_sector_ret_cache()
+    except Exception:  # noqa: BLE001
+        pass
+    from core.t0.score_policy import (
+        T0_BACKTEST_SCORE_WARMUP,
+        build_tau_pool_by_date,
+        load_bars_by_code_for_tau_pool,
+        set_t0_cs_universe_codes,
+        t0_cs_universe_codes,
+    )
+
+    pool_codes = t0_cs_universe_codes(holdings=holdings, paper=paper)
+    set_t0_cs_universe_codes(pool_codes)
+    period_seed = str(cfg.get("minute_period") or "5")
+    eval_lb = max(10, int(lookback or T0_BT_DEFAULT_LOOKBACK))
+    fetch_n = eval_lb + int(T0_BACKTEST_SCORE_WARMUP) + 5
+    minute_span = min(max(eval_lb, 10), 120)
+
+    def _pool_progress(_cur: int, _tot: int, msg: str) -> None:
+        _emit(0, n_hold, msg)
+
+    _seed_pool_minutes(
+        pool_codes,
+        period_seed,
+        lookback_days=minute_span,
+        progress_cb=_pool_progress,
+        cancel_cb=_cancelled,
+        label="加载截面 5m",
+    )
 
     if _cancelled():
         return {

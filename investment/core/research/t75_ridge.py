@@ -1,6 +1,6 @@
 """ŷ_τ75 Ridge：开盘 Z + 开→τ 收益/截面 + 序列特征 → mean(price(τ⊕70/75/80))/price(τ)−1。
 
-盘中写 y_τ75。做 T 破带后同号旁路闸；不进 C_τ / ranking。
+盘中写 y_τ75=p_up。进 ŷ_τw 投票；个股闸与入场已下线。不进 C_τ / ranking。
 τ⊕80 超出当日交易时段则不训、不预。
 不含 ŷ_τ 的 OC 路径形状（HL/回撤/振幅），避免共线把 ŷ 压到 0。
 序列键（ret_last_5m / ret_last_75m / session_* / crosses_lunch_75 /
@@ -18,7 +18,6 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 logger = logging.getLogger(__name__)
 
 from core.io_atomic import atomic_write_json
-from core.research.factor_ols_fit import fit_factor_ols_from_panel
 from core.research.tau_panel import (
     TAU_LAG_FEAT_LABELS,
     T75_LAG_FEAT_LABELS,
@@ -27,24 +26,21 @@ from core.research.tau_panel import (
     theme_sample_weights,
     y_t75_pct,
 )
+from core.research.horizon_prob import (
+    horizon_promote_gate,
+    predict_p_up_rows,
+    train_eval_horizon_prob,
+)
 from core.research.tau_ridge import (
     TAU_FIT_DROP_ALIASES,
     TAU_HORIZON_DROP_OC_SHAPE,
     TAU_MIN_STD_EXEMPT,
     TAU_Z_FEATURES,
-    _ic,
-    _oos_by_tau,
-    _oos_by_theme,
-    _oos_sign_buckets,
-    _predict_rows,
-    _residual_var,
-    _sign_hit,
     _stack_panels,
     _subset,
     _theme_counts,
     _theme_trigger_sensitivity,
     build_tau_panels_from_bars,
-    tau_promote_gate,
 )
 from core.signal.minute_tau_feats import MINUTE_TAU_FEAT_LABELS
 from core.signal.minute_tau_grid import (
@@ -60,7 +56,7 @@ T75_Z_FEATURES = tuple(
 )
 T75_MIN_STD_EXEMPT = TAU_MIN_STD_EXEMPT + T75_SEQ_FEATURES
 
-t75_promote_gate = tau_promote_gate
+t75_promote_gate = horizon_promote_gate
 
 
 def _t75_z_only_row(row: Optional[dict]) -> Dict[str, Optional[float]]:
@@ -85,7 +81,7 @@ def _f(v: Any) -> Optional[float]:
 
 
 def pick_y_t75_hat(*objs: Any) -> Optional[float]:
-    """盘中 ŷ_τ75（百分点）。"""
+    """盘中 ŷ_τ75（p_up∈(0,1)）。"""
     for obj in objs:
         if not isinstance(obj, dict):
             continue
@@ -114,8 +110,8 @@ def write_y_t75_hat(dest: Dict[str, Any], val: float, *, formula: Any = None) ->
     dest["y_t75"] = x
     dest["y_τ75"] = x
     spec = str(formula or FORMULA_T75)
-    dest["y_spec_τ75"] = {"formula": spec, "unit": "pct"}
-    dest["y_spec_t75"] = {"formula": spec, "unit": "pct"}
+    dest["y_spec_τ75"] = {"formula": spec, "unit": "prob"}
+    dest["y_spec_t75"] = {"formula": spec, "unit": "prob"}
 
 
 def write_y_t75_label(dest: Dict[str, Any], val: float) -> None:
@@ -182,7 +178,6 @@ def fit_t75_ridge_report(
         DEFAULT_HOLDOUT_TRADING_DAYS,
         attach_holdout_meta,
         calendar_dates_from_stock_bars,
-        make_research_model,
         resolve_ridge_split,
     )
 
@@ -201,67 +196,45 @@ def fit_t75_ridge_report(
         else None
     )
     feat_names = [k for k in T75_Z_FEATURES if k not in TAU_FIT_DROP_ALIASES]
-
-    y_mean = sum(float(y) for y in ys_tr) / max(1, len(ys_tr))
-    ys_tr_dm = [float(y) - y_mean for y in ys_tr]
-
-    fit = fit_factor_ols_from_panel(
-        xs_tr,
-        ys_tr_dm,
-        feature_names=feat_names,
-        ridge_lambda=ridge_lambda,
-        standardize=True,
-        sample_weights=weights,
-        min_std_exempt=list(T75_MIN_STD_EXEMPT),
-        collinearity_policy="drop_redundant",
+    w_all = (
+        theme_sample_weights(metas, theme_boost=theme_boost)
+        if use_theme_weights
+        else None
     )
-    if not fit.get("success"):
-        fit = {
-            "success": True,
-            "intercept": 0.0,
-            "coefficients": {},
-            "active_features": [],
-            "zscore_means": {},
-            "zscore_stds": {},
-            "note": "Z 方差不足，ŷ_τ75 用训练均值",
+    packed = train_eval_horizon_prob(
+        xs_tr,
+        ys_tr,
+        xs_te,
+        ys_te,
+        metas_te,
+        xs_z,
+        ys,
+        feat_names=feat_names,
+        ridge_lambda=ridge_lambda,
+        weights=weights,
+        weights_all=w_all,
+        min_std_exempt=T75_MIN_STD_EXEMPT,
+    )
+    oos: Dict[str, Any] = dict(packed.get("oos_core") or {})
+    oos.update(
+        {
+            "n_train": len(ys_tr),
+            "n_test": len(ys_te),
+            "theme_counts": {
+                "train": _theme_counts(metas_tr),
+                "oos": _theme_counts(metas_te),
+                "all": _theme_counts(metas),
+            },
+            "theme_trigger_sensitivity": _theme_trigger_sensitivity(metas),
+            "feature_fill": None,
+            "holdout_trading_days": hold_n,
+            "theme_boost": theme_boost if use_theme_weights else None,
+            "target": "price_tau_plus_75",
+            "tau": live_hm,
+            "tau_grid": list(grid),
+            "minute_tau_hm": live_hm,
         }
-
-    preds_dm = _predict_rows(fit, xs_te) if xs_te else []
-    preds_te = [
-        (float(p) + y_mean) if p is not None else None for p in (preds_dm or [])
-    ]
-    by_theme = _oos_by_theme(preds_te, ys_te, metas_te) if ys_te else {}
-    by_tau = _oos_by_tau(preds_te, ys_te, metas_te) if ys_te else {}
-    bucket_pack = _oos_sign_buckets(preds_te, ys_te) if ys_te else {}
-    oos: Dict[str, Any] = {
-        "n_train": len(ys_tr),
-        "n_test": len(ys_te),
-        "n_valid": bucket_pack.get("n_valid"),
-        "ic": _ic(preds_te, ys_te) if ys_te else None,
-        "sign_hit": _sign_hit(preds_te, ys_te) if ys_te else None,
-        "residual_var": _residual_var(preds_te, ys_te) if ys_te else None,
-        "by_theme": by_theme,
-        "by_tau": by_tau,
-        "theme_counts": {
-            "train": _theme_counts(metas_tr),
-            "oos": _theme_counts(metas_te),
-            "all": _theme_counts(metas),
-        },
-        "theme_trigger_sensitivity": _theme_trigger_sensitivity(metas),
-        "feature_fill": None,
-        "buckets": bucket_pack.get("buckets") or {},
-        "pos_recall": bucket_pack.get("pos_recall"),
-        "neg_recall": bucket_pack.get("neg_recall"),
-        "n_pos": bucket_pack.get("n_pos"),
-        "n_neg": bucket_pack.get("n_neg"),
-        "y_label_mean": round(y_mean, 6),
-        "holdout_trading_days": hold_n,
-        "theme_boost": theme_boost if use_theme_weights else None,
-        "target": "price_tau_plus_75",
-        "tau": live_hm,
-        "tau_grid": list(grid),
-        "minute_tau_hm": live_hm,
-    }
+    )
     try:
         from core.research.path_panel import feature_fill_rates
 
@@ -276,48 +249,22 @@ def fit_t75_ridge_report(
         "rows_per_day": round(len(ys) / max(1, len({str(d)[:10] for d in dates})), 2),
     }
 
-    research_model = make_research_model(fit, y_mean=y_mean)
-    w_all = (
-        theme_sample_weights(metas, theme_boost=theme_boost)
-        if use_theme_weights
-        else None
-    )
-    y_mean_all = sum(float(y) for y in ys) / max(1, len(ys))
-    ys_all_dm = [float(y) - y_mean_all for y in ys]
-    fit_full = fit_factor_ols_from_panel(
-        xs_z,
-        ys_all_dm,
-        feature_names=feat_names,
-        ridge_lambda=ridge_lambda,
-        standardize=True,
-        sample_weights=w_all,
-        min_std_exempt=list(T75_MIN_STD_EXEMPT),
-        collinearity_policy="drop_redundant",
-    )
-    model = dict(fit_full if fit_full.get("success") else fit)
-    try:
-        model["intercept"] = round(float(model.get("intercept") or 0.0) + y_mean_all, 6)
-    except (TypeError, ValueError):
-        model["intercept"] = round(y_mean_all, 6)
-    model["intercept_demeaned"] = round(float(fit.get("intercept") or 0.0), 6)
-    model["y_label_mean"] = round(y_mean_all, 6)
-    model["y_demeaned"] = True
+    research_model = dict(packed.get("research_model") or {})
+    model = dict(packed.get("model") or {})
     model["horizon_mode"] = "price_tau_plus_75"
     model["target"] = "price_tau_plus_75"
     y_formula = format_shared_tau_formula(FORMULA_T75, grid or [live_hm])
     model["y_spec"] = {
         "formula": y_formula,
-        "unit": "pct",
+        "unit": "prob",
+        "label": "I(mean(price(τ⊕70/75/80))/price(τ)−1 > 0)",
         "tau": live_hm,
         "tau_grid": list(grid),
         "note": (
             "X = 开盘 Z + 开→τ 收益/截面 + ŷ_τ75 序列特征"
-            "（ret_last_5m / ret_last_75m / session_elapsed / session_remain / "
-            "crosses_lunch_75 / session_vwap_dev / vol_last_75m_vs_avg / "
-            "sector_ret_last_75m / ret_last_75m_vs_sector / t75_lag1 / t75_ma5）；"
-            "不含 ŷ_τ 的 OC 路径形状（HL/回撤/振幅，避免共线把 ŷ 压到 0）。"
-            "标签=mean(price(τ⊕70/75/80))/price(τ)−1。"
-            "主字段 y_τ75；做 T 破带同号旁路；不进 C_τ / ranking。"
+            "（ret_last_5m / ret_last_75m / session_elapsed / session_remain / crosses_lunch_75 / session_vwap_dev / vol_last_75m_vs_avg / sector_ret_last_75m / ret_last_75m_vs_sector / t75_lag1 / t75_ma5）；"
+            "不含 ŷ_τ 的 OC 路径形状。"
+            "ŷ_τ75=P(窗收益>0)；做 T 用 p_agree（正T=p_up，反T=1−p_up）；不进 C_τ / ranking。"
         ),
     }
     model["extra_features"] = list(T75_Z_FEATURES)
@@ -329,6 +276,7 @@ def fit_t75_ridge_report(
     model["minute_tau_hm"] = live_hm
     model["tau_grid"] = list(grid)
     model["model_role"] = "live"
+    model["head_kind"] = "prob"
     for k in (
         "y_spec",
         "extra_features",
@@ -337,6 +285,7 @@ def fit_t75_ridge_report(
         "target",
         "minute_tau_hm",
         "tau_grid",
+        "head_kind",
     ):
         research_model[k] = model.get(k)
 
@@ -348,13 +297,14 @@ def fit_t75_ridge_report(
         "oos": oos,
         "return_model": model,
         "return_model_research": research_model,
-        "schema": "t75_ridge_v1",
+        "schema": "t75_ridge_v2",
         "target": "price_tau_plus_75",
         "minute_tau_hm": live_hm,
         "tau_grid": list(grid),
         "dual_score_head": "y_t75",
+        "head_kind": "prob",
         "note": (
-            "ŷ_τ75：price(τ)→mean(price(τ⊕70/75/80))。做 T 破带同号旁路；不进 C_τ / ranking。"
+            "ŷ_τ75=P(mean(price(τ⊕70/75/80))/price(τ)−1>0)。进 ŷ_τw 投票；个股旁路闸已下线。不进 C_τ / ranking。"
         ),
     }
     attach_holdout_meta(report, split_meta)
@@ -483,7 +433,7 @@ def persist_t75_model(
         "oos": report.get("oos"),
         "sample_count": report.get("sample_count"),
         "stock_count": report.get("stock_count"),
-        "schema": report.get("schema") or "t75_ridge_v1",
+        "schema": report.get("schema") or "t75_ridge_v2",
         "minute_tau_hm": report.get("minute_tau_hm") or rm.get("minute_tau_hm"),
         "tau_grid": report.get("tau_grid") or rm.get("tau_grid"),
         "promote_gate": gate,
@@ -512,12 +462,12 @@ def predict_t75_from_features(
     *,
     model_doc: Optional[Dict[str, Any]] = None,
 ) -> Optional[float]:
-    """开盘 Z + 前缀分钟 → ŷ_τ75（百分点）。"""
+    """开盘 Z + 前缀分钟 → ŷ_τ75 = P(窗收益>0)。"""
     doc = model_doc if model_doc is not None else load_t75_model()
     if not doc:
         return None
     rm = doc.get("return_model") or {}
-    preds = _predict_rows(rm, [features or {}])
+    preds = predict_p_up_rows(rm, [features or {}])
     if not preds or preds[0] is None:
         return None
     return float(preds[0])

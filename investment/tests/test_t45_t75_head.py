@@ -167,23 +167,25 @@ class YtwFiveHeadTests(unittest.TestCase):
 
         cfg = load_t0_rules({})
         self.assertEqual(float(cfg["y_tw_strong"]), 5.0)
-        self.assertEqual(float(cfg["y_t45_strong"]), 1.0)
-        self.assertEqual(float(cfg["y_t75_strong"]), 1.0)
+        self.assertAlmostEqual(float(cfg["y_tw_vote_margin"]), 2.0)
+        self.assertNotIn("y_t45_strong", cfg)
+        self.assertNotIn("y_t75_strong", cfg)
         # 旧落盘 3=关闸 → 迁到 5
         migrated = load_t0_rules({"y_tw_strong": 3.0})
         self.assertEqual(float(migrated["y_tw_strong"]), 5.0)
 
-        self.assertAlmostEqual(blend_y_tw(1.0, 0.1, 0.2), 3.0)
-        self.assertAlmostEqual(blend_y_tw(1.0, 0.1, 0.2, 0.3, 0.4), 5.0)
-        self.assertAlmostEqual(blend_y_tw(1.0, -0.2, -0.5, 0.3, -0.1), -1.0)
+        self.assertAlmostEqual(blend_y_tw(0.8, 0.6, 0.55), 3.0)
+        self.assertAlmostEqual(blend_y_tw(0.8, 0.6, 0.55, 0.7, 0.65), 5.0)
+        self.assertAlmostEqual(blend_y_tw(0.8, 0.2, 0.3, 0.7, 0.2), -1.0)
+        self.assertAlmostEqual(blend_y_tw(0.8, 0.51, 0.49, 0.52, 0.48), 1.0)
         self.assertIsNone(blend_y_tw(None, None, None, None, None))
 
         scores = {
-            "y_τ30": 1.2,
-            "y_τ45": 0.4,
-            "y_τ60": 0.3,
-            "y_τ75": 0.2,
-            "y_τ90": 0.1,
+            "y_τ30": 0.8,
+            "y_τ45": 0.6,
+            "y_τ60": 0.55,
+            "y_τ75": 0.7,
+            "y_τ90": 0.65,
         }
         self.assertIsNone(
             close_band_y_tw_skip_reason(
@@ -203,10 +205,10 @@ class T45T75GateTests(unittest.TestCase):
         from core.t0.config import load_t0_rules
         from core.t0.viz import classify_t0_skip_reason
 
-        self.assertEqual(float(load_t0_rules({})["y_t45_enter"]), 0.0)
-        self.assertEqual(float(load_t0_rules({})["y_t75_enter"]), 0.0)
-        self.assertEqual(float(load_t0_rules({})["y_t45_strong"]), 1.0)
-        self.assertEqual(float(load_t0_rules({})["y_t75_strong"]), 1.0)
+        self.assertNotIn("y_t45_enter", load_t0_rules({}))
+        self.assertNotIn("y_t75_enter", load_t0_rules({}))
+        self.assertNotIn("y_t45_strong", load_t0_rules({}))
+        self.assertNotIn("y_t75_strong", load_t0_rules({}))
 
         cfg45 = {
             "y_tau_enter": 0.0,
@@ -214,22 +216,23 @@ class T45T75GateTests(unittest.TestCase):
             "y_t45_enter": 0.5,
         }
         weak45 = close_band_enter_skip_reason(
-            {"y_tau": 1.0, "y_path": 1.0, "y_τ45": 0.2}, cfg45
+            {"y_tau": 1.0, "y_path": 1.0, "y_τ45": 0.2}, cfg45, direction="buy_then_sell"
         )
         self.assertIsNotNone(weak45)
         self.assertEqual(classify_t0_skip_reason(weak45), "y_t45_flat")
         self.assertIsNone(
             close_band_enter_skip_reason(
-                {"y_tau": 1.0, "y_path": 1.0, "y_τ45": 0.8}, cfg45
+                {"y_tau": 1.0, "y_path": 1.0, "y_τ45": 0.8}, cfg45, direction="buy_then_sell"
             )
         )
         self.assertIsNone(
-            close_band_enter_skip_reason({"y_tau": 1.0, "y_path": 1.0}, cfg45)
+            close_band_enter_skip_reason({"y_tau": 1.0, "y_path": 1.0}, cfg45, direction="buy_then_sell")
         )
         self.assertIsNone(
             close_band_enter_skip_reason(
                 {"y_tau": 1.0, "y_path": 1.0, "y_τ45": 0.2},
                 {**cfg45, "y_t45_enter": 0.9, "y_t45_enter_alt": 0.1},
+                direction="buy_then_sell",
             )
         )
 
@@ -239,7 +242,7 @@ class T45T75GateTests(unittest.TestCase):
             "y_t75_enter": 0.5,
         }
         weak75 = close_band_enter_skip_reason(
-            {"y_tau": 1.0, "y_path": 1.0, "y_τ75": 0.2}, cfg75
+            {"y_tau": 1.0, "y_path": 1.0, "y_τ75": 0.2}, cfg75, direction="buy_then_sell"
         )
         self.assertIsNotNone(weak75)
         self.assertEqual(classify_t0_skip_reason(weak75), "y_t75_flat")

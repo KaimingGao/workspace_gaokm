@@ -115,101 +115,21 @@ export function renderExecutionRulesHtml(execution) {
         if (s <= 0) return "全顺带";
         return `|ŷ_τw|>${s}逆带跳过`;
       })(),
-      "破带后 ŷ_τw 符号票须与方向同号（反T<0，正T>0）；0=任意有符号须同号，5=关。不改 C_τ。"
+      (() => {
+        const m = Number(t0.y_tw_vote_margin ?? t0.y_τw_vote_margin);
+        const pp = Number.isFinite(m) ? m : 2;
+        return `破带后 ŷ_τw 票须与方向同号（|p−0.5|≤${pp}pp 不投票）；0=开，≥5=关。|ŷ_τw|大于阈值且逆带才跳过。不改 C_τ。`;
+      })()
     ) +
     specKpi(
-      "τ30强",
+      "弃权%",
       (() => {
-        const s = Number(t0.y_t30_strong ?? t0.y_τ30_strong);
-        if (!Number.isFinite(s) || s >= 1) return "关";
-        if (s <= 0) return "全顺带";
-        return `|ŷ_τ30|>${s}%逆带跳过`;
+        const m = Number(t0.y_tw_vote_margin ?? t0.y_τw_vote_margin);
+        if (!Number.isFinite(m)) return "2pp";
+        if (m <= 0) return "仅50%";
+        return `${m}pp`;
       })(),
-      "破带后 ŷ_τ30 须与方向同号（后 30 交易分钟）；0=任意有符号须同号，1=关。不改 C_τ。"
-    ) +
-    specKpi(
-      "τ45强",
-      (() => {
-        const s = Number(t0.y_t45_strong ?? t0.y_τ45_strong);
-        if (!Number.isFinite(s) || s >= 1) return "关";
-        if (s <= 0) return "全顺带";
-        return `|ŷ_τ45|>${s}%逆带跳过`;
-      })(),
-      "ŷ_τ45 旁路默认关，只进 ŷ_τw 票；0=任意有符号须同号，1=关。不改 C_τ。"
-    ) +
-    specKpi(
-      "τ60强",
-      (() => {
-        const s = Number(t0.y_t60_strong ?? t0.y_τ60_strong);
-        if (!Number.isFinite(s) || s >= 1) return "关";
-        if (s <= 0) return "全顺带";
-        return `|ŷ_τ60|>${s}%逆带跳过`;
-      })(),
-      "破带后 ŷ_τ60 须与方向同号（后 60 交易分钟）；0=任意有符号须同号，1=关。不改 C_τ。"
-    ) +
-    specKpi(
-      "τ75强",
-      (() => {
-        const s = Number(t0.y_t75_strong ?? t0.y_τ75_strong);
-        if (!Number.isFinite(s) || s >= 1) return "关";
-        if (s <= 0) return "全顺带";
-        return `|ŷ_τ75|>${s}%逆带跳过`;
-      })(),
-      "ŷ_τ75 旁路默认关，只进 ŷ_τw 票；0=任意有符号须同号，1=关。不改 C_τ。"
-    ) +
-    specKpi(
-      "τ90强",
-      (() => {
-        const s = Number(t0.y_t90_strong ?? t0.y_τ90_strong);
-        if (!Number.isFinite(s) || s >= 1) return "关";
-        if (s <= 0) return "全顺带";
-        return `|ŷ_τ90|>${s}%逆带跳过`;
-      })(),
-      "破带后 ŷ_τ90 须与方向同号（后 90 交易分钟）；0=任意有符号须同号，1=关。不改 C_τ。"
-    ) +
-    specKpi(
-      "门槛1",
-      (() => {
-        if (t0.y_enter_enabled === false) return "关";
-        const tau = Number(t0.y_tau_enter);
-        const hl = Number(t0.y_hl_enter);
-        const tauLbl = Number.isFinite(tau) ? (tau > 0 ? `|oc|≥${tau}%` : "oc关") : "oc关";
-        const hlLbl = Number.isFinite(hl) ? (hl > 0 ? `|hl|≥${hl}%` : "hl关") : "hl关";
-        const t30 = Number(t0.y_t30_enter ?? t0.y_τ30_enter);
-        const t45 = Number(t0.y_t45_enter ?? t0.y_τ45_enter);
-        const t60 = Number(t0.y_t60_enter ?? t0.y_τ60_enter);
-        const t75 = Number(t0.y_t75_enter ?? t0.y_τ75_enter);
-        const t90 = Number(t0.y_t90_enter ?? t0.y_τ90_enter);
-        const t30Lbl = Number.isFinite(t30) ? (t30 > 0 ? `|t30|≥${t30}%` : "t30关") : "t30关";
-        const t45Lbl = Number.isFinite(t45) ? (t45 > 0 ? `|t45|≥${t45}%` : "t45关") : "t45关";
-        const t60Lbl = Number.isFinite(t60) ? (t60 > 0 ? `|t60|≥${t60}%` : "t60关") : "t60关";
-        const t75Lbl = Number.isFinite(t75) ? (t75 > 0 ? `|t75|≥${t75}%` : "t75关") : "t75关";
-        const t90Lbl = Number.isFinite(t90) ? (t90 > 0 ? `|t90|≥${t90}%` : "t90关") : "t90关";
-        return `${tauLbl}·${hlLbl}·${t30Lbl}·${t45Lbl}·${t60Lbl}·${t75Lbl}·${t90Lbl}`;
-      })(),
-      "门槛1：启用时 |ŷ_oc| / |y_hl| / |ŷ_τ30| / |ŷ_τ45| / |ŷ_τ60| / |ŷ_τ75| / |ŷ_τ90| 入场"
-    ) +
-    specKpi(
-      "门槛2",
-      (() => {
-        if (t0.y_enter_alt_enabled === false) return "关";
-        const tau = Number(t0.y_tau_enter_alt);
-        const hl = Number(t0.y_hl_enter_alt);
-        const tauLbl = Number.isFinite(tau) ? (tau > 0 ? `|oc|≥${tau}%` : "oc关") : "oc关";
-        const hlLbl = Number.isFinite(hl) ? (hl > 0 ? `|hl|≥${hl}%` : "hl关") : "hl关";
-        const t30 = Number(t0.y_t30_enter_alt ?? t0.y_τ30_enter_alt);
-        const t45 = Number(t0.y_t45_enter_alt ?? t0.y_τ45_enter_alt);
-        const t60 = Number(t0.y_t60_enter_alt ?? t0.y_τ60_enter_alt);
-        const t75 = Number(t0.y_t75_enter_alt ?? t0.y_τ75_enter_alt);
-        const t90 = Number(t0.y_t90_enter_alt ?? t0.y_τ90_enter_alt);
-        const t30Lbl = Number.isFinite(t30) ? (t30 > 0 ? `|t30|≥${t30}%` : "t30关") : "t30关";
-        const t45Lbl = Number.isFinite(t45) ? (t45 > 0 ? `|t45|≥${t45}%` : "t45关") : "t45关";
-        const t60Lbl = Number.isFinite(t60) ? (t60 > 0 ? `|t60|≥${t60}%` : "t60关") : "t60关";
-        const t75Lbl = Number.isFinite(t75) ? (t75 > 0 ? `|t75|≥${t75}%` : "t75关") : "t75关";
-        const t90Lbl = Number.isFinite(t90) ? (t90 > 0 ? `|t90|≥${t90}%` : "t90关") : "t90关";
-        return `${tauLbl}·${hlLbl}·${t30Lbl}·${t45Lbl}·${t60Lbl}·${t75Lbl}·${t90Lbl}`;
-      })(),
-      "门槛2：启用时 |ŷ_oc| / |y_hl| / |ŷ_τ30| / |ŷ_τ45| / |ŷ_τ60| / |ŷ_τ75| / |ŷ_τ90| 入场"
+      "ŷ_τ* 距 50% 不超过此百分点则不给 ŷ_τw 投票。默认 2；0=仅恰好 50% 弃权。不改 C_τ。"
     ) +
     specKpi("路径", pathLbl, "分钟触价路径") +
     specKpi("成交", fillLbl, "全量触价 trigger；表单不再提供 mid/optimistic") +
@@ -380,21 +300,14 @@ export function fillExecutionForm(root, execution) {
     if (val == null) return;
     el.value = String(val);
   };
-  set("enabled", t0.enabled !== false);
   set("direction", "dual_y");
   set("path_mode", t0.path_mode || "first_touch");
-  set("must_cover_same_day_sell_then_buy", t0.must_cover_same_day_sell_then_buy !== false);
-  set(
-    "must_cover_same_day_buy_then_sell",
-    (t0.must_cover_same_day_buy_then_sell ?? t0.must_cover_same_day) !== false
-  );
   // 表单写死独立；后端仍可读旧 coupling，保存时强制 independent
   set("t0_vs_stance", "independent");
   set("t0_close_band_delta_pct", t0.t0_close_band_delta_pct != null ? t0.t0_close_band_delta_pct : 3);
   set("t0_y_oc_target_scale", t0.t0_y_oc_target_scale != null ? t0.t0_y_oc_target_scale : 10);
   set("t0_y_oc_l", t0.t0_y_oc_l != null ? t0.t0_y_oc_l : -3);
   set("t0_y_oc_u", t0.t0_y_oc_u != null ? t0.t0_y_oc_u : 3);
-  set("t0_price_space_gate", t0.t0_price_space_gate !== false);
   set(
     "t0_price_space_max_dev_pct",
     t0.t0_price_space_max_dev_pct != null ? t0.t0_price_space_max_dev_pct : 5
@@ -406,41 +319,11 @@ export function fillExecutionForm(root, execution) {
   set("t0_round_ratio", t0.t0_round_ratio != null ? t0.t0_round_ratio : 0.4);
   set("t0_max_position_pct", t0.t0_max_position_pct != null ? t0.t0_max_position_pct : 1.0);
   set("t0_slots_max_rounds", t0.t0_slots_max_rounds != null ? t0.t0_slots_max_rounds : 5);
-  set("y_enter_enabled", t0.y_enter_enabled !== false);
-  set("y_enter_alt_enabled", t0.y_enter_alt_enabled !== false);
-  set("y_tau_enter", (() => {
-    const n = Number(t0.y_tau_enter);
-    if (!Number.isFinite(n)) return 0;
-    return Math.max(0, Math.min(n, 100));
-  })());
-  set("y_tau_enter_alt", (() => {
-    const n = Number(t0.y_tau_enter_alt);
-    if (!Number.isFinite(n)) return 0;
-    return Math.max(0, Math.min(n, 100));
-  })());
   set("y_hl_strong", (() => {
     const n = Number(t0.y_hl_strong);
     if (!Number.isFinite(n)) return 5;
     return Math.max(0, Math.min(n, 5));
   })());
-  set("y_hl_enter", (() => {
-    const n = Number(t0.y_hl_enter);
-    if (!Number.isFinite(n)) return 0;
-    return Math.max(0, Math.min(n, 100));
-  })());
-  set("y_hl_enter_alt", (() => {
-    const n = Number(t0.y_hl_enter_alt);
-    if (!Number.isFinite(n)) return 0;
-    return Math.max(0, Math.min(n, 100));
-  })());
-  set(
-    "y_t30_strong",
-    (() => {
-      const n = Number(t0.y_t30_strong ?? t0.y_τ30_strong);
-      if (!Number.isFinite(n)) return 0;
-      return Math.max(0, Math.min(n, 1));
-    })()
-  );
   set(
     "y_tw_strong",
     (() => {
@@ -450,115 +333,11 @@ export function fillExecutionForm(root, execution) {
     })()
   );
   set(
-    "y_t30_enter",
+    "y_tw_vote_margin",
     (() => {
-      const n = Number(t0.y_t30_enter ?? t0.y_τ30_enter);
-      if (!Number.isFinite(n)) return 0;
-      return Math.max(0, Math.min(n, 100));
-    })()
-  );
-  set(
-    "y_t30_enter_alt",
-    (() => {
-      const n = Number(t0.y_t30_enter_alt ?? t0.y_τ30_enter_alt);
-      if (!Number.isFinite(n)) return 0;
-      return Math.max(0, Math.min(n, 100));
-    })()
-  );
-  set(
-    "y_t45_strong",
-    (() => {
-      const n = Number(t0.y_t45_strong ?? t0.y_τ45_strong);
-      if (!Number.isFinite(n)) return 1;
-      return Math.max(0, Math.min(n, 1));
-    })()
-  );
-  set(
-    "y_t45_enter",
-    (() => {
-      const n = Number(t0.y_t45_enter ?? t0.y_τ45_enter);
-      if (!Number.isFinite(n)) return 0;
-      return Math.max(0, Math.min(n, 100));
-    })()
-  );
-  set(
-    "y_t45_enter_alt",
-    (() => {
-      const n = Number(t0.y_t45_enter_alt ?? t0.y_τ45_enter_alt);
-      if (!Number.isFinite(n)) return 0;
-      return Math.max(0, Math.min(n, 100));
-    })()
-  );
-  set(
-    "y_t60_strong",
-    (() => {
-      const n = Number(t0.y_t60_strong ?? t0.y_τ60_strong);
-      if (!Number.isFinite(n)) return 0;
-      return Math.max(0, Math.min(n, 1));
-    })()
-  );
-  set(
-    "y_t60_enter",
-    (() => {
-      const n = Number(t0.y_t60_enter ?? t0.y_τ60_enter);
-      if (!Number.isFinite(n)) return 0;
-      return Math.max(0, Math.min(n, 100));
-    })()
-  );
-  set(
-    "y_t60_enter_alt",
-    (() => {
-      const n = Number(t0.y_t60_enter_alt ?? t0.y_τ60_enter_alt);
-      if (!Number.isFinite(n)) return 0;
-      return Math.max(0, Math.min(n, 100));
-    })()
-  );
-  set(
-    "y_t75_strong",
-    (() => {
-      const n = Number(t0.y_t75_strong ?? t0.y_τ75_strong);
-      if (!Number.isFinite(n)) return 1;
-      return Math.max(0, Math.min(n, 1));
-    })()
-  );
-  set(
-    "y_t75_enter",
-    (() => {
-      const n = Number(t0.y_t75_enter ?? t0.y_τ75_enter);
-      if (!Number.isFinite(n)) return 0;
-      return Math.max(0, Math.min(n, 100));
-    })()
-  );
-  set(
-    "y_t75_enter_alt",
-    (() => {
-      const n = Number(t0.y_t75_enter_alt ?? t0.y_τ75_enter_alt);
-      if (!Number.isFinite(n)) return 0;
-      return Math.max(0, Math.min(n, 100));
-    })()
-  );
-  set(
-    "y_t90_strong",
-    (() => {
-      const n = Number(t0.y_t90_strong ?? t0.y_τ90_strong);
-      if (!Number.isFinite(n)) return 0;
-      return Math.max(0, Math.min(n, 1));
-    })()
-  );
-  set(
-    "y_t90_enter",
-    (() => {
-      const n = Number(t0.y_t90_enter ?? t0.y_τ90_enter);
-      if (!Number.isFinite(n)) return 0;
-      return Math.max(0, Math.min(n, 100));
-    })()
-  );
-  set(
-    "y_t90_enter_alt",
-    (() => {
-      const n = Number(t0.y_t90_enter_alt ?? t0.y_τ90_enter_alt);
-      if (!Number.isFinite(n)) return 0;
-      return Math.max(0, Math.min(n, 100));
+      const n = Number(t0.y_tw_vote_margin ?? t0.y_τw_vote_margin);
+      if (!Number.isFinite(n)) return 2;
+      return Math.max(0, Math.min(n, 20));
     })()
   );
   set(
@@ -626,69 +405,31 @@ export function collectExecutionForm(root) {
     return el ? !!el.checked : fallback;
   };
   const t0 = {
-    enabled: chk("enabled", true),
+    enabled: true,
     t0_ratio: 1.0,
     fill_mode_sell_then_buy: "trigger",
     fill_mode_buy_then_sell: "trigger",
     fill_mode: "trigger",
     direction: "dual_y",
     path_mode: str("path_mode", "first_touch"),
-    must_cover_same_day_sell_then_buy: chk("must_cover_same_day_sell_then_buy", true),
-    must_cover_same_day_buy_then_sell: chk("must_cover_same_day_buy_then_sell", true),
-    must_cover_same_day: chk("must_cover_same_day_buy_then_sell", true),
+    must_cover_same_day_sell_then_buy: true,
+    must_cover_same_day_buy_then_sell: true,
+    must_cover_same_day: true,
     t0_close_band_delta_pct: Math.max(0, Math.min(num("t0_close_band_delta_pct", 3), 10)),
     t0_y_oc_target_scale: Math.max(0, Math.min(num("t0_y_oc_target_scale", 10), 100)),
     t0_y_oc_l: Math.max(-20, Math.min(num("t0_y_oc_l", -3), 20)),
     t0_y_oc_u: Math.max(-20, Math.min(num("t0_y_oc_u", 3), 20)),
-    t0_price_space_gate: chk("t0_price_space_gate", true),
+    t0_price_space_gate: true,
     t0_price_space_max_dev_pct: Math.max(0, Math.min(num("t0_price_space_max_dev_pct", 5), 5)),
     t0_price_space_prev_dev_pct: Math.max(0, Math.min(num("t0_price_space_prev_dev_pct", 5), 5)),
     t0_round_ratio: Math.max(0.05, Math.min(num("t0_round_ratio", 0.4), 1)),
     t0_max_position_pct: Math.max(0.05, Math.min(num("t0_max_position_pct", 1), 1)),
     t0_slots_max_rounds: Math.max(0, Math.min(Math.round(num("t0_slots_max_rounds", 5)), 16)),
-    y_enter_enabled: chk("y_enter_enabled", true),
-    y_enter_alt_enabled: chk("y_enter_alt_enabled", true),
-    y_tau_enter: Math.max(0, Math.min(num("y_tau_enter", 0), 100)),
-    y_tau_enter_sell_then_buy: Math.max(0, Math.min(num("y_tau_enter", 0), 100)),
-    y_tau_enter_buy_then_sell: Math.max(0, Math.min(num("y_tau_enter", 0), 100)),
-    y_tau_enter_alt: Math.max(0, Math.min(num("y_tau_enter_alt", 0), 100)),
     y_hl_strong: Math.max(0, Math.min(num("y_hl_strong", 5), 5)),
-    y_hl_enter: Math.max(0, Math.min(num("y_hl_enter", 0), 100)),
-    y_hl_enter_sell_then_buy: Math.max(0, Math.min(num("y_hl_enter", 0), 100)),
-    y_hl_enter_buy_then_sell: Math.max(0, Math.min(num("y_hl_enter", 0), 100)),
-    y_hl_enter_alt: Math.max(0, Math.min(num("y_hl_enter_alt", 0), 100)),
-    y_t30_strong: Math.max(0, Math.min(num("y_t30_strong", 0), 1)),
-    y_τ30_strong: Math.max(0, Math.min(num("y_t30_strong", 0), 1)),
     y_tw_strong: Math.max(0, Math.min(num("y_tw_strong", 5), 5)),
     y_τw_strong: Math.max(0, Math.min(num("y_tw_strong", 5), 5)),
-    y_t30_enter: Math.max(0, Math.min(num("y_t30_enter", 0), 100)),
-    y_τ30_enter: Math.max(0, Math.min(num("y_t30_enter", 0), 100)),
-    y_t30_enter_alt: Math.max(0, Math.min(num("y_t30_enter_alt", 0), 100)),
-    y_τ30_enter_alt: Math.max(0, Math.min(num("y_t30_enter_alt", 0), 100)),
-    y_t45_strong: Math.max(0, Math.min(num("y_t45_strong", 1), 1)),
-    y_τ45_strong: Math.max(0, Math.min(num("y_t45_strong", 1), 1)),
-    y_t45_enter: Math.max(0, Math.min(num("y_t45_enter", 0), 100)),
-    y_τ45_enter: Math.max(0, Math.min(num("y_t45_enter", 0), 100)),
-    y_t45_enter_alt: Math.max(0, Math.min(num("y_t45_enter_alt", 0), 100)),
-    y_τ45_enter_alt: Math.max(0, Math.min(num("y_t45_enter_alt", 0), 100)),
-    y_t60_strong: Math.max(0, Math.min(num("y_t60_strong", 0), 1)),
-    y_τ60_strong: Math.max(0, Math.min(num("y_t60_strong", 0), 1)),
-    y_t60_enter: Math.max(0, Math.min(num("y_t60_enter", 0), 100)),
-    y_τ60_enter: Math.max(0, Math.min(num("y_t60_enter", 0), 100)),
-    y_t60_enter_alt: Math.max(0, Math.min(num("y_t60_enter_alt", 0), 100)),
-    y_τ60_enter_alt: Math.max(0, Math.min(num("y_t60_enter_alt", 0), 100)),
-    y_t75_strong: Math.max(0, Math.min(num("y_t75_strong", 1), 1)),
-    y_τ75_strong: Math.max(0, Math.min(num("y_t75_strong", 1), 1)),
-    y_t75_enter: Math.max(0, Math.min(num("y_t75_enter", 0), 100)),
-    y_τ75_enter: Math.max(0, Math.min(num("y_t75_enter", 0), 100)),
-    y_t75_enter_alt: Math.max(0, Math.min(num("y_t75_enter_alt", 0), 100)),
-    y_τ75_enter_alt: Math.max(0, Math.min(num("y_t75_enter_alt", 0), 100)),
-    y_t90_strong: Math.max(0, Math.min(num("y_t90_strong", 0), 1)),
-    y_τ90_strong: Math.max(0, Math.min(num("y_t90_strong", 0), 1)),
-    y_t90_enter: Math.max(0, Math.min(num("y_t90_enter", 0), 100)),
-    y_τ90_enter: Math.max(0, Math.min(num("y_t90_enter", 0), 100)),
-    y_t90_enter_alt: Math.max(0, Math.min(num("y_t90_enter_alt", 0), 100)),
-    y_τ90_enter_alt: Math.max(0, Math.min(num("y_t90_enter_alt", 0), 100)),
+    y_tw_vote_margin: Math.max(0, Math.min(num("y_tw_vote_margin", 2), 20)),
+    y_τw_vote_margin: Math.max(0, Math.min(num("y_tw_vote_margin", 2), 20)),
     t0_pm_degrade_sell_then_buy: str("t0_pm_degrade_sell_then_buy", "13:00"),
     t0_pm_degrade_buy_then_sell: str("t0_pm_degrade_buy_then_sell", "13:00"),
     t0_pm_degrade: str("t0_pm_degrade_buy_then_sell", "13:00"),
@@ -1054,16 +795,14 @@ export function collectT0BacktestBody(root, opts = {}) {
     fill_mode_buy_then_sell: "trigger",
     direction: "dual_y",
     path_mode: "first_touch",
-    must_cover_same_day_sell_then_buy: t0.must_cover_same_day_sell_then_buy !== false,
-    must_cover_same_day_buy_then_sell:
-      (t0.must_cover_same_day_buy_then_sell ?? t0.must_cover_same_day) !== false,
-    must_cover_same_day:
-      (t0.must_cover_same_day_buy_then_sell ?? t0.must_cover_same_day) !== false,
+    must_cover_same_day_sell_then_buy: true,
+    must_cover_same_day_buy_then_sell: true,
+    must_cover_same_day: true,
     t0_close_band_delta_pct: t0.t0_close_band_delta_pct != null ? t0.t0_close_band_delta_pct : 3,
     t0_y_oc_target_scale: t0.t0_y_oc_target_scale != null ? t0.t0_y_oc_target_scale : 10,
     t0_y_oc_l: t0.t0_y_oc_l != null ? t0.t0_y_oc_l : -3,
     t0_y_oc_u: t0.t0_y_oc_u != null ? t0.t0_y_oc_u : 3,
-    t0_price_space_gate: t0.t0_price_space_gate !== false,
+    t0_price_space_gate: true,
     t0_price_space_max_dev_pct:
       t0.t0_price_space_max_dev_pct != null ? t0.t0_price_space_max_dev_pct : 5,
     t0_price_space_prev_dev_pct:
@@ -1071,62 +810,10 @@ export function collectT0BacktestBody(root, opts = {}) {
     t0_round_ratio: t0.t0_round_ratio != null ? t0.t0_round_ratio : 0.4,
     t0_max_position_pct: t0.t0_max_position_pct != null ? t0.t0_max_position_pct : 1.0,
     t0_slots_max_rounds: t0.t0_slots_max_rounds != null ? t0.t0_slots_max_rounds : 5,
-    y_enter_enabled: t0.y_enter_enabled !== false,
-    y_enter_alt_enabled: t0.y_enter_alt_enabled !== false,
-    y_tau_enter: (() => {
-      const n = Number(t0.y_tau_enter);
-      if (!Number.isFinite(n)) return 0;
-      return Math.max(0, Math.min(n, 100));
-    })(),
-    y_tau_enter_sell_then_buy: (() => {
-      const n = Number(t0.y_tau_enter_sell_then_buy ?? t0.y_tau_enter);
-      if (!Number.isFinite(n)) return 0;
-      return Math.max(0, Math.min(n, 100));
-    })(),
-    y_tau_enter_buy_then_sell: (() => {
-      const n = Number(t0.y_tau_enter_buy_then_sell ?? t0.y_tau_enter);
-      if (!Number.isFinite(n)) return 0;
-      return Math.max(0, Math.min(n, 100));
-    })(),
-    y_tau_enter_alt: (() => {
-      const n = Number(t0.y_tau_enter_alt);
-      if (!Number.isFinite(n)) return 0;
-      return Math.max(0, Math.min(n, 100));
-    })(),
     y_hl_strong: (() => {
       const n = Number(t0.y_hl_strong);
       if (!Number.isFinite(n)) return 5;
       return Math.max(0, Math.min(n, 5));
-    })(),
-    y_hl_enter: (() => {
-      const n = Number(t0.y_hl_enter);
-      if (!Number.isFinite(n)) return 0;
-      return Math.max(0, Math.min(n, 100));
-    })(),
-    y_hl_enter_sell_then_buy: (() => {
-      const n = Number(t0.y_hl_enter_sell_then_buy ?? t0.y_hl_enter);
-      if (!Number.isFinite(n)) return 0;
-      return Math.max(0, Math.min(n, 100));
-    })(),
-    y_hl_enter_buy_then_sell: (() => {
-      const n = Number(t0.y_hl_enter_buy_then_sell ?? t0.y_hl_enter);
-      if (!Number.isFinite(n)) return 0;
-      return Math.max(0, Math.min(n, 100));
-    })(),
-    y_hl_enter_alt: (() => {
-      const n = Number(t0.y_hl_enter_alt);
-      if (!Number.isFinite(n)) return 0;
-      return Math.max(0, Math.min(n, 100));
-    })(),
-    y_t30_strong: (() => {
-      const n = Number(t0.y_t30_strong ?? t0.y_τ30_strong);
-      if (!Number.isFinite(n)) return 0;
-      return Math.max(0, Math.min(n, 1));
-    })(),
-    y_τ30_strong: (() => {
-      const n = Number(t0.y_t30_strong ?? t0.y_τ30_strong);
-      if (!Number.isFinite(n)) return 0;
-      return Math.max(0, Math.min(n, 1));
     })(),
     y_tw_strong: (() => {
       const n = Number(t0.y_tw_strong ?? t0.y_τw_strong);
@@ -1138,145 +825,15 @@ export function collectT0BacktestBody(root, opts = {}) {
       if (!Number.isFinite(n)) return 5;
       return Math.max(0, Math.min(n, 5));
     })(),
-    y_t30_enter: (() => {
-      const n = Number(t0.y_t30_enter ?? t0.y_τ30_enter);
-      if (!Number.isFinite(n)) return 0;
-      return Math.max(0, Math.min(n, 100));
+    y_tw_vote_margin: (() => {
+      const n = Number(t0.y_tw_vote_margin ?? t0.y_τw_vote_margin);
+      if (!Number.isFinite(n)) return 2;
+      return Math.max(0, Math.min(n, 20));
     })(),
-    y_τ30_enter: (() => {
-      const n = Number(t0.y_t30_enter ?? t0.y_τ30_enter);
-      if (!Number.isFinite(n)) return 0;
-      return Math.max(0, Math.min(n, 100));
-    })(),
-    y_t30_enter_alt: (() => {
-      const n = Number(t0.y_t30_enter_alt ?? t0.y_τ30_enter_alt);
-      if (!Number.isFinite(n)) return 0;
-      return Math.max(0, Math.min(n, 100));
-    })(),
-    y_τ30_enter_alt: (() => {
-      const n = Number(t0.y_t30_enter_alt ?? t0.y_τ30_enter_alt);
-      if (!Number.isFinite(n)) return 0;
-      return Math.max(0, Math.min(n, 100));
-    })(),
-    y_t45_strong: (() => {
-      const n = Number(t0.y_t45_strong ?? t0.y_τ45_strong);
-      if (!Number.isFinite(n)) return 1;
-      return Math.max(0, Math.min(n, 1));
-    })(),
-    y_τ45_strong: (() => {
-      const n = Number(t0.y_t45_strong ?? t0.y_τ45_strong);
-      if (!Number.isFinite(n)) return 1;
-      return Math.max(0, Math.min(n, 1));
-    })(),
-    y_t45_enter: (() => {
-      const n = Number(t0.y_t45_enter ?? t0.y_τ45_enter);
-      if (!Number.isFinite(n)) return 0;
-      return Math.max(0, Math.min(n, 100));
-    })(),
-    y_τ45_enter: (() => {
-      const n = Number(t0.y_t45_enter ?? t0.y_τ45_enter);
-      if (!Number.isFinite(n)) return 0;
-      return Math.max(0, Math.min(n, 100));
-    })(),
-    y_t45_enter_alt: (() => {
-      const n = Number(t0.y_t45_enter_alt ?? t0.y_τ45_enter_alt);
-      if (!Number.isFinite(n)) return 0;
-      return Math.max(0, Math.min(n, 100));
-    })(),
-    y_τ45_enter_alt: (() => {
-      const n = Number(t0.y_t45_enter_alt ?? t0.y_τ45_enter_alt);
-      if (!Number.isFinite(n)) return 0;
-      return Math.max(0, Math.min(n, 100));
-    })(),
-    y_t60_strong: (() => {
-      const n = Number(t0.y_t60_strong ?? t0.y_τ60_strong);
-      if (!Number.isFinite(n)) return 0;
-      return Math.max(0, Math.min(n, 1));
-    })(),
-    y_τ60_strong: (() => {
-      const n = Number(t0.y_t60_strong ?? t0.y_τ60_strong);
-      if (!Number.isFinite(n)) return 0;
-      return Math.max(0, Math.min(n, 1));
-    })(),
-    y_t60_enter: (() => {
-      const n = Number(t0.y_t60_enter ?? t0.y_τ60_enter);
-      if (!Number.isFinite(n)) return 0;
-      return Math.max(0, Math.min(n, 100));
-    })(),
-    y_τ60_enter: (() => {
-      const n = Number(t0.y_t60_enter ?? t0.y_τ60_enter);
-      if (!Number.isFinite(n)) return 0;
-      return Math.max(0, Math.min(n, 100));
-    })(),
-    y_t60_enter_alt: (() => {
-      const n = Number(t0.y_t60_enter_alt ?? t0.y_τ60_enter_alt);
-      if (!Number.isFinite(n)) return 0;
-      return Math.max(0, Math.min(n, 100));
-    })(),
-    y_τ60_enter_alt: (() => {
-      const n = Number(t0.y_t60_enter_alt ?? t0.y_τ60_enter_alt);
-      if (!Number.isFinite(n)) return 0;
-      return Math.max(0, Math.min(n, 100));
-    })(),
-    y_t75_strong: (() => {
-      const n = Number(t0.y_t75_strong ?? t0.y_τ75_strong);
-      if (!Number.isFinite(n)) return 1;
-      return Math.max(0, Math.min(n, 1));
-    })(),
-    y_τ75_strong: (() => {
-      const n = Number(t0.y_t75_strong ?? t0.y_τ75_strong);
-      if (!Number.isFinite(n)) return 1;
-      return Math.max(0, Math.min(n, 1));
-    })(),
-    y_t75_enter: (() => {
-      const n = Number(t0.y_t75_enter ?? t0.y_τ75_enter);
-      if (!Number.isFinite(n)) return 0;
-      return Math.max(0, Math.min(n, 100));
-    })(),
-    y_τ75_enter: (() => {
-      const n = Number(t0.y_t75_enter ?? t0.y_τ75_enter);
-      if (!Number.isFinite(n)) return 0;
-      return Math.max(0, Math.min(n, 100));
-    })(),
-    y_t75_enter_alt: (() => {
-      const n = Number(t0.y_t75_enter_alt ?? t0.y_τ75_enter_alt);
-      if (!Number.isFinite(n)) return 0;
-      return Math.max(0, Math.min(n, 100));
-    })(),
-    y_τ75_enter_alt: (() => {
-      const n = Number(t0.y_t75_enter_alt ?? t0.y_τ75_enter_alt);
-      if (!Number.isFinite(n)) return 0;
-      return Math.max(0, Math.min(n, 100));
-    })(),
-    y_t90_strong: (() => {
-      const n = Number(t0.y_t90_strong ?? t0.y_τ90_strong);
-      if (!Number.isFinite(n)) return 0;
-      return Math.max(0, Math.min(n, 1));
-    })(),
-    y_τ90_strong: (() => {
-      const n = Number(t0.y_t90_strong ?? t0.y_τ90_strong);
-      if (!Number.isFinite(n)) return 0;
-      return Math.max(0, Math.min(n, 1));
-    })(),
-    y_t90_enter: (() => {
-      const n = Number(t0.y_t90_enter ?? t0.y_τ90_enter);
-      if (!Number.isFinite(n)) return 0;
-      return Math.max(0, Math.min(n, 100));
-    })(),
-    y_τ90_enter: (() => {
-      const n = Number(t0.y_t90_enter ?? t0.y_τ90_enter);
-      if (!Number.isFinite(n)) return 0;
-      return Math.max(0, Math.min(n, 100));
-    })(),
-    y_t90_enter_alt: (() => {
-      const n = Number(t0.y_t90_enter_alt ?? t0.y_τ90_enter_alt);
-      if (!Number.isFinite(n)) return 0;
-      return Math.max(0, Math.min(n, 100));
-    })(),
-    y_τ90_enter_alt: (() => {
-      const n = Number(t0.y_t90_enter_alt ?? t0.y_τ90_enter_alt);
-      if (!Number.isFinite(n)) return 0;
-      return Math.max(0, Math.min(n, 100));
+    y_τw_vote_margin: (() => {
+      const n = Number(t0.y_tw_vote_margin ?? t0.y_τw_vote_margin);
+      if (!Number.isFinite(n)) return 2;
+      return Math.max(0, Math.min(n, 20));
     })(),
     t0_pm_degrade_sell_then_buy: t0.t0_pm_degrade_sell_then_buy != null ? t0.t0_pm_degrade_sell_then_buy : "13:00",
     t0_pm_degrade_buy_then_sell:

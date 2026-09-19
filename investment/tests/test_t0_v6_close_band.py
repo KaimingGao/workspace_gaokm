@@ -458,22 +458,28 @@ class TestCloseBandCore(unittest.TestCase):
             "y_t30_enter": 0.5,
         }
         weak = close_band_enter_skip_reason(
-            {"y_tau": 1.0, "y_path": 1.0, "y_τ30": 0.2}, cfg
+            {"y_tau": 1.0, "y_path": 1.0, "y_τ30": 0.2},
+            cfg,
+            direction="buy_then_sell",
         )
         self.assertIsNotNone(weak)
-        self.assertIn("横盘", weak)
         self.assertIn("ŷ_τ30", weak)
         self.assertEqual(classify_t0_skip_reason(weak), "y_t30_flat")
         self.assertIsNone(
             close_band_enter_skip_reason(
-                {"y_tau": 1.0, "y_path": 1.0, "y_τ30": 0.8}, cfg
+                {"y_tau": 1.0, "y_path": 1.0, "y_τ30": 0.8},
+                cfg,
+                direction="buy_then_sell",
             )
         )
-        miss = close_band_enter_skip_reason({"y_tau": 1.0, "y_path": 1.0}, cfg)
+        miss = close_band_enter_skip_reason(
+            {"y_tau": 1.0, "y_path": 1.0}, cfg, direction="buy_then_sell"
+        )
         self.assertIsNone(miss)
         alt_ok = close_band_enter_skip_reason(
             {"y_tau": 1.0, "y_path": 1.0, "y_τ30": 0.2},
             {**cfg, "y_t30_enter": 0.9, "y_t30_enter_alt": 0.1},
+            direction="buy_then_sell",
         )
         self.assertIsNone(alt_ok)
 
@@ -488,22 +494,28 @@ class TestCloseBandCore(unittest.TestCase):
             "y_t60_enter": 0.5,
         }
         weak = close_band_enter_skip_reason(
-            {"y_tau": 1.0, "y_path": 1.0, "y_τ60": 0.2}, cfg
+            {"y_tau": 1.0, "y_path": 1.0, "y_τ60": 0.2},
+            cfg,
+            direction="buy_then_sell",
         )
         self.assertIsNotNone(weak)
-        self.assertIn("横盘", weak)
         self.assertIn("ŷ_τ60", weak)
         self.assertEqual(classify_t0_skip_reason(weak), "y_t60_flat")
         self.assertIsNone(
             close_band_enter_skip_reason(
-                {"y_tau": 1.0, "y_path": 1.0, "y_τ60": 0.8}, cfg
+                {"y_tau": 1.0, "y_path": 1.0, "y_τ60": 0.8},
+                cfg,
+                direction="buy_then_sell",
             )
         )
-        miss = close_band_enter_skip_reason({"y_tau": 1.0, "y_path": 1.0}, cfg)
+        miss = close_band_enter_skip_reason(
+            {"y_tau": 1.0, "y_path": 1.0}, cfg, direction="buy_then_sell"
+        )
         self.assertIsNone(miss)
         alt_ok = close_band_enter_skip_reason(
             {"y_tau": 1.0, "y_path": 1.0, "y_τ60": 0.2},
             {**cfg, "y_t60_enter": 0.9, "y_t60_enter_alt": 0.1},
+            direction="buy_then_sell",
         )
         self.assertIsNone(alt_ok)
 
@@ -518,22 +530,28 @@ class TestCloseBandCore(unittest.TestCase):
             "y_t90_enter": 0.5,
         }
         weak = close_band_enter_skip_reason(
-            {"y_tau": 1.0, "y_path": 1.0, "y_τ90": 0.2}, cfg
+            {"y_tau": 1.0, "y_path": 1.0, "y_τ90": 0.2},
+            cfg,
+            direction="buy_then_sell",
         )
         self.assertIsNotNone(weak)
-        self.assertIn("横盘", weak)
         self.assertIn("ŷ_τ90", weak)
         self.assertEqual(classify_t0_skip_reason(weak), "y_t90_flat")
         self.assertIsNone(
             close_band_enter_skip_reason(
-                {"y_tau": 1.0, "y_path": 1.0, "y_τ90": 0.8}, cfg
+                {"y_tau": 1.0, "y_path": 1.0, "y_τ90": 0.8},
+                cfg,
+                direction="buy_then_sell",
             )
         )
-        miss = close_band_enter_skip_reason({"y_tau": 1.0, "y_path": 1.0}, cfg)
+        miss = close_band_enter_skip_reason(
+            {"y_tau": 1.0, "y_path": 1.0}, cfg, direction="buy_then_sell"
+        )
         self.assertIsNone(miss)
         alt_ok = close_band_enter_skip_reason(
             {"y_tau": 1.0, "y_path": 1.0, "y_τ90": 0.2},
             {**cfg, "y_t90_enter": 0.9, "y_t90_enter_alt": 0.1},
+            direction="buy_then_sell",
         )
         self.assertIsNone(alt_ok)
 
@@ -618,10 +636,10 @@ class TestCloseBandCore(unittest.TestCase):
                 "y_tau_enter_alt": 0.40,
             }
         )
-        self.assertFalse(loaded["y_enter_alt_enabled"])
-        self.assertTrue(loaded["y_enter_enabled"])
-        self.assertAlmostEqual(loaded["y_tau_enter_alt"], 0.40)
-        self.assertAlmostEqual(loaded["y_hl_enter"], 0.01)
+        self.assertNotIn("y_enter_alt_enabled", loaded)
+        self.assertNotIn("y_enter_enabled", loaded)
+        self.assertNotIn("y_tau_enter_alt", loaded)
+        self.assertNotIn("y_hl_enter", loaded)
         self.assertNotIn("y_path_enter", loaded)
         self.assertNotIn("y_path_enter_alt", loaded)
         self.assertNotIn("y_complexity_max", loaded)
@@ -705,7 +723,7 @@ class TestCloseBandCore(unittest.TestCase):
             sellable_shares=1000,
             cfg=cfg,
             cash=1e6,
-            stock_code="600000",
+            stock_code="",
             lot=100,
             cost_model="none",
             cost_params={},
