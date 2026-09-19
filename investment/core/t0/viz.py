@@ -24,7 +24,8 @@ SKIP_CAT_LABELS: Dict[str, str] = {
     "y_t30_flat": "ŷ_τ30横盘",
     "y_t45_disagree": "ŷ_τ45旁路逆带",
     "y_t45_flat": "ŷ_τ45横盘",
-    "y_tw_disagree": "ŷ_τw旁路逆带",
+    "y_tw_disagree": "ŷ_τw入场逆带",
+    "y_tw_flat": "ŷ_τw未过入场",
     "y_t60_disagree": "ŷ_τ60旁路逆带",
     "y_t60_flat": "ŷ_τ60横盘",
     "y_t75_disagree": "ŷ_τ75旁路逆带",
@@ -91,6 +92,7 @@ SKIP_CAT_COLORS: Dict[str, str] = {
     "y_t45_disagree": "#35748a",
     "y_t45_flat": "#628890",
     "y_tw_disagree": "#2a6e82",
+    "y_tw_flat": "#5e7a86",
     "y_t60_disagree": "#2d6a7a",
     "y_t60_flat": "#5a7884",
     "y_t75_disagree": "#256275",
@@ -131,6 +133,10 @@ def classify_t0_skip_reason(reason: Optional[str]) -> str:
         return "missing_scores"
     if ("y_path" in r or "y_hl" in r) and "异号" in r:
         return "y_path_disagree"
+    if ("ŷ_τw" in r or "y_τw" in r or "y_tw" in r) and (
+        "未过" in r or "横盘" in r or "缺失" in r or "弃权" in r
+    ):
+        return "y_tw_flat"
     if ("ŷ_τw" in r or "y_τw" in r or "y_tw" in r) and (
         "旁路" in r or "逆带" in r
     ):

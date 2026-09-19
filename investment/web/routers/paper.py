@@ -98,8 +98,10 @@ def paper_execution_save(body: PaperExecutionPatchRequest | None = None) -> Dict
             ("y_hl_strong", getattr(req, "y_hl_strong", None)
              if getattr(req, "y_hl_strong", None) not in (None, "")
              else getattr(req, "y_path_strong", None)),
-            ("y_tw_strong", getattr(req, "y_tw_strong", None)),
-            ("y_τw_strong", getattr(req, "y_τw_strong", None) if getattr(req, "y_τw_strong", None) not in (None, "") else getattr(req, "y_tw_strong", None)),
+            ("y_tw_enter", getattr(req, "y_tw_enter", None)),
+            ("y_τw_enter", getattr(req, "y_τw_enter", None)
+             if getattr(req, "y_τw_enter", None) not in (None, "")
+             else getattr(req, "y_tw_enter", None)),
             ("y_tw_vote_margin", getattr(req, "y_tw_vote_margin", None)),
             ("y_τw_vote_margin", getattr(req, "y_τw_vote_margin", None) if getattr(req, "y_τw_vote_margin", None) not in (None, "") else getattr(req, "y_tw_vote_margin", None)),
             ("y_hl_required", getattr(req, "y_hl_required", None)

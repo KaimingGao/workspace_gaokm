@@ -166,18 +166,21 @@ class YtwFiveHeadTests(unittest.TestCase):
         from core.t0.config import load_t0_rules
 
         cfg = load_t0_rules({})
-        self.assertEqual(float(cfg["y_tw_strong"]), 5.0)
+        self.assertEqual(float(cfg["y_tw_enter"]), 0.0)
         self.assertAlmostEqual(float(cfg["y_tw_vote_margin"]), 2.0)
+        self.assertNotIn("y_tw_strong", cfg)
         self.assertNotIn("y_t45_strong", cfg)
         self.assertNotIn("y_t75_strong", cfg)
-        # 旧落盘 3=关闸 → 迁到 5
+        # 旧落盘 3=关闸 → 迁到入场 0
         migrated = load_t0_rules({"y_tw_strong": 3.0})
-        self.assertEqual(float(migrated["y_tw_strong"]), 5.0)
+        self.assertEqual(float(migrated["y_tw_enter"]), 0.0)
+        self.assertNotIn("y_tw_strong", migrated)
 
         self.assertAlmostEqual(blend_y_tw(0.8, 0.6, 0.55), 3.0)
         self.assertAlmostEqual(blend_y_tw(0.8, 0.6, 0.55, 0.7, 0.65), 5.0)
         self.assertAlmostEqual(blend_y_tw(0.8, 0.2, 0.3, 0.7, 0.2), -1.0)
         self.assertAlmostEqual(blend_y_tw(0.8, 0.51, 0.49, 0.52, 0.48), 1.0)
+        self.assertAlmostEqual(blend_y_tw(0.51, 0.50, 0.49, 0.52, 0.48), 0.0)
         self.assertIsNone(blend_y_tw(None, None, None, None, None))
 
         scores = {
@@ -189,11 +192,11 @@ class YtwFiveHeadTests(unittest.TestCase):
         }
         self.assertIsNone(
             close_band_y_tw_skip_reason(
-                scores, {"y_tw_strong": 5}, direction="sell_then_buy"
+                scores, {"y_tw_enter": 0}, direction="sell_then_buy"
             )
         )
         skip = close_band_y_tw_skip_reason(
-            scores, {"y_tw_strong": 0}, direction="sell_then_buy"
+            scores, {"y_tw_enter": 1}, direction="sell_then_buy"
         )
         self.assertIsNotNone(skip)
         self.assertIn("ŷ_τw=+5", skip)

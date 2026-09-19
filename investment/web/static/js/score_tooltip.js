@@ -34,7 +34,7 @@ import {
   Y_NC_TITLE,
   Y_NC_OC_TITLE,
   Y_HL_TITLE,
-} from "./paper/fmt.js?v=p2426";
+} from "./paper/fmt.js?v=p2512";
 import { hydrateTailAnomalyCharts } from "./tail_anomaly_chart.js";
 import { ON_FEAT_META } from "./quant/factor_meta.js?v=p1226";
 

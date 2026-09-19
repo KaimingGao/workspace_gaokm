@@ -1,7 +1,7 @@
 /** 做T回测可视化（canvas + CSS，无外部图表库）。 */
 
 import { paperMetricClass } from "./fmt.js";
-import { SKIP_CAT_TIP, stockCellHtml, stampStockFitTiers } from "./t0_table.js?v=p2462";
+import { SKIP_CAT_TIP, stockCellHtml, stampStockFitTiers } from "./t0_table.js?v=p2513";
 
 const THEME = {
   actual: "#2563eb",
@@ -41,6 +41,7 @@ const SKIP_CAT_COLORS = {
   y_tau_flat: "#3a7a72",
   y_tc_flat: "#3d6e7a",
   y_t30_flat: "#6a8894",
+  y_tw_flat: "#5e7a86",
   y_t60_flat: "#5a7884",
   y_t90_flat: "#4a6874",
   r_tau_flat: "#4a6e7a",

@@ -146,17 +146,17 @@ class T0BacktestRequest(BaseModel):
         le=5.0,
         description="y_hl_strong 旧键",
     )
-    y_tw_strong: Optional[float] = Field(
+    y_tw_enter: Optional[float] = Field(
         default=None,
         ge=0.0,
         le=5.0,
-        description="ŷ_τw 旁路：0=任意有符号须同号；5=关",
+        description="ŷ_τw 入场：|ŷ_τw| 大于此值才开腿；全弃权计 0 票；0=关同号",
     )
-    y_τw_strong: Optional[float] = Field(
+    y_τw_enter: Optional[float] = Field(
         default=None,
         ge=0.0,
         le=5.0,
-        description="y_tw_strong 的 Unicode 别名",
+        description="y_tw_enter 的 Unicode 别名",
     )
     y_tw_vote_margin: Optional[float] = Field(
         default=None,
@@ -404,8 +404,8 @@ class PaperExecutionPatchRequest(BaseModel):
     t0_y_oc_u: Optional[float] = None
     y_hl_strong: Optional[float] = None
     y_path_strong: Optional[float] = None
-    y_tw_strong: Optional[float] = None
-    y_τw_strong: Optional[float] = None
+    y_tw_enter: Optional[float] = None
+    y_τw_enter: Optional[float] = None
     y_tw_vote_margin: Optional[float] = None
     y_τw_vote_margin: Optional[float] = None
     y_hl_required: Optional[bool] = None

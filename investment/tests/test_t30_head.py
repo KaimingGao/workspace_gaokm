@@ -663,22 +663,54 @@ class TTwGateTests(unittest.TestCase):
         from core.t0.config import load_t0_rules
         from core.t0.viz import classify_t0_skip_reason
 
-        self.assertEqual(float(load_t0_rules({})["y_tw_strong"]), 5.0)
+        self.assertEqual(float(load_t0_rules({})["y_tw_enter"]), 0.0)
+        self.assertNotIn("y_tw_strong", load_t0_rules({}))
         self.assertAlmostEqual(float(load_t0_rules({})["y_tw_vote_margin"]), 2.0)
         self.assertAlmostEqual(blend_y_tw(0.8, 0.2, 0.3), -1.0)
         self.assertAlmostEqual(blend_y_tw(0.8, 0.6, 0.55), 3.0)
         self.assertAlmostEqual(blend_y_tw(0.8, 0.51, 0.49), 1.0)
-        self.assertIsNone(blend_y_tw(0.51, 0.50, 0.49))
+        self.assertAlmostEqual(blend_y_tw(0.51, 0.50, 0.49), 0.0)
         self.assertAlmostEqual(blend_y_tw(0.53, 0.47, 0.52), 0.0)
         self.assertAlmostEqual(
             blend_y_tw(0.51, 0.50, 0.49, cfg={"y_tw_vote_margin": 0}), 0.0
         )
         self.assertIsNone(blend_y_tw(None, None, None))
 
+        zero = close_band_y_tw_skip_reason(
+            {"y_τ30": 0.51, "y_τ60": 0.50, "y_τ90": 0.49},
+            {"y_tw_enter": 0},
+            direction="buy_then_sell",
+        )
+        self.assertIsNotNone(zero)
+        self.assertIn("ŷ_τw=0", zero)
+        self.assertIn("未过入场", zero)
+        self.assertEqual(classify_t0_skip_reason(zero), "y_tw_flat")
+        self.assertIsNotNone(
+            close_band_y_tw_skip_reason(
+                {"y_τ30": 0.488, "y_τ45": 0.484, "y_τ60": 0.484, "y_τ75": 0.484, "y_τ90": 0.485},
+                {"y_tw_enter": 0},
+                direction="buy_then_sell",
+            )
+        )
+        cancel = close_band_y_tw_skip_reason(
+            {"y_τ30": 0.53, "y_τ60": 0.47, "y_τ90": 0.52},
+            {"y_tw_enter": 0},
+            direction="buy_then_sell",
+        )
+        self.assertIsNotNone(cancel)
+        self.assertIn("ŷ_τw=0", cancel)
+
         scores = {"y_τ30": 0.8, "y_τ60": 0.6, "y_τ90": 0.55}
+        self.assertIsNone(
+            close_band_y_tw_skip_reason(
+                scores,
+                {"y_tw_enter": 0},
+                direction="sell_then_buy",
+            )
+        )
         skip = close_band_y_tw_skip_reason(
             scores,
-            {"y_tw_strong": 0},
+            {"y_tw_enter": 1},
             direction="sell_then_buy",
         )
         self.assertIsNotNone(skip)
@@ -688,34 +720,41 @@ class TTwGateTests(unittest.TestCase):
         self.assertIsNone(
             close_band_y_tw_skip_reason(
                 scores,
-                {"y_tw_strong": 0},
+                {"y_tw_enter": 1},
                 direction="buy_then_sell",
             )
         )
         self.assertIsNone(
             close_band_y_tw_skip_reason(
                 {},
-                {"y_tw_strong": 0},
+                {"y_tw_enter": 1},
                 direction="sell_then_buy",
             )
         )
+        flat = close_band_y_tw_skip_reason(
+            scores,
+            {"y_tw_enter": 3},
+            direction="buy_then_sell",
+        )
+        self.assertIsNotNone(flat)
+        self.assertEqual(classify_t0_skip_reason(flat), "y_tw_flat")
         self.assertIsNone(
             close_band_y_tw_skip_reason(
-                scores,
-                {"y_tw_strong": 3},
-                direction="sell_then_buy",
+                {"y_τ30": 0.8, "y_τ45": 0.6, "y_τ60": 0.55, "y_τ75": 0.7, "y_τ90": 0.65},
+                {"y_tw_enter": 3},
+                direction="buy_then_sell",
             )
         )
-        self.assertIsNone(
-            close_band_y_tw_skip_reason(
-                {"y_τ30": 0.8, "y_τ60": 0.2, "y_τ90": 0.3},
-                {"y_tw_strong": 1},
-                direction="sell_then_buy",
-            )
+        weak = close_band_y_tw_skip_reason(
+            {"y_τ30": 0.8, "y_τ60": 0.2, "y_τ90": 0.3},
+            {"y_tw_enter": 1},
+            direction="sell_then_buy",
         )
+        self.assertIsNotNone(weak)
+        self.assertEqual(classify_t0_skip_reason(weak), "y_tw_flat")
         disagree_3 = close_band_y_tw_skip_reason(
             scores,
-            {"y_tw_strong": 1},
+            {"y_tw_enter": 1},
             direction="sell_then_buy",
         )
         self.assertIsNotNone(disagree_3)

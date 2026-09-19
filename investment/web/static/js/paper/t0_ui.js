@@ -1,7 +1,7 @@
 /** Paper · 做T 指标与预演表渲染（从 paper.js 抽出）。 */
 
-import { yTauMapScoreTip } from "./execution_ui.js?v=p2426";
-import { renderT0Viz, wireT0SkipTips } from "./t0_viz.js?v=p2462";
+import { yTauMapScoreTip } from "./execution_ui.js?v=p2512";
+import { renderT0Viz, wireT0SkipTips } from "./t0_viz.js?v=p2513";
 import { buildT0ReportHtml, fmtT0DirDays } from "./t0_report.js?v=p2426";
 import {
   buildT0TradeTableHtml,
@@ -13,7 +13,7 @@ import {
   wireT0DayDebugExpand,
   wireT0ProcessTips,
   stampStockFitTiers,
-} from "./t0_table.js?v=p2462";
+} from "./t0_table.js?v=p2513";
 
 function escapeHtml(s) {
   return String(s ?? "")
@@ -650,6 +650,11 @@ function classifyDeskNote(note, locked) {
       (r.includes("旁路") || r.includes("逆带"))
     )
       return { id: "y_t75_disagree", label: "τ75逆带" };
+    if (
+      (r.includes("ŷ_τw") || r.includes("y_τw") || r.includes("y_tw")) &&
+      (r.includes("未过") || r.includes("横盘") || r.includes("缺失") || r.includes("弃权"))
+    )
+      return { id: "y_tw_flat", label: "τw入场" };
     if (
       (r.includes("ŷ_τw") || r.includes("y_τw") || r.includes("y_tw")) &&
       (r.includes("旁路") || r.includes("逆带"))

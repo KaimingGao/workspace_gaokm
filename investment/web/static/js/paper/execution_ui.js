@@ -6,6 +6,14 @@ const PATH_MODE_LABELS = {
   first_touch: "5m 首触达",
 };
 
+function yTwEnterValue(t0) {
+  const e = Number(t0?.y_tw_enter ?? t0?.y_τw_enter);
+  if (Number.isFinite(e)) return Math.max(0, Math.min(e, 5));
+  const s = Number(t0?.y_tw_strong ?? t0?.y_τw_strong);
+  if (!Number.isFinite(s) || s >= 5 || Math.abs(s - 3) < 1e-12) return 0;
+  return Math.max(0, Math.min(s, 5));
+}
+
 /** 成交日行 hover：τ 出场裕度基准 → 当日有效值（回测明细仍可能携带旧字段）。 */
 export function adaptiveSizingDayTip(day, rules = {}) {
   const sellM = Number(
@@ -108,17 +116,16 @@ export function renderExecutionRulesHtml(execution) {
       "破带后 |y_hl| 超 HL强% 须与 ŷ_oc 同号；0=任意非零须同号。"
     ) +
     specKpi(
-      "τw强",
+      "τw入场",
       (() => {
-        const s = Number(t0.y_tw_strong ?? t0.y_τw_strong);
-        if (!Number.isFinite(s) || s >= 5) return "关";
-        if (s <= 0) return "全顺带";
-        return `|ŷ_τw|>${s}逆带跳过`;
+        const s = yTwEnterValue(t0);
+        if (s <= 0) return "|ŷ_τw|>0";
+        return `|ŷ_τw|>${s}`;
       })(),
       (() => {
         const m = Number(t0.y_tw_vote_margin ?? t0.y_τw_vote_margin);
         const pp = Number.isFinite(m) ? m : 2;
-        return `破带后 ŷ_τw 票须与方向同号（|p−0.5|≤${pp}pp 不投票）；0=开，≥5=关。|ŷ_τw|大于阈值且逆带才跳过。不改 C_τ。`;
+        return `破带后 |ŷ_τw| 大于阈值才开腿，且须与方向同号（|p−0.5|≤${pp}pp 不投票）。全弃权计 0 票；0=关同号。不改 C_τ。`;
       })()
     ) +
     specKpi(
@@ -324,14 +331,7 @@ export function fillExecutionForm(root, execution) {
     if (!Number.isFinite(n)) return 5;
     return Math.max(0, Math.min(n, 5));
   })());
-  set(
-    "y_tw_strong",
-    (() => {
-      const n = Number(t0.y_tw_strong ?? t0.y_τw_strong);
-      if (!Number.isFinite(n)) return 5;
-      return Math.max(0, Math.min(n, 5));
-    })()
-  );
+  set("y_tw_enter", yTwEnterValue(t0));
   set(
     "y_tw_vote_margin",
     (() => {
@@ -426,8 +426,8 @@ export function collectExecutionForm(root) {
     t0_max_position_pct: Math.max(0.05, Math.min(num("t0_max_position_pct", 1), 1)),
     t0_slots_max_rounds: Math.max(0, Math.min(Math.round(num("t0_slots_max_rounds", 5)), 16)),
     y_hl_strong: Math.max(0, Math.min(num("y_hl_strong", 5), 5)),
-    y_tw_strong: Math.max(0, Math.min(num("y_tw_strong", 5), 5)),
-    y_τw_strong: Math.max(0, Math.min(num("y_tw_strong", 5), 5)),
+    y_tw_enter: Math.max(0, Math.min(num("y_tw_enter", 0), 5)),
+    y_τw_enter: Math.max(0, Math.min(num("y_tw_enter", 0), 5)),
     y_tw_vote_margin: Math.max(0, Math.min(num("y_tw_vote_margin", 2), 20)),
     y_τw_vote_margin: Math.max(0, Math.min(num("y_tw_vote_margin", 2), 20)),
     t0_pm_degrade_sell_then_buy: str("t0_pm_degrade_sell_then_buy", "13:00"),
@@ -815,16 +815,8 @@ export function collectT0BacktestBody(root, opts = {}) {
       if (!Number.isFinite(n)) return 5;
       return Math.max(0, Math.min(n, 5));
     })(),
-    y_tw_strong: (() => {
-      const n = Number(t0.y_tw_strong ?? t0.y_τw_strong);
-      if (!Number.isFinite(n)) return 5;
-      return Math.max(0, Math.min(n, 5));
-    })(),
-    y_τw_strong: (() => {
-      const n = Number(t0.y_tw_strong ?? t0.y_τw_strong);
-      if (!Number.isFinite(n)) return 5;
-      return Math.max(0, Math.min(n, 5));
-    })(),
+    y_tw_enter: yTwEnterValue(t0),
+    y_τw_enter: yTwEnterValue(t0),
     y_tw_vote_margin: (() => {
       const n = Number(t0.y_tw_vote_margin ?? t0.y_τw_vote_margin);
       if (!Number.isFinite(n)) return 2;

@@ -684,6 +684,8 @@ class TestT0Core(unittest.TestCase):
         self.assertNotIn("y_path_enter", d)
         self.assertNotIn("y_tau_enter", d)
         self.assertAlmostEqual(d["y_hl_strong"], 5.0)
+        self.assertAlmostEqual(d["y_tw_enter"], 0.0)
+        self.assertNotIn("y_tw_strong", d)
         self.assertNotIn("y_hl_enter", d)
         self.assertNotIn("y_use_hl", d)
         self.assertNotIn("y_use_path", d)

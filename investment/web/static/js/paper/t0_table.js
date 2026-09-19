@@ -32,9 +32,9 @@ import {
   fmtYtwVote,
   R_HAT_TITLE,
   R_REALIZED_TITLE,
-} from "./fmt.js?v=p2426";
-import { adaptiveSizingDayTip } from "./execution_ui.js?v=p2426";
-import { watchingScoreDetail } from "../quant/watching_render.js?v=p2469";
+} from "./fmt.js?v=p2512";
+import { adaptiveSizingDayTip } from "./execution_ui.js?v=p2512";
+import { watchingScoreDetail } from "../quant/watching_render.js?v=p2512";
 import {
   fitTierBadgeForCode,
   ensureFitTierMap,
@@ -111,7 +111,8 @@ export const SKIP_CAT_LABEL = {
   y_tc_disagree: "ŷ_τc旁路逆带",
   y_t30_disagree: "ŷ_τ30旁路逆带",
   y_t45_disagree: "ŷ_τ45旁路逆带",
-  y_tw_disagree: "ŷ_τw旁路逆带",
+  y_tw_disagree: "ŷ_τw入场逆带",
+  y_tw_flat: "ŷ_τw未过入场",
   y_t60_disagree: "ŷ_τ60旁路逆带",
   y_t75_disagree: "ŷ_τ75旁路逆带",
   y_t90_disagree: "ŷ_τ90旁路逆带",
@@ -177,8 +178,10 @@ export const SKIP_CAT_TIP = {
     "已下线：个股 ŷ_τ30 旁路闸。生产只走 ŷ_τw 投票；历史回放可能仍出现。",
   y_t45_disagree:
     "已下线：个股 ŷ_τ45 旁路闸。生产只走 ŷ_τw 投票；历史回放可能仍出现。",
+  y_tw_flat:
+    "ŷ_τw 入场：|ŷ_τw| 须大于 τw入场（y_tw_enter）才开腿。全弃权计 0 票（过不了 |ŷ_τw|>0）。0=关同号。无任何头仍不拦。",
   y_tw_disagree:
-    "ŷ_τw 旁路：sign(p_up−0.5) 票须与方向同号（近 50% 由弃权% 决定不投票）。|ŷ_τw| **大于** τw强 且逆带则跳过；0=开，≥5=关。不改 C_τ。",
+    "ŷ_τw 入场：|ŷ_τw| 大于阈值后仍须与方向同号（近 50% 由弃权% 决定不投票）。逆带则跳过。不改 C_τ。",
   y_t60_disagree:
     "已下线：个股 ŷ_τ60 旁路闸。生产只走 ŷ_τw 投票；历史回放可能仍出现。",
   y_t75_disagree:
@@ -2027,7 +2030,7 @@ function pickTWRealized(d, predHost) {
     return { text: "—", n: null, tip: TW_REALIZED_TITLE, agree: null };
   }
   const pred = pickTWPred(predHost) ?? pickTWPred(d);
-  const agree = _signAgree(pred, n, 0);
+  const agree = _signAgree(pred, n, 0.5);
   return {
     text: fmtYtwVote(n),
     n,
@@ -2038,7 +2041,7 @@ function pickTWRealized(d, predHost) {
   };
 }
 
-/** 槽位 ŷ_τw：f(ŷ_τ30)+f(ŷ_τ45)+f(ŷ_τ60)+f(ŷ_τ75)+f(ŷ_τ90)；f(x)=1 if x>0 else −1。 */
+/** 槽位 ŷ_τw：符号和；预估近 50% 弃权，全弃权计 0 票。 */
 function twMergedCellHtml(host, dayRef, showRealized = true, scoreDetailJson = "") {
   const predHost = host || dayRef;
   const realHost = dayRef || host;
@@ -4174,11 +4177,7 @@ function buildCloseBandScanExpandRow(d, dayKey, colSpan, rules) {
         r.minute_missing ? "分钟缺失" : "",
         r.enter_skip ? String(r.enter_skip) : "",
         r.sign_skip ? String(r.sign_skip) : "",
-        r.y_t30_skip ? String(r.y_t30_skip) : "",
-        r.y_t45_skip ? String(r.y_t45_skip) : "",
-        r.y_t60_skip ? String(r.y_t60_skip) : "",
-        r.y_t75_skip ? String(r.y_t75_skip) : "",
-        r.y_t90_skip ? String(r.y_t90_skip) : "",
+        r.y_tw_skip ? String(r.y_tw_skip) : "",
       ]
         .filter(Boolean)
         .join(" · ");

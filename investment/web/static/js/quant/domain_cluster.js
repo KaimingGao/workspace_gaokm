@@ -8,7 +8,7 @@ import {
 import { postClusterLive as postClusterLiveApi, formatClusterApiError } from "./cluster_api.js";
 import { clusterLandingHtml } from "./cluster_landing.js?v=p2253";
 import { PROBE_EMPTY_CLUSTER_FAILED, PROBE_EMPTY_NO_CLUSTER, PROBE_EMPTY_COMPARE_FAILED, probePickerTriggerHtml, probePickerIdentityHtml, summarizeProbeHeterogeneity, buildProbeReadySummaryHtml, buildProbeNotReadySummaryHtml, buildProbeSingletonSummaryHtml, buildProbeNotInClusterPlainText, buildProbeHeteroSummaryHtml, buildProbeMetaSingleton, buildProbeMetaNotInCluster, buildProbeMetaHetero, buildProbePickerMenuHtml, probeStatusBadge, openProbeFold } from "./probe_ui.js";
-import { createScoreTooltipController } from "../score_tooltip.js?v=p2469";
+import { createScoreTooltipController } from "../score_tooltip.js?v=p2512";
 import {
   syncOverviewFromClusters,
   syncOverviewLanding,

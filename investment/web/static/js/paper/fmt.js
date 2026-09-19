@@ -574,22 +574,19 @@ export function yTwSign(x, prob = false, marginP) {
   return n > 0 ? 1 : -1;
 }
 
-/** ŷ_τw = f(ŷ_τ30)+…；prob=true 时 f=sign(p_up−0.5) 且近 50% 弃权，否则 f=sign(收益)。 */
+/** ŷ_τw = f(ŷ_τ30)+…；prob=true 时 f=sign(p_up−0.5) 且近 50% 弃权（全弃权=0 票），否则 f=sign(收益)。无头返回 null。 */
 export function blendYtw(y30, y60, y90, y45, y75, prob = false, marginP) {
   let sum = 0;
   let n = 0;
-  for (const s of [
-    yTwSign(y30, prob, marginP),
-    yTwSign(y45, prob, marginP),
-    yTwSign(y60, prob, marginP),
-    yTwSign(y75, prob, marginP),
-    yTwSign(y90, prob, marginP),
-  ]) {
+  let anyHead = false;
+  for (const x of [y30, y45, y60, y75, y90]) {
+    if (_numField(x) != null) anyHead = true;
+    const s = yTwSign(x, prob, marginP);
     if (s == null) continue;
     sum += s;
     n += 1;
   }
-  if (n === 0) return null;
+  if (n === 0) return anyHead ? 0 : null;
   return sum;
 }
 

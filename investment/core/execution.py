@@ -58,6 +58,8 @@ ALLOWED_T0_PATCH_KEYS = frozenset(
         "y_path_enter_sell_then_buy",
         "y_path_enter_buy_then_sell",
         "y_path_strong",
+        "y_tw_enter",
+        "y_τw_enter",
         "y_tw_strong",
         "y_τw_strong",
         "y_tw_vote_margin",
@@ -137,8 +139,8 @@ DEFAULT_T0_OVERLAY: Dict[str, Any] = {
     "t0_y_oc_l": -3.0,
     "t0_y_oc_u": 3.0,
     "y_hl_strong": 5.0,
-    "y_tw_strong": 5.0,
-    "y_τw_strong": 5.0,
+    "y_tw_enter": 0.0,
+    "y_τw_enter": 0.0,
     "y_tw_vote_margin": 2.0,
     "y_τw_vote_margin": 2.0,
     "t0_close_band_delta_pct": 3.0,
@@ -691,8 +693,12 @@ def execution_public_view(bundle: Dict[str, Any]) -> Dict[str, Any]:
             "y_hl_strong": t0.get("y_hl_strong")
             if t0.get("y_hl_strong") not in (None, "")
             else t0.get("y_path_strong"),
-            "y_tw_strong": t0.get("y_tw_strong"),
-            "y_τw_strong": t0.get("y_τw_strong") or t0.get("y_tw_strong"),
+            "y_tw_enter": t0.get("y_tw_enter")
+            if t0.get("y_tw_enter") not in (None, "")
+            else t0.get("y_τw_enter"),
+            "y_τw_enter": t0.get("y_τw_enter")
+            if t0.get("y_τw_enter") not in (None, "")
+            else t0.get("y_tw_enter"),
             "y_tw_vote_margin": t0.get("y_tw_vote_margin"),
             "y_τw_vote_margin": t0.get("y_τw_vote_margin") or t0.get("y_tw_vote_margin"),
             "y_hl_required": t0.get("y_hl_required")
@@ -863,6 +869,15 @@ def validate_execution_patch(raw: Any) -> Tuple[bool, Dict[str, Any], List[str]]
         return False, {}, [f"t0 校验失败: {e}"]
 
     t0_out = {k: normalized_full[k] for k in t0_in if k in ALLOWED_T0_PATCH_KEYS and k in normalized_full}
+    if any(
+        k in t0_in for k in ("y_tw_enter", "y_τw_enter", "y_tw_strong", "y_τw_strong")
+    ):
+        if "y_tw_enter" in normalized_full:
+            t0_out["y_tw_enter"] = normalized_full["y_tw_enter"]
+        if "y_τw_enter" in normalized_full:
+            t0_out["y_τw_enter"] = normalized_full["y_τw_enter"]
+        t0_out.pop("y_tw_strong", None)
+        t0_out.pop("y_τw_strong", None)
     # legacy 共用键只写一侧时，补上 load_t0_rules 对齐的分侧键，避免 resolve 时
     # DEFAULT_T0_OVERLAY 里的分侧默认值盖掉纸面补丁。
     _legacy_side_expand = (
@@ -1019,6 +1034,8 @@ def apply_execution_patch_to_paper(
             "y_τc_enter",
             "y_tc_enter_alt",
             "y_τc_enter_alt",
+            "y_tw_strong",
+            "y_τw_strong",
             "y_t30_strong",
             "y_τ30_strong",
             "y_t45_strong",

@@ -459,10 +459,10 @@
                   </label>
                   <label
                     class="paper-t0-field"
-                    title="ŷ_τw 旁路：破带后符号票须与方向同号。近 50% 弃权见「弃权%」。|ŷ_τw| **大于** 此值且逆带则跳过。0=任意有符号须同号；≥5=关。不改 C_τ。"
+                    title="ŷ_τw 入场：破带后 |ŷ_τw| **大于** 此值才开腿，且须与方向同号。全弃权计 0 票（过不了 |ŷ_τw|>0）。0=关同号。不改 C_τ。"
                   >
-                    <span>τw强</span>
-                    <input type="number" name="y_tw_strong" min="0" max="5" step="0.1" value="5" />
+                    <span>τw入场</span>
+                    <input type="number" name="y_tw_enter" min="0" max="5" step="0.1" value="0" />
                   </label>
                   <label
                     class="paper-t0-field"

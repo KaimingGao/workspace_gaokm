@@ -890,13 +890,7 @@ def _build_close_band_scan_trace(
         close_band_enter_skip_reason,
         close_band_pick_direction,
         close_band_sign_skip_reason,
-        close_band_y_tc_skip_reason,
-        close_band_y_t30_skip_reason,
         close_band_y_tw_skip_reason,
-        close_band_y_t45_skip_reason,
-        close_band_y_t60_skip_reason,
-        close_band_y_t75_skip_reason,
-        close_band_y_t90_skip_reason,
         estimate_close_px,
         y_tc_band_agree,
         hm_allows_leg1,
@@ -1083,33 +1077,9 @@ def _build_close_band_scan_trace(
                         if not enter_skip:
                             sign_skip = close_band_sign_skip_reason(gate_snap, cfg)
                         if not enter_skip and not sign_skip:
-                            y_tc_skip = close_band_y_tc_skip_reason(
-                                gate_snap, cfg, direction=direction, y_τc=y_tc_gate
+                            y_tw_skip = close_band_y_tw_skip_reason(
+                                gate_snap, cfg, direction=direction
                             )
-                            if not y_tc_skip:
-                                y_t30_skip = close_band_y_t30_skip_reason(
-                                    gate_snap, cfg, direction=direction
-                                )
-                                if not y_t30_skip:
-                                    y_tw_skip = close_band_y_tw_skip_reason(
-                                        gate_snap, cfg, direction=direction
-                                    )
-                                    if not y_tw_skip:
-                                        y_t60_skip = close_band_y_t60_skip_reason(
-                                            gate_snap, cfg, direction=direction
-                                        )
-                                        if not y_t60_skip:
-                                            y_t90_skip = close_band_y_t90_skip_reason(
-                                                gate_snap, cfg, direction=direction
-                                            )
-                                            if not y_t90_skip:
-                                                y_t45_skip = close_band_y_t45_skip_reason(
-                                                    gate_snap, cfg, direction=direction
-                                                )
-                                                if not y_t45_skip:
-                                                    y_t75_skip = close_band_y_t75_skip_reason(
-                                                        gate_snap, cfg, direction=direction
-                                                    )
 
         if isinstance(gate_snap, dict):
             from core.t0.score_policy import scores_from_item
@@ -1418,13 +1388,7 @@ def simulate_t0_day_slots(
         close_band_enter_skip_reason,
         close_band_pick_direction,
         close_band_sign_skip_reason,
-        close_band_y_tc_skip_reason,
-        close_band_y_t30_skip_reason,
         close_band_y_tw_skip_reason,
-        close_band_y_t45_skip_reason,
-        close_band_y_t60_skip_reason,
-        close_band_y_t75_skip_reason,
-        close_band_y_t90_skip_reason,
         day_price_space_payload,
         estimate_close_px,
         freeze_round,
@@ -1482,13 +1446,7 @@ def simulate_t0_day_slots(
     last_leg1_idx = -1
     last_sign_skip: Optional[str] = None
     last_enter_skip: Optional[str] = None
-    last_y_tc_skip: Optional[str] = None
-    last_y_t30_skip: Optional[str] = None
     last_y_tw_skip: Optional[str] = None
-    last_y_t45_skip: Optional[str] = None
-    last_y_t60_skip: Optional[str] = None
-    last_y_t75_skip: Optional[str] = None
-    last_y_t90_skip: Optional[str] = None
     last_tplus1_skip: Optional[str] = None
     open_snap = score_snap if isinstance(score_snap, dict) else None
     code = str(stock_code or "").strip()
@@ -1653,23 +1611,6 @@ def simulate_t0_day_slots(
         if sign_skip:
             last_sign_skip = sign_skip
             continue
-        y_tc_skip = close_band_y_tc_skip_reason(
-            gate_snap,
-            cfg,
-            direction=direction,
-            y_τc=est.get("y_τc_ridge") if est.get("y_τc_ridge") is not None else est.get("y_τc"),
-        )
-        if y_tc_skip:
-            last_y_tc_skip = y_tc_skip
-            continue
-        y_t30_skip = close_band_y_t30_skip_reason(
-            gate_snap,
-            cfg,
-            direction=direction,
-        )
-        if y_t30_skip:
-            last_y_t30_skip = y_t30_skip
-            continue
         y_tw_skip = close_band_y_tw_skip_reason(
             gate_snap,
             cfg,
@@ -1677,38 +1618,6 @@ def simulate_t0_day_slots(
         )
         if y_tw_skip:
             last_y_tw_skip = y_tw_skip
-            continue
-        y_t60_skip = close_band_y_t60_skip_reason(
-            gate_snap,
-            cfg,
-            direction=direction,
-        )
-        if y_t60_skip:
-            last_y_t60_skip = y_t60_skip
-            continue
-        y_t90_skip = close_band_y_t90_skip_reason(
-            gate_snap,
-            cfg,
-            direction=direction,
-        )
-        if y_t90_skip:
-            last_y_t90_skip = y_t90_skip
-            continue
-        y_t45_skip = close_band_y_t45_skip_reason(
-            gate_snap,
-            cfg,
-            direction=direction,
-        )
-        if y_t45_skip:
-            last_y_t45_skip = y_t45_skip
-            continue
-        y_t75_skip = close_band_y_t75_skip_reason(
-            gate_snap,
-            cfg,
-            direction=direction,
-        )
-        if y_t75_skip:
-            last_y_t75_skip = y_t75_skip
             continue
 
         remain = max_pos - used_ratio
@@ -1928,47 +1837,11 @@ def simulate_t0_day_slots(
             merged["direction_reason"] = last_sign_skip
             merged["reason"] = last_sign_skip
             merged["signal_skip"] = True
-    if last_y_tc_skip:
-        merged["close_band_last_y_tc_skip"] = last_y_tc_skip
-        if merged.get("skipped") and not merged.get("direction_reason"):
-            merged["direction_reason"] = last_y_tc_skip
-            merged["reason"] = last_y_tc_skip
-            merged["signal_skip"] = True
-    if last_y_t30_skip:
-        merged["close_band_last_y_t30_skip"] = last_y_t30_skip
-        if merged.get("skipped") and not merged.get("direction_reason"):
-            merged["direction_reason"] = last_y_t30_skip
-            merged["reason"] = last_y_t30_skip
-            merged["signal_skip"] = True
     if last_y_tw_skip:
         merged["close_band_last_y_tw_skip"] = last_y_tw_skip
         if merged.get("skipped") and not merged.get("direction_reason"):
             merged["direction_reason"] = last_y_tw_skip
             merged["reason"] = last_y_tw_skip
-            merged["signal_skip"] = True
-    if last_y_t60_skip:
-        merged["close_band_last_y_t60_skip"] = last_y_t60_skip
-        if merged.get("skipped") and not merged.get("direction_reason"):
-            merged["direction_reason"] = last_y_t60_skip
-            merged["reason"] = last_y_t60_skip
-            merged["signal_skip"] = True
-    if last_y_t90_skip:
-        merged["close_band_last_y_t90_skip"] = last_y_t90_skip
-        if merged.get("skipped") and not merged.get("direction_reason"):
-            merged["direction_reason"] = last_y_t90_skip
-            merged["reason"] = last_y_t90_skip
-            merged["signal_skip"] = True
-    if last_y_t45_skip:
-        merged["close_band_last_y_t45_skip"] = last_y_t45_skip
-        if merged.get("skipped") and not merged.get("direction_reason"):
-            merged["direction_reason"] = last_y_t45_skip
-            merged["reason"] = last_y_t45_skip
-            merged["signal_skip"] = True
-    if last_y_t75_skip:
-        merged["close_band_last_y_t75_skip"] = last_y_t75_skip
-        if merged.get("skipped") and not merged.get("direction_reason"):
-            merged["direction_reason"] = last_y_t75_skip
-            merged["reason"] = last_y_t75_skip
             merged["signal_skip"] = True
     if last_tplus1_skip:
         if merged.get("skipped") and not merged.get("direction_reason"):

@@ -273,7 +273,27 @@ class TestExecutionResolve(unittest.TestCase):
         self.assertNotIn("y_t45_strong", view["t0"])
         self.assertNotIn("y_t30_strong", load_t0_rules(t0))
 
-    def test_public_view_keeps_y_tw_strong(self):
+    def test_public_view_keeps_y_tw_enter(self):
+        from core.execution import (
+            apply_execution_patch_to_paper,
+            execution_public_view,
+            resolve_effective_execution,
+            validate_execution_patch,
+        )
+
+        ok, norm, errs = validate_execution_patch({"t0": {"y_tw_enter": 1.5}})
+        self.assertTrue(ok, errs)
+        self.assertAlmostEqual(float(norm["t0"]["y_tw_enter"]), 1.5)
+        self.assertNotIn("y_tw_strong", norm["t0"])
+        paper = {"strategy_id": "short_conservative", "rules": {}}
+        applied = apply_execution_patch_to_paper(paper, norm)
+        self.assertTrue(applied.get("ok"), applied)
+        view = execution_public_view(
+            resolve_effective_execution(paper=paper, channel="paper")
+        )
+        self.assertAlmostEqual(float(view["t0"]["y_tw_enter"]), 1.5)
+
+    def test_public_view_migrates_y_tw_strong(self):
         from core.execution import (
             apply_execution_patch_to_paper,
             execution_public_view,
@@ -283,14 +303,11 @@ class TestExecutionResolve(unittest.TestCase):
 
         ok, norm, errs = validate_execution_patch({"t0": {"y_tw_strong": 1.5}})
         self.assertTrue(ok, errs)
-        self.assertAlmostEqual(float(norm["t0"]["y_tw_strong"]), 1.5)
-        paper = {"strategy_id": "short_conservative", "rules": {}}
-        applied = apply_execution_patch_to_paper(paper, norm)
-        self.assertTrue(applied.get("ok"), applied)
-        view = execution_public_view(
-            resolve_effective_execution(paper=paper, channel="paper")
-        )
-        self.assertAlmostEqual(float(view["t0"]["y_tw_strong"]), 1.5)
+        self.assertAlmostEqual(float(norm["t0"]["y_tw_enter"]), 1.5)
+        self.assertNotIn("y_tw_strong", norm["t0"])
+        off, off_norm, off_errs = validate_execution_patch({"t0": {"y_tw_strong": 5}})
+        self.assertTrue(off, off_errs)
+        self.assertAlmostEqual(float(off_norm["t0"]["y_tw_enter"]), 0.0)
 
     def test_public_view_drops_y_t60_t90_strong(self):
         from core.execution import (

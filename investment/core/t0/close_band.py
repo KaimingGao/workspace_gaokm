@@ -626,7 +626,8 @@ DEFAULT_Y_T75_STRONG = 1.0  # ŷ_τ75 个股旁路已下线：缺键=关
 DEFAULT_Y_T75_ENTER = 0.0  # 个股入场已下线：缺键=关
 DEFAULT_Y_T90_STRONG = 1.0
 DEFAULT_Y_T90_ENTER = 0.0  # 个股入场已下线：缺键=关
-DEFAULT_Y_TW_STRONG = 5.0  # ŷ_τw 票数旁路：0=任意有符号须同号；>=5=关
+DEFAULT_Y_TW_ENTER = 0.0  # ŷ_τw 入场：须 |ŷ_τw| 大于此值；0 票过不了；同号须 enter>0
+DEFAULT_Y_TW_STRONG = DEFAULT_Y_TW_ENTER  # 旧键别名
 DEFAULT_Y_TW_VOTE_MARGIN = 2.0  # |p_up−0.5|≤此百分点不投票
 
 
@@ -1003,22 +1004,37 @@ def blend_y_tw(
     margin_pp: Any = None,
     cfg: Optional[dict] = None,
 ) -> Optional[float]:
-    """ŷ_τw = f(ŷ_τ30)+…+f(ŷ_τ90)；f=sign(p_up−0.5)；|p−0.5|≤y_tw_vote_margin / 缺头跳过该项。"""
+    """ŷ_τw = f(ŷ_τ30)+…+f(ŷ_τ90)；f=sign(p_up−0.5)。
+
+    |p−0.5|≤y_tw_vote_margin / 缺头不计该项。有头但全弃权计 **0 票**；无任何头返回 None。
+    """
     band = _horizon_vote_margin_pp(cfg, margin_pp)
-    vals = [
-        s
-        for s in (
-            y_tw_sign(y_τ30, margin_pp=band),
-            y_tw_sign(y_τ45, margin_pp=band),
-            y_tw_sign(y_τ60, margin_pp=band),
-            y_tw_sign(y_τ75, margin_pp=band),
-            y_tw_sign(y_τ90, margin_pp=band),
-        )
-        if s is not None
-    ]
-    if not vals:
-        return None
-    return float(sum(vals))
+    heads = (y_τ30, y_τ45, y_τ60, y_τ75, y_τ90)
+    vals = [s for s in (y_tw_sign(h, margin_pp=band) for h in heads) if s is not None]
+    if vals:
+        return float(sum(vals))
+    if any(_f(h) is not None for h in heads):
+        return 0.0
+    return None
+
+
+def _y_tw_enter_floor(cfg_d: dict) -> float:
+    """ŷ_τw 入场阈值。优先 y_tw_enter；旧 y_tw_strong 的 3/≥5 视为关。"""
+    from core.t0.score_policy import _cfg_float
+
+    for k in ("y_tw_enter", "y_τw_enter"):
+        if cfg_d.get(k) not in (None, ""):
+            return max(0.0, min(float(_cfg_float(cfg_d, k, DEFAULT_Y_TW_ENTER)), 5.0))
+    strong = None
+    if cfg_d.get("y_tw_strong") not in (None, ""):
+        strong = _cfg_float(cfg_d, "y_tw_strong", DEFAULT_Y_TW_ENTER)
+    elif cfg_d.get("y_τw_strong") not in (None, ""):
+        strong = _cfg_float(cfg_d, "y_τw_strong", DEFAULT_Y_TW_ENTER)
+    if strong is None:
+        return DEFAULT_Y_TW_ENTER
+    if abs(float(strong) - 3.0) < 1e-12 or float(strong) >= 5.0 - 1e-12:
+        return 0.0
+    return max(0.0, min(float(strong), 5.0))
 
 
 def close_band_y_tw_skip_reason(
@@ -1027,13 +1043,11 @@ def close_band_y_tw_skip_reason(
     *,
     direction: Optional[str] = None,
 ) -> Optional[str]:
-    """旁路：破带后 ŷ_τw 票数须与方向同号（反T<0，正T>0）。
+    """入场：破带后须 |ŷ_τw| **大于** y_tw_enter，且与方向同号。
 
-    不改 C_τ / 选向 / 目标价。``y_tw_strong>=5`` 关闸；默认 5=关。
-    |ŷ_τw| **大于** strong 且逆带则跳过（``|ŷ_τw|<=strong`` 不拦）。缺全部分不拦。
+    不改 C_τ / 选向 / 目标价。全弃权计 0 票；``|ŷ_τw|<=enter`` 未过入场（默认 enter=0 则 0 分过不了）。
+    ``y_tw_enter<=0`` 关同号闸。无任何头仍不拦。
     """
-    from core.t0.score_policy import _cfg_float
-
     cfg_d = cfg if isinstance(cfg, dict) else {}
     d = str(direction or "").strip()
     if d not in ("sell_then_buy", "buy_then_sell"):
@@ -1048,23 +1062,19 @@ def close_band_y_tw_skip_reason(
     )
     if y is None:
         return None
-    strong = _cfg_float(cfg_d, "y_tw_strong", DEFAULT_Y_TW_STRONG)
-    if cfg_d.get("y_τw_strong") not in (None, "") and cfg_d.get("y_tw_strong") in (
-        None,
-        "",
-    ):
-        strong = _cfg_float(cfg_d, "y_τw_strong", DEFAULT_Y_TW_STRONG)
-    strong = max(0.0, min(float(strong), 5.0))
-    if strong >= 5.0 - 1e-12:
-        return None
-    if abs(float(y)) <= float(strong) + 1e-12:
+    enter = _y_tw_enter_floor(cfg_d)
+    if abs(float(y)) <= float(enter) + 1e-12:
+        yt = int(round(float(y)))
+        shown = f"{yt:+d}" if yt else "0"
+        return f"ŷ_τw={shown} 未过入场（|{abs(yt)}|<={enter:g}）"
+    if enter <= 0:
         return None
     agree = y_tc_band_agree(d, y, eps=0.0)
     if agree is not False:
         return None
     side = "反T" if d == "sell_then_buy" else "正T"
     want = "ŷ_τw<0" if d == "sell_then_buy" else "ŷ_τw>0"
-    return f"ŷ_τw={int(y):+d} 与{side}旁路逆带跳过（期望{want}）"
+    return f"ŷ_τw={int(y):+d} 与{side}入场逆带跳过（期望{want}）"
 
 
 def _enter_profile_skip_reason(

@@ -323,8 +323,8 @@ DEFAULT_T0_RULES: Dict[str, Any] = {
     "y_trade_enter": 0.01,
     "y_hl_strong": 5.0,  # |y_hl| 超此值须与 y_τ 同号；≤则允许异号
     "y_hl_required": False,
-    "y_tw_strong": 5.0,  # ŷ_τw 票数旁路：0=任意有符号须同号；>=5=关
-    "y_τw_strong": 5.0,
+    "y_tw_enter": 0.0,  # ŷ_τw 入场：|ŷ_τw| 大于此值才开腿；全弃权=0 票；0=关同号
+    "y_τw_enter": 0.0,
     "y_tw_vote_margin": 2.0,  # |p_up−0.5|≤此百分点不给 ŷ_τw 投票
     "y_τw_vote_margin": 2.0,
     "fusion_w_τc": 0.5,  # residual 融合：ŷ_τc 权
@@ -488,6 +488,36 @@ def t0_slots_enabled(cfg: Optional[dict]) -> bool:
     return True
 
 
+def _migrate_y_tw_enter(cfg: dict, override_keys: Optional[set] = None) -> None:
+    """y_tw_strong → y_tw_enter。旧 3/≥5 为关闸，迁成 0。"""
+    keys = override_keys or set()
+    enter_explicit = False
+    for k in ("y_tw_enter", "y_τw_enter"):
+        if k in keys and cfg.get(k) not in (None, ""):
+            cfg["y_tw_enter"] = cfg.get(k)
+            enter_explicit = True
+            break
+    if not enter_explicit:
+        strong = None
+        for k in ("y_tw_strong", "y_τw_strong"):
+            if k in keys and cfg.get(k) not in (None, ""):
+                try:
+                    strong = float(cfg.get(k))
+                except (TypeError, ValueError):
+                    strong = None
+                break
+        if strong is not None:
+            if abs(strong - 3.0) < 1e-12 or strong >= 5.0 - 1e-12:
+                cfg["y_tw_enter"] = 0.0
+            else:
+                cfg["y_tw_enter"] = strong
+    if cfg.get("y_tw_enter") in (None, "") and cfg.get("y_τw_enter") not in (None, ""):
+        cfg["y_tw_enter"] = cfg.get("y_τw_enter")
+    cfg["y_τw_enter"] = cfg.get("y_tw_enter")
+    cfg.pop("y_tw_strong", None)
+    cfg.pop("y_τw_strong", None)
+
+
 def _migrate_dual_y_gate_keys(cfg: dict, override_keys: Optional[set] = None) -> None:
     """统一 dual_y 闸命名：*_enter 入场、*_strong 强闸；旧键只读迁移。"""
     keys = override_keys or set()
@@ -499,6 +529,7 @@ def _migrate_dual_y_gate_keys(cfg: dict, override_keys: Optional[set] = None) ->
         legacy = cfg.get("y_trade_floor")
         if legacy is not None and legacy != "":
             cfg["y_trade_enter"] = legacy
+    _migrate_y_tw_enter(cfg, keys)
 
 
 def _sync_dual_y_gate_legacy_aliases(cfg: dict) -> None:
@@ -563,8 +594,8 @@ def load_t0_rules(override: Optional[dict] = None) -> Dict[str, Any]:
         ("y_on_risk", 0.01, 10.0, 0.01),
         ("y_on_allow", 0.01, 10.0, 0.01),
         ("y_hl_strong", 0.0, 5.0, 5.0),
-        ("y_tw_strong", 0.0, 5.0, 5.0),
-        ("y_τw_strong", 0.0, 5.0, 5.0),
+        ("y_tw_enter", 0.0, 5.0, 0.0),
+        ("y_τw_enter", 0.0, 5.0, 0.0),
         ("y_tw_vote_margin", 0.0, 20.0, 2.0),
         ("y_τw_vote_margin", 0.0, 20.0, 2.0),
         ("fusion_w_τc", 0.0, 1.0, 0.5),
@@ -609,22 +640,17 @@ def load_t0_rules(override: Optional[dict] = None) -> Dict[str, Any]:
     cfg["t0_y_oc_target_scale"] = scale
     cfg["t0_y_oc_l"] = y_oc_l
     cfg["t0_y_oc_u"] = y_oc_u
-    if cfg.get("y_tw_strong") in (None, "") and cfg.get("y_τw_strong") not in (None, ""):
-        cfg["y_tw_strong"] = cfg.get("y_τw_strong")
-    cfg["y_τw_strong"] = cfg.get("y_tw_strong")
+    if cfg.get("y_tw_enter") in (None, "") and cfg.get("y_τw_enter") not in (None, ""):
+        cfg["y_tw_enter"] = cfg.get("y_τw_enter")
+    cfg["y_τw_enter"] = cfg.get("y_tw_enter")
+    cfg.pop("y_tw_strong", None)
+    cfg.pop("y_τw_strong", None)
     if (
         "y_tw_vote_margin" not in override_keys
         or cfg.get("y_tw_vote_margin") in (None, "")
     ) and cfg.get("y_τw_vote_margin") not in (None, ""):
         cfg["y_tw_vote_margin"] = cfg.get("y_τw_vote_margin")
     cfg["y_τw_vote_margin"] = cfg.get("y_tw_vote_margin")
-    # 旧默认 3=三头关闸；五头满票=5。落盘 3 视为关。
-    try:
-        if abs(float(cfg.get("y_tw_strong")) - 3.0) < 1e-12:
-            cfg["y_tw_strong"] = 5.0
-            cfg["y_τw_strong"] = 5.0
-    except (TypeError, ValueError):
-        pass
     from core.research.horizon_prob import migrate_horizon_gate_cfg
 
     migrate_horizon_gate_cfg(cfg)
