@@ -1296,82 +1296,6 @@ function formatCompactTWTip(raw) {
   );
 }
 
-/** R_τ 列 tip：Ĉ_τ/price(τ)−1，与价带同目标。 */
-function formatCompactRtauTip(raw) {
-  const feat = (raw && raw.features_tau) || {};
-  const rot =
-    feat.ret_open_to_tau != null && Number.isFinite(Number(feat.ret_open_to_tau))
-      ? Number(feat.ret_open_to_tau)
-      : raw && raw.ret_open_to_tau != null && Number.isFinite(Number(raw.ret_open_to_tau))
-        ? Number(raw.ret_open_to_tau)
-        : null;
-  const yOc = resolveTauScore(raw);
-  const cTau =
-    raw && raw.c_tau != null && Number.isFinite(Number(raw.c_tau)) ? Number(raw.c_tau) : null;
-  const barC =
-    raw && raw.bar_c != null && Number.isFinite(Number(raw.bar_c)) && Number(raw.bar_c) > 0
-      ? Number(raw.bar_c)
-      : null;
-  const remBand = cTau != null && barC != null ? (cTau / barC - 1) * 100 : null;
-  const remStored =
-    raw && raw.r_hat != null && Number.isFinite(Number(raw.r_hat))
-      ? Number(raw.r_hat)
-      : raw && raw.residual != null && Number.isFinite(Number(raw.residual))
-        ? Number(raw.residual)
-        : null;
-  const remCalc = yOc != null && rot != null ? remainingAtTauPct(yOc, rot) : null;
-  const rem = remBand != null ? remBand : remStored != null ? remStored : remCalc;
-  const remTxt = rem == null ? "—" : `${fmtSigned(rem, 3)}%`;
-  const rows = [];
-  if (yOc != null) {
-    rows.push(
-      `<div class="score-layer-row"><span>ŷ_oc open→close</span>` +
-        `<span class="num ${signCls(yOc)}">${escapeText(fmtSigned(yOc, 3))}%</span></div>`
-    );
-  }
-  const yTarget =
-    raw && raw.y_oc_target != null && Number.isFinite(Number(raw.y_oc_target))
-      ? Number(raw.y_oc_target)
-      : null;
-  if (yTarget != null) {
-    rows.push(
-      `<div class="score-layer-row"><span>clip(ŷ_oc×scale) 目标</span>` +
-        `<span class="num ${signCls(yTarget)}">${escapeText(fmtSigned(yTarget, 3))}%</span></div>`
-    );
-  }
-  if (cTau != null && barC != null) {
-    rows.push(
-      `<div class="score-layer-row"><span>Ĉ_τ / C</span>` +
-        `<span class="num">${escapeText(`${cTau.toFixed(3)} / ${barC.toFixed(3)}`)}</span></div>`
-    );
-  }
-  if (rot != null) {
-    rows.push(
-      `<div class="score-layer-row"><span>开盘→τ 已实现</span>` +
-        `<span class="num ${signCls(rot)}">${escapeText(fmtSigned(rot, 3))}%</span></div>`
-    );
-  }
-  const ytc = resolveYτcScore(raw);
-  if (ytc != null && (rem == null || Math.abs(ytc - rem) > 1e-3)) {
-    rows.push(
-      `<div class="score-layer-row"><span>ŷ_τc Ridge 对照</span>` +
-        `<span class="num ${signCls(ytc)}">${escapeText(fmtSigned(ytc, 3))}%</span></div>`
-    );
-  }
-  return (
-    `<div class="score-layer score-layer-rtau">` +
-    `<div class="score-layer-head">` +
-    `<div class="score-hero-label">R̂_τ · Ĉ_τ/price(τ)−1</div>` +
-    `<div class="score-hero-value ${signCls(rem)}">${escapeText(remTxt)}</div>` +
-    `</div>` +
-    `<div class="score-hero-hint">与 Ĉ_τ 同目标 · remaining(clip(ŷ_oc×scale), price)</div>` +
-    (rows.length
-      ? `<div class="score-layer-compose">${rows.join("")}</div>`
-      : "") +
-    `</div>`
-  );
-}
-
 /** y_on 列：开盘决策口径旁路（勿与含当日 close 的 y_on_path 混读）。 */
 function formatCompactOnTip(raw) {
   const on = resolveOnScore(raw);
@@ -1708,7 +1632,7 @@ export function formatBlendScoreSection(raw) {
     eodN != null && Number.isFinite(eodN) && rightN != null && Number.isFinite(rightN)
       ? ` · ${Number(wOo).toFixed(2)}×${fmtSigned(eodN, 2)}+${Number(wOc).toFixed(2)}×${fmtSigned(rightN, 2)}`
       : "";
-  const hint = `${wTxt}${arith} · 与表列 ranking 同式`;
+  const hint = `${wTxt}${arith} · −(price(τ)/open−1)；真实=(open[T+1]−price(τ))/open[T]`;
   const head =
     raw && raw.dual_score_head != null
       ? String(raw.dual_score_head)
@@ -1739,6 +1663,47 @@ export function formatBlendScoreSection(raw) {
       blend
     )}">${escapeText(blendTxt)}</span></div>`,
   ];
+  const rotN = (() => {
+    const o =
+      raw && raw.day_open != null && Number.isFinite(Number(raw.day_open))
+        ? Number(raw.day_open)
+        : null;
+    const p =
+      raw &&
+      (raw.rebalance_px != null && Number.isFinite(Number(raw.rebalance_px))
+        ? Number(raw.rebalance_px)
+        : raw.price_tau != null && Number.isFinite(Number(raw.price_tau))
+          ? Number(raw.price_tau)
+          : null);
+    if (o == null || p == null || o <= 0 || p <= 0) return null;
+    const v = (p / o - 1) * 100;
+    return Number.isFinite(v) ? v : null;
+  })();
+  let rRank =
+    raw && raw.realized_ranking != null && Number.isFinite(Number(raw.realized_ranking))
+      ? Number(raw.realized_ranking)
+      : null;
+  const rOo =
+    raw && raw.realized_oo != null && Number.isFinite(Number(raw.realized_oo))
+      ? Number(raw.realized_oo)
+      : null;
+  if (rRank == null && rOo != null) {
+    rRank = rotN != null ? rOo - rotN : rOo;
+  }
+  if (rotN != null) {
+    rows.splice(
+      rows.length - 1,
+      0,
+      `<div class="score-layer-row"><span>−(price(τ)/open−1)</span><span class="num ${signCls(
+        -rotN
+      )}">${escapeText(`${fmtSigned(-rotN, 2)}%`)}</span></div>`
+    );
+  }
+  rows.push(
+    `<div class="score-layer-row"><span>真实 (open[T+1]−price(τ))/open[T]</span><span class="num ${
+      rRank == null ? "" : signCls(rRank)
+    }">${escapeText(rRank == null ? "—（待次日开）" : `${fmtSigned(rRank, 2)}%`)}</span></div>`
+  );
   const yCheck = raw && raw.y_check != null ? String(raw.y_check) : "";
   const yDisagree =
     raw && raw.y_disagree != null && Number.isFinite(Number(raw.y_disagree))
@@ -1776,10 +1741,12 @@ export function formatBlendScoreSection(raw) {
       head.startsWith("single") || (yCheck && yCheck !== "ok") ? " is-warn" : ""
     }">` +
     `<div class="score-layer-head">` +
-    `<div class="score-hero-label">ranking · w·ŷ_oo + w·(ŷ_oc∘w_co·ŷ_co)${
+    `<div class="score-hero-label">ranking · 预估(真实)${
       head.startsWith("single") ? " · 单头" : ""
     }${yCheck && yCheck !== "ok" ? " · Y校验" : ""}</div>` +
-    `<div class="score-hero-value ${signCls(blend)}">${escapeText(blendTxt)}</div>` +
+    `<div class="score-hero-value ${signCls(blend)}">${escapeText(blendTxt)}${
+      rRank == null ? "" : ` <span class="score-hero-real">(${escapeText(`${fmtSigned(rRank, 2)}%`)})</span>`
+    }</div>` +
     `</div>` +
     `<div class="score-hero-hint">${escapeText(hint + headHint)}</div>` +
     `<div class="score-layer-compose">${rows.join("")}</div>` +
@@ -1951,10 +1918,11 @@ export function formatFormulaTermsSection(raw, opts = {}) {
       contrib: Number(t.contrib),
     }));
   const peak = Math.max(...barTerms.map((t) => Math.abs(t.contrib)), 1e-9);
+  const barLimit = key === "tau" ? 24 : 10;
   const barsHtml = barTerms.length
     ? `<div class="yhat-contrib-bars" aria-label="因子贡献">` +
       barTerms
-        .slice(0, 10)
+        .slice(0, barLimit)
         .map((r) => {
           const pct = Math.min(100, (Math.abs(r.contrib) / peak) * 100);
           const side = r.contrib >= 0 ? "pos" : "neg";
@@ -1990,9 +1958,14 @@ export function formatFormulaTermsSection(raw, opts = {}) {
             ? "β×z = 贡献；合计=Ridge 拟合原值（极值序 signed (H−L)/ref%）。做 T 同号闸 / 入场。"
           : "β×z = 贡献；条长∝|贡献|";
   const missingN = Number(expl && expl.missing_n);
+  const missKeys = Array.isArray(expl && expl.missing_keys)
+    ? expl.missing_keys.filter(Boolean).slice(0, 8)
+    : [];
   const captionMiss =
     Number.isFinite(missingN) && missingN > 0
-      ? `另 ${missingN} 项缺特征未列出（已按均值填，贡献 0）。`
+      ? `另 ${missingN} 项缺特征未列出${
+          missKeys.length ? `（${missKeys.join("、")}）` : ""
+        }（已按均值填，贡献 0）。`
       : "";
   const role = String((expl && expl.model_role) || "").toLowerCase();
   const alphaName =
@@ -2805,19 +2778,12 @@ export function createScoreTooltipController() {
     if (tip === "t90" || tip === "τ90" || tip === "yt90") return "t90";
     if (tip === "hl" || tip === "path" || tip === "yhl") return "hl";
     if (tip === "tw" || tip === "τw" || tip === "ytw") return "tw";
-    if (tip === "rtau" || tip === "r_tau" || tip === "rhat") return "rtau";
     if (tip === "on") return "on";
     if (tip === "ranking" || tip === "trade" || tip === "score") return "ranking";
     if (cell.classList.contains("watching-score-eod")) return "eod";
     if (cell.classList.contains("watching-score-nowcast")) return "nowcast";
     if (cell.classList.contains("watching-score-tau")) return "tau";
     if (
-      cell.classList.contains("paper-t0-col-y-rtau") ||
-      cell.classList.contains("paper-t0-col-rtau")
-    )
-      return "rtau";
-    if (
-      cell.classList.contains("paper-t0-col-y-t30") ||
       cell.classList.contains("paper-t0-col-yt30")
     )
       return "t30";
@@ -3037,12 +3003,6 @@ export function createScoreTooltipController() {
       return;
     }
 
-    if (tipMode === "rtau") {
-      const parts = [formatCompactRtauTip(raw)].filter(Boolean);
-      showCompactScoreTip(cell, parts.join(""), { sticky });
-      return;
-    }
-
     if (tipMode === "on") {
       const parts = [
         formatCompactOnTip(raw),
@@ -3063,7 +3023,7 @@ export function createScoreTooltipController() {
           `<div class="score-hero-label">ranking</div>` +
           `<div class="score-hero-value ${signCls(ranked)}">${escapeText(val)}</div>` +
           `</div>` +
-          `<div class="score-hero-hint">w·ŷ_oo + w·(ŷ_oc∘w_co·ŷ_co) · 排序/卖门槛</div>` +
+          `<div class="score-hero-hint">fuse − (price(τ)/open−1)；真实=(open[T+1]−price(τ))/open[T]</div>` +
           `</div>`;
       }
       showCompactScoreTip(cell, blendHtml, { sticky });

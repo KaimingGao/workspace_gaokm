@@ -1015,14 +1015,15 @@ def explain_tau_prediction(
     if slim:
         terms = slim
     # 展示只列有实值的项。缺特征已按均值填进合计（contrib=0），不占表。
-    n_missing = sum(1 for t in terms if t.get("note"))
+    missing_terms = [t for t in terms if t.get("note")]
+    n_missing = len(missing_terms)
     shown = [t for t in terms if not t.get("note")]
     if shown:
         terms = shown
     terms.sort(key=lambda t: -abs(float(t.get("contrib") or 0)))
     out = {
         "intercept": round(intercept, 6),
-        "terms": terms[:16],
+        "terms": terms[:32],
         "total": round(total, 6),
         "head": "tau",
     }
@@ -1031,5 +1032,10 @@ def explain_tau_prediction(
         out["model_role"] = role
     if n_missing:
         out["missing_n"] = int(n_missing)
+        out["missing_keys"] = [
+            str(t.get("label") or t.get("key") or "")
+            for t in missing_terms[:8]
+            if str(t.get("label") or t.get("key") or "")
+        ]
     return out
 

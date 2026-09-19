@@ -105,6 +105,49 @@ class TestWatchingMatrixPreview(unittest.TestCase):
         self.assertEqual(paper.get("cash"), 1_000_000)
         self.assertEqual(paper.get("holdings") or [], [])
 
+    def test_live_quote_open_remaining_maps_ranking(self):
+        from core.paper.rebalance.rank_lots import ranking_pct_of
+        from core.paper.rebalance.watching_matrix import simulate_watching_matrix_preview
+
+        paper = {
+            "strategy_id": "short_conservative",
+            "cash": 1_000_000,
+            "holdings": [],
+            "trades": [],
+            "rules": {"max_positions": 5, "position_pct": 0.2},
+            "cost_model": "zero",
+        }
+        item = _signal_item()
+        cfg = {"fusion_w_oo": 0.6, "fusion_w_oc": 0.4, "fusion_w_co": 1.0}
+        fused = ranking_pct_of(item, cfg)
+        rot = (10.05 / 10.0 - 1.0) * 100.0
+        expect = fused - rot
+        with patch(
+            "core.paper.rebalance.watching_matrix._watching_codes",
+            return_value=(["600000"], {"n_watch": 1, "n_total": 1}),
+        ), patch(
+            "core.paper.rebalance.watching_matrix._score_pool",
+            return_value=([item], []),
+        ), patch(
+            "core.paper.rebalance.watching_matrix._quote_px",
+            return_value=10.05,
+        ), patch(
+            "core.paper.rebalance.watching_matrix._quote_open_px",
+            return_value=10.0,
+        ), patch(
+            "core.paper.ledger.mark_to_market",
+            return_value={"equity": 1_000_000, "cash": 1_000_000},
+        ):
+            out = simulate_watching_matrix_preview(
+                paper, dry_run=True, offline_only=False
+            )
+
+        self.assertTrue(out.get("ok"))
+        report = out.get("rebalance_report") or []
+        self.assertGreaterEqual(len(report), 1)
+        self.assertAlmostEqual(float(report[0].get("ranking")), expect)
+        self.assertLess(float(report[0].get("ranking")), fused)
+
     def test_confirm_applies_buy_to_paper(self):
         from core.paper.rebalance.watching_matrix import simulate_watching_matrix_preview
 
@@ -147,7 +190,7 @@ class TestWatchingMatrixPreview(unittest.TestCase):
         self.assertLess(float(paper.get("cash") or 0), 1_000_000)
 
     def test_adverse_path_still_opens(self):
-        """缺 y_hl 不拦开仓；ranking 过入场即可买（旧 y_path 键现等同 y_hl，有值且低于入场会拦）。"""
+        """缺 y_hl 或 y_hl≤0 不拦开仓；ranking 过入场即可买。"""
         from core.paper.rebalance.watching_matrix import simulate_watching_matrix_preview
 
         paper = {
@@ -177,8 +220,8 @@ class TestWatchingMatrixPreview(unittest.TestCase):
         acts = (out.get("path_matrix") or {}).get("by_action") or {}
         self.assertEqual(int(acts.get("skip_window") or 0), 0)
 
-    def test_held_fail_enter_exits(self):
-        """已持仓未过入场闸：清仓。"""
+    def test_held_negative_y_hl_still_adds(self):
+        """已持仓 y_hl≤0 不拦；ranking 过入场则加仓。"""
         from core.paper.rebalance.watching_matrix import simulate_watching_matrix_preview
 
         paper = {
@@ -235,13 +278,12 @@ class TestWatchingMatrixPreview(unittest.TestCase):
             out = simulate_watching_matrix_preview(paper, dry_run=True)
 
         self.assertTrue(out.get("ok"))
-        self.assertEqual(len(out.get("buy_trades") or []), 0)
-        self.assertEqual(len(out.get("sell_trades") or []), 1)
-        self.assertEqual(out["sell_trades"][0].get("action"), "exit")
+        self.assertGreaterEqual(len(out.get("buy_trades") or []), 1)
+        self.assertEqual(len(out.get("sell_trades") or []), 0)
         report = out.get("rebalance_report") or []
         self.assertEqual(len(report), 1)
         self.assertEqual(report[0].get("stock_code"), "601111")
-        self.assertEqual(report[0].get("decision"), "卖出")
+        self.assertIn(report[0].get("decision"), ("买入", "加仓"))
         self.assertEqual(report[0].get("predicted_score_eod"), 0.18)
 
     def test_held_fail_rank_enter_exits_all(self):
@@ -566,7 +608,7 @@ class TestWatchingMatrixPreview(unittest.TestCase):
 
 
 class TestApplyLegOpenCost(unittest.TestCase):
-    def test_buy_cost_equals_fill_sell_keeps_open_date(self):
+    def test_buy_open_date_carries_to_add_and_sell(self):
         from core.paper.rebalance.watching_matrix import _apply_one_leg
 
         paper = {
@@ -590,9 +632,9 @@ class TestApplyLegOpenCost(unittest.TestCase):
         self.assertIsNone(err)
         self.assertIsNotNone(buy)
         self.assertEqual(buy["open_date"], "2026-03-10")
-        self.assertEqual(buy["cost_price"], buy["price"])
         self.assertEqual(float(buy["price"]), 10.0)
-        self.assertAlmostEqual(float(buy["cum_cost"]), 10000.0)
+        self.assertNotIn("cost_price", buy)
+        self.assertNotIn("cum_cost", buy)
 
         add, err = _apply_one_leg(
             paper,
@@ -607,9 +649,9 @@ class TestApplyLegOpenCost(unittest.TestCase):
         )
         self.assertIsNone(err)
         self.assertEqual(add["open_date"], "2026-03-10")
-        self.assertEqual(add["cost_price"], add["price"])
         self.assertEqual(float(add["price"]), 12.0)
-        self.assertAlmostEqual(float(add["cum_cost"]), 22000.0)
+        self.assertNotIn("cost_price", add)
+        self.assertNotIn("cum_cost", add)
 
         sell, err = _apply_one_leg(
             paper,
@@ -624,8 +666,8 @@ class TestApplyLegOpenCost(unittest.TestCase):
         )
         self.assertIsNone(err, err)
         self.assertEqual(sell["open_date"], "2026-03-10")
-        self.assertAlmostEqual(float(sell["cost_price"]), 11.0)
-        self.assertAlmostEqual(float(sell["cum_cost"]), 22000.0)
+        self.assertNotIn("cost_price", sell)
+        self.assertNotIn("cum_cost", sell)
 
     def test_apply_one_leg_keeps_formula_terms(self):
         from core.paper.rebalance.watching_matrix import _apply_one_leg

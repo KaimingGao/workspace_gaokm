@@ -676,29 +676,36 @@ class TTwGateTests(unittest.TestCase):
         )
         self.assertIsNone(blend_y_tw(None, None, None))
 
-        zero = close_band_y_tw_skip_reason(
-            {"y_τ30": 0.51, "y_τ60": 0.50, "y_τ90": 0.49},
-            {"y_tw_enter": 0},
-            direction="buy_then_sell",
+        self.assertIsNone(
+            close_band_y_tw_skip_reason(
+                {"y_τ30": 0.51, "y_τ60": 0.50, "y_τ90": 0.49},
+                {"y_tw_enter": 0},
+                direction="buy_then_sell",
+            )
         )
-        self.assertIsNotNone(zero)
-        self.assertIn("ŷ_τw=0", zero)
-        self.assertIn("未过入场", zero)
-        self.assertEqual(classify_t0_skip_reason(zero), "y_tw_flat")
-        self.assertIsNotNone(
+        self.assertIsNone(
             close_band_y_tw_skip_reason(
                 {"y_τ30": 0.488, "y_τ45": 0.484, "y_τ60": 0.484, "y_τ75": 0.484, "y_τ90": 0.485},
                 {"y_tw_enter": 0},
                 direction="buy_then_sell",
             )
         )
-        cancel = close_band_y_tw_skip_reason(
-            {"y_τ30": 0.53, "y_τ60": 0.47, "y_τ90": 0.52},
-            {"y_tw_enter": 0},
+        self.assertIsNone(
+            close_band_y_tw_skip_reason(
+                {"y_τ30": 0.53, "y_τ60": 0.47, "y_τ90": 0.52},
+                {"y_tw_enter": 0},
+                direction="buy_then_sell",
+            )
+        )
+        zero = close_band_y_tw_skip_reason(
+            {"y_τ30": 0.51, "y_τ60": 0.50, "y_τ90": 0.49},
+            {"y_tw_enter": 0.1},
             direction="buy_then_sell",
         )
-        self.assertIsNotNone(cancel)
-        self.assertIn("ŷ_τw=0", cancel)
+        self.assertIsNotNone(zero)
+        self.assertIn("ŷ_τw=0", zero)
+        self.assertIn("未过入场", zero)
+        self.assertEqual(classify_t0_skip_reason(zero), "y_tw_flat")
 
         scores = {"y_τ30": 0.8, "y_τ60": 0.6, "y_τ90": 0.55}
         self.assertIsNone(

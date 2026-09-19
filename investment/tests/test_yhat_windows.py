@@ -323,6 +323,41 @@ class StampPrimaryTests(unittest.TestCase):
         self.assertIsNone(pick_y_oo(only_fuse))
         self.assertAlmostEqual(ranking_pct(only_fuse), 0.4, places=6)
 
+    def test_remaining_ranking_deducts_open_to_price_tau(self):
+        from core.signal.yhat_windows import ranking_pct, remaining_ranking_pct
+
+        fused = ranking_pct({"y_oo": 2.0, "y_oc": 2.0})
+        self.assertAlmostEqual(fused, 2.0, places=6)
+        self.assertAlmostEqual(
+            remaining_ranking_pct(fused, open_px=100.0, price_tau=100.0),
+            2.0,
+            places=6,
+        )
+        rot = (100.5 / 100.0 - 1.0) * 100.0
+        rem = remaining_ranking_pct(fused, open_px=100.0, price_tau=100.5)
+        self.assertAlmostEqual(rem, fused - rot, places=6)
+        self.assertLess(rem, fused)
+        self.assertAlmostEqual(remaining_ranking_pct(fused), fused, places=6)
+
+    def test_realized_ranking_is_next_open_minus_tau_over_open(self):
+        from core.signal.yhat_windows import realized_ranking_pct
+
+        open_t, tau, nxt = 100.0, 100.5, 102.0
+        realized_oo = (nxt / open_t - 1.0) * 100.0
+        got = realized_ranking_pct(realized_oo, open_px=open_t, price_tau=tau)
+        self.assertAlmostEqual(got, (nxt - tau) / open_t * 100.0, places=6)
+        self.assertIsNone(realized_ranking_pct(None, open_px=open_t, price_tau=tau))
+        self.assertAlmostEqual(
+            realized_ranking_pct(realized_oo, open_px=open_t),
+            realized_oo,
+            places=6,
+        )
+        self.assertAlmostEqual(
+            realized_ranking_pct(realized_oo, open_px=open_t, price_tau=open_t),
+            realized_oo,
+            places=6,
+        )
+
 
 class ResidualFusionTests(unittest.TestCase):
     def test_remaining_maps_oc_to_price_tau(self):

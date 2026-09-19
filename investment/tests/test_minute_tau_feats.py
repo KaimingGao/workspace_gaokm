@@ -605,6 +605,17 @@ class TestMinuteTauPack(unittest.TestCase):
         self.assertIsNone(wiped.get("sector_ret_to_tau"))
         self.assertEqual(wiped.get("gap_pct"), 0.02)
 
+    def test_stamp_open_clock_minute_z_fills_defined_keys(self):
+        from core.signal.minute_tau_feats import stamp_open_clock_minute_z
+
+        out = stamp_open_clock_minute_z({"gap_pct": 0.5})
+        self.assertAlmostEqual(out["ret_open_to_tau"], 0.0, places=6)
+        self.assertAlmostEqual(out["tau_elapsed_min"], 0.0, places=6)
+        self.assertAlmostEqual(out["gap_pct"], 0.5, places=6)
+        kept = stamp_open_clock_minute_z({"ret_open_to_tau": 1.2, "tau_elapsed_min": 30.0})
+        self.assertAlmostEqual(kept["ret_open_to_tau"], 1.2, places=6)
+        self.assertAlmostEqual(kept["tau_elapsed_min"], 30.0, places=6)
+
     def test_pack_keys_constant(self):
         from core.signal.minute_tau_feats import MINUTE_TAU_SHAPE_KEYS
 
@@ -1340,11 +1351,13 @@ class TestMinuteTauPack(unittest.TestCase):
                 use_minute_tau=False,
             )
         feats = item.get("features_tau") or {}
-        self.assertIsNone(feats.get("ret_open_to_tau"))
+        self.assertAlmostEqual(float(feats.get("ret_open_to_tau")), 0.0, places=6)
+        self.assertAlmostEqual(float(feats.get("tau_elapsed_min")), 0.0, places=6)
+        self.assertIsNone(feats.get("range_pct"))
         self.assertIsNone(feats.get("sector_ret_to_tau"))
         self.assertIsNone(feats.get("ret_vs_sector"))
         call_feats = pred.call_args[0][0]
-        self.assertIsNone(call_feats.get("ret_open_to_tau"))
+        self.assertAlmostEqual(float(call_feats.get("ret_open_to_tau")), 0.0, places=6)
         self.assertIsNone(call_feats.get("sector_ret_to_tau"))
 
     def test_attach_dual_score_pit_overwrites_eod_leftover_at_1030(self):
@@ -1446,8 +1459,11 @@ class TestMinuteTauPack(unittest.TestCase):
                 fuse_intraday=True,
                 use_minute_tau=False,
             )
-        self.assertIsNone((item.get("features_tau") or {}).get("ret_open_to_tau"))
-        self.assertIsNone(pred.call_args[0][0].get("ret_open_to_tau"))
+        self.assertAlmostEqual(
+            float((item.get("features_tau") or {}).get("ret_open_to_tau")), 0.0, places=6
+        )
+        self.assertAlmostEqual(float(pred.call_args[0][0].get("ret_open_to_tau")), 0.0, places=6)
+        self.assertIsNone((item.get("features_tau") or {}).get("range_pct"))
 
     def test_attach_dual_score_pit_prefix_hm_blocks_1030_sector_fallback(self):
         """有前缀分钟时截面钟跟末根，不得回退配置 10:30。"""

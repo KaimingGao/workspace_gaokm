@@ -2774,6 +2774,36 @@ html[data-density="compact"] .quant-page {
 
 .quant-bt-trades-host .watching-react-grid.bt-ledger-grid {
   overflow-x: auto;
+  max-width: 100%;
+}
+
+.quant-bt-trades-host .bt-ledger-grid .watching-react-grid-head,
+.quant-bt-trades-host .bt-ledger-grid .watching-react-grid-body {
+  /* 列 minmax + column-gap；小于此值时 overflow-x:hidden 会裁掉 ranking / y_hl */
+  min-width: 102rem;
+}
+
+.quant-bt-trades-host .bt-ledger-grid .quant-bt-trades-body {
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+.quant-bt-trades-host .bt-ledger-grid .watching-react-grid-row {
+  min-width: 102rem !important;
+  column-gap: 10px;
+}
+
+.quant-bt-trades-host .bt-ledger-grid .watching-react-grid-cell {
+  padding-left: 12px;
+  padding-right: 12px;
+}
+
+.quant-bt-trades-host .bt-ledger-grid .watching-react-grid-row > .watching-react-grid-cell:first-child {
+  padding-left: 16px;
+}
+
+.quant-bt-trades-host .bt-ledger-grid .watching-react-grid-row > .watching-react-grid-cell:last-child {
+  padding-right: 16px;
 }
 
 .quant-bt-trades-host .bt-ledger-grid .watching-react-grid-cell.watching-col-name {
@@ -2800,7 +2830,11 @@ html[data-density="compact"] .quant-page {
   flex-shrink: 1;
 }
 
-.quant-bt-trades-host .bt-ledger-grid .watching-react-grid-cell.watching-col-open_date {
+.quant-bt-trades-host .bt-ledger-grid .watching-react-grid-cell.watching-col-open_date,
+.quant-bt-trades-host .bt-ledger-grid .watching-react-grid-cell.watching-col-day_open,
+.quant-bt-trades-host .bt-ledger-grid .watching-react-grid-cell.watching-col-day_close,
+.quant-bt-trades-host .bt-ledger-grid .watching-react-grid-cell.watching-col-price,
+.quant-bt-trades-host .bt-ledger-grid .watching-react-grid-cell.watching-col-stock_ret {
   overflow: hidden;
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
@@ -2819,7 +2853,7 @@ html[data-density="compact"] .quant-page {
 
 .quant-bt-trades-body {
   height: auto;
-  max-height: min(42vh, 480px);
+  max-height: min(68vh, 860px);
 }
 
 .quant-bt-trades-host .bt-trade-action {
@@ -3028,12 +3062,6 @@ html[data-density="compact"] .quant-page {
   font-size: 0.72rem;
   font-weight: 650;
   color: var(--ink-2, var(--ink-3));
-}
-
-.quant-bt-trades-host .bt-trade-cash {
-  font-variant-numeric: tabular-nums;
-  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
-  font-size: 0.92em;
 }
 
 /* 交易记录 score 列：整格可悬停（对齐观察池） */

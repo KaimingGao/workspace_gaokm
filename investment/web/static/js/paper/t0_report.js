@@ -301,7 +301,7 @@ function buildPortraitSectionHtml(portrait) {
       : yhatCoverN > 0 &&
           slotSampleN > 0 &&
           yhatCoverN / slotSampleN < 0.25
-        ? `<p class="paper-t0-portrait-slots-warn">槽位 R_τ/y_oc/y_τ30/y_τ45/y_τ60/y_τ75/y_τ90/y_hl ŷ 覆盖偏低（最多 ${yhatCoverN}/${slotSampleN}）：缺分钟日无扫描分；请用最新回测引擎重跑以保留 close_band_scan。</p>`
+        ? `<p class="paper-t0-portrait-slots-warn">槽位 y_oc/y_τ30/y_τ45/y_τ60/y_τ75/y_τ90/y_hl ŷ 覆盖偏低（最多 ${yhatCoverN}/${slotSampleN}）：缺分钟日无扫描分；请用最新回测引擎重跑以保留 close_band_scan。</p>`
         : "";
 
   const fmtHitCell = (pack) => {
@@ -319,7 +319,7 @@ function buildPortraitSectionHtml(portrait) {
     slotRows.length > 0
       ? `<div class="paper-t0-portrait-slots" title="${escapeText(
           (portrait.by_slot && portrait.by_slot.note) ||
-            "各钟 R_τ / y_oc / y_τ30 / y_τ45 / y_τ60 / y_τ75 / y_τ90 / y_hl ↔ 标签；样本与日级对齐；缺该钟 ŷ 计 flat；成/跳=该钟是否成交"
+            "各钟 y_oc / y_τ30 / y_τ45 / y_τ60 / y_τ75 / y_τ90 / y_hl ↔ 标签；样本与日级对齐；缺该钟 ŷ 计 flat；成/跳=该钟是否成交"
         )}">` +
         `<div class="paper-t0-portrait-slots-head">` +
         `<span>分槽位</span>` +
@@ -336,7 +336,6 @@ function buildPortraitSectionHtml(portrait) {
         `<th>槽位</th>` +
         `<th title="有该钟扫描 ŷ / 与日级同样本；旧回测无 scan 则仅破带钟有ŷ">覆盖</th>` +
         `<th title="该钟破带成交 / 样本">成交</th>` +
-        `<th title="R̂_τ ↔ close[T]/price(τ)−1">R_τ</th>` +
         `<th title="ŷ_oc ↔ open→close">y_oc</th>` +
         `<th title="ŷ_τ30 ↔ mean(price(τ⊕25/30/35))/price(τ)−1">y_τ30</th>` +
         `<th title="ŷ_τ45 ↔ mean(price(τ⊕40/45/50))/price(τ)−1">y_τ45</th>` +
@@ -349,7 +348,6 @@ function buildPortraitSectionHtml(portrait) {
         `<th title="破带方向是否与 ŷ_τ60 后 60 交易分钟同号（反T ŷ_τ60&lt;0，正T&gt;0）">τ60旁路</th>` +
         `<th title="破带方向是否与 ŷ_τ75 后 75 交易分钟同号（反T ŷ_τ75&lt;0，正T&gt;0）">τ75旁路</th>` +
         `<th title="破带方向是否与 ŷ_τ90 后 90 交易分钟同号（反T ŷ_τ90&lt;0，正T&gt;0）">τ90旁路</th>` +
-        `<th title="该钟已成交子集 · R_τ">成交R_τ</th>` +
         `<th title="该钟已成交子集 · y_oc">成交y_oc</th>` +
         `<th title="该钟已成交子集 · y_τ30">成交y_τ30</th>` +
         `<th title="该钟已成交子集 · y_τ45">成交y_τ45</th>` +
@@ -387,7 +385,6 @@ function buildPortraitSectionHtml(portrait) {
               `</span>` +
               _fillBarHtml(nSlotTr, nSlot) +
               `</td>` +
-              `<td>${fmtHitCell(s.r_tau_hit)}</td>` +
               `<td>${fmtHitCell(s.oc_hit)}</td>` +
               `<td>${fmtHitCell(s.y_t30_hit)}</td>` +
               `<td>${fmtHitCell(s.y_t45_hit)}</td>` +
@@ -400,7 +397,6 @@ function buildPortraitSectionHtml(portrait) {
               `<td>${fmtHitCell(s.y_t60_band)}</td>` +
               `<td>${fmtHitCell(s.y_t75_band)}</td>` +
               `<td>${fmtHitCell(s.y_t90_band)}</td>` +
-              `<td>${fmtHitCell(traded.r_tau_hit)}</td>` +
               `<td>${fmtHitCell(traded.oc_hit)}</td>` +
               `<td>${fmtHitCell(traded.y_t30_hit)}</td>` +
               `<td>${fmtHitCell(traded.y_t45_hit)}</td>` +

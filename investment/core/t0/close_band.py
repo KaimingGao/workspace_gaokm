@@ -626,7 +626,7 @@ DEFAULT_Y_T75_STRONG = 1.0  # ŷ_τ75 个股旁路已下线：缺键=关
 DEFAULT_Y_T75_ENTER = 0.0  # 个股入场已下线：缺键=关
 DEFAULT_Y_T90_STRONG = 1.0
 DEFAULT_Y_T90_ENTER = 0.0  # 个股入场已下线：缺键=关
-DEFAULT_Y_TW_ENTER = 0.0  # ŷ_τw 入场：须 |ŷ_τw| 大于此值；0 票过不了；同号须 enter>0
+DEFAULT_Y_TW_ENTER = 0.0  # ŷ_τw 入场：须 |ŷ_τw| 大于此值；<=0 关（0 票也过，关同号）
 DEFAULT_Y_TW_STRONG = DEFAULT_Y_TW_ENTER  # 旧键别名
 DEFAULT_Y_TW_VOTE_MARGIN = 2.0  # |p_up−0.5|≤此百分点不投票
 
@@ -1045,8 +1045,8 @@ def close_band_y_tw_skip_reason(
 ) -> Optional[str]:
     """入场：破带后须 |ŷ_τw| **大于** y_tw_enter，且与方向同号。
 
-    不改 C_τ / 选向 / 目标价。全弃权计 0 票；``|ŷ_τw|<=enter`` 未过入场（默认 enter=0 则 0 分过不了）。
-    ``y_tw_enter<=0`` 关同号闸。无任何头仍不拦。
+    不改 C_τ / 选向 / 目标价。全弃权计 0 票。``y_tw_enter<=0`` 关闸（0 票也过，关同号）。
+    ``|ŷ_τw|<=enter`` 未过入场。无任何头仍不拦。
     """
     cfg_d = cfg if isinstance(cfg, dict) else {}
     d = str(direction or "").strip()
@@ -1063,12 +1063,12 @@ def close_band_y_tw_skip_reason(
     if y is None:
         return None
     enter = _y_tw_enter_floor(cfg_d)
+    if enter <= 0:
+        return None
     if abs(float(y)) <= float(enter) + 1e-12:
         yt = int(round(float(y)))
         shown = f"{yt:+d}" if yt else "0"
         return f"ŷ_τw={shown} 未过入场（|{abs(yt)}|<={enter:g}）"
-    if enter <= 0:
-        return None
     agree = y_tc_band_agree(d, y, eps=0.0)
     if agree is not False:
         return None

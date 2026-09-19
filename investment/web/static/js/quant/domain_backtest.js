@@ -452,11 +452,6 @@ export function installBacktest(q) {
       req.y_oc_gt0,
       req.y_oo_oc_enabled === true
     );
-    setChk(
-      "pm_y_hl_gt0",
-      req.y_hl_gt0,
-      req.y_hl_enabled !== false
-    );
   }
 
   function applyUniverseFitTiers(tiers) {
@@ -899,7 +894,6 @@ export function installBacktest(q) {
           y_enter_alt_enabled: lots.y_enter_alt_enabled,
           y_oo_gt0: lots.y_oo_gt0 === true,
           y_oc_gt0: lots.y_oc_gt0 === true,
-          y_hl_gt0: lots.y_hl_gt0 !== false,
         };
       }
     }
@@ -1080,10 +1074,12 @@ export function installBacktest(q) {
     };
     const cellDeps = { escapeHtml, watchingNameSpanHtml };
     if (ledger) {
-      const filledLegs = legs.filter(
-        (r) => String(r.status || "filled") !== "skipped"
-      );
-      const showLegs = legs;
+      const filledLegs = legs.filter((r) => {
+        const st = String(r.status || "filled").toLowerCase();
+        const act = String(r.action || r.matrix_action || "").toLowerCase();
+        return st !== "skipped" && act !== "skip";
+      });
+      const showLegs = filledLegs;
       state.lastSimTrades = showLegs;
       if (!showLegs.length && !curveLedgerDays(curve).length) {
         setBtTradesCaption("暂无成交记录");
@@ -1092,7 +1088,7 @@ export function installBacktest(q) {
       const rows = buildLedgerTradeRows(showLegs, {
         ...rowDeps,
         curve,
-        metaLegs: legs,
+        metaLegs: showLegs,
         params:
           (!Array.isArray(dataOrTrades) &&
             (dataOrTrades.params || dataOrTrades.request)) ||
@@ -1529,7 +1525,6 @@ export function installBacktest(q) {
         y_enter_alt_enabled,
         y_oo_gt0,
         y_oc_gt0,
-        y_hl_gt0,
         initial_cash,
         fill_clock,
         lot_base,
@@ -1566,7 +1561,6 @@ export function installBacktest(q) {
         y_enter_alt_enabled,
         y_oo_gt0: y_oo_gt0 === true,
         y_oc_gt0: y_oc_gt0 === true,
-        y_hl_gt0: y_hl_gt0 !== false,
         initial_cash,
         fill_clock,
         lot_base,

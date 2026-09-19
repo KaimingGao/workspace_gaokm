@@ -1896,7 +1896,12 @@ a.dialog-btn[aria-disabled="true"] {
 
 .score-hero-value.pos { color: #b91c1c; }
 
-.score-hero-value.neg { color: #047857; }
+.score-hero-value .score-hero-real {
+  margin-left: 0.25em;
+  font-size: 0.78em;
+  font-weight: 650;
+  color: #64748b;
+}
 
 .score-hero-hint {
   margin-top: 4px;

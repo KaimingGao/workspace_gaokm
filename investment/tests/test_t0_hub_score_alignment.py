@@ -152,6 +152,58 @@ class TestT0HubScoreAlignment(unittest.TestCase):
         self.assertIn("ret_open_to_tau", keys)
         self.assertIn("09:40", str(sc.get("as_of_tau") or ""))
 
+    def test_refresh_tau_oc_after_inject_when_as_of_already_clock(self):
+        """盘中 as_of 已写 09:40、组成已有开盘→τ 时，注入后的小因子仍要进 ŷ_oc。"""
+        from unittest.mock import patch
+
+        from core.t0.score_policy import _refresh_tau_oc_from_feats
+
+        item = {
+            "as_of_tau": "2026-09-18T09:40:00+08:00",
+            "y_oc": 2.214,
+            "predicted_score_tau": 2.214,
+            "features_tau": {
+                "ret_open_to_tau": 2.17,
+                "loc_hl": 0.69,
+                "sector_gap_breadth": 0.008,
+            },
+            "formula_terms_tau": {
+                "total": 2.214,
+                "terms": [
+                    {
+                        "key": "ret_open_to_tau",
+                        "label": "开盘→τ 收益 %",
+                        "contrib": 0.026,
+                    }
+                ],
+            },
+        }
+        expl = {
+            "intercept": 0.149,
+            "total": 2.203,
+            "terms": [
+                {"key": "ret_open_to_tau", "contrib": 0.026},
+                {"key": "loc_hl", "contrib": 0.015},
+                {"key": "sector_gap_breadth", "contrib": -0.025},
+            ],
+        }
+        with patch(
+            "core.research.tau_ridge.predict_tau_from_features", return_value=2.203
+        ), patch(
+            "core.research.tau_ridge.explain_tau_prediction", return_value=expl
+        ):
+            _refresh_tau_oc_from_feats(
+                item, hm="09:40", trade_date="2026-09-18"
+            )
+        self.assertAlmostEqual(float(item["y_oc"]), 2.203, places=6)
+        keys = {
+            t.get("key")
+            for t in (item.get("formula_terms_tau") or {}).get("terms") or []
+            if isinstance(t, dict)
+        }
+        self.assertIn("loc_hl", keys)
+        self.assertIn("sector_gap_breadth", keys)
+
     def test_inject_prefix_overwrites_stale_sector_cs(self):
         """开盘锚上的 10:00 板块中位不得留在 09:35 前缀。"""
         from unittest.mock import patch

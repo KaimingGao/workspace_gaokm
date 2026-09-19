@@ -188,6 +188,93 @@ class TestDualScoreFields(unittest.TestCase):
         self.assertIn("ret_open_to_tau", by_key)
         self.assertNotIn("note", by_key["ret_open_to_tau"])
 
+    def test_ensure_formula_terms_tau_refreshes_when_inject_adds_loc_hl(self):
+        """组成已有开盘→τ 时，注入 HL / 截面仍须重拆。"""
+        from unittest.mock import patch
+
+        from core.signal.dual_score import ensure_formula_terms_tau
+
+        rem_doc = {
+            "return_model": {
+                "intercept": 0.15,
+                "coefficients": {
+                    "ret_open_to_tau": 0.02,
+                    "loc_hl": 0.03,
+                    "sector_gap_breadth": -0.04,
+                },
+                "active_features": [
+                    "ret_open_to_tau",
+                    "loc_hl",
+                    "sector_gap_breadth",
+                ],
+                "zscore_means": {
+                    "ret_open_to_tau": 0.0,
+                    "loc_hl": 0.0,
+                    "sector_gap_breadth": 0.0,
+                },
+                "zscore_stds": {
+                    "ret_open_to_tau": 1.0,
+                    "loc_hl": 1.0,
+                    "sector_gap_breadth": 1.0,
+                },
+            }
+        }
+        stale = {
+            "intercept": 0.15,
+            "total": 0.176,
+            "terms": [
+                {
+                    "key": "ret_open_to_tau",
+                    "label": "开盘→τ 收益 %",
+                    "beta": 0.02,
+                    "z": 1.3,
+                    "contrib": 0.026,
+                }
+            ],
+        }
+        item = {
+            "formula_terms_tau": stale,
+            "features_tau": {
+                "ret_open_to_tau": 1.3,
+                "loc_hl": 0.69,
+                "sector_gap_breadth": 0.008,
+            },
+        }
+        with patch("core.research.tau_ridge.load_tau_model", return_value=rem_doc):
+            expl = ensure_formula_terms_tau(item)
+        self.assertIsNotNone(expl)
+        by_key = {t["key"]: t for t in expl["terms"]}
+        self.assertIn("loc_hl", by_key)
+        self.assertIn("sector_gap_breadth", by_key)
+        self.assertNotIn("note", by_key["loc_hl"])
+
+    def test_explain_tau_prediction_lists_missing_keys(self):
+        from core.research.tau_ridge import explain_tau_prediction
+
+        doc = {
+            "return_model": {
+                "intercept": 0.1,
+                "coefficients": {
+                    "gap_pct": -0.04,
+                    "range_pct": 0.02,
+                    "ret_open_to_tau": -0.5,
+                },
+                "active_features": ["gap_pct", "range_pct", "ret_open_to_tau"],
+                "zscore_means": {"gap_pct": 0.0, "range_pct": 1.0, "ret_open_to_tau": 0.4},
+                "zscore_stds": {"gap_pct": 1.0, "range_pct": 1.0, "ret_open_to_tau": 1.0},
+            }
+        }
+        expl = explain_tau_prediction(
+            {"gap_pct": 0.5, "ret_open_to_tau": 0.0},
+            model_doc=doc,
+        )
+        keys = {t["key"] for t in expl["terms"]}
+        self.assertIn("gap_pct", keys)
+        self.assertIn("ret_open_to_tau", keys)
+        self.assertNotIn("range_pct", keys)
+        self.assertEqual(expl.get("missing_n"), 1)
+        self.assertIn("前缀振幅 %", expl.get("missing_keys") or [])
+
     def test_eod_remaining_and_residual_stack(self):
         from core.signal.dual_score import (
             apply_tau_score_fields,

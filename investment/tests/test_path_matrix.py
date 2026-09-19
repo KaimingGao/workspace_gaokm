@@ -76,7 +76,7 @@ class TestPathMatrix(unittest.TestCase):
         self.assertNotIn("y_oo_enter", lots)
         self.assertNotIn("y_oc_enter", lots)
         self.assertNotIn("y_hl_enter", lots)
-        self.assertTrue(lots.get("y_hl_gt0"))
+        self.assertNotIn("y_hl_gt0", lots)
         self.assertFalse(lots.get("y_oo_gt0"))
         self.assertFalse(lots.get("y_oc_gt0"))
         self.assertEqual(lots.get("fill_clock"), "09:30")
@@ -143,7 +143,7 @@ class TestPathMatrix(unittest.TestCase):
         )
         for k in STALE_Y_OO_OC_ENTER_KEYS:
             self.assertNotIn(k, cfg)
-        self.assertTrue(cfg.get("y_hl_gt0"))
+        self.assertNotIn("y_hl_gt0", cfg)
         self.assertFalse(cfg.get("y_oo_gt0"))
 
         cfg_on = get_path_matrix_cfg(
@@ -165,13 +165,14 @@ class TestPathMatrix(unittest.TestCase):
         }
         applied = apply_execution_patch_to_paper(
             paper,
-            {"rebalance_timing": {"rank_lots": {"y_hl_gt0": False}}},
+            {"rebalance_timing": {"rank_lots": {"y_oo_gt0": True}}},
         )
         self.assertTrue(applied.get("ok"), applied)
         lots = paper["rules"]["execution"]["rebalance_timing"]["rank_lots"]
         for k in STALE_Y_OO_OC_ENTER_KEYS:
             self.assertNotIn(k, lots)
-        self.assertFalse(lots.get("y_hl_gt0"))
+        self.assertNotIn("y_hl_gt0", lots)
+        self.assertTrue(lots.get("y_oo_gt0"))
 
     def test_save_rules_persists_lot_shares(self):
         from core.execution import apply_execution_patch_to_paper, validate_execution_patch

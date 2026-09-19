@@ -78,7 +78,6 @@ class QuantReplayMixin:
         y_enter_alt_enabled: bool = True,
         y_oo_gt0: Optional[bool] = None,
         y_oc_gt0: Optional[bool] = None,
-        y_hl_gt0: Optional[bool] = None,
         initial_cash: Optional[float] = None,
         fill_clock: str = "09:30",
         lot_base: Optional[int] = None,
@@ -247,8 +246,6 @@ class QuantReplayMixin:
             y_oo_gt0 = bool(legacy_kw.get("y_oo_oc_enabled", False))
         if y_oc_gt0 is None:
             y_oc_gt0 = bool(legacy_kw.get("y_oo_oc_enabled", False))
-        if y_hl_gt0 is None:
-            y_hl_gt0 = bool(legacy_kw.get("y_hl_enabled", True))
         cash = clamp_replay_initial_cash(
             REPLAY_INITIAL_CASH if initial_cash is None else initial_cash
         )
@@ -309,7 +306,6 @@ class QuantReplayMixin:
             y_enter_alt_enabled=y_enter_alt_enabled,
             y_oo_gt0=bool(y_oo_gt0),
             y_oc_gt0=bool(y_oc_gt0),
-            y_hl_gt0=bool(y_hl_gt0),
             lookback=int(lookback),
             fill_clock=clock,
             minute_bars_by_code=minute_bars,
@@ -350,7 +346,6 @@ class QuantReplayMixin:
             "y_enter_alt_enabled": bool(y_enter_alt_enabled),
             "y_oo_gt0": bool(y_oo_gt0),
             "y_oc_gt0": bool(y_oc_gt0),
-            "y_hl_gt0": bool(y_hl_gt0),
             "fill_clock": clock,
             "lot_base": lot_base_n,
             "lot_strong": lot_strong_n,

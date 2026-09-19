@@ -4,9 +4,10 @@
   - 持有周期 = T 开盘 → T+1 开盘
   - ŷ_oo = open[T]→open[T+1]（现网 predicted_score，第二步换标签）
   - ŷ_oc = open[T]→close[T]（现网 y_tau）
-  - ranking = w_oo·ŷ_oo + w_oc·((1+ŷ_oc)(1+w_co·ŷ_co)−1)；ŷ 为净收益，落盘为百分点
+  - ranking = w_oo·ŷ_oo + w_oc·((1+ŷ_oc)(1+w_co·ŷ_co)−1) − (price(τ)/open−1)
+    拟合 open[T]→open[T+1]；τ 处减去已走出开盘→成交钟（百分点）
     w_co 默认 1（叠隔夜）；缺 ŷ_co 则退回 ŷ_oc
-  - 过入场（ranking>入场，可选 y_oo>0 / y_oc>0 / y_hl>0）→ 开仓或加仓
+  - 过入场（ranking>入场，可选 y_oo>0 / y_oc>0）→ 开仓或加仓
   - 已持仓且未过入场、缺 ranking、或 hard_reject → 清仓（T+1 可卖部分）
     缺分不能假装过门槛续持；无「持」动作
   - ranking > rank强 → lot_strong 股，否则 lot_base 股（live 与回测同一对；缺省 500 / 200）
@@ -118,8 +119,8 @@ def _pos_enter_skip(val: Optional[float], enabled: bool, label: str) -> Optional
     return None
 
 
-def _y_gt0_flags(cfg: Optional[dict]) -> Tuple[bool, bool, bool]:
-    """y_oo>0 / y_oc>0 / y_hl>0 闸。旧 y_oo_oc_enabled / y_hl_enabled 缺新键时迁入。"""
+def _y_gt0_flags(cfg: Optional[dict]) -> Tuple[bool, bool]:
+    """y_oo>0 / y_oc>0 闸。旧 y_oo_oc_enabled 缺新键时迁入。y_hl>0 已下线。"""
     from core.t0.config import coerce_cfg_bool
 
     d = cfg if isinstance(cfg, dict) else {}
@@ -131,11 +132,7 @@ def _y_gt0_flags(cfg: Optional[dict]) -> Tuple[bool, bool, bool]:
         y_oc = coerce_cfg_bool(d.get("y_oc_gt0"), False)
     else:
         y_oc = coerce_cfg_bool(d.get("y_oo_oc_enabled"), False)
-    if "y_hl_gt0" in d:
-        y_hl = coerce_cfg_bool(d.get("y_hl_gt0"), True)
-    else:
-        y_hl = coerce_cfg_bool(d.get("y_hl_enabled"), True)
-    return y_oo, y_oc, y_hl
+    return y_oo, y_oc
 
 
 def _rank_enter_skip(rs: Optional[float], thresh: float) -> Optional[str]:
@@ -154,20 +151,17 @@ def _rank_enter_skip(rs: Optional[float], thresh: float) -> Optional[str]:
 
 def _enter_profile_skip_reason(
     *,
-    y_hl: Optional[float],
     y_oo: Optional[float],
     y_oc: Optional[float],
     rs: Optional[float],
     rank_enter: float,
     y_oo_gt0: bool,
     y_oc_gt0: bool,
-    y_hl_gt0: bool,
 ) -> Optional[str]:
     for skip in (
         _rank_enter_skip(rs, rank_enter),
         _pos_enter_skip(y_oo, y_oo_gt0, "y_oo"),
         _pos_enter_skip(y_oc, y_oc_gt0, "y_oc"),
-        _pos_enter_skip(y_hl, y_hl_gt0, "y_hl"),
     ):
         if skip is not None:
             return skip
@@ -194,19 +188,18 @@ def rank_lot_enter_skip_reason(
     *,
     rs: Optional[float],
 ) -> Optional[str]:
-    """入场：启用中的门槛1 ∪ 门槛2。每档 ranking 过入场；可选 y_oo>0 / y_oc>0 / y_hl>0。
+    """入场：启用中的门槛1 ∪ 门槛2。每档 ranking 过入场；可选 y_oo>0 / y_oc>0。
 
     ``y_enter_enabled`` / ``y_enter_alt_enabled`` 关则该档不参与 OR；两档都关则不开/不加。
-    ``y_oo_gt0`` / ``y_oc_gt0`` / ``y_hl_gt0`` 开则对应 ŷ 须 >0。缺键时门槛2 跟随门槛1。缺分不拦。
+    ``y_oo_gt0`` / ``y_oc_gt0`` 开则对应 ŷ 须 >0。缺键时门槛2 跟随门槛1。缺分不拦。
+    y_hl>0 已下线（不进 ranking / 入场）。
     """
     from core.paper.rebalance.path_matrix import scores_from_rebalance_item
-    from core.research.path_panel import pick_y_hl
     from core.signal.yhat_windows import pick_y_oc, pick_y_oo
     from core.t0.config import coerce_cfg_bool
 
     cfg_d = cfg if isinstance(cfg, dict) else {}
     sc = scores_from_rebalance_item(item, cfg_d)
-    y_hl = pick_y_hl(sc, item) if isinstance(item, dict) or isinstance(sc, dict) else None
     y_oo = pick_y_oo(sc) if isinstance(sc, dict) else None
     y_oc = pick_y_oc(sc) if isinstance(sc, dict) else None
     if y_oo is None and isinstance(item, dict):
@@ -219,19 +212,17 @@ def rank_lot_enter_skip_reason(
 
     gate1_on = coerce_cfg_bool(cfg_d.get("y_enter_enabled"), True)
     gate2_on = coerce_cfg_bool(cfg_d.get("y_enter_alt_enabled"), True)
-    y_oo_gt0, y_oc_gt0, y_hl_gt0 = _y_gt0_flags(cfg_d)
+    y_oo_gt0, y_oc_gt0 = _y_gt0_flags(cfg_d)
 
     skip = None
     if gate1_on:
         skip = _enter_profile_skip_reason(
-            y_hl=y_hl,
             y_oo=y_oo,
             y_oc=y_oc,
             rs=rs,
             rank_enter=rank_enter,
             y_oo_gt0=y_oo_gt0,
             y_oc_gt0=y_oc_gt0,
-            y_hl_gt0=y_hl_gt0,
         )
         if skip is None:
             return None
@@ -239,7 +230,6 @@ def rank_lot_enter_skip_reason(
     skip_alt = None
     if gate2_on:
         skip_alt = _enter_profile_skip_reason(
-            y_hl=y_hl,
             y_oo=y_oo,
             y_oc=y_oc,
             rs=rs,
@@ -257,7 +247,6 @@ def rank_lot_enter_skip_reason(
             ),
             y_oo_gt0=y_oo_gt0,
             y_oc_gt0=y_oc_gt0,
-            y_hl_gt0=y_hl_gt0,
         )
         if skip_alt is None:
             return None
@@ -443,7 +432,7 @@ def get_rank_lot_cfg(
     strong = max(0.0, min(strong, 10.0))
     if strong < enter:
         strong = enter
-    y_oo_gt0, y_oc_gt0, y_hl_gt0 = _y_gt0_flags(pm)
+    y_oo_gt0, y_oc_gt0 = _y_gt0_flags(pm)
     # 产品不再留现金地板（含 paper.json 里旧 50 万）。买到现金不够为止。
     floor = 0.0
     try:
@@ -489,30 +478,52 @@ def get_rank_lot_cfg(
         "y_enter_alt_enabled": bool(pm.get("y_enter_alt_enabled", True)),
         "y_oo_gt0": bool(y_oo_gt0),
         "y_oc_gt0": bool(y_oc_gt0),
-        "y_hl_gt0": bool(y_hl_gt0),
         "fill_clock": str(pm.get("fill_clock") or "09:30"),
     }
 
 
-def ranking_pct_of(item: Optional[dict], cfg: Optional[dict] = None) -> Optional[float]:
-    """调仓 ranking 百分点 = w_oo·ŷ_oo + w_oc·(ŷ_oc ∘ w_co·ŷ_co)。
+def ranking_pct_of(
+    item: Optional[dict],
+    cfg: Optional[dict] = None,
+    *,
+    open_px: Optional[float] = None,
+    price_tau: Optional[float] = None,
+) -> Optional[float]:
+    """调仓 ranking 百分点 = 融合分 − (price(τ)/open−1)。
+
+    融合分拟合 open[T]→open[T+1]。有 open 与 price(τ) 时减去已走出段
+    （09:40 相对 09:30）。缺开盘不扣。
 
     有 ŷ_oo/ŷ_oc 一律现算，不信落盘 ``ranking`` / ``y_fuse``（旧戳可能是 ŷ_trade）。
     两头都抽不出时才回退显式 ranking，再回退 y_fuse。
     """
-    from core.signal.yhat_windows import fusion_w_co_from_cfg, fusion_weights_from_cfg, ranking_pct
+    from core.signal.yhat_windows import (
+        fusion_w_co_from_cfg,
+        fusion_weights_from_cfg,
+        ranking_pct,
+        remaining_ranking_pct,
+    )
 
     if not isinstance(item, dict):
         return None
     w_oo, w_oc = fusion_weights_from_cfg(cfg)
     w_co = fusion_w_co_from_cfg(cfg)
     fused = ranking_pct(item, w_oo=w_oo, w_oc=w_oc, w_co=w_co)
-    if fused is not None:
-        return fused
-    direct = _f(item.get("ranking") or item.get("ranking_pct"))
-    if direct is not None:
-        return direct
-    return _f(item.get("y_fuse"))
+    if fused is None:
+        fused = _f(item.get("ranking") or item.get("ranking_pct"))
+    if fused is None:
+        fused = _f(item.get("y_fuse"))
+    if fused is None:
+        return None
+    o = _f(open_px)
+    if o is None or o <= 0:
+        o = _f(item.get("day_open"))
+    p = _f(price_tau)
+    if p is None or p <= 0:
+        p = _f(item.get("rebalance_px"))
+    if p is None or p <= 0:
+        p = _f(item.get("price_tau"))
+    return remaining_ranking_pct(fused, open_px=o, price_tau=p)
 
 
 def y_tau_of(item: Optional[dict]) -> Optional[float]:
@@ -700,7 +711,30 @@ _TIP_FORMULA_KEYS = frozenset(
 )
 
 
-def _slim_tip_formula(expl: Any, limit: int = 10) -> Any:
+# ŷ_oc tip：开盘 Z + 开盘已定义的分钟键，slim 时不得挤掉
+_TAU_TIP_PIN = (
+    "gap_pct",
+    "theme_day",
+    "gap_atr",
+    "sector_gap_breadth",
+    "gap_vs_sector",
+    "yclose_loc",
+    "mom3_pct",
+    "tau_lag1",
+    "tau_ma5",
+    "ret_open_to_tau",
+    "tau_elapsed_min",
+    "loc_hl",
+    "ret_last_15m",
+    "sector_ret_to_tau",
+)
+
+
+def _slim_tip_formula(
+    expl: Any,
+    limit: int = 10,
+    pin_keys: Optional[Sequence[str]] = None,
+) -> Any:
     """压缩组成表，避免 sim_trades / data-score-detail 过长截断。"""
     if not isinstance(expl, dict):
         return expl
@@ -708,8 +742,17 @@ def _slim_tip_formula(expl: Any, limit: int = 10) -> Any:
     if len(terms) <= limit:
         return expl
     ranked = sorted(terms, key=lambda t: -abs(float(t.get("contrib") or 0.0)))
+    pin = {str(k).strip() for k in (pin_keys or []) if str(k).strip()}
+    if pin:
+        pin_terms = [t for t in ranked if str(t.get("key") or "") in pin]
+        non_pin = [t for t in ranked if str(t.get("key") or "") not in pin]
+        budget = max(0, int(limit) - len(pin_terms))
+        kept = list(non_pin[:budget]) + pin_terms
+        kept.sort(key=lambda t: -abs(float(t.get("contrib") or 0.0)))
+    else:
+        kept = ranked[: max(1, int(limit))]
     out = dict(expl)
-    out["terms"] = ranked[: max(1, int(limit))]
+    out["terms"] = kept
     return out
 
 
@@ -722,7 +765,9 @@ def tip_explain_fields(item: Optional[dict]) -> Dict[str, Any]:
         v = item.get(k)
         if v is None:
             continue
-        if k in _TIP_FORMULA_KEYS:
+        if k in ("formula_terms_tau", "score_formula_terms_tau"):
+            v = _slim_tip_formula(v, limit=24, pin_keys=_TAU_TIP_PIN)
+        elif k in _TIP_FORMULA_KEYS:
             v = _slim_tip_formula(v)
         out[k] = v
     return out
@@ -736,7 +781,12 @@ def _debug_scores(
     **extra: Any,
 ) -> Dict[str, Any]:
     from core.paper.rebalance.path_matrix import scores_from_rebalance_item
-    from core.signal.yhat_windows import pick_y_co, residual_pct
+    from core.signal.yhat_windows import (
+        pick_y_co,
+        remaining_oc,
+        residual_pct,
+        ret_open_to_tau_of,
+    )
 
     sc = scores_from_rebalance_item(item)
     y_oo = sc.get("y_oo")
@@ -750,6 +800,11 @@ def _debug_scores(
     residual = sc.get("residual")
     if residual is None:
         residual = residual_pct(item)
+    r_hat = _f((item or {}).get("r_hat")) if item else None
+    if r_hat is None and item:
+        r_hat = _f(item.get("remaining_oc"))
+    if r_hat is None:
+        r_hat = remaining_oc(oc, ret_open_to_tau_of(item) if item else None)
     out: Dict[str, Any] = {
         "y_oo": y_oo,
         "y_oc": oc,
@@ -759,6 +814,8 @@ def _debug_scores(
         "y_fuse": ranking,
         "ranking_score": rs,
         "residual": residual,
+        "r_hat": r_hat,
+        "remaining_oc": r_hat,
         "y_tau": ytau,
         "predicted_score_tau": ytau,
         "predicted_score": y_oo,
@@ -884,6 +941,42 @@ def _is_oos_failed(item: Optional[dict]) -> bool:
         return src.startswith("oos_failed")
 
 
+def _open_px_of(
+    item: Optional[dict],
+    code: str,
+    opens: Optional[Dict[str, float]],
+) -> Optional[float]:
+    if isinstance(opens, dict):
+        v = _f(opens.get(code))
+        if v is not None and v > 0:
+            return v
+    if isinstance(item, dict):
+        v = _f(item.get("day_open"))
+        if v is not None and v > 0:
+            return v
+    return None
+
+
+def _price_tau_of(
+    code: str,
+    prices: Dict[str, float],
+    sell_prices: Optional[Dict[str, float]],
+    item: Optional[dict] = None,
+) -> Optional[float]:
+    v = _f(prices.get(code)) if isinstance(prices, dict) else None
+    if v is not None and v > 0:
+        return v
+    if isinstance(sell_prices, dict):
+        v = _f(sell_prices.get(code))
+        if v is not None and v > 0:
+            return v
+    if isinstance(item, dict):
+        v = _f(item.get("price_tau"))
+        if v is not None and v > 0:
+            return v
+    return None
+
+
 def plan_rank_lot_day(
     *,
     scored: Sequence[dict],
@@ -893,10 +986,13 @@ def plan_rank_lot_day(
     cfg: dict,
     as_of: Optional[str] = None,
     sell_prices: Optional[Dict[str, float]] = None,
+    opens: Optional[Dict[str, float]] = None,
 ) -> Dict[str, Any]:
     """一天的卖/买计划。价格用于估算现金是否够买该手；成交仍由调用方落地。
 
     ``sell_prices`` 缺省等于 ``prices``。历史回测可只给清仓回退价、买入仍走严格钟。
+    ``opens`` 为当日开盘；与 ``prices``（τ 成交价）一起把 ranking 写成
+    融合分 − (price(τ)/open−1)。缺开盘则不扣（等价 09:30）。
     """
     rank_enter = coerce_rank_threshold(
         cfg.get("rank_enter"), DEFAULT_RANK_ENTER
@@ -916,6 +1012,16 @@ def plan_rank_lot_day(
     lot_base, lot_strong_sh = _lot_sizes_from_cfg(cfg)
     px_buy = prices if isinstance(prices, dict) else {}
     px_sell = sell_prices if isinstance(sell_prices, dict) else px_buy
+
+    def _rp_of(code: str, item: dict) -> Optional[float]:
+        o = _open_px_of(item, code, opens)
+        p = _price_tau_of(code, px_buy, px_sell, item)
+        if o is not None:
+            item["day_open"] = o
+        if p is not None:
+            item["rebalance_px"] = p
+        return ranking_pct_of(item, cfg, open_px=o, price_tau=p)
+
     from core.signal.yhat_windows import fusion_w_co_from_cfg, fusion_weights_from_cfg, pick_y_oc
 
     w_oo, w_oc = fusion_weights_from_cfg(cfg)
@@ -958,7 +1064,7 @@ def plan_rank_lot_day(
     for h in held_rows:
         code = str(h.get("stock_code") or "").strip()
         item = item_by.get(code) or {}
-        rp = ranking_pct_of(item, cfg)
+        rp = _rp_of(code, item)
         yoc = pick_y_oc(item)
         rs = None if rp is None else float(rp) / 100.0
         name = _display_name(code, item.get("stock_name"), h.get("stock_name"))
@@ -1006,12 +1112,34 @@ def plan_rank_lot_day(
                 }
             )
             continue
-        if item.get("hard_reject"):
-            continue
-        rp = ranking_pct_of(item, cfg)
+        rp = _rp_of(code, item)
         yoc = pick_y_oc(item)
         rs = None if rp is None else float(rp) / 100.0
-        if rank_lot_enter_skip_reason(item, cfg, rs=rs):
+        dbg = _debug_scores(item, rp, yoc, rs, **w_fields)
+        if item.get("hard_reject"):
+            skips.append(
+                {
+                    "stock_code": code,
+                    "stock_name": _display_name(code, item.get("stock_name")),
+                    "side": "buy",
+                    "action": ACTION_SKIP,
+                    "reason": "hard_reject",
+                    **dbg,
+                }
+            )
+            continue
+        skip_enter = rank_lot_enter_skip_reason(item, cfg, rs=rs)
+        if skip_enter:
+            skips.append(
+                {
+                    "stock_code": code,
+                    "stock_name": _display_name(code, item.get("stock_name")),
+                    "side": "buy",
+                    "action": ACTION_SKIP,
+                    "reason": skip_enter,
+                    **dbg,
+                }
+            )
             continue
         cand.append((float(rs), item, rp, yoc))
     cand.sort(key=lambda t: (-t[0], str(t[1].get("stock_code") or "")))
@@ -1134,7 +1262,7 @@ def plan_rank_lot_day(
             }
         )
 
-    y_oo_gt0, y_oc_gt0, y_hl_gt0 = _y_gt0_flags(cfg)
+    y_oo_gt0, y_oc_gt0 = _y_gt0_flags(cfg)
     return {
         "sells": sells,
         "buys": buys,
@@ -1145,7 +1273,6 @@ def plan_rank_lot_day(
         "rank_strong": rank_strong,
         "y_oo_gt0": bool(y_oo_gt0),
         "y_oc_gt0": bool(y_oc_gt0),
-        "y_hl_gt0": bool(y_hl_gt0),
         "cash_floor": cash_floor,
         "holdings_mv_cap": mv_cap,
         "holdings_mv_after_plan": round(mv_sim, 2),

@@ -1192,6 +1192,8 @@ def _skip_to_sim(sk: dict, day: str) -> dict:
         "y_co": sk.get("y_co") if sk.get("y_co") is not None else sk.get("y_on"),
         "y_τc": pick_y_τc(sk),
         "residual": sk.get("residual"),
+        "r_hat": sk.get("r_hat"),
+        "remaining_oc": sk.get("remaining_oc"),
         "y_tau": sk.get("y_tau")
         if sk.get("y_tau") is not None
         else sk.get("predicted_score_tau"),
@@ -1204,6 +1206,7 @@ def _skip_to_sim(sk: dict, day: str) -> dict:
         "lot_kind": sk.get("lot_kind"),
         "reason": sk.get("reason") or "跳过",
     }
+    _copy_r_tau_pred(row, sk)
     return _merge_aux_yhat(row, sk)
 
 
@@ -1215,7 +1218,7 @@ def _hold_to_sim(
     date_maps: Dict[str, Dict[str, dict]],
     prices: Optional[Dict[str, float]] = None,
 ) -> dict:
-    """续持腿：无成交，收盘盯市，便于成交明细回溯当日收益。"""
+    """续持腿：无成交；price=收盘，缺 day_close 时给收益率盯市。"""
     code = str(
         (holding or {}).get("stock_code") or (plan_h or {}).get("stock_code") or ""
     ).strip()
@@ -1227,12 +1230,6 @@ def _hold_to_sim(
         _fpx(bar.get("close"))
         or _fpx(bar.get("open"))
         or _fpx((prices or {}).get(code))
-    )
-    cost = _fpx((holding or {}).get("cost"))
-    cum_cost = (
-        round(float(cost) * float(sh), 2)
-        if cost is not None and sh is not None and sh > 0
-        else None
     )
     try:
         from core.paper.rebalance.watching_matrix import _open_date_of
@@ -1249,11 +1246,6 @@ def _hold_to_sim(
     ytau = (plan_h or {}).get("y_tau")
     if ytau is None:
         ytau = (plan_h or {}).get("predicted_score_tau")
-    amount = (
-        round(float(sh) * float(close_px), 2)
-        if sh is not None and close_px is not None
-        else None
-    )
     name = (holding or {}).get("stock_name") or (plan_h or {}).get("stock_name")
     row = {
         "stock_code": code,
@@ -1261,7 +1253,6 @@ def _hold_to_sim(
         "side": "hold",
         "shares": sh,
         "price": close_px,
-        "amount": amount,
         "as_of": day,
         "signal_date": day,
         "status": "held",
@@ -1275,6 +1266,8 @@ def _hold_to_sim(
         if (plan_h or {}).get("y_co") is not None
         else (plan_h or {}).get("y_on"),
         "residual": (plan_h or {}).get("residual"),
+        "r_hat": (plan_h or {}).get("r_hat"),
+        "remaining_oc": (plan_h or {}).get("remaining_oc"),
         "y_tau": ytau,
         "predicted_score_tau": (plan_h or {}).get("predicted_score_tau")
         if (plan_h or {}).get("predicted_score_tau") is not None
@@ -1284,9 +1277,8 @@ def _hold_to_sim(
         "score": yf,
         "reason": (plan_h or {}).get("reason") or "续持",
         "open_date": open_date,
-        "cost_price": cost,
-        "cum_cost": cum_cost,
     }
+    _copy_r_tau_pred(row, plan_h)
     return _merge_aux_yhat(row, plan_h)
 
 
@@ -1318,7 +1310,11 @@ def _hold_src_for_code(
             from core.signal.yhat_windows import pick_y_oc
 
             sc = scores_from_rebalance_item(it)
-            rp = ranking_pct_of(it)
+            rp = ranking_pct_of(
+                it,
+                open_px=it.get("day_open"),
+                price_tau=it.get("rebalance_px") or it.get("price_tau"),
+            )
             rs = None if rp is None else float(rp) / 100.0
             yoc = pick_y_oc(it)
             from core.paper.rebalance.rank_lots import _debug_scores
@@ -1368,6 +1364,8 @@ def _ledger_trades_to_sim(trades: Sequence[dict]) -> List[dict]:
             "y_oc": t.get("y_oc"),
             "y_co": t.get("y_co") if t.get("y_co") is not None else t.get("y_on"),
             "residual": t.get("residual"),
+            "r_hat": t.get("r_hat"),
+            "remaining_oc": t.get("remaining_oc"),
             "y_tau": t.get("y_tau")
             if t.get("y_tau") is not None
             else t.get("predicted_score_tau"),
@@ -1386,15 +1384,14 @@ def _ledger_trades_to_sim(trades: Sequence[dict]) -> List[dict]:
             "pnl_pct": t.get("pnl_pct"),
             "origin": t.get("origin"),
             "open_date": t.get("open_date"),
-            "cost_price": t.get("cost_price"),
-            "cum_cost": t.get("cum_cost"),
+            "rebalance_px": t.get("rebalance_px"),
+            "day_open": t.get("day_open"),
         }
+        _copy_r_tau_pred(row, t)
         _merge_aux_yhat(row, t)
         if side == "buy":
             row["entry_date"] = day
             row["entry_price"] = t.get("price")
-            if row.get("cost_price") is None:
-                row["cost_price"] = t.get("price")
             if not row.get("open_date"):
                 row["open_date"] = day
         else:
@@ -1419,6 +1416,75 @@ def _pct_ret(start: Optional[float], end: Optional[float]) -> Optional[float]:
     if start is None or end is None or start <= 0 or end <= 0:
         return None
     return round((float(end) / float(start) - 1.0) * 100.0, 4)
+
+
+def _copy_r_tau_pred(row: dict, src: Optional[dict]) -> dict:
+    """透传 R̂_τ（remaining / r_hat）；缺则留给 stamp_r_tau_on_row 用成交价回填。"""
+    if not isinstance(src, dict):
+        return row
+    r_hat = src.get("r_hat")
+    if r_hat is None:
+        r_hat = src.get("remaining_oc")
+    if r_hat is not None:
+        row["r_hat"] = r_hat
+        rem = src.get("remaining_oc")
+        row["remaining_oc"] = rem if rem is not None else r_hat
+    return row
+
+
+def stamp_r_tau_on_row(
+    row: dict,
+    *,
+    daily_bar: Optional[dict] = None,
+    minute_bars: Optional[Sequence[dict]] = None,
+    fill_clock: str = REPLAY_FILL_CLOCK,
+) -> dict:
+    """成交明细 R_τ：R̂_τ=remaining(ŷ_oc, open→τ)；真实=close[T]/price(τ)−1。
+
+    买卖成交用账上成交价当 price(τ)；持/跳过用调仓钟 5m（与净值「持有」新开段同锚）。
+    """
+    if not isinstance(row, dict):
+        return row
+    bar = daily_bar if isinstance(daily_bar, dict) else {}
+    if bar.get("session_overlay"):
+        return row
+    clock = clamp_replay_fill_clock(fill_clock)
+    mins = _replay_window_minutes(minute_bars)
+    px_tau = replay_fill_px(daily_bar=bar, minute_bars=mins, fill_clock=clock)
+    status = str(row.get("status") or "").strip().lower()
+    side = str(row.get("side") or "").strip().lower()
+    row_px = _fpx(row.get("price"))
+    if status not in ("skipped", "held") and side in ("buy", "sell") and row_px:
+        px_tau = row_px
+    close_px = _px(bar, "close")
+    open_px = _px(bar, "open")
+    if open_px is not None:
+        row["day_open"] = open_px
+    if close_px is not None:
+        row["day_close"] = close_px
+    if _fpx(row.get("rebalance_px")) is None and px_tau is not None:
+        row["rebalance_px"] = px_tau
+    real = _pct_ret(px_tau, close_px)
+    if real is not None:
+        row["r_realized"] = real
+        row["y_r_realized"] = real
+    r_hat = _fnum(row.get("r_hat"))
+    if r_hat is None:
+        r_hat = _fnum(row.get("remaining_oc"))
+    if r_hat is None:
+        try:
+            from core.signal.yhat_windows import pick_y_oc, remaining_oc
+
+            rem = remaining_oc(pick_y_oc(row), open_px=open_px, price_tau=px_tau)
+            if rem is not None:
+                r_hat = rem
+        except Exception:  # noqa: BLE001
+            logger.debug("stamp r_hat remaining failed", exc_info=True)
+    if r_hat is not None:
+        row["r_hat"] = round(float(r_hat), 4)
+        if row.get("remaining_oc") is None:
+            row["remaining_oc"] = row["r_hat"]
+    return row
 
 
 # |y_fuse| < 0.05% → 无方向，与 score_ledger 同口径。
@@ -1676,6 +1742,7 @@ def _attach_open_yhat_heads(
     on_model_doc: Any = None,
     tau_model_doc: Any = None,
     cfg: Optional[dict] = None,
+    tau_pool_day: Optional[dict] = None,
 ) -> List[dict]:
     """heuristic 窗口分 → 分组 ŷ_oo；09:30 PIT 挂 ŷ_τ；开盘特征打 y_on。
 
@@ -1746,14 +1813,31 @@ def _attach_open_yhat_heads(
             it.setdefault("y_trade", pred)
         if attach_dual_score_pit is not None and code:
             try:
+                xs: Dict[str, Any] = {}
+                try:
+                    from core.t0.score_policy import tau_pool_day_score_kwargs
+
+                    xs = tau_pool_day_score_kwargs(tau_pool_day, code) or {}
+                except Exception:  # noqa: BLE001
+                    logger.debug("replay open tau pool kwargs failed", exc_info=True)
+                    xs = {}
+                if xs.get("pool_gaps"):
+                    it["_pool_gaps"] = xs.get("pool_gaps")
+                q = quotes.get(code) or {}
+                trade_day = str(
+                    q.get("date") or q.get("trade_date") or it.get("date") or ""
+                )[:10]
                 attach_dual_score_pit(
                     it,
-                    quote=quotes.get(code) or {},
+                    quote=q,
                     bars=windows.get(code) or [],
                     config=cfg,
                     rem_model_doc=rem_doc,
                     use_minute_tau=False,
                     fuse_intraday=True,
+                    sector_gap_breadth=xs.get("sector_gap_breadth"),
+                    sector_gap_median=xs.get("sector_gap_median"),
+                    trade_day=trade_day if len(trade_day) >= 10 else None,
                 )
             except Exception:  # noqa: BLE001
                 logger.debug("attach open yhat heads failed for %s", code, exc_info=True)
@@ -1842,6 +1926,7 @@ def _score_open_day(
     global_model: Any = None,
     on_model_doc: Any = None,
     tau_model_doc: Any = None,
+    tau_pool_day: Optional[dict] = None,
 ) -> List[dict]:
     """9:30 信息集：窗口截至昨收，报价用今开（不把今日收盘喂进特征）。"""
     from core.signal.cross_section_batch import score_window_as_item
@@ -1886,6 +1971,7 @@ def _score_open_day(
         on_model_doc=on_model_doc,
         tau_model_doc=tau_model_doc,
         cfg=cfg,
+        tau_pool_day=tau_pool_day,
     )
 
 
@@ -2102,7 +2188,6 @@ def backtest_paper_replay(
     y_enter_alt_enabled: Optional[bool] = None,
     y_oo_gt0: Optional[bool] = None,
     y_oc_gt0: Optional[bool] = None,
-    y_hl_gt0: Optional[bool] = None,
     price_space_cfg: Optional[dict] = None,
     score_model_role: Optional[str] = None,
 ) -> Dict[str, Any]:
@@ -2234,7 +2319,6 @@ def backtest_paper_replay(
         "y_enter_alt_enabled": True if y_enter_alt_enabled is None else bool(y_enter_alt_enabled),
         "y_oo_gt0": False if y_oo_gt0 is None else bool(y_oo_gt0),
         "y_oc_gt0": False if y_oc_gt0 is None else bool(y_oc_gt0),
-        "y_hl_gt0": True if y_hl_gt0 is None else bool(y_hl_gt0),
     }
     paper.setdefault("rules", {})["execution"] = {
         "rebalance_timing": {
@@ -2259,7 +2343,6 @@ def backtest_paper_replay(
     rl_cfg["y_enter_alt_enabled"] = replay_lots["y_enter_alt_enabled"]
     rl_cfg["y_oo_gt0"] = replay_lots["y_oo_gt0"]
     rl_cfg["y_oc_gt0"] = replay_lots["y_oc_gt0"]
-    rl_cfg["y_hl_gt0"] = replay_lots["y_hl_gt0"]
     rl_cfg["holdings_mv_cap"] = 0.0
     rl_cfg["t0_sell_blocks"] = {}
 
@@ -2312,11 +2395,12 @@ def backtest_paper_replay(
         "sell_px_fallback": 0,
     }
     tau_pool_by_date: Dict[str, Dict[str, Any]] = {}
-    if clock != "09:30" and rankings_by_date is None and minute_maps:
+    if rankings_by_date is None:
         try:
-            from core.t0.score_policy import build_tau_pool_by_date
+            from core.t0.score_policy import build_tau_pool_by_date, seed_tau_cross_section_pool
 
             tau_pool_by_date = build_tau_pool_by_date(stock_bars) or {}
+            seed_tau_cross_section_pool(tau_pool_by_date)
         except Exception:  # noqa: BLE001
             logger.debug("replay tau pool build failed", exc_info=True)
             tau_pool_by_date = {}
@@ -2381,6 +2465,7 @@ def backtest_paper_replay(
                 global_model=global_model,
                 on_model_doc=on_model_doc,
                 tau_model_doc=tau_model_doc,
+                tau_pool_day=tau_pool_by_date.get(day) or {},
             )
             have = {str(it.get("stock_code") or "") for it in scored}
             for h in paper.get("holdings") or []:
@@ -2413,6 +2498,7 @@ def backtest_paper_replay(
         prices: Dict[str, float] = {}
         sell_prices: Dict[str, float] = {}
         sell_fallback_src: Dict[str, str] = {}
+        opens: Dict[str, float] = {}
         seen_px: set = set()
         mismatch_reason: Dict[str, str] = {}
         for code in list(stock_bars.keys()) + [
@@ -2425,6 +2511,9 @@ def backtest_paper_replay(
             bar = (date_maps.get(c) or {}).get(day)
             if not bar:
                 continue
+            open_px = _px(bar, "open")
+            if open_px:
+                opens[c] = open_px
             mins = (minute_maps.get(c) or {}).get(day) or []
             day_bar = _stamp_replay_prev_close(
                 bar,
@@ -2471,6 +2560,7 @@ def backtest_paper_replay(
                 cash=cash,
                 prices=prices,
                 sell_prices=sell_prices,
+                opens=opens,
                 cfg=rl_cfg,
                 as_of=day,
             )
@@ -2519,8 +2609,6 @@ def backtest_paper_replay(
             day_skip_sell: set = set()
             for sk in list(plan.get("skips") or []) + list(applied.get("apply_skips") or []):
                 if not isinstance(sk, dict):
-                    continue
-                if not _is_debug_skip(sk):
                     continue
                 debug_skips.append(_skip_to_sim(sk, day))
                 if _infer_skip_side(sk) == "sell":
@@ -2674,6 +2762,23 @@ def backtest_paper_replay(
         if rhl is not None:
             row["y_hl_realized"] = rhl
             row["path_realized"] = rhl
+        stamp_r_tau_on_row(
+            row,
+            daily_bar=(date_maps.get(code) or {}).get(day),
+            minute_bars=(minute_maps.get(code) or {}).get(day) or [],
+            fill_clock=clock,
+        )
+        try:
+            from core.signal.yhat_windows import realized_ranking_pct
+
+            row["realized_ranking"] = realized_ranking_pct(
+                row.get("realized_oo"),
+                open_px=row.get("day_open"),
+                price_tau=row.get("rebalance_px") or row.get("price_tau"),
+            )
+        except Exception:  # noqa: BLE001
+            logger.debug("stamp realized_ranking failed", exc_info=True)
+            row["realized_ranking"] = None
         row["fusion_w_oo"] = w_oo
         row["fusion_w_oc"] = w_oc
         row["fusion_w_co"] = alpha
@@ -2760,7 +2865,6 @@ def backtest_paper_replay(
             "y_enter_alt_enabled": rl_cfg.get("y_enter_alt_enabled"),
             "y_oo_gt0": rl_cfg.get("y_oo_gt0"),
             "y_oc_gt0": rl_cfg.get("y_oc_gt0"),
-            "y_hl_gt0": rl_cfg.get("y_hl_gt0"),
             "y_on_alpha": alpha,
             "fusion_w_oo": w_oo,
             "fusion_w_oc": w_oc,

@@ -5,7 +5,8 @@
 ŷ_τc  price(τ)→close(T)   主字段 y_τc（旧簿 y_to / y_pc / y_r 可读；旧 y_r=price/close 则反几何）
 ŷ_co  close(T)→open(T+1)  主字段 y_co；旧键 y_on 可读
 
-rank     = w_oo·ŷ_oo + w_oc·((1+ŷ_oc)(1+w_co·ŷ_co)−1)
+rank     = w_oo·ŷ_oo + w_oc·((1+ŷ_oc)(1+w_co·ŷ_co)−1) − (price(τ)/open−1)
+           拟合 open[T]→open[T+1]；τ 处减去已走出的开盘→成交钟（百分点）
            ŷ 为净收益；w_co 默认 0；缺 ŷ_co 则退回 ŷ_oc
            百分点落盘：((1+ŷ_oc/100)(1+w_co·ŷ_co/100)−1)×100
 R̂_τ      = close[T]/price(τ)−1
@@ -25,6 +26,7 @@ FORMULA_TC = "close[T]/price[τ]-1"
 FORMULA_TC_LEGACY = "price[τ]/close[T]-1"
 FORMULA_TC_REMAINING = "remaining(ŷ_oc)=(1+ŷ_oc)/(1+open→τ)−1"
 FORMULA_RANKING = "w_oo·ŷ_oo + w_oc·((1+ŷ_oc)(1+w_co·ŷ_co)−1)"
+FORMULA_RANKING_REMAINING = "rank − (price(τ)/open−1)"
 FORMULA_RESIDUAL = "w_τc·ŷ_τc + w_oc·remaining(ŷ_oc)"
 Y_TC_SOURCE_REMAINING = "remaining_oc"
 Y_TC_SOURCE_RIDGE = "ridge"
@@ -431,9 +433,53 @@ def ranking_pct(
     w_oc: float = 0.5,
     w_co: float = 0.0,
 ) -> Optional[float]:
-    """调仓 ranking = w_oo·ŷ_oo + w_oc·((1+ŷ_oc)(1+w_co·ŷ_co)−1)。ŷ 为净收益；落盘为百分点。"""
+    """调仓 ranking = w_oo·ŷ_oo + w_oc·((1+ŷ_oc)(1+w_co·ŷ_co)−1)。ŷ 为净收益；落盘为百分点。
+
+    标签是 open[T]→open[T+1]。τ≠开盘时由 ``remaining_ranking_pct`` 减去 open→price(τ)。
+    """
     right = oc_with_co(pick_y_oc(item), pick_y_co(item), w_co)
     return fuse_pct(pick_y_oo(item), right, w_left=w_oo, w_right=w_oc)
+
+
+def remaining_ranking_pct(
+    ranking: Optional[float],
+    ret_open_to_tau: Optional[float] = None,
+    *,
+    open_px: Optional[float] = None,
+    price_tau: Optional[float] = None,
+) -> Optional[float]:
+    """决策 ranking = 融合分 − (price(τ)/open−1)。落盘都是百分点。
+
+    缺开盘或 τ 价则原值（09:30 常如此）。不是几何 remaining。
+    """
+    if ranking is None:
+        return None
+    rot = _f(ret_open_to_tau)
+    if rot is None:
+        rot = ret_open_to_tau_pct(open_px, price_tau)
+    if rot is None:
+        return float(ranking)
+    return round(float(ranking) - float(rot), 6)
+
+
+def realized_ranking_pct(
+    realized_oo: Optional[float],
+    *,
+    open_px: Optional[float] = None,
+    price_tau: Optional[float] = None,
+) -> Optional[float]:
+    """ranking 真实（百分点）= realized_oo − (price(τ)/open−1)。
+
+    即 (open[T+1] − price(τ)) / open[T]。缺次日开则 None；缺开盘或 τ 价时
+    与预测一样不扣（真实=realized_oo）。
+    """
+    y = _f(realized_oo)
+    if y is None:
+        return None
+    rot = ret_open_to_tau_pct(open_px, price_tau)
+    if rot is None:
+        return round(float(y), 6)
+    return round(float(y) - float(rot), 6)
 
 
 def residual_pct(
@@ -586,6 +632,7 @@ __all__ = [
     "FORMULA_TC_LEGACY",
     "FORMULA_TC_REMAINING",
     "FORMULA_RANKING",
+    "FORMULA_RANKING_REMAINING",
     "FORMULA_RESIDUAL",
     "Y_TC_SOURCE_REMAINING",
     "Y_TC_SOURCE_RIDGE",
@@ -605,6 +652,8 @@ __all__ = [
     "pick_y_tc",
     "pit_oo_window_quote",
     "ranking_pct",
+    "remaining_ranking_pct",
+    "realized_ranking_pct",
     "remaining_oc",
     "residual_inv_var_weights",
     "residual_pct",

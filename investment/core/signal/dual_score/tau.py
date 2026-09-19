@@ -674,6 +674,10 @@ def attach_dual_score_pit(
                 feats = apply_sector_ret_cs(feats, sret, overwrite=clock_cs)
         except Exception:  # noqa: BLE001
             logger.debug("sector_ret_to_tau attach in dual_score_pit failed", exc_info=True)
+    if not allow_minute:
+        from core.signal.minute_tau_feats import stamp_open_clock_minute_z
+
+        stamp_open_clock_minute_z(feats)
     # 只传 τ 头 Z 特征；勿塞全日线 sub_scores（训练未用，易误导）
     rem_yhat = None
     try:
@@ -903,6 +907,9 @@ def ensure_formula_terms_tau(item: Optional[dict]) -> Optional[Dict[str, Any]]:
         "tau_lag1",
         "tau_ma5",
         "ret_open_to_tau",
+        "loc_hl",
+        "ret_last_15m",
+        "sector_ret_to_tau",
     ):
         v = item.get(k)
         if v is not None and v != "":
@@ -924,6 +931,9 @@ def ensure_formula_terms_tau(item: Optional[dict]) -> Optional[Dict[str, Any]]:
             "ret_open_to_tau",
             "tau_lag1",
             "tau_ma5",
+            "loc_hl",
+            "ret_last_15m",
+            "sector_ret_to_tau",
         }
     has_z = any(feats.get(k) is not None for k in z_keys)
 
@@ -949,15 +959,30 @@ def ensure_formula_terms_tau(item: Optional[dict]) -> Optional[Dict[str, Any]]:
         return has_z and not z_in_terms
 
     def _stale_missing_pack(expl: Optional[dict]) -> bool:
-        """features_tau 已有开盘→τ，组成表仍是开盘 Z → 须重拆。"""
-        if feats.get("ret_open_to_tau") is None or not isinstance(expl, dict):
+        """features_tau 已有开盘→τ / 分钟小包，组成表仍缺这些键 → 须重拆。"""
+        if not isinstance(expl, dict):
             return False
         keys = {
             str(t.get("key") or "")
             for t in (expl.get("terms") or [])
             if isinstance(t, dict) and not t.get("note")
         }
-        return "ret_open_to_tau" not in keys
+        # 注入后常补上、β 偏小的项；只看「开盘→τ」会漏 HL / 截面。
+        pack_keys = (
+            "ret_open_to_tau",
+            "loc_hl",
+            "ret_last_15m",
+            "sector_ret_to_tau",
+            "sector_gap_breadth",
+            "gap_vs_sector",
+            "gap_pct",
+            "theme_day",
+            "gap_atr",
+            "range_pct",
+            "up_extent",
+            "down_extent",
+        )
+        return any(feats.get(k) is not None and k not in keys for k in pack_keys)
 
     if (
         isinstance(existing, dict)

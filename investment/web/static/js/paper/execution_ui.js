@@ -119,13 +119,13 @@ export function renderExecutionRulesHtml(execution) {
       "τw入场",
       (() => {
         const s = yTwEnterValue(t0);
-        if (s <= 0) return "|ŷ_τw|>0";
+        if (s <= 0) return "关";
         return `|ŷ_τw|>${s}`;
       })(),
       (() => {
         const m = Number(t0.y_tw_vote_margin ?? t0.y_τw_vote_margin);
         const pp = Number.isFinite(m) ? m : 2;
-        return `破带后 |ŷ_τw| 大于阈值才开腿，且须与方向同号（|p−0.5|≤${pp}pp 不投票）。全弃权计 0 票；0=关同号。不改 C_τ。`;
+        return `破带后 |ŷ_τw| 大于阈值才开腿，且须与方向同号（|p−0.5|≤${pp}pp 不投票）。全弃权计 0 票；0=关（0 票也过）。不改 C_τ。`;
       })()
     ) +
     specKpi(
@@ -542,11 +542,8 @@ export function fillPathMatrixForm(root, execution) {
     pm.y_oo_gt0 != null ? !!pm.y_oo_gt0 : pm.y_oo_oc_enabled === true;
   const yOcGt0 =
     pm.y_oc_gt0 != null ? !!pm.y_oc_gt0 : pm.y_oo_oc_enabled === true;
-  const yHlGt0 =
-    pm.y_hl_gt0 != null ? !!pm.y_hl_gt0 : pm.y_hl_enabled !== false;
   set("pm_y_oo_gt0", yOoGt0);
   set("pm_y_oc_gt0", yOcGt0);
-  set("pm_y_hl_gt0", yHlGt0);
   set(
     "pm_y_on_alpha",
     pm.fusion_w_co != null ? pm.fusion_w_co : pm.y_on_alpha != null ? pm.y_on_alpha : 1
@@ -653,7 +650,6 @@ export function collectPathMatrixForm(root) {
   }
   const yOoGt0 = chk("pm_y_oo_gt0", false);
   const yOcGt0 = chk("pm_y_oc_gt0", false);
-  const yHlGt0 = chk("pm_y_hl_gt0", true);
   let lotBase = clampLotShares(num("pm_lot_base", 200), 200);
   let lotStrong = clampLotShares(num("pm_lot_strong", lotBase), lotBase);
   if (lotStrong < lotBase) lotStrong = lotBase;
@@ -668,7 +664,6 @@ export function collectPathMatrixForm(root) {
         y_enter_alt_enabled: true,
         y_oo_gt0: yOoGt0,
         y_oc_gt0: yOcGt0,
-        y_hl_gt0: yHlGt0,
         y_on_alpha: Math.round(yOnAlpha * 1000) / 1000,
         fusion_w_co: Math.round(yOnAlpha * 1000) / 1000,
         holdings_mv_cap: Math.round(mvCap),

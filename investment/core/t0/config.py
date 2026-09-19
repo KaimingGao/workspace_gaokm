@@ -323,7 +323,7 @@ DEFAULT_T0_RULES: Dict[str, Any] = {
     "y_trade_enter": 0.01,
     "y_hl_strong": 5.0,  # |y_hl| 超此值须与 y_τ 同号；≤则允许异号
     "y_hl_required": False,
-    "y_tw_enter": 0.0,  # ŷ_τw 入场：|ŷ_τw| 大于此值才开腿；全弃权=0 票；0=关同号
+    "y_tw_enter": 0.0,  # ŷ_τw 入场：|ŷ_τw| 大于此值才开腿；<=0 关（0 票也过，关同号）
     "y_τw_enter": 0.0,
     "y_tw_vote_margin": 2.0,  # |p_up−0.5|≤此百分点不给 ŷ_τw 投票
     "y_τw_vote_margin": 2.0,

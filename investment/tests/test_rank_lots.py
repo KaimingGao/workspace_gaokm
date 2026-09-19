@@ -202,7 +202,9 @@ class TestPlanRankLotDay(unittest.TestCase):
         self.assertAlmostEqual(float(buy["y_τ60"]), -0.1)
         self.assertAlmostEqual(float(buy["y_τ90"]), 0.3)
         self.assertAlmostEqual(float(buy["y_hl"]), 1.5)
-        self.assertAlmostEqual(float(buy["y_τw"]), 1.0)
+        from core.t0.close_band import blend_y_tw
+
+        self.assertAlmostEqual(float(buy["y_τw"]), blend_y_tw(0.2, -0.1, 0.3))
         self.assertNotIn("y_w", buy)
 
     def test_stamps_tip_explain_fields(self):
@@ -244,6 +246,38 @@ class TestPlanRankLotDay(unittest.TestCase):
         slim = (out.get("score_formula_terms") or {}).get("terms") or []
         self.assertEqual(len(slim), 10)
         self.assertEqual(slim[0]["key"], "f14")
+
+    def test_tip_explain_fields_keeps_tau_open_z(self):
+        from core.paper.rebalance.rank_lots import tip_explain_fields
+
+        terms = [{"key": f"f{i}", "contrib": 0.01 * i} for i in range(20)]
+        terms.append({"key": "ret_open_to_tau", "contrib": 0.001})
+        terms.append({"key": "tau_elapsed_min", "contrib": 0.002})
+        terms.append({"key": "gap_pct", "contrib": 0.003})
+        terms.append({"key": "loc_hl", "contrib": 0.0004})
+        terms.append({"key": "sector_ret_to_tau", "contrib": 0.0003})
+        out = tip_explain_fields(
+            {
+                "formula_terms_tau": {
+                    "total": 1.0,
+                    "missing_n": 8,
+                    "missing_keys": ["前缀振幅 %"],
+                    "terms": terms,
+                }
+            }
+        )
+        slim = (out.get("formula_terms_tau") or {}).get("terms") or []
+        keys = {t["key"] for t in slim}
+        self.assertIn("ret_open_to_tau", keys)
+        self.assertIn("tau_elapsed_min", keys)
+        self.assertIn("gap_pct", keys)
+        self.assertIn("loc_hl", keys)
+        self.assertIn("sector_ret_to_tau", keys)
+        self.assertLessEqual(len(slim), 24)
+        self.assertEqual((out.get("formula_terms_tau") or {}).get("missing_n"), 8)
+        self.assertEqual(
+            (out.get("formula_terms_tau") or {}).get("missing_keys"), ["前缀振幅 %"]
+        )
 
     def test_fuse_weights_oo_oc(self):
         from core.paper.rebalance.rank_lots import plan_rank_lot_day
@@ -324,6 +358,41 @@ class TestPlanRankLotDay(unittest.TestCase):
             ranking_pct_of({"predicted_score": 2.0, "y_fuse": 9.9}, _cfg()),
             2.0,
         )
+
+    def test_ranking_remaining_maps_open_to_price_tau(self):
+        from core.paper.rebalance.rank_lots import plan_rank_lot_day, ranking_pct_of
+
+        item = {"predicted_score": 2.0, "y_tau": 2.0}
+        fused = ranking_pct_of(item, _cfg())
+        self.assertAlmostEqual(fused, 2.0)
+        self.assertAlmostEqual(
+            ranking_pct_of(item, _cfg(), open_px=100.0, price_tau=100.0),
+            fused,
+        )
+        rem = ranking_pct_of(item, _cfg(), open_px=100.0, price_tau=100.5)
+        rot = (100.5 / 100.0 - 1.0) * 100.0
+        self.assertAlmostEqual(rem, fused - rot)
+        self.assertLess(rem, fused)
+
+        cfg = _cfg(fusion_w_oo=1.0, fusion_w_oc=0.0)
+        scored_plain = [{"stock_code": "600000", "predicted_score": 2.0, "y_tau": 2.0}]
+        no_open = plan_rank_lot_day(
+            scored=list(scored_plain),
+            holdings=[],
+            cash=1_000_000,
+            prices={"600000": 100.5},
+            cfg=cfg,
+        )
+        with_open = plan_rank_lot_day(
+            scored=[{"stock_code": "600000", "predicted_score": 2.0, "y_tau": 2.0}],
+            holdings=[],
+            cash=1_000_000,
+            prices={"600000": 100.5},
+            opens={"600000": 100.0},
+            cfg=cfg,
+        )
+        self.assertAlmostEqual(float(no_open["buys"][0]["ranking"]), 2.0)
+        self.assertAlmostEqual(float(with_open["buys"][0]["ranking"]), 2.0 - rot)
 
     def test_open_cfg_lot_1000_vs_2000(self):
         from core.paper.rebalance.rank_lots import plan_rank_lot_day
@@ -864,6 +933,30 @@ class TestPlanRankLotDay(unittest.TestCase):
         self.assertEqual(out["skips"][0].get("side"), "buy")
         self.assertEqual(out["skips"][0].get("action"), "skip")
 
+    def test_enter_skip_is_logged_on_plan(self):
+        from core.paper.rebalance.rank_lots import plan_rank_lot_day
+
+        scored = [
+            {
+                "stock_code": "600000",
+                "y_oo": -1.0,
+                "y_oc": -1.0,
+                "y_hl": -0.4,
+            }
+        ]
+        out = plan_rank_lot_day(
+            scored=scored,
+            holdings=[],
+            cash=1_000_000,
+            prices={"600000": 10.0},
+            cfg=_cfg(rank_enter=0.001, cash_floor=0.0),
+        )
+        self.assertEqual(out["buys"], [])
+        self.assertTrue(
+            any("ranking" in str(s.get("reason") or "") for s in out["skips"]),
+            out["skips"],
+        )
+
     def test_zero_floor_skips_when_cash_short(self):
         from core.paper.rebalance.rank_lots import plan_rank_lot_day
 
@@ -1107,7 +1200,6 @@ class TestEnterGates(unittest.TestCase):
     def _cfg(self, **extra):
         base = {
             "rank_enter": 0.001,
-            "y_hl_gt0": False,
             "y_enter_enabled": True,
             "y_enter_alt_enabled": True,
         }
@@ -1212,21 +1304,14 @@ class TestEnterGates(unittest.TestCase):
             )
         )
 
-    def test_y_hl_gt0_off_ignores_sign(self):
+    def test_y_hl_sign_does_not_block(self):
         from core.paper.rebalance.rank_lots import rank_lot_enter_skip_reason
 
         item = self._item(y_hl=-5.0)
-        skip = rank_lot_enter_skip_reason(
-            item,
-            self._cfg(y_hl_gt0=True),
-            rs=0.02,
-        )
-        self.assertIsNotNone(skip)
-        self.assertIn("y_hl", skip)
         self.assertIsNone(
             rank_lot_enter_skip_reason(
                 item,
-                self._cfg(y_hl_gt0=False),
+                self._cfg(),
                 rs=0.02,
             )
         )

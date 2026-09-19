@@ -244,6 +244,12 @@ class TestPaperReplayEngine(unittest.TestCase):
         self.assertAlmostEqual(mid.get("realized_tau"), (close_t / open_t - 1.0) * 100.0, places=3)
         self.assertAlmostEqual(mid.get("realized_on"), (nxt_o / close_t - 1.0) * 100.0, places=3)
         self.assertAlmostEqual(mid.get("realized_oo"), (nxt_o / open_t - 1.0) * 100.0, places=3)
+        px_tau = float(mid.get("rebalance_px") or mid.get("price") or open_t)
+        self.assertAlmostEqual(
+            mid.get("realized_ranking"),
+            (nxt_o - px_tau) / open_t * 100.0,
+            places=3,
+        )
         last_rows = [
             t
             for t in (out.get("sim_trades") or [])
@@ -252,6 +258,7 @@ class TestPaperReplayEngine(unittest.TestCase):
         if last_rows:
             self.assertIsNone(last_rows[0].get("realized_on"))
             self.assertIsNone(last_rows[0].get("realized_oo"))
+            self.assertIsNone(last_rows[0].get("realized_ranking"))
         day = str(mid.get("as_of") or "")[:10]
         curve = {
             str(p.get("date") or "")[:10]: p
@@ -627,20 +634,16 @@ class TestPaperReplayEngine(unittest.TestCase):
             sh = float(t.get("shares") or 0)
             self.assertIn(sh, (float(REPLAY_LOT_BASE), float(REPLAY_LOT_STRONG)), t)
             self.assertIn(t.get("action") or t.get("matrix_action"), ("open", "add"))
-            self.assertEqual(t.get("cost_price"), t.get("price"), t)
             self.assertTrue(str(t.get("open_date") or "")[:10], t)
-            self.assertIsNotNone(t.get("cum_cost"), t)
-            self.assertGreater(float(t["cum_cost"]), 0)
         sim_buys = [
             s
             for s in sim
             if s.get("side") == "buy" and s.get("status") != "skipped"
         ]
         for s in sim_buys:
-            self.assertEqual(s.get("cost_price"), s.get("price"), s)
             self.assertTrue(str(s.get("open_date") or "")[:10], s)
-            self.assertIsNotNone(s.get("cum_cost"), s)
-            self.assertGreater(float(s["cum_cost"]), 0)
+            self.assertNotIn("cum_cost", s)
+            self.assertNotIn("cost_price", s)
 
     def test_sim_trades_include_exit_when_rank_fails(self):
         """开仓后 ranking 未过入场：成交明细应有清仓腿。"""
@@ -1036,6 +1039,87 @@ class TestOpenDayYhat(unittest.TestCase):
         self.assertIsNone(out[0].get("predicted_score_nowcast"))
         self.assertAlmostEqual(float(out[0].get("y_oo")), 1.2, places=3)
 
+    def test_attach_open_heads_stamps_pool_cs_and_open_minute_z(self):
+        from unittest.mock import patch
+
+        from core.backtest.paper_replay import _attach_open_yhat_heads
+
+        entries = [
+            {
+                "stock_code": "600519",
+                "predicted_score": 1.2,
+                "predicted_score_eod": 1.2,
+                "score_scale": "predicted_yhat",
+            }
+        ]
+        quote = {
+            "open": 10.2,
+            "prev_close": 10.0,
+            "change_raw": 2.0,
+            "date": "2026-03-10",
+        }
+        window = [
+            {
+                "date": "2026-03-09",
+                "open": 9.9,
+                "high": 10.1,
+                "low": 9.8,
+                "close": 10.0,
+                "volume": 1,
+            }
+        ]
+        rem_doc = {
+            "return_model": {
+                "intercept": 0.1,
+                "coefficients": {
+                    "gap_pct": -0.04,
+                    "sector_gap_breadth": 0.02,
+                    "ret_open_to_tau": -0.5,
+                    "tau_elapsed_min": 0.01,
+                },
+                "active_features": [
+                    "gap_pct",
+                    "sector_gap_breadth",
+                    "ret_open_to_tau",
+                    "tau_elapsed_min",
+                ],
+                "zscore_means": {
+                    "gap_pct": 0.0,
+                    "sector_gap_breadth": 0.0,
+                    "ret_open_to_tau": 0.4,
+                    "tau_elapsed_min": 20.0,
+                },
+                "zscore_stds": {
+                    "gap_pct": 1.0,
+                    "sector_gap_breadth": 1.0,
+                    "ret_open_to_tau": 1.0,
+                    "tau_elapsed_min": 1.0,
+                },
+            },
+            "model_role": "research",
+        }
+        pool = {
+            "pool_gaps": [2.0, 0.5, -0.2],
+            "sector_gap_breadth": 0.33,
+            "ref_by_code": {"600519": 0.5},
+        }
+        with patch("core.research.tau_ridge.load_tau_model", return_value=rem_doc):
+            out = _attach_open_yhat_heads(
+                entries,
+                quotes={"600519": quote},
+                windows={"600519": window},
+                tau_model_doc=rem_doc,
+                tau_pool_day=pool,
+            )
+        feats = out[0].get("features_tau") or {}
+        self.assertAlmostEqual(float(feats.get("ret_open_to_tau")), 0.0, places=6)
+        self.assertAlmostEqual(float(feats.get("tau_elapsed_min")), 0.0, places=6)
+        self.assertAlmostEqual(float(feats.get("sector_gap_breadth")), 0.33, places=6)
+        keys = {t["key"] for t in (out[0].get("formula_terms_tau") or {}).get("terms") or []}
+        self.assertIn("ret_open_to_tau", keys)
+        self.assertIn("tau_elapsed_min", keys)
+        self.assertIn("sector_gap_breadth", keys)
+
     def test_attach_open_nowcast_missing_is_none_not_zero(self):
         from core.backtest.paper_replay import _attach_open_yhat_heads
 
@@ -1176,6 +1260,57 @@ class TestRealizedYhatWindows(unittest.TestCase):
         self.assertIsNone(miss_on)
         self.assertIsNone(miss_tau)
 
+    def test_stamp_r_tau_uses_fill_not_daily_open(self):
+        """R_τ 真实=收盘/成交价(τ)，不是收盘/日开（生益 09:40 口径）。"""
+        from core.backtest.paper_replay import stamp_r_tau_on_row
+        from core.signal.yhat_geom import remaining_at_tau
+
+        row = {
+            "y_oc": 5.25,
+            "status": "filled",
+            "side": "buy",
+            "price": 153.2,
+        }
+        bar = {"open": 146.0, "close": 150.25}
+        mins = [
+            {
+                "datetime": "2026-09-15 09:40:00",
+                "open": 153.54,
+                "close": 153.2,
+            }
+        ]
+        stamp_r_tau_on_row(
+            row, daily_bar=bar, minute_bars=mins, fill_clock="09:40"
+        )
+        self.assertAlmostEqual(row["day_open"], 146.0)
+        self.assertAlmostEqual(row["day_close"], 150.25)
+        self.assertAlmostEqual(row["r_realized"], (150.25 / 153.2 - 1.0) * 100.0, places=3)
+        rot = (153.2 / 146.0 - 1.0) * 100.0
+        self.assertAlmostEqual(row["r_hat"], remaining_at_tau(5.25, rot), places=3)
+
+    def test_stamp_r_tau_hold_ignores_close_mark(self):
+        from core.backtest.paper_replay import stamp_r_tau_on_row
+
+        row = {
+            "y_oc": 5.25,
+            "status": "held",
+            "side": "hold",
+            "price": 150.25,
+        }
+        bar = {"open": 146.0, "close": 150.25}
+        mins = [
+            {
+                "datetime": "2026-09-15 09:40:00",
+                "open": 153.54,
+                "close": 153.2,
+            }
+        ]
+        stamp_r_tau_on_row(
+            row, daily_bar=bar, minute_bars=mins, fill_clock="09:40"
+        )
+        self.assertAlmostEqual(row["r_realized"], (150.25 / 153.2 - 1.0) * 100.0, places=3)
+        self.assertNotAlmostEqual(row["r_realized"], 0.0, places=2)
+
     def test_uses_stock_bar_after_window(self):
         """覆盖率日历截在 T 时，仍用该票仓里的 T+1 开盘对账 ŷ_co。"""
         bars = _bars(5, step=0.5, start=100.0)
@@ -1281,6 +1416,7 @@ class TestRealizedYhatWindows(unittest.TestCase):
         if last_rows:
             self.assertIsNone(last_rows[0].get("realized_on"))
             self.assertIsNone(last_rows[0].get("realized_oo"))
+            self.assertIsNone(last_rows[0].get("realized_ranking"))
             self.assertIsNotNone(last_rows[0].get("y_hl_realized"))
             self.assertIsNotNone(last_rows[0].get("realized_tau"))
 
@@ -1917,6 +2053,26 @@ class TestReplayMinuteFill(unittest.TestCase):
         daily_open = float(stock_bars["600519"][8]["open"])
         self.assertAlmostEqual(float(buys[0].get("price") or 0), daily_open + 0.4, places=4)
         self.assertNotAlmostEqual(float(buys[0].get("price") or 0), daily_open, places=2)
+        buy_day = str(buys[0].get("as_of") or buys[0].get("ts") or "")[:10]
+        sim = next(
+            (
+                t
+                for t in (out.get("sim_trades") or [])
+                if t.get("stock_code") == "600519"
+                and t.get("side") == "buy"
+                and str(t.get("as_of") or "")[:10] == buy_day
+            ),
+            None,
+        )
+        self.assertIsNotNone(sim)
+        fill = float(buys[0].get("price") or 0)
+        close_t = float(next(b for b in stock_bars["600519"] if b["date"] == buy_day)["close"])
+        self.assertAlmostEqual(
+            float(sim.get("r_realized")),
+            (close_t / fill - 1.0) * 100.0,
+            places=3,
+        )
+        self.assertIsNotNone(sim.get("r_hat"))
 
     def test_935_skips_when_minute_missing(self):
         stock_bars = {

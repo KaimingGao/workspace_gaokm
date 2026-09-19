@@ -138,7 +138,7 @@ quant_panel.html
 | **ŷ_oc** | 预估 close[T]/open[T]−1 | 调仓 ranking 成分；盘中 ŷ_trade；做 T 估 C_τ |
 | **ŷ_τc** | 预估 close[T]/price(τ)−1 | 研究拟合仍保留；做 T / 数据中心表列已下线 |
 | **ŷ_co** | 预估 open[T+1]/close[T]−1 | 经 w_co 叠进 ŷ_oc（调仓默认 w_co=0） |
-| **调仓 ranking** | fusion_w_oo·ŷ_oo + fusion_w_oc·((1+ŷ_oc)(1+w_co·ŷ_co)−1) | 纸面 rank_lots（默认 0.6 / 0.4） |
+| **调仓 ranking** | fusion_w_oo·ŷ_oo + fusion_w_oc·((1+ŷ_oc)(1+w_co·ŷ_co)−1) − (price(τ)/open−1) | 纸面 rank_lots（默认 0.6 / 0.4）；拟合 open[T]→open[T+1]；真实=(open[T+1]−price(τ))/open[T] |
 | **盘中 ŷ_trade** | dual_score blend：w_oo·ŷ_oo + w_tau·(缺口∘ŷ_τ) | 现网 **w_oo=0, w_tau=1**；收盘 eod_next 回到 ŷ_oo |
 
 关键逻辑：
@@ -170,7 +170,7 @@ quant_panel.html
 
 > 详细数学推导见 [rebalance-logic.md](./rebalance-logic.md)。
 
-调仓系统按 **ranking = w_oo·ŷ_oo + w_oc·((1+ŷ_oc)(1+w_co·ŷ_co)−1)** 以已保存手数开仓或加仓（缺省 200/500），未过入场则清仓，现金用完即止。
+调仓系统按 **ranking**（融合分 − (price(τ)/open−1)；拟合 open[T]→open[T+1]）以已保存手数开仓或加仓（缺省 200/500），未过入场则清仓，现金用完即止。
 
 ### 4.1 核心概念
 
@@ -179,7 +179,7 @@ quant_panel.html
 | **ŷ_oo** | 预期 open[T]→open[T+1] |
 | **ŷ_oc** | 预期 open[T]→close[T] |
 | **ŷ_co** | 预期隔夜 close[T]→open[T+1] |
-| **ranking** | w_oo·ŷ_oo + w_oc·((1+ŷ_oc)(1+w_co·ŷ_co)−1)；w_co 默认 0 |
+| **ranking** | w_oo·ŷ_oo + w_oc·((1+ŷ_oc)(1+w_co·ŷ_co)−1) − (price(τ)/open−1)；w_co 默认 0 |
 | **rank入场 / rank强** | 选股下限 / 500 股门槛 |
 | **持仓市值上限** | live 默认 15 万；本笔将超则跳过。历史回测不限 |
 
@@ -188,10 +188,10 @@ quant_panel.html
 调仓在 `core/paper/rebalance/rank_lots.py` 中实现，观察池与历史回测共用：
 
 ```
-每个交易日 09:30 打分；历史回测按所选调仓时间用 5 分钟价成交：
-  ranking = w_oo·ŷ_oo + w_oc·((1+ŷ_oc)(1+w_co·ŷ_co)−1)
+每个交易日 fill_clock 打分；历史回测按所选调仓时间用 5 分钟价成交：
+  ranking = w_oo·ŷ_oo + w_oc·((1+ŷ_oc)(1+w_co·ŷ_co)−1) − (price(τ)/open−1)
   已持仓且未过入场、缺 ranking 或 hard_reject → 清仓（T+1 可卖）
-  ranking > rank入场（可选 y_oo>0 / y_oc>0 / y_hl>0）→ 开仓或加仓
+  ranking > rank入场（可选 y_oo>0 / y_oc>0）→ 开仓或加仓
   ranking > rank强 → lot_strong 股，否则 lot_base 股（缺省 500 / 200）
   现金不够该手 → 缩到整百（最少一手）；仍买不起才跳过
 ```
@@ -252,7 +252,7 @@ live：`watching_matrix.simulate_watching_matrix_preview`；历史：`backtest_p
 1. 每 5 分钟用截至该根前缀重算 ŷ_oc，估 C_τ
 2. 该根收价相对 C_τ×(1±δ) 破带才开第一腿（截止 11:00）
 3. 第一腿为触发根收盘价；第二腿冻结为 C_τ
-4. 破带后过 HL 同号闸与 ŷ_τw 入场（全弃权计 0 票）；|y_hl| 过大须与 y_τ 同号
+4. 破带后过 HL 同号闸与 ŷ_τw 入场（默认 0=关，0 票也过）；|y_hl| 过大须与 y_τ 同号
 5. 每轮默认可卖量的 40%，累计不超过底仓 100%
 
 ### 5.3 执行流程

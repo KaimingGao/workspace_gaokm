@@ -70,6 +70,71 @@ class SessionClockT45T75Tests(unittest.TestCase):
         self.assertIn("crosses_lunch_45", pack)
         self.assertEqual(pack.get("crosses_lunch_45"), 0.0)
 
+    def test_cross_section_attaches_t45_t75_sector_ret(self):
+        from core.research.tau_panel import attach_cross_section_breadth
+
+        panels = [
+            {
+                "code": "600000",
+                "xs": [{"gap_pct": 1.0}, {"gap_pct": 1.0}],
+                "ys": [1.0, 1.0],
+                "dates": ["2025-06-02", "2025-06-02"],
+                "metas": [
+                    {
+                        "date": "2025-06-02",
+                        "stock_code": "600000",
+                        "gap_pct": 1.0,
+                        "tau": "10:15",
+                        "ret_last_45m": 1.0,
+                        "ret_last_75m": 0.5,
+                    },
+                    {
+                        "date": "2025-06-02",
+                        "stock_code": "600000",
+                        "gap_pct": 1.0,
+                        "tau": "10:45",
+                        "ret_last_45m": 2.0,
+                        "ret_last_75m": 1.5,
+                    },
+                ],
+            },
+            {
+                "code": "600001",
+                "xs": [{"gap_pct": 1.0}, {"gap_pct": 1.0}],
+                "ys": [1.0, 1.0],
+                "dates": ["2025-06-02", "2025-06-02"],
+                "metas": [
+                    {
+                        "date": "2025-06-02",
+                        "stock_code": "600001",
+                        "gap_pct": 1.0,
+                        "tau": "10:15",
+                        "ret_last_45m": 3.0,
+                        "ret_last_75m": 2.5,
+                    },
+                    {
+                        "date": "2025-06-02",
+                        "stock_code": "600001",
+                        "gap_pct": 1.0,
+                        "tau": "10:45",
+                        "ret_last_45m": 4.0,
+                        "ret_last_75m": 3.5,
+                    },
+                ],
+            },
+        ]
+        out = attach_cross_section_breadth(panels)
+        self.assertAlmostEqual(out[0]["xs"][0]["sector_ret_last_45m"], 2.0, places=6)
+        self.assertAlmostEqual(out[0]["xs"][0]["ret_last_45m_vs_sector"], -1.0, places=6)
+        self.assertAlmostEqual(out[1]["xs"][0]["ret_last_45m_vs_sector"], 1.0, places=6)
+        self.assertAlmostEqual(out[0]["xs"][1]["sector_ret_last_45m"], 3.0, places=6)
+        self.assertAlmostEqual(out[0]["xs"][0]["sector_ret_last_75m"], 1.5, places=6)
+        self.assertAlmostEqual(out[0]["xs"][0]["ret_last_75m_vs_sector"], -1.0, places=6)
+        self.assertAlmostEqual(out[1]["xs"][0]["ret_last_75m_vs_sector"], 1.0, places=6)
+        self.assertAlmostEqual(out[0]["xs"][1]["sector_ret_last_75m"], 2.5, places=6)
+        self.assertAlmostEqual(out[0]["metas"][0]["sector_ret_last_45m"], 2.0, places=6)
+        self.assertAlmostEqual(out[0]["metas"][0]["sector_ret_last_75m"], 1.5, places=6)
+
     def test_relabel_t45_uses_horizon_price(self):
         from core.research.tau_panel import relabel_tau_panels_as_t45
 

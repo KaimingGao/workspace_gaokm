@@ -1792,7 +1792,7 @@ def _build_score_portrait_from_units(
         },
         "note": note
         or (
-            f"scope={scope_s}；R_τ↔close[T]/price(τ)−1；y_oc↔open→close；"
+            f"scope={scope_s}；y_oc↔open→close；"
             "y_hl↔极值序 signed (H−L)/ref%；"
             "y_τc↔close[T]/price(τ)−1；y_τ30↔mean(price(τ⊕25/30/35))/price(τ)−1；"
             "y_τ45↔mean(price(τ⊕40/45/50))/price(τ)−1；"
@@ -1862,7 +1862,7 @@ def build_score_portrait_by_slot(days: Sequence[dict]) -> Dict[str, Any]:
         if not units:
             continue
         note = (
-            f"槽位 {hm}：本钟扫描 R̂_τ / ŷ_oc / ŷ_hl / ŷ_τc / ŷ_τ30 / ŷ_τ45 / ŷ_τ60 / ŷ_τ75 / ŷ_τ90 ↔ 全日或同钟标签；"
+            f"槽位 {hm}：本钟扫描 ŷ_oc / ŷ_hl / ŷ_τc / ŷ_τ30 / ŷ_τ45 / ŷ_τ60 / ŷ_τ75 / ŷ_τ90 ↔ 全日或同钟标签；"
             "样本=与日级同样本；缺该钟ŷ计flat；成交子集=该钟已破带成交"
         )
         all_port = _build_score_portrait_from_units(
@@ -1899,7 +1899,7 @@ def build_score_portrait_by_slot(days: Sequence[dict]) -> Dict[str, Any]:
         "n_slots": len(slots),
         "n_days": len(eligible),
         "note": (
-            "分槽位画像：各钟 R̂_τ / ŷ_oc / ŷ_hl / ŷ_τc / ŷ_τ30 / ŷ_τ45 / ŷ_τ60 / ŷ_τ75 / ŷ_τ90 对标签；"
+            "分槽位画像：各钟 ŷ_oc / ŷ_hl / ŷ_τc / ŷ_τ30 / ŷ_τ45 / ŷ_τ60 / ŷ_τ75 / ŷ_τ90 对标签；"
             "旁路=该钟破带方向是否与 ŷ_τc 向 ĉ 回归同向；"
             "τ30旁路=破带方向是否与 ŷ_τ30 后 30 交易分钟同号；"
             "τ45旁路=破带方向是否与 ŷ_τ45 后 45 交易分钟同号；"

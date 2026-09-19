@@ -862,7 +862,11 @@ body[data-page="replay"] .replay-page .bt-ledger-grid .watching-react-grid-cell.
 body[data-page="replay"] .replay-page .bt-ledger-grid .watching-react-grid-cell.watching-col-y_tau,
 body[data-page="replay"] .replay-page .bt-ledger-grid .watching-react-grid-cell.watching-col-y_on,
 body[data-page="replay"] .replay-page .bt-ledger-grid .watching-react-grid-cell.watching-col-ranking,
-body[data-page="replay"] .replay-page .bt-ledger-grid .watching-react-grid-cell.watching-col-y_hl {
+body[data-page="replay"] .replay-page .bt-ledger-grid .watching-react-grid-cell.watching-col-y_hl,
+body[data-page="replay"] .replay-page .bt-ledger-grid .watching-react-grid-cell.watching-col-day_open,
+body[data-page="replay"] .replay-page .bt-ledger-grid .watching-react-grid-cell.watching-col-day_close,
+body[data-page="replay"] .replay-page .bt-ledger-grid .watching-react-grid-cell.watching-col-price,
+body[data-page="replay"] .replay-page .bt-ledger-grid .watching-react-grid-cell.watching-col-stock_ret {
   justify-content: flex-end;
   align-items: center;
 }

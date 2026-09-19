@@ -150,7 +150,7 @@ class T0BacktestRequest(BaseModel):
         default=None,
         ge=0.0,
         le=5.0,
-        description="ŷ_τw 入场：|ŷ_τw| 大于此值才开腿；全弃权计 0 票；0=关同号",
+        description="ŷ_τw 入场：|ŷ_τw| 大于此值才开腿；全弃权计 0 票；0=关（0 票也过，关同号）",
     )
     y_τw_enter: Optional[float] = Field(
         default=None,

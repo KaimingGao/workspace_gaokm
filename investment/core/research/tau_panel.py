@@ -111,6 +111,14 @@ T90_SEQ_FEATURES = (
     "session_vwap_dev",
     "vol_last_90m_vs_avg",
 ) + T90_SEQ_CS_KEYS + T90_LAG_FEATURES
+# (个股近窗收益键, 板块中位键, 相对板块键) — 训练截面按 (date, τ) 中位
+HORIZON_SEQ_CS_SPECS = (
+    ("ret_last_30m", "sector_ret_last_30m", "ret_last_30m_vs_sector"),
+    ("ret_last_45m", "sector_ret_last_45m", "ret_last_45m_vs_sector"),
+    ("ret_last_60m", "sector_ret_last_60m", "ret_last_60m_vs_sector"),
+    ("ret_last_75m", "sector_ret_last_75m", "ret_last_75m_vs_sector"),
+    ("ret_last_90m", "sector_ret_last_90m", "ret_last_90m_vs_sector"),
+)
 
 from core.signal.minute_tau_grid import (
     DEFAULT_MINUTE_TAU_GRID,
@@ -1582,6 +1590,52 @@ def collect_tau_open_panel(
     return xs, ys, dates, metas
 
 
+def _optional_feat_float(v: Any) -> Optional[float]:
+    if v is None:
+        return None
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return None
+
+
+def _row_or_meta_feat(
+    xs_p: Sequence[dict], i: int, meta: dict, key: str
+) -> Optional[float]:
+    if i < len(xs_p) and isinstance(xs_p[i], dict):
+        val = _optional_feat_float(xs_p[i].get(key))
+        if val is not None:
+            return val
+    return _optional_feat_float(meta.get(key))
+
+
+def _write_sector_horizon_ret(
+    xs_row: dict,
+    meta: Optional[dict],
+    *,
+    sret: Optional[float],
+    ret_key: str,
+    sector_key: str,
+    vs_key: str,
+) -> None:
+    if sret is None:
+        return
+    s = round(float(sret), 6)
+    xs_row[sector_key] = s
+    r = xs_row.get(ret_key)
+    if r is None and meta is not None:
+        r = meta.get(ret_key)
+    if r is not None:
+        try:
+            xs_row[vs_key] = round(float(r) - float(sret), 6)
+        except (TypeError, ValueError):
+            pass
+    if meta is not None:
+        meta[sector_key] = s
+        if xs_row.get(vs_key) is not None:
+            meta[vs_key] = xs_row[vs_key]
+
+
 def attach_cross_section_breadth(
     panels: Sequence[Dict[str, Any]],
     *,
@@ -1592,20 +1646,23 @@ def attach_cross_section_breadth(
 
     同时写 ``gap_vs_sector`` = 个股缺口 − 同行中位（同伴不足则减全截面中位）。
     ``sector_ret_to_tau`` 按 **(date, τ)** 聚合，避免变长前缀把不同时钟的开→τ 混中位。
+    近窗 ``sector_ret_last_{30,45,60,75,90}m`` 同口径，避免 τ45/τ75 缺板块两因子。
     ``panels`` 元素：``{code, xs, ys, dates, metas}``。
     """
     # date -> [(code, gap), ...]  unique per (date, code)
     by_date: Dict[str, List[Tuple[str, float]]] = {}
     seen_gap: set = set()
-    # (date, tau) -> ret_open_to_tau / ret_last_30m / ret_last_60m list
+    # (date, tau) -> ret_open_to_tau / ret_last_*m
     ret_by_date_tau: Dict[Tuple[str, str], List[float]] = {}
-    ret30_by_date_tau: Dict[Tuple[str, str], List[float]] = {}
-    ret60_by_date_tau: Dict[Tuple[str, str], List[float]] = {}
-    ret90_by_date_tau: Dict[Tuple[str, str], List[float]] = {}
+    horizon_ret_by_date_tau: Dict[str, Dict[Tuple[str, str], List[float]]] = {
+        spec[0]: {} for spec in HORIZON_SEQ_CS_SPECS
+    }
     for p in panels:
         code_p = str(p.get("code") or "").strip()
         xs_p = list(p.get("xs") or [])
         for i, m in enumerate(p.get("metas") or []):
+            if not isinstance(m, dict):
+                continue
             d = str(m.get("date") or "")[:10]
             g = m.get("gap_pct")
             c = str(m.get("stock_code") or code_p or "").strip()
@@ -1616,58 +1673,15 @@ def attach_cross_section_breadth(
             if gap_key not in seen_gap:
                 seen_gap.add(gap_key)
                 by_date.setdefault(d, []).append((c, float(g)))
-            rot = None
-            if i < len(xs_p) and xs_p[i].get("ret_open_to_tau") is not None:
-                try:
-                    rot = float(xs_p[i]["ret_open_to_tau"])
-                except (TypeError, ValueError):
-                    rot = None
-            if rot is None and m.get("ret_open_to_tau") is not None:
-                try:
-                    rot = float(m.get("ret_open_to_tau"))
-                except (TypeError, ValueError):
-                    rot = None
+            rot = _row_or_meta_feat(xs_p, i, m, "ret_open_to_tau")
             if rot is not None:
                 ret_by_date_tau.setdefault((d, tau_k), []).append(rot)
-            r30 = None
-            if i < len(xs_p) and xs_p[i].get("ret_last_30m") is not None:
-                try:
-                    r30 = float(xs_p[i]["ret_last_30m"])
-                except (TypeError, ValueError):
-                    r30 = None
-            if r30 is None and m.get("ret_last_30m") is not None:
-                try:
-                    r30 = float(m.get("ret_last_30m"))
-                except (TypeError, ValueError):
-                    r30 = None
-            if r30 is not None:
-                ret30_by_date_tau.setdefault((d, tau_k), []).append(r30)
-            r60 = None
-            if i < len(xs_p) and xs_p[i].get("ret_last_60m") is not None:
-                try:
-                    r60 = float(xs_p[i]["ret_last_60m"])
-                except (TypeError, ValueError):
-                    r60 = None
-            if r60 is None and m.get("ret_last_60m") is not None:
-                try:
-                    r60 = float(m.get("ret_last_60m"))
-                except (TypeError, ValueError):
-                    r60 = None
-            if r60 is not None:
-                ret60_by_date_tau.setdefault((d, tau_k), []).append(r60)
-            r90 = None
-            if i < len(xs_p) and xs_p[i].get("ret_last_90m") is not None:
-                try:
-                    r90 = float(xs_p[i]["ret_last_90m"])
-                except (TypeError, ValueError):
-                    r90 = None
-            if r90 is None and m.get("ret_last_90m") is not None:
-                try:
-                    r90 = float(m.get("ret_last_90m"))
-                except (TypeError, ValueError):
-                    r90 = None
-            if r90 is not None:
-                ret90_by_date_tau.setdefault((d, tau_k), []).append(r90)
+            for ret_key, _sector_key, _vs_key in HORIZON_SEQ_CS_SPECS:
+                rv = _row_or_meta_feat(xs_p, i, m, ret_key)
+                if rv is not None:
+                    horizon_ret_by_date_tau[ret_key].setdefault((d, tau_k), []).append(
+                        rv
+                    )
 
     sm = sector_map
     if sm is None:
@@ -1684,9 +1698,9 @@ def attach_cross_section_breadth(
     gaps_by_date: Dict[str, List[float]] = {}
     ref_by_date: Dict[str, Dict[str, Optional[float]]] = {}
     sector_ret_by_date_tau: Dict[Tuple[str, str], Optional[float]] = {}
-    sector_ret30_by_date_tau: Dict[Tuple[str, str], Optional[float]] = {}
-    sector_ret60_by_date_tau: Dict[Tuple[str, str], Optional[float]] = {}
-    sector_ret90_by_date_tau: Dict[Tuple[str, str], Optional[float]] = {}
+    sector_horizon_by_date_tau: Dict[str, Dict[Tuple[str, str], Optional[float]]] = {
+        spec[0]: {} for spec in HORIZON_SEQ_CS_SPECS
+    }
     trigger = float(gap_trigger_pct)
     from core.research.tau_theme import resolve_theme_day
 
@@ -1714,12 +1728,10 @@ def attach_cross_section_breadth(
 
     for key, vals in ret_by_date_tau.items():
         sector_ret_by_date_tau[key] = _finite_median(vals)
-    for key, vals in ret30_by_date_tau.items():
-        sector_ret30_by_date_tau[key] = _finite_median(vals)
-    for key, vals in ret60_by_date_tau.items():
-        sector_ret60_by_date_tau[key] = _finite_median(vals)
-    for key, vals in ret90_by_date_tau.items():
-        sector_ret90_by_date_tau[key] = _finite_median(vals)
+    for ret_key, bucket in horizon_ret_by_date_tau.items():
+        dest = sector_horizon_by_date_tau[ret_key]
+        for key, vals in bucket.items():
+            dest[key] = _finite_median(vals)
 
     out: List[Dict[str, Any]] = []
     for p in panels:
@@ -1749,9 +1761,6 @@ def attach_cross_section_breadth(
             ref = (ref_by_date.get(d) or {}).get(code_i)
             rel = gap_vs_sector_value(gap_i, ref)
             sret = sector_ret_by_date_tau.get((d, tau_k))
-            sret30 = sector_ret30_by_date_tau.get((d, tau_k))
-            sret60 = sector_ret60_by_date_tau.get((d, tau_k))
-            sret90 = sector_ret90_by_date_tau.get((d, tau_k))
             # 日级主题 OR 本票大缺口（与 resolve_theme_day 对齐）
             th_row = int(
                 resolve_theme_day(
@@ -1763,6 +1772,7 @@ def attach_cross_section_breadth(
             )
             if th_row:
                 th = 1
+            meta_i = metas[i] if i < len(metas) else None
             if i < len(xs):
                 xs[i]["sector_gap_breadth"] = b
                 xs[i]["theme_day"] = float(th)
@@ -1777,42 +1787,20 @@ def attach_cross_section_breadth(
                             )
                         except (TypeError, ValueError):
                             pass
-                if sret30 is not None:
-                    xs[i]["sector_ret_last_30m"] = round(float(sret30), 6)
-                    r30 = xs[i].get("ret_last_30m")
-                    if r30 is None and i < len(metas):
-                        r30 = metas[i].get("ret_last_30m")
-                    if r30 is not None:
-                        try:
-                            xs[i]["ret_last_30m_vs_sector"] = round(
-                                float(r30) - float(sret30), 6
-                            )
-                        except (TypeError, ValueError):
-                            pass
-                if sret60 is not None:
-                    xs[i]["sector_ret_last_60m"] = round(float(sret60), 6)
-                    r60 = xs[i].get("ret_last_60m")
-                    if r60 is None and i < len(metas):
-                        r60 = metas[i].get("ret_last_60m")
-                    if r60 is not None:
-                        try:
-                            xs[i]["ret_last_60m_vs_sector"] = round(
-                                float(r60) - float(sret60), 6
-                            )
-                        except (TypeError, ValueError):
-                            pass
-                if sret90 is not None:
-                    xs[i]["sector_ret_last_90m"] = round(float(sret90), 6)
-                    r90 = xs[i].get("ret_last_90m")
-                    if r90 is None and i < len(metas):
-                        r90 = metas[i].get("ret_last_90m")
-                    if r90 is not None:
-                        try:
-                            xs[i]["ret_last_90m_vs_sector"] = round(
-                                float(r90) - float(sret90), 6
-                            )
-                        except (TypeError, ValueError):
-                            pass
+                for ret_key, sector_key, vs_key in HORIZON_SEQ_CS_SPECS:
+                    _write_sector_horizon_ret(
+                        xs[i],
+                        meta_i if isinstance(meta_i, dict) else None,
+                        sret=sector_horizon_by_date_tau[ret_key].get((d, tau_k)),
+                        ret_key=ret_key,
+                        sector_key=sector_key,
+                        vs_key=vs_key,
+                    )
+            elif isinstance(meta_i, dict):
+                for ret_key, sector_key, _vs_key in HORIZON_SEQ_CS_SPECS:
+                    sret_h = sector_horizon_by_date_tau[ret_key].get((d, tau_k))
+                    if sret_h is not None:
+                        meta_i[sector_key] = round(float(sret_h), 6)
             if i < len(metas):
                 metas[i]["sector_gap_breadth"] = b
                 metas[i]["theme_day"] = th
@@ -1822,24 +1810,8 @@ def attach_cross_section_breadth(
                     metas[i]["sector_ret_to_tau"] = round(float(sret), 6)
                     if i < len(xs) and xs[i].get("ret_vs_sector") is not None:
                         metas[i]["ret_vs_sector"] = xs[i]["ret_vs_sector"]
-                if sret30 is not None:
-                    metas[i]["sector_ret_last_30m"] = round(float(sret30), 6)
-                    if i < len(xs) and xs[i].get("ret_last_30m_vs_sector") is not None:
-                        metas[i]["ret_last_30m_vs_sector"] = xs[i][
-                            "ret_last_30m_vs_sector"
-                        ]
-                if sret60 is not None:
-                    metas[i]["sector_ret_last_60m"] = round(float(sret60), 6)
-                    if i < len(xs) and xs[i].get("ret_last_60m_vs_sector") is not None:
-                        metas[i]["ret_last_60m_vs_sector"] = xs[i][
-                            "ret_last_60m_vs_sector"
-                        ]
-                if sret90 is not None:
-                    metas[i]["sector_ret_last_90m"] = round(float(sret90), 6)
-                    if i < len(xs) and xs[i].get("ret_last_90m_vs_sector") is not None:
-                        metas[i]["ret_last_90m_vs_sector"] = xs[i][
-                            "ret_last_90m_vs_sector"
-                        ]
+                # 近窗板块键由 _write_sector_horizon_ret 同步写 meta
+
         out.append({**p, "xs": xs, "metas": metas, "dates": dates})
     return out
 

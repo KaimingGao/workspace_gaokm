@@ -4945,14 +4945,14 @@ body[data-page="replay"] .replay-t0-section .paper-t0-table {
 }
 
 .paper-t0-scan-debug col {
-  width: calc(100% / 19);
+  width: calc(100% / 18);
 }
 
 .paper-t0-scan-debug th,
 .paper-t0-scan-debug td,
 .paper-t0-scan-debug td.paper-t0-col-band-lo,
 .paper-t0-scan-debug td.paper-t0-col-band-up {
-  width: calc(100% / 19);
+  width: calc(100% / 18);
   min-width: 0;
   max-width: none;
   box-sizing: border-box;
@@ -4994,9 +4994,9 @@ body[data-page="replay"] .replay-t0-section .paper-t0-table {
   text-align: left;
 }
 
-/* Ĉ_τ | lower | upper | R_τ · y_oc | y_τw | y_τ30 | y_τ45 | y_τ60 | y_τ75 | y_τ90 | y_hl */
-.paper-t0-scan-debug th:nth-child(n + 6):nth-child(-n + 17),
-.paper-t0-scan-debug td:nth-child(n + 6):nth-child(-n + 17) {
+/* Ĉ_τ | lower | upper · y_oc | y_τw | y_τ30 | y_τ45 | y_τ60 | y_τ75 | y_τ90 | y_hl */
+.paper-t0-scan-debug th:nth-child(n + 6):nth-child(-n + 16),
+.paper-t0-scan-debug td:nth-child(n + 6):nth-child(-n + 16) {
   border-left: 1px solid color-mix(in srgb, var(--ink) 14%, transparent);
 }
 
@@ -5018,7 +5018,7 @@ body[data-page="replay"] .replay-t0-section .paper-t0-trades-wrap .paper-t0-trad
 body[data-page="replay"] .replay-t0-section .paper-t0-trades-wrap .paper-t0-trades-table.quant-weight-table .paper-t0-scan-debug td,
 body[data-page="replay"] .replay-t0-section .paper-t0-trades-wrap .paper-t0-trades-table.quant-weight-table .paper-t0-scan-debug td.paper-t0-col-band-lo,
 body[data-page="replay"] .replay-t0-section .paper-t0-trades-wrap .paper-t0-trades-table.quant-weight-table .paper-t0-scan-debug td.paper-t0-col-band-up {
-  width: calc(100% / 19);
+  width: calc(100% / 18);
   min-width: 0;
   max-width: none;
   padding: 4px 8px;
@@ -5053,7 +5053,6 @@ body[data-page="replay"] .replay-t0-section .paper-t0-trades-wrap .paper-t0-trad
 .paper-t0-trades-table thead th.paper-t0-col-y-tau,
 .paper-t0-trades-table thead th.paper-t0-col-y-tw,
 .paper-t0-trades-table thead th.paper-t0-col-y-t30,
-.paper-t0-trades-table thead th.paper-t0-col-y-rtau,
 .paper-t0-trades-table thead th.paper-t0-col-o,
 .paper-t0-trades-table thead th.paper-t0-col-l,
 .paper-t0-trades-table thead th.paper-t0-col-h,
@@ -5213,8 +5212,6 @@ body[data-page="replay"] .replay-t0-section .paper-t0-trades-wrap .paper-t0-trad
 .paper-t0-trades-table td.paper-t0-col-y,
 .paper-t0-trades-table th.paper-t0-col-y-tau,
 .paper-t0-trades-table td.paper-t0-col-y-tau,
-.paper-t0-trades-table th.paper-t0-col-y-rtau,
-.paper-t0-trades-table td.paper-t0-col-y-rtau,
 .paper-t0-trades-table th.paper-t0-col-y-hl,
 .paper-t0-trades-table td.paper-t0-col-y-hl,
 .paper-t0-trades-table th.paper-t0-col-y-tw,
@@ -5251,8 +5248,6 @@ body[data-page="replay"] .replay-t0-section .paper-t0-trades-wrap .paper-t0-trad
 .paper-t0-trades-table tbody td.paper-t0-col-band-up,
 .paper-t0-trades-table thead th.paper-t0-col-tau,
 .paper-t0-trades-table tbody td.paper-t0-col-tau,
-.paper-t0-trades-table thead th.paper-t0-col-rtau,
-.paper-t0-trades-table tbody td.paper-t0-col-rtau,
 .paper-t0-trades-table thead th.paper-t0-col-ytw,
 .paper-t0-trades-table tbody td.paper-t0-col-ytw,
 .paper-t0-trades-table thead th.paper-t0-col-yt30,
@@ -5272,7 +5267,7 @@ body[data-page="replay"] .replay-t0-section .paper-t0-trades-wrap .paper-t0-trad
   padding-left: 8px;
 }
 
-/* 价带 | Ĉ_τ | lower | upper | R_τ | y_oc | y_τw | y_τ30 | y_τ45 | y_τ60 | y_τ75 | y_τ90 | y_hl | 过程 | 结果：左边线作分区 */
+/* 价带 | Ĉ_τ | lower | upper | y_oc | y_τw | y_τ30 | y_τ45 | y_τ60 | y_τ75 | y_τ90 | y_hl | 过程 | 结果：左边线作分区 */
 .paper-t0-trades-table thead th.paper-t0-col-o,
 .paper-t0-trades-table tbody td.paper-t0-col-o {
   border-left: 1px solid color-mix(in srgb, var(--ink) 10%, transparent);
@@ -5283,12 +5278,6 @@ body[data-page="replay"] .replay-t0-section .paper-t0-trades-wrap .paper-t0-trad
 .paper-t0-trades-table tbody td.paper-t0-col-ctau {
   border-left: 1px solid color-mix(in srgb, var(--ink) 10%, transparent);
   box-shadow: inset 3px 0 0 color-mix(in srgb, #0f766e 22%, transparent);
-}
-
-.paper-t0-trades-table thead th.paper-t0-col-rtau,
-.paper-t0-trades-table tbody td.paper-t0-col-rtau {
-  border-left: 1px solid color-mix(in srgb, var(--ink) 10%, transparent);
-  box-shadow: inset 3px 0 0 color-mix(in srgb, #0d9488 28%, transparent);
 }
 
 .paper-t0-trades-table thead th.paper-t0-col-tau,
@@ -5401,7 +5390,6 @@ body[data-page="replay"] .replay-t0-section .paper-t0-trades-wrap .paper-t0-trad
 .paper-t0-trades-table tbody tr:hover td.paper-t0-col-ctau,
 .paper-t0-trades-table tbody tr:hover td.paper-t0-col-band-lo,
 .paper-t0-trades-table tbody tr:hover td.paper-t0-col-band-up,
-.paper-t0-trades-table tbody tr:hover td.paper-t0-col-rtau,
 .paper-t0-trades-table tbody tr:hover td.paper-t0-col-tau {
   background: color-mix(in srgb, var(--accent) 6%, var(--bg-card, var(--surface)));
 }
@@ -5666,13 +5654,6 @@ body[data-page="replay"] .replay-t0-section .paper-t0-trades-wrap .paper-t0-trad
   letter-spacing: 0;
 }
 
-.paper-t0-trades-table thead th.paper-t0-col-rtau,
-.paper-t0-trades-table thead th.paper-t0-col-y-rtau,
-.paper-t0-trades-table tbody td.paper-t0-col-rtau,
-.paper-t0-trades-table tbody td.paper-t0-col-y-rtau {
-  background: color-mix(in srgb, #0d9488 4.5%, var(--bg-card, var(--surface)));
-}
-
 .paper-t0-trades-table tbody tr:nth-child(even) td.paper-t0-col-o,
 .paper-t0-trades-table tbody tr:nth-child(even) td.paper-t0-col-l,
 .paper-t0-trades-table tbody tr:nth-child(even) td.paper-t0-col-h,
@@ -5696,15 +5677,6 @@ body[data-page="replay"] .replay-t0-section .paper-t0-trades-wrap .paper-t0-trad
   );
 }
 
-.paper-t0-trades-table tbody tr:nth-child(even) td.paper-t0-col-rtau,
-.paper-t0-trades-table tbody tr:nth-child(even) td.paper-t0-col-y-rtau {
-  background: color-mix(
-    in srgb,
-    #0d9488 5.5%,
-    color-mix(in srgb, var(--line-2) 40%, var(--bg-card, var(--surface)))
-  );
-}
-
 .paper-t0-trades-table tbody tr:hover td.paper-t0-col-o,
 .paper-t0-trades-table tbody tr:hover td.paper-t0-col-l,
 .paper-t0-trades-table tbody tr:hover td.paper-t0-col-h,
@@ -5712,8 +5684,6 @@ body[data-page="replay"] .replay-t0-section .paper-t0-trades-wrap .paper-t0-trad
 .paper-t0-trades-table tbody tr:hover td.paper-t0-col-ctau,
 .paper-t0-trades-table tbody tr:hover td.paper-t0-col-band-lo,
 .paper-t0-trades-table tbody tr:hover td.paper-t0-col-band-up,
-.paper-t0-trades-table tbody tr:hover td.paper-t0-col-rtau,
-.paper-t0-trades-table tbody tr:hover td.paper-t0-col-y-rtau,
 .paper-t0-trades-table tbody tr:hover td.paper-t0-col-tau,
 .paper-t0-trades-table tbody tr:hover td.paper-t0-col-y-tau,
 .paper-t0-trades-table tbody tr:hover td.paper-t0-col-yhl,
@@ -5867,7 +5837,6 @@ body[data-page="replay"] .replay-t0-section .paper-t0-trades-wrap .paper-t0-trad
 }
 .paper-t0-col-eod { width: 88px; min-width: 88px; }
 .paper-t0-col-tau { width: 126px; min-width: 126px; }
-.paper-t0-col-rtau { width: 126px; min-width: 126px; }
 .paper-t0-col-yhl { width: 126px; min-width: 126px; }
 .paper-t0-col-ytw { width: 126px; min-width: 126px; }
 .paper-t0-col-yt30 { width: 126px; min-width: 126px; }
@@ -5893,7 +5862,6 @@ body[data-page="replay"] .replay-t0-section .paper-t0-trades-wrap .paper-t0-trad
 .paper-t0-trades-table td.paper-t0-col-ctau,
 .paper-t0-trades-table td.paper-t0-col-band-lo,
 .paper-t0-trades-table td.paper-t0-col-band-up,
-.paper-t0-trades-table td.paper-t0-col-rtau,
 .paper-t0-trades-table td.paper-t0-col-yhl,
 .paper-t0-trades-table td.paper-t0-col-ytw,
 .paper-t0-trades-table td.paper-t0-col-yt30,
@@ -9748,10 +9716,6 @@ body[data-page="follow"] .follow-path-matrix-body--row3, body[data-page="replay"
 
 body[data-page="follow"] .follow-path-matrix-body--row4, body[data-page="replay"] .follow-path-matrix-body--row4 {
   grid-template-columns: repeat(4, minmax(0, 1fr));
-}
-
-body[data-page="follow"] .follow-path-matrix-body--row5, body[data-page="replay"] .follow-path-matrix-body--row5 {
-  grid-template-columns: repeat(5, minmax(0, 1fr));
 }
 
 body[data-page="follow"] .follow-path-matrix-box, body[data-page="replay"] .follow-path-matrix-box {

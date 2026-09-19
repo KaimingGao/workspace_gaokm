@@ -421,6 +421,19 @@ def clear_minute_tau_pack_keys(
     return out
 
 
+def stamp_open_clock_minute_z(feats: Dict[str, Any]) -> Dict[str, Any]:
+    """09:30 无前缀：训练行仍有 ret_open_to_tau=0、tau_elapsed_min=0。
+
+    清掉分钟小包后若当缺特征填均值，组成表只剩隔夜五项，且 β×(0−μ)/σ 被抹成 0。
+    """
+    out = feats if isinstance(feats, dict) else {}
+    if out.get("ret_open_to_tau") is None:
+        out["ret_open_to_tau"] = 0.0
+    if out.get("tau_elapsed_min") is None:
+        out["tau_elapsed_min"] = 0.0
+    return out
+
+
 def extract_minute_tau_pack(
     minute_bars: Sequence[dict],
     *,

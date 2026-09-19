@@ -173,7 +173,20 @@ function hasFusionWeights(it) {
   );
 }
 
-/** 表列 ranking = w_oo·ŷ_oo + w_oc·((1+ŷ_oc)(1+w_co·ŷ_co)−1)。不用 dual_score 缺口抬升。 */
+/** 决策 ranking = 融合分 − (price(τ)/open−1)。缺开盘或 τ 价则原值。百分点。 */
+export function remainingRankingPct(ranking, openPx, priceTau) {
+  const y = _numField(ranking);
+  if (y == null) return null;
+  const o = _numField(openPx);
+  const p = _numField(priceTau);
+  if (o == null || p == null || o <= 0 || p <= 0) return y;
+  const rot = (p / o - 1) * 100;
+  const out = y - rot;
+  return Number.isFinite(out) ? out : y;
+}
+
+/** 表列 ranking = w_oo·ŷ_oo + w_oc·((1+ŷ_oc)(1+w_co·ŷ_co)−1)。不用 dual_score 缺口抬升。
+ *  拟合标签 open[T]→open[T+1]；决策由后端 ranking_pct_of 减去 (price(τ)/open−1)。 */
 export function rankingPct(it) {
   if (!it || typeof it !== "object") return null;
   const oo = resolveEodScore(it);
@@ -258,7 +271,7 @@ export const Y_TAU_TITLE = Y_OC_TITLE;
 export const Y_OC_REBALANCE_TITLE =
   "ŷ_oc · 09:30–10:00 因果前缀 open[T]→close[T]";
 export const RANKING_REBALANCE_TITLE =
-  "ranking · 09:30–10:00 ŷ · w·ŷ_oo + w·(ŷ_oc∘w_co·ŷ_co)";
+  "ranking · fuse − (price(τ)/open−1) · 预估(真实)：(open[T+1]−price(τ))/open[T]";
 export const EOD_REALIZED_TITLE =
   "oo实 · open[T+1]/open[T]−1（与 ŷ_oo 同标签）";
 export const TAU_REALIZED_TITLE =

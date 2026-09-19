@@ -143,6 +143,8 @@ def _slim_formula_terms(
         out["missing_n"] = int(n_missing)
     if expl.get("missing_n") is not None and out.get("missing_n") is None:
         out["missing_n"] = expl.get("missing_n")
+    if expl.get("missing_keys") is not None:
+        out["missing_keys"] = expl.get("missing_keys")
     if expl.get("head") is not None:
         out["head"] = expl.get("head")
     if expl.get("model_role") is not None:
@@ -170,6 +172,22 @@ _TIP_PIN_FACTORS = (
     "volume_price",
     "relative_strength",
     "size",
+)
+_TAU_TIP_PIN_FACTORS = (
+    "gap_pct",
+    "theme_day",
+    "gap_atr",
+    "sector_gap_breadth",
+    "gap_vs_sector",
+    "yclose_loc",
+    "mom3_pct",
+    "tau_lag1",
+    "tau_ma5",
+    "ret_open_to_tau",
+    "tau_elapsed_min",
+    "loc_hl",
+    "ret_last_15m",
+    "sector_ret_to_tau",
 )
 
 
@@ -272,7 +290,8 @@ def tip_fields_from_item(item: Optional[dict]) -> Dict[str, Any]:
 
     tau_terms = _slim_formula_terms(
         item.get("formula_terms_tau") or item.get("score_formula_terms_tau"),
-        limit=12,
+        limit=24,
+        pin_keys=_TAU_TIP_PIN_FACTORS,
     )
     if tau_terms and (tau_terms.get("terms") or tau_terms.get("total") is not None):
         out["formula_terms_tau"] = tau_terms
@@ -2371,12 +2390,13 @@ def _refresh_tau_oc_from_feats(
     *,
     hm: str,
     trade_date: str,
-    force: bool = False,
+    force: bool = True,
 ) -> None:
     """前缀小包注入后按 features_tau 重算 ŷ_oc 组成。
 
-    ``resolve_scores`` 若只吃开盘 Z，注入会把上探/开盘→τ 写进 features_tau，
-    但 formula_terms_tau / y_oc 仍停在 τ=open，成交明细只剩 5 个隔夜项。
+    ``resolve_scores`` 常已写上盘中 as_of / 开盘→τ，但注入还会改截面
+    （同业缺口广度、HL 位置、近15m、板块中位）。不能因组成表已有
+    ``ret_open_to_tau`` 就跳过，否则调仓与做 T 同钟 ŷ_oc 会差一截小因子。
     """
     if not isinstance(item, dict):
         return
@@ -2387,18 +2407,11 @@ def _refresh_tau_oc_from_feats(
     clock = str(hm or "").strip()[:5]
     as_of_now = str(item.get("as_of_tau") or item.get("rem_tau") or "").strip()
     stale_open = not as_of_now or as_of_now == "open"
-    if len(day) >= 10 and clock and stale_open:
+    if len(day) >= 10 and clock and (stale_open or force):
         as_of = f"{day}T{clock}:00+08:00"
         item["as_of_tau"] = as_of
         item["rem_tau"] = as_of
     expl_now = item.get("formula_terms_tau")
-    keys = {
-        str(t.get("key") or "")
-        for t in ((expl_now or {}).get("terms") or [])
-        if isinstance(expl_now, dict) and isinstance(t, dict) and not t.get("note")
-    }
-    if (not force) and ((not stale_open) or "ret_open_to_tau" in keys):
-        return
     try:
         from core.research.tau_ridge import explain_tau_prediction, predict_tau_from_features
 
@@ -2813,9 +2826,6 @@ def rescore_scores_at_fixed_prefix(
         out = dict(fallback)
         src = "prefix_open_fallback"
 
-    gap_before = None
-    if isinstance(out.get("features_tau"), dict):
-        gap_before = out["features_tau"].get("gap_pct")
     _inject_minute_pack_from_prefix(
         out, minute_prefix=prefix, day_bar=day_bar, hm=hm or "10:30"
     )
@@ -2834,10 +2844,8 @@ def rescore_scores_at_fixed_prefix(
             )
     except Exception:  # noqa: BLE001
         logger.debug("prefix tau lag attach failed", exc_info=True)
-    ft_now = out.get("features_tau") if isinstance(out.get("features_tau"), dict) else {}
-    force_oc = gap_before is None and isinstance(ft_now, dict) and ft_now.get("gap_pct") is not None
     _refresh_tau_oc_from_feats(
-        out, hm=str(hm or "")[:5], trade_date=dkey, force=force_oc
+        out, hm=str(hm or "")[:5], trade_date=dkey, force=True
     )
     # 禁止 silently 用开盘 Z 冒充盘中 path
     out["_minute_prefix"] = prefix
@@ -4064,7 +4072,25 @@ def compute_scores_from_bars(
         except Exception:  # noqa: BLE001
             logger.debug("build_y_state in compute failed", exc_info=True)
         if allow_minute and minute_bars:
-            item["_minute_prefix"] = [b for b in minute_bars if isinstance(b, dict)]
+            prefix = [b for b in minute_bars if isinstance(b, dict)]
+            item["_minute_prefix"] = prefix
+            hm = causal_hm or prefix_tau_hm_from_bars(prefix)
+            _inject_minute_pack_from_prefix(
+                item, minute_prefix=prefix, day_bar=day, hm=hm or "10:30"
+            )
+            try:
+                from core.research.tau_panel import attach_tau_lag_features
+
+                ft = item.get("features_tau") if isinstance(item.get("features_tau"), dict) else {}
+                if isinstance(ft, dict) and ft.get("tau_lag1") is None and hist and pit_day:
+                    item["features_tau"] = attach_tau_lag_features(
+                        ft, hist_bars=hist, asof_date=pit_day
+                    )
+            except Exception:  # noqa: BLE001
+                logger.debug("compute tau lag attach failed", exc_info=True)
+            _refresh_tau_oc_from_feats(
+                item, hm=str(hm or "")[:5], trade_date=pit_day, force=True
+            )
         _attach_y_path_to_item(item, hist_bars=hist)
         item.pop("_minute_prefix", None)
         try:

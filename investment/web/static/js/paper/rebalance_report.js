@@ -794,7 +794,7 @@ function renderRebalanceReport(
       const scoreFuseTitle =
         scoreFuse == null
           ? "暂无 ranking"
-          : `ranking · w·ŷ_oo + w·(ŷ_oc∘w_co·ŷ_co)；<0% 或缺分清仓；过入场才开/加${rankOrd}`;
+          : `ranking · fuse − (price(τ)/open−1)；真实=(open[T+1]−price(τ))/open[T]；<0% 或缺分清仓；过入场才开/加${rankOrd}`;
       const tipDetailJson = escapeText(
         JSON.stringify(tipDetailPayload(r))
       );
@@ -1040,7 +1040,7 @@ function renderRebalanceReport(
     `<div class="rebalance-th num" role="columnheader" title="ŷ_oo · 隔夜主轴">y_oo</div>` +
     `<div class="rebalance-th num" role="columnheader" title="ŷ_oc · open→close">y_oc</div>` +
     `<div class="rebalance-th num" role="columnheader" title="ŷ_co · close→次日开">y_co</div>` +
-    `<div class="rebalance-th num" role="columnheader" title="ranking · w·ŷ_oo + w·(ŷ_oc∘w_co·ŷ_co)">ranking</div>` +
+    `<div class="rebalance-th num" role="columnheader" title="ranking · fuse − (price(τ)/open−1)；真实=(open[T+1]−price(τ))/open[T]">ranking</div>` +
     `<div class="rebalance-th num" role="columnheader">股数</div>` +
     `<div class="rebalance-th num" role="columnheader">变动</div>` +
     `<div class="rebalance-th rebalance-th-decision" role="columnheader" title="悬停看原因">决策</div>` +

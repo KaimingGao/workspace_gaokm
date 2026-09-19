@@ -328,6 +328,24 @@ def _quote_px(code: str, *, offline_only: bool = True) -> Optional[float]:
     return None
 
 
+def _quote_open_px(code: str, *, offline_only: bool = True) -> Optional[float]:
+    """当日开盘：仅实时行情。offline 预演不扣 remaining，避免用昨收/昨开误映射。"""
+    if offline_only:
+        return None
+    try:
+        from core.data.facade import get_quote
+
+        q = get_quote(code) or {}
+        px = _f(q.get("open_raw") if isinstance(q, dict) else None)
+        if px is None and isinstance(q, dict):
+            px = _f(q.get("open"))
+        if px is not None and px > 0:
+            return float(px)
+    except Exception:  # noqa: BLE001
+        logger.debug("live quote open failed for %s", code, exc_info=True)
+    return None
+
+
 _SCORE_PASSTHROUGH_KEYS = (
     "predicted_score",
     "predicted_score_eod",
@@ -414,6 +432,9 @@ def _row_score_payload(
     item: Optional[dict],
     src: Optional[dict] = None,
     cfg: Optional[dict] = None,
+    *,
+    open_px: Optional[float] = None,
+    price_tau: Optional[float] = None,
 ) -> Dict[str, Any]:
     """表列用分项 ŷ；ranking 现算（别名 y_fuse），不把融合分塞进 y_trade。"""
     from core.paper.rebalance.rank_lots import aux_yhat_fields, ranking_pct_of, y_tau_of
@@ -445,9 +466,15 @@ def _row_score_payload(
     for k in ("y_oo", "y_oc", "y_τc", "ranking", "residual"):
         if sc.get(k) is not None:
             payload[k] = sc.get(k)
-    yf = ranking_pct_of(item, cfg)
+    o = _f(open_px)
+    if o is None or o <= 0:
+        o = _f(item.get("day_open"))
+    p = _f(price_tau)
+    if p is None or p <= 0:
+        p = _f(src.get("price"))
+    yf = ranking_pct_of(item, cfg, open_px=o, price_tau=p)
     if yf is None:
-        yf = ranking_pct_of(src, cfg)
+        yf = ranking_pct_of(src, cfg, open_px=o, price_tau=p)
     if yf is not None:
         payload["ranking"] = yf
         payload["y_fuse"] = yf
@@ -536,11 +563,9 @@ def _apply_one_leg(
         if sell_shares <= 0 or not existing:
             return None, (t1_meta.get("reason") or TPLUS1_LOCK_REASON) if have > 0 else "no_position"
         cost = float(existing.get("cost") or 0)
-        have_sh = float(existing.get("shares") or 0)
         amount = round(sell_shares * fill_px, 2)
         fee_info = calc_trade_fees("sell", amount, model=model, params=params)
         pnl_pct = round((fill_px / cost - 1.0) * 100.0, 2) if cost else None
-        cum_cost = round(cost * have_sh, 2) if cost and have_sh else None
         trade = annotate_trade(
             {
                 "ts": _now_iso(),
@@ -550,8 +575,6 @@ def _apply_one_leg(
                 "shares": sell_shares,
                 "price": round(fill_px, 4),
                 "amount": amount,
-                "cost_price": round(cost, 4) if cost else None,
-                "cum_cost": cum_cost,
                 "open_date": _open_date_of(existing, as_of),
                 "pnl_pct": pnl_pct,
                 "score": leg.get("y_trade") if leg.get("y_trade") is not None else leg.get("score"),
@@ -591,7 +614,6 @@ def _apply_one_leg(
     fill_rounded = round(fill_px, 4)
     old_sh = float(existing.get("shares") or 0) if existing else 0.0
     old_cost = float(existing.get("cost") or 0) if existing else 0.0
-    cum_cost = round(old_cost * old_sh + fill_px * buy_shares, 2)
     trade = annotate_trade(
         {
             "ts": _now_iso(),
@@ -601,8 +623,6 @@ def _apply_one_leg(
             "shares": buy_shares,
             "price": fill_rounded,
             "amount": amount,
-            "cost_price": fill_rounded,
-            "cum_cost": cum_cost,
             "open_date": _open_date_of(existing, as_of),
             "score": leg.get("y_trade") if leg.get("y_trade") is not None else leg.get("score"),
             "origin": ORIGIN_STRATEGY,
@@ -810,16 +830,21 @@ def simulate_watching_matrix_preview(
             item_by_code[code]["stock_name"] = name
 
     prices: Dict[str, float] = {}
+    opens: Dict[str, float] = {}
     for code in item_by_code:
         px = _quote_px(code, offline_only=use_offline)
         if px is not None and px > 0:
             prices[code] = float(px)
+        opx = _quote_open_px(code, offline_only=use_offline)
+        if opx is not None and opx > 0:
+            opens[code] = float(opx)
 
     plan = plan_rank_lot_day(
         scored=list(item_by_code.values()),
         holdings=list(paper.get("holdings") or []),
         cash=cash_before,
         prices=prices,
+        opens=opens,
         cfg=rl_cfg,
     )
     oos_excluded = sum(
@@ -846,12 +871,15 @@ def simulate_watching_matrix_preview(
             code, item=item, paper=paper, name_by_code=name_by_code
         )
         px = prices.get(code)
+        opx = opens.get(code)
         return {
             "stock_code": code,
             "stock_name": name,
             "matrix_mode": True,
             "price": px,
-            **_row_score_payload(item, src, rl_cfg),
+            **_row_score_payload(
+                item, src, rl_cfg, open_px=opx, price_tau=px
+            ),
         }
 
     def _leg_row(leg: dict, *, side: str) -> dict:

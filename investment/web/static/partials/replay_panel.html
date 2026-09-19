@@ -119,7 +119,7 @@
                 <section class="follow-path-matrix-panel" data-panel="mode" aria-labelledby="pm-panel-mode">
                   <header class="follow-path-matrix-panel-head">
                     <h4 id="pm-panel-mode" class="follow-path-matrix-panel-title">分数融合</h4>
-                    <p class="follow-path-matrix-panel-note">rank＝w_oo·ŷ_oo + w_oc·((1+ŷ_oc)(1+w_co·ŷ_co)−1)</p>
+                    <p class="follow-path-matrix-panel-note">rank＝w_oo·ŷ_oo + w_oc·((1+ŷ_oc)(1+w_co·ŷ_co)−1) − (price(τ)/open−1)</p>
                   </header>
                   <div class="follow-path-matrix-body follow-path-matrix-body--row3">
                     <label class="follow-path-matrix-box" title="rank 中 ŷ_oo 权重；与 w_oc 一并归一化。默认 0.6。">
@@ -148,7 +148,7 @@
                 <section class="follow-path-matrix-panel" data-panel="rank" aria-labelledby="pm-panel-rank">
                   <header class="follow-path-matrix-panel-head">
                     <h4 id="pm-panel-rank" class="follow-path-matrix-panel-title">ranking 门槛</h4>
-                    <p class="follow-path-matrix-panel-note">rank＝w_oo·ŷ_oo + w_oc·((1+ŷ_oc)(1+w_co·ŷ_co)−1)</p>
+                    <p class="follow-path-matrix-panel-note">rank＝w_oo·ŷ_oo + w_oc·((1+ŷ_oc)(1+w_co·ŷ_co)−1) − (price(τ)/open−1)</p>
                   </header>
                   <div class="follow-path-matrix-body follow-path-matrix-body--row2">
                     <div
@@ -194,7 +194,7 @@
                     <h4 id="pm-panel-other" class="follow-path-matrix-panel-title">其他</h4>
                     <p class="follow-path-matrix-panel-note">本金 / 日分价闸只用于调仓回测；勾选则入场须 y&gt;0（缺分不拦）；未过门槛清仓</p>
                   </header>
-                  <div class="follow-path-matrix-body follow-path-matrix-body--row5">
+                  <div class="follow-path-matrix-body follow-path-matrix-body--row4">
                     <label
                       class="follow-path-matrix-box"
                       title="回测全部本金（元）。默认 20 万。跑回测用这个数当起始现金；不套持仓市值帽。保存规则不改交易执行市值上限。"
@@ -235,16 +235,6 @@
                       </span>
                       <input type="checkbox" name="pm_y_oc_gt0" aria-label="y_oc 大于 0" />
                     </label>
-                    <label
-                      class="follow-path-matrix-box"
-                      title="开=入场须 y_hl&gt;0；关=不看。缺分不拦。未过则已持仓清仓。"
-                    >
-                      <span class="follow-path-matrix-box-text">
-                        <span class="follow-path-matrix-box-title">y_hl &gt; 0</span>
-                        <span class="follow-path-matrix-box-desc">入场闸</span>
-                      </span>
-                      <input type="checkbox" name="pm_y_hl_gt0" checked aria-label="y_hl 大于 0" />
-                    </label>
                   </div>
                 </section>
               </div>
@@ -284,7 +274,7 @@
           ></div>
         </div>
         <p id="quant-portfolio-legend" class="quant-sub">
-          每个交易日 09:30 对全部观察池按 rank=w_oo·ŷ_oo + w_oc·((1+ŷ_oc)(1+w_co·ŷ_co)−1) 调仓；手数看上方入场/强档股数。横轴为本次全部交易日。
+          每个交易日 fill_clock 对全部观察池按 ranking＝融合分 − (price(τ)/open−1) 调仓（拟合 open[T]→open[T+1]；09:40 减去开盘到成交钟）；手数看上方入场/强档股数。横轴为本次全部交易日。
         </p>
         <div id="quant-bt-stock-contrib" class="replay-stock-contrib" hidden aria-label="分票贡献"></div>
         <div id="quant-bt-trades" class="quant-weight-table-wrap" aria-label="成交流水"></div>
@@ -459,7 +449,7 @@
                   </label>
                   <label
                     class="paper-t0-field"
-                    title="ŷ_τw 入场：破带后 |ŷ_τw| **大于** 此值才开腿，且须与方向同号。全弃权计 0 票（过不了 |ŷ_τw|>0）。0=关同号。不改 C_τ。"
+                    title="ŷ_τw 入场：破带后 |ŷ_τw| **大于** 此值才开腿，且须与方向同号。全弃权计 0 票。0=关（0 票也过，关同号）。不改 C_τ。"
                   >
                     <span>τw入场</span>
                     <input type="number" name="y_tw_enter" min="0" max="5" step="0.1" value="0" />

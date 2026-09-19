@@ -3,7 +3,7 @@
  */
 import { escapeHtml } from "../shared.js";
 import { fmtTableScore, Y_OC_REBALANCE_TITLE, RANKING_REBALANCE_TITLE } from "../paper/fmt.js?v=p2404";
-import { marketPriorDetailFields, tailAnomalyDetailFields, overheatDetailFields } from "../score_tooltip.js?v=p2512";
+import { marketPriorDetailFields, tailAnomalyDetailFields, overheatDetailFields } from "../score_tooltip.js?v=p2531";
 import { watchingNameSpanHtml } from "./names.js";
 import { fitTierBadgeForCode } from "./fit_tier_ui.js";
 
@@ -82,7 +82,7 @@ export function watchingScoreDetail(it) {
   );
   const tauTerms = slimFormulaTerms(
     (it && (it.formula_terms_tau || it.score_formula_terms_tau)) || null,
-    12
+    24
   );
   const onTerms = slimFormulaTerms(
     (it && (it.formula_terms_on || it.score_formula_terms_on)) || null,
@@ -135,6 +135,10 @@ export function watchingScoreDetail(it) {
     stock_code: (it && (it.stock_code || it.code)) || null,
     // ranking 权/头靠前：data-score-detail 截断时 tip 仍与表列同式
     ranking: it && it.ranking,
+    realized_ranking: it && it.realized_ranking,
+    realized_oo: it && it.realized_oo,
+    day_open: it && it.day_open,
+    rebalance_px: it && it.rebalance_px,
     y_oo: it && it.y_oo,
     y_oc: it && it.y_oc,
     y_co: it && it.y_co,
@@ -362,6 +366,34 @@ export function watchingScoreDetail(it) {
       (it.features_tau && it.features_tau.ret_open_to_tau != null
         ? it.features_tau.ret_open_to_tau
         : it.ret_open_to_tau),
+    r_hat:
+      it &&
+      (it.r_hat != null
+        ? it.r_hat
+        : it.remaining_oc != null
+          ? it.remaining_oc
+          : null),
+    remaining_oc:
+      it &&
+      (it.remaining_oc != null
+        ? it.remaining_oc
+        : it.r_hat != null
+          ? it.r_hat
+          : null),
+    r_realized:
+      it &&
+      (it.r_realized != null
+        ? it.r_realized
+        : it.y_r_realized != null
+          ? it.y_r_realized
+          : null),
+    y_r_realized:
+      it &&
+      (it.y_r_realized != null
+        ? it.y_r_realized
+        : it.r_realized != null
+          ? it.r_realized
+          : null),
     predicted_score_tau:
       it &&
       (it.predicted_score_tau != null
@@ -445,6 +477,20 @@ function slimFormulaTerms(expl, maxTerms = 10) {
     "size",
     "overheat",
     "gap_risk",
+    "gap_pct",
+    "theme_day",
+    "gap_atr",
+    "sector_gap_breadth",
+    "gap_vs_sector",
+    "yclose_loc",
+    "mom3_pct",
+    "tau_lag1",
+    "tau_ma5",
+    "ret_open_to_tau",
+    "tau_elapsed_min",
+    "loc_hl",
+    "ret_last_15m",
+    "sector_ret_to_tau",
   ]);
   const sorted = [...terms].sort(
     (a, b) => Math.abs(Number(b?.contrib) || 0) - Math.abs(Number(a?.contrib) || 0)
@@ -456,7 +502,7 @@ function slimFormulaTerms(expl, maxTerms = 10) {
   const kept = [...nonPin.slice(0, budget), ...pinTerms].sort(
     (a, b) => Math.abs(Number(b?.contrib) || 0) - Math.abs(Number(a?.contrib) || 0)
   );
-  return {
+  const out = {
     intercept: expl.intercept,
     total: expl.total,
     y_tau_raw: expl.y_tau_raw != null ? expl.y_tau_raw : null,
@@ -464,6 +510,11 @@ function slimFormulaTerms(expl, maxTerms = 10) {
     head: expl.head,
     model_role: expl.model_role || null,
   };
+  if (expl.missing_n != null) out.missing_n = expl.missing_n;
+  if (Array.isArray(expl.missing_keys) && expl.missing_keys.length) {
+    out.missing_keys = expl.missing_keys.slice(0, 8);
+  }
+  return out;
 }
 
 export function truncateText(s, n) {
