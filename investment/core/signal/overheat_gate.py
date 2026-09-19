@@ -191,6 +191,6 @@ def annotate_item_overheat(
         if gate["soft_scale_yhat"] and gate["hit"]:
             item["predicted_score_before_overheat"] = y_f
             item["predicted_score"] = scaled
-            if item.get("predicted_score_eod") is not None:
-                item["predicted_score_eod"] = scaled
+            if item.get("predicted_score_oo") is not None:
+                item["predicted_score_oo"] = scaled
     return gate

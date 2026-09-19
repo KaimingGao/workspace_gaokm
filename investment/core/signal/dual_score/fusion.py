@@ -267,7 +267,6 @@ def stamp_item_fusion_weights(
     item["dual_score_weights"] = {
         **base,
         "w_oo": round(float(w_eod), 6),
-        "w_eod": round(float(w_eod), 6),
         "w_tau": round(0.0 if eod_next else float(w_tau), 6),
         "tau_in_trade": bool(not eod_next and tau_available),
         "window": "eod_next" if eod_next else "intraday",

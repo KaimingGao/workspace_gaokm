@@ -295,8 +295,6 @@ def apply_predicted_scores_by_model(
         if pred is not None:
             item["y_oo"] = pred
             item["predicted_score_oo"] = pred
-            item.setdefault("predicted_score_eod", pred)
-            item.setdefault("y_eod", pred)
         if model is not None:
             item["return_model_source"] = item.get("return_model_source") or "mapped"
         if write_rank_score and pred is not None:
@@ -337,8 +335,6 @@ def apply_predicted_scores(
         if pred is not None:
             item["y_oo"] = pred
             item["predicted_score_oo"] = pred
-            item.setdefault("predicted_score_eod", pred)
-            item.setdefault("y_eod", pred)
         if write_rank_score and pred is not None:
             item["score"] = pred
         _stamp_formula_terms(item, model)

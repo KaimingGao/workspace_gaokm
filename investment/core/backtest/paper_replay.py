@@ -1741,7 +1741,6 @@ def _attach_open_yhat_heads(
         code = str(it.get("stock_code") or "").strip()
         pred = it.get("predicted_score")
         if pred is not None:
-            it.setdefault("predicted_score_eod", pred)
             it.setdefault("predicted_score_oo", pred)
             it.setdefault("y_oo", pred)
             it.setdefault("y_trade", pred)
@@ -1962,8 +1961,9 @@ def _apply_prefix_oc(item: dict, live: dict, cfg: Optional[dict]) -> bool:
     _merge_aux_yhat(item, live)
     if y_oo is not None:
         item["y_oo"] = y_oo
-        item["predicted_score_eod"] = y_eod if y_eod is not None else y_oo
-        item["predicted_score"] = item["predicted_score_eod"]
+        ps = y_eod if y_eod is not None else y_oo
+        item["predicted_score_oo"] = ps
+        item["predicted_score"] = ps
     if y_trade is not None:
         item["y_trade"] = y_trade
     win = stamp_window_scores(item, cfg)
@@ -2833,7 +2833,6 @@ def rankings_from_topk_precomputed(
                 sc = None
             if sc is not None:
                 base.setdefault("predicted_score", sc)
-                base.setdefault("predicted_score_eod", sc)
                 base.setdefault("predicted_score_blend", sc)
                 base.setdefault("score", sc)
             base.setdefault("score_scale", "predicted_yhat")

@@ -179,7 +179,6 @@ def apply_tau_score_fields(
             eod_rem, y_tau, rem_intercept=rem_intercept
         )
 
-    signal_item["predicted_score_eod"] = signal_item.get("predicted_score")
     if y_eod is not None:
         signal_item["y_oo"] = y_eod
         signal_item["predicted_score_oo"] = y_eod
@@ -236,7 +235,7 @@ def apply_tau_score_fields(
     else:
         formula_terms_tau = dict(formula_terms_tau)
     formula_terms_tau["eod_remaining"] = eod_rem
-    formula_terms_tau["y_eod"] = y_eod
+    formula_terms_tau["y_oo"] = y_eod
     formula_terms_tau["y_tau"] = y_tau
     formula_terms_tau["y_tau_raw"] = y_tau_raw
     formula_terms_tau["y_tau_cc"] = signal_item.get("predicted_score_blend_tau_cc")
@@ -305,13 +304,11 @@ def apply_tau_score_fields(
             yhat_f = None
         if yhat_f is not None:
             signal_item["predicted_score"] = yhat_f
-            signal_item["predicted_score_eod"] = yhat_f
             signal_item["predicted_score_blend"] = yhat_f
             signal_item["decision_score"] = yhat_f
             signal_item["score"] = yhat_f
         else:
             signal_item["predicted_score"] = None
-            signal_item["predicted_score_eod"] = None
             signal_item["predicted_score_eod_rem"] = None
             signal_item["predicted_score_blend"] = None
             signal_item["score"] = None
@@ -841,7 +838,7 @@ def recover_sub_scores_for_tau(item: Optional[dict]) -> Dict[str, float]:
 def format_tau_formula_string(expl: Optional[Dict[str, Any]]) -> str:
     if not isinstance(expl, dict):
         return ""
-    y_eod = expl.get("y_eod")
+    y_eod = expl.get("y_oo")
     trade = expl.get("trade")
     y_tau = expl.get("y_tau")
     y_tau_cc = expl.get("y_tau_cc")

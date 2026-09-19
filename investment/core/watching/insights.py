@@ -350,12 +350,10 @@ def _sanitize_heuristic_yhat_fields(out: Dict[str, Any], item: Optional[dict] = 
     out["score"] = yhat_f  # 可为 None → 表列「—」
     if yhat_f is not None:
         out["predicted_score"] = yhat_f
-        out["predicted_score_eod"] = yhat_f
         out["predicted_score_blend"] = yhat_f
         out["decision_score"] = yhat_f
     else:
         out["predicted_score"] = None
-        out["predicted_score_eod"] = None
         out["predicted_score_eod_rem"] = None
         out["predicted_score_blend"] = None
         out["decision_score"] = None
@@ -535,8 +533,6 @@ def _hydrate_insight_tau_fields(
     sig = dict(item) if isinstance(item, dict) else {}
     # predicted_score 必须是 ŷ_EOD；勿把簿上 trade score 喂进 rem 映射
     sig["predicted_score"] = y_eod
-    if sig.get("predicted_score_eod") is None:
-        sig["predicted_score_eod"] = y_eod
     if gap is not None:
         sig["gap_pct"] = gap
     # tip 常无池上下文：保留簿上已齐的 features_tau / 池缺口，避免冲成缺特征
@@ -582,7 +578,6 @@ def _hydrate_insight_tau_fields(
         if rem is None:
             _finalize_insight_trade_fields(out)
             return
-        out["predicted_score_eod"] = y_eod
         out["predicted_score_eod_rem"] = rem
         if out.get("predicted_score_blend") is None:
             win = str(out.get("dual_score_window") or "")
