@@ -184,6 +184,21 @@ class PaperAccountMixin:
                     hydrate_holding_on_fields(enriched)
                 except Exception as e:
                     log.debug("holding on hydrate skipped %s: %s", code, e)
+                try:
+                    from core.paper.rebalance.rank_lots import ranking_pct_of
+                    from core.signal.yhat_windows import ranking_open_px, ranking_price_tau
+
+                    o = ranking_open_px(enriched)
+                    p = ranking_price_tau(enriched)
+                    yf = ranking_pct_of(enriched, rank_cfg, open_px=o, price_tau=p)
+                    if yf is not None:
+                        enriched["ranking"] = yf
+                    if o is not None:
+                        enriched["day_open"] = o
+                    if p is not None:
+                        enriched["price_tau"] = p
+                except Exception:  # noqa: BLE001
+                    log.debug("holding remaining ranking skipped %s", code, exc_info=True)
                 enriched.pop("in_book", None)
                 t0_st = t0_by_code.get(code)
                 if t0_st:

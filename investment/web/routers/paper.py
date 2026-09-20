@@ -92,9 +92,6 @@ def paper_execution_save(body: PaperExecutionPatchRequest | None = None) -> Dict
             ("residual_w_mode", getattr(req, "residual_w_mode", None)),
             ("y_on_allow", req.y_on_allow),
             ("y_on_risk", req.y_on_risk),
-            ("t0_y_oc_target_scale", getattr(req, "t0_y_oc_target_scale", None)),
-            ("t0_y_oc_l", getattr(req, "t0_y_oc_l", None)),
-            ("t0_y_oc_u", getattr(req, "t0_y_oc_u", None)),
             ("y_hl_strong", getattr(req, "y_hl_strong", None)
              if getattr(req, "y_hl_strong", None) not in (None, "")
              else getattr(req, "y_path_strong", None)),
@@ -102,11 +99,17 @@ def paper_execution_save(body: PaperExecutionPatchRequest | None = None) -> Dict
             ("y_τw_enter", getattr(req, "y_τw_enter", None)
              if getattr(req, "y_τw_enter", None) not in (None, "")
              else getattr(req, "y_tw_enter", None)),
+            ("y_tw_strong", getattr(req, "y_tw_strong", None)),
+            ("y_τw_strong", getattr(req, "y_τw_strong", None)
+             if getattr(req, "y_τw_strong", None) not in (None, "")
+             else getattr(req, "y_tw_strong", None)),
             ("y_tw_vote_margin", getattr(req, "y_tw_vote_margin", None)),
             ("y_τw_vote_margin", getattr(req, "y_τw_vote_margin", None) if getattr(req, "y_τw_vote_margin", None) not in (None, "") else getattr(req, "y_tw_vote_margin", None)),
-            ("y_hl_required", getattr(req, "y_hl_required", None)
-             if getattr(req, "y_hl_required", None) is not None
-             else req.y_path_required),
+            ("y_tw_midpoint", getattr(req, "y_tw_midpoint", None)),
+            ("y_τw_midpoint", getattr(req, "y_τw_midpoint", None) if getattr(req, "y_τw_midpoint", None) not in (None, "") else getattr(req, "y_tw_midpoint", None)),
+            ("t0_y_oc_target_scale", getattr(req, "t0_y_oc_target_scale", None)),
+            ("t0_y_oc_l", getattr(req, "t0_y_oc_l", None)),
+            ("t0_y_oc_u", getattr(req, "t0_y_oc_u", None)),
             ("t0_close_band_delta_pct", getattr(req, "t0_close_band_delta_pct", None)),
             ("t0_price_space_gate", getattr(req, "t0_price_space_gate", None)),
             ("t0_price_space_max_dev_pct", getattr(req, "t0_price_space_max_dev_pct", None)),

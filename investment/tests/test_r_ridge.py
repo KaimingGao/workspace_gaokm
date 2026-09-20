@@ -215,9 +215,9 @@ class YRDisplayOnlyTests(unittest.TestCase):
     def test_close_band_enter_does_not_read_y_r(self):
         from core.t0 import close_band
 
-        src = inspect.getsource(close_band.close_band_enter_skip_reason)
+        src = inspect.getsource(close_band.close_band_y_tw_skip_reason)
         self.assertNotIn("y_r", src)
-        src2 = inspect.getsource(close_band._enter_profile_skip_reason)
+        src2 = inspect.getsource(close_band.blend_y_tw_from_scores)
         self.assertNotIn("y_r", src2)
 
 

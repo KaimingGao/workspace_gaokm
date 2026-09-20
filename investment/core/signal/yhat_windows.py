@@ -350,6 +350,28 @@ def ret_open_to_tau_pct(
     return (float(p) / float(o) - 1.0) * 100.0
 
 
+def ranking_open_px(item: Optional[dict]) -> Optional[float]:
+    """今开：day_open / open_raw / open_t / open。"""
+    if not isinstance(item, dict):
+        return None
+    for k in ("day_open", "open_raw", "open_t", "open"):
+        v = _f(item.get(k))
+        if v is not None and v > 0:
+            return v
+    return None
+
+
+def ranking_price_tau(item: Optional[dict]) -> Optional[float]:
+    """τ 价：rebalance_px / price_tau / 现价。"""
+    if not isinstance(item, dict):
+        return None
+    for k in ("rebalance_px", "price_tau", "price_raw", "last_price", "mark_price", "price"):
+        v = _f(item.get(k))
+        if v is not None and v > 0:
+            return v
+    return None
+
+
 def remaining_oc(
     y_oc: Optional[float],
     ret_open_to_tau: Optional[float] = None,
@@ -607,6 +629,11 @@ def stamp_window_scores(item: Optional[dict], cfg: Optional[dict] = None) -> Dic
     y_τc = pick_y_τc(item)
     y_co = pick_y_co(item)
     ranking = fuse_pct(y_oo, oc_with_co(y_oc, y_co, w_co), w_left=w_oo, w_right=w_oc)
+    ranking = remaining_ranking_pct(
+        ranking,
+        open_px=ranking_open_px(item),
+        price_tau=ranking_price_tau(item),
+    )
     residual = residual_pct(item, w_pc=w_τc, w_oc=w_oc_r, cfg=cfg)
     fa = item.get("factor_anomaly") if isinstance(item, dict) else None
     if isinstance(fa, dict) and fa.get("fatal_tau"):
@@ -651,7 +678,9 @@ __all__ = [
     "pick_y_τc",
     "pick_y_tc",
     "pit_oo_window_quote",
+    "ranking_open_px",
     "ranking_pct",
+    "ranking_price_tau",
     "remaining_ranking_pct",
     "realized_ranking_pct",
     "remaining_oc",

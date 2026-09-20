@@ -37,11 +37,24 @@ def _mins(date, points):
     return out
 
 
-def _scores_flat():
-    """三源全 0 + nowcast 锚 open。R=0 时不开轮；需方向时用 _scores_r。
+def _ytw_heads(up=True):
+    p = 0.8 if up else 0.2
+    return {
+        "y_τ30": p,
+        "y_t30": p,
+        "y_τ45": p,
+        "y_t45": p,
+        "y_τ60": p,
+        "y_t60": p,
+        "y_τ75": p,
+        "y_t75": p,
+        "y_τ90": p,
+        "y_t90": p,
+    }
 
-    y_path 取弱正值：过默认 path 入场（0），但低于 path强（5）。
-    """
+
+def _scores_flat():
+    """无窗头 → 缺 ŷ_τw 不开轮。需方向时用 _scores_r。"""
     return {
         "y_tau": 0.0,
         "y_trade": 0.0,
@@ -52,51 +65,51 @@ def _scores_flat():
 
 
 def _scores_r(sign):
-    """R̂_τ 符号选向：>0 正T，<0 反T。"""
+    """ŷ_τw 符号选向：>0 正T，<0 反T。"""
     s = float(sign)
-    return {**_scores_flat(), "y_tau": s, "y_tau_oc": s}
+    return {**_scores_flat(), "y_tau": s, "y_tau_oc": s, **_ytw_heads(up=s >= 0)}
 
 
 def _mins_hl(date=None, o=100, high=105, low=98, close=101, bar=None):
-    """反T（sell_then_buy）：首根收价破上带 → leg1 卖；午后回落触 leg2 买回。"""
+    """反T：首根阴线 + 负 ŷ_τw → leg1 卖；午后更低下探，15:00 回补。"""
     if isinstance(bar, dict):
         date = bar.get("date") or date
         o = float(bar.get("open") or o)
         high = float(bar.get("high") or high)
         low = float(bar.get("low") or low)
         close = float(bar.get("close") or close)
-    d = o * 0.0001  # t0_close_band_delta_pct=0.01 → δ_px
-    up = o + max(d + 0.04, 0.05)
+    dn = o - max(o * 0.0005, 0.05)
     return _mins(
         str(date),
         [
-            (935, o, up + 0.05, o - 0.05, up),  # 收破上带 → 反T
-            (940, up, up + 0.03, o, o + 0.03),
-            (945, o + 0.03, o + 0.05, o - d - 0.10, o - 0.05),
-            (950, o - 0.05, o, o - 0.10, o - 0.08),
-            (1400, o - 0.08, o, low, close),  # 午后 dip → leg2 买回
+            (935, o, o + 0.02, dn - 0.01, dn),
+            (940, dn, dn + 0.02, dn - 0.04, dn - 0.02),
+            (945, dn - 0.02, dn, dn - 0.08, dn - 0.05),
+            (950, dn - 0.05, dn - 0.02, dn - 0.10, dn - 0.08),
+            (1400, dn - 0.08, o, low, min(close, dn - 0.06)),
+            (1500, min(close, dn - 0.06), o, low, min(close, low + 0.1)),
         ],
     )
 
 
 def _mins_lh(date=None, o=100, high=105, low=96, close=101, bar=None):
-    """正T（buy_then_sell）：首根收价破下带 → leg1 买；午后冲高触 leg2 卖旧。"""
+    """正T：全程阳线 + 正 ŷ_τw → leg1 买；午后冲高，15:00 可回补。"""
     if isinstance(bar, dict):
         date = bar.get("date") or date
         o = float(bar.get("open") or o)
         high = float(bar.get("high") or high)
         low = float(bar.get("low") or low)
         close = float(bar.get("close") or close)
-    d = o * 0.0001
-    dn = o - max(d + 0.04, 0.05)
+    up = o + max(o * 0.0005, 0.05)
     return _mins(
         str(date),
         [
-            (935, o, o + 0.05, dn - 0.01, dn),  # 收破下带 → 正T
-            (940, dn, o, dn - 0.03, o - 0.02),
-            (945, o - 0.02, o + 0.05, o - 0.05, o + 0.02),
-            (950, o + 0.02, o + 0.08, o, o + 0.06),
-            (1400, o + 0.06, high, low, close),  # 午后 rally → leg2 卖旧
+            (935, o, up + 0.05, o - 0.02, up),
+            (940, up, up + 0.08, up - 0.02, up + 0.05),
+            (945, up + 0.05, up + 0.12, up, up + 0.10),
+            (950, up + 0.10, high, up + 0.05, max(up + 0.12, min(high, o + 1.5))),
+            (1400, up + 0.12, high, low, max(close, up + 0.15)),
+            (1500, max(close, up + 0.15), high, low, max(close, up + 0.15)),
         ],
     )
 
@@ -106,6 +119,8 @@ def _rules(**kwargs):
     base = {
         "path_mode": "first_touch",
         "t0_pm_degrade": "",
+        "t0_pm_degrade_sell_then_buy": "",
+        "t0_pm_degrade_buy_then_sell": "",
         # 路径用例默认关止损/回吐，避免夹具回踩/冲高误触；止损/回吐单测显式打开
         "t0_stop_pct_buy_then_sell": 0,
         "t0_stop_pct_sell_then_buy": 0,
@@ -683,9 +698,14 @@ class TestT0Core(unittest.TestCase):
         self.assertNotIn("buy_trigger_pct_reverse", d)
         self.assertNotIn("y_path_enter", d)
         self.assertNotIn("y_tau_enter", d)
-        self.assertAlmostEqual(d["y_hl_strong"], 5.0)
-        self.assertAlmostEqual(d["y_tw_enter"], 0.0)
-        self.assertNotIn("y_tw_strong", d)
+        self.assertNotIn("y_hl_strong", d)
+        self.assertAlmostEqual(d["y_tw_enter"], 2.0)
+        self.assertAlmostEqual(d["y_tw_strong"], 2.0)
+        self.assertNotIn("t0_bar_oc_gate", d)
+        self.assertNotIn("t0_ytw_prefix_confirm", d)
+        self.assertNotIn("t0_ytw_prefix_lookback", d)
+        self.assertNotIn("t0_ytw_prefix_min_hit_pct", d)
+        self.assertAlmostEqual(d["y_tw_midpoint"], 47.0)
         self.assertNotIn("y_hl_enter", d)
         self.assertNotIn("y_use_hl", d)
         self.assertNotIn("y_use_path", d)
@@ -702,7 +722,7 @@ class TestT0Core(unittest.TestCase):
         self.assertNotIn("y_tc_enter_alt", d)
         self.assertNotIn("y_t30_enter", d)
         self.assertNotIn("y_t30_enter_alt", d)
-        self.assertAlmostEqual(d["y_tw_vote_margin"], 2.0)
+        self.assertAlmostEqual(d["y_tw_vote_margin"], 5.0)
         self.assertNotIn("y_t60_enter", d)
         self.assertNotIn("y_t60_enter_alt", d)
         self.assertNotIn("y_t90_enter", d)
@@ -735,9 +755,9 @@ class TestT0Core(unittest.TestCase):
         self.assertNotIn("t0_slots_roll_unused", d)
         self.assertEqual(d["t0_slots_max_rounds"], 5)
         self.assertNotIn("t0_confirm_dev_pct", d)
-        self.assertAlmostEqual(float(d.get("t0_close_band_delta_pct") or 0), 3.0)
+        self.assertAlmostEqual(float(d.get("t0_close_band_delta_pct") or 0), 0.5)
         self.assertAlmostEqual(float(d.get("t0_round_ratio") or 0), 0.4)
-        self.assertAlmostEqual(float(d.get("t0_price_space_max_dev_pct") or 0), 5.0)
+        self.assertAlmostEqual(float(d.get("t0_price_space_max_dev_pct") or 0), 0.0)
         self.assertAlmostEqual(float(d.get("t0_price_space_prev_dev_pct") or 0), 5.0)
         self.assertAlmostEqual(float(d.get("t0_y_oc_target_scale") or 0), 10.0)
         self.assertAlmostEqual(float(d.get("t0_y_oc_l") or 0), -3.0)
@@ -804,8 +824,10 @@ class TestT0Core(unittest.TestCase):
                 direction="sell_then_buy",
                 ref="cost",
                 min_range_pct=1.0,
+                must_cover_same_day_sell_then_buy=True,
             ),
-            stock_code="600519",
+            stock_code="",
+            scores=_scores_r(-0.5),
             minute_bars=_mins_hl(bar=bar))
         self.assertTrue(out["success"])
         self.assertEqual(out["sold_qty"], 400)
@@ -832,7 +854,7 @@ class TestT0Core(unittest.TestCase):
 
 
     def test_no_trigger_when_range_ok_but_levels_miss(self):
-        """带内震荡未破 C_τ×(1±δ) → 不开 leg1。"""
+        """缺 ŷ_τw 即使日振幅够也不开 leg1。"""
         bar = _bar("2026-01-10", 100, 105, 98.5, 100)
         mins = _mins(
             "2026-01-10",
@@ -848,10 +870,7 @@ class TestT0Core(unittest.TestCase):
             bar=bar,
             shares=1000,
             cost=100,
-            rules=_rules(
-                direction="sell_then_buy",
-                min_range_pct=1.0,
-            ),
+            rules=_rules(),
             minute_bars=mins,
             scores=_scores_flat(),
         )
@@ -859,7 +878,9 @@ class TestT0Core(unittest.TestCase):
         self.assertEqual(out.get("sold_qty") or 0, 0)
         self.assertFalse(out.get("trades") or [])
         self.assertTrue(out.get("skipped"))
-        self.assertIn("多轮均未成交", str(out.get("reason") or ""))
+        blob = str(out.get("reason") or "") + str(out.get("close_band_last_y_tw_skip") or "")
+        self.assertIn("缺 ŷ_τw", blob)
+
     def test_tplus1_sellable_cap(self):
         bar = _bar("2026-01-10", 100, 110, 90, 100)
         out = simulate_t0_day(
@@ -872,7 +893,9 @@ class TestT0Core(unittest.TestCase):
                 direction="sell_then_buy",
                 min_range_pct=1.0,
             ),
-            minute_bars=_mins_hl(bar=bar))
+            minute_bars=_mins_hl(bar=bar),
+            scores=_scores_r(-0.5),
+        )
         self.assertEqual(out["sold_qty"], 100)
 
     def test_small_holding_ratio_bumps_to_one_lot(self):
@@ -896,7 +919,7 @@ class TestT0Core(unittest.TestCase):
                 min_range_pct=1.0,
             ),
             minute_bars=_mins_hl(bar=bar),
-            scores=_scores_flat(),
+            scores=_scores_r(-0.5),
         )
         self.assertFalse(out.get("skipped"))
         self.assertEqual(out["sold_qty"], 100)
@@ -915,8 +938,8 @@ class TestT0Core(unittest.TestCase):
                 fill_mode="trigger",
                 min_range_pct=1.0,
             ),
-            scores=_scores_flat(),
-            stock_code="600519",
+            scores=_scores_r(0.5),
+            stock_code="",
             minute_bars=_mins_lh(bar=bar),
         )
         self.assertTrue(out["success"])
@@ -945,7 +968,7 @@ class TestT0Core(unittest.TestCase):
                 min_range_pct=1.0,
             ),
             minute_bars=_mins_lh(bar=bar),
-            scores=_scores_flat(),
+            scores=_scores_r(0.5),
         )
         self.assertTrue(out["success"])
         self.assertTrue(out.get("skipped"))
@@ -971,7 +994,7 @@ class TestT0Core(unittest.TestCase):
                 min_range_pct=1.0,
             ),
             minute_bars=_mins_lh(bar=bar),
-            scores=_scores_flat(),
+            scores=_scores_r(0.5),
         )
         self.assertTrue(out["success"])
         self.assertFalse(out.get("skipped"))
@@ -982,15 +1005,14 @@ class TestT0Core(unittest.TestCase):
     def test_exposure_when_uncovered(self):
         bar = _bar("2026-01-10", 100, 105, 103, 104.5)
         o = 100.0
-        d = o * 0.0001
-        up = o + max(d + 0.04, 0.05)
+        dn = o - max(o * 0.0001 + 0.04, 0.05)
         mins = _mins(
             "2026-01-10",
             [
-                (935, o, up + 0.05, o - 0.05, up),
-                (940, up, up + 0.03, o + 0.02, o + 0.03),
-                (945, o + 0.03, o + 0.05, o + 0.01, o + 0.04),
-                (950, o + 0.04, o + 0.06, o + 0.03, o + 0.05),
+                (935, o, o + 0.02, dn - 0.01, dn),
+                (940, dn, dn + 0.02, dn - 0.04, dn - 0.02),
+                (945, dn - 0.02, dn, dn - 0.08, dn - 0.05),
+                (950, dn - 0.05, dn - 0.02, dn - 0.10, dn - 0.08),
                 (1400, 104, 104.8, 103.2, 104.5),
             ],
         )
@@ -1003,10 +1025,11 @@ class TestT0Core(unittest.TestCase):
                 direction="sell_then_buy",
                 fill_mode="trigger",
                 must_cover_same_day=False,
+                must_cover_same_day_sell_then_buy=False,
                 min_range_pct=0.5,
             ),
             minute_bars=mins,
-            scores=_scores_flat(),
+            scores=_scores_r(-0.5),
         )
         self.assertEqual(out["sold_qty"], 400)
         self.assertEqual(out["covered_qty"], 0)
@@ -1126,8 +1149,9 @@ class TestT0Core(unittest.TestCase):
                 direction="sell_then_buy",
                 fill_mode="trigger",
                 min_range_pct=1.0,
+                must_cover_same_day_sell_then_buy=True,
             ),
-            scores=_scores_flat(),
+            scores=_scores_r(-0.5),
         )
         self.assertTrue(out["success"])
         self.assertFalse(out.get("skipped"), out.get("reason"))
@@ -1137,7 +1161,7 @@ class TestT0Core(unittest.TestCase):
         trades = out.get("trades") or []
         self.assertTrue(all(t.get("at") for t in trades), trades)
         self.assertEqual(trades[0].get("leg_kind"), "trigger")
-        self.assertEqual(trades[1].get("leg_kind"), "trigger")
+        self.assertIn(trades[1].get("leg_kind"), ("eod_cover", "pm_chase", "giveback", "stop"))
         self.assertIn("09:35", str(trades[0].get("at") or ""))
         self.assertGreater(len(trades), 1)
 
@@ -1206,7 +1230,7 @@ class TestT0Core(unittest.TestCase):
                 t0_pm_degrade="",
                 t0_ratio=1.0,
             ),
-            scores=_scores_flat(),
+            scores=_scores_r(0.5),
             defer_eod=True,
         )
         self.assertTrue(out.get("success"), out.get("reason"))
@@ -1247,7 +1271,7 @@ class TestT0Core(unittest.TestCase):
                 t0_pm_degrade="",
                 t0_ratio=1.0,
             ),
-            scores=_scores_flat(),
+            scores=_scores_r(0.5),
             defer_eod=False,
         )
         self.assertTrue(out.get("success"), out)
@@ -1278,14 +1302,14 @@ class TestT0Core(unittest.TestCase):
         """反T：卖出后买不回 → 放弃回补（减仓落袋），不收盘强买。"""
         bar = _bar("2024-01-03", 100, 105, 99, 100)
         o = 100.0
-        up = o + max(o * 0.0001 + 0.04, 0.05)
+        dn = o - max(o * 0.0001 + 0.04, 0.05)
         minutes = _mins(
             "2024-01-03",
             [
-                (935, o, up + 0.05, o - 0.05, up),
-                (940, up, up + 0.03, o + 0.02, o + 0.03),
-                (945, o + 0.03, o + 0.05, o + 0.02, o + 0.04),
-                (950, o + 0.04, 105.0, o + 0.03, o + 0.05),
+                (935, o, o + 0.05, dn - 0.01, dn),
+                (940, dn, dn + 0.02, dn - 0.04, dn - 0.02),
+                (945, dn - 0.02, dn, dn - 0.08, dn - 0.05),
+                (950, dn - 0.05, 105.0, dn - 0.10, dn - 0.08),
                 (1500, 104, 104, 103.5, 100),
             ],
         )
@@ -1299,9 +1323,10 @@ class TestT0Core(unittest.TestCase):
                 fill_mode="trigger",
                 min_range_pct=1.0,
                 must_cover_same_day=True,
+                must_cover_same_day_sell_then_buy=False,
                 t0_pm_degrade="",
             ),
-            scores=_scores_flat(),
+            scores=_scores_r(-0.5),
         )
         self.assertTrue(out["success"])
         self.assertGreater(out.get("sold_qty") or 0, 0)
@@ -1310,17 +1335,17 @@ class TestT0Core(unittest.TestCase):
         self.assertNotEqual(out.get("exposure_pnl"), 0)
 
     def test_deferred_eod_allows_afternoon_trigger_buy(self):
-        """固定前缀确认后卖；第二腿应能等到下午 trigger，而非前缀末 eod_cover。"""
+        """阴线开反T后不预设买回价；午后中点追价完成第二腿。"""
         d = "2024-01-03"
         bar = _bar(d, 100, 106, 99, 100)
         mins = _mins(
             d,
             [
-                (935, 100, 100.2, 99.8, 100.1),
-                (940, 100.1, 103, 100.0, 102.5),
-                (945, 102.5, 103.0, 101.5, 101.8),  # 阴
-                (950, 101.8, 106, 101.5, 101.6),  # 阴 · 卖
-                (1100, 105, 105.2, 104.8, 105),
+                (935, 100, 100.2, 99.8, 99.7),  # 阴 → 反T
+                (940, 99.7, 99.8, 99.5, 99.6),
+                (945, 99.6, 99.7, 99.4, 99.5),
+                (950, 99.5, 99.6, 99.3, 99.4),
+                (1100, 99.4, 99.5, 99.2, 99.3),
                 (1430, 101, 101.2, 98.0, 98.5),
                 (1500, 100, 100, 99.5, 100),
             ],
@@ -1334,14 +1359,17 @@ class TestT0Core(unittest.TestCase):
                 direction="sell_then_buy",
                 fill_mode="trigger",
                 min_range_pct=1.0,
-                must_cover_same_day=True,
+                t0_pm_degrade="13:00",
+                t0_pm_degrade_sell_then_buy="13:00",
+                must_cover_same_day_sell_then_buy=False,
             ),
+            scores=_scores_r(-0.5),
         )
         self.assertTrue(out["success"], out.get("reason"))
         trades = out.get("trades") or []
         buys = [t for t in trades if str(t.get("side", "")).endswith("buy")]
         self.assertEqual(len(buys), 1, trades)
-        self.assertEqual(buys[0].get("leg_kind"), "trigger")
+        self.assertEqual(buys[0].get("leg_kind"), "pm_chase")
         self.assertIn("14:30", str(buys[0].get("at") or ""))
         self.assertEqual(out.get("range_mode"), "close_band")
 
@@ -1565,8 +1593,8 @@ class TestT0Core(unittest.TestCase):
         self.assertIsNotNone(port.get("pred_joint", {}).get("same_sign_rate"))
         self.assertAlmostEqual(float(sc.get("y_tau_portrait_oc")), 0.9, places=4)
 
-    def test_leg2_uses_frozen_close_band_not_tau(self):
-        """v6：第二腿触冻结 C_τ，不被 τ 出场价抢走。"""
+    def test_leg2_no_preset_target_covers(self):
+        """不预设第二腿目标价：反T 靠回补完成买回。"""
         d = "2024-02-03"
         bar = _bar(d, 100, 106, 94, 100)
         mins = _mins_hl(bar=bar)
@@ -1579,23 +1607,17 @@ class TestT0Core(unittest.TestCase):
             scores=_scores_r(-0.5),
             rules=_rules_path(
                 fill_mode="trigger",
-                t0_close_band_delta_pct=0.01,
                 t0_round_ratio=1.0,
                 t0_slots_max_rounds=1,
                 must_cover_same_day_sell_then_buy=True,
-                t0_pm_degrade_sell_then_buy="15:30",
-                y_tau_exit_price_mult_sell_then_buy=2.0,
+                t0_pm_degrade_sell_then_buy="13:00",
             ),
         )
         self.assertTrue(out.get("success"), out)
         buys = [t for t in out.get("trades") or [] if str(t.get("side", "")).endswith("buy")]
         self.assertEqual(len(buys), 1, out)
         frozen = (out.get("t0_slot_results") or [{}])[0].get("close_band") or {}
-        tgt = float(frozen.get("leg2_target") or 0)
-        self.assertGreater(tgt, 0)
-        self.assertAlmostEqual(float(buys[0].get("trigger") or 0), tgt, places=2)
-        # τ 出场×2 会远低于现价，不得抢走冻结目标
-        self.assertNotAlmostEqual(float(buys[0].get("trigger") or 0), 99.0, places=1)
+        self.assertIsNotNone(frozen.get("leg2_target"))
 
     def test_backtest_minute_by_date_sets_first_touch(self):
         bars = []
@@ -1650,10 +1672,10 @@ class TestT0Core(unittest.TestCase):
         mins = {d: _mins_lh(bar=bars[-1])}
         with patch(
             "core.t0.score_policy.resolve_scores_for_code",
-            return_value=_scores_flat(),
+            return_value=_scores_r(0.5),
         ), patch(
             "core.t0.score_policy.rescore_scores_at_fixed_prefix",
-            return_value=_scores_flat(),
+            return_value=_scores_r(0.5),
         ):
             report = backtest_t0_on_bars(
                 bars,
@@ -1708,10 +1730,11 @@ class TestT0Core(unittest.TestCase):
             cash=50000,
             minute_bars=mins,
             rules=rules,
-            scores=_scores_flat(),
+            stock_code="",
+            scores=_scores_r(0.5),
         )
         setup = _intraday_setup(
-            code="688047",
+            code="",
             holding={"shares": 1000, "cost": 100, "stock_name": "测"},
             bar=bar,
             minute_bars=mins,
@@ -1720,7 +1743,7 @@ class TestT0Core(unittest.TestCase):
             cash=50000,
             atr_pct=None,
             hist_bars=None,
-            scores=_scores_flat(),
+            scores=_scores_r(0.5),
             stance_code="hold",
             coupling_mode="independent",
             force_session_close=True,
@@ -2238,8 +2261,14 @@ class TestDualYDirection(unittest.TestCase):
         cfg = load_t0_rules({"r_tau_enter": 0.5, "r_tau_enter_alt": 1.5})
         self.assertNotIn("r_tau_enter", cfg)
         self.assertNotIn("r_tau_enter_alt", cfg)
-        self.assertEqual(load_t0_rules({"t0_y_oc_target_scale": 100})["t0_y_oc_target_scale"], 100.0)
-        self.assertEqual(load_t0_rules({"t0_y_oc_target_scale": 150})["t0_y_oc_target_scale"], 100.0)
+        self.assertAlmostEqual(
+            float(load_t0_rules({"t0_y_oc_target_scale": 100})["t0_y_oc_target_scale"]),
+            100.0,
+        )
+        self.assertAlmostEqual(
+            float(load_t0_rules({"t0_y_oc_target_scale": 150})["t0_y_oc_target_scale"]),
+            100.0,
+        )
 
     def test_legacy_tau_prior_keys_are_dropped(self):
         cfg = load_t0_rules({"y_tau_leg1_prior_mode": "skip", "y_tau_leg1_prior_risk": 100})
@@ -3441,6 +3470,7 @@ class TestDualYDirection(unittest.TestCase):
             cost=100,
             cash=50000,
             rules=_rules(direction="dual_y", min_range_pct=1.0, y_trade_floor=0.15),
+            scores=_scores_r(-0.5),
             minute_bars=_mins_hl(bar=bar))
         self.assertNotIn("预期幅度不足", out.get("reason") or "")
 
@@ -3519,7 +3549,7 @@ class TestDualYDirection(unittest.TestCase):
                 y_path_enter=0.0,
                 y_use_path=False,
             ),
-            scores=_scores_flat(),
+            scores=_scores_r(-0.5),
             minute_bars=_mins_hl(bar=bar))
         self.assertTrue(out["success"])
         self.assertFalse(out.get("skipped"), out.get("reason"))
@@ -3543,7 +3573,7 @@ class TestDualYDirection(unittest.TestCase):
                 y_path_enter=0.0,
                 y_use_path=False,
             ),
-            scores=_scores_flat(),
+            scores=_scores_r(0.5),
             minute_bars=_mins_lh(bar=bar),
         )
         self.assertTrue(out["success"])
@@ -3602,7 +3632,7 @@ class TestDualYDirection(unittest.TestCase):
             cost=100,
             cash=50000,
             rules=rules,
-            scores={**_scores_flat(), "y_trade": 1.20, "y_eod": -0.40},
+            scores={**_scores_r(-0.5), "y_trade": 1.20, "y_eod": -0.40},
             minute_bars=_mins_hl(bar=bar),
         )
         weak = simulate_t0_day(
@@ -3611,7 +3641,7 @@ class TestDualYDirection(unittest.TestCase):
             cost=100,
             cash=50000,
             rules=rules,
-            scores={**_scores_flat(), "y_trade": 0.20, "y_eod": -0.40},
+            scores={**_scores_r(-0.5), "y_trade": 0.20, "y_eod": -0.40},
             minute_bars=_mins_hl(bar=bar),
         )
         self.assertTrue(strong["success"])
@@ -4674,6 +4704,14 @@ class TestT0Viz(unittest.TestCase):
     def test_classify_skip_reason(self):
         from core.t0.viz import classify_t0_skip_reason
 
+        self.assertEqual(
+            classify_t0_skip_reason("前序ŷ_τw不足（须3根）"),
+            "ytw_prefix",
+        )
+        self.assertEqual(
+            classify_t0_skip_reason("前序ŷ_τw命中 1/3 < 67%"),
+            "ytw_prefix",
+        )
         self.assertEqual(
             classify_t0_skip_reason("y_complexity=0.820>0.70 太折跳过"),
             "y_complexity_high",
@@ -5798,6 +5836,7 @@ class TestIntradaySkipLogic(unittest.TestCase):
         self.assertEqual(desk["counts"]["idle"], 0)
 
     def test_process_holding_tplus1_zero_sellable_locks(self):
+        from unittest.mock import patch
         from core.t0.intraday import PHASE_SKIPPED, process_holding_intraday
 
         bar = _bar("2026-01-10", 99, 103, 97, 101)
@@ -5808,25 +5847,29 @@ class TestIntradaySkipLogic(unittest.TestCase):
             "shares": 500,
             "cost": 100,
         }
-        st, trades, snap = process_holding_intraday(
-            code="000938",
-            holding=holding,
-            stock_state={},
-            minute_bars=_mins_lh(bar=bar),
-            bar=bar,
-            cfg=_rules(t0_ratio=0.4, direction="dual_y"),
-            sellable=0,
-            cash=50000,
-            atr_pct=None,
-            hist_bars=None,
-            scores=_scores_flat(),
-            stance_code=None,
-            coupling_mode="independent",
-            as_of="2026-01-10",
-            log_source="test",
-            paper=paper,
-            applied_legs=0,
-        )
+        with patch(
+            "core.t0.score_policy.rescore_scores_at_fixed_prefix",
+            return_value=_scores_r(0.5),
+        ):
+            st, trades, snap = process_holding_intraday(
+                code="000938",
+                holding=holding,
+                stock_state={},
+                minute_bars=_mins_lh(bar=bar),
+                bar=bar,
+                cfg=_rules(t0_ratio=0.4, direction="dual_y"),
+                sellable=0,
+                cash=50000,
+                atr_pct=None,
+                hist_bars=None,
+                scores=_scores_r(0.5),
+                stance_code=None,
+                coupling_mode="independent",
+                as_of="2026-01-10",
+                log_source="test",
+                paper=paper,
+                applied_legs=0,
+            )
         self.assertEqual(st.get("phase"), PHASE_SKIPPED)
         self.assertTrue(st.get("score_locked"))
         self.assertEqual(trades, [])

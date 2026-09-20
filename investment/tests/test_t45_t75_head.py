@@ -231,18 +231,24 @@ class YtwFiveHeadTests(unittest.TestCase):
         from core.t0.config import load_t0_rules
 
         cfg = load_t0_rules({})
-        self.assertEqual(float(cfg["y_tw_enter"]), 0.0)
-        self.assertAlmostEqual(float(cfg["y_tw_vote_margin"]), 2.0)
-        self.assertNotIn("y_tw_strong", cfg)
+        self.assertEqual(float(cfg["y_tw_enter"]), 2.0)
+        self.assertAlmostEqual(float(cfg["y_tw_vote_margin"]), 5.0)
+        self.assertAlmostEqual(float(cfg["y_tw_strong"]), 2.0)
         self.assertNotIn("y_t45_strong", cfg)
         self.assertNotIn("y_t75_strong", cfg)
-        # 旧落盘 3=关闸 → 迁到入场 0
-        migrated = load_t0_rules({"y_tw_strong": 3.0})
-        self.assertEqual(float(migrated["y_tw_enter"]), 0.0)
-        self.assertNotIn("y_tw_strong", migrated)
+        kept = load_t0_rules({"y_tw_strong": 3.0})
+        self.assertEqual(float(kept["y_tw_enter"]), 2.0)
+        self.assertEqual(float(kept["y_tw_strong"]), 3.0)
 
+        self.assertAlmostEqual(float(cfg["y_tw_midpoint"]), 47.0)
         self.assertAlmostEqual(blend_y_tw(0.8, 0.6, 0.55), 3.0)
+        self.assertAlmostEqual(
+            blend_y_tw(0.8, 0.6, 0.55, cfg={"y_tw_vote_margin": 2}), 3.0
+        )
         self.assertAlmostEqual(blend_y_tw(0.8, 0.6, 0.55, 0.7, 0.65), 5.0)
+        self.assertAlmostEqual(
+            blend_y_tw(0.8, 0.6, 0.55, 0.7, 0.65, cfg={"y_tw_vote_margin": 2}), 5.0
+        )
         self.assertAlmostEqual(blend_y_tw(0.8, 0.2, 0.3, 0.7, 0.2), -1.0)
         self.assertAlmostEqual(blend_y_tw(0.8, 0.51, 0.49, 0.52, 0.48), 1.0)
         self.assertAlmostEqual(blend_y_tw(0.51, 0.50, 0.49, 0.52, 0.48), 0.0)
@@ -255,65 +261,32 @@ class YtwFiveHeadTests(unittest.TestCase):
             "y_τ75": 0.7,
             "y_τ90": 0.65,
         }
+        self.assertIsNotNone(
+            close_band_y_tw_skip_reason(
+                scores, {"y_tw_enter": 0, "y_tw_vote_margin": 2}, direction="sell_then_buy"
+            )
+        )
         self.assertIsNone(
             close_band_y_tw_skip_reason(
-                scores, {"y_tw_enter": 0}, direction="sell_then_buy"
+                scores, {"y_tw_enter": 0, "y_tw_vote_margin": 2}, direction="buy_then_sell"
             )
         )
         skip = close_band_y_tw_skip_reason(
-            scores, {"y_tw_enter": 1}, direction="sell_then_buy"
+            scores, {"y_tw_enter": 1, "y_tw_vote_margin": 2}, direction="sell_then_buy"
         )
         self.assertIsNotNone(skip)
         self.assertIn("ŷ_τw=+5", skip)
 
 
 class T45T75GateTests(unittest.TestCase):
-    def test_enter_skip_y_t45_t75(self):
-        from core.t0.close_band import close_band_enter_skip_reason
+    def test_t45_t75_enter_keys_dropped(self):
         from core.t0.config import load_t0_rules
-        from core.t0.viz import classify_t0_skip_reason
 
-        self.assertNotIn("y_t45_enter", load_t0_rules({}))
-        self.assertNotIn("y_t75_enter", load_t0_rules({}))
-        self.assertNotIn("y_t45_strong", load_t0_rules({}))
-        self.assertNotIn("y_t75_strong", load_t0_rules({}))
-
-        cfg45 = {
-            "y_tau_enter": 0.0,
-            "y_path_enter": 0.0,
-            "y_t45_enter": 0.5,
-        }
-        weak45 = close_band_enter_skip_reason(
-            {"y_tau": 1.0, "y_path": 1.0, "y_τ45": 0.2}, cfg45, direction="buy_then_sell"
-        )
-        self.assertIsNotNone(weak45)
-        self.assertEqual(classify_t0_skip_reason(weak45), "y_t45_flat")
-        self.assertIsNone(
-            close_band_enter_skip_reason(
-                {"y_tau": 1.0, "y_path": 1.0, "y_τ45": 0.8}, cfg45, direction="buy_then_sell"
-            )
-        )
-        self.assertIsNone(
-            close_band_enter_skip_reason({"y_tau": 1.0, "y_path": 1.0}, cfg45, direction="buy_then_sell")
-        )
-        self.assertIsNone(
-            close_band_enter_skip_reason(
-                {"y_tau": 1.0, "y_path": 1.0, "y_τ45": 0.2},
-                {**cfg45, "y_t45_enter": 0.9, "y_t45_enter_alt": 0.1},
-                direction="buy_then_sell",
-            )
-        )
-
-        cfg75 = {
-            "y_tau_enter": 0.0,
-            "y_path_enter": 0.0,
-            "y_t75_enter": 0.5,
-        }
-        weak75 = close_band_enter_skip_reason(
-            {"y_tau": 1.0, "y_path": 1.0, "y_τ75": 0.2}, cfg75, direction="buy_then_sell"
-        )
-        self.assertIsNotNone(weak75)
-        self.assertEqual(classify_t0_skip_reason(weak75), "y_t75_flat")
+        cfg = load_t0_rules({})
+        self.assertNotIn("y_t45_enter", cfg)
+        self.assertNotIn("y_t75_enter", cfg)
+        self.assertNotIn("y_t45_strong", cfg)
+        self.assertNotIn("y_t75_strong", cfg)
 
     def test_scan_row_carries_y_t45_t75_realized(self):
         from core.t0.config import load_t0_rules
@@ -356,6 +329,59 @@ class T45T75GateTests(unittest.TestCase):
         self.assertAlmostEqual(float(row930.get("t45_realized")), 5.0, places=3)
         self.assertAlmostEqual(float(row930.get("y_t75_realized")), 5.0, places=3)
         self.assertAlmostEqual(float(row930.get("t75_realized")), 5.0, places=3)
+        self.assertIsNotNone(row930.get("c_tau"), row930)
+        self.assertIsNotNone(row930.get("lower_px"), row930)
+        self.assertIsNotNone(row930.get("upper_px"), row930)
+
+    def test_scan_y_tw_matches_skip_reason_votes(self):
+        from core.t0.close_band import _fmt_ytw_votes, blend_y_tw
+        from core.t0.config import load_t0_rules
+        from core.t0.slots import _build_close_band_scan_trace
+
+        dkey = "2025-06-03"
+        mins = []
+        for total in list(range(9 * 60 + 30, 11 * 60 + 30 + 1, 5)) + list(
+            range(13 * 60, 15 * 60 + 1, 5)
+        ):
+            hm = f"{total // 60:02d}:{total % 60:02d}"
+            mins.append(_bar(dkey, hm, 10.0))
+        bar = {
+            "date": dkey,
+            "open": 10.0,
+            "high": 10.2,
+            "low": 9.8,
+            "close": 10.0,
+            "prev_close": 10.0,
+        }
+        heads = {
+            "y_τ30": 0.40,
+            "y_τ45": 0.40,
+            "y_τ60": 0.40,
+            "y_τ75": 0.40,
+            "y_τ90": 0.40,
+        }
+        cfg = load_t0_rules({"y_tw_enter": 2, "y_tw_midpoint": 50, "y_tw_vote_margin": 5})
+        rows = _build_close_band_scan_trace(
+            minute_bars=mins,
+            bar=bar,
+            daily_bar=bar,
+            cfg=cfg,
+            score_snap={"y_tau": 2.0, "y_tau_oc": 2.0, **heads},
+            stock_code="",
+            hist_bars=[],
+            tau_pool_day=None,
+        )
+        expect = blend_y_tw(0.40, 0.40, 0.40, 0.40, 0.40, cfg=cfg)
+        self.assertAlmostEqual(float(expect), -5.0)
+        shown = _fmt_ytw_votes(expect)
+        skipped = [r for r in rows if str(r.get("y_tw_skip") or "")]
+        self.assertTrue(skipped, rows[:3] if rows else rows)
+        for r in skipped:
+            skip = str(r.get("y_tw_skip") or "")
+            if "ŷ_τw=" not in skip:
+                continue
+            self.assertAlmostEqual(float(r.get("y_tw")), float(expect), places=6)
+            self.assertIn(f"ŷ_τw={shown}", skip)
 
 
 if __name__ == "__main__":

@@ -17,6 +17,8 @@ import {
   resolveOnScore,
   resolveTauLiftedScore,
   resolveTauScore,
+  rankingOpenPx,
+  rankingPriceTau,
   resolveRankingScore,
   resolveYτcScore,
   resolveYT30Score,
@@ -34,7 +36,7 @@ import {
   Y_NC_TITLE,
   Y_NC_OC_TITLE,
   Y_HL_TITLE,
-} from "./paper/fmt.js?v=p2512";
+} from "./paper/fmt.js?v=p2544";
 import { hydrateTailAnomalyCharts } from "./tail_anomaly_chart.js";
 import { ON_FEAT_META } from "./quant/factor_meta.js?v=p1226";
 
@@ -664,555 +666,190 @@ function formatCompactRTip(raw) {
   );
 }
 
-/** y_τ30 列 tip：Ridge 预估 mean(price(τ⊕25/30/35))/price(τ)−1。 */
+function sigmoidLogit(z) {
+  const x = Number(z);
+  if (!Number.isFinite(x)) return null;
+  const c = Math.max(-30, Math.min(30, x));
+  return 1 / (1 + Math.exp(-c));
+}
+
+function probCls(p) {
+  const n = Number(p);
+  if (!Number.isFinite(n) || Math.abs(n - 0.5) < 1e-12) return "";
+  return n > 0.5 ? "pos" : "neg";
+}
+
+function isHorizonProbKey(key) {
+  return key === "t30" || key === "t45" || key === "t60" || key === "t75" || key === "t90";
+}
+
+const HORIZON_COMPACT_SPEC = {
+  t30: {
+    resolve: resolveYT30Score,
+    hasTerms: hasT30FormulaTerms,
+    realKeys: ["y_t30_realized", "t30_realized"],
+    specKeys: ["y_spec_τ30", "y_spec_t30"],
+    formula: "mean(price[τ+25m],price[τ+30m],price[τ+35m])/price[τ]−1",
+    label: "I(mean(price(τ⊕25/30/35))/price(τ)−1 > 0)",
+    realLabel: "真实 τ⊕25/30/35均",
+    hero: "ŷ_τ30 · P(窗>0)",
+    layer: "t30",
+  },
+  t45: {
+    resolve: resolveYT45Score,
+    hasTerms: hasT45FormulaTerms,
+    realKeys: ["y_t45_realized", "t45_realized"],
+    specKeys: ["y_spec_τ45", "y_spec_t45"],
+    formula: "mean(price[τ+40m],price[τ+45m],price[τ+50m])/price[τ]−1",
+    label: "I(mean(price(τ⊕40/45/50))/price(τ)−1 > 0)",
+    realLabel: "真实 τ⊕40/45/50均",
+    hero: "ŷ_τ45 · P(窗>0)",
+    layer: "t45",
+  },
+  t60: {
+    resolve: resolveYT60Score,
+    hasTerms: hasT60FormulaTerms,
+    realKeys: ["y_t60_realized", "t60_realized"],
+    specKeys: ["y_spec_τ60", "y_spec_t60"],
+    formula: "mean(price[τ+55m],price[τ+60m],price[τ+65m])/price[τ]−1",
+    label: "I(mean(price(τ⊕55/60/65))/price(τ)−1 > 0)",
+    realLabel: "真实 τ⊕55/60/65均",
+    hero: "ŷ_τ60 · P(窗>0)",
+    layer: "t60",
+  },
+  t75: {
+    resolve: resolveYT75Score,
+    hasTerms: hasT75FormulaTerms,
+    realKeys: ["y_t75_realized", "t75_realized"],
+    specKeys: ["y_spec_τ75", "y_spec_t75"],
+    formula: "mean(price[τ+70m],price[τ+75m],price[τ+80m])/price[τ]−1",
+    label: "I(mean(price(τ⊕70/75/80))/price(τ)−1 > 0)",
+    realLabel: "真实 τ⊕70/75/80均",
+    hero: "ŷ_τ75 · P(窗>0)",
+    layer: "t75",
+  },
+  t90: {
+    resolve: resolveYT90Score,
+    hasTerms: hasT90FormulaTerms,
+    realKeys: ["y_t90_realized", "t90_realized"],
+    specKeys: ["y_spec_τ90", "y_spec_t90"],
+    formula: "mean(price[τ+85m],price[τ+90m],price[τ+95m])/price[τ]−1",
+    label: "I(mean(price(τ⊕85/90/95))/price(τ)−1 > 0)",
+    realLabel: "真实 τ⊕85/90/95均",
+    hero: "ŷ_τ90 · P(窗>0)",
+    layer: "t90",
+  },
+};
+
+/** ŷ_τ* 列 tip：P(窗收益>0)，不是幅度 Ridge。 */
+function formatCompactHorizonProbTip(raw, head) {
+  const spec = HORIZON_COMPACT_SPEC[head];
+  if (!spec) return "";
+  const fit = spec.resolve(raw);
+  const fitTxt = fit == null ? "—" : fmtHorizonProb(fit);
+  const tau = String((raw && (raw.as_of_tau || raw.rem_tau)) || "open");
+  const hasTerms = spec.hasTerms(raw);
+  const feat = (raw && raw.features_tau) || {};
+  let real = null;
+  for (const k of spec.realKeys) {
+    const v = raw && raw[k];
+    if (v != null && Number.isFinite(Number(v))) {
+      real = Number(v);
+      break;
+    }
+  }
+  const specObj =
+    (raw && typeof raw[spec.specKeys[0]] === "object" && raw[spec.specKeys[0]]) ||
+    (raw && typeof raw[spec.specKeys[1]] === "object" && raw[spec.specKeys[1]]) ||
+    {};
+  const ySpec =
+    specObj.label ||
+    (String(specObj.unit || "") === "prob" && specObj.formula
+      ? `I((${specObj.formula})>0)`
+      : specObj.formula) ||
+    spec.label;
+  const rows = [];
+  if (real != null) {
+    const agree =
+      fit != null ? ((fit > 0.5) === (real > 0) ? "同号" : "异号") : "";
+    rows.push(
+      `<div class="score-layer-row"><span>${escapeText(spec.realLabel)}</span>` +
+        `<span class="num ${signCls(real)}">${escapeText(fmtSigned(real, 3))}%${
+          agree ? ` · ${agree}` : ""
+        }</span></div>`
+    );
+  }
+  const gap = raw && resolveGapPct(raw);
+  if (gap != null && Number.isFinite(Number(gap))) {
+    rows.push(
+      `<div class="score-layer-row"><span>跳空缺口</span>` +
+        `<span class="num ${signCls(gap)}">${escapeText(
+          fmtSigned(Number(gap), 2)
+        )}%</span></div>`
+    );
+  }
+  if (!hasTerms) {
+    for (const [k, label] of Object.entries(TAU_FEAT_LABELS)) {
+      if (k === "gap_pct") continue;
+      const v = feat[k];
+      if (v == null || v === "") continue;
+      if (typeof v === "boolean") {
+        rows.push(
+          `<div class="score-layer-row"><span>${escapeText(label)}</span><span>${
+            v ? "是" : "否"
+          }</span></div>`
+        );
+        continue;
+      }
+      const n = Number(v);
+      const txt = Number.isFinite(n) ? fmtSigned(n, 2) : String(v);
+      rows.push(
+        `<div class="score-layer-row"><span>${escapeText(label)}</span><span class="num ${
+          Number.isFinite(n) ? signCls(n) : ""
+        }">${escapeText(txt)}</span></div>`
+      );
+    }
+  }
+  const hint = hasTerms
+    ? `τ=${escapeText(tau)} · ${escapeText(String(ySpec))} · logistic Ridge · 做 T 旁路`
+    : `τ=${escapeText(tau)} · ${escapeText(String(ySpec))} · 做 T 旁路，不进 C_τ`;
+  return (
+    `<div class="score-layer score-layer-${spec.layer}">` +
+    `<div class="score-layer-head">` +
+    `<div class="score-hero-label">${escapeText(spec.hero)}</div>` +
+    `<div class="score-hero-value ${probCls(fit)}">${escapeText(fitTxt)}</div>` +
+    `</div>` +
+    `<div class="score-hero-hint">${hint}</div>` +
+    (rows.length
+      ? `<div class="score-layer-compose">${rows.join("")}</div>`
+      : "") +
+    `</div>`
+  );
+}
+
+/** y_τ30 列 tip：P(mean(price(τ⊕25/30/35))/price(τ)−1>0)。 */
 function formatCompactT30Tip(raw) {
-  const fit = resolveYT30Score(raw);
-  const fitTxt = fit == null ? "—" : `${fmtSigned(fit, 3)}%`;
-  const tau = String((raw && (raw.as_of_tau || raw.rem_tau)) || "open");
-  const hasTerms = hasT30FormulaTerms(raw);
-  const feat = (raw && raw.features_tau) || {};
-  const realRaw = raw && (raw.y_t30_realized ?? raw.t30_realized);
-  const real =
-    realRaw != null && Number.isFinite(Number(realRaw)) ? Number(realRaw) : null;
-  const ySpec =
-    (raw && raw.y_spec_τ30 && raw.y_spec_τ30.formula) ||
-    (raw && raw.y_spec_t30 && raw.y_spec_t30.formula) ||
-    "mean(price[τ+25m],price[τ+30m],price[τ+35m])/price[τ]−1";
-  const rows = [];
-  if (real != null) {
-    const agree =
-      fit != null && Math.abs(fit) > 1e-12 && real != null && Math.abs(real) > 1e-12
-        ? fit * real > 0
-          ? "同号"
-          : "异号"
-        : "";
-    rows.push(
-      `<div class="score-layer-row"><span>真实 τ⊕25/30/35均</span>` +
-        `<span class="num ${signCls(real)}">${escapeText(fmtSigned(real, 3))}%${
-          agree ? ` · ${agree}` : ""
-        }</span></div>`
-    );
-  }
-  const gap = raw && resolveGapPct(raw);
-  if (gap != null && Number.isFinite(Number(gap))) {
-    rows.push(
-      `<div class="score-layer-row"><span>跳空缺口</span>` +
-        `<span class="num ${signCls(gap)}">${escapeText(
-          fmtSigned(Number(gap), 2)
-        )}%</span></div>`
-    );
-  }
-  if (!hasTerms) {
-    for (const [k, label] of Object.entries(TAU_FEAT_LABELS)) {
-      if (k === "gap_pct") continue;
-      const v = feat[k];
-      if (v == null || v === "") continue;
-      if (typeof v === "boolean") {
-        rows.push(
-          `<div class="score-layer-row"><span>${escapeText(label)}</span><span>${
-            v ? "是" : "否"
-          }</span></div>`
-        );
-        continue;
-      }
-      const n = Number(v);
-      const txt = Number.isFinite(n) ? fmtSigned(n, 2) : String(v);
-      const pct =
-        k === "open_gap" ||
-        k === "gap_vs_sector" ||
-        k === "ret_open_to_tau" ||
-        k === "ret_last_5m" ||
-        k === "ret_last_30m" ||
-        k === "ret_last_15m" ||
-        k === "session_vwap_dev" ||
-        k === "sector_ret_last_30m" ||
-        k === "ret_last_30m_vs_sector" ||
-        k === "t30_lag1" ||
-        k === "t30_ma5" ||
-        k === "ret_last_45m" ||
-        k === "sector_ret_last_45m" ||
-        k === "ret_last_45m_vs_sector" ||
-        k === "t45_lag1" ||
-        k === "t45_ma5" ||
-        k === "ret_last_60m" ||
-        k === "sector_ret_last_60m" ||
-        k === "ret_last_60m_vs_sector" ||
-        k === "t60_lag1" ||
-        k === "t60_ma5" ||
-        k === "ret_last_75m" ||
-        k === "sector_ret_last_75m" ||
-        k === "ret_last_75m_vs_sector" ||
-        k === "t75_lag1" ||
-        k === "t75_ma5" ||
-        k === "ret_last_90m" ||
-        k === "sector_ret_last_90m" ||
-        k === "ret_last_90m_vs_sector" ||
-        k === "t90_lag1" ||
-        k === "t90_ma5";
-      rows.push(
-        `<div class="score-layer-row"><span>${escapeText(label)}</span><span class="num ${
-          Number.isFinite(n) ? signCls(n) : ""
-        }">${escapeText(txt)}${Number.isFinite(n) && pct ? "%" : ""}</span></div>`
-      );
-    }
-  }
-  const hint = hasTerms
-    ? `τ=${escapeText(tau)} · ${escapeText(String(ySpec))} · Ridge 模型预估 · 做 T 旁路`
-    : `τ=${escapeText(tau)} · ${escapeText(String(ySpec))} · 做 T 旁路，不进 C_τ`;
-  return (
-    `<div class="score-layer score-layer-t30">` +
-    `<div class="score-layer-head">` +
-    `<div class="score-hero-label">ŷ_τ30 · Ridge</div>` +
-    `<div class="score-hero-value ${signCls(fit)}">${escapeText(fitTxt)}</div>` +
-    `</div>` +
-    `<div class="score-hero-hint">${hint}</div>` +
-    (rows.length
-      ? `<div class="score-layer-compose">${rows.join("")}</div>`
-      : "") +
-    `</div>`
-  );
+  return formatCompactHorizonProbTip(raw, "t30");
 }
 
-function formatCompactHlTip(raw) {
-  const fit = resolvePathScore(raw);
-  const fitTxt = fit == null ? "—" : `${fmtSigned(fit, 3)}%`;
-  const hasTerms = hasPathFormulaTerms(raw);
-  const realRaw = raw && (raw.y_hl_realized ?? raw.path_realized ?? raw.y_path_realized ?? raw.hl_realized);
-  const real =
-    realRaw != null && Number.isFinite(Number(realRaw)) ? Number(realRaw) : null;
-  const rows = [];
-  if (real != null) {
-    const agree =
-      fit != null && Math.abs(fit) > 1e-12 && Math.abs(real) > 1e-12
-        ? fit * real > 0
-          ? "同号"
-          : "异号"
-        : "";
-    rows.push(
-      `<div class="score-layer-row"><span>真实极值序</span>` +
-        `<span class="num ${signCls(real)}">${escapeText(fmtSigned(real, 3))}%${
-          agree ? ` · ${agree}` : ""
-        }</span></div>`
-    );
-  }
-  const hint = hasTerms
-    ? `${escapeText(Y_HL_TITLE)} · Ridge path`
-    : escapeText(Y_HL_TITLE);
-  return (
-    `<div class="score-layer score-layer-hl">` +
-    `<div class="score-layer-head">` +
-    `<div class="score-hero-label">ŷ_hl · 极值序</div>` +
-    `<div class="score-hero-value ${signCls(fit)}">${escapeText(fitTxt)}</div>` +
-    `</div>` +
-    `<div class="score-hero-hint">${hint}</div>` +
-    (rows.length ? `<div class="score-layer-compose">${rows.join("")}</div>` : "") +
-    `</div>`
-  );
-}
-
-/** y_τ45 列 tip：Ridge 预估 mean(price(τ⊕40/45/50))/price(τ)−1。 */
+/** y_τ45 列 tip：P(mean(price(τ⊕40/45/50))/price(τ)−1>0)。 */
 function formatCompactT45Tip(raw) {
-  const fit = resolveYT45Score(raw);
-  const fitTxt = fit == null ? "—" : `${fmtSigned(fit, 3)}%`;
-  const tau = String((raw && (raw.as_of_tau || raw.rem_tau)) || "open");
-  const hasTerms = hasT45FormulaTerms(raw);
-  const feat = (raw && raw.features_tau) || {};
-  const realRaw = raw && (raw.y_t45_realized ?? raw.t45_realized);
-  const real =
-    realRaw != null && Number.isFinite(Number(realRaw)) ? Number(realRaw) : null;
-  const ySpec =
-    (raw && raw.y_spec_τ45 && raw.y_spec_τ45.formula) ||
-    (raw && raw.y_spec_t45 && raw.y_spec_t45.formula) ||
-    "mean(price[τ+40m],price[τ+45m],price[τ+50m])/price[τ]−1";
-  const rows = [];
-  if (real != null) {
-    const agree =
-      fit != null && Math.abs(fit) > 1e-12 && real != null && Math.abs(real) > 1e-12
-        ? fit * real > 0
-          ? "同号"
-          : "异号"
-        : "";
-    rows.push(
-      `<div class="score-layer-row"><span>真实 τ⊕40/45/50均</span>` +
-        `<span class="num ${signCls(real)}">${escapeText(fmtSigned(real, 3))}%${
-          agree ? ` · ${agree}` : ""
-        }</span></div>`
-    );
-  }
-  const gap = raw && resolveGapPct(raw);
-  if (gap != null && Number.isFinite(Number(gap))) {
-    rows.push(
-      `<div class="score-layer-row"><span>跳空缺口</span>` +
-        `<span class="num ${signCls(gap)}">${escapeText(
-          fmtSigned(Number(gap), 2)
-        )}%</span></div>`
-    );
-  }
-  if (!hasTerms) {
-    for (const [k, label] of Object.entries(TAU_FEAT_LABELS)) {
-      if (k === "gap_pct") continue;
-      const v = feat[k];
-      if (v == null || v === "") continue;
-      if (typeof v === "boolean") {
-        rows.push(
-          `<div class="score-layer-row"><span>${escapeText(label)}</span><span>${
-            v ? "是" : "否"
-          }</span></div>`
-        );
-        continue;
-      }
-      const n = Number(v);
-      const txt = Number.isFinite(n) ? fmtSigned(n, 2) : String(v);
-      const pct =
-        k === "open_gap" ||
-        k === "gap_vs_sector" ||
-        k === "ret_open_to_tau" ||
-        k === "ret_last_5m" ||
-        k === "ret_last_30m" ||
-        k === "ret_last_60m" ||
-        k === "ret_last_15m" ||
-        k === "session_vwap_dev" ||
-        k === "sector_ret_last_30m" ||
-        k === "ret_last_30m_vs_sector" ||
-        k === "t30_lag1" ||
-        k === "t30_ma5" ||
-        k === "ret_last_45m" ||
-        k === "sector_ret_last_45m" ||
-        k === "ret_last_45m_vs_sector" ||
-        k === "t45_lag1" ||
-        k === "t45_ma5" ||
-        k === "sector_ret_last_60m" ||
-        k === "ret_last_60m_vs_sector" ||
-        k === "t45_lag1" ||
-        k === "t45_ma5" ||
-        k === "ret_last_75m" ||
-        k === "sector_ret_last_75m" ||
-        k === "ret_last_75m_vs_sector" ||
-        k === "t75_lag1" ||
-        k === "t75_ma5" ||
-        k === "ret_last_90m" ||
-        k === "sector_ret_last_90m" ||
-        k === "ret_last_90m_vs_sector" ||
-        k === "t90_lag1" ||
-        k === "t90_ma5";
-      rows.push(
-        `<div class="score-layer-row"><span>${escapeText(label)}</span><span class="num ${
-          Number.isFinite(n) ? signCls(n) : ""
-        }">${escapeText(txt)}${Number.isFinite(n) && pct ? "%" : ""}</span></div>`
-      );
-    }
-  }
-  const hint = hasTerms
-    ? `τ=${escapeText(tau)} · ${escapeText(String(ySpec))} · Ridge 模型预估 · 做 T 旁路`
-    : `τ=${escapeText(tau)} · ${escapeText(String(ySpec))} · 做 T 旁路，不进 C_τ`;
-  return (
-    `<div class="score-layer score-layer-t45">` +
-    `<div class="score-layer-head">` +
-    `<div class="score-hero-label">ŷ_τ45 · Ridge</div>` +
-    `<div class="score-hero-value ${signCls(fit)}">${escapeText(fitTxt)}</div>` +
-    `</div>` +
-    `<div class="score-hero-hint">${hint}</div>` +
-    (rows.length
-      ? `<div class="score-layer-compose">${rows.join("")}</div>`
-      : "") +
-    `</div>`
-  );
-}
-/** y_τ60 列 tip：Ridge 预估 mean(price(τ⊕55/60/65))/price(τ)−1。 */
-function formatCompactT60Tip(raw) {
-  const fit = resolveYT60Score(raw);
-  const fitTxt = fit == null ? "—" : `${fmtSigned(fit, 3)}%`;
-  const tau = String((raw && (raw.as_of_tau || raw.rem_tau)) || "open");
-  const hasTerms = hasT60FormulaTerms(raw);
-  const feat = (raw && raw.features_tau) || {};
-  const realRaw = raw && (raw.y_t60_realized ?? raw.t60_realized);
-  const real =
-    realRaw != null && Number.isFinite(Number(realRaw)) ? Number(realRaw) : null;
-  const ySpec =
-    (raw && raw.y_spec_τ60 && raw.y_spec_τ60.formula) ||
-    (raw && raw.y_spec_t60 && raw.y_spec_t60.formula) ||
-    "mean(price[τ+55m],price[τ+60m],price[τ+65m])/price[τ]−1";
-  const rows = [];
-  if (real != null) {
-    const agree =
-      fit != null && Math.abs(fit) > 1e-12 && real != null && Math.abs(real) > 1e-12
-        ? fit * real > 0
-          ? "同号"
-          : "异号"
-        : "";
-    rows.push(
-      `<div class="score-layer-row"><span>真实 τ⊕55/60/65均</span>` +
-        `<span class="num ${signCls(real)}">${escapeText(fmtSigned(real, 3))}%${
-          agree ? ` · ${agree}` : ""
-        }</span></div>`
-    );
-  }
-  const gap = raw && resolveGapPct(raw);
-  if (gap != null && Number.isFinite(Number(gap))) {
-    rows.push(
-      `<div class="score-layer-row"><span>跳空缺口</span>` +
-        `<span class="num ${signCls(gap)}">${escapeText(
-          fmtSigned(Number(gap), 2)
-        )}%</span></div>`
-    );
-  }
-  if (!hasTerms) {
-    for (const [k, label] of Object.entries(TAU_FEAT_LABELS)) {
-      if (k === "gap_pct") continue;
-      const v = feat[k];
-      if (v == null || v === "") continue;
-      if (typeof v === "boolean") {
-        rows.push(
-          `<div class="score-layer-row"><span>${escapeText(label)}</span><span>${
-            v ? "是" : "否"
-          }</span></div>`
-        );
-        continue;
-      }
-      const n = Number(v);
-      const txt = Number.isFinite(n) ? fmtSigned(n, 2) : String(v);
-      const pct =
-        k === "open_gap" ||
-        k === "gap_vs_sector" ||
-        k === "ret_open_to_tau" ||
-        k === "ret_last_5m" ||
-        k === "ret_last_30m" ||
-        k === "ret_last_60m" ||
-        k === "ret_last_15m" ||
-        k === "session_vwap_dev" ||
-        k === "sector_ret_last_30m" ||
-        k === "ret_last_30m_vs_sector" ||
-        k === "t30_lag1" ||
-        k === "t30_ma5" ||
-        k === "ret_last_45m" ||
-        k === "sector_ret_last_45m" ||
-        k === "ret_last_45m_vs_sector" ||
-        k === "t45_lag1" ||
-        k === "t45_ma5" ||
-        k === "sector_ret_last_60m" ||
-        k === "ret_last_60m_vs_sector" ||
-        k === "t60_lag1" ||
-        k === "t60_ma5" ||
-        k === "ret_last_75m" ||
-        k === "sector_ret_last_75m" ||
-        k === "ret_last_75m_vs_sector" ||
-        k === "t75_lag1" ||
-        k === "t75_ma5" ||
-        k === "ret_last_90m" ||
-        k === "sector_ret_last_90m" ||
-        k === "ret_last_90m_vs_sector" ||
-        k === "t90_lag1" ||
-        k === "t90_ma5";
-      rows.push(
-        `<div class="score-layer-row"><span>${escapeText(label)}</span><span class="num ${
-          Number.isFinite(n) ? signCls(n) : ""
-        }">${escapeText(txt)}${Number.isFinite(n) && pct ? "%" : ""}</span></div>`
-      );
-    }
-  }
-  const hint = hasTerms
-    ? `τ=${escapeText(tau)} · ${escapeText(String(ySpec))} · Ridge 模型预估 · 做 T 旁路`
-    : `τ=${escapeText(tau)} · ${escapeText(String(ySpec))} · 做 T 旁路，不进 C_τ`;
-  return (
-    `<div class="score-layer score-layer-t60">` +
-    `<div class="score-layer-head">` +
-    `<div class="score-hero-label">ŷ_τ60 · Ridge</div>` +
-    `<div class="score-hero-value ${signCls(fit)}">${escapeText(fitTxt)}</div>` +
-    `</div>` +
-    `<div class="score-hero-hint">${hint}</div>` +
-    (rows.length
-      ? `<div class="score-layer-compose">${rows.join("")}</div>`
-      : "") +
-    `</div>`
-  );
-}
-/** y_τ75 列 tip：Ridge 预估 mean(price(τ⊕70/75/80))/price(τ)−1。 */
-function formatCompactT75Tip(raw) {
-  const fit = resolveYT75Score(raw);
-  const fitTxt = fit == null ? "—" : `${fmtSigned(fit, 3)}%`;
-  const tau = String((raw && (raw.as_of_tau || raw.rem_tau)) || "open");
-  const hasTerms = hasT75FormulaTerms(raw);
-  const feat = (raw && raw.features_tau) || {};
-  const realRaw = raw && (raw.y_t75_realized ?? raw.t75_realized);
-  const real =
-    realRaw != null && Number.isFinite(Number(realRaw)) ? Number(realRaw) : null;
-  const ySpec =
-    (raw && raw.y_spec_τ75 && raw.y_spec_τ75.formula) ||
-    (raw && raw.y_spec_t75 && raw.y_spec_t75.formula) ||
-    "mean(price[τ+70m],price[τ+75m],price[τ+80m])/price[τ]−1";
-  const rows = [];
-  if (real != null) {
-    const agree =
-      fit != null && Math.abs(fit) > 1e-12 && real != null && Math.abs(real) > 1e-12
-        ? fit * real > 0
-          ? "同号"
-          : "异号"
-        : "";
-    rows.push(
-      `<div class="score-layer-row"><span>真实 τ⊕70/75/80均</span>` +
-        `<span class="num ${signCls(real)}">${escapeText(fmtSigned(real, 3))}%${
-          agree ? ` · ${agree}` : ""
-        }</span></div>`
-    );
-  }
-  const gap = raw && resolveGapPct(raw);
-  if (gap != null && Number.isFinite(Number(gap))) {
-    rows.push(
-      `<div class="score-layer-row"><span>跳空缺口</span>` +
-        `<span class="num ${signCls(gap)}">${escapeText(
-          fmtSigned(Number(gap), 2)
-        )}%</span></div>`
-    );
-  }
-  if (!hasTerms) {
-    for (const [k, label] of Object.entries(TAU_FEAT_LABELS)) {
-      if (k === "gap_pct") continue;
-      const v = feat[k];
-      if (v == null || v === "") continue;
-      if (typeof v === "boolean") {
-        rows.push(
-          `<div class="score-layer-row"><span>${escapeText(label)}</span><span>${
-            v ? "是" : "否"
-          }</span></div>`
-        );
-        continue;
-      }
-      const n = Number(v);
-      const txt = Number.isFinite(n) ? fmtSigned(n, 2) : String(v);
-      const pct =
-        k === "open_gap" ||
-        k === "gap_vs_sector" ||
-        k === "ret_open_to_tau" ||
-        k === "ret_last_5m" ||
-        k === "ret_last_30m" ||
-        k === "ret_last_90m" ||
-        k === "ret_last_15m" ||
-        k === "session_vwap_dev" ||
-        k === "sector_ret_last_30m" ||
-        k === "ret_last_30m_vs_sector" ||
-        k === "t30_lag1" ||
-        k === "t30_ma5" ||
-        k === "sector_ret_last_90m" ||
-        k === "ret_last_90m_vs_sector" ||
-        k === "t75_lag1" ||
-        k === "t75_ma5";
-      rows.push(
-        `<div class="score-layer-row"><span>${escapeText(label)}</span><span class="num ${
-          Number.isFinite(n) ? signCls(n) : ""
-        }">${escapeText(txt)}${Number.isFinite(n) && pct ? "%" : ""}</span></div>`
-      );
-    }
-  }
-  const hint = hasTerms
-    ? `τ=${escapeText(tau)} · ${escapeText(String(ySpec))} · Ridge 模型预估 · 做 T 旁路`
-    : `τ=${escapeText(tau)} · ${escapeText(String(ySpec))} · 做 T 旁路，不进 C_τ`;
-  return (
-    `<div class="score-layer score-layer-t75">` +
-    `<div class="score-layer-head">` +
-    `<div class="score-hero-label">ŷ_τ75 · Ridge</div>` +
-    `<div class="score-hero-value ${signCls(fit)}">${escapeText(fitTxt)}</div>` +
-    `</div>` +
-    `<div class="score-hero-hint">${hint}</div>` +
-    (rows.length
-      ? `<div class="score-layer-compose">${rows.join("")}</div>`
-      : "") +
-    `</div>`
-  );
+  return formatCompactHorizonProbTip(raw, "t45");
 }
 
-/** y_τw 列 tip：符号和 f(ŷ_τ30)+f(ŷ_τ45)+f(ŷ_τ60)+f(ŷ_τ75)+f(ŷ_τ75)；f(x)=1 if x>0 else −1。 */
-/** y_τ90 列 tip：Ridge 预估 mean(price(τ⊕85/90/95))/price(τ)−1。 */
+/** y_τ60 列 tip：P(mean(price(τ⊕55/60/65))/price(τ)−1>0)。 */
+function formatCompactT60Tip(raw) {
+  return formatCompactHorizonProbTip(raw, "t60");
+}
+
+/** y_τ75 列 tip：P(mean(price(τ⊕70/75/80))/price(τ)−1>0)。 */
+function formatCompactT75Tip(raw) {
+  return formatCompactHorizonProbTip(raw, "t75");
+}
+
+/** y_τ90 列 tip：P(mean(price(τ⊕85/90/95))/price(τ)−1>0)。 */
 function formatCompactT90Tip(raw) {
-  const fit = resolveYT90Score(raw);
-  const fitTxt = fit == null ? "—" : `${fmtSigned(fit, 3)}%`;
-  const tau = String((raw && (raw.as_of_tau || raw.rem_tau)) || "open");
-  const hasTerms = hasT90FormulaTerms(raw);
-  const feat = (raw && raw.features_tau) || {};
-  const realRaw = raw && (raw.y_t90_realized ?? raw.t90_realized);
-  const real =
-    realRaw != null && Number.isFinite(Number(realRaw)) ? Number(realRaw) : null;
-  const ySpec =
-    (raw && raw.y_spec_τ90 && raw.y_spec_τ90.formula) ||
-    (raw && raw.y_spec_t90 && raw.y_spec_t90.formula) ||
-    "mean(price[τ+85m],price[τ+90m],price[τ+95m])/price[τ]−1";
-  const rows = [];
-  if (real != null) {
-    const agree =
-      fit != null && Math.abs(fit) > 1e-12 && real != null && Math.abs(real) > 1e-12
-        ? fit * real > 0
-          ? "同号"
-          : "异号"
-        : "";
-    rows.push(
-      `<div class="score-layer-row"><span>真实 τ⊕85/90/95均</span>` +
-        `<span class="num ${signCls(real)}">${escapeText(fmtSigned(real, 3))}%${
-          agree ? ` · ${agree}` : ""
-        }</span></div>`
-    );
-  }
-  const gap = raw && resolveGapPct(raw);
-  if (gap != null && Number.isFinite(Number(gap))) {
-    rows.push(
-      `<div class="score-layer-row"><span>跳空缺口</span>` +
-        `<span class="num ${signCls(gap)}">${escapeText(
-          fmtSigned(Number(gap), 2)
-        )}%</span></div>`
-    );
-  }
-  if (!hasTerms) {
-    for (const [k, label] of Object.entries(TAU_FEAT_LABELS)) {
-      if (k === "gap_pct") continue;
-      const v = feat[k];
-      if (v == null || v === "") continue;
-      if (typeof v === "boolean") {
-        rows.push(
-          `<div class="score-layer-row"><span>${escapeText(label)}</span><span>${
-            v ? "是" : "否"
-          }</span></div>`
-        );
-        continue;
-      }
-      const n = Number(v);
-      const txt = Number.isFinite(n) ? fmtSigned(n, 2) : String(v);
-      const pct =
-        k === "open_gap" ||
-        k === "gap_vs_sector" ||
-        k === "ret_open_to_tau" ||
-        k === "ret_last_5m" ||
-        k === "ret_last_30m" ||
-        k === "ret_last_90m" ||
-        k === "ret_last_15m" ||
-        k === "session_vwap_dev" ||
-        k === "sector_ret_last_30m" ||
-        k === "ret_last_30m_vs_sector" ||
-        k === "t30_lag1" ||
-        k === "t30_ma5" ||
-        k === "sector_ret_last_90m" ||
-        k === "ret_last_90m_vs_sector" ||
-        k === "t90_lag1" ||
-        k === "t90_ma5";
-      rows.push(
-        `<div class="score-layer-row"><span>${escapeText(label)}</span><span class="num ${
-          Number.isFinite(n) ? signCls(n) : ""
-        }">${escapeText(txt)}${Number.isFinite(n) && pct ? "%" : ""}</span></div>`
-      );
-    }
-  }
-  const hint = hasTerms
-    ? `τ=${escapeText(tau)} · ${escapeText(String(ySpec))} · Ridge 模型预估 · 做 T 旁路`
-    : `τ=${escapeText(tau)} · ${escapeText(String(ySpec))} · 做 T 旁路，不进 C_τ`;
-  return (
-    `<div class="score-layer score-layer-t90">` +
-    `<div class="score-layer-head">` +
-    `<div class="score-hero-label">ŷ_τ90 · Ridge</div>` +
-    `<div class="score-hero-value ${signCls(fit)}">${escapeText(fitTxt)}</div>` +
-    `</div>` +
-    `<div class="score-hero-hint">${hint}</div>` +
-    (rows.length
-      ? `<div class="score-layer-compose">${rows.join("")}</div>`
-      : "") +
-    `</div>`
-  );
+  return formatCompactHorizonProbTip(raw, "t90");
 }
 
 /** y_τw 列 tip：符号和 f(ŷ_τ30)+f(ŷ_τ45)+f(ŷ_τ60)+f(ŷ_τ75)+f(ŷ_τ90)；f(x)=1 if x>0 else −1。 */
@@ -1280,7 +917,7 @@ function formatCompactTWTip(raw) {
   if (y90 == null) missing.push("ŷ_τ90");
   const mPp = Math.round(readHorizonVoteMarginP() * 1000) / 10;
   const hint =
-    `τ=${escapeText(tau)} · ŷ_τw=f(ŷ_τ30)+f(ŷ_τ45)+f(ŷ_τ60)+f(ŷ_τ75)+f(ŷ_τ90) · f=sign(p_up−0.5)；|p−0.5|≤${mPp}pp 不投票` +
+    `τ=${escapeText(tau)} · ŷ_τw=f(ŷ_τ30)+f(ŷ_τ45)+f(ŷ_τ60)+f(ŷ_τ75)+f(ŷ_τ90) · f=sign(p_up−中位点)；|p−mid|≤${mPp}pp 不投票` +
     (missing.length ? ` · 缺 ${missing.join("、")}，不计` : "");
   return (
     `<div class="score-layer score-layer-tw">` +
@@ -1610,7 +1247,7 @@ export function formatNcOcSection(raw) {
   );
 }
 
-/** 融合分：ranking = w_oo·ŷ_oo + w_oc·((1+ŷ_oc)(1+w_co·ŷ_co)−1)。与表列同源。 */
+/** ranking = fuse − (price(τ)/open−1)。与表列同源。 */
 export function formatBlendScoreSection(raw) {
   const blend = resolveRankingScore(raw);
   const yEod = resolveEodScore(raw);
@@ -1664,17 +1301,8 @@ export function formatBlendScoreSection(raw) {
     )}">${escapeText(blendTxt)}</span></div>`,
   ];
   const rotN = (() => {
-    const o =
-      raw && raw.day_open != null && Number.isFinite(Number(raw.day_open))
-        ? Number(raw.day_open)
-        : null;
-    const p =
-      raw &&
-      (raw.rebalance_px != null && Number.isFinite(Number(raw.rebalance_px))
-        ? Number(raw.rebalance_px)
-        : raw.price_tau != null && Number.isFinite(Number(raw.price_tau))
-          ? Number(raw.price_tau)
-          : null);
+    const o = rankingOpenPx(raw);
+    const p = rankingPriceTau(raw);
     if (o == null || p == null || o <= 0 || p <= 0) return null;
     const v = (p / o - 1) * 100;
     return Number.isFinite(v) ? v : null;
@@ -1864,21 +1492,15 @@ export function formatFormulaTermsSection(raw, opts = {}) {
           : key === "on"
           ? "ŷ_co 组成"
             : "ŷ_oo 组成";
+  const isHorizonProb =
+    isHorizonProbKey(key) || String((expl && expl.head_kind) || "") === "prob";
   const totalLabel =
     key === "tau"
       ? "合计 ŷ_oc（T收/T开）"
       : key === "r"
         ? "合计 ŷ_τc（T收/τ价）"
-        : key === "t30"
-          ? "合计 ŷ_τ30（τ⊕25/30/35均/τ价）"
-          : key === "t45"
-            ? "合计 ŷ_τ45（τ⊕40/45/50均/τ价）"
-          : key === "t60"
-            ? "合计 ŷ_τ60（τ⊕55/60/65均/τ价）"
-          : key === "t75"
-            ? "合计 ŷ_τ75（τ⊕70/75/80均/τ价）"
-          : key === "t90"
-            ? "合计 ŷ_τ90（τ⊕85/90/95均/τ价）"
+        : isHorizonProb
+          ? `合计 logit → p_up`
           : key === "hl"
             ? "合计 ŷ_hl（极值序）"
           : key === "on"
@@ -1918,7 +1540,7 @@ export function formatFormulaTermsSection(raw, opts = {}) {
       contrib: Number(t.contrib),
     }));
   const peak = Math.max(...barTerms.map((t) => Math.abs(t.contrib)), 1e-9);
-  const barLimit = key === "tau" ? 24 : 10;
+  const barLimit = key === "tau" || isHorizonProb ? 24 : 10;
   const barsHtml = barTerms.length
     ? `<div class="yhat-contrib-bars" aria-label="因子贡献">` +
       barTerms
@@ -1948,12 +1570,8 @@ export function formatFormulaTermsSection(raw, opts = {}) {
       ? "β×z = 贡献；合计=Ridge 拟合原值（T收/T开），与表列 ŷ_oc / τ 闸同口径。"
       : key === "r"
         ? "β×z = 贡献；合计=Ridge 拟合原值（T收/τ价）。做 T 回测默认执行套截距（对照手动预演）；选研究套才用 Holdout。研究枢纽系数表默认展示执行套全样本截距。"
-        : key === "t30"
-          ? "β×z = 贡献；合计=Ridge 拟合原值（mean(price(τ⊕25/30/35))/price(τ)−1）。做 T 旁路，不进 C_τ。"
-          : key === "t60"
-            ? "β×z = 贡献；合计=Ridge 拟合原值（mean(price(τ⊕55/60/65))/price(τ)−1）。做 T 旁路，不进 C_τ。"
-          : key === "t90"
-            ? "β×z = 贡献；合计=Ridge 拟合原值（mean(price(τ⊕85/90/95))/price(τ)−1）。做 T 旁路，不进 C_τ。"
+        : isHorizonProb
+          ? "β×z = logit 贡献（与研究枢纽「logit 标准化斜率」同口径）；合计 logit 后 p_up=sigmoid(·)=P(窗收益>0)。做 T 回测用执行套；枢纽本次拟合须点「启用执行」后 β 才进回测。缺特征按均值填（z=0）不占表。"
           : key === "hl"
             ? "β×z = 贡献；合计=Ridge 拟合原值（极值序 signed (H−L)/ref%）。做 T 同号闸 / 入场。"
           : "β×z = 贡献；条长∝|贡献|";
@@ -1968,12 +1586,29 @@ export function formatFormulaTermsSection(raw, opts = {}) {
         }（已按均值填，贡献 0）。`
       : "";
   const role = String((expl && expl.model_role) || "").toLowerCase();
+  const namedRole = key === "r" || key === "tau" || isHorizonProb;
   const alphaName =
-    (key === "r" || key === "tau") && role === "research"
+    namedRole && role === "research"
       ? "截距 α（研究套）"
-      : (key === "r" || key === "tau") && role === "live"
+      : namedRole && role === "live"
         ? "截距 α（执行套）"
         : "截距 α";
+  const interceptP = isHorizonProb ? sigmoidLogit(expl.intercept) : null;
+  const totalP =
+    isHorizonProb && expl.p_up != null && Number.isFinite(Number(expl.p_up))
+      ? Number(expl.p_up)
+      : isHorizonProb
+        ? sigmoidLogit(expl.total)
+        : null;
+  const interceptCell =
+    isHorizonProb && interceptP != null
+      ? `${alpha} · 基率 ${fmtHorizonProb(interceptP)}`
+      : alpha;
+  const totalCell =
+    isHorizonProb && totalP != null
+      ? `${total} · p_up ${fmtHorizonProb(totalP)}`
+      : `${total}%`;
+  const totalCls = isHorizonProb ? probCls(totalP) : signCls(expl.total);
   return (
     `<div class="score-formula-section">` +
     `<div class="score-section-title">${escapeText(title)}</div>` +
@@ -1987,14 +1622,14 @@ export function formatFormulaTermsSection(raw, opts = {}) {
     `<td class="score-ft-name">${escapeText(alphaName)}</td>` +
     `<td class="num">—</td>` +
     `<td class="num">—</td>` +
-    `<td class="num ${signCls(expl.intercept)}">${escapeText(alpha)}</td>` +
+    `<td class="num ${signCls(expl.intercept)}">${escapeText(interceptCell)}</td>` +
     `</tr>` +
     rows +
     `<tr class="score-ft-total">` +
     `<td class="score-ft-name">${escapeText(totalLabel)}</td>` +
     `<td class="num">—</td>` +
     `<td class="num">—</td>` +
-    `<td class="num ${signCls(expl.total)}">${escapeText(`${total}%`)}</td>` +
+    `<td class="num ${totalCls}">${escapeText(totalCell)}</td>` +
     `</tr>` +
     `</tbody></table>` +
     `<div class="score-formula-caption">${escapeText(

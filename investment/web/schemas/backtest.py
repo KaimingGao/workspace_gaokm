@@ -15,7 +15,7 @@ class PaperReplayBacktestRequest(BaseModel):
     """
 
     codes: Optional[list] = None
-    lookback: int = Field(default=30, ge=10, le=500)
+    lookback: int = Field(default=10, ge=10, le=500)
     score_model_role: str = Field(
         default="research",
         description="回测模型：research=研究套（Holdout）；live=执行套全样本。默认研究。调仓门槛对 ŷ 敏感，研究套参数未必适用于执行套。",

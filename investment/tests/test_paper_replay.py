@@ -259,6 +259,17 @@ class TestPaperReplayEngine(unittest.TestCase):
             self.assertIsNone(last_rows[0].get("realized_on"))
             self.assertIsNone(last_rows[0].get("realized_oo"))
             self.assertIsNone(last_rows[0].get("realized_ranking"))
+        m = out.get("metrics") or {}
+        self.assertEqual(out.get("params", {}).get("end_date"), last)
+        self.assertGreaterEqual(int(m.get("hit_n") or 0), 1)
+        last_fills = [
+            t
+            for t in (out.get("sim_trades") or [])
+            if str(t.get("as_of") or "")[:10] == last
+            and str(t.get("status") or "") not in ("skipped", "held")
+        ]
+        self.assertTrue(last_fills, "末日仍有成交腿，但不进命中分母")
+        self.assertTrue(all(t.get("realized_ranking") is None for t in last_fills))
         day = str(mid.get("as_of") or "")[:10]
         curve = {
             str(p.get("date") or "")[:10]: p
@@ -2252,7 +2263,11 @@ class TestReplayMinuteFill(unittest.TestCase):
                 cost_model="zero",
                 fill_clock="09:35",
                 minute_bars_by_code=minutes,
-                price_space_cfg={"t0_price_space_gate": False},
+                price_space_cfg={
+                    "t0_price_space_gate": False,
+                    "t0_price_space_max_dev_pct": 0.25,
+                    "t0_price_space_prev_dev_pct": 5.0,
+                },
             )
         self.assertTrue(out.get("success"), out.get("error"))
         buys = [
@@ -2426,32 +2441,39 @@ class TestPortfolioBacktestPersistCurve(unittest.TestCase):
 
 
 class TestFuseHitMetrics(unittest.TestCase):
-    def test_sign_hit_skips_and_no_direction(self):
+    def test_sign_hit_uses_realized_ranking(self):
         pct, n, hits = fuse_hit_metrics(
             [
-                {"y_fuse": 1.2, "realized_tau": 0.5},
-                {"y_fuse": 1.2, "realized_tau": -0.5},
-                {"y_fuse": 1.2, "realized_tau": 0.5, "status": "skipped"},
-                {"y_fuse": 1.2, "realized_tau": 0.5, "status": "held"},
-                {"y_fuse": 0.01, "realized_tau": 1.0},
-                {"y_fuse": -1.0, "realized_tau": -0.2},
-                {"ranking_score": 0.02, "realized_tau": 1.0},
+                {"ranking": 1.2, "realized_ranking": 0.5},
+                {"ranking": 1.2, "realized_ranking": -0.5},
+                {"ranking": 1.2, "realized_ranking": 0.5, "status": "skipped"},
+                {"ranking": 1.2, "realized_ranking": 0.5, "status": "held"},
+                {"ranking": 0.01, "realized_ranking": 1.0},
+                {"ranking": -1.0, "realized_ranking": -0.2},
+                {"ranking_score": 0.02, "realized_ranking": 1.0},
+                {"y_fuse": 1.2, "realized_tau": 0.4, "realized_cc": -0.5},
             ]
         )
         self.assertEqual(n, 4)
         self.assertEqual(hits, 3)
         self.assertEqual(pct, 75.0)
 
-    def test_prefers_realized_tau_over_cc(self):
+    def test_last_day_excluded_even_if_realized(self):
         pct, n, hits = fuse_hit_metrics(
-            [{"y_fuse": 1.2, "realized_tau": 0.4, "realized_cc": -0.5}]
+            [
+                {"as_of": "2026-03-10", "ranking": 1.2, "realized_ranking": 0.5},
+                {"as_of": "2026-03-11", "ranking": 1.2, "realized_ranking": -0.5},
+            ],
+            last_day="2026-03-11",
         )
         self.assertEqual(n, 1)
         self.assertEqual(hits, 1)
         self.assertEqual(pct, 100.0)
 
     def test_empty_is_none(self):
-        pct, n, hits = fuse_hit_metrics([{"status": "skipped", "y_fuse": 2.0, "realized_tau": 1.0}])
+        pct, n, hits = fuse_hit_metrics(
+            [{"status": "skipped", "ranking": 2.0, "realized_ranking": 1.0}]
+        )
         self.assertIsNone(pct)
         self.assertEqual(n, 0)
         self.assertEqual(hits, 0)

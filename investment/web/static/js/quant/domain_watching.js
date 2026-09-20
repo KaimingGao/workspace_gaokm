@@ -5,11 +5,11 @@ import { ensureWarehouseTopup } from "../data_warehouse_topup.js";
 import { renderLineChart } from "../lw_charts.js";
 import { syncOverviewUniverse } from "./factor_corr_ui.js";
 import { mountVirtualTable, colStyle } from "../virtual_table.js";
-import { fmtScore, fmtTableScore, scoreCls, resolveRankingScore, resolveEodScore } from "../paper/fmt.js?v=p2389";
+import { fmtScore, fmtTableScore, scoreCls, resolveRankingScore, resolveEodScore } from "../paper/fmt.js?v=p2544";
 import { truncateStockName, watchingNameSpanHtml, watchingNameFromEl, applyWatchingNameEl, normalizeProbeCode } from "./names.js";
 import { renderWatchingHoldings as renderWatchingHoldingsHtml } from "./watching_holdings.js";
 import { buildWatchingDqMetaText, buildWatchingDqFoldSummary, buildWatchingDqTableHtml } from "./watching_dq_ui.js";
-import { watchingScoreDetail, sentimentBadgeHtml, renderWatchingBuildPlan as renderWatchingBuildPlanHtml, renderWatchingWatchTableFallback, buildWatchingWatchRows, buildWatchingNewsTitleHtml, buildWatchingNewsMetaText, buildWatchingNewsListHtml, WATCHING_NEWS_AI_LOADING_HTML, buildWatchingNewsAiAnalysisHtml, buildWatchingNewsAiErrorHtml, describeWatchingSource, matchWatchlistSource, truncateText, sentimentLabelZh, shortOriginLabel } from "./watching_render.js?v=p2469";
+import { watchingScoreDetail, sentimentBadgeHtml, renderWatchingBuildPlan as renderWatchingBuildPlanHtml, renderWatchingWatchTableFallback, buildWatchingWatchRows, buildWatchingNewsTitleHtml, buildWatchingNewsMetaText, buildWatchingNewsListHtml, WATCHING_NEWS_AI_LOADING_HTML, buildWatchingNewsAiAnalysisHtml, buildWatchingNewsAiErrorHtml, describeWatchingSource, matchWatchlistSource, truncateText, sentimentLabelZh, shortOriginLabel } from "./watching_render.js?v=p2544";
 import { ensureFitTierMap } from "./fit_tier_ui.js";
 import {
   buildWatchingScoreDisplay,
@@ -24,7 +24,7 @@ import {
   buildWatchingInsightsNativeFields,
   isOosFailedItem,
   oosFailedBadgeHtml,
-} from "./watching_insights_ui.js?v=p2389";
+} from "./watching_insights_ui.js?v=p2544";
 import {
   parseWatchingVolume,
   formatWatchingChg,
@@ -997,6 +997,24 @@ export function installWatching(q) {
         }
         if (it.ok && it.stock_name) {
           applyWatchingNameEl(tr.querySelector(".watching-name-text"), it.stock_name);
+        }
+        const insight = (state.watchingInsightByCode || {})[watchingCodeKey(tr.dataset.code)];
+        if (insight && insight.stock_code) {
+          const merged = {
+            ...withQuoteGap(insight, it),
+            open: it.open,
+            open_raw: it.open_raw,
+            day_open: insight.day_open != null ? insight.day_open : it.open_raw || it.open,
+            price: it.price,
+            price_raw: it.price_raw,
+            price_tau: insight.price_tau != null ? insight.price_tau : it.price_raw || it.price,
+          };
+          const disp = buildWatchingScoreDisplay(merged, fmtScore, watchingScoreDetail);
+          const scoreEl = tr.querySelector(`[data-q='score']`);
+          if (scoreEl) {
+            scoreEl.innerHTML = buildWatchingScoreCellHtml(disp, scoreCls, escapeHtml);
+          }
+          if (disp.scoreNum != null) tr.dataset.score = String(disp.scoreNum);
         }
       });
       const okN = (data.items || []).filter((x) => x.ok).length;

@@ -407,7 +407,6 @@ export function installBacktest(q) {
       if (el) el.value = String(val);
     };
     if (desk) {
-      if (req.lookback != null) setVal("quant-lookback", req.lookback);
       if (req.score_model_role != null) applyScoreModelRole("quant-score-model-role", req.score_model_role);
       if (req.fill_clock != null) setVal("quant-fill-clock", clampFillClock(req.fill_clock));
       if (req.initial_cash != null) setName("pm_initial_cash", req.initial_cash);
@@ -1007,7 +1006,7 @@ export function installBacktest(q) {
 
   function readPortfolioBtParams() {
     const lbEl = document.getElementById("quant-lookback");
-    let lookback = 30;
+    let lookback = 10;
     if (lbEl && lbEl.value !== "") {
       const n = Number(lbEl.value);
       if (Number.isFinite(n)) lookback = Math.max(10, Math.min(500, Math.round(n)));
@@ -1362,10 +1361,6 @@ export function installBacktest(q) {
     applyReplayT0Kpis(data);
     fillT0BtSizing(document.getElementById("paper-t0-form"), data);
     const req = (data && data.request) || {};
-    const lbEl = document.getElementById("paper-t0-lookback");
-    if (lbEl && req.lookback != null && Number.isFinite(Number(req.lookback))) {
-      lbEl.value = String(req.lookback);
-    }
     applyScoreModelRole(
       "paper-t0-score-model-role",
       req.score_model_role || data.score_model_role

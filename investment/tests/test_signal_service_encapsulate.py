@@ -299,6 +299,24 @@ class TestSignalServiceWrap(unittest.TestCase):
         self.assertAlmostEqual(float(row.get("fusion_w_oo")), 0.8)
         self.assertAlmostEqual(float(row.get("fusion_w_oc")), 0.2)
 
+    def test_pack_holding_row_applies_remaining_ranking(self):
+        from core.signal.service import SignalService
+
+        row = SignalService().pack_holding_row(
+            {
+                "stock_code": "600869",
+                "predicted_score": 2.30,
+                "y_oo": 2.30,
+                "y_oc": 5.69,
+                "day_open": 10.0,
+                "price": 10.2,
+            },
+            rank_cfg={"fusion_w_oo": 0.8, "fusion_w_oc": 0.2, "fusion_w_co": 0.0},
+        )
+        fused = 0.8 * 2.30 + 0.2 * 5.69
+        rot = (10.2 / 10.0 - 1.0) * 100.0
+        self.assertAlmostEqual(float(row.get("ranking")), fused - rot, places=4)
+
     def test_pack_holding_row_keeps_on_features(self):
         from core.signal.service import SignalService
 

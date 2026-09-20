@@ -383,6 +383,58 @@ class TestWatchingInsights(unittest.TestCase):
         self.assertAlmostEqual(float(row.get("fusion_w_oc")), 0.2)
         self.assertAlmostEqual(float(row.get("ranking")), 0.8 * 2.30 + 0.2 * 5.69, places=4)
 
+    def test_insight_one_stamps_remaining_ranking(self):
+        """有今开与现价时，数据中心 ranking 扣 (price(τ)/open−1)。"""
+        from core.watching.insights import _insight_one
+
+        paper = {
+            "rules": {
+                "execution": {
+                    "rebalance_timing": {
+                        "rank_lots": {
+                            "fusion_w_oo": 0.8,
+                            "fusion_w_oc": 0.2,
+                            "fusion_w_co": 0.0,
+                        }
+                    }
+                }
+            }
+        }
+
+        def _fake_score(code, **kw):
+            return {
+                "success": True,
+                "quote": {
+                    "success": True,
+                    "stock_code": code,
+                    "open": 10.0,
+                    "price_raw": 10.2,
+                    "price": 10.2,
+                },
+                "signal_item": {
+                    "stock_code": code,
+                    "score": 3.0,
+                    "predicted_score": 2.30,
+                    "predicted_score_eod": 2.30,
+                    "y_oo": 2.30,
+                    "y_oc": 5.69,
+                    "hard_reject": False,
+                },
+            }
+
+        with patch("core.signal.score_stock.score_stock", side_effect=_fake_score), patch(
+            "core.watching.insights._spot_valuation_map", return_value={}
+        ), patch("core.watching.insights._hydrate_insight_tau_fields"), patch(
+            "core.stance.compute_buy_stance",
+            return_value={"stance_code": "wait", "stance_label": "观望"},
+        ):
+            row = _insight_one("600869", paper_ctx=paper)
+        fused = 0.8 * 2.30 + 0.2 * 5.69
+        rot = (10.2 / 10.0 - 1.0) * 100.0
+        self.assertAlmostEqual(float(row.get("ranking")), fused - rot, places=4)
+        self.assertAlmostEqual(float(row.get("day_open")), 10.0, places=4)
+        self.assertAlmostEqual(float(row.get("price_tau")), 10.2, places=4)
+
     def test_insight_quote_bars_offline_no_live_quote(self):
         from core.watching.insights import _insight_quote_bars
 

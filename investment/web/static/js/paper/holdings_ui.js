@@ -19,14 +19,14 @@ import {
   Y_OC_REBALANCE_TITLE,
   Y_ON_TITLE,
   RANKING_REBALANCE_TITLE,
-} from "./fmt.js?v=p2389";
+} from "./fmt.js?v=p2544";
 import { paginateItems, renderPagerHtml } from "../api_client.js";
-import { watchingScoreDetail } from "../quant/watching_render.js?v=p2469";
+import { watchingScoreDetail } from "../quant/watching_render.js?v=p2544";
 import {
   isSingleHeadItem,
   singleHeadBadgeHtml,
   yCheckBadgeHtml,
-} from "../quant/watching_insights_ui.js?v=p2389";
+} from "../quant/watching_insights_ui.js?v=p2544";
 import { formatPrevCloseDisplay, formatOpenDisplay } from "../quant/watching_quotes_ui.js?v=p2389";
 import { buildHoldingSharesTip } from "./holding_lots_tip.js?v=p1227";
 import { holdingT0BadgeHtml } from "./holding_t0_badge.js?v=p1526";

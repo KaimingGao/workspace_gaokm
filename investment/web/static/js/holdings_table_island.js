@@ -2,13 +2,13 @@
  * 交易执行 · 持仓主表（共享 virtual_table 内核，与数据中心同方案）。
  */
 
-import { fmtPriceUnit, fmtPct, metricCls, fmtTableScore, scoreCls, resolveRankingScore, resolveEodScore, resolveTauScore, resolveOnScore, isHeuristicScoreScale, Y_EOD_TITLE, Y_OC_REBALANCE_TITLE, Y_ON_TITLE, RANKING_REBALANCE_TITLE } from "./paper/fmt.js?v=p2389";
-import { sentimentBadgeHtml, watchingScoreDetail } from "./quant/watching_render.js?v=p2469";
+import { fmtPriceUnit, fmtPct, metricCls, fmtTableScore, scoreCls, resolveRankingScore, resolveEodScore, resolveTauScore, resolveOnScore, isHeuristicScoreScale, Y_EOD_TITLE, Y_OC_REBALANCE_TITLE, Y_ON_TITLE, RANKING_REBALANCE_TITLE } from "./paper/fmt.js?v=p2544";
+import { sentimentBadgeHtml, watchingScoreDetail } from "./quant/watching_render.js?v=p2544";
 import {
   isSingleHeadItem,
   singleHeadBadgeHtml,
   yCheckBadgeHtml,
-} from "./quant/watching_insights_ui.js?v=p2389";
+} from "./quant/watching_insights_ui.js?v=p2544";
 import { formatPrevCloseDisplay, formatOpenDisplay, resolveOpenPx } from "./quant/watching_quotes_ui.js?v=p2389";
 import { buildHoldingSharesTip } from "./paper/holding_lots_tip.js?v=p1227";
 import { holdingT0BadgeHtml } from "./paper/holding_t0_badge.js?v=p1526";

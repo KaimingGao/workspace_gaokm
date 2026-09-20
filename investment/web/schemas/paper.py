@@ -116,41 +116,11 @@ class T0BacktestRequest(BaseModel):
         default=None, ge=0.01, le=10.0, description="dual_y：|y_on|隔夜放行门槛（收益百分点）"
     )
     y_on_risk: Optional[float] = Field(default=None, ge=0.01, le=10.0)
-    t0_y_oc_target_scale: Optional[float] = Field(
-        default=None,
-        ge=0.0,
-        le=100.0,
-        description="C_τ：y_oc 放大，clip(ŷ_oc×scale, y_oc_l, y_oc_u) 的倍数，默认 10",
-    )
-    t0_y_oc_l: Optional[float] = Field(
-        default=None,
-        ge=-20.0,
-        le=20.0,
-        description="C_τ clip 下界（百分点，默认 −3）",
-    )
-    t0_y_oc_u: Optional[float] = Field(
-        default=None,
-        ge=-20.0,
-        le=20.0,
-        description="C_τ clip 上界（百分点，默认 +3）",
-    )
-    y_hl_strong: Optional[float] = Field(
-        default=None,
-        ge=0.0,
-        le=5.0,
-        description="HL强%：|y_hl| 超此值须与 y_τ 同号，异号跳过（默认 5）",
-    )
-    y_path_strong: Optional[float] = Field(
-        default=None,
-        ge=0.0,
-        le=5.0,
-        description="y_hl_strong 旧键",
-    )
     y_tw_enter: Optional[float] = Field(
         default=None,
         ge=0.0,
         le=5.0,
-        description="ŷ_τw 入场：|ŷ_τw| 大于此值才开腿；全弃权计 0 票；0=关（0 票也过，关同号）",
+        description="正T：ŷ_τw>=此票；反T：ŷ_τw<=−此票。默认 2；0=允许 0 票",
     )
     y_τw_enter: Optional[float] = Field(
         default=None,
@@ -158,11 +128,23 @@ class T0BacktestRequest(BaseModel):
         le=5.0,
         description="y_tw_enter 的 Unicode 别名",
     )
+    y_tw_strong: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        le=5.0,
+        description="过 Y_τw门槛后 |ŷ_τw|>=此票用全额轮次，否则半仓。默认 2；须≥门槛",
+    )
+    y_τw_strong: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        le=5.0,
+        description="y_tw_strong 的 Unicode 别名",
+    )
     y_tw_vote_margin: Optional[float] = Field(
         default=None,
         ge=0.0,
         le=20.0,
-        description="ŷ_τ* 距 50% 不超过此百分点则不给 ŷ_τw 投票；默认 2；0=仅恰好 50% 弃权",
+        description="ŷ_τ* 距中位点不超过此百分点则不给 ŷ_τw 投票；默认 5；0=仅恰好中位点弃权",
     )
     y_τw_vote_margin: Optional[float] = Field(
         default=None,
@@ -170,14 +152,47 @@ class T0BacktestRequest(BaseModel):
         le=20.0,
         description="y_tw_vote_margin 的 Unicode 别名",
     )
-    y_hl_required: Optional[bool] = None
-    y_path_required: Optional[bool] = None
-    t0_close_band_delta_pct: Optional[float] = Field(default=None, ge=0.0, le=10.0)
+    y_tw_midpoint: Optional[float] = Field(
+        default=None,
+        ge=1.0,
+        le=99.0,
+        description="ŷ_τ30/45/60/75/90 共用中位点%；ŷ_τw=相对中位点符号和。默认 47",
+    )
+    y_τw_midpoint: Optional[float] = Field(
+        default=None,
+        ge=1.0,
+        le=99.0,
+        description="y_tw_midpoint 的 Unicode 别名",
+    )
+    t0_y_oc_target_scale: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        le=100.0,
+        description="C_τ=O×(1+clip(ŷ_oc×scale, l, u)/100)；默认 10",
+    )
+    t0_y_oc_l: Optional[float] = Field(
+        default=None,
+        ge=-20.0,
+        le=20.0,
+        description="ŷ_oc×scale clip 下界（百分点）；默认 −3",
+    )
+    t0_y_oc_u: Optional[float] = Field(
+        default=None,
+        ge=-20.0,
+        le=20.0,
+        description="ŷ_oc×scale clip 上界（百分点）；默认 +3",
+    )
+    t0_close_band_delta_pct: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        le=10.0,
+        description="破带带宽 δ%：upper=C_τ×(1+δ/100)；C>upper 反T、C<lower 正T。默认 0.5",
+    )
     t0_price_space_gate: Optional[bool] = Field(
-        default=None, description="日分价空间门禁：|O_d/O_m−1| 超阈跳过"
+        default=None, description="日分价空间门禁：昨收差超阈跳过（开盘差已下线）"
     )
     t0_price_space_max_dev_pct: Optional[float] = Field(
-        default=None, ge=0.0, le=5.0, description="开盘差%：|日开/分开−1|×100 上限（默认 5）"
+        default=None, ge=0.0, le=5.0, description="开盘差已下线（固定 0=关）；保留键供旧补丁/单测"
     )
     t0_price_space_prev_dev_pct: Optional[float] = Field(
         default=None, ge=0.0, le=5.0, description="昨收差%：|日昨/分昨−1|×100 上限（默认 5）"
@@ -399,17 +414,17 @@ class PaperExecutionPatchRequest(BaseModel):
     residual_w_mode: Optional[str] = None
     y_on_allow: Optional[float] = None
     y_on_risk: Optional[float] = None
+    y_tw_enter: Optional[float] = None
+    y_τw_enter: Optional[float] = None
+    y_tw_strong: Optional[float] = None
+    y_τw_strong: Optional[float] = None
+    y_tw_vote_margin: Optional[float] = None
+    y_τw_vote_margin: Optional[float] = None
+    y_tw_midpoint: Optional[float] = None
+    y_τw_midpoint: Optional[float] = None
     t0_y_oc_target_scale: Optional[float] = None
     t0_y_oc_l: Optional[float] = None
     t0_y_oc_u: Optional[float] = None
-    y_hl_strong: Optional[float] = None
-    y_path_strong: Optional[float] = None
-    y_tw_enter: Optional[float] = None
-    y_τw_enter: Optional[float] = None
-    y_tw_vote_margin: Optional[float] = None
-    y_τw_vote_margin: Optional[float] = None
-    y_hl_required: Optional[bool] = None
-    y_path_required: Optional[bool] = None
     t0_close_band_delta_pct: Optional[float] = None
     t0_price_space_gate: Optional[bool] = None
     t0_price_space_max_dev_pct: Optional[float] = None

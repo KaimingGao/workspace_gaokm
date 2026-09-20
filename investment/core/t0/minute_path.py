@@ -876,7 +876,7 @@ def _first_touch_sell_then_buy(
                 trigger=fill_sell,
                 at=ts,
                 leg_kind="trigger",
-                note="反T卖出（C>upper）",
+                note="反T卖出（C<O·ŷ_τw）",
             )
             shares_now -= qty
             sold_qty = qty
@@ -884,20 +884,11 @@ def _first_touch_sell_then_buy(
             sell_level = float(sold_price)
             touch_sell_at = ts
             leg1_idx = idx
-            # v6：冻结 C_τ 优先；无冻结才回退 τ / 平盘
+            # 不预设第二腿目标：盘中只止损/回吐，午后中点追价
             if leg2_target_px is not None and float(leg2_target_px) > 0:
                 chase_buy_level = float(leg2_target_px)
             else:
-                chase_buy_level = _leg2_tau_target_px(
-                    ref=ref,
-                    y_tau=y_tau,
-                    direction="sell_then_buy",
-                    cfg=cfg,
-                )
-                if chase_buy_level is None and sold_price > 0:
-                    chase_buy_level = _leg2_breakeven_target_px(
-                        leg1_px=sold_price, direction="sell_then_buy"
-                    )
+                chase_buy_level = None
             if stop_pct > 0 and sold_price > 0:
                 stop_level = sold_price * (1.0 + stop_pct / 100.0)
             # 同根不明先后：确认卖后不在同一根买回
@@ -1004,26 +995,19 @@ def _first_touch_sell_then_buy(
                     exit_reason = "giveback"
                     continue
 
-            # 第二腿：v6 冻结带宽目标优先；否则 τ 出场 / 平盘 / 追价
-            if leg2_target_px is not None and float(leg2_target_px) > 0:
+            # 第二腿：有冻结目标才触价；否则盘中跳过，午后中点追价（种子=leg1）
+            preset_leg2 = leg2_target_px is not None and float(leg2_target_px) > 0
+            if preset_leg2:
                 tau_buy_target = float(leg2_target_px)
             else:
-                tau_buy_target = chase_buy_level
-                if tau_buy_target is None:
-                    tau_buy_target = _leg2_tau_target_px(
-                        ref=ref,
-                        y_tau=y_tau,
-                        direction="sell_then_buy",
-                        cfg=cfg,
-                    )
-                if tau_buy_target is None:
-                    tau_buy_target = _leg2_breakeven_target_px(
-                        leg1_px=sold_price, direction="sell_then_buy"
-                    )
+                tau_buy_target = None
             if tau_buy_target is None:
+                if not pm_hit:
+                    continue
                 px = float(mb.get("close") or hi or sold_price)
+                seed = float(chase_buy_level) if chase_buy_level and float(chase_buy_level) > 0 else float(sold_price)
                 chase_buy_level, last_chase_min, adjusted = _maybe_pm_chase_level(
-                    level=float(sold_price),
+                    level=float(seed),
                     px=px,
                     ts=ts,
                     pm_hm=pm_hm,
@@ -1085,15 +1069,6 @@ def _first_touch_sell_then_buy(
             if lo > buy_level:
                 continue
             fill_buy = _fill_buy(lo, buy_level, fill_mode)
-            # 中点追价已改目标：不再用原始 τ 出场闸否决（止损同样不受闸）
-            if not used_chase and leg2_target_px is None and not tau_leg2_fill_price_ok(
-                fill_px=fill_buy,
-                ref=ref,
-                y_tau=y_tau,
-                direction="sell_then_buy",
-                cfg=cfg,
-            ).get("ok"):
-                continue
             cover = sold_qty
             # 账户余额（开盘现金 + 当日累计）够则买回；不要求卖出净得自给
             if not _account_can_buy(
@@ -1388,27 +1363,18 @@ def _first_touch_buy_then_sell(
                 trigger=buy_level,
                 at=ts,
                 leg_kind="trigger",
-                note="正T加仓（C<lower；新股T+1锁仓）",
+                note="正T加仓（ŷ_τw；新股T+1锁仓）",
             )
             shares_now += qty
             bought_qty = qty
             buy_price = fill_buy
             touch_buy_at = ts
             sell_old_qty = min(bought_qty, sell_old_cap)
-            # v6：冻结 C_τ 优先；无冻结才回退 τ / 平盘
+            # 不预设第二腿目标：盘中只止损/回吐，午后中点追价
             if leg2_target_px is not None and float(leg2_target_px) > 0:
                 chase_sell_level = float(leg2_target_px)
             else:
-                chase_sell_level = _leg2_tau_target_px(
-                    ref=ref,
-                    y_tau=y_tau,
-                    direction="buy_then_sell",
-                    cfg=cfg,
-                )
-                if chase_sell_level is None and buy_price > 0:
-                    chase_sell_level = _leg2_breakeven_target_px(
-                        leg1_px=buy_price, direction="buy_then_sell"
-                    )
+                chase_sell_level = None
             leg1_idx = idx
             if stop_pct > 0 and buy_price > 0:
                 stop_level = buy_price * (1.0 - stop_pct / 100.0)
@@ -1501,25 +1467,19 @@ def _first_touch_buy_then_sell(
                     exit_reason = "giveback"
                     continue
 
-            if leg2_target_px is not None and float(leg2_target_px) > 0:
+            # 第二腿：有冻结目标才触价；否则盘中跳过，午后中点追价（种子=leg1）
+            preset_leg2 = leg2_target_px is not None and float(leg2_target_px) > 0
+            if preset_leg2:
                 tau_sell_target = float(leg2_target_px)
             else:
-                tau_sell_target = chase_sell_level
-                if tau_sell_target is None:
-                    tau_sell_target = _leg2_tau_target_px(
-                        ref=ref,
-                        y_tau=y_tau,
-                        direction="buy_then_sell",
-                        cfg=cfg,
-                    )
-                if tau_sell_target is None:
-                    tau_sell_target = _leg2_breakeven_target_px(
-                        leg1_px=buy_price, direction="buy_then_sell"
-                    )
+                tau_sell_target = None
             if tau_sell_target is None:
+                if not pm_hit:
+                    continue
                 px = float(mb.get("close") or lo or buy_price)
+                seed = float(chase_sell_level) if chase_sell_level and float(chase_sell_level) > 0 else float(buy_price)
                 chase_sell_level, last_chase_min, adjusted = _maybe_pm_chase_level(
-                    level=float(buy_price),
+                    level=float(seed),
                     px=px,
                     ts=ts,
                     pm_hm=pm_hm,
@@ -1581,14 +1541,6 @@ def _first_touch_buy_then_sell(
             if sell_old_qty <= 0 or hi < sell_level:
                 continue
             fill_sell = _fill_sell(hi, sell_level, fill_mode)
-            if not used_chase and leg2_target_px is None and not tau_leg2_fill_price_ok(
-                fill_px=fill_sell,
-                ref=ref,
-                y_tau=y_tau,
-                direction="buy_then_sell",
-                cfg=cfg,
-            ).get("ok"):
-                continue
             cash_delta += append_t0_leg(
                 trades,
                 cost_model=cost_model,

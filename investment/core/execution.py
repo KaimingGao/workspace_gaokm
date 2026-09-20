@@ -50,22 +50,21 @@ ALLOWED_T0_PATCH_KEYS = frozenset(
         "residual_w_mode",
         "y_on_risk",
         "y_on_allow",
-        "t0_y_oc_target_scale",
-        "t0_y_oc_l",
-        "t0_y_oc_u",
-        "y_hl_strong",
-        "y_path_enter",
-        "y_path_enter_sell_then_buy",
-        "y_path_enter_buy_then_sell",
-        "y_path_strong",
         "y_tw_enter",
         "y_τw_enter",
+        "y_tw_enter_buy_then_sell",
+        "y_tw_enter_sell_then_buy",
+        "y_τw_enter_buy_then_sell",
+        "y_τw_enter_sell_then_buy",
         "y_tw_strong",
         "y_τw_strong",
         "y_tw_vote_margin",
         "y_τw_vote_margin",
-        "y_hl_required",
-        "y_path_required",
+        "y_tw_midpoint",
+        "y_τw_midpoint",
+        "t0_y_oc_target_scale",
+        "t0_y_oc_l",
+        "t0_y_oc_u",
         "t0_close_band_delta_pct",
         "t0_price_space_gate",
         "t0_price_space_max_dev_pct",
@@ -135,17 +134,24 @@ DEFAULT_T0_OVERLAY: Dict[str, Any] = {
     "residual_w_mode": "fixed",
     "y_trade_enter": 0.01,
     "y_on_allow": 0.01,
+    "y_tw_enter": 2.0,
+    "y_τw_enter": 2.0,
+    "y_tw_strong": 2.0,
+    "y_τw_strong": 2.0,
+    "y_tw_enter_buy_then_sell": 2.0,
+    "y_tw_enter_sell_then_buy": 2.0,
+    "y_τw_enter_buy_then_sell": 2.0,
+    "y_τw_enter_sell_then_buy": 2.0,
+    "y_tw_vote_margin": 5.0,
+    "y_τw_vote_margin": 5.0,
+    "y_tw_midpoint": 47.0,
+    "y_τw_midpoint": 47.0,
     "t0_y_oc_target_scale": 10.0,
     "t0_y_oc_l": -3.0,
     "t0_y_oc_u": 3.0,
-    "y_hl_strong": 5.0,
-    "y_tw_enter": 0.0,
-    "y_τw_enter": 0.0,
-    "y_tw_vote_margin": 2.0,
-    "y_τw_vote_margin": 2.0,
-    "t0_close_band_delta_pct": 3.0,
+    "t0_close_band_delta_pct": 0.5,
     "t0_price_space_gate": True,
-    "t0_price_space_max_dev_pct": 5.0,
+    "t0_price_space_max_dev_pct": 0.0,
     "t0_price_space_prev_dev_pct": 5.0,
     "t0_round_ratio": 0.4,
     "t0_max_position_pct": 1.0,
@@ -256,7 +262,26 @@ _REBALANCE_KEYS = (
 
 # 表单只写共用键时，下层 DEFAULT_T0_OVERLAY / 纸面里的分侧默认值必须让路，
 # 否则 load_t0_rules 会把分侧 0 当成「显式覆盖」，闸仍走 overlay 默认。
-_SHARED_TO_SIDE_KEYS: Tuple[Tuple[str, Tuple[str, ...]], ...] = ()
+_SHARED_TO_SIDE_KEYS: Tuple[Tuple[str, Tuple[str, ...]], ...] = (
+    (
+        "y_tw_enter",
+        (
+            "y_tw_enter_buy_then_sell",
+            "y_tw_enter_sell_then_buy",
+            "y_τw_enter_buy_then_sell",
+            "y_τw_enter_sell_then_buy",
+        ),
+    ),
+    (
+        "y_τw_enter",
+        (
+            "y_tw_enter_buy_then_sell",
+            "y_tw_enter_sell_then_buy",
+            "y_τw_enter_buy_then_sell",
+            "y_τw_enter_sell_then_buy",
+        ),
+    ),
+)
 
 
 def _drop_stale_side_keys(merged: dict, sources: Dict[str, str], layer: dict) -> None:
@@ -685,23 +710,27 @@ def execution_public_view(bundle: Dict[str, Any]) -> Dict[str, Any]:
             "residual_w_mode": t0.get("residual_w_mode"),
             "y_on_risk": t0.get("y_on_risk"),
             "y_on_allow": t0.get("y_on_allow"),
-            "t0_y_oc_target_scale": t0.get("t0_y_oc_target_scale"),
-            "t0_y_oc_l": t0.get("t0_y_oc_l"),
-            "t0_y_oc_u": t0.get("t0_y_oc_u"),
-            "y_hl_strong": t0.get("y_hl_strong")
-            if t0.get("y_hl_strong") not in (None, "")
-            else t0.get("y_path_strong"),
             "y_tw_enter": t0.get("y_tw_enter")
             if t0.get("y_tw_enter") not in (None, "")
             else t0.get("y_τw_enter"),
             "y_τw_enter": t0.get("y_τw_enter")
             if t0.get("y_τw_enter") not in (None, "")
             else t0.get("y_tw_enter"),
+            "y_tw_strong": t0.get("y_tw_strong")
+            if t0.get("y_tw_strong") not in (None, "")
+            else t0.get("y_τw_strong"),
+            "y_τw_strong": t0.get("y_τw_strong")
+            if t0.get("y_τw_strong") not in (None, "")
+            else t0.get("y_tw_strong"),
             "y_tw_vote_margin": t0.get("y_tw_vote_margin"),
             "y_τw_vote_margin": t0.get("y_τw_vote_margin") or t0.get("y_tw_vote_margin"),
-            "y_hl_required": t0.get("y_hl_required")
-            if t0.get("y_hl_required") is not None
-            else t0.get("y_path_required"),
+            "y_tw_midpoint": t0.get("y_tw_midpoint"),
+            "y_τw_midpoint": t0.get("y_τw_midpoint") or t0.get("y_tw_midpoint"),
+            "y_tw_enter_buy_then_sell": t0.get("y_tw_enter_buy_then_sell"),
+            "y_tw_enter_sell_then_buy": t0.get("y_tw_enter_sell_then_buy"),
+            "t0_y_oc_target_scale": t0.get("t0_y_oc_target_scale"),
+            "t0_y_oc_l": t0.get("t0_y_oc_l"),
+            "t0_y_oc_u": t0.get("t0_y_oc_u"),
             "t0_close_band_delta_pct": t0.get("t0_close_band_delta_pct"),
             "t0_price_space_gate": t0.get("t0_price_space_gate"),
             "t0_price_space_max_dev_pct": t0.get("t0_price_space_max_dev_pct"),
@@ -867,15 +896,21 @@ def validate_execution_patch(raw: Any) -> Tuple[bool, Dict[str, Any], List[str]]
         return False, {}, [f"t0 校验失败: {e}"]
 
     t0_out = {k: normalized_full[k] for k in t0_in if k in ALLOWED_T0_PATCH_KEYS and k in normalized_full}
-    if any(
-        k in t0_in for k in ("y_tw_enter", "y_τw_enter", "y_tw_strong", "y_τw_strong")
-    ):
+    if any(k in t0_in for k in ("y_tw_enter", "y_τw_enter")):
         if "y_tw_enter" in normalized_full:
             t0_out["y_tw_enter"] = normalized_full["y_tw_enter"]
         if "y_τw_enter" in normalized_full:
             t0_out["y_τw_enter"] = normalized_full["y_τw_enter"]
-        t0_out.pop("y_tw_strong", None)
-        t0_out.pop("y_τw_strong", None)
+    if any(k in t0_in for k in ("y_tw_strong", "y_τw_strong")):
+        if "y_tw_strong" in normalized_full:
+            t0_out["y_tw_strong"] = normalized_full["y_tw_strong"]
+        if "y_τw_strong" in normalized_full:
+            t0_out["y_τw_strong"] = normalized_full["y_τw_strong"]
+    if any(k in t0_in for k in ("y_tw_midpoint", "y_τw_midpoint")):
+        if "y_tw_midpoint" in normalized_full:
+            t0_out["y_tw_midpoint"] = normalized_full["y_tw_midpoint"]
+        if "y_τw_midpoint" in normalized_full:
+            t0_out["y_τw_midpoint"] = normalized_full["y_τw_midpoint"]
     # legacy 共用键只写一侧时，补上 load_t0_rules 对齐的分侧键，避免 resolve 时
     # DEFAULT_T0_OVERLAY 里的分侧默认值盖掉纸面补丁。
     _legacy_side_expand = (
@@ -886,6 +921,14 @@ def validate_execution_patch(raw: Any) -> Tuple[bool, Dict[str, Any], List[str]]
         ("y_tau_exit_price_skip", ("y_tau_exit_price_skip_buy_then_sell",)),
         ("fill_mode", ("fill_mode_buy_then_sell",)),
         ("must_cover_same_day", ("must_cover_same_day_buy_then_sell",)),
+        (
+            "y_tw_enter",
+            ("y_tw_enter_buy_then_sell", "y_tw_enter_sell_then_buy"),
+        ),
+        (
+            "y_τw_enter",
+            ("y_tw_enter_buy_then_sell", "y_tw_enter_sell_then_buy"),
+        ),
     )
     for legacy, sides in _legacy_side_expand:
         if legacy not in t0_in:
@@ -1031,8 +1074,6 @@ def apply_execution_patch_to_paper(
             "y_τc_enter",
             "y_tc_enter_alt",
             "y_τc_enter_alt",
-            "y_tw_strong",
-            "y_τw_strong",
             "y_t30_strong",
             "y_τ30_strong",
             "y_t45_strong",

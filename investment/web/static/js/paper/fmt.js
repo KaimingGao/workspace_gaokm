@@ -173,6 +173,35 @@ function hasFusionWeights(it) {
   );
 }
 
+function _pxField(v) {
+  if (v == null || v === "") return null;
+  if (typeof v === "number") return Number.isFinite(v) && v > 0 ? v : null;
+  const m = String(v).replace(/,/g, "").match(/-?\d+(?:\.\d+)?/);
+  if (!m) return null;
+  const n = Number(m[0]);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+/** 今开：day_open / open_raw / open_t / open。 */
+export function rankingOpenPx(it) {
+  if (!it || typeof it !== "object") return null;
+  for (const k of ["day_open", "open_raw", "open_t", "open"]) {
+    const n = _pxField(it[k]);
+    if (n != null) return n;
+  }
+  return null;
+}
+
+/** τ 价：rebalance_px / price_tau / 现价。 */
+export function rankingPriceTau(it) {
+  if (!it || typeof it !== "object") return null;
+  for (const k of ["rebalance_px", "price_tau", "price_raw", "last_price", "mark_price", "price"]) {
+    const n = _pxField(it[k]);
+    if (n != null) return n;
+  }
+  return null;
+}
+
 /** 决策 ranking = 融合分 − (price(τ)/open−1)。缺开盘或 τ 价则原值。百分点。 */
 export function remainingRankingPct(ranking, openPx, priceTau) {
   const y = _numField(ranking);
@@ -185,8 +214,8 @@ export function remainingRankingPct(ranking, openPx, priceTau) {
   return Number.isFinite(out) ? out : y;
 }
 
-/** 表列 ranking = w_oo·ŷ_oo + w_oc·((1+ŷ_oc)(1+w_co·ŷ_co)−1)。不用 dual_score 缺口抬升。
- *  拟合标签 open[T]→open[T+1]；决策由后端 ranking_pct_of 减去 (price(τ)/open−1)。 */
+/** 融合分 = w_oo·ŷ_oo + w_oc·((1+ŷ_oc)(1+w_co·ŷ_co)−1)。不用 dual_score 缺口抬升。
+ *  拟合标签 open[T]→open[T+1]。表列再减 (price(τ)/open−1)。 */
 export function rankingPct(it) {
   if (!it || typeof it !== "object") return null;
   const oo = resolveEodScore(it);
@@ -198,7 +227,7 @@ export function rankingPct(it) {
   return _looksLikeYhatPct(fused) ? fused : null;
 }
 
-/** 表列主分：ranking = w_oo·ŷ_oo + w_oc·(ŷ_oc ∘ w_co·ŷ_co)。不做 T ŷ_trade。 */
+/** 表列主分：ranking = fuse − (price(τ)/open−1)。不做 T ŷ_trade。 */
 export function resolveRankingScore(it) {
   if (!it || typeof it !== "object") return null;
   if (isHeuristicScoreScale(it)) {
@@ -219,11 +248,22 @@ export function resolveRankingScore(it) {
   }
   const ranked = rankingPct(it);
   const stamped = _numField(it.ranking);
-  // 有 fusion_w 才现算；否则缺权会按 0.5/0.5 把 tip 算歪，信落盘 ranking
-  if (hasFusionWeights(it) && _looksLikeYhatPct(ranked)) return ranked;
-  if (_looksLikeYhatPct(stamped)) return stamped;
-  if (_looksLikeYhatPct(ranked)) return ranked;
-  return null;
+  // 有 fusion_w 才现算融合分；否则缺权会按 0.5/0.5 把 tip 算歪，信落盘 ranking
+  let base = null;
+  let fromHeads = false;
+  if (hasFusionWeights(it) && _looksLikeYhatPct(ranked)) {
+    base = ranked;
+    fromHeads = true;
+  } else if (_looksLikeYhatPct(stamped)) {
+    base = stamped;
+  } else if (_looksLikeYhatPct(ranked)) {
+    base = ranked;
+    fromHeads = true;
+  }
+  if (base == null) return null;
+  if (!fromHeads) return base;
+  const rem = remainingRankingPct(base, rankingOpenPx(it), rankingPriceTau(it));
+  return rem != null && Number.isFinite(rem) ? rem : base;
 }
 
 /** @deprecated 表列 ranking；请用 resolveRankingScore。做 T 用 resolveYTradeScore。 */
@@ -323,12 +363,16 @@ export const Y_T90_TITLE =
   "ŷ_τ90 · P(mean(price(τ⊕85/90/95))/price(τ)−1>0) · 做 T 旁路，不进 C_τ";
 export const T90_REALIZED_TITLE =
   "τ90实 · mean(price(τ⊕85/90/95))/price(τ)−1（与 ŷ_τ90 同标签）";
-/** τ 后窗口符号和：ŷ_τw = f(ŷ_τ30)+…+f(ŷ_τ90)；f=sign(p_up−0.5)；近 50% 弃权% 可配 */
-export const HORIZON_VOTE_MARGIN_PP = 2;
+/** τ 后窗口符号和：ŷ_τw = f(ŷ_τ30)+…+f(ŷ_τ90)；f=sign(p_up−mid)；mid 默认 47%；近中位点弃权% 可配 */
+export const HORIZON_VOTE_MARGIN_PP = 5;
 export const HORIZON_VOTE_MARGIN_PP_MAX = 20;
-export const HORIZON_VOTE_MARGIN = 0.02;
+export const HORIZON_VOTE_MARGIN = 0.05;
+export const HORIZON_VOTE_MIDPOINT_PP = 47;
+export const HORIZON_VOTE_MIDPOINT_PP_MIN = 1;
+export const HORIZON_VOTE_MIDPOINT_PP_MAX = 99;
+export const HORIZON_VOTE_MIDPOINT = 0.47;
 export const Y_TW_TITLE =
-  "ŷ_τw · τ后窗口符号和 f(ŷ_τ30)+f(ŷ_τ45)+f(ŷ_τ60)+f(ŷ_τ75)+f(ŷ_τ90)；f=sign(p_up−0.5)，近 50% 由弃权% 决定不投票 · 旁路，不进 C_τ";
+  "ŷ_τw · τ后窗口符号和 f(ŷ_τ30)+f(ŷ_τ45)+f(ŷ_τ60)+f(ŷ_τ75)+f(ŷ_τ90)；f=sign(p_up−中位点)，近中位点由弃权% 决定不投票 · 破带后门槛";
 export const TW_REALIZED_TITLE =
   "τw实 · f(τ30实)+f(τ45实)+f(τ60实)+f(τ75实)+f(τ90实)；f(x)=1 if x>0 else −1（缺头不计）";
 export const R_HAT_TITLE =
@@ -558,12 +602,38 @@ export function clampHorizonVoteMarginPp(pp) {
   return Math.max(0, Math.min(n, HORIZON_VOTE_MARGIN_PP_MAX));
 }
 
-/** 弃权%（百分点）→ |p−0.5| 概率带宽。 */
+/** 弃权%（百分点）→ |p−mid| 概率带宽。 */
 export function horizonVoteMarginP(pp) {
   return clampHorizonVoteMarginPp(pp) / 100;
 }
 
-/** 读做 T 表单弃权%；无表单则默认 2pp。 */
+export function clampHorizonVoteMidpointPp(pp) {
+  const n = Number(pp);
+  if (!Number.isFinite(n)) return HORIZON_VOTE_MIDPOINT_PP;
+  return Math.max(HORIZON_VOTE_MIDPOINT_PP_MIN, Math.min(n, HORIZON_VOTE_MIDPOINT_PP_MAX));
+}
+
+/** 中位点% → 概率。>1 视为百分点。 */
+export function horizonVoteMidpoint(pp) {
+  const n = Number(pp);
+  if (!Number.isFinite(n)) return HORIZON_VOTE_MIDPOINT;
+  if (Math.abs(n) > 1 + 1e-12) return clampHorizonVoteMidpointPp(n) / 100;
+  return Math.max(0.01, Math.min(n, 0.99));
+}
+
+/** 读做 T 表单中位点；无表单则默认 47%。 */
+export function readHorizonVoteMidpoint(root) {
+  try {
+    const doc = root || (typeof document !== "undefined" ? document : null);
+    const el = doc && doc.querySelector ? doc.querySelector('[name="y_tw_midpoint"]') : null;
+    if (el && el.value !== "" && el.value != null) return horizonVoteMidpoint(el.value);
+  } catch (e) {
+    /* ignore */
+  }
+  return HORIZON_VOTE_MIDPOINT;
+}
+
+/** 读做 T 表单弃权%；无表单则默认 5pp。 */
 export function readHorizonVoteMarginP(root) {
   try {
     const doc = root || (typeof document !== "undefined" ? document : null);
@@ -575,26 +645,28 @@ export function readHorizonVoteMarginP(root) {
   return HORIZON_VOTE_MARGIN;
 }
 
-export function yTwSign(x, prob = false, marginP) {
+export function yTwSign(x, prob = false, marginP, midpoint) {
   const n = _numField(x);
   if (n == null) return null;
   if (prob) {
     const band =
       marginP == null ? readHorizonVoteMarginP() : Math.max(0, Number(marginP) || 0);
-    if (Math.abs(n - 0.5) <= band + 1e-12) return null;
-    return n > 0.5 ? 1 : -1;
+    const mid =
+      midpoint == null ? readHorizonVoteMidpoint() : horizonVoteMidpoint(midpoint);
+    if (Math.abs(n - mid) <= band + 1e-12) return null;
+    return n > mid ? 1 : -1;
   }
   return n > 0 ? 1 : -1;
 }
 
-/** ŷ_τw = f(ŷ_τ30)+…；prob=true 时 f=sign(p_up−0.5) 且近 50% 弃权（全弃权=0 票），否则 f=sign(收益)。无头返回 null。 */
-export function blendYtw(y30, y60, y90, y45, y75, prob = false, marginP) {
+/** ŷ_τw = f(ŷ_τ30)+…；prob=true 时 f=sign(p_up−mid) 且近中位点弃权（全弃权=0 票），否则 f=sign(收益)。无头返回 null。 */
+export function blendYtw(y30, y60, y90, y45, y75, prob = false, marginP, midpoint) {
   let sum = 0;
   let n = 0;
   let anyHead = false;
   for (const x of [y30, y45, y60, y75, y90]) {
     if (_numField(x) != null) anyHead = true;
-    const s = yTwSign(x, prob, marginP);
+    const s = yTwSign(x, prob, marginP, midpoint);
     if (s == null) continue;
     sum += s;
     n += 1;

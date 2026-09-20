@@ -26,6 +26,9 @@ SKIP_CAT_LABELS: Dict[str, str] = {
     "y_t45_flat": "ŷ_τ45横盘",
     "y_tw_disagree": "ŷ_τw入场逆带",
     "y_tw_flat": "ŷ_τw未过入场",
+    "bar_shape": "收在极值未开腿",
+    "bar_oc": "K线阴阳逆选向(旧)",
+    "ytw_prefix": "前序ŷ_τw未达标",
     "y_t60_disagree": "ŷ_τ60旁路逆带",
     "y_t60_flat": "ŷ_τ60横盘",
     "y_t75_disagree": "ŷ_τ75旁路逆带",
@@ -66,6 +69,9 @@ SKIP_CAT_COLORS: Dict[str, str] = {
     "missing_scores": "#8b98a5",
     "y_path_missing": "#44525f",
     "price_space_mismatch": "#6a7380",
+    "bar_shape": "#7a8478",
+    "bar_oc": "#6e7a58",
+    "ytw_prefix": "#2f6e72",
     "trigger_miss": "#b8c0c8",
     "other": "#cbd2d9",
     "amplitude": "#6e7378",
@@ -133,6 +139,8 @@ def classify_t0_skip_reason(reason: Optional[str]) -> str:
         return "missing_scores"
     if ("y_path" in r or "y_hl" in r) and "异号" in r:
         return "y_path_disagree"
+    if "前序ŷ_τw" in r or "前序 y_τw" in r or "ytw_prefix" in r.lower():
+        return "ytw_prefix"
     if ("ŷ_τw" in r or "y_τw" in r or "y_tw" in r) and (
         "未过" in r or "横盘" in r or "缺失" in r or "弃权" in r
     ):
@@ -257,6 +265,20 @@ def classify_t0_skip_reason(reason: Optional[str]) -> str:
         return "path_abandon"
     if "多轮均未成交" in r:
         return "multi_slot_miss"
+    if (
+        "阴阳门槛" in r
+        or "收≤开" in r
+        or "收≥开" in r
+        or "bar_oc" in r.lower()
+    ):
+        return "bar_oc"
+    if (
+        "收在最低" in r
+        or "收在最高" in r
+        or "收在极值" in r
+        or "缺高低" in r
+    ):
+        return "bar_shape"
     if "上移振幅" in r or "下移振幅" in r or "方向振幅" in r:
         return "directional_amplitude"
     if "振幅" in r:
@@ -1474,6 +1496,8 @@ def _build_score_portrait_from_units(
 ) -> Dict[str, Any]:
     """从画像单位列表累计 τ/path/eod/trade 标签与预估命中。"""
     from core.t0.close_band import (
+        blend_y_tw_from_scores,
+        blend_y_tw_realized,
         y_t30_band_agree,
         y_t45_band_agree,
         y_t60_band_agree,
@@ -1505,6 +1529,7 @@ def _build_score_portrait_from_units(
     y_t75_band = {"hit": 0, "miss": 0, "flat": 0}
     y_t90_hit = {"hit": 0, "miss": 0, "flat": 0}
     y_t90_band = {"hit": 0, "miss": 0, "flat": 0}
+    y_tw_hit = {"hit": 0, "miss": 0, "flat": 0}
     path_by_pred = {
         "pred_pos": {"hit": 0, "miss": 0, "flat": 0},
         "pred_neg": {"hit": 0, "miss": 0, "flat": 0},
@@ -1545,6 +1570,8 @@ def _build_score_portrait_from_units(
         t60_r = _t60_realized_pct(d, d)
         t75_r = _t75_realized_pct(d, d)
         t90_r = _t90_realized_pct(d, d)
+        y_tw_p = blend_y_tw_from_scores(sc)
+        y_tw_r = blend_y_tw_realized(t30_r, t60_r, t90_r, t45_r, t75_r)
         has_any = (
             y_tau is not None
             or sc.get("y_tau") is not None
@@ -1558,6 +1585,7 @@ def _build_score_portrait_from_units(
             or y_t60_p is not None
             or y_t75_p is not None
             or y_t90_p is not None
+            or y_tw_p is not None
             or r_hat_p is not None
             or tau_r is not None
             or path_r is not None
@@ -1568,6 +1596,7 @@ def _build_score_portrait_from_units(
             or t60_r is not None
             or t75_r is not None
             or t90_r is not None
+            or y_tw_r is not None
             or traded
             or skipped
         )
@@ -1634,6 +1663,7 @@ def _build_score_portrait_from_units(
         _bump_horizon_sign_hit(y_t60_hit, y_t60_p, t60_r)
         _bump_horizon_sign_hit(y_t75_hit, y_t75_p, t75_r)
         _bump_horizon_sign_hit(y_t90_hit, y_t90_p, t90_r)
+        _bump_sign_hit(y_tw_hit, y_tw_p, y_tw_r, pred_eps=1e-9, real_eps=1e-9)
         band_ag = y_tc_band_agree(d.get("direction") or d.get("pick"), y_tc_p)
         if band_ag is True:
             _bump(y_tc_band, "hit")
@@ -1786,6 +1816,7 @@ def _build_score_portrait_from_units(
         "y_t75_band": _hit_pack(y_t75_band),
         "y_t90_hit": _hit_pack(y_t90_hit),
         "y_t90_band": _hit_pack(y_t90_band),
+        "y_tw_hit": _hit_pack(y_tw_hit),
         "path_by_pred_sign": {
             "pred_pos": _side_pack(path_by_pred["pred_pos"]),
             "pred_neg": _side_pack(path_by_pred["pred_neg"]),
@@ -1799,6 +1830,7 @@ def _build_score_portrait_from_units(
             "y_τ60↔mean(price(τ⊕55/60/65))/price(τ)−1；"
             "y_τ75↔mean(price(τ⊕70/75/80))/price(τ)−1；"
             "y_τ90↔mean(price(τ⊕85/90/95))/price(τ)−1；"
+            "y_τw↔五窗符号和 vs 真实窗收益符号和；"
             "旁路=破带方向↔ŷ_τc向ĉ回归；τ30旁路=破带方向↔ŷ_τ30后30m同号；"
             "τ45旁路=破带方向↔ŷ_τ45后45m同号；"
             "τ60旁路=破带方向↔ŷ_τ60后60m同号；"
@@ -1961,6 +1993,7 @@ def _merge_score_portraits(
     y_t75_band = {k: 0 for k in keys_hit}
     y_t90_hit = {k: 0 for k in keys_hit}
     y_t90_band = {k: 0 for k in keys_hit}
+    y_tw_hit = {k: 0 for k in keys_hit}
     path_by_pred = {
         "pred_pos": {k: 0 for k in keys_hit},
         "pred_neg": {k: 0 for k in keys_hit},
@@ -2010,6 +2043,7 @@ def _merge_score_portraits(
             (y_t75_band, "y_t75_band"),
             (y_t90_hit, "y_t90_hit"),
             (y_t90_band, "y_t90_band"),
+            (y_tw_hit, "y_tw_hit"),
         ):
             src = part.get(src_key) if isinstance(part.get(src_key), dict) else {}
             for k in keys_hit:
@@ -2102,6 +2136,7 @@ def _merge_score_portraits(
             "y_t75_band": _hit_pack(y_t75_band),
             "y_t90_hit": _hit_pack(y_t90_hit),
             "y_t90_band": _hit_pack(y_t90_band),
+            "y_tw_hit": _hit_pack(y_tw_hit),
             "path_by_pred_sign": {
                 "pred_pos": _side_pack(path_by_pred["pred_pos"]),
                 "pred_neg": _side_pack(path_by_pred["pred_neg"]),
@@ -3110,6 +3145,8 @@ def build_t0_viz_payload(
         summary["tau_pred_hit_rate_pct"] = score_portrait["tau_hit"]["hit_rate_pct"]
     if score_portrait.get("path_hit", {}).get("hit_rate_pct") is not None:
         summary["path_pred_hit_rate_pct"] = score_portrait["path_hit"]["hit_rate_pct"]
+    if score_portrait.get("y_tw_hit", {}).get("hit_rate_pct") is not None:
+        summary["tw_pred_hit_rate_pct"] = score_portrait["y_tw_hit"]["hit_rate_pct"]
     if score_portrait.get("y_t30_hit", {}).get("hit_rate_pct") is not None:
         summary["t30_pred_hit_rate_pct"] = score_portrait["y_t30_hit"]["hit_rate_pct"]
     if score_portrait.get("y_t30_band", {}).get("hit_rate_pct") is not None:
@@ -3304,6 +3341,8 @@ def merge_t0_viz_payloads(
         summary["tau_pred_hit_rate_pct"] = score_portrait["tau_hit"]["hit_rate_pct"]
     if score_portrait.get("path_hit", {}).get("hit_rate_pct") is not None:
         summary["path_pred_hit_rate_pct"] = score_portrait["path_hit"]["hit_rate_pct"]
+    if score_portrait.get("y_tw_hit", {}).get("hit_rate_pct") is not None:
+        summary["tw_pred_hit_rate_pct"] = score_portrait["y_tw_hit"]["hit_rate_pct"]
     if score_portrait.get("y_t30_hit", {}).get("hit_rate_pct") is not None:
         summary["t30_pred_hit_rate_pct"] = score_portrait["y_t30_hit"]["hit_rate_pct"]
     if score_portrait.get("y_t30_band", {}).get("hit_rate_pct") is not None:

@@ -32,7 +32,6 @@ class TestDualScoreFields(unittest.TestCase):
             },
         )
         self.assertEqual(item["predicted_score"], 0.5)
-        self.assertEqual(item["predicted_score_eod"], 0.5)
         self.assertEqual(item["predicted_score_tau"], 0.12)
         self.assertEqual(item["score_rem"], 0.12)
         self.assertEqual(item["as_of_tau"], "open")

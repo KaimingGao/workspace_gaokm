@@ -50,10 +50,10 @@
         </label>
         <label
           class="platform-field quant-pro-field replay-lookback-field"
-          title="回测覆盖多少个交易日。默认 30，最少 10。不是调仓规则。不再用全池日期交集（会被次新/停牌卡死）。"
+          title="回测覆盖多少个交易日。默认 10，最少 10。不是调仓规则。不再用全池日期交集（会被次新/停牌卡死）。"
         >
           <span class="quant-pro-field-label">回测窗口</span>
-          <input id="quant-lookback" type="number" min="10" max="500" value="30" />
+          <input id="quant-lookback" type="number" min="10" max="500" value="10" />
         </label>
         <label
           class="platform-field quant-pro-field replay-lookback-field replay-model-field"
@@ -104,10 +104,10 @@
             <div class="dashboard-kpi-value quant-pro-kpi-value replay-kpi-value" id="replay-kpi-win">—</div>
             <div class="dashboard-kpi-sub quant-pro-kpi-sub replay-kpi-sub" id="replay-kpi-win-sub">日净值&gt;0</div>
           </div>
-          <div class="dashboard-kpi-card quant-pro-kpi-card replay-kpi-card is-empty" data-kpi="hit" title="成交腿 sign(ranking)=sign(当日收/开盘−1)；|ranking|&lt;0.05% 无方向；跳过不计">
+          <div class="dashboard-kpi-card quant-pro-kpi-card replay-kpi-card is-empty" data-kpi="hit" title="成交腿 sign(ranking)=sign(真实ranking)；真实=(open[T+1]−price(τ))/open[T]；最后一个交易日无真实值不计；|ranking|&lt;0.05% 无方向；跳过不计">
             <div class="dashboard-kpi-label quant-pro-kpi-label replay-kpi-label">命中率</div>
             <div class="dashboard-kpi-value quant-pro-kpi-value replay-kpi-value" id="replay-kpi-hit">—</div>
-            <div class="dashboard-kpi-sub quant-pro-kpi-sub replay-kpi-sub" id="replay-kpi-hit-sub">sign(ranking)</div>
+            <div class="dashboard-kpi-sub quant-pro-kpi-sub replay-kpi-sub" id="replay-kpi-hit-sub">sign(ranking)=sign(真实)</div>
           </div>
         </div>
       </div>
@@ -344,7 +344,7 @@
     <div class="replay-t0-matrix" id="paper-t0-edit-fold" aria-label="做 T 规则">
               <form id="paper-t0-form" class="paper-t0-form" autocomplete="off">
                 <fieldset class="paper-t0-cfg-block is-shared">
-                  <legend>共用</legend>
+                  <legend>配置</legend>
                   <div class="paper-t0-form-grid is-oct">
                   <input type="hidden" name="direction" value="dual_y" />
                   <input type="hidden" name="path_mode" value="first_touch" />
@@ -365,14 +365,7 @@
                   </label>
                   <label
                     class="paper-t0-field"
-                    title="|日开/分开−1|×100 超过此值跳过；默认 5；0=关"
-                  >
-                    <span>开盘差%</span>
-                    <input type="number" name="t0_price_space_max_dev_pct" min="0" max="5" step="0.05" value="5" />
-                  </label>
-                  <label
-                    class="paper-t0-field"
-                    title="|日昨/分昨−1|×100 超过此值跳过；默认 5；0=关"
+                    title="|日昨/分昨−1|×100 超过此值跳过；默认 5；0=关。开盘差已下线。"
                   >
                     <span>昨收差%</span>
                     <input type="number" name="t0_price_space_prev_dev_pct" min="0" max="5" step="0.05" value="5" />
@@ -406,6 +399,13 @@
                     <input type="number" name="t0_stop_arm_bars" min="0" max="48" step="1" value="1" />
                   </label>
                   <label
+                    class="paper-t0-field has-tip"
+                    title="正T跌破 / 反T涨破 止损%（相对该轮第一腿成交价）：0=关。正反T共用。延迟见左侧延迟根。止损优先于中点追价。"
+                  >
+                    <span>止损%</span>
+                    <input type="number" name="t0_stop_pct" min="0" max="20" step="0.1" value="1.2" />
+                  </label>
+                  <label
                     class="paper-t0-field"
                     title="回吐激活%：正T自买价上涨、反T自卖价下跌达到此值后，才允许自高/自低回吐提前做第二腿。0=不要求涨跌幅（仍须回吐%&gt;0）。"
                   >
@@ -413,128 +413,84 @@
                     <input type="number" name="t0_giveback_arm_pct" min="0" max="20" step="0.1" value="0.4" />
                   </label>
                   <label
+                    class="paper-t0-field has-tip"
+                    title="正T自高 / 反T自低回吐%：先过「回吐激活%」，再从盘中极值回撤/反弹此%（收盘确认）则提前第二腿。0=关。正反T共用。午后仍走中点追价。"
+                  >
+                    <span>回吐%</span>
+                    <input type="number" name="t0_giveback_pct" min="0" max="20" step="0.1" value="0.6" />
+                  </label>
+                  <label
                     class="paper-t0-field"
-                    title="目标交易价 C_τ = O×(1+clip(ŷ_oc×放大, y_oc_l, y_oc_u)/100)。y_oc 放大默认 10：ŷ_oc=−0.3% 即触 clip 下界 −3%。"
+                    title="C_τ = O×(1+clip(ŷ_oc×scale, 下界, 上界)/100)。默认 10。"
                   >
                     <span>y_oc 放大</span>
                     <input type="number" name="t0_y_oc_target_scale" min="0" max="100" step="0.5" value="10" />
                   </label>
                   <label
                     class="paper-t0-field"
-                    title="clip(ŷ_oc×scale) 下界，百分点。默认 −3。"
+                    title="clip(ŷ_oc×scale) 下界（百分点）。默认 −3。"
                   >
                     <span>ŷ_oc下界</span>
                     <input type="number" name="t0_y_oc_l" min="-20" max="20" step="0.1" value="-3" />
                   </label>
                   <label
                     class="paper-t0-field"
-                    title="clip(ŷ_oc×scale) 上界，百分点。默认 +3。"
+                    title="clip(ŷ_oc×scale) 上界（百分点）。默认 +3。"
                   >
                     <span>ŷ_oc上界</span>
                     <input type="number" name="t0_y_oc_u" min="-20" max="20" step="0.1" value="3" />
                   </label>
                   <label
                     class="paper-t0-field"
-                    title="v6：upper=C_τ×(1+δ/100)，lower=C_τ×(1−δ/100)。C>upper 反T、C<lower 正T；leg2 冻结 C_τ。默认 3。"
+                    title="破带带宽 δ%：upper=C_τ×(1+δ/100)，lower=C_τ×(1−δ/100)。C&gt;upper 反T；C&lt;lower 正T。第二腿目标=C_τ。默认 0.5。"
                   >
                     <span>超额带宽δ%</span>
-                    <input type="number" name="t0_close_band_delta_pct" min="0" max="10" step="0.05" value="3" />
+                    <input type="number" name="t0_close_band_delta_pct" min="0" max="10" step="0.05" value="0.5" />
                   </label>
                   <label
                     class="paper-t0-field"
-                    title="|y_hl| 超过此值须与 ŷ_oc 同号，异号则跳过；默认 5；0=任意非零 HL 都要求同号。"
+                    title="破带后：正T须 ŷ_τw≥此票；反T须 ŷ_τw≤−此票。默认 2；0=允许 0 票。第二腿目标=C_τ。"
                   >
-                    <span>HL强%</span>
-                    <input type="number" name="y_hl_strong" min="0" max="5" step="0.01" value="5" />
+                    <span>Y_τw门槛</span>
+                    <input type="number" name="y_tw_enter" min="0" max="5" step="0.1" value="2" />
                   </label>
                   <label
                     class="paper-t0-field"
-                    title="ŷ_τw 入场：破带后 |ŷ_τw| **大于** 此值才开腿，且须与方向同号。全弃权计 0 票。0=关（0 票也过，关同号）。不改 C_τ。"
+                    title="过 Y_τw门槛后：|ŷ_τw|≥此票用全额轮次仓位，否则半仓。默认 2（与门槛相同则全额）。须≥门槛。"
                   >
-                    <span>τw入场</span>
-                    <input type="number" name="y_tw_enter" min="0" max="5" step="0.1" value="0" />
+                    <span>Y_τw强</span>
+                    <input type="number" name="y_tw_strong" min="0" max="5" step="0.1" value="2" />
                   </label>
                   <label
                     class="paper-t0-field"
-                    title="ŷ_τ30/45/60/75/90 预估概率距 50% 不超过此百分点则不给 ŷ_τw 投票。默认 2；0=仅恰好 50% 弃权。不改 C_τ。"
+                    title="ŷ_τ30/45/60/75/90 共用中位点%。ŷ_τw = 各窗相对中位点的符号和。默认 47。"
+                  >
+                    <span>中位点%</span>
+                    <input type="number" name="y_tw_midpoint" min="1" max="99" step="0.5" value="47" />
+                  </label>
+                  <label
+                    class="paper-t0-field"
+                    title="ŷ_τ30/45/60/75/90 预估概率距中位点不超过此百分点则不给 ŷ_τw 投票。默认 5；0=仅恰好中位点弃权。"
                   >
                     <span>弃权%</span>
-                    <input type="number" name="y_tw_vote_margin" min="0" max="20" step="0.5" value="2" />
-                  </label>
-                  </div>
-                </fieldset>
-
-                <div class="paper-t0-cfg-sides">
-                <fieldset class="paper-t0-cfg-block is-buy-then-sell">
-                  <legend>正 T</legend>
-                  <p class="paper-t0-cfg-hint quant-sub">先买后卖；选腿仅收盘带宽；第二腿=冻结 C_τ；止损/自高回吐/中点追价/回补仍生效。</p>
-                  <div class="paper-t0-form-grid is-quad">
-                  <label
-                    class="paper-t0-field has-tip"
-                    title="正T跌破止损%（相对该轮第一腿买价）：0=关。多轮共用此%。延迟/收盘确认见共用区。止损优先于中点追价。"
-                  >
-                    <span>止损%</span>
-                    <input type="number" name="t0_stop_pct_buy_then_sell" min="0" max="20" step="0.1" value="1.2" />
-                  </label>
-                  <label
-                    class="paper-t0-field has-tip"
-                    title="正T自高回吐%：加仓后先涨过「回吐激活%」，再从盘中高点回撤此%（收盘确认）则提前卖旧仓，不必等 C_τ 或跌破买价。0=关。午后仍走中点追价。本根已触 C_τ 则不抢。"
-                  >
-                    <span>回吐%</span>
-                    <input type="number" name="t0_giveback_pct_buy_then_sell" min="0" max="20" step="0.1" value="0.6" />
+                    <input type="number" name="y_tw_vote_margin" min="0" max="20" step="0.5" value="5" />
                   </label>
                   <label
                     class="paper-t0-field"
-                    title="中点追价起算 HH:MM：到点后禁止新开；已开未平则第二腿目标=旧目标与现价中点，触不到则收盘强制平。空=关"
+                    title="中点追价起算 HH:MM：到点后禁止新开；已开未平则第二腿目标=旧目标与现价中点，触不到则收盘强制平。空=关。正反T共用。"
                   >
                     <span>中点追价</span>
-                    <input type="text" name="t0_pm_degrade_buy_then_sell" maxlength="5" placeholder="13:00" value="13:00" />
+                    <input type="text" name="t0_pm_degrade" maxlength="5" placeholder="13:00" value="13:00" />
                   </label>
                   <label
                     class="paper-t0-field"
-                    title="中点追价间隔（分钟）：起算后首次中点，之后每隔该分钟再调一次"
+                    title="中点追价间隔（分钟）：起算后首次中点，之后每隔该分钟再调一次。正反T共用。"
                   >
                     <span>追价间隔分</span>
-                    <input type="number" name="t0_pm_chase_interval_min_buy_then_sell" min="1" max="60" step="1" value="5" />
+                    <input type="number" name="t0_pm_chase_interval_min" min="1" max="60" step="1" value="5" />
                   </label>
                   </div>
                 </fieldset>
-
-                <fieldset class="paper-t0-cfg-block is-sell-then-buy">
-                  <legend>反 T</legend>
-                  <p class="paper-t0-cfg-hint quant-sub">先卖后买；选腿仅收盘带宽；第二腿=冻结 C_τ；止损/自低回吐/中点追价/回补仍生效。</p>
-                  <div class="paper-t0-form-grid is-quad">
-                  <label
-                    class="paper-t0-field has-tip"
-                    title="反T涨破止损%（相对该轮第一腿卖价）：0=关。多轮共用此%。收盘≥卖价×(1+此%/100) 则强制买回。延迟/收盘确认见共用区。止损优先于中点追价。"
-                  >
-                    <span>止损%</span>
-                    <input type="number" name="t0_stop_pct_sell_then_buy" min="0" max="20" step="0.1" value="1.2" />
-                  </label>
-                  <label
-                    class="paper-t0-field has-tip"
-                    title="反T自低回吐%：卖出后先跌过「回吐激活%」，再从盘中低点反弹此%（收盘确认）则提前买回，不必等 C_τ 或涨破卖价。0=关。午后仍走中点追价。本根已触 C_τ 则不抢。"
-                  >
-                    <span>回吐%</span>
-                    <input type="number" name="t0_giveback_pct_sell_then_buy" min="0" max="20" step="0.1" value="0.6" />
-                  </label>
-                  <label
-                    class="paper-t0-field"
-                    title="中点追价起算 HH:MM：到点后禁新开；已卖未买回则买回目标=旧目标与现价中点。空=关"
-                  >
-                    <span>中点追价</span>
-                    <input type="text" name="t0_pm_degrade_sell_then_buy" maxlength="5" placeholder="13:00" value="13:00" />
-                  </label>
-                  <label
-                    class="paper-t0-field"
-                    title="中点追价间隔（分钟）：起算后首次中点，之后每隔该分钟再调一次"
-                  >
-                    <span>追价间隔分</span>
-                    <input type="number" name="t0_pm_chase_interval_min_sell_then_buy" min="1" max="60" step="1" value="5" />
-                  </label>
-                  </div>
-                </fieldset>
-                </div>
 
                 <div class="follow-path-matrix-footer replay-t0-matrix-footer" aria-label="做 T 规则操作">
                   <div class="follow-path-matrix-actions">

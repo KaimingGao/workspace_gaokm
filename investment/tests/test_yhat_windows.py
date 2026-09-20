@@ -323,6 +323,17 @@ class StampPrimaryTests(unittest.TestCase):
         self.assertIsNone(pick_y_oo(only_fuse))
         self.assertAlmostEqual(ranking_pct(only_fuse), 0.4, places=6)
 
+    def test_stamp_window_scores_applies_remaining_ranking(self):
+        from core.signal.yhat_windows import stamp_window_scores
+
+        fused = stamp_window_scores({"y_oo": 2.0, "y_oc": 2.0})
+        self.assertAlmostEqual(fused["ranking"], 2.0, places=6)
+        rem = stamp_window_scores(
+            {"y_oo": 2.0, "y_oc": 2.0, "day_open": 100.0, "price_tau": 100.5}
+        )
+        rot = (100.5 / 100.0 - 1.0) * 100.0
+        self.assertAlmostEqual(rem["ranking"], 2.0 - rot, places=6)
+
     def test_remaining_ranking_deducts_open_to_price_tau(self):
         from core.signal.yhat_windows import ranking_pct, remaining_ranking_pct
 

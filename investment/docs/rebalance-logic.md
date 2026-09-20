@@ -118,7 +118,7 @@ OOS 失败组禁止新开/加仓。配置写在 `execution.rebalance_timing.rank
 
 ### 4.3 动作码
 
-`open` / `add` / `exit` / `skip`（无有效报价、日分价错位、现金不足、T+1 不可卖、OOS）。历史回测 `/replay` 成交账动作列展示 `reason`，可下 CSV；跳过腿不计命中率。净值图下方 **分票贡献** 表按窗口盯市盈亏排序（贡献%=盈亏/回测本金）。
+`open` / `add` / `exit` / `skip`（无有效报价、日分价错位、现金不足、T+1 不可卖、OOS）。历史回测 `/replay` 成交账动作列展示 `reason`，可下 CSV；跳过腿不计命中率。命中率对照 `sign(ranking)=sign(realized_ranking)`，最后一个交易日无次日开、不进分母。净值图下方 **分票贡献** 表按窗口盯市盈亏排序（贡献%=盈亏/回测本金）。
 
 ---
 

@@ -21,19 +21,27 @@ class HorizonProbHelpersTests(unittest.TestCase):
         self.assertFalse(horizon_band_agree("sell_then_buy", 0.7))
         self.assertTrue(horizon_band_agree("sell_then_buy", 0.3))
         self.assertIsNone(p_agree(None, 0.7))
-        self.assertEqual(p_up_vote(0.7), 1)
-        self.assertEqual(p_up_vote(0.3), -1)
-        self.assertIsNone(p_up_vote(0.5))
-        self.assertIsNone(p_up_vote(0.52))
-        self.assertIsNone(p_up_vote(0.48))
-        self.assertIsNone(p_up_vote(0.51))
-        self.assertIsNone(p_up_vote(0.49))
-        self.assertEqual(p_up_vote(0.521), 1)
-        self.assertEqual(p_up_vote(0.479), -1)
-        self.assertEqual(p_up_vote(0.51, margin_pp=0), 1)
-        self.assertEqual(p_up_vote(0.49, margin_pp=0), -1)
-        self.assertIsNone(p_up_vote(0.54, margin_pp=5))
-        self.assertEqual(p_up_vote(0.56, margin_pp=5), 1)
+        self.assertEqual(p_up_vote(0.7, midpoint=0.5), 1)
+        self.assertEqual(p_up_vote(0.3, midpoint=0.5), -1)
+        self.assertIsNone(p_up_vote(0.5, midpoint=0.5))
+        self.assertIsNone(p_up_vote(0.52, midpoint=0.5))
+        self.assertIsNone(p_up_vote(0.48, midpoint=0.5))
+        self.assertIsNone(p_up_vote(0.51, midpoint=0.5))
+        self.assertIsNone(p_up_vote(0.49, midpoint=0.5))
+        self.assertIsNone(p_up_vote(0.521, midpoint=0.5))
+        self.assertIsNone(p_up_vote(0.479, midpoint=0.5))
+        self.assertEqual(p_up_vote(0.521, margin_pp=2, midpoint=0.5), 1)
+        self.assertEqual(p_up_vote(0.479, margin_pp=2, midpoint=0.5), -1)
+        self.assertEqual(p_up_vote(0.51, margin_pp=0, midpoint=0.5), 1)
+        self.assertEqual(p_up_vote(0.49, margin_pp=0, midpoint=0.5), -1)
+        self.assertIsNone(p_up_vote(0.54, margin_pp=5, midpoint=0.5))
+        self.assertEqual(p_up_vote(0.56, margin_pp=5, midpoint=0.5), 1)
+        # 默认中位点 47%
+        self.assertEqual(p_up_vote(0.53), 1)
+        self.assertEqual(p_up_vote(0.40), -1)
+        self.assertIsNone(p_up_vote(0.47))
+        self.assertIsNone(p_up_vote(0.50))
+        self.assertEqual(p_up_vote(0.53, midpoint=47), 1)
 
     def test_logistic_separates_on_synthetic(self):
         from core.research.horizon_prob import (
@@ -63,6 +71,21 @@ class HorizonProbHelpersTests(unittest.TestCase):
         self.assertIsNotNone(auc)
         self.assertGreater(float(auc), 0.8)
 
+    def test_stamp_horizon_explain_adds_p_up(self):
+        from core.research.horizon_prob import stamp_horizon_explain, sigmoid
+
+        expl = stamp_horizon_explain(
+            {"intercept": -0.12, "total": -0.248, "terms": []},
+            head="t30",
+            model_doc={"model_role": "live"},
+        )
+        self.assertEqual(expl.get("head"), "t30")
+        self.assertEqual(expl.get("head_kind"), "prob")
+        self.assertEqual(expl.get("model_role"), "live")
+        self.assertAlmostEqual(float(expl.get("logit")), -0.248, places=6)
+        self.assertAlmostEqual(float(expl.get("p_up")), sigmoid(-0.248), places=6)
+        self.assertAlmostEqual(float(expl.get("p_up")), 0.4383, places=3)
+
     def test_migrate_old_percent_overlay(self):
         from core.research.horizon_prob import migrate_horizon_gate_cfg
         from core.t0.config import load_t0_rules
@@ -85,7 +108,7 @@ class HorizonProbHelpersTests(unittest.TestCase):
         self.assertNotIn("y_t30_strong", loaded)
         self.assertNotIn("y_t30_enter", loaded)
         self.assertNotIn("y_t45_enter", loaded)
-        self.assertAlmostEqual(float(load_t0_rules({})["y_tw_vote_margin"]), 2.0)
+        self.assertAlmostEqual(float(load_t0_rules({})["y_tw_vote_margin"]), 5.0)
         self.assertAlmostEqual(float(load_t0_rules({"y_tw_vote_margin": 25})["y_tw_vote_margin"]), 20.0)
         self.assertAlmostEqual(
             float(load_t0_rules({"y_τw_vote_margin": 3.5})["y_tw_vote_margin"]), 3.5

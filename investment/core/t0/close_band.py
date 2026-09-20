@@ -1,11 +1,10 @@
-"""v6 做 T 选腿：每根 5m 用前缀 ŷ_oc 估目标价 C_τ → 收价 C 相对 ±δ 破带定方向。
+"""做 T 选腿：09:30–11:00 每根 5m 用 ŷ_oc 估 C_τ，破带定方向。
 
-C_τ = O×(1 + clip(ŷ_oc×scale, y_oc_l, y_oc_u)/100)。
+C_τ = O×(1+clip(ŷ_oc×scale, y_oc_l, y_oc_u)/100)。
 upper = C_τ×(1+δ/100)，lower = C_τ×(1−δ/100)。
-C > upper → 反T；C < lower → 正T。leg2 冻结在 C_τ。
-ŷ_τc 已下线（ŷ_τ30/60/90 覆盖剩余窗租用）；
-``y_t30_strong`` / ``y_t45_strong`` / ``y_t60_strong`` / ``y_t75_strong`` / ``y_t90_strong`` 已下线（``load_t0_rules`` 丢弃；缺键默认关）。只进 ŷ_τw 票。
-path 仅入场校验；y_trade / y_eod / y_nowcast 不参与。
+C>upper → 反T（现价卖，leg2 目标 C_τ）；C<lower → 正T（现价买，leg2 目标 C_τ）。
+ŷ_τw = ŷ_τ30/45/60/75/90 相对共用中位点（默认 47%）的符号和，过门槛才开腿。
+阴阳门槛 / 前序 ŷ_τw 确认已下线。
 """
 
 from __future__ import annotations
@@ -47,6 +46,8 @@ DEFAULT_Y_OC_U = 3.0
 Y_OC_TARGET_SCALE_MIN = 0.0
 Y_OC_TARGET_SCALE_MAX = 100.0
 Y_OC_CLIP_ABS_MAX = 20.0
+DEFAULT_CLOSE_BAND_DELTA_PCT = 0.5
+CLOSE_BAND_DELTA_PCT_MAX = 10.0
 
 
 def resolve_y_oc_target_params(cfg: Optional[dict] = None) -> tuple[float, float, float]:
@@ -74,6 +75,19 @@ def resolve_y_oc_target_params(cfg: Optional[dict] = None) -> tuple[float, float
     if lo > hi:
         lo, hi = hi, lo
     return scale, lo, hi
+
+
+def resolve_close_band_delta_pct(cfg: Optional[dict] = None) -> float:
+    """破带带宽 δ%：upper=C_τ×(1+δ/100)。缺键默认 0.5。"""
+    cfg_d = cfg if isinstance(cfg, dict) else {}
+    try:
+        raw = cfg_d.get("t0_close_band_delta_pct")
+        v = float(DEFAULT_CLOSE_BAND_DELTA_PCT if raw is None or raw == "" else raw)
+    except (TypeError, ValueError):
+        v = float(DEFAULT_CLOSE_BAND_DELTA_PCT)
+    if v != v:  # NaN
+        v = float(DEFAULT_CLOSE_BAND_DELTA_PCT)
+    return max(0.0, min(v, CLOSE_BAND_DELTA_PCT_MAX))
 
 
 def clip_y_oc_target_pct(
@@ -562,73 +576,17 @@ def day_price_space_payload(
     }
 
 
-def close_band_sign_skip_reason(
-    scores: Optional[dict],
-    cfg: Optional[dict] = None,
-) -> Optional[str]:
-    """HL 强同 τ：|y_hl|>y_hl_strong 时须与 y_τ 同号，异号则跳过。
-
-    trade/eod 强闸已下线；仅 HL。无 y_hl 时不拦。
-    y_hl_strong≤0：任意非零 |y_hl| 都要求同号。
-    旧键 y_path_strong 仅作未走 load_t0_rules 的直传兼容。
-    """
-    from core.research.path_panel import pick_y_hl
-    from core.t0.score_policy import (
-        DEFAULT_PATH_STRONG,
-        _cfg_float,
-        _strong_head_tau_sign_gate,
-        resolve_direction_y_tau,
-        scores_from_item,
-    )
-
-    cfg_d = cfg if isinstance(cfg, dict) else {}
-    raw = scores if isinstance(scores, dict) else {}
-    sc = scores_from_item(raw)
-    y_path = pick_y_hl(sc, raw)
-    if y_path is None:
-        return None
-    y_tau = resolve_direction_y_tau(sc)
-    if y_tau is None:
-        # 强 HL 需要对照 τ；缺 τ 时交给入场闸（τ enter）处理
-        return None
-    if cfg_d.get("y_hl_strong") not in (None, ""):
-        hl_strong = _cfg_float(cfg_d, "y_hl_strong", DEFAULT_PATH_STRONG)
-    else:
-        hl_strong = _cfg_float(cfg_d, "y_path_strong", DEFAULT_PATH_STRONG)
-    hl_strong = max(0.0, min(float(hl_strong), 5.0))
-    ok, reason = _strong_head_tau_sign_gate(
-        float(y_path),
-        float(y_tau),
-        hl_strong,
-        "y_hl",
-        tau_label="y_τ",
-    )
-    if ok:
-        return None
-    if reason and reason.startswith("dual_y："):
-        return reason[len("dual_y：") :]
-    return reason or "强 y_hl 与 y_τ 异号跳过"
-
-
 Y_TC_BAND_EPS = 0.05  # |ŷ_τc| 低于此视为无投票（与符号命中死区同）
 Y_T30_HIT_EPS = 0.0  # 30m |ŷ| 中位约 0.02%，不可套用 τc 的 0.05；与旁路闸「有符号即投票」同口径
 Y_T45_HIT_EPS = 0.0
 Y_T60_HIT_EPS = 0.0
 Y_T75_HIT_EPS = 0.0
 Y_T90_HIT_EPS = 0.0
-DEFAULT_Y_T30_STRONG = 1.0  # ŷ_τ30 个股旁路已下线：缺键=关
-DEFAULT_Y_T30_ENTER = 0.0  # 个股入场已下线：缺键=关
-DEFAULT_Y_T45_STRONG = 1.0  # ŷ_τ45 个股旁路已下线：缺键=关
-DEFAULT_Y_T45_ENTER = 0.0  # 个股入场已下线：缺键=关
-DEFAULT_Y_T60_STRONG = 1.0
-DEFAULT_Y_T60_ENTER = 0.0  # 个股入场已下线：缺键=关
-DEFAULT_Y_T75_STRONG = 1.0  # ŷ_τ75 个股旁路已下线：缺键=关
-DEFAULT_Y_T75_ENTER = 0.0  # 个股入场已下线：缺键=关
-DEFAULT_Y_T90_STRONG = 1.0
-DEFAULT_Y_T90_ENTER = 0.0  # 个股入场已下线：缺键=关
-DEFAULT_Y_TW_ENTER = 0.0  # ŷ_τw 入场：须 |ŷ_τw| 大于此值；<=0 关（0 票也过，关同号）
-DEFAULT_Y_TW_STRONG = DEFAULT_Y_TW_ENTER  # 旧键别名
-DEFAULT_Y_TW_VOTE_MARGIN = 2.0  # |p_up−0.5|≤此百分点不投票
+DEFAULT_Y_TW_ENTER = 2.0  # 正T：ŷ_τw>=此值；反T：ŷ_τw<=−此值。0=允许 0 票
+DEFAULT_Y_TW_STRONG = 2.0  # 过门槛后 |ŷ_τw|>=此票全额轮次，否则半仓
+DEFAULT_Y_TW_WEAK_RATIO = 0.5  # 过门槛未过强：轮次仓位 × 此比例
+DEFAULT_Y_TW_VOTE_MARGIN = 5.0  # |p_up−mid|≤此百分点不投票
+DEFAULT_Y_TW_MIDPOINT = 47.0  # ŷ_τ* 共用中位点（百分点）
 
 
 def _horizon_vote_margin_pp(cfg: Optional[dict] = None, margin_pp: Any = None) -> Any:
@@ -639,6 +597,16 @@ def _horizon_vote_margin_pp(cfg: Optional[dict] = None, margin_pp: Any = None) -
     if raw in (None, "") and cfg_d.get("y_τw_vote_margin") not in (None, ""):
         raw = cfg_d.get("y_τw_vote_margin")
     return raw if raw not in (None, "") else None
+
+
+def _horizon_vote_midpoint(cfg: Optional[dict] = None, midpoint: Any = None) -> Any:
+    if midpoint not in (None, ""):
+        return midpoint
+    cfg_d = cfg if isinstance(cfg, dict) else {}
+    raw = cfg_d.get("y_tw_midpoint")
+    if raw in (None, "") and cfg_d.get("y_τw_midpoint") not in (None, ""):
+        raw = cfg_d.get("y_τw_midpoint")
+    return raw if raw not in (None, "") else DEFAULT_Y_TW_MIDPOINT
 
 
 def y_tc_band_agree(
@@ -732,18 +700,6 @@ def y_t90_band_agree(
     return horizon_band_agree(direction, y_τ90, floor=0.5)
 
 
-def close_band_y_tc_skip_reason(
-    scores: Optional[dict],
-    cfg: Optional[dict] = None,
-    *,
-    direction: Optional[str] = None,
-    y_τc: Optional[float] = None,
-) -> Optional[str]:
-    """已下线：ŷ_τc 旁路由 ŷ_τ30/60/90 覆盖，恒不跳过。"""
-    _ = (scores, cfg, direction, y_τc)
-    return None
-
-
 def _pick_y_t30_for_band(
     scores: Optional[dict],
     y_τ30: Optional[float] = None,
@@ -761,58 +717,6 @@ def _pick_y_t30_for_band(
     except Exception:
         pass
     return _f(raw.get("y_τ30")) or _f(raw.get("y_t30")) or _f(raw.get("y_t30_hat"))
-
-
-def _horizon_p_agree_skip_reason(
-    *,
-    y: Optional[float],
-    direction: str,
-    strong: float,
-    label: str,
-) -> Optional[str]:
-    """strong 0=开（p_agree<0.5 跳过），1=关。缺分不拦。"""
-    from core.research.horizon_prob import p_agree
-
-    if y is None:
-        return None
-    strong_n = max(0.0, min(float(strong), 1.0))
-    if strong_n >= 1.0 - 1e-12:
-        return None
-    pa = p_agree(direction, y)
-    if pa is None:
-        return None
-    if float(pa) + 1e-12 >= 0.5:
-        return None
-    side = "反T" if direction == "sell_then_buy" else "正T"
-    return f"{label}={float(y):.3f} p_agree={float(pa):.3f}<0.5 与{side}旁路逆带跳过"
-
-
-def close_band_y_t30_skip_reason(
-    scores: Optional[dict],
-    cfg: Optional[dict] = None,
-    *,
-    direction: Optional[str] = None,
-    y_τ30: Optional[float] = None,
-) -> Optional[str]:
-    """旁路：破带后 ŷ_τ30=p_up 的 p_agree 须 ≥0.5（正T=p_up，反T=1−p_up）。
-
-    不改 C_τ / 选向 / 目标价。生产 ``load_t0_rules`` 丢 ``y_t30_strong``（缺键默认关）。
-    个股入场 ``y_t30_enter`` 已下线（``load_t0_rules`` 丢弃；缺键=关）。缺 ŷ_τ30 不拦。
-    """
-    from core.t0.score_policy import _cfg_float
-
-    cfg_d = cfg if isinstance(cfg, dict) else {}
-    d = str(direction or "").strip()
-    if d not in ("sell_then_buy", "buy_then_sell"):
-        return None
-    y = _pick_y_t30_for_band(scores, y_τ30)
-    strong = _cfg_float(cfg_d, "y_t30_strong", DEFAULT_Y_T30_STRONG)
-    if cfg_d.get("y_τ30_strong") not in (None, "") and cfg_d.get("y_t30_strong") in (
-        None,
-        "",
-    ):
-        strong = _cfg_float(cfg_d, "y_τ30_strong", DEFAULT_Y_T30_STRONG)
-    return _horizon_p_agree_skip_reason(y=y, direction=d, strong=strong, label="ŷ_τ30")
 
 
 def _pick_y_t45_for_band(
@@ -834,30 +738,6 @@ def _pick_y_t45_for_band(
     return _f(raw.get("y_τ45")) or _f(raw.get("y_t45")) or _f(raw.get("y_t45_hat"))
 
 
-def close_band_y_t45_skip_reason(
-    scores: Optional[dict],
-    cfg: Optional[dict] = None,
-    *,
-    direction: Optional[str] = None,
-    y_τ45: Optional[float] = None,
-) -> Optional[str]:
-    """旁路：破带后 ŷ_τ45=p_up 的 p_agree 须 ≥0.5。``y_t45_strong>=1`` 关闸。缺分不拦。"""
-    from core.t0.score_policy import _cfg_float
-
-    cfg_d = cfg if isinstance(cfg, dict) else {}
-    d = str(direction or "").strip()
-    if d not in ("sell_then_buy", "buy_then_sell"):
-        return None
-    y = _pick_y_t45_for_band(scores, y_τ45)
-    strong = _cfg_float(cfg_d, "y_t45_strong", DEFAULT_Y_T45_STRONG)
-    if cfg_d.get("y_τ45_strong") not in (None, "") and cfg_d.get("y_t45_strong") in (
-        None,
-        "",
-    ):
-        strong = _cfg_float(cfg_d, "y_τ45_strong", DEFAULT_Y_T45_STRONG)
-    return _horizon_p_agree_skip_reason(y=y, direction=d, strong=strong, label="ŷ_τ45")
-
-
 def _pick_y_t60_for_band(
     scores: Optional[dict],
     y_τ60: Optional[float] = None,
@@ -875,30 +755,6 @@ def _pick_y_t60_for_band(
     except Exception:
         pass
     return _f(raw.get("y_τ60")) or _f(raw.get("y_t60")) or _f(raw.get("y_t60_hat"))
-
-
-def close_band_y_t60_skip_reason(
-    scores: Optional[dict],
-    cfg: Optional[dict] = None,
-    *,
-    direction: Optional[str] = None,
-    y_τ60: Optional[float] = None,
-) -> Optional[str]:
-    """旁路：破带后 ŷ_τ60=p_up 的 p_agree 须 ≥0.5。``y_t60_strong>=1`` 关闸。缺分不拦。"""
-    from core.t0.score_policy import _cfg_float
-
-    cfg_d = cfg if isinstance(cfg, dict) else {}
-    d = str(direction or "").strip()
-    if d not in ("sell_then_buy", "buy_then_sell"):
-        return None
-    y = _pick_y_t60_for_band(scores, y_τ60)
-    strong = _cfg_float(cfg_d, "y_t60_strong", DEFAULT_Y_T60_STRONG)
-    if cfg_d.get("y_τ60_strong") not in (None, "") and cfg_d.get("y_t60_strong") in (
-        None,
-        "",
-    ):
-        strong = _cfg_float(cfg_d, "y_τ60_strong", DEFAULT_Y_T60_STRONG)
-    return _horizon_p_agree_skip_reason(y=y, direction=d, strong=strong, label="ŷ_τ60")
 
 
 def _pick_y_t75_for_band(
@@ -920,30 +776,6 @@ def _pick_y_t75_for_band(
     return _f(raw.get("y_τ75")) or _f(raw.get("y_t75")) or _f(raw.get("y_t75_hat"))
 
 
-def close_band_y_t75_skip_reason(
-    scores: Optional[dict],
-    cfg: Optional[dict] = None,
-    *,
-    direction: Optional[str] = None,
-    y_τ75: Optional[float] = None,
-) -> Optional[str]:
-    """旁路：破带后 ŷ_τ75=p_up 的 p_agree 须 ≥0.5。``y_t75_strong>=1`` 关闸。缺分不拦。"""
-    from core.t0.score_policy import _cfg_float
-
-    cfg_d = cfg if isinstance(cfg, dict) else {}
-    d = str(direction or "").strip()
-    if d not in ("sell_then_buy", "buy_then_sell"):
-        return None
-    y = _pick_y_t75_for_band(scores, y_τ75)
-    strong = _cfg_float(cfg_d, "y_t75_strong", DEFAULT_Y_T75_STRONG)
-    if cfg_d.get("y_τ75_strong") not in (None, "") and cfg_d.get("y_t75_strong") in (
-        None,
-        "",
-    ):
-        strong = _cfg_float(cfg_d, "y_τ75_strong", DEFAULT_Y_T75_STRONG)
-    return _horizon_p_agree_skip_reason(y=y, direction=d, strong=strong, label="ŷ_τ75")
-
-
 def _pick_y_t90_for_band(
     scores: Optional[dict],
     y_τ90: Optional[float] = None,
@@ -963,35 +795,11 @@ def _pick_y_t90_for_band(
     return _f(raw.get("y_τ90")) or _f(raw.get("y_t90")) or _f(raw.get("y_t90_hat"))
 
 
-def close_band_y_t90_skip_reason(
-    scores: Optional[dict],
-    cfg: Optional[dict] = None,
-    *,
-    direction: Optional[str] = None,
-    y_τ90: Optional[float] = None,
-) -> Optional[str]:
-    """旁路：破带后 ŷ_τ90=p_up 的 p_agree 须 ≥0.5。``y_t90_strong>=1`` 关闸。缺分不拦。"""
-    from core.t0.score_policy import _cfg_float
-
-    cfg_d = cfg if isinstance(cfg, dict) else {}
-    d = str(direction or "").strip()
-    if d not in ("sell_then_buy", "buy_then_sell"):
-        return None
-    y = _pick_y_t90_for_band(scores, y_τ90)
-    strong = _cfg_float(cfg_d, "y_t90_strong", DEFAULT_Y_T90_STRONG)
-    if cfg_d.get("y_τ90_strong") not in (None, "") and cfg_d.get("y_t90_strong") in (
-        None,
-        "",
-    ):
-        strong = _cfg_float(cfg_d, "y_τ90_strong", DEFAULT_Y_T90_STRONG)
-    return _horizon_p_agree_skip_reason(y=y, direction=d, strong=strong, label="ŷ_τ90")
-
-
-def y_tw_sign(x: Any, *, margin_pp: Any = None) -> Optional[int]:
-    """ŷ_τw 票：sign(p_up−0.5)。|p−0.5|≤margin_pp（默认 2pp）/ 缺分不投票。"""
+def y_tw_sign(x: Any, *, margin_pp: Any = None, midpoint: Any = None) -> Optional[int]:
+    """ŷ_τw 票：sign(p_up−mid)。|p−mid|≤margin_pp（默认 5pp）/ 缺分不投票。mid 默认 47%。"""
     from core.research.horizon_prob import p_up_vote
 
-    return p_up_vote(x, margin_pp=margin_pp)
+    return p_up_vote(x, margin_pp=margin_pp, midpoint=midpoint)
 
 
 def blend_y_tw(
@@ -1002,15 +810,22 @@ def blend_y_tw(
     y_τ75: Any = None,
     *,
     margin_pp: Any = None,
+    midpoint: Any = None,
     cfg: Optional[dict] = None,
 ) -> Optional[float]:
-    """ŷ_τw = f(ŷ_τ30)+…+f(ŷ_τ90)；f=sign(p_up−0.5)。
+    """ŷ_τw = f(ŷ_τ30)+…+f(ŷ_τ90)；f=sign(p_up−mid)。
 
-    |p−0.5|≤y_tw_vote_margin / 缺头不计该项。有头但全弃权计 **0 票**；无任何头返回 None。
+    mid 默认 47%（``y_tw_midpoint``）。|p−mid|≤y_tw_vote_margin / 缺头不计该项。
+    有头但全弃权计 **0 票**；无任何头返回 None。
     """
     band = _horizon_vote_margin_pp(cfg, margin_pp)
+    mid = _horizon_vote_midpoint(cfg, midpoint)
     heads = (y_τ30, y_τ45, y_τ60, y_τ75, y_τ90)
-    vals = [s for s in (y_tw_sign(h, margin_pp=band) for h in heads) if s is not None]
+    vals = [
+        s
+        for s in (y_tw_sign(h, margin_pp=band, midpoint=mid) for h in heads)
+        if s is not None
+    ]
     if vals:
         return float(sum(vals))
     if any(_f(h) is not None for h in heads):
@@ -1019,22 +834,134 @@ def blend_y_tw(
 
 
 def _y_tw_enter_floor(cfg_d: dict) -> float:
-    """ŷ_τw 入场阈值。优先 y_tw_enter；旧 y_tw_strong 的 3/≥5 视为关。"""
+    """ŷ_τw 共用门槛幅度。优先 y_tw_enter。"""
     from core.t0.score_policy import _cfg_float
 
     for k in ("y_tw_enter", "y_τw_enter"):
         if cfg_d.get(k) not in (None, ""):
             return max(0.0, min(float(_cfg_float(cfg_d, k, DEFAULT_Y_TW_ENTER)), 5.0))
-    strong = None
-    if cfg_d.get("y_tw_strong") not in (None, ""):
-        strong = _cfg_float(cfg_d, "y_tw_strong", DEFAULT_Y_TW_ENTER)
-    elif cfg_d.get("y_τw_strong") not in (None, ""):
-        strong = _cfg_float(cfg_d, "y_τw_strong", DEFAULT_Y_TW_ENTER)
-    if strong is None:
-        return DEFAULT_Y_TW_ENTER
-    if abs(float(strong) - 3.0) < 1e-12 or float(strong) >= 5.0 - 1e-12:
+    return DEFAULT_Y_TW_ENTER
+
+
+def _y_tw_strong_floor(cfg_d: dict) -> float:
+    """ŷ_τw 强档幅度。缺键跟随 Y_τw门槛。"""
+    from core.t0.score_policy import _cfg_float
+
+    for k in ("y_tw_strong", "y_τw_strong"):
+        if cfg_d.get(k) not in (None, ""):
+            return max(0.0, min(float(_cfg_float(cfg_d, k, DEFAULT_Y_TW_STRONG)), 5.0))
+    return _y_tw_enter_floor(cfg_d)
+
+
+def _ytw_enter_for_direction(cfg_d: dict, direction: str) -> float:
+    """正T/反T 各自 ŷ_τw 门槛幅度；缺侧向键或侧向 0 回退共用 y_tw_enter。
+
+    load_t0_rules / overlay 会把分侧键填成 0；若把 0 当显式覆盖，表单 Y_τw门槛=3 会失效。
+    """
+    from core.t0.score_policy import _cfg_float
+
+    shared = _y_tw_enter_floor(cfg_d)
+    d = str(direction or "").strip()
+    keys = ()
+    if d == "buy_then_sell":
+        keys = ("y_tw_enter_buy_then_sell", "y_τw_enter_buy_then_sell")
+    elif d == "sell_then_buy":
+        keys = ("y_tw_enter_sell_then_buy", "y_τw_enter_sell_then_buy")
+    side = None
+    for k in keys:
+        if cfg_d.get(k) not in (None, ""):
+            side = max(0.0, min(float(_cfg_float(cfg_d, k, DEFAULT_Y_TW_ENTER)), 5.0))
+            break
+    if side is None:
+        return shared
+    if abs(float(side)) <= 1e-12 and float(shared) > 1e-12:
+        return shared
+    return side
+
+
+def _ytw_strong_for_direction(cfg_d: dict, direction: str) -> float:
+    """Y_τw强：至少等于该侧门槛，避免强档低于入场。"""
+    enter = _ytw_enter_for_direction(cfg_d, direction)
+    return max(enter, _y_tw_strong_floor(cfg_d))
+
+
+def close_band_y_tw_is_strong(
+    y_tw: Optional[float],
+    cfg: Optional[dict] = None,
+    *,
+    direction: Optional[str] = None,
+) -> bool:
+    """过门槛后是否达到 Y_τw强（全额轮次）。"""
+    d = str(direction or "").strip()
+    if d not in ("sell_then_buy", "buy_then_sell") or y_tw is None:
+        return False
+    cfg_d = cfg if isinstance(cfg, dict) else {}
+    strong = _ytw_strong_for_direction(cfg_d, d)
+    if d == "buy_then_sell":
+        return float(y_tw) + 1e-12 >= float(strong)
+    return float(y_tw) - 1e-12 <= -float(strong)
+
+
+def close_band_y_tw_round_scale(
+    y_tw: Optional[float],
+    cfg: Optional[dict] = None,
+    *,
+    direction: Optional[str] = None,
+) -> float:
+    """轮次仓位乘数：过强=1，过门槛未过强=半仓。"""
+    if close_band_y_tw_is_strong(y_tw, cfg, direction=direction):
+        return 1.0
+    return DEFAULT_Y_TW_WEAK_RATIO
+
+
+def blend_y_tw_from_scores(
+    scores: Optional[dict] = None,
+    cfg: Optional[dict] = None,
+) -> Optional[float]:
+    """从快照抽 ŷ_τ30/45/60/75/90 合成 ŷ_τw。"""
+    return blend_y_tw(
+        _pick_y_t30_for_band(scores),
+        _pick_y_t60_for_band(scores),
+        _pick_y_t90_for_band(scores),
+        _pick_y_t45_for_band(scores),
+        _pick_y_t75_for_band(scores),
+        cfg=cfg,
+    )
+
+
+def blend_y_tw_realized(
+    y_τ30: Any = None,
+    y_τ60: Any = None,
+    y_τ90: Any = None,
+    y_τ45: Any = None,
+    y_τ75: Any = None,
+) -> Optional[float]:
+    """真实 y_τw：各窗收益符号和。收益=0/缺头不计；全横盘=0；无头=None。"""
+    heads = (y_τ30, y_τ45, y_τ60, y_τ75, y_τ90)
+    votes: list[int] = []
+    any_head = False
+    for h in heads:
+        v = _f(h)
+        if v is None:
+            continue
+        any_head = True
+        if abs(float(v)) <= 1e-12:
+            continue
+        votes.append(1 if float(v) > 0 else -1)
+    if votes:
+        return float(sum(votes))
+    if any_head:
         return 0.0
-    return max(0.0, min(float(strong), 5.0))
+    return None
+
+
+
+
+def _fmt_ytw_votes(y: Optional[float]) -> str:
+    if y is None:
+        return "—"
+    yt = int(round(float(y)))
+    return f"{yt:+d}" if yt else "0"
 
 
 def close_band_y_tw_skip_reason(
@@ -1042,353 +969,191 @@ def close_band_y_tw_skip_reason(
     cfg: Optional[dict] = None,
     *,
     direction: Optional[str] = None,
+    y_tw: Optional[float] = None,
 ) -> Optional[str]:
-    """入场：破带后须 |ŷ_τw| **大于** y_tw_enter，且与方向同号。
+    """选腿门槛：正T须 ŷ_τw>=正T门槛；反T须 ŷ_τw<=−反T门槛。
 
-    不改 C_τ / 选向 / 目标价。全弃权计 0 票。``y_tw_enter<=0`` 关闸（0 票也过，关同号）。
-    ``|ŷ_τw|<=enter`` 未过入场。无任何头仍不拦。
+    缺 ŷ_τw（无任何窗头）不开腿。全弃权计 0 票；门槛=0 时 0 票可通过。
     """
     cfg_d = cfg if isinstance(cfg, dict) else {}
     d = str(direction or "").strip()
     if d not in ("sell_then_buy", "buy_then_sell"):
         return None
-    y = blend_y_tw(
-        _pick_y_t30_for_band(scores),
-        _pick_y_t60_for_band(scores),
-        _pick_y_t90_for_band(scores),
-        _pick_y_t45_for_band(scores),
-        _pick_y_t75_for_band(scores),
-        cfg=cfg_d,
-    )
+    y = y_tw if y_tw is not None else blend_y_tw_from_scores(scores, cfg_d)
     if y is None:
+        return "缺 ŷ_τw，未开腿"
+    enter = _ytw_enter_for_direction(cfg_d, d)
+    shown = _fmt_ytw_votes(y)
+    if d == "buy_then_sell":
+        if float(y) + 1e-12 < float(enter):
+            return f"ŷ_τw={shown} 未过正T门槛（须>={enter:g}）"
         return None
-    enter = _y_tw_enter_floor(cfg_d)
-    if enter <= 0:
-        return None
-    if abs(float(y)) <= float(enter) + 1e-12:
-        yt = int(round(float(y)))
-        shown = f"{yt:+d}" if yt else "0"
-        return f"ŷ_τw={shown} 未过入场（|{abs(yt)}|<={enter:g}）"
-    agree = y_tc_band_agree(d, y, eps=0.0)
-    if agree is not False:
-        return None
-    side = "反T" if d == "sell_then_buy" else "正T"
-    want = "ŷ_τw<0" if d == "sell_then_buy" else "ŷ_τw>0"
-    return f"ŷ_τw={int(y):+d} 与{side}入场逆带跳过（期望{want}）"
-
-
-def _enter_profile_skip_reason(
-    *,
-    y_tau: Optional[float],
-    y_path: Optional[float],
-    y_t30: Optional[float] = None,
-    y_t45: Optional[float] = None,
-    y_t60: Optional[float] = None,
-    y_t75: Optional[float] = None,
-    y_t90: Optional[float] = None,
-    y_complexity_u: Optional[float],
-    y_tpd_u: Optional[float],
-    tau_enter: float,
-    path_enter: float,
-    t30_enter: float = 0.0,
-    t45_enter: float = 0.0,
-    t60_enter: float = 0.0,
-    t75_enter: float = 0.0,
-    t90_enter: float = 0.0,
-    cx_max: float,
-    tpd_max: float,
-    use_path: bool,
-    direction: Optional[str] = None,
-) -> Optional[str]:
-    """一组 |y_τ| / |y_hl| 入场。ŷ_τ* 个股入场仅供显式 cfg 单测；ŷ_cx / tpd 已下线。缺方向时窗口入场不拦。"""
-    from core.research.horizon_prob import HORIZON_ENTER_MAX, p_agree
-
-    if tau_enter > 0:
-        if y_tau is None:
-            return "y_τ 缺失，未过入场门槛"
-        yt = float(y_tau)
-        if abs(yt) < tau_enter - 1e-12:
-            return f"|y_τ|={abs(yt):.3f}%<{tau_enter:g}% 未过入场（横盘）"
-
-    def _p_enter(label: str, y: Optional[float], floor: float) -> Optional[str]:
-        fl = max(0.0, min(float(floor), float(HORIZON_ENTER_MAX)))
-        if fl <= 0 or y is None:
-            return None
-        pa = p_agree(direction, y)
-        if pa is None:
-            return None
-        if float(pa) < fl - 1e-12:
-            return f"p_agree({label})={float(pa):.3f}<{fl:g} 未过入场"
-        return None
-
-    for label, y, fl in (
-        ("ŷ_τ30", y_t30, t30_enter),
-        ("ŷ_τ45", y_t45, t45_enter),
-        ("ŷ_τ60", y_t60, t60_enter),
-        ("ŷ_τ75", y_t75, t75_enter),
-        ("ŷ_τ90", y_t90, t90_enter),
-    ):
-        msg = _p_enter(label, y, fl)
-        if msg:
-            return msg
-    if use_path and y_path is not None and path_enter > 0:
-        yp = float(y_path)
-        if abs(yp) < path_enter - 1e-12:
-            return f"|y_hl|={abs(yp):.3f}%<{path_enter:g}% 未过入场（横盘）"
-    _ = (y_complexity_u, y_tpd_u, cx_max, tpd_max)
+    if float(y) - 1e-12 > -float(enter):
+        return f"ŷ_τw={shown} 未过反T门槛（须<={-enter:g}）"
     return None
 
 
-def _cfg_or_follow(
-    cfg_d: dict,
-    key: str,
-    follow: float,
-    *,
-    lo: float,
-    hi: float,
-) -> float:
-    from core.t0.score_policy import _cfg_float
-
-    if cfg_d.get(key) in (None, ""):
-        return max(lo, min(float(follow), hi))
-    return max(lo, min(float(_cfg_float(cfg_d, key, follow)), hi))
-
-
-def close_band_enter_skip_reason(
-    scores: Optional[dict],
+def bar_close_band_pick_direction(
+    bar_open: float,
+    bar_close: float,
+    scores: Optional[dict] = None,
     cfg: Optional[dict] = None,
     *,
-    direction: Optional[str] = None,
-    r_pct: Optional[float] = None,
-) -> Optional[str]:
-    """入场：|y_τ| / |y_hl| 档已下线。生产 ``load_t0_rules`` 丢门槛1/2 键。
+    open_px: Optional[float] = None,
+    prev_close: Optional[float] = None,
+    price_tau: Optional[float] = None,
+    scale: float = 1.0,
+    bar_low: Optional[float] = None,
+    bar_high: Optional[float] = None,
+) -> tuple[Optional[str], Dict[str, Any]]:
+    """旗舰选腿：ŷ_oc 估 C_τ，破带定方向；ŷ_τw 门槛为辅。
 
-    ``r_pct`` 仅兼容旧调用，不再入闸（超额带宽 δ 已选向）。
-    显式 cfg 仍可供单测：``y_enter_enabled`` / ``y_enter_alt_enabled`` 关则该档不参与 OR；两档都关则不开腿。
-    缺 y_hl 默认不拦；``y_hl_required`` 时缺分跳过（开盘 minute_feats_missing 除外）。
-    分钟缺失共用。ŷ_cx / ŷ_tpd 已下线，不入闸。
+    C>upper → sell_then_buy；C<lower → buy_then_sell。
+    缺 ŷ_oc / 未破带 / ŷ_τw 未过门槛 → None。
     """
-    _ = r_pct
-    from core.t0.score_policy import (
-        DEFAULT_PATH_ENTER,
-        DEFAULT_TAU_ENTER,
-        _cfg_float,
-        resolve_direction_y_tau,
-        scores_from_item,
-        side_hl_enter,
-        side_tau_enter,
+    o, c = _f(bar_open), _f(bar_close)
+    lo, hi = _f(bar_low), _f(bar_high)
+    y = blend_y_tw_from_scores(scores, cfg)
+    delta = resolve_close_band_delta_pct(cfg)
+    est_open = _f(open_px) or o
+    meta: Dict[str, Any] = {
+        "y_tw": y,
+        "bar_open": o,
+        "bar_close": c,
+        "bar_low": lo,
+        "bar_high": hi,
+        "delta_pct": delta,
+        "c_tau": None,
+        "close_px": None,
+        "lower_px": None,
+        "upper_px": None,
+        "upper_pct": delta,
+        "lower_pct": -delta,
+        "r_pct": None,
+    }
+    if c is None or c <= 0:
+        meta["skip"] = "缺开收"
+        return None, meta
+    if est_open is None or est_open <= 0:
+        meta["skip"] = "缺 ŷ_oc，未估 C_τ"
+        return None, meta
+    est = estimate_close_px(
+        scores,
+        open_px=float(est_open),
+        prev_close=prev_close,
+        price_tau=price_tau if _f(price_tau) is not None else c,
+        cfg=cfg,
     )
-    from core.t0.config import coerce_cfg_bool
+    if not est.get("ok") or not est.get("close_px"):
+        meta["skip"] = "缺 ŷ_oc，未估 C_τ"
+        return None, meta
+    c_tau_d = est.get("close_px")
+    try:
+        s = float(scale) if scale else 1.0
+    except (TypeError, ValueError):
+        s = 1.0
+    if s <= 0:
+        s = 1.0
+    c_tau_m = map_close_px_to_minute(c_tau_d, scale=s)
+    if c_tau_m is None:
+        meta["skip"] = "缺 ŷ_oc，未估 C_τ"
+        return None, meta
+    direction, band_meta = close_band_pick_direction(
+        float(c), float(c_tau_m), delta, scores, cfg
+    )
+    lo_px, up_px = close_band_edges_px(c_tau_m, delta)
+    dpx = band_delta_px(c_tau_m, delta)
+    meta.update(band_meta)
+    meta["y_tw"] = y
+    meta["c_tau"] = c_tau_m
+    meta["close_px"] = c_tau_m
+    meta["c_tau_daily"] = c_tau_d
+    meta["lower_px"] = lo_px
+    meta["upper_px"] = up_px
+    meta["delta_px"] = dpx
+    meta["delta_pct"] = delta
+    if est.get("y_oc") is not None:
+        meta["y_oc"] = est.get("y_oc")
+    if est.get("y_oc_target") is not None:
+        meta["y_oc_target"] = est.get("y_oc_target")
+    if not direction:
+        meta["skip"] = "未破带"
+        return None, meta
+    ytw_skip = close_band_y_tw_skip_reason(
+        scores, cfg, direction=direction, y_tw=y
+    )
+    if ytw_skip:
+        meta["skip"] = ytw_skip
+        return None, meta
+    return direction, meta
 
-    raw = scores if isinstance(scores, dict) else {}
-    sc = scores_from_item(raw)
-    cfg_d = cfg if isinstance(cfg, dict) else {}
-    d = str(direction or "").strip()
-    if d in ("sell_then_buy", "buy_then_sell"):
-        for_bts = d == "buy_then_sell"
-        tau_enter = float(side_tau_enter(cfg_d, for_buy_then_sell=for_bts))
-        path_enter = float(side_hl_enter(cfg_d, for_buy_then_sell=for_bts))
+
+def bar_ytw_pick_direction(
+    bar_open: float,
+    bar_close: float,
+    scores: Optional[dict] = None,
+    cfg: Optional[dict] = None,
+    bar_low: Optional[float] = None,
+    bar_high: Optional[float] = None,
+) -> tuple[Optional[str], Dict[str, Any]]:
+    """库函数：仅 ŷ_τw 门槛选向（生产走 ``bar_close_band_pick_direction``）。
+
+    ŷ_τw>=正T门槛 → buy_then_sell。
+    ŷ_τw<=−反T门槛 → sell_then_buy。
+    缺 ŷ_τw 或未过门槛 → None。
+    """
+    o, c = _f(bar_open), _f(bar_close)
+    lo, hi = _f(bar_low), _f(bar_high)
+    y = blend_y_tw_from_scores(scores, cfg)
+    meta: Dict[str, Any] = {
+        "y_tw": y,
+        "bar_open": o,
+        "bar_close": c,
+        "bar_low": lo,
+        "bar_high": hi,
+        "upper_pct": None,
+        "lower_pct": None,
+        "r_pct": None,
+    }
+    if c is None or c <= 0:
+        meta["skip"] = "缺开收"
+        return None, meta
+    skip_pos = close_band_y_tw_skip_reason(
+        scores, cfg, direction="buy_then_sell", y_tw=y
+    )
+    if not skip_pos:
+        meta["tentative"] = "buy_then_sell"
+        return "buy_then_sell", meta
+    skip_neg = close_band_y_tw_skip_reason(
+        scores, cfg, direction="sell_then_buy", y_tw=y
+    )
+    if not skip_neg:
+        meta["tentative"] = "sell_then_buy"
+        return "sell_then_buy", meta
+    if y is None:
+        meta["skip"] = "缺 ŷ_τw，未开腿"
+    elif float(y) >= 0:
+        meta["skip"] = skip_pos
+        meta["tentative"] = "buy_then_sell"
     else:
-        tau_enter = _cfg_float(cfg_d, "y_tau_enter", DEFAULT_TAU_ENTER)
-        tau_enter = max(0.0, min(float(tau_enter), 100.0))
-        if cfg_d.get("y_hl_enter") not in (None, ""):
-            path_enter = _cfg_float(cfg_d, "y_hl_enter", DEFAULT_PATH_ENTER)
-        else:
-            path_enter = _cfg_float(cfg_d, "y_path_enter", DEFAULT_PATH_ENTER)
-        path_enter = max(0.0, min(float(path_enter), 100.0))
-
-    y_tau = resolve_direction_y_tau(sc)
-    y_t30 = _pick_y_t30_for_band(raw)
-    t30_enter = _cfg_float(cfg_d, "y_t30_enter", DEFAULT_Y_T30_ENTER)
-    if cfg_d.get("y_τ30_enter") not in (None, "") and cfg_d.get("y_t30_enter") in (
-        None,
-        "",
-    ):
-        t30_enter = _cfg_float(cfg_d, "y_τ30_enter", DEFAULT_Y_T30_ENTER)
-    t30_enter = max(0.0, min(float(t30_enter), 0.7))
-    y_t45 = _pick_y_t45_for_band(raw)
-    t45_enter = _cfg_float(cfg_d, "y_t45_enter", DEFAULT_Y_T45_ENTER)
-    if cfg_d.get("y_τ45_enter") not in (None, "") and cfg_d.get("y_t45_enter") in (
-        None,
-        "",
-    ):
-        t45_enter = _cfg_float(cfg_d, "y_τ45_enter", DEFAULT_Y_T45_ENTER)
-    t45_enter = max(0.0, min(float(t45_enter), 0.7))
-    y_t60 = _pick_y_t60_for_band(raw)
-    t60_enter = _cfg_float(cfg_d, "y_t60_enter", DEFAULT_Y_T60_ENTER)
-    if cfg_d.get("y_τ60_enter") not in (None, "") and cfg_d.get("y_t60_enter") in (
-        None,
-        "",
-    ):
-        t60_enter = _cfg_float(cfg_d, "y_τ60_enter", DEFAULT_Y_T60_ENTER)
-    t60_enter = max(0.0, min(float(t60_enter), 0.7))
-    y_t75 = _pick_y_t75_for_band(raw)
-    t75_enter = _cfg_float(cfg_d, "y_t75_enter", DEFAULT_Y_T75_ENTER)
-    if cfg_d.get("y_τ75_enter") not in (None, "") and cfg_d.get("y_t75_enter") in (
-        None,
-        "",
-    ):
-        t75_enter = _cfg_float(cfg_d, "y_τ75_enter", DEFAULT_Y_T75_ENTER)
-    t75_enter = max(0.0, min(float(t75_enter), 0.7))
-    y_t90 = _pick_y_t90_for_band(raw)
-    t90_enter = _cfg_float(cfg_d, "y_t90_enter", DEFAULT_Y_T90_ENTER)
-    if cfg_d.get("y_τ90_enter") not in (None, "") and cfg_d.get("y_t90_enter") in (
-        None,
-        "",
-    ):
-        t90_enter = _cfg_float(cfg_d, "y_τ90_enter", DEFAULT_Y_T90_ENTER)
-    t90_enter = max(0.0, min(float(t90_enter), 0.7))
-
-    from core.research.path_panel import pick_y_hl, pick_y_hl_status
-
-    status = pick_y_hl_status(sc, raw)
-    if raw.get("_minute_data_missing") or status == "minute_data_missing":
-        return "分钟数据缺失（非 09:30 须有分钟小包）"
-
-    y_path = pick_y_hl(sc, raw)
-    hl_required = coerce_cfg_bool(cfg_d.get("y_hl_required"), False)
-    if not hl_required and cfg_d.get("y_path_required") not in (None, ""):
-        hl_required = coerce_cfg_bool(cfg_d.get("y_path_required"), False)
-    if hl_required and y_path is None and status != "minute_feats_missing":
-        return "y_hl 缺失，未过入场门槛"
-
-    gate1_on = coerce_cfg_bool(cfg_d.get("y_enter_enabled"), True)
-    gate2_on = coerce_cfg_bool(cfg_d.get("y_enter_alt_enabled"), True)
-
-    skip = None
-    if gate1_on:
-        skip = _enter_profile_skip_reason(
-            y_tau=y_tau,
-            y_path=y_path,
-            y_t30=y_t30,
-            y_t45=y_t45,
-            y_t60=y_t60,
-            y_t75=y_t75,
-            y_t90=y_t90,
-            y_complexity_u=None,
-            y_tpd_u=None,
-            tau_enter=tau_enter,
-            path_enter=path_enter,
-            t30_enter=t30_enter,
-            t45_enter=t45_enter,
-            t60_enter=t60_enter,
-            t75_enter=t75_enter,
-            t90_enter=t90_enter,
-            cx_max=1.0,
-            tpd_max=1.0,
-            use_path=True,
-            direction=d,
-        )
-        if skip is None:
-            return None
-
-    skip_alt = None
-    if gate2_on:
-        tau_enter_alt = _cfg_or_follow(
-            cfg_d, "y_tau_enter_alt", tau_enter, lo=0.0, hi=100.0
-        )
-        path_enter_alt = _cfg_or_follow(
-            cfg_d, "y_hl_enter_alt", path_enter, lo=0.0, hi=100.0
-        )
-        if cfg_d.get("y_hl_enter_alt") in (None, "") and cfg_d.get(
-            "y_path_enter_alt"
-        ) not in (None, ""):
-            path_enter_alt = _cfg_or_follow(
-                cfg_d, "y_path_enter_alt", path_enter, lo=0.0, hi=100.0
-            )
-        t30_enter_alt = _cfg_or_follow(
-            cfg_d, "y_t30_enter_alt", t30_enter, lo=0.0, hi=100.0
-        )
-        if cfg_d.get("y_τ30_enter_alt") not in (None, "") and cfg_d.get(
-            "y_t30_enter_alt"
-        ) in (None, ""):
-            t30_enter_alt = _cfg_or_follow(
-                cfg_d, "y_τ30_enter_alt", t30_enter, lo=0.0, hi=100.0
-            )
-        t45_enter_alt = _cfg_or_follow(
-            cfg_d, "y_t45_enter_alt", t45_enter, lo=0.0, hi=100.0
-        )
-        if cfg_d.get("y_τ45_enter_alt") not in (None, "") and cfg_d.get(
-            "y_t45_enter_alt"
-        ) in (None, ""):
-            t45_enter_alt = _cfg_or_follow(
-                cfg_d, "y_τ45_enter_alt", t45_enter, lo=0.0, hi=100.0
-            )
-        t60_enter_alt = _cfg_or_follow(
-            cfg_d, "y_t60_enter_alt", t60_enter, lo=0.0, hi=100.0
-        )
-        if cfg_d.get("y_τ60_enter_alt") not in (None, "") and cfg_d.get(
-            "y_t60_enter_alt"
-        ) in (None, ""):
-            t60_enter_alt = _cfg_or_follow(
-                cfg_d, "y_τ60_enter_alt", t60_enter, lo=0.0, hi=100.0
-            )
-        t75_enter_alt = _cfg_or_follow(
-            cfg_d, "y_t75_enter_alt", t75_enter, lo=0.0, hi=100.0
-        )
-        if cfg_d.get("y_τ75_enter_alt") not in (None, "") and cfg_d.get(
-            "y_t75_enter_alt"
-        ) in (None, ""):
-            t75_enter_alt = _cfg_or_follow(
-                cfg_d, "y_τ75_enter_alt", t75_enter, lo=0.0, hi=100.0
-            )
-        t90_enter_alt = _cfg_or_follow(
-            cfg_d, "y_t90_enter_alt", t90_enter, lo=0.0, hi=100.0
-        )
-        if cfg_d.get("y_τ90_enter_alt") not in (None, "") and cfg_d.get(
-            "y_t90_enter_alt"
-        ) in (None, ""):
-            t90_enter_alt = _cfg_or_follow(
-                cfg_d, "y_τ90_enter_alt", t90_enter, lo=0.0, hi=100.0
-            )
-        skip_alt = _enter_profile_skip_reason(
-            y_tau=y_tau,
-            y_path=y_path,
-            y_t30=y_t30,
-            y_t45=y_t45,
-            y_t60=y_t60,
-            y_t75=y_t75,
-            y_t90=y_t90,
-            y_complexity_u=None,
-            y_tpd_u=None,
-            tau_enter=tau_enter_alt,
-            path_enter=path_enter_alt,
-            t30_enter=t30_enter_alt,
-            t45_enter=t45_enter_alt,
-            t60_enter=t60_enter_alt,
-            t75_enter=t75_enter_alt,
-            t90_enter=t90_enter_alt,
-            cx_max=1.0,
-            tpd_max=1.0,
-            use_path=True,
-            direction=d,
-        )
-        if skip_alt is None:
-            return None
-
-    if not gate1_on and not gate2_on:
-        return "门槛1/2 均未启用"
-    if gate1_on and gate2_on:
-        if skip_alt == skip:
-            return skip
-        return f"门槛1 {skip}；门槛2 {skip_alt}"
-    if gate1_on:
-        return skip
-    return skip_alt
+        meta["skip"] = skip_neg
+        meta["tentative"] = "sell_then_buy"
+    return None, meta
 
 
 @dataclass
 class FrozenRound:
-    """leg1 成交瞬间冻结的本轮参数。"""
+    """leg1 成交瞬间冻结的本轮参数。leg2 目标默认 C_τ。"""
 
     direction: str
     leg1_px: float
-    leg2_target: float
-    close_px: float
-    delta_px: float
+    leg2_target: Optional[float]
+    close_px: Optional[float]
+    delta_px: Optional[float]
     ratio: float
     bar_index: int
     hm: str = ""
+    y_tw: Optional[float] = None
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
@@ -1398,25 +1163,31 @@ def freeze_round(
     *,
     direction: str,
     leg1_px: float,
-    close_px: float,
-    delta_px: float,
-    ratio: float,
-    bar_index: int,
+    close_px: Optional[float] = None,
+    delta_px: Optional[float] = None,
+    ratio: float = 0.4,
+    bar_index: int = 0,
     hm: str = "",
+    y_tw: Optional[float] = None,
+    leg2_target: Optional[float] = None,
 ) -> FrozenRound:
-    """冻结 leg2：目标交易价 = C_τ。"""
+    """冻结本轮：leg2 目标默认 C_τ（``close_px``）。"""
     d = str(direction or "").strip().lower()
-    mid = float(close_px)
-    band = float(delta_px)
+    c_tau = _f(close_px)
+    target = _f(leg2_target)
+    if target is None:
+        target = c_tau
+    dpx = _f(delta_px)
     return FrozenRound(
         direction=d,
         leg1_px=float(leg1_px),
-        leg2_target=round(mid, 4),
-        close_px=round(mid, 4),
-        delta_px=round(band, 4),
+        leg2_target=round(float(target), 4) if target is not None else None,
+        close_px=round(float(c_tau), 4) if c_tau is not None else None,
+        delta_px=round(float(dpx), 4) if dpx is not None else None,
         ratio=float(ratio),
         bar_index=int(bar_index),
         hm=str(hm or ""),
+        y_tw=float(y_tw) if _f(y_tw) is not None else None,
     )
 
 

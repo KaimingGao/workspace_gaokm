@@ -159,10 +159,24 @@ def _ensure_fixed_direction_path_y_tau(
     if d not in ("buy_then_sell", "sell_then_buy"):
         return scores
     snap = dict(scores) if isinstance(scores, dict) else {}
-    if _score_y_tau(snap) is not None:
-        return snap
-    snap["y_tau"] = 0.5 if d == "buy_then_sell" else -0.5
-    snap["y_tau_oc"] = snap["y_tau"]
+    if _score_y_tau(snap) is None:
+        snap["y_tau"] = 0.5 if d == "buy_then_sell" else -0.5
+        snap["y_tau_oc"] = snap["y_tau"]
+    p_up = 0.8 if d == "buy_then_sell" else 0.2
+    for k in (
+        "y_τ30",
+        "y_t30",
+        "y_τ45",
+        "y_t45",
+        "y_τ60",
+        "y_t60",
+        "y_τ75",
+        "y_t75",
+        "y_τ90",
+        "y_t90",
+    ):
+        if snap.get(k) is None:
+            snap[k] = p_up
     return snap
 
 

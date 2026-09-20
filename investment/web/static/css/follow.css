@@ -4375,7 +4375,7 @@ body[data-page="replay"] .replay-t0-section .paper-t0-viz-stock-table {
 
 .paper-t0-portrait-slot-table {
   width: max-content;
-  min-width: max(100%, 2100px);
+  min-width: max(100%, 2260px);
   border-collapse: collapse;
   font-size: 0.72rem;
 }
@@ -4945,14 +4945,14 @@ body[data-page="replay"] .replay-t0-section .paper-t0-table {
 }
 
 .paper-t0-scan-debug col {
-  width: calc(100% / 18);
+  width: calc(100% / 17);
 }
 
 .paper-t0-scan-debug th,
 .paper-t0-scan-debug td,
 .paper-t0-scan-debug td.paper-t0-col-band-lo,
 .paper-t0-scan-debug td.paper-t0-col-band-up {
-  width: calc(100% / 18);
+  width: calc(100% / 17);
   min-width: 0;
   max-width: none;
   box-sizing: border-box;
@@ -4994,9 +4994,9 @@ body[data-page="replay"] .replay-t0-section .paper-t0-table {
   text-align: left;
 }
 
-/* Ĉ_τ | lower | upper · y_oc | y_τw | y_τ30 | y_τ45 | y_τ60 | y_τ75 | y_τ90 | y_hl */
-.paper-t0-scan-debug th:nth-child(n + 6):nth-child(-n + 16),
-.paper-t0-scan-debug td:nth-child(n + 6):nth-child(-n + 16) {
+/* 钟 | O L H C | C_τ | lower | upper | y_oc | y_τw | y_τ30 | y_τ45 | y_τ60 | y_τ75 | y_τ90 | 选向 | 跳过 */
+.paper-t0-scan-debug th:nth-child(n + 6):nth-child(-n + 19),
+.paper-t0-scan-debug td:nth-child(n + 6):nth-child(-n + 19) {
   border-left: 1px solid color-mix(in srgb, var(--ink) 14%, transparent);
 }
 
@@ -5018,7 +5018,7 @@ body[data-page="replay"] .replay-t0-section .paper-t0-trades-wrap .paper-t0-trad
 body[data-page="replay"] .replay-t0-section .paper-t0-trades-wrap .paper-t0-trades-table.quant-weight-table .paper-t0-scan-debug td,
 body[data-page="replay"] .replay-t0-section .paper-t0-trades-wrap .paper-t0-trades-table.quant-weight-table .paper-t0-scan-debug td.paper-t0-col-band-lo,
 body[data-page="replay"] .replay-t0-section .paper-t0-trades-wrap .paper-t0-trades-table.quant-weight-table .paper-t0-scan-debug td.paper-t0-col-band-up {
-  width: calc(100% / 18);
+  width: calc(100% / 17);
   min-width: 0;
   max-width: none;
   padding: 4px 8px;
@@ -5267,7 +5267,7 @@ body[data-page="replay"] .replay-t0-section .paper-t0-trades-wrap .paper-t0-trad
   padding-left: 8px;
 }
 
-/* 价带 | Ĉ_τ | lower | upper | y_oc | y_τw | y_τ30 | y_τ45 | y_τ60 | y_τ75 | y_τ90 | y_hl | 过程 | 结果：左边线作分区 */
+/* O L H C | C_τ | lower | upper | y_oc | y_τw | y_τ30 | y_τ45 | y_τ60 | y_τ75 | y_τ90 | 过程 | 结果：左边线作分区 */
 .paper-t0-trades-table thead th.paper-t0-col-o,
 .paper-t0-trades-table tbody td.paper-t0-col-o {
   border-left: 1px solid color-mix(in srgb, var(--ink) 10%, transparent);

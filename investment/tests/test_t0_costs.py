@@ -372,17 +372,35 @@ class TestT0Costs(unittest.TestCase):
 
     def test_holdings_sell_then_buy_exposure_when_account_cash_blocks_cover(self):
         """账户现金不够买回时，引擎内跳过买腿，按未回补敞口记账。"""
+        from unittest.mock import patch
+
         from core.t0.rules import simulate_t0_on_holdings
 
-        bar = {"date": "2026-08-25", "open": 10.0, "high": 10.6, "low": 9.5, "close": 10.0}
+        # ŷ_oc=-0.5×10 clip −3% → C_τ=9.7；C≈9.95>upper 反T。低点压在 C_τ 之上，避免触到买回。
+        bar = {"date": "2026-08-25", "open": 10.0, "high": 10.6, "low": 9.90, "close": 10.0}
         minute_bars = [
-            {"datetime": "2026-08-25 09:35:00", "open": 10.0, "high": 10.1, "low": 9.99, "close": 10.05},
-            {"datetime": "2026-08-25 09:40:00", "open": 10.05, "high": 10.08, "low": 10.0, "close": 10.06},
-            {"datetime": "2026-08-25 09:45:00", "open": 10.06, "high": 10.08, "low": 9.5, "close": 9.6},
-            {"datetime": "2026-08-25 09:50:00", "open": 9.6, "high": 9.7, "low": 9.4, "close": 9.5},
+            {"datetime": "2026-08-25 09:35:00", "open": 10.0, "high": 10.1, "low": 9.90, "close": 9.95},
+            {"datetime": "2026-08-25 09:40:00", "open": 9.95, "high": 10.0, "low": 9.90, "close": 9.92},
+            {"datetime": "2026-08-25 09:45:00", "open": 9.92, "high": 9.95, "low": 9.90, "close": 9.91},
+            {"datetime": "2026-08-25 09:50:00", "open": 9.91, "high": 9.95, "low": 9.90, "close": 9.92},
         ]
+        scores = {
+            "y_tau": -0.5,
+            "y_tau_oc": -0.5,
+            "y_τ30": 0.2,
+            "y_t30": 0.2,
+            "y_τ45": 0.2,
+            "y_t45": 0.2,
+            "y_τ60": 0.2,
+            "y_t60": 0.2,
+            "y_τ75": 0.2,
+            "y_t75": 0.2,
+            "y_τ90": 0.2,
+            "y_t90": 0.2,
+        }
         paper = {
             "cash": 0.0,
+            "cost_model": "simple_cn",
             "holdings": [
                 {"stock_code": "600519", "stock_name": "茅台", "shares": 1000, "cost": 10.0}
             ],
@@ -397,19 +415,34 @@ class TestT0Costs(unittest.TestCase):
                     "use_atr": False,
                     "min_range_pct": 0.5,
                     "t0_close_band_delta_pct": 0.01,
+                    "t0_giveback_pct_sell_then_buy": 0,
+                    "t0_stop_pct_sell_then_buy": 0,
+                    "t0_pm_degrade": "",
                     "y_tau_exit_price_skip_sell_then_buy": False,
                     "lot_size": 100,
                     "t0_slots_max_rounds": 1,
+                    "y_tw_enter": 0,
+                    "y_tw_vote_margin": 2,
                     "y_tpd_max": 1.0,
                 }
             },
         }
-        out = simulate_t0_on_holdings(
-            paper,
-            bars_by_code={"600519": bar},
-            minute_bars_by_code={"600519": minute_bars},
-            dry_run=True,
-        )
+
+        def _freeze_snap(**kwargs):
+            snap = kwargs.get("open_snap")
+            return dict(snap) if isinstance(snap, dict) else dict(scores)
+
+        with patch(
+            "core.t0.score_policy.rescore_scores_at_fixed_prefix",
+            side_effect=_freeze_snap,
+        ):
+            out = simulate_t0_on_holdings(
+                paper,
+                bars_by_code={"600519": bar},
+                minute_bars_by_code={"600519": minute_bars},
+                dry_run=True,
+                scores_by_code={"600519": scores},
+            )
         self.assertTrue(out.get("success"), out)
         row = (out.get("results") or [{}])[0]
         self.assertGreater(int(row.get("sold_qty") or 0), 0, row)

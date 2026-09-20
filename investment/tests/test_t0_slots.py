@@ -50,7 +50,6 @@ def _slot_rules(**kwargs):
             {"id": "s2", "hm": "10:30", "prefix_bars": 12, "ratio": 0.20},
         ],
         "direction": "buy_then_sell",
-        "t0_close_band_delta_pct": 0.01,
         "t0_round_ratio": 0.2,
         "y_tpd_max": 1.0,
         "y_t30_strong": 1.0,
@@ -59,9 +58,6 @@ def _slot_rules(**kwargs):
         "y_τ60_strong": 1.0,
         "y_t90_strong": 1.0,
         "y_τ90_strong": 1.0,
-        "t0_y_oc_target_scale": 1.0,
-        "t0_y_oc_l": -20.0,
-        "t0_y_oc_u": 20.0,
         "min_range_pct": 0.1,
         "min_range_pct_buy_then_sell": 0.1,
         "t0_pm_degrade": "",
@@ -82,9 +78,9 @@ def _slot_rules(**kwargs):
 
 
 def _px_bts_confirm_then_rally(i, hm):
-    """正T：前缀下探；10:00 确认根收阳开第一腿；其后冲高卖第二腿。"""
+    """正T：前缀 ŷ_τw≥门槛开第一腿；其后冲高卖第二腿。"""
     if i < 5:
-        return (100.2, 100.5, 99.0, 99.5)
+        return (99.8, 100.5, 99.0, 100.2)
     if i == 5:
         return (100.0, 100.6, 99.8, 100.4)
     if i >= 8:
@@ -113,7 +109,12 @@ class TestT0Slots(unittest.TestCase):
         self.assertEqual(cfg["t0_slots"][0]["prefix_bars"], 18)
         self.assertAlmostEqual(float(cfg["t0_slots"][0]["ratio"]), 0.20)
         self.assertAlmostEqual(sum(float(s["ratio"]) for s in cfg["t0_slots"]), 1.0)
-        self.assertAlmostEqual(float(cfg.get("t0_close_band_delta_pct") or 0), 3.0)
+        self.assertAlmostEqual(float(cfg.get("y_tw_enter") or 0), 2.0)
+        self.assertAlmostEqual(float(cfg.get("y_tw_strong") or 0), 2.0)
+        self.assertNotIn("t0_bar_oc_gate", cfg)
+        self.assertNotIn("t0_ytw_prefix_confirm", cfg)
+        self.assertAlmostEqual(float(cfg.get("y_tw_midpoint") or 0), 47.0)
+        self.assertAlmostEqual(float(cfg.get("t0_close_band_delta_pct") or 0), 0.5)
 
     def test_legacy_five_open_slots_migrate(self):
         cfg = load_t0_rules(
@@ -188,7 +189,7 @@ class TestT0Slots(unittest.TestCase):
         self.assertTrue(buys, out)
         first_buy = buys[0]
         self.assertIn("09:35", str(first_buy.get("at") or ""), first_buy)
-        self.assertAlmostEqual(float(first_buy.get("price") or 0), 99.5, places=2)
+        self.assertAlmostEqual(float(first_buy.get("price") or 0), 100.2, places=2)
         self.assertEqual(int(first_buy.get("shares") or 0), 200)
         self.assertGreater(int(out.get("bought_qty") or 0), 0)
         self.assertEqual(out.get("range_mode"), "close_band")
@@ -207,7 +208,7 @@ class TestT0Slots(unittest.TestCase):
             initial_cost=100,
             initial_cash=200000,
             rules=_slot_rules(),
-            stock_code="600519",
+            stock_code="",
             minute_by_date={date: mins},
         )
         self.assertTrue(report.get("success"), report.get("error"))
@@ -324,8 +325,8 @@ class TestT0Slots(unittest.TestCase):
 
         def px(i, hm):
             if i == 0:
-                return (100.0, 101.5, 99.9, 101.2)
-            return (101.0, 101.2, 100.5, 99.0)
+                return (100.0, 100.5, 98.5, 99.0)
+            return (99.0, 99.5, 98.0, 98.5)
 
         mins = _am_mins(date, 8, px=px)
         out = simulate_t0_day(
@@ -344,7 +345,17 @@ class TestT0Slots(unittest.TestCase):
             ),
             stock_code="",
             minute_bars=mins,
-            scores={"y_tau": -0.1, "y_trade": -0.1, "y_eod": -0.05},
+            scores={
+                "y_tau": -0.5,
+                "y_tau_oc": -0.5,
+                "y_trade": -0.1,
+                "y_eod": -0.05,
+                "y_τ30": 0.2,
+                "y_τ45": 0.2,
+                "y_τ60": 0.2,
+                "y_τ75": 0.2,
+                "y_τ90": 0.2,
+            },
         )
         self.assertTrue(out.get("success"), out)
         self.assertGreater(int(out.get("sold_qty") or 0), 0, out)
@@ -661,13 +672,12 @@ class TestT0Slots(unittest.TestCase):
 
         def px(i, hm):
             if i < 5:
-                return (100.2, 100.5, 99.0, 99.5)
+                return (99.8, 100.5, 99.0, 100.2)
             if i == 5:
                 return (100.0, 100.6, 99.8, 100.4)
             if i == 11:
-                # 10:30 确认根仍收阳，逼出第二轮买；现金不足 → 跳过
                 return (99.8, 100.5, 99.5, 100.3)
-            return (100.0, 100.15, 99.8, 99.9)
+            return (100.0, 100.15, 99.8, 100.1)
 
         mins = _am_mins(date, 14, px=px)
         rules = _slot_rules(
@@ -684,9 +694,15 @@ class TestT0Slots(unittest.TestCase):
             cash=21000,
             sellable_shares=1000,
             rules=rules,
-            stock_code="600519",
+            stock_code="",
             minute_bars=mins,
             defer_eod=True,
+            scores={
+                "y_tau": 0.5,
+                "y_τ30": 0.8, "y_t30": 0.8, "y_τ45": 0.8, "y_t45": 0.8,
+                "y_τ60": 0.8, "y_t60": 0.8, "y_τ75": 0.8, "y_t75": 0.8,
+                "y_τ90": 0.8, "y_t90": 0.8,
+            },
         )
         rows = out.get("t0_slot_results") or []
         filled = [r for r in rows if int(r.get("bought_qty") or 0) > 0]

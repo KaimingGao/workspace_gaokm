@@ -29,6 +29,7 @@ from core.research.tau_panel import (
 from core.research.horizon_prob import (
     horizon_promote_gate,
     predict_p_up_rows,
+    stamp_horizon_explain,
     train_eval_horizon_prob,
 )
 from core.research.tau_ridge import (
@@ -482,16 +483,4 @@ def explain_t45_prediction(
 
     doc = model_doc if model_doc is not None else load_t45_model()
     expl = explain_tau_prediction(features, model_doc=doc)
-    if not expl:
-        return None
-    out = dict(expl)
-    out["head"] = "t45"
-    role = None
-    if isinstance(doc, dict):
-        role = doc.get("model_role")
-        rm = doc.get("return_model") if isinstance(doc.get("return_model"), dict) else {}
-        if not role:
-            role = rm.get("model_role")
-    if role:
-        out["model_role"] = str(role)
-    return out
+    return stamp_horizon_explain(expl, head="t45", model_doc=doc)

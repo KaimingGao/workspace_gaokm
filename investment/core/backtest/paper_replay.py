@@ -1513,14 +1513,30 @@ def _sign_hit_yf(yhat: Optional[float], realized: Optional[float]) -> Optional[b
     return (float(yhat) > 0) == (float(realized) > 0)
 
 
-def fuse_hit_metrics(rows: Sequence[dict]) -> Tuple[Optional[float], int, int]:
-    """成交腿 sign(y_fuse)=sign(realized_tau)。跳过/持仓腿不计。返回 (命中率%, 有方向笔数, 命中笔数)。"""
+def _row_as_of_day(row: dict) -> str:
+    return str(row.get("as_of") or row.get("date") or row.get("signal_date") or "")[:10]
+
+
+def fuse_hit_metrics(
+    rows: Sequence[dict],
+    *,
+    last_day: Optional[str] = None,
+) -> Tuple[Optional[float], int, int]:
+    """成交腿 sign(ranking)=sign(realized_ranking)。
+
+    真实 ranking = (open[T+1]−price(τ))/open[T]，最后一个交易日无次日开、不进分母。
+    跳过/持仓腿不计。返回 (命中率%, 有方向笔数, 命中笔数)。
+    """
+    last = str(last_day or "")[:10]
     hits = 0
     n = 0
     for r in rows or []:
         if not isinstance(r, dict):
             continue
         if str(r.get("status") or "") in ("skipped", "held"):
+            continue
+        day = _row_as_of_day(r)
+        if last and day == last:
             continue
         yf = _fnum(r.get("ranking"))
         if yf is None:
@@ -1529,9 +1545,7 @@ def fuse_hit_metrics(rows: Sequence[dict]) -> Tuple[Optional[float], int, int]:
             rs = _fnum(r.get("ranking_score"))
             if rs is not None:
                 yf = float(rs) * 100.0
-        real = _fnum(r.get("realized_tau"))
-        if real is None:
-            real = _fnum(r.get("realized_cc"))
+        real = _fnum(r.get("realized_ranking"))
         hit = _sign_hit_yf(yf, real)
         if hit is None:
             continue
@@ -2799,7 +2813,10 @@ def backtest_paper_replay(
         trades=ledger_trades,
         name_by_code=name_by_code,
     )
-    hit_pct, hit_n, hit_hits = fuse_hit_metrics(sim_trades)
+    hit_pct, hit_n, hit_hits = fuse_hit_metrics(
+        sim_trades,
+        last_day=dates[-1] if dates else None,
+    )
     metrics["trade_count"] = len(ledger_trades)
     metrics["sim_trade_count"] = len(ledger_trades)
     metrics["skip_count"] = len(debug_skips)

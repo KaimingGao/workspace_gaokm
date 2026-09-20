@@ -2,7 +2,7 @@
  * 观察池 insights 列格式化与 score 单元格 HTML（纯数据 / 字符串）。
  */
 import { escapeHtml as defaultEscapeHtml } from "../shared.js";
-import { resolveRankingScore, resolveEodScore, resolveTauScore, resolveOnScore, fmtTableScore, isHeuristicScoreScale, Y_EOD_TITLE, Y_OC_REBALANCE_TITLE, Y_ON_TITLE, RANKING_REBALANCE_TITLE } from "../paper/fmt.js?v=p2389";
+import { resolveRankingScore, resolveEodScore, resolveTauScore, resolveOnScore, fmtTableScore, isHeuristicScoreScale, Y_EOD_TITLE, Y_OC_REBALANCE_TITLE, Y_ON_TITLE, RANKING_REBALANCE_TITLE } from "../paper/fmt.js?v=p2544";
 import { withQuoteGap } from "./watching_quotes_ui.js?v=p2389";
 
 export function isOosFailedItem(it) {
@@ -164,14 +164,24 @@ function scoreClsName(v) {
  */
 export function buildWatchingInsightsGridPatch(it, row, deps) {
   const prev = row && row.getData ? row.getData() : row || {};
-  const scored = withQuoteGap(it, {
+  const quoteLike = {
     open: it.open != null ? it.open : prev.open,
-    price: prev.price,
-    price_raw: prev.price,
+    open_raw: it.open_raw != null ? it.open_raw : prev.openNum,
+    price: it.price != null ? it.price : prev.price,
+    price_raw: it.price_raw != null ? it.price_raw : prev.price,
     change_percent: prev.chgNum,
     chgNum: prev.chgNum,
     prev_close: prev.prev_close,
-  });
+  };
+  const scored = {
+    ...withQuoteGap(it, quoteLike),
+    open: quoteLike.open,
+    open_raw: quoteLike.open_raw,
+    day_open: it.day_open != null ? it.day_open : quoteLike.open_raw,
+    price: quoteLike.price,
+    price_raw: quoteLike.price_raw,
+    price_tau: it.price_tau != null ? it.price_tau : quoteLike.price_raw,
+  };
   const { fmtScore, scoreCls, parseWatchingVolume, watchingScoreDetail } = deps;
   const excess = formatWatchingExcess(scored);
   const excessTitle = formatWatchingExcessTitle(scored);

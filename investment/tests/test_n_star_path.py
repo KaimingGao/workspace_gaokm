@@ -404,7 +404,7 @@ class TestN4OosReport(unittest.TestCase):
         body = PaperReplayBacktestRequest()
         self.assertTrue(body.apply_costs)
         self.assertFalse(hasattr(body, "include_wf_slices"))
-        self.assertEqual(body.lookback, 30)
+        self.assertEqual(body.lookback, 10)
 
 
 class TestN5Monitor(unittest.TestCase):

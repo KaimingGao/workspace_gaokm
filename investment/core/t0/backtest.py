@@ -783,15 +783,19 @@ def _walk_t0(
             "y_trade_floor": cfg.get("y_trade_floor") or cfg.get("y_trade_enter"),
             "y_on_risk": cfg.get("y_on_risk"),
             "y_on_allow": cfg.get("y_on_allow"),
+            "y_tw_enter": cfg.get("y_tw_enter")
+            if cfg.get("y_tw_enter") not in (None, "")
+            else cfg.get("y_τw_enter"),
+            "y_tw_strong": cfg.get("y_tw_strong")
+            if cfg.get("y_tw_strong") not in (None, "")
+            else cfg.get("y_τw_strong"),
+            "y_tw_enter_buy_then_sell": cfg.get("y_tw_enter_buy_then_sell"),
+            "y_tw_enter_sell_then_buy": cfg.get("y_tw_enter_sell_then_buy"),
+            "y_tw_vote_margin": cfg.get("y_tw_vote_margin"),
+            "y_tw_midpoint": cfg.get("y_tw_midpoint"),
             "t0_y_oc_target_scale": cfg.get("t0_y_oc_target_scale"),
             "t0_y_oc_l": cfg.get("t0_y_oc_l"),
             "t0_y_oc_u": cfg.get("t0_y_oc_u"),
-            "y_hl_strong": cfg.get("y_hl_strong")
-            if cfg.get("y_hl_strong") not in (None, "")
-            else cfg.get("y_path_strong"),
-            "y_hl_required": cfg.get("y_hl_required")
-            if cfg.get("y_hl_required") is not None
-            else cfg.get("y_path_required"),
             "t0_close_band_delta_pct": cfg.get("t0_close_band_delta_pct"),
             "t0_price_space_gate": cfg.get("t0_price_space_gate"),
             "t0_price_space_max_dev_pct": cfg.get("t0_price_space_max_dev_pct"),

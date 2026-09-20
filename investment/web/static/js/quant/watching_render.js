@@ -2,8 +2,8 @@
  * 观察池 HTML 渲染 helpers（纯字符串 / 轻量 DOM 写入）。
  */
 import { escapeHtml } from "../shared.js";
-import { fmtTableScore, Y_OC_REBALANCE_TITLE, RANKING_REBALANCE_TITLE } from "../paper/fmt.js?v=p2404";
-import { marketPriorDetailFields, tailAnomalyDetailFields, overheatDetailFields } from "../score_tooltip.js?v=p2531";
+import { fmtTableScore, Y_OC_REBALANCE_TITLE, RANKING_REBALANCE_TITLE } from "../paper/fmt.js?v=p2544";
+import { marketPriorDetailFields, tailAnomalyDetailFields, overheatDetailFields } from "../score_tooltip.js?v=p2544";
 import { watchingNameSpanHtml } from "./names.js";
 import { fitTierBadgeForCode } from "./fit_tier_ui.js";
 
@@ -138,7 +138,12 @@ export function watchingScoreDetail(it) {
     realized_ranking: it && it.realized_ranking,
     realized_oo: it && it.realized_oo,
     day_open: it && it.day_open,
+    open: it && it.open,
+    open_raw: it && it.open_raw,
     rebalance_px: it && it.rebalance_px,
+    price_tau: it && it.price_tau,
+    price_raw: it && it.price_raw,
+    price: it && it.price,
     y_oo: it && it.y_oo,
     y_oc: it && it.y_oc,
     y_co: it && it.y_co,
@@ -509,6 +514,9 @@ function slimFormulaTerms(expl, maxTerms = 10) {
     terms: kept,
     head: expl.head,
     model_role: expl.model_role || null,
+    head_kind: expl.head_kind || null,
+    p_up: expl.p_up != null ? expl.p_up : null,
+    logit: expl.logit != null ? expl.logit : null,
   };
   if (expl.missing_n != null) out.missing_n = expl.missing_n;
   if (Array.isArray(expl.missing_keys) && expl.missing_keys.length) {

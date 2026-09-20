@@ -1,8 +1,8 @@
 """τ 后窗口概率头：P(窗口收益>0 | X≤τ)。
 
 ŷ_τ30/45/60/75/90 只出 p_up∈(0,1)；不做幅度 Ridge。
-正T p_agree=p_up，反T p_agree=1−p_up。票 f=sign(p_up−0.5)；
-|p_up−0.5|≤y_tw_vote_margin（默认 2pp）不投票。
+正T p_agree=p_up，反T p_agree=1−p_up。票 f=sign(p_up−mid)；
+mid 默认 47%（ŷ_τ* 共用中位点）；|p_up−mid|≤y_tw_vote_margin（默认 5pp）不投票。
 """
 
 from __future__ import annotations
@@ -30,9 +30,11 @@ HORIZON_PROMOTE_MIN_AUC = 0.52
 HORIZON_PROMOTE_MIN_ACC = 0.52
 HORIZON_P_CLIP = 1e-6
 HORIZON_ENTER_MAX = 0.7
-HORIZON_VOTE_MARGIN_PP = 2.0  # 默认弃权带宽（百分点）
+HORIZON_VOTE_MARGIN_PP = 5.0  # 默认弃权带宽（百分点）
 HORIZON_VOTE_MARGIN_PP_MAX = 20.0
-HORIZON_VOTE_MARGIN = 0.02  # = PP/100；|p_up−0.5|≤此值不投票
+HORIZON_VOTE_MARGIN = 0.05  # = PP/100；|p_up−mid|≤此值不投票
+HORIZON_VOTE_MIDPOINT_PP = 47.0  # ŷ_τ* 共用中位点（百分点）
+HORIZON_VOTE_MIDPOINT = 0.47  # = PP/100
 LOGIT_CLIP = 30.0
 
 HORIZON_STRONG_KEYS = (
@@ -117,21 +119,37 @@ def p_agree(direction: Optional[str], p_up: Any) -> Optional[float]:
 
 
 def horizon_vote_band(margin_pp: Any = None) -> float:
-    """``y_tw_vote_margin`` 为百分点（2=2pp）。返回 |p−0.5| 的概率带宽。"""
+    """``y_tw_vote_margin`` 为百分点（5=5pp）。返回 |p−mid| 的概率带宽。"""
     m = _f(margin_pp)
     if m is None:
         return HORIZON_VOTE_MARGIN
     return max(0.0, min(float(m), HORIZON_VOTE_MARGIN_PP_MAX)) / 100.0
 
 
-def p_up_vote(p_up: Any, *, margin_pp: Any = None) -> Optional[int]:
-    """sign(p_up−0.5)；|p−0.5|≤margin_pp（默认 2pp）或缺分不投票。"""
+def horizon_vote_midpoint(midpoint: Any = None) -> float:
+    """ŷ_τ* 共用中位点。缺省 47%；>1 视为百分点。"""
+    m = _f(midpoint)
+    if m is None:
+        return HORIZON_VOTE_MIDPOINT
+    if abs(float(m)) > 1.0 + 1e-12:
+        m = float(m) / 100.0
+    return max(HORIZON_P_CLIP, min(float(m), 1.0 - HORIZON_P_CLIP))
+
+
+def p_up_vote(
+    p_up: Any,
+    *,
+    margin_pp: Any = None,
+    midpoint: Any = None,
+) -> Optional[int]:
+    """sign(p_up−mid)；|p−mid|≤margin_pp（默认 5pp）或缺分不投票。mid 默认 47%。"""
     p = _f(p_up)
     if p is None:
         return None
-    if abs(float(p) - 0.5) <= horizon_vote_band(margin_pp) + 1e-12:
+    mid = horizon_vote_midpoint(midpoint)
+    if abs(float(p) - mid) <= horizon_vote_band(margin_pp) + 1e-12:
         return None
-    return 1 if float(p) > 0.5 else -1
+    return 1 if float(p) > mid else -1
 
 
 def horizon_band_agree(
@@ -156,6 +174,41 @@ def is_prob_head(obj: Optional[dict]) -> bool:
         return True
     spec = rm.get("y_spec") if isinstance(rm.get("y_spec"), dict) else {}
     return str(spec.get("unit") or "") == "prob"
+
+
+def _model_role(doc: Optional[dict]) -> Optional[str]:
+    if not isinstance(doc, dict):
+        return None
+    role = doc.get("model_role")
+    if role:
+        return str(role)
+    rm = doc.get("return_model") if isinstance(doc.get("return_model"), dict) else {}
+    nested = rm.get("model_role") if isinstance(rm, dict) else None
+    return str(nested) if nested else None
+
+
+def stamp_horizon_explain(
+    expl: Optional[Dict[str, Any]],
+    *,
+    head: str,
+    model_doc: Optional[dict] = None,
+) -> Optional[Dict[str, Any]]:
+    """拆解表补 head_kind/p_up：合计仍是 logit，p_up=sigmoid(logit)。"""
+    if not expl:
+        return None
+    out = dict(expl)
+    out["head"] = str(head)
+    out["head_kind"] = "prob"
+    role = _model_role(model_doc) or out.get("model_role")
+    if role:
+        out["model_role"] = str(role)
+    total = _f(out.get("total"))
+    if total is not None:
+        out["logit"] = round(float(total), 6)
+        p = sigmoid(total)
+        if p is not None:
+            out["p_up"] = round(float(p), 6)
+    return out
 
 
 def _signed_margin(preds_p: Sequence[Optional[float]]) -> List[Optional[float]]:

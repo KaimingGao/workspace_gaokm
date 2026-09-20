@@ -455,12 +455,16 @@ def _insight_quote_bars(
 def _stamp_insight_ranking(
     out: Dict[str, Any], paper_ctx: Optional[dict] = None
 ) -> None:
-    """观察行 ranking 与交易执行同权：paper rank_lots fusion_w_oo/oc/co。"""
+    """观察行 ranking 与交易执行同权：fuse − (price(τ)/open−1)。"""
     if not isinstance(out, dict):
         return
     try:
         from core.paper.rebalance.path_matrix import get_path_matrix_cfg
-        from core.signal.yhat_windows import stamp_window_scores
+        from core.signal.yhat_windows import (
+            ranking_open_px,
+            ranking_price_tau,
+            stamp_window_scores,
+        )
 
         cfg = get_path_matrix_cfg(paper=paper_ctx)
         stamped = stamp_window_scores(out, cfg)
@@ -470,6 +474,12 @@ def _stamp_insight_ranking(
         out["fusion_w_oo"] = cfg.get("fusion_w_oo")
         out["fusion_w_oc"] = cfg.get("fusion_w_oc")
         out["fusion_w_co"] = cfg.get("fusion_w_co")
+        o = ranking_open_px(out)
+        p = ranking_price_tau(out)
+        if o is not None:
+            out["day_open"] = o
+        if p is not None:
+            out["price_tau"] = p
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
         logger.debug("stamp insight ranking failed", exc_info=True)
 
@@ -738,6 +748,20 @@ def _insight_one(
         if not quote:
             quote, _bars = _insight_quote_bars(code, offline_only=use_offline)
         item = dict(result.item or {})
+        o = _f((quote or {}).get("open_raw"))
+        if o is None:
+            o = _f((quote or {}).get("open"))
+        if o is None:
+            o = _f(item.get("open_t"))
+        p = _f((quote or {}).get("price_raw"))
+        if p is None:
+            p = _f((quote or {}).get("price"))
+        if o is not None and o > 0:
+            out["day_open"] = o
+            out.setdefault("open", o)
+        if p is not None and p > 0:
+            out["price_tau"] = p
+            out.setdefault("price", p)
         out["score"] = _f(result.rank_key)
         if out["score"] is None:
             out["score"] = _f(item.get("score"))

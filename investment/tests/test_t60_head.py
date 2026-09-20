@@ -471,90 +471,13 @@ class T60RidgeFitTests(unittest.TestCase):
 
 
 class T60GateTests(unittest.TestCase):
-    def test_close_band_y_t60_skip_reason(self):
-        from core.t0.close_band import close_band_y_t60_skip_reason
+    def test_t60_enter_keys_dropped(self):
         from core.t0.config import load_t0_rules
-        from core.t0.viz import classify_t0_skip_reason
 
-        self.assertNotIn("y_t60_strong", load_t0_rules({}))
-        self.assertNotIn("y_t60_enter", load_t0_rules({}))
-        self.assertNotIn("y_t60_enter_alt", load_t0_rules({}))
-
-        skip = close_band_y_t60_skip_reason(
-            {"y_τ60": 0.8},
-            {"y_t60_strong": 0},
-            direction="sell_then_buy",
-        )
-        self.assertIsNotNone(skip)
-        self.assertIn("ŷ_τ60", skip)
-        self.assertEqual(classify_t0_skip_reason(skip), "y_t60_disagree")
-
-        self.assertIsNone(
-            close_band_y_t60_skip_reason(
-                {"y_τ60": 0.2},
-                {"y_t60_strong": 0},
-                direction="sell_then_buy",
-            )
-        )
-        self.assertIsNone(
-            close_band_y_t60_skip_reason(
-                {},
-                {"y_t60_strong": 0},
-                direction="sell_then_buy",
-            )
-        )
-        self.assertIsNone(
-            close_band_y_t60_skip_reason(
-                {"y_τ60": 0.8},
-                {"y_t60_strong": 1},
-                direction="sell_then_buy",
-            )
-        )
-        self.assertIsNone(
-            close_band_y_t60_skip_reason(
-                {"y_τ60": 0.8},
-                {"y_t60_strong": 0},
-                direction="buy_then_sell",
-            )
-        )
-        self.assertIsNone(
-            close_band_y_t60_skip_reason(
-                {"y_τ60": 0.7},
-                {"y_t60_strong": 0, "y_t60_enter": 0.5},
-                direction="buy_then_sell",
-            )
-        )
-
-    def test_enter_skip_y_t60(self):
-        from core.t0.close_band import close_band_enter_skip_reason
-        from core.t0.viz import classify_t0_skip_reason
-
-        cfg = {
-            "y_tau_enter": 0.0,
-            "y_path_enter": 0.0,
-            "y_use_path": False,
-            "y_t60_enter": 0.5,
-        }
-        weak = close_band_enter_skip_reason(
-            {"y_tau": 1.0, "y_path": 1.0, "y_τ60": 0.2}, cfg, direction="buy_then_sell"
-        )
-        self.assertIsNotNone(weak)
-        self.assertEqual(classify_t0_skip_reason(weak), "y_t60_flat")
-        self.assertIsNone(
-            close_band_enter_skip_reason(
-                {"y_tau": 1.0, "y_path": 1.0, "y_τ60": 0.8}, cfg, direction="buy_then_sell"
-            )
-        )
-        self.assertIsNone(
-            close_band_enter_skip_reason({"y_tau": 1.0, "y_path": 1.0}, cfg, direction="buy_then_sell")
-        )
-        self.assertIsNone(
-            close_band_enter_skip_reason(
-                {"y_tau": 1.0, "y_path": 1.0, "y_τ60": 0.2},
-                {**cfg, "y_t60_enter": 0.9, "y_t60_enter_alt": 0.1},
-                direction="buy_then_sell",
-            )
-        )
+        cfg = load_t0_rules({})
+        self.assertNotIn("y_t60_enter", cfg)
+        self.assertNotIn("y_t60_enter_alt", cfg)
+        self.assertNotIn("y_t60_strong", cfg)
 
     def test_scores_from_item_passes_y_t60(self):
         from core.t0.score_policy import scores_from_item

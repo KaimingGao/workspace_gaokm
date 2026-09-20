@@ -58,7 +58,7 @@ class QuantReplayMixin:
         self,
         *,
         codes: Optional[List[str]] = None,
-        lookback: int = 30,
+        lookback: int = 10,
         apply_costs: bool = True,
         fetch_fundamentals: Optional[bool] = None,
         exclude_st: bool = True,
@@ -531,7 +531,7 @@ class QuantReplayMixin:
 
         from core.job_progress import portfolio_backtest_job
 
-        lookback = int(kwargs.get("lookback") or 30)
+        lookback = int(kwargs.get("lookback") or 10)
         portfolio_backtest_job.reclaim_if_stale()
         if portfolio_backtest_job.is_running():
             return {

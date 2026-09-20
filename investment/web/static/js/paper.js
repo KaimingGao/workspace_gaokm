@@ -16,7 +16,7 @@ import {
   Y_ON_TITLE,
   scoreSeriesStats,
   isHeuristicScoreScale,
-} from "./paper/fmt.js?v=p2389";
+} from "./paper/fmt.js?v=p2544";
 import { drawSeries, appendLiveNavPoint } from "./paper/chart.js?v=p1163";
 import { renderOpsReport as renderOpsReportEl } from "./paper/ops_ui.js";
 import {
@@ -77,7 +77,7 @@ import {
   tailAnomalyDetailFields,
   overheatDetailFields,
   createScoreTooltipController,
-} from "./score_tooltip.js?v=p2531";
+} from "./score_tooltip.js?v=p2544";
 
 import { formatDailySteps, runDaily } from "./shared.js";
 

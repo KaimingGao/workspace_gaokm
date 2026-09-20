@@ -594,7 +594,7 @@
                 <code>t45_lag1</code> / <code>t45_ma5</code>（同钟 PIT）。
                 标签 <code>I(mean(price[τ+40m],price[τ+45m],price[τ+50m])/price[τ]−1 &gt; 0)</code>（跳过午休：11:15→13:25/13:30/13:35）。
                 live ŷ=P(窗收益&gt;0)。14:15 后不足 50 交易分钟则不训、不预。主字段 <code>y_τ45</code>。
-                进 ŷ_τw 五头 sign(p_up−0.5)；近 50% 由弃权%（`y_tw_vote_margin`，默认 2pp）不投票。个股闸与入场已下线。不进 C_τ / ranking。不改 ŷ_oc / ŷ_τ30 的 X。
+                进 ŷ_τw 五头 sign(p_up−中位点)；近中位点由弃权%（`y_tw_vote_margin`，默认 5pp）不投票。中位点默认 47%（`y_tw_midpoint`）。个股闸与入场已下线。破带后 ŷ_τw 门槛。不改 ŷ_oc / ŷ_τ30 的 X。
               </p>
               <p>
                 落盘 <code>t45_ridge_model.json</code>。依赖观察池 <strong>5m 分钟缓存</strong>。
@@ -688,7 +688,7 @@
                 <code>t75_lag1</code> / <code>t75_ma5</code>（同钟 PIT）。
                 标签 <code>I(mean(price[τ+70m],price[τ+75m],price[τ+80m])/price[τ]−1 &gt; 0)</code>（跳过午休：11:00→13:40/13:45/13:50）。
                 live ŷ=P(窗收益&gt;0)。13:45 后不足 80 交易分钟则不训、不预。主字段 <code>y_τ75</code>。
-                进 ŷ_τw 五头 sign(p_up−0.5)；近 50% 由弃权%（`y_tw_vote_margin`，默认 2pp）不投票。个股闸与入场已下线。不进 C_τ / ranking。不改 ŷ_oc / ŷ_τ30 / ŷ_τ45 / ŷ_τ60 的 X。
+                进 ŷ_τw 五头 sign(p_up−中位点)；近中位点由弃权%（`y_tw_vote_margin`，默认 5pp）不投票。中位点默认 47%（`y_tw_midpoint`）。个股闸与入场已下线。破带后 ŷ_τw 门槛。不改 ŷ_oc / ŷ_τ30 / ŷ_τ45 / ŷ_τ60 的 X。
               </p>
               <p>
                 落盘 <code>t75_ridge_model.json</code>。依赖观察池 <strong>5m 分钟缓存</strong>。
@@ -783,7 +783,7 @@
                 不进 ranking，不改 ŷ_oo / ŷ_oc，不进 <code>C_τ</code>。
               </p>
               <p>
-                <strong>与做 T 的关系</strong>：<code>|y_hl|&gt;y_hl_strong</code> 须与 ŷ_oc 同号。
+                <strong>与做 T 的关系</strong>：做 T 选腿已改走 ŷ_τw 门槛，<code>y_hl</code> 不进做 T。
                 |y_hl| 入场档已下线。
                 落盘 <code>path_ridge_model.json</code>；配置见
                 <a class="quant-hero-link" href="/replay#replay-section-t0">历史回测 · 做 T 规则</a>。
