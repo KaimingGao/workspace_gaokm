@@ -121,16 +121,19 @@ def _rules(**kwargs):
         "t0_pm_degrade": "",
         "t0_pm_degrade_sell_then_buy": "",
         "t0_pm_degrade_buy_then_sell": "",
-        # 路径用例默认关止损/回吐，避免夹具回踩/冲高误触；止损/回吐单测显式打开
+        # 路径用例默认关止损/锁赢，避免夹具回踩/冲高误触；止损/锁赢单测显式打开
         "t0_stop_pct_buy_then_sell": 0,
         "t0_stop_pct_sell_then_buy": 0,
-        "t0_giveback_pct_buy_then_sell": 0,
-        "t0_giveback_pct_sell_then_buy": 0,
+        "t0_lock_win_pct_buy_then_sell": 0,
+        "t0_lock_win_pct_sell_then_buy": 0,
         "t0_slots_enabled": True,
         "t0_close_band_delta_pct": 0.01,
         "t0_round_ratio": 1.0,
         "t0_slots_max_rounds": 1,
         "t0_max_position_pct": 1.0,
+        # 0=走旧比例仓，避免路径夹具被生产默认 400 股改掉
+        "y_tw_enter_shares": 0,
+        "y_tw_strong_shares": 0,
         # 路径用例默认零价偏，避免与生产 ±默认纠缠断言
         "y_tau_exit_price_bias_buy_then_sell": 0.0,
         "y_tau_exit_price_bias_sell_then_buy": 0.0,
@@ -381,19 +384,18 @@ class TestT0Core(unittest.TestCase):
         }
         self.assertTrue(_touch_path_complete(out, "buy_then_sell"))
 
-    def test_bts_giveback_sells_on_peak_pullback_before_tau(self):
-        """正T：冲高未到 C_τ 后自高回撤，提前卖旧仓（不必跌破买价）。"""
+    def test_bts_lock_win_sells_when_close_beats_pct(self):
+        """正T：收盘涨过锁赢%则提前卖旧仓（不必触 C_τ）。"""
         from core.t0.minute_path import _first_touch_buy_then_sell
 
         d = "2024-03-01"
-        bar = _bar(d, 100, 103, 99, 100.4)
+        bar = _bar(d, 100, 103, 99, 102.1)
         mins = _mins(
             d,
             [
                 (935, 100, 100.1, 99.9, 100.0),  # leg1 买 100
-                (940, 100.0, 101.2, 100.8, 101.0),  # 峰值 101.2，激活
-                (945, 101.0, 100.8, 100.3, 100.4),  # 自高回撤 0.6% → 锁盈
-                (1400, 100.4, 100.5, 100.2, 100.3),
+                (940, 100.0, 100.5, 100.0, 100.4),  # 延迟根
+                (945, 101.0, 102.3, 101.0, 102.1),  # +2.1% ≥ 2%，高点未触 C_τ
             ],
         )
         out = _first_touch_buy_then_sell(
@@ -412,8 +414,7 @@ class TestT0Core(unittest.TestCase):
                 "t0_pm_degrade": "",
                 "t0_stop_pct_buy_then_sell": 1.2,
                 "t0_stop_arm_bars": 1,
-                "t0_giveback_pct_buy_then_sell": 0.6,
-                "t0_giveback_arm_pct": 0.4,
+                "t0_lock_win_pct_buy_then_sell": 2.0,
             },
             cost_model="zero",
             cost_params={},
@@ -429,15 +430,14 @@ class TestT0Core(unittest.TestCase):
         self.assertTrue(out.get("success"), out)
         self.assertGreater(int(out.get("bought_qty") or 0), 0)
         self.assertEqual(int(out.get("sold_back_qty") or 0), int(out.get("bought_qty") or 0))
-        self.assertEqual(out.get("exit_reason"), "giveback", out)
+        self.assertEqual(out.get("exit_reason"), "lock_win", out)
         trades = out.get("trades") or []
         sell = next(t for t in trades if t.get("side") == "t0_sell")
-        self.assertEqual(sell.get("leg_kind"), "giveback")
-        self.assertGreaterEqual(float(sell.get("price") or 0), 100.0)
-        self.assertLess(float(sell.get("price") or 0), 103.0)
+        self.assertEqual(sell.get("leg_kind"), "lock_win")
+        self.assertAlmostEqual(float(sell.get("price") or 0), 102.1, places=3)
 
-    def test_bts_giveback_does_not_steal_tau_target(self):
-        """正T：本根高点已触 C_τ 时走目标腿，不抢回吐。"""
+    def test_bts_lock_win_does_not_steal_tau_target(self):
+        """正T：本根高点已触 C_τ 时走目标腿，不抢锁赢。"""
         from core.t0.minute_path import _first_touch_buy_then_sell
 
         d = "2024-03-01"
@@ -446,8 +446,8 @@ class TestT0Core(unittest.TestCase):
             d,
             [
                 (935, 100, 100.1, 99.9, 100.0),
-                (940, 100.0, 101.2, 100.8, 101.0),
-                (945, 101.0, 103.2, 100.4, 100.4),  # high 触 C_τ
+                (940, 100.0, 100.5, 100.0, 100.4),
+                (945, 101.0, 103.2, 101.0, 102.1),  # close 过锁赢，high 触 C_τ
             ],
         )
         out = _first_touch_buy_then_sell(
@@ -466,8 +466,7 @@ class TestT0Core(unittest.TestCase):
                 "t0_pm_degrade": "",
                 "t0_stop_pct_buy_then_sell": 1.2,
                 "t0_stop_arm_bars": 1,
-                "t0_giveback_pct_buy_then_sell": 0.6,
-                "t0_giveback_arm_pct": 0.4,
+                "t0_lock_win_pct_buy_then_sell": 2.0,
             },
             cost_model="zero",
             cost_params={},
@@ -486,18 +485,18 @@ class TestT0Core(unittest.TestCase):
         self.assertEqual(sell.get("leg_kind"), "trigger")
         self.assertAlmostEqual(float(sell.get("price") or 0), 103.0, places=3)
 
-    def test_bts_giveback_unarmed_peak_does_not_sell(self):
-        """正T：涨幅未过激活%时，浅回撤不提前卖。"""
+    def test_bts_lock_win_below_pct_does_not_sell(self):
+        """正T：涨幅未过锁赢%时不提前卖。"""
         from core.t0.minute_path import _first_touch_buy_then_sell
 
         d = "2024-03-01"
-        bar = _bar(d, 100, 100.3, 99.8, 100.05)
+        bar = _bar(d, 100, 101.6, 99.8, 101.5)
         mins = _mins(
             d,
             [
                 (935, 100, 100.1, 99.9, 100.0),
-                (940, 100.0, 100.2, 100.0, 100.15),  # +0.2% < 0.4% 激活
-                (945, 100.15, 100.18, 100.0, 100.05),
+                (940, 100.0, 100.5, 100.0, 100.4),
+                (945, 100.4, 101.6, 100.2, 101.5),  # +1.5% < 2%
             ],
         )
         out = _first_touch_buy_then_sell(
@@ -516,8 +515,7 @@ class TestT0Core(unittest.TestCase):
                 "t0_pm_degrade": "",
                 "t0_stop_pct_buy_then_sell": 1.2,
                 "t0_stop_arm_bars": 1,
-                "t0_giveback_pct_buy_then_sell": 0.6,
-                "t0_giveback_arm_pct": 0.4,
+                "t0_lock_win_pct_buy_then_sell": 2.0,
             },
             cost_model="zero",
             cost_params={},
@@ -533,20 +531,20 @@ class TestT0Core(unittest.TestCase):
         self.assertTrue(out.get("success"), out)
         self.assertGreater(int(out.get("bought_qty") or 0), 0)
         self.assertEqual(int(out.get("sold_back_qty") or 0), 0)
-        self.assertNotEqual(out.get("exit_reason"), "giveback")
+        self.assertNotEqual(out.get("exit_reason"), "lock_win")
 
-    def test_stb_giveback_buys_on_trough_bounce_before_tau(self):
-        """反T：探底未到 C_τ 后自低反弹，提前买回。"""
+    def test_stb_lock_win_buys_when_close_beats_pct(self):
+        """反T：收盘跌过锁赢%则提前买回。"""
         from core.t0.minute_path import _first_touch_sell_then_buy
 
         d = "2024-03-01"
-        bar = _bar(d, 100, 101, 97, 99.5)
+        bar = _bar(d, 100, 101, 97, 97.8)
         mins = _mins(
             d,
             [
                 (935, 100, 101.0, 99.9, 100.0),  # leg1 卖 100
-                (940, 100.0, 99.5, 98.8, 99.0),  # 谷值 98.8，激活
-                (945, 99.0, 99.6, 98.9, 99.5),  # 自低反弹 0.6% → 锁盈
+                (940, 99.8, 100.0, 99.5, 99.6),  # 延迟根
+                (945, 99.0, 98.5, 97.7, 97.8),  # −2.2% ≤ −2%，低点未触 C_τ
             ],
         )
         out = _first_touch_sell_then_buy(
@@ -564,8 +562,7 @@ class TestT0Core(unittest.TestCase):
                 "t0_pm_degrade": "",
                 "t0_stop_pct_sell_then_buy": 1.2,
                 "t0_stop_arm_bars": 1,
-                "t0_giveback_pct_sell_then_buy": 0.6,
-                "t0_giveback_arm_pct": 0.4,
+                "t0_lock_win_pct_sell_then_buy": 2.0,
             },
             cost_model="zero",
             cost_params={},
@@ -583,11 +580,10 @@ class TestT0Core(unittest.TestCase):
         self.assertTrue(out.get("success"), out)
         self.assertGreater(int(out.get("sold_qty") or 0), 0)
         self.assertEqual(int(out.get("covered_qty") or 0), int(out.get("sold_qty") or 0))
-        self.assertEqual(out.get("exit_reason"), "giveback", out)
+        self.assertEqual(out.get("exit_reason"), "lock_win", out)
         buy = next(t for t in (out.get("trades") or []) if t.get("side") == "t0_buy")
-        self.assertEqual(buy.get("leg_kind"), "giveback")
-        self.assertLessEqual(float(buy.get("price") or 0), 100.0)
-        self.assertGreater(float(buy.get("price") or 0), 97.0)
+        self.assertEqual(buy.get("leg_kind"), "lock_win")
+        self.assertAlmostEqual(float(buy.get("price") or 0), 97.8, places=3)
 
     def test_holdings_shared_cash_order_is_sorted_by_code(self):
         """共享现金池：持仓按 stock_code 排序执行，与 paper 插入序无关。"""
@@ -681,9 +677,10 @@ class TestT0Core(unittest.TestCase):
         self.assertAlmostEqual(d["t0_stop_pct_sell_then_buy"], 1.2)
         self.assertEqual(d["t0_stop_arm_bars"], 1)
         self.assertTrue(d["t0_stop_on_close"])
-        self.assertAlmostEqual(d["t0_giveback_pct_buy_then_sell"], 0.6)
-        self.assertAlmostEqual(d["t0_giveback_pct_sell_then_buy"], 0.6)
-        self.assertAlmostEqual(d["t0_giveback_arm_pct"], 0.4)
+        self.assertAlmostEqual(d["t0_lock_win_pct_buy_then_sell"], 2.0)
+        self.assertAlmostEqual(d["t0_lock_win_pct_sell_then_buy"], 2.0)
+        self.assertNotIn("t0_giveback_pct_buy_then_sell", d)
+        self.assertNotIn("t0_giveback_arm_pct", d)
         self.assertNotIn("use_atr", d)
         self.assertNotIn("min_range_pct", d)
         self.assertNotIn("min_range_pct_sell_then_buy", d)
@@ -701,6 +698,11 @@ class TestT0Core(unittest.TestCase):
         self.assertNotIn("y_hl_strong", d)
         self.assertAlmostEqual(d["y_tw_enter"], 2.0)
         self.assertAlmostEqual(d["y_tw_strong"], 2.0)
+        self.assertEqual(int(d["y_tw_enter_shares"]), 2000)
+        self.assertEqual(int(d["y_tw_strong_shares"]), 4000)
+        self.assertNotIn("t0_leg1_close_extreme", d)
+        self.assertNotIn("y_tw_enter_buy_then_sell", d)
+        self.assertNotIn("y_tw_enter_sell_then_buy", d)
         self.assertNotIn("t0_bar_oc_gate", d)
         self.assertNotIn("t0_ytw_prefix_confirm", d)
         self.assertNotIn("t0_ytw_prefix_lookback", d)
@@ -1161,7 +1163,7 @@ class TestT0Core(unittest.TestCase):
         trades = out.get("trades") or []
         self.assertTrue(all(t.get("at") for t in trades), trades)
         self.assertEqual(trades[0].get("leg_kind"), "trigger")
-        self.assertIn(trades[1].get("leg_kind"), ("eod_cover", "pm_chase", "giveback", "stop"))
+        self.assertIn(trades[1].get("leg_kind"), ("trigger", "eod_cover", "pm_chase", "lock_win", "stop"))
         self.assertIn("09:35", str(trades[0].get("at") or ""))
         self.assertGreater(len(trades), 1)
 

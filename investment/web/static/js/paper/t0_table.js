@@ -31,7 +31,7 @@ import {
   blendYtw,
   fmtYtwVote,
 } from "./fmt.js?v=p2512";
-import { adaptiveSizingDayTip } from "./execution_ui.js?v=p2512";
+import { adaptiveSizingDayTip } from "./execution_ui.js?v=p2568";
 import { watchingScoreDetail } from "../quant/watching_render.js?v=p2531";
 import {
   fitTierBadgeForCode,
@@ -180,9 +180,9 @@ export const SKIP_CAT_TIP = {
   y_t45_disagree:
     "已下线：个股 ŷ_τ45 旁路闸。生产只走 ŷ_τw 投票；历史回放可能仍出现。",
   y_tw_flat:
-    "ŷ_τw 未过 Y_τw门槛：正T须 ŷ_τw≥门槛，反T须 ŷ_τw≤−门槛。全弃权计 0 票；门槛=0 时 0 票可通过。缺头不开腿。",
+    "ŷ_τw 未过 Y_τw入场：正T须 ŷ_τw≥入场，反T须 ŷ_τw≤−入场。全弃权计 0 票；入场=0 时 0 票可通过。缺头不开腿。",
   y_tw_disagree:
-    "ŷ_τw 未过对应方向 Y_τw门槛（正T须 ŷ_τw≥门槛，反T须 ŷ_τw≤−门槛）。",
+    "ŷ_τw 未过对应方向 Y_τw入场（正T须 ŷ_τw≥入场，反T须 ŷ_τw≤−入场）。",
   bar_oc:
     "历史口径：旧阴阳门槛（正T须收>开，反T须收<开）。已由 ŷ_oc 破带选向替代；新跑批不应再产生。",
   ytw_prefix:
@@ -214,9 +214,9 @@ export const SKIP_CAT_TIP = {
   prefix_vs_path:
     "历史口径：前缀窗 (H−L)/ref% 超过 |ŷ_hl|×裕度（空间用尽）。v6 已改为收盘带宽选腿，新跑批不应再产生。",
   close_band:
-    "该 5m 未开第一腿：未破 C_τ 带、缺 ŷ_τw，或 ŷ_τw 未过正/反T门槛。",
+    "该 5m 未开第一腿：未破 C_τ 带、缺 ŷ_τw，或 ŷ_τw 未过正/反T入场。",
   bar_shape:
-    "历史口径：旧第一腿形状闸（C>L / C<H）。现选向看破带，ŷ_τw 只作门槛；新跑批不应再产生。",
+    "已下线：第一腿 close≥high / close≤low 收贴端。历史账本可能残留「正T须收在最高」/「反T须收在最低」或旧 C>L/C<H 口径。",
   price_space_mismatch:
     "日分价闸：昨收差 |日昨/分昨−1| 超 t0_price_space_prev_dev_pct（默认 5%，0=关）；开盘差已下线。错价则跳过。",
   tau_entry_price:
@@ -2800,7 +2800,8 @@ const LEG_KIND_TAG = {
   pm_chase: { label: "追", cls: "is-stop" },
   pm_degrade: { label: "追", cls: "is-stop" }, // 旧账本兼容
   stop: { label: "损", cls: "is-stop" },
-  giveback: { label: "锁", cls: "is-stop" },
+  lock_win: { label: "赢", cls: "is-stop" },
+  giveback: { label: "锁", cls: "is-stop" }, // 旧账本兼容
 };
 
 function legKindTag(legKind) {

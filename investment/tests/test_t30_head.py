@@ -728,8 +728,8 @@ class TTwGateTests(unittest.TestCase):
 
         cfg = load_t0_rules({"y_tw_enter": 3})
         self.assertAlmostEqual(float(cfg["y_tw_enter"]), 3.0)
-        self.assertAlmostEqual(float(cfg["y_tw_enter_sell_then_buy"]), 3.0)
-        self.assertAlmostEqual(float(cfg["y_tw_enter_buy_then_sell"]), 3.0)
+        self.assertNotIn("y_tw_enter_sell_then_buy", cfg)
+        self.assertNotIn("y_tw_enter_buy_then_sell", cfg)
         self.assertAlmostEqual(_ytw_enter_for_direction(cfg, "sell_then_buy"), 3.0)
         self.assertAlmostEqual(_ytw_enter_for_direction(cfg, "buy_then_sell"), 3.0)
 
@@ -751,7 +751,7 @@ class TTwGateTests(unittest.TestCase):
             down, stale, direction="sell_then_buy"
         )
         self.assertIsNotNone(skip)
-        self.assertIn("未过反T门槛", skip)
+        self.assertIn("未过反T入场", skip)
         d, meta = bar_ytw_pick_direction(23.4, 23.5, down, stale)
         self.assertIsNone(d)
         self.assertIn("未过", str(meta.get("skip") or ""))

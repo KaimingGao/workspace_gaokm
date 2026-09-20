@@ -4,7 +4,7 @@ C_τ = O×(1+clip(ŷ_oc×scale, y_oc_l, y_oc_u)/100)。
 upper = C_τ×(1+δ/100)，lower = C_τ×(1−δ/100)。
 C>upper → 反T（现价卖，leg2 目标 C_τ）；C<lower → 正T（现价买，leg2 目标 C_τ）。
 ŷ_τw = ŷ_τ30/45/60/75/90 相对共用中位点（默认 47%）的符号和，过门槛才开腿。
-阴阳门槛 / 前序 ŷ_τw 确认已下线。
+阴阳门槛 / 前序 ŷ_τw 确认 / 收贴端已下线。
 """
 
 from __future__ import annotations
@@ -583,8 +583,10 @@ Y_T60_HIT_EPS = 0.0
 Y_T75_HIT_EPS = 0.0
 Y_T90_HIT_EPS = 0.0
 DEFAULT_Y_TW_ENTER = 2.0  # 正T：ŷ_τw>=此值；反T：ŷ_τw<=−此值。0=允许 0 票
-DEFAULT_Y_TW_STRONG = 2.0  # 过门槛后 |ŷ_τw|>=此票全额轮次，否则半仓
-DEFAULT_Y_TW_WEAK_RATIO = 0.5  # 过门槛未过强：轮次仓位 × 此比例
+DEFAULT_Y_TW_STRONG = 2.0  # 过入场后 |ŷ_τw|>=此票用强股数，否则入场股数
+DEFAULT_Y_TW_WEAK_RATIO = 0.5  # 过入场未过强且未配股数：轮次仓位 × 此比例
+DEFAULT_Y_TW_ENTER_SHARES = 2000
+DEFAULT_Y_TW_STRONG_SHARES = 4000
 DEFAULT_Y_TW_VOTE_MARGIN = 5.0  # |p_up−mid|≤此百分点不投票
 DEFAULT_Y_TW_MIDPOINT = 47.0  # ŷ_τ* 共用中位点（百分点）
 
@@ -834,7 +836,7 @@ def blend_y_tw(
 
 
 def _y_tw_enter_floor(cfg_d: dict) -> float:
-    """ŷ_τw 共用门槛幅度。优先 y_tw_enter。"""
+    """ŷ_τw 共用入场幅度。优先 y_tw_enter。"""
     from core.t0.score_policy import _cfg_float
 
     for k in ("y_tw_enter", "y_τw_enter"):
@@ -844,7 +846,7 @@ def _y_tw_enter_floor(cfg_d: dict) -> float:
 
 
 def _y_tw_strong_floor(cfg_d: dict) -> float:
-    """ŷ_τw 强档幅度。缺键跟随 Y_τw门槛。"""
+    """ŷ_τw 强档幅度。缺键跟随 Y_τw入场。"""
     from core.t0.score_policy import _cfg_float
 
     for k in ("y_tw_strong", "y_τw_strong"):
@@ -854,33 +856,13 @@ def _y_tw_strong_floor(cfg_d: dict) -> float:
 
 
 def _ytw_enter_for_direction(cfg_d: dict, direction: str) -> float:
-    """正T/反T 各自 ŷ_τw 门槛幅度；缺侧向键或侧向 0 回退共用 y_tw_enter。
-
-    load_t0_rules / overlay 会把分侧键填成 0；若把 0 当显式覆盖，表单 Y_τw门槛=3 会失效。
-    """
-    from core.t0.score_policy import _cfg_float
-
-    shared = _y_tw_enter_floor(cfg_d)
-    d = str(direction or "").strip()
-    keys = ()
-    if d == "buy_then_sell":
-        keys = ("y_tw_enter_buy_then_sell", "y_τw_enter_buy_then_sell")
-    elif d == "sell_then_buy":
-        keys = ("y_tw_enter_sell_then_buy", "y_τw_enter_sell_then_buy")
-    side = None
-    for k in keys:
-        if cfg_d.get(k) not in (None, ""):
-            side = max(0.0, min(float(_cfg_float(cfg_d, k, DEFAULT_Y_TW_ENTER)), 5.0))
-            break
-    if side is None:
-        return shared
-    if abs(float(side)) <= 1e-12 and float(shared) > 1e-12:
-        return shared
-    return side
+    """正/反 T 共用 y_tw_enter。分侧键已下线。"""
+    _ = direction
+    return _y_tw_enter_floor(cfg_d)
 
 
 def _ytw_strong_for_direction(cfg_d: dict, direction: str) -> float:
-    """Y_τw强：至少等于该侧门槛，避免强档低于入场。"""
+    """Y_τw强：至少等于共用入场门槛，避免强档低于入场。"""
     enter = _ytw_enter_for_direction(cfg_d, direction)
     return max(enter, _y_tw_strong_floor(cfg_d))
 
@@ -908,10 +890,57 @@ def close_band_y_tw_round_scale(
     *,
     direction: Optional[str] = None,
 ) -> float:
-    """轮次仓位乘数：过强=1，过门槛未过强=半仓。"""
+    """轮次仓位乘数：过强=1，过入场未过强=半仓。配了绝对股数时引擎改走 round_shares。"""
     if close_band_y_tw_is_strong(y_tw, cfg, direction=direction):
         return 1.0
     return DEFAULT_Y_TW_WEAK_RATIO
+
+
+def _ytw_lot_shares(raw: Any, default: int, lot: int) -> int:
+    try:
+        v = int(float(default if raw in (None, "") else raw))
+    except (TypeError, ValueError):
+        v = int(default)
+    if v <= 0:
+        return 0
+    lot_i = max(int(lot or 100), 1)
+    v = max(lot_i, min(v, 100000))
+    return (v // lot_i) * lot_i
+
+
+def close_band_y_tw_round_shares(
+    cfg: Optional[dict],
+    *,
+    y_tw: Optional[float],
+    direction: Optional[str],
+    lot: int = 100,
+) -> Optional[int]:
+    """过入场用入场股数，过强用强股数。两边都未配（≤0）则 None，走比例仓。"""
+    cfg_d = cfg if isinstance(cfg, dict) else {}
+    enter = _ytw_lot_shares(
+        cfg_d.get("y_tw_enter_shares")
+        if cfg_d.get("y_tw_enter_shares") not in (None, "")
+        else cfg_d.get("y_τw_enter_shares"),
+        0,
+        lot,
+    )
+    strong = _ytw_lot_shares(
+        cfg_d.get("y_tw_strong_shares")
+        if cfg_d.get("y_tw_strong_shares") not in (None, "")
+        else cfg_d.get("y_τw_strong_shares"),
+        0,
+        lot,
+    )
+    if enter <= 0 and strong <= 0:
+        return None
+    if enter <= 0:
+        enter = strong
+    if strong <= 0:
+        strong = enter
+    strong = max(enter, strong)
+    if close_band_y_tw_is_strong(y_tw, cfg_d, direction=direction):
+        return int(strong)
+    return int(enter)
 
 
 def blend_y_tw_from_scores(
@@ -971,9 +1000,9 @@ def close_band_y_tw_skip_reason(
     direction: Optional[str] = None,
     y_tw: Optional[float] = None,
 ) -> Optional[str]:
-    """选腿门槛：正T须 ŷ_τw>=正T门槛；反T须 ŷ_τw<=−反T门槛。
+    """选腿入场：正T须 ŷ_τw>=正T入场；反T须 ŷ_τw<=−反T入场。
 
-    缺 ŷ_τw（无任何窗头）不开腿。全弃权计 0 票；门槛=0 时 0 票可通过。
+    缺 ŷ_τw（无任何窗头）不开腿。全弃权计 0 票；入场=0 时 0 票可通过。
     """
     cfg_d = cfg if isinstance(cfg, dict) else {}
     d = str(direction or "").strip()
@@ -986,10 +1015,10 @@ def close_band_y_tw_skip_reason(
     shown = _fmt_ytw_votes(y)
     if d == "buy_then_sell":
         if float(y) + 1e-12 < float(enter):
-            return f"ŷ_τw={shown} 未过正T门槛（须>={enter:g}）"
+            return f"ŷ_τw={shown} 未过正T入场（须>={enter:g}）"
         return None
     if float(y) - 1e-12 > -float(enter):
-        return f"ŷ_τw={shown} 未过反T门槛（须<={-enter:g}）"
+        return f"ŷ_τw={shown} 未过反T入场（须<={-enter:g}）"
     return None
 
 

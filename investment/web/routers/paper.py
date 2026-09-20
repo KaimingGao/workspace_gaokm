@@ -103,6 +103,14 @@ def paper_execution_save(body: PaperExecutionPatchRequest | None = None) -> Dict
             ("y_τw_strong", getattr(req, "y_τw_strong", None)
              if getattr(req, "y_τw_strong", None) not in (None, "")
              else getattr(req, "y_tw_strong", None)),
+            ("y_tw_enter_shares", getattr(req, "y_tw_enter_shares", None)),
+            ("y_τw_enter_shares", getattr(req, "y_τw_enter_shares", None)
+             if getattr(req, "y_τw_enter_shares", None) not in (None, "")
+             else getattr(req, "y_tw_enter_shares", None)),
+            ("y_tw_strong_shares", getattr(req, "y_tw_strong_shares", None)),
+            ("y_τw_strong_shares", getattr(req, "y_τw_strong_shares", None)
+             if getattr(req, "y_τw_strong_shares", None) not in (None, "")
+             else getattr(req, "y_tw_strong_shares", None)),
             ("y_tw_vote_margin", getattr(req, "y_tw_vote_margin", None)),
             ("y_τw_vote_margin", getattr(req, "y_τw_vote_margin", None) if getattr(req, "y_τw_vote_margin", None) not in (None, "") else getattr(req, "y_tw_vote_margin", None)),
             ("y_tw_midpoint", getattr(req, "y_tw_midpoint", None)),
@@ -144,9 +152,8 @@ def paper_execution_save(body: PaperExecutionPatchRequest | None = None) -> Dict
             ("t0_stop_pct_sell_then_buy", req.t0_stop_pct_sell_then_buy),
             ("t0_stop_arm_bars", req.t0_stop_arm_bars),
             ("t0_stop_on_close", req.t0_stop_on_close),
-            ("t0_giveback_pct_buy_then_sell", req.t0_giveback_pct_buy_then_sell),
-            ("t0_giveback_pct_sell_then_buy", req.t0_giveback_pct_sell_then_buy),
-            ("t0_giveback_arm_pct", req.t0_giveback_arm_pct),
+            ("t0_lock_win_pct_buy_then_sell", req.t0_lock_win_pct_buy_then_sell),
+            ("t0_lock_win_pct_sell_then_buy", req.t0_lock_win_pct_sell_then_buy),
         ):
             if v is not None and k not in t0:
                 t0[k] = v

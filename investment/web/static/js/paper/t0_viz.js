@@ -1,7 +1,7 @@
 /** 做T回测可视化（canvas + CSS，无外部图表库）。 */
 
 import { paperMetricClass } from "./fmt.js";
-import { SKIP_CAT_TIP, stockCellHtml, stampStockFitTiers } from "./t0_table.js?v=p2513";
+import { SKIP_CAT_TIP, stockCellHtml, stampStockFitTiers } from "./t0_table.js?v=p2564";
 
 const THEME = {
   actual: "#2563eb",
@@ -985,7 +985,7 @@ function wireYtauScatterHover(canvas) {
     tipEl.innerHTML =
       `<strong>${esc(String(pt.date || "").slice(0, 10))}${name ? ` · ${esc(name)}` : ""}</strong>` +
       `<span class="paper-t0-viz-chart-hover-meta">` +
-      `R̂_τ ${esc(fmtNum(pt.r_pct, 2))}% · ${esc(dir)}` +
+      `R̂_τ ${esc(fmtNum(pt.r_pct, 2))}%（C_τ/现价−1） · ${esc(dir)}` +
       (pt.y_oc != null && Number.isFinite(Number(pt.y_oc))
         ? ` · ŷ_oc ${esc(fmtNum(pt.y_oc, 2))}%`
         : "") +
@@ -1713,12 +1713,15 @@ function renderContribSection(rows) {
   );
 }
 
-function vizCard(title, subtitle, chartInner, footHtml = "", legendHtml = "") {
+function vizCard(title, subtitle, chartInner, footHtml = "", legendHtml = "", hint = "") {
+  const tip = hint || subtitle || "";
   return (
     `<div class="paper-t0-viz-card paper-t0-viz-card--chart">` +
     `<div class="paper-t0-viz-card-head">` +
     `<h4>${esc(title)}</h4>` +
-    (subtitle ? `<span class="paper-t0-viz-card-sub">${esc(subtitle)}</span>` : "") +
+    (subtitle
+      ? `<span class="paper-t0-viz-card-sub"${tip ? ` title="${esc(tip)}"` : ""}>${esc(subtitle)}</span>`
+      : "") +
     `</div>` +
     `<div class="paper-t0-viz-chart-box">${chartInner}</div>` +
     `<div class="paper-t0-viz-card-foot">${footHtml}</div>` +
@@ -1797,14 +1800,15 @@ export function renderT0Viz(host, data) {
     cards.push(
       vizCard(
         "R̂_τ 散点",
-        "正R=正T · 负R=反T · 点色=正/反T · 橙=信号跳过 · 悬停看点",
+        "R̂_τ=C_τ/现价−1（%）· 正=现价低于C_τ→正T · 负=现价高于C_τ→反T · 点色=方向 · 橙=跳过",
         chartCanvas("scatter"),
         `<div data-role="scatter-foot"></div>`,
         legendChips([
           { color: THEME.buyThenSell, label: "正T成交" },
           { color: THEME.sellThenBuy, label: "反T成交" },
           { color: THEME.signalSkip, label: "信号跳过" },
-        ])
+        ]),
+        "纵轴 R̂_τ = C_τ / 现价 − 1（百分点）。现价=该根 5m 收；C_τ=ŷ_oc 估的目标收。正：现价在 C_τ 下，正 T；负：现价在 C_τ 上，反 T。不是往返盈亏。"
       )
     );
   }
@@ -1906,6 +1910,7 @@ export function renderT0Viz(host, data) {
       const foot = host.querySelector('[data-role="scatter-foot"]');
       if (foot && meta) {
         foot.innerHTML = [
+          `<span title="现价=该根5m收；C_τ=ŷ_oc估的目标收">R̂_τ=C_τ/现价−1%</span>`,
           `<span>成交 <b>${meta.nTraded}</b>（正${meta.nBuyThenSell}/反${meta.nSellThenBuy}）</span>`,
           `<span>信号跳过 <b>${meta.nSkip}</b></span>`,
           meta.nSkipNeg > 0

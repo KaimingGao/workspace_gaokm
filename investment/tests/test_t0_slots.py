@@ -51,6 +51,8 @@ def _slot_rules(**kwargs):
         ],
         "direction": "buy_then_sell",
         "t0_round_ratio": 0.2,
+        "y_tw_enter_shares": 0,
+        "y_tw_strong_shares": 0,
         "y_tpd_max": 1.0,
         "y_t30_strong": 1.0,
         "y_τ30_strong": 1.0,
@@ -64,8 +66,8 @@ def _slot_rules(**kwargs):
         "t0_pm_degrade_buy_then_sell": "",
         "t0_stop_pct_buy_then_sell": 0,
         "t0_stop_pct_sell_then_buy": 0,
-        "t0_giveback_pct_buy_then_sell": 0,
-        "t0_giveback_pct_sell_then_buy": 0,
+        "t0_lock_win_pct_buy_then_sell": 0,
+        "t0_lock_win_pct_sell_then_buy": 0,
         "must_cover_same_day_buy_then_sell": False,
         "fill_mode": "trigger",
         "lot_size": 100,
@@ -111,6 +113,7 @@ class TestT0Slots(unittest.TestCase):
         self.assertAlmostEqual(sum(float(s["ratio"]) for s in cfg["t0_slots"]), 1.0)
         self.assertAlmostEqual(float(cfg.get("y_tw_enter") or 0), 2.0)
         self.assertAlmostEqual(float(cfg.get("y_tw_strong") or 0), 2.0)
+        self.assertNotIn("t0_leg1_close_extreme", cfg)
         self.assertNotIn("t0_bar_oc_gate", cfg)
         self.assertNotIn("t0_ytw_prefix_confirm", cfg)
         self.assertAlmostEqual(float(cfg.get("y_tw_midpoint") or 0), 47.0)

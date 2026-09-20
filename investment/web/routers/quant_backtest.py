@@ -34,8 +34,10 @@ _T0_RULE_KEYS = (
     "y_τw_enter",
     "y_tw_strong",
     "y_τw_strong",
-    "y_tw_enter_buy_then_sell",
-    "y_tw_enter_sell_then_buy",
+    "y_tw_enter_shares",
+    "y_τw_enter_shares",
+    "y_tw_strong_shares",
+    "y_τw_strong_shares",
     "y_tw_vote_margin",
     "y_τw_vote_margin",
     "y_tw_midpoint",
@@ -76,9 +78,8 @@ _T0_RULE_KEYS = (
     "t0_stop_pct_buy_then_sell",
     "t0_stop_pct_sell_then_buy",
     "t0_stop_arm_bars",
-    "t0_giveback_pct_buy_then_sell",
-    "t0_giveback_pct_sell_then_buy",
-    "t0_giveback_arm_pct",
+    "t0_lock_win_pct_buy_then_sell",
+    "t0_lock_win_pct_sell_then_buy",
 )
 
 
@@ -104,10 +105,12 @@ def _t0_backtest_kwargs(body: T0BacktestRequest) -> Dict[str, Any]:
     legacy_default = code in {"茅台", "贵州茅台"} and body.codes is None
     if from_paper and legacy_default:
         code = ""
+    from core.t0.config import t0_backtest_virtual_shares
+
     return {
         "code": code,
         "lookback": body.lookback,
-        "initial_shares": body.initial_shares,
+        "initial_shares": t0_backtest_virtual_shares(rules, body.initial_shares),
         "initial_cash": body.initial_cash,
         "rules": rules,
         "from_paper": from_paper,

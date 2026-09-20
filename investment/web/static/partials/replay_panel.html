@@ -290,7 +290,7 @@
   >
     <header class="dashboard-section-head quant-section-head replay-section-head replay-run-head">
       <h3 id="replay-section-t0-title" class="dashboard-section-title">做 T 回测</h3>
-      <p class="quant-fingerprint replay-pool-meta">每票 1000 股 · 本金 20 万 · 5m 第一触达 · 不写账本</p>
+      <p class="quant-fingerprint replay-pool-meta">虚拟底仓=最大轮数×Y_τw强股数 · 本金 20 万 · 5m 第一触达 · 不写账本</p>
       <p id="paper-t0-progress" class="quant-fingerprint paper-progress-status replay-run-progress" hidden aria-live="polite">
         <span id="paper-t0-progress-text">回测中…</span>
       </p>
@@ -358,66 +358,10 @@
                   </label>
                   <label
                     class="paper-t0-field"
-                    title="每票虚拟底仓股数；默认 1000。保存规则不改此项。"
-                  >
-                    <span>股数/票</span>
-                    <input type="number" name="t0_bt_shares" min="100" max="100000" step="100" value="1000" />
-                  </label>
-                  <label
-                    class="paper-t0-field"
                     title="|日昨/分昨−1|×100 超过此值跳过；默认 5；0=关。开盘差已下线。"
                   >
                     <span>昨收差%</span>
                     <input type="number" name="t0_price_space_prev_dev_pct" min="0" max="5" step="0.05" value="5" />
-                  </label>
-                  <label
-                    class="paper-t0-field"
-                    title="v6：每轮第一腿占日初可卖比例；默认 0.4（40%）"
-                  >
-                    <span>每轮仓位</span>
-                    <input type="number" name="t0_round_ratio" min="0.05" max="1" step="0.05" value="0.4" />
-                  </label>
-                  <label
-                    class="paper-t0-field"
-                    title="v6：累计动仓上限；默认 1.0（100%）"
-                  >
-                    <span>满仓上限</span>
-                    <input type="number" name="t0_max_position_pct" min="0.05" max="1" step="0.05" value="1" />
-                  </label>
-                  <label
-                    class="paper-t0-field"
-                    title="最多完成多少轮第一腿（默认5；0=不开第一腿）"
-                  >
-                    <span>最大轮数</span>
-                    <input type="number" name="t0_slots_max_rounds" min="0" max="16" step="1" value="5" />
-                  </label>
-                  <label
-                    class="paper-t0-field"
-                    title="正/反T止损共用：入场后跳过 N 根 5m 再启用（默认 1≈5 分钟）。止损固定收盘破线确认。"
-                  >
-                    <span>止损延迟根</span>
-                    <input type="number" name="t0_stop_arm_bars" min="0" max="48" step="1" value="1" />
-                  </label>
-                  <label
-                    class="paper-t0-field has-tip"
-                    title="正T跌破 / 反T涨破 止损%（相对该轮第一腿成交价）：0=关。正反T共用。延迟见左侧延迟根。止损优先于中点追价。"
-                  >
-                    <span>止损%</span>
-                    <input type="number" name="t0_stop_pct" min="0" max="20" step="0.1" value="1.2" />
-                  </label>
-                  <label
-                    class="paper-t0-field"
-                    title="回吐激活%：正T自买价上涨、反T自卖价下跌达到此值后，才允许自高/自低回吐提前做第二腿。0=不要求涨跌幅（仍须回吐%&gt;0）。"
-                  >
-                    <span>回吐激活%</span>
-                    <input type="number" name="t0_giveback_arm_pct" min="0" max="20" step="0.1" value="0.4" />
-                  </label>
-                  <label
-                    class="paper-t0-field has-tip"
-                    title="正T自高 / 反T自低回吐%：先过「回吐激活%」，再从盘中极值回撤/反弹此%（收盘确认）则提前第二腿。0=关。正反T共用。午后仍走中点追价。"
-                  >
-                    <span>回吐%</span>
-                    <input type="number" name="t0_giveback_pct" min="0" max="20" step="0.1" value="0.6" />
                   </label>
                   <label
                     class="paper-t0-field"
@@ -451,29 +395,71 @@
                     class="paper-t0-field"
                     title="破带后：正T须 ŷ_τw≥此票；反T须 ŷ_τw≤−此票。默认 2；0=允许 0 票。第二腿目标=C_τ。"
                   >
-                    <span>Y_τw门槛</span>
+                    <span>Y_τw入场</span>
                     <input type="number" name="y_tw_enter" min="0" max="5" step="0.1" value="2" />
                   </label>
                   <label
                     class="paper-t0-field"
-                    title="过 Y_τw门槛后：|ŷ_τw|≥此票用全额轮次仓位，否则半仓。默认 2（与门槛相同则全额）。须≥门槛。"
+                    title="过 Y_τw入场、未过 Y_τw强时，本轮第一腿股数。整百，默认 2000。受可卖/现金约束。"
+                  >
+                    <span>Y_τw入场股数</span>
+                    <input type="number" name="y_tw_enter_shares" min="100" max="100000" step="100" value="2000" />
+                  </label>
+                  <label
+                    class="paper-t0-field"
+                    title="过 Y_τw入场后：|ŷ_τw|≥此票用 Y_τw强股数，否则用入场股数。默认 2（与入场相同则总用强档股数）。须≥入场。"
                   >
                     <span>Y_τw强</span>
                     <input type="number" name="y_tw_strong" min="0" max="5" step="0.1" value="2" />
                   </label>
                   <label
                     class="paper-t0-field"
+                    title="过 Y_τw强时本轮第一腿股数。整百且不少于入场股数，默认 4000。受可卖/现金约束。"
+                  >
+                    <span>Y_τw强股数</span>
+                    <input type="number" name="y_tw_strong_shares" min="100" max="100000" step="100" value="4000" />
+                  </label>
+                  <label
+                    class="paper-t0-field"
                     title="ŷ_τ30/45/60/75/90 共用中位点%。ŷ_τw = 各窗相对中位点的符号和。默认 47。"
                   >
-                    <span>中位点%</span>
+                    <span>Y_τ*中位点%</span>
                     <input type="number" name="y_tw_midpoint" min="1" max="99" step="0.5" value="47" />
                   </label>
                   <label
                     class="paper-t0-field"
                     title="ŷ_τ30/45/60/75/90 预估概率距中位点不超过此百分点则不给 ŷ_τw 投票。默认 5；0=仅恰好中位点弃权。"
                   >
-                    <span>弃权%</span>
+                    <span>Y_τ*弃权%</span>
                     <input type="number" name="y_tw_vote_margin" min="0" max="20" step="0.5" value="5" />
+                  </label>
+                  <label
+                    class="paper-t0-field"
+                    title="最多完成多少轮第一腿（默认5；0=不开第一腿）"
+                  >
+                    <span>最大轮数</span>
+                    <input type="number" name="t0_slots_max_rounds" min="0" max="16" step="1" value="5" />
+                  </label>
+                  <label
+                    class="paper-t0-field"
+                    title="正/反T止损共用：入场后跳过 N 根 5m 再启用（默认 1≈5 分钟）。止损固定收盘破线确认。"
+                  >
+                    <span>止损延迟根</span>
+                    <input type="number" name="t0_stop_arm_bars" min="0" max="48" step="1" value="1" />
+                  </label>
+                  <label
+                    class="paper-t0-field has-tip"
+                    title="正T跌破 / 反T涨破 止损%（相对该轮第一腿成交价）：0=关。正反T共用。延迟见左侧延迟根。止损优先于中点追价。"
+                  >
+                    <span>止损%</span>
+                    <input type="number" name="t0_stop_pct" min="0" max="20" step="0.1" value="1.2" />
+                  </label>
+                  <label
+                    class="paper-t0-field has-tip"
+                    title="正T涨过 / 反T跌过 锁赢%（相对该轮第一腿成交价）则提前做第二腿：0=关。正反T共用。语义与止损相反。延迟见左侧延迟根。收盘确认。本根已触 C_τ 不抢。"
+                  >
+                    <span>锁赢%</span>
+                    <input type="number" name="t0_lock_win_pct" min="0" max="20" step="0.1" value="2" />
                   </label>
                   <label
                     class="paper-t0-field"

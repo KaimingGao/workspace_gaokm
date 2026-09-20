@@ -132,13 +132,37 @@ class T0BacktestRequest(BaseModel):
         default=None,
         ge=0.0,
         le=5.0,
-        description="过 Y_τw门槛后 |ŷ_τw|>=此票用全额轮次，否则半仓。默认 2；须≥门槛",
+        description="过 Y_τw入场后 |ŷ_τw|>=此票用强股数，否则入场股数。默认 2；须≥入场",
     )
     y_τw_strong: Optional[float] = Field(
         default=None,
         ge=0.0,
         le=5.0,
         description="y_tw_strong 的 Unicode 别名",
+    )
+    y_tw_enter_shares: Optional[int] = Field(
+        default=None,
+        ge=0,
+        le=100000,
+        description="过 Y_τw入场未过强时本轮股数；整百，默认 2000；0=走旧比例仓",
+    )
+    y_τw_enter_shares: Optional[int] = Field(
+        default=None,
+        ge=0,
+        le=100000,
+        description="y_tw_enter_shares 的 Unicode 别名",
+    )
+    y_tw_strong_shares: Optional[int] = Field(
+        default=None,
+        ge=0,
+        le=100000,
+        description="过 Y_τw强时本轮股数；整百且≥入场股数，默认 4000",
+    )
+    y_τw_strong_shares: Optional[int] = Field(
+        default=None,
+        ge=0,
+        le=100000,
+        description="y_tw_strong_shares 的 Unicode 别名",
     )
     y_tw_vote_margin: Optional[float] = Field(
         default=None,
@@ -312,23 +336,17 @@ class T0BacktestRequest(BaseModel):
         default=True,
         description="正/反T止损固定收盘破线确认；表单已去掉，入参忽略",
     )
-    t0_giveback_pct_buy_then_sell: Optional[float] = Field(
+    t0_lock_win_pct_buy_then_sell: Optional[float] = Field(
         default=None,
         ge=0.0,
         le=20.0,
-        description="正T自高回吐%（相对入场后峰值）；0=关；须先涨过激活%",
+        description="正T涨过锁赢%（相对第一腿买价）则卖旧仓；0=关",
     )
-    t0_giveback_pct_sell_then_buy: Optional[float] = Field(
+    t0_lock_win_pct_sell_then_buy: Optional[float] = Field(
         default=None,
         ge=0.0,
         le=20.0,
-        description="反T自低回吐%（相对入场后谷值）；0=关；须先跌过激活%",
-    )
-    t0_giveback_arm_pct: Optional[float] = Field(
-        default=None,
-        ge=0.0,
-        le=20.0,
-        description="回吐激活%：正T自买价上涨 / 反T自卖价下跌达到此值后才启用回吐",
+        description="反T跌过锁赢%（相对第一腿卖价）则买回；0=关",
     )
     sync: bool = Field(
         default=False,
@@ -418,6 +436,10 @@ class PaperExecutionPatchRequest(BaseModel):
     y_τw_enter: Optional[float] = None
     y_tw_strong: Optional[float] = None
     y_τw_strong: Optional[float] = None
+    y_tw_enter_shares: Optional[int] = None
+    y_τw_enter_shares: Optional[int] = None
+    y_tw_strong_shares: Optional[int] = None
+    y_τw_strong_shares: Optional[int] = None
     y_tw_vote_margin: Optional[float] = None
     y_τw_vote_margin: Optional[float] = None
     y_tw_midpoint: Optional[float] = None
@@ -461,7 +483,6 @@ class PaperExecutionPatchRequest(BaseModel):
     t0_stop_pct_sell_then_buy: Optional[float] = None
     t0_stop_arm_bars: Optional[int] = None
     t0_stop_on_close: Optional[bool] = None
-    t0_giveback_pct_buy_then_sell: Optional[float] = None
-    t0_giveback_pct_sell_then_buy: Optional[float] = None
-    t0_giveback_arm_pct: Optional[float] = None
+    t0_lock_win_pct_buy_then_sell: Optional[float] = None
+    t0_lock_win_pct_sell_then_buy: Optional[float] = None
 

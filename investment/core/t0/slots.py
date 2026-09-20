@@ -2,7 +2,7 @@
 
 09:30–11:00 每根 5m 用 ŷ_oc 估 C_τ；C>upper 反T、C<lower 正T；leg2=C_τ。
 ŷ_τw 为五窗相对中位点符号和，过门槛才开。11:00 后不开 leg1。
-每轮 ratio，累计至 max_pos。第二腿：触 C_τ / 止损 / 锁盈回吐 / 午后中点追价 / 收盘强平。
+每轮 ratio，累计至 max_pos。第二腿：触 C_τ / 止损 / 锁赢 / 午后中点追价 / 收盘强平。
 """
 
 from __future__ import annotations
@@ -1353,6 +1353,7 @@ def simulate_t0_day_slots(
         bar_close_band_pick_direction,
         close_band_y_tw_is_strong,
         close_band_y_tw_round_scale,
+        close_band_y_tw_round_shares,
         day_price_space_payload,
         freeze_round,
         hm_allows_leg1,
@@ -1550,16 +1551,28 @@ def simulate_t0_day_slots(
 
         remain = max_pos - used_ratio
         y_tw_now = band_meta.get("y_tw")
-        scale_tw = close_band_y_tw_round_scale(
-            y_tw_now, cfg, direction=direction
+        lot_i = max(int(lot or 0), 1)
+        want_shares = close_band_y_tw_round_shares(
+            cfg, y_tw=y_tw_now, direction=direction, lot=lot_i
         )
-        sized = round_ratio if scale_tw >= 1.0 - 1e-12 else max(0.05, round_ratio * scale_tw)
-        ratio = min(sized, remain)
-        if ratio < 0.05:
-            break
-        slice_qty = float(_lot_floor(sellable_cap * ratio, lot))
-        # 反T卖开受剩余可卖约束；正T 第二腿仍卖旧仓，开新轮前预扣已承诺回补额度
-        slice_qty = min(slice_qty, float(_lot_floor(sellable_now, lot)))
+        if want_shares is not None:
+            remain_sh = float(_lot_floor(max(0.0, sellable_cap * remain), lot_i))
+            slice_qty = min(float(want_shares), remain_sh)
+            slice_qty = min(slice_qty, float(_lot_floor(sellable_now, lot_i)))
+            if slice_qty < lot_i:
+                break
+            ratio = float(slice_qty) / float(sellable_cap) if sellable_cap > 0 else 0.0
+        else:
+            scale_tw = close_band_y_tw_round_scale(
+                y_tw_now, cfg, direction=direction
+            )
+            sized = round_ratio if scale_tw >= 1.0 - 1e-12 else max(0.05, round_ratio * scale_tw)
+            ratio = min(sized, remain)
+            if ratio < 0.05:
+                break
+            slice_qty = float(_lot_floor(sellable_cap * ratio, lot))
+            # 反T卖开受剩余可卖约束；正T 第二腿仍卖旧仓，开新轮前预扣已承诺回补额度
+            slice_qty = min(slice_qty, float(_lot_floor(sellable_now, lot)))
         path_sellable = slice_qty if direction == "sell_then_buy" else sellable_now
         if direction == "buy_then_sell":
             remain_cover = float(

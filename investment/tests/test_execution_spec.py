@@ -284,8 +284,8 @@ class TestExecutionResolve(unittest.TestCase):
             resolve_effective_execution(paper=paper, channel="paper")
         )
         self.assertAlmostEqual(float(view["t0"]["y_tw_enter"]), 1.5)
-        self.assertAlmostEqual(float(view["t0"]["y_tw_enter_sell_then_buy"]), 1.5)
-        self.assertAlmostEqual(float(view["t0"]["y_tw_enter_buy_then_sell"]), 1.5)
+        self.assertNotIn("y_tw_enter_sell_then_buy", view["t0"])
+        self.assertNotIn("y_tw_enter_buy_then_sell", view["t0"])
 
     def test_public_view_drops_t0_bar_oc_gate(self):
         from core.execution import (
@@ -358,6 +358,29 @@ class TestExecutionResolve(unittest.TestCase):
         )
         self.assertAlmostEqual(float(view["t0"]["y_tw_strong"]), 4.0)
         self.assertAlmostEqual(float(view["t0"]["y_tw_enter"]), 2.0)
+
+    def test_public_view_keeps_y_tw_shares(self):
+        from core.execution import (
+            apply_execution_patch_to_paper,
+            execution_public_view,
+            resolve_effective_execution,
+            validate_execution_patch,
+        )
+
+        ok, norm, errs = validate_execution_patch(
+            {"t0": {"y_tw_enter_shares": 300, "y_tw_strong_shares": 500}}
+        )
+        self.assertTrue(ok, errs)
+        self.assertEqual(int(norm["t0"]["y_tw_enter_shares"]), 300)
+        self.assertEqual(int(norm["t0"]["y_tw_strong_shares"]), 500)
+        paper = {"strategy_id": "short_conservative", "rules": {}}
+        applied = apply_execution_patch_to_paper(paper, norm)
+        self.assertTrue(applied.get("ok"), applied)
+        view = execution_public_view(
+            resolve_effective_execution(paper=paper, channel="paper")
+        )
+        self.assertEqual(int(view["t0"]["y_tw_enter_shares"]), 300)
+        self.assertEqual(int(view["t0"]["y_tw_strong_shares"]), 500)
 
     def test_public_view_migrates_y_tw_strong(self):
         from core.execution import (
@@ -517,9 +540,13 @@ class TestExecutionResolve(unittest.TestCase):
         self.assertAlmostEqual(defaults["t0_stop_pct_buy_then_sell"], 1.2)
         self.assertEqual(defaults["t0_stop_arm_bars"], 1)
         self.assertTrue(defaults["t0_stop_on_close"])
-        self.assertAlmostEqual(defaults["t0_giveback_pct_buy_then_sell"], 0.6)
-        self.assertAlmostEqual(defaults["t0_giveback_pct_sell_then_buy"], 0.6)
-        self.assertAlmostEqual(defaults["t0_giveback_arm_pct"], 0.4)
+        self.assertAlmostEqual(defaults["t0_lock_win_pct_buy_then_sell"], 2.0)
+        self.assertAlmostEqual(defaults["t0_lock_win_pct_sell_then_buy"], 2.0)
+        self.assertNotIn("t0_leg1_close_extreme", defaults)
+        self.assertNotIn("y_tw_enter_buy_then_sell", defaults)
+        self.assertNotIn("y_tw_enter_sell_then_buy", defaults)
+        self.assertNotIn("t0_giveback_pct_buy_then_sell", defaults)
+        self.assertNotIn("t0_giveback_arm_pct", defaults)
         self.assertNotIn("y_block_tau_nowcast_sign", defaults)
         self.assertNotIn("t0_adverse_stop_pct", defaults)
         self.assertNotIn("t0_time_stop", defaults)
@@ -562,6 +589,11 @@ class TestExecutionResolve(unittest.TestCase):
                     "y_tau_entry_price_skip_buy_then_sell": True,
                     "y_tau_entry_price_bias_buy_then_sell": 0.5,
                     "y_tau_require_for_leg1": True,
+                    "t0_giveback_pct_buy_then_sell": 0.6,
+                    "t0_giveback_arm_pct": 0.4,
+                    "t0_leg1_close_extreme": True,
+                    "y_tw_enter_buy_then_sell": 1.0,
+                    "y_tw_enter_sell_then_buy": 1.0,
                     "t0_pm_degrade_buy_then_sell": "14:00",
                 }
             }
@@ -574,6 +606,11 @@ class TestExecutionResolve(unittest.TestCase):
         self.assertNotIn("y_tau_entry_price_skip_buy_then_sell", norm_dead.get("t0") or {})
         self.assertNotIn("y_tau_entry_price_bias_buy_then_sell", norm_dead.get("t0") or {})
         self.assertNotIn("y_tau_require_for_leg1", norm_dead.get("t0") or {})
+        self.assertNotIn("t0_giveback_pct_buy_then_sell", norm_dead.get("t0") or {})
+        self.assertNotIn("t0_giveback_arm_pct", norm_dead.get("t0") or {})
+        self.assertNotIn("t0_leg1_close_extreme", norm_dead.get("t0") or {})
+        self.assertNotIn("y_tw_enter_buy_then_sell", norm_dead.get("t0") or {})
+        self.assertNotIn("y_tw_enter_sell_then_buy", norm_dead.get("t0") or {})
         self.assertEqual(norm_dead["t0"].get("t0_pm_degrade_buy_then_sell"), "14:00")
 
     def test_validate_patch_accepts_price_bias_keys(self):

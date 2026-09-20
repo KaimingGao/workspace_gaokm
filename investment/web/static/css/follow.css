@@ -2861,6 +2861,8 @@ body[data-page="follow"] .follow-ops-t0 {
   font-size: 0.66rem;
   color: var(--ink-3);
   font-variant-numeric: tabular-nums;
+  line-height: 1.35;
+  max-width: 100%;
 }
 
 .paper-t0-viz-legend-chips {

@@ -248,14 +248,24 @@ _DEAD_T0_KEYS = (
     "w_yclose_loc",
     "w_mom3",
     "w_gap_atr",
-    # 阴阳门槛 / 前序 ŷ_τw 确认已下线
+    # 阴阳门槛 / 前序 ŷ_τw 确认 / 收贴端已下线
     "t0_bar_oc_gate",
+    "t0_leg1_close_extreme",
     "t0_ytw_prefix_confirm",
     "t0_ytw_prefix_lookback",
     "t0_ytw_prefix_min_hit_pct",
+    # 正/反 T 分侧 Y_τw入场已下线，表单共用 y_tw_enter
+    "y_tw_enter_buy_then_sell",
+    "y_tw_enter_sell_then_buy",
+    "y_τw_enter_buy_then_sell",
+    "y_τw_enter_sell_then_buy",
     "y_ratio_boost_cap",
     "y_ratio_cut",
     "y_block_conflict",
+    # 自极值回吐已下线，改锁赢%
+    "t0_giveback_pct_buy_then_sell",
+    "t0_giveback_pct_sell_then_buy",
+    "t0_giveback_arm_pct",
 )
 
 
@@ -330,12 +340,12 @@ DEFAULT_T0_RULES: Dict[str, Any] = {
     "y_trade_enter": 0.01,
     "y_tw_enter": 2.0,  # 正T：ŷ_τw>=此票；反T：ŷ_τw<=−此票。0=允许 0 票
     "y_τw_enter": 2.0,
-    "y_tw_strong": 2.0,  # 过门槛后 |ŷ_τw|>=此票全额轮次，否则半仓
+    "y_tw_strong": 2.0,  # 过入场后 |ŷ_τw|>=此票用强股数，否则入场股数
     "y_τw_strong": 2.0,
-    "y_tw_enter_buy_then_sell": 2.0,
-    "y_tw_enter_sell_then_buy": 2.0,
-    "y_τw_enter_buy_then_sell": 2.0,
-    "y_τw_enter_sell_then_buy": 2.0,
+    "y_tw_enter_shares": 2000,  # 过入场未过强：本轮股数
+    "y_τw_enter_shares": 2000,
+    "y_tw_strong_shares": 4000,  # 过强：本轮股数（≥入场股数）
+    "y_τw_strong_shares": 4000,
     "y_tw_vote_margin": 5.0,  # |p_up−mid|≤此百分点不给 ŷ_τw 投票
     "y_τw_vote_margin": 5.0,
     "y_tw_midpoint": 47.0,  # ŷ_τ30/45/60/75/90 共用中位点%
@@ -383,17 +393,16 @@ DEFAULT_T0_RULES: Dict[str, Any] = {
     "t0_stop_pct_sell_then_buy": 1.2,
     "t0_stop_arm_bars": 1,
     "t0_stop_on_close": True,
-    # 自极值回吐：冲高/探底后回撤则提前第二腿（0=关）；午后仍走中点追价
-    "t0_giveback_pct_buy_then_sell": 0.6,
-    "t0_giveback_pct_sell_then_buy": 0.6,
-    "t0_giveback_arm_pct": 0.4,
+    # 锁赢：收益达到此%则提前第二腿（0=关）；与止损方向相反
+    "t0_lock_win_pct_buy_then_sell": 2.0,
+    "t0_lock_win_pct_sell_then_buy": 2.0,
     # dual_y 分数来源：compute=开盘信息集即时算（默认）；live_book/ledger 仅兜底或对照
     "y_score_source": "compute",
     # v6：多轮（每轮 40% 至满仓）；11:00 后不开 leg1；午后仅 leg2
     "t0_slots_enabled": True,
     "t0_slots": None,
     "t0_slots_max_rounds": 5,
-    "note": "A股T+1底仓做T；旗舰选腿=ŷ_oc破带+ŷ_τw门槛；非实盘。",
+    "note": "A股T+1底仓做T；旗舰选腿=ŷ_oc破带+ŷ_τw入场；非实盘。",
 }
 
 # 第一腿最晚：11:00（约第 18 根 5m，09:35 起计）；其后只收第二腿
@@ -590,10 +599,6 @@ def load_t0_rules(override: Optional[dict] = None) -> Dict[str, Any]:
         ("y_τw_enter", 0.0, 5.0, 2.0),
         ("y_tw_strong", 0.0, 5.0, 2.0),
         ("y_τw_strong", 0.0, 5.0, 2.0),
-        ("y_tw_enter_buy_then_sell", 0.0, 5.0, 2.0),
-        ("y_tw_enter_sell_then_buy", 0.0, 5.0, 2.0),
-        ("y_τw_enter_buy_then_sell", 0.0, 5.0, 2.0),
-        ("y_τw_enter_sell_then_buy", 0.0, 5.0, 2.0),
         ("y_tw_vote_margin", 0.0, 20.0, 5.0),
         ("y_τw_vote_margin", 0.0, 20.0, 5.0),
         ("y_tw_midpoint", 1.0, 99.0, 47.0),
@@ -650,37 +655,7 @@ def load_t0_rules(override: Optional[dict] = None) -> Dict[str, Any]:
         lo, hi = -3.0, 3.0
     if lo > hi:
         cfg["t0_y_oc_l"], cfg["t0_y_oc_u"] = hi, lo
-    if (
-        cfg.get("y_tw_enter_buy_then_sell") in (None, "")
-        and cfg.get("y_τw_enter_buy_then_sell") not in (None, "")
-    ):
-        cfg["y_tw_enter_buy_then_sell"] = cfg.get("y_τw_enter_buy_then_sell")
-    if (
-        cfg.get("y_tw_enter_sell_then_buy") in (None, "")
-        and cfg.get("y_τw_enter_sell_then_buy") not in (None, "")
-    ):
-        cfg["y_tw_enter_sell_then_buy"] = cfg.get("y_τw_enter_sell_then_buy")
     shared_enter = float(cfg.get("y_tw_enter") or 0.0)
-    for side_key, aliases in (
-        (
-            "y_tw_enter_buy_then_sell",
-            ("y_tw_enter_buy_then_sell", "y_τw_enter_buy_then_sell"),
-        ),
-        (
-            "y_tw_enter_sell_then_buy",
-            ("y_tw_enter_sell_then_buy", "y_τw_enter_sell_then_buy"),
-        ),
-    ):
-        explicit = any(k in override_keys for k in aliases)
-        try:
-            side_val = float(cfg.get(side_key) or 0.0)
-        except (TypeError, ValueError):
-            side_val = 0.0
-        # 未写分侧、或 overlay 默认 0 盖共用门槛 → 跟随 y_tw_enter
-        if not explicit or (abs(side_val) <= 1e-12 and shared_enter > 1e-12):
-            cfg[side_key] = shared_enter
-    cfg["y_τw_enter_buy_then_sell"] = cfg.get("y_tw_enter_buy_then_sell")
-    cfg["y_τw_enter_sell_then_buy"] = cfg.get("y_tw_enter_sell_then_buy")
     if cfg.get("y_tw_strong") in (None, "") and cfg.get("y_τw_strong") not in (None, ""):
         cfg["y_tw_strong"] = cfg.get("y_τw_strong")
     strong_explicit = any(
@@ -877,7 +852,7 @@ def load_t0_rules(override: Optional[dict] = None) -> Dict[str, Any]:
     cfg["t0_stop_arm_bars"] = max(0, min(arm_bars, 48))
     cfg["t0_stop_on_close"] = True
 
-    def _norm_giveback(raw: Any, default: float) -> float:
+    def _norm_lock_win(raw: Any, default: float) -> float:
         try:
             if raw is None or raw == "":
                 return default
@@ -885,13 +860,12 @@ def load_t0_rules(override: Optional[dict] = None) -> Dict[str, Any]:
         except (TypeError, ValueError):
             return default
 
-    cfg["t0_giveback_pct_buy_then_sell"] = _norm_giveback(
-        cfg.get("t0_giveback_pct_buy_then_sell"), 0.6
+    cfg["t0_lock_win_pct_buy_then_sell"] = _norm_lock_win(
+        cfg.get("t0_lock_win_pct_buy_then_sell"), 2.0
     )
-    cfg["t0_giveback_pct_sell_then_buy"] = _norm_giveback(
-        cfg.get("t0_giveback_pct_sell_then_buy"), 0.6
+    cfg["t0_lock_win_pct_sell_then_buy"] = _norm_lock_win(
+        cfg.get("t0_lock_win_pct_sell_then_buy"), 2.0
     )
-    cfg["t0_giveback_arm_pct"] = _norm_giveback(cfg.get("t0_giveback_arm_pct"), 0.4)
     y_src = str(cfg.get("y_score_source") or "compute").strip().lower()
     if y_src in {"book", "cluster", "cluster_book"}:
         y_src = "live_book"
@@ -945,11 +919,84 @@ def load_t0_rules(override: Optional[dict] = None) -> Dict[str, Any]:
     except (TypeError, ValueError):
         max_pos = 1.0
     cfg["t0_max_position_pct"] = max(0.05, min(max_pos, 1.0))
+
+    def _norm_ytw_shares(raw: Any, default: int) -> int:
+        if raw is None or raw == "":
+            return int(default)
+        try:
+            v = int(float(raw))
+        except (TypeError, ValueError):
+            v = int(default)
+        if v <= 0:
+            return 0
+        v = max(100, min(v, 100000))
+        return (v // 100) * 100
+
+    if cfg.get("y_tw_enter_shares") in (None, "") and cfg.get("y_τw_enter_shares") not in (
+        None,
+        "",
+    ):
+        cfg["y_tw_enter_shares"] = cfg.get("y_τw_enter_shares")
+    cfg["y_tw_enter_shares"] = _norm_ytw_shares(cfg.get("y_tw_enter_shares"), 2000)
+    cfg["y_τw_enter_shares"] = cfg["y_tw_enter_shares"]
+    if cfg.get("y_tw_strong_shares") in (None, "") and cfg.get("y_τw_strong_shares") not in (
+        None,
+        "",
+    ):
+        cfg["y_tw_strong_shares"] = cfg.get("y_τw_strong_shares")
+    strong_sh = _norm_ytw_shares(cfg.get("y_tw_strong_shares"), 4000)
+    if cfg["y_tw_enter_shares"] > 0:
+        strong_sh = max(cfg["y_tw_enter_shares"], strong_sh)
+    cfg["y_tw_strong_shares"] = strong_sh
+    cfg["y_τw_strong_shares"] = cfg["y_tw_strong_shares"]
     if isinstance(cfg.get("t0_slots"), (list, tuple)) and len(cfg.get("t0_slots") or []) == 0:
         cfg["t0_slots"] = []
     else:
         cfg["t0_slots"] = normalize_t0_slots(cfg.get("t0_slots"))
     return cfg
+
+
+def t0_backtest_virtual_shares(cfg: Optional[dict] = None, fallback: Any = 1000) -> int:
+    """回测虚拟底仓：配了入场/强股数时 = 最大轮数 × 强股数，否则用 fallback。
+
+    每轮绝对股数若等于底仓，满仓上限 100% 会在第 1 轮用尽，最大轮数无法铺开。
+    """
+    cfg_d = cfg if isinstance(cfg, dict) else {}
+
+    def _lot(raw: Any) -> int:
+        try:
+            v = int(float(0 if raw in (None, "") else raw))
+        except (TypeError, ValueError):
+            v = 0
+        if v <= 0:
+            return 0
+        v = max(100, min(v, 100000))
+        return (v // 100) * 100
+
+    enter = _lot(
+        cfg_d.get("y_tw_enter_shares")
+        if cfg_d.get("y_tw_enter_shares") not in (None, "")
+        else cfg_d.get("y_τw_enter_shares")
+    )
+    strong = _lot(
+        cfg_d.get("y_tw_strong_shares")
+        if cfg_d.get("y_tw_strong_shares") not in (None, "")
+        else cfg_d.get("y_τw_strong_shares")
+    )
+    if enter <= 0 and strong <= 0:
+        try:
+            fb = int(float(fallback if fallback not in (None, "") else 1000))
+        except (TypeError, ValueError):
+            fb = 1000
+        return max(100, min(fb, 100000))
+    per = max(enter, strong)
+    raw_rounds = cfg_d.get("t0_slots_max_rounds")
+    try:
+        rounds = int(5 if raw_rounds in (None, "") else raw_rounds)
+    except (TypeError, ValueError):
+        rounds = 5
+    rounds = max(1, min(rounds, 16))
+    return max(100, min(per * rounds, 100000))
 
 
 def apply_side_exec_params(cfg: dict, direction: Optional[str]) -> Dict[str, Any]:

@@ -53,8 +53,10 @@ def _cfg(overrides=None):
     """路径单测关掉 TPD 入场闸；生产默认 y_tpd_max=1.00≈关。"""
     d = dict(overrides or {})
     d.setdefault("y_tpd_max", 1.0)
-    d.setdefault("t0_giveback_pct_buy_then_sell", 0)
-    d.setdefault("t0_giveback_pct_sell_then_buy", 0)
+    d.setdefault("t0_lock_win_pct_buy_then_sell", 0)
+    d.setdefault("t0_lock_win_pct_sell_then_buy", 0)
+    d.setdefault("y_tw_enter_shares", 0)
+    d.setdefault("y_tw_strong_shares", 0)
     return load_t0_rules(d)
 
 
@@ -302,7 +304,35 @@ class TestCloseBandCore(unittest.TestCase):
             {"y_tw_enter": 3, "y_tw_enter_sell_then_buy": 0.0},
         )
         self.assertIsNone(d5)
-        self.assertIn("未过反T门槛", str(meta5.get("skip") or ""))
+        self.assertIn("未过反T入场", str(meta5.get("skip") or ""))
+
+    def test_ytw_round_shares_strong_vs_enter(self):
+        from core.t0.close_band import close_band_y_tw_round_shares
+
+        self.assertIsNone(
+            close_band_y_tw_round_shares({}, y_tw=3, direction="buy_then_sell")
+        )
+        self.assertIsNone(
+            close_band_y_tw_round_shares(
+                {"y_tw_enter_shares": 0, "y_tw_strong_shares": 0},
+                y_tw=3,
+                direction="buy_then_sell",
+            )
+        )
+        cfg = {
+            "y_tw_enter": 2,
+            "y_tw_strong": 4,
+            "y_tw_enter_shares": 400,
+            "y_tw_strong_shares": 800,
+        }
+        self.assertEqual(
+            close_band_y_tw_round_shares(cfg, y_tw=2, direction="buy_then_sell"),
+            400,
+        )
+        self.assertEqual(
+            close_band_y_tw_round_shares(cfg, y_tw=4, direction="buy_then_sell"),
+            800,
+        )
 
     def test_bar_oc_gate_no_longer_blocks(self):
         """阴阳门槛已下线：阴线 + 正 ŷ_τw 仍可开正T。"""
@@ -368,6 +398,49 @@ class TestCloseBandCore(unittest.TestCase):
         )
         self.assertEqual(d_band, "buy_then_sell")
         self.assertAlmostEqual(float(meta_band["c_tau"]), 103.0, places=4)
+
+    def test_leg1_close_extreme_dropped(self):
+        from core.t0.close_band import bar_close_band_pick_direction
+        from core.t0.config import load_t0_rules
+        from core.t0.viz import classify_t0_skip_reason
+
+        up = _ytw_heads(up=True)
+        down = _ytw_heads(up=False)
+        leftover = {
+            "y_tw_enter": 0,
+            "t0_close_band_delta_pct": 0.5,
+            "t0_leg1_close_extreme": True,
+        }
+        d_pos, meta_pos = bar_close_band_pick_direction(
+            100.0,
+            100.0,
+            {**up, "y_tau": 1.0},
+            leftover,
+            open_px=100.0,
+            scale=1.0,
+            bar_high=100.5,
+            bar_low=99.5,
+        )
+        self.assertEqual(d_pos, "buy_then_sell")
+        self.assertNotIn("须收在最高", str(meta_pos.get("skip") or ""))
+
+        d_rev, meta_rev = bar_close_band_pick_direction(
+            100.0,
+            100.0,
+            {**down, "y_tau": -1.0},
+            leftover,
+            open_px=100.0,
+            scale=1.0,
+            bar_high=100.5,
+            bar_low=99.5,
+        )
+        self.assertEqual(d_rev, "sell_then_buy")
+        self.assertNotIn("须收在最低", str(meta_rev.get("skip") or ""))
+
+        self.assertNotIn("t0_leg1_close_extreme", load_t0_rules())
+        self.assertNotIn("t0_leg1_close_extreme", load_t0_rules({"t0_leg1_close_extreme": True}))
+        self.assertEqual(classify_t0_skip_reason("正T须收在最高"), "bar_shape")
+        self.assertEqual(classify_t0_skip_reason("反T须收在最低"), "bar_shape")
 
     def test_score_portrait_y_tw_hit(self):
         from core.t0.viz import _build_score_portrait_from_units

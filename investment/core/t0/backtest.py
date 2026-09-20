@@ -789,8 +789,12 @@ def _walk_t0(
             "y_tw_strong": cfg.get("y_tw_strong")
             if cfg.get("y_tw_strong") not in (None, "")
             else cfg.get("y_τw_strong"),
-            "y_tw_enter_buy_then_sell": cfg.get("y_tw_enter_buy_then_sell"),
-            "y_tw_enter_sell_then_buy": cfg.get("y_tw_enter_sell_then_buy"),
+            "y_tw_enter_shares": cfg.get("y_tw_enter_shares")
+            if cfg.get("y_tw_enter_shares") not in (None, "")
+            else cfg.get("y_τw_enter_shares"),
+            "y_tw_strong_shares": cfg.get("y_tw_strong_shares")
+            if cfg.get("y_tw_strong_shares") not in (None, "")
+            else cfg.get("y_τw_strong_shares"),
             "y_tw_vote_margin": cfg.get("y_tw_vote_margin"),
             "y_tw_midpoint": cfg.get("y_tw_midpoint"),
             "t0_y_oc_target_scale": cfg.get("t0_y_oc_target_scale"),
@@ -848,9 +852,8 @@ def _walk_t0(
             "t0_stop_pct_buy_then_sell": cfg.get("t0_stop_pct_buy_then_sell"),
             "t0_stop_pct_sell_then_buy": cfg.get("t0_stop_pct_sell_then_buy"),
             "t0_stop_arm_bars": cfg.get("t0_stop_arm_bars"),
-            "t0_giveback_pct_buy_then_sell": cfg.get("t0_giveback_pct_buy_then_sell"),
-            "t0_giveback_pct_sell_then_buy": cfg.get("t0_giveback_pct_sell_then_buy"),
-            "t0_giveback_arm_pct": cfg.get("t0_giveback_arm_pct"),
+            "t0_lock_win_pct_buy_then_sell": cfg.get("t0_lock_win_pct_buy_then_sell"),
+            "t0_lock_win_pct_sell_then_buy": cfg.get("t0_lock_win_pct_sell_then_buy"),
             "t0_stop_on_close": cfg.get("t0_stop_on_close"),
             "t0_slots_enabled": cfg.get("t0_slots_enabled"),
             "t0_slots": cfg.get("t0_slots"),
