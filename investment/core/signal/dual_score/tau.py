@@ -10,9 +10,9 @@ logger = logging.getLogger(__name__)
 from core.signal.dual_score.fusion import (
     _as_float,
     cascade_tau_shadow,
-    eod_remaining_at_tau,
     fuse_remaining_heads_meta,
     merge_tau_features,
+    oo_remaining_at_tau,
     realized_t1_to_tau_pct,
     resolve_fusion_weights,
     stamp_trade_prev_close,
@@ -21,7 +21,7 @@ from core.signal.dual_score.resolve import (
     DEFAULT_DUAL_SCORE,
     get_dual_score_cfg,
     is_heuristic_score_scale,
-    resolve_predicted_score_eod,
+    resolve_predicted_score_oo,
 )
 from core.signal.yhat_geom import (
     align_rem_yhat_to_clock,
@@ -136,9 +136,9 @@ def apply_tau_score_fields(
     if ret_ot is None and isinstance(feats_merged, dict):
         ret_ot = feats_merged.get("ret_open_to_tau")
     realized = realized_t1_to_tau_pct(gap_pct, ret_ot)
-    y_eod = resolve_predicted_score_eod(signal_item)
+    y_oo = resolve_predicted_score_oo(signal_item)
     fuse = bool(fuse_intraday)
-    eod_rem = y_eod if not fuse else eod_remaining_at_tau(y_eod, realized)
+    oo_rem = y_oo if not fuse else oo_remaining_at_tau(y_oo, realized)
     clock = str(as_of or tau) if fuse else "eod"
     y_tau_raw = rem_yhat
     y_tau = (
@@ -156,7 +156,7 @@ def apply_tau_score_fields(
     )
     y_tau_for_trade = y_tau if fuse else None
     head_meta = fuse_remaining_heads_meta(
-        y_eod, y_tau_for_trade, w_eod=we, w_tau=wt
+        y_oo, y_tau_for_trade, w_oo=we, w_tau=wt
     )
     if not fuse:
         w_note = f"{w_note}|eod_next(tau_stripped)"
@@ -176,13 +176,13 @@ def apply_tau_score_fields(
     cascade = None
     if fuse and cfg.get("enable_cascade_shadow", True):
         cascade = cascade_tau_shadow(
-            eod_rem, y_tau, rem_intercept=rem_intercept
+            oo_rem, y_tau, rem_intercept=rem_intercept
         )
 
-    if y_eod is not None:
-        signal_item["y_oo"] = y_eod
-        signal_item["predicted_score_oo"] = y_eod
-    signal_item["predicted_score_eod_rem"] = eod_rem
+    if y_oo is not None:
+        signal_item["y_oo"] = y_oo
+        signal_item["predicted_score_oo"] = y_oo
+    signal_item["predicted_score_eod_rem"] = oo_rem
     signal_item["predicted_score_tau_delta"] = None
     signal_item["predicted_score_tau_cascade"] = cascade
     signal_item["realized_t1_to_tau"] = realized
@@ -212,9 +212,9 @@ def apply_tau_score_fields(
     # eod_next 不传 y_tau：避免主排序分融合今日已实现收益（缺口∘ŷ_τ≈T日收盘涨幅）
     trade = stamp_trade_prev_close(
         signal_item,
-        y_eod=_as_float(y_eod),
+        y_oo=_as_float(y_oo),
         y_tau=_as_float(y_tau_for_trade),
-        w_eod=we,
+        w_oo=we,
         w_tau=wt,
     )
     if event_prior is not None:
@@ -234,8 +234,9 @@ def apply_tau_score_fields(
         formula_terms_tau = {}
     else:
         formula_terms_tau = dict(formula_terms_tau)
-    formula_terms_tau["eod_remaining"] = eod_rem
-    formula_terms_tau["y_oo"] = y_eod
+    formula_terms_tau["oo_remaining"] = oo_rem
+    formula_terms_tau["eod_remaining"] = oo_rem  # 遗留键
+    formula_terms_tau["y_oo"] = y_oo
     formula_terms_tau["y_tau"] = y_tau
     formula_terms_tau["y_tau_raw"] = y_tau_raw
     formula_terms_tau["y_tau_cc"] = signal_item.get("predicted_score_blend_tau_cc")
@@ -842,17 +843,17 @@ def recover_sub_scores_for_tau(item: Optional[dict]) -> Dict[str, float]:
 def format_tau_formula_string(expl: Optional[Dict[str, Any]]) -> str:
     if not isinstance(expl, dict):
         return ""
-    y_eod = expl.get("y_oo")
+    y_oo = expl.get("y_oo")
     trade = expl.get("trade")
     y_tau = expl.get("y_tau")
     y_tau_cc = expl.get("y_tau_cc")
     if y_tau is None:
         y_tau = expl.get("total")
-    if y_eod is not None and trade is not None and y_tau is not None:
+    if y_oo is not None and trade is not None and y_tau is not None:
         try:
             tau_bit = y_tau_cc if y_tau_cc is not None else y_tau
             return (
-                f"ŷ_trade = w·ŷ_EOD({float(y_eod):+.3f}) + "
+                f"ŷ_trade = w·ŷ_oo({float(y_oo):+.3f}) + "
                 f"w·ŷ_τ昨收({float(tau_bit):+.3f}) = {float(trade):.3f}%"
             )
         except (TypeError, ValueError):

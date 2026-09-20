@@ -420,25 +420,25 @@ def _enrich_trade_eod_rem_fields(
         out["gap_pct"] = gap
     if realized is not None:
         out["realized_t1_to_tau"] = realized
-    y_eod = out.get("predicted_score")
-    if y_eod is None:
-        y_eod = out.get("score")
+    y_oo = out.get("predicted_score")
+    if y_oo is None:
+        y_oo = out.get("score")
     rem = out.get("predicted_score_eod_rem")
-    # 信号日常把 rem 写成 =ŷ_EOD（尚无缺口）；成交后有已实现则必须重算
+    # 信号日常把 rem 写成 =ŷ_oo（尚无缺口）；成交后有已实现则必须重算
     need_remap = rem is None or derived
-    if not need_remap and rem is not None and y_eod is not None and realized is not None:
+    if not need_remap and rem is not None and y_oo is not None and realized is not None:
         try:
-            if abs(float(rem) - float(y_eod)) < 1e-9 and abs(float(realized)) > 1e-9:
+            if abs(float(rem) - float(y_oo)) < 1e-9 and abs(float(realized)) > 1e-9:
                 need_remap = True
         except (TypeError, ValueError):
             need_remap = True
-    if need_remap and y_eod is not None:
+    if need_remap and y_oo is not None:
         try:
-            from core.signal.dual_score import eod_remaining_at_tau
+            from core.signal.dual_score import oo_remaining_at_tau
 
-            rem = eod_remaining_at_tau(y_eod, realized)
+            rem = oo_remaining_at_tau(y_oo, realized)
         except Exception:  # noqa: BLE001 — ŷ 剩余量 best-effort
-            logger.debug("eod_remaining_at_tau failed, skipping predicted_score_eod_rem", exc_info=True)
+            logger.debug("oo_remaining_at_tau failed, skipping predicted_score_eod_rem", exc_info=True)
             rem = None
     if rem is not None:
         out["predicted_score_eod_rem"] = rem

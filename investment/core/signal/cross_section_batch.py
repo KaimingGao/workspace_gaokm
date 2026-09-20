@@ -206,11 +206,11 @@ def score_and_rank_watching(
         from core.signal.dual_score import (
             attach_dual_score_pit,
             buy_passes_tau_gate,
-            eod_gate_score_for_item,
             get_dual_score_cfg,
+            oo_gate_score_for_item,
             rank_key_field,
             rank_key_for_item,
-            resolve_predicted_score_eod,
+            resolve_predicted_score_oo,
         )
 
         dual_cfg = get_dual_score_cfg(cfg)
@@ -258,6 +258,7 @@ def score_and_rank_watching(
                 items,
                 score_keys=[
                     "predicted_score",
+                    "predicted_score_oo",
                     "predicted_score_eod",
                     "predicted_score_blend",
                     "score",
@@ -289,15 +290,15 @@ def score_and_rank_watching(
             if code in oos_blocked:
                 oos_excluded += 1
                 continue
-            eod_raw = resolve_predicted_score_eod(it)
-            eod_gate = eod_gate_score_for_item(it, config=cfg)
-            if eod_gate is None:
-                eod_gate = eod_raw
-            if eod_gate is None:
+            oo_raw = resolve_predicted_score_oo(it)
+            oo_gate = oo_gate_score_for_item(it, config=cfg)
+            if oo_gate is None:
+                oo_gate = oo_raw
+            if oo_gate is None:
                 continue
-            if floor is not None and float(eod_gate) < floor:
+            if floor is not None and float(oo_gate) < floor:
                 continue
-            eod_f = float(eod_raw if eod_raw is not None else eod_gate)
+            oo_f = float(oo_raw if oo_raw is not None else oo_gate)
             if apply_tau_buy_gate:
                 ok, _reason = buy_passes_tau_gate(it, config=cfg)
                 if not ok:
@@ -321,22 +322,22 @@ def score_and_rank_watching(
                     continue
                 rk_name = rank_key_field(config=cfg)
             else:
-                # 历史日线：ŷ_τ/blend 不可靠，排序只用 ŷ_EOD
-                sort_key = eod_f
-                rk_name = "predicted_score_eod"
+                # 历史日线：ŷ_τ/blend 不可靠，排序只用 ŷ_oo
+                sort_key = oo_f
+                rk_name = "predicted_score_oo"
             it["rank_key"] = rk_name
-            # picks 第二元始终是 ŷ_EOD；第三元为实际排序键
-            ranked.append((code, eod_f, float(sort_key)))
+            # picks 第二元始终是 ŷ_oo；第三元为实际排序键
+            ranked.append((code, oo_f, float(sort_key)))
         ranked.sort(key=lambda x: (-float(x[2]), str(x[0])))
-        picks = [(c, eod) for c, eod, _b in ranked]
+        picks = [(c, oo) for c, oo, _b in ranked]
         meta["dual_score_tau_gated"] = gated
         meta["oos_failed_excluded"] = oos_excluded
         meta["rank_key"] = (
-            "predicted_score_eod"
+            "predicted_score_oo"
             if not apply_tau_buy_gate
             else rank_key_field(config=cfg)
         )
-        meta["rank_by_eod"] = not bool(apply_tau_buy_gate)
+        meta["rank_by_oo"] = not bool(apply_tau_buy_gate)
     else:
         oos_excluded = 0
         if oos_blocked:

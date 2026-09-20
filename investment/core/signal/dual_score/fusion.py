@@ -36,15 +36,19 @@ def realized_t1_to_tau_pct(
     return round(((1.0 + g / 100.0) * (1.0 + r / 100.0) - 1.0) * 100.0, 6)
 
 
-def eod_remaining_at_tau(
-    y_eod: Optional[float],
+def oo_remaining_at_tau(
+    y_oo: Optional[float],
     realized_pct: Optional[float],
 ) -> Optional[float]:
     """把 ŷ_oo 严格映成与 ŷ_τ 同一目标：T 收相对 T 开。
 
     实现见 ``yhat_geom.remaining_at_tau``。
     """
-    return remaining_at_tau(y_eod, realized_pct)
+    return remaining_at_tau(y_oo, realized_pct)
+
+
+# 遗留别名
+eod_remaining_at_tau = oo_remaining_at_tau
 
 
 def _as_float(v: Any) -> Optional[float]:
@@ -71,7 +75,7 @@ def fuse_remaining_heads(
     left: Optional[float],
     right: Optional[float],
     *,
-    w_eod: float = 0.5,
+    w_oo: float = 0.5,
     w_tau: float = 0.5,
 ) -> Optional[float]:
     """加权融合两个头。缺一侧用另一侧。量纲由调用方对齐（ŷ_trade 用昨收口径）。
@@ -88,7 +92,7 @@ def fuse_remaining_heads(
     if b is None:
         return round(a, 6)
     try:
-        we = float(w_eod)
+        we = float(w_oo)
     except (TypeError, ValueError):
         we = 0.5
     try:
@@ -128,19 +132,19 @@ def lift_tau_vs_prev_close(
 
 
 def trade_blend_vs_prev_close(
-    y_eod: Optional[float],
+    y_oo: Optional[float],
     y_tau: Optional[float],
     *,
     gap_pct: Optional[float] = None,
-    w_eod: float = 0.5,
+    w_oo: float = 0.5,
     w_tau: float = 0.5,
 ) -> Tuple[Optional[float], Optional[float], str]:
-    """ŷ_trade（昨收）= w·ŷ_EOD + w·(缺口∘ŷ_τ)。返回 (cc, tau_cc, vs)。
+    """ŷ_trade（昨收）= w·ŷ_oo + w·(缺口∘ŷ_τ)。返回 (cc, tau_cc, vs)。
 
-    不经过 ŷ_EOD_rem。缺缺口且仍有 ŷ_τ 时无法抬，vs=open。
+    不经过 ŷ_oo_rem。缺缺口且仍有 ŷ_τ 时无法抬，vs=open。
     """
     tau_cc = lift_tau_vs_prev_close(y_tau, gap_pct)
-    cc = fuse_remaining_heads(y_eod, tau_cc, w_eod=w_eod, w_tau=w_tau)
+    cc = fuse_remaining_heads(y_oo, tau_cc, w_oo=w_oo, w_tau=w_tau)
     if cc is None:
         return None, tau_cc, "open"
     if y_tau is None or _as_float(gap_pct) is not None:
@@ -151,16 +155,16 @@ def trade_blend_vs_prev_close(
 def stamp_trade_prev_close(
     item: dict,
     *,
-    y_eod: Optional[float],
+    y_oo: Optional[float],
     y_tau: Optional[float],
-    w_eod: float,
+    w_oo: float,
     w_tau: float,
 ) -> Optional[float]:
     cc, tau_cc, vs = trade_blend_vs_prev_close(
-        y_eod,
+        y_oo,
         y_tau,
         gap_pct=item_gap_pct(item),
-        w_eod=w_eod,
+        w_oo=w_oo,
         w_tau=w_tau,
     )
     item["predicted_score_blend_tau_cc"] = tau_cc
@@ -195,7 +199,7 @@ def resolve_item_fusion_weights(
 ) -> Tuple[float, float, bool]:
     """解析融合权：簿优先；盘中若残留 eod_next 的 w_τ=0 且 ŷ_τ 仍可用则恢复 cfg。
 
-    返回 (w_eod, w_tau, repaired_stale_eod_next_weights)。
+    返回 (w_oo, w_tau, repaired_stale_eod_next_weights)。
     """
     from core.signal.dual_score.resolve import (
         get_dual_score_cfg,
@@ -254,7 +258,7 @@ def resolve_item_fusion_weights(
 def stamp_item_fusion_weights(
     item: Optional[dict],
     *,
-    w_eod: float,
+    w_oo: float,
     w_tau: float,
     eod_next: bool,
     tau_available: bool,
@@ -266,7 +270,7 @@ def stamp_item_fusion_weights(
     base = dict(prev) if isinstance(prev, dict) else {}
     item["dual_score_weights"] = {
         **base,
-        "w_oo": round(float(w_eod), 6),
+        "w_oo": round(float(w_oo), 6),
         "w_tau": round(0.0 if eod_next else float(w_tau), 6),
         "tau_in_trade": bool(not eod_next and tau_available),
         "window": "eod_next" if eod_next else "intraday",
@@ -284,11 +288,11 @@ def unlifted_trade_blend_stale(
     if str(item.get("dual_score_window") or "") == "eod_next":
         return False  # eod_next 另走剥离 τ
     from core.signal.dual_score.resolve import (
-        resolve_predicted_score_eod,
+        resolve_predicted_score_oo,
         resolve_predicted_score_tau,
     )
 
-    y_eod = resolve_predicted_score_eod(item)
+    y_oo = resolve_predicted_score_oo(item)
     y_tau = resolve_predicted_score_tau(item)
     gap = item_gap_pct(item)
     try:
@@ -300,12 +304,12 @@ def unlifted_trade_blend_stale(
         )
     except (TypeError, ValueError):
         blend = None
-    if y_eod is None or y_tau is None or gap is None or blend is None:
+    if y_oo is None or y_tau is None or gap is None or blend is None:
         return False
     we, wt = _fusion_weights_from_item(item, config=config)
-    naive = fuse_remaining_heads(y_eod, y_tau, w_eod=we, w_tau=wt)
+    naive = fuse_remaining_heads(y_oo, y_tau, w_oo=we, w_tau=wt)
     tau_cc = lift_tau_vs_prev_close(y_tau, gap)
-    lifted = fuse_remaining_heads(y_eod, tau_cc, w_eod=we, w_tau=wt)
+    lifted = fuse_remaining_heads(y_oo, tau_cc, w_oo=we, w_tau=wt)
     if naive is None or lifted is None:
         return False
     if abs(float(naive) - float(lifted)) < 1e-6:
@@ -314,22 +318,22 @@ def unlifted_trade_blend_stale(
 
 
 def fuse_remaining_heads_meta(
-    eod_rem: Optional[float],
+    oo_rem: Optional[float],
     y_tau: Optional[float],
     *,
-    w_eod: float = 0.5,
+    w_oo: float = 0.5,
     w_tau: float = 0.5,
 ) -> Dict[str, Any]:
-    """同 ``fuse_remaining_heads``，并标 ``dual_score_head``：blend | single_eod | single_tau | none。"""
-    a = _as_float(eod_rem)
+    """同 ``fuse_remaining_heads``，并标 ``dual_score_head``：blend | single_oo | single_tau | none。"""
+    a = _as_float(oo_rem)
     b = _as_float(y_tau)
-    fused = fuse_remaining_heads(eod_rem, y_tau, w_eod=w_eod, w_tau=w_tau)
+    fused = fuse_remaining_heads(oo_rem, y_tau, w_oo=w_oo, w_tau=w_tau)
     if a is None and b is None:
         head = "none"
     elif a is None:
         head = "single_tau"
     elif b is None:
-        head = "single_eod"
+        head = "single_oo"
     else:
         head = "blend"
     return {
@@ -415,13 +419,13 @@ def resolve_fusion_weights(
 
 
 def cascade_tau_shadow(
-    eod_rem: Optional[float],
+    oo_rem: Optional[float],
     y_tau: Optional[float],
     *,
     rem_intercept: Optional[float] = None,
 ) -> Optional[float]:
-    """研究影子：ŷ_cascade = ŷ_EOD_rem + (ŷ_τ − α)。α 缺省按 0。"""
-    a = _as_float(eod_rem)
+    """研究影子：ŷ_cascade = ŷ_oo_rem + (ŷ_τ − α)。α 缺省按 0。"""
+    a = _as_float(oo_rem)
     b = _as_float(y_tau)
     if a is None or b is None:
         return None

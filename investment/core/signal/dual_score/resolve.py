@@ -324,7 +324,7 @@ def resolve_predicted_score_oo(item: Optional[dict]) -> Optional[float]:
     return score_f
 
 
-resolve_predicted_score_eod = resolve_predicted_score_oo
+resolve_predicted_score_eod = resolve_predicted_score_oo  # 遗留别名，统一用 resolve_predicted_score_oo
 
 
 def resolve_predicted_score_tau(item: Optional[dict]) -> Optional[float]:
@@ -342,8 +342,8 @@ def resolve_predicted_score_tau(item: Optional[dict]) -> Optional[float]:
     return None
 
 
-def resolve_predicted_score_eod_rem(item: Optional[dict]) -> Optional[float]:
-    """从打分行读取 ŷ_EOD_rem（剩余/日内修正后的 EOD 预测）。"""
+def resolve_predicted_score_oo_rem(item: Optional[dict]) -> Optional[float]:
+    """从打分行读取 ŷ_oo_rem（剩余/日内修正后的 oo 预测）。"""
     if not isinstance(item, dict):
         return None
     for k in ("predicted_score_eod_rem", "score_eod_rem"):
@@ -357,12 +357,16 @@ def resolve_predicted_score_eod_rem(item: Optional[dict]) -> Optional[float]:
     return None
 
 
+# 遗留别名
+resolve_predicted_score_eod_rem = resolve_predicted_score_oo_rem
+
+
 def compute_predicted_score_blend(
     item: Optional[dict],
     *,
     config: Optional[dict] = None,
 ) -> Optional[float]:
-    """ŷ_trade = w·ŷ_EOD + w·(缺口∘ŷ_τ)，同为现价对昨收。
+    """ŷ_trade = w·ŷ_oo + w·(缺口∘ŷ_τ)，同为现价对昨收。
 
     ``dual_score_window=eod_next``：ŷ_oo 已换期，停用 τ 侧融合。
     收盘后同一周期窗口仍是 ``intraday``，ŷ_oc 继续进 ranking。
@@ -371,7 +375,7 @@ def compute_predicted_score_blend(
         return None
     eod_next = str(item.get("dual_score_window") or "") == "eod_next"
     cfg = get_dual_score_cfg(config)
-    y_eod = resolve_predicted_score_eod(item)
+    y_oo = resolve_predicted_score_oo(item)
     y_t = None if eod_next else resolve_predicted_score_tau(item)
     rem_doc = None
     if str(cfg.get("w_mode") or "") == "variance":
@@ -392,19 +396,19 @@ def compute_predicted_score_blend(
         rem_model_doc=rem_doc,
     )
     tau_cc = lift_tau_vs_prev_close(y_t, item_gap_pct(item))
-    meta = fuse_remaining_heads_meta(y_eod, y_t, w_eod=we, w_tau=wt)
+    meta = fuse_remaining_heads_meta(y_oo, y_t, w_oo=we, w_tau=wt)
     item["dual_score_head"] = meta.get("dual_score_head")
     item["dual_score_single_head"] = bool(meta.get("single_head"))
     cc = stamp_trade_prev_close(
         item,
-        y_eod=_as_float(y_eod),
+        y_oo=_as_float(y_oo),
         y_tau=_as_float(y_t),
-        w_eod=we,
+        w_oo=we,
         w_tau=wt,
     )
     stamp_item_fusion_weights(
         item,
-        w_eod=we,
+        w_oo=we,
         w_tau=wt,
         eod_next=eod_next,
         tau_available=y_t is not None,
@@ -413,10 +417,10 @@ def compute_predicted_score_blend(
         return cc
     # eod_next：禁止回落 τ_cc（即使外部误写入 y_τ）
     if eod_next:
-        return y_eod
+        return y_oo
     if tau_cc is not None:
         return tau_cc
-    return y_eod
+    return y_oo
 
 
 def align_trade_score_fields(
@@ -486,16 +490,16 @@ def align_trade_score_fields(
             logger.debug("catch except Exception: in dual_score.py", exc_info=True)
             pass
         return item
-    y_eod = item.get("predicted_score_eod")
-    if y_eod is None:
-        y_eod = item.get("predicted_score")
+    y_oo = item.get("predicted_score_eod")
+    if y_oo is None:
+        y_oo = item.get("predicted_score")
     try:
-        y_eod_f = float(y_eod) if y_eod is not None and y_eod != "" else None
+        y_oo_f = float(y_oo) if y_oo is not None and y_oo != "" else None
     except (TypeError, ValueError):
-        y_eod_f = None
-    if y_eod_f is not None:
-        item["predicted_score_eod"] = y_eod_f
-        item["predicted_score"] = y_eod_f
+        y_oo_f = None
+    if y_oo_f is not None:
+        item["predicted_score_eod"] = y_oo_f
+        item["predicted_score"] = y_oo_f
 
     if refresh_window:
         try:
@@ -519,10 +523,10 @@ def align_trade_score_fields(
     eod_next = str(item.get("dual_score_window") or "") == "eod_next"
     stale = (
         blend is not None
-        and y_eod_f is not None
+        and y_oo_f is not None
         and tau is not None
-        and abs(blend - y_eod_f) < 1e-9
-        and abs(float(tau) - y_eod_f) > 1e-6
+        and abs(blend - y_oo_f) < 1e-9
+        and abs(float(tau) - y_oo_f) > 1e-6
     )
     force_recompute = eod_next and blend is not None
     unlifted = (not eod_next) and unlifted_trade_blend_stale(item, config=config)
@@ -535,7 +539,7 @@ def align_trade_score_fields(
             except (TypeError, ValueError):
                 stale_zero_w_tau = False
         # variance：决策层权可能已收敛到 0，但簿上仍留旧 w_τ>0 + 含 τ 的 blend
-        if not stale_zero_w_tau and blend is not None and y_eod_f is not None:
+        if not stale_zero_w_tau and blend is not None and y_oo_f is not None:
             try:
                 cfg_w = get_dual_score_cfg(config)
                 w_mode = str(cfg_w.get("w_mode") or "fixed")
@@ -548,7 +552,7 @@ def align_trade_score_fields(
                     _we_rt, wt_rt, _note = resolve_fusion_weights(
                         cfg_w, feats=feats, rem_model_doc=None
                     )
-                    if float(wt_rt or 0.0) <= 1e-12 and abs(float(blend) - float(y_eod_f)) > 1e-6:
+                    if float(wt_rt or 0.0) <= 1e-12 and abs(float(blend) - float(y_oo_f)) > 1e-6:
                         stale_zero_w_tau = True
             except Exception:  # noqa: BLE001
                 logger.debug("stale_zero_w_tau runtime check failed", exc_info=True)
@@ -556,8 +560,8 @@ def align_trade_score_fields(
         recomputed = compute_predicted_score_blend(item, config=config)
         if recomputed is not None:
             blend = float(recomputed)
-    if blend is None and (tau is None or eod_next) and y_eod_f is not None:
-        blend = y_eod_f
+    if blend is None and (tau is None or eod_next) and y_oo_f is not None:
+        blend = y_oo_f
     if blend is not None:
         item["predicted_score_blend"] = blend
         item["decision_score"] = blend
@@ -598,7 +602,7 @@ def rank_key_for_item(item: Optional[dict], *, config: Optional[dict] = None) ->
         return None
     cfg = get_dual_score_cfg(config)
     eod_next = str(item.get("dual_score_window") or "") == "eod_next"
-    y_eod = resolve_predicted_score_oo(item)
+    y_oo = resolve_predicted_score_oo(item)
     tau = None if eod_next else resolve_predicted_score_tau(item)
     stored = item.get("predicted_score_blend")
     try:
@@ -610,10 +614,10 @@ def rank_key_for_item(item: Optional[dict], *, config: Optional[dict] = None) ->
         stored_f = None
     stale = (
         stored_f is not None
-        and y_eod is not None
+        and y_oo is not None
         and tau is not None
-        and abs(stored_f - float(y_eod)) < 1e-9
-        and abs(float(tau) - float(y_eod)) > 1e-6
+        and abs(stored_f - float(y_oo)) < 1e-9
+        and abs(float(tau) - float(y_oo)) > 1e-6
     )
     unlifted = (not eod_next) and unlifted_trade_blend_stale(item, config=config)
     if stored_f is None or stale or unlifted:
@@ -625,7 +629,7 @@ def rank_key_for_item(item: Optional[dict], *, config: Optional[dict] = None) ->
                 pass
     if stored_f is not None:
         return stored_f
-    return resolve_predicted_score_eod(item)
+    return resolve_predicted_score_oo(item)
 
 
 def resolve_tau_buy_floor_for_pool(
@@ -752,12 +756,16 @@ def buy_passes_tau_gate(
     return True, None
 
 
-def eod_gate_score_for_item(
+def oo_gate_score_for_item(
     item: Optional[dict],
     *,
     config: Optional[dict] = None,
 ) -> Optional[float]:
-    """入簿 / 买卖 EOD 门槛用分：始终原始 ŷ_EOD。"""
+    """入簿 / 买卖 oo 门槛用分：始终原始 ŷ_oo。"""
     _ = config
-    return resolve_predicted_score_eod(item)
+    return resolve_predicted_score_oo(item)
+
+
+# 遗留别名
+eod_gate_score_for_item = oo_gate_score_for_item
 

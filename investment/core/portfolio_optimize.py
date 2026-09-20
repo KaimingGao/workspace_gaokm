@@ -359,17 +359,17 @@ def _greedy_cap_weights(ranked, eff_pos, eff_sec, max_n, skipped=None):
 
 
 def _apply_y_trust_scale(weights, ranked, sector_sum):
-    """Y(τ) eod_trust → 目标仓位缩放（不归一）；返回 (weights, y_trust_meta, sector_sum)。"""
+    """Y(τ) oo_trust → 目标仓位缩放（不归一）；返回 (weights, y_trust_meta, sector_sum)。"""
     y_trust_meta: Dict[str, Any] = {"applied": False}
     try:
-        from core.signal.y_state import scale_weights_by_eod_trust
+        from core.signal.y_state import scale_weights_by_oo_trust
 
         trust_map = {
             str(r["stock_code"]): r.get("eod_trust")
             for r in ranked
             if r.get("stock_code")
         }
-        weights, y_trust_meta = scale_weights_by_eod_trust(weights, trust_map)
+        weights, y_trust_meta = scale_weights_by_oo_trust(weights, trust_map)
         # 缩放后重算行业暴露
         if y_trust_meta.get("applied") and weights:
             sector_sum = {}
@@ -427,9 +427,9 @@ def _build_budget_alerts(vol_meta, coverage, y_trust_meta, sector_sum, eff_sec):
         budget_alerts.append(
             {
                 "level": "info",
-                "code": "y_eod_trust_scale",
+                "code": "y_oo_trust_scale",
                 "message": (
-                    f"Y·EOD 信任缩放 {y_trust_meta.get('n_scaled')} 只"
+                    f"Y·oo 信任缩放 {y_trust_meta.get('n_scaled')} 只"
                     + (
                         f"· 剔除 {y_trust_meta.get('n_dropped')}"
                         if int(y_trust_meta.get("n_dropped") or 0) > 0

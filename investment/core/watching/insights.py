@@ -493,22 +493,22 @@ def _hydrate_insight_tau_fields(
     paper_ctx: Optional[dict] = None,
     force: bool = False,
 ) -> None:
-    """簿行常只有 ŷ_EOD：用行情缺口现场写出 ŷ_trade（昨收口径）。
+    """簿行常只有 ŷ_oo：用行情缺口现场写出 ŷ_trade（昨收口径）。
 
     有新缺口则重算；无缺口且簿上已有 blend 则对齐即可。
-    ŷ_τ 仍来自 τ 头（`tau_ridge`），缺则 ŷ_trade 退回 ŷ_EOD。
-    ŷ_EOD_rem 仅派生对照，不进融合。
+    ŷ_τ 仍来自 τ 头（`tau_ridge`），缺则 ŷ_trade 退回 ŷ_oo。
+    ŷ_oo_rem 仅派生对照，不进融合。
     """
     if _sanitize_heuristic_yhat_fields(out, item):
         return
-    y_eod = out.get("predicted_score")
-    if y_eod is None:
-        y_eod = out.get("score")
-    if y_eod is None and isinstance(item, dict):
-        y_eod = item.get("predicted_score")
-        if y_eod is None:
-            y_eod = item.get("score")
-    if y_eod is None:
+    y_oo = out.get("predicted_score")
+    if y_oo is None:
+        y_oo = out.get("score")
+    if y_oo is None and isinstance(item, dict):
+        y_oo = item.get("predicted_score")
+        if y_oo is None:
+            y_oo = item.get("score")
+    if y_oo is None:
         return
     q = quote if isinstance(quote, dict) else {}
     b = list(bars or [])
@@ -541,8 +541,8 @@ def _hydrate_insight_tau_fields(
         _finalize_insight_trade_fields(out)
         return
     sig = dict(item) if isinstance(item, dict) else {}
-    # predicted_score 必须是 ŷ_EOD；勿把簿上 trade score 喂进 rem 映射
-    sig["predicted_score"] = y_eod
+    # predicted_score 必须是 ŷ_oo；勿把簿上 trade score 喂进 rem 映射
+    sig["predicted_score"] = y_oo
     if gap is not None:
         sig["gap_pct"] = gap
     # tip 常无池上下文：保留簿上已齐的 features_tau / 池缺口，避免冲成缺特征
@@ -577,14 +577,14 @@ def _hydrate_insight_tau_fields(
         pass
     try:
         from core.signal.dual_score import (
-            eod_remaining_at_tau,
+            oo_remaining_at_tau,
             realized_t1_to_tau_pct,
         )
 
         realized = out.get("realized_t1_to_tau")
         if realized is None:
             realized = realized_t1_to_tau_pct(gap)
-        rem = eod_remaining_at_tau(y_eod, realized)
+        rem = oo_remaining_at_tau(y_oo, realized)
         if rem is None:
             _finalize_insight_trade_fields(out)
             return
@@ -592,14 +592,14 @@ def _hydrate_insight_tau_fields(
         if out.get("predicted_score_blend") is None:
             win = str(out.get("dual_score_window") or "")
             if win == "eod_next":
-                out["predicted_score_blend"] = y_eod
+                out["predicted_score_blend"] = y_oo
                 out["predicted_score_blend_tau_cc"] = None
                 out["predicted_score_blend_vs"] = "prev_close"
             else:
                 from core.signal.dual_score import trade_blend_vs_prev_close
 
                 cc, tau_cc, vs = trade_blend_vs_prev_close(
-                    y_eod, out.get("predicted_score_tau"), gap_pct=gap
+                    y_oo, out.get("predicted_score_tau"), gap_pct=gap
                 )
                 out["predicted_score_blend"] = cc
                 out["predicted_score_blend_tau_cc"] = tau_cc

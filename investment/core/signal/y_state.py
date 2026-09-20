@@ -215,13 +215,13 @@ def eod_execution_trust(
         return 0.0
 
 
-def scale_weights_by_eod_trust(
+def scale_weights_by_oo_trust(
     weights: Dict[str, float],
     trust_by_code: Dict[str, float],
     *,
     config: Optional[dict] = None,
 ) -> Tuple[Dict[str, float], Dict[str, Any]]:
-    """目标仓位 × eod_trust；不重新归一到 100%（与 score_budget 留现金一致）。"""
+    """目标仓位 × oo_trust；不重新归一到 100%（与 score_budget 留现金一致）。"""
     ycfg = get_y_state_cfg(config)
     meta: Dict[str, Any] = {
         "applied": False,
@@ -259,6 +259,10 @@ def scale_weights_by_eod_trust(
     meta["applied"] = True
     meta["total_after"] = round(sum(out.values()), 4)
     return out, meta
+
+
+# 遗留别名
+scale_weights_by_eod_trust = scale_weights_by_oo_trust
 
 
 def resolve_tau_to_close_segment(

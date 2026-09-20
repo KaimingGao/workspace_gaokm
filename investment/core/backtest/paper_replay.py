@@ -2051,9 +2051,9 @@ def _apply_prefix_oc(item: dict, live: dict, cfg: Optional[dict]) -> bool:
     if str(live.get("_score_source") or "") != "prefix_causal":
         return False
     y_oo = pick_y_oo(item)
-    y_eod = item.get("predicted_score_eod")
-    if y_eod is None:
-        y_eod = item.get("predicted_score")
+    y_oo_field = item.get("predicted_score_eod")
+    if y_oo_field is None:
+        y_oo_field = item.get("predicted_score")
     y_trade = item.get("y_trade")
     for k in _OC_PREFIX_KEYS:
         if k in live:
@@ -2061,7 +2061,7 @@ def _apply_prefix_oc(item: dict, live: dict, cfg: Optional[dict]) -> bool:
     _merge_aux_yhat(item, live)
     if y_oo is not None:
         item["y_oo"] = y_oo
-        ps = y_eod if y_eod is not None else y_oo
+        ps = y_oo_field if y_oo_field is not None else y_oo
         item["predicted_score_oo"] = ps
         item["predicted_score"] = ps
     if y_trade is not None:
