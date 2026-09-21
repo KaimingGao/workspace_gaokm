@@ -68,8 +68,10 @@ def fetch_index_bars(benchmark: str, limit: int = 30) -> Tuple[List[dict], str]:
     bars: List[dict] = []
 
     if symbol.startswith(("sh", "sz")):
+        # 新浪优先：东财 index_zh_a_hist 需先拉全量 code map，易 RemoteDisconnected
         code = symbol[2:]
-        for fn_name, kwargs in (
+        sources = (
+            ("stock_zh_index_daily", {"symbol": symbol}),
             (
                 "index_zh_a_hist",
                 {
@@ -79,10 +81,11 @@ def fetch_index_bars(benchmark: str, limit: int = 30) -> Tuple[List[dict], str]:
                     "end_date": end.strftime("%Y%m%d"),
                 },
             ),
-            ("stock_zh_index_daily", {"symbol": symbol}),
-        ):
+        )
+        for fn_name, kwargs in sources:
             fn = getattr(ak, fn_name, None)
             if not fn:
+                logger.debug("index api missing: %s", fn_name)
                 continue
             try:
                 df = fn(**kwargs)
@@ -91,13 +94,15 @@ def fetch_index_bars(benchmark: str, limit: int = 30) -> Tuple[List[dict], str]:
                 )
                 if bars:
                     break
-            except Exception:
-                logger.exception("unexpected error in fetch_index_bars")
+            except Exception as e:
+                logger.warning(
+                    "index fetch fallback %s %s: %s", fn_name, symbol, e
+                )
                 continue
     else:
         for fn_name in (
-            "stock_hk_index_daily_em",
             "stock_hk_index_daily_sina",
+            "stock_hk_index_daily_em",
             "stock_hk_index_spot_em",
             "index_global_hist_em",
         ):
@@ -122,14 +127,20 @@ def fetch_index_bars(benchmark: str, limit: int = 30) -> Tuple[List[dict], str]:
                     )
                     if bars and len(bars) >= 3:
                         break
-                except Exception:
-                    logger.exception("unexpected error in fetch_index_bars")
+                except Exception as e:
+                    logger.warning(
+                        "index fetch fallback %s %s: %s", fn_name, sym, e
+                    )
                     continue
             if bars and len(bars) >= 3:
                 break
 
-    if limit and bars:
-        bars = bars[-limit:]
+    if bars:
+        if limit:
+            bars = bars[-limit:]
+    else:
+        logger.error("index bars empty for benchmark=%s symbol=%s", label, symbol)
+
     return bars, label
 
 
