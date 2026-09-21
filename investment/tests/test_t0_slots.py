@@ -51,8 +51,10 @@ def _slot_rules(**kwargs):
         ],
         "direction": "buy_then_sell",
         "t0_round_ratio": 0.2,
-        "y_tw_enter_shares": 0,
-        "y_tw_strong_shares": 0,
+        "y_oc_enter": 0,
+        "y_oc_strong": 0,
+        "y_oc_enter_amount": 0,
+        "y_oc_strong_amount": 0,
         "y_tpd_max": 1.0,
         "y_t30_strong": 1.0,
         "y_τ30_strong": 1.0,
@@ -112,7 +114,9 @@ class TestT0Slots(unittest.TestCase):
         self.assertAlmostEqual(float(cfg["t0_slots"][0]["ratio"]), 0.20)
         self.assertAlmostEqual(sum(float(s["ratio"]) for s in cfg["t0_slots"]), 1.0)
         self.assertAlmostEqual(float(cfg.get("y_tw_enter") or 0), 2.0)
-        self.assertAlmostEqual(float(cfg.get("y_tw_strong") or 0), 2.0)
+        self.assertAlmostEqual(float(cfg.get("y_oc_enter") or 0), 0.5)
+        self.assertAlmostEqual(float(cfg.get("y_oc_strong") or 0), 1.0)
+        self.assertNotIn("y_tw_strong", cfg)
         self.assertNotIn("t0_leg1_close_extreme", cfg)
         self.assertNotIn("t0_bar_oc_gate", cfg)
         self.assertNotIn("t0_ytw_prefix_confirm", cfg)
@@ -345,6 +349,7 @@ class TestT0Slots(unittest.TestCase):
                 must_cover_same_day=False,
                 t0_stop_pct_sell_then_buy=0,
                 y_path_strong=100.0,
+                t0_y_oc_target_scale=10.0,
             ),
             stock_code="",
             minute_bars=mins,

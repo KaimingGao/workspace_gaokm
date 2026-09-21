@@ -341,3 +341,25 @@ def _lot_shares(raw: float) -> int:
         return 0
     return max(0, (n // 100) * 100)
 
+
+def shares_from_amount(amount: Any, price: Any, lot: int = 100) -> int:
+    """按金额定股数：向下取整到手数。金额>0 但不够一手则买一手。"""
+    try:
+        amt = float(amount)
+    except (TypeError, ValueError):
+        return 0
+    try:
+        px = float(price)
+    except (TypeError, ValueError):
+        return 0
+    if amt != amt or px != px or amt <= 0 or px <= 0:
+        return 0
+    try:
+        lot_i = max(int(lot or 100), 1)
+    except (TypeError, ValueError):
+        lot_i = 100
+    sh = int(amt / px // lot_i) * lot_i
+    if sh < lot_i:
+        return lot_i
+    return sh
+

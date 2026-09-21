@@ -1,4 +1,4 @@
-"""纸面可实现回放：每个交易日按调仓钟走 rank_lots（rank=w_oo·ŷ_oo + w_oc·((1+ŷ_oc)(1+w_co·ŷ_co)−1) · 200 股）。
+"""纸面可实现回放：每个交易日按调仓钟走 rank_lots（rank=w_oo·ŷ_oo + w_oc·((1+ŷ_oc)(1+w_co·ŷ_co)−1) · 按金额换算股数）。
 
 ŷ_oo 始终是 09:30 开盘信息集。ŷ_oc：09:30 成交钟用开盘 Z（``use_minute_tau=False``）；
 09:35–10:00 用截至该钟的 5m 前缀重算（与做 T ``rescore_scores_at_fixed_prefix`` 同路径）。
@@ -12,7 +12,7 @@
 live Follow 不走此闸。
 
 与 ``topk_research``（独立腿聚合）并列。本金默认 20 万（表单可改）、不留现金地板（买到现金不够为止）；T+1 仍生效。
-历史回测手数默认 200（live 读已保存 lot_base/lot_strong，缺省 200/500）。
+历史回测金额默认 1 万 / 2 万（live 读已保存 lot_base_amount/lot_strong_amount，缺省 1 万/2 万）。
 """
 
 from __future__ import annotations
@@ -25,10 +25,12 @@ from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 logger = logging.getLogger(__name__)
 
 ENGINE_ID = "paper_replay"
-REPLAY_LOT_BASE = 200
-REPLAY_LOT_STRONG = 200
-REPLAY_LOT_MIN = 100
-REPLAY_LOT_MAX = 10_000
+REPLAY_AMOUNT_BASE = 10_000.0
+REPLAY_AMOUNT_STRONG = 20_000.0
+REPLAY_AMOUNT_MIN = 1_000.0
+REPLAY_AMOUNT_MAX = 1_000_000.0
+REPLAY_LOT_BASE = REPLAY_AMOUNT_BASE
+REPLAY_LOT_STRONG = REPLAY_AMOUNT_STRONG
 REPLAY_INITIAL_CASH = 200_000.0
 REPLAY_CASH_FLOOR = 0.0
 REPLAY_INITIAL_CASH_MIN = 10_000.0
@@ -61,31 +63,45 @@ def clamp_replay_initial_cash(raw: Any, default: float = REPLAY_INITIAL_CASH) ->
     return max(float(REPLAY_INITIAL_CASH_MIN), min(float(v), float(REPLAY_INITIAL_CASH_MAX)))
 
 
-def clamp_replay_lot(raw: Any, default: int = REPLAY_LOT_BASE) -> int:
-    """回测手数：整百，100～10000。"""
+def clamp_replay_amount(raw: Any, default: float = REPLAY_AMOUNT_BASE) -> float:
+    """回测金额：整百，1000～100 万。"""
     try:
-        v = int(round(float(raw)))
+        v = float(raw)
     except (TypeError, ValueError):
-        v = int(default)
+        v = float(default)
     if v != v:
-        v = int(default)
-    v = max(int(REPLAY_LOT_MIN), min(int(v), int(REPLAY_LOT_MAX)))
-    return (v // 100) * 100
+        v = float(default)
+    v = max(float(REPLAY_AMOUNT_MIN), min(float(v), float(REPLAY_AMOUNT_MAX)))
+    return float(int(round(v / 100.0)) * 100)
+
+
+def clamp_replay_lot(raw: Any, default: float = REPLAY_AMOUNT_BASE) -> float:
+    """兼容旧名：现为金额。"""
+    return clamp_replay_amount(raw, default)
+
+
+def clamp_replay_amount_pair(
+    lot_base_amount: Any = None,
+    lot_strong_amount: Any = None,
+) -> Tuple[float, float]:
+    base = clamp_replay_amount(
+        REPLAY_AMOUNT_BASE if lot_base_amount is None else lot_base_amount,
+        REPLAY_AMOUNT_BASE,
+    )
+    strong = clamp_replay_amount(
+        REPLAY_AMOUNT_STRONG if lot_strong_amount is None else lot_strong_amount,
+        REPLAY_AMOUNT_STRONG,
+    )
+    if strong < base:
+        strong = base
+    return base, strong
 
 
 def clamp_replay_lot_pair(
     lot_base: Any = None,
     lot_strong: Any = None,
-) -> Tuple[int, int]:
-    base = clamp_replay_lot(
-        REPLAY_LOT_BASE if lot_base is None else lot_base, REPLAY_LOT_BASE
-    )
-    strong = clamp_replay_lot(
-        REPLAY_LOT_STRONG if lot_strong is None else lot_strong, REPLAY_LOT_STRONG
-    )
-    if strong < base:
-        strong = base
-    return base, strong
+) -> Tuple[float, float]:
+    return clamp_replay_amount_pair(lot_base, lot_strong)
 
 
 def clamp_replay_fill_clock(raw: Any, default: str = REPLAY_FILL_CLOCK) -> str:
@@ -2195,8 +2211,10 @@ def backtest_paper_replay(
     session_now: Optional[datetime] = None,
     fill_clock: str = REPLAY_FILL_CLOCK,
     minute_bars_by_code: Optional[Dict[str, Dict[str, List[dict]]]] = None,
-    lot_base: Optional[int] = None,
-    lot_strong: Optional[int] = None,
+    lot_base: Optional[float] = None,
+    lot_strong: Optional[float] = None,
+    lot_base_amount: Optional[float] = None,
+    lot_strong_amount: Optional[float] = None,
     rank_enter_alt: Optional[float] = None,
     y_enter_enabled: Optional[bool] = None,
     y_enter_alt_enabled: Optional[bool] = None,
@@ -2306,7 +2324,10 @@ def backtest_paper_replay(
     strong = max(0.0, min(1.0, float(strong)))
     if strong < enter:
         strong = enter
-    lot_base_n, lot_strong_n = clamp_replay_lot_pair(lot_base, lot_strong)
+    lot_base_n, lot_strong_n = clamp_replay_amount_pair(
+        lot_base_amount if lot_base_amount is not None else lot_base,
+        lot_strong_amount if lot_strong_amount is not None else lot_strong,
+    )
     paper = _default_paper(
         initial_cash=initial_cash,
         top_k=top_k,
@@ -2333,6 +2354,8 @@ def backtest_paper_replay(
         "y_enter_alt_enabled": True if y_enter_alt_enabled is None else bool(y_enter_alt_enabled),
         "y_oo_gt0": False if y_oo_gt0 is None else bool(y_oo_gt0),
         "y_oc_gt0": False if y_oc_gt0 is None else bool(y_oc_gt0),
+        "lot_base_amount": lot_base_n,
+        "lot_strong_amount": lot_strong_n,
     }
     paper.setdefault("rules", {})["execution"] = {
         "rebalance_timing": {
@@ -2342,8 +2365,8 @@ def backtest_paper_replay(
     }
     rl_cfg = get_rank_lot_cfg(paper, top_k=top_k)
     rl_cfg["cash_floor"] = floor
-    rl_cfg["lot_base"] = lot_base_n
-    rl_cfg["lot_strong"] = lot_strong_n
+    rl_cfg["lot_base_amount"] = lot_base_n
+    rl_cfg["lot_strong_amount"] = lot_strong_n
     rl_cfg["y_on_alpha"] = alpha
     rl_cfg["fusion_w_co"] = alpha
     rl_cfg["fusion_w_oo"] = w_oo
@@ -2857,7 +2880,7 @@ def backtest_paper_replay(
         f"引擎={ENGINE_ID}：每个交易日 ranking={FORMULA_RANKING}，{fill_note}；{oc_note}；"
         f"ranking 权 w_oo={w_oo:g} w_oc={w_oc:g} w_co={alpha:g}；未过入场则已持仓清仓；"
         f"门槛1∪门槛2 过入场（rank入场={rl_cfg.get('rank_enter')}）按分数买（开加上限=观察池 {top_k} 只，现金不够则停），"
-        f"每笔 {int(rl_cfg.get('lot_base') or REPLAY_LOT_BASE)} 股；"
+        f"每笔 {int(rl_cfg.get('lot_base_amount') or REPLAY_AMOUNT_BASE)} 元；"
         f"不留现金地板；T+1；成本={cost_model}；≠ topk_research。"
     )
     if session_day:
@@ -2887,8 +2910,8 @@ def backtest_paper_replay(
             "fusion_w_oc": w_oc,
             "fusion_w_trade": w_oo,
             "fusion_w_nowcast": w_oc,
-            "lot_base": int(rl_cfg.get("lot_base") or REPLAY_LOT_BASE),
-            "lot_strong": int(rl_cfg.get("lot_strong") or REPLAY_LOT_STRONG),
+            "lot_base_amount": float(rl_cfg.get("lot_base_amount") or REPLAY_AMOUNT_BASE),
+            "lot_strong_amount": float(rl_cfg.get("lot_strong_amount") or REPLAY_AMOUNT_STRONG),
             "cost_model": cost_model,
             "execution_mode": exec_mode,
             "fill_clock": clock,

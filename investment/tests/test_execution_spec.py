@@ -318,10 +318,9 @@ class TestExecutionResolve(unittest.TestCase):
             {
                 "t0": {
                     "t0_y_oc_target_scale": 8.0,
-                    "t0_y_oc_l": -2.0,
-                    "t0_y_oc_u": 2.0,
                     "t0_close_band_delta_pct": 0.4,
                     "y_tw_midpoint": 47.0,
+                    "t0_lock_win_arm_bars": 2,
                 }
             }
         )
@@ -329,6 +328,9 @@ class TestExecutionResolve(unittest.TestCase):
         self.assertAlmostEqual(float(norm["t0"]["t0_y_oc_target_scale"]), 8.0)
         self.assertAlmostEqual(float(norm["t0"]["t0_close_band_delta_pct"]), 0.4)
         self.assertAlmostEqual(float(norm["t0"]["y_tw_midpoint"]), 47.0)
+        self.assertEqual(int(norm["t0"]["t0_lock_win_arm_bars"]), 2)
+        self.assertNotIn("t0_y_oc_l", norm["t0"])
+        self.assertNotIn("t0_y_oc_u", norm["t0"])
         paper = {"strategy_id": "short_conservative", "rules": {}}
         applied = apply_execution_patch_to_paper(paper, norm)
         self.assertTrue(applied.get("ok"), applied)
@@ -337,9 +339,12 @@ class TestExecutionResolve(unittest.TestCase):
         )
         self.assertAlmostEqual(float(view["t0"]["t0_y_oc_target_scale"]), 8.0)
         self.assertAlmostEqual(float(view["t0"]["y_tw_midpoint"]), 47.0)
+        self.assertEqual(int(view["t0"]["t0_lock_win_arm_bars"]), 2)
+        self.assertNotIn("t0_y_oc_l", view.get("t0") or {})
+        self.assertNotIn("t0_y_oc_u", view.get("t0") or {})
         self.assertNotIn("t0_ytw_prefix_confirm", view.get("t0") or {})
 
-    def test_public_view_keeps_y_tw_strong(self):
+    def test_public_view_keeps_y_oc_strong(self):
         from core.execution import (
             apply_execution_patch_to_paper,
             execution_public_view,
@@ -347,19 +352,42 @@ class TestExecutionResolve(unittest.TestCase):
             validate_execution_patch,
         )
 
-        ok, norm, errs = validate_execution_patch({"t0": {"y_tw_strong": 4}})
+        ok, norm, errs = validate_execution_patch({"t0": {"y_oc_strong": 1.5}})
         self.assertTrue(ok, errs)
-        self.assertAlmostEqual(float(norm["t0"]["y_tw_strong"]), 4.0)
+        self.assertAlmostEqual(float(norm["t0"]["y_oc_strong"]), 1.5)
         paper = {"strategy_id": "short_conservative", "rules": {}}
         applied = apply_execution_patch_to_paper(paper, norm)
         self.assertTrue(applied.get("ok"), applied)
         view = execution_public_view(
             resolve_effective_execution(paper=paper, channel="paper")
         )
-        self.assertAlmostEqual(float(view["t0"]["y_tw_strong"]), 4.0)
+        self.assertAlmostEqual(float(view["t0"]["y_oc_strong"]), 1.5)
         self.assertAlmostEqual(float(view["t0"]["y_tw_enter"]), 2.0)
 
-    def test_public_view_keeps_y_tw_shares(self):
+    def test_public_view_keeps_y_oc_amounts(self):
+        from core.execution import (
+            apply_execution_patch_to_paper,
+            execution_public_view,
+            resolve_effective_execution,
+            validate_execution_patch,
+        )
+
+        ok, norm, errs = validate_execution_patch(
+            {"t0": {"y_oc_enter_amount": 30000, "y_oc_strong_amount": 50000}}
+        )
+        self.assertTrue(ok, errs)
+        self.assertEqual(int(norm["t0"]["y_oc_enter_amount"]), 30000)
+        self.assertEqual(int(norm["t0"]["y_oc_strong_amount"]), 50000)
+        paper = {"strategy_id": "short_conservative", "rules": {}}
+        applied = apply_execution_patch_to_paper(paper, norm)
+        self.assertTrue(applied.get("ok"), applied)
+        view = execution_public_view(
+            resolve_effective_execution(paper=paper, channel="paper")
+        )
+        self.assertEqual(int(view["t0"]["y_oc_enter_amount"]), 30000)
+        self.assertEqual(int(view["t0"]["y_oc_strong_amount"]), 50000)
+
+    def test_public_view_drops_share_lot_keys(self):
         from core.execution import (
             apply_execution_patch_to_paper,
             execution_public_view,
@@ -371,18 +399,20 @@ class TestExecutionResolve(unittest.TestCase):
             {"t0": {"y_tw_enter_shares": 300, "y_tw_strong_shares": 500}}
         )
         self.assertTrue(ok, errs)
-        self.assertEqual(int(norm["t0"]["y_tw_enter_shares"]), 300)
-        self.assertEqual(int(norm["t0"]["y_tw_strong_shares"]), 500)
+        self.assertNotIn("y_oc_enter_shares", norm.get("t0") or {})
+        self.assertNotIn("y_oc_strong_shares", norm.get("t0") or {})
+        self.assertNotIn("y_tw_enter_shares", norm.get("t0") or {})
+        self.assertNotIn("y_tw_strong_shares", norm.get("t0") or {})
         paper = {"strategy_id": "short_conservative", "rules": {}}
         applied = apply_execution_patch_to_paper(paper, norm)
         self.assertTrue(applied.get("ok"), applied)
         view = execution_public_view(
             resolve_effective_execution(paper=paper, channel="paper")
         )
-        self.assertEqual(int(view["t0"]["y_tw_enter_shares"]), 300)
-        self.assertEqual(int(view["t0"]["y_tw_strong_shares"]), 500)
+        self.assertNotIn("y_oc_enter_shares", view.get("t0") or {})
+        self.assertNotIn("y_tw_enter_shares", view.get("t0") or {})
 
-    def test_public_view_migrates_y_tw_strong(self):
+    def test_public_view_drops_y_tw_strong(self):
         from core.execution import (
             apply_execution_patch_to_paper,
             execution_public_view,
@@ -392,11 +422,11 @@ class TestExecutionResolve(unittest.TestCase):
 
         ok, norm, errs = validate_execution_patch({"t0": {"y_tw_strong": 1.5}})
         self.assertTrue(ok, errs)
-        self.assertAlmostEqual(float(norm["t0"]["y_tw_strong"]), 1.5)
-        self.assertNotIn("y_tw_enter", norm["t0"])
+        self.assertNotIn("y_tw_strong", norm.get("t0") or {})
+        self.assertNotIn("y_tw_enter", norm.get("t0") or {})
         off, off_norm, off_errs = validate_execution_patch({"t0": {"y_tw_strong": 5}})
         self.assertTrue(off, off_errs)
-        self.assertAlmostEqual(float(off_norm["t0"]["y_tw_strong"]), 5.0)
+        self.assertNotIn("y_tw_strong", off_norm.get("t0") or {})
 
     def test_public_view_drops_y_t60_t90_strong(self):
         from core.execution import (
@@ -538,8 +568,9 @@ class TestExecutionResolve(unittest.TestCase):
         self.assertEqual(defaults["t0_pm_chase_interval_min_sell_then_buy"], 5)
         self.assertEqual(defaults["t0_pm_chase_interval_min_buy_then_sell"], 5)
         self.assertAlmostEqual(defaults["t0_stop_pct_buy_then_sell"], 1.2)
-        self.assertEqual(defaults["t0_stop_arm_bars"], 1)
+        self.assertEqual(defaults["t0_stop_arm_bars"], 6)
         self.assertTrue(defaults["t0_stop_on_close"])
+        self.assertEqual(defaults["t0_lock_win_arm_bars"], 6)
         self.assertAlmostEqual(defaults["t0_lock_win_pct_buy_then_sell"], 2.0)
         self.assertAlmostEqual(defaults["t0_lock_win_pct_sell_then_buy"], 2.0)
         self.assertNotIn("t0_leg1_close_extreme", defaults)

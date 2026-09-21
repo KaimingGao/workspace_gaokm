@@ -95,17 +95,17 @@ class PaperReplayBacktestRequest(BaseModel):
         default="09:30",
         description="调仓成交钟 09:30–10:00 每 5 分钟；成交用该档 5 分钟 K（09:30 用首根开盘）",
     )
-    lot_base: int = Field(
-        default=200,
-        ge=100,
-        le=10000,
-        description="调仓每笔股数。默认 200；整百。保存规则同步到交易执行自动调仓",
+    lot_base_amount: float = Field(
+        default=10_000.0,
+        ge=1_000.0,
+        le=1_000_000.0,
+        description="调仓每笔金额（元）。默认 1 万；按成交价换算整手，不够一手则买一手。保存规则同步到交易执行自动调仓",
     )
-    lot_strong: int = Field(
-        default=200,
-        ge=100,
-        le=10000,
-        description="调仓强档手数（股）。默认与每笔股数相同；保存规则同步到交易执行",
+    lot_strong_amount: float = Field(
+        default=20_000.0,
+        ge=1_000.0,
+        le=1_000_000.0,
+        description="调仓强档金额（元）。默认 2 万；不少于入场金额；保存规则同步到交易执行",
     )
     universe_fit_tiers: Optional[list] = Field(
         default=None,
@@ -195,5 +195,5 @@ class PortfolioBacktestRequest(BaseModel):
         default=0.012,
         ge=0.0,
         le=10.0,
-        description="历史回测 ranking 强手门槛（净收益，0.012=1.2%；超过买 200 股）",
+        description="历史回测 ranking 强手门槛（净收益，0.012=1.2%；超过买强档金额）",
     )

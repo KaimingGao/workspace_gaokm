@@ -146,7 +146,7 @@ def daily_bt_option_defaults() -> Dict[str, Any]:
         "top_k": DAILY_BT_UI_TOP_K,
         "horizon_days": DAILY_BT_UI_HORIZON_DAYS,
         "note": (
-            "日报历史回测=paper_replay/rank_lots（对齐 /replay · 09:30 · 100/200 股）；"
+            "日报历史回测=paper_replay/rank_lots（对齐 /replay · 09:30 · 入场/强档金额）；"
             "模块可改 ON_Alpha / Rank入场 / Rank强 / lookback；不写 signal_config；成本开"
         ),
     }

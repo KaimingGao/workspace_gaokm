@@ -80,8 +80,10 @@ class QuantReplayMixin:
         y_oc_gt0: Optional[bool] = None,
         initial_cash: Optional[float] = None,
         fill_clock: str = "09:30",
-        lot_base: Optional[int] = None,
-        lot_strong: Optional[int] = None,
+        lot_base: Optional[float] = None,
+        lot_strong: Optional[float] = None,
+        lot_base_amount: Optional[float] = None,
+        lot_strong_amount: Optional[float] = None,
         universe_fit_tiers: Optional[Sequence[str]] = None,
         price_space_gate: Optional[bool] = None,
         score_model_role: Optional[str] = None,
@@ -249,7 +251,10 @@ class QuantReplayMixin:
         cash = clamp_replay_initial_cash(
             REPLAY_INITIAL_CASH if initial_cash is None else initial_cash
         )
-        lot_base_n, lot_strong_n = clamp_replay_lot_pair(lot_base, lot_strong)
+        lot_base_n, lot_strong_n = clamp_replay_lot_pair(
+            lot_base_amount if lot_base_amount is not None else lot_base,
+            lot_strong_amount if lot_strong_amount is not None else lot_strong,
+        )
         clock = clamp_replay_fill_clock(fill_clock, REPLAY_FILL_CLOCK)
         gate_on = True if price_space_gate is None else bool(price_space_gate)
         minute_span = min(max(int(lookback or 30) + 20, 15), 120)
@@ -309,8 +314,8 @@ class QuantReplayMixin:
             lookback=int(lookback),
             fill_clock=clock,
             minute_bars_by_code=minute_bars,
-            lot_base=lot_base_n,
-            lot_strong=lot_strong_n,
+            lot_base_amount=lot_base_n,
+            lot_strong_amount=lot_strong_n,
             price_space_cfg=(
                 None if price_space_gate is None else {"price_space_gate": gate_on}
             ),
@@ -347,8 +352,8 @@ class QuantReplayMixin:
             "y_oo_gt0": bool(y_oo_gt0),
             "y_oc_gt0": bool(y_oc_gt0),
             "fill_clock": clock,
-            "lot_base": lot_base_n,
-            "lot_strong": lot_strong_n,
+            "lot_base_amount": lot_base_n,
+            "lot_strong_amount": lot_strong_n,
             "universe_fit_tiers": list(
                 (fit_meta or {}).get("universe_fit_tiers") or ["A", "B", "C"]
             ),
@@ -357,7 +362,7 @@ class QuantReplayMixin:
             "score_axis_note": (
                 "引擎=paper_replay：每个交易日 09:30 rank_lots"
                 f"（成交 {clock} 5m · 初始 {cash / 10000:g} 万 · ranking={FORMULA_RANKING} · "
-                f"{lot_base_n}/{lot_strong_n} 股；"
+                f"{lot_base_n:g}/{lot_strong_n:g} 元；"
                 f"w_oo={w_oo:g}；w_oc={w_oc:g}；"
                 f"w_co={y_on_alpha:g}；门槛1/2 入场；"
                 f"宇宙=观察池 {universe_n} 只"

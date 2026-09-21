@@ -14,10 +14,10 @@ if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
 from core.backtest.paper_replay import (
+    REPLAY_AMOUNT_BASE,
+    REPLAY_AMOUNT_STRONG,
     REPLAY_CASH_FLOOR,
     REPLAY_INITIAL_CASH,
-    REPLAY_LOT_BASE,
-    REPLAY_LOT_STRONG,
     REPLAY_RANK_ENTER,
     REPLAY_RANK_STRONG,
     backtest_paper_replay,
@@ -354,9 +354,10 @@ class TestPaperReplayEngine(unittest.TestCase):
     def test_custom_lots(self):
         from core.backtest.paper_replay import clamp_replay_lot, clamp_replay_lot_pair
 
-        self.assertEqual(clamp_replay_lot(150), 100)
-        self.assertEqual(clamp_replay_lot(250), 200)
-        self.assertEqual(clamp_replay_lot_pair(300, 200), (300, 300))
+        self.assertEqual(clamp_replay_lot(150), 1000)
+        self.assertEqual(clamp_replay_lot(250), 1000)
+        self.assertEqual(clamp_replay_lot_pair(300, 200), (1000, 1000))
+        self.assertEqual(clamp_replay_lot_pair(30000, 20000), (30000, 30000))
         stock_bars = {
             "600519": _bars(16, step=0.5),
             "600036": _bars(16, step=0.3),
@@ -371,16 +372,21 @@ class TestPaperReplayEngine(unittest.TestCase):
                 rankings_by_date=rankings,
                 cost_model="zero",
                 initial_cash=1_000_000.0,
-                lot_base=300,
-                lot_strong=500,
+                lot_base_amount=30000,
+                lot_strong_amount=50000,
             )
         self.assertTrue(out.get("success"), out.get("error"))
-        self.assertEqual(int(out["params"]["lot_base"]), 300)
-        self.assertEqual(int(out["params"]["lot_strong"]), 500)
+        self.assertEqual(int(out["params"]["lot_base_amount"]), 30000)
+        self.assertEqual(int(out["params"]["lot_strong_amount"]), 50000)
         buys = [t for t in (out.get("trades") or []) if t.get("side") == "buy"]
         self.assertTrue(buys)
         for t in buys:
-            self.assertIn(float(t.get("shares") or 0), (300.0, 500.0), t)
+            sh = float(t.get("shares") or 0)
+            px = float(t.get("price") or 0)
+            from core.paper.sizing import shares_from_amount
+            want_b = shares_from_amount(30000, px)
+            want_s = shares_from_amount(50000, px)
+            self.assertIn(sh, (float(want_b), float(want_s)), t)
 
     def test_cash_floor_respected(self):
         stock_bars = {
@@ -635,15 +641,19 @@ class TestPaperReplayEngine(unittest.TestCase):
         )
         paper_trades = (out.get("paper") or {}).get("trades") or []
         self.assertEqual(len(paper_trades), len(trades))
-        self.assertEqual(out["params"]["lot_base"], REPLAY_LOT_BASE)
-        self.assertEqual(out["params"]["lot_strong"], REPLAY_LOT_STRONG)
+        self.assertEqual(out["params"]["lot_base_amount"], REPLAY_AMOUNT_BASE)
+        self.assertEqual(out["params"]["lot_strong_amount"], REPLAY_AMOUNT_STRONG)
         self.assertAlmostEqual(float(out["params"]["rank_enter"]), REPLAY_RANK_ENTER)
         self.assertAlmostEqual(float(out["params"]["rank_strong"]), REPLAY_RANK_STRONG)
         buys = [t for t in trades if t.get("side") == "buy"]
         self.assertTrue(buys)
+        from core.paper.sizing import shares_from_amount
         for t in buys:
             sh = float(t.get("shares") or 0)
-            self.assertIn(sh, (float(REPLAY_LOT_BASE), float(REPLAY_LOT_STRONG)), t)
+            px = float(t.get("price") or 0)
+            want_b = shares_from_amount(REPLAY_AMOUNT_BASE, px)
+            want_s = shares_from_amount(REPLAY_AMOUNT_STRONG, px)
+            self.assertIn(sh, (float(want_b), float(want_s)), t)
             self.assertIn(t.get("action") or t.get("matrix_action"), ("open", "add"))
             self.assertTrue(str(t.get("open_date") or "")[:10], t)
         sim_buys = [

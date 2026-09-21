@@ -99,25 +99,15 @@ def paper_execution_save(body: PaperExecutionPatchRequest | None = None) -> Dict
             ("y_τw_enter", getattr(req, "y_τw_enter", None)
              if getattr(req, "y_τw_enter", None) not in (None, "")
              else getattr(req, "y_tw_enter", None)),
-            ("y_tw_strong", getattr(req, "y_tw_strong", None)),
-            ("y_τw_strong", getattr(req, "y_τw_strong", None)
-             if getattr(req, "y_τw_strong", None) not in (None, "")
-             else getattr(req, "y_tw_strong", None)),
-            ("y_tw_enter_shares", getattr(req, "y_tw_enter_shares", None)),
-            ("y_τw_enter_shares", getattr(req, "y_τw_enter_shares", None)
-             if getattr(req, "y_τw_enter_shares", None) not in (None, "")
-             else getattr(req, "y_tw_enter_shares", None)),
-            ("y_tw_strong_shares", getattr(req, "y_tw_strong_shares", None)),
-            ("y_τw_strong_shares", getattr(req, "y_τw_strong_shares", None)
-             if getattr(req, "y_τw_strong_shares", None) not in (None, "")
-             else getattr(req, "y_tw_strong_shares", None)),
+            ("y_oc_enter", getattr(req, "y_oc_enter", None)),
+            ("y_oc_strong", getattr(req, "y_oc_strong", None)),
+            ("y_oc_enter_amount", getattr(req, "y_oc_enter_amount", None)),
+            ("y_oc_strong_amount", getattr(req, "y_oc_strong_amount", None)),
             ("y_tw_vote_margin", getattr(req, "y_tw_vote_margin", None)),
             ("y_τw_vote_margin", getattr(req, "y_τw_vote_margin", None) if getattr(req, "y_τw_vote_margin", None) not in (None, "") else getattr(req, "y_tw_vote_margin", None)),
             ("y_tw_midpoint", getattr(req, "y_tw_midpoint", None)),
             ("y_τw_midpoint", getattr(req, "y_τw_midpoint", None) if getattr(req, "y_τw_midpoint", None) not in (None, "") else getattr(req, "y_tw_midpoint", None)),
             ("t0_y_oc_target_scale", getattr(req, "t0_y_oc_target_scale", None)),
-            ("t0_y_oc_l", getattr(req, "t0_y_oc_l", None)),
-            ("t0_y_oc_u", getattr(req, "t0_y_oc_u", None)),
             ("t0_close_band_delta_pct", getattr(req, "t0_close_band_delta_pct", None)),
             ("t0_price_space_gate", getattr(req, "t0_price_space_gate", None)),
             ("t0_price_space_max_dev_pct", getattr(req, "t0_price_space_max_dev_pct", None)),
@@ -152,6 +142,7 @@ def paper_execution_save(body: PaperExecutionPatchRequest | None = None) -> Dict
             ("t0_stop_pct_sell_then_buy", req.t0_stop_pct_sell_then_buy),
             ("t0_stop_arm_bars", req.t0_stop_arm_bars),
             ("t0_stop_on_close", req.t0_stop_on_close),
+            ("t0_lock_win_arm_bars", getattr(req, "t0_lock_win_arm_bars", None)),
             ("t0_lock_win_pct_buy_then_sell", req.t0_lock_win_pct_buy_then_sell),
             ("t0_lock_win_pct_sell_then_buy", req.t0_lock_win_pct_sell_then_buy),
         ):

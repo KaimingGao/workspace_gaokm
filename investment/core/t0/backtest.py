@@ -8,7 +8,7 @@ from typing import Any, Callable, Dict, List, Optional
 
 from core.research.cx_panel import pack_y_complexity_fields, pack_y_tpd_fields
 from core.research.r_ridge import pack_y_r_fields
-from core.t0.config import T0_TRADE_DAYS_SAMPLE_UI_LIMIT, load_t0_rules
+from core.t0.config import T0_TRADE_DAYS_SAMPLE_UI_LIMIT, load_t0_rules, t0_backtest_virtual_shares
 from core.t0.minute_path import T0_INTENTIONAL_ABANDON_EXITS
 from core.t0.rules import _t0_qty_lots, simulate_t0_day
 
@@ -359,8 +359,11 @@ def _walk_t0(
     hist_index_by_date = {
         str(b.get("date") or ""): i for i, b in enumerate(history) if b.get("date")
     }
-    shares = float(initial_shares)
     cost = float(initial_cost if initial_cost is not None else bars[0].get("close") or 0)
+    seed_px = float(bars[0].get("open") or 0) or float(cost or 0) or float(
+        bars[0].get("close") or 0
+    )
+    shares = float(t0_backtest_virtual_shares(cfg, fallback=initial_shares, price=seed_px))
     if shares <= 0 or cost <= 0:
         return {"success": False, "error": "无效初始仓位"}
 
@@ -786,20 +789,13 @@ def _walk_t0(
             "y_tw_enter": cfg.get("y_tw_enter")
             if cfg.get("y_tw_enter") not in (None, "")
             else cfg.get("y_τw_enter"),
-            "y_tw_strong": cfg.get("y_tw_strong")
-            if cfg.get("y_tw_strong") not in (None, "")
-            else cfg.get("y_τw_strong"),
-            "y_tw_enter_shares": cfg.get("y_tw_enter_shares")
-            if cfg.get("y_tw_enter_shares") not in (None, "")
-            else cfg.get("y_τw_enter_shares"),
-            "y_tw_strong_shares": cfg.get("y_tw_strong_shares")
-            if cfg.get("y_tw_strong_shares") not in (None, "")
-            else cfg.get("y_τw_strong_shares"),
+            "y_oc_enter": cfg.get("y_oc_enter"),
+            "y_oc_strong": cfg.get("y_oc_strong"),
+            "y_oc_enter_amount": cfg.get("y_oc_enter_amount"),
+            "y_oc_strong_amount": cfg.get("y_oc_strong_amount"),
             "y_tw_vote_margin": cfg.get("y_tw_vote_margin"),
             "y_tw_midpoint": cfg.get("y_tw_midpoint"),
             "t0_y_oc_target_scale": cfg.get("t0_y_oc_target_scale"),
-            "t0_y_oc_l": cfg.get("t0_y_oc_l"),
-            "t0_y_oc_u": cfg.get("t0_y_oc_u"),
             "t0_close_band_delta_pct": cfg.get("t0_close_band_delta_pct"),
             "t0_price_space_gate": cfg.get("t0_price_space_gate"),
             "t0_price_space_max_dev_pct": cfg.get("t0_price_space_max_dev_pct"),
@@ -852,6 +848,7 @@ def _walk_t0(
             "t0_stop_pct_buy_then_sell": cfg.get("t0_stop_pct_buy_then_sell"),
             "t0_stop_pct_sell_then_buy": cfg.get("t0_stop_pct_sell_then_buy"),
             "t0_stop_arm_bars": cfg.get("t0_stop_arm_bars"),
+            "t0_lock_win_arm_bars": cfg.get("t0_lock_win_arm_bars"),
             "t0_lock_win_pct_buy_then_sell": cfg.get("t0_lock_win_pct_buy_then_sell"),
             "t0_lock_win_pct_sell_then_buy": cfg.get("t0_lock_win_pct_sell_then_buy"),
             "t0_stop_on_close": cfg.get("t0_stop_on_close"),

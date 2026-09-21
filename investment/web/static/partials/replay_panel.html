@@ -2,7 +2,7 @@
   <div class="dashboard-head-text quant-head-text">
     <p class="dashboard-eyebrow">Backtest Desk</p>
     <h2>历史回测</h2>
-    <p id="replay-meta" class="dashboard-meta quant-meta" aria-live="polite">历史验证 · rank_lots（5m · 200 股）· 非实盘</p>
+    <p id="replay-meta" class="dashboard-meta quant-meta" aria-live="polite">历史验证 · rank_lots（5m · 金额换手）· 非实盘</p>
     <p class="dashboard-section-desc replay-head-path">
       <a class="replay-hero-link" href="/watching">观察</a>
       →
@@ -153,7 +153,7 @@
                   <div class="follow-path-matrix-body follow-path-matrix-body--row2">
                     <div
                       class="follow-path-matrix-box follow-path-matrix-box--pair"
-                      title="过入场阈值才建仓/加仓，买右侧股数。未过门槛的已持仓清仓。阈值默认 0.1%；股数整百，默认 200。保存规则同步到交易执行自动调仓。"
+                      title="过入场阈值才建仓/加仓，买右侧金额（按成交价换算整手；不够一手则买一手）。未过门槛的已持仓清仓。阈值默认 0.1%；金额默认 1 万。保存规则同步到交易执行自动调仓。"
                     >
                       <span class="follow-path-matrix-box-text">
                         <span class="follow-path-matrix-box-title">入场</span>
@@ -164,14 +164,14 @@
                           <input type="number" name="pm_rank_enter" min="0" max="10" step="0.01" value="0.1" aria-label="入场阈值" />
                         </label>
                         <label class="follow-path-matrix-box-slot">
-                          <span class="follow-path-matrix-box-slot-label">股数</span>
-                          <input type="number" name="pm_lot_base" min="100" max="10000" step="100" value="200" aria-label="入场股数" />
+                          <span class="follow-path-matrix-box-slot-label">金额</span>
+                          <input type="number" name="pm_lot_base_amount" min="1000" max="1000000" step="1000" value="10000" aria-label="入场金额" />
                         </label>
                       </div>
                     </div>
                     <div
                       class="follow-path-matrix-box follow-path-matrix-box--pair"
-                      title="过强阈值买右侧强档股数，否则买入场股数。阈值默认 0.1%；股数整百且不少于入场，默认 200。保存规则同步到交易执行自动调仓。"
+                      title="过强阈值买右侧强档金额，否则买入场金额（按成交价换算整手；不够一手则买一手）。阈值默认 0.1%；金额不少于入场，默认 2 万。保存规则同步到交易执行自动调仓。"
                     >
                       <span class="follow-path-matrix-box-text">
                         <span class="follow-path-matrix-box-title">强档</span>
@@ -182,8 +182,8 @@
                           <input type="number" name="pm_rank_strong" min="0" max="10" step="0.01" value="0.1" aria-label="强阈值" />
                         </label>
                         <label class="follow-path-matrix-box-slot">
-                          <span class="follow-path-matrix-box-slot-label">股数</span>
-                          <input type="number" name="pm_lot_strong" min="100" max="10000" step="100" value="200" aria-label="强档股数" />
+                          <span class="follow-path-matrix-box-slot-label">金额</span>
+                          <input type="number" name="pm_lot_strong_amount" min="1000" max="1000000" step="1000" value="20000" aria-label="强档金额" />
                         </label>
                       </div>
                     </div>
@@ -274,7 +274,7 @@
           ></div>
         </div>
         <p id="quant-portfolio-legend" class="quant-sub">
-          每个交易日 fill_clock 对全部观察池按 ranking＝融合分 − (price(τ)/open−1) 调仓（拟合 open[T]→open[T+1]；09:40 减去开盘到成交钟）；手数看上方入场/强档股数。横轴为本次全部交易日。
+          每个交易日 fill_clock 对全部观察池按 ranking＝融合分 − (price(τ)/open−1) 调仓（拟合 open[T]→open[T+1]；09:40 减去开盘到成交钟）；手数看上方入场/强档金额（按成交价换算整手，不够一手则买一手）。横轴为本次全部交易日。
         </p>
         <div id="quant-bt-stock-contrib" class="replay-stock-contrib" hidden aria-label="分票贡献"></div>
         <div id="quant-bt-trades" class="quant-weight-table-wrap" aria-label="成交流水"></div>
@@ -290,7 +290,7 @@
   >
     <header class="dashboard-section-head quant-section-head replay-section-head replay-run-head">
       <h3 id="replay-section-t0-title" class="dashboard-section-title">做 T 回测</h3>
-      <p class="quant-fingerprint replay-pool-meta">虚拟底仓=最大轮数×Y_τw强股数 · 本金 20 万 · 5m 第一触达 · 不写账本</p>
+      <p class="quant-fingerprint replay-pool-meta">虚拟底仓=最大轮数×y_oc强金额/价 · 本金 20 万 · 5m 第一触达 · 不写账本</p>
       <p id="paper-t0-progress" class="quant-fingerprint paper-progress-status replay-run-progress" hidden aria-live="polite">
         <span id="paper-t0-progress-text">回测中…</span>
       </p>
@@ -365,24 +365,10 @@
                   </label>
                   <label
                     class="paper-t0-field"
-                    title="C_τ = O×(1+clip(ŷ_oc×scale, 下界, 上界)/100)。默认 10。"
+                    title="C_τ = O×(1+ŷ_oc×scale/100)，硬顶 ±20。默认 2。"
                   >
                     <span>y_oc 放大</span>
-                    <input type="number" name="t0_y_oc_target_scale" min="0" max="100" step="0.5" value="10" />
-                  </label>
-                  <label
-                    class="paper-t0-field"
-                    title="clip(ŷ_oc×scale) 下界（百分点）。默认 −3。"
-                  >
-                    <span>ŷ_oc下界</span>
-                    <input type="number" name="t0_y_oc_l" min="-20" max="20" step="0.1" value="-3" />
-                  </label>
-                  <label
-                    class="paper-t0-field"
-                    title="clip(ŷ_oc×scale) 上界（百分点）。默认 +3。"
-                  >
-                    <span>ŷ_oc上界</span>
-                    <input type="number" name="t0_y_oc_u" min="-20" max="20" step="0.1" value="3" />
+                    <input type="number" name="t0_y_oc_target_scale" min="0" max="100" step="0.5" value="2" />
                   </label>
                   <label
                     class="paper-t0-field"
@@ -393,31 +379,38 @@
                   </label>
                   <label
                     class="paper-t0-field"
+                    title="破带后：|ŷ_oc| 须≥此百分点才开腿。默认 0.5；0=不拦。过此未过 y_oc强% 用入场金额。"
+                  >
+                    <span>y_oc入场%</span>
+                    <input type="number" name="y_oc_enter" min="0" max="20" step="0.1" value="0.5" />
+                  </label>
+                  <label
+                    class="paper-t0-field"
+                    title="过 y_oc入场%、未过 y_oc强% 时，本轮第一腿金额（元）。默认 2 万。按成交价换算整手，不够一手则买一手；受可卖/现金约束。"
+                  >
+                    <span>y_oc入场金额</span>
+                    <input type="number" name="y_oc_enter_amount" min="0" max="1000000" step="1000" value="20000" />
+                  </label>
+                  <label
+                    class="paper-t0-field"
+                    title="过 y_oc入场% 后：|ŷ_oc|≥此百分点用 y_oc强金额，否则用入场金额。默认 1.0。须≥入场%。"
+                  >
+                    <span>y_oc强%</span>
+                    <input type="number" name="y_oc_strong" min="0" max="20" step="0.1" value="1.0" />
+                  </label>
+                  <label
+                    class="paper-t0-field"
+                    title="过 y_oc强% 时本轮第一腿金额（元）。不少于入场金额，默认 4 万。按成交价换算整手，不够一手则买一手；受可卖/现金约束。"
+                  >
+                    <span>y_oc强金额</span>
+                    <input type="number" name="y_oc_strong_amount" min="0" max="1000000" step="1000" value="40000" />
+                  </label>
+                  <label
+                    class="paper-t0-field"
                     title="破带后：正T须 ŷ_τw≥此票；反T须 ŷ_τw≤−此票。默认 2；0=允许 0 票。第二腿目标=C_τ。"
                   >
                     <span>Y_τw入场</span>
                     <input type="number" name="y_tw_enter" min="0" max="5" step="0.1" value="2" />
-                  </label>
-                  <label
-                    class="paper-t0-field"
-                    title="过 Y_τw入场、未过 Y_τw强时，本轮第一腿股数。整百，默认 2000。受可卖/现金约束。"
-                  >
-                    <span>Y_τw入场股数</span>
-                    <input type="number" name="y_tw_enter_shares" min="100" max="100000" step="100" value="2000" />
-                  </label>
-                  <label
-                    class="paper-t0-field"
-                    title="过 Y_τw入场后：|ŷ_τw|≥此票用 Y_τw强股数，否则用入场股数。默认 2（与入场相同则总用强档股数）。须≥入场。"
-                  >
-                    <span>Y_τw强</span>
-                    <input type="number" name="y_tw_strong" min="0" max="5" step="0.1" value="2" />
-                  </label>
-                  <label
-                    class="paper-t0-field"
-                    title="过 Y_τw强时本轮第一腿股数。整百且不少于入场股数，默认 4000。受可卖/现金约束。"
-                  >
-                    <span>Y_τw强股数</span>
-                    <input type="number" name="y_tw_strong_shares" min="100" max="100000" step="100" value="4000" />
                   </label>
                   <label
                     class="paper-t0-field"
@@ -442,10 +435,10 @@
                   </label>
                   <label
                     class="paper-t0-field"
-                    title="正/反T止损共用：入场后跳过 N 根 5m 再启用（默认 1≈5 分钟）。止损固定收盘破线确认。"
+                    title="正/反T止损共用：入场后跳过 N 根 5m 再启用（默认 6≈30 分钟）。止损固定收盘破线确认。"
                   >
                     <span>止损延迟根</span>
-                    <input type="number" name="t0_stop_arm_bars" min="0" max="48" step="1" value="1" />
+                    <input type="number" name="t0_stop_arm_bars" min="0" max="48" step="1" value="6" />
                   </label>
                   <label
                     class="paper-t0-field has-tip"
@@ -455,8 +448,15 @@
                     <input type="number" name="t0_stop_pct" min="0" max="20" step="0.1" value="1.2" />
                   </label>
                   <label
+                    class="paper-t0-field"
+                    title="正/反T锁赢共用：入场后跳过 N 根 5m 再启用（默认 6≈30 分钟）。与止损延迟独立。锁赢固定收盘确认。"
+                  >
+                    <span>锁赢延迟根</span>
+                    <input type="number" name="t0_lock_win_arm_bars" min="0" max="48" step="1" value="6" />
+                  </label>
+                  <label
                     class="paper-t0-field has-tip"
-                    title="正T涨过 / 反T跌过 锁赢%（相对该轮第一腿成交价）则提前做第二腿：0=关。正反T共用。语义与止损相反。延迟见左侧延迟根。收盘确认。本根已触 C_τ 不抢。"
+                    title="正T涨过 / 反T跌过 锁赢%（相对该轮第一腿成交价）则提前做第二腿：0=关。正反T共用。语义与止损相反。延迟见左侧锁赢延迟根。收盘确认。本根已触 C_τ 不抢。"
                   >
                     <span>锁赢%</span>
                     <input type="number" name="t0_lock_win_pct" min="0" max="20" step="0.1" value="2" />

@@ -57,6 +57,16 @@ def _t0_lock_win_pct(cfg: dict, direction: str) -> float:
     return max(0.0, min(pct, 20.0))
 
 
+def _t0_lock_win_arm_bars(cfg: dict) -> int:
+    """锁赢延迟根：入场后跳过 N 根 5m 再启用。默认 6。与止损延迟独立。"""
+    try:
+        raw = (cfg or {}).get("t0_lock_win_arm_bars")
+        arm = int(6 if raw is None or raw == "" else raw)
+    except (TypeError, ValueError):
+        arm = 6
+    return max(0, min(arm, 48))
+
+
 def _t0_stop_params(cfg: dict, direction: str) -> Tuple[float, int, bool]:
     """正/反T止损：(pct, arm_bars, on_close)。pct≤0 表示关。
 
@@ -76,9 +86,9 @@ def _t0_stop_params(cfg: dict, direction: str) -> Tuple[float, int, bool]:
     pct = max(0.0, min(pct, 20.0))
     try:
         raw_arm = (cfg or {}).get("t0_stop_arm_bars")
-        arm = int(2 if raw_arm is None or raw_arm == "" else raw_arm)
+        arm = int(6 if raw_arm is None or raw_arm == "" else raw_arm)
     except (TypeError, ValueError):
-        arm = 2
+        arm = 6
     arm = max(0, min(arm, 48))
     from core.t0.config import coerce_cfg_bool
 
@@ -786,6 +796,7 @@ def _first_touch_sell_then_buy(
     last_chase_min: Optional[int] = None
     stop_pct, stop_arm_bars, stop_on_close = _t0_stop_params(cfg, "sell_then_buy")
     lock_pct = _t0_lock_win_pct(cfg, "sell_then_buy")
+    lock_arm_bars = _t0_lock_win_arm_bars(cfg)
     leg1_idx: Optional[int] = None
     stop_level: Optional[float] = None
     lock_level: Optional[float] = None
@@ -889,13 +900,13 @@ def _first_touch_sell_then_buy(
                         exit_reason = "stop_loss"
                         continue
 
-            # 跌过锁赢（先于买回触发/追价；本根已触 C_τ 不抢）：延迟与止损共用
+            # 跌过锁赢（先于买回触发/追价；本根已触 C_τ 不抢）：独立延迟根
             if (
                 lock_pct > 0
                 and lock_level is not None
                 and sold_qty > 0
                 and leg1_idx is not None
-                and (idx - leg1_idx) > stop_arm_bars
+                and (idx - leg1_idx) > lock_arm_bars
             ):
                 steal_tau = (
                     chase_buy_level is not None
@@ -928,7 +939,7 @@ def _first_touch_sell_then_buy(
                         leg_kind="lock_win",
                         note=(
                             f"反T跌过锁赢买回（{lock_pct:.2f}%·"
-                            f"收盘确认·延迟{stop_arm_bars}根）"
+                            f"收盘确认·延迟{lock_arm_bars}根）"
                         ),
                     )
                     shares_now += sold_qty
@@ -1262,6 +1273,7 @@ def _first_touch_buy_then_sell(
     last_chase_min: Optional[int] = None
     stop_pct, stop_arm_bars, stop_on_close = _t0_stop_params(cfg, "buy_then_sell")
     lock_pct = _t0_lock_win_pct(cfg, "buy_then_sell")
+    lock_arm_bars = _t0_lock_win_arm_bars(cfg)
     leg1_idx: Optional[int] = None
     stop_level: Optional[float] = None
     lock_level: Optional[float] = None
@@ -1366,13 +1378,13 @@ def _first_touch_buy_then_sell(
                     exit_reason = "stop_loss"
                     continue
 
-            # 涨过锁赢（先于卖触发/追价；本根已触 C_τ 不抢）：延迟与止损共用
+            # 涨过锁赢（先于卖触发/追价；本根已触 C_τ 不抢）：独立延迟根
             if (
                 lock_pct > 0
                 and lock_level is not None
                 and sell_old_qty > 0
                 and leg1_idx is not None
-                and (idx - leg1_idx) > stop_arm_bars
+                and (idx - leg1_idx) > lock_arm_bars
             ):
                 steal_tau = (
                     chase_sell_level is not None
@@ -1398,7 +1410,7 @@ def _first_touch_buy_then_sell(
                         leg_kind="lock_win",
                         note=(
                             f"正T涨过锁赢卖旧仓（{lock_pct:.2f}%·"
-                            f"收盘确认·延迟{stop_arm_bars}根）"
+                            f"收盘确认·延迟{lock_arm_bars}根）"
                         ),
                     )
                     shares_now -= sell_old_qty

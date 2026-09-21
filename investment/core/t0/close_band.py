@@ -1,9 +1,10 @@
 """做 T 选腿：09:30–11:00 每根 5m 用 ŷ_oc 估 C_τ，破带定方向。
 
-C_τ = O×(1+clip(ŷ_oc×scale, y_oc_l, y_oc_u)/100)。
+C_τ = O×(1+clip(ŷ_oc×scale, ±20)/100)。表单无上下界；硬顶 ±20 防极端。
 upper = C_τ×(1+δ/100)，lower = C_τ×(1−δ/100)。
 C>upper → 反T（现价卖，leg2 目标 C_τ）；C<lower → 正T（现价买，leg2 目标 C_τ）。
 ŷ_τw = ŷ_τ30/45/60/75/90 相对共用中位点（默认 47%）的符号和，过门槛才开腿。
+股数额度看 |ŷ_oc|：过 y_oc入场% 用入场金额/价换算股数，过 y_oc强% 用强金额。
 阴阳门槛 / 前序 ŷ_τw 确认 / 收贴端已下线。
 """
 
@@ -40,41 +41,30 @@ def r_hat_from_c_tau_px(c_tau: Any, price_tau: Any) -> Optional[float]:
     return (float(mid) / float(px) - 1.0) * 100.0
 
 
-DEFAULT_Y_OC_TARGET_SCALE = 10.0
-DEFAULT_Y_OC_L = -3.0
-DEFAULT_Y_OC_U = 3.0
+DEFAULT_Y_OC_TARGET_SCALE = 2.0
 Y_OC_TARGET_SCALE_MIN = 0.0
 Y_OC_TARGET_SCALE_MAX = 100.0
-Y_OC_CLIP_ABS_MAX = 20.0
+Y_OC_CLIP_ABS_MAX = 20.0  # 硬顶；表单已下线上下界
 DEFAULT_CLOSE_BAND_DELTA_PCT = 0.5
 CLOSE_BAND_DELTA_PCT_MAX = 10.0
 
 
-def resolve_y_oc_target_params(cfg: Optional[dict] = None) -> tuple[float, float, float]:
-    """C_τ 公式参数：scale、y_oc_l、y_oc_u（百分点）。缺键用默认 10 / −3 / +3。"""
+def resolve_y_oc_target_scale(cfg: Optional[dict] = None) -> float:
+    """C_τ 放大倍数。缺键默认 2。"""
     cfg_d = cfg if isinstance(cfg, dict) else {}
+    try:
+        raw = cfg_d.get("t0_y_oc_target_scale")
+        v = float(DEFAULT_Y_OC_TARGET_SCALE if raw is None or raw == "" else raw)
+    except (TypeError, ValueError):
+        v = float(DEFAULT_Y_OC_TARGET_SCALE)
+    if v != v:  # NaN
+        v = float(DEFAULT_Y_OC_TARGET_SCALE)
+    return max(Y_OC_TARGET_SCALE_MIN, min(Y_OC_TARGET_SCALE_MAX, v))
 
-    def _clamp(key: str, default: float, lo: float, hi: float) -> float:
-        try:
-            raw = cfg_d.get(key)
-            v = float(default if raw is None or raw == "" else raw)
-        except (TypeError, ValueError):
-            v = float(default)
-        if v != v:  # NaN
-            v = float(default)
-        return max(lo, min(hi, v))
 
-    scale = _clamp(
-        "t0_y_oc_target_scale",
-        DEFAULT_Y_OC_TARGET_SCALE,
-        Y_OC_TARGET_SCALE_MIN,
-        Y_OC_TARGET_SCALE_MAX,
-    )
-    lo = _clamp("t0_y_oc_l", DEFAULT_Y_OC_L, -Y_OC_CLIP_ABS_MAX, Y_OC_CLIP_ABS_MAX)
-    hi = _clamp("t0_y_oc_u", DEFAULT_Y_OC_U, -Y_OC_CLIP_ABS_MAX, Y_OC_CLIP_ABS_MAX)
-    if lo > hi:
-        lo, hi = hi, lo
-    return scale, lo, hi
+def resolve_y_oc_target_params(cfg: Optional[dict] = None) -> float:
+    """兼容旧名：只返回 scale。上下界已下线。"""
+    return resolve_y_oc_target_scale(cfg)
 
 
 def resolve_close_band_delta_pct(cfg: Optional[dict] = None) -> float:
@@ -94,15 +84,13 @@ def clip_y_oc_target_pct(
     y_oc: float,
     *,
     scale: float = DEFAULT_Y_OC_TARGET_SCALE,
-    y_oc_l: float = DEFAULT_Y_OC_L,
-    y_oc_u: float = DEFAULT_Y_OC_U,
+    y_oc_l: Any = None,
+    y_oc_u: Any = None,
 ) -> float:
-    """clip(ŷ_oc×scale, y_oc_l, y_oc_u)；输入输出均为百分点。"""
+    """ŷ_oc×scale（百分点）；硬顶 ±20。``y_oc_l`` / ``y_oc_u`` 已忽略。"""
+    _ = y_oc_l, y_oc_u
     yt = float(y_oc) * float(scale)
-    lo, hi = float(y_oc_l), float(y_oc_u)
-    if lo > hi:
-        lo, hi = hi, lo
-    return max(lo, min(hi, yt))
+    return max(-Y_OC_CLIP_ABS_MAX, min(Y_OC_CLIP_ABS_MAX, yt))
 
 
 def target_c_tau_px(
@@ -110,17 +98,18 @@ def target_c_tau_px(
     y_oc: float,
     *,
     scale: float = DEFAULT_Y_OC_TARGET_SCALE,
-    y_oc_l: float = DEFAULT_Y_OC_L,
-    y_oc_u: float = DEFAULT_Y_OC_U,
+    y_oc_l: Any = None,
+    y_oc_u: Any = None,
 ) -> Optional[float]:
-    """C_τ = price × (1 + clip(ŷ_oc×scale, y_oc_l, y_oc_u)/100)。"""
+    """C_τ = price × (1 + clip(ŷ_oc×scale, ±20)/100)。"""
+    _ = y_oc_l, y_oc_u
     try:
         p = float(price)
     except (TypeError, ValueError):
         return None
     if p <= 0:
         return None
-    clipped = clip_y_oc_target_pct(y_oc, scale=scale, y_oc_l=y_oc_l, y_oc_u=y_oc_u)
+    clipped = clip_y_oc_target_pct(y_oc, scale=scale)
     return p * (1.0 + clipped / 100.0)
 
 
@@ -147,7 +136,7 @@ def scores_close_components(
     price_tau: Optional[float] = None,
     cfg: Optional[dict] = None,
 ) -> Dict[str, Optional[float]]:
-    """估 C_τ：O×(1+clip(ŷ_oc×scale, y_oc_l, y_oc_u)/100)。ŷ_τc 只对照。
+    """估 C_τ：O×(1+clip(ŷ_oc×scale, ±20)/100)。ŷ_τc 只对照。
 
     估用**日线** open；slots 再经 ``map_close_px_to_minute`` 映回分钟触价。
     remaining(clip(ŷ_oc×scale)) 写入 R̂_τ（= Ĉ_τ/price(τ)−1，与价带同目标）；
@@ -179,11 +168,9 @@ def scores_close_components(
                 raw.get("predicted_score_r")
             )
     y_tau = y_oc
-    scale, y_oc_l, y_oc_u = resolve_y_oc_target_params(cfg)
+    scale = resolve_y_oc_target_scale(cfg)
     y_oc_target = (
-        clip_y_oc_target_pct(y_oc, scale=scale, y_oc_l=y_oc_l, y_oc_u=y_oc_u)
-        if y_oc is not None
-        else None
+        clip_y_oc_target_pct(y_oc, scale=scale) if y_oc is not None else None
     )
     c_hat = _pct_to_px(open_px, y_oc_target) if y_oc_target is not None else None
     c_oc = _pct_to_px(open_px, y_oc) if y_oc is not None else None
@@ -218,8 +205,6 @@ def scores_close_components(
         "y_oc": y_oc,
         "y_oc_target": round(float(y_oc_target), 6) if y_oc_target is not None else None,
         "t0_y_oc_target_scale": scale,
-        "t0_y_oc_l": y_oc_l,
-        "t0_y_oc_u": y_oc_u,
         "y_τc": y_τc,
         "y_τc_ridge": y_τc_ridge,
         "y_τc_source": y_τc_source,
@@ -242,12 +227,12 @@ def estimate_close_px(
     price_tau: Optional[float] = None,
     cfg: Optional[dict] = None,
 ) -> Dict[str, Any]:
-    """C_τ := O×(1+clip(ŷ_oc×scale, y_oc_l, y_oc_u)/100)。缺 ŷ_oc → 不可估。
+    """C_τ := O×(1+clip(ŷ_oc×scale, ±20)/100)。缺 ŷ_oc → 不可估。
 
     扫描传入**该根前缀**因果 ŷ_oc。破带比较 price = **本根 5m 收价 C**。
     ``price_tau`` 用于 R̂_τ / ŷ_τc 对照字段，不改 C_τ。
     R̂_τ = Ĉ_τ/price(τ)−1（clip 后目标）；remaining_oc 为未 clip 的 remaining(ŷ_oc)。
-    ``cfg`` 提供 scale / y_oc_l / y_oc_u（默认 10 / −3 / +3）。
+    ``cfg`` 提供 scale（默认 2）。
     """
     parts = scores_close_components(
         scores,
@@ -351,7 +336,7 @@ def close_band_pick_direction(
     raw = scores if isinstance(scores, dict) else {}
     sc = scores_from_item(raw)
     y_tau = resolve_direction_y_tau(sc)
-    scale, y_oc_l, y_oc_u = resolve_y_oc_target_params(cfg)
+    scale = resolve_y_oc_target_scale(cfg)
     r_pct = None
     try:
         p, mid = float(bar_close), float(close_px)
@@ -369,8 +354,6 @@ def close_band_pick_direction(
         "lower_px": lo_px,
         "upper_px": up_px,
         "t0_y_oc_target_scale": scale,
-        "t0_y_oc_l": y_oc_l,
-        "t0_y_oc_u": y_oc_u,
     }
 
 
@@ -583,10 +566,11 @@ Y_T60_HIT_EPS = 0.0
 Y_T75_HIT_EPS = 0.0
 Y_T90_HIT_EPS = 0.0
 DEFAULT_Y_TW_ENTER = 2.0  # 正T：ŷ_τw>=此值；反T：ŷ_τw<=−此值。0=允许 0 票
-DEFAULT_Y_TW_STRONG = 2.0  # 过入场后 |ŷ_τw|>=此票用强股数，否则入场股数
-DEFAULT_Y_TW_WEAK_RATIO = 0.5  # 过入场未过强且未配股数：轮次仓位 × 此比例
-DEFAULT_Y_TW_ENTER_SHARES = 2000
-DEFAULT_Y_TW_STRONG_SHARES = 4000
+DEFAULT_Y_OC_ENTER = 0.5  # |ŷ_oc| 入场百分点；0=不拦
+DEFAULT_Y_OC_STRONG = 1.0  # |ŷ_oc|>=此值用强股数，否则入场股数
+DEFAULT_Y_OC_WEAK_RATIO = 0.5  # 过入场未过强且未配股数：轮次仓位 × 此比例
+DEFAULT_Y_OC_ENTER_SHARES = 2000
+DEFAULT_Y_OC_STRONG_SHARES = 4000
 DEFAULT_Y_TW_VOTE_MARGIN = 5.0  # |p_up−mid|≤此百分点不投票
 DEFAULT_Y_TW_MIDPOINT = 47.0  # ŷ_τ* 共用中位点（百分点）
 
@@ -845,92 +829,77 @@ def _y_tw_enter_floor(cfg_d: dict) -> float:
     return DEFAULT_Y_TW_ENTER
 
 
-def _y_tw_strong_floor(cfg_d: dict) -> float:
-    """ŷ_τw 强档幅度。缺键跟随 Y_τw入场。"""
-    from core.t0.score_policy import _cfg_float
-
-    for k in ("y_tw_strong", "y_τw_strong"):
-        if cfg_d.get(k) not in (None, ""):
-            return max(0.0, min(float(_cfg_float(cfg_d, k, DEFAULT_Y_TW_STRONG)), 5.0))
-    return _y_tw_enter_floor(cfg_d)
-
-
 def _ytw_enter_for_direction(cfg_d: dict, direction: str) -> float:
     """正/反 T 共用 y_tw_enter。分侧键已下线。"""
     _ = direction
     return _y_tw_enter_floor(cfg_d)
 
 
-def _ytw_strong_for_direction(cfg_d: dict, direction: str) -> float:
-    """Y_τw强：至少等于共用入场门槛，避免强档低于入场。"""
-    enter = _ytw_enter_for_direction(cfg_d, direction)
-    return max(enter, _y_tw_strong_floor(cfg_d))
+def _y_oc_enter_floor(cfg_d: dict) -> float:
+    """ŷ_oc 入场百分点。0=不拦。"""
+    from core.t0.score_policy import _cfg_float
+
+    if cfg_d.get("y_oc_enter") not in (None, ""):
+        return max(0.0, min(float(_cfg_float(cfg_d, "y_oc_enter", DEFAULT_Y_OC_ENTER)), 20.0))
+    return DEFAULT_Y_OC_ENTER
 
 
-def close_band_y_tw_is_strong(
-    y_tw: Optional[float],
+def _y_oc_strong_floor(cfg_d: dict) -> float:
+    """ŷ_oc 强档百分点。至少等于入场，避免强档低于入场。"""
+    from core.t0.score_policy import _cfg_float
+
+    enter = _y_oc_enter_floor(cfg_d)
+    if cfg_d.get("y_oc_strong") not in (None, ""):
+        strong = max(0.0, min(float(_cfg_float(cfg_d, "y_oc_strong", DEFAULT_Y_OC_STRONG)), 20.0))
+        return max(enter, strong)
+    return max(enter, DEFAULT_Y_OC_STRONG)
+
+
+def close_band_y_oc_is_strong(
+    y_oc: Optional[float],
     cfg: Optional[dict] = None,
-    *,
-    direction: Optional[str] = None,
 ) -> bool:
-    """过门槛后是否达到 Y_τw强（全额轮次）。"""
-    d = str(direction or "").strip()
-    if d not in ("sell_then_buy", "buy_then_sell") or y_tw is None:
+    """过 y_oc入场后是否达到 y_oc强（全额轮次）。"""
+    if y_oc is None:
         return False
     cfg_d = cfg if isinstance(cfg, dict) else {}
-    strong = _ytw_strong_for_direction(cfg_d, d)
-    if d == "buy_then_sell":
-        return float(y_tw) + 1e-12 >= float(strong)
-    return float(y_tw) - 1e-12 <= -float(strong)
+    strong = _y_oc_strong_floor(cfg_d)
+    return abs(float(y_oc)) + 1e-12 >= float(strong)
 
 
-def close_band_y_tw_round_scale(
-    y_tw: Optional[float],
+def close_band_y_oc_round_scale(
+    y_oc: Optional[float],
     cfg: Optional[dict] = None,
-    *,
-    direction: Optional[str] = None,
 ) -> float:
-    """轮次仓位乘数：过强=1，过入场未过强=半仓。配了绝对股数时引擎改走 round_shares。"""
-    if close_band_y_tw_is_strong(y_tw, cfg, direction=direction):
+    """轮次仓位乘数：过强=1，过入场未过强=半仓。配了绝对金额时引擎改走 round_shares。"""
+    if close_band_y_oc_is_strong(y_oc, cfg):
         return 1.0
-    return DEFAULT_Y_TW_WEAK_RATIO
+    return DEFAULT_Y_OC_WEAK_RATIO
 
 
-def _ytw_lot_shares(raw: Any, default: int, lot: int) -> int:
+def _yoc_lot_amount(raw: Any, default: float = 0.0) -> float:
     try:
-        v = int(float(default if raw in (None, "") else raw))
+        v = float(default if raw in (None, "") else raw)
     except (TypeError, ValueError):
-        v = int(default)
-    if v <= 0:
-        return 0
-    lot_i = max(int(lot or 100), 1)
-    v = max(lot_i, min(v, 100000))
-    return (v // lot_i) * lot_i
+        v = float(default)
+    if v != v or v <= 0:
+        return 0.0
+    return float(v)
 
 
-def close_band_y_tw_round_shares(
+def close_band_y_oc_round_shares(
     cfg: Optional[dict],
     *,
-    y_tw: Optional[float],
-    direction: Optional[str],
+    y_oc: Optional[float],
     lot: int = 100,
+    price: Optional[float] = None,
 ) -> Optional[int]:
-    """过入场用入场股数，过强用强股数。两边都未配（≤0）则 None，走比例仓。"""
+    """过 y_oc入场用入场金额/价，过 y_oc强用强金额。不够一手则买一手。两边都未配（≤0）则 None，走比例仓。"""
+    from core.paper.sizing import shares_from_amount
+
     cfg_d = cfg if isinstance(cfg, dict) else {}
-    enter = _ytw_lot_shares(
-        cfg_d.get("y_tw_enter_shares")
-        if cfg_d.get("y_tw_enter_shares") not in (None, "")
-        else cfg_d.get("y_τw_enter_shares"),
-        0,
-        lot,
-    )
-    strong = _ytw_lot_shares(
-        cfg_d.get("y_tw_strong_shares")
-        if cfg_d.get("y_tw_strong_shares") not in (None, "")
-        else cfg_d.get("y_τw_strong_shares"),
-        0,
-        lot,
-    )
+    enter = _yoc_lot_amount(cfg_d.get("y_oc_enter_amount"), 0.0)
+    strong = _yoc_lot_amount(cfg_d.get("y_oc_strong_amount"), 0.0)
     if enter <= 0 and strong <= 0:
         return None
     if enter <= 0:
@@ -938,9 +907,24 @@ def close_band_y_tw_round_shares(
     if strong <= 0:
         strong = enter
     strong = max(enter, strong)
-    if close_band_y_tw_is_strong(y_tw, cfg_d, direction=direction):
-        return int(strong)
-    return int(enter)
+    amt = float(strong if close_band_y_oc_is_strong(y_oc, cfg_d) else enter)
+    return int(shares_from_amount(amt, price, lot))
+
+
+def close_band_y_oc_skip_reason(
+    y_oc: Optional[float],
+    cfg: Optional[dict] = None,
+) -> Optional[str]:
+    """选腿入场：|ŷ_oc| 须过 y_oc入场%。0=不拦。缺 ŷ_oc 由估 C_τ 先行跳过。"""
+    if y_oc is None:
+        return None
+    cfg_d = cfg if isinstance(cfg, dict) else {}
+    enter = _y_oc_enter_floor(cfg_d)
+    if enter <= 1e-12:
+        return None
+    if abs(float(y_oc)) + 1e-12 < float(enter):
+        return f"ŷ_oc={float(y_oc):+.2f} 未过入场（须|ŷ_oc|>={enter:g}）"
+    return None
 
 
 def blend_y_tw_from_scores(
@@ -1038,7 +1022,7 @@ def bar_close_band_pick_direction(
     """旗舰选腿：ŷ_oc 估 C_τ，破带定方向；ŷ_τw 门槛为辅。
 
     C>upper → sell_then_buy；C<lower → buy_then_sell。
-    缺 ŷ_oc / 未破带 / ŷ_τw 未过门槛 → None。
+    缺 ŷ_oc / 未破带 / ŷ_τw 未过门槛 / |ŷ_oc| 未过 y_oc入场% → None。
     """
     o, c = _f(bar_open), _f(bar_close)
     lo, hi = _f(bar_low), _f(bar_high)
@@ -1113,6 +1097,10 @@ def bar_close_band_pick_direction(
     )
     if ytw_skip:
         meta["skip"] = ytw_skip
+        return None, meta
+    yoc_skip = close_band_y_oc_skip_reason(meta.get("y_oc"), cfg)
+    if yoc_skip:
+        meta["skip"] = yoc_skip
         return None, meta
     return direction, meta
 

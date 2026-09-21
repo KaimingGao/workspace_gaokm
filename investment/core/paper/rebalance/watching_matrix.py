@@ -765,7 +765,7 @@ def simulate_watching_matrix_preview(
     dry_run: bool = True,
     offline_only: bool = True,
 ) -> Dict[str, Any]:
-    """观察池算分 + rank_lots（ranking=fuse(ŷ_oo,ŷ_oc) · 已保存手数）。
+    """观察池算分 + rank_lots（ranking=fuse(ŷ_oo,ŷ_oc) · 已保存金额换手）。
 
     默认 offline 只约束 ŷ；``dry_run=False`` 落账强制现价，避免成本写成昨收。
     """

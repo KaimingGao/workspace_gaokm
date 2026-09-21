@@ -128,41 +128,29 @@ class T0BacktestRequest(BaseModel):
         le=5.0,
         description="y_tw_enter 的 Unicode 别名",
     )
-    y_tw_strong: Optional[float] = Field(
+    y_oc_enter: Optional[float] = Field(
         default=None,
         ge=0.0,
-        le=5.0,
-        description="过 Y_τw入场后 |ŷ_τw|>=此票用强股数，否则入场股数。默认 2；须≥入场",
+        le=20.0,
+        description="|ŷ_oc| 入场百分点。默认 0.5；0=不拦",
     )
-    y_τw_strong: Optional[float] = Field(
+    y_oc_strong: Optional[float] = Field(
         default=None,
         ge=0.0,
-        le=5.0,
-        description="y_tw_strong 的 Unicode 别名",
+        le=20.0,
+        description="过 y_oc入场后 |ŷ_oc|>=此值用强金额，否则入场金额。默认 1.0；须≥入场",
     )
-    y_tw_enter_shares: Optional[int] = Field(
+    y_oc_enter_amount: Optional[float] = Field(
         default=None,
         ge=0,
-        le=100000,
-        description="过 Y_τw入场未过强时本轮股数；整百，默认 2000；0=走旧比例仓",
+        le=1_000_000,
+        description="过 y_oc入场未过强时本轮金额（元）；默认 2 万；0=走旧比例仓。按成交价换算整手，不够一手则买一手",
     )
-    y_τw_enter_shares: Optional[int] = Field(
+    y_oc_strong_amount: Optional[float] = Field(
         default=None,
         ge=0,
-        le=100000,
-        description="y_tw_enter_shares 的 Unicode 别名",
-    )
-    y_tw_strong_shares: Optional[int] = Field(
-        default=None,
-        ge=0,
-        le=100000,
-        description="过 Y_τw强时本轮股数；整百且≥入场股数，默认 4000",
-    )
-    y_τw_strong_shares: Optional[int] = Field(
-        default=None,
-        ge=0,
-        le=100000,
-        description="y_tw_strong_shares 的 Unicode 别名",
+        le=1_000_000,
+        description="过 y_oc强时本轮金额（元）；不少于入场金额，默认 4 万",
     )
     y_tw_vote_margin: Optional[float] = Field(
         default=None,
@@ -192,19 +180,7 @@ class T0BacktestRequest(BaseModel):
         default=None,
         ge=0.0,
         le=100.0,
-        description="C_τ=O×(1+clip(ŷ_oc×scale, l, u)/100)；默认 10",
-    )
-    t0_y_oc_l: Optional[float] = Field(
-        default=None,
-        ge=-20.0,
-        le=20.0,
-        description="ŷ_oc×scale clip 下界（百分点）；默认 −3",
-    )
-    t0_y_oc_u: Optional[float] = Field(
-        default=None,
-        ge=-20.0,
-        le=20.0,
-        description="ŷ_oc×scale clip 上界（百分点）；默认 +3",
+        description="C_τ=O×(1+clip(ŷ_oc×scale, ±20)/100)；默认 2",
     )
     t0_close_band_delta_pct: Optional[float] = Field(
         default=None,
@@ -330,11 +306,17 @@ class T0BacktestRequest(BaseModel):
         default=None,
         ge=0,
         le=48,
-        description="正/反T止损：入场后跳过 N 根 5m 再启用",
+        description="正/反T止损：入场后跳过 N 根 5m 再启用。默认 6",
     )
     t0_stop_on_close: Optional[bool] = Field(
         default=True,
         description="正/反T止损固定收盘破线确认；表单已去掉，入参忽略",
+    )
+    t0_lock_win_arm_bars: Optional[int] = Field(
+        default=None,
+        ge=0,
+        le=48,
+        description="正/反T锁赢：入场后跳过 N 根 5m 再启用；默认 6；与止损延迟独立",
     )
     t0_lock_win_pct_buy_then_sell: Optional[float] = Field(
         default=None,
@@ -409,7 +391,7 @@ class PaperExecutionPatchRequest(BaseModel):
     coupling: Optional[dict] = None
     rebalance_timing: Optional[dict] = Field(
         default=None,
-        description="调仓时机；含 rank_lots.fill_clock（默认 09:30～10:00）与 lot_base/lot_strong 手数",
+        description="调仓时机；含 rank_lots.fill_clock（默认 09:30～10:00）与 lot_base_amount/lot_strong_amount 金额",
     )
     lock: bool = True
     note: str = ""
@@ -434,19 +416,15 @@ class PaperExecutionPatchRequest(BaseModel):
     y_on_risk: Optional[float] = None
     y_tw_enter: Optional[float] = None
     y_τw_enter: Optional[float] = None
-    y_tw_strong: Optional[float] = None
-    y_τw_strong: Optional[float] = None
-    y_tw_enter_shares: Optional[int] = None
-    y_τw_enter_shares: Optional[int] = None
-    y_tw_strong_shares: Optional[int] = None
-    y_τw_strong_shares: Optional[int] = None
+    y_oc_enter: Optional[float] = None
+    y_oc_strong: Optional[float] = None
+    y_oc_enter_amount: Optional[float] = None
+    y_oc_strong_amount: Optional[float] = None
     y_tw_vote_margin: Optional[float] = None
     y_τw_vote_margin: Optional[float] = None
     y_tw_midpoint: Optional[float] = None
     y_τw_midpoint: Optional[float] = None
     t0_y_oc_target_scale: Optional[float] = None
-    t0_y_oc_l: Optional[float] = None
-    t0_y_oc_u: Optional[float] = None
     t0_close_band_delta_pct: Optional[float] = None
     t0_price_space_gate: Optional[bool] = None
     t0_price_space_max_dev_pct: Optional[float] = None
@@ -483,6 +461,7 @@ class PaperExecutionPatchRequest(BaseModel):
     t0_stop_pct_sell_then_buy: Optional[float] = None
     t0_stop_arm_bars: Optional[int] = None
     t0_stop_on_close: Optional[bool] = None
+    t0_lock_win_arm_bars: Optional[int] = None
     t0_lock_win_pct_buy_then_sell: Optional[float] = None
     t0_lock_win_pct_sell_then_buy: Optional[float] = None
 

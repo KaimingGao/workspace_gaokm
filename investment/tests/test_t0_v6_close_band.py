@@ -55,8 +55,10 @@ def _cfg(overrides=None):
     d.setdefault("y_tpd_max", 1.0)
     d.setdefault("t0_lock_win_pct_buy_then_sell", 0)
     d.setdefault("t0_lock_win_pct_sell_then_buy", 0)
-    d.setdefault("y_tw_enter_shares", 0)
-    d.setdefault("y_tw_strong_shares", 0)
+    d.setdefault("y_oc_enter", 0)
+    d.setdefault("y_oc_strong", 0)
+    d.setdefault("y_oc_enter_amount", 0)
+    d.setdefault("y_oc_strong_amount", 0)
     return load_t0_rules(d)
 
 
@@ -116,9 +118,9 @@ class TestCloseBandCore(unittest.TestCase):
         }
         est = estimate_close_px(sc, open_px=100.0, prev_close=100.0)
         self.assertTrue(est["ok"])
-        # C_τ = 100×(1+clip(1×10, −3, +3)/100) = 103
-        self.assertAlmostEqual(est["close_px"], 103.0, places=4)
-        self.assertAlmostEqual(est["c_tau"], 103.0, places=4)
+        # C_τ = 100×(1+clip(1×2, ±20)/100) = 102
+        self.assertAlmostEqual(est["close_px"], 102.0, places=4)
+        self.assertAlmostEqual(est["c_tau"], 102.0, places=4)
         self.assertAlmostEqual(est["c_oc"], 101.0, places=4)
         self.assertIsNone(est["c_trade"])
         self.assertIsNone(est["c_nowcast"])
@@ -175,13 +177,18 @@ class TestCloseBandCore(unittest.TestCase):
     def test_c_tau_clip_formula_and_multiplicative_band(self):
         from core.t0.close_band import close_band_pick_direction, clip_y_oc_target_pct
 
-        # ŷ_oc=-1.12% ×10 = −11.2 → clip 到 −3
-        self.assertAlmostEqual(clip_y_oc_target_pct(-1.12), -3.0, places=6)
+        # ŷ_oc=-1.12% ×2 = −2.24，未顶到 ±20；旧 l/u 入参忽略
+        self.assertAlmostEqual(clip_y_oc_target_pct(-1.12), -2.24, places=6)
+        self.assertAlmostEqual(
+            clip_y_oc_target_pct(-1.12, y_oc_l=-3.0, y_oc_u=3.0), -2.24, places=6
+        )
         est = estimate_close_px({"y_tau": -1.12}, open_px=25.300)
-        self.assertAlmostEqual(est["c_tau"], 25.300 * (1.0 - 0.03), places=4)
-        # ŷ_oc=0.1% ×10 = 1 → 未饱和
+        self.assertAlmostEqual(est["c_tau"], 25.300 * (1.0 - 0.0224), places=4)
+        # ŷ_oc=0.1% ×2 = 0.2 → 未饱和
         est2 = estimate_close_px({"y_tau": 0.1}, open_px=100.0)
-        self.assertAlmostEqual(est2["c_tau"], 101.0, places=4)
+        self.assertAlmostEqual(est2["c_tau"], 100.2, places=4)
+        # 硬顶 ±20：−3×10 = −30 → −20
+        self.assertAlmostEqual(clip_y_oc_target_pct(-3.0, scale=10.0), -20.0, places=6)
         c_tau = 24.541
         d, meta = close_band_pick_direction(25.276, c_tau, 3.0, {"y_tau": -1.12}, {})
         self.assertIsNone(d)
@@ -307,32 +314,64 @@ class TestCloseBandCore(unittest.TestCase):
         self.assertIn("未过反T入场", str(meta5.get("skip") or ""))
 
     def test_ytw_round_shares_strong_vs_enter(self):
-        from core.t0.close_band import close_band_y_tw_round_shares
+        from core.t0.close_band import close_band_y_oc_round_shares
 
         self.assertIsNone(
-            close_band_y_tw_round_shares({}, y_tw=3, direction="buy_then_sell")
+            close_band_y_oc_round_shares({}, y_oc=3, price=10)
         )
         self.assertIsNone(
-            close_band_y_tw_round_shares(
-                {"y_tw_enter_shares": 0, "y_tw_strong_shares": 0},
-                y_tw=3,
-                direction="buy_then_sell",
+            close_band_y_oc_round_shares(
+                {"y_oc_enter_amount": 0, "y_oc_strong_amount": 0},
+                y_oc=3,
+                price=10,
             )
         )
         cfg = {
-            "y_tw_enter": 2,
-            "y_tw_strong": 4,
-            "y_tw_enter_shares": 400,
-            "y_tw_strong_shares": 800,
+            "y_oc_enter": 0.5,
+            "y_oc_strong": 1.0,
+            "y_oc_enter_amount": 4000,
+            "y_oc_strong_amount": 8000,
         }
         self.assertEqual(
-            close_band_y_tw_round_shares(cfg, y_tw=2, direction="buy_then_sell"),
+            close_band_y_oc_round_shares(cfg, y_oc=0.6, price=10),
             400,
         )
         self.assertEqual(
-            close_band_y_tw_round_shares(cfg, y_tw=4, direction="buy_then_sell"),
+            close_band_y_oc_round_shares(cfg, y_oc=1.2, price=10),
             800,
         )
+        self.assertEqual(
+            close_band_y_oc_round_shares(cfg, y_oc=0.6, price=80),
+            100,
+        )
+
+    def test_y_oc_enter_skip_reason(self):
+        from core.t0.close_band import (
+            bar_close_band_pick_direction,
+            close_band_y_oc_skip_reason,
+        )
+
+        self.assertIsNone(close_band_y_oc_skip_reason(0.2, {"y_oc_enter": 0}))
+        skip = close_band_y_oc_skip_reason(0.2, {"y_oc_enter": 0.5})
+        self.assertIsNotNone(skip)
+        self.assertIn("未过入场", skip)
+        self.assertIsNone(close_band_y_oc_skip_reason(0.5, {"y_oc_enter": 0.5}))
+        up = _ytw_heads(up=True)
+        d, meta = bar_close_band_pick_direction(
+            100.0,
+            100.0,
+            {**up, "y_tau": 0.2},
+            {
+                "y_tw_enter": 0,
+                "y_oc_enter": 0.5,
+                "t0_close_band_delta_pct": 0.5,
+                "t0_y_oc_target_scale": 10,
+            },
+            open_px=100.0,
+            scale=1.0,
+        )
+        self.assertIsNone(d)
+        self.assertIn("未过入场", str(meta.get("skip") or ""))
 
     def test_bar_oc_gate_no_longer_blocks(self):
         """阴阳门槛已下线：阴线 + 正 ŷ_τw 仍可开正T。"""
@@ -387,7 +426,7 @@ class TestCloseBandCore(unittest.TestCase):
         self.assertAlmostEqual(blend_y_tw(0.53, 0.53, 0.53, 0.53, 0.53), 5.0)
         self.assertAlmostEqual(blend_y_tw(0.50, 0.50, 0.50, 0.50, 0.50), 0.0)
 
-        # ŷ_oc 破带：open=100, ŷ_oc=+1%×10 clip +3% → C_τ=103；C=100 < lower → 正T
+        # ŷ_oc 破带：open=100, ŷ_oc=+1%×默认 2 → C_τ=102；C=100 < lower → 正T
         d_band, meta_band = bar_close_band_pick_direction(
             100.0,
             100.0,
@@ -397,7 +436,7 @@ class TestCloseBandCore(unittest.TestCase):
             scale=1.0,
         )
         self.assertEqual(d_band, "buy_then_sell")
-        self.assertAlmostEqual(float(meta_band["c_tau"]), 103.0, places=4)
+        self.assertAlmostEqual(float(meta_band["c_tau"]), 102.0, places=4)
 
     def test_leg1_close_extreme_dropped(self):
         from core.t0.close_band import bar_close_band_pick_direction

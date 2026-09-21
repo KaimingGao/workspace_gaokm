@@ -1,4 +1,4 @@
-"""策略调仓：fill_clock～10:00 用 rank=w_oo·ŷ_oo + w_oc·((1+ŷ_oc)(1+w_co·ŷ_co)−1) 排序，按已保存手数下单。
+"""策略调仓：fill_clock～10:00 用 rank=w_oo·ŷ_oo + w_oc·((1+ŷ_oc)(1+w_co·ŷ_co)−1) 排序，按已保存金额换算股数下单。
 
 规则（live 与历史回测共用）：
   - 持有周期 = T 开盘 → T+1 开盘
@@ -10,9 +10,10 @@
   - 过入场（ranking>入场，可选 y_oo>0 / y_oc>0）→ 开仓或加仓
   - 已持仓且未过入场、缺 ranking、或 hard_reject → 清仓（T+1 可卖部分）
     缺分不能假装过门槛续持；无「持」动作
-  - ranking > rank强 → lot_strong 股，否则 lot_base 股（live 与回测同一对；缺省 500 / 200）
+  - ranking > rank强 → lot_strong_amount，否则 lot_base_amount（缺省 2 万 / 1 万）
+    股数 = 金额/价 向下取整到一手；不够一手则买一手
   - 不留现金地板：现金不够该手则缩到整百（最少一手）；仍买不起才跳过。
-    强档买不下先试基础手数，再缩。live 另受持仓市值上限约束
+    强档买不下先试入场金额，再缩。live 另受持仓市值上限约束
 """
 
 from __future__ import annotations
@@ -29,10 +30,11 @@ DEFAULT_HOLDINGS_MV_CAP = 150_000.0
 DEFAULT_INITIAL_CASH = 1_000_000.0
 DEFAULT_Y_ON_ALPHA = 1.0
 Y_ON_ALPHA_MAX = 10.0
-LOT_BASE = 200
-LOT_STRONG = 500
+LOT_AMOUNT_BASE = 10_000.0
+LOT_AMOUNT_STRONG = 20_000.0
+LOT_AMOUNT_MIN = 1_000.0
+LOT_AMOUNT_MAX = 1_000_000.0
 LOT_MIN = 100
-LOT_MAX = 10_000
 
 
 def _display_name(code: str, *cands: Any) -> str:
@@ -285,29 +287,34 @@ def ranking_score(
     return float(fused) / 100.0
 
 
-def _normalize_lot(n: Any, default: int) -> int:
+def _normalize_amount(n: Any, default: float) -> float:
     try:
-        v = max(int(LOT_MIN), int(n))
+        v = float(n)
     except (TypeError, ValueError):
-        v = int(default)
-    v = min(v, int(LOT_MAX))
-    return (v // 100) * 100
+        v = float(default)
+    if v != v:
+        v = float(default)
+    v = max(float(LOT_AMOUNT_MIN), min(v, float(LOT_AMOUNT_MAX)))
+    return float(int(round(v / 100.0)) * 100)
 
 
 def lot_shares_for_rank(
     score: Optional[float],
     rank_strong: float,
     *,
-    lot_base: int = LOT_BASE,
-    lot_strong: int = LOT_STRONG,
+    amount_base: float = LOT_AMOUNT_BASE,
+    amount_strong: float = LOT_AMOUNT_STRONG,
+    price: float = 0.0,
+    lot: int = LOT_MIN,
 ) -> int:
     if score is None:
         return 0
-    base = _normalize_lot(lot_base, LOT_BASE)
-    strong = max(base, _normalize_lot(lot_strong, LOT_STRONG))
-    if float(score) > float(rank_strong):
-        return strong
-    return base
+    from core.paper.sizing import shares_from_amount
+
+    base_a = _normalize_amount(amount_base, LOT_AMOUNT_BASE)
+    strong_a = max(base_a, _normalize_amount(amount_strong, LOT_AMOUNT_STRONG))
+    amt = strong_a if float(score) > float(rank_strong) else base_a
+    return shares_from_amount(amt, price, lot)
 
 
 def clip_lot_to_cash(
@@ -355,16 +362,16 @@ def clip_lot_to_cash(
     return min(sh, max_sh)
 
 
-def _lot_sizes_from_cfg(cfg: Optional[dict]) -> Tuple[int, int]:
-    base = LOT_BASE
-    strong = LOT_STRONG
+def _lot_amounts_from_cfg(cfg: Optional[dict]) -> Tuple[float, float]:
+    base = LOT_AMOUNT_BASE
+    strong = LOT_AMOUNT_STRONG
     if isinstance(cfg, dict):
-        if cfg.get("lot_base") is not None:
-            base = cfg.get("lot_base")
-        if cfg.get("lot_strong") is not None:
-            strong = cfg.get("lot_strong")
-    base_n = _normalize_lot(base, LOT_BASE)
-    strong_n = max(base_n, _normalize_lot(strong, LOT_STRONG))
+        if cfg.get("lot_base_amount") is not None:
+            base = cfg.get("lot_base_amount")
+        if cfg.get("lot_strong_amount") is not None:
+            strong = cfg.get("lot_strong_amount")
+    base_n = _normalize_amount(base, LOT_AMOUNT_BASE)
+    strong_n = max(base_n, _normalize_amount(strong, LOT_AMOUNT_STRONG))
     return base_n, strong_n
 
 
@@ -453,7 +460,7 @@ def get_rank_lot_cfg(
         k = max(1, min(int(top_k), pool_cap))
     else:
         k = pool_cap
-    lot_base, lot_strong = _lot_sizes_from_cfg(pm)
+    lot_base_amount, lot_strong_amount = _lot_amounts_from_cfg(pm)
     return {
         "rank_enter": enter,
         "rank_strong": strong,
@@ -472,8 +479,8 @@ def get_rank_lot_cfg(
         "fusion_w_nowcast": float(pm.get("fusion_w_oc") or pm.get("fusion_w_nowcast") or 0.4),
         "fusion_w_co": float(pm.get("fusion_w_co") if pm.get("fusion_w_co") is not None else (pm.get("y_on_alpha") if pm.get("y_on_alpha") is not None else DEFAULT_Y_ON_ALPHA)),
         "y_on_alpha": float(pm.get("fusion_w_co") if pm.get("fusion_w_co") is not None else (pm.get("y_on_alpha") if pm.get("y_on_alpha") is not None else DEFAULT_Y_ON_ALPHA)),
-        "lot_base": lot_base,
-        "lot_strong": lot_strong,
+        "lot_base_amount": lot_base_amount,
+        "lot_strong_amount": lot_strong_amount,
         "y_enter_enabled": bool(pm.get("y_enter_enabled", True)),
         "y_enter_alt_enabled": bool(pm.get("y_enter_alt_enabled", True)),
         "y_oo_gt0": bool(y_oo_gt0),
@@ -1009,7 +1016,8 @@ def plan_rank_lot_day(
         mv_cap = 0.0
     mv_cap = max(0.0, mv_cap)
     top_k = max(1, int(cfg.get("top_k") or 15))
-    lot_base, lot_strong_sh = _lot_sizes_from_cfg(cfg)
+    amount_base, amount_strong = _lot_amounts_from_cfg(cfg)
+    from core.paper.sizing import shares_from_amount
     px_buy = prices if isinstance(prices, dict) else {}
     px_sell = sell_prices if isinstance(sell_prices, dict) else px_buy
 
@@ -1186,14 +1194,14 @@ def plan_rank_lot_day(
                 }
             )
             continue
-        lots = lot_shares_for_rank(
-            rs, rank_strong, lot_base=lot_base, lot_strong=lot_strong_sh
-        )
-        lot_kind = "strong" if lots == lot_strong_sh else "base"
+        is_strong = float(rs) > float(rank_strong)
+        amt = amount_strong if is_strong else amount_base
+        lots = shares_from_amount(amt, px, LOT_MIN)
+        lot_kind = "strong" if is_strong else "base"
         want = int(lots)
         need = float(lots) * float(px)
-        if cash_sim - need < cash_floor - 1e-6 and lots > lot_base:
-            lots = lot_base
+        if cash_sim - need < cash_floor - 1e-6 and is_strong:
+            lots = shares_from_amount(amount_base, px, LOT_MIN)
             lot_kind = "base"
             need = float(lots) * float(px)
         clipped = clip_lot_to_cash(
@@ -1253,7 +1261,7 @@ def plan_rank_lot_day(
                 "reason": (
                     (
                         f"ranking={rs * 100.0:.3f}%>{rank_strong * 100.0:g}% 买{lots}股"
-                        if want == lot_strong_sh
+                        if is_strong
                         else f"ranking={rs * 100.0:.3f}%>入场{rank_enter * 100.0:g}% 买{lots}股"
                     )
                     + (f"（现金不够{want}）" if lots < want else "")
@@ -1296,10 +1304,11 @@ __all__ = [
     "DEFAULT_RANK_ENTER",
     "DEFAULT_RANK_STRONG",
     "DEFAULT_Y_ON_ALPHA",
-    "LOT_BASE",
-    "LOT_MAX",
+    "LOT_AMOUNT_BASE",
+    "LOT_AMOUNT_MAX",
+    "LOT_AMOUNT_MIN",
+    "LOT_AMOUNT_STRONG",
     "LOT_MIN",
-    "LOT_STRONG",
     "Y_ON_ALPHA_MAX",
     "account_ref_equity",
     "AUX_YHAT_KEYS",

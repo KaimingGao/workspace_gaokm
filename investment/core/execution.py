@@ -18,7 +18,12 @@ import json
 from copy import deepcopy
 from typing import Any, Dict, List, Optional, Tuple
 
-from core.t0.config import drop_dead_t0_keys, load_t0_rules, migrate_y_path_keys_to_hl
+from core.t0.config import (
+    drop_dead_t0_keys,
+    load_t0_rules,
+    migrate_y_path_keys_to_hl,
+    migrate_ytw_lot_keys_to_oc,
+)
 
 DEFAULT_COUPLING: Dict[str, Any] = {
     "t0_vs_stance": "independent",  # independent | skip_if_avoid | only_if_hold
@@ -52,19 +57,15 @@ ALLOWED_T0_PATCH_KEYS = frozenset(
         "y_on_allow",
         "y_tw_enter",
         "y_τw_enter",
-        "y_tw_strong",
-        "y_τw_strong",
-        "y_tw_enter_shares",
-        "y_τw_enter_shares",
-        "y_tw_strong_shares",
-        "y_τw_strong_shares",
+        "y_oc_enter",
+        "y_oc_strong",
+        "y_oc_enter_amount",
+        "y_oc_strong_amount",
         "y_tw_vote_margin",
         "y_τw_vote_margin",
         "y_tw_midpoint",
         "y_τw_midpoint",
         "t0_y_oc_target_scale",
-        "t0_y_oc_l",
-        "t0_y_oc_u",
         "t0_close_band_delta_pct",
         "t0_price_space_gate",
         "t0_price_space_max_dev_pct",
@@ -99,6 +100,7 @@ ALLOWED_T0_PATCH_KEYS = frozenset(
         "t0_stop_pct_sell_then_buy",
         "t0_stop_arm_bars",
         "t0_stop_on_close",
+        "t0_lock_win_arm_bars",
         "t0_lock_win_pct_buy_then_sell",
         "t0_lock_win_pct_sell_then_buy",
         "t0_slots_enabled",
@@ -135,19 +137,15 @@ DEFAULT_T0_OVERLAY: Dict[str, Any] = {
     "y_on_allow": 0.01,
     "y_tw_enter": 2.0,
     "y_τw_enter": 2.0,
-    "y_tw_strong": 2.0,
-    "y_τw_strong": 2.0,
-    "y_tw_enter_shares": 2000,
-    "y_τw_enter_shares": 2000,
-    "y_tw_strong_shares": 4000,
-    "y_τw_strong_shares": 4000,
+    "y_oc_enter": 0.5,
+    "y_oc_strong": 1.0,
+    "y_oc_enter_amount": 20_000.0,
+    "y_oc_strong_amount": 40_000.0,
     "y_tw_vote_margin": 5.0,
     "y_τw_vote_margin": 5.0,
     "y_tw_midpoint": 47.0,
     "y_τw_midpoint": 47.0,
-    "t0_y_oc_target_scale": 10.0,
-    "t0_y_oc_l": -3.0,
-    "t0_y_oc_u": 3.0,
+    "t0_y_oc_target_scale": 2.0,
     "t0_close_band_delta_pct": 0.5,
     "t0_price_space_gate": True,
     "t0_price_space_max_dev_pct": 0.0,
@@ -173,8 +171,9 @@ DEFAULT_T0_OVERLAY: Dict[str, Any] = {
     "t0_pm_chase_interval_min_buy_then_sell": 5,
     "t0_stop_pct_buy_then_sell": 1.2,
     "t0_stop_pct_sell_then_buy": 1.2,
-    "t0_stop_arm_bars": 1,
+    "t0_stop_arm_bars": 6,
     "t0_stop_on_close": True,
+    "t0_lock_win_arm_bars": 6,
     "t0_lock_win_pct_buy_then_sell": 2.0,
     "t0_lock_win_pct_sell_then_buy": 2.0,
     "t0_slots_enabled": True,
@@ -187,7 +186,7 @@ DEFAULT_REBALANCE_TIMING: Dict[str, Any] = {
     "open_fill_until_hm": "10:00",
     "pending_chase_interval_min": 10,
     "pending_chase_eod_hm": "14:50",
-    # 策略调仓：fill_clock～10:00 rank_lots（手数与历史回测同源，缺省 200/500）
+    # 策略调仓：fill_clock～10:00 rank_lots（金额与历史回测同源，缺省 1万/2万）
     "rank_lots": {
         "enabled": True,
         "mode": "rank_lots",
@@ -207,8 +206,8 @@ DEFAULT_REBALANCE_TIMING: Dict[str, Any] = {
         "y_oo_gt0": False,
         "y_oc_gt0": False,
         "fill_clock": "09:30",
-        "lot_base": 200,
-        "lot_strong": 500,
+        "lot_base_amount": 10000.0,
+        "lot_strong_amount": 20000.0,
     },
     # 旧键：读盘仍认；写入与 rank_lots 同步
     "path_matrix": {
@@ -230,8 +229,8 @@ DEFAULT_REBALANCE_TIMING: Dict[str, Any] = {
         "y_oo_gt0": False,
         "y_oc_gt0": False,
         "fill_clock": "09:30",
-        "lot_base": 200,
-        "lot_strong": 500,
+        "lot_base_amount": 10000.0,
+        "lot_strong_amount": 20000.0,
     },
 }
 
@@ -345,6 +344,7 @@ def _layer_t0(
     merged: dict = {}
     for name, layer in layers:
         migrate_y_path_keys_to_hl(layer)
+        migrate_ytw_lot_keys_to_oc(layer)
         for k, v in layer.items():
             if v is None:
                 continue
@@ -677,31 +677,15 @@ def execution_public_view(bundle: Dict[str, Any]) -> Dict[str, Any]:
             "y_τw_enter": t0.get("y_τw_enter")
             if t0.get("y_τw_enter") not in (None, "")
             else t0.get("y_tw_enter"),
-            "y_tw_strong": t0.get("y_tw_strong")
-            if t0.get("y_tw_strong") not in (None, "")
-            else t0.get("y_τw_strong"),
-            "y_τw_strong": t0.get("y_τw_strong")
-            if t0.get("y_τw_strong") not in (None, "")
-            else t0.get("y_tw_strong"),
-            "y_tw_enter_shares": t0.get("y_tw_enter_shares")
-            if t0.get("y_tw_enter_shares") not in (None, "")
-            else t0.get("y_τw_enter_shares"),
-            "y_τw_enter_shares": t0.get("y_τw_enter_shares")
-            if t0.get("y_τw_enter_shares") not in (None, "")
-            else t0.get("y_tw_enter_shares"),
-            "y_tw_strong_shares": t0.get("y_tw_strong_shares")
-            if t0.get("y_tw_strong_shares") not in (None, "")
-            else t0.get("y_τw_strong_shares"),
-            "y_τw_strong_shares": t0.get("y_τw_strong_shares")
-            if t0.get("y_τw_strong_shares") not in (None, "")
-            else t0.get("y_tw_strong_shares"),
+            "y_oc_enter": t0.get("y_oc_enter"),
+            "y_oc_strong": t0.get("y_oc_strong"),
+            "y_oc_enter_amount": t0.get("y_oc_enter_amount"),
+            "y_oc_strong_amount": t0.get("y_oc_strong_amount"),
             "y_tw_vote_margin": t0.get("y_tw_vote_margin"),
             "y_τw_vote_margin": t0.get("y_τw_vote_margin") or t0.get("y_tw_vote_margin"),
             "y_tw_midpoint": t0.get("y_tw_midpoint"),
             "y_τw_midpoint": t0.get("y_τw_midpoint") or t0.get("y_tw_midpoint"),
             "t0_y_oc_target_scale": t0.get("t0_y_oc_target_scale"),
-            "t0_y_oc_l": t0.get("t0_y_oc_l"),
-            "t0_y_oc_u": t0.get("t0_y_oc_u"),
             "t0_close_band_delta_pct": t0.get("t0_close_band_delta_pct"),
             "t0_price_space_gate": t0.get("t0_price_space_gate"),
             "t0_price_space_max_dev_pct": t0.get("t0_price_space_max_dev_pct"),
@@ -764,6 +748,7 @@ def execution_public_view(bundle: Dict[str, Any]) -> Dict[str, Any]:
             "t0_stop_pct_sell_then_buy": t0.get("t0_stop_pct_sell_then_buy"),
             "t0_stop_arm_bars": t0.get("t0_stop_arm_bars"),
             "t0_stop_on_close": t0.get("t0_stop_on_close"),
+            "t0_lock_win_arm_bars": t0.get("t0_lock_win_arm_bars"),
             "t0_lock_win_pct_buy_then_sell": t0.get("t0_lock_win_pct_buy_then_sell"),
             "t0_lock_win_pct_sell_then_buy": t0.get("t0_lock_win_pct_sell_then_buy"),
             "t0_slots_enabled": t0.get("t0_slots_enabled"),
@@ -850,6 +835,7 @@ def validate_execution_patch(raw: Any) -> Tuple[bool, Dict[str, Any], List[str]]
         }
 
     migrate_y_path_keys_to_hl(t0_in)
+    migrate_ytw_lot_keys_to_oc(t0_in)
     drop_dead_t0_keys(t0_in)
 
     unknown = [k for k in t0_in.keys() if k not in ALLOWED_T0_PATCH_KEYS]
@@ -871,21 +857,14 @@ def validate_execution_patch(raw: Any) -> Tuple[bool, Dict[str, Any], List[str]]
             t0_out["y_tw_enter"] = normalized_full["y_tw_enter"]
         if "y_τw_enter" in normalized_full:
             t0_out["y_τw_enter"] = normalized_full["y_τw_enter"]
-    if any(k in t0_in for k in ("y_tw_strong", "y_τw_strong")):
-        if "y_tw_strong" in normalized_full:
-            t0_out["y_tw_strong"] = normalized_full["y_tw_strong"]
-        if "y_τw_strong" in normalized_full:
-            t0_out["y_τw_strong"] = normalized_full["y_τw_strong"]
-    if any(k in t0_in for k in ("y_tw_enter_shares", "y_τw_enter_shares")):
-        if "y_tw_enter_shares" in normalized_full:
-            t0_out["y_tw_enter_shares"] = normalized_full["y_tw_enter_shares"]
-        if "y_τw_enter_shares" in normalized_full:
-            t0_out["y_τw_enter_shares"] = normalized_full["y_τw_enter_shares"]
-    if any(k in t0_in for k in ("y_tw_strong_shares", "y_τw_strong_shares")):
-        if "y_tw_strong_shares" in normalized_full:
-            t0_out["y_tw_strong_shares"] = normalized_full["y_tw_strong_shares"]
-        if "y_τw_strong_shares" in normalized_full:
-            t0_out["y_τw_strong_shares"] = normalized_full["y_τw_strong_shares"]
+    if "y_oc_enter" in t0_in and "y_oc_enter" in normalized_full:
+        t0_out["y_oc_enter"] = normalized_full["y_oc_enter"]
+    if "y_oc_strong" in t0_in and "y_oc_strong" in normalized_full:
+        t0_out["y_oc_strong"] = normalized_full["y_oc_strong"]
+    if "y_oc_enter_amount" in t0_in and "y_oc_enter_amount" in normalized_full:
+        t0_out["y_oc_enter_amount"] = normalized_full["y_oc_enter_amount"]
+    if "y_oc_strong_amount" in t0_in and "y_oc_strong_amount" in normalized_full:
+        t0_out["y_oc_strong_amount"] = normalized_full["y_oc_strong_amount"]
     if any(k in t0_in for k in ("y_tw_midpoint", "y_τw_midpoint")):
         if "y_tw_midpoint" in normalized_full:
             t0_out["y_tw_midpoint"] = normalized_full["y_tw_midpoint"]
@@ -998,8 +977,8 @@ def validate_execution_patch(raw: Any) -> Tuple[bool, Dict[str, Any], List[str]]
                     "y_oo_gt0": bool(pm.get("y_oo_gt0", False)),
                     "y_oc_gt0": bool(pm.get("y_oc_gt0", False)),
                     "fill_clock": str(pm.get("fill_clock") or "09:30"),
-                    "lot_base": int(pm.get("lot_base") or 200),
-                    "lot_strong": int(pm.get("lot_strong") or 500),
+                    "lot_base_amount": float(pm.get("lot_base_amount") or 10_000.0),
+                    "lot_strong_amount": float(pm.get("lot_strong_amount") or 20_000.0),
                 }
                 timing_out["rank_lots"] = lots
                 timing_out["path_matrix"] = lots

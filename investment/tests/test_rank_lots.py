@@ -1,4 +1,4 @@
-"""rank_lots：ranking 净收益百分数、已保存手数、未过入场清仓、现金约束。"""
+"""rank_lots：ranking 净收益百分数、已保存金额换手、未过入场清仓、现金约束。"""
 
 from __future__ import annotations
 
@@ -48,17 +48,27 @@ class TestRankingScore(unittest.TestCase):
     def test_lot_shares_threshold(self):
         from core.paper.rebalance.rank_lots import lot_shares_for_rank
 
-        self.assertEqual(lot_shares_for_rank(0.20, 0.20), 200)
-        self.assertEqual(lot_shares_for_rank(0.21, 0.20), 500)
-        self.assertEqual(lot_shares_for_rank(0.01, 0.20), 200)
-        self.assertEqual(lot_shares_for_rank(None, 0.20), 0)
+        self.assertEqual(lot_shares_for_rank(0.20, 0.20, price=50.0), 200)
+        self.assertEqual(lot_shares_for_rank(0.21, 0.20, price=50.0), 400)
+        self.assertEqual(lot_shares_for_rank(0.01, 0.20, price=50.0), 200)
+        self.assertEqual(lot_shares_for_rank(None, 0.20, price=50.0), 0)
         self.assertEqual(
-            lot_shares_for_rank(0.21, 0.20, lot_base=1000, lot_strong=2000),
+            lot_shares_for_rank(
+                0.21, 0.20, amount_base=10000, amount_strong=20000, price=10.0
+            ),
             2000,
         )
         self.assertEqual(
-            lot_shares_for_rank(0.01, 0.20, lot_base=1000, lot_strong=2000),
+            lot_shares_for_rank(
+                0.01, 0.20, amount_base=10000, amount_strong=20000, price=10.0
+            ),
             1000,
+        )
+        self.assertEqual(
+            lot_shares_for_rank(
+                0.01, 0.20, amount_base=10000, amount_strong=20000, price=200.0
+            ),
+            100,
         )
 
     def test_clip_lot_to_cash(self):
@@ -87,7 +97,7 @@ def _cfg(**extra):
 
 
 class TestPlanRankLotDay(unittest.TestCase):
-    def test_open_200_vs_500(self):
+    def test_open_10000_vs_20000_amount(self):
         from core.paper.rebalance.rank_lots import plan_rank_lot_day
 
         scored = [
@@ -112,13 +122,50 @@ class TestPlanRankLotDay(unittest.TestCase):
             cfg=_cfg(),
         )
         by = {t["stock_code"]: t for t in out["buys"]}
-        self.assertEqual(float(by["600000"]["shares"]), 200)
+        self.assertEqual(float(by["600000"]["shares"]), 1000)
         self.assertEqual(by["600000"]["action"], "open")
-        self.assertEqual(float(by["600001"]["shares"]), 500)
+        self.assertEqual(float(by["600001"]["shares"]), 2000)
         self.assertEqual(by["600001"]["action"], "open")
         self.assertEqual(int(by["600001"]["rank_i"]), 1)
         self.assertEqual(int(by["600000"]["rank_i"]), 2)
         self.assertEqual(int(by["600001"]["rank_n"]), 2)
+
+    def test_equal_notional_across_prices(self):
+        from core.paper.rebalance.rank_lots import plan_rank_lot_day
+
+        scored = [
+            {"stock_code": "600000", "stock_name": "便宜", "y_fuse": 1.2, "y_on": 0.0},
+            {"stock_code": "600001", "stock_name": "贵", "y_fuse": 1.2, "y_on": 0.0},
+        ]
+        out = plan_rank_lot_day(
+            scored=scored,
+            holdings=[],
+            cash=1_000_000,
+            prices={"600000": 10.0, "600001": 50.0},
+            cfg=_cfg(),
+        )
+        by = {t["stock_code"]: t for t in out["buys"]}
+        self.assertEqual(float(by["600000"]["shares"]), 1000)
+        self.assertEqual(float(by["600001"]["shares"]), 200)
+        self.assertAlmostEqual(float(by["600000"]["shares"]) * 10.0, 10_000.0)
+        self.assertAlmostEqual(float(by["600001"]["shares"]) * 50.0, 10_000.0)
+
+    def test_amount_short_of_one_lot_buys_one_lot(self):
+        from core.paper.rebalance.rank_lots import plan_rank_lot_day
+
+        scored = [
+            {"stock_code": "600000", "stock_name": "贵", "y_fuse": 1.2, "y_on": 0.0},
+        ]
+        out = plan_rank_lot_day(
+            scored=scored,
+            holdings=[],
+            cash=1_000_000,
+            prices={"600000": 200.0},
+            cfg=_cfg(lot_base_amount=10000, lot_strong_amount=10000),
+        )
+        self.assertEqual(len(out["buys"]), 1)
+        self.assertEqual(float(out["buys"][0]["shares"]), 100)
+        self.assertAlmostEqual(float(out["buys"][0]["shares"]) * 200.0, 20_000.0)
 
     def test_stamps_oo_oc_not_trade_nowcast(self):
         from core.paper.rebalance.rank_lots import plan_rank_lot_day
@@ -374,7 +421,7 @@ class TestPlanRankLotDay(unittest.TestCase):
         self.assertAlmostEqual(rem, fused - rot)
         self.assertLess(rem, fused)
 
-        cfg = _cfg(fusion_w_oo=1.0, fusion_w_oc=0.0)
+        cfg = _cfg(fusion_w_oo=1.0, fusion_w_oc=0.0, lot_base_amount=30000, lot_strong_amount=30000)
         scored_plain = [{"stock_code": "600000", "predicted_score": 2.0, "y_tau": 2.0}]
         no_open = plan_rank_lot_day(
             scored=list(scored_plain),
@@ -416,7 +463,7 @@ class TestPlanRankLotDay(unittest.TestCase):
             holdings=[],
             cash=1_000_000,
             prices={"600000": 10.0, "600001": 10.0},
-            cfg=_cfg(lot_base=1000, lot_strong=2000),
+            cfg=_cfg(lot_base_amount=10000, lot_strong_amount=20000),
         )
         by = {t["stock_code"]: t for t in out["buys"]}
         self.assertEqual(float(by["600000"]["shares"]), 1000)
@@ -431,7 +478,7 @@ class TestPlanRankLotDay(unittest.TestCase):
             holdings=[],
             cash=500_000,
             prices={"600001": 250.0},
-            cfg=_cfg(lot_base=1000, lot_strong=2000, cash_floor=100_000, rank_enter=0.012, rank_strong=0.012),
+            cfg=_cfg(lot_base_amount=250000, lot_strong_amount=500000, cash_floor=100_000, rank_enter=0.012, rank_strong=0.012),
         )
         self.assertEqual(len(out["buys"]), 1)
         self.assertEqual(float(out["buys"][0]["shares"]), 1000)
@@ -998,7 +1045,7 @@ class TestPlanRankLotDay(unittest.TestCase):
             holdings=[held],
             cash=131_000.0,
             prices={"601606": 34.28, "600183": 150.0},
-            cfg=_cfg(cash_floor=0.0, lot_base=2000, lot_strong=2000, rank_enter=0.012, rank_strong=0.018),
+            cfg=_cfg(cash_floor=0.0, lot_base_amount=300000, lot_strong_amount=300000, rank_enter=0.012, rank_strong=0.018),
             as_of="2026-09-07",
         )
         self.assertEqual(len(out["sells"]), 1)
@@ -1074,7 +1121,7 @@ class TestPlanRankLotDay(unittest.TestCase):
             holdings=[],
             cash=1_000_000,
             prices={"600000": 200.0, "600001": 200.0},
-            cfg=_cfg(holdings_mv_cap=50_000),
+            cfg=_cfg(holdings_mv_cap=50_000, lot_base_amount=40000, lot_strong_amount=40000),
         )
         self.assertEqual(len(out["buys"]), 1)
         self.assertTrue(
@@ -1160,21 +1207,21 @@ class TestGetRankLotCfg(unittest.TestCase):
                 "rules": {
                     "execution": {
                         "rebalance_timing": {
-                            "rank_lots": {"lot_base": 3000, "lot_strong": 5000}
+                            "rank_lots": {"lot_base_amount": 30000, "lot_strong_amount": 50000}
                         }
                     }
                 }
             }
         )
-        self.assertEqual(int(cfg["lot_base"]), 3000)
-        self.assertEqual(int(cfg["lot_strong"]), 5000)
+        self.assertEqual(int(cfg["lot_base_amount"]), 30000)
+        self.assertEqual(int(cfg["lot_strong_amount"]), 50000)
 
-    def test_live_lot_default_is_200_500(self):
+    def test_live_lot_default_is_10000_20000(self):
         from core.paper.rebalance.rank_lots import get_rank_lot_cfg
 
         cfg = get_rank_lot_cfg({"initial_cash": 1_000_000, "cash": 1_000_000})
-        self.assertEqual(int(cfg["lot_base"]), 200)
-        self.assertEqual(int(cfg["lot_strong"]), 500)
+        self.assertEqual(int(cfg["lot_base_amount"]), 10000)
+        self.assertEqual(int(cfg["lot_strong_amount"]), 20000)
 
 
 class TestYTauOf(unittest.TestCase):

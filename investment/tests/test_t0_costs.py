@@ -376,7 +376,7 @@ class TestT0Costs(unittest.TestCase):
 
         from core.t0.rules import simulate_t0_on_holdings
 
-        # ŷ_oc=-0.5×10 clip −3% → C_τ=9.7；C≈9.95>upper 反T。低点压在 C_τ 之上，避免触到买回。
+        # ŷ_oc=-0.5×默认 2 → C_τ=9.9；C≈9.95>upper 反T。低点压在 C_τ 之上，避免触到买回。
         bar = {"date": "2026-08-25", "open": 10.0, "high": 10.6, "low": 9.90, "close": 10.0}
         minute_bars = [
             {"datetime": "2026-08-25 09:35:00", "open": 10.0, "high": 10.1, "low": 9.90, "close": 9.95},
@@ -422,8 +422,10 @@ class TestT0Costs(unittest.TestCase):
                     "lot_size": 100,
                     "t0_slots_max_rounds": 1,
                     "y_tw_enter": 0,
-                    "y_tw_enter_shares": 0,
-                    "y_tw_strong_shares": 0,
+                    "y_oc_enter": 0,
+                    "y_oc_strong": 0,
+                    "y_oc_enter_amount": 0,
+                    "y_oc_strong_amount": 0,
                     "y_tw_vote_margin": 2,
                     "y_tpd_max": 1.0,
                 }

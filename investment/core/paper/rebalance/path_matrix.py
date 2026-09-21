@@ -35,6 +35,8 @@ STALE_Y_OO_OC_ENTER_KEYS = (
     "y_oo_oc_enabled",
     "rank_exit",
     "lot_reduce",
+    "lot_base",
+    "lot_strong",
 )
 
 DEFAULT_PATH_MATRIX: Dict[str, Any] = {
@@ -56,19 +58,21 @@ DEFAULT_PATH_MATRIX: Dict[str, Any] = {
     "y_oc_gt0": False,
     # 调仓成交钟：自动调仓 / 手动预演窗口起点；止于 10:00。与历史回测 fill_clock 同源。
     "fill_clock": "09:30",
-    # 手数：与历史回测表单同源；保存规则写入交易执行。缺省 live 200/500。
-    "lot_base": 200,
-    "lot_strong": 500,
+    # 手数：按金额/价换算整手，不够一手则买一手；保存规则写入交易执行。缺省 live 1万/2万。
+    "lot_base_amount": 10_000.0,
+    "lot_strong_amount": 20_000.0,
 }
 
 
-def _clamp_lot_shares(raw: Any, default: int) -> int:
+def _clamp_lot_amount(raw: Any, default: float) -> float:
     try:
-        v = int(raw)
+        v = float(raw)
     except (TypeError, ValueError):
-        v = int(default)
-    v = max(100, min(v, 10_000))
-    return (v // 100) * 100
+        v = float(default)
+    if v != v:
+        v = float(default)
+    v = max(1_000.0, min(v, 1_000_000.0))
+    return float(int(round(v / 100.0)) * 100)
 
 
 def _f(x: Any) -> Optional[float]:
@@ -187,12 +191,12 @@ def get_path_matrix_cfg(
     except Exception:  # noqa: BLE001
         logger.debug("clamp fill_clock failed", exc_info=True)
         out["fill_clock"] = "09:30"
-    base = _clamp_lot_shares(out.get("lot_base"), 200)
-    strong = _clamp_lot_shares(out.get("lot_strong"), 500)
+    base = _clamp_lot_amount(out.get("lot_base_amount"), 10_000.0)
+    strong = _clamp_lot_amount(out.get("lot_strong_amount"), 20_000.0)
     if strong < base:
         strong = base
-    out["lot_base"] = base
-    out["lot_strong"] = strong
+    out["lot_base_amount"] = base
+    out["lot_strong_amount"] = strong
     for stale in STALE_Y_OO_OC_ENTER_KEYS:
         out.pop(stale, None)
     return out

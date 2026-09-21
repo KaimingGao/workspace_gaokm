@@ -137,6 +137,8 @@ def classify_t0_skip_reason(reason: Optional[str]) -> str:
         return "y_path_missing"
     if "缺" in r and ("y_" in r or "快照" in r or "即时算分" in r):
         return "missing_scores"
+    if ("ŷ_oc" in r or "y_oc" in r) and "未过入场" in r:
+        return "y_oc_flat"
     if ("y_path" in r or "y_hl" in r) and "异号" in r:
         return "y_path_disagree"
     if "前序ŷ_τw" in r or "前序 y_τw" in r or "ytw_prefix" in r.lower():

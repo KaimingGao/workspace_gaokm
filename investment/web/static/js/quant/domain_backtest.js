@@ -372,7 +372,7 @@ export function installBacktest(q) {
       const alpha = p.y_on_alpha != null ? p.y_on_alpha : "—";
       const wt = p.fusion_w_oo != null ? p.fusion_w_oo : p.fusion_w_trade != null ? p.fusion_w_trade : "—";
       const wn = p.fusion_w_oc != null ? p.fusion_w_oc : p.fusion_w_nowcast != null ? p.fusion_w_nowcast : "—";
-      const lotB = p.lot_base != null ? p.lot_base : "—";
+      const lotB = p.lot_base_amount != null ? p.lot_base_amount : "—";
       const n = Number(p.rank_enter);
       const enter = Number.isFinite(n) ? `${(n * 100).toFixed(2)}%` : "—";
       const tiers = Array.isArray(p.universe_fit_tiers)
@@ -381,7 +381,7 @@ export function installBacktest(q) {
       const tierBit = tiers && tiers !== "ABC" ? ` · 档${tiers}` : "";
       const psBit = p.price_space_gate === false ? " · 日分价关" : "";
       const role = String(p.score_model_role || "").toLowerCase() === "live" ? "执行" : "研究";
-      return `lb${lb} · ${clock} · ${lotB}股 · w${wt}/${wn} · α${alpha} · 入场${enter}${tierBit}${psBit} · ${role} · ${cost}`;
+      return `lb${lb} · ${clock} · ${lotB}元 · w${wt}/${wn} · α${alpha} · 入场${enter}${tierBit}${psBit} · ${role} · ${cost}`;
     }
     // 仅兼容旧日报冻结摘要（研究 Top-K 独立腿）
     return `K${p.top_k ?? "—"} · h${p.horizon_days ?? "—"} · ${cost}`;
@@ -410,8 +410,8 @@ export function installBacktest(q) {
       if (req.score_model_role != null) applyScoreModelRole("quant-score-model-role", req.score_model_role);
       if (req.fill_clock != null) setVal("quant-fill-clock", clampFillClock(req.fill_clock));
       if (req.initial_cash != null) setName("pm_initial_cash", req.initial_cash);
-      if (req.lot_base != null) setName("pm_lot_base", req.lot_base);
-      if (req.lot_strong != null) setName("pm_lot_strong", req.lot_strong);
+      if (req.lot_base_amount != null) setName("pm_lot_base_amount", req.lot_base_amount);
+      if (req.lot_strong_amount != null) setName("pm_lot_strong_amount", req.lot_strong_amount);
       if (req.universe_fit_tiers != null) applyUniverseFitTiers(req.universe_fit_tiers);
       if (req.price_space_gate != null) {
         const el = form && form.querySelector('[name="pm_price_space_gate"]');
@@ -799,32 +799,32 @@ export function installBacktest(q) {
     return Math.round(Math.max(10000, Math.min(1e8, v)));
   }
 
-  function clampReplayLot(raw, fallback) {
+  function clampReplayAmount(raw, fallback) {
     let v = fallback;
     if (raw != null && raw !== "") {
       const n = Number(raw);
       if (Number.isFinite(n)) v = n;
     }
-    v = Math.round(Math.max(100, Math.min(10000, v)));
-    return Math.floor(v / 100) * 100;
+    v = Math.round(Math.max(1000, Math.min(1000000, v)));
+    return Math.round(v / 100) * 100;
   }
 
   function readReplayLots() {
     const form = document.getElementById("paper-path-matrix-form");
     const val = (name, fallback) => {
       const el = form && form.querySelector(`[name="${name}"]`);
-      return clampReplayLot(el && el.value, fallback);
+      return clampReplayAmount(el && el.value, fallback);
     };
-    let lot_base = val("pm_lot_base", 200);
-    let lot_strong = val("pm_lot_strong", lot_base);
-    if (lot_strong < lot_base) lot_strong = lot_base;
+    let lot_base_amount = val("pm_lot_base_amount", 10000);
+    let lot_strong_amount = val("pm_lot_strong_amount", lot_base_amount);
+    if (lot_strong_amount < lot_base_amount) lot_strong_amount = lot_base_amount;
     const setIf = (name, v) => {
       const el = form && form.querySelector(`[name="${name}"]`);
       if (el && el.value !== String(v)) el.value = String(v);
     };
-    setIf("pm_lot_base", lot_base);
-    setIf("pm_lot_strong", lot_strong);
-    return { lot_base, lot_strong };
+    setIf("pm_lot_base_amount", lot_base_amount);
+    setIf("pm_lot_strong_amount", lot_strong_amount);
+    return { lot_base_amount, lot_strong_amount };
   }
 
   function readPriceSpaceGate() {
@@ -970,8 +970,8 @@ export function installBacktest(q) {
           fill_clock: p.fill_clock,
           universe_fit_tiers: p.universe_fit_tiers,
           initial_cash: p.initial_cash,
-          lot_base: p.lot_base,
-          lot_strong: p.lot_strong,
+          lot_base_amount: p.lot_base_amount,
+          lot_strong_amount: p.lot_strong_amount,
           price_space_gate: p.price_space_gate !== false,
         })
       );
@@ -1522,8 +1522,8 @@ export function installBacktest(q) {
         y_oc_gt0,
         initial_cash,
         fill_clock,
-        lot_base,
-        lot_strong,
+        lot_base_amount,
+        lot_strong_amount,
         universe_fit_tiers,
         price_space_gate,
       } = readPortfolioBtParams();
@@ -1558,8 +1558,8 @@ export function installBacktest(q) {
         y_oc_gt0: y_oc_gt0 === true,
         initial_cash,
         fill_clock,
-        lot_base,
-        lot_strong,
+        lot_base_amount,
+        lot_strong_amount,
         universe_fit_tiers,
         price_space_gate,
         include_benchmark: true,

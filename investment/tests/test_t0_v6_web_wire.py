@@ -66,7 +66,9 @@ class TestT0V6WebWire(unittest.TestCase):
         self.assertNotIn("t0_env_gate_enabled", d)
         self.assertNotIn("t0_slots_roll_unused", d)
         self.assertAlmostEqual(float(d["t0_close_band_delta_pct"]), 0.5)
-        self.assertAlmostEqual(float(d["t0_y_oc_target_scale"]), 10.0)
+        self.assertAlmostEqual(float(d["t0_y_oc_target_scale"]), 2.0)
+        self.assertNotIn("t0_y_oc_l", d)
+        self.assertNotIn("t0_y_oc_u", d)
         self.assertAlmostEqual(float(d["y_tw_midpoint"]), 47.0)
         self.assertNotIn("y_hl_strong", d)
         self.assertEqual(d["t0_slots_max_rounds"], 5)
@@ -85,32 +87,35 @@ class TestT0V6WebWire(unittest.TestCase):
         self.assertEqual(
             t0_backtest_virtual_shares(
                 {
-                    "y_tw_enter_shares": 400,
-                    "y_tw_strong_shares": 400,
+                    "y_oc_enter_amount": 4000,
+                    "y_oc_strong_amount": 4000,
                     "t0_slots_max_rounds": 5,
-                }
+                },
+                price=10.0,
             ),
             2000,
         )
         self.assertEqual(
             t0_backtest_virtual_shares(
                 {
-                    "y_tw_enter_shares": 200,
-                    "y_tw_strong_shares": 400,
+                    "y_oc_enter_amount": 2000,
+                    "y_oc_strong_amount": 4000,
                     "t0_slots_max_rounds": 3,
-                }
+                },
+                price=10.0,
             ),
             1200,
         )
         kw = _t0_backtest_kwargs(
             T0BacktestRequest(
                 initial_shares=400,
-                y_tw_enter_shares=400,
-                y_tw_strong_shares=400,
+                y_oc_enter_amount=4000,
+                y_oc_strong_amount=4000,
                 t0_slots_max_rounds=5,
             )
         )
-        self.assertEqual(kw["initial_shares"], 2000)
+        self.assertEqual(kw["initial_shares"], 400)
+        self.assertEqual(kw["rules"]["y_oc_enter_amount"], 4000)
 
     def test_patch_accepts_close_band_thresholds(self):
         ok, norm, errs = validate_execution_patch(
@@ -141,8 +146,9 @@ class TestT0V6WebWire(unittest.TestCase):
         self.assertNotIn("y_path_abandon_bars", fields)
         self.assertIn("t0_close_band_delta_pct", fields)
         self.assertIn("t0_y_oc_target_scale", fields)
-        self.assertIn("t0_y_oc_l", fields)
-        self.assertIn("t0_y_oc_u", fields)
+        self.assertNotIn("t0_y_oc_l", fields)
+        self.assertNotIn("t0_y_oc_u", fields)
+        self.assertIn("t0_lock_win_arm_bars", fields)
         self.assertIn("y_tw_midpoint", fields)
         self.assertNotIn("y_hl_strong", fields)
         self.assertNotIn("y_hl_required", fields)
@@ -165,12 +171,13 @@ class TestT0V6WebWire(unittest.TestCase):
         self.assertNotIn("y_τ30_enter_alt", fields)
         self.assertIn("y_tw_enter", fields)
         self.assertIn("y_τw_enter", fields)
-        self.assertIn("y_tw_strong", fields)
-        self.assertIn("y_τw_strong", fields)
-        self.assertIn("y_tw_enter_shares", fields)
-        self.assertIn("y_τw_enter_shares", fields)
-        self.assertIn("y_tw_strong_shares", fields)
-        self.assertIn("y_τw_strong_shares", fields)
+        self.assertIn("y_oc_enter", fields)
+        self.assertIn("y_oc_strong", fields)
+        self.assertIn("y_oc_enter_amount", fields)
+        self.assertIn("y_oc_strong_amount", fields)
+        self.assertNotIn("y_tw_strong", fields)
+        self.assertNotIn("y_tw_enter_shares", fields)
+        self.assertNotIn("y_tw_strong_shares", fields)
         self.assertNotIn("t0_leg1_close_extreme", fields)
         self.assertNotIn("y_tw_enter_buy_then_sell", fields)
         self.assertNotIn("y_tw_enter_sell_then_buy", fields)
@@ -218,8 +225,9 @@ class TestT0V6WebWire(unittest.TestCase):
         self.assertNotIn("y_τ30_enter_alt", fields_bt)
         self.assertIn("y_tw_enter", fields_bt)
         self.assertIn("y_τw_enter", fields_bt)
-        self.assertIn("y_tw_strong", fields_bt)
-        self.assertIn("y_τw_strong", fields_bt)
+        self.assertIn("y_oc_enter", fields_bt)
+        self.assertIn("y_oc_strong", fields_bt)
+        self.assertNotIn("y_tw_strong", fields_bt)
         self.assertNotIn("t0_leg1_close_extreme", fields_bt)
         self.assertNotIn("y_tw_enter_buy_then_sell", fields_bt)
         self.assertNotIn("y_tw_enter_sell_then_buy", fields_bt)
@@ -232,6 +240,9 @@ class TestT0V6WebWire(unittest.TestCase):
         self.assertIn("y_tw_midpoint", fields_bt)
         self.assertIn("t0_close_band_delta_pct", fields_bt)
         self.assertIn("t0_y_oc_target_scale", fields_bt)
+        self.assertIn("t0_lock_win_arm_bars", fields_bt)
+        self.assertNotIn("t0_y_oc_l", fields_bt)
+        self.assertNotIn("t0_y_oc_u", fields_bt)
         self.assertNotIn("y_t45_enter", fields_bt)
         self.assertNotIn("y_t45_enter_alt", fields_bt)
         self.assertNotIn("y_τ45_enter_alt", fields_bt)

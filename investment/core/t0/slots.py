@@ -1351,9 +1351,9 @@ def simulate_t0_day_slots(
     """
     from core.t0.close_band import (
         bar_close_band_pick_direction,
-        close_band_y_tw_is_strong,
-        close_band_y_tw_round_scale,
-        close_band_y_tw_round_shares,
+        close_band_y_oc_is_strong,
+        close_band_y_oc_round_scale,
+        close_band_y_oc_round_shares,
         day_price_space_payload,
         freeze_round,
         hm_allows_leg1,
@@ -1546,14 +1546,17 @@ def simulate_t0_day_slots(
         if not direction:
             skip = band_meta.get("skip")
             if skip:
-                last_y_tw_skip = str(skip)
+                skip_s = str(skip)
+                # 破带后的 ŷ_τw / y_oc 未过不要被后续未破带盖掉
+                if not (skip_s == "未破带" and last_y_tw_skip and last_y_tw_skip != "未破带"):
+                    last_y_tw_skip = skip_s
             continue
 
         remain = max_pos - used_ratio
-        y_tw_now = band_meta.get("y_tw")
+        y_oc_now = band_meta.get("y_oc")
         lot_i = max(int(lot or 0), 1)
-        want_shares = close_band_y_tw_round_shares(
-            cfg, y_tw=y_tw_now, direction=direction, lot=lot_i
+        want_shares = close_band_y_oc_round_shares(
+            cfg, y_oc=y_oc_now, lot=lot_i, price=bar_close
         )
         if want_shares is not None:
             remain_sh = float(_lot_floor(max(0.0, sellable_cap * remain), lot_i))
@@ -1563,9 +1566,7 @@ def simulate_t0_day_slots(
                 break
             ratio = float(slice_qty) / float(sellable_cap) if sellable_cap > 0 else 0.0
         else:
-            scale_tw = close_band_y_tw_round_scale(
-                y_tw_now, cfg, direction=direction
-            )
+            scale_tw = close_band_y_oc_round_scale(y_oc_now, cfg)
             sized = round_ratio if scale_tw >= 1.0 - 1e-12 else max(0.05, round_ratio * scale_tw)
             ratio = min(sized, remain)
             if ratio < 0.05:
@@ -1635,8 +1636,8 @@ def simulate_t0_day_slots(
                 "price_space_scale": scale,
                 "estimate_mode": space.get("estimate_mode"),
                 "y_tw": band_meta.get("y_tw"),
-                "y_tw_strong_hit": close_band_y_tw_is_strong(
-                    band_meta.get("y_tw"), cfg, direction=direction
+                "y_oc_strong_hit": close_band_y_oc_is_strong(
+                    band_meta.get("y_oc"), cfg
                 ),
                 "c_tau": c_tau,
                 "delta_pct": band_meta.get("delta_pct"),
@@ -1755,17 +1756,19 @@ def simulate_t0_day_slots(
             merged["direction_reason"] = last_enter_skip
             merged["reason"] = last_enter_skip
             merged["signal_skip"] = True
+    # T+1 硬约束优先于后续反向破带的 ŷ_τw / y_oc 未过：正T已因无可卖旧仓失败时，
+    # 午后反向 反T 未过入场不应盖掉「可卖旧仓 0」。
+    if last_tplus1_skip:
+        if merged.get("skipped") and not merged.get("direction_reason"):
+            merged["direction_reason"] = last_tplus1_skip
+            merged["reason"] = last_tplus1_skip
+            merged["signal_skip"] = False
     if last_y_tw_skip:
         merged["close_band_last_y_tw_skip"] = last_y_tw_skip
         if merged.get("skipped") and not merged.get("direction_reason"):
             merged["direction_reason"] = last_y_tw_skip
             merged["reason"] = last_y_tw_skip
             merged["signal_skip"] = True
-    if last_tplus1_skip:
-        if merged.get("skipped") and not merged.get("direction_reason"):
-            merged["direction_reason"] = last_tplus1_skip
-            merged["reason"] = last_tplus1_skip
-            merged["signal_skip"] = False
     return _attach_close_band_scan(
         merged,
         minute_bars=mins,
