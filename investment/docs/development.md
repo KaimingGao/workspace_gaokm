@@ -98,7 +98,7 @@ Web 与 CLI 共用同一套 `InvestmentAgent` / Skills / prompts；仍需配置 
 | A. Agent 对话（推荐） | `python3 main.py` + 自然语言 | 是：LLM 选工具 + 解读 |
 | B. 直接调 Skill | `python3 -c ...` | 否：只跑数据层，解读需人/模型另做 |
 
-标的代码：`01024` / `hk01024`；名称「快手」已收入映射表（`skills/common/quote_api.py`）。
+标的代码：`01024` / `hk01024`；名称「快手」已收入映射表（`adapters/market/quote_api.py`）。
 
 ### 路径 A：完整 Agent 流程（推荐）
 
@@ -157,7 +157,7 @@ python3 main.py
 cd investment
 
 # 1) 行情
-python3 -c "from skills.common import StockAPI; import json; print(json.dumps(StockAPI.query('快手'), ensure_ascii=False, indent=2))"
+python3 -c "from adapters.market import StockAPI; import json; print(json.dumps(StockAPI.query('快手'), ensure_ascii=False, indent=2))"
 # 等价：StockAPI.query('01024')
 
 # 2) 短线观察池 / 评分
@@ -203,7 +203,7 @@ Skill 可脱离 Agent 单独调用，便于调试数据层：
 ```bash
 cd investment
 # 行情
-python3 -c "from skills.common import StockAPI; print(StockAPI.query('茅台'))"
+python3 -c "from adapters.market import StockAPI; print(StockAPI.query('茅台'))"
 
 # 短线观察池（无 akshare 时自动用行情退化评分）
 python3 -c "from skills.signal.handler import SignalHandler; print(SignalHandler().execute({'parameters':{'stock_codes':['茅台','招商银行'],'horizon_days':3}}))"
@@ -330,7 +330,7 @@ Web 量化面板：quant preset daily 完成后自动加载 **Markdown 导出预
 |------|------|------------|
 | 实时报价 | 腾讯 `qt.gtimg.cn` | `quote`（及依赖它的 Skill） |
 | A 股现货全表 | AkShare | `screen` |
-| A/港/美日线 | AkShare（经 `skills/common/history.py`） | `signal` `kline` `index` |
+| A/港/美日线 | AkShare（经 `adapters/market/history.py`） | `signal` `kline` `index` |
 | 日线失败降级 | 当日 `quote` 拼近似 bar | `history.quote_fallback` |
 | 财务要点 | AkShare | `fundamentals` |
 | 指数历史 | AkShare | `index` |

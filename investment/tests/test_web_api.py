@@ -469,7 +469,7 @@ class TestWebApi(unittest.TestCase):
             path = os.path.join(tmp, "paper.json")
             deps.paper = PaperService(path)
             self.client.post("/api/paper/init")
-            with patch("skills.common.quote_api.StockAPI.query", side_effect=_q):
+            with patch("adapters.market.quote_api.StockAPI.query", side_effect=_q):
                 res = self.client.post(
                     "/api/paper/buy",
                     json={"stock_code": "600519", "amount": 5000},
@@ -519,13 +519,13 @@ class TestWebApi(unittest.TestCase):
             path = os.path.join(tmp, "paper.json")
             deps.paper = PaperService(path)
             self.client.post("/api/paper/init")
-            with patch("skills.common.quote_api.StockAPI.query", side_effect=_q):
+            with patch("adapters.market.quote_api.StockAPI.query", side_effect=_q):
                 self.client.post(
                     "/api/paper/buy",
                     json={"stock_code": "600519", "amount": 5000},
                 )
             with patch(
-                "skills.common.history.fetch_daily_bars",
+                "adapters.market.history.fetch_daily_bars",
                 return_value=(bars, "mock"),
             ):
                 res = self.client.get("/api/paper/holding-chart?code=600519")

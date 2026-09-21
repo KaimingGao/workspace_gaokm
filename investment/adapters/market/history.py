@@ -10,7 +10,7 @@ from core.data.policy import DAILY_CACHE_HOURS
 from core.market import register_symbol_resolver, resolve_market_code
 from core.numbers import to_float as _to_float
 from core.store import load_daily_cache, merge_save_daily_cache
-from skills.common.quote_api import StockAPI
+from adapters.market.quote_api import StockAPI
 
 register_symbol_resolver(StockAPI.resolve_symbol)
 

@@ -30,7 +30,7 @@ class TestFundamentals(unittest.TestCase):
         }
         spot = {"代码": "600519", "名称": "贵州茅台", "最新价": 1500, "市盈率-动态": 22.0, "市净率": 7.5}
 
-        with patch("skills.fundamentals.engine.StockAPI.query", return_value=fake_quote), patch(
+        with patch("skills.fundamentals.engine.query_quote", return_value=fake_quote), patch(
             "skills.fundamentals.engine.resolve_market_code", return_value=("CN", "600519")
         ), patch(
             "skills.fundamentals.engine.fetch_cn_spot_row", return_value=spot
@@ -65,7 +65,7 @@ class TestFundamentals(unittest.TestCase):
             "price_raw": 43.28,
             "change_raw": -7.76,
         }
-        with patch("skills.fundamentals.engine.StockAPI.query", return_value=fake_quote), patch(
+        with patch("skills.fundamentals.engine.query_quote", return_value=fake_quote), patch(
             "skills.fundamentals.engine.resolve_market_code", return_value=("HK", "01024")
         ), patch(
             "skills.fundamentals.engine.fetch_hk_spot_row",

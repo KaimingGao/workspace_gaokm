@@ -1810,7 +1810,7 @@ class PaperTradesMixin:
                     # 预演：先读本地仓；会话日缺 K / 明显落后盘面（如只到 10:00）则现场补拉，
                     # 与持仓涨跌 tip、按钮文案「不足可现场拉」一致。
                     from core.ports.market import resolve_market_code
-                    from skills.common.minute_history import load_minute_cache
+                    from adapters.market.minute_history import load_minute_cache
 
                     market, bare = resolve_market_code(code)
                     cached = (

@@ -485,13 +485,13 @@ def _accumulate_review_stats(
             eod_rem_preview = yhat
         if not y_check_row:
             try:
-                from core.signal.y_state import resolve_eod_check
+                from core.signal.y_state import resolve_oo_check
 
-                y_check_row = resolve_eod_check(
-                    eod_rem=eod_rem_preview,
+                y_check_row = resolve_oo_check(
+                    oo_rem=eod_rem_preview,
                     y_tau=yhat_tau_preview,
                     head="blend" if (eod_rem_preview is not None and yhat_tau_preview is not None) else (
-                        "single_eod" if yhat_tau_preview is None else "single_tau"
+                        "single_oo" if yhat_tau_preview is None else "single_tau"
                     ),
                     disagree=(
                         abs(float(eod_rem_preview) - float(yhat_tau_preview))

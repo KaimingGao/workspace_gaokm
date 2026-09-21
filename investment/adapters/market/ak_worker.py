@@ -4,7 +4,7 @@
 ----
 AkShare 底层 py_mini_racer 在同一进程内并发调用会 FATAL 整个进程
 （address_pool_manager Check failed），故 core 有全局 RLock 串行化所有调用
-（skills/common/ak_lock.py）。这导致 80 票批量取数串行 → rebalance 卡顿。
+（adapters/market/ak_lock.py）。这导致 80 票批量取数串行 → rebalance 卡顿。
 
 方案
 ----
@@ -21,7 +21,7 @@ Python 3.8 兼容
 
 用法
 ----
-    from skills.common.ak_worker import batch_fetch_daily_bars
+    from adapters.market.ak_worker import batch_fetch_daily_bars
 
     results = batch_fetch_daily_bars("CN", ["600519", "000858"], limit=120)
     # → {"600519": [...], "000858": [...]}，失败 code 值为 []
@@ -52,7 +52,7 @@ _SHUTTING_DOWN = False
 
 def _worker_fetch_a_daily(code: str, limit: int, adjust: str = "qfq") -> List[dict]:
     try:
-        from skills.common.history import fetch_a_daily_bars
+        from adapters.market.history import fetch_a_daily_bars
 
         return fetch_a_daily_bars(code, limit=limit, adjust=adjust)
     except Exception:
@@ -63,7 +63,7 @@ def _worker_fetch_a_daily(code: str, limit: int, adjust: str = "qfq") -> List[di
 def _worker_fetch_hk_daily(code: str, limit: int, adjust: str = "qfq") -> List[dict]:
     # adjust 不适用于港股，保留参数以统一调用签名
     try:
-        from skills.common.history import fetch_hk_daily_bars
+        from adapters.market.history import fetch_hk_daily_bars
 
         return fetch_hk_daily_bars(code, limit=limit)
     except Exception:
@@ -74,7 +74,7 @@ def _worker_fetch_hk_daily(code: str, limit: int, adjust: str = "qfq") -> List[d
 def _worker_fetch_us_daily(code: str, limit: int, adjust: str = "qfq") -> List[dict]:
     # adjust 不适用于美股，保留参数以统一调用签名
     try:
-        from skills.common.history import fetch_us_daily_bars
+        from adapters.market.history import fetch_us_daily_bars
 
         return fetch_us_daily_bars(code, limit=limit)
     except Exception:

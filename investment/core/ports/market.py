@@ -1,11 +1,11 @@
-"""行情 / 日线端口。默认经 skills.ports_bind 注入；单测可 set_adapter 覆盖。"""
+"""行情 / 日线端口。默认经 adapters.bind 注入；单测可 set_adapter 覆盖。"""
 
 from __future__ import annotations
 
 import logging
 from typing import Any, Dict, List, Optional, Sequence
 
-from core.ports.adapters import call, set_adapter
+from core.ports.registry import call, set_adapter
 
 logger = logging.getLogger(__name__)
 
@@ -74,7 +74,7 @@ def fetch_daily_bars(
     limit: int = 120,
     **kwargs: Any,
 ) -> Any:
-    """日线 K 线（默认 skills.common.history；返回值透传）。支持 incremental。"""
+    """日线 K 线（默认 adapters.market.history；返回值透传）。支持 incremental。"""
     return call("fetch_daily_bars", str(code or "").strip(), limit=limit, **kwargs)
 
 
@@ -140,7 +140,7 @@ def spot_to_float(value: Any) -> Optional[float]:
 
 
 def fetch_minute_bars(code: str, **kwargs: Any) -> Any:
-    """分钟线（默认 skills.common.minute_history）。"""
+    """分钟线（默认 adapters.market.minute_history）。"""
     return call("fetch_minute_bars", str(code or "").strip(), **kwargs)
 
 
@@ -157,7 +157,7 @@ def batch_map(fn, items, **kwargs: Any) -> List[Any]:
     """批量并发映射（进程池隔离 AkShare py_mini_racer，避免串行卡顿）。
 
     fn 须为顶层函数（可 pickle）；单项异常返回 None，不拖垮整批。
-    默认经 skills.ports_bind 注入 ak_worker 进程池；未绑定时 ensure_bound 自动注入。
+    默认经 adapters.bind 注入 ak_worker 进程池；未绑定时 ensure_bound 自动注入。
     """
     items = list(items or [])
     if not items:

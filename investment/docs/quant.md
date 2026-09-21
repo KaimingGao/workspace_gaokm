@@ -39,7 +39,7 @@
 
 | 输入 | 来源 |
 |------|------|
-| 日线 OHLCV | `skills/common/history.py` → AkShare；失败则 `quote_fallback` |
+| 日线 OHLCV | `adapters/market/history.py` → AkShare；失败则 `quote_fallback` |
 | 当日涨跌 | `quote.change_raw` 或 bar 推算 |
 
 | 输出字段 | 含义 |

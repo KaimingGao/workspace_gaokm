@@ -223,7 +223,7 @@ export async function mountWatchingTableIsland(host, options = {}) {
         const headTitle =
           head === "single_tau"
             ? "ranking 单头降级：仅 ŷ_oc（缺 ŷ_oo）· 与双头票不同量纲"
-            : head === "single_eod"
+            : head === "single_oo"
               ? "ranking 单头降级：仅 ŷ_oo（缺 ŷ_oc）· 与双头票不同量纲"
               : "ranking 单头降级 · 与双头票不同量纲";
         const badges = [];

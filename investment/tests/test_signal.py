@@ -6,7 +6,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
-from skills.common.history import bars_from_quote_fallback, normalize_bars
+from adapters.market.history import bars_from_quote_fallback, normalize_bars
 from core.signal.scorer import rank_candidates, score_bars
 
 

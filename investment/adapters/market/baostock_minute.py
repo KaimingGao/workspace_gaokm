@@ -13,7 +13,7 @@ from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Tuple
 
 from core.numbers import to_float as _to_float
-from skills.common.minute_history import normalize_minute_bars
+from adapters.market.minute_history import normalize_minute_bars
 
 logger = logging.getLogger(__name__)
 

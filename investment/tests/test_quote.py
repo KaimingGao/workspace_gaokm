@@ -7,7 +7,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
-from skills.common.quote_api import StockAPI
+from adapters.market.quote_api import StockAPI
 
 
 class TestQuoteResolve(unittest.TestCase):
@@ -67,7 +67,7 @@ class TestQuoteBatch(unittest.TestCase):
             seen.append((url, kwargs.get("timeout"), kwargs.get("retries")))
             raise requests.exceptions.Timeout("t")
 
-        with patch("skills.common.quote_api.requests_get_with_retry", side_effect=fake_get):
+        with patch("adapters.market.quote_api.requests_get_with_retry", side_effect=fake_get):
             with patch.object(StockAPI, "_query_eastmoney") as serial:
                 StockAPI.batch_query(["600519"])
                 serial.assert_not_called()
@@ -91,7 +91,7 @@ class TestQuoteBatch(unittest.TestCase):
             },
         )
         with patch(
-            "skills.common.quote_api.requests_get_with_retry",
+            "adapters.market.quote_api.requests_get_with_retry",
             side_effect=requests.exceptions.Timeout("t"),
         ):
             out = StockAPI.batch_query(["600519"])
@@ -137,7 +137,7 @@ class TestQuoteBatch(unittest.TestCase):
                 raise requests.exceptions.Timeout("t")
             return _Resp()
 
-        with patch("skills.common.quote_api.requests_get_with_retry", side_effect=fake_get):
+        with patch("adapters.market.quote_api.requests_get_with_retry", side_effect=fake_get):
             with patch.object(StockAPI, "_query_eastmoney") as serial:
                 out = StockAPI.batch_query(["600519", "000858"])
                 serial.assert_not_called()

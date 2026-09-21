@@ -89,11 +89,11 @@ def freeze_from_tau_shadow_book(
             y_tau = _lio._to_float(item.get("score_rem"))
         if y_tau is None:
             y_tau = _lio._to_float(item.get("predicted_score"))
-        y_eod = _lio._to_float(item.get("predicted_score_eod"))
-        if y_eod is None:
-            y_eod = _lio._to_float(item.get("predicted_score"))
-        if y_eod is None:
-            y_eod = _lio._to_float(item.get("score"))
+        y_oo = _lio._to_float(item.get("predicted_score_eod"))
+        if y_oo is None:
+            y_oo = _lio._to_float(item.get("predicted_score"))
+        if y_oo is None:
+            y_oo = _lio._to_float(item.get("score"))
         rows.append(
             {
                 "as_of": d,
@@ -102,7 +102,7 @@ def freeze_from_tau_shadow_book(
                 "rank": item.get("rank") or (i + 1),
                 "rank_key": "predicted_score_tau",
                 "yhat_tau": round(y_tau, 6) if y_tau is not None else None,
-                "yhat_eod": round(y_eod, 6) if y_eod is not None else None,
+                "yhat_eod": round(y_oo, 6) if y_oo is not None else None,
                 "cluster_label": item.get("cluster_label"),
                 "sector": item.get("sector"),
             }
@@ -187,9 +187,9 @@ def freeze_from_nowcast_shadow_book(
         y_tau = _lio._to_float(item.get("predicted_score_tau"))
         if y_tau is None:
             y_tau = _lio._to_float(item.get("score_rem"))
-        y_eod = _lio._to_float(item.get("predicted_score_eod"))
-        if y_eod is None:
-            y_eod = _lio._to_float(item.get("predicted_score"))
+        y_oo = _lio._to_float(item.get("predicted_score_eod"))
+        if y_oo is None:
+            y_oo = _lio._to_float(item.get("predicted_score"))
         rows.append(
             {
                 "as_of": d,
@@ -203,7 +203,7 @@ def freeze_from_nowcast_shadow_book(
                 "nowcast_q": _lio._to_float(item.get("nowcast_q")),
                 "nowcast_x_prior": _lio._to_float(item.get("nowcast_x_prior")),
                 "yhat_tau": round(y_tau, 6) if y_tau is not None else None,
-                "yhat_eod": round(y_eod, 6) if y_eod is not None else None,
+                "yhat_eod": round(y_oo, 6) if y_oo is not None else None,
                 "cluster_label": item.get("cluster_label"),
                 "sector": item.get("sector"),
             }

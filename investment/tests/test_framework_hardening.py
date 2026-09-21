@@ -10,16 +10,16 @@ from unittest.mock import patch
 
 class TestPortsAdapters(unittest.TestCase):
     def tearDown(self) -> None:
-        from core.ports.adapters import clear_adapters
+        from core.ports.registry import clear_adapters
 
         clear_adapters()
 
     def test_set_adapter_bypasses_skills(self):
         from core.ports import market
-        from core.ports.adapters import set_adapter
+        from core.ports.registry import set_adapter
 
         set_adapter("query_quote", lambda code: {"success": True, "stock_code": code, "price_raw": 1.23})
-        from core.ports.adapters import mark_bound
+        from core.ports.registry import mark_bound
 
         mark_bound()
         q = market.query_quote("600519")
@@ -27,8 +27,8 @@ class TestPortsAdapters(unittest.TestCase):
         self.assertEqual(q["price_raw"], 1.23)
 
     def test_ensure_bound_registers_defaults(self):
-        from core.ports.adapters import clear_adapters, get_adapter
-        from skills.ports_bind import bind_market_adapters
+        from adapters.bind import bind_market_adapters
+        from core.ports.registry import clear_adapters, get_adapter
 
         clear_adapters()
         bind_market_adapters(force=True)
@@ -41,10 +41,10 @@ class TestPortsAdapters(unittest.TestCase):
         self.assertIsNotNone(get_adapter("load_disk_spot"))
         self.assertIsNotNone(get_adapter("fetch_minute_bars"))
         self.assertIsNotNone(get_adapter("fetch_cn_financial_series"))
+        self.assertIsNotNone(get_adapter("fetch_index_bars"))
 
     def test_core_has_no_hard_skills_imports(self):
-        """O2：core 内仅 adapters 可 lazy import skills.ports_bind。"""
-        import os
+        """O2：core 不得 hard import skills；registry 仅 lazy import adapters.bind。"""
         from pathlib import Path
 
         root = Path(__file__).resolve().parents[1] / "core"
@@ -53,9 +53,19 @@ class TestPortsAdapters(unittest.TestCase):
             rel = path.relative_to(root.parent)
             text = path.read_text(encoding="utf-8")
             if "from skills." in text or "import skills." in text:
-                if path.name == "adapters.py" and "skills.ports_bind" in text:
-                    continue
                 offenders.append(str(rel))
+        self.assertEqual(offenders, [])
+
+    def test_adapters_bind_has_no_skills_imports(self):
+        """出站绑定只登记 adapters.*，不再从 skills 挂实现。"""
+        from pathlib import Path
+
+        root = Path(__file__).resolve().parents[1] / "adapters"
+        offenders = []
+        for path in root.rglob("*.py"):
+            text = path.read_text(encoding="utf-8")
+            if "from skills." in text or "import skills." in text:
+                offenders.append(str(path.relative_to(root.parent)))
         self.assertEqual(offenders, [])
 
     def test_core_business_reads_via_data_service(self):

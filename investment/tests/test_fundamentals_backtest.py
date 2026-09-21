@@ -70,7 +70,7 @@ class TestP51BacktestFundamentals(unittest.TestCase):
         self.assertGreater(item["sub_scores"].get("value", 50), 50)
     @patch("core.research.portfolio_bars.fetch_fundamentals_batch")
     @patch("core.ports.market.fetch_daily_bars")
-    @patch("skills.common.quote_api.StockAPI.query")
+    @patch("adapters.market.quote_api.StockAPI.query")
     def test_load_portfolio_attaches_fundamentals(self, mock_quote, mock_bars, mock_fund):
         mock_quote.side_effect = lambda raw: {
             "success": True,

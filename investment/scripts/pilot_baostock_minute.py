@@ -18,7 +18,7 @@ if ROOT not in sys.path:
 
 
 def _span_days(bars) -> int:
-    from skills.common.minute_history import group_minute_bars_by_date
+    from adapters.market.minute_history import group_minute_bars_by_date
 
     return len(group_minute_bars_by_date(bars or []) or {})
 
@@ -30,8 +30,8 @@ def main() -> int:
     parser.add_argument("--lookback", type=int, default=120, help="东财 lookback_days")
     args = parser.parse_args()
 
-    from skills.common.baostock_minute import fetch_baostock_minute_bars
-    from skills.common.minute_history import fetch_a_minute_bars
+    from adapters.market.baostock_minute import fetch_baostock_minute_bars
+    from adapters.market.minute_history import fetch_a_minute_bars
 
     print("=== BaoStock direct ===")
     for code in args.codes:

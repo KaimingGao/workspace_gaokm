@@ -2282,7 +2282,7 @@ class TestT0Core(unittest.TestCase):
         with patch(
             "core.data.facade.bars_and_source", return_value=(bars, "mock")
         ), patch(
-            "skills.common.quote_api.StockAPI.query",
+            "adapters.market.quote_api.StockAPI.query",
             return_value={"success": True, "stock_code": "600519", "stock_name": "茅台"},
         ):
             out = QuantEngine().run(
@@ -5545,10 +5545,10 @@ class TestT0HoldingsVirtualSizing(unittest.TestCase):
             )
         meta = {"data_source": "cache", "from_cache": True, "ok": True}
         with patch(
-            "skills.common.minute_history._load_stale_minute",
+            "adapters.market.minute_history._load_stale_minute",
             return_value=(bars, meta),
         ), patch(
-            "skills.common.history.resolve_market_code", return_value=("CN", "600519")
+            "adapters.market.history.resolve_market_code", return_value=("CN", "600519")
         ), patch("core.ports.market.fetch_minute_bars") as remote:
             by_date, out_meta = m._fetch_minute_by_date("600519", period="5")
         remote.assert_not_called()
@@ -7426,7 +7426,7 @@ class TestT0PreviewMinuteRefresh(unittest.TestCase):
                 "core.execution.execution_public_view",
                 return_value={"ok": True, "t0": {}},
             ), patch(
-                "skills.common.minute_history.load_minute_cache",
+                "adapters.market.minute_history.load_minute_cache",
                 return_value=(stale, {"from_cache": True}),
             ), patch(
                 "core.ports.market.fetch_minute_bars",

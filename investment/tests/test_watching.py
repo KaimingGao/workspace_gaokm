@@ -56,7 +56,7 @@ class TestWatching(unittest.TestCase):
             with patch(
                 "skills.screen.engine.StockScreener"
             ) as mock_cls, patch(
-                "skills.common.quote_api.StockAPI.query",
+                "adapters.market.quote_api.StockAPI.query",
                 side_effect=lambda code: {
                     "success": True,
                     "stock_code": str(code) if str(code).isdigit() else "600519",
@@ -90,7 +90,7 @@ class TestWatching(unittest.TestCase):
             "watchlist": ["600519", "600036"],
         }
         with patch(
-            "skills.common.quote_api.StockAPI.query",
+            "adapters.market.quote_api.StockAPI.query",
             side_effect=lambda code: {
                 "success": True,
                 "stock_code": "600519" if "茅台" in str(code) else "600036",
@@ -106,7 +106,7 @@ class TestWatching(unittest.TestCase):
             "watchlist": ["600519", "600036"],
         }
         with patch(
-            "skills.common.quote_api.StockAPI.query",
+            "adapters.market.quote_api.StockAPI.query",
             side_effect=lambda code: {
                 "success": True,
                 "stock_code": "600519" if ("茅台" in str(code) or str(code) == "600519") else "600036",
@@ -117,7 +117,7 @@ class TestWatching(unittest.TestCase):
         self.assertEqual(names, ["贵州茅台", "招商银行"])
 
     def test_search_stocks_mapping(self):
-        from skills.common.stock_search import search_stocks
+        from adapters.market.stock_search import search_stocks
 
         with patch("skills.screen.engine.fetch_a_spot", return_value=[]):
             out = search_stocks("茅台", limit=5)
@@ -126,7 +126,7 @@ class TestWatching(unittest.TestCase):
         self.assertTrue(any(c == "600519" for c in codes))
 
     def test_search_china_aluminum_via_mapping(self):
-        from skills.common.stock_search import search_stocks
+        from adapters.market.stock_search import search_stocks
 
         out = search_stocks("中国铝业", limit=5)
         self.assertTrue(out["success"])
@@ -134,7 +134,7 @@ class TestWatching(unittest.TestCase):
         self.assertIn("601600", codes)
 
     def test_search_uses_code_name_index(self):
-        from skills.common import stock_search as ss
+        from adapters.market import stock_search as ss
 
         with patch.object(ss, "_spot_pairs_cheap", return_value=[]), patch.object(
             ss,
@@ -148,7 +148,7 @@ class TestWatching(unittest.TestCase):
 
     def test_search_former_names_military(self):
         """曾用名：哈飞股份→中直；中船股份→中船科技。"""
-        from skills.common.stock_search import search_stocks
+        from adapters.market.stock_search import search_stocks
 
         with patch("skills.screen.engine.fetch_a_spot", return_value=[]):
             hafei = search_stocks("哈飞股份", limit=5)
@@ -161,7 +161,7 @@ class TestWatching(unittest.TestCase):
         self.assertIn("中船科技", cssc["items"][0]["stock_name"])
 
     def test_search_strips_corp_suffix(self):
-        from skills.common import stock_search as ss
+        from adapters.market import stock_search as ss
 
         self.assertEqual(ss._query_variants("哈飞股份"), ["哈飞股份", "哈飞"])
         self.assertEqual(ss._query_variants("中船股份"), ["中船股份", "中船"])
@@ -220,7 +220,7 @@ class TestWatching(unittest.TestCase):
                 path,
             )
             with patch(
-                "skills.common.quote_api.StockAPI.query",
+                "adapters.market.quote_api.StockAPI.query",
                 return_value={
                     "success": True,
                     "stock_code": "000568",

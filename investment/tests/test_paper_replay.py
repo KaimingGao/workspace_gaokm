@@ -116,7 +116,7 @@ def _offline_rebalance_patches():
         )
         stack.enter_context(
             patch(
-                "skills.common.history.fetch_a_daily_bars",
+                "adapters.market.history.fetch_a_daily_bars",
                 side_effect=RuntimeError("paper_replay test: no network"),
             )
         )
@@ -953,7 +953,7 @@ class TestTopkEngineTag(unittest.TestCase):
             "300750": _aligned_bars("c", n=40, step=0.45),
         }
         with patch(
-            "skills.common.history.fetch_a_daily_bars",
+            "adapters.market.history.fetch_a_daily_bars",
             side_effect=RuntimeError("no network"),
         ):
             result = backtest_topk_equal_weight(

@@ -811,7 +811,7 @@ class TestDualScoreFields(unittest.TestCase):
         ]
         eod = eligible[:2]  # A, B by EOD
         tau_book, meta = build_tau_shadow_book(
-            eligible, max_names=2, eod_book=eod
+            eligible, max_names=2, oo_book=eod
         )
         self.assertEqual([r["stock_code"] for r in tau_book], ["B", "C"])
         self.assertEqual(tau_book[0]["rank_key"], "predicted_score_tau")

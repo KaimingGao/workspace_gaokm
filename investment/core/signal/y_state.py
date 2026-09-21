@@ -164,9 +164,9 @@ def _resolve_sigma(item: dict, config: Optional[dict] = None) -> Tuple[Optional[
     return None, "none"
 
 
-def resolve_eod_check(
+def resolve_oo_check(
     *,
-    eod_rem: Optional[float],
+    oo_rem: Optional[float],
     y_tau: Optional[float],
     head: Optional[str],
     disagree: Optional[float],
@@ -174,7 +174,7 @@ def resolve_eod_check(
     window: Optional[str],
     cfg: Optional[dict] = None,
 ) -> str:
-    """EOD 当日执行校验枚举。"""
+    """oo 当日执行校验枚举。"""
     ycfg = cfg if isinstance(cfg, dict) else get_y_state_cfg()
     eps = float(ycfg.get("eps_sign") or 0.05)
     d_warn = float(ycfg.get("disagree_warn") or 0.5)
@@ -190,8 +190,8 @@ def resolve_eod_check(
         return CHECK_MISSING_TAU
     if head_s.startswith("single"):
         return CHECK_SINGLE_HEAD
-    if eod_rem is not None and y_tau is not None:
-        if abs(eod_rem) >= eps and abs(y_tau) >= eps and (eod_rem > 0) != (y_tau > 0):
+    if oo_rem is not None and y_tau is not None:
+        if abs(oo_rem) >= eps and abs(y_tau) >= eps and (oo_rem > 0) != (y_tau > 0):
             return CHECK_CONFLICT
     if disagree is not None and disagree >= d_warn:
         return CHECK_LOW_CONF
@@ -200,7 +200,11 @@ def resolve_eod_check(
     return CHECK_OK
 
 
-def eod_execution_trust(
+# 遗留别名
+resolve_eod_check = resolve_oo_check
+
+
+def oo_execution_trust(
     check: Optional[str],
     *,
     config: Optional[dict] = None,
@@ -213,6 +217,10 @@ def eod_execution_trust(
         return float(trust.get(key, 1.0 if key == CHECK_OK else 0.0))
     except (TypeError, ValueError):
         return 0.0
+
+
+# 遗留别名
+eod_execution_trust = oo_execution_trust
 
 
 def scale_weights_by_oo_trust(
@@ -360,6 +368,7 @@ def build_y_state(
     trade = _f(it.get("predicted_score_blend"))
     if trade is None:
         trade = _f(rank_key_for_item(it, config=config))
+    nc = _f(it.get("predicted_score_nowcast"))
     head = it.get("dual_score_head")
     if not head and it.get("dual_score_single_head"):
         head = "single"
@@ -403,8 +412,8 @@ def build_y_state(
     # 路径均值：ŷ_trade
     mu = trade
 
-    check = resolve_eod_check(
-        eod_rem=eod_rem,
+    check = resolve_oo_check(
+        oo_rem=eod_rem,
         y_tau=y_tau,
         head=str(head) if head else None,
         disagree=disagree,
@@ -412,7 +421,7 @@ def build_y_state(
         window=str(window) if window else None,
         cfg=ycfg,
     )
-    trust = eod_execution_trust(check, ycfg=ycfg)
+    trust = oo_execution_trust(check, ycfg=ycfg)
 
     tau_to_close, tau_to_close_src = resolve_tau_to_close_segment(
         y_tau=y_tau,

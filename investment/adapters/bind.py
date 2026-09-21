@@ -1,52 +1,56 @@
-"""将 skills 行情实现绑定到 core.ports（单向：skills → ports，避免 market 硬 import skills）。"""
+"""将出站适配器绑定到 core.ports.registry。
+
+I/O 与快照构建一律来自 ``adapters.*``；skills 仅作 Agent 薄包装。
+"""
 
 
 _BOUND = False
 
 
 def bind_market_adapters(*, force: bool = False) -> None:
-    """注册默认行情适配器。可重复调用；force=True 时覆盖。"""
+    """注册默认出站适配器。可重复调用；force=True 时覆盖。"""
     global _BOUND
     if _BOUND and not force:
-        from core.ports import adapters as ad
+        from core.ports import registry as ad
 
         if ad.get_adapter("query_quote") is not None:
             return
 
-    from core.ports.adapters import mark_bound, set_adapter
-    from skills.announcement.concept_graph import build_code_concept_index
-    from skills.announcement.engine import build_announcement_snapshot
-    from skills.common.ak_worker import get_pool as _get_ak_pool
-    from skills.common.history import (
-        bars_from_quote_fallback,
-        fetch_daily_bars,
-        resolve_market_code,
-    )
-    from skills.common.minute_history import (
-        fetch_minute_bars,
-        group_minute_bars_by_date,
-    )
-    from skills.common.quote_api import StockAPI
-    from skills.common.stock_search import search_stocks
-    from skills.fundamentals.engine import (
+    from adapters.announcement.concept_graph import build_code_concept_index
+    from adapters.announcement.engine import build_announcement_snapshot
+    from adapters.fundamentals.engine import (
         build_fundamentals,
         fetch_cn_financial_series,
         fetch_cn_valuation_latest,
     )
-    from skills.index.engine import build_relative, default_benchmark, fetch_index_bars
-    from skills.kline.engine import KlineEngine
-    from skills.macro.engine import build_macro_snapshot
-    from skills.market_sentiment.engine import build_market_sentiment_snapshot
-    from skills.news.engine import build_news
-    from skills.peer.engine import build_peer_compare
-    from skills.screen.engine import (
+    from adapters.index.engine import build_relative
+    from adapters.kline.engine import KlineEngine
+    from adapters.macro.engine import build_macro_snapshot
+    from adapters.market.ak_worker import get_pool as _get_ak_pool
+    from adapters.market.history import (
+        bars_from_quote_fallback,
+        fetch_daily_bars,
+        resolve_market_code,
+    )
+    from adapters.market.index_bars import default_benchmark, fetch_index_bars
+    from adapters.market.minute_history import (
+        fetch_minute_bars,
+        group_minute_bars_by_date,
+    )
+    from adapters.market.quote_api import StockAPI
+    from adapters.market.stock_search import search_stocks
+    from adapters.news.engine import build_news
+    from adapters.peer.engine import build_peer_compare
+    from adapters.screen.engine import (
         StockScreener,
         fetch_a_spot,
         load_disk_spot,
         spot_row_get,
         spot_to_float,
     )
-    from skills.signal.engine import SignalEngine
+    from adapters.sentiment.engine import build_market_sentiment_snapshot
+    from adapters.signal.engine import SignalEngine
+    from core.ports.registry import mark_bound, set_adapter
 
     set_adapter("query_quote", StockAPI.query)
     set_adapter("batch_query_quotes", StockAPI.batch_query)

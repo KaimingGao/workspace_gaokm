@@ -10,7 +10,7 @@ if ROOT not in sys.path:
 
 from skills.kline.analyzer import describe_candle, summarize_bars
 from skills.kline.handler import KlineHandler
-from skills.common.history import resolve_market_code
+from adapters.market.history import resolve_market_code
 
 
 def _bear_bars():

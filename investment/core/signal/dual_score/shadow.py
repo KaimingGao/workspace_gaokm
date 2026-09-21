@@ -16,9 +16,9 @@ def build_tau_shadow_book(
     eligible_rows: Sequence[Dict[str, Any]],
     *,
     max_names: int,
-    eod_book: Optional[Sequence[Dict[str, Any]]] = None,
+    oo_book: Optional[Sequence[Dict[str, Any]]] = None,
 ) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
-    """同 EOD 入池集合按 ŷ_τ 降序截断；缺失 τ 排末。不改主簿。"""
+    """同 oo 入池集合按 ŷ_τ 降序截断；缺失 τ 排末。不改主簿。"""
     max_n = max(1, int(max_names or 1))
     rows: List[Dict[str, Any]] = []
     missing_tau = 0
@@ -43,7 +43,7 @@ def build_tau_shadow_book(
     for r in rows[max_n:]:
         r.pop("_tau_rank_key", None)
 
-    compare = compare_book_overlap(eod_book or [], book)
+    compare = compare_book_overlap(oo_book or [], book)
     meta = {
         "mode": "tau_shadow",
         "rank_key": "predicted_score_tau",

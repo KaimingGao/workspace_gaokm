@@ -16,7 +16,7 @@ load_env_file(os.path.join(ROOT_DIR, ".env"))
 
 from core.market import register_symbol_resolver
 try:
-    from skills.common.quote_api import StockAPI
+    from adapters.market.quote_api import StockAPI
     register_symbol_resolver(StockAPI.resolve_symbol)
 except Exception:
     import logging

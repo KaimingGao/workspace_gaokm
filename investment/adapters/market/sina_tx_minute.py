@@ -12,7 +12,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from core.data.policy import minute_sina_tx_fallback
 from core.http_retry import requests_get_with_retry
 from core.numbers import to_float as _to_float
-from skills.common.minute_history import normalize_minute_bars
+from adapters.market.minute_history import normalize_minute_bars
 
 logger = logging.getLogger(__name__)
 

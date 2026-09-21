@@ -950,7 +950,7 @@ export function buildSimTradeRow(r, i, deps) {
     : "ŷ_oo（历史 Top-K 选股键）· 日线无可靠 ŷ_oc · 关 τ 闸";
   const singleHead =
     r.dual_score_single_head === true ||
-    String(r.dual_score_head || "") === "single_eod" ||
+    String(r.dual_score_head || "") === "single_oo" ||
     String(r.dual_score_head || "") === "single_tau";
   const scoreColTitle = singleHead
     ? `ranking 单头降级（${String(r.dual_score_head || "single")}）· 悬停看详情`
@@ -1312,7 +1312,7 @@ export function btTradesCellHtml(col, d, deps) {
     const headTitle =
       head === "single_tau"
         ? "ranking 单头降级：仅 ŷ_oc（缺 ŷ_oo）· 与双头票不同量纲"
-        : head === "single_eod"
+        : head === "single_oo"
           ? "ranking 单头降级：仅 ŷ_oo（缺 ŷ_oc）· 与双头票不同量纲"
           : "ranking 单头降级 · 与双头票不同量纲";
     const badge = singleHead

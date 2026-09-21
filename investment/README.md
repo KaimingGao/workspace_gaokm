@@ -73,7 +73,7 @@ Input (State) → Policy (Model) → Action (Tool) → Reward (Feedback) → Upd
 ├─────────────────────────────────────────────────────────────┤
 │  领域层    core/（facts · advise · stance · store · t0）    │
 ├─────────────────────────────────────────────────────────────┤
-│  数据层    skills/common/ · AkShare · data/*.json           │
+│  数据层    adapters/market/ · AkShare · data/*.json           │
 └─────────────────────────────────────────────────────────────┘
 ```
 

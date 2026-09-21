@@ -1,4 +1,4 @@
-"""信号扫描端口。默认经 skills.ports_bind 注入；单测可 set_adapter 覆盖。"""
+"""信号扫描端口。默认经 adapters.bind 注入；单测可 set_adapter 覆盖。"""
 
 
 import logging
@@ -6,7 +6,7 @@ import logging
 logger = logging.getLogger(__name__)
 from typing import Any, Callable, Dict, Optional
 
-from core.ports.adapters import call
+from core.ports.registry import call
 
 
 def build_signal_pool(

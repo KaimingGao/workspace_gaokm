@@ -22,7 +22,7 @@ from core.store import (
     merge_minute_bars_by_time,
     save_minute_cache,
 )
-from skills.common.history import resolve_market_code
+from adapters.market.history import resolve_market_code
 
 logger = logging.getLogger(__name__)
 
@@ -154,7 +154,7 @@ def _fetch_em_minute_bars(
     """东财分钟线；返回 (bars, meta, error)。"""
     from core.data.policy import minute_em_lookback_days
     from core.http_retry import call_with_retry
-    from skills.common.ak_lock import import_akshare
+    from adapters.market.ak_lock import import_akshare
 
     ak = import_akshare()
     end = datetime.now()
@@ -210,7 +210,7 @@ def _maybe_fetch_baostock_minute_bars(
     prior_error: Optional[str] = None,
 ) -> Tuple[List[dict], Dict[str, Any]]:
     from core.data.policy import minute_baostock_lookback_days
-    from skills.common.baostock_minute import (
+    from adapters.market.baostock_minute import (
         baostock_enabled,
         fetch_baostock_minute_bars,
         suggest_baostock_start,
@@ -251,7 +251,7 @@ def _maybe_fetch_sina_tx_minute_bars(
     lookback_days: int,
     reason: str = "em_empty",
 ) -> Tuple[List[dict], Dict[str, Any]]:
-    from skills.common.sina_tx_minute import fetch_sina_tx_minute_bars, sina_tx_enabled
+    from adapters.market.sina_tx_minute import fetch_sina_tx_minute_bars, sina_tx_enabled
 
     if not sina_tx_enabled():
         return [], {}

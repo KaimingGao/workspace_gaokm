@@ -1,4 +1,4 @@
-"""市场代码解析（从 skills/common/history.py 下沉到 core 层）。
+"""市场代码解析（从 adapters/market/history.py 下沉到 core 层）。
 
 使用 register_symbol_resolver() 在应用启动时注册上层解析器（如 StockAPI.resolve_symbol）。
 未注册时退回纯数字解析（A 股 6 位 / 港股 4-5 位）。

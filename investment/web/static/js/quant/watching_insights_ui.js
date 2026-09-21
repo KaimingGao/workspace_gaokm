@@ -19,7 +19,7 @@ export function isSingleHeadItem(it) {
   if (!it || typeof it !== "object") return false;
   if (it.dual_score_single_head === true) return true;
   const head = String(it.dual_score_head || "");
-  return head === "single_eod" || head === "single_tau";
+  return head === "single_oo" || head === "single_tau";
 }
 
 export function singleHeadBadgeHtml(it, escapeHtml = defaultEscapeHtml) {
@@ -33,9 +33,9 @@ export function singleHeadBadgeHtml(it, escapeHtml = defaultEscapeHtml) {
   let title = "ranking 单头降级 · 与双头票不同量纲";
   if (head === "single_tau") {
     title = "ranking 单头降级：仅 ŷ_oc（缺 ŷ_oo）· 与双头票不同量纲";
-  } else if (head === "single_eod" && tau && (win === "eod_next" || tauInTrade === false)) {
+  } else if (head === "single_oo" && tau && (win === "eod_next" || tauInTrade === false)) {
     title = "收盘后 ranking=ŷ_oo（τ 对照保留，不进融合）";
-  } else if (head === "single_eod") {
+  } else if (head === "single_oo") {
     title = "ranking 单头降级：仅 ŷ_oo（缺 ŷ_oc）· 与双头票不同量纲";
   }
   return `<span class="watching-single-head-badge" title="${escapeHtml(

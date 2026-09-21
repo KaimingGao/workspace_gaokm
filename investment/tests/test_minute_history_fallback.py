@@ -10,7 +10,7 @@ from unittest.mock import MagicMock, patch
 
 class TestMinuteStaleFallback(unittest.TestCase):
     def test_remote_fail_uses_stale_cache(self):
-        from skills.common import minute_history as mh
+        from adapters.market import minute_history as mh
 
         stale_bars = [
             {
@@ -57,7 +57,7 @@ class TestMinuteStaleFallback(unittest.TestCase):
             self.assertEqual(minute_em_lookback_days(), 90)
 
     def test_em_fetch_caps_at_30_calendar_days(self):
-        from skills.common import minute_history as mh
+        from adapters.market import minute_history as mh
 
         captured: dict = {}
 
@@ -66,7 +66,7 @@ class TestMinuteStaleFallback(unittest.TestCase):
                 captured.update(kw)
                 return None
 
-        with patch("skills.common.ak_lock.import_akshare", return_value=_Ak()), patch(
+        with patch("adapters.market.ak_lock.import_akshare", return_value=_Ak()), patch(
             "core.http_retry.call_with_retry", side_effect=lambda fn, **_k: fn()
         ), patch.dict(os.environ):
             os.environ.pop("INVESTMENT_MINUTE_EM_LOOKBACK_DAYS", None)
@@ -78,7 +78,7 @@ class TestMinuteStaleFallback(unittest.TestCase):
 class TestMergeSaveAlwaysCaches(unittest.TestCase):
     def test_merge_save_writes_even_without_use_cache_arg(self):
         """远端成功后始终落盘（入口 use_cache=False 也写）。"""
-        from skills.common import minute_history as mh
+        from adapters.market import minute_history as mh
 
         bars = [
             {
@@ -91,8 +91,8 @@ class TestMergeSaveAlwaysCaches(unittest.TestCase):
                 "volume": 1000,
             }
         ]
-        with patch("skills.common.minute_history.load_minute_cache", return_value=None), patch(
-            "skills.common.minute_history.save_minute_cache"
+        with patch("adapters.market.minute_history.load_minute_cache", return_value=None), patch(
+            "adapters.market.minute_history.save_minute_cache"
         ) as save:
             out, meta = mh._merge_save_minute_bars(
                 "CN",

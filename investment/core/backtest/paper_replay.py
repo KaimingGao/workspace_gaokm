@@ -374,8 +374,8 @@ def _local_minute_by_date(
 ) -> Tuple[Dict[str, List[dict]], Dict[str, Any]]:
     """优先读本地 5m 缓存（忽略 TTL），与做 T 回测同口径。"""
     try:
-        from skills.common.history import resolve_market_code
-        from skills.common.minute_history import _load_stale_minute, group_minute_bars_by_date
+        from adapters.market.history import resolve_market_code
+        from adapters.market.minute_history import _load_stale_minute, group_minute_bars_by_date
 
         market, bare = resolve_market_code(code)
         if market != "CN" or not bare:

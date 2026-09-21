@@ -195,7 +195,7 @@ flowchart TB
 ├─────────────────────────────────────────────────────────┤
 │  领域层    core/（门面 DS·SS·BS + facts · paper · risk） │
 ├─────────────────────────────────────────────────────────┤
-│  数据层    skills/common/ · AkShare · data/*.json        │
+│  数据层    adapters/market/ · AkShare · data/*.json        │
 └─────────────────────────────────────────────────────────┘
 ```
 
@@ -275,7 +275,7 @@ flowchart TB
 | 类型 | 技术 |
 |------|------|
 | 现价 | 腾讯行情 HTTP |
-| 日线 / 选股 / 财务等 | AkShare（进程内锁串行，`skills.common.ak_lock`） |
+| 日线 / 选股 / 财务等 | AkShare（进程内锁串行，`adapters.market.ak_lock`） |
 | 账户 · 配置 · 缓存 · 流水 | `data/` 下 JSON / JSONL |
 | 统一读口 | `core/data/facade.py` |
 
@@ -306,7 +306,7 @@ flowchart TB
 
 **命名约定**：产品对外统一称「模拟」/URL `/follow`；内部 canonical 仍为 `paper`（`paper.json`、`/api/paper`）。旧页 `/paper` 302 到 `/follow`。
 
-**领域端口**：行情与信号经 `core/ports/` 进入账本；默认适配器由 `skills.ports_bind` 注入（`market.py` 不硬 import skills），单测可 `set_adapter` 替换。上层业务读数优先走 `core.data.facade`。框架梳理见 [architecture.md · 框架梳理](architecture.md)。
+**领域端口**：行情与信号经 `core/ports/` 进入账本；默认适配器由 `adapters.bind` 注入（`market.py` 不硬 import skills），单测可 `set_adapter` 替换。上层业务读数优先走 `core.data.facade`。框架梳理见 [architecture.md · 框架梳理](architecture.md)。
 
 **成交成本**：`paper.cost_model` 为 `zero` 或 `simple_cn`。费率权威源为 **CostPort**（`core/backtest/cost_port.py`）：纸面 `core/paper/costs`、回测 `costs`、辅助 `TransactionCostCalculator` 同源；组合回测含成本为换手计费（`cost_mode=turnover`）。建仓预演、手动买卖与策略调仓共用纸面路径。
 
@@ -429,7 +429,7 @@ flowchart LR
     position
   end
 
-  subgraph shared [skills/common]
+  subgraph shared [adapters/market]
     hist[history.py]
     api[quote_api.py]
   end
@@ -495,7 +495,7 @@ flowchart LR
   Reg --> H[handler.py<br/>BaseSkillHandler]
   Agent[InvestmentAgent] -->|function call| H
   H -->|handle| E[engine.py]
-  E --> Common[skills/common]
+  E --> Common[adapters/market]
   H -->|execute JSON| Agent
   Agent --> LLM[LLM 组织自然语言]
 ```
@@ -518,7 +518,7 @@ flowchart LR
 
 ### 执行链路示例
 
-下面用三个问法把「谁调用谁」串起来。核心约定不变：**选工具与写话术是 LLM；数字只来自 Skill / `skills/common`。**
+下面用三个问法把「谁调用谁」串起来。核心约定不变：**选工具与写话术是 LLM；数字只来自 Skill / `adapters/market`。**
 
 #### 例 1：单工具 —「茅台现价」
 
@@ -546,7 +546,7 @@ agent.chat
   → handlers["quote"].execute(...)
       → BaseSkillHandler.execute
       → QuoteHandler.handle
-      → skills.common.quote_api.StockAPI.query
+      → adapters.market.quote_api.StockAPI.query
   → llm.chat（无 tool_calls，出最终文本）
   → _ensure_disclaimer
 ```
@@ -679,7 +679,7 @@ flowchart LR
   Agent -->|chat / extract_*| LLM[LLMClient]
   Agent -->|load + validate| CFG[tool_config.json]
   H -->|handle → dict| Eng[skills/*/engine.py]
-  Eng --> Common[skills/common]
+  Eng --> Common[adapters/market]
   Common --> Data[腾讯 / AkShare / data JSON]
 ```
 
@@ -689,7 +689,7 @@ flowchart LR
 | 注册表 | `registry.SKILL_SPECS` | **硬**：tools / handlers / `tool_config.name` 三者一致 |
 | LLMClient | `llm_client.py` | Agent / main 依赖其方法表面 |
 | InvestmentAgent | `chat` / `reset` | 对外入口 |
-| 日线 / 行情 | `skills/common` | 字段约定 + 单测 |
+| 日线 / 行情 | `adapters/market` | 字段约定 + 单测 |
 
 #### 1. Skill Handler
 
@@ -764,7 +764,7 @@ SKILL_SPECS = (
 | `note` | 可选；含免责 / 数据源说明等 |
 | 业务字段 | 各 Skill 自定义；数字须来自真实取数 |
 
-**日线 bar**（`skills/common/history.py` → `normalize_bars`）：
+**日线 bar**（`adapters/market/history.py` → `normalize_bars`）：
 
 ```text
 {date, open, high, low, close, volume}
@@ -772,7 +772,7 @@ SKILL_SPECS = (
 
 `signal` / `kline` / `index` 复用此形状；日线失败时可 `quote_fallback`，结果中带 `data_source` 区分可信度。
 
-**实时行情**（`skills.common.quote_api.StockAPI`）：
+**实时行情**（`adapters.market.quote_api.StockAPI`）：
 
 | 要点 | 说明 |
 |------|------|
@@ -780,7 +780,7 @@ SKILL_SPECS = (
 | `query(stock_code) -> dict` | `success` + `price` / `change_*` / `price_raw` 等 |
 | 缓存 | 同 symbol 约 60s |
 
-**日线**（`skills.common.history` + `core/store.py`）：`normalize_bars` / `fetch_daily_bars`（24h 本地缓存） / `bars_from_quote_fallback`。完整数据层说明见 [§ 数据层](#数据层data-layer)。
+**日线**（`adapters.market.history` + `core/store.py`）：`normalize_bars` / `fetch_daily_bars`（24h 本地缓存） / `bars_from_quote_fallback`。完整数据层说明见 [§ 数据层](#数据层data-layer)。
 
 #### 6. Skill 目录与扩展步骤
 
@@ -789,7 +789,7 @@ SKILL_SPECS = (
 | `tool_config.json` | 暴露给 LLM 的函数定义 |
 | `handler.py` | `BaseSkillHandler` 子类，实现 `handle` |
 | `engine.py` | 领域逻辑（可单测 mock） |
-| 共享能力 | 放 `skills/common/`，勿挂在某一 Skill 下 |
+| 共享能力 | 放 `adapters/market/`，勿挂在某一 Skill 下 |
 
 扩展时：
 
@@ -815,7 +815,7 @@ SKILL_SPECS = (
 | 中长期研究 | `fundamentals` `peer` `index` `news` | 估值财务、同行、超额、资讯 |
 | 组合动作 | `position` | 本地/临时持仓 + 可配置规则 |
 
-共享模块：`skills/common/history.py`、`skills/common/quote_api.py`；领域量化引擎：`core/`（`stance` `backtest` `paper` / `paper_cycle` `store`）；CLI 包装：`research/`；研究库：`quant/research/`。框架债务见 [architecture.md · 框架梳理](architecture.md)。
+共享模块：`adapters/market/history.py`、`adapters/market/quote_api.py`；领域量化引擎：`core/`（`stance` `backtest` `paper` / `paper_cycle` `store`）；CLI 包装：`research/`；研究库：`quant/research/`。框架债务见 [architecture.md · 框架梳理](architecture.md)。
 
 ### 关键模块职责
 
@@ -830,7 +830,7 @@ SKILL_SPECS = (
 | `agent/llm_client.py` | HTTP 调通义千问；解析 `tool_calls` |
 | `agent/prompts.py` | 系统提示：角色、路由偏好、输出与合规边界 |
 | `skills/*/handler.py` | 薄适配层 → engine / core |
-| `skills/common/` | 跨工具行情 / 日线 I/O |
+| `adapters/market/` | 跨工具行情 / 日线 I/O |
 | `data/*.json` | 持仓、纸面、规则配置 |
 
 ### prompts.py 的用途
@@ -1212,8 +1212,8 @@ flowchart TB
 
 | 模块 | 路径 | 功能 |
 |------|------|------|
-| ports_bind | `skills/ports_bind.py` | 行情/信号适配器注入 core.ports |
-| common | `skills/common/` | `quote_api` · `history` · AkShare 锁 |
+| ports_bind | `adapters/bind.py` | 行情/信号适配器注入 core.ports |
+| common | `adapters/market/` | `quote_api` · `history` · AkShare 锁 |
 | 引擎（非 FC 工具） | `macro/` · `announcement/` · `market_sentiment/` | 宏观/公告/情绪，供 core 或研究调用 |
 
 ---
@@ -1231,7 +1231,7 @@ flowchart TB
 **端口与绑定**：
 
 ```text
-DS → core/ports/market.py → skills/ports_bind.py → skills/common/
+DS → core/ports/market.py → adapters/bind.py → adapters/market/
 SS → core/signal/service.py → scorer · factors · config · gate
 BS → core/backtest/service.py → engine · topk_backtest · topk_weights
 ```
@@ -1535,7 +1535,7 @@ investment/
 
 | 层级 | 路径 | 职责 |
 |------|------|------|
-| **Domain Facade · DS** | `core/data/facade` → `core/ports` → `skills.ports_bind` | 读口；业务/Skill/研究统一质量契约 |
+| **Domain Facade · DS** | `core/data/facade` → `core/ports` → `adapters.bind` | 读口；业务/Skill/研究统一质量契约 |
 | **Domain Facade · SS** | `core/signal_service` → `core/signal/service` | 打分；纸面/量化/Skill 统一 ŷ 信封与生产门禁 |
 | **Domain Facade · BS** | `core/backtest_service` → `core/backtest/service` | 回测信封；TopK / signal 回测 |
 | 共享领域 | `core/signal` · `core/backtest` · `core/paper*` · `core/risk` | live / 回测 / 纸面同一套规则 |
@@ -1551,7 +1551,7 @@ investment/
 |------|------|
 | DS（Domain Facade） | `core/data/facade.py` · `core/data/`（`MarketDataService` / Ports / 信封） |
 | SS（Domain Facade） | `core/signal_service.py` · `core/signal/`（`SignalService` · `ScoreResult` · gate · metrics） |
-| 行情端口 | `core/ports/market.py` · 绑定 `skills/ports_bind.py` |
+| 行情端口 | `core/ports/market.py` · 绑定 `adapters/bind.py` |
 | 因子打分 | `core/signal/scorer.py`（实现）· 出口经 SignalService |
 | BS（Domain Facade） | `core/backtest_service.py` · `core/backtest/`（`BacktestService` · `engine`） |
 | TopK 权重 | `core/backtest/topk_weights.py`（`topk_backtest` 再导出） |
@@ -1673,11 +1673,11 @@ flowchart LR
 
 | 层 | 路径 | 职责 |
 |----|------|------|
-| **对外读口** | `core/ports/market.py` · `fetch_minute_bars` | 与日线 `get_bars` 并列；ports 由 `skills.ports_bind` 注入 |
-| **拉取编排** | `skills/common/minute_history.py` | 缓存 TTL · 东财→新浪/腾讯（有数则跳过 BS）→BaoStock · merge · 落盘 |
-| **东财（AkShare）** | `_fetch_em_minute_bars` | `ak.stock_zh_a_hist_min_em`；`skills/common/ak_lock` 进程内串行 |
-| **新浪/腾讯** | `skills/common/sina_tx_minute.py` | 近端；东财空时启用，有数则跳过 BaoStock |
-| **BaoStock** | `skills/common/baostock_minute.py` | `query_history_k_data_plus`；子进程 + 超时 kill |
+| **对外读口** | `core/ports/market.py` · `fetch_minute_bars` | 与日线 `get_bars` 并列；ports 由 `adapters.bind` 注入 |
+| **拉取编排** | `adapters/market/minute_history.py` | 缓存 TTL · 东财→新浪/腾讯（有数则跳过 BS）→BaoStock · merge · 落盘 |
+| **东财（AkShare）** | `_fetch_em_minute_bars` | `ak.stock_zh_a_hist_min_em`；`adapters/market/ak_lock` 进程内串行 |
+| **新浪/腾讯** | `adapters/market/sina_tx_minute.py` | 近端；东财空时启用，有数则跳过 BaoStock |
+| **BaoStock** | `adapters/market/baostock_minute.py` | `query_history_k_data_plus`；子进程 + 超时 kill |
 | **本地仓** | `core/store.py` · `store_bars_sqlite.py` | `load/save/merge_minute_cache`；默认 SQLite `minute_bars` |
 | **批量预热** | `core/schedule_jobs._minute_warmup_core` | schedule `minute_warmup` · Web **强更 5m** Job |
 | **Web 强更** | `quant/research/cluster_minute_status.py` | `GET /api/quant/cluster-minute/status` · `POST …/refresh` · Job `cluster-minute-refresh` |
@@ -1727,7 +1727,7 @@ flowchart TD
 
 ### 新浪/腾讯 — 近端备 · 先于 BaoStock
 
-实现 `skills/common/sina_tx_minute.py`（直连新浪/腾讯公开 K 线，与东财用的 akshare 无关）。
+实现 `adapters/market/sina_tx_minute.py`（直连新浪/腾讯公开 K 线，与东财用的 akshare 无关）。
 
 | 项 | 约定 |
 |----|------|
@@ -1908,7 +1908,7 @@ flowchart TD
 | 项 | 状态 |
 |----|------|
 | **M1.1 DataService 收口** | **已落地**：`get_quote/bars/fundamentals/news/spot`；quant/paper/research 经 DataService |
-| **ports adapter 注入** | **已落地**：`skills.ports_bind` → `core.ports.adapters`；`market.py` 不硬 import skills |
+| **ports adapter 注入** | **已落地**：`adapters.bind` → `core.ports.registry`；实现一律来自 `adapters.*`（skills 仅 shim） |
 | **M1.2 观察池覆盖率** | **已落地**：`data_coverage` · `bars_warmup` / `paper_daily` 汇总 + 出站 |
 | **M1.3 基本面/资讯快照缓存** | **已落地**：`data/store/fundamentals|news` · `non_pit` · `fundamentals_warmup` |
 | **M1.4 观察池日线增量** | **已落地**：`merge_bars_by_date` · `fetch_daily_bars(incremental=True)` |
@@ -1966,9 +1966,9 @@ flowchart LR
 
 | 能力 | 路径 |
 |------|------|
-| 现价 | `skills/common/quote_api.py` |
-| 日线拉取 + normalize | `skills/common/history.py` |
-| **分钟拉取（东财→新浪/腾讯；有数则跳过 BaoStock）** | `skills/common/minute_history.py` · `skills/common/sina_tx_minute.py` · `skills/common/baostock_minute.py` |
+| 现价 | `adapters/market/quote_api.py` |
+| 日线拉取 + normalize | `adapters/market/history.py` |
+| **分钟拉取（东财→新浪/腾讯；有数则跳过 BaoStock）** | `adapters/market/minute_history.py` · `adapters/market/sina_tx_minute.py` · `adapters/market/baostock_minute.py` |
 | 日线缓存 R/W · quality | `core/store.py` |
 | **DataService（N1/M1）** | 门面 `core/data/facade.py`（模块函数 → dict）；领域 `core/data/`（`MarketDataService` · `BarsResult` · `MarketPorts`） |
 | TTL / 质量阈值 | `core/data_policy.py` |
@@ -2701,7 +2701,7 @@ Reward = 收益 − 回撤惩罚 − 成本 …
 ```text
 接入 (web/main) → Application Service (services · quant/services)
   → 编排 (agent) → 适配 (skills/handler)
-  → Domain Facade (DS/SS/BS) → core → ports → skills.ports_bind
+  → Domain Facade (DS/SS/BS) → core → ports → adapters.bind
 ```
 
 Web 主路径：观察建仓 → 确认调仓（`run_daily_cycle`）→ 轮询 **`GET /api/jobs/paper`**（兼容 `/api/paper/job`）→ 回溯 QuantService。
@@ -2727,14 +2727,14 @@ Web 主路径：观察建仓 → 确认调仓（`run_daily_cycle`）→ 轮询 *
 | ID | 原问题 | 落地证据 |
 |----|--------|----------|
 | **H1** | 业务读口绕过 DataService | 纸面/量化/调度经 DataService |
-| **H2** | `market` 硬 import skills | `adapters` + `ports_bind` |
+| **H2** | `market` 硬 import skills | `registry` + `adapters.bind` |
 | **H3** | reload 清空 Job | `WEB_RELOAD=0`；`data/jobs/paper.json` |
 | **H4** | 调仓堆在 `paper.py` | `paper_cycle` + `paper_exec`（账本 IO ~250 行） |
 | **H5** | 风控几乎没有 | `core/risk/checks.py` 调仓前硬拦 |
-| **O1** | Skill 直调 `skills.common` | quote/kline/signal/compare/… → DataService/ports；回测结果带 `quality` |
-| **O2** | core 硬依赖 skills | 仅 `ports/adapters.py` lazy bind；signal/spot 经 adapter |
+| **O1** | Skill 直调市场 I/O | quote/kline/signal/compare/… → DataService/ports；回测结果带 `quality` |
+| **O2** | core 硬依赖 skills | 仅 `ports/registry.py` lazy bind `adapters.bind`；signal/spot 经 adapter |
 | **O3** | 双 Job HTTP | UI → `/api/jobs/paper`；`/api/paper/job` 兼容保留 |
-| **O4** | research 半收口 | CLI 无 `skills.common`；`get_quote` / DataService |
+| **O4** | research 半收口 | CLI 无直连 adapters；`get_quote` / DataService |
 | **O5** | `paper.py` 过大 | 成交盯市 → `paper_exec.py` |
 | **O6** | `paper_service` 偏厚 | `paper_account` / `paper_jobs` / `paper_trades` / `paper_helpers` |
 | **O7** | `paper.js` 巨石 | `js/paper/fmt.js` · `chart.js`；编排仍 `paper.js` |
@@ -2800,7 +2800,7 @@ Web 主路径：观察建仓 → 确认调仓（`run_daily_cycle`）→ 轮询 *
 |------|------|
 | 唯一读口 | `core/data/facade.py` |
 | 端口 | `core/ports/{market,adapters,signal}.py` |
-| 绑定 | `skills/ports_bind.py` |
+| 绑定 | `adapters/bind.py` |
 | 账本 / 成交 / 日循环 | `core/paper/`（ledger · exec · cycle · rebalance） |
 | Live 清单 | `core/live_config_manifest.py` · `data/live/live_config_manifest.json` |
 | 研究共享（core） | `core/research/{factor_ols_fit,panel,portfolio_bars,oos_slim}.py` |
@@ -2873,7 +2873,7 @@ Canonical Job API：`GET /api/jobs/{name}` · `POST /api/jobs/{name}/cancel`（`
 
 | 任务 | 现行 | 是否再上 ProcessPool | 理由 |
 |------|------|----------------------|------|
-| AkShare 拉数 | `skills/common/ak_worker.py` ProcessPool | 已隔离 | 崩溃不拖死 Web |
+| AkShare 拉数 | `adapters/market/ak_worker.py` ProcessPool | 已隔离 | 崩溃不拖死 Web |
 | paper / chat / ols 进度 | `data/jobs/*.json` 落盘 | — | reload 后可解释中断 |
 | 分组 OLS fit | Job 槽内 ThreadPool | **暂不上** ProcessPool | panel/矩阵难 pickle；已有 Job + cancel + stale reclaim；HTTP 经 `progress=1` 轻量轮询 |
 
@@ -2916,7 +2916,7 @@ Canonical Job API：`GET /api/jobs/{name}` · `POST /api/jobs/{name}/cancel`（`
 ```
 DataService.get_bars (core/data/facade.py:99)
   → core.ports.market.fetch_daily_bars          ← port 分发
-    → skills.common.history.fetch_daily_bars     ← adapter（ports_bind 绑定）
+    → adapters.market.history.fetch_daily_bars     ← adapter（ports_bind 绑定）
       → core.store.{peek / load / merge / save}_daily_cache
 ```
 
@@ -2926,8 +2926,8 @@ DataService 只从 store 导入纯函数 `assess_quality`，bars 读写全走 po
 
 | 调用方 | 用到的函数 | 读取的 meta 字段 |
 |------|------|------|
-| `skills/common/history.py:310-411` | peek / load / merge / save | `adjust_policy`(L336)、`data_source`(L349) |
-| `skills/common/minute_history.py:14` | minute load/save/merge | 同上 |
+| `adapters/market/history.py:310-411` | peek / load / merge / save | `adjust_policy`(L336)、`data_source`(L349) |
+| `adapters/market/minute_history.py:14` | minute load/save/merge | 同上 |
 | `core/data_coverage.py:82,96` | peek_daily_cache_meta | `quality`、`fetched_at`、`bar_count`(L111-114) |
 | `research/cache_cli.py:56` | list_cached_symbols | `market/code/quality/data_source/fetched_at`(L62-65) |
 
@@ -3187,7 +3187,7 @@ def migrate(store_dir):
 | SQLite 改造引入 bug 导致 bars 读不到 | 迁移脚本不删原 JSON；store.py 加环境变量 `INVESTMENT_BARS_BACKEND=sqlite\|json`，出问题切回 json（保留旧函数为 `_json` 后缀） |
 | WAL 文件增长 | 定期 `PRAGMA wal_checkpoint(TRUNCATE)`；或在 save 后偶发 checkpoint |
 | 并发写死锁 | `_write_lock` + `busy_timeout=5000` 双保险；实测无死锁 |
-| 测试 mock 点失效 | mock 点在 `skills.common.history.load_daily_cache`（test_history.py:51），store 内部改实现不影响 mock 路径 |
+| 测试 mock 点失效 | mock 点在 `adapters.market.history.load_daily_cache`（test_history.py:51），store 内部改实现不影响 mock 路径 |
 | meta 字段遗漏 | 上表已逐字段核对调用方；test_store.py 直测会兜底 |
 
 ### 回滚路径
@@ -3201,8 +3201,8 @@ def migrate(store_dir):
 | `core/store.py` | 6 函数内部重写 + 新增 `_conn`/`_db_path`/`clear_daily_cache`/建表 | ~250 行 |
 | `research/cache_cli.py` | `--clear` 改调 store 接口 | ~10 行 |
 | `scripts/migrate_bars_to_sqlite.py` | 新增迁移脚本 | ~80 行 |
-| `skills/common/history.py` | **不改** | 0 |
-| `skills/common/minute_history.py` | **不改** | 0 |
+| `adapters/market/history.py` | **不改** | 0 |
+| `adapters/market/minute_history.py` | **不改** | 0 |
 | `core/data/facade.py` / ports / signal / backtest / paper | **不改** | 0 |
 | 测试 | test_store.py 直测需过；其余 mock 点不变 | 验证 |
 
@@ -3240,7 +3240,7 @@ def migrate(store_dir):
 | `skills/` | [skills/README.md](../skills/README.md) |
 | `skills/advise/` | [skills/advise/README.md](../skills/advise/README.md) |
 | `skills/backtest/` | [skills/backtest/README.md](../skills/backtest/README.md) |
-| `skills/common/` | [skills/common/README.md](../skills/common/README.md) |
+| `adapters/market/` | [adapters/market/README.md](../adapters/market/README.md) |
 | `skills/compare/` | [skills/compare/README.md](../skills/compare/README.md) |
 | `skills/fundamentals/` | [skills/fundamentals/README.md](../skills/fundamentals/README.md) |
 | `skills/index/` | [skills/index/README.md](../skills/index/README.md) |

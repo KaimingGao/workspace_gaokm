@@ -114,7 +114,7 @@ class TestDualScoreHeadMeta(unittest.TestCase):
         from core.signal.dual_score import fuse_remaining_heads_meta
 
         m = fuse_remaining_heads_meta(1.0, None)
-        self.assertEqual(m["dual_score_head"], "single_eod")
+        self.assertEqual(m["dual_score_head"], "single_oo")
         self.assertTrue(m["single_head"])
         m2 = fuse_remaining_heads_meta(1.0, 0.5)
         self.assertEqual(m2["dual_score_head"], "blend")
@@ -127,11 +127,11 @@ class TestDualScoreHeadMeta(unittest.TestCase):
                 "predicted_score": 1.0,
                 "predicted_score_eod_rem": 1.0,
                 "predicted_score_tau": None,
-                "dual_score_head": "single_eod",
+                "dual_score_head": "single_oo",
                 "dual_score_single_head": True,
             }
         )
-        self.assertEqual(out.get("dual_score_head"), "single_eod")
+        self.assertEqual(out.get("dual_score_head"), "single_oo")
         self.assertTrue(out.get("dual_score_single_head"))
 
 

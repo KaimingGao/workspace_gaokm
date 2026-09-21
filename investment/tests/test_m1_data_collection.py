@@ -147,7 +147,7 @@ class TestDataCoverage(unittest.TestCase):
 
 class TestIncrementalFetch(unittest.TestCase):
     def test_merge_on_fetch(self):
-        from skills.common import history as hist
+        from adapters.market import history as hist
 
         existing = [
             {"date": "2024-01-01", "open": 1, "high": 1, "low": 1, "close": 1, "volume": 1},
@@ -158,17 +158,17 @@ class TestIncrementalFetch(unittest.TestCase):
             {"date": "2024-01-03", "open": 1, "high": 1, "low": 1, "close": 1.3, "volume": 1},
         ]
         with tempfile.TemporaryDirectory() as td, patch(
-            "skills.common.history.resolve_market_code", return_value=("CN", "600519")
+            "adapters.market.history.resolve_market_code", return_value=("CN", "600519")
         ), patch(
-            "skills.common.history.load_daily_cache",
+            "adapters.market.history.load_daily_cache",
             side_effect=[
                 None,  # fresh miss
                 (existing, {"data_source": "akshare_cn_daily"}),  # ignore_age
             ],
         ), patch(
-            "skills.common.history.fetch_a_daily_bars", return_value=incoming
+            "adapters.market.history.fetch_a_daily_bars", return_value=incoming
         ) as fetch, patch(
-            "skills.common.history.merge_save_daily_cache"
+            "adapters.market.history.merge_save_daily_cache"
         ) as save, patch(
             "core.store.peek_daily_cache_meta",
             return_value={"adjust_policy": "qfq"},
@@ -196,7 +196,7 @@ class TestIncrementalFetch(unittest.TestCase):
         self.assertIsNone(kwargs.get("start_date"))
 
     def test_gap_window_when_history_enough(self):
-        from skills.common import history as hist
+        from adapters.market import history as hist
 
         existing = [
             {
@@ -216,17 +216,17 @@ class TestIncrementalFetch(unittest.TestCase):
             {"date": "2026-08-11", "open": 1, "high": 1, "low": 1, "close": 26.0, "volume": 1},
         ]
         with patch(
-            "skills.common.history.resolve_market_code", return_value=("CN", "600519")
+            "adapters.market.history.resolve_market_code", return_value=("CN", "600519")
         ), patch(
-            "skills.common.history.load_daily_cache",
+            "adapters.market.history.load_daily_cache",
             side_effect=[
                 None,
                 (existing, {"data_source": "akshare_cn_daily"}),
             ],
         ), patch(
-            "skills.common.history.fetch_a_daily_bars", return_value=incoming
+            "adapters.market.history.fetch_a_daily_bars", return_value=incoming
         ) as fetch, patch(
-            "skills.common.history.merge_save_daily_cache",
+            "adapters.market.history.merge_save_daily_cache",
             side_effect=lambda market, code, bars, **kw: ("/tmp/x", bars),
         ), patch(
             "core.store.peek_daily_cache_meta",
@@ -245,7 +245,7 @@ class TestIncrementalFetch(unittest.TestCase):
         self.assertLessEqual(kwargs.get("limit", 99), 20)
 
     def test_skip_remote_when_already_today(self):
-        from skills.common import history as hist
+        from adapters.market import history as hist
         from datetime import datetime
 
         today = datetime.now().strftime("%Y-%m-%d")
@@ -262,15 +262,15 @@ class TestIncrementalFetch(unittest.TestCase):
         ]
         existing[-1]["date"] = today
         with patch(
-            "skills.common.history.resolve_market_code", return_value=("CN", "600519")
+            "adapters.market.history.resolve_market_code", return_value=("CN", "600519")
         ), patch(
-            "skills.common.history.load_daily_cache",
+            "adapters.market.history.load_daily_cache",
             side_effect=[
                 None,
                 (existing, {"data_source": "akshare_cn_daily"}),
             ],
         ), patch(
-            "skills.common.history.fetch_a_daily_bars"
+            "adapters.market.history.fetch_a_daily_bars"
         ) as fetch, patch(
             "core.store.peek_daily_cache_meta",
             return_value={"adjust_policy": "qfq"},
@@ -287,7 +287,7 @@ class TestIncrementalFetch(unittest.TestCase):
         self.assertIn("cache", src)
 
     def test_plan_gap_vs_full(self):
-        from skills.common.history import _incremental_remote_plan
+        from adapters.market.history import _incremental_remote_plan
 
         # 25 根 + 缺口约 3 天，补上后够 limit=20 → 缺口窗
         fat = [{"date": f"2026-07-{i:02d}", "close": 1} for i in range(1, 26)]
@@ -306,7 +306,7 @@ class TestIncrementalFetch(unittest.TestCase):
         """周日增量：末根已是周五完整 as-of → 不打远端。"""
         from datetime import datetime
 
-        from skills.common.history import _incremental_remote_plan
+        from adapters.market.history import _incremental_remote_plan
 
         fat = [{"date": f"2026-08-{i:02d}", "close": 1} for i in range(1, 26)]
         fat[-1]["date"] = "2026-09-04"
@@ -325,7 +325,7 @@ class TestIncrementalFetch(unittest.TestCase):
     def test_plan_fetch_when_last_before_asof(self):
         from datetime import datetime
 
-        from skills.common.history import _incremental_remote_plan
+        from adapters.market.history import _incremental_remote_plan
 
         fat = [{"date": f"2026-08-{i:02d}", "close": 1} for i in range(1, 26)]
         fat[-1]["date"] = "2026-09-03"
@@ -342,7 +342,7 @@ class TestIncrementalFetch(unittest.TestCase):
 
     def test_force_refresh_skips_remote_when_asof_aligned(self):
         """cache_max_age<=0 的增量补齐：已齐 as-of 不得整池拉网。"""
-        from skills.common import history as hist
+        from adapters.market import history as hist
 
         existing = [
             {
@@ -357,12 +357,12 @@ class TestIncrementalFetch(unittest.TestCase):
         ]
         existing[-1]["date"] = "2026-09-04"
         with patch(
-            "skills.common.history.resolve_market_code", return_value=("CN", "600519")
+            "adapters.market.history.resolve_market_code", return_value=("CN", "600519")
         ), patch(
-            "skills.common.history.load_daily_cache",
+            "adapters.market.history.load_daily_cache",
             return_value=(existing, {"data_source": "akshare_cn_daily:qfq"}),
         ), patch(
-            "skills.common.history.fetch_a_daily_bars"
+            "adapters.market.history.fetch_a_daily_bars"
         ) as fetch, patch(
             "core.store.peek_daily_cache_meta",
             return_value={"adjust_policy": "qfq"},

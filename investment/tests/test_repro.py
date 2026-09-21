@@ -58,7 +58,7 @@ class TestPaperAccount(unittest.TestCase):
             {"stock_code": "600519", "stock_name": "茅台", "shares": 100, "cost": 1400}
         ]
         with patch(
-            "skills.common.quote_api.StockAPI.query",
+            "adapters.market.quote_api.StockAPI.query",
             return_value={
                 "success": True,
                 "stock_code": "600519",

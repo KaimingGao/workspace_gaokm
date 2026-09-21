@@ -1277,9 +1277,9 @@ export function formatBlendScoreSection(raw) {
         ? "single"
         : "";
   let headHint = "";
-  if (head === "single_eod" && tN != null && Number.isFinite(tN)) {
+  if (head === "single_oo" && tN != null && Number.isFinite(tN)) {
     headHint = " · 单头：ranking=ŷ_oo（缺 ŷ_oc 权）";
-  } else if (head === "single_eod") {
+  } else if (head === "single_oo") {
     headHint = " · 单头降级：仅 ŷ_oo（缺 ŷ_oc）";
   } else if (head === "single_tau") {
     headHint = " · 单头降级：仅 ŷ_oc（缺 ŷ_oo）";

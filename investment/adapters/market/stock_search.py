@@ -12,7 +12,7 @@ import re
 import time
 from typing import Any, Dict, List, Optional, Set, Tuple
 
-from skills.common.quote_api import StockAPI
+from adapters.market.quote_api import StockAPI
 
 # 进程内精简索引：(code, name)，避免每次扫原始现货大表字段
 _SPOT_PAIRS: Optional[List[Tuple[str, str]]] = None
@@ -117,7 +117,7 @@ def _spot_pairs_cheap() -> List[Tuple[str, str]]:
 
     rows: List[dict] = []
     try:
-        from skills.screen import engine as screen_engine
+        from adapters.screen import engine as screen_engine
 
         mem = getattr(screen_engine, "_SPOT_MEM", None)
         ttl = float(getattr(screen_engine, "_SPOT_MEM_TTL_SEC", 120) or 120)
@@ -195,7 +195,7 @@ import logging
 
 logger = logging.getLogger(__name__)
 def _fetch_code_name_live() -> List[Tuple[str, str]]:
-    from skills.common.ak_lock import import_akshare
+    from adapters.market.ak_lock import import_akshare
 
     ak = import_akshare()
     fn = getattr(ak, "stock_info_a_code_name", None)

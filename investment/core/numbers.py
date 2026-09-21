@@ -22,7 +22,7 @@ def to_float(v: Any) -> Optional[float]:
 
     吸收历史各模块 _to_float / _f 的差异：
     - 基础类型容错（int/float/str/bool/None）
-    - NaN 拒绝（原 skills/common/* 版本）
+    - NaN 拒绝（原 skills/common → adapters/market 版本）
     - ±inf 拒绝（原 core/score_ledger.py 版本）
     """
     if v is None:

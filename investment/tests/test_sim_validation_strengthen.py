@@ -19,7 +19,7 @@ from core.sentiment_prior import build_sentiment_prior
 from core.signal.config import signal_config_overlay
 from core.signal.factors.amihud import score_amihud
 from core.signal.factors.liquidity import turnover_proxy
-from skills.common.history import normalize_bars
+from adapters.market.history import normalize_bars
 
 
 class TestAmountNormalize(unittest.TestCase):

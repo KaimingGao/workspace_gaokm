@@ -1,6 +1,6 @@
 """MarketPorts：类型化 Port 协议 + 默认适配器组装（DS encapsulate B）。
 
-实现侧仍走 core.ports.adapters / skills.ports_bind；此处只定契约。
+实现侧仍走 core.ports.registry / adapters.bind；此处只定契约。
 """
 
 
@@ -145,7 +145,7 @@ class _SpotAdapter:
     @property
     def last_source(self) -> Optional[str]:
         try:
-            from core.ports.adapters import get_adapter
+            from core.ports.registry import get_adapter
 
             impl = get_adapter("fetch_a_spot")
             if impl is not None:

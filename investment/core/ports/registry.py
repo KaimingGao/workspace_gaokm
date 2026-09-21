@@ -1,4 +1,4 @@
-"""行情端口适配器注册表：业务只依赖本模块；skills 经 ports_bind 注入。"""
+"""出站适配器注册表：业务只依赖本模块；默认实现由 ``adapters.bind`` 注入。"""
 
 from __future__ import annotations
 
@@ -38,11 +38,11 @@ def mark_bound() -> None:
 
 
 def ensure_bound() -> None:
-    """首次调用时让 skills 侧注册默认适配器（打破 market→skills 硬依赖）。"""
+    """首次调用时登记默认出站适配器（打破 market→adapters 硬依赖）。"""
     global _bound
     if _bound and _adapters:
         return
-    from skills.ports_bind import bind_market_adapters
+    from adapters.bind import bind_market_adapters
 
     bind_market_adapters()
     _bound = True

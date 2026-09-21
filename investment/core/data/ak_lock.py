@@ -7,7 +7,7 @@ leaves the Web UI stuck on loading with no response.
 Call ``install_akshare_lock()`` once at process start (also safe to call
 lazily before first AkShare use).
 
-从 skills/common/ak_lock.py 下沉到 core 层，消除 core → skills 反向依赖。
+从 adapters/market/ak_lock.py 下沉到 core 层，消除 core → skills 反向依赖。
 """
 
 import threading

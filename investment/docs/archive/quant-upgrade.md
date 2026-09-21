@@ -213,7 +213,7 @@ flowchart TB
 | P15.1 | golden quant case | `evals/golden_cases.json` · `quant_portfolio_backtest` | **已落地** |
 | P15.2 | HTML 报告导出 | `render_quant_report_html` + `format=html` | **已落地** |
 | P15.3 | quant 路由 hint | `routing.infer_quant_task` + `QUANT_HINT` + `prepare_tool_params` | **已落地** |
-| P15.4 | mock 补丁 | `skills.common.history.fetch_daily_bars` 纳入 eval mock | **已落地** |
+| P15.4 | mock 补丁 | `adapters.market.history.fetch_daily_bars` 纳入 eval mock | **已落地** |
 
 **验收**：`tests/test_p15_quant.py`；`run_checklist.py --mock` 含 quant case；12 条 golden cases。
 

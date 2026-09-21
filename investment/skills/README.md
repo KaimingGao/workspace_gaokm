@@ -1,6 +1,9 @@
 # skills
 
-Skill 适配层：行情/财报/舆情/回测等取数与规则工具集
+Agent 工具层：自然语言意图 → `handler` →（shim）→ `adapters.*` / `core`。
+
+取数与快照实现在 [`adapters/`](../adapters/README.md)，经 [`adapters.bind`](../adapters/bind.py) 注入 `core.ports`。  
+本目录下的 `engine.py` 等为**兼容 shim**（与 adapters 同模块对象，便于旧 mock 路径），不再承载 I/O 实现。
 
 - [架构总览 · 子目录索引](../docs/architecture.md#子目录-readme-索引)
-- [分钟线采集（AkShare 东财主 · BaoStock 备）](../docs/architecture.md#分钟线采集架构akshare--baostock) — `common/minute_history.py` · `common/baostock_minute.py`
+- [adapters README](../adapters/README.md)

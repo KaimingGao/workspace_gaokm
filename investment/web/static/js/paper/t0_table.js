@@ -129,7 +129,7 @@ export const SKIP_CAT_LABEL = {
   tau_entry_price: "入场价vs开盘×ŷ_oc(旧)",
   tau_exit_price: "出场价vs开盘×ŷ_oc",
   y_trade_weak: "y_trade幅度不足",
-  eod_tau_disagree: "y_eod↔y_τ异号",
+  eod_tau_disagree: "y_oo↔y_τ异号",
   trade_tau_disagree: "y_trade↔y_τ异号",
   trade_tau_sign: "异号跳过",
   tau_leg1_prior: "局部↔整体趋势不一致",

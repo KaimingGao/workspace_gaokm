@@ -95,7 +95,7 @@ class TestSessionPit(unittest.TestCase):
             "predicted_score_blend": 1.2,
             "gap_pct": 1.0,
             "dual_score_window": "eod_next",
-            "dual_score_head": "single_eod",
+            "dual_score_head": "single_oo",
             "dual_score_single_head": True,
             "dual_score_weights": {"w_eod": 0.5, "w_tau": 0.5},
         }

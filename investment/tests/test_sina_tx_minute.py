@@ -21,7 +21,7 @@ def _resp_json(payload):
 
 class TestSinaTxMinute(unittest.TestCase):
     def test_to_sina_tx_symbol(self):
-        from skills.common.sina_tx_minute import to_sina_tx_symbol
+        from adapters.market.sina_tx_minute import to_sina_tx_symbol
 
         self.assertEqual(to_sina_tx_symbol("600519"), "sh600519")
         self.assertEqual(to_sina_tx_symbol("000001"), "sz000001")
@@ -30,7 +30,7 @@ class TestSinaTxMinute(unittest.TestCase):
         self.assertEqual(to_sina_tx_symbol("430047"), "bj430047")
 
     def test_sina_success(self):
-        from skills.common.sina_tx_minute import fetch_sina_tx_minute_bars
+        from adapters.market.sina_tx_minute import fetch_sina_tx_minute_bars
 
         payload = [
             {
@@ -43,7 +43,7 @@ class TestSinaTxMinute(unittest.TestCase):
             }
         ]
         with patch(
-            "skills.common.sina_tx_minute.requests_get_with_retry",
+            "adapters.market.sina_tx_minute.requests_get_with_retry",
             return_value=_resp_json(payload),
         ):
             bars, meta = fetch_sina_tx_minute_bars("600519", period="5", lookback_days=5)
@@ -52,7 +52,7 @@ class TestSinaTxMinute(unittest.TestCase):
         self.assertEqual(meta.get("data_source"), "sina_tx:sina")
 
     def test_sina_fail_tencent_backup(self):
-        from skills.common.sina_tx_minute import fetch_sina_tx_minute_bars
+        from adapters.market.sina_tx_minute import fetch_sina_tx_minute_bars
 
         tx = {
             "data": {
@@ -67,14 +67,14 @@ class TestSinaTxMinute(unittest.TestCase):
                 raise RuntimeError("sina down")
             return _resp_json(tx)
 
-        with patch("skills.common.sina_tx_minute.requests_get_with_retry", side_effect=_get):
+        with patch("adapters.market.sina_tx_minute.requests_get_with_retry", side_effect=_get):
             bars, meta = fetch_sina_tx_minute_bars("600519", period="5")
         self.assertEqual(len(bars), 1)
         self.assertEqual(meta.get("data_source"), "sina_tx:tencent")
         self.assertEqual(meta.get("backfill_reason"), "sina_fail")
 
     def test_fetch_uses_sina_tx_when_em_and_bs_empty(self):
-        from skills.common import minute_history as mh
+        from adapters.market import minute_history as mh
 
         bar = {
             "datetime": "2026-08-28 09:35:00",
@@ -108,7 +108,7 @@ class TestSinaTxMinute(unittest.TestCase):
         self.assertEqual((meta.get("baostock") or {}).get("reason"), "sina_tx_ok")
 
     def test_sina_tx_runs_before_baostock(self):
-        from skills.common import minute_history as mh
+        from adapters.market import minute_history as mh
 
         order: list[str] = []
 
@@ -135,7 +135,7 @@ class TestSinaTxMinute(unittest.TestCase):
         self.assertEqual(order, ["sina_tx", "baostock"])
 
     def test_sina_tx_ok_skips_baostock(self):
-        from skills.common import minute_history as mh
+        from adapters.market import minute_history as mh
 
         bar = {
             "datetime": "2026-08-28 09:35:00",

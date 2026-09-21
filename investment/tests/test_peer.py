@@ -33,8 +33,8 @@ class TestPeer(unittest.TestCase):
             }
             return data.get(code, {"success": False, "error": "x"})
 
-        with patch("skills.peer.engine.StockAPI.query", side_effect=fake_query), patch(
-            "skills.peer.engine.StockAPI.resolve_symbol",
+        with patch("skills.peer.engine.query_quote", side_effect=fake_query), patch(
+            "skills.peer.engine.resolve_symbol",
             side_effect=lambda c: {
                 "茅台": "sh600519",
                 "贵州茅台": "sh600519",

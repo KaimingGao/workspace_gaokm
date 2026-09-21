@@ -14,13 +14,13 @@ if ROOT not in sys.path:
 
 class TestBaostockMinute(unittest.TestCase):
     def test_to_baostock_symbol(self):
-        from skills.common.baostock_minute import to_baostock_symbol
+        from adapters.market.baostock_minute import to_baostock_symbol
 
         self.assertEqual(to_baostock_symbol("600519"), "sh.600519")
         self.assertEqual(to_baostock_symbol("000001"), "sz.000001")
 
     def test_parse_datetime(self):
-        from skills.common.baostock_minute import _parse_baostock_datetime
+        from adapters.market.baostock_minute import _parse_baostock_datetime
 
         self.assertEqual(
             _parse_baostock_datetime("2024-08-20", "093500000"),
@@ -28,7 +28,7 @@ class TestBaostockMinute(unittest.TestCase):
         )
 
     def test_em_fail_bs_fallback_merges(self):
-        from skills.common import minute_history as mh
+        from adapters.market import minute_history as mh
 
         em_bar = {
             "datetime": "2026-08-26 09:35:00",
@@ -66,7 +66,7 @@ class TestBaostockMinute(unittest.TestCase):
         self.assertIn("baostock", meta.get("data_source") or "")
 
     def test_fetch_baostock_mock(self):
-        from skills.common.baostock_minute import fetch_baostock_minute_bars
+        from adapters.market.baostock_minute import fetch_baostock_minute_bars
 
         row = ["2024-08-20", "093500000", "10", "10.5", "9.8", "10.2", "1000", "10000"]
         field_names = ["date", "time", "open", "high", "low", "close", "volume", "amount"]
@@ -90,7 +90,7 @@ class TestBaostockMinute(unittest.TestCase):
         mock_bs.login.return_value = MagicMock(error_code="0", error_msg="")
         mock_bs.query_history_k_data_plus.return_value = _Rs()
 
-        with patch("skills.common.baostock_minute._BS_LOGGED_IN", True), patch(
+        with patch("adapters.market.baostock_minute._BS_LOGGED_IN", True), patch(
             "baostock.login", mock_bs.login
         ), patch("baostock.query_history_k_data_plus", mock_bs.query_history_k_data_plus):
             bars, meta = fetch_baostock_minute_bars(
@@ -101,7 +101,7 @@ class TestBaostockMinute(unittest.TestCase):
         self.assertIn("baostock", meta.get("data_source") or "")
 
     def test_fetch_baostock_timeout_kills_subprocess(self):
-        from skills.common.baostock_minute import fetch_baostock_minute_bars
+        from adapters.market.baostock_minute import fetch_baostock_minute_bars
 
         mock_proc = MagicMock()
         mock_proc.is_alive.return_value = True
@@ -125,7 +125,7 @@ class TestBaostockMinute(unittest.TestCase):
 
 
     def test_skip_em_uses_baostock_only(self):
-        from skills.common import minute_history as mh
+        from adapters.market import minute_history as mh
 
         bs_bar = {
             "datetime": "2024-06-01 09:35:00",
@@ -143,10 +143,10 @@ class TestBaostockMinute(unittest.TestCase):
         ) as em_fetch, patch.object(
             mh, "_maybe_fetch_sina_tx_minute_bars", return_value=([], {})
         ), patch(
-            "skills.common.baostock_minute.fetch_baostock_minute_bars",
+            "adapters.market.baostock_minute.fetch_baostock_minute_bars",
             return_value=([bs_bar], {"data_source": "baostock:test", "ok": True}),
         ), patch(
-            "skills.common.baostock_minute.baostock_enabled", return_value=True
+            "adapters.market.baostock_minute.baostock_enabled", return_value=True
         ), patch.object(mh, "_throttle_minute_remote_fetch"), patch.object(
             mh, "_merge_save_minute_bars",
             return_value=([bs_bar], {"data_source": "baostock:test", "bar_count": 1}),
@@ -157,7 +157,7 @@ class TestBaostockMinute(unittest.TestCase):
         self.assertTrue(meta.get("skip_em"))
 
     def test_skip_bs_does_not_call_baostock(self):
-        from skills.common import minute_history as mh
+        from adapters.market import minute_history as mh
 
         with patch.object(mh, "resolve_market_code", return_value=("CN", "600519")), patch.object(
             mh, "load_minute_cache", return_value=None
@@ -176,7 +176,7 @@ class TestBaostockMinute(unittest.TestCase):
         self.assertEqual(bars, [])
 
     def test_throttle_after_em_and_baostock(self):
-        from skills.common import minute_history as mh
+        from adapters.market import minute_history as mh
 
         bs_bar = {
             "datetime": "2024-06-01 09:35:00",
@@ -204,7 +204,7 @@ class TestBaostockMinute(unittest.TestCase):
         self.assertEqual(throttle.call_count, 2)
 
     def test_throttle_after_baostock_when_skip_em(self):
-        from skills.common import minute_history as mh
+        from adapters.market import minute_history as mh
 
         bs_bar = {
             "datetime": "2024-06-01 09:35:00",
@@ -220,10 +220,10 @@ class TestBaostockMinute(unittest.TestCase):
         ), patch.object(
             mh, "_maybe_fetch_sina_tx_minute_bars", return_value=([], {})
         ), patch(
-            "skills.common.baostock_minute.fetch_baostock_minute_bars",
+            "adapters.market.baostock_minute.fetch_baostock_minute_bars",
             return_value=([bs_bar], {"data_source": "baostock:test", "ok": True}),
         ), patch(
-            "skills.common.baostock_minute.baostock_enabled", return_value=True
+            "adapters.market.baostock_minute.baostock_enabled", return_value=True
         ), patch.object(mh, "_throttle_minute_remote_fetch") as throttle, patch.object(
             mh, "_merge_save_minute_bars",
             return_value=([bs_bar], {"data_source": "baostock:test", "bar_count": 1}),
@@ -233,7 +233,7 @@ class TestBaostockMinute(unittest.TestCase):
 
     def test_suggest_baostock_start_caps_at_30_calendar_days(self):
         from datetime import datetime, timedelta
-        from skills.common.baostock_minute import suggest_baostock_start
+        from adapters.market.baostock_minute import suggest_baostock_start
 
         expected = (datetime.now() - timedelta(days=30)).strftime("%Y-%m-%d")
         self.assertEqual(suggest_baostock_start(120), expected)
@@ -252,7 +252,7 @@ class TestBaostockMinute(unittest.TestCase):
 
     def test_maybe_fetch_baostock_uses_30d_start(self):
         from datetime import datetime, timedelta
-        from skills.common import minute_history as mh
+        from adapters.market import minute_history as mh
 
         captured: dict = {}
 
@@ -260,8 +260,8 @@ class TestBaostockMinute(unittest.TestCase):
             captured["start_date"] = kw.get("start_date")
             return [], {"data_source": "baostock:test"}
 
-        with patch("skills.common.baostock_minute.baostock_enabled", return_value=True), patch(
-            "skills.common.baostock_minute.fetch_baostock_minute_bars", side_effect=_fetch
+        with patch("adapters.market.baostock_minute.baostock_enabled", return_value=True), patch(
+            "adapters.market.baostock_minute.fetch_baostock_minute_bars", side_effect=_fetch
         ), patch.dict(os.environ):
             os.environ.pop("INVESTMENT_MINUTE_BS_LOOKBACK_DAYS", None)
             mh._maybe_fetch_baostock_minute_bars(

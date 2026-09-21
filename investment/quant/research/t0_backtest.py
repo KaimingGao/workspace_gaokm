@@ -220,8 +220,8 @@ def _local_minute_by_date(
 ) -> Tuple[Dict[str, List[dict]], Dict[str, Any]]:
     """回测优先读本地分钟缓存（忽略 TTL）。历史 5m 不必等东财刷新。"""
     try:
-        from skills.common.history import resolve_market_code
-        from skills.common.minute_history import _load_stale_minute, group_minute_bars_by_date
+        from adapters.market.history import resolve_market_code
+        from adapters.market.minute_history import _load_stale_minute, group_minute_bars_by_date
 
         market, bare = resolve_market_code(code)
         if market != "CN" or not bare:

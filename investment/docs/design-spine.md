@@ -513,7 +513,7 @@ N2 ──offline──► research/ml artifact ──promote only──► N5
 | 舆情标题（可选） | 对 score 微调；观察页提醒 | `sentiment` / `news` |
 | 配置与账本 | 权重、阈值、名单、纸面 | `data/signal_config.json` · `watching.json` · `paper.json` |
 
-领域层不直接碰 HTTP；一律经 **`core/ports/*` → `skills/*/engine`**。AkShare 调用须进程内串行（见 `skills/common/ak_lock.py`），避免并发打崩 Web 进程。
+领域层不直接碰 HTTP；一律经 **`core/ports/*` → `adapters.*`（由 `adapters.bind` 注入）**。AkShare 调用须进程内串行（见 `adapters/market/ak_lock.py` / `core.data.ak_lock`），避免并发打崩 Web 进程。
 
 ### 2. 信号（第一层：`score_bars`）
 

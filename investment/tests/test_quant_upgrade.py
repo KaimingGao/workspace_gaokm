@@ -181,7 +181,7 @@ class TestQuantUpgrade(unittest.TestCase):
                 "stock_code": "600519",
                 "price_raw": 1800.0,
             }
-            with patch("skills.common.quote_api.StockAPI.query", return_value=fake_quote):
+            with patch("adapters.market.quote_api.StockAPI.query", return_value=fake_quote):
                 sells = simulate_sells(paper)
             self.assertGreaterEqual(len(sells), 1)
             self.assertEqual(sells[0]["side"], "sell")

@@ -22,7 +22,7 @@ from core.store import (
     save_minute_cache,
 )
 from core.store_bars_sqlite import reset_conn_cache, touch_daily_fetched_at
-from skills.common.history import fetch_daily_bars
+from adapters.market.history import fetch_daily_bars
 
 
 def _sample_bars(n=20):
@@ -117,7 +117,7 @@ class _StoreBackendMixin:
             data_source="akshare_cn_daily",
             store_dir=self.tmp,
         )
-        with patch("skills.common.history.fetch_a_daily_bars") as mock_fetch:
+        with patch("adapters.market.history.fetch_a_daily_bars") as mock_fetch:
             out, src = fetch_daily_bars("600519", limit=20)
         self.assertEqual(len(out), 20)
         self.assertTrue(str(src).startswith("cache:"))

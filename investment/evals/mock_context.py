@@ -116,7 +116,7 @@ def _patch_daily_bars(stack, mock_cfg: dict) -> None:
         ("core.data.facade.bars_and_source", ret),
         ("core.data.facade.bars_and_source_research", ret),
         ("core.data.facade.get_bars", pack),
-        ("skills.common.history.fetch_daily_bars", ret),
+        ("adapters.market.history.fetch_daily_bars", ret),
         ("core.signal.score_stock.fetch_daily_bars", ret),
     ):
         try:
@@ -185,7 +185,7 @@ def apply_case_mocks(mock_cfg: Optional[dict]) -> Iterator[None]:
     quote_fn = build_quote_fn(mock_cfg)
     if quote_fn is not None:
         stack.enter_context(
-            patch("skills.common.quote_api.StockAPI.query", side_effect=quote_fn)
+            patch("adapters.market.quote_api.StockAPI.query", side_effect=quote_fn)
         )
 
     _patch_daily_bars(stack, mock_cfg)
@@ -212,7 +212,7 @@ def apply_case_mocks(mock_cfg: Optional[dict]) -> Iterator[None]:
             patch("skills.backtest.engine.resolve_market_code", return_value=tup)
         )
         stack.enter_context(
-            patch("skills.common.history.resolve_market_code", return_value=tup)
+            patch("adapters.market.history.resolve_market_code", return_value=tup)
         )
         stack.enter_context(
             patch("skills.fundamentals.engine.resolve_market_code", return_value=tup)
