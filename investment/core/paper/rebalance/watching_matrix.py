@@ -295,15 +295,70 @@ def _score_pool(
     return scored, rejected
 
 
-def _quote_px(code: str, *, offline_only: bool = True) -> Optional[float]:
-    """预演/落账定价：默认本地日线末收；``offline_only=False`` 可打实时行情。"""
+def _live_quote_dict(code: str) -> Optional[dict]:
+    try:
+        from core.data.facade import get_quote
+
+        q = get_quote(code) or {}
+        return q if isinstance(q, dict) else None
+    except Exception:  # noqa: BLE001
+        logger.debug("live quote failed for %s", code, exc_info=True)
+        return None
+
+
+def _px_from_quote_last(q: dict) -> Optional[float]:
+    px = _f(q.get("price_raw"))
+    if px is None:
+        px = _f(q.get("price"))
+    return float(px) if px is not None and px > 0 else None
+
+
+def _px_from_quote_open(q: dict) -> Optional[float]:
+    px = _f(q.get("open_raw"))
+    if px is None:
+        px = _f(q.get("open"))
+    return float(px) if px is not None and px > 0 else None
+
+
+def _px_from_quote_prev(q: dict) -> Optional[float]:
+    for key in ("prev_close", "pre_close", "yesterday_close"):
+        px = _f(q.get(key))
+        if px is not None and px > 0:
+            return float(px)
+    return None
+
+
+def _live_fill_px(code: str) -> Optional[float]:
+    """实时成交价：现价；集合竞价未出、现价仍停在昨收则用今开。不退昨收。"""
+    q = _live_quote_dict(code)
+    if not q:
+        return None
+    last = _px_from_quote_last(q)
+    opx = _px_from_quote_open(q)
+    prev = _px_from_quote_prev(q)
+    if (
+        last is not None
+        and prev is not None
+        and opx is not None
+        and abs(last - prev) < 1e-9
+        and abs(opx - prev) > 1e-9
+    ):
+        return float(opx)
+    if last is not None:
+        return float(last)
+    if opx is not None:
+        return float(opx)
+    return None
+
+
+def _bar_close_px(code: str) -> Optional[float]:
     try:
         from core.data.facade import get_bars
 
         pack = get_bars(
             code,
             limit=5,
-            offline_only=bool(offline_only),
+            offline_only=True,
             reject_quote_fallback=True,
         ) or {}
         bars = list(pack.get("bars") or [])
@@ -313,37 +368,26 @@ def _quote_px(code: str, *, offline_only: bool = True) -> Optional[float]:
                 return float(px)
     except Exception:  # noqa: BLE001
         logger.debug("cached bar price failed for %s", code, exc_info=True)
-    if not offline_only:
-        try:
-            from core.data.facade import get_quote
-
-            q = get_quote(code) or {}
-            px = _f(q.get("price_raw") if isinstance(q, dict) else None)
-            if px is None and isinstance(q, dict):
-                px = _f(q.get("price"))
-            if px is not None and px > 0:
-                return float(px)
-        except Exception:  # noqa: BLE001
-            logger.debug("live quote price failed for %s", code, exc_info=True)
     return None
+
+
+def _quote_px(code: str, *, offline_only: bool = True) -> Optional[float]:
+    """调仓成交价。
+
+    ``offline_only=True``：本地日线末收（盘中即昨收，仅离线预演）。
+    ``offline_only=False``：实时现价，缺则今开。不把昨收写成成交/成本。
+    """
+    if not offline_only:
+        return _live_fill_px(code)
+    return _bar_close_px(code)
 
 
 def _quote_open_px(code: str, *, offline_only: bool = True) -> Optional[float]:
     """当日开盘：仅实时行情。offline 预演不扣 remaining，避免用昨收/昨开误映射。"""
     if offline_only:
         return None
-    try:
-        from core.data.facade import get_quote
-
-        q = get_quote(code) or {}
-        px = _f(q.get("open_raw") if isinstance(q, dict) else None)
-        if px is None and isinstance(q, dict):
-            px = _f(q.get("open"))
-        if px is not None and px > 0:
-            return float(px)
-    except Exception:  # noqa: BLE001
-        logger.debug("live quote open failed for %s", code, exc_info=True)
-    return None
+    q = _live_quote_dict(code)
+    return _px_from_quote_open(q) if q else None
 
 
 _SCORE_PASSTHROUGH_KEYS = (
@@ -721,7 +765,10 @@ def simulate_watching_matrix_preview(
     dry_run: bool = True,
     offline_only: bool = True,
 ) -> Dict[str, Any]:
-    """观察池算分 + rank_lots（ranking=fuse(ŷ_oo,ŷ_oc) · 已保存手数）。默认 offline；dry_run 不写仓。"""
+    """观察池算分 + rank_lots（ranking=fuse(ŷ_oo,ŷ_oc) · 已保存手数）。
+
+    默认 offline 只约束 ŷ；``dry_run=False`` 落账强制现价，避免成本写成昨收。
+    """
     from core.paper.ledger import mark_to_market
     from core.paper.rebalance.rank_lots import (
         ACTION_OPEN,
@@ -793,6 +840,8 @@ def simulate_watching_matrix_preview(
         logger.debug("get_scoring_horizon_days failed", exc_info=True)
         horizon = 1
     use_offline = bool(offline_only)
+    # ŷ / 日K 可只读本地仓；落账必须现价，否则成本会被写成昨收
+    price_offline = bool(use_offline and dry_run)
     scored, rejected = _score_pool(
         codes, horizon_days=horizon, offline_only=use_offline
     )
@@ -832,10 +881,10 @@ def simulate_watching_matrix_preview(
     prices: Dict[str, float] = {}
     opens: Dict[str, float] = {}
     for code in item_by_code:
-        px = _quote_px(code, offline_only=use_offline)
+        px = _quote_px(code, offline_only=price_offline)
         if px is not None and px > 0:
             prices[code] = float(px)
-        opx = _quote_open_px(code, offline_only=use_offline)
+        opx = _quote_open_px(code, offline_only=price_offline)
         if opx is not None and opx > 0:
             opens[code] = float(opx)
 
@@ -877,6 +926,7 @@ def simulate_watching_matrix_preview(
             "stock_name": name,
             "matrix_mode": True,
             "price": px,
+            "day_open": opx,
             **_row_score_payload(
                 item, src, rl_cfg, open_px=opx, price_tau=px
             ),

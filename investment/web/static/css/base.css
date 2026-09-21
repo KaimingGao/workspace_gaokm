@@ -3860,10 +3860,10 @@ html[data-density="compact"] .table-pager {
 }
 
 .rebalance-table {
-  /* 股票略宽，其余 11 列等分；下限防挤扁，多余宽度均分 */
-  --rebalance-cols: minmax(6.75rem, 1.15fr) repeat(10, minmax(4.25rem, 1fr));
+  /* 股票 / 决策加宽，中间价分列够放下 ±xx.xx%；横向溢出交给 scroll */
+  --rebalance-cols: minmax(8.5rem, 1.25fr) repeat(9, minmax(5.75rem, 1fr)) minmax(8.75rem, 1.2fr);
   width: 100%;
-  min-width: 60rem;
+  min-width: 78rem;
   font-size: 0.78rem;
   background: transparent;
 }
@@ -3875,7 +3875,7 @@ html[data-density="compact"] .table-pager {
   align-items: center;
   width: 100%;
   box-sizing: border-box;
-  column-gap: 8px;
+  column-gap: 16px;
 }
 
 .rebalance-table-head {
@@ -3907,8 +3907,11 @@ html[data-density="compact"] .table-pager {
   font-variant-numeric: tabular-nums;
   font-family: var(--font-mono);
   justify-self: stretch;
-  padding-left: 4px;
-  padding-right: 4px;
+  padding-left: 6px;
+  padding-right: 6px;
+  overflow: visible;
+  text-overflow: clip;
+  white-space: nowrap;
 }
 
 .rebalance-th:not(.num),
@@ -4143,7 +4146,7 @@ html[data-density="compact"] .table-pager {
 .rebalance-score.score-na { color: var(--ink-3); font-weight: 500; }
 
 .rebalance-decision {
-  min-width: 9rem;
+  min-width: 0;
   display: flex;
   justify-content: flex-end;
   align-items: center;

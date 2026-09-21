@@ -476,6 +476,165 @@ class TestRebalanceDesk(unittest.TestCase):
         self.assertEqual(by["600519"]["action"], "hold")
         self.assertEqual(by["600519"]["phase"], "hold")
 
+    def test_rows_keep_fill_and_y_heads(self):
+        from core.paper.rebalance.desk import desk_rows_from_result
+
+        rows = desk_rows_from_result(
+            {
+                "rebalance_report": [
+                    {
+                        "stock_code": "600664",
+                        "stock_name": "哈药股份",
+                        "action": "open",
+                        "shares": 500,
+                        "price": 8.25,
+                        "day_open": 7.56,
+                        "prev_close": 7.50,
+                        "amount": 3750,
+                        "ranking": 2.885,
+                        "ranking_score": 0.02885,
+                        "y_oo": 2.16,
+                        "y_oc": 6.36,
+                        "y_co": -0.54,
+                        "reason": "买500股",
+                        "old_shares": 0,
+                        "new_shares": 500,
+                    }
+                ],
+                "buy_trades": [
+                    {
+                        "stock_code": "600664",
+                        "side": "buy",
+                        "price": 7.5,
+                        "amount": 3750.0,
+                        "ts": "2026-09-21T09:47:44.468",
+                        "y_oo": 2.160609,
+                    }
+                ],
+            }
+        )
+        row = rows[0]
+        self.assertEqual(row["action"], "open")
+        self.assertAlmostEqual(float(row["price"]), 7.5)
+        self.assertAlmostEqual(float(row["day_open"]), 7.56)
+        self.assertAlmostEqual(float(row["prev_close"]), 7.5)
+        self.assertAlmostEqual(float(row["amount"]), 3750)
+        self.assertEqual(row["ts"][:16], "2026-09-21T09:47")
+        self.assertAlmostEqual(float(row["y_oo"]), 2.16)
+
+    def test_hydrate_from_today_trades(self):
+        from core.paper.rebalance.desk import hydrate_desk_rows_from_paper
+
+        rows = [
+            {
+                "stock_code": "600664",
+                "action": "open",
+                "shares": 500.0,
+                "ranking_score": 0.02885,
+                "reason": "买500股",
+            }
+        ]
+        paper = {
+            "trades": [
+                {
+                    "ts": "2026-09-21T09:47:44.468",
+                    "side": "buy",
+                    "stock_code": "600664",
+                    "price": 7.5,
+                    "amount": 3750.0,
+                    "origin": "strategy",
+                    "y_oo": 2.16,
+                    "y_oc": 6.36,
+                    "ranking": 2.885,
+                }
+            ]
+        }
+        hydrate_desk_rows_from_paper(rows, paper, "2026-09-21")
+        self.assertAlmostEqual(float(rows[0]["price"]), 7.5)
+        self.assertAlmostEqual(float(rows[0]["amount"]), 3750)
+        self.assertAlmostEqual(float(rows[0]["y_oo"]), 2.16)
+        self.assertEqual(rows[0]["ts"][:10], "2026-09-21")
+
+    def test_hydrate_overwrites_ranking_from_trade(self):
+        from core.paper.rebalance.desk import hydrate_desk_rows_from_paper
+
+        rows = [
+            {
+                "stock_code": "600664",
+                "action": "open",
+                "ranking": 2.885,
+                "ranking_score": 0.02885,
+            }
+        ]
+        paper = {
+            "trades": [
+                {
+                    "ts": "2026-09-21T09:47:44.468",
+                    "side": "buy",
+                    "stock_code": "600664",
+                    "price": 8.25,
+                    "day_open": 7.56,
+                    "origin": "strategy",
+                    "ranking": -6.2417,
+                    "ranking_score": -0.062417,
+                }
+            ]
+        }
+        hydrate_desk_rows_from_paper(rows, paper, "2026-09-21")
+        self.assertAlmostEqual(float(rows[0]["ranking"]), -6.2417)
+        self.assertAlmostEqual(float(rows[0]["ranking_score"]), -0.062417)
+        self.assertAlmostEqual(float(rows[0]["day_open"]), 7.56)
+
+    def test_attach_day_open_from_quote(self):
+        from core.paper.rebalance.desk import attach_day_open_to_desk_rows
+
+        rows = [{"stock_code": "600664", "price": 8.25}]
+        with patch(
+            "core.paper.rebalance.match._batch_query_quotes",
+            return_value={"600664": {"open_raw": 7.56, "open": 7.56}},
+        ), patch("core.data.facade.get_bars", return_value={"bars": []}):
+            attach_day_open_to_desk_rows(rows, session="2026-09-21")
+        self.assertAlmostEqual(float(rows[0]["day_open"]), 7.56)
+        self.assertAlmostEqual(float(rows[0]["price"]), 8.25)
+
+    def test_attach_day_open_from_today_bar(self):
+        from core.paper.rebalance.desk import attach_day_open_to_desk_rows
+
+        rows = [{"stock_code": "600664", "price": 8.25}]
+        with patch(
+            "core.paper.rebalance.match._batch_query_quotes",
+            return_value={},
+        ), patch(
+            "core.data.facade.get_bars",
+            return_value={"bars": [{"date": "2026-09-21", "open": 7.56, "close": 8.25}]},
+        ):
+            attach_day_open_to_desk_rows(rows, session="2026-09-21")
+        self.assertAlmostEqual(float(rows[0]["day_open"]), 7.56)
+        self.assertAlmostEqual(float(rows[0]["price"]), 8.25)
+
+    def test_attach_day_open_keeps_existing(self):
+        from core.paper.rebalance.desk import attach_day_open_to_desk_rows
+
+        rows = [{"stock_code": "600664", "day_open": 7.50, "price": 8.25}]
+        with patch("core.paper.rebalance.match._batch_query_quotes") as bq:
+            attach_day_open_to_desk_rows(rows, session="2026-09-21")
+            bq.assert_not_called()
+        self.assertAlmostEqual(float(rows[0]["day_open"]), 7.5)
+
+    def test_attach_day_open_rejects_yesterday_bar(self):
+        from core.paper.rebalance.desk import attach_day_open_to_desk_rows
+
+        rows = [{"stock_code": "600664"}]
+        with patch(
+            "core.paper.rebalance.match._batch_query_quotes",
+            return_value={},
+        ), patch(
+            "core.data.facade.get_bars",
+            return_value={"bars": [{"date": "2026-09-18", "open": 7.40, "close": 7.50}]},
+        ):
+            attach_day_open_to_desk_rows(rows, session="2026-09-21")
+        self.assertIsNone(rows[0].get("day_open"))
+
     def test_holdings_placeholder_watch(self):
         from core.paper.rebalance.desk import desk_rows_from_holdings
 
@@ -562,6 +721,12 @@ class TestRebalanceDesk(unittest.TestCase):
             ), patch(
                 "core.paper.rebalance.desk._load_paper_safe",
                 return_value={"holdings": []},
+            ), patch(
+                "core.paper.rebalance.match._batch_query_quotes",
+                return_value={},
+            ), patch(
+                "core.data.facade.get_bars",
+                return_value={"bars": []},
             ):
                 persist_desk_from_result(
                     {

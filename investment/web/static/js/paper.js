@@ -41,14 +41,14 @@ import {
   normalizeExecutionView,
 } from "./paper/execution_ui.js?v=p2568";
 import { applyExecutionToUi } from "./paper/execution_forms.js?v=p2512";
-import { buildPaperLogsView, buildPaperLogsCsv } from "./paper/logs_ui.js?v=p2157";
+import { buildPaperLogsView, buildPaperLogsCsv } from "./paper/logs_ui.js?v=p2572";
 import { downloadBlob } from "./shared.js";
 import {
   renderPaperT0Preview as renderPaperT0PreviewUi,
   renderPaperT0WorkerTrades as renderPaperT0WorkerTradesUi,
   renderPaperT0WorkerDesk as renderPaperT0WorkerDeskUi,
 } from "./paper/t0_ui.js?v=p2569";
-import { renderPaperRebalanceWorkerDesk as renderPaperRebalanceWorkerDeskUi } from "./paper/rebalance_desk.js?v=p2297";
+import { renderPaperRebalanceWorkerDesk as renderPaperRebalanceWorkerDeskUi } from "./paper/rebalance_desk.js?v=p2572";
 import { wireT0SkipTips } from "./paper/t0_viz.js?v=p2569";
 import { wireT0ProcessTips, wireT0DayDebugExpand } from "./paper/t0_table.js?v=p2564";
 import { wireHoldingsChgTips } from "./paper/holding_chg_tip.js?v=p2297";
@@ -1280,7 +1280,7 @@ export function initPaper(ctx) {
     }
   }
 
-  function renderRebalanceWorkerBar(worker) {
+  function renderRebalanceWorkerBar(worker, desk) {
     const panel = document.getElementById("paper-rebalance-worker-panel");
     const switchEl = document.getElementById("paper-rebalance-worker-enabled");
     const badgeEl = document.getElementById("paper-rebalance-worker-badge");
@@ -1348,6 +1348,13 @@ export function initPaper(ctx) {
         lastRunText = `${lastTs || "—"} · ${tag} · 卖 ${
           Number.isFinite(sells) ? sells : 0
         } · 买 ${Number.isFinite(buys) ? buys : 0}`;
+        const sellAmt = desk && Number(desk.sell_amount);
+        const buyAmt = desk && Number(desk.buy_amount);
+        if ((Number.isFinite(sellAmt) && sellAmt > 0) || (Number.isFinite(buyAmt) && buyAmt > 0)) {
+          lastRunText += ` · 额 ${Number.isFinite(sellAmt) ? Math.round(sellAmt) : 0}/${
+            Number.isFinite(buyAmt) ? Math.round(buyAmt) : 0
+          }`;
+        }
         lastRunTone = "";
       }
     }
@@ -1424,7 +1431,7 @@ export function initPaper(ctx) {
         }
         return null;
       }
-      renderRebalanceWorkerBar(data.worker);
+      renderRebalanceWorkerBar(data.worker, data.desk);
       renderPaperRebalanceWorkerDeskUi(
         document.getElementById("paper-rebalance-worker-desk"),
         data.desk

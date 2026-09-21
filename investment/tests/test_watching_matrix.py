@@ -817,5 +817,114 @@ class TestWatchingMatrixUniverseFitTiers(unittest.TestCase):
         self.assertAlmostEqual(float(payload["y_trade"]), -3.65)
 
 
+class TestQuotePxLiveFill(unittest.TestCase):
+    def setUp(self):
+        self._fit = patch(
+            "core.paper.rebalance.watching_matrix._apply_universe_fit_tier_filter",
+            side_effect=lambda codes, **kw: (list(codes), {"unrestricted": True}),
+        )
+        self._fit.start()
+        self.addCleanup(self._fit.stop)
+
+    def test_live_prefers_quote_over_yesterday_bar_close(self):
+        from core.paper.rebalance.watching_matrix import _quote_px
+
+        with patch(
+            "core.data.facade.get_bars",
+            return_value={"bars": [{"date": "2026-09-18", "close": 7.50}]},
+        ), patch(
+            "core.data.facade.get_quote",
+            return_value={
+                "success": True,
+                "price_raw": 7.56,
+                "open_raw": 7.56,
+                "prev_close": 7.50,
+            },
+        ):
+            self.assertAlmostEqual(_quote_px("600664", offline_only=False), 7.56)
+
+    def test_offline_still_uses_bar_close(self):
+        from core.paper.rebalance.watching_matrix import _quote_px
+
+        with patch(
+            "core.data.facade.get_bars",
+            return_value={"bars": [{"date": "2026-09-18", "close": 7.50}]},
+        ), patch("core.data.facade.get_quote") as gq:
+            self.assertAlmostEqual(_quote_px("600664", offline_only=True), 7.50)
+            gq.assert_not_called()
+
+    def test_live_stale_last_equals_prev_close_uses_open(self):
+        from core.paper.rebalance.watching_matrix import _quote_px
+
+        with patch(
+            "core.data.facade.get_bars",
+            return_value={"bars": [{"close": 7.50}]},
+        ), patch(
+            "core.data.facade.get_quote",
+            return_value={
+                "success": True,
+                "price_raw": 7.50,
+                "open_raw": 7.56,
+                "prev_close": 7.50,
+            },
+        ):
+            self.assertAlmostEqual(_quote_px("600664", offline_only=False), 7.56)
+
+    def test_live_missing_quote_does_not_use_yesterday_close(self):
+        from core.paper.rebalance.watching_matrix import _quote_px
+
+        with patch(
+            "core.data.facade.get_bars",
+            return_value={"bars": [{"close": 7.50}]},
+        ), patch("core.data.facade.get_quote", return_value={}):
+            self.assertIsNone(_quote_px("600664", offline_only=False))
+
+    def test_commit_forces_live_fill_even_if_scoring_offline(self):
+        from core.paper.rebalance.watching_matrix import simulate_watching_matrix_preview
+
+        seen = []
+
+        def _px(code, *, offline_only=True):
+            seen.append(bool(offline_only))
+            return 10.05
+
+        paper = {
+            "strategy_id": "short_conservative",
+            "cash": 1_000_000,
+            "holdings": [],
+            "trades": [],
+            "rules": {"max_positions": 5, "position_pct": 0.2},
+            "cost_model": "zero",
+        }
+        with patch(
+            "core.paper.rebalance.watching_matrix._watching_codes",
+            return_value=(["600000"], {"n_watch": 1, "n_total": 1}),
+        ), patch(
+            "core.paper.rebalance.watching_matrix._score_pool",
+            return_value=([_signal_item()], []),
+        ), patch(
+            "core.paper.rebalance.watching_matrix._quote_px",
+            side_effect=_px,
+        ), patch(
+            "core.paper.rebalance.watching_matrix._quote_open_px",
+            return_value=10.0,
+        ), patch(
+            "core.paper.ledger.mark_to_market",
+            side_effect=lambda p: {
+                "equity": float(p.get("cash") or 0),
+                "cash": float(p.get("cash") or 0),
+            },
+        ):
+            out = simulate_watching_matrix_preview(
+                paper, dry_run=False, offline_only=True
+            )
+
+        self.assertTrue(out.get("ok"))
+        self.assertTrue(seen)
+        self.assertFalse(any(seen))
+        self.assertAlmostEqual(float(out["buy_trades"][0]["price"]), 10.05)
+        self.assertAlmostEqual(float(paper["holdings"][0]["cost"]), 10.05)
+
+
 if __name__ == "__main__":
     unittest.main()

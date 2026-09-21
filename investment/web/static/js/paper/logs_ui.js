@@ -259,10 +259,20 @@ function renderLogItem(l, { tradeCols = false } = {}) {
     }
     if (feeBits.length) secondaryParts.push(feeBits.join(" · "));
     else if (String(meta.cost_model || "") === "zero") secondaryParts.push("零成本");
-    if (meta.score != null && Number.isFinite(Number(meta.score))) {
+    if (meta.ranking != null && Number.isFinite(Number(meta.ranking))) {
+      secondaryParts.push(`ranking ${fmtScore(Number(meta.ranking), { signed: true })}`);
+    } else if (meta.score != null && Number.isFinite(Number(meta.score))) {
       secondaryParts.push(`评分 ${fmtScore(meta.score)}`);
     }
-    if (meta.note) secondaryParts.push(String(meta.note));
+    let note = String(meta.note || "").trim();
+    if (note && meta.ranking != null) {
+      note = note
+        .replace(/\s*ranking=[^\s·]+/g, "")
+        .replace(/\s*·\s*·\s*/g, " · ")
+        .replace(/^\s*·\s*|\s*·\s*$/g, "")
+        .trim();
+    }
+    if (note) secondaryParts.push(note);
     if (meta.sentiment_prior) {
       secondaryParts.unshift("舆情参考 · 不调仓");
     }

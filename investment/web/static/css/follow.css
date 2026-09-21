@@ -645,14 +645,15 @@ body[data-page="follow"] .follow-pending-grid.watching-react-grid {
 }
 
 .follow-page .rebalance-table {
-  /* 与 base.css 同步：股票略宽，其余列等分 */
-  --rebalance-cols: minmax(6.75rem, 1.15fr) repeat(10, minmax(4.25rem, 1fr));
+  /* 与 base.css 同步：股票/决策加宽，中间列加距 */
+  --rebalance-cols: minmax(8.5rem, 1.25fr) repeat(9, minmax(5.75rem, 1fr)) minmax(8.75rem, 1.2fr);
+  min-width: 78rem;
   font-size: 0.78rem;
 }
 
 .follow-page .rebalance-table-head,
 .follow-page .rebalance-row {
-  column-gap: 8px;
+  column-gap: 16px;
 }
 
 .follow-page .rebalance-table-head {
@@ -668,8 +669,10 @@ body[data-page="follow"] .follow-pending-grid.watching-react-grid {
 
 .follow-page .rebalance-row > .num {
   font-size: 0.76rem;
-  padding-left: 4px;
-  padding-right: 4px;
+  padding-left: 6px;
+  padding-right: 6px;
+  overflow: visible;
+  white-space: nowrap;
 }
 
 .follow-page .rebalance-table-head > :first-child,
@@ -11181,8 +11184,8 @@ body[data-page="follow"] .paper-t0-desk-chip.is-done .paper-t0-desk-chip-v {
 
 body[data-page="follow"] .paper-t0-desk-table {
   table-layout: fixed;
-  width: max(100%, 44rem);
-  min-width: 44rem;
+  width: max(100%, 68rem);
+  min-width: 68rem;
   border-collapse: separate;
   border-spacing: 0;
   font-size: 0.74rem;
@@ -11204,12 +11207,12 @@ body[data-page="follow"] .paper-t0-desk-table thead th {
   letter-spacing: 0.06em;
   text-transform: none;
   color: var(--ink-3, #64748b);
-  padding: 7px 8px;
+  padding: 8px 12px;
   box-shadow: 0 1px 0 color-mix(in srgb, var(--border) 70%, transparent);
 }
 
 body[data-page="follow"] .paper-t0-desk-table tbody td {
-  padding: 6px 8px;
+  padding: 8px 12px;
   border-bottom: 1px solid color-mix(in srgb, var(--border) 45%, transparent);
   vertical-align: middle;
 }
@@ -11238,22 +11241,36 @@ body[data-page="follow"] .paper-t0-desk-table .paper-t0-col-phase {
 }
 
 body[data-page="follow"] .paper-t0-desk-table .paper-t0-col-legs {
-  width: 2.4rem;
+  width: 3.2rem;
 }
 
 body[data-page="follow"] .paper-t0-desk-table .paper-t0-col-clock {
-  width: 3.4rem;
+  width: 5.2rem;
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
   color: var(--ink-2, #475569);
 }
 
+body[data-page="follow"] .paper-rb-desk-table .paper-rb-col-px,
+body[data-page="follow"] .paper-rb-desk-table .paper-rb-col-open,
+body[data-page="follow"] .paper-rb-desk-table .paper-rb-col-amt {
+  width: 5.4rem;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-2, #475569);
+  white-space: nowrap;
+}
+
+body[data-page="follow"] .paper-rb-desk-table .paper-rb-col-amt {
+  width: 5.6rem;
+}
+
 body[data-page="follow"] .paper-t0-desk-table .paper-t0-col-cat {
-  width: 4.6rem;
+  width: 5.4rem;
 }
 
 body[data-page="follow"] .paper-t0-desk-table .paper-t0-col-reason {
-  min-width: 0;
+  min-width: 12rem;
 }
 
 body[data-page="follow"] .paper-t0-desk-dir {
