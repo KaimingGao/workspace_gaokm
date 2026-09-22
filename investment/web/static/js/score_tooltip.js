@@ -38,7 +38,7 @@ import {
   Y_HL_TITLE,
 } from "./paper/fmt.js?v=p2544";
 import { hydrateTailAnomalyCharts } from "./tail_anomaly_chart.js";
-import { ON_FEAT_META } from "./quant/factor_meta.js?v=p1226";
+import { CO_FEAT_META } from "./quant/factor_meta.js?v=p1226";
 
 const FACTOR_LABELS = {
   momentum: "动量",
@@ -303,8 +303,8 @@ export function formatScoreHero(raw) {
 
 function termFeatLabel(t, key) {
   const k = t && t.key;
-  if (key === "on" && k && ON_FEAT_META[k] && ON_FEAT_META[k].label) {
-    return ON_FEAT_META[k].label;
+  if ((key === "on" || key === "co") && k && CO_FEAT_META[k] && CO_FEAT_META[k].label) {
+    return CO_FEAT_META[k].label;
   }
   if ((key === "tau" || key === "r" || key === "t30" || key === "t45" || key === "t60" || key === "t75" || key === "t90" || key === "hl") && k && TAU_FEAT_LABELS[k]) {
     return TAU_FEAT_LABELS[k];
@@ -938,8 +938,9 @@ function formatCompactOnTip(raw) {
   const on = resolveOnScore(raw);
   const val = on == null ? "—" : `${fmtSigned(on, 2)}%`;
   const ySpec =
+    (raw && raw.y_spec_co && raw.y_spec_co.formula) ||
     (raw && raw.y_spec_on && raw.y_spec_on.formula) ||
-    (raw && raw.on_y_spec) ||
+    (raw && raw.co_y_spec) ||
     "open[T+1]/close[T]−1";
   const pathOn =
     raw && raw.y_on_path != null && Number.isFinite(Number(raw.y_on_path))
@@ -1462,8 +1463,12 @@ export function formatFormulaTermsSection(raw, opts = {}) {
             ? raw && (raw.formula_terms_t90 || raw.score_formula_terms_t90)
             : key === "hl"
               ? raw && (raw.formula_terms_path || raw.score_formula_terms_path)
-            : key === "on"
-          ? raw && (raw.formula_terms_on || raw.score_formula_terms_on)
+            : key === "on" || key === "co"
+          ? raw &&
+            (raw.formula_terms_co ||
+              raw.score_formula_terms_co ||
+              raw.formula_terms_on ||
+              raw.score_formula_terms_on)
             : raw && (raw.formula_terms || raw.score_formula_terms);
   if (!expl || typeof expl !== "object") return "";
   const termsAll = Array.isArray(expl.terms) ? expl.terms : [];
@@ -1489,7 +1494,7 @@ export function formatFormulaTermsSection(raw, opts = {}) {
             ? "ŷ_τ90 组成"
           : key === "hl"
             ? "ŷ_hl 组成"
-          : key === "on"
+          : key === "on" || key === "co"
           ? "ŷ_co 组成"
             : "ŷ_oo 组成";
   const isHorizonProb =
@@ -1503,7 +1508,7 @@ export function formatFormulaTermsSection(raw, opts = {}) {
           ? `合计 logit → p_up`
           : key === "hl"
             ? "合计 ŷ_hl（极值序）"
-          : key === "on"
+          : key === "on" || key === "co"
           ? "合计 ŷ_co"
             : "合计 ŷ_oo";
 
@@ -2413,7 +2418,7 @@ export function createScoreTooltipController() {
     if (tip === "t90" || tip === "τ90" || tip === "yt90") return "t90";
     if (tip === "hl" || tip === "path" || tip === "yhl") return "hl";
     if (tip === "tw" || tip === "τw" || tip === "ytw") return "tw";
-    if (tip === "on") return "on";
+    if (tip === "on" || tip === "co") return "on";
     if (tip === "ranking" || tip === "trade" || tip === "score") return "ranking";
     if (cell.classList.contains("watching-score-eod")) return "eod";
     if (cell.classList.contains("watching-score-nowcast")) return "nowcast";
@@ -2638,7 +2643,7 @@ export function createScoreTooltipController() {
       return;
     }
 
-    if (tipMode === "on") {
+    if (tipMode === "on" || tipMode === "co") {
       const parts = [
         formatCompactOnTip(raw),
         formatFormulaTermsSection(raw, { key: "on" }),

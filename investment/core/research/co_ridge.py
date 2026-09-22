@@ -1,4 +1,4 @@
-"""隔夜缺口 Ridge：Z 上拟合 open[T+1]/close[T]-1；风控旁路 ŷ_ON。"""
+"""隔夜缺口 Ridge：Z 上拟合 open[T+1]/close[T]-1；风控旁路 ŷ_co。"""
 
 from __future__ import annotations
 
@@ -11,11 +11,11 @@ logger = logging.getLogger(__name__)
 
 from core.io_atomic import atomic_write_json
 from core.research.factor_ols_fit import fit_factor_ols_from_panel
-from core.research.on_panel import (
-    ON_LAG_FEAT_LABELS,
-    ON_Z_FEATURES,
-    collect_on_panel,
-    enrich_on_panel_breadth,
+from core.research.co_panel import (
+    CO_LAG_FEAT_LABELS,
+    CO_Z_FEATURES,
+    collect_co_panel,
+    enrich_co_panel_breadth,
     theme_sample_weights,
 )
 from core.research.tau_ridge import (
@@ -27,7 +27,7 @@ from core.research.tau_ridge import (
     _subset,
 )
 
-ON_MIN_STD_EXEMPT = ON_Z_FEATURES
+CO_MIN_STD_EXEMPT = CO_Z_FEATURES
 
 
 def _stack_panels(enriched: Sequence[Dict[str, Any]]) -> tuple:
@@ -44,16 +44,16 @@ def _stack_panels(enriched: Sequence[Dict[str, Any]]) -> tuple:
 
 
 def _z_only_row(row: Optional[dict]) -> Dict[str, Optional[float]]:
-    """始终输出完整 ON_Z_FEATURES 键，避免 yest_gap / yclose_loc 被静默丢掉。"""
+    """始终输出完整 CO_Z_FEATURES 键，避免 yest_gap / yclose_loc 被静默丢掉。"""
     src = row or {}
-    return {k: src.get(k) for k in ON_Z_FEATURES}
+    return {k: src.get(k) for k in CO_Z_FEATURES}
 
 
 def _z_only_xs(xs: Sequence[dict]) -> List[dict]:
     return [_z_only_row(r) for r in xs]
 
 
-def build_on_panels_from_bars(
+def build_co_panels_from_bars(
     stock_bars: Sequence[Dict[str, Any]],
     *,
     min_history: int = 12,
@@ -65,7 +65,7 @@ def build_on_panels_from_bars(
         bars = list(item.get("bars") or [])
         if len(bars) < min_history + 3:
             continue
-        xs, ys, dates, metas = collect_on_panel(
+        xs, ys, dates, metas = collect_co_panel(
             bars, min_history=min_history, stock_code=code
         )
         if len(ys) < 4:
@@ -73,10 +73,10 @@ def build_on_panels_from_bars(
         raw.append(
             {"code": code, "xs": xs, "ys": ys, "dates": dates, "metas": metas}
         )
-    return enrich_on_panel_breadth(raw, gap_trigger_pct=gap_trigger_pct)
+    return enrich_co_panel_breadth(raw, gap_trigger_pct=gap_trigger_pct)
 
 
-def fit_on_ridge_report(
+def fit_co_ridge_report(
     stock_bars: Sequence[Dict[str, Any]],
     *,
     ridge_lambda: float = 1.0,
@@ -86,8 +86,8 @@ def fit_on_ridge_report(
     holdout_trading_days: int = 10,
     use_theme_weights: bool = True,
 ) -> Dict[str, Any]:
-    """池化拟合 ŷ_ON(Z) + 时间 OOS。标签 = open[T+1]/close[T]-1（决策日 T 开盘）。"""
-    enriched = build_on_panels_from_bars(
+    """池化拟合 ŷ_co(Z) + 时间 OOS。标签 = open[T+1]/close[T]-1（决策日 T 开盘）。"""
+    enriched = build_co_panels_from_bars(
         stock_bars,
         min_history=min_history,
         gap_trigger_pct=gap_trigger_pct,
@@ -97,7 +97,7 @@ def fit_on_ridge_report(
         return {
             "success": False,
             "error": f"on 样本不足 n={len(ys)}（需≥20）",
-            "task": "on_ridge",
+            "task": "co_ridge",
             "sample_count": len(ys),
             "stock_count": len(enriched),
         }
@@ -135,7 +135,7 @@ def fit_on_ridge_report(
                 seen.add(k)
                 feat_names.append(k)
     if not feat_names:
-        feat_names = list(ON_Z_FEATURES)
+        feat_names = list(CO_Z_FEATURES)
 
     fit = fit_factor_ols_from_panel(
         xs_tr,
@@ -144,7 +144,7 @@ def fit_on_ridge_report(
         ridge_lambda=ridge_lambda,
         standardize=True,
         sample_weights=weights,
-        min_std_exempt=list(ON_MIN_STD_EXEMPT),
+        min_std_exempt=list(CO_MIN_STD_EXEMPT),
         collinearity_policy="keep_all",
     )
     if not fit.get("success"):
@@ -156,7 +156,7 @@ def fit_on_ridge_report(
             "active_features": [],
             "zscore_means": {},
             "zscore_stds": {},
-            "note": "Z 方差不足，ŷ_ON 用训练均值",
+            "note": "Z 方差不足，ŷ_co 用训练均值",
         }
 
     preds_te = _predict_rows(fit, xs_te) if xs_te else []
@@ -173,7 +173,7 @@ def fit_on_ridge_report(
         "holdout_trading_days": hold_n,
         "theme_boost": theme_boost if use_theme_weights else None,
         "target": "overnight_gap",
-        "feature_fill": feature_fill_rates(xs_z, ON_Z_FEATURES),
+        "feature_fill": feature_fill_rates(xs_z, CO_Z_FEATURES),
     }
 
     research_model = make_research_model(fit, y_mean=0.0)
@@ -189,7 +189,7 @@ def fit_on_ridge_report(
         ridge_lambda=ridge_lambda,
         standardize=True,
         sample_weights=w_all,
-        min_std_exempt=list(ON_MIN_STD_EXEMPT),
+        min_std_exempt=list(CO_MIN_STD_EXEMPT),
         collinearity_policy="keep_all",
     )
     model = fit_full if fit_full.get("success") else fit
@@ -203,21 +203,21 @@ def fit_on_ridge_report(
         "anchor": "close[T]",
         "note": "真实隔夜缺口（T 收盘→T+1 开盘）；风控旁路，不进主排序",
     }
-    model["extra_features"] = list(ON_Z_FEATURES)
+    model["extra_features"] = list(CO_Z_FEATURES)
     model["model_role"] = "live"
     for k in ("y_spec", "extra_features", "horizon_mode", "target"):
         research_model[k] = model.get(k)
 
     report = {
         "success": True,
-        "task": "on_ridge",
+        "task": "co_ridge",
         "stock_count": len(enriched),
         "sample_count": len(ys),
         "oos": oos,
         "return_model": model,
         "return_model_research": research_model,
         "y_spec": dict(model.get("y_spec") or {}),
-        "schema": "on_ridge_v1",
+        "schema": "co_ridge_v1",
         "target": "overnight_gap",
         "note": "ŷ_co(Z) 估 open[T+1]/close[T]-1；T-1 路径 + 开盘 Z + 昨 K 微观 + 隔夜滞后；与 EOD/τ 解耦",
     }
@@ -225,46 +225,70 @@ def fit_on_ridge_report(
     return report
 
 
-def on_model_path() -> str:
+def co_model_path() -> str:
+    from core.paths import LIVE_DIR
+
+    return os.path.join(LIVE_DIR, "co_ridge_model.json")
+
+
+def co_model_path_legacy() -> str:
+    """旧文件名（on_ridge_*）；仅读兼容，live persist 双写。"""
     from core.paths import LIVE_DIR
 
     return os.path.join(LIVE_DIR, "on_ridge_model.json")
 
 
-def on_last_report_path() -> str:
+def co_last_report_path() -> str:
+    from core.paths import LIVE_DIR
+
+    return os.path.join(LIVE_DIR, "co_ridge_last_report.json")
+
+
+def co_last_report_path_legacy() -> str:
     from core.paths import LIVE_DIR
 
     return os.path.join(LIVE_DIR, "on_ridge_last_report.json")
 
 
-def save_on_last_report(report: Dict[str, Any]) -> None:
-    if not isinstance(report, dict) or not report.get("success"):
-        return
-    if not isinstance(report.get("return_model"), dict):
-        return
-    path = on_last_report_path()
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    atomic_write_json(path, report)
-
-
-def load_on_last_report() -> Optional[Dict[str, Any]]:
-    path = on_last_report_path()
-    if not os.path.isfile(path):
+def _load_model_file(path: str) -> Optional[Dict[str, Any]]:
+    if not path or not os.path.isfile(path):
         return None
     try:
         with open(path, encoding="utf-8") as f:
             doc = json.load(f)
     except Exception:  # noqa: BLE001
-        logger.debug("load_on_last_report failed", exc_info=True)
+        logger.debug("load co json failed: %s", path, exc_info=True)
         return None
-    if not isinstance(doc, dict) or not doc.get("success"):
+    if not isinstance(doc, dict) or not isinstance(doc.get("return_model"), dict):
         return None
-    if not isinstance(doc.get("return_model"), dict):
+    if doc.get("success") is False:
         return None
     return doc
 
 
-def persist_on_model(
+def save_co_last_report(report: Dict[str, Any]) -> None:
+    if not isinstance(report, dict) or not report.get("success"):
+        return
+    if not isinstance(report.get("return_model"), dict):
+        return
+    path = co_last_report_path()
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    atomic_write_json(path, report)
+    try:
+        atomic_write_json(co_last_report_path_legacy(), report)
+    except Exception:  # noqa: BLE001
+        logger.debug("legacy co last_report write failed", exc_info=True)
+
+
+def load_co_last_report() -> Optional[Dict[str, Any]]:
+    for path in (co_last_report_path(), co_last_report_path_legacy()):
+        doc = _load_model_file(path)
+        if doc and doc.get("success"):
+            return doc
+    return None
+
+
+def persist_co_model(
     report: Dict[str, Any], *, note: str = "", role: str = "live"
 ) -> Dict[str, Any]:
     from core.research.holdout import (
@@ -297,11 +321,11 @@ def persist_on_model(
     rm["horizon_mode"] = rm.get("horizon_mode") or "overnight_gap"
     rm["target"] = str(report.get("target") or rm.get("target") or "overnight_gap")
 
-    schema = str(report.get("schema") or "on_ridge_v1")
+    schema = str(report.get("schema") or "co_ridge_v1")
     doc = {
         "success": True,
         "promoted_at": now_iso_utc(),
-        "note": note or "on_ridge promote",
+        "note": note or "co_ridge promote",
         "return_model": rm,
         "oos": report.get("oos"),
         "sample_count": report.get("sample_count"),
@@ -309,29 +333,37 @@ def persist_on_model(
         "schema": schema,
         "target": rm["target"],
         "y_spec": y_spec,
+        "y_spec_co": y_spec,
         "y_spec_on": y_spec,
         "dual_score_head": "predicted_score_on",
         "model_role": role_n,
         "fit_end": report.get("fit_end"),
         "eval_start": report.get("eval_start"),
-        "contract_note": "ŷ_ON 估 open[T+1]/close[T]-1 隔夜缺口；风控旁路，不覆盖 EOD/τ 字段。",
+        "contract_note": "ŷ_co 估 open[T+1]/close[T]-1 隔夜缺口；风控旁路，不覆盖 EOD/τ 字段。",
     }
     path = (
-        research_model_path(on_model_path())
+        research_model_path(co_model_path())
         if role_n == MODEL_ROLE_RESEARCH
-        else on_model_path()
+        else co_model_path()
     )
     os.makedirs(os.path.dirname(path), exist_ok=True)
     atomic_write_json(path, doc)
-    return {
+    out = {
         "success": True,
         "path": path,
         "promoted_at": doc["promoted_at"],
         "schema": doc["schema"],
     }
+    if role_n != MODEL_ROLE_RESEARCH:
+        try:
+            atomic_write_json(co_model_path_legacy(), doc)
+            out["legacy_path"] = co_model_path_legacy()
+        except Exception:  # noqa: BLE001
+            logger.debug("legacy co model write failed", exc_info=True)
+    return out
 
 
-def load_on_model(*, role: Optional[str] = None) -> Optional[Dict[str, Any]]:
+def load_co_model(*, role: Optional[str] = None) -> Optional[Dict[str, Any]]:
     from core.research.holdout import (
         MODEL_ROLE_RESEARCH,
         current_scoring_model_role,
@@ -340,27 +372,20 @@ def load_on_model(*, role: Optional[str] = None) -> Optional[Dict[str, Any]]:
 
     role_n = role if role is not None else current_scoring_model_role()
     if role_n == MODEL_ROLE_RESEARCH:
-        path = research_model_path(on_model_path())
-        if os.path.isfile(path):
-            try:
-                with open(path, encoding="utf-8") as f:
-                    doc = json.load(f)
-                if isinstance(doc, dict) and isinstance(doc.get("return_model"), dict):
-                    return doc
-            except Exception:  # noqa: BLE001
-                logger.debug("load_on_model research failed", exc_info=True)
-        return None
-    path = on_model_path()
-    if os.path.isfile(path):
-        try:
-            with open(path, encoding="utf-8") as f:
-                doc = json.load(f)
-            if isinstance(doc, dict) and isinstance(doc.get("return_model"), dict):
+        for path in (
+            research_model_path(co_model_path()),
+            research_model_path(co_model_path_legacy()),
+        ):
+            doc = _load_model_file(path)
+            if doc:
                 return doc
-        except Exception:  # noqa: BLE001
-            logger.debug("load_on_model failed", exc_info=True)
-    # 已跑 on Ridge 但未 promote 时，用 last report 影子推理（显式 promote 写 on_ridge_model.json）
-    fallback = load_on_last_report()
+        return None
+    for path in (co_model_path(), co_model_path_legacy()):
+        doc = _load_model_file(path)
+        if doc:
+            return doc
+    # 已跑 co Ridge 但未 promote 时，用 last report 影子推理（显式 promote 写 co_ridge_model.json）
+    fallback = load_co_last_report()
     if fallback:
         out = dict(fallback)
         out["_shadow"] = True
@@ -368,12 +393,12 @@ def load_on_model(*, role: Optional[str] = None) -> Optional[Dict[str, Any]]:
     return None
 
 
-def predict_on_from_features(
+def predict_co_from_features(
     features: Dict[str, Optional[float]],
     *,
     model_doc: Optional[Dict[str, Any]] = None,
 ) -> Optional[float]:
-    doc = model_doc if model_doc is not None else load_on_model()
+    doc = model_doc if model_doc is not None else load_co_model()
     if not doc:
         return None
     rm = doc.get("return_model") or {}
@@ -381,7 +406,7 @@ def predict_on_from_features(
     return preds[0] if preds else None
 
 
-_ON_FEAT_LABELS = {
+_CO_FEAT_LABELS = {
     "ret_oc": "昨开→昨收 %",
     "gap_pct": "跳空 %",
     "ret_cc": "昨收→前收 %",
@@ -398,15 +423,15 @@ _ON_FEAT_LABELS = {
     "yest_vol_ratio": "昨量/均量",
     "dist_to_up_limit": "距涨停 %",
 }
-_ON_FEAT_LABELS.update(ON_LAG_FEAT_LABELS)
+_CO_FEAT_LABELS.update(CO_LAG_FEAT_LABELS)
 
 
-def explain_on_prediction(
+def explain_co_prediction(
     features: Optional[Dict[str, Any]],
     *,
     model_doc: Optional[Dict[str, Any]] = None,
 ) -> Optional[Dict[str, Any]]:
-    doc = model_doc if model_doc is not None else load_on_model()
+    doc = model_doc if model_doc is not None else load_co_model()
     if not doc:
         return None
     fit = doc.get("return_model") or {}
@@ -450,7 +475,7 @@ def explain_on_prediction(
                 z = (fv - mu) / sd if means else fv
         contrib = beta * z
         total += contrib
-        label = _ON_FEAT_LABELS.get(name) or factor_label(name) or name
+        label = _CO_FEAT_LABELS.get(name) or factor_label(name) or name
         term: Dict[str, Any] = {
             "key": str(name),
             "label": str(label),
@@ -468,5 +493,5 @@ def explain_on_prediction(
         "intercept": round(intercept, 6),
         "terms": terms[:24],
         "total": round(total, 6),
-        "head": "on",
+        "head": "co",
     }

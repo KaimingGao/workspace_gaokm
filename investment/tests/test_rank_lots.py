@@ -267,7 +267,7 @@ class TestPlanRankLotDay(unittest.TestCase):
                 "formula_terms_tau": {"total": 1.0, "terms": [{"key": "gap_pct", "contrib": 0.2}]},
                 "formula_terms_path": {"total": 1.5, "terms": [{"key": "range_pct", "contrib": 0.1}]},
                 "score_formula_terms": {"total": 2.0, "terms": [{"key": "momentum", "contrib": 0.3}]},
-                "formula_terms_on": {"total": 0.4, "terms": [{"key": "overnight", "contrib": 0.4}]},
+                "formula_terms_co": {"total": 0.4, "terms": [{"key": "overnight", "contrib": 0.4}]},
             }
         ]
         out = plan_rank_lot_day(
@@ -281,7 +281,7 @@ class TestPlanRankLotDay(unittest.TestCase):
         self.assertEqual(buy["formula_terms_tau"]["total"], 1.0)
         self.assertEqual(buy["formula_terms_path"]["total"], 1.5)
         self.assertEqual(buy["score_formula_terms"]["total"], 2.0)
-        self.assertEqual(buy["formula_terms_on"]["total"], 0.4)
+        self.assertEqual(buy["formula_terms_co"]["total"], 0.4)
 
     def test_tip_explain_fields_slims_terms(self):
         from core.paper.rebalance.rank_lots import tip_explain_fields

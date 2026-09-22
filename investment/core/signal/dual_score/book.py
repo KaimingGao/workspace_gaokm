@@ -17,7 +17,7 @@ from core.signal.dual_score.tau import (
     format_tau_formula_string,
     rem_factor_coefficients_public,
 )
-from core.signal.dual_score.on import ensure_formula_terms_on
+from core.signal.dual_score.co import ensure_formula_terms_co
 
 
 def dual_score_book_fields(
@@ -94,7 +94,7 @@ def dual_score_book_fields(
             "mode": "blend",
         }
     formula_terms_tau = ensure_formula_terms_tau(work)
-    formula_terms_on = ensure_formula_terms_on(work)
+    formula_terms_co = ensure_formula_terms_co(work)
     formula_terms_r = work.get("formula_terms_r") or work.get("score_formula_terms_r")
     if not (isinstance(formula_terms_r, dict) and formula_terms_r.get("terms")):
         try:
@@ -210,18 +210,24 @@ def dual_score_book_fields(
         "score_formula_terms_r": formula_terms_r
         or work.get("score_formula_terms_r")
         or work.get("formula_terms_r"),
-        "predicted_score_on": work.get("predicted_score_on"),
-        "y_spec_on": work.get("y_spec_on"),
-        "features_on": work.get("features_on"),
-        "formula_terms_on": formula_terms_on
+        "predicted_score_on": work.get("predicted_score_on")
+        if work.get("predicted_score_on") is not None
+        else work.get("y_co"),
+        "y_spec_co": work.get("y_spec_co") or work.get("y_spec_on"),
+        "features_co": work.get("features_co") or work.get("features_on"),
+        "formula_terms_co": formula_terms_co
+        or work.get("formula_terms_co")
+        or work.get("score_formula_terms_co")
         or work.get("formula_terms_on")
         or work.get("score_formula_terms_on"),
-        "score_formula_terms_on": formula_terms_on
+        "score_formula_terms_co": formula_terms_co
+        or work.get("score_formula_terms_co")
+        or work.get("formula_terms_co")
         or work.get("score_formula_terms_on")
         or work.get("formula_terms_on"),
-        "score_formula_on": work.get("score_formula_on"),
-        "on_y_spec": work.get("on_y_spec"),
-        "dual_score_on_head": work.get("dual_score_on_head"),
+        "score_formula_co": work.get("score_formula_co"),
+        "co_y_spec": work.get("co_y_spec"),
+        "dual_score_co_head": work.get("dual_score_co_head"),
         "ranking": work.get("ranking"),
         "y_oo": work.get("y_oo"),
         "y_oc": work.get("y_oc"),

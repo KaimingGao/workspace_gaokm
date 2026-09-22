@@ -1254,7 +1254,7 @@ BS → core/backtest/service.py → engine · topk_backtest · topk_weights
 | `gate.py` | ŷ 生产门禁、scale 推断 |
 | `cross_section_batch.py` | 截面批量 |
 | `cluster/` | 分组 live：晋升/指针、排名、OOS 标签、健康、审计、证据、Job 水合 |
-| `dual_score/` | 双层 ŷ：融合、解析、τ/ON 头、簿字段、影子簿、人审配置 |
+| `dual_score/` | 双层 ŷ：融合、解析、τ/co 头、簿字段、影子簿、人审配置 |
 
 #### 回测 `core/backtest/`
 

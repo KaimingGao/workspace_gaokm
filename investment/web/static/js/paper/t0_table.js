@@ -2709,15 +2709,23 @@ function t0DayScoreItem(d, fallback = {}, rules = {}, liveByCode = null) {
       null,
     factor_coefficients_tau:
       scores.factor_coefficients_tau || live?.factor_coefficients_tau || null,
-    formula_terms_on:
+    formula_terms_co:
+      scores.formula_terms_co ||
+      scores.score_formula_terms_co ||
       scores.formula_terms_on ||
       scores.score_formula_terms_on ||
+      liveTips?.formula_terms_co ||
+      liveTips?.score_formula_terms_co ||
       liveTips?.formula_terms_on ||
       liveTips?.score_formula_terms_on ||
       null,
-    score_formula_terms_on:
+    score_formula_terms_co:
+      scores.score_formula_terms_co ||
+      scores.formula_terms_co ||
       scores.score_formula_terms_on ||
       scores.formula_terms_on ||
+      liveTips?.score_formula_terms_co ||
+      liveTips?.formula_terms_co ||
       liveTips?.score_formula_terms_on ||
       liveTips?.formula_terms_on ||
       null,

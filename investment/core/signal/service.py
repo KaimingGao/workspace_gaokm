@@ -229,9 +229,9 @@ class SignalService:
                     "fusion_w_oo",
                     "fusion_w_oc",
                     "fusion_w_co",
-                    "features_on",
-                    "formula_terms_on",
-                    "y_spec_on",
+                    "features_co",
+                    "formula_terms_co",
+                    "y_spec_co",
                 )
             ):
                 out[k] = v

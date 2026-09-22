@@ -179,9 +179,9 @@ class PaperAccountMixin:
                     enriched["min_score"] = gate
                     enriched["below_min_score"] = False
                 try:
-                    from core.signal.dual_score.on import hydrate_holding_on_fields
+                    from core.signal.dual_score.co import hydrate_holding_co_fields
 
-                    hydrate_holding_on_fields(enriched)
+                    hydrate_holding_co_fields(enriched)
                 except Exception as e:
                     log.debug("holding on hydrate skipped %s: %s", code, e)
                 try:

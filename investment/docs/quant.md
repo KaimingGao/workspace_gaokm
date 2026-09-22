@@ -1086,14 +1086,14 @@ C_τ       = O×(1+clip(ŷ_oc×scale, ±20)/100)   # 做 T；默认 scale=2；ŷ
 |------|---------------------------|------|-----------------|
 | **\(y_{\mathrm{EOD}}(t)\)** | \(\mathrm{close}[t]/\mathrm{close}[t-1]-1\) | 收→收 | `predicted_score` · **已落地** |
 | **\(y_\tau(t)\)** | \(\mathrm{close}[t]/\mathrm{open}[t]-1\) | 今开→今收 | `predicted_score_tau` · **已落地** |
-| **\(y_{\mathrm{ON}}(t)\)** | \(\mathrm{open}[t]/\mathrm{open}[t-1]-1\) | 昨开→今开 | `predicted_score_on` · **已落地**（`on_ridge`） |
+| **\(y_{\mathrm{ON}}(t)\)** | \(\mathrm{open}[t]/\mathrm{open}[t-1]-1\) | 昨开→今开 | `predicted_score_on` · **已落地**（`co_ridge`） |
 
 **open 锚周期（几何乘法，非加法）**
 
 ```text
-open(t-1) ──y_ON(t)──► open(t) ──y_τ(t)──► close(t)
+open(t-1) ──y_co(t)──► open(t) ──y_τ(t)──► close(t)
                               │
-                              └── 在 t 日 τ 预估 y_ON(t+1)=open(t+1)/open(t)-1
+                              └── 在 t 日 τ 预估 y_co(t+1)=open(t+1)/open(t)-1
                                   → 收盘前保守控「今开→明开」隔夜路径（风控，非主排序）
 ```
 
@@ -1140,15 +1140,11 @@ EOD 锚在 **收**，与 open 链 **并列**（选股主轴），不是 open 链
 3. \(y_{\mathrm{ON}}\) 规划为 **风控旁路**（缩仓 / 撤买单），**默认不进主排序**；落地前以 `gap_risk` · `event_prior` 作弱替代。  
 4. 执行：收盘前减仓若要 **挡当夜隔夜**，须 **当日收盘前可成交**。纸面 `next_open`：**盘中按现价可成交**；**收盘后**只挂次日开盘，**挡不住当夜**。回测默认 `next_open` 仍是信号日收盘决策、次日开盘成交（见 [quant.md · 运维](quant.md#量化运维)）。
 
-规划字段：`predicted_score_on` / `y_spec_on` / `data/live/on_ridge_model.json`；复盘 IC(\(\hat y_{\mathrm{ON}}, y_{\mathrm{ON}}\)) 与 open 链分段单独报。训练：`POST /api/quant/on-ridge`。
+规划字段：`predicted_score_on` / `y_spec_co` / `data/live/co_ridge_model.json`；复盘 IC(\(\hat y_{\mathrm{ON}}, y_{\mathrm{ON}}\)) 与 open 链分段单独报。训练：`POST /api/quant/co-ridge`。
 
 曾试过 ŷ_next（下一窗 VWAP）与 ŷ_r（\(C/C_r\)）作做 T 研究头；OOS 符号命中约 50%，已从枢纽下线，不进 T0 闸。
 
-**分钟 K 形状**：`y_hl` 进做 T 同号闸（键名 `y_hl_*`；旧 `y_path_*` 加载时迁移）；研究枢纽保留 ŷ_hl 拟合入口。不进调仓入场。`y_cx` / `y_tpd` 验证后**暂不用于调仓与做 T**，枢纽 / 历史回测 / 数据中心入口已下线；后端 `POST /api/quant/path-ridge` · `cx-ridge` · `tpd-ridge` 仍保留。旧键 `y_path` / `y_on` 仍可读，新分不再双写。
-
-**做 T 曲折度头 \(y_{\mathrm{cx}}\)**（已下线）：标签 \(y_{\mathrm{cx}}=1-D/L\in[0,1]\)。拟合 `POST /api/quant/cx-ridge`，落盘 `cx_ridge_model.json`。不进 T0 闸 / 成交明细列。
-
-**做 T 转折点密度头 \(y_{\mathrm{tpd}}\)**（已下线）：拟合 `POST /api/quant/tpd-ridge`。不进 T0 闸 / 成交明细列。
+**分钟 K 形状**：`y_hl` 进做 T 同号闸（键名 `y_hl_*`；旧 `y_path_*` 加载时迁移）；研究枢纽保留 ŷ_hl 拟合入口。不进调仓入场。`y_cx` / `y_tpd` **已拆除**（拟合 API / 盘中写分 / 模型文件均不再保留）。旧键 `y_path` / `y_on` 仍可读，新分不再双写。
 
 **做 T 路径头 \(y_{\mathrm{hl}}\)**：极值序 signed range%。拟合 `POST /api/quant/path-ridge`。不进 ranking、不进 \(C_\tau\)；做 T 用 `y_hl_strong` 同号闸。`y_hl_enter` 入场档已下线。旧键 `y_path_*` 加载时迁到 `y_hl_*`，新分不再双写。
 
@@ -1241,24 +1237,24 @@ score_stock(code) 续——
 | `predicted_score_blend` | ŷ_trade | 盘中：w·ŷ_oo + w·(缺口∘ŷ_τ)；**收盘后 eod_next：= ŷ_oo** |
 | `dual_score_fusion` | `"blend"` | 正交加权 |
 
-### 4.3 ON 打分链（层 3 · 隔夜缺口，风控旁路）
+### 4.3 ŷ_co 打分链（层 3 · 隔夜缺口，风控旁路）
 
-`score_stock` / `attach_dual_score_pit` 在 τ 字段之后 **追加** ŷ_ON（不改 `predicted_score` / `predicted_score_blend`）：
+`score_stock` / `attach_dual_score_pit` 在 τ 字段之后 **追加** ŷ_co（不改 `predicted_score` / `predicted_score_blend`）：
 
 ```text
 score_stock(code) 续——
-  → on_feats = build_on_features_from_quote_bars(quote, bars)   # T-1 路径 + 开盘 Z + 昨 K 微观 + 隔夜滞后
-  → on_yhat = predict_on_from_features(on_feats)                 # on_ridge 模型
-  → apply_on_score_fields(signal_item, on_yhat, on_feats, …)
+  → co_feats = build_co_features_from_quote_bars(quote, bars)   # T-1 路径 + 开盘 Z + 昨 K 微观 + 隔夜滞后
+  → co_yhat = predict_co_from_features(co_feats)                 # co_ridge 模型
+  → apply_co_score_fields(signal_item, co_yhat, co_feats, …)
 ```
 
 | 字段 | 值 | 说明 |
 |------|----|------|
-| `predicted_score_on` | ŷ_ON | **open[T+1]/close[T]−1**（决策锚 close[T]，真实隔夜缺口） |
-| `y_spec_on` | `{formula, anchor, unit}` | ON 标签规范 |
-| `features_on` | ret_oc / gap / yest_close_loc / yest_gap / … | T 开盘已知：T-1 路径 + 今开 Z + 昨 K 微观 + 隔夜滞后（不用 close[T]） |
+| `predicted_score_on` | ŷ_co | **open[T+1]/close[T]−1**（决策锚 close[T]，真实隔夜缺口） |
+| `y_spec_co` | `{formula, anchor, unit}` | ŷ_co 标签规范 |
+| `features_co` | ret_oc / gap / yest_close_loc / yest_gap / … | T 开盘已知：T-1 路径 + 今开 Z + 昨 K 微观 + 隔夜滞后（不用 close[T]） |
 
-训练：`POST /api/quant/on-ridge` → `on_ridge_model.json`（人审 persist）。**默认不进主排序**；收盘前减仓策略后续接线。改特征后须重新拟合。
+训练：`POST /api/quant/co-ridge` → `co_ridge_model.json`（人审 persist）。**默认不进主排序**；收盘前减仓策略后续接线。改特征后须重新拟合。
 
 ŷ_co 入模因子（Ridge Z，与 ŷ_oo 日线因子库正交，不把估值/质量等再塞一遍）：
 
@@ -1276,7 +1272,7 @@ score_stock(code) 续——
 【训练层】
   factor_ols_clusters → return_model (β_cluster) → promote → cluster_weights.json
   tau_ridge           → tau_model    (γ)         → promote → tau_ridge_model.json  # 旧 rem_ridge_* 可读+双写
-  on_ridge            → on_model     (ζ)         → promote → on_ridge_model.json
+  co_ridge            → co_model     (ζ)         → promote → co_ridge_model.json  # 旧 on_ridge_* 可读+双写
 
 【Live 打分层】
   score_stock(code)

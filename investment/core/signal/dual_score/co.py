@@ -1,4 +1,4 @@
-"""双层 ŷ：隔夜缺口 ŷ_ON 字段挂载（风控旁路，不进主排序）。"""
+"""双层 ŷ：隔夜缺口 ŷ_co 字段挂载（风控旁路，不进主排序）。"""
 
 from __future__ import annotations
 
@@ -7,28 +7,28 @@ from typing import Any, Dict, Optional, Sequence
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_Y_SPEC_ON: Dict[str, Any] = {
+DEFAULT_Y_SPEC_CO: Dict[str, Any] = {
     "formula": "open[T+1]/close[T]-1",
     "unit": "pct",
     "anchor": "close[T]",
     "note": "真实隔夜缺口（T 收盘→T+1 开盘）；风控旁路，不进主排序",
 }
 
-from core.research.on_panel import ON_Z_FEATURES
+from core.research.co_panel import CO_Z_FEATURES
 
-_ON_FEATURE_KEYS = ON_Z_FEATURES
+_CO_FEATURE_KEYS = CO_Z_FEATURES
 
 
-def features_on_snapshot(feats: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+def features_co_snapshot(feats: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     out: Dict[str, Any] = {}
     src = feats or {}
-    for k in _ON_FEATURE_KEYS:
+    for k in _CO_FEATURE_KEYS:
         if k in src and src.get(k) is not None and src.get(k) != "":
             out[k] = src.get(k)
     return out
 
 
-def merge_on_features(
+def merge_co_features(
     computed: Optional[Dict[str, Any]],
     prior: Optional[Dict[str, Any]],
 ) -> Dict[str, Any]:
@@ -42,8 +42,8 @@ def merge_on_features(
     return out
 
 
-def overlay_on_cross_section(
-    on_feats: Optional[Dict[str, Any]],
+def overlay_co_cross_section(
+    co_feats: Optional[Dict[str, Any]],
     tau_feats: Optional[Dict[str, Any]] = None,
     *,
     sector_gap_breadth: Any = None,
@@ -53,7 +53,7 @@ def overlay_on_cross_section(
     score_stock 原先只抄 breadth / theme_day，漏了 gap_vs_sector。
     观察页 hydrate 会从 features_tau 补上，持仓页直接用 score_one，两边 y_co 就会分叉。
     """
-    out = dict(on_feats or {})
+    out = dict(co_feats or {})
     src = tau_feats if isinstance(tau_feats, dict) else {}
     if sector_gap_breadth is not None:
         out["sector_gap_breadth"] = sector_gap_breadth
@@ -66,76 +66,92 @@ def overlay_on_cross_section(
     return out
 
 
-def apply_on_score_fields(
+def apply_co_score_fields(
     signal_item: Dict[str, Any],
     *,
-    on_yhat: Optional[float],
+    co_yhat: Optional[float],
     feats: Optional[Dict[str, Any]] = None,
     y_spec_override: Optional[Dict[str, Any]] = None,
-    on_model_doc: Optional[Dict[str, Any]] = None,
+    co_model_doc: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
-    """写入 ŷ_ON 契约字段（不改 predicted_score / ŷ_trade）。"""
-    y_spec = dict(DEFAULT_Y_SPEC_ON)
-    doc = on_model_doc if isinstance(on_model_doc, dict) else None
+    """写入 ŷ_co 契约字段（不改 predicted_score / ŷ_trade）。"""
+    y_spec = dict(DEFAULT_Y_SPEC_CO)
+    doc = co_model_doc if isinstance(co_model_doc, dict) else None
     if doc:
         rm = doc.get("return_model") if isinstance(doc.get("return_model"), dict) else doc
         if isinstance(rm, dict) and isinstance(rm.get("y_spec"), dict):
             y_spec.update(rm["y_spec"])
+        elif isinstance(doc.get("y_spec_co"), dict):
+            y_spec.update(doc["y_spec_co"])
         elif isinstance(doc.get("y_spec_on"), dict):
             y_spec.update(doc["y_spec_on"])
     if isinstance(y_spec_override, dict):
         y_spec.update(y_spec_override)
 
     prior = (
-        signal_item.get("features_on")
+        signal_item.get("features_co")
+        if isinstance(signal_item.get("features_co"), dict)
+        else signal_item.get("features_on")
         if isinstance(signal_item.get("features_on"), dict)
         else None
     )
-    feat_snap = features_on_snapshot(merge_on_features(feats, prior))
+    feat_snap = features_co_snapshot(merge_co_features(feats, prior))
 
-    signal_item["predicted_score_on"] = on_yhat
-    if on_yhat is not None:
-        signal_item["y_co"] = on_yhat
-        signal_item["predicted_score_co"] = on_yhat
+    signal_item["predicted_score_on"] = co_yhat
+    if co_yhat is not None:
+        signal_item["y_co"] = co_yhat
+        signal_item["predicted_score_co"] = co_yhat
+    signal_item["y_spec_co"] = y_spec
     signal_item["y_spec_on"] = y_spec
+    signal_item["features_co"] = feat_snap
     signal_item["features_on"] = feat_snap
-    signal_item["on_y_spec"] = y_spec.get("formula")
-    signal_item["dual_score_on_head"] = "predicted_score_on"
+    signal_item["co_y_spec"] = y_spec.get("formula")
+    signal_item["dual_score_co_head"] = "predicted_score_on"
 
-    formula_terms_on = None
+    formula_terms_co = None
     if feat_snap:
         try:
-            from core.research.on_ridge import explain_on_prediction
+            from core.research.co_ridge import explain_co_prediction
 
-            formula_terms_on = explain_on_prediction(
-                feat_snap, model_doc=on_model_doc
+            formula_terms_co = explain_co_prediction(
+                feat_snap, model_doc=co_model_doc
             )
         except Exception:  # noqa: BLE001
-            logger.debug("explain_on_prediction failed", exc_info=True)
-            formula_terms_on = None
-    if isinstance(formula_terms_on, dict):
-        formula_terms_on = dict(formula_terms_on)
-        formula_terms_on["y_on"] = on_yhat
-        signal_item["formula_terms_on"] = formula_terms_on
-        signal_item["score_formula_terms_on"] = formula_terms_on
+            logger.debug("explain_co_prediction failed", exc_info=True)
+            formula_terms_co = None
+    if isinstance(formula_terms_co, dict):
+        formula_terms_co = dict(formula_terms_co)
+        formula_terms_co["y_on"] = co_yhat
+        formula_terms_co["y_co"] = co_yhat
+        signal_item["formula_terms_co"] = formula_terms_co
+        signal_item["score_formula_terms_co"] = formula_terms_co
+        signal_item["formula_terms_on"] = formula_terms_co
+        signal_item["score_formula_terms_on"] = formula_terms_co
         try:
-            total = float(formula_terms_on.get("total") or on_yhat or 0.0)
-            signal_item["score_formula_on"] = (
-                f"ŷ_ON = open[T+1]/close[T]-1 ≈ {total:+.3f}%"
+            total = float(formula_terms_co.get("total") or co_yhat or 0.0)
+            signal_item["score_formula_co"] = (
+                f"ŷ_co = open[T+1]/close[T]-1 ≈ {total:+.3f}%"
             )
         except (TypeError, ValueError):
             pass
     return signal_item
 
 
-def ensure_formula_terms_on(item: Optional[dict]) -> Optional[Dict[str, Any]]:
-    """保证 tip 有 ŷ_ON 组成：features_on 齐时重拆，勿沿用全缺特征旧戳。"""
+def ensure_formula_terms_co(item: Optional[dict]) -> Optional[Dict[str, Any]]:
+    """保证 tip 有 ŷ_co 组成：features_co 齐时重拆，勿沿用全缺特征旧戳。"""
     if not isinstance(item, dict):
         return None
-    existing = item.get("formula_terms_on") or item.get("score_formula_terms_on")
+    existing = (
+        item.get("formula_terms_co")
+        or item.get("score_formula_terms_co")
+        or item.get("formula_terms_on")
+        or item.get("score_formula_terms_on")
+    )
 
     feats: Dict[str, Any] = {}
-    ft = item.get("features_on")
+    ft = item.get("features_co")
+    if not isinstance(ft, dict):
+        ft = item.get("features_on")
     if isinstance(ft, dict):
         for k, v in ft.items():
             if v is not None and v != "":
@@ -165,7 +181,7 @@ def ensure_formula_terms_on(item: Optional[dict]) -> Optional[Dict[str, Any]]:
         if v is not None and v != "":
             feats.setdefault(k, v)
 
-    z_keys = set(_ON_FEATURE_KEYS)
+    z_keys = set(_CO_FEATURE_KEYS)
 
     def _stale_imputed_z(expl: Optional[dict]) -> bool:
         if not isinstance(expl, dict):
@@ -201,54 +217,57 @@ def ensure_formula_terms_on(item: Optional[dict]) -> Optional[Dict[str, Any]]:
     if not feats:
         return existing if isinstance(existing, dict) else None
     try:
-        from core.research.on_ridge import explain_on_prediction
+        from core.research.co_ridge import explain_co_prediction
 
-        expl = explain_on_prediction(feats)
+        expl = explain_co_prediction(feats)
         if isinstance(expl, dict):
             y_on = item.get("predicted_score_on")
+            if y_on is None:
+                y_on = item.get("y_co")
             if y_on is not None:
                 expl = dict(expl)
                 expl["y_on"] = y_on
+                expl["y_co"] = y_on
             return expl
     except Exception:  # noqa: BLE001
-        logger.debug("ensure_formula_terms_on failed", exc_info=True)
+        logger.debug("ensure_formula_terms_co failed", exc_info=True)
     return existing if isinstance(existing, dict) else None
 
 
-def attach_on_score_pit(
+def attach_co_score_pit(
     signal_item: Dict[str, Any],
     *,
     quote: Optional[dict] = None,
     bars: Optional[Sequence[dict]] = None,
     config: Optional[dict] = None,
-    on_model_doc: Optional[Dict[str, Any]] = None,
+    co_model_doc: Optional[Dict[str, Any]] = None,
     sector_gap_breadth: Optional[float] = None,
     theme_day: Optional[float] = None,
     gap_pct: Optional[float] = None,
 ) -> Dict[str, Any]:
-    """PIT / 回测：用日线 quote·bars 挂 ŷ_ON。"""
+    """PIT / 回测：用日线 quote·bars 挂 ŷ_co。"""
     _ = config
     if not isinstance(signal_item, dict):
         return signal_item
-    if on_model_doc is None:
+    if co_model_doc is None:
         try:
-            from core.research.on_ridge import load_on_model
+            from core.research.co_ridge import load_co_model
 
-            on_model_doc = load_on_model()
+            co_model_doc = load_co_model()
         except Exception:  # noqa: BLE001
-            logger.debug("load_on_model failed", exc_info=True)
-            on_model_doc = None
+            logger.debug("load_co_model failed", exc_info=True)
+            co_model_doc = None
 
     try:
-        from core.research.on_panel import build_on_features_from_quote_bars
-        from core.research.on_ridge import predict_on_from_features
+        from core.research.co_panel import build_co_features_from_quote_bars
+        from core.research.co_ridge import predict_co_from_features
 
         q = quote if isinstance(quote, dict) else {}
         from core.signal.session_pit import resolve_minute_tau_trade_date, resolve_open_t
 
         trade_day = resolve_minute_tau_trade_date(q, bars)
         ot = resolve_open_t(q, bars, trade_day=trade_day)
-        feats = build_on_features_from_quote_bars(
+        feats = build_co_features_from_quote_bars(
             q,
             bars,
             gap_pct=gap_pct if gap_pct is not None else ot.get("gap_pct"),
@@ -259,7 +278,7 @@ def attach_on_score_pit(
         )
         if gap_pct is not None:
             feats["gap_pct"] = gap_pct
-        feats = overlay_on_cross_section(
+        feats = overlay_co_cross_section(
             feats,
             signal_item.get("features_tau")
             if isinstance(signal_item.get("features_tau"), dict)
@@ -272,23 +291,25 @@ def attach_on_score_pit(
             feats.setdefault("theme_day", signal_item.get("theme_day"))
         if signal_item.get("gap_vs_sector") is not None:
             feats.setdefault("gap_vs_sector", signal_item.get("gap_vs_sector"))
-        prior = signal_item.get("features_on")
+        prior = signal_item.get("features_co")
+        if not isinstance(prior, dict):
+            prior = signal_item.get("features_on")
         if isinstance(prior, dict):
-            feats = merge_on_features(feats, prior)
-        on_yhat = predict_on_from_features(feats, model_doc=on_model_doc)
-        apply_on_score_fields(
+            feats = merge_co_features(feats, prior)
+        co_yhat = predict_co_from_features(feats, model_doc=co_model_doc)
+        apply_co_score_fields(
             signal_item,
-            on_yhat=on_yhat,
+            co_yhat=co_yhat,
             feats=feats,
-            on_model_doc=on_model_doc,
+            co_model_doc=co_model_doc,
         )
     except Exception:  # noqa: BLE001
-        logger.debug("attach_on_score_pit failed", exc_info=True)
-        apply_on_score_fields(
+        logger.debug("attach_co_score_pit failed", exc_info=True)
+        apply_co_score_fields(
             signal_item,
-            on_yhat=None,
+            co_yhat=None,
             feats=None,
-            on_model_doc=on_model_doc,
+            co_model_doc=co_model_doc,
         )
     return signal_item
 
@@ -310,7 +331,7 @@ def _holding_px_pair(value: Any, unit: str, *, currency: str = "CNY") -> tuple[O
 
 
 def holding_row_as_quote(row: dict) -> dict:
-    """持仓摘要行 → ON 特征用的 quote 形 dict（与观察簿 hydrate 同源）。"""
+    """持仓摘要行 → ŷ_co 特征用的 quote 形 dict（与观察簿 hydrate 同源）。"""
     unit = str(row.get("unit") or "元")
     currency = str(row.get("currency") or "CNY")
     pr, ps = _holding_px_pair(row.get("price"), unit, currency=currency)
@@ -346,8 +367,8 @@ def holding_row_as_quote(row: dict) -> dict:
     return q
 
 
-def hydrate_holding_on_fields(row: dict) -> None:
-    """持仓表：簿/打包行缺 ŷ_ON 时用行情+日线补算（in-place）。"""
+def hydrate_holding_co_fields(row: dict) -> None:
+    """持仓表：簿/打包行缺 ŷ_co 时用行情+日线补算（in-place）。"""
     if not isinstance(row, dict):
         return
     try:
@@ -357,10 +378,12 @@ def hydrate_holding_on_fields(row: dict) -> None:
             return
     except Exception:  # noqa: BLE001
         pass
-    on = row.get("predicted_score_on")
-    if on is not None and on != "":
+    existing = row.get("y_co")
+    if existing is None or existing == "":
+        existing = row.get("predicted_score_on")
+    if existing is not None and existing != "":
         try:
-            if float(on) == float(on):
+            if float(existing) == float(existing):
                 return
         except (TypeError, ValueError):
             pass
@@ -380,7 +403,7 @@ def hydrate_holding_on_fields(row: dict) -> None:
         )
         bars = list(pack.get("bars") or [])
     except Exception:  # noqa: BLE001
-        logger.debug("hydrate_holding_on_fields get_bars failed", exc_info=True)
+        logger.debug("hydrate_holding_co_fields get_bars failed", exc_info=True)
         bars = []
     gap = row.get("gap_pct")
     if gap is None:
@@ -393,8 +416,8 @@ def hydrate_holding_on_fields(row: dict) -> None:
             if gap is not None:
                 row["gap_pct"] = gap
         except Exception:  # noqa: BLE001
-            logger.debug("hydrate_holding_on_fields gap failed", exc_info=True)
-    attach_on_score_pit(
+            logger.debug("hydrate_holding_co_fields gap failed", exc_info=True)
+    attach_co_score_pit(
         row,
         quote=quote,
         bars=bars,

@@ -217,7 +217,7 @@ _DEAD_T0_KEYS = (
     "y_use_path",
     "y_use_hl",
     "y_path_required",
-    # ŷ_cx / ŷ_tpd 验证后暂不用于调仓与做 T
+    # ŷ_cx / ŷ_tpd 已拆除；旧配置键加载时丢弃
     "y_complexity_max",
     "y_cx_max",
     "y_tpd_max",

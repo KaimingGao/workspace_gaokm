@@ -6,7 +6,6 @@ import logging
 logger = logging.getLogger(__name__)
 from typing import Any, Callable, Dict, List, Optional
 
-from core.research.cx_panel import pack_y_complexity_fields, pack_y_tpd_fields
 from core.research.r_ridge import pack_y_r_fields
 from core.t0.config import T0_TRADE_DAYS_SAMPLE_UI_LIMIT, load_t0_rules, t0_backtest_virtual_shares
 from core.t0.minute_path import T0_INTENTIONAL_ABANDON_EXITS
@@ -558,10 +557,7 @@ def _walk_t0(
                     "path_realized": day.get("path_realized"),
                     "path_realized_reason": day.get("path_realized_reason"),
                     "path_realized_trig": day.get("path_realized_trig"),
-                    **pack_y_complexity_fields(day),
-                    **pack_y_tpd_fields(day),
                     **pack_y_r_fields(day),
-                    "cx_efficiency": day.get("cx_efficiency"),
                     "eod_realized": day.get("eod_realized"),
                     "tau_realized": day.get("tau_realized"),
                     "open": day.get("open")
@@ -682,10 +678,7 @@ def _walk_t0(
                 "path_realized": day.get("path_realized"),
                 "path_realized_reason": day.get("path_realized_reason"),
                 "path_realized_trig": day.get("path_realized_trig"),
-                **pack_y_complexity_fields(day),
-                **pack_y_tpd_fields(day),
                 **pack_y_r_fields(day),
-                "cx_efficiency": day.get("cx_efficiency"),
                 "eod_realized": day.get("eod_realized"),
                 "tau_realized": day.get("tau_realized"),
                 "prev_close": day.get("prev_close")

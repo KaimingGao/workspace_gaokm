@@ -61,12 +61,12 @@ def _bars_gapped(n: int = 40, start: float = 10.0):
     return out
 
 
-class TestOnPanel(unittest.TestCase):
-    def test_on_panel_label_is_fwd_open_open(self):
-        from core.research.on_panel import collect_on_panel
+class TestCoPanel(unittest.TestCase):
+    def test_co_panel_label_is_fwd_close_open(self):
+        from core.research.co_panel import collect_co_panel
 
         bars = _bars(35)
-        xs, ys, dates, metas = collect_on_panel(bars, stock_code="000001")
+        xs, ys, dates, metas = collect_co_panel(bars, stock_code="000001")
         self.assertGreater(len(ys), 5)
         self.assertEqual(len(xs), len(ys))
         i = 0
@@ -79,15 +79,15 @@ class TestOnPanel(unittest.TestCase):
         self.assertIn("y_on_today", xs[0])
         self.assertIn("overnight_gap", metas[0])
 
-    def test_on_panel_enriched_features_are_pit(self):
-        from core.research.on_panel import ON_Z_FEATURES, collect_on_panel
+    def test_co_panel_enriched_features_are_pit(self):
+        from core.research.co_panel import CO_Z_FEATURES, collect_co_panel
 
         bars = _bars_gapped(40)
-        xs, ys, _, _ = collect_on_panel(bars, stock_code="000001", min_history=12)
+        xs, ys, _, _ = collect_co_panel(bars, stock_code="000001", min_history=12)
         self.assertGreater(len(xs), 5)
         row = xs[0]
         skip_cs = {"sector_gap_breadth", "theme_day", "gap_vs_sector"}
-        for k in ON_Z_FEATURES:
+        for k in CO_Z_FEATURES:
             if k in skip_cs:
                 continue
             self.assertIn(k, row, k)
@@ -114,7 +114,7 @@ class TestOnPanel(unittest.TestCase):
         self.assertAlmostEqual(float(row["dist_to_up_limit"]), 10.0 - float(row["ret_cc"]), places=3)
 
     def test_dist_to_up_limit_uses_board(self):
-        from core.research.on_panel import dist_to_up_limit_pct
+        from core.research.co_panel import dist_to_up_limit_pct
 
         self.assertAlmostEqual(dist_to_up_limit_pct(8.0, "600000"), 2.0, places=3)
         self.assertAlmostEqual(dist_to_up_limit_pct(8.0, "300750"), 12.0, places=3)
@@ -122,7 +122,7 @@ class TestOnPanel(unittest.TestCase):
         self.assertIsNone(dist_to_up_limit_pct(8.0, ""))
 
     def test_build_features_from_quote_bars(self):
-        from core.research.on_panel import build_on_features_from_quote_bars
+        from core.research.co_panel import build_co_features_from_quote_bars
 
         bars = _bars(20)
         quote = {
@@ -130,7 +130,7 @@ class TestOnPanel(unittest.TestCase):
             "open": bars[-1]["open"],
             "price_raw": bars[-1]["close"],
         }
-        feats = build_on_features_from_quote_bars(quote, bars, gap_pct=1.2)
+        feats = build_co_features_from_quote_bars(quote, bars, gap_pct=1.2)
         self.assertIn("ret_oc", feats)
         self.assertIn("ret_cc", feats)
         self.assertIn("y_on_today", feats)
@@ -138,7 +138,7 @@ class TestOnPanel(unittest.TestCase):
 
 
     def test_build_features_parses_yuan_open(self):
-        from core.research.on_panel import build_on_features_from_quote_bars
+        from core.research.co_panel import build_co_features_from_quote_bars
 
         bars = _bars(20)
         quote = {
@@ -146,14 +146,14 @@ class TestOnPanel(unittest.TestCase):
             "open": "1291.50元",
             "price_raw": bars[-1]["close"],
         }
-        feats = build_on_features_from_quote_bars(quote, bars, gap_pct=1.2)
+        feats = build_co_features_from_quote_bars(quote, bars, gap_pct=1.2)
         self.assertIn("ret_oc", feats)
         self.assertIn("ret_cc", feats)
         self.assertIn("y_on_today", feats)
         self.assertAlmostEqual(float(feats["gap_pct"]), 1.2)
 
     def test_build_features_uses_open_t_when_cache_behind(self):
-        from core.research.on_panel import build_on_features_from_quote_bars
+        from core.research.co_panel import build_co_features_from_quote_bars
 
         bars = _bars(12)
         yesterday = bars[-1]
@@ -162,14 +162,14 @@ class TestOnPanel(unittest.TestCase):
             "open": yesterday["open"],
             "price_raw": yesterday["close"],
         }
-        empty = build_on_features_from_quote_bars(
+        empty = build_co_features_from_quote_bars(
             synth,
             bars,
             trade_date="2026-09-17",
         )
         self.assertEqual(empty, {})
 
-        feats = build_on_features_from_quote_bars(
+        feats = build_co_features_from_quote_bars(
             synth,
             bars,
             open_t=12.5,
@@ -185,7 +185,7 @@ class TestOnPanel(unittest.TestCase):
 
     def test_build_features_uses_trade_day_quote_when_cache_behind(self):
         """回测：日线窗停在 T−1，但 quote.date=T、open=今开，必须出 ŷ_co 特征。"""
-        from core.research.on_panel import build_on_features_from_quote_bars
+        from core.research.co_panel import build_co_features_from_quote_bars
 
         bars = _bars(12)
         yesterday = bars[-1]
@@ -197,7 +197,7 @@ class TestOnPanel(unittest.TestCase):
             "prev_close": yesterday["close"],
             "change_raw": (12.5 / yesterday["close"] - 1.0) * 100.0,
         }
-        feats = build_on_features_from_quote_bars(quote, bars, trade_date="2026-09-17")
+        feats = build_co_features_from_quote_bars(quote, bars, trade_date="2026-09-17")
         self.assertIn("y_on_today", feats)
         self.assertAlmostEqual(
             float(feats["y_on_today"]),
@@ -211,11 +211,11 @@ class TestOnPanel(unittest.TestCase):
         )
 
     def test_fit_and_persist(self):
-        from core.research.on_ridge import (
-            fit_on_ridge_report,
-            load_on_model,
-            persist_on_model,
-            predict_on_from_features,
+        from core.research.co_ridge import (
+            fit_co_ridge_report,
+            load_co_model,
+            persist_co_model,
+            predict_co_from_features,
         )
 
         stock_bars = [
@@ -223,7 +223,7 @@ class TestOnPanel(unittest.TestCase):
             {"code": "B", "bars": _bars(40, 12)},
             {"code": "C", "bars": _bars(40, 8)},
         ]
-        report = fit_on_ridge_report(
+        report = fit_co_ridge_report(
             stock_bars, ridge_lambda=1.0, theme_boost=1.5, holdout_trading_days=5
         )
         self.assertTrue(report.get("success"), report.get("error"))
@@ -233,7 +233,7 @@ class TestOnPanel(unittest.TestCase):
         self.assertEqual(int(oos.get("holdout_trading_days") or 0), 5)
         self.assertEqual(int(oos.get("n_test_days") or 0), 5)
         self.assertEqual(int(report.get("label_horizon_days") or 0), 1)
-        self.assertEqual(report.get("schema"), "on_ridge_v1")
+        self.assertEqual(report.get("schema"), "co_ridge_v1")
         from core.research.holdout import calendar_dates_from_stock_bars
 
         cal = calendar_dates_from_stock_bars(stock_bars)
@@ -250,12 +250,12 @@ class TestOnPanel(unittest.TestCase):
             live = os.path.join(tmp, "live")
             os.makedirs(live, exist_ok=True)
             with patch("core.paths.LIVE_DIR", live):
-                saved = persist_on_model(report, note="test")
+                saved = persist_co_model(report, note="test")
                 self.assertTrue(saved.get("success"))
-                doc = load_on_model()
+                doc = load_co_model()
                 self.assertIsNotNone(doc)
                 self.assertEqual(doc.get("dual_score_head"), "predicted_score_on")
-                yhat = predict_on_from_features(
+                yhat = predict_co_from_features(
                     {
                         "ret_oc": 0.5,
                         "gap_pct": 1.0,
@@ -269,25 +269,28 @@ class TestOnPanel(unittest.TestCase):
                 self.assertIsNotNone(yhat)
 
 
-class TestOnScoreAttach(unittest.TestCase):
-    def test_apply_on_fields(self):
-        from core.signal.dual_score.on import apply_on_score_fields
+class TestCoScoreAttach(unittest.TestCase):
+    def test_apply_co_fields(self):
+        from core.signal.dual_score.co import apply_co_score_fields
 
         item = {"stock_code": "600519", "predicted_score": 1.2}
-        apply_on_score_fields(item, on_yhat=-0.35, feats={"ret_oc": 0.1, "gap_pct": 2.0})
+        apply_co_score_fields(item, co_yhat=-0.35, feats={"ret_oc": 0.1, "gap_pct": 2.0})
         self.assertAlmostEqual(item["predicted_score_on"], -0.35)
+        self.assertAlmostEqual(item["y_co"], -0.35)
         self.assertEqual(
-            (item.get("y_spec_on") or {}).get("formula"), "open[T+1]/close[T]-1"
+            (item.get("y_spec_co") or {}).get("formula"), "open[T+1]/close[T]-1"
         )
+        self.assertEqual(item["y_spec_on"], item["y_spec_co"])
+        self.assertEqual(item["features_on"], item["features_co"])
         self.assertEqual(item["predicted_score"], 1.2)
 
     def test_attach_pit_without_model(self):
-        from core.signal.dual_score.on import attach_on_score_pit
+        from core.signal.dual_score.co import attach_co_score_pit
 
         bars = _bars(25)
         item = {"stock_code": "000001", "predicted_score": 0.5}
-        with patch("core.research.on_ridge.load_on_model", return_value=None):
-            attach_on_score_pit(
+        with patch("core.research.co_ridge.load_co_model", return_value=None):
+            attach_co_score_pit(
                 item,
                 quote={
                     "date": bars[-1]["date"],
@@ -296,15 +299,15 @@ class TestOnScoreAttach(unittest.TestCase):
                 },
                 bars=bars,
             )
-        self.assertIn("y_spec_on", item)
+        self.assertIn("y_spec_co", item)
         self.assertIsNone(item.get("predicted_score_on"))
 
-    def test_load_on_model_falls_back_to_last_report(self):
-        from core.research.on_ridge import (
-            fit_on_ridge_report,
-            load_on_model,
-            load_on_last_report,
-            save_on_last_report,
+    def test_load_co_model_falls_back_to_last_report(self):
+        from core.research.co_ridge import (
+            fit_co_ridge_report,
+            load_co_model,
+            load_co_last_report,
+            save_co_last_report,
         )
 
         stock_bars = [
@@ -312,38 +315,76 @@ class TestOnScoreAttach(unittest.TestCase):
             {"code": "B", "bars": _bars(40, 12)},
             {"code": "C", "bars": _bars(40, 8)},
         ]
-        report = fit_on_ridge_report(stock_bars, ridge_lambda=1.0, theme_boost=1.5)
+        report = fit_co_ridge_report(stock_bars, ridge_lambda=1.0, theme_boost=1.5)
         self.assertTrue(report.get("success"), report.get("error"))
         with tempfile.TemporaryDirectory() as tmp:
             live = os.path.join(tmp, "live")
             os.makedirs(live, exist_ok=True)
             with patch("core.paths.LIVE_DIR", live):
-                save_on_last_report(report)
-                doc = load_on_model()
+                save_co_last_report(report)
+                doc = load_co_model()
                 self.assertIsNotNone(doc)
                 self.assertTrue(doc.get("_shadow"))
-                last = load_on_last_report()
+                last = load_co_last_report()
                 self.assertIsNotNone(last)
                 self.assertEqual(last.get("return_model"), doc.get("return_model"))
 
-    def test_dual_score_book_fields_passes_on(self):
+    def test_load_co_model_falls_back_to_legacy_on_file(self):
+        from core.research.co_ridge import (
+            co_model_path,
+            co_model_path_legacy,
+            fit_co_ridge_report,
+            load_co_model,
+            persist_co_model,
+        )
+
+        stock_bars = [
+            {"code": "A", "bars": _bars(40, 10)},
+            {"code": "B", "bars": _bars(40, 12)},
+            {"code": "C", "bars": _bars(40, 8)},
+        ]
+        report = fit_co_ridge_report(stock_bars, ridge_lambda=1.0, theme_boost=1.5)
+        self.assertTrue(report.get("success"), report.get("error"))
+        with tempfile.TemporaryDirectory() as tmp:
+            live = os.path.join(tmp, "live")
+            os.makedirs(live, exist_ok=True)
+            with patch("core.paths.LIVE_DIR", live):
+                saved = persist_co_model(report, note="legacy")
+                self.assertTrue(saved.get("success"))
+                self.assertTrue(os.path.isfile(co_model_path()))
+                self.assertTrue(os.path.isfile(co_model_path_legacy()))
+                os.remove(co_model_path())
+                doc = load_co_model()
+                self.assertIsNotNone(doc)
+                self.assertFalse(doc.get("_shadow"))
+                self.assertIn("return_model", doc)
+
+    def test_apply_reads_legacy_features_on(self):
+        from core.signal.dual_score.co import apply_co_score_fields
+
+        item = {"features_on": {"gap_pct": 3.0, "ret_oc": 0.2}}
+        apply_co_score_fields(item, co_yhat=0.1)
+        self.assertEqual((item.get("features_co") or {}).get("gap_pct"), 3.0)
+        self.assertEqual(item["features_on"], item["features_co"])
+
+    def test_dual_score_book_fields_passes_co(self):
         from core.signal.dual_score.book import dual_score_book_fields
 
         item = {
             "predicted_score": 1.0,
             "predicted_score_on": -0.42,
-            "features_on": {"gap_pct": 1.2},
-            "formula_terms_on": {"total": -0.42, "terms": []},
-            "y_spec_on": {"formula": "open[T+1]/close[T]-1"},
+            "features_co": {"gap_pct": 1.2},
+            "formula_terms_co": {"total": -0.42, "terms": []},
+            "y_spec_co": {"formula": "open[T+1]/close[T]-1"},
         }
         out = dual_score_book_fields(item)
         self.assertAlmostEqual(out.get("predicted_score_on"), -0.42)
-        self.assertEqual(out.get("features_on"), {"gap_pct": 1.2})
+        self.assertEqual(out.get("features_co"), {"gap_pct": 1.2})
 
-    def test_overlay_on_cross_section_copies_gap_vs_sector(self):
-        from core.signal.dual_score.on import overlay_on_cross_section
+    def test_overlay_co_cross_section_copies_gap_vs_sector(self):
+        from core.signal.dual_score.co import overlay_co_cross_section
 
-        out = overlay_on_cross_section(
+        out = overlay_co_cross_section(
             {"ret_oc": 2.3, "gap_pct": -0.96},
             {"gap_vs_sector": -0.4076, "theme_day": 0.0, "sector_gap_breadth": 0.0},
             sector_gap_breadth=0.0,
@@ -353,8 +394,8 @@ class TestOnScoreAttach(unittest.TestCase):
         self.assertEqual(out["sector_gap_breadth"], 0.0)
         self.assertEqual(out["ret_oc"], 2.3)
 
-    def test_attach_on_score_pit_uses_tau_gap_vs_sector(self):
-        from core.signal.dual_score.on import attach_on_score_pit
+    def test_attach_co_score_pit_uses_tau_gap_vs_sector(self):
+        from core.signal.dual_score.co import attach_co_score_pit
 
         bars = _bars(25)
         captured = {}
@@ -367,12 +408,12 @@ class TestOnScoreAttach(unittest.TestCase):
             "stock_code": "600183",
             "features_tau": {"gap_vs_sector": -0.4076, "theme_day": 0.0},
         }
-        with patch("core.research.on_ridge.predict_on_from_features", side_effect=_pred):
+        with patch("core.research.co_ridge.predict_co_from_features", side_effect=_pred):
             with patch(
-                "core.research.on_ridge.load_on_model",
+                "core.research.co_ridge.load_co_model",
                 return_value={"return_model": {"intercept": -0.12, "coefficients": {}}},
             ):
-                attach_on_score_pit(
+                attach_co_score_pit(
                     item,
                     quote={
                         "date": bars[-1]["date"],
@@ -384,12 +425,12 @@ class TestOnScoreAttach(unittest.TestCase):
         self.assertEqual(captured["feats"].get("gap_vs_sector"), -0.4076)
         self.assertAlmostEqual(float(item.get("y_co")), -0.256)
 
-    def test_ensure_formula_terms_on_refreshes_stale_z(self):
-        from core.signal.dual_score.on import ensure_formula_terms_on
+    def test_ensure_formula_terms_co_refreshes_stale_z(self):
+        from core.signal.dual_score.co import ensure_formula_terms_co
 
         item = {
             "predicted_score_on": -0.5,
-            "features_on": {
+            "features_co": {
                 "ret_oc": 1.0,
                 "gap_pct": 1.5,
                 "ret_cc": 0.8,
@@ -397,7 +438,7 @@ class TestOnScoreAttach(unittest.TestCase):
                 "sector_gap_breadth": 0.4,
                 "gap_atr": 0.5,
             },
-            "formula_terms_on": {
+            "formula_terms_co": {
                 "intercept": 0.01,
                 "total": 0.01,
                 "terms": [
@@ -411,7 +452,7 @@ class TestOnScoreAttach(unittest.TestCase):
                 ],
             },
         }
-        expl = ensure_formula_terms_on(item)
+        expl = ensure_formula_terms_co(item)
         self.assertIsNotNone(expl)
         terms = (expl or {}).get("terms") or []
         ret_oc = next((t for t in terms if t.get("key") == "ret_oc"), None)
@@ -419,7 +460,7 @@ class TestOnScoreAttach(unittest.TestCase):
         self.assertNotEqual(float(ret_oc.get("z") or 0.0), 0.0)
 
     def test_holding_row_as_quote_parses_open(self):
-        from core.signal.dual_score.on import holding_row_as_quote
+        from core.signal.dual_score.co import holding_row_as_quote
 
         q = holding_row_as_quote(
             {
@@ -434,8 +475,8 @@ class TestOnScoreAttach(unittest.TestCase):
         self.assertAlmostEqual(float(q.get("open_raw")), 1490.5)
         self.assertIn("元", str(q.get("open") or ""))
 
-    def test_hydrate_holding_on_fields_fills_predicted_score_on(self):
-        from core.signal.dual_score.on import hydrate_holding_on_fields
+    def test_hydrate_holding_co_fields_fills_predicted_score_on(self):
+        from core.signal.dual_score.co import hydrate_holding_co_fields
 
         row = {
             "stock_code": "600519",
@@ -451,14 +492,14 @@ class TestOnScoreAttach(unittest.TestCase):
         ]
         with patch("core.data.facade.get_bars", return_value={"bars": bars}):
             with patch(
-                "core.research.on_ridge.predict_on_from_features",
+                "core.research.co_ridge.predict_co_from_features",
                 return_value=-0.33,
             ):
                 with patch(
-                    "core.research.on_ridge.load_on_model",
+                    "core.research.co_ridge.load_co_model",
                     return_value={"coef": {}, "return_model": {"y_spec": {}}},
                 ):
-                    hydrate_holding_on_fields(row)
+                    hydrate_holding_co_fields(row)
         self.assertAlmostEqual(float(row.get("predicted_score_on")), -0.33)
 
 

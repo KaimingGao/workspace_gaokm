@@ -534,7 +534,7 @@ def path_features_from_open_row(
 ) -> Dict[str, Optional[float]]:
     """从 τ 开盘/前缀行补齐 PATH_Z（含分钟小包键；缺则 None）。
 
-    形状键 t_hi_frac / t_lo_frac 一并写出供 ŷ_hl；ŷ_cx / ŷ_tpd / ŷ_τ 拟合不用。
+    形状键 t_hi_frac / t_lo_frac 一并写出供 ŷ_hl；ŷ_τ 拟合不用。
     """
     out: Dict[str, Optional[float]] = {}
     for k in PATH_Z_FEATURES + MINUTE_TAU_SHAPE_KEYS:

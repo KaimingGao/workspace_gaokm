@@ -2,7 +2,7 @@
 # 后台启停 Investment Web（uvicorn via run_web.py）
 # 用法：./run_web.sh [start|stop|status|restart]  （无参数默认 start）
 #
-# 环境变量：WEB_HOST / WEB_PORT / WEB_RELOAD（同 run_web.py）
+# 环境变量：WEB_HOST / WEB_PORT / WEB_RELOAD / WEB_ACCESS_LOG（同 run_web.py）
 
 set -euo pipefail
 
@@ -178,7 +178,7 @@ usage() {
   restart  stop + start
 
 环境变量:
-  WEB_HOST / WEB_PORT / WEB_RELOAD   同 run_web.py
+  WEB_HOST / WEB_PORT / WEB_RELOAD / WEB_ACCESS_LOG   同 run_web.py
   WEB_PID_FILE   默认 $ROOT/data/run_web.pid
   WEB_LOG_FILE   默认 $ROOT/data/run_web.log
 EOF

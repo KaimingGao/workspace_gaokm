@@ -2684,27 +2684,27 @@ class TestDualYDirection(unittest.TestCase):
         self.assertIn("build_tau_pool_watching_holdings", tick)
         self.assertIn("hydrate_cs_peer_minutes", tick)
 
-    def test_tip_fields_include_features_on(self):
+    def test_tip_fields_include_features_co(self):
         from core.t0.score_policy import tip_fields_from_item
 
         tip = tip_fields_from_item(
             {
-                "features_on": {
+                "features_co": {
                     "ret_oc": -0.5,
                     "ret_cc": -1.2,
                     "gap_pct": -0.8,
                     "noise": 1,
                 },
-                "formula_terms_on": {
+                "formula_terms_co": {
                     "intercept": 0.0,
                     "total": -0.7,
                     "terms": [{"key": "ret_oc", "contrib": -0.3}],
                 },
             }
         )
-        self.assertEqual(tip.get("features_on", {}).get("ret_oc"), -0.5)
-        self.assertNotIn("noise", tip.get("features_on") or {})
-        self.assertIsNotNone(tip.get("formula_terms_on"))
+        self.assertEqual(tip.get("features_co", {}).get("ret_oc"), -0.5)
+        self.assertNotIn("noise", tip.get("features_co") or {})
+        self.assertIsNotNone(tip.get("formula_terms_co"))
 
     def test_tip_fields_include_formula_terms_r(self):
         from core.t0.score_policy import tip_fields_from_item
@@ -2766,11 +2766,11 @@ class TestDualYDirection(unittest.TestCase):
         if scores_have_any(sc):
             self.assertIsNotNone(sc.get("y_eod") or sc.get("y_trade") or sc.get("y_tau"))
             self.assertEqual(sc.get("_score_source"), "compute")
-            feats_on = sc.get("features_on") or {}
-            path_feats = sc.get("features_on_path") or {}
+            feats_co = sc.get("features_co") or {}
+            path_feats = sc.get("features_co_path") or {}
             # 开盘决策：ret_oc 取 T-1 已实现（昨开→昨收），非当日 close；决策与路径口径一致
-            if feats_on.get("ret_oc") is not None:
-                self.assertNotAlmostEqual(float(feats_on["ret_oc"]), 0.0, places=4)
+            if feats_co.get("ret_oc") is not None:
+                self.assertNotAlmostEqual(float(feats_co["ret_oc"]), 0.0, places=4)
             if path_feats.get("ret_oc") is not None:
                 self.assertNotAlmostEqual(float(path_feats["ret_oc"]), 0.0, places=4)
             if sc.get("y_on_path") is not None and sc.get("y_on") is not None:

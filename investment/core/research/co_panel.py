@@ -1,4 +1,4 @@
-"""隔夜缺口面板：y_ON = open[T+1]/close[T]-1；决策在 T 开盘。
+"""隔夜缺口面板：y_co = open[T+1]/close[T]-1；决策在 T 开盘。
 
 特征 = T-1 已实现路径 + 今开 gap Z + 昨 K 位置/振幅/量能 + 距涨停 + 隔夜滞后。
 标签为 T 收盘 → T+1 开盘的真实隔夜缺口，与 ret_oc / ret_cc 正交。
@@ -60,13 +60,13 @@ VOL_RATIO_WINDOW = 20
 VOL_RATIO_MIN = 5
 
 # 隔夜滞后：asof 用 T-1，避开今日 gap_pct（= T-1 日隔夜 = open[T]/close[T-1]-1）
-ON_LAG_FEATURES = ("yest_gap", "on_ma5")
-ON_LAG_FEAT_LABELS = {
+CO_LAG_FEATURES = ("yest_gap", "on_ma5")
+CO_LAG_FEAT_LABELS = {
     "yest_gap": "昨隔夜缺口 %",
     "on_ma5": "近5日隔夜缺口均 %",
 }
 
-ON_Z_FEATURES = (
+CO_Z_FEATURES = (
     "ret_oc",
     "gap_pct",
     "ret_cc",
@@ -82,7 +82,7 @@ ON_Z_FEATURES = (
     "yest_range_pct",
     "yest_vol_ratio",
     "dist_to_up_limit",
-) + ON_LAG_FEATURES
+) + CO_LAG_FEATURES
 
 
 def yest_close_loc_from_prev(prev_bar: Optional[dict]) -> Optional[float]:
@@ -176,7 +176,7 @@ def dist_to_up_limit_pct(
     return round(float(thr) - r, 4)
 
 
-def realized_on_by_date(bars: Optional[Sequence[dict]]) -> Dict[str, float]:
+def realized_co_by_date(bars: Optional[Sequence[dict]]) -> Dict[str, float]:
     """各日真实隔夜缺口 open[D+1]/close[D]−1（%）；算不出的日不进表。"""
     out: Dict[str, float] = {}
     seq = list(bars or [])
@@ -198,17 +198,17 @@ def realized_on_by_date(bars: Optional[Sequence[dict]]) -> Dict[str, float]:
     return out
 
 
-def on_lag_features(
+def co_lag_features(
     *,
     hist_bars: Sequence[dict],
-    on_by_date: Dict[str, float],
+    co_by_date: Dict[str, float],
     asof_prev_date: str,
     window: int = LABEL_LAG_WINDOW,
 ) -> Dict[str, Optional[float]]:
     """PIT 隔夜滞后：asof=T-1，lag1=昨隔夜（≠今日 gap_pct），ma5 不含今日缺口。"""
     return label_lag_features(
         hist_bars=hist_bars,
-        by_date=on_by_date,
+        by_date=co_by_date,
         asof_date=asof_prev_date,
         window=window,
         lag1_key="yest_gap",
@@ -239,7 +239,7 @@ def _overnight_gap_pct(close_t: float, open_next: float) -> Optional[float]:
     return (o1 / c0 - 1.0) * 100.0
 
 
-def intraday_on_feature_row(
+def intraday_co_feature_row(
     *,
     open_t: float,
     close_t: float,
@@ -252,7 +252,7 @@ def intraday_on_feature_row(
     prev_bar: Optional[dict] = None,
     stock_code: Optional[str] = None,
     asof_date: Optional[str] = None,
-    on_by_date: Optional[Dict[str, float]] = None,
+    co_by_date: Optional[Dict[str, float]] = None,
 ) -> Dict[str, Optional[float]]:
     """T 日开盘决策特征（预测 open[T+1]/close[T]-1 隔夜缺口）。
 
@@ -281,9 +281,9 @@ def intraday_on_feature_row(
         prev_date = str(prev_bar.get("date") or prev_bar.get("trade_date") or "")[:10]
     lags: Dict[str, Optional[float]] = {}
     if prev_date:
-        lags = on_lag_features(
+        lags = co_lag_features(
             hist_bars=hist,
-            on_by_date=on_by_date or {},
+            co_by_date=co_by_date or {},
             asof_prev_date=prev_date,
         )
     if lags.get("yest_gap") is None and asof_date:
@@ -309,7 +309,7 @@ def intraday_on_feature_row(
     return row
 
 
-def collect_on_panel(
+def collect_co_panel(
     bars: List[dict],
     *,
     min_history: int = 12,
@@ -330,7 +330,7 @@ def collect_on_panel(
     metas: List[Dict[str, Any]] = []
 
     n = len(bars or [])
-    on_map = realized_on_by_date(bars)
+    co_map = realized_co_by_date(bars)
     for i in range(min_history, n - 1):
         b_t = bars[i]
         b_next = bars[i + 1]
@@ -356,7 +356,7 @@ def collect_on_panel(
         if len(window) < min_history:
             continue
         date_t = str(b_t.get("date") or "")[:10]
-        row = intraday_on_feature_row(
+        row = intraday_co_feature_row(
             open_t=o_t,
             close_t=c_t,
             prev_close=pc,
@@ -367,7 +367,7 @@ def collect_on_panel(
             prev_bar=b_prev,
             stock_code=stock_code,
             asof_date=date_t,
-            on_by_date=on_map,
+            co_by_date=co_map,
         )
         xs.append(row)
         ys.append(float(y))
@@ -389,7 +389,7 @@ def collect_on_panel(
     return xs, ys, dates, metas
 
 
-def build_on_features_from_quote_bars(
+def build_co_features_from_quote_bars(
     quote: Optional[dict],
     bars: Optional[Sequence[dict]],
     *,
@@ -400,7 +400,7 @@ def build_on_features_from_quote_bars(
     prev_close: Optional[float] = None,
     trade_date: Optional[str] = None,
 ) -> Dict[str, Optional[float]]:
-    """Live / PIT：用最新 bar + quote 构造 ON 头特征。
+    """Live / PIT：用最新 bar + quote 构造 ŷ_co 特征。
 
     特征口径与训练一致：ret_oc/ret_cc 取 T-1 已实现值（开盘时 close[T] 不可用）。
     ``open_t`` / ``prev_close`` / ``trade_date``：与 ``resolve_open_t`` 同源；
@@ -467,7 +467,7 @@ def build_on_features_from_quote_bars(
     g = gap_pct
     if g is None:
         g = _gap_pct(pc, o_t)
-    return intraday_on_feature_row(
+    return intraday_co_feature_row(
         open_t=o_t,
         close_t=c_t if c_t and c_t > 0 else o_t,
         prev_close=pc,
@@ -479,11 +479,11 @@ def build_on_features_from_quote_bars(
         prev_bar=prev if isinstance(prev, dict) else None,
         stock_code=code or None,
         asof_date=asof,
-        on_by_date=realized_on_by_date(b),
+        co_by_date=realized_co_by_date(b),
     )
 
 
-def enrich_on_panel_breadth(
+def enrich_co_panel_breadth(
     panels: Sequence[Dict[str, Any]],
     *,
     gap_trigger_pct: float = 2.0,
@@ -496,16 +496,16 @@ def enrich_on_panel_breadth(
 
 
 __all__ = [
-    "ON_LAG_FEATURES",
-    "ON_LAG_FEAT_LABELS",
-    "ON_Z_FEATURES",
-    "build_on_features_from_quote_bars",
-    "collect_on_panel",
+    "CO_LAG_FEATURES",
+    "CO_LAG_FEAT_LABELS",
+    "CO_Z_FEATURES",
+    "build_co_features_from_quote_bars",
+    "collect_co_panel",
     "dist_to_up_limit_pct",
-    "enrich_on_panel_breadth",
-    "intraday_on_feature_row",
-    "on_lag_features",
-    "realized_on_by_date",
+    "enrich_co_panel_breadth",
+    "intraday_co_feature_row",
+    "co_lag_features",
+    "realized_co_by_date",
     "theme_sample_weights",
     "yest_close_loc_from_prev",
     "yest_range_pct_from_prev",

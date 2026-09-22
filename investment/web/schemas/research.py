@@ -299,8 +299,8 @@ class T90TreeRequest(BaseModel):
     )
 
 
-class OnRidgeRequest(BaseModel):
-    """open[T+1]/close[T]-1 隔夜缺口 Ridge 拟合（风控旁路 ŷ_ON）。"""
+class CoRidgeRequest(BaseModel):
+    """open[T+1]/close[T]-1 隔夜缺口 Ridge 拟合（风控旁路 ŷ_co）。"""
 
     lookback: int = Field(default=120, ge=40, le=500)
     watching_limit: int = Field(
@@ -318,7 +318,7 @@ class OnRidgeRequest(BaseModel):
     )
     persist_role: str = Field(
         default="live",
-        description="live=执行套 on_ridge_model.json；research=研究套 *_research.json",
+        description="live=执行套 co_ridge_model.json；research=研究套 *_research.json",
     )
     holdout_trading_days: int = Field(
         default=10,
@@ -371,94 +371,6 @@ class PathRidgeRequest(BaseModel):
     persist_role: str = Field(
         default="live",
         description="live=执行套 path_ridge_model.json；research=研究套 *_research.json",
-    )
-    holdout_trading_days: int = Field(
-        default=10,
-        ge=1,
-        le=60,
-        description="近 N 个交易日不进研究套训练，专供历史回测",
-    )
-    force_promote: bool = Field(
-        default=False,
-        description="True=跳过 OOS promote 闸（仅调试）",
-    )
-    note: str = Field(default="", max_length=200)
-
-
-class CxRidgeRequest(BaseModel):
-    """ŷ_cx Ridge：开盘 Z + 多 τ 前缀分钟小包 + lag → 全日 5m 曲折度 1−D/L ∈[0,1]。"""
-
-    lookback: int = Field(default=120, ge=40, le=500)
-    watching_limit: int = Field(
-        default=200,
-        ge=2,
-        le=200,
-        description="观察池上限（默认满池 200）；拟合只读本地 5m 缓存、不拉远端",
-    )
-    ridge_lambda: float = Field(default=1.0, ge=0.0, le=100.0)
-    gap_trigger_pct: float = Field(default=2.0, ge=0.5, le=10.0)
-    minute_period: str = Field(
-        default="5",
-        max_length=4,
-        description="分钟周期；默认 5m，与做 T 回测一致",
-    )
-    minute_lookback_days: int = Field(
-        default=150,
-        ge=20,
-        le=240,
-        description="兼容字段；拟合已改为只读缓存，不再按此天数拉远端",
-    )
-    persist: bool = Field(
-        default=False,
-        description="True=人审写入模型文件（路径由 persist_role 决定）",
-    )
-    persist_role: str = Field(
-        default="live",
-        description="live=执行套 cx_ridge_model.json；research=研究套 *_research.json",
-    )
-    holdout_trading_days: int = Field(
-        default=10,
-        ge=1,
-        le=60,
-        description="近 N 个交易日不进研究套训练，专供历史回测",
-    )
-    force_promote: bool = Field(
-        default=False,
-        description="True=跳过 OOS promote 闸（仅调试）",
-    )
-    note: str = Field(default="", max_length=200)
-
-
-class TpdRidgeRequest(BaseModel):
-    """ŷ_tpd Ridge：开盘 Z + 多 τ 前缀分钟小包 + lag → 全日 5m 转折点密度 ∈[0,1]。"""
-
-    lookback: int = Field(default=120, ge=40, le=500)
-    watching_limit: int = Field(
-        default=200,
-        ge=2,
-        le=200,
-        description="观察池上限（默认满池 200）；拟合只读本地 5m 缓存、不拉远端",
-    )
-    ridge_lambda: float = Field(default=1.0, ge=0.0, le=100.0)
-    gap_trigger_pct: float = Field(default=2.0, ge=0.5, le=10.0)
-    minute_period: str = Field(
-        default="5",
-        max_length=4,
-        description="分钟周期；默认 5m，与做 T 回测一致",
-    )
-    minute_lookback_days: int = Field(
-        default=150,
-        ge=20,
-        le=240,
-        description="兼容字段；拟合已改为只读缓存，不再按此天数拉远端",
-    )
-    persist: bool = Field(
-        default=False,
-        description="True=人审写入模型文件（路径由 persist_role 决定）",
-    )
-    persist_role: str = Field(
-        default="live",
-        description="live=执行套 tpd_ridge_model.json；research=研究套 *_research.json",
     )
     holdout_trading_days: int = Field(
         default=10,

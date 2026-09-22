@@ -473,12 +473,6 @@ def _slot_public_scores(row: dict) -> dict:
             "y_co",
             "y_hl",
             "predicted_score_hl",
-            "predicted_score_complexity",
-            "y_complexity_hat",
-            "predicted_score_cx",
-            "y_cx_hat",
-            "predicted_score_tpd",
-            "y_tpd_hat",
             "predicted_score_r",
             "y_r_hat",
             "y_r",
@@ -993,8 +987,6 @@ def _build_close_band_scan_trace(
         band_meta: dict = {}
         y_tau = None
         y_path = None
-        y_complexity = None
-        y_tpd = None
         y_r = None
         y_t30 = None
         y_t45 = None
@@ -1058,14 +1050,6 @@ def _build_close_band_scan_trace(
             sc = scores_from_item(gate_snap)
             y_tau = _yt_gate(gate_snap)
             y_oc_scan = y_tau
-            from core.research.cx_panel import pick_y_complexity_hat, pick_y_tpd_hat
-
-            y_hat = pick_y_complexity_hat(sc, gate_snap)
-            if y_hat is not None:
-                y_complexity = round(float(y_hat), 6)
-            y_tpd_hat = pick_y_tpd_hat(sc, gate_snap)
-            if y_tpd_hat is not None:
-                y_tpd = round(float(y_tpd_hat), 6)
             from core.research.r_ridge import pick_y_r_hat, r_realized_pct
 
             y_r_hat = pick_y_r_hat(sc, gate_snap)
@@ -1154,9 +1138,6 @@ def _build_close_band_scan_trace(
                 else (blend_y_tw_from_scores(gate_snap, cfg) if gate_snap else None)
             ),
             "y_hl": None,
-            "y_complexity": y_complexity,
-            "y_cx": y_complexity,
-            "y_tpd": y_tpd,
             "y_r": y_r,
             "predicted_score_r": y_r,
             "y_r_hat": y_r,

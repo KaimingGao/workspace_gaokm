@@ -687,7 +687,7 @@ class TestApplyLegOpenCost(unittest.TestCase):
                 "total": 0.8,
                 "terms": [{"key": "gap_pct", "contrib": 0.1}],
             },
-            "formula_terms_on": {
+            "formula_terms_co": {
                 "total": 0.2,
                 "terms": [{"key": "overnight", "contrib": 0.2}],
             },
@@ -712,7 +712,7 @@ class TestApplyLegOpenCost(unittest.TestCase):
         self.assertIsNone(err)
         self.assertEqual(buy["score_formula_terms"]["total"], 1.2)
         self.assertEqual(buy["formula_terms_tau"]["total"], 0.8)
-        self.assertEqual(buy["formula_terms_on"]["total"], 0.2)
+        self.assertEqual(buy["formula_terms_co"]["total"], 0.2)
         self.assertEqual(buy["formula_terms_path"]["total"], 1.5)
 
         sell, err = _apply_one_leg(

@@ -5,7 +5,6 @@ from __future__ import annotations
 from collections import defaultdict
 from typing import Any, Dict, List, Optional, Sequence
 
-from core.research.cx_panel import pack_y_complexity_fields, pack_y_tpd_fields
 from core.research.r_ridge import pack_y_r_fields
 
 SKIP_CAT_LABELS: Dict[str, str] = {
@@ -1376,8 +1375,6 @@ def _slot_as_portrait_unit(day: dict, row: dict) -> dict:
         "eod_realized": day.get("eod_realized"),
         "tau_realized": day.get("tau_realized"),
         "path_realized": day.get("path_realized"),
-        **pack_y_complexity_fields(day),
-        **pack_y_tpd_fields(day),
         **pack_y_r_fields(day),
         "r_realized": row.get("r_realized"),
         "y_t30_realized": row.get("y_t30_realized")
@@ -1448,8 +1445,6 @@ def _slot_placeholder_unit(day: dict, hm: str) -> dict:
         "eod_realized": day.get("eod_realized"),
         "tau_realized": day.get("tau_realized"),
         "path_realized": day.get("path_realized"),
-        **pack_y_complexity_fields(day),
-        **pack_y_tpd_fields(day),
         **pack_y_r_fields(day),
         "scores": _fill_day_eod_trade_scores(day, {}),
         "direction_features": {},
@@ -2637,8 +2632,6 @@ def iter_traded_attribution_units(day: dict) -> List[dict]:
                 "eod_realized": day.get("eod_realized"),
                 "tau_realized": day.get("tau_realized"),
                 "path_realized": day.get("path_realized"),
-                **pack_y_complexity_fields(day),
-                **pack_y_tpd_fields(day),
                 **pack_y_r_fields(day),
                 "direction": r.get("direction"),
                 "pnl": r.get("pnl") or 0,

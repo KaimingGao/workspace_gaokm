@@ -277,10 +277,10 @@ class StampRemainingYtcTests(unittest.TestCase):
 
 
 class StampPrimaryTests(unittest.TestCase):
-    def test_apply_on_writes_y_co(self):
-        from core.signal.dual_score.on import apply_on_score_fields
+    def test_apply_co_writes_y_co(self):
+        from core.signal.dual_score.co import apply_co_score_fields
 
-        item = apply_on_score_fields({}, on_yhat=0.8)
+        item = apply_co_score_fields({}, co_yhat=0.8)
         self.assertAlmostEqual(item["y_co"], 0.8)
         self.assertAlmostEqual(item["predicted_score_co"], 0.8)
         self.assertNotIn("y_on", item)

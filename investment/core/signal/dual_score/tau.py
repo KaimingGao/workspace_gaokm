@@ -717,9 +717,9 @@ def attach_dual_score_pit(
         ),
     )
     try:
-        from core.signal.dual_score.on import attach_on_score_pit
+        from core.signal.dual_score.co import attach_co_score_pit
 
-        attach_on_score_pit(
+        attach_co_score_pit(
             signal_item,
             quote=q,
             bars=b,

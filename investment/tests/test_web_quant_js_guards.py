@@ -45,13 +45,9 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("quant-rem-coef-tau-spark", ic)
         self.assertIn("quant-rem-coef-spec-metrics", ic)
         self.assertIn("OOS · τ", ic)
-        self.assertIn("complexity_lag1", ic)
-        self.assertIn("complexity_ma5", ic)
-        self.assertIn("tpd_lag1", ic)
-        self.assertIn("tpd_ma5", ic)
         self.assertIn("canonLagFeatName", ic)
-        self.assertIn("complexity_tpd_lag1", ic)
-        self.assertIn("cx_lag1", ic)
+        self.assertNotIn("complexity_lag1", ic)
+        self.assertNotIn("tpd_lag1", ic)
         self.assertIn("tau_lag1", ic)
         self.assertIn("tau_ma5", ic)
         self.assertIn("yest_gap", ic)
@@ -79,7 +75,7 @@ class TestWebQuantJsGuards(unittest.TestCase):
     def test_tau_ridge_fit_chip_is_fitted(self):
         quant_js = self._read("web", "static", "js", "quant.js")
         tau_run = quant_js.split("async function runTauRidge")[1].split(
-            "async function runOnRidge"
+            "async function runCoRidge"
         )[0]
         self.assertIn("paintRidgeEnableStatus", tau_run)
         self.assertIn("justFitted: !persist", tau_run)
@@ -206,9 +202,14 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("unwrapJobSnap", job_js)
         quant_js = self._read("web", "static", "js", "quant.js")
         self.assertIn("installClusterMinuteUi", quant_js)
-        self.assertIn("/api/quant/cx-ridge", quant_js)
-        self.assertIn("/api/quant/tpd-ridge", quant_js)
+        self.assertNotIn("/api/quant/cx-ridge", quant_js)
+        self.assertNotIn("/api/quant/tpd-ridge", quant_js)
         self.assertIn("/api/quant/path-ridge", quant_js)
+        self.assertIn("/api/quant/co-ridge", quant_js)
+        self.assertNotIn("/api/quant/on-ridge", quant_js)
+        self.assertIn("quant-co-ridge-run", panel)
+        self.assertNotIn("quant-on-ridge-run", panel)
+        self.assertNotIn("quant-section-on", panel)
         self.assertIn("ridgeFitNBits", quant_js)
         self.assertIn("面板 n=", quant_js)
         self.assertIn("入模 n=", quant_js)
@@ -1188,9 +1189,9 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("Y_NC_TITLE", fmt_js)
         self.assertIn("Y_NC_OC_TITLE", fmt_js)
         self.assertIn("Y_HL_TITLE", fmt_js)
-        self.assertIn("Y_CX_TITLE", fmt_js)
-        self.assertIn("Y_COMPLEXITY_TITLE", fmt_js)
-        self.assertIn("Y_TPD_TITLE", fmt_js)
+        self.assertNotIn("Y_CX_TITLE", fmt_js)
+        self.assertNotIn("Y_COMPLEXITY_TITLE", fmt_js)
+        self.assertNotIn("Y_TPD_TITLE", fmt_js)
         self.assertIn("Y_τc_TITLE", fmt_js)
         self.assertIn("Y_TC_TITLE", fmt_js)
         self.assertIn("Y_R_TITLE", fmt_js)
@@ -2243,7 +2244,7 @@ class TestWebQuantJsGuards(unittest.TestCase):
         for sid in (
             "quant-section-factors",
             "quant-section-tau",
-            "quant-section-on",
+            "quant-section-co",
             "quant-section-t30",
             "quant-section-t45",
             "quant-section-t60",
@@ -2261,7 +2262,7 @@ class TestWebQuantJsGuards(unittest.TestCase):
             )
         order = [
             "quant-section-tau",
-            "quant-section-on",
+            "quant-section-co",
             "quant-section-t30",
             "quant-section-t45",
             "quant-section-t60",

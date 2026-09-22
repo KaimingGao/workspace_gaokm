@@ -308,13 +308,16 @@ def tip_fields_from_item(item: Optional[dict]) -> Dict[str, Any]:
     if coefs_tau:
         out["factor_coefficients_tau"] = coefs_tau
 
-    on_terms = _slim_formula_terms(
-        item.get("formula_terms_on") or item.get("score_formula_terms_on"),
+    co_terms = _slim_formula_terms(
+        item.get("formula_terms_co")
+        or item.get("score_formula_terms_co")
+        or item.get("formula_terms_on")
+        or item.get("score_formula_terms_on"),
         limit=10,
     )
-    if on_terms and (on_terms.get("terms") or on_terms.get("total") is not None):
-        out["formula_terms_on"] = on_terms
-        out["score_formula_terms_on"] = on_terms
+    if co_terms and (co_terms.get("terms") or co_terms.get("total") is not None):
+        out["formula_terms_co"] = co_terms
+        out["score_formula_terms_co"] = co_terms
 
     path_terms = _slim_formula_terms(
         item.get("formula_terms_path") or item.get("score_formula_terms_path"),
@@ -505,10 +508,6 @@ def tip_fields_from_item(item: Optional[dict]) -> Dict[str, Any]:
                 "mom3_pct",
                 "path_lag1",
                 "path_ma5",
-                "complexity_lag1",
-                "complexity_ma5",
-                "cx_lag1",
-                "cx_ma5",
                 "t_hi_frac",
                 "t_lo_frac",
             }
@@ -542,13 +541,17 @@ def tip_fields_from_item(item: Optional[dict]) -> Dict[str, Any]:
         out["features_tau"] = feats_tau
 
     try:
-        from core.signal.dual_score.on import features_on_snapshot
+        from core.signal.dual_score.co import features_co_snapshot
 
-        feats_on = features_on_snapshot(item.get("features_on"))
-        if feats_on:
-            out["features_on"] = feats_on
+        feats_co = features_co_snapshot(
+            item.get("features_co")
+            if isinstance(item.get("features_co"), dict)
+            else item.get("features_on")
+        )
+        if feats_co:
+            out["features_co"] = feats_co
     except Exception:  # noqa: BLE001
-        logger.debug("features_on tip slim failed", exc_info=True)
+        logger.debug("features_co tip slim failed", exc_info=True)
 
     for k in (
         "gap_pct",
@@ -608,12 +611,6 @@ def pack_day_scores(score_snap: Optional[dict]) -> Optional[Dict[str, Any]]:
         "y_path",
         "y_hl",
         "y_hl_portrait",
-        "predicted_score_complexity",
-        "y_complexity_hat",
-        "predicted_score_cx",
-        "y_cx_hat",
-        "predicted_score_tpd",
-        "y_tpd_hat",
         "predicted_score_r",
         "y_r_hat",
         "y_r",
@@ -726,12 +723,6 @@ def attach_day_scores(
             "y_path",
             "y_hl",
             "y_hl_portrait",
-            "predicted_score_complexity",
-            "y_complexity_hat",
-            "predicted_score_cx",
-            "y_cx_hat",
-            "predicted_score_tpd",
-            "y_tpd_hat",
             "predicted_score_r",
             "y_r_hat",
             "y_r",
@@ -909,27 +900,6 @@ def scores_from_item(item: Optional[dict]) -> Dict[str, Optional[float]]:
 
     y_hl = pick_y_hl(item)
 
-    y_complexity_hat = None
-    try:
-        from core.research.cx_panel import pick_y_complexity_hat
-
-        y_complexity_hat = pick_y_complexity_hat(item)
-    except Exception:  # noqa: BLE001
-        y_complexity_hat = _f(item.get("predicted_score_complexity"))
-        if y_complexity_hat is None:
-            y_complexity_hat = _f(item.get("y_complexity_hat"))
-        if y_complexity_hat is None:
-            y_complexity_hat = _f(item.get("predicted_score_cx"))
-        if y_complexity_hat is None:
-            y_complexity_hat = _f(item.get("y_cx_hat"))
-        if y_complexity_hat is not None:
-            try:
-                from core.research.cx_panel import cx_as_unit_01
-
-                y_complexity_hat = cx_as_unit_01(y_complexity_hat)
-            except Exception:  # noqa: BLE001
-                pass
-
     y_check = item.get("y_check")
     if y_check is not None:
         y_check = str(y_check)
@@ -960,40 +930,6 @@ def scores_from_item(item: Optional[dict]) -> Dict[str, Optional[float]]:
                 out[k] = _win[k]
     except Exception:  # noqa: BLE001
         logger.debug("stamp_window_scores failed", exc_info=True)
-    if y_complexity_hat is not None:
-        try:
-            from core.research.cx_panel import write_y_complexity_hat
-
-            write_y_complexity_hat(out, y_complexity_hat)
-        except Exception:  # noqa: BLE001
-            out["predicted_score_complexity"] = y_complexity_hat
-            out["y_complexity_hat"] = y_complexity_hat
-            out["predicted_score_cx"] = y_complexity_hat
-            out["y_cx_hat"] = y_complexity_hat
-    y_tpd_hat = None
-    try:
-        from core.research.cx_panel import pick_y_tpd_hat
-
-        y_tpd_hat = pick_y_tpd_hat(item)
-    except Exception:  # noqa: BLE001
-        y_tpd_hat = _f(item.get("predicted_score_tpd"))
-        if y_tpd_hat is None:
-            y_tpd_hat = _f(item.get("y_tpd_hat"))
-        if y_tpd_hat is not None:
-            try:
-                from core.research.cx_panel import tpd_as_unit_01
-
-                y_tpd_hat = tpd_as_unit_01(y_tpd_hat)
-            except Exception:  # noqa: BLE001
-                pass
-    if y_tpd_hat is not None:
-        try:
-            from core.research.cx_panel import write_y_tpd_hat
-
-            write_y_tpd_hat(out, y_tpd_hat)
-        except Exception:  # noqa: BLE001
-            out["predicted_score_tpd"] = y_tpd_hat
-            out["y_tpd_hat"] = y_tpd_hat
     try:
         from core.research.r_ridge import pick_y_r_hat, pick_y_r_label, write_y_r_hat, write_y_r_label
 
@@ -1592,10 +1528,6 @@ def _attach_y_path_to_item(
         logger.debug("attach y_hl failed", exc_info=True)
     finally:
         try:
-            _attach_y_complexity_to_item(item, hist_bars=hist_bars, allow_open_z=allow_open_z)
-        except Exception:  # noqa: BLE001
-            logger.debug("attach y_cx failed", exc_info=True)
-        try:
             _attach_y_r_to_item(item, allow_open_z=allow_open_z)
         except Exception:  # noqa: BLE001
             logger.debug("attach y_r failed", exc_info=True)
@@ -2161,100 +2093,6 @@ def _attach_y_t90_to_item(
             item["score_formula_terms_t90"] = expl
     except Exception:  # noqa: BLE001
         logger.debug("attach y_t90 predict failed", exc_info=True)
-
-
-def _attach_y_complexity_to_item(
-    item: dict,
-    *,
-    hist_bars: Optional[Sequence[dict]] = None,
-    allow_open_z: bool = True,
-    stock_code: Optional[str] = None,
-    asof_date: Optional[str] = None,
-) -> None:
-    """即时补 ŷ_cx / ŷ_tpd（同特征、独立 β）；缺模型/缺前缀则不出分（缺分不挡入场闸）。"""
-    if not isinstance(item, dict):
-        return
-    feats_tau = item.get("features_tau") if isinstance(item.get("features_tau"), dict) else {}
-    feats_path = item.get("features_path") if isinstance(item.get("features_path"), dict) else {}
-    row: Dict[str, Any] = dict(feats_path or feats_tau)
-    if row.get("gap_pct") is None:
-        row["gap_pct"] = item.get("gap_pct")
-    open_z_only = not _minute_pack_present(row)
-    if open_z_only and not allow_open_z:
-        return
-    try:
-        from core.research.cx_ridge import load_cx_model, predict_cx_from_features
-        from core.research.tpd_ridge import load_tpd_model, predict_tpd_from_features
-        from core.research.path_panel import path_features_from_open_row
-        from core.research.cx_panel import write_y_complexity_hat, write_y_tpd_hat
-
-        cx_model = load_cx_model()
-        tpd_model = load_tpd_model()
-        if cx_model is None and tpd_model is None:
-            return
-        hist = [b for b in (hist_bars or []) if isinstance(b, dict)]
-        prev = hist[-1] if hist else None
-        if feats_path:
-            path_feats = dict(feats_path)
-        else:
-            path_feats = path_features_from_open_row(row, hist=hist, prev_bar=prev)
-        code = str(
-            stock_code
-            or item.get("stock_code")
-            or item.get("code")
-            or ""
-        ).strip()
-        asof = str(
-            asof_date
-            or item.get("date")
-            or item.get("as_of")
-            or item.get("trade_date")
-            or ""
-        )[:10]
-        if len(asof) < 10 and isinstance(item.get("day_bar"), dict):
-            asof = str(item["day_bar"].get("date") or "")[:10]
-        try:
-            from core.research.cx_panel import attach_cx_lag_features
-
-            path_feats = attach_cx_lag_features(
-                path_feats,
-                hist_bars=hist,
-                asof_date=asof,
-                stock_code=code,
-            )
-        except Exception:  # noqa: BLE001
-            logger.debug("attach cx lag feats failed", exc_info=True)
-        if not any(v is not None for v in path_feats.values()):
-            return
-        wrote = False
-        if cx_model is not None:
-            y_complexity = predict_cx_from_features(path_feats, model_doc=cx_model)
-            if y_complexity is not None:
-                write_y_complexity_hat(item, float(y_complexity))
-                wrote = True
-        if tpd_model is not None:
-            y_tpd = predict_tpd_from_features(path_feats, model_doc=tpd_model)
-            if y_tpd is not None:
-                write_y_tpd_hat(item, float(y_tpd))
-                wrote = True
-        if wrote:
-            fp = item.get("features_path")
-            if isinstance(fp, dict):
-                for k in (
-                    "complexity_lag1",
-                    "complexity_ma5",
-                    "cx_lag1",
-                    "cx_ma5",
-                    "complexity_tpd_lag1",
-                    "complexity_tpd_ma5",
-                    "cx_tpd_lag1",
-                    "cx_tpd_ma5",
-                    "tpd_lag1",
-                    "tpd_ma5",
-                ):
-                    fp[k] = path_feats.get(k)
-    except Exception:  # noqa: BLE001
-        logger.debug("attach y_cx/y_tpd predict failed", exc_info=True)
 
 
 def _inject_minute_pack_from_prefix(
@@ -3393,9 +3231,9 @@ def _enrich_quote_path_price(
     *,
     code: str = "",
 ) -> Dict[str, Any]:
-    """为 ŷ_ON 补路径现价（开→收 / 收→收）；不改 open / prev_close / change_raw。
+    """为 ŷ_co 补路径现价（开→收 / 收→收）；不改 open / prev_close / change_raw。
 
-    开盘决策报价常把 ``price_raw=open``，会导致 ret_oc≈0、ŷ_ON 与簿相反号。
+    开盘决策报价常把 ``price_raw=open``，会导致 ret_oc≈0、ŷ_co 与簿相反号。
     优先用当日已走出路径的 close；当日且日线仍平开时再拉现价对齐刷簿。
     """
     if not isinstance(quote, dict):
@@ -3980,7 +3818,7 @@ def compute_scores_from_bars(
             from core.research.tau_panel import GAP_ATR_WINDOW
         except Exception:  # noqa: BLE001
             GAP_ATR_WINDOW = 14
-        # 开盘 PIT：τ / EOD / 决策用开盘 quote（price=open）；勿把当日 close 喂进 ŷ_ON
+        # 开盘 PIT：τ / EOD / 决策用开盘 quote（price=open）；勿把当日 close 喂进 ŷ_co
         # （否则表列 y_on≈当日 OC，与 τ实假相关）。
         dual_bars = list(hist[-max(int(GAP_ATR_WINDOW) + 6, 20) :])
         # 当日 bar 仅供 asof 对齐；hist_bars_pit 会剥掉 asof 日 K，不吃 T 振幅
@@ -4001,18 +3839,18 @@ def compute_scores_from_bars(
             minute_tau_hm=causal_hm if allow_minute else None,
             trade_day=pit_day if len(pit_day) >= 10 else None,
         )
-        # 复盘对照：路径价 ŷ_ON（可含当日 close）写入旁路字段，不覆盖决策 y_on
+        # 复盘对照：路径价 ŷ_co（可含当日 close）写入旁路字段，不覆盖决策 y_on
         try:
-            from core.signal.dual_score.on import attach_on_score_pit
+            from core.signal.dual_score.co import attach_co_score_pit
 
             q_path = _enrich_quote_path_price(dict(q or {}), day, code=raw)
             open_on = item.get("predicted_score_on")
             open_feats = (
-                dict(item.get("features_on") or {})
-                if isinstance(item.get("features_on"), dict)
+                dict(item.get("features_co") or {})
+                if isinstance(item.get("features_co"), dict)
                 else {}
             )
-            attach_on_score_pit(
+            attach_co_score_pit(
                 item,
                 quote=q_path,
                 bars=dual_bars,
@@ -4023,19 +3861,19 @@ def compute_scores_from_bars(
                 else None,
             )
             path_on = item.get("predicted_score_on")
-            path_feats = item.get("features_on")
+            path_feats = item.get("features_co")
             # 恢复开盘决策口径
             item["predicted_score_on"] = open_on
             if open_on is not None:
                 item["y_co"] = open_on
                 item["predicted_score_co"] = open_on
             if open_feats:
-                item["features_on"] = open_feats
+                item["features_co"] = open_feats
             if path_on is not None:
                 item["predicted_score_on_path"] = path_on
                 item["y_on_path"] = path_on
             if isinstance(path_feats, dict) and path_feats:
-                item["features_on_path"] = dict(path_feats)
+                item["features_co_path"] = dict(path_feats)
         except Exception:  # noqa: BLE001
             logger.debug("attach path-enriched y_on failed", exc_info=True)
         # 即时算路径未走 score_stock，补 EOD 组成表供 tip 对照因子

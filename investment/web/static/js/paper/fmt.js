@@ -333,12 +333,6 @@ export const Y_HL_TITLE = "ŷ_hl · 极值序 signed (H−L)/ref%";
 export const Y_PATH_TITLE = Y_HL_TITLE;
 export const PATH_REALIZED_TITLE =
   "HL实 · 先 low→high 为正、先 high→low 为负（与 ŷ_hl 同标签）";
-export const Y_CX_TITLE =
-  "ŷ_cx · 本轮前缀 ŷ（全日 1−D/L ∈[0,1]，表内×100%）· 0=直线 · 1=最折 · ŷ_cx>门槛则跳过";
-/** @deprecated 用 Y_CX_TITLE */
-export const Y_COMPLEXITY_TITLE = Y_CX_TITLE;
-export const Y_TPD_TITLE =
-  "y_tpd · 本轮前缀 ŷ（全日转折点密度 ∈[0,1]，表内×100%）· 0=无反转 · 1=每根都反转 · ŷ_tpd>门槛则跳过";
 export const Y_τc_TITLE =
   "ŷ_τc · Ridge 预估 close[T]/price(τ)−1 · 模型 price→close";
 export const Y_TC_TITLE = Y_τc_TITLE;
@@ -449,8 +443,8 @@ export function fmtPathScore(v, opts = {}) {
   return `${n > 0 ? "+" : ""}${n.toFixed(digits)}`;
 }
 
-/** ŷ_co：隔夜缺口对照头。 */
-export function resolveOnScore(it) {
+/** ŷ_co：隔夜缺口对照头。`resolveOnScore` 为列 tip `on` 保留名。 */
+export function resolveCoScore(it) {
   if (!it || typeof it !== "object") return null;
   if (isHeuristicScoreScale(it)) return null;
   for (const c of [it.y_co, it.predicted_score_co, it.predicted_score_on, it.y_on]) {
@@ -459,6 +453,9 @@ export function resolveOnScore(it) {
   }
   return null;
 }
+
+/** 列 id `score_on` / tip `on` 入口；实现同 resolveCoScore。 */
+export const resolveOnScore = resolveCoScore;
 
 function _pcFormulaIsLegacy(formula) {
   const s = String(formula || "")

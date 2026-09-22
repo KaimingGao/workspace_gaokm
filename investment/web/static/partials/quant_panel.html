@@ -12,7 +12,7 @@
       →
       <a class="quant-hero-link" href="#quant-section-tau">ŷ_oc</a>
       →
-      <a class="quant-hero-link" href="#quant-section-on">ŷ_co</a>
+      <a class="quant-hero-link" href="#quant-section-co">ŷ_co</a>
       →
       <a class="quant-hero-link" href="#quant-section-t30">ŷ_τ30</a>
       →
@@ -481,14 +481,14 @@
   </section>
 
   <!-- ŷ_co：隔夜缺口；风控旁路，不进主排序 -->
-  <section class="dashboard-section quant-section" id="quant-section-on" aria-labelledby="quant-section-on-title">
+  <section class="dashboard-section quant-section" id="quant-section-co" aria-labelledby="quant-section-co-title">
     <header class="dashboard-section-head quant-section-head">
-      <h3 id="quant-section-on-title" class="dashboard-section-title">ŷ_co</h3>
+      <h3 id="quant-section-co-title" class="dashboard-section-title">ŷ_co</h3>
       <p class="dashboard-section-desc quant-section-desc">open[T+1]/close[T]−1 · 隔夜缺口 Ridge · 风控旁路</p>
     </header>
     <div class="dashboard-card quant-pro-card">
       <div class="dashboard-card-head quant-pro-card-head quant-card-head--tools">
-        <div id="quant-on-summary" class="quant-rem-status quant-card-head-status" aria-live="polite">
+        <div id="quant-co-summary" class="quant-rem-status quant-card-head-status" aria-live="polite">
           <span class="quant-pro-status-chip" data-state="idle">待命</span>
           <span class="quant-rem-status-msg">拟合后看 OOS · 过门再启用</span>
         </div>
@@ -508,15 +508,15 @@
               </p>
             </div>
           </details>
-          <button type="button" id="quant-on-ridge-run" class="dialog-btn secondary" title="观察池拟合 on Ridge + 时间 OOS（不写盘）">拟合</button>
-          <button type="button" id="quant-on-ridge-persist-research" class="dialog-btn secondary" data-persist-role="research" title="人审后写入 on_ridge_model_research.json，供历史回测加载">启用研究</button>
-          <button type="button" id="quant-on-ridge-persist" class="dialog-btn secondary" data-persist-role="live" title="人审后写入 live/on_ridge_model.json，供交易执行加载">启用执行</button>
-          <button type="button" id="quant-on-ridge-status" class="dialog-btn secondary" title="读取已启用 live 模型">状态</button>
+          <button type="button" id="quant-co-ridge-run" class="dialog-btn secondary" title="观察池拟合 co Ridge + 时间 OOS（不写盘）">拟合</button>
+          <button type="button" id="quant-co-ridge-persist-research" class="dialog-btn secondary" data-persist-role="research" title="人审后写入 co_ridge_model_research.json，供历史回测加载">启用研究</button>
+          <button type="button" id="quant-co-ridge-persist" class="dialog-btn secondary" data-persist-role="live" title="人审后写入 live/co_ridge_model.json，供交易执行加载">启用执行</button>
+          <button type="button" id="quant-co-ridge-status" class="dialog-btn secondary" title="读取已启用 live 模型">状态</button>
         </div>
       </div>
       <div class="quant-pro-card-body">
-        <div id="quant-on-result" class="quant-weight-table-wrap" aria-label="on 拟合摘要"></div>
-        <div id="quant-on-coef-table" class="quant-weight-table-wrap" aria-label="ŷ_co 因子系数表"></div>
+        <div id="quant-co-result" class="quant-weight-table-wrap" aria-label="co 拟合摘要"></div>
+        <div id="quant-co-coef-table" class="quant-weight-table-wrap" aria-label="ŷ_co 因子系数表"></div>
       </div>
     </div>
   </section>

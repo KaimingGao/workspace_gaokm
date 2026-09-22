@@ -674,9 +674,13 @@ function renderRebalanceReport(
       formula_terms_tau: r.formula_terms_tau || r.score_formula_terms_tau,
       score_formula_tau: r.score_formula_tau,
       factor_coefficients_tau: r.factor_coefficients_tau,
-      formula_terms_on: r.formula_terms_on || r.score_formula_terms_on,
-      features_on: r.features_on || null,
-      y_spec_on: r.y_spec_on || null,
+      formula_terms_co:
+        r.formula_terms_co ||
+        r.score_formula_terms_co ||
+        r.formula_terms_on ||
+        r.score_formula_terms_on,
+      features_co: r.features_co || r.features_on || null,
+      y_spec_co: r.y_spec_co || r.y_spec_on || null,
       weight_source: r.weight_source,
       cluster_label: r.cluster_label,
       cluster_mode: r.cluster_mode,

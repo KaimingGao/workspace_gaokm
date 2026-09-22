@@ -434,7 +434,7 @@ export const TAU_FEAT_META = {
 };
 
 /** ŷ_co 路径/开盘 Z 特征（不在因子注册表）。 */
-export const ON_FEAT_META = {
+export const CO_FEAT_META = {
   ret_oc: {
     label: "昨开→昨收 %",
     description:
@@ -443,7 +443,7 @@ export const ON_FEAT_META = {
   ret_cc: {
     label: "昨收→前收 %",
     description:
-      "T-1 日收→收涨跌（%）。昨日已实现收→收，辅助 ON 头看路径惯性。",
+      "T-1 日收→收涨跌（%）。昨日已实现收→收，辅助 ŷ_co 看路径惯性。",
   },
   y_on_today: {
     label: "今开/昨开 %",
@@ -587,10 +587,10 @@ export function createFactorMetaCache(opts = {}) {
 
   function onFeatMeta(name, label) {
     const key = name != null ? String(name).trim() : "";
-    if (key && ON_FEAT_META[key]) return ON_FEAT_META[key];
+    if (key && CO_FEAT_META[key]) return CO_FEAT_META[key];
     const lab = label != null ? String(label).trim() : "";
     if (!lab) return null;
-    for (const m of Object.values(ON_FEAT_META)) {
+    for (const m of Object.values(CO_FEAT_META)) {
       if (m && m.label === lab) return m;
     }
     return null;

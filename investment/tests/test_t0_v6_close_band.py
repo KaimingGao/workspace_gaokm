@@ -50,9 +50,8 @@ def _snap(y_tau, **extra):
 
 
 def _cfg(overrides=None):
-    """路径单测关掉 TPD 入场闸；生产默认 y_tpd_max=1.00≈关。"""
+    """路径单测：去掉旧锁赢默认。"""
     d = dict(overrides or {})
-    d.setdefault("y_tpd_max", 1.0)
     d.setdefault("t0_lock_win_pct_buy_then_sell", 0)
     d.setdefault("t0_lock_win_pct_sell_then_buy", 0)
     d.setdefault("y_oc_enter", 0)
@@ -934,14 +933,14 @@ class TestCloseBandCore(unittest.TestCase):
                     "ret_vs_sector": -0.57,
                 },
                 "formula_terms_tau": {"intercept": 0.1, "terms": []},
-                "formula_terms_on": {"intercept": 9, "terms": [{"key": "gap_pct"}]},
+                "formula_terms_co": {"intercept": 9, "terms": [{"key": "gap_pct"}]},
                 "as_of_tau": "09:45",
             },
         )
         self.assertAlmostEqual(row["features_tau"]["ret_vs_sector"], -0.57, places=4)
         self.assertAlmostEqual(row["features_tau"]["sector_ret_to_tau"], -0.026, places=4)
         self.assertEqual(row.get("as_of_tau"), "09:45")
-        self.assertNotIn("formula_terms_on", row)
+        self.assertNotIn("formula_terms_co", row)
         self.assertNotIn("y_tau", row)
         later = {"hm": "10:40"}
         _attach_scan_row_tip_fields(

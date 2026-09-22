@@ -1769,7 +1769,7 @@ def _attach_open_yhat_heads(
     windows: Dict[str, List[dict]],
     cluster_models: Optional[Dict[str, Any]] = None,
     global_model: Any = None,
-    on_model_doc: Any = None,
+    co_model_doc: Any = None,
     tau_model_doc: Any = None,
     cfg: Optional[dict] = None,
     tau_pool_day: Optional[dict] = None,
@@ -1817,13 +1817,13 @@ def _attach_open_yhat_heads(
         logger.debug("dual_score import failed", exc_info=True)
 
     try:
-        from core.research.on_panel import build_on_features_from_quote_bars
-        from core.research.on_ridge import predict_on_from_features
-        from core.signal.dual_score.on import apply_on_score_fields
+        from core.research.co_panel import build_co_features_from_quote_bars
+        from core.research.co_ridge import predict_co_from_features
+        from core.signal.dual_score.co import apply_co_score_fields
     except Exception:  # noqa: BLE001
-        build_on_features_from_quote_bars = None  # type: ignore[assignment]
-        predict_on_from_features = None  # type: ignore[assignment]
-        apply_on_score_fields = None  # type: ignore[assignment]
+        build_co_features_from_quote_bars = None  # type: ignore[assignment]
+        predict_co_from_features = None  # type: ignore[assignment]
+        apply_co_score_fields = None  # type: ignore[assignment]
         logger.debug("on-head imports failed", exc_info=True)
 
     try:
@@ -1906,9 +1906,9 @@ def _attach_open_yhat_heads(
             except Exception:  # noqa: BLE001
                 logger.debug("attach open y_hl failed for %s", code, exc_info=True)
         if (
-            apply_on_score_fields is None
-            or build_on_features_from_quote_bars is None
-            or predict_on_from_features is None
+            apply_co_score_fields is None
+            or build_co_features_from_quote_bars is None
+            or predict_co_from_features is None
             or not code
         ):
             continue
@@ -1921,7 +1921,7 @@ def _attach_open_yhat_heads(
                     gap = float(quote.get("change_raw"))
                 except (TypeError, ValueError):
                     gap = None
-            on_feats = build_on_features_from_quote_bars(
+            co_feats = build_co_features_from_quote_bars(
                 quote,
                 window,
                 gap_pct=gap,
@@ -1929,17 +1929,17 @@ def _attach_open_yhat_heads(
                 prev_close=quote.get("prev_close") or quote.get("pre_close"),
                 trade_date=quote.get("date") or quote.get("trade_date"),
             )
-            if not on_feats:
+            if not co_feats:
                 continue
-            on_yhat = predict_on_from_features(on_feats, model_doc=on_model_doc)
-            apply_on_score_fields(
+            co_yhat = predict_co_from_features(co_feats, model_doc=co_model_doc)
+            apply_co_score_fields(
                 it,
-                on_yhat=on_yhat,
-                feats=on_feats,
-                on_model_doc=on_model_doc,
+                co_yhat=co_yhat,
+                feats=co_feats,
+                co_model_doc=co_model_doc,
             )
         except Exception:  # noqa: BLE001
-            logger.debug("attach y_on failed for %s", code, exc_info=True)
+            logger.debug("attach y_co failed for %s", code, exc_info=True)
     return items
 
 
@@ -1954,7 +1954,7 @@ def _score_open_day(
     cfg: Optional[dict],
     cluster_models: Optional[Dict[str, Any]] = None,
     global_model: Any = None,
-    on_model_doc: Any = None,
+    co_model_doc: Any = None,
     tau_model_doc: Any = None,
     tau_pool_day: Optional[dict] = None,
 ) -> List[dict]:
@@ -1998,7 +1998,7 @@ def _score_open_day(
         windows=windows,
         cluster_models=cluster_models,
         global_model=global_model,
-        on_model_doc=on_model_doc,
+        co_model_doc=co_model_doc,
         tau_model_doc=tau_model_doc,
         cfg=cfg,
         tau_pool_day=tau_pool_day,
@@ -2397,17 +2397,17 @@ def backtest_paper_replay(
 
     cluster_models = _load_replay_cluster_models() if rankings_by_date is None else {}
     global_model = None
-    on_model_doc = None
+    co_model_doc = None
     tau_model_doc = None
     if rankings_by_date is None:
         if not cluster_models:
             global_model = _load_replay_global_model()
         try:
-            from core.research.on_ridge import load_on_model
+            from core.research.co_ridge import load_co_model
 
-            on_model_doc = load_on_model()
+            co_model_doc = load_co_model()
         except Exception:  # noqa: BLE001
-            logger.debug("load_on_model failed in paper_replay", exc_info=True)
+            logger.debug("load_co_model failed in paper_replay", exc_info=True)
         try:
             from core.research.tau_ridge import load_tau_model
 
@@ -2500,7 +2500,7 @@ def backtest_paper_replay(
                 cfg=cfg,
                 cluster_models=cluster_models,
                 global_model=global_model,
-                on_model_doc=on_model_doc,
+                co_model_doc=co_model_doc,
                 tau_model_doc=tau_model_doc,
                 tau_pool_day=tau_pool_by_date.get(day) or {},
             )

@@ -889,7 +889,7 @@ class QuantFactorMixin:
     run_rem_ridge_experiment = run_tau_ridge_experiment
     get_rem_ridge_model = get_tau_ridge_model
 
-    def run_on_ridge_experiment(
+    def run_co_ridge_experiment(
         self,
         *,
         lookback: int = 120,
@@ -902,16 +902,16 @@ class QuantFactorMixin:
         persist_role: str = "live",
         holdout_trading_days: int = 10,
     ) -> Dict[str, Any]:
-        """R0+：观察池 ŷ_ON Ridge；可选 persist live 模型。默认用满观察池。"""
+        """R0+：观察池 ŷ_co Ridge；可选 persist live 模型。默认用满观察池。"""
         from core.data.facade import bars_and_source
         from core.watching.store import WATCHING_MAX_SIZE, read_watching
-        from core.research.on_ridge import (
-            fit_on_ridge_report,
-            load_on_last_report,
-            load_on_model,
-            on_model_path,
-            persist_on_model,
-            save_on_last_report,
+        from core.research.co_ridge import (
+            fit_co_ridge_report,
+            load_co_last_report,
+            load_co_model,
+            co_model_path,
+            persist_co_model,
+            save_co_last_report,
         )
 
         uni = read_watching()
@@ -926,16 +926,16 @@ class QuantFactorMixin:
         if len(codes) < 2:
             return {
                 "success": False,
-                "error": "研究池至少 2 只才可跑 on Ridge",
-                "task": "on_ridge",
+                "error": "研究池至少 2 只才可跑 co Ridge",
+                "task": "co_ridge",
             }
 
         if persist:
-            last = load_on_last_report()
+            last = load_co_last_report()
             if last:
-                saved = persist_on_model(
+                saved = persist_co_model(
                     last,
-                    note=note or "persist last on report",
+                    note=note or "persist last co report",
                     role=persist_role,
                 )
                 out = dict(last)
@@ -943,7 +943,7 @@ class QuantFactorMixin:
                 out["from_last_report"] = True
                 if saved.get("promoted_at"):
                     out["promoted_at"] = saved["promoted_at"]
-                return _attach_ridge_role_flags(out, on_model_path())
+                return _attach_ridge_role_flags(out, co_model_path())
 
         stock_bars: List[Dict[str, Any]] = []
         for code in codes:
@@ -951,7 +951,7 @@ class QuantFactorMixin:
             if not bars:
                 continue
             stock_bars.append({"code": str(code), "bars": bars})
-        report = fit_on_ridge_report(
+        report = fit_co_ridge_report(
             stock_bars,
             ridge_lambda=ridge_lambda,
             gap_trigger_pct=gap_trigger_pct,
@@ -962,41 +962,44 @@ class QuantFactorMixin:
         report["watching_pool_size"] = len(pool)
         report["lookback"] = lookback
         if report.get("success"):
-            save_on_last_report(report)
+            save_co_last_report(report)
         if persist and report.get("success"):
-            saved = persist_on_model(
-                report, note=note or "api on-ridge persist", role=persist_role
+            saved = persist_co_model(
+                report, note=note or "api co-ridge persist", role=persist_role
             )
             report["persisted"] = saved
             if saved.get("promoted_at"):
                 report["promoted_at"] = saved["promoted_at"]
         else:
             report["persisted"] = {"success": False, "skipped": True}
-            live = load_on_model()
+            live = load_co_model()
             report["live_model_present"] = bool(live)
-        return _attach_ridge_role_flags(report, on_model_path())
+        return _attach_ridge_role_flags(report, co_model_path())
 
-    def get_on_ridge_model(self) -> Dict[str, Any]:
-        from core.research.on_ridge import (
-            load_on_last_report,
-            load_on_model,
-            on_model_path,
+    def get_co_ridge_model(self) -> Dict[str, Any]:
+        from core.research.co_ridge import (
+            load_co_last_report,
+            load_co_model,
+            co_model_path,
+            co_model_path_legacy,
         )
 
-        doc = load_on_model()
-        last = load_on_last_report()
-        live_file = bool(os.path.isfile(on_model_path()))
+        doc = load_co_model()
+        last = load_co_last_report()
+        live_file = bool(
+            os.path.isfile(co_model_path()) or os.path.isfile(co_model_path_legacy())
+        )
         chosen, use_last = _select_ridge_desk_doc(doc, last)
         if not chosen:
             return _attach_ridge_role_flags(
                 {
                     "success": False,
                     "exists": False,
-                    "path": on_model_path(),
+                    "path": co_model_path(),
                     "last_report_exists": bool(last),
-                    "note": "尚无 on 模型；POST /api/quant/on-ridge persist=true",
+                    "note": "尚无 ŷ_co 模型；POST /api/quant/co-ridge persist=true",
                 },
-                on_model_path(),
+                co_model_path(),
                 live_present=False,
             )
         out = dict(chosen)
@@ -1004,13 +1007,16 @@ class QuantFactorMixin:
             {
                 "success": True,
                 "exists": True,
-                "path": on_model_path(),
+                "path": co_model_path(),
                 "shadow": bool(use_last) or bool(chosen.get("_shadow")) or (not live_file),
                 "promoted": (not use_last) and live_file and not chosen.get("_shadow"),
                 "last_report_exists": bool(last),
             }
         )
-        return _attach_ridge_role_flags(out, on_model_path(), live_present=live_file)
+        return _attach_ridge_role_flags(out, co_model_path(), live_present=live_file)
+
+    run_on_ridge_experiment = run_co_ridge_experiment
+    get_on_ridge_model = get_co_ridge_model
 
     def run_path_ridge_experiment(
         self,
@@ -1236,410 +1242,6 @@ class QuantFactorMixin:
                 "promote_gate": path_promote_gate(gate_src),
             },
             path_model_path(),
-        )
-
-    def run_cx_ridge_experiment(
-        self,
-        *,
-        lookback: int = 120,
-        watching_limit: int = 200,
-        ridge_lambda: float = 1.0,
-        gap_trigger_pct: float = 2.0,
-        minute_period: str = "5",
-        minute_lookback_days: int = 150,
-        persist: bool = False,
-        note: str = "",
-        force_promote: bool = False,
-        persist_role: str = "live",
-        holdout_trading_days: int = 10,
-    ) -> Dict[str, Any]:
-        """观察池 ŷ_cx Ridge：开盘 Z + 多 τ 前缀 → 全日 5m 曲折度。只读本地 5m 缓存。"""
-        from core.data.facade import bars_and_source
-        from core.ports.market import group_minute_bars_by_date
-        from core.research.cx_panel import DEFAULT_CX_TAU_GRID
-        from core.store import load_minute_cache
-        from core.watching.store import WATCHING_MAX_SIZE, read_watching
-        from core.research.cx_ridge import (
-            cx_model_path,
-            cx_promote_gate,
-            fit_cx_ridge_report,
-            load_cx_last_report,
-            load_cx_model,
-            persist_cx_model,
-            save_cx_last_report,
-        )
-
-        uni = read_watching()
-        pool = [
-            str(c).strip()
-            for c in (uni.get("watchlist") or [])
-            if str(c).strip()
-        ]
-        cap = max(2, min(int(WATCHING_MAX_SIZE), 500))
-        limit = max(2, min(int(watching_limit or cap), cap))
-        codes = pool[:limit]
-        if len(codes) < 2:
-            return {
-                "success": False,
-                "error": "研究池至少 2 只才可跑 ŷ_cx Ridge",
-                "task": "cx_ridge",
-            }
-
-        if persist:
-            last = load_cx_last_report()
-            if last:
-                saved = persist_cx_model(
-                    last,
-                    note=note or "persist last cx report",
-                    force=bool(force_promote),
-                    role=persist_role,
-                )
-                out = dict(last)
-                out["persisted"] = saved
-                out["from_last_report"] = True
-                out["promote_gate"] = saved.get("promote_gate") or cx_promote_gate(last)
-                if saved.get("promoted_at"):
-                    out["promoted_at"] = saved["promoted_at"]
-                return _attach_ridge_role_flags(out, cx_model_path())
-
-        period = str(minute_period or "5").strip() or "5"
-        mlook = max(20, min(int(minute_lookback_days or 90), 240))
-        minute_by_code_date: Dict[str, Dict[str, Any]] = {}
-        minute_codes_hit = 0
-        minute_codes_miss = 0
-        minute_days_total = 0
-        minute_span_days: List[int] = []
-
-        stock_bars: List[Dict[str, Any]] = []
-        for code in codes:
-            bars, _src = bars_and_source(code, limit=lookback + 40)
-            if not bars:
-                continue
-            stock_bars.append({"code": str(code), "bars": bars})
-            raw = str(code).strip()
-            mbars: Optional[List[dict]] = None
-            try:
-                packed = load_minute_cache(
-                    "CN",
-                    raw,
-                    period,
-                    min_bars=10,
-                    max_age_hours=720.0,
-                    ignore_age=True,
-                )
-                if packed:
-                    mbars, _meta = packed
-            except Exception:  # noqa: BLE001
-                logger.debug("cx ridge minute cache miss for %s", raw, exc_info=True)
-            if not mbars:
-                minute_codes_miss += 1
-                continue
-            by_day = group_minute_bars_by_date(mbars)
-            if not by_day:
-                minute_codes_miss += 1
-                continue
-            minute_by_code_date[raw] = by_day
-            minute_codes_hit += 1
-            minute_days_total += len(by_day)
-            minute_span_days.append(len(by_day))
-
-        if minute_codes_hit < 1:
-            return {
-                "success": False,
-                "error": (
-                    f"无本地分钟缓存（period={period} · 池 {len(codes)} 只）；"
-                    "请先「强更 5m」，拟合不再拉远端"
-                ),
-                "task": "cx_ridge",
-                "minute_period": period,
-                "watching_limit": limit,
-                "watching_pool_size": len(pool),
-                "minute_cache_only": True,
-                "minute_codes_miss": minute_codes_miss,
-            }
-
-        report = fit_cx_ridge_report(
-            stock_bars,
-            minute_by_code_date=minute_by_code_date,
-            ridge_lambda=ridge_lambda,
-            gap_trigger_pct=gap_trigger_pct,
-            tau_grid=list(DEFAULT_CX_TAU_GRID),
-            holdout_trading_days=holdout_trading_days,
-        )
-        report["watching_limit"] = limit
-        report["watching_pool_size"] = len(pool)
-        report["lookback"] = lookback
-        report["minute_period"] = period
-        report["minute_lookback_days"] = mlook
-        report["minute_codes_hit"] = minute_codes_hit
-        report["minute_codes_miss"] = minute_codes_miss
-        report["minute_codes_universe"] = len(codes)
-        report["minute_days_total"] = minute_days_total
-        report["minute_cache_only"] = True
-        if minute_span_days:
-            ss = sorted(minute_span_days)
-            report["minute_span_days_med"] = ss[len(ss) // 2]
-            report["minute_span_days_min"] = ss[0]
-            report["minute_span_days_max"] = ss[-1]
-        if report.get("success"):
-            save_cx_last_report(report)
-        if persist and report.get("success"):
-            saved = persist_cx_model(
-                report,
-                note=note or "api cx-ridge persist",
-                force=bool(force_promote),
-                role=persist_role,
-            )
-            report["persisted"] = saved
-            report["promote_gate"] = saved.get("promote_gate") or cx_promote_gate(report)
-            if saved.get("promoted_at"):
-                report["promoted_at"] = saved["promoted_at"]
-        else:
-            report["persisted"] = {"success": False, "skipped": True}
-            live = load_cx_model()
-            report["live_model_present"] = bool(live)
-            if report.get("success") and not report.get("promote_gate"):
-                report["promote_gate"] = cx_promote_gate(report)
-        return _attach_ridge_role_flags(report, cx_model_path())
-
-    def get_cx_ridge_model(self) -> Dict[str, Any]:
-        from core.research.cx_ridge import (
-            cx_model_path,
-            cx_promote_gate,
-            load_cx_last_report,
-            load_cx_model,
-        )
-
-        doc = load_cx_model()
-        last = load_cx_last_report()
-        chosen, use_last = _select_ridge_desk_doc(doc, last)
-        if not chosen:
-            out = {
-                "success": False,
-                "exists": False,
-                "path": cx_model_path(),
-                "last_report_exists": bool(last),
-                "note": "尚无 ŷ_cx 模型；POST /api/quant/cx-ridge persist=true",
-            }
-            if last:
-                out["promote_gate"] = cx_promote_gate(last)
-                out["oos"] = last.get("oos")
-            return _attach_ridge_role_flags(out, cx_model_path(), live_present=False)
-        gate_src = last if use_last else (doc if not doc.get("_shadow") else (last or doc))
-        return _attach_ridge_role_flags(
-            {
-                **chosen,
-                "success": True,
-                "exists": True,
-                "path": cx_model_path(),
-                "promoted": (not use_last) and not bool(chosen.get("_shadow")),
-                "shadow": bool(use_last) or bool(chosen.get("_shadow")),
-                "last_report_exists": bool(last),
-                "promote_gate": cx_promote_gate(gate_src),
-            },
-            cx_model_path(),
-        )
-
-    def run_tpd_ridge_experiment(
-        self,
-        *,
-        lookback: int = 120,
-        watching_limit: int = 200,
-        ridge_lambda: float = 1.0,
-        gap_trigger_pct: float = 2.0,
-        minute_period: str = "5",
-        minute_lookback_days: int = 150,
-        persist: bool = False,
-        note: str = "",
-        force_promote: bool = False,
-        persist_role: str = "live",
-        holdout_trading_days: int = 10,
-    ) -> Dict[str, Any]:
-        """观察池 ŷ_tpd Ridge：开盘 Z + 多 τ 前缀 → 全日 5m 转折点密度。只读本地 5m 缓存。"""
-        from core.data.facade import bars_and_source
-        from core.ports.market import group_minute_bars_by_date
-        from core.research.cx_panel import DEFAULT_CX_TAU_GRID
-        from core.store import load_minute_cache
-        from core.watching.store import WATCHING_MAX_SIZE, read_watching
-        from core.research.tpd_ridge import (
-            fit_tpd_ridge_report,
-            load_tpd_last_report,
-            load_tpd_model,
-            persist_tpd_model,
-            save_tpd_last_report,
-            tpd_model_path,
-            tpd_promote_gate,
-        )
-
-        uni = read_watching()
-        pool = [
-            str(c).strip()
-            for c in (uni.get("watchlist") or [])
-            if str(c).strip()
-        ]
-        cap = max(2, min(int(WATCHING_MAX_SIZE), 500))
-        limit = max(2, min(int(watching_limit or cap), cap))
-        codes = pool[:limit]
-        if len(codes) < 2:
-            return {
-                "success": False,
-                "error": "研究池至少 2 只才可跑 ŷ_tpd Ridge",
-                "task": "tpd_ridge",
-            }
-
-        if persist:
-            last = load_tpd_last_report()
-            if last:
-                saved = persist_tpd_model(
-                    last,
-                    note=note or "persist last tpd report",
-                    force=bool(force_promote),
-                    role=persist_role,
-                )
-                out = dict(last)
-                out["persisted"] = saved
-                out["from_last_report"] = True
-                out["promote_gate"] = saved.get("promote_gate") or tpd_promote_gate(last)
-                if saved.get("promoted_at"):
-                    out["promoted_at"] = saved["promoted_at"]
-                return _attach_ridge_role_flags(out, tpd_model_path())
-
-        period = str(minute_period or "5").strip() or "5"
-        mlook = max(20, min(int(minute_lookback_days or 90), 240))
-        minute_by_code_date: Dict[str, Dict[str, Any]] = {}
-        minute_codes_hit = 0
-        minute_codes_miss = 0
-        minute_days_total = 0
-        minute_span_days: List[int] = []
-
-        stock_bars: List[Dict[str, Any]] = []
-        for code in codes:
-            bars, _src = bars_and_source(code, limit=lookback + 40)
-            if not bars:
-                continue
-            stock_bars.append({"code": str(code), "bars": bars})
-            raw = str(code).strip()
-            mbars: Optional[List[dict]] = None
-            try:
-                packed = load_minute_cache(
-                    "CN",
-                    raw,
-                    period,
-                    min_bars=10,
-                    max_age_hours=720.0,
-                    ignore_age=True,
-                )
-                if packed:
-                    mbars, _meta = packed
-            except Exception:  # noqa: BLE001
-                logger.debug("tpd ridge minute cache miss for %s", raw, exc_info=True)
-            if not mbars:
-                minute_codes_miss += 1
-                continue
-            by_day = group_minute_bars_by_date(mbars)
-            if not by_day:
-                minute_codes_miss += 1
-                continue
-            minute_by_code_date[raw] = by_day
-            minute_codes_hit += 1
-            minute_days_total += len(by_day)
-            minute_span_days.append(len(by_day))
-
-        if minute_codes_hit < 1:
-            return {
-                "success": False,
-                "error": (
-                    f"无本地分钟缓存（period={period} · 池 {len(codes)} 只）；"
-                    "请先「强更 5m」，拟合不再拉远端"
-                ),
-                "task": "tpd_ridge",
-                "minute_period": period,
-                "watching_limit": limit,
-                "watching_pool_size": len(pool),
-                "minute_cache_only": True,
-                "minute_codes_miss": minute_codes_miss,
-            }
-
-        report = fit_tpd_ridge_report(
-            stock_bars,
-            minute_by_code_date=minute_by_code_date,
-            ridge_lambda=ridge_lambda,
-            gap_trigger_pct=gap_trigger_pct,
-            tau_grid=list(DEFAULT_CX_TAU_GRID),
-            holdout_trading_days=holdout_trading_days,
-        )
-        report["watching_limit"] = limit
-        report["watching_pool_size"] = len(pool)
-        report["lookback"] = lookback
-        report["minute_period"] = period
-        report["minute_lookback_days"] = mlook
-        report["minute_codes_hit"] = minute_codes_hit
-        report["minute_codes_miss"] = minute_codes_miss
-        report["minute_codes_universe"] = len(codes)
-        report["minute_days_total"] = minute_days_total
-        report["minute_cache_only"] = True
-        if minute_span_days:
-            ss = sorted(minute_span_days)
-            report["minute_span_days_med"] = ss[len(ss) // 2]
-            report["minute_span_days_min"] = ss[0]
-            report["minute_span_days_max"] = ss[-1]
-        if report.get("success"):
-            save_tpd_last_report(report)
-        if persist and report.get("success"):
-            saved = persist_tpd_model(
-                report,
-                note=note or "api tpd-ridge persist",
-                force=bool(force_promote),
-                role=persist_role,
-            )
-            report["persisted"] = saved
-            report["promote_gate"] = saved.get("promote_gate") or tpd_promote_gate(report)
-            if saved.get("promoted_at"):
-                report["promoted_at"] = saved["promoted_at"]
-        else:
-            report["persisted"] = {"success": False, "skipped": True}
-            live = load_tpd_model()
-            report["live_model_present"] = bool(live)
-            if report.get("success") and not report.get("promote_gate"):
-                report["promote_gate"] = tpd_promote_gate(report)
-        return _attach_ridge_role_flags(report, tpd_model_path())
-
-    def get_tpd_ridge_model(self) -> Dict[str, Any]:
-        from core.research.tpd_ridge import (
-            load_tpd_last_report,
-            load_tpd_model,
-            tpd_model_path,
-            tpd_promote_gate,
-        )
-
-        doc = load_tpd_model()
-        last = load_tpd_last_report()
-        chosen, use_last = _select_ridge_desk_doc(doc, last)
-        if not chosen:
-            out = {
-                "success": False,
-                "exists": False,
-                "path": tpd_model_path(),
-                "last_report_exists": bool(last),
-                "note": "尚无 ŷ_tpd 模型；POST /api/quant/tpd-ridge persist=true",
-            }
-            if last:
-                out["promote_gate"] = tpd_promote_gate(last)
-                out["oos"] = last.get("oos")
-            return _attach_ridge_role_flags(out, tpd_model_path(), live_present=False)
-        gate_src = last if use_last else (doc if not doc.get("_shadow") else (last or doc))
-        return _attach_ridge_role_flags(
-            {
-                **chosen,
-                "success": True,
-                "exists": True,
-                "path": tpd_model_path(),
-                "promoted": (not use_last) and not bool(chosen.get("_shadow")),
-                "shadow": bool(use_last) or bool(chosen.get("_shadow")),
-                "last_report_exists": bool(last),
-                "promote_gate": tpd_promote_gate(gate_src),
-            },
-            tpd_model_path(),
         )
 
     def run_r_ridge_experiment(

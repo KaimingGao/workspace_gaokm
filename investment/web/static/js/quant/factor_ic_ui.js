@@ -4,7 +4,7 @@
 import { escapeHtml as defaultEscapeHtml } from "../shared.js";
 import { researchGridHtml as defaultResearchGridHtml, metricCell as defaultMetricCell } from "./research_grid.js";
 import { metricClass as defaultMetricClass } from "./bt_result.js";
-import { classifyFactor, isRemovedFactor, ON_FEAT_META } from "./factor_meta.js";
+import { classifyFactor, isRemovedFactor, CO_FEAT_META } from "./factor_meta.js";
 
 /**
  * @param {{
@@ -462,16 +462,6 @@ export function createFactorIcUi(deps) {
     t90_ma5: "近5日同钟真实 τ⊕85/90/95均 %",
     path_lag1: "昨真实极值序 %",
     path_ma5: "近5日真实极值序均 %",
-    complexity_lag1: "昨真实曲折度",
-    complexity_ma5: "近5日真实曲折度均",
-    tpd_lag1: "昨真实反转密度",
-    tpd_ma5: "近5日真实反转密度均",
-    cx_lag1: "昨真实曲折度",
-    cx_ma5: "近5日真实曲折度均",
-    complexity_tpd_lag1: "昨真实反转密度",
-    complexity_tpd_ma5: "近5日真实反转密度均",
-    cx_tpd_lag1: "昨真实反转密度",
-    cx_tpd_ma5: "近5日真实反转密度均",
     ret_open_to_tau: "开盘→τ 收益 %",
     ret_prev_to_tau: "昨收→τ 收益 %",
     range_pct: "前缀振幅 %",
@@ -541,20 +531,8 @@ export function createFactorIcUi(deps) {
     return REM_FEAT_LABELS[key] || fromMeta || key;
   }
 
-  const LAG_FEAT_CANON = {
-    cx_lag1: "complexity_lag1",
-    cx_ma5: "complexity_ma5",
-    complexity_tpd_lag1: "tpd_lag1",
-    complexity_tpd_ma5: "tpd_ma5",
-    cx_tpd_lag1: "tpd_lag1",
-    cx_tpd_ma5: "tpd_ma5",
-  };
-  const LAG_FEAT_ALIASES = {
-    complexity_lag1: ["cx_lag1"],
-    complexity_ma5: ["cx_ma5"],
-    tpd_lag1: ["complexity_tpd_lag1", "cx_tpd_lag1"],
-    tpd_ma5: ["complexity_tpd_ma5", "cx_tpd_ma5"],
-  };
+  const LAG_FEAT_CANON = {};
+  const LAG_FEAT_ALIASES = {};
 
   function canonLagFeatName(name) {
     const key = String(name || "").trim();
@@ -573,11 +551,11 @@ export function createFactorIcUi(deps) {
   /**
    * ŷ_oc / ŷ_co Ridge 因子系数表：仅入模因子；KPI + 双向 β 图 + 表内条形。
    * @param {object|null} rm return_model 或含 coefficients 的报告块
-   * @param {{ oos?: object, head?: "tau"|"on"|"path"|"cx"|"tpd"|"r"|"t30"|"t45"|"t60"|"t75"|"t90" } } [opts]
+   * @param {{ oos?: object, head?: "tau"|"co"|"path"|"r"|"t30"|"t45"|"t60"|"t75"|"t90" } } [opts]
    */
   function remCoefTableHtml(rm, opts = {}) {
     if (!rm || typeof rm !== "object") return "";
-    const isOn = opts.head === "on";
+    const isCo = opts.head === "co";
     const isT30 = opts.head === "t30";
     const isT45 = opts.head === "t45";
     const isT60 = opts.head === "t60";
@@ -585,14 +563,10 @@ export function createFactorIcUi(deps) {
     const isT90 = opts.head === "t90";
     const isHorizon = isT30 || isT45 || isT60 || isT75 || isT90;
     const isR = opts.head === "r" || isHorizon;
-    const isTpd = opts.head === "tpd";
-    const isCxHead = opts.head === "cx";
-    const isCx = isCxHead || isTpd;
-    const isPath = opts.head === "path" || isCx;
-    const pathTag = isTpd ? "ŷ_tpd" : isCxHead ? "ŷ_cx" : "ŷ_hl";
+    const isPath = opts.head === "path";
     const yhatTag = isPath
-      ? pathTag
-      : isOn
+      ? "ŷ_hl"
+      : isCo
         ? "ŷ_co"
         : isT90
           ? "ŷ_τ90"
@@ -695,16 +669,6 @@ export function createFactorIcUi(deps) {
       "dist_to_up_limit",
     ]);
     const histLagExtra = new Set([
-      "complexity_lag1",
-      "complexity_ma5",
-      "cx_lag1",
-      "cx_ma5",
-      "complexity_tpd_lag1",
-      "complexity_tpd_ma5",
-      "cx_tpd_lag1",
-      "cx_tpd_ma5",
-      "tpd_lag1",
-      "tpd_ma5",
       "tau_lag1",
       "tau_ma5",
       "t30_lag1",
@@ -755,7 +719,7 @@ export function createFactorIcUi(deps) {
           if (remMinuteExtra.has(name)) kind = "分钟";
           else if (pathExtra.has(name) || remOpenExtra.has(name)) kind = "开盘";
           else kind = "其它";
-        } else if (isOn) {
+        } else if (isCo) {
           if (histLagExtra.has(name)) kind = "历史";
           else if (onOpenExtra.has(name)) kind = "开盘";
           else if (onPathExtra.has(name)) kind = "路径";
@@ -770,11 +734,9 @@ export function createFactorIcUi(deps) {
         return {
           name,
           label:
-            isOn && ON_FEAT_META[name] && ON_FEAT_META[name].label
-              ? ON_FEAT_META[name].label
-              : isCx && histLagExtra.has(name)
-                ? name
-                : remFactorDisplayLabel(name),
+            isCo && CO_FEAT_META[name] && CO_FEAT_META[name].label
+              ? CO_FEAT_META[name].label
+              : remFactorDisplayLabel(name),
           ols,
           abs: Math.abs(ols),
           kind,
@@ -829,12 +791,8 @@ export function createFactorIcUi(deps) {
     const ySpecRaw =
       ySpecObj.formula ||
       (isPath
-        ? isTpd
-          ? "TPD"
-          : isCxHead
-          ? "1−D/L"
-          : "extreme_order(low,high)"
-        : isOn
+        ? "extreme_order(low,high)"
+        : isCo
           ? "open[T+1]/close[T]-1"
           : isT90
             ? "mean(price[τ+85m],price[τ+90m],price[τ+95m])/price[τ]-1"
@@ -903,9 +861,7 @@ export function createFactorIcUi(deps) {
       n != null && Number.isFinite(Number(n))
         ? Number(n).toLocaleString("en-US")
         : null;
-    const interceptTip = isCx
-      ? "去均值后加回标签均值（∈[0,1]）"
-      : isHorizon
+    const interceptTip = isHorizon
         ? "无因子时的 p_up = sigmoid(logistic 截距)。执行套=全样本。"
         : isR
           ? "执行套截距：全样本标签均值 + α_dm。观察/持仓 / 做 T 回测默认用这套。选研究套 Holdout 时数字会不同。"
@@ -917,15 +873,13 @@ export function createFactorIcUi(deps) {
     const nTip = oos.holdout_trading_days != null
       ? "执行套全样本入模行；Holdout 只改研究套训/测，不改此数"
       : "全面板完整行（OOS 后重估 β）；状态栏「面板 n」含缺测行，OOS n 含同日多 τ";
-    const oosIcTip = isCx
-      ? "Holdout 样本外 Spearman；括号 n 含多 τ，票×日看 by_τ"
-      : oos.holdout_trading_days != null
+    const oosIcTip = oos.holdout_trading_days != null
         ? `Holdout ${oos.holdout_trading_days} 日样本外 IC`
         : "时间切分样本外 IC";
 
     const metrics =
       `<div class="quant-rem-coef-spec-metrics" role="group" aria-label="${esc(
-        isPath ? `${isTpd ? "tpd" : isCxHead ? "cx" : "path"} 模型摘要` : isOn ? "on 模型摘要" : isT90 ? "t90 模型摘要" : isT75 ? "t75 模型摘要" : isT60 ? "t60 模型摘要" : isT45 ? "t45 模型摘要" : isT30 ? "t30 模型摘要" : isR ? "r 模型摘要" : "τ 模型摘要"
+        isPath ? "path 模型摘要" : isCo ? "co 模型摘要" : isT90 ? "t90 模型摘要" : isT75 ? "t75 模型摘要" : isT60 ? "t60 模型摘要" : isT45 ? "t45 模型摘要" : isT30 ? "t30 模型摘要" : isR ? "r 模型摘要" : "τ 模型摘要"
       )}">` +
       (intercept != null
         ? kpi(
@@ -1005,7 +959,7 @@ export function createFactorIcUi(deps) {
         `${rows.length}`,
         isPath
           ? `开盘 ${openN} · 分钟 ${minuteN} · 历史 ${histN}`
-          : isOn
+          : isCo
             ? `路径 ${openN}`
             : `开盘 ${openN} · 分钟 ${minuteN} · 历史 ${histN}`
       ) +
@@ -1017,22 +971,13 @@ export function createFactorIcUi(deps) {
     const byTauKeys = byTau
       ? Object.keys(byTau).filter((k) => byTau[k] && Number(byTau[k].n) > 0)
       : [];
-    const byTauTip = isTpd
-      ? "TPD 标签无方向；τ 分桶看 IC / 中位命中，≈50% 中位命中即无信息"
-      : isCxHead
-      ? "曲折度标签无方向；τ 分桶看 IC / 中位命中，≈50% 中位命中即无信息"
-      : isHorizon
+    const byTauTip = isHorizon
       ? "p_up>0.5 与 τ 后窗收益同号；标签不含开→τ，晚钟不会被已实现路径垫高"
       : isPath
       ? "极值序标签下 τ 越晚特征更贴标签，命中易虚高；优先分档对照，live 仍用决策钟"
       : "OC 标签下 τ 越晚命中通常越高（开→τ 已实现垫高）；看开盘/首根/10:00/11:00，不必逐钟";
     const byTauHit = (t) => {
       const b = (byTau && byTau[t]) || {};
-      if (isCx) {
-        return b.ic != null && Number.isFinite(Number(b.ic))
-          ? Number(b.ic)
-          : null;
-      }
       return b.sign_hit != null && Number.isFinite(Number(b.sign_hit))
         ? Number(b.sign_hit)
         : null;
@@ -1040,11 +985,7 @@ export function createFactorIcUi(deps) {
     const byTauChip = (t) => {
       const b = (byTau && byTau[t]) || {};
       const hitN = byTauHit(t);
-      const hit = isCx
-        ? hitN != null
-          ? Number(hitN).toFixed(2)
-          : "—"
-        : hitN != null
+      const hit = hitN != null
           ? `${(hitN * 100).toFixed(0)}%`
           : "—";
       const ic =
@@ -1055,7 +996,7 @@ export function createFactorIcUi(deps) {
       return (
         `<span class="quant-rem-coef-spec-tick${
           live ? " is-live" : ""
-        }" title="${esc(`${t} · n=${b.n ?? "—"} · ${isCx ? "IC" : "hit"}=${hit} · IC=${ic}${live ? " · 调仓截钟" : ""}`)}">` +
+        }" title="${esc(`${t} · n=${b.n ?? "—"} · hit=${hit} · IC=${ic}${live ? " · 调仓截钟" : ""}`)}">` +
         `<span class="quant-rem-coef-spec-tick-k">${esc(t)}</span>` +
         `<span class="quant-rem-coef-spec-tick-v">${esc(hit)}</span>` +
         `</span>`
@@ -1070,9 +1011,7 @@ export function createFactorIcUi(deps) {
             .map((t) => {
               const h = byTauHit(t);
               if (h == null) return `${t} —`;
-              return isCx
-                ? `${t} ${Number(h).toFixed(2)}`
-                : `${t} ${(h * 100).toFixed(0)}%`;
+              return `${t} ${(h * 100).toFixed(0)}%`;
             })
             .join(" · ")
         : "");
@@ -1080,9 +1019,7 @@ export function createFactorIcUi(deps) {
     const lastHit = byTauHit(byTauKeysSorted[byTauKeysSorted.length - 1]);
     const spanLbl =
       firstHit != null && lastHit != null
-        ? isCx
-          ? `${Number(firstHit).toFixed(2)}→${Number(lastHit).toFixed(2)}`
-          : `${(firstHit * 100).toFixed(0)}→${(lastHit * 100).toFixed(0)}%`
+          ? `${(firstHit * 100).toFixed(0)}→${(lastHit * 100).toFixed(0)}%`
         : "";
     const anchorKeys =
       byTauKeysSorted.length > 5
@@ -1096,7 +1033,7 @@ export function createFactorIcUi(deps) {
     const yBase = (yDot >= 0 ? ySpec.slice(0, yDot) : ySpec).trim();
     const yGrid = yDot >= 0 ? ySpec.slice(yDot + 1).trim() : "";
     const specTau =
-      !isOn && byTauKeys.length > 1
+      !isCo && byTauKeys.length > 1
         ? `<div class="quant-rem-coef-spec-tau" title="${esc(byTauFullTip)}">` +
           `<span class="quant-rem-coef-spec-k">OOS · τ</span>` +
           spark +
@@ -1136,7 +1073,7 @@ export function createFactorIcUi(deps) {
         ? `<span class="quant-rem-leg is-open">开盘</span>` +
           `<span class="quant-rem-leg is-minute">分钟</span>` +
           `<span class="quant-rem-leg is-eod">历史</span>`
-        : isOn
+        : isCo
           ? `<span class="quant-rem-leg is-open">路径</span>`
           : `<span class="quant-rem-leg is-open">开盘</span>` +
             `<span class="quant-rem-leg is-minute">分钟</span>` +
@@ -1186,7 +1123,7 @@ export function createFactorIcUi(deps) {
       const shown =
         r.kind === "历史" && zh ? zh : r.label || r.name || "因子";
       const key = r.name ? `（${r.name}）` : "";
-      if (isOn) {
+      if (isCo) {
         return `${shown}${key}：T-1 路径 / 开盘 Z，用于估 open[T+1]/close[T]−1。正 β 表示该值偏高时 ŷ_co 更高。`;
       }
       if (r.kind === "分钟") {
@@ -1221,7 +1158,7 @@ export function createFactorIcUi(deps) {
           center: true,
           title: isPath
             ? "开盘=缺口 Z；分钟=≤τ 前缀小包；历史=PIT 昨标签（不含当日）"
-            : isOn
+            : isCo
               ? "路径=T 日已实现 + 开盘 Z"
               : "开盘=缺口 Z；分钟=≤τ 的 5m 路径；历史=PIT 昨标签（不含当日）",
         },
@@ -1264,8 +1201,8 @@ export function createFactorIcUi(deps) {
               : r.kind === "分钟"
                 ? "is-minute"
                 : "is-eod";
-          const kindTip = isOn
-            ? "T 日路径 / 开盘 Z（ON 头）"
+          const kindTip = isCo
+            ? "T 日路径 / 开盘 Z（ŷ_co 头）"
             : r.kind === "分钟"
               ? "≤τ 的 5m 路径摘要（分钟 τ）"
               : r.kind === "开盘"
@@ -1292,7 +1229,7 @@ export function createFactorIcUi(deps) {
         return fmtEmptyCell();
       },
       {
-        emptyText: isOn ? "暂无 ŷ_co 入模因子" : "暂无 rem 入模因子",
+        emptyText: isCo ? "暂无 ŷ_co 入模因子" : "暂无 rem 入模因子",
         rowClass: (r) => {
           const bits = [];
           if (r && r.scanHot) bits.push("is-scan-hot");

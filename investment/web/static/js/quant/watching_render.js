@@ -84,8 +84,13 @@ export function watchingScoreDetail(it) {
     (it && (it.formula_terms_tau || it.score_formula_terms_tau)) || null,
     24
   );
-  const onTerms = slimFormulaTerms(
-    (it && (it.formula_terms_on || it.score_formula_terms_on)) || null,
+  const coTerms = slimFormulaTerms(
+    (it &&
+      (it.formula_terms_co ||
+        it.score_formula_terms_co ||
+        it.formula_terms_on ||
+        it.score_formula_terms_on)) ||
+      null,
     12
   );
   const pathTerms = slimFormulaTerms(
@@ -180,7 +185,7 @@ export function watchingScoreDetail(it) {
     score_formula_terms: terms,
     formula_terms_tau: tauTerms,
     score_formula_terms_tau: tauTerms,
-    formula_terms_on: onTerms,
+    formula_terms_co: coTerms,
     formula_terms_path: pathTerms,
     score_formula_terms_path: pathTerms,
     fusion_w_oo: it && it.fusion_w_oo,
@@ -428,8 +433,8 @@ export function watchingScoreDetail(it) {
     y_spec_tau: (it && it.y_spec_tau) || null,
     features_tau: (it && it.features_tau) || null,
     factor_coefficients_tau: coefsTau,
-    features_on: (it && it.features_on) || null,
-    y_spec_on: (it && it.y_spec_on) || null,
+    features_co: (it && (it.features_co || it.features_on)) || null,
+    y_spec_co: (it && (it.y_spec_co || it.y_spec_on)) || null,
     dual_score_fusion: (it && it.dual_score_fusion) || null,
     dual_score_weights: (it && it.dual_score_weights) || null,
     dual_score_head: (it && it.dual_score_head) || null,

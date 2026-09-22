@@ -1932,12 +1932,6 @@ def simulate_t0_day_minute(
                 }
         except Exception:  # noqa: BLE001
             logger.debug("attach_path_realized failed", exc_info=True)
-        try:
-            from core.research.cx_panel import attach_cx_realized
-
-            packed = attach_cx_realized(packed, mins)
-        except Exception:  # noqa: BLE001
-            logger.debug("attach_cx_realized failed", exc_info=True)
         # 画像：前 N 根因果 ŷ（与确认根选向同信息集）
         try:
             from core.t0.config import T0_LAST_LEG1_PREFIX_BARS

@@ -140,7 +140,7 @@ def _gated_reject_item(
     horizon_days: int,
 ) -> Dict[str, Any]:
     """P1：质量门禁拦截时的 signal_item（不调用 score_bars）。"""
-    reason_map = {
+    reasco_map = {
         "data_quality_gate:fallback": "日线降级(quote_fallback)，不进生产评分",
         "data_quality_gate:empty": "无可用日线，不进生产评分",
         "data_quality_gate:thin": "日线质量 thin，不进生产评分",
@@ -154,7 +154,7 @@ def _gated_reject_item(
         "factor_anomaly:pit:as_of_tau": "分钟 τ 日错位，不进生产评分",
         "factor_anomaly:pit:last_change_vs_gap": "缺口与涨跌口径错位，不进生产评分",
     }
-    reject_reason = reason_map.get(gate_reason, f"数据质量门禁：{gate_reason}")
+    reject_reason = reasco_map.get(gate_reason, f"数据质量门禁：{gate_reason}")
     signal_item = {
         "stock_code": code,
         "stock_name": name,
@@ -1248,14 +1248,14 @@ def score_stock(
             fuse_intraday=not bool(eod_pit.get("rolled_to_next")),
         )
         try:
-            from core.research.on_panel import build_on_features_from_quote_bars
-            from core.research.on_ridge import load_on_model, predict_on_from_features
-            from core.signal.dual_score.on import (
-                apply_on_score_fields,
-                overlay_on_cross_section,
+            from core.research.co_panel import build_co_features_from_quote_bars
+            from core.research.co_ridge import load_co_model, predict_co_from_features
+            from core.signal.dual_score.co import (
+                apply_co_score_fields,
+                overlay_co_cross_section,
             )
 
-            on_feats = build_on_features_from_quote_bars(
+            co_feats = build_co_features_from_quote_bars(
                 quote,
                 bars,
                 gap_pct=gap_v,
@@ -1265,21 +1265,21 @@ def score_stock(
                 prev_close=open_t_info.get("prev_close"),
                 trade_date=open_t_info.get("trade_day"),
             )
-            on_feats = overlay_on_cross_section(
-                on_feats,
+            co_feats = overlay_co_cross_section(
+                co_feats,
                 feats,
                 sector_gap_breadth=sector_breadth,
             )
-            on_model_doc = load_on_model()
-            on_yhat = predict_on_from_features(on_feats, model_doc=on_model_doc)
-            apply_on_score_fields(
+            co_model_doc = load_co_model()
+            co_yhat = predict_co_from_features(co_feats, model_doc=co_model_doc)
+            apply_co_score_fields(
                 signal_item,
-                on_yhat=on_yhat,
-                feats=on_feats,
-                on_model_doc=on_model_doc,
+                co_yhat=co_yhat,
+                feats=co_feats,
+                co_model_doc=co_model_doc,
             )
         except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-            logger.debug("catch except Exception: in score_stock.py on", exc_info=True)
+            logger.debug("catch except Exception: in score_stock.py co", exc_info=True)
         try:
             from core.t0.score_policy import _attach_y_path_to_item
 
