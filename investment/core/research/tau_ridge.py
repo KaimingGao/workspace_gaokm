@@ -1,4 +1,8 @@
-"""ŷ_τ Ridge 头：Z 上拟合 open→close；与 ŷ_EOD 正交后（缺口∘ŷ_τ）加权成 ŷ_trade。"""
+"""ŷ_τ / ŷ_oc Ridge：Z 上拟合 open→close（close[T]/open[T]−1）。
+
+产品字段 ``predicted_score_tau`` / ``y_oc``；供买入闸、调仓 ranking 的 oc 成分、做 T 估 C_τ。
+与 ŷ_oo（日线组 β）独立训练，不改写 ``predicted_score``。
+"""
 
 from __future__ import annotations
 
@@ -36,7 +40,7 @@ TAU_FEATURE_EXTRA = (
     "yclose_loc",
     "mom3_pct",
 ) + TAU_LAG_FEATURES
-# τ 头只吃开盘新信息，避免与 ŷ_EOD 的 X 双重计权
+# τ 头只吃开盘新信息，避免与 ŷ_oo 的 X 双重计权
 TAU_Z_FEATURES = (
     "gap_pct",
     "sector_gap_breadth",
@@ -50,22 +54,29 @@ TAU_Z_FEATURES = (
 TAU_MIN_STD_EXEMPT = TAU_FEATURE_EXTRA + MINUTE_TAU_ALL_KEYS
 # open_gap ≡ gap_pct，只拟合其一，避免 Ridge 双计
 TAU_FIT_DROP_ALIASES = frozenset({"open_gap"})
-# ŷ_τ30/60/90 不要吃 ŷ_τ 的 OC 路径形状。HL/回撤/振幅在 30–90m 前瞻上共线对冲，
+# ŷ_τ30/60/90 Ridge 不要吃 ŷ_τ 的 OC 路径形状。HL/回撤/振幅在 30–90m 前瞻上共线对冲，
 # ŷ 被压到训练均值（做 T 回测里多数 |ŷ_τ30|/|ŷ_τ60|<0.1%）。
-TAU_HORIZON_DROP_OC_SHAPE = frozenset(
-    {
-        "range_pct",
-        "loc_hl",
-        "up_extent",
-        "down_extent",
-        "path_sign",
-        "pullback_from_high",
-        "bounce_from_low",
-        "realized_vol",
-        "vol_last3_vs_avg",
-        "tau_elapsed_min",
-    }
+# 树头加回这些键（分段交互，不走线性对冲）。
+TAU_HORIZON_TREE_SHAPE_FEATURES = (
+    "range_pct",
+    "loc_hl",
+    "up_extent",
+    "down_extent",
+    "path_sign",
+    "pullback_from_high",
+    "bounce_from_low",
+    "realized_vol",
+    "vol_last3_vs_avg",
+    "tau_elapsed_min",
 )
+TAU_HORIZON_DROP_OC_SHAPE = frozenset(TAU_HORIZON_TREE_SHAPE_FEATURES)
+
+
+def with_horizon_tree_shape(ridge_z_features: Sequence[str]) -> Tuple[str, ...]:
+    """Ridge Z + OC 路径形状。仅 ŷ_τ*_tree；Ridge 对照仍用原 Z。"""
+    have = set(ridge_z_features)
+    extra = tuple(k for k in TAU_HORIZON_TREE_SHAPE_FEATURES if k not in have)
+    return tuple(ridge_z_features) + extra
 
 
 def _stack_panels(
@@ -662,7 +673,7 @@ def fit_tau_ridge_report(
             "τ 越晚 OC hit 通常越高（开→τ 已实现垫高），看 by_tau；"
             "live 调仓前缀=因果末根（≤10:00）"
             if use_minute
-            else "Z-only open→close；demean+theme_day+yclose/mom3+tau_lag1/ma5；live 与 ŷ_EOD 正交加权成 ŷ_trade"
+            else "Z-only open→close；demean+theme_day+yclose/mom3+tau_lag1/ma5；live 写 predicted_score_tau / y_oc"
         ),
     }
     model["extra_features"] = list(TAU_Z_FEATURES)
@@ -863,7 +874,7 @@ def persist_tau_model(
         "eval_start": report.get("eval_start"),
         "holdout_trading_days": report.get("holdout_trading_days"),
         "dual_score_head": "predicted_score_tau",
-        "contract_note": "ŷ_τ(Z) 估 open→close；live 与 ŷ_EOD 加权融合（缺口∘ŷ_τ）；不覆盖 EOD predicted_score。",
+        "contract_note": "ŷ_τ(Z) 估 open→close → predicted_score_tau / y_oc；与 ŷ_oo 独立；不覆盖 predicted_score。",
     }
     path = (
         research_model_path(tau_model_path())

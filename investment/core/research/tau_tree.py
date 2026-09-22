@@ -132,7 +132,11 @@ def _design_matrix(
             if math.isfinite(fv):
                 x[i, j] = fv
     if means is None:
-        col_means = np.nanmean(x, axis=0)
+        n_valid = np.sum(np.isfinite(x), axis=0)
+        with np.errstate(invalid="ignore"):
+            col_sum = np.nansum(x, axis=0)
+        col_means = np.divide(col_sum, np.maximum(n_valid, 1.0))
+        col_means = np.where(n_valid > 0, col_means, np.nan)
         means_out = np.where(np.isfinite(col_means), col_means, 0.0).astype(np.float64)
     else:
         means_out = np.asarray(means, dtype=np.float64)

@@ -424,6 +424,9 @@ export function treeReportHtml(data, opts = {}) {
         : data.minute_cache_hit != null
           ? metaCell("分钟", `${data.minute_cache_hit}/${data.minute_cache_universe ?? "—"}`)
           : "",
+      Array.isArray(data.tree_shape_features) && data.tree_shape_features.length
+        ? metaCell("X", `Ridge Z + ${data.tree_shape_features.length} 路径形状`)
+        : "",
     ]
       .filter(Boolean)
       .join("") +

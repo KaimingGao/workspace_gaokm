@@ -3,7 +3,7 @@
 与 Ridge 同面板、同 Holdout，只写 ``t45_tree_last_report.json``。
 不提供 persist / 研究套 sidecar，不进 live 打分与历史回测。
 浅树引擎与 ŷ_τ_tree 相同（XGBoost 或 numpy GBM）。
-X = ŷ_τ Z + 序列特征（与 t45_ridge 同）。
+X = Ridge Z + OC 路径形状（path_sign / bounce_from_low / …）；对照 Ridge 仍用原 Z。
 """
 
 from __future__ import annotations
@@ -26,14 +26,15 @@ from core.research.tau_panel import (
 from core.research.t45_ridge import (
     T45_MIN_STD_EXEMPT,
     T45_Z_FEATURES,
-    _t45_z_only_xs,
 )
 from core.research.tau_ridge import (
     TAU_FIT_DROP_ALIASES,
+    TAU_HORIZON_TREE_SHAPE_FEATURES,
     _stack_panels,
     _subset,
     _theme_counts,
     build_tau_panels_from_bars,
+    with_horizon_tree_shape,
 )
 from core.research.horizon_prob import binary_labels
 from core.research.tau_tree import (
@@ -54,9 +55,10 @@ from core.research.tau_tree import (
 )
 from core.signal.minute_tau_grid import DEFAULT_T45_TRAIN_TAU_GRID
 
-TREE_SCHEMA = "t45_tree_shadow_v2"
+TREE_SCHEMA = "t45_tree_shadow_v3"
 TREE_HEAD = "y_t45_tree"
 TREE_TARGET = "price_tau_plus_45"
+T45_TREE_Z_FEATURES = with_horizon_tree_shape(T45_Z_FEATURES)
 
 
 def t45_tree_last_report_path() -> str:
@@ -139,7 +141,7 @@ def fit_t45_tree_report(
             "backtest_hook": False,
         }
 
-    xs_z = _t45_z_only_xs(xs)
+    xs_z = [{k: (row or {}).get(k) for k in T45_TREE_Z_FEATURES} for row in xs]
     from core.research.holdout import (
         DEFAULT_HOLDOUT_TRADING_DAYS,
         attach_holdout_meta,
@@ -155,7 +157,8 @@ def fit_t45_tree_report(
     )
     xs_tr, ys_tr, metas_tr = _subset(xs_z, ys, metas, train_idx)
     xs_te, ys_te, metas_te = _subset(xs_z, ys, metas, test_idx)
-    feat_names = [k for k in T45_Z_FEATURES if k not in TAU_FIT_DROP_ALIASES]
+    feat_names = [k for k in T45_TREE_Z_FEATURES if k not in TAU_FIT_DROP_ALIASES]
+    ridge_feat_names = [k for k in T45_Z_FEATURES if k not in TAU_FIT_DROP_ALIASES]
     if len(ys_tr) < 16 or len(ys_te) < 8:
         return {
             "success": False,
@@ -211,7 +214,7 @@ def fit_t45_tree_report(
         xs_te,
         ys_te,
         metas_tr,
-        feat_names,
+        ridge_feat_names,
         ridge_lambda=ridge_lambda,
         theme_boost=theme_boost,
         use_theme_weights=use_theme_weights,
@@ -262,6 +265,8 @@ def fit_t45_tree_report(
             "fit_s": round(time.perf_counter() - t0, 2),
         },
         "feature_names": list(feat_names),
+        "ridge_feature_names": list(ridge_feat_names),
+        "tree_shape_features": list(TAU_HORIZON_TREE_SHAPE_FEATURES),
         "feature_importance": _importance_rows(feat_names, gain),
         "oos": oos_boost,
         "ridge_oos": oos_ridge,
@@ -270,8 +275,8 @@ def fit_t45_tree_report(
         "backtest_hook": False,
         "persisted": {"success": False, "skipped": True, "reason": "shadow_only"},
         "note": (
-            "ŷ_τ45_tree 影子概率头：同二分类标签同 Holdout vs logistic Ridge；不写 t45_ridge_model.json，"
-            "不进交易执行 / 历史回测"
+            "ŷ_τ45_tree 影子概率头：X 含 OC 路径形状；对照 logistic Ridge 仍用原 Z（不含路径形状）；"
+            "不写 t45_ridge_model.json，不进交易执行 / 历史回测"
         ),
     }
     attach_holdout_meta(report, split_meta)

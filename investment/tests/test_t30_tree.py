@@ -78,7 +78,7 @@ class TestT30Tree(unittest.TestCase):
         self.assertEqual(DEFAULT_N_ESTIMATORS, 80)
         self.assertEqual(DEFAULT_N_ESTIMATORS, TAU_N)
         self.assertEqual(TREE_HEAD, "y_t30_tree")
-        self.assertEqual(TREE_SCHEMA, "t30_tree_shadow_v2")
+        self.assertEqual(TREE_SCHEMA, "t30_tree_shadow_v3")
 
     def test_fit_shadow_vs_ridge_no_live_file(self):
         from core.research.t30_ridge import load_t30_model, persist_t30_model
@@ -106,7 +106,7 @@ class TestT30Tree(unittest.TestCase):
         self.assertTrue(report.get("success"), report.get("error"))
         self.assertEqual(report.get("task"), "t30_tree")
         self.assertEqual(report.get("head"), "y_t30_tree")
-        self.assertEqual(report.get("schema"), "t30_tree_shadow_v2")
+        self.assertEqual(report.get("schema"), "t30_tree_shadow_v3")
         self.assertEqual(report.get("backend"), "numpy_gbm")
         self.assertEqual(report.get("target"), "price_tau_plus_30")
         self.assertEqual(report.get("tau"), "10:30")
@@ -127,9 +127,14 @@ class TestT30Tree(unittest.TestCase):
         self.assertIn("delta_vs_ridge", report)
         self.assertTrue(report.get("feature_importance"))
         feat_names = report.get("feature_names") or []
+        ridge_names = report.get("ridge_feature_names") or []
         self.assertIn("ret_last_5m", feat_names)
         self.assertIn("ret_last_30m", feat_names)
         self.assertIn("t30_lag1", feat_names)
+        for k in ("path_sign", "bounce_from_low", "pullback_from_high"):
+            self.assertIn(k, feat_names)
+            self.assertNotIn(k, ridge_names)
+        self.assertIn("path_sign", report.get("tree_shape_features") or [])
         timing = report.get("timing") or {}
         self.assertIn("panel_s", timing)
         self.assertIn("tree_s", timing)
@@ -169,6 +174,25 @@ class TestT30Tree(unittest.TestCase):
         )
         self.assertTrue(report.get("success"), report.get("error"))
         self.assertEqual(report.get("tau"), "10:30")
+
+
+    def test_tree_z_adds_path_shape_ridge_keeps_drop(self):
+        from core.research.t30_ridge import T30_Z_FEATURES
+        from core.research.t30_tree import T30_TREE_Z_FEATURES
+        from core.research.tau_ridge import (
+            TAU_HORIZON_DROP_OC_SHAPE,
+            TAU_HORIZON_TREE_SHAPE_FEATURES,
+            with_horizon_tree_shape,
+        )
+
+        for k in TAU_HORIZON_TREE_SHAPE_FEATURES:
+            self.assertNotIn(k, T30_Z_FEATURES)
+            self.assertIn(k, T30_TREE_Z_FEATURES)
+            self.assertIn(k, TAU_HORIZON_DROP_OC_SHAPE)
+        self.assertEqual(
+            list(T30_TREE_Z_FEATURES),
+            list(with_horizon_tree_shape(T30_Z_FEATURES)),
+        )
 
 
 if __name__ == "__main__":

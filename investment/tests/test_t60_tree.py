@@ -78,7 +78,7 @@ class TestT60Tree(unittest.TestCase):
         self.assertEqual(DEFAULT_N_ESTIMATORS, 80)
         self.assertEqual(DEFAULT_N_ESTIMATORS, TAU_N)
         self.assertEqual(TREE_HEAD, "y_t60_tree")
-        self.assertEqual(TREE_SCHEMA, "t60_tree_shadow_v2")
+        self.assertEqual(TREE_SCHEMA, "t60_tree_shadow_v3")
 
     def test_fit_shadow_vs_ridge_no_live_file(self):
         from core.research.t60_ridge import load_t60_model, persist_t60_model
@@ -106,7 +106,7 @@ class TestT60Tree(unittest.TestCase):
         self.assertTrue(report.get("success"), report.get("error"))
         self.assertEqual(report.get("task"), "t60_tree")
         self.assertEqual(report.get("head"), "y_t60_tree")
-        self.assertEqual(report.get("schema"), "t60_tree_shadow_v2")
+        self.assertEqual(report.get("schema"), "t60_tree_shadow_v3")
         self.assertEqual(report.get("backend"), "numpy_gbm")
         self.assertEqual(report.get("target"), "price_tau_plus_60")
         self.assertEqual(report.get("tau"), "10:30")
@@ -125,9 +125,13 @@ class TestT60Tree(unittest.TestCase):
         self.assertIn("delta_vs_ridge", report)
         self.assertTrue(report.get("feature_importance"))
         feat_names = report.get("feature_names") or []
+        ridge_names = report.get("ridge_feature_names") or []
         self.assertIn("ret_last_5m", feat_names)
         self.assertIn("ret_last_60m", feat_names)
         self.assertIn("t60_lag1", feat_names)
+        for k in ("path_sign", "bounce_from_low", "pullback_from_high"):
+            self.assertIn(k, feat_names)
+            self.assertNotIn(k, ridge_names)
         timing = report.get("timing") or {}
         self.assertIn("panel_s", timing)
         self.assertIn("tree_s", timing)
