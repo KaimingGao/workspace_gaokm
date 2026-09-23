@@ -37,7 +37,7 @@ class TestMinuteStaleFallback(unittest.TestCase):
         ), patch.object(
             mh, "_maybe_fetch_baostock_minute_bars", return_value=([], {})
         ), patch.object(
-            mh, "_maybe_fetch_sina_tx_minute_bars", return_value=([], {})
+            mh, "_maybe_fetch_sina_minute_bars", return_value=([], {})
         ), patch.object(mh, "_throttle_minute_remote_fetch"):
             bars, meta = mh.fetch_a_minute_bars("600519", period="5", use_cache=True)
             self.assertEqual(len(bars), 12)
@@ -50,44 +50,50 @@ class TestMinuteStaleFallback(unittest.TestCase):
 
         with patch.dict(os.environ):
             os.environ.pop("INVESTMENT_MINUTE_EM_LOOKBACK_DAYS", None)
-            self.assertEqual(minute_em_lookback_days(), 30)
+            self.assertEqual(minute_em_lookback_days(), 120)
         with patch.dict(os.environ, {"INVESTMENT_MINUTE_EM_LOOKBACK_DAYS": "15"}):
             self.assertEqual(minute_em_lookback_days(), 15)
         with patch.dict(os.environ, {"INVESTMENT_MINUTE_EM_LOOKBACK_DAYS": "999"}):
-            self.assertEqual(minute_em_lookback_days(), 90)
+            self.assertEqual(minute_em_lookback_days(), 120)
 
-    def test_em_fetch_caps_at_30_calendar_days(self):
+    def test_em_fetch_caps_at_120_calendar_days(self):
         from adapters.market import minute_history as mh
 
         captured: dict = {}
 
+        class _Frame:
+            def to_dict(self, orient="records"):
+                return []
+
         class _Ak:
             def stock_zh_a_hist_min_em(self, **kw):
                 captured.update(kw)
-                return None
+                return _Frame()
 
-        with patch("adapters.market.ak_lock.import_akshare", return_value=_Ak()), patch(
+        with patch(
+            "adapters.market.ak_lock.import_akshare", return_value=_Ak()
+        ), patch(
             "core.http_retry.call_with_retry", side_effect=lambda fn, **_k: fn()
         ), patch.dict(os.environ):
             os.environ.pop("INVESTMENT_MINUTE_EM_LOOKBACK_DAYS", None)
-            mh._fetch_em_minute_bars("601988", period="5", lookback_days=120, adjust="qfq")
-        expected = (datetime.now() - timedelta(days=30)).strftime("%Y-%m-%d 09:30:00")
-        self.assertEqual(captured.get("start_date"), expected)
+            mh._fetch_em_minute_bars("601988", period="5", lookback_days=200, adjust="qfq")
+        expected_day = (datetime.now() - timedelta(days=120)).strftime("%Y-%m-%d")
+        self.assertEqual(captured.get("symbol"), "601988")
+        self.assertEqual(captured.get("period"), "5")
+        self.assertEqual(captured.get("adjust"), "qfq")
+        self.assertTrue(str(captured.get("start_date") or "").startswith(expected_day))
+        self.assertTrue(str(captured.get("end_date") or "").startswith(datetime.now().strftime("%Y-%m-%d")))
 
     def test_em_retry_waits_fetch_gap(self):
         from adapters.market import minute_history as mh
 
         captured: dict = {}
 
-        class _Ak:
-            def stock_zh_a_hist_min_em(self, **kw):
-                return None
-
         def _capture(fn, **kw):
             captured.update(kw)
-            return fn()
+            return []
 
-        with patch("adapters.market.ak_lock.import_akshare", return_value=_Ak()), patch(
+        with patch(
             "core.http_retry.call_with_retry", side_effect=_capture
         ), patch.dict(os.environ, {"INVESTMENT_MINUTE_FETCH_DELAY_SEC": "10"}):
             mh._fetch_em_minute_bars("601988", period="5", lookback_days=30, adjust="qfq")
@@ -97,6 +103,46 @@ class TestMinuteStaleFallback(unittest.TestCase):
             float(captured.get("max_delay_sec") or 0),
             float(captured.get("base_delay_sec") or 0),
         )
+
+    def test_minute_update_uses_stock_zh_a_minute(self):
+        from adapters.market import minute_history as mh
+
+        calls: dict = {}
+
+        class _Ak:
+            def stock_zh_a_minute(self, symbol, period, adjust):
+                calls["symbol"] = symbol
+                calls["period"] = period
+                calls["adjust"] = adjust
+
+                class _Frame:
+                    def to_dict(self, orient="records"):
+                        return [
+                            {
+                                "day": "2026-08-28 09:35:00",
+                                "open": "10",
+                                "high": "11",
+                                "low": "9",
+                                "close": "10.5",
+                                "volume": "100",
+                            }
+                        ]
+
+                return _Frame()
+
+        with patch("adapters.market.ak_lock.import_akshare", return_value=_Ak()), patch(
+            "adapters.market.sina_minute.fetch_sina_tx_minute_bars"
+        ) as old:
+            bars, meta = mh._maybe_fetch_sina_minute_bars(
+                "600519", period="5", lookback_days=30
+            )
+        old.assert_not_called()
+        self.assertEqual(calls.get("symbol"), "sh600519")
+        self.assertEqual(calls.get("period"), "5")
+        self.assertEqual(calls.get("adjust"), "")
+        self.assertEqual(len(bars), 1)
+        self.assertEqual(bars[0]["close"], 10.5)
+        self.assertEqual(meta.get("data_source"), "akshare:stock_zh_a_minute")
 
 
 class TestMergeSaveAlwaysCaches(unittest.TestCase):

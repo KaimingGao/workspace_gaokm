@@ -53,7 +53,7 @@ class TestBaostockMinute(unittest.TestCase):
         ), patch.object(
             mh, "_fetch_em_minute_bars", return_value=([], {}, "em down")
         ), patch.object(
-            mh, "_maybe_fetch_sina_tx_minute_bars", return_value=([], {})
+            mh, "_maybe_fetch_sina_minute_bars", return_value=([], {})
         ), patch.object(
             mh, "_maybe_fetch_baostock_minute_bars",
             return_value=([bs_bar], {"data_source": "baostock:test"}),
@@ -141,7 +141,7 @@ class TestBaostockMinute(unittest.TestCase):
         ), patch.object(
             mh, "_fetch_em_minute_bars"
         ) as em_fetch, patch.object(
-            mh, "_maybe_fetch_sina_tx_minute_bars", return_value=([], {})
+            mh, "_maybe_fetch_sina_minute_bars", return_value=([], {})
         ), patch(
             "adapters.market.baostock_minute.fetch_baostock_minute_bars",
             return_value=([bs_bar], {"data_source": "baostock:test", "ok": True}),
@@ -164,7 +164,7 @@ class TestBaostockMinute(unittest.TestCase):
         ), patch.object(
             mh, "_fetch_em_minute_bars", return_value=([], {}, "em down")
         ) as em_fetch, patch.object(
-            mh, "_maybe_fetch_sina_tx_minute_bars", return_value=([], {})
+            mh, "_maybe_fetch_sina_minute_bars", return_value=([], {})
         ), patch.object(
             mh, "_maybe_fetch_baostock_minute_bars"
         ) as bs_fetch, patch.object(mh, "_throttle_minute_remote_fetch"):
@@ -192,7 +192,7 @@ class TestBaostockMinute(unittest.TestCase):
         ), patch.object(
             mh, "_fetch_em_minute_bars", return_value=([], {}, "em down")
         ), patch.object(
-            mh, "_maybe_fetch_sina_tx_minute_bars", return_value=([], {})
+            mh, "_maybe_fetch_sina_minute_bars", return_value=([], {})
         ), patch.object(
             mh, "_maybe_fetch_baostock_minute_bars",
             return_value=([bs_bar], {"data_source": "baostock:test"}),
@@ -218,7 +218,7 @@ class TestBaostockMinute(unittest.TestCase):
         with patch.object(mh, "resolve_market_code", return_value=("CN", "600519")), patch.object(
             mh, "load_minute_cache", return_value=None
         ), patch.object(
-            mh, "_maybe_fetch_sina_tx_minute_bars", return_value=([], {})
+            mh, "_maybe_fetch_sina_minute_bars", return_value=([], {})
         ), patch(
             "adapters.market.baostock_minute.fetch_baostock_minute_bars",
             return_value=([bs_bar], {"data_source": "baostock:test", "ok": True}),
@@ -280,7 +280,7 @@ class TestBaostockMinute(unittest.TestCase):
         with patch.dict(os.environ):
             os.environ.pop("INVESTMENT_MINUTE_FETCH_DELAY_SEC", None)
             os.environ.pop("INVESTMENT_MINUTE_WARMUP_SKIP_EM", None)
-            self.assertEqual(minute_fetch_delay_sec(), 10.0)
+            self.assertEqual(minute_fetch_delay_sec(), 20.0)
             self.assertFalse(minute_warmup_skip_em())
         with patch.dict(os.environ, {"INVESTMENT_MINUTE_FETCH_DELAY_SEC": "99"}):
             self.assertEqual(minute_fetch_delay_sec(), 30.0)

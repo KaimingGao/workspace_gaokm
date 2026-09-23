@@ -1109,7 +1109,9 @@ def save_minute_cache(
             old_bars = old_payload.get("bars") or []
             if isinstance(old_bars, list) and old_bars:
                 bars = trim_minute_bars(
-                    merge_minute_bars_by_time(old_bars, bars, period=period)
+                    merge_minute_bars_by_time(
+                        old_bars, bars, period=period, lock_calendar_day=False
+                    )
                 )
         except (OSError, json.JSONDecodeError, TypeError):
             pass

@@ -307,6 +307,51 @@ def _sqlite_sets(
     return out_days
 
 
+def minute_windows_clean(
+    codes: Sequence[str],
+    *,
+    days: int = 40,
+    now: Optional[datetime] = None,
+) -> Dict[str, bool]:
+    """最近 ``days`` 个交易日是否都齐。盘中当日不算缺。
+
+    缺指 miss / head / tail / both / gap。没有收盘日可查时为 False。
+    """
+    from core.market.calendar import resolve_session_date
+    from core.store import bars_backend
+
+    bare = [b for b in (_bare(c) for c in codes) if b]
+    orig_of: Dict[str, str] = {}
+    for c in codes:
+        b = _bare(c)
+        if b:
+            orig_of.setdefault(b, str(c).strip())
+    if bars_backend() != "sqlite" or not bare:
+        return {b: False for b in bare}
+    n = max(1, min(int(days or 40), 120))
+    dt = now or datetime.now()
+    session = str(resolve_session_date(now=dt) or "")[:10]
+    dates = recent_trading_days(n, end=session)
+    live = _live_date(now=dt)
+    closed = [d for d in dates if not (live and d == live)]
+    hms = _sqlite_sets(bare, dates, minute=True)
+    by_code = hms if isinstance(hms, dict) else {}
+    out: Dict[str, bool] = {}
+    for code in bare:
+        by_day = by_code.get(code) or {}
+        if not closed:
+            out[code] = False
+            continue
+        out[code] = all(
+            classify_minute_day(by_day.get(d) or set(), live=False) == "ok"
+            for d in closed
+        )
+        orig = orig_of.get(code)
+        if orig and orig != code:
+            out[orig] = out[code]
+    return out
+
+
 def build_daily_integrity(
     *,
     watching_limit: int = 200,

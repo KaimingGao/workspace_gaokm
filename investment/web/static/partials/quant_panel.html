@@ -75,7 +75,7 @@
             <div class="dashboard-kpi-value quant-pro-kpi-value quant-kpi-value">—</div>
             <div class="dashboard-kpi-sub quant-pro-kpi-sub quant-kpi-sub">只数 / 日线覆盖</div>
           </div>
-          <div class="dashboard-kpi-card quant-pro-kpi-card quant-kpi-card is-empty" data-kpi="minute" title="5m 跨度 ≥ Ready 闸的占比">
+          <div class="dashboard-kpi-card quant-pro-kpi-card quant-kpi-card is-empty" data-kpi="minute" title="近 40 个交易日 5m 无缺的占比">
             <div class="dashboard-kpi-label quant-pro-kpi-label quant-kpi-label">分钟 Ready</div>
             <div class="dashboard-kpi-value quant-pro-kpi-value quant-kpi-value">—</div>
             <div class="dashboard-kpi-sub quant-pro-kpi-sub quant-kpi-sub">Ready% · Short</div>
@@ -207,7 +207,7 @@
     <header class="dashboard-section-head quant-section-head">
       <h3 id="quant-section-minute-title" class="dashboard-section-title">分钟线</h3>
       <p class="dashboard-section-desc quant-section-desc" id="quant-section-minute-desc">
-        写入口：日常「增量补齐」· 缺口「东财补缺」· 全窗「强更 5m」· 调度 minute_warmup · 标签画像（τ OC）· 下游 ŷ_oc 因果前缀≤10:00 / 调仓 / 做T · Ready≠消费 as-of
+        写入口：日常「增量补齐」· 全窗「强更 5m」· 缺口「东财补缺」· 调度 minute_warmup · 标签画像（τ OC）· 下游 ŷ_oc 因果前缀≤10:00 / 调仓 / 做T · Ready≠消费 as-of
       </p>
     </header>
     <div class="dashboard-card quant-pro-card quant-bars-card quant-minute-card">
@@ -220,11 +220,11 @@
           <button type="button" id="quant-cluster-minute-topup" class="dialog-btn secondary" title="写入 5m 仓（增量）：会话日齐窗且今日已拉才跳过；缺尾（如只到 10:00）强制补拉落盘。调仓/做T/ŷ_oc 日常先点这个。不改日K、不算 ŷ。">
             增量补齐
           </button>
+          <button type="button" id="quant-cluster-minute-refresh" class="dialog-btn secondary" title="写入 5m 仓（整窗重拉）。东财主窗 120 个日历日，空了才打新浪。仓损坏或要覆盖近窗时用。不改日K、不算 ŷ。">
+            强更 5m
+          </button>
           <button type="button" id="quant-cluster-minute-repair" class="dialog-btn secondary" title="只打东财，回看 90 个日历日。只把比本地更齐的交易日写入，不盖短已有的一天，不打新浪。今天盘中不写。">
             东财补缺
-          </button>
-          <button type="button" id="quant-cluster-minute-refresh" class="dialog-btn secondary" title="写入 5m 仓（整窗重拉）。东财主窗 30 个日历日，空了才打新浪。仓损坏或要覆盖近窗时用。不改日K、不算 ŷ。">
-            强更 5m
           </button>
         </div>
       </div>
@@ -232,17 +232,17 @@
         <div id="quant-minute-progress" class="quant-bars-progress" hidden aria-live="polite" aria-label="5m 强更进度"></div>
         <div id="quant-minute-context-strip" class="quant-bars-context-strip" aria-live="polite"></div>
         <div class="quant-bars-kpi-row" id="quant-minute-kpis" aria-label="分钟覆盖 KPI">
-          <div class="quant-bars-kpi quant-pro-kpi-card dashboard-kpi-card" data-minute-kpi="ok" title="交易日跨度 ≥ 20 天（分钟 Ready 软闸）">
+          <div class="quant-bars-kpi quant-pro-kpi-card dashboard-kpi-card" data-minute-kpi="ok" title="最近 40 个交易日无缺（分钟 Ready）">
             <span class="quant-pro-kpi-label">Ready</span>
             <span class="quant-pro-kpi-value" id="quant-minute-kpi-ok">—</span>
-            <span class="quant-pro-kpi-sub" id="quant-minute-kpi-ok-sub">≥20d · — / —</span>
+            <span class="quant-pro-kpi-sub" id="quant-minute-kpi-ok-sub">近40日无缺 · — / —</span>
           </div>
           <div class="quant-bars-kpi quant-pro-kpi-card dashboard-kpi-card" data-minute-kpi="span" title="有缓存标的的交易日跨度中位数">
             <span class="quant-pro-kpi-label">Span med</span>
             <span class="quant-pro-kpi-value" id="quant-minute-kpi-span">—</span>
             <span class="quant-pro-kpi-sub" id="quant-minute-kpi-span-sub">交易日</span>
           </div>
-          <div class="quant-bars-kpi quant-pro-kpi-card dashboard-kpi-card" data-minute-kpi="short" title="有缓存但跨度 &lt; 20 交易日">
+          <div class="quant-bars-kpi quant-pro-kpi-card dashboard-kpi-card" data-minute-kpi="short" title="有缓存，但最近 40 个交易日内有缺">
             <span class="quant-pro-kpi-label">Short</span>
             <span class="quant-pro-kpi-value" id="quant-minute-kpi-short">—</span>
             <span class="quant-pro-kpi-sub">跨度不足</span>

@@ -215,7 +215,7 @@ class _StoreBackendMixin:
         self.assertEqual(str(meta.get("date_min") or "")[:10], "2026-07-10")
         self.assertEqual(str(meta.get("date_max") or "")[:10], "2026-09-11")
 
-    def test_thinner_minute_day_does_not_replace(self):
+    def test_partial_minute_upsert_keeps_other_slots(self):
         day = "2026-08-24"
         old = [
             {
@@ -262,7 +262,8 @@ class _StoreBackendMixin:
         by = {b["datetime"]: b for b in lb}
         self.assertEqual(set(by), {f"{day} 09:35:00", f"{day} 10:00:00"})
         self.assertAlmostEqual(by[f"{day} 10:00:00"]["close"], 6.2)
-        self.assertAlmostEqual(by[f"{day} 09:35:00"]["close"], 6.1)
+        self.assertAlmostEqual(by[f"{day} 09:35:00"]["close"], 6.15)
+        self.assertEqual(by[f"{day} 09:35:00"]["volume"], 10000)
 
         covered = [
             {

@@ -245,12 +245,12 @@ def _minute_warmup_core(
     codes: Optional[List[str]] = None,
     period: str = "5",
     cap: int = 25,
-    lookback_days: int = 30,
+    lookback_days: int = 120,
     progress_cb: Optional[Any] = None,
 ) -> Dict[str, Any]:
     """分钟线预热核心逻辑（无 job slot）。
 
-    period=5 默认 lookback 30 日历日（东财/BaoStock 窗口）；1 分钟仍只拉近几日。
+    period=5 默认 lookback 120 日历日（东财窗口）；1 分钟仍只拉近几日。
     """
     from core.data.policy import (
         MINUTE_WARMUP_MAX_CAL_GAP_DAYS,
@@ -336,9 +336,9 @@ def _minute_warmup_core(
         "note": (
             "5 分钟线预热；供 tail_anomaly / 做T回测。"
             + (
-                f" 跳过东财 · 新浪/腾讯（有数则跳过 BaoStock）· 各源间隔 {fetch_delay:g}s。"
+                f" 跳过东财 · stock_zh_a_minute（有数则跳过 BaoStock）· 各源间隔 {fetch_delay:g}s。"
                 if skip_em
-                else f" 东财→新浪/腾讯（有数则跳过 BaoStock）· 各源间隔 {fetch_delay:g}s。"
+                else f" 东财→stock_zh_a_minute（有数则跳过 BaoStock）· 各源间隔 {fetch_delay:g}s。"
             )
         ),
     }
@@ -349,7 +349,7 @@ def run_minute_warmup(
     codes: Optional[List[str]] = None,
     period: str = "5",
     cap: int = 25,
-    lookback_days: int = 30,
+    lookback_days: int = 120,
 ) -> Dict[str, Any]:
     """预热观察名单 5 分钟线缓存（tail_anomaly / T0 用）。"""
     slot = job_registry.slot("schedule")

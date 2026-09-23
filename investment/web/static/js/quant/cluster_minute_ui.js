@@ -52,14 +52,14 @@ export function installClusterMinuteUi(q) {
   }
 
   const esc = typeof escapeHtml === "function" ? escapeHtml : (s) => String(s ?? "");
-  const LOOKBACK_DAYS = 30;
-  const MIN_SPAN_DAYS = 20;
-  const FETCH_DELAY_SEC = 10;
-  const SINA_TX_HINT = "新浪/腾讯（约1023根·5m）";
+  const LOOKBACK_DAYS = 120;
+  const MIN_SPAN_DAYS = 40;
+  const FETCH_DELAY_SEC = 20;
+  const SINA_TX_HINT = "stock_zh_a_minute（约1970根·5m）";
   const FULL_WARMUP_HINT =
     `逐只串行 · 东财主窗 ${LOOKBACK_DAYS} 日历日 · 东财空才打${SINA_TX_HINT} · 有数跳过 BaoStock · 各源间隔 ${FETCH_DELAY_SEC}s`;
   const FULL_WARMUP_HINT_RUNNING =
-    `${FULL_WARMUP_HINT} · Ready% 为本地交易日≥${MIN_SPAN_DAYS} 覆盖（≠ Job 进度）`;
+    `${FULL_WARMUP_HINT} · Ready% 为近 ${MIN_SPAN_DAYS} 个交易日无缺（≠ Job 进度）`;
 
   let inflight = null;
   let kpiInflight = null;
@@ -294,7 +294,7 @@ export function installClusterMinuteUi(q) {
       </div>
       <dl class="quant-bars-strip-facts">
         <div><dt>Universe</dt><dd>watching · Limit ${esc(limit)} · ${total} 只</dd></div>
-        <div><dt>Lookback</dt><dd>增量 ${esc(TOPUP_LOOKBACK_DAYS)}d · 强更 ${esc(lb)}d · Ready ≥ ${esc(minSpan)}d</dd></div>
+        <div><dt>Lookback</dt><dd>增量 ${esc(TOPUP_LOOKBACK_DAYS)}d · 强更 ${esc(lb)}d · Ready 近 ${esc(minSpan)} 交易日无缺</dd></div>
         <div><dt>Span</dt><dd>med ${esc(data.minute_span_days_med ?? "—")}d · ${esc(data.minute_span_days_min ?? "—")}→${esc(data.minute_span_days_max ?? "—")}</dd></div>
       </dl>
       <div class="quant-bars-strip-badges">${badges.join("")}</div>
@@ -440,7 +440,7 @@ export function installClusterMinuteUi(q) {
       <div class="quant-bars-foot-item"><span class="quant-bars-foot-k">Store</span><span class="quant-bars-foot-v">${esc(backend)} · OHLCV 5m</span></div>
       <div class="quant-bars-foot-item"><span class="quant-bars-foot-k">Scope</span><span class="quant-bars-foot-v">watching · Limit ${esc(data.watching_limit ?? "—")}</span></div>
       <div class="quant-bars-foot-item"><span class="quant-bars-foot-k">强更 Job</span><span class="quant-bars-foot-v">${esc(jobLine)}</span></div>
-      <div class="quant-bars-foot-item"><span class="quant-bars-foot-k">Gate</span><span class="quant-bars-foot-v">Ready ≥ ${esc(data.min_span_days ?? MIN_SPAN_DAYS)} 交易日</span></div>
+      <div class="quant-bars-foot-item"><span class="quant-bars-foot-k">Gate</span><span class="quant-bars-foot-v">Ready 近 ${esc(data.min_span_days ?? MIN_SPAN_DAYS)} 交易日无缺</span></div>
       <div class="quant-bars-foot-item"><span class="quant-bars-foot-k">Write</span><span class="quant-bars-foot-v">增量补齐 / 强更 5m · ≠ 日K · ≠ 现算 ŷ</span></div>
       <div class="quant-bars-foot-item"><span class="quant-bars-foot-k">Labels</span><span class="quant-bars-foot-v">τ=分钟开→收% · 每票≤${esc(data.label_portrait?.max_days_per_code ?? 120)}d</span></div>
       <div class="quant-bars-foot-item"><span class="quant-bars-foot-k">Downstream</span><span class="quant-bars-foot-v">ŷ_oc 因果前缀≤10:00 · 调仓 · 做T · tip</span></div>
@@ -476,7 +476,7 @@ export function installClusterMinuteUi(q) {
     const minSpan = Number(data.min_span_days) || MIN_SPAN_DAYS;
 
     if (kpiOk) kpiOk.textContent = total > 0 ? `${pct}%` : "—";
-    if (kpiOkSub) kpiOkSub.textContent = total > 0 ? `≥${minSpan}d · ${ok} / ${total}` : `≥${minSpan}d · — / —`;
+    if (kpiOkSub) kpiOkSub.textContent = total > 0 ? `近${minSpan}日无缺 · ${ok} / ${total}` : `近${minSpan}日无缺 · — / —`;
     if (kpiSpan) kpiSpan.textContent = med > 0 ? `${med}d` : "—";
     if (kpiSpanSub) {
       kpiSpanSub.textContent =

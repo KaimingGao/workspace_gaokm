@@ -750,9 +750,9 @@ class ClusterMinuteRefreshRequest(BaseModel):
     """观察池 5m 分钟线预热（ŷ_hl / T0 回测）。"""
 
     period: str = Field(default="5", description="分钟周期；默认 5m")
-    lookback_days: int = Field(default=30, ge=5, le=90)
+    lookback_days: int = Field(default=120, ge=5, le=120)
     watching_limit: int = Field(default=200, ge=3, le=200)
-    min_span_days: int = Field(default=20, ge=10, le=120)
+    min_span_days: int = Field(default=40, ge=10, le=120)
     mode: str = Field(
         default="full",
         description="full=强更全窗口；topup=增量补齐；repair=东财补缺（只写更齐的交易日）",
@@ -936,9 +936,9 @@ class ClusterMinuteRefreshRequest(BaseModel):
     """观察池 5m 分钟线预热（ŷ_hl / T0 回测）。"""
 
     period: str = Field(default="5", description="分钟周期；默认 5m")
-    lookback_days: int = Field(default=30, ge=5, le=90)
+    lookback_days: int = Field(default=120, ge=5, le=120)
     watching_limit: int = Field(default=200, ge=3, le=200)
-    min_span_days: int = Field(default=20, ge=10, le=120)
+    min_span_days: int = Field(default=40, ge=10, le=120)
     mode: str = Field(
         default="full",
         description="full=强更全窗口；topup=增量补齐；repair=东财补缺（只写更齐的交易日）",

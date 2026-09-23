@@ -27,14 +27,14 @@ DAILY_BARS_MAX_KEEP = 800
 # 5m 全日约 48 根；12000 ≈ 250 交易日，供 BaoStock 回填 + path 150d 回看
 MINUTE_BARS_MAX_KEEP = 12000
 # 远端分钟拉取后休眠（东财 / 新浪腾讯 / BaoStock 各睡一次）；降低反爬封 IP 风险
-MINUTE_FETCH_DELAY_SEC = 10.0
+MINUTE_FETCH_DELAY_SEC = 20.0
 MINUTE_FETCH_DELAY_MAX_SEC = 30.0
 # BaoStock 单票 query+遍历无内置超时；子进程 join 超时后 kill，避免强更整批挂死
 MINUTE_BAOSTOCK_TIMEOUT_SEC = 90.0
 MINUTE_BAOSTOCK_TIMEOUT_MAX_SEC = 180.0
 # 东财 / BaoStock 分钟窗口（日历日）；强更 lookback 与此对齐
-MINUTE_EM_LOOKBACK_DAYS = 30
-MINUTE_EM_LOOKBACK_MAX_DAYS = 90
+MINUTE_EM_LOOKBACK_DAYS = 120
+MINUTE_EM_LOOKBACK_MAX_DAYS = 120
 # BaoStock 分钟窗口（日历日）
 MINUTE_BAOSTOCK_LOOKBACK_DAYS = 30
 MINUTE_BAOSTOCK_LOOKBACK_MAX_DAYS = 90
@@ -89,13 +89,13 @@ def minute_fetch_delay_sec() -> float:
 
 
 def minute_warmup_skip_em() -> bool:
-    """批量预热默认走东财；``INVESTMENT_MINUTE_WARMUP_SKIP_EM=1`` 跳过东财（新浪/腾讯→BaoStock）。"""
+    """批量预热默认走东财；``INVESTMENT_MINUTE_WARMUP_SKIP_EM=1`` 跳过东财（stock_zh_a_minute→BaoStock）。"""
     raw = os.environ.get("INVESTMENT_MINUTE_WARMUP_SKIP_EM", "0").strip().lower()
     return raw not in ("0", "false", "no", "off")
 
 
 MINUTE_WARMUP_STALE_HOURS = 24.0
-MINUTE_WARMUP_READY_MIN_SPAN_DAYS = 20
+MINUTE_WARMUP_READY_MIN_SPAN_DAYS = 40
 MINUTE_WARMUP_MAX_CAL_GAP_DAYS = 4
 
 
@@ -106,7 +106,7 @@ def minute_warmup_skip_if_ready() -> bool:
 
 
 def minute_warmup_ready_min_span_days() -> int:
-    """与 UI Ready 闸一致，默认 20 交易日（有 bar 的日数；对齐东财/新浪约 30 日历日）。"""
+    """与 UI Ready 闸一致：最近这么多个交易日必须无缺。默认 40。"""
     raw = os.environ.get(
         "INVESTMENT_MINUTE_WARMUP_READY_MIN_SPAN_DAYS", str(MINUTE_WARMUP_READY_MIN_SPAN_DAYS)
     )
@@ -164,12 +164,6 @@ def minute_em_lookback_days() -> int:
     except (TypeError, ValueError):
         v = int(MINUTE_EM_LOOKBACK_DAYS)
     return max(5, min(v, int(MINUTE_EM_LOOKBACK_MAX_DAYS)))
-
-
-def minute_sina_tx_fallback() -> bool:
-    """东财空或 skip_em 时启用新浪/腾讯分钟近端；有数则跳过 BaoStock。``INVESTMENT_MINUTE_SINA_TX_FALLBACK=0`` 关闭。"""
-    raw = os.environ.get("INVESTMENT_MINUTE_SINA_TX_FALLBACK", "1").strip().lower()
-    return raw not in ("0", "false", "no", "off")
 
 
 # 兼容旧名

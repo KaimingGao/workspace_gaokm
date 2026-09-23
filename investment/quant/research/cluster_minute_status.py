@@ -15,7 +15,8 @@ logger = logging.getLogger(__name__)
 DEFAULT_MINUTE_PERIOD = "5"
 DEFAULT_MIN_SPAN_DAYS = MINUTE_WARMUP_READY_MIN_SPAN_DAYS
 DEFAULT_LOOKBACK_DAYS = MINUTE_EM_LOOKBACK_DAYS
-# 增量补齐：跨度已够的票只拉近几日 merge（对齐日 K「增量」思路）
+# 增量补齐：跨度已够的票只拉近几日。与 Ready「最近 N 日无缺」分开，避免无缺窗口变长后整池打东财全历史。
+DEFAULT_TOPUP_SPAN_DAYS = 20
 DEFAULT_TOPUP_LOOKBACK_DAYS = 5
 DEFAULT_TOPUP_WORKERS = 4
 DEFAULT_LABEL_MAX_DAYS = 120
@@ -123,16 +124,20 @@ def minute_cache_ready(
 ) -> tuple[bool, Optional[Dict[str, Any]], str]:
     """本地分钟缓存是否已满足预热/强更，可跳过远端拉取。
 
-    与 UI ``Ready ≥ min_span_days`` 对齐，并要求 ``fetched_at`` 未过期、``date_max`` 够新。
-    返回 ``(ready, snapshot, reason)``；reason 为 ``ready`` | ``missing`` | ``short`` | ``stale`` | ``date_max_old``。
+    Ready：最近 ``min_span_days`` 个交易日无缺（miss/head/tail/both/gap；盘中当日不算），
+    且 ``fetched_at`` 未过期、``date_max`` 够新。
+    返回 ``(ready, snapshot, reason)``；reason 为 ``ready`` | ``missing`` | ``gap`` | ``stale`` | ``date_max_old``。
     """
+    from quant.research.bars_integrity import minute_windows_clean
+
     snap = _minute_snapshot_for_code(code, period=period)
     if not snap:
         return False, None, "missing"
-    span = int(snap.get("span_days") or 0)
-    min_span = max(1, int(min_span_days or DEFAULT_MIN_SPAN_DAYS))
-    if span < min_span:
-        return False, snap, "short"
+    window = max(1, int(min_span_days or DEFAULT_MIN_SPAN_DAYS))
+    clean = minute_windows_clean([code], days=window)
+    bare = "".join(ch for ch in str(code) if ch.isdigit())[-6:]
+    if not clean.get(bare, False):
+        return False, snap, "gap"
     fetched_s = snap.get("fetched_at") or ""
     if fetched_s:
         try:
@@ -346,12 +351,14 @@ def build_cluster_minute_status(
     include_label_portrait: bool = True,
 ) -> Dict[str, Any]:
     """汇总观察池截断后的 5m 分钟缓存覆盖。"""
+    from quant.research.bars_integrity import minute_windows_clean
     from quant.research.factor_ols_clusters import clamp_watching_limit
 
     limit = clamp_watching_limit(watching_limit, 200)
     period_s = str(period or DEFAULT_MINUTE_PERIOD)
-    min_span = max(1, int(min_span_days or DEFAULT_MIN_SPAN_DAYS))
+    window = max(1, int(min_span_days or DEFAULT_MIN_SPAN_DAYS))
     codes = _resolve_watching_codes(watching_limit=limit)
+    clean_map = minute_windows_clean(codes, days=window)
 
     cached_ok = 0
     short = 0
@@ -381,7 +388,8 @@ def build_cluster_minute_status(
                 is_stale = False
         if is_stale:
             stale += 1
-        if span >= min_span:
+        bare = "".join(ch for ch in str(code) if ch.isdigit())[-6:]
+        if clean_map.get(str(code).strip(), False) or clean_map.get(bare, False):
             cached_ok += 1
         else:
             short += 1
@@ -428,7 +436,7 @@ def build_cluster_minute_status(
         "watching_limit": limit,
         "universe_count": total,
         "universe_mode": "watching",
-        "min_span_days": min_span,
+        "min_span_days": window,
         "lookback_days_default": DEFAULT_LOOKBACK_DAYS,
         "cached_ok": cached_ok,
         "short": short,
@@ -498,7 +506,7 @@ def _minute_topup_core(
     period: str = DEFAULT_MINUTE_PERIOD,
     full_lookback_days: int = DEFAULT_LOOKBACK_DAYS,
     topup_lookback_days: int = DEFAULT_TOPUP_LOOKBACK_DAYS,
-    min_span_days: int = DEFAULT_MIN_SPAN_DAYS,
+    min_span_days: int = DEFAULT_TOPUP_SPAN_DAYS,
     workers: int = DEFAULT_TOPUP_WORKERS,
     progress_cb: Optional[Any] = None,
 ) -> Dict[str, Any]:
@@ -514,7 +522,7 @@ def _minute_topup_core(
     em_cap = minute_em_lookback_days()
     full_lb = min(max(int(full_lookback_days or DEFAULT_LOOKBACK_DAYS), 5), em_cap)
     top_lb = min(max(int(topup_lookback_days or DEFAULT_TOPUP_LOOKBACK_DAYS), 2), full_lb)
-    min_span = max(1, int(min_span_days or DEFAULT_MIN_SPAN_DAYS))
+    min_span = max(1, int(min_span_days or DEFAULT_TOPUP_SPAN_DAYS))
     expected = expected_minute_asof()
     now = datetime.now()
     n_workers = max(1, min(int(workers or DEFAULT_TOPUP_WORKERS), 8, len(watch)))

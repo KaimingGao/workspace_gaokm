@@ -1,8 +1,9 @@
-"""A 股分钟线拉取（东财主 · 新浪/腾讯近端 · BaoStock 30 日历日）。
+"""A 股分钟线拉取（东财主 · ak.stock_zh_a_minute 近端 · BaoStock 30 日历日）。
 
-限量（东财常见）：1 分钟约近 5 日；5/15/30/60 分钟默认近 **30 日历日**（实测东财也常只有约一个月）。
-新浪/腾讯备：东财空或 skip_em 时先打；分钟仅近端约 1023 根（5m ≈ 20 日）；有数则不再打 BaoStock。
-BaoStock 备：5/15/30/60 约近 **30 日历日**（与东财同窗）；仅东财与新浪/腾讯都空、或东财短于该窗口时再拉。
+限量（东财常见）：1 分钟约近 5 日；5/15/30/60 分钟默认近 **120 日历日**。
+近端备：东财空或 skip_em 时打 ``ak.stock_zh_a_minute``（新浪，datalen=1970，5m ≈ 41 日）；有数则不再打 BaoStock。
+``sina_minute`` 保留为备选客户端，更新路径不调用。
+BaoStock 备：5/15/30/60 约近 **30 日历日**（与东财同窗）；仅东财与新浪分钟都空、或东财短于该窗口时再拉。
 做 T 第一触达默认 period=5。
 """
 
@@ -24,8 +25,9 @@ from core.store import (
 )
 from adapters.market.history import resolve_market_code
 
-logger = logging.getLogger(__name__)
+logging.basicConfig(level=logging.INFO)
 
+logger = logging.getLogger(__name__)
 
 def normalize_minute_bars(rows: List[dict]) -> List[dict]:
     """统一为 datetime/date/open/high/low/close/volume。"""
@@ -123,10 +125,12 @@ def _merge_save_minute_bars(
             market, bare, period, min_bars=1, max_age_hours=0, ignore_age=True
         )
         if old:
-            bars = merge_minute_bars_by_time(old[0], incoming, period=period)
+            bars = merge_minute_bars_by_time(
+                old[0], incoming, period=period, lock_calendar_day=False
+            )
         from core.store import bars_backend
 
-        # sqlite 按日替换 incoming；JSON 仍写合并后的全量
+        # sqlite 按时刻 upsert incoming，不删库里多出来的根；JSON 写合并后的全量
         to_write = incoming if bars_backend() == "sqlite" else bars
         save_minute_cache(
             market,
@@ -154,7 +158,7 @@ def _fetch_em_minute_bars(
 ) -> Tuple[List[dict], Dict[str, Any], Optional[str]]:
     """东财分钟线；返回 (bars, meta, error)。
 
-    ``span_cap`` 缺省用日常回看（默认 30 日历日）。补缺可抬到硬上限 90。
+    ``span_cap`` 缺省用日常回看（默认 120 日历日）。补缺同样受硬上限 120。
     """
     from core.data.policy import (
         MINUTE_EM_LOOKBACK_MAX_DAYS,
@@ -163,9 +167,7 @@ def _fetch_em_minute_bars(
         minute_fetch_delay_sec,
     )
     from core.http_retry import call_with_retry
-    from adapters.market.ak_lock import import_akshare
 
-    ak = import_akshare()
     end = datetime.now()
     hard = int(MINUTE_EM_LOOKBACK_MAX_DAYS)
     cap = minute_em_lookback_days() if span_cap is None else min(int(span_cap), hard)
@@ -178,6 +180,17 @@ def _fetch_em_minute_bars(
     end_s = end.strftime("%Y-%m-%d 15:00:00")
     adj = "" if period == "1" else (adjust or "qfq")
     try:
+        # 失败后再试必须拉开，不能在 1 秒内连打。间隔与票间频控同一档。
+        gap = minute_fetch_delay_sec()
+        retry_kw = dict(
+            retries=1,
+            base_delay_sec=gap if gap > 0 else float(MINUTE_FETCH_DELAY_MAX_SEC),
+            max_delay_sec=float(MINUTE_FETCH_DELAY_MAX_SEC),
+        )
+        from adapters.market.ak_lock import import_akshare
+
+        ak = import_akshare()
+
         def _once():
             return ak.stock_zh_a_hist_min_em(
                 symbol=bare,
@@ -187,21 +200,19 @@ def _fetch_em_minute_bars(
                 adjust=adj,
             )
 
-        # 失败后再试必须拉开，不能在 1 秒内连打。间隔与票间频控同一档（默认 10s）。
-        gap = minute_fetch_delay_sec()
-        df = call_with_retry(
-            _once,
-            retries=1,
-            base_delay_sec=gap if gap > 0 else float(MINUTE_FETCH_DELAY_MAX_SEC),
-            max_delay_sec=float(MINUTE_FETCH_DELAY_MAX_SEC),
+        df = call_with_retry(_once, **retry_kw)
+        records = (
+            df.to_dict(orient="records")
+            if df is not None and hasattr(df, "to_dict")
+            else []
         )
     except Exception as e:
         logger.warning(
-            "W: fetch_a_minute_bars em failed %s start=%s end=%s period=%s adjust=%s: %s", bare, start_s, end_s, period, adjust, e
+            " DEBUG: fetch_a_minute_bars em failed %s start=%s end=%s period=%s adjust=%s: %s",
+            bare, start_s, end_s, period, adjust, e,
         )
         return [], {}, str(e)
 
-    records = df.to_dict(orient="records") if df is not None and hasattr(df, "to_dict") else []
     bars = normalize_minute_bars(records)
     src = f"akshare:stock_zh_a_hist_min_em:{period}"
     meta: Dict[str, Any] = {
@@ -211,11 +222,16 @@ def _fetch_em_minute_bars(
         "em_start": start_s,
         "em_end": end_s,
     }
+    date_min = bars[0].get("date") if bars else None
+    date_max = bars[-1].get("date") if bars else None
     if bars:
-        meta["date_min"] = bars[0].get("date")
-        meta["date_max"] = bars[-1].get("date")
+        meta["date_min"] = date_min
+        meta["date_max"] = date_max
 
-    logger.info("I: fetch_a_minute_bars em success %s start=%s end=%s period=%s adjust=%s bar_count=%s data_source=%s date_min=%s date_max=%s", bare, start_s, end_s, period, adjust, len(bars), src, bars[0].get("date"), bars[-1].get("date"))
+    logger.info(
+        " DEBUG: fetch_a_minute_bars em success %s start=%s end=%s period=%s adjust=%s bar_count=%s date_min=%s date_max=%s",
+        bare, start_s, end_s, period, adjust, len(bars), date_min, date_max,
+    )
 
     return bars, meta, None
 
@@ -264,23 +280,66 @@ def _maybe_fetch_baostock_minute_bars(
     return bs_bars, bs_meta
 
 
-def _maybe_fetch_sina_tx_minute_bars(
+def _ak_sina_symbol(bare: str) -> Optional[str]:
+    """6 位 A 股 → ``stock_zh_a_minute`` 的 sh/sz/bj 代码。"""
+    code = str(bare or "").strip()
+    if not code.isdigit() or len(code) != 6:
+        return None
+    if code.startswith(("5", "6", "9")):
+        return f"sh{code}"
+    if code.startswith(("4", "8")):
+        return f"bj{code}"
+    return f"sz{code}"
+
+
+def _maybe_fetch_sina_minute_bars(
     bare: str,
     *,
     period: str,
     lookback_days: int,
     reason: str = "em_empty",
 ) -> Tuple[List[dict], Dict[str, Any]]:
-    from adapters.market.sina_tx_minute import fetch_sina_tx_minute_bars, sina_tx_enabled
+    """东财空时的近端。走 ``ak.stock_zh_a_minute``（不复权，datalen=1970）。
 
-    if not sina_tx_enabled():
-        return [], {}
-    bars, meta = fetch_sina_tx_minute_bars(
-        bare, period=period, lookback_days=lookback_days
-    )
-    meta = dict(meta or {})
-    meta["backfill_reason"] = reason
-    return list(bars or []), meta
+    ``lookback_days`` 不传给该接口（窗口由 akshare 固定）。``sina_minute`` 不在此调用。
+    """
+    del lookback_days  # 接口不接受回看天数
+    from adapters.market.ak_lock import import_akshare
+
+    symbol = _ak_sina_symbol(bare)
+    period_s = str(period or "5")
+    if not symbol:
+        return [], {"data_source": "empty", "error": f"invalid bare code: {bare}", "backfill_reason": reason}
+    try:
+        ak = import_akshare()
+        df = ak.stock_zh_a_minute(symbol=symbol, period=period_s, adjust="")
+    except Exception as e:  # noqa: BLE001 — 失败则交给 BaoStock
+        logger.info("stock_zh_a_minute failed %s period=%s: %s", bare, period_s, e)
+        return [], {
+            "data_source": "empty",
+            "error": str(e),
+            "symbol": symbol,
+            "period": period_s,
+            "backfill_reason": reason,
+        }
+    records = df.to_dict(orient="records") if df is not None and hasattr(df, "to_dict") else []
+    for row in records:
+        if isinstance(row, dict) and row.get("day") and not row.get("datetime"):
+            row["datetime"] = row.get("day")
+    bars = normalize_minute_bars(records)
+    meta: Dict[str, Any] = {
+        "data_source": "akshare:stock_zh_a_minute",
+        "symbol": symbol,
+        "period": period_s,
+        "adjust": "",
+        "ok": bool(bars),
+        "bar_count": len(bars),
+        "backfill_reason": reason,
+    }
+    if bars:
+        meta["date_min"] = bars[0].get("date")
+        meta["date_max"] = bars[-1].get("date")
+    return bars, meta
 
 
 def _throttle_minute_remote_fetch() -> None:
@@ -313,7 +372,7 @@ def fetch_a_minute_bars(
     code: str,
     *,
     period: str = "5",
-    lookback_days: int = 30,
+    lookback_days: int = 120,
     use_cache: bool = True,
     max_age_hours: float = MINUTE_CACHE_HOURS,
     adjust: str = "qfq",
@@ -325,7 +384,7 @@ def fetch_a_minute_bars(
     period: "1"|"5"|"15"|"30"|"60"
     use_cache: True 时先读本地有效仓；False 跳过读仓直接打远端。
       远端成功后**始终** merge+save（与 use_cache 无关），避免 force refresh 不落盘。
-    skip_em: True 时跳过东财（T0 回测 / 显式 skip）；新浪/腾讯有数则不再打 BaoStock。
+    skip_em: True 时跳过东财（T0 回测 / 显式 skip）；``stock_zh_a_minute`` 有数则不再打 BaoStock。
     skip_bs: True 时跳过 BaoStock（增量补齐近端，避免 90s 子进程把 Job 挂死）。
     远端失败时回退本地过期缓存（与日线 fetch 一致），避免做T回测整批挂死。
     """
@@ -370,7 +429,7 @@ def fetch_a_minute_bars(
 
     bars = list(em_bars or [])
     if not bars:
-        as_bars, as_meta = _maybe_fetch_sina_tx_minute_bars(
+        as_bars, as_meta = _maybe_fetch_sina_minute_bars(
             bare,
             period=period,
             lookback_days=lookback_days,
@@ -385,10 +444,10 @@ def fetch_a_minute_bars(
             bars = merge_minute_bars_by_time(bars, as_bars, period=period)
 
     if as_bars or skip_bs:
-        # 新浪/腾讯已接住近端，或调用方禁止 BaoStock（增量补齐）
+        # stock_zh_a_minute 已接住近端，或调用方禁止 BaoStock（增量补齐）
         bs_bars, bs_meta = [], {
             "skipped": True,
-            "reason": "sina_tx_ok" if as_bars else "skip_bs",
+            "reason": "sina_ok" if as_bars else "skip_bs",
         }
     else:
         bs_bars, bs_meta = _maybe_fetch_baostock_minute_bars(
@@ -407,11 +466,15 @@ def fetch_a_minute_bars(
             # 同日整段以 incoming（BaoStock）为准，禁止跨源缝合
             bars = merge_minute_bars_by_time(bars, bs_bars, period=period)
 
+    logger.info(" DEBUG: fetch_a_minute_bars success %s period=%s lookback_days=%s use_cache=%s max_age_hours=%s adjust=%s skip_em=%s skip_bs=%s bars_count=%s",
+        code, period, lookback_days, use_cache, max_age_hours, adjust, skip_em, skip_bs, len(bars),
+    )
+
     sources: List[str] = []
     if em_bars:
         sources.append(str(em_meta.get("data_source") or "em"))
     if as_bars:
-        sources.append(str(as_meta.get("data_source") or "sina_tx"))
+        sources.append(str(as_meta.get("data_source") or "akshare:stock_zh_a_minute"))
     if bs_bars:
         sources.append(str(bs_meta.get("data_source") or "baostock"))
     src = "+".join(sources) if sources else "empty"
@@ -424,7 +487,7 @@ def fetch_a_minute_bars(
                 meta["remote_error"] = em_error or as_meta.get("error") or bs_meta.get("error")
                 meta["period"] = period
                 return bars, meta
-        hint = "东财/新浪腾讯/BaoStock 分钟源均失败；可稍后重试"
+        hint = "东财/stock_zh_a_minute/BaoStock 分钟源均失败；可稍后重试"
         return [], {
             "data_source": "empty",
             "error": em_error or as_meta.get("error") or bs_meta.get("error") or "no_minute_bars",
@@ -432,7 +495,7 @@ def fetch_a_minute_bars(
             "hint": hint,
             "em_error": em_error,
             "bs_error": bs_meta.get("error"),
-            "sina_tx_error": as_meta.get("error"),
+            "sina_error": as_meta.get("error"),
         }
 
     bars, meta = _merge_save_minute_bars(
@@ -447,7 +510,7 @@ def fetch_a_minute_bars(
     if bs_meta:
         meta["baostock"] = bs_meta
     if as_meta:
-        meta["sina_tx"] = as_meta
+        meta["sina"] = as_meta
     if em_error and not skip_em:
         meta["em_error"] = em_error
     if skip_em:
@@ -459,7 +522,7 @@ def fetch_minute_bars(
     code: str,
     *,
     period: str = "5",
-    lookback_days: int = 30,
+    lookback_days: int = 120,
     use_cache: bool = True,
     max_age_hours: float = MINUTE_CACHE_HOURS,
     adjust: str = "qfq",

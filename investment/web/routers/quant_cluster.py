@@ -91,7 +91,7 @@ def quant_cluster_minute_integrity_day(code: str, date: str) -> Dict[str, Any]:
 def quant_cluster_minute_status(
     watching_limit: int = 200,
     period: str = "5",
-    min_span_days: int = 20,
+    min_span_days: int = 40,
     include_label_portrait: bool = True,
 ) -> Dict[str, Any]:
     """观察池 5m 分钟缓存覆盖（研究枢纽 UI）。"""

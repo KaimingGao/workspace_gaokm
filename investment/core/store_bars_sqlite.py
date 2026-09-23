@@ -239,7 +239,8 @@ def save_daily(
     assess_quality,
     trim_daily_bars,
 ) -> str:
-    from core.store import daily_bar_complete, merge_bars_by_date
+    from core.data.policy import DAILY_BARS_MAX_KEEP
+    from core.store import daily_bar_complete
 
     mkt = market.upper()
     code_s = str(code)
@@ -253,6 +254,61 @@ def save_daily(
     conn = get_conn(store_dir)
 
     with _write_lock:
+        # 同一日覆盖，新日期插入。不整段删除；这次没带到的日期留在库里。
+        conn.executemany(
+            """
+            INSERT OR REPLACE INTO daily_bars
+            (code, market, date, open, high, low, close, volume,
+             adjust_policy, data_source, fetched_at)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?)
+            """,
+            [
+                (
+                    code_s,
+                    mkt,
+                    b.get("date"),
+                    b.get("open"),
+                    b.get("high"),
+                    b.get("low"),
+                    b.get("close"),
+                    b.get("volume"),
+                    policy,
+                    data_source,
+                    fetched_s,
+                )
+                for b in incoming
+                if b.get("date")
+            ],
+        )
+        total = conn.execute(
+            """
+            SELECT COUNT(*) AS n FROM daily_bars
+            WHERE market=? AND code=? AND adjust_policy=?
+            """,
+            (mkt, code_s, policy),
+        ).fetchone()
+        n_keep = int(total["n"] if total else 0)
+        max_keep = max(1, int(DAILY_BARS_MAX_KEEP))
+        extra = n_keep - max_keep
+        if extra > 0:
+            cut = conn.execute(
+                """
+                SELECT date FROM daily_bars
+                WHERE market=? AND code=? AND adjust_policy=?
+                ORDER BY date
+                LIMIT 1 OFFSET ?
+                """,
+                (mkt, code_s, policy, extra),
+            ).fetchone()
+            if cut and cut["date"]:
+                conn.execute(
+                    """
+                    DELETE FROM daily_bars
+                    WHERE market=? AND code=? AND adjust_policy=?
+                      AND date < ?
+                    """,
+                    (mkt, code_s, policy, cut["date"]),
+                )
         rows = conn.execute(
             """
             SELECT date, open, high, low, close, volume
@@ -262,7 +318,7 @@ def save_daily(
             """,
             (mkt, code_s, policy),
         ).fetchall()
-        existing = [
+        bars = [
             {
                 "date": r["date"],
                 "open": r["open"],
@@ -273,40 +329,9 @@ def save_daily(
             }
             for r in rows
         ]
-        bars = trim_daily_bars(merge_bars_by_date(existing, incoming))
         quality = assess_quality(bars, data_source=data_source, fetched_at=fetched_at)
         date_min = bars[0].get("date") if bars else None
         date_max = bars[-1].get("date") if bars else None
-        conn.execute(
-            "DELETE FROM daily_bars WHERE market=? AND code=? AND adjust_policy=?",
-            (mkt, code_s, policy),
-        )
-        if bars:
-            conn.executemany(
-                """
-                INSERT OR REPLACE INTO daily_bars
-                (code, market, date, open, high, low, close, volume,
-                 adjust_policy, data_source, fetched_at)
-                VALUES (?,?,?,?,?,?,?,?,?,?,?)
-                """,
-                [
-                    (
-                        code_s,
-                        mkt,
-                        b.get("date"),
-                        b.get("open"),
-                        b.get("high"),
-                        b.get("low"),
-                        b.get("close"),
-                        b.get("volume"),
-                        policy,
-                        data_source,
-                        fetched_s,
-                    )
-                    for b in bars
-                    if b.get("date")
-                ],
-            )
         conn.execute(
             """
             INSERT OR REPLACE INTO daily_cache_meta
@@ -659,114 +684,65 @@ def save_minute(
     fetched_at = datetime.now()
     fetched_s = fetched_at.isoformat(timespec="seconds")
     conn = get_conn(store_dir)
-    touch_days = sorted(
-        {
-            str(b.get("date") or str(b.get("datetime") or "")[:10]).strip()[:10]
-            for b in bars
-            if isinstance(b, dict)
-            and len(str(b.get("date") or str(b.get("datetime") or "")[:10]).strip()[:10])
-            == 10
-        }
-    )
     with _write_lock:
-        if touch_days:
-            from core.store import drop_thinner_minute_days
-
-            placeholders = ",".join("?" * len(touch_days))
-            rows = conn.execute(
-                f"""
-                SELECT datetime, date FROM minute_bars
+        # 同一时刻覆盖，新时刻插入。不按交易日删除；没带到的根留在库里。
+        conn.executemany(
+            """
+            INSERT OR REPLACE INTO minute_bars
+            (code, market, datetime, date, open, high, low, close, volume,
+             adjust_policy, period, data_source, fetched_at)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+            """,
+            [
+                (
+                    code_s,
+                    mkt,
+                    str(b.get("datetime") or b.get("date") or ""),
+                    b.get("date") or str(b.get("datetime") or "")[:10],
+                    b.get("open"),
+                    b.get("high"),
+                    b.get("low"),
+                    b.get("close"),
+                    b.get("volume"),
+                    policy,
+                    per,
+                    data_source,
+                    fetched_s,
+                )
+                for b in bars
+                if (b.get("datetime") or b.get("date"))
+            ],
+        )
+        total = conn.execute(
+            """
+            SELECT COUNT(*) AS n FROM minute_bars
+            WHERE market=? AND code=? AND period=? AND adjust_policy=?
+            """,
+            (mkt, code_s, per, policy),
+        ).fetchone()
+        n_keep = int(total["n"] if total else 0)
+        max_keep = max(1, int(MINUTE_BARS_MAX_KEEP))
+        extra = n_keep - max_keep
+        if extra > 0:
+            # WITHOUT ROWID 表无 rowid；按 datetime 切掉最旧 extra 根
+            cut = conn.execute(
+                """
+                SELECT datetime FROM minute_bars
                 WHERE market=? AND code=? AND period=? AND adjust_policy=?
-                  AND date IN ({placeholders})
+                ORDER BY datetime
+                LIMIT 1 OFFSET ?
                 """,
-                (mkt, code_s, per, policy, *touch_days),
-            ).fetchall()
-            existing = [
-                {"datetime": r["datetime"], "date": r["date"]} for r in rows
-            ]
-            bars = drop_thinner_minute_days(existing, bars, period=per)
-            touch_days = sorted(
-                {
-                    str(b.get("date") or str(b.get("datetime") or "")[:10]).strip()[:10]
-                    for b in bars
-                    if isinstance(b, dict)
-                    and len(
-                        str(b.get("date") or str(b.get("datetime") or "")[:10]).strip()[:10]
-                    )
-                    == 10
-                }
-            )
-        if not bars:
-            return path
-        else:
-            # 只替换 incoming 覆盖到、且时刻不少于本地的交易日
-            if touch_days:
-                placeholders = ",".join("?" * len(touch_days))
+                (mkt, code_s, per, policy, extra),
+            ).fetchone()
+            if cut and cut["datetime"]:
                 conn.execute(
-                    f"""
+                    """
                     DELETE FROM minute_bars
                     WHERE market=? AND code=? AND period=? AND adjust_policy=?
-                      AND date IN ({placeholders})
+                      AND datetime < ?
                     """,
-                    (mkt, code_s, per, policy, *touch_days),
+                    (mkt, code_s, per, policy, cut["datetime"]),
                 )
-            conn.executemany(
-                """
-                INSERT OR REPLACE INTO minute_bars
-                (code, market, datetime, date, open, high, low, close, volume,
-                 adjust_policy, period, data_source, fetched_at)
-                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
-                """,
-                [
-                    (
-                        code_s,
-                        mkt,
-                        str(b.get("datetime") or b.get("date") or ""),
-                        b.get("date") or str(b.get("datetime") or "")[:10],
-                        b.get("open"),
-                        b.get("high"),
-                        b.get("low"),
-                        b.get("close"),
-                        b.get("volume"),
-                        policy,
-                        per,
-                        data_source,
-                        fetched_s,
-                    )
-                    for b in bars
-                    if (b.get("datetime") or b.get("date"))
-                ],
-            )
-            total = conn.execute(
-                """
-                SELECT COUNT(*) AS n FROM minute_bars
-                WHERE market=? AND code=? AND period=? AND adjust_policy=?
-                """,
-                (mkt, code_s, per, policy),
-            ).fetchone()
-            n_keep = int(total["n"] if total else 0)
-            max_keep = max(1, int(MINUTE_BARS_MAX_KEEP))
-            extra = n_keep - max_keep
-            if extra > 0:
-                # WITHOUT ROWID 表无 rowid；按 datetime 切掉最旧 extra 根
-                cut = conn.execute(
-                    """
-                    SELECT datetime FROM minute_bars
-                    WHERE market=? AND code=? AND period=? AND adjust_policy=?
-                    ORDER BY datetime
-                    LIMIT 1 OFFSET ?
-                    """,
-                    (mkt, code_s, per, policy, extra),
-                ).fetchone()
-                if cut and cut["datetime"]:
-                    conn.execute(
-                        """
-                        DELETE FROM minute_bars
-                        WHERE market=? AND code=? AND period=? AND adjust_policy=?
-                          AND datetime < ?
-                        """,
-                        (mkt, code_s, per, policy, cut["datetime"]),
-                    )
         stats = conn.execute(
             """
             SELECT COUNT(*) AS bar_count, MIN(date) AS date_min, MAX(date) AS date_max

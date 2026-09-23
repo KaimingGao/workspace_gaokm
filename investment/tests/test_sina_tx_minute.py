@@ -21,7 +21,7 @@ def _resp_json(payload):
 
 class TestSinaTxMinute(unittest.TestCase):
     def test_to_sina_tx_symbol(self):
-        from adapters.market.sina_tx_minute import to_sina_tx_symbol
+        from adapters.market.sina_minute import to_sina_tx_symbol
 
         self.assertEqual(to_sina_tx_symbol("600519"), "sh600519")
         self.assertEqual(to_sina_tx_symbol("000001"), "sz000001")
@@ -30,7 +30,7 @@ class TestSinaTxMinute(unittest.TestCase):
         self.assertEqual(to_sina_tx_symbol("430047"), "bj430047")
 
     def test_sina_success(self):
-        from adapters.market.sina_tx_minute import fetch_sina_tx_minute_bars
+        from adapters.market.sina_minute import fetch_sina_tx_minute_bars
 
         payload = [
             {
@@ -43,7 +43,7 @@ class TestSinaTxMinute(unittest.TestCase):
             }
         ]
         with patch(
-            "adapters.market.sina_tx_minute.requests_get_with_retry",
+            "adapters.market.sina_minute.requests_get_with_retry",
             return_value=_resp_json(payload),
         ):
             bars, meta = fetch_sina_tx_minute_bars("600519", period="5", lookback_days=5)
@@ -51,8 +51,34 @@ class TestSinaTxMinute(unittest.TestCase):
         self.assertEqual(bars[0]["close"], 10.5)
         self.assertEqual(meta.get("data_source"), "sina_tx:sina")
 
+    def test_sina_quotes_jsonp_caps_datalen_at_1970(self):
+        from adapters.market.sina_minute import fetch_sina_tx_minute_bars
+
+        seen: dict = {}
+
+        def _get(url, params=None, **_kw):
+            seen["url"] = url
+            seen["params"] = dict(params or {})
+            resp = MagicMock()
+            resp.raise_for_status.return_value = None
+            resp.text = (
+                '=(['
+                '{"day":"2026-08-28 09:35:00","open":"10","high":"11",'
+                '"low":"9","close":"10.5","volume":"100"}'
+                ']);'
+            )
+            resp.json.side_effect = ValueError("jsonp")
+            return resp
+
+        with patch("adapters.market.sina_minute.requests_get_with_retry", side_effect=_get):
+            bars, meta = fetch_sina_tx_minute_bars("600519", period="5", lookback_days=90)
+        self.assertIn("quotes.sina.cn", seen["url"])
+        self.assertEqual(seen["params"].get("datalen"), 1970)
+        self.assertEqual(len(bars), 1)
+        self.assertEqual(meta.get("data_source"), "sina_tx:sina")
+
     def test_sina_fail_tencent_backup(self):
-        from adapters.market.sina_tx_minute import fetch_sina_tx_minute_bars
+        from adapters.market.sina_minute import fetch_sina_tx_minute_bars
 
         tx = {
             "data": {
@@ -67,7 +93,7 @@ class TestSinaTxMinute(unittest.TestCase):
                 raise RuntimeError("sina down")
             return _resp_json(tx)
 
-        with patch("adapters.market.sina_tx_minute.requests_get_with_retry", side_effect=_get):
+        with patch("adapters.market.sina_minute.requests_get_with_retry", side_effect=_get):
             bars, meta = fetch_sina_tx_minute_bars("600519", period="5")
         self.assertEqual(len(bars), 1)
         self.assertEqual(meta.get("data_source"), "sina_tx:tencent")
@@ -91,7 +117,7 @@ class TestSinaTxMinute(unittest.TestCase):
             mh, "_fetch_em_minute_bars", return_value=([], {}, "em down")
         ), patch.object(
             mh,
-            "_maybe_fetch_sina_tx_minute_bars",
+            "_maybe_fetch_sina_minute_bars",
             return_value=([bar], {"data_source": "sina_tx:sina"}),
         ), patch.object(
             mh, "_maybe_fetch_baostock_minute_bars"
@@ -104,8 +130,8 @@ class TestSinaTxMinute(unittest.TestCase):
         bs_fetch.assert_not_called()
         self.assertEqual(len(bars), 1)
         self.assertIn("sina_tx", meta.get("data_source") or "")
-        self.assertEqual((meta.get("sina_tx") or {}).get("data_source"), "sina_tx:sina")
-        self.assertEqual((meta.get("baostock") or {}).get("reason"), "sina_tx_ok")
+        self.assertEqual((meta.get("sina") or {}).get("data_source"), "sina_tx:sina")
+        self.assertEqual((meta.get("baostock") or {}).get("reason"), "sina_ok")
 
     def test_sina_tx_runs_before_baostock(self):
         from adapters.market import minute_history as mh
@@ -125,7 +151,7 @@ class TestSinaTxMinute(unittest.TestCase):
         ), patch.object(
             mh, "_fetch_em_minute_bars", return_value=([], {}, "em down")
         ), patch.object(
-            mh, "_maybe_fetch_sina_tx_minute_bars", side_effect=_sina
+            mh, "_maybe_fetch_sina_minute_bars", side_effect=_sina
         ), patch.object(
             mh, "_maybe_fetch_baostock_minute_bars", side_effect=_bs
         ), patch.object(mh, "_throttle_minute_remote_fetch"), patch.object(
@@ -134,7 +160,7 @@ class TestSinaTxMinute(unittest.TestCase):
             mh.fetch_a_minute_bars("600519", use_cache=False, max_age_hours=0)
         self.assertEqual(order, ["sina_tx", "baostock"])
 
-    def test_sina_tx_ok_skips_baostock(self):
+    def test_sina_ok_skips_baostock(self):
         from adapters.market import minute_history as mh
 
         bar = {
@@ -161,7 +187,7 @@ class TestSinaTxMinute(unittest.TestCase):
         ), patch.object(
             mh, "_fetch_em_minute_bars", return_value=([], {}, "em down")
         ), patch.object(
-            mh, "_maybe_fetch_sina_tx_minute_bars", side_effect=_sina
+            mh, "_maybe_fetch_sina_minute_bars", side_effect=_sina
         ), patch.object(
             mh, "_maybe_fetch_baostock_minute_bars", side_effect=_bs
         ), patch.object(mh, "_throttle_minute_remote_fetch"), patch.object(
