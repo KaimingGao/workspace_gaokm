@@ -343,7 +343,7 @@ def _maybe_fetch_sina_minute_bars(
 
 
 def _throttle_minute_remote_fetch() -> None:
-    """东财 / 新浪腾讯 / BaoStock 分钟远端拉取后的频控间隔。"""
+    """东财 / 新浪 / BaoStock 分钟远端拉取后的频控间隔。"""
     delay = minute_fetch_delay_sec()
     if delay > 0:
         time.sleep(delay)

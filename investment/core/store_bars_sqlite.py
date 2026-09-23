@@ -81,6 +81,7 @@ CREATE TABLE IF NOT EXISTS minute_cache_meta (
   bar_count     INTEGER,
   date_min      TEXT,
   date_max      TEXT,
+  span_days     INTEGER,
   PRIMARY KEY (market, code, period, adjust_policy)
 );
 """
@@ -88,6 +89,8 @@ CREATE TABLE IF NOT EXISTS minute_cache_meta (
 _conn_cache: Dict[str, sqlite3.Connection] = {}
 _conn_guard = threading.Lock()
 _write_lock = threading.Lock()
+# 读连接按线程隔离：WAL 下可读可与写并行，且避免单连接跨线程 execute 空结果
+_read_local = threading.local()
 
 
 def db_path(store_dir: str) -> str:
@@ -99,10 +102,23 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
     conn.execute("PRAGMA synchronous=NORMAL")
     conn.execute("PRAGMA busy_timeout=5000")
     conn.executescript(_SCHEMA)
+    cols = {
+        str(r[1])
+        for r in conn.execute("PRAGMA table_info(minute_cache_meta)").fetchall()
+    }
+    if "span_days" not in cols:
+        conn.execute(
+            "ALTER TABLE minute_cache_meta ADD COLUMN span_days INTEGER"
+        )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_minute_code_date "
+        "ON minute_bars(market, code, period, adjust_policy, date)"
+    )
     conn.commit()
 
 
 def get_conn(store_dir: str) -> sqlite3.Connection:
+    """写连接（进程内单例）。写路径必须持 ``_write_lock``。"""
     path = db_path(store_dir)
     with _conn_guard:
         c = _conn_cache.get(path)
@@ -118,6 +134,28 @@ def get_conn(store_dir: str) -> sqlite3.Connection:
         return c
 
 
+def get_read_conn(store_dir: str) -> sqlite3.Connection:
+    """只读连接（线程本地）。覆盖状态 / Ready / 拉仓热路径用，不占写锁。"""
+    path = db_path(store_dir)
+    if not os.path.isfile(path):
+        # 建库 / schema 走写连接
+        get_conn(store_dir)
+    cache: Dict[str, sqlite3.Connection] = getattr(_read_local, "conns", None) or {}
+    c = cache.get(path)
+    if c is not None:
+        return c
+    try:
+        c = sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=5.0)
+    except sqlite3.OperationalError:
+        # 极端：只读打开失败时退回共享写连接（仍建议调用方短查询）
+        return get_conn(store_dir)
+    c.row_factory = sqlite3.Row
+    c.execute("PRAGMA busy_timeout=5000")
+    cache[path] = c
+    _read_local.conns = cache
+    return c
+
+
 def reset_conn_cache() -> None:
     """测试用：关闭并清空连接缓存。"""
     with _conn_guard:
@@ -127,6 +165,13 @@ def reset_conn_cache() -> None:
             except Exception:  # noqa: BLE001
                 logger.debug("close bars.db failed path=%s", path, exc_info=True)
         _conn_cache.clear()
+    cache: Dict[str, sqlite3.Connection] = getattr(_read_local, "conns", None) or {}
+    for path, c in list(cache.items()):
+        try:
+            c.close()
+        except Exception:  # noqa: BLE001
+            logger.debug("close read bars.db failed path=%s", path, exc_info=True)
+    _read_local.conns = {}
 
 
 def _norm_policy(adjust_policy: Optional[str]) -> str:
@@ -155,7 +200,7 @@ def load_daily(
 ) -> Optional[Tuple[List[dict], Dict[str, Any]]]:
     mkt = market.upper()
     code_s = str(code)
-    conn = get_conn(store_dir)
+    conn = get_read_conn(store_dir)
     row = conn.execute(
         """
         SELECT * FROM daily_cache_meta
@@ -406,7 +451,7 @@ def peek_daily_meta(
 ) -> Optional[Dict[str, Any]]:
     mkt = market.upper()
     code_s = str(code)
-    conn = get_conn(store_dir)
+    conn = get_read_conn(store_dir)
     row = conn.execute(
         """
         SELECT * FROM daily_cache_meta
@@ -443,7 +488,7 @@ def list_daily_symbols(
     market: Optional[str],
     store_dir: str,
 ) -> List[Dict[str, Any]]:
-    conn = get_conn(store_dir)
+    conn = get_read_conn(store_dir)
     if market:
         rows = conn.execute(
             "SELECT * FROM daily_cache_meta WHERE market=? ORDER BY code",
@@ -563,44 +608,95 @@ def load_minute(
     mkt = market.upper()
     code_s = str(code)
     per = str(period or "5")
-    conn = get_conn(store_dir)
-    # 单连接跨线程：读也必须与写串行，否则 SELECT 可能空结果 → 增量补齐把长历史整表覆盖掉
-    with _write_lock:
-        row = _minute_meta_row(conn, mkt, code_s, per)
-        if row is None:
+    # 独立只读连接：不占写锁，避免覆盖状态与补齐互相堵死
+    conn = get_read_conn(store_dir)
+    row = _minute_meta_row(conn, mkt, code_s, per)
+    if row is None:
+        return None
+    fetched_at = _parse_fetched(row["fetched_at"]) or datetime.now()
+    if not ignore_age and max_age_hours > 0:
+        if datetime.now() - fetched_at > timedelta(hours=max_age_hours):
             return None
-        fetched_at = _parse_fetched(row["fetched_at"]) or datetime.now()
-        if not ignore_age and max_age_hours > 0:
-            if datetime.now() - fetched_at > timedelta(hours=max_age_hours):
-                return None
-        policy = row["adjust_policy"] or "qfq"
-        bars_rows = conn.execute(
-            """
-            SELECT datetime, date, open, high, low, close, volume
-            FROM minute_bars
-            WHERE market=? AND code=? AND period=? AND adjust_policy=?
-            ORDER BY datetime
-            """,
-            (mkt, code_s, per, policy),
-        ).fetchall()
-        bars = _minute_bar_dicts(list(bars_rows))
-        if len(bars) < min_bars:
-            return None
-        meta = {
-            "market": row["market"] or mkt,
-            "code": row["code"] or code_s,
-            "stock_code": row["stock_code"],
-            "period": per,
-            "data_source": row["data_source"] or "cache",
-            "fetched_at": fetched_at.isoformat(timespec="seconds"),
-            "from_cache": True,
-            "date_min": row["date_min"],
-            "date_max": row["date_max"],
-            "bar_count": row["bar_count"] or len(bars),
-            "adjust_policy": policy,
-            "bars_backend": "sqlite",
-        }
-        return bars, meta
+    policy = row["adjust_policy"] or "qfq"
+    bars_rows = conn.execute(
+        """
+        SELECT datetime, date, open, high, low, close, volume
+        FROM minute_bars
+        WHERE market=? AND code=? AND period=? AND adjust_policy=?
+        ORDER BY datetime
+        """,
+        (mkt, code_s, per, policy),
+    ).fetchall()
+    bars = _minute_bar_dicts(list(bars_rows))
+    if len(bars) < min_bars:
+        return None
+    meta = {
+        "market": row["market"] or mkt,
+        "code": row["code"] or code_s,
+        "stock_code": row["stock_code"],
+        "period": per,
+        "data_source": row["data_source"] or "cache",
+        "fetched_at": fetched_at.isoformat(timespec="seconds"),
+        "from_cache": True,
+        "date_min": row["date_min"],
+        "date_max": row["date_max"],
+        "bar_count": row["bar_count"] or len(bars),
+        "adjust_policy": policy,
+        "bars_backend": "sqlite",
+    }
+    return bars, meta
+
+
+def load_minute_since(
+    market: str,
+    code: str,
+    period: str,
+    *,
+    date_min: str,
+    store_dir: str,
+    min_bars: int = 1,
+) -> Optional[Tuple[List[dict], Dict[str, Any]]]:
+    """按 ``date >= date_min`` 拉分钟线（画像/标签用，避免全历史进内存）。"""
+    mkt = market.upper()
+    code_s = str(code)
+    per = str(period or "5")
+    d0 = str(date_min or "")[:10]
+    if len(d0) < 10:
+        return None
+    conn = get_read_conn(store_dir)
+    row = _minute_meta_row(conn, mkt, code_s, per)
+    if row is None:
+        return None
+    policy = row["adjust_policy"] or "qfq"
+    bars_rows = conn.execute(
+        """
+        SELECT datetime, date, open, high, low, close, volume
+        FROM minute_bars
+        WHERE market=? AND code=? AND period=? AND adjust_policy=?
+          AND date >= ?
+        ORDER BY datetime
+        """,
+        (mkt, code_s, per, policy, d0),
+    ).fetchall()
+    bars = _minute_bar_dicts(list(bars_rows))
+    if len(bars) < min_bars:
+        return None
+    fetched_at = _parse_fetched(row["fetched_at"])
+    meta = {
+        "market": row["market"] or mkt,
+        "code": row["code"] or code_s,
+        "stock_code": row["stock_code"],
+        "period": per,
+        "data_source": row["data_source"] or "cache",
+        "fetched_at": fetched_at.isoformat(timespec="seconds") if fetched_at else (row["fetched_at"] or None),
+        "from_cache": True,
+        "date_min": d0,
+        "date_max": row["date_max"],
+        "bar_count": len(bars),
+        "adjust_policy": policy,
+        "bars_backend": "sqlite",
+    }
+    return bars, meta
 
 
 def load_minute_span_snapshot(
@@ -610,16 +706,24 @@ def load_minute_span_snapshot(
     *,
     store_dir: str,
 ) -> Optional[Dict[str, Any]]:
-    """覆盖状态用：不拉全历史，只取跨度 + 末日 bars。"""
+    """覆盖状态用：优先 meta；缺 span 时才 COUNT DISTINCT；只取末日 bars。"""
     mkt = market.upper()
     code_s = str(code)
     per = str(period or "5")
-    conn = get_conn(store_dir)
-    with _write_lock:
-        row = _minute_meta_row(conn, mkt, code_s, per)
-        if row is None:
-            return None
-        policy = row["adjust_policy"] or "qfq"
+    conn = get_read_conn(store_dir)
+    row = _minute_meta_row(conn, mkt, code_s, per)
+    if row is None:
+        return None
+    policy = row["adjust_policy"] or "qfq"
+    date_min = str(row["date_min"] or "")[:10] or None
+    date_max = str(row["date_max"] or "")[:10] or None
+    bar_count = int(row["bar_count"] or 0)
+    span_days = 0
+    try:
+        span_days = int(row["span_days"] or 0)
+    except (KeyError, TypeError, ValueError, IndexError):
+        span_days = 0
+    if span_days < 1:
         stats = conn.execute(
             """
             SELECT COUNT(DISTINCT date) AS span_days,
@@ -634,29 +738,31 @@ def load_minute_span_snapshot(
         span_days = int((stats["span_days"] if stats else 0) or 0)
         if span_days < 1:
             return None
-        date_max = str((stats["date_max"] if stats else "") or "")[:10] or None
-        day_rows = []
-        if date_max:
-            day_rows = conn.execute(
-                """
-                SELECT datetime, date, open, high, low, close, volume
-                FROM minute_bars
-                WHERE market=? AND code=? AND period=? AND adjust_policy=? AND date=?
-                ORDER BY datetime
-                """,
-                (mkt, code_s, per, policy, date_max),
-            ).fetchall()
-        fetched_at = _parse_fetched(row["fetched_at"])
-        return {
-            "span_days": span_days,
-            "bar_count": int((stats["bar_count"] if stats else 0) or 0),
-            "fetched_at": fetched_at.isoformat(timespec="seconds") if fetched_at else (row["fetched_at"] or None),
-            "date_min": str((stats["date_min"] if stats else "") or "")[:10] or None,
-            "date_max": date_max,
-            "date_max_bars": _minute_bar_dicts(list(day_rows)),
-            "adjust_policy": policy,
-            "bars_backend": "sqlite",
-        }
+        bar_count = int((stats["bar_count"] if stats else 0) or bar_count or 0)
+        date_min = str((stats["date_min"] if stats else "") or "")[:10] or date_min
+        date_max = str((stats["date_max"] if stats else "") or "")[:10] or date_max
+    if not date_max:
+        return None
+    day_rows = conn.execute(
+        """
+        SELECT datetime, date, open, high, low, close, volume
+        FROM minute_bars
+        WHERE market=? AND code=? AND period=? AND adjust_policy=? AND date=?
+        ORDER BY datetime
+        """,
+        (mkt, code_s, per, policy, date_max),
+    ).fetchall()
+    fetched_at = _parse_fetched(row["fetched_at"])
+    return {
+        "span_days": span_days,
+        "bar_count": bar_count,
+        "fetched_at": fetched_at.isoformat(timespec="seconds") if fetched_at else (row["fetched_at"] or None),
+        "date_min": date_min,
+        "date_max": date_max,
+        "date_max_bars": _minute_bar_dicts(list(day_rows)),
+        "adjust_policy": policy,
+        "bars_backend": "sqlite",
+    }
 
 
 def save_minute(
@@ -745,21 +851,25 @@ def save_minute(
                 )
         stats = conn.execute(
             """
-            SELECT COUNT(*) AS bar_count, MIN(date) AS date_min, MAX(date) AS date_max
+            SELECT COUNT(*) AS bar_count,
+                   COUNT(DISTINCT date) AS span_days,
+                   MIN(date) AS date_min,
+                   MAX(date) AS date_max
             FROM minute_bars
             WHERE market=? AND code=? AND period=? AND adjust_policy=?
             """,
             (mkt, code_s, per, policy),
         ).fetchone()
         bar_count = int((stats["bar_count"] if stats else 0) or 0)
+        span_days = int((stats["span_days"] if stats else 0) or 0)
         date_min = str((stats["date_min"] if stats else "") or "")[:10] or None
         date_max = str((stats["date_max"] if stats else "") or "")[:10] or None
         conn.execute(
             """
             INSERT OR REPLACE INTO minute_cache_meta
             (market, code, period, adjust_policy, stock_code, data_source,
-             fetched_at, bar_count, date_min, date_max)
-            VALUES (?,?,?,?,?,?,?,?,?,?)
+             fetched_at, bar_count, date_min, date_max, span_days)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?)
             """,
             (
                 mkt,
@@ -772,6 +882,7 @@ def save_minute(
                 bar_count,
                 date_min,
                 date_max,
+                span_days,
             ),
         )
         conn.commit()

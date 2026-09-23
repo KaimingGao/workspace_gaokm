@@ -7,7 +7,6 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from core.numbers import date_key
-from core.store import load_daily_cache
 
 logger = logging.getLogger(__name__)
 
@@ -20,17 +19,16 @@ def expected_latest_daily_bar_date(*, now: Optional[datetime] = None) -> str:
 
 
 def _last_bar_date_for_code(code: str) -> Optional[str]:
+    """只读 meta.date_max，不拉全日线（覆盖状态热路径）。"""
     try:
         from core.ports.market import resolve_market_code
+        from core.store import peek_daily_cache_meta
 
         market, sym = resolve_market_code(code)
-        pack = load_daily_cache(market, sym, ignore_age=True)
-        if not pack:
+        meta = peek_daily_cache_meta(market, sym)
+        if not meta:
             return None
-        bars = pack[0] if isinstance(pack, tuple) else pack
-        if not bars:
-            return None
-        return date_key((bars[-1] or {}).get("date")) or None
+        return date_key(meta.get("date_max")) or None
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
         logger.debug("catch except Exception: in cluster_bars_status.py", exc_info=True)
         return None

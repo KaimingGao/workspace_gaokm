@@ -1070,6 +1070,57 @@ def load_minute_span_snapshot(
     }
 
 
+def load_minute_since(
+    market: str,
+    code: str,
+    period: str = "5",
+    *,
+    date_min: str,
+    store_dir: Optional[str] = None,
+    min_bars: int = 1,
+) -> Optional[Tuple[List[dict], Dict[str, Any]]]:
+    """按日期下界拉分钟线（标签画像等）；sqlite 不扫全历史。"""
+    base = store_dir or get_store_dir()
+    d0 = str(date_min or "")[:10]
+    if len(d0) < 10:
+        return None
+    if bars_backend() == "sqlite":
+        from core import store_bars_sqlite as sq
+
+        return sq.load_minute_since(
+            market,
+            code,
+            period,
+            date_min=d0,
+            store_dir=base,
+            min_bars=min_bars,
+        )
+    packed = load_minute_cache(
+        market,
+        code,
+        period,
+        min_bars=min_bars,
+        max_age_hours=0,
+        ignore_age=True,
+        store_dir=base,
+    )
+    if not packed:
+        return None
+    bars, meta = packed
+    clipped = [
+        b
+        for b in (bars or [])
+        if isinstance(b, dict)
+        and str(b.get("date") or str(b.get("datetime") or "")[:10])[:10] >= d0
+    ]
+    if len(clipped) < min_bars:
+        return None
+    meta_out = dict(meta or {})
+    meta_out["date_min"] = d0
+    meta_out["bar_count"] = len(clipped)
+    return clipped, meta_out
+
+
 def save_minute_cache(
     market: str,
     code: str,

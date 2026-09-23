@@ -142,21 +142,25 @@ def build_live_config_manifest(*, note: str = "") -> Dict[str, Any]:
     }
 
 
+def live_config_manifest_path() -> str:
+    """清单路径跟随当时的 ``LIVE_DIR``（测试可 patch），不使用导入时绑定的常量。"""
+    from core.paths import LIVE_CONFIG_MANIFEST_PATH, LIVE_DIR
+
+    return os.path.join(LIVE_DIR, os.path.basename(LIVE_CONFIG_MANIFEST_PATH))
+
+
 def write_live_config_manifest(*, note: str = "") -> Dict[str, Any]:
     """构建并写入 ``data/live/live_config_manifest.json``。"""
     from core.io_atomic import atomic_write_json
-    from core.paths import LIVE_CONFIG_MANIFEST_PATH, LIVE_DIR
+    from core.paths import LIVE_DIR
 
     manifest = build_live_config_manifest(note=note)
     os.makedirs(LIVE_DIR, exist_ok=True)
-    path = LIVE_CONFIG_MANIFEST_PATH
+    path = live_config_manifest_path()
     atomic_write_json(path, manifest)
     manifest["path"] = path
     return manifest
 
 
 def load_live_config_manifest() -> Optional[Dict[str, Any]]:
-    from core.paths import LIVE_DIR
-
-    path = os.path.join(LIVE_DIR, "live_config_manifest.json")
-    return _read_json(path)
+    return _read_json(live_config_manifest_path())

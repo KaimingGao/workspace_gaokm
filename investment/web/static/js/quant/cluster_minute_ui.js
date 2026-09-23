@@ -314,10 +314,10 @@ export function installClusterMinuteUi(q) {
     }
 
     const dist = Array.isArray(data.span_distribution) ? data.span_distribution : [];
-    const fineOrder = ["<10d", "<20d", "<30d"];
+    const fineOrder = ["<30d", "<40d", "<50d"];
     const shortBucketState = (bucket) => {
-      if (bucket === "<10d") return "is-bad";
-      if (bucket === "<20d") return "is-warn";
+      if (bucket === "<30d") return "is-bad";
+      if (bucket === "<40d") return "is-warn";
       return "is-warn";
     };
     const byBucket = new Map(fineOrder.map((k) => [k, 0]));
@@ -336,7 +336,7 @@ export function installClusterMinuteUi(q) {
     }));
     const hasShort = rows.some((r) => (Number(r.count) || 0) > 0);
     renderBarRows(covBody, hasShort ? rows : [], {
-      emptyText: "无 <30d",
+      emptyText: "无 <50d",
       head,
     });
   }
@@ -553,7 +553,7 @@ export function installClusterMinuteUi(q) {
     if (!inflight && !jobFailure && !jobSuccess && jobSt !== "running") {
       setMinuteBusy(false);
     }
-    apiFetch(base)
+    apiFetch(`${base}&include_label_portrait=1`)
       .then(({ ok: pok, data: pdata }) => {
         if (!pok || !pdata?.success) return;
         renderLabelPortrait(pdata);

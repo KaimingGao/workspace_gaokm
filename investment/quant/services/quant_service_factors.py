@@ -4243,7 +4243,7 @@ class QuantFactorMixin:
         watching_limit: int = 200,
         period: str = "5",
         min_span_days: int = 40,
-        include_label_portrait: bool = True,
+        include_label_portrait: bool = False,
     ) -> Dict[str, Any]:
         """观察池 5m 分钟缓存覆盖（研究枢纽 UI）。"""
         from quant.research.cluster_minute_status import build_cluster_minute_status

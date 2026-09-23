@@ -153,9 +153,10 @@ def build_minute_grid(
     codes: Sequence[str],
     names: Dict[str, str],
     dates: Sequence[str],
-    hms_by_code_date: Dict[str, Dict[str, Set[str]]],
+    hms_by_code_date: Dict[str, Dict[str, Any]],
     live_date: str = "",
 ) -> Dict[str, Any]:
+    """``hms_by_code_date`` 可为 hm set，或已由 SQL 聚合得到的 kind 字符串。"""
     live = str(live_date or "")[:10]
     rows: List[Dict[str, Any]] = []
     head_names = tail_names = miss_names = 0
@@ -166,9 +167,14 @@ def build_minute_grid(
         by_day = hms_by_code_date.get(c) or {}
         cells: List[str] = []
         for d in dates:
-            cells.append(
-                classify_minute_day(by_day.get(d) or set(), live=bool(live) and d == live)
-            )
+            if live and d == live:
+                cells.append("live")
+                continue
+            val = by_day.get(d)
+            if isinstance(val, str):
+                cells.append(val)
+            else:
+                cells.append(classify_minute_day(val or set(), live=False))
         head_days = sum(1 for x in cells if x in ("head", "both"))
         tail_days = sum(1 for x in cells if x in ("tail", "both"))
         miss_days = sum(1 for x in cells if x == "miss")
@@ -268,7 +274,7 @@ def _sqlite_sets(
     minute: bool,
 ) -> Dict[str, Any]:
     from core.store import bars_backend, get_store_dir
-    from core.store_bars_sqlite import get_conn
+    from core.store_bars_sqlite import get_read_conn
 
     if bars_backend() != "sqlite":
         return {}
@@ -276,22 +282,38 @@ def _sqlite_sets(
         return {}
     bare_codes = [_bare(c) for c in codes]
     d0, d1 = dates[0], dates[-1]
-    conn = get_conn(get_store_dir())
+    conn = get_read_conn(get_store_dir())
     placeholders = ",".join("?" * len(bare_codes))
     if minute:
+        # 聚合判定：不把数十万 hm 物化成 Python set（覆盖状态 / Ready 热路径）
+        slot_list = list(FIVE_MINUTE_SLOTS)
+        slot_ph = ",".join("?" * len(slot_list))
         sql = f"""
-            SELECT code, date, substr(datetime, 12, 5) AS hm
+            SELECT code, date,
+              COUNT(DISTINCT CASE
+                WHEN substr(datetime, 12, 5) IN ({slot_ph})
+                THEN substr(datetime, 12, 5) END) AS n_slots,
+              MAX(CASE WHEN substr(datetime, 12, 5)='09:35' THEN 1 ELSE 0 END) AS has_open,
+              MAX(CASE
+                WHEN substr(datetime, 12, 5) IN ({slot_ph})
+                THEN substr(datetime, 12, 5) END) AS hm_max
             FROM minute_bars
             WHERE market='CN' AND period='5'
               AND date >= ? AND date <= ?
               AND code IN ({placeholders})
+            GROUP BY code, date
         """
-        out: Dict[str, Dict[str, Set[str]]] = {}
-        for row in conn.execute(sql, (d0, d1, *bare_codes)):
+        out: Dict[str, Dict[str, str]] = {}
+        for row in conn.execute(sql, (*slot_list, *slot_list, d0, d1, *bare_codes)):
             code = str(row["code"] or "")
             day = str(row["date"] or "")[:10]
-            hm = str(row["hm"] or "")[:5]
-            out.setdefault(code, {}).setdefault(day, set()).add(hm)
+            kind = classify_minute_day_stats(
+                n_slots=int(row["n_slots"] or 0),
+                has_open=bool(int(row["has_open"] or 0)),
+                hm_max=str(row["hm_max"] or "")[:5],
+                live=False,
+            )
+            out.setdefault(code, {})[day] = kind
         return out
     sql = f"""
         SELECT DISTINCT code, date
@@ -305,6 +327,32 @@ def _sqlite_sets(
         day = str(row["date"] or "")[:10]
         out_days.setdefault(code, set()).add(day)
     return out_days
+
+
+def classify_minute_day_stats(
+    *,
+    n_slots: int,
+    has_open: bool,
+    hm_max: str,
+    live: bool,
+) -> str:
+    """与 ``classify_minute_day`` 同口径，但用聚合统计，避免物化 hm set。"""
+    if live:
+        return "live"
+    n = int(n_slots or 0)
+    if n <= 0:
+        return "miss"
+    head_bad = not bool(has_open)
+    tail_bad = str(hm_max or "")[:5] < "14:55"
+    if head_bad and tail_bad:
+        return "both"
+    if head_bad:
+        return "head"
+    if tail_bad:
+        return "tail"
+    if n < len(FIVE_MINUTE_SLOTS):
+        return "gap"
+    return "ok"
 
 
 def minute_windows_clean(
@@ -342,10 +390,17 @@ def minute_windows_clean(
         if not closed:
             out[code] = False
             continue
-        out[code] = all(
-            classify_minute_day(by_day.get(d) or set(), live=False) == "ok"
-            for d in closed
-        )
+        ok = True
+        for d in closed:
+            val = by_day.get(d)
+            if isinstance(val, str):
+                cell = val
+            else:
+                cell = classify_minute_day(val or set(), live=False)
+            if cell != "ok":
+                ok = False
+                break
+        out[code] = ok
         orig = orig_of.get(code)
         if orig and orig != code:
             out[orig] = out[code]
@@ -433,7 +488,7 @@ def build_minute_day_slots(
     now: Optional[datetime] = None,
 ) -> Dict[str, Any]:
     from core.store import bars_backend, get_store_dir
-    from core.store_bars_sqlite import get_conn
+    from core.store_bars_sqlite import get_read_conn
     from core.t0.intraday import resolve_stock_name
 
     bare = _bare(code)
@@ -443,7 +498,7 @@ def build_minute_day_slots(
     if bars_backend() != "sqlite":
         return {"success": False, "error": "完整度格子只读 sqlite 仓"}
     live = _live_date(now=now) == day
-    conn = get_conn(get_store_dir())
+    conn = get_read_conn(get_store_dir())
     hms: List[str] = []
     for row in conn.execute(
         """

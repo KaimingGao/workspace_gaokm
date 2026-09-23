@@ -32,6 +32,9 @@ class TestClusterMinuteStatus(unittest.TestCase):
         ), patch(
             "quant.research.cluster_minute_status.build_minute_label_portrait",
             return_value={"success": True, "tau": {"pos": 1}, "path": {"pos": 1}, "joint": {}},
+        ), patch(
+            "quant.research.bars_integrity.minute_windows_clean",
+            return_value={"600519": True, "000001": False},
         ):
             st = build_cluster_minute_status(watching_limit=100, min_span_days=40)
         self.assertTrue(st["success"])
@@ -45,9 +48,9 @@ class TestClusterMinuteStatus(unittest.TestCase):
         self.assertEqual(
             st["span_distribution"],
             [
-                {"bucket": "<10d", "count": 0},
-                {"bucket": "<20d", "count": 0},
                 {"bucket": "<30d", "count": 1},
+                {"bucket": "<40d", "count": 1},
+                {"bucket": "<50d", "count": 1},
             ],
         )
 
@@ -57,7 +60,7 @@ class TestClusterMinuteStatus(unittest.TestCase):
         watch = ["A", "B", "C", "D", "E"]
 
         def _snap(code: str, *, period: str = "5"):
-            spans = {"A": 95, "B": 25, "C": 15, "D": 8, "E": None}
+            spans = {"A": 95, "B": 45, "C": 35, "D": 28, "E": None}
             if spans.get(code) is None:
                 return None
             return {
@@ -72,18 +75,21 @@ class TestClusterMinuteStatus(unittest.TestCase):
         ), patch(
             "quant.research.cluster_minute_status.build_minute_label_portrait",
             return_value={"success": True, "tau": {}, "path": {}, "joint": {}},
+        ), patch(
+            "quant.research.bars_integrity.minute_windows_clean",
+            return_value={"A": True, "B": True},
         ):
             st = build_cluster_minute_status(watching_limit=100, min_span_days=20)
         self.assertEqual(st["cached_ok"], 2)
         self.assertEqual(st["short"], 2)
         self.assertEqual(st["missing"], 1)
-        # 累计（含已过 Ready 闸）：D8 → <10d；C15+D8 → <20d；B25+C15+D8 → <30d
+        # 累计（含已过 Ready 闸）：D28 → <30d；C35+D28 → <40d；B45+C35+D28 → <50d
         self.assertEqual(
             st["span_distribution"],
             [
-                {"bucket": "<10d", "count": 1},
-                {"bucket": "<20d", "count": 2},
-                {"bucket": "<30d", "count": 3},
+                {"bucket": "<30d", "count": 1},
+                {"bucket": "<40d", "count": 2},
+                {"bucket": "<50d", "count": 3},
             ],
         )
 
@@ -97,6 +103,9 @@ class TestClusterMinuteStatus(unittest.TestCase):
                 "fetched_at": datetime.now().isoformat(timespec="seconds"),
                 "date_max": datetime.now().strftime("%Y-%m-%d"),
             },
+        ), patch(
+            "quant.research.bars_integrity.minute_windows_clean",
+            return_value={"600519": True},
         ):
             ok, _, reason = minute_cache_ready("600519")
         self.assertTrue(ok)
@@ -109,34 +118,21 @@ class TestClusterMinuteStatus(unittest.TestCase):
                 "fetched_at": datetime.now().isoformat(timespec="seconds"),
                 "date_max": datetime.now().strftime("%Y-%m-%d"),
             },
+        ), patch(
+            "quant.research.bars_integrity.minute_windows_clean",
+            return_value={"000001": False},
         ):
             ok, _, reason = minute_cache_ready("000001")
-        self.assertTrue(ok)
-        self.assertEqual(reason, "ready")
+        self.assertFalse(ok)
+        self.assertEqual(reason, "gap")
 
         with patch(
             "quant.research.cluster_minute_status._minute_snapshot_for_code",
-            return_value={
-                "span_days": 30,
-                "fetched_at": datetime.now().isoformat(timespec="seconds"),
-                "date_max": datetime.now().strftime("%Y-%m-%d"),
-            },
-        ):
-            ok, _, reason = minute_cache_ready("600900")
-        self.assertTrue(ok)
-        self.assertEqual(reason, "ready")
-
-        with patch(
-            "quant.research.cluster_minute_status._minute_snapshot_for_code",
-            return_value={
-                "span_days": 19,
-                "fetched_at": datetime.now().isoformat(timespec="seconds"),
-                "date_max": datetime.now().strftime("%Y-%m-%d"),
-            },
+            return_value=None,
         ):
             ok, _, reason = minute_cache_ready("600050")
         self.assertFalse(ok)
-        self.assertEqual(reason, "short")
+        self.assertEqual(reason, "missing")
 
     def test_warmup_skips_ready(self):
         from core.schedule_jobs import _minute_warmup_core
@@ -182,7 +178,7 @@ class TestClusterMinuteStatus(unittest.TestCase):
         self.assertEqual(out["mode"], "full")
         warm.assert_called_once()
         self.assertEqual(warm.call_args.kwargs["cap"], 2)
-        self.assertEqual(warm.call_args.kwargs["lookback_days"], 30)
+        self.assertEqual(warm.call_args.kwargs["lookback_days"], 120)
 
     def test_expected_minute_asof_before_open(self):
         from datetime import datetime

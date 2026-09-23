@@ -7,6 +7,7 @@ from quant.research.bars_integrity import (
     build_daily_grid,
     build_minute_grid,
     classify_minute_day,
+    classify_minute_day_stats,
     minute_day_detail,
 )
 
@@ -28,6 +29,41 @@ class BarsIntegrityTests(unittest.TestCase):
         self.assertEqual(detail["n"], 45)
         self.assertFalse(detail["morning"][0]["ok"])
         self.assertTrue(detail["afternoon"][-1]["ok"])
+
+    def test_classify_stats_matches_hm_set(self):
+        full = set(FIVE_MINUTE_SLOTS)
+        self.assertEqual(
+            classify_minute_day_stats(
+                n_slots=48, has_open=True, hm_max="15:00", live=False
+            ),
+            classify_minute_day(full, live=False),
+        )
+        head = {hm for hm in FIVE_MINUTE_SLOTS if hm >= "09:50"}
+        self.assertEqual(
+            classify_minute_day_stats(
+                n_slots=len(head), has_open=False, hm_max="15:00", live=False
+            ),
+            "head",
+        )
+        self.assertEqual(
+            classify_minute_day_stats(
+                n_slots=0, has_open=False, hm_max="", live=True
+            ),
+            "live",
+        )
+
+    def test_minute_grid_accepts_precomputed_kinds(self):
+        dates = ["2026-09-08", "2026-09-09"]
+        minute = build_minute_grid(
+            codes=["002475"],
+            names={"002475": "立讯精密"},
+            dates=dates,
+            hms_by_code_date={
+                "002475": {"2026-09-08": "ok", "2026-09-09": "head"},
+            },
+        )
+        self.assertEqual(minute["rows"][0]["cells"], ["ok", "head"])
+        self.assertEqual(minute["head_names"], 1)
 
     def test_live_session_is_not_a_gap(self):
         self.assertEqual(classify_minute_day([], live=True), "live")

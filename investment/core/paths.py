@@ -44,6 +44,8 @@ CLUSTER_BARS_FORCED_SESSION_PATH = os.path.join(
 # FH1：指针指向版本化 artifact；active 文件为镜像兼容层
 CLUSTER_POINTER_PATH = os.path.join(LIVE_DIR, "cluster_pointer.json")
 PROMOTE_AUDIT_PATH = os.path.join(LIVE_DIR, "promote_audit.jsonl")
+# H3：promote / 改 mode 后的 live 配置指纹；读写须按当时的 LIVE_DIR 拼接
+LIVE_CONFIG_MANIFEST_PATH = os.path.join(LIVE_DIR, "live_config_manifest.json")
 # 调仓 10:00 板块截面：T 开→T+1 开周期内只写一次，下午补仓不得改 10:00 中位
 REBALANCE_CS_10_PATH = os.path.join(LIVE_DIR, "rebalance_cs_10.json")
 RETURN_SCORE_MODEL_DRAFT_PATH = os.path.join(QUANT_REPORTS_DIR, "last_return_score_model.json")

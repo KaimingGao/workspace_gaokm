@@ -21,13 +21,13 @@ DEFAULT_TOPUP_LOOKBACK_DAYS = 5
 DEFAULT_TOPUP_WORKERS = 4
 DEFAULT_LABEL_MAX_DAYS = 120
 # Span mix 累计档：有缓存标的按跨度同时计入更宽档（与 Ready 闸独立）
-SPAN_MIX_CUTS = (10, 20, 30)
+SPAN_MIX_CUTS = (30, 40, 50)
 _LABEL_PORTRAIT_TTL_SEC = 90.0
 _label_portrait_cache: Dict[str, Any] = {"key": None, "at": 0.0, "payload": None}
 
 
 def _span_mix_bucket_keys() -> List[str]:
-    """固定 ``<10d`` / ``<20d`` / ``<30d``（严→宽）。"""
+    """固定 ``<30d`` / ``<40d`` / ``<50d``（严→宽）。"""
     return [f"<{int(c)}d" for c in SPAN_MIX_CUTS if int(c) > 0]
 
 def _resolve_watching_codes(*, watching_limit: int = 200) -> List[str]:
@@ -214,7 +214,7 @@ def build_minute_label_portrait(
     """观察池 5m 上 τ(OC) / path(极值序) 标签数量画像（含同号/异号）。"""
     from quant.research.factor_ols_clusters import clamp_watching_limit
     from core.ports.market import group_minute_bars_by_date, resolve_market_code
-    from core.store import load_minute_cache
+    from core.store import load_minute_since, load_minute_span_snapshot
 
     limit = clamp_watching_limit(watching_limit, 200)
     period_s = str(period or DEFAULT_MINUTE_PERIOD)
@@ -231,12 +231,23 @@ def build_minute_label_portrait(
     for code in code_list:
         try:
             market, sym = resolve_market_code(code)
-            packed = load_minute_cache(
+            snap = load_minute_span_snapshot(market, sym, period_s)
+            if not snap or not snap.get("date_max"):
+                continue
+            # 只用近 max_days 个日历日窗口，避免全历史进内存
+            try:
+                d_max = datetime.strptime(str(snap["date_max"])[:10], "%Y-%m-%d")
+                d0 = (d_max - timedelta(days=max(max_days * 2, max_days + 40))).strftime(
+                    "%Y-%m-%d"
+                )
+            except (TypeError, ValueError):
+                d0 = str(snap.get("date_min") or "")[:10]
+            packed = load_minute_since(
                 market,
                 sym,
                 period_s,
+                date_min=d0 or str(snap.get("date_min") or "")[:10],
                 min_bars=10,
-                ignore_age=True,
             )
         except Exception:  # noqa: BLE001
             logger.debug("label portrait load failed for %s", code, exc_info=True)
@@ -348,9 +359,13 @@ def build_cluster_minute_status(
     period: str = DEFAULT_MINUTE_PERIOD,
     min_span_days: int = DEFAULT_MIN_SPAN_DAYS,
     stale_hours: float = 24.0,
-    include_label_portrait: bool = True,
+    include_label_portrait: bool = False,
 ) -> Dict[str, Any]:
-    """汇总观察池截断后的 5m 分钟缓存覆盖。"""
+    """汇总观察池截断后的 5m 分钟缓存覆盖。
+
+    ``include_label_portrait`` 默认 False：覆盖状态热路径不扫全历史；
+    UI 进页后再单独请求画像。
+    """
     from quant.research.bars_integrity import minute_windows_clean
     from quant.research.factor_ols_clusters import clamp_watching_limit
 
@@ -393,7 +408,7 @@ def build_cluster_minute_status(
             cached_ok += 1
         else:
             short += 1
-        # 累计：span=15 → <20d 与 <30d；与 Ready 是否过闸无关
+        # 累计：span=35 → <40d 与 <50d；与 Ready 是否过闸无关
         for key in bucket_keys:
             try:
                 cut = int(str(key).strip("<>d"))
@@ -414,7 +429,7 @@ def build_cluster_minute_status(
     except Exception:  # noqa: BLE001
         backend = "unknown"
 
-    # 三档均返回（含 0），便于 UI 固定画出 <10d / <20d / <30d
+    # 三档均返回（含 0），便于 UI 固定画出 <30d / <40d / <50d
     dist = [{"bucket": k, "count": int(span_buckets.get(k, 0) or 0)} for k in bucket_keys]
 
     label_portrait: Optional[Dict[str, Any]] = None
