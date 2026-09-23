@@ -77,7 +77,7 @@ def fuse_pct(
 
 
 def pc_formula_is_legacy(formula: Optional[str]) -> bool:
-    """旧 ŷ_r 标签 price(τ)/close−1（price 在分子）。"""
+    """旧 ŷ_τc 标签 price(τ)/close−1（price 在分子）。"""
     s = str(formula or "").replace(" ", "").replace("（", "(").replace("）", ")")
     if not s:
         return False

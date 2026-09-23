@@ -135,7 +135,7 @@ class PaperReplayBacktestRequest(BaseModel):
 
 - 入口：`backtest_paper_replay`（Web：`run_portfolio_backtest`；日报：`summarize_portfolio_backtest`）
 - 对照表改为 **历史 rank_lots vs live Follow**（都是 y_fuse/y_on · 09:30；历史宇宙=观察池、live 开加受持仓市值上限，不按 `max_positions` 截断）
-- 删「默认 K=3 · ŷ_EOD · 关 τ 闸」作为产品回测口径
+- 删「默认 K=3 · ŷ_oo · 关 τ 闸」作为产品回测口径
 - 用一小段标明：`topk_research` 仅研究探针（参数网格 / OOS / 中性化），**不进 `/replay`**
 
 同步改：

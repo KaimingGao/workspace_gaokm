@@ -16,8 +16,7 @@ from web.schemas import (
     FactorExperimentRequest,
     FactorOlsPoolRequest,
     CoRidgeRequest,
-    PathRidgeRequest,
-    RRidgeRequest,
+    TcRidgeRequest,
     T30RidgeRequest,
     T45RidgeRequest,
     T60RidgeRequest,
@@ -28,7 +27,7 @@ from web.schemas import (
     T60TreeRequest,
     T75TreeRequest,
     T90TreeRequest,
-    RTreeRequest,
+    TcTreeRequest,
     RemRidgeRequest,
     TauRidgeRequest,
     TauTreeRequest,
@@ -265,42 +264,28 @@ def quant_on_ridge_model() -> Dict[str, Any]:
 
 
 @router.post("/api/quant/path-ridge")
-def quant_path_ridge(body: PathRidgeRequest) -> Dict[str, Any]:
-    """ŷ_hl Ridge：开盘 Z + 多 τ 前缀分钟小包 + t_hi/t_lo 进度 → 全日极值序 + 时间 OOS；可选 persist。"""
-    try:
-        return deps.quant.run_path_ridge_experiment(
-            lookback=body.lookback,
-            watching_limit=body.watching_limit,
-            ridge_lambda=body.ridge_lambda,
-            gap_trigger_pct=body.gap_trigger_pct,
-            sell_trig_pct=body.sell_trig_pct,
-            buy_trig_pct=body.buy_trig_pct,
-            minute_period=body.minute_period,
-            minute_lookback_days=body.minute_lookback_days,
-            persist=body.persist,
-            force_promote=body.force_promote,
-            note=body.note,
-            persist_role=body.persist_role,
-            holdout_trading_days=body.holdout_trading_days,
-        )
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e)) from e
+def quant_path_ridge() -> Dict[str, Any]:
+    """ŷ_hl / path_ridge 产品面已退役（研究模块仍保留）。"""
+    raise HTTPException(
+        status_code=410,
+        detail="ŷ_hl / path_ridge is retired",
+    )
 
 
 @router.get("/api/quant/path-ridge/model")
 def quant_path_ridge_model() -> Dict[str, Any]:
-    """读取已 promote 的 ŷ_hl 模型（若有）。"""
-    try:
-        return deps.quant.get_path_ridge_model()
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e)) from e
+    """ŷ_hl / path_ridge 产品面已退役（研究模块仍保留）。"""
+    raise HTTPException(
+        status_code=410,
+        detail="ŷ_hl / path_ridge is retired",
+    )
 
 
-@router.post("/api/quant/r-ridge")
-def quant_r_ridge(body: RRidgeRequest) -> Dict[str, Any]:
+@router.post("/api/quant/tc-ridge")
+def quant_tc_ridge(body: TcRidgeRequest) -> Dict[str, Any]:
     """ŷ_τc Ridge：与 ŷ_oc 同 X → close[T]/price(τ)−1 + 时间 OOS；可选 persist。
 
-    ``persist=true`` / ``sync=true`` 同步；否则入队 ``GET /api/jobs/r-ridge``。
+    ``persist=true`` / ``sync=true`` 同步；否则入队 ``GET /api/jobs/tc-ridge``。
     """
     kwargs = dict(
         lookback=body.lookback,
@@ -317,19 +302,31 @@ def quant_r_ridge(body: RRidgeRequest) -> Dict[str, Any]:
     )
     try:
         if body.persist or body.sync:
-            return deps.quant.run_r_ridge_experiment(**kwargs)
-        return deps.quant.start_r_ridge_job(**kwargs)
+            return deps.quant.run_tc_ridge_experiment(**kwargs)
+        return deps.quant.start_tc_ridge_job(**kwargs)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@router.get("/api/quant/tc-ridge/model")
+def quant_tc_ridge_model() -> Dict[str, Any]:
+    """读取已 promote 的 ŷ_τc 模型（若有）。"""
+    try:
+        return deps.quant.get_tc_ridge_model()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@router.post("/api/quant/r-ridge")
+def quant_r_ridge(body: TcRidgeRequest) -> Dict[str, Any]:
+    """兼容旧路径 → 同 ``/api/quant/tc-ridge``。"""
+    return quant_tc_ridge(body)
 
 
 @router.get("/api/quant/r-ridge/model")
 def quant_r_ridge_model() -> Dict[str, Any]:
-    """读取已 promote 的 ŷ_r 模型（若有）。"""
-    try:
-        return deps.quant.get_r_ridge_model()
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e)) from e
+    """兼容旧路径 → 同 ``/api/quant/tc-ridge/model``。"""
+    return quant_tc_ridge_model()
 
 
 @router.post("/api/quant/t30-ridge")
@@ -512,11 +509,11 @@ def quant_t90_ridge_model() -> Dict[str, Any]:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
-@router.post("/api/quant/r-tree")
-def quant_r_tree(body: RTreeRequest) -> Dict[str, Any]:
-    """ŷ_r_tree 影子头 + 同 Holdout Ridge；不写 live / 研究套，不进回测。"""
+@router.post("/api/quant/tc-tree")
+def quant_tc_tree(body: TcTreeRequest) -> Dict[str, Any]:
+    """ŷ_τc_tree 影子头 + 同 Holdout Ridge；不写 live / 研究套，不进回测。"""
     try:
-        return deps.quant.run_r_tree_experiment(
+        return deps.quant.run_tc_tree_experiment(
             lookback=body.lookback,
             watching_limit=body.watching_limit,
             ridge_lambda=body.ridge_lambda,
@@ -530,13 +527,25 @@ def quant_r_tree(body: RTreeRequest) -> Dict[str, Any]:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
-@router.get("/api/quant/r-tree/last")
-def quant_r_tree_last() -> Dict[str, Any]:
-    """读取上次 ŷ_r_tree（r_tree_last_report.json）；不进打分。"""
+@router.get("/api/quant/tc-tree/last")
+def quant_tc_tree_last() -> Dict[str, Any]:
+    """读取上次 ŷ_τc_tree（tc_tree_last_report.json）；不进打分。"""
     try:
-        return deps.quant.get_r_tree_last_report()
+        return deps.quant.get_tc_tree_last_report()
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@router.post("/api/quant/r-tree")
+def quant_r_tree(body: TcTreeRequest) -> Dict[str, Any]:
+    """兼容旧路径 → 同 ``/api/quant/tc-tree``。"""
+    return quant_tc_tree(body)
+
+
+@router.get("/api/quant/r-tree/last")
+def quant_r_tree_last() -> Dict[str, Any]:
+    """兼容旧路径 → 同 ``/api/quant/tc-tree/last``。"""
+    return quant_tc_tree_last()
 
 
 @router.post("/api/quant/t30-tree")

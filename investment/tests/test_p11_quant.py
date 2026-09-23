@@ -70,7 +70,7 @@ class TestEquityCurve(unittest.TestCase):
         self.assertNotIn("score_calibration_applied", row)
         self.assertIsNotNone(row.get("entry_price"))
         self.assertTrue(str(row.get("factor_weights_note") or ""))
-        # next_open：意图价→开盘价应还原缺口，ŷ_EOD_rem 不再等于裸 ŷ_EOD
+        # next_open：意图价→开盘价应还原缺口，ŷ_oo_rem 不再等于裸 ŷ_oo
         if row.get("intent_price") and row.get("entry_price") and row.get("predicted_score") is not None:
             self.assertIsNotNone(row.get("realized_t1_to_tau"))
             self.assertIsNotNone(row.get("predicted_score_eod_rem"))

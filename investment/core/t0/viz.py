@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections import defaultdict
 from typing import Any, Dict, List, Optional, Sequence
 
-from core.research.r_ridge import pack_y_r_fields
+from core.research.tc_ridge import pack_y_tc_fields
 
 SKIP_CAT_LABELS: Dict[str, str] = {
     "missing_minute": "缺分钟",
@@ -637,7 +637,7 @@ def resolve_y_trade_for_portrait(sc: Dict[str, Optional[float]]) -> Optional[flo
 
 
 def _eod_realized_pct(day: dict) -> Optional[float]:
-    """涨跌 label：close[T]/prev_close−1（与 ŷ_eod / ŷ_trade 同目标）。"""
+    """涨跌 label：close[T]/prev_close−1（诊断；现网主轴是 ŷ_oo / ŷ_trade，非此口径）。"""
     n = _pick_realized(day, "eod_realized")
     if n is not None:
         return n
@@ -1375,7 +1375,7 @@ def _slot_as_portrait_unit(day: dict, row: dict) -> dict:
         "eod_realized": day.get("eod_realized"),
         "tau_realized": day.get("tau_realized"),
         "path_realized": day.get("path_realized"),
-        **pack_y_r_fields(day),
+        **pack_y_tc_fields(day),
         "r_realized": row.get("r_realized"),
         "y_t30_realized": row.get("y_t30_realized")
         if row.get("y_t30_realized") is not None
@@ -1445,7 +1445,7 @@ def _slot_placeholder_unit(day: dict, hm: str) -> dict:
         "eod_realized": day.get("eod_realized"),
         "tau_realized": day.get("tau_realized"),
         "path_realized": day.get("path_realized"),
-        **pack_y_r_fields(day),
+        **pack_y_tc_fields(day),
         "scores": _fill_day_eod_trade_scores(day, {}),
         "direction_features": {},
         "direction": None,
@@ -2632,7 +2632,7 @@ def iter_traded_attribution_units(day: dict) -> List[dict]:
                 "eod_realized": day.get("eod_realized"),
                 "tau_realized": day.get("tau_realized"),
                 "path_realized": day.get("path_realized"),
-                **pack_y_r_fields(day),
+                **pack_y_tc_fields(day),
                 "direction": r.get("direction"),
                 "pnl": r.get("pnl") or 0,
                 "exposure_pnl": r.get("exposure_pnl") or 0,

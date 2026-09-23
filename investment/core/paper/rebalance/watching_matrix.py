@@ -439,11 +439,8 @@ def _score_fields_for_report(item: dict, scores: Dict[str, Optional[float]]) -> 
         for k in _SCORE_PASSTHROUGH_KEYS:
             if k in item and item.get(k) is not None:
                 out[k] = item.get(k)
-    # 分项 ŷ 覆盖同名键；ŷ_EOD / ŷ_τ 仍走 item 透传
+    # 分项 ŷ 覆盖同名键；ŷ_oo / ŷ_τ 仍走 item 透传（ŷ_hl 已下线）
     yt = scores.get("y_trade")
-    from core.research.path_panel import pick_y_hl
-
-    yp = pick_y_hl(scores)
     yn = scores.get("y_nowcast")
     yo = scores.get("y_co")
     if yo is None:
@@ -453,10 +450,6 @@ def _score_fields_for_report(item: dict, scores: Dict[str, Optional[float]]) -> 
         out["predicted_score_blend"] = yt
         out["decision_score"] = yt
         out["score"] = yt
-    if yp is not None:
-        from core.research.path_panel import write_y_hl
-
-        write_y_hl(out, yp)
     if yn is not None:
         out["y_nowcast"] = yn
         out["y_nc"] = yn
@@ -494,9 +487,6 @@ def _row_score_payload(
     yn = _f(src.get("y_nowcast") if src.get("y_nowcast") is not None else src.get("y_nc"))
     if yn is None:
         yn = sc.get("y_nowcast")
-    from core.research.path_panel import pick_y_hl
-
-    yp = pick_y_hl(src, item, sc)
     yo = pick_y_co(src)
     if yo is None:
         yo = pick_y_co(item)
@@ -505,7 +495,7 @@ def _row_score_payload(
         ytau = y_tau_of(item)
     payload = _score_fields_for_report(
         item,
-        {"y_trade": yt, "y_hl": yp, "y_nowcast": yn, "y_co": yo, "y_tau": ytau},
+        {"y_trade": yt, "y_nowcast": yn, "y_co": yo, "y_tau": ytau},
     )
     for k in ("y_oo", "y_oc", "y_τc", "ranking", "residual"):
         if sc.get(k) is not None:

@@ -86,7 +86,7 @@ class DualScoreRequest(BaseModel):
         default=None, description="ŷ_τ 买入闸下限（%）；省略不改"
     )
     w_eod: Optional[float] = Field(
-        default=None, description="ŷ_EOD 融合权重"
+        default=None, description="ŷ_oo 融合权重"
     )
     w_tau: Optional[float] = Field(
         default=None, description="ŷ_τ 融合权重"

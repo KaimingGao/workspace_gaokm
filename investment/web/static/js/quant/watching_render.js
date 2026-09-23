@@ -93,10 +93,6 @@ export function watchingScoreDetail(it) {
       null,
     12
   );
-  const pathTerms = slimFormulaTerms(
-    (it && (it.formula_terms_path || it.score_formula_terms_path)) || null,
-    12
-  );
   const hasTerms =
     terms && Array.isArray(terms.terms) && terms.terms.length > 0;
   const hasTauTerms =
@@ -152,42 +148,12 @@ export function watchingScoreDetail(it) {
     y_oo: it && it.y_oo,
     y_oc: it && it.y_oc,
     y_co: it && it.y_co,
-    y_hl:
-      it &&
-      (it.y_hl != null
-        ? it.y_hl
-        : it.predicted_score_hl != null
-          ? it.predicted_score_hl
-          : it.y_path),
-    predicted_score_hl:
-      it &&
-      (it.predicted_score_hl != null
-        ? it.predicted_score_hl
-        : it.y_hl != null
-          ? it.y_hl
-          : it.y_path),
-    y_hl_realized:
-      it &&
-      (it.y_hl_realized != null
-        ? it.y_hl_realized
-        : it.path_realized != null
-          ? it.path_realized
-          : it.y_path_realized),
-    path_realized:
-      it &&
-      (it.path_realized != null
-        ? it.path_realized
-        : it.y_hl_realized != null
-          ? it.y_hl_realized
-          : it.y_path_realized),
     // 因子组成紧跟 ŷ 值：属性截断时 compact tip 仍能画出 β·z 表
     formula_terms: terms,
     score_formula_terms: terms,
     formula_terms_tau: tauTerms,
     score_formula_terms_tau: tauTerms,
     formula_terms_co: coTerms,
-    formula_terms_path: pathTerms,
-    score_formula_terms_path: pathTerms,
     fusion_w_oo: it && it.fusion_w_oo,
     fusion_w_oc: it && it.fusion_w_oc,
     fusion_w_co: it && it.fusion_w_co,

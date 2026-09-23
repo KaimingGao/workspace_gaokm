@@ -78,7 +78,7 @@ class TestT90Tree(unittest.TestCase):
         self.assertEqual(DEFAULT_N_ESTIMATORS, 80)
         self.assertEqual(DEFAULT_N_ESTIMATORS, TAU_N)
         self.assertEqual(TREE_HEAD, "y_t90_tree")
-        self.assertEqual(TREE_SCHEMA, "t90_tree_shadow_v3")
+        self.assertEqual(TREE_SCHEMA, "t90_tree_shadow_v5")
 
     def test_fit_shadow_vs_ridge_no_live_file(self):
         from core.research.t90_ridge import load_t90_model, persist_t90_model
@@ -106,14 +106,13 @@ class TestT90Tree(unittest.TestCase):
         self.assertTrue(report.get("success"), report.get("error"))
         self.assertEqual(report.get("task"), "t90_tree")
         self.assertEqual(report.get("head"), "y_t90_tree")
-        self.assertEqual(report.get("schema"), "t90_tree_shadow_v3")
+        self.assertEqual(report.get("schema"), "t90_tree_shadow_v5")
         self.assertEqual(report.get("backend"), "numpy_gbm")
         self.assertEqual(report.get("target"), "price_tau_plus_90")
         self.assertEqual(report.get("tau"), "10:30")
         self.assertFalse(report.get("live_hook"))
-        self.assertFalse(report.get("backtest_hook"))
-        self.assertTrue((report.get("persisted") or {}).get("skipped"))
-        self.assertNotIn("return_model", report)
+        self.assertTrue(report.get("backtest_hook"))
+        self.assertIn("tree_return_model", report)
         oos = report.get("oos") or {}
         ridge = report.get("ridge_oos") or {}
         self.assertIn("sign_hit", oos)

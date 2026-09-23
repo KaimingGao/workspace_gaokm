@@ -417,6 +417,12 @@ export function fillExecutionForm(root, execution) {
     })()
   );
   set(
+    "horizon_prob_backend",
+    String(t0.horizon_prob_backend || "ridge").toLowerCase() === "tree"
+      ? "tree"
+      : "ridge"
+  );
+  set(
     "t0_y_oc_target_scale",
     t0.t0_y_oc_target_scale != null ? t0.t0_y_oc_target_scale : 2
   );
@@ -495,6 +501,10 @@ export function collectExecutionForm(root) {
     y_τw_vote_margin: Math.max(0, Math.min(num("y_tw_vote_margin", 5), 20)),
     y_tw_midpoint: Math.max(1, Math.min(num("y_tw_midpoint", 47), 99)),
     y_τw_midpoint: Math.max(1, Math.min(num("y_tw_midpoint", 47), 99)),
+    horizon_prob_backend: (() => {
+      const s = String(str("horizon_prob_backend", "ridge") || "ridge").toLowerCase();
+      return s === "tree" ? "tree" : "ridge";
+    })(),
     t0_y_oc_target_scale: Math.max(0, Math.min(num("t0_y_oc_target_scale", 2), 100)),
     t0_close_band_delta_pct: Math.max(0, Math.min(num("t0_close_band_delta_pct", 0.5), 10)),
     t0_pm_degrade_sell_then_buy: str("t0_pm_degrade", "13:00"),
@@ -893,6 +903,10 @@ export function collectT0BacktestBody(root, opts = {}) {
       const n = Number(t0.y_tw_midpoint ?? t0.y_τw_midpoint);
       if (!Number.isFinite(n)) return 47;
       return Math.max(1, Math.min(n, 99));
+    })(),
+    horizon_prob_backend: (() => {
+      const s = String(t0.horizon_prob_backend || "ridge").toLowerCase();
+      return s === "tree" ? "tree" : "ridge";
     })(),
     t0_y_oc_target_scale:
       t0.t0_y_oc_target_scale != null ? t0.t0_y_oc_target_scale : 2,

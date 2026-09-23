@@ -166,7 +166,7 @@ export const SKIP_CAT_TIP = {
   r_tau_flat:
     "历史跳过类别：旧 |超额 r| 入场闸（r_tau_enter）；新跑批不再产生。",
   y_eod_flat:
-    "历史口径：|ŷ_eod| 低于入场门槛。v6 选腿不经 eod 入场闸；强异号仍可跳过。",
+    "历史口径：|ŷ_oo| 低于入场门槛。v6 选腿不经 oo 入场闸；强异号仍可跳过。",
   y_tau_weak:
     "历史跳过类别（旧双闸弱信号区）；新跑批不再产生。",
   y_path_flat:
@@ -200,7 +200,7 @@ export const SKIP_CAT_TIP = {
   y_tpd_high:
     "历史跳过类别：旧 ŷ_tpd 反转过密上限；新跑批不再产生。",
   eod_tau_disagree:
-    "历史口径：强 ŷ_eod 与 ŷ_oc 异号跳过。v6 选腿已下线该闸（仅 y_τ / ĉ_τ 入场）。",
+    "历史口径：强 ŷ_oo 与 ŷ_oc 异号跳过。v6 选腿已下线该闸（仅 y_τ / ĉ_τ 入场）。",
   trade_tau_disagree:
     "历史口径：强 ŷ_trade 与 ŷ_oc 异号跳过。v6 选腿已下线该闸（仅 y_τ / ĉ_τ 入场）。",
     tau_leg1_prior:

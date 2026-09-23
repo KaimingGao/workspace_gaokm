@@ -76,12 +76,12 @@ class PcGeometryTests(unittest.TestCase):
         self.assertNotIn("y_to", out)
         self.assertNotIn("y_pc", out)
 
-    def test_write_y_r_hat_without_formula_stamps_new_τc(self):
-        from core.research.r_ridge import write_y_r_hat
+    def test_write_y_tc_hat_without_formula_stamps_new_τc(self):
+        from core.research.tc_ridge import write_y_tc_hat
         from core.signal.yhat_windows import pick_y_τc
 
         dest = {}
-        write_y_r_hat(dest, -0.8)
+        write_y_tc_hat(dest, -0.8)
         self.assertAlmostEqual(dest["y_r"], -0.8, places=6)
         self.assertAlmostEqual(dest["y_τc"], -0.8, places=6)
         self.assertAlmostEqual(pick_y_τc(dest), -0.8, places=6)
@@ -97,12 +97,12 @@ class PcGeometryTests(unittest.TestCase):
         }
         self.assertAlmostEqual(pick_y_τc(item), 1.5, places=6)
 
-    def test_write_y_r_hat_legacy_formula_inverts(self):
-        from core.research.r_ridge import write_y_r_hat
+    def test_write_y_tc_hat_legacy_formula_inverts(self):
+        from core.research.tc_ridge import write_y_tc_hat
         from core.signal.yhat_windows import invert_price_over_close, pick_y_τc
 
         dest = {}
-        write_y_r_hat(dest, 1.0, formula="price[τ]/close[T]-1")
+        write_y_tc_hat(dest, 1.0, formula="price[τ]/close[T]-1")
         self.assertAlmostEqual(dest["y_r"], 1.0, places=6)
         self.assertAlmostEqual(pick_y_τc(dest), invert_price_over_close(1.0), places=6)
 

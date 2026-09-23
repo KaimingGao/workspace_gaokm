@@ -168,9 +168,9 @@ class TestSignalFillAndExport(unittest.TestCase):
         text = "\n".join(lines)
         self.assertIn("分数口径", text)
         self.assertIn("配置：", text)
-        self.assertIn("选股键=ŷ_EOD", text)
+        self.assertIn("选股键=ŷ_oo", text)
         self.assertIn("关 τ 闸", text)
-        self.assertIn("ŷ_EOD", text)  # fill table header
+        self.assertIn("ŷ_oo", text)  # fill table header
         self.assertIn("成本对照", text)
         self.assertIn("Brinson", text)
         self.assertIn("OOS", text)
@@ -185,7 +185,7 @@ class TestSignalFillAndExport(unittest.TestCase):
         result_tau = dict(result)
         result_tau["params"] = {"apply_tau_buy_gate": True}
         text_tau = "\n".join(build_portfolio_backtest_markdown_lines(result_tau))
-        self.assertIn("选股键=ŷ_trade", text_tau)
+        self.assertIn("选股键=ranking", text_tau)
         self.assertIn("τ 闸开", text_tau)
 
         exp = export_portfolio_backtest_report(result, fmt="markdown")

@@ -74,7 +74,7 @@ class TestRebalanceTracks(unittest.TestCase):
         )
         self.assertFalse(ok2)
         self.assertEqual(track2, "predicted")
-        self.assertIn("ŷ_EOD", reason2 or "")
+        self.assertIn("ŷ_oo", reason2 or "")
 
     def test_oos_fail_hold_uses_heuristic_threshold(self):
         from core.signal.rebalance_tracks import hold_decision_for_item

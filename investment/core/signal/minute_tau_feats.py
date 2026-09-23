@@ -33,12 +33,24 @@ MINUTE_TAU_CS_KEYS = (
 
 MINUTE_TAU_ALL_KEYS = MINUTE_TAU_PACK_KEYS + MINUTE_TAU_CS_KEYS
 
-# 标签同构前缀形状：path 用 t_*_frac；不进 TAU_Z / 共用 PATH_Z
+# 标签同构前缀形状 + 树专用派生（不进 TAU_Z / Ridge；仅 ŷ_τ*_tree 经 TREE_SHAPE 加回）
+# 量价/路径交互项给浅树用：Ridge 线性对冲吃不动，产品特征可分裂。
 _OPEN_CLOCK_MIN = 9 * 60 + 30
 MINUTE_TAU_SHAPE_KEYS = (
     "t_hi_frac",
     "t_lo_frac",
+    "t_hi_minus_lo",
+    "room_to_high",
+    "room_to_low",
+    "mom_accel_5_15",
+    "mom_accel_5_30",
+    "vol_down_up",
+    "range_efficiency",
+    "vp_confirm",
+    "vol_up_share",
+    "pullback_x_vol",
 )
+# 旧 path_ridge 只吃 t_*_frac；新树因子不回灌已退役 ŷ_hl
 MINUTE_TAU_PATH_SHAPE_KEYS = ("t_hi_frac", "t_lo_frac")
 
 MINUTE_TAU_FEAT_LABELS = {
@@ -88,6 +100,16 @@ MINUTE_TAU_FEAT_LABELS = {
     "ret_vs_sector": "开→τ 相对板块 %",
     "t_hi_frac": "最高点相对前缀进度",
     "t_lo_frac": "最低点相对前缀进度",
+    "t_hi_minus_lo": "高点进度−低点进度",
+    "room_to_high": "距前缀高点空间 %",
+    "room_to_low": "距前缀低点空间 %",
+    "mom_accel_5_15": "近5m−近15m 动量差 %",
+    "mom_accel_5_30": "近5m−近30m 动量差 %",
+    "vol_down_up": "下跌量/上涨量",
+    "range_efficiency": "|开→τ|/振幅（趋势效率 0–1）",
+    "vp_confirm": "开→τ×(近3量比−1) 量价确认",
+    "vol_up_share": "上涨量占比 0–1",
+    "pullback_x_vol": "自高回撤×近3量比",
 }
 
 T30_SEQ_TRAIL_KEYS = (
@@ -548,6 +570,60 @@ def extract_minute_tau_pack(
             out["t_lo_frac"] = round(
                 max(0.0, min(1.0, (float(tlo) - _OPEN_CLOCK_MIN) / elapsed)), 6
             )
+
+    # 树专用派生（不进 Ridge TAU_Z；经 TAU_HORIZON_TREE_SHAPE 入模）
+    if px > 1e-12:
+        out["room_to_high"] = round(((hi - px) / px) * 100.0, 6)
+        out["room_to_low"] = round(((px - lo) / px) * 100.0, 6)
+    if out.get("t_hi_frac") is not None and out.get("t_lo_frac") is not None:
+        out["t_hi_minus_lo"] = round(
+            float(out["t_hi_frac"]) - float(out["t_lo_frac"]), 6
+        )
+    ret5: Optional[float] = None
+    if len(closes) >= 2 and closes[-2] > 0:
+        ret5 = (closes[-1] / closes[-2] - 1.0) * 100.0
+    ret15 = out.get("ret_last_15m")
+    if ret5 is not None and ret15 is not None:
+        out["mom_accel_5_15"] = round(float(ret5) - float(ret15), 6)
+    n30 = min(6, len(closes))
+    if ret5 is not None and n30 >= 2 and closes[-n30] > 0:
+        ret30 = (closes[-1] / closes[-n30] - 1.0) * 100.0
+        out["mom_accel_5_30"] = round(float(ret5) - float(ret30), 6)
+    down_v = 0.0
+    up_v = 0.0
+    for i in range(1, len(closes)):
+        v = vols[i] if i < len(vols) else 0.0
+        if closes[i] < closes[i - 1] - 1e-12:
+            down_v += v
+        elif closes[i] > closes[i - 1] + 1e-12:
+            up_v += v
+    if up_v > 1e-12:
+        out["vol_down_up"] = round(min(down_v / up_v, 10.0), 6)
+    elif down_v > 1e-12:
+        out["vol_down_up"] = 10.0
+    tot_signed_v = up_v + down_v
+    if tot_signed_v > 1e-12:
+        out["vol_up_share"] = round(up_v / tot_signed_v, 6)
+    elif len(closes) >= 2:
+        out["vol_up_share"] = 0.5
+
+    # 量价 / 路径非线性（仅 Tree shape；不进 Ridge Z）
+    ret_ot = out.get("ret_open_to_tau")
+    rng_pct = out.get("range_pct")
+    if ret_ot is not None and rng_pct is not None:
+        if float(rng_pct) > 1e-6:
+            out["range_efficiency"] = round(
+                min(1.0, abs(float(ret_ot)) / float(rng_pct)), 6
+            )
+        else:
+            out["range_efficiency"] = 0.0
+    vol_r = out.get("vol_last3_vs_avg")
+    if ret_ot is not None and vol_r is not None:
+        raw_vp = float(ret_ot) * (float(vol_r) - 1.0)
+        out["vp_confirm"] = round(max(-30.0, min(30.0, raw_vp)), 6)
+    pb = out.get("pullback_from_high")
+    if pb is not None and vol_r is not None:
+        out["pullback_x_vol"] = round(float(pb) * max(0.0, float(vol_r)), 6)
 
     return out
 

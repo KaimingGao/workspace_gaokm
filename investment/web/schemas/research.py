@@ -38,7 +38,7 @@ class FactorOlsPoolRequest(BaseModel):
 
 
 class TauRidgeRequest(BaseModel):
-    """open→close / τ→close ŷ_τ 头研究拟合（不写 EOD ŷ）。"""
+    """open→close / τ→close ŷ_τ 头研究拟合（不写 ŷ_oo）。"""
 
     lookback: int = Field(default=120, ge=40, le=500)
     watching_limit: int = Field(
@@ -113,8 +113,8 @@ class TauTreeRequest(BaseModel):
 TauBoostRequest = TauTreeRequest
 
 
-class RTreeRequest(BaseModel):
-    """ŷ_r_tree 影子头：同面板 Holdout vs Ridge。无 persist，不进 live / 回测。"""
+class TcTreeRequest(BaseModel):
+    """ŷ_τc_tree 影子头：同面板 Holdout vs Ridge。无 persist，不进 live / 回测。"""
 
     lookback: int = Field(default=120, ge=40, le=500)
     watching_limit: int = Field(
@@ -134,7 +134,7 @@ class RTreeRequest(BaseModel):
     )
     tau_hm: Optional[str] = Field(
         default=None,
-        description="09:45 | 10:30；缺省 10:30。open 会强制改成 10:30（ŷ_r 需分钟价）",
+        description="09:45 | 10:30；缺省 10:30。open 会强制改成 10:30（ŷ_τc 需分钟价）",
         max_length=8,
     )
     backend: Optional[str] = Field(
@@ -142,6 +142,9 @@ class RTreeRequest(BaseModel):
         description="xgboost | numpy_gbm | auto（缺省：有 xgboost 用 xgboost，否则 numpy 浅树）",
         max_length=16,
     )
+
+
+RTreeRequest = TcTreeRequest
 
 
 class T30TreeRequest(BaseModel):
@@ -385,7 +388,7 @@ class PathRidgeRequest(BaseModel):
     note: str = Field(default="", max_length=200)
 
 
-class RRidgeRequest(BaseModel):
+class TcRidgeRequest(BaseModel):
     """ŷ_τc Ridge：与 ŷ_oc 同 X → close[T]/price(τ)−1（百分点）。与 remaining(ŷ_oc) 融合成 R̂_τ / ĉ。"""
 
     lookback: int = Field(default=120, ge=40, le=500)
@@ -414,7 +417,7 @@ class RRidgeRequest(BaseModel):
     )
     persist_role: str = Field(
         default="live",
-        description="live=执行套 r_ridge_model.json；research=研究套 *_research.json",
+        description="live=执行套 tc_ridge_model.json；research=研究套 *_research.json",
     )
     holdout_trading_days: int = Field(
         default=10,
@@ -429,8 +432,11 @@ class RRidgeRequest(BaseModel):
     note: str = Field(default="", max_length=200)
     sync: bool = Field(
         default=False,
-        description="true=同步跑（单测）；默认 persist=false 时入队 Job，轮询 GET /api/jobs/r-ridge",
+        description="true=同步跑（单测）；默认 persist=false 时入队 Job，轮询 GET /api/jobs/tc-ridge",
     )
+
+
+RRidgeRequest = TcRidgeRequest
 
 
 class T30RidgeRequest(BaseModel):

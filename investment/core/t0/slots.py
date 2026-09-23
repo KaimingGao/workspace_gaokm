@@ -300,23 +300,21 @@ def _slot_meta_extra(
 
 
 def _promote_causal_portrait_fields(packed: dict) -> dict:
-    """因果前缀快照显式写出画像字段，供分槽命中与拟合 by_tau 同口径。"""
+    """因果前缀快照显式写出 ŷ_τ 画像字段（ŷ_hl 已下线）。"""
     out = dict(packed)
     src = str(out.get("_score_source") or "")
-    if src == "prefix_causal" or out.get("y_tau_portrait_oc") is not None or out.get(
-        "y_path_portrait"
-    ) is not None or out.get("y_hl_portrait") is not None:
+    if src == "prefix_causal" or out.get("y_tau_portrait_oc") is not None:
         if out.get("y_tau_portrait_oc") is None:
             for k in ("y_tau_oc", "y_tau", "predicted_score_tau_oc"):
                 if out.get(k) is not None:
                     out["y_tau_portrait_oc"] = out.get(k)
                     break
-        if out.get("y_hl_portrait") is None:
-            yp = out.get("y_hl") if out.get("y_hl") is not None else out.get("y_path")
-            if yp is None:
-                yp = out.get("y_path_portrait")
-            if yp is not None:
-                out["y_hl_portrait"] = yp
+    out.pop("y_hl_portrait", None)
+    out.pop("y_path_portrait", None)
+    out.pop("y_hl", None)
+    out.pop("y_path", None)
+    out.pop("predicted_score_hl", None)
+    out.pop("predicted_score_path", None)
     return out
 
 
@@ -393,13 +391,13 @@ def attach_slot_fit_portrait_scores(
             if isinstance(packed_day.get("scores"), dict)
             else {}
         )
-        for k in ("y_tau_portrait_oc", "y_hl_portrait", "y_path_portrait", "portrait_prefix_bars", "portrait_prefix_hm"):
+        for k in ("y_tau_portrait_oc", "portrait_prefix_bars", "portrait_prefix_hm"):
             if packed_day.get(k) is not None:
                 sc[k] = packed_day.get(k)
                 live[k] = packed_day.get(k)
         if str(live.get("_score_source") or "") != "prefix_causal":
             # 仍标记为该钟前缀画像（拟合对照），即使重算失败只靠 open_snap 预测
-            if sc.get("y_tau_portrait_oc") is not None or sc.get("y_hl_portrait") is not None or sc.get("y_path_portrait") is not None:
+            if sc.get("y_tau_portrait_oc") is not None:
                 live["_score_source"] = live.get("_score_source") or "slot_portrait"
                 live["_score_prefix_hm"] = hm
                 live["_score_prefix_bars"] = prefix_n
@@ -468,11 +466,7 @@ def _slot_public_scores(row: dict) -> dict:
         slim = {}
         for k in (
             "y_tau",
-            "y_hl",
-            "y_path",
             "y_co",
-            "y_hl",
-            "predicted_score_hl",
             "predicted_score_r",
             "y_r_hat",
             "y_r",
@@ -1050,9 +1044,9 @@ def _build_close_band_scan_trace(
             sc = scores_from_item(gate_snap)
             y_tau = _yt_gate(gate_snap)
             y_oc_scan = y_tau
-            from core.research.r_ridge import pick_y_r_hat, r_realized_pct
+            from core.research.tc_ridge import pick_y_tc_hat, tc_realized_pct
 
-            y_r_hat = pick_y_r_hat(sc, gate_snap)
+            y_r_hat = pick_y_tc_hat(sc, gate_snap)
             if y_r_hat is not None:
                 y_r = round(float(y_r_hat), 4)
             from core.research.t30_ridge import pick_y_t30_hat as _pick_t30
@@ -1110,7 +1104,7 @@ def _build_close_band_scan_trace(
             except (TypeError, ValueError):
                 daily_c = 0.0
             if daily_c and daily_c > 0:
-                r_realized = r_realized_pct(c, daily_c)
+                r_realized = tc_realized_pct(c, daily_c)
             yt_gate = _yt_gate(gate_snap)
             if yt_gate is not None:
                 y_tau = round(float(yt_gate), 4)

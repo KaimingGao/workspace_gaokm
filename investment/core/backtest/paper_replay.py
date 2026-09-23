@@ -2005,7 +2005,7 @@ def _score_open_day(
     )
 
 
-# 前缀 ŷ_oc 写入调仓行；不覆盖 ŷ_oo / ŷ_EOD。
+# 前缀 ŷ_oc 写入调仓行；不覆盖 ŷ_oo / ŷ_oo。
 _OC_PREFIX_KEYS = (
     "y_oc",
     "y_tau",
@@ -3074,7 +3074,7 @@ def summarize_paper_replay_for_daily(
     if src == "topk_precomputed":
         note += " · 日报目标簿=与 Top-K 同序列 ŷ（precomputed_ranks）"
     else:
-        note += " · 日报目标簿=昨收涨跌幅动量近似（≠ ŷ_EOD）"
+        note += " · 日报目标簿=昨收涨跌幅动量近似（≠ ŷ_oo）"
     return {
         "success": True,
         "engine": ENGINE_ID,

@@ -65,6 +65,7 @@ ALLOWED_T0_PATCH_KEYS = frozenset(
         "y_τw_vote_margin",
         "y_tw_midpoint",
         "y_τw_midpoint",
+        "horizon_prob_backend",
         "t0_y_oc_target_scale",
         "t0_close_band_delta_pct",
         "t0_price_space_gate",
@@ -145,6 +146,7 @@ DEFAULT_T0_OVERLAY: Dict[str, Any] = {
     "y_τw_vote_margin": 5.0,
     "y_tw_midpoint": 47.0,
     "y_τw_midpoint": 47.0,
+    "horizon_prob_backend": "ridge",
     "t0_y_oc_target_scale": 2.0,
     "t0_close_band_delta_pct": 0.5,
     "t0_price_space_gate": True,
@@ -616,22 +618,11 @@ def _timing_summary(timing: Optional[dict]) -> str:
 def execution_public_view(bundle: Dict[str, Any]) -> Dict[str, Any]:
     """API / Web 用精简视图。"""
     t0 = bundle.get("t0") or {}
+    # ŷ_hl / path_ridge 已下线；字段保留 False 供旧前端兼容
     path_model_present = False
     path_model_shadow = False
     path_model_promoted = False
     path_last_report_exists = False
-    try:
-        from core.research.path_ridge import load_path_last_report, load_path_model, path_model_path
-
-        pm = load_path_model()
-        path_model_present = pm is not None
-        path_model_shadow = bool(pm and pm.get("_shadow"))
-        path_model_promoted = os.path.isfile(path_model_path())
-        path_last_report_exists = load_path_last_report() is not None
-    except Exception:  # noqa: BLE001
-        logger.debug("path model probe failed", exc_info=True)
-        path_model_promoted = False
-        path_last_report_exists = False
     view = {
         "ok": True,
         "strategy_id": bundle.get("strategy_id"),
@@ -685,6 +676,7 @@ def execution_public_view(bundle: Dict[str, Any]) -> Dict[str, Any]:
             "y_τw_vote_margin": t0.get("y_τw_vote_margin") or t0.get("y_tw_vote_margin"),
             "y_tw_midpoint": t0.get("y_tw_midpoint"),
             "y_τw_midpoint": t0.get("y_τw_midpoint") or t0.get("y_tw_midpoint"),
+            "horizon_prob_backend": t0.get("horizon_prob_backend"),
             "t0_y_oc_target_scale": t0.get("t0_y_oc_target_scale"),
             "t0_close_band_delta_pct": t0.get("t0_close_band_delta_pct"),
             "t0_price_space_gate": t0.get("t0_price_space_gate"),

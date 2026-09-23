@@ -3,12 +3,12 @@
 角色（PIT）：
   y_τ      — 盘中主方向（开→收 OC 拟合）；正/反 T 可分 enter（y_tau_enter_buy_then_sell / _sell_then_buy）
              定向锚优先 y_tau_oc（映射前）；剩余映射分仅供融合/对照，不定向
-  y_hl     — 分钟极值时间序 signed range%（旧键 y_path）；与 y_τ 联合准入（同号+双 enter，可分正反）
+  y_hl     — **已下线**：不再算分/挂载；旧键可读兼容；`path_ridge` 仅研究模块残留
   y_on     — 尾盘是否强制回补
   y_trade / y_eod — **v6 已下线**：不参与选向；`load_t0_rules` 丢弃旧闸键；快照字段仅作对照
 
 选向分数：开盘可预计算开盘 Z；**确认根（前 N 根齐窗）用前缀分钟因果重算**
-ŷ_τ / ŷ_hl 后再 close-band 选向。禁止用全日/未发生分钟做开盘选向。
+ŷ_τ（及 τ 窗）后再 close-band 选向。禁止用全日/未发生分钟做开盘选向。
 """
 
 from __future__ import annotations
@@ -319,34 +319,13 @@ def tip_fields_from_item(item: Optional[dict]) -> Dict[str, Any]:
         out["formula_terms_co"] = co_terms
         out["score_formula_terms_co"] = co_terms
 
-    path_terms = _slim_formula_terms(
-        item.get("formula_terms_path") or item.get("score_formula_terms_path"),
-        limit=12,
-    )
-    if not path_terms or not (path_terms.get("terms") or path_terms.get("total") is not None):
-        # 旧快照缺组成时：用 features_path / features_tau 现场补拆解
-        try:
-            from core.research.path_ridge import explain_path_prediction, load_path_model
-
-            feats = item.get("features_path")
-            if not isinstance(feats, dict) or not feats:
-                feats = item.get("features_tau") if isinstance(item.get("features_tau"), dict) else {}
-            expl = explain_path_prediction(feats, model_doc=load_path_model())
-            path_terms = _slim_formula_terms(expl, limit=12)
-        except Exception:  # noqa: BLE001
-            logger.debug("path tip explain fallback failed", exc_info=True)
-            path_terms = None
-    if path_terms and (path_terms.get("terms") or path_terms.get("total") is not None):
-        out["formula_terms_path"] = path_terms
-        out["score_formula_terms_path"] = path_terms
-
     r_terms = _slim_formula_terms(
         item.get("formula_terms_r") or item.get("score_formula_terms_r"),
         limit=12,
     )
     if not r_terms or not (r_terms.get("terms") or r_terms.get("total") is not None):
         try:
-            from core.research.r_ridge import explain_r_prediction, load_r_model
+            from core.research.tc_ridge import explain_tc_prediction, load_tc_model
 
             feats_r = item.get("features_tau") if isinstance(item.get("features_tau"), dict) else {}
             if not feats_r:
@@ -355,7 +334,7 @@ def tip_fields_from_item(item: Optional[dict]) -> Dict[str, Any]:
                     if isinstance(item.get("features_path"), dict)
                     else {}
                 )
-            expl_r = explain_r_prediction(feats_r, model_doc=load_r_model())
+            expl_r = explain_tc_prediction(feats_r, model_doc=load_tc_model())
             r_terms = _slim_formula_terms(expl_r, limit=12)
         except Exception:  # noqa: BLE001
             logger.debug("r tip explain fallback failed", exc_info=True)
@@ -484,15 +463,6 @@ def tip_fields_from_item(item: Optional[dict]) -> Dict[str, Any]:
         out["formula_terms_t90"] = t90_terms
         out["score_formula_terms_t90"] = t90_terms
 
-    try:
-        from core.research.path_ridge import path_tip_model_snapshot
-
-        tip_m = path_tip_model_snapshot()
-        if tip_m:
-            out["path_tip_model"] = tip_m
-    except Exception:  # noqa: BLE001
-        logger.debug("path_tip_model snapshot failed", exc_info=True)
-
     feats_path = item.get("features_path")
     if isinstance(feats_path, dict) and feats_path:
         slim_path = {
@@ -510,6 +480,16 @@ def tip_fields_from_item(item: Optional[dict]) -> Dict[str, Any]:
                 "path_ma5",
                 "t_hi_frac",
                 "t_lo_frac",
+                "t_hi_minus_lo",
+                "room_to_high",
+                "room_to_low",
+                "mom_accel_5_15",
+                "mom_accel_5_30",
+                "vol_down_up",
+                "range_efficiency",
+                "vp_confirm",
+                "vol_up_share",
+                "pullback_x_vol",
             }
         }
         if slim_path:
@@ -608,9 +588,6 @@ def pack_day_scores(score_snap: Optional[dict]) -> Optional[Dict[str, Any]]:
         "y_on_path",
         "y_co",
         "y_nowcast",
-        "y_path",
-        "y_hl",
-        "y_hl_portrait",
         "predicted_score_r",
         "y_r_hat",
         "y_r",
@@ -649,7 +626,6 @@ def pack_day_scores(score_snap: Optional[dict]) -> Optional[Dict[str, Any]]:
         "y_check",
         "eod_trust",
         "y_tau_portrait_oc",
-        "y_path_portrait",
         "gap_pct",
     ):
         if k in score_snap and score_snap.get(k) is not None:
@@ -673,26 +649,14 @@ def pack_day_scores(score_snap: Optional[dict]) -> Optional[Dict[str, Any]]:
     if src:
         out["_score_source"] = src
     try:
-        from core.research.path_panel import pick_y_hl, write_y_hl
         from core.signal.yhat_windows import pick_y_co
 
-        yhl = pick_y_hl(out) or pick_y_hl(score_snap)
-        if yhl is not None:
-            write_y_hl(out, yhl)
-            out.pop("y_path", None)
-            out.pop("predicted_score_path", None)
         yco = pick_y_co(out) or pick_y_co(score_snap)
         if yco is not None:
             out["y_co"] = yco
             out.pop("y_on", None)
-        yhlp = _f(out.get("y_hl_portrait"))
-        if yhlp is None:
-            yhlp = _f(out.get("y_path_portrait"))
-        if yhlp is not None:
-            out["y_hl_portrait"] = yhlp
-            out.pop("y_path_portrait", None)
     except Exception:  # noqa: BLE001
-        logger.debug("pack_day_scores canonical y_hl/y_co failed", exc_info=True)
+        logger.debug("pack_day_scores canonical y_co failed", exc_info=True)
     return out or None
 
 
@@ -720,9 +684,6 @@ def attach_day_scores(
             "y_on_path",
             "y_co",
             "y_nowcast",
-            "y_path",
-            "y_hl",
-            "y_hl_portrait",
             "predicted_score_r",
             "y_r_hat",
             "y_r",
@@ -820,7 +781,6 @@ def scores_from_item(item: Optional[dict]) -> Dict[str, Optional[float]]:
             "y_trade": None,
             "y_co": None,
             "y_nowcast": None,
-            "y_hl": None,
             "y_check": None,
             "eod_trust": None,
         }
@@ -865,7 +825,7 @@ def scores_from_item(item: Optional[dict]) -> Dict[str, Optional[float]]:
     if y_tau_oc is None and y_tau is not None:
         y_tau_oc = y_tau
 
-    # 契约：predicted_score / predicted_score_eod = ŷ_EOD；ŷ_trade = blend / decision_score。
+    # 契约：predicted_score / predicted_score_eod = ŷ_oo；ŷ_trade = blend / decision_score。
     # 旧实现先读 predicted_score，双头下会把 y_trade 塌成 y_eod（成交明细两列相同）。
     y_trade = _f(item.get("y_trade"))
     if y_trade is None:
@@ -896,10 +856,6 @@ def scores_from_item(item: Optional[dict]) -> Dict[str, Optional[float]]:
     if y_nowcast is None:
         y_nowcast = _f(item.get("predicted_score_nowcast"))
 
-    from core.research.path_panel import pick_y_hl, write_y_hl
-
-    y_hl = pick_y_hl(item)
-
     y_check = item.get("y_check")
     if y_check is not None:
         y_check = str(y_check)
@@ -911,16 +867,9 @@ def scores_from_item(item: Optional[dict]) -> Dict[str, Optional[float]]:
         "y_trade": y_trade,
         "y_co": y_co,
         "y_nowcast": y_nowcast,
-        "y_hl": y_hl,
         "y_check": y_check,
         "eod_trust": eod_trust,
     }
-    if y_hl is not None:
-        try:
-            write_y_hl(out, y_hl)
-        except Exception:  # noqa: BLE001
-            out["y_hl"] = y_hl
-            out["predicted_score_hl"] = y_hl
     try:
         from core.signal.yhat_windows import stamp_window_scores
 
@@ -931,22 +880,22 @@ def scores_from_item(item: Optional[dict]) -> Dict[str, Optional[float]]:
     except Exception:  # noqa: BLE001
         logger.debug("stamp_window_scores failed", exc_info=True)
     try:
-        from core.research.r_ridge import pick_y_r_hat, pick_y_r_label, write_y_r_hat, write_y_r_label
+        from core.research.tc_ridge import pick_y_tc_hat, pick_y_tc_label, write_y_tc_hat, write_y_tc_label
 
-        y_r_hat = pick_y_r_hat(item)
+        y_r_hat = pick_y_tc_hat(item)
         if y_r_hat is not None:
             src_τc = item.get("y_τc")
             if src_τc is None:
                 src_τc = item.get("predicted_score_τc")
             if src_τc is None:
-                write_y_r_hat(out, y_r_hat, model_doc=item)
+                write_y_tc_hat(out, y_r_hat, model_doc=item)
             else:
                 out["predicted_score_r"] = float(y_r_hat)
                 out["y_r_hat"] = float(y_r_hat)
                 out["y_r"] = float(y_r_hat)
-        y_r_lab = pick_y_r_label(item)
+        y_r_lab = pick_y_tc_label(item)
         if y_r_lab is not None:
-            write_y_r_label(out, y_r_lab)
+            write_y_tc_label(out, y_r_lab)
     except Exception:  # noqa: BLE001
         y_r_hat = _f(item.get("predicted_score_r"))
         if y_r_hat is None:
@@ -1066,14 +1015,6 @@ def scores_from_item(item: Optional[dict]) -> Dict[str, Optional[float]]:
         gap = _f(item["features_tau"].get("gap_pct"))
     if gap is not None:
         out["gap_pct"] = gap
-    from core.research.path_panel import pick_y_hl_error, pick_y_hl_status, write_y_hl_error, write_y_hl_status
-
-    status = pick_y_hl_status(item)
-    if status:
-        write_y_hl_status(out, status)
-    err = pick_y_hl_error(item)
-    if err:
-        write_y_hl_error(out, err)
     for k in (
         "nowcast_K",
         "nowcast_vs",
@@ -1106,22 +1047,8 @@ def scores_from_item(item: Optional[dict]) -> Dict[str, Optional[float]]:
 
 
 def _y_path_missing_reason(scores: dict) -> str:
-    from core.research.path_panel import pick_y_hl_error, pick_y_hl_status
-
-    status = pick_y_hl_status(scores)
-    err = pick_y_hl_error(scores)
-    detail = {
-        "no_model": "path_ridge 模型未 promote（/quant → ŷ_hl 拟合/启用）",
-        "feature_missing": "HL 开盘特征不足",
-        "minute_feats_missing": "开盘 Z 特征不足（09:30 信息集）",
-        "minute_data_missing": "非开盘时刻缺分钟小包（数据缺失）",
-        "open_z": "开盘 Z HL（09:30 / 无分钟，对齐研究）",
-        "predict_none": "HL 模型无法出分",
-        "error": err or "HL 预测异常",
-    }.get(status)
-    if detail:
-        return f"dual_y：缺 y_hl（{detail}）"
-    return "dual_y：缺 y_hl（path_ridge 未加载或未算分）"
+    """旧 dual_y path 闸文案（生产 close-band 不调用；库函数兜底）。"""
+    return "dual_y：ŷ_hl 已下线"
 
 
 def scores_from_ledger_row(row: Optional[dict]) -> Dict[str, Optional[float]]:
@@ -1419,140 +1346,52 @@ def _attach_y_path_to_item(
     allow_open_z: bool = True,
     include_tau_horizons: bool = True,
 ) -> None:
-    """即时算分后补 ŷ_hl（开盘 Z ± 分钟小包 → path_ridge）。
+    """挂载辅头 ŷ_r / τ30–90（ŷ_hl 已下线，不再预测）。
 
-    - ``allow_open_z=True``（默认，日初 / 09:30 信息集）：无分钟小包时用开盘 Z 出分，
-      status=``open_z``（对齐研究 09:30）。
-    - ``allow_open_z=False``（盘中前缀重算）：无分钟小包不得退回开盘 Z
-      （``feature_missing``）。空前缀的数据缺失由 ``rescore_scores_at_fixed_prefix`` 标
-      ``minute_data_missing``。
+    函数名保留兼容调用方；``allow_open_z`` 仍约束盘中不得用纯开盘 Z 冒充盘中辅头。
     """
     if not isinstance(item, dict):
         return
-    from core.research.path_panel import (
-        clear_y_hl,
-        path_features_from_open_row,
-        pick_y_hl,
-        write_y_hl,
-        write_y_hl_error,
-        write_y_hl_status,
-    )
-
-    feats_tau = item.get("features_tau") if isinstance(item.get("features_tau"), dict) else {}
-    row: Dict[str, Any] = dict(feats_tau)
-    if row.get("gap_pct") is None:
-        row["gap_pct"] = item.get("gap_pct")
-    hist = [b for b in (hist_bars or []) if isinstance(b, dict)]
-    open_z_only = not _minute_pack_present(row)
     try:
-        from core.research.path_ridge import (
-            explain_path_prediction,
-            load_path_model,
-            predict_path_from_features,
-        )
+        from core.research.path_panel import clear_y_hl
 
-        model = load_path_model()
-        if model is None:
-            if pick_y_hl(item) is None:
-                write_y_hl_status(item, "no_model")
-            return
-        if open_z_only and not allow_open_z:
-            # 盘中模式且特征仍无小包：不是「没分钟线」，而是特征未带上
-            write_y_hl_status(item, "feature_missing")
-            clear_y_hl(item)
-            return
-        prev = hist[-1] if hist else None
-        path_feats = path_features_from_open_row(row, hist=hist, prev_bar=prev)
-        try:
-            from core.research.path_panel import attach_path_lag_features
-
-            code = str(item.get("stock_code") or item.get("code") or "").strip()
-            asof = str(
-                item.get("date") or item.get("as_of") or item.get("trade_date") or ""
-            )[:10]
-            if len(asof) < 10 and isinstance(item.get("day_bar"), dict):
-                asof = str(item["day_bar"].get("date") or "")[:10]
-            path_feats = attach_path_lag_features(
-                path_feats,
-                hist_bars=hist,
-                asof_date=asof,
-                stock_code=code,
-            )
-        except Exception:  # noqa: BLE001
-            logger.debug("attach path lag feats failed", exc_info=True)
-        status_ok = "open_z" if open_z_only else "ok"
-        existing = pick_y_hl(item)
-        if existing is not None:
-            write_y_hl_status(item, status_ok)
-            item.pop("_minute_data_missing", None)
-            if not isinstance(item.get("features_path"), dict):
-                ft = dict(feats_tau)
-                for k, v in path_feats.items():
-                    if v is not None:
-                        ft[k] = v
-                if ft:
-                    item["features_path"] = ft
-            if item.get("formula_terms_path") is None:
-                expl = explain_path_prediction(
-                    item.get("features_path") or path_feats, model_doc=model
-                )
-                if expl:
-                    item["formula_terms_path"] = expl
-                    item["score_formula_terms_path"] = expl
-            return
-        if not any(v is not None for v in path_feats.values()):
-            if open_z_only:
-                write_y_hl_status(item, "minute_feats_missing")
-            else:
-                write_y_hl_status(item, "feature_missing")
-            return
-        y_path = predict_path_from_features(path_feats, model_doc=model)
-        if y_path is not None:
-            write_y_hl(item, y_path)
-            write_y_hl_status(item, status_ok)
-            item.pop("_minute_data_missing", None)
-            ft = dict(feats_tau)
-            for k, v in path_feats.items():
-                if v is not None:
-                    ft[k] = v
-            item["features_path"] = ft
-            expl = explain_path_prediction(path_feats, model_doc=model)
-            if expl:
-                item["formula_terms_path"] = expl
-                item["score_formula_terms_path"] = expl
-        else:
-            write_y_hl_status(item, "predict_none")
-    except Exception as exc:  # noqa: BLE001
-        write_y_hl_status(item, "error")
-        write_y_hl_error(item, str(exc)[:120])
-        logger.debug("attach y_hl failed", exc_info=True)
-    finally:
-        try:
-            _attach_y_r_to_item(item, allow_open_z=allow_open_z)
-        except Exception:  # noqa: BLE001
-            logger.debug("attach y_r failed", exc_info=True)
-        if not include_tau_horizons:
-            return
-        try:
-            _attach_y_t30_to_item(item, allow_open_z=allow_open_z, hist_bars=hist_bars)
-        except Exception:  # noqa: BLE001
-            logger.debug("attach y_t30 failed", exc_info=True)
-        try:
-            _attach_y_t45_to_item(item, allow_open_z=allow_open_z, hist_bars=hist_bars)
-        except Exception:  # noqa: BLE001
-            logger.debug("attach y_t45 failed", exc_info=True)
-        try:
-            _attach_y_t60_to_item(item, allow_open_z=allow_open_z, hist_bars=hist_bars)
-        except Exception:  # noqa: BLE001
-            logger.debug("attach y_t60 failed", exc_info=True)
-        try:
-            _attach_y_t75_to_item(item, allow_open_z=allow_open_z, hist_bars=hist_bars)
-        except Exception:  # noqa: BLE001
-            logger.debug("attach y_t75 failed", exc_info=True)
-        try:
-            _attach_y_t90_to_item(item, allow_open_z=allow_open_z, hist_bars=hist_bars)
-        except Exception:  # noqa: BLE001
-            logger.debug("attach y_t90 failed", exc_info=True)
+        clear_y_hl(item)
+        item.pop("y_hl_status", None)
+        item.pop("y_path_status", None)
+        item.pop("y_hl_error", None)
+        item.pop("y_path_error", None)
+        item.pop("formula_terms_path", None)
+        item.pop("score_formula_terms_path", None)
+        item.pop("y_hl_portrait", None)
+        item.pop("y_path_portrait", None)
+    except Exception:  # noqa: BLE001
+        logger.debug("clear retired y_hl fields failed", exc_info=True)
+    try:
+        _attach_y_r_to_item(item, allow_open_z=allow_open_z)
+    except Exception:  # noqa: BLE001
+        logger.debug("attach y_r failed", exc_info=True)
+    if not include_tau_horizons:
+        return
+    try:
+        _attach_y_t30_to_item(item, allow_open_z=allow_open_z, hist_bars=hist_bars)
+    except Exception:  # noqa: BLE001
+        logger.debug("attach y_t30 failed", exc_info=True)
+    try:
+        _attach_y_t45_to_item(item, allow_open_z=allow_open_z, hist_bars=hist_bars)
+    except Exception:  # noqa: BLE001
+        logger.debug("attach y_t45 failed", exc_info=True)
+    try:
+        _attach_y_t60_to_item(item, allow_open_z=allow_open_z, hist_bars=hist_bars)
+    except Exception:  # noqa: BLE001
+        logger.debug("attach y_t60 failed", exc_info=True)
+    try:
+        _attach_y_t75_to_item(item, allow_open_z=allow_open_z, hist_bars=hist_bars)
+    except Exception:  # noqa: BLE001
+        logger.debug("attach y_t75 failed", exc_info=True)
+    try:
+        _attach_y_t90_to_item(item, allow_open_z=allow_open_z, hist_bars=hist_bars)
+    except Exception:  # noqa: BLE001
+        logger.debug("attach y_t90 failed", exc_info=True)
 
 
 def _attach_y_r_to_item(
@@ -1572,19 +1411,19 @@ def _attach_y_r_to_item(
     if open_z_only and not allow_open_z:
         return
     try:
-        from core.research.r_ridge import (
-            explain_r_prediction,
-            load_r_model,
-            predict_r_from_features,
-            write_y_r_hat,
+        from core.research.tc_ridge import (
+            explain_tc_prediction,
+            load_tc_model,
+            predict_tc_from_features,
+            write_y_tc_hat,
         )
 
-        model = load_r_model()
+        model = load_tc_model()
         if model is not None:
-            y_r = predict_r_from_features(feats, model_doc=model)
+            y_r = predict_tc_from_features(feats, model_doc=model)
             if y_r is not None:
-                write_y_r_hat(item, float(y_r), model_doc=model)
-                expl = explain_r_prediction(feats, model_doc=model)
+                write_y_tc_hat(item, float(y_r), model_doc=model)
+                expl = explain_tc_prediction(feats, model_doc=model)
                 if expl:
                     item["formula_terms_r"] = expl
                     item["score_formula_terms_r"] = expl
@@ -1630,6 +1469,42 @@ def _open_px_from_item(item: dict) -> Optional[float]:
     return _f(feats.get("open")) or _f(item.get("open"))
 
 
+def _predict_horizon_hat(
+    head: str,
+    feats: dict,
+    *,
+    load_ridge,
+    predict_ridge,
+    load_tree,
+    predict_tree,
+) -> tuple:
+    """返回 (p_up, model_doc, source)。tree 优先于 ridge（backend=tree 且有模型）。"""
+    from core.research.horizon_tree import (
+        HORIZON_PROB_BACKEND_TREE,
+        current_horizon_prob_backend,
+    )
+
+    if current_horizon_prob_backend() == HORIZON_PROB_BACKEND_TREE:
+        try:
+            tree_doc = load_tree()
+        except Exception:  # noqa: BLE001
+            tree_doc = None
+        if tree_doc is not None:
+            try:
+                y_hat = predict_tree(feats, model_doc=tree_doc)
+            except Exception:  # noqa: BLE001
+                y_hat = None
+            if y_hat is not None:
+                return float(y_hat), tree_doc, "tree"
+    model = load_ridge()
+    if model is None:
+        return None, None, None
+    y_hat = predict_ridge(feats, model_doc=model)
+    if y_hat is None:
+        return None, model, None
+    return float(y_hat), model, "ridge"
+
+
 def _attach_y_t30_to_item(
     item: dict,
     *,
@@ -1658,6 +1533,10 @@ def _attach_y_t30_to_item(
             load_t30_model,
             predict_t30_from_features,
             write_y_t30_hat,
+        )
+        from core.research.t30_tree import (
+            load_t30_tree_model,
+            predict_t30_tree_from_features,
         )
         from core.research.tau_panel import (
             T30_SEQ_FEATURES,
@@ -1708,17 +1587,25 @@ def _attach_y_t30_to_item(
             for k in list(T30_SEQ_FEATURES) + ["tau_lag1", "tau_ma5"]:
                 if feats.get(k) is not None:
                     ft[k] = feats[k]
-        model = load_t30_model()
-        if model is None:
-            return
-        y_hat = predict_t30_from_features(feats, model_doc=model)
+        y_hat, model, src = _predict_horizon_hat(
+            "t30",
+            feats,
+            load_ridge=load_t30_model,
+            predict_ridge=predict_t30_from_features,
+            load_tree=load_t30_tree_model,
+            predict_tree=predict_t30_tree_from_features,
+        )
         if y_hat is None:
             return
         write_y_t30_hat(item, float(y_hat))
-        expl = explain_t30_prediction(feats, model_doc=model)
-        if expl:
-            item["formula_terms_t30"] = expl
-            item["score_formula_terms_t30"] = expl
+        if src:
+            item["y_τ30_source"] = src
+            item["y_t30_source"] = src
+        if src == "ridge":
+            expl = explain_t30_prediction(feats, model_doc=model)
+            if expl:
+                item["formula_terms_t30"] = expl
+                item["score_formula_terms_t30"] = expl
     except Exception:  # noqa: BLE001
         logger.debug("attach y_t30 predict failed", exc_info=True)
 
@@ -1751,6 +1638,10 @@ def _attach_y_t45_to_item(
             load_t45_model,
             predict_t45_from_features,
             write_y_t45_hat,
+        )
+        from core.research.t45_tree import (
+            load_t45_tree_model,
+            predict_t45_tree_from_features,
         )
         from core.research.tau_panel import (
             T45_SEQ_FEATURES,
@@ -1801,17 +1692,25 @@ def _attach_y_t45_to_item(
             for k in list(T45_SEQ_FEATURES) + ["tau_lag1", "tau_ma5"]:
                 if feats.get(k) is not None:
                     ft[k] = feats[k]
-        model = load_t45_model()
-        if model is None:
-            return
-        y_hat = predict_t45_from_features(feats, model_doc=model)
+        y_hat, model, src = _predict_horizon_hat(
+            "t45",
+            feats,
+            load_ridge=load_t45_model,
+            predict_ridge=predict_t45_from_features,
+            load_tree=load_t45_tree_model,
+            predict_tree=predict_t45_tree_from_features,
+        )
         if y_hat is None:
             return
         write_y_t45_hat(item, float(y_hat))
-        expl = explain_t45_prediction(feats, model_doc=model)
-        if expl:
-            item["formula_terms_t45"] = expl
-            item["score_formula_terms_t45"] = expl
+        if src:
+            item["y_τ45_source"] = src
+            item["y_t45_source"] = src
+        if src == "ridge":
+            expl = explain_t45_prediction(feats, model_doc=model)
+            if expl:
+                item["formula_terms_t45"] = expl
+                item["score_formula_terms_t45"] = expl
     except Exception:  # noqa: BLE001
         logger.debug("attach y_t45 predict failed", exc_info=True)
 
@@ -1844,6 +1743,10 @@ def _attach_y_t60_to_item(
             load_t60_model,
             predict_t60_from_features,
             write_y_t60_hat,
+        )
+        from core.research.t60_tree import (
+            load_t60_tree_model,
+            predict_t60_tree_from_features,
         )
         from core.research.tau_panel import (
             T60_SEQ_FEATURES,
@@ -1894,17 +1797,25 @@ def _attach_y_t60_to_item(
             for k in list(T60_SEQ_FEATURES) + ["tau_lag1", "tau_ma5"]:
                 if feats.get(k) is not None:
                     ft[k] = feats[k]
-        model = load_t60_model()
-        if model is None:
-            return
-        y_hat = predict_t60_from_features(feats, model_doc=model)
+        y_hat, model, src = _predict_horizon_hat(
+            "t60",
+            feats,
+            load_ridge=load_t60_model,
+            predict_ridge=predict_t60_from_features,
+            load_tree=load_t60_tree_model,
+            predict_tree=predict_t60_tree_from_features,
+        )
         if y_hat is None:
             return
         write_y_t60_hat(item, float(y_hat))
-        expl = explain_t60_prediction(feats, model_doc=model)
-        if expl:
-            item["formula_terms_t60"] = expl
-            item["score_formula_terms_t60"] = expl
+        if src:
+            item["y_τ60_source"] = src
+            item["y_t60_source"] = src
+        if src == "ridge":
+            expl = explain_t60_prediction(feats, model_doc=model)
+            if expl:
+                item["formula_terms_t60"] = expl
+                item["score_formula_terms_t60"] = expl
     except Exception:  # noqa: BLE001
         logger.debug("attach y_t60 predict failed", exc_info=True)
 
@@ -1937,6 +1848,10 @@ def _attach_y_t75_to_item(
             load_t75_model,
             predict_t75_from_features,
             write_y_t75_hat,
+        )
+        from core.research.t75_tree import (
+            load_t75_tree_model,
+            predict_t75_tree_from_features,
         )
         from core.research.tau_panel import (
             T75_SEQ_FEATURES,
@@ -1987,17 +1902,25 @@ def _attach_y_t75_to_item(
             for k in list(T75_SEQ_FEATURES) + ["tau_lag1", "tau_ma5"]:
                 if feats.get(k) is not None:
                     ft[k] = feats[k]
-        model = load_t75_model()
-        if model is None:
-            return
-        y_hat = predict_t75_from_features(feats, model_doc=model)
+        y_hat, model, src = _predict_horizon_hat(
+            "t75",
+            feats,
+            load_ridge=load_t75_model,
+            predict_ridge=predict_t75_from_features,
+            load_tree=load_t75_tree_model,
+            predict_tree=predict_t75_tree_from_features,
+        )
         if y_hat is None:
             return
         write_y_t75_hat(item, float(y_hat))
-        expl = explain_t75_prediction(feats, model_doc=model)
-        if expl:
-            item["formula_terms_t75"] = expl
-            item["score_formula_terms_t75"] = expl
+        if src:
+            item["y_τ75_source"] = src
+            item["y_t75_source"] = src
+        if src == "ridge":
+            expl = explain_t75_prediction(feats, model_doc=model)
+            if expl:
+                item["formula_terms_t75"] = expl
+                item["score_formula_terms_t75"] = expl
     except Exception:  # noqa: BLE001
         logger.debug("attach y_t75 predict failed", exc_info=True)
 
@@ -2030,6 +1953,10 @@ def _attach_y_t90_to_item(
             load_t90_model,
             predict_t90_from_features,
             write_y_t90_hat,
+        )
+        from core.research.t90_tree import (
+            load_t90_tree_model,
+            predict_t90_tree_from_features,
         )
         from core.research.tau_panel import (
             T90_SEQ_FEATURES,
@@ -2080,17 +2007,25 @@ def _attach_y_t90_to_item(
             for k in list(T90_SEQ_FEATURES) + ["tau_lag1", "tau_ma5"]:
                 if feats.get(k) is not None:
                     ft[k] = feats[k]
-        model = load_t90_model()
-        if model is None:
-            return
-        y_hat = predict_t90_from_features(feats, model_doc=model)
+        y_hat, model, src = _predict_horizon_hat(
+            "t90",
+            feats,
+            load_ridge=load_t90_model,
+            predict_ridge=predict_t90_from_features,
+            load_tree=load_t90_tree_model,
+            predict_tree=predict_t90_tree_from_features,
+        )
         if y_hat is None:
             return
         write_y_t90_hat(item, float(y_hat))
-        expl = explain_t90_prediction(feats, model_doc=model)
-        if expl:
-            item["formula_terms_t90"] = expl
-            item["score_formula_terms_t90"] = expl
+        if src:
+            item["y_τ90_source"] = src
+            item["y_t90_source"] = src
+        if src == "ridge":
+            expl = explain_t90_prediction(feats, model_doc=model)
+            if expl:
+                item["formula_terms_t90"] = expl
+                item["score_formula_terms_t90"] = expl
     except Exception:  # noqa: BLE001
         logger.debug("attach y_t90 predict failed", exc_info=True)
 
@@ -2578,10 +2513,9 @@ def rescore_scores_at_fixed_prefix(
     fallback = dict(open_snap or {}) if isinstance(open_snap, dict) else {}
 
     def _missing(reason: str = "minute_data_missing") -> Dict[str, Any]:
-        from core.research.path_panel import clear_y_hl, write_y_hl_status
+        from core.research.path_panel import clear_y_hl
 
         out = dict(fallback)
-        write_y_hl_status(out, reason)
         out["_minute_data_missing"] = True
         out["_score_source"] = "prefix_minute_missing"
         clear_y_hl(out)
@@ -2736,7 +2670,7 @@ def attach_portrait_dual_scores(
     tau_hm: str = "10:30",
     prefix_bars: Optional[int] = None,
 ) -> Dict[str, Any]:
-    """日结果补画像用 ŷ_τ_oc / ŷ_hl（**前 N 根**因果分钟）。
+    """日结果补画像用 ŷ_τ_oc（**前 N 根**因果分钟；ŷ_hl 已下线）。
 
     不再默认截到 10:30；N 取 ``prefix_bars`` / 日结果 / ``T0_LAST_LEG1_PREFIX_BARS``。
     """
@@ -2794,25 +2728,6 @@ def attach_portrait_dual_scores(
             snap, prefix, day_bar=day_ref, tau_hm=hm, hist_bars=hist_bars
         )
 
-    y_path_p = _f(out.get("y_hl_portrait"))
-    if y_path_p is None:
-        y_path_p = _f(out.get("y_path_portrait"))
-    if y_path_p is None and isinstance(out.get("scores"), dict):
-        y_path_p = _f(out["scores"].get("y_hl_portrait"))
-        if y_path_p is None:
-            y_path_p = _f(out["scores"].get("y_path_portrait"))
-    if y_path_p is None and str(snap.get("_score_source") or "") == "prefix_causal":
-        from core.research.path_panel import pick_y_hl
-
-        y_path_p = pick_y_hl(snap)
-    if y_path_p is None:
-        y_path_p = predict_path_from_prefix_minutes(
-            snap,
-            prefix,
-            day_bar=day_ref,
-            hist_bars=hist_bars,
-        )
-
     sc = dict(out.get("scores") or {}) if isinstance(out.get("scores"), dict) else {}
     feats = (
         dict(out.get("direction_features") or {})
@@ -2824,19 +2739,14 @@ def attach_portrait_dual_scores(
         out["y_tau_portrait_oc"] = y_tau_f
         sc["y_tau_portrait_oc"] = y_tau_f
         feats["y_tau_portrait_oc"] = y_tau_f
-    if y_path_p is not None:
-        y_path_f = round(float(y_path_p), 4)
-        out["y_hl_portrait"] = y_path_f
-        sc["y_hl_portrait"] = y_path_f
-        feats["y_hl_portrait"] = y_path_f
-        from core.research.path_panel import pick_y_hl, write_y_hl, write_y_hl_status
-
-        if pick_y_hl(out) is None and pick_y_hl(sc) is None:
-            write_y_hl(out, y_path_f)
-            write_y_hl(sc, y_path_f)
-            feats["y_hl"] = y_path_f
-            write_y_hl_status(out, "portrait_causal")
-            write_y_hl_status(sc, "portrait_causal")
+    # ŷ_hl 已下线：清画像残留，不再预测
+    out.pop("y_hl_portrait", None)
+    out.pop("y_path_portrait", None)
+    sc.pop("y_hl_portrait", None)
+    sc.pop("y_path_portrait", None)
+    feats.pop("y_hl_portrait", None)
+    feats.pop("y_path_portrait", None)
+    feats.pop("y_hl", None)
     out["portrait_prefix_bars"] = n_pref
     out["portrait_prefix_hm"] = hm
     sc["portrait_prefix_bars"] = n_pref
@@ -2922,10 +2832,9 @@ def resolve_dual_y_direction(
         residual = t0_residual_pct(scores)
     except Exception:  # noqa: BLE001
         residual = None
-    from core.research.path_panel import pick_y_hl
     from core.signal.yhat_windows import pick_y_co
 
-    y_path = pick_y_hl(scores)
+    y_path = None  # ŷ_hl 已下线
     y_co = pick_y_co(scores)
     y_check = scores.get("y_check")
     gap_pct = _f(scores.get("gap_pct"))
@@ -3194,7 +3103,7 @@ def scores_have_any(scores: Optional[dict]) -> bool:
         return False
     return any(
         _f(scores.get(k)) is not None
-        for k in ("y_eod", "y_tau", "y_trade", "y_co", "y_on", "y_hl", "y_path")
+        for k in ("y_eod", "y_tau", "y_trade", "y_co", "y_on")
     )
 
 

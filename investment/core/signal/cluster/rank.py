@@ -601,7 +601,7 @@ def rank_cluster_pools(
             }
         )
 
-    # 选股簿：全局按 ŷ_trade 降序 → min_score 过滤（仍看 ŷ_EOD）→ max_names 截断
+    # 选股簿：全局按 ŷ_trade 降序 → min_score 过滤（仍看 ŷ_oo）→ max_names 截断
     try:
         from core.signal.dual_score import get_dual_score_cfg, rank_key_field, rank_key_for_item
 

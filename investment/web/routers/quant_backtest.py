@@ -40,6 +40,7 @@ _T0_RULE_KEYS = (
     "y_τw_vote_margin",
     "y_tw_midpoint",
     "y_τw_midpoint",
+    "horizon_prob_backend",
     "t0_y_oc_target_scale",
     "t0_close_band_delta_pct",
     "t0_price_space_gate",

@@ -78,7 +78,7 @@ class TestT60Tree(unittest.TestCase):
         self.assertEqual(DEFAULT_N_ESTIMATORS, 80)
         self.assertEqual(DEFAULT_N_ESTIMATORS, TAU_N)
         self.assertEqual(TREE_HEAD, "y_t60_tree")
-        self.assertEqual(TREE_SCHEMA, "t60_tree_shadow_v3")
+        self.assertEqual(TREE_SCHEMA, "t60_tree_shadow_v5")
 
     def test_fit_shadow_vs_ridge_no_live_file(self):
         from core.research.t60_ridge import load_t60_model, persist_t60_model
@@ -106,14 +106,13 @@ class TestT60Tree(unittest.TestCase):
         self.assertTrue(report.get("success"), report.get("error"))
         self.assertEqual(report.get("task"), "t60_tree")
         self.assertEqual(report.get("head"), "y_t60_tree")
-        self.assertEqual(report.get("schema"), "t60_tree_shadow_v3")
+        self.assertEqual(report.get("schema"), "t60_tree_shadow_v5")
         self.assertEqual(report.get("backend"), "numpy_gbm")
         self.assertEqual(report.get("target"), "price_tau_plus_60")
         self.assertEqual(report.get("tau"), "10:30")
         self.assertFalse(report.get("live_hook"))
-        self.assertFalse(report.get("backtest_hook"))
-        self.assertTrue((report.get("persisted") or {}).get("skipped"))
-        self.assertNotIn("return_model", report)
+        self.assertTrue(report.get("backtest_hook"))
+        self.assertIn("tree_return_model", report)
         oos = report.get("oos") or {}
         ridge = report.get("ridge_oos") or {}
         self.assertIn("sign_hit", oos)
@@ -129,9 +128,18 @@ class TestT60Tree(unittest.TestCase):
         self.assertIn("ret_last_5m", feat_names)
         self.assertIn("ret_last_60m", feat_names)
         self.assertIn("t60_lag1", feat_names)
-        for k in ("path_sign", "bounce_from_low", "pullback_from_high"):
+        for k in (
+            "path_sign",
+            "bounce_from_low",
+            "pullback_from_high",
+            "vp_confirm",
+            "range_efficiency",
+            "vol_up_share",
+            "pullback_x_vol",
+        ):
             self.assertIn(k, feat_names)
             self.assertNotIn(k, ridge_names)
+            self.assertIn(k, report.get("tree_shape_features") or [])
         timing = report.get("timing") or {}
         self.assertIn("panel_s", timing)
         self.assertIn("tree_s", timing)

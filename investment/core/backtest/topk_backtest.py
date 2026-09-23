@@ -406,7 +406,7 @@ def _enrich_trade_eod_rem_fields(
     intent_price: Optional[float] = None,
     entry_price: Optional[float] = None,
 ) -> Dict[str, Any]:
-    """补齐 tip 的缺口 / ŷ_EOD_rem（信号打分时常无 open，成交后用意图价→开盘价还原）。"""
+    """补齐 tip 的缺口 / ŷ_oo_rem（信号打分时常无 open，成交后用意图价→开盘价还原）。"""
     out = dict(tip or {})
     gap = out.get("gap_pct")
     realized = out.get("realized_t1_to_tau")
@@ -899,7 +899,7 @@ def backtest_topk_equal_weight(
 
     cfg = load_signal_config()
     if not apply_tau_buy_gate:
-        # 历史 ŷ_EOD：不读分钟仓（live 5m 也不是 PIT）
+        # 历史 ŷ_oo：不读分钟仓（live 5m 也不是 PIT）
         cfg = dict(cfg)
         scoring = dict(cfg.get("scoring") or {})
         scoring["skip_minute_io"] = True
@@ -1832,14 +1832,14 @@ def backtest_topk_equal_weight(
             + "权重按净值%计（现金不计收益）；"
             + (
                 (
-                    "predicted_score=分组 live OLS β→ŷ_EOD；"
+                    "predicted_score=分组 live OLS β→ŷ_oo；"
                     if cluster_return_models
-                    else "predicted_score=walk-forward 拟合→ŷ_EOD；"
+                    else "predicted_score=walk-forward 拟合→ŷ_oo；"
                 )
                 if resolved_rank_mode == "predicted_score"
                 else ""
             )
-            + "排序=融合分 blend（ŷ_EOD+ŷ_τ）；表列 score=融合分；tip 仍分列 ŷ_EOD / ŷ_τ；"
+            + "排序=融合分 blend（ŷ_oo+ŷ_τ）；表列 score=融合分；tip 仍分列 ŷ_oo / ŷ_τ；"
             + "引擎=topk_research（独立腿聚合，无纸面 T+1/换手/现金底仓）；"
             + "≠纸面可实现收益，可交易验证见 paper_replay。"
         ),

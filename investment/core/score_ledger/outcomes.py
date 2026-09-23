@@ -225,7 +225,7 @@ def hydrate_ledger_yhat_tau(
             )
             if not item:
                 continue
-            # 保持账本冻结的 EOD ŷ，只补 τ
+            # 保持账本冻结的 ŷ_oo，只补 τ
             if r.get("yhat") is not None:
                 item["predicted_score"] = r.get("yhat")
                 item["score"] = r.get("yhat")

@@ -53,7 +53,7 @@ def _select_ridge_desk_doc(
 
 
 def _last_report_path_from_live(live_path: str) -> str:
-    """``r_ridge_model.json`` → ``r_ridge_last_report.json``。"""
+    """``tc_ridge_model.json`` → ``tc_ridge_last_report.json``。"""
     p = str(live_path or "")
     if p.endswith("_model.json"):
         return p[: -len("_model.json")] + "_last_report.json"
@@ -1244,7 +1244,7 @@ class QuantFactorMixin:
             path_model_path(),
         )
 
-    def run_r_ridge_experiment(
+    def run_tc_ridge_experiment(
         self,
         *,
         lookback: int = 120,
@@ -1262,14 +1262,14 @@ class QuantFactorMixin:
         """观察池 ŷ_τc Ridge：与 ŷ_oc 同 X → close[T]/price(τ)−1。只读本地 5m 缓存。"""
         from core.data.facade import bars_and_source
         from core.watching.store import WATCHING_MAX_SIZE, read_watching
-        from core.research.r_ridge import (
-            fit_r_ridge_report,
-            load_r_last_report,
-            load_r_model,
-            persist_r_model,
-            r_model_path,
-            r_promote_gate,
-            save_r_last_report,
+        from core.research.tc_ridge import (
+            fit_tc_ridge_report,
+            load_tc_last_report,
+            load_tc_model,
+            persist_tc_model,
+            tc_model_path,
+            tc_promote_gate,
+            save_tc_last_report,
         )
 
         uni = read_watching()
@@ -1284,14 +1284,14 @@ class QuantFactorMixin:
         if len(codes) < 2:
             return {
                 "success": False,
-                "error": "研究池至少 2 只才可跑 ŷ_r Ridge",
-                "task": "r_ridge",
+                "error": "研究池至少 2 只才可跑 ŷ_τc Ridge",
+                "task": "tc_ridge",
             }
 
         if persist:
-            last = load_r_last_report()
+            last = load_tc_last_report()
             if last:
-                saved = persist_r_model(
+                saved = persist_tc_model(
                     last,
                     note=note or "persist last r report",
                     force=bool(force_promote),
@@ -1300,10 +1300,10 @@ class QuantFactorMixin:
                 out = dict(last)
                 out["persisted"] = saved
                 out["from_last_report"] = True
-                out["promote_gate"] = saved.get("promote_gate") or r_promote_gate(last)
+                out["promote_gate"] = saved.get("promote_gate") or tc_promote_gate(last)
                 if saved.get("promoted_at"):
                     out["promoted_at"] = saved["promoted_at"]
-                return _attach_ridge_role_flags(out, r_model_path())
+                return _attach_ridge_role_flags(out, tc_model_path())
 
         period = str(minute_period or "5").strip() or "5"
         mlook = max(20, min(int(minute_lookback_days or 90), 240))
@@ -1348,7 +1348,7 @@ class QuantFactorMixin:
                     f"无本地分钟缓存（period={period} · 池 {len(codes)} 只）；"
                     "请先「强更 5m」，拟合不再拉远端"
                 ),
-                "task": "r_ridge",
+                "task": "tc_ridge",
                 "minute_period": period,
                 "watching_limit": limit,
                 "watching_pool_size": len(pool),
@@ -1356,7 +1356,7 @@ class QuantFactorMixin:
                 "minute_codes_miss": minute_codes_miss,
             }
 
-        report = fit_r_ridge_report(
+        report = fit_tc_ridge_report(
             stock_bars,
             ridge_lambda=ridge_lambda,
             gap_trigger_pct=gap_trigger_pct,
@@ -1372,66 +1372,66 @@ class QuantFactorMixin:
         report["minute_codes_universe"] = len(codes)
         report["minute_cache_only"] = True
         if report.get("success"):
-            save_r_last_report(report)
+            save_tc_last_report(report)
         if persist and report.get("success"):
-            saved = persist_r_model(
+            saved = persist_tc_model(
                 report,
                 note=note or "api r-ridge persist",
                 force=bool(force_promote),
                 role=persist_role,
             )
             report["persisted"] = saved
-            report["promote_gate"] = saved.get("promote_gate") or r_promote_gate(report)
+            report["promote_gate"] = saved.get("promote_gate") or tc_promote_gate(report)
             if saved.get("promoted_at"):
                 report["promoted_at"] = saved["promoted_at"]
         else:
             report["persisted"] = {"success": False, "skipped": True}
-            live = load_r_model()
+            live = load_tc_model()
             report["live_model_present"] = bool(live)
             if report.get("success") and not report.get("promote_gate"):
-                report["promote_gate"] = r_promote_gate(report)
-        return _attach_ridge_role_flags(report, r_model_path())
+                report["promote_gate"] = tc_promote_gate(report)
+        return _attach_ridge_role_flags(report, tc_model_path())
 
-    def get_r_ridge_model(self) -> Dict[str, Any]:
-        from core.research.r_ridge import (
-            load_r_last_report,
-            load_r_model,
-            r_model_path,
-            r_promote_gate,
+    def get_tc_ridge_model(self) -> Dict[str, Any]:
+        from core.research.tc_ridge import (
+            load_tc_last_report,
+            load_tc_model,
+            tc_model_path,
+            tc_promote_gate,
         )
 
-        doc = load_r_model()
-        last = load_r_last_report()
+        doc = load_tc_model()
+        last = load_tc_last_report()
         chosen, use_last = _select_ridge_desk_doc(doc, last)
         if not chosen:
             out = {
                 "success": False,
                 "exists": False,
-                "path": r_model_path(),
+                "path": tc_model_path(),
                 "last_report_exists": bool(last),
-                "note": "尚无 ŷ_r 模型；POST /api/quant/r-ridge persist=true",
+                "note": "尚无 ŷ_τc 模型；POST /api/quant/tc-ridge persist=true",
             }
             if last:
-                out["promote_gate"] = r_promote_gate(last)
+                out["promote_gate"] = tc_promote_gate(last)
                 out["oos"] = last.get("oos")
-            return _attach_ridge_role_flags(out, r_model_path(), live_present=False)
+            return _attach_ridge_role_flags(out, tc_model_path(), live_present=False)
         gate_src = last if use_last else (doc if not doc.get("_shadow") else (last or doc))
         packed = {
             **chosen,
             "success": True,
             "exists": True,
-            "path": r_model_path(),
+            "path": tc_model_path(),
             "promoted": (not use_last) and not bool(chosen.get("_shadow")),
             "shadow": bool(use_last) or bool(chosen.get("_shadow")),
             "last_report_exists": bool(last),
-            "promote_gate": r_promote_gate(gate_src),
+            "promote_gate": tc_promote_gate(gate_src),
         }
         research_rm = packed.get("return_model_research")
         if not isinstance(research_rm, dict):
             if isinstance(last, dict) and isinstance(last.get("return_model_research"), dict):
                 research_rm = last["return_model_research"]
             else:
-                research_doc = load_r_model(role="research")
+                research_doc = load_tc_model(role="research")
                 research_rm = (
                     research_doc.get("return_model")
                     if isinstance(research_doc, dict)
@@ -1439,7 +1439,7 @@ class QuantFactorMixin:
                 )
         if isinstance(research_rm, dict):
             packed["return_model_research"] = research_rm
-        return _attach_ridge_role_flags(packed, r_model_path())
+        return _attach_ridge_role_flags(packed, tc_model_path())
 
     def run_t30_ridge_experiment(
         self,
@@ -2601,7 +2601,7 @@ class QuantFactorMixin:
             worker_fn=lambda: self.run_t90_ridge_experiment(**kwargs),
         )
 
-    def start_r_ridge_job(
+    def start_tc_ridge_job(
         self,
         *,
         lookback: int = 120,
@@ -2614,8 +2614,8 @@ class QuantFactorMixin:
         holdout_trading_days: int = 10,
         **_ignored: Any,
     ) -> Dict[str, Any]:
-        """后台 ŷ_τc 拟合；轮询 ``GET /api/jobs/r-ridge``。不写盘。"""
-        from core.job_progress import r_ridge_job
+        """后台 ŷ_τc 拟合；轮询 ``GET /api/jobs/tc-ridge``。不写盘。"""
+        from core.job_progress import tc_ridge_job
 
         kwargs = dict(
             lookback=lookback,
@@ -2629,14 +2629,14 @@ class QuantFactorMixin:
             holdout_trading_days=holdout_trading_days,
         )
         return _start_ridge_fit_job(
-            slot=r_ridge_job,
-            kind="r_ridge",
+            slot=tc_ridge_job,
+            kind="tc_ridge",
             message="ŷ_τc 拟合中…",
             watching_limit=int(watching_limit or 200),
-            worker_fn=lambda: self.run_r_ridge_experiment(**kwargs),
+            worker_fn=lambda: self.run_tc_ridge_experiment(**kwargs),
         )
 
-    def run_r_tree_experiment(
+    def run_tc_tree_experiment(
         self,
         *,
         lookback: int = 120,
@@ -2650,14 +2650,14 @@ class QuantFactorMixin:
         minute_period: str = "5",
         minute_lookback_days: int = 150,
     ) -> Dict[str, Any]:
-        """ŷ_r_tree 影子头：同面板 Holdout vs Ridge。只写 last_report，不进 live / 回测。"""
+        """ŷ_τc_tree 影子头：同面板 Holdout vs Ridge。只写 last_report，不进 live / 回测。"""
         import time
 
         from core.data.facade import bars_and_source
         from core.watching.store import WATCHING_MAX_SIZE, read_watching
-        from core.research.r_tree import (
-            fit_r_tree_report,
-            save_r_tree_last_report,
+        from core.research.tc_tree import (
+            fit_tc_tree_report,
+            save_tc_tree_last_report,
         )
 
         uni = read_watching()
@@ -2672,9 +2672,9 @@ class QuantFactorMixin:
         if len(codes) < 2:
             return {
                 "success": False,
-                "error": "研究池至少 2 只才可跑 ŷ_r_tree",
-                "task": "r_tree",
-                "head": "y_r_tree",
+                "error": "研究池至少 2 只才可跑 ŷ_τc_tree",
+                "task": "tc_tree",
+                "head": "y_tc_tree",
                 "live_hook": False,
                 "backtest_hook": False,
             }
@@ -2727,8 +2727,8 @@ class QuantFactorMixin:
                     f"无本地分钟缓存（period={period} · 池 {len(codes)} 只）；"
                     "请先「强更 5m」，拟合不再拉远端"
                 ),
-                "task": "r_tree",
-                "head": "y_r_tree",
+                "task": "tc_tree",
+                "head": "y_tc_tree",
                 "minute_period": period,
                 "watching_limit": limit,
                 "watching_pool_size": len(pool),
@@ -2738,7 +2738,7 @@ class QuantFactorMixin:
                 "backtest_hook": False,
             }
 
-        report = fit_r_tree_report(
+        report = fit_tc_tree_report(
             stock_bars,
             ridge_lambda=ridge_lambda,
             gap_trigger_pct=gap_trigger_pct,
@@ -2775,33 +2775,40 @@ class QuantFactorMixin:
             "reason": "shadow_only",
         }
         if report.get("success"):
-            save_r_tree_last_report(report)
+            save_tc_tree_last_report(report)
         return report
 
-    def get_r_tree_last_report(self) -> Dict[str, Any]:
-        from core.research.r_tree import (
-            load_r_tree_last_report,
-            r_tree_last_report_path,
+    def get_tc_tree_last_report(self) -> Dict[str, Any]:
+        from core.research.tc_tree import (
+            load_tc_tree_last_report,
+            tc_tree_last_report_path,
         )
 
-        last = load_r_tree_last_report()
+        last = load_tc_tree_last_report()
         if not last:
             return {
                 "success": False,
                 "exists": False,
-                "path": r_tree_last_report_path(),
+                "path": tc_tree_last_report_path(),
                 "live_hook": False,
                 "backtest_hook": False,
-                "head": "y_r_tree",
-                "note": "尚无 ŷ_r_tree；POST /api/quant/r-tree",
+                "head": "y_tc_tree",
+                "note": "尚无 ŷ_τc_tree；POST /api/quant/tc-tree",
             }
         out = dict(last)
         out["exists"] = True
-        out["path"] = r_tree_last_report_path()
+        out["path"] = tc_tree_last_report_path()
         out["live_hook"] = False
         out["backtest_hook"] = False
-        out.setdefault("head", "y_r_tree")
+        out.setdefault("head", "y_tc_tree")
         return out
+
+    # 旧名兼容（ŷ_r / r_ridge / r_tree）
+    run_r_ridge_experiment = run_tc_ridge_experiment
+    get_r_ridge_model = get_tc_ridge_model
+    start_r_ridge_job = start_tc_ridge_job
+    run_r_tree_experiment = run_tc_tree_experiment
+    get_r_tree_last_report = get_tc_tree_last_report
 
     def run_t30_tree_experiment(
         self,
@@ -2824,6 +2831,7 @@ class QuantFactorMixin:
         from core.watching.store import WATCHING_MAX_SIZE, read_watching
         from core.research.t30_tree import (
             fit_t30_tree_report,
+            persist_t30_tree_model,
             save_t30_tree_last_report,
         )
 
@@ -2935,14 +2943,23 @@ class QuantFactorMixin:
         timing["total_s"] = round(float(total_s), 2)
         report["timing"] = timing
         report["live_hook"] = False
-        report["backtest_hook"] = False
-        report["persisted"] = {
-            "success": False,
-            "skipped": True,
-            "reason": "shadow_only",
-        }
+        report["backtest_hook"] = True
         if report.get("success"):
             save_t30_tree_last_report(report)
+            saved = persist_t30_tree_model(
+                report,
+                note=f"t30_tree fit auto-persist for backtest",
+                force=True,
+            )
+            report["persisted"] = saved
+            if saved.get("path"):
+                report["model_path"] = saved["path"]
+        else:
+            report["persisted"] = {
+                "success": False,
+                "skipped": True,
+                "reason": "fit_failed",
+            }
         return report
 
     def get_t30_tree_last_report(self) -> Dict[str, Any]:
@@ -2991,6 +3008,7 @@ class QuantFactorMixin:
         from core.watching.store import WATCHING_MAX_SIZE, read_watching
         from core.research.t45_tree import (
             fit_t45_tree_report,
+            persist_t45_tree_model,
             save_t45_tree_last_report,
         )
 
@@ -3102,14 +3120,23 @@ class QuantFactorMixin:
         timing["total_s"] = round(float(total_s), 2)
         report["timing"] = timing
         report["live_hook"] = False
-        report["backtest_hook"] = False
-        report["persisted"] = {
-            "success": False,
-            "skipped": True,
-            "reason": "shadow_only",
-        }
+        report["backtest_hook"] = True
         if report.get("success"):
             save_t45_tree_last_report(report)
+            saved = persist_t45_tree_model(
+                report,
+                note=f"t45_tree fit auto-persist for backtest",
+                force=True,
+            )
+            report["persisted"] = saved
+            if saved.get("path"):
+                report["model_path"] = saved["path"]
+        else:
+            report["persisted"] = {
+                "success": False,
+                "skipped": True,
+                "reason": "fit_failed",
+            }
         return report
 
     def get_t45_tree_last_report(self) -> Dict[str, Any]:
@@ -3158,6 +3185,7 @@ class QuantFactorMixin:
         from core.watching.store import WATCHING_MAX_SIZE, read_watching
         from core.research.t60_tree import (
             fit_t60_tree_report,
+            persist_t60_tree_model,
             save_t60_tree_last_report,
         )
 
@@ -3269,14 +3297,23 @@ class QuantFactorMixin:
         timing["total_s"] = round(float(total_s), 2)
         report["timing"] = timing
         report["live_hook"] = False
-        report["backtest_hook"] = False
-        report["persisted"] = {
-            "success": False,
-            "skipped": True,
-            "reason": "shadow_only",
-        }
+        report["backtest_hook"] = True
         if report.get("success"):
             save_t60_tree_last_report(report)
+            saved = persist_t60_tree_model(
+                report,
+                note=f"t60_tree fit auto-persist for backtest",
+                force=True,
+            )
+            report["persisted"] = saved
+            if saved.get("path"):
+                report["model_path"] = saved["path"]
+        else:
+            report["persisted"] = {
+                "success": False,
+                "skipped": True,
+                "reason": "fit_failed",
+            }
         return report
 
     def get_t60_tree_last_report(self) -> Dict[str, Any]:
@@ -3325,6 +3362,7 @@ class QuantFactorMixin:
         from core.watching.store import WATCHING_MAX_SIZE, read_watching
         from core.research.t75_tree import (
             fit_t75_tree_report,
+            persist_t75_tree_model,
             save_t75_tree_last_report,
         )
 
@@ -3436,14 +3474,23 @@ class QuantFactorMixin:
         timing["total_s"] = round(float(total_s), 2)
         report["timing"] = timing
         report["live_hook"] = False
-        report["backtest_hook"] = False
-        report["persisted"] = {
-            "success": False,
-            "skipped": True,
-            "reason": "shadow_only",
-        }
+        report["backtest_hook"] = True
         if report.get("success"):
             save_t75_tree_last_report(report)
+            saved = persist_t75_tree_model(
+                report,
+                note=f"t75_tree fit auto-persist for backtest",
+                force=True,
+            )
+            report["persisted"] = saved
+            if saved.get("path"):
+                report["model_path"] = saved["path"]
+        else:
+            report["persisted"] = {
+                "success": False,
+                "skipped": True,
+                "reason": "fit_failed",
+            }
         return report
 
     def get_t75_tree_last_report(self) -> Dict[str, Any]:
@@ -3492,6 +3539,7 @@ class QuantFactorMixin:
         from core.watching.store import WATCHING_MAX_SIZE, read_watching
         from core.research.t90_tree import (
             fit_t90_tree_report,
+            persist_t90_tree_model,
             save_t90_tree_last_report,
         )
 
@@ -3603,14 +3651,23 @@ class QuantFactorMixin:
         timing["total_s"] = round(float(total_s), 2)
         report["timing"] = timing
         report["live_hook"] = False
-        report["backtest_hook"] = False
-        report["persisted"] = {
-            "success": False,
-            "skipped": True,
-            "reason": "shadow_only",
-        }
+        report["backtest_hook"] = True
         if report.get("success"):
             save_t90_tree_last_report(report)
+            saved = persist_t90_tree_model(
+                report,
+                note=f"t90_tree fit auto-persist for backtest",
+                force=True,
+            )
+            report["persisted"] = saved
+            if saved.get("path"):
+                report["model_path"] = saved["path"]
+        else:
+            report["persisted"] = {
+                "success": False,
+                "skipped": True,
+                "reason": "fit_failed",
+            }
         return report
 
     def get_t90_tree_last_report(self) -> Dict[str, Any]:

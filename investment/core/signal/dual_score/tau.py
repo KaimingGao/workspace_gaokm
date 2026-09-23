@@ -107,8 +107,8 @@ def apply_tau_score_fields(
 ) -> Dict[str, Any]:
     """写入双层契约字段（不改 predicted_score / score 主值）。
 
-    ``rem_yhat`` 就是独立训出的 ŷ_τ（open→close），不依赖 ŷ_EOD。
-    ŷ_trade = w·ŷ_EOD + w·(缺口∘ŷ_τ)；ŷ_EOD_rem 只作派生对照，不进融合。
+    ``rem_yhat`` 就是独立训出的 ŷ_τ（open→close），不依赖 ŷ_oo。
+    ŷ_trade = w·ŷ_oo + w·(缺口∘ŷ_τ)；ŷ_oo_rem 只作派生对照，不进融合。
     ``residual_delta`` 已废弃，忽略。
     ``fuse_intraday=False``（ŷ_oo 已换到下一周期）：τ 不进主排序融合。
     收盘后同一周期仍 fuse：ŷ_oc 钉在 ≤10:00，不是当日已实现 OC。
@@ -394,7 +394,7 @@ def attach_dual_score_pit(
     ``minute_bars``：可选 ≤τ 分钟线；``enable_minute_tau`` 时并入分钟小包（亦可读本地缓存）。
     ``minute_tau_hm``：因果 τ 钟（固定前缀末根）；无钟则开盘 Z 或调仓因果末根。
     ``use_minute_tau=False``：强制开盘 Z（做 T 开盘预计算）；不读分钟仓/缓存。
-    无 ŷ_τ 模型时仍写契约字段（ŷ_τ=None，ŷ_trade 退回 ŷ_EOD）。
+    无 ŷ_τ 模型时仍写契约字段（ŷ_τ=None，ŷ_trade 退回 ŷ_oo）。
     ``fuse_intraday=False``：ŷ_oo 已换期（T+1 开盘后），τ 不进主排序。
     收盘后同一周期默认仍 fuse。
     """

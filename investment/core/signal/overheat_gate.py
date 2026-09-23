@@ -180,6 +180,10 @@ def annotate_item_overheat(
     # ŷ tip：默认只写对照列；soft_scale_yhat 才改主 ŷ
     y = item.get("predicted_score")
     if y is None:
+        y = item.get("predicted_score_oo")
+    if y is None:
+        y = item.get("y_oo")
+    if y is None:
         y = item.get("predicted_score_eod")
     try:
         y_f = float(y) if y is not None else None

@@ -6,7 +6,7 @@ import logging
 logger = logging.getLogger(__name__)
 from typing import Any, Callable, Dict, List, Optional
 
-from core.research.r_ridge import pack_y_r_fields
+from core.research.tc_ridge import pack_y_tc_fields
 from core.t0.config import T0_TRADE_DAYS_SAMPLE_UI_LIMIT, load_t0_rules, t0_backtest_virtual_shares
 from core.t0.minute_path import T0_INTENTIONAL_ABANDON_EXITS
 from core.t0.rules import _t0_qty_lots, simulate_t0_day
@@ -221,9 +221,19 @@ def backtest_t0_on_bars(
         normalize_backtest_model_role,
         scoring_model_role_context,
     )
+    from core.research.horizon_tree import (
+        current_horizon_prob_backend,
+        horizon_prob_backend_context,
+        normalize_horizon_prob_backend,
+    )
 
     requested = normalize_backtest_model_role(score_model_role)
-    if current_scoring_model_role() != requested:
+    cfg_probe = load_t0_rules(rules if isinstance(rules, dict) else None)
+    backend_req = normalize_horizon_prob_backend(cfg_probe.get("horizon_prob_backend"))
+    if (
+        current_scoring_model_role() != requested
+        or current_horizon_prob_backend() != backend_req
+    ):
         import inspect
 
         allowed = inspect.signature(backtest_t0_on_bars).parameters
@@ -231,10 +241,9 @@ def backtest_t0_on_bars(
             k: v for k, v in locals().items() if k in allowed and k != "bars"
         }
         params["score_model_role"] = requested
-        # 不在这里清模型缓存：逐票回测会进本函数多次，清缓存会把研究套反复从盘重载，
-        # 6 票即可把 240s 时限吃光。_scoring_models 已按 role 分桶，不会误用 live。
         with scoring_model_role_context(requested):
-            return backtest_t0_on_bars(bars, **params)
+            with horizon_prob_backend_context(backend_req):
+                return backtest_t0_on_bars(bars, **params)
     if require_minute and not minute_by_date:
         return {
             "success": False,
@@ -557,7 +566,7 @@ def _walk_t0(
                     "path_realized": day.get("path_realized"),
                     "path_realized_reason": day.get("path_realized_reason"),
                     "path_realized_trig": day.get("path_realized_trig"),
-                    **pack_y_r_fields(day),
+                    **pack_y_tc_fields(day),
                     "eod_realized": day.get("eod_realized"),
                     "tau_realized": day.get("tau_realized"),
                     "open": day.get("open")
@@ -678,7 +687,7 @@ def _walk_t0(
                 "path_realized": day.get("path_realized"),
                 "path_realized_reason": day.get("path_realized_reason"),
                 "path_realized_trig": day.get("path_realized_trig"),
-                **pack_y_r_fields(day),
+                **pack_y_tc_fields(day),
                 "eod_realized": day.get("eod_realized"),
                 "tau_realized": day.get("tau_realized"),
                 "prev_close": day.get("prev_close")

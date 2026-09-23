@@ -78,7 +78,7 @@ class TestT30Tree(unittest.TestCase):
         self.assertEqual(DEFAULT_N_ESTIMATORS, 80)
         self.assertEqual(DEFAULT_N_ESTIMATORS, TAU_N)
         self.assertEqual(TREE_HEAD, "y_t30_tree")
-        self.assertEqual(TREE_SCHEMA, "t30_tree_shadow_v3")
+        self.assertEqual(TREE_SCHEMA, "t30_tree_shadow_v5")
 
     def test_fit_shadow_vs_ridge_no_live_file(self):
         from core.research.t30_ridge import load_t30_model, persist_t30_model
@@ -106,14 +106,16 @@ class TestT30Tree(unittest.TestCase):
         self.assertTrue(report.get("success"), report.get("error"))
         self.assertEqual(report.get("task"), "t30_tree")
         self.assertEqual(report.get("head"), "y_t30_tree")
-        self.assertEqual(report.get("schema"), "t30_tree_shadow_v3")
+        self.assertEqual(report.get("schema"), "t30_tree_shadow_v5")
         self.assertEqual(report.get("backend"), "numpy_gbm")
         self.assertEqual(report.get("target"), "price_tau_plus_30")
         self.assertEqual(report.get("tau"), "10:30")
         self.assertFalse(report.get("live_hook"))
-        self.assertFalse(report.get("backtest_hook"))
-        self.assertTrue((report.get("persisted") or {}).get("skipped"))
-        self.assertNotIn("return_model", report)
+        self.assertTrue(report.get("backtest_hook"))
+        self.assertIn("tree_return_model", report)
+        rm = report.get("tree_return_model") or {}
+        self.assertEqual(rm.get("head_kind"), "prob")
+        self.assertIn("feature_names", rm)
         oos = report.get("oos") or {}
         ridge = report.get("ridge_oos") or {}
         self.assertIn("sign_hit", oos)
@@ -131,10 +133,19 @@ class TestT30Tree(unittest.TestCase):
         self.assertIn("ret_last_5m", feat_names)
         self.assertIn("ret_last_30m", feat_names)
         self.assertIn("t30_lag1", feat_names)
-        for k in ("path_sign", "bounce_from_low", "pullback_from_high"):
+        for k in (
+            "path_sign",
+            "bounce_from_low",
+            "pullback_from_high",
+            "vp_confirm",
+            "range_efficiency",
+            "vol_up_share",
+            "pullback_x_vol",
+        ):
             self.assertIn(k, feat_names)
             self.assertNotIn(k, ridge_names)
         self.assertIn("path_sign", report.get("tree_shape_features") or [])
+        self.assertIn("vp_confirm", report.get("tree_shape_features") or [])
         timing = report.get("timing") or {}
         self.assertIn("panel_s", timing)
         self.assertIn("tree_s", timing)
@@ -145,6 +156,11 @@ class TestT30Tree(unittest.TestCase):
         blocked = persist_t30_model(report, note="should fail", force=True)
         self.assertFalse(blocked.get("success"))
 
+        from core.research.t30_tree import (
+            persist_t30_tree_model,
+            predict_t30_tree_from_features,
+        )
+
         with tempfile.TemporaryDirectory() as tmp:
             live = os.path.join(tmp, "live")
             os.makedirs(live, exist_ok=True)
@@ -153,6 +169,13 @@ class TestT30Tree(unittest.TestCase):
                 tree_path = t30_tree_last_report_path()
                 self.assertTrue(os.path.isfile(tree_path))
                 self.assertIn("t30_tree_last_report.json", tree_path)
+                saved = persist_t30_tree_model(report, force=True)
+                self.assertTrue(saved.get("success"), saved)
+                self.assertTrue(os.path.isfile(os.path.join(live, "t30_tree_model.json")))
+                pred = predict_t30_tree_from_features({"gap_pct": 0.0, "ret_last_5m": -0.2})
+                self.assertIsNotNone(pred)
+                self.assertGreater(float(pred), 0.0)
+                self.assertLess(float(pred), 1.0)
                 self.assertFalse(
                     os.path.isfile(os.path.join(live, "t30_ridge_model.json"))
                 )
@@ -189,6 +212,21 @@ class TestT30Tree(unittest.TestCase):
             self.assertNotIn(k, T30_Z_FEATURES)
             self.assertIn(k, T30_TREE_Z_FEATURES)
             self.assertIn(k, TAU_HORIZON_DROP_OC_SHAPE)
+        for k in (
+            "t_hi_frac",
+            "t_lo_frac",
+            "t_hi_minus_lo",
+            "room_to_high",
+            "room_to_low",
+            "mom_accel_5_15",
+            "mom_accel_5_30",
+            "vol_down_up",
+            "range_efficiency",
+            "vp_confirm",
+            "vol_up_share",
+            "pullback_x_vol",
+        ):
+            self.assertIn(k, TAU_HORIZON_TREE_SHAPE_FEATURES)
         self.assertEqual(
             list(T30_TREE_Z_FEATURES),
             list(with_horizon_tree_shape(T30_Z_FEATURES)),

@@ -577,9 +577,6 @@ AUX_YHAT_KEYS = (
     "t90_realized",
     "y_τw",
     "y_tw",
-    "y_hl",
-    "predicted_score_hl",
-    "y_hl_realized",
 )
 
 
@@ -588,12 +585,11 @@ def aux_yhat_fields(
     *,
     include_tau_horizons: bool = True,
 ) -> Dict[str, Any]:
-    """对照头 y_hl；可选 y_τw / y_τ30 / y_τ45 / y_τ60 / y_τ75 / y_τ90。不进 ranking。"""
+    """对照头：可选 y_τw / y_τ30 / y_τ45 / y_τ60 / y_τ75 / y_τ90。不进 ranking。ŷ_hl 已下线。"""
     if not isinstance(item, dict):
         return {}
     out: Dict[str, Any] = {}
     try:
-        from core.research.path_panel import pick_y_hl, write_y_hl
         from core.research.t30_ridge import pick_y_t30_hat, pick_y_t30_label
         from core.research.t45_ridge import pick_y_t45_hat, pick_y_t45_label
         from core.research.t60_ridge import pick_y_t60_hat, pick_y_t60_label
@@ -654,16 +650,6 @@ def aux_yhat_fields(
     if r90 is not None:
         out["y_t90_realized"] = r90
         out["t90_realized"] = r90
-    yhl = pick_y_hl(item)
-    if yhl is not None:
-        write_y_hl(out, yhl)
-    rhl = _f(item.get("y_hl_realized"))
-    if rhl is None:
-        rhl = _f(item.get("path_realized"))
-    if rhl is None:
-        rhl = _f(item.get("y_path_realized"))
-    if rhl is not None:
-        out["y_hl_realized"] = rhl
     if include_tau_horizons:
         yw = blend_y_tw(y30, y60, y90, y45, y75)
         if yw is None:

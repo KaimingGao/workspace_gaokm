@@ -122,7 +122,7 @@ def freeze_from_tau_shadow_book(
             "book_updated_at": doc.get("updated_at"),
             "feature_as_of": resolved.get("feature_as_of"),
             "freeze_note": resolved.get("note"),
-            "note": "A2 影子成员快照；不对账单一 y_EOD",
+            "note": "A2 影子成员快照；不对账单一 y_oo",
         },
     }
     atomic_write_json(path, payload)

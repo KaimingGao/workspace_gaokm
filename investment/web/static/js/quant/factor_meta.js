@@ -416,12 +416,53 @@ export const TAU_FEAT_META = {
   t_hi_frac: {
     label: "最高点相对前缀进度",
     description:
-      "前缀首次最高价时刻相对开盘的进度 0–1。ŷ_hl 入模，补 path_sign 的时间位置。",
+      "前缀首次最高价时刻相对开盘的进度 0–1。ŷ_τ*_tree 入模，补 path_sign 的时间位置。",
   },
   t_lo_frac: {
     label: "最低点相对前缀进度",
     description:
-      "前缀首次最低价时刻相对开盘的进度 0–1。ŷ_hl 入模，补 path_sign 的时间位置。",
+      "前缀首次最低价时刻相对开盘的进度 0–1。ŷ_τ*_tree 入模，补 path_sign 的时间位置。",
+  },
+  t_hi_minus_lo: {
+    label: "高点进度−低点进度",
+    description:
+      "t_hi_frac − t_lo_frac。正≈先低后高（V 形进度），负≈先高后低。仅树头。",
+  },
+  room_to_high: {
+    label: "距前缀高点空间 %",
+    description: "(前缀高−τ价)/τ价×100。相对收盘锚的剩余上探空间；仅树头。",
+  },
+  room_to_low: {
+    label: "距前缀低点空间 %",
+    description: "(τ价−前缀低)/τ价×100。相对收盘锚的已弹/可砸空间；仅树头。",
+  },
+  mom_accel_5_15: {
+    label: "近5m−近15m 动量差 %",
+    description: "短窗相对中窗的动量加速度；砸完抬升时为正。仅树头。",
+  },
+  mom_accel_5_30: {
+    label: "近5m−近30m 动量差 %",
+    description: "短窗相对长窗的动量加速度；专打 V 形反转。仅树头。",
+  },
+  vol_down_up: {
+    label: "下跌量/上涨量",
+    description: "前缀下跌根均量 / 上涨根均量（上限 10）。>1=跌段放量。仅树头。",
+  },
+  range_efficiency: {
+    label: "|开→τ|/振幅（趋势效率 0–1）",
+    description: "净涨跌相对振幅的占比。高=单边趋势，低=宽幅震荡。仅树头。",
+  },
+  vp_confirm: {
+    label: "开→τ×(近3量比−1) 量价确认",
+    description: "收益与近3根量比的乘积（截断±30）。放量上涨为正，放量下跌为负。仅树头。",
+  },
+  vol_up_share: {
+    label: "上涨量占比 0–1",
+    description: "上涨根成交量 / (上涨+下跌)。比 vol_down_up 更对称、不易截断。仅树头。",
+  },
+  pullback_x_vol: {
+    label: "自高回撤×近3量比",
+    description: "回撤深度×量比。放量回撤偏派发，缩量回撤偏消化。仅树头。",
   },
   yclose_loc: {
     label: "昨收位置",

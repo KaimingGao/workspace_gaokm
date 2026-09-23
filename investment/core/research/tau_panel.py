@@ -1,6 +1,6 @@
 """ŷ_τ 训练面板：y = close[T]/open[T]-1；特征 = 开盘 Z（缺口/ATR/截面）。
 
-无未来函数：决策在开盘，标签为开盘→收盘。日线因子不在此计算（已在 ŷ_EOD）。
+无未来函数：决策在开盘，标签为开盘→收盘。日线因子不在此计算（已在 ŷ_oo）。
 另加 PIT 历史真实 open→close（tau_lag1 / tau_ma5，不含当日）。
 """
 
@@ -1523,7 +1523,7 @@ def collect_tau_open_panel(
 
     返回 ``(xs, ys, decision_dates, meta_rows)``。
     ``decision_dates`` = 交易日 T（开盘决策日）；ATR 窗口截止 T-1。
-    只写 Z 特征（缺口 / ATR）；日线因子已在 ŷ_EOD，此处不算。
+    只写 Z 特征（缺口 / ATR）；日线因子已在 ŷ_oo，此处不算。
     ``meta_rows`` 含 ``y_tau``（= open→close %）等辅助字段。
     """
     min_history = max(5, int(min_history or 12))

@@ -121,7 +121,7 @@ def row_from_scored_item(
             heuristic_as_yhat = True
     if yhat is None:
         return None
-    # ŷ_EOD 必须是收益分口径（%），禁止用 heuristic 0–100 填
+    # ŷ_oo 必须是收益分口径（%），禁止用 heuristic 0–100 填
     yhat_eod = None
     if not heuristic_as_yhat:
         yhat_eod = _to_float(item.get("predicted_score_eod"))

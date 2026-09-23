@@ -204,7 +204,7 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("installClusterMinuteUi", quant_js)
         self.assertNotIn("/api/quant/cx-ridge", quant_js)
         self.assertNotIn("/api/quant/tpd-ridge", quant_js)
-        self.assertIn("/api/quant/path-ridge", quant_js)
+        self.assertNotIn("/api/quant/path-ridge", quant_js)
         self.assertIn("/api/quant/co-ridge", quant_js)
         self.assertNotIn("/api/quant/on-ridge", quant_js)
         self.assertIn("quant-co-ridge-run", panel)
@@ -221,9 +221,8 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertNotIn("quant-tpd-ridge-run", panel)
         self.assertNotIn("quant-section-tpd", panel)
         self.assertNotIn("ŷ_tpd", panel)
-        self.assertIn("quant-section-path", panel)
-        self.assertIn("ŷ_hl", panel)
-        self.assertIn("quant-path-ridge-run", panel)
+        self.assertNotIn("quant-section-path", panel)
+        self.assertNotIn("quant-path-ridge-run", panel)
         self.assertIn("/api/quant/tc-ridge", quant_js)
         self.assertNotIn("quant-tc-ridge-run", panel)
         self.assertNotIn('id="quant-section-r"', panel)
@@ -340,8 +339,8 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertNotIn("quant-tau-boost-run", panel)
         self.assertIn("tau_lag1", panel)
         self.assertIn("tau_ma5", panel)
-        self.assertIn("path_lag1", panel)
-        self.assertIn("path_ma5", panel)
+        self.assertNotIn("path_lag1", panel)
+        self.assertNotIn("path_ma5", panel)
         self.assertNotIn("(1 − D/L)×100", panel)
 
         watching = self._read("web", "static", "partials", "watching_panel.html")
@@ -912,12 +911,12 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("Y_EOD_TITLE", trades_js)
         self.assertIn("Y_OC_REBALANCE_TITLE", trades_js)
         self.assertIn("Y_ON_TITLE", trades_js)
-        self.assertIn("Y_HL_TITLE", trades_js)
+        self.assertNotIn("Y_HL_TITLE", trades_js)
         self.assertIn('data-score-tip="${escapeHtml(', trades_js)
         self.assertIn('"eod"', trades_js)
         self.assertIn('"tau"', trades_js)
         self.assertNotIn('"rtau"', trades_js)
-        self.assertIn('"hl"', trades_js)
+        self.assertNotIn('"hl"', trades_js)
         self.assertIn("wireBtTradesScoreTips", bt_js)
         self.assertIn(".bt-stack-score[data-score-detail]", bt_js)
         self.assertIn("widthMin: \"10rem\"", trades_js)
@@ -976,7 +975,7 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("fmtScore(rankingPct, { signed: true })", trades_js)
         self.assertIn('label: "ranking"', trades_js)
         self.assertLess(trades_js.find('label: "ranking"'), trades_js.find('label: "y_oo"'))
-        self.assertLess(trades_js.find('label: "ranking"'), trades_js.find('label: "y_hl"'))
+        self.assertNotIn('label: "y_hl"', trades_js)
         self.assertNotIn('label: "y_τw"', trades_js)
         self.assertNotIn('label: "y_τ30"', trades_js)
         self.assertNotIn('label: "y_τ60"', trades_js)
@@ -995,13 +994,13 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertNotIn('id: "y_t30"', trades_js)
         self.assertNotIn('id: "y_t60"', trades_js)
         self.assertNotIn('id: "y_t90"', trades_js)
-        self.assertIn('id: "y_hl"', trades_js)
+        self.assertNotIn('id: "y_hl"', trades_js)
         self.assertNotIn("resolveYT30Score", trades_js)
         self.assertNotIn("fmtYtwVote", trades_js)
         self.assertIn("_optPredRealHtml", trades_js)
         self.assertNotIn("watching-col-y_tw", trades_css)
         self.assertNotIn("watching-col-y_t30", trades_css)
-        self.assertIn("watching-col-y_hl", trades_css)
+        self.assertNotIn("watching-col-y_hl", trades_js)
         self.assertIn("watching-col-stock_ret", trades_css)
         self.assertNotIn("展示百分数", trades_js)
         self.assertNotIn("过 Rank入场%", trades_js)
@@ -1152,9 +1151,9 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn('tip === "nc_oc"', tip_js)
         self.assertIn("formatNcOcSection", tip_js)
         self.assertIn('tipMode === "nc_oc"', tip_js)
-        self.assertIn('tip === "hl"', tip_js)
-        self.assertIn("formatCompactHlTip", tip_js)
-        self.assertIn('tipMode === "hl"', tip_js)
+        self.assertNotIn('tip === "hl"', tip_js)
+        self.assertNotIn("formatCompactHlTip", tip_js)
+        self.assertNotIn('tipMode === "hl"', tip_js)
 
     def test_score_tooltip_path_feat_labels_zh(self):
         tip_js = self._read("web", "static", "js", "score_tooltip.js")
@@ -1171,7 +1170,7 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn('key === "tau" || key === "r" || key === "t30" || key === "t45" || key === "t60" || key === "t75"', tip_js)
         self.assertNotIn("PATH_FEAT_LABELS", tip_js)
         self.assertNotIn('key === "path"', tip_js)
-        self.assertIn("ŷ_hl 组成", tip_js)
+        self.assertNotIn("ŷ_hl 组成", tip_js)
         self.assertNotIn("formatCompactPathTip", tip_js)
         self.assertNotIn("watching-score-path", tip_js)
         wr = self._read("web", "static", "js", "quant", "watching_render.js")
@@ -1282,8 +1281,8 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("price_tau: it && it.price_tau", render)
         self.assertIn("y_oo: it && it.y_oo", render)
         self.assertIn("y_oc: it && it.y_oc", render)
-        self.assertIn("y_hl:", render)
-        self.assertIn("formula_terms_path: pathTerms", render)
+        self.assertNotIn("y_hl:", render)
+        self.assertNotIn("formula_terms_path: pathTerms", render)
         self.assertIn("it.score_formula_terms || it.formula_terms", render)
         self.assertLess(
             render.find("formula_terms: terms"),
@@ -1301,7 +1300,7 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn('"eod"', bt_js)
         self.assertIn('"tau"', bt_js)
         self.assertIn('"on"', bt_js)
-        self.assertIn('"hl"', bt_js)
+        self.assertNotIn('"hl"', bt_js)
         self.assertNotIn('"rtau"', bt_js)
         insights = self._read("web", "static", "js", "quant", "watching_insights_ui.js")
         self.assertNotIn("表列 y_trade", insights)
@@ -1734,7 +1733,7 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertNotIn(')}">y_next</th>', table_js)
         self.assertNotIn(')}">y_hl</th>', table_js)
         self.assertIn('["y_tau", "y_oc"]', tip_js)
-        self.assertIn('["y_hl", "y_hl"]', tip_js)
+        self.assertNotIn('["y_hl", "y_hl"]', tip_js)
         self.assertNotIn('["y_eod", "y_oo"]', tip_js)
         self.assertNotIn('["y_trade", "y_trade"]', tip_js)
         self.assertNotIn('["y_nowcast", "nowcast"]', tip_js)
@@ -2220,7 +2219,7 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("训", js)
         self.assertIn("Holdout ${Number(holdN)}日", js)
         self.assertNotIn("旁路 · 分钟K形状", panel)
-        self.assertIn("quant-section-path", panel)
+        self.assertNotIn("quant-section-path", panel)
         self.assertNotIn("quant-section-cx", panel)
         self.assertNotIn("quant-section-tpd", panel)
 
@@ -2251,7 +2250,6 @@ class TestWebQuantJsGuards(unittest.TestCase):
             "quant-section-t60",
             "quant-section-t75",
             "quant-section-t90",
-            "quant-section-path",
         ):
             self.assertRegex(
                 panel,
@@ -2261,6 +2259,7 @@ class TestWebQuantJsGuards(unittest.TestCase):
                 panel,
                 rf'id="{sid}"[^>]*>\s*<details class="quant-secondary-fold">',
             )
+        self.assertNotIn("quant-section-path", panel)
         order = [
             "quant-section-tau",
             "quant-section-co",
@@ -2269,7 +2268,6 @@ class TestWebQuantJsGuards(unittest.TestCase):
             "quant-section-t60",
             "quant-section-t75",
             "quant-section-t90",
-            "quant-section-path",
             "quant-section-tau-tree",
             "quant-section-t30-tree",
             "quant-section-t45-tree",

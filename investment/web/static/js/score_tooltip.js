@@ -180,6 +180,16 @@ const TAU_FEAT_LABELS = {
   ret_vs_sector: "开→τ 相对板块 %",
   t_hi_frac: "最高点相对前缀进度",
   t_lo_frac: "最低点相对前缀进度",
+  t_hi_minus_lo: "高点进度−低点进度",
+  room_to_high: "距前缀高点空间 %",
+  room_to_low: "距前缀低点空间 %",
+  mom_accel_5_15: "近5m−近15m 动量差 %",
+  mom_accel_5_30: "近5m−近30m 动量差 %",
+  vol_down_up: "下跌量/上涨量",
+  range_efficiency: "|开→τ|/振幅（趋势效率 0–1）",
+  vp_confirm: "开→τ×(近3量比−1) 量价确认",
+  vol_up_share: "上涨量占比 0–1",
+  pullback_x_vol: "自高回撤×近3量比",
 };
 
 function shanghaiDateKeyTip(d = new Date()) {
@@ -306,7 +316,7 @@ function termFeatLabel(t, key) {
   if ((key === "on" || key === "co") && k && CO_FEAT_META[k] && CO_FEAT_META[k].label) {
     return CO_FEAT_META[k].label;
   }
-  if ((key === "tau" || key === "r" || key === "t30" || key === "t45" || key === "t60" || key === "t75" || key === "t90" || key === "hl") && k && TAU_FEAT_LABELS[k]) {
+  if ((key === "tau" || key === "r" || key === "t30" || key === "t45" || key === "t60" || key === "t75" || key === "t90") && k && TAU_FEAT_LABELS[k]) {
     return TAU_FEAT_LABELS[k];
   }
   if (t && t.label && String(t.label) !== String(k || "")) {
@@ -522,13 +532,6 @@ function hasT45FormulaTerms(raw) {
     raw &&
     ((raw.formula_terms_t45 && (raw.formula_terms_t45.terms || []).length) ||
       (raw.score_formula_terms_t45 && (raw.score_formula_terms_t45.terms || []).length))
-  );
-}
-function hasPathFormulaTerms(raw) {
-  return !!(
-    raw &&
-    ((raw.formula_terms_path && (raw.formula_terms_path.terms || []).length) ||
-      (raw.score_formula_terms_path && (raw.score_formula_terms_path.terms || []).length))
   );
 }
 
@@ -1446,6 +1449,7 @@ export function formatWeightSourceNote(raw) {
 /** 分项拆解表：因子 / β / z / 贡献。有 terms 时优先于纯系数表。 */
 export function formatFormulaTermsSection(raw, opts = {}) {
   const key = opts.key || "eod";
+  if (key === "hl") return ""; // path-ridge / hl tip retired
   const expl =
     key === "tau"
       ? raw && (raw.formula_terms_tau || raw.score_formula_terms_tau)
@@ -1461,8 +1465,6 @@ export function formatFormulaTermsSection(raw, opts = {}) {
             ? raw && (raw.formula_terms_t75 || raw.score_formula_terms_t75)
             : key === "t90"
             ? raw && (raw.formula_terms_t90 || raw.score_formula_terms_t90)
-            : key === "hl"
-              ? raw && (raw.formula_terms_path || raw.score_formula_terms_path)
             : key === "on" || key === "co"
           ? raw &&
             (raw.formula_terms_co ||
@@ -1492,8 +1494,6 @@ export function formatFormulaTermsSection(raw, opts = {}) {
             ? "ŷ_τ75 组成"
           : key === "t90"
             ? "ŷ_τ90 组成"
-          : key === "hl"
-            ? "ŷ_hl 组成"
           : key === "on" || key === "co"
           ? "ŷ_co 组成"
             : "ŷ_oo 组成";
@@ -1506,8 +1506,6 @@ export function formatFormulaTermsSection(raw, opts = {}) {
         ? "合计 ŷ_τc（T收/τ价）"
         : isHorizonProb
           ? `合计 logit → p_up`
-          : key === "hl"
-            ? "合计 ŷ_hl（极值序）"
           : key === "on" || key === "co"
           ? "合计 ŷ_co"
             : "合计 ŷ_oo";
@@ -1577,8 +1575,6 @@ export function formatFormulaTermsSection(raw, opts = {}) {
         ? "β×z = 贡献；合计=Ridge 拟合原值（T收/τ价）。做 T 回测默认执行套截距（对照手动预演）；选研究套才用 Holdout。研究枢纽系数表默认展示执行套全样本截距。"
         : isHorizonProb
           ? "β×z = logit 贡献（与研究枢纽「logit 标准化斜率」同口径）；合计 logit 后 p_up=sigmoid(·)=P(窗收益>0)。做 T 回测用执行套；枢纽本次拟合须点「启用执行」后 β 才进回测。缺特征按均值填（z=0）不占表。"
-          : key === "hl"
-            ? "β×z = 贡献；合计=Ridge 拟合原值（极值序 signed (H−L)/ref%）。做 T 同号闸 / 入场。"
           : "β×z = 贡献；条长∝|贡献|";
   const missingN = Number(expl && expl.missing_n);
   const missKeys = Array.isArray(expl && expl.missing_keys)
@@ -2166,7 +2162,6 @@ export function formatT0DirectionDetail(raw) {
   const scores = (raw && raw.scores) || {};
   const yKeys = [
     ["y_tau", "y_oc"],
-    ["y_hl", "y_hl"],
     ["y_τ30", "y_τ30"],
     ["y_τ45", "y_τ45"],
     ["y_τ60", "y_τ60"],
@@ -2179,8 +2174,7 @@ export function formatT0DirectionDetail(raw) {
       const v =
         feats[k] ??
         scores[k] ??
-        (alt !== k ? feats[alt] ?? scores[alt] : null) ??
-        (k === "y_hl" ? feats.y_path ?? scores.y_path : null);
+        (alt !== k ? feats[alt] ?? scores[alt] : null);
       if (v == null || v === "") return "";
       const n = Number(v);
       const txt = Number.isFinite(n) ? `${fmtSigned(n, 3)}%` : String(v);
@@ -2416,7 +2410,7 @@ export function createScoreTooltipController() {
     if (tip === "t60" || tip === "τ60" || tip === "yt60") return "t60";
     if (tip === "t75" || tip === "τ75" || tip === "yt75") return "t75";
     if (tip === "t90" || tip === "τ90" || tip === "yt90") return "t90";
-    if (tip === "hl" || tip === "path" || tip === "yhl") return "hl";
+    // ŷ_hl tip 已退役：hl/path/yhl 不再开组成 tip
     if (tip === "tw" || tip === "τw" || tip === "ytw") return "tw";
     if (tip === "on" || tip === "co") return "on";
     if (tip === "ranking" || tip === "trade" || tip === "score") return "ranking";
@@ -2447,11 +2441,6 @@ export function createScoreTooltipController() {
       cell.classList.contains("paper-t0-col-yt90")
     )
       return "t90";
-    if (
-      cell.classList.contains("paper-t0-col-y-hl") ||
-      cell.classList.contains("paper-t0-col-yhl")
-    )
-      return "hl";
     if (
       cell.classList.contains("paper-t0-col-y-tw") ||
       cell.classList.contains("paper-t0-col-ytw")
@@ -2623,15 +2612,6 @@ export function createScoreTooltipController() {
       const parts = [
         formatCompactT90Tip(raw),
         formatFormulaTermsSection(raw, { key: "t90" }),
-      ].filter(Boolean);
-      showCompactScoreTip(cell, parts.join(""), { sticky });
-      return;
-    }
-
-    if (tipMode === "hl") {
-      const parts = [
-        formatCompactHlTip(raw),
-        formatFormulaTermsSection(raw, { key: "hl" }),
       ].filter(Boolean);
       showCompactScoreTip(cell, parts.join(""), { sticky });
       return;

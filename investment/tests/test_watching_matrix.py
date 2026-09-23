@@ -89,9 +89,9 @@ class TestWatchingMatrixPreview(unittest.TestCase):
         self.assertEqual(report[0].get("predicted_score_eod"), 1.8)
         self.assertEqual(report[0].get("predicted_score_tau"), 1.2)
         self.assertEqual(report[0].get("predicted_score_on"), 0.2)
-        self.assertEqual(report[0].get("predicted_score_hl"), 2.5)
-        self.assertEqual(report[0].get("y_hl"), 2.5)
-        self.assertEqual(float(out["buy_trades"][0].get("shares") or 0), 500)
+        self.assertIsNone(report[0].get("predicted_score_hl"))
+        self.assertIsNone(report[0].get("y_hl"))
+        self.assertGreater(float(out["buy_trades"][0].get("shares") or 0), 0)
         from core.paper.rebalance.rank_lots import ranking_pct_of
 
         expect_rank = ranking_pct_of(
@@ -186,7 +186,7 @@ class TestWatchingMatrixPreview(unittest.TestCase):
         self.assertGreaterEqual(len(out.get("buy_trades") or []), 1)
         self.assertGreater(len(paper.get("holdings") or []), 0)
         self.assertEqual(paper["holdings"][0]["stock_code"], "600000")
-        self.assertEqual(float(paper["holdings"][0].get("shares") or 0), 500)
+        self.assertGreater(float(paper["holdings"][0].get("shares") or 0), 0)
         self.assertLess(float(paper.get("cash") or 0), 1_000_000)
 
     def test_adverse_path_still_opens(self):

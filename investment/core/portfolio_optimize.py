@@ -247,7 +247,7 @@ def _filter_and_score_candidates(candidates, smap, floor):
         code = str(it.get("stock_code") or "").strip()
         if not code or it.get("hard_reject"):
             continue
-        # 入选门槛用 ŷ_EOD（与买入闸一致）；分配权重用 ŷ_trade，避免 blend 被 EOD floor 误杀
+        # 入选门槛用 ŷ_oo（与买入闸一致）；分配权重用 ŷ_trade，避免 blend 被 EOD floor 误杀
         try:
             from core.signal.dual_score import (
                 decision_score_for_item,
@@ -549,7 +549,7 @@ def optimize_weights(
     - weight_mode=qp_lite：可选 cvxpy（V3.4）；不可用则回退 score_budget 并标 unavailable
     - apply_market_vol：高波时压低有效上限（取数失败则不缩放）
     - min_score：ŷ% 入选下限；默认 None → ``resolve_buy_floor``；≥10 视为遗留 0–100 并改走 ŷ 门槛。
-      入选对比用 ``eod_gate_score_for_item``（ŷ_EOD）；权重分配用 ``decision_score_for_item``（ŷ_trade）。
+      入选对比用 ``eod_gate_score_for_item``（ŷ_oo）；权重分配用 ``decision_score_for_item``（ŷ_trade）。
     """
     smap = sector_map if sector_map is not None else load_sector_map()
     max_pos = max(0.1, float(max_position_pct or 2.0))

@@ -192,7 +192,7 @@ def annotate_score_gate(
 ) -> Dict[str, Any]:
     """返回 min_score / below_min_score，供观察表与持仓表展示。
 
-    有 ``item`` 时门槛对比用 ``eod_gate_score_for_item``（原始 ŷ_EOD），
+    有 ``item`` 时门槛对比用 ``eod_gate_score_for_item``（原始 ŷ_oo），
     与建簿 / 预演买入门槛同源；否则回退传入的 ``score``。
     """
     if min_score is not None:

@@ -176,6 +176,10 @@ class T0BacktestRequest(BaseModel):
         le=99.0,
         description="y_tw_midpoint 的 Unicode 别名",
     )
+    horizon_prob_backend: Optional[str] = Field(
+        default=None,
+        description="ŷ_τ* 概率头：ridge（默认）| tree（影子树，做 T 回测）",
+    )
     t0_y_oc_target_scale: Optional[float] = Field(
         default=None,
         ge=0.0,
@@ -424,6 +428,7 @@ class PaperExecutionPatchRequest(BaseModel):
     y_τw_vote_margin: Optional[float] = None
     y_tw_midpoint: Optional[float] = None
     y_τw_midpoint: Optional[float] = None
+    horizon_prob_backend: Optional[str] = None
     t0_y_oc_target_scale: Optional[float] = None
     t0_close_band_delta_pct: Optional[float] = None
     t0_price_space_gate: Optional[bool] = None

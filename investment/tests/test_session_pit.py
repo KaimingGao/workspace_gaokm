@@ -316,7 +316,7 @@ class TestEodNextFusion(unittest.TestCase):
         self.assertEqual(item["dual_score_window"], "eod_next")
         # 收盘后不减缺口
         self.assertAlmostEqual(item["predicted_score_eod_rem"], 1.2)
-        # 主排序分剥离 τ：ŷ_trade = ŷ_EOD
+        # 主排序分剥离 τ：ŷ_trade = ŷ_oo
         self.assertAlmostEqual(item["predicted_score_blend"], 1.2)
         self.assertAlmostEqual(item["predicted_score_tau"], 0.8)
         self.assertAlmostEqual(rank_key_for_item(item), 1.2)
@@ -350,7 +350,7 @@ class TestEodNextFusion(unittest.TestCase):
         ]
         attach_dual_score_pit(item, quote=quote, bars=bars)
         self.assertEqual(item["dual_score_window"], "eod_next")
-        # 历史 asof 已换期：主排序分 = ŷ_EOD（剥离 τ）
+        # 历史 asof 已换期：主排序分 = ŷ_oo（剥离 τ）
         self.assertAlmostEqual(item["predicted_score_eod_rem"], 1.5)
         self.assertAlmostEqual(item.get("predicted_score_blend"), 1.5)
         self.assertAlmostEqual(rank_key_for_item(item), 1.5)
@@ -441,7 +441,7 @@ class TestEodNextFusion(unittest.TestCase):
             "gap_pct": 1.0,
         }
         with patch("core.signal.session_pit.shanghai_now", return_value=after_close):
-            # 收盘后排序 / 决策分 = ŷ_EOD
+            # 收盘后排序 / 决策分 = ŷ_oo
             self.assertAlmostEqual(rank_key_for_item(item), 0.542957, places=5)
             self.assertAlmostEqual(decision_score_for_item(item), 0.542957, places=5)
             align_trade_score_fields(item)

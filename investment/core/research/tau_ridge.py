@@ -56,7 +56,7 @@ TAU_MIN_STD_EXEMPT = TAU_FEATURE_EXTRA + MINUTE_TAU_ALL_KEYS
 TAU_FIT_DROP_ALIASES = frozenset({"open_gap"})
 # ŷ_τ30/60/90 Ridge 不要吃 ŷ_τ 的 OC 路径形状。HL/回撤/振幅在 30–90m 前瞻上共线对冲，
 # ŷ 被压到训练均值（做 T 回测里多数 |ŷ_τ30|/|ŷ_τ60|<0.1%）。
-# 树头加回这些键（分段交互，不走线性对冲）。
+# 树头加回这些键 + t_hi/t_lo / 动量加速度 / 量价（分段交互，不走线性对冲）。
 TAU_HORIZON_TREE_SHAPE_FEATURES = (
     "range_pct",
     "loc_hl",
@@ -68,6 +68,18 @@ TAU_HORIZON_TREE_SHAPE_FEATURES = (
     "realized_vol",
     "vol_last3_vs_avg",
     "tau_elapsed_min",
+    "t_hi_frac",
+    "t_lo_frac",
+    "t_hi_minus_lo",
+    "room_to_high",
+    "room_to_low",
+    "mom_accel_5_15",
+    "mom_accel_5_30",
+    "vol_down_up",
+    "range_efficiency",
+    "vp_confirm",
+    "vol_up_share",
+    "pullback_x_vol",
 )
 TAU_HORIZON_DROP_OC_SHAPE = frozenset(TAU_HORIZON_TREE_SHAPE_FEATURES)
 

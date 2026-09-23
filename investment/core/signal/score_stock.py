@@ -1168,7 +1168,7 @@ def score_stock(
                 if (gap_v is not None and abs(float(gap_v)) >= trigger)
                 else 0.0
             )
-        # τ 头只吃 Z；日线 sub_scores 已在 ŷ_EOD，勿再塞进 feats
+        # τ 头只吃 Z；日线 sub_scores 已在 ŷ_oo，勿再塞进 feats
 
         # 分钟 τ 小包：调仓因果末根（≤10:00）；T=当前会话日（盘中≠昨收 K）
         as_of_tau_override = None

@@ -54,7 +54,7 @@ def score_and_rank_watching(
     默认仅 predicted_score（ŷ）。研究 OOS 可设 allow_heuristic_baseline=True，
     用 heuristic_score（人工线性加权 0–100）作对照基线臂。
     ``apply_tau_buy_gate=False``：历史/研究路径跳过 ŷ_τ 硬闸与分钟 PIT 挂载，
-    并按 ŷ_EOD 排序（不拿日线近似 ŷ_trade/blend 当选股键）。
+    并按 ŷ_oo 排序（不拿日线近似 ŷ_trade/blend 当选股键）。
     ``exclude_oos_failed=True``（默认）：OOS 失败组成员不进 Top（含全局 ŷ / 规则分回退）。
     """
     from core.signal.return_score import (
@@ -199,7 +199,7 @@ def score_and_rank_watching(
         )
     meta["rank_mode"] = mode
 
-    # 双层 ŷ：live 才挂 ŷ_τ；历史日线关 τ 闸时只排 ŷ_EOD，不拉分钟仓
+    # 双层 ŷ：live 才挂 ŷ_τ；历史日线关 τ 闸时只排 ŷ_oo，不拉分钟仓
     dual_cfg = None
     rem_doc = None
     try:

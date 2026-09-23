@@ -28,6 +28,7 @@ from core.research.tau_panel import (
 from core.research.tau_ridge import (
     MINUTE_TAU_ALL_KEYS,
     TAU_FIT_DROP_ALIASES,
+    TAU_HORIZON_TREE_SHAPE_FEATURES,
     TAU_MIN_STD_EXEMPT,
     TAU_Z_FEATURES,
     _ic,
@@ -40,13 +41,14 @@ from core.research.tau_ridge import (
     _stack_panels,
     _subset,
     _theme_counts,
-    _z_only_xs,
     build_tau_panels_from_bars,
+    with_horizon_tree_shape,
 )
 from core.signal.minute_tau_feats import MINUTE_TAU_FEAT_LABELS
 
-TREE_SCHEMA = "tau_tree_shadow_v1"
+TREE_SCHEMA = "tau_tree_shadow_v2"
 TREE_HEAD = "y_tau_tree"
+TAU_TREE_Z_FEATURES = with_horizon_tree_shape(TAU_Z_FEATURES)
 DEFAULT_N_ESTIMATORS = 80
 DEFAULT_MAX_DEPTH = 3
 DEFAULT_LEARNING_RATE = 0.08
@@ -596,7 +598,7 @@ def fit_tau_tree_report(
             "backtest_hook": False,
         }
 
-    xs_z = _z_only_xs(xs)
+    xs_z = [{k: (row or {}).get(k) for k in TAU_TREE_Z_FEATURES} for row in xs]
     from core.research.holdout import (
         DEFAULT_HOLDOUT_TRADING_DAYS,
         attach_holdout_meta,
@@ -612,9 +614,18 @@ def fit_tau_tree_report(
     )
     xs_tr, ys_tr, metas_tr = _subset(xs_z, ys, metas, train_idx)
     xs_te, ys_te, metas_te = _subset(xs_z, ys, metas, test_idx)
-    drop_opt = set() if use_minute else set(MINUTE_TAU_ALL_KEYS)
+    drop_opt = set() if use_minute else (
+        set(MINUTE_TAU_ALL_KEYS) | set(TAU_HORIZON_TREE_SHAPE_FEATURES)
+    )
     feat_names = [
-        k for k in TAU_Z_FEATURES if k not in drop_opt and k not in TAU_FIT_DROP_ALIASES
+        k
+        for k in TAU_TREE_Z_FEATURES
+        if k not in drop_opt and k not in TAU_FIT_DROP_ALIASES
+    ]
+    ridge_feat_names = [
+        k
+        for k in TAU_Z_FEATURES
+        if k not in drop_opt and k not in TAU_FIT_DROP_ALIASES
     ]
     if len(ys_tr) < 16 or len(ys_te) < 8:
         return {
@@ -669,7 +680,7 @@ def fit_tau_tree_report(
         xs_te,
         ys_te,
         metas_tr,
-        feat_names,
+        ridge_feat_names,
         ridge_lambda=ridge_lambda,
         theme_boost=theme_boost,
         use_theme_weights=use_theme_weights,
@@ -713,6 +724,8 @@ def fit_tau_tree_report(
             "fit_s": round(time.perf_counter() - t0, 2),
         },
         "feature_names": list(feat_names),
+        "ridge_feature_names": list(ridge_feat_names),
+        "tree_shape_features": list(TAU_HORIZON_TREE_SHAPE_FEATURES),
         "feature_importance": _importance_rows(feat_names, gain),
         "oos": oos_boost,
         "ridge_oos": oos_ridge,
@@ -721,8 +734,8 @@ def fit_tau_tree_report(
         "backtest_hook": False,
         "persisted": {"success": False, "skipped": True, "reason": "shadow_only"},
         "note": (
-            "ŷ_τ_tree 影子头：同标签同 Holdout vs Ridge；不写 tau_ridge_model.json，"
-            "不进交易执行 / 历史回测"
+            "ŷ_τ_tree 影子头：同标签同 Holdout vs Ridge；路径/量价 shape 仅 Tree；"
+            "不写 tau_ridge_model.json，不进交易执行 / 历史回测"
         ),
     }
     attach_holdout_meta(report, split_meta)

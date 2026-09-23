@@ -1667,7 +1667,7 @@ flowchart LR
 
 做 T 第一触达、ŷ_hl 训练、tail_anomaly 等依赖 **5m 分钟缓存**（默认 period=`5`）。实现集中在 **skills 层**，上层经 `core.ports.market.fetch_minute_bars` 调用，**不**在业务里直连接 AkShare / BaoStock。
 
-**与日线（日 K）的差异**：研究台「日线」区块——日常 **「增量补齐」**（`get_bars(incremental=True)` / `force_latest_bars` 从本地 `date_max` **缺口 merge** 至今日）；兜底 **「强更日 K」**（`incremental=False` 整窗重拉）。观察池末 bar 对齐 as-of，供 **ŷ_EOD / IC / OOS** 共用。分钟线亦有 **增量补齐 / 强更 5m** 双入口（近几日 topup vs lookback 全窗），本地仓表/路径与日 K 不同。
+**与日线（日 K）的差异**：研究台「日线」区块——日常 **「增量补齐」**（`get_bars(incremental=True)` / `force_latest_bars` 从本地 `date_max` **缺口 merge** 至今日）；兜底 **「强更日 K」**（`incremental=False` 整窗重拉）。观察池末 bar 对齐 as-of，供 **ŷ_oo / IC / OOS** 共用。分钟线亦有 **增量补齐 / 强更 5m** 双入口（近几日 topup vs lookback 全窗），本地仓表/路径与日 K 不同。
 
 ### 分层与入口
 
@@ -1998,7 +1998,7 @@ flowchart LR
 本仓库 **没有** 经典 `StrategyBase.on_bar` 类体系；等价逻辑拆在 **`score_bars` → `stance` / 回测入场 → 纸面 `rules`**。  
 **Q2**：唯一 canonical 策略为 **`short_conservative`**（`core/strategy.py` + `STRATEGY_SPECS[].lifecycle`）：回测参数、模拟 `paper_rules`、默认 `cost_model`、账户 `risk` 限额。研究配置经 **`POST /api/strategy/promote`** 显式晋级（API 仍在；策略中心页不再挂空壳按钮），禁止静默覆盖。
 
-**ExecutionSpec（v1.1）**：`lifecycle.execution` 收编两类纸面动作——**结构层调仓**（持有什么、各占多少；ŷ_trade 排序 + ŷ_EOD/ŷ_τ 买卖闸）与 **overlay 做 T**（底仓上 dual_y：y_τ 定方向 + 5m 往返 timing；不改变选股主线）。**ŷ_τ 模型共用、决策接口不同**，见 [quant.md · 策略调仓 vs 底仓做 T](quant.md#策略调仓-vs-底仓做-t)。纸面 / 做 T 回测经 `core/execution.resolve_effective_execution` 合并  
+**ExecutionSpec（v1.1）**：`lifecycle.execution` 收编两类纸面动作——**结构层调仓**（持有什么、各占多少；ŷ_trade 排序 + ŷ_oo/ŷ_τ 买卖闸）与 **overlay 做 T**（底仓上 dual_y：y_τ 定方向 + 5m 往返 timing；不改变选股主线）。**ŷ_τ 模型共用、决策接口不同**，见 [quant.md · 策略调仓 vs 底仓做 T](quant.md#策略调仓-vs-底仓做-t)。纸面 / 做 T 回测经 `core/execution.resolve_effective_execution` 合并  
 `DEFAULT → Spec → paper.rules → 请求 → channel runtime_defaults`，禁止入口各自硬编码 `direction` / `path_mode`。  
 Web：`GET/POST /api/paper/execution` · `GET .../diff` · `POST .../reset` · **历史回测**改调仓/做 T 规则表单；交易执行只读规格 + 预演/Worker · 策略晋升回显做 T 摘要。  
 耦合：`coupling.t0_vs_stance` = `independent` | `skip_if_avoid` | `only_if_hold`（纸面预演按持仓 stance 跳过）。

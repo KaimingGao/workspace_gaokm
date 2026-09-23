@@ -9663,7 +9663,7 @@ body[data-page="quant"] .quant-page .quant-inline-select {
   border: 1px solid var(--line);
 }
 
-/* ŷ_EOD 参数行：数字框 / 勾选框 / 按钮同高（压过 .quant-actions-inline 的 32px min-height） */
+/* ŷ_oo 参数行：数字框 / 勾选框 / 按钮同高（压过 .quant-actions-inline 的 32px min-height） */
 body[data-page="quant"] .quant-page .quant-cluster-params {
   align-items: center !important;
 }

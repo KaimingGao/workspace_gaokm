@@ -1564,44 +1564,31 @@ class TestT0Core(unittest.TestCase):
         )
         self.assertAlmostEqual(bound, 97.3, places=4)
 
-    def test_open_only_path_attached_from_open_z(self):
-        """缺分钟小包时仍用开盘 Z 写 ŷ_hl（对齐研究 09:30）。"""
+    def test_attach_y_path_clears_retired_y_hl(self):
+        """ŷ_hl 已下线：_attach_y_path_to_item 清掉旧字段，不再写分。"""
         from core.t0.score_policy import _attach_y_path_to_item
 
         item = {
             "features_tau": {"gap_pct": 1.0, "yclose_loc": 0.5},
             "gap_pct": 1.0,
+            "y_hl": 0.05,
+            "predicted_score_hl": 0.05,
+            "y_hl_status": "ok",
         }
         with patch(
             "core.research.path_ridge.load_path_model",
             return_value={"coefficients": {"gap_pct": 1.0}},
         ), patch(
             "core.research.path_ridge.predict_path_from_features",
-            return_value=0.05,
+            return_value=0.99,
         ):
             _attach_y_path_to_item(item, hist_bars=[])
-        self.assertEqual(item.get("y_hl_status"), "open_z")
-        self.assertAlmostEqual(float(item.get("y_hl")), 0.05, places=6)
-
-    def test_intraday_attach_refuses_open_z_without_minute_pack(self):
-        """盘中前缀：无分钟小包不得退回开盘 Z（feature_missing，非 open_z）。"""
-        from core.t0.score_policy import _attach_y_path_to_item
-
-        item = {
-            "features_tau": {"gap_pct": 1.0, "yclose_loc": 0.5},
-            "gap_pct": 1.0,
-        }
-        with patch(
-            "core.research.path_ridge.load_path_model",
-            return_value={"coefficients": {"gap_pct": 1.0}},
-        ):
-            _attach_y_path_to_item(item, hist_bars=[], allow_open_z=False)
-        self.assertEqual(item.get("y_hl_status"), "feature_missing")
         self.assertIsNone(item.get("y_hl"))
-        self.assertNotEqual(item.get("y_hl_status"), "open_z")
+        self.assertIsNone(item.get("predicted_score_hl"))
+        self.assertIsNone(item.get("y_hl_status"))
 
     def test_attach_portrait_y_path_fills_for_score_portrait(self):
-        """选向无 HL 时，日结果仍补因果 ŷ_hl 供画像。"""
+        """画像补因果 ŷ_τ_oc；ŷ_hl 已下线不再写入。"""
         from core.t0.score_policy import attach_portrait_dual_scores
         from core.t0.viz import build_score_portrait, extract_scores
 
@@ -1612,7 +1599,7 @@ class TestT0Core(unittest.TestCase):
             "close": 101.0,
             "skipped": True,
             # 开盘-only 决策分故意反号：画像须用 portrait 字段
-            "scores": {"y_tau": -0.8, "y_tau_oc": -0.8, "gap_pct": 1.0},
+            "scores": {"y_tau": -0.8, "y_tau_oc": -0.8, "gap_pct": 1.0, "y_hl_portrait": 9.9},
             "tau_realized": 1.0,
             "path_realized": 2.0,
         }
@@ -1639,7 +1626,8 @@ class TestT0Core(unittest.TestCase):
                 day_bar=_bar(d, 100, 102, 99, 101),
                 prefix_bars=4,
             )
-        self.assertAlmostEqual(float(out.get("y_hl_portrait")), 1.2, places=4)
+        self.assertIsNone(out.get("y_hl_portrait"))
+        self.assertIsNone(out.get("y_hl"))
         self.assertAlmostEqual(float(out.get("y_tau_portrait_oc")), 0.9, places=4)
         self.assertEqual(int(out.get("portrait_prefix_bars") or 0), 4)
         sc = extract_scores(out)
@@ -1647,8 +1635,6 @@ class TestT0Core(unittest.TestCase):
         # 命中须跟 portrait（+），不能跟开盘-only（−）
         self.assertEqual(port.get("tau_hit", {}).get("hit"), 1)
         self.assertEqual(port.get("tau_hit", {}).get("miss"), 0)
-        self.assertEqual(port.get("path_hit", {}).get("hit"), 1)
-        self.assertIsNotNone(port.get("pred_joint", {}).get("same_sign_rate"))
         self.assertAlmostEqual(float(sc.get("y_tau_portrait_oc")), 0.9, places=4)
 
     def test_leg2_no_preset_target_covers(self):
@@ -2815,7 +2801,7 @@ class TestDualYDirection(unittest.TestCase):
         self.assertAlmostEqual(float((sc.get("dual_score_weights") or {}).get("w_tau") or 0), 0.5, places=3)
 
     def test_scores_from_item_prefers_blend_for_trade(self):
-        """双头：predicted_score=ŷ_EOD，ŷ_trade 须取 blend，不能塌成与 y_eod 相同。"""
+        """双头：predicted_score=ŷ_oo，ŷ_trade 须取 blend，不能塌成与 y_eod 相同。"""
         from core.t0.score_policy import scores_from_item
 
         sc = scores_from_item(
@@ -3995,7 +3981,7 @@ class TestDualYDirection(unittest.TestCase):
     def test_dual_y_eod_next_skips_cross_window_sign_gate(self):
         from core.t0.score_policy import resolve_dual_y_direction
 
-        # 收盘后：强 ŷ_EOD 与已实现 OC 异号，不得因跨窗比号跳过
+        # 收盘后：强 ŷ_oo 与已实现 OC 异号，不得因跨窗比号跳过
         out = resolve_dual_y_direction(
             scores={
                 "y_trade": 0.80,

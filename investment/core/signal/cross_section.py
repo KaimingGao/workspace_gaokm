@@ -180,7 +180,7 @@ def rank_cross_section(
             min_pred_f = float(min_pred) if min_pred is not None else None
         except (TypeError, ValueError):
             min_pred_f = None
-        # S3 口径对齐：挂 dual_score（blend ŷ_trade + ŷ_τ），过 EOD floor + τ 闸，再按 blend 排序
+        # S3 口径对齐：挂 dual_score（blend ŷ_trade + ŷ_τ），过 ŷ_oo floor + τ 闸，再按 blend 排序
         # 与 cluster_rank/cross_section_batch 的排序/闸一致，避免跨入口产生不同榜单
         tau_gate_passes: Dict[str, Tuple[bool, Optional[str]]] = {}
         ranked_gated: List[Tuple[float, float, dict]] = []  # (blend, eod, item)

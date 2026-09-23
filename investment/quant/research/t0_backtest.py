@@ -131,6 +131,7 @@ _BT_RULES_VIEW_KEYS = (
     "y_τw_vote_margin",
     "y_tw_midpoint",
     "y_τw_midpoint",
+    "horizon_prob_backend",
     "t0_y_oc_target_scale",
     "t0_close_band_delta_pct",
     "y_on_allow",

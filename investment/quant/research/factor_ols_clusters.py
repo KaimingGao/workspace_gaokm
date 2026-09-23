@@ -1393,7 +1393,7 @@ def compute_factor_ols_cluster_report(
     默认 / 显式 ``n_clusters`` 均切到目标 k；不严踢异质升单票组（否则手动 k 会炸组数）。
     异质用探针核对。``n_clusters is None`` 时：前段 β 定组，邻域 ±1 × 多种分区配方，
     按组 ŷ 每票时间尾段有符号 IC / 前段重拟合 R²（partition_loss）选优，ΔOOS 辅门禁。
-    交付组池：执行套全样本估 β；研究套用 Holdout 训练窗（EOD 再隔离 h 日）。
+    交付组池：执行套全样本估 β；研究套用 Holdout 训练窗（再按持有期隔离 h 日）。
     手动 k 同样用 Holdout 前段 β 定组。
     FS2：``sentiment_pit`` 注入 as_of alt_sentiment（与 live 闸独立）。
     B5：默认 ``respect_regime=True``；B3：默认选 Ridge λ + 共线 drop_redundant。

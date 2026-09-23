@@ -1,9 +1,9 @@
 """ŷ_τ45_tree：独立浅树头，标签与 ŷ_τ45 相同（mean(price(τ⊕40/45/50))/price(τ)−1）。
 
 与 Ridge 同面板、同 Holdout，只写 ``t45_tree_last_report.json``。
-不提供 persist / 研究套 sidecar，不进 live 打分与历史回测。
-浅树引擎与 ŷ_τ_tree 相同（XGBoost 或 numpy GBM）。
-X = Ridge Z + OC 路径形状（path_sign / bounce_from_low / …）；对照 Ridge 仍用原 Z。
+影子报告 ``t45_tree_last_report.json``；可预测包 ``t45_tree_model.json``。
+``horizon_prob_backend=tree`` 时做 T 回测可用。浅树引擎与 ŷ_τ_tree 相同。
+X = Ridge Z + OC 路径形状；对照 Ridge 仍用原 Z。
 """
 
 from __future__ import annotations
@@ -37,6 +37,13 @@ from core.research.tau_ridge import (
     with_horizon_tree_shape,
 )
 from core.research.horizon_prob import binary_labels
+from core.research.horizon_tree import (
+    load_tree_model_doc,
+    pack_tree_return_model,
+    persist_tree_model_doc,
+    predict_tree_p_up,
+    tree_model_path,
+)
 from core.research.tau_tree import (
     DEFAULT_LEARNING_RATE,
     DEFAULT_MAX_DEPTH,
@@ -55,7 +62,7 @@ from core.research.tau_tree import (
 )
 from core.signal.minute_tau_grid import DEFAULT_T45_TRAIN_TAU_GRID
 
-TREE_SCHEMA = "t45_tree_shadow_v3"
+TREE_SCHEMA = "t45_tree_shadow_v5"
 TREE_HEAD = "y_t45_tree"
 TREE_TARGET = "price_tau_plus_45"
 T45_TREE_Z_FEATURES = with_horizon_tree_shape(T45_Z_FEATURES)
@@ -193,19 +200,32 @@ def fit_t45_tree_report(
     }
     gain = np.zeros(len(feat_names), dtype=np.float64)
     boost_preds: List[Optional[float]]
+    tree_obj: Any = None
     t_tree0 = time.perf_counter()
     if engine == "xgboost":
         model, gain = _fit_xgboost(x_tr, y_tr, w_tr, **hyper)
+        tree_obj = model
         raw_pred = _predict_xgboost(model, x_te)
         boost_preds = [float(v) if math.isfinite(float(v)) else None for v in raw_pred]
     else:
         rng = np.random.default_rng(42)
         gbm_hyper = {k: v for k, v in hyper.items() if k != "objective"}
         pack, gain = _fit_numpy_gbm(x_tr, y_tr, w_tr, rng=rng, **gbm_hyper)
+        tree_obj = pack
         raw_pred = np.clip(_predict_numpy_gbm(pack, x_te), 1e-6, 1.0 - 1e-6)
         boost_preds = [float(v) if math.isfinite(float(v)) else None for v in raw_pred]
         engine = "numpy_gbm"
     tree_s = round(time.perf_counter() - t_tree0, 2)
+    return_model = pack_tree_return_model(
+        head="t45",
+        backend=engine,
+        feature_names=feat_names,
+        impute_means=means,
+        model_obj=tree_obj,
+        schema=TREE_SCHEMA,
+        hyperparams=hyper,
+        target=TREE_TARGET,
+    )
 
     t_ridge0 = time.perf_counter()
     _, ridge_preds = _fit_ridge_oos(
@@ -268,16 +288,45 @@ def fit_t45_tree_report(
         "ridge_feature_names": list(ridge_feat_names),
         "tree_shape_features": list(TAU_HORIZON_TREE_SHAPE_FEATURES),
         "feature_importance": _importance_rows(feat_names, gain),
+        "tree_return_model": return_model,
         "oos": oos_boost,
         "ridge_oos": oos_ridge,
         "delta_vs_ridge": _delta_oos(oos_boost, oos_ridge),
         "live_hook": False,
-        "backtest_hook": False,
-        "persisted": {"success": False, "skipped": True, "reason": "shadow_only"},
+        "backtest_hook": True,
+        "persisted": {"success": False, "skipped": True, "reason": "fit_only"},
         "note": (
-            "ŷ_τ45_tree 影子概率头：X 含 OC 路径形状；对照 logistic Ridge 仍用原 Z（不含路径形状）；"
-            "不写 t45_ridge_model.json，不进交易执行 / 历史回测"
+            "ŷ_τ45_tree：X 含 OC 路径形状；对照 Ridge 仍用原 Z。"
+            "写入 t45_tree_model.json 后可设 horizon_prob_backend=tree 进做 T 回测。"
         ),
     }
     attach_holdout_meta(report, split_meta)
     return report
+
+def t45_tree_model_path() -> str:
+    return tree_model_path("t45")
+
+
+def load_t45_tree_model() -> Optional[Dict[str, Any]]:
+    return load_tree_model_doc("t45")
+
+
+def persist_t45_tree_model(
+    report: Dict[str, Any],
+    *,
+    note: str = "",
+    force: bool = False,
+) -> Dict[str, Any]:
+    return persist_tree_model_doc("t45", report, note=note or "t45_tree promote", force=force)
+
+
+def predict_t45_tree_from_features(
+    features: Dict[str, Optional[float]],
+    *,
+    model_doc: Optional[Dict[str, Any]] = None,
+) -> Optional[float]:
+    doc = model_doc if model_doc is not None else load_t45_tree_model()
+    if not doc:
+        return None
+    rm = doc.get("return_model") if isinstance(doc.get("return_model"), dict) else doc
+    return predict_tree_p_up(features, rm)

@@ -65,7 +65,7 @@ class TestEodResolveNoBlendFallback(unittest.TestCase):
         self.assertIsNone(eod_gate_score_for_item(item))
 
     def test_heuristic_score_with_tau_still_gates(self):
-        """仅有 0–100 ``score`` 时不得当作 ŷ_EOD（避免 OOS 失败票漏进 Top）。"""
+        """仅有 0–100 ``score`` 时不得当作 ŷ_oo（避免 OOS 失败票漏进 Top）。"""
         from core.signal.dual_score import resolve_predicted_score_eod
 
         self.assertIsNone(
@@ -88,7 +88,7 @@ class TestEodResolveNoBlendFallback(unittest.TestCase):
         )
 
     def test_yhat_pct_ge_10_with_scale_is_not_heuristic(self):
-        """涨停板 ŷ%≥10 且标明 predicted_yhat 时，回退 score 不得丢 ŷ_EOD。"""
+        """涨停板 ŷ%≥10 且标明 predicted_yhat 时，回退 score 不得丢 ŷ_oo。"""
         from core.signal.dual_score import resolve_predicted_score_eod
         from core.signal.score_display import looks_like_legacy_heuristic_score
 

@@ -282,7 +282,7 @@ def unlifted_trade_blend_stale(
     *,
     config: Optional[dict] = None,
 ) -> bool:
-    """旧簿用 ``w·ŷ_EOD + w·ŷ_τ``（未缺口抬升）写成 blend → 量纲错，须重算。"""
+    """旧簿用 ``w·ŷ_oo + w·ŷ_τ``（未缺口抬升）写成 blend → 量纲错，须重算。"""
     if not isinstance(item, dict):
         return False
     if str(item.get("dual_score_window") or "") == "eod_next":

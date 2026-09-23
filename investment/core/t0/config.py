@@ -387,6 +387,8 @@ DEFAULT_T0_RULES: Dict[str, Any] = {
     "y_τw_vote_margin": 5.0,
     "y_tw_midpoint": 47.0,  # ŷ_τ30/45/60/75/90 共用中位点%
     "y_τw_midpoint": 47.0,
+    # ŷ_τ* 概率头：ridge（默认）| tree（影子树 + 路径形状，仅回测建议）
+    "horizon_prob_backend": "ridge",
     "t0_y_oc_target_scale": 2.0,  # C_τ = O×(1+clip(ŷ_oc×scale, ±20)/100)
     "t0_close_band_delta_pct": 0.5,  # 破带带宽 δ%
     "fusion_w_τc": 0.5,  # residual 融合：ŷ_τc 权
@@ -702,6 +704,11 @@ def load_t0_rules(override: Optional[dict] = None) -> Dict[str, Any]:
     from core.research.horizon_prob import migrate_horizon_gate_cfg
 
     migrate_horizon_gate_cfg(cfg)
+    from core.research.horizon_tree import normalize_horizon_prob_backend
+
+    cfg["horizon_prob_backend"] = normalize_horizon_prob_backend(
+        cfg.get("horizon_prob_backend")
+    )
     legacy_exit_skip = coerce_cfg_bool(cfg.get("y_tau_exit_price_skip"), True)
     try:
         raw_legacy_exit_mult = cfg.get("y_tau_exit_price_mult")

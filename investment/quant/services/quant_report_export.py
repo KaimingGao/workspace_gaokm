@@ -588,7 +588,7 @@ def build_report_executive_summary(report: Dict[str, Any]) -> Dict[str, Any]:
             )
         else:
             bullets.append(
-                f"Top-K 研究回测（topk_research / ŷ_EOD）：累计 {ps.get('total_return_pct')}% · "
+                f"Top-K 研究回测（topk_research / ŷ_oo）：累计 {ps.get('total_return_pct')}% · "
                 f"胜率 {ps.get('win_rate_pct')}% · 交易 {ps.get('trade_count')}"
                 f" · {_topk_score_axis_note(ps)}"
                 + (
@@ -1030,7 +1030,7 @@ def _topk_score_axis_note(ps: Optional[dict] = None) -> str:
     tau_on = params.get("apply_tau_buy_gate")
     if tau_on is True:
         return "选股键=ranking · τ 闸开（非默认历史路径）"
-    return "选股键=ŷ_EOD · 关 τ 闸（日线无可靠分钟 τ；≠ live ranking）"
+    return "选股键=ŷ_oo · 关 τ 闸（日线无可靠分钟 τ；≠ live ranking）"
 
 
 def _paper_max_positions_for_report() -> Optional[int]:
@@ -1336,7 +1336,7 @@ def build_portfolio_backtest_markdown_lines(ps: Dict[str, Any]) -> List[str]:
         lines.append("")
         lines.append("信号–成交样本（最近）：")
         lines.append("")
-        lines.append("| 信号日 | 代码 | ŷ_EOD | 意图价 | 成交价 | 出场价 | 状态 |")
+        lines.append("| 信号日 | 代码 | ŷ_oo | 意图价 | 成交价 | 出场价 | 状态 |")
         lines.append("| --- | --- | ---: | ---: | ---: | ---: | --- |")
         for row in fills[-12:]:
             lines.append(
@@ -1349,7 +1349,7 @@ def build_portfolio_backtest_markdown_lines(ps: Dict[str, Any]) -> List[str]:
             )
         lines.append("")
         lines.append(
-            "_历史 Top-K：选股键=ŷ_EOD、关 τ 闸；有 ŷ 写 `x.xxx%`，仅规则分写 `Hxx.x`；通常无 ŷ_τ_"
+            "_历史 Top-K：选股键=ŷ_oo、关 τ 闸；有 ŷ 写 `x.xxx%`，仅规则分写 `Hxx.x`；通常无 ŷ_τ_"
         )
 
     ns = ps.get("north_star") or {}

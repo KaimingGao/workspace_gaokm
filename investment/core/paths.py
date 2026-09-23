@@ -90,7 +90,7 @@ T45_RIDGE_JOB_PATH = os.path.join(JOBS_DIR, "t45_ridge.json")
 T60_RIDGE_JOB_PATH = os.path.join(JOBS_DIR, "t60_ridge.json")
 T75_RIDGE_JOB_PATH = os.path.join(JOBS_DIR, "t75_ridge.json")
 T90_RIDGE_JOB_PATH = os.path.join(JOBS_DIR, "t90_ridge.json")
-R_RIDGE_JOB_PATH = os.path.join(JOBS_DIR, "r_ridge.json")
+TC_RIDGE_JOB_PATH = os.path.join(JOBS_DIR, "tc_ridge.json")
 
 
 def cluster_weights_versioned_path(version: int) -> str:

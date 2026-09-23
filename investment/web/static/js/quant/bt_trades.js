@@ -16,12 +16,9 @@ const {
   resolveRankingScore,
   remainingRankingPct,
   compoundPct,
-  resolvePathScore,
-  fmtPathScore,
   Y_EOD_TITLE,
   Y_OC_REBALANCE_TITLE,
   Y_ON_TITLE,
-  Y_HL_TITLE,
 } = await import(`../paper/fmt.js?v=${encodeURIComponent(_V)}`);
 
 export const BT_SIM_TRADE_COLS_BASE = [
@@ -344,15 +341,6 @@ export const BT_LEDGER_TRADE_COLS = [
     sortable: true,
     title: `${Y_ON_TITLE} · 预估(真实)：次日开/今日收 · 对照，不进决策`,
   },
-  {
-    id: "y_hl",
-    label: "y_hl",
-    widthPct: 8,
-    widthMin: "6.4rem",
-    num: true,
-    sortable: true,
-    title: `${Y_HL_TITLE} · 预估(真实)：极值序`,
-  },
 ];
 
 export function sortLedgerTradeLegs(legs) {
@@ -535,14 +523,6 @@ export function buildLedgerTradeRow(r, i, deps) {
   if (rOo == null && rTau != null && rOn != null) {
     rOo = compoundPct(rTau, rOn);
   }
-  const yhl = resolvePathScore(r);
-  const rhl = _numOrNull(
-    r.y_hl_realized != null
-      ? r.y_hl_realized
-      : r.path_realized != null
-        ? r.path_realized
-        : r.y_path_realized
-  );
   const act = _actionMeta(r);
   const actionTip = _legReason(r);
   const fuseTip = [
@@ -560,12 +540,6 @@ export function buildLedgerTradeRow(r, i, deps) {
   const tauTip = [
     ytau != null ? `ŷ_oc ${fmtScore(ytau, { signed: true })}` : "ŷ_oc —",
     rTau != null ? `真实 收盘/开盘 ${fmtScore(rTau, { signed: true })}` : "真实 —",
-  ]
-    .filter(Boolean)
-    .join(" · ");
-  const yhlTip = [
-    yhl != null ? `ŷ_hl ${fmtPathScore(yhl)}` : "ŷ_hl —",
-    rhl != null ? `真实极值序 ${fmtPathScore(rhl)}` : "",
   ]
     .filter(Boolean)
     .join(" · ");
@@ -614,10 +588,6 @@ export function buildLedgerTradeRow(r, i, deps) {
     realized_oo: rOo,
     day_open: dayOpenNum != null ? dayOpenNum : r.day_open,
     rebalance_px: tauPx != null ? tauPx : r.rebalance_px,
-    y_hl: yhl,
-    predicted_score_hl: yhl,
-    y_hl_realized: rhl,
-    path_realized: rhl,
   });
   const openDate = String(r.open_date || "").slice(0, 10);
   return {
@@ -658,10 +628,6 @@ export function buildLedgerTradeRow(r, i, deps) {
     rankingText: rankingPct == null ? "—" : fmtScore(rankingPct, { signed: true }),
     rankingCls: _scoreClsOf(scoreCls, rankingPct),
     rankingTip,
-    y_hlNum: yhl,
-    y_hlText: yhl == null ? "—" : fmtPathScore(yhl),
-    y_hlCls: _scoreClsOf(scoreCls, yhl),
-    y_hlTip: yhlTip,
     y_onTip: onTip,
     scoreDetail,
     realizedOoNum: rOo,
@@ -679,9 +645,6 @@ export function buildLedgerTradeRow(r, i, deps) {
     realizedTauNum: rTau,
     realizedTauText: rTau == null ? "" : fmtScore(rTau, { signed: true }),
     realizedTauCls: _scoreClsOf(scoreCls, rTau),
-    realizedHlNum: rhl,
-    realizedHlText: rhl == null ? "" : fmtPathScore(rhl),
-    realizedHlCls: _scoreClsOf(scoreCls, rhl),
   };
 }
 
@@ -822,13 +785,11 @@ export function buildLedgerTradesCsv(rows, nameByCode = {}) {
     "y_oo",
     "y_oc",
     "y_co",
-    "y_hl",
     "realized_cc",
     "realized_tau",
     "realized_on",
     "realized_oo",
     "realized_ranking",
-    "y_hl_realized",
     "cash_after",
     "n_holdings",
     "equity_after",
@@ -865,13 +826,11 @@ export function buildLedgerTradesCsv(rows, nameByCode = {}) {
       r.y_oo ?? r.y_fuse ?? r.predicted_score ?? "",
       r.y_oc ?? r.y_tau ?? r.predicted_score_tau ?? "",
       r.y_co ?? r.y_on ?? "",
-      r.y_hl ?? r.predicted_score_hl ?? r.y_path ?? "",
       r.realized_cc ?? "",
       r.realized_tau ?? "",
       r.realized_on ?? "",
       r.realized_oo ?? "",
       r.realized_ranking ?? "",
-      r.y_hl_realized ?? r.path_realized ?? r.y_path_realized ?? "",
       r.cash_after ?? "",
       r.n_holdings ?? "",
       r.equity_after ?? "",
@@ -1106,7 +1065,6 @@ const BT_TRADES_NUM_KEYS = {
   y_tau: "y_tauNum",
   y_on: "y_onNum",
   ranking: "rankingNum",
-  y_hl: "y_hlNum",
 };
 
 /** Virtual-table compare callback for sim trades. */
@@ -1290,15 +1248,6 @@ export function btTradesCellHtml(col, d, deps) {
       d.rankingTip || "ranking = fuse − (price(τ)/open−1) · 真实 (open[T+1]−price(τ))/open[T]",
       escapeHtml,
       "ranking",
-      d.scoreDetail
-    );
-  }
-  if (col.id === "y_hl") {
-    return _stackScoreHtml(
-      _optPredRealHtml(d.y_hlText, d.y_hlCls, d.realizedHlText, d.realizedHlCls, escapeHtml),
-      d.y_hlTip || Y_HL_TITLE,
-      escapeHtml,
-      "hl",
       d.scoreDetail
     );
   }

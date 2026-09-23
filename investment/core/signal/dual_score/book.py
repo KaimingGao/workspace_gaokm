@@ -98,7 +98,7 @@ def dual_score_book_fields(
     formula_terms_r = work.get("formula_terms_r") or work.get("score_formula_terms_r")
     if not (isinstance(formula_terms_r, dict) and formula_terms_r.get("terms")):
         try:
-            from core.research.r_ridge import explain_r_prediction, load_r_model
+            from core.research.tc_ridge import explain_tc_prediction, load_tc_model
 
             feats_r = work.get("features_tau") if isinstance(work.get("features_tau"), dict) else {}
             if not feats_r:
@@ -107,7 +107,7 @@ def dual_score_book_fields(
                     if isinstance(work.get("features_path"), dict)
                     else {}
                 )
-            formula_terms_r = explain_r_prediction(feats_r, model_doc=load_r_model())
+            formula_terms_r = explain_tc_prediction(feats_r, model_doc=load_tc_model())
         except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
             logger.debug("catch except Exception: in dual_score.py", exc_info=True)
             formula_terms_r = None

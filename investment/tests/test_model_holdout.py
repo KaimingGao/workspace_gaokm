@@ -110,8 +110,8 @@ class TestHoldoutSplit(unittest.TestCase):
         from quant.services.quant_service_factors import _attach_ridge_role_flags
 
         with tempfile.TemporaryDirectory() as tmp:
-            live_path = os.path.join(tmp, "r_ridge_model.json")
-            last_path = os.path.join(tmp, "r_ridge_last_report.json")
+            live_path = os.path.join(tmp, "tc_ridge_model.json")
+            last_path = os.path.join(tmp, "tc_ridge_last_report.json")
             with open(last_path, "w", encoding="utf-8") as f:
                 json.dump({"success": True, "return_model": {"intercept": 0}}, f)
             kept = _attach_ridge_role_flags(

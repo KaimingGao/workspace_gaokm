@@ -81,7 +81,7 @@ def fetch_live_index_bars(
 
     ``offline_only=True``：只读「offline」来源的进程缓存，**不**复用 live 拉数结果、
     不打远端（预演调仓 / 持仓打分）。避免相对强弱 z 被另一条 live 路径污染，
-    导致同票 ŷ_EOD 在 0.18%↔1.36% 间跳。
+    导致同票 ŷ_oo 在 0.18%↔1.36% 间跳。
     """
     from core.ports.market import default_benchmark
 

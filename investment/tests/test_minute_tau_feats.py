@@ -72,6 +72,23 @@ class TestMinuteTauPack(unittest.TestCase):
         self.assertTrue(0.0 <= pack["loc_hl"] <= 1.0)
         self.assertAlmostEqual(pack["t_hi_frac"], 10.0 / 25.0, places=4)
         self.assertAlmostEqual(pack["t_lo_frac"], 20.0 / 25.0, places=4)
+        self.assertIn("t_hi_minus_lo", pack)
+        self.assertIn("room_to_high", pack)
+        self.assertIn("room_to_low", pack)
+        self.assertIn("mom_accel_5_15", pack)
+        self.assertIn("mom_accel_5_30", pack)
+        self.assertIn("vol_down_up", pack)
+        self.assertIn("range_efficiency", pack)
+        self.assertIn("vp_confirm", pack)
+        self.assertIn("vol_up_share", pack)
+        self.assertIn("pullback_x_vol", pack)
+        self.assertAlmostEqual(
+            pack["t_hi_minus_lo"], pack["t_hi_frac"] - pack["t_lo_frac"], places=6
+        )
+        self.assertGreaterEqual(pack["room_to_high"], 0.0)
+        self.assertGreaterEqual(pack["room_to_low"], 0.0)
+        self.assertTrue(0.0 <= pack["range_efficiency"] <= 1.0)
+        self.assertTrue(0.0 <= pack["vol_up_share"] <= 1.0)
 
     def test_tau_cutoff_excludes_later_bars(self):
         pack_early = extract_minute_tau_pack(
@@ -88,6 +105,47 @@ class TestMinuteTauPack(unittest.TestCase):
         )
         self.assertAlmostEqual(pack_early["ret_open_to_tau"], 4.0, places=4)  # 10.4
         self.assertLess(pack_late["ret_open_to_tau"], pack_early["ret_open_to_tau"])
+
+    def test_vp_path_nonlinear_shape_math(self):
+        """量价/路径交互：效率∈[0,1]；vp_confirm=ret×(量比−1)。"""
+        day = "2026-08-28"
+        # 单调上涨 + 后段放量 → 高效率、正 vp_confirm
+        rows = [
+            ("09:35", 10.0, 10.1, 9.95, 10.05, 500),
+            ("09:40", 10.05, 10.2, 10.0, 10.15, 600),
+            ("09:45", 10.15, 10.35, 10.1, 10.3, 2000),
+            ("09:50", 10.3, 10.5, 10.25, 10.45, 2500),
+        ]
+        bars = [
+            {
+                "date": day,
+                "datetime": f"{day} {hm}:00",
+                "open": o,
+                "high": h,
+                "low": l,
+                "close": c,
+                "volume": v,
+            }
+            for hm, o, h, l, c, v in rows
+        ]
+        pack = extract_minute_tau_pack(
+            bars, trade_date=day, tau_hm="09:50", open_px=10.0
+        )
+        self.assertAlmostEqual(pack["ret_open_to_tau"], 4.5, places=4)  # 10.45/10-1
+        self.assertGreater(pack["range_pct"], 0)
+        self.assertAlmostEqual(
+            pack["range_efficiency"],
+            min(1.0, abs(pack["ret_open_to_tau"]) / pack["range_pct"]),
+            places=5,
+        )
+        self.assertAlmostEqual(
+            pack["vp_confirm"],
+            pack["ret_open_to_tau"] * (pack["vol_last3_vs_avg"] - 1.0),
+            places=5,
+        )
+        self.assertGreater(pack["vp_confirm"], 0.0)
+        self.assertGreater(pack["vol_up_share"], 0.5)
+        self.assertGreaterEqual(pack["pullback_x_vol"], 0.0)
 
     def test_day_bars_upto_tau_indexes_long_history(self):
         from core.signal import minute_tau_feats as m
@@ -620,8 +678,24 @@ class TestMinuteTauPack(unittest.TestCase):
         from core.signal.minute_tau_feats import MINUTE_TAU_SHAPE_KEYS
 
         self.assertEqual(len(MINUTE_TAU_PACK_KEYS), 13)
-        self.assertEqual(len(MINUTE_TAU_SHAPE_KEYS), 2)
-        self.assertEqual(set(MINUTE_TAU_SHAPE_KEYS), {"t_hi_frac", "t_lo_frac"})
+        self.assertEqual(len(MINUTE_TAU_SHAPE_KEYS), 12)
+        self.assertEqual(
+            set(MINUTE_TAU_SHAPE_KEYS),
+            {
+                "t_hi_frac",
+                "t_lo_frac",
+                "t_hi_minus_lo",
+                "room_to_high",
+                "room_to_low",
+                "mom_accel_5_15",
+                "mom_accel_5_30",
+                "vol_down_up",
+                "range_efficiency",
+                "vp_confirm",
+                "vol_up_share",
+                "pullback_x_vol",
+            },
+        )
         self.assertTrue(set(MINUTE_TAU_SHAPE_KEYS).isdisjoint(MINUTE_TAU_PACK_KEYS))
 
     def test_variable_prefix_grid_rows(self):

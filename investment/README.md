@@ -273,7 +273,7 @@ Web 主路径：**对话** · **观察** · **模拟** · **回溯**。说明见
 | [docs/architecture.md](docs/architecture.md) | **架构总览**：架构图、分层模块、目录结构、Service 命名、技术栈、数据/策略/风控/舆情/RL 各层、框架梳理、A0–A4 工程轨、SQLite 改造 |
 | [docs/design-spine.md](docs/design-spine.md) | 产品核心设计主轴：因果链、北极星、能力地图、N1–N6 路径、两条轨、决策链路、N6 实盘准入 |
 | [docs/quant.md](docs/quant.md) | 量化层：入门概念 + score_bars/stance/回测/纸面原理 + 运维 preset & cron + 昨日复盘对账 |
-| [docs/quant.md · ŷ 全链路](docs/quant.md#predicted_scoreŷ全链路) | ŷ 全链路：训练/打分/回测/复盘/纸面 + 双层 ŷ_EOD+ŷ_τ + 盘中 rem + τ 契约与分组升级 |
+| [docs/quant.md · ŷ 全链路](docs/quant.md#predicted_scoreŷ全链路) | ŷ 全链路：训练/打分/回测/复盘/纸面 + 双层 ŷ_oo+ŷ_τ + 盘中 rem + τ 契约与分组升级 |
 | [docs/quant-ui.md](docs/quant-ui.md) | Web：说明书 + UI 契约与验收 + 差距分析 + W0–W5 升级方案 |
 | [docs/design-spine.md · 路线图](docs/design-spine.md#能力评估与升级规划路线图视角) | 能力评估、Q1–Q5、**北极星实现规划 P0–P3** |
 | [docs/development.md](docs/development.md) | 开发手册：环境安装入门 + 单测/evals/扩展约定 + 10 个 Skill 详解 |

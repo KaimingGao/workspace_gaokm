@@ -57,9 +57,13 @@ class ScoreResult:
             fetch_ok=success,
             quality_gated=quality_gated,
         )
-        predicted = _opt_float(item.get("predicted_score_eod"))
+        predicted = _opt_float(item.get("predicted_score"))
         if predicted is None:
-            predicted = _opt_float(item.get("predicted_score"))
+            predicted = _opt_float(item.get("predicted_score_oo"))
+        if predicted is None:
+            predicted = _opt_float(item.get("y_oo"))
+        if predicted is None:
+            predicted = _opt_float(item.get("predicted_score_eod"))
         tau = _opt_float(item.get("predicted_score_tau"))
         if tau is None:
             tau = _opt_float(item.get("score_rem"))

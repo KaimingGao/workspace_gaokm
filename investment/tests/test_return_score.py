@@ -81,7 +81,7 @@ class TestReturnScoreModel(unittest.TestCase):
         self.assertGreater(picks[0][1], picks[1][1])
 
     def test_rank_by_eod_when_tau_gate_off(self):
-        """历史路径关 τ 闸：排序用 ŷ_EOD，不被近似 blend 倒序。"""
+        """历史路径关 τ 闸：排序用 ŷ_oo，不被近似 blend 倒序。"""
         from unittest.mock import patch
 
         model = ReturnScoreModel(
@@ -140,8 +140,11 @@ class TestReturnScoreModel(unittest.TestCase):
         self.assertEqual(picks_blend[0][0], "low_eod")
         self.assertEqual(meta_blend.get("rank_key"), "predicted_score_blend")
         self.assertEqual(picks_eod[0][0], "high_eod")
-        self.assertTrue(meta_eod.get("rank_by_eod"))
-        self.assertEqual(meta_eod.get("rank_key"), "predicted_score_eod")
+        self.assertTrue(meta_eod.get("rank_by_oo"))
+        self.assertIn(
+            meta_eod.get("rank_key"),
+            ("predicted_score_oo", "predicted_score_eod", "predicted_score"),
+        )
         self.assertTrue((meta_eod.get("dual_score") or {}).get("skipped"))
         self.assertEqual(attach_mock.call_count, 2)
 

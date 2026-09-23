@@ -156,7 +156,7 @@ def build_event_prior(
     config: Optional[dict] = None,
     stock_code: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """由开盘缺口 + 可选板块广度 / ŷ_τ 构建事件先验；不改 EOD ŷ。"""
+    """由开盘缺口 + 可选板块广度 / ŷ_τ 构建事件先验；不改 ŷ_oo。"""
     cfg = get_event_prior_cfg(config)
     mode = cfg["mode"]
     trigger = float(cfg["gap_trigger_pct"])

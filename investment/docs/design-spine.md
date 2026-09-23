@@ -61,7 +61,7 @@
     ▼
 影响估计（Alpha / Risk 两条估计）
     ├─ Alpha：**双层 ŷ**
-    │         · ŷ_EOD = predicted_score：T−1 因子 → 组 β → 前瞻 h 日（主排序 / 买入）
+    │         · ŷ_oo = predicted_score：T−1 因子 → 组 β → 前瞻 h 日（主排序 / 买入）
     │         · ŷ_τ = predicted_score_tau：X+Z_≤τ → open→close（分钟前缀可选；旧名 score_rem 仅兼容）
     │         heuristic 加权 score 仅研究基线，不驱动 live 选股
     └─ Risk：回撤/集中度/成本/滚动 ŷ IC（能买多少、要不要停）
@@ -93,7 +93,7 @@ flowchart LR
 |----------|----------|------------|--------|
 | **事实输入** | 当时可见的价量、财务、资讯、账本 | `ports` · `fetch_daily_bars` · fundamentals · sentiment · `watching` / `paper` | 基本面多为 **snapshot**（非完整 PIT）；须在质量/文档标明 |
 | **清洗门禁** | 能否进入生产估计 | `normalize_bars` · `assess_quality` · `allows_production_score` · manifest `adjust_policy` | thin/empty/fallback → `hard_reject`，不硬塞分 |
-| **Alpha 估计** | 已发生形态对「相对吸引力」的影响 | `factor_registry` · `score_bars`→sub_scores · `ReturnScoreModel`（β）· **多目标多头**：ŷ_EOD / ŷ_τ / ŷ_co / ŷ_hl · **blend 融合** · **分组 bagging**（cluster OLS）· `compute_buy_stance` | 方法论见 [design-spine · 预估方法论](design-spine.md#预估方法论)；生产主排序 = **EOD ŷ**；τ/HL 等独立 Ridge + OOS；融合见 [quant §2.5](quant.md#25-双层-predicted_scoreŷ_eod--ŷ_τ)；组 β 仅 `active` 进主分（FH0）；`heuristic_score` **仅研究对照**；LLM **不改**分 |
+| **Alpha 估计** | 已发生形态对「相对吸引力」的影响 | `factor_registry` · `score_bars`→sub_scores · `ReturnScoreModel`（β）· **多目标多头**：ŷ_oo / ŷ_τ / ŷ_co / ŷ_hl · **blend 融合** · **分组 bagging**（cluster OLS）· `compute_buy_stance` | 方法论见 [design-spine · 预估方法论](design-spine.md#预估方法论)；生产主排序 = **ŷ_oo**；τ/HL 等独立 Ridge + OOS；融合见 [quant §2.5](quant.md#25-双层-predicted_scoreŷ_oo--ŷ_τ)；组 β 仅 `active` 进主分（FH0）；`heuristic_score` **仅研究对照**；LLM **不改**分 |
 | **Risk 估计** | 已发生敞口对「能买多少 / 要不要停」的影响 | `check_account_risk` · `optimize_weights` · `strategy_monitor`（回撤 · 滚动 IC · 行业覆盖） · 成本 `simple_cn` | 监控 **只告警**；不自动改权、不代客下单 |
 | **验证** | 同一规则在历史上是否仍有效 | `backtest` · OOS/regime · `wf_slices` · IC / `weight_suggest` · 纸面 `ops_report` 五问 | 研究结果 ≠ 实盘保证；OOS 失败须可见 |
 | **动作** | 估计如何变成可审计行为 | 观察 · 人建仓 · `run_daily_cycle` / 横截面调仓 · `paper_daily` · DecisionRecord | **现行不接 OMS**（策略验证）；配置变更走 feedback → **人审 promote** |
@@ -136,7 +136,7 @@ flowchart LR
 | 轴 | 含义 | 目的 |
 |----|------|------|
 | **多频率** | 同一决策日同时使用 **日线因子**、**开盘/τ 时刻**、**5m 分钟路径** 等不同时间粒度的已发生信息 | 日级趋势看「隔夜→多日」；做 T 看「开盘→盘中触价顺序」 |
-| **多目标** | 不同 **标签 \(y\)** / 决策任务：EOD 前瞻收益、τ 剩余收益、ON 隔夜、path 极值序… | 避免用一个回归头同时充当排序、买入闸、定方向、触价 timing |
+| **多目标** | 不同 **标签 \(y\)** / 决策任务：oo 前瞻收益、τ 剩余收益、co 隔夜、path 极值序… | 避免用一个回归头同时充当排序、买入闸、定方向、触价 timing |
 | **Ensemble / Bagging** | 多模型输出 **正交融合** 或 **分组再聚合**；弱信号降权、冲突否决 | 提升稳健性，而非堆更多同名因子 |
 
 ```text
@@ -150,11 +150,11 @@ flowchart LR
 
 | 任务 | 主要频率 | 主要目标头 | 融合 / 门控 | 代码落点 |
 |------|----------|------------|-------------|----------|
-| **调仓：谁更强 / 买不买** | 日线 + 开盘缺口 | **ŷ_EOD**（多日前瞻）· **ŷ_τ**（买入闸）· **ŷ_co** | **ŷ_trade** = blend(ŷ_EOD, 缺口∘ŷ_τ)；过 EOD floor + τ 闸 | `dual_score/` · `paper_rebalance` |
+| **调仓：谁更强 / 买不买** | 日线 + 开盘缺口 | **ŷ_oo**（多日前瞻）· **ŷ_τ**（买入闸）· **ŷ_co** | **ŷ_trade** = blend(ŷ_oo, 缺口∘ŷ_τ)；过 ŷ_oo floor + τ 闸 | `dual_score/` · `paper_rebalance` |
 | **做 T：正 / 反 / 跳过** | 开盘 Z + **5m 前缀** | **C_τ** 破带选向 · **y_hl** 同号闸/入场 | clip(ŷ_oc×放大) 估 C_τ 后对称 ±δ 真破带；y_hl **不进 C_τ / ranking** | `core/t0/close_band.py` · `path_ridge` |
 | **执行：何时触价** | **5m** 第一触达 | leg1=触发根收盘；leg2 冻结 C_τ | 与估计层分离；缺分钟跳过 | `core/t0/` · `minute_path` |
 
-详见 [quant.md · 策略调仓 vs 底仓做 T](quant.md#策略调仓-vs-底仓做-t) · [quant.md · 双层 ŷ §2.5](quant.md#25-双层-predicted_scoreŷ_eod--ŷ_τ) · [quant.md · y_path](quant.md#predicted_scoreŷ全链路)。
+详见 [quant.md · 策略调仓 vs 底仓做 T](quant.md#策略调仓-vs-底仓做-t) · [quant.md · 双层 ŷ §2.5](quant.md#25-双层-predicted_scoreŷ_oo--ŷ_τ) · [quant.md · y_path](quant.md#predicted_scoreŷ全链路)。
 
 ### Ensemble 在本仓库的具体形态
 
@@ -587,7 +587,7 @@ StrategySpec（如 `signal_v1` + 成本模型 `simple_cn`）把信号参数、�
 | | 策略调仓 | 底仓做 T |
 |--|----------|----------|
 | 一句话 | 决定**持有什么** | 在已有底仓上，今天能否用**日内波动**多赚一点 |
-| 信号 | ŷ_trade 排序 + ŷ_EOD/ŷ_τ 买卖闸 | dual_y：y_τ 定方向 + 5m 触价 |
+| 信号 | ŷ_trade 排序 + ŷ_oo/ŷ_τ 买卖闸 | dual_y：y_τ 定方向 + 5m 触价 |
 | ŷ_τ | 买入闸 + 融合排序 | 定方向（非重复用同一决策） |
 | 收益 | 持有期 + 换仓结构 | round-trip 价差（非浮动盈亏） |
 
@@ -761,8 +761,8 @@ data/*.json   → 配置与账本落盘
 
 ### 盘中 / 实时增强（进行中）
 
-EOD ŷ 主轴不变；事件先验 + open→close 的 **ŷ_τ 头**能力定义与阶段表（P0–R3）见专文：  
-[quant.md · 盘中剩余收益头](quant.md#13-盘中剩余收益头intraday-residual方案)。**P0～R3 代码已落地**；生产排序仍只用 EOD ŷ；ŷ_τ 需 `POST /api/quant/tau-ridge`（`persist=true`，落盘 `tau_ridge_model.json`；旧 `rem-ridge` / `rem_ridge_*` 仍兼容）后人审启用门控。
+ŷ_oo 主轴不变；事件先验 + open→close 的 **ŷ_τ 头**能力定义与阶段表（P0–R3）见专文：  
+[quant.md · 盘中剩余收益头](quant.md#13-盘中剩余收益头intraday-residual方案)。**P0～R3 代码已落地**；生产排序仍只用 ŷ_oo；ŷ_τ 需 `POST /api/quant/tau-ridge`（`persist=true`，落盘 `tau_ridge_model.json`；旧 `rem-ridge` / `rem_ridge_*` 仍兼容）后人审启用门控。
 
 **契约缺口与下一步**：**双层 ŷ** A1+F1 已落地；**F2** `predicted_score_blend` 可选（`fusion_mode=f2`）；**B1** promote 相对 active 的 OOS 失败率硬闸已落地；**B2/B3** focused 贪心 + promote-preflight / 落地卡已接通；A2 影子簿 + 复盘页 ŷ_τ 验收条已接。未做：**A3** 主轴切换（须影子簿达标）、分钟 τ 默认 live、分组重跑并成功 promote。见
 [quant.md · τ 契约升级](quant.md#14-决策时刻-τ-契约--双层-predicted_score--分组目标升级) · [quant.md · ŷ 全链路 §2.5](quant.md#predicted_scoreŷ全链路)。
@@ -1296,6 +1296,6 @@ python3 -c "from skills.position.handler import PositionHandler; print(PositionH
 | 文档 | 关系 |
 |------|------|
 | [architecture.md](architecture.md) | 工程分层 · 架构图 · 目录结构 · 技术栈 · 数据/策略/风控/舆情/RL 各层说明 · 框架梳理 · A0–A4 轨 · SQLite 迁移 |
-| [quant.md](quant.md) | 入门概念 · 因子/stance/回测/纸面原理 · 运维 preset · 复盘对账 · ŷ 全链路 · 训练/打分/回测/复盘 · 双层 ŷ_EOD+ŷ_τ · 盘中剩余收益头 · τ 契约 |
+| [quant.md](quant.md) | 入门概念 · 因子/stance/回测/纸面原理 · 运维 preset · 复盘对账 · ŷ 全链路 · 训练/打分/回测/复盘 · 双层 ŷ_oo+ŷ_τ · 盘中剩余收益头 · τ 契约 |
 | [quant-ui.md](quant-ui.md) | Web 说明书 · 契约 · 差距 · 升级方案 |
 | [development.md](development.md) | 环境安装 · 测试/evals · 各 Skill 详解 |

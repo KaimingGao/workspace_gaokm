@@ -39,7 +39,7 @@ DEFAULT_DUAL_SCORE: Dict[str, Any] = {
     "theme_w_tau_boost": 1.25,
     # variance：EOD 侧残差方差代理（百分点²）；τ 侧优先用 τ OOS
     "eod_residual_var": 1.0,
-    # 研究影子：ŷ_cascade = ŷ_EOD_rem + (ŷ_τ − α)；不进主排序
+    # 研究影子：ŷ_cascade = ŷ_oo_rem + (ŷ_τ − α)；不进主排序
     "enable_cascade_shadow": True,
     # A2：刷簿时同池按 ŷ_τ 另写影子簿（不进 execution）
     "enable_tau_shadow_book": False,
@@ -218,7 +218,7 @@ def get_dual_score_cfg(config: Optional[dict] = None) -> Dict[str, Any]:
 
 
 def is_heuristic_score_scale(item: Optional[dict]) -> bool:
-    """主分是否为 0–100 启发式（不可当 ŷ_EOD%）。"""
+    """主分是否为 0–100 启发式（不可当 ŷ_oo%）。"""
     if not isinstance(item, dict):
         return False
     if str(item.get("score_scale") or "") == "heuristic_0_100":
@@ -304,7 +304,7 @@ def resolve_predicted_score_oo(item: Optional[dict]) -> Optional[float]:
         score_f = float(v)
     except (TypeError, ValueError):
         return None
-    # 0–100 规则分不得冒充 ŷ_EOD（Top-K 无 predicted 时曾靠此漏进榜）
+    # 0–100 规则分不得冒充 ŷ_oo（Top-K 无 predicted 时曾靠此漏进榜）
     try:
         from core.signal.score_display import looks_like_legacy_heuristic_score
 
@@ -346,7 +346,11 @@ def resolve_predicted_score_oo_rem(item: Optional[dict]) -> Optional[float]:
     """从打分行读取 ŷ_oo_rem（剩余/日内修正后的 oo 预测）。"""
     if not isinstance(item, dict):
         return None
-    for k in ("predicted_score_eod_rem", "score_eod_rem"):
+    for k in (
+        "predicted_score_oo_rem",
+        "predicted_score_eod_rem",
+        "score_eod_rem",
+    ):
         v = item.get(k)
         if v is None:
             continue
@@ -432,7 +436,7 @@ def align_trade_score_fields(
 ) -> Optional[dict]:
     """就地对齐：predicted_score_blend / decision_score = ŷ_trade。
 
-    ``predicted_score`` / ``predicted_score_eod`` 保留 ŷ_EOD。
+    ``predicted_score`` / ``predicted_score_eod`` 保留 ŷ_oo。
     重算条件：
     1) blend 缺失；
     2) 旧簿 eod_next 把 blend 写成 EOD 且 ŷ_τ 仍分叉；

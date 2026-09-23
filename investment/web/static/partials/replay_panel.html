@@ -421,6 +421,16 @@
                   </label>
                   <label
                     class="paper-t0-field"
+                    title="ŷ_τ30/45/60/75/90：ridge=logistic Ridge（默认）；tree=影子树+路径形状（须先拟合并写入 *_tree_model.json）。仅影响 ŷ_τw 投票，不改 ŷ_oc / C_τ。"
+                  >
+                    <span>ŷ_τ*头</span>
+                    <select name="horizon_prob_backend">
+                      <option value="ridge" selected>Ridge</option>
+                      <option value="tree">Tree</option>
+                    </select>
+                  </label>
+                  <label
+                    class="paper-t0-field"
                     title="ŷ_τ30/45/60/75/90 预估概率距中位点不超过此百分点则不给 ŷ_τw 投票。默认 5；0=仅恰好中位点弃权。"
                   >
                     <span>Y_τ*弃权%</span>

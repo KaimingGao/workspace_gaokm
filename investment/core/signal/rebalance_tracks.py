@@ -295,7 +295,7 @@ def buy_gate_for_item(
     if gate_f is None:
         return False, None, track, "missing_predicted_eod"
     if gate_f < buy_f:
-        return False, gate_f, track, f"ŷ_EOD<{buy_f}"
+        return False, gate_f, track, f"ŷ_oo<{buy_f}"
     return True, gate_f, track, None
 
 

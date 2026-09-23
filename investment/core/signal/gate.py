@@ -35,7 +35,12 @@ def infer_score_scale(item: Optional[Mapping[str, Any]]) -> str:
         logger.debug("catch except Exception: in gate.py", exc_info=True)
         if str(item.get("return_model_source") or "") == "oos_failed_heuristic":
             return SCALE_HEURISTIC
-    if item.get("predicted_score") is not None or item.get("predicted_score_eod") is not None:
+    if (
+        item.get("predicted_score") is not None
+        or item.get("predicted_score_oo") is not None
+        or item.get("y_oo") is not None
+        or item.get("predicted_score_eod") is not None
+    ):
         return SCALE_YHAT
     return SCALE_UNKNOWN
 
@@ -64,6 +69,10 @@ def allows_production_yhat(
     if scale != SCALE_YHAT:
         return False, f"score_scale:{scale or SCALE_UNKNOWN}"
     y = row.get("predicted_score")
+    if y is None:
+        y = row.get("predicted_score_oo")
+    if y is None:
+        y = row.get("y_oo")
     if y is None:
         y = row.get("predicted_score_eod")
     if y is None:
