@@ -96,7 +96,7 @@ class TestBenchmarkFlat(unittest.TestCase):
             result, stock_bars, index_code="__no_such_index__", lookback=20
         )
         self.assertTrue(summary.get("ok"))
-        self.assertEqual(summary.get("benchmark_label"), "池等权买持")
+        self.assertEqual(summary.get("benchmark_label"), "观察池等权")
         self.assertAlmostEqual(float(summary["benchmark_return_pct"]), 0.0, places=1)
         self.assertAlmostEqual(float(summary["excess_pct"]), 12.5, places=1)
         self.assertGreaterEqual(len(summary.get("equity_curve") or []), 2)
@@ -121,7 +121,7 @@ class TestBenchmarkFlat(unittest.TestCase):
             result, stock_bars, index_code="pool", lookback=20, force_pool=True
         )
         self.assertTrue(summary.get("ok"))
-        self.assertEqual(summary.get("benchmark_label"), "池等权买持")
+        self.assertEqual(summary.get("benchmark_label"), "观察池等权")
         self.assertLess(float(summary["excess_pct"]), 0)
         self.assertTrue(summary.get("warn_abs_pos_excess_neg"))
 

@@ -1,4 +1,4 @@
-"""TopK 回测相对基准（T6/T9）：指数优先，失败则池等权买持；净值曲线 + 年化超额/IR。"""
+"""TopK 回测相对基准（T6/T9）：默认观察池等权；也可指定指数，失败则回退池等权。"""
 
 
 import logging
@@ -45,6 +45,20 @@ def _pool_equal_hold_return(stock_bars: Dict[str, List[dict]]) -> Optional[float
     if not rets:
         return None
     return round(sum(rets) / len(rets), 2)
+
+
+def _pool_return_from_equity_curve(curve: List[dict]) -> Optional[float]:
+    """测试窗净值曲线末点相对起点 100 的累计收益%（等权买持）。"""
+    if not curve or len(curve) < 2:
+        return None
+    try:
+        e0 = float(curve[0].get("equity") or 0)
+        e1 = float(curve[-1].get("equity") or 0)
+    except (TypeError, ValueError):
+        return None
+    if e0 <= 0 or e1 <= 0:
+        return None
+    return round((e1 / e0 - 1.0) * 100.0, 2)
 
 
 def _normalize_equity_curve(
@@ -178,7 +192,7 @@ def build_topk_benchmark_summary(
     lookback: int = 120,
     force_pool: bool = False,
 ) -> Dict[str, Any]:
-    """相对基准：优先指定指数；force_pool 或指数失败则池等权买持。附净值曲线与年化超额/IR。"""
+    """相对基准：index_code=pool 或 force_pool → 观察池等权；否则优先指数，失败回退池等权。"""
     strat = ((result.get("metrics") or {}).get("total_return_pct"))
     params = result.get("params") or {}
     req = result.get("request") or {}
@@ -238,18 +252,24 @@ def build_topk_benchmark_summary(
         note = "超额 = 策略累计 − 指数同期买持；曲线按策略调仓日对齐指数收盘。"
 
     if bench_ret is None or (strat_dates and len(bench_curve) < 2) or force_pool:
-        pool_bh = _pool_equal_hold_return(stock_bars)
         pool_curve = _pool_ew_equity_curve(stock_bars, strat_dates) if strat_dates else []
+        # 优先用策略测试窗对齐的等权净值；无曲线再退回各票 bars 首尾均值
+        pool_bh = _pool_return_from_equity_curve(pool_curve)
+        if pool_bh is None:
+            pool_bh = _pool_equal_hold_return(stock_bars)
         if pool_bh is not None:
             bench_ret = pool_bh
             bench_curve = pool_curve
-            label = "池等权买持"
+            label = "观察池等权"
             if force_pool:
-                note = "强制池等权买持；超额 = 策略 − 池买持。"
+                note = (
+                    "基准=观察池（回测宇宙）各票测试窗买持收益等权平均；"
+                    "超额 = 策略累计 − 池等权。"
+                )
             else:
                 note = (
-                    f"指数 {code} 不可用或无法对齐，回退为验证池等权买持；"
-                    "超额 = 策略 − 池买持（非指数）。"
+                    f"指数 {code} 不可用或无法对齐，回退为观察池等权；"
+                    "超额 = 策略 − 池等权（非指数）。"
                 )
 
     if bench_ret is None:

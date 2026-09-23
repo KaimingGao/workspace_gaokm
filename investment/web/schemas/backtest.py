@@ -26,7 +26,10 @@ class PaperReplayBacktestRequest(BaseModel):
     exclude_st: bool = True
     min_avg_amount_pctile: Optional[float] = Field(default=None, ge=0, le=90)
     include_benchmark: bool = True
-    benchmark_code: str = "000300"
+    benchmark_code: str = Field(
+        default="pool",
+        description="超额基准：pool=观察池等权买持；或指数代码如 000300。",
+    )
     y_on_alpha: float = Field(
         default=1.0,
         ge=0.0,

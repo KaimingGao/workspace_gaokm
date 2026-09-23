@@ -1017,7 +1017,7 @@ export function installBacktest(q) {
       horizon_days: 1,
       exclude_st: true,
       min_avg_amount_pctile: null,
-      benchmark_code: "000300",
+      benchmark_code: "pool",
       y_on_alpha: readYOnAlpha(),
       initial_cash: readInitialCash(),
       fill_clock: readFillClock(),

@@ -64,7 +64,7 @@ class QuantReplayMixin:
         exclude_st: bool = True,
         min_avg_amount_pctile: Optional[float] = None,
         include_benchmark: bool = True,
-        benchmark_code: str = "000300",
+        benchmark_code: str = "pool",
         persist_curve: bool = True,
         y_on_alpha: float = 1.0,
         fusion_w_oo: Optional[float] = None,
@@ -336,7 +336,7 @@ class QuantReplayMixin:
             "apply_costs": bool(apply_costs),
             "exclude_st": bool(exclude_st),
             "min_avg_amount_pctile": min_avg_amount_pctile,
-            "benchmark_code": str(benchmark_code or "000300"),
+            "benchmark_code": str(benchmark_code or "pool"),
             "initial_cash": cash,
             "cash_floor": REPLAY_CASH_FLOOR,
             "y_on_alpha": y_on_alpha,
@@ -398,16 +398,17 @@ class QuantReplayMixin:
                 from core.backtest.topk_benchmark import build_topk_benchmark_summary
                 from core.research.bt_excess_attach import attach_benchmark_excess
 
+                bench_code = str(benchmark_code or "pool").strip() or "pool"
                 result["benchmark"] = build_topk_benchmark_summary(
                     result,
                     stock_bars,
                     lookback=lookback,
-                    index_code=benchmark_code or "000300",
+                    index_code=bench_code,
                 )
                 result = attach_benchmark_excess(
                     result,
                     stock_bars,
-                    index_code=benchmark_code or "sh000300",
+                    index_code=bench_code,
                     lookback=lookback,
                 )
             except Exception as e:
