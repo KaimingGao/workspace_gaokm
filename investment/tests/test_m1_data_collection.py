@@ -9,15 +9,35 @@ import unittest
 from unittest.mock import patch
 
 
+def _daily(date: str, close: float) -> dict:
+    return {
+        "date": date,
+        "open": close,
+        "high": close,
+        "low": close,
+        "close": close,
+        "volume": 1,
+    }
+
+
 class TestMergeBars(unittest.TestCase):
     def test_merge_by_date(self):
         from core.store import merge_bars_by_date
 
-        a = [{"date": "2024-01-01", "close": 1}, {"date": "2024-01-02", "close": 2}]
-        b = [{"date": "2024-01-02", "close": 2.5}, {"date": "2024-01-03", "close": 3}]
+        a = [_daily("2024-01-01", 1), _daily("2024-01-02", 2)]
+        b = [_daily("2024-01-02", 2.5), _daily("2024-01-03", 3)]
         m = merge_bars_by_date(a, b)
         self.assertEqual([x["date"] for x in m], ["2024-01-01", "2024-01-02", "2024-01-03"])
         self.assertEqual(m[1]["close"], 2.5)
+
+    def test_incomplete_incoming_does_not_replace(self):
+        from core.store import merge_bars_by_date
+
+        a = [_daily("2024-01-02", 2)]
+        b = [{"date": "2024-01-02", "close": 9}, {"date": "2024-01-03", "close": 3}]
+        m = merge_bars_by_date(a, b)
+        self.assertEqual([x["date"] for x in m], ["2024-01-02"])
+        self.assertEqual(m[0]["close"], 2)
 
 
 class TestSnapshotCache(unittest.TestCase):

@@ -656,17 +656,19 @@ def refresh_cluster_minute_only(
 
     ``mode=full``：原强更（Ready 跳过 + 全窗口重拉）。
     ``mode=topup``：增量补齐（已对齐跳过；跨度够只补近几日；供预演调仓日常刷新）。
+    ``mode=repair``：东财补缺（只写比本地更齐的交易日，不打新浪）。
     """
     from core.schedule_jobs import _minute_warmup_core
-    from core.data.policy import minute_em_lookback_days
+    from core.data.policy import MINUTE_EM_LOOKBACK_MAX_DAYS, minute_em_lookback_days
 
     limit = max(1, int(watching_limit or 200))
     period_s = str(period or DEFAULT_MINUTE_PERIOD)
-    cap = minute_em_lookback_days()
-    lb = min(max(int(lookback_days or DEFAULT_LOOKBACK_DAYS), 5), cap)
     mode_s = str(mode or "full").strip().lower()
-    if mode_s not in ("full", "topup"):
+    if mode_s not in ("full", "topup", "repair"):
         mode_s = "full"
+    cap = int(MINUTE_EM_LOOKBACK_MAX_DAYS) if mode_s == "repair" else minute_em_lookback_days()
+    default_lb = cap if mode_s == "repair" else DEFAULT_LOOKBACK_DAYS
+    lb = min(max(int(lookback_days or default_lb), 5), cap)
     codes = _resolve_watching_codes(watching_limit=limit)
     n_codes = len(codes)
     if n_codes < 1:
@@ -682,13 +684,22 @@ def refresh_cluster_minute_only(
     def _on_progress(cur: int, total: int, code: str) -> None:
         if not progress_cb:
             return
-        label = "增量" if mode_s == "topup" else "预热"
+        label = {"topup": "增量", "repair": "补缺"}.get(mode_s, "预热")
         try:
             progress_cb(f"{label} 5m {code} ({cur}/{total})", int(cur or 0), int(total or n_codes))
         except Exception:  # noqa: BLE001 — best-effort 进度回调
             logger.debug("cluster minute refresh progress_cb failed", exc_info=True)
 
-    if mode_s == "topup":
+    if mode_s == "repair":
+        from quant.research.minute_em_repair import repair_cluster_minute_from_em
+
+        warmup = repair_cluster_minute_from_em(
+            watching_limit=limit,
+            lookback_days=lb,
+            period=period_s,
+            progress_cb=_on_progress,
+        )
+    elif mode_s == "topup":
         warmup = _minute_topup_core(
             codes=codes,
             period=period_s,

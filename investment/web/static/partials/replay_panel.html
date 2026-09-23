@@ -312,6 +312,16 @@
             <option value="research">研究</option>
           </select>
         </label>
+        <label
+          class="platform-field quant-pro-field replay-lookback-field replay-horizon-backend-field"
+          title="ŷ_τ30/45/60/75/90：ridge=logistic Ridge（默认）；tree=影子树+路径形状（须先拟合并写入 *_tree_model.json）。仅影响 ŷ_τw 投票，不改 ŷ_oc / C_τ。"
+        >
+          <span class="quant-pro-field-label">ŷ_τ*头</span>
+          <select id="paper-t0-horizon-prob-backend" name="horizon_prob_backend" form="paper-t0-form">
+            <option value="ridge" selected>Ridge</option>
+            <option value="tree">Tree</option>
+          </select>
+        </label>
         <button type="button" id="paper-t0-backtest" class="dialog-btn" title="5m 第一触达回测：默认执行套（与手动预演同一套 live）。选研究则用 Holdout 系数，ŷ 可能翻转。规则读下方表单。缺该日5m则跳过。">跑回测</button>
       </div>
     </header>
@@ -418,16 +428,6 @@
                   >
                     <span>Y_τ*中位点%</span>
                     <input type="number" name="y_tw_midpoint" min="1" max="99" step="0.5" value="47" />
-                  </label>
-                  <label
-                    class="paper-t0-field"
-                    title="ŷ_τ30/45/60/75/90：ridge=logistic Ridge（默认）；tree=影子树+路径形状（须先拟合并写入 *_tree_model.json）。仅影响 ŷ_τw 投票，不改 ŷ_oc / C_τ。"
-                  >
-                    <span>ŷ_τ*头</span>
-                    <select name="horizon_prob_backend">
-                      <option value="ridge" selected>Ridge</option>
-                      <option value="tree">Tree</option>
-                    </select>
                   </label>
                   <label
                     class="paper-t0-field"

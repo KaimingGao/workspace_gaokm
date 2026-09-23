@@ -66,6 +66,9 @@ const { installClusterBarsUi } = await import(
 const { installClusterMinuteUi } = await import(
   `./quant/cluster_minute_ui.js?v=${encodeURIComponent(_QV)}`
 );
+const { installBarsIntegrityUi } = await import(
+  `./quant/bars_integrity_ui.js?v=${encodeURIComponent(_QV)}`
+);
 const { createFactorIcUi } = await import(
   `./quant/factor_ic_ui.js?v=${encodeURIComponent(_QV)}`
 );
@@ -267,6 +270,7 @@ export function initQuant(ctx) {
   const suggest = installSuggest(q);
   const clusterBars = installClusterBarsUi(q);
   const clusterMinute = installClusterMinuteUi(q);
+  installBarsIntegrityUi(q);
   const strategy = installStrategy(q);
   const exportDomain = installExportInterpret(q);
   const scoreReviewDomain = installScoreReview(q);

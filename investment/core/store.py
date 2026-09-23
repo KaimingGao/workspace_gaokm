@@ -122,18 +122,115 @@ def code_refresh_lock(market: str, code: str, *, kind: str = "daily") -> Iterato
         yield
 
 
+_DAILY_OHLCV = ("open", "high", "low", "close", "volume")
+
+
+def daily_bar_complete(bar: dict) -> bool:
+    """开高低收、成交量都有数值。0 成交量算齐；缺字段或空字符串不算。"""
+    if not isinstance(bar, dict):
+        return False
+    if not str(bar.get("date") or "").strip():
+        return False
+    for key in _DAILY_OHLCV:
+        raw = bar.get(key)
+        if raw is None or raw == "":
+            return False
+        try:
+            float(raw)
+        except (TypeError, ValueError):
+            return False
+    return True
+
+
 def merge_bars_by_date(
     existing: List[dict],
     incoming: List[dict],
 ) -> List[dict]:
-    """按 date 合并日线；同日以后到为准；升序。"""
+    """按 date 合并日线；同日以后到为准；升序。
+
+    缺开高低收或成交量的新根丢掉，不覆盖已有同日，也不新插入。
+    """
     by_date: Dict[str, dict] = {}
-    for b in list(existing or []) + list(incoming or []):
-        d = str((b or {}).get("date") or "").strip()
-        if not d:
+    for b in existing or []:
+        if not isinstance(b, dict):
+            continue
+        d = str(b.get("date") or "").strip()
+        if d:
+            by_date[d] = b
+    for b in incoming or []:
+        if not isinstance(b, dict):
+            continue
+        d = str(b.get("date") or "").strip()
+        if not d or not daily_bar_complete(b):
             continue
         by_date[d] = b
     return [by_date[k] for k in sorted(by_date.keys())]
+
+
+def _minute_day(bar: dict) -> str:
+    d = str((bar or {}).get("date") or "").strip()[:10]
+    if len(d) == 10:
+        return d
+    ts = str((bar or {}).get("datetime") or "").strip()
+    return ts[:10] if len(ts) >= 10 else ""
+
+
+def _minute_slot(bar: dict) -> str:
+    """一根分钟线的时刻身份：``HH:MM``。同分钟只算一次。"""
+    ts = str((bar or {}).get("datetime") or (bar or {}).get("date") or "").strip()
+    if len(ts) >= 16 and ts[10] == " ":
+        return ts[11:16]
+    return ""
+
+
+def _minute_slots_by_day(bars: List[dict]) -> Dict[str, set]:
+    out: Dict[str, set] = {}
+    for b in bars or []:
+        if not isinstance(b, dict):
+            continue
+        day, slot = _minute_day(b), _minute_slot(b)
+        if not day or not slot:
+            continue
+        out.setdefault(day, set()).add(slot)
+    return out
+
+
+def drop_thinner_minute_days(
+    existing: List[dict],
+    incoming: List[dict],
+    *,
+    period: str = "5",
+) -> List[dict]:
+    """丢掉盖不住已有时刻的交易日。
+
+    新包某日的时刻集合必须包含本地该日已有时刻，才允许整日替换
+    （修正数值、补上新时刻）。更短、缺头、缺尾、中间换了一套时刻的新日整日放弃。
+    本地没有的日期，非空即可写入。不要求满 48 根，所以盘中半日在还没落盘时可以写入；
+    已经落盘的时刻不会被更短的新包删掉。
+    """
+    incoming_bars = [b for b in (incoming or []) if isinstance(b, dict)]
+    old_map = _minute_slots_by_day(existing or [])
+    if not old_map or not incoming_bars:
+        return incoming_bars
+    new_map = _minute_slots_by_day(incoming_bars)
+    skip = set()
+    for day, new_slots in new_map.items():
+        old_slots = old_map.get(day)
+        if not old_slots:
+            continue
+        if old_slots <= new_slots:
+            continue
+        skip.add(day)
+        logger.info(
+            "skip thinner minute day %s period=%s old=%d new=%d",
+            day,
+            period,
+            len(old_slots),
+            len(new_slots),
+        )
+    if not skip:
+        return incoming_bars
+    return [b for b in incoming_bars if _minute_day(b) not in skip]
 
 
 def merge_minute_bars_by_time(
@@ -141,13 +238,17 @@ def merge_minute_bars_by_time(
     incoming: List[dict],
     *,
     lock_calendar_day: bool = True,
+    period: str = "5",
 ) -> List[dict]:
     """按 datetime 合并分钟线；升序。
 
     ``lock_calendar_day=True``（默认）：incoming 覆盖到的**交易日整段替换**，
-    禁止同日跨源按时间戳缝合（上午东财、下午新浪）。无日期的旧日保留。
+    禁止同日跨源按时间戳缝合（上午东财、下午新浪）。
+    新日时刻盖不住本地已有时刻时，该日不替换。无日期的旧日保留。
     ``False``：旧行为，同时刻以后到为准。
     """
+    if lock_calendar_day:
+        incoming = drop_thinner_minute_days(existing, incoming, period=period)
     if not lock_calendar_day:
         by_ts: Dict[str, dict] = {}
         for b in list(existing or []) + list(incoming or []):
@@ -515,13 +616,26 @@ def save_daily_cache(
             trim_daily_bars=trim_daily_bars,
         )
     path = daily_cache_path(market, code, base)
+    incoming = [b for b in (bars or []) if daily_bar_complete(b)]
+    if not incoming:
+        return path
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with path_lock(path):
+        existing: List[dict] = []
+        if os.path.isfile(path):
+            try:
+                with open(path, encoding="utf-8") as f:
+                    payload = json.load(f)
+                existing = list(payload.get("bars") or [])
+            except (OSError, json.JSONDecodeError) as e:
+                _note_io_error(f"merge_load_daily:{path}", e)
+                existing = []
+        merged = merge_bars_by_date(existing, incoming)
         return _write_daily_payload(
             path,
             market=market,
             code=code,
-            bars=list(bars or []),
+            bars=merged,
             data_source=data_source,
             stock_code=stock_code,
             adjust_policy=adjust_policy,
@@ -983,19 +1097,22 @@ def save_minute_cache(
             trim_minute_bars=trim_minute_bars,
         )
     path = minute_cache_path(market, code, period, base)
-    os.makedirs(os.path.dirname(path), exist_ok=True)
     bars = trim_minute_bars(list(bars or []))
+    if not bars:
+        return path
+    os.makedirs(os.path.dirname(path), exist_ok=True)
     fetched_at = datetime.now()
     with path_lock(path):
-        if bars:
-            try:
-                with open(path, encoding="utf-8") as f:
-                    old_payload = json.load(f)
-                old_bars = old_payload.get("bars") or []
-                if isinstance(old_bars, list) and old_bars:
-                    bars = trim_minute_bars(merge_minute_bars_by_time(old_bars, bars))
-            except (OSError, json.JSONDecodeError, TypeError):
-                pass
+        try:
+            with open(path, encoding="utf-8") as f:
+                old_payload = json.load(f)
+            old_bars = old_payload.get("bars") or []
+            if isinstance(old_bars, list) and old_bars:
+                bars = trim_minute_bars(
+                    merge_minute_bars_by_time(old_bars, bars, period=period)
+                )
+        except (OSError, json.JSONDecodeError, TypeError):
+            pass
         date_min = None
         date_max = None
         if bars:

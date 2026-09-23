@@ -755,7 +755,7 @@ class ClusterMinuteRefreshRequest(BaseModel):
     min_span_days: int = Field(default=20, ge=10, le=120)
     mode: str = Field(
         default="full",
-        description="full=强更全窗口；topup=增量补齐（已对齐跳过 · 跨度够只补近几日）",
+        description="full=强更全窗口；topup=增量补齐；repair=东财补缺（只写更齐的交易日）",
     )
     topup_lookback_days: int = Field(
         default=5,
@@ -941,7 +941,7 @@ class ClusterMinuteRefreshRequest(BaseModel):
     min_span_days: int = Field(default=20, ge=10, le=120)
     mode: str = Field(
         default="full",
-        description="full=强更全窗口；topup=增量补齐（已对齐跳过 · 跨度够只补近几日）",
+        description="full=强更全窗口；topup=增量补齐；repair=东财补缺（只写更齐的交易日）",
     )
     topup_lookback_days: int = Field(
         default=5,

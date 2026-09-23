@@ -4093,6 +4093,28 @@ class QuantFactorMixin:
 
         return build_cluster_bars_status(watching_limit=watching_limit)
 
+    def cluster_bars_integrity(
+        self, *, watching_limit: int = 200, days: int = 22
+    ) -> Dict[str, Any]:
+        """观察池日线逐日是否在仓（格子图，只读）。"""
+        from quant.research.bars_integrity import build_daily_integrity
+
+        return build_daily_integrity(watching_limit=watching_limit, days=days)
+
+    def cluster_minute_integrity(
+        self, *, watching_limit: int = 200, days: int = 22
+    ) -> Dict[str, Any]:
+        """观察池 5 分钟逐日头/尾是否齐（格子图，只读）。"""
+        from quant.research.bars_integrity import build_minute_integrity
+
+        return build_minute_integrity(watching_limit=watching_limit, days=days)
+
+    def cluster_minute_day_slots(self, code: str, date: str) -> Dict[str, Any]:
+        """单票单日 48 根 5 分钟是否在仓。"""
+        from quant.research.bars_integrity import build_minute_day_slots
+
+        return build_minute_day_slots(code, date)
+
     def run_cluster_bars_refresh(
         self,
         *,
@@ -4282,7 +4304,7 @@ class QuantFactorMixin:
 
         watch_limit = clamp_watching_limit(watching_limit or 200, 200)
         mode_s = str(mode or "full").strip().lower()
-        if mode_s not in ("full", "topup"):
+        if mode_s not in ("full", "topup", "repair"):
             mode_s = "full"
         try:
             from core.watching.store import read_watching
@@ -4293,7 +4315,10 @@ class QuantFactorMixin:
             n_watch_all = watch_limit
         n_watch = min(n_watch_all, watch_limit) if n_watch_all else watch_limit
         job_total = max(1, n_watch)
-        phase = "增量补齐 5m…" if mode_s == "topup" else "预热 5m…"
+        phase = {
+            "topup": "增量补齐 5m…",
+            "repair": "东财补缺 5m…",
+        }.get(mode_s, "预热 5m…")
 
         job_id = cluster_minute_refresh_job.start(
             kind="cluster_minute_refresh",

@@ -31,7 +31,7 @@ import {
   blendYtw,
   fmtYtwVote,
 } from "./fmt.js?v=p2512";
-import { adaptiveSizingDayTip } from "./execution_ui.js?v=p2568";
+import { adaptiveSizingDayTip } from "./execution_ui.js?v=p2594";
 import { watchingScoreDetail } from "../quant/watching_render.js?v=p2531";
 import {
   fitTierBadgeForCode,

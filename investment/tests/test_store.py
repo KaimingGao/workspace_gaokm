@@ -215,6 +215,178 @@ class _StoreBackendMixin:
         self.assertEqual(str(meta.get("date_min") or "")[:10], "2026-07-10")
         self.assertEqual(str(meta.get("date_max") or "")[:10], "2026-09-11")
 
+    def test_thinner_minute_day_does_not_replace(self):
+        day = "2026-08-24"
+        old = [
+            {
+                "datetime": f"{day} 09:35:00",
+                "date": day,
+                "open": 6.0,
+                "high": 6.2,
+                "low": 5.9,
+                "close": 6.1,
+                "volume": 100,
+            },
+            {
+                "datetime": f"{day} 10:00:00",
+                "date": day,
+                "open": 6.1,
+                "high": 6.3,
+                "low": 6.0,
+                "close": 6.2,
+                "volume": 100,
+            },
+        ]
+        save_minute_cache(
+            "CN", "601899", old, period="5", data_source="hist", store_dir=self.tmp
+        )
+        thin = [
+            {
+                "datetime": f"{day} 09:35:00",
+                "date": day,
+                "open": 6.05,
+                "high": 6.2,
+                "low": 6.0,
+                "close": 6.15,
+                "volume": 10000,
+            }
+        ]
+        save_minute_cache(
+            "CN", "601899", thin, period="5", data_source="partial", store_dir=self.tmp
+        )
+        loaded = load_minute_cache(
+            "CN", "601899", "5", min_bars=1, ignore_age=True, store_dir=self.tmp
+        )
+        self.assertIsNotNone(loaded)
+        lb, _meta = loaded
+        by = {b["datetime"]: b for b in lb}
+        self.assertEqual(set(by), {f"{day} 09:35:00", f"{day} 10:00:00"})
+        self.assertAlmostEqual(by[f"{day} 10:00:00"]["close"], 6.2)
+        self.assertAlmostEqual(by[f"{day} 09:35:00"]["close"], 6.1)
+
+        covered = [
+            {
+                "datetime": f"{day} 09:35:00",
+                "date": day,
+                "open": 7.0,
+                "high": 7.2,
+                "low": 6.9,
+                "close": 7.1,
+                "volume": 200,
+            },
+            {
+                "datetime": f"{day} 10:00:00",
+                "date": day,
+                "open": 7.1,
+                "high": 7.3,
+                "low": 7.0,
+                "close": 7.2,
+                "volume": 200,
+            },
+            {
+                "datetime": f"{day} 10:05:00",
+                "date": day,
+                "open": 7.2,
+                "high": 7.4,
+                "low": 7.1,
+                "close": 7.3,
+                "volume": 200,
+            },
+        ]
+        save_minute_cache(
+            "CN", "601899", covered, period="5", data_source="fuller", store_dir=self.tmp
+        )
+        loaded = load_minute_cache(
+            "CN", "601899", "5", min_bars=1, ignore_age=True, store_dir=self.tmp
+        )
+        lb, _meta = loaded
+        by = {b["datetime"]: b for b in lb}
+        self.assertEqual(
+            set(by),
+            {f"{day} 09:35:00", f"{day} 10:00:00", f"{day} 10:05:00"},
+        )
+        self.assertAlmostEqual(by[f"{day} 09:35:00"]["close"], 7.1)
+
+    def test_empty_minute_save_does_not_wipe(self):
+        day = "2026-08-24"
+        old = [
+            {
+                "datetime": f"{day} 09:35:00",
+                "date": day,
+                "open": 6.0,
+                "high": 6.2,
+                "low": 5.9,
+                "close": 6.1,
+                "volume": 100,
+            }
+        ]
+        save_minute_cache(
+            "CN", "601900", old, period="5", data_source="hist", store_dir=self.tmp
+        )
+        save_minute_cache(
+            "CN", "601900", [], period="5", data_source="empty", store_dir=self.tmp
+        )
+        loaded = load_minute_cache(
+            "CN", "601900", "5", min_bars=1, ignore_age=True, store_dir=self.tmp
+        )
+        self.assertIsNotNone(loaded)
+        self.assertEqual(len(loaded[0]), 1)
+
+    def test_short_daily_save_keeps_older_days(self):
+        bars = _sample_bars(8)
+        save_daily_cache(
+            "CN",
+            "600520",
+            bars,
+            data_source="akshare_cn_daily",
+            store_dir=self.tmp,
+        )
+        latest = dict(bars[-1])
+        latest["close"] = 99.0
+        save_daily_cache(
+            "CN",
+            "600520",
+            [latest],
+            data_source="akshare_cn_daily",
+            store_dir=self.tmp,
+        )
+        loaded = load_daily_cache("CN", "600520", min_bars=1, ignore_age=True, store_dir=self.tmp)
+        self.assertIsNotNone(loaded)
+        lb, _meta = loaded
+        self.assertEqual(len(lb), 8)
+        self.assertEqual(lb[0]["date"], bars[0]["date"])
+        self.assertAlmostEqual(lb[-1]["close"], 99.0)
+
+    def test_incomplete_daily_and_empty_do_not_wipe(self):
+        bars = _sample_bars(4)
+        save_daily_cache(
+            "CN",
+            "600521",
+            bars,
+            data_source="akshare_cn_daily",
+            store_dir=self.tmp,
+        )
+        thin = {"date": bars[-1]["date"], "close": 1.0}
+        save_daily_cache(
+            "CN",
+            "600521",
+            [thin],
+            data_source="akshare_cn_daily",
+            store_dir=self.tmp,
+        )
+        save_daily_cache(
+            "CN",
+            "600521",
+            [],
+            data_source="akshare_cn_daily",
+            store_dir=self.tmp,
+        )
+        loaded = load_daily_cache("CN", "600521", min_bars=1, ignore_age=True, store_dir=self.tmp)
+        self.assertIsNotNone(loaded)
+        lb, _meta = loaded
+        self.assertEqual(len(lb), 4)
+        self.assertAlmostEqual(lb[-1]["close"], bars[-1]["close"])
+
     def test_clear_daily(self):
         save_daily_cache(
             "CN",
@@ -229,7 +401,7 @@ class _StoreBackendMixin:
 
 
 class TestMinuteMergeLock(unittest.TestCase):
-    def test_lock_calendar_day_replaces_whole_day(self):
+    def test_thinner_day_does_not_replace_closed_day(self):
         old = [
             {
                 "datetime": "2026-08-24 09:35:00",
@@ -266,10 +438,50 @@ class TestMinuteMergeLock(unittest.TestCase):
         days = {b["date"] for b in merged}
         self.assertEqual(days, {"2026-08-24", "2026-08-25"})
         d24 = [b for b in merged if b["date"] == "2026-08-24"]
-        # 整日替换：旧 10:00 根不应残留
-        self.assertEqual(len(d24), 1)
-        self.assertAlmostEqual(d24[0]["close"], 6.15)
-        self.assertEqual(d24[0]["volume"], 10000)
+        # 新日盖不住已有时刻：整天保留
+        self.assertEqual(len(d24), 2)
+        by = {b["datetime"]: b for b in d24}
+        self.assertAlmostEqual(by["2026-08-24 10:00:00"]["close"], 6.2)
+        self.assertAlmostEqual(by["2026-08-24 09:35:00"]["close"], 6.1)
+
+    def test_covering_day_replaces_whole_day(self):
+        old = [
+            {
+                "datetime": "2026-08-24 09:35:00",
+                "date": "2026-08-24",
+                "open": 6.0,
+                "close": 6.1,
+                "volume": 100,
+            },
+            {
+                "datetime": "2026-08-24 10:00:00",
+                "date": "2026-08-24",
+                "open": 6.1,
+                "close": 6.2,
+                "volume": 100,
+            },
+        ]
+        new = [
+            {
+                "datetime": "2026-08-24 09:35:00",
+                "date": "2026-08-24",
+                "open": 6.05,
+                "close": 6.15,
+                "volume": 10000,
+            },
+            {
+                "datetime": "2026-08-24 10:00:00",
+                "date": "2026-08-24",
+                "open": 6.15,
+                "close": 6.25,
+                "volume": 10000,
+            },
+        ]
+        merged = merge_minute_bars_by_time(old, new)
+        self.assertEqual(len(merged), 2)
+        by = {b["datetime"]: b for b in merged}
+        self.assertAlmostEqual(by["2026-08-24 09:35:00"]["close"], 6.15)
+        self.assertEqual(by["2026-08-24 10:00:00"]["volume"], 10000)
 
     def test_lock_off_keeps_ts_merge(self):
         old = [

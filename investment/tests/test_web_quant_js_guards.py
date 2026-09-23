@@ -147,6 +147,8 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("quant-cross-run", panel)
 
         self.assertIn('id="quant-section-minute"', panel)
+        self.assertIn('id="quant-daily-integrity"', panel)
+        self.assertIn('id="quant-minute-integrity"', panel)
         self.assertIn('id="quant-cluster-minute-refresh"', panel)
         self.assertIn('id="quant-cluster-minute-topup"', panel)
         self.assertIn("强更 5m", panel)
@@ -170,6 +172,9 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("background-color: var(--accent);", css_base)
         self.assertIn(".topbar-ai-btn,\n  .ui-busy::before,", css_base)
         minute_js = self._read("web", "static", "js", "quant", "cluster_minute_ui.js")
+        integrity_js = self._read("web", "static", "js", "quant", "bars_integrity_ui.js")
+        self.assertIn("installBarsIntegrityUi", integrity_js)
+        self.assertIn("/api/quant/cluster-minute/integrity-day", integrity_js)
         self.assertIn("installClusterMinuteUi", minute_js)
         self.assertIn('"<10d"', minute_js)
         self.assertIn('"<20d"', minute_js)
@@ -570,6 +575,17 @@ class TestWebQuantJsGuards(unittest.TestCase):
             replay.find('id="paper-t0-lookback"'),
             replay.find('id="paper-t0-score-model-role"'),
         )
+        self.assertLess(
+            replay.find('id="paper-t0-score-model-role"'),
+            replay.find('name="horizon_prob_backend"'),
+        )
+        self.assertLess(
+            replay.find('name="horizon_prob_backend"'),
+            replay.find('id="paper-t0-backtest"'),
+        )
+        self.assertIn('id="paper-t0-horizon-prob-backend"', replay)
+        self.assertIn('form="paper-t0-form"', replay)
+        self.assertIn(">ŷ_τ*头</span>", replay)
         self.assertLess(
             replay.find('id="quant-lookback"'),
             replay.find('id="quant-score-model-role"'),

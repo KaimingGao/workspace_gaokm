@@ -370,12 +370,29 @@ function _restoreT0Lookback(root) {
   }
 }
 
+/** 表单内控件；标题栏写在 form 前时，form 属性解析期可能尚未挂上，再按属性找。 */
+function formControl(root, name) {
+  if (!root) return null;
+  const local = root.querySelector(`[name="${name}"]`);
+  if (local) return local;
+  const elements = root.elements;
+  if (elements && typeof elements.namedItem === "function") {
+    const via = elements.namedItem(name);
+    if (via && typeof via.value !== "undefined") return via;
+  }
+  if (root.id && typeof document !== "undefined") {
+    const ext = document.querySelector(`[name="${name}"][form="${root.id}"]`);
+    if (ext) return ext;
+  }
+  return null;
+}
+
 /** 用生效 execution 填充表单控件。 */
 export function fillExecutionForm(root, execution) {
   if (!root || !execution || !execution.t0) return;
   const t0 = execution.t0;
   const set = (name, val) => {
-    const el = root.querySelector(`[name="${name}"]`);
+    const el = formControl(root, name);
     if (!el) return;
     if (el.type === "checkbox") {
       el.checked = !!val;
@@ -452,17 +469,17 @@ export function fillExecutionForm(root, execution) {
 export function collectExecutionForm(root) {
   if (!root) return null;
   const num = (name, fallback) => {
-    const el = root.querySelector(`[name="${name}"]`);
+    const el = formControl(root, name);
     if (!el || el.value === "") return fallback;
     const n = Number(el.value);
     return Number.isFinite(n) ? n : fallback;
   };
   const str = (name, fallback) => {
-    const el = root.querySelector(`[name="${name}"]`);
+    const el = formControl(root, name);
     return el && el.value !== "" ? el.value : fallback;
   };
   const chk = (name, fallback = true) => {
-    const el = root.querySelector(`[name="${name}"]`);
+    const el = formControl(root, name);
     return el ? !!el.checked : fallback;
   };
   const t0 = {

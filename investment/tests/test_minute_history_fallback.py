@@ -74,6 +74,30 @@ class TestMinuteStaleFallback(unittest.TestCase):
         expected = (datetime.now() - timedelta(days=30)).strftime("%Y-%m-%d 09:30:00")
         self.assertEqual(captured.get("start_date"), expected)
 
+    def test_em_retry_waits_fetch_gap(self):
+        from adapters.market import minute_history as mh
+
+        captured: dict = {}
+
+        class _Ak:
+            def stock_zh_a_hist_min_em(self, **kw):
+                return None
+
+        def _capture(fn, **kw):
+            captured.update(kw)
+            return fn()
+
+        with patch("adapters.market.ak_lock.import_akshare", return_value=_Ak()), patch(
+            "core.http_retry.call_with_retry", side_effect=_capture
+        ), patch.dict(os.environ, {"INVESTMENT_MINUTE_FETCH_DELAY_SEC": "10"}):
+            mh._fetch_em_minute_bars("601988", period="5", lookback_days=30, adjust="qfq")
+        self.assertEqual(captured.get("retries"), 1)
+        self.assertGreaterEqual(float(captured.get("base_delay_sec") or 0), 10.0)
+        self.assertGreaterEqual(
+            float(captured.get("max_delay_sec") or 0),
+            float(captured.get("base_delay_sec") or 0),
+        )
+
 
 class TestMergeSaveAlwaysCaches(unittest.TestCase):
     def test_merge_save_writes_even_without_use_cache_arg(self):

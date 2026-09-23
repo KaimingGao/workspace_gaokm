@@ -2932,9 +2932,24 @@ body[data-page="watching"] .research-dock .watching-chart-head {
   background: color-mix(in srgb, var(--ink) 1.5%, var(--surface));
 }
 
-/* 双栏：收盘价卡头与股票表头同高，底边对齐 */
+/* 双栏：左右同高（固定视口高），表 / 资讯各自内部滚动；勿把图卡硬拉高 */
 body[data-page="watching"] .research-dock:not(.dock-off) {
   --dock-head-h: 41px;
+  --dock-pane-h: min(92vh, 1200px);
+  align-items: stretch;
+  height: var(--dock-pane-h);
+  min-height: 640px;
+  max-height: var(--dock-pane-h);
+}
+
+body[data-page="watching"] .research-dock:not(.dock-off) .dock-pane-main,
+body[data-page="watching"] .research-dock:not(.dock-off) .dock-pane-side {
+  align-self: stretch;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
 
 body[data-page="watching"] .research-dock:not(.dock-off) .watching-chart-head {
@@ -2942,12 +2957,14 @@ body[data-page="watching"] .research-dock:not(.dock-off) .watching-chart-head {
   min-height: var(--dock-head-h);
   padding-top: 0;
   padding-bottom: 0;
+  flex: 0 0 auto;
 }
 
 body[data-page="watching"] .research-dock:not(.dock-off) .watching-react-grid-head {
   height: var(--dock-head-h);
   min-height: var(--dock-head-h);
   box-sizing: border-box;
+  flex: 0 0 auto;
 }
 
 body[data-page="watching"] .research-dock:not(.dock-off) .watching-react-grid-row.is-head {
@@ -2966,6 +2983,93 @@ body[data-page="watching"] .research-dock .watching-chart-canvas {
 
 body[data-page="watching"] .research-dock .watching-chart-host {
   border-radius: 0;
+}
+
+/* 左栏：表吃满，底栏操作固定；列多时只在左栏横滑 */
+body[data-page="watching"] .research-dock:not(.dock-off) #watching-watchlist-table,
+body[data-page="watching"] .research-dock:not(.dock-off) .watching-react-grid-host {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+body[data-page="watching"] .research-dock:not(.dock-off) .watching-react-grid {
+  flex: 1 1 auto;
+  min-width: 0 !important;
+  width: 100% !important;
+  max-width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+body[data-page="watching"] .research-dock:not(.dock-off) .watching-react-grid-body {
+  flex: 1 1 auto;
+  height: auto !important;
+  max-height: none !important;
+  min-height: 0;
+  overflow-x: auto;
+  overflow-y: auto;
+}
+
+body[data-page="watching"] .research-dock:not(.dock-off) .watching-table-actions {
+  flex: 0 0 auto;
+}
+
+/* 右栏：图 / ŷ 时间线自然高；资讯吃剩余并滚动 */
+body[data-page="watching"] .research-dock:not(.dock-off) .watching-chart-card {
+  flex: 0 0 auto;
+  min-height: 0;
+}
+
+body[data-page="watching"] .research-dock:not(.dock-off) .watching-chart-host {
+  height: 220px;
+  max-height: 260px;
+  min-height: 160px;
+}
+
+body[data-page="watching"] .research-dock:not(.dock-off) .watching-yhat-series {
+  flex: 0 0 auto;
+}
+
+body[data-page="watching"] .research-dock:not(.dock-off) .watching-yhat-series-host {
+  height: 130px;
+  min-height: 110px;
+  max-height: 150px;
+}
+
+body[data-page="watching"] .research-dock:not(.dock-off) .watching-news-detail {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+}
+
+/* 窄屏叠成单列：取消双栏定高，恢复自然流式 */
+@media (max-width: 900px) {
+  body[data-page="watching"] .research-dock:not(.dock-off) {
+    height: auto;
+    max-height: none;
+    min-height: 0;
+  }
+
+  body[data-page="watching"] .research-dock:not(.dock-off) .dock-pane-main,
+  body[data-page="watching"] .research-dock:not(.dock-off) .dock-pane-side {
+    height: auto;
+    overflow: visible;
+  }
+
+  body[data-page="watching"] .research-dock:not(.dock-off) .watching-react-grid-body {
+    height: min(68vh, 860px) !important;
+  }
+
+  body[data-page="watching"] .research-dock:not(.dock-off) .watching-news-detail {
+    flex: none;
+    overflow: visible;
+  }
 }
 
 body[data-page="watching"] .research-dock .watching-news-detail {

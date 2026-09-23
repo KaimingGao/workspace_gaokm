@@ -17,6 +17,7 @@ export function installClusterMinuteUi(q) {
   const msgEl = document.getElementById("quant-cluster-minute-msg");
   const btn = document.getElementById("quant-cluster-minute-refresh");
   const topupBtn = document.getElementById("quant-cluster-minute-topup");
+  const repairBtn = document.getElementById("quant-cluster-minute-repair");
   const kpiOk = document.getElementById("quant-minute-kpi-ok");
   const TOPUP_LOOKBACK_DAYS = 5;
   const kpiOkSub = document.getElementById("quant-minute-kpi-ok-sub");
@@ -40,13 +41,14 @@ export function installClusterMinuteUi(q) {
   const minuteBody = minuteCard?.querySelector(".quant-bars-body");
   const minuteStrip = document.getElementById("quant-cluster-minute-strip");
 
-  if (!chip || !msgEl || !btn) {
+  if (!chip || !msgEl) {
     return { refreshStatus: async () => {}, startRefresh: async () => {}, startTopup: async () => {} };
   }
 
   function setMinuteButtonsDisabled(disabled) {
-    btn.disabled = !!disabled;
+    if (btn) btn.disabled = !!disabled;
     if (topupBtn) topupBtn.disabled = !!disabled;
+    if (repairBtn) repairBtn.disabled = !!disabled;
   }
 
   const esc = typeof escapeHtml === "function" ? escapeHtml : (s) => String(s ?? "");
@@ -534,9 +536,8 @@ export function installClusterMinuteUi(q) {
 
   async function refreshStatus() {
     const limit = BARS_WATCHING_LIMIT;
-    const { ok, data, error } = await apiFetch(
-      `/api/quant/cluster-minute/status?watching_limit=${encodeURIComponent(limit)}&min_span_days=${MIN_SPAN_DAYS}`
-    );
+    const base = `/api/quant/cluster-minute/status?watching_limit=${encodeURIComponent(limit)}&min_span_days=${MIN_SPAN_DAYS}`;
+    const { ok, data, error } = await apiFetch(`${base}&include_label_portrait=0`);
     if (!ok) {
       paint(null);
       msgEl.textContent = error || "读取 5m 状态失败";
@@ -552,6 +553,13 @@ export function installClusterMinuteUi(q) {
     if (!inflight && !jobFailure && !jobSuccess && jobSt !== "running") {
       setMinuteBusy(false);
     }
+    apiFetch(base)
+      .then(({ ok: pok, data: pdata }) => {
+        if (!pok || !pdata?.success) return;
+        renderLabelPortrait(pdata);
+        renderFoot(pdata);
+      })
+      .catch(() => {});
     return data;
   }
 
@@ -596,10 +604,10 @@ export function installClusterMinuteUi(q) {
 
   async function waitClusterMinuteJob(jobId, mode = "full") {
     const started = Date.now();
-    const absoluteCapMs = 30 * 60 * 1000;
+    const absoluteCapMs = mode === "repair" ? 90 * 60 * 1000 : 30 * 60 * 1000;
     let sawOwnJob = false;
     let pollN = 0;
-    const waitLabel = mode === "topup" ? "增量补齐" : "强更 5m";
+    const waitLabel = mode === "topup" ? "增量补齐" : mode === "repair" ? "东财补缺" : "强更 5m";
     paintProgressPanel({ message: `提交${waitLabel}…（排队后台 Job）`, pct: 0 }, { pollStartedAt: started, mode });
     while (Date.now() - started < absoluteCapMs) {
       const { ok, data } = await apiFetch("/api/jobs/cluster-minute-refresh?progress=1");
@@ -650,8 +658,8 @@ export function installClusterMinuteUi(q) {
 
   async function startRefresh(mode = "full") {
     if (inflight) return inflight;
-    const modeS = mode === "topup" ? "topup" : "full";
-    const label = modeS === "topup" ? "增量补齐" : "强更 5m";
+    const modeS = mode === "topup" || mode === "repair" ? mode : "full";
+    const label = modeS === "topup" ? "增量补齐" : modeS === "repair" ? "东财补缺" : "强更 5m";
     inflight = (async () => {
       clearJobPanels();
       setMinuteButtonsDisabled(true);
@@ -665,7 +673,7 @@ export function installClusterMinuteUi(q) {
       try {
         const limit = BARS_WATCHING_LIMIT;
         const body = {
-          lookback_days: LOOKBACK_DAYS,
+          lookback_days: modeS === "repair" ? 90 : LOOKBACK_DAYS,
           watching_limit: limit,
           period: "5",
           min_span_days: MIN_SPAN_DAYS,
@@ -734,14 +742,22 @@ export function installClusterMinuteUi(q) {
     return startRefresh("topup");
   }
 
-  on("quant-cluster-minute-refresh", "click", (e) => {
-    e.preventDefault();
-    startRefresh("full").catch(() => {});
-  });
+  if (btn) {
+    on("quant-cluster-minute-refresh", "click", (e) => {
+      e.preventDefault();
+      startRefresh("full").catch(() => {});
+    });
+  }
   if (topupBtn) {
     on("quant-cluster-minute-topup", "click", (e) => {
       e.preventDefault();
       startTopup().catch(() => {});
+    });
+  }
+  if (repairBtn) {
+    on("quant-cluster-minute-repair", "click", (e) => {
+      e.preventDefault();
+      startRefresh("repair").catch(() => {});
     });
   }
 

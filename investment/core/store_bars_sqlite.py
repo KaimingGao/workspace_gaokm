@@ -239,19 +239,44 @@ def save_daily(
     assess_quality,
     trim_daily_bars,
 ) -> str:
+    from core.store import daily_bar_complete, merge_bars_by_date
+
     mkt = market.upper()
     code_s = str(code)
     policy = _norm_policy(adjust_policy)
-    bars = trim_daily_bars(list(bars or []))
+    incoming = [b for b in (bars or []) if daily_bar_complete(b)]
+    path = db_path(store_dir)
+    if not incoming:
+        return path
     fetched_at = datetime.now()
     fetched_s = fetched_at.isoformat(timespec="seconds")
-    quality = assess_quality(bars, data_source=data_source, fetched_at=fetched_at)
-    date_min = bars[0].get("date") if bars else None
-    date_max = bars[-1].get("date") if bars else None
-    path = db_path(store_dir)
     conn = get_conn(store_dir)
 
     with _write_lock:
+        rows = conn.execute(
+            """
+            SELECT date, open, high, low, close, volume
+            FROM daily_bars
+            WHERE market=? AND code=? AND adjust_policy=?
+            ORDER BY date
+            """,
+            (mkt, code_s, policy),
+        ).fetchall()
+        existing = [
+            {
+                "date": r["date"],
+                "open": r["open"],
+                "high": r["high"],
+                "low": r["low"],
+                "close": r["close"],
+                "volume": r["volume"],
+            }
+            for r in rows
+        ]
+        bars = trim_daily_bars(merge_bars_by_date(existing, incoming))
+        quality = assess_quality(bars, data_source=data_source, fetched_at=fetched_at)
+        date_min = bars[0].get("date") if bars else None
+        date_max = bars[-1].get("date") if bars else None
         conn.execute(
             "DELETE FROM daily_bars WHERE market=? AND code=? AND adjust_policy=?",
             (mkt, code_s, policy),
@@ -628,9 +653,11 @@ def save_minute(
     per = str(period or "5")
     policy = _norm_policy(adjust_policy)
     bars = trim_minute_bars(list(bars or []))
+    path = db_path(store_dir)
+    if not bars:
+        return path
     fetched_at = datetime.now()
     fetched_s = fetched_at.isoformat(timespec="seconds")
-    path = db_path(store_dir)
     conn = get_conn(store_dir)
     touch_days = sorted(
         {
@@ -642,16 +669,37 @@ def save_minute(
         }
     )
     with _write_lock:
-        if not bars:
-            conn.execute(
-                """
-                DELETE FROM minute_bars
+        if touch_days:
+            from core.store import drop_thinner_minute_days
+
+            placeholders = ",".join("?" * len(touch_days))
+            rows = conn.execute(
+                f"""
+                SELECT datetime, date FROM minute_bars
                 WHERE market=? AND code=? AND period=? AND adjust_policy=?
+                  AND date IN ({placeholders})
                 """,
-                (mkt, code_s, per, policy),
+                (mkt, code_s, per, policy, *touch_days),
+            ).fetchall()
+            existing = [
+                {"datetime": r["datetime"], "date": r["date"]} for r in rows
+            ]
+            bars = drop_thinner_minute_days(existing, bars, period=per)
+            touch_days = sorted(
+                {
+                    str(b.get("date") or str(b.get("datetime") or "")[:10]).strip()[:10]
+                    for b in bars
+                    if isinstance(b, dict)
+                    and len(
+                        str(b.get("date") or str(b.get("datetime") or "")[:10]).strip()[:10]
+                    )
+                    == 10
+                }
             )
+        if not bars:
+            return path
         else:
-            # 只替换 incoming 覆盖到的交易日，禁止把更长本地跨度整表删掉
+            # 只替换 incoming 覆盖到、且时刻不少于本地的交易日
             if touch_days:
                 placeholders = ",".join("?" * len(touch_days))
                 conn.execute(

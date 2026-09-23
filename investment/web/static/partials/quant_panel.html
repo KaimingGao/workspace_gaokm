@@ -192,6 +192,12 @@
           </div>
         </div>
         <footer class="quant-bars-foot" id="quant-bars-foot" aria-label="日线仓元数据"></footer>
+        <details class="quant-integrity" id="quant-daily-integrity">
+          <summary class="quant-integrity-sum">
+            <span id="quant-daily-integrity-label">完整度</span>
+          </summary>
+          <div id="quant-daily-integrity-body" class="quant-integrity-body" aria-live="polite">展开后读取本地日 K。</div>
+        </details>
       </div>
     </div>
   </section>
@@ -201,7 +207,7 @@
     <header class="dashboard-section-head quant-section-head">
       <h3 id="quant-section-minute-title" class="dashboard-section-title">分钟线</h3>
       <p class="dashboard-section-desc quant-section-desc" id="quant-section-minute-desc">
-        写入口：日常「增量补齐」· 全窗「强更 5m」· 调度 minute_warmup · 标签画像（τ OC / HL 极值序）· 下游 ŷ_oc 因果前缀≤10:00 / 调仓 / 做T · Ready≠消费 as-of（ŷ_hl 产品面已退役）
+        写入口：日常「增量补齐」· 缺口「东财补缺」· 全窗「强更 5m」· 调度 minute_warmup · 标签画像（τ OC）· 下游 ŷ_oc 因果前缀≤10:00 / 调仓 / 做T · Ready≠消费 as-of
       </p>
     </header>
     <div class="dashboard-card quant-pro-card quant-bars-card quant-minute-card">
@@ -214,7 +220,10 @@
           <button type="button" id="quant-cluster-minute-topup" class="dialog-btn secondary" title="写入 5m 仓（增量）：会话日齐窗且今日已拉才跳过；缺尾（如只到 10:00）强制补拉落盘。调仓/做T/ŷ_oc 日常先点这个。不改日K、不算 ŷ。">
             增量补齐
           </button>
-          <button type="button" id="quant-cluster-minute-refresh" class="dialog-btn secondary" title="写入 5m 仓（全窗口重拉+merge）。仓损坏或跨度不够时用。不改日K、不算 ŷ。">
+          <button type="button" id="quant-cluster-minute-repair" class="dialog-btn secondary" title="只打东财，回看 90 个日历日。只把比本地更齐的交易日写入，不盖短已有的一天，不打新浪。今天盘中不写。">
+            东财补缺
+          </button>
+          <button type="button" id="quant-cluster-minute-refresh" class="dialog-btn secondary" title="写入 5m 仓（整窗重拉）。东财主窗 30 个日历日，空了才打新浪。仓损坏或要覆盖近窗时用。不改日K、不算 ŷ。">
             强更 5m
           </button>
         </div>
@@ -295,6 +304,12 @@
           </div>
         </div>
         <footer class="quant-bars-foot" id="quant-minute-foot" aria-label="分钟仓元数据"></footer>
+        <details class="quant-integrity" id="quant-minute-integrity">
+          <summary class="quant-integrity-sum">
+            <span id="quant-minute-integrity-label">完整度</span>
+          </summary>
+          <div id="quant-minute-integrity-body" class="quant-integrity-body" aria-live="polite">展开后读取本地 5 分钟 K。点一天看 48 根。</div>
+        </details>
       </div>
     </div>
   </section>

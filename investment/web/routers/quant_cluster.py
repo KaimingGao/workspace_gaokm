@@ -52,6 +52,41 @@ def quant_cluster_bars_refresh(body: ClusterBarsRefreshRequest) -> Dict[str, Any
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
+@router.get("/api/quant/cluster-bars/integrity")
+def quant_cluster_bars_integrity(
+    watching_limit: int = 200, days: int = 22
+) -> Dict[str, Any]:
+    """观察池日线逐日格子。只读本地仓。"""
+    try:
+        return deps.quant.cluster_bars_integrity(
+            watching_limit=watching_limit, days=days
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@router.get("/api/quant/cluster-minute/integrity")
+def quant_cluster_minute_integrity(
+    watching_limit: int = 200, days: int = 22
+) -> Dict[str, Any]:
+    """观察池 5 分钟逐日格子。只读本地仓。"""
+    try:
+        return deps.quant.cluster_minute_integrity(
+            watching_limit=watching_limit, days=days
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@router.get("/api/quant/cluster-minute/integrity-day")
+def quant_cluster_minute_integrity_day(code: str, date: str) -> Dict[str, Any]:
+    """单票单日 48 根 5 分钟。只读本地仓。"""
+    try:
+        return deps.quant.cluster_minute_day_slots(code, date)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
 @router.get("/api/quant/cluster-minute/status")
 def quant_cluster_minute_status(
     watching_limit: int = 200,

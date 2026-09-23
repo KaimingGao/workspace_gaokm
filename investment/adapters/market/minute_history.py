@@ -123,7 +123,7 @@ def _merge_save_minute_bars(
             market, bare, period, min_bars=1, max_age_hours=0, ignore_age=True
         )
         if old:
-            bars = merge_minute_bars_by_time(old[0], incoming)
+            bars = merge_minute_bars_by_time(old[0], incoming, period=period)
         from core.store import bars_backend
 
         # sqlite 按日替换 incoming；JSON 仍写合并后的全量
@@ -150,15 +150,25 @@ def _fetch_em_minute_bars(
     period: str,
     lookback_days: int,
     adjust: str,
+    span_cap: Optional[int] = None,
 ) -> Tuple[List[dict], Dict[str, Any], Optional[str]]:
-    """东财分钟线；返回 (bars, meta, error)。"""
-    from core.data.policy import minute_em_lookback_days
+    """东财分钟线；返回 (bars, meta, error)。
+
+    ``span_cap`` 缺省用日常回看（默认 30 日历日）。补缺可抬到硬上限 90。
+    """
+    from core.data.policy import (
+        MINUTE_EM_LOOKBACK_MAX_DAYS,
+        MINUTE_FETCH_DELAY_MAX_SEC,
+        minute_em_lookback_days,
+        minute_fetch_delay_sec,
+    )
     from core.http_retry import call_with_retry
     from adapters.market.ak_lock import import_akshare
 
     ak = import_akshare()
     end = datetime.now()
-    cap = minute_em_lookback_days()
+    hard = int(MINUTE_EM_LOOKBACK_MAX_DAYS)
+    cap = minute_em_lookback_days() if span_cap is None else min(int(span_cap), hard)
     if period == "1":
         span = min(int(lookback_days or 5), 8)
     else:
@@ -177,10 +187,17 @@ def _fetch_em_minute_bars(
                 adjust=adj,
             )
 
-        df = call_with_retry(_once, retries=2, base_delay_sec=0.6, max_delay_sec=5.0)
+        # 失败后再试必须拉开，不能在 1 秒内连打。间隔与票间频控同一档（默认 10s）。
+        gap = minute_fetch_delay_sec()
+        df = call_with_retry(
+            _once,
+            retries=1,
+            base_delay_sec=gap if gap > 0 else float(MINUTE_FETCH_DELAY_MAX_SEC),
+            max_delay_sec=float(MINUTE_FETCH_DELAY_MAX_SEC),
+        )
     except Exception as e:
         logger.warning(
-            "fetch_a_minute_bars em failed %s period=%s: %s", bare, period, e
+            "W: fetch_a_minute_bars em failed %s start=%s end=%s period=%s adjust=%s: %s", bare, start_s, end_s, period, adjust, e
         )
         return [], {}, str(e)
 
@@ -197,6 +214,9 @@ def _fetch_em_minute_bars(
     if bars:
         meta["date_min"] = bars[0].get("date")
         meta["date_max"] = bars[-1].get("date")
+
+    logger.info("I: fetch_a_minute_bars em success %s start=%s end=%s period=%s adjust=%s bar_count=%s data_source=%s date_min=%s date_max=%s", bare, start_s, end_s, period, adjust, len(bars), src, bars[0].get("date"), bars[-1].get("date"))
+
     return bars, meta, None
 
 
@@ -362,7 +382,7 @@ def fetch_a_minute_bars(
             # 重叠日若东财为「手」、新浪为「股」，先对齐再整日替换合并
             if bars:
                 bars = align_minute_volume_units(bars, as_bars)
-            bars = merge_minute_bars_by_time(bars, as_bars)
+            bars = merge_minute_bars_by_time(bars, as_bars, period=period)
 
     if as_bars or skip_bs:
         # 新浪/腾讯已接住近端，或调用方禁止 BaoStock（增量补齐）
@@ -385,7 +405,7 @@ def fetch_a_minute_bars(
             if bars:
                 bars = align_minute_volume_units(bars, bs_bars)
             # 同日整段以 incoming（BaoStock）为准，禁止跨源缝合
-            bars = merge_minute_bars_by_time(bars, bs_bars)
+            bars = merge_minute_bars_by_time(bars, bs_bars, period=period)
 
     sources: List[str] = []
     if em_bars:

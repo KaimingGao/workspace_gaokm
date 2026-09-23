@@ -11267,3 +11267,446 @@ body[data-page="quant"] .quant-page .quant-cluster-status .quant-cluster-landing
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
+
+/* 仓完整度：日线 / 5 分钟逐日热力图。质量色，不借用涨跌色。 */
+.quant-integrity {
+  margin: 14px 0 0;
+  padding: 8px 10px 10px;
+  border: 1px solid color-mix(in srgb, var(--line) 88%, transparent);
+  border-radius: 2px;
+  background: var(--surface);
+}
+
+.quant-integrity-sum {
+  cursor: pointer;
+  list-style: none;
+  font-size: var(--q-fs-caption, 0.75rem);
+  color: var(--ink-2);
+  user-select: none;
+}
+
+.quant-integrity-sum::-webkit-details-marker {
+  display: none;
+}
+
+.quant-integrity-sum::before {
+  content: "▸ ";
+  color: var(--ink-3, var(--ink-2));
+}
+
+.quant-integrity[open] > .quant-integrity-sum::before {
+  content: "▾ ";
+}
+
+.quant-integrity-body {
+  margin-top: 10px;
+}
+
+.quant-integrity-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 16px;
+  margin-bottom: 8px;
+}
+
+.quant-integrity-note {
+  margin: 0;
+  font-size: var(--q-fs-caption, 0.75rem);
+  color: var(--ink-3, var(--ink-2));
+  font-variant-numeric: tabular-nums;
+}
+
+.quant-integrity-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+}
+
+.quant-integrity-key {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 0.6875rem;
+  color: var(--ink-2);
+}
+
+.quant-integrity-key i {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  border: 1px solid transparent;
+  box-sizing: border-box;
+}
+
+.quant-integrity-sheet {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.quant-integrity-sheet-head,
+.quant-integrity-sheet-body {
+  display: grid;
+  grid-template-columns: 6.75rem minmax(0, 1fr) 5rem;
+}
+
+.quant-integrity-sheet-head {
+  border-bottom: 1px solid var(--line);
+  align-items: end;
+}
+
+.quant-integrity-sheet-body {
+  max-height: 424px;
+  overflow-y: auto;
+  align-items: stretch;
+}
+
+.quant-integrity-x,
+.quant-integrity-xhead {
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+.quant-integrity-xhead {
+  overflow-y: hidden;
+  scrollbar-width: none;
+}
+
+.quant-integrity-xhead::-webkit-scrollbar {
+  display: none;
+}
+
+.quant-integrity-sheet .quant-integrity-name,
+.quant-integrity-sheet .quant-integrity-stat,
+.quant-integrity-sheet .quant-integrity-cells {
+  position: static;
+  box-sizing: border-box;
+  height: 40px;
+  min-height: 40px;
+  max-height: 40px;
+  background: var(--surface);
+}
+
+.quant-integrity-sheet .quant-integrity-name {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 0 8px 0 10px;
+}
+
+.quant-integrity-sheet .quant-integrity-stat {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding-right: 8px;
+}
+
+.quant-integrity-sheet .quant-integrity-cells {
+  align-items: center;
+  width: max-content;
+  min-width: 100%;
+}
+
+.quant-integrity-sheet .is-alt {
+  background: color-mix(in srgb, var(--ink) 3%, var(--surface));
+}
+
+.quant-integrity-sheet .quant-integrity-name:hover,
+.quant-integrity-sheet .quant-integrity-cells:hover,
+.quant-integrity-sheet .quant-integrity-stat:hover {
+  background: color-mix(in srgb, var(--ink) 6%, var(--surface));
+}
+
+.quant-integrity-row {
+  display: grid;
+  grid-template-columns: 6.75rem minmax(0, 1fr) 5rem;
+  gap: 10px;
+  align-items: center;
+  min-height: 34px;
+  padding: 0 10px;
+}
+
+.quant-integrity-row:nth-child(even):not(.quant-integrity-head) {
+  background: color-mix(in srgb, var(--ink) 3%, var(--surface));
+}
+
+.quant-integrity-row:nth-child(even):not(.quant-integrity-head) .quant-integrity-name,
+.quant-integrity-row:nth-child(even):not(.quant-integrity-head) .quant-integrity-stat {
+  background: color-mix(in srgb, var(--ink) 3%, var(--surface));
+}
+
+.quant-integrity-row:hover:not(.quant-integrity-head) {
+  background: color-mix(in srgb, var(--ink) 6%, var(--surface));
+}
+
+.quant-integrity-row:hover:not(.quant-integrity-head) .quant-integrity-name,
+.quant-integrity-row:hover:not(.quant-integrity-head) .quant-integrity-stat {
+  background: color-mix(in srgb, var(--ink) 6%, var(--surface));
+}
+
+.quant-integrity-head {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  min-height: 36px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--line);
+}
+
+.quant-integrity-head .quant-integrity-name,
+.quant-integrity-head .quant-integrity-stat {
+  z-index: 3;
+  background: var(--surface);
+}
+
+.quant-integrity-name {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  min-width: 0;
+  background: var(--surface);
+}
+
+.quant-integrity-cname {
+  display: block;
+  font-size: 0.75rem;
+  line-height: 1.2;
+  color: var(--ink);
+  white-space: nowrap;
+}
+
+.quant-integrity-code {
+  display: block;
+  margin-top: 1px;
+  font-family: var(--font-mono);
+  font-size: 0.625rem;
+  line-height: 1.2;
+  color: var(--ink-3, var(--ink-2));
+  letter-spacing: 0.02em;
+}
+
+.quant-integrity-name--head {
+  font-size: 0.6875rem;
+  color: var(--ink-3, var(--ink-2));
+}
+
+.quant-integrity-cells {
+  display: grid;
+  grid-template-columns: repeat(var(--cols, 60), minmax(13px, 1fr));
+  gap: 3px;
+  align-items: end;
+}
+
+.quant-integrity-colhead {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  min-width: 0;
+  height: 28px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+
+.quant-integrity-mon {
+  height: 10px;
+  font-size: 0.5625rem;
+  color: var(--ink-3, var(--ink-2));
+}
+
+.quant-integrity-dom {
+  font-size: 0.625rem;
+  color: var(--ink-2);
+}
+
+.quant-integrity-cell {
+  width: 100%;
+  height: 16px;
+  min-width: 0;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 2px;
+  background: transparent;
+  box-sizing: border-box;
+  cursor: default;
+}
+
+.quant-integrity-cell[data-k="ok"],
+.quant-integrity-key i[data-k="ok"] {
+  background: var(--ok);
+}
+
+.quant-integrity-cell[data-k="head"],
+.quant-integrity-key i[data-k="head"] {
+  background: var(--warn);
+}
+
+.quant-integrity-cell[data-k="tail"],
+.quant-integrity-key i[data-k="tail"] {
+  background: transparent;
+  border-color: var(--warn);
+}
+
+.quant-integrity-cell[data-k="both"],
+.quant-integrity-key i[data-k="both"] {
+  background: var(--danger);
+}
+
+.quant-integrity-cell[data-k="gap"],
+.quant-integrity-key i[data-k="gap"] {
+  background: color-mix(in srgb, var(--warn) 42%, var(--surface));
+}
+
+.quant-integrity-cell[data-k="miss"],
+.quant-integrity-key i[data-k="miss"] {
+  background: transparent;
+  border-color: var(--line);
+}
+
+.quant-integrity-cell[data-k="live"],
+.quant-integrity-key i[data-k="live"] {
+  background: color-mix(in srgb, var(--line) 78%, var(--surface));
+}
+
+button.quant-integrity-cell {
+  cursor: pointer;
+}
+
+button.quant-integrity-cell:hover,
+.quant-integrity-cell.is-picked {
+  outline: 2px solid var(--ink);
+  outline-offset: 1px;
+}
+
+.quant-integrity-stat {
+  position: sticky;
+  right: 0;
+  z-index: 1;
+  display: flex;
+  justify-content: flex-end;
+  background: var(--surface);
+}
+
+.quant-integrity-badge {
+  display: inline-block;
+  max-width: 100%;
+  padding: 1px 6px;
+  border-radius: 999px;
+  font-size: 0.625rem;
+  line-height: 1.5;
+  white-space: nowrap;
+  color: var(--ink-2);
+  background: color-mix(in srgb, var(--ink) 6%, transparent);
+}
+
+.quant-integrity-badge.is-ok {
+  color: var(--ok);
+  background: var(--ok-soft);
+}
+
+.quant-integrity-badge.is-head,
+.quant-integrity-badge.is-gap {
+  color: var(--warn);
+  background: color-mix(in srgb, var(--warn) 14%, var(--surface));
+}
+
+.quant-integrity-badge.is-tail {
+  color: var(--warn);
+  background: transparent;
+  box-shadow: inset 0 0 0 1px var(--warn);
+}
+
+.quant-integrity-badge.is-both,
+.quant-integrity-badge.is-miss {
+  color: var(--danger);
+  background: var(--danger-soft);
+}
+
+.quant-integrity-pop {
+  position: fixed;
+  z-index: 40;
+  width: min(420px, calc(100vw - 16px));
+  max-width: min(420px, calc(100vw - 16px));
+  padding: 12px 14px 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.14);
+}
+
+.quant-integrity-pop-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.quant-integrity-pop-head strong {
+  font-size: 0.8125rem;
+  font-weight: 650;
+  color: var(--ink);
+}
+
+.quant-integrity-pop-meta {
+  margin: 4px 0 10px;
+  font-size: 0.6875rem;
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+}
+
+.quant-integrity-band {
+  display: grid;
+  grid-template-columns: 2rem minmax(0, 1fr);
+  gap: 6px;
+  align-items: start;
+}
+
+.quant-integrity-band + .quant-integrity-band {
+  margin-top: 8px;
+}
+
+.quant-integrity-band-k {
+  padding-top: 1px;
+  font-size: 0.625rem;
+  color: var(--ink-3, var(--ink-2));
+}
+
+.quant-integrity-slots {
+  display: grid;
+  grid-template-columns: repeat(24, minmax(0, 1fr));
+  gap: 2px;
+}
+
+.quant-integrity-rulerline {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 3px;
+  font-size: 0.5625rem;
+  line-height: 1.2;
+  color: var(--ink-3, var(--ink-2));
+  font-variant-numeric: tabular-nums;
+}
+
+.quant-integrity-slot {
+  aspect-ratio: 1;
+  width: 100%;
+  border-radius: 2px;
+  background: transparent;
+  border: 1px solid var(--line);
+  box-sizing: border-box;
+}
+
+.quant-integrity-slot.is-on {
+  background: var(--ok);
+  border-color: transparent;
+}
+
+.quant-integrity-pop-title {
+  margin: 0;
+  font-size: var(--q-fs-caption, 0.75rem);
+  color: var(--ink);
+}
+
