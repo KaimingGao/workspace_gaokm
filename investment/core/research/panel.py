@@ -25,12 +25,16 @@ def _research_sub_scores(
     sentiment: Optional[dict] = None,
     factor_names: Optional[Tuple[str, ...]] = None,
 ) -> Dict[str, Optional[float]]:
-    """研究用：逐个算注册因子；默认绕开 score_bars / regime。"""
+    """研究用：逐个算注册因子；默认绕开 score_bars / regime。
+
+    除了 0-100 sub_score 外，同时把 meta 中的原始信号值以
+    ``raw_<factor>_<meta_key>`` 形式放入 row，供 LTR / Ridge 使用原始信号。
+    """
     names = factor_names or registered_factor_names()
     row: Dict[str, Optional[float]] = {}
     for key in names:
         try:
-            score, _meta = compute_factor(
+            score, fac_meta = compute_factor(
                 key,
                 window,
                 quote=quote,
@@ -40,6 +44,16 @@ def _research_sub_scores(
                 money_flow=None,
             )
             row[key] = float(score)
+            # 暴露原始信号值，前缀 raw_<factor>_ 避免键冲突
+            if isinstance(fac_meta, dict):
+                for mk, mv in fac_meta.items():
+                    if mk in ("omit_sub_score", "ok"):
+                        continue
+                    if isinstance(mv, (int, float)):
+                        row[f"raw_{key}_{mk}"] = float(mv)
+                    elif mv is not None:
+                        # 非数值（如 rs_source="index"）跳过
+                        pass
         except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
             logger.debug("catch except Exception: in panel.py", exc_info=True)
             row[key] = None

@@ -1,0 +1,325 @@
+{
+  "success": true,
+  "task": "oo_rank_ablation_matrix",
+  "n_stocks": 40,
+  "lookback": 100,
+  "holdout_trading_days": 20,
+  "n_panel_days": 128,
+  "epochs": 30,
+  "rows": [
+    {
+      "feature_mode": "raw",
+      "pair_preset": "wide",
+      "success": true,
+      "n_days": 128,
+      "n_train_days": 108,
+      "n_test_days": 19,
+      "feature_meta": {
+        "feature_mode": "raw",
+        "n_features": 74,
+        "n_raw_features": 74,
+        "n_cs_rank_features": 0,
+        "n_cs_z_features": 0,
+        "cs_coef_share": 0.0
+      },
+      "rank": {
+        "spearman": 0.0469,
+        "pair_accuracy": 0.5065,
+        "topk_overlap": 0.2684,
+        "topk_mean_y_oo": -0.08
+      },
+      "ridge": {
+        "spearman": 0.0083,
+        "pair_accuracy": 0.5,
+        "topk_overlap": 0.2579,
+        "topk_mean_y_oo": -0.0513
+      },
+      "delta": {
+        "delta_spearman": 0.0386,
+        "delta_topk_overlap": 0.0105,
+        "delta_topk_mean_y_oo": -0.0287
+      },
+      "gate": {
+        "pair_acc_ge_052": false,
+        "spearman_beats_ridge": true,
+        "topk_not_worse": false,
+        "pass": false
+      }
+    },
+    {
+      "feature_mode": "raw",
+      "pair_preset": "topk_focus",
+      "success": true,
+      "n_days": 128,
+      "n_train_days": 108,
+      "n_test_days": 19,
+      "feature_meta": {
+        "feature_mode": "raw",
+        "n_features": 74,
+        "n_raw_features": 74,
+        "n_cs_rank_features": 0,
+        "n_cs_z_features": 0,
+        "cs_coef_share": 0.0
+      },
+      "rank": {
+        "spearman": 0.047,
+        "pair_accuracy": 0.508,
+        "topk_overlap": 0.2684,
+        "topk_mean_y_oo": -0.073
+      },
+      "ridge": {
+        "spearman": 0.0083,
+        "pair_accuracy": 0.5,
+        "topk_overlap": 0.2579,
+        "topk_mean_y_oo": -0.0513
+      },
+      "delta": {
+        "delta_spearman": 0.0387,
+        "delta_topk_overlap": 0.0105,
+        "delta_topk_mean_y_oo": -0.0217
+      },
+      "gate": {
+        "pair_acc_ge_052": false,
+        "spearman_beats_ridge": true,
+        "topk_not_worse": false,
+        "pass": false
+      }
+    },
+    {
+      "feature_mode": "cs_rank",
+      "pair_preset": "wide",
+      "success": true,
+      "n_days": 128,
+      "n_train_days": 108,
+      "n_test_days": 19,
+      "feature_meta": {
+        "feature_mode": "cs_rank",
+        "n_features": 74,
+        "n_raw_features": 0,
+        "n_cs_rank_features": 74,
+        "n_cs_z_features": 0,
+        "cs_coef_share": 1.0
+      },
+      "rank": {
+        "spearman": -0.022,
+        "pair_accuracy": 0.4911,
+        "topk_overlap": 0.2789,
+        "topk_mean_y_oo": -0.1421
+      },
+      "ridge": {
+        "spearman": 0.0279,
+        "pair_accuracy": 0.5135,
+        "topk_overlap": 0.3316,
+        "topk_mean_y_oo": 0.1126
+      },
+      "delta": {
+        "delta_spearman": -0.0499,
+        "delta_topk_overlap": -0.0527,
+        "delta_topk_mean_y_oo": -0.2547
+      },
+      "gate": {
+        "pair_acc_ge_052": false,
+        "spearman_beats_ridge": false,
+        "topk_not_worse": false,
+        "pass": false
+      }
+    },
+    {
+      "feature_mode": "cs_rank",
+      "pair_preset": "topk_focus",
+      "success": true,
+      "n_days": 128,
+      "n_train_days": 108,
+      "n_test_days": 19,
+      "feature_meta": {
+        "feature_mode": "cs_rank",
+        "n_features": 74,
+        "n_raw_features": 0,
+        "n_cs_rank_features": 74,
+        "n_cs_z_features": 0,
+        "cs_coef_share": 1.0
+      },
+      "rank": {
+        "spearman": -0.0257,
+        "pair_accuracy": 0.489,
+        "topk_overlap": 0.2684,
+        "topk_mean_y_oo": -0.1668
+      },
+      "ridge": {
+        "spearman": 0.0279,
+        "pair_accuracy": 0.5135,
+        "topk_overlap": 0.3316,
+        "topk_mean_y_oo": 0.1126
+      },
+      "delta": {
+        "delta_spearman": -0.0536,
+        "delta_topk_overlap": -0.0632,
+        "delta_topk_mean_y_oo": -0.2794
+      },
+      "gate": {
+        "pair_acc_ge_052": false,
+        "spearman_beats_ridge": false,
+        "topk_not_worse": false,
+        "pass": false
+      }
+    },
+    {
+      "feature_mode": "cs_z",
+      "pair_preset": "wide",
+      "success": true,
+      "n_days": 128,
+      "n_train_days": 108,
+      "n_test_days": 19,
+      "feature_meta": {
+        "feature_mode": "cs_z",
+        "n_features": 74,
+        "n_raw_features": 0,
+        "n_cs_rank_features": 0,
+        "n_cs_z_features": 74,
+        "cs_coef_share": 1.0
+      },
+      "rank": {
+        "spearman": 0.0272,
+        "pair_accuracy": 0.4982,
+        "topk_overlap": 0.2737,
+        "topk_mean_y_oo": -0.1041
+      },
+      "ridge": {
+        "spearman": 0.0292,
+        "pair_accuracy": 0.5086,
+        "topk_overlap": 0.2947,
+        "topk_mean_y_oo": 0.0728
+      },
+      "delta": {
+        "delta_spearman": -0.002,
+        "delta_topk_overlap": -0.021,
+        "delta_topk_mean_y_oo": -0.1769
+      },
+      "gate": {
+        "pair_acc_ge_052": false,
+        "spearman_beats_ridge": false,
+        "topk_not_worse": false,
+        "pass": false
+      }
+    },
+    {
+      "feature_mode": "cs_z",
+      "pair_preset": "topk_focus",
+      "success": true,
+      "n_days": 128,
+      "n_train_days": 108,
+      "n_test_days": 19,
+      "feature_meta": {
+        "feature_mode": "cs_z",
+        "n_features": 74,
+        "n_raw_features": 0,
+        "n_cs_rank_features": 0,
+        "n_cs_z_features": 74,
+        "cs_coef_share": 1.0
+      },
+      "rank": {
+        "spearman": 0.028,
+        "pair_accuracy": 0.4993,
+        "topk_overlap": 0.2789,
+        "topk_mean_y_oo": -0.0897
+      },
+      "ridge": {
+        "spearman": 0.0292,
+        "pair_accuracy": 0.5086,
+        "topk_overlap": 0.2947,
+        "topk_mean_y_oo": 0.0728
+      },
+      "delta": {
+        "delta_spearman": -0.0012,
+        "delta_topk_overlap": -0.0158,
+        "delta_topk_mean_y_oo": -0.1625
+      },
+      "gate": {
+        "pair_acc_ge_052": false,
+        "spearman_beats_ridge": false,
+        "topk_not_worse": false,
+        "pass": false
+      }
+    },
+    {
+      "feature_mode": "raw_cs",
+      "pair_preset": "wide",
+      "success": true,
+      "n_days": 128,
+      "n_train_days": 108,
+      "n_test_days": 19,
+      "feature_meta": {
+        "feature_mode": "raw_cs",
+        "n_features": 222,
+        "n_raw_features": 74,
+        "n_cs_rank_features": 74,
+        "n_cs_z_features": 74,
+        "cs_coef_share": 0.687
+      },
+      "rank": {
+        "spearman": 0.0318,
+        "pair_accuracy": 0.5026,
+        "topk_overlap": 0.2895,
+        "topk_mean_y_oo": -0.0943
+      },
+      "ridge": {
+        "spearman": 0.0083,
+        "pair_accuracy": 0.5,
+        "topk_overlap": 0.2579,
+        "topk_mean_y_oo": -0.0513
+      },
+      "delta": {
+        "delta_spearman": 0.0235,
+        "delta_topk_overlap": 0.0316,
+        "delta_topk_mean_y_oo": -0.043
+      },
+      "gate": {
+        "pair_acc_ge_052": false,
+        "spearman_beats_ridge": true,
+        "topk_not_worse": false,
+        "pass": false
+      }
+    },
+    {
+      "feature_mode": "raw_cs",
+      "pair_preset": "topk_focus",
+      "success": true,
+      "n_days": 128,
+      "n_train_days": 108,
+      "n_test_days": 19,
+      "feature_meta": {
+        "feature_mode": "raw_cs",
+        "n_features": 222,
+        "n_raw_features": 74,
+        "n_cs_rank_features": 74,
+        "n_cs_z_features": 74,
+        "cs_coef_share": 0.6902
+      },
+      "rank": {
+        "spearman": 0.0304,
+        "pair_accuracy": 0.5016,
+        "topk_overlap": 0.3,
+        "topk_mean_y_oo": -0.0832
+      },
+      "ridge": {
+        "spearman": 0.0083,
+        "pair_accuracy": 0.5,
+        "topk_overlap": 0.2579,
+        "topk_mean_y_oo": -0.0513
+      },
+      "delta": {
+        "delta_spearman": 0.0221,
+        "delta_topk_overlap": 0.0421,
+        "delta_topk_mean_y_oo": -0.0319
+      },
+      "gate": {
+        "pair_acc_ge_052": false,
+        "spearman_beats_ridge": true,
+        "topk_not_worse": false,
+        "pass": false
+      }
+    }
+  ],
+  "any_gate_pass": false,
+  "note": "单段 holdout；正式推进需 ≥2 段互不重叠 holdout 均过闸。any_gate_pass=false → 维持影子，不上中性标签/LGBM。"
+}

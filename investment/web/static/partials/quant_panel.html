@@ -24,6 +24,8 @@
       →
       <a class="quant-hero-link" href="#quant-section-t90">ŷ_τ90</a>
       →
+      <a class="quant-hero-link" href="#quant-section-oo-rank">ŷ_oo_rank</a>
+      →
       <a class="quant-hero-link" href="#quant-section-tau-tree">ŷ_oc_tree</a>
       →
       <a class="quant-hero-link" href="#quant-section-t30-tree">ŷ_τ30_tree</a>
@@ -476,7 +478,7 @@
                 （ranking＝w_oo·ŷ_oo + w_oc·ŷ_oc；仅 blend）。分钟训练槽即 5m 线：
                 窗 <code>09:30…11:00</code>（与做 T leg1 扫描对齐；09:30 无前缀；共享 β；不含 13:00 / 14:00）。
                 live 调仓 ŷ_oc 用当刻已发生的最后一根 5m，上限 10:00（与自动调仓成交窗一致）；做 T 仍按当前根 rescore。
-                研究套 holdout 天数在页顶概览 <strong>Holdout日</strong>（默认 10），ŷ_oc / ŷ_co / ŷ_τ30 / ŷ_τ45 / ŷ_τ60 / ŷ_τ75 / ŷ_τ90 / ŷ_oc_tree / ŷ_τ30_tree 共用（ŷ_hl 已退役）。
+                研究套 holdout 天数在页顶概览 <strong>Holdout日</strong>（默认 10），ŷ_oc / ŷ_co / ŷ_oo_rank / ŷ_τ30 / ŷ_τ45 / ŷ_τ60 / ŷ_τ75 / ŷ_τ90 / ŷ_oc_tree / ŷ_τ30_tree 共用（ŷ_hl 已退役）。
               </p>
             </div>
           </details>
@@ -765,6 +767,64 @@
       <div class="quant-pro-card-body">
         <div id="quant-t90-result" class="quant-weight-table-wrap" aria-label="ŷ_τ90 拟合摘要"></div>
         <div id="quant-t90-coef-table" class="quant-weight-table-wrap" aria-label="ŷ_τ90 因子系数表"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ŷ_oo_rank：pairwise LTR 影子头；不进 ranking / live 决策 -->
+  <section class="dashboard-section quant-section" id="quant-section-oo-rank" aria-labelledby="quant-section-oo-rank-title">
+    <header class="dashboard-section-head quant-section-head">
+      <h3 id="quant-section-oo-rank-title" class="dashboard-section-title">ŷ_oo_rank</h3>
+      <p class="dashboard-section-desc quant-section-desc">截面序 · 线性 RankNet · 影子对照 · 不进决策</p>
+    </header>
+    <div class="dashboard-card quant-pro-card">
+      <div class="dashboard-card-head quant-pro-card-head quant-card-head--tools">
+        <div id="quant-oo-rank-summary" class="quant-rem-status quant-card-head-status" aria-live="polite">
+          <span class="quant-pro-status-chip" data-state="idle">待命</span>
+          <span class="quant-rem-status-msg">拟合后看 vs Ridge · 可选落盘影子</span>
+        </div>
+        <div class="dashboard-card-tools quant-pro-card-tools" role="group" aria-label="ŷ_oo_rank 操作">
+          <details class="quant-help-fold quant-pro-help-fold">
+            <summary class="quant-pro-help-summary"><span class="quant-pro-help-icon" aria-hidden="true">?</span> 说明</summary>
+            <div class="quant-help-body quant-pro-help-body">
+              <p>
+                <strong>ŷ_oo_rank</strong> = 线性 RankNet（pairwise LTR）。标签为观察池当日
+                <code>open[T+1]/open[T]−1</code> 的相对序；特征默认 <code>raw</code> sub_scores（消融胜出），
+                也可选日截面 <code>cs_rank</code> / <code>cs_z</code> / <code>raw_cs</code>。
+                pair 采样 <code>wide</code>（头尾约 35%）或 <code>topk_focus</code>（约 15% + gap）；
+                推理输出相对分（非收益百分点）。Holdout 至少 20 日。
+              </p>
+              <p>
+                <strong>影子头</strong>：不进 <code>ranking</code> / live 调仓入场。OOS 对照同窗 Ridge ŷ_oo 的
+                Spearman / TopK overlap / TopK 均值收益。落盘后历史回测可透传 <code>y_oo_rank</code> 列。
+                推进闸门见 docs：pair_acc≥0.52 且 Spearman 相对 Ridge 改善，连续两段 holdout。
+              </p>
+            </div>
+          </details>
+          <label class="quant-inline-field" for="quant-oo-rank-feature-mode">
+            <span class="quant-inline-field-lab">特征</span>
+            <select id="quant-oo-rank-feature-mode" class="dialog-select" title="feature_mode 消融">
+              <option value="raw" selected>raw</option>
+              <option value="cs_rank">cs_rank</option>
+              <option value="cs_z">cs_z</option>
+              <option value="raw_cs">raw+cs</option>
+            </select>
+          </label>
+          <label class="quant-inline-field" for="quant-oo-rank-pair-preset">
+            <span class="quant-inline-field-lab">采样</span>
+            <select id="quant-oo-rank-pair-preset" class="dialog-select" title="pair_preset">
+              <option value="wide" selected>wide</option>
+              <option value="topk_focus">topk_focus</option>
+            </select>
+          </label>
+          <button type="button" id="quant-oo-rank-run" class="dialog-btn secondary" title="观察池拟合 RankNet + Holdout OOS（不写盘）">拟合</button>
+          <button type="button" id="quant-oo-rank-persist" class="dialog-btn secondary" title="人审后写入 oo_rank_pairwise_model.json（仍不进 live 决策）">落盘影子</button>
+          <button type="button" id="quant-oo-rank-status" class="dialog-btn secondary" title="读取已落盘影子模型">状态</button>
+        </div>
+      </div>
+      <div class="quant-pro-card-body">
+        <div id="quant-oo-rank-result" class="quant-weight-table-wrap" aria-label="ŷ_oo_rank OOS 对照"></div>
+        <div id="quant-oo-rank-coef-table" class="quant-weight-table-wrap" aria-label="ŷ_oo_rank 因子系数表"></div>
       </div>
     </div>
   </section>

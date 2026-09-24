@@ -1018,6 +1018,142 @@ class QuantFactorMixin:
     run_on_ridge_experiment = run_co_ridge_experiment
     get_on_ridge_model = get_co_ridge_model
 
+    def run_oo_rank_experiment(
+        self,
+        *,
+        lookback: int = 120,
+        watching_limit: int = 200,
+        holdout_trading_days: int = 20,
+        feature_mode: str = "raw",
+        pair_preset: str = "wide",
+        top_k: Optional[int] = None,
+        bottom_k: Optional[int] = None,
+        topk_track: int = 10,
+        l2: float = 1.0,
+        persist: bool = False,
+        note: str = "",
+    ) -> Dict[str, Any]:
+        """影子 ŷ_oo_rank：线性 RankNet pairwise；不进 live ranking。"""
+        from core.data.facade import bars_and_source
+        from core.watching.store import WATCHING_MAX_SIZE, read_watching
+        from core.research.oo_rank_pairwise import (
+            fit_oo_rank_report,
+            load_oo_rank_model,
+            oo_rank_model_path,
+            persist_oo_rank_model,
+            save_oo_rank_last_report,
+        )
+
+        uni = read_watching()
+        pool = [
+            str(c).strip()
+            for c in (uni.get("watchlist") or [])
+            if str(c).strip()
+        ]
+        cap = max(2, min(int(WATCHING_MAX_SIZE), 500))
+        limit = max(2, min(int(watching_limit or cap), cap))
+        codes = pool[:limit]
+        if len(codes) < 8:
+            return {
+                "success": False,
+                "error": "研究池至少 8 只才可跑 oo_rank pairwise",
+                "task": "oo_rank_pairwise",
+            }
+
+        stock_bars: List[Dict[str, Any]] = []
+        for code in codes:
+            bars, _src = bars_and_source(code, limit=lookback + 40)
+            if not bars:
+                continue
+            stock_bars.append({"code": str(code), "bars": bars})
+        report = fit_oo_rank_report(
+            stock_bars,
+            holdout_trading_days=holdout_trading_days,
+            feature_mode=feature_mode,
+            pair_preset=pair_preset,
+            top_k=top_k,
+            bottom_k=bottom_k,
+            topk_track=topk_track,
+            l2=l2,
+            persist=False,
+        )
+        report["watching_limit"] = limit
+        report["watching_pool_size"] = len(pool)
+        report["lookback"] = lookback
+        if note:
+            report["api_note"] = str(note)[:200]
+        if report.get("success"):
+            save_oo_rank_last_report(report)
+            oos = report.get("oos") or {}
+            rank_m = oos.get("oo_rank") or {}
+            ridge_m = oos.get("ridge_oo_baseline") or {}
+            def _delta(a, b):
+                if a is None or b is None:
+                    return None
+                try:
+                    return round(float(a) - float(b), 4)
+                except (TypeError, ValueError):
+                    return None
+
+            report["shadow_track"] = {
+                "delta_topk_mean_y_oo": _delta(
+                    rank_m.get("topk_mean_y_oo"), ridge_m.get("topk_mean_y_oo")
+                ),
+                "delta_spearman": _delta(rank_m.get("spearman"), ridge_m.get("spearman")),
+                "delta_topk_overlap": _delta(
+                    rank_m.get("topk_overlap"), ridge_m.get("topk_overlap")
+                ),
+            }
+        if persist and report.get("success"):
+            saved = persist_oo_rank_model(report, also_research=True)
+            report["persisted"] = {"success": True, **saved}
+        else:
+            report["persisted"] = {"success": False, "skipped": True}
+            report["live_model_present"] = bool(load_oo_rank_model(prefer_research=False))
+        report["path"] = oo_rank_model_path()
+        report["shadow_only"] = True
+        return report
+
+    def get_oo_rank_model(self) -> Dict[str, Any]:
+        import json
+
+        from core.research.oo_rank_pairwise import (
+            load_oo_rank_model,
+            oo_rank_last_report_path,
+            oo_rank_model_path,
+        )
+
+        path = oo_rank_model_path()
+        doc = load_oo_rank_model(prefer_research=True)
+        last_path = oo_rank_last_report_path()
+        last = None
+        if os.path.isfile(last_path):
+            try:
+                with open(last_path, encoding="utf-8") as f:
+                    last = json.load(f)
+            except Exception:  # noqa: BLE001
+                last = None
+        if not doc:
+            return {
+                "success": False,
+                "exists": False,
+                "path": path,
+                "last_report_exists": bool(last),
+                "shadow_only": True,
+                "note": "尚无 ŷ_oo_rank；POST /api/quant/oo-rank persist=true",
+            }
+        out = dict(doc)
+        out.update(
+            {
+                "success": True,
+                "exists": True,
+                "path": path,
+                "shadow_only": True,
+                "last_report_exists": bool(last),
+            }
+        )
+        return out
+
     def run_path_ridge_experiment(
         self,
         *,

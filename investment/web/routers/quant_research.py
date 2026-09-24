@@ -16,6 +16,7 @@ from web.schemas import (
     FactorExperimentRequest,
     FactorOlsPoolRequest,
     CoRidgeRequest,
+    OoRankRequest,
     TcRidgeRequest,
     T30RidgeRequest,
     T45RidgeRequest,
@@ -247,6 +248,36 @@ def quant_co_ridge_model() -> Dict[str, Any]:
     """读取已 promote 的 ŷ_co 模型（主路径 co_ridge_model.json；可读旧 on 文件）。"""
     try:
         return deps.quant.get_co_ridge_model()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@router.post("/api/quant/oo-rank")
+def quant_oo_rank(body: OoRankRequest) -> Dict[str, Any]:
+    """ŷ_oo_rank 线性 RankNet pairwise（影子头）；OOS 对照 Ridge ŷ_oo；不进 live ranking。"""
+    try:
+        return deps.quant.run_oo_rank_experiment(
+            lookback=body.lookback,
+            watching_limit=body.watching_limit,
+            holdout_trading_days=body.holdout_trading_days,
+            feature_mode=body.feature_mode,
+            pair_preset=body.pair_preset,
+            top_k=body.top_k,
+            bottom_k=body.bottom_k,
+            topk_track=body.topk_track,
+            l2=body.l2,
+            persist=body.persist,
+            note=body.note,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@router.get("/api/quant/oo-rank/model")
+def quant_oo_rank_model() -> Dict[str, Any]:
+    """读取已落盘的 ŷ_oo_rank 影子模型。"""
+    try:
+        return deps.quant.get_oo_rank_model()
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 

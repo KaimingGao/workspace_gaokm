@@ -332,6 +332,53 @@ class CoRidgeRequest(BaseModel):
     note: str = Field(default="", max_length=200)
 
 
+class OoRankRequest(BaseModel):
+    """ŷ_oo_rank 线性 RankNet pairwise（影子头；不进 live ranking）。"""
+
+    lookback: int = Field(default=120, ge=40, le=500)
+    watching_limit: int = Field(
+        default=200,
+        ge=8,
+        le=200,
+        description="观察池上限（截面排序至少约 8 只）",
+    )
+    holdout_trading_days: int = Field(
+        default=20,
+        ge=1,
+        le=60,
+        description="OOS holdout 交易日；oo_rank 默认 20（短窗噪声大）",
+    )
+    feature_mode: str = Field(
+        default="raw",
+        description="特征消融：raw（默认，消融胜出）| cs_rank | cs_z | raw_cs",
+    )
+    pair_preset: str = Field(
+        default="wide",
+        description="pair 采样：wide（头尾约 35%）| topk_focus（约 15% + gap）",
+    )
+    top_k: Optional[int] = Field(
+        default=None,
+        ge=2,
+        le=100,
+        description="覆盖 pair_preset 的头带宽绝对下限；缺省用 preset",
+    )
+    bottom_k: Optional[int] = Field(
+        default=None,
+        ge=2,
+        le=100,
+        description="覆盖 pair_preset 的尾带宽绝对下限；缺省用 preset",
+    )
+    topk_track: int = Field(
+        default=10, ge=2, le=40, description="OOS TopK 跑路对照宽度"
+    )
+    l2: float = Field(default=1.0, ge=0.0, le=100.0)
+    persist: bool = Field(
+        default=False,
+        description="True=写入 oo_rank_pairwise_model.json（仍不进 live 决策）",
+    )
+    note: str = Field(default="", max_length=200)
+
+
 class PathRidgeRequest(BaseModel):
     """ŷ_hl Ridge：开盘 Z + 多 τ 前缀分钟小包 + t_hi/t_lo 进度 → 全日极值序（dual_y · y_hl）。"""
 

@@ -1832,6 +1832,19 @@ def _attach_open_yhat_heads(
         _attach_y_path_to_item = None  # type: ignore[assignment]
         logger.debug("path-head import failed", exc_info=True)
 
+    oo_rank_doc = None
+    apply_oo_rank_scores = None
+    try:
+        from core.research.oo_rank_pairwise import (
+            apply_oo_rank_scores as _apply_oo_rank,
+            load_oo_rank_model,
+        )
+
+        apply_oo_rank_scores = _apply_oo_rank
+        oo_rank_doc = load_oo_rank_model(prefer_research=True)
+    except Exception:  # noqa: BLE001
+        logger.debug("oo_rank shadow import failed", exc_info=True)
+
     for it in items:
         if not isinstance(it, dict):
             continue
@@ -1841,6 +1854,12 @@ def _attach_open_yhat_heads(
             it.setdefault("predicted_score_oo", pred)
             it.setdefault("y_oo", pred)
             it.setdefault("y_trade", pred)
+        # 影子 ŷ_oo_rank：有模型且有 sub_scores 时写入；不改 ranking
+        if apply_oo_rank_scores is not None and oo_rank_doc is not None:
+            try:
+                apply_oo_rank_scores([it], model_doc=oo_rank_doc)
+            except Exception:  # noqa: BLE001
+                logger.debug("attach y_oo_rank failed for %s", code, exc_info=True)
         if attach_dual_score_pit is not None and code:
             try:
                 xs: Dict[str, Any] = {}

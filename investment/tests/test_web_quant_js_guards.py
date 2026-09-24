@@ -216,6 +216,15 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("/api/quant/co-ridge", quant_js)
         self.assertNotIn("/api/quant/on-ridge", quant_js)
         self.assertIn("quant-co-ridge-run", panel)
+        self.assertIn("/api/quant/oo-rank", quant_js)
+        self.assertIn("quant-oo-rank-run", panel)
+        self.assertIn("quant-section-oo-rank", panel)
+        self.assertIn("quant-oo-rank-feature-mode", panel)
+        self.assertIn("quant-oo-rank-pair-preset", panel)
+        self.assertIn("feature_mode", quant_js)
+        self.assertIn("_readOoRankFeatureMode", quant_js)
+        self.assertIn("_readOoRankPairPreset", quant_js)
+        self.assertIn("runOoRank", quant_js)
         self.assertNotIn("quant-on-ridge-run", panel)
         self.assertNotIn("quant-section-on", panel)
         self.assertIn("ridgeFitNBits", quant_js)
@@ -2269,6 +2278,7 @@ class TestWebQuantJsGuards(unittest.TestCase):
             "quant-section-t60",
             "quant-section-t75",
             "quant-section-t90",
+            "quant-section-oo-rank",
         ):
             self.assertRegex(
                 panel,
@@ -2287,6 +2297,7 @@ class TestWebQuantJsGuards(unittest.TestCase):
             "quant-section-t60",
             "quant-section-t75",
             "quant-section-t90",
+            "quant-section-oo-rank",
             "quant-section-tau-tree",
             "quant-section-t30-tree",
             "quant-section-t45-tree",

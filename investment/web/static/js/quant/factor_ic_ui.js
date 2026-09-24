@@ -566,6 +566,7 @@ export function createFactorIcUi(deps) {
   function remCoefTableHtml(rm, opts = {}) {
     if (!rm || typeof rm !== "object") return "";
     const isCo = opts.head === "co";
+    const isOoRank = opts.head === "oo_rank";
     const isT30 = opts.head === "t30";
     const isT45 = opts.head === "t45";
     const isT60 = opts.head === "t60";
@@ -576,7 +577,9 @@ export function createFactorIcUi(deps) {
     const isPath = opts.head === "path";
     const yhatTag = isPath
       ? "ŷ_hl"
-      : isCo
+      : isOoRank
+        ? "ŷ_oo_rank"
+        : isCo
         ? "ŷ_co"
         : isT90
           ? "ŷ_τ90"

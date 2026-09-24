@@ -1267,6 +1267,31 @@ score_stock(code) 续——
 | 滞后 | `yest_gap` `on_ma5` | 上一跳隔夜与近 5 日均值；**不含**今日 `gap_pct` |
 | 盘中 | `ret_open_to_tau` | 有分钟前缀时才填 |
 
+### 4.3b ŷ_oo_rank（影子 pairwise LTR · 不进决策）
+
+线性 RankNet：按日观察池对 `y_oo = open[T+1]/open[T]−1` 采 Top–Bottom pair，学相对分 `y_oo_rank = β·z`。
+特征在 raw `sub_scores` 上可挂日截面 `*_cs_rank` / `*_cs_zscore`，由 `feature_mode` 消融。
+
+| | |
+|--|--|
+| 训练 | `POST /api/quant/oo-rank` → `oo_rank_pairwise_model.json`（可选 persist；研究套 sidecar） |
+| 特征 | `feature_mode`：`raw`（默认；消融矩阵最优）· `cs_rank` · `cs_z` · `raw_cs`；批打分 `apply_oo_rank_scores` 同池挂 cs_* |
+| 采样 | `pair_preset`：`wide`（头尾约 35%，绝对下限 48）· `topk_focus`（约 15%，下限 20，`min_abs_gap=0.5`）；+ 随机序对；单日 pair 上限 5000 |
+| Holdout | 默认 **20** 交易日（短于 20 噪声大；UI 取 `max(20, 页顶 Holdout)`） |
+| OOS | 日截面 Spearman / TopK overlap / pair accuracy；对照同窗 Ridge ŷ_oo（`shadow_track`）；报告含 `feature_meta` |
+| 回测 | `paper_replay` 有模型时透传 `y_oo_rank`；**不**改 `ranking` / 入场 |
+| 边界 | 影子对照；不进 live `rank_lots` |
+
+**推进闸门**（连续 ≥2 段互不重叠 holdout，各 ≥20 测日，同时满足才考虑中性标签 / LGBM；否则维持影子）：
+
+- `pair_accuracy ≥ 0.52`
+- `spearman > Ridge` 且（`spearman > 0` 或 ΔSpearman ≥ +0.02）
+- `topk_mean_y_oo` 不低于 Ridge，且不持续大幅为负
+
+消融矩阵脚本：`scripts/run_oo_rank_ablation.py`（`feature_mode` × `pair_preset`）。
+
+实现：`core/research/oo_rank_panel.py` · `core/research/oo_rank_pairwise.py`。
+
 ### 4.4 双层完整调用链
 
 ```text

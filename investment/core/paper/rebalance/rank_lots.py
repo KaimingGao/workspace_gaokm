@@ -577,6 +577,12 @@ AUX_YHAT_KEYS = (
     "t90_realized",
     "y_τw",
     "y_tw",
+    # ŷ_oo_rank 影子 pairwise LTR（不进 ranking）
+    "y_oo_rank",
+    "y_oo_rank_hat",
+    "predicted_score_oo_rank",
+    "y_oo_rank_realized",
+    "oo_rank_realized",
 )
 
 
@@ -585,80 +591,98 @@ def aux_yhat_fields(
     *,
     include_tau_horizons: bool = True,
 ) -> Dict[str, Any]:
-    """对照头：可选 y_τw / y_τ30 / y_τ45 / y_τ60 / y_τ75 / y_τ90。不进 ranking。ŷ_hl 已下线。"""
+    """对照头：可选 y_τw / y_τ30… / y_oo_rank。不进 ranking。ŷ_hl 已下线。"""
     if not isinstance(item, dict):
         return {}
     out: Dict[str, Any] = {}
-    try:
-        from core.research.t30_ridge import pick_y_t30_hat, pick_y_t30_label
-        from core.research.t45_ridge import pick_y_t45_hat, pick_y_t45_label
-        from core.research.t60_ridge import pick_y_t60_hat, pick_y_t60_label
-        from core.research.t75_ridge import pick_y_t75_hat, pick_y_t75_label
-        from core.research.t90_ridge import pick_y_t90_hat, pick_y_t90_label
-        from core.t0.close_band import blend_y_tw
-    except Exception:  # noqa: BLE001
-        logger.debug("aux yhat imports failed", exc_info=True)
-        return {}
-
-    y30 = pick_y_t30_hat(item) if include_tau_horizons else None
-    y45 = pick_y_t45_hat(item) if include_tau_horizons else None
-    y60 = pick_y_t60_hat(item) if include_tau_horizons else None
-    y75 = pick_y_t75_hat(item) if include_tau_horizons else None
-    y90 = pick_y_t90_hat(item) if include_tau_horizons else None
-    if y30 is not None:
-        out["y_τ30"] = y30
-        out["y_t30"] = y30
-        out["predicted_score_t30"] = y30
-        out["y_t30_hat"] = y30
-    if y45 is not None:
-        out["y_τ45"] = y45
-        out["y_t45"] = y45
-        out["predicted_score_t45"] = y45
-        out["y_t45_hat"] = y45
-    if y60 is not None:
-        out["y_τ60"] = y60
-        out["y_t60"] = y60
-        out["predicted_score_t60"] = y60
-        out["y_t60_hat"] = y60
-    if y75 is not None:
-        out["y_τ75"] = y75
-        out["y_t75"] = y75
-        out["predicted_score_t75"] = y75
-        out["y_t75_hat"] = y75
-    if y90 is not None:
-        out["y_τ90"] = y90
-        out["y_t90"] = y90
-        out["predicted_score_t90"] = y90
-        out["y_t90_hat"] = y90
-    r30 = pick_y_t30_label(item) if include_tau_horizons else None
-    r45 = pick_y_t45_label(item) if include_tau_horizons else None
-    r60 = pick_y_t60_label(item) if include_tau_horizons else None
-    r75 = pick_y_t75_label(item) if include_tau_horizons else None
-    r90 = pick_y_t90_label(item) if include_tau_horizons else None
-    if r30 is not None:
-        out["y_t30_realized"] = r30
-        out["t30_realized"] = r30
-    if r45 is not None:
-        out["y_t45_realized"] = r45
-        out["t45_realized"] = r45
-    if r60 is not None:
-        out["y_t60_realized"] = r60
-        out["t60_realized"] = r60
-    if r75 is not None:
-        out["y_t75_realized"] = r75
-        out["t75_realized"] = r75
-    if r90 is not None:
-        out["y_t90_realized"] = r90
-        out["t90_realized"] = r90
     if include_tau_horizons:
-        yw = blend_y_tw(y30, y60, y90, y45, y75)
-        if yw is None:
-            yw = _f(item.get("y_τw"))
-        if yw is None:
-            yw = _f(item.get("y_tw"))
-        if yw is not None:
-            out["y_τw"] = yw
-            out["y_tw"] = yw
+        try:
+            from core.research.t30_ridge import pick_y_t30_hat, pick_y_t30_label
+            from core.research.t45_ridge import pick_y_t45_hat, pick_y_t45_label
+            from core.research.t60_ridge import pick_y_t60_hat, pick_y_t60_label
+            from core.research.t75_ridge import pick_y_t75_hat, pick_y_t75_label
+            from core.research.t90_ridge import pick_y_t90_hat, pick_y_t90_label
+            from core.t0.close_band import blend_y_tw
+        except Exception:  # noqa: BLE001
+            logger.debug("aux yhat tau imports failed", exc_info=True)
+        else:
+            y30 = pick_y_t30_hat(item)
+            y45 = pick_y_t45_hat(item)
+            y60 = pick_y_t60_hat(item)
+            y75 = pick_y_t75_hat(item)
+            y90 = pick_y_t90_hat(item)
+            if y30 is not None:
+                out["y_τ30"] = y30
+                out["y_t30"] = y30
+                out["predicted_score_t30"] = y30
+                out["y_t30_hat"] = y30
+            if y45 is not None:
+                out["y_τ45"] = y45
+                out["y_t45"] = y45
+                out["predicted_score_t45"] = y45
+                out["y_t45_hat"] = y45
+            if y60 is not None:
+                out["y_τ60"] = y60
+                out["y_t60"] = y60
+                out["predicted_score_t60"] = y60
+                out["y_t60_hat"] = y60
+            if y75 is not None:
+                out["y_τ75"] = y75
+                out["y_t75"] = y75
+                out["predicted_score_t75"] = y75
+                out["y_t75_hat"] = y75
+            if y90 is not None:
+                out["y_τ90"] = y90
+                out["y_t90"] = y90
+                out["predicted_score_t90"] = y90
+                out["y_t90_hat"] = y90
+            r30 = pick_y_t30_label(item)
+            r45 = pick_y_t45_label(item)
+            r60 = pick_y_t60_label(item)
+            r75 = pick_y_t75_label(item)
+            r90 = pick_y_t90_label(item)
+            if r30 is not None:
+                out["y_t30_realized"] = r30
+                out["t30_realized"] = r30
+            if r45 is not None:
+                out["y_t45_realized"] = r45
+                out["t45_realized"] = r45
+            if r60 is not None:
+                out["y_t60_realized"] = r60
+                out["t60_realized"] = r60
+            if r75 is not None:
+                out["y_t75_realized"] = r75
+                out["t75_realized"] = r75
+            if r90 is not None:
+                out["y_t90_realized"] = r90
+                out["t90_realized"] = r90
+            yw = blend_y_tw(y30, y60, y90, y45, y75)
+            if yw is None:
+                yw = _f(item.get("y_τw"))
+            if yw is None:
+                yw = _f(item.get("y_tw"))
+            if yw is not None:
+                out["y_τw"] = yw
+                out["y_tw"] = yw
+
+    # ŷ_oo_rank 影子头：与 τ 档无关，始终透传（若有）
+    try:
+        from core.research.oo_rank_pairwise import (
+            pick_y_oo_rank_hat,
+            pick_y_oo_rank_label,
+        )
+
+        y_or = pick_y_oo_rank_hat(item)
+        if y_or is not None:
+            out["y_oo_rank"] = y_or
+            out["y_oo_rank_hat"] = y_or
+            out["predicted_score_oo_rank"] = y_or
+        r_or = pick_y_oo_rank_label(item)
+        if r_or is not None:
+            out["y_oo_rank_realized"] = r_or
+            out["oo_rank_realized"] = r_or
+    except Exception:  # noqa: BLE001
+        logger.debug("aux oo_rank fields failed", exc_info=True)
     return out
 
 
