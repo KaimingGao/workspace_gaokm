@@ -891,7 +891,7 @@
           "parameters": {
             "task": "factor_ols",
             "stock_code": "600519",
-            "lookback": 45,
+            "lookback": 100,
             "horizon_days": 3
           }
         }
@@ -922,7 +922,7 @@
             "market": "CN"
           }
         },
-        "daily_bars": "rising_45",
+        "daily_bars": "rising_100",
         "resolve_market_code": [
           "CN",
           "600519"

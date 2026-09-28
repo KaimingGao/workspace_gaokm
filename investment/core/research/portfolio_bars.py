@@ -187,7 +187,15 @@ def load_portfolio_stock_bars(
     failures: List[str] = []
     sym_by_raw: Dict[str, str] = {}
     need = int(min_bars) if min_bars is not None else max(16, min(40, int(lookback or 120) // 2))
-    limit = int(lookback or 120) + 35
+    # Alpha158 PIT 需 ≥62 根特征窗；lookback 之外垫够窗口，避免调仓回测 ŷ 缺 raw_*
+    pad = 35
+    try:
+        from core.signal.factors.alpha158 import ALPHA158_PANEL_WINDOW
+
+        pad = max(pad, int(ALPHA158_PANEL_WINDOW))
+    except Exception:  # noqa: BLE001
+        logger.debug("portfolio bars alpha158 pad failed", exc_info=True)
+    limit = int(lookback or 120) + pad
     cap = int(max_names) if max_names is not None and max_names > 0 else 0
 
     if cap and len(raw_list) > cap and offline_ok:

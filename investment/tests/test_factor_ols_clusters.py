@@ -37,6 +37,10 @@ from quant.research.factor_ols_clusters import (
 import numpy as np
 
 
+# Alpha158 抬窗后 min_history≈62；再留 horizon + MIN_CLUSTER_OBS≈24 → 约 90+
+_CLUSTER_BARS_N = 100
+
+
 def _bars_variant(n: int, scale: float, wobble: float) -> list:
     bars = rising_bars(n)
     for i, row in enumerate(bars):
@@ -308,9 +312,9 @@ class TestFactorOlsClusters(unittest.TestCase):
 
     def test_cluster_report_groups_three_stocks(self):
         panels = [
-            {"code": "600519", "bars": _bars_variant(50, 1.0, 0.002)},
-            {"code": "000001", "bars": _bars_variant(50, 1.05, 0.003)},
-            {"code": "601318", "bars": _bars_variant(50, 0.95, -0.004)},
+            {"code": "600519", "bars": _bars_variant(_CLUSTER_BARS_N, 1.0, 0.002)},
+            {"code": "000001", "bars": _bars_variant(_CLUSTER_BARS_N, 1.05, 0.003)},
+            {"code": "601318", "bars": _bars_variant(_CLUSTER_BARS_N, 0.95, -0.004)},
         ]
         out = compute_factor_ols_cluster_report(
             panels,
@@ -351,8 +355,12 @@ class TestFactorOlsClusters(unittest.TestCase):
             else:
                 self.assertEqual(panel.get("mode"), "group_cs_ic", cl.get("label"))
                 self.assertIn("max_within_dist", cl)
-                # 合成短序列可能日截面稀疏；只要走了组内截面口径即可
-                self.assertIn("组内按日截面", panel.get("note") or "")
+                # 优先研究面板（含 raw_alpha158_*）；短序列才退回短窗重打分
+                note = panel.get("note") or ""
+                self.assertTrue(
+                    ("研究面板" in note) or ("组内按日截面" in note),
+                    note,
+                )
         wf = out.get("walk_forward") or {}
         if wf.get("split_mode") == "holdout_days":
             self.assertEqual(int(out.get("holdout_trading_days") or 0), 10)
@@ -845,9 +853,9 @@ class TestFactorOlsClusters(unittest.TestCase):
         from quant.research.factor_ols_clusters import auto_k_candidates
 
         panels = [
-            {"code": "600519", "bars": _bars_variant(50, 1.0, 0.002)},
-            {"code": "000001", "bars": _bars_variant(50, 1.05, 0.003)},
-            {"code": "601318", "bars": _bars_variant(50, 0.95, -0.004)},
+            {"code": "600519", "bars": _bars_variant(_CLUSTER_BARS_N, 1.0, 0.002)},
+            {"code": "000001", "bars": _bars_variant(_CLUSTER_BARS_N, 1.05, 0.003)},
+            {"code": "601318", "bars": _bars_variant(_CLUSTER_BARS_N, 0.95, -0.004)},
         ]
         out = compute_factor_ols_cluster_report(
             panels,
@@ -1095,7 +1103,7 @@ class TestFactorOlsClusters(unittest.TestCase):
 
     def test_group_cs_ic_panel_basic(self):
         stock_bars = {
-            f"S{i:02d}": _bars_variant(50, 1.0 + i * 0.02, 0.001 * (i + 1))
+            f"S{i:02d}": _bars_variant(_CLUSTER_BARS_N, 1.0 + i * 0.02, 0.001 * (i + 1))
             for i in range(4)
         }
         out = group_cs_ic_panel(
@@ -1112,6 +1120,80 @@ class TestFactorOlsClusters(unittest.TestCase):
         self.assertTrue(
             any(r.get("ic") is not None or int(r.get("sample_count") or 0) >= 0 for r in rows)
         )
+
+    def test_group_cs_ic_from_panels_reads_alpha158_raw(self):
+        """研究面板已有 raw_alpha158_* 时，组 IC 应给出非零 sample_count。"""
+        from quant.research.factor_ols_clusters import group_cs_ic_from_panels
+
+        dates = [f"2024-03-{d:02d}" for d in range(1, 16)]
+        panel_by_code = {}
+        for i in range(4):
+            code = f"S{i:02d}"
+            xs, ys = [], []
+            for j, d in enumerate(dates):
+                kmid = 0.01 * (i + 1) + 0.002 * j
+                xs.append(
+                    {
+                        "momentum": 50.0 + i + j,
+                        "raw_alpha158_KMID": kmid,
+                        "raw_alpha158_ROC5": 1.0 + 0.01 * i - 0.001 * j,
+                    }
+                )
+                # y 与 KMID 同向，便于 IC 非空
+                ys.append(kmid * 80.0 + 0.01 * i)
+            panel_by_code[code] = {
+                "xs": xs,
+                "ys": ys,
+                "dates": list(dates),
+                "bars": rising_bars(40),
+            }
+        out = group_cs_ic_from_panels(
+            panel_by_code,
+            list(panel_by_code.keys()),
+            ["momentum", "alpha158", "raw_alpha158_KMID"],
+        )
+        self.assertTrue(out.get("success"))
+        self.assertEqual(out.get("source"), "research_panel")
+        by = {r["factor"]: r for r in (out.get("rows") or [])}
+        self.assertNotIn("alpha158", by)  # 常数分跳过
+        self.assertIn("raw_alpha158_KMID", by)
+        self.assertGreater(int(by["raw_alpha158_KMID"].get("sample_count") or 0), 0)
+        self.assertIsNotNone(by["raw_alpha158_KMID"].get("ic"))
+        # 不在 feature_names 里、但面板有值的 raw 列也要进 IC，否则因子表显示「未算」
+        self.assertIn("raw_alpha158_ROC5", by)
+        self.assertIsNotNone(by["raw_alpha158_ROC5"].get("ic"))
+
+    def test_cluster_ic_panel_keeps_alpha158_off_rescore_path(self):
+        """多票组 IC 走研究面板，不退回短窗重打分（那条路径会把 raw 列标成缺测）。"""
+        from quant.research.factor_ols_clusters import _cluster_factor_ic_panel
+
+        dates = [f"2024-04-{d:02d}" for d in range(1, 12)]
+        panel_by_code = {}
+        codes = []
+        for i in range(2):
+            code = f"T{i:02d}"
+            codes.append(code)
+            xs, ys = [], []
+            for j, _d in enumerate(dates):
+                kmid = 0.02 * (i + 1) + 0.001 * j
+                xs.append({"momentum": 40.0 + i + j, "raw_alpha158_KMID": kmid})
+                ys.append(kmid * 50.0)
+            panel_by_code[code] = {"xs": xs, "ys": ys, "dates": list(dates), "bars": rising_bars(40)}
+        out = _cluster_factor_ic_panel(
+            codes,
+            panel_by_code=panel_by_code,
+            feature_names=["momentum"],
+            horizon_days=1,
+            pit_fundamentals=False,
+            all_xs=[],
+            all_ys=[],
+        )
+        self.assertEqual(out.get("source"), "research_panel")
+        self.assertNotIn("短窗", str(out.get("note") or ""))
+        by = {r["factor"]: r for r in (out.get("rows") or [])}
+        self.assertIsNotNone(by["raw_alpha158_KMID"].get("ic"))
+        self.assertNotEqual(by["raw_alpha158_KMID"].get("exclusion_reason"), "sparse")
+
 
     def test_cluster_needs_two_fits(self):
         out = compute_factor_ols_cluster_report(
@@ -1298,6 +1380,8 @@ class TestFactorOlsClusters(unittest.TestCase):
             "reason": "oos_not_worse",
             "delta_oos_pp": 0.5,
             "note": "ok",
+            # 过门且 ŷOOS>0 → 至少 B（无 IC 面板达不到 A）
+            "research": {"oos": {"oos_return_pct": 0.8}},
         }
         with patch(
             "core.signal.weight_oos_gate.evaluate_research_oos",

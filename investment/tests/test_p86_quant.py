@@ -13,7 +13,7 @@ from quant.skill.engine import QuantEngine
 
 class TestP86FactorOls(unittest.TestCase):
     def test_compute_factor_ols_on_mock_bars(self):
-        bars = rising_bars(45)
+        bars = rising_bars(100)
         report = compute_factor_ols_report(bars, horizon_days=3, min_history=12)
         self.assertTrue(report.get("success"))
         self.assertEqual(report.get("task"), "factor_ols")
@@ -24,7 +24,6 @@ class TestP86FactorOls(unittest.TestCase):
 
     def test_quant_skill_factor_ols_task(self):
         engine = QuantEngine()
-        bars = rising_bars(45)
         with apply_case_mocks(
             {
                 "quotes": {
@@ -35,7 +34,7 @@ class TestP86FactorOls(unittest.TestCase):
                         "market": "CN",
                     }
                 },
-                "daily_bars": "rising_45",
+                "daily_bars": "rising_100",
                 "resolve_market_code": ["CN", "600519"],
             }
         ):
@@ -43,7 +42,7 @@ class TestP86FactorOls(unittest.TestCase):
                 {
                     "task": "factor_ols",
                     "stock_code": "600519",
-                    "lookback": 45,
+                    "lookback": 100,
                     "horizon_days": 3,
                 }
             )

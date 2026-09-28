@@ -1762,6 +1762,30 @@ def _load_replay_global_model() -> Any:
     return None
 
 
+def _required_factor_keys_from_return_models(
+    cluster_models: Optional[Dict[str, Any]] = None,
+    global_model: Any = None,
+) -> List[str]:
+    """与 score_stock / T0 同源：ŷ β 键并集，供 FS0 补算（含 raw_alpha158_*）。"""
+    keys: List[str] = []
+    seen = set()
+    models: List[Any] = []
+    if isinstance(cluster_models, dict):
+        models.extend(cluster_models.values())
+    if global_model is not None:
+        models.append(global_model)
+    for m in models:
+        coefs = getattr(m, "coefficients", None)
+        if not isinstance(coefs, dict):
+            continue
+        for k in coefs.keys():
+            kk = str(k).strip()
+            if kk and kk not in seen:
+                seen.add(kk)
+                keys.append(kk)
+    return keys
+
+
 def _attach_open_yhat_heads(
     entries: List[dict],
     *,
@@ -1976,6 +2000,7 @@ def _score_open_day(
     co_model_doc: Any = None,
     tau_model_doc: Any = None,
     tau_pool_day: Optional[dict] = None,
+    required_factor_keys: Optional[List[str]] = None,
 ) -> List[dict]:
     """9:30 信息集：窗口截至昨收，报价用今开（不把今日收盘喂进特征）。"""
     from core.signal.cross_section_batch import score_window_as_item
@@ -1987,6 +2012,7 @@ def _score_open_day(
     windows: Dict[str, List[dict]] = {}
     prev_i = day_i - 1
     today = dates[day_i]
+    req_keys = list(required_factor_keys or []) or None
     for code in stock_bars:
         window = _window_for_code(code, dates, date_maps, prev_i, max_window)
         if len(window) < 2:
@@ -2004,6 +2030,7 @@ def _score_open_day(
             horizon_days=horizon_days,
             quote=quote,
             config=cfg,
+            required_factor_keys=req_keys,
         )
         if item:
             entries.append(item)
@@ -2291,6 +2318,43 @@ def backtest_paper_replay(
         )
 
     date_maps = {str(c): _bars_by_date(bars) for c, bars in stock_bars.items()}
+
+    # 先解析 ŷ 模型 → required_factor_keys / Alpha158 抬窗，再铺日历垫特征窗
+    cluster_models: Dict[str, Any] = {}
+    global_model: Any = None
+    co_model_doc = None
+    tau_model_doc = None
+    required_factor_keys: List[str] = []
+    if rankings_by_date is None:
+        cluster_models = _load_replay_cluster_models()
+        if not cluster_models:
+            global_model = _load_replay_global_model()
+        required_factor_keys = _required_factor_keys_from_return_models(
+            cluster_models, global_model
+        )
+        try:
+            from core.signal.factors.alpha158 import bump_window_for_alpha158
+
+            min_history, max_window = bump_window_for_alpha158(
+                required_factor_keys,
+                min_history=int(min_history),
+                max_window=int(max_window),
+            )
+        except Exception:  # noqa: BLE001
+            logger.debug("replay alpha158 window bump failed", exc_info=True)
+        try:
+            from core.research.co_ridge import load_co_model
+
+            co_model_doc = load_co_model()
+        except Exception:  # noqa: BLE001
+            logger.debug("load_co_model failed in paper_replay", exc_info=True)
+        try:
+            from core.research.tau_ridge import load_tau_model
+
+            tau_model_doc = load_tau_model()
+        except Exception:  # noqa: BLE001
+            logger.debug("load_tau_model failed in paper_replay", exc_info=True)
+
     dates, trade_start = _replay_calendar(
         stock_bars,
         lookback=lookback,
@@ -2414,26 +2478,6 @@ def backtest_paper_replay(
     except Exception:  # noqa: BLE001
         logger.debug("load_signal_config failed in paper_replay", exc_info=True)
 
-    cluster_models = _load_replay_cluster_models() if rankings_by_date is None else {}
-    global_model = None
-    co_model_doc = None
-    tau_model_doc = None
-    if rankings_by_date is None:
-        if not cluster_models:
-            global_model = _load_replay_global_model()
-        try:
-            from core.research.co_ridge import load_co_model
-
-            co_model_doc = load_co_model()
-        except Exception:  # noqa: BLE001
-            logger.debug("load_co_model failed in paper_replay", exc_info=True)
-        try:
-            from core.research.tau_ridge import load_tau_model
-
-            tau_model_doc = load_tau_model()
-        except Exception:  # noqa: BLE001
-            logger.debug("load_tau_model failed in paper_replay", exc_info=True)
-
     equity_curve: List[dict] = []
     day_returns: List[float] = []
     rebalance_logs: List[dict] = []
@@ -2522,6 +2566,7 @@ def backtest_paper_replay(
                 co_model_doc=co_model_doc,
                 tau_model_doc=tau_model_doc,
                 tau_pool_day=tau_pool_by_date.get(day) or {},
+                required_factor_keys=required_factor_keys or None,
             )
             have = {str(it.get("stock_code") or "") for it in scored}
             for h in paper.get("holdings") or []:
@@ -2915,6 +2960,7 @@ def backtest_paper_replay(
             "top_k": top_k,
             "min_history": min_history,
             "max_window": max_window,
+            "required_factor_keys": list(required_factor_keys),
             "initial_cash": initial_cash,
             "cash_floor": floor,
             "rank_enter": rl_cfg.get("rank_enter"),

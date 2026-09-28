@@ -676,10 +676,11 @@ body[data-page="watching"] .watching-react-grid-cell.watching-col-score_on .watc
 }
 
 .quant-page .quant-factor-cell > .quant-factor-name {
-  min-width: 0;
-  max-width: 7.5rem;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  flex: 0 0 auto;
+  /* 完整键名（如 raw_alpha158_VSUMD60）约 20 字，勿再在 7.5rem 处省略 */
+  max-width: none;
+  overflow: visible;
+  text-overflow: unset;
   white-space: nowrap;
 }
 

@@ -536,8 +536,8 @@ export function createOlsUi(deps) {
         fit === "A"
           ? "A 强：过门且截面 IC、ICIR>0，且 ŷOOS>0"
           : fit === "B"
-            ? `B 中：OOS 过门未达强${fitInfo.reason ? " · " + fitInfo.reason : ""}`
-            : `C 弱：未过/跳过/单票/无模型${fitInfo.reason ? " · " + fitInfo.reason : ""}`;
+            ? `B 中：过门且 ŷOOS>0 未达强${fitInfo.reason ? " · " + fitInfo.reason : ""}`
+            : `C 弱：未过/ŷOOS≤0/跳过/单票/无模型${fitInfo.reason ? " · " + fitInfo.reason : ""}`;
       tags.push(
         clusterTagHtml(
           `${fit} ${fitInfo.label || ""}`.trim(),
@@ -775,8 +775,8 @@ export function createOlsUi(deps) {
           id: "factor",
           label: "因子",
           flex: true,
-          flexMin: "13.5rem",
-          flexFr: 2.1,
+          flexMin: "18rem",
+          flexFr: 2.4,
           title: "名称 + 经济族 / 来源徽章",
         },
         { id: "stockIc", label: "单票IC", widthPct: 8, num: true },

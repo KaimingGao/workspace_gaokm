@@ -10,7 +10,6 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 import numpy as np
 
 from core.signal.config import load_signal_config
-from core.signal.factors.meta.registry import registered_factor_names
 
 
 def clamp_ridge_lambda(value: Any, default: float = 0.0) -> float:
@@ -526,8 +525,24 @@ def fit_factor_ols_from_panel(
     )
 
     lam = clamp_ridge_lambda(ridge_lambda, 0.0)
-    factor_names = list(feature_names) if feature_names else list(registered_factor_names())
-    exempt_merged = min_std_exempt
+    from core.signal.factors.alpha158 import (
+        ALPHA158_FACTOR_KEY,
+        expand_ridge_feature_names,
+        is_alpha158_raw_key,
+        merge_alpha158_min_std_exempt,
+    )
+
+    if feature_names is None:
+        # 默认：注册因子 + 面板 raw_alpha158_*（去掉常数 alpha158 分）
+        factor_names = expand_ridge_feature_names(xs)
+    else:
+        factor_names = list(feature_names)
+        # 已有 raw_alpha158_* 时丢掉常数 sub_score 列，避免假中性 50 进模
+        if any(is_alpha158_raw_key(n) for n in factor_names):
+            factor_names = [
+                n for n in factor_names if str(n) != ALPHA158_FACTOR_KEY
+            ]
+    exempt_merged = merge_alpha158_min_std_exempt(factor_names, min_std_exempt)
     cfg = load_signal_config()
     current_weights = dict(cfg.get("weights") or {})
     xs_c, ys_c, active, excluded, prep_meta = _prepare_complete_panel(

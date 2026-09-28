@@ -304,11 +304,24 @@ def group_cs_ic_panel(
     horizon_days: int = 3,
     pit_fundamentals: bool = True,
     fundamentals_by_code: Optional[Dict[str, dict]] = None,
+    min_history: int = 12,
+    max_window: int = 30,
 ) -> Dict[str, Any]:
     """组内按日截面 IC → ICIR（宇宙=组员；与研究池 factor_cs_ic 同口径）。"""
     from core.backtest.factor_cs_ic import compute_factor_cross_section_ic
+    from core.signal.factors.alpha158 import (
+        ALPHA158_FACTOR_KEY,
+        bump_window_for_alpha158,
+        is_alpha158_raw_key,
+    )
 
-    names = [str(f).strip() for f in (feature_names or []) if str(f).strip()]
+    raw_names = [str(f).strip() for f in (feature_names or []) if str(f).strip()]
+    has_a158_raw = any(is_alpha158_raw_key(n) for n in raw_names)
+    names = [
+        n
+        for n in raw_names
+        if not (has_a158_raw and n == ALPHA158_FACTOR_KEY)
+    ]
     bars_map = {
         str(c): list(b)
         for c, b in (stock_bars or {}).items()
@@ -339,13 +352,19 @@ def group_cs_ic_panel(
         }
 
     min_names = 2 if n_stocks == 2 else 3
+    mh, mw = bump_window_for_alpha158(
+        names,
+        min_history=int(min_history),
+        max_window=int(max_window),
+    )
     index_bars: Optional[List[dict]] = None
     try:
         from core.data.facade import index_bars_and_source
         from core.ports.market import default_benchmark
 
         bench = str(default_benchmark("CN") or "000300")
-        ib, _ = index_bars_and_source(bench, limit=160)
+        # Alpha158 抬窗后需要更长指数对齐；默认 160 对 bump=62 仍够
+        ib, _ = index_bars_and_source(bench, limit=max(160, int(mw) + 40))
         index_bars = list(ib or []) or None
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
         logger.debug("catch except Exception: in factor_ols_clusters.py", exc_info=True)
@@ -353,8 +372,8 @@ def group_cs_ic_panel(
     out = compute_factor_cross_section_ic(
         bars_map,
         horizon_days=horizon_days,
-        min_history=12,
-        max_window=30,
+        min_history=int(mh),
+        max_window=int(mw),
         min_names=min_names,
         fundamentals_by_code=fundamentals_by_code,
         pit_fundamentals=bool(pit_fundamentals),
@@ -440,6 +459,198 @@ def group_cs_ic_panel(
     }
 
 
+def _panel_cs_pearson(xs: Sequence[float], ys: Sequence[float]) -> Optional[float]:
+    """组内日截面相关。n≥2 即可（双票组）；常数列返回 None。"""
+    n = len(xs)
+    if n < 2 or n != len(ys):
+        return None
+    mx = sum(xs) / n
+    my = sum(ys) / n
+    num = sum((x - mx) * (y - my) for x, y in zip(xs, ys))
+    den_x = math.sqrt(sum((x - mx) ** 2 for x in xs))
+    den_y = math.sqrt(sum((y - my) ** 2 for y in ys))
+    if den_x < 1e-12 or den_y < 1e-12:
+        return None
+    return num / (den_x * den_y)
+
+
+def _ic_names_with_alpha158(
+    feature_names: Sequence[str],
+    rows: Sequence[dict],
+) -> List[str]:
+    """IC 列 = 传入因子 ∪ 面板里出现过的 raw_alpha158_*；丢掉常数 alpha158 分。"""
+    from core.signal.factors.alpha158 import (
+        ALPHA158_FACTOR_KEY,
+        collect_alpha158_raw_keys_from_rows,
+        is_alpha158_raw_key,
+    )
+
+    extra = collect_alpha158_raw_keys_from_rows(rows)
+    has_raw = bool(extra) or any(
+        is_alpha158_raw_key(str(f)) for f in (feature_names or [])
+    )
+    names: List[str] = []
+    seen = set()
+    for f in list(feature_names or []) + list(extra):
+        k = str(f).strip()
+        if not k or k in seen:
+            continue
+        if has_raw and k == ALPHA158_FACTOR_KEY:
+            continue
+        seen.add(k)
+        names.append(k)
+    return names
+
+
+def group_cs_ic_from_panels(
+    panel_by_code: Dict[str, Dict[str, Any]],
+    members: Sequence[str],
+    feature_names: Sequence[str],
+    *,
+    min_names: Optional[int] = None,
+) -> Dict[str, Any]:
+    """用组员研究面板按日算截面 IC（与组 Ridge 同 X，含 raw_alpha158_*）。"""
+
+    mem = [str(c).strip() for c in (members or []) if str(c).strip()]
+    panel_rows: List[dict] = []
+    for code in mem:
+        panel_rows.extend(
+            r
+            for r in ((panel_by_code.get(code) or {}).get("xs") or [])
+            if isinstance(r, dict)
+        )
+    names = _ic_names_with_alpha158(feature_names, panel_rows)
+
+    by_date: Dict[str, List[Tuple[Dict[str, Any], float]]] = {}
+    n_with_panel = 0
+    for code in mem:
+        panel = panel_by_code.get(code) or {}
+        xs = list(panel.get("xs") or [])
+        ys = list(panel.get("ys") or [])
+        dates = list(panel.get("dates") or [])
+        n = min(len(xs), len(ys), len(dates))
+        if n <= 0:
+            continue
+        n_with_panel += 1
+        for i in range(n):
+            d = str(dates[i] or "").strip()[:10]
+            if len(d) < 10:
+                continue
+            row = xs[i]
+            if not isinstance(row, dict):
+                continue
+            try:
+                yv = float(ys[i])
+            except (TypeError, ValueError):
+                continue
+            if not math.isfinite(yv):
+                continue
+            by_date.setdefault(d, []).append((row, yv))
+
+    min_n = (
+        int(min_names)
+        if min_names is not None
+        else (2 if n_with_panel == 2 else 3)
+    )
+    if n_with_panel < 2 or not names:
+        empty_rows = [
+            {
+                "factor": name,
+                "name": name,
+                "ic": None,
+                "icir": None,
+                "sample_count": 0,
+                "exclusion_reason": "sparse",
+            }
+            for name in names
+        ]
+        return {
+            "success": True,
+            "ok": False,
+            "mode": "group_cs_ic",
+            "rows": empty_rows,
+            "factors": empty_rows,
+            "exclusion_reasons": {r["factor"]: "sparse" for r in empty_rows},
+            "stock_count": n_with_panel,
+            "min_names": min_n,
+            "source": "research_panel",
+            "note": "研究面板不足 2 票，无法做组内截面 IC",
+        }
+
+    daily_by_fac: Dict[str, List[float]] = {f: [] for f in names}
+    for d in sorted(by_date.keys()):
+        pairs = by_date[d]
+        if len(pairs) < min_n:
+            continue
+        for f in names:
+            fx: List[float] = []
+            fy: List[float] = []
+            for row, yv in pairs:
+                v = row.get(f)
+                if v is None:
+                    continue
+                try:
+                    fv = float(v)
+                except (TypeError, ValueError):
+                    continue
+                if not math.isfinite(fv):
+                    continue
+                fx.append(fv)
+                fy.append(yv)
+            if len(fx) < min_n:
+                continue
+            p = _panel_cs_pearson(fx, fy)
+            if p is not None:
+                daily_by_fac[f].append(float(p))
+
+    rows: List[Dict[str, Any]] = []
+    exclusion_reasons: Dict[str, str] = {}
+    for f in names:
+        series = daily_by_fac.get(f) or []
+        if len(series) < 3:
+            reason = "sparse"
+            exclusion_reasons[f] = reason
+            rows.append(
+                {
+                    "factor": f,
+                    "name": f,
+                    "ic": None,
+                    "icir": None,
+                    "sample_count": len(series),
+                    "exclusion_reason": reason,
+                }
+            )
+            continue
+        mean = sum(series) / len(series)
+        var = sum((x - mean) ** 2 for x in series) / len(series)
+        std = math.sqrt(var) if var > 0 else 0.0
+        icir = (mean / std) if std > 1e-12 else None
+        rows.append(
+            {
+                "factor": f,
+                "name": f,
+                "ic": round(mean, 4),
+                "icir": round(icir, 4) if icir is not None else None,
+                "sample_count": len(series),
+                "exclusion_reason": None,
+            }
+        )
+
+    return {
+        "success": True,
+        "ok": any(r.get("ic") is not None for r in rows),
+        "mode": "group_cs_ic",
+        "rows": rows,
+        "factors": rows,
+        "exclusion_reasons": exclusion_reasons,
+        "stock_count": n_with_panel,
+        "min_names": min_n,
+        "day_count": len(by_date),
+        "source": "research_panel",
+        "note": "组内截面 IC（研究面板，与组 Ridge 同 X；含 raw_alpha158_*）",
+    }
+
+
 def _member_bars_and_funds(
     members: Sequence[str],
     panel_by_code: Dict[str, Dict[str, Any]],
@@ -469,9 +680,27 @@ def _cluster_factor_ic_panel(
     all_xs: Sequence[Dict[str, Any]],
     all_ys: Sequence[float],
 ) -> Dict[str, Any]:
-    """多票组：组内日截面 IC→ICIR；单票组：时序 IC 回退。"""
+    """多票组：组内日截面 IC→ICIR；单票组：时序 IC 回退。
+
+    优先用研究面板（与 Ridge 同 X），避免 CS IC 短窗重打分导致 Alpha158 全缺测。
+    """
     if len(members) < 2:
-        return group_ts_ic_panel(all_xs, all_ys, feature_names)
+        # 单票组也要把面板里的 raw_alpha158_* 列入，否则系数有 β、IC 列显示未算
+        names = _ic_names_with_alpha158(feature_names, list(all_xs or []))
+        return group_ts_ic_panel(all_xs, all_ys, names or feature_names)
+    panel_ic = group_cs_ic_from_panels(panel_by_code, members, feature_names)
+    rows = panel_ic.get("rows") or []
+    # 研究面板已有 raw_alpha158_* 时禁止退回短窗重打分：重打分读不到 raw 列，
+    # 表上会整片「缺测」，没进名单的列再被 UI 标成「未算」。
+    has_a158 = any(
+        str(r.get("factor") or "").startswith("raw_alpha158_") for r in rows
+    )
+    if (
+        panel_ic.get("ok")
+        or has_a158
+        or any(int(r.get("sample_count") or 0) > 0 for r in rows)
+    ):
+        return panel_ic
     bars_map, funds = _member_bars_and_funds(members, panel_by_code)
     return group_cs_ic_panel(
         bars_map,
@@ -1387,6 +1616,8 @@ def compute_factor_ols_cluster_report(
     progress_cb: Optional[Any] = None,
     max_workers: int = 8,
     holdout_trading_days: int = 10,
+    min_history: int = 12,
+    max_window: int = 30,
 ) -> Dict[str, Any]:
     """逐票 OLS → β 聚类 → 组内池 OLS + 小步权。
 
@@ -1449,6 +1680,8 @@ def compute_factor_ols_cluster_report(
         xs, ys, dates = collect_subscore_forward_panel(
             bars,
             horizon_days=horizon_days,
+            min_history=int(min_history),
+            max_window=int(max_window),
             index_bars=item.get("index_bars"),
             fundamentals=item.get("fundamentals"),
             stock_code=code,

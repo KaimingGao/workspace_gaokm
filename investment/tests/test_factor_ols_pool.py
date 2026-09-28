@@ -17,10 +17,14 @@ from quant.services.quant_interpret import build_rule_based_interpret, compact_q
 
 
 
+# Alpha158 抬窗后研究面板需 ≥90 根，才够 MIN_CLUSTER_OBS / OLS 样本
+_OLS_BARS_N = 100
+
+
 class TestFactorOlsPool(unittest.TestCase):
     def test_pooled_report_stacks_two_stocks(self):
-        bars_a = rising_bars(45)
-        bars_b = rising_bars(45)
+        bars_a = rising_bars(_OLS_BARS_N)
+        bars_b = rising_bars(_OLS_BARS_N)
         # 轻微扰动第二只，避免完全共线
         for i, row in enumerate(bars_b):
             row["close"] = float(row["close"]) * (1.0 + 0.001 * (i % 7))
@@ -47,7 +51,7 @@ class TestFactorOlsPool(unittest.TestCase):
         self.assertEqual(out.get("task"), "factor_ols_pool")
 
     def test_single_report_still_works(self):
-        report = compute_factor_ols_report(rising_bars(45), horizon_days=3, min_history=12)
+        report = compute_factor_ols_report(rising_bars(_OLS_BARS_N), horizon_days=3, min_history=12)
         self.assertTrue(report.get("success"))
         self.assertEqual(report.get("mode"), "single")
         self.assertEqual(report.get("task"), "factor_ols")
@@ -55,7 +59,7 @@ class TestFactorOlsPool(unittest.TestCase):
         self.assertIsInstance(report["exclusion_reasons"], dict)
 
     def test_exclusion_reasons_for_constant_factor(self):
-        from quant.research.factor_ols import _exclusion_reasons_map
+        from core.research.factor_ols_fit import _exclusion_reasons_map
 
         reasons = _exclusion_reasons_map(
             {
@@ -142,7 +146,7 @@ class TestFactorOlsPool(unittest.TestCase):
         self.assertEqual(data.get("mode"), "watching_pooled")
 
     def test_interpret_includes_factor_ols(self):
-        ols = compute_factor_ols_report(rising_bars(45), horizon_days=3, min_history=12)
+        ols = compute_factor_ols_report(rising_bars(_OLS_BARS_N), horizon_days=3, min_history=12)
         self.assertTrue(ols.get("success"))
         compact = compact_quant_report({"success": True, "factor_ols": ols})
         self.assertIn("factor_ols", compact)
@@ -157,7 +161,9 @@ class TestFactorOlsPool(unittest.TestCase):
         """全量注册因子应出现在面板（不因 regime 白名单整列变 None）。"""
         from quant.research.factor_ols import collect_subscore_forward_panel
 
-        xs, ys, _dates = collect_subscore_forward_panel(rising_bars(50), horizon_days=3)
+        xs, ys, _dates = collect_subscore_forward_panel(
+            rising_bars(_OLS_BARS_N), horizon_days=3
+        )
         self.assertGreater(len(ys), 10)
         # 扩展因子在价量 mock 上应有观测（非 regime 导致的全缺测）
         for name in ("technical_pattern", "ma_slope", "gap_risk", "amihud"):
@@ -165,7 +171,9 @@ class TestFactorOlsPool(unittest.TestCase):
             self.assertGreater(present, 0, f"{name} should not be all-missing")
 
     def test_fit_marks_standardized(self):
-        report = compute_factor_ols_report(rising_bars(50), horizon_days=3, min_history=12)
+        report = compute_factor_ols_report(
+            rising_bars(_OLS_BARS_N), horizon_days=3, min_history=12
+        )
         self.assertTrue(report.get("success"), report.get("error"))
         self.assertTrue(report.get("standardized"))
         self.assertIn("z-score", (report.get("note") or "").lower())

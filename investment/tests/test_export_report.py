@@ -384,7 +384,7 @@ class TestP80CrossSectionExportSection(unittest.TestCase):
 # --- test_p91_quant.py::TestP91FactorOlsExport ---
 class TestP91FactorOlsExport(unittest.TestCase):
     def _report(self):
-        bars = rising_bars(45)
+        bars = rising_bars(100)
         ols = compute_factor_ols_report(bars, horizon_days=3, min_history=12)
         return {"success": True, "factor_ols": ols}
     def test_build_factor_ols_export_section(self):

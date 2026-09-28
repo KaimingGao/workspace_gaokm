@@ -2730,5 +2730,112 @@ class TestReplayPrefixYoc(unittest.TestCase):
         self.assertEqual(int((out.get("constraints_hit") or {}).get("tau_prefix_rescored") or 0), 0)
 
 
+class TestReplayAlpha158Align(unittest.TestCase):
+    def test_required_keys_from_return_models(self):
+        from core.backtest.paper_replay import _required_factor_keys_from_return_models
+        from core.signal.return_score import ReturnScoreModel
+
+        m = ReturnScoreModel(
+            intercept=0.0,
+            coefficients={
+                "momentum": 0.1,
+                "raw_alpha158_KMID": 0.02,
+                "raw_alpha158_ROC5": -0.01,
+            },
+        )
+        keys = _required_factor_keys_from_return_models({"600519": m}, None)
+        self.assertIn("momentum", keys)
+        self.assertIn("raw_alpha158_KMID", keys)
+        self.assertIn("raw_alpha158_ROC5", keys)
+
+    def test_score_open_day_passes_required_keys(self):
+        from core.backtest.paper_replay import _score_open_day
+        from tests.test_signal import _overheated_bars
+
+        bars = _overheated_bars()
+        dates = [str(b["date"]) for b in bars]
+        date_maps = {"600869": {str(b["date"]): b for b in bars}}
+        captured = {}
+
+        def _fake_item(code, window, **kwargs):
+            captured["required_factor_keys"] = kwargs.get("required_factor_keys")
+            captured["window_n"] = len(window)
+            return {
+                "stock_code": code,
+                "sub_scores": {"momentum": 55.0},
+                "score": 55.0,
+            }
+
+        with patch(
+            "core.signal.cross_section_batch.score_window_as_item",
+            side_effect=_fake_item,
+        ):
+            with patch(
+                "core.backtest.paper_replay._attach_open_yhat_heads",
+                side_effect=lambda entries, **_kw: list(entries),
+            ):
+                _score_open_day(
+                    stock_bars={"600869": bars},
+                    dates=dates,
+                    date_maps=date_maps,
+                    day_i=len(dates) - 1,
+                    max_window=62,
+                    horizon_days=1,
+                    cfg=None,
+                    required_factor_keys=["raw_alpha158_KMID", "momentum"],
+                )
+        keys = set(captured.get("required_factor_keys") or [])
+        self.assertIn("raw_alpha158_KMID", keys)
+        self.assertIn("momentum", keys)
+        self.assertGreaterEqual(int(captured.get("window_n") or 0), 2)
+
+    def test_backtest_bumps_window_when_model_has_alpha158(self):
+        from core.signal.factors.alpha158 import ALPHA158_PANEL_WINDOW
+        from core.signal.return_score import ReturnScoreModel
+
+        model = ReturnScoreModel(
+            intercept=0.0,
+            coefficients={"raw_alpha158_KMID": 0.05, "momentum": 0.1},
+        )
+        # 足够长的日线：lookback 核心 + Alpha158 垫窗
+        n = 90
+        stock_bars = {
+            "600519": _bars(n, step=0.5),
+            "600036": _bars(n, step=0.3),
+        }
+        with _offline_rebalance_patches():
+            with patch(
+                "core.backtest.paper_replay._load_replay_cluster_models",
+                return_value={},
+            ):
+                with patch(
+                    "core.backtest.paper_replay._load_replay_global_model",
+                    return_value=model,
+                ):
+                    with patch(
+                        "core.backtest.paper_replay._score_open_day",
+                        return_value=[],
+                    ) as scored:
+                        out = backtest_paper_replay(
+                            stock_bars,
+                            top_k=2,
+                            min_history=12,
+                            max_window=30,
+                            lookback=20,
+                            cost_model="zero",
+                            include_session_day=False,
+                        )
+        self.assertTrue(out.get("success"), out.get("error"))
+        self.assertEqual(int(out["params"]["max_window"]), ALPHA158_PANEL_WINDOW)
+        self.assertEqual(int(out["params"]["min_history"]), ALPHA158_PANEL_WINDOW)
+        self.assertIn(
+            "raw_alpha158_KMID", out["params"].get("required_factor_keys") or []
+        )
+        self.assertTrue(scored.called)
+        kw = scored.call_args.kwargs
+        self.assertEqual(int(kw.get("max_window") or 0), ALPHA158_PANEL_WINDOW)
+        self.assertIn("raw_alpha158_KMID", kw.get("required_factor_keys") or [])
+
+
 if __name__ == "__main__":
     unittest.main()

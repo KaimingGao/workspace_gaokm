@@ -6,6 +6,7 @@ import logging
 logger = logging.getLogger(__name__)
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
+from core.signal.factors.alpha158 import score_alpha158
 from core.signal.factors.alt_sentiment import score_alt_sentiment
 from core.signal.factors.amihud import score_amihud
 from core.signal.factors.dividend import score_dividend
@@ -157,6 +158,10 @@ def _compute_tail_anomaly(bars, *, minute_bars=None, config=None, **_kw):
     )
 
 
+def _compute_alpha158(bars, **_kw):
+    return score_alpha158(bars)
+
+
 _register(
     "momentum",
     "动量",
@@ -295,6 +300,12 @@ _register(
     _compute_tail_anomaly,
     "尾盘成交量占比与价格斜率：放量下行降分，疑似聪明资金抢跑。",
 )
+_register(
+    "alpha158",
+    "Alpha158因子集",
+    _compute_alpha158,
+    "微软 Qlib Alpha158 158 个 OHLCV 衍生因子（kbar+price+rolling），sub_score 不加权，仅暴露 raw_alpha158_* 字段供 Ridge/LightGBM/LambdaRank 消费。",
+)
 
 def list_factors(*, include_meta: bool = False) -> List[Dict[str, str]]:
     """列出注册因子；include_meta=True 时附 FM1 sourced/proxy 状态。"""
@@ -366,10 +377,14 @@ def compute_configured_factors(
     """按 weights 键计算子分；``required_keys`` 即使权为 0 也算（ŷ β 同构，FS0）。"""
     wmap = dict(weights or {})
     skip = {str(x).strip() for x in (skip_factors or []) if str(x).strip()}
+    required = {str(x).strip() for x in (required_keys or []) if str(x).strip()}
     for key in required_keys or []:
         k = str(key or "").strip()
         if k and k not in wmap and k in _REGISTRY:
             wmap[k] = 0.0
+        # FS0：Ridge β 用 raw_alpha158_* 时，触发计算 alpha158 并注入 raw 列
+        if k.startswith("raw_alpha158_") and "alpha158" in _REGISTRY and "alpha158" not in wmap:
+            wmap["alpha158"] = 0.0
     sub_scores: Dict[str, float] = {}
     contribs: Dict[str, float] = {}
     meta: Dict[str, Any] = {}
@@ -386,7 +401,6 @@ def compute_configured_factors(
         except (TypeError, ValueError):
             w = 0.0
         # 可选因子：权≈0 且非 required 时可跳过
-        required = set(str(x).strip() for x in (required_keys or []) if str(x).strip())
         if abs(w) < 1e-12 and name_fac not in required and name_fac in (
             "alt_sentiment",
             "llm_sentiment",
@@ -419,6 +433,23 @@ def compute_configured_factors(
         meta.update(fac_meta or {})
         # 缺输入（如规模无市值）：不进 sub_scores，ŷ 跳过该项，禁止假中性 50 进 z-score
         if isinstance(fac_meta, dict) and fac_meta.get("omit_sub_score"):
+            # Alpha158 / FS0：omit 的常数分不进加权，但 raw_* 供 Ridge β
+            need_raw = name_fac == "alpha158" or any(
+                str(r).startswith(f"raw_{name_fac}_") for r in required
+            )
+            if need_raw:
+                for mk, mv in fac_meta.items():
+                    if mk in ("omit_sub_score", "ok"):
+                        continue
+                    if str(mk).startswith(f"{name_fac}_"):
+                        continue  # alpha158_insufficient_history 等标记
+                    if isinstance(mv, (int, float)) and not isinstance(mv, bool):
+                        try:
+                            fv = float(mv)
+                        except (TypeError, ValueError):
+                            continue
+                        if fv == fv:  # not NaN
+                            sub_scores[f"raw_{name_fac}_{mk}"] = fv
             continue
         sub_scores[name_fac] = round(score, 1)
         contribs[name_fac] = round(w * score, 2)

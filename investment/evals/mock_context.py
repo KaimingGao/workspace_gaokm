@@ -50,6 +50,9 @@ def resolve_daily_bars(spec: Any) -> Tuple[List[dict], str]:
         return [], "mock_empty"
     if spec == "rising_45":
         return rising_bars(45), "mock_daily"
+    if spec in ("rising_100", "rising_ols"):
+        # Alpha158 抬窗后研究 OLS 面板需要更长序列
+        return rising_bars(100), "mock_daily"
     if spec == "rising_21":
         return rising_bars(21), "mock_daily"
     if spec == "half_rise_21":

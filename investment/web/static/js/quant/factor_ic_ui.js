@@ -307,8 +307,8 @@ export function createFactorIcUi(deps) {
           id: "factor",
           label: "因子",
           flex: true,
-          flexMin: "13.5rem",
-          flexFr: 2.1,
+          flexMin: "18rem",
+          flexFr: 2.4,
           title: "名称 + 经济族 / 来源徽章",
         },
         {

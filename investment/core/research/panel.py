@@ -49,7 +49,10 @@ def _research_sub_scores(
                 for mk, mv in fac_meta.items():
                     if mk in ("omit_sub_score", "ok"):
                         continue
-                    if isinstance(mv, (int, float)):
+                    # 跳过 alpha158_insufficient_history 等标记（bool 也是 int）
+                    if str(mk).startswith(f"{key}_"):
+                        continue
+                    if isinstance(mv, (int, float)) and not isinstance(mv, bool):
                         row[f"raw_{key}_{mk}"] = float(mv)
                     elif mv is not None:
                         # 非数值（如 rs_source="index"）跳过
@@ -136,6 +139,13 @@ def collect_subscore_forward_panel(
         index_bars=index_bars,
         config=config,
         respect_macro_regime=respect_macro_regime,
+    )
+    from core.signal.factors.alpha158 import bump_window_for_alpha158
+
+    min_history, max_window = bump_window_for_alpha158(
+        factor_names,
+        min_history=min_history,
+        max_window=max_window,
     )
     fund_cache: Dict[str, Optional[dict]] = {}
     sent_cache: Dict[str, Optional[dict]] = {}
