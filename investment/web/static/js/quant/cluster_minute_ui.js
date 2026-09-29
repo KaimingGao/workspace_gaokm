@@ -20,6 +20,7 @@ export function installClusterMinuteUi(q) {
   const repairBtn = document.getElementById("quant-cluster-minute-repair");
   const kpiOk = document.getElementById("quant-minute-kpi-ok");
   const TOPUP_LOOKBACK_DAYS = 5;
+  const TOPUP_WORKERS = 4;
   const kpiOkSub = document.getElementById("quant-minute-kpi-ok-sub");
   const kpiSpan = document.getElementById("quant-minute-kpi-span");
   const kpiSpanSub = document.getElementById("quant-minute-kpi-span-sub");
@@ -57,7 +58,7 @@ export function installClusterMinuteUi(q) {
   const FETCH_DELAY_SEC = 20;
   const SINA_TX_HINT = "stock_zh_a_minute（约1970根·5m）";
   const FULL_WARMUP_HINT =
-    `逐只串行 · 东财主窗 ${LOOKBACK_DAYS} 日历日 · 东财空才打${SINA_TX_HINT} · 有数跳过 BaoStock · 各源间隔 ${FETCH_DELAY_SEC}s`;
+    `逐只串行 · 子进程单票≤90s（超时 kill 继续） · 东财主窗 ${LOOKBACK_DAYS} 日历日 · 东财空才打${SINA_TX_HINT} · 有数跳过 BaoStock · 各源间隔 ${FETCH_DELAY_SEC}s`;
   const FULL_WARMUP_HINT_RUNNING =
     `${FULL_WARMUP_HINT} · Ready% 为近 ${MIN_SPAN_DAYS} 个交易日无缺（≠ Job 进度）`;
 
@@ -112,17 +113,19 @@ export function installClusterMinuteUi(q) {
     if (sum.bootstrapped != null && Number(sum.bootstrapped) > 0) {
       bits.push(`全窗 ${sum.bootstrapped}`);
     }
+    if (Number(sum.timed_out) > 0) bits.push(`超时 ${sum.timed_out}`);
     const topup = isTopupSummary(sum);
+    const hasTimeout = Number(sum.timed_out) > 0;
     paintClusterJobPanel(progressEl, {
-      phase: topup ? "增量完成" : "强更完成",
+      phase: topup ? "增量完成" : hasTimeout ? "强更完成（有超时）" : "强更完成",
       job,
       esc,
       mode: "done",
       hint:
         bits.length
-          ? bits.join(" · ")
+          ? bits.join(" · ") + (hasTimeout ? " · 超时票已 skip，其余继续" : "")
           : topup
-            ? `增量补齐 · 近 ${TOPUP_LOOKBACK_DAYS} 日 · 约 4 并发`
+            ? `增量补齐 · 近 ${TOPUP_LOOKBACK_DAYS} 日 · 子进程隔离 · ${TOPUP_WORKERS} 并发`
             : FULL_WARMUP_HINT,
     });
   }
@@ -173,7 +176,7 @@ export function installClusterMinuteUi(q) {
       esc,
       mode: "running",
       hint: topup
-        ? `今日已拉跳过 · 对齐跳过 · 近 ${TOPUP_LOOKBACK_DAYS} 日 merge · ${SINA_TX_HINT} · 约 4 并发 · 缺/短才打东财`
+        ? `今日已拉跳过 · 对齐跳过 · 近 ${TOPUP_LOOKBACK_DAYS} 日 merge · 子进程隔离 · ${SINA_TX_HINT} · ${TOPUP_WORKERS} 并发 · 缺/短才打东财`
         : FULL_WARMUP_HINT_RUNNING,
     });
   }

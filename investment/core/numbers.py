@@ -53,8 +53,7 @@ def now_iso_utc() -> str:
     """UTC ISO 8601 紧凑时间戳（带 Z 后缀）。
 
     原分散于：quant/research/cluster_pool_artifact.py · core/live_config_manifest.py
-              core/signal/cluster/live.py · core/signal/cluster/pointer.py
-              core/signal/cluster/live_audit.py
+              （~~core/signal/cluster/*~~ 已退役删除）
     """
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 

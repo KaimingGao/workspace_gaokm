@@ -37,6 +37,7 @@ def _last_bar_date_for_code(code: str) -> Optional[str]:
 
 def build_cluster_bars_status(*, watching_limit: int = WATCHING_MAX_SIZE) -> Dict[str, Any]:
     """汇总观察池截断后的日线末 bar 覆盖。"""
+    from core.market.calendar import prev_trading_day
     from quant.research.cluster_bars_daily import (
         cluster_bars_session_date,
         needs_force_latest_bars,
@@ -68,13 +69,25 @@ def build_cluster_bars_status(*, watching_limit: int = WATCHING_MAX_SIZE) -> Dic
     stale = 0
     missing = 0
     date_counts: Dict[str, int] = {}
+    lag_counts: Dict[int, int] = {}
     last_min = ""
     last_max = ""
+
+    def _trading_lag(last: str, expect: str) -> int:
+        if not last or not expect or last >= expect:
+            return 0
+        n = 0
+        d = expect
+        while d and d > last and n < 30:
+            d = str(prev_trading_day(d) or "")[:10]
+            n += 1
+        return n
 
     for code in codes:
         lb = _last_bar_date_for_code(code)
         if not lb:
             missing += 1
+            lag_counts[-1] = lag_counts.get(-1, 0) + 1
             continue
         date_counts[lb] = date_counts.get(lb, 0) + 1
         if not last_min or lb < last_min:
@@ -83,8 +96,11 @@ def build_cluster_bars_status(*, watching_limit: int = WATCHING_MAX_SIZE) -> Dic
             last_max = lb
         if expected and lb >= expected:
             at_expected += 1
+            lag_counts[0] = lag_counts.get(0, 0) + 1
         else:
             stale += 1
+            lag = _trading_lag(lb, expected) if expected else 1
+            lag_counts[lag] = lag_counts.get(lag, 0) + 1
 
     total = len(codes)
     coverage_ok = bool(total) and stale == 0 and missing == 0
@@ -106,6 +122,16 @@ def build_cluster_bars_status(*, watching_limit: int = WATCHING_MAX_SIZE) -> Dic
         backend = bars_backend()
     except Exception:  # noqa: BLE001
         backend = "unknown"
+
+    lag_distribution = [
+        {
+            "lag": int(k),
+            "label": "Missing" if int(k) < 0 else ("齐" if int(k) == 0 else f"缺{int(k)}"),
+            "count": int(v),
+        }
+        for k, v in sorted(lag_counts.items(), key=lambda x: (x[0] < 0, x[0]))
+        if v
+    ]
 
     return {
         "success": True,
@@ -134,6 +160,7 @@ def build_cluster_bars_status(*, watching_limit: int = WATCHING_MAX_SIZE) -> Dic
         "bar_fields": ["open", "high", "low", "close", "volume"],
         "as_of_rule": "trading_day_before_1505_prev",
         "date_distribution": [{"date": d, "count": c} for d, c in dist],
+        "lag_distribution": lag_distribution,
         "forced_marker": marker if marker else None,
         "refresh_job": _bars_refresh_job_snapshot(),
     }
@@ -159,12 +186,12 @@ def refresh_cluster_bars_only(
     """仅更新观察池日线，不跑 OLS 分组。
 
     ``mode=topup``：强制增量对齐最新（日常）；``mode=full``：整窗重拉（仓坏/复权问题兜底）。
+    只对「未齐 as-of / 无仓」走进程池并行拉取，避免主进程 ak_lock 把 4 线程串成单通道后 360s 超时。
     """
     from quant.research.cluster_bars_daily import (
         cluster_bars_session_date,
         mark_force_latest_bars_done,
     )
-    from quant.research.cluster_panels import build_cluster_ols_panels
     from quant.research.watching_universe import clamp_watching_limit, merge_cluster_universe
 
     limit = clamp_watching_limit(watching_limit, WATCHING_MAX_SIZE)
@@ -200,6 +227,7 @@ def refresh_cluster_bars_only(
         }
 
     bars_session = cluster_bars_session_date()
+    expected = expected_latest_daily_bar_date()
 
     def _on_progress(msg: str, cur: int = 0, tot: int = 0) -> None:
         if not progress_cb:
@@ -209,24 +237,97 @@ def refresh_cluster_bars_only(
         except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
             logger.debug("catch except Exception: in cluster_bars_status.py", exc_info=True)
 
-    built = build_cluster_ols_panels(
-        codes,
-        lookback=lb,
-        pit_fundamentals=False,
-        code_roles=dict(uni.get("code_roles") or {}),
-        progress_cb=_on_progress,
-        refresh_bars=False,
-        force_latest_bars=not do_full,
-        full_window_bars=do_full,
-    )
-    bars_refresh = dict(built.get("bars_refresh") or {})
-    bars_refresh["manual_refresh"] = True
-    bars_refresh["session_date"] = bars_session
-    bars_refresh["mode"] = mode_s
+    need: List[str] = []
+    aligned_n = 0
+    if do_full:
+        need = list(codes)
+    else:
+        for code in codes:
+            lb_date = _last_bar_date_for_code(code)
+            if not lb_date or (expected and lb_date < expected):
+                need.append(code)
+            else:
+                aligned_n += 1
+
+    remote_n = 0
+    failed_n = 0
+    chunk = 32
+    n_need = len(need)
+    if n_need:
+        _on_progress(
+            f"拉日线缺口 0/{n_need}（已齐 {aligned_n} · 进程池并行）",
+            aligned_n,
+            n_codes,
+        )
+        try:
+            from core.data.service import get_research_service
+
+            svc = get_research_service()
+        except Exception:  # noqa: BLE001
+            logger.exception("research service unavailable for bars refresh")
+            svc = None
+
+        if svc is not None:
+            for i in range(0, n_need, chunk):
+                part = need[i : i + chunk]
+                try:
+                    packs = svc.get_bars_batch(
+                        part,
+                        limit=lb + 35,
+                        cache_max_age_hours=0,
+                        incremental=not do_full,
+                        timeout=60.0,
+                    )
+                except Exception:  # noqa: BLE001
+                    logger.exception("bars batch refresh failed at offset %s", i)
+                    packs = []
+                    failed_n += len(part)
+                for code, pack in zip(part, packs or []):
+                    if not isinstance(pack, dict):
+                        failed_n += 1
+                        continue
+                    src = str(pack.get("data_source") or "")
+                    bars = pack.get("bars") or []
+                    if bars and (
+                        "akshare" in src
+                        or "baostock" in src
+                        or (src and not src.startswith("cache"))
+                    ):
+                        remote_n += 1
+                    elif not bars:
+                        failed_n += 1
+                done_need = min(i + len(part), n_need)
+                _on_progress(
+                    f"拉日线缺口 {done_need}/{n_need}（远端 {remote_n} · 失败 {failed_n} · 已齐 {aligned_n}）",
+                    aligned_n + done_need,
+                    n_codes,
+                )
+        else:
+            failed_n = n_need
+    else:
+        _on_progress(f"日线已齐 as-of {expected or '—'}（{aligned_n}/{n_codes}）", n_codes, n_codes)
+
+    bars_refresh = {
+        "requested": True,
+        "force_latest": not do_full,
+        "full_window": do_full,
+        "mode": mode_s,
+        "remote_count": int(remote_n),
+        "total": int(n_codes),
+        "cache_count": int(aligned_n),
+        "gap_count": int(n_need),
+        "failed_count": int(failed_n),
+        "note": (
+            f"{'整窗强更' if do_full else '增量补齐到最新'}（缺口 {n_need} · 远端 {remote_n} · 已齐 {aligned_n}）"
+        ),
+        "manual_refresh": True,
+        "session_date": bars_session,
+        "pool": "process",
+    }
     mark_force_latest_bars_done(
         session_date=bars_session,
-        remote_count=int(bars_refresh.get("remote_count") or 0),
-        total=int(bars_refresh.get("total") or n_codes),
+        remote_count=int(remote_n),
+        total=int(n_codes),
     )
     status = build_cluster_bars_status(watching_limit=limit)
     return {

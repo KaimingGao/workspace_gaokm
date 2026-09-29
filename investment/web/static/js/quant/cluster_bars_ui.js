@@ -82,6 +82,7 @@ export function installClusterBarsUi(q) {
       total: null,
       remote: null,
       cache: null,
+      failed: null,
       elapsedSec: null,
       remainSec: null,
       workers: null,
@@ -91,7 +92,9 @@ export function installClusterBarsUi(q) {
     if (/排队|提交/.test(msg)) out.phase = "queue";
     else if (/指数/.test(msg)) out.phase = "index";
     else if (/超时收尾/.test(msg)) out.phase = "timeout";
+    else if (/已齐 as-of/.test(msg)) out.phase = "done";
     else if (/完成|已对齐|Coverage/.test(msg) && !/拉日线/.test(msg)) out.phase = "done";
+    else if (/拉日线缺口/.test(msg)) out.phase = "gap";
     else if (/拉日线\s*0\//.test(msg) && /上限|并发/.test(msg)) out.phase = "start";
 
     const frac = msg.match(/(\d+)\s*\/\s*(\d+)/);
@@ -101,8 +104,10 @@ export function installClusterBarsUi(q) {
     }
     const remote = msg.match(/远端\s*(\d+)/);
     if (remote) out.remote = Number(remote[1]);
-    const cache = msg.match(/缓存\s*(\d+)/);
+    const cache = msg.match(/(?:缓存|已齐)\s*(\d+)/);
     if (cache) out.cache = Number(cache[1]);
+    const failed = msg.match(/失败\s*(\d+)/);
+    if (failed) out.failed = Number(failed[1]);
     const elapsed = msg.match(/(\d+)\s*s(?!\s*·)/) || msg.match(/·\s*(\d+)s/);
     const elapsed2 = msg.match(/(\d+)s\s*·/);
     if (elapsed2) out.elapsedSec = Number(elapsed2[1]);
@@ -124,6 +129,8 @@ export function installClusterBarsUi(q) {
         return "拉指数";
       case "start":
         return "启动";
+      case "gap":
+        return "补缺口";
       case "timeout":
         return "超时收尾";
       case "done":
@@ -155,14 +162,21 @@ export function installClusterBarsUi(q) {
     const cache =
       parsed.cache != null
         ? parsed.cache
-        : remote != null && done != null
+        : remote != null && done != null && parsed.phase !== "gap"
           ? Math.max(0, done - remote)
           : null;
     const facts = [];
     if (remote != null) facts.push(`远端 <strong>${remote}</strong>`);
     // 0/N 启动瞬间 done=0 会算出「缓存命中 0」，像没吃到本地仓；有完成票再报
     if (cache != null && Number(done) > 0) {
-      facts.push(`缓存命中 <strong>${cache}</strong>`);
+      facts.push(
+        parsed.phase === "gap"
+          ? `已齐 <strong>${cache}</strong>`
+          : `缓存命中 <strong>${cache}</strong>`
+      );
+    }
+    if (parsed.failed != null && Number(parsed.failed) > 0) {
+      facts.push(`失败 <strong>${parsed.failed}</strong>`);
     }
     if (etaSec != null && parsed.phase !== "timeout") {
       facts.push(`ETA <strong>~${fmtDuration(etaSec)}</strong>`);
@@ -188,7 +202,9 @@ export function installClusterBarsUi(q) {
     const sum = job?.result_summary || lastPolledJob?.result?.bars_refresh || {};
     const bits = [];
     if (sum.remote_count != null) bits.push(`远端 ${sum.remote_count}/${sum.total ?? "—"}`);
-    if (sum.cache_count != null) bits.push(`缓存 ${sum.cache_count}`);
+    if (sum.gap_count != null) bits.push(`缺口 ${sum.gap_count}`);
+    if (sum.cache_count != null) bits.push(`已齐 ${sum.cache_count}`);
+    if (Number(sum.failed_count) > 0) bits.push(`失败 ${sum.failed_count}`);
     const topup = isTopupSummary(sum);
     paintClusterJobPanel(progressEl, {
       phase: topup ? "增量完成" : "强更完成",
@@ -198,8 +214,8 @@ export function installClusterBarsUi(q) {
       hint: bits.length
         ? bits.join(" · ")
         : topup
-          ? "缺口增量 merge · 4 路并发 · 到批上限会超时收尾"
-          : "整窗重拉 · 4 路并发 · 到批上限会超时收尾",
+          ? "只拉未齐 as-of · 进程池并行 · 单票 60s"
+          : "整窗重拉 · 进程池并行 · 单票 60s",
     });
   }
 
@@ -258,8 +274,8 @@ export function installClusterBarsUi(q) {
       mode: "running",
       isWarn: warn,
       hint: topup
-        ? "已齐 as-of 走本地 · 缺口增量 merge · 约 4 并发"
-        : "整窗重拉 · 仓坏/复权兜底 · 约 4 并发",
+        ? "已齐 as-of 走本地 · 缺口进程池并行 · 单票 60s"
+        : "整窗重拉 · 进程池并行 · 单票 60s",
       extraFacts: barsParsedFacts(parsed, pollStartedAt),
     });
   }
@@ -472,8 +488,15 @@ export function installClusterBarsUi(q) {
     const expected = data.expected_latest_bar || "";
     const total = Number(data.universe_count) || 0;
     const span = Number(data.last_bar_span_days) || 0;
+    const lags = Array.isArray(data.lag_distribution) ? data.lag_distribution : [];
     if (distMeta) {
-      if (span <= 0 && expected) {
+      const lagBits = lags
+        .filter((r) => Number(r.count) > 0 && Number(r.lag) !== 0)
+        .map((r) => `${r.label || `缺${r.lag}`} ${r.count}`)
+        .slice(0, 4);
+      if (lagBits.length) {
+        distMeta.textContent = `as-of ${expected || "—"} · ${lagBits.join(" · ")}`;
+      } else if (span <= 0 && expected) {
         distMeta.textContent = `齐至 ${expected} · 柱长=占比`;
       } else if (span > 0) {
         distMeta.textContent = `Δ${span}d · Top 6 · 柱长=占比`;
@@ -482,21 +505,41 @@ export function installClusterBarsUi(q) {
       }
     }
 
-    const rows = [...(data.date_distribution || [])].map((row) => {
-      const missing = !!row.missing;
-      const date = missing ? "Missing" : String(row.date || "—");
-      let state = "";
-      if (missing) state = "is-bad";
-      else if (expected && date === expected) state = "is-ok";
-      else if (expected && date < expected) state = "is-warn";
-      return {
-        label: date,
-        count: Number(row.count) || 0,
-        state,
-        title: missing ? "Missing cache" : date,
-        universeTotal: total,
-      };
-    });
+    // 优先画交易日缺口分桶（缺1 / 缺2），否则回退末 bar 日期分布
+    let rows;
+    if (lags.length) {
+      rows = lags.map((row) => {
+        const lag = Number(row.lag);
+        const label = String(row.label || (lag < 0 ? "Missing" : lag === 0 ? "齐" : `缺${lag}`));
+        let state = "";
+        if (lag < 0) state = "is-bad";
+        else if (lag === 0) state = "is-ok";
+        else state = "is-warn";
+        return {
+          label,
+          count: Number(row.count) || 0,
+          state,
+          title: lag > 0 ? `落后 ${lag} 个交易日` : label,
+          universeTotal: total,
+        };
+      });
+    } else {
+      rows = [...(data.date_distribution || [])].map((row) => {
+        const missing = !!row.missing;
+        const date = missing ? "Missing" : String(row.date || "—");
+        let state = "";
+        if (missing) state = "is-bad";
+        else if (expected && date === expected) state = "is-ok";
+        else if (expected && date < expected) state = "is-warn";
+        return {
+          label: date,
+          count: Number(row.count) || 0,
+          state,
+          title: missing ? "Missing cache" : date,
+          universeTotal: total,
+        };
+      });
+    }
     if (Number(data.missing) > 0 && !rows.some((r) => r.label === "Missing")) {
       rows.push({
         label: "Missing",
@@ -508,7 +551,7 @@ export function installClusterBarsUi(q) {
     }
     renderBarRows(distHost, rows, {
       emptyText: "暂无分布（观察池为空或未拉取）",
-      head: barRowsHead("Last bar", "Share", "N"),
+      head: barRowsHead(lags.length ? "Lag" : "Last bar", "Share", "N"),
     });
   }
 

@@ -20,6 +20,16 @@ _SLOT_STALE_POLICY: Dict[str, Dict[str, Any]] = {
         "stuck_start_sec": 600.0,
         "label": "对话任务",
     },
+    "cluster-bars-refresh": {
+        "stale_sec": 480.0,
+        "stuck_start_sec": 420.0,
+        "label": "日线更新",
+    },
+    "cluster-minute-refresh": {
+        "stale_sec": 900.0,
+        "stuck_start_sec": 600.0,
+        "label": "分钟线预热",
+    },
     "quant-ols-clusters": {
         "stale_sec": 600.0,
         "stuck_start_sec": 360.0,
@@ -142,67 +152,47 @@ class JobProgress:
             # 结果可能很大；落盘保留摘要字段，完整 result 仍在内存供同进程轮询
             result = payload.get("result")
             if isinstance(result, dict):
-                # 研究分组报告：有 clusters 即视为大包，勿对整包 json.dumps 估大小（持锁会卡轮询）
-                if self.name == "quant-ols-clusters" and (
-                    result.get("clusters") is not None
-                    or result.get("pool_artifact") is not None
-                    or result.get("persisted_truncated")
-                ):
-                    payload["result"] = {
-                        "success": result.get("success"),
-                        "ok": result.get("ok", result.get("success")),
-                        "persisted_truncated": True,
-                        "task": result.get("task"),
-                        "n_clusters": result.get("n_clusters"),
-                        "fitted_count": result.get("fitted_count"),
-                        "stock_count": result.get("stock_count"),
-                        "universe_count": result.get("universe_count"),
-                        "cache_hit": result.get("cache_hit"),
-                        "oos_summary": result.get("oos_summary"),
-                        "error": result.get("error"),
-                    }
-                elif self.name != "quant-ols-clusters":
-                    try:
-                        result_bytes = len(json.dumps(result, default=str))
-                    except (TypeError, ValueError):
-                        result_bytes = 0
-                    if result_bytes > 80_000:
-                        if self.name == "t0-backtest":
-                            payload["result"] = {
-                                "success": result.get("success"),
-                                "ok": result.get("success"),
-                                "persisted_truncated": True,
-                                "task": result.get("task") or "t0_backtest",
-                                "ok_count": result.get("ok_count"),
-                                "t0_pnl_total": result.get("t0_pnl_total"),
-                            }
-                        elif self.name == "portfolio-backtest":
-                            metrics = result.get("metrics") if isinstance(result.get("metrics"), dict) else {}
-                            payload["result"] = {
-                                "success": result.get("success"),
-                                "ok": result.get("success"),
-                                "persisted_truncated": True,
-                                "task": result.get("task") or "portfolio_backtest",
-                                "trade_count": metrics.get("trade_count")
-                                or result.get("trade_count"),
-                            }
-                        else:
-                            payload["result"] = {
-                                "ok": result.get("ok", True),
-                                "persisted_truncated": True,
-                                "observation_pool_count": result.get(
-                                    "observation_pool_count"
-                                ),
-                                "new_trades": result.get("new_trades")
-                                or result.get("buy_trades"),
-                                "sell_trades": result.get("sell_trades"),
-                                "cash_impact": result.get("cash_impact"),
-                                "risk_gate": result.get("risk_gate"),
-                                "ops_report": result.get("ops_report"),
-                                "rebalance_report": (
-                                    result.get("rebalance_report") or []
-                                )[:30],
-                            }
+                try:
+                    result_bytes = len(json.dumps(result, default=str))
+                except (TypeError, ValueError):
+                    result_bytes = 0
+                if result_bytes > 80_000:
+                    if self.name == "t0-backtest":
+                        payload["result"] = {
+                            "success": result.get("success"),
+                            "ok": result.get("success"),
+                            "persisted_truncated": True,
+                            "task": result.get("task") or "t0_backtest",
+                            "ok_count": result.get("ok_count"),
+                            "t0_pnl_total": result.get("t0_pnl_total"),
+                        }
+                    elif self.name == "portfolio-backtest":
+                        metrics = result.get("metrics") if isinstance(result.get("metrics"), dict) else {}
+                        payload["result"] = {
+                            "success": result.get("success"),
+                            "ok": result.get("success"),
+                            "persisted_truncated": True,
+                            "task": result.get("task") or "portfolio_backtest",
+                            "trade_count": metrics.get("trade_count")
+                            or result.get("trade_count"),
+                        }
+                    else:
+                        payload["result"] = {
+                            "ok": result.get("ok", True),
+                            "persisted_truncated": True,
+                            "observation_pool_count": result.get(
+                                "observation_pool_count"
+                            ),
+                            "new_trades": result.get("new_trades")
+                            or result.get("buy_trades"),
+                            "sell_trades": result.get("sell_trades"),
+                            "cash_impact": result.get("cash_impact"),
+                            "risk_gate": result.get("risk_gate"),
+                            "ops_report": result.get("ops_report"),
+                            "rebalance_report": (
+                                result.get("rebalance_report") or []
+                            )[:30],
+                        }
             atomic_write_json(path, payload)
         except OSError:
             pass

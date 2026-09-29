@@ -756,51 +756,18 @@ class T75RidgeRequest(BaseModel):
 
 
 class FactorOlsClusterRequest(BaseModel):
-    """研究池：单票 OLS β 聚类 → 组内共用权草案（不写 config）。"""
+    """分组 OLS 请求体（路径已退役；保留 B-track 默认值供兼容/单测）。"""
 
     lookback: int = Field(default=80, ge=40, le=500)
     horizon_days: int = Field(default=3, ge=1, le=10)
-    holdout_trading_days: int = Field(
-        default=20,
-        ge=1,
-        le=60,
-        description="近 N 个交易日不进定组/选 k；研究套组 β 再隔离 horizon h",
-    )
     watching_limit: int = Field(
         default=WATCHING_MAX_SIZE,
         ge=3,
         le=WATCHING_MAX_SIZE,
-        description=f"观察池截断：universe_mode=watching 时取名单前 N 只（与 clamp_watching_limit 对齐，默认/上限 {WATCHING_MAX_SIZE}）",
-    )
-    n_clusters: Optional[int] = Field(
-        default=None,
-        ge=2,
-        le=100,
-        description="目标组数；null=自动约 n/5（夹在 4～10）；显式 ≥2，实际上限=有效票数-1",
-    )
-    cluster_method: str = Field(
-        default="hierarchical",
-        description="hierarchical（默认，配合 cluster_linkage）| kmeans",
-    )
-    cluster_linkage: str = Field(
-        default="complete",
-        description="层次连接：complete（默认，控大团）| average",
-    )
-    within_dist_quantile: float = Field(
-        default=0.75,
-        ge=0.05,
-        le=0.95,
-        description="类内直径 τ = 两两距离分位数（默认 0.75）；越小越紧、单票组越多",
-    )
-    ridge_lambda: float = Field(
-        default=0.0,
-        ge=0.0,
-        le=100.0,
-        description="Ridge λ 种子；select_ridge=true 时作网格起点/回退",
     )
     select_ridge: bool = Field(
         default=True,
-        description="B3：时间切分网格选 Ridge λ（写入 ridge_lambda_selected）",
+        description="B3：时间切分网格选 Ridge λ",
     )
     collinearity_policy: str = Field(
         default="drop_redundant",
@@ -808,50 +775,11 @@ class FactorOlsClusterRequest(BaseModel):
     )
     respect_regime: bool = Field(
         default=True,
-        description="B5：与 live regime 白名单对齐裁剪因子。枢纽 UI 默认不勾（发 false=全因子）；勾选后表内未进白名单的因子会显示未算",
-    )
-    pit_fundamentals: bool = Field(
-        default=True,
-        description="FH5：默认 PIT 基本面；false 时报告带非 PIT 红旗",
+        description="B5：与 live regime 白名单对齐裁剪因子",
     )
     sync: bool = Field(
         default=False,
-        description="FH2：true=同步跑（单测/兼容）；默认入队 Job 轮询",
-    )
-    beta_scale: str = Field(
-        default="feature_zscore",
-        description="β 尺度：feature_zscore|l2|none；默认因子维 z-score，避免极端票独占一组",
-    )
-    l2_normalize_betas: Optional[bool] = Field(
-        default=None,
-        description="兼容旧参：True 强制 l2；优先用 beta_scale",
-    )
-    run_oos_gate: bool = Field(
-        default=True,
-        description="为每组跑组内建议权 vs 当前权的 Top-K OOS 对照",
-    )
-    oos_tol_pp: float = Field(default=1.0, ge=0.0, le=10.0)
-    run_group_score: bool = Field(
-        default=True,
-        description="每组用组权打分并组内排序（对照全局权统一排名）",
-    )
-    run_pool_merge: bool = Field(
-        default=True,
-        description="各组 Top-N 合成候选簿 + 分池对照回测（研究预览，不写纸面）",
-    )
-    top_n_per_group: int = Field(
-        default=10,
-        ge=1,
-        le=10,
-        description="每组取组内排名前 N 只合成候选（默认 10）",
-    )
-    refresh_bars: bool = Field(
-        default=False,
-        description=(
-            "兼容字段：true=本跑强制增量拉日线到最新（脚本/调试用）。"
-            "UI 已移除勾选；默认 false。"
-            "无论本字段如何，当日第一次分组仍会自动强制更新日线。"
-        ),
+        description="兼容字段；分组路径已 410",
     )
 
 
@@ -938,144 +866,6 @@ class T90RidgeRequest(BaseModel):
     sync: bool = Field(
         default=False,
         description="true=同步跑（单测）；默认 persist=false 时入队 Job，轮询 GET /api/jobs/t90-ridge",
-    )
-
-
-class FactorOlsClusterRequest(BaseModel):
-    """研究池：单票 OLS β 聚类 → 组内共用权草案（不写 config）。"""
-
-    lookback: int = Field(default=80, ge=40, le=500)
-    horizon_days: int = Field(default=3, ge=1, le=10)
-    holdout_trading_days: int = Field(
-        default=20,
-        ge=1,
-        le=60,
-        description="近 N 个交易日不进定组/选 k；研究套组 β 再隔离 horizon h",
-    )
-    watching_limit: int = Field(
-        default=WATCHING_MAX_SIZE,
-        ge=3,
-        le=WATCHING_MAX_SIZE,
-        description=f"观察池截断：universe_mode=watching 时取名单前 N 只（与 clamp_watching_limit 对齐，默认/上限 {WATCHING_MAX_SIZE}）",
-    )
-    n_clusters: Optional[int] = Field(
-        default=None,
-        ge=2,
-        le=100,
-        description="目标组数；null=自动约 n/5（夹在 4～10）；显式 ≥2，实际上限=有效票数-1",
-    )
-    cluster_method: str = Field(
-        default="hierarchical",
-        description="hierarchical（默认，配合 cluster_linkage）| kmeans",
-    )
-    cluster_linkage: str = Field(
-        default="complete",
-        description="层次连接：complete（默认，控大团）| average",
-    )
-    within_dist_quantile: float = Field(
-        default=0.75,
-        ge=0.05,
-        le=0.95,
-        description="类内直径 τ = 两两距离分位数（默认 0.75）；越小越紧、单票组越多",
-    )
-    ridge_lambda: float = Field(
-        default=0.0,
-        ge=0.0,
-        le=100.0,
-        description="Ridge λ 种子；select_ridge=true 时作网格起点/回退",
-    )
-    select_ridge: bool = Field(
-        default=True,
-        description="B3：时间切分网格选 Ridge λ（写入 ridge_lambda_selected）",
-    )
-    collinearity_policy: str = Field(
-        default="drop_redundant",
-        description="B3：趋势族共线进模 keep_all|drop_redundant|orthogonalize_lite",
-    )
-    respect_regime: bool = Field(
-        default=True,
-        description="B5：与 live regime 白名单对齐裁剪因子。枢纽 UI 默认不勾（发 false=全因子）；勾选后表内未进白名单的因子会显示未算",
-    )
-    pit_fundamentals: bool = Field(
-        default=True,
-        description="FH5：默认 PIT 基本面；false 时报告带非 PIT 红旗",
-    )
-    sync: bool = Field(
-        default=False,
-        description="FH2：true=同步跑（单测/兼容）；默认入队 Job 轮询",
-    )
-    beta_scale: str = Field(
-        default="feature_zscore",
-        description="β 尺度：feature_zscore|l2|none；默认因子维 z-score，避免极端票独占一组",
-    )
-    l2_normalize_betas: Optional[bool] = Field(
-        default=None,
-        description="兼容旧参：True 强制 l2；优先用 beta_scale",
-    )
-    run_oos_gate: bool = Field(
-        default=True,
-        description="为每组跑组内建议权 vs 当前权的 Top-K OOS 对照",
-    )
-    oos_tol_pp: float = Field(default=1.0, ge=0.0, le=10.0)
-    run_group_score: bool = Field(
-        default=True,
-        description="每组用组权打分并组内排序（对照全局权统一排名）",
-    )
-    run_pool_merge: bool = Field(
-        default=True,
-        description="各组 Top-N 合成候选簿 + 分池对照回测（研究预览，不写纸面）",
-    )
-    top_n_per_group: int = Field(
-        default=10,
-        ge=1,
-        le=10,
-        description="每组取组内排名前 N 只合成候选（默认 10）",
-    )
-    refresh_bars: bool = Field(
-        default=False,
-        description=(
-            "兼容字段：true=本跑强制增量拉日线到最新（脚本/调试用）。"
-            "UI 已移除勾选；默认 false。"
-            "无论本字段如何，当日第一次分组仍会自动强制更新日线。"
-        ),
-    )
-
-
-class ClusterBarsRefreshRequest(BaseModel):
-    """观察池日线更新（不跑 OLS 分组）。"""
-
-    lookback: int = Field(default=80, ge=40, le=500)
-    watching_limit: int = Field(default=WATCHING_MAX_SIZE, ge=3, le=WATCHING_MAX_SIZE)
-    mode: str = Field(
-        default="topup",
-        description="topup=增量补齐到最新；full=整窗强更（仓坏/复权兜底）",
-    )
-    sync: bool = Field(
-        default=False,
-        description="true=同步跑（单测）；默认入队 Job，轮询 GET /api/jobs/cluster-bars-refresh",
-    )
-
-
-class ClusterMinuteRefreshRequest(BaseModel):
-    """观察池 5m 分钟线预热（ŷ_hl / T0 回测）。"""
-
-    period: str = Field(default="5", description="分钟周期；默认 5m")
-    lookback_days: int = Field(default=120, ge=5, le=120)
-    watching_limit: int = Field(default=WATCHING_MAX_SIZE, ge=3, le=WATCHING_MAX_SIZE)
-    min_span_days: int = Field(default=40, ge=10, le=120)
-    mode: str = Field(
-        default="full",
-        description="full=强更全窗口；topup=增量补齐；repair=东财补缺（只写更齐的交易日）",
-    )
-    topup_lookback_days: int = Field(
-        default=5,
-        ge=2,
-        le=15,
-        description="mode=topup 时跨度已够的票补齐窗口（日历日）",
-    )
-    sync: bool = Field(
-        default=False,
-        description="true=同步跑（单测）；默认入队 Job，轮询 GET /api/jobs/cluster-minute-refresh",
     )
 
 

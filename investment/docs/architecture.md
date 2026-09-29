@@ -275,7 +275,7 @@ flowchart TB
 | 类型 | 技术 |
 |------|------|
 | 现价 | 腾讯行情 HTTP |
-| 日线 / 选股 / 财务等 | AkShare（进程内锁串行，`adapters.market.ak_lock`） |
+| 日线 / 选股 / 财务等 | AkShare（进程内 `ak_lock` 串行；研究台日 K **增量补齐**走 `ak_worker` 进程池并行） |
 | 账户 · 配置 · 缓存 · 流水 | `data/` 下 JSON / JSONL |
 | 统一读口 | `core/data/facade.py` |
 
@@ -1225,7 +1225,7 @@ flowchart TB
 | 门面 | 模块路径 | 实现包 | 主要 API |
 |------|----------|--------|----------|
 | **DS** | `core/data/facade.py` | `core/data/` | `get_quote` · `get_bars` · `bars_and_source` · `summarize_data_quality` |
-| **SS** | `core/signal_service.py` | `core/signal/` | `score_one` · `rank_cross_section` · `rank_cluster_pools` |
+| **SS** | `core/signal_service.py` | `core/signal/` | `score_one` · `rank_cross_section`（~~`rank_cluster_pools`~~ 已退役别名→横截面） |
 | **BS** | `core/backtest_service.py` | `core/backtest/` | `run_topk`（研究探针，≠ 产品 `/replay`） · `run_signal_backtest` |
 
 **端口与绑定**：
@@ -1347,7 +1347,7 @@ BS → core/backtest/service.py → engine · topk_backtest · topk_weights
 | 目录 | 组成 | 功能 |
 |------|------|------|
 | `quant/services/` | 见 §3.2 | Application Service |
-| `quant/research/` | `factor_ols_clusters.py` · `cluster_*.py` · `portfolio_*.py` · `t0_backtest.py` | 因子 OLS、分组、组合对照 |
+| `quant/research/` | `factor_ols.py` · `cluster_bars_*` / `cluster_minute_*` · `portfolio_*.py` · `t0_backtest.py` | 因子 OLS、观察池日/分钟仓、组合对照（**分组 OLS 已退役**） |
 | `quant/ops/` | daily preset、健康检查 | 运维脚本支撑 |
 | `quant/skill/` | `engine.py` + handler | Agent `quant(task=...)` 引擎 |
 
@@ -1665,22 +1665,22 @@ flowchart LR
 
 ## 分钟线采集架构（AkShare · BaoStock）
 
-做 T 第一触达、ŷ_hl 训练、tail_anomaly 等依赖 **5m 分钟缓存**（默认 period=`5`）。实现集中在 **skills 层**，上层经 `core.ports.market.fetch_minute_bars` 调用，**不**在业务里直连接 AkShare / BaoStock。
+做 T 第一触达、ŷ_hl 训练、tail_anomaly 等依赖 **5m 分钟缓存**（默认 period=`5`）。实现集中在 **adapters 层**，单票读口经 `core.ports.market.fetch_minute_bars`；观察池 **强更 / 增量补齐** 直调 `fetch_a_minute_bars_isolated`（子进程超时 kill），**不**在业务里直连接 AkShare / BaoStock。
 
-**与日线（日 K）的差异**：研究台「日线」区块——日常 **「增量补齐」**（`get_bars(incremental=True)` / `force_latest_bars` 从本地 `date_max` **缺口 merge** 至今日）；兜底 **「强更日 K」**（`incremental=False` 整窗重拉）。观察池末 bar 对齐 as-of，供 **ŷ_oo / IC / OOS** 共用。分钟线亦有 **增量补齐 / 强更 5m** 双入口（近几日 topup vs lookback 全窗），本地仓表/路径与日 K 不同。
+**与日线（日 K）的差异**：研究台「日线」区块——日常 **「增量补齐」**（`refresh_cluster_bars_only`：只对未齐 as-of / 无仓走 `get_bars_batch` **进程池**并行，`incremental=True` 缺口 merge）；兜底 **「强更日 K」**（同路径 · `incremental=False` 整窗重拉）。观察池末 bar 对齐 as-of（含 **缺1 / 缺2** 交易日分桶），供 **ŷ_oo / IC / OOS** 共用。分钟线亦有 **增量补齐 / 强更 5m** 双入口（近几日 topup vs lookback 全窗；均走 **子进程隔离**），本地仓表/路径与日 K 不同。
 
 ### 分层与入口
 
 | 层 | 路径 | 职责 |
 |----|------|------|
 | **对外读口** | `core/ports/market.py` · `fetch_minute_bars` | 与日线 `get_bars` 并列；ports 由 `adapters.bind` 注入 |
-| **拉取编排** | `adapters/market/minute_history.py` | 缓存 TTL · 东财→新浪/腾讯（有数则跳过 BS）→BaoStock · merge · 落盘 |
+| **拉取编排** | `adapters/market/minute_history.py` | 缓存 TTL · 东财→新浪/腾讯（有数则跳过 BS）→BaoStock · merge · 落盘；`fetch_a_minute_bars_isolated` 子进程隔离 |
 | **东财（AkShare）** | `_fetch_em_minute_bars` | `ak.stock_zh_a_hist_min_em`；`adapters/market/ak_lock` 进程内串行 |
 | **新浪/腾讯** | `adapters/market/sina_tx_minute.py` | 近端；东财空时启用，有数则跳过 BaoStock |
 | **BaoStock** | `adapters/market/baostock_minute.py` | `query_history_k_data_plus`；子进程 + 超时 kill |
 | **本地仓** | `core/store.py` · `store_bars_sqlite.py` | `load/save/merge_minute_cache`；默认 SQLite `minute_bars` |
-| **批量预热** | `core/schedule_jobs._minute_warmup_core` | schedule `minute_warmup` · Web **强更 5m** Job |
-| **Web 强更** | `quant/research/cluster_minute_status.py` | `GET /api/quant/cluster-minute/status` · `POST …/refresh` · Job `cluster-minute-refresh` |
+| **批量预热** | `core/schedule_jobs._minute_warmup_core` | 逐票 `fetch_a_minute_bars_isolated`（子进程 + 超时 kill）；schedule / Web **强更 5m** |
+| **Web 增量/强更** | `quant/research/cluster_minute_status.py` | `GET …/status` · `POST …/refresh`（topup/full/repair）· Job `cluster-minute-refresh` |
 
 ### 单票拉取流程（`fetch_a_minute_bars`）
 
@@ -1718,10 +1718,10 @@ flowchart TD
 | 项 | 约定 |
 |----|------|
 | 接口 | `akshare.stock_zh_a_hist_min_em`（经 `import_akshare` + 全局锁） |
-| 深度 | 1m ≈ 近 **5 日**；5/15/30/60m 本仓默认 **30 日历日**（`MINUTE_EM_LOOKBACK_DAYS`），且易 `RemoteDisconnected` |
-| 窗口 | `start = now - lookback` 日历日，封顶策略上限 90 |
+| 深度 | 1m ≈ 近 **5 日**；5/15/30/60m 本仓默认 **120 日历日**（`MINUTE_EM_LOOKBACK_DAYS`），且易 `RemoteDisconnected` |
+| 窗口 | `start = now - lookback` 日历日，封顶策略上限 120 |
 | 复权 | 5m+ 默认 **前复权 qfq** |
-| 频控 | 每次远端拉取后 **sleep 10s**（东财 / 新浪腾讯 / BaoStock 各一次） |
+| 频控 | 每次远端拉取后 **sleep 20s**（东财 / 新浪腾讯 / BaoStock 各一次；`INVESTMENT_MINUTE_FETCH_DELAY_SEC`） |
 
 默认走 EM；``INVESTMENT_MINUTE_WARMUP_SKIP_EM=1`` 时批量不调 EM。
 
@@ -1735,10 +1735,10 @@ flowchart TD
 | 主/备 | 5/15/30/60m：**新浪** `CN_MarketData.getKLineData` → 失败改 **腾讯** `kline/mkline`；1m 仅腾讯 |
 | 深度 | `datalen` 上限约 **1023** 根（5m ≈ 20 交易日）；分钟不能按历史日期切片，只从现在往前 |
 | 复权 | 源站默认（新浪该接口通常前复权） |
-| 频控 | 拉取后同样 sleep 10s |
+| 频控 | 拉取后同样 sleep 20s |
 | 开关 | `INVESTMENT_MINUTE_SINA_TX_FALLBACK` 默认 `1` |
 
-补 Missing 近端 / T0 当日触达；新浪约 20 交易日，对齐 Ready≥20d。有数则 **不再打 BaoStock**。
+补 Missing 近端 / T0 当日触达；新浪约 20 交易日；Ready 闸默认近 **40** 交易日无缺。有数则 **不再打 BaoStock**。
 
 ### BaoStock — 近 30 日 · 最后
 
@@ -1747,9 +1747,9 @@ flowchart TD
 | 接口 | `baostock.query_history_k_data_plus`；5/15/30/60m 约 **2020-01-03 至今** |
 | 复权 | `adjustflag=2`（前复权） |
 | 依赖 | `requirements.txt` · `baostock>=0.8.8`；`INVESTMENT_MINUTE_BS_FALLBACK=0` 可关备用 |
-| 深度 | 本仓默认回看 **30 日历日**（`MINUTE_BAOSTOCK_LOOKBACK_DAYS`；与东财窗口同为 30） |
+| 深度 | 本仓默认回看 **30 日历日**（`MINUTE_BAOSTOCK_LOOKBACK_DAYS`；东财主窗默认 120） |
 | 超时 | 子进程拉取，默认 **90s** kill（`MINUTE_BAOSTOCK_TIMEOUT_SEC` · `INVESTMENT_MINUTE_BS_TIMEOUT_SEC`）；`0` 关闭子进程隔离 |
-| 批量 | 每次拉取后同样 sleep 10s |
+| 批量 | 每次拉取后同样 sleep 20s |
 
 `_maybe_fetch_baostock_minute_bars` 仅在 **新浪/腾讯未接住** 且（当前 bar **空**或 **日历跨度** `< 30 日`）时调用。东财已给出近端但短于该窗口时仍会打 BaoStock。
 
@@ -1761,13 +1761,14 @@ flowchart TD
 
 | 入口 | 行为 |
 |------|------|
-| `POST /api/schedule/run` · `kind=minute_warmup` | `_minute_warmup_core`；默认 `skip_em=False`（东财→新浪/腾讯，有数则跳过 BaoStock） |
-| Web 量化台 · **强更 5m** | `POST /api/quant/cluster-minute/refresh` → 后台 Job `cluster-minute-refresh` |
-| 状态 | `GET /api/quant/cluster-minute/status`（Ready ≥20d 等）· `GET /api/jobs/cluster-minute-refresh` |
+| `POST /api/schedule/run` · `kind=minute_warmup` | `_minute_warmup_core`：逐票子进程隔离；默认 `skip_em=False`（东财→新浪/腾讯，有数则跳过 BaoStock） |
+| Web 量化台 · **强更 5m** | `POST /api/quant/cluster-minute/refresh` → 后台 Job `cluster-minute-refresh`（同上核心） |
+| Web 量化台 · **增量补齐 5m** | 同 Job · `mode=topup`：`_minute_topup_core` 亦走子进程隔离（缺/短全窗 · 近端 skip_em） |
+| 状态 | `GET /api/quant/cluster-minute/status`（Ready 近 40 交易日无缺等）· `GET /api/jobs/cluster-minute-refresh` |
 
-每只票：东财（可 skip）→ 新浪/腾讯（仅当前仍空；有数则跳过 BaoStock）→ BaoStock（两源都空，或东财过短）；各源间隔 10s。**已 Ready** 则跳过远端。
+每只票在 **子进程** 内：东财（可 skip）→ 新浪/腾讯（仅当前仍空；有数则跳过 BaoStock）→ BaoStock；各源间隔默认 **20s**。单票超时默认 **90s** 后 kill 子进程并继续下一只（不占主进程 `ak_lock`）。**已 Ready** 则跳过远端。
 
-**非**「真增量 API」：强更仍按窗口重查远端，再与本地 `merge`。Ready 跳过；新浪接住则不再打 BaoStock；东财/BaoStock 窗口均为 **30 日历日**；各源间隔 10s。
+**非**「真增量 API」：强更仍按窗口重查远端，再与本地 `merge`。Ready 跳过；新浪接住则不再打 BaoStock；东财窗口默认 **120** 日历日、BaoStock **30**；各源间隔 20s。
 
 ### 环境变量（分钟）
 
@@ -1775,19 +1776,22 @@ flowchart TD
 |------|------|------|
 | `INVESTMENT_MINUTE_WARMUP_SKIP_EM` | `0` | 批量预热/强更跳过东财（`1`=新浪/腾讯→BaoStock） |
 | `INVESTMENT_MINUTE_WARMUP_SKIP_IF_READY` | `1` | 本地已 Ready 则跳过远端拉取 |
-| `INVESTMENT_MINUTE_WARMUP_READY_MIN_SPAN_DAYS` | `20` | Ready 闸：有 bar 的交易日数 |
+| `INVESTMENT_MINUTE_WARMUP_READY_MIN_SPAN_DAYS` | `40` | Ready 闸：最近这么多个交易日无缺 |
 | `INVESTMENT_MINUTE_WARMUP_STALE_HOURS` | `24` | Ready 闸：`fetched_at` 超过则重拉 |
-| `INVESTMENT_MINUTE_FETCH_DELAY_SEC` | `10` | 东财 / 新浪腾讯 / BaoStock 分钟远端拉取后间隔（秒） |
+| `INVESTMENT_MINUTE_FETCH_DELAY_SEC` | `20` | 东财 / 新浪腾讯 / BaoStock 分钟远端拉取后间隔（秒） |
 | `INVESTMENT_MINUTE_BS_FALLBACK` | `1` | 是否启用 BaoStock 备用 |
 | `INVESTMENT_MINUTE_SINA_TX_FALLBACK` | `1` | 东财空时新浪/腾讯近端；有数则跳过 BaoStock |
-| `INVESTMENT_MINUTE_EM_LOOKBACK_DAYS` | `30` | 东财分钟回看日历日（上限 90） |
+| `INVESTMENT_MINUTE_EM_LOOKBACK_DAYS` | `120` | 东财分钟回看日历日（上限 120） |
 | `INVESTMENT_MINUTE_BS_LOOKBACK_DAYS` | `30` | BaoStock 分钟回看日历日（上限 90） |
 | `INVESTMENT_MINUTE_BS_TIMEOUT_SEC` | `90` | BaoStock 子进程超时；`0` 关闭 |
+| `INVESTMENT_MINUTE_ISOLATED_TIMEOUT_SEC` | `90` | 观察池强更/增量单票子进程超时（东财全窗）；`0` 关闭隔离 |
+| `INVESTMENT_MINUTE_ISOLATED_TIMEOUT_SKIP_EM_SEC` | `45` | 同上 · skip_em 近端 |
+| `INVESTMENT_AK_LOCK_TIMEOUT_SEC` | `90` | 主进程等 `ak_lock` 上限；`0`=无限等 |
 | `INVESTMENT_BARS_BACKEND` | `sqlite` | 分钟与日线共用 bars 后端 |
 
 ### 与 DataService 的关系
 
-分钟线 **尚未** 完全收入 `MarketDataService.get_bars` 形态；研究/做 T/强更经 **ports `fetch_minute_bars`** → `minute_history`，与日线 DataService 路径 **并行**。存储仍走 **A1** 同一 `bars.db` / `minute_bars` 表（或 JSON 回退）。
+分钟线 **尚未** 完全收入 `MarketDataService.get_bars` 形态；研究/做 T 单票经 **ports `fetch_minute_bars`** → `minute_history`；观察池批量强更/增量走 **`fetch_a_minute_bars_isolated`**（子进程），与日线 DataService 路径 **并行**。存储仍走 **A1** 同一 `bars.db` / `minute_bars` 表（或 JSON 回退）。
 
 ---
 
@@ -1924,7 +1928,7 @@ flowchart TD
 | **DS-R3 ann_missing 门禁** | **已落地**：`ann_missing_policy`（默认 zero_weight）；DQ ratio→bad |
 | **DS-R4 拒 quote_fallback** | **已落地**：`reject_quote_fallback`；伪日期 quality=empty；offline 默认拒 |
 | **DS-R5 刷新锁/裁剪** | **已落地**：`code_refresh_lock`；日线/分钟 trim 上限 |
-| **分钟线 AkShare+BaoStock** | **已落地**：`minute_history` · `sina_tx_minute`（新浪/腾讯有数则跳过 BS）· `baostock_minute`；批量默认走东财；各源间隔 10s；见 [§ 分钟线采集架构](#分钟线采集架构akshare--baostock) |
+| **分钟线 AkShare+BaoStock** | **已落地**：`minute_history` · `sina_tx_minute`（新浪/腾讯有数则跳过 BS）· `baostock_minute`；批量默认走东财（子进程隔离）；各源间隔 20s；见 [§ 分钟线采集架构](#分钟线采集架构akshare--baostock) |
 | **DS encapsulate** | **已落地**：`core/data/`（`BarsResult`/`DataEnvelope` · `MarketPorts` · `MarketDataService`/`ResearchDataService`）；`facade.py` 薄门面仍返回 dict |
 | **DS-E1 读口收口加深** | **已落地**：paper/threshold OOS/`portfolio_bars` 远端补数经 DS 且拒 fallback；`get_bars_batch` · `set_research_service`；spot `mem_cache` source；空宇宙 coverage=`None`；非 bars 信封显式 `production_ok` |
 | **DS-E2 评分读口 + 可观测** | **已落地**：`score_stock.fetch_daily_bars`→DS 缓存+`bars_pack_worker` 池；bars 空宇宙 coverage=`None`；`metrics_snapshot`；batch 默认 adjust；ledger/insights `resolve_market_code` 经 ports |
@@ -1936,7 +1940,7 @@ flowchart TD
 
 ### 采集运维
 
-- `POST /api/schedule/run` kinds：`bars_warmup` · `minute_warmup`（5m 预热 · 默认东财→新浪/腾讯，有数则跳过 BaoStock · 各源 10s）· `spot_refresh`（可串联行业补全）· `sector_map_enrich` · `fundamentals_warmup`（默认 ingest 真实 history）· `paper_daily` · `validation_prepare` · `sentiment_scan`
+- `POST /api/schedule/run` kinds：`bars_warmup` · `minute_warmup`（5m 预热 · 默认东财→新浪/腾讯，有数则跳过 BaoStock · 子进程隔离 · 各源 20s）· `spot_refresh`（可串联行业补全）· `sector_map_enrich` · `fundamentals_warmup`（默认 ingest 真实 history）· `paper_daily` · `validation_prepare` · `sentiment_scan`
 - Web 分钟强更：`POST /api/quant/cluster-minute/refresh` · `GET /api/quant/cluster-minute/status` · Job `GET /api/jobs/cluster-minute-refresh`
 - 验证宇宙卫生：`GET /api/ops/validation-hygiene` · `POST /api/ops/validation-prepare`
 - 舆情 as_of：`GET /api/ops/sentiment-as-of?code=&as_of=`
@@ -2752,17 +2756,17 @@ Web 主路径：观察建仓 → 确认调仓（`run_daily_cycle`）→ 轮询 *
 | **F-H5/H6** | weight_suggest / Job 多入口 | 日报跳过 IC suggest；`/api/jobs/{name}` canonical |
 | **F-M1/M2** | 守卫不全 · 双 config GET | quant/services+core→quant 守卫；signal config 标 canonical |
 | **F-B1** | north_star 巨石 | `risk_metrics` · `ttm_events` · `backtest_curve_store`；north_star 再导出 |
-| **F-B2** | cluster live 证据/状态 | `cluster/live_evidence.py` |
-| **F-B3** | factor_ols_clusters 巨石 | `cluster_partition` · `cluster_weight_display` |
+| **F-B2** | cluster live 证据/状态 | ~~`cluster/live_evidence.py`~~ **已退役删除** |
+| **F-B3** | factor_ols_clusters 巨石 | ~~分区切分~~ **已退役**（原 `cluster_partition` 等） |
 | **F-B4** | quant.js 门槛逻辑 | `web/static/js/quant/scoring.js` |
 | **F-B5** | quant.js 功能域迁出 | `quant/` 工厂 + **6 域** `domain_*`；watching helpers→`watching_*_ui`·`watching_panel_ui`；分组结果按需展开因子表（避免主线程卡在「分组中…」）；建议 tip→`suggest_status_ui`；已修回测 `min_score:55`→`portfolioBtScoreFloorPayload`；`ASSET_V=p670` |
 | **FH0** | mode 未硬门禁组 ŷ | `score_stock` / `cross_section` / live topk：仅 `active` 写主分；`shadow` 对照；`off` 不算组 ŷ；`max_oos_fail_rate` 默认 0.5；契约测 `test_cluster_mode_yhat_gate` |
-| **FH1** | 晋升非原子 / 半晋升只告警 | `cluster_pointer.json` + 版本化 artifact + `os.replace`；active 硬门禁（缺簿/坏指针）；`force`→`promote_audit.jsonl`；`test_cluster_pointer_fh1` |
-| **FH2** | 分组同步占 worker | 默认 Job `quant-ols-clusters`；UI 轮询；`sync=true` 兼容；`POST /api/jobs/{name}/cancel`；`test_fh2_ols_clusters_job` |
+| **FH1** | 晋升非原子 / 半晋升只告警 | ~~`cluster_pointer.json`~~ **分组 promote 已退役**；路径常量仍保留只读 |
+| **FH2** | 分组同步占 worker | ~~Job `quant-ols-clusters`~~ **已退役**；日/分钟强更用 `cluster-bars-refresh` / `cluster-minute-refresh` |
 | **FH3** | core→services · legacy 55 | `core/signal/score_view.py`；守卫禁 services；`rank.min_score` deprecated |
 | **FH4** | 静默 except | `score_stock.warnings`（舆情）；promote/mode manifest 失败进 warnings；`test_fh4_score_warnings` |
-| **FH5** | 分组默认非 PIT | 默认 `pit_fundamentals=true`；`lookahead_flags`；UI PIT/非 PIT 旗标；**深化** `cluster_panels` 末日 as_of 探针 + `pit_as_of` 诚实旗标 |
-| **FH4+** | 巨石再切 | `cluster/live_audit` · `cluster_panels` 按用例拆出（非为行数） |
+| **FH5** | 分组默认非 PIT | ~~`cluster_panels`~~ **已随分组退役删除**；PIT 旗标由现研究面板路径承接 |
+| **FH4+** | 巨石再切 | ~~`cluster_panels` 拆分~~ **已退役**；`cluster/live_audit` 等同批下线 |
 
 ### 5.2 设计保留（勿当缺陷乱拆）
 
@@ -2853,7 +2857,7 @@ python3 scripts/migrate_bars_to_sqlite.py --dry-run
 | 阈值 | 含义 |
 |------|------|
 | 根编排（`paper.js` / `quant.js`） | 目标趋势不增；新逻辑进子模块 |
-| 领域引擎（`topk_backtest` / `factor_ols_clusters`） | 按用例切；单文件避免继续堆过 2.5k |
+| 领域引擎（`topk_backtest` / `factor_ols`） | 按用例切；单文件避免继续堆过 2.5k（~~`factor_ols_clusters`~~ 已退役） |
 | `domain_*` | 仅改该域时再切；不为拆而拆 |
 
 ## 阶段状态

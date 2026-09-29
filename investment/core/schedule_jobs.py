@@ -266,17 +266,19 @@ def _minute_warmup_core(
     """分钟线预热核心逻辑（无 job slot）。
 
     period=5 默认 lookback 120 日历日（东财窗口）；1 分钟仍只拉近几日。
+    单票走子进程 + 超时 kill：东财挂死不占主进程 ak_lock，可继续下一只。
     """
+    from adapters.market.minute_history import fetch_a_minute_bars_isolated
     from core.data.policy import (
         MINUTE_WARMUP_MAX_CAL_GAP_DAYS,
         minute_em_lookback_days,
         minute_fetch_delay_sec,
+        minute_isolated_timeout_sec,
         minute_warmup_ready_min_span_days,
         minute_warmup_skip_em,
         minute_warmup_skip_if_ready,
         minute_warmup_stale_hours,
     )
-    from core.ports.market import fetch_minute_bars
 
     # 分钟暖仓只读观察池，不用 validation / research 宽名单
     watch = _resolve_warmup_codes(
@@ -293,6 +295,7 @@ def _minute_warmup_core(
         span = min(max(int(lookback_days or em_cap), 5), em_cap)
     warmed = 0
     skipped_ready = 0
+    timed_out = 0
     errors: List[str] = []
     total = len(watch)
     skip_em = minute_warmup_skip_em()
@@ -300,6 +303,8 @@ def _minute_warmup_core(
     skip_if_ready = minute_warmup_skip_if_ready()
     ready_min_span = minute_warmup_ready_min_span_days()
     stale_h = minute_warmup_stale_hours()
+    # EM 全窗；子进程超时后 kill，不拖整批、不毒化主进程锁
+    per_stock_timeout = minute_isolated_timeout_sec(skip_em=skip_em)
     if skip_if_ready:
         from quant.research.cluster_minute_status import minute_cache_ready
 
@@ -328,18 +333,29 @@ def _minute_warmup_core(
                 progress_cb(i, total, progress_code)
             except Exception:  # noqa: BLE001 — best-effort 进度回调
                 logger.debug("minute_warmup progress_cb failed", exc_info=True)
-        bars, meta = fetch_minute_bars(
-            code,
-            period=period_s,
-            use_cache=True,
-            lookback_days=span,
-            max_age_hours=0.01,  # 强制尝试刷新；失败仍可回退过期缓存
-            skip_em=skip_em,
-        )
+        try:
+            bars, meta = fetch_a_minute_bars_isolated(
+                code,
+                timeout_sec=per_stock_timeout,
+                period=period_s,
+                use_cache=True,
+                lookback_days=span,
+                max_age_hours=0.01,  # 强制尝试刷新；失败仍可回退过期缓存
+                skip_em=skip_em,
+            )
+        except Exception as exc:  # noqa: BLE001 — 单票失败不拖整批
+            bars, meta = [], {"error": str(exc)[:120]}
+            logger.warning("minute_warmup failed %s: %s", code, exc)
+        err = str((meta or {}).get("error") or "")
+        if "timeout" in err.lower():
+            timed_out += 1
+            logger.warning(
+                "minute_warmup timeout %s after %.0fs", code, per_stock_timeout
+            )
         if bars:
             warmed += 1
-        elif meta.get("error"):
-            errors.append(f"{code}:{meta.get('error')}")
+        elif err:
+            errors.append(f"{code}:{err}")
     return {
         "ok": warmed > 0 or len(watch) == 0,
         "kind": "minute_warmup",
@@ -348,8 +364,11 @@ def _minute_warmup_core(
         "total": len(watch),
         "warmed": warmed,
         "skipped_ready": skipped_ready,
+        "timed_out": timed_out,
         "skip_if_ready": skip_if_ready,
         "ready_min_span_days": ready_min_span if skip_if_ready else None,
+        "per_stock_timeout_sec": per_stock_timeout,
+        "isolated": True,
         "errors": errors[:10],
         "note": (
             "5 分钟线预热；供 tail_anomaly / 做T回测。"
@@ -358,6 +377,7 @@ def _minute_warmup_core(
                 if skip_em
                 else f" 东财→stock_zh_a_minute（有数则跳过 BaoStock）· 各源间隔 {fetch_delay:g}s。"
             )
+            + f" 单票子进程上限 {per_stock_timeout:.0f}s（超时 kill，继续下一只）。"
         ),
     }
 

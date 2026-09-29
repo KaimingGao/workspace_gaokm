@@ -3,12 +3,23 @@
 
 import logging
 import os
-import re
 from typing import Any, Dict, List, Optional, Tuple
 
 from core.watching.store import WATCHING_MAX_SIZE
 
 logger = logging.getLogger(__name__)
+
+
+def _cluster_retired_payload(**extra: Any) -> Dict[str, Any]:
+    """分组 OLS / live 路径统一退役响应。"""
+    out: Dict[str, Any] = {
+        "success": False,
+        "ok": False,
+        "error": "cluster_retired",
+        "cluster_retired": True,
+    }
+    out.update(extra)
+    return out
 
 
 def _tau_ridge_desk_key(doc: Optional[Dict[str, Any]]) -> tuple:
@@ -181,64 +192,6 @@ def _start_ridge_fit_job(
         "background": True,
         "job": slot.get(),
     }
-
-
-# ============================================================
-# 跑分组阶段编号（共 13 主阶段）
-# 前端状态示例：「分组中… 358s · [2/13] 拉日线 0/100（强制刷新过期票） · 1%」
-# 对应规则：regex 关键词 → (stage_idx, total_stages)
-# ============================================================
-_CLUSTER_STAGE_RULES: "List[Tuple[str, int, int]]" = [
-    # 0：排队中 / 启动 / 缓存命中
-    ("排队中", 0, 13),
-    ("启动中", 0, 13),
-    (r"命中.*缓存", 0, 13),
-    # 1：合并宇宙
-    ("合并宇宙", 1, 13),
-    # 2：拉日线 / 拉指数（并行子步归同一阶段号）
-    ("拉日线", 2, 13),
-    ("拉指数", 2, 13),
-    # 3：单票拟合
-    ("拟合", 3, 13),
-    # 4：聚类定组 / auto-k 选区
-    ("选区", 4, 13),
-    ("聚类", 4, 13),
-    # 5：组池 OLS
-    ("组池 OLS", 5, 13),
-    # 6：贪心换组
-    ("贪心换组", 6, 13),
-    # 7：扩展窗审计
-    ("扩展窗审计", 7, 13),
-    # 8：OOS / 分池（含 attach_cluster_oos_gates & 逐组 OOS 循环）
-    (r"^OOS", 8, 13),
-    ("OOS / 分池", 8, 13),
-    # 9：组内打分
-    ("组内打分", 9, 13),
-    # 10：分池合成
-    ("分池合成", 10, 13),
-    # 11：分池产物
-    ("分池产物", 11, 13),
-    # 12：多权打分
-    ("多权打分", 12, 13),
-    # 13：收尾
-    ("收尾", 13, 13),
-]
-
-
-def _with_stage_prefix(msg: str) -> str:
-    """为跑分组 progress 消息加 [N/13] 前缀；已编号则跳过。"""
-    if not msg:
-        return msg
-    if re.match(r"\s*\[\s*\d+\s*/\s*\d+\s*\]", str(msg)):
-        return msg
-    text = str(msg).lstrip()
-    for pattern, n, tot in _CLUSTER_STAGE_RULES:
-        try:
-            if re.search(pattern, text):
-                return f"[{n}/{tot}] {msg.lstrip()}"
-        except re.error:
-            continue
-    return f"[-/13] {msg.lstrip()}"
 
 
 class QuantFactorMixin:
@@ -4117,12 +4070,7 @@ class QuantFactorMixin:
     def run_factor_ols_cluster_experiment(self, **kwargs: Any) -> Dict[str, Any]:
         """分组 OLS 已退役。"""
         _ = kwargs
-        return {
-            "success": False,
-            "ok": False,
-            "error": "cluster_retired",
-            "cluster_retired": True,
-        }
+        return _cluster_retired_payload()
 
     def cluster_bars_status(self, *, watching_limit: int = WATCHING_MAX_SIZE) -> Dict[str, Any]:
         """观察池日线末 bar 覆盖（研究枢纽 UI）。"""
@@ -4428,147 +4376,74 @@ class QuantFactorMixin:
     def start_factor_ols_cluster_job(self, **kwargs: Any) -> Dict[str, Any]:
         """FH2：分组 OLS Job 已退役。"""
         _ = kwargs
-        return {
-            "success": False,
-            "ok": False,
-            "error": "cluster_retired",
-            "cluster_retired": True,
-        }
+        return _cluster_retired_payload()
 
     def run_cluster_multi_score(self, **kwargs: Any) -> Dict[str, Any]:
         """分组多权复打分已退役。"""
         _ = kwargs
-        return {
-            "success": False,
-            "ok": False,
-            "error": "cluster_retired",
-            "cluster_retired": True,
-        }
+        return _cluster_retired_payload()
 
     def cluster_live_status(self, **kwargs: Any) -> Dict[str, Any]:
         """分组 live 状态已退役。"""
         _ = kwargs
-        return {
-            "success": False,
-            "ok": False,
-            "error": "cluster_retired",
-            "cluster_retired": True,
-            "mode": "off",
-            "enabled": False,
-            "active": None,
-            "draft": None,
-            "light": True,
-        }
+        return _cluster_retired_payload(
+            mode="off", enabled=False, active=None, draft=None, light=True
+        )
 
     def compare_cluster_partition_vs_active(self, *args: Any, **kwargs: Any) -> Dict[str, Any]:
         """分组 promote 预检已退役。"""
         _ = args, kwargs
-        return {
-            "success": False,
-            "ok": False,
-            "error": "cluster_retired",
-            "cluster_retired": True,
-        }
+        return _cluster_retired_payload()
 
     def promote_cluster_live(self, *args: Any, **kwargs: Any) -> Dict[str, Any]:
         """分组 promote 已退役。"""
         _ = args, kwargs
-        return {
-            "success": False,
-            "ok": False,
-            "error": "cluster_retired",
-            "cluster_retired": True,
-        }
+        return _cluster_retired_payload()
 
     def rollback_cluster_live(self, *, to_version: Optional[int] = None) -> Dict[str, Any]:
         """分组 live 回滚已退役。"""
         _ = to_version
-        return {
-            "success": False,
-            "ok": False,
-            "error": "cluster_retired",
-            "cluster_retired": True,
-        }
+        return _cluster_retired_payload()
 
     def set_cluster_live_mode(self, *args: Any, **kwargs: Any) -> Dict[str, Any]:
         """分组 live mode 已退役。"""
         _ = args, kwargs
-        return {
-            "success": False,
-            "ok": False,
-            "error": "cluster_retired",
-            "cluster_retired": True,
-        }
+        return _cluster_retired_payload()
 
     def set_cluster_universe_fit_tiers(self, tiers: Any) -> Dict[str, Any]:
         """宇宙拟合档设置已退役。"""
         _ = tiers
-        return {
-            "success": False,
-            "ok": False,
-            "error": "cluster_retired",
-            "cluster_retired": True,
-        }
+        return _cluster_retired_payload()
 
     def cluster_live_fit_tiers(self) -> Dict[str, Any]:
         """拟合档查询已退役。"""
-        return {
-            "success": False,
-            "ok": False,
-            "error": "cluster_retired",
-            "cluster_retired": True,
-            "code_fit_tiers": {},
-            "fit_tier_counts": {"A": 0, "B": 0, "C": 0},
-        }
+        return _cluster_retired_payload(
+            code_fit_tiers={}, fit_tier_counts={"A": 0, "B": 0, "C": 0}
+        )
 
     def save_cluster_live_draft(self, artifact: Dict[str, Any]) -> Dict[str, Any]:
         """分组草稿保存已退役。"""
         _ = artifact
-        return {
-            "success": False,
-            "ok": False,
-            "error": "cluster_retired",
-            "cluster_retired": True,
-        }
+        return _cluster_retired_payload()
 
     def refresh_cluster_live_book(self) -> Dict[str, Any]:
         """分池簿刷新已退役。"""
-        return {
-            "success": False,
-            "ok": False,
-            "error": "cluster_retired",
-            "cluster_retired": True,
-        }
+        return _cluster_retired_payload()
 
     def rank_cluster_live_pools(self, **kwargs: Any) -> Dict[str, Any]:
         """分池排序已退役。"""
         _ = kwargs
-        return {
-            "success": False,
-            "ok": False,
-            "error": "cluster_retired",
-            "cluster_retired": True,
-        }
+        return _cluster_retired_payload()
 
     def apply_cluster_live_shortcut(self, *args: Any, **kwargs: Any) -> Dict[str, Any]:
         """分组 live 一键应用已退役。"""
         _ = args, kwargs
-        return {
-            "success": False,
-            "ok": False,
-            "error": "cluster_retired",
-            "cluster_retired": True,
-        }
+        return _cluster_retired_payload()
 
     def preview_cluster_paper_rebalance(self, *args: Any, **kwargs: Any) -> Dict[str, Any]:
         """分池簿纸面调仓已退役。"""
         _ = args, kwargs
-        return {
-            "success": False,
-            "ok": False,
-            "error": "cluster_retired",
-            "cluster_retired": True,
-        }
+        return _cluster_retired_payload()
 
     def run_factor_cs_ic_experiment(
         self,
@@ -4869,378 +4744,3 @@ class QuantFactorMixin:
         suggestion["oos_scan"] = oos
         suggestion["config_diff"] = format_threshold_config_diff(suggestion)
         return suggestion
-
-
-# ---------- P1：分组报告 24h 缓存（watchlist+参数指纹未变即复用）----------
-
-
-def _usable_stock_name(code: str, name: Any) -> str:
-    """拒绝「名=代码」伪名，避免探针下拉被污染。"""
-    c = str(code or "").strip().replace(".SH", "").replace(".SZ", "").replace(".BJ", "")
-    nm = str(name or "").strip().replace(" ", "")
-    if not c or not nm:
-        return ""
-    if nm == c or (nm.isdigit() and len(nm) == 6):
-        return ""
-    return nm
-
-
-def _enrich_cluster_name_by_code(report: Dict[str, Any]) -> Dict[str, Any]:
-    """用观察池落盘名补齐 / 覆盖报告 name_by_code，并回填 ranking 伪名。"""
-    if not isinstance(report, dict):
-        return report
-    name_by_code: Dict[str, str] = {}
-    for raw, nm0 in (report.get("name_by_code") or {}).items():
-        c = str(raw or "").strip()
-        nm = _usable_stock_name(c, nm0)
-        if c and nm:
-            name_by_code[c] = nm
-            bare = c.replace(".SH", "").replace(".SZ", "").replace(".BJ", "")
-            if bare and bare != c:
-                name_by_code.setdefault(bare, nm)
-    try:
-        from core.watching.store import read_watching, watchlist_names_for
-
-        data = read_watching() or {}
-        wl = [str(c).strip() for c in (data.get("watchlist") or []) if str(c).strip()]
-        names = watchlist_names_for(data) if wl else []
-        for i, code in enumerate(wl):
-            nm = _usable_stock_name(code, names[i] if i < len(names) else "")
-            if not nm:
-                continue
-            name_by_code[code] = nm
-            bare = code.replace(".SH", "").replace(".SZ", "").replace(".BJ", "")
-            if bare and bare != code:
-                name_by_code[bare] = nm
-    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in quant_service_factors.py", exc_info=True)
-        logger.debug("enrich cluster names from watching failed", exc_info=True)
-    report["name_by_code"] = name_by_code
-    for cl in report.get("clusters") or []:
-        if not isinstance(cl, dict):
-            continue
-        for key in ("group_ranking", "ranking", "predicted_ranking"):
-            rows = cl.get(key)
-            if not isinstance(rows, list):
-                continue
-            for row in rows:
-                if not isinstance(row, dict):
-                    continue
-                code = str(row.get("stock_code") or row.get("code") or "").strip()
-                if not code:
-                    continue
-                bare = code.replace(".SH", "").replace(".SZ", "").replace(".BJ", "")
-                true_nm = name_by_code.get(code) or name_by_code.get(bare) or ""
-                if true_nm and not _usable_stock_name(code, row.get("stock_name")):
-                    row["stock_name"] = true_nm
-    return report
-
-
-# 选 k / 拆组算法版本。改分区逻辑时必须 bump，否则 refresh_bars=False 会命中 24h 旧分区。
-CLUSTER_CACHE_ALGO_VERSION = "v5-eod-holdout-beta"
-
-
-def _cluster_cache_fingerprint(
-    watchlist: List[Any],
-    *,
-    lookback: int,
-    horizon_days: int,
-    holdout_trading_days: int,
-    watching_limit: int,
-    n_clusters: Optional[int],
-    ridge_lambda: float,
-    pit_fundamentals: bool,
-    l2_normalize_betas: Optional[bool],
-    beta_scale: str,
-    cluster_method: str,
-    cluster_linkage: str,
-    within_dist_quantile: float,
-    run_oos_gate: bool,
-    oos_tol_pp: float,
-    run_group_score: bool,
-    run_pool_merge: bool,
-    top_n_per_group: int,
-    respect_regime: bool,
-    select_ridge: bool,
-    collinearity_policy: str,
-) -> str:
-    """watchlist 代码（排序）+ 关键参数 + 算法版本 → 稳定指纹；任一变化即视为需重算。"""
-    import hashlib
-
-    codes = []
-    for item in watchlist or []:
-        if isinstance(item, dict):
-            c = str(item.get("code") or item.get("stock_code") or "").strip()
-        else:
-            c = str(item or "").strip()
-        if c:
-            codes.append(c)
-    codes = sorted(set(codes))
-    parts = [
-        f"codes={','.join(codes)}",
-        f"lb={int(lookback)}",
-        f"hz={int(horizon_days)}",
-        f"hold={int(holdout_trading_days)}",
-        f"wlim={int(watching_limit)}",
-        f"k={n_clusters if n_clusters is not None else 'auto'}",
-        f"ridge={float(ridge_lambda):.4f}",
-        f"pit={int(bool(pit_fundamentals))}",
-        f"l2n={l2_normalize_betas}",
-        f"bscale={beta_scale}",
-        f"cmethod={cluster_method}",
-        f"clink={cluster_linkage}",
-        f"wdq={float(within_dist_quantile):.3f}",
-        f"oos={int(bool(run_oos_gate))}",
-        f"oostol={float(oos_tol_pp):.3f}",
-        f"grp={int(bool(run_group_score))}",
-        f"pool={int(bool(run_pool_merge))}",
-        f"topn={int(top_n_per_group)}",
-        f"regime={int(bool(respect_regime))}",
-        f"sridge={int(bool(select_ridge))}",
-        f"colpol={collinearity_policy}",
-        f"algo={CLUSTER_CACHE_ALGO_VERSION}",
-    ]
-    raw = "|".join(parts)
-    return hashlib.sha1(raw.encode("utf-8")).hexdigest()[:16]
-
-
-def _cluster_cache_age_hours(report: Dict[str, Any]) -> Optional[float]:
-    """从缓存报告里的 created_at / cached_at 估算年龄（小时）。"""
-    from datetime import datetime, timezone
-
-    ts = report.get("cache_created_at") or report.get("created_at")
-    if not ts:
-        return None
-    try:
-        if isinstance(ts, str):
-            ts = ts.replace("Z", "+00:00")
-            dt = datetime.fromisoformat(ts)
-        elif isinstance(ts, datetime):
-            dt = ts
-        else:
-            return None
-        if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=timezone.utc)
-        age = (datetime.now(timezone.utc) - dt).total_seconds() / 3600.0
-        return round(max(0.0, age), 2)
-    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in quant_service_factors.py", exc_info=True)
-        return None
-
-
-def _draft_saved_at_iso() -> Optional[str]:
-    """草稿落盘时间；用于判断指纹缓存是否已过期于最新草稿。"""
-    import json
-    import os
-
-    try:
-        from core.paths import CLUSTER_WEIGHTS_DRAFT_PATH
-    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in quant_service_factors.py", exc_info=True)
-        return None
-    path = CLUSTER_WEIGHTS_DRAFT_PATH
-    if not path or not os.path.isfile(path):
-        return None
-    try:
-        with open(path, encoding="utf-8") as f:
-            doc = json.load(f)
-    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in quant_service_factors.py", exc_info=True)
-        return None
-    if not isinstance(doc, dict):
-        return None
-    return doc.get("saved_at") or doc.get("created_at")
-
-
-def _iso_newer(a: Optional[str], b: Optional[str]) -> bool:
-    """True if ``a`` is strictly newer than ``b`` (UTC ISO). Missing → False."""
-    if not a or not b:
-        return False
-    try:
-        from datetime import datetime
-
-        def _p(s: str) -> datetime:
-            s = str(s).replace("Z", "+00:00")
-            return datetime.fromisoformat(s)
-
-        return _p(a) > _p(b)
-    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in quant_service_factors.py", exc_info=True)
-        return False
-
-
-def _save_last_cluster_report(report: Dict[str, Any]) -> None:
-    """无论指纹缓存是否启用，都落「最近一次成功分组」便于刷新恢复。"""
-    from datetime import datetime, timezone
-
-    from core.io_atomic import atomic_write_json
-    from core.paths import CLUSTER_LAST_REPORT_PATH
-
-    if not isinstance(report, dict) or not report.get("success"):
-        return
-    if not isinstance(report.get("clusters"), list) or not report.get("clusters"):
-        return
-    try:
-        import copy
-
-        report_copy = copy.deepcopy(report)
-    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in quant_service_factors.py", exc_info=True)
-        report_copy = dict(report)
-    for k in ("progress_cb", "_progress_cb"):
-        report_copy.pop(k, None)
-    try:
-        from core.signal.score_display import json_safe
-
-        report_copy = json_safe(report_copy)
-    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in quant_service_factors.py", exc_info=True)
-        pass
-    try:
-        from core.signal.factors.meta.taxonomy import strip_removed_factors_from_cluster_report
-
-        strip_removed_factors_from_cluster_report(report_copy)
-    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in quant_service_factors.py", exc_info=True)
-        pass
-    doc = {
-        "saved_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-        "report": report_copy,
-    }
-    try:
-        atomic_write_json(CLUSTER_LAST_REPORT_PATH, doc)
-    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in quant_service_factors.py", exc_info=True)
-        pass
-
-
-def _oos_summary_from_clusters(clusters: list) -> Dict[str, Any]:
-    passed = failed = skipped = 0
-    for cl in clusters:
-        if not isinstance(cl, dict):
-            continue
-        gate = cl.get("oos_gate") if isinstance(cl.get("oos_gate"), dict) else {}
-        if gate.get("skipped"):
-            skipped += 1
-        elif gate.get("ok") and gate.get("passed"):
-            passed += 1
-        elif gate:
-            failed += 1
-        elif cl.get("oos_passed") is True:
-            passed += 1
-        elif cl.get("oos_passed") is False:
-            failed += 1
-        else:
-            skipped += 1
-    return {
-        "run": True,
-        "passed": passed,
-        "failed": failed,
-        "skipped": skipped,
-        "n": len(clusters),
-    }
-
-
-def _report_from_cluster_draft() -> Optional[Dict[str, Any]]:
-    """分组草稿恢复已退役。"""
-    return None
-
-
-def _load_latest_cluster_report() -> Optional[Dict[str, Any]]:
-    """分组报告水合已退役。"""
-    return None
-
-
-def hydrate_ols_clusters_job_result(
-    result: Optional[Dict[str, Any]],
-) -> Optional[Dict[str, Any]]:
-    """分组 Job 水合已退役；原样返回。"""
-    return result
-
-
-def _load_cluster_cache(
-    fingerprint: str, *, max_age_hours: int = 24
-) -> Optional[Dict[str, Any]]:
-    """读缓存：指纹匹配 + 年龄未超限 → 返回报告（深拷贝避免被调用方污染）。"""
-    import json
-    import os
-
-    from core.paths import CLUSTER_REPORT_CACHE_PATH
-
-    if not fingerprint or not os.path.isfile(CLUSTER_REPORT_CACHE_PATH):
-        return None
-    try:
-        with open(CLUSTER_REPORT_CACHE_PATH, encoding="utf-8") as f:
-            doc = json.load(f)
-    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in quant_service_factors.py", exc_info=True)
-        return None
-    if not isinstance(doc, dict):
-        return None
-    if str(doc.get("fingerprint") or "") != str(fingerprint):
-        return None
-    report = doc.get("report")
-    if not isinstance(report, dict) or not report.get("success"):
-        return None
-    # 草稿更新过且指纹缓存更旧 → 作废（常见于 refresh_bars 跑完只写 draft）
-    cache_ts = doc.get("cache_created_at") or doc.get("created_at")
-    if _iso_newer(_draft_saved_at_iso(), cache_ts):
-        return None
-    age = _cluster_cache_age_hours(doc) or 0.0
-    if age > float(max_age_hours):
-        return None
-    # 深拷贝避免上层把缓存对象改脏
-    try:
-        import copy
-
-        report = copy.deepcopy(report)
-    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in quant_service_factors.py", exc_info=True)
-        pass
-    report["cache_created_at"] = doc.get("cache_created_at") or doc.get("created_at")
-    try:
-        from core.signal.factors.meta.taxonomy import strip_removed_factors_from_cluster_report
-
-        strip_removed_factors_from_cluster_report(report)
-    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in quant_service_factors.py", exc_info=True)
-        pass
-    return report
-
-
-def _save_cluster_cache(report: Dict[str, Any], fingerprint: str) -> None:
-    """落盘缓存：报告 + 指纹 + 时间戳（原子写）。"""
-    from datetime import datetime, timezone
-
-    from core.io_atomic import atomic_write_json
-    from core.paths import CLUSTER_REPORT_CACHE_PATH
-
-    if not fingerprint or not isinstance(report, dict) or not report.get("success"):
-        return
-    try:
-        import copy
-
-        report_copy = copy.deepcopy(report)
-    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in quant_service_factors.py", exc_info=True)
-        report_copy = report
-    # 去掉进度回调残留字段（不可序列化）
-    for k in ("progress_cb", "_progress_cb"):
-        report_copy.pop(k, None)
-    try:
-        from core.signal.factors.meta.taxonomy import strip_removed_factors_from_cluster_report
-
-        strip_removed_factors_from_cluster_report(report_copy)
-    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in quant_service_factors.py", exc_info=True)
-        pass
-    doc = {
-        "fingerprint": str(fingerprint),
-        "cache_created_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-        "report": report_copy,
-    }
-    try:
-        atomic_write_json(CLUSTER_REPORT_CACHE_PATH, doc)
-    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in quant_service_factors.py", exc_info=True)
-        pass

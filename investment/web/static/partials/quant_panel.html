@@ -172,10 +172,10 @@
           <span id="quant-cluster-bars-msg" class="quant-cluster-bars-msg">加载覆盖…</span>
         </div>
         <div class="dashboard-card-tools quant-pro-card-tools" role="group" aria-label="日线操作">
-          <button type="button" id="quant-cluster-bars-topup" class="dialog-btn secondary" title="写入日 K 仓（增量）：已齐 as-of 的票走本地；缺口才 merge。日常 / ŷ_oo 先点这个。不改名单、不写 5m、不算 ŷ。">
+          <button type="button" id="quant-cluster-bars-topup" class="dialog-btn secondary" title="写入日 K 仓（增量）：已齐 as-of 走本地；缺口进程池并行 merge。日常 / ŷ_oo 先点这个。不改名单、不写 5m、不算 ŷ。">
             增量补齐
           </button>
-          <button type="button" id="quant-cluster-bars-refresh" class="dialog-btn secondary" title="写入日 K 仓（整窗重拉）。仓损坏、复权混用或条数明显不够时用。不改名单、不写 5m、不算 ŷ。">
+          <button type="button" id="quant-cluster-bars-refresh" class="dialog-btn secondary" title="写入日 K 仓（整窗重拉 · 进程池）。仓损坏、复权混用或条数明显不够时用。不改名单、不写 5m、不算 ŷ。">
             强更日 K
           </button>
         </div>
@@ -256,10 +256,10 @@
           <span id="quant-cluster-minute-msg" class="quant-cluster-bars-msg">加载覆盖…</span>
         </div>
         <div class="dashboard-card-tools quant-pro-card-tools" role="group" aria-label="分钟线操作">
-          <button type="button" id="quant-cluster-minute-topup" class="dialog-btn secondary" title="写入 5m 仓（增量）：会话日齐窗且今日已拉才跳过；缺尾（如只到 10:00）强制补拉落盘。调仓/做T/ŷ_oc 日常先点这个。不改日K、不算 ŷ。">
+          <button type="button" id="quant-cluster-minute-topup" class="dialog-btn secondary" title="写入 5m 仓（增量 · 子进程隔离）：会话日齐窗且今日已拉才跳过；缺尾（如只到 10:00）强制补拉落盘。调仓/做T/ŷ_oc 日常先点这个。不改日K、不算 ŷ。">
             增量补齐
           </button>
-          <button type="button" id="quant-cluster-minute-refresh" class="dialog-btn secondary" title="写入 5m 仓（整窗重拉）。东财主窗 120 个日历日，空了才打新浪。仓损坏或要覆盖近窗时用。不改日K、不算 ŷ。">
+          <button type="button" id="quant-cluster-minute-refresh" class="dialog-btn secondary" title="写入 5m 仓（整窗重拉 · 单票子进程≤90s）。东财主窗 120 个日历日，空了才打新浪。仓损坏或要覆盖近窗时用。不改日K、不算 ŷ。">
             强更 5m
           </button>
           <button type="button" id="quant-cluster-minute-repair" class="dialog-btn secondary" title="只打东财，回看 90 个日历日。只把比本地更齐的交易日写入，不盖短已有的一天，不打新浪。今天盘中不写。">
@@ -1125,27 +1125,27 @@
     <details class="quant-secondary-fold">
       <summary class="quant-secondary-fold-sum">
         <h3 id="quant-section-probe-title" class="dashboard-section-title">探针</h3>
-        <p class="dashboard-section-desc quant-section-desc">单票 IC/β vs 所在组 · 对照 ŷ_oo</p>
+        <p class="dashboard-section-desc quant-section-desc">分组对照已退役 · 请用全局 ŷ_oo</p>
       </summary>
       <div class="dashboard-card quant-pro-card">
         <div class="quant-pro-card-body quant-probe-body">
           <div class="quant-actions-inline quant-probe-toolbar">
-            <div class="platform-field quant-probe-picker-field" title="对照标的：名称 / 代码 / 分组">
+            <div class="platform-field quant-probe-picker-field" title="对照标的：名称 / 代码">
               <span class="quant-probe-picker-label">对照标的</span>
               <div class="quant-probe-picker" id="quant-probe-picker">
                 <button type="button" class="quant-probe-picker-trigger" id="quant-ols-code-trigger" aria-haspopup="listbox" aria-expanded="false" aria-controls="quant-ols-code-menu">
-                  <span class="quant-probe-picker-empty">分组后可选</span>
+                  <span class="quant-probe-picker-empty">观察池可选</span>
                 </button>
                 <input type="hidden" id="quant-ols-code" value="" />
                 <div class="quant-probe-picker-menu" id="quant-ols-code-menu" role="listbox" hidden></div>
               </div>
             </div>
             <div class="quant-probe-toolbar-actions">
-              <button type="button" id="quant-probe-run" class="dialog-btn secondary" title="算单票 IC+OLS 并对照">对照验证</button>
+              <button type="button" id="quant-probe-run" class="dialog-btn secondary" title="分组对照已退役">对照验证</button>
               <button type="button" id="quant-weight-export" class="dialog-btn secondary quant-probe-secondary-action" title="导出全局权重 diff">导出全局 diff</button>
             </div>
           </div>
-          <p id="quant-probe-summary" class="quant-fingerprint sub">等待上方分组完成…</p>
+          <p id="quant-probe-summary" class="quant-fingerprint sub">分组已退役（cluster_retired）· 请用全局 ŷ_oo</p>
           <div id="quant-probe-result" class="quant-weight-table-wrap" aria-label="单票 vs 所在组对照表"></div>
         </div>
       </div>

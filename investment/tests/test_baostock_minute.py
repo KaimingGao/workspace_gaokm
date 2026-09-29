@@ -285,6 +285,21 @@ class TestBaostockMinute(unittest.TestCase):
         with patch.dict(os.environ, {"INVESTMENT_MINUTE_FETCH_DELAY_SEC": "99"}):
             self.assertEqual(minute_fetch_delay_sec(), 30.0)
 
+    def test_minute_isolated_timeout_defaults(self):
+        from core.data.policy import minute_isolated_timeout_sec
+
+        with patch.dict(os.environ):
+            os.environ.pop("INVESTMENT_MINUTE_ISOLATED_TIMEOUT_SEC", None)
+            os.environ.pop("INVESTMENT_MINUTE_ISOLATED_TIMEOUT_SKIP_EM_SEC", None)
+            self.assertEqual(minute_isolated_timeout_sec(), 90.0)
+            self.assertEqual(minute_isolated_timeout_sec(skip_em=True), 45.0)
+        with patch.dict(os.environ, {"INVESTMENT_MINUTE_ISOLATED_TIMEOUT_SEC": "0"}):
+            self.assertEqual(minute_isolated_timeout_sec(), 0.0)
+        with patch.dict(
+            os.environ, {"INVESTMENT_MINUTE_ISOLATED_TIMEOUT_SKIP_EM_SEC": "12"}
+        ):
+            self.assertEqual(minute_isolated_timeout_sec(skip_em=True), 12.0)
+
 
 if __name__ == "__main__":
     unittest.main()

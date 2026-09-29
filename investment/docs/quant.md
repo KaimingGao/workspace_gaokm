@@ -1151,7 +1151,10 @@ open(t-1) ──y_co(t)──► open(t) ──y_τ(t)──► close(t)
 
 ---
 
-## 3. 训练链：从日线到组 β
+## 3. 训练链：从日线到组 β（**已退役** · `cluster_retired`）
+
+> **2026-09**：分组 OLS / live 映射 / promote / 分池簿已下线（HTTP 410 · 模块删除）。
+> 下文保留作历史说明；**勿再按路径实现**。现研究台日线走 `cluster_bars_*` 增量/强更，ŷ 走 `factor_ols` / dual_score / τ 等非分组路径。
 
 ```mermaid
 flowchart LR
@@ -1165,25 +1168,17 @@ flowchart LR
 
 | 步骤 | 入口 | 产物 | 是否自动每日跑 |
 |------|------|------|----------------|
-| 跑分组 | 研究枢纽「跑分组」；进页**恢复**上次落盘（不重算） | 组表 + `return_model.coefficients` + `cluster_last_report.json` | **否**（非 cron） |
-| 对照 / 启用 | 枢纽 promote | `data/live/cluster_weights_*.json` | 否（人审） |
-| 健康 / 陈旧 | `cluster_scoring.refit_max_age_days`（默认 14）等 | 建议重估；可 auto demote active→shadow | 日更只检查，**不重估 β** |
+| 跑分组 | ~~研究枢纽「跑分组」~~ **已退役** | ~~组表 + return_model~~ | **否** |
+| 对照 / 启用 | ~~枢纽 promote~~ **已退役** | ~~cluster_weights_*.json~~ | 否 |
+| 健康 / 陈旧 | ~~refit_max_age_days~~ **已退役** | — | — |
 
-要点：
+要点（历史摘要，**勿再实现**）：
 
-- **β 不会在固定钟点自动更新**；`paper_daily` / `daily_quant` 不跑 OLS 分组。
-- 收盘后刷新日线（约 15:05+，实务常 16:30–17:00）再跑分组，最新 K 线可含**当日**；但训练样本仍受 \(h\) 约束：最后一条训练决策日 ≈ 最新 bar 再往前 \(h\) 日。
-- **auto-k**：中心 \(k_0\approx n/5\)（夹 4～10）。**定组 β / 选 k / 贪心**共用宇宙日历 **Holdout日**（近 N 个交易日为尾段，枢纽默认 20；不再用约 70/30）。邻域 \(\{k_0-1,k_0,k_0+1\}\) × 层次 complete/average + kmeans 等配方（**kmeans 同样超大组二分**，避免 30+ 只大团）；有日历时再加 **~55% 切点**各自前段 β 重聚类，按 **多折均值 `partition_loss`**（尾段有符号 ŷ IC↑ / 前段重拟合误差↓；重拟合失败不计分）选优。**辅门禁**：若存在 ΔOOS 过门（\(\ge -\)`oos_tol_pp`）的候选，淘汰更差的负 ΔOOS（避免 loss 略优但对照回测明显更差）。**交付标签取主切点**。组冻后：**执行套**组池 `return_model` 全样本重估；**研究套** `return_model_research` 仅 Holdout 训练窗，且再按持有期隔离 horizon \(h\) 个决策日。启用一次写两套（live + `cluster_weights_active_research.json`）；`/replay` **默认读研究套**（缺研究套文件不回退 live）；调仓/做 T「模型」选「执行」则读 live 全样本。大宇宙（≥40）跳过多折打分。报告：`k_selection`（含 `expanding_score` / `expanding_folds`）与 `walk_forward`。手动 `n_clusters` 不搜邻域，但定组 β 同样走 Holdout 前段。
-- **贪心换组**：定组后（≤24 票、有日历切分）按 holdout `partition_loss` 有限轮试换（`cluster_greedy_refine`；最多 2 轮 / ≤80 次评估）。接受的 swap **改写交付标签**；全样本组池仍后置重估。报告字段 `greedy_refine`。大宇宙跳过。完整 `objective_partition` 贪心仍为研究试点。
-- **`partition_loss` 口径**：默认 **有符号 IC**（`ic_use_abs=False`，与 live 选 k 一致；|IC| 会把反向 ŷ 评成「好」）。IC 项按 ``ic_ref_scale``（默认 0.05）放大到与 (1−R²) 同量级后再乘 ``w_ic``（默认 1.0），避免典型 |IC|≪0.1 被 R² 淹没。失衡罚阈值 ``1.5×ideal``（原 2×）。单票组计入质量先验（``singleton_prior_r2≈0.05``），结构 ``lambda_singleton`` 下调以免双重最重罚；无可用模型 / holdout 重拟合失败的多票组须带 `fit_ok=False`（含 live 贪心 `cluster_greedy_refine`），另计 `penalty_unusable`。`penalty_singleton` 按**票数占比**；`singleton_count` 仍是单票**组数**（展示勿混）。β 异质踢出同时看相对 |Δβ|/scale 与绝对阈值。
-- **研究轨 `objective_partition`**：默认 holdout 评估 + ``auto_k_candidates`` 邻域候选；**不进** promote。生产仍走 `_select_clustered_by_delta_oos` + `light_greedy_swap_refine`。
-- **扩展窗审计**：在 train 分位约 55% / 70% 两折各自前段 β **重聚类** + 尾段评分（`walk_forward.expanding`）；记相邻折标签稳定度。只读诊断，**不改**交付标签；大宇宙跳过。
-- **标签对齐**：跑分组结束时若存在 live `cluster_weights`，按 code 重叠最大化把新 `cluster_id` / `G*` 对齐到上一版（Hungarian；无 scipy 则贪心），报告字段 `label_alignment`（含 `stability`）。未匹配的新组分配新 id。
-- **软异质**：多票组先等权池 OLS 得组 β，再按单票 max\|Δβ\| 降样本权（\(w=1/(1+(Δ/0.25)^2)\)，下限 0.2）重拟合；**不拆组**。组字段 `soft_hetero` / `member_beta_gaps[].soft_weight`。
-- **拟合三档**：每组挂 `fit_tier` `A`/`B`/`C`（强/中/弱）。**A**=OOS 过门且截面 IC、ICIR>0 且 ŷOOS>0；**B**=过门未达 A；**C**=未过/跳过/单票/无模型。一组一表与健康矩阵按 A→B→C 排（同档按 IC）。健康矩阵另列组 `yhat_acc`：**MSE**（ŷ_oo Holdout `mean((y−ŷ)²)`，越低越好）与 **开盘命中率**（`sign(ŷ_oo)=sign(open[T+1]/open[T]−1)`，`|ŷ|<0.05%` 不计；与 τ 开盘桶同门槛）。**宇宙过滤**（可配）：`cluster_scoring.universe_fit_tiers`（默认 `A+B+C`=不过滤）。live 观察池只对入选档**新开/加**；已持仓仍可卖/清。`/replay` 历史回测不再按拟合档过滤，可勾选枢纽「观察池分档」过滤宇宙（回测天数用独立 lookback）。**做 T 不套分档**（底仓 overlay，v6 不吃 ŷ_oo）。未映射票在未选满三档时不进新买。**OOS 失败仍拦新买**（与分档独立）。
-- **研究区持久化**：成功分组始终写 `data/live/cluster_last_report.json`（并更新指纹缓存）。刷新进页 `GET .../last-report` 恢复同一分区（顺序：last_report → 指纹缓存 → `cluster_weights_draft`）；仅点「跑分组」才重算。勾选刷新日线时也会覆盖指纹缓存，避免旧分区残留。概览「全局 IC / 方向命中 / 因子摘要」来自全样本因子与 ŷ 复盘，**不是**组内 β 表。
+- β / 分组 **不会**在固定钟点自动更新；`paper_daily` / `daily_quant` 不跑 OLS 分组。
+- 原链路：单票 OLS β → 聚类成组 → 组池 `return_model` → promote → live `cluster_weights_*`；含 auto-k、贪心换组、拟合档 A/B/C、分池簿。
+- 现替代：日线/分钟走 `cluster-bars` / `cluster-minute` 刷新；ŷ 走非分组 `factor_ols` / dual_score / τ。
 
-相关实现：`quant/research/factor_ols_clusters.py` · `core/signal/cluster/fit_tier.py` · `quant/research/partition_loss.py` · `quant/research/cluster_wf_audit.py` · `quant/research/cluster_greedy_refine.py` · `core/signal/cluster/live.py` · `core/signal/return_score.py`。
+相关实现（**均已删除 / 410**）：~~`factor_ols_clusters.py`~~ · ~~`core/signal/cluster/*`~~ · ~~`cluster_greedy_refine`~~ · ~~`cluster_wf_audit`~~ · ~~`cluster_panels`~~ · ~~`web/schemas/cluster.py`~~。残留只读：`partition_loss._metrics_from_pred_act`（IC 探针）· `return_score.py`（非分组 ŷ）· `yhat_viz` 直方图。
 
 ---
 
@@ -1191,17 +1186,18 @@ flowchart LR
 
 ### 4.1 ŷ_oo 打分链（层 1 · 主轴）
 
+> 组 β / 分池簿路径已退役；现 ŷ_oo 来自非分组因子 OLS / dual_score（见 §4 后续与 `score_stock`）。
+
 ```text
 日线窗口(≤t) → sub_scores
-             → 查 code 的 return_model（组 β，active 时）
-             → predicted_score ŷ%
-             → min_predicted_score / 分池簿 / stance
+             → predicted_score ŷ%（非分组头）
+             → min_predicted_score / stance
 ```
 
 | 场景 | 行为 |
 |------|------|
 | 数据中心 / 交易执行表 | `score_stock` 同源展示 ŷ；**涨跌幅列为当日行情**，与 ŷ **不同口径** |
-| 分池簿刷新 | `refresh_cluster_book_daily`：用**已有 β** 重打截面，不改系数 |
+| ~~分池簿刷新~~ | **已退役** |
 | 纸面预演 / 确认调仓 | 读当前 live ŷ 排序与门槛，不训练 |
 
 配置门：`scoring.rank_mode=predicted_score` · `min_predicted_score` · `cluster_scoring.mode`（off / shadow / active）。
@@ -1595,14 +1591,14 @@ A 改进「估得准」；B 改进「做得对」。北极星乘积两者都要�
 | 主题 | 路径 |
 |------|------|
 | y 契约 | `core/research/beta_accuracy.py` · `core/research/panel.py` |
-| 分组 OLS | `quant/research/factor_ols_clusters.py` · `quant/services/quant_service_factors.py` |
-| live 映射 | `core/signal/cluster/live.py` · `core/signal/return_score.py` |
+| 分组 OLS | **已退役**（`cluster_retired` / HTTP 410）；勿再引用 `factor_ols_clusters` / `core/signal/cluster` |
+| live 映射 | **已退役**；非分组 ŷ 见 `return_score.py` · `score_stock.py` |
 | 打分（ŷ_oo） | **`core/signal_service.py`**（门面）· `core/signal/service.py` · `score_stock.py` · `cross_section_batch.py` |
 | **SignalService 收口** | **SS encapsulate + E1～E5**：信封/门禁 · tip/观察/Skill/脚本/研究 · `book_fields` · BookResult 拷贝戳章 · metrics→DQ/日更 · 买入 production ŷ 闸 · 框架锁 |
 | **双层 ŷ 契约 / 融合** | **`core/signal/dual_score/`**（F1 闸 · blend · shadow book · 字段写入） |
 | **τ 头训练 / 预测** | **`core/research/tau_ridge.py`**（`fit_tau_ridge_report` · `predict_tau_from_features`）；`rem_*` 为兼容别名 |
 | **τ 打分挂载** | **`core/signal/score_stock.py` § R3/A1 段**（apply_tau_score_fields 调用） |
-| **分池簿 + τ 影子簿** | **`core/signal/cluster/rank.py`**（rank_cluster_pools · build_tau_shadow_book） |
+| **分池簿 + τ 影子簿** | **已退役**（原 `core/signal/cluster/rank.py`）；τ 见 `dual_score/` · `tau_ridge.py` |
 | **F1 买入闸（纸面）** | **`core/paper_rebalance.py`**（buy_passes_tau_gate 调用） |
 | **账本 / 复盘（双层）** | `core/score_ledger.py`（ŷ_oo + ŷ_τ 分标签冻结/回填）· [quant.md · 复盘](quant.md#昨日复盘score-review) |
 | 产品回测 | `core/backtest/paper_replay.py` |

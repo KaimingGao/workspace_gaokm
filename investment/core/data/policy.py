@@ -32,6 +32,10 @@ MINUTE_FETCH_DELAY_MAX_SEC = 30.0
 # BaoStock 单票 query+遍历无内置超时；子进程 join 超时后 kill，避免强更整批挂死
 MINUTE_BAOSTOCK_TIMEOUT_SEC = 90.0
 MINUTE_BAOSTOCK_TIMEOUT_MAX_SEC = 180.0
+# 观察池分钟强更/增量：整票子进程隔离超时（东财全窗 / skip_em 近端）
+MINUTE_ISOLATED_TIMEOUT_SEC = 90.0
+MINUTE_ISOLATED_TIMEOUT_SKIP_EM_SEC = 45.0
+MINUTE_ISOLATED_TIMEOUT_MAX_SEC = 180.0
 # 东财 / BaoStock 分钟窗口（日历日）；强更 lookback 与此对齐
 MINUTE_EM_LOOKBACK_DAYS = 120
 MINUTE_EM_LOOKBACK_MAX_DAYS = 120
@@ -140,6 +144,34 @@ def minute_baostock_timeout_sec() -> float:
     if v <= 0:
         return 0.0
     return max(1.0, min(v, float(MINUTE_BAOSTOCK_TIMEOUT_MAX_SEC)))
+
+
+def minute_isolated_timeout_sec(*, skip_em: bool = False) -> float:
+    """观察池分钟强更/增量单票子进程超时（秒）。
+
+    ``INVESTMENT_MINUTE_ISOLATED_TIMEOUT_SEC`` 覆盖东财全窗默认；
+    ``INVESTMENT_MINUTE_ISOLATED_TIMEOUT_SKIP_EM_SEC`` 覆盖近端（skip_em）默认；
+    ``0`` 关闭隔离（退回进程内直调，仅单测）。
+    """
+    if skip_em:
+        raw = os.environ.get(
+            "INVESTMENT_MINUTE_ISOLATED_TIMEOUT_SKIP_EM_SEC",
+            str(MINUTE_ISOLATED_TIMEOUT_SKIP_EM_SEC),
+        )
+        default = float(MINUTE_ISOLATED_TIMEOUT_SKIP_EM_SEC)
+    else:
+        raw = os.environ.get(
+            "INVESTMENT_MINUTE_ISOLATED_TIMEOUT_SEC",
+            str(MINUTE_ISOLATED_TIMEOUT_SEC),
+        )
+        default = float(MINUTE_ISOLATED_TIMEOUT_SEC)
+    try:
+        v = float(raw)
+    except (TypeError, ValueError):
+        v = default
+    if v <= 0:
+        return 0.0
+    return max(1.0, min(v, float(MINUTE_ISOLATED_TIMEOUT_MAX_SEC)))
 
 
 def minute_baostock_lookback_days() -> int:

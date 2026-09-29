@@ -69,44 +69,21 @@ def build_live_config_manifest(*, note: str = "") -> Dict[str, Any]:
     )
     signal_path = get_signal_config_path()
 
+    _retired_art = {
+        "path": None,
+        "exists": False,
+        "sha1": None,
+        "mtime": None,
+        "bytes": None,
+        "retired": True,
+        "error": "cluster_retired",
+    }
     artifacts = {
         "signal_config": _file_fingerprint(signal_path),
-        "cluster_pointer": {
-            "path": None,
-            "exists": False,
-            "sha1": None,
-            "mtime": None,
-            "bytes": None,
-            "retired": True,
-            "error": "cluster_retired",
-        },
-        "cluster_weights_active": {
-            "path": None,
-            "exists": False,
-            "sha1": None,
-            "mtime": None,
-            "bytes": None,
-            "retired": True,
-            "error": "cluster_retired",
-        },
-        "cluster_weights_mirror": {
-            "path": None,
-            "exists": False,
-            "sha1": None,
-            "mtime": None,
-            "bytes": None,
-            "retired": True,
-            "error": "cluster_retired",
-        },
-        "cluster_book_active": {
-            "path": None,
-            "exists": False,
-            "sha1": None,
-            "mtime": None,
-            "bytes": None,
-            "retired": True,
-            "error": "cluster_retired",
-        },
+        "cluster_pointer": dict(_retired_art),
+        "cluster_weights_active": dict(_retired_art),
+        "cluster_weights_mirror": dict(_retired_art),
+        "cluster_book_active": dict(_retired_art),
         "return_score_model_active": _file_fingerprint(RETURN_SCORE_MODEL_ACTIVE_PATH),
         "predictability_tiers_last": _file_fingerprint(PREDICTABILITY_TIERS_LAST_PATH),
         "predictability_tiers_active": _file_fingerprint(PREDICTABILITY_TIERS_ACTIVE_PATH),

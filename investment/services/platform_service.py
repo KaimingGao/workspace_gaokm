@@ -18,7 +18,7 @@ from core.schedule_jobs import run_schedule
 class PlatformService:
     def get_job(self, name: str) -> Dict[str, Any]:
         slot = job_registry.slot(name)
-        # 轮询路径自动回收卡住的任务（尤其 quant-ols-clusters 拉日线挂死）
+        # 轮询路径自动回收卡住的任务（日线/分钟强更等长任务）
         if hasattr(slot, "reclaim_if_stale"):
             slot.reclaim_if_stale()
         return {"ok": True, "job": slot.get()}

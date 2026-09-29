@@ -12,7 +12,6 @@ export const FIT_TIER_TIP = {
 
 let _map = {};
 let _loaded = false;
-let _inflight = null;
 
 export function normalizeFitTier(raw) {
   const t = String(raw || "").trim().toUpperCase();

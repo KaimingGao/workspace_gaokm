@@ -146,7 +146,8 @@ class TestClusterMinuteStatus(unittest.TestCase):
         ), patch(
             "core.data.policy.minute_warmup_skip_if_ready", return_value=True
         ), patch(
-            "core.ports.market.fetch_minute_bars", return_value=([], {})
+            "adapters.market.minute_history.fetch_a_minute_bars_isolated",
+            return_value=([], {}),
         ) as fetch:
             out = _minute_warmup_core(codes=["600519", "000001"], cap=2)
         self.assertEqual(out["skipped_ready"], 1)
@@ -154,6 +155,34 @@ class TestClusterMinuteStatus(unittest.TestCase):
         fetch.assert_called_once()
         self.assertEqual(fetch.call_args.args[0], "000001")
         self.assertFalse(fetch.call_args.kwargs.get("skip_em"))
+
+    def test_warmup_continues_after_isolated_timeout(self):
+        """子进程超时只跳过该票，不收尾跳过剩余。"""
+        from core.schedule_jobs import _minute_warmup_core
+
+        calls = []
+
+        def _iso(code, **kw):
+            calls.append(code)
+            if code == "600519":
+                return [], {"error": "timeout (90s)", "timeout_sec": 90}
+            return ([{"datetime": "2026-01-01 09:35:00", "date": "2026-01-01", "close": 1.0}], {"ok": True})
+
+        with patch(
+            "core.schedule_jobs._resolve_warmup_codes",
+            return_value=["600519", "000001", "300750"],
+        ), patch(
+            "core.data.policy.minute_warmup_skip_if_ready", return_value=False
+        ), patch(
+            "adapters.market.minute_history.fetch_a_minute_bars_isolated",
+            side_effect=_iso,
+        ):
+            out = _minute_warmup_core(codes=["600519", "000001", "300750"], cap=3)
+
+        self.assertEqual(calls, ["600519", "000001", "300750"])
+        self.assertEqual(out.get("timed_out"), 1)
+        self.assertEqual(out.get("warmed"), 2)
+        self.assertTrue(out.get("isolated"))
 
     def test_refresh_delegates_warmup(self):
         from quant.research.cluster_minute_status import refresh_cluster_minute_only
@@ -231,7 +260,10 @@ class TestClusterMinuteStatus(unittest.TestCase):
         ), patch(
             "quant.research.cluster_minute_status._minute_snapshot_for_code",
             side_effect=_snap,
-        ), patch("core.ports.market.fetch_minute_bars", side_effect=_fetch):
+        ), patch(
+            "adapters.market.minute_history.fetch_a_minute_bars_isolated",
+            side_effect=_fetch,
+        ):
             out = _minute_topup_core(
                 codes=["600519", "000001", "300750"],
                 topup_lookback_days=5,
@@ -239,6 +271,7 @@ class TestClusterMinuteStatus(unittest.TestCase):
                 workers=2,
             )
         self.assertTrue(out["ok"])
+        self.assertTrue(out.get("isolated"))
         self.assertEqual(out["skipped_aligned"], 1)
         self.assertEqual(out["topped"], 1)
         self.assertEqual(out["bootstrapped"], 1)
@@ -285,7 +318,10 @@ class TestClusterMinuteStatus(unittest.TestCase):
         ), patch(
             "quant.research.cluster_minute_status._minute_snapshot_for_code",
             side_effect=_snap,
-        ), patch("core.ports.market.fetch_minute_bars", side_effect=_fetch):
+        ), patch(
+            "adapters.market.minute_history.fetch_a_minute_bars_isolated",
+            side_effect=_fetch,
+        ):
             out = _minute_topup_core(
                 codes=["600050", "000001", "300750"],
                 topup_lookback_days=5,
@@ -336,7 +372,10 @@ class TestClusterMinuteStatus(unittest.TestCase):
         ), patch(
             "quant.research.cluster_minute_status._minute_snapshot_for_code",
             side_effect=_snap,
-        ), patch("core.ports.market.fetch_minute_bars", side_effect=_fetch):
+        ), patch(
+            "adapters.market.minute_history.fetch_a_minute_bars_isolated",
+            side_effect=_fetch,
+        ):
             out = _minute_topup_core(
                 codes=["002415", "000001"],
                 topup_lookback_days=5,
@@ -348,6 +387,41 @@ class TestClusterMinuteStatus(unittest.TestCase):
         self.assertEqual(out["topped"], 1)
         self.assertEqual(out.get("refreshed_truncated"), 1)
         self.assertEqual(calls, [("002415", False, True, True)])
+
+    def test_topup_continues_after_isolated_timeout(self):
+        from quant.research.cluster_minute_status import _minute_topup_core
+
+        calls = []
+
+        def _snap(code: str, *, period: str = "5"):
+            return None
+
+        def _fetch(code, **kwargs):
+            calls.append(code)
+            if code == "600519":
+                return [], {"error": "timeout (90s)", "timeout_sec": 90}
+            return [{"date": "2026-08-28 10:00:00"}], {"ok": True}
+
+        with patch(
+            "quant.research.cluster_minute_status.expected_minute_asof",
+            return_value="2026-08-28",
+        ), patch(
+            "quant.research.cluster_minute_status._minute_snapshot_for_code",
+            side_effect=_snap,
+        ), patch(
+            "adapters.market.minute_history.fetch_a_minute_bars_isolated",
+            side_effect=_fetch,
+        ):
+            out = _minute_topup_core(
+                codes=["600519", "000001", "300750"],
+                topup_lookback_days=5,
+                full_lookback_days=30,
+                workers=2,
+            )
+        self.assertEqual(set(calls), {"600519", "000001", "300750"})
+        self.assertEqual(out.get("timed_out"), 1)
+        self.assertEqual(out.get("bootstrapped"), 2)
+        self.assertTrue(out.get("isolated"))
 
     def test_refresh_topup_mode_delegates(self):
         from quant.research.cluster_minute_status import refresh_cluster_minute_only

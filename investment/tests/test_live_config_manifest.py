@@ -50,7 +50,8 @@ class TestLiveConfigManifest(unittest.TestCase):
                 m = build_live_config_manifest(note="test")
                 self.assertTrue(m["success"])
                 self.assertFalse(m["consistent"])
-                self.assertTrue(any("mode=off" in a for a in m["alerts"]))
+                self.assertTrue(m.get("cluster_retired"))
+                self.assertTrue(any("cluster_retired" in a for a in m["alerts"]))
 
     def test_write_manifest(self):
         from core.live_config_manifest import write_live_config_manifest

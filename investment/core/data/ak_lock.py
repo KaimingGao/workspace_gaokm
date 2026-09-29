@@ -8,30 +8,59 @@ Call ``install_akshare_lock()`` once at process start (also safe to call
 lazily before first AkShare use).
 
 从 adapters/market/ak_lock.py 下沉到 core 层，消除 core → skills 反向依赖。
+
+获取锁带超时：某次远端挂死后，后续调用不再无限等锁（日线/分钟 Job 会「卡住」）。
+挂死线程仍可能占着锁；超时后本进程内后续 AkShare 会快速失败，需重启 Web 清残线程。
 """
 
+import logging
+import os
 import threading
 import types
 from contextlib import contextmanager
-from typing import Any, Callable, Iterator
-
-import logging
+from typing import Any, Callable, Iterator, Optional
 
 logger = logging.getLogger(__name__)
 
 _AKSHARE_LOCK = threading.RLock()
 _INSTALLED = False
 
+# 等锁上限（秒）；``INVESTMENT_AK_LOCK_TIMEOUT_SEC=0`` 关闭（恢复无限等）
+_DEFAULT_LOCK_TIMEOUT_SEC = 90.0
+
+
+def _lock_acquire_timeout_sec() -> Optional[float]:
+    raw = os.environ.get("INVESTMENT_AK_LOCK_TIMEOUT_SEC", str(_DEFAULT_LOCK_TIMEOUT_SEC))
+    try:
+        v = float(raw)
+    except (TypeError, ValueError):
+        v = float(_DEFAULT_LOCK_TIMEOUT_SEC)
+    if v <= 0:
+        return None
+    return max(1.0, min(v, 600.0))
+
+
+def _acquire_ak_lock(*, timeout_sec: Optional[float] = None) -> None:
+    lim = _lock_acquire_timeout_sec() if timeout_sec is None else timeout_sec
+    if lim is None:
+        _AKSHARE_LOCK.acquire()
+        return
+    if not _AKSHARE_LOCK.acquire(timeout=float(lim)):
+        raise TimeoutError(f"akshare lock busy after {lim:.0f}s")
+
 
 @contextmanager
-def akshare_lock() -> Iterator[None]:
-    with _AKSHARE_LOCK:
+def akshare_lock(*, timeout_sec: Optional[float] = None) -> Iterator[None]:
+    _acquire_ak_lock(timeout_sec=timeout_sec)
+    try:
         yield
+    finally:
+        _AKSHARE_LOCK.release()
 
 
 def _wrap_callable(fn: Callable[..., Any], name: str) -> Callable[..., Any]:
     def wrapped(*args: Any, **kwargs: Any) -> Any:
-        with _AKSHARE_LOCK:
+        with akshare_lock():
             return fn(*args, **kwargs)
 
     wrapped.__name__ = getattr(fn, "__name__", name)

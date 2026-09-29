@@ -4,7 +4,12 @@ from __future__ import annotations
 
 import logging
 import time
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import (
+    FIRST_COMPLETED,
+    ThreadPoolExecutor,
+    wait,
+)
+from concurrent.futures import TimeoutError as FuturesTimeout
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -526,9 +531,13 @@ def _minute_topup_core(
     workers: int = DEFAULT_TOPUP_WORKERS,
     progress_cb: Optional[Any] = None,
 ) -> Dict[str, Any]:
-    """观察池 5m 增量补齐：今日已拉且会话日齐窗才跳过；缺尾（如只到 10:00）强制补拉。"""
-    from core.data.policy import minute_em_lookback_days
-    from core.ports.market import fetch_minute_bars
+    """观察池 5m 增量补齐：今日已拉且会话日齐窗才跳过；缺尾（如只到 10:00）强制补拉。
+
+    远端走 ``fetch_a_minute_bars_isolated``：单票子进程超时 kill，不占主进程 ``ak_lock``，
+    避免增量补齐再卡死在「超时收尾」。
+    """
+    from adapters.market.minute_history import fetch_a_minute_bars_isolated
+    from core.data.policy import minute_em_lookback_days, minute_isolated_timeout_sec
 
     watch = [str(c).strip() for c in (codes or []) if str(c).strip()]
     if not watch:
@@ -542,6 +551,8 @@ def _minute_topup_core(
     expected = expected_minute_asof()
     now = datetime.now()
     n_workers = max(1, min(int(workers or DEFAULT_TOPUP_WORKERS), 8, len(watch)))
+    timeout_em = minute_isolated_timeout_sec(skip_em=False)
+    timeout_skip_em = minute_isolated_timeout_sec(skip_em=True)
 
     skipped_aligned = 0
     skipped_today = 0
@@ -549,9 +560,11 @@ def _minute_topup_core(
     bootstrapped = 0
     refreshed_truncated = 0
     warmed = 0
+    timed_out = 0
     errors: List[str] = []
     total = len(watch)
     done = 0
+    batch_timeout = 0.0
 
     def _plan(code: str) -> Tuple[str, str, int, bool, bool]:
         """返回 (code, action, lookback, skip_em, force)。action: skip|skip_today|topup|full。"""
@@ -599,8 +612,10 @@ def _minute_topup_core(
     def _fetch_one(code: str, action: str, lookback: int, skip_em: bool) -> Tuple[str, str, bool, Optional[str]]:
         # 会话缺尾：跳过读仓强刷；其余增量仍用短 TTL 读短路
         force = code in truncated_codes
-        bars, meta = fetch_minute_bars(
+        timeout_sec = timeout_skip_em if skip_em else timeout_em
+        bars, meta = fetch_a_minute_bars_isolated(
             code,
+            timeout_sec=timeout_sec,
             period=period_s,
             use_cache=not force,
             lookback_days=lookback,
@@ -614,33 +629,77 @@ def _minute_topup_core(
         return code, action, False, err
 
     if to_fetch:
-        with ThreadPoolExecutor(max_workers=n_workers) as ex:
+        # 勿用 ``with ThreadPoolExecutor``：挂死任务 cancel 不掉，exit 会 wait=True 卡死 Job
+        # 子进程单票可 kill；批上限按「每票超时 / 并发」估，避免再卡死在 900s 假收尾
+        waves = max(1, (len(to_fetch) + n_workers - 1) // n_workers)
+        batch_timeout = max(180.0, min(3600.0, timeout_em * float(waves) + 60.0))
+        t0 = time.time()
+        pool = ThreadPoolExecutor(max_workers=n_workers)
+        try:
             futs = {
-                ex.submit(_fetch_one, c, act, lb, sem): (c, act)
+                pool.submit(_fetch_one, c, act, lb, sem): (c, act)
                 for c, act, lb, sem in to_fetch
             }
-            for fut in as_completed(futs):
-                code, action = futs[fut]
-                try:
-                    _c, act, ok_fetch, err = fut.result()
-                except Exception as exc:  # noqa: BLE001
-                    ok_fetch, act, err = False, action, str(exc)[:80]
-                done += 1
-                if ok_fetch:
-                    warmed += 1
-                    if act == "topup":
-                        topped += 1
-                        if code in truncated_codes:
-                            refreshed_truncated += 1
-                    else:
-                        bootstrapped += 1
-                elif err:
-                    errors.append(f"{code}:{err}")
+            pending = set(futs.keys())
+            try:
+                while pending:
+                    finished, pending = wait(
+                        pending, timeout=1.5, return_when=FIRST_COMPLETED
+                    )
+                    if not finished:
+                        if time.time() - t0 >= batch_timeout:
+                            raise FuturesTimeout()
+                        continue
+                    for fut in finished:
+                        code, action = futs[fut]
+                        try:
+                            _c, act, ok_fetch, err = fut.result(timeout=0.1)
+                        except Exception as exc:  # noqa: BLE001
+                            ok_fetch, act, err = False, action, str(exc)[:80]
+                        done += 1
+                        if ok_fetch:
+                            warmed += 1
+                            if act == "topup":
+                                topped += 1
+                                if code in truncated_codes:
+                                    refreshed_truncated += 1
+                            else:
+                                bootstrapped += 1
+                        elif err:
+                            if "timeout" in err.lower():
+                                timed_out += 1
+                            errors.append(f"{code}:{err}")
+                        if progress_cb:
+                            try:
+                                progress_cb(done, total, f"{act} {code}")
+                            except Exception:  # noqa: BLE001
+                                logger.debug("minute topup progress_cb failed", exc_info=True)
+            except FuturesTimeout:
+                for fut in list(pending):
+                    code, _action = futs[fut]
+                    fut.cancel()
+                    timed_out += 1
+                    errors.append(f"{code}:batch_timeout")
+                    done += 1
+                    if progress_cb:
+                        try:
+                            progress_cb(done, total, f"timeout {code}")
+                        except Exception:  # noqa: BLE001
+                            logger.debug("minute topup progress_cb failed", exc_info=True)
                 if progress_cb:
                     try:
-                        progress_cb(done, total, f"{act} {code}")
+                        progress_cb(
+                            done,
+                            total,
+                            f"超时收尾 {done}/{total} · 上限 {int(batch_timeout)}s",
+                        )
                     except Exception:  # noqa: BLE001
                         logger.debug("minute topup progress_cb failed", exc_info=True)
+        finally:
+            try:
+                pool.shutdown(wait=False, cancel_futures=True)
+            except TypeError:
+                pool.shutdown(wait=False)
 
     return {
         "ok": warmed > 0 or total == 0,
@@ -658,11 +717,14 @@ def _minute_topup_core(
         "bootstrapped": bootstrapped,
         "refreshed_truncated": refreshed_truncated,
         "skipped_ready": skipped_aligned + skipped_today,
+        "timed_out": timed_out,
+        "isolated": True,
         "workers": n_workers,
         "errors": errors[:10],
         "note": (
             f"5m 增量补齐 · 齐窗才今日/对齐跳过 · 缺尾走新浪近端 · 近 {top_lb} 日 topup · "
-            f"缺/短全窗 {full_lb} 日 · {n_workers} 并发"
+            f"缺/短全窗 {full_lb} 日 · 子进程隔离 · {n_workers} 并发"
+            + (f" · 批上限 {int(batch_timeout)}s" if to_fetch else "")
         ),
     }
 

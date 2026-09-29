@@ -15,7 +15,11 @@ from collections import defaultdict
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Tuple
 
-from core.data.policy import MINUTE_CACHE_HOURS, minute_fetch_delay_sec
+from core.data.policy import (
+    MINUTE_CACHE_HOURS,
+    MINUTE_ISOLATED_TIMEOUT_SEC,
+    minute_fetch_delay_sec,
+)
 from core.numbers import to_float as _to_float
 from core.store import (
     align_minute_volume_units,
@@ -540,3 +544,116 @@ def fetch_minute_bars(
         skip_em=skip_em,
         skip_bs=skip_bs,
     )
+
+
+def _child_fetch_a_minute_worker(payload: Dict[str, Any], out_queue: Any) -> None:
+    """子进程入口：拉分钟线并落盘；异常只回传 meta，不拖垮父进程。"""
+    try:
+        kw = dict(payload or {})
+        code = str(kw.pop("code") or "")
+        bars, meta = fetch_a_minute_bars(code, **kw)
+        out_queue.put(("ok", list(bars or []), dict(meta or {})))
+    except Exception as e:  # noqa: BLE001 — 子进程兜底
+        out_queue.put(
+            (
+                "err",
+                [],
+                {
+                    "data_source": "empty",
+                    "error": str(e)[:200],
+                    "period": str((payload or {}).get("period") or "5"),
+                },
+            )
+        )
+
+
+def fetch_a_minute_bars_isolated(
+    code: str,
+    *,
+    timeout_sec: float = MINUTE_ISOLATED_TIMEOUT_SEC,
+    period: str = "5",
+    lookback_days: int = 120,
+    use_cache: bool = True,
+    max_age_hours: float = MINUTE_CACHE_HOURS,
+    adjust: str = "qfq",
+    skip_em: bool = False,
+    skip_bs: bool = False,
+) -> Tuple[List[dict], Dict[str, Any]]:
+    """子进程拉分钟线；超时 ``kill`` 子进程，不占主进程 ``ak_lock``。
+
+    供观察池强更 / schedule 预热：单票东财挂死时父进程可继续下一只。
+    ``timeout_sec<=0`` 时退回进程内直调（单测）。
+    """
+    import multiprocessing as mp
+
+    timeout = float(timeout_sec or 0)
+    code_s = str(code or "").strip()
+    if timeout <= 0:
+        return fetch_a_minute_bars(
+            code_s,
+            period=period,
+            lookback_days=lookback_days,
+            use_cache=use_cache,
+            max_age_hours=max_age_hours,
+            adjust=adjust,
+            skip_em=skip_em,
+            skip_bs=skip_bs,
+        )
+
+    payload = {
+        "code": code_s,
+        "period": str(period or "5"),
+        "lookback_days": int(lookback_days or 120),
+        "use_cache": bool(use_cache),
+        "max_age_hours": float(max_age_hours),
+        "adjust": str(adjust or "qfq"),
+        "skip_em": bool(skip_em),
+        "skip_bs": bool(skip_bs),
+    }
+    ctx = mp.get_context("spawn")
+    out_queue = ctx.Queue()
+    proc = ctx.Process(
+        target=_child_fetch_a_minute_worker,
+        args=(payload, out_queue),
+        name=f"minute-warmup-{code_s}",
+        daemon=True,
+    )
+    proc.start()
+    proc.join(timeout=max(1.0, timeout))
+    if proc.is_alive():
+        proc.kill()
+        proc.join(5.0)
+        logger.warning(
+            "fetch_a_minute_bars_isolated timeout %s after %.0fs",
+            code_s,
+            timeout,
+        )
+        # 超时后尽量回退本地过期仓，避免强更后整票变 Missing
+        try:
+            market, bare = resolve_market_code(code_s)
+            if market == "CN" and bare:
+                stale = _load_stale_minute(market, bare, str(period or "5"))
+                if stale and stale[0]:
+                    bars, meta = stale
+                    meta = dict(meta)
+                    meta["error"] = f"timeout ({timeout:.0f}s)"
+                    meta["timeout_sec"] = timeout
+                    return bars, meta
+        except Exception:  # noqa: BLE001
+            logger.debug("stale fallback after minute timeout failed", exc_info=True)
+        return [], {
+            "data_source": "empty",
+            "error": f"timeout ({timeout:.0f}s)",
+            "period": str(period or "5"),
+            "timeout_sec": timeout,
+        }
+    if out_queue.empty():
+        return [], {
+            "data_source": "empty",
+            "error": "minute child exited without result",
+            "period": str(period or "5"),
+        }
+    status, bars, meta = out_queue.get()
+    if status != "ok":
+        return list(bars or []), dict(meta or {})
+    return list(bars or []), dict(meta or {})
