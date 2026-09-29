@@ -1518,16 +1518,29 @@ def collect_tau_open_panel(
     stock_code: Optional[str] = None,
     respect_regime: bool = False,
     config: Optional[dict] = None,
+    include_alpha158: bool = False,
 ) -> Tuple[List[Dict[str, Optional[float]]], List[float], List[str], List[Dict[str, Any]]]:
     """单票 open→close 的 y_τ 面板（τ=open）。
 
     返回 ``(xs, ys, decision_dates, meta_rows)``。
     ``decision_dates`` = 交易日 T（开盘决策日）；ATR 窗口截止 T-1。
     只写 Z 特征（缺口 / ATR）；日线因子已在 ŷ_oo，此处不算。
+    ``include_alpha158=True`` 时附加 ≤T−1 的 ``raw_alpha158_*``（Ridge / 树共用）。
     ``meta_rows`` 含 ``y_tau``（= open→close %）等辅助字段。
     """
     min_history = max(5, int(min_history or 12))
     max_window = max(min_history, int(max_window or 30))
+    if include_alpha158:
+        try:
+            from core.signal.factors.alpha158 import bump_window_for_alpha158
+
+            min_history, max_window = bump_window_for_alpha158(
+                ("alpha158",),
+                min_history=min_history,
+                max_window=max_window,
+            )
+        except Exception:  # noqa: BLE001
+            logger.debug("tau open alpha158 window bump failed", exc_info=True)
     _ = (index_bars, fundamentals, respect_regime, config)
     xs: List[Dict[str, Optional[float]]] = []
     ys: List[float] = []
@@ -1571,6 +1584,13 @@ def collect_tau_open_panel(
         }
         for k in TAU_LAG_FEATURES:
             row[k] = lags.get(k)
+        if include_alpha158:
+            try:
+                from core.signal.factors.alpha158 import raw_alpha158_from_bars
+
+                row.update(raw_alpha158_from_bars(window))
+            except Exception:  # noqa: BLE001
+                logger.debug("tau open alpha158 inject failed", exc_info=True)
         xs.append(row)
         ys.append(float(y))
         dates.append(date_t)
@@ -2101,15 +2121,28 @@ def collect_tau_intraday_panel(
     index_bars: Optional[List[dict]] = None,
     fundamentals: Optional[dict] = None,
     stock_code: Optional[str] = None,
+    include_alpha158: bool = False,
 ) -> Tuple[List[Dict[str, Optional[float]]], List[float], List[str], List[Dict[str, Any]]]:
     """分钟 τ 面板（变长前缀 / 少数时钟）：特征 ≤τ，标签 y_τ = 日线 close/open−1。
 
     与 τ=open 头同一标签口径（日线 open→close）；仅信息集多了前缀分钟路径。
     ``tau_grid`` 非空时：同一交易日在多个 τ 各采一行（共享 β，**同日 y 相同**）；
     默认网格 ``09:30|09:35|…|11:00`` 每 5m（09:30 无分钟前缀只留开盘 Z；与做 T v6 扫描至 11:00 对齐；不含 13:00 / 14:00）。
+    ``include_alpha158=True`` 时附加 ≤T−1 的 ``raw_alpha158_*``（Ridge / 树共用）。
     """
     min_history = max(5, int(min_history or 12))
     max_window = max(min_history, int(max_window or 30))
+    if include_alpha158:
+        try:
+            from core.signal.factors.alpha158 import bump_window_for_alpha158
+
+            min_history, max_window = bump_window_for_alpha158(
+                ("alpha158",),
+                min_history=min_history,
+                max_window=max_window,
+            )
+        except Exception:  # noqa: BLE001
+            logger.debug("tau intraday alpha158 window bump failed", exc_info=True)
     _ = (index_bars, fundamentals)
     clocks = normalize_minute_tau_grid(tau_hm=tau_hm, tau_grid=tau_grid)
     xs: List[Dict[str, Optional[float]]] = []
@@ -2151,6 +2184,16 @@ def collect_tau_intraday_panel(
             tau_by_date=tau_map,
             asof_date=date_t,
         )
+        # Alpha158 只依赖 ≤T−1 日线窗，与 τ 无关；提到时钟循环外，避免满网格重复 ~19×
+        a158_feats: Dict[str, Any] = {}
+        if include_alpha158:
+            try:
+                from core.signal.factors.alpha158 import raw_alpha158_from_bars
+
+                a158_feats = raw_alpha158_from_bars(window) or {}
+            except Exception:  # noqa: BLE001
+                logger.debug("tau intraday alpha158 inject failed", exc_info=True)
+                a158_feats = {}
         for clock in clocks:
             open_clock = is_open_minute_clock(clock)
             px_tau = price_at_tau_from_minutes(
@@ -2200,6 +2243,8 @@ def collect_tau_intraday_panel(
             seq60 = seq_all
             seq75 = seq_all
             seq90 = seq_all
+            if a158_feats:
+                row.update(a158_feats)
             xs.append(row)
             ys.append(float(y_oc))
             dates.append(date_t)

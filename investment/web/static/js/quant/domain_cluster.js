@@ -76,95 +76,13 @@ export function installClusterProbe(q) {
     if (bootstrapClusterHub._running) return;
     bootstrapClusterHub._running = true;
     try {
-      // 进度挂分组卡头（三点脉冲）；页顶 meta 不抢主标题下的说明位
-      if (els.quantFactorList) els.quantFactorList.innerHTML = "";
+      const msg = "分组已退役（cluster_retired）· 请用全局 factor-ols / ŷ";
+      setBusyText(els.quantOlsSummary, msg, { busy: false });
+      if (els.quantOlsClusters) {
+        els.quantOlsClusters.hidden = false;
+        els.quantOlsClusters.innerHTML = `<p class="sub">${escapeHtml(msg)}</p>`;
+      }
       paintClusterHealth("");
-      // 进页优先恢复上次落盘分组，避免刷新重算/命中旧缓存导致组变
-      setBusyText(els.quantOlsSummary, "恢复上次分组…", { busy: true });
-      let restored = null;
-      try {
-        const hr = await fetch("/api/quant/factor-ols-clusters/last-report");
-        const data = await hr.json();
-        if (
-          data &&
-          data.success &&
-          Array.isArray(data.clusters) &&
-          data.clusters.length
-        ) {
-          restored = data;
-        }
-      } catch (_) {
-        restored = null;
-      }
-      if (!restored) {
-        // last-report 断连时再试：可能刚重启
-        try {
-          await new Promise((r) => setTimeout(r, 600));
-          const hr2 = await fetch("/api/quant/factor-ols-clusters/last-report");
-          const data2 = await hr2.json();
-          if (
-            data2 &&
-            data2.success &&
-            Array.isArray(data2.clusters) &&
-            data2.clusters.length
-          ) {
-            restored = data2;
-          }
-        } catch (_) {
-          restored = null;
-        }
-      }
-
-      // 后台分组仍在跑：接上轮询（刷新后进度不丢）；可先画旧报告作对照
-      let runningJobId = null;
-      try {
-        const jr = await fetch("/api/jobs/quant-ols-clusters?progress=1");
-        if (jr.ok) {
-          const jp = await jr.json();
-          const job = (jp && jp.job) || {};
-          if (job.status === "running" && job.id) {
-            runningJobId = job.id;
-          }
-        }
-      } catch (_) {
-        runningJobId = null;
-      }
-      if (runningJobId) {
-        if (restored) {
-          try {
-            renderOlsClusters(restored);
-          } catch (_) {
-            /* ignore stale paint */
-          }
-        }
-        setBusyText(els.quantOlsSummary, "接上已在跑的分组…", { busy: true });
-        await q.suggest.runFactorOlsClustersSuggest({ resumeJobId: runningJobId });
-        return;
-      }
-
-      if (restored) {
-        renderOlsClusters(restored);
-        const nCl =
-          restored.n_clusters ?? (restored.clusters || []).length ?? "—";
-        const src =
-          restored.restored_from === "last_report"
-            ? "上次落盘"
-            : restored.restored_from === "fingerprint_cache"
-              ? "报告缓存"
-              : restored.restored_from === "draft"
-                ? "研究草稿"
-                : "落盘报告";
-        const draftHint =
-          restored.restored_from === "draft"
-            ? " · 缺完整研究面板"
-            : "";
-        const line = `已恢复${src} · ${nCl} 组${draftHint} · 点「跑分组」可重算`;
-        setBusyText(els.quantOlsSummary, line, { busy: false });
-        setQuantMeta(line);
-        return;
-      }
-      setBusyText(els.quantOlsSummary, "分组中…", { busy: true });
-      await q.suggest.runFactorOlsClustersSuggest();
     } finally {
       bootstrapClusterHub._running = false;
     }
@@ -333,17 +251,14 @@ export function installClusterProbe(q) {
     if (key === "live-refit") {
       e.preventDefault();
       e.stopPropagation();
-      const runBtn = document.getElementById("quant-ols-clusters-run");
-      if (runBtn) {
-        runBtn.scrollIntoView({ block: "nearest", behavior: "smooth" });
-        setBusyText(els.quantOlsSummary, "对照 → 跑分组重估中…", { busy: true });
-        runBtn.click();
-      } else {
-        setBusyText(els.quantOlsSummary, "请到「分组」点「跑分组」重估组 β", {
-          busy: false,
-        });
-        setQuantMeta("请到研究枢纽点「跑分组」重估组 β", { error: true });
-      }
+      setBusyText(
+        els.quantOlsSummary,
+        "分组已退役 · 请用 ŷ_oo「拟合」重估全局 β",
+        { busy: false }
+      );
+      setQuantMeta("分组已退役 · 请用 ŷ_oo「拟合」", { error: true });
+      const ooFit = document.getElementById("quant-return-model-fit");
+      if (ooFit) ooFit.scrollIntoView({ block: "nearest", behavior: "smooth" });
       return;
     }
     if (key === "universe-fit-tiers") {
@@ -495,25 +410,15 @@ export function installClusterProbe(q) {
   }
 
   async function postClusterLive(path, body) {
-    const res = await fetch(path, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body || {}),
-    });
-    let data = null;
-    try {
-      data = await res.json();
-    } catch (_) {
-      data = null;
-    }
-    if (!res.ok || !data || data.success === false) {
-      return {
-        ok: false,
-        error: formatClusterApiError(data, res.status),
-        data,
-      };
-    }
-    return { ok: true, data };
+    void path;
+    void body;
+    const msg = "分组已退役（cluster_retired）";
+    setQuantMeta(msg, { error: true });
+    return {
+      ok: false,
+      error: msg,
+      data: { success: false, error: "cluster_retired", cluster_retired: true },
+    };
   }
 
   async function postClusterPaperRebalance({ confirm }) {
@@ -568,48 +473,12 @@ export function installClusterProbe(q) {
   }
 
   async function refreshClusterLiveStatus() {
-    try {
-      const res = await fetch("/api/quant/cluster-live/status?light=1");
-      const data = await res.json();
-      // await 后重取节点：分组重绘会替换 #quant-cluster-landing，旧引用已脱离 DOM
-      const host = document.getElementById("quant-cluster-landing");
-      if (!host) return;
-      if (!data || !data.success) {
-        const reason =
-          (data && (data.error || data.detail)) ||
-          (!res.ok ? `HTTP ${res.status}` : "");
-        host.innerHTML = `<p class="sub">分组状态不可用${
-          reason ? ` · ${escapeHtml(String(reason))}` : ""
-        }</p>`;
-        return;
-      }
-      const research =
-        state.quantLastOlsClusters && state.quantLastOlsClusters.success
-          ? state.quantLastOlsClusters
-          : null;
-      const researchN =
-        research && research.n_clusters != null
-          ? research.n_clusters
-          : research && Array.isArray(research.clusters)
-            ? research.clusters.length
-            : null;
+    const host = document.getElementById("quant-cluster-landing");
+    if (host) {
       host.innerHTML = clusterLandingHtml({
-        ...data,
-        research_n_clusters: researchN,
+        cluster_retired: true,
+        error: "cluster_retired",
       });
-      try {
-        syncOverviewLanding(data);
-      } catch (_) {
-        /* overview optional */
-      }
-    } catch (err) {
-      const host = document.getElementById("quant-cluster-landing");
-      if (host) {
-        const msg = err && err.message ? String(err.message) : "";
-        host.innerHTML = `<p class="sub">分组状态加载失败${
-          msg ? ` · ${escapeHtml(msg)}` : ""
-        }</p>`;
-      }
     }
   }
 
@@ -743,7 +612,7 @@ export function installClusterProbe(q) {
     );
     els.quantFactorList.innerHTML =
       html ||
-      `<p class="watching-table-empty">点「跑分组」生成一组一表</p>`;
+      `<p class="watching-table-empty">点「拟合」生成系数表</p>`;
   }
 
   function renderOlsClusters(data) {
@@ -1062,7 +931,7 @@ export function installClusterProbe(q) {
     setQuantMeta("正在保存宇宙分档…", { busy: true });
     const out = await postClusterLive(
       "/api/quant/cluster-live/universe-fit-tiers",
-      { universe_fit_tiers: tiers.length ? tiers : ["A", "B", "C"] }
+      { universe_fit_tiers: tiers.length ? tiers : ["A", "B"] }
     );
     if (!out.ok) {
       setQuantMeta(`宇宙分档未保存 · ${out.error}`, { error: true });
@@ -1074,7 +943,7 @@ export function installClusterProbe(q) {
         out.data.cluster_scoring &&
         out.data.cluster_scoring.universe_fit_tiers) ||
       tiers;
-    const label = Array.isArray(saved) && saved.length ? saved.join("+") : "A+B+C";
+    const label = Array.isArray(saved) && saved.length ? saved.join("+") : "A+B";
     setQuantMeta(`已保存宇宙分档 ${label} · live 新开/加按此过滤`);
     refreshClusterLiveStatus();
   }

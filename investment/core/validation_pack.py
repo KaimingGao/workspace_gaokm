@@ -92,28 +92,12 @@ def build_validation_pack(
         "risk_blocks": rb,
         "ab_compare": ab_compare,
         "fit_gap": None,
-        "cluster_fingerprint": None,
+        "cluster_fingerprint": {
+            "retired": True,
+            "mode": "off",
+            "error": "cluster_retired",
+        },
     }
-    try:
-        from core.signal.cluster.live import (
-            get_cluster_scoring_cfg,
-            load_active_cluster_book,
-            load_active_cluster_weights,
-        )
-
-        active = load_active_cluster_weights() or {}
-        book = load_active_cluster_book() or {}
-        cs = get_cluster_scoring_cfg()
-        pack["cluster_fingerprint"] = {
-            "version": active.get("version"),
-            "mode": cs.get("mode"),
-            "n_mapped": active.get("n_mapped_codes") or len(active.get("code_map") or {}),
-            "book_count": len(book.get("book") or []),
-            "promoted_at": active.get("promoted_at"),
-        }
-    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in validation_pack.py", exc_info=True)
-        pass
     try:
         from core.fit_gap import fit_gap_hints
 

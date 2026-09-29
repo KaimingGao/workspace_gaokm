@@ -84,7 +84,7 @@ class TestP95P96WebPages(unittest.TestCase):
                 "因子系数 β",
                 "return_model",
                 "ŷ",
-                "quant-ols-pool-run",
+                "quant-return-model-fit",
                 "quant-ols-code",
                 "quant-probe-run",
                 "对照验证",

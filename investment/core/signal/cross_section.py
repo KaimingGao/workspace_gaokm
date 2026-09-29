@@ -74,45 +74,8 @@ def rank_cross_section(
             continue
         scored_items.append(item)
 
-    # OOS 失败组：不进横截面 Top（与 Top-K / 主簿一致）
-    oos_ex = 0
-    try:
-        from core.signal.cluster.oos_labels import (
-            codes_in_oos_failed_clusters,
-            is_oos_failed_cluster_label,
-        )
-
-        oos_blocked = codes_in_oos_failed_clusters()
-    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in cross_section.py", exc_info=True)
-        oos_blocked = set()
-
-        def is_oos_failed_cluster_label(_lab):  # type: ignore
-            return False
-
-    kept_cs: List[dict] = []
-    for it in scored_items:
-        code = str(it.get("stock_code") or "").strip()
-        lab = str(it.get("cluster_label") or "").strip()
-        if (code and code in oos_blocked) or (
-            lab and is_oos_failed_cluster_label(lab)
-        ):
-            oos_ex += 1
-            rejected.append(
-                {
-                    "stock_code": it.get("stock_code"),
-                    "stock_name": it.get("stock_name"),
-                    "reason": f"组 {lab or '?'} OOS 失败，不进横截面 Top",
-                    "cluster_label": lab or None,
-                }
-            )
-            continue
-        kept_cs.append(it)
-    scored_items = kept_cs
-
     from core.signal.return_score import (
         apply_predicted_scores,
-        apply_predicted_scores_by_model,
         clamp_rank_mode,
         rank_by_predicted_score,
     )
@@ -122,40 +85,11 @@ def rank_cross_section(
     rank_mode = clamp_rank_mode(scoring_cfg.get("rank_mode"))
     rank_meta: Dict[str, Any] = {
         "rank_mode": rank_mode,
-        "oos_failed_excluded": oos_ex,
+        "oos_failed_excluded": 0,
+        "cluster_mode": "off",
     }
-    cluster_models: Dict[str, Any] = {}
-    try:
-        from core.signal.cluster.live import (
-            cluster_yhat_primary_allowed,
-            filter_primary_cluster_models_by_code,
-            get_cluster_scoring_cfg,
-            load_cluster_return_models_by_code,
-        )
-
-        # FH0：仅 active 用组 β 驱动截面主分；off/shadow 不注入 by_code 图
-        cs = get_cluster_scoring_cfg(cfg)
-        rank_meta["cluster_mode"] = cs.get("mode")
-        if cluster_yhat_primary_allowed(str(cs.get("mode") or "off")):
-            cluster_models = filter_primary_cluster_models_by_code(
-                load_cluster_return_models_by_code()
-            )
-    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in cross_section.py", exc_info=True)
-        cluster_models = {}
     return_model, model_meta = load_return_model(prefer_active=True)
-    if cluster_models:
-        scored_items = apply_predicted_scores_by_model(
-            scored_items,
-            cluster_models,
-            write_rank_score=False,
-            default_model=return_model,
-        )
-        rank_meta["return_model_source"] = "cluster_group_beta"
-        rank_meta["cluster_return_models"] = len(cluster_models)
-        if return_model is not None:
-            rank_meta["global_return_model"] = model_meta
-    elif return_model is not None:
+    if return_model is not None:
         scored_items = apply_predicted_scores(
             scored_items, return_model, write_rank_score=False
         )
@@ -170,7 +104,7 @@ def rank_cross_section(
         "reason": "predicted_score_uses_factor_coefs",
     }
 
-    has_pred = bool(cluster_models) or return_model is not None or any(
+    has_pred = return_model is not None or any(
         it.get("predicted_score") is not None for it in scored_items
     )
     ranked: List[dict] = []
@@ -181,7 +115,7 @@ def rank_cross_section(
         except (TypeError, ValueError):
             min_pred_f = None
         # S3 口径对齐：挂 dual_score（blend ŷ_trade + ŷ_τ），过 ŷ_oo floor + τ 闸，再按 blend 排序
-        # 与 cluster_rank/cross_section_batch 的排序/闸一致，避免跨入口产生不同榜单
+        # 与 cross_section_batch 的排序/闸一致，避免跨入口产生不同榜单
         tau_gate_passes: Dict[str, Tuple[bool, Optional[str]]] = {}
         ranked_gated: List[Tuple[float, float, dict]] = []  # (blend, eod, item)
         import logging

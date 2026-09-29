@@ -13,7 +13,7 @@ if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
 
-def _bars(n: int = 40, start: float = 10.0):
+def _bars(n: int = 80, start: float = 10.0):
     from datetime import date, timedelta
 
     out = []
@@ -37,7 +37,7 @@ def _bars(n: int = 40, start: float = 10.0):
     return out
 
 
-def _bars_gapped(n: int = 40, start: float = 10.0):
+def _bars_gapped(n: int = 80, start: float = 10.0):
     from datetime import date, timedelta
 
     out = []
@@ -65,13 +65,14 @@ class TestCoPanel(unittest.TestCase):
     def test_co_panel_label_is_fwd_close_open(self):
         from core.research.co_panel import collect_co_panel
 
-        bars = _bars(35)
+        bars = _bars(80)
         xs, ys, dates, metas = collect_co_panel(bars, stock_code="000001")
         self.assertGreater(len(ys), 5)
         self.assertEqual(len(xs), len(ys))
+        # min_history bumped for alpha158 → first decision ~ index 62
         i = 0
-        b_t = bars[12 + i]
-        b_next = bars[13 + i]
+        b_t = bars[62 + i]
+        b_next = bars[63 + i]
         # 标签 = 真实隔夜缺口 open[T+1]/close[T]-1
         expected = (float(b_next["open"]) / float(b_t["close"]) - 1.0) * 100.0
         self.assertAlmostEqual(ys[i], expected, places=4)
@@ -82,7 +83,7 @@ class TestCoPanel(unittest.TestCase):
     def test_co_panel_enriched_features_are_pit(self):
         from core.research.co_panel import CO_Z_FEATURES, collect_co_panel
 
-        bars = _bars_gapped(40)
+        bars = _bars_gapped(80)
         xs, ys, _, _ = collect_co_panel(bars, stock_code="000001", min_history=12)
         self.assertGreater(len(xs), 5)
         row = xs[0]
@@ -91,7 +92,8 @@ class TestCoPanel(unittest.TestCase):
             if k in skip_cs:
                 continue
             self.assertIn(k, row, k)
-        i = 12
+        self.assertIn("raw_alpha158_KMID", row)
+        i = 62
         prev = bars[i - 1]
         prev2 = bars[i - 2]
         b_t = bars[i]
@@ -219,15 +221,17 @@ class TestCoPanel(unittest.TestCase):
         )
 
         stock_bars = [
-            {"code": "A", "bars": _bars(40, 10)},
-            {"code": "B", "bars": _bars(40, 12)},
-            {"code": "C", "bars": _bars(40, 8)},
+            {"code": "A", "bars": _bars(80, 10)},
+            {"code": "B", "bars": _bars(80, 12)},
+            {"code": "C", "bars": _bars(80, 8)},
         ]
         report = fit_co_ridge_report(
             stock_bars, ridge_lambda=1.0, theme_boost=1.5, holdout_trading_days=5
         )
         self.assertTrue(report.get("success"), report.get("error"))
         self.assertEqual(report.get("target"), "overnight_gap")
+        self.assertTrue(report.get("include_alpha158"))
+        self.assertGreater(int(report.get("n_alpha158_features") or 0), 0)
         oos = report.get("oos") or {}
         self.assertEqual(oos.get("split_mode"), "holdout_days")
         self.assertEqual(int(oos.get("holdout_trading_days") or 0), 5)
@@ -311,9 +315,9 @@ class TestCoScoreAttach(unittest.TestCase):
         )
 
         stock_bars = [
-            {"code": "A", "bars": _bars(40, 10)},
-            {"code": "B", "bars": _bars(40, 12)},
-            {"code": "C", "bars": _bars(40, 8)},
+            {"code": "A", "bars": _bars(80, 10)},
+            {"code": "B", "bars": _bars(80, 12)},
+            {"code": "C", "bars": _bars(80, 8)},
         ]
         report = fit_co_ridge_report(stock_bars, ridge_lambda=1.0, theme_boost=1.5)
         self.assertTrue(report.get("success"), report.get("error"))
@@ -339,9 +343,9 @@ class TestCoScoreAttach(unittest.TestCase):
         )
 
         stock_bars = [
-            {"code": "A", "bars": _bars(40, 10)},
-            {"code": "B", "bars": _bars(40, 12)},
-            {"code": "C", "bars": _bars(40, 8)},
+            {"code": "A", "bars": _bars(80, 10)},
+            {"code": "B", "bars": _bars(80, 12)},
+            {"code": "C", "bars": _bars(80, 8)},
         ]
         report = fit_co_ridge_report(stock_bars, ridge_lambda=1.0, theme_boost=1.5)
         self.assertTrue(report.get("success"), report.get("error"))
@@ -501,6 +505,40 @@ class TestCoScoreAttach(unittest.TestCase):
                 ):
                     hydrate_holding_co_fields(row)
         self.assertAlmostEqual(float(row.get("predicted_score_on")), -0.33)
+
+    def test_co_panel_can_disable_alpha158(self):
+        from core.research.co_panel import collect_co_panel
+
+        bars = _bars(40)
+        xs, _, _, _ = collect_co_panel(
+            bars, stock_code="000001", include_alpha158=False
+        )
+        self.assertGreater(len(xs), 5)
+        self.assertFalse(any(str(k).startswith("raw_alpha158_") for k in xs[0]))
+
+    def test_features_co_snapshot_keeps_alpha158(self):
+        from core.signal.dual_score.co import features_co_snapshot
+
+        snap = features_co_snapshot(
+            {"gap_pct": 1.0, "raw_alpha158_KMID": 0.02, "noise": 9}
+        )
+        self.assertEqual(snap.get("gap_pct"), 1.0)
+        self.assertEqual(snap.get("raw_alpha158_KMID"), 0.02)
+        self.assertNotIn("noise", snap)
+
+    def test_fit_co_without_alpha158_ablation(self):
+        from core.research.co_ridge import fit_co_ridge_report
+
+        stock_bars = [
+            {"code": "A", "bars": _bars(80, 10)},
+            {"code": "B", "bars": _bars(80, 12)},
+        ]
+        report = fit_co_ridge_report(
+            stock_bars, include_alpha158=False, holdout_trading_days=5
+        )
+        self.assertTrue(report.get("success"), report.get("error"))
+        self.assertFalse(report.get("include_alpha158"))
+        self.assertEqual(int(report.get("n_alpha158_features") or 0), 0)
 
 
 if __name__ == "__main__":

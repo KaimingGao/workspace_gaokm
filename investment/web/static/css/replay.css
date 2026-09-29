@@ -435,6 +435,21 @@ body[data-page="replay"] .replay-clock-field #quant-fill-clock {
   min-width: 5.5rem;
 }
 
+body[data-page="replay"] .replay-pred-tier-field {
+  flex-direction: row !important;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 0;
+  border: 0;
+  padding: 0;
+  min-width: 0;
+}
+
+body[data-page="replay"] .replay-three-window-check {
+  white-space: nowrap;
+  font-size: 12px;
+}
+
 body[data-page="replay"] .replay-fit-tier-field {
   flex-direction: row !important;
   align-items: center;

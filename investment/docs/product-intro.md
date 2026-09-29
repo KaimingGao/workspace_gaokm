@@ -150,7 +150,7 @@ quant_panel.html
 
 `cross_section.rank_cross_section()` 对观察池批量打分：
 
-- **输入**：`watching.json` 的 watchlist（**上限 200**；现网可到 160 只）
+- **输入**：`watching.json` 的 watchlist（**上限 300**；现网约 160+ 只）
 - **处理**：逐股 `score_stock()`，质量门禁过滤
 - **入簿截断**：`cluster_scoring.max_names`（默认 40，硬顶 80）——这是簿长，不是训练宇宙
 - **配置**：生产门槛 `min_predicted_score`；`horizon_days`（现网 1）

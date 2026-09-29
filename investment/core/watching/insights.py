@@ -69,15 +69,8 @@ def _insight_cache_stamp() -> str:
         sess = str(resolve_session_date(now=shanghai_now()) or "")
     except Exception:  # noqa: BLE001
         logger.debug("insight cache stamp session failed", exc_info=True)
-    ver = ""
-    try:
-        from core.signal.cluster.pointer import resolve_cluster_weights_path
-
-        p = resolve_cluster_weights_path()
-        if p and os.path.isfile(p):
-            ver = f"{os.path.basename(p)}:{int(os.path.getmtime(p))}"
-    except Exception:  # noqa: BLE001
-        logger.debug("insight cache stamp mapping failed", exc_info=True)
+    # 分组权重指针已退役；缓存戳不再依赖 cluster weights mtime
+    ver = "cluster_retired"
     bars_gen = ""
     try:
         from core.paths import CLUSTER_BARS_REFRESH_JOB_PATH, CLUSTER_MINUTE_REFRESH_JOB_PATH

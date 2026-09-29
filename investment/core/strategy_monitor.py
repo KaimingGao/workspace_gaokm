@@ -94,15 +94,9 @@ def estimate_yhat_ic(
             "source": "yhat",
         }
 
+    # 分组 lookup_code_return_model 已退役；无组模型时下方循环跳过（不混 heuristic）
     model = None
-    if stock_code:
-        try:
-            from core.signal.cluster.live import lookup_code_return_model
-
-            model = lookup_code_return_model(str(stock_code))
-        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-            logger.debug("catch except Exception: in strategy_monitor.py", exc_info=True)
-            model = None
+    _ = stock_code
 
     start_i = max(min_history - 1, n - horizon_days - max_points)
     for i in range(start_i, n - horizon_days):

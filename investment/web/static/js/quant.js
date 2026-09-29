@@ -36,6 +36,23 @@ import { loadAndRenderFactorCorr, loadAndRenderFactorIR, loadAndRenderFactorICSe
 
 const _QV =
   (typeof window !== "undefined" && window.__ASSET_V__) || "dev";
+
+/**
+ * 统一格式化树后端名：lightgbm；兼容旧包 xgboost / numpy_gbm
+ * 也支持 oo_rank 的 lambdarank（旧 lightgbm_lambda / ranknet_linear 仅展示）
+ */
+function formatTreeBackend(backend) {
+  const s = String(backend || "").toLowerCase().trim();
+  if (s === "xgboost" || s === "xgb") return "XGBoost";
+  if (s === "lightgbm" || s === "lgb") return "LightGBM";
+  if (s === "lambdarank" || s === "lightgbm_lambda") return "LambdaRank";
+  if (s === "ranknet_linear") return "线性 RankNet";
+  if (s === "numpy_gbm" || s === "numpy" || s === "gbm") return "numpy GBM";
+  if (s === "auto" || s === "") return "LightGBM";
+  return s;
+}
+
+window.formatTreeBackend = formatTreeBackend;
 const {
   createBtResultRenderers,
   fmtPct,
@@ -68,6 +85,9 @@ const { installClusterMinuteUi } = await import(
 );
 const { installBarsIntegrityUi } = await import(
   `./quant/bars_integrity_ui.js?v=${encodeURIComponent(_QV)}`
+);
+const { installResearchUniverseUi } = await import(
+  `./quant/research_universe_ui.js?v=${encodeURIComponent(_QV)}`
 );
 const { createFactorIcUi } = await import(
   `./quant/factor_ic_ui.js?v=${encodeURIComponent(_QV)}`
@@ -271,6 +291,7 @@ export function initQuant(ctx) {
   const clusterBars = installClusterBarsUi(q);
   const clusterMinute = installClusterMinuteUi(q);
   installBarsIntegrityUi(q);
+  const researchUniverse = installResearchUniverseUi(q);
   const strategy = installStrategy(q);
   const exportDomain = installExportInterpret(q);
   const scoreReviewDomain = installScoreReview(q);
@@ -280,9 +301,32 @@ export function initQuant(ctx) {
   q.suggest = suggest;
   q.clusterBars = clusterBars;
   q.clusterMinute = clusterMinute;
+  q.researchUniverse = researchUniverse;
   q.strategy = strategy;
   q.exportDomain = exportDomain;
   q.scoreReviewDomain = scoreReviewDomain;
+
+  async function renderOoCoefTable(rm, opts = {}) {
+    const host = document.getElementById("quant-oo-coef-table");
+    if (!host) return;
+    try {
+      if (typeof q.ensureFactorMeta === "function") {
+        await q.ensureFactorMeta();
+      }
+    } catch (_) {
+      /* ignore */
+    }
+    const html =
+      typeof q.remCoefTableHtml === "function"
+        ? q.remCoefTableHtml(rm, { ...opts, head: "oo" })
+        : "";
+    host.innerHTML = html || "";
+  }
+
+  function clearOoResultBox() {
+    const box = document.getElementById("quant-oo-result");
+    if (box) box.innerHTML = "";
+  }
 
   async function renderRemCoefTable(rm, opts = {}) {
     const host = document.getElementById("quant-tau-coef-table");
@@ -582,6 +626,9 @@ export function initQuant(ctx) {
     if (error) el.classList.add("is-error");
     else el.classList.remove("is-error");
   }
+  q.renderRemStatus = renderRemStatus;
+  q.renderOoCoefTable = renderOoCoefTable;
+  q.clearOoResultBox = clearOoResultBox;
 
   function ridgeDiskFlags(data, opts = {}) {
     const src = data && typeof data === "object" ? data : {};
@@ -827,13 +874,16 @@ export function initQuant(ctx) {
     ]
       .filter(Boolean)
       .join(" · ");
+    const modelLabel = window.formatTreeBackend
+      ? window.formatTreeBackend(data.backend || data.solver || "lambdarank")
+      : "RankNet";
     box.innerHTML =
       `<div class="quant-oos-compare" aria-label="ŷ_oo_rank vs Ridge">` +
       (metaBits
-        ? `<p class="quant-oos-compare-meta">${metaBits} · Δ = RankNet − Ridge</p>`
+        ? `<p class="quant-oos-compare-meta">${metaBits} · Δ = ${modelLabel} − Ridge</p>`
         : "") +
       `<table class="quant-weight-table quant-oos-compare-table">` +
-      `<thead><tr><th>指标</th><th>RankNet</th><th>Ridge ŷ_oo</th><th>Δ</th></tr></thead>` +
+      `<thead><tr><th>指标</th><th>${modelLabel}</th><th>Ridge ŷ_oo</th><th>Δ</th></tr></thead>` +
       `<tbody>${body}</tbody></table>` +
       `<p class="quant-oos-compare-note">影子头：不进 ranking。Δ&gt;0 表示相对 Ridge 排序更贴合截面序。</p>` +
       `</div>`;
@@ -967,6 +1017,339 @@ export function initQuant(ctx) {
     return bits;
   }
 
+  let ooTreeBusyTimer = null;
+
+  function stopOoTreeBusy() {
+    if (ooTreeBusyTimer) {
+      clearInterval(ooTreeBusyTimer);
+      ooTreeBusyTimer = null;
+    }
+    const btn = document.getElementById("quant-oo-tree-run");
+    if (btn) btn.disabled = false;
+  }
+
+  function startOoTreeBusy() {
+    stopOoTreeBusy();
+    const sum = document.getElementById("quant-oo-tree-summary");
+    const btn = document.getElementById("quant-oo-tree-run");
+    if (btn) btn.disabled = true;
+    const t0 = Date.now();
+    const tick = () => {
+      const s = Math.max(0, Math.round((Date.now() - t0) / 1000));
+      const msg =
+        s < 30
+          ? `拉观察池日线 · 已 ${fmtTauTreeSec(s)}`
+          : s < 90
+            ? `堆叠日线因子面板 · 已 ${fmtTauTreeSec(s)}`
+            : `LightGBM + Ridge Holdout · 已 ${fmtTauTreeSec(s)}`;
+      renderRemStatus(sum, {
+        state: "busy",
+        chip: "拟合中",
+        message: msg,
+        busy: true,
+      });
+      renderOoTreeCompare({
+        busy: true,
+        success: false,
+        message: msg,
+      });
+    };
+    tick();
+    ooTreeBusyTimer = setInterval(tick, 1000);
+  }
+
+  function renderOoTreeCompare(data) {
+    const box = document.getElementById("quant-oo-tree-result");
+    if (!box) return;
+    if (!data || typeof data !== "object") {
+      box.innerHTML = "";
+      return;
+    }
+    if (data.busy) {
+      box.innerHTML = `<div class="quant-tree-report is-busy"><p class="quant-attr-note">${escapeHtml(
+        data.message || "ŷ_oo_tree 拟合中…"
+      )}</p></div>`;
+      return;
+    }
+    if (!data.success) {
+      box.innerHTML = `<p class="quant-attr-note">${escapeHtml(
+        String(data.error || data.note || "ŷ_oo_tree 拟合失败")
+      )}</p>`;
+      return;
+    }
+    box.innerHTML = treeReportHtml(data, { head: "oo" });
+  }
+
+  async function runOoTree() {
+    const sum = document.getElementById("quant-oo-tree-summary");
+    startOoTreeBusy();
+    try {
+      const a158El = document.getElementById("quant-oo-tree-alpha158");
+      const includeAlpha158 = !a158El || a158El.checked !== false;
+      const res = await fetch("/api/quant/oo-tree", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          lookback: 120,
+          watching_limit: 300,
+          horizon_days: 1,
+          ridge_lambda: 1.0,
+          holdout_trading_days: readHoldoutTradingDays(),
+          backend: "lightgbm",
+          include_alpha158: includeAlpha158,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      stopOoTreeBusy();
+      if (!res.ok || !data.success) {
+        const err = (data && (data.detail || data.error)) || `HTTP ${res.status}`;
+        renderRemStatus(sum, {
+          state: "error",
+          chip: "失败",
+          message: String(err),
+          error: true,
+        });
+        renderOoTreeCompare({ success: false, error: String(err) });
+        return;
+      }
+      const timingMsg = fmtTauTreeTiming(data);
+      const a158Bit = data.include_alpha158
+        ? `Alpha158×${data.n_alpha158_features != null ? data.n_alpha158_features : "?"}`
+        : "无 Alpha158";
+      renderRemStatus(sum, {
+        state: "ok",
+        chip: "已拟合",
+        message: [tauTreeHyperBits(data), a158Bit, timingMsg, "影子头 · 未写盘"]
+          .filter(Boolean)
+          .join(" · "),
+        oos: data.oos || {},
+        sampleCount: data.sample_count,
+      });
+      renderOoTreeCompare(data);
+    } finally {
+      stopOoTreeBusy();
+    }
+  }
+
+  async function loadOoTreeLast() {
+    const sum = document.getElementById("quant-oo-tree-summary");
+    renderRemStatus(sum, {
+      state: "busy",
+      chip: "读取中",
+      message: "上次影子对照…",
+      busy: true,
+    });
+    const res = await fetch("/api/quant/oo-tree/last");
+    const data = await res.json().catch(() => ({}));
+    if (!data.exists || !data.success) {
+      renderRemStatus(sum, {
+        state: "idle",
+        chip: "待命",
+        message: data.note || "尚无 ŷ_oo_tree",
+      });
+      renderOoTreeCompare({ success: false, error: data.note || "尚无上次对照" });
+      return;
+    }
+    const timingMsg = fmtTauTreeTiming(data);
+    const a158Bit = data.include_alpha158
+      ? `Alpha158×${data.n_alpha158_features != null ? data.n_alpha158_features : "?"}`
+      : "无 Alpha158";
+    renderRemStatus(sum, {
+      state: "ok",
+      chip: "上次",
+      message: [tauTreeHyperBits(data), a158Bit, timingMsg, "影子头 · 未写盘"]
+        .filter(Boolean)
+        .join(" · "),
+      oos: data.oos || {},
+      sampleCount: data.sample_count,
+    });
+    renderOoTreeCompare(data);
+  }
+
+  let coTreeBusyTimer = null;
+
+  function stopCoTreeBusy() {
+    if (coTreeBusyTimer) {
+      clearInterval(coTreeBusyTimer);
+      coTreeBusyTimer = null;
+    }
+    const btn = document.getElementById("quant-co-tree-run");
+    if (btn) btn.disabled = false;
+  }
+
+  function startCoTreeBusy() {
+    stopCoTreeBusy();
+    const sum = document.getElementById("quant-co-tree-summary");
+    const btn = document.getElementById("quant-co-tree-run");
+    if (btn) btn.disabled = true;
+    const t0 = Date.now();
+    const tick = () => {
+      const s = Math.max(0, Math.round((Date.now() - t0) / 1000));
+      const msg =
+        s < 30
+          ? `拉观察池日线 · 已 ${fmtTauTreeSec(s)}`
+          : s < 90
+            ? `堆叠隔夜缺口 Z 面板 · 已 ${fmtTauTreeSec(s)}`
+            : `LightGBM + Ridge Holdout · 已 ${fmtTauTreeSec(s)}`;
+      renderRemStatus(sum, {
+        state: "busy",
+        chip: "拟合中",
+        message: msg,
+        busy: true,
+      });
+      renderCoTreeCompare({
+        busy: true,
+        success: false,
+        message: msg,
+      });
+    };
+    tick();
+    coTreeBusyTimer = setInterval(tick, 1000);
+  }
+
+  function renderCoTreeCompare(data) {
+    const box = document.getElementById("quant-co-tree-result");
+    if (!box) return;
+    if (!data || typeof data !== "object") {
+      box.innerHTML = "";
+      return;
+    }
+    if (data.busy) {
+      box.innerHTML = `<div class="quant-tree-report is-busy"><p class="quant-attr-note">${escapeHtml(
+        data.message || "ŷ_co_tree 拟合中…"
+      )}</p></div>`;
+      return;
+    }
+    if (!data.success) {
+      box.innerHTML = `<p class="quant-attr-note">${escapeHtml(
+        String(data.error || data.note || "ŷ_co_tree 拟合失败")
+      )}</p>`;
+      return;
+    }
+    box.innerHTML = treeReportHtml(data, { head: "co" });
+  }
+
+  async function runCoTree() {
+    const sum = document.getElementById("quant-co-tree-summary");
+    startCoTreeBusy();
+    try {
+      const a158El = document.getElementById("quant-co-tree-alpha158");
+      const includeAlpha158 = !a158El || a158El.checked !== false;
+      const res = await fetch("/api/quant/co-tree", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          lookback: 120,
+          watching_limit: 300,
+          ridge_lambda: 1.0,
+          holdout_trading_days: readHoldoutTradingDays(),
+          backend: "lightgbm",
+          include_alpha158: includeAlpha158,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      stopCoTreeBusy();
+      if (!res.ok || !data.success) {
+        const err = (data && (data.detail || data.error)) || `HTTP ${res.status}`;
+        renderRemStatus(sum, {
+          state: "error",
+          chip: "失败",
+          message: String(err),
+          error: true,
+        });
+        renderCoTreeCompare({ success: false, error: String(err) });
+        return;
+      }
+      const timingMsg = fmtTauTreeTiming(data);
+      const a158Bit = data.include_alpha158
+        ? `Alpha158×${data.n_alpha158_features != null ? data.n_alpha158_features : "?"}`
+        : "无 Alpha158";
+      renderRemStatus(sum, {
+        state: "ok",
+        chip: "已拟合",
+        message: [tauTreeHyperBits(data), a158Bit, timingMsg, "影子头 · 未写盘"]
+          .filter(Boolean)
+          .join(" · "),
+        oos: data.oos || {},
+        sampleCount: data.sample_count,
+      });
+      renderCoTreeCompare(data);
+    } finally {
+      stopCoTreeBusy();
+    }
+  }
+
+  async function loadCoTreeLast() {
+    const sum = document.getElementById("quant-co-tree-summary");
+    const statusBtn = document.getElementById("quant-co-tree-status");
+    if (coTreeBusyTimer) {
+      clearInterval(coTreeBusyTimer);
+      coTreeBusyTimer = null;
+    }
+    if (statusBtn) statusBtn.disabled = true;
+    renderRemStatus(sum, {
+      state: "busy",
+      chip: "读取中",
+      message: "上次影子对照…",
+      busy: true,
+    });
+    const ctrl = new AbortController();
+    const to = setTimeout(() => ctrl.abort(), 20000);
+    try {
+      const res = await fetch("/api/quant/co-tree/last", { signal: ctrl.signal });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const err = (data && (data.detail || data.error)) || `HTTP ${res.status}`;
+        renderRemStatus(sum, {
+          state: "error",
+          chip: "失败",
+          message: String(err),
+          error: true,
+        });
+        renderCoTreeCompare({ success: false, error: String(err) });
+        return;
+      }
+      if (!data.exists || !data.success) {
+        renderRemStatus(sum, {
+          state: "idle",
+          chip: "待命",
+          message: data.note || "尚无 ŷ_co_tree",
+        });
+        renderCoTreeCompare({ success: false, error: data.note || "尚无上次对照" });
+        return;
+      }
+      const timingMsg = fmtTauTreeTiming(data);
+      const a158Bit = data.include_alpha158
+        ? `Alpha158×${data.n_alpha158_features != null ? data.n_alpha158_features : "?"}`
+        : "无 Alpha158";
+      renderRemStatus(sum, {
+        state: "ok",
+        chip: "上次",
+        message: [tauTreeHyperBits(data), a158Bit, timingMsg, "影子头 · 未写盘"]
+          .filter(Boolean)
+          .join(" · "),
+        oos: data.oos || {},
+        sampleCount: data.sample_count,
+      });
+      renderCoTreeCompare(data);
+    } catch (err) {
+      const aborted = err && (err.name === "AbortError" || err.code === 20);
+      const msg = aborted
+        ? "读取超时（若正在拟合，请等拟合完成后再点「上次」）"
+        : String((err && err.message) || err || "读取失败");
+      renderRemStatus(sum, {
+        state: "error",
+        chip: "失败",
+        message: msg,
+        error: true,
+      });
+      renderCoTreeCompare({ success: false, error: msg });
+    } finally {
+      clearTimeout(to);
+      if (statusBtn) statusBtn.disabled = false;
+    }
+  }
+
   let tauTreeBusyTimer = null;
 
   function fmtTauTreeSec(v) {
@@ -982,7 +1365,7 @@ export function initQuant(ctx) {
     const s = Number(elapsedSec) || 0;
     if (s < 15) return "拉观察池行情";
     if (s < 90) return "组 open→close 面板（满池分钟特征）";
-    return "仍在组面板（XGBoost 约数秒；慢的是组样本）";
+    return "仍在组面板（LightGBM 约数秒；慢的是组样本）";
   }
 
   function fmtTauTreeTiming(data) {
@@ -1012,12 +1395,7 @@ export function initQuant(ctx) {
       hyper.max_depth != null && Number.isFinite(Number(hyper.max_depth))
         ? Number(hyper.max_depth)
         : 3;
-    const engine =
-      String((data && data.backend) || "").toLowerCase() === "xgboost"
-        ? "XGBoost"
-        : String((data && data.backend) || "").toLowerCase() === "numpy_gbm"
-          ? "numpy GBM"
-          : "";
+    const engine = formatTreeBackend((data && data.backend) || "");
     return [engine, `${n} 棵 · 深度 ${depth}`].filter(Boolean).join(" · ");
   }
 
@@ -1028,6 +1406,14 @@ export function initQuant(ctx) {
     }
     const btn = document.getElementById("quant-tau-tree-run");
     if (btn) btn.disabled = false;
+  }
+
+  /** 停掉「拟合中」轮询重绘，避免盖住「上次」结果；不改 run 按钮（拟合仍在飞时保持禁用）。 */
+  function pauseTauTreeBusyOverlay() {
+    if (tauTreeBusyTimer) {
+      clearInterval(tauTreeBusyTimer);
+      tauTreeBusyTimer = null;
+    }
   }
 
   function startTauTreeBusy() {
@@ -1082,6 +1468,8 @@ export function initQuant(ctx) {
     startTauTreeBusy();
     try {
       const tauLimit = 200;
+      const a158El = document.getElementById("quant-tau-tree-alpha158");
+      const includeAlpha158 = !a158El || a158El.checked !== false;
       const res = await fetch("/api/quant/tau-tree", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1090,6 +1478,8 @@ export function initQuant(ctx) {
           watching_limit: tauLimit,
           ridge_lambda: 1.0,
           holdout_trading_days: readHoldoutTradingDays(),
+          backend: "lightgbm",
+          include_alpha158: includeAlpha158,
         }),
       });
       const data = await res.json().catch(() => ({}));
@@ -1106,10 +1496,13 @@ export function initQuant(ctx) {
         return;
       }
       const timingMsg = fmtTauTreeTiming(data);
+      const a158Bit = data.include_alpha158
+        ? `Alpha158×${data.n_alpha158_features != null ? data.n_alpha158_features : "?"}`
+        : "无 Alpha158";
       renderRemStatus(sum, {
         state: "ok",
         chip: "已拟合",
-        message: [tauTreeHyperBits(data), timingMsg, "影子头 · 未写盘"]
+        message: [tauTreeHyperBits(data), a158Bit, timingMsg, "影子头 · 未写盘"]
           .filter(Boolean)
           .join(" · "),
         oos: data.oos || {},
@@ -1123,34 +1516,71 @@ export function initQuant(ctx) {
 
   async function loadTauTreeLast() {
     const sum = document.getElementById("quant-tau-tree-summary");
+    const statusBtn = document.getElementById("quant-tau-tree-status");
+    // 拟合中的 1s 轮询会把「上次」结果盖回「拟合中」；先停 overlay
+    pauseTauTreeBusyOverlay();
+    if (statusBtn) statusBtn.disabled = true;
     renderRemStatus(sum, {
       state: "busy",
       chip: "读取中",
       message: "上次影子对照…",
       busy: true,
     });
-    const res = await fetch("/api/quant/tau-tree/last");
-    const data = await res.json().catch(() => ({}));
-    if (!data.exists || !data.success) {
+    const ctrl = new AbortController();
+    const to = setTimeout(() => ctrl.abort(), 20000);
+    try {
+      const res = await fetch("/api/quant/tau-tree/last", { signal: ctrl.signal });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const err = (data && (data.detail || data.error)) || `HTTP ${res.status}`;
+        renderRemStatus(sum, {
+          state: "error",
+          chip: "失败",
+          message: String(err),
+          error: true,
+        });
+        renderTauTreeCompare({ success: false, error: String(err) });
+        return;
+      }
+      if (!data.exists || !data.success) {
+        renderRemStatus(sum, {
+          state: "idle",
+          chip: "待命",
+          message: data.note || "尚无 ŷ_oc_tree",
+        });
+        renderTauTreeCompare({ success: false, error: data.note || "尚无上次对照" });
+        return;
+      }
+      const timingMsg = fmtTauTreeTiming(data);
+      const a158Bit = data.include_alpha158
+        ? `Alpha158×${data.n_alpha158_features != null ? data.n_alpha158_features : "?"}`
+        : "无 Alpha158";
       renderRemStatus(sum, {
-        state: "idle",
-        chip: "待命",
-        message: data.note || "尚无 ŷ_oc_tree",
+        state: "ok",
+        chip: "上次",
+        message: [tauTreeHyperBits(data), a158Bit, timingMsg, "影子头 · 未写盘"]
+          .filter(Boolean)
+          .join(" · "),
+        oos: data.oos || {},
+        sampleCount: data.sample_count,
       });
-      renderTauTreeCompare({ success: false, error: data.note || "尚无上次对照" });
-      return;
+      renderTauTreeCompare(data);
+    } catch (err) {
+      const aborted = err && (err.name === "AbortError" || err.code === 20);
+      const msg = aborted
+        ? "读取超时（若正在拟合，请等拟合完成后再点「上次」）"
+        : String((err && err.message) || err || "读取失败");
+      renderRemStatus(sum, {
+        state: "error",
+        chip: "失败",
+        message: msg,
+        error: true,
+      });
+      renderTauTreeCompare({ success: false, error: msg });
+    } finally {
+      clearTimeout(to);
+      if (statusBtn) statusBtn.disabled = false;
     }
-    const timingMsg = fmtTauTreeTiming(data);
-    renderRemStatus(sum, {
-      state: "ok",
-      chip: "上次",
-      message: [tauTreeHyperBits(data), timingMsg, "影子头 · 未写盘"]
-        .filter(Boolean)
-        .join(" · "),
-      oos: data.oos || {},
-      sampleCount: data.sample_count,
-    });
-    renderTauTreeCompare(data);
   }
 
   let rTreeBusyTimer = null;
@@ -1159,7 +1589,7 @@ export function initQuant(ctx) {
     const s = Number(elapsedSec) || 0;
     if (s < 45) return "拉观察池行情 / 5m 缓存";
     if (s < 90) return "组 close/price(τ) 面板（满池分钟特征）";
-    return "仍在组面板（XGBoost 约数秒；慢的是组样本）";
+    return "仍在组面板（LightGBM 约数秒；慢的是组样本）";
   }
 
   function stopTcTreeBusy() {
@@ -1300,7 +1730,7 @@ export function initQuant(ctx) {
     const s = Number(elapsedSec) || 0;
     if (s < 45) return "拉观察池行情 / 5m 缓存";
     if (s < 90) return "组 mean(price(τ⊕25/30/35))/price(τ) 面板（满池分钟特征）";
-    return "仍在组面板（XGBoost 约数秒；慢的是组样本）";
+    return "仍在组面板（LightGBM 约数秒；慢的是组样本）";
   }
 
   function stopT30TreeBusy() {
@@ -1372,6 +1802,7 @@ export function initQuant(ctx) {
           watching_limit: t30Limit,
           ridge_lambda: 1.0,
           holdout_trading_days: readHoldoutTradingDays(),
+          backend: "lightgbm",
         }),
       });
       const data = await res.json().catch(() => ({}));
@@ -1441,7 +1872,7 @@ export function initQuant(ctx) {
     const s = Number(elapsedSec) || 0;
     if (s < 45) return "拉观察池行情 / 5m 缓存";
     if (s < 90) return "组 mean(price(τ⊕40/45/50))/price(τ) 面板（满池分钟特征）";
-    return "仍在组面板（XGBoost 约数秒；慢的是组样本）";
+    return "仍在组面板（LightGBM 约数秒；慢的是组样本）";
   }
 
   function stopT45TreeBusy() {
@@ -1513,6 +1944,7 @@ export function initQuant(ctx) {
           watching_limit: t45Limit,
           ridge_lambda: 1.0,
           holdout_trading_days: readHoldoutTradingDays(),
+          backend: "lightgbm",
         }),
       });
       const data = await res.json().catch(() => ({}));
@@ -1583,7 +2015,7 @@ export function initQuant(ctx) {
     const s = Number(elapsedSec) || 0;
     if (s < 45) return "拉观察池行情 / 5m 缓存";
     if (s < 90) return "组 mean(price(τ⊕55/60/65))/price(τ) 面板（满池分钟特征）";
-    return "仍在组面板（XGBoost 约数秒；慢的是组样本）";
+    return "仍在组面板（LightGBM 约数秒；慢的是组样本）";
   }
 
   function stopT60TreeBusy() {
@@ -1655,6 +2087,7 @@ export function initQuant(ctx) {
           watching_limit: t60Limit,
           ridge_lambda: 1.0,
           holdout_trading_days: readHoldoutTradingDays(),
+          backend: "lightgbm",
         }),
       });
       const data = await res.json().catch(() => ({}));
@@ -1725,7 +2158,7 @@ export function initQuant(ctx) {
     const s = Number(elapsedSec) || 0;
     if (s < 45) return "拉观察池行情 / 5m 缓存";
     if (s < 90) return "组 mean(price(τ⊕70/75/80))/price(τ) 面板（满池分钟特征）";
-    return "仍在组面板（XGBoost 约数秒；慢的是组样本）";
+    return "仍在组面板（LightGBM 约数秒；慢的是组样本）";
   }
 
   function stopT75TreeBusy() {
@@ -1797,6 +2230,7 @@ export function initQuant(ctx) {
           watching_limit: t75Limit,
           ridge_lambda: 1.0,
           holdout_trading_days: readHoldoutTradingDays(),
+          backend: "lightgbm",
         }),
       });
       const data = await res.json().catch(() => ({}));
@@ -1867,7 +2301,7 @@ export function initQuant(ctx) {
     const s = Number(elapsedSec) || 0;
     if (s < 45) return "拉观察池行情 / 5m 缓存";
     if (s < 90) return "组 mean(price(τ⊕85/90/95))/price(τ) 面板（满池分钟特征）";
-    return "仍在组面板（XGBoost 约数秒；慢的是组样本）";
+    return "仍在组面板（LightGBM 约数秒；慢的是组样本）";
   }
 
   function stopT90TreeBusy() {
@@ -1939,6 +2373,7 @@ export function initQuant(ctx) {
           watching_limit: t90Limit,
           ridge_lambda: 1.0,
           holdout_trading_days: readHoldoutTradingDays(),
+          backend: "lightgbm",
         }),
       });
       const data = await res.json().catch(() => ({}));
@@ -2607,7 +3042,7 @@ export function initQuant(ctx) {
         ]);
       }
       if (els.quantMeta) {
-        setQuantMeta("分组为主路径 · 不写 signal_config");
+        setQuantMeta("全局 ŷ_oo · Ridge / OLS");
       }
       if (useDialog) els.quantDialog.showModal();
       // 运维/因子/桥接等后台拉取：不阻塞 tab 加载态
@@ -2619,9 +3054,9 @@ export function initQuant(ctx) {
       if (hasReplay && page !== "replay") {
         background.push(backtest.loadLastBacktestSnapshot().catch(() => {}));
       }
-      // 研究枢纽：进页恢复上次分组；点「跑分组」才重算（当日首次自动强制日线，其后纯缓存）
-      if (page === "quant" && (els.quantFactorList || els.quantOlsClusters)) {
-        background.push(cluster.bootstrapClusterHub().catch(() => {}));
+      // 研究枢纽：拉取全局 ŷ live/草稿状态；日线/分钟条仍由各自 UI 拉
+      if (page === "quant" && (els.quantFactorList || els.quantOlsSummary)) {
+        background.push(suggest.refreshReturnModelStatus().catch(() => {}));
       }
       Promise.all(background)
         .then(async () => {
@@ -2930,69 +3365,62 @@ export function initQuant(ctx) {
     }
   });
 
-  // 兼容隐藏入口 / 旧深链
-  on("quant-ols-run", "click", async (e) => {
+  on("quant-return-model-fit", "click", async (e) => {
     e.preventDefault();
-    try {
-      await cluster.runProbeStockVsGroup();
-    } catch (err) {
-      setBusyText(els.quantProbeSummary, String(err.message || err), { busy: false });
-    }
-  });
-
-  on("quant-ols-pool-run", "click", async (e) => {
-    e.preventDefault();
-    // 研究池 OLS 已移出探针；隐藏按钮若被触发则提示改用对照验证
-    setBusyText(
-      els.quantProbeSummary,
-      "研究池 OLS 已从探针移除 · 请用「对照验证」看单票 vs 所在组",
-      { busy: false }
-    );
-  });
-
-  on("quant-cs-ic-run", "click", async (e) => {
-    e.preventDefault();
-    try {
-      await cluster.runProbeStockVsGroup();
-    } catch (err) {
-      setBusyText(els.quantProbeSummary, String(err.message || err), { busy: false });
-    }
-  });
-
-  on("quant-ols-clusters-run", "click", async (e) => {
-    e.preventDefault();
-    const btn = document.getElementById("quant-ols-clusters-run");
+    const btn = e.currentTarget;
     if (btn) btn.disabled = true;
-    setProStatusChip("quant-pro-cluster-status", "busy", "分组计算中…");
     try {
-      await suggest.runFactorOlsClustersSuggest();
-      // 概览 KPI 已在 renderOlsClusters 内从结果写回；此处兜底
-      const last = state.quantLastOlsClusters;
-      if (last && last.success) {
-        syncOverviewFromClusters(last);
-        const k = last.n_clusters ?? (last.clusters || []).length;
-        setProStatusChip("quant-pro-cluster-status", "ok", k ? `${k} 组就绪` : "完成");
-      } else {
-        setProStatusChip("quant-pro-cluster-status", "ok", "完成");
-      }
+      await suggest.runReturnModelFit();
     } catch (err) {
-      const raw = String((err && err.message) || err || "分组失败");
-      const msg = /failed to fetch|networkerror|load failed/i.test(raw)
-        ? "服务断开（可能刚重启），请再点「跑分组」"
-        : raw;
-      setBusyText(els.quantOlsSummary, msg, { busy: false });
-      setQuantMeta(`分组失败 · ${msg}`, { error: true });
-      if (els.quantOlsClusters) {
-        els.quantOlsClusters.hidden = false;
-        els.quantOlsClusters.textContent = msg;
-      }
-      setProStatusChip(
-        "quant-pro-cluster-status",
-        "error",
-        msg.length > 24 ? "分组失败" : msg
-      );
+      setQuantMeta(String(err.message || err), { error: true });
     } finally {
       if (btn) btn.disabled = false;
+    }
+  });
+
+  on("quant-return-model-promote", "click", async (e) => {
+    e.preventDefault();
+    const btn = e.currentTarget;
+    const role = (btn && btn.getAttribute("data-persist-role")) || "live";
+    if (btn) btn.disabled = true;
+    try {
+      await suggest.runReturnModelPromote(role);
+    } catch (err) {
+      setQuantMeta(String(err.message || err), { error: true });
+    } finally {
+      if (btn) btn.disabled = false;
+      try {
+        await suggest.refreshReturnModelStatus();
+      } catch (_) {
+        /* ignore */
+      }
+    }
+  });
+
+  on("quant-return-model-persist-research", "click", async (e) => {
+    e.preventDefault();
+    const btn = e.currentTarget;
+    if (btn) btn.disabled = true;
+    try {
+      await suggest.runReturnModelPromote("research");
+    } catch (err) {
+      setQuantMeta(String(err.message || err), { error: true });
+    } finally {
+      if (btn) btn.disabled = false;
+      try {
+        await suggest.refreshReturnModelStatus();
+      } catch (_) {
+        /* ignore */
+      }
+    }
+  });
+
+  on("quant-return-model-status", "click", async (e) => {
+    e.preventDefault();
+    try {
+      await suggest.refreshReturnModelStatus();
+    } catch (err) {
+      setQuantMeta(String(err.message || err), { error: true });
     }
   });
 
@@ -3015,18 +3443,6 @@ export function initQuant(ctx) {
     });
 
   const oosGateTips = createScoreTooltipController();
-  cluster.wireOosGateTips(els.quantOlsClusters);
-  cluster.wireOosGateTips(els.quantFactorList);
-  cluster.wireOosGateTips(els.quantWeightSuggest);
-
-  if (els.quantOlsClusters && els.quantOlsClusters.dataset.exportWired !== "1") {
-    els.quantOlsClusters.dataset.exportWired = "1";
-    els.quantOlsClusters.addEventListener("click", onClusterExportClick);
-  }
-  if (els.quantFactorList && els.quantFactorList.dataset.clusterExportWired !== "1") {
-    els.quantFactorList.dataset.clusterExportWired = "1";
-    els.quantFactorList.addEventListener("click", onClusterExportClick);
-  }
 
   on("quant-horizon-save-default", "click", async (e) => {
     e.preventDefault();
@@ -3050,19 +3466,6 @@ export function initQuant(ctx) {
     }
   });
 
-  on("quant-cs-ic-run", "click", async (e) => {
-    e.preventDefault();
-    const btn = document.getElementById("quant-cs-ic-run");
-    if (btn) btn.disabled = true;
-    try {
-      await suggest.runFactorCsIcSuggest();
-    } catch (err) {
-      setBusyText(els.quantOlsSummary, String(err.message || err), { busy: false });
-      setQuantMeta(String(err.message || err), { error: true });
-    } finally {
-      if (btn) btn.disabled = false;
-    }
-  });
 
   on("quant-weight-export", "click", (e) => {
     e.preventDefault();
@@ -3108,20 +3511,57 @@ export function initQuant(ctx) {
   async function runTauRidge({ persist = false, forcePromote = false, persistRole = "live" } = {}) {
     const sum = document.getElementById("quant-tau-summary");
     const persistBtn = document.getElementById("quant-tau-ridge-persist");
+    const runBtn = document.getElementById("quant-tau-ridge-run");
     const roleLabel = persistRole === "research" ? "研究套" : "执行套";
-    renderRemStatus(sum, {
-      state: "busy",
-      chip: persist ? "写入中" : "拟合中",
-      message: persist
-        ? forcePromote
+    if (runBtn) runBtn.disabled = true;
+    let busyTimer = null;
+    const clearBusy = () => {
+      if (busyTimer) {
+        clearInterval(busyTimer);
+        busyTimer = null;
+      }
+    };
+    if (!persist) {
+      const a158On =
+        !document.getElementById("quant-tau-ridge-alpha158") ||
+        document.getElementById("quant-tau-ridge-alpha158").checked !== false;
+      const t0 = Date.now();
+      const tick = () => {
+        const s = Math.max(0, Math.round((Date.now() - t0) / 1000));
+        let hint;
+        if (s < 30) hint = "拉观察池行情 / 分钟缓存";
+        else if (s < 120)
+          hint = a158On
+            ? "组 open→close 面板（含 Alpha158，满池可能数分钟）"
+            : "组 open→close 面板（满池可能数分钟）";
+        else if (s < 300) hint = "Ridge + Holdout OOS（仍在算，请勿重复点拟合）";
+        else
+          hint =
+            "仍在拟合 · Alpha158×满池很重；可取消刷新后取消勾选 Alpha158 再试";
+        renderRemStatus(sum, {
+          state: "busy",
+          chip: "拟合中",
+          message: `${hint} · 已 ${fmtTauTreeSec(s)}`,
+          busy: true,
+        });
+      };
+      tick();
+      busyTimer = setInterval(tick, 1000);
+    } else {
+      renderRemStatus(sum, {
+        state: "busy",
+        chip: "写入中",
+        message: forcePromote
           ? `强制写入上次拟合（${roleLabel}）…`
-          : `写入上次拟合（${roleLabel}）…`
-        : "Ridge + 时间 OOS…",
-      busy: true,
-    });
+          : `写入上次拟合（${roleLabel}）…`,
+        busy: true,
+      });
+    }
     try {
       // 满观察池
       const tauLimit = 200;
+      const a158El = document.getElementById("quant-tau-ridge-alpha158");
+      const includeAlpha158 = !a158El || a158El.checked !== false;
       const res = await fetch("/api/quant/tau-ridge", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -3130,6 +3570,7 @@ export function initQuant(ctx) {
           watching_limit: tauLimit,
           ridge_lambda: 1.0,
           holdout_trading_days: readHoldoutTradingDays(),
+          include_alpha158: includeAlpha158,
           persist: !!persist,
           persist_role: persistRole || "live",
           force_promote: !!forcePromote,
@@ -3141,6 +3582,7 @@ export function initQuant(ctx) {
         }),
       });
       const data = await res.json().catch(() => ({}));
+      clearBusy();
       const gate = data.promote_gate || (data.persisted && data.persisted.promote_gate) || null;
       const persistFailed =
         persist &&
@@ -3179,6 +3621,9 @@ export function initQuant(ctx) {
           : gate && gate.ok
             ? " · 可启用研究 / 启用执行"
             : "";
+      const a158Bit = data.include_alpha158
+        ? `Alpha158×${data.n_alpha158_features != null ? data.n_alpha158_features : "?"}`
+        : "无 Alpha158";
       const painted = paintRidgeEnableStatus(sum, data, {
         persistOk: !!persist,
         persistRole,
@@ -3187,7 +3632,7 @@ export function initQuant(ctx) {
           ? forcePromote && gate && !gate.ok
             ? `已跳过闸：${(gate.blockers || []).join("；")}`
             : ""
-          : `未写盘${gateMsg}`,
+          : [a158Bit, `未写盘${gateMsg}`].filter(Boolean).join(" · "),
         oos,
         sampleCount: data.sample_count,
         promotedAt: persist
@@ -3201,6 +3646,7 @@ export function initQuant(ctx) {
       clearRemResultBox();
       await renderRemCoefTable(rm, { oos });
     } catch (err) {
+      clearBusy();
       renderRemStatus(sum, {
         state: "error",
         chip: "失败",
@@ -3208,6 +3654,9 @@ export function initQuant(ctx) {
         error: true,
       });
       throw err;
+    } finally {
+      clearBusy();
+      if (runBtn) runBtn.disabled = false;
     }
   }
 
@@ -3280,7 +3729,7 @@ export function initQuant(ctx) {
     renderRemStatus(sum, {
       state: "busy",
       chip: persist ? "写入中" : "拟合中",
-      message: persist ? "写入影子模型…" : "RankNet pairwise + Holdout OOS…",
+      message: persist ? "写入影子模型…" : "LambdaRank + Holdout OOS…",
       busy: true,
     });
     try {
@@ -3289,13 +3738,15 @@ export function initQuant(ctx) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           lookback: 120,
-          watching_limit: 200,
+          // 日线研究：可吃 research_universe（≤2000）；宇宙空则回退观察池≤300
+          watching_limit: 2000,
           holdout_trading_days: Math.max(20, readHoldoutTradingDays()),
           feature_mode: _readOoRankFeatureMode(),
           pair_preset: _readOoRankPairPreset(),
           topk_track: 10,
           l2: 1.0,
           persist: !!persist,
+          backend: "lambdarank",
           note: persist ? "ui oo_rank shadow persist" : "",
         }),
       });
@@ -3459,7 +3910,7 @@ export function initQuant(ctx) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           lookback: 120,
-          watching_limit: 200,
+          watching_limit: 300,
           ridge_lambda: 1.0,
           minute_period: "5",
           minute_lookback_days: 150,
@@ -3666,7 +4117,7 @@ export function initQuant(ctx) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           lookback: 120,
-          watching_limit: 200,
+          watching_limit: 300,
           ridge_lambda: 1.0,
           minute_period: "5",
           minute_lookback_days: 150,
@@ -3873,7 +4324,7 @@ export function initQuant(ctx) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           lookback: 120,
-          watching_limit: 200,
+          watching_limit: 300,
           ridge_lambda: 1.0,
           minute_period: "5",
           minute_lookback_days: 150,
@@ -4079,7 +4530,7 @@ export function initQuant(ctx) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           lookback: 120,
-          watching_limit: 200,
+          watching_limit: 300,
           ridge_lambda: 1.0,
           minute_period: "5",
           minute_lookback_days: 150,
@@ -4285,7 +4736,7 @@ export function initQuant(ctx) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           lookback: 120,
-          watching_limit: 200,
+          watching_limit: 300,
           ridge_lambda: 1.0,
           minute_period: "5",
           minute_lookback_days: 150,
@@ -4491,7 +4942,7 @@ export function initQuant(ctx) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           lookback: 120,
-          watching_limit: 200,
+          watching_limit: 300,
           ridge_lambda: 1.0,
           minute_period: "5",
           minute_lookback_days: 150,
@@ -4695,6 +5146,75 @@ export function initQuant(ctx) {
     }
   });
 
+  on("quant-oo-tree-run", "click", async (e) => {
+    e.preventDefault();
+    try {
+      await runOoTree();
+    } catch (err) {
+      const sum = document.getElementById("quant-oo-tree-summary");
+      renderRemStatus(sum, {
+        state: "error",
+        chip: "失败",
+        message: String(err.message || err),
+        error: true,
+      });
+      renderOoTreeCompare({
+        success: false,
+        error: String(err.message || err),
+      });
+    }
+  });
+
+  on("quant-oo-tree-status", "click", async (e) => {
+    e.preventDefault();
+    try {
+      await loadOoTreeLast();
+    } catch (err) {
+      renderOoTreeCompare({
+        success: false,
+        error: String(err.message || err),
+      });
+    }
+  });
+
+  on("quant-co-tree-run", "click", async (e) => {
+    e.preventDefault();
+    try {
+      await runCoTree();
+    } catch (err) {
+      const sum = document.getElementById("quant-co-tree-summary");
+      renderRemStatus(sum, {
+        state: "error",
+        chip: "失败",
+        message: String(err.message || err),
+        error: true,
+      });
+      renderCoTreeCompare({
+        success: false,
+        error: String(err.message || err),
+      });
+    }
+  });
+
+  on("quant-co-tree-status", "click", async (e) => {
+    e.preventDefault();
+    try {
+      await loadCoTreeLast();
+    } catch (err) {
+      const sum = document.getElementById("quant-co-tree-summary");
+      renderRemStatus(sum, {
+        state: "error",
+        chip: "失败",
+        message: String(err.message || err),
+        error: true,
+      });
+      renderCoTreeCompare({
+        success: false,
+        error: String(err.message || err),
+      });
+    }
+  });
+
   on("quant-tau-tree-run", "click", async (e) => {
     e.preventDefault();
     try {
@@ -4719,6 +5239,13 @@ export function initQuant(ctx) {
     try {
       await loadTauTreeLast();
     } catch (err) {
+      const sum = document.getElementById("quant-tau-tree-summary");
+      renderRemStatus(sum, {
+        state: "error",
+        chip: "失败",
+        message: String(err.message || err),
+        error: true,
+      });
       renderTauTreeCompare({
         success: false,
         error: String(err.message || err),
@@ -5176,15 +5703,6 @@ export function initQuant(ctx) {
     } catch (err) {
       els.quantPortfolioSummary.textContent = String(err.message || err);
       backtest.paintPortfolioChart([], "回测失败");
-    }
-  });
-
-  on("quant-return-model-fit", "click", async (e) => {
-    e.preventDefault();
-    try {
-      await backtest.fitReturnScoreModel();
-    } catch (err) {
-      if (els.quantPortfolioSummary) els.quantPortfolioSummary.textContent = String(err.message || err);
     }
   });
 

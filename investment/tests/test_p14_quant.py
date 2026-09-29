@@ -103,18 +103,14 @@ class TestWatchingThreshold(unittest.TestCase):
                     return_value=yhat_th,
                 ):
                     with patch(
-                        "core.signal.cluster.live.load_cluster_return_models_by_code",
-                        return_value={},
+                        "core.signal.threshold_suggest.scan_yhat_wait_oos",
+                        side_effect=fake_yhat,
                     ):
-                        with patch(
-                            "core.signal.threshold_suggest.scan_yhat_wait_oos",
-                            side_effect=fake_yhat,
-                        ):
-                            out = suggest_stance_thresholds_from_watching_oos(
-                                ["600519", "600036", "300750"],
-                                lookback=80,
-                                max_stocks=3,
-                            )
+                        out = suggest_stance_thresholds_from_watching_oos(
+                            ["600519", "600036", "300750"],
+                            lookback=80,
+                            max_stocks=3,
+                        )
         self.assertTrue(out["success"], out.get("error") or out)
         self.assertEqual(out["watching_aggregate"]["stock_count"], 3)
         self.assertEqual(out["watching_aggregate"]["median_best_wait"], 0.5)

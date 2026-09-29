@@ -6,6 +6,8 @@ from typing import Dict, List, Optional
 
 from pydantic import BaseModel, Field
 
+from core.watching.store import WATCHING_MAX_SIZE
+
 class CrossSectionRequest(BaseModel):
     codes: Optional[list] = None
     limit: int = Field(default=10, ge=1, le=30)
@@ -42,10 +44,10 @@ class TauRidgeRequest(BaseModel):
 
     lookback: int = Field(default=120, ge=40, le=500)
     watching_limit: int = Field(
-        default=200,
+        default=WATCHING_MAX_SIZE,
         ge=2,
-        le=200,
-        description="观察池上限（默认满池 200）",
+        le=WATCHING_MAX_SIZE,
+        description=f"观察池上限（默认满池 {WATCHING_MAX_SIZE}）",
     )
     ridge_lambda: float = Field(default=1.0, ge=0.0, le=100.0)
     gap_trigger_pct: float = Field(default=2.0, ge=0.5, le=10.0)
@@ -59,7 +61,7 @@ class TauRidgeRequest(BaseModel):
         description="live=执行套 tau_ridge_model.json；research=研究套 *_research.json",
     )
     holdout_trading_days: int = Field(
-        default=10,
+        default=20,
         ge=1,
         le=60,
         description="近 N 个交易日不进研究套训练，专供历史回测",
@@ -74,9 +76,72 @@ class TauRidgeRequest(BaseModel):
         description="open | 09:45 | 10:30；缺省跟随 dual_score.enable_minute_tau（开则训 09:30…11:00 网格）",
         max_length=8,
     )
+    include_alpha158: bool = Field(
+        default=True,
+        description="Ridge 吃 raw_alpha158_*（≤T−1）；与 ŷ_oo 日线 X 可能重叠",
+    )
 
 
 RemRidgeRequest = TauRidgeRequest
+
+
+class OoTreeRequest(BaseModel):
+    """ŷ_oo_tree 影子头：日线面板 Holdout vs Ridge。无 persist，不进 live / 回测。"""
+
+    lookback: int = Field(default=120, ge=40, le=500)
+    watching_limit: int = Field(
+        default=WATCHING_MAX_SIZE,
+        ge=2,
+        le=WATCHING_MAX_SIZE,
+        description=f"观察池上限（默认满池 {WATCHING_MAX_SIZE}）",
+    )
+    horizon_days: int = Field(default=1, ge=1, le=10)
+    ridge_lambda: float = Field(default=1.0, ge=0.0, le=100.0)
+    holdout_trading_days: int = Field(
+        default=20,
+        ge=1,
+        le=60,
+        description="近 N 个交易日不进训练，与 Ridge 对照共用",
+    )
+    backend: Optional[str] = Field(
+        default="lightgbm",
+        description="仅 lightgbm",
+        max_length=16,
+    )
+    include_alpha158: bool = Field(
+        default=True,
+        description="树侧吃 raw_alpha158_*（≤T−1）；Ridge 对照不含",
+    )
+
+
+class CoTreeRequest(BaseModel):
+    """ŷ_co_tree 影子头：隔夜缺口面板 Holdout vs Ridge。无 persist，不进 live / 回测。"""
+
+    lookback: int = Field(default=120, ge=40, le=500)
+    watching_limit: int = Field(
+        default=WATCHING_MAX_SIZE,
+        ge=2,
+        le=WATCHING_MAX_SIZE,
+        description=f"观察池上限（默认满池 {WATCHING_MAX_SIZE}）",
+    )
+    ridge_lambda: float = Field(default=1.0, ge=0.0, le=100.0)
+    gap_trigger_pct: float = Field(default=2.0, ge=0.5, le=10.0)
+    theme_boost: float = Field(default=1.5, ge=0.5, le=5.0)
+    holdout_trading_days: int = Field(
+        default=20,
+        ge=1,
+        le=60,
+        description="近 N 个交易日不进训练，与 Ridge 对照共用",
+    )
+    backend: Optional[str] = Field(
+        default="lightgbm",
+        description="仅 lightgbm",
+        max_length=16,
+    )
+    include_alpha158: bool = Field(
+        default=True,
+        description="树侧吃 raw_alpha158_*（≤T−1）；Ridge 对照仅 CO Z",
+    )
 
 
 class TauTreeRequest(BaseModel):
@@ -84,16 +149,16 @@ class TauTreeRequest(BaseModel):
 
     lookback: int = Field(default=120, ge=40, le=500)
     watching_limit: int = Field(
-        default=200,
+        default=WATCHING_MAX_SIZE,
         ge=2,
-        le=200,
-        description="观察池上限（默认满池 200）",
+        le=WATCHING_MAX_SIZE,
+        description=f"观察池上限（默认满池 {WATCHING_MAX_SIZE}）",
     )
     ridge_lambda: float = Field(default=1.0, ge=0.0, le=100.0)
     gap_trigger_pct: float = Field(default=2.0, ge=0.5, le=10.0)
     theme_boost: float = Field(default=1.5, ge=0.5, le=5.0)
     holdout_trading_days: int = Field(
-        default=10,
+        default=20,
         ge=1,
         le=60,
         description="近 N 个交易日不进训练，与 Ridge 对照共用",
@@ -104,9 +169,13 @@ class TauTreeRequest(BaseModel):
         max_length=8,
     )
     backend: Optional[str] = Field(
-        default=None,
-        description="xgboost | numpy_gbm | auto（缺省：有 xgboost 用 xgboost，否则 numpy 浅树）",
+        default="lightgbm",
+        description="仅 lightgbm（ŷ_oc_tree / ŷ_τ*_tree 已下掉 xgboost / numpy_gbm / auto）",
         max_length=16,
+    )
+    include_alpha158: bool = Field(
+        default=True,
+        description="树侧吃 raw_alpha158_*（≤T−1）；Ridge 对照不含，防与 ŷ_oo 双重计权",
     )
 
 
@@ -118,16 +187,16 @@ class TcTreeRequest(BaseModel):
 
     lookback: int = Field(default=120, ge=40, le=500)
     watching_limit: int = Field(
-        default=200,
+        default=WATCHING_MAX_SIZE,
         ge=2,
-        le=200,
-        description="观察池上限（默认满池 200）；拟合只读本地 5m 缓存",
+        le=WATCHING_MAX_SIZE,
+        description=f"观察池上限（默认满池 {WATCHING_MAX_SIZE}）；拟合只读本地 5m 缓存",
     )
     ridge_lambda: float = Field(default=1.0, ge=0.0, le=100.0)
     gap_trigger_pct: float = Field(default=2.0, ge=0.5, le=10.0)
     theme_boost: float = Field(default=1.5, ge=0.5, le=5.0)
     holdout_trading_days: int = Field(
-        default=10,
+        default=20,
         ge=1,
         le=60,
         description="近 N 个交易日不进训练，与 Ridge 对照共用",
@@ -138,8 +207,8 @@ class TcTreeRequest(BaseModel):
         max_length=8,
     )
     backend: Optional[str] = Field(
-        default=None,
-        description="xgboost | numpy_gbm | auto（缺省：有 xgboost 用 xgboost，否则 numpy 浅树）",
+        default="lightgbm",
+        description="仅 lightgbm（ŷ_oc_tree / ŷ_τ*_tree 已下掉 xgboost / numpy_gbm / auto）",
         max_length=16,
     )
 
@@ -152,16 +221,16 @@ class T30TreeRequest(BaseModel):
 
     lookback: int = Field(default=120, ge=40, le=500)
     watching_limit: int = Field(
-        default=200,
+        default=WATCHING_MAX_SIZE,
         ge=2,
-        le=200,
-        description="观察池上限（默认满池 200）；拟合只读本地 5m 缓存",
+        le=WATCHING_MAX_SIZE,
+        description=f"观察池上限（默认满池 {WATCHING_MAX_SIZE}）；拟合只读本地 5m 缓存",
     )
     ridge_lambda: float = Field(default=1.0, ge=0.0, le=100.0)
     gap_trigger_pct: float = Field(default=2.0, ge=0.5, le=10.0)
     theme_boost: float = Field(default=1.5, ge=0.5, le=5.0)
     holdout_trading_days: int = Field(
-        default=10,
+        default=20,
         ge=1,
         le=60,
         description="近 N 个交易日不进训练，与 Ridge 对照共用",
@@ -172,8 +241,8 @@ class T30TreeRequest(BaseModel):
         max_length=8,
     )
     backend: Optional[str] = Field(
-        default=None,
-        description="xgboost | numpy_gbm | auto（缺省：有 xgboost 用 xgboost，否则 numpy 浅树）",
+        default="lightgbm",
+        description="仅 lightgbm（ŷ_oc_tree / ŷ_τ*_tree 已下掉 xgboost / numpy_gbm / auto）",
         max_length=16,
     )
 
@@ -183,16 +252,16 @@ class T45TreeRequest(BaseModel):
 
     lookback: int = Field(default=120, ge=40, le=500)
     watching_limit: int = Field(
-        default=200,
+        default=WATCHING_MAX_SIZE,
         ge=2,
-        le=200,
-        description="观察池上限（默认满池 200）；拟合只读本地 5m 缓存",
+        le=WATCHING_MAX_SIZE,
+        description=f"观察池上限（默认满池 {WATCHING_MAX_SIZE}）；拟合只读本地 5m 缓存",
     )
     ridge_lambda: float = Field(default=1.0, ge=0.0, le=100.0)
     gap_trigger_pct: float = Field(default=2.0, ge=0.5, le=10.0)
     theme_boost: float = Field(default=1.5, ge=0.5, le=5.0)
     holdout_trading_days: int = Field(
-        default=10,
+        default=20,
         ge=1,
         le=60,
         description="近 N 个交易日不进训练，与 Ridge 对照共用",
@@ -203,8 +272,8 @@ class T45TreeRequest(BaseModel):
         max_length=8,
     )
     backend: Optional[str] = Field(
-        default=None,
-        description="xgboost | numpy_gbm | auto（缺省：有 xgboost 用 xgboost，否则 numpy 浅树）",
+        default="lightgbm",
+        description="仅 lightgbm（ŷ_oc_tree / ŷ_τ*_tree 已下掉 xgboost / numpy_gbm / auto）",
         max_length=16,
     )
 
@@ -214,16 +283,16 @@ class T60TreeRequest(BaseModel):
 
     lookback: int = Field(default=120, ge=40, le=500)
     watching_limit: int = Field(
-        default=200,
+        default=WATCHING_MAX_SIZE,
         ge=2,
-        le=200,
-        description="观察池上限（默认满池 200）；拟合只读本地 5m 缓存",
+        le=WATCHING_MAX_SIZE,
+        description=f"观察池上限（默认满池 {WATCHING_MAX_SIZE}）；拟合只读本地 5m 缓存",
     )
     ridge_lambda: float = Field(default=1.0, ge=0.0, le=100.0)
     gap_trigger_pct: float = Field(default=2.0, ge=0.5, le=10.0)
     theme_boost: float = Field(default=1.5, ge=0.5, le=5.0)
     holdout_trading_days: int = Field(
-        default=10,
+        default=20,
         ge=1,
         le=60,
         description="近 N 个交易日不进训练，与 Ridge 对照共用",
@@ -234,8 +303,8 @@ class T60TreeRequest(BaseModel):
         max_length=8,
     )
     backend: Optional[str] = Field(
-        default=None,
-        description="xgboost | numpy_gbm | auto（缺省：有 xgboost 用 xgboost，否则 numpy 浅树）",
+        default="lightgbm",
+        description="仅 lightgbm（ŷ_oc_tree / ŷ_τ*_tree 已下掉 xgboost / numpy_gbm / auto）",
         max_length=16,
     )
 
@@ -245,16 +314,16 @@ class T75TreeRequest(BaseModel):
 
     lookback: int = Field(default=120, ge=40, le=500)
     watching_limit: int = Field(
-        default=200,
+        default=WATCHING_MAX_SIZE,
         ge=2,
-        le=200,
-        description="观察池上限（默认满池 200）；拟合只读本地 5m 缓存",
+        le=WATCHING_MAX_SIZE,
+        description=f"观察池上限（默认满池 {WATCHING_MAX_SIZE}）；拟合只读本地 5m 缓存",
     )
     ridge_lambda: float = Field(default=1.0, ge=0.0, le=100.0)
     gap_trigger_pct: float = Field(default=2.0, ge=0.5, le=10.0)
     theme_boost: float = Field(default=1.5, ge=0.5, le=5.0)
     holdout_trading_days: int = Field(
-        default=10,
+        default=20,
         ge=1,
         le=60,
         description="近 N 个交易日不进训练，与 Ridge 对照共用",
@@ -265,8 +334,8 @@ class T75TreeRequest(BaseModel):
         max_length=8,
     )
     backend: Optional[str] = Field(
-        default=None,
-        description="xgboost | numpy_gbm | auto（缺省：有 xgboost 用 xgboost，否则 numpy 浅树）",
+        default="lightgbm",
+        description="仅 lightgbm（ŷ_oc_tree / ŷ_τ*_tree 已下掉 xgboost / numpy_gbm / auto）",
         max_length=16,
     )
 
@@ -276,16 +345,16 @@ class T90TreeRequest(BaseModel):
 
     lookback: int = Field(default=120, ge=40, le=500)
     watching_limit: int = Field(
-        default=200,
+        default=WATCHING_MAX_SIZE,
         ge=2,
-        le=200,
-        description="观察池上限（默认满池 200）；拟合只读本地 5m 缓存",
+        le=WATCHING_MAX_SIZE,
+        description=f"观察池上限（默认满池 {WATCHING_MAX_SIZE}）；拟合只读本地 5m 缓存",
     )
     ridge_lambda: float = Field(default=1.0, ge=0.0, le=100.0)
     gap_trigger_pct: float = Field(default=2.0, ge=0.5, le=10.0)
     theme_boost: float = Field(default=1.5, ge=0.5, le=5.0)
     holdout_trading_days: int = Field(
-        default=10,
+        default=20,
         ge=1,
         le=60,
         description="近 N 个交易日不进训练，与 Ridge 对照共用",
@@ -296,8 +365,8 @@ class T90TreeRequest(BaseModel):
         max_length=8,
     )
     backend: Optional[str] = Field(
-        default=None,
-        description="xgboost | numpy_gbm | auto（缺省：有 xgboost 用 xgboost，否则 numpy 浅树）",
+        default="lightgbm",
+        description="仅 lightgbm（ŷ_oc_tree / ŷ_τ*_tree 已下掉 xgboost / numpy_gbm / auto）",
         max_length=16,
     )
 
@@ -307,10 +376,10 @@ class CoRidgeRequest(BaseModel):
 
     lookback: int = Field(default=120, ge=40, le=500)
     watching_limit: int = Field(
-        default=200,
+        default=WATCHING_MAX_SIZE,
         ge=2,
-        le=200,
-        description="观察池上限（默认满池 200）",
+        le=WATCHING_MAX_SIZE,
+        description=f"观察池上限（默认满池 {WATCHING_MAX_SIZE}）",
     )
     ridge_lambda: float = Field(default=1.0, ge=0.0, le=100.0)
     gap_trigger_pct: float = Field(default=2.0, ge=0.5, le=10.0)
@@ -324,7 +393,7 @@ class CoRidgeRequest(BaseModel):
         description="live=执行套 co_ridge_model.json；research=研究套 *_research.json",
     )
     holdout_trading_days: int = Field(
-        default=10,
+        default=20,
         ge=1,
         le=60,
         description="近 N 个交易日不进研究套训练，专供历史回测",
@@ -333,14 +402,17 @@ class CoRidgeRequest(BaseModel):
 
 
 class OoRankRequest(BaseModel):
-    """ŷ_oo_rank 线性 RankNet pairwise（影子头；不进 live ranking）。"""
+    """ŷ_oo_rank LambdaRank（影子头；不进 live ranking）。"""
 
     lookback: int = Field(default=120, ge=40, le=500)
     watching_limit: int = Field(
         default=200,
         ge=8,
-        le=200,
-        description="观察池上限（截面排序至少约 8 只）",
+        le=2000,
+        description=(
+            f"日线研究截断：优先 research_universe（可至 2000）；"
+            f"宇宙为空时回退观察池（实际仍≤{WATCHING_MAX_SIZE}）。不进分钟暖仓。"
+        ),
     )
     holdout_trading_days: int = Field(
         default=20,
@@ -372,6 +444,11 @@ class OoRankRequest(BaseModel):
         default=10, ge=2, le=40, description="OOS TopK 跑路对照宽度"
     )
     l2: float = Field(default=1.0, ge=0.0, le=100.0)
+    backend: str = Field(
+        default="lambdarank",
+        description="仅 lambdarank（旧别名 lightgbm_lambda 仍接受）",
+        max_length=24,
+    )
     persist: bool = Field(
         default=False,
         description="True=写入 oo_rank_pairwise_model.json（仍不进 live 决策）",
@@ -384,10 +461,10 @@ class PathRidgeRequest(BaseModel):
 
     lookback: int = Field(default=120, ge=40, le=500)
     watching_limit: int = Field(
-        default=200,
+        default=WATCHING_MAX_SIZE,
         ge=2,
-        le=200,
-        description="观察池上限（默认满池 200）；拟合只读本地 5m 缓存、不拉远端",
+        le=WATCHING_MAX_SIZE,
+        description=f"观察池上限（默认满池 {WATCHING_MAX_SIZE}）；拟合只读本地 5m 缓存、不拉远端",
     )
     ridge_lambda: float = Field(default=1.0, ge=0.0, le=100.0)
     gap_trigger_pct: float = Field(default=2.0, ge=0.5, le=10.0)
@@ -423,7 +500,7 @@ class PathRidgeRequest(BaseModel):
         description="live=执行套 path_ridge_model.json；research=研究套 *_research.json",
     )
     holdout_trading_days: int = Field(
-        default=10,
+        default=20,
         ge=1,
         le=60,
         description="近 N 个交易日不进研究套训练，专供历史回测",
@@ -440,10 +517,10 @@ class TcRidgeRequest(BaseModel):
 
     lookback: int = Field(default=120, ge=40, le=500)
     watching_limit: int = Field(
-        default=200,
+        default=WATCHING_MAX_SIZE,
         ge=2,
-        le=200,
-        description="观察池上限（默认满池 200）；拟合只读本地 5m 缓存、不拉远端",
+        le=WATCHING_MAX_SIZE,
+        description=f"观察池上限（默认满池 {WATCHING_MAX_SIZE}）；拟合只读本地 5m 缓存、不拉远端",
     )
     ridge_lambda: float = Field(default=1.0, ge=0.0, le=100.0)
     gap_trigger_pct: float = Field(default=2.0, ge=0.5, le=10.0)
@@ -467,7 +544,7 @@ class TcRidgeRequest(BaseModel):
         description="live=执行套 tc_ridge_model.json；research=研究套 *_research.json",
     )
     holdout_trading_days: int = Field(
-        default=10,
+        default=20,
         ge=1,
         le=60,
         description="近 N 个交易日不进研究套训练，专供历史回测",
@@ -491,10 +568,10 @@ class T30RidgeRequest(BaseModel):
 
     lookback: int = Field(default=120, ge=40, le=500)
     watching_limit: int = Field(
-        default=200,
+        default=WATCHING_MAX_SIZE,
         ge=2,
-        le=200,
-        description="观察池上限（默认满池 200）；拟合只读本地 5m 缓存、不拉远端",
+        le=WATCHING_MAX_SIZE,
+        description=f"观察池上限（默认满池 {WATCHING_MAX_SIZE}）；拟合只读本地 5m 缓存、不拉远端",
     )
     ridge_lambda: float = Field(default=1.0, ge=0.0, le=100.0)
     gap_trigger_pct: float = Field(default=2.0, ge=0.5, le=10.0)
@@ -518,7 +595,7 @@ class T30RidgeRequest(BaseModel):
         description="live=执行套 t30_ridge_model.json；research=研究套 *_research.json",
     )
     holdout_trading_days: int = Field(
-        default=10,
+        default=20,
         ge=1,
         le=60,
         description="近 N 个交易日不进研究套训练，专供历史回测",
@@ -539,10 +616,10 @@ class T45RidgeRequest(BaseModel):
 
     lookback: int = Field(default=120, ge=40, le=500)
     watching_limit: int = Field(
-        default=200,
+        default=WATCHING_MAX_SIZE,
         ge=2,
-        le=200,
-        description="观察池上限（默认满池 200）；拟合只读本地 5m 缓存、不拉远端",
+        le=WATCHING_MAX_SIZE,
+        description=f"观察池上限（默认满池 {WATCHING_MAX_SIZE}）；拟合只读本地 5m 缓存、不拉远端",
     )
     ridge_lambda: float = Field(default=1.0, ge=0.0, le=100.0)
     gap_trigger_pct: float = Field(default=2.0, ge=0.5, le=10.0)
@@ -566,7 +643,7 @@ class T45RidgeRequest(BaseModel):
         description="live=执行套 t45_ridge_model.json；research=研究套 *_research.json",
     )
     holdout_trading_days: int = Field(
-        default=10,
+        default=20,
         ge=1,
         le=60,
         description="近 N 个交易日不进研究套训练，专供历史回测",
@@ -587,10 +664,10 @@ class T60RidgeRequest(BaseModel):
 
     lookback: int = Field(default=120, ge=40, le=500)
     watching_limit: int = Field(
-        default=200,
+        default=WATCHING_MAX_SIZE,
         ge=2,
-        le=200,
-        description="观察池上限（默认满池 200）；拟合只读本地 5m 缓存、不拉远端",
+        le=WATCHING_MAX_SIZE,
+        description=f"观察池上限（默认满池 {WATCHING_MAX_SIZE}）；拟合只读本地 5m 缓存、不拉远端",
     )
     ridge_lambda: float = Field(default=1.0, ge=0.0, le=100.0)
     gap_trigger_pct: float = Field(default=2.0, ge=0.5, le=10.0)
@@ -614,7 +691,7 @@ class T60RidgeRequest(BaseModel):
         description="live=执行套 t60_ridge_model.json；research=研究套 *_research.json",
     )
     holdout_trading_days: int = Field(
-        default=10,
+        default=20,
         ge=1,
         le=60,
         description="近 N 个交易日不进研究套训练，专供历史回测",
@@ -635,10 +712,10 @@ class T75RidgeRequest(BaseModel):
 
     lookback: int = Field(default=120, ge=40, le=500)
     watching_limit: int = Field(
-        default=200,
+        default=WATCHING_MAX_SIZE,
         ge=2,
-        le=200,
-        description="观察池上限（默认满池 200）；拟合只读本地 5m 缓存、不拉远端",
+        le=WATCHING_MAX_SIZE,
+        description=f"观察池上限（默认满池 {WATCHING_MAX_SIZE}）；拟合只读本地 5m 缓存、不拉远端",
     )
     ridge_lambda: float = Field(default=1.0, ge=0.0, le=100.0)
     gap_trigger_pct: float = Field(default=2.0, ge=0.5, le=10.0)
@@ -662,7 +739,7 @@ class T75RidgeRequest(BaseModel):
         description="live=执行套 t75_ridge_model.json；research=研究套 *_research.json",
     )
     holdout_trading_days: int = Field(
-        default=10,
+        default=20,
         ge=1,
         le=60,
         description="近 N 个交易日不进研究套训练，专供历史回测",
@@ -684,16 +761,16 @@ class FactorOlsClusterRequest(BaseModel):
     lookback: int = Field(default=80, ge=40, le=500)
     horizon_days: int = Field(default=3, ge=1, le=10)
     holdout_trading_days: int = Field(
-        default=10,
+        default=20,
         ge=1,
         le=60,
         description="近 N 个交易日不进定组/选 k；研究套组 β 再隔离 horizon h",
     )
     watching_limit: int = Field(
-        default=200,
+        default=WATCHING_MAX_SIZE,
         ge=3,
-        le=200,
-        description="观察池截断：universe_mode=watching 时取名单前 N 只（与 clamp_watching_limit 对齐，默认/上限 200）",
+        le=WATCHING_MAX_SIZE,
+        description=f"观察池截断：universe_mode=watching 时取名单前 N 只（与 clamp_watching_limit 对齐，默认/上限 {WATCHING_MAX_SIZE}）",
     )
     n_clusters: Optional[int] = Field(
         default=None,
@@ -782,7 +859,7 @@ class ClusterBarsRefreshRequest(BaseModel):
     """观察池日线更新（不跑 OLS 分组）。"""
 
     lookback: int = Field(default=80, ge=40, le=500)
-    watching_limit: int = Field(default=200, ge=3, le=200)
+    watching_limit: int = Field(default=WATCHING_MAX_SIZE, ge=3, le=WATCHING_MAX_SIZE)
     mode: str = Field(
         default="topup",
         description="topup=增量补齐到最新；full=整窗强更（仓坏/复权兜底）",
@@ -798,7 +875,7 @@ class ClusterMinuteRefreshRequest(BaseModel):
 
     period: str = Field(default="5", description="分钟周期；默认 5m")
     lookback_days: int = Field(default=120, ge=5, le=120)
-    watching_limit: int = Field(default=200, ge=3, le=200)
+    watching_limit: int = Field(default=WATCHING_MAX_SIZE, ge=3, le=WATCHING_MAX_SIZE)
     min_span_days: int = Field(default=40, ge=10, le=120)
     mode: str = Field(
         default="full",
@@ -821,10 +898,10 @@ class T90RidgeRequest(BaseModel):
 
     lookback: int = Field(default=120, ge=40, le=500)
     watching_limit: int = Field(
-        default=200,
+        default=WATCHING_MAX_SIZE,
         ge=2,
-        le=200,
-        description="观察池上限（默认满池 200）；拟合只读本地 5m 缓存、不拉远端",
+        le=WATCHING_MAX_SIZE,
+        description=f"观察池上限（默认满池 {WATCHING_MAX_SIZE}）；拟合只读本地 5m 缓存、不拉远端",
     )
     ridge_lambda: float = Field(default=1.0, ge=0.0, le=100.0)
     gap_trigger_pct: float = Field(default=2.0, ge=0.5, le=10.0)
@@ -848,7 +925,7 @@ class T90RidgeRequest(BaseModel):
         description="live=执行套 t90_ridge_model.json；research=研究套 *_research.json",
     )
     holdout_trading_days: int = Field(
-        default=10,
+        default=20,
         ge=1,
         le=60,
         description="近 N 个交易日不进研究套训练，专供历史回测",
@@ -870,16 +947,16 @@ class FactorOlsClusterRequest(BaseModel):
     lookback: int = Field(default=80, ge=40, le=500)
     horizon_days: int = Field(default=3, ge=1, le=10)
     holdout_trading_days: int = Field(
-        default=10,
+        default=20,
         ge=1,
         le=60,
         description="近 N 个交易日不进定组/选 k；研究套组 β 再隔离 horizon h",
     )
     watching_limit: int = Field(
-        default=200,
+        default=WATCHING_MAX_SIZE,
         ge=3,
-        le=200,
-        description="观察池截断：universe_mode=watching 时取名单前 N 只（与 clamp_watching_limit 对齐，默认/上限 200）",
+        le=WATCHING_MAX_SIZE,
+        description=f"观察池截断：universe_mode=watching 时取名单前 N 只（与 clamp_watching_limit 对齐，默认/上限 {WATCHING_MAX_SIZE}）",
     )
     n_clusters: Optional[int] = Field(
         default=None,
@@ -968,7 +1045,7 @@ class ClusterBarsRefreshRequest(BaseModel):
     """观察池日线更新（不跑 OLS 分组）。"""
 
     lookback: int = Field(default=80, ge=40, le=500)
-    watching_limit: int = Field(default=200, ge=3, le=200)
+    watching_limit: int = Field(default=WATCHING_MAX_SIZE, ge=3, le=WATCHING_MAX_SIZE)
     mode: str = Field(
         default="topup",
         description="topup=增量补齐到最新；full=整窗强更（仓坏/复权兜底）",
@@ -984,7 +1061,7 @@ class ClusterMinuteRefreshRequest(BaseModel):
 
     period: str = Field(default="5", description="分钟周期；默认 5m")
     lookback_days: int = Field(default=120, ge=5, le=120)
-    watching_limit: int = Field(default=200, ge=3, le=200)
+    watching_limit: int = Field(default=WATCHING_MAX_SIZE, ge=3, le=WATCHING_MAX_SIZE)
     min_span_days: int = Field(default=40, ge=10, le=120)
     mode: str = Field(
         default="full",
@@ -1029,15 +1106,25 @@ class ReturnModelFitRequest(BaseModel):
 
     codes: Optional[list] = None
     lookback: int = Field(default=120, ge=40, le=500)
-    horizon_days: int = Field(default=3, ge=1, le=10)
-    watching_limit: int = Field(default=12, ge=3, le=40)
-    ridge_lambda: float = Field(default=0.0, ge=0.0, le=100.0)
+    horizon_days: int = Field(default=1, ge=1, le=10)
+    watching_limit: int = Field(default=WATCHING_MAX_SIZE, ge=3, le=WATCHING_MAX_SIZE)
+    ridge_lambda: float = Field(default=1.0, ge=0.0, le=100.0)
     min_samples: int = Field(default=24, ge=8, le=500)
     save_draft: bool = True
+    holdout_trading_days: int = Field(
+        default=20,
+        ge=3,
+        le=60,
+        description="近 N 个交易日 Holdout，只测不训（与 ŷ_oc 页顶 Holdout 共用）",
+    )
 
 
 class ReturnModelPromoteRequest(BaseModel):
     note: str = ""
+    persist_role: str = Field(
+        default="live",
+        description="research=研究套（回测）；live=执行套（交易）",
+    )
 
 
 class WeightSuggestRequest(BaseModel):

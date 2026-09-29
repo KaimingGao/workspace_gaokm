@@ -30,6 +30,19 @@ from core.research.tau_ridge import (
 CO_MIN_STD_EXEMPT = CO_Z_FEATURES
 
 
+def _co_feature_fill_keys(xs: Sequence[dict]) -> List[str]:
+    """手造 Z + 面板中出现的 raw_alpha158_*。"""
+    from core.signal.factors.alpha158 import collect_alpha158_raw_keys_from_rows
+
+    keys = list(CO_Z_FEATURES)
+    seen = set(keys)
+    for k in collect_alpha158_raw_keys_from_rows(xs):
+        if k not in seen:
+            seen.add(k)
+            keys.append(k)
+    return keys
+
+
 def _stack_panels(enriched: Sequence[Dict[str, Any]]) -> tuple:
     xs_all: List[dict] = []
     ys_all: List[float] = []
@@ -44,9 +57,12 @@ def _stack_panels(enriched: Sequence[Dict[str, Any]]) -> tuple:
 
 
 def _z_only_row(row: Optional[dict]) -> Dict[str, Optional[float]]:
-    """始终输出完整 CO_Z_FEATURES 键，避免 yest_gap / yclose_loc 被静默丢掉。"""
+    """始终输出完整 CO_Z_FEATURES 键，并保留 raw_alpha158_*。"""
+    from core.signal.factors.alpha158 import keep_alpha158_raw_in_row
+
     src = row or {}
-    return {k: src.get(k) for k in CO_Z_FEATURES}
+    out = {k: src.get(k) for k in CO_Z_FEATURES}
+    return keep_alpha158_raw_in_row(src, dest=out)
 
 
 def _z_only_xs(xs: Sequence[dict]) -> List[dict]:
@@ -58,6 +74,7 @@ def build_co_panels_from_bars(
     *,
     min_history: int = 12,
     gap_trigger_pct: float = 2.0,
+    include_alpha158: bool = True,
 ) -> List[Dict[str, Any]]:
     raw: List[Dict[str, Any]] = []
     for item in stock_bars:
@@ -66,7 +83,10 @@ def build_co_panels_from_bars(
         if len(bars) < min_history + 3:
             continue
         xs, ys, dates, metas = collect_co_panel(
-            bars, min_history=min_history, stock_code=code
+            bars,
+            min_history=min_history,
+            stock_code=code,
+            include_alpha158=include_alpha158,
         )
         if len(ys) < 4:
             continue
@@ -83,14 +103,16 @@ def fit_co_ridge_report(
     min_history: int = 12,
     gap_trigger_pct: float = 2.0,
     theme_boost: float = 1.5,
-    holdout_trading_days: int = 10,
+    holdout_trading_days: int = 20,
     use_theme_weights: bool = True,
+    include_alpha158: bool = True,
 ) -> Dict[str, Any]:
     """池化拟合 ŷ_co(Z) + 时间 OOS。标签 = open[T+1]/close[T]-1（决策日 T 开盘）。"""
     enriched = build_co_panels_from_bars(
         stock_bars,
         min_history=min_history,
         gap_trigger_pct=gap_trigger_pct,
+        include_alpha158=include_alpha158,
     )
     xs, ys, dates, metas = _stack_panels(enriched)
     if len(ys) < 20:
@@ -137,6 +159,12 @@ def fit_co_ridge_report(
     if not feat_names:
         feat_names = list(CO_Z_FEATURES)
 
+    from core.signal.factors.alpha158 import merge_alpha158_min_std_exempt
+
+    min_std_exempt = merge_alpha158_min_std_exempt(
+        feat_names, list(CO_MIN_STD_EXEMPT)
+    )
+
     fit = fit_factor_ols_from_panel(
         xs_tr,
         ys_tr,
@@ -144,7 +172,7 @@ def fit_co_ridge_report(
         ridge_lambda=ridge_lambda,
         standardize=True,
         sample_weights=weights,
-        min_std_exempt=list(CO_MIN_STD_EXEMPT),
+        min_std_exempt=min_std_exempt,
         collinearity_policy="keep_all",
     )
     if not fit.get("success"):
@@ -173,7 +201,8 @@ def fit_co_ridge_report(
         "holdout_trading_days": hold_n,
         "theme_boost": theme_boost if use_theme_weights else None,
         "target": "overnight_gap",
-        "feature_fill": feature_fill_rates(xs_z, CO_Z_FEATURES),
+        "feature_fill": feature_fill_rates(xs_z, _co_feature_fill_keys(xs_z)),
+        "include_alpha158": bool(include_alpha158),
     }
 
     research_model = make_research_model(fit, y_mean=0.0)
@@ -189,7 +218,7 @@ def fit_co_ridge_report(
         ridge_lambda=ridge_lambda,
         standardize=True,
         sample_weights=w_all,
-        min_std_exempt=list(CO_MIN_STD_EXEMPT),
+        min_std_exempt=min_std_exempt,
         collinearity_policy="keep_all",
     )
     model = fit_full if fit_full.get("success") else fit
@@ -203,11 +232,15 @@ def fit_co_ridge_report(
         "anchor": "close[T]",
         "note": "真实隔夜缺口（T 收盘→T+1 开盘）；风控旁路，不进主排序",
     }
-    model["extra_features"] = list(CO_Z_FEATURES)
+    model["extra_features"] = _co_feature_fill_keys(xs_z)
+    model["include_alpha158"] = bool(include_alpha158)
     model["model_role"] = "live"
-    for k in ("y_spec", "extra_features", "horizon_mode", "target"):
+    for k in ("y_spec", "extra_features", "horizon_mode", "target", "include_alpha158"):
         research_model[k] = model.get(k)
 
+    n_a158 = sum(
+        1 for k in (model.get("extra_features") or []) if "alpha158" in str(k).lower()
+    )
     report = {
         "success": True,
         "task": "co_ridge",
@@ -219,7 +252,14 @@ def fit_co_ridge_report(
         "y_spec": dict(model.get("y_spec") or {}),
         "schema": "co_ridge_v1",
         "target": "overnight_gap",
-        "note": "ŷ_co(Z) 估 open[T+1]/close[T]-1；T-1 路径 + 开盘 Z + 昨 K 微观 + 隔夜滞后；与 EOD/τ 解耦",
+        "include_alpha158": bool(include_alpha158),
+        "n_alpha158_features": n_a158,
+        "note": (
+            "ŷ_co(Z[+Alpha158]) 估 open[T+1]/close[T]-1；"
+            "T-1 路径 + 开盘 Z + 昨 K 微观 + 隔夜滞后 + raw_alpha158_*；与 EOD/τ 解耦"
+            if include_alpha158
+            else "ŷ_co(Z) 估 open[T+1]/close[T]-1；T-1 路径 + 开盘 Z + 昨 K 微观 + 隔夜滞后；与 EOD/τ 解耦"
+        ),
     }
     attach_holdout_meta(report, split_meta)
     return report

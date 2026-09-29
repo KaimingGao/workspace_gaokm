@@ -13,7 +13,7 @@
 
 import logging
 import math
-from typing import List, Optional, Sequence, Tuple
+from typing import Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 
@@ -112,6 +112,41 @@ def bump_window_for_alpha158(
         return int(min_history), int(max_window)
     need = int(ALPHA158_PANEL_WINDOW)
     return max(int(min_history), need), max(int(max_window), need)
+
+
+def raw_alpha158_from_bars(bars: Optional[Sequence[dict]]) -> dict:
+    """日 K hist → ``{raw_alpha158_*: float}``；不足 61 根返回 ``{}``。
+
+    供 y_co / y_oc 面板直接注入；不含常数 ``alpha158`` sub_score。
+    调用方须保证 bars 末根 ≤ 决策日前一交易日（PIT）。
+    """
+    hist = [b for b in (bars or []) if isinstance(b, dict)]
+    if len(hist) < _MIN_BARS:
+        return {}
+    _score, meta = score_alpha158(hist)
+    if not isinstance(meta, dict):
+        return {}
+    out: dict = {}
+    for mk, mv in meta.items():
+        sk = str(mk)
+        if sk in ("omit_sub_score", "ok") or sk.startswith("alpha158_"):
+            continue
+        if isinstance(mv, (int, float)) and not isinstance(mv, bool):
+            out[f"{ALPHA158_RAW_PREFIX}{sk}"] = float(mv)
+    return out
+
+
+def keep_alpha158_raw_in_row(
+    src: Optional[dict],
+    *,
+    dest: Optional[dict] = None,
+) -> dict:
+    """把 ``src`` 中的 ``raw_alpha158_*`` 拷进 ``dest``（就地并返回）。"""
+    out = dest if isinstance(dest, dict) else {}
+    for k, v in (src or {}).items():
+        if is_alpha158_raw_key(str(k)) and v is not None and v != "":
+            out[str(k)] = v
+    return out
 
 
 def _to_arrays(bars: List[dict]) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:

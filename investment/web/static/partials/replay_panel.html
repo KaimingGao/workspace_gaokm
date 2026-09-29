@@ -50,7 +50,7 @@
         </label>
         <label
           class="platform-field quant-pro-field replay-lookback-field"
-          title="回测覆盖多少个交易日。默认 10，最少 10。不是调仓规则。不再用全池日期交集（会被次新/停牌卡死）。"
+          title="回测覆盖多少个交易日（独立于 Holdout）。默认 10。不是调仓规则。"
         >
           <span class="quant-pro-field-label">回测窗口</span>
           <input id="quant-lookback" type="number" min="10" max="500" value="10" />
@@ -66,14 +66,14 @@
           </select>
         </label>
         <fieldset
-          class="platform-field quant-pro-field replay-lookback-field replay-fit-tier-field"
-          title="按分组拟合档限制观察池新开/加。可只勾 A、A+B 或全选对照。不改 live 配置。未映射票在未选满三档时不进新买。C 档即使入选，OOS 失败仍拦新买。"
+          class="platform-field quant-pro-field replay-lookback-field replay-pred-tier-field"
+          title="复用研究枢纽「观察池分档」过滤宇宙。回测天数仍用左侧「回测窗口」（与 Holdout 独立）。须先跑枢纽分档。不勾=不过滤。"
         >
-          <span class="quant-pro-field-label">宇宙分档</span>
-          <span class="replay-fit-tier-checks">
-            <label><input type="checkbox" id="quant-universe-tier-a" value="A" checked /> A 强</label>
-            <label><input type="checkbox" id="quant-universe-tier-b" value="B" checked /> B 中</label>
-            <label><input type="checkbox" id="quant-universe-tier-c" value="C" checked /> C 弱</label>
+          <span class="quant-pro-field-label">分档</span>
+          <span class="replay-fit-tier-checks" id="quant-pred-tier-checks">
+            <label><input type="checkbox" id="quant-pred-tier-a" value="A" checked /> A</label>
+            <label><input type="checkbox" id="quant-pred-tier-b" value="B" checked /> B</label>
+            <label><input type="checkbox" id="quant-pred-tier-c" value="C" /> C</label>
           </span>
         </fieldset>
         <input type="hidden" id="quant-min-amount-pctile" value="" />

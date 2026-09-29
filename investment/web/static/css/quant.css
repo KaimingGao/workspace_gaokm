@@ -5192,6 +5192,21 @@ body[data-page="replay"] .replay-page .quant-bt-trades-host .watching-react-grid
   flex-shrink: 0;
 }
 
+.quant-inline-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: var(--q-fs-micro, 12px);
+  color: var(--q-muted, #667);
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+}
+
+.quant-inline-check input {
+  margin: 0;
+}
+
 .quant-pro-card-body {
   padding: 10px var(--q-gutter) 12px;
   display: flex;
@@ -8315,10 +8330,6 @@ body[data-page="quant"] section.dashboard-section.quant-section:last-child {
   color: var(--ink-3);
 }
 
-.quant-page .quant-pro-params-inline > #quant-ols-clusters-run {
-  margin-left: auto;
-}
-
 .quant-page .quant-pro-field input[type="number"] {
   width: 4.5rem;
   height: 28px;
@@ -8396,11 +8407,6 @@ body[data-page="quant"] section.dashboard-section.quant-section:last-child {
 @media (max-width: 560px) {
   .quant-page .quant-pro-overview-kpis .dashboard-kpi-row-body {
     grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .quant-page .quant-pro-params-inline > #quant-ols-clusters-run {
-    margin-left: 0;
-    width: 100%;
   }
 }
 
@@ -10061,7 +10067,15 @@ body[data-page="quant"] .quant-page .quant-cluster-status .quant-cluster-landing
   display: flex;
   flex-direction: column;
   gap: 10px;
-  margin-top: 4px;
+  margin-top: 0;
+}
+
+/* ŷ_oo / ŷ_oc 系数表宿主：去掉 wrap 上下 margin，避免与 card gap 叠出空白 */
+.quant-page #quant-oo-coef-table.quant-weight-table-wrap,
+.quant-page #quant-tau-coef-table.quant-weight-table-wrap,
+.quant-page #quant-oo-result.quant-weight-table-wrap,
+.quant-page #quant-tau-result.quant-weight-table-wrap {
+  margin: 0;
 }
 
 .quant-page .quant-rem-coef-head {
@@ -10149,6 +10163,57 @@ body[data-page="quant"] .quant-page .quant-cluster-status .quant-cluster-landing
   border-radius: 3px;
   overflow: hidden;
   background: var(--surface);
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.quant-page .quant-rem-coef-more {
+  border-top: 1px solid color-mix(in srgb, var(--line) 85%, transparent);
+  background: color-mix(in srgb, var(--ink) 1.5%, var(--surface));
+}
+
+.quant-page .quant-rem-coef-more-sum {
+  cursor: pointer;
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.35rem 0.75rem;
+  padding: 0.45rem 0.75rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--ink-2);
+  user-select: none;
+}
+
+.quant-page .quant-rem-coef-more-sum::-webkit-details-marker {
+  display: none;
+}
+
+.quant-page .quant-rem-coef-more-sum::before {
+  content: "▸";
+  display: inline-block;
+  width: 0.85em;
+  color: var(--ink-3, var(--ink-2));
+}
+
+.quant-page .quant-rem-coef-more[open] > .quant-rem-coef-more-sum::before {
+  content: "▾";
+}
+
+.quant-page .quant-rem-coef-more-hint {
+  font-weight: 400;
+  font-size: 0.7rem;
+  color: var(--ink-3, var(--ink-2));
+}
+
+.quant-page .quant-rem-coef-more-body {
+  border-top: 1px solid color-mix(in srgb, var(--line) 92%, transparent);
+}
+
+.quant-page .quant-rem-coef-more-body .quant-research-grid {
+  margin: 0;
 }
 
 .quant-page .quant-rem-coef-frame .quant-research-grid {
@@ -10720,6 +10785,10 @@ body[data-page="quant"] .quant-page .quant-cluster-status .quant-cluster-landing
 
 .quant-page .quant-tree-meta-cell.is-xgb .quant-tree-meta-v {
   color: color-mix(in srgb, var(--accent, #1890ff) 78%, var(--ink));
+}
+
+.quant-page .quant-tree-meta-cell.is-lgb .quant-tree-meta-v {
+  color: color-mix(in srgb, #22c55e 78%, var(--ink));
 }
 
 .quant-page .quant-tree-meta-cell.is-numpy .quant-tree-meta-v {
@@ -11708,5 +11777,261 @@ button.quant-integrity-cell:hover,
   margin: 0;
   font-size: var(--q-fs-caption, 0.75rem);
   color: var(--ink);
+}
+
+/* —— 研究宇宙看板 —— */
+.quant-ru-card .quant-ru-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+
+.quant-ru-kpi-row {
+  margin-top: 0.15rem;
+}
+
+.quant-ru-kpi-source {
+  font-size: 1rem;
+  letter-spacing: 0.01em;
+}
+
+.quant-ru-edit {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.quant-ru-edit-label {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.5rem 0.75rem;
+  font-size: var(--q-fs-caption, 0.75rem);
+  color: var(--ink-2);
+  font-weight: 600;
+}
+
+.quant-ru-edit-hint {
+  font-weight: 400;
+  color: var(--ink-3, var(--ink-2));
+}
+
+.quant-ru-codes {
+  width: 100%;
+  min-height: 8.5rem;
+  resize: vertical;
+  box-sizing: border-box;
+  padding: 0.55rem 0.7rem;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--bg-1, var(--bg));
+  color: var(--ink);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.78rem;
+  line-height: 1.45;
+}
+
+.quant-ru-codes:focus {
+  outline: 2px solid color-mix(in srgb, var(--accent, #3a6ea5) 45%, transparent);
+  outline-offset: 1px;
+}
+
+.quant-ru-list-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.quant-ru-list-title {
+  font-size: var(--q-fs-caption, 0.75rem);
+  font-weight: 600;
+  color: var(--ink-2);
+}
+
+.quant-ru-filter {
+  min-width: 8rem;
+  max-width: 14rem;
+  flex: 0 1 12rem;
+  padding: 0.3rem 0.5rem;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--bg-1, var(--bg));
+  color: var(--ink);
+  font-size: 0.75rem;
+}
+
+.quant-ru-list {
+  min-height: 2.5rem;
+}
+
+.quant-ru-code-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 0.4rem;
+}
+
+.quant-ru-code-chip {
+  display: inline-block;
+  padding: 0.15rem 0.4rem;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.7rem;
+  color: var(--ink-2);
+  background: color-mix(in srgb, var(--bg-2, var(--bg)) 80%, transparent);
+}
+
+.quant-ru-code-chip.is-tier-A {
+  border-color: color-mix(in srgb, #2a7a4b 55%, var(--line));
+  background: color-mix(in srgb, #2a7a4b 14%, var(--bg-1, var(--bg)));
+  color: var(--ink);
+}
+
+.quant-ru-code-chip.is-tier-B {
+  border-color: color-mix(in srgb, #b07a20 55%, var(--line));
+  background: color-mix(in srgb, #b07a20 12%, var(--bg-1, var(--bg)));
+}
+
+.quant-ru-code-chip.is-tier-C {
+  border-color: color-mix(in srgb, #8a4a4a 45%, var(--line));
+  background: color-mix(in srgb, #8a4a4a 10%, var(--bg-1, var(--bg)));
+  opacity: 0.85;
+}
+
+.quant-ru-tier-filter {
+  min-width: 5.5rem;
+  padding: 0.3rem 0.4rem;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--bg-1, var(--bg));
+  color: var(--ink);
+  font-size: 0.75rem;
+}
+
+.quant-ru-tier-table {
+  margin-top: 0.75rem;
+}
+
+.quant-ru-tier-folds {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.quant-ru-tier-fold {
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--panel, transparent);
+}
+
+.quant-ru-tier-fold-sum {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.35rem 0.55rem;
+  cursor: pointer;
+  list-style: none;
+  font-size: 0.78rem;
+  user-select: none;
+}
+
+.quant-ru-tier-fold-sum::-webkit-details-marker {
+  display: none;
+}
+
+.quant-ru-tier-fold-sum::before {
+  content: "▸";
+  color: var(--ink-3, var(--ink-2));
+  font-size: 0.7rem;
+  width: 0.75rem;
+}
+
+.quant-ru-tier-fold[open] > .quant-ru-tier-fold-sum::before {
+  content: "▾";
+}
+
+.quant-ru-tier-fold-count {
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+}
+
+.quant-ru-tier-fold-body {
+  padding: 0 0.4rem 0.4rem;
+}
+
+.quant-ru-tier-grid {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.72rem;
+}
+
+.quant-ru-tier-grid th,
+.quant-ru-tier-grid td {
+  padding: 0.28rem 0.4rem;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+}
+
+.quant-ru-tier-grid th {
+  font-weight: 600;
+  color: var(--ink-2);
+}
+
+.quant-ru-tier-badge {
+  display: inline-block;
+  min-width: 1.25rem;
+  text-align: center;
+  font-weight: 700;
+  font-size: 0.7rem;
+}
+
+.quant-ru-tier-badge.is-A {
+  color: #2a7a4b;
+}
+
+.quant-ru-tier-badge.is-B {
+  color: #9a6a18;
+}
+
+.quant-ru-tier-badge.is-C {
+  color: #8a4a4a;
+}
+
+.quant-ru-tier-watch {
+  font-size: 0.65rem;
+  color: var(--ink-3, var(--ink-2));
+}
+
+.quant-ru-list-empty,
+.quant-ru-list-more,
+.quant-ru-list-note {
+  margin: 0.25rem 0 0;
+  font-size: 0.72rem;
+  color: var(--ink-3, var(--ink-2));
+}
+
+.quant-ru-list-note {
+  margin: 0 0 0.45rem;
+  color: var(--ink-2);
+}
+
+.quant-ru-foot {
+  font-size: 0.68rem;
+  color: var(--ink-3, var(--ink-2));
+  line-height: 1.4;
+}
+
+@media (max-width: 720px) {
+  .quant-ru-list-head {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .quant-ru-filter,
+  .quant-ru-tier-filter {
+    max-width: none;
+    flex: 1 1 auto;
+  }
 }
 

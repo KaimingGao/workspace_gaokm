@@ -2,7 +2,7 @@
  * 研究台参数：持有期 / Ridge / 聚类 K / 观察池 Limit / Holdout。
  */
 
-export const DEFAULT_HOLDOUT_TRADING_DAYS = 10;
+export const DEFAULT_HOLDOUT_TRADING_DAYS = 20;
 export const HOLDOUT_DAYS_STORAGE_KEY = "quant_holdout_trading_days";
 
 export function clampHoldoutTradingDays(v, fallback = DEFAULT_HOLDOUT_TRADING_DAYS) {
@@ -24,7 +24,7 @@ export function clampRidgeLambda(v, fallback = 0) {
 }
 
 /** 观察池截断上限：对齐 WATCHING_MAX_SIZE。分组 Limit / 日K/5m / ŷ_* 拟合共用。 */
-export const BARS_WATCHING_LIMIT = 200;
+export const BARS_WATCHING_LIMIT = 300;
 
 export function clampWatchingLimit(v, fallback = BARS_WATCHING_LIMIT) {
   const n = Number(v);
@@ -132,6 +132,8 @@ export function createResearchParams(opts = {}) {
       const saved = localStorage.getItem(HOLDOUT_DAYS_STORAGE_KEY);
       if (saved != null && saved !== "") {
         el.value = String(clampHoldoutTradingDays(saved, DEFAULT_HOLDOUT_TRADING_DAYS));
+      } else if (!el.value) {
+        el.value = String(DEFAULT_HOLDOUT_TRADING_DAYS);
       }
     } catch (_) {}
     el.addEventListener("change", () => readHoldoutTradingDays());

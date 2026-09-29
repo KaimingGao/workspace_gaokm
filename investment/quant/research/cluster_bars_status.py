@@ -7,6 +7,7 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from core.numbers import date_key
+from core.watching.store import WATCHING_MAX_SIZE
 
 logger = logging.getLogger(__name__)
 
@@ -34,16 +35,16 @@ def _last_bar_date_for_code(code: str) -> Optional[str]:
         return None
 
 
-def build_cluster_bars_status(*, watching_limit: int = 200) -> Dict[str, Any]:
+def build_cluster_bars_status(*, watching_limit: int = WATCHING_MAX_SIZE) -> Dict[str, Any]:
     """汇总观察池截断后的日线末 bar 覆盖。"""
     from quant.research.cluster_bars_daily import (
         cluster_bars_session_date,
         needs_force_latest_bars,
         read_force_latest_bars_marker,
     )
-    from quant.research.factor_ols_clusters import clamp_watching_limit, merge_cluster_universe
+    from quant.research.watching_universe import clamp_watching_limit, merge_cluster_universe
 
-    limit = clamp_watching_limit(watching_limit, 200)
+    limit = clamp_watching_limit(watching_limit, WATCHING_MAX_SIZE)
     watchlist: List[Any] = []
     try:
         from core.watching.store import read_watching
@@ -150,7 +151,7 @@ def _bars_refresh_job_snapshot() -> Optional[Dict[str, Any]]:
 
 def refresh_cluster_bars_only(
     *,
-    watching_limit: int = 200,
+    watching_limit: int = WATCHING_MAX_SIZE,
     lookback: int = 80,
     mode: str = "topup",
     progress_cb: Optional[Any] = None,
@@ -164,9 +165,9 @@ def refresh_cluster_bars_only(
         mark_force_latest_bars_done,
     )
     from quant.research.cluster_panels import build_cluster_ols_panels
-    from quant.research.factor_ols_clusters import clamp_watching_limit, merge_cluster_universe
+    from quant.research.watching_universe import clamp_watching_limit, merge_cluster_universe
 
-    limit = clamp_watching_limit(watching_limit, 200)
+    limit = clamp_watching_limit(watching_limit, WATCHING_MAX_SIZE)
     lb = max(40, int(lookback or 80))
     mode_s = str(mode or "topup").strip().lower()
     if mode_s not in ("full", "topup"):

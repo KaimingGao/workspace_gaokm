@@ -6,7 +6,6 @@ import inspect
 import os
 import sys
 import unittest
-from unittest.mock import patch
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT not in sys.path:
@@ -46,7 +45,6 @@ class TestB1SampleFingerprint(unittest.TestCase):
 
     def test_group_local_n_obs_blocker_does_not_poison_pool(self):
         from core.research.beta_accuracy import fingerprint_blocker_is_group_local
-        from quant.research.factor_ols_clusters import _aggregate_sample_fingerprint
 
         self.assertTrue(
             fingerprint_blocker_is_group_local("组内：n_obs=20 < min_obs=24")
@@ -57,31 +55,7 @@ class TestB1SampleFingerprint(unittest.TestCase):
         self.assertFalse(
             fingerprint_blocker_is_group_local("n_obs=20 < min_obs=24")
         )
-        clusters = [
-            {
-                "return_model": {
-                    "sample_fingerprint": {
-                        "n_obs": 80,
-                        "n_names": 5,
-                        "promote_ok": True,
-                        "blockers": [],
-                    }
-                }
-            },
-            {
-                "return_model": {
-                    "sample_fingerprint": {
-                        "n_obs": 20,
-                        "n_names": 1,
-                        "promote_ok": False,
-                        "blockers": ["n_obs=20 < min_obs=24"],
-                    }
-                }
-            },
-        ]
-        fp = _aggregate_sample_fingerprint(clusters)
-        self.assertTrue(fp["promote_ok"], fp)
-        self.assertFalse(any("n_obs=" in str(b) for b in (fp.get("blockers") or [])))
+        # _aggregate_sample_fingerprint 随 factor_ols_clusters 删除；仅验组内 blocker 语义
 
     def test_universe_sample_gate_fields(self):
         from core.validation_universe import universe_sample_gate
@@ -154,38 +128,12 @@ class TestB3CollinearityAndRidge(unittest.TestCase):
         self.assertEqual(meta.get("track"), "B3")
 
 
-class TestB4Demote(unittest.TestCase):
-    def test_health_exposes_ic_demote_and_refit(self):
-        from core.signal.cluster.live_health import assess_cluster_live_health
+class TestB4ClusterRetired(unittest.TestCase):
+    def test_cluster_package_gone(self):
+        """分组 live_health / get_cluster_scoring_cfg 已随 cluster 包删除。"""
+        import importlib.util
 
-        with patch(
-            "core.signal.cluster.live.get_cluster_scoring_cfg",
-            return_value={
-                "mode": "shadow",
-                "enabled": True,
-                "min_coverage": 0.5,
-                "max_age_days": 14,
-                "auto_demote_on_stale": True,
-                "min_yhat_rolling_ic": 0.5,
-                "block_active_on_yhat_ic": True,
-            },
-        ), patch(
-            "core.signal.cluster.live.load_active_cluster_weights",
-            return_value=None,
-        ):
-            h = assess_cluster_live_health(universe=["600000", "000001"])
-        self.assertIn("ic_demote", h)
-        self.assertIn("refit_suggested", h)
-        self.assertEqual(h.get("track"), "B4+FM2")
-
-    def test_cfg_refit_max_age_alias(self):
-        from core.signal.cluster.live import get_cluster_scoring_cfg
-
-        cfg = get_cluster_scoring_cfg(
-            {"cluster_scoring": {"refit_max_age_days": 7, "mode": "off"}}
-        )
-        self.assertEqual(cfg["max_age_days"], 7)
-        self.assertEqual(cfg["refit_max_age_days"], 7)
+        self.assertIsNone(importlib.util.find_spec("core.signal.cluster"))
 
 
 class TestB5RespectRegime(unittest.TestCase):
@@ -196,34 +144,26 @@ class TestB5RespectRegime(unittest.TestCase):
         self.assertTrue(sig.parameters["respect_regime"].default)
 
     def test_cluster_report_defaults(self):
-        from quant.research.factor_ols_clusters import (
-            cluster_speed_policy,
-            compute_factor_ols_cluster_report,
-        )
-
-        sig = inspect.signature(compute_factor_ols_cluster_report)
-        self.assertTrue(sig.parameters["respect_regime"].default)
-        self.assertTrue(sig.parameters["select_ridge"].default)
-        self.assertEqual(sig.parameters["collinearity_policy"].default, "drop_redundant")
-        small = cluster_speed_policy(12)
-        self.assertFalse(small["large_universe"])
-        self.assertTrue(small["daily_pit"])
-        self.assertTrue(small["select_ridge"])
-        big = cluster_speed_policy(100)
-        self.assertTrue(big["large_universe"])
-        self.assertFalse(big["daily_pit"])
-        self.assertFalse(big["select_ridge"])
-        self.assertIn("快照", str(big.get("note") or ""))
-        self.assertIn("选区跳过组权 OOS", str(big.get("note") or ""))
-
-    def test_schema_cluster_request_b_fields(self):
+        """factor_ols_clusters 已退役；schema 仍保留分组请求字段默认值。"""
         from web.schemas import FactorOlsClusterRequest
 
         body = FactorOlsClusterRequest()
         self.assertTrue(body.respect_regime)
         self.assertTrue(body.select_ridge)
         self.assertEqual(body.collinearity_policy, "drop_redundant")
-        self.assertEqual(body.watching_limit, 200)
+        from core.watching.store import WATCHING_MAX_SIZE
+
+        self.assertEqual(body.watching_limit, WATCHING_MAX_SIZE)
+
+    def test_schema_cluster_request_b_fields(self):
+        from web.schemas import FactorOlsClusterRequest
+        from core.watching.store import WATCHING_MAX_SIZE
+
+        body = FactorOlsClusterRequest()
+        self.assertTrue(body.respect_regime)
+        self.assertTrue(body.select_ridge)
+        self.assertEqual(body.collinearity_policy, "drop_redundant")
+        self.assertEqual(body.watching_limit, WATCHING_MAX_SIZE)
 
 
 if __name__ == "__main__":

@@ -27,12 +27,27 @@ def _resolve_warmup_codes(
     *,
     cap: int = 20,
     prefer_validation_universe: bool = True,
+    pool: str = "auto",
 ) -> List[str]:
-    """预热默认标的：显式 codes → 验证宇宙 → watching。"""
+    """预热默认标的。
+
+    ``pool``:
+      - ``watching``：只读观察池（分钟暖仓专用；与研究宇宙分离）
+      - ``auto`` / 其它：显式 codes →（可选）验证宇宙 → watching
+    永不读取 ``research_universe``（日线宽名单，不进分钟暖仓）。
+    """
     if codes:
         out = [str(c).strip() for c in codes if str(c).strip()]
         return out[: max(1, int(cap))]
-    if prefer_validation_universe:
+
+    pool_key = str(pool or "auto").strip().lower()
+    use_validation = bool(prefer_validation_universe) and pool_key not in {
+        "watching",
+        "watch",
+        "watchlist",
+    }
+
+    if use_validation:
         try:
             from core.validation_universe import resolve_validation_codes
 
@@ -263,9 +278,12 @@ def _minute_warmup_core(
     )
     from core.ports.market import fetch_minute_bars
 
-    watch = _resolve_warmup_codes(codes, cap=max(1, int(cap)))
+    # 分钟暖仓只读观察池，不用 validation / research 宽名单
+    watch = _resolve_warmup_codes(
+        codes, cap=max(1, int(cap)), pool="watching", prefer_validation_universe=False
+    )
     if not watch:
-        return {"ok": False, "error": "无标的：请传 codes 或配置 watching / validation_universe"}
+        return {"ok": False, "error": "无标的：请传 codes 或配置观察池 watching（分钟暖仓不读研究宇宙）"}
     period_s = str(period or "5")
     # 1 分钟源通常只有近几日；5m+ 对齐东财窗口
     em_cap = minute_em_lookback_days()
@@ -351,14 +369,16 @@ def run_minute_warmup(
     cap: int = 25,
     lookback_days: int = 120,
 ) -> Dict[str, Any]:
-    """预热观察名单 5 分钟线缓存（tail_anomaly / T0 用）。"""
+    """预热观察池 5 分钟线缓存（tail_anomaly / T0 用）；不读研究宇宙。"""
     slot = job_registry.slot("schedule")
     if slot.is_running():
         return {"ok": False, "error": "已有调度任务在运行", "job": slot.get()}
 
-    watch = _resolve_warmup_codes(codes, cap=max(1, int(cap)))
+    watch = _resolve_warmup_codes(
+        codes, cap=max(1, int(cap)), pool="watching", prefer_validation_universe=False
+    )
     if not watch:
-        return {"ok": False, "error": "无标的：请传 codes 或配置 watching / validation_universe"}
+        return {"ok": False, "error": "无标的：请传 codes 或配置观察池 watching（分钟暖仓不读研究宇宙）"}
 
     job_id = slot.start(kind="minute_warmup", total=len(watch), message="预热分钟线…")
     try:
@@ -576,7 +596,7 @@ def run_paper_daily(
         from core.paths import PAPER_PATH
         from core.strategy_monitor import assess_strategy_health
 
-        slot.update(current=1, message="pre_market + cluster_prepare + run_daily_cycle")
+        slot.update(current=1, message="pre_market + run_daily_cycle")
         pre_market = None
         try:
             from core.market.context import ensure_pre_market_context
@@ -585,18 +605,13 @@ def run_paper_daily(
         except Exception as exc:
             logger.exception('unexpected error in run_paper_daily')
             pre_market = {"ok": False, "error": str(exc)}
-        cluster_prep = None
-        try:
-            from core.signal.cluster.live import prepare_cluster_for_daily
-
-            cluster_prep = prepare_cluster_for_daily()
-        except Exception as exc:
-            logger.exception('unexpected error in run_paper_daily')
-            cluster_prep = {
-                "success": False,
-                "error": str(exc),
-                "task": "cluster_prepare_daily",
-            }
+        # 分组 OO 已下线：不再 prepare_cluster_for_daily
+        cluster_prep = {
+            "success": True,
+            "skipped": True,
+            "reason": "cluster_scoring_retired",
+            "task": "cluster_prepare_daily",
+        }
         from copy import deepcopy
 
         loaded = load_paper(PAPER_PATH)

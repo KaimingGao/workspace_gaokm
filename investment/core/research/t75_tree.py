@@ -51,11 +51,13 @@ from core.research.tau_tree import (
     DEFAULT_SUBSAMPLE,
     _delta_oos,
     _design_matrix,
+    _fit_lightgbm,
     _fit_numpy_gbm,
     _fit_ridge_oos,
     _fit_xgboost,
     _importance_rows,
     _oos_pack,
+    _predict_lightgbm,
     _predict_numpy_gbm,
     _predict_xgboost,
     resolve_tree_backend,
@@ -106,7 +108,7 @@ def fit_t75_tree_report(
     min_history: int = 12,
     gap_trigger_pct: float = 2.0,
     theme_boost: float = 1.5,
-    holdout_trading_days: int = 10,
+    holdout_trading_days: int = 20,
     use_theme_weights: bool = True,
     tau_hm: str = "10:30",
     tau_grid: Optional[Sequence[str]] = None,
@@ -202,19 +204,10 @@ def fit_t75_tree_report(
     boost_preds: List[Optional[float]]
     tree_obj: Any = None
     t_tree0 = time.perf_counter()
-    if engine == "xgboost":
-        model, gain = _fit_xgboost(x_tr, y_tr, w_tr, **hyper)
-        tree_obj = model
-        raw_pred = _predict_xgboost(model, x_te)
-        boost_preds = [float(v) if math.isfinite(float(v)) else None for v in raw_pred]
-    else:
-        rng = np.random.default_rng(42)
-        gbm_hyper = {k: v for k, v in hyper.items() if k != "objective"}
-        pack, gain = _fit_numpy_gbm(x_tr, y_tr, w_tr, rng=rng, **gbm_hyper)
-        tree_obj = pack
-        raw_pred = np.clip(_predict_numpy_gbm(pack, x_te), 1e-6, 1.0 - 1e-6)
-        boost_preds = [float(v) if math.isfinite(float(v)) else None for v in raw_pred]
-        engine = "numpy_gbm"
+    model, gain = _fit_lightgbm(x_tr, y_tr, w_tr, **hyper)
+    tree_obj = model
+    raw_pred = np.clip(_predict_lightgbm(model, x_te), 1e-6, 1.0 - 1e-6)
+    boost_preds = [float(v) if math.isfinite(float(v)) else None for v in raw_pred]
     tree_s = round(time.perf_counter() - t_tree0, 2)
     return_model = pack_tree_return_model(
         head="t75",

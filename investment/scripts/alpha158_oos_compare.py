@@ -10,7 +10,7 @@ sys.path.insert(0, '.')
 import time
 import numpy as np
 
-from core.validation_universe import resolve_validation_codes
+from core.research_universe import resolve_research_codes
 from core.research.portfolio_bars import load_portfolio_stock_bars
 from core.research.oo_rank_pairwise import fit_oo_rank_report
 from core.research.oo_rank_panel import build_oo_rank_day_panels, enrich_day_panels_features
@@ -18,8 +18,8 @@ from core.signal.factors.meta.registry import _REGISTRY
 
 
 def load_stock_bars():
-    # 全量 164 票观察池
-    codes = resolve_validation_codes()['codes']
+    # 日线研究宇宙（可宽于观察池）；空则回退观察池
+    codes = resolve_research_codes()["codes"]
     stock_bars_dict, _failures, _sym = load_portfolio_stock_bars(codes, lookback=150, max_names=len(codes))
     return [
         {"code": code, "bars": bars}
@@ -44,7 +44,7 @@ def run_scenario(stock_bars, label, backend, alpha158_registered):
     rep = fit_oo_rank_report(
         stock_bars,
         day_panels=days,
-        holdout_trading_days=10,
+        holdout_trading_days=20,
         backend=backend,
         epochs=20 if backend == "ranknet_linear" else 0,
     )
@@ -78,7 +78,7 @@ def main():
         return
 
     results = []
-    backends = ["ranknet_linear"]  # LightGBM 164 票有 label 映射 bug，跳过；Ridge baseline 自动包含
+    backends = ["lambdarank"]
 
     for backend in backends:
         # 基线：临时移除 alpha158

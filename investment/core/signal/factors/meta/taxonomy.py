@@ -21,6 +21,11 @@ FAMILY_META: Tuple[Tuple[str, str, str], ...] = (
     ("residual", "残差", "相对市场、特异动量、规模"),
     ("reversal", "反转", "短线反转，与动量拆开避免双计"),
     ("sentiment", "舆情", "研究旁路，默认不进 ŷ"),
+    (
+        "pv_derived",
+        "量价衍生",
+        "Qlib Alpha158 等 OHLCV 衍生；omit_sub_score，仅 raw_* 进 Ridge/树/LTR",
+    ),
     ("other", "其他", "未编入 factor_groups"),
 )
 
@@ -28,12 +33,18 @@ FAMILY_LABELS: Dict[str, str] = {fid: lab for fid, lab, _ in FAMILY_META}
 FAMILY_TIPS: Dict[str, str] = {fid: tip for fid, _, tip in FAMILY_META}
 FAMILY_ORDER: Dict[str, int] = {fid: i for i, (fid, _, _) in enumerate(FAMILY_META)}
 
-# 未进 factor_groups 的注册名
+# 未进 factor_groups 的注册名 / 前缀族
 EXTRA_FAMILY: Dict[str, str] = {
     "reversal": "reversal",
     "alt_sentiment": "sentiment",
     "llm_sentiment": "sentiment",
+    "alpha158": "pv_derived",
 }
+
+# 面板列 / Ridge 入模名：按前缀归入量价衍生
+PREFIX_FAMILY: Tuple[Tuple[str, str], ...] = (
+    ("raw_alpha158_", "pv_derived"),
+)
 
 SOURCE_LABELS: Dict[str, str] = {
     "sourced": "真源",
@@ -210,7 +221,14 @@ def classify_factor(
         else _default_factor_groups()
     )
 
-    family = EXTRA_FAMILY.get(key) or _family_from_groups(key, groups) or "other"
+    family = EXTRA_FAMILY.get(key) or _family_from_groups(key, groups)
+    if family is None:
+        for prefix, fid in PREFIX_FAMILY:
+            if key.startswith(prefix):
+                family = fid
+                break
+    if family is None:
+        family = "other"
     pm = PROXY_OR_UNSOURCED.get(key) or {}
     if pm:
         source = str(pm.get("status") or "proxy")

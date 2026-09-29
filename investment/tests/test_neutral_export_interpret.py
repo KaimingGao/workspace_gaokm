@@ -69,8 +69,6 @@ class TestDailyNeutralCompareReport(unittest.TestCase):
         ) as nc_mock, patch.object(
             svc, "list_strategies", return_value={"success": True, "strategies": []}
         ), patch(
-            "core.signal.cluster.live.cluster_status_public", return_value={}
-        ), patch(
             "core.signal.y_state.ledger_y_check_daily_summary",
             return_value={"success": True},
         ):
@@ -106,8 +104,6 @@ class TestDailyNeutralCompareReport(unittest.TestCase):
             svc, "portfolio_neutral_compare_summary", return_value=mock_summary
         ), patch.object(
             svc, "list_strategies", return_value={"success": True, "strategies": []}
-        ), patch(
-            "core.signal.cluster.live.cluster_status_public", return_value={}
         ), patch(
             "core.signal.y_state.ledger_y_check_daily_summary",
             return_value={"success": True},

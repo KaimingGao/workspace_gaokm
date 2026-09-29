@@ -30,6 +30,13 @@ class TestFactorTaxonomy(unittest.TestCase):
         self.assertEqual(classify_factor("size")["family"], "residual")
         self.assertEqual(classify_factor("reversal")["family"], "reversal")
         self.assertEqual(classify_factor("alt_sentiment")["family"], "sentiment")
+        self.assertEqual(classify_factor("alpha158")["family"], "pv_derived")
+        self.assertEqual(
+            classify_factor("raw_alpha158_ROC20")["family"], "pv_derived"
+        )
+        self.assertEqual(
+            classify_factor("raw_alpha158_ROC20")["family_label"], "量价衍生"
+        )
 
     def test_source_badges(self):
         mf = classify_factor("money_flow")
@@ -65,6 +72,7 @@ class TestFactorTaxonomy(unittest.TestCase):
                     "residual",
                     "reversal",
                     "sentiment",
+                    "pv_derived",
                     "other",
                 },
             )

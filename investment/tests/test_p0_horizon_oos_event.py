@@ -37,216 +37,19 @@ class TestScoringHorizon(unittest.TestCase):
         ):
             self.assertEqual(insights_mod._scoring_horizon_days(), 1)
 
-    def test_promote_blocks_horizon_mismatch(self):
-        from core.signal.cluster.live import _validate_artifact_for_promote
+    def test_cluster_promote_validators_retired(self):
+        """_validate_artifact_for_promote 随 core.signal.cluster 删除。"""
+        import importlib.util
 
-        art = {
-            "horizon_days": 3,
-            "code_map": {
-                "600519": {
-                    "cluster_label": "G1",
-                    "return_model": {
-                        "coefficients": {"momentum": 0.2},
-                        "intercept": 0.0,
-                        "z_means": {"momentum": 50.0},
-                        "z_stds": {"momentum": 10.0},
-                        "horizon_days": 3,
-                    },
-                },
-                "000001": {
-                    "cluster_label": "G1",
-                    "return_model": {
-                        "coefficients": {"momentum": 0.2},
-                        "intercept": 0.0,
-                        "z_means": {"momentum": 50.0},
-                        "z_stds": {"momentum": 10.0},
-                        "horizon_days": 3,
-                    },
-                },
-            },
-        }
-        with patch(
-            "core.signal.config.get_scoring_horizon_days", return_value=1
-        ), patch(
-            "core.validation_universe.universe_sample_gate",
-            return_value={"ok": True},
-        ):
-            err = _validate_artifact_for_promote(art)
-        self.assertIsNotNone(err)
-        self.assertIn("horizon_days", str(err))
-
-    def test_promote_allows_matching_horizon(self):
-        from core.signal.cluster.live import _validate_artifact_for_promote
-
-        art = {
-            "horizon_days": 1,
-            "code_map": {
-                "600519": {
-                    "cluster_label": "G1",
-                    "return_model": {
-                        "coefficients": {"momentum": 0.2},
-                        "intercept": 0.0,
-                        "z_means": {"momentum": 50.0},
-                        "z_stds": {"momentum": 10.0},
-                        "horizon_days": 1,
-                    },
-                },
-                "000001": {
-                    "cluster_label": "G1",
-                    "return_model": {
-                        "coefficients": {"momentum": 0.2},
-                        "intercept": 0.0,
-                        "z_means": {"momentum": 50.0},
-                        "z_stds": {"momentum": 10.0},
-                        "horizon_days": 1,
-                    },
-                },
-            },
-        }
-        with patch(
-            "core.signal.config.get_scoring_horizon_days", return_value=1
-        ), patch(
-            "core.validation_universe.universe_sample_gate",
-            return_value={"ok": True},
-        ):
-            err = _validate_artifact_for_promote(art)
-        self.assertIsNone(err)
-
-    def test_legacy_artifact_without_horizon_still_ok(self):
-        from core.signal.cluster.live import _validate_artifact_for_promote
-
-        art = {
-            "code_map": {
-                "600519": {
-                    "cluster_label": "G1",
-                    "return_model": {
-                        "coefficients": {"momentum": 0.2},
-                        "intercept": 0.0,
-                        "z_means": {"momentum": 50.0},
-                        "z_stds": {"momentum": 10.0},
-                    },
-                },
-                "000001": {
-                    "cluster_label": "G1",
-                    "return_model": {
-                        "coefficients": {"momentum": 0.2},
-                        "intercept": 0.0,
-                        "z_means": {"momentum": 50.0},
-                        "z_stds": {"momentum": 10.0},
-                    },
-                },
-            },
-        }
-        with patch(
-            "core.signal.config.get_scoring_horizon_days", return_value=1
-        ), patch(
-            "core.validation_universe.universe_sample_gate",
-            return_value={"ok": True},
-        ):
-            err = _validate_artifact_for_promote(art)
-        self.assertIsNone(err)
+        self.assertIsNone(importlib.util.find_spec("core.signal.cluster"))
 
 
 class TestOosFailedExclude(unittest.TestCase):
-    def test_oos_failed_cluster_labels(self):
-        from core.signal.cluster.live import oos_failed_cluster_labels
+    def test_cluster_oos_exclude_helpers_retired(self):
+        """oos_failed_cluster_labels / filter_primary / codes_in_oos_failed 已删。"""
+        import importlib.util
 
-        clusters = [
-            {"label": "G6", "oos_gate": {"ok": True, "passed": False}},
-            {"label": "G5", "oos_gate": {"ok": True, "passed": True}},
-            {"label": "G7", "oos_gate": {"skipped": True, "passed": False}},
-            {"cluster_label": "G8", "oos_passed": False},
-        ]
-        failed = oos_failed_cluster_labels(clusters)
-        self.assertIn("G6", failed)
-        self.assertIn("G8", failed)
-        self.assertNotIn("G5", failed)
-        self.assertNotIn("G7", failed)
-
-    def test_filter_primary_cluster_models_always_skips_oos_failed(self):
-        from core.signal.cluster.live import filter_primary_cluster_models_by_code
-        from core.signal.return_score import ReturnScoreModel
-
-        m = ReturnScoreModel(
-            intercept=0.0,
-            coefficients={"momentum": 0.1},
-            z_means={"momentum": 0.0},
-            z_stds={"momentum": 1.0},
-            standardized=True,
-        )
-        active = {
-            "clusters": [
-                {"label": "G_ok", "oos_gate": {"passed": True, "ok": True}},
-                {"label": "G_bad", "oos_gate": {"passed": False, "ok": True}},
-            ],
-            "code_map": {
-                "600000": {"cluster_label": "G_ok"},
-                "600001": {"cluster_label": "G_bad"},
-            },
-        }
-        models = {"600000": m, "600001": m}
-        out = filter_primary_cluster_models_by_code(models, active=active)
-        self.assertIn("600000", out)
-        self.assertNotIn("600001", out)
-        # 遗留开关失效：即使配置写 false 仍剔失败组
-        still = filter_primary_cluster_models_by_code(
-            models,
-            config={"cluster_scoring": {"exclude_oos_failed_groups": False}},
-            active=active,
-        )
-        self.assertEqual(set(still), {"600000"})
-
-    def test_codes_in_oos_failed_clusters(self):
-        from core.signal.cluster.oos_labels import codes_in_oos_failed_clusters
-
-        active = {
-            "clusters": [
-                {"label": "G_ok", "oos_gate": {"passed": True, "ok": True}},
-                {"label": "G_bad", "oos_gate": {"passed": False, "ok": True}},
-            ],
-            "code_map": {
-                "600000": {"cluster_label": "G_ok"},
-                "600001": {"cluster_label": "G_bad"},
-                "600002": {"label": "G_bad"},
-            },
-        }
-        codes = codes_in_oos_failed_clusters(active=active)
-        self.assertEqual(codes, {"600001", "600002"})
-
-    def test_score_and_rank_excludes_oos_failed_from_top(self):
-        from unittest.mock import patch
-
-        from core.signal.cross_section_batch import score_and_rank_watching
-
-        entries = [
-            {
-                "stock_code": "600000",
-                "score": 1.0,
-                "predicted_score": 1.5,
-                "sub_scores": {"momentum": 0.1},
-            },
-            {
-                "stock_code": "600001",
-                "score": 80.0,
-                "predicted_score": 2.0,
-                "sub_scores": {"momentum": 0.2},
-            },
-        ]
-        with patch(
-            "core.signal.cluster.oos_labels.codes_in_oos_failed_clusters",
-            return_value={"600001"},
-        ):
-            picks, meta = score_and_rank_watching(
-                entries,
-                min_score=0.0,
-                neutralize=False,
-                apply_tau_buy_gate=False,
-                exclude_oos_failed=True,
-            )
-        codes = [c for c, _ in picks]
-        self.assertIn("600000", codes)
-        self.assertNotIn("600001", codes)
-        self.assertGreaterEqual(int(meta.get("oos_failed_excluded") or 0), 1)
+        self.assertIsNone(importlib.util.find_spec("core.signal.cluster"))
 
     def test_resolve_eod_rejects_heuristic_score_fallback(self):
         from core.signal.dual_score import resolve_predicted_score_eod
@@ -259,20 +62,6 @@ class TestOosFailedExclude(unittest.TestCase):
             0.85,
             places=5,
         )
-
-    def test_legacy_exclude_oos_key_stripped_from_cfg(self):
-        from core.signal.cluster.live import get_cluster_scoring_cfg
-
-        cfg = get_cluster_scoring_cfg(
-            {
-                "cluster_scoring": {
-                    "enabled": True,
-                    "mode": "active",
-                    "exclude_oos_failed_groups": False,
-                }
-            }
-        )
-        self.assertNotIn("exclude_oos_failed_groups", cfg)
 
 
 class TestEventPrior(unittest.TestCase):

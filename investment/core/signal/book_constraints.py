@@ -1,6 +1,6 @@
-"""分池建簿约束：可成交过滤 · 行业集中度 · τ 闸排序 · 与纸面 risk 同配置源。
+"""建簿约束：可成交过滤 · 行业集中度 · τ 闸排序 · 与纸面 risk 同配置源。
 
-纸面阶段：不碰实盘；约束前移到 ``rank_cluster_pools``，避免簿内占坑买时被 clip。
+纸面阶段：不碰实盘；约束前移到横截面选股，避免簿内占坑买时被 clip。
 """
 
 
@@ -82,10 +82,10 @@ def resolve_book_risk_limits(
         except (TypeError, ValueError):
             max_turnover_pct = None
     try:
-        from core.signal.cluster.live import get_cluster_scoring_cfg
+        from core.signal.config import load_signal_config
 
-        cs = get_cluster_scoring_cfg()
-        if cs.get("max_names") is not None:
+        cs = (load_signal_config() or {}).get("cluster_scoring") or {}
+        if isinstance(cs, dict) and cs.get("max_names") is not None:
             max_positions = max(max_positions, int(cs.get("max_names") or max_positions))
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
         logger.debug("catch except Exception: in book_constraints.py", exc_info=True)

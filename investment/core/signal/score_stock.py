@@ -229,11 +229,10 @@ def score_stock(
     ``use_minute_tau``：None=跟随 ``enable_minute_tau``（调仓因果末根 ≤10:00）；
     False=只用开盘 Z；True=强制并分钟小包（观察池 / 持仓表 / 自动调仓）。
 
-    cluster_mode: None=读 signal_config.cluster_scoring；
-    off — 不用组 β；shadow — 可算 score_cluster 对照，主分仍全局/空；
-    active — 主分优先组 return_model ŷ（无模型则全局）；
-    若该组 OOS 失败：主分降为全局 ŷ，再不行表列用 heuristic；
-    组 ŷ 始终写 score_cluster，heuristic_score 始终保留（双轨，互不覆盖）。
+    ``cluster_mode``：已废弃/退役，仅保留 API 兼容；入参忽略，输出固定
+    ``cluster_mode="off"``。主分仅用全局 return_model ŷ；``score_cluster`` /
+    ``cluster_label`` / ``cluster_id`` / ``cluster_version`` 恒为 None；
+    ``heuristic_score`` 双轨保留（互不覆盖）。
     """
     if horizon_days is None:
         from core.signal.config import get_scoring_horizon_days
@@ -594,61 +593,33 @@ def score_stock(
     if fund_depth.get("fundamentals_depth") in ("hk_shallow", "us_shallow"):
         formula_warnings.append(f"fundamentals_depth:{fund_depth.get('fundamentals_depth')}")
 
-    # 分组 live：解析模式；组 β 仅 active 进主分（FH0）
-    from core.signal.cluster.live import (
-        cluster_yhat_primary_allowed,
-        cluster_yhat_shadow_compute_allowed,
-        get_cluster_scoring_cfg,
-        lookup_code_weights,
-        normalize_cluster_scoring_mode,
-    )
-
-    cs_cfg = get_cluster_scoring_cfg(cfg)
-    if cluster_mode is not None:
-        mode = normalize_cluster_scoring_mode(cluster_mode, enabled=True)
-    else:
-        mode = normalize_cluster_scoring_mode(
-            cs_cfg.get("mode"), enabled=bool(cs_cfg.get("enabled"))
-        )
-
-    mapped = None
-    if cluster_yhat_shadow_compute_allowed(mode):
-        mapped = lookup_code_weights(str(code)) or lookup_code_weights(raw)
+    # cluster_mode 已退役：保留入参 API 兼容，忽略其值；输出固定 off
+    _ = cluster_mode
+    mode = "off"
     weight_source = "global"
     cluster_label = None
     cluster_id = None
     cluster_version = None
 
-    # 先解析 return_model 键，保证 ŷ β 所需 sub_scores 齐套（FS0）
+    # 仅全局 return_model：保证 ŷ β 所需 sub_scores 齐套（FS0）
     required_factor_keys: list = []
-    group_model_pre = None
     global_model_pre = None
     try:
-        from core.signal.cluster.live import lookup_code_return_model
-        from core.signal.return_score import ReturnScoreModel
         from core.signal.return_score_store import load_return_model
 
-        if cluster_yhat_shadow_compute_allowed(mode):
-            ret_raw = (mapped or {}).get("return_model") if mapped else None
-            if isinstance(ret_raw, dict):
-                group_model_pre = ReturnScoreModel.from_dict(ret_raw)
-            if group_model_pre is None:
-                group_model_pre = lookup_code_return_model(
-                    str(code)
-                ) or lookup_code_return_model(raw)
         global_model_pre, _meta = load_return_model(prefer_active=True)
-        for m in (group_model_pre, global_model_pre):
-            if m is None:
-                continue
-            for k in (m.coefficients or {}).keys():
+        if global_model_pre is None:
+            weight_source = "global_missing"
+        else:
+            for k in (global_model_pre.coefficients or {}).keys():
                 kk = str(k).strip()
                 if kk and kk not in required_factor_keys:
                     required_factor_keys.append(kk)
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
         logger.debug("catch except Exception: in score_stock.py", exc_info=True)
         required_factor_keys = []
-        group_model_pre = None
         global_model_pre = None
+        weight_source = "global_missing"
 
     sentiment_for_score = sentiment_ui if include_sentiment_in_score else None
     idx_eod = index_bars
@@ -674,16 +645,6 @@ def score_stock(
         stock_code=str(code),
         stock_name=str(name),
     )
-    if mapped and cluster_yhat_shadow_compute_allowed(mode):
-        cluster_label = mapped.get("cluster_label")
-        cluster_id = mapped.get("cluster_id")
-        cluster_version = mapped.get("version")
-        if cluster_yhat_primary_allowed(mode):
-            weight_source = mapped.get("weight_source") or f"cluster:{cluster_label}"
-        else:
-            weight_source = "global+shadow"
-    elif cluster_yhat_primary_allowed(mode):
-        weight_source = "global_fallback"
 
     try:
         from core.portfolio_optimize import _board_for, _sector_for, load_sector_map
@@ -728,20 +689,11 @@ def score_stock(
 
     predicted_score = None
     score_global = None
-    score_cluster = None
+    score_cluster = None  # cluster scoring retired; key kept null for callers
     return_model_source = None
     active_model = None
-    group_model = group_model_pre
+    group_model = None
     global_model = global_model_pre
-    oos_primary_blocked = False
-    if cluster_yhat_primary_allowed(mode) and cluster_label:
-        try:
-            from core.signal.cluster.oos_labels import is_oos_failed_cluster_label
-
-            oos_primary_blocked = is_oos_failed_cluster_label(str(cluster_label))
-        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-            logger.debug("catch except Exception: in score_stock.py", exc_info=True)
-            oos_primary_blocked = False
     try:
         subs = dict(scored.get("sub_scores") or {})
         if not include_sentiment_in_score:
@@ -749,43 +701,12 @@ def score_stock(
 
         if global_model is not None:
             score_global = global_model.predict(subs)
-        if group_model is not None:
-            score_cluster = group_model.predict(subs)
-
-        if (
-            cluster_yhat_primary_allowed(mode)
-            and group_model is not None
-            and score_cluster is not None
-            and not oos_primary_blocked
-        ):
-            predicted_score = score_cluster
-            return_model_source = "cluster_group_beta"
-            active_model = group_model
-        elif global_model is not None and score_global is not None:
-            predicted_score = score_global
-            return_model_source = (
-                "oos_failed_global" if oos_primary_blocked else "global"
-            )
-            active_model = global_model
-            if oos_primary_blocked:
-                weight_source = "oos_failed_degrade"
-                formula_warnings.append(
-                    f"oos_failed_primary_degraded:{cluster_label}:global"
-                )
-        elif (
-            # shadow 且无全局 return_model 产物时：用组 ŷ 顶住主分，避免全表「—」
-            # OOS 失败组不走此回退（避免失败 β 进主分）
-            mode == "shadow"
-            and not oos_primary_blocked
-            and group_model is not None
-            and score_cluster is not None
-        ):
-            predicted_score = score_cluster
-            return_model_source = "cluster_shadow_fallback"
-            active_model = group_model
-            formula_warnings.append(
-                "no_global_return_model:shadow_uses_cluster_yhat"
-            )
+            if score_global is not None:
+                predicted_score = score_global
+                return_model_source = "global"
+                active_model = global_model
+        else:
+            weight_source = "global_missing"
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
         logger.debug("catch except Exception: in score_stock.py", exc_info=True)
         predicted_score = None
@@ -795,6 +716,7 @@ def score_stock(
         active_model = None
         group_model = None
         global_model = None
+        weight_source = "global_missing"
 
     heuristic_score = None
     try:
@@ -803,38 +725,9 @@ def score_stock(
     except (TypeError, ValueError):
         heuristic_score = None
 
-    # OOS 失败且无全局 ŷ：标记 heuristic 轨；表列 score 用组 ŷ%（若有），0–100 只进 heuristic_score
-    if (
-        oos_primary_blocked
-        and predicted_score is None
-        and heuristic_score is not None
-        and not scored.get("hard_reject")
-    ):
-        return_model_source = "oos_failed_heuristic"
-        active_model = None
-        weight_source = "oos_failed_degrade"
-        formula_warnings.append(
-            f"oos_failed_primary_degraded:{cluster_label}:heuristic"
-        )
-
-    # 主分 score：始终 ŷ% 量纲。OOS heuristic 轨用组/全局 ŷ 填表列，禁止把 0–100 写入 score。
-    primary_score = None
-    if predicted_score is not None:
-        primary_score = predicted_score
-    elif (
-        return_model_source == "oos_failed_heuristic"
-        and not scored.get("hard_reject")
-    ):
-        if score_cluster is not None:
-            primary_score = score_cluster
-        elif score_global is not None:
-            primary_score = score_global
-        else:
-            primary_score = None
-
+    # 主分 score：始终全局 ŷ% 量纲；heuristic_score 双轨保留，互不覆盖
+    primary_score = predicted_score
     delta = None
-    if score_cluster is not None and score_global is not None:
-        delta = round(float(score_cluster) - float(score_global), 6)
 
     return_model_payload = None
     score_formula = ""
@@ -955,9 +848,7 @@ def score_stock(
         "predicted_score": predicted_score,
         "return_model_source": return_model_source,
         "score_scale": (
-            "heuristic_0_100"
-            if return_model_source == "oos_failed_heuristic"
-            else ("predicted_yhat" if predicted_score is not None else None)
+            "predicted_yhat" if predicted_score is not None else None
         ),
         "rank_mode": "predicted_score",
         "hard_reject": scored.get("hard_reject"),
@@ -1149,6 +1040,14 @@ def score_stock(
                 except (TypeError, ValueError):
                     ref = None
             feats["gap_vs_sector"] = gap_vs_sector_value(gap_v, ref)
+            # 日线 sub_scores 仍在 ŷ_oo；ŷ_oc 可叠加 raw_alpha158_*（≤T−1）
+            try:
+                from core.signal.factors.alpha158 import raw_alpha158_from_bars
+
+                if hist:
+                    feats.update(raw_alpha158_from_bars(hist))
+            except Exception:  # noqa: BLE001
+                logger.debug("tau alpha158 inject skipped for %s", code, exc_info=True)
         except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
             logger.debug("catch except Exception: in score_stock.py", exc_info=True)
             logger.debug("tau Z extras skipped for %s", code, exc_info=True)
@@ -1168,7 +1067,6 @@ def score_stock(
                 if (gap_v is not None and abs(float(gap_v)) >= trigger)
                 else 0.0
             )
-        # τ 头只吃 Z；日线 sub_scores 已在 ŷ_oo，勿再塞进 feats
 
         # 分钟 τ 小包：调仓因果末根（≤10:00）；T=当前会话日（盘中≠昨收 K）
         as_of_tau_override = None

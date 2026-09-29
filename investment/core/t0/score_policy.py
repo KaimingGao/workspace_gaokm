@@ -3238,18 +3238,8 @@ def _scoring_models() -> Tuple[Any, Dict[str, Any], Any]:
         tau = load_tau_model()
     except Exception:  # noqa: BLE001
         logger.debug("load tau model failed", exc_info=True)
+    # 分组 return_model 已退役
     cluster: Dict[str, Any] = {}
-    try:
-        from core.signal.cluster.live import (
-            filter_primary_cluster_models_by_code,
-            load_cluster_return_models_by_code,
-        )
-
-        cluster = filter_primary_cluster_models_by_code(
-            load_cluster_return_models_by_code() or {}
-        ) or {}
-    except Exception:  # noqa: BLE001
-        logger.debug("load cluster return models failed", exc_info=True)
     global_rm = None
     try:
         from core.signal.return_score_store import load_return_model

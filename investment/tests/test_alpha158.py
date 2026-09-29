@@ -199,6 +199,17 @@ def test_alpha158_empty_bars():
     assert meta.get("omit_sub_score") is True
 
 
+def test_raw_alpha158_from_bars_helper():
+    from core.signal.factors.alpha158 import raw_alpha158_from_bars
+
+    assert raw_alpha158_from_bars(_synth_bars(30)) == {}
+    out = raw_alpha158_from_bars(_synth_bars(80))
+    assert "raw_alpha158_KMID" in out
+    assert "raw_alpha158_ROC5" in out
+    assert len(out) >= 140
+    assert all(k.startswith("raw_alpha158_") for k in out)
+
+
 def test_alpha158_zero_close():
     """末根 close=0 触发 zero_close 标记。"""
     bars = _synth_bars(80)

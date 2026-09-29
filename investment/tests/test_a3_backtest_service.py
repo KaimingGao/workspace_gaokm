@@ -12,7 +12,6 @@ if ROOT not in sys.path:
 from core.backtest.topk_weights import allocate_topk_weights, vol_from_window
 from core.backtest.types import BacktestResult
 from core.backtest_service import run_topk
-from quant.research.cluster_report_util import clamp_n_clusters, cluster_speed_policy
 
 
 def _bars(n=40, start_px=10.0):
@@ -65,10 +64,13 @@ class TestA3BacktestService(unittest.TestCase):
         self.assertTrue(out.get("success") or out.get("ok") or "error" in out)
         self.assertIn("bars_backend", out)
 
-    def test_cluster_util(self):
-        self.assertEqual(clamp_n_clusters(1), 2)
-        pol = cluster_speed_policy(50)
-        self.assertTrue(pol["large_universe"])
+    def test_cluster_util_retired(self):
+        """cluster_report_util 已随分组 OLS 删除。"""
+        import importlib.util
+
+        self.assertIsNone(
+            importlib.util.find_spec("quant.research.cluster_report_util")
+        )
 
 
 if __name__ == "__main__":

@@ -18,11 +18,11 @@ from core.research.oo_rank_panel import (
     stack_day_panels,
 )
 from core.research.portfolio_bars import load_portfolio_stock_bars
-from core.validation_universe import resolve_validation_codes
+from core.research_universe import resolve_research_codes
 
 
 def load_stock_bars():
-    codes = resolve_validation_codes()["codes"]
+    codes = resolve_research_codes()["codes"]
     stock_bars_dict, _f, _s = load_portfolio_stock_bars(
         codes, lookback=150, max_names=len(codes)
     )
@@ -84,7 +84,7 @@ def run(days, backend, epochs):
     rep = fit_oo_rank_report(
         [],  # stock_bars 不用（day_panels 已预计算）
         day_panels=days,
-        holdout_trading_days=10,
+        holdout_trading_days=20,
         backend=backend,
         epochs=epochs,
     )
@@ -132,7 +132,7 @@ def main():
     print(f"baseline panel: {len(days_base)} days")
 
     print("\n=== 基线（无 alpha158）===")
-    r = run(days_base, "ranknet_linear", 20)
+    r = run(days_base, "lambdarank", 0)
     ra = r["ridge_active"]
     print(
         f"  feats={r['n_features']} rank_ic={r['rank_ic']} ridge_ic={r['ridge_ic']} "
@@ -141,7 +141,7 @@ def main():
     )
 
     print("\n=== 引入 alpha158 后 ===")
-    r2 = run(days_full, "ranknet_linear", 20)
+    r2 = run(days_full, "lambdarank", 0)
     ra2 = r2["ridge_active"]
     print(
         f"  feats={r2['n_features']} rank_ic={r2['rank_ic']} ridge_ic={r2['ridge_ic']} "

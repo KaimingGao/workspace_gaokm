@@ -218,30 +218,7 @@ class JobProgress:
                 "label": str(policy.get("label") or "任务"),
             }
             out["persisted"] = bool(self._persist_path)
-            # 分组 Job：落盘摘要缺 clusters 时从报告缓存水合（热重载后仍可渲染）
-            if self.name == "quant-ols-clusters":
-                result = out.get("result")
-                if isinstance(result, dict) and not (
-                    isinstance(result.get("clusters"), list)
-                    and len(result.get("clusters") or []) > 0
-                ):
-                    try:
-                        from core.signal.cluster.job_hydrate import (
-                            hydrate_ols_clusters_job_result,
-                        )
-
-                        hydrated = hydrate_ols_clusters_job_result(result)
-                        if (
-                            isinstance(hydrated, dict)
-                            and isinstance(hydrated.get("clusters"), list)
-                            and hydrated.get("clusters")
-                        ):
-                            out["result"] = hydrated
-                            # 回填内存，避免每次 get 都读盘
-                            self._job["result"] = hydrated
-                    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-                        logger.debug("catch except Exception: in job_progress.py", exc_info=True)
-                        pass
+            # 分组 Job hydrate 已退役（cluster_retired）
             return out
 
     def policy(self) -> Dict[str, Any]:

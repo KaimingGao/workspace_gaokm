@@ -88,9 +88,6 @@ class TestP1QualityGate(unittest.TestCase):
             "core.signal.score_stock.load_signal_config",
             return_value={"fundamentals": {"enabled": False}},
         ), patch(
-            "core.signal.cluster.live.lookup_code_return_model",
-            return_value=None,
-        ), patch(
             "core.signal.return_score_store.load_return_model",
             return_value=(None, {}),
         ):

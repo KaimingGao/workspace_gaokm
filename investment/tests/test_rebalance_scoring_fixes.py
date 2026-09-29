@@ -27,26 +27,11 @@ class TestSelectForceTrimCodes(unittest.TestCase):
 
 
 class TestScoreUniversePrefilter(unittest.TestCase):
-    def test_uses_prior_yhat_not_day_change(self):
-        from core.signal.cluster.rank import select_score_universe
+    def test_cluster_select_score_universe_retired(self):
+        """select_score_universe 随 core.signal.cluster.rank 删除。"""
+        import importlib.util
 
-        codes = [f"{i:06d}" for i in range(1, 301)]
-        prior = {c: float(i) for i, c in enumerate(codes)}  # higher index = higher ŷ
-        # 当日涨跌：低序号动量更高（若误用涨跌幅会选错）
-        with patch(
-            "core.signal.cluster.rank._prior_yhat_by_code",
-            return_value=(prior, "ledger_yhat"),
-        ), patch("core.ports.market.batch_query_quotes") as mock_q:
-            selected, ranked, axis = select_score_universe(codes, cap=240)
-        mock_q.assert_not_called()
-        self.assertTrue(ranked)
-        # S2: axis 后缀带 +unknown{X}% 配额标记（默认 20%）；语义仍以先验 ŷ 为主
-        self.assertTrue(axis.startswith("ledger_yhat"), f"axis={axis}")
-        self.assertIn("unknown", axis)
-        self.assertEqual(len(selected), 240)
-        # 先验最高的票必须入选；动量最高的低分票可被挤出
-        self.assertIn("000300", selected)
-        self.assertNotIn("000001", selected)
+        self.assertIsNone(importlib.util.find_spec("core.signal.cluster"))
 
 
 class TestEodResolveNoBlendFallback(unittest.TestCase):

@@ -238,12 +238,13 @@ class TestSignalServiceWrap(unittest.TestCase):
 
         fake = {"success": True, "book": [_yhat_item()], "ranking": [_yhat_item()]}
         with patch(
-            "core.signal.cluster.rank.rank_cluster_pools",
+            "core.signal.cross_section.rank_cross_section",
             return_value=fake,
         ):
             b = SignalService().rank_cluster_pools(None, persist_book=False)
-        self.assertEqual(b.kind, "cluster_pools")
-        self.assertTrue(b.production_ok)
+        # 分组分池已下线：委托横截面
+        self.assertEqual(b.kind, "cross_section")
+        self.assertTrue(b.success)
 
     def test_facade_returns_dict(self):
         from core.signal_service import score_one
@@ -390,20 +391,23 @@ class TestMainCallersUseService(unittest.TestCase):
         self.assertNotIn("from core.signal.score_stock import score_stock", text)
 
     def test_cluster_live_refresh_imports_service(self):
+        """分组 live_audit 已删除；分池 API 改走 SignalService 横截面。"""
         from pathlib import Path
 
-        text = Path(ROOT, "core/signal/cluster/live_audit.py").read_text(
-            encoding="utf-8"
-        )
-        self.assertIn("get_default_signal_service", text)
-        self.assertNotIn(
-            "from core.signal.cluster.rank import rank_cluster_pools", text
+        text = Path(ROOT, "core/signal/service.py").read_text(encoding="utf-8")
+        self.assertIn("rank_cluster_pools", text)
+        self.assertIn("rank_cross_section", text)
+        self.assertFalse(
+            Path(ROOT, "core/signal/cluster").exists(),
+            "core.signal.cluster package should be deleted",
         )
 
     def test_skill_signal_imports_service(self):
         from pathlib import Path
 
-        text = Path(ROOT, "skills/signal/engine.py").read_text(encoding="utf-8")
+        shim = Path(ROOT, "skills/signal/engine.py").read_text(encoding="utf-8")
+        self.assertIn("adapters.signal.engine", shim)
+        text = Path(ROOT, "adapters/signal/engine.py").read_text(encoding="utf-8")
         self.assertIn("get_default_signal_service", text)
         self.assertNotIn("from core.signal.score_stock import score_stock", text)
 
@@ -514,26 +518,21 @@ class TestProductionBuyGate(unittest.TestCase):
     def test_ops_scripts_use_signal_service(self):
         from pathlib import Path
 
-        for rel in (
-            "scripts/ops_h1_floor_refresh.py",
-            "scripts/restore_cluster_active_v54.py",
-            "research/cross_section_run.py",
-        ):
-            text = Path(ROOT, rel).read_text(encoding="utf-8")
-            self.assertNotIn(
-                "from core.signal.score_stock import score_stock", text, msg=rel
-            )
-            self.assertNotIn(
-                "from core.signal.cross_section import rank_cross_section", text, msg=rel
-            )
+        # 分组 ops 脚本已删除；仅检查仍存在的 research 入口
         research = Path(ROOT, "research/cross_section_run.py").read_text(encoding="utf-8")
-        self.assertIn("get_research_signal_service", research)
-        restore = Path(ROOT, "scripts/restore_cluster_active_v54.py").read_text(
-            encoding="utf-8"
+        self.assertNotIn(
+            "from core.signal.score_stock import score_stock", research
         )
-        self.assertNotIn("use_cluster=True", restore)
-        self.assertIn('cluster_mode="active"', restore)
-        self.assertIn("get_default_signal_service", restore)
+        self.assertNotIn(
+            "from core.signal.cross_section import rank_cross_section", research
+        )
+        self.assertIn("get_research_signal_service", research)
+        self.assertFalse(
+            Path(ROOT, "scripts/ops_h1_floor_refresh.py").exists()
+        )
+        self.assertFalse(
+            Path(ROOT, "scripts/restore_cluster_active_v54.py").exists()
+        )
 
 
 if __name__ == "__main__":

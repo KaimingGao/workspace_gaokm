@@ -126,31 +126,12 @@ def _score_factor_weight_meta(
     code: str,
     *,
     global_weights: Optional[Dict[str, Any]] = None,
-    cluster_active: Any = None,
 ) -> Dict[str, Any]:
-    """分组标签 / 展示权（|β| 派生）；选股真源仍是 return_model。"""
-    try:
-        from core.signal.cluster.live import lookup_code_weights
-
-        mapped = lookup_code_weights(str(code), active=cluster_active)
-    except Exception:  # noqa: BLE001 — 分组查询失败，不阻塞回测
-        logger.debug("lookup_code_weights failed for %s", code, exc_info=True)
-        mapped = None
-    if mapped and isinstance(mapped.get("weights"), dict):
-        fw = {str(k): float(v) for k, v in mapped["weights"].items() if v is not None}
-        label = str(mapped.get("cluster_label") or mapped.get("label") or "?")
-        src = str(mapped.get("weight_source") or f"cluster:{label}")
-        body = _fmt_factor_weights(fw)
-        note = f"分组 {label} 展示权(|β|)" + (f"：{body}" if body else "")
-        return {
-            "cluster_label": label,
-            "score_weight_source": src,
-            "factor_weights": fw,
-            "factor_weights_note": note,
-        }
+    """全局展示权（|β| 派生）；选股真源仍是 return_model。历史回测不再查分组。"""
+    del code  # 保留形参，兼容旧调用
     gw = dict(global_weights or {})
     body = _fmt_factor_weights(gw)
-    note = "未入组 · 全局展示权" + (f"：{body}" if body else "")
+    note = "全局展示权" + (f"：{body}" if body else "")
     return {
         "cluster_label": None,
         "score_weight_source": "global",
@@ -165,16 +146,10 @@ def _resolve_bt_return_model(
     return_model: Any = None,
     return_models_by_code: Optional[Dict[str, Any]] = None,
 ) -> Tuple[Any, str]:
-    by_code = return_models_by_code or {}
-    key = str(code or "").strip()
-    model = by_code.get(key) if key and return_models_by_code is not None else None
-    if model is not None:
-        return model, "cluster_group_beta"
+    """历史回测只用全局 / walk-forward 模型；忽略 per-code 分组 β。"""
+    del code, return_models_by_code
     if return_model is not None:
-        # None = 未加载分组映射（回测 walk-forward）；空 dict 也走 walk-forward
-        if not return_models_by_code:
-            return return_model, "walk_forward"
-        return return_model, "global"
+        return return_model, "walk_forward"
     return None, ""
 
 
@@ -185,14 +160,12 @@ def _score_tooltip_meta(
     code: str = "",
     return_model: Any = None,
     return_models_by_code: Optional[Dict[str, Any]] = None,
-    cluster_active: Any = None,
     global_weights: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """与数据中心 / 交易执行同源的悬浮注释字段（ŷ · β · 分项表）。"""
     fw = _score_factor_weight_meta(
         code,
         global_weights=global_weights,
-        cluster_active=cluster_active,
     )
     out: Dict[str, Any] = {
         **fw,
@@ -849,7 +822,7 @@ def backtest_topk_equal_weight(
     return_model_ridge_lambda: float = 0.0,
     return_model_refit_every: int = 1,
     return_models_by_code: Optional[Dict[str, Any]] = None,
-    use_live_cluster_models: bool = True,
+    use_live_cluster_models: bool = False,
     allow_heuristic_baseline: bool = False,
     apply_tau_buy_gate: bool = False,
     exclude_oos_failed: bool = True,
@@ -866,13 +839,14 @@ def backtest_topk_equal_weight(
     默认限额 / weight_mode / top_k 上限对齐 StrategySpec（可用 strategy_id 覆盖）。
 
     rank_mode:
-      - predicted_score：walk-forward / 分组因子系数后按收益分（ŷ%）排序（生产默认）
+      - predicted_score：walk-forward 全局拟合后按收益分（ŷ%）排序（生产默认）
       - heuristic_score：人工线性加权 0–100（仅研究 OOS 基线；须 allow_heuristic_baseline）
 
-    return_models_by_code / use_live_cluster_models：研究 OOS 注入组 β，避免串 live。
+    return_models_by_code / use_live_cluster_models：已废弃，忽略（历史回测不再用分组 β）。
     apply_tau_buy_gate：历史日线默认 False（无可靠分钟 τ；开闸易 0 笔）。
     纸面 live 买入闸不走本函数。
     """
+    del return_models_by_code, use_live_cluster_models  # 废弃参数，保留签名兼容
     from core.backtest.attribution import attribute_portfolio_trades
     from core.backtest.matching import (
         apply_match_filters,
@@ -884,7 +858,6 @@ def backtest_topk_equal_weight(
     from core.signal.config import load_signal_config
     from core.signal.cross_section_batch import score_and_rank_watching, score_window_as_item
     from core.signal.return_score import (
-        ReturnScoreModel,
         clamp_rank_mode,
         fit_return_model_from_panel,
         resolve_research_rank_mode,
@@ -915,13 +888,6 @@ def backtest_topk_equal_weight(
         if allow_heuristic_baseline
         else clamp_rank_mode(rank_mode)
     )
-    try:
-        from core.signal.cluster.live import load_active_cluster_weights
-
-        cluster_active = load_active_cluster_weights()
-    except Exception:  # noqa: BLE001 — 组权是加分项，不阻塞基线回测
-        logger.debug("load_active_cluster_weights failed, running without cluster_active", exc_info=True)
-        cluster_active = None
     dropout_n = max(0, min(int(dropout_n or 0), 10))
 
     top_k = max(1, min(int(top_k or bt_defaults["top_k"]), top_k_cap))
@@ -995,8 +961,6 @@ def backtest_topk_equal_weight(
         stop_pct = float((cfg.get("invalidation") or {}).get("stop_pct") or 0.0)
     except (TypeError, ValueError):
         stop_pct = 0.0
-    oos_fail_excluded_models = 0
-    cluster_models_raw = 0
     fund_cfg = cfg.get("fundamentals") or {}
     use_fund_pit = bool(fund_cfg.get("enabled", True)) and bool(
         fund_cfg.get("use_in_backtest", True)
@@ -1006,46 +970,6 @@ def backtest_topk_equal_weight(
     train_xs: List[Dict[str, Optional[float]]] = []
     train_ys: List[float] = []
     return_model = None
-    cluster_return_models: Dict[str, Any] = {}
-    if resolved_rank_mode == "predicted_score":
-        if return_models_by_code is not None:
-            for code, raw in (return_models_by_code or {}).items():
-                key = str(code or "").strip()
-                if not key or raw is None:
-                    continue
-                if isinstance(raw, ReturnScoreModel):
-                    cluster_return_models[key] = raw
-                elif isinstance(raw, dict):
-                    m = ReturnScoreModel.from_dict(raw)
-                    if m is not None:
-                        cluster_return_models[key] = m
-        elif use_live_cluster_models:
-            try:
-                from core.signal.cluster.live import (
-                    cluster_yhat_shadow_compute_allowed,
-                    filter_primary_cluster_models_by_code,
-                    get_cluster_scoring_cfg,
-                    load_cluster_return_models_by_code,
-                )
-
-                # 历史回测对齐数据中心：shadow|active 均可算组 ŷ（与 insights 同源）。
-                # 纸面 live 主排序仍仅 active（FH0）；此处不放开 paper。
-                # OOS 失败组主分与 live 对齐：从 by_code 剔除，回退全局模型。
-                cs = get_cluster_scoring_cfg()
-                if cluster_yhat_shadow_compute_allowed(str(cs.get("mode") or "off")):
-                    raw_models = load_cluster_return_models_by_code()
-                    cluster_models_raw = len(raw_models or {})
-                    cluster_return_models = filter_primary_cluster_models_by_code(
-                        raw_models
-                    )
-                    oos_fail_excluded_models = max(
-                        0, cluster_models_raw - len(cluster_return_models)
-                    )
-                else:
-                    cluster_return_models = {}
-            except Exception:  # noqa: BLE001 — 组模型预载失败，退化为无 ŷ 对照
-                logger.debug("load cluster return_models failed, falling back to empty", exc_info=True)
-                cluster_return_models = {}
     last_model_fit_rebalance = -10**9
     rebalance_idx = 0
     pred_rank_rebalances = 0
@@ -1131,8 +1055,8 @@ def backtest_topk_equal_weight(
                     item["_bt_bars"] = window[-8:] if len(window) >= 2 else list(window)
                     entries.append(item)
 
-            # 收益分：优先分组 live OLS β；否则 walk-forward 拟合全局模型
-            if resolved_rank_mode == "predicted_score" and not cluster_return_models:
+            # 收益分：walk-forward 拟合全局模型（历史回测不再用分组 β）
+            if resolved_rank_mode == "predicted_score":
                 still_pending: List[dict] = []
                 for p in pending_signals:
                     j = int(p["signal_i"])
@@ -1185,7 +1109,7 @@ def backtest_topk_equal_weight(
                 neutralize=use_neutral,
                 rank_mode=resolved_rank_mode,
                 return_model=return_model,
-                return_models_by_code=cluster_return_models or None,
+                return_models_by_code=None,
                 min_predicted_score=min_predicted_score,
                 allow_heuristic_baseline=allow_heuristic_baseline
                 or resolved_rank_mode == "heuristic_score",
@@ -1195,9 +1119,7 @@ def backtest_topk_equal_weight(
             if resolved_rank_mode == "heuristic_score":
                 pred_rank_rebalances += 0
             elif resolved_rank_mode == "predicted_score":
-                if neut_meta.get("predicted_score_fallback") or (
-                    return_model is None and not cluster_return_models
-                ):
+                if neut_meta.get("predicted_score_fallback") or return_model is None:
                     heuristic_fallback_rebalances += 1
                 else:
                     pred_rank_rebalances += 1
@@ -1236,8 +1158,6 @@ def backtest_topk_equal_weight(
                 score=score,
                 code=str(code),
                 return_model=return_model,
-                return_models_by_code=cluster_return_models or None,
-                cluster_active=cluster_active,
                 global_weights=global_factor_weights,
             )
             score_formula = tip.get("score_formula") or ""
@@ -1764,13 +1684,11 @@ def backtest_topk_equal_weight(
             "aligned_to_strategy_spec": True,
             "apply_tau_buy_gate": bool(apply_tau_buy_gate),
             "return_model_source": (
-                "cluster_group_beta"
-                if cluster_return_models
-                else ("walk_forward" if resolved_rank_mode == "predicted_score" else None)
+                "walk_forward" if resolved_rank_mode == "predicted_score" else None
             ),
-            "cluster_return_models": len(cluster_return_models),
-            "cluster_return_models_raw": cluster_models_raw or len(cluster_return_models),
-            "oos_fail_excluded_models": oos_fail_excluded_models,
+            "cluster_return_models": 0,
+            "cluster_return_models_raw": 0,
+            "oos_fail_excluded_models": 0,
             "cash_aware_weights": True,
             "sector_coverage": sector_map_coverage(
                 list(stock_bars.keys()), sector_map=smap
@@ -1831,11 +1749,7 @@ def backtest_topk_equal_weight(
             + ("成本按换手计费（续持不扣往返）；" if apply_costs else "零成本；")
             + "权重按净值%计（现金不计收益）；"
             + (
-                (
-                    "predicted_score=分组 live OLS β→ŷ_oo；"
-                    if cluster_return_models
-                    else "predicted_score=walk-forward 拟合→ŷ_oo；"
-                )
+                "predicted_score=walk-forward 拟合→ŷ_oo；"
                 if resolved_rank_mode == "predicted_score"
                 else ""
             )

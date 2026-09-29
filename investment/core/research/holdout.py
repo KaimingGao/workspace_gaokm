@@ -1,7 +1,7 @@
 """研究 / 执行两套模型：holdout 切分与加载角色。
 
-研究模型（``research``）：近 N 个交易日不进训练，专供历史回测（调仓 + 做 T）。
-执行模型（``live``）：全部已实现标签，专供交易执行（自动/手动调仓与做 T）。
+研究模型（``research``）：近 N 个交易日不进训练（默认 20）；观察池分档用前半。
+回测天数由 /replay「回测窗口」独立设置。执行模型（``live``）：全部已实现标签。
 
 调仓与做 T 门槛对 ŷ 敏感、不鲁棒：研究套系数上调好的参数，换执行套后
 同一套规则可能翻转。历史回测默认研究套；显式选执行套才能对照 live。
@@ -16,7 +16,7 @@ from typing import Any, Dict, Iterator, List, Optional, Sequence, Tuple
 
 MODEL_ROLE_LIVE = "live"
 MODEL_ROLE_RESEARCH = "research"
-DEFAULT_HOLDOUT_TRADING_DAYS = 10
+DEFAULT_HOLDOUT_TRADING_DAYS = 20
 
 _SCORING_MODEL_ROLE: ContextVar[str] = ContextVar(
     "scoring_model_role", default=MODEL_ROLE_LIVE

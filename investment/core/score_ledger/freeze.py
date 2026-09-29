@@ -43,9 +43,10 @@ def freeze_from_tau_shadow_book(
     auto: bool = False,
     force: bool = False,
 ) -> Dict[str, Any]:
-    """冻结 A2 τ 影子簿成员与 ŷ_τ（独立文件，不覆盖 EOD 账本）。"""
-    from core.signal.cluster.live import load_tau_shadow_cluster_book
+    """冻结 A2 τ 影子簿成员与 ŷ_τ（独立文件，不覆盖 EOD 账本）。
 
+    分组 τ 影子簿加载已退役；仅接受显式 ``shadow_doc``。
+    """
     gate = session_allows_ledger_freeze(as_of=as_of, auto=auto, force=force)
     if not gate.get("ok"):
         return {
@@ -57,7 +58,7 @@ def freeze_from_tau_shadow_book(
             "gate": gate,
         }
 
-    doc = shadow_doc if isinstance(shadow_doc, dict) else load_tau_shadow_cluster_book()
+    doc = shadow_doc if isinstance(shadow_doc, dict) else None
     if not doc:
         return {
             "success": False,
@@ -143,9 +144,10 @@ def freeze_from_nowcast_shadow_book(
     auto: bool = False,
     force: bool = False,
 ) -> Dict[str, Any]:
-    """冻结 N3 nowcast 影子簿成员与 ŷ_nowcast（独立文件）。"""
-    from core.signal.cluster.live import load_nowcast_shadow_cluster_book
+    """冻结 N3 nowcast 影子簿成员与 ŷ_nowcast（独立文件）。
 
+    分组 nowcast 影子簿加载已退役；仅接受显式 ``shadow_doc``。
+    """
     gate = session_allows_ledger_freeze(as_of=as_of, auto=auto, force=force)
     if not gate.get("ok"):
         return {
@@ -157,7 +159,7 @@ def freeze_from_nowcast_shadow_book(
             "gate": gate,
         }
 
-    doc = shadow_doc if isinstance(shadow_doc, dict) else load_nowcast_shadow_cluster_book()
+    doc = shadow_doc if isinstance(shadow_doc, dict) else None
     if not doc:
         return {
             "success": False,

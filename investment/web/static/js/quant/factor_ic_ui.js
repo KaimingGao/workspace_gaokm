@@ -561,10 +561,12 @@ export function createFactorIcUi(deps) {
   /**
    * ŷ_oc / ŷ_co Ridge 因子系数表：仅入模因子；KPI + 双向 β 图 + 表内条形。
    * @param {object|null} rm return_model 或含 coefficients 的报告块
-   * @param {{ oos?: object, head?: "tau"|"co"|"path"|"r"|"t30"|"t45"|"t60"|"t75"|"t90" } } [opts]
+   * @param {{ oos?: object, head?: "tau"|"oo"|"co"|"path"|"r"|"t30"|"t45"|"t60"|"t75"|"t90"|"oo_rank", topN?: number } } [opts]
+   *   ``topN`` 默认 20：表体只展 |β| TopN，其余进折叠。
    */
   function remCoefTableHtml(rm, opts = {}) {
     if (!rm || typeof rm !== "object") return "";
+    const isOo = opts.head === "oo";
     const isCo = opts.head === "co";
     const isOoRank = opts.head === "oo_rank";
     const isT30 = opts.head === "t30";
@@ -577,6 +579,8 @@ export function createFactorIcUi(deps) {
     const isPath = opts.head === "path";
     const yhatTag = isPath
       ? "ŷ_hl"
+      : isOo
+        ? "ŷ_oo"
       : isOoRank
         ? "ŷ_oo_rank"
         : isCo
@@ -815,6 +819,8 @@ export function createFactorIcUi(deps) {
       ySpecObj.formula ||
       (isPath
         ? "extreme_order(low,high)"
+        : isOo
+          ? "open[T+1]/open[T]-1"
         : isCo
           ? "open[T+1]/close[T]-1"
           : isT90
@@ -902,7 +908,7 @@ export function createFactorIcUi(deps) {
 
     const metrics =
       `<div class="quant-rem-coef-spec-metrics" role="group" aria-label="${esc(
-        isPath ? "path 模型摘要" : isCo ? "co 模型摘要" : isT90 ? "t90 模型摘要" : isT75 ? "t75 模型摘要" : isT60 ? "t60 模型摘要" : isT45 ? "t45 模型摘要" : isT30 ? "t30 模型摘要" : isR ? "r 模型摘要" : "τ 模型摘要"
+        isPath ? "path 模型摘要" : isOo ? "oo 模型摘要" : isCo ? "co 模型摘要" : isT90 ? "t90 模型摘要" : isT75 ? "t75 模型摘要" : isT60 ? "t60 模型摘要" : isT45 ? "t45 模型摘要" : isT30 ? "t30 模型摘要" : isR ? "r 模型摘要" : "τ 模型摘要"
       )}">` +
       (intercept != null
         ? kpi(
@@ -1081,14 +1087,7 @@ export function createFactorIcUi(deps) {
       metrics +
       `</div>`;
 
-    const head =
-      `<div class="quant-rem-coef-head">` +
-      `<div class="quant-rem-coef-head-main">` +
-      `<span class="quant-rem-coef-title">${yhatTag}${useProbKpis ? " 概率头" : " 系数表"}</span>` +
-      `<span class="quant-rem-coef-sub">${
-        useProbKpis ? "按 |β| 降序 · logit 标准化斜率" : "按 |β| 降序 · 标准化斜率"
-      }</span>` +
-      `</div>` +
+    const headLegend =
       `<div class="quant-rem-coef-legend" aria-hidden="true">` +
       `<span class="quant-rem-leg is-pos">正β</span>` +
       `<span class="quant-rem-leg is-neg">负β</span>` +
@@ -1101,7 +1100,6 @@ export function createFactorIcUi(deps) {
           : `<span class="quant-rem-leg is-open">开盘</span>` +
             `<span class="quant-rem-leg is-minute">分钟</span>` +
             `<span class="quant-rem-leg is-eod">历史</span>`) +
-      `</div>` +
       `</div>`;
 
     const betaCell = (r) => {
@@ -1171,102 +1169,147 @@ export function createFactorIcUi(deps) {
       )}</span>` +
       `</span>`;
 
-    const grid = researchGridHtml(
-      [
-        { id: "factor", label: "因子", flex: true, title: "悬停因子名查看口径说明" },
-        {
-          id: "kind",
-          label: "类型",
-          width: 72,
-          center: true,
-          title: isPath
-            ? "开盘=缺口 Z；分钟=≤τ 前缀小包；历史=PIT 昨标签（不含当日）"
-            : isCo
-              ? "路径=T 日已实现 + 开盘 Z"
-              : "开盘=缺口 Z；分钟=≤τ 的 5m 路径；历史=PIT 昨标签（不含当日）",
-        },
-        {
-          id: "ols",
-          label: "β",
-          width: 300,
-          num: true,
-          title: "标准化斜率：右正左负；数值叠在彩条靠右",
-        },
-        {
-          id: "share",
-          label: "|β|%",
-          width: 200,
-          num: true,
-          title: "|β| / Σ|β|：相对解释权重",
-        },
-        {
-          id: "mu",
-          label: "μ",
-          width: 88,
-          num: true,
-          title: "入模样本内原始特征均值（z-score 前）",
-        },
-        {
-          id: "sd",
-          label: "σ",
-          width: 88,
-          num: true,
-          title: "入模样本内原始特征标准差",
-        },
-      ],
-      rows,
-      (col, r) => {
-        if (col.id === "factor") return factorCell(r);
-        if (col.id === "kind") {
-          const chipClass =
-            r.kind === "开盘" || r.kind === "路径"
-              ? "is-open"
-              : r.kind === "分钟"
-                ? "is-minute"
-                : "is-eod";
-          const kindTip = isCo
-            ? "T 日路径 / 开盘 Z（ŷ_co 头）"
-            : r.kind === "分钟"
-              ? "≤τ 的 5m 路径摘要（分钟 τ）"
-              : r.kind === "开盘"
-                ? "开盘/截面特征"
-                : r.kind === "历史"
-                  ? "PIT 历史真实标签（不含当日）"
-                  : "T−1 日线因子";
-          return (
-            `<span class="quant-rem-kind-chip ${chipClass}" title="${esc(kindTip)}">${esc(
-              r.kind
-            )}</span>`
-          );
-        }
-        if (col.id === "ols") return betaCell(r);
-        if (col.id === "share") return shareCell(r);
-        if (col.id === "mu") {
-          if (r.mu == null) return fmtEmptyCell();
-          return metricCell(esc(r.mu.toFixed(2)), "");
-        }
-        if (col.id === "sd") {
-          if (r.sd == null) return fmtEmptyCell();
-          return metricCell(esc(r.sd.toFixed(2)), "");
-        }
-        return fmtEmptyCell();
+    const coefColumns = [
+      { id: "factor", label: "因子", flex: true, title: "悬停因子名查看口径说明" },
+      {
+        id: "kind",
+        label: "类型",
+        width: 72,
+        center: true,
+        title: isPath
+          ? "开盘=缺口 Z；分钟=≤τ 前缀小包；历史=PIT 昨样本（不含当日）"
+          : isCo
+            ? "路径=T 日已实现 + 开盘 Z"
+            : "开盘=缺口 Z；分钟=≤τ 的 5m 路径；历史=PIT 昨样本（不含当日）",
       },
       {
-        emptyText: isCo ? "暂无 ŷ_co 入模因子" : "暂无 rem 入模因子",
-        rowClass: (r) => {
-          const bits = [];
-          if (r && r.scanHot) bits.push("is-scan-hot");
-          if (r && r.ols < 0) bits.push("is-beta-neg");
-          return bits.join(" ");
-        },
+        id: "ols",
+        label: "β",
+        width: 300,
+        num: true,
+        title: "标准化斜率：右正左负；数值叠在彩条靠右",
+      },
+      {
+        id: "share",
+        label: "|β|%",
+        width: 200,
+        num: true,
+        title: "|β| / Σ|β|：相对解释权重",
+      },
+      {
+        id: "mu",
+        label: "μ",
+        width: 88,
+        num: true,
+        title: "入模样本内原始特征均值（z-score 前）",
+      },
+      {
+        id: "sd",
+        label: "σ",
+        width: 88,
+        num: true,
+        title: "入模样本内原始特征标准差",
+      },
+    ];
+
+    const coefCellHtml = (col, r) => {
+      if (col.id === "factor") return factorCell(r);
+      if (col.id === "kind") {
+        const chipClass =
+          r.kind === "开盘" || r.kind === "路径"
+            ? "is-open"
+            : r.kind === "分钟"
+              ? "is-minute"
+              : "is-eod";
+        const kindTip = isCo
+          ? "T 日路径 / 开盘 Z（ŷ_co 头）"
+          : r.kind === "分钟"
+            ? "≤τ 的 5m 路径摘要（分钟 τ）"
+            : r.kind === "开盘"
+              ? "开盘/截面特征"
+              : r.kind === "历史"
+                ? "PIT 历史真实标签（不含当日）"
+                : "T−1 日线因子";
+        return (
+          `<span class="quant-rem-kind-chip ${chipClass}" title="${esc(kindTip)}">${esc(
+            r.kind
+          )}</span>`
+        );
       }
+      if (col.id === "ols") return betaCell(r);
+      if (col.id === "share") return shareCell(r);
+      if (col.id === "mu") {
+        if (r.mu == null) return fmtEmptyCell();
+        return metricCell(esc(r.mu.toFixed(2)), "");
+      }
+      if (col.id === "sd") {
+        if (r.sd == null) return fmtEmptyCell();
+        return metricCell(esc(r.sd.toFixed(2)), "");
+      }
+      return fmtEmptyCell();
+    };
+
+    const coefGridOpts = {
+      emptyText: isCo ? "暂无 ŷ_co 入模因子" : "暂无 rem 入模因子",
+      rowClass: (r) => {
+        const bits = [];
+        if (r && r.scanHot) bits.push("is-scan-hot");
+        if (r && r.ols < 0) bits.push("is-beta-neg");
+        return bits.join(" ");
+      },
+    };
+
+    const topNRaw = opts.topN != null ? Number(opts.topN) : 20;
+    const topN =
+      Number.isFinite(topNRaw) && topNRaw > 0
+        ? Math.max(1, Math.min(200, Math.floor(topNRaw)))
+        : 20;
+    const topRows = rows.slice(0, topN);
+    const restRows = rows.slice(topN);
+    const topGrid = researchGridHtml(
+      coefColumns,
+      topRows,
+      coefCellHtml,
+      coefGridOpts
     );
+    const restFold =
+      restRows.length > 0
+        ? `<details class="quant-rem-coef-more">` +
+          `<summary class="quant-rem-coef-more-sum">` +
+          `其余 ${restRows.length} 个因子` +
+          `<span class="quant-rem-coef-more-hint">按 |β| 续排 · 默认折叠</span>` +
+          `</summary>` +
+          `<div class="quant-rem-coef-more-body">${researchGridHtml(
+            coefColumns,
+            restRows,
+            coefCellHtml,
+            coefGridOpts
+          )}</div>` +
+          `</details>`
+        : "";
+
+    const head =
+      `<div class="quant-rem-coef-head">` +
+      `<div class="quant-rem-coef-head-main">` +
+      `<span class="quant-rem-coef-title">${yhatTag}${useProbKpis ? " 概率头" : " 系数表"}</span>` +
+      `<span class="quant-rem-coef-sub">${
+        useProbKpis
+          ? `按 |β| 降序 · logit · 默认 Top${topN}${
+              restRows.length ? ` · 其余 ${restRows.length} 折叠` : ""
+            }`
+          : `按 |β| 降序 · 默认 Top${topN}${
+              restRows.length ? ` · 其余 ${restRows.length} 折叠` : ""
+            }`
+      }</span>` +
+      `</div>` +
+      headLegend +
+      `</div>`;
 
     return (
       `<div class="quant-rem-coef">` +
       head +
       specRow +
-      `<div class="quant-rem-coef-frame">${grid}</div>` +
+      `<div class="quant-rem-coef-frame">${topGrid}${restFold}</div>` +
       `</div>`
     );
   }

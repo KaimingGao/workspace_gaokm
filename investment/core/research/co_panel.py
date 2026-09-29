@@ -66,6 +66,7 @@ CO_LAG_FEAT_LABELS = {
     "on_ma5": "近5日隔夜缺口均 %",
 }
 
+# 手造 Z；raw_alpha158_* 为动态附加列（见 inject_alpha158）
 CO_Z_FEATURES = (
     "ret_oc",
     "gap_pct",
@@ -83,6 +84,27 @@ CO_Z_FEATURES = (
     "yest_vol_ratio",
     "dist_to_up_limit",
 ) + CO_LAG_FEATURES
+
+
+def inject_alpha158_into_row(
+    row: Dict[str, Optional[float]],
+    hist_bars: Optional[Sequence[dict]],
+    *,
+    include_alpha158: bool = True,
+) -> Dict[str, Optional[float]]:
+    """把 ≤T−1 日 K 上的 ``raw_alpha158_*`` 并入特征行（默认开）。"""
+    if not include_alpha158 or not isinstance(row, dict):
+        return row
+    try:
+        from core.signal.factors.alpha158 import raw_alpha158_from_bars
+
+        extras = raw_alpha158_from_bars(hist_bars)
+    except Exception:  # noqa: BLE001
+        logger.debug("co alpha158 inject failed", exc_info=True)
+        return row
+    if extras:
+        row.update(extras)
+    return row
 
 
 def yest_close_loc_from_prev(prev_bar: Optional[dict]) -> Optional[float]:
@@ -253,6 +275,7 @@ def intraday_co_feature_row(
     stock_code: Optional[str] = None,
     asof_date: Optional[str] = None,
     co_by_date: Optional[Dict[str, float]] = None,
+    include_alpha158: bool = True,
 ) -> Dict[str, Optional[float]]:
     """T 日开盘决策特征（预测 open[T+1]/close[T]-1 隔夜缺口）。
 
@@ -265,6 +288,7 @@ def intraday_co_feature_row(
     - yest_close_loc / yest_range_pct / yest_vol_ratio：昨 K 微观结构
     - dist_to_up_limit：昨收到涨停剩余空间
     - yest_gap / on_ma5：隔夜滞后（不含今日 gap_pct）
+    - raw_alpha158_*：≤T−1 日 K 量价衍生（默认开）
     """
     _ = close_t
     g = gap_pct
@@ -306,7 +330,9 @@ def intraday_co_feature_row(
         "yest_gap": lags.get("yest_gap"),
         "on_ma5": lags.get("on_ma5"),
     }
-    return row
+    return inject_alpha158_into_row(
+        row, hist, include_alpha158=include_alpha158
+    )
 
 
 def collect_co_panel(
@@ -315,6 +341,7 @@ def collect_co_panel(
     min_history: int = 12,
     max_window: int = 30,
     stock_code: Optional[str] = None,
+    include_alpha158: bool = True,
 ) -> Tuple[List[Dict[str, Optional[float]]], List[float], List[str], List[Dict[str, Any]]]:
     """单票隔夜缺口面板。
 
@@ -324,6 +351,17 @@ def collect_co_panel(
     """
     min_history = max(5, int(min_history or 12))
     max_window = max(min_history, int(max_window or 30))
+    if include_alpha158:
+        try:
+            from core.signal.factors.alpha158 import bump_window_for_alpha158
+
+            min_history, max_window = bump_window_for_alpha158(
+                ("alpha158",),
+                min_history=min_history,
+                max_window=max_window,
+            )
+        except Exception:  # noqa: BLE001
+            logger.debug("co panel alpha158 window bump failed", exc_info=True)
     xs: List[Dict[str, Optional[float]]] = []
     ys: List[float] = []
     dates: List[str] = []
@@ -368,6 +406,7 @@ def collect_co_panel(
             stock_code=stock_code,
             asof_date=date_t,
             co_by_date=co_map,
+            include_alpha158=include_alpha158,
         )
         xs.append(row)
         ys.append(float(y))
@@ -399,6 +438,7 @@ def build_co_features_from_quote_bars(
     open_t: Optional[float] = None,
     prev_close: Optional[float] = None,
     trade_date: Optional[str] = None,
+    include_alpha158: bool = True,
 ) -> Dict[str, Optional[float]]:
     """Live / PIT：用最新 bar + quote 构造 ŷ_co 特征。
 
@@ -480,6 +520,7 @@ def build_co_features_from_quote_bars(
         stock_code=code or None,
         asof_date=asof,
         co_by_date=realized_co_by_date(b),
+        include_alpha158=include_alpha158,
     )
 
 
@@ -503,6 +544,7 @@ __all__ = [
     "collect_co_panel",
     "dist_to_up_limit_pct",
     "enrich_co_panel_breadth",
+    "inject_alpha158_into_row",
     "intraday_co_feature_row",
     "co_lag_features",
     "realized_co_by_date",

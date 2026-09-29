@@ -70,7 +70,7 @@ export function sliceCurveToDateWindow(series, days = TOPK_NAV_CHART_WINDOW_DAYS
 
 /** Quant domain: backtest */
 export function installBacktest(q) {
-  const { on, els, state, ctx, escapeHtml, apiFetch, setQuantMeta, setBusyText, btSimScoreTips, watchingNameFromEl } = q;
+  const { on, els, state, ctx, escapeHtml, apiFetch, setQuantMeta, setBusyText, btSimScoreTips, watchingNameFromEl, readHoldoutTradingDays } = q;
   const { fmtPct, metricClass, renderMetricCards, renderBtScopeNote, renderRobustnessPanel, buildPortfolioBacktestCards, BT_SCOPE_LIVE, BT_SCOPE_FROZEN, readHorizonDays, quantBtBusyIds } = q;
   const { renderAttributionTablesHtml, buildCrossSectionResult, renderScoreIcHtml, renderReplayStockContribHtml } = q;
   const { researchGridHtml, metricCell } = q;
@@ -375,10 +375,11 @@ export function installBacktest(q) {
       const lotB = p.lot_base_amount != null ? p.lot_base_amount : "—";
       const n = Number(p.rank_enter);
       const enter = Number.isFinite(n) ? `${(n * 100).toFixed(2)}%` : "—";
-      const tiers = Array.isArray(p.universe_fit_tiers)
-        ? p.universe_fit_tiers.join("")
-        : "";
-      const tierBit = tiers && tiers !== "ABC" ? ` · 档${tiers}` : "";
+      const predOn = p.use_predictability_tiers === true;
+      const predT = Array.isArray(p.predictability_tiers)
+        ? p.predictability_tiers.join("")
+        : "AB";
+      const tierBit = predOn ? ` · 分档${predT}` : "";
       const psBit = p.price_space_gate === false ? " · 日分价关" : "";
       const role = String(p.score_model_role || "").toLowerCase() === "live" ? "执行" : "研究";
       return `lb${lb} · ${clock} · ${lotB}元 · w${wt}/${wn} · α${alpha} · 入场${enter}${tierBit}${psBit} · ${role} · ${cost}`;
@@ -412,7 +413,25 @@ export function installBacktest(q) {
       if (req.initial_cash != null) setName("pm_initial_cash", req.initial_cash);
       if (req.lot_base_amount != null) setName("pm_lot_base_amount", req.lot_base_amount);
       if (req.lot_strong_amount != null) setName("pm_lot_strong_amount", req.lot_strong_amount);
-      if (req.universe_fit_tiers != null) applyUniverseFitTiers(req.universe_fit_tiers);
+      // 历史回测不再按拟合档过滤；只用观察池分档勾选
+      if (Array.isArray(req.predictability_tiers)) {
+        const set = new Set(
+          req.predictability_tiers.map((t) => String(t || "").toUpperCase())
+        );
+        for (const [id, t] of [
+          ["quant-pred-tier-a", "A"],
+          ["quant-pred-tier-b", "B"],
+          ["quant-pred-tier-c", "C"],
+        ]) {
+          const el = document.getElementById(id);
+          if (el) el.checked = set.has(t);
+        }
+      } else if (req.use_predictability_tiers === false) {
+        for (const id of ["quant-pred-tier-a", "quant-pred-tier-b", "quant-pred-tier-c"]) {
+          const el = document.getElementById(id);
+          if (el) el.checked = false;
+        }
+      }
       if (req.price_space_gate != null) {
         const el = form && form.querySelector('[name="pm_price_space_gate"]');
         if (el && el.type === "checkbox") el.checked = req.price_space_gate !== false;
@@ -453,37 +472,13 @@ export function installBacktest(q) {
     );
   }
 
-  function applyUniverseFitTiers(tiers) {
-    const allowed = new Set(["A", "B", "C"]);
-    const list = Array.isArray(tiers)
-      ? tiers.map((t) => String(t || "").toUpperCase()).filter((t) => allowed.has(t))
-      : [];
-    const on = list.length ? new Set(list) : new Set(["A", "B", "C"]);
-    ["A", "B", "C"].forEach((t) => {
-      const el = document.getElementById(`quant-universe-tier-${t.toLowerCase()}`);
-      if (el) el.checked = on.has(t);
-    });
-  }
-
-  function readUniverseFitTiers() {
+  function readPredictabilityTiers() {
     const out = [];
-    ["A", "B", "C"].forEach((t) => {
-      const el = document.getElementById(`quant-universe-tier-${t.toLowerCase()}`);
-      if (el && el.checked) out.push(t);
-    });
-    return out.length ? out : ["A", "B", "C"];
-  }
-
-  async function hydrateReplayUniverseFromLive() {
-    try {
-      const res = await fetch("/api/quant/cluster-live/status?light=1");
-      const data = await res.json();
-      const tiers =
-        data && data.cluster_scoring && data.cluster_scoring.universe_fit_tiers;
-      if (Array.isArray(tiers) && tiers.length) applyUniverseFitTiers(tiers);
-    } catch (_) {
-      /* ignore */
+    for (const id of ["quant-pred-tier-a", "quant-pred-tier-b", "quant-pred-tier-c"]) {
+      const el = document.getElementById(id);
+      if (el && el.checked) out.push(String(el.value || "").toUpperCase());
     }
+    return out;
   }
 
   function markReplayRestored(at) {
@@ -507,7 +502,7 @@ export function installBacktest(q) {
       const pack = await res.json();
       if (state.btBusy) return;
       if (!pack || pack.empty || !pack.result || !pack.result.success) {
-        if (!restoreReplayDeskPrefs()) await hydrateReplayUniverseFromLive();
+        restoreReplayDeskPrefs();
         return;
       }
       const data = pack.result;
@@ -517,9 +512,6 @@ export function installBacktest(q) {
       // 上次回测只恢复净值/成交；表单以「保存」为准，勿用上次跑参盖掉已存配置
       applyPortfolioBtParams(req, { rules: false, desk: !hasPrefs });
       restoreReplayDeskPrefs();
-      if (!hasPrefs && !Array.isArray(req.universe_fit_tiers)) {
-        await hydrateReplayUniverseFromLive();
-      }
       renderPortfolioBacktestResult(data);
       applyReplayOverviewKpis(data, { source: at ? `上次 ${at}` : "上次结果" });
       paintPortfolioChart(
@@ -968,11 +960,12 @@ export function installBacktest(q) {
           score_model_role: p.score_model_role,
           t0_score_model_role: readScoreModelRole("paper-t0-score-model-role"),
           fill_clock: p.fill_clock,
-          universe_fit_tiers: p.universe_fit_tiers,
           initial_cash: p.initial_cash,
           lot_base_amount: p.lot_base_amount,
           lot_strong_amount: p.lot_strong_amount,
           price_space_gate: p.price_space_gate !== false,
+          use_predictability_tiers: !!p.use_predictability_tiers,
+          predictability_tiers: p.predictability_tiers || [],
         })
       );
     } catch (_err) {
@@ -1011,6 +1004,12 @@ export function installBacktest(q) {
       const n = Number(lbEl.value);
       if (Number.isFinite(n)) lookback = Math.max(10, Math.min(500, Math.round(n)));
     }
+    const predTiers = readPredictabilityTiers();
+    const usePred = predTiers.length > 0;
+    const holdoutDays =
+      typeof readHoldoutTradingDays === "function"
+        ? Math.max(2, Math.min(90, Number(readHoldoutTradingDays()) || 20))
+        : 20;
     return {
       lookback,
       score_model_role: readScoreModelRole("quant-score-model-role"),
@@ -1021,7 +1020,11 @@ export function installBacktest(q) {
       y_on_alpha: readYOnAlpha(),
       initial_cash: readInitialCash(),
       fill_clock: readFillClock(),
-      universe_fit_tiers: readUniverseFitTiers(),
+      use_predictability_tiers: usePred,
+      predictability_tiers: usePred ? predTiers : null,
+      // 分档过滤时把页顶 Holdout 传给后端做一致性校验；回测天数仍用 lookback
+      holdout_trading_days: usePred ? holdoutDays : null,
+      predictability_head: "oo",
       price_space_gate: readPriceSpaceGate(),
       ...readReplayLots(),
       ...readFusionWeights(),
@@ -1524,14 +1527,27 @@ export function installBacktest(q) {
         fill_clock,
         lot_base_amount,
         lot_strong_amount,
-        universe_fit_tiers,
+        use_predictability_tiers,
+        predictability_tiers,
+        holdout_trading_days,
+        predictability_head,
         price_space_gate,
       } = readPortfolioBtParams();
       const cashWan = Number.isFinite(Number(initial_cash))
         ? String(Number(initial_cash) / 10000).replace(/\.0$/, "")
         : "20";
       const roleLbl = score_model_role === "live" ? "执行" : "研究";
-      const ctx = [watchN ? `${watchN}只` : "", `${lookback}日`, fill_clock, roleLbl, `本金${cashWan}万`]
+      const tierBit = use_predictability_tiers
+        ? `分档${(predictability_tiers || []).join("") || "AB"}`
+        : "";
+      const ctx = [
+        watchN ? `${watchN}只` : "",
+        `${lookback}日`,
+        tierBit,
+        fill_clock,
+        roleLbl,
+        `本金${cashWan}万`,
+      ]
         .filter(Boolean)
         .join(" · ");
       lastHint = ctx;
@@ -1560,7 +1576,14 @@ export function installBacktest(q) {
         fill_clock,
         lot_base_amount,
         lot_strong_amount,
-        universe_fit_tiers,
+        use_predictability_tiers: !!use_predictability_tiers,
+        predictability_tiers: use_predictability_tiers
+          ? predictability_tiers || ["A", "B"]
+          : null,
+        holdout_trading_days: use_predictability_tiers
+          ? holdout_trading_days
+          : null,
+        predictability_head: "oo",
         price_space_gate,
         include_benchmark: true,
       };
@@ -2138,10 +2161,20 @@ export function installBacktest(q) {
     });
   }
 
+  function wirePredTierChecks() {
+    for (const id of ["quant-pred-tier-a", "quant-pred-tier-b", "quant-pred-tier-c"]) {
+      const el = document.getElementById(id);
+      if (!el || el.dataset.wired === "1") continue;
+      el.dataset.wired = "1";
+      el.addEventListener("change", () => persistReplayDeskPrefs());
+    }
+  }
+
   wirePaperT0Backtest();
   wireReplayFillClock();
   wireReplayPriceSpaceGate();
   wireReplayModelRole();
+  wirePredTierChecks();
   if (typeof window !== "undefined") {
     window.addEventListener("investment-replay-desk-persist", () => persistReplayDeskPrefs());
   }

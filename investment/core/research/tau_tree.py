@@ -56,23 +56,19 @@ DEFAULT_SUBSAMPLE = 0.85
 
 
 def resolve_tree_backend(preferred: Optional[str] = None) -> str:
+    """ŷ_oc_tree / ŷ_τ*_tree 仅 LightGBM；``None`` / ``auto`` / ``lgb`` 均解析为 lightgbm。"""
     raw = str(preferred or "").strip().lower()
-    if raw in {"numpy", "numpy_gbm", "gbm"}:
-        return "numpy_gbm"
-    if raw in {"xgboost", "xgb", "auto", ""}:
-        if raw in {"xgboost", "xgb"}:
-            try:
-                import xgboost  # noqa: F401
-            except ImportError as exc:
-                raise ImportError("未安装 xgboost") from exc
-            return "xgboost"
+    if raw in {"", "auto", "lightgbm", "lgb"}:
         try:
-            import xgboost  # noqa: F401
-
-            return "xgboost"
-        except ImportError:
-            return "numpy_gbm"
-    return "numpy_gbm"
+            import lightgbm  # noqa: F401
+        except ImportError as exc:
+            raise ImportError(
+                "ŷ_oc_tree / ŷ_τ*_tree 仅支持 LightGBM，请安装 lightgbm"
+            ) from exc
+        return "lightgbm"
+    if raw in {"xgboost", "xgb", "numpy", "numpy_gbm", "gbm"}:
+        raise ValueError(f"树后端已下掉 {raw}，仅支持 lightgbm")
+    raise ValueError(f"unsupported tree backend={raw!r}；仅支持 lightgbm")
 
 
 def tau_tree_last_report_path() -> str:
@@ -441,6 +437,70 @@ def _predict_xgboost(booster: Any, x: np.ndarray) -> np.ndarray:
     return np.asarray(booster.predict(xgb.DMatrix(x)), dtype=np.float64)
 
 
+def _fit_lightgbm(
+    x: np.ndarray,
+    y: np.ndarray,
+    w: np.ndarray,
+    *,
+    n_estimators: int,
+    max_depth: int,
+    learning_rate: float,
+    subsample: float,
+    objective: str = "regression",
+) -> Tuple[Any, np.ndarray]:
+    import lightgbm as lgb
+
+    # XGBoost objective 名 → LightGBM objective 名映射
+    _OBJ_MAP = {
+        "reg:squarederror": "regression",
+        "reg:squaredlogerror": "regression",
+        "reg:linear": "regression",
+        "regression": "regression",
+        "binary:logistic": "binary",
+        "binary:logitraw": "binary",
+        "binary": "binary",
+        "multi:softmax": "multiclass",
+        "multi:softprob": "multiclass",
+    }
+    raw_obj = str(objective or "regression").strip().lower() or "regression"
+    obj = _OBJ_MAP.get(raw_obj, "regression")
+    is_binary = obj == "binary"
+    dtrain = lgb.Dataset(x, label=y, weight=w)
+    booster = lgb.train(
+        {
+            "objective": obj,
+            "metric": ["binary_logloss" if is_binary else "l2"],
+            "max_depth": max(1, int(max_depth)),
+            "learning_rate": float(learning_rate),
+            "subsample": min(1.0, max(0.4, float(subsample))),
+            "colsample_bytree": 0.9,
+            "lambda_l2": 1.0,
+            "min_data_in_leaf": 8,
+            "verbose": -1,
+            "seed": 42,
+            "num_threads": 1,
+        },
+        dtrain,
+        num_boost_round=max(1, int(n_estimators)),
+    )
+    p = int(x.shape[1])
+    gain = np.zeros(p, dtype=np.float64)
+    try:
+        imp = booster.feature_importance(importance_type="gain")
+        for i in range(min(p, int(imp.size))):
+            gain[i] = float(imp[i])
+    except Exception:  # noqa: BLE001
+        pass
+    total = float(np.sum(np.clip(gain, 0.0, None)))
+    if total > 1e-12:
+        gain = gain / total
+    return booster, gain
+
+
+def _predict_lightgbm(booster: Any, x: np.ndarray) -> np.ndarray:
+    return np.asarray(booster.predict(x), dtype=np.float64)
+
+
 def _importance_rows(
     names: Sequence[str],
     gain: np.ndarray,
@@ -553,7 +613,7 @@ def fit_tau_tree_report(
     min_history: int = 12,
     gap_trigger_pct: float = 2.0,
     theme_boost: float = 1.5,
-    holdout_trading_days: int = 10,
+    holdout_trading_days: int = 20,
     use_theme_weights: bool = True,
     tau_hm: str = "open",
     tau_grid: Optional[Sequence[str]] = None,
@@ -562,8 +622,13 @@ def fit_tau_tree_report(
     max_depth: int = DEFAULT_MAX_DEPTH,
     learning_rate: float = DEFAULT_LEARNING_RATE,
     subsample: float = DEFAULT_SUBSAMPLE,
+    include_alpha158: bool = True,
 ) -> Dict[str, Any]:
-    """同面板拟合树 + Ridge OOS 对照。不写 live / 研究套模型。"""
+    """同面板拟合树 + Ridge OOS 对照。不写 live / 研究套模型。
+
+    ``include_alpha158=True``（默认）：树吃 ``raw_alpha158_*``；Ridge 对照仍只用 ``TAU_Z_FEATURES``
+    （避免与 ŷ_oo 双重计权）。
+    """
     t0 = time.perf_counter()
     tau_key = str(tau_hm or "open").strip() or "open"
     use_minute = tau_key.lower() not in ("", "open")
@@ -581,6 +646,7 @@ def fit_tau_tree_report(
         gap_trigger_pct=gap_trigger_pct,
         tau_hm=tau_key,
         tau_grid=grid,
+        include_alpha158=include_alpha158,
     )
     xs, ys, dates, metas = _stack_panels(enriched)
     panel_s = round(time.perf_counter() - t_panel0, 2)
@@ -599,6 +665,16 @@ def fit_tau_tree_report(
         }
 
     xs_z = [{k: (row or {}).get(k) for k in TAU_TREE_Z_FEATURES} for row in xs]
+    if include_alpha158:
+        from core.signal.factors.alpha158 import (
+            collect_alpha158_raw_keys_from_rows,
+            keep_alpha158_raw_in_row,
+        )
+
+        a158_keys = collect_alpha158_raw_keys_from_rows(xs)
+        xs_z = [keep_alpha158_raw_in_row(src, dest=dict(dst)) for src, dst in zip(xs, xs_z)]
+    else:
+        a158_keys = []
     from core.research.holdout import (
         DEFAULT_HOLDOUT_TRADING_DAYS,
         attach_holdout_meta,
@@ -622,6 +698,9 @@ def fit_tau_tree_report(
         for k in TAU_TREE_Z_FEATURES
         if k not in drop_opt and k not in TAU_FIT_DROP_ALIASES
     ]
+    for k in a158_keys:
+        if k not in feat_names:
+            feat_names.append(k)
     ridge_feat_names = [
         k
         for k in TAU_Z_FEATURES
@@ -661,16 +740,9 @@ def fit_tau_tree_report(
     gain = np.zeros(len(feat_names), dtype=np.float64)
     boost_preds: List[Optional[float]]
     t_tree0 = time.perf_counter()
-    if engine == "xgboost":
-        model, gain = _fit_xgboost(x_tr, y_tr, w_tr, **hyper)
-        raw = _predict_xgboost(model, x_te)
-        boost_preds = [float(v) if math.isfinite(float(v)) else None for v in raw]
-    else:
-        rng = np.random.default_rng(42)
-        pack, gain = _fit_numpy_gbm(x_tr, y_tr, w_tr, rng=rng, **hyper)
-        raw = _predict_numpy_gbm(pack, x_te)
-        boost_preds = [float(v) if math.isfinite(float(v)) else None for v in raw]
-        engine = "numpy_gbm"
+    model, gain = _fit_lightgbm(x_tr, y_tr, w_tr, **hyper)
+    raw = _predict_lightgbm(model, x_te)
+    boost_preds = [float(v) if math.isfinite(float(v)) else None for v in raw]
     tree_s = round(time.perf_counter() - t_tree0, 2)
 
     t_ridge0 = time.perf_counter()
@@ -726,6 +798,8 @@ def fit_tau_tree_report(
         "feature_names": list(feat_names),
         "ridge_feature_names": list(ridge_feat_names),
         "tree_shape_features": list(TAU_HORIZON_TREE_SHAPE_FEATURES),
+        "include_alpha158": bool(include_alpha158),
+        "n_alpha158_features": len(a158_keys),
         "feature_importance": _importance_rows(feat_names, gain),
         "oos": oos_boost,
         "ridge_oos": oos_ridge,
@@ -735,7 +809,12 @@ def fit_tau_tree_report(
         "persisted": {"success": False, "skipped": True, "reason": "shadow_only"},
         "note": (
             "ŷ_τ_tree 影子头：同标签同 Holdout vs Ridge；路径/量价 shape 仅 Tree；"
-            "不写 tau_ridge_model.json，不进交易执行 / 历史回测"
+            + (
+                "树侧含 raw_alpha158_*（Ridge Z 不含，防与 ŷ_oo 双重计权）；"
+                if include_alpha158
+                else ""
+            )
+            + "不写 tau_ridge_model.json，不进交易执行 / 历史回测"
         ),
     }
     attach_holdout_meta(report, split_meta)

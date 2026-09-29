@@ -159,6 +159,10 @@ def _portfolio_backtest_kwargs(body: PaperReplayBacktestRequest) -> Dict[str, An
         "lot_base_amount": body.lot_base_amount,
         "lot_strong_amount": body.lot_strong_amount,
         "universe_fit_tiers": body.universe_fit_tiers,
+        "use_predictability_tiers": bool(body.use_predictability_tiers),
+        "predictability_tiers": body.predictability_tiers,
+        "holdout_trading_days": body.holdout_trading_days,
+        "predictability_head": body.predictability_head,
         "price_space_gate": body.price_space_gate,
         "score_model_role": body.score_model_role,
     }
@@ -246,6 +250,7 @@ def quant_return_model_fit(body: ReturnModelFitRequest) -> Dict[str, Any]:
             ridge_lambda=body.ridge_lambda,
             min_samples=body.min_samples,
             save_draft=body.save_draft,
+            holdout_trading_days=body.holdout_trading_days,
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
@@ -254,7 +259,10 @@ def quant_return_model_fit(body: ReturnModelFitRequest) -> Dict[str, Any]:
 @router.post("/api/quant/return-model/promote")
 def quant_return_model_promote(body: ReturnModelPromoteRequest) -> Dict[str, Any]:
     try:
-        return deps.quant.promote_return_score_model(note=body.note)
+        return deps.quant.promote_return_score_model(
+            note=body.note,
+            persist_role=body.persist_role,
+        )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 

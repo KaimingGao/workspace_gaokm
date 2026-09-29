@@ -436,29 +436,19 @@ def dashboard_factor_exposure() -> Dict[str, Any]:
 
 @router.get("/api/dashboard/portfolio-health")
 def dashboard_portfolio_health() -> Dict[str, Any]:
-    """纸面组合健康度：暴露 · 建簿约束跳过 · α 衰减告警。"""
+    """纸面组合健康度：暴露 · α 衰减告警（不依赖分组簿）。"""
     try:
         from core.risk.portfolio_health import build_portfolio_health
-        from core.signal.cluster.live import load_active_cluster_book
 
-        book_doc = load_active_cluster_book() or {}
-        meta = book_doc.get("meta") or {}
         paper = _load_raw_paper()
-        rolling = None
-        try:
-            from core.signal.cluster.live_evidence import build_cluster_live_evidence
-
-            ev = build_cluster_live_evidence(light=True) or {}
-            rolling = (ev.get("rolling_ic") or ev.get("yhat_ic") or {})
-        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-            logger.debug("catch except Exception: in quant_dashboard.py", exc_info=True)
-            rolling = None
+        # 分组簿已退役：用纸面持仓作 book 暴露面，跳过/约束为空
+        holdings = list((paper or {}).get("holdings") or []) if isinstance(paper, dict) else []
         return build_portfolio_health(
             paper=paper,
-            book=list(book_doc.get("book") or []),
-            book_constraints=meta.get("book_constraints"),
-            book_skips=list(meta.get("book_skips") or []),
-            rolling_ic=rolling if isinstance(rolling, dict) else None,
+            book=holdings,
+            book_constraints=None,
+            book_skips=[],
+            rolling_ic=None,
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e

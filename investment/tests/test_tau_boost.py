@@ -39,6 +39,15 @@ def _bars(n: int = 50, start: float = 10.0):
     return out
 
 
+def _has_lightgbm() -> bool:
+    try:
+        import lightgbm  # noqa: F401
+
+        return True
+    except ImportError:
+        return False
+
+
 class TestTauBoost(unittest.TestCase):
     def test_numpy_gbm_recovers_stump(self):
         from core.research.tau_tree import _fit_numpy_gbm, _predict_numpy_gbm
@@ -62,6 +71,7 @@ class TestTauBoost(unittest.TestCase):
         self.assertGreater(hit, 0.85)
         self.assertGreater(float(gain[0]), float(gain[1]))
 
+    @unittest.skipUnless(_has_lightgbm(), "lightgbm 未安装")
     def test_fit_shadow_vs_ridge_no_live_file(self):
         from core.research.tau_tree import (
             fit_tau_tree_report,
@@ -80,14 +90,14 @@ class TestTauBoost(unittest.TestCase):
             stock_bars,
             ridge_lambda=1.0,
             theme_boost=1.5,
-            backend="numpy_gbm",
+            backend="lightgbm",
             holdout_trading_days=8,
         )
         self.assertTrue(report.get("success"), report.get("error"))
         self.assertEqual(report.get("task"), "tau_tree")
         self.assertEqual(report.get("head"), "y_tau_tree")
         self.assertEqual(report.get("schema"), "tau_tree_shadow_v2")
-        self.assertEqual(report.get("backend"), "numpy_gbm")
+        self.assertEqual(report.get("backend"), "lightgbm")
         self.assertFalse(report.get("live_hook"))
         self.assertFalse(report.get("backtest_hook"))
         self.assertTrue((report.get("persisted") or {}).get("skipped"))
@@ -127,12 +137,17 @@ class TestTauBoost(unittest.TestCase):
                 )
                 self.assertIsNone(load_tau_model())
 
-    def test_backend_numpy_forced(self):
-        from core.research.tau_tree import fit_tau_tree_report, resolve_tree_backend
+    @unittest.skipUnless(_has_lightgbm(), "lightgbm 未安装")
+    def test_backend_lightgbm_only(self):
+        from core.research.tau_tree import resolve_tree_backend
 
-        self.assertEqual(resolve_tree_backend("numpy_gbm"), "numpy_gbm")
-        auto = resolve_tree_backend(None)
-        self.assertIn(auto, {"xgboost", "numpy_gbm"})
+        self.assertEqual(resolve_tree_backend("lightgbm"), "lightgbm")
+        self.assertEqual(resolve_tree_backend(None), "lightgbm")
+        self.assertEqual(resolve_tree_backend("auto"), "lightgbm")
+        with self.assertRaises(ValueError):
+            resolve_tree_backend("numpy_gbm")
+        with self.assertRaises(ValueError):
+            resolve_tree_backend("xgboost")
 
     def test_xgboost_native_train_no_sklearn(self):
         try:

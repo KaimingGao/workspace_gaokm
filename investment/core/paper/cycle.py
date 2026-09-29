@@ -399,20 +399,8 @@ def _build_rebalance_report(
     current_shares_by_code = {str(h.get("stock_code")): float(h.get("shares") or 0) for h in current_holdings}
 
     rebalance_report: List[dict] = []
+    # 分组选股簿已下线：不再加载 active cluster book
     book_codes: set = set()
-    try:
-        from core.signal.cluster.live import load_active_cluster_book
-
-        book_doc = load_active_cluster_book() or {}
-        book_codes = {
-            str(r.get("stock_code") or r.get("code") or "").strip()
-            for r in (book_doc.get("book") or [])
-            if isinstance(r, dict)
-            and str(r.get("stock_code") or r.get("code") or "").strip()
-        }
-    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in paper_cycle.py", exc_info=True)
-        book_codes = set()
     # 遍历调仓前的所有持仓
     for code, old_shares in old_shares_by_code.items():
         name = name_by_code.get(code) or code

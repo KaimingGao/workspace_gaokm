@@ -301,19 +301,5 @@ class TestClusterPanelsPit(unittest.TestCase):
         self.assertEqual(bars, [])
         self.assertLess(elapsed, 8.0)
 
-class TestClusterLiveAuditSplit(unittest.TestCase):
-    def test_pick_audit_codes_round_robin(self):
-        from core.signal.cluster.live_audit import pick_audit_codes
-
-        cmap = {
-            "a": {"cluster_label": "G1"},
-            "b": {"cluster_label": "G1"},
-            "c": {"cluster_label": "G2"},
-        }
-        codes = pick_audit_codes(cmap, [{"stock_code": "a"}], 2, offset=0)
-        self.assertEqual(len(codes), 2)
-        self.assertIn("a", codes)
-
-
 if __name__ == "__main__":
     unittest.main()

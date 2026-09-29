@@ -78,14 +78,6 @@ def build_tau_shadow_review(
     vs = (shadow.get("meta") or {}).get("vs_eod_book")
     if not isinstance(vs, dict):
         vs = None
-        try:
-            from core.signal.cluster.live import load_tau_shadow_cluster_book
-
-            live_sh = load_tau_shadow_cluster_book() or {}
-            vs = ((live_sh.get("meta") or {}).get("vs_eod_book"))
-        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-            logger.debug("catch except Exception: in score_ledger.py", exc_info=True)
-            vs = None
 
     ic = _spearman_ic(xs, ys)
     return {
@@ -236,19 +228,6 @@ def build_nowcast_shadow_review(
 
     vs = (shadow.get("meta") or {}).get("vs_eod_book")
     nordhaus_meta = (shadow.get("meta") or {}).get("nordhaus_revision_slope")
-    if not isinstance(vs, dict):
-        vs = None
-        try:
-            from core.signal.cluster.live import load_nowcast_shadow_cluster_book
-
-            live_sh = load_nowcast_shadow_cluster_book() or {}
-            live_meta = (live_sh.get("meta") or {}) if isinstance(live_sh, dict) else {}
-            vs = live_meta.get("vs_eod_book")
-            if nordhaus_meta is None:
-                nordhaus_meta = live_meta.get("nordhaus_revision_slope")
-        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-            logger.debug("catch except Exception: in score_ledger.py", exc_info=True)
-            vs = None
     if not isinstance(vs, dict):
         vs = _nowcast_vs_eod_from_ledger(ledger)
 

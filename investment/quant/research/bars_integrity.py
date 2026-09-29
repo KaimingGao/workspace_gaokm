@@ -6,6 +6,8 @@ import logging
 from datetime import datetime
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Set, Tuple
 
+from core.watching.store import WATCHING_MAX_SIZE
+
 logger = logging.getLogger(__name__)
 
 INTEGRITY_DAYS = 60
@@ -229,9 +231,9 @@ def minute_day_detail(hms: Iterable[str], *, live: bool) -> Dict[str, Any]:
 
 def _watch_codes(watching_limit: int) -> Tuple[List[str], Dict[str, str]]:
     from core.t0.intraday import resolve_stock_name
-    from quant.research.factor_ols_clusters import clamp_watching_limit, merge_cluster_universe
+    from quant.research.watching_universe import clamp_watching_limit, merge_cluster_universe
 
-    limit = clamp_watching_limit(watching_limit, 200)
+    limit = clamp_watching_limit(watching_limit, WATCHING_MAX_SIZE)
     watchlist: List[Any] = []
     try:
         from core.watching.store import read_watching
@@ -409,7 +411,7 @@ def minute_windows_clean(
 
 def build_daily_integrity(
     *,
-    watching_limit: int = 200,
+    watching_limit: int = WATCHING_MAX_SIZE,
     days: int = INTEGRITY_DAYS,
     now: Optional[datetime] = None,
 ) -> Dict[str, Any]:
@@ -446,7 +448,7 @@ def build_daily_integrity(
 
 def build_minute_integrity(
     *,
-    watching_limit: int = 200,
+    watching_limit: int = WATCHING_MAX_SIZE,
     days: int = INTEGRITY_DAYS,
     now: Optional[datetime] = None,
 ) -> Dict[str, Any]:

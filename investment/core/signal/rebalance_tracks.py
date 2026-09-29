@@ -1,12 +1,6 @@
-"""调仓双轨：predicted ŷ% + heuristic 0–100，并按 OOS 是否通过分流。
+"""调仓双轨：predicted ŷ% + heuristic 0–100。
 
-策略（``cluster_scoring.rebalance_tracks.oos_fail_policy``）：
-- ``exclude``（现行默认 / 推荐）：OOS 失败组 **禁止新买入**；已持仓优先用
-  全局/生产 ŷ 的 predicted hold 门槛；仅无 ŷ 的 heuristic 轨才用
-  heuristic_hold_floor（H > 阈值保持，否则卖出）
-- ``heuristic_sleeve`` / ``predicted_degrade``：历史别名，行为已与 ``exclude`` 对齐
-  （不再进买簿 / 袖仓加仓）
-
+分组 OOS 分流已下线：全部代码按 predicted 轨资格处理（无 cluster 标签禁买）。
 买卖门槛分轨，禁止 0–100 与 ŷ% 混比。
 """
 
@@ -84,28 +78,11 @@ def resolve_oos_status(
     *,
     oos_failed_labels: Optional[set] = None,
 ) -> str:
+    """分组 OOS 标签分流已下线：一律视为通过（predicted 轨资格）。"""
+    del oos_failed_labels
     if not isinstance(item, dict):
         return OOS_UNKNOWN
-    src = str(item.get("return_model_source") or "")
-    if src.startswith("oos_failed"):
-        return OOS_FAIL
-    if item.get("oos_blocked") or item.get("oos_status") == OOS_FAIL:
-        return OOS_FAIL
-    lab = str(item.get("cluster_label") or "").strip()
-    if oos_failed_labels is not None and lab and lab in oos_failed_labels:
-        return OOS_FAIL
-    if lab:
-        try:
-            from core.signal.cluster.oos_labels import is_oos_failed_cluster_label
-
-            if is_oos_failed_cluster_label(lab):
-                return OOS_FAIL
-        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-            logger.debug("catch except Exception: in rebalance_tracks.py", exc_info=True)
-            pass
-    if src in ("cluster_group_beta", "global", "cluster_shadow_fallback"):
-        return OOS_PASS
-    return OOS_UNKNOWN
+    return OOS_PASS
 
 
 def _infer_item_scale(item: Optional[dict]) -> str:
@@ -261,21 +238,8 @@ def buy_gate_for_item(
     if not isinstance(item, dict):
         return False, None, TRACK_PREDICTED, "empty_item"
     cfg = tracks_cfg or get_rebalance_tracks_cfg()
-    # 保守：OOS 失败组一律禁止新买入（不论 heuristic 多高）
-    if resolve_oos_status(item) == OOS_FAIL or bool(item.get("oos_sleeve")):
-        hs = heuristic_score_value(item)
-        return False, hs, TRACK_HEURISTIC, "oos_failed_no_buy"
-    track = resolve_score_track(item)
-    if track == TRACK_HEURISTIC:
-        # 非 OOS 失败的 heuristic 轨（极少）；仍禁止当买入主路径误用
-        buy_f, _ = heuristic_floors(cfg)
-        gate = heuristic_score_value(item)
-        if gate is None:
-            return False, None, track, "missing_heuristic_score"
-        if gate < buy_f:
-            return False, gate, track, f"heuristic<{buy_f}"
-        return True, gate, track, None
-
+    # 分组 OOS 已下线：一律走 predicted 轨买门槛（不再因 oos_sleeve / 失败组禁买）
+    track = TRACK_PREDICTED
     buy_f = (
         float(predicted_buy_floor)
         if predicted_buy_floor is not None
@@ -299,45 +263,6 @@ def buy_gate_for_item(
     return True, gate_f, track, None
 
 
-def _oos_predicted_hold_score(item: Optional[dict]) -> Optional[float]:
-    """OOS 失败组若仍有生产 ŷ（全局降级），用 ŷ% 做留/卖，避免与 heuristic 45 混比。
-
-    ``oos_failed_heuristic``（无 ŷ）返回 None，调用方回退 heuristic 门槛。
-    """
-    if not isinstance(item, dict):
-        return None
-    src = str(item.get("return_model_source") or "")
-    if src == "oos_failed_heuristic":
-        return None
-    try:
-        from core.signal.dual_score import (
-            decision_score_for_item,
-            eod_gate_score_for_item,
-            is_heuristic_score_scale,
-        )
-
-        if src != "oos_failed_global" and is_heuristic_score_scale(item):
-            if item.get("predicted_score") is None and item.get("predicted_score_eod") is None:
-                return None
-        sc = decision_score_for_item(item)
-        if sc is None:
-            sc = eod_gate_score_for_item(item)
-        if sc is None:
-            ps = item.get("predicted_score")
-            sc = float(ps) if ps is not None and ps != "" else None
-        if sc is None:
-            return None
-        sc_f = float(sc)
-        if src != "oos_failed_global" and is_heuristic_score_scale(item):
-            return None
-        return sc_f
-    except (TypeError, ValueError):
-        return None
-    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in rebalance_tracks.py", exc_info=True)
-        return None
-
-
 def hold_decision_for_item(
     item: Optional[dict],
     *,
@@ -346,44 +271,11 @@ def hold_decision_for_item(
 ) -> Tuple[bool, Optional[float], float, str]:
     """是否因分数触发卖出。返回 (should_sell, decision_score, hold_floor, track)。
 
-    ``should_sell``：有分且低于该轨 hold 门槛。
-    OOS 失败持仓：优先用全局/生产 ŷ（与正常组同一 predicted hold 门槛）；
-    仅 ``oos_failed_heuristic``（无 ŷ）才用 heuristic_hold_floor
-    （H > 阈值保持，无 heuristic 亦卖，保守）。
+    ``should_sell``：有分且低于 predicted hold 门槛。
+    分组 OOS 分流已下线：一律按 predicted 轨处理。
     """
     cfg = tracks_cfg or get_rebalance_tracks_cfg()
-    oos_fail = False
-    if isinstance(item, dict):
-        oos_fail = (
-            resolve_oos_status(item) == OOS_FAIL
-            or bool(item.get("oos_sleeve"))
-            or bool(item.get("oos_blocked"))
-        )
-    if oos_fail:
-        yhat = _oos_predicted_hold_score(item)
-        if yhat is not None:
-            hold_f = (
-                float(predicted_hold_floor)
-                if predicted_hold_floor is not None
-                else predicted_floors(cfg)[1]
-            )
-            return bool(float(yhat) < float(hold_f)), float(yhat), hold_f, TRACK_PREDICTED
-        _, hold_f = heuristic_floors(cfg)
-        sc = heuristic_score_value(item) if isinstance(item, dict) else None
-        if sc is None:
-            return True, None, hold_f, TRACK_HEURISTIC
-        # 用户口径：H > 阈值保持；否则卖
-        return bool(float(sc) <= float(hold_f)), float(sc), hold_f, TRACK_HEURISTIC
-
-    track = resolve_score_track(item) if isinstance(item, dict) else TRACK_PREDICTED
-    if track == TRACK_HEURISTIC:
-        _, hold_f = heuristic_floors(cfg)
-        sc = heuristic_score_value(item)
-        if sc is None:
-            return False, None, hold_f, track
-        # 与 OOS 失败分支同一口径：H > 阈值保持；否则卖（含等于阈值）
-        return bool(float(sc) <= float(hold_f)), sc, hold_f, track
-
+    track = TRACK_PREDICTED
     hold_f = (
         float(predicted_hold_floor)
         if predicted_hold_floor is not None

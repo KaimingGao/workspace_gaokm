@@ -1,6 +1,6 @@
 """SignalService / ResearchSignalService（SS encapsulate C）。
 
-委托现有 ``score_stock`` / ``rank_cross_section`` / ``rank_cluster_pools``，
+委托现有 ``score_stock`` / ``rank_cross_section``，
 不重写 dual_score / scorer。上层经本 Service 取信封；历史 dict 走 ``as_dict()``。
 """
 
@@ -87,15 +87,18 @@ class SignalService:
         codes: Optional[List[str]] = None,
         **kw: Any,
     ) -> BookResult:
-        from core.signal.cluster.rank import rank_cluster_pools
-
-        raw = rank_cluster_pools(codes, **kw)
-        book = BookResult.from_rank(
-            raw if isinstance(raw, dict) else {},
-            kind="cluster_pools",
-        )
-        _bump_metric("rank_cluster_ok" if book.success else "rank_cluster_fail")
-        return book
+        """分组分池已下线：改走非分组横截面排序。"""
+        # 丢弃仅分池 API 认识的入参
+        kw.pop("persist_book", None)
+        kw.pop("top_n_per_group", None)
+        if "max_names" in kw and "limit" not in kw:
+            try:
+                kw["limit"] = int(kw.pop("max_names"))
+            except (TypeError, ValueError):
+                kw.pop("max_names", None)
+        else:
+            kw.pop("max_names", None)
+        return self.rank_cross_section(codes, **kw)
 
     def book_fields(
         self,

@@ -14,6 +14,15 @@ if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
 
+def _has_lightgbm() -> bool:
+    try:
+        import lightgbm  # noqa: F401
+
+        return True
+    except ImportError:
+        return False
+
+
 def _synth_days(n_days: int = 40, n_names: int = 24, seed: int = 0):
     """特征与 y 正相关的合成截面日。"""
     days = []
@@ -103,6 +112,7 @@ class TestOoRankFit(unittest.TestCase):
         self.assertIsNotNone(hi)
         self.assertGreater(float(hi), float(lo))
 
+    @unittest.skipUnless(_has_lightgbm(), "lightgbm 未安装")
     def test_fit_report_vs_ridge_shadow(self):
         from core.research.oo_rank_pairwise import (
             compare_oo_rank_shadow_track,
@@ -125,12 +135,12 @@ class TestOoRankFit(unittest.TestCase):
                 holdout_trading_days=8,
                 top_k=5,
                 bottom_k=5,
-                epochs=40,
                 topk_track=5,
                 persist=False,
             )
         self.assertTrue(report.get("success"), report)
         self.assertEqual(report.get("schema"), "oo_rank_pairwise_v1")
+        self.assertEqual(report.get("backend"), "lambdarank")
         self.assertIn("oo_rank", (report.get("oos") or {}))
         self.assertIn("ridge_oo_baseline", (report.get("oos") or {}))
         model = report.get("return_model") or {}
@@ -146,7 +156,6 @@ class TestOoRankFit(unittest.TestCase):
                 holdout_trading_days=8,
                 top_k=5,
                 bottom_k=5,
-                epochs=40,
                 topk_track=5,
             )
         self.assertTrue(track.get("success"), track)
@@ -301,6 +310,7 @@ class TestOoRankFeatureMode(unittest.TestCase):
         )
         self.assertGreater(n_wide, n_focus)
 
+    @unittest.skipUnless(_has_lightgbm(), "lightgbm 未安装")
     def test_fit_report_records_mode_and_preset(self):
         from core.research.oo_rank_pairwise import fit_oo_rank_report
 
@@ -321,13 +331,13 @@ class TestOoRankFeatureMode(unittest.TestCase):
                 pair_preset="topk_focus",
                 top_k=5,
                 bottom_k=5,
-                epochs=30,
                 topk_track=5,
                 persist=False,
             )
         self.assertTrue(report.get("success"), report)
         self.assertEqual(report.get("feature_mode"), "cs_rank")
         self.assertEqual(report.get("pair_preset"), "topk_focus")
+        self.assertEqual(report.get("backend"), "lambdarank")
         self.assertIn("n_features", report.get("feature_meta") or {})
         meta = report.get("feature_meta") or {}
         self.assertGreater(int(meta.get("n_cs_rank_features") or 0), 0)

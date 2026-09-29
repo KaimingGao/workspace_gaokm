@@ -6,6 +6,8 @@ import os
 import re
 from typing import Any, Dict, List, Optional, Tuple
 
+from core.watching.store import WATCHING_MAX_SIZE
+
 logger = logging.getLogger(__name__)
 
 
@@ -104,7 +106,7 @@ def _start_ridge_fit_job(
     kind: str,
     message: str,
     worker_fn: Any,
-    watching_limit: int = 200,
+    watching_limit: int = WATCHING_MAX_SIZE,
 ) -> Dict[str, Any]:
     """Ridge 拟合入队：立刻返回 ``background=true``，心跳防 5min 误杀。"""
     import threading
@@ -126,7 +128,7 @@ def _start_ridge_fit_job(
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
         logger.debug("catch except Exception: in quant_service_factors.py", exc_info=True)
         n_watch_all = watching_limit
-    cap = max(1, int(watching_limit or 200))
+    cap = max(1, int(watching_limit or WATCHING_MAX_SIZE))
     n_watch = min(n_watch_all, cap) if n_watch_all else cap
     job_total = max(1, n_watch)
     job_id = slot.start(kind=kind, total=job_total, message=message)
@@ -520,7 +522,7 @@ class QuantFactorMixin:
         self,
         *,
         lookback: int = 120,
-        watching_limit: int = 200,
+        watching_limit: int = WATCHING_MAX_SIZE,
         ridge_lambda: float = 1.0,
         gap_trigger_pct: float = 2.0,
         theme_boost: float = 1.5,
@@ -529,12 +531,14 @@ class QuantFactorMixin:
         tau_hm: Optional[str] = None,
         force_promote: bool = False,
         persist_role: str = "live",
-        holdout_trading_days: int = 10,
+        holdout_trading_days: int = 20,
+        include_alpha158: bool = True,
     ) -> Dict[str, Any]:
         """R0：观察池 ŷ_τ 头 Ridge；可选 persist live 模型。
 
         默认用满观察池。``tau_hm`` 缺省跟随 ``dual_score.enable_minute_tau``：
         开则训 09:30…做 T 11:00 网格，否则 open。
+        ``include_alpha158``：默认 True，Ridge 吃 ``raw_alpha158_*``（≤T−1）。
         """
         from core.data.facade import bars_and_source
         from core.signal.dual_score import get_dual_score_cfg
@@ -597,8 +601,14 @@ class QuantFactorMixin:
 
         stock_bars: List[Dict[str, Any]] = []
         minute_hit = 0
+        # Alpha158 需 ≥62 日 hist；lookback 默认 120，再多留缓冲
+        bar_limit = int(lookback) + 40
+        if include_alpha158:
+            from core.signal.factors.alpha158 import ALPHA158_PANEL_WINDOW
+
+            bar_limit = max(bar_limit, int(ALPHA158_PANEL_WINDOW) + int(holdout_trading_days or 20) + 20)
         for code in codes:
-            bars, _src = bars_and_source(code, limit=lookback + 40)
+            bars, _src = bars_and_source(code, limit=bar_limit)
             if not bars:
                 continue
             row: Dict[str, Any] = {"code": str(code), "bars": bars}
@@ -632,6 +642,7 @@ class QuantFactorMixin:
             tau_hm=tau_key,
             tau_grid=tau_grid,
             holdout_trading_days=holdout_trading_days,
+            include_alpha158=bool(include_alpha158),
         )
         report["watching_limit"] = limit
         report["watching_pool_size"] = len(pool)
@@ -738,17 +749,218 @@ class QuantFactorMixin:
             live_present=True,
         )
 
+    def run_oo_tree_experiment(
+        self,
+        *,
+        lookback: int = 120,
+        watching_limit: int = WATCHING_MAX_SIZE,
+        horizon_days: int = 1,
+        ridge_lambda: float = 1.0,
+        holdout_trading_days: int = 20,
+        backend: Optional[str] = None,
+        include_alpha158: bool = True,
+    ) -> Dict[str, Any]:
+        """ŷ_oo_tree 影子头：日线面板 Holdout vs Ridge。只写 last_report。"""
+        import time
+
+        from core.data.facade import bars_and_source
+        from core.watching.store import WATCHING_MAX_SIZE, read_watching
+        from core.research.oo_tree import (
+            fit_oo_tree_report,
+            save_oo_tree_last_report,
+        )
+
+        uni = read_watching()
+        pool = [
+            str(c).strip()
+            for c in (uni.get("watchlist") or [])
+            if str(c).strip()
+        ]
+        cap = max(2, min(int(WATCHING_MAX_SIZE), 500))
+        limit = max(2, min(int(watching_limit or cap), cap))
+        codes = pool[:limit]
+        if len(codes) < 2:
+            return {
+                "success": False,
+                "error": "研究池至少 2 只才可跑 ŷ_oo_tree",
+                "task": "oo_tree",
+                "head": "y_oo_tree",
+                "live_hook": False,
+                "backtest_hook": False,
+            }
+
+        stock_bars: List[Dict[str, Any]] = []
+        t_bars0 = time.perf_counter()
+        for code in codes:
+            bars, _src = bars_and_source(code, limit=lookback + 40)
+            if not bars:
+                continue
+            stock_bars.append({"code": str(code), "bars": bars})
+        bars_s = round(time.perf_counter() - t_bars0, 2)
+        report = fit_oo_tree_report(
+            stock_bars,
+            horizon_days=horizon_days,
+            ridge_lambda=ridge_lambda,
+            holdout_trading_days=holdout_trading_days,
+            backend=backend,
+            include_alpha158=include_alpha158,
+        )
+        if isinstance(report, dict):
+            timing = dict(report.get("timing") or {})
+            timing["bars_s"] = bars_s
+            report["timing"] = timing
+            report["watching_limit"] = limit
+            report["codes"] = [r.get("code") for r in stock_bars]
+            if report.get("success"):
+                save_oo_tree_last_report(report)
+        return report
+
+    def get_oo_tree_last_report(self) -> Dict[str, Any]:
+        from core.research.oo_tree import (
+            load_oo_tree_last_report,
+            oo_tree_last_report_path,
+        )
+
+        last = load_oo_tree_last_report()
+        if not last:
+            return {
+                "success": False,
+                "exists": False,
+                "path": oo_tree_last_report_path(),
+                "note": "尚无 ŷ_oo_tree 影子报告",
+                "head": "y_oo_tree",
+                "live_hook": False,
+                "backtest_hook": False,
+            }
+        out = dict(last)
+        out["exists"] = True
+        out["path"] = oo_tree_last_report_path()
+        out.setdefault("success", True)
+        out.setdefault("head", "y_oo_tree")
+        return out
+
+    def run_co_tree_experiment(
+        self,
+        *,
+        lookback: int = 120,
+        watching_limit: int = WATCHING_MAX_SIZE,
+        ridge_lambda: float = 1.0,
+        gap_trigger_pct: float = 2.0,
+        theme_boost: float = 1.5,
+        holdout_trading_days: int = 20,
+        backend: Optional[str] = None,
+        include_alpha158: bool = True,
+    ) -> Dict[str, Any]:
+        """ŷ_co_tree 影子头：隔夜缺口面板 Holdout vs Ridge。只写 last_report。"""
+        import time
+
+        from core.data.facade import bars_and_source
+        from core.watching.store import WATCHING_MAX_SIZE, read_watching
+        from core.research.co_tree import (
+            fit_co_tree_report,
+            save_co_tree_last_report,
+        )
+
+        uni = read_watching()
+        pool = [
+            str(c).strip()
+            for c in (uni.get("watchlist") or [])
+            if str(c).strip()
+        ]
+        cap = max(2, min(int(WATCHING_MAX_SIZE), 500))
+        limit = max(2, min(int(watching_limit or cap), cap))
+        codes = pool[:limit]
+        if len(codes) < 2:
+            return {
+                "success": False,
+                "error": "研究池至少 2 只才可跑 ŷ_co_tree",
+                "task": "co_tree",
+                "head": "y_co_tree",
+                "live_hook": False,
+                "backtest_hook": False,
+            }
+
+        bar_limit = int(lookback) + 40
+        if include_alpha158:
+            from core.signal.factors.alpha158 import ALPHA158_PANEL_WINDOW
+
+            bar_limit = max(
+                bar_limit,
+                int(ALPHA158_PANEL_WINDOW) + int(holdout_trading_days or 20) + 20,
+            )
+        stock_bars: List[Dict[str, Any]] = []
+        t_bars0 = time.perf_counter()
+        for code in codes:
+            bars, _src = bars_and_source(code, limit=bar_limit)
+            if not bars:
+                continue
+            stock_bars.append({"code": str(code), "bars": bars})
+        bars_s = round(time.perf_counter() - t_bars0, 2)
+        report = fit_co_tree_report(
+            stock_bars,
+            ridge_lambda=ridge_lambda,
+            gap_trigger_pct=gap_trigger_pct,
+            theme_boost=theme_boost,
+            holdout_trading_days=holdout_trading_days,
+            backend=backend,
+            include_alpha158=include_alpha158,
+        )
+        if isinstance(report, dict):
+            timing = dict(report.get("timing") or {})
+            timing["bars_s"] = bars_s
+            try:
+                total_s = bars_s + float(timing.get("fit_s") or 0.0)
+            except (TypeError, ValueError):
+                total_s = bars_s
+            timing["total_s"] = round(float(total_s), 2)
+            report["timing"] = timing
+            report["watching_limit"] = limit
+            report["watching_pool_size"] = len(pool)
+            report["lookback"] = lookback
+            report["live_hook"] = False
+            report["backtest_hook"] = False
+            if report.get("success"):
+                save_co_tree_last_report(report)
+        return report
+
+    def get_co_tree_last_report(self) -> Dict[str, Any]:
+        from core.research.co_tree import (
+            load_co_tree_last_report,
+            co_tree_last_report_path,
+        )
+
+        last = load_co_tree_last_report()
+        if not last:
+            return {
+                "success": False,
+                "exists": False,
+                "path": co_tree_last_report_path(),
+                "note": "尚无 ŷ_co_tree 影子报告；POST /api/quant/co-tree",
+                "head": "y_co_tree",
+                "live_hook": False,
+                "backtest_hook": False,
+            }
+        out = dict(last)
+        out["exists"] = True
+        out["path"] = co_tree_last_report_path()
+        out.setdefault("success", True)
+        out.setdefault("head", "y_co_tree")
+        out["live_hook"] = False
+        out["backtest_hook"] = False
+        return out
+
     def run_tau_tree_experiment(
         self,
         *,
         lookback: int = 120,
-        watching_limit: int = 200,
+        watching_limit: int = WATCHING_MAX_SIZE,
         ridge_lambda: float = 1.0,
         gap_trigger_pct: float = 2.0,
         theme_boost: float = 1.5,
         tau_hm: Optional[str] = None,
-        holdout_trading_days: int = 10,
+        holdout_trading_days: int = 20,
         backend: Optional[str] = None,
+        include_alpha158: bool = True,
     ) -> Dict[str, Any]:
         """ŷ_τ_tree 影子头：同面板 Holdout vs Ridge。只写 last_report，不进 live / 回测。"""
         import time
@@ -832,6 +1044,7 @@ class QuantFactorMixin:
             tau_grid=tau_grid,
             holdout_trading_days=holdout_trading_days,
             backend=backend,
+            include_alpha158=bool(include_alpha158),
         )
         report["watching_limit"] = limit
         report["watching_pool_size"] = len(pool)
@@ -893,14 +1106,14 @@ class QuantFactorMixin:
         self,
         *,
         lookback: int = 120,
-        watching_limit: int = 200,
+        watching_limit: int = WATCHING_MAX_SIZE,
         ridge_lambda: float = 1.0,
         gap_trigger_pct: float = 2.0,
         theme_boost: float = 1.5,
         persist: bool = False,
         note: str = "",
         persist_role: str = "live",
-        holdout_trading_days: int = 10,
+        holdout_trading_days: int = 20,
     ) -> Dict[str, Any]:
         """R0+：观察池 ŷ_co Ridge；可选 persist live 模型。默认用满观察池。"""
         from core.data.facade import bars_and_source
@@ -1022,7 +1235,7 @@ class QuantFactorMixin:
         self,
         *,
         lookback: int = 120,
-        watching_limit: int = 200,
+        watching_limit: int = WATCHING_MAX_SIZE,
         holdout_trading_days: int = 20,
         feature_mode: str = "raw",
         pair_preset: str = "wide",
@@ -1030,12 +1243,20 @@ class QuantFactorMixin:
         bottom_k: Optional[int] = None,
         topk_track: int = 10,
         l2: float = 1.0,
+        backend: str = "lambdarank",
         persist: bool = False,
         note: str = "",
     ) -> Dict[str, Any]:
-        """影子 ŷ_oo_rank：线性 RankNet pairwise；不进 live ranking。"""
+        """影子 ŷ_oo_rank：LambdaRank；不进 live ranking。
+
+        日线研究：优先 ``research_universe``（可宽于观察池）；空则回退观察池。
+        不触发分钟暖仓。
+        """
         from core.data.facade import bars_and_source
-        from core.watching.store import WATCHING_MAX_SIZE, read_watching
+        from core.research_universe import (
+            RESEARCH_UNIVERSE_MAX_SIZE,
+            resolve_research_codes,
+        )
         from core.research.oo_rank_pairwise import (
             fit_oo_rank_report,
             load_oo_rank_model,
@@ -1044,20 +1265,17 @@ class QuantFactorMixin:
             save_oo_rank_last_report,
         )
 
-        uni = read_watching()
-        pool = [
-            str(c).strip()
-            for c in (uni.get("watchlist") or [])
-            if str(c).strip()
-        ]
-        cap = max(2, min(int(WATCHING_MAX_SIZE), 500))
-        limit = max(2, min(int(watching_limit or cap), cap))
-        codes = pool[:limit]
+        # watching_limit：研究宇宙非空时可放宽到 RESEARCH_UNIVERSE_MAX_SIZE
+        resolved = resolve_research_codes(limit=watching_limit or None)
+        codes = list(resolved.get("codes") or [])
+        pool_n = int(resolved.get("count") or 0)
+        limit = int(resolved.get("cap") or pool_n)
         if len(codes) < 8:
             return {
                 "success": False,
-                "error": "研究池至少 8 只才可跑 oo_rank pairwise",
+                "error": "研究池至少 8 只才可跑 oo_rank pairwise（配置 research_universe 或观察池）",
                 "task": "oo_rank_pairwise",
+                "universe_source": resolved.get("source"),
             }
 
         stock_bars: List[Dict[str, Any]] = []
@@ -1075,10 +1293,14 @@ class QuantFactorMixin:
             bottom_k=bottom_k,
             topk_track=topk_track,
             l2=l2,
+            backend=backend or "lambdarank",
             persist=False,
         )
         report["watching_limit"] = limit
-        report["watching_pool_size"] = len(pool)
+        report["watching_pool_size"] = pool_n
+        report["universe_source"] = resolved.get("source")
+        report["universe_note"] = resolved.get("note")
+        report["research_universe_max"] = RESEARCH_UNIVERSE_MAX_SIZE
         report["lookback"] = lookback
         if note:
             report["api_note"] = str(note)[:200]
@@ -1158,7 +1380,7 @@ class QuantFactorMixin:
         self,
         *,
         lookback: int = 120,
-        watching_limit: int = 200,
+        watching_limit: int = WATCHING_MAX_SIZE,
         ridge_lambda: float = 1.0,
         gap_trigger_pct: float = 2.0,
         sell_trig_pct: Optional[float] = None,
@@ -1169,7 +1391,7 @@ class QuantFactorMixin:
         note: str = "",
         force_promote: bool = False,
         persist_role: str = "live",
-        holdout_trading_days: int = 10,
+        holdout_trading_days: int = 20,
     ) -> Dict[str, Any]:
         """观察池 ŷ_hl Ridge：开盘 Z + 多 τ 前缀分钟小包 → 全日极值序。
 
@@ -1384,7 +1606,7 @@ class QuantFactorMixin:
         self,
         *,
         lookback: int = 120,
-        watching_limit: int = 200,
+        watching_limit: int = WATCHING_MAX_SIZE,
         ridge_lambda: float = 1.0,
         gap_trigger_pct: float = 2.0,
         minute_period: str = "5",
@@ -1393,7 +1615,7 @@ class QuantFactorMixin:
         note: str = "",
         force_promote: bool = False,
         persist_role: str = "live",
-        holdout_trading_days: int = 10,
+        holdout_trading_days: int = 20,
     ) -> Dict[str, Any]:
         """观察池 ŷ_τc Ridge：与 ŷ_oc 同 X → close[T]/price(τ)−1。只读本地 5m 缓存。"""
         from core.data.facade import bars_and_source
@@ -1581,7 +1803,7 @@ class QuantFactorMixin:
         self,
         *,
         lookback: int = 120,
-        watching_limit: int = 200,
+        watching_limit: int = WATCHING_MAX_SIZE,
         ridge_lambda: float = 1.0,
         gap_trigger_pct: float = 2.0,
         minute_period: str = "5",
@@ -1590,7 +1812,7 @@ class QuantFactorMixin:
         note: str = "",
         force_promote: bool = False,
         persist_role: str = "live",
-        holdout_trading_days: int = 10,
+        holdout_trading_days: int = 20,
     ) -> Dict[str, Any]:
         """观察池 ŷ_τ30 Ridge：与 ŷ_oc 同 X → mean(price(τ⊕25/30/35))/price(τ)−1。只读本地 5m 缓存。"""
         from core.data.facade import bars_and_source
@@ -1778,13 +2000,13 @@ class QuantFactorMixin:
         self,
         *,
         lookback: int = 120,
-        watching_limit: int = 200,
+        watching_limit: int = WATCHING_MAX_SIZE,
         ridge_lambda: float = 1.0,
         gap_trigger_pct: float = 2.0,
         minute_period: str = "5",
         minute_lookback_days: int = 150,
         note: str = "",
-        holdout_trading_days: int = 10,
+        holdout_trading_days: int = 20,
         **_ignored: Any,
     ) -> Dict[str, Any]:
         """后台 ŷ_τ30 拟合；轮询 ``GET /api/jobs/t30-ridge``。不写盘。"""
@@ -1805,7 +2027,7 @@ class QuantFactorMixin:
             slot=t30_ridge_job,
             kind="t30_ridge",
             message="ŷ_τ30 拟合中…",
-            watching_limit=int(watching_limit or 200),
+            watching_limit=int(watching_limit or WATCHING_MAX_SIZE),
             worker_fn=lambda: self.run_t30_ridge_experiment(**kwargs),
         )
 
@@ -1813,7 +2035,7 @@ class QuantFactorMixin:
         self,
         *,
         lookback: int = 120,
-        watching_limit: int = 200,
+        watching_limit: int = WATCHING_MAX_SIZE,
         ridge_lambda: float = 1.0,
         gap_trigger_pct: float = 2.0,
         minute_period: str = "5",
@@ -1822,7 +2044,7 @@ class QuantFactorMixin:
         note: str = "",
         force_promote: bool = False,
         persist_role: str = "live",
-        holdout_trading_days: int = 10,
+        holdout_trading_days: int = 20,
     ) -> Dict[str, Any]:
         """观察池 ŷ_τ45 Ridge：与 ŷ_oc 同 X → mean(price(τ⊕40/45/50))/price(τ)−1。只读本地 5m 缓存。"""
         from core.data.facade import bars_and_source
@@ -2010,13 +2232,13 @@ class QuantFactorMixin:
         self,
         *,
         lookback: int = 120,
-        watching_limit: int = 200,
+        watching_limit: int = WATCHING_MAX_SIZE,
         ridge_lambda: float = 1.0,
         gap_trigger_pct: float = 2.0,
         minute_period: str = "5",
         minute_lookback_days: int = 150,
         note: str = "",
-        holdout_trading_days: int = 10,
+        holdout_trading_days: int = 20,
         **_ignored: Any,
     ) -> Dict[str, Any]:
         """后台 ŷ_τ45 拟合；轮询 ``GET /api/jobs/t45-ridge``。不写盘。"""
@@ -2037,7 +2259,7 @@ class QuantFactorMixin:
             slot=t45_ridge_job,
             kind="t45_ridge",
             message="ŷ_τ45 拟合中…",
-            watching_limit=int(watching_limit or 200),
+            watching_limit=int(watching_limit or WATCHING_MAX_SIZE),
             worker_fn=lambda: self.run_t45_ridge_experiment(**kwargs),
         )
 
@@ -2045,7 +2267,7 @@ class QuantFactorMixin:
         self,
         *,
         lookback: int = 120,
-        watching_limit: int = 200,
+        watching_limit: int = WATCHING_MAX_SIZE,
         ridge_lambda: float = 1.0,
         gap_trigger_pct: float = 2.0,
         minute_period: str = "5",
@@ -2054,7 +2276,7 @@ class QuantFactorMixin:
         note: str = "",
         force_promote: bool = False,
         persist_role: str = "live",
-        holdout_trading_days: int = 10,
+        holdout_trading_days: int = 20,
     ) -> Dict[str, Any]:
         """观察池 ŷ_τ60 Ridge：与 ŷ_oc 同 X → mean(price(τ⊕55/60/65))/price(τ)−1。只读本地 5m 缓存。"""
         from core.data.facade import bars_and_source
@@ -2242,13 +2464,13 @@ class QuantFactorMixin:
         self,
         *,
         lookback: int = 120,
-        watching_limit: int = 200,
+        watching_limit: int = WATCHING_MAX_SIZE,
         ridge_lambda: float = 1.0,
         gap_trigger_pct: float = 2.0,
         minute_period: str = "5",
         minute_lookback_days: int = 150,
         note: str = "",
-        holdout_trading_days: int = 10,
+        holdout_trading_days: int = 20,
         **_ignored: Any,
     ) -> Dict[str, Any]:
         """后台 ŷ_τ60 拟合；轮询 ``GET /api/jobs/t60-ridge``。不写盘。"""
@@ -2269,7 +2491,7 @@ class QuantFactorMixin:
             slot=t60_ridge_job,
             kind="t60_ridge",
             message="ŷ_τ60 拟合中…",
-            watching_limit=int(watching_limit or 200),
+            watching_limit=int(watching_limit or WATCHING_MAX_SIZE),
             worker_fn=lambda: self.run_t60_ridge_experiment(**kwargs),
         )
 
@@ -2277,7 +2499,7 @@ class QuantFactorMixin:
         self,
         *,
         lookback: int = 120,
-        watching_limit: int = 200,
+        watching_limit: int = WATCHING_MAX_SIZE,
         ridge_lambda: float = 1.0,
         gap_trigger_pct: float = 2.0,
         minute_period: str = "5",
@@ -2286,7 +2508,7 @@ class QuantFactorMixin:
         note: str = "",
         force_promote: bool = False,
         persist_role: str = "live",
-        holdout_trading_days: int = 10,
+        holdout_trading_days: int = 20,
     ) -> Dict[str, Any]:
         """观察池 ŷ_τ75 Ridge：与 ŷ_oc 同 X → mean(price(τ⊕70/75/80))/price(τ)−1。只读本地 5m 缓存。"""
         from core.data.facade import bars_and_source
@@ -2474,13 +2696,13 @@ class QuantFactorMixin:
         self,
         *,
         lookback: int = 120,
-        watching_limit: int = 200,
+        watching_limit: int = WATCHING_MAX_SIZE,
         ridge_lambda: float = 1.0,
         gap_trigger_pct: float = 2.0,
         minute_period: str = "5",
         minute_lookback_days: int = 150,
         note: str = "",
-        holdout_trading_days: int = 10,
+        holdout_trading_days: int = 20,
         **_ignored: Any,
     ) -> Dict[str, Any]:
         """后台 ŷ_τ75 拟合；轮询 ``GET /api/jobs/t75-ridge``。不写盘。"""
@@ -2501,7 +2723,7 @@ class QuantFactorMixin:
             slot=t75_ridge_job,
             kind="t75_ridge",
             message="ŷ_τ75 拟合中…",
-            watching_limit=int(watching_limit or 200),
+            watching_limit=int(watching_limit or WATCHING_MAX_SIZE),
             worker_fn=lambda: self.run_t75_ridge_experiment(**kwargs),
         )
 
@@ -2509,7 +2731,7 @@ class QuantFactorMixin:
         self,
         *,
         lookback: int = 120,
-        watching_limit: int = 200,
+        watching_limit: int = WATCHING_MAX_SIZE,
         ridge_lambda: float = 1.0,
         gap_trigger_pct: float = 2.0,
         minute_period: str = "5",
@@ -2518,7 +2740,7 @@ class QuantFactorMixin:
         note: str = "",
         force_promote: bool = False,
         persist_role: str = "live",
-        holdout_trading_days: int = 10,
+        holdout_trading_days: int = 20,
     ) -> Dict[str, Any]:
         """观察池 ŷ_τ90 Ridge：与 ŷ_oc 同 X → mean(price(τ⊕85/90/95))/price(τ)−1。只读本地 5m 缓存。"""
         from core.data.facade import bars_and_source
@@ -2706,13 +2928,13 @@ class QuantFactorMixin:
         self,
         *,
         lookback: int = 120,
-        watching_limit: int = 200,
+        watching_limit: int = WATCHING_MAX_SIZE,
         ridge_lambda: float = 1.0,
         gap_trigger_pct: float = 2.0,
         minute_period: str = "5",
         minute_lookback_days: int = 150,
         note: str = "",
-        holdout_trading_days: int = 10,
+        holdout_trading_days: int = 20,
         **_ignored: Any,
     ) -> Dict[str, Any]:
         """后台 ŷ_τ90 拟合；轮询 ``GET /api/jobs/t90-ridge``。不写盘。"""
@@ -2733,7 +2955,7 @@ class QuantFactorMixin:
             slot=t90_ridge_job,
             kind="t90_ridge",
             message="ŷ_τ90 拟合中…",
-            watching_limit=int(watching_limit or 200),
+            watching_limit=int(watching_limit or WATCHING_MAX_SIZE),
             worker_fn=lambda: self.run_t90_ridge_experiment(**kwargs),
         )
 
@@ -2741,13 +2963,13 @@ class QuantFactorMixin:
         self,
         *,
         lookback: int = 120,
-        watching_limit: int = 200,
+        watching_limit: int = WATCHING_MAX_SIZE,
         ridge_lambda: float = 1.0,
         gap_trigger_pct: float = 2.0,
         minute_period: str = "5",
         minute_lookback_days: int = 150,
         note: str = "",
-        holdout_trading_days: int = 10,
+        holdout_trading_days: int = 20,
         **_ignored: Any,
     ) -> Dict[str, Any]:
         """后台 ŷ_τc 拟合；轮询 ``GET /api/jobs/tc-ridge``。不写盘。"""
@@ -2768,7 +2990,7 @@ class QuantFactorMixin:
             slot=tc_ridge_job,
             kind="tc_ridge",
             message="ŷ_τc 拟合中…",
-            watching_limit=int(watching_limit or 200),
+            watching_limit=int(watching_limit or WATCHING_MAX_SIZE),
             worker_fn=lambda: self.run_tc_ridge_experiment(**kwargs),
         )
 
@@ -2776,12 +2998,12 @@ class QuantFactorMixin:
         self,
         *,
         lookback: int = 120,
-        watching_limit: int = 200,
+        watching_limit: int = WATCHING_MAX_SIZE,
         ridge_lambda: float = 1.0,
         gap_trigger_pct: float = 2.0,
         theme_boost: float = 1.5,
         tau_hm: Optional[str] = None,
-        holdout_trading_days: int = 10,
+        holdout_trading_days: int = 20,
         backend: Optional[str] = None,
         minute_period: str = "5",
         minute_lookback_days: int = 150,
@@ -2950,12 +3172,12 @@ class QuantFactorMixin:
         self,
         *,
         lookback: int = 120,
-        watching_limit: int = 200,
+        watching_limit: int = WATCHING_MAX_SIZE,
         ridge_lambda: float = 1.0,
         gap_trigger_pct: float = 2.0,
         theme_boost: float = 1.5,
         tau_hm: Optional[str] = None,
-        holdout_trading_days: int = 10,
+        holdout_trading_days: int = 20,
         backend: Optional[str] = None,
         minute_period: str = "5",
         minute_lookback_days: int = 150,
@@ -3127,12 +3349,12 @@ class QuantFactorMixin:
         self,
         *,
         lookback: int = 120,
-        watching_limit: int = 200,
+        watching_limit: int = WATCHING_MAX_SIZE,
         ridge_lambda: float = 1.0,
         gap_trigger_pct: float = 2.0,
         theme_boost: float = 1.5,
         tau_hm: Optional[str] = None,
-        holdout_trading_days: int = 10,
+        holdout_trading_days: int = 20,
         backend: Optional[str] = None,
         minute_period: str = "5",
         minute_lookback_days: int = 150,
@@ -3304,12 +3526,12 @@ class QuantFactorMixin:
         self,
         *,
         lookback: int = 120,
-        watching_limit: int = 200,
+        watching_limit: int = WATCHING_MAX_SIZE,
         ridge_lambda: float = 1.0,
         gap_trigger_pct: float = 2.0,
         theme_boost: float = 1.5,
         tau_hm: Optional[str] = None,
-        holdout_trading_days: int = 10,
+        holdout_trading_days: int = 20,
         backend: Optional[str] = None,
         minute_period: str = "5",
         minute_lookback_days: int = 150,
@@ -3481,12 +3703,12 @@ class QuantFactorMixin:
         self,
         *,
         lookback: int = 120,
-        watching_limit: int = 200,
+        watching_limit: int = WATCHING_MAX_SIZE,
         ridge_lambda: float = 1.0,
         gap_trigger_pct: float = 2.0,
         theme_boost: float = 1.5,
         tau_hm: Optional[str] = None,
-        holdout_trading_days: int = 10,
+        holdout_trading_days: int = 20,
         backend: Optional[str] = None,
         minute_period: str = "5",
         minute_lookback_days: int = 150,
@@ -3658,12 +3880,12 @@ class QuantFactorMixin:
         self,
         *,
         lookback: int = 120,
-        watching_limit: int = 200,
+        watching_limit: int = WATCHING_MAX_SIZE,
         ridge_lambda: float = 1.0,
         gap_trigger_pct: float = 2.0,
         theme_boost: float = 1.5,
         tau_hm: Optional[str] = None,
-        holdout_trading_days: int = 10,
+        holdout_trading_days: int = 20,
         backend: Optional[str] = None,
         minute_period: str = "5",
         minute_lookback_days: int = 150,
@@ -3892,345 +4114,24 @@ class QuantFactorMixin:
         report["watching_limit"] = limit
         return report
 
-    def run_factor_ols_cluster_experiment(
-        self,
-        *,
-        lookback: int = 80,
-        horizon_days: int = 3,
-        holdout_trading_days: int = 10,
-        watching_limit: int = 200,
-        ridge_lambda: float = 0.0,
-        n_clusters: Optional[int] = None,
-        pit_fundamentals: bool = True,
-        sentiment_pit: bool = False,
-        l2_normalize_betas: Optional[bool] = None,
-        beta_scale: str = "feature_zscore",
-        cluster_method: str = "hierarchical",
-        cluster_linkage: str = "complete",
-        within_dist_quantile: float = 0.75,
-        run_oos_gate: bool = True,
-        oos_tol_pp: float = 1.0,
-        run_group_score: bool = True,
-        run_pool_merge: bool = True,
-        top_n_per_group: int = 10,
-        respect_regime: bool = True,
-        select_ridge: bool = True,
-        collinearity_policy: str = "drop_redundant",
-        progress_cb: Optional[Any] = None,
-        refresh_bars: bool = False,
-        use_cache: bool = True,
-    ) -> Dict[str, Any]:
-        """研究池：β 聚类 → 组权 → 组内 OOS → 分组 score → 分池合成（不写 config）。
+    def run_factor_ols_cluster_experiment(self, **kwargs: Any) -> Dict[str, Any]:
+        """分组 OLS 已退役。"""
+        _ = kwargs
+        return {
+            "success": False,
+            "ok": False,
+            "error": "cluster_retired",
+            "cluster_retired": True,
+        }
 
-        默认：complete-linkage + τ 切树；β 因子维 z-score；PIT 默认开（FH5）；
-        B5 respect_regime；B3 选 λ + drop_redundant。
-        日线：当日会话**第一次**分组强制增量更新到最新；同日再跑纯本地缓存（改参快跑）。
-        ``refresh_bars=True`` 仅作 API/脚本逃生舱（本跑再强制拉新）；UI 不再暴露。
-        P1 use_cache：非强制日线时可命中 24h 指纹缓存；成功落盘时**始终**更新指纹缓存
-        与 ``cluster_last_report``（进页优先恢复，避免刷新重算/旧缓存导致组变）。
-        草稿比指纹缓存更新时，指纹缓存自动作废。
-        """
-        from quant.research.cluster_bars_daily import (
-            cluster_bars_session_date,
-            mark_force_latest_bars_done,
-            needs_force_latest_bars,
-        )
-        from quant.research.cluster_group_score import attach_cluster_group_scores
-        from quant.research.cluster_multi_score import attach_cluster_multi_score
-        from quant.research.cluster_oos import attach_cluster_oos_gates
-        from quant.research.cluster_panels import build_cluster_ols_panels
-        from quant.research.cluster_pool_artifact import attach_cluster_pool_artifact
-        from quant.research.cluster_pool_merge import attach_cluster_pool_merge
-        from quant.research.factor_ols_clusters import (
-            compute_factor_ols_cluster_report,
-            merge_cluster_universe,
-        )
-
-        # 简洁策略：只保留「当日首次 / API 显式强制」→ force_latest；不再走 36h 过期刷新
-        force_latest_bars = bool(needs_force_latest_bars()) or bool(refresh_bars)
-        bars_session = cluster_bars_session_date()
-
-        holdings_raw: List[Any] = []
-        try:
-            import os as _os
-
-            from core.paper import load_paper
-            from core.paths import PAPER_PATH
-
-            if _os.path.isfile(PAPER_PATH):
-                holdings_raw = list(load_paper(PAPER_PATH).get("holdings") or [])
-        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-            logger.debug("catch except Exception: in quant_service_factors.py", exc_info=True)
-            holdings_raw = []
-
-        watchlist: List[Any] = []
-        try:
-            from core.watching.store import read_watching
-
-            watchlist = list((read_watching() or {}).get("watchlist") or [])
-        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-            logger.debug("catch except Exception: in quant_service_factors.py", exc_info=True)
-            watchlist = []
-
-        # P1：指纹缓存 — 读仅在非强制日线时；写在成功后始终落盘
-        cache_enabled = use_cache and not bool(force_latest_bars)
-        cache_fp = None
-        if use_cache:
-            cache_fp = _cluster_cache_fingerprint(
-                watchlist,
-                lookback=lookback,
-                horizon_days=horizon_days,
-                holdout_trading_days=holdout_trading_days,
-                watching_limit=watching_limit,
-                n_clusters=n_clusters,
-                ridge_lambda=ridge_lambda,
-                pit_fundamentals=pit_fundamentals,
-                l2_normalize_betas=l2_normalize_betas,
-                beta_scale=beta_scale,
-                cluster_method=cluster_method,
-                cluster_linkage=cluster_linkage,
-                within_dist_quantile=within_dist_quantile,
-                run_oos_gate=run_oos_gate,
-                oos_tol_pp=oos_tol_pp,
-                run_group_score=run_group_score,
-                run_pool_merge=run_pool_merge,
-                top_n_per_group=top_n_per_group,
-                respect_regime=respect_regime,
-                select_ridge=select_ridge,
-                collinearity_policy=collinearity_policy,
-            )
-            if cache_enabled:
-                cached = _load_cluster_cache(cache_fp, max_age_hours=24)
-                if cached is not None:
-                    if progress_cb:
-                        try:
-                            progress_cb(_with_stage_prefix("命中 24h 缓存，直接复用"), 1, 1)
-                        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-                            logger.debug("catch except Exception: in quant_service_factors.py", exc_info=True)
-                            logger.warning("因子服务处理异常", exc_info=True)
-                    cached["cache_hit"] = True
-                    cached["cache_age_hours"] = _cluster_cache_age_hours(cached)
-                    # 缓存里常缺 name_by_code；每次复用时用观察池真名补齐（探针下拉）
-                    _enrich_cluster_name_by_code(cached)
-                    # 复用时也刷新「最近一次」，便于进页恢复与草稿对齐
-                    _save_last_cluster_report(cached)
-                    return cached
-
-        # 聚类宇宙 = 全部观察池（纸面持仓仅作落地映射参考，不进聚类）
-        uni_meta = merge_cluster_universe(
-            watchlist,
-            holdings_raw,
-            watching_limit=watching_limit,
-            universe_mode="watching",
-        )
-        codes = list(uni_meta["codes"])
-        limit = int(uni_meta["watching_limit"])
-        if len(codes) < 2:
-            return {
-                "success": False,
-                "error": "观察池至少 2 只才可按 β 分组",
-                "task": "factor_ols_clusters",
-                "mode": "ols_beta_clusters",
-                "stock_count": len(codes),
-                "watching_limit": limit,
-                "universe_mode": "watching",
-                "watching_codes": list(uni_meta.get("watching_codes") or []),
-                "holdings_codes": list(uni_meta["holdings_codes"]),
-                "holdings_added": list(uni_meta["holdings_added"]),
-                "universe_count": int(uni_meta["universe_count"]),
-            }
-
-        n_codes = len(codes)
-
-        def _on_progress(msg: str, cur: int = 0, tot: int = 0) -> None:
-            if not progress_cb:
-                return
-            try:
-                progress_cb(msg, int(cur or 0), int(tot or n_codes or 1))
-            except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-                logger.debug("catch except Exception: in quant_service_factors.py", exc_info=True)
-                pass
-
-        _on_progress(f"拉日线 0/{n_codes}", 0, n_codes)
-        if force_latest_bars:
-            _on_progress(
-                f"强制更新日线到最新 0/{n_codes}", 0, n_codes
-            )
-        built = build_cluster_ols_panels(
-            codes,
-            lookback=lookback,
-            pit_fundamentals=bool(pit_fundamentals),
-            code_roles=dict(uni_meta.get("code_roles") or {}),
-            progress_cb=_on_progress,
-            refresh_bars=False,
-            force_latest_bars=bool(force_latest_bars),
-        )
-        panels = list(built.get("panels") or [])
-        bars_by_code = dict(built.get("bars_by_code") or {})
-        quotes_by_code = dict(built.get("quotes_by_code") or {})
-        resolved_codes = list(built.get("resolved_codes") or [])
-        watching_resolved = list(built.get("watching_resolved") or [])
-        holdings_resolved = list(built.get("holdings_resolved") or [])
-        holdings_added_resolved = list(built.get("holdings_added_resolved") or [])
-        bars_refresh = dict(built.get("bars_refresh") or {})
-        if force_latest_bars:
-            bars_refresh["first_of_day"] = True
-            bars_refresh["session_date"] = bars_session
-            # 面板拉完即标记，避免拟合失败导致同日反复打满网
-            mark_force_latest_bars_done(
-                session_date=bars_session,
-                remote_count=int(bars_refresh.get("remote_count") or 0),
-                total=int(bars_refresh.get("total") or n_codes),
-            )
-
-        _on_progress(f"拟合 0/{n_codes}", 0, n_codes)
-        report = compute_factor_ols_cluster_report(
-            panels,
-            horizon_days=horizon_days,
-            holdout_trading_days=holdout_trading_days,
-            ridge_lambda=ridge_lambda,
-            n_clusters=n_clusters,
-            pit_fundamentals=bool(pit_fundamentals),
-            sentiment_pit=bool(sentiment_pit),
-            l2_normalize_betas=l2_normalize_betas,
-            beta_scale=str(beta_scale or "feature_zscore"),
-            cluster_method=str(cluster_method or "hierarchical"),
-            cluster_linkage=str(cluster_linkage or "complete"),
-            within_dist_quantile=float(within_dist_quantile or 0.75),
-            respect_regime=bool(respect_regime),
-            select_ridge=bool(select_ridge),
-            collinearity_policy=str(collinearity_policy or "drop_redundant"),
-            # P3：拟合并发对齐面板拉取（12），cold-cache 重算时缩短 CPU 段
-            max_workers=12,
-            progress_cb=_on_progress,
-        )
-        report["task"] = "factor_ols_clusters"
-        report["lookback"] = lookback
-        report["watching_limit"] = limit
-        report["refresh_bars"] = bool(force_latest_bars)
-        report["refresh_bars_requested"] = bool(refresh_bars)
-        report["force_latest_bars"] = bool(force_latest_bars)
-        report["bars_refresh"] = bars_refresh
-        report["universe_mode"] = "watching"
-        # 统计以观察池宇宙为准；解析失败时回退原始列表，避免 UI 显示 0
-        report["watching_codes"] = watching_resolved or list(
-            uni_meta.get("watching_codes") or []
-        )
-        report["holdings_codes"] = holdings_resolved or list(
-            uni_meta["holdings_codes"]
-        )
-        report["holdings_added"] = holdings_added_resolved or list(
-            uni_meta["holdings_added"]
-        )
-        report["universe_count"] = int(uni_meta["universe_count"])
-        report["universe_codes"] = resolved_codes or list(uni_meta["codes"])
-        report["holdings_raw_count"] = len(holdings_raw)
-        report["universe_note"] = (
-            f"宇宙=观察池全部 {report['universe_count']} 只"
-        )
-        # 成员展示用：报价/解析到的中文名（研究枢纽未拉观察名单时也能显示）
-        name_by_code: Dict[str, str] = {}
-        for code_key, q in (quotes_by_code or {}).items():
-            if not isinstance(q, dict):
-                continue
-            c = str(code_key or "").strip()
-            nm = str(q.get("stock_name") or q.get("name") or "").strip()
-            if c and nm and nm != c and not (nm.isdigit() and len(nm) == 6):
-                name_by_code[c] = nm
-        report["name_by_code"] = name_by_code
-        _enrich_cluster_name_by_code(report)
-        if report.get("success"):
-            _on_progress("OOS / 分池…", 0, 1)
-
-            def _oos_cancel() -> bool:
-                try:
-                    from core.job_progress import quant_ols_clusters_job
-
-                    return bool(quant_ols_clusters_job.is_cancel_requested())
-                except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-                    logger.debug(
-                        "catch except Exception: in quant_service_factors.py",
-                        exc_info=True,
-                    )
-                    return False
-
-            attach_cluster_oos_gates(
-                report,
-                lookback=lookback,
-                horizon_days=horizon_days,
-                oos_tol_pp=float(oos_tol_pp),
-                run_oos_gate=bool(run_oos_gate),
-                bars_by_code=bars_by_code,
-                progress_cb=_on_progress,
-                cancel_check=_oos_cancel,
-            )
-            _on_progress("组内打分…", n_codes, n_codes)
-            attach_cluster_group_scores(
-                report,
-                bars_by_code,
-                horizon_days=horizon_days,
-                quotes_by_code=quotes_by_code,
-                run_group_score=bool(run_group_score),
-            )
-            if run_group_score:
-                _on_progress("分池合成…", n_codes, n_codes)
-                attach_cluster_pool_merge(
-                    report,
-                    bars_by_code,
-                    horizon_days=horizon_days,
-                    top_n_per_group=int(top_n_per_group or 10),
-                    run_pool_merge=bool(run_pool_merge),
-                )
-                _on_progress("分池产物…", n_codes, n_codes)
-                attach_cluster_pool_artifact(report)
-                _on_progress("多权打分…", n_codes, n_codes)
-                attach_cluster_multi_score(
-                    report,
-                    bars_by_code,
-                    quotes_by_code=quotes_by_code,
-                    horizon_days=horizon_days,
-                )
-                # L3：重聚类结果进草稿（≠ active），待人审 promote
-                try:
-                    from core.signal.cluster.live import save_cluster_draft
-
-                    art = report.get("pool_artifact") or {}
-                    if art.get("success") and art.get("code_map"):
-                        save_cluster_draft(art)
-                        report["cluster_draft_saved"] = True
-                except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-                    logger.debug("catch except Exception: in quant_service_factors.py", exc_info=True)
-                    report["cluster_draft_saved"] = False
-            _on_progress("收尾…", n_codes, n_codes)
-        flags = dict(built.get("lookahead_flags") or {})
-        if report.get("large_universe") and report.get("daily_pit") is False:
-            flags = dict(flags)
-            flags["daily_pit"] = False
-            flags["speed_note"] = report.get("speed_note")
-            if flags.get("fundamentals") == "pit_as_of":
-                flags["fundamentals"] = "pit_snapshot"
-                flags["note"] = (
-                    str(flags.get("note") or "")
-                    + " 大宇宙加速：拟合用末日财务快照（非逐日 PIT）。"
-                ).strip()
-        report["lookahead_flags"] = flags
-        report["pit_fundamentals"] = bool(pit_fundamentals)
-        report["fundamentals_pit_summary"] = flags.get("pit_summary")
-        # P1：成功则落盘指纹缓存 +「最近一次」（刷新进页优先恢复，不重算）
-        if report.get("success"):
-            if use_cache and cache_fp:
-                _save_cluster_cache(report, cache_fp)
-            _save_last_cluster_report(report)
-        return report
-
-    def cluster_bars_status(self, *, watching_limit: int = 200) -> Dict[str, Any]:
+    def cluster_bars_status(self, *, watching_limit: int = WATCHING_MAX_SIZE) -> Dict[str, Any]:
         """观察池日线末 bar 覆盖（研究枢纽 UI）。"""
         from quant.research.cluster_bars_status import build_cluster_bars_status
 
         return build_cluster_bars_status(watching_limit=watching_limit)
 
     def cluster_bars_integrity(
-        self, *, watching_limit: int = 200, days: int = 22
+        self, *, watching_limit: int = WATCHING_MAX_SIZE, days: int = 22
     ) -> Dict[str, Any]:
         """观察池日线逐日是否在仓（格子图，只读）。"""
         from quant.research.bars_integrity import build_daily_integrity
@@ -4238,7 +4139,7 @@ class QuantFactorMixin:
         return build_daily_integrity(watching_limit=watching_limit, days=days)
 
     def cluster_minute_integrity(
-        self, *, watching_limit: int = 200, days: int = 22
+        self, *, watching_limit: int = WATCHING_MAX_SIZE, days: int = 22
     ) -> Dict[str, Any]:
         """观察池 5 分钟逐日头/尾是否齐（格子图，只读）。"""
         from quant.research.bars_integrity import build_minute_integrity
@@ -4254,7 +4155,7 @@ class QuantFactorMixin:
     def run_cluster_bars_refresh(
         self,
         *,
-        watching_limit: int = 200,
+        watching_limit: int = WATCHING_MAX_SIZE,
         lookback: int = 80,
         mode: str = "topup",
         progress_cb: Optional[Any] = None,
@@ -4272,7 +4173,7 @@ class QuantFactorMixin:
     def start_cluster_bars_refresh_job(
         self,
         *,
-        watching_limit: int = 200,
+        watching_limit: int = WATCHING_MAX_SIZE,
         lookback: int = 80,
         mode: str = "topup",
     ) -> Dict[str, Any]:
@@ -4280,7 +4181,7 @@ class QuantFactorMixin:
         import threading
 
         from core.job_progress import cluster_bars_refresh_job
-        from quant.research.factor_ols_clusters import clamp_watching_limit
+        from quant.research.watching_universe import clamp_watching_limit
 
         cluster_bars_refresh_job.reclaim_if_stale()
         if cluster_bars_refresh_job.is_running():
@@ -4292,7 +4193,7 @@ class QuantFactorMixin:
                 "job": cluster_bars_refresh_job.get(),
             }
 
-        watch_limit = clamp_watching_limit(watching_limit or 200, 200)
+        watch_limit = clamp_watching_limit(watching_limit or WATCHING_MAX_SIZE, WATCHING_MAX_SIZE)
         mode_s = str(mode or "topup").strip().lower()
         if mode_s not in ("full", "topup"):
             mode_s = "topup"
@@ -4376,7 +4277,7 @@ class QuantFactorMixin:
     def cluster_minute_status(
         self,
         *,
-        watching_limit: int = 200,
+        watching_limit: int = WATCHING_MAX_SIZE,
         period: str = "5",
         min_span_days: int = 40,
         include_label_portrait: bool = False,
@@ -4394,7 +4295,7 @@ class QuantFactorMixin:
     def run_cluster_minute_refresh(
         self,
         *,
-        watching_limit: int = 200,
+        watching_limit: int = WATCHING_MAX_SIZE,
         period: str = "5",
         lookback_days: int = 120,
         mode: str = "full",
@@ -4416,7 +4317,7 @@ class QuantFactorMixin:
     def start_cluster_minute_refresh_job(
         self,
         *,
-        watching_limit: int = 200,
+        watching_limit: int = WATCHING_MAX_SIZE,
         period: str = "5",
         lookback_days: int = 120,
         mode: str = "full",
@@ -4426,7 +4327,7 @@ class QuantFactorMixin:
         import threading
 
         from core.job_progress import cluster_minute_refresh_job
-        from quant.research.factor_ols_clusters import clamp_watching_limit
+        from quant.research.watching_universe import clamp_watching_limit
 
         cluster_minute_refresh_job.reclaim_if_stale()
         if cluster_minute_refresh_job.is_running():
@@ -4438,7 +4339,7 @@ class QuantFactorMixin:
                 "job": cluster_minute_refresh_job.get(),
             }
 
-        watch_limit = clamp_watching_limit(watching_limit or 200, 200)
+        watch_limit = clamp_watching_limit(watching_limit or WATCHING_MAX_SIZE, WATCHING_MAX_SIZE)
         mode_s = str(mode or "full").strip().lower()
         if mode_s not in ("full", "topup", "repair"):
             mode_s = "full"
@@ -4525,340 +4426,149 @@ class QuantFactorMixin:
         }
 
     def start_factor_ols_cluster_job(self, **kwargs: Any) -> Dict[str, Any]:
-        """FH2：后台跑分组 OLS；轮询 ``GET /api/jobs/quant-ols-clusters``。"""
-        import threading
-
-        from core.job_progress import quant_ols_clusters_job
-        from quant.research.factor_ols_clusters import clamp_watching_limit
-
-        # 轮询/重开前先回收陈旧任务（阈值与 reclaim_if_stale 对齐，满池勿 90s 误杀）
-        quant_ols_clusters_job.reclaim_if_stale()
-
-        if quant_ols_clusters_job.is_running():
-            # 进页自动跑 + 手动点「跑分组」常撞车：附到现任务轮询，勿当失败
-            return {
-                "ok": True,
-                "success": True,
-                "background": True,
-                "reused": True,
-                "job": quant_ols_clusters_job.get(),
-            }
-
-        # 进度按「票数」量级：尊重 watching_limit，避免按百票满池估 total
-        try:
-            from core.watching.store import read_watching
-
-            n_watch_all = len(list((read_watching() or {}).get("watchlist") or []))
-        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-            logger.debug("catch except Exception: in quant_service_factors.py", exc_info=True)
-            n_watch_all = 20
-        watch_limit = clamp_watching_limit(kwargs.get("watching_limit") or 200, 200)
-        n_watch = min(n_watch_all, watch_limit) if n_watch_all else watch_limit
-        job_total = max(20, n_watch * 2 + 10)
-
-        job_id = quant_ols_clusters_job.start(
-            kind="factor_ols_clusters",
-            total=job_total,
-            message=_with_stage_prefix("排队中…"),
-        )
-
-        last_mapped = [1]
-
-        def _progress(msg: str, cur: int = 0, tot: int = 0) -> None:
-            # 消息统一加 [N/13] 阶段号（便于前端/日志识别进度）
-            try:
-                msg_out = _with_stage_prefix(msg)
-            except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-                logger.debug("catch except Exception: in quant_service_factors.py", exc_info=True)
-                msg_out = msg
-            # 映射到 job（须单调：选区结束后勿掉回 1%）
-            # 0–40% 拉日线 · 40–50% 拟合 · 50–60% 选区 · 60–62% 组池/贪心
-            # 62–90% 组内 OOS · 90–99% 组内打分及之后
-            t = max(1, int(tot or n_watch or 1))
-            c = max(0, int(cur or 0))
-            within = min(1.0, c / t)
-            msg_s = str(msg or "")
-            late_keys = (
-                ("收尾", 7),
-                ("多权", 6),
-                ("组内", 5),
-                ("OOS", 4),
-                ("分池", 4),
-                ("扩展窗", 3),
-                ("贪心", 2),
-                ("组池", 1),
-                ("聚类", 0),
-            )
-            late_idx = next((i for k, i in late_keys if k in msg_s), None)
-            if "选区" in msg_s:
-                mapped = int(job_total * 0.5) + int(job_total * 0.1 * within)
-            elif "OOS" in msg_s:
-                mapped = int(job_total * 0.62) + int(job_total * 0.28 * within)
-            elif any(k in msg_s for k in ("组池", "贪心", "扩展窗")):
-                mapped = int(job_total * 0.6) + int(job_total * 0.02 * within)
-            elif late_idx is not None:
-                frac = (late_idx + within) / 8.0
-                mapped = int(job_total * 0.9) + int(job_total * 0.09 * frac)
-            elif "拟合" in msg_s:
-                mapped = int(job_total * 0.4) + int(job_total * 0.1 * within)
-            elif "合并宇宙" in msg_s:
-                mapped = max(1, int(job_total * 0.02))
-            else:
-                # 拉日线 / 拉指数
-                mapped = int(job_total * 0.4 * within)
-            mapped = max(last_mapped[0], max(1, min(job_total - 1, mapped)))
-            last_mapped[0] = mapped
-            quant_ols_clusters_job.update(
-                current=mapped,
-                total=job_total,
-                message=msg_out,
-                job_id=job_id,
-            )
-
-        def _worker() -> None:
-            stop_hb = threading.Event()
-
-            def _heartbeat() -> None:
-                # 满池拉日线可能长时间 done=0；定时 touch 避免轮询误杀
-                while not stop_hb.wait(8.0):
-                    if not quant_ols_clusters_job.touch(job_id=job_id):
-                        return
-
-            hb = threading.Thread(
-                target=_heartbeat, name=f"ols-clusters-hb-{job_id}", daemon=True
-            )
-            hb.start()
-            try:
-                if quant_ols_clusters_job.is_cancel_requested():
-                    quant_ols_clusters_job.finish(error="已取消", job_id=job_id)
-                    return
-                quant_ols_clusters_job.update(
-                    current=1,
-                    total=job_total,
-                    message=_with_stage_prefix(f"合并宇宙… {n_watch} 只"),
-                    job_id=job_id,
-                )
-                if quant_ols_clusters_job.is_cancel_requested():
-                    quant_ols_clusters_job.finish(error="已取消", job_id=job_id)
-                    return
-                result = self.run_factor_ols_cluster_experiment(
-                    progress_cb=_progress,
-                    **{k: v for k, v in kwargs.items() if k != "progress_cb"},
-                )
-                if quant_ols_clusters_job.is_cancel_requested():
-                    quant_ols_clusters_job.finish(error="已取消", job_id=job_id)
-                    return
-                if not result.get("success"):
-                    quant_ols_clusters_job.finish(
-                        error=str(result.get("error") or "分组失败"),
-                        result=result,
-                        job_id=job_id,
-                    )
-                    return
-                quant_ols_clusters_job.finish(result=result, job_id=job_id)
-            except Exception as e:
-                logger.exception('unexpected error in _worker')
-                quant_ols_clusters_job.finish(error=str(e), job_id=job_id)
-            finally:
-                stop_hb.set()
-
-        threading.Thread(
-            target=_worker, name=f"ols-clusters-{job_id}", daemon=True
-        ).start()
+        """FH2：分组 OLS Job 已退役。"""
+        _ = kwargs
         return {
-            "ok": True,
-            "success": True,
-            "background": True,
-            "job": quant_ols_clusters_job.get(),
+            "success": False,
+            "ok": False,
+            "error": "cluster_retired",
+            "cluster_retired": True,
         }
 
-    def run_cluster_multi_score(
-        self,
-        *,
-        artifact: Optional[Dict[str, Any]] = None,
-        lookback: int = 80,
-        horizon_days: int = 3,
-        watching_limit: int = 20,
-    ) -> Dict[str, Any]:
-        """用归档 code_map 对研究池多权复打分（不写 config）。"""
-        from quant.research.cluster_multi_score import run_multi_score_from_artifact
+    def run_cluster_multi_score(self, **kwargs: Any) -> Dict[str, Any]:
+        """分组多权复打分已退役。"""
+        _ = kwargs
+        return {
+            "success": False,
+            "ok": False,
+            "error": "cluster_retired",
+            "cluster_retired": True,
+        }
 
-        return run_multi_score_from_artifact(
-            artifact=artifact,
-            lookback=lookback,
-            horizon_days=horizon_days,
-            watching_limit=watching_limit,
-        )
+    def cluster_live_status(self, **kwargs: Any) -> Dict[str, Any]:
+        """分组 live 状态已退役。"""
+        _ = kwargs
+        return {
+            "success": False,
+            "ok": False,
+            "error": "cluster_retired",
+            "cluster_retired": True,
+            "mode": "off",
+            "enabled": False,
+            "active": None,
+            "draft": None,
+            "light": True,
+        }
 
-    def cluster_live_status(
-        self,
-        *,
-        audit_rotate: bool = False,
-        audit_offset: Optional[int] = None,
-        light: bool = False,
-        run_auto_demote: bool = False,
-    ) -> Dict[str, Any]:
-        from core.signal.cluster.live import cluster_status_public
+    def compare_cluster_partition_vs_active(self, *args: Any, **kwargs: Any) -> Dict[str, Any]:
+        """分组 promote 预检已退役。"""
+        _ = args, kwargs
+        return {
+            "success": False,
+            "ok": False,
+            "error": "cluster_retired",
+            "cluster_retired": True,
+        }
 
-        return cluster_status_public(
-            audit_rotate=bool(audit_rotate),
-            audit_offset=audit_offset,
-            light=bool(light),
-            run_auto_demote=bool(run_auto_demote),
-        )
-
-    def compare_cluster_partition_vs_active(
-        self,
-        artifact: Optional[Dict[str, Any]] = None,
-        *,
-        from_draft: bool = True,
-        focus_codes: Optional[list] = None,
-    ) -> Dict[str, Any]:
-        """B3：draft/产物 vs active 晋升预检对照。"""
-        from core.signal.cluster.live import (
-            get_cluster_scoring_cfg,
-            load_active_cluster_weights,
-            load_cluster_draft,
-        )
-        from core.signal.cluster.oos_labels import compare_partition_vs_active
-
-        art = artifact
-        if from_draft or not art:
-            art = load_cluster_draft() or art
-        if not art:
-            return {"success": False, "error": "无 draft/产物可对照"}
-        ccfg = get_cluster_scoring_cfg()
-        max_rate = ccfg.get("max_oos_fail_rate")
-        return compare_partition_vs_active(
-            art,
-            load_active_cluster_weights(),
-            focus_codes=focus_codes,
-            max_oos_fail_rate=float(max_rate) if max_rate is not None else None,
-            allow_worse_than_active=bool(
-                ccfg.get("promote_allow_worse_oos_than_active", True)
-            ),
-        )
-
-    def promote_cluster_live(
-        self,
-        artifact: Optional[Dict[str, Any]] = None,
-        *,
-        note: str = "",
-        force: bool = False,
-        from_draft: bool = False,
-    ) -> Dict[str, Any]:
-        from core.signal.cluster.live import (
-            load_cluster_draft,
-            promote_cluster_artifact,
-        )
-
-        art = artifact
-        if from_draft or not art:
-            art = load_cluster_draft() or art
-        if not art:
-            return {"success": False, "error": "无产物可晋升（传 artifact 或先存草稿）"}
-        return promote_cluster_artifact(art, note=note, force=force)
+    def promote_cluster_live(self, *args: Any, **kwargs: Any) -> Dict[str, Any]:
+        """分组 promote 已退役。"""
+        _ = args, kwargs
+        return {
+            "success": False,
+            "ok": False,
+            "error": "cluster_retired",
+            "cluster_retired": True,
+        }
 
     def rollback_cluster_live(self, *, to_version: Optional[int] = None) -> Dict[str, Any]:
-        from core.signal.cluster.live import rollback_cluster_weights
+        """分组 live 回滚已退役。"""
+        _ = to_version
+        return {
+            "success": False,
+            "ok": False,
+            "error": "cluster_retired",
+            "cluster_retired": True,
+        }
 
-        return rollback_cluster_weights(to_version=to_version)
-
-    def set_cluster_live_mode(
-        self,
-        mode: str,
-        *,
-        enabled: Optional[bool] = None,
-        force: bool = False,
-    ) -> Dict[str, Any]:
-        from core.signal.cluster.live import set_cluster_scoring_mode
-
-        return set_cluster_scoring_mode(mode, enabled=enabled, force=force)
+    def set_cluster_live_mode(self, *args: Any, **kwargs: Any) -> Dict[str, Any]:
+        """分组 live mode 已退役。"""
+        _ = args, kwargs
+        return {
+            "success": False,
+            "ok": False,
+            "error": "cluster_retired",
+            "cluster_retired": True,
+        }
 
     def set_cluster_universe_fit_tiers(self, tiers: Any) -> Dict[str, Any]:
-        from core.signal.cluster.live import set_cluster_universe_fit_tiers as _set
-
-        return _set(tiers)
+        """宇宙拟合档设置已退役。"""
+        _ = tiers
+        return {
+            "success": False,
+            "ok": False,
+            "error": "cluster_retired",
+            "cluster_retired": True,
+        }
 
     def cluster_live_fit_tiers(self) -> Dict[str, Any]:
-        """code → A/B/C，完整报告 A 不被瘦产物盖掉。供四页股票名徽标。"""
-        from core.signal.cluster.fit_tier import load_code_fit_tier_map
-
-        mapping = load_code_fit_tier_map(prefer_research=True)
-        counts = {"A": 0, "B": 0, "C": 0}
-        for t in mapping.values():
-            if t in counts:
-                counts[t] += 1
+        """拟合档查询已退役。"""
         return {
-            "success": True,
-            "code_fit_tiers": mapping,
-            "fit_tier_counts": counts,
+            "success": False,
+            "ok": False,
+            "error": "cluster_retired",
+            "cluster_retired": True,
+            "code_fit_tiers": {},
+            "fit_tier_counts": {"A": 0, "B": 0, "C": 0},
         }
 
     def save_cluster_live_draft(self, artifact: Dict[str, Any]) -> Dict[str, Any]:
-        from core.signal.cluster.live import save_cluster_draft
-
-        return save_cluster_draft(artifact or {})
+        """分组草稿保存已退役。"""
+        _ = artifact
+        return {
+            "success": False,
+            "ok": False,
+            "error": "cluster_retired",
+            "cluster_retired": True,
+        }
 
     def refresh_cluster_live_book(self) -> Dict[str, Any]:
-        from core.signal.cluster.live import refresh_cluster_book_daily
+        """分池簿刷新已退役。"""
+        return {
+            "success": False,
+            "ok": False,
+            "error": "cluster_retired",
+            "cluster_retired": True,
+        }
 
-        return refresh_cluster_book_daily()
+    def rank_cluster_live_pools(self, **kwargs: Any) -> Dict[str, Any]:
+        """分池排序已退役。"""
+        _ = kwargs
+        return {
+            "success": False,
+            "ok": False,
+            "error": "cluster_retired",
+            "cluster_retired": True,
+        }
 
-    def rank_cluster_live_pools(
-        self,
-        *,
-        top_n_per_group: Optional[int] = None,
-        max_names: Optional[int] = None,
-    ) -> Dict[str, Any]:
-        from core.signal.service import get_default_signal_service
+    def apply_cluster_live_shortcut(self, *args: Any, **kwargs: Any) -> Dict[str, Any]:
+        """分组 live 一键应用已退役。"""
+        _ = args, kwargs
+        return {
+            "success": False,
+            "ok": False,
+            "error": "cluster_retired",
+            "cluster_retired": True,
+        }
 
-        return get_default_signal_service().rank_cluster_pools(
-            None,
-            top_n_per_group=top_n_per_group,
-            max_names=max_names,
-            persist_book=False,
-        ).as_dict()
-
-    def apply_cluster_live_shortcut(
-        self,
-        artifact: Optional[Dict[str, Any]] = None,
-        *,
-        from_draft: bool = True,
-        note: str = "",
-        mode: str = "shadow",
-        force: bool = False,
-    ) -> Dict[str, Any]:
-        """一键：晋升 + 影子/激活。分池簿已停用，不再刷簿。"""
-        from core.signal.cluster.live import apply_cluster_live_shortcut
-
-        return apply_cluster_live_shortcut(
-            artifact,
-            from_draft=from_draft,
-            note=note,
-            mode=mode,
-            refresh_book=False,
-            force=force,
-        )
-
-    def preview_cluster_paper_rebalance(
-        self,
-        book: List[Dict[str, Any]],
-        *,
-        top_k: Optional[int] = None,
-        confirm: bool = False,
-        artifact: Optional[Dict[str, Any]] = None,
-    ) -> Dict[str, Any]:
-        """分池候选簿 → 纸面调仓预演或确认落账（confirm 才写 paper，永不写 config）。"""
-        from quant.research.cluster_pool_artifact import preview_paper_pool_rebalance
-
-        return preview_paper_pool_rebalance(
-            book or [],
-            top_k=top_k,
-            dry_run=not bool(confirm),
-            confirm=bool(confirm),
-            artifact=artifact,
-        )
+    def preview_cluster_paper_rebalance(self, *args: Any, **kwargs: Any) -> Dict[str, Any]:
+        """分池簿纸面调仓已退役。"""
+        _ = args, kwargs
+        return {
+            "success": False,
+            "ok": False,
+            "error": "cluster_retired",
+            "cluster_retired": True,
+        }
 
     def run_factor_cs_ic_experiment(
         self,
@@ -5140,16 +4850,8 @@ class QuantFactorMixin:
             predicted = True
 
         if predicted:
-            model = None
-            try:
-                from core.signal.cluster.live import load_cluster_return_models_by_code
-
-                models = load_cluster_return_models_by_code() or {}
-                model = models.get(str(sym).strip()) or models.get(str(code).strip())
-            except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-                logger.debug("catch except Exception: in quant_service_factors.py", exc_info=True)
-                model = None
-            oos = scan_yhat_wait_oos(bars, model=model, horizon_days=3)
+            # 分组 return_model 已退役；单票 ŷ 扫描用全局模型 / None
+            oos = scan_yhat_wait_oos(bars, model=None, horizon_days=3)
         else:
             oos = scan_signal_parameters_oos(
                 bars,
@@ -5440,212 +5142,21 @@ def _oos_summary_from_clusters(clusters: list) -> Dict[str, Any]:
 
 
 def _report_from_cluster_draft() -> Optional[Dict[str, Any]]:
-    """把 ``cluster_weights_draft`` 收成研究区可渲染的报告形（缺 ols/IC 面板等全文）。"""
-    try:
-        from core.signal.cluster.live import load_cluster_draft
-    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in quant_service_factors.py", exc_info=True)
-        return None
-    try:
-        draft = load_cluster_draft()
-    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in quant_service_factors.py", exc_info=True)
-        return None
-    if not isinstance(draft, dict) or not draft.get("success"):
-        return None
-    clusters = draft.get("clusters")
-    if not isinstance(clusters, list) or not clusters:
-        return None
-    try:
-        import copy
-
-        clusters_copy = copy.deepcopy(clusters)
-        code_map = copy.deepcopy(draft.get("code_map") or {})
-        pool_book = copy.deepcopy(draft.get("pool_book") or [])
-    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in quant_service_factors.py", exc_info=True)
-        clusters_copy = list(clusters)
-        code_map = dict(draft.get("code_map") or {})
-        pool_book = list(draft.get("pool_book") or [])
-
-    codes: List[str] = []
-    if isinstance(code_map, dict) and code_map:
-        codes = sorted(str(c).strip() for c in code_map.keys() if str(c).strip())
-    else:
-        seen = set()
-        for cl in clusters_copy:
-            if not isinstance(cl, dict):
-                continue
-            for m in cl.get("members") or []:
-                c = str(m).strip()
-                if c and c not in seen:
-                    seen.add(c)
-                    codes.append(c)
-        codes.sort()
-
-    n_clusters = int(draft.get("n_clusters") or len(clusters_copy))
-    n_mapped = int(draft.get("n_mapped_codes") or len(codes))
-    saved_at = draft.get("saved_at") or draft.get("created_at")
-    art = {
-        "success": True,
-        "is_draft": True,
-        "schema_version": draft.get("schema_version"),
-        "created_at": draft.get("created_at"),
-        "saved_at": saved_at,
-        "code_map": code_map,
-        "clusters": clusters_copy,
-        "pool_book": pool_book,
-        "n_clusters": n_clusters,
-        "n_mapped_codes": n_mapped,
-        "note": "从草稿恢复的映射产物",
-    }
-    report: Dict[str, Any] = {
-        "success": True,
-        "task": "factor_ols_clusters",
-        "mode": "ols_beta_clusters",
-        "n_clusters": n_clusters,
-        "clusters": clusters_copy,
-        "stock_count": n_mapped,
-        "universe_count": n_mapped,
-        "fitted_count": n_mapped,
-        "watching_codes": codes,
-        "n_mapped_codes": n_mapped,
-        "pool_artifact": art,
-        "pool_merge": {
-            "success": bool(pool_book),
-            "book": {"book": pool_book} if pool_book else {"book": []},
-        },
-        "oos_summary": _oos_summary_from_clusters(clusters_copy),
-        "cache_created_at": saved_at,
-        "cluster_draft_saved": True,
-        "is_draft_restore": True,
-        "note": "从草稿恢复；组表/β 可用，缺完整研究面板。点「跑分组」可重算全文。",
-        "hydrated_from_cache": True,
-        "restored_from": "draft",
-    }
-    try:
-        _enrich_cluster_name_by_code(report)
-    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in quant_service_factors.py", exc_info=True)
-        pass
-    try:
-        from core.signal.cluster.fit_tier import attach_cluster_fit_tiers
-
-        attach_cluster_fit_tiers(report)
-    except Exception:  # noqa: BLE001 — 草稿缺 OOS 仍可分档
-        logger.debug("catch except Exception: in quant_service_factors.py", exc_info=True)
-        pass
-    return report
+    """分组草稿恢复已退役。"""
+    return None
 
 
 def _load_latest_cluster_report() -> Optional[Dict[str, Any]]:
-    """读最近一次成功分组：last_report → 指纹缓存（不得旧于草稿）→ 草稿。"""
-    import json
-    import os
-
-    from core.paths import CLUSTER_LAST_REPORT_PATH, CLUSTER_REPORT_CACHE_PATH
-
-    draft_ts = _draft_saved_at_iso()
-
-    def _unpack(path: str, *, source: str) -> Optional[Dict[str, Any]]:
-        if not os.path.isfile(path):
-            return None
-        try:
-            with open(path, encoding="utf-8") as f:
-                doc = json.load(f)
-        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-            logger.debug("catch except Exception: in quant_service_factors.py", exc_info=True)
-            return None
-        if not isinstance(doc, dict):
-            return None
-        report = doc.get("report") if isinstance(doc.get("report"), dict) else doc
-        if not isinstance(report, dict) or not report.get("success"):
-            return None
-        if not isinstance(report.get("clusters"), list) or not report.get("clusters"):
-            return None
-        created = (
-            doc.get("saved_at")
-            or doc.get("cache_created_at")
-            or doc.get("created_at")
-            or report.get("cache_created_at")
-        )
-        # 指纹缓存若明显旧于草稿（例如刷新日线跑完只写了 draft），勿当作「最近一次」
-        if source == "fingerprint_cache" and _iso_newer(draft_ts, created):
-            return None
-        try:
-            import copy
-
-            out = copy.deepcopy(report)
-        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-            logger.debug("catch except Exception: in quant_service_factors.py", exc_info=True)
-            out = dict(report)
-        out["cache_created_at"] = created
-        out["hydrated_from_cache"] = True
-        out["restored_from"] = source
-        try:
-            from core.signal.factors.meta.taxonomy import strip_removed_factors_from_cluster_report
-
-            strip_removed_factors_from_cluster_report(out)
-        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-            logger.debug("catch except Exception: in quant_service_factors.py", exc_info=True)
-            pass
-        try:
-            from core.signal.cluster.fit_tier import attach_cluster_fit_tiers
-
-            attach_cluster_fit_tiers(out)
-        except Exception:  # noqa: BLE001 — 旧报告无 OOS 时仍可分档
-            logger.debug("catch except Exception: in quant_service_factors.py", exc_info=True)
-            pass
-        return out
-
-    last = _unpack(CLUSTER_LAST_REPORT_PATH, source="last_report")
-    if last is not None:
-        return last
-    cached = _unpack(CLUSTER_REPORT_CACHE_PATH, source="fingerprint_cache")
-    if cached is not None:
-        return cached
-    return _report_from_cluster_draft()
+    """分组报告水合已退役。"""
+    return None
 
 
 def hydrate_ols_clusters_job_result(
     result: Optional[Dict[str, Any]],
 ) -> Optional[Dict[str, Any]]:
-    """Job 落盘摘要缺 ``clusters`` 时，从最近报告补全（抗热重载）。
+    """分组 Job 水合已退役；原样返回。"""
+    return result
 
-    canonical：``core.signal.cluster.job_hydrate``；此处先走 core，再尝试草稿回退。
-    """
-    from core.signal.cluster.job_hydrate import (
-        hydrate_ols_clusters_job_result as _core_hydrate,
-    )
-
-    out = _core_hydrate(result)
-    if (
-        isinstance(out, dict)
-        and isinstance(out.get("clusters"), list)
-        and out.get("clusters")
-    ):
-        return out
-    if not isinstance(result, dict):
-        return result
-    clusters = result.get("clusters")
-    if isinstance(clusters, list) and len(clusters) > 0:
-        return result
-    if not (
-        result.get("persisted_artifact")
-        or result.get("success")
-        or result.get("ok")
-    ):
-        return result
-    cached = _load_latest_cluster_report()
-    if not cached:
-        return result
-    cached = dict(cached)
-    cached["hydrated_from_job_stub"] = True
-    cached["job_stub_n_clusters"] = result.get("n_clusters")
-    for k in ("cache_hit", "cache_age_hours", "oos_summary"):
-        if result.get(k) is not None and cached.get(k) is None:
-            cached[k] = result.get(k)
-    return cached
 
 def _load_cluster_cache(
     fingerprint: str, *, max_age_hours: int = 24

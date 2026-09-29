@@ -1374,20 +1374,28 @@ export function clusterFitTierFromHealth(h) {
       label: FIT_TIER_LABEL.C,
     };
   }
+  const y = Number(h.yhatOos);
+  if (!Number.isFinite(y)) {
+    return { tier: "C", reason: "yhat_oos_missing", label: FIT_TIER_LABEL.C };
+  }
+  if (y <= 0) {
+    return { tier: "C", reason: "yhat_oos_nonpositive", label: FIT_TIER_LABEL.C };
+  }
   const ic = Number(h.icMean);
   const icir = Number(h.icir);
-  const y = Number(h.yhatOos);
   const icOk = Number.isFinite(ic) && ic > 0;
   const icirOk = Number.isFinite(icir) && icir > 0;
-  const yOk = Number.isFinite(y) && y > 0;
-  if (icOk && icirOk && yOk) {
+  if (icOk && icirOk) {
     return { tier: "A", reason: "oos_passed_ic_icir_yhat_positive", label: FIT_TIER_LABEL.A };
   }
   const bits = [];
   if (!icOk) bits.push(Number.isFinite(ic) ? "ic_nonpositive" : "ic_missing");
   if (!icirOk) bits.push(Number.isFinite(icir) ? "icir_nonpositive" : "icir_missing");
-  if (!yOk) bits.push(Number.isFinite(y) ? "yhat_oos_nonpositive" : "yhat_oos_missing");
-  return { tier: "B", reason: "oos_passed;" + bits.join(","), label: FIT_TIER_LABEL.B };
+  return {
+    tier: "B",
+    reason: "oos_passed_yhat_positive;" + bits.join(","),
+    label: FIT_TIER_LABEL.B,
+  };
 }
 
 export function clusterFitTierFromCluster(cl) {
@@ -1527,7 +1535,7 @@ export function buildClustersHealthMatrixHtml(
   const kpiRow =
     `<div class="yhat-mx-kpis" aria-label="跨组健康汇总">` +
     kpi("过门", `${passN}/${scoredN || 0}`, "OOS 过门组数 / 可评组数") +
-    kpi("A", String(fitA.length), "A 强：过门且截面 IC、ICIR>0 且 ŷOOS>0") +
+    kpi("A", String(fitA.length), "A 强：过门且截面 IC、ICIR>0 且 ŷOOS>0（优于 B）") +
     kpi("B", String(fitB.length), "B 中：OOS 过门未达 A") +
     kpi("C", String(fitC.length), "C 弱：未过 / 跳过 / 单票 / 无模型") +
     (bestFit
@@ -1556,7 +1564,7 @@ export function buildClustersHealthMatrixHtml(
     ["#", "排序（A→B→C，同档按截面 IC）"],
     ["组", "组标签；蓝=A · 绿=B"],
     ["只", "组成员数"],
-    ["档", "A 强=过门且 IC/ICIR>0 且 ŷOOS>0；B 中=过门未达强；C 弱=未过/跳过/单票"],
+    ["档", "A 强=过门且 IC/ICIR>0 且 ŷOOS>0；B 中=过门且 ŷOOS>0 未达强；C 弱=未过/ŷ≤0/跳过/单票"],
     ["R²", "组 OLS R²；≥0.7 偏绿"],
     ["MSE", "ŷ_oo Holdout MSE=mean((y−ŷ)²)；越低越好（相对组均着色）"],
     ["IC", "组截面 Spearman IC 均值"],
@@ -1613,8 +1621,8 @@ export function buildClustersHealthMatrixHtml(
         r.fit === "A"
           ? "A 强：过门且 IC、ICIR>0，ŷOOS>0"
           : r.fit === "B"
-            ? `B 中：OOS 过门未达强${r.fitReason ? " · " + r.fitReason : ""}`
-            : `C 弱：未过/跳过/单票${r.fitReason ? " · " + r.fitReason : ""}`;
+            ? `B 中：过门且 ŷOOS>0 未达强${r.fitReason ? " · " + r.fitReason : ""}`
+            : `C 弱：未过/ŷ≤0/跳过/单票${r.fitReason ? " · " + r.fitReason : ""}`;
       const cells =
         `<td class="yhat-mx-td num yhat-mx-td-rank" title="排名">${rank + 1}</td>` +
         `<td class="yhat-mx-td yhat-mx-td-group${r.singleton ? " is-singleton" : ""}${
@@ -1682,7 +1690,7 @@ export function buildClustersHealthMatrixHtml(
     swatch("is-good", "质量好") +
     swatch("is-weak", "质量弱") +
     `</span>` +
-    `<span class="yhat-mx-legend-note">A 强=过门且 IC/ICIR>0 且 ŷOOS>0 · B 中=过门未达强 · C 弱=未过/跳过/单票` +
+    `<span class="yhat-mx-legend-note">A 强=过门且 IC/ICIR>0 且 ŷOOS>0 · B 中=过门且 ŷOOS>0 未达强 · C 弱=未过/ŷ≤0/跳过/单票` +
     (pref ? ` · 导出优先 ${esc(pref)}` : "") +
     `</span>` +
     `</p>`;

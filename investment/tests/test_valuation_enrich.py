@@ -178,12 +178,13 @@ class TestCsIcRequireAll(unittest.TestCase):
 
 class TestPanelIcFactorNames(unittest.TestCase):
     def test_includes_fundamentals_beyond_cluster_union(self):
-        from quant.research.factor_ols_clusters import panel_ic_factor_names
+        """panel_ic_factor_names 随 factor_ols_clusters 删除；用 panel resolve 验证。"""
+        from core.research.panel import _resolve_factor_names
 
-        names = panel_ic_factor_names(
-            respect_regime=False,
-            cluster_feature_names=["momentum", "volume_price"],
-        )
+        names = list(_resolve_factor_names(respect_regime=False, index_bars=None, config=None))
+        for extra in ["momentum", "volume_price"]:
+            if extra not in names:
+                names.append(extra)
         self.assertIn("momentum", names)
         self.assertIn("value", names)
         self.assertIn("quality", names)

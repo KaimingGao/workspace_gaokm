@@ -54,6 +54,7 @@ DEFAULT_SIGNAL_CONFIG: Dict[str, Any] = {
         "liquidity_flow": ["liquidity", "money_flow", "amihud", "volume_price"],
         "risk": ["volatility", "gap_risk", "tail_anomaly", "overheat"],
         "residual": ["relative_strength", "idio_momentum", "size"],
+        "pv_derived": ["alpha158"],
     },
     "hard_reject": {
         "min_bars": 2,
@@ -165,7 +166,8 @@ DEFAULT_SIGNAL_CONFIG: Dict[str, Any] = {
         # P2a：对 predicted 排序键做行业残差（默认关；影子/人审后开）
         "yhat_residual": False,
     },
-    # 分组 live：开关在此；权向量在 data/live/cluster_weights_*.json
+    # cluster_scoring：分组 live 已退役（cluster_retired）。保留键以免旧配置/UI 崩；
+    # 生产须 mode=off · enabled=false · universe_fit_tiers=A+B+C。勿再开 active/shadow。
     "cluster_scoring": {
         "enabled": False,
         "mode": "off",
@@ -174,7 +176,7 @@ DEFAULT_SIGNAL_CONFIG: Dict[str, Any] = {
         "min_coverage": 0.5,
         "max_age_days": 14,
         "refit_max_age_days": 14,
-        "auto_demote_on_stale": True,
+        "auto_demote_on_stale": False,
         # FH0/Y1.4：OOS 失败率超过该值则禁止 active（默认 0.5）
         "max_oos_fail_rate": 0.5,
         # Y1.3：滚动 ŷ IC 低于此值时禁止 active（FS1 默认硬拦；force+审计可豁免）
@@ -184,7 +186,7 @@ DEFAULT_SIGNAL_CONFIG: Dict[str, Any] = {
         "min_sector_map_coverage": 0.5,
         # B1：相对 active 默认软提示（True）；False=恢复「不得差于 active」硬闸
         "promote_allow_worse_oos_than_active": True,
-        # 观察池宇宙按拟合档过滤新开/加；默认三档=不过滤。已持仓仍可卖/持。
+        # 观察池宇宙按拟合档过滤新开/加；分组下线后默认 A+B+C 不限制
         "universe_fit_tiers": ["A", "B", "C"],
         # 建簿约束：可成交过滤 · 行业名额 · τ 闸 defer（与纸面 risk 同配置源）
         "book_constraints": {

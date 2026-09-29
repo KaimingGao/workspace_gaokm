@@ -5,50 +5,14 @@ import {
   weightSuggestStatusHtml as buildWeightSuggestStatusHtml,
   factorWeightSuggestCellTip,
 } from "./suggest_status_ui.js";
-import { formatClusterApiError } from "./cluster_api.js";
 import { openProbeFold } from "./probe_ui.js";
 
 /** Quant domain: suggest */
 export function installSuggest(q) {
   const { on, els, state, ctx, escapeHtml, apiFetch, setQuantMeta, setBusyText } = q;
-  const { readHorizonDays, readRidgeLambda, readClusterK, readWatchingLimit, readHoldoutTradingDays, ensureFactorMeta, rememberFactorMeta, factorMetaByName, factorMetaByLabel, factorIcWeightMergedHtml, parseOosGateReason, fmtEmptyCell, fmtOlsCell } = q;
+  const { readHorizonDays, readRidgeLambda, readWatchingLimit, readHoldoutTradingDays, ensureFactorMeta, rememberFactorMeta, factorMetaByName, factorMetaByLabel, factorIcWeightMergedHtml, parseOosGateReason, fmtEmptyCell, fmtOlsCell } = q;
   const { researchGridHtml, metricCell, metricClass, fmtPct } = q;
 
-  function formatSuggestError(data, status, fallback = "请求失败") {
-    const msg = formatClusterApiError(data, status);
-    return msg && msg !== "请求失败" ? msg : fallback;
-  }
-
-  function isNetworkFetchError(err) {
-    const msg = String((err && err.message) || err || "");
-    const name = String((err && err.name) || "");
-    return (
-      name === "TypeError" ||
-      /failed to fetch|networkerror|load failed|network request failed/i.test(msg)
-    );
-  }
-
-  function explainNetworkFetchError(err, retryHint = "请再点「跑分组」") {
-    if (!isNetworkFetchError(err)) {
-      return String((err && err.message) || err || "请求失败");
-    }
-    return `服务断开（可能刚重启），${retryHint}`;
-  }
-
-  async function fetchRetry(url, init, { tries = 6, delayMs = 350 } = {}) {
-    let lastErr = null;
-    for (let i = 0; i < tries; i++) {
-      try {
-        return await fetch(url, init);
-      } catch (err) {
-        lastErr = err;
-        if (i < tries - 1) {
-          await new Promise((r) => setTimeout(r, delayMs * (i + 1)));
-        }
-      }
-    }
-    throw lastErr;
-  }
 
   function weightSuggestStatusHtml(suggest) {
     return buildWeightSuggestStatusHtml(suggest, {
@@ -217,22 +181,6 @@ export function installSuggest(q) {
       ) || "";
   }
 
-  async function runAllSuggest() {
-    setBusyText(els.quantOlsSummary, "分析中…", { busy: true });
-    setBusyText(els.quantThresholdSummary, "分析中…", { busy: true });
-    // 忙碌态只留在摘要行，避免表内再叠一句「分析中…」
-    if (els.quantFactorList) els.quantFactorList.innerHTML = "";
-    if (els.quantThresholdTable) els.quantThresholdTable.innerHTML = "";
-    try {
-      await runFactorIcSuggest();
-      await runFactorOlsSuggest();
-      await runThresholdSuggest({ useWatching: false });
-      setQuantMeta("建议已更新 · 仅供对照");
-    } catch (err) {
-      setQuantMeta(String(err.message || err), { error: true });
-      throw err;
-    }
-  }
 
   async function runFactorCsIcSuggest() {
     setQuantMeta("截面 IC 计算中…", { busy: true });
@@ -406,452 +354,12 @@ export function installSuggest(q) {
     renderFactorExperiment(exp, sug);
   }
 
-  async function hydrateClustersFromLastReport(stubResult) {
-    try {
-      const hr = await fetchRetry(
-        "/api/quant/factor-ols-clusters/last-report",
-        undefined,
-        { tries: 4, delayMs: 400 }
-      );
-      const hrText = await hr.text();
-      const hydrated = hrText ? JSON.parse(hrText) : null;
-      if (
-        hydrated &&
-        hydrated.success &&
-        Array.isArray(hydrated.clusters) &&
-        hydrated.clusters.length
-      ) {
-        return {
-          ...hydrated,
-          hydrated_from_job_stub: true,
-          job_stub_n_clusters: stubResult && stubResult.n_clusters,
-        };
-      }
-    } catch (_) {
-      /* keep stub */
-    }
-    return null;
-  }
-
-  async function waitQuantOlsClustersJob(jobId) {
-    const pollStarted = Date.now();
-    // soft 25min：无心跳才判超时；有心跳则继续等（满池 auto-k+OOS 常 >35min）
-    // absolute 90min：极端安全阀，避免永久挂起
-    const softCapMs = 25 * 60 * 1000;
-    const absoluteCapMs = 90 * 60 * 1000;
-    const heartbeatFreshSec = 90;
-    let sawOwnJob = false;
-    let netFailStreak = 0;
-    const originMsFromJob = (job) => {
-      const sa = Number(job && job.started_at);
-      // JobProgress 用 time.time() 秒
-      if (Number.isFinite(sa) && sa > 1e9) return sa * 1000;
-      return pollStarted;
-    };
-    while (true) {
-      let res;
-      try {
-        // 单次少试几次：断连时由外层循环继续等，避免 6 次就整段失败
-        res = await fetchRetry("/api/jobs/quant-ols-clusters?progress=1", undefined, {
-          tries: 3,
-          delayMs: 400,
-        });
-        netFailStreak = 0;
-      } catch (err) {
-        netFailStreak += 1;
-        const sec = Math.max(1, Math.round((Date.now() - pollStarted) / 1000));
-        setBusyText(
-          els.quantOlsSummary,
-          `分组中… ${sec}s · 服务短暂断开，重连中（${netFailStreak}）…`,
-          { busy: true }
-        );
-        await new Promise((r) => setTimeout(r, Math.min(4000, 500 * netFailStreak)));
-        continue;
-      }
-      if (!res.ok && res.status >= 500) {
-        await new Promise((r) => setTimeout(r, 400));
-        continue;
-      }
-      let payload = {};
-      try {
-        payload = await res.json();
-      } catch (err) {
-        if (isNetworkFetchError(err)) {
-          netFailStreak += 1;
-          await new Promise((r) => setTimeout(r, 500));
-          continue;
-        }
-        await new Promise((r) => setTimeout(r, 400));
-        continue;
-      }
-      const job = (payload && payload.job) || {};
-      const sameJob = !jobId || !job.id || job.id === jobId;
-      if (sameJob && job.id) sawOwnJob = true;
-      if (job.status === "idle" || !job.id) {
-        if (sawOwnJob || Date.now() - pollStarted > 2500) {
-          throw new Error("分组任务已中断（可能服务重启），请再点「跑分组」");
-        }
-        await new Promise((r) => setTimeout(r, 400));
-        continue;
-      }
-      if (!sameJob) {
-        throw new Error("分组任务已被其它任务覆盖，请重试");
-      }
-      if (job.status === "done") {
-        // progress=1 不含完整 result；再拉一次完整结果
-        let fullJob = job;
-        try {
-          const fullRes = await fetchRetry("/api/jobs/quant-ols-clusters", undefined, {
-            tries: 4,
-            delayMs: 400,
-          });
-          const raw = await fullRes.text();
-          let fullPayload = null;
-          try {
-            fullPayload = raw ? JSON.parse(raw) : null;
-          } catch (_) {
-            fullPayload = null;
-          }
-          if (!fullRes.ok || !fullPayload) {
-            throw new Error(
-              fullRes.ok
-                ? "分组结果无法解析（可能含非法浮点）"
-                : `HTTP ${fullRes.status}`
-            );
-          }
-          fullJob = (fullPayload && fullPayload.job) || job;
-        } catch (_) {
-          // 完整 Job 序列化失败时仍可从 last-report 水合
-          fullJob = { ...job, result: (job && job.result) || {} };
-        }
-        let result = (fullJob && fullJob.result) || {};
-        // 热重载后 Job 可能只剩摘要：从报告缓存水合
-        const hasClusters =
-          Array.isArray(result.clusters) && result.clusters.length > 0;
-        if (!hasClusters) {
-          const hydrated = await hydrateClustersFromLastReport(result);
-          if (hydrated) {
-            result = hydrated;
-            fullJob.result = result;
-          }
-        }
-        return fullJob;
-      }
-      if (job.status === "failed") {
-        throw new Error(job.error || job.message || "分组任务失败");
-      }
-      const originMs = originMsFromJob(job);
-      const elapsed = Date.now() - originMs;
-      if (elapsed >= absoluteCapMs) {
-        throw new Error("分组任务超时（超过 90 分钟）");
-      }
-      if (elapsed >= softCapMs) {
-        const ua = Number(job.updated_at);
-        const fresh =
-          Number.isFinite(ua) &&
-          Date.now() / 1000 - ua < heartbeatFreshSec;
-        if (!fresh) {
-          throw new Error("分组任务超时（无心跳进展）");
-        }
-      }
-      const pct = Number(job.pct) || 0;
-      const msg = job.message || "运行中…";
-      const sec = Math.max(1, Math.round(elapsed / 1000));
-      const line = `分组中… ${sec}s · ${msg}${
-        Number.isFinite(pct) && pct > 0 ? ` · ${Math.round(pct)}%` : ""
-      }`;
-      setBusyText(els.quantOlsSummary, line, { busy: true });
-      await new Promise((r) => setTimeout(r, 400));
-    }
-  }
-
   async function runFactorOlsClustersSuggest(opts) {
-    // 进页 bootstrap 与手动「跑分组」共用一次执行，避免双 POST 撞槽
-    if (runFactorOlsClustersSuggest._inflight) {
-      return runFactorOlsClustersSuggest._inflight;
-    }
-    runFactorOlsClustersSuggest._inflight = _runFactorOlsClustersSuggestInner(opts)
-      .finally(() => {
-        runFactorOlsClustersSuggest._inflight = null;
-      });
-    return runFactorOlsClustersSuggest._inflight;
-  }
-
-  /** 刷新后若后台分组仍在跑，接上轮询（不新开任务）。 */
-  async function resumeQuantOlsClustersJobIfAny() {
-    if (runFactorOlsClustersSuggest._inflight) {
-      return runFactorOlsClustersSuggest._inflight;
-    }
-    try {
-      const res = await fetch("/api/jobs/quant-ols-clusters?progress=1");
-      if (!res.ok) return null;
-      const payload = await res.json();
-      const job = (payload && payload.job) || {};
-      if (job.status === "running" && job.id) {
-        return runFactorOlsClustersSuggest({ resumeJobId: job.id });
-      }
-    } catch (_) {
-      /* ignore */
-    }
-    return null;
-  }
-
-  async function _runFactorOlsClustersSuggestInner(opts) {
-    const resumeJobId = opts && opts.resumeJobId;
-    const started = Date.now();
-    let timer = null;
-    const tick = () => {
-      const sec = Math.max(1, Math.round((Date.now() - started) / 1000));
-      // 进度走分组卡头（主操作旁）；页顶保留路径说明
-      setBusyText(
-        els.quantOlsSummary,
-        resumeJobId
-          ? `接上已在跑的分组… ${sec}s`
-          : `分组中… ${sec}s · 观察池`,
-        { busy: true }
-      );
-    };
-    const stopTick = () => {
-      if (timer != null) {
-        clearInterval(timer);
-        timer = null;
-      }
-    };
-    tick();
-    timer = setInterval(tick, 1000);
-    await ensureFactorMeta();
-    try {
-      let data = null;
-      if (resumeJobId) {
-        stopTick();
-        setBusyText(els.quantOlsSummary, "接上已在跑的分组…", { busy: true });
-        const job = await waitQuantOlsClustersJob(resumeJobId);
-        data = job.result || {};
-      } else {
-        let res;
-        try {
-          res = await fetchRetry(
-            "/api/quant/factor-ols-clusters",
-            {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                lookback: 80,
-                horizon_days: readHorizonDays(),
-                holdout_trading_days: readHoldoutTradingDays(),
-                watching_limit: readWatchingLimit(),
-                // null → 自动目标 k≈n/5（约 4～10）+ 超大组二分；填了则按目标 k
-                n_clusters: readClusterK(),
-                cluster_method: "hierarchical",
-                cluster_linkage: "complete",
-                within_dist_quantile: 0.75,
-                ridge_lambda: readRidgeLambda(),
-                pit_fundamentals: true,
-                beta_scale: "feature_zscore",
-                run_oos_gate: true,
-                oos_tol_pp: 1.0,
-                run_group_score: true,
-                run_pool_merge: true,
-                top_n_per_group: 10,
-                // 日线：当日首次分组服务端自动强制拉新；同日再跑纯缓存（不再传 refresh_bars）
-                // 默认关：研究全因子；勾选=与 live regime 白名单对齐（表里会裁掉许多因子）
-                respect_regime: !!(
-                  (document.getElementById("quant-cluster-respect-regime") || {})
-                    .checked
-                ),
-              }),
-            },
-            { tries: 4, delayMs: 500 }
-          );
-        } catch (err) {
-          stopTick();
-          throw new Error(explainNetworkFetchError(err));
-        }
-        try {
-          data = await res.json();
-        } catch (_) {
-          data = null;
-        }
-        if (!res.ok) {
-          stopTick();
-          const detail = formatSuggestError(
-            data,
-            res.status,
-            res.status === 404
-              ? "接口未找到：请重启 Web（WEB_RELOAD=off 时需手动重启）"
-              : `HTTP ${res.status}`
-          );
-          setBusyText(els.quantOlsSummary, detail, { busy: false });
-          setQuantMeta(`分组失败 · ${detail}`, { error: true });
-          if (els.quantOlsClusters) {
-            els.quantOlsClusters.textContent = detail;
-          }
-          throw new Error(detail);
-        }
-        // 兼容旧后端：忙时返回 error + job → 仍附到现任务
-        if (
-          data &&
-          !data.background &&
-          data.job &&
-          (data.job.status === "running" ||
-            String(data.error || "").includes("已有分组任务"))
-        ) {
-          data = {
-            ...data,
-            background: true,
-            reused: true,
-            success: true,
-            ok: true,
-          };
-        }
-        // FH2：后台 Job → 轮询；sync 兼容路径直接带 success 报告
-        if (data && data.background && data.job) {
-          stopTick();
-          if (data.reused) {
-            setBusyText(els.quantOlsSummary, "分组进行中 · 已接入现有任务", {
-              busy: true,
-            });
-          }
-          const job = await waitQuantOlsClustersJob(data.job.id);
-          data = job.result || {};
-        }
-      }
-      stopTick();
-      const computeSec = Math.max(1, Math.round((Date.now() - started) / 1000));
-      if (!(data && data.success)) {
-        const detail = formatSuggestError(
-          data,
-          0,
-          (data && typeof data.error === "string" && data.error) || "分组失败"
-        );
-        setBusyText(els.quantOlsSummary, detail, { busy: false });
-        setQuantMeta(`分组失败 · ${detail}`, { error: true });
-        throw new Error(detail);
-      }
-      setBusyText(
-        els.quantOlsSummary,
-        data.cache_hit
-          ? `命中 24h 缓存 · 渲染中… ${
-              data.cache_age_hours != null ? `(${data.cache_age_hours}h 前)` : ""
-            }`
-          : `分组完成 · 渲染中… ${computeSec}s`,
-        { busy: true }
-      );
-      await new Promise((r) => setTimeout(r, 0));
-      try {
-        q.cluster.renderOlsClusters(data);
-      } catch (renderErr) {
-        const detail = String((renderErr && renderErr.message) || renderErr);
-        setBusyText(els.quantOlsSummary, detail, { busy: false });
-        setQuantMeta(`分组已算完，渲染失败 · ${detail}`, { error: true });
-        throw renderErr;
-      }
-      const nCl = data.n_clusters ?? (data.clusters || []).length ?? "—";
-      const nUni = data.universe_count ?? data.stock_count ?? "—";
-      const nWatch = (data.watching_codes || []).length;
-      const nIn = data.stock_count ?? "—";
-      const sec = Math.max(1, Math.round((Date.now() - started) / 1000));
-      const os = data.oos_summary || {};
-      const oosTag = os.run
-        ? ` · OOS✓${os.passed ?? 0}/✗${os.failed ?? 0}`
-        : "";
-      const pmOk = data.pool_merge && data.pool_merge.success ? " · 分池合成" : "";
-      const kTag =
-        data.target_k != null
-          ? readClusterK() != null
-            ? ` · 目标k=${data.target_k}`
-            : ` · 自动k=${data.target_k}`
-          : "";
-      const pitTag =
-        data.pit_fundamentals === false ||
-        (data.lookahead_flags && data.lookahead_flags.pit_fundamentals === false)
-          ? " · 非PIT"
-          : " · PIT";
-      const br = data.bars_refresh || {};
-      const barsTag = data.force_latest_bars
-        ? ` · 当日首次强制日线 ${br.remote_count ?? 0}/${br.total ?? "—"}`
-        : " · 缓存日线";
-      const regimeTag = data.respect_regime ? " · regime裁剪" : " · 全因子";
-      const cacheTag = data.cache_hit
-        ? ` · 缓存命中${data.cache_age_hours != null ? ` ${data.cache_age_hours}h` : ""}`
-        : data.hydrated_from_job_stub || data.hydrated_from_cache
-          ? ` · 已从落盘恢复${
-              data.restored_from ? `(${data.restored_from})` : ""
-            }`
-          : "";
-      const liveHint =
-        " · 研究区已更新；live 映射须点「对照」才会从旧组数切换";
-      const doneLine = `分组 · ${nCl} 组${kTag} · 观察 ${nWatch || nUni} · 入组 ${nIn} · ${sec}s${oosTag}${pmOk}${pitTag}${barsTag}${regimeTag}${cacheTag}${liveHint}`;
-      setBusyText(els.quantOlsSummary, doneLine, { busy: false });
-      setQuantMeta(doneLine);
-      try {
-        await q.clusterBars?.refreshStatus?.();
-      } catch (_) {
-        /* ignore */
-      }
-    } finally {
-      stopTick();
-    }
-  }
-
-  async function runFactorOlsPoolSuggest() {
-    setBusyText(els.quantOlsSummary, "研究池 OLS 中…", { busy: true });
-    await ensureFactorMeta();
-    const res = await fetch("/api/quant/factor-ols-pool", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        lookback: 120,
-        horizon_days: readHorizonDays(),
-        watching_limit: 8,
-        ridge_lambda: readRidgeLambda(),
-      }),
-    });
-    let data = null;
-    try {
-      data = await res.json();
-    } catch (_) {
-      data = null;
-    }
-    if (!res.ok) {
-      const detail =
-        (data && (data.detail || data.error)) ||
-        (res.status === 404
-          ? "接口未找到：请重启 Web（WEB_RELOAD=off 时需手动重启）"
-          : `HTTP ${res.status}`);
-      setBusyText(els.quantOlsSummary, detail, { busy: false });
-      setQuantMeta(`池内 OLS 失败 · ${detail}`, { error: true });
-      return;
-    }
-    q.cluster.renderFactorOls(data);
-    if (data && data.success) {
-      const codes = Array.isArray(data.stock_codes) ? data.stock_codes.filter(Boolean) : [];
-      const codeNote = codes.length ? ` · ${codes.join("、")}` : "";
-      setQuantMeta(
-        `池内 OLS · ${data.stock_count ?? codes.length ?? "—"} 只${codeNote} · R²=${data.r_squared ?? "—"} · n=${data.sample_count ?? "—"}${
-          data.standardized ? " · z-score β" : ""
-        }`
-      );
-    } else {
-      setQuantMeta((data && data.error) || "池内 OLS 失败", { error: true });
-    }
-  }
-
-  async function runFactorOlsSuggest() {
-    const code = q.cluster.readOlsCode();
-    setBusyText(els.quantOlsSummary, `OLS 实验中… · ${code}`, { busy: true });
-    await ensureFactorMeta();
-    const res = await fetch("/api/quant/factor-ols", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        code,
-        lookback: 120,
-        horizon_days: readHorizonDays(),
-        ridge_lambda: readRidgeLambda(),
-      }),
-    });
-    q.cluster.renderFactorOls(await res.json());
+    void opts;
+    const msg = "分组已退役（cluster_retired）· 请用全局 ŷ_oo 拟合";
+    setBusyText(els.quantOlsSummary, msg, { busy: false });
+    setQuantMeta(msg);
+    return { success: false, error: "cluster_retired", cluster_retired: true };
   }
 
   async function runThresholdSuggest({ useWatching = false } = {}) {
@@ -989,6 +497,300 @@ export function installSuggest(q) {
     return factorIcWeightMergedHtml(null, suggest, state.lastOlsForMerge);
   }
 
+  function paintOoStatus(opts) {
+    const render = q.renderRemStatus;
+    if (typeof render === "function") {
+      render(els.quantOlsSummary, opts);
+      return;
+    }
+    setBusyText(els.quantOlsSummary, opts.message || opts.chip || "", {
+      busy: !!opts.busy,
+    });
+  }
+
+  function _setOoPromoteEnabled(draftExists) {
+    for (const id of [
+      "quant-return-model-promote",
+      "quant-return-model-persist-research",
+    ]) {
+      const btn = document.getElementById(id);
+      if (btn) btn.disabled = !draftExists;
+    }
+  }
+
+  async function renderReturnModelFit(data) {
+    const resultEl = document.getElementById("quant-oo-result");
+    const paintCoef =
+      typeof q.renderOoCoefTable === "function" ? q.renderOoCoefTable : null;
+    const clearResult =
+      typeof q.clearOoResultBox === "function"
+        ? q.clearOoResultBox
+        : () => {
+            if (resultEl) resultEl.innerHTML = "";
+          };
+    if (!data || !data.success) {
+      paintOoStatus({
+        state: "error",
+        chip: "失败",
+        message: (data && data.error) || "拟合失败",
+        error: true,
+      });
+      setQuantMeta((data && data.error) || "ŷ_oo 拟合失败", { error: true });
+      if (resultEl) {
+        resultEl.innerHTML = `<p class="watching-table-empty">${escapeHtml(
+          (data && data.error) || "拟合失败"
+        )}</p>`;
+      }
+      if (paintCoef) await paintCoef(null);
+      return;
+    }
+    const ols = data.ols || {};
+    const nCoef = Object.keys((data.model || {}).coefficients || {}).length;
+    const draftOk = !!(data.draft && data.draft.success);
+    paintOoStatus({
+      state: "ok",
+      chip: "已拟合",
+      message: draftOk ? "草稿已存 · 可启用研究/执行" : "已拟合 · 草稿未落盘",
+      sampleCount: data.sample_count,
+      liveOn: false,
+      researchOn: draftOk,
+      oos: data.oos || {},
+    });
+    const line =
+      `${data.stock_count ?? "—"} 只 · n=${data.sample_count ?? "—"}` +
+      ` · R²=${ols.r_squared ?? "—"} · β ${nCoef} 项` +
+      (Number(ols.ridge_lambda) > 0 ? ` · Ridge λ=${ols.ridge_lambda}` : " · OLS");
+    setQuantMeta(`ŷ_oo · ${line}`);
+    state.lastReturnModelFit = data;
+    /* 与 ŷ_oc 一致：摘要进表头 KPI，不另挂 fingerprint，避免系数表上方空白 */
+    clearResult();
+    if (paintCoef) {
+      const rm = {
+        ...(data.model || {}),
+        r_squared: ols.r_squared != null ? ols.r_squared : (data.model || {}).r_squared,
+        ridge_lambda:
+          ols.ridge_lambda != null ? ols.ridge_lambda : (data.model || {}).ridge_lambda,
+        sample_count: data.sample_count ?? (data.model || {}).sample_count,
+      };
+      await paintCoef(rm, { oos: data.oos || {} });
+    }
+    _setOoPromoteEnabled(draftOk);
+  }
+
+  function _ooOosFromStatus(data) {
+    const fromStatus = data && data.oos;
+    if (
+      fromStatus &&
+      typeof fromStatus === "object" &&
+      (fromStatus.ic != null ||
+        fromStatus.sign_hit != null ||
+        fromStatus.sign_hit_rate != null ||
+        fromStatus.n_test != null)
+    ) {
+      return fromStatus;
+    }
+    const fromFit = state.lastReturnModelFit && state.lastReturnModelFit.oos;
+    if (fromFit && typeof fromFit === "object") return fromFit;
+    return fromStatus && typeof fromStatus === "object" ? fromStatus : {};
+  }
+
+  async function refreshReturnModelStatus() {
+    const paintCoef =
+      typeof q.renderOoCoefTable === "function" ? q.renderOoCoefTable : null;
+    const clearResult =
+      typeof q.clearOoResultBox === "function" ? q.clearOoResultBox : null;
+    try {
+      const res = await fetch("/api/quant/return-model/status");
+      const data = await res.json().catch(() => null);
+      if (!res.ok || !data || !data.success) {
+        paintOoStatus({
+          state: "error",
+          chip: "状态",
+          message: (data && (data.error || data.detail)) || "状态读取失败",
+          error: true,
+        });
+        if (paintCoef) await paintCoef(null);
+        return data;
+      }
+      const active = data.active || {};
+      const draft = data.draft || {};
+      const research = data.research || {};
+      const oos = _ooOosFromStatus(data);
+      _setOoPromoteEnabled(!!draft.exists);
+      const justFitted = !!(state.lastReturnModelFit && state.lastReturnModelFit.success);
+      if (justFitted && !active.exists && !research.exists) {
+        paintOoStatus({
+          state: "ok",
+          chip: "已拟合",
+          message: draft.exists ? "草稿已存 · 可启用研究/执行" : "已拟合",
+          sampleCount: state.lastReturnModelFit.sample_count,
+          liveOn: false,
+          researchOn: !!draft.exists,
+          oos,
+        });
+        if (paintCoef && data.return_model) {
+          if (clearResult) clearResult();
+          await paintCoef(data.return_model, { oos });
+        }
+        return data;
+      }
+      const liveOn = !!active.exists;
+      const researchOn = !!research.exists;
+      if (liveOn || researchOn) {
+        let chip = "待命";
+        if (liveOn && researchOn) chip = "研究+执行";
+        else if (researchOn) chip = "仅研究";
+        else chip = "仅执行";
+        paintOoStatus({
+          state: "ok",
+          chip,
+          message: liveOn ? "已落盘" : "研究套已落盘 · 执行未写",
+          sampleCount: active.sample_count || research.sample_count,
+          promotedAt: active.promoted_at || research.promoted_at,
+          liveOn,
+          researchOn,
+          oos,
+        });
+      } else if (draft.exists) {
+        paintOoStatus({
+          state: "ok",
+          chip: "仅研究",
+          message: "有草稿 · 尚未启用研究/执行",
+          sampleCount: draft.sample_count,
+          fittedAt: draft.saved_at,
+          liveOn: false,
+          researchOn: true,
+          oos,
+        });
+      } else {
+        paintOoStatus({
+          state: "idle",
+          chip: "待命",
+          message: "拟合后看系数 · 再启用研究/执行",
+          liveOn: false,
+          researchOn: false,
+        });
+      }
+      if (clearResult) clearResult();
+      if (paintCoef) {
+        await paintCoef(data.return_model || null, { oos });
+      }
+      return data;
+    } catch (err) {
+      paintOoStatus({
+        state: "error",
+        chip: "状态",
+        message: String((err && err.message) || err || "状态读取失败"),
+        error: true,
+      });
+      if (paintCoef) await paintCoef(null);
+      return null;
+    }
+  }
+
+  async function runReturnModelFit() {
+    paintOoStatus({
+      state: "busy",
+      chip: "拟合中",
+      message: "观察池堆叠 Ridge / OLS…",
+      busy: true,
+    });
+    setQuantMeta("ŷ_oo 拟合中…", { busy: true });
+    await ensureFactorMeta();
+    const res = await fetch("/api/quant/return-model/fit", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        lookback: 120,
+        horizon_days: 1,
+        watching_limit: 300,
+        ridge_lambda: 1.0,
+        save_draft: true,
+        holdout_trading_days:
+          typeof readHoldoutTradingDays === "function" ? readHoldoutTradingDays() : 20,
+      }),
+    });
+    let data = null;
+    try {
+      data = await res.json();
+    } catch (_) {
+      data = null;
+    }
+    if (!res.ok) {
+      const detail =
+        (data && (data.detail || data.error)) ||
+        (res.status === 404
+          ? "接口未找到：请重启 Web"
+          : `HTTP ${res.status}`);
+      paintOoStatus({
+        state: "error",
+        chip: "失败",
+        message: detail,
+        error: true,
+      });
+      setQuantMeta(`ŷ_oo 失败 · ${detail}`, { error: true });
+      return;
+    }
+    await renderReturnModelFit(data);
+    await refreshReturnModelStatus();
+  }
+
+  async function runReturnModelPromote(persistRole = "live") {
+    const role = String(persistRole || "live").toLowerCase() === "research"
+      ? "research"
+      : "live";
+    const roleLabel = role === "research" ? "研究套" : "执行套";
+    const pathHint =
+      role === "research"
+        ? "return_score_model_research.json"
+        : "return_score_model_active.json";
+    if (!window.confirm(`将 ŷ_oo 草稿写入${roleLabel}（${pathHint}）？`)) {
+      return;
+    }
+    paintOoStatus({
+      state: "busy",
+      chip: "写入中",
+      message: `写入${roleLabel}…`,
+      busy: true,
+    });
+    const res = await fetch("/api/quant/return-model/promote", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        note: `研究枢纽·ŷ_oo 人审启用${roleLabel}`,
+        persist_role: role,
+      }),
+    });
+    let data = null;
+    try {
+      data = await res.json();
+    } catch (_) {
+      data = null;
+    }
+    if (!res.ok || !data || !data.success) {
+      const msg = (data && (data.error || data.detail)) || `HTTP ${res.status}`;
+      paintOoStatus({
+        state: "error",
+        chip: "失败",
+        message: String(msg),
+        error: true,
+      });
+      setQuantMeta(String(msg), { error: true });
+      return;
+    }
+    paintOoStatus({
+      state: "ok",
+      chip: role === "research" ? "仅研究" : "仅执行",
+      message: `已写入${roleLabel}`,
+      sampleCount: data.sample_count,
+      promotedAt: data.promoted_at,
+      liveOn: role === "live",
+      researchOn: role === "research",
+    });
+    setQuantMeta(`ŷ_oo 已启用${roleLabel}`);
+    await refreshReturnModelStatus();
+  }
+
   return {
     applyThresholdSuggest,
     factorWeightSuggestCellTip,
@@ -997,17 +799,16 @@ export function installSuggest(q) {
     fmtWeightCell,
     icTableHtml,
     loadFactorPanel,
+    refreshReturnModelStatus,
     renderFactorExperiment,
     renderFactorPanelTable,
     renderThresholdTable,
     renderWeightDiffTable,
-    runAllSuggest,
     runFactorCsIcSuggest,
     runFactorIcSuggest,
     runFactorOlsClustersSuggest,
-    resumeQuantOlsClustersJobIfAny,
-    runFactorOlsPoolSuggest,
-    runFactorOlsSuggest,
+    runReturnModelFit,
+    runReturnModelPromote,
     runThresholdSuggest,
     weightDiffTableHtml,
     weightSuggestLogicTip,

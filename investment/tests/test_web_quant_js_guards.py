@@ -38,6 +38,10 @@ class TestWebQuantJsGuards(unittest.TestCase):
 
     def test_tau_coef_formula_compact_js(self):
         ic = self._read("web", "static", "js", "quant", "factor_ic_ui.js")
+        self.assertIn("quant-rem-coef-more", ic)
+        self.assertIn("rows.slice(0, topN)", ic)
+        self.assertIn("其余 ${restRows.length} 个因子", ic)
+        self.assertIn("opts.topN", ic)
         quant_js = self._read("web", "static", "js", "quant.js")
         css = self._read("web", "static", "css", "quant.css")
         self.assertIn("compactYSpecFormula", ic)
@@ -71,9 +75,11 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertNotIn("factor_ic_ui.js?v=p", quant_js)
         self.assertIn("quant-rem-coef-spec-span", css)
         self.assertIn("quant-rem-coef-spec-metrics", css)
+        self.assertIn("quant-rem-coef-more", css)
 
     def test_tau_ridge_fit_chip_is_fitted(self):
         quant_js = self._read("web", "static", "js", "quant.js")
+        panel = self._read("web", "static", "partials", "quant_panel.html")
         tau_run = quant_js.split("async function runTauRidge")[1].split(
             "async function runCoRidge"
         )[0]
@@ -83,6 +89,9 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn('persistRole === "research"', quant_js)
         self.assertIn('chip: "仅研究"', quant_js)
         self.assertIn('chip: "已拟合"', quant_js)
+        self.assertIn("include_alpha158", tau_run)
+        self.assertIn("quant-tau-ridge-alpha158", tau_run)
+        self.assertIn('id="quant-tau-ridge-alpha158"', panel)
         status_fn = quant_js.split("quant-tau-ridge-status")[1][:2800]
         self.assertIn("paintRidgeEnableStatus", status_fn)
         self.assertIn("research_exists", status_fn)
@@ -124,7 +133,10 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("quant-interpret-offline", panel)
         self.assertIn("规则解读", panel)
         self.assertIn("quant-interpret-neutral", panel)
-        self.assertIn("quant-ols-run", panel)
+        self.assertNotIn("quant-ols-run", panel)
+        self.assertNotIn("quant-ols-pool-run", panel)
+        self.assertNotIn("quant-ols-clusters-run", panel)
+        self.assertNotIn("quant-cs-ic-run", panel)
         self.assertIn("quant-ols-code", panel)
         self.assertIn("quant-probe-picker", panel)
         self.assertIn("quant-ols-code-menu", panel)
@@ -154,11 +166,8 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("强更 5m", panel)
         self.assertIn("增量补齐", panel)
         self.assertIn('id="quant-cluster-bars-topup"', panel)
-        self.assertIn(
-            'id="quant-watching-limit" type="number" min="3" max="200" step="1" value="200"',
-            panel,
-        )
-        self.assertIn("默认 200≈满池", panel)
+        self.assertIn('id="quant-watching-limit"', panel)
+        self.assertIn('id="quant-watching-limit" value="300"', panel)
         self.assertIn("强更日 K", panel)
         self.assertIn('id="quant-cluster-bars-strip"', panel)
         self.assertIn("quant-cluster-bars-strip quant-bars-desk-status quant-card-head-status is-busy", panel)
@@ -219,6 +228,24 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("/api/quant/oo-rank", quant_js)
         self.assertIn("quant-oo-rank-run", panel)
         self.assertIn("quant-section-oo-rank", panel)
+        self.assertIn("quant-section-research-universe", panel)
+        self.assertIn("quant-ru-tiers", panel)
+        self.assertIn("观察池分档", panel)
+        self.assertIn("quant-ru-tiers-promote", panel)
+        self.assertIn("启用 live", panel)
+        self.assertNotIn("quant-ru-save", panel)
+        self.assertNotIn("quant-ru-sync-watching", panel)
+        self.assertNotIn("quant-ru-sync-cached", panel)
+        self.assertNotIn("灌入日线仓", panel)
+        self.assertIn("installResearchUniverseUi", quant_js)
+        ru_js = self._read("web", "static", "js", "quant", "research_universe_ui.js")
+        self.assertIn("/api/quant/research-universe/predictability-tiers", ru_js)
+        self.assertIn("holdout=", ru_js)
+        self.assertIn("pool=watching", ru_js)
+        self.assertIn("predictability-tiers/promote", ru_js)
+        self.assertNotIn("sync-watching", ru_js)
+        self.assertIn("Holdout", panel)
+        self.assertIn("loadTiers", ru_js)
         self.assertIn("quant-oo-rank-feature-mode", panel)
         self.assertIn("quant-oo-rank-pair-preset", panel)
         self.assertIn("feature_mode", quant_js)
@@ -315,7 +342,18 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertNotIn("ŷ_τo", panel)
         self.assertNotIn("旧名 y_to / y_pc", panel)
         self.assertIn(">ŷ_oo</", panel)
-        self.assertIn("open(T)→open(T+1) · 组 β 聚类 · 主轴排序 / 买入", panel)
+        self.assertIn("open(T)→open(T+1) · 全局 Ridge / OLS · 主轴排序", panel)
+        self.assertIn("quant-return-model-fit", panel)
+        self.assertIn("quant-return-model-promote", panel)
+        self.assertIn("quant-return-model-persist-research", panel)
+        self.assertIn("quant-return-model-status", panel)
+        self.assertIn('id="quant-oo-coef-table"', panel)
+        self.assertIn('id="quant-tau-coef-table"', panel)
+        self.assertIn(">拟合</", panel)
+        self.assertIn("启用研究", panel)
+        self.assertIn("启用执行", panel)
+        self.assertIn('id="quant-ols-summary"', panel)
+        self.assertIn("quant-rem-status", panel)
         self.assertIn(">ŷ_oc</", panel)
         self.assertIn(">ŷ_co</", panel)
         self.assertNotIn("quant-tc-tree-run", panel)
@@ -353,6 +391,25 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("ŷ_oc_tree", panel)
         self.assertIn("浅树（80 棵）", panel)
         self.assertIn("quant-section-tau-tree", panel)
+        self.assertIn('id="quant-tau-tree-alpha158"', panel)
+        self.assertIn("quant-oo-tree-run", panel)
+        self.assertIn("ŷ_oo_tree", panel)
+        self.assertIn("quant-section-oo-tree", panel)
+        self.assertIn('id="quant-oo-tree-alpha158"', panel)
+        self.assertIn("quant-co-tree-run", panel)
+        self.assertIn("ŷ_co_tree", panel)
+        self.assertIn("quant-section-co-tree", panel)
+        self.assertIn('id="quant-co-tree-alpha158"', panel)
+        self.assertLess(
+            panel.find('id="quant-section-oo-tree"'),
+            panel.find('id="quant-section-tau-tree"'),
+        )
+        self.assertLess(
+            panel.find('id="quant-section-tau-tree"'),
+            panel.find('id="quant-section-co-tree"'),
+        )
+        self.assertIn("/api/quant/oo-tree", quant_js)
+        self.assertIn("/api/quant/co-tree", quant_js)
         self.assertNotIn("quant-tau-boost-run", panel)
         self.assertIn("tau_lag1", panel)
         self.assertIn("tau_ma5", panel)
@@ -502,10 +559,14 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertNotIn("有票后点「跑回测」", replay)
         self.assertIn('id="quant-lookback"', replay)
         self.assertIn('id="quant-score-model-role"', replay)
-        self.assertIn('id="quant-universe-tier-a"', replay)
-        self.assertIn('id="quant-universe-tier-b"', replay)
-        self.assertIn('id="quant-universe-tier-c"', replay)
-        self.assertIn("宇宙分档", replay)
+        self.assertNotIn('id="quant-use-predictability-tiers"', replay)
+        self.assertNotIn("Holdout 分档", replay)
+        self.assertIn('id="quant-pred-tier-a"', replay)
+        self.assertIn('id="quant-pred-tier-b"', replay)
+        self.assertIn('id="quant-pred-tier-c"', replay)
+        self.assertIn("分档", replay)
+        self.assertNotIn("宇宙分档", replay)
+        self.assertNotIn('id="quant-universe-tier-a"', replay)
         self.assertIn('quant-pro-field-label">回测窗口</span>', replay)
         self.assertNotIn('quant-pro-field-label">Lookback</span>', replay)
         self.assertGreaterEqual(replay.count('quant-pro-field-label">回测窗口</span>'), 2)
@@ -2136,15 +2197,30 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("quant-tau-tree-run", panel)
         self.assertIn("quant-tau-tree-result", panel)
         self.assertIn("quant-section-tau-tree", panel)
+        self.assertIn("quant-oo-tree-run", panel)
+        self.assertIn("quant-oo-tree-result", panel)
+        self.assertIn("quant-section-oo-tree", panel)
+        self.assertIn("quant-co-tree-run", panel)
+        self.assertIn("quant-co-tree-result", panel)
+        self.assertIn("quant-section-co-tree", panel)
         self.assertIn("浅树（80 棵）", panel)
         self.assertIn("/api/quant/tau-tree", js)
+        self.assertIn("/api/quant/oo-tree", js)
+        self.assertIn("/api/quant/co-tree", js)
         self.assertIn("runTauTree", js)
+        self.assertIn("runOoTree", js)
+        self.assertIn("runCoTree", js)
+        self.assertIn("include_alpha158", js)
+        self.assertIn("quant-tau-tree-alpha158", js)
         self.assertIn("renderTauTreeCompare", js)
         self.assertIn("startTauTreeBusy", js)
         self.assertIn("stopTauTreeBusy", js)
+        self.assertIn("pauseTauTreeBusyOverlay", js)
+        self.assertIn("loadTauTreeLast", js)
+        self.assertIn("AbortController", js)
         self.assertIn("tauTreeBusyHint", js)
         self.assertIn("组 open→close 面板（满池分钟特征）", js)
-        self.assertIn("仍在组面板（XGBoost 约数秒；慢的是组样本）", js)
+        self.assertIn("仍在组面板（LightGBM 约数秒；慢的是组样本）", js)
         self.assertNotIn("numpy 浅树较慢", js)
         self.assertIn("fmtTauTreeTiming", js)
         self.assertIn("tree_report.js?v=${encodeURIComponent(_QV)}", js)
@@ -2233,14 +2309,29 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("开盘 09:30", js)
         self.assertIn("data-persist-role", panel)
         self.assertIn('id="quant-holdout-days"', panel)
+        self.assertIn('id="quant-holdout-days" type="number" min="1" max="60" step="1" value="20"', panel)
         self.assertIn("quant-holdout-field", panel)
         self.assertIn("quant-holdout-hint", panel)
         self.assertIn("holdout_trading_days", js)
         self.assertIn("readHoldoutTradingDays", js)
         self.assertIn("readHoldoutTradingDays", params_js)
         suggest = self._read("web", "static", "js", "quant", "domain_suggest.js")
-        self.assertIn("holdout_trading_days", suggest)
+        # 分组 OLS 已退役：入口 stub；无 Job 轮询
+        self.assertIn("cluster_retired", suggest)
+        self.assertIn("runFactorOlsClustersSuggest", suggest)
+        self.assertNotIn("waitQuantOlsClustersJob", suggest)
+        self.assertNotIn("/api/jobs/quant-ols-clusters", suggest)
+        self.assertNotIn("runFactorOlsPoolSuggest", suggest)
         self.assertIn("readHoldoutTradingDays", suggest)
+        self.assertIn("renderOoCoefTable", suggest)
+        self.assertNotIn("_coefTableHtml", suggest)
+        self.assertIn("data.return_model", suggest)
+        self.assertIn("holdout_trading_days", suggest)
+        self.assertIn("oos: data.oos", suggest.replace("\r\n", "\n"))
+        factor_ic = self._read("web", "static", "js", "quant", "factor_ic_ui.js")
+        self.assertIn('head === "oo"', factor_ic)
+        self.assertIn('"open[T+1]/open[T]-1"', factor_ic)
+        self.assertIn("ŷ_oo", factor_ic)
         self.assertIn('remStatusMeta(\n            "Holdout"', js.replace("\r\n", "\n"))
         self.assertIn('remStatusMeta(\n          "拟合"', js.replace("\r\n", "\n"))
         self.assertIn("src.fitted_at", js)
@@ -2254,7 +2345,10 @@ class TestWebQuantJsGuards(unittest.TestCase):
     def test_hub_shadow_and_bypass_heads_are_folded(self):
         panel = self._read("web", "static", "partials", "quant_panel.html")
         for sid in (
+            "quant-section-oo-rank",
+            "quant-section-oo-tree",
             "quant-section-tau-tree",
+            "quant-section-co-tree",
             "quant-section-t30-tree",
             "quant-section-t45-tree",
             "quant-section-t60-tree",
@@ -2278,7 +2372,6 @@ class TestWebQuantJsGuards(unittest.TestCase):
             "quant-section-t60",
             "quant-section-t75",
             "quant-section-t90",
-            "quant-section-oo-rank",
         ):
             self.assertRegex(
                 panel,
@@ -2298,7 +2391,9 @@ class TestWebQuantJsGuards(unittest.TestCase):
             "quant-section-t75",
             "quant-section-t90",
             "quant-section-oo-rank",
+            "quant-section-oo-tree",
             "quant-section-tau-tree",
+            "quant-section-co-tree",
             "quant-section-t30-tree",
             "quant-section-t45-tree",
             "quant-section-t60-tree",
@@ -2408,34 +2503,31 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("paintClusterHealth", cluster)
         self.assertIn("buildClusterHealthHtml", cluster)
         bt = self._read("web", "static", "js", "quant", "domain_backtest.js")
-        self.assertIn("universe_fit_tiers", bt)
-        self.assertIn("readUniverseFitTiers", bt)
+        self.assertIn("holdout_trading_days", bt)
+        self.assertNotIn("three_window_holdout_days", bt)
+        self.assertNotIn("universe_fit_tiers", bt)  # 前端不再发送
+        self.assertNotIn("readUniverseFitTiers", bt)
+        self.assertNotIn("readUsePredictabilityTiers", bt)
+        self.assertIn("readPredictabilityTiers", bt)
+        self.assertIn("wirePredTierChecks", bt)
+        self.assertNotIn("wireThreeWindowCheckbox", bt)
 
-    def test_ic_series_sits_between_health_and_group_tables(self):
+    def test_ic_series_removed_from_oo_card(self):
         panel = self._read("web", "static", "partials", "quant_panel.html")
-        health = panel.find('id="quant-ols-health"')
-        ic = panel.find('id="quant-section-ic-series"')
-        tables = panel.find('id="quant-factor-list"')
         factors = panel.find('id="quant-section-factors"')
         tau = panel.find('id="quant-section-tau"')
-        self.assertGreater(health, factors)
-        self.assertGreater(ic, health)
-        self.assertGreater(tables, ic)
+        oo_coef = panel.find('id="quant-oo-coef-table"')
+        tables = panel.find('id="quant-factor-list"')
+        self.assertGreaterEqual(factors, 0)
+        self.assertGreater(oo_coef, factors)
+        self.assertGreater(tables, oo_coef)
         self.assertGreater(tau, tables)
-        self.assertEqual(panel.count('id="quant-section-ic-series"'), 1)
-        self.assertIn('class="quant-ic-in-cluster quant-ic-compare"', panel)
-        self.assertNotIn(
-            'class="dashboard-section quant-section quant-ic-compare"',
-            panel,
-        )
-        css = self._read("web", "static", "css", "quant.css")
-        self.assertIn(".quant-ic-in-cluster", css)
-        self.assertIn(
-            ".quant-ic-in-cluster .quant-ic-compare-grid .dashboard-chart-host.quant-ic-compare-chart:empty",
-            css,
-        )
-        js = self._read("web", "static", "js", "quant.js")
-        self.assertIn('quantOlsHealth: document.getElementById("quant-ols-health")', js)
+        self.assertIn('id="quant-oo-coef-table"', panel)
+        self.assertNotIn('id="quant-section-ic-series"', panel)
+        self.assertNotIn('id="quant-ic-series-run"', panel)
+        self.assertNotIn('id="quant-yhat-residual-shadow"', panel)
+        self.assertNotIn('id="quant-excess-mode-shadow"', panel)
+        self.assertNotIn(">IC 时序<", panel)
 
     def test_follow_path_matrix_form(self):
         panel = self._read("web", "static", "partials", "follow_panel.html")
@@ -3281,8 +3373,8 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertNotIn("双层 ŷ 复盘", panel)
         self.assertNotIn('id="quant-tau-shadow"', panel)
         self.assertNotIn('id="quant-nowcast-shadow"', panel)
-        self.assertIn('id="quant-yhat-residual-shadow"', panel)
-        self.assertIn('id="quant-excess-mode-shadow"', panel)
+        self.assertNotIn('id="quant-yhat-residual-shadow"', panel)
+        self.assertNotIn('id="quant-excess-mode-shadow"', panel)
         self.assertNotIn("/api/quant/score-review/tau-shadow", review_js)
         self.assertNotIn("/api/quant/score-review/nowcast-shadow", review_js)
         self.assertNotIn("tau_sign_hit_rate", review_js)
@@ -3563,12 +3655,14 @@ class TestWebQuantJsGuards(unittest.TestCase):
 
     def test_fit_tier_badge_on_stock_names(self):
         ui = self._read("web", "static", "js", "quant", "fit_tier_ui.js")
-        self.assertIn("/api/quant/cluster-live/fit-tiers", ui)
+        self.assertIn("cluster_retired", ui)
         self.assertIn("watching-fit-tier-badge", ui)
         self.assertIn("ensureFitTierMap", ui)
         self.assertIn("stampFitTierBadges", ui)
+        self.assertNotIn('fetch("/api/quant/cluster-live/fit-tiers")', ui)
         cluster = self._read("web", "routers", "quant_cluster.py")
         self.assertIn('"/api/quant/cluster-live/fit-tiers"', cluster)
+        self.assertIn("cluster_retired", cluster)
         watching = self._read("web", "static", "js", "watching_table_island.js")
         self.assertIn("fitTierBadgeForCode", watching)
         holdings = self._read("web", "static", "js", "holdings_table_island.js")

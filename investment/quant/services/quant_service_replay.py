@@ -85,6 +85,10 @@ class QuantReplayMixin:
         lot_base_amount: Optional[float] = None,
         lot_strong_amount: Optional[float] = None,
         universe_fit_tiers: Optional[Sequence[str]] = None,
+        use_predictability_tiers: bool = False,
+        predictability_tiers: Optional[Sequence[str]] = None,
+        holdout_trading_days: Optional[int] = None,
+        predictability_head: str = "oo",
         price_space_gate: Optional[bool] = None,
         score_model_role: Optional[str] = None,
         progress_cb: Optional[Any] = None,
@@ -137,39 +141,118 @@ class QuantReplayMixin:
                 "universe": resolved,
             }
 
-        fit_meta: Dict[str, Any] = {}
-        try:
-            from core.signal.cluster.fit_tier import (
-                filter_codes_by_fit_tiers,
-                normalize_universe_fit_tiers,
+        fit_meta: Dict[str, Any] = {
+            "unrestricted": True,
+            "universe_fit_tiers": ["A", "B", "C"],
+            "n_in": len(candidates),
+            "n_out": len(candidates),
+            "note": "universe_fit_tiers deprecated/ignored for historical replay",
+        }
+        _ = universe_fit_tiers  # API 兼容；历史回测不再按拟合档过滤
+
+        pred_meta: Dict[str, Any] = {"enabled": False}
+        effective_lookback = int(lookback)
+        if use_predictability_tiers:
+            from core.research.predictability_tiers import (
+                load_predictability_tiers_last,
+                tier_code_set,
             )
 
-            tiers_raw = universe_fit_tiers
-            if tiers_raw is None:
-                from core.signal.cluster.live import get_cluster_scoring_cfg
-
-                tiers_raw = get_cluster_scoring_cfg().get("universe_fit_tiers")
-            allowed_tiers = normalize_universe_fit_tiers(tiers_raw)
-            candidates, fit_meta = filter_codes_by_fit_tiers(
-                candidates,
-                tiers=allowed_tiers,
-                keep=(),
-                prefer_research=True,
+            tier_rep = load_predictability_tiers_last()
+            if not isinstance(tier_rep, dict) or not tier_rep.get("success"):
+                return {
+                    "success": False,
+                    "error": "无枢纽分档报告；请先在研究枢纽跑「观察池分档」（Holdout 前半）",
+                    "universe": resolved,
+                }
+            hold_n_req = (
+                int(holdout_trading_days)
+                if holdout_trading_days is not None
+                else None
             )
-        except Exception as exc:
-            logger.warning("replay fit-tier filter skipped: %s", exc, exc_info=True)
-            fit_meta = {"unrestricted": True, "error": str(exc)}
-        if not candidates:
-            by = (fit_meta or {}).get("n_by_tier") or {}
-            tiers = "".join((fit_meta or {}).get("universe_fit_tiers") or [])
-            n_in = (fit_meta or {}).get("n_in")
-            return {
-                "success": False,
-                "error": (
-                    f"验证宇宙按拟合档过滤后为空（档{tiers or '—'} · 池{n_in}只"
-                    f" · A{by.get('A', 0)}/B{by.get('B', 0)}/C{by.get('C', 0)}）"
+            last_hold = tier_rep.get("holdout_n")
+            if hold_n_req is not None and last_hold is not None and int(last_hold) != int(hold_n_req):
+                return {
+                    "success": False,
+                    "error": (
+                        f"页顶 Holdout={hold_n_req} 与枢纽分档 Holdout={last_hold} 不一致；"
+                        "请先在研究枢纽重跑「观察池分档」再回测。"
+                    ),
+                    "universe": resolved,
+                }
+            allowed = [
+                str(t).strip().upper()
+                for t in (predictability_tiers or ["A", "B"])
+                if str(t or "").strip()
+            ] or ["A", "B"]
+            _emit(f"复用枢纽分档 · 回测 lookback={int(lookback)}日…")
+            keep = tier_code_set(tier_rep, allowed)
+            n_before = len(candidates)
+            filtered = [c for c in candidates if c in keep]
+            hold_n = (
+                int(last_hold)
+                if last_hold is not None
+                else (int(hold_n_req) if hold_n_req is not None else 20)
+            )
+            tier_dates = [
+                str(d).strip()[:10]
+                for d in (tier_rep.get("tier_dates") or [])
+                if str(d or "").strip()
+            ]
+            if len(filtered) < 1:
+                return {
+                    "success": False,
+                    "error": (
+                        f"枢纽分档过滤后无标的（允许 {''.join(allowed)}；"
+                        f"A{(tier_rep.get('counts') or {}).get('A', 0)}"
+                        f"/B{(tier_rep.get('counts') or {}).get('B', 0)}"
+                        f"/C{(tier_rep.get('counts') or {}).get('C', 0)}）"
+                    ),
+                    "universe": resolved,
+                    "predictability_tiers": {
+                        "enabled": True,
+                        "protocol": "hub_tier_filter",
+                        "reused_hub": True,
+                        "holdout_n": hold_n,
+                        "tier_n": tier_rep.get("tier_n") or len(tier_dates),
+                        "tier_dates": tier_dates,
+                        "as_of_tier_last": tier_rep.get("as_of_tier_last"),
+                        "lookback": int(lookback),
+                        "allowed_tiers": allowed,
+                        "counts": (tier_rep.get("counts") if isinstance(tier_rep, dict) else None),
+                        "n_in": n_before,
+                        "n_out": 0,
+                    },
+                }
+            candidates = filtered
+            # 回测天数用请求 lookback（与 Holdout 独立）；分档只过滤宇宙
+            effective_lookback = max(1, int(lookback))
+            pred_meta = {
+                "enabled": True,
+                "protocol": "hub_tier_filter",
+                "reused_hub": True,
+                "holdout_n": hold_n,
+                "tier_n": tier_rep.get("tier_n") or len(tier_dates),
+                "lookback": effective_lookback,
+                "tier_dates": tier_dates,
+                "as_of_tier_last": tier_rep.get("as_of_tier_last"),
+                "allowed_tiers": allowed,
+                "head": tier_rep.get("head") or str(predictability_head or "oo"),
+                "counts": tier_rep.get("counts") if isinstance(tier_rep, dict) else None,
+                "n_in": n_before,
+                "n_out": len(candidates),
+                "note": (
+                    "复用研究枢纽 Holdout 前半分档过滤宇宙；"
+                    "回测天数=请求 lookback（与 Holdout 独立）。"
                 ),
-                "universe": {**resolved, "fit_tiers": fit_meta},
+            }
+            fit_meta = {
+                "unrestricted": False,
+                "universe_fit_tiers": None,
+                "predictability_tiers": allowed,
+                "n_in": n_before,
+                "n_out": len(candidates),
+                "note": "复用枢纽可预测性档过滤（非 cluster fit_tier）",
             }
 
         if _cancelled():
@@ -177,7 +260,7 @@ class QuantReplayMixin:
         _emit(f"加载日线 {len(candidates)} 只…")
         stock_bars, failures, fundamentals_by_code = load_portfolio_stock_bars(
             candidates,
-            lookback=lookback,
+            lookback=effective_lookback,
             fetch_fundamentals=fetch_fundamentals,
         )
 
@@ -257,7 +340,7 @@ class QuantReplayMixin:
         )
         clock = clamp_replay_fill_clock(fill_clock, REPLAY_FILL_CLOCK)
         gate_on = True if price_space_gate is None else bool(price_space_gate)
-        minute_span = min(max(int(lookback or 30) + 20, 15), 120)
+        minute_span = min(max(int(effective_lookback or 30) + 20, 15), 120)
         if _cancelled():
             return {"success": False, "error": "已取消", "cancelled": True}
         _emit(f"加载分钟线 {clock} · {universe_n} 只…")
@@ -280,23 +363,19 @@ class QuantReplayMixin:
                     "filter_dropped": filter_dropped,
                 },
                 "minute_meta": minute_meta,
-                "request": {
-                    "engine": "paper_replay",
-                    "lookback": int(lookback),
-                    "fill_clock": clock,
-                },
             }
         if _cancelled():
             return {"success": False, "error": "已取消", "cancelled": True}
         from core.research.holdout import normalize_backtest_model_role
 
         role = normalize_backtest_model_role(score_model_role)
-        _emit(f"逐日调仓 {clock} · {int(lookback)} 日…")
+        _emit(f"逐日调仓 {clock} · {int(effective_lookback)} 日…")
         result = backtest_paper_replay(
             stock_bars,
             top_k=universe_n,
             cost_model="simple_cn" if apply_costs else "zero",
             yhat_horizon_days=1,
+            lookback=int(effective_lookback),
             initial_cash=cash,
             cash_floor=REPLAY_CASH_FLOOR,
             y_on_alpha=y_on_alpha,
@@ -311,7 +390,6 @@ class QuantReplayMixin:
             y_enter_alt_enabled=y_enter_alt_enabled,
             y_oo_gt0=bool(y_oo_gt0),
             y_oc_gt0=bool(y_oc_gt0),
-            lookback=int(lookback),
             fill_clock=clock,
             minute_bars_by_code=minute_bars,
             lot_base_amount=lot_base_n,
@@ -328,7 +406,9 @@ class QuantReplayMixin:
         result["minute_meta"] = minute_meta
         result["request"] = {
             "engine": "paper_replay",
-            "lookback": int(lookback),
+            "lookback": int(effective_lookback),
+            "lookback_requested": int(lookback),
+            "use_predictability_tiers": bool(use_predictability_tiers),
             "top_k": int(universe_n),
             "max_positions": int(universe_n),
             "paper_max_positions": int(max_positions),
@@ -354,9 +434,7 @@ class QuantReplayMixin:
             "fill_clock": clock,
             "lot_base_amount": lot_base_n,
             "lot_strong_amount": lot_strong_n,
-            "universe_fit_tiers": list(
-                (fit_meta or {}).get("universe_fit_tiers") or ["A", "B", "C"]
-            ),
+            "universe_fit_tiers": None,
             "price_space_gate": gate_on,
             "score_model_role": role,
             "score_axis_note": (
@@ -366,11 +444,6 @@ class QuantReplayMixin:
                 f"w_oo={w_oo:g}；w_oc={w_oc:g}；"
                 f"w_co={y_on_alpha:g}；门槛1/2 入场；"
                 f"宇宙=观察池 {universe_n} 只"
-                + (
-                    f" · 档{''.join((fit_meta or {}).get('universe_fit_tiers') or [])}"
-                    if not (fit_meta or {}).get("unrestricted", True)
-                    else ""
-                )
                 + ("；日分价闸开" if gate_on else "；日分价闸关")
                 + f"，开加不按纸面 max_positions={max_positions} 截断）；"
                 "现金用完即止。"
@@ -384,9 +457,10 @@ class QuantReplayMixin:
             "filters": filter_meta,
             "filter_dropped": filter_dropped,
             "fit_tiers": fit_meta,
+            "predictability_tiers": pred_meta if pred_meta.get("enabled") else None,
             "note": (
-                "候选=观察池按拟合档过滤；开加不按纸面持仓上限截断（≠研究 Top-K 独立腿）。"
-                if not (fit_meta or {}).get("unrestricted", True)
+                "Holdout 前半分档过滤宇宙；回测天数=请求 lookback（与 Holdout 独立）。"
+                if pred_meta.get("enabled")
                 else "候选=全部观察池；开加不按纸面持仓上限截断（≠研究 Top-K 独立腿）。"
             ),
         }
@@ -636,12 +710,15 @@ class QuantReplayMixin:
             watching_limit=int(kwargs.get("watching_limit") or 12),
             min_samples=int(kwargs.get("min_samples") or 24),
             save_draft=bool(kwargs.get("save_draft", True)),
+            holdout_trading_days=int(kwargs.get("holdout_trading_days") or 20),
         )
 
-    def promote_return_score_model(self, note: str = "") -> Dict[str, Any]:
+    def promote_return_score_model(
+        self, note: str = "", persist_role: str = "live"
+    ) -> Dict[str, Any]:
         from core.signal.return_score_store import promote_return_model_draft
 
-        return promote_return_model_draft(note=note)
+        return promote_return_model_draft(note=note, role=persist_role)
 
     def return_score_model_status(self) -> Dict[str, Any]:
         from core.signal.return_score_store import return_model_status

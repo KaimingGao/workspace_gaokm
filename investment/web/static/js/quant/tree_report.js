@@ -328,6 +328,8 @@ function tauPanel(treeOos, ridgeOos) {
 export function treeReportHtml(data, opts = {}) {
   if (!data || typeof data !== "object" || !data.success) return "";
   const isR = opts.head === "r";
+  const isOo = opts.head === "oo";
+  const isCo = opts.head === "co";
   const isT30 = opts.head === "t30";
   const isT45 = opts.head === "t45";
   const isT60 = opts.head === "t60";
@@ -345,7 +347,11 @@ export function treeReportHtml(data, opts = {}) {
       ? "ŷ_τ30_tree"
       : isR
         ? "ŷ_τc_tree"
-        : "ŷ_oc_tree";
+        : isOo
+          ? "ŷ_oo_tree"
+          : isCo
+            ? "ŷ_co_tree"
+            : "ŷ_oc_tree";
   const isHorizon = isT30 || isT45 || isT60 || isT75 || isT90;
   const ySpec = isT90
     ? "I(mean(price(τ⊕85/90/95))/price(τ)−1>0)"
@@ -359,7 +365,11 @@ export function treeReportHtml(data, opts = {}) {
     ? "I(mean(price(τ⊕25/30/35))/price(τ)−1>0)"
     : isR
       ? "close/price(τ)−1"
-      : "open→close";
+      : isOo
+        ? "open[T+1]/open[T]−1"
+        : isCo
+          ? "open[T+1]/close[T]−1"
+          : "open→close";
   const headKey = isT90
     ? "t90"
     : isT75
@@ -372,7 +382,11 @@ export function treeReportHtml(data, opts = {}) {
             ? "t30"
             : isR
               ? "r"
-              : "tau";
+              : isOo
+                ? "oo"
+                : isCo
+                  ? "co"
+                  : "tau";
   const boost = data.oos || {};
   const ridge = data.ridge_oos || {};
   const delta = data.delta_vs_ridge || {};
@@ -389,9 +403,16 @@ export function treeReportHtml(data, opts = {}) {
     hyper.max_depth != null && Number.isFinite(Number(hyper.max_depth))
       ? Number(hyper.max_depth)
       : 3;
-  const engine = String(data.backend || "").toLowerCase() === "xgboost" ? "XGBoost" : "numpy GBM";
+  const engine = (window.formatTreeBackend ? window.formatTreeBackend(data.backend || "") : String(data.backend || ""));
+  const beLower = String(data.backend || "").toLowerCase();
   const engineChip =
-    String(data.backend || "").toLowerCase() === "xgboost" ? "is-xgb" : "is-numpy";
+    beLower === "xgboost" || beLower === "xgb"
+      ? "is-xgb"
+      : beLower === "lightgbm" || beLower === "lgb"
+        ? "is-lgb"
+        : beLower === "lambdarank" || beLower === "lightgbm_lambda"
+          ? "is-lgb"
+          : "is-numpy";
   const dIc = fmtDelta(delta.ic);
   const dHit = fmtDelta(delta.sign_hit, { pct: true });
   const dMse = fmtDelta(delta.residual_var, { invert: true });

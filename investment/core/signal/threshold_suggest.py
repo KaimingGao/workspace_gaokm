@@ -567,7 +567,7 @@ def suggest_stance_thresholds_from_watching_oos(
     max_stocks: int = 5,
     max_delta: float = 3.0,
 ) -> Dict[str, Any]:
-    """对 watching 多票 OOS：ŷ% 门槛用组 β/拟合扫 wait；遗留表仍扫 0–100。"""
+    """对 watching 多票 OOS：ŷ% 门槛用全局 β/拟合扫 wait；遗留表仍扫 0–100。"""
     from core.backtest.engine import scan_signal_parameters_oos
     from core.data.facade import bars_and_source_research, get_quote
 
@@ -578,15 +578,15 @@ def suggest_stance_thresholds_from_watching_oos(
     base = get_stance_thresholds(cfg)
     predicted_scale = _is_predicted_stance_scale(base)
 
-    models_by_code: Dict[str, Any] = {}
+    global_model = None
     if predicted_scale:
         try:
-            from core.signal.cluster.live import load_cluster_return_models_by_code
+            from core.signal.return_score_store import load_return_model
 
-            models_by_code = load_cluster_return_models_by_code() or {}
+            global_model, _ = load_return_model(prefer_active=True)
         except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
             logger.debug("catch except Exception: in threshold_suggest.py", exc_info=True)
-            models_by_code = {}
+            global_model = None
 
     best_waits: List[float] = []
     win_rates: List[float] = []
@@ -606,8 +606,7 @@ def suggest_stance_thresholds_from_watching_oos(
             continue
 
         if predicted_scale:
-            model = models_by_code.get(sym) or models_by_code.get(str(raw).strip())
-            oos = scan_yhat_wait_oos(bars, model=model, horizon_days=3)
+            oos = scan_yhat_wait_oos(bars, model=global_model, horizon_days=3)
             if not oos.get("success"):
                 failures.append(f"{sym}:{oos.get('error') or 'yhat_oos_fail'}")
                 continue

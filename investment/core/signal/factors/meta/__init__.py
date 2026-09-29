@@ -25,6 +25,8 @@ from core.signal.factors.meta.health import (
     PROXY_OR_UNSOURCED,
     assess_factor_health,
     guard_weights_for_promote,
+    strip_unsourced_coefficients,
+    unsourced_factor_names,
 )
 from core.signal.factors.meta.panel import build_factor_panel, build_factor_panel_rows
 from core.signal.factors.meta.registry import (
@@ -94,6 +96,8 @@ __all__ = [
     "factor_label",
     "gram_schmidt_orthogonalize",
     "guard_weights_for_promote",
+    "strip_unsourced_coefficients",
+    "unsourced_factor_names",
     "has_factor_coefficients",
     "is_removed_factor",
     "list_factors",

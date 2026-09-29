@@ -470,16 +470,6 @@ class QuantOpsMixin:
             factor_exp = self.run_factor_experiment(code)
             factor_ols = self.run_factor_ols_experiment(code)
             cluster_yhat_active = False
-            try:
-                from core.signal.cluster.live import cluster_status_public
-
-                cs = (cluster_status_public(include_audit=False) or {}).get("cluster_scoring") or {}
-                cluster_yhat_active = bool(
-                    cs.get("enabled") and cs.get("mode") in ("shadow", "active")
-                )
-            except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-                logger.debug("catch except Exception: in quant_service_ops.py", exc_info=True)
-                cluster_yhat_active = False
             if not cluster_yhat_active:
                 from core.signal.weight_suggest import suggest_weights_from_ic
 
@@ -532,92 +522,14 @@ class QuantOpsMixin:
             neutral_compare_summary = self.portfolio_neutral_compare_summary(
                 **neutral_kwargs
             )
-        cluster_live = None
-        try:
-            from core.signal.cluster.live import (
-                _summarize_cluster_oos,
-                cluster_status_public,
-                load_active_cluster_book,
-                load_active_cluster_weights,
-            )
-
-            st = cluster_status_public(include_audit=False)
-            cs = (st or {}).get("cluster_scoring") or {}
-            if cs.get("mode") in ("shadow", "active"):
-                active = load_active_cluster_weights() or {}
-                clusters = active.get("clusters") or []
-                oos_summary = _summarize_cluster_oos(clusters)
-                book_doc = load_active_cluster_book() or {}
-                book_rows = list(book_doc.get("book") or [])
-                book_top = []
-                for r in book_rows[:8]:
-                    if not isinstance(r, dict):
-                        continue
-                    try:
-                        from core.signal.rebalance_tracks import table_yhat_score_value
-
-                        yhat = table_yhat_score_value(r)
-                    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-                        logger.debug("catch except Exception: in quant_service_ops.py", exc_info=True)
-                        yhat = r.get("predicted_score")
-                        if yhat is None:
-                            yhat = r.get("score")
-                        try:
-                            if yhat is not None and abs(float(yhat)) >= 10.0:
-                                yhat = None
-                        except (TypeError, ValueError):
-                            yhat = None
-                    book_top.append(
-                        {
-                            "stock_code": r.get("stock_code"),
-                            "stock_name": r.get("stock_name"),
-                            "score": yhat,
-                            "cluster_label": r.get("cluster_label"),
-                            "rank": r.get("rank"),
-                        }
-                    )
-                group_models = []
-                for cl in clusters:
-                    if not isinstance(cl, dict):
-                        continue
-                    rm = cl.get("return_model") if isinstance(cl.get("return_model"), dict) else {}
-                    coef = rm.get("coefficients") if isinstance(rm.get("coefficients"), dict) else {}
-                    gate = cl.get("oos_gate") if isinstance(cl.get("oos_gate"), dict) else {}
-                    group_models.append(
-                        {
-                            "label": cl.get("label"),
-                            "n_members": len(cl.get("members") or []),
-                            "n_coef": len(coef),
-                            "sample_count": rm.get("sample_count"),
-                            "ridge_lambda": rm.get("ridge_lambda"),
-                            "oos_passed": cl.get("oos_passed"),
-                            "oos_skipped": bool(gate.get("skipped")),
-                        }
-                    )
-                cluster_live = {
-                    "mode": cs.get("mode"),
-                    "enabled": cs.get("enabled"),
-                    "version": ((st or {}).get("active") or {}).get("version"),
-                    "coverage": ((st or {}).get("health") or {}).get("coverage"),
-                    "age_days": ((st or {}).get("health") or {}).get("age_days"),
-                    "stale": ((st or {}).get("health") or {}).get("stale"),
-                    "alerts": ((st or {}).get("health") or {}).get("alerts") or [],
-                    "book_names": ((st or {}).get("book") or {}).get("name_count"),
-                    "book_top": book_top,
-                    "group_models": group_models,
-                    "n_groups_with_model": sum(
-                        1 for g in group_models if int(g.get("n_coef") or 0) > 0
-                    ),
-                    "oos_summary": oos_summary,
-                    "note": (
-                        "组ŷ live；未写 signal_config.weights；"
-                        "OOS=heuristic 基线 vs ŷ 研究臂；过门≠自动 promote；"
-                        "OOS 计数来自 active 落盘快照（生成日报时不重跑）"
-                    ),
-                }
-        except Exception as exc:
-            logger.exception('unexpected error in build_daily_report')
-            cluster_live = {"success": False, "error": str(exc)}
+        cluster_live = {
+            "success": False,
+            "cluster_retired": True,
+            "error": "cluster_retired",
+            "mode": "off",
+            "enabled": False,
+            "note": "分组 live 已退役；选股真源=全局 return_model ŷ",
+        }
 
         scoring = (cfg.get("scoring") if isinstance(cfg, dict) else None) or {}
         y_check_summary = None

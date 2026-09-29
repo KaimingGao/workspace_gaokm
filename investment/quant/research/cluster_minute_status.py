@@ -9,6 +9,7 @@ from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Tuple
 
 from core.data.policy import MINUTE_EM_LOOKBACK_DAYS, MINUTE_WARMUP_READY_MIN_SPAN_DAYS
+from core.watching.store import WATCHING_MAX_SIZE
 
 logger = logging.getLogger(__name__)
 
@@ -30,10 +31,10 @@ def _span_mix_bucket_keys() -> List[str]:
     """固定 ``<30d`` / ``<40d`` / ``<50d``（严→宽）。"""
     return [f"<{int(c)}d" for c in SPAN_MIX_CUTS if int(c) > 0]
 
-def _resolve_watching_codes(*, watching_limit: int = 200) -> List[str]:
-    from quant.research.factor_ols_clusters import clamp_watching_limit, merge_cluster_universe
+def _resolve_watching_codes(*, watching_limit: int = WATCHING_MAX_SIZE) -> List[str]:
+    from quant.research.watching_universe import clamp_watching_limit, merge_cluster_universe
 
-    limit = clamp_watching_limit(watching_limit, 200)
+    limit = clamp_watching_limit(watching_limit, WATCHING_MAX_SIZE)
     watchlist: List[Any] = []
     try:
         from core.watching.store import read_watching
@@ -206,17 +207,17 @@ def _path_label_from_minute(day_bars: List[dict]) -> Tuple[Optional[float], str]
 
 def build_minute_label_portrait(
     *,
-    watching_limit: int = 200,
+    watching_limit: int = WATCHING_MAX_SIZE,
     period: str = DEFAULT_MINUTE_PERIOD,
     max_days_per_code: int = DEFAULT_LABEL_MAX_DAYS,
     codes: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
     """观察池 5m 上 τ(OC) / path(极值序) 标签数量画像（含同号/异号）。"""
-    from quant.research.factor_ols_clusters import clamp_watching_limit
+    from quant.research.watching_universe import clamp_watching_limit
     from core.ports.market import group_minute_bars_by_date, resolve_market_code
     from core.store import load_minute_since, load_minute_span_snapshot
 
-    limit = clamp_watching_limit(watching_limit, 200)
+    limit = clamp_watching_limit(watching_limit, WATCHING_MAX_SIZE)
     period_s = str(period or DEFAULT_MINUTE_PERIOD)
     max_days = max(10, min(int(max_days_per_code or DEFAULT_LABEL_MAX_DAYS), 400))
     code_list = [str(c).strip() for c in (codes or _resolve_watching_codes(watching_limit=limit)) if str(c).strip()]
@@ -355,7 +356,7 @@ def _cached_minute_label_portrait(
 
 def build_cluster_minute_status(
     *,
-    watching_limit: int = 200,
+    watching_limit: int = WATCHING_MAX_SIZE,
     period: str = DEFAULT_MINUTE_PERIOD,
     min_span_days: int = DEFAULT_MIN_SPAN_DAYS,
     stale_hours: float = 24.0,
@@ -367,9 +368,9 @@ def build_cluster_minute_status(
     UI 进页后再单独请求画像。
     """
     from quant.research.bars_integrity import minute_windows_clean
-    from quant.research.factor_ols_clusters import clamp_watching_limit
+    from quant.research.watching_universe import clamp_watching_limit
 
-    limit = clamp_watching_limit(watching_limit, 200)
+    limit = clamp_watching_limit(watching_limit, WATCHING_MAX_SIZE)
     period_s = str(period or DEFAULT_MINUTE_PERIOD)
     window = max(1, int(min_span_days or DEFAULT_MIN_SPAN_DAYS))
     codes = _resolve_watching_codes(watching_limit=limit)
@@ -668,7 +669,7 @@ def _minute_topup_core(
 
 def refresh_cluster_minute_only(
     *,
-    watching_limit: int = 200,
+    watching_limit: int = WATCHING_MAX_SIZE,
     period: str = DEFAULT_MINUTE_PERIOD,
     lookback_days: int = DEFAULT_LOOKBACK_DAYS,
     mode: str = "full",
@@ -684,7 +685,7 @@ def refresh_cluster_minute_only(
     from core.schedule_jobs import _minute_warmup_core
     from core.data.policy import MINUTE_EM_LOOKBACK_MAX_DAYS, minute_em_lookback_days
 
-    limit = max(1, int(watching_limit or 200))
+    limit = max(1, int(watching_limit or WATCHING_MAX_SIZE))
     period_s = str(period or DEFAULT_MINUTE_PERIOD)
     mode_s = str(mode or "full").strip().lower()
     if mode_s not in ("full", "topup", "repair"):

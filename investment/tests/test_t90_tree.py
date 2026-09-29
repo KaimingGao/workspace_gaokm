@@ -70,6 +70,17 @@ def _stock(code: str, start: float, n_days: int = 40):
     return {"code": code, "bars": daily, "minute_bars": minutes}
 
 
+
+def _has_lightgbm() -> bool:
+    try:
+        import lightgbm  # noqa: F401
+        return True
+    except ImportError:
+        return False
+
+
+
+@unittest.skipUnless(_has_lightgbm(), "lightgbm 未安装")
 class TestT90Tree(unittest.TestCase):
     def test_defaults_match_tau_tree(self):
         from core.research.t90_tree import DEFAULT_N_ESTIMATORS, TREE_HEAD, TREE_SCHEMA
@@ -98,7 +109,7 @@ class TestT90Tree(unittest.TestCase):
             stock_bars,
             ridge_lambda=1.0,
             theme_boost=1.5,
-            backend="numpy_gbm",
+            backend="lightgbm",
             holdout_trading_days=8,
             n_estimators=20,
             tau_grid=["09:30", "09:50", "10:30", "11:00"],
@@ -107,7 +118,7 @@ class TestT90Tree(unittest.TestCase):
         self.assertEqual(report.get("task"), "t90_tree")
         self.assertEqual(report.get("head"), "y_t90_tree")
         self.assertEqual(report.get("schema"), "t90_tree_shadow_v5")
-        self.assertEqual(report.get("backend"), "numpy_gbm")
+        self.assertEqual(report.get("backend"), "lightgbm")
         self.assertEqual(report.get("target"), "price_tau_plus_90")
         self.assertEqual(report.get("tau"), "10:30")
         self.assertFalse(report.get("live_hook"))
@@ -162,7 +173,7 @@ class TestT90Tree(unittest.TestCase):
 
         report = fit_t90_tree_report(
             [_stock("A", 10.0, n_days=36), _stock("B", 11.0, n_days=36)],
-            backend="numpy_gbm",
+            backend="lightgbm",
             n_estimators=8,
             tau_hm="open",
             tau_grid=["09:30", "10:30", "11:00"],

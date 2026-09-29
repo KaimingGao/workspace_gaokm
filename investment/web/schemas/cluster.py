@@ -53,9 +53,9 @@ class ClusterModeRequest(BaseModel):
 
 
 class ClusterUniverseFitTiersRequest(BaseModel):
-    """观察池 live 宇宙按拟合档过滤。空选视为 A+B+C。"""
+    """观察池 live 宇宙按拟合档过滤。空选视为默认 A+B（排除 C）。"""
 
-    universe_fit_tiers: List[str] = Field(default_factory=lambda: ["A", "B", "C"])
+    universe_fit_tiers: List[str] = Field(default_factory=lambda: ["A", "B"])
 
 
 class ClusterApplyShortcutRequest(BaseModel):

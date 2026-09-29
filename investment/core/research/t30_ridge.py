@@ -142,7 +142,7 @@ def fit_t30_ridge_report(
     min_history: int = 12,
     gap_trigger_pct: float = 2.0,
     theme_boost: float = 1.5,
-    holdout_trading_days: int = 10,
+    holdout_trading_days: int = 20,
     use_theme_weights: bool = True,
     tau_hm: str = "10:30",
     tau_grid: Optional[Sequence[str]] = None,

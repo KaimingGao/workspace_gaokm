@@ -1731,30 +1731,12 @@ def _default_paper(
     }
 
 
-def _load_replay_cluster_models() -> Dict[str, Any]:
-    """历史回测：研究套分组 β；失败则空（再试全局模型）。不回退 live。"""
-    try:
-        from core.signal.cluster.live import (
-            cluster_yhat_shadow_compute_allowed,
-            filter_primary_cluster_models_by_code,
-            get_cluster_scoring_cfg,
-            load_cluster_return_models_by_code,
-        )
-
-        cs = get_cluster_scoring_cfg()
-        if cluster_yhat_shadow_compute_allowed(str(cs.get("mode") or "off")):
-            raw = load_cluster_return_models_by_code()
-            return filter_primary_cluster_models_by_code(raw)
-    except Exception:  # noqa: BLE001
-        logger.debug("load replay cluster models failed", exc_info=True)
-    return {}
-
-
 def _load_replay_global_model() -> Any:
     try:
         from core.signal.return_score_store import load_return_model
 
-        model, meta = load_return_model(prefer_active=True)
+        # 历史回测优先研究套，与 τ / co 一致
+        model, meta = load_return_model(prefer_active=True, prefer_research=True)
         if meta.get("ok") and model is not None:
             return model
     except Exception:  # noqa: BLE001
@@ -1763,15 +1745,18 @@ def _load_replay_global_model() -> Any:
 
 
 def _required_factor_keys_from_return_models(
-    cluster_models: Optional[Dict[str, Any]] = None,
     global_model: Any = None,
+    *,
+    cluster_models: Optional[Dict[str, Any]] = None,
 ) -> List[str]:
-    """与 score_stock / T0 同源：ŷ β 键并集，供 FS0 补算（含 raw_alpha158_*）。"""
+    """与 score_stock / T0 同源：ŷ β 键并集，供 FS0 补算（含 raw_alpha158_*）。
+
+    cluster_models 已废弃，忽略（历史回测只用全局模型）。
+    """
+    del cluster_models
     keys: List[str] = []
     seen = set()
     models: List[Any] = []
-    if isinstance(cluster_models, dict):
-        models.extend(cluster_models.values())
     if global_model is not None:
         models.append(global_model)
     for m in models:
@@ -1798,26 +1783,17 @@ def _attach_open_yhat_heads(
     cfg: Optional[dict] = None,
     tau_pool_day: Optional[dict] = None,
 ) -> List[dict]:
-    """heuristic 窗口分 → 分组 ŷ_oo；09:30 PIT 挂 ŷ_τ；开盘特征打 y_on。
+    """heuristic 窗口分 → 全局 ŷ_oo；09:30 PIT 挂 ŷ_τ；开盘特征打 y_on。
 
     对照头 ŷ_hl 走开盘 Z（与 live ``score_stock`` 同路径），不进 ranking。
     调仓回测不挂 ŷ_τ30/60/90 / ŷ_τw。nowcast 已退役，不再写 y_nowcast。
+    cluster_models 已废弃，忽略。
     """
-    from core.signal.return_score import (
-        apply_predicted_scores,
-        apply_predicted_scores_by_model,
-    )
+    del cluster_models
+    from core.signal.return_score import apply_predicted_scores
 
     items = list(entries)
-    by_code = dict(cluster_models or {})
-    if by_code:
-        items = apply_predicted_scores_by_model(
-            items,
-            by_code,
-            write_rank_score=False,
-            default_model=global_model,
-        )
-    elif global_model is not None:
+    if global_model is not None:
         items = apply_predicted_scores(items, global_model, write_rank_score=False)
 
     rem_doc = tau_model_doc
@@ -2002,7 +1978,11 @@ def _score_open_day(
     tau_pool_day: Optional[dict] = None,
     required_factor_keys: Optional[List[str]] = None,
 ) -> List[dict]:
-    """9:30 信息集：窗口截至昨收，报价用今开（不把今日收盘喂进特征）。"""
+    """9:30 信息集：窗口截至昨收，报价用今开（不把今日收盘喂进特征）。
+
+    cluster_models 已废弃，忽略。
+    """
+    del cluster_models
     from core.signal.cross_section_batch import score_window_as_item
 
     if day_i <= 0:
@@ -2042,7 +2022,6 @@ def _score_open_day(
         entries,
         quotes=quotes,
         windows=windows,
-        cluster_models=cluster_models,
         global_model=global_model,
         co_model_doc=co_model_doc,
         tau_model_doc=tau_model_doc,
@@ -2320,18 +2299,13 @@ def backtest_paper_replay(
     date_maps = {str(c): _bars_by_date(bars) for c, bars in stock_bars.items()}
 
     # 先解析 ŷ 模型 → required_factor_keys / Alpha158 抬窗，再铺日历垫特征窗
-    cluster_models: Dict[str, Any] = {}
     global_model: Any = None
     co_model_doc = None
     tau_model_doc = None
     required_factor_keys: List[str] = []
     if rankings_by_date is None:
-        cluster_models = _load_replay_cluster_models()
-        if not cluster_models:
-            global_model = _load_replay_global_model()
-        required_factor_keys = _required_factor_keys_from_return_models(
-            cluster_models, global_model
-        )
+        global_model = _load_replay_global_model()
+        required_factor_keys = _required_factor_keys_from_return_models(global_model)
         try:
             from core.signal.factors.alpha158 import bump_window_for_alpha158
 
@@ -2561,7 +2535,6 @@ def backtest_paper_replay(
                 max_window=max_window,
                 horizon_days=max(1, int(yhat_horizon_days or 1)),
                 cfg=cfg,
-                cluster_models=cluster_models,
                 global_model=global_model,
                 co_model_doc=co_model_doc,
                 tau_model_doc=tau_model_doc,

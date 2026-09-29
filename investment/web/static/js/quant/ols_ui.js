@@ -850,6 +850,14 @@ export function createOlsUi(deps) {
 
   /** β 分组摘要区 HTML（live 映射异步注入 #quant-cluster-landing） */
   function buildOlsClustersSummaryHtml(data) {
+    if (data && (data.cluster_retired || data.error === "cluster_retired")) {
+      return {
+        ok: false,
+        html: `<span class="sub">${esc(
+          "分组已退役（cluster_retired）· 请用全局 factor-ols / ŷ"
+        )}</span>`,
+      };
+    }
     if (!data || !data.success) {
       console.warn(`[quant-summary] buildOlsClustersSummaryHtml: data 无效 · success=${data && data.success} · error=${data && data.error}`);
       return {

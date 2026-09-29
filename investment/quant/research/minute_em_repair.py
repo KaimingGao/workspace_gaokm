@@ -10,6 +10,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Set, Tuple
 
+from core.watching.store import WATCHING_MAX_SIZE
 from quant.research.bars_integrity import (
     FIVE_MINUTE_SLOTS,
     classify_minute_day,
@@ -73,7 +74,7 @@ def hms_of_bars(bars: Sequence[dict]) -> Set[str]:
 
 def repair_cluster_minute_from_em(
     *,
-    watching_limit: int = 200,
+    watching_limit: int = WATCHING_MAX_SIZE,
     lookback_days: int = 90,
     period: str = "5",
     progress_cb: Optional[Any] = None,

@@ -7,11 +7,14 @@
 
 from __future__ import annotations
 
+import base64
 import json
 import logging
 import math
 import os
 from typing import Any, Dict, List, Optional, Sequence, Tuple
+
+import numpy as np
 
 logger = logging.getLogger(__name__)
 
@@ -527,19 +530,254 @@ def fit_ranknet_linear(
     }
 
 
+def _rank_labels(ys: Sequence[float], *, mode: str = "rank_int") -> List[int]:
+    """日截面 ys → LambdaRank 整数标签（高 ys = 高 label）。
+
+    - ``rank_int``：等距 0..n-1（默认，LightGBM LambdaRank 文档推荐）
+    - ``gain``：按 |Δy| 加权的 bucket rank（更稀疏的分级）
+    """
+    n = len(ys)
+    if n == 0:
+        return []
+    order = np.argsort(list(ys))  # 升序索引
+    labels = [0] * n
+    if str(mode or "rank_int").strip().lower() == "gain":
+        # 用 ys 数值排序后的 rank 当 label（0..n-1，但相等带 Δy 权重）
+        ranks = np.empty(n, dtype=np.int64)
+        ranks[order] = np.arange(n)
+        # 把 ranks 缩放到 0..n-1 整数（已经是）
+        for i in range(n):
+            labels[i] = int(ranks[i])
+    else:
+        for rank, idx in enumerate(order):
+            labels[int(idx)] = int(rank)
+    return labels
+
+
+def fit_ranknet_lightgbm(
+    days: Sequence[Dict[str, Any]],
+    *,
+    feature_names: Optional[Sequence[str]] = None,
+    n_estimators: int = 120,
+    max_depth: int = 5,
+    learning_rate: float = 0.05,
+    subsample: float = 0.85,
+    colsample_bytree: float = 0.9,
+    num_leaves: int = 31,
+    min_child_samples: int = 20,
+    l2: float = 1.0,
+    label_mode: str = "rank_int",
+) -> Dict[str, Any]:
+    """LightGBM LambdaRank：按日截面 group，优化 NDCG。
+
+    与 ``fit_ranknet_linear`` 输出同形，便于 ``predict_oo_rank_from_features`` 复用：
+    - ``coefficients``：feature importance (gain) → {name: weight}，仅用于诊断/特征筛选
+    - ``zscore_means`` / ``zscore_stds``：推理时仍 z-score 以保持字段一致
+    - ``solver`` = ``lambdarank``：``_predict_rows`` dispatch 用（旧包 ``lightgbm_lambda`` 仍可读）
+    - ``booster_b64``：base64 编码的 LightGBM 模型字符串
+    """
+    import lightgbm as lgb
+
+    names = list(feature_names) if feature_names else _collect_feature_names(days)
+    if not names:
+        return {"success": False, "error": "no_features"}
+    means, stds = _fit_zscore(days, names)
+    p = len(names)
+    X_blocks: List[List[List[float]]] = []
+    y_blocks: List[List[int]] = []
+    group_sizes: List[int] = []
+    n_pair_days = 0
+    for day in days:
+        ys = [float(y) for y in (day.get("ys") or [])]
+        xs = list(day.get("xs") or [])
+        if len(ys) < 4 or len(xs) != len(ys):
+            continue
+        Z = _z_matrix(xs, names, means, stds)
+        labels = _rank_labels(ys, mode=label_mode)
+        if len(set(labels)) < 2:
+            continue  # 单 group 全同 label 学不出排序
+        X_blocks.append(Z)
+        y_blocks.append(labels)
+        group_sizes.append(len(ys))
+        n_pair_days += 1
+    if n_pair_days < 5 or not group_sizes:
+        return {
+            "success": False,
+            "error": f"groups_insufficient n_days={n_pair_days}（需≥5）",
+            "n_days": n_pair_days,
+            "n_groups": len(group_sizes),
+        }
+    X = np.asarray([row for block in X_blocks for row in block], dtype=np.float64)
+    y = np.asarray([lab for block in y_blocks for lab in block], dtype=np.int32)
+    group = np.asarray(group_sizes, dtype=np.int32)
+    if X.shape[0] != y.shape[0] or X.shape[0] != int(group.sum()):
+        return {"success": False, "error": "shape_mismatch"}
+    lam = max(0.0, float(l2))
+    try:
+        # 原生 lgb.train（不依赖 sklearn），objective=lambdarank
+        dtrain = lgb.Dataset(X, label=y, group=group)
+        booster = lgb.train(
+            {
+                "objective": "lambdarank",
+                "metric": ["ndcg"],
+                "max_depth": max(1, int(max_depth)),
+                "num_leaves": int(num_leaves),
+                "learning_rate": float(learning_rate),
+                "subsample": min(1.0, max(0.4, float(subsample))),
+                "colsample_bytree": min(1.0, max(0.4, float(colsample_bytree))),
+                "min_data_in_leaf": int(min_child_samples),
+                "lambda_l2": lam,
+                "seed": 42,
+                "num_threads": 1,
+                "verbose": -1,
+            },
+            dtrain,
+            num_boost_round=max(1, int(n_estimators)),
+        )
+    except Exception as exc:  # noqa: BLE001
+        return {"success": False, "error": f"lightgbm_fit_failed: {exc}"}
+    # 序列化：lgb.Booster.save_model 只接受文件路径，用临时文件中转
+    import tempfile
+
+    with tempfile.NamedTemporaryFile(mode="r", suffix=".txt", delete=True, encoding="utf-8") as tmp:
+        tmp_path = tmp.name
+    booster.save_model(tmp_path)
+    try:
+        with open(tmp_path, encoding="utf-8") as f:
+            text = f.read()
+    finally:
+        try:
+            os.remove(tmp_path)
+        except OSError:
+            pass
+    booster_b64 = base64.b64encode(text.encode("utf-8")).decode("ascii")
+    # feature importance → coefficients（诊断用）
+    try:
+        imp = booster.feature_importance(importance_type="gain")
+        total = float(np.sum(np.clip(imp, 0.0, None)))
+        coefs = {
+            names[i]: round(float(imp[i]) / total, 8) if total > 1e-12 else 0.0
+            for i in range(min(p, int(imp.size)))
+        }
+    except Exception:  # noqa: BLE001
+        coefs = {}
+    active = [n for n, w in coefs.items() if w > 0.0]
+    return {
+        "success": True,
+        "intercept": 0.0,
+        "coefficients": coefs,
+        "active_features": active,
+        "zscore_means": {k: round(float(means[k]), 6) for k in names},
+        "zscore_stds": {k: round(float(stds[k]), 6) for k in names},
+        "z_means": {k: round(float(means[k]), 6) for k in names},
+        "z_stds": {k: round(float(stds[k]), 6) for k in names},
+        "standardized": True,
+        "solver": "lambdarank",
+        "backend": "lambdarank",
+        "booster_b64": booster_b64,
+        "ridge_lambda": lam,
+        "sample_count": int(y.shape[0]),
+        "n_pair_days": n_pair_days,
+        "n_pairs": int(y.shape[0]),  # LambdaRank 用整日 group，无 pair 数概念
+        "label_mode": str(label_mode),
+        "n_groups": len(group_sizes),
+    }
+
+
+def _predict_rows_lightgbm(
+    fit: Dict[str, Any],
+    xs: List[dict],
+    *,
+    impute_missing: bool = True,
+) -> List[Optional[float]]:
+    """LightGBM LambdaRank 推理：z-score → booster.predict → 浮点分数（相对分）。"""
+    import base64 as _b64
+
+    import lightgbm as lgb
+
+    # 必须用训练时的完整特征列表（顺序一致），不能用 active_features（子集），
+    # 否则 LightGBM predict 形状检查失败
+    zm = fit.get("zscore_means")
+    if isinstance(zm, dict) and zm:
+        names = list(zm.keys())
+    elif isinstance(fit.get("z_means"), dict) and fit.get("z_means"):
+        names = list(fit.get("z_means").keys())
+    else:
+        names = list((fit.get("coefficients") or {}).keys())
+    if not names:
+        return [None] * len(xs)
+    means = zm if isinstance(zm, dict) else (fit.get("z_means") if isinstance(fit.get("z_means"), dict) else {})
+    stds_raw = fit.get("zscore_stds")
+    stds = stds_raw if isinstance(stds_raw, dict) else (fit.get("z_stds") if isinstance(fit.get("z_stds"), dict) else {})
+    b64 = str(fit.get("booster_b64") or "")
+    if not b64:
+        return [None] * len(xs)
+    try:
+        text = _b64.b64decode(b64.encode("ascii")).decode("utf-8")
+        booster = lgb.Booster(model_str=text)
+    except Exception:  # noqa: BLE001
+        return [None] * len(xs)
+    out: List[Optional[float]] = []
+    for row in xs:
+        vec: List[float] = []
+        ok = True
+        src = row if isinstance(row, dict) else {}
+        for name in names:
+            v = src.get(name)
+            if v is None:
+                if not impute_missing or not means:
+                    ok = False
+                    break
+                vec.append(0.0)
+                continue
+            try:
+                fv = float(v)
+            except (TypeError, ValueError):
+                if not impute_missing or not means:
+                    ok = False
+                    break
+                vec.append(0.0)
+                continue
+            mu = float(means.get(name, 0.0))
+            sd = float(stds.get(name, 1.0))
+            if sd < 1e-9:
+                sd = 1.0
+            vec.append((fv - mu) / sd)
+        if not ok:
+            out.append(None)
+            continue
+        try:
+            pred = booster.predict(np.asarray([vec], dtype=np.float64))
+            out.append(round(float(pred[0]), 6) if pred.size else None)
+        except Exception:  # noqa: BLE001
+            out.append(None)
+    return out
+
+
 def _resolve_oo_rank_fit(
     *,
     model_doc: Optional[Dict[str, Any]] = None,
     fit: Optional[Dict[str, Any]] = None,
 ) -> Optional[Dict[str, Any]]:
-    if isinstance(fit, dict) and (fit.get("coefficients") or {}):
+    # 线性模型：coefficients 非空；lambdarank / 旧 lightgbm_lambda：booster_b64 非空
+    def _is_valid(m: Dict[str, Any]) -> bool:
+        if not isinstance(m, dict):
+            return False
+        if m.get("coefficients"):
+            return True
+        solver = str(m.get("solver") or "").strip().lower()
+        if solver in {"lambdarank", "lightgbm_lambda"} and m.get("booster_b64"):
+            return True
+        return False
+
+    if _is_valid(fit):
         return fit
     doc = model_doc
     if doc is None:
         doc = load_oo_rank_model(prefer_research=True)
     if isinstance(doc, dict):
         model = doc.get("return_model")
-        if isinstance(model, dict) and (model.get("coefficients") or {}):
+        if _is_valid(model):
             return model
     return None
 
@@ -567,7 +805,10 @@ def predict_oo_rank_from_features(
                 "predict_oo_rank_from_features: model expects cs_* but row has none; "
                 "impute 0 — prefer apply_oo_rank_scores for batch CS"
             )
-    preds = _predict_rows(model, [row], impute_missing=True)
+    if str(model.get("solver") or "").strip().lower() in {"lambdarank", "lightgbm_lambda"}:
+        preds = _predict_rows_lightgbm(model, [row], impute_missing=True)
+    else:
+        preds = _predict_rows(model, [row], impute_missing=True)
     if not preds:
         return None
     return preds[0]
@@ -799,10 +1040,15 @@ def fit_oo_rank_report(
     pair_preset: Optional[str] = None,
     persist: bool = False,
     day_panels: Optional[Sequence[Dict[str, Any]]] = None,
+    backend: str = "lambdarank",
+    lightgbm_params: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """拟合 ŷ_oo_rank + Holdout OOS，并与同窗 Ridge ŷ_oo 对照。
 
     ``day_panels``：若已预计算日截面（含 raw），可跳过建面板；仍按 ``feature_mode`` enrich。
+
+    ``backend``：仅 ``"lambdarank"``（LightGBM LambdaRank，按日 group，优化 NDCG）。
+    旧别名 ``lightgbm_lambda`` 仍接受。``lightgbm_params`` 可覆盖超参。
     """
     from core.research.holdout import (
         attach_holdout_meta,
@@ -880,31 +1126,46 @@ def fit_oo_rank_report(
         }
 
     feat_names = _collect_feature_names(days_tr)
-    _pair_kw = dict(
-        top_k=tk,
-        bottom_k=bk,
-        top_frac=tfrac,
-        bottom_frac=bfrac,
-        min_abs_gap=gap,
-        max_pairs=max_pairs,
-        extra_random=extra_random,
-        l2=l2,
-        lr=lr,
-        epochs=epochs,
-    )
-    fit_tr = fit_ranknet_linear(
-        days_tr,
-        feature_names=feat_names,
-        **_pair_kw,
-    )
-    if not fit_tr.get("success"):
+    backend_key = str(backend or "lambdarank").strip().lower()
+    if backend_key in {"lightgbm", "lgb", "lambda", "lambdarank", "lightgbm_lambda"}:
+        backend_key = "lambdarank"
+    if backend_key in {"ranknet", "ranknet_linear", "linear"}:
         return {
             "success": False,
-            "error": fit_tr.get("error") or "ranknet_fit_failed",
+            "error": "ŷ_oo_rank 已下掉 RankNet，仅支持 lambdarank",
             "task": "oo_rank_pairwise",
             "n_days": len(days),
             "feature_mode": feat_mode,
             "pair_preset": preset_key,
+            "backend": backend_key,
+        }
+    if backend_key != "lambdarank":
+        return {
+            "success": False,
+            "error": f"unsupported backend={backend_key}；仅支持 lambdarank",
+            "task": "oo_rank_pairwise",
+            "n_days": len(days),
+            "feature_mode": feat_mode,
+            "pair_preset": preset_key,
+            "backend": backend_key,
+        }
+    lgb_kw: Dict[str, Any] = dict(l2=l2)
+    if isinstance(lightgbm_params, dict) and lightgbm_params:
+        lgb_kw.update(lightgbm_params)
+    fit_tr = fit_ranknet_lightgbm(
+        days_tr,
+        feature_names=feat_names,
+        **lgb_kw,
+    )
+    if not fit_tr.get("success"):
+        return {
+            "success": False,
+            "error": fit_tr.get("error") or "lambdarank_fit_failed",
+            "task": "oo_rank_pairwise",
+            "n_days": len(days),
+            "feature_mode": feat_mode,
+            "pair_preset": preset_key,
+            "backend": backend_key,
             "detail": fit_tr,
         }
 
@@ -929,10 +1190,10 @@ def fit_oo_rank_report(
         )
 
     # 全样本重估（影子执行套）
-    fit_full = fit_ranknet_linear(
+    fit_full = fit_ranknet_lightgbm(
         days,
         feature_names=feat_names,
-        **_pair_kw,
+        **lgb_kw,
     )
     model = fit_full if fit_full.get("success") else dict(fit_tr)
     model = dict(model)
@@ -989,6 +1250,8 @@ def fit_oo_rank_report(
         "success": True,
         "task": "oo_rank_pairwise",
         "schema": SCHEMA,
+        "backend": backend_key,
+        "solver": str(model.get("solver") or ""),
         "n_days": len(days),
         "n_train_days": len(days_tr),
         "n_test_days": len(days_te),
@@ -1009,7 +1272,7 @@ def fit_oo_rank_report(
         "y_spec": y_spec,
         "pair_sampling": pair_meta,
         "note": (
-            f"ŷ_oo_rank = 线性 RankNet（preset={preset_key} · mode={feat_mode}）；"
+            f"ŷ_oo_rank = {backend_key}（preset={preset_key} · mode={feat_mode}）；"
             "影子头，不进 live ranking；OOS 含与同窗 Ridge ŷ_oo 对照"
         ),
     }

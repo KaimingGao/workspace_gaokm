@@ -108,6 +108,38 @@ def load_xgboost_booster(blob: Dict[str, Any]) -> Any:
     return booster
 
 
+def serialize_lightgbm_booster(booster: Any) -> Dict[str, str]:
+    # lgb.Booster.save_model 只接受文件路径字符串，用临时文件中转
+    import tempfile
+
+    with tempfile.NamedTemporaryFile(mode="r", suffix=".txt", delete=True, encoding="utf-8") as tmp:
+        tmp_path = tmp.name
+    booster.save_model(tmp_path)
+    try:
+        with open(tmp_path, encoding="utf-8") as f:
+            text = f.read()
+    finally:
+        try:
+            os.remove(tmp_path)
+        except OSError:
+            pass
+    return {
+        "format": "lightgbm_string",
+        "payload_b64": base64.b64encode(text.encode("utf-8")).decode("ascii"),
+    }
+
+
+def load_lightgbm_booster(blob: Dict[str, Any]) -> Any:
+    import lightgbm as lgb
+
+    fmt = str((blob or {}).get("format") or "")
+    if fmt != "lightgbm_string":
+        raise ValueError(f"unsupported lightgbm blob format={fmt}")
+    b64 = str((blob or {}).get("payload_b64") or "")
+    text = base64.b64decode(b64.encode("ascii")).decode("utf-8")
+    return lgb.Booster(model_str=text)
+
+
 def pack_tree_return_model(
     *,
     head: str,
@@ -142,6 +174,8 @@ def pack_tree_return_model(
         out["hyperparams"] = dict(hyperparams)
     if eng == "xgboost":
         out["booster"] = serialize_xgboost_booster(model_obj)
+    elif eng == "lightgbm":
+        out["booster"] = serialize_lightgbm_booster(model_obj)
     elif eng in {"numpy_gbm", "numpy", "gbm"}:
         out["backend"] = "numpy_gbm"
         out["gbm_pack"] = dict(model_obj or {})
@@ -188,6 +222,12 @@ def predict_tree_p_up(
 
             booster = load_xgboost_booster(rm.get("booster") or {})
             pred = _predict_xgboost(booster, x)
+        elif eng == "lightgbm":
+            from core.research.tau_tree import _predict_lightgbm
+
+            booster = load_lightgbm_booster(rm.get("booster") or {})
+            raw = _predict_lightgbm(booster, x)
+            pred = np.clip(raw, HORIZON_P_CLIP, 1.0 - HORIZON_P_CLIP)
         elif eng in {"numpy_gbm", "numpy", "gbm"}:
             from core.research.tau_tree import _predict_numpy_gbm
 

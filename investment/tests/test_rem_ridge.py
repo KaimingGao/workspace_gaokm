@@ -190,9 +190,9 @@ class TestRemRidgeFit(unittest.TestCase):
         from core.research.tau_ridge import fit_tau_ridge_report, persist_tau_model
 
         stock_bars = [
-            {"code": "A", "bars": _bars(40, 10)},
-            {"code": "B", "bars": _bars(40, 12)},
-            {"code": "C", "bars": _bars(40, 8)},
+            {"code": "A", "bars": _bars(90, 10)},
+            {"code": "B", "bars": _bars(90, 12)},
+            {"code": "C", "bars": _bars(90, 8)},
         ]
         report = fit_tau_ridge_report(
             stock_bars, ridge_lambda=1.0, theme_boost=1.5
@@ -220,6 +220,11 @@ class TestRemRidgeFit(unittest.TestCase):
         self.assertIn("mom3_pct", extras)
         self.assertIn("tau_lag1", extras)
         self.assertIn("tau_ma5", extras)
+        self.assertTrue(report.get("include_alpha158"))
+        self.assertGreater(int(report.get("n_alpha158_features") or 0), 0)
+        self.assertTrue(
+            any(str(k).startswith("raw_alpha158_") for k in extras)
+        )
         self.assertNotIn("prefix_complexity", extras)
         self.assertNotIn("prefix_tpd", extras)
         self.assertNotIn("t_hi_frac", extras)
@@ -252,14 +257,14 @@ class TestRemRidgeFit(unittest.TestCase):
                 else:
                     saved = blocked
                 self.assertTrue(saved.get("success"), saved)
-                self.assertEqual(saved.get("schema"), "tau_ridge_v11")
+                self.assertEqual(saved.get("schema"), "tau_ridge_v12")
                 self.assertTrue(os.path.isfile(os.path.join(live, "tau_ridge_model.json")))
                 self.assertTrue(os.path.isfile(os.path.join(live, "rem_ridge_model.json")))
                 from core.research.tau_ridge import load_tau_model, predict_tau_from_features
 
                 doc = load_tau_model()
                 self.assertIsNotNone(doc)
-                self.assertEqual(doc.get("schema"), "tau_ridge_v11")
+                self.assertEqual(doc.get("schema"), "tau_ridge_v12")
                 self.assertEqual(doc.get("tau"), "open")
                 self.assertEqual(doc.get("dual_score_head"), "predicted_score_tau")
                 yhat = predict_tau_from_features(
@@ -292,6 +297,33 @@ class TestRemRidgeFit(unittest.TestCase):
                 self.assertIsNotNone(expl)
                 self.assertIn("terms", expl)
                 self.assertAlmostEqual(float(expl["total"]), float(yhat), places=4)
+
+    def test_fit_tau_ridge_include_alpha158_flag(self):
+        from core.research.tau_ridge import fit_tau_ridge_report
+
+        stock_bars = [
+            {"code": "A", "bars": _bars(90, 10)},
+            {"code": "B", "bars": _bars(90, 12)},
+            {"code": "C", "bars": _bars(90, 8)},
+            {"code": "D", "bars": _bars(90, 15)},
+        ]
+        off = fit_tau_ridge_report(
+            stock_bars, include_alpha158=False, holdout_trading_days=5
+        )
+        self.assertTrue(off.get("success"), off.get("error"))
+        self.assertFalse(off.get("include_alpha158"))
+        self.assertEqual(int(off.get("n_alpha158_features") or 0), 0)
+        extras_off = (off.get("return_model") or {}).get("extra_features") or []
+        self.assertFalse(any(str(k).startswith("raw_alpha158_") for k in extras_off))
+
+        on = fit_tau_ridge_report(
+            stock_bars, include_alpha158=True, holdout_trading_days=5
+        )
+        self.assertTrue(on.get("success"), on.get("error"))
+        self.assertTrue(on.get("include_alpha158"))
+        self.assertGreater(int(on.get("n_alpha158_features") or 0), 0)
+        extras_on = (on.get("return_model") or {}).get("extra_features") or []
+        self.assertTrue(any(str(k).startswith("raw_alpha158_") for k in extras_on))
 
     def test_tau_promote_gate(self):
         from core.research.tau_ridge import tau_promote_gate

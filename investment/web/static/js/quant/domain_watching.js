@@ -95,7 +95,7 @@ export function installWatching(q) {
     try {
       return await ensureWarehouseTopup({
         force,
-        watchingLimit: 200,
+        watchingLimit: 300,
         onStatus: (msg) =>
           setWatchingRefreshStatus(msg || "增量补齐本地仓…", {
             busy: true,

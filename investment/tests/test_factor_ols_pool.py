@@ -183,8 +183,8 @@ class TestFactorOlsPool(unittest.TestCase):
         path = os.path.join(ROOT, "web", "static", "partials", "quant_panel.html")
         with open(path, encoding="utf-8") as f:
             html = f.read()
-        # 池 OLS API 仍保留隐藏入口；探针主入口改为单票 vs 所在组
-        self.assertIn("quant-ols-pool-run", html)
+        # 池 OLS 隐藏入口已拆除；探针保留单票对照
+        self.assertNotIn("quant-ols-pool-run", html)
         self.assertIn("quant-ridge-lambda", html)
         self.assertIn("quant-ols-code", html)
         self.assertIn("quant-probe-run", html)
@@ -192,7 +192,7 @@ class TestFactorOlsPool(unittest.TestCase):
         self.assertIn("单票 vs 所在组", html)
 
     def test_js_calls_pool_api(self):
-        # 池 OLS / 探针入口已拆到 domain_suggest / domain_cluster
+        # 池 OLS UI 路径已拆除；探针入口仍在 domain_cluster / quant.js
         suggest = os.path.join(ROOT, "web", "static", "js", "quant", "domain_suggest.js")
         cluster = os.path.join(ROOT, "web", "static", "js", "quant", "domain_cluster.js")
         shell = os.path.join(ROOT, "web", "static", "js", "quant.js")
@@ -202,8 +202,8 @@ class TestFactorOlsPool(unittest.TestCase):
             cluster_js = f.read()
         with open(shell, encoding="utf-8") as f:
             shell_js = f.read()
-        self.assertIn("/api/quant/factor-ols-pool", suggest_js)
-        self.assertIn("runFactorOlsPoolSuggest", suggest_js)
+        self.assertNotIn("/api/quant/factor-ols-pool", suggest_js)
+        self.assertNotIn("runFactorOlsPoolSuggest", suggest_js)
         self.assertIn("readOlsCode", cluster_js)
         self.assertIn("populateOlsCodeOptions", cluster_js)
         self.assertIn("populateOlsCodeOptions", shell_js)

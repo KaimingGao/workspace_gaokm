@@ -55,6 +55,7 @@ _TAU_CORE_Z_KEYS = (
 
 
 def features_tau_snapshot(feats: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    from core.signal.factors.alpha158 import keep_alpha158_raw_in_row
     from core.signal.minute_tau_feats import attach_ret_vs_sector
 
     out: Dict[str, Any] = {}
@@ -66,7 +67,7 @@ def features_tau_snapshot(feats: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     for k in MINUTE_TAU_SHAPE_KEYS:
         if k in src:
             out[k] = src.get(k)
-    return out
+    return keep_alpha158_raw_in_row(src, dest=out)
 
 
 def features_tau_fill_diag(feats: Optional[Dict[str, Any]]) -> Dict[str, Any]:
@@ -527,13 +528,20 @@ def attach_dual_score_pit(
                     [float(g) for g in pool if g is not None]
                 )
         feats["gap_vs_sector"] = gap_vs_sector_value(gap_v, ref)
+        try:
+            from core.signal.factors.alpha158 import raw_alpha158_from_bars
+
+            if hist:
+                feats.update(raw_alpha158_from_bars(hist))
+        except Exception:  # noqa: BLE001
+            logger.debug("tau alpha158 inject skipped", exc_info=True)
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
         logger.debug("catch except Exception: in dual_score.py", exc_info=True)
         pass
     # 保留刷簿已写齐的截面 Z，避免 tip/PIT 路径冲成缺特征
     prior_ft = signal_item.get("features_tau")
     if isinstance(prior_ft, dict):
-        # 仅用「算出来的非空」覆盖；空值不冲掉簿上齐套列
+        # 仅用「算出来的非空」覆盖；空值不冲掉簿上齐套列（含 raw_alpha158_*）
         computed = {k: v for k, v in feats.items() if v is not None and v != ""}
         feats = merge_tau_features(computed, prior_ft)
         # 无池广度时不要用弱路径算出的 theme_day=0 盖掉刷簿主题日
@@ -754,33 +762,11 @@ def _resolve_fuse_intraday(
 
 
 def _eod_return_model_for_item(item: dict):
-    """取该票打分时同源的 EOD ReturnScoreModel（反推 sub_scores 用）。"""
-    code = str(item.get("stock_code") or "").strip()
-    src = str(item.get("return_model_source") or "").strip()
-    # 主分已降级：τ 反推也用全局，避免失败组 β 污染
-    use_cluster = src not in (
-        "oos_failed_global",
-        "oos_failed_heuristic",
-        "global",
-        "oos_failed_degrade",
-    )
-    if use_cluster and src.startswith("oos_failed"):
-        use_cluster = False
-    try:
-        if use_cluster:
-            from core.signal.cluster.live import (
-                filter_primary_cluster_models_by_code,
-                load_cluster_return_models_by_code,
-            )
+    """取该票打分时同源的 EOD ReturnScoreModel（反推 sub_scores 用）。
 
-            models = filter_primary_cluster_models_by_code(
-                load_cluster_return_models_by_code() or {}
-            )
-            if code and code in models:
-                return models[code]
-    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in dual_score.py", exc_info=True)
-        pass
+    分组模型已下线：一律用全局 return model。
+    """
+    del item  # 全局模型不再按票选组 β
     try:
         from core.signal.return_score_store import load_return_model
 

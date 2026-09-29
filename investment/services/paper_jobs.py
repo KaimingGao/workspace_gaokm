@@ -34,18 +34,13 @@ class PaperJobsMixin:
 
         if not os.path.isfile(self.path):
             raise FileNotFoundError("请先初始化纸面账户")
-        cluster_prep = None
-        try:
-            from core.signal.cluster.live import prepare_cluster_for_daily
-
-            cluster_prep = prepare_cluster_for_daily()
-        except Exception as exc:
-            logger.exception('unexpected error in run')
-            cluster_prep = {
-                "success": False,
-                "error": str(exc),
-                "task": "cluster_prepare_daily",
-            }
+        # 分组 OO 已下线：不再 prepare_cluster_for_daily
+        cluster_prep = {
+            "success": True,
+            "skipped": True,
+            "reason": "cluster_scoring_retired",
+            "task": "cluster_prepare_daily",
+        }
         with paper_write_lock(self.path):
             paper = load_paper(self.path)
             original = copy.deepcopy(paper)

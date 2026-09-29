@@ -76,7 +76,7 @@
 
 OOS 失败组禁止新开/加仓。配置写在 `execution.rebalance_timing.rank_lots`（仍认旧键 `path_matrix`）。
 
-观察池还可按拟合档收缩宇宙：`cluster_scoring.universe_fit_tiers`（`A`/`B`/`C` 可多选，默认三档=不过滤）。只影响 **rank_lots 新开/加**；已持仓仍可卖/清。历史回测 `/replay` 调仓腿可按次另选，便于 A vs A+B vs 全档对照。**做 T 不套分档**（只在已持底仓上 overlay；v6 估 ĉ / 选腿不吃 ŷ_oo）。未映射票在未选满三档时不进新买。OOS 失败禁买与分档过滤独立。
+观察池还可按拟合档收缩宇宙：`cluster_scoring.universe_fit_tiers`（`A`/`B`/`C` 可多选，默认三档=不过滤）。只影响 **live rank_lots 新开/加**；已持仓仍可卖/清。历史回测 `/replay` 不再按拟合档过滤，可勾选枢纽「观察池分档」A/B/C 过滤宇宙（回测天数仍用独立 lookback）。**做 T 不套分档**（只在已持底仓上 overlay；v6 估 ĉ / 选腿不吃 ŷ_oo）。未映射票在未选满三档时不进新买。OOS 失败禁买与分档过滤独立。
 
 ---
 

@@ -87,6 +87,21 @@ class TestD3Calendar(unittest.TestCase):
         out = filter_trading_dates(["2024-01-06", "2024-01-08", "2024-01-09"])
         self.assertEqual(out, ["2024-01-08", "2024-01-09"])
 
+    def test_mid_autumn_2026_not_trading(self):
+        """中秋 2026-09-25 须在 cn_holidays.json，完整度日历不应出现该列。"""
+        from core.market.calendar import is_trading_day
+        from quant.research.bars_integrity import recent_trading_days
+
+        self.assertFalse(is_trading_day("2026-09-25"))
+        self.assertTrue(is_trading_day("2026-09-24"))
+        self.assertTrue(is_trading_day("2026-09-28"))
+        days = recent_trading_days(10, end="2026-09-28")
+        self.assertIn("2026-09-24", days)
+        self.assertIn("2026-09-28", days)
+        self.assertNotIn("2026-09-25", days)
+        self.assertNotIn("2026-09-26", days)
+        self.assertNotIn("2026-09-27", days)
+
 
 class TestD4DataQuality(unittest.TestCase):
     def test_build_report(self):

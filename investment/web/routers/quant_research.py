@@ -2,7 +2,7 @@
 
 
 import logging
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, HTTPException
 
@@ -17,6 +17,8 @@ from web.schemas import (
     FactorOlsPoolRequest,
     CoRidgeRequest,
     OoRankRequest,
+    OoTreeRequest,
+    CoTreeRequest,
     TcRidgeRequest,
     T30RidgeRequest,
     T45RidgeRequest,
@@ -116,6 +118,32 @@ def quant_factor_ols_pool(body: FactorOlsPoolRequest) -> Dict[str, Any]:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
+@router.post("/api/quant/oo-tree")
+def quant_oo_tree(body: OoTreeRequest) -> Dict[str, Any]:
+    """ŷ_oo_tree 影子头 + 同 Holdout Ridge；不写 live / 研究套，不进回测。"""
+    try:
+        return deps.quant.run_oo_tree_experiment(
+            lookback=body.lookback,
+            watching_limit=body.watching_limit,
+            horizon_days=body.horizon_days,
+            ridge_lambda=body.ridge_lambda,
+            holdout_trading_days=body.holdout_trading_days,
+            backend=body.backend,
+            include_alpha158=bool(body.include_alpha158),
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@router.get("/api/quant/oo-tree/last")
+def quant_oo_tree_last() -> Dict[str, Any]:
+    """读取上次 ŷ_oo_tree（oo_tree_last_report.json）；不进打分。"""
+    try:
+        return deps.quant.get_oo_tree_last_report()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
 @router.post("/api/quant/tau-tree")
 def quant_tau_tree(body: TauTreeRequest) -> Dict[str, Any]:
     """ŷ_τ_tree 影子头 + 同 Holdout Ridge；不写 live / 研究套，不进回测。"""
@@ -129,6 +157,7 @@ def quant_tau_tree(body: TauTreeRequest) -> Dict[str, Any]:
             tau_hm=body.tau_hm,
             holdout_trading_days=body.holdout_trading_days,
             backend=body.backend,
+            include_alpha158=bool(body.include_alpha158),
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
@@ -139,6 +168,33 @@ def quant_tau_tree_last() -> Dict[str, Any]:
     """读取上次 ŷ_τ_tree（tau_tree_last_report.json）；不进打分。"""
     try:
         return deps.quant.get_tau_tree_last_report()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@router.post("/api/quant/co-tree")
+def quant_co_tree(body: CoTreeRequest) -> Dict[str, Any]:
+    """ŷ_co_tree 影子头 + 同 Holdout Ridge；不写 live / 研究套，不进回测。"""
+    try:
+        return deps.quant.run_co_tree_experiment(
+            lookback=body.lookback,
+            watching_limit=body.watching_limit,
+            ridge_lambda=body.ridge_lambda,
+            gap_trigger_pct=body.gap_trigger_pct,
+            theme_boost=body.theme_boost,
+            holdout_trading_days=body.holdout_trading_days,
+            backend=body.backend,
+            include_alpha158=bool(body.include_alpha158),
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@router.get("/api/quant/co-tree/last")
+def quant_co_tree_last() -> Dict[str, Any]:
+    """读取上次 ŷ_co_tree（co_tree_last_report.json）；不进打分。"""
+    try:
+        return deps.quant.get_co_tree_last_report()
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
@@ -171,6 +227,7 @@ def quant_tau_ridge(body: TauRidgeRequest) -> Dict[str, Any]:
             force_promote=body.force_promote,
             persist_role=body.persist_role,
             holdout_trading_days=body.holdout_trading_days,
+            include_alpha158=bool(body.include_alpha158),
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
@@ -254,7 +311,7 @@ def quant_co_ridge_model() -> Dict[str, Any]:
 
 @router.post("/api/quant/oo-rank")
 def quant_oo_rank(body: OoRankRequest) -> Dict[str, Any]:
-    """ŷ_oo_rank 线性 RankNet pairwise（影子头）；OOS 对照 Ridge ŷ_oo；不进 live ranking。"""
+    """ŷ_oo_rank LambdaRank（影子头）；OOS 对照 Ridge ŷ_oo；不进 live ranking。"""
     try:
         return deps.quant.run_oo_rank_experiment(
             lookback=body.lookback,
@@ -266,6 +323,7 @@ def quant_oo_rank(body: OoRankRequest) -> Dict[str, Any]:
             bottom_k=body.bottom_k,
             topk_track=body.topk_track,
             l2=body.l2,
+            backend=body.backend,
             persist=body.persist,
             note=body.note,
         )
@@ -278,6 +336,178 @@ def quant_oo_rank_model() -> Dict[str, Any]:
     """读取已落盘的 ŷ_oo_rank 影子模型。"""
     try:
         return deps.quant.get_oo_rank_model()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@router.get("/api/quant/research-universe")
+def quant_research_universe_get(coverage: bool = False) -> Dict[str, Any]:
+    """日线研究宇宙看板：名单 KPI · ∩观察池 · 可选日线覆盖。分钟暖仓不读此名单。"""
+    from core.research_universe import build_research_universe_board
+
+    try:
+        return build_research_universe_board(include_coverage=bool(coverage))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@router.get("/api/quant/research-universe/predictability-tiers")
+def quant_research_universe_predictability_tiers(
+    holdout: int = 20,
+    min_n: int = 20,
+    head: str = "oo",
+    a_hit: float = 0.55,
+    b_hit: float = 0.50,
+    pool: str = "watching",
+) -> Dict[str, Any]:
+    """观察池分档：Holdout 前半账本打档，落盘 last；回测/live 复用档位。
+
+    holdout: 页顶 Holdout 交易日数；前半=分档窗。回测天数由回测页 lookback 独立设置。
+    """
+    from core.research.predictability_tiers import (
+        build_holdout_half_tiers,
+        live_tier_status,
+    )
+
+    try:
+        rep = build_holdout_half_tiers(
+            holdout_n=max(2, min(int(holdout or 20), 90)),
+            pool=str(pool or "watching"),
+            min_n=max(1, min(int(min_n or 20), 60)),
+            head=str(head or "oo"),
+            a_hit=float(a_hit),
+            b_hit=float(b_hit),
+            persist=True,
+        )
+        if isinstance(rep, dict):
+            rep["live"] = live_tier_status()
+        return rep
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@router.get("/api/quant/research-universe/predictability-tiers/last")
+def quant_research_universe_predictability_tiers_last() -> Dict[str, Any]:
+    """读取上次可预测性分档影子报告 + live 启用状态。"""
+    from core.research.predictability_tiers import (
+        live_tier_status,
+        load_predictability_tiers_last,
+        predictability_tiers_last_path,
+    )
+
+    try:
+        last = load_predictability_tiers_last()
+        live = live_tier_status()
+        if not last:
+            return {
+                "success": False,
+                "exists": False,
+                "path": predictability_tiers_last_path(),
+                "live": live,
+                "note": "尚无分档报告；请先点「观察池分档」",
+            }
+        out = dict(last)
+        out["exists"] = True
+        out["path"] = predictability_tiers_last_path()
+        out["live"] = live
+        return out
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@router.get("/api/quant/research-universe/predictability-tiers/live")
+def quant_research_universe_predictability_tiers_live() -> Dict[str, Any]:
+    """当前 live 分档闸状态。"""
+    from core.research.predictability_tiers import live_tier_status
+
+    try:
+        st = live_tier_status()
+        return {"success": True, **st}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@router.post("/api/quant/research-universe/predictability-tiers/promote")
+def quant_research_universe_predictability_tiers_promote() -> Dict[str, Any]:
+    """把上次影子分档写入 active，调仓按 A+B 过滤新开。"""
+    from core.research.predictability_tiers import (
+        live_tier_status,
+        promote_predictability_tiers_to_live,
+    )
+
+    try:
+        out = promote_predictability_tiers_to_live()
+        if not out.get("ok"):
+            raise HTTPException(status_code=400, detail=out.get("error") or "启用失败")
+        return {**out, "live": live_tier_status()}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@router.post("/api/quant/research-universe/predictability-tiers/demote")
+def quant_research_universe_predictability_tiers_demote() -> Dict[str, Any]:
+    """关闭 live 分档闸（删 active）。"""
+    from core.research.predictability_tiers import (
+        clear_predictability_tiers_live,
+        live_tier_status,
+    )
+
+    try:
+        out = clear_predictability_tiers_live()
+        if not out.get("ok"):
+            raise HTTPException(status_code=500, detail=out.get("error") or "关闭失败")
+        return {**out, "live": live_tier_status()}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@router.put("/api/quant/research-universe")
+def quant_research_universe_put(body: Dict[str, Any]) -> Dict[str, Any]:
+    """写入日线研究宇宙 codes（去重，上限 2000）。不改观察池、不触发分钟暖仓。"""
+    from core.research_universe import save_research_universe
+
+    try:
+        saved = save_research_universe(body if isinstance(body, dict) else {})
+        from core.research_universe import build_research_universe_board
+
+        board = build_research_universe_board(include_coverage=False)
+        return {**saved, "board": board}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@router.post("/api/quant/research-universe/sync-watching")
+def quant_research_universe_sync_watching() -> Dict[str, Any]:
+    """用当前观察池覆盖研究宇宙（不触发分钟暖仓）。"""
+    from core.research_universe import (
+        build_research_universe_board,
+        sync_research_universe_from_watching,
+    )
+
+    try:
+        saved = sync_research_universe_from_watching()
+        board = build_research_universe_board(include_coverage=False)
+        return {**saved, "board": board}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@router.post("/api/quant/research-universe/sync-cached-daily")
+def quant_research_universe_sync_cached_daily() -> Dict[str, Any]:
+    """用本地日 K 仓（约 1200）覆盖研究宇宙；不改观察池、不暖仓。"""
+    from core.research_universe import (
+        build_research_universe_board,
+        sync_research_universe_from_cached_daily,
+    )
+
+    try:
+        saved = sync_research_universe_from_cached_daily()
+        board = build_research_universe_board(include_coverage=False)
+        return {**saved, "board": board}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
@@ -770,44 +1000,24 @@ def quant_factor_corr(
 
         items: list = []
         source = "empty"
-        # 优先 active 簿 scored_all（含 sub_scores，且不重打全池）
+        # 分组簿已退役：只用观察池 insights 的 sub_scores
         try:
-            from core.signal.cluster.live import load_active_cluster_book
+            from core.watching.insights import load_insights_cache
 
-            doc = load_active_cluster_book() or {}
-            by_code: dict = {}
-            for row in list(doc.get("scored_all") or []) + list(doc.get("book") or []):
-                if not isinstance(row, dict):
-                    continue
-                code = str(row.get("stock_code") or "").strip()
-                if not code or not (row.get("sub_scores") or {}):
-                    continue
-                by_code[code] = row
-            if len(by_code) >= int(min_samples):
-                items = list(by_code.values())
-                source = "cluster_book"
+            insights = load_insights_cache()
+            if insights:
+                raw = (
+                    insights
+                    if isinstance(insights, list)
+                    else list(insights.values())
+                    if isinstance(insights, dict)
+                    else []
+                )
+                items = [it for it in raw if isinstance(it, dict) and (it.get("sub_scores") or {})]
+                source = "watching_insights"
         except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
             logger.debug("catch except Exception: in quant_research.py", exc_info=True)
             pass
-
-        if not items:
-            try:
-                from core.watching.insights import load_insights_cache
-
-                insights = load_insights_cache()
-                if insights:
-                    raw = (
-                        insights
-                        if isinstance(insights, list)
-                        else list(insights.values())
-                        if isinstance(insights, dict)
-                        else []
-                    )
-                    items = [it for it in raw if isinstance(it, dict) and (it.get("sub_scores") or {})]
-                    source = "watching_insights"
-            except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-                logger.debug("catch except Exception: in quant_research.py", exc_info=True)
-                pass
 
         if not items:
             return {
@@ -818,7 +1028,7 @@ def quant_factor_corr(
                 "pairs": [],
                 "warnings": [],
                 "source": source,
-                "note": "无 sub_scores：请先「跑分组 / 刷新簿」生成因子分数",
+                "note": "无 sub_scores：请先刷新观察池 insights 生成因子分数",
             }
 
         result = compute_factor_corr_matrix(items, min_samples=min_samples)

@@ -89,6 +89,35 @@ def assess_factor_health(*, config: Optional[dict] = None) -> Dict[str, Any]:
     }
 
 
+def unsourced_factor_names(*, statuses: Optional[tuple] = None) -> frozenset:
+    """无真源、不得进生产 β 的因子名（默认 proxy + prior_only）。"""
+    allow = statuses or ("proxy", "prior_only")
+    return frozenset(
+        k
+        for k, meta in PROXY_OR_UNSOURCED.items()
+        if str((meta or {}).get("status") or "") in allow
+    )
+
+
+def strip_unsourced_coefficients(
+    weights: Optional[dict],
+) -> tuple:
+    """从系数表剔除无真源因子；返回 (cleaned, stripped_names)。"""
+    w = dict(weights or {})
+    banned = unsourced_factor_names()
+    stripped: List[str] = []
+    for key in list(w.keys()):
+        if str(key) in banned:
+            try:
+                val = float(w.get(key) or 0.0)
+            except (TypeError, ValueError):
+                val = 0.0
+            if abs(val) > 1e-12:
+                stripped.append(str(key))
+            w.pop(key, None)
+    return w, stripped
+
+
 def guard_weights_for_promote(
     weights: Optional[dict],
     *,

@@ -6,8 +6,8 @@ import { escapeHtml as defaultEscapeHtml } from "../shared.js";
 export const FIT_TIER_LABEL = { A: "强", B: "中", C: "弱" };
 export const FIT_TIER_TIP = {
   A: "A 强：OOS 过门且截面 IC、ICIR>0 且 ŷOOS>0",
-  B: "B 中：OOS 过门未达 A",
-  C: "C 弱：未过/跳过/单票/无模型",
+  B: "B 中：OOS 过门且 ŷOOS>0，未达 A",
+  C: "C 弱：未过/ŷOOS≤0/跳过/单票/无模型（默认不进 live/回测）",
 };
 
 let _map = {};
@@ -106,30 +106,9 @@ export function stampFitTierBadges(root) {
 }
 
 export async function ensureFitTierMap(root) {
-  if (_loaded) {
-    stampFitTierBadges(root);
-    return _map;
-  }
-  if (_inflight) {
-    return _inflight.then(() => {
-      stampFitTierBadges(root);
-      return _map;
-    });
-  }
-  _inflight = fetch("/api/quant/cluster-live/fit-tiers")
-    .then((res) => res.json())
-    .then((data) => {
-      ingestFitTierMap((data && data.code_fit_tiers) || {});
-      stampFitTierBadges();
-      if (root) stampFitTierBadges(root);
-      return _map;
-    })
-    .catch(() => {
-      _loaded = true;
-      return _map;
-    })
-    .finally(() => {
-      _inflight = null;
-    });
-  return _inflight;
+  // cluster_retired：分组拟合档已退役，不再请求 /api/quant/cluster-live/fit-tiers
+  _loaded = true;
+  _map = {};
+  stampFitTierBadges(root);
+  return _map;
 }

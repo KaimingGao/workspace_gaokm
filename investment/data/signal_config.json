@@ -54,6 +54,9 @@
       "relative_strength",
       "idio_momentum",
       "size"
+    ],
+    "pv_derived": [
+      "alpha158"
     ]
   },
   "hard_reject": {
@@ -178,16 +181,16 @@
     "yhat_residual": false
   },
   "cluster_scoring": {
-    "mode": "active",
-    "enabled": true,
+    "mode": "off",
+    "enabled": false,
     "top_n_per_group": 10,
     "max_names": 40,
     "max_age_days": 14,
     "refit_max_age_days": 14,
-    "auto_demote_on_stale": true,
+    "auto_demote_on_stale": false,
     "max_oos_fail_rate": 0.5,
     "min_yhat_rolling_ic": 0.0,
-    "block_active_on_yhat_ic": true,
+    "block_active_on_yhat_ic": false,
     "min_sector_map_coverage": 0.5,
     "promote_allow_worse_oos_than_active": true,
     "rebalance_tracks": {
@@ -208,7 +211,8 @@
     },
     "universe_fit_tiers": [
       "A",
-      "B"
+      "B",
+      "C"
     ]
   },
   "event_prior": {

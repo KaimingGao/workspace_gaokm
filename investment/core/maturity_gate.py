@@ -286,37 +286,24 @@ def _y_track_gate(snaps: dict, add) -> None:
         )
 
     try:
-        from core.signal.cluster.live import (
-            assess_cluster_live_health,
-            get_cluster_scoring_cfg,
-            load_active_cluster_weights,
-        )
-
-        cs = get_cluster_scoring_cfg()
-        mode = cs.get("mode") or "off"
-        active = load_active_cluster_weights()
-        health = assess_cluster_live_health() if active else {}
-        live_ok = mode == "off" or (
-            bool(active) and bool(health.get("allow_active") or mode == "shadow")
-        )
+        # 分组 live 健康闸已下线
         add(
             "y_track",
             "yhat_live_health",
-            live_ok,
-            f"cluster mode={mode} has_active={bool(active)} "
-            f"stale={health.get('stale')} refit={health.get('refit_suggested')}",
+            True,
+            "cluster_retired",
             severity="soft",
-            action="研究枢纽刷新簿 / 跑分组→对照；陈旧则勿长期 active",
+            action="分组打分已下线，跳过 live health",
         )
     except Exception as exc:
         logger.exception('unexpected error in evaluate_maturity_gate')
         add(
             "y_track",
             "yhat_live_health",
-            False,
-            f"live 健康检查失败：{exc}",
+            True,
+            f"cluster_retired（{exc}）",
             severity="soft",
-            action="检查 cluster live 映射",
+            action="分组打分已下线",
         )
 
     # Y5.2：纸面日更连续样本
@@ -439,20 +426,14 @@ def _b_track_gate(fund: dict, add) -> None:
             action="检查 sample_ops / fundamentals store",
         )
     try:
-        from core.signal.cluster.live_health import assess_cluster_live_health
-
-        health = assess_cluster_live_health()
-        refit_ok = not bool(health.get("refit_suggested") or health.get("stale") or health.get("ic_demote"))
+        # 分组 promote/health 闸已下线
         add(
             "b_track",
             "refit_discipline",
-            refit_ok or str(health.get("mode") or "") in ("off", "shadow"),
-            (
-                f"分组 health mode={health.get('mode')} · stale={health.get('stale')} · "
-                f"refit={health.get('refit_suggested')} · ic_demote={health.get('ic_demote')}"
-            ),
+            True,
+            "cluster_retired",
             severity="soft",
-            action="研究枢纽跑分组重估；陈旧/IC 破线会 auto demote active→shadow",
+            action="分组打分已下线，跳过 refit/promote 闸",
         )
     except Exception as exc:
         logger.exception('unexpected error in evaluate_maturity_gate')
@@ -460,9 +441,9 @@ def _b_track_gate(fund: dict, add) -> None:
             "b_track",
             "refit_discipline",
             True,
-            f"health 跳过：{exc}",
+            f"cluster_retired（{exc}）",
             severity="soft",
-            action="可忽略（无分组 live 时）",
+            action="分组打分已下线",
         )
 
 

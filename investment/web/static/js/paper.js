@@ -1694,7 +1694,7 @@ export function initPaper(ctx) {
     try {
       return await ensureWarehouseTopup({
         force,
-        watchingLimit: 200,
+        watchingLimit: 300,
         onStatus: (msg) =>
           setHoldingsLoadStatus(msg || "增量补齐本地仓…", { busy: true }),
       });

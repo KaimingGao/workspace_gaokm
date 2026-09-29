@@ -1010,7 +1010,7 @@ class TestOpenDayYhat(unittest.TestCase):
             entries,
             quotes={},
             windows={},
-            cluster_models={"600519": model},
+            global_model=model,
             tau_model_doc={},
         )
         self.assertEqual(len(out), 1)
@@ -2805,26 +2805,22 @@ class TestReplayAlpha158Align(unittest.TestCase):
         }
         with _offline_rebalance_patches():
             with patch(
-                "core.backtest.paper_replay._load_replay_cluster_models",
-                return_value={},
+                "core.backtest.paper_replay._load_replay_global_model",
+                return_value=model,
             ):
                 with patch(
-                    "core.backtest.paper_replay._load_replay_global_model",
-                    return_value=model,
-                ):
-                    with patch(
-                        "core.backtest.paper_replay._score_open_day",
-                        return_value=[],
-                    ) as scored:
-                        out = backtest_paper_replay(
-                            stock_bars,
-                            top_k=2,
-                            min_history=12,
-                            max_window=30,
-                            lookback=20,
-                            cost_model="zero",
-                            include_session_day=False,
-                        )
+                    "core.backtest.paper_replay._score_open_day",
+                    return_value=[],
+                ) as scored:
+                    out = backtest_paper_replay(
+                        stock_bars,
+                        top_k=2,
+                        min_history=12,
+                        max_window=30,
+                        lookback=20,
+                        cost_model="zero",
+                        include_session_day=False,
+                    )
         self.assertTrue(out.get("success"), out.get("error"))
         self.assertEqual(int(out["params"]["max_window"]), ALPHA158_PANEL_WINDOW)
         self.assertEqual(int(out["params"]["min_history"]), ALPHA158_PANEL_WINDOW)

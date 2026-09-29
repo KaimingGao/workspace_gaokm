@@ -12,6 +12,11 @@ export const FACTOR_FAMILY_DEFS = [
   { id: "residual", label: "残差", tip: "相对市场、特异动量、规模" },
   { id: "reversal", label: "反转", tip: "短线反转，与动量拆开避免双计" },
   { id: "sentiment", label: "舆情", tip: "研究旁路，默认不进 ŷ" },
+  {
+    id: "pv_derived",
+    label: "量价衍生",
+    tip: "Qlib Alpha158 等 OHLCV 衍生；omit_sub_score，仅 raw_* 进 Ridge/树/LTR",
+  },
   { id: "other", label: "其他", tip: "未编入 factor_groups" },
 ];
 
@@ -23,7 +28,10 @@ const FAMILY_MEMBERS = {
   residual: ["relative_strength", "idio_momentum", "size"],
   reversal: ["reversal"],
   sentiment: ["alt_sentiment", "llm_sentiment"],
+  pv_derived: ["alpha158"],
 };
+
+const PREFIX_FAMILY = [{ prefix: "raw_alpha158_", family: "pv_derived" }];
 
 const SOURCE_OVERRIDE = {
   money_flow: {
@@ -71,7 +79,16 @@ for (const [fid, members] of Object.entries(FAMILY_MEMBERS)) {
 
 function fallbackClassify(name) {
   const key = String(name || "").trim();
-  const family = NAME_TO_FAMILY[key] || "other";
+  let family = NAME_TO_FAMILY[key] || "";
+  if (!family) {
+    for (const row of PREFIX_FAMILY) {
+      if (key.startsWith(row.prefix)) {
+        family = row.family;
+        break;
+      }
+    }
+  }
+  if (!family) family = "other";
   let source = "sourced";
   let sourceLabel = "真源";
   let sourceNote = "";
@@ -103,9 +120,12 @@ export function classifyFactor(name, meta) {
   const m = meta && typeof meta === "object" ? meta : {};
   const fallback = fallbackClassify(key);
 
-  // 已编入本地族表的因子：族标签以 FAMILY_MEMBERS 为准（避免旧 API/实验行把
-  // overheat、tail_anomaly 等钉死在「其他」；也避免空 meta 时误标）。
-  if (NAME_TO_FAMILY[key]) {
+  // 已编入本地族表 / 前缀族的因子：族标签以本地为准（避免旧 API/实验行把
+  // overheat、tail_anomaly、raw_alpha158_* 等钉死在「其他」）。
+  const localFamily =
+    NAME_TO_FAMILY[key] ||
+    (PREFIX_FAMILY.some((r) => key.startsWith(r.prefix)) ? fallback.family : "");
+  if (localFamily) {
     const source = String(m.source || fallback.source || "sourced");
     const ov = SOURCE_OVERRIDE[key];
     return {

@@ -92,7 +92,7 @@ class TestClusterBarsStatus(unittest.TestCase):
             }
         }
         with patch("core.watching.store.read_watching", return_value={"watchlist": ["600519"]}), patch(
-            "quant.research.factor_ols_clusters.merge_cluster_universe",
+            "quant.research.watching_universe.merge_cluster_universe",
             return_value={"codes": ["600519"], "code_roles": {}},
         ), patch(
             "quant.research.cluster_panels.build_cluster_ols_panels",

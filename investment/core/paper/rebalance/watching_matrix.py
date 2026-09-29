@@ -109,36 +109,10 @@ def _apply_universe_fit_tier_filter(
     *,
     keep: Sequence[str] = (),
 ) -> Tuple[List[str], Dict[str, Any]]:
-    """按 live 拟合档收缩新买宇宙；已持仓 keep 留下。失败则不过滤。"""
-    cleaned = [str(c).strip() for c in (codes or []) if str(c).strip()]
-    try:
-        from core.signal.cluster.fit_tier import (
-            filter_codes_by_fit_tiers,
-            universe_fit_tiers_unrestricted,
-        )
-        from core.signal.cluster.live import get_cluster_scoring_cfg
+    """可预测性分档 live 闸：有 active 则按档过滤；无则不过滤。持仓 keep 始终保留。"""
+    from core.research.predictability_tiers import filter_codes_by_predictability_live
 
-        tiers = get_cluster_scoring_cfg().get("universe_fit_tiers")
-        if universe_fit_tiers_unrestricted(tiers or []):
-            return cleaned, {
-                "universe_fit_tiers": ["A", "B", "C"],
-                "unrestricted": True,
-                "n_in": len(cleaned),
-                "n_kept": len(cleaned),
-                "n_dropped": 0,
-            }
-        return filter_codes_by_fit_tiers(
-            cleaned, tiers=tiers, keep=keep, prefer_research=False
-        )
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("universe fit-tier filter skipped: %s", exc, exc_info=True)
-        return cleaned, {
-            "unrestricted": True,
-            "error": str(exc),
-            "n_in": len(cleaned),
-            "n_kept": len(cleaned),
-            "n_dropped": 0,
-        }
+    return filter_codes_by_predictability_live(codes, keep=keep)
 
 
 def _resolve_report_name(

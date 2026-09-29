@@ -20,12 +20,14 @@ _CO_FEATURE_KEYS = CO_Z_FEATURES
 
 
 def features_co_snapshot(feats: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    from core.signal.factors.alpha158 import keep_alpha158_raw_in_row
+
     out: Dict[str, Any] = {}
     src = feats or {}
     for k in _CO_FEATURE_KEYS:
         if k in src and src.get(k) is not None and src.get(k) != "":
             out[k] = src.get(k)
-    return out
+    return keep_alpha158_raw_in_row(src, dest=out)
 
 
 def merge_co_features(

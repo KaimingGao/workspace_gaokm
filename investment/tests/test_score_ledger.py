@@ -690,10 +690,7 @@ class TestScoreLedger(unittest.TestCase):
     def test_nowcast_review_jaccard_from_ledger_without_snapshot(self):
         from core.score_ledger import build_nowcast_shadow_review, upsert_ledger_rows
 
-        with self._patch_dir(), patch(
-            "core.signal.cluster.live.load_nowcast_shadow_cluster_book",
-            return_value=None,
-        ):
+        with self._patch_dir():
             upsert_ledger_rows(
                 "2026-08-05",
                 [

@@ -391,6 +391,19 @@ def fit_return_model_from_panel(
             "error": f"训练样本不足（{len(ys)} < {min_samples}）",
             "sample_count": len(ys),
         }
+    # money_flow 等 proxy / prior_only 不进 ŷ_oo 拟合（无真源）
+    try:
+        from core.signal.factors.meta.health import unsourced_factor_names
+
+        banned = unsourced_factor_names()
+    except Exception:  # noqa: BLE001
+        logger.debug("catch except Exception: in return_score.py", exc_info=True)
+        banned = frozenset()
+    if banned:
+        xs = [
+            {k: v for k, v in (row or {}).items() if str(k) not in banned}
+            for row in xs
+        ]
     report = fit_factor_ols_from_panel(
         xs,
         ys,

@@ -470,11 +470,11 @@ function corrTextColor(v) {
   return Math.abs(v) > 0.5 ? "#fff" : "var(--ink)";
 }
 
-function vizEmpty(msg, ctaHref = "#quant-ols-clusters-run") {
+function vizEmpty(msg, ctaHref = "#quant-return-model-fit") {
   return (
     `<div class="quant-viz-empty" role="status">` +
     `<p class="quant-viz-empty-msg">${escapeHtml(msg)}</p>` +
-    `<a class="quant-viz-empty-cta" href="${escapeHtml(ctaHref)}">去跑分组</a>` +
+    `<a class="quant-viz-empty-cta" href="${escapeHtml(ctaHref)}">去拟合 ŷ_oo</a>` +
     `</div>`
   );
 }
@@ -488,7 +488,7 @@ function renderFactorCorrHeatmap(data, hostId) {
   const host = document.getElementById(hostId);
   if (!host) return;
   if (!data || !data.success || !data.factors || !data.factors.length) {
-    host.innerHTML = vizEmpty("暂无因子相关性 · 请先运行「跑分组」");
+    host.innerHTML = vizEmpty("暂无因子相关性 · 请先拟合 ŷ_oo");
     return;
   }
 
@@ -535,7 +535,7 @@ function renderFactorIR(data, hostId) {
   const host = document.getElementById(hostId);
   if (!host) return;
   if (!data || !data.factors || !data.factors.length) {
-    host.innerHTML = vizEmpty("暂无因子 IR · 请先运行「跑分组」");
+    host.innerHTML = vizEmpty("暂无因子 IR · 请先拟合 ŷ_oo");
     return;
   }
 
@@ -815,7 +815,7 @@ async function renderFactorICSeriesChart(data, host) {
   if (!host) return;
   if (!data || !data.factors || !data.factors.length) {
     await renderMultiLineChart(host, [], {
-      emptyText: "暂无 IC 时序 · 请先运行「跑分组」",
+      emptyText: "暂无 IC 时序 · 请先拟合 ŷ_oo",
     });
     return;
   }

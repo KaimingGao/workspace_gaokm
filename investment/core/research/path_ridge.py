@@ -280,7 +280,7 @@ def fit_path_ridge_report(
     gap_trigger_pct: float = 2.0,
     sell_trig_pct: float = DEFAULT_SELL_TRIG_PCT,
     buy_trig_pct: float = DEFAULT_BUY_TRIG_PCT,
-    holdout_trading_days: int = 10,
+    holdout_trading_days: int = 20,
     minute_tau_hm: Optional[str] = None,
     tau_grid: Optional[Sequence[str]] = None,
 ) -> Dict[str, Any]:

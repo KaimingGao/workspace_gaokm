@@ -55,7 +55,7 @@ def score_and_rank_watching(
     用 heuristic_score（人工线性加权 0–100）作对照基线臂。
     ``apply_tau_buy_gate=False``：历史/研究路径跳过 ŷ_τ 硬闸与分钟 PIT 挂载，
     并按 ŷ_oo 排序（不拿日线近似 ŷ_trade/blend 当选股键）。
-    ``exclude_oos_failed=True``（默认）：OOS 失败组成员不进 Top（含全局 ŷ / 规则分回退）。
+    ``exclude_oos_failed``：分组 OOS 已下线，保留入参兼容，不再过滤。
     """
     from core.signal.return_score import (
         apply_predicted_scores,
@@ -94,18 +94,14 @@ def score_and_rank_watching(
         else clamp_rank_mode(rank_mode)
     )
 
-    meta: Dict[str, Any] = {"applied": False, "rank_mode": mode}
+    meta: Dict[str, Any] = {
+        "applied": False,
+        "rank_mode": mode,
+        "oos_failed_blocked_codes": 0,
+        "oos_failed_excluded": 0,
+        "exclude_oos_failed_ignored": bool(exclude_oos_failed),
+    }
     items = list(entries)
-    oos_blocked: set = set()
-    if exclude_oos_failed:
-        try:
-            from core.signal.cluster.oos_labels import codes_in_oos_failed_clusters
-
-            oos_blocked = codes_in_oos_failed_clusters()
-        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-            logger.debug("catch except Exception: in cross_section_batch.py", exc_info=True)
-            oos_blocked = set()
-    meta["oos_failed_blocked_codes"] = len(oos_blocked)
 
     # —— 研究对照基线：人工线性加权 ——
     if mode == "heuristic_score":
@@ -140,14 +136,6 @@ def score_and_rank_watching(
             meta["neutralize"] = {
                 k: nmeta.get(k) for k in ("applied", "reason", "sample_count") if k in nmeta
             }
-        if oos_blocked:
-            before = len(items)
-            items = [
-                it
-                for it in items
-                if str(it.get("stock_code") or "").strip() not in oos_blocked
-            ]
-            meta["oos_failed_excluded"] = before - len(items)
         picks = rank_scored_items(
             items, min_score=float(min_score), score_key="heuristic_score"
         )
@@ -173,9 +161,9 @@ def score_and_rank_watching(
             if it.get("predicted_score") is not None
             and str(it.get("stock_code") or "").strip() in by_code
         )
-        meta["return_model_source"] = "cluster_group_beta"
-        meta["cluster_return_models"] = len(by_code)
-        meta["cluster_predicted_mapped"] = mapped
+        meta["return_model_source"] = "by_code" if by_code else "global"
+        meta["return_models_by_code"] = len(by_code)
+        meta["predicted_mapped"] = mapped
         if return_model is not None:
             meta["return_model_fallback"] = {
                 "sample_count": getattr(return_model, "sample_count", None),
@@ -282,13 +270,9 @@ def score_and_rank_watching(
         floor = None if min_predicted_score is None else float(min_predicted_score)
         ranked: List[Tuple[str, float, float]] = []
         gated = 0
-        oos_excluded = 0
         for it in items:
             code = str(it.get("stock_code") or "").strip()
             if not code:
-                continue
-            if code in oos_blocked:
-                oos_excluded += 1
                 continue
             oo_raw = resolve_predicted_score_oo(it)
             oo_gate = oo_gate_score_for_item(it, config=cfg)
@@ -331,7 +315,7 @@ def score_and_rank_watching(
         ranked.sort(key=lambda x: (-float(x[2]), str(x[0])))
         picks = [(c, oo) for c, oo, _b in ranked]
         meta["dual_score_tau_gated"] = gated
-        meta["oos_failed_excluded"] = oos_excluded
+        meta["oos_failed_excluded"] = 0
         meta["rank_key"] = (
             "predicted_score_oo"
             if not apply_tau_buy_gate
@@ -339,23 +323,13 @@ def score_and_rank_watching(
         )
         meta["rank_by_oo"] = not bool(apply_tau_buy_gate)
     else:
-        oos_excluded = 0
-        if oos_blocked:
-            kept: List[dict] = []
-            for it in items:
-                code = str(it.get("stock_code") or "").strip()
-                if code and code in oos_blocked:
-                    oos_excluded += 1
-                    continue
-                kept.append(it)
-            items = kept
         picks = rank_by_predicted_score(
             items, min_predicted_score=min_predicted_score
         )
         if not picks:
             meta["predicted_score_fallback"] = "empty_preds"
             picks = []
-        meta["oos_failed_excluded"] = oos_excluded
+        meta["oos_failed_excluded"] = 0
 
     meta["items_by_code"] = {
         str(it.get("stock_code") or "").strip(): it

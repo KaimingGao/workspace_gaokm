@@ -227,7 +227,7 @@ def _f(v: Any) -> Optional[float]:
 
 
 _MINUTE_BY_DATE_INDEX: Dict[int, Tuple[int, Dict[str, List[dict]]]] = {}
-# 观察池上限 200；按 id(bars) 钉住，须能同时覆盖全员，否则每钟重建索引
+# 观察池上限 WATCHING_MAX_SIZE；按 id(bars) 钉住，须能同时覆盖全员，否则每钟重建索引
 _MINUTE_BY_DATE_INDEX_MAX = 256
 
 

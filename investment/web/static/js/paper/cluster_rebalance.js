@@ -37,7 +37,7 @@ export function createClusterRebalanceController(deps) {
         try {
           await ensureWarehouseTopup({
             force: false,
-            watchingLimit: 200,
+            watchingLimit: 300,
             onStatus: (msg) => showProgress(1, msg || "增量补齐…"),
           });
         } catch (topupErr) {

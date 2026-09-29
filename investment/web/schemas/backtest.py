@@ -112,7 +112,32 @@ class PaperReplayBacktestRequest(BaseModel):
     )
     universe_fit_tiers: Optional[list] = Field(
         default=None,
-        description="观察池拟合档过滤（A/B/C 可多选）。空则用 live cluster_scoring.universe_fit_tiers；满三档=不过滤",
+        description=(
+            "Deprecated/ignored：历史回测不再按拟合档过滤观察池。"
+            "保留字段仅为 API 兼容；传值无效，宇宙始终不过滤。"
+        ),
+    )
+    use_predictability_tiers: bool = Field(
+        default=False,
+        description=(
+            "复用研究枢纽 Holdout 前半分档过滤宇宙（须先跑「观察池分档」）；"
+            "回测天数仍用 lookback（与 Holdout 独立）。研究套须在 Holdout 前训练。"
+        ),
+    )
+    predictability_tiers: Optional[list] = Field(
+        default=None,
+        description="允许入回测的可预测性档，默认 [\"A\",\"B\"]。仅 use_predictability_tiers 时生效。",
+    )
+    holdout_trading_days: Optional[int] = Field(
+        default=None,
+        ge=2,
+        le=90,
+        description="页顶 Holdout；与枢纽 last.holdout_n 校验一致性。回测天数仍用 lookback。",
+    )
+    predictability_head: str = Field(
+        default="oo",
+        max_length=8,
+        description="分档用哪颗头的命中：oo（默认）或 tau/oc。",
     )
     price_space_gate: bool = Field(
         default=True,

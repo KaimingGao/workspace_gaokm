@@ -79,14 +79,15 @@ class TestS1FactorCsIc(unittest.TestCase):
 
     def test_js_and_panel_have_cs_ic_button(self):
         panel_path = os.path.join(ROOT, "web/static/partials/quant_panel.html")
-        js_path = os.path.join(ROOT, "web/static/js/quant.js")
+        suggest_path = os.path.join(ROOT, "web/static/js/quant/domain_suggest.js")
         with open(panel_path, encoding="utf-8") as f:
             panel = f.read()
-        with open(js_path, encoding="utf-8") as f:
-            js = f.read()
-        self.assertIn("quant-cs-ic-run", panel)
-        self.assertIn("/api/quant/factor-cs-ic", js)
-        self.assertIn("runFactorCsIcSuggest", js)
+        with open(suggest_path, encoding="utf-8") as f:
+            suggest = f.read()
+        # 截面 IC 按钮已拆除；API 调用仍保留在 domain_suggest
+        self.assertNotIn("quant-cs-ic-run", panel)
+        self.assertIn("/api/quant/factor-cs-ic", suggest)
+        self.assertIn("runFactorCsIcSuggest", suggest)
 
 
 class TestS2ValidationPackAndAb(unittest.TestCase):
