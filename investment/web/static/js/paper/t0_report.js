@@ -336,7 +336,7 @@ function buildPortraitSectionHtml(portrait) {
         `<th>槽位</th>` +
         `<th title="有该钟扫描 ŷ / 与日级同样本；旧回测无 scan 则仅破带钟有ŷ">覆盖</th>` +
         `<th title="该钟破带成交 / 样本">成交</th>` +
-        `<th title="ŷ_oc ↔ open→close">y_oc</th>` +
+        `<th title="ŷ_τc ↔ price(τ)→close">y_τc</th>` +
         `<th title="ŷ_τw 符号和 ↔ 五窗真实收益符号和">y_τw</th>` +
         `<th title="ŷ_τ30 ↔ P(mean(price(τ⊕25/30/35))/price(τ)−1>0)">y_τ30</th>` +
         `<th title="ŷ_τ45 ↔ P(mean(price(τ⊕40/45/50))/price(τ)−1>0)">y_τ45</th>` +

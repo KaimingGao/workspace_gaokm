@@ -85,7 +85,7 @@ export function adaptiveSizingDayTip(day, rules = {}) {
 
 /** v6 做 T 选腿说明（旧 y_tau_map / oc先验已忽略）。 */
 export function yTauMapScoreTip(_mode, _enter = 0) {
-  return "旗舰做T：09:30–11:00 每根5m，ŷ_oc 估 C_τ，C>upper 反T、C<lower 正T；leg2=C_τ。ŷ_τw 为相对中位点（默认47%）符号和，过 Y_τw入场才开；|ŷ_oc| 过 y_oc入场% 用入场金额，过 y_oc强% 用强金额。";
+  return "旗舰做T：09:30–11:00 每根5m，ŷ_τc 估 C_τ，C>upper 反T、C<lower 正T；leg2=C_τ。ŷ_τw 为相对中位点（默认47%）符号和，过 Y_τw入场才开；|ŷ_τc| 过 y_oc入场% 用入场金额，过 y_oc强% 用强金额。";
 }
 
 /** 回测/预演响应可能只有 rules 或残缺 execution；补齐 t0 供规则卡渲染。 */

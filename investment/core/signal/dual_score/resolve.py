@@ -391,7 +391,11 @@ def compute_predicted_score_blend(
             logger.debug("catch except Exception: in dual_score.py", exc_info=True)
             rem_doc = None
     from core.signal.dual_score.fusion import resolve_item_fusion_weights, stamp_item_fusion_weights
+    from core.signal.yhat_windows import tau_model_is_open_to_close
 
+    # τc 模型判断：从 item 的 y_spec_tau / rem_y_spec 推断；variance 模式用加载的模型 doc
+    if rem_doc is None:
+        rem_doc = {"y_spec": item.get("y_spec_tau")} if isinstance(item.get("y_spec_tau"), dict) else None
     we, wt, _repaired = resolve_item_fusion_weights(
         item,
         config=config,
@@ -399,7 +403,12 @@ def compute_predicted_score_blend(
         y_tau=y_t,
         rem_model_doc=rem_doc,
     )
-    tau_cc = lift_tau_vs_prev_close(y_t, item_gap_pct(item))
+    tau_cc = lift_tau_vs_prev_close(
+        y_t,
+        item_gap_pct(item),
+        ret_open_to_tau=item.get("ret_open_to_tau"),
+        rem_model_doc=rem_doc,
+    )
     meta = fuse_remaining_heads_meta(y_oo, y_t, w_oo=we, w_tau=wt)
     item["dual_score_head"] = meta.get("dual_score_head")
     item["dual_score_single_head"] = bool(meta.get("single_head"))
@@ -409,6 +418,7 @@ def compute_predicted_score_blend(
         y_tau=_as_float(y_t),
         w_oo=we,
         w_tau=wt,
+        rem_model_doc=rem_doc,
     )
     stamp_item_fusion_weights(
         item,
@@ -586,7 +596,7 @@ def decision_score_for_item(
     *,
     config: Optional[dict] = None,
 ) -> Optional[float]:
-    """排序 / 表列 / 调仓报告主分：与 ``rank_key_for_item`` 相同（raw ŷ_trade）。"""
+    """排序 / 表列 / 调仓报告主分：与 ``rank_key_for_item`` 相同（ranking，回退 ŷ_trade）。"""
     return rank_key_for_item(item, config=config)
 
 
@@ -597,42 +607,48 @@ def rank_key_field(*, config: Optional[dict] = None) -> str:
 
 
 def rank_key_for_item(item: Optional[dict], *, config: Optional[dict] = None) -> Optional[float]:
-    """排序键：ŷ_trade（blend）。
+    """排序键：ranking（τ→open[T+1] 基准）。
 
-    ``dual_score_window=eod_next``（收盘后）：一律停用 τ 侧，避免旧簿上
-    被今日已实现收益污染的 blend 直接进入 T+1 前瞻决策。
+    盘中：ranking = fuse(ŷ_oo_rem, oc_with_co(ŷ_τc, ŷ_co))；
+    eod_next（收盘后）：τ 侧剥离，只用 ŷ_oo，避免旧簿上被今日已实现收益
+    污染的分直接进入 T+1 前瞻决策。
+    ranking 算不出时回退 ŷ_trade（predicted_score_blend），再回退 ŷ_oo。
     """
     if not isinstance(item, dict):
         return None
     cfg = get_dual_score_cfg(config)
     eod_next = str(item.get("dual_score_window") or "") == "eod_next"
-    y_oo = resolve_predicted_score_oo(item)
-    tau = None if eod_next else resolve_predicted_score_tau(item)
+
+    if eod_next:
+        # 收盘后：τ 侧剥离，只用 ŷ_oo
+        return resolve_predicted_score_oo(item)
+
+    # 盘中：优先用 ranking（τ→open[T+1] 基准，现算）
+    try:
+        from core.paper.rebalance.rank_lots import ranking_pct_of
+
+        rk = ranking_pct_of(item, cfg)
+        if rk is not None:
+            return float(rk)
+    except Exception:  # noqa: BLE001
+        logger.debug("rank_key ranking_pct_of failed", exc_info=True)
+
+    # 回退：ŷ_trade（predicted_score_blend，昨收基准）
     stored = item.get("predicted_score_blend")
     try:
         stored_f = float(stored) if stored is not None and stored != "" else None
     except (TypeError, ValueError):
         stored_f = None
-    # eod_next：旧簿 stored_blend 可能含 τ 侧泄漏，一律重算（重算会剥离 τ）
-    if eod_next:
-        stored_f = None
-    stale = (
-        stored_f is not None
-        and y_oo is not None
-        and tau is not None
-        and abs(stored_f - float(y_oo)) < 1e-9
-        and abs(float(tau) - float(y_oo)) > 1e-6
-    )
-    unlifted = (not eod_next) and unlifted_trade_blend_stale(item, config=config)
-    if stored_f is None or stale or unlifted:
-        b = compute_predicted_score_blend(item, config=config)
-        if b is not None:
-            try:
-                return float(b)
-            except (TypeError, ValueError):
-                pass
     if stored_f is not None:
         return stored_f
+    try:
+        b = compute_predicted_score_blend(item, config=config)
+        if b is not None:
+            return float(b)
+    except Exception:  # noqa: BLE001
+        logger.debug("rank_key blend fallback failed", exc_info=True)
+
+    # 最终回退：ŷ_oo
     return resolve_predicted_score_oo(item)
 
 

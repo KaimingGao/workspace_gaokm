@@ -804,10 +804,13 @@ class QuantFactorMixin:
         backend: Optional[str] = None,
         include_alpha158: bool = True,
     ) -> Dict[str, Any]:
-        """ŷ_co_tree 影子头：隔夜缺口面板 Holdout vs Ridge。只写 last_report。"""
+        """ŷ_co_tree 影子头：隔夜缺口面板 Holdout vs Ridge。只写 last_report。
+
+        日线与 ŷ_oo / ŷ_co Ridge 同源。
+        """
         import time
 
-        from core.data.facade import bars_and_source
+        from core.research.portfolio_bars import load_portfolio_stock_bars
         from core.watching.store import WATCHING_MAX_SIZE, read_watching
         from core.research.co_tree import (
             fit_co_tree_report,
@@ -833,21 +836,17 @@ class QuantFactorMixin:
                 "backtest_hook": False,
             }
 
-        bar_limit = int(lookback) + 40
-        if include_alpha158:
-            from core.signal.factors.alpha158 import ALPHA158_PANEL_WINDOW
-
-            bar_limit = max(
-                bar_limit,
-                int(ALPHA158_PANEL_WINDOW) + int(holdout_trading_days or 20) + 20,
-            )
-        stock_bars: List[Dict[str, Any]] = []
         t_bars0 = time.perf_counter()
-        for code in codes:
-            bars, _src = bars_and_source(code, limit=bar_limit)
-            if not bars:
-                continue
-            stock_bars.append({"code": str(code), "bars": bars})
+        loaded, _failures, _fund = load_portfolio_stock_bars(
+            codes,
+            lookback=int(lookback or 120),
+            fetch_fundamentals=False,
+        )
+        stock_bars = [
+            {"code": str(code), "bars": bars}
+            for code, bars in loaded.items()
+            if bars
+        ]
         bars_s = round(time.perf_counter() - t_bars0, 2)
         report = fit_co_tree_report(
             stock_bars,
@@ -1068,8 +1067,12 @@ class QuantFactorMixin:
         persist_role: str = "live",
         holdout_trading_days: int = 20,
     ) -> Dict[str, Any]:
-        """R0+：观察池 ŷ_co Ridge；可选 persist live 模型。默认用满观察池。"""
-        from core.data.facade import bars_and_source
+        """R0+：观察池 ŷ_co Ridge；可选 persist live 模型。默认用满观察池。
+
+        日线与 ŷ_oo 同源（``load_portfolio_stock_bars``：lookback 外再垫 Alpha158 窗），
+        决策日与 ŷ_oo 对齐。
+        """
+        from core.research.portfolio_bars import load_portfolio_stock_bars
         from core.watching.store import WATCHING_MAX_SIZE, read_watching
         from core.research.co_ridge import (
             fit_co_ridge_report,
@@ -1111,12 +1114,16 @@ class QuantFactorMixin:
                     out["promoted_at"] = saved["promoted_at"]
                 return _attach_ridge_role_flags(out, co_model_path())
 
-        stock_bars: List[Dict[str, Any]] = []
-        for code in codes:
-            bars, _src = bars_and_source(code, limit=lookback + 40)
-            if not bars:
-                continue
-            stock_bars.append({"code": str(code), "bars": bars})
+        loaded, _failures, _fund = load_portfolio_stock_bars(
+            codes,
+            lookback=int(lookback or 120),
+            fetch_fundamentals=False,
+        )
+        stock_bars = [
+            {"code": str(code), "bars": bars}
+            for code, bars in loaded.items()
+            if bars
+        ]
         report = fit_co_ridge_report(
             stock_bars,
             ridge_lambda=ridge_lambda,

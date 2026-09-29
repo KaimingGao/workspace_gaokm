@@ -11978,6 +11978,10 @@ button.quant-integrity-cell:hover,
   color: var(--ink-2);
 }
 
+.quant-ru-tier-grid th .quant-ru-token {
+  text-transform: none;
+}
+
 .quant-ru-tier-badge {
   display: inline-block;
   min-width: 1.25rem;

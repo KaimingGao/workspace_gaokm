@@ -1,6 +1,6 @@
-"""ŷ_τ 训练面板：y = close[T]/open[T]-1；特征 = 开盘 Z（缺口/ATR/截面）。
+"""ŷ_τ 训练面板：y = close[T]/price[τ]-1（τ→close 剩余收益）；特征 = 开盘 Z + 分钟路径。
 
-无未来函数：决策在开盘，标签为开盘→收盘。日线因子不在此计算（已在 ŷ_oo）。
+无未来函数：决策在 τ，标签为 τ→收盘。open 时钟 price[τ]=open，自动退化为 close/open-1。
 另加 PIT 历史真实 open→close（tau_lag1 / tau_ma5，不含当日）。
 """
 
@@ -2123,10 +2123,10 @@ def collect_tau_intraday_panel(
     stock_code: Optional[str] = None,
     include_alpha158: bool = False,
 ) -> Tuple[List[Dict[str, Optional[float]]], List[float], List[str], List[Dict[str, Any]]]:
-    """分钟 τ 面板（变长前缀 / 少数时钟）：特征 ≤τ，标签 y_τ = 日线 close/open−1。
+    """分钟 τ 面板（变长前缀 / 少数时钟）：特征 ≤τ，标签 y_τ = close[T]/price[τ]−1（τ→close）。
 
-    与 τ=open 头同一标签口径（日线 open→close）；仅信息集多了前缀分钟路径。
-    ``tau_grid`` 非空时：同一交易日在多个 τ 各采一行（共享 β，**同日 y 相同**）；
+    τ=open 时 price[τ]≈open，退化为日线 open→close；τ>open 时为剩余收益。
+    ``tau_grid`` 非空时：同一交易日在多个 τ 各采一行（共享 β，**同日 y 随 τ 不同**）；
     默认网格 ``09:30|09:35|…|11:00`` 每 5m（09:30 无分钟前缀只留开盘 Z；与做 T v6 扫描至 11:00 对齐；不含 13:00 / 14:00）。
     ``include_alpha158=True`` 时附加 ≤T−1 的 ``raw_alpha158_*``（Ridge / 树共用）。
     """
@@ -2206,6 +2206,8 @@ def collect_tau_intraday_panel(
                 px_tau = o_min
             if px_tau is None or px_tau <= 0:
                 continue
+            # y_τc = close[T]/price[τ]−1（τ→close 剩余收益）；open 时钟 px_tau≈open，自动退化为 y_oc
+            y_tau_c = (c / px_tau - 1.0) * 100.0
             pack = extract_minute_tau_pack(
                 day_mins,
                 trade_date=date_t,
@@ -2246,7 +2248,7 @@ def collect_tau_intraday_panel(
             if a158_feats:
                 row.update(a158_feats)
             xs.append(row)
-            ys.append(float(y_oc))
+            ys.append(float(y_tau_c))
             dates.append(date_t)
             tau30_hm, px_tau30 = price_at_t30_mean_session(
                 day_mins,
@@ -2283,7 +2285,8 @@ def collect_tau_intraday_panel(
                     "close": c,
                     "open_minute": o_min,
                     "close_minute": c_min,
-                    "y_tau": float(y_oc),
+                    "y_tau": float(y_tau_c),
+                    "y_oc": float(y_oc),
                     "ret_open_to_tau": row.get("ret_open_to_tau"),
                     "tau_elapsed_min": elapsed,
                     "tau_plus_30": tau30_hm,

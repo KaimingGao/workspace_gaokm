@@ -120,15 +120,32 @@ def item_gap_pct(item: Optional[dict]) -> Optional[float]:
 def lift_tau_vs_prev_close(
     y_tau: Optional[float],
     gap_pct: Optional[float],
+    *,
+    ret_open_to_tau: Optional[float] = None,
+    rem_model_doc: Optional[dict] = None,
 ) -> Optional[float]:
-    """ŷ_τ（开盘后）按缺口映到现价对昨收。无缺口则原样返回。"""
+    """ŷ_τ 按已实现段映到现价对昨收。
+
+    OC 模型（open→close 标签）：compound(gap, ŷ_τ) = (昨收→open)∘(open→close)。
+    τc 模型（τ→close 标签）：compound(gap∘ret_open_to_tau, ŷ_τ) = (昨收→τ)∘(τ→close)。
+    缺缺口则原样返回。
+    """
+    from core.signal.yhat_geom import rem_label_is_open_to_close
+
     t = _as_float(y_tau)
     if t is None:
         return None
     g = _as_float(gap_pct)
     if g is None:
         return t
-    return compound_pct(g, t)
+    is_oc = rem_label_is_open_to_close(rem_model_doc)
+    if is_oc:
+        return compound_pct(g, t)
+    rot = _as_float(ret_open_to_tau)
+    if rot is None:
+        return compound_pct(g, t)
+    realized = compound_pct(g, rot)
+    return compound_pct(realized, t)
 
 
 def trade_blend_vs_prev_close(
@@ -136,14 +153,21 @@ def trade_blend_vs_prev_close(
     y_tau: Optional[float],
     *,
     gap_pct: Optional[float] = None,
+    ret_open_to_tau: Optional[float] = None,
+    rem_model_doc: Optional[dict] = None,
     w_oo: float = 0.5,
     w_tau: float = 0.5,
 ) -> Tuple[Optional[float], Optional[float], str]:
-    """ŷ_trade（昨收）= w·ŷ_oo + w·(缺口∘ŷ_τ)。返回 (cc, tau_cc, vs)。
+    """ŷ_trade（昨收）= w·ŷ_oo + w·lift(ŷ_τ)。返回 (cc, tau_cc, vs)。
 
     不经过 ŷ_oo_rem。缺缺口且仍有 ŷ_τ 时无法抬，vs=open。
     """
-    tau_cc = lift_tau_vs_prev_close(y_tau, gap_pct)
+    tau_cc = lift_tau_vs_prev_close(
+        y_tau,
+        gap_pct,
+        ret_open_to_tau=ret_open_to_tau,
+        rem_model_doc=rem_model_doc,
+    )
     cc = fuse_remaining_heads(y_oo, tau_cc, w_oo=w_oo, w_tau=w_tau)
     if cc is None:
         return None, tau_cc, "open"
@@ -159,11 +183,14 @@ def stamp_trade_prev_close(
     y_tau: Optional[float],
     w_oo: float,
     w_tau: float,
+    rem_model_doc: Optional[dict] = None,
 ) -> Optional[float]:
     cc, tau_cc, vs = trade_blend_vs_prev_close(
         y_oo,
         y_tau,
         gap_pct=item_gap_pct(item),
+        ret_open_to_tau=(item.get("ret_open_to_tau") if isinstance(item, dict) else None),
+        rem_model_doc=rem_model_doc,
         w_oo=w_oo,
         w_tau=w_tau,
     )

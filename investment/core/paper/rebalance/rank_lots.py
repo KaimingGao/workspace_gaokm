@@ -496,10 +496,10 @@ def ranking_pct_of(
     open_px: Optional[float] = None,
     price_tau: Optional[float] = None,
 ) -> Optional[float]:
-    """调仓 ranking 百分点 = 融合分 − (price(τ)/open−1)。
+    """调仓 ranking 百分点。
 
-    融合分拟合 open[T]→open[T+1]。有 open 与 price(τ) 时减去已走出段
-    （09:40 相对 09:30）。缺开盘不扣。
+    OC 模型：融合分 − (price(τ)/open−1)。
+    τc 模型：融合分已在 τ→open[T+1] 基准，直接透传。
 
     有 ŷ_oo/ŷ_oc 一律现算，不信落盘 ``ranking`` / ``y_fuse``（旧戳可能是 ŷ_trade）。
     两头都抽不出时才回退显式 ranking，再回退 y_fuse。
@@ -509,12 +509,14 @@ def ranking_pct_of(
         fusion_weights_from_cfg,
         ranking_pct,
         remaining_ranking_pct,
+        tau_model_is_open_to_close,
     )
 
     if not isinstance(item, dict):
         return None
     w_oo, w_oc = fusion_weights_from_cfg(cfg)
     w_co = fusion_w_co_from_cfg(cfg)
+    is_oc = tau_model_is_open_to_close(item)
     fused = ranking_pct(item, w_oo=w_oo, w_oc=w_oc, w_co=w_co)
     if fused is None:
         fused = _f(item.get("ranking") or item.get("ranking_pct"))
@@ -530,7 +532,7 @@ def ranking_pct_of(
         p = _f(item.get("rebalance_px"))
     if p is None or p <= 0:
         p = _f(item.get("price_tau"))
-    return remaining_ranking_pct(fused, open_px=o, price_tau=p)
+    return remaining_ranking_pct(fused, open_px=o, price_tau=p, is_oc_model=is_oc)
 
 
 def y_tau_of(item: Optional[dict]) -> Optional[float]:

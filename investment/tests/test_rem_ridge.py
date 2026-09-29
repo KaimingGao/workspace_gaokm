@@ -200,7 +200,7 @@ class TestRemRidgeFit(unittest.TestCase):
         self.assertTrue(report.get("success"), report.get("error"))
         self.assertEqual(report.get("task"), "tau_ridge")
         self.assertFalse(report.get("residualized"))
-        self.assertEqual(report.get("target"), "open_to_close_z")
+        self.assertEqual(report.get("target"), "tau_to_close_z")
         self.assertIn("return_model", report)
         self.assertIn("oos", report)
         self.assertEqual(report.get("tau"), "open")

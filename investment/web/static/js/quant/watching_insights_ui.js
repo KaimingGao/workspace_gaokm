@@ -32,11 +32,11 @@ export function singleHeadBadgeHtml(it, escapeHtml = defaultEscapeHtml) {
     (it.predicted_score_tau != null || it.score_rem != null);
   let title = "ranking 单头降级 · 与双头票不同量纲";
   if (head === "single_tau") {
-    title = "ranking 单头降级：仅 ŷ_oc（缺 ŷ_oo）· 与双头票不同量纲";
+    title = "ranking 单头降级：仅 ŷ_τc（缺 ŷ_oo）· 与双头票不同量纲";
   } else if (head === "single_oo" && tau && (win === "eod_next" || tauInTrade === false)) {
     title = "收盘后 ranking=ŷ_oo（τ 对照保留，不进融合）";
   } else if (head === "single_oo") {
-    title = "ranking 单头降级：仅 ŷ_oo（缺 ŷ_oc）· 与双头票不同量纲";
+    title = "ranking 单头降级：仅 ŷ_oo（缺 ŷ_τc）· 与双头票不同量纲";
   }
   return `<span class="watching-single-head-badge" title="${escapeHtml(
     title
@@ -49,7 +49,7 @@ export function yCheckBadgeHtml(it, escapeHtml = defaultEscapeHtml) {
   const labels = {
     conflict: { text: "歧", title: "Y·EOD 校验：双头分歧 · 降低今日执行信任" },
     low_conf: { text: "弱", title: "Y·EOD 校验：低置信（分歧或 σ 偏大）" },
-    missing_tau: { text: "缺τ", title: "Y·EOD 校验：缺 ŷ_oc" },
+    missing_tau: { text: "缺τ", title: "Y·EOD 校验：缺 ŷ_τc" },
     single_head: { text: "单", title: "Y·EOD 校验：单头降级" },
   };
   const pack = labels[check] || {
@@ -122,7 +122,7 @@ export function buildWatchingScoreDisplay(it, fmtScore, watchingScoreDetail) {
           ? "缺全局模型 · 组 ŷ shadow"
           : RANKING_REBALANCE_TITLE;
   const scoreEodTitle = scoreEodNum == null ? "暂无 ŷ_oo" : Y_EOD_TITLE;
-  const scoreTauTitle = scoreTauNum == null ? "暂无 ŷ_oc" : Y_OC_REBALANCE_TITLE;
+  const scoreTauTitle = scoreTauNum == null ? "暂无 ŷ_τc" : Y_OC_REBALANCE_TITLE;
   const scoreOnTitle = scoreOnNum == null ? "暂无 ŷ_co" : Y_ON_TITLE;
   return {
     scoreNum,

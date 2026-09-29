@@ -102,7 +102,7 @@ function buildZeroTradeHint(data) {
         : multiSlotMiss
           ? "各轮均未开仓；看明细槽位 reason，或放宽带宽 δ / 检查 ĉ_τ"
           : tauExitSkip
-            ? "第二腿出场价未过 open×(1+(clamp(ŷ_oc×裕度,min,max)+价偏)/100)；可调裕度/价偏或关 τ卖价闸/τ买价闸"
+            ? "第二腿出场价未过 open×(1+(clamp(ŷ_τc×裕度,min,max)+价偏)/100)；可调裕度/价偏或关 τ卖价闸/τ买价闸"
             : tauEntrySkip
               ? "历史：触发根入场价未过τ带（v6 已下线，第一腿按确认根收盘）；重跑预演后应消失"
               : prefixVsPathSkip
@@ -621,7 +621,7 @@ function classifyDeskNote(note, locked) {
     if (r.includes("超额不足") || r.includes("R̂_τ 缺失") || r.includes("|R̂_τ|"))
       return { id: "r_tau_flat", label: "R不足" };
     if (
-      (r.includes("ŷ_oc") || r.includes("y_oc")) &&
+      (r.includes("ŷ_oc") || r.includes("y_oc") || r.includes("ŷ_τc") || r.includes("y_τc")) &&
       r.includes("未过入场")
     )
       return { id: "y_oc_flat", label: "oc入场" };

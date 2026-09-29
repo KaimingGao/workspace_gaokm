@@ -108,8 +108,9 @@ def apply_tau_score_fields(
 ) -> Dict[str, Any]:
     """写入双层契约字段（不改 predicted_score / score 主值）。
 
-    ``rem_yhat`` 就是独立训出的 ŷ_τ（open→close），不依赖 ŷ_oo。
-    ŷ_trade = w·ŷ_oo + w·(缺口∘ŷ_τ)；ŷ_oo_rem 只作派生对照，不进融合。
+    ``rem_yhat`` 就是独立训出的 ŷ_τ（τ→close，close[T]/price[τ]−1），不依赖 ŷ_oo。
+    ŷ_trade = w·ŷ_oo + w·lift(ŷ_τ)；OC 模型 lift=缺口∘ŷ_τ，τc 模型 lift=缺口∘ret_open_to_tau∘ŷ_τ。
+    ŷ_oo_rem 只作派生对照，不进融合。
     ``residual_delta`` 已废弃，忽略。
     ``fuse_intraday=False``（ŷ_oo 已换到下一周期）：τ 不进主排序融合。
     收盘后同一周期仍 fuse：ŷ_oc 钉在 ≤10:00，不是当日已实现 OC。
@@ -191,7 +192,7 @@ def apply_tau_score_fields(
     # 兼容别名（= ŷ_τ）；新读路径请用 predicted_score_tau
     signal_item["predicted_score_rem"] = y_tau
     signal_item["score_rem"] = y_tau
-    # OC 头原始 ŷ（训练/Hub 同口径）；分钟时钟映射前，供画像命中对照
+    # τc 头原始 ŷ（训练/Hub 同口径）；分钟时钟映射前，供画像命中对照
     if y_tau_raw is not None:
         signal_item["y_tau_oc"] = y_tau_raw
         signal_item["predicted_score_tau_oc"] = y_tau_raw
@@ -217,6 +218,7 @@ def apply_tau_score_fields(
         y_tau=_as_float(y_tau_for_trade),
         w_oo=we,
         w_tau=wt,
+        rem_model_doc=rem_model_doc,
     )
     if event_prior is not None:
         signal_item["event_prior"] = event_prior

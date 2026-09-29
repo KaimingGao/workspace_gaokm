@@ -1,4 +1,4 @@
-"""ŷ_τ / ŷ_oc Ridge：开盘 Z[+Alpha158] 上拟合 open→close（close[T]/open[T]−1）。
+"""ŷ_τ / ŷ_τc Ridge：开盘 Z[+Alpha158]+分钟路径 上拟合 τ→close（close[T]/price[τ]−1）。
 
 产品字段 ``predicted_score_tau`` / ``y_oc``；供买入闸、调仓 ranking 的 oc 成分、做 T 估 C_τ。
 与 ŷ_oo（日线组 β）独立训练，不改写 ``predicted_score``。
@@ -520,7 +520,7 @@ def fit_tau_ridge_report(
 ) -> Dict[str, Any]:
     """池化拟合 ŷ_τ 头 Ridge + Holdout OOS。
 
-    标签统一为 y_oc = 日线 close[T]/open[T]−1；分钟仅作 ≤τ 特征。
+    标签统一为 y_τc = close[T]/price[τ]−1（τ→close）；分钟仅作 ≤τ 特征。
     ``tau_hm`` 非 open 时换信息集（前缀分钟路径）；``tau_grid`` 变长前缀共享 β。
     默认近 ``holdout_trading_days`` 个交易日只测；训练段 β 为研究模型，
     全样本重估为执行模型。
@@ -554,7 +554,7 @@ def fit_tau_ridge_report(
         }
 
     xs_use, ys_use, dates_use, metas_use = xs, ys, dates, metas
-    target = "open_to_close_z"
+    target = "tau_to_close_z"
 
     xs_z = _z_only_xs(xs_use)
     from core.research.holdout import (
@@ -707,31 +707,31 @@ def fit_tau_ridge_report(
     model["intercept_demeaned"] = round(float(fit.get("intercept") or 0.0), 6)
     model["y_label_mean"] = round(y_mean, 6)
     model["y_demeaned"] = True
-    model["horizon_mode"] = "open_to_close"
+    model["horizon_mode"] = "tau_to_close"
     model["target"] = target
     model["residualized"] = False
     if use_minute:
         from core.signal.minute_tau_grid import format_shared_tau_formula
 
-        y_formula = format_shared_tau_formula("close[T]/open[T]-1", grid or [tau_key])
+        y_formula = format_shared_tau_formula("close[T]/price[τ]-1", grid or [tau_key])
     else:
-        y_formula = "close[T]/open[T]-1"
+        y_formula = "close[T]/price[τ]-1"
     model["y_spec"] = {
         "formula": y_formula,
         "unit": "pct",
         "tau": tau_key,
         "tau_grid": list(grid) if grid else None,
         "note": (
-            "变长前缀 5m 槽共享 β；标签=日线 open→close；"
-            "τ 越晚 OC hit 通常越高（开→τ 已实现垫高），看 by_tau；"
+            "变长前缀 5m 槽共享 β；标签=τ→close（close[T]/price[τ]−1）；"
+            "open 时钟 price[τ]=open 退化为 open→close；"
             "live 调仓前缀=因果末根（≤10:00）"
             + ("；Z+raw_alpha158_*" if include_alpha158 else "；Z-only")
             if use_minute
             else (
-                "Z[+Alpha158] open→close；demean+theme_day+yclose/mom3+tau_lag1/ma5"
+                "Z[+Alpha158] τ→close（开盘退化 open→close）；demean+theme_day+yclose/mom3+tau_lag1/ma5"
                 "+raw_alpha158_*；live 写 predicted_score_tau / y_oc"
                 if include_alpha158
-                else "Z-only open→close；demean+theme_day+yclose/mom3+tau_lag1/ma5；live 写 predicted_score_tau / y_oc"
+                else "Z-only τ→close（开盘退化 open→close）；demean+theme_day+yclose/mom3+tau_lag1/ma5；live 写 predicted_score_tau / y_oc"
             )
         ),
     }
@@ -785,9 +785,9 @@ def fit_tau_ridge_report(
             )
             if use_minute
             else (
-                "ŷ_τ(Z[+Alpha158]) 独立估 open→close；theme+|gap|；yclose_loc/mom3；PIT tau_lag1/ma5；raw_alpha158_*；与 EOD 解耦"
+                "ŷ_τ(Z[+Alpha158]) 独立估 τ→close（开盘退化 open→close）；theme+|gap|；yclose_loc/mom3；PIT tau_lag1/ma5；raw_alpha158_*；与 EOD 解耦"
                 if include_alpha158
-                else "ŷ_τ(Z) 独立估 open→close；theme+|gap|；yclose_loc/mom3；PIT tau_lag1/ma5；与 EOD 解耦"
+                else "ŷ_τ(Z) 独立估 τ→close（开盘退化 open→close）；theme+|gap|；yclose_loc/mom3；PIT tau_lag1/ma5；与 EOD 解耦"
             )
         ),
     }
@@ -912,21 +912,21 @@ def persist_tau_model(
     y_spec = dict(rm.get("y_spec") or {})
     if not y_spec:
         y_spec = {
-            "formula": "close[T]/open[T]-1",
+            "formula": "close[T]/price[τ]-1",
             "unit": "pct",
             "tau": "open",
-            "note": "Z[+Alpha158] open→close" if rm.get("include_alpha158") else "Z-only open→close",
+            "note": "Z[+Alpha158] τ→close" if rm.get("include_alpha158") else "Z-only τ→close",
         }
     tau = str(y_spec.get("tau") or rm.get("horizon_mode") or "open")
-    if tau in ("open_to_close", "open→close"):
+    if tau in ("open_to_close", "open→close", "tau_to_close", "τ→close"):
         tau = "open"
     y_spec.setdefault("tau", tau)
     y_spec.setdefault("unit", "pct")
     rm = dict(rm)
     rm["y_spec"] = y_spec
-    rm["horizon_mode"] = rm.get("horizon_mode") or "open_to_close"
+    rm["horizon_mode"] = rm.get("horizon_mode") or "tau_to_close"
     rm["tau"] = tau
-    target = str(report.get("target") or rm.get("target") or "open_to_close_z")
+    target = str(report.get("target") or rm.get("target") or "tau_to_close_z")
     residualized = False
     rm["target"] = target
     rm["residualized"] = residualized
@@ -963,9 +963,9 @@ def persist_tau_model(
         "n_alpha158_features": report.get("n_alpha158_features"),
         "dual_score_head": "predicted_score_tau",
         "contract_note": (
-            "ŷ_τ(Z[+Alpha158]) 估 open→close → predicted_score_tau / y_oc；与 ŷ_oo 独立；不覆盖 predicted_score。"
+            "ŷ_τ(Z[+Alpha158]) 估 τ→close → predicted_score_tau / y_oc；与 ŷ_oo 独立；不覆盖 predicted_score。"
             if rm.get("include_alpha158")
-            else "ŷ_τ(Z) 估 open→close → predicted_score_tau / y_oc；与 ŷ_oo 独立；不覆盖 predicted_score。"
+            else "ŷ_τ(Z) 估 τ→close → predicted_score_tau / y_oc；与 ŷ_oo 独立；不覆盖 predicted_score。"
         ),
     }
     path = (

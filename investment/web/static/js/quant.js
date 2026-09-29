@@ -129,7 +129,7 @@ export function initQuant(ctx) {
   } = factorMeta;
 
   const BT_SCOPE_LIVE =
-            "口径：每个交易日 09:30 rank_lots（本金默认 20 万 · rank=w_oo·ŷ_oo+w_oc·((1+ŷ_oc)(1+w_co·ŷ_co)−1) · 入场/强档金额）。" +
+            "口径：每个交易日 09:30 rank_lots（本金默认 20 万 · rank=w_oo·(ŷ_oo+1)/(1+rot)+w_τc·((1+ŷ_τc)(1+w_co·ŷ_co)−1)−1 · 入场/强档金额）。" +
     "净值起点 100；成本按纸面成本模型。有效≠正确：先看超额/回撤，再解读累计收益。";
   const BT_SCOPE_FROZEN =
     "以下为 quant_daily 冻结摘要，不是刚才点的回测；点「跑回测」刷新当次结果。";
@@ -401,16 +401,16 @@ export function initQuant(ctx) {
       return;
     }
     if (oos && oos.sign_hit != null && Number.isFinite(Number(oos.sign_hit))) {
-      syncOverviewTau(oos.sign_hit, extra || "ŷ_oc 命中 · open→收", "hit");
+      syncOverviewTau(oos.sign_hit, extra || "ŷ_τc 命中 · τ→收", "hit");
       return;
     }
     if (oos && oos.ic != null && Number.isFinite(Number(oos.ic))) {
-      syncOverviewTau(oos.ic, extra || "ŷ_oc IC", "ic");
+      syncOverviewTau(oos.ic, extra || "ŷ_τc IC", "ic");
     }
   }
 
   /**
-   * ŷ_oc 卡头状态：chip + 可选文案 + OOS/n/时间 meta。
+   * ŷ_τc 卡头状态：chip + 可选文案 + OOS/n/时间 meta。
    * @param {HTMLElement|null} el
    * @param {{
    *   state?: "idle"|"busy"|"ok"|"warn"|"error",
@@ -581,7 +581,7 @@ export function initQuant(ctx) {
           remStatusMeta(
             "测",
             fmtRemN(oos.n_test),
-            "Holdout 样本外行数（近 N 日，ŷ_oc 含多 τ）"
+            "Holdout 样本外行数（近 N 日，ŷ_τc 含多 τ）"
           )
         );
       }
@@ -1364,7 +1364,7 @@ export function initQuant(ctx) {
   function tauTreeBusyHint(elapsedSec) {
     const s = Number(elapsedSec) || 0;
     if (s < 15) return "拉观察池行情";
-    if (s < 90) return "组 open→close 面板（满池分钟特征）";
+    if (s < 90) return "组 τ→close 面板（满池分钟特征）";
     return "仍在组面板（LightGBM 约数秒；慢的是组样本）";
   }
 
@@ -2535,7 +2535,7 @@ export function initQuant(ctx) {
       `<p class="quant-attr-note">${bits.map((b) => escapeHtml(String(b))).join(" · ")}</p>`;
   }
 
-  /** ŷ_oc 启用：不过闸也可点，确认后 force_promote。 */
+  /** ŷ_τc 启用：不过闸也可点，确认后 force_promote。 */
   let _tauPromoteGate = null;
   function syncRidgePersistPair(liveId, researchId, gate, { hasReport = true } = {}) {
     const buttons = [
@@ -2847,7 +2847,7 @@ export function initQuant(ctx) {
     }
   })();
 
-  // 轻量预填 ŷ_oc KPI / 状态（不阻塞；概览用模型 OOS，不再被单日验收覆盖）
+  // 轻量预填 ŷ_τc KPI / 状态（不阻塞；概览用模型 OOS，不再被单日验收覆盖）
   void (async () => {
     try {
       const res = await fetch("/api/quant/tau-ridge/model");
@@ -2883,7 +2883,7 @@ export function initQuant(ctx) {
           !(oos.sign_hit != null && Number.isFinite(Number(oos.sign_hit))) &&
           !(oos.ic != null && Number.isFinite(Number(oos.ic)))
         ) {
-          syncOverviewTau(chip, data.promoted_at || "ŷ_oc", "text");
+          syncOverviewTau(chip, data.promoted_at || "ŷ_τc", "text");
         }
       }
     } catch (_) {
@@ -3532,8 +3532,8 @@ export function initQuant(ctx) {
         if (s < 30) hint = "拉观察池行情 / 分钟缓存";
         else if (s < 120)
           hint = a158On
-            ? "组 open→close 面板（含 Alpha158，满池可能数分钟）"
-            : "组 open→close 面板（满池可能数分钟）";
+            ? "组 τ→close 面板（含 Alpha158，满池可能数分钟）"
+            : "组 τ→close 面板（满池可能数分钟）";
         else if (s < 300) hint = "Ridge + Holdout OOS（仍在算，请勿重复点拟合）";
         else
           hint =
@@ -3670,8 +3670,8 @@ export function initQuant(ctx) {
       busy: true,
     });
     try {
-      // 满观察池（与 ŷ_oc 一致）
-      const onLimit = 200;
+      // 满观察池（与 ŷ_oo 一致）
+      const onLimit = 300;
       const res = await fetch("/api/quant/co-ridge", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -4027,7 +4027,7 @@ export function initQuant(ctx) {
     const target =
       persistRole === "research"
         ? "ŷ_τc 研究套（tc_ridge_model_research.json，供历史回测）"
-        : "ŷ_τc 执行套（tc_ridge_model.json；不改 ŷ_oo / ŷ_oc、不进调仓）";
+        : "ŷ_τc 执行套（tc_ridge_model.json；不改 ŷ_oo / ŷ_τc、不进调仓）";
     let forcePromote = false;
     if (gate && gate.ok === false) {
       const blockers = (gate.blockers || []).join("；") || "未过 OOS 闸";
@@ -4035,7 +4035,7 @@ export function initQuant(ctx) {
         return;
       }
       forcePromote = true;
-    } else if (!window.confirm(`将 ŷ_τc 写入 ${target}？不改 ŷ_oo / ŷ_oc、不进调仓。`)) {
+    } else if (!window.confirm(`将 ŷ_τc 写入 ${target}？不改 ŷ_oo / ŷ_τc、不进调仓。`)) {
       return;
     }
     try {
@@ -5444,8 +5444,8 @@ export function initQuant(ctx) {
     const gate = _tauPromoteGate;
     const target =
       persistRole === "research"
-        ? "ŷ_oc 研究套（tau_ridge_model_research.json，供历史回测）"
-        : "ŷ_oc 执行套（tau_ridge_model.json，供交易执行）";
+        ? "ŷ_τc 研究套（tau_ridge_model_research.json，供历史回测）"
+        : "ŷ_τc 执行套（tau_ridge_model.json，供交易执行）";
     let forcePromote = false;
     if (gate && gate.ok === false) {
       const blockers = (gate.blockers || []).join("；") || "未过 OOS 闸";
@@ -5457,7 +5457,7 @@ export function initQuant(ctx) {
         return;
       }
       forcePromote = true;
-    } else if (!window.confirm(`将 ŷ_oc 写入 ${target}？不改 ŷ_oo、不改聚类。`)) {
+    } else if (!window.confirm(`将 ŷ_τc 写入 ${target}？不改 ŷ_oo、不改聚类。`)) {
       return;
     }
     try {
@@ -5497,7 +5497,7 @@ export function initQuant(ctx) {
       persistRole === "research"
         ? "ŷ_co 研究套（co_ridge_model_research.json，供历史回测）"
         : "ŷ_co 执行套（co_ridge_model.json，供交易执行）";
-    if (!window.confirm(`将 on / ŷ_co 写入 ${target}？不改 ŷ_oo / ŷ_oc、不进主排序。`)) {
+    if (!window.confirm(`将 on / ŷ_co 写入 ${target}？不改 ŷ_oo / ŷ_τc、不进主排序。`)) {
       return;
     }
     try {
@@ -5637,9 +5637,9 @@ export function initQuant(ctx) {
           idleMessage: data.note || "尚无 live 模型",
         });
         if (!data.research_exists && !data.live_model_present) {
-          syncOverviewTau("未启用", "ŷ_oc 模型缺失", "text");
+          syncOverviewTau("未启用", "ŷ_τc 模型缺失", "text");
         } else {
-          syncOverviewTau(painted.chip, data.promoted_at || "ŷ_oc 模型", "text");
+          syncOverviewTau(painted.chip, data.promoted_at || "ŷ_τc 模型", "text");
         }
         clearRemResultBox();
         await renderRemCoefTable(null);
@@ -5653,7 +5653,7 @@ export function initQuant(ctx) {
       if (oos.sign_hit != null || (oos.ic != null && Number.isFinite(Number(oos.ic))) || tauOpenBucket(oos)) {
         syncOverviewTauFromOos(oos, chip);
       } else {
-        syncOverviewTau(chip, data.promoted_at || "ŷ_oc 模型", "text");
+        syncOverviewTau(chip, data.promoted_at || "ŷ_τc 模型", "text");
       }
       clearRemResultBox();
       await renderRemCoefTable(data.return_model || {}, { oos });

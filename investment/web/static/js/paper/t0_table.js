@@ -126,8 +126,8 @@ export const SKIP_CAT_LABEL = {
   prefix_vs_path: "前缀>|ŷ_hl|×裕度(旧)",
   close_band: "R̂_τ 未开轮",
   price_space_mismatch: "日分价空间错位",
-  tau_entry_price: "入场价vs开盘×ŷ_oc(旧)",
-  tau_exit_price: "出场价vs开盘×ŷ_oc",
+  tau_entry_price: "入场价vs开盘×ŷ_τc(旧)",
+  tau_exit_price: "出场价vs开盘×ŷ_τc",
   y_trade_weak: "y_trade幅度不足",
   eod_tau_disagree: "y_oo↔y_τ异号",
   trade_tau_disagree: "y_trade↔y_τ异号",
@@ -146,11 +146,11 @@ export const SKIP_CAT_LABEL = {
 /** 跳过类型口径（环形图 / 图例悬停） */
 export const SKIP_CAT_TIP = {
   missing_scores:
-    "当日缺 ŷ 快照（ŷ_oc / ŷ_trade 等算不出），无法估 ĉ / 开轮。",
+    "当日缺 ŷ 快照（ŷ_τc / ŷ_trade 等算不出），无法估 ĉ / 开轮。",
   missing_minute:
     "缺当日分钟线，无法模拟触达与成交路径。",
   y_tau_flat:
-    "入场：已下线。生产不考虑 |ŷ_oc| 入场档；历史回放可能仍出现。",
+    "入场：已下线。生产不考虑 |ŷ_τc| 入场档；历史回放可能仍出现。",
   y_tc_flat:
     "入场：已下线。生产不考虑 |ŷ_τc| 入场档；历史回放可能仍出现。",
   y_t30_flat:
@@ -172,7 +172,7 @@ export const SKIP_CAT_TIP = {
   y_path_flat:
     "入场：已下线。生产不考虑 |ŷ_hl| 入场档；历史回放可能仍出现。缺 y_hl 不拦。",
   y_path_disagree:
-    "ŷ_hl 同号闸：|y_hl| 超 HL强%（y_hl_strong）且与 ŷ_oc 异号则跳过；0=任意非零须同号。",
+    "ŷ_hl 同号闸：|y_hl| 超 HL强%（y_hl_strong）且与 ŷ_τc 异号则跳过；0=任意非零须同号。",
   y_tc_disagree:
     "ŷ_τc 旁路：破带后剩余窗须向 C_τ 回归（反T remaining<0，正T>0）。|ŷ_τc| 超 τc强% 且逆带则跳过；0=任意有符号须同号，100=关。不改 C_τ。",
   y_t30_disagree:
@@ -200,9 +200,9 @@ export const SKIP_CAT_TIP = {
   y_tpd_high:
     "历史跳过类别：旧 ŷ_tpd 反转过密上限；新跑批不再产生。",
   eod_tau_disagree:
-    "历史口径：强 ŷ_oo 与 ŷ_oc 异号跳过。v6 选腿已下线该闸（仅 y_τ / ĉ_τ 入场）。",
+    "历史口径：强 ŷ_oo 与 ŷ_τc 异号跳过。v6 选腿已下线该闸（仅 y_τ / ĉ_τ 入场）。",
   trade_tau_disagree:
-    "历史口径：强 ŷ_trade 与 ŷ_oc 异号跳过。v6 选腿已下线该闸（仅 y_τ / ĉ_τ 入场）。",
+    "历史口径：强 ŷ_trade 与 ŷ_τc 异号跳过。v6 选腿已下线该闸（仅 y_τ / ĉ_τ 入场）。",
     tau_leg1_prior:
     "已下线：旧 oc先验平移带宽。现选向看 C 相对 C_τ 的 ±δ 破带。",
   gap_tier_skip:
@@ -222,7 +222,7 @@ export const SKIP_CAT_TIP = {
   tau_entry_price:
     "历史口径：确认根买/卖价相对 open×(1+ŷ_oc) 的入场价闸。v6 第一腿按确认根收盘成交，该闸已下线；新跑批不应再产生。",
   tau_exit_price:
-    "第二腿：正T卖价须 > open×(1+(clamp(ŷ_oc×裕度,min,max)+价偏)/100)；反T买价须 < 同式。止损/收盘强平不受闸。",
+    "第二腿：正T卖价须 > open×(1+(clamp(ŷ_τc×裕度,min,max)+价偏)/100)；反T买价须 < 同式。止损/收盘强平不受闸。",
   y_trade_weak:
     "|ŷ_trade| 未过入场（y_trade_enter），融合分太弱不开仓。",
   trade_tau_sign:
@@ -514,7 +514,7 @@ function slotGateYTau(r, dayHost) {
   return null;
 }
 
-/** 本轮 ŷ_oc / ŷ_τc / ŷ_τ30/60/90 / ŷ_trade / ŷ_nowcast：只读槽位快照，不回退日级分。 */
+/** 本轮 ŷ_τc / ŷ_τ30/60/90 / ŷ_trade / ŷ_nowcast：只读槽位快照，不回退日级分。 */
 function slotYhat(r, dayHost) {
   const sc = r && r.scores && typeof r.scores === "object" ? r.scores : {};
   const ft =
@@ -538,7 +538,7 @@ function slotYhat(r, dayHost) {
   let yNowcast =
     slotYNum(sc, ["y_nowcast", "y_nc", "predicted_score_nowcast"]) ??
     slotYNum(ft, ["y_nowcast", "y_nc"]);
-  // 反 T / prefix_open_fallback 常无 OC 头：ŷ_oc = (1+开盘→τ)(1+ŷ_τc)−1
+  // 反 T / prefix_open_fallback 常无 τc 头：ŷ_oc反推 = (1+开盘→τ)(1+ŷ_τc)−1
   if (yTau == null && yR != null) {
     const featTau =
       (sc.features_tau && typeof sc.features_tau === "object" ? sc.features_tau : null) ||
@@ -1023,7 +1023,7 @@ function pickTauRealized(d) {
     text: fmtRtauPct(n),
     tip:
       TAU_REALIZED_TITLE +
-      (agree === true ? " · 与 ŷ_oc 同号" : agree === false ? " · 与 ŷ_oc 异号" : ""),
+      (agree === true ? " · 与 ŷ_τc 同号" : agree === false ? " · 与 ŷ_τc 异号" : ""),
     n,
     agree,
   };
@@ -1995,17 +1995,17 @@ function yPctMergedCellHtml(kind, d, fallback, rules, scoreDetailJson, titleExtr
     : { n: null, tip: TAU_REALIZED_TITLE };
   const agreeCls = predRealizedAgreeCls(pr, showRealized);
   const tipParts = [
-    predNum != null || predTxt !== "—" ? Y_TAU_TITLE : "暂无 ŷ_oc",
+    predNum != null || predTxt !== "—" ? Y_TAU_TITLE : "暂无 ŷ_τc",
   ];
   if (d?.t0_slot_focus) {
     const slot = focusedSlotRow(d);
     const cb = slotCloseBand(slot) || (d.close_band && typeof d.close_band === "object" ? d.close_band : null);
     if (cb && cb.c_hat_score_source === "bar_prefix") {
-      tipParts.push("Ĉ 与该根前缀 ŷ_oc 同源；C=本根5m收价");
+      tipParts.push("Ĉ 与该根前缀 ŷ_τc 同源；C=本根5m收价");
     } else if (cb && cb.c_hat_score_source === "open_anchor") {
-      tipParts.push("Ĉ 用开盘 OC ŷ_oc（旧包）；请重跑回测");
+      tipParts.push("Ĉ 用开盘 τc ŷ_τc（旧包）；请重跑回测");
     } else if (cb && cb.c_hat_score_source === "bar_prefix_live") {
-      tipParts.push("该根前缀 ŷ_oc 估 Ĉ（与表列同源）");
+      tipParts.push("该根前缀 ŷ_τc 估 Ĉ（与表列同源）");
     }
   }
   if (it._scores_live_overlay) tipParts.push("缺快照·已用持仓分补洞");
@@ -3541,7 +3541,7 @@ function tradeCtauTd(minutePx, dailyPx) {
   const d = Number(dailyPx);
   const mOk = Number.isFinite(m) && m > 0;
   const dOk = Number.isFinite(d) && d > 0;
-  const bits = ["C_τ = O×(1+clip(ŷ_oc×scale, ±20)/100)"];
+  const bits = ["C_τ = O×(1+clip(ŷ_τc×scale, ±20)/100)"];
   if (dOk) bits.push(`日原 ${fmtBarPx(d)}（估空间·未÷S）`);
   if (mOk) bits.push(`分钟 ${fmtBarPx(m)}（破带·÷S 后）`);
   const tipAttr = ` title="${escapeText(bits.join(" · "))}"`;
@@ -4104,7 +4104,7 @@ function closeBandScanTitleHtml(d) {
   const checkCls = warn ? " paper-t0-scan-ohlc-check is-mismatch" : " paper-t0-scan-ohlc-check";
   return (
     `<div class="paper-t0-scan-debug-title">` +
-    `<span class="paper-t0-scan-debug-lead">11:00 前扫描 · C_τ=O×(1+clip(ŷ_oc×scale)/100) · 带宽 C_τ×(1±δ) · C=5m收价</span>` +
+    `<span class="paper-t0-scan-debug-lead">11:00 前扫描 · C_τ=O×(1+clip(ŷ_τc×scale)/100) · 带宽 C_τ×(1±δ) · C=5m收价</span>` +
     `<span class="${checkCls.trim()}" title="${escapeText(closeBandScanOhlcTip(ohlc))}">` +
   `${escapeText(dayBit)} · ${escapeText(minBit)}` +
     `</span>` +
@@ -4197,10 +4197,10 @@ function buildCloseBandScanExpandRow(d, dayKey, colSpan, rules) {
     `<th class="num paper-t0-scan-px">L</th>` +
     `<th class="num paper-t0-scan-px">H</th>` +
     `<th class="num paper-t0-scan-px">C</th>` +
-    `<th class="num paper-t0-col-ctau" title="C_τ = O×(1+clip(ŷ_oc×scale, ±20)/100)">C_τ</th>` +
+    `<th class="num paper-t0-col-ctau" title="C_τ = O×(1+clip(ŷ_τc×scale, ±20)/100)">C_τ</th>` +
     `<th class="num paper-t0-col-band-lo" title="lower = C_τ×(1−δ/100)">lower</th>` +
     `<th class="num paper-t0-col-band-up" title="upper = C_τ×(1+δ/100)">upper</th>` +
-    `<th class="num paper-t0-scan-y" title="ŷ_oc · 预估(真实 open→close)">y_oc</th>` +
+    `<th class="num paper-t0-scan-y" title="ŷ_τc · 预估(真实 price(τ)→close)">y_τc</th>` +
     `<th class="num paper-t0-scan-y" title="${escapeText(Y_TW_TITLE)} · 符号和(真实)">y_τw</th>` +
     `<th class="num paper-t0-scan-y" title="${escapeText(Y_T30_TITLE)} · 预估(真实 τ⊕25/30/35均)">y_τ30</th>` +
     `<th class="num paper-t0-scan-y" title="${escapeText(Y_T45_TITLE)} · 预估(真实 τ⊕40/45/50均)">y_τ45</th>` +
@@ -4427,12 +4427,12 @@ export function buildT0TradeTableHtml(opts) {
     `<th scope="col" class="paper-t0-col-l num" title="本轮触发根 5m 最低">L</th>` +
     `<th scope="col" class="paper-t0-col-h num" title="本轮触发根 5m 最高">H</th>` +
     `<th scope="col" class="paper-t0-col-c num" title="本轮触发根 5m 收盘">C</th>` +
-    `<th scope="col" class="paper-t0-col-ctau num" title="C_τ = O×(1+clip(ŷ_oc×scale, ±20)/100)；分钟空间（破带用）">C_τ</th>` +
+    `<th scope="col" class="paper-t0-col-ctau num" title="C_τ = O×(1+clip(ŷ_τc×scale, ±20)/100)；分钟空间（破带用）">C_τ</th>` +
     `<th scope="col" class="paper-t0-col-band-lo num" title="lower = C_τ×(1−δ/100)；C&lt;lower → 正T">lower</th>` +
     `<th scope="col" class="paper-t0-col-band-up num" title="upper = C_τ×(1+δ/100)；C&gt;upper → 反T">upper</th>` +
     `<th scope="col" class="paper-t0-col-tau num paper-t0-col-y paper-t0-col-y-tau" title="${escapeText(
       `${Y_TAU_TITLE}${slotYHint}`
-    )}">y_oc</th>` +
+    )}">y_τc</th>` +
     `<th scope="col" class="paper-t0-col-ytw num paper-t0-col-y paper-t0-col-y-tw" title="${escapeText(
       `${Y_TW_TITLE}${slotYHint}`
     )}">y_τw</th>` +

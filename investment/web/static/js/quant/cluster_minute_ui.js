@@ -446,7 +446,7 @@ export function installClusterMinuteUi(q) {
       <div class="quant-bars-foot-item"><span class="quant-bars-foot-k">Gate</span><span class="quant-bars-foot-v">Ready 近 ${esc(data.min_span_days ?? MIN_SPAN_DAYS)} 交易日无缺</span></div>
       <div class="quant-bars-foot-item"><span class="quant-bars-foot-k">Write</span><span class="quant-bars-foot-v">增量补齐 / 强更 5m · ≠ 日K · ≠ 现算 ŷ</span></div>
       <div class="quant-bars-foot-item"><span class="quant-bars-foot-k">Labels</span><span class="quant-bars-foot-v">τ=分钟开→收% · 每票≤${esc(data.label_portrait?.max_days_per_code ?? 120)}d</span></div>
-      <div class="quant-bars-foot-item"><span class="quant-bars-foot-k">Downstream</span><span class="quant-bars-foot-v">ŷ_oc 因果前缀≤10:00 · 调仓 · 做T · tip</span></div>
+      <div class="quant-bars-foot-item"><span class="quant-bars-foot-k">Downstream</span><span class="quant-bars-foot-v">ŷ_τc 因果前缀≤10:00 · 调仓 · 做T · tip</span></div>
     </div>`;
   }
 

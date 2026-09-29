@@ -65,9 +65,14 @@ export function installResearchUniverseUi(q) {
         : `n≥${minNEff}`;
     const hold = rep.holdout_n != null ? rep.holdout_n : "—";
     const tierN = rep.tier_n != null ? rep.tier_n : rep.n_ledger_dates ?? "—";
+    const head = String(rep.head || "oo").toLowerCase();
+    const headBit =
+      head === "oo" || head === "y_oo" || head === "ŷ_oo"
+        ? "y_oo 分档"
+        : `${escapeHtml(rep.head_label || rep.head || "y_oo")} 分档`;
     const headNote = [
-      `Holdout${hold} · 前半${tierN}日分档`,
-      `观察池 · ${escapeHtml(rep.head_label || "ŷ_oo")}`,
+      headBit,
+      `Holdout${hold} · 前半${tierN}日`,
       `A≥${Math.round((thr.a_hit ?? 0.55) * 100)}%`,
       `B≥${Math.round((thr.b_hit ?? 0.5) * 100)}%`,
       nBit,
@@ -104,7 +109,7 @@ export function installResearchUniverseUi(q) {
         const body = rows.length
           ? `<table class="quant-ru-tier-grid">
               <thead><tr>
-                <th>代码</th><th>名称</th><th>命中</th><th>n</th><th>IC</th>
+                <th>代码</th><th>名称</th><th title="y_oo 符号命中"><span class="quant-ru-token">y_oo</span> 命中</th><th>n</th><th>IC</th>
               </tr></thead>
               <tbody>${trs}</tbody>
             </table>${more}`
@@ -138,7 +143,7 @@ export function installResearchUniverseUi(q) {
       setStatus(
         "ok",
         liveStatus && liveStatus.enabled ? "live" : "已分档",
-        `A${c.A ?? 0} · B${c.B ?? 0} · C${c.C ?? 0} · Holdout${hold} · ${liveBit()}`
+        `A${c.A ?? 0} · B${c.B ?? 0} · C${c.C ?? 0} · y_oo 分档 · Holdout${hold} · ${liveBit()}`
       );
     } else if (liveStatus && liveStatus.enabled) {
       setStatus("ok", "live", `${liveBit()} · 可先「观察池分档」刷新`);
@@ -154,7 +159,7 @@ export function installResearchUniverseUi(q) {
         useLast ? "读取中" : "分档中",
         useLast
           ? "上次 Holdout 分档…"
-          : `Holdout ${h} 日前半打档…`
+          : `Holdout ${h} 日前半 · y_oo 打档…`
       );
     }
     const url = useLast

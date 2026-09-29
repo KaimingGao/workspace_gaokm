@@ -351,7 +351,7 @@ export function treeReportHtml(data, opts = {}) {
           ? "ŷ_oo_tree"
           : isCo
             ? "ŷ_co_tree"
-            : "ŷ_oc_tree";
+            : "ŷ_τc_tree";
   const isHorizon = isT30 || isT45 || isT60 || isT75 || isT90;
   const ySpec = isT90
     ? "I(mean(price(τ⊕85/90/95))/price(τ)−1>0)"
@@ -369,7 +369,7 @@ export function treeReportHtml(data, opts = {}) {
         ? "open[T+1]/open[T]−1"
         : isCo
           ? "open[T+1]/close[T]−1"
-          : "open→close";
+          : "τ→close";
   const headKey = isT90
     ? "t90"
     : isT75

@@ -162,12 +162,12 @@ export function classifyFactor(name, meta) {
   return fallback;
 }
 
-/** ŷ_oc 开盘/截面特征不在因子注册表，本地兜底注释。 */
+/** ŷ_τc 开盘/截面特征不在因子注册表，本地兜底注释。 */
 export const TAU_FEAT_META = {
   gap_pct: {
     label: "跳空 %",
     description:
-      "开盘相对昨收的跳空幅度（%）。ŷ_oc 默认用它预测 open→close；τ=open 时即隔夜缺口。",
+      "开盘相对昨收的跳空幅度（%）。ŷ_τc 用它抬到昨收基准；τ=open 时即隔夜缺口。",
   },
   open_gap: {
     label: "开盘缺口",
@@ -197,7 +197,7 @@ export const TAU_FEAT_META = {
   ret_open_to_tau: {
     label: "开盘→τ 收益 %",
     description:
-      "开盘到 τ 时刻已实现收益（%）。τ=open 时为 0；分钟 τ 为变长前缀（调仓截钟≤10:00）。ŷ_oc 标签仍是 open→close；此特征是已实现前缀（会抬高 OC 命中，需警惕）。",
+      "开盘到 τ 时刻已实现收益（%）。τ=open 时为 0；分钟 τ 为变长前缀（调仓截钟≤10:00）。ŷ_τc 标签是 τ→close；此特征刻画已实现前缀，用于抬到昨收基准。",
   },
   ret_prev_to_tau: {
     label: "昨收→τ 收益 %",

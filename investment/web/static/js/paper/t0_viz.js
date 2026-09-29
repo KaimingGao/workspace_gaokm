@@ -1229,7 +1229,7 @@ function renderKpiRow(summary) {
     [
       "τ·OC命中",
       sm.tau_oc_hit_rate_pct != null ? `${sm.tau_oc_hit_rate_pct}%` : null,
-      "成交日 ŷ_oc 符号 vs 实际 open→close",
+      "成交日 ŷ_τc 符号 vs 实际 price(τ)→close",
     ],
     [
       "τw命中",

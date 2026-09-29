@@ -69,10 +69,10 @@ class TestCoPanel(unittest.TestCase):
         xs, ys, dates, metas = collect_co_panel(bars, stock_code="000001")
         self.assertGreater(len(ys), 5)
         self.assertEqual(len(xs), len(ys))
-        # min_history bumped for alpha158 → first decision ~ index 62
+        # min_history bumped for alpha158 → 与 ŷ_oo 同日起，首个决策日 index 61
         i = 0
-        b_t = bars[62 + i]
-        b_next = bars[63 + i]
+        b_t = bars[61 + i]
+        b_next = bars[62 + i]
         # 标签 = 真实隔夜缺口 open[T+1]/close[T]-1
         expected = (float(b_next["open"]) / float(b_t["close"]) - 1.0) * 100.0
         self.assertAlmostEqual(ys[i], expected, places=4)
@@ -93,7 +93,7 @@ class TestCoPanel(unittest.TestCase):
                 continue
             self.assertIn(k, row, k)
         self.assertIn("raw_alpha158_KMID", row)
-        i = 62
+        i = 61
         prev = bars[i - 1]
         prev2 = bars[i - 2]
         b_t = bars[i]
@@ -114,6 +114,22 @@ class TestCoPanel(unittest.TestCase):
         self.assertIsNotNone(row["yest_vol_ratio"])
         self.assertIsNotNone(row["on_ma5"])
         self.assertAlmostEqual(float(row["dist_to_up_limit"]), 10.0 - float(row["ret_cc"]), places=3)
+
+    def test_co_decision_dates_match_oo(self):
+        from core.research.co_panel import collect_co_panel
+        from core.research.panel import collect_subscore_forward_panel
+
+        bars = _bars(180)
+        _, _, co_dates, _ = collect_co_panel(bars, stock_code="000001")
+        _, _, oo_dates = collect_subscore_forward_panel(
+            bars,
+            horizon_days=1,
+            stock_code="000001",
+            pit_fundamentals=False,
+        )
+        self.assertEqual(co_dates, oo_dates)
+        self.assertEqual(co_dates[0], bars[61]["date"])
+        self.assertEqual(len(co_dates), 180 - 62)
 
     def test_dist_to_up_limit_uses_board(self):
         from core.research.co_panel import dist_to_up_limit_pct

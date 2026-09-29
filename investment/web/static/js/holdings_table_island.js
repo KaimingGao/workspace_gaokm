@@ -77,7 +77,7 @@ export function holdingToRow(
         ? `低于ŷ_oo门槛 ${minScore ?? "—"}（表列为 ranking）· 悬停看详情`
         : RANKING_REBALANCE_TITLE;
   const scoreEodTitle = scoreEod == null ? "暂无 ŷ_oo" : Y_EOD_TITLE;
-  const scoreTauTitle = scoreTau == null ? "暂无 ŷ_oc" : Y_OC_REBALANCE_TITLE;
+  const scoreTauTitle = scoreTau == null ? "暂无 ŷ_τc" : Y_OC_REBALANCE_TITLE;
   const scoreOnTitle = scoreOn == null ? "暂无 ŷ_co" : Y_ON_TITLE;
   const fmtSignedPct = (v) => {
     if (v == null || v === "") return "—";
@@ -218,7 +218,7 @@ const COLS = [
   },
   {
     id: "score_tau",
-    label: "y_oc",
+    label: "y_τc",
     width: 82,
     num: true,
     sortable: true,

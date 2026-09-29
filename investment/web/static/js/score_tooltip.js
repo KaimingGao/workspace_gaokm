@@ -203,7 +203,7 @@ function shanghaiDateKeyTip(d = new Date()) {
   }
 }
 
-/** ŷ_oo 因子日：盘中应是昨收完整 K，不是 ŷ_oc 的 τ 钟。 */
+/** ŷ_oo 因子日：盘中应是昨收完整 K，不是 ŷ_τc 的 τ 钟。 */
 function formatFactorAnomalyHint(raw) {
   const fa = raw && raw.factor_anomaly;
   const issues = fa && Array.isArray(fa.issues) ? fa.issues : [];
@@ -419,7 +419,7 @@ function formatCompactTauTip(raw) {
     Math.abs(lifted - fit) > 1e-4
   ) {
     rows.push(
-      `<div class="score-layer-row"><span>昨收对照（缺口∘ŷ_oc）</span>` +
+      `<div class="score-layer-row"><span>昨收对照（缺口∘ŷ_τc）</span>` +
         `<span class="num ${signCls(lifted)}">${escapeText(
           fmtSigned(lifted, 3)
         )}%</span></div>`
@@ -454,7 +454,7 @@ function formatCompactTauTip(raw) {
       Math.abs(restored - Number(fit)) > 1e-3
     ) {
       rows.push(
-        `<div class="score-layer-row"><span>还原 ŷ_oc</span>` +
+        `<div class="score-layer-row"><span>还原 ŷ_τc</span>` +
           `<span class="num ${signCls(restored)}">${escapeText(
             fmtSigned(restored, 3)
           )}%</span></div>`
@@ -495,12 +495,12 @@ function formatCompactTauTip(raw) {
   const hint = hasTerms
     ? `τ=${escapeText(tau)} · 与表列 / 组成合计同口径`
     : yTo != null || rot != null
-      ? `τ=${escapeText(tau)} · 本槽未跑 OC Ridge · ŷ_oc=(1+开盘→τ)(1+ŷ_τc)−1`
+      ? `τ=${escapeText(tau)} · 本槽未跑 τc Ridge · ŷ_oc反推=(1+开盘→τ)(1+ŷ_τc)−1`
       : `τ=${escapeText(tau)} · 与表列同口径`;
   return (
     `<div class="score-layer score-layer-tau">` +
     `<div class="score-layer-head">` +
-    `<div class="score-hero-label">ŷ_oc · T收/T开（拟合）</div>` +
+    `<div class="score-hero-label">ŷ_τc · price(τ)→close（拟合）</div>` +
     `<div class="score-hero-value ${signCls(fit)}">${escapeText(fitTxt)}</div>` +
     `</div>` +
     `<div class="score-hero-hint">${hint}</div>` +
@@ -558,7 +558,7 @@ function hasT75FormulaTerms(raw) {
   );
 }
 
-/** y_τc 列 tip：表列=Ridge 模型预估 price→close；remaining(ŷ_oc) 仅未 clip 对照。 */
+/** y_τc 列 tip：表列=Ridge 模型预估 price→close；remaining(ŷ_τc) 仅未 clip 对照。 */
 function formatCompactRTip(raw) {
   const fit = resolveYτcScore(raw);
   const fitTxt = fit == null ? "—" : `${fmtSigned(fit, 3)}%`;
@@ -588,7 +588,7 @@ function formatCompactRTip(raw) {
   const rows = [];
   if (remOc != null && Number.isFinite(remOc) && (fit == null || Math.abs(remOc - fit) > 1e-3)) {
     rows.push(
-      `<div class="score-layer-row"><span>remaining(ŷ_oc) 未clip</span>` +
+      `<div class="score-layer-row"><span>remaining(ŷ_τc) 未clip</span>` +
         `<span class="num ${signCls(remOc)}">${escapeText(
           fmtSigned(remOc, 3)
         )}%</span></div>`
@@ -654,7 +654,7 @@ function formatCompactRTip(raw) {
   }
   const hint = hasTerms
     ? `τ=${escapeText(tau)} · ${escapeText(String(ySpec))} · Ridge 模型预估 price→close`
-    : `τ=${escapeText(tau)} · ${escapeText(String(ySpec))} · 与 ŷ_oc 同因子 · 模型预估`;
+    : `τ=${escapeText(tau)} · ${escapeText(String(ySpec))} · 与 ŷ_τc 同因子 · 模型预估`;
   return (
     `<div class="score-layer score-layer-r">` +
     `<div class="score-layer-head">` +
@@ -971,7 +971,7 @@ function formatCompactOnTip(raw) {
   );
 }
 
-/** ŷ_oc：独立预估 T 收相对 T 开（与表列 / 组成合计同口径）。 */
+/** ŷ_τc：独立预估 price(τ)→close（与表列 / 组成合计同口径）。 */
 export function formatRemScoreSection(raw) {
   const rem = resolveTauScore(raw);
   const lifted = resolveTauLiftedScore(raw);
@@ -1001,7 +1001,7 @@ export function formatRemScoreSection(raw) {
     Math.abs(lifted - Number(rem)) > 1e-4
   ) {
     featRows.push(
-      `<div class="score-layer-row"><span>昨收对照（缺口∘ŷ_oc）</span>` +
+      `<div class="score-layer-row"><span>昨收对照（缺口∘ŷ_τc）</span>` +
         `<span class="num ${signCls(lifted)}">${escapeText(
           fmtSigned(lifted, 3)
         )}%</span></div>`
@@ -1055,9 +1055,9 @@ export function formatRemScoreSection(raw) {
     ? `<div class="score-layer-compose">${featRows.join("")}</div>`
     : "";
   const body = !hasRem
-    ? `<div class="score-hero-hint">未产出（需 ŷ_oc 模型）</div>`
+    ? `<div class="score-hero-hint">未产出（需 ŷ_τc 模型）</div>`
     : hasTauTerms
-      ? `${compose}<div class="score-hero-hint">组成见表「ŷ_oc 组成」· 与表列 / 合计同口径</div>`
+      ? `${compose}<div class="score-hero-hint">组成见表「ŷ_τc 组成」· 与表列 / 合计同口径</div>`
       : compose ||
         `<div class="score-hero-hint">τ=${escapeText(tau)} · y=${escapeText(
           String(ySpec)
@@ -1066,7 +1066,7 @@ export function formatRemScoreSection(raw) {
   return (
     `<div class="score-layer score-layer-tau">` +
     `<div class="score-layer-head">` +
-    `<div class="score-hero-label">ŷ_oc · T收 / T开（拟合）</div>` +
+    `<div class="score-hero-label">ŷ_τc · price(τ) / close（拟合）</div>` +
     `<div class="score-hero-value ${signCls(rem)}">${escapeText(remTxt)}</div>` +
     `</div>` +
     `<div class="score-hero-hint">τ=${escapeText(tau)} · ${escapeText(String(ySpec))} · 拟合原值</div>` +
@@ -1102,7 +1102,7 @@ export function formatNowcastSection(raw) {
   }
   if (tCcN != null && Number.isFinite(tCcN)) {
     rows.push(
-      `<div class="score-layer-row"><span>ŷ_oc 昨收</span><span class="num ${signCls(
+      `<div class="score-layer-row"><span>ŷ_τc 昨收</span><span class="num ${signCls(
         tCcN
       )}">${escapeText(`${fmtSigned(tCcN, 2)}%`)}</span></div>`
     );
@@ -1127,7 +1127,7 @@ export function formatNowcastSection(raw) {
     Number.isFinite(priorN) &&
     Math.abs(Number(ncN) - priorN) < 1e-4
   ) {
-    bits.push("后验≈先验（未观测 ŷ_oc 或 K≈0）");
+    bits.push("后验≈先验（未观测 ŷ_τc 或 K≈0）");
   }
   return (
     `<div class="score-layer score-layer-nowcast is-on">` +
@@ -1282,11 +1282,11 @@ export function formatBlendScoreSection(raw) {
         : "";
   let headHint = "";
   if (head === "single_oo" && tN != null && Number.isFinite(tN)) {
-    headHint = " · 单头：ranking=ŷ_oo（缺 ŷ_oc 权）";
+    headHint = " · 单头：ranking=ŷ_oo（缺 ŷ_τc 权）";
   } else if (head === "single_oo") {
-    headHint = " · 单头降级：仅 ŷ_oo（缺 ŷ_oc）";
+    headHint = " · 单头降级：仅 ŷ_oo（缺 ŷ_τc）";
   } else if (head === "single_tau") {
-    headHint = " · 单头降级：仅 ŷ_oc（缺 ŷ_oo）";
+    headHint = " · 单头降级：仅 ŷ_τc（缺 ŷ_oo）";
   } else if (head === "blend") {
     headHint = " · 双头融合";
   }
@@ -1294,7 +1294,7 @@ export function formatBlendScoreSection(raw) {
     `<div class="score-layer-row"><span>ŷ_oo ×${Number(wOo).toFixed(2)}</span><span class="num ${signCls(
       eodN
     )}">${escapeText(eodTxt)}</span></div>`,
-    `<div class="score-layer-row"><span>ŷ_oc ×${Number(wOc).toFixed(2)}</span><span class="num ${signCls(
+    `<div class="score-layer-row"><span>ŷ_τc ×${Number(wOc).toFixed(2)}</span><span class="num ${signCls(
       tN
     )}">${escapeText(tTxt)}</span></div>`,
     `<div class="score-layer-row"><span>ŷ_co</span><span class="num ${signCls(
@@ -1481,7 +1481,7 @@ export function formatFormulaTermsSection(raw, opts = {}) {
 
   const title =
     key === "tau"
-      ? "ŷ_oc 组成"
+      ? "ŷ_τc 组成"
       : key === "r"
         ? "ŷ_τc 组成"
         : key === "t30"
@@ -1501,7 +1501,7 @@ export function formatFormulaTermsSection(raw, opts = {}) {
     isHorizonProbKey(key) || String((expl && expl.head_kind) || "") === "prob";
   const totalLabel =
     key === "tau"
-      ? "合计 ŷ_oc（T收/T开）"
+      ? "合计 ŷ_τc（T收/T开）"
       : key === "r"
         ? "合计 ŷ_τc（T收/τ价）"
         : isHorizonProb
@@ -1570,7 +1570,7 @@ export function formatFormulaTermsSection(raw, opts = {}) {
 
   const caption =
     key === "tau"
-      ? "β×z = 贡献；合计=Ridge 拟合原值（T收/T开），与表列 ŷ_oc / τ 闸同口径。"
+      ? "β×z = 贡献；合计=Ridge 拟合原值（T收/T开），与表列 ŷ_τc / τ 闸同口径。"
       : key === "r"
         ? "β×z = 贡献；合计=Ridge 拟合原值（T收/τ价）。做 T 回测默认执行套截距（对照手动预演）；选研究套才用 Holdout。研究枢纽系数表默认展示执行套全样本截距。"
         : isHorizonProb
@@ -2009,7 +2009,7 @@ export function formatTailAnomalySection(raw) {
   );
 }
 
-/** 仅系数表（无分项拆解时回退）。opts.key=tau → ŷ_oc β。 */
+/** 仅系数表（无分项拆解时回退）。opts.key=tau → ŷ_τc β。 */
 export function formatFactorWeightsSection(raw, opts = {}) {
   const key = opts.key || "eod";
   if (key === "tau") {
@@ -2038,7 +2038,7 @@ export function formatFactorWeightsSection(raw, opts = {}) {
       .join("");
     return (
       `<div class="score-factors-section">` +
-      `<div class="score-section-title">ŷ_oc 因子系数 β</div>` +
+      `<div class="score-section-title">ŷ_τc 因子系数 β</div>` +
       `<table class="score-factor-weights"><tbody>${rows}</tbody></table>` +
       `</div>`
     );
@@ -2147,11 +2147,11 @@ export function formatT0DirectionDetail(raw) {
   let html = '<div class="score-detail">';
   html +=
     `<div class="score-hero">` +
-    `<div class="score-hero-label">做 T · y_oc（开→收）</div>` +
+    `<div class="score-hero-label">做 T · y_τc（τ→收）</div>` +
     `<div class="score-hero-value ${signCls(score)}">${escapeText(scoreTxt)}</div>` +
     `<div class="score-hero-hint">收益百分点 · 与表列 ŷ% 同口径 · dual_y 主方向</div>` +
     `<div class="score-hero-semantics">` +
-    `语义：τ 定正/反 T；ŷ_oc / ŷ_τ30 / ŷ_τ45 / ŷ_τ60 / ŷ_τ75 / ŷ_τ90 过入场；选腿仅收盘带宽` +
+    `语义：τ 定正/反 T；ŷ_τc / ŷ_τ30 / ŷ_τ45 / ŷ_τ60 / ŷ_τ75 / ŷ_τ90 过入场；选腿仅收盘带宽` +
     `</div>` +
     `<div class="score-hero-gate">门槛 ±${escapeText(String(enter))}% · ${escapeText(
       decision
@@ -2690,7 +2690,7 @@ export function createScoreTooltipController() {
       !!raw.mom_chase_risk ||
       !!(raw.dual_score_fusion && String(raw.dual_score_fusion).trim());
 
-    // 空对象（JSON 解析失败）才跳过；未打分也展示 ŷ_oo/ŷ_oc 占位，避免悬停无反应
+    // 空对象（JSON 解析失败）才跳过；未打分也展示 ŷ_oo/ŷ_τc 占位，避免悬停无反应
     if (
       !formula &&
       !reasons.length &&
@@ -2712,7 +2712,7 @@ export function createScoreTooltipController() {
       return;
 
     let html = '<div class="score-detail">';
-    // ranking 列：先融合组成，再拆 ŷ_oc / ŷ_oo（g 只在 eod 列，nowcast 只在 nowcast 列）
+    // ranking 列：先融合组成，再拆 ŷ_τc / ŷ_oo（g 只在 eod 列，nowcast 只在 nowcast 列）
     html += formatBlendScoreSection(raw);
     html += formatRemScoreSection(raw);
     html += formatFormulaTermsSection(raw, { key: "tau" });

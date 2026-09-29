@@ -12,7 +12,7 @@
       →
       <a class="quant-hero-link" href="#quant-section-ic-series">IC</a>
       →
-      <a class="quant-hero-link" href="#quant-section-tau">ŷ_oc</a>
+      <a class="quant-hero-link" href="#quant-section-tau">ŷ_τc</a>
       →
       <a class="quant-hero-link" href="#quant-section-co">ŷ_co</a>
       →
@@ -59,7 +59,7 @@
   <section class="dashboard-section quant-section quant-overview-section" id="quant-section-overview" aria-labelledby="quant-section-overview-title">
     <header class="dashboard-section-head quant-section-head">
       <h3 id="quant-section-overview-title" class="dashboard-section-title">概览</h3>
-      <p class="dashboard-section-desc quant-section-desc">研究宇宙 · 观察池 · 分钟 Ready · ŷ_oo · ŷ_oc · 落地</p>
+      <p class="dashboard-section-desc quant-section-desc">研究宇宙 · 观察池 · 分钟 Ready · ŷ_oo · ŷ_τc · 落地</p>
       <label
         class="platform-field quant-pro-field quant-holdout-field"
         title="近 N 个交易日不进研究套训练；观察池分档用前半。回测天数用 /replay「回测窗口」（与 Holdout 独立）。执行套仍用全样本。默认 20（1～60）。改完后重新点各头「拟合」/「观察池分档」。"
@@ -92,10 +92,10 @@
             <div class="dashboard-kpi-value quant-pro-kpi-value quant-kpi-value">—</div>
             <div class="dashboard-kpi-sub quant-pro-kpi-sub quant-kpi-sub">全局 OLS · IC</div>
           </div>
-          <div class="dashboard-kpi-card quant-pro-kpi-card quant-kpi-card is-empty" data-kpi="tau" title="ŷ_oc：开盘 09:30 同号率（可比旧口径）；混合=09:30–11:00 全网格">
-            <div class="dashboard-kpi-label quant-pro-kpi-label quant-kpi-label">ŷ_oc</div>
+          <div class="dashboard-kpi-card quant-pro-kpi-card quant-kpi-card is-empty" data-kpi="tau" title="ŷ_τc：开盘 09:30 同号率（可比旧口径）；混合=09:30–11:00 全网格">
+            <div class="dashboard-kpi-label quant-pro-kpi-label quant-kpi-label">ŷ_τc</div>
             <div class="dashboard-kpi-value quant-pro-kpi-value quant-kpi-value">—</div>
-            <div class="dashboard-kpi-sub quant-pro-kpi-sub quant-kpi-sub">副轴 · open→收</div>
+            <div class="dashboard-kpi-sub quant-pro-kpi-sub quant-kpi-sub">副轴 · τ→收</div>
           </div>
           <div class="dashboard-kpi-card quant-pro-kpi-card quant-kpi-card is-empty" data-kpi="landing" title="研究套 sidecar 与执行套 mode（off / 对照 / 启用）">
             <div class="dashboard-kpi-label quant-pro-kpi-label quant-kpi-label">落地</div>
@@ -111,7 +111,7 @@
         </a>
         <span class="quant-path-sep quant-pro-path-sep" aria-hidden="true">/</span>
         <a class="quant-path-step quant-pro-path-step" href="#quant-section-tau" data-step="tau" data-state="idle">
-          <span class="quant-pro-path-num">2</span> ŷ_oc
+          <span class="quant-pro-path-num">2</span> ŷ_τc
         </a>
         <span class="quant-path-sep quant-pro-path-sep" aria-hidden="true">/</span>
         <a class="quant-path-step quant-pro-path-step" href="/follow" data-step="follow" data-state="idle">
@@ -121,12 +121,12 @@
     </div>
   </section>
 
-  <!-- 观察池分档：Holdout 前半 · 回测/live 复用档位 -->
+  <!-- 观察池分档：y_oo 命中 · Holdout 前半 · 回测/live 复用档位 -->
   <section class="dashboard-section quant-section" id="quant-section-research-universe" aria-labelledby="quant-section-research-universe-title">
     <header class="dashboard-section-head quant-section-head">
       <h3 id="quant-section-research-universe-title" class="dashboard-section-title">观察池分档</h3>
       <p class="dashboard-section-desc quant-section-desc">
-        页顶 Holdout 前半打档 · 「启用 live」后调仓只开 A+B（持仓保留）
+        y_oo 分档 · 页顶 Holdout 前半 · 「启用 live」后调仓只开 A+B（持仓保留）
       </p>
     </header>
     <div class="dashboard-card quant-pro-card quant-ru-card">
@@ -140,13 +140,13 @@
             <summary class="quant-pro-help-summary"><span class="quant-pro-help-icon" aria-hidden="true">?</span> 说明</summary>
             <div class="quant-help-body quant-pro-help-body">
               <p>
-                用页顶 <strong>Holdout</strong> 近 N 个账本决策日的前半打档。
+                按 <strong>y_oo</strong> 符号命中分档：用页顶 <strong>Holdout</strong> 近 N 个账本决策日的前半。
                 「启用 live」写入调仓闸（新开 A+B，持仓保留）。
                 研究套须在整段 Holdout 前训练。
               </p>
             </div>
           </details>
-          <button type="button" id="quant-ru-tiers" class="dialog-btn secondary" title="按页顶 Holdout 前半重算分档">观察池分档</button>
+          <button type="button" id="quant-ru-tiers" class="dialog-btn secondary" title="按页顶 Holdout 前半重算 y_oo 分档">观察池分档</button>
           <button type="button" id="quant-ru-tiers-promote" class="dialog-btn secondary" title="复用当前分档启用 live；调仓按 A+B 过滤新开">启用 live</button>
           <button type="button" id="quant-ru-tiers-demote" class="dialog-btn secondary" title="关闭 live 分档闸">关闭 live</button>
         </div>
@@ -246,7 +246,7 @@
     <header class="dashboard-section-head quant-section-head">
       <h3 id="quant-section-minute-title" class="dashboard-section-title">分钟线</h3>
       <p class="dashboard-section-desc quant-section-desc" id="quant-section-minute-desc">
-        写入口：日常「增量补齐」· 全窗「强更 5m」· 缺口「东财补缺」· 调度 minute_warmup · 标签画像（τ OC）· 下游 ŷ_oc 因果前缀≤10:00 / 调仓 / 做T · Ready≠消费 as-of
+        写入口：日常「增量补齐」· 全窗「强更 5m」· 缺口「东财补缺」· 调度 minute_warmup · 标签画像（τ→close）· 下游 ŷ_τc 因果前缀≤10:00 / 调仓 / 做T · Ready≠消费 as-of
       </p>
     </header>
     <div class="dashboard-card quant-pro-card quant-bars-card quant-minute-card">
@@ -256,7 +256,7 @@
           <span id="quant-cluster-minute-msg" class="quant-cluster-bars-msg">加载覆盖…</span>
         </div>
         <div class="dashboard-card-tools quant-pro-card-tools" role="group" aria-label="分钟线操作">
-          <button type="button" id="quant-cluster-minute-topup" class="dialog-btn secondary" title="写入 5m 仓（增量 · 子进程隔离）：会话日齐窗且今日已拉才跳过；缺尾（如只到 10:00）强制补拉落盘。调仓/做T/ŷ_oc 日常先点这个。不改日K、不算 ŷ。">
+          <button type="button" id="quant-cluster-minute-topup" class="dialog-btn secondary" title="写入 5m 仓（增量 · 子进程隔离）：会话日齐窗且今日已拉才跳过；缺尾（如只到 10:00）强制补拉落盘。调仓/做T/ŷ_τc 日常先点这个。不改日K、不算 ŷ。">
             增量补齐
           </button>
           <button type="button" id="quant-cluster-minute-refresh" class="dialog-btn secondary" title="写入 5m 仓（整窗重拉 · 单票子进程≤90s）。东财主窗 120 个日历日，空了才打新浪。仓损坏或要覆盖近窗时用。不改日K、不算 ŷ。">
@@ -353,7 +353,7 @@
     </div>
   </section>
 
-  <!-- ŷ_oo：全局 return_model（open→open）主轴 · 布局对齐 ŷ_oc -->
+  <!-- ŷ_oo：全局 return_model（open→open）主轴 · 布局对齐 ŷ_τc -->
   <section class="dashboard-section quant-section" id="quant-section-factors" aria-labelledby="quant-section-factors-title">
     <header class="dashboard-section-head quant-section-head">
       <h3 id="quant-section-factors-title" class="dashboard-section-title">ŷ_oo</h3>
@@ -401,11 +401,11 @@
     </div>
   </section>
 
-  <!-- ŷ_oc：副轴独立 -->
+  <!-- ŷ_τc：副轴独立 -->
   <section class="dashboard-section quant-section" id="quant-section-tau" aria-labelledby="quant-section-tau-title">
     <header class="dashboard-section-head quant-section-head">
-      <h3 id="quant-section-tau-title" class="dashboard-section-title">ŷ_oc</h3>
-      <p class="dashboard-section-desc quant-section-desc">open→close τ Ridge · 副轴 / τ 闸</p>
+      <h3 id="quant-section-tau-title" class="dashboard-section-title">ŷ_τc</h3>
+      <p class="dashboard-section-desc quant-section-desc">τ→close Ridge · 副轴 / τ 闸</p>
     </header>
     <div class="dashboard-card quant-pro-card">
       <div class="dashboard-card-head quant-pro-card-head quant-card-head--tools">
@@ -413,26 +413,26 @@
           <span class="quant-pro-status-chip" data-state="idle">待命</span>
           <span class="quant-rem-status-msg">拟合后看 OOS · 过门再启用</span>
         </div>
-        <div class="dashboard-card-tools quant-pro-card-tools" role="group" aria-label="ŷ_oc 操作">
+        <div class="dashboard-card-tools quant-pro-card-tools" role="group" aria-label="ŷ_τc 操作">
           <details class="quant-help-fold quant-pro-help-fold">
             <summary class="quant-pro-help-summary"><span class="quant-pro-help-icon" aria-hidden="true">?</span> 说明</summary>
             <div class="quant-help-body quant-pro-help-body">
               <p>
-                <strong>ŷ_oc</strong> = τ Ridge，标签 <code>close[T]/open[T]−1</code>；字段
-                <code>predicted_score_tau</code>（= ŷ_oc；旧别名 <code>score_rem</code> 可读）。
+                <strong>ŷ_τc</strong> = τ Ridge，标签 <code>close[T]/price[τ]−1</code>（τ→close 剩余收益）；字段
+                <code>predicted_score_tau</code>（= ŷ_τc；旧别名 <code>score_rem</code> 可读）。
                 特征另含 PIT 历史真实开→收 <code>tau_lag1</code>（上一交易日）、
                 <code>tau_ma5</code>（过去最多 5 日均值）；默认叠加 ≤T−1 的
                 <code>raw_alpha158_*</code>（与 ŷ_oo 日线 X 可能重叠，融合权重慎设）。
-                标签仍是当日 <code>close[T]/open[T]−1</code>。改特征后请重新拟合。
+                open 时钟 price[τ]=open，自动退化为 close/open−1。改特征后请重新拟合。
               </p>
               <p>
                 <strong>不进聚类、不改 ŷ_oo</strong>。启用后只影响主题日 soft hold / τ 闸；表列主分仍是 ŷ_oo。
                 融合权重在
                 <a class="quant-hero-link" href="/follow">交易执行 · 分数融合</a>
-                （ranking＝w_oo·ŷ_oo + w_oc·ŷ_oc；仅 blend）。分钟训练槽即 5m 线：
+                （ranking＝w_oo·(ŷ_oo+1)/(1+rot) + w_τc·((1+ŷ_τc)(1+w_co·ŷ_co)−1) − 1）。分钟训练槽即 5m 线：
                 窗 <code>09:30…11:00</code>（与做 T leg1 扫描对齐；09:30 无前缀；共享 β；不含 13:00 / 14:00）。
-                live 调仓 ŷ_oc 用当刻已发生的最后一根 5m，上限 10:00（与自动调仓成交窗一致）；做 T 仍按当前根 rescore。
-                研究套 holdout 天数在页顶概览 <strong>Holdout日</strong>（默认 20），ŷ_oc / ŷ_co / ŷ_oo_rank / ŷ_τ30 / ŷ_τ45 / ŷ_τ60 / ŷ_τ75 / ŷ_τ90 / ŷ_oo_tree / ŷ_oc_tree / ŷ_co_tree / ŷ_τ30_tree 共用（ŷ_hl 已退役）。
+                live 调仓 ŷ_τc 用当刻已发生的最后一根 5m，上限 10:00（与自动调仓成交窗一致）；做 T 仍按当前根 rescore。
+                研究套 holdout 天数在页顶概览 <strong>Holdout日</strong>（默认 20），ŷ_τc / ŷ_co / ŷ_oo_rank / ŷ_τ30 / ŷ_τ45 / ŷ_τ60 / ŷ_τ75 / ŷ_τ90 / ŷ_oo_tree / ŷ_τc_tree / ŷ_co_tree / ŷ_τ30_tree 共用（ŷ_hl 已退役）。
               </p>
             </div>
           </details>
@@ -440,15 +440,15 @@
             <input type="checkbox" id="quant-tau-ridge-alpha158" checked />
             <span>Alpha158</span>
           </label>
-          <button type="button" id="quant-tau-ridge-run" class="dialog-btn secondary" title="观察池拟合 ŷ_oc Ridge + 时间 OOS（不写盘；一次产出研究 β 与执行套全样本 β）">拟合</button>
+          <button type="button" id="quant-tau-ridge-run" class="dialog-btn secondary" title="观察池拟合 ŷ_τc Ridge + 时间 OOS（不写盘；一次产出研究 β 与执行套全样本 β）">拟合</button>
           <button type="button" id="quant-tau-ridge-persist-research" class="dialog-btn secondary" data-persist-role="research" title="人审后写入 tau_ridge_model_research.json，供历史回测加载">启用研究</button>
           <button type="button" id="quant-tau-ridge-persist" class="dialog-btn secondary" data-persist-role="live" title="人审后写入 live/tau_ridge_model.json，供交易执行加载">启用执行</button>
           <button type="button" id="quant-tau-ridge-status" class="dialog-btn secondary" title="读取已启用 live 模型">状态</button>
         </div>
       </div>
       <div class="quant-pro-card-body">
-        <div id="quant-tau-result" class="quant-weight-table-wrap" aria-label="ŷ_oc 拟合摘要"></div>
-        <div id="quant-tau-coef-table" class="quant-weight-table-wrap" aria-label="ŷ_oc 因子系数表"></div>
+        <div id="quant-tau-result" class="quant-weight-table-wrap" aria-label="ŷ_τc 拟合摘要"></div>
+        <div id="quant-tau-coef-table" class="quant-weight-table-wrap" aria-label="ŷ_τc 因子系数表"></div>
       </div>
     </div>
   </section>
@@ -476,7 +476,7 @@
                 <code>yest_gap</code> / <code>on_ma5</code>（不含今日 gap_pct）。不用 close[T]。
               </p>
               <p>
-                <strong>不进主排序、不改 ŷ_oo / ŷ_oc</strong>。用于收盘前评估隔夜缺口；后续可接缩仓闸。
+                <strong>不进主排序、不改 ŷ_oo / ŷ_τc</strong>。用于收盘前评估隔夜缺口；后续可接缩仓闸。
                 改特征后请重新拟合再启用。与 <code>gap_pct</code>（收→开缺口）勿混名。
               </p>
             </div>
@@ -511,7 +511,7 @@
             <summary class="quant-pro-help-summary"><span class="quant-pro-help-icon" aria-hidden="true">?</span> 说明</summary>
             <div class="quant-help-body quant-pro-help-body">
               <p>
-                <strong>ŷ_τ30</strong> 在 ŷ_oc 的开盘 Z + ≤τ 分钟小包之上，<strong>不含</strong> OC 路径形状（HL/回撤/振幅，避免共线把 ŷ 压到 0），另加序列特征：
+                <strong>ŷ_τ30</strong> 在 ŷ_τc 的开盘 Z + ≤τ 分钟小包之上，<strong>不含</strong> OC 路径形状（HL/回撤/振幅，避免共线把 ŷ 压到 0），另加序列特征：
                 <code>ret_last_5m</code> / <code>ret_last_30m</code>（交易时钟 ⊖30m）/
                 <code>session_elapsed</code> / <code>session_remain</code> /
                 <code>crosses_lunch</code> /
@@ -520,7 +520,7 @@
                 <code>t30_lag1</code> / <code>t30_ma5</code>（同钟 PIT）。
                 标签 <code>I(mean(price[τ+25m],price[τ+30m],price[τ+35m])/price[τ]−1 &gt; 0)</code>（跳过午休：11:15→13:10/13:15/13:20）。
                 live ŷ=P(窗收益&gt;0)。14:30 后不足 35 交易分钟则不训、不预。主字段 <code>y_τ30</code>。
-                进 ŷ_τw 投票；个股闸与入场已下线。不进 C_τ / ranking。不改 ŷ_oc 的 X。
+                进 ŷ_τw 投票；个股闸与入场已下线。不进 C_τ / ranking。不改 ŷ_τc 的 X。
               </p>
               <p>
                 落盘 <code>t30_ridge_model.json</code>。依赖观察池 <strong>5m 分钟缓存</strong>。
@@ -558,7 +558,7 @@
             <summary class="quant-pro-help-summary"><span class="quant-pro-help-icon" aria-hidden="true">?</span> 说明</summary>
             <div class="quant-help-body quant-pro-help-body">
               <p>
-                <strong>ŷ_τ45</strong> 在 ŷ_oc 的开盘 Z + ≤τ 分钟小包之上，<strong>不含</strong> OC 路径形状（HL/回撤/振幅，避免共线把 ŷ 压到 0），另加序列特征：
+                <strong>ŷ_τ45</strong> 在 ŷ_τc 的开盘 Z + ≤τ 分钟小包之上，<strong>不含</strong> OC 路径形状（HL/回撤/振幅，避免共线把 ŷ 压到 0），另加序列特征：
                 <code>ret_last_5m</code> / <code>ret_last_45m</code>（交易时钟 ⊖45m）/
                 <code>session_elapsed</code> / <code>session_remain</code> /
                 <code>crosses_lunch_45</code> /
@@ -567,7 +567,7 @@
                 <code>t45_lag1</code> / <code>t45_ma5</code>（同钟 PIT）。
                 标签 <code>I(mean(price[τ+40m],price[τ+45m],price[τ+50m])/price[τ]−1 &gt; 0)</code>（跳过午休：11:15→13:25/13:30/13:35）。
                 live ŷ=P(窗收益&gt;0)。14:15 后不足 50 交易分钟则不训、不预。主字段 <code>y_τ45</code>。
-                进 ŷ_τw 五头 sign(p_up−中位点)；近中位点由弃权%（`y_tw_vote_margin`，默认 5pp）不投票。中位点默认 47%（`y_tw_midpoint`）。个股闸与入场已下线。破带后 ŷ_τw 门槛。不改 ŷ_oc / ŷ_τ30 的 X。
+                进 ŷ_τw 五头 sign(p_up−中位点)；近中位点由弃权%（`y_tw_vote_margin`，默认 5pp）不投票。中位点默认 47%（`y_tw_midpoint`）。个股闸与入场已下线。破带后 ŷ_τw 门槛。不改 ŷ_τc / ŷ_τ30 的 X。
               </p>
               <p>
                 落盘 <code>t45_ridge_model.json</code>。依赖观察池 <strong>5m 分钟缓存</strong>。
@@ -605,7 +605,7 @@
             <summary class="quant-pro-help-summary"><span class="quant-pro-help-icon" aria-hidden="true">?</span> 说明</summary>
             <div class="quant-help-body quant-pro-help-body">
               <p>
-                <strong>ŷ_τ60</strong> 在 ŷ_oc 的开盘 Z + ≤τ 分钟小包之上，<strong>不含</strong> OC 路径形状（HL/回撤/振幅，避免共线把 ŷ 压到 0），另加序列特征：
+                <strong>ŷ_τ60</strong> 在 ŷ_τc 的开盘 Z + ≤τ 分钟小包之上，<strong>不含</strong> OC 路径形状（HL/回撤/振幅，避免共线把 ŷ 压到 0），另加序列特征：
                 <code>ret_last_5m</code> / <code>ret_last_60m</code>（交易时钟 ⊖60m）/
                 <code>session_elapsed</code> / <code>session_remain</code> /
                 <code>crosses_lunch_60</code> /
@@ -614,7 +614,7 @@
                 <code>t60_lag1</code> / <code>t60_ma5</code>（同钟 PIT）。
                 标签 <code>I(mean(price[τ+55m],price[τ+60m],price[τ+65m])/price[τ]−1 &gt; 0)</code>（跳过午休：11:00→13:25/13:30/13:35）。
                 live ŷ=P(窗收益&gt;0)。14:00 后不足 65 交易分钟则不训、不预。主字段 <code>y_τ60</code>。
-                进 ŷ_τw 投票；个股闸与入场已下线。不进 C_τ / ranking。不改 ŷ_oc / ŷ_τ30 的 X。
+                进 ŷ_τw 投票；个股闸与入场已下线。不进 C_τ / ranking。不改 ŷ_τc / ŷ_τ30 的 X。
               </p>
               <p>
                 落盘 <code>t60_ridge_model.json</code>。依赖观察池 <strong>5m 分钟缓存</strong>。
@@ -652,7 +652,7 @@
             <summary class="quant-pro-help-summary"><span class="quant-pro-help-icon" aria-hidden="true">?</span> 说明</summary>
             <div class="quant-help-body quant-pro-help-body">
               <p>
-                <strong>ŷ_τ75</strong> 在 ŷ_oc 的开盘 Z + ≤τ 分钟小包之上，<strong>不含</strong> OC 路径形状（HL/回撤/振幅，避免共线把 ŷ 压到 0），另加序列特征：
+                <strong>ŷ_τ75</strong> 在 ŷ_τc 的开盘 Z + ≤τ 分钟小包之上，<strong>不含</strong> OC 路径形状（HL/回撤/振幅，避免共线把 ŷ 压到 0），另加序列特征：
                 <code>ret_last_5m</code> / <code>ret_last_75m</code>（交易时钟 ⊖75m）/
                 <code>session_elapsed</code> / <code>session_remain</code> /
                 <code>crosses_lunch_75</code> /
@@ -661,7 +661,7 @@
                 <code>t75_lag1</code> / <code>t75_ma5</code>（同钟 PIT）。
                 标签 <code>I(mean(price[τ+70m],price[τ+75m],price[τ+80m])/price[τ]−1 &gt; 0)</code>（跳过午休：11:00→13:40/13:45/13:50）。
                 live ŷ=P(窗收益&gt;0)。13:45 后不足 80 交易分钟则不训、不预。主字段 <code>y_τ75</code>。
-                进 ŷ_τw 五头 sign(p_up−中位点)；近中位点由弃权%（`y_tw_vote_margin`，默认 5pp）不投票。中位点默认 47%（`y_tw_midpoint`）。个股闸与入场已下线。破带后 ŷ_τw 门槛。不改 ŷ_oc / ŷ_τ30 / ŷ_τ45 / ŷ_τ60 的 X。
+                进 ŷ_τw 五头 sign(p_up−中位点)；近中位点由弃权%（`y_tw_vote_margin`，默认 5pp）不投票。中位点默认 47%（`y_tw_midpoint`）。个股闸与入场已下线。破带后 ŷ_τw 门槛。不改 ŷ_τc / ŷ_τ30 / ŷ_τ45 / ŷ_τ60 的 X。
               </p>
               <p>
                 落盘 <code>t75_ridge_model.json</code>。依赖观察池 <strong>5m 分钟缓存</strong>。
@@ -699,7 +699,7 @@
             <summary class="quant-pro-help-summary"><span class="quant-pro-help-icon" aria-hidden="true">?</span> 说明</summary>
             <div class="quant-help-body quant-pro-help-body">
               <p>
-                <strong>ŷ_τ90</strong> 在 ŷ_oc 的开盘 Z + ≤τ 分钟小包之上，<strong>不含</strong> OC 路径形状（HL/回撤/振幅，避免共线把 ŷ 压到 0），另加序列特征：
+                <strong>ŷ_τ90</strong> 在 ŷ_τc 的开盘 Z + ≤τ 分钟小包之上，<strong>不含</strong> OC 路径形状（HL/回撤/振幅，避免共线把 ŷ 压到 0），另加序列特征：
                 <code>ret_last_5m</code> / <code>ret_last_90m</code>（交易时钟 ⊖90m）/
                 <code>session_elapsed</code> / <code>session_remain</code> /
                 <code>crosses_lunch_90</code> /
@@ -708,7 +708,7 @@
                 <code>t90_lag1</code> / <code>t90_ma5</code>（同钟 PIT）。
                 标签 <code>I(mean(price[τ+85m],price[τ+90m],price[τ+95m])/price[τ]−1 &gt; 0)</code>（跳过午休：11:00→13:55/14:00/14:05）。
                 live ŷ=P(窗收益&gt;0)。13:30 后不足 95 交易分钟则不训、不预。主字段 <code>y_τ90</code>。
-                进 ŷ_τw 投票；个股闸与入场已下线。不进 C_τ / ranking。不改 ŷ_oc / ŷ_τ30 / ŷ_τ60 的 X。
+                进 ŷ_τw 投票；个股闸与入场已下线。不进 C_τ / ranking。不改 ŷ_τc / ŷ_τ30 / ŷ_τ60 的 X。
               </p>
               <p>
                 落盘 <code>t90_ridge_model.json</code>。依赖观察池 <strong>5m 分钟缓存</strong>。
@@ -837,12 +837,12 @@
     </details>
   </section>
 
-  <!-- ŷ_oc_tree：独立浅树头；同标签、不进 live / 回测；次要折叠，默认收起 -->
+  <!-- ŷ_τc_tree：独立浅树头；同标签、不进 live / 回测；次要折叠，默认收起 -->
   <section class="dashboard-section quant-section quant-section-secondary" id="quant-section-tau-tree" aria-labelledby="quant-section-tau-tree-title">
     <details class="quant-secondary-fold">
       <summary class="quant-secondary-fold-sum">
-        <h3 id="quant-section-tau-tree-title" class="dashboard-section-title">ŷ_oc_tree</h3>
-        <p class="dashboard-section-desc quant-section-desc">open→close 浅树（80 棵）· 影子对照 · 不进 live</p>
+        <h3 id="quant-section-tau-tree-title" class="dashboard-section-title">ŷ_τc_tree</h3>
+        <p class="dashboard-section-desc quant-section-desc">τ→close 浅树（80 棵）· 影子对照 · 不进 live</p>
       </summary>
       <div class="dashboard-card quant-pro-card">
       <div class="dashboard-card-head quant-pro-card-head quant-card-head--tools">
@@ -850,18 +850,18 @@
           <span class="quant-pro-status-chip" data-state="idle">待命</span>
           <span class="quant-rem-status-msg">拟合 80 棵后看 OOS · 不写盘 · 满池瓶颈在组面板</span>
         </div>
-        <div class="dashboard-card-tools quant-pro-card-tools" role="group" aria-label="ŷ_oc_tree 操作">
+        <div class="dashboard-card-tools quant-pro-card-tools" role="group" aria-label="ŷ_τc_tree 操作">
           <details class="quant-help-fold quant-pro-help-fold">
             <summary class="quant-pro-help-summary"><span class="quant-pro-help-icon" aria-hidden="true">?</span> 说明</summary>
             <div class="quant-help-body quant-pro-help-body">
               <p>
-                <strong>ŷ_oc_tree</strong> 是独立估计器，标签与 ŷ_oc 相同：
-                <code>close[T]/open[T]−1</code>。80 棵浅树（深度 3）LightGBM。
+                <strong>ŷ_τc_tree</strong> 是独立估计器，标签与 ŷ_τc 相同：
+                <code>close[T]/price[τ]−1</code>（τ→close 剩余收益）。80 棵浅树（深度 3）LightGBM。
                 默认树侧含 <code>raw_alpha158_*</code>（≤T−1）；同窗 Ridge 对照仍只用开盘 Z，避免与 ŷ_oo 双重计权。
                 满池耗时主要在组分钟面板，不是树拟合。与 Ridge 同面板、同 Holdout，表内对照 IC / 命中 / MSE。
               </p>
               <p>
-                <strong>不改 ŷ_oc Ridge、不进聚类、不写 live、不进回测</strong>。
+                <strong>不改 ŷ_τc Ridge、不进聚类、不写 live、不进回测</strong>。
                 无「启用研究 / 启用执行」。Holdout 日与页顶概览共用。
               </p>
             </div>
@@ -1214,7 +1214,7 @@
             <div class="quant-actions-inline quant-pro-params-inline">
               <label
                 class="platform-field quant-pro-field"
-                title="rank=w_oo·ŷ_oo+w_oc·((1+ŷ_oc)(1+w_co·ŷ_co)−1)。w_co 默认 0。对齐历史回测页。"
+                title="rank=w_oo·(ŷ_oo+1)/(1+rot)+w_τc·((1+ŷ_τc)(1+w_co·ŷ_co)−1)−1。w_co 默认 0。对齐历史回测页。"
               >
                 <span class="quant-pro-field-label">ON_Alpha</span>
                 <input id="quant-daily-on-alpha" type="number" min="0" max="1" step="0.1" value="0" />

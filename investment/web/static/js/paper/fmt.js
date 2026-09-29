@@ -305,17 +305,17 @@ export function resolveNowcastScore(it) {
 
 export const Y_OO_TITLE = "ŷ_oo · open[T]→open[T+1]（%）";
 export const Y_EOD_TITLE = Y_OO_TITLE;
-export const Y_OC_TITLE = "ŷ_oc · open[T]→close[T]（拟合原值；τ 闸同源）";
+export const Y_OC_TITLE = "ŷ_τc · price(τ)→close[T]（拟合原值；τ 闸同源）";
 export const Y_TAU_TITLE = Y_OC_TITLE;
-/** 数据中心观察池 / 持仓表：ŷ_oc 用 09:30–10:00 调仓因果前缀 */
+/** 数据中心观察池 / 持仓表：ŷ_τc 用 09:30–10:00 调仓因果前缀 */
 export const Y_OC_REBALANCE_TITLE =
-  "ŷ_oc · 09:30–10:00 因果前缀 open[T]→close[T]";
+  "ŷ_τc · 09:30–10:00 因果前缀 price(τ)→close[T]";
 export const RANKING_REBALANCE_TITLE =
   "ranking · fuse − (price(τ)/open−1) · 预估(真实)：(open[T+1]−price(τ))/open[T]";
 export const EOD_REALIZED_TITLE =
   "oo实 · open[T+1]/open[T]−1（与 ŷ_oo 同标签）";
 export const TAU_REALIZED_TITLE =
-  "oc实 · close[T]/open[T]−1（与 ŷ_oc 同标签）";
+  "τc实 · close[T]/price(τ)−1（与 ŷ_τc 同标签）";
 export const Y_CO_TITLE = "ŷ_co · close[T]→open[T+1]（对照；不进 ranking）";
 export const Y_ON_TITLE = Y_CO_TITLE;
 /** leftover nowcast = nc：旧簿对照昨收，不进主决策。 */

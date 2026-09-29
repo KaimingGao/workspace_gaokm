@@ -766,7 +766,7 @@ export function renderWatchingWatchTableFallback(rows, { onPickCountUpdate } = {
     `<th class="watching-col-num" title="最新成交价">现价</th>` +
     `<th class="watching-col-num" title="相对昨收的涨跌幅（与 Y 列同一口径）">涨跌</th>` +
     `<th class="watching-col-num" title="ŷ_oo · open[T]→open[T+1]">y_oo</th>` +
-    `<th class="watching-col-num" title="${Y_OC_REBALANCE_TITLE}">y_oc</th>` +
+    `<th class="watching-col-num" title="${Y_OC_REBALANCE_TITLE}">y_τc</th>` +
     `<th class="watching-col-num" title="ŷ_co · close[T]→open[T+1]">y_co</th>` +
     `<th class="watching-col-num" title="${RANKING_REBALANCE_TITLE}">ranking</th>` +
     `<th title="规则倾向（买入 / 观望等），不是 ŷ 本身">倾向</th>` +

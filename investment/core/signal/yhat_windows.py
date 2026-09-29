@@ -5,12 +5,17 @@
 ŷ_τc  price(τ)→close(T)   主字段 y_τc（旧簿 y_to / y_pc / y_r 可读；旧 y_r=price/close 则反几何）
 ŷ_co  close(T)→open(T+1)  主字段 y_co；旧键 y_on 可读
 
-rank     = w_oo·ŷ_oo + w_oc·((1+ŷ_oc)(1+w_co·ŷ_co)−1) − (price(τ)/open−1)
-           拟合 open[T]→open[T+1]；τ 处减去已走出的开盘→成交钟（百分点）
-           ŷ 为净收益；w_co 默认 0；缺 ŷ_co 则退回 ŷ_oc
-           百分点落盘：((1+ŷ_oc/100)(1+w_co·ŷ_co/100)−1)×100
+OC 模型 ranking（open→close 标签）：
+  rank     = w_oo·ŷ_oo + w_oc·((1+ŷ_oc)(1+w_co·ŷ_co)−1)
+  拟合 open[T]→open[T+1]；τ 处减去已走出的开盘→成交钟（百分点）
+  ŷ 为净收益；w_co 默认 0；缺 ŷ_co 则退回 ŷ_oc
+
+τc 模型 ranking（price(τ)→close 标签）：
+  rank     = w_oo·(ŷ_oo+1)/(1+rot) + w_τc·((1+ŷ_τc)(1+w_co·ŷ_co)−1) − 1
+  rot = price(τ)/open[T]−1（open→τ 已实现）；两项均在 τ→open[T+1] 基准，不再扣 rot
+
 R̂_τ      = close[T]/price(τ)−1
-residual = fuse(ŷ_τc, remaining(ŷ_oc, open→τ))   # 同空间；ĉ=price(τ)×(1+R̂_τ/100)
+residual = fuse(ŷ_τc, remaining(ŷ_oc))   # 同空间；ĉ=price(τ)×(1+R̂_τ/100)
 """
 
 from __future__ import annotations
@@ -308,6 +313,27 @@ def ret_open_to_tau_of(item: Optional[dict]) -> Optional[float]:
     return None
 
 
+def tau_model_is_open_to_close(item: Optional[dict]) -> bool:
+    """从打分 item 判断 τ 头标签是否 open→close。
+
+    依据 y_spec_tau.formula / rem_y_spec：
+      - 含 price[τ] 或 horizon_mode=tau_to_close → τc 模型（返回 False）
+      - 含 open 或缺失 → OC 模型（返回 True，向后兼容）
+    """
+    from core.signal.yhat_geom import rem_label_is_open_to_close
+
+    if not isinstance(item, dict):
+        return True
+    y_spec = item.get("y_spec_tau")
+    if not isinstance(y_spec, dict):
+        rem = item.get("rem_y_spec")
+        if rem:
+            y_spec = {"formula": str(rem)}
+        else:
+            y_spec = {}
+    return rem_label_is_open_to_close({"y_spec": y_spec})
+
+
 def compound_pct(a: Optional[float], b: Optional[float]) -> Optional[float]:
     """((1+a/100)(1+b/100)−1)×100。缺一侧返回另一侧。"""
     fa = _f(a)
@@ -454,13 +480,36 @@ def ranking_pct(
     w_oo: float = 0.5,
     w_oc: float = 0.5,
     w_co: float = 0.0,
+    rem_model_doc: Optional[dict] = None,
+    ret_open_to_tau: Optional[float] = None,
 ) -> Optional[float]:
-    """调仓 ranking = w_oo·ŷ_oo + w_oc·((1+ŷ_oc)(1+w_co·ŷ_co)−1)。ŷ 为净收益；落盘为百分点。
+    """调仓 ranking（百分点）。
 
-    标签是 open[T]→open[T+1]。τ≠开盘时由 ``remaining_ranking_pct`` 减去 open→price(τ)。
+    OC 模型（open→close 标签）：
+        ranking = w_oo·ŷ_oo + w_oc·((1+ŷ_oc)(1+w_co·ŷ_co)−1)
+        基准 open[T]→open[T+1]；τ≠开盘时由 ``remaining_ranking_pct`` 扣 open→price(τ)。
+
+    τc 模型（price(τ)→close 标签）：
+        ranking = w_oo·(ŷ_oo+1)/(1+rot) + w_τc·((1+ŷ_τc)(1+w_co·ŷ_co)−1) − 1
+        直接算在 τ→open[T+1] 基准；ŷ_oo 用 remaining_at_tau 映到 τ→open[T+1]，
+        ŷ_τc（存于 y_oc / predicted_score_oc）已是 τ→close，无需再扣 ret_open_to_tau。
+
+    模型类型由 ``tau_model_is_open_to_close`` 判断；``rem_model_doc`` 优先于 item。
     """
-    right = oc_with_co(pick_y_oc(item), pick_y_co(item), w_co)
-    return fuse_pct(pick_y_oo(item), right, w_left=w_oo, w_right=w_oc)
+    from core.signal.yhat_geom import remaining_at_tau
+
+    is_oc = tau_model_is_open_to_close(rem_model_doc if rem_model_doc is not None else item)
+    y_oc = pick_y_oc(item)
+    y_co = pick_y_co(item)
+    if is_oc:
+        right = oc_with_co(y_oc, y_co, w_co)
+        return fuse_pct(pick_y_oo(item), right, w_left=w_oo, w_right=w_oc)
+    rot = _f(ret_open_to_tau)
+    if rot is None:
+        rot = ret_open_to_tau_of(item)
+    y_oo_rem = remaining_at_tau(pick_y_oo(item), rot)
+    right = oc_with_co(y_oc, y_co, w_co)
+    return fuse_pct(y_oo_rem, right, w_left=w_oo, w_right=w_oc)
 
 
 def remaining_ranking_pct(
@@ -469,13 +518,17 @@ def remaining_ranking_pct(
     *,
     open_px: Optional[float] = None,
     price_tau: Optional[float] = None,
+    is_oc_model: bool = True,
 ) -> Optional[float]:
-    """决策 ranking = 融合分 − (price(τ)/open−1)。落盘都是百分点。
+    """决策 ranking（百分点）。
 
-    缺开盘或 τ 价则原值（09:30 常如此）。不是几何 remaining。
+    OC 模型：融合分 − (price(τ)/open−1)（减法近似）；缺开盘或 τ 价则原值。
+    τc 模型：ranking 已在 τ→open[T+1] 基准，直接透传，不再扣 ret_open_to_tau。
     """
     if ranking is None:
         return None
+    if not is_oc_model:
+        return float(ranking)
     rot = _f(ret_open_to_tau)
     if rot is None:
         rot = ret_open_to_tau_pct(open_px, price_tau)
@@ -628,11 +681,13 @@ def stamp_window_scores(item: Optional[dict], cfg: Optional[dict] = None) -> Dic
     y_oc = pick_y_oc(item)
     y_τc = pick_y_τc(item)
     y_co = pick_y_co(item)
-    ranking = fuse_pct(y_oo, oc_with_co(y_oc, y_co, w_co), w_left=w_oo, w_right=w_oc)
+    is_oc = tau_model_is_open_to_close(item)
+    ranking = ranking_pct(item, w_oo=w_oo, w_oc=w_oc, w_co=w_co)
     ranking = remaining_ranking_pct(
         ranking,
         open_px=ranking_open_px(item),
         price_tau=ranking_price_tau(item),
+        is_oc_model=is_oc,
     )
     residual = residual_pct(item, w_pc=w_τc, w_oc=w_oc_r, cfg=cfg)
     fa = item.get("factor_anomaly") if isinstance(item, dict) else None
@@ -689,6 +744,7 @@ __all__ = [
     "residual_w_mode_from_cfg",
     "residual_weights_from_cfg",
     "ret_open_to_tau_pct",
+    "tau_model_is_open_to_close",
     "stamp_remaining_y_τc",
     "t0_residual_pct",
     "ret_open_to_tau_of",

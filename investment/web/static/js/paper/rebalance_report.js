@@ -1042,7 +1042,7 @@ function renderRebalanceReport(
     `<div class="rebalance-th num" role="columnheader" title="最新成交价">现价</div>` +
     `<div class="rebalance-th num" role="columnheader" title="相对昨收的当日涨跌幅">涨跌</div>` +
     `<div class="rebalance-th num" role="columnheader" title="ŷ_oo · 隔夜主轴">y_oo</div>` +
-    `<div class="rebalance-th num" role="columnheader" title="ŷ_oc · open→close">y_oc</div>` +
+    `<div class="rebalance-th num" role="columnheader" title="ŷ_τc · price(τ)→close">y_τc</div>` +
     `<div class="rebalance-th num" role="columnheader" title="ŷ_co · close→次日开">y_co</div>` +
     `<div class="rebalance-th num" role="columnheader" title="ranking · fuse − (price(τ)/open−1)；真实=(open[T+1]−price(τ))/open[T]">ranking</div>` +
     `<div class="rebalance-th num" role="columnheader">股数</div>` +

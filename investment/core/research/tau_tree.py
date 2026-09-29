@@ -1,4 +1,4 @@
-"""ŷ_τ_tree：独立浅树头，标签与 ŷ_τ 相同（open→close）。
+"""ŷ_τ_tree：独立浅树头，标签与 ŷ_τ 相同（τ→close，close[T]/price[τ]−1）。
 
 与 Ridge 同面板、同 Holdout，只写 ``tau_tree_last_report.json``。
 不提供 ``predict_tau_from_features`` / persist / 研究套 sidecar，
@@ -783,6 +783,13 @@ def fit_tau_tree_report(
         "task": "tau_tree",
         "head": TREE_HEAD,
         "schema": TREE_SCHEMA,
+        "horizon_mode": "tau_to_close",
+        "y_spec": {
+            "formula": "close[T]/price[τ]-1",
+            "unit": "pct",
+            "tau": tau_key,
+            "note": "ŷ_τ_tree 影子头：标签 τ→close（close[T]/price[τ]−1）；open 时钟退化为 open→close",
+        },
         "stock_count": len(enriched),
         "sample_count": len(ys),
         "tau": tau_key,

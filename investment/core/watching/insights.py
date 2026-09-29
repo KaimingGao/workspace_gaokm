@@ -591,8 +591,14 @@ def _hydrate_insight_tau_fields(
             else:
                 from core.signal.dual_score import trade_blend_vs_prev_close
 
+                y_spec_tau = out.get("y_spec_tau")
+                rem_doc = {"y_spec": y_spec_tau} if isinstance(y_spec_tau, dict) else None
                 cc, tau_cc, vs = trade_blend_vs_prev_close(
-                    y_oo, out.get("predicted_score_tau"), gap_pct=gap
+                    y_oo,
+                    out.get("predicted_score_tau"),
+                    gap_pct=gap,
+                    ret_open_to_tau=out.get("ret_open_to_tau"),
+                    rem_model_doc=rem_doc,
                 )
                 out["predicted_score_blend"] = cc
                 out["predicted_score_blend_tau_cc"] = tau_cc

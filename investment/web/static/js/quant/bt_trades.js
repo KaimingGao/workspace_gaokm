@@ -325,7 +325,7 @@ export const BT_LEDGER_TRADE_COLS = [
   },
   {
     id: "y_tau",
-    label: "y_oc",
+    label: "y_τc",
     widthPct: 11,
     widthMin: "10rem",
     num: true,

@@ -661,7 +661,8 @@ class TestDualScoreFields(unittest.TestCase):
             "score_calibration_applied": True,
         }
         self.assertAlmostEqual(eod_gate_score_for_item(item), 2.0, places=5)
-        self.assertAlmostEqual(decision_score_for_item(item), 0.75, places=5)
+        # decision = ranking 现算 = fuse(ŷ_oo=2.0, ŷ_oc=0.5) = 1.25（不受 calibration 影响）
+        self.assertAlmostEqual(decision_score_for_item(item), 1.25, places=5)
 
     def test_legacy_rem_not_added_to_eod_rem(self):
         from core.signal.dual_score import apply_tau_score_fields

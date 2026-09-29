@@ -547,11 +547,17 @@ export function installSuggest(q) {
     const ols = data.ols || {};
     const nCoef = Object.keys((data.model || {}).coefficients || {}).length;
     const draftOk = !!(data.draft && data.draft.success);
+    const fittedAt =
+      (data.draft && data.draft.saved_at) ||
+      data.fitted_at ||
+      data.saved_at ||
+      null;
     paintOoStatus({
       state: "ok",
       chip: "已拟合",
       message: draftOk ? "草稿已存 · 可启用研究/执行" : "已拟合 · 草稿未落盘",
       sampleCount: data.sample_count,
+      fittedAt,
       liveOn: false,
       researchOn: draftOk,
       oos: data.oos || {},
@@ -594,7 +600,8 @@ export function installSuggest(q) {
     return fromStatus && typeof fromStatus === "object" ? fromStatus : {};
   }
 
-  async function refreshReturnModelStatus() {
+  async function refreshReturnModelStatus(opts = {}) {
+    const justFittedOnce = !!opts.justFitted;
     const paintCoef =
       typeof q.renderOoCoefTable === "function" ? q.renderOoCoefTable : null;
     const clearResult =
@@ -617,25 +624,46 @@ export function installSuggest(q) {
       const research = data.research || {};
       const oos = _ooOosFromStatus(data);
       _setOoPromoteEnabled(!!draft.exists);
-      const justFitted = !!(state.lastReturnModelFit && state.lastReturnModelFit.success);
-      if (justFitted && !active.exists && !research.exists) {
+      const lastFit = state.lastReturnModelFit || {};
+      const fittedAt =
+        draft.saved_at ||
+        (lastFit.draft && lastFit.draft.saved_at) ||
+        lastFit.fitted_at ||
+        lastFit.saved_at ||
+        null;
+      const liveOn = !!active.exists;
+      const researchOn = !!research.exists;
+      // 仅拟合成功当次：chip=已拟合；后续「状态」/启用走落盘套芯片，时间仍用草稿 saved_at
+      if (justFittedOnce) {
         paintOoStatus({
           state: "ok",
           chip: "已拟合",
-          message: draft.exists ? "草稿已存 · 可启用研究/执行" : "已拟合",
-          sampleCount: state.lastReturnModelFit.sample_count,
-          liveOn: false,
-          researchOn: !!draft.exists,
+          message: draft.exists
+            ? liveOn || researchOn
+              ? "草稿已更新 · 可再启用研究/执行"
+              : "草稿已存 · 可启用研究/执行"
+            : "已拟合",
+          sampleCount:
+            draft.sample_count ||
+            lastFit.sample_count ||
+            active.sample_count ||
+            research.sample_count,
+          fittedAt,
+          promotedAt: active.promoted_at || research.promoted_at || null,
+          liveOn,
+          researchOn: researchOn || !!draft.exists,
           oos,
         });
-        if (paintCoef && data.return_model) {
-          if (clearResult) clearResult();
-          await paintCoef(data.return_model, { oos });
+        if (clearResult) clearResult();
+        if (paintCoef) {
+          const rm =
+            data.return_model ||
+            lastFit.model ||
+            (lastFit.return_model ? lastFit.return_model : null);
+          await paintCoef(rm, { oos });
         }
         return data;
       }
-      const liveOn = !!active.exists;
-      const researchOn = !!research.exists;
       if (liveOn || researchOn) {
         let chip = "待命";
         if (liveOn && researchOn) chip = "研究+执行";
@@ -646,6 +674,7 @@ export function installSuggest(q) {
           chip,
           message: liveOn ? "已落盘" : "研究套已落盘 · 执行未写",
           sampleCount: active.sample_count || research.sample_count,
+          fittedAt,
           promotedAt: active.promoted_at || research.promoted_at,
           liveOn,
           researchOn,
@@ -657,7 +686,7 @@ export function installSuggest(q) {
           chip: "仅研究",
           message: "有草稿 · 尚未启用研究/执行",
           sampleCount: draft.sample_count,
-          fittedAt: draft.saved_at,
+          fittedAt,
           liveOn: false,
           researchOn: true,
           oos,
@@ -732,7 +761,7 @@ export function installSuggest(q) {
       return;
     }
     await renderReturnModelFit(data);
-    await refreshReturnModelStatus();
+    await refreshReturnModelStatus({ justFitted: true });
   }
 
   async function runReturnModelPromote(persistRole = "live") {

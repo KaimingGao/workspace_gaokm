@@ -369,7 +369,8 @@ def collect_co_panel(
 
     n = len(bars or [])
     co_map = realized_co_by_date(bars)
-    for i in range(min_history, n - 1):
+    # 与 ŷ_oo 同一决策日：i 从 min_history−1 到 n−2；特征窗不含 T（与 pit_oo_window_quote 同切片）。
+    for i in range(max(1, min_history - 1), n - 1):
         b_t = bars[i]
         b_next = bars[i + 1]
         b_prev = bars[i - 1]
@@ -390,8 +391,9 @@ def collect_co_panel(
         if y is None:
             continue
         gap = _gap_pct(pc, o_t)
-        window = bars[max(0, i - max_window) : i]
-        if len(window) < min_history:
+        start = max(0, i - max_window + 1)
+        window = bars[start:i]
+        if len(window) < 2:
             continue
         date_t = str(b_t.get("date") or "")[:10]
         row = intraday_co_feature_row(
