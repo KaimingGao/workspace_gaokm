@@ -11,7 +11,7 @@ OC 模型 ranking（open→close 标签）：
   ŷ 为净收益；w_co 默认 0；缺 ŷ_co 则退回 ŷ_oc
 
 τc 模型 ranking（price(τ)→close 标签）：
-  rank     = w_oo·(ŷ_oo+1)/(1+rot) + w_τc·((1+ŷ_τc)(1+w_co·ŷ_co)−1) − 1
+  rank     = w_oo·((ŷ_oo+1)/(1+rot)−1) + w_τc·((1+ŷ_τc)(1+w_co·ŷ_co)−1)
   rot = price(τ)/open[T]−1（open→τ 已实现）；两项均在 τ→open[T+1] 基准，不再扣 rot
 
 R̂_τ      = close[T]/price(τ)−1
@@ -490,7 +490,7 @@ def ranking_pct(
         基准 open[T]→open[T+1]；τ≠开盘时由 ``remaining_ranking_pct`` 扣 open→price(τ)。
 
     τc 模型（price(τ)→close 标签）：
-        ranking = w_oo·(ŷ_oo+1)/(1+rot) + w_τc·((1+ŷ_τc)(1+w_co·ŷ_co)−1) − 1
+        ranking = w_oo·((ŷ_oo+1)/(1+rot)−1) + w_τc·((1+ŷ_τc)(1+w_co·ŷ_co)−1)
         直接算在 τ→open[T+1] 基准；ŷ_oo 用 remaining_at_tau 映到 τ→open[T+1]，
         ŷ_τc（存于 y_oc / predicted_score_oc）已是 τ→close，无需再扣 ret_open_to_tau。
 

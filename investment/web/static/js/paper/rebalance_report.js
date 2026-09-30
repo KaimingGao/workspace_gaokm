@@ -776,7 +776,7 @@ function renderRebalanceReport(
       const scoreTau = resolveTauScore(r);
       const scoreTauShown =
         scoreTau != null ? fmtTableScore(r, scoreTau) : "—";
-      const scoreTauTitle = scoreTau == null ? "暂无 ŷ_oc" : Y_TAU_TITLE;
+      const scoreTauTitle = scoreTau == null ? "暂无 ŷ_τc" : Y_TAU_TITLE;
       const scoreOn = resolveOnScore(r);
       const scoreOnShown =
         scoreOn != null ? fmtTableScore(r, scoreOn) : "—";
@@ -798,7 +798,7 @@ function renderRebalanceReport(
       const scoreFuseTitle =
         scoreFuse == null
           ? "暂无 ranking"
-          : `ranking · fuse − (price(τ)/open−1)；真实=(open[T+1]−price(τ))/open[T]；<0% 或缺分清仓；过入场才开/加${rankOrd}`;
+          : `ranking · τ→open[T+1] 基准（τc 几何融合；OC 扣 open→τ）；<0% 或缺分清仓；过入场才开/加${rankOrd}`;
       const tipDetailJson = escapeText(
         JSON.stringify(tipDetailPayload(r))
       );

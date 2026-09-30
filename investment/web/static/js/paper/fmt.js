@@ -71,7 +71,7 @@ export function resolveGapPct(it) {
   return _numField(it.gap_pct);
 }
 
-/** ŷ_oc（开盘后）按缺口映到现价对昨收。 */
+/** ŷ_τc（开盘后）按缺口映到现价对昨收。 */
 export function liftTauVsPrevClose(it, yTau) {
   const t = _numField(yTau);
   if (t == null) return null;
@@ -100,7 +100,7 @@ function _looksLikeYhatPct(n) {
   return n != null && Number.isFinite(n) && Math.abs(n) <= 20;
 }
 
-/** rank_lots 权：fusion_w_oo / fusion_w_oc；旧键 fusion_w_trade / fusion_w_nowcast。 */
+/** rank_lots 权：fusion_w_oo（ŷ_oo）/ fusion_w_oc（ŷ_τc，字段名留旧）；旧键 fusion_w_trade / fusion_w_nowcast。 */
 export function fusionWeightsFromItem(it) {
   const d = it && typeof it === "object" ? it : {};
   let wOo = _numField(d.fusion_w_oo);
@@ -116,7 +116,7 @@ export function fusionWeightsFromItem(it) {
   return { wOo: wOo / s, wOc: wOc / s };
 }
 
-/** 隔夜叠入 ŷ_oc 的系数；默认 0。 */
+/** 隔夜叠入 ŷ_τc 的系数；默认 0。 */
 export function fusionWCoFromItem(it) {
   const d = it && typeof it === "object" ? it : {};
   let w = _numField(d.fusion_w_co);
@@ -142,7 +142,7 @@ function fusePct(left, right, wLeft, wRight) {
   return (wl * a + wr * b) / s;
 }
 
-/** ((1+ŷ_oc)(1+w_co·ŷ_co)−1)×100。w_co=0 或缺 ŷ_co 则 ŷ_oc。 */
+/** ((1+ŷ_τc)(1+w_co·ŷ_co)−1)×100。w_co=0 或缺 ŷ_co 则 ŷ_τc。 */
 export function ocWithCoPct(yOc, yCo, wCo) {
   const oc = _numField(yOc);
   if (oc == null) return null;
@@ -153,7 +153,7 @@ export function ocWithCoPct(yOc, yCo, wCo) {
   return compoundPct(oc, wc * co);
 }
 
-/** 拟合 ŷ_oc（open→close）；勿用 remaining 映射后的 predicted_score_tau。 */
+/** 拟合 ŷ_τc（price(τ)→close）；勿用 remaining 映射后的 predicted_score_tau。 */
 export function pickYOcFitted(it) {
   if (!it || typeof it !== "object") return null;
   for (const c of [it.y_oc, it.predicted_score_oc, it.y_tau_oc, it.predicted_score_tau_oc]) {
@@ -161,6 +161,28 @@ export function pickYOcFitted(it) {
     if (_looksLikeYhatPct(n)) return n;
   }
   return resolveTauScore(it);
+}
+
+/** τ 头是否估 open→close（OC）。τc 模型返回 false。
+ *  依据 horizon_mode / y_spec_tau.formula；缺省按 OC（向后兼容旧簿）。 */
+export function tauModelIsOpenToClose(it) {
+  if (!it || typeof it !== "object") return true;
+  const rm = it.return_model && typeof it.return_model === "object" ? it.return_model : it;
+  const mode = String(rm.horizon_mode || it.horizon_mode || "").toLowerCase();
+  if (["tau_to_close", "remaining", "tau_rem"].includes(mode)) return false;
+  if (["open_to_close", "oc", "open"].includes(mode)) return true;
+  const ySpec =
+    (it.y_spec_tau && typeof it.y_spec_tau === "object" ? it.y_spec_tau : null) ||
+    (rm.y_spec && typeof rm.y_spec === "object" ? rm.y_spec : null);
+  let formula = "";
+  if (ySpec && ySpec.formula) formula = String(ySpec.formula);
+  else if (it.rem_y_spec) formula = String(it.rem_y_spec);
+  if (formula) {
+    if (formula.includes("price[") || formula.includes("price[τ]")) return false;
+    if (formula.includes("open")) return true;
+  }
+  const tau = String((ySpec && ySpec.tau) || "open").toLowerCase();
+  return tau === "" || tau === "open";
 }
 
 function hasFusionWeights(it) {
@@ -214,8 +236,11 @@ export function remainingRankingPct(ranking, openPx, priceTau) {
   return Number.isFinite(out) ? out : y;
 }
 
-/** 融合分 = w_oo·ŷ_oo + w_oc·((1+ŷ_oc)(1+w_co·ŷ_co)−1)。不用 dual_score 缺口抬升。
- *  拟合标签 open[T]→open[T+1]。表列再减 (price(τ)/open−1)。 */
+/** 融合分（调仓 ranking，百分点）。
+ *  OC 模型（open→close 标签）：fuse = w_oo·ŷ_oo + w_τc·((1+ŷ_τc)(1+w_co·ŷ_co)−1)；
+ *    表列再减 (price(τ)/open−1)（remainingRankingPct）。
+ *  τc 模型（price(τ)→close 标签）：fuse = w_oo·((ŷ_oo+1)/(1+rot)−1) + w_τc·((1+ŷ_τc)(1+w_co·ŷ_co)−1)；
+ *    rot = price(τ)/open[T]−1；两项均在 τ→open[T+1] 基准，不再减 rot。 */
 export function rankingPct(it) {
   if (!it || typeof it !== "object") return null;
   const oo = resolveEodScore(it);
@@ -223,11 +248,25 @@ export function rankingPct(it) {
   const co = resolveOnScore(it);
   const { wOo, wOc } = fusionWeightsFromItem(it);
   const wCo = fusionWCoFromItem(it);
-  const fused = fusePct(oo, ocWithCoPct(oc, co, wCo), wOo, wOc);
+  const isOc = tauModelIsOpenToClose(it);
+  if (isOc) {
+    const fused = fusePct(oo, ocWithCoPct(oc, co, wCo), wOo, wOc);
+    return _looksLikeYhatPct(fused) ? fused : null;
+  }
+  // τc：ŷ_oo 几何映到 τ→open[T+1]，再与 ŷ_τc 侧融合
+  const o = rankingOpenPx(it);
+  const p = rankingPriceTau(it);
+  let rot = null;
+  if (o != null && p != null && o > 0 && p > 0) rot = (p / o - 1) * 100;
+  const ooRem = eodRemainingAtTau(oo, rot);
+  const right = ocWithCoPct(oc, co, wCo);
+  const fused = fusePct(ooRem, right, wOo, wOc);
   return _looksLikeYhatPct(fused) ? fused : null;
 }
 
-/** 表列主分：ranking = fuse − (price(τ)/open−1)。不做 T ŷ_trade。 */
+/** 表列主分：调仓 ranking（百分点）。
+ *  OC 模型：ranking = fuse − (price(τ)/open−1)；τc 模型：ranking 已在 τ→open[T+1] 基准，不再减。
+ *  不做 T ŷ_trade。 */
 export function resolveRankingScore(it) {
   if (!it || typeof it !== "object") return null;
   if (isHeuristicScoreScale(it)) {
@@ -262,6 +301,8 @@ export function resolveRankingScore(it) {
   }
   if (base == null) return null;
   if (!fromHeads) return base;
+  // OC 模型：fuse 在 open→open[T+1] 基准，需扣 open→τ 已实现；τc 模型已在 τ→open[T+1] 基准，透传
+  if (!tauModelIsOpenToClose(it)) return base;
   const rem = remainingRankingPct(base, rankingOpenPx(it), rankingPriceTau(it));
   return rem != null && Number.isFinite(rem) ? rem : base;
 }
@@ -311,7 +352,7 @@ export const Y_TAU_TITLE = Y_OC_TITLE;
 export const Y_OC_REBALANCE_TITLE =
   "ŷ_τc · 09:30–10:00 因果前缀 price(τ)→close[T]";
 export const RANKING_REBALANCE_TITLE =
-  "ranking · fuse − (price(τ)/open−1) · 预估(真实)：(open[T+1]−price(τ))/open[T]";
+  "ranking · τc: w_oo·((ŷ_oo+1)/(1+rot)−1)+w_τc·((1+ŷ_τc)(1+w_co·ŷ_co)−1)（τ→open[T+1]）；OC: fuse−rot";
 export const EOD_REALIZED_TITLE =
   "oo实 · open[T+1]/open[T]−1（与 ŷ_oo 同标签）";
 export const TAU_REALIZED_TITLE =
@@ -370,7 +411,7 @@ export const Y_TW_TITLE =
 export const TW_REALIZED_TITLE =
   "τw实 · f(τ30实)+f(τ45实)+f(τ60实)+f(τ75实)+f(τ90实)；f(x)=1 if x>0 else −1（缺头不计）";
 export const R_HAT_TITLE =
-  "R̂_τ · Ĉ_τ/price(τ)−1 · remaining(clip(ŷ_oc×scale), price) · 与 Ĉ_τ 同目标 · 不参与选腿 · 预估(真实)";
+  "R̂_τ · Ĉ_τ/price(τ)−1 · remaining(clip(ŷ_τc×scale), price) · 与 Ĉ_τ 同目标 · 不参与选腿 · 预估(真实)";
 export const R_REALIZED_TITLE =
   "τc实 · close[T]/price(τ)−1（与 ŷ_τc / R̂_τ 同标签）";
 
@@ -390,7 +431,7 @@ function _tauOcRaw(it) {
   return null;
 }
 
-/** 分钟时钟剩余映射后的 ŷ_oc（决策/融合用）；无映射时与 OC 相同。 */
+/** 分钟时钟剩余映射后的 ŷ_τc（决策/融合用）；无映射时与 OC 相同。 */
 export function resolveTauMappedScore(it) {
   if (!it || typeof it !== "object") return null;
   if (isHeuristicScoreScale(it)) return null;
@@ -398,10 +439,10 @@ export function resolveTauMappedScore(it) {
   return _looksLikeYhatPct(tau) ? tau : null;
 }
 
-/** ŷ_oc 表列 / tip：Ridge 拟合原值（T收/T开），与组成合计同口径。
+/** ŷ_τc 表列 / tip：Ridge 拟合原值（T收/τ价），与组成合计同口径。
 
   优先 y_tau_oc（映射前）；勿把 remaining 映射后的 predicted_score_tau 当成拟合原值，
-  否则 tip 大标题会与「合计 ŷ_oc」对不上（做T明细常见）。
+  否则 tip 大标题会与「合计 ŷ_τc」对不上（做T明细常见）。
   勿在此做缺口∘抬昨收——那只用于 ŷ_trade 融合。
   */
 export function resolveTauScore(it) {
@@ -412,7 +453,7 @@ export function resolveTauScore(it) {
   return resolveTauMappedScore(it);
 }
 
-/** 缺口∘ŷ_oc（昨收口径）；对照用拟合原值，不进 τ 表列。 */
+/** 缺口∘ŷ_τc（昨收口径）；对照用拟合原值，不进 τ 表列。 */
 export function resolveTauLiftedScore(it) {
   if (!it || typeof it !== "object") return null;
   if (isHeuristicScoreScale(it)) return null;

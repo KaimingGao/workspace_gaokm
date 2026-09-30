@@ -1268,7 +1268,7 @@ export function formatBlendScoreSection(raw) {
   const eodTxt = eodN == null || !Number.isFinite(eodN) ? "—" : `${fmtSigned(eodN, 2)}%`;
   const tTxt = tN == null || !Number.isFinite(tN) ? "—" : `${fmtSigned(tN, 2)}%`;
   const coTxt = coN == null || !Number.isFinite(coN) ? "—" : `${fmtSigned(coN, 2)}%`;
-  const wTxt = `w_oo=${Number(wOo).toFixed(2)} · w_oc=${Number(wOc).toFixed(2)}`;
+  const wTxt = `w_oo=${Number(wOo).toFixed(2)} · w_τc=${Number(wOc).toFixed(2)}`;
   const arith =
     eodN != null && Number.isFinite(eodN) && rightN != null && Number.isFinite(rightN)
       ? ` · ${Number(wOo).toFixed(2)}×${fmtSigned(eodN, 2)}+${Number(wOc).toFixed(2)}×${fmtSigned(rightN, 2)}`
@@ -2137,7 +2137,7 @@ export function formatT0DirectionDetail(raw) {
   let decision = "未入场 / 跳过";
   if (reason) decision = reason;
   else if (Number.isFinite(score)) {
-    if (Math.abs(score) < enter) decision = `|y_oc|<${enter}% 横盘跳过`;
+    if (Math.abs(score) < enter) decision = `|y_τc|<${enter}% 横盘跳过`;
     else if (dir === "sell_then_buy" || dir === "buy_then_sell") decision = dirLabel;
     else if (score >= enter) decision = "正 T（依 τ 映射）";
     else if (score <= -enter) decision = "反 T（依 τ 映射）";

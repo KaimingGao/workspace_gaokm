@@ -701,7 +701,7 @@ function scatterSlotFilled(s) {
   return Number(s.sold_qty || 0) > 0 || Number(s.bought_qty || 0) > 0;
 }
 
-/** 旧 payload 散点只有 ŷ_oc 且丢掉反 T；用 days 的 R̂_τ 补点。 */
+/** 旧 payload 散点只有 ŷ_τc 且丢掉反 T；用 days 的 R̂_τ 补点。 */
 function attachRpctToScatter(points, days) {
   const baked = Array.isArray(points) ? points.slice() : [];
   if (!Array.isArray(days) || !days.length) return baked;
@@ -987,7 +987,7 @@ function wireYtauScatterHover(canvas) {
       `<span class="paper-t0-viz-chart-hover-meta">` +
       `R̂_τ ${esc(fmtNum(pt.r_pct, 2))}%（C_τ/现价−1） · ${esc(dir)}` +
       (pt.y_oc != null && Number.isFinite(Number(pt.y_oc))
-        ? ` · ŷ_oc ${esc(fmtNum(pt.y_oc, 2))}%`
+        ? ` · ŷ_τc ${esc(fmtNum(pt.y_oc, 2))}%`
         : "") +
       `</span>` +
       (skipTip ? `<p>${esc(skipTip)}</p>` : "");
@@ -1205,7 +1205,7 @@ function renderKpiRow(summary) {
     [
       "ŷ覆盖",
       sm.score_coverage_pct != null ? `${sm.score_coverage_pct}%` : null,
-      "有 ŷ_oc 快照的评估日占比",
+      "有 ŷ_τc 快照的评估日占比",
     ],
     [
       "往返率",
@@ -1213,13 +1213,13 @@ function renderKpiRow(summary) {
       "卖出回补或买入卖回完成比例",
     ],
     [
-      "oc门槛",
+      "τc门槛",
       sm.y_tau_enter != null && Number.isFinite(Number(sm.y_tau_enter))
         ? Number(sm.y_tau_enter) > 0
-          ? `|ŷ_oc|≥${sm.y_tau_enter}%`
+          ? `|ŷ_τc|≥${sm.y_tau_enter}%`
           : "关"
         : null,
-      "|ŷ_oc| 低于 oc入场则横盘跳过；0=关",
+      "|ŷ_τc| 低于 τc入场则横盘跳过；0=关",
     ],
     [
       "信号跳过",
@@ -1293,10 +1293,10 @@ function renderKpiRow(summary) {
     ],
   ];
   if (sm.avg_y_tau_traded != null) {
-    chips.push(["成交oc̄", `${fmtNum(sm.avg_y_tau_traded, 2)}%`, "成交日平均 ŷ_oc"]);
+    chips.push(["成交τc̄", `${fmtNum(sm.avg_y_tau_traded, 2)}%`, "成交日平均 ŷ_τc"]);
   }
   if (sm.avg_y_tau_signal_skip != null) {
-    chips.push(["跳过oc̄", `${fmtNum(sm.avg_y_tau_signal_skip, 2)}%`, "信号跳过日平均 ŷ_oc"]);
+    chips.push(["跳过τc̄", `${fmtNum(sm.avg_y_tau_signal_skip, 2)}%`, "信号跳过日平均 ŷ_τc"]);
   }
   const html = chips
     .filter(([, v]) => v != null)
@@ -1808,7 +1808,7 @@ export function renderT0Viz(host, data) {
           { color: THEME.sellThenBuy, label: "反T成交" },
           { color: THEME.signalSkip, label: "信号跳过" },
         ]),
-        "纵轴 R̂_τ = C_τ / 现价 − 1（百分点）。现价=该根 5m 收；C_τ=ŷ_oc 估的目标收。正：现价在 C_τ 下，正 T；负：现价在 C_τ 上，反 T。不是往返盈亏。"
+        "纵轴 R̂_τ = C_τ / 现价 − 1（百分点）。现价=该根 5m 收；C_τ=ŷ_τc 估的目标收。正：现价在 C_τ 下，正 T；负：现价在 C_τ 上，反 T。不是往返盈亏。"
       )
     );
   }
@@ -1910,7 +1910,7 @@ export function renderT0Viz(host, data) {
       const foot = host.querySelector('[data-role="scatter-foot"]');
       if (foot && meta) {
         foot.innerHTML = [
-          `<span title="现价=该根5m收；C_τ=ŷ_oc估的目标收">R̂_τ=C_τ/现价−1%</span>`,
+          `<span title="现价=该根5m收；C_τ=ŷ_τc估的目标收">R̂_τ=C_τ/现价−1%</span>`,
           `<span>成交 <b>${meta.nTraded}</b>（正${meta.nBuyThenSell}/反${meta.nSellThenBuy}）</span>`,
           `<span>信号跳过 <b>${meta.nSkip}</b></span>`,
           meta.nSkipNeg > 0

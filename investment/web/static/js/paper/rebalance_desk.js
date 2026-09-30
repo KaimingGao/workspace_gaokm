@@ -146,7 +146,7 @@ function reasonTitle(r) {
   const yoc = fmtSignedPct(r.y_oc);
   const yco = fmtSignedPct(r.y_co);
   if (yoo) bits.push(`y_oo ${yoo}`);
-  if (yoc) bits.push(`y_oc ${yoc}`);
+  if (yoc) bits.push(`y_τc ${yoc}`);
   if (yco) bits.push(`y_co ${yco}`);
   const oldSh = Number(r.old_shares);
   const newSh = Number(r.new_shares);
@@ -271,7 +271,7 @@ export function renderPaperRebalanceWorkerDesk(el, desk) {
         src,
         hm,
         amtBits.join(" / "),
-        "成交价为落账价；悬停说明看 y_oo / y_oc / 昨收",
+        "成交价为落账价；悬停说明看 y_oo / y_τc / 昨收",
         "过 10:00 不补跑",
       ]
     : [

@@ -429,7 +429,7 @@
                 <strong>不进聚类、不改 ŷ_oo</strong>。启用后只影响主题日 soft hold / τ 闸；表列主分仍是 ŷ_oo。
                 融合权重在
                 <a class="quant-hero-link" href="/follow">交易执行 · 分数融合</a>
-                （ranking＝w_oo·(ŷ_oo+1)/(1+rot) + w_τc·((1+ŷ_τc)(1+w_co·ŷ_co)−1) − 1）。分钟训练槽即 5m 线：
+                （ranking＝w_oo·((ŷ_oo+1)/(1+rot)−1) + w_τc·((1+ŷ_τc)(1+w_co·ŷ_co)−1)）。分钟训练槽即 5m 线：
                 窗 <code>09:30…11:00</code>（与做 T leg1 扫描对齐；09:30 无前缀；共享 β；不含 13:00 / 14:00）。
                 live 调仓 ŷ_τc 用当刻已发生的最后一根 5m，上限 10:00（与自动调仓成交窗一致）；做 T 仍按当前根 rescore。
                 研究套 holdout 天数在页顶概览 <strong>Holdout日</strong>（默认 20），ŷ_τc / ŷ_co / ŷ_oo_rank / ŷ_τ30 / ŷ_τ45 / ŷ_τ60 / ŷ_τ75 / ŷ_τ90 / ŷ_oo_tree / ŷ_τc_tree / ŷ_co_tree / ŷ_τ30_tree 共用（ŷ_hl 已退役）。
@@ -1214,7 +1214,7 @@
             <div class="quant-actions-inline quant-pro-params-inline">
               <label
                 class="platform-field quant-pro-field"
-                title="rank=w_oo·(ŷ_oo+1)/(1+rot)+w_τc·((1+ŷ_τc)(1+w_co·ŷ_co)−1)−1。w_co 默认 0。对齐历史回测页。"
+                title="rank=w_oo·((ŷ_oo+1)/(1+rot)−1)+w_τc·((1+ŷ_τc)(1+w_co·ŷ_co)−1)。w_co 默认 0。对齐历史回测页。"
               >
                 <span class="quant-pro-field-label">ON_Alpha</span>
                 <input id="quant-daily-on-alpha" type="number" min="0" max="1" step="0.1" value="0" />

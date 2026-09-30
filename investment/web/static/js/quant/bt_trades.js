@@ -312,7 +312,7 @@ export const BT_LEDGER_TRADE_COLS = [
     widthMin: "10rem",
     num: true,
     sortable: true,
-    title: "rank=w_oo·ŷ_oo+w_oc·((1+ŷ_oc)(1+w_co·ŷ_co)−1) − (price(τ)/open−1) · 预估(真实)：(open[T+1]−price(τ))/open[T]",
+    title: "rank=w_oo·((ŷ_oo+1)/(1+rot)−1)+w_τc·((1+ŷ_τc)(1+w_co·ŷ_co)−1) · τ→open[T+1] 基准",
   },
   {
     id: "y_fuse",

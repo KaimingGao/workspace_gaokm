@@ -492,8 +492,9 @@ class QuantFactorMixin:
         默认用满观察池。``tau_hm`` 缺省跟随 ``dual_score.enable_minute_tau``：
         开则训 09:30…做 T 11:00 网格，否则 open。
         ``include_alpha158``：默认 True，Ridge 吃 ``raw_alpha158_*``（≤T−1）。
+        日线与 ŷ_oo / ŷ_co 同源（``load_portfolio_stock_bars``）。
         """
-        from core.data.facade import bars_and_source
+        from core.research.portfolio_bars import load_portfolio_stock_bars
         from core.signal.dual_score import get_dual_score_cfg
         from core.watching.store import WATCHING_MAX_SIZE, read_watching
         from core.research.tau_ridge import (
@@ -554,14 +555,13 @@ class QuantFactorMixin:
 
         stock_bars: List[Dict[str, Any]] = []
         minute_hit = 0
-        # Alpha158 需 ≥62 日 hist；lookback 默认 120，再多留缓冲
-        bar_limit = int(lookback) + 40
-        if include_alpha158:
-            from core.signal.factors.alpha158 import ALPHA158_PANEL_WINDOW
-
-            bar_limit = max(bar_limit, int(ALPHA158_PANEL_WINDOW) + int(holdout_trading_days or 20) + 20)
+        loaded, _failures, _fund = load_portfolio_stock_bars(
+            codes,
+            lookback=int(lookback or 120),
+            fetch_fundamentals=False,
+        )
         for code in codes:
-            bars, _src = bars_and_source(code, limit=bar_limit)
+            bars = loaded.get(str(code))
             if not bars:
                 continue
             row: Dict[str, Any] = {"code": str(code), "bars": bars}
@@ -914,10 +914,13 @@ class QuantFactorMixin:
         backend: Optional[str] = None,
         include_alpha158: bool = True,
     ) -> Dict[str, Any]:
-        """ŷ_τ_tree 影子头：同面板 Holdout vs Ridge。只写 last_report，不进 live / 回测。"""
+        """ŷ_τ_tree 影子头：同面板 Holdout vs Ridge。只写 last_report，不进 live / 回测。
+
+        日线与 ŷ_oo / ŷ_τc Ridge 同源。
+        """
         import time
 
-        from core.data.facade import bars_and_source
+        from core.research.portfolio_bars import load_portfolio_stock_bars
         from core.signal.dual_score import get_dual_score_cfg
         from core.watching.store import WATCHING_MAX_SIZE, read_watching
         from core.research.tau_tree import (
@@ -958,8 +961,13 @@ class QuantFactorMixin:
         stock_bars: List[Dict[str, Any]] = []
         minute_hit = 0
         t_bars0 = time.perf_counter()
+        loaded, _failures, _fund = load_portfolio_stock_bars(
+            codes,
+            lookback=int(lookback or 120),
+            fetch_fundamentals=False,
+        )
         for code in codes:
-            bars, _src = bars_and_source(code, limit=lookback + 40)
+            bars = loaded.get(str(code))
             if not bars:
                 continue
             row: Dict[str, Any] = {"code": str(code), "bars": bars}

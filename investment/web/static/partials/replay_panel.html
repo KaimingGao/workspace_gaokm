@@ -119,10 +119,10 @@
                 <section class="follow-path-matrix-panel" data-panel="mode" aria-labelledby="pm-panel-mode">
                   <header class="follow-path-matrix-panel-head">
                     <h4 id="pm-panel-mode" class="follow-path-matrix-panel-title">分数融合</h4>
-                    <p class="follow-path-matrix-panel-note">rank＝w_oo·(ŷ_oo+1)/(1+rot) + w_τc·((1+ŷ_τc)(1+w_co·ŷ_co)−1) − 1</p>
+                    <p class="follow-path-matrix-panel-note">rank＝w_oo·((ŷ_oo+1)/(1+rot)−1) + w_τc·((1+ŷ_τc)(1+w_co·ŷ_co)−1)</p>
                   </header>
                   <div class="follow-path-matrix-body follow-path-matrix-body--row3">
-                    <label class="follow-path-matrix-box" title="rank 中 ŷ_oo 权重；与 w_oc 一并归一化。默认 0.6。">
+                    <label class="follow-path-matrix-box" title="rank 中 ŷ_oo 权重；与 w_τc 一并归一化。默认 0.6。">
                       <span class="follow-path-matrix-box-text">
                         <span class="follow-path-matrix-box-title">w_oo</span>
                         <span class="follow-path-matrix-box-desc">ŷ_oo</span>
@@ -131,7 +131,7 @@
                     </label>
                     <label class="follow-path-matrix-box" title="rank 中 ŷ_τc 权重；与 w_oo 一并归一化。默认 0.4。">
                       <span class="follow-path-matrix-box-text">
-                        <span class="follow-path-matrix-box-title">w_oc</span>
+                        <span class="follow-path-matrix-box-title">w_τc</span>
                         <span class="follow-path-matrix-box-desc">ŷ_τc</span>
                       </span>
                       <input type="number" name="pm_fusion_w_nc" min="0" max="1" step="0.05" value="0.4" />
@@ -148,7 +148,7 @@
                 <section class="follow-path-matrix-panel" data-panel="rank" aria-labelledby="pm-panel-rank">
                   <header class="follow-path-matrix-panel-head">
                     <h4 id="pm-panel-rank" class="follow-path-matrix-panel-title">ranking 门槛</h4>
-                    <p class="follow-path-matrix-panel-note">rank＝w_oo·(ŷ_oo+1)/(1+rot) + w_τc·((1+ŷ_τc)(1+w_co·ŷ_co)−1) − 1</p>
+                    <p class="follow-path-matrix-panel-note">rank＝w_oo·((ŷ_oo+1)/(1+rot)−1) + w_τc·((1+ŷ_τc)(1+w_co·ŷ_co)−1)</p>
                   </header>
                   <div class="follow-path-matrix-body follow-path-matrix-body--row2">
                     <div
@@ -227,10 +227,10 @@
                     </label>
                     <label
                       class="follow-path-matrix-box"
-                      title="开=入场须 y_oc&gt;0；关=不看。缺分不拦。未过则已持仓清仓。"
+                      title="开=入场须 y_τc&gt;0；关=不看。缺分不拦。未过则已持仓清仓。"
                     >
                       <span class="follow-path-matrix-box-text">
-                        <span class="follow-path-matrix-box-title">y_oc &gt; 0</span>
+                        <span class="follow-path-matrix-box-title">y_τc &gt; 0</span>
                         <span class="follow-path-matrix-box-desc">入场闸</span>
                       </span>
                       <input type="checkbox" name="pm_y_oc_gt0" aria-label="y_τc 大于 0" />
@@ -290,7 +290,7 @@
   >
     <header class="dashboard-section-head quant-section-head replay-section-head replay-run-head">
       <h3 id="replay-section-t0-title" class="dashboard-section-title">做 T 回测</h3>
-      <p class="quant-fingerprint replay-pool-meta">虚拟底仓=最大轮数×y_oc强金额/价 · 本金 20 万 · 5m 第一触达 · 不写账本</p>
+      <p class="quant-fingerprint replay-pool-meta">虚拟底仓=最大轮数×y_τc强金额/价 · 本金 20 万 · 5m 第一触达 · 不写账本</p>
       <p id="paper-t0-progress" class="quant-fingerprint paper-progress-status replay-run-progress" hidden aria-live="polite">
         <span id="paper-t0-progress-text">回测中…</span>
       </p>
@@ -389,30 +389,30 @@
                   </label>
                   <label
                     class="paper-t0-field"
-                    title="破带后：|ŷ_τc| 须≥此百分点才开腿。默认 0.5；0=不拦。过此未过 y_oc强% 用入场金额。"
+                    title="破带后：|ŷ_τc| 须≥此百分点才开腿。默认 0.5；0=不拦。过此未过 y_τc强% 用入场金额。"
                   >
-                    <span>y_oc入场%</span>
+                    <span>y_τc入场%</span>
                     <input type="number" name="y_oc_enter" min="0" max="20" step="0.1" value="0.5" />
                   </label>
                   <label
                     class="paper-t0-field"
-                    title="过 y_oc入场%、未过 y_oc强% 时，本轮第一腿金额（元）。默认 2 万。按成交价换算整手，不够一手则买一手；受可卖/现金约束。"
+                    title="过 y_τc入场%、未过 y_τc强% 时，本轮第一腿金额（元）。默认 2 万。按成交价换算整手，不够一手则买一手；受可卖/现金约束。"
                   >
-                    <span>y_oc入场金额</span>
+                    <span>y_τc入场金额</span>
                     <input type="number" name="y_oc_enter_amount" min="0" max="1000000" step="1000" value="20000" />
                   </label>
                   <label
                     class="paper-t0-field"
-                    title="过 y_oc入场% 后：|ŷ_τc|≥此百分点用 y_oc强金额，否则用入场金额。默认 1.0。须≥入场%。"
+                    title="过 y_τc入场% 后：|ŷ_τc|≥此百分点用 y_τc强金额，否则用入场金额。默认 1.0。须≥入场%。"
                   >
-                    <span>y_oc强%</span>
+                    <span>y_τc强%</span>
                     <input type="number" name="y_oc_strong" min="0" max="20" step="0.1" value="1.0" />
                   </label>
                   <label
                     class="paper-t0-field"
-                    title="过 y_oc强% 时本轮第一腿金额（元）。不少于入场金额，默认 4 万。按成交价换算整手，不够一手则买一手；受可卖/现金约束。"
+                    title="过 y_τc强% 时本轮第一腿金额（元）。不少于入场金额，默认 4 万。按成交价换算整手，不够一手则买一手；受可卖/现金约束。"
                   >
-                    <span>y_oc强金额</span>
+                    <span>y_τc强金额</span>
                     <input type="number" name="y_oc_strong_amount" min="0" max="1000000" step="1000" value="40000" />
                   </label>
                   <label

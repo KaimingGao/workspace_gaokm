@@ -172,7 +172,7 @@ export function buildPaperHoldingsTableHtml({
       const singleHeadBadge = singleHead ? singleHeadBadgeHtml(h, escapeText) : "";
       const yCheckBadge = yCheckBadgeHtml(h, escapeText);
       const scoreEodTitle = scoreEod == null ? "暂无 ŷ_oo" : Y_EOD_TITLE;
-      const scoreTauTitle = scoreTau == null ? "暂无 ŷ_oc" : Y_OC_REBALANCE_TITLE;
+      const scoreTauTitle = scoreTau == null ? "暂无 ŷ_τc" : Y_OC_REBALANCE_TITLE;
       const scoreOnTitle = scoreOn == null ? "暂无 ŷ_co" : Y_ON_TITLE;
       const origin = String(h.origin || "");
       const originLabel = h.origin_label || "—";
@@ -303,7 +303,7 @@ export function buildPaperHoldingsTableHtml({
     `<th title="最新成交价">现价</th>` +
     `${sortThHtml("涨跌", "chg")}` +
     `${sortThHtml("y_oo", "score_eod")}` +
-    `${sortThHtml("y_oc", "score_tau")}` +
+    `${sortThHtml("y_τc", "score_tau")}` +
     `${sortThHtml("y_co", "score_on")}` +
     `${sortThHtml("ranking", "score")}` +
     `<th title="持仓加权平均成本">成本</th>` +

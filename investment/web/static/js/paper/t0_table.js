@@ -184,9 +184,9 @@ export const SKIP_CAT_TIP = {
   y_tw_disagree:
     "ŷ_τw 未过对应方向 Y_τw入场（正T须 ŷ_τw≥入场，反T须 ŷ_τw≤−入场）。",
   bar_oc:
-    "历史口径：旧阴阳门槛（正T须收>开，反T须收<开）。已由 ŷ_oc 破带选向替代；新跑批不应再产生。",
+    "历史口径：旧阴阳门槛（正T须收>开，反T须收<开）。已由 ŷ_τc 破带选向替代；新跑批不应再产生。",
   ytw_prefix:
-    "历史口径：旧前序ŷ_τw确认。现 ŷ_τw=五窗相对中位点符号和，选向看 ŷ_oc 破带；新跑批不应再产生。",
+    "历史口径：旧前序ŷ_τw确认。现 ŷ_τw=五窗相对中位点符号和，选向看 ŷ_τc 破带；新跑批不应再产生。",
   y_t60_disagree:
     "已下线：个股 ŷ_τ60 旁路闸。生产只走 ŷ_τw 投票；历史回放可能仍出现。",
   y_t75_disagree:
@@ -220,7 +220,7 @@ export const SKIP_CAT_TIP = {
   price_space_mismatch:
     "日分价闸：昨收差 |日昨/分昨−1| 超 t0_price_space_prev_dev_pct（默认 5%，0=关）；开盘差已下线。错价则跳过。",
   tau_entry_price:
-    "历史口径：确认根买/卖价相对 open×(1+ŷ_oc) 的入场价闸。v6 第一腿按确认根收盘成交，该闸已下线；新跑批不应再产生。",
+    "历史口径：确认根买/卖价相对 open×(1+ŷ_τc) 的入场价闸。v6 第一腿按确认根收盘成交，该闸已下线；新跑批不应再产生。",
   tau_exit_price:
     "第二腿：正T卖价须 > open×(1+(clamp(ŷ_τc×裕度,min,max)+价偏)/100)；反T买价须 < 同式。止损/收盘强平不受闸。",
   y_trade_weak:
@@ -538,7 +538,7 @@ function slotYhat(r, dayHost) {
   let yNowcast =
     slotYNum(sc, ["y_nowcast", "y_nc", "predicted_score_nowcast"]) ??
     slotYNum(ft, ["y_nowcast", "y_nc"]);
-  // 反 T / prefix_open_fallback 常无 τc 头：ŷ_oc反推 = (1+开盘→τ)(1+ŷ_τc)−1
+  // 反 T / prefix_open_fallback 常无 τc 头：ŷ_τc反推 = (1+开盘→τ)(1+ŷ_τc)−1
   if (yTau == null && yR != null) {
     const featTau =
       (sc.features_tau && typeof sc.features_tau === "object" ? sc.features_tau : null) ||
@@ -4332,7 +4332,7 @@ function renderTradeDayHtml(d, ctx) {
   const dateInner = hasScan
     ? `<button type="button" class="paper-t0-day-debug-toggle" data-t0-day-id="${escapeText(
         dayKey
-      )}" title="展开 11:00 前每根扫描（OLHC · C_τ · lower · upper · y_oc · y_τw · y_τ30…）" aria-expanded="false">${escapeText(
+      )}" title="展开 11:00 前每根扫描（OLHC · C_τ · lower · upper · y_τc · y_τw · y_τ30…）" aria-expanded="false">${escapeText(
         dayText
       )}<span class="paper-t0-day-debug-caret" aria-hidden="true">▾</span></button>`
     : escapeText(dayText);

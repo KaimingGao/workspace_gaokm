@@ -759,12 +759,21 @@ def fit_tau_ridge_report(
     n_a158 = sum(
         1 for k in (model.get("extra_features") or []) if "alpha158" in str(k).lower()
     )
+    day_keys = set()
+    for m, d in zip(metas_use, dates_use):
+        code = ""
+        if isinstance(m, dict):
+            code = str(m.get("stock_code") or m.get("code") or "").strip()
+        day = str(d or "")[:10]
+        if day:
+            day_keys.add((code, day))
     report = {
         "success": True,
         "task": "tau_ridge",
         "stock_count": len(enriched),
         "sample_count": len(ys_use),
         "sample_count_raw": len(ys),
+        "sample_count_day": len(day_keys),
         "oos": oos,
         "return_model": model,
         "return_model_research": research_model,

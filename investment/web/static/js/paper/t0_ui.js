@@ -624,7 +624,7 @@ function classifyDeskNote(note, locked) {
       (r.includes("ŷ_oc") || r.includes("y_oc") || r.includes("ŷ_τc") || r.includes("y_τc")) &&
       r.includes("未过入场")
     )
-      return { id: "y_oc_flat", label: "oc入场" };
+      return { id: "y_oc_flat", label: "τc入场" };
     if (
       (r.includes("ŷ_τ90") || r.includes("y_τ90") || r.includes("y_t90")) &&
       (r.includes("横盘") || r.includes("缺失") || r.includes("未过"))

@@ -129,7 +129,7 @@ export function initQuant(ctx) {
   } = factorMeta;
 
   const BT_SCOPE_LIVE =
-            "口径：每个交易日 09:30 rank_lots（本金默认 20 万 · rank=w_oo·(ŷ_oo+1)/(1+rot)+w_τc·((1+ŷ_τc)(1+w_co·ŷ_co)−1)−1 · 入场/强档金额）。" +
+            "口径：每个交易日 09:30 rank_lots（本金默认 20 万 · rank=w_oo·((ŷ_oo+1)/(1+rot)−1)+w_τc·((1+ŷ_τc)(1+w_co·ŷ_co)−1) · 入场/强档金额）。" +
     "净值起点 100；成本按纸面成本模型。有效≠正确：先看超额/回撤，再解读累计收益。";
   const BT_SCOPE_FROZEN =
     "以下为 quant_daily 冻结摘要，不是刚才点的回测；点「跑回测」刷新当次结果。";
@@ -418,6 +418,7 @@ export function initQuant(ctx) {
    *   message?: string,
    *   oos?: object|null,
    *   sampleCount?: number|null,
+   *   sampleCountDay?: number|null,
    *   fittedAt?: string|null,
    *   promotedAt?: string|null,
    *   liveOn?: boolean|null,
@@ -434,6 +435,7 @@ export function initQuant(ctx) {
       message = "",
       oos = null,
       sampleCount = null,
+      sampleCountDay = null,
       fittedAt = null,
       promotedAt = null,
       liveOn = null,
@@ -561,7 +563,30 @@ export function initQuant(ctx) {
       }
     }
     if (sampleCount != null && sampleCount !== "") {
-      metas.push(remStatusMeta("n", fmtRemN(sampleCount), "面板观测数（Holdout 不改此数）"));
+      const dayN =
+        sampleCountDay != null &&
+        sampleCountDay !== "" &&
+        Number(sampleCountDay) !== Number(sampleCount)
+          ? Number(sampleCountDay)
+          : null;
+      metas.push(
+        remStatusMeta(
+          "n",
+          fmtRemN(sampleCount),
+          dayN != null
+            ? `面板行数（含多 τ）；票×日≈${fmtRemN(dayN)}，可与 ŷ_oo / ŷ_co 对照`
+            : "面板观测数（Holdout 不改此数）"
+        )
+      );
+      if (dayN != null) {
+        metas.push(
+          remStatusMeta(
+            "日票",
+            fmtRemN(dayN),
+            "票×日去重（去掉 τ 网格膨胀，便于对照 ŷ_oo / ŷ_co）"
+          )
+        );
+      }
     }
     if (oos && typeof oos === "object") {
       if (oos.holdout_trading_days != null && Number.isFinite(Number(oos.holdout_trading_days))) {
@@ -715,6 +740,10 @@ export function initQuant(ctx) {
       oos: extra.oos !== undefined ? extra.oos : src.oos,
       sampleCount:
         extra.sampleCount !== undefined ? extra.sampleCount : src.sample_count,
+      sampleCountDay:
+        extra.sampleCountDay !== undefined
+          ? extra.sampleCountDay
+          : src.sample_count_day,
       fittedAt:
         extra.fittedAt !== undefined
           ? extra.fittedAt
@@ -1467,7 +1496,7 @@ export function initQuant(ctx) {
     const sum = document.getElementById("quant-tau-tree-summary");
     startTauTreeBusy();
     try {
-      const tauLimit = 200;
+      const tauLimit = 300;
       const a158El = document.getElementById("quant-tau-tree-alpha158");
       const includeAlpha158 = !a158El || a158El.checked !== false;
       const res = await fetch("/api/quant/tau-tree", {
@@ -1652,7 +1681,7 @@ export function initQuant(ctx) {
     const sum = document.getElementById("quant-tc-tree-summary");
     startTcTreeBusy();
     try {
-      const rLimit = 200;
+      const rLimit = 300;
       const res = await fetch("/api/quant/tc-tree", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -3558,8 +3587,8 @@ export function initQuant(ctx) {
       });
     }
     try {
-      // 满观察池
-      const tauLimit = 200;
+      // 满观察池（与 ŷ_oo / ŷ_co 一致）
+      const tauLimit = 300;
       const a158El = document.getElementById("quant-tau-ridge-alpha158");
       const includeAlpha158 = !a158El || a158El.checked !== false;
       const res = await fetch("/api/quant/tau-ridge", {

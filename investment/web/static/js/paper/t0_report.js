@@ -301,7 +301,7 @@ function buildPortraitSectionHtml(portrait) {
       : yhatCoverN > 0 &&
           slotSampleN > 0 &&
           yhatCoverN / slotSampleN < 0.25
-        ? `<p class="paper-t0-portrait-slots-warn">槽位 y_oc/y_τ30/y_τ45/y_τ60/y_τ75/y_τ90 ŷ 覆盖偏低（最多 ${yhatCoverN}/${slotSampleN}）：缺分钟日无扫描分；请用最新回测引擎重跑以保留 close_band_scan。</p>`
+        ? `<p class="paper-t0-portrait-slots-warn">槽位 y_τc/y_τ30/y_τ45/y_τ60/y_τ75/y_τ90 ŷ 覆盖偏低（最多 ${yhatCoverN}/${slotSampleN}）：缺分钟日无扫描分；请用最新回测引擎重跑以保留 close_band_scan。</p>`
         : "";
 
   const fmtHitCell = (pack) => {
@@ -319,7 +319,7 @@ function buildPortraitSectionHtml(portrait) {
     slotRows.length > 0
       ? `<div class="paper-t0-portrait-slots" title="${escapeText(
           (portrait.by_slot && portrait.by_slot.note) ||
-            "各钟 y_oc / y_τw / y_τ30 / y_τ45 / y_τ60 / y_τ75 / y_τ90 ↔ 标签；样本与日级对齐；缺该钟 ŷ 计 flat；成/跳=该钟是否成交"
+            "各钟 y_τc / y_τw / y_τ30 / y_τ45 / y_τ60 / y_τ75 / y_τ90 ↔ 标签；样本与日级对齐；缺该钟 ŷ 计 flat；成/跳=该钟是否成交"
         )}">` +
         `<div class="paper-t0-portrait-slots-head">` +
         `<span>分槽位</span>` +
@@ -348,7 +348,7 @@ function buildPortraitSectionHtml(portrait) {
         `<th title="破带方向是否与 ŷ_τ60=p_up 同号（正T p_up≥0.5，反T 1−p_up≥0.5）">τ60旁路</th>` +
         `<th title="破带方向是否与 ŷ_τ75=p_up 同号（正T p_up≥0.5，反T 1−p_up≥0.5）">τ75旁路</th>` +
         `<th title="破带方向是否与 ŷ_τ90=p_up 同号（正T p_up≥0.5，反T 1−p_up≥0.5）">τ90旁路</th>` +
-        `<th title="该钟已成交子集 · y_oc">成交y_oc</th>` +
+        `<th title="该钟已成交子集 · y_τc">成交y_τc</th>` +
         `<th title="该钟已成交子集 · y_τw">成交y_τw</th>` +
         `<th title="该钟已成交子集 · y_τ30">成交y_τ30</th>` +
         `<th title="该钟已成交子集 · y_τ45">成交y_τ45</th>` +

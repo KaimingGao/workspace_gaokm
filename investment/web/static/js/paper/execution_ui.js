@@ -85,7 +85,7 @@ export function adaptiveSizingDayTip(day, rules = {}) {
 
 /** v6 做 T 选腿说明（旧 y_tau_map / oc先验已忽略）。 */
 export function yTauMapScoreTip(_mode, _enter = 0) {
-  return "旗舰做T：09:30–11:00 每根5m，ŷ_τc 估 C_τ，C>upper 反T、C<lower 正T；leg2=C_τ。ŷ_τw 为相对中位点（默认47%）符号和，过 Y_τw入场才开；|ŷ_τc| 过 y_oc入场% 用入场金额，过 y_oc强% 用强金额。";
+  return "旗舰做T：09:30–11:00 每根5m，ŷ_τc 估 C_τ，C>upper 反T、C<lower 正T；leg2=C_τ。ŷ_τw 为相对中位点（默认47%）符号和，过 Y_τw入场才开；|ŷ_τc| 过 y_τc入场% 用入场金额，过 y_τc强% 用强金额。";
 }
 
 /** 回测/预演响应可能只有 rules 或残缺 execution；补齐 t0 供规则卡渲染。 */
@@ -139,7 +139,7 @@ export function renderExecutionRulesHtml(execution) {
     `<h4 class="paper-t0-spec-head-title">生效规格</h4>` +
     `<div class="paper-t0-spec-kpi-strip" aria-label="核心参数">` +
     specKpi("启用", enabledLbl, "做 T overlay 总开关") +
-    specKpi("策略", "ŷ_oc破带", "09:30–11:00 每根5m：C>C_τ+δ 反T、C<C_τ−δ 正T；leg2=C_τ；ŷ_τw≥Y_τw入场才开；|ŷ_oc|过入场%用入场金额、过强%用强金额；11:00后不开leg1") +
+    specKpi("策略", "ŷ_τc破带", "09:30–11:00 每根5m：C>C_τ+δ 反T、C<C_τ−δ 正T；leg2=C_τ；ŷ_τw≥Y_τw入场才开；|ŷ_τc|过入场%用入场金额、过强%用强金额；11:00后不开leg1") +
     specKpi(
       "选腿",
       (() => {
@@ -152,9 +152,9 @@ export function renderExecutionRulesHtml(execution) {
           t0.t0_slots_max_rounds != null ? Number(t0.t0_slots_max_rounds) : 5;
         const d =
           t0.t0_close_band_delta_pct != null ? Number(t0.t0_close_band_delta_pct) : 0.5;
-        return `δ${Number.isFinite(d) ? d : 0.5}%·τw≥${e}·oc≥${ocE}/${ocS}·${eAmt}/${stAmt}元·≤${mr}`;
+        return `δ${Number.isFinite(d) ? d : 0.5}%·τw≥${e}·τc≥${ocE}/${ocS}·${eAmt}/${stAmt}元·≤${mr}`;
       })(),
-      "C 破 C_τ±δ 定正/反T；leg2=C_τ。ŷ_τw≥Y_τw入场才开。|ŷ_oc|≥y_oc入场%用入场金额，≥y_oc强%用强金额。最多轮数封顶。"
+      "C 破 C_τ±δ 定正/反T；leg2=C_τ。ŷ_τw≥Y_τw入场才开。|ŷ_τc|≥y_τc入场%用入场金额，≥y_τc强%用强金额。最多轮数封顶。"
     ) +
     specKpi(
       "C_τ",
@@ -163,7 +163,7 @@ export function renderExecutionRulesHtml(execution) {
         const sc = Number.isFinite(s) ? s : 2;
         return `×${sc}`;
       })(),
-      "C_τ=O×(1+ŷ_oc×scale/100)，硬顶 ±20。破带目标价=C_τ。"
+      "C_τ=O×(1+ŷ_τc×scale/100)，硬顶 ±20。破带目标价=C_τ。"
     ) +
     specKpi(
       "Y_τw入场",
@@ -180,22 +180,22 @@ export function renderExecutionRulesHtml(execution) {
       })()
     ) +
     specKpi(
-      "y_oc入场%",
+      "y_τc入场%",
       (() => {
         const s = yOcEnterValue(t0);
         const amt = yOcEnterAmountValue(t0);
         return s <= 0 ? `不拦·${amt}元` : `≥${s}%·${amt}元`;
       })(),
-      "破带且过 Y_τw入场后：|ŷ_oc|≥此百分点用入场金额。0=不拦幅度。"
+      "破带且过 Y_τw入场后：|ŷ_τc|≥此百分点用入场金额。0=不拦幅度。"
     ) +
     specKpi(
-      "y_oc强%",
+      "y_τc强%",
       (() => {
         const s = yOcStrongValue(t0);
         const amt = yOcStrongAmountValue(t0);
         return `≥${s}%·${amt}元`;
       })(),
-      "过 y_oc入场% 后 |ŷ_oc|≥y_oc强% 用强金额，否则入场金额。须≥入场%。"
+      "过 y_τc入场% 后 |ŷ_τc|≥y_τc强% 用强金额，否则入场金额。须≥入场%。"
     ) +
     specKpi(
       "Y_τ*中位点%",
@@ -310,8 +310,8 @@ export function renderRebalanceRulesHtml(execution) {
     `<h4 class="paper-t0-spec-head-title">生效调仓</h4>` +
     `<div class="paper-t0-spec-kpi-strip" aria-label="调仓核心参数">` +
     specKpi("调仓窗", `${pm.fill_clock || "09:30"}～10:00`, `现价成交一次 · ${lotB}/${lotS} 元`) +
-    specKpi("w_co", fmtN(alpha, 1), "叠进 ŷ_oc 的隔夜系数；0=不叠") +
-    specKpi("ranking", `${fmtN(wt, 2)}/${fmtN(wn, 2)}`, "w_oo / w_oc") +
+    specKpi("w_co", fmtN(alpha, 1), "叠进 ŷ_τc 的隔夜系数；0=不叠") +
+    specKpi("ranking", `${fmtN(wt, 2)}/${fmtN(wn, 2)}`, "w_oo / w_τc") +
     specKpi("入场", `${fmtN(Number(enter), 2)}%`, "ranking 入场；与历史回测「入场·阈值%」同一键；未过则已持仓清仓") +
     specKpi("强档", `${fmtN(Number(strong), 2)}%`, `ranking 强档；与历史回测「强档·阈值%」同一键；过强买 ${lotS} 元否则 ${lotB} 元`) +
     specKpi("金额", `${lotB}/${lotS}`, "与历史回测入场/强档金额同一键；按成交价换算整手，不够一手则买一手；保存规则后自动调仓按此下单") +
@@ -821,7 +821,7 @@ export function resolveT0BacktestScope(root, evt = {}) {
 }
 
 /**
- * 做T回测本金（虚拟底仓股数由引擎按 y_oc强金额/价 × 最大轮数现算；表单专用，不写入 execution 规则）。
+ * 做T回测本金（虚拟底仓股数由引擎按 y_τc强金额/价 × 最大轮数现算；表单专用，不写入 execution 规则）。
  * @param {HTMLElement|null} root
  */
 export function readT0BtSizing(root) {
