@@ -690,7 +690,6 @@ export function createFactorIcUi(deps) {
       "theme_day",
       "gap_atr",
       "gap_vs_sector",
-      "ret_open_to_tau",
       "yclose_loc",
       "mom3_pct",
       "dist_to_up_limit",

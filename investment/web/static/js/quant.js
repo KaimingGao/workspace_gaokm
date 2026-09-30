@@ -32,7 +32,7 @@ import { createBtTablesUi } from "./quant/bt_tables.js?v=p2261";
 import { installClusterProbe } from "./quant/domain_cluster.js";
 import { installSuggest } from "./quant/domain_suggest.js";
 import { installExportInterpret } from "./quant/domain_export.js";
-import { loadAndRenderFactorCorr, loadAndRenderFactorIR, loadAndRenderFactorICSeries, setProStatusChip, syncOverviewFromClusters, syncOverviewTau, renderFactorSummaryCards } from "./quant/factor_corr_ui.js";
+import { loadAndRenderFactorCorr, loadAndRenderFactorIR, setProStatusChip, syncOverviewFromClusters, syncOverviewTau, renderFactorSummaryCards } from "./quant/factor_corr_ui.js";
 
 const _QV =
   (typeof window !== "undefined" && window.__ASSET_V__) || "dev";
@@ -73,9 +73,6 @@ const { installBacktest } = await import(
 );
 const { installStrategy } = await import(
   `./quant/domain_strategy.js?v=${encodeURIComponent(_QV)}`
-);
-const { installScoreReview } = await import(
-  `./quant/domain_score_review.js?v=${encodeURIComponent(_QV)}`
 );
 const { installClusterBarsUi } = await import(
   `./quant/cluster_bars_ui.js?v=${encodeURIComponent(_QV)}`
@@ -137,23 +134,6 @@ export function initQuant(ctx) {
     "quant-portfolio-run",
     "quant-return-model-fit",
   ];
-  const PRESET_FLAG_LABELS = {
-    paper_run: "纸面持仓日更",
-    paper_holding_cycle: "纸面持仓日更",
-    paper_buy: "纸面模拟买入",
-    eval_mock: "golden mock",
-    eval_agent: "Agent 回归",
-    quant_report: "量化日报",
-    watching_refresh: "刷新 watching",
-    cross_section: "横截面",
-    sync_paper_watchlist: "模拟建仓同步",
-    paper_rebalance: "纸面截面调仓",
-    paper_cross_section_rebalance: "纸面调仓",
-    export_quant_report: "导出 MD/HTML",
-    portfolio_neutral_compare: "中性化对照",
-  };
-  const QUANT_EXPORT_PRESETS = new Set(["quant", "quant_paper", "full"]);
-
   function on(id, type, handler) {
     const el = typeof id === "string" ? document.getElementById(id) : id;
     if (!el) return null;
@@ -195,18 +175,6 @@ export function initQuant(ctx) {
     quantT0Days: document.getElementById("paper-t0-days"),
     quantThresholdSummary: document.getElementById("quant-threshold-summary"),
     quantThresholdTable: document.getElementById("quant-threshold-table"),
-    quantInterpretBody: document.getElementById("quant-interpret-body"),
-    quantInterpretNeutral: document.getElementById("quant-interpret-neutral"),
-    quantExportPreviewMeta: document.getElementById("quant-export-preview-meta"),
-    quantExportPreviewToc: document.getElementById("quant-export-preview-toc"),
-    quantExportPreviewBody: document.getElementById("quant-export-preview-body"),
-    quantDailyArchive: document.getElementById("quant-daily-archive"),
-    quantDailyArchiveMeta: document.getElementById("quant-daily-archive-meta"),
-    quantDailyArchiveChips: document.getElementById("quant-daily-archive-chips"),
-    quantOpsSummary: document.getElementById("quant-ops-summary"),
-    quantOpsPackage: document.getElementById("quant-ops-package"),
-    quantOpsPreset: document.getElementById("quant-ops-preset"),
-    quantOpsPresetFlags: document.getElementById("quant-ops-preset-flags"),
     readmeDialog: document.getElementById("readme-dialog"),
     readmeTitle: document.getElementById("readme-title"),
     readmeMeta: document.getElementById("readme-meta"),
@@ -245,7 +213,6 @@ export function initQuant(ctx) {
     lastWeightSuggestForMerge: null,
     lastOlsForMerge: null,
     dailyPreviewRequested: false,
-    quantOpsPackageLoaded: false,
   };
 
   const watchingScoreTips = createScoreTooltipController();
@@ -258,7 +225,7 @@ export function initQuant(ctx) {
     readWatchingLimit, readHoldoutTradingDays, setPrefsHorizonDays, getPrefsHorizonDays,
     factorMetaByName, factorMetaByLabel, rememberFactorMeta, ensureFactorMeta,
     factorDescription, factorNameCellHtml, factorTaxonomyCellHtml,
-    BT_SCOPE_LIVE, BT_SCOPE_FROZEN, quantBtBusyIds, PRESET_FLAG_LABELS, QUANT_EXPORT_PRESETS,
+    BT_SCOPE_LIVE, BT_SCOPE_FROZEN, quantBtBusyIds,
     setQuantMeta, setBusyText, watchingScoreTips, btSimScoreTips,
     buildResearchCurves,
     truncateStockName, watchingNameSpanHtml, watchingNameFromEl, applyWatchingNameEl, normalizeProbeCode,
@@ -294,7 +261,6 @@ export function initQuant(ctx) {
   const researchUniverse = installResearchUniverseUi(q);
   const strategy = installStrategy(q);
   const exportDomain = installExportInterpret(q);
-  const scoreReviewDomain = installScoreReview(q);
   q.watching = watching;
   q.backtest = backtest;
   q.cluster = cluster;
@@ -304,7 +270,6 @@ export function initQuant(ctx) {
   q.researchUniverse = researchUniverse;
   q.strategy = strategy;
   q.exportDomain = exportDomain;
-  q.scoreReviewDomain = scoreReviewDomain;
 
   async function renderOoCoefTable(rm, opts = {}) {
     const host = document.getElementById("quant-oo-coef-table");
@@ -1479,13 +1444,13 @@ export function initQuant(ctx) {
     }
     if (data.busy) {
       box.innerHTML = `<div class="quant-tree-report is-busy"><p class="quant-attr-note">${escapeHtml(
-        data.message || "ŷ_oc_tree 拟合中…"
+        data.message || "ŷ_τc_tree 拟合中…"
       )}</p></div>`;
       return;
     }
     if (!data.success) {
       box.innerHTML = `<p class="quant-attr-note">${escapeHtml(
-        String(data.error || data.note || "ŷ_oc_tree 拟合失败")
+        String(data.error || data.note || "ŷ_τc_tree 拟合失败")
       )}</p>`;
       return;
     }
@@ -1575,7 +1540,7 @@ export function initQuant(ctx) {
         renderRemStatus(sum, {
           state: "idle",
           chip: "待命",
-          message: data.note || "尚无 ŷ_oc_tree",
+          message: data.note || "尚无 ŷ_τc_tree",
         });
         renderTauTreeCompare({ success: false, error: data.note || "尚无上次对照" });
         return;
@@ -3024,7 +2989,6 @@ export function initQuant(ctx) {
     const hasStrategy = !!document.getElementById("strategy-market-context");
     const hasWatching = !!document.getElementById("quant-watching-list") || !!document.getElementById("quant-watching-meta");
     const hasReplay = !!document.getElementById("quant-portfolio-run");
-    const hasOps = !!document.getElementById("quant-ops-summary");
     try {
       if (els.quantMeta) els.quantMeta.textContent = "加载面板…";
       // 先拉研究默认 horizon（memory）与 OLS 标的列表，再跑 IC/OLS/回测
@@ -3076,7 +3040,6 @@ export function initQuant(ctx) {
       if (useDialog) els.quantDialog.showModal();
       // 运维/因子/桥接等后台拉取：不阻塞 tab 加载态
       const background = [];
-      if (hasOps) background.push(exportDomain.loadOpsPanel().catch(() => {}));
       if (hasStrategy || els.quantFactorList) {
         background.push(suggest.loadFactorPanel().catch(() => {}));
       }
@@ -3458,18 +3421,6 @@ export function initQuant(ctx) {
     e.preventDefault();
     await loadAndRenderFactorCorr("quant-factor-corr-heatmap");
   });
-
-    on("quant-ic-series-run", "click", async (e) => {
-      e.preventDefault();
-      const lookback = document.getElementById("quant-ic-series-lookback")?.value || "60";
-      const statusEl = document.getElementById("quant-ic-series-status");
-      await loadAndRenderFactorICSeries(
-        "quant-ic-series-chart",
-        "quant-ic-series-stats",
-        statusEl,
-        lookback
-      );
-    });
 
   const oosGateTips = createScoreTooltipController();
 
@@ -5800,30 +5751,6 @@ export function initQuant(ctx) {
     }
   });
 
-  on("quant-export-preview-md", "click", async (e) => {
-    e.preventDefault();
-    try {
-      await exportDomain.previewQuantExport("markdown");
-    } catch (err) {
-      if (els.quantExportPreviewMeta) els.quantExportPreviewMeta.textContent = String(err.message || err);
-    }
-  });
-
-  on("quant-export-preview-html", "click", async (e) => {
-    e.preventDefault();
-    try {
-      await exportDomain.previewQuantExport("html");
-    } catch (err) {
-      if (els.quantExportPreviewMeta) els.quantExportPreviewMeta.textContent = String(err.message || err);
-    }
-  });
-
-  // 日报：进页拉预览；深链打开折叠并滚到卡片
-  exportDomain.ensureDailyPreview();
-  if (String(location.hash || "").replace(/^#/, "") === "quant-daily-fold") {
-    exportDomain.openDailyFold();
-  }
-
   // 路径轨：点击切换当前步高亮；深链到次要块时展开
   const pathRail = document.querySelector(".quant-page .quant-path-rail");
   if (pathRail) {
@@ -5848,86 +5775,10 @@ export function initQuant(ctx) {
   openSecondaryByHash();
   window.addEventListener("hashchange", openSecondaryByHash);
 
-  on("quant-export-md", "click", async (e) => {
-    e.preventDefault();
-    exportDomain.openDailyFold();
-    try {
-      const res = await fetch("/api/quant/export?format=markdown&use_saved=true");
-      const data = await res.json();
-      if (!res.ok) {
-        if (els.quantMeta) els.quantMeta.textContent = data.detail || data.error || "导出失败";
-        return;
-      }
-      const blob = new Blob([data.content || ""], { type: "text/markdown;charset=utf-8" });
-      downloadBlob(blob, data.filename || "quant_daily.md");
-      if (els.quantMeta) els.quantMeta.textContent = "Markdown 已下载";
-      } catch (err) {
-      if (els.quantMeta) els.quantMeta.textContent = String(err.message || err);
-      }
-  });
-
-  on("quant-export-html", "click", async (e) => {
-    e.preventDefault();
-    exportDomain.openDailyFold();
-    try {
-      const res = await fetch("/api/quant/export?format=html&use_saved=true");
-      const data = await res.json();
-      if (!res.ok) {
-        if (els.quantMeta) els.quantMeta.textContent = data.detail || data.error || "导出失败";
-        return;
-      }
-      const blob = new Blob([data.content || ""], { type: "text/html;charset=utf-8" });
-      downloadBlob(blob, data.filename || "quant_daily.html");
-      if (els.quantMeta) els.quantMeta.textContent = "HTML 已下载";
-    } catch (err) {
-      if (els.quantMeta) els.quantMeta.textContent = String(err.message || err);
-    }
-  });
-
-
-
-
-
-  on("quant-interpret", "click", async (e) => {
-    e.preventDefault();
-    const q =
-      "请解读上次量化日报（quant_daily / use_saved）：概括因子 IC、权重建议、组合表现与主要风险；" +
-      "不要改写 score / stance_label；结论须可核对数据。";
-    if (typeof window.__investmentOpenAi === "function") {
-      if (els.quantMeta) els.quantMeta.textContent = "已打开 AI…";
-      window.__investmentOpenAi(q);
-      setTimeout(() => {
-        document.getElementById("ai-drawer-form")?.requestSubmit();
-      }, 40);
-      return;
-    }
-    /* 抽屉不可用时回退本页解读 */
-    try {
-      await exportDomain.runQuantInterpret({ forceOffline: false });
-    } catch (err) {
-      exportDomain.showQuantInterpretPanel();
-      if (els.quantInterpretBody) exportDomain.setQuantInterpretContent(String(err.message || err));
-      if (els.quantMeta) els.quantMeta.textContent = String(err.message || err);
-    }
-  });
-
-  on("quant-interpret-offline", "click", async (e) => {
-    e.preventDefault();
-    try {
-      await exportDomain.runQuantInterpret({ forceOffline: true });
-    } catch (err) {
-      exportDomain.showQuantInterpretPanel();
-      if (els.quantInterpretBody) exportDomain.setQuantInterpretContent(String(err.message || err));
-      if (els.quantMeta) els.quantMeta.textContent = String(err.message || err);
-    }
-  });
-
   on("quant-feedback-suggest", "click", async (e) => {
     e.preventDefault();
     try {
       if (els.quantMeta) els.quantMeta.textContent = "生成配置反馈中…";
-      exportDomain.showQuantInterpretPanel();
-      if (els.quantInterpretBody) els.quantInterpretBody.textContent = "生成配置反馈中…";
       const m = ctx.lastBacktestMetrics || {};
       const { ok, data, error } = await apiFetch("/api/feedback/suggest", {
         method: "POST",
@@ -5955,56 +5806,10 @@ export function initQuant(ctx) {
         data.note ||
         "已生成建议（未写盘）· 选股改β请到研究枢纽";
       if (els.quantMeta) els.quantMeta.textContent = note;
-      if (els.quantInterpretBody) {
-        const patch = data.patch && typeof data.patch === "object" ? data.patch : {};
-        const lines = [
-          "【配置反馈】未写盘，须人审后合并。",
-          note,
-          Object.keys(patch).length
-            ? `patch keys: ${Object.keys(patch).join(", ")}`
-            : "",
-        ].filter(Boolean);
-        els.quantInterpretBody.textContent = lines.join("\n");
-      }
     } catch (err) {
       if (els.quantMeta) els.quantMeta.textContent = String(err.message || err);
-      exportDomain.showQuantInterpretPanel();
-      if (els.quantInterpretBody) els.quantInterpretBody.textContent = String(err.message || err);
     }
   });
-
-  on("quant-daily", "click", async (e) => {
-    e.preventDefault();
-    try {
-      await exportDomain.runDailyWithPreset("quant", "每日量化任务运行中…");
-    } catch (err) {
-      setBusyText(
-        els.quantOpsSummary,
-        String(err.message || err),
-        { busy: false }
-      );
-    }
-  });
-
-  on("quant-ops-run-daily", "click", async (e) => {
-    e.preventDefault();
-    try {
-      await exportDomain.runDailyWithPreset("quant", "生成日报中…");
-    } catch (err) {
-      setBusyText(
-        els.quantOpsSummary,
-        String(err.message || err),
-        { busy: false }
-      );
-    }
-  });
-
-  on("quant-ops-refresh", "click", async (e) => {
-    e.preventDefault();
-    await exportDomain.loadOpsPanel();
-  });
-
-  attachReadmeLinkHandler(els.quantOpsPackage, ctx);
 
   ctx.openQuantDialog = openQuantDialog;
   ctx.openReadmeViewer = exportDomain.openReadmeViewer;

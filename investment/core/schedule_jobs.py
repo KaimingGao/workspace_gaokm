@@ -697,7 +697,7 @@ def run_paper_daily(
             }
         )
 
-        slot.update(current=3, message="衰减监控 + score ledger")
+        slot.update(current=3, message="衰减监控")
         health = (cycle or {}).get("health")
         if not health:
             health = assess_strategy_health(
@@ -706,15 +706,14 @@ def run_paper_daily(
                 compute_rolling_ic=True,
             )
 
-        # 复盘账本：冻结今日 ŷ + 回填到期决策日 realized
-        score_ledger = None
-        try:
-            from core.score_ledger import run_score_ledger_daily
-
-            score_ledger = run_score_ledger_daily()
-        except Exception as exc:
-            logger.exception('unexpected error in run_paper_daily')
-            score_ledger = {"success": False, "error": str(exc)}
+        # score_ledger 日更回填已停写（分档改 Holdout OOS）；保留字段兼容下游
+        score_ledger = {
+            "success": True,
+            "deprecated": True,
+            "skipped": True,
+            "note": "score_ledger fill 已停用；分档改吃 ŷ_oo Holdout OOS",
+            "fills": [],
+        }
 
         # R0：确保日更结果含权威北极星包（cycle 内已算则复用）
         north_star = paper.get("last_north_star") or (ops or {}).get("north_star")

@@ -91,11 +91,6 @@
   background: color-mix(in srgb, var(--accent-soft, rgba(24, 144, 255, 0.1)) 80%, transparent);
 }
 
-.watching-yhat-series-host {
-  height: 140px;
-  min-height: 120px;
-}
-
 .watching-score-cell.paper-hold-score {
   font-weight: 600;
   text-align: right;
@@ -3033,16 +3028,6 @@ body[data-page="watching"] .research-dock:not(.dock-off) .watching-chart-host {
   min-height: 160px;
 }
 
-body[data-page="watching"] .research-dock:not(.dock-off) .watching-yhat-series {
-  flex: 0 0 auto;
-}
-
-body[data-page="watching"] .research-dock:not(.dock-off) .watching-yhat-series-host {
-  height: 130px;
-  min-height: 110px;
-  max-height: 150px;
-}
-
 body[data-page="watching"] .research-dock:not(.dock-off) .watching-news-detail {
   flex: 1 1 auto;
   min-height: 0;
@@ -3095,12 +3080,6 @@ body[data-page="watching"] .research-dock.dock-off .dock-pane-side {
   display: flex;
   flex-direction: column;
   gap: 8px;
-}
-
-body[data-page="watching"] .research-dock .watching-yhat-series {
-  margin: 0;
-  padding: 6px 10px 8px;
-  border-top: 1px solid color-mix(in srgb, var(--line) 80%, transparent);
 }
 
 /* ŷ_oo 截面：嵌在搜索框与主表之间 */

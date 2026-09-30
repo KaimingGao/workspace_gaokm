@@ -78,6 +78,7 @@ class TestCoPanel(unittest.TestCase):
         self.assertAlmostEqual(ys[i], expected, places=4)
         self.assertIn("ret_oc", xs[0])
         self.assertIn("y_on_today", xs[0])
+        self.assertNotIn("ret_open_to_tau", xs[0])
         self.assertIn("overnight_gap", metas[0])
 
     def test_co_panel_enriched_features_are_pit(self):
@@ -87,6 +88,7 @@ class TestCoPanel(unittest.TestCase):
         xs, ys, _, _ = collect_co_panel(bars, stock_code="000001", min_history=12)
         self.assertGreater(len(xs), 5)
         row = xs[0]
+        self.assertNotIn("ret_open_to_tau", CO_Z_FEATURES)
         skip_cs = {"sector_gap_breadth", "theme_day", "gap_vs_sector"}
         for k in CO_Z_FEATURES:
             if k in skip_cs:
@@ -152,7 +154,34 @@ class TestCoPanel(unittest.TestCase):
         self.assertIn("ret_oc", feats)
         self.assertIn("ret_cc", feats)
         self.assertIn("y_on_today", feats)
+        self.assertNotIn("ret_open_to_tau", feats)
         self.assertAlmostEqual(float(feats["gap_pct"]), 1.2)
+
+    def test_predict_ignores_ret_open_to_tau(self):
+        from core.research.co_ridge import explain_co_prediction, predict_co_from_features
+
+        model = {
+            "return_model": {
+                "intercept": 0.1,
+                "coefficients": {"gap_pct": 0.5, "ret_open_to_tau": 2.0},
+                "active_features": ["gap_pct", "ret_open_to_tau"],
+                "zscore_means": {"gap_pct": 0.0, "ret_open_to_tau": 0.0},
+                "zscore_stds": {"gap_pct": 1.0, "ret_open_to_tau": 1.0},
+            }
+        }
+        stuffed = {"gap_pct": 1.0, "ret_open_to_tau": 9.0}
+        plain = {"gap_pct": 1.0}
+        self.assertAlmostEqual(
+            predict_co_from_features(stuffed, model_doc=model),
+            predict_co_from_features(plain, model_doc=model),
+        )
+        self.assertAlmostEqual(
+            predict_co_from_features(stuffed, model_doc=model), 0.6
+        )
+        expl = explain_co_prediction(stuffed, model_doc=model)
+        keys = [t.get("key") for t in (expl or {}).get("terms") or []]
+        self.assertNotIn("ret_open_to_tau", keys)
+        self.assertAlmostEqual(float(expl["total"]), 0.6)
 
 
     def test_build_features_parses_yuan_open(self):

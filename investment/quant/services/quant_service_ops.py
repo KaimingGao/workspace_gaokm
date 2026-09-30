@@ -254,23 +254,17 @@ class QuantOpsMixin:
             payload["generated_at"] = datetime.now().isoformat(timespec="seconds")
         with open(QUANT_DAILY_PATH, "w", encoding="utf-8") as f:
             json.dump(payload, f, ensure_ascii=False, indent=2)
-        try:
-            from core.score_ledger import freeze_from_daily_report
-
-            freeze_from_daily_report(payload)
-        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-            logger.debug("catch except Exception: in quant_service_ops.py", exc_info=True)
-            logger.warning("运维后处理异常", exc_info=True)
+        # score_ledger 冻结已停写：分档改吃 ŷ_oo Holdout OOS；读 API / 旧文件仍保留
         return QUANT_DAILY_PATH
 
     def freeze_score_ledger(self, as_of: Optional[str] = None) -> Dict[str, Any]:
-        """分池簿冻结已停用。EOD 快照由日报 freeze_from_daily_report 写入。"""
+        """账本冻结已停用（分档改 Holdout OOS）。"""
         _ = as_of
         return {
             "success": False,
             "deprecated": True,
             "n_rows": 0,
-            "error": "分池簿冻结已停用；账本由日报写入",
+            "error": "score_ledger 冻结已停用；分档改吃 ŷ_oo Holdout OOS",
         }
 
     def build_tau_shadow_review(
@@ -309,12 +303,12 @@ class QuantOpsMixin:
         *,
         horizon_days: int = 3,
     ) -> Dict[str, Any]:
-        """昨日复盘 HTTP 已下线；日更仍走 core.score_ledger.fill_outcomes。"""
+        """昨日复盘 HTTP 已下线；日更 fill 亦已停写。"""
         _ = as_of, horizon_days
         return {
             "success": False,
             "deprecated": True,
-            "error": "昨日复盘 HTTP 已下线；outcomes 由日更 fill_outcomes 回填",
+            "error": "score_ledger outcomes fill 已停用",
         }
 
     def build_score_review(
@@ -358,9 +352,15 @@ class QuantOpsMixin:
         }
 
     def score_ledger_code_series(self, code: str, *, limit: int = 40) -> Dict[str, Any]:
-        from core.score_ledger import code_yhat_series
-
-        return code_yhat_series(code, limit=limit)
+        """单票 ŷ 时间线已下线（watching 不再读账本）。"""
+        _ = code, limit
+        return {
+            "success": False,
+            "deprecated": True,
+            "error": "score_ledger / ŷ 时间线已下线",
+            "points": [],
+            "n": 0,
+        }
 
     def score_ledger_stock_panel(
         self, code: str, *, lookback: int = 10
@@ -532,14 +532,12 @@ class QuantOpsMixin:
         }
 
         scoring = (cfg.get("scoring") if isinstance(cfg, dict) else None) or {}
-        y_check_summary = None
-        try:
-            from core.signal.y_state import ledger_y_check_daily_summary
-
-            y_check_summary = ledger_y_check_daily_summary(include_hit=True)
-        except Exception as exc:
-            logger.exception('unexpected error in build_daily_report')
-            y_check_summary = {"success": False, "error": str(exc)}
+        y_check_summary = {
+            "success": False,
+            "deprecated": True,
+            "n": 0,
+            "note": "score_ledger / 日报 Y-check 已下线",
+        }
 
         report: Dict[str, Any] = {
             "success": True,

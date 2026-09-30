@@ -18,21 +18,19 @@ class TestWebQuantJsGuards(unittest.TestCase):
     def test_quant_js_neutral_compare_and_export(self):
         js = self._read("web", "static", "js", "quant.js")
         export_js = self._read("web", "static", "js", "quant", "domain_export.js")
-        self.assertIn("QUANT_EXPORT_PRESETS", js)
+        self.assertNotIn("QUANT_EXPORT_PRESETS", js)
         self.assertIn("本金默认 20 万 · rank=w_oo·((ŷ_oo+1)/(1+rot)−1)+w_τc·((1+ŷ_τc)(1+w_co·ŷ_co)−1) · 入场/强档金额", js)
         self.assertNotIn("现金地板 10 万", js)
         self.assertNotIn("初始 50 万 · y_fuse/y_on · 1000/2000 股", js)
         self.assertNotIn("初始 100 万 · 现金地板 50 万", js)
-        self.assertIn('previewQuantExport("markdown")', js)
-        self.assertIn("runQuantInterpret", js)
-        self.assertIn("forceOffline: true", js)
-        self.assertIn("llmAvailable", export_js)
-        self.assertIn("offline: useOffline", export_js)
-        self.assertIn("readDailyBtOverrides", export_js)
-        self.assertIn("quant_daily_bt_opts_v5", export_js)
-        self.assertIn("quant-daily-on-alpha", export_js)
-        self.assertIn("quant-daily-rank-enter", export_js)
-        self.assertIn("quant-daily-rank-strong", export_js)
+        # 日报 UI 已下线；domain_export 仅留 readme + deprecated no-ops
+        self.assertNotIn('previewQuantExport("markdown")', js)
+        self.assertNotIn("ensureDailyPreview()", js)
+        self.assertNotIn("quant-ops-run-daily", js)
+        self.assertNotIn("readDailyBtOverrides", export_js)
+        self.assertNotIn("quant-daily-on-alpha", export_js)
+        self.assertIn("openReadmeViewer", export_js)
+        self.assertIn("deprecated: true", export_js)
         self.assertIn("restoreLastPortfolioBacktest", js)
         self.assertIn('page === "replay"', js)
 
@@ -98,41 +96,29 @@ class TestWebQuantJsGuards(unittest.TestCase):
 
     def test_daily_bt_option_js(self):
         export_js = self._read("web", "static", "js", "quant", "domain_export.js")
-        self.assertIn("readDailyBtOverrides", export_js)
-        self.assertIn("{ preset, ...readDailyBtOverrides() }", export_js)
-        self.assertIn("quant-daily-on-alpha", export_js)
-        self.assertIn("readDailyYOnAlpha", export_js)
-        self.assertIn("readDailyRankThresholds", export_js)
-        self.assertIn("rankPctToScore", export_js)
-        self.assertIn("rankScoreToPct", export_js)
-        self.assertIn("RANK_PCT_DEFAULT = 1.2", export_js)
+        panel = self._read("web", "static", "partials", "quant_panel.html")
+        # 日报折页与 BT 覆盖 helpers 已下线
+        self.assertNotIn('id="quant-daily-fold"', panel)
+        self.assertNotIn('id="quant-daily-on-alpha"', panel)
+        self.assertNotIn("readDailyBtOverrides", export_js)
+        self.assertNotIn("quant-daily-on-alpha", export_js)
+        self.assertNotIn("quant_daily_bt_opts_v5", export_js)
+        self.assertIn("openReadmeViewer", export_js)
 
     def test_partials_have_key_controls(self):
         panel = self._read("web", "static", "partials", "quant_panel.html")
-        self.assertIn('id="quant-daily-fold"', panel)
-        self.assertIn('id="quant-daily-on-alpha"', panel)
-        self.assertIn('id="quant-daily-rank-enter"', panel)
-        self.assertIn('id="quant-daily-rank-strong"', panel)
-        self.assertIn("Rank入场%", panel)
-        self.assertIn("Rank强%", panel)
-        self.assertIn(
-            'id="quant-daily-rank-enter" type="number" min="0" max="10" step="0.1" value="1.2"',
-            panel,
-        )
-        self.assertIn(
-            'id="quant-daily-rank-strong" type="number" min="0" max="10" step="0.1" value="1.2"',
-            panel,
-        )
-        self.assertIn('id="quant-daily-lookback"', panel)
-        self.assertIn('<option value="30" selected>30</option>', panel)
-        self.assertIn('<option value="60">60</option>', panel)
-        self.assertIn('<option value="90">90</option>', panel)
-        self.assertIn("日报历史回测配置", panel)
+        self.assertNotIn('id="quant-daily-fold"', panel)
+        self.assertNotIn('id="quant-daily-on-alpha"', panel)
+        self.assertNotIn('id="quant-daily-rank-enter"', panel)
+        self.assertNotIn('id="quant-daily-rank-strong"', panel)
+        self.assertNotIn("日报历史回测配置", panel)
+        self.assertNotIn("生成日报", panel)
+        self.assertNotIn('id="quant-daily-lookback"', panel)
         self.assertNotIn('id="quant-daily-top-k"', panel)
         self.assertNotIn('id="quant-daily-horizon"', panel)
-        self.assertIn("quant-interpret-offline", panel)
-        self.assertIn("规则解读", panel)
-        self.assertIn("quant-interpret-neutral", panel)
+        self.assertNotIn("quant-interpret-offline", panel)
+        self.assertNotIn("规则解读", panel)
+        self.assertNotIn("quant-interpret-neutral", panel)
         self.assertNotIn("quant-ols-run", panel)
         self.assertNotIn("quant-ols-pool-run", panel)
         self.assertNotIn("quant-ols-clusters-run", panel)
@@ -231,6 +217,8 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("quant-section-research-universe", panel)
         self.assertIn("quant-ru-tiers", panel)
         self.assertIn("观察池分档", panel)
+        self.assertIn("ŷ_oo Holdout OOS", panel)
+        self.assertNotIn("账本决策日", panel)
         self.assertIn("quant-ru-tiers-promote", panel)
         self.assertIn("启用 live", panel)
         self.assertNotIn("quant-ru-save", panel)
@@ -245,6 +233,10 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("predictability-tiers/promote", ru_js)
         self.assertNotIn("sync-watching", ru_js)
         self.assertIn("Holdout", panel)
+        self.assertIn("ŷ_oo OOS", ru_js)
+        self.assertIn("quant-ru-stock-name", ru_js)
+        self.assertIn("quant-ru-kpis", ru_js)
+        self.assertIn("quant-ru-hit-bar", ru_js)
         self.assertIn("loadTiers", ru_js)
         self.assertIn("quant-oo-rank-feature-mode", panel)
         self.assertIn("quant-oo-rank-pair-preset", panel)
@@ -388,7 +380,7 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertNotIn("默认 0.40", panel)
         self.assertNotIn("y_complexity_max", panel)
         self.assertIn("quant-tau-tree-run", panel)
-        self.assertIn("ŷ_oc_tree", panel)
+        self.assertIn("ŷ_τc_tree", panel)
         self.assertIn("浅树（80 棵）", panel)
         self.assertIn("quant-section-tau-tree", panel)
         self.assertIn('id="quant-tau-tree-alpha158"', panel)
@@ -603,7 +595,8 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertNotIn(">Y_HL</span>", replay)
         self.assertNotIn(">Y_OO / Y_OC</span>", replay)
         self.assertIn(">y_oo &gt; 0</span>", replay)
-        self.assertIn(">y_oc &gt; 0</span>", replay)
+        self.assertIn(">y_τc &gt; 0</span>", replay)
+        self.assertNotIn(">y_oc &gt; 0</span>", replay)
         self.assertNotIn(">y_hl &gt; 0</span>", replay)
         self.assertNotIn("启用 y_hl</span>", replay)
         self.assertNotIn("y_hl 入场</span>", replay)
@@ -953,7 +946,8 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn('label: "y_oo"', trades_js)
         self.assertIn('label: "y_co"', trades_js)
         self.assertIn("realized_tau", trades_js)
-        self.assertIn("rank=w_oo·ŷ_oo+w_oc·((1+ŷ_oc)(1+w_co·ŷ_co)−1) − (price(τ)/open−1)", trades_js)
+        self.assertIn("rank=w_oo·((ŷ_oo+1)/(1+rot)−1)+w_τc·((1+ŷ_τc)(1+w_co·ŷ_co)−1) · τ→open[T+1] 基准", trades_js)
+        self.assertNotIn("rank=w_oo·ŷ_oo+w_oc·((1+ŷ_oc)(1+w_co·ŷ_co)−1) − (price(τ)/open−1)", trades_js)
         self.assertIn("fuse − (price(τ)/open−1)", trades_js)
         self.assertIn("真实 次日开/今日开", trades_js)
         self.assertIn("真实 收盘/开盘", trades_js)
@@ -2537,6 +2531,19 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertNotIn('id="quant-yhat-residual-shadow"', panel)
         self.assertNotIn('id="quant-excess-mode-shadow"', panel)
         self.assertNotIn(">IC 时序<", panel)
+        self.assertNotIn('href="#quant-section-ic-series"', panel)
+        path = panel[
+            panel.find('class="dashboard-section-desc quant-head-path"') : panel.find(
+                "dashboard-head-actions"
+            )
+        ]
+        self.assertIn('href="#quant-section-minute"', path)
+        self.assertIn(">分钟线<", path)
+        self.assertIn(">ŷ_τc_tree<", path)
+        self.assertIn(
+            'href="#quant-section-tau-tree">ŷ_τc_tree</a>\n      →\n      <a class="quant-hero-link" href="#quant-section-co-tree">ŷ_co_tree</a>',
+            path,
+        )
 
     def test_follow_path_matrix_form(self):
         panel = self._read("web", "static", "partials", "follow_panel.html")
@@ -3403,9 +3410,14 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertNotIn("quant-score-review-run", review_js)
 
         watching = self._read("web", "static", "js", "quant", "domain_watching.js")
-        self.assertIn("/api/quant/score-ledger/series", watching)
+        self.assertNotIn("/api/quant/score-ledger/series", watching)
+        self.assertNotIn("drawWatchingYhatSeries", watching)
         self.assertNotIn("/api/quant/score-ledger/stock-panel", watching)
         self.assertNotIn("/api/quant/score-ledger/freeze", watching)
+
+        watching_panel = self._read("web", "static", "partials", "watching_panel.html")
+        self.assertNotIn("watching-yhat-series", watching_panel)
+        self.assertNotIn("ŷ 时间线", watching_panel)
 
         viz = self._read("web", "static", "js", "quant", "yhat_viz.js")
         css = self._read("web", "static", "css", "quant.css")

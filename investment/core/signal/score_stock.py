@@ -1157,7 +1157,6 @@ def score_stock(
                 quote,
                 bars,
                 gap_pct=gap_v,
-                ret_open_to_tau=feats.get("ret_open_to_tau"),
                 stock_code=code,
                 open_t=open_t_info.get("open"),
                 prev_close=open_t_info.get("prev_close"),

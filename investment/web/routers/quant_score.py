@@ -1,14 +1,12 @@
-"""量化研究台 API — score review/ledger。"""
+"""量化研究台 API — score review/ledger（已下线，统一 stub）。"""
 
+from __future__ import annotations
 
 import logging
-
-logger = logging.getLogger(__name__)
 from typing import Any, Dict, Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter
 
-from web import deps
 from web.schemas import (
     ScoreLedgerDeleteRequest,
     ScoreLedgerFreezeRequest,
@@ -16,12 +14,14 @@ from web.schemas import (
     ScoreReviewRequest,
 )
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter(tags=["quant"])
 
 _REVIEW_OFFLINE = {
     "success": False,
     "deprecated": True,
-    "error": "昨日复盘 HTTP 已下线；账本 IO / ŷ 序列仍可用",
+    "error": "score_ledger / 昨日复盘已下线（分档改 ŷ_oo Holdout OOS）",
 }
 
 
@@ -31,7 +31,6 @@ def _review_offline(**extra: Any) -> Dict[str, Any]:
 
 @router.get("/api/quant/score-review/dates")
 def quant_score_review_dates(limit: int = 30) -> Dict[str, Any]:
-    """昨日复盘 UI 已下线。"""
     _ = limit
     return _review_offline()
 
@@ -42,26 +41,19 @@ def quant_score_review_hit_series(
     limit: int = 20,
     autofill: bool = False,
 ) -> Dict[str, Any]:
-    """昨日复盘 UI 已下线。"""
     _ = horizon_days, limit, autofill
     return _review_offline()
 
 
 @router.get("/api/quant/score-ledger/series")
 def quant_score_ledger_series(code: str, limit: int = 40) -> Dict[str, Any]:
-    """单票 ŷ 跨日时间线。"""
-    try:
-        out = deps.quant.score_ledger_code_series(code, limit=limit)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e)) from e
-    if not out.get("success"):
-        raise HTTPException(status_code=400, detail=out.get("error") or "查询失败")
-    return out
+    """单票 ŷ 时间线已下线。"""
+    _ = code, limit
+    return _review_offline(points=[], n=0)
 
 
 @router.get("/api/quant/score-ledger/stock-panel")
 def quant_score_ledger_stock_panel(code: str, lookback: int = 10) -> Dict[str, Any]:
-    """昨日复盘 UI 已下线。"""
     _ = code, lookback
     return _review_offline()
 
@@ -72,7 +64,6 @@ def quant_score_review(
     horizon_days: int = 3,
     autofill: bool = True,
 ) -> Dict[str, Any]:
-    """昨日复盘 UI 已下线。"""
     _ = as_of, horizon_days, autofill
     return _review_offline()
 
@@ -83,7 +74,6 @@ def quant_score_review_tau_shadow(
     horizon_days: int = 1,
     autofill: bool = True,
 ) -> Dict[str, Any]:
-    """ŷ_τ 单日验收 UI 已下线。"""
     _ = as_of, horizon_days, autofill
     return _review_offline()
 
@@ -94,37 +84,29 @@ def quant_score_review_nowcast_shadow(
     horizon_days: int = 1,
     autofill: bool = True,
 ) -> Dict[str, Any]:
-    """ŷ_nowcast 单日验收 UI 已下线。"""
     _ = as_of, horizon_days, autofill
     return _review_offline()
 
 
 @router.post("/api/quant/score-review")
 def quant_score_review_post(body: ScoreReviewRequest) -> Dict[str, Any]:
-    """昨日复盘 UI 已下线。"""
     _ = body
     return _review_offline()
 
 
 @router.post("/api/quant/score-ledger/freeze")
 def quant_score_ledger_freeze(body: ScoreLedgerFreezeRequest) -> Dict[str, Any]:
-    """分池簿冻结已停用（不再 404）。"""
     _ = body
-    try:
-        return deps.quant.freeze_score_ledger()
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e)) from e
+    return _review_offline(n_rows=0)
 
 
 @router.post("/api/quant/score-ledger/delete")
 def quant_score_ledger_delete(body: ScoreLedgerDeleteRequest) -> Dict[str, Any]:
-    """昨日复盘 UI 已下线；不经 HTTP 删账本。"""
     _ = body
     return _review_offline()
 
 
 @router.post("/api/quant/score-outcomes/fill")
 def quant_score_outcomes_fill(body: ScoreOutcomesFillRequest) -> Dict[str, Any]:
-    """昨日复盘 UI 已下线；日更仍走 fill_outcomes。"""
     _ = body
     return _review_offline()

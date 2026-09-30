@@ -433,6 +433,17 @@ def load_co_model(*, role: Optional[str] = None) -> Optional[Dict[str, Any]]:
     return None
 
 
+# 分钟前缀不进 ŷ_co。旧模型若仍带系数，打分时丢掉该列（缺特征 → z=0），避免开盘→τ 挪动隔夜预估。
+_CO_EXCLUDED_FEATURES = ("ret_open_to_tau",)
+
+
+def _co_score_row(features: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    row = dict(features or {})
+    for key in _CO_EXCLUDED_FEATURES:
+        row.pop(key, None)
+    return row
+
+
 def predict_co_from_features(
     features: Dict[str, Optional[float]],
     *,
@@ -442,7 +453,7 @@ def predict_co_from_features(
     if not doc:
         return None
     rm = doc.get("return_model") or {}
-    preds = _predict_rows(rm, [features])
+    preds = _predict_rows(rm, [_co_score_row(features)])
     return preds[0] if preds else None
 
 
@@ -455,7 +466,6 @@ _CO_FEAT_LABELS = {
     "theme_day": "主题日",
     "gap_atr": "缺口 / ATR",
     "gap_vs_sector": "行业相对缺口",
-    "ret_open_to_tau": "开盘→τ 收益 %",
     "yclose_loc": "今开相对昨高低",
     "mom3_pct": "近3日动量 %",
     "yest_close_loc": "昨收位置",
@@ -486,7 +496,7 @@ def explain_co_prediction(
         for n in (fit.get("active_features") or coefs.keys())
         if coefs.get(n) is not None
     ]
-    row = features or {}
+    row = _co_score_row(features)
     try:
         from core.signal.factors.meta.registry import factor_label
     except Exception:  # noqa: BLE001
@@ -495,6 +505,8 @@ def explain_co_prediction(
     terms: List[Dict[str, Any]] = []
     total = intercept
     for name in active:
+        if name in _CO_EXCLUDED_FEATURES:
+            continue
         beta = float(coefs.get(name) or 0.0)
         v = row.get(name)
         imputed = False

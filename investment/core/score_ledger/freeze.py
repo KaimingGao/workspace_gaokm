@@ -311,54 +311,12 @@ def freeze_from_daily_report(
     *,
     as_of: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """从日报里的 book_top / cross_section 补写账本。"""
-    d_hint = date_key(as_of)
-    if not d_hint:
-        gen = str((report or {}).get("generated_at") or "")
-        d_hint = date_key(gen) or None
-    rows: List[dict] = []
-    cl = report.get("cluster_live") if isinstance(report.get("cluster_live"), dict) else {}
-    for r in cl.get("book_top") or []:
-        if isinstance(r, dict):
-            rows.append(r)
-    cs = report.get("cross_section") if isinstance(report.get("cross_section"), dict) else {}
-    for r in cs.get("items") or cs.get("ranked") or []:
-        if isinstance(r, dict):
-            rows.append(r)
-    if not rows:
-        return {
-            "success": False,
-            "n_rows": 0,
-            "error": "日报无 book_top / cross_section",
-        }
-    codes = [
-        str(r.get("stock_code") or r.get("code") or "").strip()
-        for r in rows
-        if isinstance(r, dict)
-    ]
-    resolved = resolve_freeze_as_of(d_hint, codes=codes)
-    d = date_key(resolved.get("as_of"))
-    if not d:
-        return {
-            "success": False,
-            "error": "无法解析冻结决策日",
-            "n_rows": 0,
-            "resolve": resolved,
-        }
-    out = _lio.upsert_ledger_rows(
-        d,
-        rows,
-        source="daily_report",
-        meta={
-            "from_daily": True,
-            "feature_as_of": resolved.get("feature_as_of"),
-            "session_date": resolved.get("session_date"),
-            "freeze_remapped": bool(resolved.get("remapped")),
-            "freeze_note": resolved.get("note"),
-        },
-    )
-    out["resolve"] = resolved
-    if resolved.get("note"):
-        out["note"] = resolved.get("note")
-    return out
+    """日报写账本已停用（分档改 ŷ_oo Holdout OOS）。"""
+    _ = report, as_of
+    return {
+        "success": False,
+        "deprecated": True,
+        "n_rows": 0,
+        "error": "score_ledger 冻结已停用；日报不再写账本",
+    }
 

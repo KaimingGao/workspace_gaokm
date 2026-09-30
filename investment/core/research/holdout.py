@@ -1,6 +1,6 @@
 """研究 / 执行两套模型：holdout 切分与加载角色。
 
-研究模型（``research``）：近 N 个交易日不进训练（默认 20）；观察池分档用前半。
+研究模型（``research``）：近 N 个交易日不进训练（默认 20）；观察池分档用 ŷ_oo 在 Holdout 前半上的 OOS。
 回测天数由 /replay「回测窗口」独立设置。执行模型（``live``）：全部已实现标签。
 
 调仓与做 T 门槛对 ŷ 敏感、不鲁棒：研究套系数上调好的参数，换执行套后
@@ -139,6 +139,7 @@ def split_by_holdout_days(
         "n_train_days": 0,
         "n_test_days": 0,
         "train_days": [],
+        "test_days": [],
         "embargo_days": [],
         "split_mode": None,
         "requested_holdout_trading_days": requested,
@@ -178,6 +179,7 @@ def split_by_holdout_days(
         "n_train_days": len(train_days),
         "n_test_days": len(test_days),
         "train_days": list(train_days),
+        "test_days": list(test_days),
         "embargo_days": list(embargo_days),
         "split_mode": "holdout_days",
         "requested_holdout_trading_days": requested,

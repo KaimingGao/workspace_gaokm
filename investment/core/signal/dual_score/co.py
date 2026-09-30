@@ -166,7 +166,6 @@ def ensure_formula_terms_co(item: Optional[dict]) -> Optional[Dict[str, Any]]:
         "theme_day",
         "gap_atr",
         "gap_vs_sector",
-        "ret_open_to_tau",
         "ret_oc",
         "ret_cc",
         "y_on_today",

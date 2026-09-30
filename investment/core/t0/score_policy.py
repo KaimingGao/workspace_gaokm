@@ -3080,21 +3080,8 @@ def resolve_cover_policy(
 
 
 def load_scores_for_code_date(code: str, as_of: str) -> Dict[str, Optional[float]]:
-    """从 score_ledger 取某日某票分数；没有则空（仅兜底）。"""
-    try:
-        from core.score_ledger import load_ledger
-
-        led = load_ledger(as_of)
-        rows = led.get("rows") or []
-        key = str(code or "").strip()
-        for r in rows:
-            if not isinstance(r, dict):
-                continue
-            rc = str(r.get("stock_code") or r.get("code") or "").strip()
-            if rc == key:
-                return scores_from_ledger_row(r)
-    except Exception:  # noqa: BLE001
-        logger.debug("load_scores_for_code_date failed", exc_info=True)
+    """score_ledger 已下线；不再读冻结分（仅空兜底）。"""
+    _ = code, as_of
     return scores_from_item(None)
 
 

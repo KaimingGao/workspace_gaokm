@@ -356,13 +356,14 @@ def quant_research_universe_predictability_tiers(
     holdout: int = 20,
     min_n: int = 20,
     head: str = "oo",
-    a_hit: float = 0.55,
+    a_hit: float = 0.60,
     b_hit: float = 0.50,
     pool: str = "watching",
 ) -> Dict[str, Any]:
-    """观察池分档：Holdout 前半账本打档，落盘 last；回测/live 复用档位。
+    """观察池分档：ŷ_oo 在 Holdout 前半 OOS 按票打档，落盘 last；回测/live 复用档位。
 
-    holdout: 页顶 Holdout 交易日数；前半=分档窗。回测天数由回测页 lookback 独立设置。
+    holdout: 页顶 Holdout 交易日数；前半=分档窗（日线面板，不读 score_ledger）。
+    回测天数由回测页 lookback 独立设置。
     """
     from core.research.predictability_tiers import (
         build_holdout_half_tiers,
@@ -407,6 +408,24 @@ def quant_research_universe_predictability_tiers_last() -> Dict[str, Any]:
                 "note": "尚无分档报告；请先点「观察池分档」",
             }
         out = dict(last)
+        # 旧报告可能缺 name：用观察池落盘名补全（不改磁盘）
+        rows = out.get("rows")
+        if isinstance(rows, list) and rows:
+            from core.research.predictability_tiers import _watching_name_map
+
+            names = _watching_name_map()
+            if names:
+                patched = []
+                for r in rows:
+                    if not isinstance(r, dict):
+                        patched.append(r)
+                        continue
+                    row = dict(r)
+                    code = str(row.get("code") or "").strip()
+                    if code and not str(row.get("name") or "").strip() and names.get(code):
+                        row["name"] = names[code]
+                    patched.append(row)
+                out["rows"] = patched
         out["exists"] = True
         out["path"] = predictability_tiers_last_path()
         out["live"] = live

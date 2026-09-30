@@ -1,10 +1,16 @@
 /**
- * 观察池分档：Holdout 前半打档 → last；回测/live 复用档位过滤宇宙（回测天数独立）。
+ * 观察池分档：ŷ_oo Holdout 前半 OOS 打档 → last；回测/live 复用档位（回测天数独立）。
  */
 export function installResearchUniverseUi(q) {
   const { on, apiFetch, escapeHtml, readHoldoutTradingDays } = q;
   let lastTiers = null;
   let liveStatus = null;
+
+  const TIER_META = {
+    A: { label: "强", tip: "命中过门且有效日够" },
+    B: { label: "中", tip: "方向尚可或样本偏薄" },
+    C: { label: "弱", tip: "命中不足或无样本" },
+  };
 
   const el = {
     chip: () => document.getElementById("quant-ru-chip"),
@@ -48,6 +54,54 @@ export function installResearchUniverseUi(q) {
     return Number(v).toFixed(3);
   }
 
+  function hitBarHtml(hitRate, aHit, bHit) {
+    if (hitRate == null || Number.isNaN(Number(hitRate))) {
+      return `<span class="quant-ru-hit-bar is-empty" title="无有效命中"><span class="quant-ru-hit-fill" style="width:0%"></span></span>`;
+    }
+    const pct = Math.max(0, Math.min(100, Number(hitRate) * 100));
+    const a = (aHit ?? 0.6) * 100;
+    const b = (bHit ?? 0.5) * 100;
+    let tone = "is-c";
+    if (pct + 1e-9 >= a) tone = "is-a";
+    else if (pct + 1e-9 >= b) tone = "is-b";
+    return (
+      `<span class="quant-ru-hit-bar ${tone}" title="命中 ${pct.toFixed(1)}%">` +
+      `<span class="quant-ru-hit-fill" style="width:${pct.toFixed(1)}%"></span>` +
+      `</span>`
+    );
+  }
+
+  function stockCell(r) {
+    const code = escapeHtml(r.code || "");
+    const name = escapeHtml(String(r.name || "").trim() || "—");
+    const title = r.name
+      ? `${escapeHtml(r.name)} ${code}`
+      : code;
+    return (
+      `<td class="quant-ru-stock" title="${title}">` +
+      `<span class="quant-ru-stock-name">${name}</span>` +
+      `<span class="quant-ru-stock-code">${code}</span>` +
+      `</td>`
+    );
+  }
+
+  function mixBarHtml(counts) {
+    const a = Number(counts.A || 0);
+    const b = Number(counts.B || 0);
+    const c = Number(counts.C || 0);
+    const tot = Math.max(1, a + b + c);
+    return (
+      `<div class="quant-ru-mix" role="img" aria-label="档位构成 A${a} B${b} C${c}">` +
+      `<span class="quant-ru-mix-seg is-A" style="flex:${a}" title="A ${a}"></span>` +
+      `<span class="quant-ru-mix-seg is-B" style="flex:${b}" title="B ${b}"></span>` +
+      `<span class="quant-ru-mix-seg is-C" style="flex:${c}" title="C ${c}"></span>` +
+      `<span class="quant-ru-mix-meta">${Math.round((a / tot) * 100)}% A · ${Math.round(
+        (b / tot) * 100
+      )}% B · ${Math.round((c / tot) * 100)}% C</span>` +
+      `</div>`
+    );
+  }
+
   function renderTierTable(rep) {
     const host = el.tierTable();
     if (!host) return;
@@ -61,20 +115,21 @@ export function installResearchUniverseUi(q) {
     const minNReq = thr.min_n != null ? thr.min_n : 20;
     const nBit =
       thr.min_n_adapted || minNEff !== minNReq
-        ? `n≥${minNEff}(账本短·配${minNReq})`
-        : `n≥${minNEff}`;
+        ? `n≥${minNEff}(窗90%·配${minNReq})`
+        : `n≥${minNEff}(窗90%)`;
     const hold = rep.holdout_n != null ? rep.holdout_n : "—";
     const tierN = rep.tier_n != null ? rep.tier_n : rep.n_ledger_dates ?? "—";
-    const head = String(rep.head || "oo").toLowerCase();
-    const headBit =
-      head === "oo" || head === "y_oo" || head === "ŷ_oo"
-        ? "y_oo 分档"
-        : `${escapeHtml(rep.head_label || rep.head || "y_oo")} 分档`;
+    const aHit = thr.a_hit ?? 0.6;
+    const bHit = thr.b_hit ?? 0.5;
+    const counts = rep.counts || {};
+    const nSample = rep.n_with_sample != null ? rep.n_with_sample : "—";
+    const nPool = rep.pool_count != null ? rep.pool_count : (rep.rows || []).length;
+
     const headNote = [
-      headBit,
+      `ŷ_oo Holdout OOS`,
       `Holdout${hold} · 前半${tierN}日`,
-      `A≥${Math.round((thr.a_hit ?? 0.55) * 100)}%`,
-      `B≥${Math.round((thr.b_hit ?? 0.5) * 100)}%`,
+      `A≥${Math.round(aHit * 100)}%`,
+      `B≥${Math.round(bHit * 100)}%`,
       nBit,
       liveBit(),
     ].join(" · ");
@@ -88,17 +143,22 @@ export function installResearchUniverseUi(q) {
     const maxShow = 120;
     const sections = ["A", "B", "C"]
       .map((tier) => {
+        const meta = TIER_META[tier] || { label: tier, tip: "" };
         const rows = byTier[tier];
-        const open = tier === "A" ? " open" : "";
+        const open = tier === "A" || tier === "B" ? " open" : "";
         const slice = rows.slice(0, maxShow);
         const trs = slice
           .map(
-            (r) => `<tr>
-            <td>${escapeHtml(r.code || "")}</td>
-            <td>${escapeHtml(r.name || "—")}</td>
-            <td>${fmtHit(r.hit_rate)}</td>
-            <td>${r.n_valid ?? 0}</td>
-            <td>${fmtIc(r.ic)}</td>
+            (r) => `<tr data-tier="${tier}">
+            ${stockCell(r)}
+            <td class="num quant-ru-hit-cell">
+              <span class="quant-ru-hit-val">${fmtHit(r.hit_rate)}</span>
+              ${hitBarHtml(r.hit_rate, aHit, bHit)}
+            </td>
+            <td class="num" title="有效日 / 窗内日">${r.n_valid ?? 0}<span class="quant-ru-n-sub">/${
+              r.n_days ?? 0
+            }</span></td>
+            <td class="num">${fmtIc(r.ic)}</td>
           </tr>`
           )
           .join("");
@@ -109,14 +169,18 @@ export function installResearchUniverseUi(q) {
         const body = rows.length
           ? `<table class="quant-ru-tier-grid">
               <thead><tr>
-                <th>代码</th><th>名称</th><th title="y_oo 符号命中"><span class="quant-ru-token">y_oo</span> 命中</th><th>n</th><th>IC</th>
+                <th class="quant-ru-col-stock">标的</th>
+                <th class="num" title="ŷ_oo 符号命中率">命中</th>
+                <th class="num" title="有效命中日 / 窗内出现日">n</th>
+                <th class="num" title="票内 Spearman IC">IC</th>
               </tr></thead>
               <tbody>${trs}</tbody>
             </table>${more}`
           : `<p class="quant-ru-list-empty">无</p>`;
         return `<details class="quant-ru-tier-fold" data-tier="${tier}"${open}>
-          <summary class="quant-ru-tier-fold-sum">
+          <summary class="quant-ru-tier-fold-sum" title="${escapeHtml(meta.tip)}">
             <span class="quant-ru-tier-badge is-${tier}">${tier}</span>
+            <span class="quant-ru-tier-label">${escapeHtml(meta.label)}</span>
             <span class="quant-ru-tier-fold-count">${rows.length}</span>
           </summary>
           <div class="quant-ru-tier-fold-body">${body}</div>
@@ -125,8 +189,24 @@ export function installResearchUniverseUi(q) {
       .join("");
 
     host.hidden = false;
-    host.innerHTML = `<p class="quant-ru-list-note">${headNote}</p>
-      <div class="quant-ru-tier-folds">${sections}</div>`;
+    host.innerHTML =
+      `<div class="quant-ru-desk">` +
+      `<div class="quant-ru-kpis" aria-label="分档 KPI">` +
+      `<div class="quant-ru-kpi is-A"><span class="quant-ru-kpi-lab">A 强</span><span class="quant-ru-kpi-val">${
+        counts.A ?? 0
+      }</span></div>` +
+      `<div class="quant-ru-kpi is-B"><span class="quant-ru-kpi-lab">B 中</span><span class="quant-ru-kpi-val">${
+        counts.B ?? 0
+      }</span></div>` +
+      `<div class="quant-ru-kpi is-C"><span class="quant-ru-kpi-lab">C 弱</span><span class="quant-ru-kpi-val">${
+        counts.C ?? 0
+      }</span></div>` +
+      `<div class="quant-ru-kpi"><span class="quant-ru-kpi-lab">有样本</span><span class="quant-ru-kpi-val">${nSample}<span class="quant-ru-kpi-sub">/${nPool}</span></span></div>` +
+      `</div>` +
+      mixBarHtml(counts) +
+      `<p class="quant-ru-list-note">${escapeHtml(headNote)}</p>` +
+      `<div class="quant-ru-tier-folds">${sections}</div>` +
+      `</div>`;
   }
 
   function applyLive(live) {
@@ -143,7 +223,7 @@ export function installResearchUniverseUi(q) {
       setStatus(
         "ok",
         liveStatus && liveStatus.enabled ? "live" : "已分档",
-        `A${c.A ?? 0} · B${c.B ?? 0} · C${c.C ?? 0} · y_oo 分档 · Holdout${hold} · ${liveBit()}`
+        `A${c.A ?? 0} · B${c.B ?? 0} · C${c.C ?? 0} · ŷ_oo OOS · Holdout${hold} · ${liveBit()}`
       );
     } else if (liveStatus && liveStatus.enabled) {
       setStatus("ok", "live", `${liveBit()} · 可先「观察池分档」刷新`);
@@ -158,8 +238,8 @@ export function installResearchUniverseUi(q) {
         "busy",
         useLast ? "读取中" : "分档中",
         useLast
-          ? "上次 Holdout 分档…"
-          : `Holdout ${h} 日前半 · y_oo 打档…`
+          ? "上次 Holdout OOS 分档…"
+          : `Holdout ${h} 日前半 · ŷ_oo OOS 打档…`
       );
     }
     const url = useLast
@@ -188,7 +268,7 @@ export function installResearchUniverseUi(q) {
   async function promoteLive() {
     if (
       !window.confirm(
-        "启用 live？将复用当前 Holdout 前半分档；调仓新开只留 A+B（持仓保留）。"
+        "启用 live？将复用当前 ŷ_oo Holdout OOS 前半分档；调仓新开只留 A+B（持仓保留）。"
       )
     ) {
       return;

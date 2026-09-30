@@ -38,7 +38,7 @@ import {
   Y_HL_TITLE,
 } from "./paper/fmt.js?v=p2544";
 import { hydrateTailAnomalyCharts } from "./tail_anomaly_chart.js";
-import { CO_FEAT_META } from "./quant/factor_meta.js?v=p1226";
+import { CO_FEAT_META } from "./quant/factor_meta.js";
 
 const FACTOR_LABELS = {
   momentum: "动量",

@@ -544,75 +544,18 @@ def ledger_y_check_daily_summary(
     *,
     include_hit: bool = True,
 ) -> Dict[str, Any]:
-    """日报用：最近（或指定）账本日的 Y 校验分桶；可选挂复盘命中。"""
-    out: Dict[str, Any] = {
+    """日报用 Y 校验汇总已下线（score_ledger 退役）。"""
+    _ = as_of, include_hit
+    return {
         "success": False,
+        "deprecated": True,
         "as_of": None,
         "n": 0,
         "by_check": {},
         "rows": [],
         "by_y_check": [],
-        "note": None,
+        "note": "score_ledger / 日报已下线",
     }
-    try:
-        from core.score_ledger import build_score_review, list_ledger_dates, load_ledger
-    except Exception as exc:
-        logger.exception('unexpected error in ledger_y_check_daily_summary')
-        out["note"] = f"账本不可用: {exc}"
-        return out
-    d = str(as_of or "").strip() or None
-    if not d:
-        dates = list_ledger_dates(limit=5) or []
-        d = str(dates[0]).strip() if dates else None
-    if not d:
-        out["note"] = "无 score ledger 日"
-        return out
-    out["as_of"] = d
-    try:
-        ledger = load_ledger(d) or {}
-        rows = list(ledger.get("rows") or [])
-    except Exception as exc:
-        logger.exception('unexpected error in ledger_y_check_daily_summary')
-        out["note"] = f"读账本失败: {exc}"
-        return out
-    base = summarize_y_checks(rows)
-    out["n"] = int(base.get("n") or 0)
-    out["by_check"] = dict(base.get("by_check") or {})
-    out["rows"] = list(base.get("rows") or [])
-    out["success"] = True
-    if include_hit and out["n"] > 0:
-        try:
-            rev = build_score_review(d, horizon_days=1, autofill=False) or {}
-            by = (rev.get("summary") or {}).get("by_y_check")
-            if isinstance(by, list) and by:
-                out["by_y_check"] = by
-                out["hit_rate"] = (rev.get("summary") or {}).get("hit_rate")
-                out["n_scored"] = (rev.get("summary") or {}).get("n_scored")
-        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-            logger.debug("catch except Exception: in y_state.py", exc_info=True)
-            pass
-    if not out.get("by_y_check"):
-        out["by_y_check"] = [
-            {
-                "check": r.get("check"),
-                "n": r.get("n"),
-                "hits": None,
-                "wrong": None,
-                "hit_rate": None,
-                "label": r.get("label"),
-                "share": r.get("share"),
-            }
-            for r in out["rows"]
-        ]
-    mix = " · ".join(
-        f"{check_label_zh(r.get('check'))} {r.get('n')}"
-        for r in (out.get("by_y_check") or out.get("rows") or [])[:5]
-        if r.get("n")
-    )
-    out["summary_line"] = (
-        f"Y校验 {d}：n={out['n']}" + (f" · {mix}" if mix else "")
-    )
-    return out
 
 
 CHECK_LABEL_ZH = {

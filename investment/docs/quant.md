@@ -1261,7 +1261,8 @@ score_stock(code) 续——
 | 开盘 Z | `gap_pct` `gap_atr` `gap_vs_sector` `sector_gap_breadth` `theme_day` `yclose_loc` `mom3_pct` `dist_to_up_limit` | 今开缺口与截面；距涨停=昨收到板剩余空间 |
 | 昨 K | `yest_close_loc` `yest_range_pct` `yest_vol_ratio` | 昨收在高低中位置、振幅、量/均量（MA 不含昨日本身） |
 | 滞后 | `yest_gap` `on_ma5` | 上一跳隔夜与近 5 日均值；**不含**今日 `gap_pct` |
-| 盘中 | `ret_open_to_tau` | 有分钟前缀时才填 |
+
+分钟 `ret_open_to_tau` 不进 ŷ_co（训练列与打分都丢掉；τ 头仍用）。
 
 ### 4.3b ŷ_oo_rank（影子 pairwise LTR · 不进决策）
 

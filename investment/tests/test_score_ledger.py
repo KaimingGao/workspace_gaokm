@@ -73,20 +73,20 @@ class TestScoreLedger(unittest.TestCase):
         def fake_bars(code, limit=40, offline_ok=True):
             # as_of 08-05 → next 1d = 08-06 (assume weekday calendar lite)
             bars = [
-                {"date": "2026-08-04", "close": 100.0},
-                {"date": "2026-08-05", "close": 100.0},
-                {"date": "2026-08-06", "close": 102.0},  # +2%
-                {"date": "2026-08-07", "close": 103.0},
-                {"date": "2026-08-08", "close": 104.0},
+                {"date": "2026-08-04", "open": 100.0, "close": 100.0},
+                {"date": "2026-08-05", "open": 100.0, "close": 100.0},
+                {"date": "2026-08-06", "open": 102.0, "close": 102.0},  # +2% oo
+                {"date": "2026-08-07", "open": 103.0, "close": 103.0},
+                {"date": "2026-08-08", "open": 104.0, "close": 104.0},
             ]
             if str(code).endswith("001"):
                 # wrong direction for negative yhat if we use +2%
                 bars = [
-                    {"date": "2026-08-04", "close": 100.0},
-                    {"date": "2026-08-05", "close": 100.0},
-                    {"date": "2026-08-06", "close": 98.0},  # -2%
-                    {"date": "2026-08-07", "close": 97.0},
-                    {"date": "2026-08-08", "close": 96.0},
+                    {"date": "2026-08-04", "open": 100.0, "close": 100.0},
+                    {"date": "2026-08-05", "open": 100.0, "close": 100.0},
+                    {"date": "2026-08-06", "open": 98.0, "close": 98.0},  # -2% oo
+                    {"date": "2026-08-07", "open": 97.0, "close": 97.0},
+                    {"date": "2026-08-08", "open": 96.0, "close": 96.0},
                 ]
             return bars, "test"
 
@@ -147,9 +147,9 @@ class TestScoreLedger(unittest.TestCase):
         def fake_bars(code, limit=40, offline_ok=True):
             return (
                 [
-                    {"date": "2026-08-04", "close": 100.0},
-                    {"date": "2026-08-05", "close": 100.0},
-                    {"date": "2026-08-06", "close": 102.0},
+                    {"date": "2026-08-04", "open": 100.0, "close": 100.0},
+                    {"date": "2026-08-05", "open": 100.0, "close": 100.0},
+                    {"date": "2026-08-06", "open": 102.0, "close": 102.0},
                 ],
                 "test",
             )
@@ -220,9 +220,9 @@ class TestScoreLedger(unittest.TestCase):
         def fake_bars(code, limit=40, offline_ok=True):
             return (
                 [
-                    {"date": "2026-08-04", "close": 100.0},
-                    {"date": "2026-08-05", "close": 100.0},
-                    {"date": "2026-08-06", "close": 98.0},
+                    {"date": "2026-08-04", "open": 100.0, "close": 100.0},
+                    {"date": "2026-08-05", "open": 100.0, "close": 100.0},
+                    {"date": "2026-08-06", "open": 98.0, "close": 98.0},
                 ],
                 "test",
             )
@@ -306,10 +306,13 @@ class TestScoreLedger(unittest.TestCase):
                 as_of="2026-08-05", horizon_days=1, fill_lookback=2
             )
             self.assertTrue(out["success"])
+            self.assertTrue(out.get("deprecated") or out.get("skipped"))
             self.assertTrue((out.get("freeze") or {}).get("skipped"))
-            self.assertGreaterEqual(out["filled_days"], 1)
+            self.assertEqual(out.get("filled_days"), 0)
+            self.assertEqual(out.get("fills") or [], [])
+            # 停写后不再回填；旧文件仍可读
             oc = load_outcomes("2026-08-04")
-            self.assertFalse(oc.get("empty"))
+            self.assertTrue(oc.get("empty") or not oc.get("by_code"))
 
     def test_row_from_book_shape(self):
         from core.score_ledger import row_from_scored_item

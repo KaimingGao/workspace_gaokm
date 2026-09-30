@@ -1,9 +1,7 @@
-"""打分账本：按决策日 as_of 冻结 ŷ。
+"""打分账本（产品面已下线）：按决策日 as_of 冻结 ŷ。
 
-写入：日报 ``freeze_from_daily_report``（EOD）；τ / nowcast 影子独立文件。
-分池簿冻结、复盘 HTTP、τ/nowcast 单日验收 HTTP 已下线。
-库函数 ``build_score_review`` / ``build_tau_shadow_review`` 仍供日报 Y-check。
-回填：日更 ``fill_outcomes`` 用日线算 realized。
+写入：日报 ``freeze_from_daily_report``、日更 ``run_score_ledger_daily`` **已停写**
+（观察池分档改吃 ŷ_oo Holdout OOS）。HTTP 全 stub；库函数 / 旧文件仅供脚本与单测。
 
 实现按用例拆到子模块；本包再导出，保持 ``from core.score_ledger import …``。
 """

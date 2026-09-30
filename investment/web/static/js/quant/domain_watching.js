@@ -428,45 +428,6 @@ export function installWatching(q) {
     }).catch(() => {});
   }
 
-  async function drawWatchingYhatSeries(code) {
-    const wrap = document.getElementById("watching-yhat-series-wrap");
-    const host = document.getElementById("watching-yhat-series");
-    const cap = document.getElementById("watching-yhat-series-caption");
-    if (!wrap || !host || !code) {
-      if (wrap) wrap.hidden = true;
-      return;
-    }
-    try {
-      const res = await fetch(
-        `/api/quant/score-ledger/series?code=${encodeURIComponent(code)}&limit=40`
-      );
-      const data = await res.json().catch(() => ({}));
-      const pts = (data.points || [])
-        .map((p) => ({
-          time: String(p.date || "").slice(0, 10),
-          value: Number(p.yhat),
-        }))
-        .filter((p) => /^\d{4}-\d{2}-\d{2}$/.test(p.time) && Number.isFinite(p.value));
-      if (!data.success || pts.length < 2) {
-        wrap.hidden = true;
-        return;
-      }
-      wrap.hidden = false;
-      if (cap) {
-        cap.textContent = `ŷ 时间线（账本 · ${pts.length} 日）`;
-      }
-      await renderLineChart(host, pts, {
-        emptyText: "账本 ŷ 不足",
-        color: "#2563eb",
-        zeroLine: true,
-        disableZoom: true,
-        mainLabel: "ŷ%",
-      });
-    } catch (_) {
-      wrap.hidden = true;
-    }
-  }
-
   function ensureResearchDock() {
     if (typeof window.__investmentInitResearchDock === "function") {
       try {
@@ -1939,7 +1900,6 @@ export function installWatching(q) {
     }
     if (labelEl) labelEl.textContent = watchingChartLabelText(name, code);
     drawWatchingChart([]);
-    drawWatchingYhatSeries(code).catch(() => {});
 
     try {
       const res = await fetch(

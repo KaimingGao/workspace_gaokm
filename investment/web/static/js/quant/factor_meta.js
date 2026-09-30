@@ -516,7 +516,6 @@ export const CO_FEAT_META = {
   theme_day: TAU_FEAT_META.theme_day,
   gap_atr: TAU_FEAT_META.gap_atr,
   gap_vs_sector: TAU_FEAT_META.gap_vs_sector,
-  ret_open_to_tau: TAU_FEAT_META.ret_open_to_tau,
   yclose_loc: {
     label: "今开相对昨高低",
     description:

@@ -229,68 +229,31 @@ def run_score_ledger_daily(
     horizon_days: Optional[int] = None,
     fill_lookback: int = 5,
 ) -> Dict[str, Any]:
-    """日更钩子：回填已到期 outcomes（不再从分池簿冻结）。
+    """日更钩子：已停写（分档改 ŷ_oo Holdout OOS）。
 
-    EOD 快照由生成日报 ``freeze_from_daily_report`` 写入。
-    不抛异常给调度层；失败写进返回字段。
+    保留函数签名供旧调用方；不再 freeze / fill。读 API 仍可用。
     """
-    from core.market.calendar import prev_trading_day, resolve_session_date
+    _ = (as_of, horizon_days, fill_lookback)
+    from core.market.calendar import resolve_session_date
 
     sess = resolve_session_date()
-    requested = date_key(as_of)
-    h = horizon_days
-    if h is None:
-        try:
-            from core.signal.config import load_signal_config
-
-            scoring = (load_signal_config() or {}).get("scoring") or {}
-            h = int(scoring.get("horizon_days") or 3)
-        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-            logger.debug("catch except Exception: in score_ledger.py", exc_info=True)
-            h = 3
-    h = max(1, min(int(h or 3), 10))
-
-    freeze_out = {
-        "success": False,
-        "skipped": True,
-        "deprecated": True,
-        "n_rows": 0,
-        "note": "分池簿冻结已停用；EOD 快照由日报 freeze_from_daily_report 写入",
-    }
-    freeze_day = requested or default_as_of()
-
-    fills: List[Dict[str, Any]] = []
-    look = max(1, min(int(fill_lookback or 5), 20))
-    for i in range(1, look + 1):
-        target = prev_trading_day(sess, n=h + i - 1) or None
-        if not target:
-            continue
-        led = _lio.load_ledger(target)
-        if led.get("empty") or not led.get("success"):
-            continue
-        try:
-            fo = fill_outcomes(target, horizon_days=h)
-            fills.append(
-                {
-                    "as_of": target,
-                    "success": bool(fo.get("success")),
-                    "filled": fo.get("filled"),
-                    "missing": fo.get("missing"),
-                    "error": fo.get("error"),
-                }
-            )
-        except Exception as exc:
-            logger.exception('unexpected error in run_score_ledger_daily')
-            fills.append({"as_of": target, "success": False, "error": str(exc)})
-
+    freeze_day = date_key(as_of) or default_as_of()
     return {
         "success": True,
+        "deprecated": True,
+        "skipped": True,
         "as_of": freeze_day,
         "session_date": sess,
-        "horizon_days": h,
-        "freeze": freeze_out,
-        "fills": fills,
-        "filled_days": sum(1 for f in fills if f.get("success")),
-        "note": "日更：回填到期决策日 realized（不改权；不再从分池簿冻结）。",
+        "horizon_days": horizon_days,
+        "freeze": {
+            "success": False,
+            "skipped": True,
+            "deprecated": True,
+            "n_rows": 0,
+            "note": "score_ledger 冻结已停用",
+        },
+        "fills": [],
+        "filled_days": 0,
+        "note": "score_ledger fill 已停用；分档改吃 ŷ_oo Holdout OOS；读 API 仍保留。",
     }
 

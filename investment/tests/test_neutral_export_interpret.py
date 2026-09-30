@@ -337,15 +337,22 @@ class TestP59WebPresetFlags(unittest.TestCase):
         path = os.path.join(ROOT, "web", "static", "partials", "quant_panel.html")
         with open(path, encoding="utf-8") as f:
             html = f.read()
-        self.assertIn("quant-ops-preset-flags", html)
+        # 日报折页已下线；preset flags 容器一并移除
+        self.assertNotIn("quant-ops-preset-flags", html)
+        self.assertNotIn("quant-daily-fold", html)
 
     def test_app_js_renders_preset_flags(self):
         export_js = os.path.join(ROOT, "web", "static", "js", "quant", "domain_export.js")
         quant_js = os.path.join(ROOT, "web", "static", "js", "quant.js")
         with open(export_js, encoding="utf-8") as f:
-            self.assertIn("renderPresetFlags", f.read())
+            src = f.read()
+            self.assertIn("renderPresetFlags", src)  # no-op stub
+            self.assertIn("deprecated: true", src)
         with open(quant_js, encoding="utf-8") as f:
-            self.assertIn("portfolio_neutral_compare", f.read())
+            qsrc = f.read()
+            self.assertNotIn("PRESET_FLAG_LABELS", qsrc)
+            self.assertNotIn("QUANT_EXPORT_PRESETS", qsrc)
+            self.assertIn("openReadmeViewer", qsrc)
 
 # --- p60_exp.py::TestNeutralExportFromSkill ---
 class TestNeutralExportFromSkill(unittest.TestCase):

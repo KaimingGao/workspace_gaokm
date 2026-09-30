@@ -76,12 +76,9 @@ class TestP95P96WebPages(unittest.TestCase):
                 "data-page=\"quant\"",
                 "quant-page",
                 "quant-section-factors",
-                "quant-ops-summary",
                 "quant-factor-run",
                 "quant-cross-run",
-                "quant-ops-run-daily",
                 "因子系数",
-                "因子系数 β",
                 "return_model",
                 "ŷ",
                 "quant-return-model-fit",
@@ -90,13 +87,7 @@ class TestP95P96WebPages(unittest.TestCase):
                 "对照验证",
                 "quant-ols-summary",
                 "quant-ridge-lambda",
-                "quant-daily-fold",
-                "quant-daily-on-alpha",
-                "quant-daily-rank-enter",
-                "quant-daily-rank-strong",
-                "quant-interpret-offline",
-                "quant-interpret-neutral",
-                "规则解读",
+                "quant-section-research-universe",
             ),
             "/watching": ("data-page=\"watching\"", "watching-search-input", "watching-watchlist-table", "观察", "加入纸面", "quant-watching-sync", "watching-build-layer"),
             "/strategy": ("data-page=\"strategy\"", "strategy-market-context", "strategy-factor-dict", "strategy-regime-board"),
@@ -164,7 +155,8 @@ class TestP95P96WebPages(unittest.TestCase):
         self.assertNotIn("quant-ops-run-ci", quant.text)
         self.assertNotIn("quant-ops-package", quant.text)
         self.assertNotIn("量化+调仓", quant.text)
-        self.assertIn("生成日报", quant.text)
+        self.assertNotIn("生成日报", quant.text)
+        self.assertNotIn("quant-daily-fold", quant.text)
         self.assertIn('href="/follow"', quant.text)
 
     def test_page_html_helpers(self):
