@@ -1,6 +1,6 @@
 """v6 多轮做 T：ŷ_oc 破带选腿。
 
-09:30–11:00 每根 5m 用 ŷ_oc 估 C_τ；C>upper 反T、C<lower 正T；leg2=C_τ。
+09:30–11:00 每根 5m 用 y_τc 估 C_τ；C>upper 反T、C<lower 正T；leg2=C_τ。
 ŷ_τw 为五窗相对中位点符号和，过门槛才开。11:00 后不开 leg1。
 每轮 ratio，累计至 max_pos。第二腿：触 C_τ / 止损 / 锁赢 / 午后中点追价 / 收盘强平。
 """
@@ -1000,9 +1000,6 @@ def _build_close_band_scan_trace(
         remaining_oc_v = None
         c_hat_source = None
         y_oc_scan = None
-        y_tc_scan = None
-        y_tc_ridge = None
-        y_tc_source = None
         direction = None
         y_tw_skip = None
         minute_missing = bool(
@@ -1036,6 +1033,12 @@ def _build_close_band_scan_trace(
             lower_px = band_meta.get("lower_px")
             upper_px = band_meta.get("upper_px")
             delta_pct = band_meta.get("delta_pct")
+            if band_meta.get("r_hat") is not None:
+                r_hat = band_meta.get("r_hat")
+            if band_meta.get("remaining_oc") is not None:
+                remaining_oc_v = band_meta.get("remaining_oc")
+            if band_meta.get("c_hat_source"):
+                c_hat_source = band_meta.get("c_hat_source")
 
         if isinstance(gate_snap, dict):
             from core.t0.score_policy import scores_from_item
@@ -1044,7 +1047,7 @@ def _build_close_band_scan_trace(
             sc = scores_from_item(gate_snap)
             y_tau = _yt_gate(gate_snap)
             y_oc_scan = y_tau
-            from core.research.tc_ridge import pick_y_tc_hat, tc_realized_pct
+            from core.signal.yhat_windows import pick_y_tc_hat, tc_realized_pct
 
             y_r_hat = pick_y_tc_hat(sc, gate_snap)
             if y_r_hat is not None:
@@ -1175,20 +1178,8 @@ def _build_close_band_scan_trace(
                 if (y_oc_scan is not None or y_tau is not None)
                 else None
             ),
-            "y_τc": (
-                round(float(y_tc_ridge if y_tc_ridge is not None else y_r), 4)
-                if (y_tc_ridge is not None or y_r is not None)
-                else None
-            ),
-            "y_τc_ridge": (
-                round(float(y_tc_ridge), 4) if y_tc_ridge is not None else None
-            ),
-            "y_τc_source": y_tc_source,
-            "y_tc": (
-                round(float(y_tc_ridge if y_tc_ridge is not None else y_r), 4)
-                if (y_tc_ridge is not None or y_r is not None)
-                else None
-            ),
+            "y_τc": round(float(y_r), 4) if y_r is not None else None,
+            "y_tc": round(float(y_r), 4) if y_r is not None else None,
             "remaining_oc": (
                 round(float(remaining_oc_v), 4) if remaining_oc_v is not None else None
             ),

@@ -793,7 +793,7 @@ def predict_oo_rank_from_features(
     单票调用时若缺 ``cs_*`` 列则按 0 填（与训练 feature_mode 可能不一致）；
     批打分请用 ``apply_oo_rank_scores``（同批挂日截面）。
     """
-    from core.research.tau_ridge import _predict_rows
+    from core.research.tc_ridge import _predict_rows
 
     model = _resolve_oo_rank_fit(model_doc=model_doc, fit=fit)
     if not isinstance(model, dict):
@@ -931,7 +931,7 @@ def _pair_accuracy(
 def _day_scores(
     day: Dict[str, Any], fit: Dict[str, Any]
 ) -> Tuple[List[Optional[float]], List[float]]:
-    from core.research.tau_ridge import _predict_rows
+    from core.research.tc_ridge import _predict_rows
 
     xs = list(day.get("xs") or [])
     ys = [float(y) for y in (day.get("ys") or [])]

@@ -141,7 +141,7 @@ def _resolve_sigma(item: dict, config: Optional[dict] = None) -> Tuple[Optional[
             return round(s, 6), k
     # τ 模型落盘 OOS
     try:
-        from core.research.tau_ridge import load_tau_model
+        from core.research.tc_ridge import load_tau_model
 
         doc = load_tau_model() or {}
         oos = doc.get("oos") if isinstance(doc.get("oos"), dict) else {}
@@ -200,10 +200,6 @@ def resolve_oo_check(
     return CHECK_OK
 
 
-# 遗留别名
-resolve_eod_check = resolve_oo_check
-
-
 def oo_execution_trust(
     check: Optional[str],
     *,
@@ -217,10 +213,6 @@ def oo_execution_trust(
         return float(trust.get(key, 1.0 if key == CHECK_OK else 0.0))
     except (TypeError, ValueError):
         return 0.0
-
-
-# 遗留别名
-eod_execution_trust = oo_execution_trust
 
 
 def scale_weights_by_oo_trust(
@@ -267,10 +259,6 @@ def scale_weights_by_oo_trust(
     meta["applied"] = True
     meta["total_after"] = round(sum(out.values()), 4)
     return out, meta
-
-
-# 遗留别名
-scale_weights_by_eod_trust = scale_weights_by_oo_trust
 
 
 def resolve_tau_to_close_segment(
@@ -401,7 +389,7 @@ def build_y_state(
         rem_oc = bool(it.get("rem_oc"))
     else:
         try:
-            from core.research.tau_ridge import load_tau_model
+            from core.research.tc_ridge import load_tau_model
             from core.signal.yhat_geom import rem_label_is_open_to_close
 
             rem_oc = rem_label_is_open_to_close(load_tau_model())
@@ -537,25 +525,6 @@ def summarize_y_checks(items: Sequence[Optional[dict]]) -> Dict[str, Any]:
         for ck, cnt in sorted(counts.items(), key=lambda kv: -kv[1])
     ]
     return {"n": n, "by_check": counts, "rows": by_rows}
-
-
-def ledger_y_check_daily_summary(
-    as_of: Optional[str] = None,
-    *,
-    include_hit: bool = True,
-) -> Dict[str, Any]:
-    """日报用 Y 校验汇总已下线（score_ledger 退役）。"""
-    _ = as_of, include_hit
-    return {
-        "success": False,
-        "deprecated": True,
-        "as_of": None,
-        "n": 0,
-        "by_check": {},
-        "rows": [],
-        "by_y_check": [],
-        "note": "score_ledger / 日报已下线",
-    }
 
 
 CHECK_LABEL_ZH = {

@@ -706,15 +706,6 @@ def run_paper_daily(
                 compute_rolling_ic=True,
             )
 
-        # score_ledger 日更回填已停写（分档改 Holdout OOS）；保留字段兼容下游
-        score_ledger = {
-            "success": True,
-            "deprecated": True,
-            "skipped": True,
-            "note": "score_ledger fill 已停用；分档改吃 ŷ_oo Holdout OOS",
-            "fills": [],
-        }
-
         # R0：确保日更结果含权威北极星包（cycle 内已算则复用）
         north_star = paper.get("last_north_star") or (ops or {}).get("north_star")
         if not north_star:
@@ -759,7 +750,6 @@ def run_paper_daily(
             "cycle": cycle,
             "summary": summary,
             "health": health,
-            "score_ledger": score_ledger,
             "ops_report": ops or (cycle or {}).get("ops_report"),
             "north_star": north_star,
             "strategy_id": (cycle or {}).get("strategy_id") or strategy,

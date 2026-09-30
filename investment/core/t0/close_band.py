@@ -1,7 +1,7 @@
-"""做 T 选腿：09:30–11:00 每根 5m 用 ŷ_oc 估 C_τ，破带定方向。
+"""做 T 选腿：09:30–11:00 每根 5m 用 y_τc 估 C_τ，破带定方向。
 
-C_τ = O×(1+clip(ŷ_oc×scale, ±20)/100)。表单无上下界；硬顶 ±20 防极端。
-upper = C_τ×(1+δ/100)，lower = C_τ×(1−δ/100)。
+C_τ = price(τ)×(1+clip(y_τc×scale, ±20)/100)。τ=开盘时 price(τ)=open。
+硬顶 ±20。upper = C_τ×(1+δ/100)，lower = C_τ×(1−δ/100)。
 C>upper → 反T（现价卖，leg2 目标 C_τ）；C<lower → 正T（现价买，leg2 目标 C_τ）。
 ŷ_τw = ŷ_τ30/45/60/75/90 相对共用中位点（默认 47%）的符号和，过门槛才开腿。
 股数额度看 |ŷ_oc|：过 y_oc入场% 用入场金额/价换算股数，过 y_oc强% 用强金额。
@@ -101,7 +101,7 @@ def target_c_tau_px(
     y_oc_l: Any = None,
     y_oc_u: Any = None,
 ) -> Optional[float]:
-    """C_τ = price × (1 + clip(ŷ_oc×scale, ±20)/100)。"""
+    """C_τ = price(τ) × (1 + clip(y_τc×scale, ±20)/100)。"""
     _ = y_oc_l, y_oc_u
     try:
         p = float(price)
@@ -136,12 +136,12 @@ def scores_close_components(
     price_tau: Optional[float] = None,
     cfg: Optional[dict] = None,
 ) -> Dict[str, Optional[float]]:
-    """估 C_τ：O×(1+clip(ŷ_oc×scale, ±20)/100)。ŷ_τc 只对照。
+    """估 C_τ：price(τ)×(1+clip(y_τc×scale, ±20)/100)。缺 price(τ) 时用 open。
 
-    估用**日线** open；slots 再经 ``map_close_px_to_minute`` 映回分钟触价。
-    remaining(clip(ŷ_oc×scale)) 写入 R̂_τ（= Ĉ_τ/price(τ)−1，与价带同目标）；
-    remaining_oc 仍为未 clip 的 remaining(ŷ_oc)。ŷ_τc 为 Ridge 预估。均不参与选腿。
-    ``c_oc`` 为未 clip 的 O×(1+ŷ_oc/100)，不进破带。
+    缺 y_τc 时回退 y_oc / y_tau（旧行、开盘时钟同一个数）。
+    R̂_τ = Ĉ_τ/price(τ)−1，等于 clip 后的百分点。
+    remaining_oc 仍是未 clip 的 remaining(y_oc)，不进破带。
+    ``c_oc`` 为未 clip 的 O×(1+y_oc/100)，不进破带。
     """
     from core.signal.yhat_windows import (
         Y_TC_SOURCE_REMAINING,
@@ -167,31 +167,50 @@ def scores_close_components(
             y_τc_ridge = _f(raw.get("y_r")) or _f(raw.get("y_r_hat")) or _f(
                 raw.get("predicted_score_r")
             )
+    direct_τc = (
+        "y_τc",
+        "predicted_score_τc",
+        "y_tc",
+        "predicted_score_tc",
+        "y_to",
+        "predicted_score_to",
+        "y_pc",
+        "predicted_score_pc",
+    )
+    has_direct_τc = any(raw.get(k) is not None for k in direct_τc)
+    # 只有旧 y_r（分钟收盘头）时不拿来估带，回退 y_oc / y_tau。
+    y_for_band = (
+        y_τc_ridge
+        if y_τc_ridge is not None and has_direct_τc
+        else y_oc
+    )
     y_tau = y_oc
     scale = resolve_y_oc_target_scale(cfg)
     y_oc_target = (
-        clip_y_oc_target_pct(y_oc, scale=scale) if y_oc is not None else None
+        clip_y_oc_target_pct(y_for_band, scale=scale) if y_for_band is not None else None
     )
-    c_hat = _pct_to_px(open_px, y_oc_target) if y_oc_target is not None else None
     c_oc = _pct_to_px(open_px, y_oc) if y_oc is not None else None
     pt = _f(price_tau)
     if pt is None or pt <= 0:
         feats = raw.get("features_tau") if isinstance(raw.get("features_tau"), dict) else {}
         pt = _f(raw.get("price_tau")) or _f(feats.get("price_tau")) or _f(feats.get("price"))
+    anchor = pt if pt is not None and pt > 0 else _f(open_px)
+    c_hat = _pct_to_px(anchor, y_oc_target) if y_oc_target is not None and anchor else None
+    if c_hat is not None:
+        c_hat = round(float(c_hat), 4)
     rot = ret_open_to_tau_pct(open_px, pt)
     if rot is None:
         rot = ret_open_to_tau_of(raw)
-    rem = remaining_oc(y_oc, rot, open_px=open_px, price_tau=pt)
-    rem_target = remaining_oc(y_oc_target, rot, open_px=open_px, price_tau=pt)
-    if rem_target is None:
-        rem_target = r_hat_from_c_tau_px(c_hat, pt)
-    r_hat = rem_target if rem_target is not None else rem
+    rem = remaining_oc(y_oc, rot, open_px=open_px, price_tau=pt) if y_oc is not None else None
+    r_hat = r_hat_from_c_tau_px(c_hat, anchor)
     # 表列 ŷ_τc = Ridge 预估 price→close；R̂_τ = Ĉ_τ/price(τ)−1。
     y_τc = y_τc_ridge
     y_τc_source = Y_TC_SOURCE_RIDGE if y_τc_ridge is not None else None
-    c_τc = _pct_to_px(pt, y_τc) if y_τc is not None and pt is not None and pt > 0 else None
+    c_τc = _pct_to_px(anchor, y_τc) if y_τc is not None and anchor else None
     c_rem = _pct_to_px(pt, rem) if rem is not None and pt is not None and pt > 0 else None
-    source = "y_oc" if c_hat is not None else None
+    source = None
+    if c_hat is not None:
+        source = "y_τc" if y_for_band is y_τc_ridge and y_τc_ridge is not None else "y_oc"
     n_src = 1 if c_hat is not None else 0
     return {
         "c_tau": round(c_hat, 4) if c_hat is not None else None,
@@ -227,12 +246,11 @@ def estimate_close_px(
     price_tau: Optional[float] = None,
     cfg: Optional[dict] = None,
 ) -> Dict[str, Any]:
-    """C_τ := O×(1+clip(ŷ_oc×scale, ±20)/100)。缺 ŷ_oc → 不可估。
+    """C_τ = price(τ)×(1+clip(y_τc×scale, ±20)/100)。缺 y_τc 且缺 y_oc → 不可估。
 
-    扫描传入**该根前缀**因果 ŷ_oc。破带比较 price = **本根 5m 收价 C**。
-    ``price_tau`` 用于 R̂_τ / ŷ_τc 对照字段，不改 C_τ。
-    R̂_τ = Ĉ_τ/price(τ)−1（clip 后目标）；remaining_oc 为未 clip 的 remaining(ŷ_oc)。
-    ``cfg`` 提供 scale（默认 2）。
+    ``price_tau`` 与 ``open_px`` 同一价空间；缺 price(τ) 时锚在 open。
+    扫描传入该根前缀的 y_τc。破带比较的是本根 5m 收价。
+    R̂_τ = Ĉ_τ/price(τ)−1。``cfg`` 提供 scale（默认 2）。
     """
     parts = scores_close_components(
         scores,
@@ -1019,10 +1037,12 @@ def bar_close_band_pick_direction(
     bar_low: Optional[float] = None,
     bar_high: Optional[float] = None,
 ) -> tuple[Optional[str], Dict[str, Any]]:
-    """旗舰选腿：ŷ_oc 估 C_τ，破带定方向；ŷ_τw 门槛为辅。
+    """旗舰选腿：y_τc 估 C_τ，破带定方向；ŷ_τw 门槛为辅。
 
     C>upper → sell_then_buy；C<lower → buy_then_sell。
-    缺 ŷ_oc / 未破带 / ŷ_τw 未过门槛 / |ŷ_oc| 未过 y_oc入场% → None。
+    缺 y_τc / 未破带 / ŷ_τw 未过门槛 / |y| 未过入场% → None。
+    ``open_px`` 在估带空间（有日线则为日线开）。``price_tau`` 与本根收价同空间，
+    先乘 ``scale`` 再估，估完的 C_τ 再除 ``scale`` 映回分钟。
     """
     o, c = _f(bar_open), _f(bar_close)
     lo, hi = _f(bar_low), _f(bar_high)
@@ -1048,28 +1068,32 @@ def bar_close_band_pick_direction(
         meta["skip"] = "缺开收"
         return None, meta
     if est_open is None or est_open <= 0:
-        meta["skip"] = "缺 ŷ_oc，未估 C_τ"
+        meta["skip"] = "缺开盘，未估 C_τ"
         return None, meta
-    est = estimate_close_px(
-        scores,
-        open_px=float(est_open),
-        prev_close=prev_close,
-        price_tau=price_tau if _f(price_tau) is not None else c,
-        cfg=cfg,
-    )
-    if not est.get("ok") or not est.get("close_px"):
-        meta["skip"] = "缺 ŷ_oc，未估 C_τ"
-        return None, meta
-    c_tau_d = est.get("close_px")
     try:
         s = float(scale) if scale else 1.0
     except (TypeError, ValueError):
         s = 1.0
     if s <= 0:
         s = 1.0
+    pt_raw = _f(price_tau)
+    if pt_raw is None:
+        pt_raw = c
+    pt_est = float(pt_raw) * s if pt_raw is not None and pt_raw > 0 else None
+    est = estimate_close_px(
+        scores,
+        open_px=float(est_open),
+        prev_close=prev_close,
+        price_tau=pt_est,
+        cfg=cfg,
+    )
+    if not est.get("ok") or not est.get("close_px"):
+        meta["skip"] = "缺 y_τc，未估 C_τ"
+        return None, meta
+    c_tau_d = est.get("close_px")
     c_tau_m = map_close_px_to_minute(c_tau_d, scale=s)
     if c_tau_m is None:
-        meta["skip"] = "缺 ŷ_oc，未估 C_τ"
+        meta["skip"] = "缺 y_τc，未估 C_τ"
         return None, meta
     direction, band_meta = close_band_pick_direction(
         float(c), float(c_tau_m), delta, scores, cfg
@@ -1089,6 +1113,12 @@ def bar_close_band_pick_direction(
         meta["y_oc"] = est.get("y_oc")
     if est.get("y_oc_target") is not None:
         meta["y_oc_target"] = est.get("y_oc_target")
+    if est.get("r_hat") is not None:
+        meta["r_hat"] = est.get("r_hat")
+    if est.get("remaining_oc") is not None:
+        meta["remaining_oc"] = est.get("remaining_oc")
+    if est.get("c_hat_source"):
+        meta["c_hat_source"] = est.get("c_hat_source")
     if not direction:
         meta["skip"] = "未破带"
         return None, meta

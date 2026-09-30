@@ -108,7 +108,8 @@ def apply_tau_score_fields(
 ) -> Dict[str, Any]:
     """写入双层契约字段（不改 predicted_score / score 主值）。
 
-    ``rem_yhat`` 就是独立训出的 ŷ_τ（τ→close，close[T]/price[τ]−1），不依赖 ŷ_oo。
+    ``rem_yhat`` 就是 ŷ_τc（τ→close，close[T]/price[τ]−1），不依赖 ŷ_oo。
+    同一数写入 y_τc，并留别名 y_oc / y_tau。
     ŷ_trade = w·ŷ_oo + w·lift(ŷ_τ)；OC 模型 lift=缺口∘ŷ_τ，τc 模型 lift=缺口∘ret_open_to_tau∘ŷ_τ。
     ŷ_oo_rem 只作派生对照，不进融合。
     ``residual_delta`` 已废弃，忽略。
@@ -188,8 +189,10 @@ def apply_tau_score_fields(
     signal_item["predicted_score_tau_delta"] = None
     signal_item["predicted_score_tau_cascade"] = cascade
     signal_item["realized_t1_to_tau"] = realized
-    signal_item["predicted_score_tau"] = y_tau
-    # 兼容别名（= ŷ_τ）；新读路径请用 predicted_score_tau
+    # 时钟对齐后的 ŷ_τc 记在 y_tau。不再写 predicted_score_tau。
+    signal_item.pop("predicted_score_tau", None)
+    if y_tau is not None:
+        signal_item["y_tau"] = y_tau
     signal_item["predicted_score_rem"] = y_tau
     signal_item["score_rem"] = y_tau
     # τc 头原始 ŷ（训练/Hub 同口径）；分钟时钟映射前，供画像命中对照
@@ -200,7 +203,15 @@ def apply_tau_score_fields(
     if oc is not None:
         signal_item["y_oc"] = oc
         signal_item["predicted_score_oc"] = oc
-        signal_item["y_tau"] = signal_item.get("y_tau", y_tau)
+        from core.signal.yhat_windows import Y_TC_SOURCE_RIDGE, write_y_τc
+
+        write_y_τc(signal_item, oc)
+        signal_item["y_τc_ridge"] = oc
+        signal_item["y_τc_source"] = Y_TC_SOURCE_RIDGE
+        signal_item["y_spec_τc"] = {
+            "formula": str(y_spec.get("formula") or "close[T]/price[τ]-1"),
+            "unit": "pct",
+        }
     signal_item["as_of_tau"] = as_of
     signal_item["y_spec_tau"] = y_spec
     signal_item["features_tau"] = feat_snap
@@ -225,7 +236,7 @@ def apply_tau_score_fields(
     formula_terms_tau = None
     if feats_merged:
         try:
-            from core.research.tau_ridge import explain_tau_prediction
+            from core.research.tc_ridge import explain_tau_prediction
 
             formula_terms_tau = explain_tau_prediction(
                 feats_merged, model_doc=rem_model_doc
@@ -405,7 +416,7 @@ def attach_dual_score_pit(
         return signal_item
     if rem_model_doc is None:
         try:
-            from core.research.tau_ridge import load_tau_model
+            from core.research.tc_ridge import load_tau_model
 
             rem_model_doc = load_tau_model()
         except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
@@ -692,7 +703,7 @@ def attach_dual_score_pit(
     # 只传 τ 头 Z 特征；勿塞全日线 sub_scores（训练未用，易误导）
     rem_yhat = None
     try:
-        from core.research.tau_ridge import predict_tau_from_features
+        from core.research.tc_ridge import predict_tau_from_features
 
         rem_yhat = predict_tau_from_features(feats, model_doc=rem_model_doc)
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
@@ -905,7 +916,7 @@ def ensure_formula_terms_tau(item: Optional[dict]) -> Optional[Dict[str, Any]]:
             feats.setdefault(k, v)
 
     try:
-        from core.research.tau_ridge import TAU_Z_FEATURES
+        from core.research.tc_ridge import TAU_Z_FEATURES
 
         z_keys = set(TAU_Z_FEATURES) | {"open_gap"}
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
@@ -989,7 +1000,7 @@ def ensure_formula_terms_tau(item: Optional[dict]) -> Optional[Dict[str, Any]]:
         pass
     if feats:
         try:
-            from core.research.tau_ridge import explain_tau_prediction
+            from core.research.tc_ridge import explain_tau_prediction
 
             expl = explain_tau_prediction(feats)
             if expl is not None:
@@ -1009,7 +1020,7 @@ def ensure_formula_terms_tau(item: Optional[dict]) -> Optional[Dict[str, Any]]:
 def rem_factor_coefficients_public() -> Dict[str, float]:
     """τ Ridge β 快照（tip「τ 因子系数」）。"""
     try:
-        from core.research.tau_ridge import load_tau_model
+        from core.research.tc_ridge import load_tau_model
 
         doc = load_tau_model() or {}
         coefs = (doc.get("return_model") or {}).get("coefficients") or {}

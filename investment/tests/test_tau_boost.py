@@ -50,7 +50,7 @@ def _has_lightgbm() -> bool:
 
 class TestTauBoost(unittest.TestCase):
     def test_numpy_gbm_recovers_stump(self):
-        from core.research.tau_tree import _fit_numpy_gbm, _predict_numpy_gbm
+        from core.research.tc_tree import _fit_numpy_gbm, _predict_numpy_gbm
 
         rng = np.random.default_rng(0)
         x = rng.normal(size=(240, 3))
@@ -73,12 +73,12 @@ class TestTauBoost(unittest.TestCase):
 
     @unittest.skipUnless(_has_lightgbm(), "lightgbm 未安装")
     def test_fit_shadow_vs_ridge_no_live_file(self):
-        from core.research.tau_tree import (
+        from core.research.tc_tree import (
             fit_tau_tree_report,
             save_tau_tree_last_report,
             tau_tree_last_report_path,
         )
-        from core.research.tau_ridge import load_tau_model, persist_tau_model
+        from core.research.tc_ridge import load_tau_model, persist_tau_model
 
         stock_bars = [
             {"code": "A", "bars": _bars(50, 10)},
@@ -139,7 +139,7 @@ class TestTauBoost(unittest.TestCase):
 
     @unittest.skipUnless(_has_lightgbm(), "lightgbm 未安装")
     def test_backend_lightgbm_only(self):
-        from core.research.tau_tree import resolve_tree_backend
+        from core.research.tc_tree import resolve_tree_backend
 
         self.assertEqual(resolve_tree_backend("lightgbm"), "lightgbm")
         self.assertEqual(resolve_tree_backend(None), "lightgbm")
@@ -154,7 +154,7 @@ class TestTauBoost(unittest.TestCase):
             import xgboost  # noqa: F401
         except ImportError:
             self.skipTest("xgboost not installed")
-        from core.research.tau_tree import _fit_xgboost, _predict_xgboost
+        from core.research.tc_tree import _fit_xgboost, _predict_xgboost
 
         rng = np.random.default_rng(0)
         x = rng.normal(size=(80, 3))

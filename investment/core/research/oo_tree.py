@@ -17,7 +17,7 @@ import numpy as np
 logger = logging.getLogger(__name__)
 
 from core.io_atomic import atomic_write_json
-from core.research.tau_tree import (
+from core.research.tc_tree import (
     DEFAULT_LEARNING_RATE,
     DEFAULT_MAX_DEPTH,
     DEFAULT_N_ESTIMATORS,

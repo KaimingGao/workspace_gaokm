@@ -1113,6 +1113,7 @@ export function initPaper(ctx) {
       if (
         h.predicted_score_eod == null &&
         h.decision_score == null &&
+        h.y_tau == null &&
         h.predicted_score_tau == null &&
         h.score_rem == null
       ) {

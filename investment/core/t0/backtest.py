@@ -6,7 +6,7 @@ import logging
 logger = logging.getLogger(__name__)
 from typing import Any, Callable, Dict, List, Optional
 
-from core.research.tc_ridge import pack_y_tc_fields
+from core.signal.yhat_windows import pack_y_tc_fields
 from core.t0.config import T0_TRADE_DAYS_SAMPLE_UI_LIMIT, load_t0_rules, t0_backtest_virtual_shares
 from core.t0.minute_path import T0_INTENTIONAL_ABANDON_EXITS
 from core.t0.rules import _t0_qty_lots, simulate_t0_day

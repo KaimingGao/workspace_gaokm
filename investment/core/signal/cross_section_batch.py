@@ -204,7 +204,7 @@ def score_and_rank_watching(
         dual_cfg = get_dual_score_cfg(cfg)
         if apply_tau_buy_gate:
             try:
-                from core.research.tau_ridge import load_tau_model
+                from core.research.tc_ridge import load_tau_model
 
                 rem_doc = load_tau_model()
             except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程

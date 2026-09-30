@@ -23,7 +23,6 @@ EVALS_LAST_RUN_PATH = os.path.join(DATA_DIR, "evals_last_run.json")
 EVALS_JOB_PATH = os.path.join(DATA_DIR, "evals_job.json")
 QUANT_DAILY_PATH = os.path.join(DATA_DIR, "quant_daily.json")
 QUANT_REPORTS_DIR = os.path.join(DATA_DIR, "reports")
-SCORE_LEDGER_DIR = os.path.join(QUANT_REPORTS_DIR, "score_ledger")
 LIVE_DIR = os.path.join(DATA_DIR, "live")
 # cluster_* 路径常量：分组已退役（cluster_retired）；保留供历史落盘/迁移只读，勿再写入新指针。
 CLUSTER_WEIGHTS_ACTIVE_PATH = os.path.join(LIVE_DIR, "cluster_weights_active.json")
@@ -98,7 +97,6 @@ T45_RIDGE_JOB_PATH = os.path.join(JOBS_DIR, "t45_ridge.json")
 T60_RIDGE_JOB_PATH = os.path.join(JOBS_DIR, "t60_ridge.json")
 T75_RIDGE_JOB_PATH = os.path.join(JOBS_DIR, "t75_ridge.json")
 T90_RIDGE_JOB_PATH = os.path.join(JOBS_DIR, "t90_ridge.json")
-TC_RIDGE_JOB_PATH = os.path.join(JOBS_DIR, "tc_ridge.json")
 
 
 def cluster_weights_versioned_path(version: int) -> str:

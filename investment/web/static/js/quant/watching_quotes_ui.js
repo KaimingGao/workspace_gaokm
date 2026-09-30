@@ -120,7 +120,7 @@ export function withQuoteGap(it, quoteLike) {
   return { ...it, gap_pct: g, predicted_score_blend_vs: "", predicted_score_blend_cal_vs: "" };
 }
 
-export const RANKING_TITLE = "ranking · fuse − (price(τ)/open−1) · 预估(真实)：(open[T+1]−price(τ))/open[T]";
+export const RANKING_TITLE = "ranking · w_oo·((ŷ_oo+1)/(1+rot)−1)+w_τc·((1+ŷ_τc)(1+w_co·ŷ_co)−1) · 预估(真实)：(open[T+1]−price(τ))/open[T]";
 
 export function formatWatchingMarketLabel(market) {
   const m = String(market || "").toUpperCase();

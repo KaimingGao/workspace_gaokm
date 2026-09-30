@@ -274,7 +274,7 @@
           ></div>
         </div>
         <p id="quant-portfolio-legend" class="quant-sub">
-          每个交易日 fill_clock 对全部观察池按 ranking＝融合分 − (price(τ)/open−1) 调仓（拟合 open[T]→open[T+1]；09:40 减去开盘到成交钟）；手数看上方入场/强档金额（按成交价换算整手，不够一手则买一手）。横轴为本次全部交易日。
+          每个交易日 fill_clock 对全部观察池按 ranking＝w_oo·((ŷ_oo+1)/(1+rot)−1)+w_τc·((1+ŷ_τc)(1+w_co·ŷ_co)−1) 调仓（rot=price(τ)/open−1，基准 τ→open[T+1]）；手数看上方入场/强档金额（按成交价换算整手，不够一手则买一手）。横轴为本次全部交易日。
         </p>
         <div id="quant-bt-stock-contrib" class="replay-stock-contrib" hidden aria-label="分票贡献"></div>
         <div id="quant-bt-trades" class="quant-weight-table-wrap" aria-label="成交流水"></div>
@@ -375,7 +375,7 @@
                   </label>
                   <label
                     class="paper-t0-field"
-                    title="C_τ = O×(1+ŷ_τc×scale/100)，硬顶 ±20。默认 2。"
+                    title="C_τ = price(τ)×(1+clip(y_τc×scale, ±20)/100)。默认 scale=2。"
                   >
                     <span>y_τc 放大</span>
                     <input type="number" name="t0_y_oc_target_scale" min="0" max="100" step="0.5" value="2" />

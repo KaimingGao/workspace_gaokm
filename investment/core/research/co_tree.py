@@ -24,7 +24,7 @@ from core.research.co_ridge import (
     _z_only_xs,
     build_co_panels_from_bars,
 )
-from core.research.tau_tree import (
+from core.research.tc_tree import (
     DEFAULT_LEARNING_RATE,
     DEFAULT_MAX_DEPTH,
     DEFAULT_N_ESTIMATORS,

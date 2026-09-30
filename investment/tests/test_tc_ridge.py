@@ -89,88 +89,6 @@ class YRPctTests(unittest.TestCase):
         self.assertEqual(relabel_tau_panels_as_r([panel]), [])
 
 
-class TcRidgeFitTests(unittest.TestCase):
-    def test_fit_report_runs_on_synthetic(self):
-        from core.research.tc_ridge import fit_tc_ridge_report
-        from core.research.tau_ridge import TAU_Z_FEATURES
-
-        d0 = date(2025, 6, 2)
-        daily = []
-        minutes = []
-        px = 10.0
-        times = _times_am_pm()
-        for i in range(45):
-            day = d0 + timedelta(days=i)
-            if day.weekday() >= 5:
-                continue
-            dkey = day.isoformat()
-            bars_m = []
-            for j, hm in enumerate(times):
-                c = px + (0.04 if j % 2 else 0.0) + j * 0.002
-                bars_m.append(_bar(dkey, hm, c, open_px=px))
-            minutes.extend(bars_m)
-            close = bars_m[-1]["close"]
-            daily.append(
-                {
-                    "date": dkey,
-                    "open": px,
-                    "high": max(px, close) * 1.01,
-                    "low": min(px, close) * 0.99,
-                    "close": close,
-                    "volume": 1e6,
-                    "prev_close": px * 0.995,
-                }
-            )
-            px = close
-        report = fit_tc_ridge_report(
-            [{"code": "600000", "bars": daily, "minute_bars": minutes}],
-            ridge_lambda=1.0,
-            tau_grid=["09:30", "09:50", "10:30"],
-            holdout_trading_days=5,
-        )
-        self.assertTrue(report.get("success"), msg=report)
-        self.assertEqual(report.get("schema"), "tc_ridge_v1")
-        self.assertEqual(report.get("dual_score_head"), "y_τc")
-        self.assertEqual(report.get("target"), "close_over_price_tau")
-        y_spec = (report.get("return_model") or {}).get("y_spec") or {}
-        self.assertIn("price", str(y_spec.get("formula") or ""))
-        self.assertEqual(y_spec.get("unit"), "pct")
-        extras = (report.get("return_model") or {}).get("extra_features") or []
-        self.assertEqual(list(extras), list(TAU_Z_FEATURES))
-        oos = report.get("oos") or {}
-        self.assertEqual(oos.get("split_mode"), "holdout_days")
-        self.assertEqual(int(oos.get("holdout_trading_days") or 0), 5)
-        self.assertEqual(int(oos.get("n_test_days") or 0), 5)
-        self.assertGreater(int(oos.get("n_train") or 0), int(oos.get("n_test") or 0))
-        self.assertEqual(report.get("eval_start"), oos.get("eval_start"))
-
-    def test_save_last_report_stamps_fitted_at(self):
-        import json
-        import tempfile
-        from unittest.mock import patch
-
-        from core.research.tc_ridge import save_tc_last_report
-
-        report = {
-            "success": True,
-            "return_model": {"intercept": 0.1, "coefficients": {"gap_pct": 0.2}},
-        }
-        with tempfile.TemporaryDirectory() as tmp:
-            path = os.path.join(tmp, "tc_ridge_last_report.json")
-            legacy = os.path.join(tmp, "r_ridge_last_report.json")
-            with patch("core.research.tc_ridge.tc_last_report_path", return_value=path), patch(
-                "core.research.tc_ridge.tc_last_report_path_legacy", return_value=legacy
-            ):
-                save_tc_last_report(report)
-            self.assertTrue(report.get("fitted_at"))
-            with open(path, encoding="utf-8") as f:
-                doc = json.load(f)
-            self.assertEqual(doc.get("fitted_at"), report["fitted_at"])
-            with open(legacy, encoding="utf-8") as f:
-                leg = json.load(f)
-            self.assertEqual(leg.get("fitted_at"), report["fitted_at"])
-
-
 class YRDisplayOnlyTests(unittest.TestCase):
     def test_scores_from_item_passes_y_r(self):
         from core.t0.score_policy import scores_from_item
@@ -196,27 +114,6 @@ class YRDisplayOnlyTests(unittest.TestCase):
         sc = scores_from_item({"y_tau_oc": 0.1, "y_r": -0.8})
         self.assertAlmostEqual(sc.get("y_τc"), -0.8, places=6)
         self.assertAlmostEqual(sc.get("y_r"), -0.8, places=6)
-
-    def test_explain_tc_prediction_head(self):
-        from core.research.tc_ridge import explain_tc_prediction
-
-        model = {
-            "model_role": "research",
-            "return_model": {
-                "coefficients": {"gap_pct": 0.5},
-                "intercept": 0.1,
-                "zscore_means": {"gap_pct": 0.0},
-                "zscore_stds": {"gap_pct": 1.0},
-                "active_features": ["gap_pct"],
-            }
-        }
-        expl = explain_tc_prediction({"gap_pct": 2.0}, model_doc=model)
-        self.assertIsNotNone(expl)
-        self.assertEqual(expl.get("head"), "tc")
-        self.assertEqual(expl.get("model_role"), "research")
-        self.assertAlmostEqual(float(expl.get("total")), 1.1, places=5)
-        keys = [t.get("key") for t in (expl.get("terms") or [])]
-        self.assertIn("gap_pct", keys)
 
     def test_close_band_enter_does_not_read_y_r(self):
         from core.t0 import close_band

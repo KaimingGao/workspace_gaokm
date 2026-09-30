@@ -252,7 +252,8 @@ class SignalService:
                 out["y_oc"] = None
                 out["y_co"] = None
                 out["ranking"] = None
-                out["predicted_score_tau"] = None
+                out.pop("predicted_score_tau", None)
+                out["y_tau"] = None
             if cfg.get("fusion_w_oo") is not None:
                 out["fusion_w_oo"] = cfg.get("fusion_w_oo")
             if cfg.get("fusion_w_oc") is not None:

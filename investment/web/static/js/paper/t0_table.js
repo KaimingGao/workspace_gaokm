@@ -1134,7 +1134,7 @@ function tauScanTipItem(scanRow, day) {
   return {
     y_oc: yoc,
     y_tau: scanRow && (scanRow.y_tau ?? scanRow.y_oc),
-    predicted_score_tau: yoc,
+    "y_τc": scanRow && (scanRow["y_τc"] ?? yoc),
     formula_terms_tau: (scanRow && scanRow.formula_terms_tau) || scores.formula_terms_tau,
     score_formula_terms_tau:
       (scanRow && scanRow.score_formula_terms_tau) || scores.score_formula_terms_tau,
@@ -2114,7 +2114,6 @@ function tradeScoreHost(day, host) {
     scores.y_oc = yTau;
     scores.y_tau_oc = yTau;
     scores.predicted_score_tau_oc = yTau;
-    scores.predicted_score_tau = yTau;
     scores.score_rem = yTau;
   }
   if (yR != null && Number.isFinite(yR)) {
@@ -2447,7 +2446,7 @@ function t0DayScoreItem(d, fallback = {}, rules = {}, liveByCode = null) {
   const liveTrade = slotSnapMode ? null : live ? resolveYTradeScore(live) : null;
   const liveOn = slotSnapMode ? null : live ? resolveOnScore(live) : null;
   const dayEod = scores.predicted_score_eod ?? yEod;
-  const dayTau = scores.predicted_score_tau ?? scores.score_rem ?? yTau;
+  const dayTau = scores.y_tau ?? scores["y_τc"] ?? scores.score_rem ?? yTau;
   const ftTau =
     (scores.formula_terms_tau && typeof scores.formula_terms_tau === "object"
       ? scores.formula_terms_tau
@@ -3541,7 +3540,7 @@ function tradeCtauTd(minutePx, dailyPx) {
   const d = Number(dailyPx);
   const mOk = Number.isFinite(m) && m > 0;
   const dOk = Number.isFinite(d) && d > 0;
-  const bits = ["C_τ = O×(1+clip(ŷ_τc×scale, ±20)/100)"];
+  const bits = ["C_τ = price(τ)×(1+clip(y_τc×scale, ±20)/100)"];
   if (dOk) bits.push(`日原 ${fmtBarPx(d)}（估空间·未÷S）`);
   if (mOk) bits.push(`分钟 ${fmtBarPx(m)}（破带·÷S 后）`);
   const tipAttr = ` title="${escapeText(bits.join(" · "))}"`;
@@ -4104,7 +4103,7 @@ function closeBandScanTitleHtml(d) {
   const checkCls = warn ? " paper-t0-scan-ohlc-check is-mismatch" : " paper-t0-scan-ohlc-check";
   return (
     `<div class="paper-t0-scan-debug-title">` +
-    `<span class="paper-t0-scan-debug-lead">11:00 前扫描 · C_τ=O×(1+clip(ŷ_τc×scale)/100) · 带宽 C_τ×(1±δ) · C=5m收价</span>` +
+    `<span class="paper-t0-scan-debug-lead">11:00 前扫描 · C_τ=price(τ)×(1+clip(y_τc×scale)/100) · 带宽 C_τ×(1±δ) · C=5m收价</span>` +
     `<span class="${checkCls.trim()}" title="${escapeText(closeBandScanOhlcTip(ohlc))}">` +
   `${escapeText(dayBit)} · ${escapeText(minBit)}` +
     `</span>` +
@@ -4197,7 +4196,7 @@ function buildCloseBandScanExpandRow(d, dayKey, colSpan, rules) {
     `<th class="num paper-t0-scan-px">L</th>` +
     `<th class="num paper-t0-scan-px">H</th>` +
     `<th class="num paper-t0-scan-px">C</th>` +
-    `<th class="num paper-t0-col-ctau" title="C_τ = O×(1+clip(ŷ_τc×scale, ±20)/100)">C_τ</th>` +
+    `<th class="num paper-t0-col-ctau" title="C_τ = price(τ)×(1+clip(y_τc×scale, ±20)/100)">C_τ</th>` +
     `<th class="num paper-t0-col-band-lo" title="lower = C_τ×(1−δ/100)">lower</th>` +
     `<th class="num paper-t0-col-band-up" title="upper = C_τ×(1+δ/100)">upper</th>` +
     `<th class="num paper-t0-scan-y" title="ŷ_τc · 预估(真实 price(τ)→close)">y_τc</th>` +
@@ -4427,7 +4426,7 @@ export function buildT0TradeTableHtml(opts) {
     `<th scope="col" class="paper-t0-col-l num" title="本轮触发根 5m 最低">L</th>` +
     `<th scope="col" class="paper-t0-col-h num" title="本轮触发根 5m 最高">H</th>` +
     `<th scope="col" class="paper-t0-col-c num" title="本轮触发根 5m 收盘">C</th>` +
-    `<th scope="col" class="paper-t0-col-ctau num" title="C_τ = O×(1+clip(ŷ_τc×scale, ±20)/100)；分钟空间（破带用）">C_τ</th>` +
+    `<th scope="col" class="paper-t0-col-ctau num" title="C_τ = price(τ)×(1+clip(y_τc×scale, ±20)/100)；分钟空间（破带用）">C_τ</th>` +
     `<th scope="col" class="paper-t0-col-band-lo num" title="lower = C_τ×(1−δ/100)；C&lt;lower → 正T">lower</th>` +
     `<th scope="col" class="paper-t0-col-band-up num" title="upper = C_τ×(1+δ/100)；C&gt;upper → 反T">upper</th>` +
     `<th scope="col" class="paper-t0-col-tau num paper-t0-col-y paper-t0-col-y-tau" title="${escapeText(

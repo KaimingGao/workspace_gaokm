@@ -1,5 +1,5 @@
 /**
- * ŷ_oc_tree / ŷ_τc_tree / ŷ_τ30_tree 影子对照：KPI + 分 τ 曲线 + 增益条。
+ * ŷ_τc_tree / ŷ_τ30_tree 影子对照：KPI + 分 τ 曲线 + 增益条。
  * 不写 live / 不进回测。
  */
 import { escapeHtml } from "../shared.js";

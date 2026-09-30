@@ -1122,7 +1122,6 @@ flowchart TB
 | `quant_research` | `web/routers/quant_research.py` | 因子/OLS/截面研究 |
 | `quant_cluster` | `web/routers/quant_cluster.py` | 分组/簇池 |
 | `quant_backtest` | `web/routers/quant_backtest.py` | TopK/组合回测 |
-| `quant_score` | `web/routers/quant_score.py` | 打分预览 |
 | `quant_dashboard` | `web/routers/quant_dashboard.py` | 研究台仪表盘 |
 | `evals` | `web/routers/evals.py` | Golden eval |
 | `platform` | `web/routers/platform.py` | Job/Memory/Decision 等平台 API |
@@ -1286,15 +1285,9 @@ BS → core/backtest/service.py → engine · topk_backtest · topk_weights
 | `context.py` · `context_store.py` · `context_merge.py` | 宏观/情绪上下文 |
 | `sentiment_prior.py` · `prior_policy.py` | 情绪 prior、买卖门禁 |
 
-#### 打分账本 `core/score_ledger/`
+#### 打分账本
 
-| 模块 | 职责 |
-|------|------|
-| `__init__.py` | 对外门面（冻结 / 回填 / 复盘） |
-| `asof.py` · `freeze.py` · `io.py` | 决策日、冻结闸（盘中自动跳过）、读写 |
-| `outcomes.py` · `review.py` · `series.py` | realized 回填、复盘报告、序列 |
-
-**冻结闸**：刷簿附带冻结（`auto=True`）仅在**会话收盘后**写账本；盘中刷新分池簿不覆盖复盘快照。显式冻结历史 `as_of` 仍可随时重建。做 T 选向默认即时算分，不读账本。
+`core/score_ledger/` 与复盘 HTTP 已删除。分档改吃 ŷ_oo Holdout OOS。磁盘上的 `data/reports/score_ledger/` 历史 JSON 不删。
 
 #### 风控 `core/risk/`
 
@@ -1497,7 +1490,6 @@ investment/
 │   ├── stance.py · advise.py · facts.py · position.py
 │   ├── paper/                   # 账本 · exec · cycle · rebalance
 │   ├── market/                  # symbols · calendar · context
-│   ├── score_ledger/            # ŷ 冻结 · realized · 复盘
 │   ├── watching/                # 观察池 store · health · insights
 │   ├── job_progress.py · schedule_jobs.py · run_manifest.py
 │   ├── decision_record.py · memory_store.py · feedback_suggest.py

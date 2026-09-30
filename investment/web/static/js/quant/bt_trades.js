@@ -905,7 +905,7 @@ export function buildSimTradeRow(r, i, deps) {
       ? eodScore
       : blendRaw;
   const scoreColTitleBase = hasTau
-    ? "ranking = fuse − (price(τ)/open−1) · 悬停看组成"
+    ? "ranking = w_oo·((ŷ_oo+1)/(1+rot)−1)+w_τc·((1+ŷ_τc)(1+w_co·ŷ_co)−1) · 悬停看组成"
     : "ŷ_oo（历史 Top-K 选股键）· 日线无可靠 ŷ_oc · 关 τ 闸";
   const singleHead =
     r.dual_score_single_head === true ||
@@ -955,12 +955,8 @@ export function buildSimTradeRow(r, i, deps) {
     // tip ① 优先 predicted_score=ŷ_oo；表列展示用 blend
     score: eodScore != null ? eodScore : blendScore,
     predicted_score: eodScore != null ? eodScore : blendScore,
-    predicted_score_tau:
-      r.predicted_score_tau != null
-        ? r.predicted_score_tau
-        : r.score_rem != null
-          ? r.score_rem
-          : r.predicted_score_rem,
+    y_tau: r.y_tau != null ? r.y_tau : r["y_τc"],
+    "y_τc": r["y_τc"] != null ? r["y_τc"] : r.y_oc,
     predicted_score_blend: blendRaw != null ? blendRaw : blendScore,
     predicted_score_eod_rem: eodRem,
     predicted_score_tau_delta: r.predicted_score_tau_delta,
@@ -1245,7 +1241,7 @@ export function btTradesCellHtml(col, d, deps) {
         d.realizedRankingCls,
         escapeHtml
       ),
-      d.rankingTip || "ranking = fuse − (price(τ)/open−1) · 真实 (open[T+1]−price(τ))/open[T]",
+      d.rankingTip || "ranking = w_oo·((ŷ_oo+1)/(1+rot)−1)+w_τc·((1+ŷ_τc)(1+w_co·ŷ_co)−1) · 真实 (open[T+1]−price(τ))/open[T]",
       escapeHtml,
       "ranking",
       d.scoreDetail

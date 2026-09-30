@@ -19,7 +19,7 @@ from core.research.path_panel import (
     build_path_panels_from_bars,
 )
 from core.research.tau_panel import normalize_minute_tau_grid
-from core.research.tau_ridge import _predict_rows, _subset
+from core.research.tc_ridge import _predict_rows, _subset
 from core.signal.minute_tau_feats import MINUTE_TAU_FEAT_LABELS, MINUTE_TAU_PATH_SHAPE_KEYS
 
 PATH_MIN_STD_EXEMPT = PATH_RIDGE_FEATURES

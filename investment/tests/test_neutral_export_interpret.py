@@ -68,9 +68,6 @@ class TestDailyNeutralCompareReport(unittest.TestCase):
             svc, "portfolio_neutral_compare_summary", return_value={"success": True}
         ) as nc_mock, patch.object(
             svc, "list_strategies", return_value={"success": True, "strategies": []}
-        ), patch(
-            "core.signal.y_state.ledger_y_check_daily_summary",
-            return_value={"success": True},
         ):
             report = svc.build_daily_report(
                 include_portfolio_backtest=True,
@@ -104,9 +101,6 @@ class TestDailyNeutralCompareReport(unittest.TestCase):
             svc, "portfolio_neutral_compare_summary", return_value=mock_summary
         ), patch.object(
             svc, "list_strategies", return_value={"success": True, "strategies": []}
-        ), patch(
-            "core.signal.y_state.ledger_y_check_daily_summary",
-            return_value={"success": True},
         ):
             report = svc.build_daily_report(
                 include_portfolio_backtest=True,

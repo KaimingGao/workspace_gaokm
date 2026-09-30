@@ -30,7 +30,7 @@ from core.research.tau_panel import (
     theme_sample_weights,
     y_t30_pct,
 )
-from core.research.tau_ridge import (
+from core.research.tc_ridge import (
     TAU_FIT_DROP_ALIASES,
     TAU_HORIZON_DROP_OC_SHAPE,
     TAU_MIN_STD_EXEMPT,
@@ -479,7 +479,7 @@ def explain_t30_prediction(
     *,
     model_doc: Optional[Dict[str, Any]] = None,
 ) -> Optional[Dict[str, Any]]:
-    from core.research.tau_ridge import explain_tau_prediction
+    from core.research.tc_ridge import explain_tau_prediction
 
     doc = model_doc if model_doc is not None else load_t30_model()
     expl = explain_tau_prediction(features, model_doc=doc)

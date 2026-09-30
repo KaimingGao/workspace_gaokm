@@ -1,7 +1,7 @@
 """策略调仓配置（rank_lots）。
 
 Follow / 历史回测 / 自动调仓都走 ``rank_lots``。
-rank = w_oo·ŷ_oo + w_oc·((1+ŷ_oc)(1+w_co·ŷ_co)−1)。w_co 默认 1。
+ranking = w_oo·((ŷ_oo+1)/(1+rot)−1) + w_τc·((1+ŷ_τc)(1+w_co·ŷ_co)−1)。w_co 默认 1。
 ŷ_trade / ŷ_nowcast / y_fuse 已下线。
 
 配置键优先 ``rebalance_timing.rank_lots``，仍认旧键 ``path_matrix``。

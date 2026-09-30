@@ -1,4 +1,4 @@
-"""纸面可实现回放：每个交易日按调仓钟走 rank_lots（rank=w_oo·ŷ_oo + w_oc·((1+ŷ_oc)(1+w_co·ŷ_co)−1) · 按金额换算股数）。
+"""纸面可实现回放：每个交易日按调仓钟走 rank_lots（ranking=w_oo·((ŷ_oo+1)/(1+rot)−1)+w_τc·((1+ŷ_τc)(1+w_co·ŷ_co)−1) · 按金额换算股数）。
 
 ŷ_oo 始终是 09:30 开盘信息集。ŷ_oc：09:30 成交钟用开盘 Z（``use_minute_tau=False``）；
 09:35–10:00 用截至该钟的 5m 前缀重算（与做 T ``rescore_scores_at_fixed_prefix`` 同路径）。
@@ -1799,7 +1799,7 @@ def _attach_open_yhat_heads(
     rem_doc = tau_model_doc
     if rem_doc is None:
         try:
-            from core.research.tau_ridge import load_tau_model
+            from core.research.tc_ridge import load_tau_model
 
             rem_doc = load_tau_model()
         except Exception:  # noqa: BLE001
@@ -2323,7 +2323,7 @@ def backtest_paper_replay(
         except Exception:  # noqa: BLE001
             logger.debug("load_co_model failed in paper_replay", exc_info=True)
         try:
-            from core.research.tau_ridge import load_tau_model
+            from core.research.tc_ridge import load_tau_model
 
             tau_model_doc = load_tau_model()
         except Exception:  # noqa: BLE001

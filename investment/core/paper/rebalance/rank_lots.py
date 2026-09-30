@@ -1,12 +1,12 @@
-"""策略调仓：fill_clock～10:00 用 rank=w_oo·ŷ_oo + w_oc·((1+ŷ_oc)(1+w_co·ŷ_co)−1) 排序，按已保存金额换算股数下单。
+"""策略调仓：fill_clock～10:00 用 τc ranking 排序，按已保存金额换算股数下单。
 
 规则（live 与历史回测共用）：
   - 持有周期 = T 开盘 → T+1 开盘
   - ŷ_oo = open[T]→open[T+1]（现网 predicted_score，第二步换标签）
   - ŷ_oc = open[T]→close[T]（现网 y_tau）
-  - ranking = w_oo·ŷ_oo + w_oc·((1+ŷ_oc)(1+w_co·ŷ_co)−1) − (price(τ)/open−1)
-    拟合 open[T]→open[T+1]；τ 处减去已走出开盘→成交钟（百分点）
-    w_co 默认 1（叠隔夜）；缺 ŷ_co 则退回 ŷ_oc
+  - ranking = w_oo·((ŷ_oo+1)/(1+rot)−1) + w_τc·((1+ŷ_τc)(1+w_co·ŷ_co)−1)
+    rot = price(τ)/open[T]−1；基准 τ→open[T+1]
+    w_co 默认 1（叠隔夜）；缺 ŷ_co 则退回 ŷ_τc
   - 过入场（ranking>入场，可选 y_oo>0 / y_oc>0）→ 开仓或加仓
   - 已持仓且未过入场、缺 ranking、或 hard_reject → 清仓（T+1 可卖部分）
     缺分不能假装过门槛续持；无「持」动作
@@ -275,7 +275,7 @@ def ranking_score(
     w_co: Optional[float] = None,
     y_co: Optional[float] = None,
 ) -> Optional[float]:
-    """w_oo·ŷ_oo + w_oc·((1+ŷ_oc)(1+w_co·ŷ_co)−1)；落盘百分点 → 净收益（÷100）。"""
+    """开盘基准融合，百分点 → 净收益（÷100）。决策 ranking 走 ranking_pct（τc 几何剩余）。"""
     from core.signal.yhat_windows import fuse_pct, oc_with_co
 
     wc = float(w_co) if w_co is not None else float(y_on_alpha or 0.0)
@@ -498,8 +498,8 @@ def ranking_pct_of(
 ) -> Optional[float]:
     """调仓 ranking 百分点。
 
-    OC 模型：融合分 − (price(τ)/open−1)。
-    τc 模型：融合分已在 τ→open[T+1] 基准，直接透传。
+    τc（行上有 y_spec）：已在 τ→open[T+1]，直接透传。
+    缺 y_spec 的旧行：开盘基准融合再减 (price(τ)/open−1)。
 
     有 ŷ_oo/ŷ_oc 一律现算，不信落盘 ``ranking`` / ``y_fuse``（旧戳可能是 ŷ_trade）。
     两头都抽不出时才回退显式 ranking，再回退 y_fuse。
@@ -538,11 +538,10 @@ def ranking_pct_of(
 def y_tau_of(item: Optional[dict]) -> Optional[float]:
     if not isinstance(item, dict):
         return None
-    if item.get("y_tau") is not None:
-        return _f(item.get("y_tau"))
-    if item.get("predicted_score_tau") is not None:
-        return _f(item.get("predicted_score_tau"))
-    return _f(item.get("score_rem"))
+    for k in ("y_tau", "y_τc", "predicted_score_tau", "score_rem"):
+        if item.get(k) is not None:
+            return _f(item.get(k))
+    return None
 
 
 # 对照头透传键（不进 ranking）。旧 y_path / y_path_realized 只读，不落新行。
@@ -1011,7 +1010,7 @@ def plan_rank_lot_day(
 
     ``sell_prices`` 缺省等于 ``prices``。历史回测可只给清仓回退价、买入仍走严格钟。
     ``opens`` 为当日开盘；与 ``prices``（τ 成交价）一起把 ranking 写成
-    融合分 − (price(τ)/open−1)。缺开盘则不扣（等价 09:30）。
+    τc 几何剩余。缺 y_spec 的旧行才减 (price(τ)/open−1)；缺开盘则不扣。
     """
     rank_enter = coerce_rank_threshold(
         cfg.get("rank_enter"), DEFAULT_RANK_ENTER

@@ -325,7 +325,7 @@ def tip_fields_from_item(item: Optional[dict]) -> Dict[str, Any]:
     )
     if not r_terms or not (r_terms.get("terms") or r_terms.get("total") is not None):
         try:
-            from core.research.tc_ridge import explain_tc_prediction, load_tc_model
+            from core.research.tc_ridge import explain_tau_prediction, load_tau_model
 
             feats_r = item.get("features_tau") if isinstance(item.get("features_tau"), dict) else {}
             if not feats_r:
@@ -334,7 +334,7 @@ def tip_fields_from_item(item: Optional[dict]) -> Dict[str, Any]:
                     if isinstance(item.get("features_path"), dict)
                     else {}
                 )
-            expl_r = explain_tc_prediction(feats_r, model_doc=load_tc_model())
+            expl_r = explain_tau_prediction(feats_r, model_doc=load_tau_model())
             r_terms = _slim_formula_terms(expl_r, limit=12)
         except Exception:  # noqa: BLE001
             logger.debug("r tip explain fallback failed", exc_info=True)
@@ -880,7 +880,7 @@ def scores_from_item(item: Optional[dict]) -> Dict[str, Optional[float]]:
     except Exception:  # noqa: BLE001
         logger.debug("stamp_window_scores failed", exc_info=True)
     try:
-        from core.research.tc_ridge import pick_y_tc_hat, pick_y_tc_label, write_y_tc_hat, write_y_tc_label
+        from core.signal.yhat_windows import pick_y_tc_hat, pick_y_tc_label, write_y_tc_hat, write_y_tc_label
 
         y_r_hat = pick_y_tc_hat(item)
         if y_r_hat is not None:
@@ -1399,39 +1399,16 @@ def _attach_y_r_to_item(
     *,
     allow_open_z: bool = True,
 ) -> None:
-    """即时补 ŷ_r（与 ŷ_τ 同 X）；缺模型/缺前缀则不出分。仅展示，不进 ĉ / 选腿。"""
+    """ŷ_τ 已并进 y_τc，不再用 tc 模型另打一列盖掉它。这里只补 remaining。"""
+    _ = allow_open_z
     if not isinstance(item, dict):
         return
-    feats = item.get("features_tau") if isinstance(item.get("features_tau"), dict) else {}
-    if not feats:
-        feats = item.get("features_path") if isinstance(item.get("features_path"), dict) else {}
-    if not feats:
-        return
-    open_z_only = not _minute_pack_present(feats)
-    if open_z_only and not allow_open_z:
-        return
     try:
-        from core.research.tc_ridge import (
-            explain_tc_prediction,
-            load_tc_model,
-            predict_tc_from_features,
-            write_y_tc_hat,
-        )
-
-        model = load_tc_model()
-        if model is not None:
-            y_r = predict_tc_from_features(feats, model_doc=model)
-            if y_r is not None:
-                write_y_tc_hat(item, float(y_r), model_doc=model)
-                expl = explain_tc_prediction(feats, model_doc=model)
-                if expl:
-                    item["formula_terms_r"] = expl
-                    item["score_formula_terms_r"] = expl
         from core.signal.yhat_windows import stamp_remaining_y_τc
 
         stamp_remaining_y_τc(item)
     except Exception:  # noqa: BLE001
-        logger.debug("attach y_r predict failed", exc_info=True)
+        logger.debug("attach y_r remaining failed", exc_info=True)
 
 
 def _tau_clock_from_item(item: dict) -> Optional[str]:
@@ -2186,7 +2163,7 @@ def _refresh_tau_oc_from_feats(
         item["rem_tau"] = as_of
     expl_now = item.get("formula_terms_tau")
     try:
-        from core.research.tau_ridge import explain_tau_prediction, predict_tau_from_features
+        from core.research.tc_ridge import explain_tau_prediction, predict_tau_from_features
 
         yhat = predict_tau_from_features(feats)
         expl = explain_tau_prediction(feats)
@@ -2409,7 +2386,7 @@ def predict_tau_oc_from_prefix_minutes(
     if len(bars) < 1:
         return None
     try:
-        from core.research.tau_ridge import load_tau_model, predict_tau_from_features
+        from core.research.tc_ridge import load_tau_model, predict_tau_from_features
     except Exception:  # noqa: BLE001
         logger.debug("predict_tau_oc_from_prefix imports failed", exc_info=True)
         return None
@@ -3079,12 +3056,6 @@ def resolve_cover_policy(
     }
 
 
-def load_scores_for_code_date(code: str, as_of: str) -> Dict[str, Optional[float]]:
-    """score_ledger 已下线；不再读冻结分（仅空兜底）。"""
-    _ = code, as_of
-    return scores_from_item(None)
-
-
 def scores_have_any(scores: Optional[dict]) -> bool:
     if not isinstance(scores, dict):
         return False
@@ -3220,7 +3191,7 @@ def _scoring_models() -> Tuple[Any, Dict[str, Any], Any]:
         )
     tau = None
     try:
-        from core.research.tau_ridge import load_tau_model
+        from core.research.tc_ridge import load_tau_model
 
         tau = load_tau_model()
     except Exception:  # noqa: BLE001
@@ -3954,12 +3925,6 @@ def load_bars_by_code_for_tau_pool(
     return out
 
 
-def active_book_codes_for_tau_pool(*, cap: int = 120) -> List[str]:
-    """分池簿已停用：不再提供刷簿宇宙。"""
-    _ = cap
-    return []
-
-
 def _bars_map_from_holding_bars(
     hist_bars_by_code: Optional[Dict[str, Sequence[dict]]] = None,
     day_bars_by_code: Optional[Dict[str, dict]] = None,
@@ -4148,19 +4113,24 @@ def compute_scores_live(
     return scores_from_item(None)
 
 
-def _scores_from_live_book(code: str) -> Dict[str, Optional[float]]:
-    """分池簿已停用：不再从簿取分。"""
-    _ = code
-    return scores_from_item(None)
-
-
 def resolve_y_score_source(cfg: Optional[dict] = None) -> str:
+    """分数来源只剩即时算。旧 ledger / live_book / book 读入后按 compute。"""
     raw = str((cfg or {}).get("y_score_source") or DEFAULT_Y_SCORE_SOURCE).strip().lower()
-    if raw in {"book", "cluster", "cluster_book"}:
-        return "live_book"
-    if raw in {"ledger", "score_ledger", "freeze"}:
-        return "ledger"
-    if raw in {"compute", "pit", "live", "realtime", "on_the_fly"}:
+    if raw in {
+        "compute",
+        "pit",
+        "live",
+        "realtime",
+        "on_the_fly",
+        "book",
+        "cluster",
+        "cluster_book",
+        "live_book",
+        "ledger",
+        "score_ledger",
+        "freeze",
+        "",
+    }:
         return "compute"
     return DEFAULT_Y_SCORE_SOURCE
 
@@ -4184,7 +4154,7 @@ def resolve_score_as_of(
     hist_bars: Optional[Sequence[dict]] = None,
     day_bar: Optional[dict] = None,
 ) -> str:
-    """分数账本 as_of：优先 hist 末日（T−1），避免单日兜底误用当日 ledger。"""
+    """决策日：优先 hist 末日（T−1）。"""
     for b in reversed(list(hist_bars or [])):
         d = str((b or {}).get("date") or "")[:10]
         if d:
@@ -4210,92 +4180,35 @@ def resolve_scores_for_code(
     use_minute_tau: Optional[bool] = None,
     minute_tau_hm: Optional[str] = None,
 ) -> Dict[str, Optional[float]]:
-    """按 ``source`` 解析 dual_y 分数；默认即时算。
+    """按即时算解析 dual_y 分数。旧 ledger / live_book 与 compute 同一条路径。
 
-    ``compute`` 失败时仅回退 live 簿（不读冻结账本，避免半日污染快照）。
     ``use_minute_tau=False``：做 T 开盘预计算强制开盘信息集。
     ``minute_tau_hm``：确认根因果重算时传入前缀末根钟。
     """
     raw = str(code or "").strip()
     if not raw:
         return scores_from_item(None)
-    src = resolve_y_score_source({"y_score_source": source})
-
-    if src == "compute":
-        hist = list(hist_bars or [])
-        day = day_bar if isinstance(day_bar, dict) else None
-        if day is None and hist:
-            if len(hist) >= _MIN_HIST_BARS + 1:
-                day = hist[-1]
-                hist = hist[:-1]
-        sc = compute_scores_from_bars(
-            raw,
-            hist,
-            day_bar=day,
-            quote=quote,
-            fuse_intraday=fuse_intraday,
-            pool_gaps=pool_gaps,
-            sector_gap_breadth=sector_gap_breadth,
-            sector_gap_median=sector_gap_median,
-            minute_bars=minute_bars,
-            sector_ret_to_tau=sector_ret_to_tau,
-            use_minute_tau=use_minute_tau,
-            minute_tau_hm=minute_tau_hm,
-        )
-        if scores_have_any(sc):
-            return sc
-        if not allow_fallback:
-            return sc
-        return _scores_from_live_book(raw)
-
-    if src == "live_book":
-        sc = _scores_from_live_book(raw)
-        if scores_have_any(sc) or not allow_fallback:
-            return sc
-        return resolve_scores_for_code(
-            raw,
-            hist_bars=hist_bars,
-            day_bar=day_bar,
-            quote=quote,
-            as_of=as_of,
-            source="compute",
-            fuse_intraday=fuse_intraday,
-            allow_fallback=False,
-            pool_gaps=pool_gaps,
-            sector_gap_breadth=sector_gap_breadth,
-            sector_gap_median=sector_gap_median,
-            minute_bars=minute_bars,
-            sector_ret_to_tau=sector_ret_to_tau,
-            use_minute_tau=use_minute_tau,
-            minute_tau_hm=minute_tau_hm,
-        )
-
-    # ledger（显式对照 / 旧路径）
-    day_key = str(as_of or (day_bar or {}).get("date") or "")[:10]
-    sc = load_scores_for_code_date(raw, day_key) if day_key else scores_from_item(None)
-    if scores_have_any(sc):
-        sc = dict(sc)
-        sc["_score_source"] = "ledger"
-        return sc
-    if allow_fallback:
-        return resolve_scores_for_code(
-            raw,
-            hist_bars=hist_bars,
-            day_bar=day_bar,
-            quote=quote,
-            as_of=as_of,
-            source="compute",
-            fuse_intraday=fuse_intraday,
-            allow_fallback=False,
-            pool_gaps=pool_gaps,
-            sector_gap_breadth=sector_gap_breadth,
-            sector_gap_median=sector_gap_median,
-            minute_bars=minute_bars,
-            sector_ret_to_tau=sector_ret_to_tau,
-            use_minute_tau=use_minute_tau,
-            minute_tau_hm=minute_tau_hm,
-        )
-    return sc
+    _ = as_of, source, allow_fallback
+    hist = list(hist_bars or [])
+    day = day_bar if isinstance(day_bar, dict) else None
+    if day is None and hist:
+        if len(hist) >= _MIN_HIST_BARS + 1:
+            day = hist[-1]
+            hist = hist[:-1]
+    return compute_scores_from_bars(
+        raw,
+        hist,
+        day_bar=day,
+        quote=quote,
+        fuse_intraday=fuse_intraday,
+        pool_gaps=pool_gaps,
+        sector_gap_breadth=sector_gap_breadth,
+        sector_gap_median=sector_gap_median,
+        minute_bars=minute_bars,
+        sector_ret_to_tau=sector_ret_to_tau,
+        use_minute_tau=use_minute_tau,
+        minute_tau_hm=minute_tau_hm,
+    )
 
 
 def load_scores_map_for_codes(
@@ -4314,7 +4227,7 @@ def load_scores_map_for_codes(
     """批量取 dual_y 分数。
 
     默认 ``source=compute``：用日线批量即时算（截面缺口共享）。
-    ``prefer_live_book=True`` 仅兼容旧调用（等价 source=live_book）。
+    ``prefer_live_book`` 已忽略（分池簿取分已去掉）。
     ``fuse_intraday`` 缺省时由 ``rules`` / ``dual_score_window`` 解析（eod_next → False）。
     """
     out: Dict[str, Dict[str, Optional[float]]] = {}
@@ -4328,8 +4241,9 @@ def load_scores_map_for_codes(
         else resolve_fuse_intraday(rules)
     )
 
+    _ = prefer_live_book
     if source is None:
-        src = "live_book" if prefer_live_book else DEFAULT_Y_SCORE_SOURCE
+        src = DEFAULT_Y_SCORE_SOURCE
     else:
         src = resolve_y_score_source({"y_score_source": source})
 
@@ -4349,14 +4263,7 @@ def load_scores_map_for_codes(
             specs, fuse_intraday=fuse, use_minute_tau=False
         )
         out.update(computed)
-        if not allow_fallback:
-            return out
-        for code in want:
-            if code in out:
-                continue
-            sc = _scores_from_live_book(code)
-            if scores_have_any(sc):
-                out[code] = sc
+        _ = allow_fallback
         return out
 
     for code in want:

@@ -184,7 +184,7 @@ class T0BacktestRequest(BaseModel):
         default=None,
         ge=0.0,
         le=100.0,
-        description="C_τ=O×(1+clip(ŷ_oc×scale, ±20)/100)；默认 2",
+        description="C_τ=price(τ)×(1+clip(y_τc×scale, ±20)/100)；默认 2",
     )
     t0_close_band_delta_pct: Optional[float] = Field(
         default=None,
@@ -454,7 +454,7 @@ class PaperExecutionPatchRequest(BaseModel):
     y_tau_exit_price_move_min_sell_then_buy: Optional[float] = None
     y_tau_exit_price_move_max_sell_then_buy: Optional[float] = None
     y_score_source: Optional[str] = Field(
-        default=None, max_length=24, description="compute|live_book|ledger"
+        default=None, max_length=24, description="即时算；旧 live_book/ledger 读入后按 compute"
     )
     t0_pm_degrade: Optional[str] = None
     t0_pm_degrade_sell_then_buy: Optional[str] = None

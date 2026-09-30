@@ -32,7 +32,8 @@ class TestDualScoreFields(unittest.TestCase):
             },
         )
         self.assertEqual(item["predicted_score"], 0.5)
-        self.assertEqual(item["predicted_score_tau"], 0.12)
+        self.assertNotIn("predicted_score_tau", item)
+        self.assertEqual(item["y_tau"], 0.12)
         self.assertEqual(item["score_rem"], 0.12)
         self.assertEqual(item["as_of_tau"], "open")
         self.assertIn("formula", item["y_spec_tau"])
@@ -82,7 +83,7 @@ class TestDualScoreFields(unittest.TestCase):
         with patch(
             "core.signal.dual_score.tau._eod_return_model_for_item", return_value=eod_rm
         ), patch(
-            "core.research.tau_ridge.load_tau_model", return_value=rem_doc
+            "core.research.tc_ridge.load_tau_model", return_value=rem_doc
         ):
             expl = ensure_formula_terms_tau(item)
         self.assertIsNotNone(expl)
@@ -135,7 +136,7 @@ class TestDualScoreFields(unittest.TestCase):
             "gap_pct": 0.313,
             "features_tau": {"gap_pct": 0.313},
         }
-        with patch("core.research.tau_ridge.load_tau_model", return_value=rem_doc):
+        with patch("core.research.tc_ridge.load_tau_model", return_value=rem_doc):
             expl = ensure_formula_terms_tau(item)
         self.assertIsNotNone(expl)
         by_key = {t["key"]: t for t in expl["terms"]}
@@ -180,7 +181,7 @@ class TestDualScoreFields(unittest.TestCase):
             "formula_terms_tau": stale,
             "features_tau": {"theme_day": 0.0, "ret_open_to_tau": 1.25},
         }
-        with patch("core.research.tau_ridge.load_tau_model", return_value=rem_doc):
+        with patch("core.research.tc_ridge.load_tau_model", return_value=rem_doc):
             expl = ensure_formula_terms_tau(item)
         self.assertIsNotNone(expl)
         by_key = {t["key"]: t for t in expl["terms"]}
@@ -239,7 +240,7 @@ class TestDualScoreFields(unittest.TestCase):
                 "sector_gap_breadth": 0.008,
             },
         }
-        with patch("core.research.tau_ridge.load_tau_model", return_value=rem_doc):
+        with patch("core.research.tc_ridge.load_tau_model", return_value=rem_doc):
             expl = ensure_formula_terms_tau(item)
         self.assertIsNotNone(expl)
         by_key = {t["key"]: t for t in expl["terms"]}
@@ -248,7 +249,7 @@ class TestDualScoreFields(unittest.TestCase):
         self.assertNotIn("note", by_key["loc_hl"])
 
     def test_explain_tau_prediction_lists_missing_keys(self):
-        from core.research.tau_ridge import explain_tau_prediction
+        from core.research.tc_ridge import explain_tau_prediction
 
         doc = {
             "return_model": {
@@ -312,7 +313,8 @@ class TestDualScoreFields(unittest.TestCase):
         self.assertAlmostEqual(item["realized_t1_to_tau"], 1.0, places=5)
         self.assertAlmostEqual(item["predicted_score_eod_rem"], rem, places=5)
         self.assertIsNone(item.get("predicted_score_tau_delta"))
-        self.assertAlmostEqual(item["predicted_score_tau"], 0.3, places=5)
+        self.assertNotIn("predicted_score_tau", item)
+        self.assertAlmostEqual(item["y_tau"], 0.3, places=5)
         from core.signal.yhat_geom import compound_pct
 
         tau_cc = compound_pct(1.0, 0.3)
@@ -545,7 +547,8 @@ class TestDualScoreFields(unittest.TestCase):
             item, rem_yhat=0.2, gap_pct=0.0, feats={}, config=cfg, residual_delta=False
         )
         self.assertAlmostEqual(item["predicted_score_eod_rem"], 1.0, places=5)
-        self.assertAlmostEqual(item["predicted_score_tau"], 0.2, places=5)
+        self.assertNotIn("predicted_score_tau", item)
+        self.assertAlmostEqual(item["y_tau"], 0.2, places=5)
         self.assertAlmostEqual(item["predicted_score_blend"], 0.6, places=5)
         self.assertAlmostEqual(
             compute_predicted_score_blend(item, config=cfg), 0.6, places=5
@@ -682,11 +685,13 @@ class TestDualScoreFields(unittest.TestCase):
                 }
             },
         )
-        self.assertAlmostEqual(item["predicted_score_tau"], -1.0, places=5)
+        self.assertNotIn("predicted_score_tau", item)
+        self.assertAlmostEqual(item["y_tau"], -1.0, places=5)
         self.assertIsNone(item.get("predicted_score_tau_delta"))
         rem = ((1.02 / 1.01) - 1.0) * 100.0
         self.assertAlmostEqual(item["predicted_score_eod_rem"], rem, places=5)
-        self.assertAlmostEqual(item["predicted_score_tau"], -1.0, places=5)
+        self.assertNotIn("predicted_score_tau", item)
+        self.assertAlmostEqual(item["y_tau"], -1.0, places=5)
         from core.signal.yhat_geom import compound_pct
 
         tau_cc = compound_pct(1.0, -1.0)
@@ -721,7 +726,8 @@ class TestDualScoreFields(unittest.TestCase):
         )
         rem = ((1.02 / 1.01) - 1.0) * 100.0
         self.assertAlmostEqual(item["predicted_score_eod_rem"], rem, places=5)
-        self.assertAlmostEqual(item["predicted_score_tau"], -1.0, places=5)
+        self.assertNotIn("predicted_score_tau", item)
+        self.assertAlmostEqual(item["y_tau"], -1.0, places=5)
         from core.signal.yhat_geom import compound_pct
 
         tau_cc = compound_pct(1.0, -1.0)

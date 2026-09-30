@@ -374,7 +374,7 @@ A 股 T+1 下 **正 T = 先买后卖**，**反 T = 先卖后买**。**选正/反
 | C>upper 且 ŷ_τw≤−反T入场 | 反 T（先卖） | 触发根收盘卖 | C_τ |
 | 未破带 / 缺 ŷ_oc / ŷ_τw 未过入场 | — | 本轮跳过 | — |
 
-表中 O/L/H/C 均为触发根 5m OHLC；**C 为本根收价，非日线收**。C_τ = O×(1+clip(ŷ_oc×scale, ±20)/100)，默认 scale=2；lower/upper = C_τ×(1±δ/100)。截止 **11:00** 后不开 leg1；过入场用入场金额（默认 2 万），过强用强金额（默认 4 万），按成交价换算整手。
+表中 O/L/H/C 均为触发根 5m OHLC；**C 为本根收价，非日线收**。C_τ = price(τ)×(1+clip(y_τc×scale, ±20)/100)，默认 scale=2；lower/upper = C_τ×(1±δ/100)。截止 **11:00** 后不开 leg1；过入场用入场金额（默认 2 万），过强用强金额（默认 4 万），按成交价换算整手。
 
 侧向配置后缀同枚举（`*_buy_then_sell` / `*_sell_then_buy`）。旧 `long_t`/`reverse_t`、阴阳占比 / 复合确认 / 环境闸 / 固定前缀 / 四轮确认钟 / 前序确认键已下线，加载时丢弃。
 
@@ -1018,16 +1018,16 @@ y_{\mathrm{oo}} = \bigl(\mathrm{open}[t+h] / \mathrm{open}[t] - 1\bigr) \times 1
 |----|------|--------|-----------|----------|
 | **ŷ_oo** | `y_oo` / `predicted_score` | \(X_{\le T-1}\) + T 开 quote | \(\mathrm{open}[T+1]/\mathrm{open}[T]-1\) | 入池地板；收盘后排序；调仓 ranking 成分 |
 | **ŷ_oc** | `y_oc` / `y_tau` | \(Z_{\le\tau}\) | \(\mathrm{close}[T]/\mathrm{open}[T]-1\) | rank_lots 成分；盘中 ŷ_trade；做 T 估 C_τ |
-| **ŷ_τc** | `y_τc` | 同 ŷ_oc | \(\mathrm{close}[T]/\mathrm{price}[\tau]-1\) | 模块 `tc_ridge`（旧 `r_ridge`）；枢纽拟合 UI 已下线；做 T **已下线**（ŷ_τ30/60/90 覆盖剩余窗）；数据中心 / 持仓主表不列；residual / ĉ 仍可读；HTTP `/api/quant/tc-ridge`（旧 `/r-ridge` 兼容） |
+| **ŷ_τc** | `y_τc` | \(Z_{\le\tau}\) | \(\mathrm{close}[T]/\mathrm{price}[\tau]-1\) | 模块 `core/research/tc_ridge.py`；模型文件仍是 `tau_ridge_model.json`；调仓 ranking 的 τc 项；HTTP `/api/quant/tc-ridge`（`/tau-ridge` 同入口） |
 | **ŷ_co** | `y_co` | 隔夜缺口头 | \(\mathrm{open}[T+1]/\mathrm{close}[T]-1\) | 经 w_co 叠进 ŷ_oc；旧键 `y_on` 可读 |
 
 ```text
 ŷ_oo      = f(X_{T-1}, O_T; β_cluster)                     # 组 β；标签 open[T+1]/open[T]−1
 ŷ_oc      = g(Z_≤τ; γ)                                     # 标签 close[T]/open[T]−1
 ŷ_τc      = h(Z_≤τ; ρ)                                     # 标签 close[T]/price[τ]−1；对照
-ranking   = fusion_w_oo·ŷ_oo + fusion_w_oc·((1+ŷ_oc)(1+w_co·ŷ_co)−1) − (price(τ)/open−1)  # 拟合 open[T]→open[T+1]；τ 处减去已走出段；默认 0.6/0.4
+ranking   = fusion_w_oo·((ŷ_oo+1)/(1+rot)−1) + fusion_w_oc·((1+ŷ_τc)(1+w_co·ŷ_co)−1)  # rot=price(τ)/open−1；基准 τ→open[T+1]；默认 0.6/0.4
 ŷ_trade   = w_oo·ŷ_oo + w_tau·(缺口∘ŷ_τ)   # 盘中簿；现网 w_oo=0, w_tau=1；eod_next→ŷ_oo
-C_τ       = O×(1+clip(ŷ_oc×scale, ±20)/100)   # 做 T；默认 scale=2；ŷ_τc 不融进 C_τ
+C_τ       = price(τ)×(1+clip(y_τc×scale, ±20)/100)   # 做 T；默认 scale=2；τ=开盘时 price(τ)=open
 ```
 
 收盘后（`dual_score_window=eod_next`）：日线已完整；**表列 / 排序 ŷ_trade = ŷ_oo**（剥离当日 ŷ_τ，避免 `缺口∘ŷ_τ≈今日涨跌` 泄漏进 T+1 决策）。τ 买入闸同样不吃当日 ŷ_τ。
@@ -1074,7 +1074,7 @@ C_τ       = O×(1+clip(ŷ_oc×scale, ±20)/100)   # 做 T；默认 scale=2；ŷ
 | F3 以后 | 盘中窗以 ŷ_τ 为主（影子簿达标） | 未做 |
 | P3 决策 bandit | 只学闸/听谁，不进 score | 未做 |
 
-**研究枢纽 UI（信息架构）**：主路径「ŷ_oo → IC 时序 → ŷ_oc → 交易执行」；IC 时序嵌在 ŷ_oo 卡内（跨组健康矩阵与一组一表之间）；ŷ_oc 为次级 CTA，不与「跑分组」并列主按钮；数据中心 / 交易执行表列 y_oo / y_oc / y_co / ranking；ŷ_τc / nowcast 不进主表。训练：`POST /api/quant/tau-ridge` → `tau_ridge_model.json`（旧 `rem-ridge` / `rem_ridge_*` 兼容）。ŷ_τ 特征另含 PIT **`tau_lag1` / `tau_ma5`**（过去交易日真实 open→close，不含当日）。账本复盘页、τ/nowcast 单日验收条与校准 g(ŷ) **已删除**（`score_ledger` IO / series 仍在；相关 HTTP 已 stub）。
+**研究枢纽 UI（信息架构）**：主路径「ŷ_oo → IC 时序 → ŷ_oc → 交易执行」；IC 时序嵌在 ŷ_oo 卡内（跨组健康矩阵与一组一表之间）；ŷ_oc 为次级 CTA，不与「跑分组」并列主按钮；数据中心 / 交易执行表列 y_oo / y_oc / y_co / ranking；ŷ_τc / nowcast 不进主表。训练：`POST /api/quant/tau-ridge` → `tau_ridge_model.json`（旧 `rem-ridge` / `rem_ridge_*` 兼容）。ŷ_τ 特征另含 PIT **`tau_lag1` / `tau_ma5`**（过去交易日真实 open→close，不含当日）。账本复盘页、τ/nowcast 单日验收条、校准 g(ŷ)、`core/score_ledger/` 与复盘 HTTP **已删除**。`data/reports/score_ledger/` 历史 JSON 不删。
 
 建模、训练面板、OOS 与字段细节见 [quant.md · τ 契约升级 §9](quant.md#14-决策时刻-τ-契约--双层-predicted_score--分组目标升级)；盘中落地阶段见 [quant.md · 盘中剩余收益头](quant.md#13-盘中剩余收益头intraday-residual方案)。
 
@@ -1359,7 +1359,7 @@ score_stock(code) 续——
 
 | 项 | 历史 paper_replay（本页 / 日报） | Live 纸面调仓 |
 |--|--|--|
-| 选股排序键 | **ranking** = 融合分 − (price(τ)/open−1) | 同左 |
+| 选股排序键 | **ranking** = w_oo·((ŷ_oo+1)/(1+rot)−1) + w_τc·((1+ŷ_τc)(1+w_co·ŷ_co)−1) | 同左 |
 | 宇宙 | 全部观察池（现金用完即止） | 观察池 + 持仓市值上限（默认 15 万）；开加不按 `max_positions` 截断 |
 | 模型 | 默认**研究套**（Holdout）；表单「模型」可选**执行**测 live。调仓门槛对 ŷ 敏感，研究套参数未必适用于执行套 | 执行套 live |
 | 金额 | 表单入场/强档金额；保存规则写入交易执行 | 已保存 `lot_base_amount` / `lot_strong_amount`（缺省 1 万 / 2 万） |
@@ -1597,16 +1597,16 @@ A 改进「估得准」；B 改进「做得对」。北极星乘积两者都要�
 | 打分（ŷ_oo） | **`core/signal_service.py`**（门面）· `core/signal/service.py` · `score_stock.py` · `cross_section_batch.py` |
 | **SignalService 收口** | **SS encapsulate + E1～E5**：信封/门禁 · tip/观察/Skill/脚本/研究 · `book_fields` · BookResult 拷贝戳章 · metrics→DQ/日更 · 买入 production ŷ 闸 · 框架锁 |
 | **双层 ŷ 契约 / 融合** | **`core/signal/dual_score/`**（F1 闸 · blend · shadow book · 字段写入） |
-| **τ 头训练 / 预测** | **`core/research/tau_ridge.py`**（`fit_tau_ridge_report` · `predict_tau_from_features`）；`rem_*` 为兼容别名 |
+| **τ 头训练 / 预测** | **`core/research/tc_ridge.py`**（`fit_tau_ridge_report` · `predict_tau_from_features`）；模型文件 `tau_ridge_model.json`；`rem_*` 为兼容别名 |
 | **τ 打分挂载** | **`core/signal/score_stock.py` § R3/A1 段**（apply_tau_score_fields 调用） |
-| **分池簿 + τ 影子簿** | **已退役**（原 `core/signal/cluster/rank.py`）；τ 见 `dual_score/` · `tau_ridge.py` |
+| **分池簿 + τ 影子簿** | **已退役**（原 `core/signal/cluster/rank.py`）；τ 见 `dual_score/` · `tc_ridge.py` |
 | **F1 买入闸（纸面）** | **`core/paper_rebalance.py`**（buy_passes_tau_gate 调用） |
-| **账本 / 复盘（双层）** | `core/score_ledger.py`（ŷ_oo + ŷ_τ 分标签冻结/回填）· [quant.md · 复盘](quant.md#昨日复盘score-review) |
+| **账本 / 复盘（双层）** | **已删除**（`core/score_ledger/` 与复盘 HTTP）；历史 JSON 在 `data/reports/score_ledger/` |
 | 产品回测 | `core/backtest/paper_replay.py` |
 | TopK（研究探针） | `core/backtest/topk_backtest.py` |
 | 配置 | `data/signal_config.json` → `scoring.horizon_days` / `cluster_scoring` / `dual_score` |
 | 日更 | `core/schedule_jobs.py` · [quant.md · 运维](quant.md#量化运维) |
-| 测试 | `tests/test_dual_score.py` · `tests/test_rem_ridge.py`（覆盖 `tau_*` 与 `rem_*` 别名）· `tests/test_score_ledger.py` |
+| 测试 | `tests/test_dual_score.py` · `tests/test_rem_ridge.py`（覆盖 `tau_*` 与 `rem_*` 别名） |
 | 产品定位 | [design-spine.md](design-spine.md) · [quant.md · 入门概念](quant.md#量化入门概念) |
 | RL 边界 | [architecture.md · RL 视角](architecture.md#强化学习rl视角) |
 
@@ -1852,7 +1852,7 @@ curl -s 'localhost:8000/api/signal/config/diff-export?use_saved=true'
 
 [← 文档索引](README.md) · 全链路见 [quant.md · ŷ 全链路](quant.md#predicted_scoreŷ全链路)
 
-**研究枢纽不再展示此页**（分池簿冻结已停用，复盘 UI 与 τ/nowcast 单日验收条已下线）。全量复盘 HTTP（`/score-review`、dates、hit-series、freeze、delete、stock-panel、outcomes fill、tau-shadow、nowcast-shadow）已 stub。账本 IO、日更 `fill_outcomes`、日报 `freeze_from_daily_report`、`score-ledger/series` 仍保留。库函数 `build_score_review` / `build_tau_shadow_review` 仍供日报 Y-check。校准 g(ŷ) **已删除**。
+**研究枢纽不再展示此页**。`core/score_ledger/`、复盘 HTTP、日更回填与日报冻结都已删除。下面是旧口径记录。校准 g(ŷ) **已删除**。`data/reports/score_ledger/` 历史 JSON 不删。
 
 对账 **决策日 `as_of` 的 ŷ 方向** 与 **h 日实现收益**，解释错票（因子失效 / 个股特异 / 行业 / 分组）。不改权、不 promote。
 
@@ -1867,7 +1867,7 @@ curl -s 'localhost:8000/api/signal/config/diff-export?use_saved=true'
 | \(r_h\) | \((\mathrm{close}[as\_of+h] / \mathrm{close}[as\_of] - 1) \times 100\) |
 | 方向命中 | \(\mathrm{sign}(\hat y)=\mathrm{sign}(r_h)\)；\(\lvert\hat y\rvert < 0.05\%\) → **无方向**（不计入命中分母的「有方向样本」） |
 
-实现：`core/score_ledger.py` · `_realized_from_bars` / `build_score_review`。
+实现已删除（原 `core/score_ledger/`）。
 
 ---
 
@@ -1930,22 +1930,13 @@ A 股日线主源 `stock_zh_a_hist`：**当日收盘价请在收盘后获取**�
 | `data/reports/score_ledger/YYYYMMDD.json` | 冻结 ŷ / top 因子分解 / sector / cluster（来源多为 `cluster_book`） |
 | `data/reports/score_ledger/YYYYMMDD.outcomes.json` | `realized_h` / `sign_hit` / 薄样本缺失计数 |
 
-写入触发：
-
-1. **生成日报** → `freeze_from_daily_report`（EOD 快照；无 `book_top` / 横截面则跳过）
-2. **纸面日更** `run_paper_daily` → `run_score_ledger_daily`（只回填到期决策日 realized；不再从分池簿冻结）
-
-分池簿 `freeze_from_cluster_book` 与 UI「冻结打分」已下线。
+写入已停。目录里只剩历史 JSON。分池簿冻结与 UI「冻结打分」已下线。
 
 ---
 
 ## 5. API
 
-仍可用：
-
-- `GET /api/quant/score-ledger/series?code=` — 单票 ŷ 跨日（watching）
-
-已 stub（`deprecated: true`，不再 404）：全量 `score-review`、dates、hit-series、stock-panel、freeze、delete、outcomes fill、`tau-shadow`、`nowcast-shadow`。库函数 `build_score_review` / `build_tau_shadow_review` / `hit_rate_series` / `stock_panel_series` / `delete_ledger` 仍在。
+复盘 HTTP（`score-review`、`score-ledger`、series、freeze、delete、outcomes、tau-shadow、nowcast-shadow）已删除。
 
 ---
 

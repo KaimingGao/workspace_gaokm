@@ -2206,7 +2206,7 @@ def collect_tau_intraday_panel(
                 px_tau = o_min
             if px_tau is None or px_tau <= 0:
                 continue
-            # y_τc = close[T]/price[τ]−1（τ→close 剩余收益）；open 时钟 px_tau≈open，自动退化为 y_oc
+            # ŷ_τ 标签 = close[T]/price[τ]−1；open 时钟 price[τ]=open，等于 open→close
             y_tau_c = (c / px_tau - 1.0) * 100.0
             pack = extract_minute_tau_pack(
                 day_mins,

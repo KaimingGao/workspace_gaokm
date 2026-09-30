@@ -435,7 +435,6 @@ def _score_fields_for_report(item: dict, scores: Dict[str, Optional[float]]) -> 
     ytau = scores.get("y_tau")
     if ytau is not None:
         out["y_tau"] = ytau
-        out.setdefault("predicted_score_tau", ytau)
     return out
 
 

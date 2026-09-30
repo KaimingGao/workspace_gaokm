@@ -46,8 +46,6 @@ from web.schemas.research import (
     OoTreeRequest,
     CoTreeRequest,
     PathRidgeRequest,
-    TcRidgeRequest,
-    RRidgeRequest,
     T30RidgeRequest,
     T45RidgeRequest,
     T60RidgeRequest,
@@ -58,9 +56,6 @@ from web.schemas.research import (
     T60TreeRequest,
     T75TreeRequest,
     T90TreeRequest,
-    TcTreeRequest,
-    RTreeRequest,
-    RemRidgeRequest,
     TauRidgeRequest,
     TauTreeRequest,
     TauBoostRequest,
@@ -88,13 +83,6 @@ from web.schemas.config import (
 from web.schemas.backtest import (
     PaperReplayBacktestRequest,
     PortfolioBacktestRequest,
-)
-
-from web.schemas.score import (
-    ScoreReviewRequest,
-    ScoreLedgerFreezeRequest,
-    ScoreOutcomesFillRequest,
-    ScoreLedgerDeleteRequest,
 )
 
 from web.schemas.quant_misc import (
@@ -135,8 +123,6 @@ __all__ = [
     "OoTreeRequest",
     "CoTreeRequest",
     "PathRidgeRequest",
-    "TcRidgeRequest",
-    "RRidgeRequest",
     "T30RidgeRequest",
     "T45RidgeRequest",
     "T60RidgeRequest",
@@ -147,9 +133,6 @@ __all__ = [
     "T60TreeRequest",
     "T75TreeRequest",
     "T90TreeRequest",
-    "TcTreeRequest",
-    "RTreeRequest",
-    "RemRidgeRequest",
     "TauRidgeRequest",
     "TauTreeRequest",
     "TauBoostRequest",
@@ -171,10 +154,6 @@ __all__ = [
     "DualScoreRequest",
     "PaperReplayBacktestRequest",
     "PortfolioBacktestRequest",
-    "ScoreReviewRequest",
-    "ScoreLedgerFreezeRequest",
-    "ScoreOutcomesFillRequest",
-    "ScoreLedgerDeleteRequest",
     "QuantReportRequest",
     "QuantInterpretRequest",
     "QuantReportDeleteRequest",

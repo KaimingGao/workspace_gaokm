@@ -84,7 +84,7 @@ def _has_lightgbm() -> bool:
 class TestT30Tree(unittest.TestCase):
     def test_defaults_match_tau_tree(self):
         from core.research.t30_tree import DEFAULT_N_ESTIMATORS, TREE_HEAD, TREE_SCHEMA
-        from core.research.tau_tree import DEFAULT_N_ESTIMATORS as TAU_N
+        from core.research.tc_tree import DEFAULT_N_ESTIMATORS as TAU_N
 
         self.assertEqual(DEFAULT_N_ESTIMATORS, 80)
         self.assertEqual(DEFAULT_N_ESTIMATORS, TAU_N)
@@ -213,7 +213,7 @@ class TestT30Tree(unittest.TestCase):
     def test_tree_z_adds_path_shape_ridge_keeps_drop(self):
         from core.research.t30_ridge import T30_Z_FEATURES
         from core.research.t30_tree import T30_TREE_Z_FEATURES
-        from core.research.tau_ridge import (
+        from core.research.tc_ridge import (
             TAU_HORIZON_DROP_OC_SHAPE,
             TAU_HORIZON_TREE_SHAPE_FEATURES,
             with_horizon_tree_shape,

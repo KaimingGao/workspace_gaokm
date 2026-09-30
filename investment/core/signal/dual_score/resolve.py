@@ -328,10 +328,10 @@ resolve_predicted_score_eod = resolve_predicted_score_oo  # 遗留别名，统�
 
 
 def resolve_predicted_score_tau(item: Optional[dict]) -> Optional[float]:
-    """从打分行读取 ŷ_τ（兼容 score_rem / predicted_score_rem）。"""
+    """时钟对齐后的 ŷ_τc。主字段 y_tau；旧簿仍可读 predicted_score_tau / score_rem。"""
     if not isinstance(item, dict):
         return None
-    for k in ("predicted_score_tau", "score_rem", "predicted_score_rem"):
+    for k in ("y_tau", "predicted_score_tau", "score_rem", "predicted_score_rem"):
         v = item.get(k)
         if v is None:
             continue
@@ -384,7 +384,7 @@ def compute_predicted_score_blend(
     rem_doc = None
     if str(cfg.get("w_mode") or "") == "variance":
         try:
-            from core.research.tau_ridge import load_tau_model
+            from core.research.tc_ridge import load_tau_model
 
             rem_doc = load_tau_model()
         except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程

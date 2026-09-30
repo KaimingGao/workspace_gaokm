@@ -51,7 +51,7 @@ class TestA2JobRuntime(unittest.TestCase):
         self.assertIn("t30-ridge", names)
         self.assertIn("t60-ridge", names)
         self.assertIn("t90-ridge", names)
-        self.assertIn("tc-ridge", names)
+        self.assertNotIn("tc-ridge", names)
         self.assertIn("t0-backtest", names)
         t30_p = next(p for p in policies if p["slot"] == "t30-ridge")
         self.assertGreaterEqual(float(t30_p.get("stale_sec") or 0), 1800.0)

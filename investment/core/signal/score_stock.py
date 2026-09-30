@@ -930,7 +930,7 @@ def score_stock(
             compute_sector_gap_breadth_live,
             get_event_prior_cfg,
         )
-        from core.research.tau_ridge import load_tau_model, predict_tau_from_features
+        from core.research.tc_ridge import load_tau_model, predict_tau_from_features
         from core.signal.dual_score import apply_tau_score_fields
 
         gap_v = open_t_info.get("gap_pct")

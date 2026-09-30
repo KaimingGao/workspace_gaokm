@@ -84,7 +84,7 @@ def _has_lightgbm() -> bool:
 class TestT90Tree(unittest.TestCase):
     def test_defaults_match_tau_tree(self):
         from core.research.t90_tree import DEFAULT_N_ESTIMATORS, TREE_HEAD, TREE_SCHEMA
-        from core.research.tau_tree import DEFAULT_N_ESTIMATORS as TAU_N
+        from core.research.tc_tree import DEFAULT_N_ESTIMATORS as TAU_N
 
         self.assertEqual(DEFAULT_N_ESTIMATORS, 80)
         self.assertEqual(DEFAULT_N_ESTIMATORS, TAU_N)

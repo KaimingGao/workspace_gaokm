@@ -98,7 +98,7 @@ def dual_score_book_fields(
     formula_terms_r = work.get("formula_terms_r") or work.get("score_formula_terms_r")
     if not (isinstance(formula_terms_r, dict) and formula_terms_r.get("terms")):
         try:
-            from core.research.tc_ridge import explain_tc_prediction, load_tc_model
+            from core.research.tc_ridge import explain_tau_prediction, load_tau_model
 
             feats_r = work.get("features_tau") if isinstance(work.get("features_tau"), dict) else {}
             if not feats_r:
@@ -107,7 +107,7 @@ def dual_score_book_fields(
                     if isinstance(work.get("features_path"), dict)
                     else {}
                 )
-            formula_terms_r = explain_tc_prediction(feats_r, model_doc=load_tc_model())
+            formula_terms_r = explain_tau_prediction(feats_r, model_doc=load_tau_model())
         except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
             logger.debug("catch except Exception: in dual_score.py", exc_info=True)
             formula_terms_r = None
@@ -150,7 +150,8 @@ def dual_score_book_fields(
             work["y_oc"] = None
             work["y_co"] = None
             work["ranking"] = None
-            work["predicted_score_tau"] = None
+            work.pop("predicted_score_tau", None)
+            work["y_tau"] = None
     except Exception:  # noqa: BLE001
         logger.debug("stamp ranking in book_fields failed", exc_info=True)
     # 权重优先簿内已算（含 theme/variance）；缺则用当前配置
@@ -158,7 +159,7 @@ def dual_score_book_fields(
         "predicted_score_eod": work.get("predicted_score_eod", work.get("predicted_score")),
         "predicted_score_oo": work.get("predicted_score_oo", work.get("y_oo")),
         "predicted_score_eod_rem": work.get("predicted_score_eod_rem"),
-        "predicted_score_tau": work.get("predicted_score_tau", work.get("score_rem")),
+        "y_tau": work.get("y_tau", work.get("score_rem")),
         "predicted_score_tau_delta": work.get("predicted_score_tau_delta"),
         "predicted_score_tau_cascade": work.get("predicted_score_tau_cascade"),
         "predicted_score_blend": work.get("predicted_score_blend"),

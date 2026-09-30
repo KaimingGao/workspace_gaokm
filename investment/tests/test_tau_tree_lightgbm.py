@@ -28,7 +28,7 @@ def _has_lightgbm() -> bool:
 @unittest.skipUnless(_has_lightgbm(), "lightgbm 未安装")
 class TestTauTreeLightgbm(unittest.TestCase):
     def test_resolve_backend_lightgbm(self):
-        from core.research.tau_tree import resolve_tree_backend
+        from core.research.tc_tree import resolve_tree_backend
 
         self.assertEqual(resolve_tree_backend("lightgbm"), "lightgbm")
         self.assertEqual(resolve_tree_backend("lgb"), "lightgbm")
@@ -40,7 +40,7 @@ class TestTauTreeLightgbm(unittest.TestCase):
             resolve_tree_backend("numpy_gbm")
 
     def test_fit_predict_lightgbm_shapes(self):
-        from core.research.tau_tree import _fit_lightgbm, _predict_lightgbm
+        from core.research.tc_tree import _fit_lightgbm, _predict_lightgbm
 
         rng = np.random.default_rng(42)
         n, p = 200, 5
@@ -68,7 +68,7 @@ class TestTauTreeLightgbm(unittest.TestCase):
             pack_tree_return_model,
             predict_tree_p_up,
         )
-        from core.research.tau_tree import _fit_lightgbm
+        from core.research.tc_tree import _fit_lightgbm
 
         rng = np.random.default_rng(7)
         n, p = 120, 4
@@ -121,7 +121,7 @@ class TestTauTreeLightgbm(unittest.TestCase):
         """树侧可开 Alpha158；Ridge 对照特征不含 raw_alpha158_*。"""
         from datetime import date, timedelta
 
-        from core.research.tau_tree import fit_tau_tree_report
+        from core.research.tc_tree import fit_tau_tree_report
 
         def _bars(n=90, start=10.0, seed=0):
             out = []

@@ -189,7 +189,7 @@ def _row_matrix(
     feature_names: Sequence[str],
     impute_means: Dict[str, float],
 ) -> np.ndarray:
-    from core.research.tau_tree import _design_matrix
+    from core.research.tc_tree import _design_matrix
 
     row = {k: (features or {}).get(k) for k in feature_names}
     means = np.asarray(
@@ -218,18 +218,18 @@ def predict_tree_p_up(
     eng = str(rm.get("backend") or "").strip().lower()
     try:
         if eng == "xgboost":
-            from core.research.tau_tree import _predict_xgboost
+            from core.research.tc_tree import _predict_xgboost
 
             booster = load_xgboost_booster(rm.get("booster") or {})
             pred = _predict_xgboost(booster, x)
         elif eng == "lightgbm":
-            from core.research.tau_tree import _predict_lightgbm
+            from core.research.tc_tree import _predict_lightgbm
 
             booster = load_lightgbm_booster(rm.get("booster") or {})
             raw = _predict_lightgbm(booster, x)
             pred = np.clip(raw, HORIZON_P_CLIP, 1.0 - HORIZON_P_CLIP)
         elif eng in {"numpy_gbm", "numpy", "gbm"}:
-            from core.research.tau_tree import _predict_numpy_gbm
+            from core.research.tc_tree import _predict_numpy_gbm
 
             raw = np.clip(
                 _predict_numpy_gbm(rm.get("gbm_pack") or {}, x),

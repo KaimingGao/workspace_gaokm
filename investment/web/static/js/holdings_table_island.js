@@ -117,7 +117,7 @@ export function holdingToRow(
     dualScoreHead: h.dual_score_head || null,
     dualScoreWindow: h.dual_score_window || null,
     dualScoreWeights: h.dual_score_weights || null,
-    predictedScoreTau: h.predicted_score_tau ?? h.score_rem ?? null,
+    predictedScoreTau: h.y_tau ?? h["y_τc"] ?? h.score_rem ?? h.predicted_score_tau ?? null,
     predictedScoreOn: h.predicted_score_on ?? null,
     yCheck: h.y_check || null,
     scoreEodText,

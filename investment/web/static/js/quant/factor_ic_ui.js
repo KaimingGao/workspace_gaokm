@@ -1003,7 +1003,7 @@ export function createFactorIcUi(deps) {
       ? "p_up>0.5 与 τ 后窗收益同号；标签不含开→τ，晚钟不会被已实现路径垫高"
       : isPath
       ? "极值序标签下 τ 越晚特征更贴标签，命中易虚高；优先分档对照，live 仍用决策钟"
-      : "OC 标签下 τ 越晚命中通常越高（开→τ 已实现垫高）；看开盘/首根/10:00/11:00，不必逐钟";
+      : "τ→close 标签下 τ 越晚命中通常越高（开→τ 已实现垫高）；看开盘/首根/10:00/11:00，不必逐钟";
     const byTauHit = (t) => {
       const b = (byTau && byTau[t]) || {};
       return b.sign_hit != null && Number.isFinite(Number(b.sign_hit))

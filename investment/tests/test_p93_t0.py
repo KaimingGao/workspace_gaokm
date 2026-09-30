@@ -3200,8 +3200,6 @@ class TestDualYDirection(unittest.TestCase):
 
         _TAU_XS_DAY_CACHE.pop("2026-09-16", None)
         with patch(
-            "core.t0.score_policy.active_book_codes_for_tau_pool", return_value=[]
-        ), patch(
             "core.t0.score_policy.load_bars_by_code_for_tau_pool",
             return_value={"600183": [_bar("2026-09-15", 148, 150, 147, 149)]},
         ):
@@ -3431,45 +3429,33 @@ class TestDualYDirection(unittest.TestCase):
                 self.assertEqual(call.kwargs.get("use_minute_tau"), False)
             self.assertTrue(scores_have_any(out.get("600000")))
 
-    def test_compute_fallback_skips_ledger(self):
-        from core.t0.score_policy import resolve_scores_for_code
+    def test_compute_miss_does_not_read_book_or_ledger(self):
+        from core.t0.score_policy import resolve_scores_for_code, scores_have_any
 
+        empty = {
+            "y_eod": None,
+            "y_tau": None,
+            "y_trade": None,
+            "y_on": None,
+            "y_nowcast": None,
+            "y_check": None,
+            "eod_trust": None,
+        }
         with patch(
             "core.t0.score_policy.compute_scores_from_bars",
-            return_value={
-                "y_eod": None,
-                "y_tau": None,
-                "y_trade": None,
-                "y_on": None,
-                "y_nowcast": None,
-                "y_check": None,
-                "eod_trust": None,
-            },
-        ), patch(
-            "core.t0.score_policy.load_scores_for_code_date",
-            side_effect=AssertionError("ledger must not be used on compute fallback"),
-        ), patch(
-            "core.t0.score_policy._scores_from_live_book",
-            return_value={
-                "y_eod": 0.2,
-                "y_tau": 0.3,
-                "y_trade": 0.2,
-                "y_on": None,
-                "y_nowcast": None,
-                "y_check": "ok",
-                "eod_trust": 1.0,
-                "_score_source": "live_book",
-            },
-        ):
+            return_value=dict(empty),
+        ) as mocked:
             sc = resolve_scores_for_code(
                 "600000",
                 hist_bars=[_bar("2026-01-01", 1, 1, 1, 1)] * 20,
                 day_bar=_bar("2026-01-02", 1, 1, 1, 1),
-                source="compute",
+                source="ledger",
                 allow_fallback=True,
             )
-            self.assertEqual(sc.get("_score_source"), "live_book")
-            self.assertAlmostEqual(float(sc.get("y_tau") or 0), 0.3)
+        mocked.assert_called_once()
+        self.assertFalse(scores_have_any(sc))
+        self.assertNotEqual(sc.get("_score_source"), "live_book")
+        self.assertNotEqual(sc.get("_score_source"), "ledger")
 
     def test_backtest_dual_y_compute_not_ledger(self):
         from core.t0.score_policy import clear_score_model_cache

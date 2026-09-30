@@ -50,7 +50,7 @@
 | 符号 | 含义 | 来源 |
 |------|------|------|
 | `ref` | 参考价（默认开盘价） | 日线 open / 分钟首根 open |
-| `C_τ` | 目标收盘 | `O×(1+clip(ŷ_oc×scale, ±20)/100)`，默认 scale=2 |
+| `C_τ` | 目标收盘 | `price(τ)×(1+clip(y_τc×scale, ±20)/100)`，默认 scale=2 |
 | `lower` / `upper` | 破带边 | `C_τ×(1±δ/100)`，默认 δ=0.5%。C>upper 反T；C<lower 正T |
 | `ŷ_τw` | 五窗符号和 | `sign(p_up−mid)` 对 ŷ_τ30/45/60/75/90 求和，范围 [−5,+5]；mid 默认 47% |
 | `y_tw_enter` | Y_τw入场 | 破带后：正T须 ŷ_τw≥此值；反T须 ŷ_τw≤−此值。默认 2；0=允许 0 票 |
@@ -129,7 +129,7 @@ v6 开腿不走本链。库函数也不再吃 `y_trade` / `y_eod` / nowcast；`l
 每根 5m K（09:30 ~ 11:00）
    │
    ├─ 解析价空间：昨收差 |P_d/P_m−1| 过大则跳过（开盘差已下线）
-   ├─ 用截至该根前缀估 ŷ_oc → C_τ = O×(1+clip(ŷ_oc×scale, ±20)/100)
+   ├─ 用截至该根前缀估 y_τc → C_τ = price(τ)×(1+clip(y_τc×scale, ±20)/100)
    │     lower = C_τ×(1−δ/100)，upper = C_τ×(1+δ/100)
    ├─ 破带：
    │     C > upper → 反 T（现价卖；leg2=C_τ）
@@ -153,7 +153,7 @@ v6 开腿不走本链。库函数也不再吃 `y_trade` / `y_eod` / nowcast；`l
 ### 4.3 方向判定
 
 ```python
-# C_τ = O×(1+clip(ŷ_oc×scale, ±20)/100)
+# C_τ = price(τ)×(1+clip(y_τc×scale, ±20)/100)
 # ŷ_τw = sum(sign(p_up−mid)) over ŷ_τ30/45/60/75/90；mid 默认 47%；|p−mid|≤Y_τ*弃权% 不计
 if C > C_τ×(1+δ/100) and y_tw <= -enter:  → 反 T，现价卖，leg2=C_τ
 if C < C_τ×(1−δ/100) and y_tw >= enter:   → 正 T，现价买，leg2=C_τ
@@ -416,7 +416,7 @@ bound = ref × (1 + move_pct / 100)
 | `y_oc_enter_amount` | 20000 | 过入场未过强：本轮金额（元）；0=走旧比例仓（页面 y_oc入场金额） |
 | `y_oc_strong` | 1.0 | 过入场后 \|ŷ_oc\|≥此百分点用强金额，否则入场金额（页面 y_oc强%）。须≥入场 |
 | `y_oc_strong_amount` | 40000 | 过强：本轮金额，不少于入场金额（页面 y_oc强金额） |
-| `t0_y_oc_target_scale` | 2 | C_τ=O×(1+clip(ŷ_oc×scale, ±20)/100)（页面 y_oc 放大） |
+| `t0_y_oc_target_scale` | 2 | C_τ=price(τ)×(1+clip(y_τc×scale, ±20)/100) |
 | `t0_close_band_delta_pct` | 0.5 | 破带带宽 δ%（页面 超额带宽δ%） |
 | `t0_price_space_prev_dev_pct` | 5.0 | 昨收差%上限（0=关） |
 | `t0_price_space_max_dev_pct` | 0 | 开盘差已下线 |

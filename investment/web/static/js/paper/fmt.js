@@ -153,7 +153,7 @@ export function ocWithCoPct(yOc, yCo, wCo) {
   return compoundPct(oc, wc * co);
 }
 
-/** 拟合 ŷ_τc（price(τ)→close）；勿用 remaining 映射后的 predicted_score_tau。 */
+/** 拟合 ŷ_τc（price(τ)→close）；勿用时钟对齐后的 y_tau。 */
 export function pickYOcFitted(it) {
   if (!it || typeof it !== "object") return null;
   for (const c of [it.y_oc, it.predicted_score_oc, it.y_tau_oc, it.predicted_score_tau_oc]) {
@@ -224,7 +224,7 @@ export function rankingPriceTau(it) {
   return null;
 }
 
-/** 决策 ranking = 融合分 − (price(τ)/open−1)。缺开盘或 τ 价则原值。百分点。 */
+/** 缺 y_spec 的旧行：融合分再减 (price(τ)/open−1)。τc 不走这里。百分点。 */
 export function remainingRankingPct(ranking, openPx, priceTau) {
   const y = _numField(ranking);
   if (y == null) return null;
@@ -265,7 +265,7 @@ export function rankingPct(it) {
 }
 
 /** 表列主分：调仓 ranking（百分点）。
- *  OC 模型：ranking = fuse − (price(τ)/open−1)；τc 模型：ranking 已在 τ→open[T+1] 基准，不再减。
+ *  τc：ranking 已在 τ→open[T+1]。缺 y_spec 才再减 (price(τ)/open−1)。
  *  不做 T ŷ_trade。 */
 export function resolveRankingScore(it) {
   if (!it || typeof it !== "object") return null;
@@ -352,7 +352,7 @@ export const Y_TAU_TITLE = Y_OC_TITLE;
 export const Y_OC_REBALANCE_TITLE =
   "ŷ_τc · 09:30–10:00 因果前缀 price(τ)→close[T]";
 export const RANKING_REBALANCE_TITLE =
-  "ranking · τc: w_oo·((ŷ_oo+1)/(1+rot)−1)+w_τc·((1+ŷ_τc)(1+w_co·ŷ_co)−1)（τ→open[T+1]）；OC: fuse−rot";
+  "ranking · w_oo·((ŷ_oo+1)/(1+rot)−1)+w_τc·((1+ŷ_τc)(1+w_co·ŷ_co)−1) · τ→open[T+1]";
 export const EOD_REALIZED_TITLE =
   "oo实 · open[T+1]/open[T]−1（与 ŷ_oo 同标签）";
 export const TAU_REALIZED_TITLE =
@@ -431,17 +431,17 @@ function _tauOcRaw(it) {
   return null;
 }
 
-/** 分钟时钟剩余映射后的 ŷ_τc（决策/融合用）；无映射时与 OC 相同。 */
+/** 分钟时钟对齐后的 ŷ_τc（决策/融合用）；无映射时与拟合原值相同。 */
 export function resolveTauMappedScore(it) {
   if (!it || typeof it !== "object") return null;
   if (isHeuristicScoreScale(it)) return null;
-  const tau = _numField(it.predicted_score_tau ?? it.score_rem);
+  const tau = _numField(it.y_tau ?? it["y_τc"] ?? it.score_rem ?? it.predicted_score_tau);
   return _looksLikeYhatPct(tau) ? tau : null;
 }
 
 /** ŷ_τc 表列 / tip：Ridge 拟合原值（T收/τ价），与组成合计同口径。
 
-  优先 y_tau_oc（映射前）；勿把 remaining 映射后的 predicted_score_tau 当成拟合原值，
+  优先 y_tau_oc（映射前）；勿把时钟对齐后的 y_tau 当成拟合原值，
   否则 tip 大标题会与「合计 ŷ_τc」对不上（做T明细常见）。
   勿在此做缺口∘抬昨收——那只用于 ŷ_trade 融合。
   */

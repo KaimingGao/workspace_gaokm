@@ -18,7 +18,7 @@ from core.research.co_panel import (
     enrich_co_panel_breadth,
     theme_sample_weights,
 )
-from core.research.tau_ridge import (
+from core.research.tc_ridge import (
     _ic,
     _oos_by_theme,
     _predict_rows,

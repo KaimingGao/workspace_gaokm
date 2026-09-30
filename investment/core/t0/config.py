@@ -389,7 +389,7 @@ DEFAULT_T0_RULES: Dict[str, Any] = {
     "y_τw_midpoint": 47.0,
     # ŷ_τ* 概率头：ridge（默认）| tree（影子树 + 路径形状，仅回测建议）
     "horizon_prob_backend": "ridge",
-    "t0_y_oc_target_scale": 2.0,  # C_τ = O×(1+clip(ŷ_oc×scale, ±20)/100)
+    "t0_y_oc_target_scale": 2.0,  # C_τ = price(τ)×(1+clip(y_τc×scale, ±20)/100)
     "t0_close_band_delta_pct": 0.5,  # 破带带宽 δ%
     "fusion_w_τc": 0.5,  # residual 融合：ŷ_τc 权
     "fusion_w_tc": 0.5,
@@ -899,16 +899,7 @@ def load_t0_rules(override: Optional[dict] = None) -> Dict[str, Any]:
     cfg["t0_lock_win_pct_sell_then_buy"] = _norm_lock_win(
         cfg.get("t0_lock_win_pct_sell_then_buy"), 2.0
     )
-    y_src = str(cfg.get("y_score_source") or "compute").strip().lower()
-    if y_src in {"book", "cluster", "cluster_book"}:
-        y_src = "live_book"
-    elif y_src in {"ledger", "score_ledger", "freeze"}:
-        y_src = "ledger"
-    elif y_src in {"compute", "pit", "live", "realtime", "on_the_fly"}:
-        y_src = "compute"
-    else:
-        y_src = "compute"
-    cfg["y_score_source"] = y_src
+    cfg["y_score_source"] = "compute"
     path_mode = str(cfg.get("path_mode") or "first_touch").strip().lower()
     if path_mode in {"minute", "min", "5m", "first", "dual_touch", "dual", "any", "veto", "adverse", "conservative", "worst"}:
         path_mode = "first_touch"

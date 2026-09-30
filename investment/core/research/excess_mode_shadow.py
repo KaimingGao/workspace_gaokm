@@ -76,7 +76,7 @@ def _fit_excess_arm(
 ) -> Dict[str, Any]:
     from core.research.factor_ols_fit import fit_factor_ols_from_panel
     from core.research.panel import collect_subscore_forward_panel
-    from core.research.tau_ridge import _predict_rows
+    from core.research.tc_ridge import _predict_rows
 
     em = str(excess_mode or "none").strip().lower()
     if em in ("index", "excess", "vs_index", "benchmark"):

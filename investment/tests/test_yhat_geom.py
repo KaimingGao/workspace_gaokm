@@ -187,7 +187,8 @@ class TestYhatGeom(unittest.TestCase):
             },
         )
         expect = remaining_at_tau(2.0, 1.0)
-        self.assertAlmostEqual(item["predicted_score_tau"], expect)
+        self.assertNotIn("predicted_score_tau", item)
+        self.assertAlmostEqual(item["y_tau"], expect)
         self.assertAlmostEqual(item["predicted_score_eod_rem"], expect)
         self.assertAlmostEqual(item["formula_terms_tau"]["y_tau_raw"], 2.0)
         self.assertNotIn("nowcast_as_of", item)

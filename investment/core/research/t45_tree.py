@@ -27,7 +27,7 @@ from core.research.t45_ridge import (
     T45_MIN_STD_EXEMPT,
     T45_Z_FEATURES,
 )
-from core.research.tau_ridge import (
+from core.research.tc_ridge import (
     TAU_FIT_DROP_ALIASES,
     TAU_HORIZON_TREE_SHAPE_FEATURES,
     _stack_panels,
@@ -44,7 +44,7 @@ from core.research.horizon_tree import (
     predict_tree_p_up,
     tree_model_path,
 )
-from core.research.tau_tree import (
+from core.research.tc_tree import (
     DEFAULT_LEARNING_RATE,
     DEFAULT_MAX_DEPTH,
     DEFAULT_N_ESTIMATORS,

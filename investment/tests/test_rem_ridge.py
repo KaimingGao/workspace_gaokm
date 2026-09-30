@@ -175,7 +175,7 @@ class TestRemRidgeFit(unittest.TestCase):
         self.assertIn("gap_pct", meta1.get("min_std_exempt") or [])
 
     def test_oos_by_tau_buckets(self):
-        from core.research.tau_ridge import _oos_by_tau
+        from core.research.tc_ridge import _oos_by_tau
 
         preds = [1.0] * 5 + [-1.0] * 5 + [1.0] * 5 + [1.0] * 5
         ys = [1.0] * 5 + [-1.0] * 5 + [1.0] * 5 + [-1.0] * 5
@@ -187,7 +187,7 @@ class TestRemRidgeFit(unittest.TestCase):
         self.assertAlmostEqual(by["10:30"]["sign_hit"], 0.5)
 
     def test_fit_synthetic_pool(self):
-        from core.research.tau_ridge import fit_tau_ridge_report, persist_tau_model
+        from core.research.tc_ridge import fit_tau_ridge_report, persist_tau_model
 
         stock_bars = [
             {"code": "A", "bars": _bars(90, 10)},
@@ -260,7 +260,7 @@ class TestRemRidgeFit(unittest.TestCase):
                 self.assertEqual(saved.get("schema"), "tau_ridge_v12")
                 self.assertTrue(os.path.isfile(os.path.join(live, "tau_ridge_model.json")))
                 self.assertTrue(os.path.isfile(os.path.join(live, "rem_ridge_model.json")))
-                from core.research.tau_ridge import load_tau_model, predict_tau_from_features
+                from core.research.tc_ridge import load_tau_model, predict_tau_from_features
 
                 doc = load_tau_model()
                 self.assertIsNotNone(doc)
@@ -281,7 +281,7 @@ class TestRemRidgeFit(unittest.TestCase):
                 # 缺特征按均值填 z=0，应能出数（不再因部分特征缺失整段 None）
                 self.assertIsNotNone(yhat)
                 self.assertTrue(doc.get("return_model"))
-                from core.research.tau_ridge import explain_tau_prediction
+                from core.research.tc_ridge import explain_tau_prediction
 
                 expl = explain_tau_prediction(
                     {
@@ -299,7 +299,7 @@ class TestRemRidgeFit(unittest.TestCase):
                 self.assertAlmostEqual(float(expl["total"]), float(yhat), places=4)
 
     def test_fit_tau_ridge_include_alpha158_flag(self):
-        from core.research.tau_ridge import fit_tau_ridge_report
+        from core.research.tc_ridge import fit_tau_ridge_report
 
         stock_bars = [
             {"code": "A", "bars": _bars(90, 10)},
@@ -326,7 +326,7 @@ class TestRemRidgeFit(unittest.TestCase):
         self.assertTrue(any(str(k).startswith("raw_alpha158_") for k in extras_on))
 
     def test_tau_promote_gate(self):
-        from core.research.tau_ridge import tau_promote_gate
+        from core.research.tc_ridge import tau_promote_gate
 
         bad = tau_promote_gate({"oos": {"sign_hit": 0.5, "n_valid": 40}})
         self.assertFalse(bad.get("ok"))
@@ -355,7 +355,7 @@ class TestRemRidgeFit(unittest.TestCase):
         self.assertTrue(ok.get("ok"))
 
     def test_persist_uses_last_report_without_refit(self):
-        from core.research.tau_ridge import (
+        from core.research.tc_ridge import (
             persist_tau_model,
             save_tau_last_report,
             load_tau_last_report,
@@ -387,7 +387,7 @@ class TestRemRidgeFit(unittest.TestCase):
                 self.assertIsNotNone(last)
                 saved = persist_tau_model(last, note="from last")
                 self.assertTrue(saved.get("success"), saved)
-                from core.research.tau_ridge import load_tau_model
+                from core.research.tc_ridge import load_tau_model
 
                 doc = load_tau_model()
                 self.assertAlmostEqual(
@@ -396,7 +396,7 @@ class TestRemRidgeFit(unittest.TestCase):
                 )
 
     def test_load_falls_back_to_legacy_rem_filename(self):
-        from core.research.tau_ridge import load_tau_model, persist_tau_model
+        from core.research.tc_ridge import load_tau_model, persist_tau_model
 
         dummy = {
             "success": True,
@@ -553,7 +553,7 @@ class TauLagFeatureTests(unittest.TestCase):
             realized_tau_by_date,
             tau_lag_features,
         )
-        from core.research.tau_ridge import TAU_Z_FEATURES
+        from core.research.tc_ridge import TAU_Z_FEATURES
 
         self.assertIn("tau_lag1", TAU_Z_FEATURES)
         self.assertIn("tau_ma5", TAU_Z_FEATURES)

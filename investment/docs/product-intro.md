@@ -138,7 +138,7 @@ quant_panel.html
 | **ŷ_oc** | 预估 close[T]/open[T]−1 | 调仓 ranking 成分；盘中 ŷ_trade；**不参与做 T 选腿** |
 | **ŷ_τc** | 预估 close[T]/price(τ)−1 | 研究拟合仍保留；做 T / 数据中心表列已下线 |
 | **ŷ_co** | 预估 open[T+1]/close[T]−1 | 经 w_co 叠进 ŷ_oc（调仓默认 w_co=0） |
-| **调仓 ranking** | fusion_w_oo·ŷ_oo + fusion_w_oc·((1+ŷ_oc)(1+w_co·ŷ_co)−1) − (price(τ)/open−1) | 纸面 rank_lots（默认 0.6 / 0.4）；拟合 open[T]→open[T+1]；真实=(open[T+1]−price(τ))/open[T] |
+| **调仓 ranking** | fusion_w_oo·((ŷ_oo+1)/(1+rot)−1) + fusion_w_oc·((1+ŷ_τc)(1+w_co·ŷ_co)−1) | 纸面 rank_lots（默认 0.6 / 0.4）；rot=price(τ)/open−1；基准 τ→open[T+1]；真实=(open[T+1]−price(τ))/open[T] |
 | **盘中 ŷ_trade** | dual_score blend：w_oo·ŷ_oo + w_tau·(缺口∘ŷ_τ) | 现网 **w_oo=0, w_tau=1**；收盘 eod_next 回到 ŷ_oo |
 
 关键逻辑：
@@ -170,7 +170,7 @@ quant_panel.html
 
 > 详细数学推导见 [rebalance-logic.md](./rebalance-logic.md)。
 
-调仓系统按 **ranking**（融合分 − (price(τ)/open−1)；拟合 open[T]→open[T+1]）以已保存金额换算整手开仓或加仓（缺省 1 万 / 2 万；不够一手则买一手），未过入场则清仓，现金用完即止。
+调仓系统按 **ranking**（ŷ_oo 几何剩余 + ŷ_τc∘ŷ_co；基准 τ→open[T+1]）以已保存金额换算整手开仓或加仓（缺省 1 万 / 2 万；不够一手则买一手），未过入场则清仓，现金用完即止。
 
 ### 4.1 核心概念
 
@@ -179,7 +179,7 @@ quant_panel.html
 | **ŷ_oo** | 预期 open[T]→open[T+1] |
 | **ŷ_oc** | 预期 open[T]→close[T] |
 | **ŷ_co** | 预期隔夜 close[T]→open[T+1] |
-| **ranking** | w_oo·ŷ_oo + w_oc·((1+ŷ_oc)(1+w_co·ŷ_co)−1) − (price(τ)/open−1)；w_co 默认 0 |
+| **ranking** | w_oo·((ŷ_oo+1)/(1+rot)−1) + w_τc·((1+ŷ_τc)(1+w_co·ŷ_co)−1)；rot=price(τ)/open−1；w_co 默认 0 |
 | **rank入场 / rank强** | 选股下限 / 强档金额门槛 |
 | **持仓市值上限** | live 默认 15 万；本笔将超则跳过。历史回测不限 |
 
@@ -189,7 +189,7 @@ quant_panel.html
 
 ```
 每个交易日 fill_clock 打分；历史回测按所选调仓时间用 5 分钟价成交：
-  ranking = w_oo·ŷ_oo + w_oc·((1+ŷ_oc)(1+w_co·ŷ_co)−1) − (price(τ)/open−1)
+  ranking = w_oo·((ŷ_oo+1)/(1+rot)−1) + w_τc·((1+ŷ_τc)(1+w_co·ŷ_co)−1)
   已持仓且未过入场、缺 ranking 或 hard_reject → 清仓（T+1 可卖）
   ranking > rank入场（可选 y_oo>0 / y_oc>0）→ 开仓或加仓
   ranking > rank强 → lot_strong_amount，否则 lot_base_amount（缺省 2 万 / 1 万；按成交价换算整手，不够一手则买一手）

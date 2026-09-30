@@ -144,7 +144,7 @@ def delete_quant_reports(
 ) -> Dict[str, Any]:
     """删除指定日（可批量）的 quant_daily_{stamp}.{md,html} 归档。
 
-    不触碰 score_ledger / quant_daily.json。
+    只删 quant_daily_{stamp}.{md,html}，不碰子目录和 quant_daily.json。
     """
     raw_vals: List[str] = []
     for v in (stamps or []):

@@ -47,7 +47,6 @@ from web.routers import (  # noqa: E402
     quant_config,
     quant_dashboard,
     quant_research,
-    quant_score,
     strategy,
     watching,
 )
@@ -109,7 +108,6 @@ app.include_router(quant_config.router)
 app.include_router(quant_research.router)
 app.include_router(quant_cluster.router)
 app.include_router(quant_backtest.router)
-app.include_router(quant_score.router)
 app.include_router(quant_dashboard.router)
 app.include_router(watching.router)
 app.include_router(evals.router)

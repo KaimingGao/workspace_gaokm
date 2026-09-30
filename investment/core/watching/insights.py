@@ -448,7 +448,7 @@ def _insight_quote_bars(
 def _stamp_insight_ranking(
     out: Dict[str, Any], paper_ctx: Optional[dict] = None
 ) -> None:
-    """观察行 ranking 与交易执行同权：fuse − (price(τ)/open−1)。"""
+    """观察行 ranking 与交易执行同权（τc 几何剩余）。"""
     if not isinstance(out, dict):
         return
     try:

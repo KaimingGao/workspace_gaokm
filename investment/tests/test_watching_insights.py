@@ -47,9 +47,9 @@ class TestWatchingInsights(unittest.TestCase):
             "core.watching.insights._spot_valuation_map",
             return_value={},
         ), patch(
-            "core.research.tau_ridge.load_tau_model", return_value=None
+            "core.research.tc_ridge.load_tau_model", return_value=None
         ), patch(
-            "core.research.tau_ridge.predict_tau_from_features", return_value=None
+            "core.research.tc_ridge.predict_tau_from_features", return_value=None
         ):
             out = build_watching_insights(
                 ["600519"],
@@ -98,9 +98,9 @@ class TestWatchingInsights(unittest.TestCase):
             "core.watching.insights._spot_valuation_map",
             return_value={},
         ), patch(
-            "core.research.tau_ridge.load_tau_model", return_value=None
+            "core.research.tc_ridge.load_tau_model", return_value=None
         ), patch(
-            "core.research.tau_ridge.predict_tau_from_features", return_value=None
+            "core.research.tc_ridge.predict_tau_from_features", return_value=None
         ):
             first = build_watching_insights(
                 ["600519"],
@@ -240,9 +240,9 @@ class TestWatchingInsights(unittest.TestCase):
             "core.watching.insights._spot_valuation_map",
             return_value={},
         ), patch(
-            "core.research.tau_ridge.load_tau_model", return_value=None
+            "core.research.tc_ridge.load_tau_model", return_value=None
         ), patch(
-            "core.research.tau_ridge.predict_tau_from_features", return_value=None
+            "core.research.tc_ridge.predict_tau_from_features", return_value=None
         ), patch(
             "core.data.facade.get_bars", return_value={"bars": []}
         ):
@@ -384,7 +384,7 @@ class TestWatchingInsights(unittest.TestCase):
         self.assertAlmostEqual(float(row.get("ranking")), 0.8 * 2.30 + 0.2 * 5.69, places=4)
 
     def test_insight_one_stamps_remaining_ranking(self):
-        """有今开与现价时，数据中心 ranking 扣 (price(τ)/open−1)。"""
+        """有今开与现价时，数据中心 ranking 走 τc（缺 y_spec 时才扣 rot）。"""
         from core.watching.insights import _insight_one
 
         paper = {

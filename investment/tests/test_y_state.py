@@ -146,9 +146,9 @@ class TestYState(unittest.TestCase):
         self.assertEqual(st["segments"]["tau_to_close_src"], "tau_oc_adj")
 
     def test_scale_weights_by_trust(self):
-        from core.signal.y_state import scale_weights_by_eod_trust
+        from core.signal.y_state import scale_weights_by_oo_trust
 
-        w, meta = scale_weights_by_eod_trust(
+        w, meta = scale_weights_by_oo_trust(
             {"A": 20.0, "B": 10.0},
             {"A": 0.5, "B": 1.0},
             config={"y_state": {"scale_weights": True}},
@@ -158,7 +158,7 @@ class TestYState(unittest.TestCase):
         self.assertAlmostEqual(w["B"], 10.0, places=4)
         self.assertEqual(meta.get("n_scaled"), 1)
 
-        w2, meta2 = scale_weights_by_eod_trust(
+        w2, meta2 = scale_weights_by_oo_trust(
             {"A": 20.0},
             {"A": 0.5},
             config={"y_state": {"scale_weights": False}},

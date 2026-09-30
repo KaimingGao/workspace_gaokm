@@ -883,23 +883,6 @@ export function initQuant(ctx) {
       `</div>`;
   }
 
-  async function renderRCoefTable(rm, opts = {}) {
-    const host = document.getElementById("quant-tc-coef-table");
-    if (!host) return;
-    try {
-      if (typeof q.ensureFactorMeta === "function") {
-        await q.ensureFactorMeta();
-      }
-    } catch (_) {
-      /* ignore */
-    }
-    const html =
-      typeof q.remCoefTableHtml === "function"
-        ? q.remCoefTableHtml(rm, { ...opts, head: "r" })
-        : "";
-    host.innerHTML = html || "";
-  }
-
   async function renderT30CoefTable(rm, opts = {}) {
     const host = document.getElementById("quant-t30-coef-table");
     if (!host) return;
@@ -1464,7 +1447,7 @@ export function initQuant(ctx) {
       const tauLimit = 300;
       const a158El = document.getElementById("quant-tau-tree-alpha158");
       const includeAlpha158 = !a158El || a158El.checked !== false;
-      const res = await fetch("/api/quant/tau-tree", {
+      const res = await fetch("/api/quant/tc-tree", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -1523,7 +1506,7 @@ export function initQuant(ctx) {
     const ctrl = new AbortController();
     const to = setTimeout(() => ctrl.abort(), 20000);
     try {
-      const res = await fetch("/api/quant/tau-tree/last", { signal: ctrl.signal });
+      const res = await fetch("/api/quant/tc-tree/last", { signal: ctrl.signal });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
         const err = (data && (data.detail || data.error)) || `HTTP ${res.status}`;
@@ -1575,147 +1558,6 @@ export function initQuant(ctx) {
       clearTimeout(to);
       if (statusBtn) statusBtn.disabled = false;
     }
-  }
-
-  let rTreeBusyTimer = null;
-
-  function tcTreeBusyHint(elapsedSec) {
-    const s = Number(elapsedSec) || 0;
-    if (s < 45) return "拉观察池行情 / 5m 缓存";
-    if (s < 90) return "组 close/price(τ) 面板（满池分钟特征）";
-    return "仍在组面板（LightGBM 约数秒；慢的是组样本）";
-  }
-
-  function stopTcTreeBusy() {
-    if (rTreeBusyTimer) {
-      clearInterval(rTreeBusyTimer);
-      rTreeBusyTimer = null;
-    }
-    const btn = document.getElementById("quant-tc-tree-run");
-    if (btn) btn.disabled = false;
-  }
-
-  function startTcTreeBusy() {
-    stopTcTreeBusy();
-    const sum = document.getElementById("quant-tc-tree-summary");
-    const btn = document.getElementById("quant-tc-tree-run");
-    if (btn) btn.disabled = true;
-    const t0 = Date.now();
-    const tick = () => {
-      const s = Math.max(0, Math.round((Date.now() - t0) / 1000));
-      const msg = `${tcTreeBusyHint(s)} · 已 ${fmtTauTreeSec(s)} · 满池瓶颈在组面板，约数分钟`;
-      renderRemStatus(sum, {
-        state: "busy",
-        chip: "拟合中",
-        message: msg,
-        busy: true,
-      });
-      renderTcTreeCompare({
-        busy: true,
-        success: false,
-        message: msg,
-      });
-    };
-    tick();
-    rTreeBusyTimer = setInterval(tick, 1000);
-  }
-
-  function renderTcTreeCompare(data) {
-    const box = document.getElementById("quant-tc-tree-result");
-    if (!box) return;
-    if (!data || typeof data !== "object") {
-      box.innerHTML = "";
-      return;
-    }
-    if (data.busy) {
-      box.innerHTML = `<div class="quant-tree-report is-busy"><p class="quant-attr-note">${escapeHtml(
-        data.message || "ŷ_τc_tree 拟合中…"
-      )}</p></div>`;
-      return;
-    }
-    if (!data.success) {
-      box.innerHTML = `<p class="quant-attr-note">${escapeHtml(
-        String(data.error || data.note || "ŷ_τc_tree 拟合失败")
-      )}</p>`;
-      return;
-    }
-    box.innerHTML = treeReportHtml(data, { head: "r" });
-  }
-
-  async function runTcTree() {
-    const sum = document.getElementById("quant-tc-tree-summary");
-    startTcTreeBusy();
-    try {
-      const rLimit = 300;
-      const res = await fetch("/api/quant/tc-tree", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          lookback: 120,
-          watching_limit: rLimit,
-          ridge_lambda: 1.0,
-          holdout_trading_days: readHoldoutTradingDays(),
-        }),
-      });
-      const data = await res.json().catch(() => ({}));
-      stopTcTreeBusy();
-      if (!res.ok || !data.success) {
-        const err = (data && (data.detail || data.error)) || `HTTP ${res.status}`;
-        renderRemStatus(sum, {
-          state: "error",
-          chip: "失败",
-          message: String(err),
-          error: true,
-        });
-        renderTcTreeCompare({ success: false, error: String(err) });
-        return;
-      }
-      const timingMsg = fmtTauTreeTiming(data);
-      renderRemStatus(sum, {
-        state: "ok",
-        chip: "已拟合",
-        message: [tauTreeHyperBits(data), timingMsg, "影子头 · 未写盘"]
-          .filter(Boolean)
-          .join(" · "),
-        oos: data.oos || {},
-        sampleCount: data.sample_count,
-      });
-      renderTcTreeCompare(data);
-    } finally {
-      stopTcTreeBusy();
-    }
-  }
-
-  async function loadTcTreeLast() {
-    const sum = document.getElementById("quant-tc-tree-summary");
-    renderRemStatus(sum, {
-      state: "busy",
-      chip: "读取中",
-      message: "上次影子对照…",
-      busy: true,
-    });
-    const res = await fetch("/api/quant/tc-tree/last");
-    const data = await res.json().catch(() => ({}));
-    if (!data.exists || !data.success) {
-      renderRemStatus(sum, {
-        state: "idle",
-        chip: "待命",
-        message: data.note || "尚无 ŷ_τc_tree",
-      });
-      renderTcTreeCompare({ success: false, error: data.note || "尚无上次对照" });
-      return;
-    }
-    const timingMsg = fmtTauTreeTiming(data);
-    renderRemStatus(sum, {
-      state: "ok",
-      chip: "上次",
-      message: [tauTreeHyperBits(data), timingMsg, "影子头 · 未写盘"]
-        .filter(Boolean)
-        .join(" · "),
-      oos: data.oos || {},
-      sampleCount: data.sample_count,
-    });
-    renderTcTreeCompare(data);
   }
 
   let t30TreeBusyTimer = null;
@@ -2433,34 +2275,6 @@ export function initQuant(ctx) {
     renderT90TreeCompare(data);
   }
 
-  function renderRFitSummary(data) {
-    const box = document.getElementById("quant-tc-result");
-    if (!box || !data || typeof data !== "object") return;
-    const oos = data.oos || {};
-    const gate = data.promote_gate || {};
-    const bits = [
-      data.minute_codes_hit != null
-        ? `分钟覆盖 ${data.minute_codes_hit}/${data.minute_codes_universe ?? "—"} 票`
-        : null,
-      ...ridgeFitNBits(data),
-      oos.sign_hit != null
-        ? `OOS 命中 ${(Number(oos.sign_hit) * 100).toFixed(1)}%（n=${oos.n_valid ?? oos.n_test ?? "—"}）`
-        : null,
-      oos.ic != null ? `OOS IC ${Number(oos.ic).toFixed(3)}` : null,
-      gate.ok === false
-        ? `promote 闸：${(gate.blockers || []).join("；")}`
-        : gate.ok === true
-          ? "promote 闸：通过（强桶）"
-          : null,
-      Array.isArray(gate.warnings) && gate.warnings.length
-        ? `软提示：${gate.warnings.join("；")}`
-        : null,
-    ].filter(Boolean);
-    if (!bits.length) return;
-    box.innerHTML =
-      `<p class="quant-attr-note">${bits.map((b) => escapeHtml(String(b))).join(" · ")}</p>`;
-  }
-
   function horizonProbFitBits(data) {
     const oos = (data && data.oos) || {};
     const gate = (data && data.promote_gate) || {};
@@ -2568,22 +2382,6 @@ export function initQuant(ctx) {
     );
   }
 
-  let _rPromoteGate = null;
-  function syncRPersistBtn(gate, { hasReport = true } = {}) {
-    _rPromoteGate = gate && typeof gate === "object" ? gate : null;
-    syncRidgePersistPair(
-      "quant-tc-ridge-persist",
-      "quant-tc-ridge-persist-research",
-      _rPromoteGate,
-      { hasReport }
-    );
-  }
-
-  function clearRResultBox() {
-    const box = document.getElementById("quant-tc-result");
-    if (box) box.innerHTML = "";
-  }
-
   let _t30PromoteGate = null;
   function syncT30PersistBtn(gate, { hasReport = true } = {}) {
     _t30PromoteGate = gate && typeof gate === "object" ? gate : null;
@@ -2662,37 +2460,6 @@ export function initQuant(ctx) {
   }
 
   // ŷ_hl / path-ridge 产品面已退役（研究模块仍保留）
-
-  // 轻量预填 ŷ_τc 状态（枢纽 UI 已下线时跳过）
-  void (async () => {
-    try {
-      if (!document.getElementById("quant-tc-summary")) return;
-      const res = await fetch("/api/quant/tc-ridge/model");
-      const data = await res.json().catch(() => ({}));
-      const sum = document.getElementById("quant-tc-summary");
-      if (!sum) return;
-      if (!data.exists) {
-        paintRidgeEnableStatus(sum, data);
-        syncRPersistBtn(data.promote_gate, {
-          hasReport: !!data.last_report_exists,
-        });
-        clearRResultBox();
-        await renderRCoefTable(null);
-        return;
-      }
-      const oos = data.oos || {};
-      const gate = data.promote_gate || null;
-      paintRidgeEnableStatus(sum, data, { gate });
-      syncRPersistBtn(gate, { hasReport: true });
-      clearRResultBox();
-      await renderRCoefTable(data.return_model || {}, {
-        oos,
-        researchModel: data.return_model_research || null,
-      });
-    } catch (_) {
-      /* ignore */
-    }
-  })();
 
   // 轻量预填 ŷ_τ30 状态
   void (async () => {
@@ -2844,7 +2611,7 @@ export function initQuant(ctx) {
   // 轻量预填 ŷ_τc KPI / 状态（不阻塞；概览用模型 OOS，不再被单日验收覆盖）
   void (async () => {
     try {
-      const res = await fetch("/api/quant/tau-ridge/model");
+      const res = await fetch("/api/quant/tc-ridge/model");
       const data = await res.json().catch(() => ({}));
       const sum = document.getElementById("quant-tau-summary");
       if (!data.exists) {
@@ -3542,7 +3309,7 @@ export function initQuant(ctx) {
       const tauLimit = 300;
       const a158El = document.getElementById("quant-tau-ridge-alpha158");
       const includeAlpha158 = !a158El || a158El.checked !== false;
-      const res = await fetch("/api/quant/tau-ridge", {
+      const res = await fetch("/api/quant/tc-ridge", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -3871,213 +3638,6 @@ export function initQuant(ctx) {
     }
     return { data: next, httpOk: true };
   }
-
-  async function runTcRidge({ persist = false, forcePromote = false, persistRole = "live" } = {}) {
-    const sum = document.getElementById("quant-tc-summary");
-    renderRemStatus(sum, {
-      state: "busy",
-      chip: persist ? "写入中" : "拟合中",
-      message: persist
-        ? forcePromote
-          ? "强制写入上次拟合…"
-          : "写入上次拟合…"
-        : "ŷ_τc Ridge + 时间 OOS…",
-      busy: true,
-    });
-    try {
-      const res = await fetch("/api/quant/tc-ridge", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          lookback: 120,
-          watching_limit: 300,
-          ridge_lambda: 1.0,
-          minute_period: "5",
-          minute_lookback_days: 150,
-          holdout_trading_days: readHoldoutTradingDays(),
-          persist: !!persist,
-          persist_role: persistRole || "live",
-          force_promote: !!forcePromote,
-          note: persist
-            ? forcePromote
-              ? `ui r force promote ${persistRole}`
-              : `ui r promote ${persistRole}`
-            : "",
-        }),
-      });
-      const posted = await res.json().catch(() => ({}));
-      const awaited = await awaitRidgeFitIfBackground(res, posted, {
-        persist: !!persist,
-        jobName: "tc-ridge",
-        modelPath: "/api/quant/tc-ridge/model",
-        sumEl: sum,
-        label: "ŷ_τc",
-      });
-      const data = awaited.data || {};
-      const httpOk = awaited.httpOk;
-      const gate = data.promote_gate || (data.persisted && data.persisted.promote_gate) || null;
-      const persistFailed =
-        persist &&
-        data.persisted &&
-        data.persisted.success === false &&
-        !data.persisted.skipped;
-      if (!httpOk || (!data.success && !persistFailed) || persistFailed) {
-        const err =
-          (data.persisted && data.persisted.error) ||
-          (data && (data.detail || data.error)) ||
-          `HTTP ${res.status}`;
-        const gateNote =
-          gate && Array.isArray(gate.blockers) && gate.blockers.length
-            ? ` · 闸：${gate.blockers.join("；")}`
-            : "";
-        renderRemStatus(sum, {
-          state: "error",
-          chip: persistFailed ? "未过闸" : "失败",
-          message: String(err) + gateNote,
-          error: true,
-        });
-        if (!persistFailed) {
-          clearRResultBox();
-          renderRCoefTable(null);
-        }
-        syncRPersistBtn(gate, { hasReport: true });
-        return;
-      }
-      const oos = data.oos || {};
-      const gateMsg =
-        gate && !gate.ok
-          ? ` · 未过 promote 闸（${(gate.blockers || []).join("；")}；可强制启用）`
-          : gate && gate.ok
-            ? " · 可启用研究 / 启用执行"
-            : "";
-      paintRidgeEnableStatus(sum, data, {
-        persistOk: !!persist,
-        persistRole,
-        justFitted: !persist,
-        message: persist
-          ? forcePromote && gate && !gate.ok
-            ? `已跳过闸：${(gate.blockers || []).join("；")}`
-            : ""
-          : `未写盘${gateMsg}`,
-        oos,
-        sampleCount: data.sample_count,
-        promotedAt: persist
-          ? data.promoted_at || (data.persisted && data.persisted.promoted_at)
-          : data.promoted_at,
-      });
-      syncRPersistBtn(gate, { hasReport: true });
-      const rm = data.return_model || {};
-      renderRFitSummary(data);
-      await renderRCoefTable(rm, {
-        oos,
-        researchModel: data.return_model_research || null,
-      });
-    } catch (err) {
-      renderRemStatus(sum, {
-        state: "error",
-        chip: "失败",
-        message: describeNetworkFetchError(err),
-        error: true,
-      });
-      throw err;
-    }
-  }
-
-  on("quant-tc-ridge-run", "click", async (e) => {
-    e.preventDefault();
-    try {
-      await runTcRidge({ persist: false });
-    } catch (err) {
-      const sum = document.getElementById("quant-tc-summary");
-      renderRemStatus(sum, {
-        state: "error",
-        chip: "失败",
-        message: describeNetworkFetchError(err),
-        error: true,
-      });
-    }
-  });
-
-  on("quant-tc-ridge-persist", "click", onTcPersistClick);
-  on("quant-tc-ridge-persist-research", "click", onTcPersistClick);
-  async function onTcPersistClick(e) {
-    e.preventDefault();
-    const persistRole = (e.currentTarget && e.currentTarget.dataset.persistRole) || "live";
-    const gate = _rPromoteGate;
-    const target =
-      persistRole === "research"
-        ? "ŷ_τc 研究套（tc_ridge_model_research.json，供历史回测）"
-        : "ŷ_τc 执行套（tc_ridge_model.json；不改 ŷ_oo / ŷ_τc、不进调仓）";
-    let forcePromote = false;
-    if (gate && gate.ok === false) {
-      const blockers = (gate.blockers || []).join("；") || "未过 OOS 闸";
-      if (!window.confirm(`promote 未过闸：${blockers}\n\n仍强制写入 ${target} 吗？`)) {
-        return;
-      }
-      forcePromote = true;
-    } else if (!window.confirm(`将 ŷ_τc 写入 ${target}？不改 ŷ_oo / ŷ_τc、不进调仓。`)) {
-      return;
-    }
-    try {
-      await runTcRidge({ persist: true, forcePromote, persistRole });
-    } catch (err) {
-      const sum = document.getElementById("quant-tc-summary");
-      renderRemStatus(sum, {
-        state: "error",
-        chip: "失败",
-        message: describeNetworkFetchError(err),
-        error: true,
-      });
-    }
-  }
-
-  on("quant-tc-ridge-status", "click", async (e) => {
-    e.preventDefault();
-    const sum = document.getElementById("quant-tc-summary");
-    renderRemStatus(sum, {
-      state: "busy",
-      chip: "读取中",
-      message: "live 模型…",
-      busy: true,
-    });
-    try {
-      const res = await fetch("/api/quant/tc-ridge/model");
-      const data = await res.json().catch(() => ({}));
-      if (!data.exists) {
-        paintRidgeEnableStatus(sum, data, {
-          idleMessage: data.note || "尚无 live 模型",
-        });
-        syncRPersistBtn(data.promote_gate, {
-          hasReport: !!data.last_report_exists,
-        });
-        clearRResultBox();
-        await renderRCoefTable(null);
-        return;
-      }
-      const oos = data.oos || {};
-      const gate = data.promote_gate || null;
-      paintRidgeEnableStatus(sum, data, {
-        gate,
-        message:
-          gate && !gate.ok
-            ? `promote 闸：${(gate.blockers || []).join("；")}（可强制启用）`
-            : undefined,
-      });
-      syncRPersistBtn(gate, { hasReport: true });
-      clearRResultBox();
-      await renderRCoefTable(data.return_model || {}, {
-        oos,
-        researchModel: data.return_model_research || null,
-      });
-    } catch (err) {
-      renderRemStatus(sum, {
-        state: "error",
-        chip: "失败",
-        message: String(err.message || err),
-        error: true,
-      });
-    }
-  });
 
   async function runT30Ridge({ persist = false, forcePromote = false, persistRole = "live" } = {}) {
     const sum = document.getElementById("quant-t30-summary");
@@ -5233,36 +4793,6 @@ export function initQuant(ctx) {
     }
   });
 
-  on("quant-tc-tree-run", "click", async (e) => {
-    e.preventDefault();
-    try {
-      await runTcTree();
-    } catch (err) {
-      const sum = document.getElementById("quant-tc-tree-summary");
-      renderRemStatus(sum, {
-        state: "error",
-        chip: "失败",
-        message: String(err.message || err),
-        error: true,
-      });
-      renderTcTreeCompare({
-        success: false,
-        error: String(err.message || err),
-      });
-    }
-  });
-
-  on("quant-tc-tree-status", "click", async (e) => {
-    e.preventDefault();
-    try {
-      await loadTcTreeLast();
-    } catch (err) {
-      renderTcTreeCompare({
-        success: false,
-        error: String(err.message || err),
-      });
-    }
-  });
 
   on("quant-t30-tree-run", "click", async (e) => {
     e.preventDefault();
@@ -5610,7 +5140,7 @@ export function initQuant(ctx) {
       busy: true,
     });
     try {
-      const res = await fetch("/api/quant/tau-ridge/model");
+      const res = await fetch("/api/quant/tc-ridge/model");
       const data = await res.json().catch(() => ({}));
       if (!data.exists) {
         const painted = paintRidgeEnableStatus(sum, data, {

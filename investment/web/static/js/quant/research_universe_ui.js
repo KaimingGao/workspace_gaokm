@@ -145,7 +145,7 @@ export function installResearchUniverseUi(q) {
       .map((tier) => {
         const meta = TIER_META[tier] || { label: tier, tip: "" };
         const rows = byTier[tier];
-        const open = tier === "A" || tier === "B" ? " open" : "";
+        const open = tier === "B" ? " open" : "";
         const slice = rows.slice(0, maxShow);
         const trs = slice
           .map(

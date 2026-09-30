@@ -82,8 +82,6 @@ class TauRidgeRequest(BaseModel):
     )
 
 
-RemRidgeRequest = TauRidgeRequest
-
 
 class OoTreeRequest(BaseModel):
     """ŷ_oo_tree 影子头：日线面板 Holdout vs Ridge。无 persist，不进 live / 回测。"""
@@ -170,7 +168,7 @@ class TauTreeRequest(BaseModel):
     )
     backend: Optional[str] = Field(
         default="lightgbm",
-        description="仅 lightgbm（ŷ_oc_tree / ŷ_τ*_tree 已下掉 xgboost / numpy_gbm / auto）",
+        description="仅 lightgbm（ŷ_τc_tree / ŷ_τ*_tree 已下掉 xgboost / numpy_gbm / auto）",
         max_length=16,
     )
     include_alpha158: bool = Field(
@@ -180,40 +178,6 @@ class TauTreeRequest(BaseModel):
 
 
 TauBoostRequest = TauTreeRequest
-
-
-class TcTreeRequest(BaseModel):
-    """ŷ_τc_tree 影子头：同面板 Holdout vs Ridge。无 persist，不进 live / 回测。"""
-
-    lookback: int = Field(default=120, ge=40, le=500)
-    watching_limit: int = Field(
-        default=WATCHING_MAX_SIZE,
-        ge=2,
-        le=WATCHING_MAX_SIZE,
-        description=f"观察池上限（默认满池 {WATCHING_MAX_SIZE}）；拟合只读本地 5m 缓存",
-    )
-    ridge_lambda: float = Field(default=1.0, ge=0.0, le=100.0)
-    gap_trigger_pct: float = Field(default=2.0, ge=0.5, le=10.0)
-    theme_boost: float = Field(default=1.5, ge=0.5, le=5.0)
-    holdout_trading_days: int = Field(
-        default=20,
-        ge=1,
-        le=60,
-        description="近 N 个交易日不进训练，与 Ridge 对照共用",
-    )
-    tau_hm: Optional[str] = Field(
-        default=None,
-        description="09:45 | 10:30；缺省 10:30。open 会强制改成 10:30（ŷ_τc 需分钟价）",
-        max_length=8,
-    )
-    backend: Optional[str] = Field(
-        default="lightgbm",
-        description="仅 lightgbm（ŷ_oc_tree / ŷ_τ*_tree 已下掉 xgboost / numpy_gbm / auto）",
-        max_length=16,
-    )
-
-
-RTreeRequest = TcTreeRequest
 
 
 class T30TreeRequest(BaseModel):
@@ -242,7 +206,7 @@ class T30TreeRequest(BaseModel):
     )
     backend: Optional[str] = Field(
         default="lightgbm",
-        description="仅 lightgbm（ŷ_oc_tree / ŷ_τ*_tree 已下掉 xgboost / numpy_gbm / auto）",
+        description="仅 lightgbm（ŷ_τc_tree / ŷ_τ*_tree 已下掉 xgboost / numpy_gbm / auto）",
         max_length=16,
     )
 
@@ -273,7 +237,7 @@ class T45TreeRequest(BaseModel):
     )
     backend: Optional[str] = Field(
         default="lightgbm",
-        description="仅 lightgbm（ŷ_oc_tree / ŷ_τ*_tree 已下掉 xgboost / numpy_gbm / auto）",
+        description="仅 lightgbm（ŷ_τc_tree / ŷ_τ*_tree 已下掉 xgboost / numpy_gbm / auto）",
         max_length=16,
     )
 
@@ -304,7 +268,7 @@ class T60TreeRequest(BaseModel):
     )
     backend: Optional[str] = Field(
         default="lightgbm",
-        description="仅 lightgbm（ŷ_oc_tree / ŷ_τ*_tree 已下掉 xgboost / numpy_gbm / auto）",
+        description="仅 lightgbm（ŷ_τc_tree / ŷ_τ*_tree 已下掉 xgboost / numpy_gbm / auto）",
         max_length=16,
     )
 
@@ -335,7 +299,7 @@ class T75TreeRequest(BaseModel):
     )
     backend: Optional[str] = Field(
         default="lightgbm",
-        description="仅 lightgbm（ŷ_oc_tree / ŷ_τ*_tree 已下掉 xgboost / numpy_gbm / auto）",
+        description="仅 lightgbm（ŷ_τc_tree / ŷ_τ*_tree 已下掉 xgboost / numpy_gbm / auto）",
         max_length=16,
     )
 
@@ -366,7 +330,7 @@ class T90TreeRequest(BaseModel):
     )
     backend: Optional[str] = Field(
         default="lightgbm",
-        description="仅 lightgbm（ŷ_oc_tree / ŷ_τ*_tree 已下掉 xgboost / numpy_gbm / auto）",
+        description="仅 lightgbm（ŷ_τc_tree / ŷ_τ*_tree 已下掉 xgboost / numpy_gbm / auto）",
         max_length=16,
     )
 
@@ -510,57 +474,6 @@ class PathRidgeRequest(BaseModel):
         description="True=跳过 OOS promote 闸（仅调试）",
     )
     note: str = Field(default="", max_length=200)
-
-
-class TcRidgeRequest(BaseModel):
-    """ŷ_τc Ridge：与 ŷ_oc 同 X → close[T]/price(τ)−1（百分点）。与 remaining(ŷ_oc) 融合成 R̂_τ / ĉ。"""
-
-    lookback: int = Field(default=120, ge=40, le=500)
-    watching_limit: int = Field(
-        default=WATCHING_MAX_SIZE,
-        ge=2,
-        le=WATCHING_MAX_SIZE,
-        description=f"观察池上限（默认满池 {WATCHING_MAX_SIZE}）；拟合只读本地 5m 缓存、不拉远端",
-    )
-    ridge_lambda: float = Field(default=1.0, ge=0.0, le=100.0)
-    gap_trigger_pct: float = Field(default=2.0, ge=0.5, le=10.0)
-    minute_period: str = Field(
-        default="5",
-        max_length=4,
-        description="分钟周期；默认 5m，与做 T 回测一致",
-    )
-    minute_lookback_days: int = Field(
-        default=150,
-        ge=20,
-        le=240,
-        description="兼容字段；拟合已改为只读缓存，不再按此天数拉远端",
-    )
-    persist: bool = Field(
-        default=False,
-        description="True=人审写入模型文件（路径由 persist_role 决定）",
-    )
-    persist_role: str = Field(
-        default="live",
-        description="live=执行套 tc_ridge_model.json；research=研究套 *_research.json",
-    )
-    holdout_trading_days: int = Field(
-        default=20,
-        ge=1,
-        le=60,
-        description="近 N 个交易日不进研究套训练，专供历史回测",
-    )
-    force_promote: bool = Field(
-        default=False,
-        description="True=跳过 OOS promote 闸（仅调试）",
-    )
-    note: str = Field(default="", max_length=200)
-    sync: bool = Field(
-        default=False,
-        description="true=同步跑（单测）；默认 persist=false 时入队 Job，轮询 GET /api/jobs/tc-ridge",
-    )
-
-
-RRidgeRequest = TcRidgeRequest
 
 
 class T30RidgeRequest(BaseModel):

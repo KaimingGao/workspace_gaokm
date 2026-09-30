@@ -19,6 +19,8 @@ import {
   resolveTauScore,
   rankingOpenPx,
   rankingPriceTau,
+  eodRemainingAtTau,
+  tauModelIsOpenToClose,
   resolveRankingScore,
   resolveYτcScore,
   resolveYT30Score,
@@ -1251,7 +1253,7 @@ export function formatNcOcSection(raw) {
   );
 }
 
-/** ranking = fuse − (price(τ)/open−1)。与表列同源。 */
+/** ranking 与表列同源：τc 为几何剩余；缺 y_spec 才整段减 rot。 */
 export function formatBlendScoreSection(raw) {
   const blend = resolveRankingScore(raw);
   const yEod = resolveEodScore(raw);
@@ -1265,7 +1267,6 @@ export function formatBlendScoreSection(raw) {
   const tN = yt == null || yt === "" ? null : Number(yt);
   const coN = yCo == null || yCo === "" ? null : Number(yCo);
   const rightN = ocRight == null || ocRight === "" ? null : Number(ocRight);
-  const eodTxt = eodN == null || !Number.isFinite(eodN) ? "—" : `${fmtSigned(eodN, 2)}%`;
   const tTxt = tN == null || !Number.isFinite(tN) ? "—" : `${fmtSigned(tN, 2)}%`;
   const coTxt = coN == null || !Number.isFinite(coN) ? "—" : `${fmtSigned(coN, 2)}%`;
   const wTxt = `w_oo=${Number(wOo).toFixed(2)} · w_τc=${Number(wOc).toFixed(2)}`;
@@ -1273,7 +1274,26 @@ export function formatBlendScoreSection(raw) {
     eodN != null && Number.isFinite(eodN) && rightN != null && Number.isFinite(rightN)
       ? ` · ${Number(wOo).toFixed(2)}×${fmtSigned(eodN, 2)}+${Number(wOc).toFixed(2)}×${fmtSigned(rightN, 2)}`
       : "";
-  const hint = `${wTxt}${arith} · −(price(τ)/open−1)；真实=(open[T+1]−price(τ))/open[T]`;
+  const rotN = (() => {
+    const o = rankingOpenPx(raw);
+    const p = rankingPriceTau(raw);
+    if (o == null || p == null || o <= 0 || p <= 0) return null;
+    const v = (p / o - 1) * 100;
+    return Number.isFinite(v) ? v : null;
+  })();
+  const isOc = tauModelIsOpenToClose(raw);
+  const ooShown =
+    !isOc && eodN != null && Number.isFinite(eodN) && rotN != null
+      ? eodRemainingAtTau(eodN, rotN)
+      : eodN;
+  const ooTxt = ooShown == null || !Number.isFinite(Number(ooShown)) ? "—" : `${fmtSigned(ooShown, 2)}%`;
+  const arithTc =
+    ooShown != null && Number.isFinite(Number(ooShown)) && rightN != null && Number.isFinite(rightN)
+      ? ` · ${Number(wOo).toFixed(2)}×${fmtSigned(ooShown, 2)}+${Number(wOc).toFixed(2)}×${fmtSigned(rightN, 2)}`
+      : "";
+  const hint = isOc
+    ? `${wTxt}${arith} · 缺 y_spec：fuse−(price(τ)/open−1)；真实=(open[T+1]−price(τ))/open[T]`
+    : `${wTxt}${arithTc} · ((ŷ_oo+1)/(1+rot)−1)+ŷ_τc∘ŷ_co；真实=(open[T+1]−price(τ))/open[T]`;
   const head =
     raw && raw.dual_score_head != null
       ? String(raw.dual_score_head)
@@ -1291,9 +1311,9 @@ export function formatBlendScoreSection(raw) {
     headHint = " · 双头融合";
   }
   const rows = [
-    `<div class="score-layer-row"><span>ŷ_oo ×${Number(wOo).toFixed(2)}</span><span class="num ${signCls(
-      eodN
-    )}">${escapeText(eodTxt)}</span></div>`,
+    `<div class="score-layer-row"><span>ŷ_oo ×${Number(wOo).toFixed(2)}${
+      !isOc && rotN != null ? " · τ剩余" : ""
+    }</span><span class="num ${signCls(ooShown)}">${escapeText(ooTxt)}</span></div>`,
     `<div class="score-layer-row"><span>ŷ_τc ×${Number(wOc).toFixed(2)}</span><span class="num ${signCls(
       tN
     )}">${escapeText(tTxt)}</span></div>`,
@@ -1304,13 +1324,6 @@ export function formatBlendScoreSection(raw) {
       blend
     )}">${escapeText(blendTxt)}</span></div>`,
   ];
-  const rotN = (() => {
-    const o = rankingOpenPx(raw);
-    const p = rankingPriceTau(raw);
-    if (o == null || p == null || o <= 0 || p <= 0) return null;
-    const v = (p / o - 1) * 100;
-    return Number.isFinite(v) ? v : null;
-  })();
   let rRank =
     raw && raw.realized_ranking != null && Number.isFinite(Number(raw.realized_ranking))
       ? Number(raw.realized_ranking)
@@ -1322,7 +1335,7 @@ export function formatBlendScoreSection(raw) {
   if (rRank == null && rOo != null) {
     rRank = rotN != null ? rOo - rotN : rOo;
   }
-  if (rotN != null) {
+  if (isOc && rotN != null) {
     rows.splice(
       rows.length - 1,
       0,
@@ -2643,7 +2656,7 @@ export function createScoreTooltipController() {
           `<div class="score-hero-label">ranking</div>` +
           `<div class="score-hero-value ${signCls(ranked)}">${escapeText(val)}</div>` +
           `</div>` +
-          `<div class="score-hero-hint">fuse − (price(τ)/open−1)；真实=(open[T+1]−price(τ))/open[T]</div>` +
+          `<div class="score-hero-hint">w_oo·((ŷ_oo+1)/(1+rot)−1)+w_τc·((1+ŷ_τc)(1+w_co·ŷ_co)−1)；真实=(open[T+1]−price(τ))/open[T]</div>` +
           `</div>`;
       }
       showCompactScoreTip(cell, blendHtml, { sticky });

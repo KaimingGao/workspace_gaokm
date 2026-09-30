@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections import defaultdict
 from typing import Any, Dict, List, Optional, Sequence
 
-from core.research.tc_ridge import pack_y_tc_fields
+from core.signal.yhat_windows import pack_y_tc_fields
 
 SKIP_CAT_LABELS: Dict[str, str] = {
     "missing_minute": "缺分钟",

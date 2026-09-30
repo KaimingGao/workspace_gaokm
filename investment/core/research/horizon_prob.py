@@ -16,7 +16,7 @@ from core.research.factor_ols_fit import (
     clamp_ridge_lambda,
     fit_factor_ols_from_panel,
 )
-from core.research.tau_ridge import (
+from core.research.tc_ridge import (
     _ic,
     _oos_by_tau,
     _oos_by_theme,

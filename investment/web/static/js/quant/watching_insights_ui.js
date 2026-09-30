@@ -29,7 +29,7 @@ export function singleHeadBadgeHtml(it, escapeHtml = defaultEscapeHtml) {
     it && it.dual_score_weights && it.dual_score_weights.tau_in_trade;
   const tau =
     it &&
-    (it.predicted_score_tau != null || it.score_rem != null);
+    (it.y_tau != null || it["y_τc"] != null || it.score_rem != null || it.predicted_score_tau != null);
   let title = "ranking 单头降级 · 与双头票不同量纲";
   if (head === "single_tau") {
     title = "ranking 单头降级：仅 ŷ_τc（缺 ŷ_oo）· 与双头票不同量纲";

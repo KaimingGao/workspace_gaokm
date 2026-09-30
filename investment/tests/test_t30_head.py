@@ -385,7 +385,7 @@ class RelabelT30Tests(unittest.TestCase):
 class T30RidgeFitTests(unittest.TestCase):
     def test_fit_report_runs_on_synthetic(self):
         from core.research.t30_ridge import T30_Z_FEATURES, fit_t30_ridge_report
-        from core.research.tau_ridge import TAU_Z_FEATURES
+        from core.research.tc_ridge import TAU_Z_FEATURES
 
         d0 = date(2025, 6, 2)
         daily = []
@@ -450,7 +450,7 @@ class T30RidgeFitTests(unittest.TestCase):
 
     def test_t30_z_drops_oc_path_shape(self):
         from core.research.t30_ridge import T30_Z_FEATURES
-        from core.research.tau_ridge import TAU_HORIZON_DROP_OC_SHAPE, TAU_Z_FEATURES
+        from core.research.tc_ridge import TAU_HORIZON_DROP_OC_SHAPE, TAU_Z_FEATURES
 
         for k in TAU_HORIZON_DROP_OC_SHAPE:
             self.assertNotIn(k, T30_Z_FEATURES)

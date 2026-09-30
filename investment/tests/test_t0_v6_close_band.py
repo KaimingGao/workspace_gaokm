@@ -1023,8 +1023,8 @@ class TestCloseBandDayPath(unittest.TestCase):
         else:
             self.assertGreaterEqual(len(n_tr or []), 1)
 
-    def test_y_tc_sidecar_no_longer_blocks(self):
-        """ŷ_τc 旁路已下线：阴线 + 负 ŷ_τw 且 ŷ_τc 强正仍开反T。"""
+    def test_y_tc_drives_band_not_sidecar(self):
+        """y_τc 决定 C_τ。负 y_τc 把价带放在现价下方，阴线仍开反T。y_tc_strong 不再另拦。"""
         closes = [99.4] + [100.0] * 28
         mins = _mins(closes)
         bar = {
@@ -1044,7 +1044,7 @@ class TestCloseBandDayPath(unittest.TestCase):
             "must_cover_same_day_sell_then_buy": True,
             "t0_pm_degrade_sell_then_buy": "15:30",
         }
-        scores = _snap(-0.5, **{"y_τc": 2.0, "y_tc": 2.0})
+        scores = _snap(-0.5, **{"y_τc": -2.0, "y_tc": -2.0})
         kwargs = dict(
             bar=bar,
             minute_bars=mins,
