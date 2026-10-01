@@ -4,7 +4,7 @@
 import logging
 
 logger = logging.getLogger(__name__)
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from core.signal.factors.meta.registry import compute_factor, registered_factor_names
 
@@ -237,3 +237,17 @@ def collect_subscore_forward_panel(
         dates.append(decision_date)
 
     return xs, ys, dates
+
+
+def feature_fill_rates(xs: Sequence[dict], keys: Sequence[str]) -> Dict[str, Any]:
+    """面板特征非空率。"""
+    rows = [r for r in xs if isinstance(r, dict)]
+    n = len(rows)
+    out: Dict[str, Any] = {"n": n, "keys": {}}
+    for k in keys:
+        filled = sum(1 for r in rows if r.get(k) is not None and r.get(k) != "")
+        out["keys"][str(k)] = {
+            "filled": filled,
+            "rate": round(filled / float(n), 4) if n else None,
+        }
+    return out

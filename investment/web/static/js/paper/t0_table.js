@@ -96,7 +96,7 @@ export const SKIP_CAT_LABEL = {
   missing_minute: "缺分钟线",
   y_eod_flat: "y_eod未过门槛",
   y_tau_flat: "y_τ横盘",
-  y_tc_flat: "ŷ_τc横盘",
+  y_tc_flat: "ŷ_τc未过入场",
   y_t30_flat: "ŷ_τ30横盘",
   y_t45_flat: "ŷ_τ45横盘",
   y_t60_flat: "ŷ_τ60横盘",
@@ -150,9 +150,9 @@ export const SKIP_CAT_TIP = {
   missing_minute:
     "缺当日分钟线，无法模拟触达与成交路径。",
   y_tau_flat:
-    "入场：已下线。生产不考虑 |ŷ_τc| 入场档；历史回放可能仍出现。",
+    "历史回放：旧 |y_τ| 入场档。现网入场看 |ŷ_τc|。",
   y_tc_flat:
-    "入场：已下线。生产不考虑 |ŷ_τc| 入场档；历史回放可能仍出现。",
+    "破带后 |ŷ_τc| 未过 y_τc入场%。0=不拦。",
   y_t30_flat:
     "已下线：个股 ŷ_τ30 入场下限。生产不考虑单独阈值；历史回放可能仍出现。",
   y_t45_flat:
@@ -2503,7 +2503,7 @@ function t0DayScoreItem(d, fallback = {}, rules = {}, liveByCode = null) {
       finiteYhatNum(scores.y_oc_target) ??
       finiteYhatNum(d.y_oc_target) ??
       finiteYhatNum(slotCloseBand(slot)?.y_oc_target),
-    t0_y_oc_target_scale:
+    t0_y_τc_target_scale:
       finiteYhatNum(scores.t0_y_τc_target_scale) ??
       finiteYhatNum(scores.t0_y_oc_target_scale) ??
       finiteYhatNum(d.t0_y_τc_target_scale) ??

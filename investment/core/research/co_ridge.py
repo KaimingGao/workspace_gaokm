@@ -189,7 +189,7 @@ def fit_co_ridge_report(
 
     preds_te = _predict_rows(fit, xs_te) if xs_te else []
     by_theme = _oos_by_theme(preds_te, ys_te, metas_te) if ys_te else {}
-    from core.research.path_panel import feature_fill_rates
+    from core.research.panel import feature_fill_rates
 
     oos = {
         "n_train": len(ys_tr),

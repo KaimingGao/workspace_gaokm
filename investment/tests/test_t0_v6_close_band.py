@@ -120,7 +120,7 @@ class TestCloseBandCore(unittest.TestCase):
         # C_τ = 100×(1+clip(1×2, ±20)/100) = 102
         self.assertAlmostEqual(est["close_px"], 102.0, places=4)
         self.assertAlmostEqual(est["c_tau"], 102.0, places=4)
-        self.assertAlmostEqual(est["c_oc"], 101.0, places=4)
+        self.assertNotIn("c_oc", est)
         self.assertIsNone(est["c_trade"])
         self.assertIsNone(est["c_nowcast"])
         self.assertEqual(est["n_sources"], 1)

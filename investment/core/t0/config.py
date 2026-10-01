@@ -1,9 +1,5 @@
 """做 T 规则配置（纸面 / 回测共用）。"""
 
-
-import logging
-
-logger = logging.getLogger(__name__)
 from typing import Any, Dict, Optional
 
 # 成交明细 API 样本上限（与 web ``T0_TRADE_TABLE_MAX_ROWS`` 对齐）
@@ -45,302 +41,10 @@ def t0_dir_label(direction: Optional[str]) -> str:
 # fill_mode: trigger | mid | optimistic；可分侧 fill_mode_*
 #
 # direction:
-#   dual_y  — 旗舰选腿：ŷ_oc 破带定方向与 C_τ 目标价；ŷ_τw 门槛
+#   dual_y  — 旗舰选腿：ŷ_τc 破带定方向与 C_τ 目标价；ŷ_τw 门槛
 #   （sell_then_buy / buy_then_sell / auto / signal 仅单测可显式传入）
 #
 # path_mode: 仅 first_touch（分钟时间序第一触达）。
-
-# 已废弃命名（旧 long_t/reverse_t 与 *_long/*_reverse）；加载时丢弃，不迁移取值
-_DEAD_T0_KEYS = (
-    "buy_trigger_pct_long",
-    "sell_trigger_pct_reverse",
-    "sell_trigger_pct_long",  # 旧 leg1 误键
-    "buy_trigger_pct_reverse",  # 旧 leg1 误键
-    "buy_trigger_pct_buy_then_sell",  # 旧正T相对开盘低吸；第一腿改确认根收盘
-    "sell_trigger_pct_sell_then_buy",  # 旧反T相对开盘冲高卖
-    "must_cover_same_day_long",
-    "must_cover_same_day_reverse",
-    "fill_mode_long",
-    "fill_mode_reverse",
-    "min_range_pct_long",
-    "min_range_pct_reverse",
-    "y_tau_enter_long",
-    "y_tau_enter_reverse",
-    "y_path_enter_long",
-    "y_path_enter_reverse",
-    "y_path_abandon_bars_long",
-    "y_path_abandon_bars_reverse",
-    "y_prefix_segment_enabled_long",
-    "y_prefix_segment_enabled_reverse",
-    "y_prefix_upbar_ratio_reverse",
-    "y_prefix_downbar_ratio_long",
-    "t0_pm_degrade_long",
-    "t0_pm_degrade_reverse",
-    "t0_pm_chase_interval_min_long",
-    "t0_pm_chase_interval_min_reverse",
-    "y_n_break_high_reverse",
-    "y_n_shape_gate_reverse",
-    "y_prefix_n_rise_pct_reverse",
-    "y_prefix_pullback_pct_long",
-    "y_prefix_bounce_pct_reverse",
-    # 已写死 / Web 无控件：残留 overlay 丢弃
-    "y_gap_tier_skip_low_open_reverse",
-    "y_tau_nowcast_sign_eps",
-    "y_trade_tau_sign_eps",
-    "y_ratio_tau_boost_cap",
-    "y_ratio_eod_align_boost",
-    "y_ratio_tau_soft_band",
-    "t0_leg1_hunt_pct_buy_then_sell",
-    "t0_leg1_hunt_pct_sell_then_buy",
-    # 前缀振幅 vs |path|、τ 入场价闸：均已下线（第一腿=确认根收盘）
-    "y_prefix_vs_path_skip",
-    "y_prefix_vs_path_mult",
-    "y_tau_require_for_leg1",
-    "y_tau_entry_price_mult",
-    "y_tau_entry_price_mult_buy_then_sell",
-    "y_tau_entry_price_mult_sell_then_buy",
-    "y_tau_entry_price_skip",
-    "y_tau_entry_price_skip_buy_then_sell",
-    "y_tau_entry_price_skip_sell_then_buy",
-    "y_tau_entry_price_bias",
-    "y_tau_entry_price_bias_buy_then_sell",
-    "y_tau_entry_price_bias_sell_then_buy",
-    "y_tau_entry_price_move_min",
-    "y_tau_entry_price_move_max",
-    "y_tau_entry_price_move_min_buy_then_sell",
-    "y_tau_entry_price_move_max_buy_then_sell",
-    "y_tau_entry_price_move_min_sell_then_buy",
-    "y_tau_entry_price_move_max_sell_then_buy",
-    # 固定前缀：只按后半阴阳占比，不再叠最少命中根数
-    "y_prefix_min_half_hits",
-    # 第二腿已改 τ 出场价闸；相对 leg1 的 % 触发下线
-    "sell_trigger_pct",
-    "buy_trigger_pct",
-    "buy_trigger_pct_sell_then_buy",
-    "sell_trigger_pct_buy_then_sell",
-    # v5 已钉死：both 确认 ∩ 环境闸 ∩ 半贪心滚仓；旧回退开关丢弃
-    "t0_leg_confirm_mode",
-    "t0_env_gate_enabled",
-    "t0_slots_roll_unused",
-    "y_prefix_segment_enabled",
-    "y_prefix_segment_enabled_sell_then_buy",
-    "y_prefix_segment_enabled_buy_then_sell",
-    # v6：收盘带宽选腿；前缀阴阳/复合确认/环境闸选腿下线
-    "t0_confirm_dev_pct",
-    "t0_confirm_mom_bars",
-    "t0_confirm_vol_mult",
-    "t0_env_min_range_pct",
-    "t0_env_min_path_abs",
-    "t0_env_one_sided_tau_abs",
-    "t0_env_one_sided_path_abs",
-    "y_prefix_upbar_ratio_buy_then_sell",
-    "y_prefix_downbar_ratio_sell_then_buy",
-    "y_path_abandon_enabled",
-    "y_path_abandon_bars",
-    "y_path_abandon_bars_buy_then_sell",
-    "y_path_abandon_bars_sell_then_buy",
-    # score 先验平移带宽已下线，旧 overlay 丢弃
-    "y_tau_leg1_prior_band_floor",
-    "y_tau_leg1_prior",
-    "y_tau_leg1_prior_mode",
-    "y_tau_leg1_prior_risk",
-    "y_tau_leg1_prior_shift_scale",
-    # 表单已下线：超额 r 入场闸（误标 R̂_τ，实际是 |C/C_τ−1|）
-    "r_tau_enter",
-    "r_tau_enter_alt",
-    # v6 收盘带宽：dual_y 选向 / 振幅下限 / ATR / 缺口档 / trade·eod 强闸已不参与开腿
-    "min_range_pct",
-    "min_range_pct_sell_then_buy",
-    "min_range_pct_buy_then_sell",
-    "y_tau_map",
-    # 旧 ŷ_τc 租用闸（ASCII y_tc_* / *_alt）仍丢弃。y_τc_enter / y_τc_strong 现为 |ŷ_τc| 入场与强档。
-    "y_tc_strong",
-    "y_tc_enter",
-    "y_tc_enter_alt",
-    "y_τc_enter_alt",
-    "y_tc_validate",
-    "y_τc_validate",
-    # ŷ_τ30/45/60/75/90 个股旁路已下线：只进 ŷ_τw 投票
-    "y_t30_strong",
-    "y_τ30_strong",
-    "y_t45_strong",
-    "y_τ45_strong",
-    "y_t60_strong",
-    "y_τ60_strong",
-    "y_t75_strong",
-    "y_τ75_strong",
-    "y_t90_strong",
-    "y_τ90_strong",
-    # ŷ_τ30/45/60/75/90 个股入场已下线：不考虑单独阈值
-    "y_t30_enter",
-    "y_τ30_enter",
-    "y_t30_enter_alt",
-    "y_τ30_enter_alt",
-    "y_t45_enter",
-    "y_τ45_enter",
-    "y_t45_enter_alt",
-    "y_τ45_enter_alt",
-    "y_t60_enter",
-    "y_τ60_enter",
-    "y_t60_enter_alt",
-    "y_τ60_enter_alt",
-    "y_t75_enter",
-    "y_τ75_enter",
-    "y_t75_enter_alt",
-    "y_τ75_enter_alt",
-    "y_t90_enter",
-    "y_τ90_enter",
-    "y_t90_enter_alt",
-    "y_τ90_enter_alt",
-    # 门槛1/2 |ŷ_oc| / |y_hl| 入场已下线
-    "y_hl_strong",
-    "y_hl_required",
-    "y_enter_enabled",
-    "y_enter_alt_enabled",
-    "y_tau_enter",
-    "y_tau_enter_strong",
-    "y_tau_enter_sell_then_buy",
-    "y_tau_enter_buy_then_sell",
-    "y_tau_enter_alt",
-    "y_hl_enter",
-    "y_hl_enter_sell_then_buy",
-    "y_hl_enter_buy_then_sell",
-    "y_hl_enter_alt",
-    # 旧 y_path_* 闸键：load 时迁到 y_hl_* 后再丢
-    "y_path_enter",
-    "y_path_enter_sell_then_buy",
-    "y_path_enter_buy_then_sell",
-    "y_path_enter_alt",
-    "y_path_strong",
-    "y_use_path",
-    "y_use_hl",
-    "y_path_required",
-    # ŷ_cx / ŷ_tpd 已拆除；旧配置键加载时丢弃
-    "y_complexity_max",
-    "y_cx_max",
-    "y_tpd_max",
-    "y_complexity_max_alt",
-    "y_tpd_max_alt",
-    "y_gap_tier_mode",
-    "y_gap_tier_pct",
-    "y_trade_strong",
-    "y_eod_strong",
-    "y_eod_enter",
-    "y_eod_prior",
-    "y_trade_tau_sign_gate",
-    "y_eod_tau_sign_gate",
-    "y_block_tau_nowcast_sign",
-    "y_block_trade_tau_sign",
-    "y_nowcast_oc_gate",
-    "y_nc_enter",
-    "y_nc_strong",
-    "y_nowcast_enter",
-    "use_atr",
-    "atr_window",
-    "atr_sell_mult",
-    "atr_buy_mult",
-    "dir_enter",
-    "auto_strong_pct",
-    "auto_weak_pct",
-    "w_gap",
-    "w_yclose_loc",
-    "w_mom3",
-    "w_gap_atr",
-    # 阴阳门槛 / 前序 ŷ_τw 确认 / 收贴端已下线
-    "t0_bar_oc_gate",
-    "t0_leg1_close_extreme",
-    "t0_ytw_prefix_confirm",
-    "t0_ytw_prefix_lookback",
-    "t0_ytw_prefix_min_hit_pct",
-    # 正/反 T 分侧 Y_τw入场已下线，表单共用 y_tw_enter
-    "y_tw_enter_buy_then_sell",
-    "y_tw_enter_sell_then_buy",
-    "y_τw_enter_buy_then_sell",
-    "y_τw_enter_sell_then_buy",
-    # 股数额度改走金额：入场/强股数已下线
-    "y_oc_enter_shares",
-    "y_oc_strong_shares",
-    "y_tw_strong",
-    "y_τw_strong",
-    "y_tw_enter_shares",
-    "y_τw_enter_shares",
-    "y_tw_strong_shares",
-    "y_τw_strong_shares",
-    # ŷ_oc 上下界已下线；C_τ 硬顶 ±20
-    "t0_y_oc_l",
-    "t0_y_oc_u",
-    "y_ratio_boost_cap",
-    "y_ratio_cut",
-    "y_block_conflict",
-    # 自极值回吐已下线，改锁赢%
-    "t0_giveback_pct_buy_then_sell",
-    "t0_giveback_pct_sell_then_buy",
-    "t0_giveback_arm_pct",
-)
-
-
-_YTW_LOT_TO_OC = (
-    ("y_tw_enter_shares", "y_oc_enter_shares"),
-    ("y_τw_enter_shares", "y_oc_enter_shares"),
-    ("y_tw_strong_shares", "y_oc_strong_shares"),
-    ("y_τw_strong_shares", "y_oc_strong_shares"),
-)
-
-
-def migrate_ytw_lot_keys_to_oc(cfg: dict, override_keys: Optional[set] = None) -> None:
-    """旧 overlay ``y_tw_*_shares`` → ``y_oc_*_shares``。新键已显式覆盖时不抢。"""
-    if not isinstance(cfg, dict):
-        return
-    keys = override_keys
-    for old_key, new_key in _YTW_LOT_TO_OC:
-        explicit_new = (
-            keys is not None and new_key in keys and cfg.get(new_key) not in (None, "")
-        )
-        if explicit_new:
-            cfg.pop(old_key, None)
-            continue
-        if cfg.get(old_key) not in (None, "") and cfg.get(new_key) in (None, ""):
-            cfg[new_key] = cfg[old_key]
-            if keys is not None:
-                keys.add(new_key)
-        cfg.pop(old_key, None)
-
-
-_Y_PATH_TO_HL = (
-    ("y_path_enter", "y_hl_enter"),
-    ("y_path_enter_sell_then_buy", "y_hl_enter_sell_then_buy"),
-    ("y_path_enter_buy_then_sell", "y_hl_enter_buy_then_sell"),
-    ("y_path_enter_alt", "y_hl_enter_alt"),
-    ("y_path_strong", "y_hl_strong"),
-    ("y_path_required", "y_hl_required"),
-)
-
-
-def migrate_y_path_keys_to_hl(cfg: dict, override_keys: Optional[set] = None) -> None:
-    """旧 overlay ``y_path_*`` → ``y_hl_*``。新键已显式覆盖时不抢。"""
-    if not isinstance(cfg, dict):
-        return
-    keys = override_keys
-    for old_key, new_key in _Y_PATH_TO_HL:
-        explicit_new = (
-            keys is not None and new_key in keys and cfg.get(new_key) not in (None, "")
-        )
-        if explicit_new:
-            cfg.pop(old_key, None)
-            continue
-        if cfg.get(old_key) not in (None, ""):
-            cfg[new_key] = cfg[old_key]
-            if keys is not None:
-                keys.add(new_key)
-        cfg.pop(old_key, None)
-
-
-def drop_dead_t0_keys(cfg: dict) -> None:
-    """就地丢弃已废弃做 T 键（含旧 long/reverse 命名）。"""
-    if not isinstance(cfg, dict):
-        return
-    for k in _DEAD_T0_KEYS:
-        cfg.pop(k, None)
 
 
 def normalize_t0_direction(raw: Any, *, default: str = "dual_y") -> str:
@@ -377,7 +81,7 @@ DEFAULT_T0_RULES: Dict[str, Any] = {
     "y_trade_enter": 0.01,
     "y_tw_enter": 2.0,  # 正T：ŷ_τw>=此票；反T：ŷ_τw<=−此票。0=允许 0 票
     "y_τw_enter": 2.0,
-    "y_τc_enter": 0.5,  # |ŷ_τc| 入场百分点；0=不拦。旧键 y_oc_enter 读入后迁入
+    "y_τc_enter": 0.5,  # |ŷ_τc| 入场百分点；0=不拦
     "y_τc_strong": 1.0,  # |ŷ_τc|>=此值用强金额，否则入场金额
     "y_τc_enter_amount": 20_000.0,  # 过入场未过强：本轮金额（元）→股数
     "y_τc_strong_amount": 40_000.0,  # 过强：本轮金额（≥入场金额）
@@ -387,7 +91,7 @@ DEFAULT_T0_RULES: Dict[str, Any] = {
     "y_τw_midpoint": 47.0,
     # ŷ_τ* 概率头：ridge（默认）| tree（影子树 + 路径形状，仅回测建议）
     "horizon_prob_backend": "ridge",
-    "t0_y_τc_target_scale": 2.0,  # C_τ = price(τ)×(1+clip(y_τc×scale, ±20)/100)。旧键 t0_y_oc_target_scale 读入后迁入
+    "t0_y_τc_target_scale": 2.0,  # C_τ = price(τ)×(1+clip(y_τc×scale, ±20)/100)
     "t0_close_band_delta_pct": 0.5,  # 破带带宽 δ%
     "fusion_w_τc": 0.5,  # residual 融合：ŷ_τc 权
     "fusion_w_tc": 0.5,
@@ -413,6 +117,10 @@ DEFAULT_T0_RULES: Dict[str, Any] = {
     "y_tau_exit_price_bias_sell_then_buy": -1.0,
     "y_tau_exit_price_move_min": -100.0,
     "y_tau_exit_price_move_max": 100.0,
+    "y_tau_exit_price_move_min_buy_then_sell": -100.0,
+    "y_tau_exit_price_move_max_buy_then_sell": 100.0,
+    "y_tau_exit_price_move_min_sell_then_buy": -100.0,
+    "y_tau_exit_price_move_max_sell_then_buy": 100.0,
     # 午后闸：到点后禁新开；已开未平则第二腿中点追价（与止损并存：止损管亏、追价管软卖）
     "t0_pm_degrade": "13:00",
     "t0_pm_degrade_sell_then_buy": "13:00",
@@ -438,7 +146,7 @@ DEFAULT_T0_RULES: Dict[str, Any] = {
     "t0_slots_enabled": True,
     "t0_slots": None,
     "t0_slots_max_rounds": 5,
-    "note": "A股T+1底仓做T；旗舰选腿=ŷ_oc破带+ŷ_τw入场；金额看|ŷ_oc|再换算股数；非实盘。",
+    "note": "A股T+1底仓做T；旗舰选腿=ŷ_τc破带+ŷ_τw入场；金额看|ŷ_τc|再换算股数；非实盘。",
 }
 
 # 第一腿最晚：11:00（约第 18 根 5m，09:35 起计）；其后只收第二腿
@@ -561,6 +269,8 @@ def migrate_y_oc_rule_keys(cfg: dict, override_keys: Optional[set] = None) -> No
     for new, old in Y_TC_RULE_ALIASES:
         if old in keys and new not in keys:
             cfg[new] = cfg.get(old)
+            if override_keys is not None:
+                override_keys.add(new)
         cfg.pop(old, None)
 
 
@@ -573,38 +283,26 @@ def _migrate_y_tw_enter(cfg: dict, override_keys: Optional[set] = None) -> None:
 
 
 def _migrate_dual_y_gate_keys(cfg: dict, override_keys: Optional[set] = None) -> None:
-    """统一 dual_y 闸命名：*_enter 入场、*_strong 强闸；旧键只读迁移。"""
+    """旧 y_trade_floor 并入 y_trade_enter，迁完去掉旧键。"""
     keys = override_keys or set()
-    if "y_trade_enter" in keys:
-        pass
-    elif "y_trade_floor" in keys and cfg.get("y_trade_floor") is not None and cfg.get("y_trade_floor") != "":
-        cfg["y_trade_enter"] = cfg["y_trade_floor"]
-    elif cfg.get("y_trade_enter") is None or cfg.get("y_trade_enter") == "":
+    if "y_trade_enter" not in keys and "y_trade_floor" in keys:
         legacy = cfg.get("y_trade_floor")
-        if legacy is not None and legacy != "":
+        if legacy not in (None, ""):
             cfg["y_trade_enter"] = legacy
+            if override_keys is not None:
+                override_keys.add("y_trade_enter")
+    cfg.pop("y_trade_floor", None)
     _migrate_y_tw_enter(cfg, keys)
-
-
-def _sync_dual_y_gate_legacy_aliases(cfg: dict) -> None:
-    """写出旧键别名，避免未升级的 overlay / 外部脚本读不到。"""
-    if cfg.get("y_trade_enter") is not None:
-        cfg["y_trade_floor"] = cfg["y_trade_enter"]
 
 
 def load_t0_rules(override: Optional[dict] = None) -> Dict[str, Any]:
     cfg = dict(DEFAULT_T0_RULES)
-    override_keys = set(override.keys()) if override else set()
-    if override:
-        ov = dict(override)
-        override_keys = set(ov.keys())
-        for k, v in ov.items():
-            if v is not None:
-                cfg[k] = v
+    ov = dict(override) if override else {}
+    override_keys = set(ov.keys())
+    for k, v in ov.items():
+        if v is not None:
+            cfg[k] = v
     migrate_y_oc_rule_keys(cfg, override_keys)
-    migrate_y_path_keys_to_hl(cfg, override_keys)
-    migrate_ytw_lot_keys_to_oc(cfg, override_keys)
-    drop_dead_t0_keys(cfg)
     cfg["t0_ratio"] = max(0.05, min(float(cfg.get("t0_ratio") or 1.0), 1.0))
     # 纸面/回测生效路径在 core.execution.resolve 再强制为 1.0
     cfg["lot_size"] = max(1, int(cfg.get("lot_size") or 100))
@@ -643,7 +341,6 @@ def load_t0_rules(override: Optional[dict] = None) -> Dict[str, Any]:
     # legacy 键与正T侧对齐（旧读端，T+1 规则决定当日卖旧仓可行性）
     cfg["must_cover_same_day"] = cfg["must_cover_same_day_buy_then_sell"]
     cfg["direction"] = normalize_t0_direction(cfg.get("direction"), default="dual_y")
-    # override_keys 已在函数开头定义
     _migrate_dual_y_gate_keys(cfg, override_keys)
     for yk, lo, hi, default in (
         ("y_trade_enter", 0.01, 5.0, 0.01),
@@ -675,34 +372,17 @@ def load_t0_rules(override: Optional[dict] = None) -> Dict[str, Any]:
         if mode in ("inv_var", "inverse_var", "inverse_variance", "oos", "variance")
         else "fixed"
     )
-    def _w_or_default(raw: Any, default: float = 0.5) -> float:
-        try:
-            if raw is None or raw == "":
-                return float(default)
-            return float(raw)
-        except (TypeError, ValueError):
-            return float(default)
-
-    if "fusion_w_τc" in override_keys and cfg.get("fusion_w_τc") is not None:
+    if "fusion_w_τc" in override_keys:
         cfg["fusion_w_tc"] = float(cfg["fusion_w_τc"])
     elif "fusion_w_tc" in override_keys:
-        cfg["fusion_w_τc"] = _w_or_default(cfg.get("fusion_w_tc"))
-    else:
-        cfg["fusion_w_τc"] = _w_or_default(cfg.get("fusion_w_tc"), _w_or_default(cfg.get("fusion_w_τc")))
-        cfg["fusion_w_tc"] = float(cfg["fusion_w_τc"])
+        cfg["fusion_w_τc"] = float(cfg["fusion_w_tc"])
     from core.t0.score_policy import normalize_y_trade_enter
 
     cfg["y_trade_enter"] = normalize_y_trade_enter(cfg.get("y_trade_enter"))
-    _sync_dual_y_gate_legacy_aliases(cfg)
-    if cfg.get("y_tw_enter") in (None, "") and cfg.get("y_τw_enter") not in (None, ""):
-        cfg["y_tw_enter"] = cfg.get("y_τw_enter")
-    cfg["y_τw_enter"] = cfg.get("y_tw_enter")
-    if cfg.get("y_tw_midpoint") in (None, "") and cfg.get("y_τw_midpoint") not in (None, ""):
-        cfg["y_tw_midpoint"] = cfg.get("y_τw_midpoint")
-    cfg["y_τw_midpoint"] = cfg.get("y_tw_midpoint")
+    cfg["y_τw_midpoint"] = cfg["y_tw_midpoint"]
     oc_enter = float(cfg.get("y_τc_enter") or 0.0)
     strong_explicit = (
-        ("y_τc_strong" in override_keys or "y_oc_strong" in override_keys)
+        "y_τc_strong" in override_keys
         and cfg.get("y_τc_strong") not in (None, "")
     )
     if not strong_explicit:
@@ -721,9 +401,6 @@ def load_t0_rules(override: Optional[dict] = None) -> Dict[str, Any]:
     ) and cfg.get("y_τw_vote_margin") not in (None, ""):
         cfg["y_tw_vote_margin"] = cfg.get("y_τw_vote_margin")
     cfg["y_τw_vote_margin"] = cfg.get("y_tw_vote_margin")
-    from core.research.horizon_prob import migrate_horizon_gate_cfg
-
-    migrate_horizon_gate_cfg(cfg)
     from core.research.horizon_tree import normalize_horizon_prob_backend
 
     cfg["horizon_prob_backend"] = normalize_horizon_prob_backend(
@@ -817,25 +494,7 @@ def load_t0_rules(override: Optional[dict] = None) -> Dict[str, Any]:
     cfg["y_tau_exit_price_bias"] = cfg["y_tau_exit_price_bias_buy_then_sell"]
     cfg["y_tau_exit_price_move_min"] = cfg["y_tau_exit_price_move_min_buy_then_sell"]
     cfg["y_tau_exit_price_move_max"] = cfg["y_tau_exit_price_move_max_buy_then_sell"]
-    # 主仓 breakglass 回注的有效 τ 门槛（可选）
-    try:
-        eff = cfg.get("y_tau_enter_effective")
-        if eff is not None and eff != "":
-            cfg["y_tau_enter_effective"] = max(0.0, min(float(eff), 100.0))
-        else:
-            cfg.pop("y_tau_enter_effective", None)
-    except (TypeError, ValueError):
-        cfg.pop("y_tau_enter_effective", None)
-    cfg.pop("y_block_conflict", None)  # 已下线：eod↔τ / y_check 冲突跳过
-    # 丢弃已下线的不利/时间止损字段（旧账户 overlay 可能残留）
-    for _dead in (
-        "t0_adverse_stop_pct",
-        "t0_adverse_stop_atr_mult",
-        "t0_time_stop",
-        "t0_time_stop_underwater_only",
-    ):
-        cfg.pop(_dead, None)
-    drop_dead_t0_keys(cfg)  # 含旧 long/reverse、y_prefix_min_half_hits 等
+
     def _norm_pm_degrade(raw: Any, default: str) -> str:
         if raw is None:
             return default
@@ -902,7 +561,7 @@ def load_t0_rules(override: Optional[dict] = None) -> Dict[str, Any]:
         raw_lock_arm = cfg.get("t0_lock_win_arm_bars")
         lock_arm = int(6 if raw_lock_arm is None or raw_lock_arm == "" else raw_lock_arm)
     except (TypeError, ValueError):
-        lock_arm = 6,
+        lock_arm = 6
     cfg["t0_lock_win_arm_bars"] = max(0, min(lock_arm, 48))
 
     def _norm_lock_win(raw: Any, default: float) -> float:
@@ -920,12 +579,7 @@ def load_t0_rules(override: Optional[dict] = None) -> Dict[str, Any]:
         cfg.get("t0_lock_win_pct_sell_then_buy"), 2.0
     )
     cfg["y_score_source"] = "compute"
-    path_mode = str(cfg.get("path_mode") or "first_touch").strip().lower()
-    if path_mode in {"minute", "min", "5m", "first", "dual_touch", "dual", "any", "veto", "adverse", "conservative", "worst"}:
-        path_mode = "first_touch"
-    if path_mode != "first_touch":
-        path_mode = "first_touch"
-    cfg["path_mode"] = path_mode
+    cfg["path_mode"] = "first_touch"
     period = str(cfg.get("minute_period") or "5").strip()
     if period not in {"1", "5", "15", "30", "60"}:
         period = "5"
@@ -985,7 +639,7 @@ def load_t0_rules(override: Optional[dict] = None) -> Dict[str, Any]:
         cfg["t0_slots"] = []
     else:
         cfg["t0_slots"] = normalize_t0_slots(cfg.get("t0_slots"))
-    return cfg
+    return {k: cfg[k] for k in DEFAULT_T0_RULES if k in cfg}
 
 
 def t0_backtest_virtual_shares(cfg: Optional[dict] = None, fallback: Any = 1000, *, price: Any = None) -> int:
@@ -997,7 +651,6 @@ def t0_backtest_virtual_shares(cfg: Optional[dict] = None, fallback: Any = 1000,
 
     cfg_d = dict(cfg) if isinstance(cfg, dict) else {}
     migrate_y_oc_rule_keys(cfg_d)
-    migrate_ytw_lot_keys_to_oc(cfg_d)
 
     def _amt(raw: Any) -> float:
         try:

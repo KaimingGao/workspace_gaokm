@@ -1,9 +1,8 @@
 """多层 ŷ 驱动的 A 股底仓做 T 策略（dual_y）。
 
 角色（PIT）：
-  y_τ      — 盘中主方向（开→收 OC 拟合）；正/反 T 可分 enter（y_tau_enter_buy_then_sell / _sell_then_buy）
-             定向锚优先 y_tau_oc（映射前）；剩余映射分仅供融合/对照，不定向
-  y_hl     — **已下线**：不再算分/挂载；旧键可读兼容；`path_ridge` 仅研究模块残留
+  y_τc     — 盘中主方向；定向锚优先 y_τc / y_tau_oc，剩余映射分仅供对照
+  y_hl     — **已下线**：不再算分/挂载；旧行仍可读 y_hl / y_path
   y_on     — 尾盘是否强制回补
   y_trade / y_eod — **v6 已下线**：不参与选向；`load_t0_rules` 丢弃旧闸键；快照字段仅作对照
 
@@ -17,30 +16,10 @@ import copy
 import logging
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
-from core.t0.config import t0_dir_label
-
 logger = logging.getLogger(__name__)
 
 # 默认阈值（ŷ 为百分比点；可用 rules 覆盖）
 DEFAULT_TRADE_ENTER = 0.01
-DEFAULT_TAU_ENTER = 0.0
-DEFAULT_ON_RISK = 0.01
-DEFAULT_ON_ALLOW = 0.01
-DEFAULT_PATH_ENTER = 0.0  # ŷ_hl 极值序 %；|ŷ|≤enter 横盘跳过；与 y_tau_enter 同尺度
-DEFAULT_PATH_STRONG = 5.0  # |y_hl|>此值时须与 y_τ 同号；≤则允许异号
-DEFAULT_GAP_TIER_PCT = 1.0
-
-# dual_y 下 y_τ 符号 → 正/反 T（映射见 minute_path）
-# scalp / trend: y_τ>0→正T；scalp 与 trend 同义，scalp 仅兼容
-# fixed_sell_then_buy / fixed_buy_then_sell: 忽略 y_τ 符号，固定方向（仍过 |y_τ| 门槛）
-Y_TAU_MAP_DEFAULT = "trend"
-Y_TAU_MAP_CHOICES = ("scalp", "trend", "fixed_sell_then_buy", "fixed_buy_then_sell")
-Y_TAU_MAP_LABELS = {
-    "scalp": "符号定方向（兼容别名）",
-    "trend": "符号定方向",
-    "fixed_sell_then_buy": "固定反T",
-    "fixed_buy_then_sell": "固定正T",
-}
 
 # compute | live_book | ledger
 DEFAULT_Y_SCORE_SOURCE = "compute"
@@ -1030,36 +1009,6 @@ def scores_from_item(item: Optional[dict]) -> Dict[str, Optional[float]]:
     return out
 
 
-def _y_path_missing_reason(scores: dict) -> str:
-    """旧 dual_y path 闸文案（生产 close-band 不调用；库函数兜底）。"""
-    return "dual_y：ŷ_hl 已下线"
-
-
-def scores_from_ledger_row(row: Optional[dict]) -> Dict[str, Optional[float]]:
-    if not isinstance(row, dict):
-        return scores_from_item(None)
-    # 账本字段名
-    mapped = {
-        "predicted_score_eod": row.get("yhat_eod") if row.get("yhat_eod") is not None else row.get("predicted_score_eod"),
-        "predicted_score_tau": row.get("yhat_tau") if row.get("yhat_tau") is not None else row.get("predicted_score_tau"),
-        "predicted_score": row.get("yhat") if row.get("yhat") is not None else row.get("predicted_score"),
-        "predicted_score_on": row.get("yhat_on") if row.get("yhat_on") is not None else row.get("predicted_score_on"),
-        "predicted_score_nowcast": row.get("yhat_nowcast")
-        if row.get("yhat_nowcast") is not None
-        else row.get("predicted_score_nowcast"),
-        "predicted_score_path": row.get("yhat_path")
-        if row.get("yhat_path") is not None
-        else row.get("predicted_score_path"),
-        "predicted_score_hl": row.get("yhat_hl")
-        if row.get("yhat_hl") is not None
-        else (row.get("predicted_score_hl") if row.get("predicted_score_hl") is not None else row.get("yhat_path")),
-        "y_hl": row.get("y_hl") if row.get("y_hl") is not None else row.get("y_path"),
-        "y_check": row.get("y_check"),
-        "eod_trust": row.get("eod_trust"),
-    }
-    return scores_from_item(mapped)
-
-
 def normalize_y_trade_enter(raw: Any) -> float:
     """|y_trade| 入场下限（收益百分点）；旧配置负值加载时取 abs。"""
     try:
@@ -1067,18 +1016,6 @@ def normalize_y_trade_enter(raw: Any) -> float:
     except (TypeError, ValueError):
         val = DEFAULT_TRADE_ENTER
     return max(0.0, min(abs(val), 5.0))
-
-
-def normalize_y_trade_floor(raw: Any) -> float:
-    """别名：y_trade_floor → y_trade_enter。"""
-    return normalize_y_trade_enter(raw)
-
-
-def trade_mag_floor(cfg: dict) -> float:
-    raw = cfg.get("y_trade_enter")
-    if raw is None or raw == "":
-        raw = cfg.get("y_trade_floor")
-    return normalize_y_trade_enter(raw)
 
 
 def _cfg_float(cfg: dict, key: str, default: float) -> float:
@@ -1089,65 +1026,6 @@ def _cfg_float(cfg: dict, key: str, default: float) -> float:
         return float(v)
     except (TypeError, ValueError):
         return float(default)
-
-
-def side_tau_enter(cfg: dict, *, for_buy_then_sell: bool) -> float:
-    """反T用 y_tau_enter_sell_then_buy，正T用 y_tau_enter_buy_then_sell；缺省回退 y_tau_enter。
-
-    返回值 ≥0；0 表示关闭该侧 τ 入场闸。上限由 load_t0_rules 钳制，此处不截断以便直传 cfg。
-    """
-    base = _cfg_float(cfg, "y_tau_enter", DEFAULT_TAU_ENTER)
-    key = "y_tau_enter_buy_then_sell" if for_buy_then_sell else "y_tau_enter_sell_then_buy"
-    raw = _f(cfg.get(key))
-    v = float(base if raw is None else raw)
-    return max(0.0, v)
-
-
-def side_hl_enter(cfg: dict, *, for_buy_then_sell: bool) -> float:
-    """正/反 y_hl 入场；缺省回退 y_hl_enter（再缺则旧 y_path_enter / 对应侧 τ enter）。
-
-    返回值 ≥0；0 表示关闭该侧 HL 入场闸。
-    """
-    tau_side = side_tau_enter(cfg, for_buy_then_sell=for_buy_then_sell)
-    base = _f(cfg.get("y_hl_enter"))
-    if base is None:
-        base = _cfg_float(cfg, "y_path_enter", tau_side)
-    key_new = "y_hl_enter_buy_then_sell" if for_buy_then_sell else "y_hl_enter_sell_then_buy"
-    key_old = (
-        "y_path_enter_buy_then_sell" if for_buy_then_sell else "y_path_enter_sell_then_buy"
-    )
-    raw = _f(cfg.get(key_new))
-    if raw is None:
-        raw = _f(cfg.get(key_old))
-    v = float(base if raw is None else raw)
-    return max(0.0, v)
-
-
-def side_path_enter(cfg: dict, *, for_buy_then_sell: bool) -> float:
-    """兼容旧名；等同 side_hl_enter。"""
-    return side_hl_enter(cfg, for_buy_then_sell=for_buy_then_sell)
-
-
-def enters_for_y_tau(cfg: dict, y_tau: float) -> Tuple[float, float, bool]:
-    """按 y_τ 符号选门槛。Returns (tau_enter, path_enter, for_buy_then_sell)。y_τ=0 → 正T侧仅作占位。"""
-    for_buy_then_sell = float(y_tau) >= 0
-    return (
-        side_tau_enter(cfg, for_buy_then_sell=for_buy_then_sell),
-        side_path_enter(cfg, for_buy_then_sell=for_buy_then_sell),
-        for_buy_then_sell,
-    )
-
-
-def t0_confidence_scale(scores: dict, cfg: dict) -> float:
-    """v6 目标价不再随 ŷ 缩放；保留以免旧调用崩。"""
-    _ = scores, cfg
-    return 1.0
-
-
-def scale_t0_ratio(base_ratio: float, scores: dict, cfg: dict) -> float:
-    """兼容旧调用：动仓比例固定为基准，不再随 ŷ 缩放。"""
-    _ = scores, cfg
-    return max(0.05, min(1.0, float(base_ratio)))
 
 
 def resolve_direction_y_tau(scores: Optional[dict]) -> Optional[float]:
@@ -1176,144 +1054,18 @@ def resolve_direction_y_tau(scores: Optional[dict]) -> Optional[float]:
     return None
 
 
-def normalize_y_tau_map(raw: Any) -> str:
-    mode = str(raw or Y_TAU_MAP_DEFAULT).strip().lower()
-    aliases = {
-        "follow": "trend",
-        "momentum": "trend",
-        "invert": "trend",
-        "scalp": "trend",  # 语义修正后与 trend 等价
-    }
-    mode = aliases.get(mode, mode)
-    if mode not in Y_TAU_MAP_CHOICES:
-        mode = Y_TAU_MAP_DEFAULT
-    return mode
-
-
 def _tau_path_same_sign(
     y_tau: Optional[float],
     y_path: Optional[float],
     *,
     sign_eps: float = 1e-9,
 ) -> bool:
-    """y_τ 与 y_hl 同号（均非零）。"""
+    """y_τ 与 y_hl 同号（均非零）。旧成交对照用。"""
     if y_tau is None or y_path is None:
         return False
     if abs(float(y_tau)) <= sign_eps or abs(float(y_path)) <= sign_eps:
         return False
     return (float(y_tau) > 0) == (float(y_path) > 0)
-
-
-def _tau_path_enter_gate(
-    y_tau: float,
-    y_path: float,
-    tau_enter: float,
-    path_enter: float,
-) -> Tuple[bool, Optional[str]]:
-    """同号且各自过门槛：正侧 y>enter；负侧 y<-enter。"""
-    if not _tau_path_same_sign(y_tau, y_path):
-        return False, (
-            f"dual_y：y_τ={y_tau:.3f}% 与 y_hl={y_path:.3f}% 异号跳过"
-        )
-    te, pe = float(tau_enter), float(path_enter)
-    yt, yp = float(y_tau), float(y_path)
-    if yt > 0:
-        if yt <= te:
-            return False, f"dual_y：y_τ={yt:.3f}%≤{te}% 未过门槛"
-        if yp <= pe:
-            return False, f"dual_y：y_hl={yp:.3f}%≤{pe}% 未过门槛"
-        return True, None
-    if yt < -te:
-        if yp >= -pe:
-            return False, f"dual_y：y_hl={yp:.3f}%≥-{pe}% 未过门槛"
-        return True, None
-    return False, f"dual_y：y_τ={yt:.3f}% 未过门槛"
-
-
-def _tau_cc_for_sign_gate(
-    y_tau: float,
-    gap_pct: Optional[float],
-) -> float:
-    """把 OC 口径 y_τ 抬到昨收口径（features 对照；不再作选向闸）。"""
-    from core.signal.dual_score.fusion import lift_tau_vs_prev_close
-
-    lifted = lift_tau_vs_prev_close(float(y_tau), gap_pct)
-    return float(lifted) if lifted is not None else float(y_tau)
-
-
-def _strong_head_tau_sign_gate(
-    y_head: float,
-    y_tau: float,
-    gate_pct: float,
-    head_key: str,
-    *,
-    sign_eps: float = 1e-9,
-    tau_label: str = "y_τ",
-) -> Tuple[bool, Optional[str]]:
-    """|y_head|>gate 时要求与对照 τ 同号（均非零）。"""
-    g = float(gate_pct)
-    yh, yt = float(y_head), float(y_tau)
-    if abs(yh) <= g:
-        return True, None
-    if abs(yt) <= sign_eps:
-        return False, (
-            f"dual_y：|{head_key}|={abs(yh):.3f}%>{g}% 但 {tau_label}={yt:.3f}%≈0 异号跳过"
-        )
-    if (yh > 0) == (yt > 0):
-        return True, None
-    return False, (
-        f"dual_y：|{head_key}|={abs(yh):.3f}%>{g}% 且 "
-        f"{head_key}={yh:.3f}% 与 {tau_label}={yt:.3f}% 异号跳过"
-    )
-
-
-def _path_direction_sign(y_path: Optional[float], path_enter: float) -> int:
-    if y_path is None:
-        return 0
-    thr = float(path_enter)
-    if y_path > thr:
-        return 1
-    if y_path < -thr:
-        return -1
-    return 0
-
-
-def _gap_tier_direction_override(
-    gap_pct: Optional[float],
-    tau_sign: int,
-    cfg: dict,
-) -> Optional[Dict[str, Any]]:
-    """大缺口分档：skip_opposite 跳过与大缺口均值回归相悖的 τ 方向。"""
-    mode = str(cfg.get("y_gap_tier_mode") or "skip_opposite").strip().lower()
-    if mode in {"", "off", "none", "false", "0"}:
-        return None
-    tier = _cfg_float(cfg, "y_gap_tier_pct", DEFAULT_GAP_TIER_PCT)
-    if gap_pct is None or abs(float(gap_pct)) < tier:
-        return None
-    g = float(gap_pct)
-    tau_dir = direction_from_y_tau_sign(tau_sign, cfg)
-    if mode == "revert":
-        want = "sell_then_buy" if g > 0 else "buy_then_sell"
-        if tau_dir == want:
-            return None
-        return {
-            "skip": True,
-            "direction": None,
-            "reason": (
-                f"dual_y[gap_tier/revert]：gap={g:+.2f}%≥{tier}% 期望{t0_dir_label(want)}，"
-                f"τ→{t0_dir_label(tau_dir)} 跳过"
-            ),
-        }
-    # skip_opposite：大缺口日禁止「顺势」映射（高开跳过正T）；低开+反T 恒放行
-    if g >= tier and tau_dir == "buy_then_sell":
-        return {
-            "skip": True,
-            "direction": None,
-            "reason": (
-                f"dual_y[gap_tier]：高开{g:+.2f}%≥{tier}% 跳过正T（τ顺势映射，追高风险）"
-            ),
-        }
-    return None
 
 
 def _minute_pack_present(feats: Optional[dict]) -> bool:
@@ -1337,9 +1089,13 @@ def _attach_y_path_to_item(
     if not isinstance(item, dict):
         return
     try:
-        from core.research.path_panel import clear_y_hl
-
-        clear_y_hl(item)
+        for k in (
+            "y_hl",
+            "predicted_score_hl",
+            "y_path",
+            "predicted_score_path",
+        ):
+            item.pop(k, None)
         item.pop("y_hl_status", None)
         item.pop("y_path_status", None)
         item.pop("y_hl_error", None)
@@ -2126,11 +1882,11 @@ def _refresh_tau_oc_from_feats(
     trade_date: str,
     force: bool = True,
 ) -> None:
-    """前缀小包注入后按 features_tau 重算 ŷ_oc 组成。
+    """前缀小包注入后按 features_tau 重算 ŷ_τc 组成。
 
     ``resolve_scores`` 常已写上盘中 as_of / 开盘→τ，但注入还会改截面
     （同业缺口广度、HL 位置、近15m、板块中位）。不能因组成表已有
-    ``ret_open_to_tau`` 就跳过，否则调仓与做 T 同钟 ŷ_oc 会差一截小因子。
+    ``ret_open_to_tau`` 就跳过，否则调仓与做 T 同钟 ŷ_τc 会差一截小因子。
     """
     if not isinstance(item, dict):
         return
@@ -2228,7 +1984,6 @@ def _attach_prefix_minute_sector_feats(
     tau_hm: str,
 ) -> Dict[str, Any]:
     """前缀分钟小包（强制覆盖）+ 开→τ 截面（与训练同口径）。"""
-    from core.research.path_panel import attach_path_minute_feats
     from core.signal.minute_tau_feats import (
         apply_sector_ret_cs,
         apply_sector_ret_last_30m_cs,
@@ -2236,6 +1991,7 @@ def _attach_prefix_minute_sector_feats(
         apply_sector_ret_last_60m_cs,
         apply_sector_ret_last_75m_cs,
         apply_sector_ret_last_90m_cs,
+        attach_minute_prefix_feats,
         extract_horizon_seq_packs,
         resolve_sector_ret_last_30m,
         resolve_sector_ret_last_45m,
@@ -2245,7 +2001,7 @@ def _attach_prefix_minute_sector_feats(
         resolve_sector_ret_to_tau,
     )
 
-    out = attach_path_minute_feats(
+    out = attach_minute_prefix_feats(
         feats,
         minute_bars=minute_bars,
         trade_date=trade_date,
@@ -2293,72 +2049,6 @@ def _attach_prefix_minute_sector_feats(
     except Exception:  # noqa: BLE001
         logger.debug("prefix horizon CS overwrite failed", exc_info=True)
     return out
-
-
-def predict_path_from_prefix_minutes(
-    score_snap: Optional[dict],
-    minute_prefix: Sequence[dict],
-    *,
-    day_bar: Optional[dict] = None,
-    hist_bars: Optional[Sequence[dict]] = None,
-) -> Optional[float]:
-    """用开盘 Z + **已到达前缀**分钟小包即时估 ŷ_hl（确认根因果，无全日前视）。"""
-    if not isinstance(score_snap, dict):
-        return None
-    bars = [b for b in (minute_prefix or []) if isinstance(b, dict)]
-    if len(bars) < 1:
-        return None
-    try:
-        from core.research.path_panel import path_features_from_open_row
-        from core.research.path_ridge import load_path_model, predict_path_from_features
-    except Exception:  # noqa: BLE001
-        logger.debug("predict_path_from_prefix imports failed", exc_info=True)
-        return None
-    model = load_path_model()
-    if model is None:
-        return None
-    feats = _open_z_feats_from_snap(score_snap)
-    day = day_bar if isinstance(day_bar, dict) else {}
-    trade_day = str(day.get("date") or (bars[0] or {}).get("date") or "")[:10]
-    open_px = _f(day.get("open")) or _f(feats.get("open")) or _f((bars[0] or {}).get("open"))
-    prev_c = _f(day.get("prev_close")) or _f(feats.get("prev_close"))
-    tau_hm = prefix_tau_hm_from_bars(bars)
-    try:
-        feats = _attach_prefix_minute_sector_feats(
-            feats,
-            minute_bars=bars,
-            trade_date=trade_day,
-            open_px=open_px,
-            prev_close=prev_c,
-            tau_hm=tau_hm,
-        )
-    except Exception:  # noqa: BLE001
-        logger.debug("attach_path_minute_feats in prefix path failed", exc_info=True)
-        return None
-    if feats.get("ret_open_to_tau") is None:
-        return None
-    hist = [b for b in (hist_bars or []) if isinstance(b, dict)]
-    prev = hist[-1] if hist else None
-    path_feats = path_features_from_open_row(feats, hist=hist, prev_bar=prev)
-    try:
-        from core.research.path_panel import attach_path_lag_features
-
-        code = ""
-        if isinstance(score_snap, dict):
-            code = str(score_snap.get("stock_code") or score_snap.get("code") or "").strip()
-        path_feats = attach_path_lag_features(
-            path_feats,
-            hist_bars=hist,
-            asof_date=trade_day,
-            stock_code=code,
-        )
-    except Exception:  # noqa: BLE001
-        logger.debug("attach path lag in prefix path failed", exc_info=True)
-    try:
-        return predict_path_from_features(path_feats, model_doc=model)
-    except Exception:  # noqa: BLE001
-        logger.debug("predict_path_from_prefix failed", exc_info=True)
-        return None
 
 
 def predict_tau_oc_from_prefix_minutes(
@@ -2480,12 +2170,16 @@ def rescore_scores_at_fixed_prefix(
     fallback = dict(open_snap or {}) if isinstance(open_snap, dict) else {}
 
     def _missing(reason: str = "minute_data_missing") -> Dict[str, Any]:
-        from core.research.path_panel import clear_y_hl
-
         out = dict(fallback)
         out["_minute_data_missing"] = True
         out["_score_source"] = "prefix_minute_missing"
-        clear_y_hl(out)
+        for k in (
+            "y_hl",
+            "predicted_score_hl",
+            "y_path",
+            "predicted_score_path",
+        ):
+            out.pop(k, None)
         out.pop("predicted_score_complexity", None)
         out.pop("y_complexity_hat", None)
         out.pop("predicted_score_cx", None)
@@ -2723,327 +2417,6 @@ def attach_portrait_dual_scores(
     if feats:
         out["direction_features"] = feats
     return out
-
-
-def direction_from_y_tau_sign(tau_sign: int, cfg: dict) -> str:
-    """由 y_τ 符号（±1）与 y_tau_map 解析 sell_then_buy / buy_then_sell。
-
-    y_τ>0 → buy_then_sell（正T）；y_τ<0 → sell_then_buy（反T）。
-    scalp 与 trend 同义，scalp 仅兼容。
-    """
-    mode = normalize_y_tau_map(cfg.get("y_tau_map"))
-    if mode == "fixed_sell_then_buy":
-        return "sell_then_buy"
-    if mode == "fixed_buy_then_sell":
-        return "buy_then_sell"
-    # scalp / trend：符号定方向
-    return "buy_then_sell" if tau_sign > 0 else "sell_then_buy"
-
-
-def resolve_dual_y_direction(
-    *,
-    scores: dict,
-    cfg: dict,
-    cash: float,
-    shares: float,
-) -> Dict[str, Any]:
-    """dual_y 库函数选向（v6 生产走 close-band，不调用本函数）。
-
-    1. 有 y_τ（方向锚）
-    2. |y_τ|≥侧向 y_tau_enter（path 链写死关闭）
-    3. 可选 gap_tier 跳过
-    4. 正 T 须有现金+仓
-    通过后 y_τ（OC）映射正/反 T。y_trade / y_eod / nowcast 不参与。
-    """
-    tau_enter = _cfg_float(cfg, "y_tau_enter", DEFAULT_TAU_ENTER)
-    # 主仓 τ 冻结降级回注：与 buy 腿 effective floor 对齐
-    eff_enter = _f(cfg.get("y_tau_enter_effective"))
-    if eff_enter is not None and eff_enter < tau_enter:
-        tau_enter = max(0.0, float(eff_enter))
-    # 旧键 y_tau_enter_strong：若更高则并入入场闸（双闸已合并）
-    strong_legacy = _f(cfg.get("y_tau_enter_strong"))
-    if strong_legacy is not None and strong_legacy > tau_enter:
-        tau_enter = strong_legacy
-
-    tau_enter_sell_then_buy = side_tau_enter(
-        {**cfg, "y_tau_enter": tau_enter}, for_buy_then_sell=False
-    )
-    tau_enter_buy_then_sell = side_tau_enter(
-        {**cfg, "y_tau_enter": tau_enter}, for_buy_then_sell=True
-    )
-    path_enter = _cfg_float(cfg, "y_hl_enter", _cfg_float(cfg, "y_path_enter", tau_enter))
-    path_enter_sell_then_buy = side_path_enter(
-        {**cfg, "y_hl_enter": path_enter, "y_tau_enter": tau_enter},
-        for_buy_then_sell=False,
-    )
-    path_enter_buy_then_sell = side_path_enter(
-        {**cfg, "y_hl_enter": path_enter, "y_tau_enter": tau_enter},
-        for_buy_then_sell=True,
-    )
-
-    tau_map = normalize_y_tau_map(cfg.get("y_tau_map"))
-
-    y_eod = _f(scores.get("y_eod"))
-    y_tau = resolve_direction_y_tau(scores)
-    # mapped：显式字段或昨收口径 τ_cc；禁止用 predicted 静默覆盖（脏簿应交由上游归一）
-    y_tau_mapped = _f(scores.get("y_tau_mapped"))
-    if y_tau_mapped is None:
-        y_tau_mapped = _f(scores.get("predicted_score_tau_cc"))
-    if y_tau_mapped is None:
-        y_tau_mapped = _f(scores.get("predicted_score_blend_tau_cc"))
-    y_trade = _f(scores.get("y_trade"))
-    residual = None
-    try:
-        from core.signal.yhat_windows import t0_residual_pct
-
-        residual = t0_residual_pct(scores)
-    except Exception:  # noqa: BLE001
-        residual = None
-    from core.signal.yhat_windows import pick_y_co
-
-    y_path = None  # ŷ_hl 已下线
-    y_co = pick_y_co(scores)
-    y_check = scores.get("y_check")
-    gap_pct = _f(scores.get("gap_pct"))
-    if gap_pct is None and isinstance(scores.get("features_tau"), dict):
-        gap_pct = _f(scores["features_tau"].get("gap_pct"))
-    y_tau_cc = (
-        _tau_cc_for_sign_gate(float(y_tau), gap_pct) if y_tau is not None else None
-    )
-
-    use_path = False
-    path_required = False
-
-    features = {
-        "y_eod": y_eod,
-        "y_tau": y_tau,
-        "y_tau_oc": y_tau,
-        "y_tau_cc": y_tau_cc,
-        "y_tau_mapped": y_tau_mapped,
-        "dual_score_window": scores.get("dual_score_window"),
-        "y_trade": y_trade,
-        "residual": residual if residual is not None else y_trade,
-        "y_co": y_co,
-        "y_hl": y_path,
-        "y_check": y_check,
-        "gap_pct": gap_pct,
-        "y_tau_enter": tau_enter,
-        "y_tau_enter_sell_then_buy": tau_enter_sell_then_buy,
-        "y_tau_enter_buy_then_sell": tau_enter_buy_then_sell,
-        "y_hl_enter": path_enter,
-        "y_hl_enter_sell_then_buy": path_enter_sell_then_buy,
-        "y_hl_enter_buy_then_sell": path_enter_buy_then_sell,
-    }
-
-    if y_tau is None:
-        return {
-            "direction": None,
-            "skip": True,
-            "direction_score": None,
-            "direction_reason": "dual_y：缺 y_τ，无法定盘中方向",
-            "features": features,
-            "signal_skip": True,
-        }
-
-    side_tau, side_path, for_buy_then_sell = enters_for_y_tau(
-        {
-            **cfg,
-            "y_tau_enter": tau_enter,
-            "y_tau_enter_sell_then_buy": tau_enter_sell_then_buy,
-            "y_tau_enter_buy_then_sell": tau_enter_buy_then_sell,
-            "y_hl_enter": path_enter,
-            "y_hl_enter_sell_then_buy": path_enter_sell_then_buy,
-            "y_hl_enter_buy_then_sell": path_enter_buy_then_sell,
-        },
-        y_tau,
-    )
-    side_tag = "正T" if for_buy_then_sell else "反T"
-
-    if use_path and y_path is not None:
-        enter_ok, enter_reason = _tau_path_enter_gate(
-            y_tau, y_path, side_tau, side_path
-        )
-        if not enter_ok:
-            return {
-                "direction": None,
-                "skip": True,
-                "direction_score": y_tau,
-                "direction_reason": enter_reason or f"dual_y：y_τ/y_path 未过{side_tag}门槛",
-                "features": features,
-                "signal_skip": True,
-            }
-    elif y_tau > 0:
-        if y_tau <= side_tau:
-            return {
-                "direction": None,
-                "skip": True,
-                "direction_score": y_tau,
-                "direction_reason": (
-                    f"dual_y：y_τ={y_tau:.3f}%≤{side_tau}%（{side_tag}入场）跳过"
-                ),
-                "features": features,
-                "signal_skip": True,
-            }
-    elif y_tau < 0:
-        if y_tau >= -side_tau:
-            return {
-                "direction": None,
-                "skip": True,
-                "direction_score": y_tau,
-                "direction_reason": (
-                    f"dual_y：y_τ={y_tau:.3f}%≥-{side_tau}%（{side_tag}入场）跳过"
-                ),
-                "features": features,
-                "signal_skip": True,
-            }
-    else:
-        return {
-            "direction": None,
-            "skip": True,
-            "direction_score": y_tau,
-            "direction_reason": "dual_y：y_τ=0 横盘跳过",
-            "features": features,
-            "signal_skip": True,
-        }
-
-    if use_path and y_path is None and path_required:
-        return {
-            "direction": None,
-            "skip": True,
-            "direction_score": y_tau,
-            "direction_reason": _y_path_missing_reason(scores),
-            "features": features,
-            "signal_skip": True,
-        }
-
-    main = 1 if y_tau > 0 else -1
-    direction = direction_from_y_tau_sign(main, cfg)
-
-    gap_block = _gap_tier_direction_override(gap_pct, main, cfg)
-    if gap_block and gap_block.get("skip"):
-        return {
-            "direction": None,
-            "skip": True,
-            "direction_score": y_tau,
-            "direction_reason": str(gap_block.get("reason") or "大缺口分档跳过"),
-            "features": features,
-            "signal_skip": True,
-        }
-
-    if direction == "buy_then_sell" and not (cash > 0 and shares > 0):
-        return {
-            "direction": None,
-            "skip": True,
-            "direction_score": y_tau,
-            "direction_reason": (
-                f"dual_y[{tau_map}]：y_τ={y_tau:.3f}%→{t0_dir_label(direction)} 但缺现金/仓"
-            ),
-            "features": features,
-            "signal_skip": True,
-        }
-
-    path_note = ""
-    if use_path and y_path is not None and _tau_path_same_sign(y_tau, y_path):
-        path_note = (
-            f"；y_hl={y_path:.3f}%同号过闸"
-            f"({side_tag} τ>{side_tau:.3f}%,hl>{side_path:.3f}%)"
-        )
-
-    return {
-        "direction": direction,
-        "skip": False,
-        "direction_score": y_tau,
-        "direction_reason": (
-            f"dual_y[{tau_map}]：y_τ={y_tau:.3f}%→{t0_dir_label(direction)}"
-            + path_note
-        ),
-        "features": {**features, "y_tau_map": tau_map},
-        "signal_skip": False,
-    }
-
-
-def resolve_cover_policy(
-    *,
-    scores: dict,
-    direction: Optional[str],
-    cfg: dict,
-) -> Dict[str, Any]:
-    """尾盘回补策略。
-
-    - **反T**：未触达买回则收盘强买（表单「当日回补」已下线，生产常开）。
-      强买按**账户余额**（开盘现金+当日累计）判断是否买得起；不够则
-      ``abandon_cover_cash``。不再要求卖出净得自给自足。
-    - **正T**：未卖回旧仓则收盘强制卖。
-    """
-    if direction == "sell_then_buy":
-        if bool(cfg.get("must_cover_same_day")):
-            return {
-                "must_cover": True,
-                "reason": "反T表单强制当日回补（买回旧仓）",
-                "allow_overnight": False,
-            }
-        return {
-            "must_cover": False,
-            "reason": "反T未触达买回则放弃回补（减仓落袋）",
-            "allow_overnight": True,
-        }
-
-    if bool(cfg.get("must_cover_same_day")):
-        return {
-            "must_cover": True,
-            "reason": "表单强制当日回补",
-            "allow_overnight": False,
-        }
-
-    from core.signal.yhat_windows import pick_y_co
-
-    y_on = pick_y_co(scores)
-    y_trade = _f(scores.get("y_trade"))
-    trade_floor = trade_mag_floor(cfg)
-    on_risk = _cfg_float(cfg, "y_on_risk", DEFAULT_ON_RISK)
-    on_allow = _cfg_float(cfg, "y_on_allow", DEFAULT_ON_ALLOW)
-
-    if y_trade is not None and abs(y_trade) < trade_floor:
-        return {
-            "must_cover": True,
-            "reason": f"|y_trade|={abs(y_trade):.3f}%<{trade_floor}%强制回补",
-            "allow_overnight": False,
-        }
-
-    if y_on is None:
-        return {
-            "must_cover": True,
-            "reason": "缺 y_on，默认强制回补",
-            "allow_overnight": False,
-        }
-
-    if abs(y_on) < on_allow:
-        # 中等隔夜预期：仍强制回补（稳健）
-        if abs(y_on) >= on_risk:
-            return {
-                "must_cover": True,
-                "reason": f"|y_on|={abs(y_on):.3f}≥risk{on_risk}强制回补",
-                "allow_overnight": False,
-            }
-        return {
-            "must_cover": True,
-            "reason": f"|y_on|={abs(y_on):.3f}%<allow{on_allow}%默认回补",
-            "allow_overnight": False,
-        }
-
-    # |y_on| 很大：仅正T在 y_on 强烈看涨时允许隔夜多头敞口
-    if direction == "buy_then_sell" and y_on >= on_allow:
-        return {
-            "must_cover": False,
-            "reason": f"y_on={y_on:.3f}%支持正T隔夜多头",
-            "allow_overnight": True,
-        }
-
-    return {
-        "must_cover": True,
-        "reason": f"y_on={y_on:.3f}%与敞口方向不一致，强制回补",
-        "allow_overnight": False,
-    }
 
 
 def scores_have_any(scores: Optional[dict]) -> bool:

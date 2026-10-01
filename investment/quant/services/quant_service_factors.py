@@ -1341,232 +1341,6 @@ class QuantFactorMixin:
         )
         return out
 
-    def run_path_ridge_experiment(
-        self,
-        *,
-        lookback: int = 120,
-        watching_limit: int = WATCHING_MAX_SIZE,
-        ridge_lambda: float = 1.0,
-        gap_trigger_pct: float = 2.0,
-        sell_trig_pct: Optional[float] = None,
-        buy_trig_pct: Optional[float] = None,
-        minute_period: str = "5",
-        minute_lookback_days: int = 150,
-        persist: bool = False,
-        note: str = "",
-        force_promote: bool = False,
-        persist_role: str = "live",
-        holdout_trading_days: int = 20,
-    ) -> Dict[str, Any]:
-        """观察池 ŷ_hl Ridge：开盘 Z + 多 τ 前缀分钟小包 → 全日极值序。
-
-        默认用满观察池；分钟线**只读本地缓存**，不打远端（缺缓存的票跳过）。
-        """
-        from core.data.facade import bars_and_source
-        from core.ports.market import group_minute_bars_by_date
-        from core.store import load_minute_cache
-        from core.watching.store import WATCHING_MAX_SIZE, read_watching
-        from core.research.path_ridge import (
-            fit_path_ridge_report,
-            load_path_last_report,
-            load_path_model,
-            path_model_path,
-            path_promote_gate,
-            persist_path_model,
-            save_path_last_report,
-        )
-
-        # HL 对照标签缺省（与旧 T0 触发% 解耦；仅用于 ŷ_hl 训练/回放对照）
-        _PATH_RIDGE_SELL_TRIG = 2.0
-        _PATH_RIDGE_BUY_TRIG = 1.5
-        sell_trig = (
-            float(sell_trig_pct) if sell_trig_pct is not None else _PATH_RIDGE_SELL_TRIG
-        )
-        buy_trig = (
-            float(buy_trig_pct) if buy_trig_pct is not None else _PATH_RIDGE_BUY_TRIG
-        )
-
-        uni = read_watching()
-        pool = [
-            str(c).strip()
-            for c in (uni.get("watchlist") or [])
-            if str(c).strip()
-        ]
-        # 默认吃满观察池；watching_limit 仅作上限（测试可传小值）
-        cap = max(2, min(int(WATCHING_MAX_SIZE), 500))
-        limit = max(2, min(int(watching_limit or cap), cap))
-        codes = pool[:limit]
-        if len(codes) < 2:
-            return {
-                "success": False,
-                "error": "研究池至少 2 只才可跑 ŷ_hl Ridge",
-                "task": "path_ridge",
-            }
-
-        if persist:
-            last = load_path_last_report()
-            if last:
-                saved = persist_path_model(
-                    last,
-                    note=note or "persist last path report",
-                    force=bool(force_promote),
-                    role=persist_role,
-                )
-                out = dict(last)
-                out["persisted"] = saved
-                out["from_last_report"] = True
-                out["promote_gate"] = saved.get("promote_gate") or path_promote_gate(last)
-                if saved.get("promoted_at"):
-                    out["promoted_at"] = saved["promoted_at"]
-                return _attach_ridge_role_flags(out, path_model_path())
-
-        period = str(minute_period or "5").strip() or "5"
-        mlook = max(20, min(int(minute_lookback_days or 90), 240))
-        minute_by_code_date: Dict[str, Dict[str, Any]] = {}
-        minute_codes_hit = 0
-        minute_codes_miss = 0
-        minute_days_total = 0
-        minute_span_days: List[int] = []
-
-        stock_bars: List[Dict[str, Any]] = []
-        for code in codes:
-            bars, _src = bars_and_source(code, limit=lookback + 40)
-            if not bars:
-                continue
-            stock_bars.append({"code": str(code), "bars": bars})
-            raw = str(code).strip()
-            mbars: Optional[List[dict]] = None
-            try:
-                packed = load_minute_cache(
-                    "CN",
-                    raw,
-                    period,
-                    min_bars=10,
-                    max_age_hours=720.0,
-                    ignore_age=True,
-                )
-                if packed:
-                    mbars, _meta = packed
-            except Exception:  # noqa: BLE001
-                logger.debug("path ridge minute cache miss for %s", raw, exc_info=True)
-            # 只用缓存：不 fetch_minute_bars；无缓存则跳过该票分钟样本
-            if not mbars:
-                minute_codes_miss += 1
-                continue
-            by_day = group_minute_bars_by_date(mbars)
-            if not by_day:
-                minute_codes_miss += 1
-                continue
-            minute_by_code_date[raw] = by_day
-            minute_codes_hit += 1
-            minute_days_total += len(by_day)
-            minute_span_days.append(len(by_day))
-
-        if minute_codes_hit < 1:
-            return {
-                "success": False,
-                "error": (
-                    f"无本地分钟缓存（period={period} · 池 {len(codes)} 只）；"
-                    "请先「强更 5m」，拟合不再拉远端"
-                ),
-                "task": "path_ridge",
-                "minute_period": period,
-                "watching_limit": limit,
-                "watching_pool_size": len(pool),
-                "minute_cache_only": True,
-                "minute_codes_miss": minute_codes_miss,
-            }
-
-        from core.signal.minute_tau_grid import DEFAULT_MINUTE_TAU_GRID
-
-        path_tau_grid = list(DEFAULT_MINUTE_TAU_GRID)
-        report = fit_path_ridge_report(
-            stock_bars,
-            minute_by_code_date=minute_by_code_date,
-            ridge_lambda=ridge_lambda,
-            gap_trigger_pct=gap_trigger_pct,
-            sell_trig_pct=sell_trig,
-            buy_trig_pct=buy_trig,
-            tau_grid=path_tau_grid,
-            holdout_trading_days=holdout_trading_days,
-        )
-        report["watching_limit"] = limit
-        report["watching_pool_size"] = len(pool)
-        report["lookback"] = lookback
-        report["minute_period"] = period
-        report["minute_lookback_days"] = mlook
-        report["minute_codes_hit"] = minute_codes_hit
-        report["minute_codes_miss"] = minute_codes_miss
-        report["minute_codes_universe"] = len(codes)
-        report["minute_days_total"] = minute_days_total
-        report["minute_cache_only"] = True
-        report["minute_cache_short_refetch"] = 0
-        if minute_span_days:
-            ss = sorted(minute_span_days)
-            report["minute_span_days_med"] = ss[len(ss) // 2]
-            report["minute_span_days_min"] = ss[0]
-            report["minute_span_days_max"] = ss[-1]
-        report["sell_trig_pct"] = sell_trig
-        report["buy_trig_pct"] = buy_trig
-        if report.get("success"):
-            save_path_last_report(report)
-        if persist and report.get("success"):
-            saved = persist_path_model(
-                report,
-                note=note or "api path-ridge persist",
-                force=bool(force_promote),
-                role=persist_role,
-            )
-            report["persisted"] = saved
-            report["promote_gate"] = saved.get("promote_gate") or path_promote_gate(report)
-            if saved.get("promoted_at"):
-                report["promoted_at"] = saved["promoted_at"]
-        else:
-            report["persisted"] = {"success": False, "skipped": True}
-            live = load_path_model()
-            report["live_model_present"] = bool(live)
-            if report.get("success") and not report.get("promote_gate"):
-                report["promote_gate"] = path_promote_gate(report)
-        return _attach_ridge_role_flags(report, path_model_path())
-
-    def get_path_ridge_model(self) -> Dict[str, Any]:
-        from core.research.path_ridge import (
-            load_path_last_report,
-            load_path_model,
-            path_model_path,
-            path_promote_gate,
-        )
-
-        doc = load_path_model()
-        last = load_path_last_report()
-        chosen, use_last = _select_ridge_desk_doc(doc, last)
-        if not chosen:
-            out = {
-                "success": False,
-                "exists": False,
-                "path": path_model_path(),
-                "last_report_exists": bool(last),
-                "note": "尚无 ŷ_hl 模型；POST /api/quant/path-ridge persist=true",
-            }
-            if last:
-                out["promote_gate"] = path_promote_gate(last)
-                out["oos"] = last.get("oos")
-            return _attach_ridge_role_flags(out, path_model_path(), live_present=False)
-        gate_src = last if use_last else (doc if not doc.get("_shadow") else (last or doc))
-        return _attach_ridge_role_flags(
-            {
-                **chosen,
-                "success": True,
-                "exists": True,
-                "path": path_model_path(),
-                "promoted": (not use_last) and not bool(chosen.get("_shadow")),
-                "shadow": bool(use_last) or bool(chosen.get("_shadow")),
-                "last_report_exists": bool(last),
-                "promote_gate": path_promote_gate(gate_src),
-            },
-            path_model_path(),
-        )
-
     def run_t30_ridge_experiment(
         self,
         *,
@@ -1582,7 +1356,7 @@ class QuantFactorMixin:
         persist_role: str = "live",
         holdout_trading_days: int = 20,
     ) -> Dict[str, Any]:
-        """观察池 ŷ_τ30 Ridge：与 ŷ_oc 同 X → mean(price(τ⊕25/30/35))/price(τ)−1。只读本地 5m 缓存。"""
+        """观察池 ŷ_τ30 Ridge：与 ŷ_τc 同 X → mean(price(τ⊕25/30/35))/price(τ)−1。只读本地 5m 缓存。"""
         from core.data.facade import bars_and_source
         from core.watching.store import WATCHING_MAX_SIZE, read_watching
         from core.research.t30_ridge import (
@@ -1814,7 +1588,7 @@ class QuantFactorMixin:
         persist_role: str = "live",
         holdout_trading_days: int = 20,
     ) -> Dict[str, Any]:
-        """观察池 ŷ_τ45 Ridge：与 ŷ_oc 同 X → mean(price(τ⊕40/45/50))/price(τ)−1。只读本地 5m 缓存。"""
+        """观察池 ŷ_τ45 Ridge：与 ŷ_τc 同 X → mean(price(τ⊕40/45/50))/price(τ)−1。只读本地 5m 缓存。"""
         from core.data.facade import bars_and_source
         from core.watching.store import WATCHING_MAX_SIZE, read_watching
         from core.research.t45_ridge import (
@@ -2046,7 +1820,7 @@ class QuantFactorMixin:
         persist_role: str = "live",
         holdout_trading_days: int = 20,
     ) -> Dict[str, Any]:
-        """观察池 ŷ_τ60 Ridge：与 ŷ_oc 同 X → mean(price(τ⊕55/60/65))/price(τ)−1。只读本地 5m 缓存。"""
+        """观察池 ŷ_τ60 Ridge：与 ŷ_τc 同 X → mean(price(τ⊕55/60/65))/price(τ)−1。只读本地 5m 缓存。"""
         from core.data.facade import bars_and_source
         from core.watching.store import WATCHING_MAX_SIZE, read_watching
         from core.research.t60_ridge import (
@@ -2278,7 +2052,7 @@ class QuantFactorMixin:
         persist_role: str = "live",
         holdout_trading_days: int = 20,
     ) -> Dict[str, Any]:
-        """观察池 ŷ_τ75 Ridge：与 ŷ_oc 同 X → mean(price(τ⊕70/75/80))/price(τ)−1。只读本地 5m 缓存。"""
+        """观察池 ŷ_τ75 Ridge：与 ŷ_τc 同 X → mean(price(τ⊕70/75/80))/price(τ)−1。只读本地 5m 缓存。"""
         from core.data.facade import bars_and_source
         from core.watching.store import WATCHING_MAX_SIZE, read_watching
         from core.research.t75_ridge import (
@@ -2510,7 +2284,7 @@ class QuantFactorMixin:
         persist_role: str = "live",
         holdout_trading_days: int = 20,
     ) -> Dict[str, Any]:
-        """观察池 ŷ_τ90 Ridge：与 ŷ_oc 同 X → mean(price(τ⊕85/90/95))/price(τ)−1。只读本地 5m 缓存。"""
+        """观察池 ŷ_τ90 Ridge：与 ŷ_τc 同 X → mean(price(τ⊕85/90/95))/price(τ)−1。只读本地 5m 缓存。"""
         from core.data.facade import bars_and_source
         from core.watching.store import WATCHING_MAX_SIZE, read_watching
         from core.research.t90_ridge import (

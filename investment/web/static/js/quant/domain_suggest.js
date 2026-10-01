@@ -568,7 +568,7 @@ export function installSuggest(q) {
       (Number(ols.ridge_lambda) > 0 ? ` · Ridge λ=${ols.ridge_lambda}` : " · OLS");
     setQuantMeta(`ŷ_oo · ${line}`);
     state.lastReturnModelFit = data;
-    /* 与 ŷ_oc 一致：摘要进表头 KPI，不另挂 fingerprint，避免系数表上方空白 */
+    /* 与 ŷ_τc 一致：摘要进表头 KPI，不另挂 fingerprint，避免系数表上方空白 */
     clearResult();
     if (paintCoef) {
       const rm = {

@@ -4,7 +4,7 @@ C_τ = price(τ)×(1+clip(y_τc×scale, ±20)/100)。τ=开盘时 price(τ)=open
 硬顶 ±20。upper = C_τ×(1+δ/100)，lower = C_τ×(1−δ/100)。
 C>upper → 反T（现价卖，leg2 目标 C_τ）；C<lower → 正T（现价买，leg2 目标 C_τ）。
 ŷ_τw = ŷ_τ30/45/60/75/90 相对共用中位点（默认 47%）的符号和，过门槛才开腿。
-股数额度看 |ŷ_oc|：过 y_oc入场% 用入场金额/价换算股数，过 y_oc强% 用强金额。
+股数额度看 |ŷ_τc|：过 y_τc入场% 用入场金额/价换算股数，过 y_τc强% 用强金额。
 阴阳门槛 / 前序 ŷ_τw 确认 / 收贴端已下线。
 """
 
@@ -93,7 +93,7 @@ def clip_y_oc_target_pct(
     y_oc_l: Any = None,
     y_oc_u: Any = None,
 ) -> float:
-    """ŷ_oc×scale（百分点）；硬顶 ±20。``y_oc_l`` / ``y_oc_u`` 已忽略。"""
+    """ŷ_τc×scale（百分点）；硬顶 ±20。``y_oc_l`` / ``y_oc_u`` 已忽略。"""
     _ = y_oc_l, y_oc_u
     yt = float(y_oc) * float(scale)
     return max(-Y_OC_CLIP_ABS_MAX, min(Y_OC_CLIP_ABS_MAX, yt))
@@ -147,7 +147,6 @@ def scores_close_components(
     缺 y_τc 时回退 y_oc / y_tau（旧行、开盘时钟同一个数）。
     R̂_τ = Ĉ_τ/price(τ)−1，等于 clip 后的百分点。
     remaining_oc 仍是未 clip 的 remaining(y_oc)，不进破带。
-    ``c_oc`` 为未 clip 的 O×(1+y_oc/100)，不进破带。
     """
     from core.signal.yhat_windows import (
         Y_TC_SOURCE_REMAINING,
@@ -195,7 +194,6 @@ def scores_close_components(
     y_oc_target = (
         clip_y_oc_target_pct(y_for_band, scale=scale) if y_for_band is not None else None
     )
-    c_oc = _pct_to_px(open_px, y_oc) if y_oc is not None else None
     pt = _f(price_tau)
     if pt is None or pt <= 0:
         feats = raw.get("features_tau") if isinstance(raw.get("features_tau"), dict) else {}
@@ -221,7 +219,6 @@ def scores_close_components(
     return {
         "c_tau": round(c_hat, 4) if c_hat is not None else None,
         "c_τc": round(c_τc, 4) if c_τc is not None else None,
-        "c_oc": round(c_oc, 4) if c_oc is not None else None,
         "c_rem": round(c_rem, 4) if c_rem is not None else None,
         "c_hat_source": source,
         "c_trade": None,
@@ -589,8 +586,8 @@ Y_T60_HIT_EPS = 0.0
 Y_T75_HIT_EPS = 0.0
 Y_T90_HIT_EPS = 0.0
 DEFAULT_Y_TW_ENTER = 2.0  # 正T：ŷ_τw>=此值；反T：ŷ_τw<=−此值。0=允许 0 票
-DEFAULT_Y_OC_ENTER = 0.5  # |ŷ_oc| 入场百分点；0=不拦
-DEFAULT_Y_OC_STRONG = 1.0  # |ŷ_oc|>=此值用强股数，否则入场股数
+DEFAULT_Y_OC_ENTER = 0.5  # |ŷ_τc| 入场百分点；0=不拦
+DEFAULT_Y_OC_STRONG = 1.0  # |ŷ_τc|>=此值用强金额，否则入场金额
 DEFAULT_Y_OC_WEAK_RATIO = 0.5  # 过入场未过强且未配股数：轮次仓位 × 此比例
 DEFAULT_Y_OC_ENTER_SHARES = 2000
 DEFAULT_Y_OC_STRONG_SHARES = 4000
@@ -872,7 +869,7 @@ def _y_oc_enter_floor(cfg_d: dict) -> float:
 
 
 def _y_oc_strong_floor(cfg_d: dict) -> float:
-    """ŷ_oc 强档百分点。至少等于入场，避免强档低于入场。"""
+    """ŷ_τc 强档百分点。至少等于入场，避免强档低于入场。"""
     from core.t0.score_policy import _cfg_float
 
     enter = _y_oc_enter_floor(cfg_d)
@@ -890,7 +887,7 @@ def close_band_y_oc_is_strong(
     y_oc: Optional[float],
     cfg: Optional[dict] = None,
 ) -> bool:
-    """过 y_oc入场后是否达到 y_oc强（全额轮次）。"""
+    """过 y_τc入场后是否达到 y_τc强（全额轮次）。"""
     if y_oc is None:
         return False
     cfg_d = cfg if isinstance(cfg, dict) else {}
@@ -925,7 +922,7 @@ def close_band_y_oc_round_shares(
     lot: int = 100,
     price: Optional[float] = None,
 ) -> Optional[int]:
-    """过 y_oc入场用入场金额/价，过 y_oc强用强金额。不够一手则买一手。两边都未配（≤0）则 None，走比例仓。"""
+    """过 y_τc入场用入场金额/价，过 y_τc强用强金额。不够一手则买一手。两边都未配（≤0）则 None，走比例仓。"""
     from core.paper.sizing import shares_from_amount
 
     cfg_d = cfg if isinstance(cfg, dict) else {}

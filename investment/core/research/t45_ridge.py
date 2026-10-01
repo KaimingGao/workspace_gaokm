@@ -237,7 +237,7 @@ def fit_t45_ridge_report(
         }
     )
     try:
-        from core.research.path_panel import feature_fill_rates
+        from core.research.panel import feature_fill_rates
 
         oos["feature_fill"] = feature_fill_rates(xs_z, T45_Z_FEATURES)
     except Exception:  # noqa: BLE001

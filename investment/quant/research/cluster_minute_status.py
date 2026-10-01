@@ -11,7 +11,7 @@ from concurrent.futures import (
 )
 from concurrent.futures import TimeoutError as FuturesTimeout
 from datetime import datetime, timedelta
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from core.data.policy import MINUTE_EM_LOOKBACK_DAYS, MINUTE_WARMUP_READY_MIN_SPAN_DAYS
 from core.watching.store import WATCHING_MAX_SIZE
@@ -198,15 +198,72 @@ def _tau_oc_from_minute(day_bars: List[dict]) -> Optional[float]:
     return round((float(c) / float(o) - 1.0) * 100.0, 4)
 
 
-def _path_label_from_minute(day_bars: List[dict]) -> Tuple[Optional[float], str]:
-    from core.research.path_panel import extreme_order_path_label
+def _minute_day_extremes(minute_bars: Sequence[dict]) -> Tuple[Optional[float], Optional[float]]:
+    day_hi: Optional[float] = None
+    day_lo: Optional[float] = None
+    for bar in minute_bars or []:
+        if not isinstance(bar, dict):
+            continue
+        hi = _f(bar.get("high"))
+        lo = _f(bar.get("low"))
+        if hi is not None:
+            day_hi = hi if day_hi is None else max(day_hi, hi)
+        if lo is not None:
+            day_lo = lo if day_lo is None else min(day_lo, lo)
+    return day_hi, day_lo
 
+
+def _first_extreme_bar_indices(
+    minute_bars: Sequence[dict],
+    day_high: float,
+    day_low: float,
+    *,
+    eps: float = 1e-6,
+) -> Tuple[Optional[int], Optional[int]]:
+    low_idx: Optional[int] = None
+    high_idx: Optional[int] = None
+    for i, bar in enumerate(minute_bars or []):
+        if not isinstance(bar, dict):
+            continue
+        lo = _f(bar.get("low"))
+        hi = _f(bar.get("high"))
+        if low_idx is None and lo is not None and lo <= day_low + eps:
+            low_idx = i
+        if high_idx is None and hi is not None and hi >= day_high - eps:
+            high_idx = i
+        if low_idx is not None and high_idx is not None:
+            break
+    return low_idx, high_idx
+
+
+def _extreme_order_label(minute_bars: Sequence[dict], *, ref: float) -> Tuple[float, str]:
+    """先 low→high 则 (H−L)/ref%；先 high→low 则 (L−H)/ref%。"""
+    if ref <= 0 or not minute_bars:
+        return 0.0, "invalid_ref_or_empty"
+    day_hi, day_lo = _minute_day_extremes(minute_bars)
+    if day_hi is None or day_lo is None:
+        return 0.0, "invalid_ref_or_empty"
+    span = float(day_hi) - float(day_lo)
+    if span <= 1e-9:
+        return 0.0, "flat_range"
+    low_idx, high_idx = _first_extreme_bar_indices(minute_bars, day_hi, day_lo)
+    if low_idx is None or high_idx is None:
+        return 0.0, "invalid_ref_or_empty"
+    if low_idx == high_idx:
+        return 0.0, "same_bar_extreme"
+    span_pct = span / float(ref) * 100.0
+    if low_idx < high_idx:
+        return round(span_pct, 4), "low_then_high"
+    return round(-span_pct, 4), "high_then_low"
+
+
+def _path_label_from_minute(day_bars: List[dict]) -> Tuple[Optional[float], str]:
     if not day_bars:
         return None, "empty"
     ref = _f(day_bars[0].get("open"))
     if ref is None or ref <= 0:
         return None, "invalid_ref_or_empty"
-    label, reason = extreme_order_path_label(day_bars, ref=float(ref))
+    label, reason = _extreme_order_label(day_bars, ref=float(ref))
     return float(label), str(reason or "")
 
 

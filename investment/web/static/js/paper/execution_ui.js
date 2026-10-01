@@ -163,7 +163,7 @@ export function renderExecutionRulesHtml(execution) {
         const sc = Number.isFinite(s) ? s : 2;
         return `×${sc}`;
       })(),
-      "C_τ=O×(1+ŷ_τc×scale/100)，硬顶 ±20。破带目标价=C_τ。"
+      "C_τ=price(τ)×(1+clip(ŷ_τc×scale, ±20)/100)。缺 price(τ) 时用 open。破带目标价=C_τ。"
     ) +
     specKpi(
       "Y_τw入场",

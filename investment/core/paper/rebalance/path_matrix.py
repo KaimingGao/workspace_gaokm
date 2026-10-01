@@ -20,25 +20,6 @@ from core.signal.yhat_windows import (
     stamp_window_scores,
 )
 
-# 旧分头入场闸 / 退场减仓已下线；读盘/保存时剥掉。
-STALE_Y_OO_OC_ENTER_KEYS = (
-    "y_oo_enter",
-    "y_oc_enter",
-    "y_oo_enter_alt",
-    "y_oc_enter_alt",
-    "y_hl_enter",
-    "y_hl_enter_alt",
-    "y_oo_oc_enter",
-    "y_oo_oc_enter_alt",
-    "y_hl_enabled",
-    "y_hl_gt0",
-    "y_oo_oc_enabled",
-    "rank_exit",
-    "lot_reduce",
-    "lot_base",
-    "lot_strong",
-)
-
 DEFAULT_PATH_MATRIX: Dict[str, Any] = {
     "enabled": True,
     "mode": "rank_lots",
@@ -97,6 +78,15 @@ def _pick_raw_cfg(d: Optional[dict]) -> Optional[dict]:
     if any(k in d for k in DEFAULT_PATH_MATRIX):
         return d
     return None
+
+
+def promote_y_tc_gt0_block(block: dict) -> None:
+    """旧入场闸并入 y_τc_gt0。新键已写则保留，并去掉旧键。"""
+    if not isinstance(block, dict):
+        return
+    if "y_τc_gt0" not in block and "y_oc_gt0" in block:
+        block["y_τc_gt0"] = block["y_oc_gt0"]
+    block.pop("y_oc_gt0", None)
 
 
 def get_path_matrix_cfg(
@@ -203,8 +193,6 @@ def get_path_matrix_cfg(
         strong = base
     out["lot_base_amount"] = base
     out["lot_strong_amount"] = strong
-    for stale in STALE_Y_OO_OC_ENTER_KEYS:
-        out.pop(stale, None)
     return out
 
 
@@ -214,17 +202,6 @@ def scores_from_rebalance_item(
 ) -> Dict[str, Optional[float]]:
     """从调仓行抽出 ŷ_oo / ŷ_oc / ŷ_τc / ŷ_co 与 ranking / residual。"""
     stamped = stamp_window_scores(item, cfg)
-    y_path = None
-    if isinstance(item, dict):
-        from core.research.path_panel import pick_y_hl, write_y_hl
-
-        y_path = pick_y_hl(item)
-        if y_path is not None:
-            write_y_hl(stamped, y_path)
-        else:
-            stamped["y_hl"] = None
-    else:
-        stamped["y_hl"] = None
     if stamped.get("y_tau") is None:
         stamped["y_tau"] = stamped.get("y_τc")
     if stamped.get("ranking") is not None:
@@ -234,7 +211,6 @@ def scores_from_rebalance_item(
 
 __all__ = [
     "DEFAULT_PATH_MATRIX",
-    "STALE_Y_OO_OC_ENTER_KEYS",
     "get_path_matrix_cfg",
     "scores_from_rebalance_item",
 ]

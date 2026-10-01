@@ -83,10 +83,9 @@ class TestExecutionResolve(unittest.TestCase):
     def test_validate_patch_migrates_path_enter(self):
         from core.execution import validate_execution_patch
 
-        ok, norm, errs = validate_execution_patch({"t0": {"y_path_enter": 0.2}})
-        self.assertTrue(ok, errs)
-        self.assertNotIn("y_path_enter", (norm.get("t0") or {}))
-        self.assertNotIn("y_hl_enter", (norm.get("t0") or {}))
+        ok, _norm, errs = validate_execution_patch({"t0": {"y_path_enter": 0.2}})
+        self.assertFalse(ok)
+        self.assertTrue(any("y_path_enter" in e for e in errs))
         from core.execution import resolve_t0_rules, strip_execution_meta
 
         raw = resolve_t0_rules(
@@ -238,9 +237,9 @@ class TestExecutionResolve(unittest.TestCase):
         )
         from core.t0.config import load_t0_rules
 
-        ok, norm, errs = validate_execution_patch({"t0": {"y_tc_strong": 0.3}})
-        self.assertTrue(ok, errs)
-        self.assertNotIn("y_tc_strong", (norm.get("t0") or {}))
+        ok, _norm, errs = validate_execution_patch({"t0": {"y_tc_strong": 0.3}})
+        self.assertFalse(ok)
+        self.assertTrue(any("y_tc_strong" in e for e in errs))
         paper = {
             "strategy_id": "short_conservative",
             "rules": {"t0": {"y_tc_validate": False, "y_tc_strong": 0.5}},
@@ -267,9 +266,9 @@ class TestExecutionResolve(unittest.TestCase):
         )
         from core.t0.config import load_t0_rules
 
-        ok, norm, errs = validate_execution_patch({"t0": {"y_t30_strong": 0.0}})
-        self.assertTrue(ok, errs)
-        self.assertNotIn("y_t30_strong", (norm.get("t0") or {}))
+        ok, _norm, errs = validate_execution_patch({"t0": {"y_t30_strong": 0.0}})
+        self.assertFalse(ok)
+        self.assertTrue(any("y_t30_strong" in e for e in errs))
         paper = {
             "strategy_id": "short_conservative",
             "rules": {"t0": {"y_t30_strong": 0.0, "y_t45_strong": 0.0}},
@@ -318,12 +317,10 @@ class TestExecutionResolve(unittest.TestCase):
             validate_execution_patch,
         )
 
-        ok, norm, errs = validate_execution_patch({"t0": {"t0_bar_oc_gate": True}})
-        self.assertTrue(ok, errs)
-        self.assertNotIn("t0_bar_oc_gate", norm.get("t0") or {})
+        ok, _norm, errs = validate_execution_patch({"t0": {"t0_bar_oc_gate": True}})
+        self.assertFalse(ok)
+        self.assertTrue(any("t0_bar_oc_gate" in e for e in errs))
         paper = {"strategy_id": "short_conservative", "rules": {}}
-        applied = apply_execution_patch_to_paper(paper, norm)
-        self.assertTrue(applied.get("ok"), applied)
         view = execution_public_view(
             resolve_effective_execution(paper=paper, channel="paper")
         )
@@ -414,29 +411,18 @@ class TestExecutionResolve(unittest.TestCase):
         self.assertEqual(int(view["t0"]["y_τc_strong_amount"]), 50000)
 
     def test_public_view_drops_share_lot_keys(self):
-        from core.execution import (
-            apply_execution_patch_to_paper,
-            execution_public_view,
-            resolve_effective_execution,
-            validate_execution_patch,
-        )
+        from core.execution import validate_execution_patch
+        from core.t0.config import load_t0_rules
 
-        ok, norm, errs = validate_execution_patch(
+        ok, _norm, errs = validate_execution_patch(
             {"t0": {"y_tw_enter_shares": 300, "y_tw_strong_shares": 500}}
         )
-        self.assertTrue(ok, errs)
-        self.assertNotIn("y_oc_enter_shares", norm.get("t0") or {})
-        self.assertNotIn("y_oc_strong_shares", norm.get("t0") or {})
-        self.assertNotIn("y_tw_enter_shares", norm.get("t0") or {})
-        self.assertNotIn("y_tw_strong_shares", norm.get("t0") or {})
-        paper = {"strategy_id": "short_conservative", "rules": {}}
-        applied = apply_execution_patch_to_paper(paper, norm)
-        self.assertTrue(applied.get("ok"), applied)
-        view = execution_public_view(
-            resolve_effective_execution(paper=paper, channel="paper")
+        self.assertFalse(ok)
+        self.assertTrue(any("y_tw_enter_shares" in e for e in errs))
+        self.assertNotIn(
+            "y_tw_enter_shares",
+            load_t0_rules({"y_tw_enter_shares": 300, "y_oc_enter_shares": 100}),
         )
-        self.assertNotIn("y_oc_enter_shares", view.get("t0") or {})
-        self.assertNotIn("y_tw_enter_shares", view.get("t0") or {})
 
     def test_public_view_drops_y_tw_strong(self):
         from core.execution import (
@@ -446,13 +432,12 @@ class TestExecutionResolve(unittest.TestCase):
             validate_execution_patch,
         )
 
-        ok, norm, errs = validate_execution_patch({"t0": {"y_tw_strong": 1.5}})
-        self.assertTrue(ok, errs)
-        self.assertNotIn("y_tw_strong", norm.get("t0") or {})
-        self.assertNotIn("y_tw_enter", norm.get("t0") or {})
-        off, off_norm, off_errs = validate_execution_patch({"t0": {"y_tw_strong": 5}})
-        self.assertTrue(off, off_errs)
-        self.assertNotIn("y_tw_strong", off_norm.get("t0") or {})
+        ok, _norm, errs = validate_execution_patch({"t0": {"y_tw_strong": 1.5}})
+        self.assertFalse(ok)
+        self.assertTrue(any("y_tw_strong" in e for e in errs))
+        off, _off_norm, off_errs = validate_execution_patch({"t0": {"y_tw_strong": 5}})
+        self.assertFalse(off)
+        self.assertTrue(any("y_tw_strong" in e for e in off_errs))
 
     def test_public_view_drops_y_t60_t90_strong(self):
         from core.execution import (
@@ -462,12 +447,11 @@ class TestExecutionResolve(unittest.TestCase):
             validate_execution_patch,
         )
 
-        ok, norm, errs = validate_execution_patch(
+        ok, _norm, errs = validate_execution_patch(
             {"t0": {"y_t60_strong": 0.0, "y_t90_strong": 0.0}}
         )
-        self.assertTrue(ok, errs)
-        self.assertNotIn("y_t60_strong", (norm.get("t0") or {}))
-        self.assertNotIn("y_t90_strong", (norm.get("t0") or {}))
+        self.assertFalse(ok)
+        self.assertTrue(any("y_t60_strong" in e for e in errs))
         paper = {
             "strategy_id": "short_conservative",
             "rules": {"t0": {"y_t60_strong": 0.0, "y_t90_strong": 0.0}},
@@ -483,27 +467,16 @@ class TestExecutionResolve(unittest.TestCase):
         self.assertNotIn("y_t90_strong", view["t0"])
 
     def test_public_view_drops_y_t45_t75_strong(self):
-        from core.execution import (
-            apply_execution_patch_to_paper,
-            execution_public_view,
-            resolve_effective_execution,
-            validate_execution_patch,
-        )
+        from core.execution import validate_execution_patch
+        from core.t0.config import load_t0_rules
 
-        ok, norm, errs = validate_execution_patch(
+        ok, _norm, errs = validate_execution_patch(
             {"t0": {"y_t45_strong": 0.0, "y_t75_strong": 0.0}}
         )
-        self.assertTrue(ok, errs)
-        self.assertNotIn("y_t45_strong", (norm.get("t0") or {}))
-        self.assertNotIn("y_t75_strong", (norm.get("t0") or {}))
-        paper = {"strategy_id": "short_conservative", "rules": {}}
-        applied = apply_execution_patch_to_paper(paper, norm)
-        self.assertTrue(applied.get("ok"), applied)
-        view = execution_public_view(
-            resolve_effective_execution(paper=paper, channel="paper")
-        )
-        self.assertNotIn("y_t45_strong", view["t0"])
-        self.assertNotIn("y_t75_strong", view["t0"])
+        self.assertFalse(ok)
+        self.assertTrue(any("y_t45_strong" in e for e in errs))
+        self.assertNotIn("y_t45_strong", load_t0_rules({"y_t45_strong": 0.0}))
+        self.assertNotIn("y_t75_strong", load_t0_rules({"y_t75_strong": 0.0}))
 
     def test_public_view_drops_y_t30_t60_enter(self):
         from core.execution import (
@@ -514,7 +487,7 @@ class TestExecutionResolve(unittest.TestCase):
         )
         from core.t0.config import load_t0_rules
 
-        ok, norm, errs = validate_execution_patch(
+        ok, _norm, errs = validate_execution_patch(
             {
                 "t0": {
                     "y_t30_enter": 0.55,
@@ -530,10 +503,8 @@ class TestExecutionResolve(unittest.TestCase):
                 }
             }
         )
-        self.assertTrue(ok, errs)
-        self.assertNotIn("y_t30_enter", (norm.get("t0") or {}))
-        self.assertNotIn("y_t60_enter", (norm.get("t0") or {}))
-        self.assertNotIn("y_t90_enter", (norm.get("t0") or {}))
+        self.assertFalse(ok)
+        self.assertTrue(any("y_t30_enter" in e for e in errs))
         paper = {
             "strategy_id": "short_conservative",
             "rules": {
@@ -571,11 +542,15 @@ class TestExecutionResolve(unittest.TestCase):
         from core.execution import validate_execution_patch
 
         ok, norm, errs = validate_execution_patch(
-            {"t0": {"y_tau_map": "trend", "y_score_source": "compute"}}
+            {"t0": {"y_score_source": "compute"}}
         )
         self.assertTrue(ok, errs)
-        self.assertNotIn("y_tau_map", norm["t0"])
         self.assertEqual(norm["t0"]["y_score_source"], "compute")
+        rejected, _, rej_errs = validate_execution_patch(
+            {"t0": {"y_tau_map": "trend", "y_score_source": "compute"}}
+        )
+        self.assertFalse(rejected)
+        self.assertTrue(any("y_tau_map" in e for e in rej_errs))
 
     def test_validate_patch_allows_pm_chase_risk_keys(self):
         from core.execution import (
@@ -655,20 +630,8 @@ class TestExecutionResolve(unittest.TestCase):
                 }
             }
         )
-        self.assertTrue(ok_dead, errs_dead)
-        self.assertNotIn("buy_trigger_pct_buy_then_sell", norm_dead.get("t0") or {})
-        self.assertNotIn("sell_trigger_pct_sell_then_buy", norm_dead.get("t0") or {})
-        self.assertNotIn("y_tau_entry_price_mult_buy_then_sell", norm_dead.get("t0") or {})
-        self.assertNotIn("y_tau_entry_price_mult_sell_then_buy", norm_dead.get("t0") or {})
-        self.assertNotIn("y_tau_entry_price_skip_buy_then_sell", norm_dead.get("t0") or {})
-        self.assertNotIn("y_tau_entry_price_bias_buy_then_sell", norm_dead.get("t0") or {})
-        self.assertNotIn("y_tau_require_for_leg1", norm_dead.get("t0") or {})
-        self.assertNotIn("t0_giveback_pct_buy_then_sell", norm_dead.get("t0") or {})
-        self.assertNotIn("t0_giveback_arm_pct", norm_dead.get("t0") or {})
-        self.assertNotIn("t0_leg1_close_extreme", norm_dead.get("t0") or {})
-        self.assertNotIn("y_tw_enter_buy_then_sell", norm_dead.get("t0") or {})
-        self.assertNotIn("y_tw_enter_sell_then_buy", norm_dead.get("t0") or {})
-        self.assertEqual(norm_dead["t0"].get("t0_pm_degrade_buy_then_sell"), "14:00")
+        self.assertFalse(ok_dead)
+        self.assertTrue(errs_dead)
 
     def test_validate_patch_accepts_price_bias_keys(self):
         from core.execution import validate_execution_patch
@@ -703,13 +666,11 @@ class TestExecutionResolve(unittest.TestCase):
     def test_validate_patch_drops_y_nowcast_oc_gate(self):
         from core.execution import validate_execution_patch
 
-        ok, norm, errs = validate_execution_patch(
+        ok, _norm, errs = validate_execution_patch(
             {"t0": {"y_nowcast_oc_gate": False, "y_use_path": False}}
         )
-        self.assertTrue(ok, errs)
-        self.assertNotIn("y_nowcast_oc_gate", norm["t0"])
-        self.assertNotIn("y_use_path", norm["t0"])
-        self.assertNotIn("y_use_hl", norm["t0"])
+        self.assertFalse(ok)
+        self.assertTrue(any("y_nowcast_oc_gate" in e for e in errs))
 
     def test_rules_summary_omits_dropped_dual_y_gates(self):
         from quant.research.t0_backtest import _rules_summary

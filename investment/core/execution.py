@@ -19,11 +19,9 @@ from copy import deepcopy
 from typing import Any, Dict, List, Optional, Tuple
 
 from core.t0.config import (
-    drop_dead_t0_keys,
+    DEFAULT_T0_RULES,
     load_t0_rules,
     migrate_y_oc_rule_keys,
-    migrate_y_path_keys_to_hl,
-    migrate_ytw_lot_keys_to_oc,
 )
 
 DEFAULT_COUPLING: Dict[str, Any] = {
@@ -62,17 +60,12 @@ ALLOWED_T0_PATCH_KEYS = frozenset(
         "y_τc_strong",
         "y_τc_enter_amount",
         "y_τc_strong_amount",
-        "y_oc_enter",
-        "y_oc_strong",
-        "y_oc_enter_amount",
-        "y_oc_strong_amount",
         "y_tw_vote_margin",
         "y_τw_vote_margin",
         "y_tw_midpoint",
         "y_τw_midpoint",
         "horizon_prob_backend",
         "t0_y_τc_target_scale",
-        "t0_y_oc_target_scale",
         "t0_close_band_delta_pct",
         "t0_price_space_gate",
         "t0_price_space_max_dev_pct",
@@ -266,18 +259,18 @@ _REBALANCE_KEYS = (
 
 
 def _promote_y_tc_gt0(timing: Optional[dict]) -> Optional[dict]:
-    """层内旧键 y_oc_gt0 并入 y_τc_gt0。该层已写新键则新键优先，旧键不进入生效配置。"""
+    """调仓层里的旧入场闸并入 y_τc_gt0。该层已写新键则新键优先。"""
     if not isinstance(timing, dict):
         return timing
+    from core.paper.rebalance.path_matrix import promote_y_tc_gt0_block
+
     out = deepcopy(timing)
     for key in ("rank_lots", "path_matrix"):
         block = out.get(key)
         if not isinstance(block, dict):
             continue
         block = dict(block)
-        if "y_τc_gt0" not in block and "y_oc_gt0" in block:
-            block["y_τc_gt0"] = block["y_oc_gt0"]
-        block.pop("y_oc_gt0", None)
+        promote_y_tc_gt0_block(block)
         out[key] = block
     return out
 
@@ -369,8 +362,6 @@ def _layer_t0(
     merged: dict = {}
     for name, layer in layers:
         migrate_y_oc_rule_keys(layer)
-        migrate_y_path_keys_to_hl(layer)
-        migrate_ytw_lot_keys_to_oc(layer)
         for k, v in layer.items():
             if v is None:
                 continue
@@ -642,11 +633,6 @@ def _timing_summary(timing: Optional[dict]) -> str:
 def execution_public_view(bundle: Dict[str, Any]) -> Dict[str, Any]:
     """API / Web 用精简视图。"""
     t0 = bundle.get("t0") or {}
-    # ŷ_hl / path_ridge 已下线；字段保留 False 供旧前端兼容
-    path_model_present = False
-    path_model_shadow = False
-    path_model_promoted = False
-    path_last_report_exists = False
     view = {
         "ok": True,
         "strategy_id": bundle.get("strategy_id"),
@@ -777,10 +763,6 @@ def execution_public_view(bundle: Dict[str, Any]) -> Dict[str, Any]:
         or (bundle.get("execution") or {}).get("rebalance_timing")
         or {},
         "runtime_defaults": bundle.get("runtime_defaults") or {},
-        "path_model_present": path_model_present,
-        "path_model_promoted": path_model_promoted,
-        "path_model_shadow": path_model_shadow,
-        "path_last_report_exists": path_last_report_exists,
     }
     return view
 
@@ -850,9 +832,7 @@ def validate_execution_patch(raw: Any) -> Tuple[bool, Dict[str, Any], List[str]]
             }
         }
 
-    migrate_y_path_keys_to_hl(t0_in)
-    migrate_ytw_lot_keys_to_oc(t0_in)
-    drop_dead_t0_keys(t0_in)
+    migrate_y_oc_rule_keys(t0_in)
 
     unknown = [k for k in t0_in.keys() if k not in ALLOWED_T0_PATCH_KEYS]
     if unknown:
@@ -873,17 +853,6 @@ def validate_execution_patch(raw: Any) -> Tuple[bool, Dict[str, Any], List[str]]
             t0_out["y_tw_enter"] = normalized_full["y_tw_enter"]
         if "y_τw_enter" in normalized_full:
             t0_out["y_τw_enter"] = normalized_full["y_τw_enter"]
-    for new_k, old_k in (
-        ("y_τc_enter", "y_oc_enter"),
-        ("y_τc_strong", "y_oc_strong"),
-        ("y_τc_enter_amount", "y_oc_enter_amount"),
-        ("y_τc_strong_amount", "y_oc_strong_amount"),
-        ("t0_y_τc_target_scale", "t0_y_oc_target_scale"),
-    ):
-        if new_k in t0_in or old_k in t0_in:
-            if new_k in normalized_full:
-                t0_out[new_k] = normalized_full[new_k]
-            t0_out.pop(old_k, None)
     if any(k in t0_in for k in ("y_tw_midpoint", "y_τw_midpoint")):
         if "y_tw_midpoint" in normalized_full:
             t0_out["y_tw_midpoint"] = normalized_full["y_tw_midpoint"]
@@ -1035,57 +1004,7 @@ def apply_execution_patch_to_paper(
         new_t0 = dict(prev_t0)
         new_t0.update(t0_patch)
         new_t0["t0_ratio"] = 1.0
-        for stale in (
-            "y_tc_validate",
-            "y_τc_validate",
-            "y_tc_strong",
-            "y_tc_enter",
-            "y_tc_enter_alt",
-            "y_τc_enter_alt",
-            "y_t30_strong",
-            "y_τ30_strong",
-            "y_t45_strong",
-            "y_τ45_strong",
-            "y_t60_strong",
-            "y_τ60_strong",
-            "y_t75_strong",
-            "y_τ75_strong",
-            "y_t90_strong",
-            "y_τ90_strong",
-            "y_t30_enter",
-            "y_τ30_enter",
-            "y_t30_enter_alt",
-            "y_τ30_enter_alt",
-            "y_t45_enter",
-            "y_τ45_enter",
-            "y_t45_enter_alt",
-            "y_τ45_enter_alt",
-            "y_t60_enter",
-            "y_τ60_enter",
-            "y_t60_enter_alt",
-            "y_τ60_enter_alt",
-            "y_t75_enter",
-            "y_τ75_enter",
-            "y_t75_enter_alt",
-            "y_τ75_enter_alt",
-            "y_t90_enter",
-            "y_τ90_enter",
-            "y_t90_enter_alt",
-            "y_τ90_enter_alt",
-            "y_enter_enabled",
-            "y_enter_alt_enabled",
-            "y_tau_enter",
-            "y_tau_enter_strong",
-            "y_tau_enter_sell_then_buy",
-            "y_tau_enter_buy_then_sell",
-            "y_tau_enter_alt",
-            "y_hl_enter",
-            "y_hl_enter_sell_then_buy",
-            "y_hl_enter_buy_then_sell",
-            "y_hl_enter_alt",
-        ):
-            new_t0.pop(stale, None)
-        rules["t0"] = new_t0
+        rules["t0"] = {k: v for k, v in new_t0.items() if k in DEFAULT_T0_RULES}
 
     exe = dict(rules.get("execution") or {}) if isinstance(rules.get("execution"), dict) else {}
     coupling_patch = normalized.get("coupling") or {}
@@ -1107,10 +1026,14 @@ def apply_execution_patch_to_paper(
             if isinstance(rt.get("path_matrix"), dict):
                 prev_pm.update(rt["path_matrix"])
             prev_pm.update(incoming)
-            from core.paper.rebalance.path_matrix import STALE_Y_OO_OC_ENTER_KEYS
+            from core.paper.rebalance.path_matrix import DEFAULT_PATH_MATRIX
 
-            for stale in STALE_Y_OO_OC_ENTER_KEYS:
-                prev_pm.pop(stale, None)
+            keep = set(DEFAULT_PATH_MATRIX) | {
+                "fusion_w_trade",
+                "fusion_w_nowcast",
+                "y_on_alpha",
+            }
+            prev_pm = {k: v for k, v in prev_pm.items() if k in keep}
             rt["rank_lots"] = prev_pm
             rt["path_matrix"] = prev_pm
         for k, v in timing_patch.items():

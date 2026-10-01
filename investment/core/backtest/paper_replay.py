@@ -1,6 +1,6 @@
 """纸面可实现回放：每个交易日按调仓钟走 rank_lots（ranking=w_oo·((ŷ_oo+1)/(1+rot)−1)+w_τc·((1+ŷ_τc)(1+w_co·ŷ_co)−1) · 按金额换算股数）。
 
-ŷ_oo 始终是 09:30 开盘信息集。ŷ_oc：09:30 成交钟用开盘 Z（``use_minute_tau=False``）；
+ŷ_oo 始终是 09:30 开盘信息集。ŷ_τc：09:30 成交钟用开盘 Z（``use_minute_tau=False``）；
 09:35–10:00 用截至该钟的 5m 前缀重算（与做 T ``rescore_scores_at_fixed_prefix`` 同路径）。
 对照列 ŷ_hl 走开盘 Z 挂上；成交钟>09:30 随前缀重算。不挂 ŷ_τw / ŷ_τ30/60/90（调仓回测不用）。
 成交价：09:30 取首根开盘（≈集合竞价/开盘价），其后用该档 5 分钟 K 收盘。
@@ -1610,63 +1610,6 @@ def _next_bar_after(
     return later[min(later)]
 
 
-def realized_path_label(
-    code: str,
-    day: str,
-    *,
-    date_maps: Dict[str, Dict[str, dict]],
-    minute_maps: Optional[Dict[str, Dict[str, List[dict]]]] = None,
-    cache: Optional[Dict[Tuple[str, str], Optional[float]]] = None,
-) -> Optional[float]:
-    """同日 ŷ_hl 真实极值序。overlay / 无分钟则空。"""
-    d = str(day or "")[:10]
-    c = str(code or "").strip()
-    if not d or not c:
-        return None
-    key = (c, d)
-    if cache is not None and key in cache:
-        return cache[key]
-    dm = date_maps.get(c) or {}
-    bar = dm.get(d)
-    if isinstance(bar, dict) and bar.get("session_overlay"):
-        if cache is not None:
-            cache[key] = None
-        return None
-    mins = ((minute_maps or {}).get(c) or {}).get(d) or []
-    if not mins:
-        if cache is not None:
-            cache[key] = None
-        return None
-    try:
-        from core.research.path_panel import attach_path_realized
-    except Exception:  # noqa: BLE001
-        logger.debug("attach_path_realized import failed", exc_info=True)
-        if cache is not None:
-            cache[key] = None
-        return None
-    day_row: Dict[str, Any] = {}
-    open_px = _px(bar, "open") if isinstance(bar, dict) else None
-    if open_px is not None:
-        day_row["open"] = open_px
-    try:
-        packed = attach_path_realized(day_row, mins, ref=open_px)
-    except Exception:  # noqa: BLE001
-        logger.debug("attach_path_realized failed %s %s", c, d, exc_info=True)
-        if cache is not None:
-            cache[key] = None
-        return None
-    raw = packed.get("path_realized") if isinstance(packed, dict) else None
-    try:
-        val = float(raw) if raw is not None and raw != "" else None
-    except (TypeError, ValueError):
-        val = None
-    if val is not None and val != val:
-        val = None
-    if cache is not None:
-        cache[key] = val
-    return val
-
-
 def realized_yhat_windows(
     code: str,
     day: str,
@@ -2030,7 +1973,7 @@ def _score_open_day(
     )
 
 
-# 前缀 ŷ_oc 写入调仓行；不覆盖 ŷ_oo / ŷ_oo。
+# 前缀 ŷ_τc 写入调仓行；不覆盖 ŷ_oo。旧行 y_oc 仍读。
 _OC_PREFIX_KEYS = (
     "y_oc",
     "y_tau",
@@ -2083,7 +2026,7 @@ def _replay_hist_and_day_bar(
 
 
 def _apply_prefix_oc(item: dict, live: dict, cfg: Optional[dict]) -> bool:
-    """把前缀因果 ŷ_oc 写进开盘行，重算 ranking；ŷ_oo 保持开盘头。
+    """把前缀因果 ŷ_τc 写进开盘行，重算 ranking；ŷ_oo 保持开盘头。
 
     对照头 y_hl 随前缀结果覆盖（缺分则保留开盘 Z）。调仓回测不挂 ŷ_τw / ŷ_τ30/60/90。
     """
@@ -2144,7 +2087,7 @@ def rescore_replay_y_oc_at_clock(
     cfg: Optional[dict] = None,
     tau_pool_day: Optional[dict] = None,
 ) -> Tuple[List[dict], int]:
-    """成交钟>09:30：用截至该钟的 5m 前缀重算 ŷ_oc（与做 T rescore 同路径）。
+    """成交钟>09:30：用截至该钟的 5m 前缀重算 ŷ_τc（与做 T rescore 同路径）。
 
     09:30 或无前缀则保持开盘 Z。返回 (行, 成功重算数)。
     """
@@ -2811,7 +2754,6 @@ def backtest_paper_replay(
         if isinstance(p, dict)
     }
     date_index = {d: i for i, d in enumerate(dates)}
-    hl_cache: Dict[Tuple[str, str], Optional[float]] = {}
 
     def _stamp_day_context(row: dict) -> dict:
         day = str(row.get("as_of") or "")[:10]
@@ -2838,16 +2780,6 @@ def backtest_paper_replay(
             )
         else:
             row["realized_oo"] = None
-        rhl = realized_path_label(
-            code,
-            day,
-            date_maps=date_maps,
-            minute_maps=minute_maps,
-            cache=hl_cache,
-        )
-        if rhl is not None:
-            row["y_hl_realized"] = rhl
-            row["path_realized"] = rhl
         stamp_r_tau_on_row(
             row,
             daily_bar=(date_maps.get(code) or {}).get(day),
@@ -2919,9 +2851,9 @@ def backtest_paper_replay(
         + "）"
     )
     oc_note = (
-        "ŷ_oc=开盘 Z"
+        "ŷ_τc=开盘 Z"
         if clock == "09:30"
-        else f"ŷ_oc=截至 {clock} 的 5m 前缀（与做 T rescore 同路径；ŷ_oo 仍开盘）"
+        else f"ŷ_τc=截至 {clock} 的 5m 前缀（与做 T rescore 同路径；ŷ_oo 仍开盘）"
     )
     from core.signal.yhat_windows import FORMULA_RANKING
 

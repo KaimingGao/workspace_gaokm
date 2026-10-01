@@ -128,8 +128,18 @@ class TestPathMatrix(unittest.TestCase):
 
     def test_stale_y_oo_oc_enter_stripped(self):
         from core.execution import apply_execution_patch_to_paper
-        from core.paper.rebalance.path_matrix import STALE_Y_OO_OC_ENTER_KEYS, get_path_matrix_cfg
+        from core.paper.rebalance.path_matrix import get_path_matrix_cfg
 
+        gone = (
+            "y_oo_enter",
+            "y_oc_enter",
+            "y_oo_enter_alt",
+            "y_oc_enter_alt",
+            "y_hl_enter",
+            "y_oo_oc_enabled",
+            "y_oo_oc_enter",
+            "y_hl_gt0",
+        )
         cfg = get_path_matrix_cfg(
             {
                 "rank_lots": {
@@ -141,7 +151,7 @@ class TestPathMatrix(unittest.TestCase):
                 }
             }
         )
-        for k in STALE_Y_OO_OC_ENTER_KEYS:
+        for k in gone:
             self.assertNotIn(k, cfg)
         self.assertNotIn("y_hl_gt0", cfg)
         self.assertFalse(cfg.get("y_oo_gt0"))
@@ -169,7 +179,7 @@ class TestPathMatrix(unittest.TestCase):
         )
         self.assertTrue(applied.get("ok"), applied)
         lots = paper["rules"]["execution"]["rebalance_timing"]["rank_lots"]
-        for k in STALE_Y_OO_OC_ENTER_KEYS:
+        for k in gone:
             self.assertNotIn(k, lots)
         self.assertNotIn("y_hl_gt0", lots)
         self.assertTrue(lots.get("y_oo_gt0"))

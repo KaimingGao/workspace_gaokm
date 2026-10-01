@@ -528,24 +528,6 @@ def quant_on_ridge_model() -> Dict[str, Any]:
     return quant_co_ridge_model()
 
 
-@router.post("/api/quant/path-ridge")
-def quant_path_ridge() -> Dict[str, Any]:
-    """ŷ_hl / path_ridge 产品面已退役（研究模块仍保留）。"""
-    raise HTTPException(
-        status_code=410,
-        detail="ŷ_hl / path_ridge is retired",
-    )
-
-
-@router.get("/api/quant/path-ridge/model")
-def quant_path_ridge_model() -> Dict[str, Any]:
-    """ŷ_hl / path_ridge 产品面已退役（研究模块仍保留）。"""
-    raise HTTPException(
-        status_code=410,
-        detail="ŷ_hl / path_ridge is retired",
-    )
-
-
 @router.post("/api/quant/tc-ridge")
 def quant_tc_ridge(body: TauRidgeRequest) -> Dict[str, Any]:
     """ŷ_τc Ridge。与 ``/api/quant/tau-ridge`` 同一套 live 模型（tau_ridge_model.json）。"""
@@ -560,7 +542,7 @@ def quant_tc_ridge_model() -> Dict[str, Any]:
 
 @router.post("/api/quant/t30-ridge")
 def quant_t30_ridge(body: T30RidgeRequest) -> Dict[str, Any]:
-    """ŷ_τ30 Ridge：与 ŷ_oc 同 X → mean(price(τ⊕25/30/35))/price(τ)−1 + 时间 OOS；可选 persist。
+    """ŷ_τ30 Ridge：与 ŷ_τc 同 X → mean(price(τ⊕25/30/35))/price(τ)−1 + 时间 OOS；可选 persist。
 
     ``persist=true`` / ``sync=true`` 同步；否则入队 ``GET /api/jobs/t30-ridge``。
     """
@@ -596,7 +578,7 @@ def quant_t30_ridge_model() -> Dict[str, Any]:
 
 @router.post("/api/quant/t45-ridge")
 def quant_t45_ridge(body: T45RidgeRequest) -> Dict[str, Any]:
-    """ŷ_τ45 Ridge：与 ŷ_oc 同 X → mean(price(τ⊕40/45/50))/price(τ)−1 + 时间 OOS；可选 persist。
+    """ŷ_τ45 Ridge：与 ŷ_τc 同 X → mean(price(τ⊕40/45/50))/price(τ)−1 + 时间 OOS；可选 persist。
 
     ``persist=true`` / ``sync=true`` 同步；否则入队 ``GET /api/jobs/t45-ridge``。
     """
@@ -632,7 +614,7 @@ def quant_t45_ridge_model() -> Dict[str, Any]:
 
 @router.post("/api/quant/t60-ridge")
 def quant_t60_ridge(body: T60RidgeRequest) -> Dict[str, Any]:
-    """ŷ_τ60 Ridge：与 ŷ_oc 同 X → mean(price(τ⊕55/60/65))/price(τ)−1 + 时间 OOS；可选 persist。
+    """ŷ_τ60 Ridge：与 ŷ_τc 同 X → mean(price(τ⊕55/60/65))/price(τ)−1 + 时间 OOS；可选 persist。
 
     ``persist=true`` / ``sync=true`` 同步；否则入队 ``GET /api/jobs/t60-ridge``。
     """
@@ -668,7 +650,7 @@ def quant_t60_ridge_model() -> Dict[str, Any]:
 
 @router.post("/api/quant/t75-ridge")
 def quant_t75_ridge(body: T75RidgeRequest) -> Dict[str, Any]:
-    """ŷ_τ75 Ridge：与 ŷ_oc 同 X → mean(price(τ⊕70/75/80))/price(τ)−1 + 时间 OOS；可选 persist。
+    """ŷ_τ75 Ridge：与 ŷ_τc 同 X → mean(price(τ⊕70/75/80))/price(τ)−1 + 时间 OOS；可选 persist。
 
     ``persist=true`` / ``sync=true`` 同步；否则入队 ``GET /api/jobs/t75-ridge``。
     """
@@ -704,7 +686,7 @@ def quant_t75_ridge_model() -> Dict[str, Any]:
 
 @router.post("/api/quant/t90-ridge")
 def quant_t90_ridge(body: T90RidgeRequest) -> Dict[str, Any]:
-    """ŷ_τ90 Ridge：与 ŷ_oc 同 X → mean(price(τ⊕85/90/95))/price(τ)−1 + 时间 OOS；可选 persist。
+    """ŷ_τ90 Ridge：与 ŷ_τc 同 X → mean(price(τ⊕85/90/95))/price(τ)−1 + 时间 OOS；可选 persist。
 
     ``persist=true`` / ``sync=true`` 同步；否则入队 ``GET /api/jobs/t90-ridge``。
     """

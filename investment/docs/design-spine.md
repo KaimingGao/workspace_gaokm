@@ -151,7 +151,7 @@ flowchart LR
 | 任务 | 主要频率 | 主要目标头 | 融合 / 门控 | 代码落点 |
 |------|----------|------------|-------------|----------|
 | **调仓：谁更强 / 买不买** | 日线 + 开盘缺口 | **ŷ_oo**（多日前瞻）· **ŷ_τ**（买入闸）· **ŷ_co** | **ŷ_trade** = blend(ŷ_oo, 缺口∘ŷ_τ)；过 ŷ_oo floor + τ 闸 | `dual_score/` · `paper_rebalance` |
-| **做 T：正 / 反 / 跳过** | 开盘 Z + **5m 前缀** | **C_τ** 破带选向 · **y_hl** 同号闸/入场 | clip(ŷ_oc×放大) 估 C_τ 后对称 ±δ 真破带；y_hl **不进 C_τ / ranking** | `core/t0/close_band.py` · `path_ridge` |
+| **做 T：正 / 反 / 跳过** | 开盘 Z + **5m 前缀** | **C_τ** 破带选向 · **ŷ_τw** 入场 | C_τ=price(τ)×(1+clip(ŷ_τc×scale, ±20)/100)，再对称 ±δ；y_hl **不进 C_τ / ranking** | `core/t0/close_band.py` |
 | **执行：何时触价** | **5m** 第一触达 | leg1=触发根收盘；leg2 冻结 C_τ | 与估计层分离；缺分钟跳过 | `core/t0/` · `minute_path` |
 
 详见 [quant.md · 策略调仓 vs 底仓做 T](quant.md#策略调仓-vs-底仓做-t) · [quant.md · 双层 ŷ §2.5](quant.md#25-双层-predicted_scoreŷ_oo--ŷ_τ) · [quant.md · y_path](quant.md#predicted_scoreŷ全链路)。
@@ -163,8 +163,8 @@ flowchart LR
 | **ŷ_trade blend** | Ensemble（固定权融合） | `fusion_mode=blend`：盘中 \(w_{\mathrm{oo}}\cdot\hat y_{\mathrm{oo}}+w_{\tau}\cdot(\text{缺口}\circ\hat y_\tau)\)。现网 **`w_oo=0, w_tau=1`**；收盘后 `eod_next` 剥离当日 τ。调仓 rank_lots 另用 `fusion_w_oo/oc`（默认 0.6/0.4） |
 | **Nowcast / Kalman** | Ensemble（序贯融合） | **已退役**：不再写 `predicted_score_nowcast`；`w_mode=kalman`→`fixed` |
 | **分组 OLS / Ridge** | Bagging（宇宙子集） | 观察池按主题/相似度 **聚类** → 组内独立 fit β / Ridge；`active` 组才进 live ŷ（FH0）；OOS 失败率闸 |
-| **多 Ridge 头** | Multi-target（非堆叠单分） | `tau_ridge` · `co_ridge` · `path_ridge` 各自 artifact；**不**改组 β |
-| **close_band 做 T** | 超额带宽 | 每根前缀 ŷ_oc clip 估 C_τ；收价破上带反T、破下带正T；leg2=`C_τ`；ŷ_τc 旁路验证（默认关） |
+| **多 Ridge 头** | Multi-target（非堆叠单分） | `tc_ridge` · `co_ridge` 各自 artifact；**不**改组 β |
+| **close_band 做 T** | 超额带宽 | 每根前缀 ŷ_τc 估 C_τ=price(τ)×(1+clip(ŷ_τc×scale, ±20)/100)；收价破上带反T、破下带正T；leg2=`C_τ` |
 | **影子簿 / promote** | Bagging 的工程化验收 | 新头先 shadow · OOS 对照 active → **人审 promote** 才切换 live |
 
 **尚未默认启用、须 eval + 人审**：GBDT blend、端到端 NN（见 [quant.md · 演进路径](quant.md#工业常见因子分类对照本仓库)）。原则不变：新模型须证明 **相对现行 ensemble 的增量**，且不得黑盒改写 `stance_label`。
@@ -176,7 +176,7 @@ flowchart LR
 | 日线 | AkShare 等 · DataService | `daily` / `bars.db` |
 | 5m 分钟 | AkShare 东财（近）+ BaoStock（深） | `minute_bars`；强更见 [architecture · 分钟线采集](architecture.md#分钟线采集架构akshare--baostock) |
 
-分钟数据服务于 **path 标签 / 做 T 回测 / Worker 5m 盯盘**。调仓 rank_lots 主排序仍是日线 ŷ_oo 与 ŷ_oc 的加权；盘中簿 `ŷ_trade` 现网可以把权全部放在 ŷ_τ。
+分钟数据服务于 **path 标签 / 做 T 回测 / Worker 5m 盯盘**。调仓 rank_lots 主排序是 ŷ_oo 与 ŷ_τc 的加权。
 
 ### 硬边界（与 Ensemble 并存）
 

@@ -2459,7 +2459,7 @@ export function initQuant(ctx) {
     if (box) box.innerHTML = "";
   }
 
-  // ŷ_hl / path-ridge 产品面已退役（研究模块仍保留）
+  // ŷ_hl / path-ridge 已下线（模块与拟合入口已删）
 
   // 轻量预填 ŷ_τ30 状态
   void (async () => {

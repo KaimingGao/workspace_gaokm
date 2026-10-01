@@ -23,7 +23,6 @@ from core.backtest.paper_replay import (
     backtest_paper_replay,
     fuse_hit_metrics,
     mock_quote_from_bar,
-    realized_path_label,
     realized_yhat_windows,
     rescore_replay_y_oc_at_clock,
 )
@@ -1349,37 +1348,7 @@ class TestRealizedYhatWindows(unittest.TestCase):
         self.assertIsNotNone(r_tau)
         self.assertAlmostEqual(r_on, (nxt_o / close_t - 1.0) * 100.0, places=4)
 
-    def test_path_label_from_minutes(self):
-        day = "2026-03-03"
-        bar = {"date": day, "open": 10.0, "high": 10.5, "low": 9.8, "close": 10.2}
-        mins = [
-            {
-                "date": day,
-                "datetime": f"{day} 09:35:00",
-                "open": 10.0,
-                "high": 10.05,
-                "low": 9.8,
-                "close": 9.9,
-            },
-            {
-                "date": day,
-                "datetime": f"{day} 10:00:00",
-                "open": 9.9,
-                "high": 10.5,
-                "low": 9.9,
-                "close": 10.2,
-            },
-        ]
-        val = realized_path_label(
-            "600519",
-            day,
-            date_maps={"600519": {day: bar}},
-            minute_maps={"600519": {day: mins}},
-        )
-        self.assertIsNotNone(val)
-        self.assertGreater(float(val), 0.0)
-
-    def test_replay_stamps_y_hl_realized(self):
+    def test_replay_does_not_stamp_y_hl_realized(self):
         stock_bars = {
             "600519": _bars(16, step=0.5),
             "600036": _bars(16, step=0.3),
@@ -1429,8 +1398,7 @@ class TestRealizedYhatWindows(unittest.TestCase):
         ]
         self.assertTrue(filled)
         mid = next(t for t in filled if str(t.get("as_of") or "")[:10] != last)
-        self.assertIsNotNone(mid.get("y_hl_realized"), mid)
-        self.assertGreater(float(mid.get("y_hl_realized")), 0.0)
+        self.assertIsNone(mid.get("y_hl_realized"))
         last_rows = [
             t for t in filled if str(t.get("as_of") or "")[:10] == last
         ]
@@ -1438,7 +1406,7 @@ class TestRealizedYhatWindows(unittest.TestCase):
             self.assertIsNone(last_rows[0].get("realized_on"))
             self.assertIsNone(last_rows[0].get("realized_oo"))
             self.assertIsNone(last_rows[0].get("realized_ranking"))
-            self.assertIsNotNone(last_rows[0].get("y_hl_realized"))
+            self.assertIsNone(last_rows[0].get("y_hl_realized"))
             self.assertIsNotNone(last_rows[0].get("realized_tau"))
 
 

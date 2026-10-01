@@ -2,12 +2,12 @@
 
 规则（live 与历史回测共用）：
   - 持有周期 = T 开盘 → T+1 开盘
-  - ŷ_oo = open[T]→open[T+1]（现网 predicted_score，第二步换标签）
-  - ŷ_oc = open[T]→close[T]（现网 y_tau）
+  - ŷ_oo = open[T]→open[T+1]（现网 predicted_score）
+  - ŷ_τc = close[T]/price(τ)−1。τ=open 时 price(τ)=open，等于 close/open−1。旧行 y_oc 只读
   - ranking = w_oo·((ŷ_oo+1)/(1+rot)−1) + w_τc·((1+ŷ_τc)(1+w_co·ŷ_co)−1)
     rot = price(τ)/open[T]−1；基准 τ→open[T+1]
     w_co 默认 1（叠隔夜）；缺 ŷ_co 则退回 ŷ_τc
-  - 过入场（ranking>入场，可选 y_oo>0 / y_oc>0）→ 开仓或加仓
+  - 过入场（ranking>入场，可选 y_oo>0 / y_τc>0）→ 开仓或加仓
   - 已持仓且未过入场、缺 ranking、或 hard_reject → 清仓（T+1 可卖部分）
     缺分不能假装过门槛续持；无「持」动作
   - ranking > rank强 → lot_strong_amount，否则 lot_base_amount（缺省 2 万 / 1 万）

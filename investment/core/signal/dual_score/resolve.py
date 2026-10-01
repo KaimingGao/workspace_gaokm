@@ -68,7 +68,7 @@ DEFAULT_DUAL_SCORE: Dict[str, Any] = {
         "formula": "close[T]/open[T]-1",
         "unit": "pct",
         "tau": "open",
-        "note": "ŷ_oc = close[T]/open[T]−1；ranking = w·ŷ_oo + w·ŷ_oc",
+        "note": "缺公式时按旧开盘路径 close[T]/open[T]−1。现网 ŷ_τc = close[T]/price(τ)−1。",
     },
 }
 

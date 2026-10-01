@@ -719,7 +719,7 @@ def fusion_weights_from_cfg(cfg: Optional[dict]) -> Tuple[float, float]:
 
 
 def fusion_w_co_from_cfg(cfg: Optional[dict]) -> float:
-    """隔夜叠入 ŷ_oc 的系数；fusion_w_co / y_on_alpha；默认 0（不叠）。范围 0～10。"""
+    """隔夜叠进 ŷ_τc 的系数；fusion_w_co / y_on_alpha。缺键为 0（不叠）。范围 0～10。"""
     d = cfg if isinstance(cfg, dict) else {}
     w = _f(d.get("fusion_w_co"))
     if w is None:

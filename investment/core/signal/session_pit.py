@@ -118,9 +118,10 @@ def resolve_minute_tau_trade_date(
     *,
     now: Optional[datetime] = None,
 ) -> str:
-    """分钟 τ / ŷ_oc 的 T 日。
+    """分钟 τ / ŷ_τc 的 T 日。
 
-    ŷ_oc = close[T]/open[T]−1，T 为 ŷ_oo 周期日（T 开→T+1 开，含收盘后）。
+    ŷ_τc = close[T]/price(τ)−1。τ=open 时 price(τ)=open，等于 close/open−1。
+    T 为 ŷ_oo 周期日（T 开→T+1 开，含收盘后）。
     日线仓在 15:05 前仍停在昨收完整 K；实时行情也常无 ``date``。
     若把 ``bars[-1]`` 当 T，tip 会停在昨天 10:00，并把昨路径配到今开。
 
@@ -188,7 +189,7 @@ def daily_cache_behind_tau_session(
     bars: Optional[Sequence[dict]] = None,
     trade_day: str = "",
 ) -> bool:
-    """日线/合成 quote 停在昨收，而 ŷ_oc 的 T 已是当前会话日。"""
+    """日线/合成 quote 停在昨收，而 ŷ_τc 的 T 已是当前会话日。"""
     day = str(trade_day or "")[:10]
     if len(day) < 10:
         return False

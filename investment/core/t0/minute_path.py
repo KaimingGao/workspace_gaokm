@@ -351,15 +351,6 @@ def _score_y_tau(score_snap: Optional[dict]) -> Optional[float]:
     return None
 
 
-def _score_y_path(score_snap: Optional[dict]) -> Optional[float]:
-    """从分数快照取 ŷ_hl（极值序 signed range%）。"""
-    if not isinstance(score_snap, dict):
-        return None
-    from core.research.path_panel import pick_y_hl
-
-    return pick_y_hl(score_snap)
-
-
 _TAU_EXIT_PREFIX = "y_tau_exit_price"
 
 
@@ -1840,7 +1831,7 @@ def simulate_t0_day_minute(
 ) -> Dict[str, Any]:
     """单日做 T：v6 逐根 C 相对 C_τ 破带开轮；leg2 冻结 C_τ；止损/追价共用。
 
-    开盘可预计算开盘-only 快照；各触发根前用前缀因果重算 ŷ_oc 估 C_τ。
+    开盘可预计算开盘-only 快照；各触发根前用前缀因果重算 ŷ_τc 估 C_τ。
     ``defer_eod=True`` 时盘中前缀不强平（纸面整单/Worker）。
     """
     from core.t0.score_policy import (
@@ -1883,16 +1874,6 @@ def simulate_t0_day_minute(
     cfg_day = dict(cfg)
     cfg_day["path_mode"] = "first_touch"
 
-    # path实对照：用 path 模型训练标签阈值（研究对照，非成交触发）
-    try:
-        from core.research.path_ridge import load_path_model, path_label_triggers
-
-        path_sell_trig, path_buy_trig = path_label_triggers(load_path_model())
-    except Exception:  # noqa: BLE001
-        logger.debug("path_label_triggers fallback", exc_info=True)
-        path_sell_trig = 2.0
-        path_buy_trig = 1.5
-
     def _finish(out: Optional[Dict[str, Any]], dir_res: Optional[dict] = None) -> Dict[str, Any]:
         nonlocal score_snap
         feats = (dir_res or {}).get("features") if isinstance(dir_res, dict) else None
@@ -1910,28 +1891,6 @@ def simulate_t0_day_minute(
             )
         except Exception:  # noqa: BLE001
             logger.debug("attach_eod_tau_realized failed", exc_info=True)
-        try:
-            from core.research.path_panel import attach_path_realized
-
-            ref = None
-            if isinstance(bar, dict):
-                ref = bar.get("open")
-            if ref is None and isinstance(out, dict):
-                ref = out.get("open")
-            packed = attach_path_realized(
-                packed,
-                mins,
-                ref=float(ref) if ref is not None else None,
-                sell_trig_pct=float(path_sell_trig),
-                buy_trig_pct=float(path_buy_trig),
-            )
-            if isinstance(packed, dict):
-                packed["path_realized_trig"] = {
-                    "path_label_mode": "extreme_order",
-                    "note": "对照=极值序 signed (H−L)/ref%；非触价触发",
-                }
-        except Exception:  # noqa: BLE001
-            logger.debug("attach_path_realized failed", exc_info=True)
         # 画像：前 N 根因果 ŷ（与确认根选向同信息集）
         try:
             from core.t0.config import T0_LAST_LEG1_PREFIX_BARS

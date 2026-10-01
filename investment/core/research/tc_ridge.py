@@ -662,7 +662,7 @@ def fit_tau_ridge_report(
         "include_alpha158": bool(include_alpha158),
     }
     try:
-        from core.research.path_panel import feature_fill_rates
+        from core.research.panel import feature_fill_rates
 
         oos["feature_fill"] = feature_fill_rates(xs_z, _tau_feature_fill_keys(xs_z))
     except Exception:  # noqa: BLE001

@@ -1,4 +1,4 @@
-"""v6 多轮做 T：ŷ_oc 破带选腿。
+"""v6 多轮做 T：ŷ_τc 破带选腿。
 
 09:30–11:00 每根 5m 用 y_τc 估 C_τ；C>upper 反T、C<lower 正T；leg2=C_τ。
 ŷ_τw 为五窗相对中位点符号和，过门槛才开。11:00 后不开 leg1。
@@ -741,7 +741,7 @@ def _open_close_band_round(
     defer_eod: bool,
     ref: float,
 ) -> Dict[str, Any]:
-    """ŷ_oc 破带选向后开一轮：确认根=触发根收盘；leg2 目标=C_τ。"""
+    """ŷ_τc 破带选向后开一轮：确认根=触发根收盘；leg2 目标=C_τ。"""
     from core.t0.minute_path import (
         _day_ohlc_from_minutes,
         _first_touch_buy_then_sell,
@@ -1304,7 +1304,7 @@ def simulate_t0_day_slots(
     tau_pool_day: Optional[dict] = None,
     daily_bar: Optional[dict] = None,
 ) -> Dict[str, Any]:
-    """旗舰：逐根 ŷ_oc 破带开轮（每轮 ratio，累计至 max_pos）；11:00 后不开 leg1。
+    """旗舰：逐根 ŷ_τc 破带开轮（每轮 ratio，累计至 max_pos）；11:00 后不开 leg1。
 
     ``daily_bar``：原始日 K（开/收/昨收）；勿传分钟合成 OHLC。缺省用 ``bar``。
     """
@@ -1488,7 +1488,7 @@ def simulate_t0_day_slots(
             last_enter_skip = "分钟数据缺失（非 09:30 须有分钟小包）"
             continue
 
-        # 每根前缀重算 ŷ_oc / ŷ_τ*；选腿看破带方向，ŷ_τw 门槛为辅。
+        # 每根前缀重算 ŷ_τc / ŷ_τ*；选腿看破带方向，ŷ_τw 门槛为辅。
         gate_snap = dict(snap_for_gate) if isinstance(snap_for_gate, dict) else {}
         direction, band_meta = bar_close_band_pick_direction(
             bar_open,
@@ -1597,7 +1597,7 @@ def simulate_t0_day_slots(
                 "price_space_scale": scale,
                 "estimate_mode": space.get("estimate_mode"),
                 "y_tw": band_meta.get("y_tw"),
-                "y_oc_strong_hit": close_band_y_oc_is_strong(
+                "y_τc_strong_hit": close_band_y_oc_is_strong(
                     band_meta.get("y_τc")
                     if band_meta.get("y_τc") is not None
                     else band_meta.get("y_oc"),

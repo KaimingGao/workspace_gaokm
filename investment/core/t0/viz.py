@@ -13,7 +13,7 @@ SKIP_CAT_LABELS: Dict[str, str] = {
     "y_path_missing": "缺y_path",
     "y_eod_flat": "y_oo未过门槛",
     "y_tau_flat": "y_τ横盘",
-    "y_tc_flat": "ŷ_τc横盘",
+    "y_tc_flat": "ŷ_τc未过入场",
     "r_tau_flat": "R̂_τ超额不足",
     "y_tau_weak": "y_τ弱信号",
     "y_path_flat": "y_hl横盘",
@@ -2529,19 +2529,9 @@ def summarize_dual_y_upgrade_acceptance(
     *,
     rules: Optional[dict] = None,
 ) -> Dict[str, Any]:
-    """同窗口验收：|τ|<enter 成交、τ 强桶同号、path 否决笔数（不依赖泄漏 y_on）。"""
-    cfg = rules if isinstance(rules, dict) else {}
-    try:
-        enter = float(cfg.get("y_tau_enter") if cfg.get("y_tau_enter") is not None else 0.0)
-    except (TypeError, ValueError):
-        enter = 0.0
-    # 旧双闸兼容：有效入场 = max(enter, strong)
-    try:
-        strong_legacy = cfg.get("y_tau_enter_strong")
-        if strong_legacy is not None:
-            enter = max(enter, float(strong_legacy))
-    except (TypeError, ValueError):
-        pass
+    """同窗口验收：成交 |ŷ_τ| 与 path 否决笔数。旧 y_tau_enter 不再生效。"""
+    _ = rules
+    enter = 0.0
 
     traded = [d for d in (days or []) if isinstance(d, dict) and is_traded_t0_day(d)]
     flat_trades = 0
@@ -2817,7 +2807,7 @@ def _summary_from_counts(
         "signal_skip_rate_pct": round(signal_skip_n / total * 100.0, 2) if total else None,
         "cover_rate_pct": round(cover_n / traded_n * 100.0, 2) if traded_n else None,
         "score_coverage_pct": round(score_seen / score_total * 100.0, 2) if score_total else None,
-        "y_tau_enter": _f(cfg.get("y_tau_enter")) if cfg.get("y_tau_enter") is not None else 0.0,
+        "y_tau_enter": 0.0,
         "y_trade_enter": _f(cfg.get("y_trade_enter") or cfg.get("y_trade_floor")) or 0.15,
         "y_trade_floor": _f(cfg.get("y_trade_floor") or cfg.get("y_trade_enter")) or 0.15,
     }
@@ -3062,17 +3052,7 @@ def build_t0_viz_payload(
         if y_tau_hist.get(b)
     ]
     y_tau_attribution = build_y_tau_attribution(days)
-    path_enter = 0.02
-    if isinstance(rules, dict):
-        raw_hl = rules.get("y_hl_enter")
-        if raw_hl is None:
-            raw_hl = rules.get("y_path_enter")
-        if raw_hl is not None:
-            try:
-                path_enter = float(raw_hl)
-            except (TypeError, ValueError):
-                path_enter = 0.02
-    y_path_attribution = build_y_path_attribution(days, path_enter=path_enter)
+    y_path_attribution = build_y_path_attribution(days, path_enter=0.02)
     score_portrait = build_backtest_score_portrait(days)
 
     stock_contrib: List[Dict[str, Any]] = []
@@ -3309,11 +3289,7 @@ def merge_t0_viz_payloads(
 
     y_path_attribution = _merge_y_path_attribution(
         [p.get("y_path_attribution") for p in (payloads or []) if isinstance(p, dict)],
-        path_enter=float(
-            (rules or {}).get("y_hl_enter")
-            or (rules or {}).get("y_path_enter")
-            or 0.02
-        ),
+        path_enter=0.02,
     )
     path_sm = (
         y_path_attribution.get("summary")

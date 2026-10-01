@@ -375,7 +375,7 @@ export const Y_NC_OC_TITLE =
 /** @deprecated 用 Y_NC_TITLE */
 export const Y_NOWCAST_TITLE = Y_NC_TITLE;
 
-/** ŷ_hl：极值序 signed range%（path_ridge；多 τ 训 / live 单钟）；dual_y 与 y_τ 联合选向。 */
+/** ŷ_hl 已下线：旧行仍可读，新分不再写。 */
 export const Y_HL_TITLE = "ŷ_hl · 极值序 signed (H−L)/ref%";
 /** @deprecated 用 Y_HL_TITLE */
 export const Y_PATH_TITLE = Y_HL_TITLE;
@@ -470,7 +470,7 @@ export function resolveTauLiftedScore(it) {
   return _looksLikeYhatPct(lifted) ? lifted : null;
 }
 
-/** ŷ_hl：极值序 signed range%（path_ridge）。 */
+/** ŷ_hl 已下线。 */
 export function resolvePathScore(it) {
   if (!it || typeof it !== "object") return null;
   for (const c of [it.predicted_score_hl, it.y_hl, it.predicted_score_path, it.y_path]) {

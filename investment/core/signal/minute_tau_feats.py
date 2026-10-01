@@ -2201,3 +2201,53 @@ def merge_minute_tau_pack_into_feats(
     }
     return out, as_of, y_spec
 
+
+def _normalize_prefix_tau_hm(raw: Any, default: str = "11:00") -> str:
+    s = str(raw or "").strip()
+    if not s:
+        return default
+    if ":" in s:
+        return s[:5]
+    digits = "".join(ch for ch in s if ch.isdigit())
+    if len(digits) >= 4:
+        return f"{digits[:2]}:{digits[2:4]}"
+    return default
+
+
+def attach_minute_prefix_feats(
+    feats: dict,
+    *,
+    minute_bars: Sequence[dict],
+    trade_date: str,
+    open_px: Optional[float] = None,
+    prev_close: Optional[float] = None,
+    tau_hm: Any = None,
+    overwrite: bool = False,
+) -> Dict[str, Any]:
+    """写入 ≤τ 分钟小包。已有非空键默认不覆盖；overwrite 时用当前前缀重算。"""
+    from core.research.tau_panel import tau_elapsed_min_from_open
+
+    out = dict(feats or {})
+    hm = _normalize_prefix_tau_hm(tau_hm)
+    pack = extract_minute_tau_pack(
+        minute_bars,
+        trade_date=str(trade_date or "")[:10],
+        tau_hm=hm,
+        open_px=open_px,
+        prev_close=prev_close,
+    )
+    for k in MINUTE_TAU_ALL_KEYS + MINUTE_TAU_SHAPE_KEYS:
+        if not overwrite and out.get(k) is not None:
+            continue
+        if k in pack and pack.get(k) is not None:
+            try:
+                out[k] = float(pack.get(k))
+            except (TypeError, ValueError):
+                out[k] = None
+        elif overwrite:
+            out.pop(k, None)
+    elapsed = tau_elapsed_min_from_open(hm)
+    if elapsed is not None and (overwrite or out.get("tau_elapsed_min") is None):
+        out["tau_elapsed_min"] = elapsed
+    return out
+

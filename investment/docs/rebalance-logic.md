@@ -49,8 +49,8 @@
 | ŷ | 含义 | 调仓中的作用 |
 |----|------|-------------|
 | **ranking** | w_oo·((ŷ_oo+1)/(1+rot)−1) + w_τc·((1+ŷ_τc)(1+w_co·ŷ_co)−1) | 调仓排序。rot=price(τ)/open[T]−1；基准 τ→open[T+1]；ŷ_τc 已是 τ→close；w_co 默认 1 |
-| **residual** | w_τc·ŷ_τc + w_oc·remaining(ŷ_oc) | 研究对照。做 T 主分是 ŷ_oc 估 ĉ + 超额带宽；ŷ_τc 只做可选旁路闸 |
-| ŷ_co | 隔夜 close[T]→open[T+1] | 经 w_co 几何叠进 ŷ_oc；w_co=0 时不进 ranking |
+| **residual** | w_τc·ŷ_τc + w_oc·remaining(ŷ_oc) | 研究对照。做 T 主分是 ŷ_τc 估 C_τ；remaining(ŷ_oc) 不进破带 |
+| ŷ_co | 隔夜 close[T]→open[T+1] | 经 w_co 几何叠进 ŷ_τc；w_co=0 时不进 ranking |
 | ŷ_hl（旧名 ŷ_path） | 分钟K形状 | ŷ_hl 挂成交明细、进做 T 同号闸；**不进调仓入场** |
 
 历史回测成交明细列序为股数 / 开盘价 / 收盘价 / 成交价 / 收益率（卖出总额/买入总额−1；未卖完时剩余按收盘市值计入卖出总额）/ **ranking** 预估(真实)（真实=(open[T+1]−price(τ))/open[T]）/ y_oo / y_oc / y_co / **y_hl**（开盘 Z 挂分；成交钟>09:30 随前缀重算）。不挂 R_τ / y_τw / y_τ30 / y_τ60 / y_τ90。缺模型/缺分显示 —。
@@ -67,8 +67,8 @@
 | `y_oo_gt0` | 关 | 开则入场须 y_oo>0；关=不看。缺分不拦 |
 | `y_τc_gt0` | 关 | 开则入场须 ŷ_τc>0；关=不看。缺分不拦 |
 | `fusion_w_oo` | 0.6 | ŷ_oo 融合权重（旧键 fusion_w_trade） |
-| `fusion_w_oc` | 0.4 | ŷ_oc∘隔夜 头权重（旧键 fusion_w_nowcast） |
-| `fusion_w_co` | 1 | 叠进 ŷ_oc 的隔夜系数（别名 y_on_alpha）；0=不叠 |
+| `fusion_w_oc` | 0.4 | ŷ_τc∘隔夜 头权重（键名仍是 fusion_w_oc；旧键 fusion_w_nowcast） |
+| `fusion_w_co` | 1 | 叠进 ŷ_τc 的隔夜系数（别名 y_on_alpha）；0=不叠 |
 | `cash_floor` | 0 | 不留现金地板。现金不够该手则缩到整百（最少一手）；仍买不起才跳过。强档买不下先试基础手数。旧 50 万配置忽略。 |
 | `holdings_mv_cap` | 150_000 | **live** 持仓市值上限；本笔将超则跳过该买。历史回测为 0（不限） |
 | `max_positions` | 策略限额 | 仅持仓规则日循环 / 风控仍可读；**rank_lots 开/加不再用它截断** |
@@ -93,7 +93,7 @@ OOS 失败组禁止新开/加仓。配置写在 `execution.rebalance_timing.rank
 5. ranking &gt; rank强 → lot_strong_amount，否则 lot_base_amount（live 与回测同一对；缺省 2 万 / 1 万）。按成交价换算整手；不够一手则买一手。买不下则缩到整百，最少一手。
 6. 若缩到一手仍使现金不够（含手续费）→ 跳过该买。
 
-历史回测成交与 live 不同：ŷ_oo 仍是 **09:30 开盘信息集**。ŷ_oc 随所选 **调仓时间**：09:30 用开盘 Z（`use_minute_tau=False`）；09:35–10:00 用截至该钟的 5 分钟前缀重算（与做 T `rescore_scores_at_fixed_prefix` 同路径，`use_minute_tau=True`）。前缀注入分钟小包/截面后按 `features_tau` 重拆 ŷ_oc，成交明细组成表与做 T 扫描该钟同口径。买卖价取该钟 5 分钟 K——09:30 用首根开盘（无分钟则日开盘），其后用该档收盘。**买入**缺该根则跳过（`reason`＝无有效报价）。**清仓**缺该根则回退：该钟之后～10:00 下一根 → 09:30 / 日开盘（账上 `缺HH:MM回退…`；`constraints.sell_px_fallback`）。日分价闸只用 09:30–10:00 窗口分钟（尾盘残缺仓不当开盘锚）。**有窗口分钟时**复用做 T 日分价闸（`resolve_t0_price_space`）：共用框「日分价闸」默认开；`|日开/分开−1|` 或 `|日昨/分昨−1|` 超阈（默认 5%，跟做 T 配置）则该票当日 skip（`price_space_mismatch`）；比的是开/昨收锚，**不是**成交价。关闸不拦，仍记错位次数。live 自动调仓 / 手动预演窗口 = 已保存 fill_clock～10:00（默认 09:30）；到点后现价成交一次，ŷ_oc 用因果末根 5m（≤10:00），不走此闸。
+历史回测成交与 live 不同：ŷ_oo 仍是 **09:30 开盘信息集**。ŷ_τc 随所选 **调仓时间**：09:30 用开盘 Z（`use_minute_tau=False`）；09:35–10:00 用截至该钟的 5 分钟前缀重算（与做 T `rescore_scores_at_fixed_prefix` 同路径，`use_minute_tau=True`）。前缀注入分钟小包/截面后按 `features_tau` 重拆 ŷ_τc，成交明细组成表与做 T 扫描该钟同口径。买卖价取该钟 5 分钟 K——09:30 用首根开盘（无分钟则日开盘），其后用该档收盘。**买入**缺该根则跳过（`reason`＝无有效报价）。**清仓**缺该根则回退：该钟之后～10:00 下一根 → 09:30 / 日开盘（账上 `缺HH:MM回退…`；`constraints.sell_px_fallback`）。日分价闸只用 09:30–10:00 窗口分钟（尾盘残缺仓不当开盘锚）。**有窗口分钟时**复用做 T 日分价闸（`resolve_t0_price_space`）：共用框「日分价闸」默认开；`|日开/分开−1|` 或 `|日昨/分昨−1|` 超阈（默认 5%，跟做 T 配置）则该票当日 skip（`price_space_mismatch`）；比的是开/昨收锚，**不是**成交价。关闸不拦，仍记错位次数。live 自动调仓 / 手动预演窗口 = 已保存 fill_clock～10:00（默认 09:30）；到点后现价成交一次，ŷ_τc 用因果末根 5m（≤10:00），不走此闸。
 
 ### 4.2 关键参数
 
@@ -105,13 +105,13 @@ OOS 失败组禁止新开/加仓。配置写在 `execution.rebalance_timing.rank
 | `lot_base_amount` | 10000 | 入场金额（元）；按价换算整手，不够一手则买一手；与历史回测表单同一键 |
 | `lot_strong_amount` | 20000 | 强档金额；不少于 lot_base_amount |
 | `fusion_w_oo` | 0.6 | ŷ_oo 权重（旧键 fusion_w_trade） |
-| `fusion_w_oc` | 0.4 | ŷ_oc∘隔夜 头权重（旧键 fusion_w_nowcast） |
-| `fusion_w_co` | 1 | 叠进 ŷ_oc 的隔夜系数（别名 y_on_alpha） |
+| `fusion_w_oc` | 0.4 | ŷ_τc∘隔夜 头权重（键名仍是 fusion_w_oc；旧键 fusion_w_nowcast） |
+| `fusion_w_co` | 1 | 叠进 ŷ_τc 的隔夜系数（别名 y_on_alpha） |
 | `y_oo_gt0` | 关 | 开则入场须 y_oo>0 |
 | `y_τc_gt0` | 关 | 开则入场须 ŷ_τc>0 |
 | `cash_floor` | 0 | 不留现金地板；现金不够该手则缩到整百（最少一手） |
 | `holdings_mv_cap` | 150_000 | live 持仓市值上限；历史回测为 0 |
-| `fill_clock` | 09:30 | **仅历史回测**：5m 成交钟 09:30–10:00；>09:30 时 ŷ_oc 用该钟前缀重算 |
+| `fill_clock` | 09:30 | **仅历史回测**：5m 成交钟 09:30–10:00；>09:30 时 ŷ_τc 用该钟前缀重算 |
 | `price_space_gate` | 开 | **仅历史回测**：共用框「日分价闸」。有分钟时 |日开/分开−1| 或 |日昨/分昨−1| 超阈则 skip；阈跟做 T（默认 5%）。关则不拦，仍记错位次数 |
 
 配置键优先 `rebalance_timing.rank_lots`，仍认旧键 `path_matrix`。旧 λ / 同号闸 / pending_exit 已删除。
