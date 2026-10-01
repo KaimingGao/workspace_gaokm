@@ -130,6 +130,29 @@ class TestExecutionResolve(unittest.TestCase):
         self.assertEqual(paper["rules"].get("execution_mode"), "next_open")
         self.assertTrue(paper["rules"]["t0"].get("enabled"))
 
+    def test_old_y_oc_gt0_fills_y_tc_gt0(self):
+        from core.execution import resolve_effective_execution
+
+        paper = {
+            "strategy_id": "short_conservative",
+            "rules": {
+                "execution": {
+                    "rebalance_timing": {
+                        "rank_lots": {"y_oc_gt0": True},
+                        "path_matrix": {"y_oc_gt0": True},
+                    }
+                }
+            },
+        }
+        bundle = resolve_effective_execution(paper=paper, channel="paper")
+        for key in ("rank_lots", "path_matrix"):
+            block = bundle["rebalance_timing"][key]
+            self.assertTrue(block["y_τc_gt0"])
+            self.assertNotIn("y_oc_gt0", block)
+        stored = paper["rules"]["execution"]["rebalance_timing"]["rank_lots"]
+        self.assertTrue(stored["y_oc_gt0"])
+        self.assertNotIn("y_τc_gt0", stored)
+
     def test_public_view(self):
         from core.execution import execution_public_view, resolve_effective_execution
 
@@ -325,7 +348,8 @@ class TestExecutionResolve(unittest.TestCase):
             }
         )
         self.assertTrue(ok, errs)
-        self.assertAlmostEqual(float(norm["t0"]["t0_y_oc_target_scale"]), 8.0)
+        self.assertAlmostEqual(float(norm["t0"]["t0_y_τc_target_scale"]), 8.0)
+        self.assertNotIn("t0_y_oc_target_scale", norm["t0"])
         self.assertAlmostEqual(float(norm["t0"]["t0_close_band_delta_pct"]), 0.4)
         self.assertAlmostEqual(float(norm["t0"]["y_tw_midpoint"]), 47.0)
         self.assertEqual(int(norm["t0"]["t0_lock_win_arm_bars"]), 2)
@@ -337,7 +361,7 @@ class TestExecutionResolve(unittest.TestCase):
         view = execution_public_view(
             resolve_effective_execution(paper=paper, channel="paper")
         )
-        self.assertAlmostEqual(float(view["t0"]["t0_y_oc_target_scale"]), 8.0)
+        self.assertAlmostEqual(float(view["t0"]["t0_y_τc_target_scale"]), 8.0)
         self.assertAlmostEqual(float(view["t0"]["y_tw_midpoint"]), 47.0)
         self.assertEqual(int(view["t0"]["t0_lock_win_arm_bars"]), 2)
         self.assertNotIn("t0_y_oc_l", view.get("t0") or {})
@@ -354,14 +378,15 @@ class TestExecutionResolve(unittest.TestCase):
 
         ok, norm, errs = validate_execution_patch({"t0": {"y_oc_strong": 1.5}})
         self.assertTrue(ok, errs)
-        self.assertAlmostEqual(float(norm["t0"]["y_oc_strong"]), 1.5)
+        self.assertAlmostEqual(float(norm["t0"]["y_τc_strong"]), 1.5)
+        self.assertNotIn("y_oc_strong", norm["t0"])
         paper = {"strategy_id": "short_conservative", "rules": {}}
         applied = apply_execution_patch_to_paper(paper, norm)
         self.assertTrue(applied.get("ok"), applied)
         view = execution_public_view(
             resolve_effective_execution(paper=paper, channel="paper")
         )
-        self.assertAlmostEqual(float(view["t0"]["y_oc_strong"]), 1.5)
+        self.assertAlmostEqual(float(view["t0"]["y_τc_strong"]), 1.5)
         self.assertAlmostEqual(float(view["t0"]["y_tw_enter"]), 2.0)
 
     def test_public_view_keeps_y_oc_amounts(self):
@@ -376,16 +401,17 @@ class TestExecutionResolve(unittest.TestCase):
             {"t0": {"y_oc_enter_amount": 30000, "y_oc_strong_amount": 50000}}
         )
         self.assertTrue(ok, errs)
-        self.assertEqual(int(norm["t0"]["y_oc_enter_amount"]), 30000)
-        self.assertEqual(int(norm["t0"]["y_oc_strong_amount"]), 50000)
+        self.assertEqual(int(norm["t0"]["y_τc_enter_amount"]), 30000)
+        self.assertEqual(int(norm["t0"]["y_τc_strong_amount"]), 50000)
+        self.assertNotIn("y_oc_enter_amount", norm["t0"])
         paper = {"strategy_id": "short_conservative", "rules": {}}
         applied = apply_execution_patch_to_paper(paper, norm)
         self.assertTrue(applied.get("ok"), applied)
         view = execution_public_view(
             resolve_effective_execution(paper=paper, channel="paper")
         )
-        self.assertEqual(int(view["t0"]["y_oc_enter_amount"]), 30000)
-        self.assertEqual(int(view["t0"]["y_oc_strong_amount"]), 50000)
+        self.assertEqual(int(view["t0"]["y_τc_enter_amount"]), 30000)
+        self.assertEqual(int(view["t0"]["y_τc_strong_amount"]), 50000)
 
     def test_public_view_drops_share_lot_keys(self):
         from core.execution import (

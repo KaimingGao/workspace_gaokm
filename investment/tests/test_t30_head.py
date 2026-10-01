@@ -589,7 +589,7 @@ class TTwGateTests(unittest.TestCase):
         from core.t0.viz import classify_t0_skip_reason
 
         self.assertEqual(float(load_t0_rules({})["y_tw_enter"]), 2.0)
-        self.assertAlmostEqual(float(load_t0_rules({})["y_oc_strong"]), 1.0)
+        self.assertAlmostEqual(float(load_t0_rules({})["y_τc_strong"]), 1.0)
         self.assertAlmostEqual(float(load_t0_rules({})["y_tw_vote_margin"]), 5.0)
         self.assertAlmostEqual(float(load_t0_rules({})["y_tw_midpoint"]), 47.0)
         self.assertAlmostEqual(blend_y_tw(0.8, 0.2, 0.3), -1.0)

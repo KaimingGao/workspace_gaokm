@@ -632,19 +632,6 @@ def pack_day_scores(score_snap: Optional[dict]) -> Optional[Dict[str, Any]]:
             out[k] = score_snap.get(k)
     for k, v in tip_fields_from_item(score_snap).items():
         out[k] = v
-    if out.get("y_tau_oc") is None:
-        ft = out.get("formula_terms_tau") or out.get("score_formula_terms_tau")
-        if not isinstance(ft, dict):
-            ft = score_snap.get("formula_terms_tau") or score_snap.get(
-                "score_formula_terms_tau"
-            )
-        if isinstance(ft, dict):
-            oc = _f(ft.get("y_tau_raw"))
-            if oc is None:
-                oc = _f(ft.get("total"))
-            if oc is not None:
-                out["y_tau_oc"] = oc
-                out["predicted_score_tau_oc"] = oc
     src = score_snap.get("_score_source")
     if src:
         out["_score_source"] = src
@@ -1001,9 +988,6 @@ def scores_from_item(item: Optional[dict]) -> Dict[str, Optional[float]]:
             out["y_t90_hat"] = y_t90
             out["y_t90"] = y_t90
             out["y_τ90"] = y_t90
-    if y_tau_oc is not None:
-        out["y_tau_oc"] = y_tau_oc
-        out["predicted_score_tau_oc"] = y_tau_oc
     if y_tau_mapped is not None:
         out["y_tau_mapped"] = y_tau_mapped
     if y_on_path is not None:
@@ -1175,7 +1159,7 @@ def resolve_direction_y_tau(scores: Optional[dict]) -> Optional[float]:
     """
     if not isinstance(scores, dict):
         return None
-    for key in ("y_tau_oc", "predicted_score_tau_oc"):
+    for key in ("y_τc", "predicted_score_τc", "y_tau_oc", "predicted_score_tau_oc"):
         v = _f(scores.get(key))
         if v is not None:
             return v
@@ -2172,11 +2156,17 @@ def _refresh_tau_oc_from_feats(
         return
     if yhat is not None:
         yv = float(yhat)
-        item["y_oc"] = yv
-        item["predicted_score_oc"] = yv
-        item["y_tau_oc"] = yv
-        item["predicted_score_tau_oc"] = yv
-        item["predicted_score_tau"] = yv
+        from core.signal.yhat_windows import write_y_τc
+
+        write_y_τc(item, yv)
+        for stale in (
+            "y_oc",
+            "predicted_score_oc",
+            "y_tau_oc",
+            "predicted_score_tau_oc",
+            "predicted_score_tau",
+        ):
+            item.pop(stale, None)
         item["predicted_score_rem"] = yv
         item["score_rem"] = yv
         item["y_tau"] = yv

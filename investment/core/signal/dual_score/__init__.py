@@ -2,7 +2,7 @@
 
 ŷ_oo       预估 open[T+1]/open[T]−1（分组 β；主字段 y_oo，别名 predicted_score）
 ŷ_τc       预估 close[T]/price[τ]−1（主字段 y_τc）
-           拟合原值写入 y_τc，时钟对齐后写入 y_tau，并留别名 y_oc。τ=open 时等于 close/open−1。
+           拟合原值写入 y_τc，时钟对齐后写入 y_tau。τ=open 时等于 close/open−1。旧行 y_oc 只读。
            不再另跑一套 ŷ_τ 去覆盖 y_τc。
 ŷ_co       预估 open[T+1]/close[T]−1（主字段 y_co；旧键 y_on 可读）
 ranking    τc：w·((ŷ_oo+1)/(1+rot)−1) + w·((1+ŷ_τc)(1+w_co·ŷ_co)−1)

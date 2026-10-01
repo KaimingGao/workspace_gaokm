@@ -791,13 +791,13 @@ def _walk_t0(
             "y_tw_enter": cfg.get("y_tw_enter")
             if cfg.get("y_tw_enter") not in (None, "")
             else cfg.get("y_τw_enter"),
-            "y_oc_enter": cfg.get("y_oc_enter"),
-            "y_oc_strong": cfg.get("y_oc_strong"),
-            "y_oc_enter_amount": cfg.get("y_oc_enter_amount"),
-            "y_oc_strong_amount": cfg.get("y_oc_strong_amount"),
+            "y_τc_enter": cfg.get("y_τc_enter"),
+            "y_τc_strong": cfg.get("y_τc_strong"),
+            "y_τc_enter_amount": cfg.get("y_τc_enter_amount"),
+            "y_τc_strong_amount": cfg.get("y_τc_strong_amount"),
             "y_tw_vote_margin": cfg.get("y_tw_vote_margin"),
             "y_tw_midpoint": cfg.get("y_tw_midpoint"),
-            "t0_y_oc_target_scale": cfg.get("t0_y_oc_target_scale"),
+            "t0_y_τc_target_scale": cfg.get("t0_y_τc_target_scale"),
             "t0_close_band_delta_pct": cfg.get("t0_close_band_delta_pct"),
             "t0_price_space_gate": cfg.get("t0_price_space_gate"),
             "t0_price_space_max_dev_pct": cfg.get("t0_price_space_max_dev_pct"),

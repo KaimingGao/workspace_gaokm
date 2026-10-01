@@ -109,7 +109,7 @@ def apply_tau_score_fields(
     """写入双层契约字段（不改 predicted_score / score 主值）。
 
     ``rem_yhat`` 就是 ŷ_τc（τ→close，close[T]/price[τ]−1），不依赖 ŷ_oo。
-    同一数写入 y_τc，并留别名 y_oc / y_tau。
+    同一数写入 y_τc；时钟对齐后的数在 y_tau。不再写 y_oc。
     ŷ_trade = w·ŷ_oo + w·lift(ŷ_τ)；OC 模型 lift=缺口∘ŷ_τ，τc 模型 lift=缺口∘ret_open_to_tau∘ŷ_τ。
     ŷ_oo_rem 只作派生对照，不进融合。
     ``residual_delta`` 已废弃，忽略。
@@ -195,14 +195,16 @@ def apply_tau_score_fields(
         signal_item["y_tau"] = y_tau
     signal_item["predicted_score_rem"] = y_tau
     signal_item["score_rem"] = y_tau
-    # τc 头原始 ŷ（训练/Hub 同口径）；分钟时钟映射前，供画像命中对照
-    if y_tau_raw is not None:
-        signal_item["y_tau_oc"] = y_tau_raw
-        signal_item["predicted_score_tau_oc"] = y_tau_raw
+    # τc 头原始 ŷ（训练/Hub 同口径）；分钟时钟映射前。不再写 y_oc / y_tau_oc。
     oc = y_tau_raw if y_tau_raw is not None else y_tau
+    for stale in (
+        "y_oc",
+        "predicted_score_oc",
+        "y_tau_oc",
+        "predicted_score_tau_oc",
+    ):
+        signal_item.pop(stale, None)
     if oc is not None:
-        signal_item["y_oc"] = oc
-        signal_item["predicted_score_oc"] = oc
         from core.signal.yhat_windows import Y_TC_SOURCE_RIDGE, write_y_τc
 
         write_y_τc(signal_item, oc)

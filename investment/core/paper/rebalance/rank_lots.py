@@ -130,7 +130,9 @@ def _y_gt0_flags(cfg: Optional[dict]) -> Tuple[bool, bool]:
         y_oo = coerce_cfg_bool(d.get("y_oo_gt0"), False)
     else:
         y_oo = coerce_cfg_bool(d.get("y_oo_oc_enabled"), False)
-    if "y_oc_gt0" in d:
+    if "y_τc_gt0" in d:
+        y_oc = coerce_cfg_bool(d.get("y_τc_gt0"), False)
+    elif "y_oc_gt0" in d:
         y_oc = coerce_cfg_bool(d.get("y_oc_gt0"), False)
     else:
         y_oc = coerce_cfg_bool(d.get("y_oo_oc_enabled"), False)
@@ -163,7 +165,7 @@ def _enter_profile_skip_reason(
     for skip in (
         _rank_enter_skip(rs, rank_enter),
         _pos_enter_skip(y_oo, y_oo_gt0, "y_oo"),
-        _pos_enter_skip(y_oc, y_oc_gt0, "y_oc"),
+        _pos_enter_skip(y_oc, y_oc_gt0, "y_τc"),
     ):
         if skip is not None:
             return skip
@@ -197,15 +199,19 @@ def rank_lot_enter_skip_reason(
     y_hl>0 已下线（不进 ranking / 入场）。
     """
     from core.paper.rebalance.path_matrix import scores_from_rebalance_item
-    from core.signal.yhat_windows import pick_y_oc, pick_y_oo
+    from core.signal.yhat_windows import pick_y_oc, pick_y_oo, pick_y_τc
     from core.t0.config import coerce_cfg_bool
 
     cfg_d = cfg if isinstance(cfg, dict) else {}
     sc = scores_from_rebalance_item(item, cfg_d)
     y_oo = pick_y_oo(sc) if isinstance(sc, dict) else None
-    y_oc = pick_y_oc(sc) if isinstance(sc, dict) else None
+    y_oc = pick_y_τc(sc) if isinstance(sc, dict) else None
+    if y_oc is None and isinstance(sc, dict):
+        y_oc = pick_y_oc(sc)
     if y_oo is None and isinstance(item, dict):
         y_oo = pick_y_oo(item)
+    if y_oc is None and isinstance(item, dict):
+        y_oc = pick_y_τc(item)
     if y_oc is None and isinstance(item, dict):
         y_oc = pick_y_oc(item)
 
@@ -484,7 +490,7 @@ def get_rank_lot_cfg(
         "y_enter_enabled": bool(pm.get("y_enter_enabled", True)),
         "y_enter_alt_enabled": bool(pm.get("y_enter_alt_enabled", True)),
         "y_oo_gt0": bool(y_oo_gt0),
-        "y_oc_gt0": bool(y_oc_gt0),
+        "y_τc_gt0": bool(y_oc_gt0),
         "fill_clock": str(pm.get("fill_clock") or "09:30"),
     }
 
@@ -808,12 +814,16 @@ def _debug_scores(
 
     sc = scores_from_rebalance_item(item)
     y_oo = sc.get("y_oo")
-    oc = y_oc if y_oc is not None else sc.get("y_oc")
+    oc = y_oc if y_oc is not None else sc.get("y_τc")
+    if oc is None:
+        oc = sc.get("y_oc")
     y_co = sc.get("y_co")
     if y_co is None:
         y_co = pick_y_co(item)
     ytau = y_tau_of(item)
     y_τc = sc.get("y_τc")
+    if y_τc is None:
+        y_τc = oc
     ranking = ranking_pct if ranking_pct is not None else sc.get("ranking")
     residual = sc.get("residual")
     if residual is None:
@@ -825,7 +835,6 @@ def _debug_scores(
         r_hat = remaining_oc(oc, ret_open_to_tau_of(item) if item else None)
     out: Dict[str, Any] = {
         "y_oo": y_oo,
-        "y_oc": oc,
         "y_co": y_co,
         "y_τc": y_τc,
         "ranking": ranking,
@@ -1291,7 +1300,7 @@ def plan_rank_lot_day(
         "rank_enter": rank_enter,
         "rank_strong": rank_strong,
         "y_oo_gt0": bool(y_oo_gt0),
-        "y_oc_gt0": bool(y_oc_gt0),
+        "y_τc_gt0": bool(y_oc_gt0),
         "cash_floor": cash_floor,
         "holdings_mv_cap": mv_cap,
         "holdings_mv_after_plan": round(mv_sim, 2),

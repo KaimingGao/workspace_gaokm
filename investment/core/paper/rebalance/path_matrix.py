@@ -55,7 +55,7 @@ DEFAULT_PATH_MATRIX: Dict[str, Any] = {
     "y_enter_enabled": True,
     "y_enter_alt_enabled": True,
     "y_oo_gt0": False,
-    "y_oc_gt0": False,
+    "y_τc_gt0": False,
     # 调仓成交钟：自动调仓 / 手动预演窗口起点；止于 10:00。与历史回测 fill_clock 同源。
     "fill_clock": "09:30",
     # 手数：按金额/价换算整手，不够一手则买一手；保存规则写入交易执行。缺省 live 1万/2万。
@@ -136,10 +136,16 @@ def get_path_matrix_cfg(
     if isinstance(raw, dict):
         if raw.get("y_oo_gt0") is None and raw.get("y_oo_oc_enabled") is not None:
             out["y_oo_gt0"] = coerce_cfg_bool(raw.get("y_oo_oc_enabled"), False)
-        if raw.get("y_oc_gt0") is None and raw.get("y_oo_oc_enabled") is not None:
-            out["y_oc_gt0"] = coerce_cfg_bool(raw.get("y_oo_oc_enabled"), False)
+        if raw.get("y_τc_gt0") is None and raw.get("y_oc_gt0") is not None:
+            out["y_τc_gt0"] = coerce_cfg_bool(raw.get("y_oc_gt0"), False)
+        elif (
+            raw.get("y_τc_gt0") is None
+            and raw.get("y_oc_gt0") is None
+            and raw.get("y_oo_oc_enabled") is not None
+        ):
+            out["y_τc_gt0"] = coerce_cfg_bool(raw.get("y_oo_oc_enabled"), False)
     out["y_oo_gt0"] = coerce_cfg_bool(out.get("y_oo_gt0"), False)
-    out["y_oc_gt0"] = coerce_cfg_bool(out.get("y_oc_gt0"), False)
+    out["y_τc_gt0"] = coerce_cfg_bool(out.get("y_τc_gt0"), False)
     for key, default, lo, hi in (
         ("rank_enter", 0.001, 0.0, 10.0),
         ("rank_strong", 0.001, 0.0, 10.0),
@@ -219,7 +225,8 @@ def scores_from_rebalance_item(
             stamped["y_hl"] = None
     else:
         stamped["y_hl"] = None
-    stamped["y_tau"] = stamped.get("y_oc")
+    if stamped.get("y_tau") is None:
+        stamped["y_tau"] = stamped.get("y_τc")
     if stamped.get("ranking") is not None:
         stamped["y_fuse"] = stamped.get("ranking")
     return stamped

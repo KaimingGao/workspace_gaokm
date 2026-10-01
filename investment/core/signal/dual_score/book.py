@@ -138,8 +138,6 @@ def dual_score_book_fields(
             work["ranking"] = stamped.get("ranking")
         if stamped.get("y_oo") is not None:
             work["y_oo"] = stamped.get("y_oo")
-        if stamped.get("y_oc") is not None:
-            work["y_oc"] = stamped.get("y_oc")
         if stamped.get("y_co") is not None:
             work["y_co"] = stamped.get("y_co")
         work["fusion_w_oo"] = cfg.get("fusion_w_oo")
@@ -148,6 +146,8 @@ def dual_score_book_fields(
         fa = work.get("factor_anomaly")
         if isinstance(fa, dict) and fa.get("fatal_tau"):
             work["y_oc"] = None
+            work["y_τc"] = None
+            work["predicted_score_τc"] = None
             work["y_co"] = None
             work["ranking"] = None
             work.pop("predicted_score_tau", None)
@@ -231,7 +231,6 @@ def dual_score_book_fields(
         "dual_score_co_head": work.get("dual_score_co_head"),
         "ranking": work.get("ranking"),
         "y_oo": work.get("y_oo"),
-        "y_oc": work.get("y_oc"),
         "y_co": work.get("y_co"),
         "fusion_w_oo": work.get("fusion_w_oo"),
         "fusion_w_oc": work.get("fusion_w_oc"),

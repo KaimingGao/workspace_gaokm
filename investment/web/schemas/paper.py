@@ -128,29 +128,53 @@ class T0BacktestRequest(BaseModel):
         le=5.0,
         description="y_tw_enter 的 Unicode 别名",
     )
+    y_τc_enter: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        le=20.0,
+        description="|ŷ_τc| 入场百分点。默认 0.5；0=不拦",
+    )
+    y_τc_strong: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        le=20.0,
+        description="过 y_τc入场后 |ŷ_τc|>=此值用强金额，否则入场金额。默认 1.0；须≥入场",
+    )
+    y_τc_enter_amount: Optional[float] = Field(
+        default=None,
+        ge=0,
+        le=1_000_000,
+        description="过 y_τc入场未过强时本轮金额（元）；默认 2 万；0=走旧比例仓。按成交价换算整手，不够一手则买一手",
+    )
+    y_τc_strong_amount: Optional[float] = Field(
+        default=None,
+        ge=0,
+        le=1_000_000,
+        description="过 y_τc强时本轮金额（元）；不少于入场金额，默认 4 万",
+    )
     y_oc_enter: Optional[float] = Field(
         default=None,
         ge=0.0,
         le=20.0,
-        description="|ŷ_oc| 入场百分点。默认 0.5；0=不拦",
+        description="旧键，读入后并入 y_τc_enter",
     )
     y_oc_strong: Optional[float] = Field(
         default=None,
         ge=0.0,
         le=20.0,
-        description="过 y_oc入场后 |ŷ_oc|>=此值用强金额，否则入场金额。默认 1.0；须≥入场",
+        description="旧键，读入后并入 y_τc_strong",
     )
     y_oc_enter_amount: Optional[float] = Field(
         default=None,
         ge=0,
         le=1_000_000,
-        description="过 y_oc入场未过强时本轮金额（元）；默认 2 万；0=走旧比例仓。按成交价换算整手，不够一手则买一手",
+        description="旧键，读入后并入 y_τc_enter_amount",
     )
     y_oc_strong_amount: Optional[float] = Field(
         default=None,
         ge=0,
         le=1_000_000,
-        description="过 y_oc强时本轮金额（元）；不少于入场金额，默认 4 万",
+        description="旧键，读入后并入 y_τc_strong_amount",
     )
     y_tw_vote_margin: Optional[float] = Field(
         default=None,
@@ -180,11 +204,17 @@ class T0BacktestRequest(BaseModel):
         default=None,
         description="ŷ_τ* 概率头：ridge（默认）| tree（影子树，做 T 回测）",
     )
-    t0_y_oc_target_scale: Optional[float] = Field(
+    t0_y_τc_target_scale: Optional[float] = Field(
         default=None,
         ge=0.0,
         le=100.0,
         description="C_τ=price(τ)×(1+clip(y_τc×scale, ±20)/100)；默认 2",
+    )
+    t0_y_oc_target_scale: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        le=100.0,
+        description="旧键，读入后并入 t0_y_τc_target_scale",
     )
     t0_close_band_delta_pct: Optional[float] = Field(
         default=None,
@@ -420,6 +450,10 @@ class PaperExecutionPatchRequest(BaseModel):
     y_on_risk: Optional[float] = None
     y_tw_enter: Optional[float] = None
     y_τw_enter: Optional[float] = None
+    y_τc_enter: Optional[float] = None
+    y_τc_strong: Optional[float] = None
+    y_τc_enter_amount: Optional[float] = None
+    y_τc_strong_amount: Optional[float] = None
     y_oc_enter: Optional[float] = None
     y_oc_strong: Optional[float] = None
     y_oc_enter_amount: Optional[float] = None
@@ -429,6 +463,7 @@ class PaperExecutionPatchRequest(BaseModel):
     y_tw_midpoint: Optional[float] = None
     y_τw_midpoint: Optional[float] = None
     horizon_prob_backend: Optional[str] = None
+    t0_y_τc_target_scale: Optional[float] = None
     t0_y_oc_target_scale: Optional[float] = None
     t0_close_band_delta_pct: Optional[float] = None
     t0_price_space_gate: Optional[bool] = None

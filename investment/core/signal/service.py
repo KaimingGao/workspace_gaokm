@@ -244,12 +244,17 @@ class SignalService:
 
             cfg = rank_cfg if isinstance(rank_cfg, dict) else get_path_matrix_cfg()
             stamped = stamp_window_scores(packed, cfg)
-            for k in ("y_oo", "y_oc", "y_co", "y_τc", "ranking"):
+            for k in ("y_oo", "y_co", "y_τc", "ranking"):
                 if stamped.get(k) is not None:
                     out[k] = stamped[k]
             fa = packed.get("factor_anomaly") or out.get("factor_anomaly")
             if isinstance(fa, dict) and fa.get("fatal_tau"):
                 out["y_oc"] = None
+                out["predicted_score_oc"] = None
+                out["y_tau_oc"] = None
+                out["predicted_score_tau_oc"] = None
+                out["y_τc"] = None
+                out["predicted_score_τc"] = None
                 out["y_co"] = None
                 out["ranking"] = None
                 out.pop("predicted_score_tau", None)

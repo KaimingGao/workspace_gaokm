@@ -233,7 +233,7 @@
                         <span class="follow-path-matrix-box-title">y_τc &gt; 0</span>
                         <span class="follow-path-matrix-box-desc">入场闸</span>
                       </span>
-                      <input type="checkbox" name="pm_y_oc_gt0" aria-label="y_τc 大于 0" />
+                      <input type="checkbox" name="pm_y_τc_gt0" aria-label="y_τc 大于 0" />
                     </label>
                   </div>
                 </section>
@@ -378,7 +378,7 @@
                     title="C_τ = price(τ)×(1+clip(y_τc×scale, ±20)/100)。默认 scale=2。"
                   >
                     <span>y_τc 放大</span>
-                    <input type="number" name="t0_y_oc_target_scale" min="0" max="100" step="0.5" value="2" />
+                    <input type="number" name="t0_y_τc_target_scale" min="0" max="100" step="0.5" value="2" />
                   </label>
                   <label
                     class="paper-t0-field"
@@ -392,28 +392,28 @@
                     title="破带后：|ŷ_τc| 须≥此百分点才开腿。默认 0.5；0=不拦。过此未过 y_τc强% 用入场金额。"
                   >
                     <span>y_τc入场%</span>
-                    <input type="number" name="y_oc_enter" min="0" max="20" step="0.1" value="0.5" />
+                    <input type="number" name="y_τc_enter" min="0" max="20" step="0.1" value="0.5" />
                   </label>
                   <label
                     class="paper-t0-field"
                     title="过 y_τc入场%、未过 y_τc强% 时，本轮第一腿金额（元）。默认 2 万。按成交价换算整手，不够一手则买一手；受可卖/现金约束。"
                   >
                     <span>y_τc入场金额</span>
-                    <input type="number" name="y_oc_enter_amount" min="0" max="1000000" step="1000" value="20000" />
+                    <input type="number" name="y_τc_enter_amount" min="0" max="1000000" step="1000" value="20000" />
                   </label>
                   <label
                     class="paper-t0-field"
                     title="过 y_τc入场% 后：|ŷ_τc|≥此百分点用 y_τc强金额，否则用入场金额。默认 1.0。须≥入场%。"
                   >
                     <span>y_τc强%</span>
-                    <input type="number" name="y_oc_strong" min="0" max="20" step="0.1" value="1.0" />
+                    <input type="number" name="y_τc_strong" min="0" max="20" step="0.1" value="1.0" />
                   </label>
                   <label
                     class="paper-t0-field"
                     title="过 y_τc强% 时本轮第一腿金额（元）。不少于入场金额，默认 4 万。按成交价换算整手，不够一手则买一手；受可卖/现金约束。"
                   >
                     <span>y_τc强金额</span>
-                    <input type="number" name="y_oc_strong_amount" min="0" max="1000000" step="1000" value="40000" />
+                    <input type="number" name="y_τc_strong_amount" min="0" max="1000000" step="1000" value="40000" />
                   </label>
                   <label
                     class="paper-t0-field"

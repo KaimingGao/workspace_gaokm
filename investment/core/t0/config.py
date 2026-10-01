@@ -153,11 +153,9 @@ _DEAD_T0_KEYS = (
     "min_range_pct_sell_then_buy",
     "min_range_pct_buy_then_sell",
     "y_tau_map",
-    # ŷ_τc 租用已由 ŷ_τ30/60/90 覆盖
+    # 旧 ŷ_τc 租用闸（ASCII y_tc_* / *_alt）仍丢弃。y_τc_enter / y_τc_strong 现为 |ŷ_τc| 入场与强档。
     "y_tc_strong",
-    "y_τc_strong",
     "y_tc_enter",
-    "y_τc_enter",
     "y_tc_enter_alt",
     "y_τc_enter_alt",
     "y_tc_validate",
@@ -379,17 +377,17 @@ DEFAULT_T0_RULES: Dict[str, Any] = {
     "y_trade_enter": 0.01,
     "y_tw_enter": 2.0,  # 正T：ŷ_τw>=此票；反T：ŷ_τw<=−此票。0=允许 0 票
     "y_τw_enter": 2.0,
-    "y_oc_enter": 0.5,  # |ŷ_oc| 入场百分点；0=不拦
-    "y_oc_strong": 1.0,  # |ŷ_oc|>=此值用强金额，否则入场金额
-    "y_oc_enter_amount": 20_000.0,  # 过入场未过强：本轮金额（元）→股数
-    "y_oc_strong_amount": 40_000.0,  # 过强：本轮金额（≥入场金额）
+    "y_τc_enter": 0.5,  # |ŷ_τc| 入场百分点；0=不拦。旧键 y_oc_enter 读入后迁入
+    "y_τc_strong": 1.0,  # |ŷ_τc|>=此值用强金额，否则入场金额
+    "y_τc_enter_amount": 20_000.0,  # 过入场未过强：本轮金额（元）→股数
+    "y_τc_strong_amount": 40_000.0,  # 过强：本轮金额（≥入场金额）
     "y_tw_vote_margin": 5.0,  # |p_up−mid|≤此百分点不给 ŷ_τw 投票
     "y_τw_vote_margin": 5.0,
     "y_tw_midpoint": 47.0,  # ŷ_τ30/45/60/75/90 共用中位点%
     "y_τw_midpoint": 47.0,
     # ŷ_τ* 概率头：ridge（默认）| tree（影子树 + 路径形状，仅回测建议）
     "horizon_prob_backend": "ridge",
-    "t0_y_oc_target_scale": 2.0,  # C_τ = price(τ)×(1+clip(y_τc×scale, ±20)/100)
+    "t0_y_τc_target_scale": 2.0,  # C_τ = price(τ)×(1+clip(y_τc×scale, ±20)/100)。旧键 t0_y_oc_target_scale 读入后迁入
     "t0_close_band_delta_pct": 0.5,  # 破带带宽 δ%
     "fusion_w_τc": 0.5,  # residual 融合：ŷ_τc 权
     "fusion_w_tc": 0.5,
@@ -546,6 +544,26 @@ def t0_slots_enabled(cfg: Optional[dict]) -> bool:
     return True
 
 
+Y_TC_RULE_ALIASES = (
+    ("y_τc_enter", "y_oc_enter"),
+    ("y_τc_strong", "y_oc_strong"),
+    ("y_τc_enter_amount", "y_oc_enter_amount"),
+    ("y_τc_strong_amount", "y_oc_strong_amount"),
+    ("t0_y_τc_target_scale", "t0_y_oc_target_scale"),
+)
+
+
+def migrate_y_oc_rule_keys(cfg: dict, override_keys: Optional[set] = None) -> None:
+    """规则键并入 y_τc_*。同一层只写了旧键则迁入；新键已显式给出则保留。迁完去掉旧键。"""
+    if not isinstance(cfg, dict):
+        return
+    keys = set(cfg.keys()) if override_keys is None else set(override_keys)
+    for new, old in Y_TC_RULE_ALIASES:
+        if old in keys and new not in keys:
+            cfg[new] = cfg.get(old)
+        cfg.pop(old, None)
+
+
 def _migrate_y_tw_enter(cfg: dict, override_keys: Optional[set] = None) -> None:
     """对齐 y_tw_enter / y_τw_enter 别名。"""
     _ = override_keys
@@ -583,6 +601,7 @@ def load_t0_rules(override: Optional[dict] = None) -> Dict[str, Any]:
         for k, v in ov.items():
             if v is not None:
                 cfg[k] = v
+    migrate_y_oc_rule_keys(cfg, override_keys)
     migrate_y_path_keys_to_hl(cfg, override_keys)
     migrate_ytw_lot_keys_to_oc(cfg, override_keys)
     drop_dead_t0_keys(cfg)
@@ -632,13 +651,13 @@ def load_t0_rules(override: Optional[dict] = None) -> Dict[str, Any]:
         ("y_on_allow", 0.01, 10.0, 0.01),
         ("y_tw_enter", 0.0, 5.0, 2.0),
         ("y_τw_enter", 0.0, 5.0, 2.0),
-        ("y_oc_enter", 0.0, 20.0, 0.5),
-        ("y_oc_strong", 0.0, 20.0, 1.0),
+        ("y_τc_enter", 0.0, 20.0, 0.5),
+        ("y_τc_strong", 0.0, 20.0, 1.0),
         ("y_tw_vote_margin", 0.0, 20.0, 5.0),
         ("y_τw_vote_margin", 0.0, 20.0, 5.0),
         ("y_tw_midpoint", 1.0, 99.0, 47.0),
         ("y_τw_midpoint", 1.0, 99.0, 47.0),
-        ("t0_y_oc_target_scale", 0.0, 100.0, 2.0),
+        ("t0_y_τc_target_scale", 0.0, 100.0, 2.0),
         ("t0_close_band_delta_pct", 0.0, 10.0, 0.5),
         ("fusion_w_τc", 0.0, 1.0, 0.5),
         ("fusion_w_tc", 0.0, 1.0, 0.5),
@@ -681,20 +700,21 @@ def load_t0_rules(override: Optional[dict] = None) -> Dict[str, Any]:
     if cfg.get("y_tw_midpoint") in (None, "") and cfg.get("y_τw_midpoint") not in (None, ""):
         cfg["y_tw_midpoint"] = cfg.get("y_τw_midpoint")
     cfg["y_τw_midpoint"] = cfg.get("y_tw_midpoint")
-    oc_enter = float(cfg.get("y_oc_enter") or 0.0)
+    oc_enter = float(cfg.get("y_τc_enter") or 0.0)
     strong_explicit = (
-        "y_oc_strong" in override_keys and cfg.get("y_oc_strong") not in (None, "")
+        ("y_τc_strong" in override_keys or "y_oc_strong" in override_keys)
+        and cfg.get("y_τc_strong") not in (None, "")
     )
     if not strong_explicit:
-        cfg["y_oc_strong"] = max(oc_enter, 1.0)
+        cfg["y_τc_strong"] = max(oc_enter, 1.0)
     else:
         try:
             strong = float(
-                cfg.get("y_oc_strong") if cfg.get("y_oc_strong") not in (None, "") else 1.0
+                cfg.get("y_τc_strong") if cfg.get("y_τc_strong") not in (None, "") else 1.0
             )
         except (TypeError, ValueError):
             strong = 1.0
-        cfg["y_oc_strong"] = max(oc_enter, min(strong, 20.0))
+        cfg["y_τc_strong"] = max(oc_enter, min(strong, 20.0))
     if (
         "y_tw_vote_margin" not in override_keys
         or cfg.get("y_tw_vote_margin") in (None, "")
@@ -956,11 +976,11 @@ def load_t0_rules(override: Optional[dict] = None) -> Dict[str, Any]:
         v = max(1_000.0, min(v, 1_000_000.0))
         return float(int(round(v / 100.0)) * 100)
 
-    cfg["y_oc_enter_amount"] = _norm_yoc_amount(cfg.get("y_oc_enter_amount"), 20_000.0)
-    strong_amt = _norm_yoc_amount(cfg.get("y_oc_strong_amount"), 40_000.0)
-    if cfg["y_oc_enter_amount"] > 0:
-        strong_amt = max(cfg["y_oc_enter_amount"], strong_amt)
-    cfg["y_oc_strong_amount"] = strong_amt
+    cfg["y_τc_enter_amount"] = _norm_yoc_amount(cfg.get("y_τc_enter_amount"), 20_000.0)
+    strong_amt = _norm_yoc_amount(cfg.get("y_τc_strong_amount"), 40_000.0)
+    if cfg["y_τc_enter_amount"] > 0:
+        strong_amt = max(cfg["y_τc_enter_amount"], strong_amt)
+    cfg["y_τc_strong_amount"] = strong_amt
     if isinstance(cfg.get("t0_slots"), (list, tuple)) and len(cfg.get("t0_slots") or []) == 0:
         cfg["t0_slots"] = []
     else:
@@ -976,6 +996,7 @@ def t0_backtest_virtual_shares(cfg: Optional[dict] = None, fallback: Any = 1000,
     from core.paper.sizing import shares_from_amount
 
     cfg_d = dict(cfg) if isinstance(cfg, dict) else {}
+    migrate_y_oc_rule_keys(cfg_d)
     migrate_ytw_lot_keys_to_oc(cfg_d)
 
     def _amt(raw: Any) -> float:
@@ -987,8 +1008,8 @@ def t0_backtest_virtual_shares(cfg: Optional[dict] = None, fallback: Any = 1000,
             return 0.0
         return float(v)
 
-    enter = _amt(cfg_d.get("y_oc_enter_amount"))
-    strong = _amt(cfg_d.get("y_oc_strong_amount"))
+    enter = _amt(cfg_d.get("y_τc_enter_amount"))
+    strong = _amt(cfg_d.get("y_τc_strong_amount"))
     if enter <= 0 and strong <= 0:
         try:
             fb = int(float(fallback if fallback not in (None, "") else 1000))

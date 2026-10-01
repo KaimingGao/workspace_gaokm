@@ -340,7 +340,9 @@ class StampPrimaryTests(unittest.TestCase):
             config={"dual_score": {"enable_minute_tau": True}},
         )
         self.assertAlmostEqual(item["y_τc"], 0.2, places=6)
-        self.assertAlmostEqual(item["y_oc"], item["y_τc"], places=6)
+        self.assertNotIn("y_oc", item)
+        self.assertNotIn("predicted_score_oc", item)
+        self.assertNotIn("y_tau_oc", item)
         self.assertAlmostEqual(item["predicted_score_τc"], 0.2, places=6)
         self.assertEqual(item["y_τc_source"], "ridge")
 

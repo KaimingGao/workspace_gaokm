@@ -2286,7 +2286,6 @@ def collect_tau_intraday_panel(
                     "open_minute": o_min,
                     "close_minute": c_min,
                     "y_tau": float(y_tau_c),
-                    "y_oc": float(y_oc),
                     "ret_open_to_tau": row.get("ret_open_to_tau"),
                     "tau_elapsed_min": elapsed,
                     "tau_plus_30": tau30_hm,

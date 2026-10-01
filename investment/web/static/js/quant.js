@@ -305,7 +305,7 @@ export function initQuant(ctx) {
     }
     const html =
       typeof q.remCoefTableHtml === "function"
-        ? q.remCoefTableHtml(rm, opts)
+        ? q.remCoefTableHtml(rm, { ...opts, head: "τc" })
         : "";
     host.innerHTML = html || "";
   }

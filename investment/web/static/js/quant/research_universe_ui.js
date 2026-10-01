@@ -145,7 +145,6 @@ export function installResearchUniverseUi(q) {
       .map((tier) => {
         const meta = TIER_META[tier] || { label: tier, tip: "" };
         const rows = byTier[tier];
-        const open = tier === "B" ? " open" : "";
         const slice = rows.slice(0, maxShow);
         const trs = slice
           .map(
@@ -177,7 +176,7 @@ export function installResearchUniverseUi(q) {
               <tbody>${trs}</tbody>
             </table>${more}`
           : `<p class="quant-ru-list-empty">无</p>`;
-        return `<details class="quant-ru-tier-fold" data-tier="${tier}"${open}>
+        return `<details class="quant-ru-tier-fold" data-tier="${tier}">
           <summary class="quant-ru-tier-fold-sum" title="${escapeHtml(meta.tip)}">
             <span class="quant-ru-tier-badge is-${tier}">${tier}</span>
             <span class="quant-ru-tier-label">${escapeHtml(meta.label)}</span>

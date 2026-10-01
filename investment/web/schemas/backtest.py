@@ -84,9 +84,13 @@ class PaperReplayBacktestRequest(BaseModel):
         default=False,
         description="开=入场须 y_oo>0；关=不看。缺分不拦。未过则已持仓清仓",
     )
+    y_τc_gt0: Optional[bool] = Field(
+        default=None,
+        description="开=入场须 ŷ_τc>0；关=不看。缺分不拦。未过则已持仓清仓",
+    )
     y_oc_gt0: bool = Field(
         default=False,
-        description="开=入场须 y_oc>0；关=不看。缺分不拦。未过则已持仓清仓",
+        description="旧键，读入后并入 y_τc_gt0",
     )
     initial_cash: float = Field(
         default=200_000.0,

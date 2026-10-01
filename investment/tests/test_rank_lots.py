@@ -188,7 +188,8 @@ class TestPlanRankLotDay(unittest.TestCase):
         )
         buy = out["buys"][0]
         self.assertAlmostEqual(float(buy["y_oo"]), 2.0)
-        self.assertAlmostEqual(float(buy["y_oc"]), 1.0)
+        self.assertAlmostEqual(float(buy["y_τc"]), 1.0)
+        self.assertNotIn("y_oc", buy)
         self.assertAlmostEqual(float(buy["y_co"]), 0.4)
         self.assertNotIn("y_on", buy)
         self.assertAlmostEqual(float(buy["ranking"]), 1.5)
@@ -1299,7 +1300,7 @@ class TestEnterGates(unittest.TestCase):
             rs=0.02,
         )
         self.assertIsNotNone(skip_oc)
-        self.assertIn("y_oc", skip_oc)
+        self.assertIn("y_τc", skip_oc)
         self.assertIsNone(
             rank_lot_enter_skip_reason(
                 self._item(predicted_score=2.0, y_tau=1.0),

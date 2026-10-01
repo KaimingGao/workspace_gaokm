@@ -999,7 +999,6 @@ def _build_close_band_scan_trace(
         r_hat = None
         remaining_oc_v = None
         c_hat_source = None
-        y_oc_scan = None
         direction = None
         y_tw_skip = None
         minute_missing = bool(
@@ -1046,7 +1045,6 @@ def _build_close_band_scan_trace(
 
             sc = scores_from_item(gate_snap)
             y_tau = _yt_gate(gate_snap)
-            y_oc_scan = y_tau
             from core.signal.yhat_windows import pick_y_tc_hat, tc_realized_pct
 
             y_r_hat = pick_y_tc_hat(sc, gate_snap)
@@ -1173,11 +1171,6 @@ def _build_close_band_scan_trace(
             "r_pct": round(float(r_pct), 4) if r_pct is not None else None,
             "r_hat": round(float(r_hat), 4) if r_hat is not None else None,
             "residual": round(float(r_hat), 4) if r_hat is not None else None,
-            "y_oc": (
-                round(float(y_oc_scan if y_oc_scan is not None else y_tau), 4)
-                if (y_oc_scan is not None or y_tau is not None)
-                else None
-            ),
             "y_τc": round(float(y_r), 4) if y_r is not None else None,
             "y_tc": round(float(y_r), 4) if y_r is not None else None,
             "remaining_oc": (
@@ -1519,7 +1512,9 @@ def simulate_t0_day_slots(
             continue
 
         remain = max_pos - used_ratio
-        y_oc_now = band_meta.get("y_oc")
+        y_oc_now = band_meta.get("y_τc")
+        if y_oc_now is None:
+            y_oc_now = band_meta.get("y_oc")
         lot_i = max(int(lot or 0), 1)
         want_shares = close_band_y_oc_round_shares(
             cfg, y_oc=y_oc_now, lot=lot_i, price=bar_close
@@ -1603,7 +1598,10 @@ def simulate_t0_day_slots(
                 "estimate_mode": space.get("estimate_mode"),
                 "y_tw": band_meta.get("y_tw"),
                 "y_oc_strong_hit": close_band_y_oc_is_strong(
-                    band_meta.get("y_oc"), cfg
+                    band_meta.get("y_τc")
+                    if band_meta.get("y_τc") is not None
+                    else band_meta.get("y_oc"),
+                    cfg,
                 ),
                 "c_tau": c_tau,
                 "delta_pct": band_meta.get("delta_pct"),

@@ -749,10 +749,10 @@ class TestT0Core(unittest.TestCase):
         self.assertNotIn("y_tau_enter", d)
         self.assertNotIn("y_hl_strong", d)
         self.assertAlmostEqual(d["y_tw_enter"], 2.0)
-        self.assertAlmostEqual(d["y_oc_enter"], 0.5)
-        self.assertAlmostEqual(d["y_oc_strong"], 1.0)
-        self.assertEqual(int(d["y_oc_enter_amount"]), 20000)
-        self.assertEqual(int(d["y_oc_strong_amount"]), 40000)
+        self.assertAlmostEqual(d["y_τc_enter"], 0.5)
+        self.assertAlmostEqual(d["y_τc_strong"], 1.0)
+        self.assertEqual(int(d["y_τc_enter_amount"]), 20000)
+        self.assertEqual(int(d["y_τc_strong_amount"]), 40000)
         self.assertNotIn("y_tw_strong", d)
         self.assertNotIn("y_tw_enter_shares", d)
         self.assertNotIn("y_tw_strong_shares", d)
@@ -817,7 +817,7 @@ class TestT0Core(unittest.TestCase):
         self.assertAlmostEqual(float(d.get("t0_round_ratio") or 0), 0.4)
         self.assertAlmostEqual(float(d.get("t0_price_space_max_dev_pct") or 0), 0.0)
         self.assertAlmostEqual(float(d.get("t0_price_space_prev_dev_pct") or 0), 5.0)
-        self.assertAlmostEqual(float(d.get("t0_y_oc_target_scale") or 0), 2.0)
+        self.assertAlmostEqual(float(d.get("t0_y_τc_target_scale") or 0), 2.0)
         self.assertNotIn("t0_y_oc_l", d)
         self.assertNotIn("t0_y_oc_u", d)
         self.assertNotIn("y_tau_entry_price_skip", d)
@@ -2317,11 +2317,11 @@ class TestDualYDirection(unittest.TestCase):
         self.assertNotIn("r_tau_enter", cfg)
         self.assertNotIn("r_tau_enter_alt", cfg)
         self.assertAlmostEqual(
-            float(load_t0_rules({"t0_y_oc_target_scale": 100})["t0_y_oc_target_scale"]),
+            float(load_t0_rules({"t0_y_oc_target_scale": 100})["t0_y_τc_target_scale"]),
             100.0,
         )
         self.assertAlmostEqual(
-            float(load_t0_rules({"t0_y_oc_target_scale": 150})["t0_y_oc_target_scale"]),
+            float(load_t0_rules({"t0_y_oc_target_scale": 150})["t0_y_τc_target_scale"]),
             100.0,
         )
 

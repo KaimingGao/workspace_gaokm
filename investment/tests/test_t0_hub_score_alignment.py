@@ -86,7 +86,7 @@ class TestT0HubScoreAlignment(unittest.TestCase):
         if not scores_have_any(direct) or not scores_have_any(rescore):
             self.skipTest("τ/path 模型未加载，跳过数值对齐验收")
 
-        for key in ("y_tau_oc", "y_path", "predicted_score_tau"):
+        for key in ("y_τc", "y_tau", "y_path"):
             a = direct.get(key)
             b = rescore.get(key)
             if a is None and b is None:
@@ -195,7 +195,8 @@ class TestT0HubScoreAlignment(unittest.TestCase):
             _refresh_tau_oc_from_feats(
                 item, hm="09:40", trade_date="2026-09-18"
             )
-        self.assertAlmostEqual(float(item["y_oc"]), 2.203, places=6)
+        self.assertAlmostEqual(float(item["y_τc"]), 2.203, places=6)
+        self.assertNotIn("y_oc", item)
         keys = {
             t.get("key")
             for t in (item.get("formula_terms_tau") or {}).get("terms") or []

@@ -49,11 +49,17 @@ DEFAULT_CLOSE_BAND_DELTA_PCT = 0.5
 CLOSE_BAND_DELTA_PCT_MAX = 10.0
 
 
+def _cfg_alias(cfg_d: dict, new: str, old: str):
+    if cfg_d.get(new) not in (None, ""):
+        return cfg_d.get(new)
+    return cfg_d.get(old)
+
+
 def resolve_y_oc_target_scale(cfg: Optional[dict] = None) -> float:
-    """C_τ 放大倍数。缺键默认 2。"""
+    """C_τ 放大倍数。缺键默认 2。旧键 t0_y_oc_target_scale 仍读。"""
     cfg_d = cfg if isinstance(cfg, dict) else {}
     try:
-        raw = cfg_d.get("t0_y_oc_target_scale")
+        raw = _cfg_alias(cfg_d, "t0_y_τc_target_scale", "t0_y_oc_target_scale")
         v = float(DEFAULT_Y_OC_TARGET_SCALE if raw is None or raw == "" else raw)
     except (TypeError, ValueError):
         v = float(DEFAULT_Y_OC_TARGET_SCALE)
@@ -221,9 +227,8 @@ def scores_close_components(
         "c_trade": None,
         "c_nowcast": None,
         "y_tau": y_tau,
-        "y_oc": y_oc,
         "y_oc_target": round(float(y_oc_target), 6) if y_oc_target is not None else None,
-        "t0_y_oc_target_scale": scale,
+        "t0_y_τc_target_scale": scale,
         "y_τc": y_τc,
         "y_τc_ridge": y_τc_ridge,
         "y_τc_source": y_τc_source,
@@ -371,7 +376,7 @@ def close_band_pick_direction(
         "delta_pct": d,
         "lower_px": lo_px,
         "upper_px": up_px,
-        "t0_y_oc_target_scale": scale,
+        "t0_y_τc_target_scale": scale,
     }
 
 
@@ -854,11 +859,15 @@ def _ytw_enter_for_direction(cfg_d: dict, direction: str) -> float:
 
 
 def _y_oc_enter_floor(cfg_d: dict) -> float:
-    """ŷ_oc 入场百分点。0=不拦。"""
+    """ŷ_τc 入场百分点。0=不拦。旧键 y_oc_enter 仍读。"""
     from core.t0.score_policy import _cfg_float
 
-    if cfg_d.get("y_oc_enter") not in (None, ""):
-        return max(0.0, min(float(_cfg_float(cfg_d, "y_oc_enter", DEFAULT_Y_OC_ENTER)), 20.0))
+    raw = _cfg_alias(cfg_d, "y_τc_enter", "y_oc_enter")
+    if raw not in (None, ""):
+        try:
+            return max(0.0, min(float(raw), 20.0))
+        except (TypeError, ValueError):
+            return max(0.0, min(float(_cfg_float(cfg_d, "y_τc_enter", DEFAULT_Y_OC_ENTER)), 20.0))
     return DEFAULT_Y_OC_ENTER
 
 
@@ -867,8 +876,12 @@ def _y_oc_strong_floor(cfg_d: dict) -> float:
     from core.t0.score_policy import _cfg_float
 
     enter = _y_oc_enter_floor(cfg_d)
-    if cfg_d.get("y_oc_strong") not in (None, ""):
-        strong = max(0.0, min(float(_cfg_float(cfg_d, "y_oc_strong", DEFAULT_Y_OC_STRONG)), 20.0))
+    raw_strong = _cfg_alias(cfg_d, "y_τc_strong", "y_oc_strong")
+    if raw_strong not in (None, ""):
+        try:
+            strong = max(0.0, min(float(raw_strong), 20.0))
+        except (TypeError, ValueError):
+            strong = max(0.0, min(float(_cfg_float(cfg_d, "y_τc_strong", DEFAULT_Y_OC_STRONG)), 20.0))
         return max(enter, strong)
     return max(enter, DEFAULT_Y_OC_STRONG)
 
@@ -916,8 +929,8 @@ def close_band_y_oc_round_shares(
     from core.paper.sizing import shares_from_amount
 
     cfg_d = cfg if isinstance(cfg, dict) else {}
-    enter = _yoc_lot_amount(cfg_d.get("y_oc_enter_amount"), 0.0)
-    strong = _yoc_lot_amount(cfg_d.get("y_oc_strong_amount"), 0.0)
+    enter = _yoc_lot_amount(_cfg_alias(cfg_d, "y_τc_enter_amount", "y_oc_enter_amount"), 0.0)
+    strong = _yoc_lot_amount(_cfg_alias(cfg_d, "y_τc_strong_amount", "y_oc_strong_amount"), 0.0)
     if enter <= 0 and strong <= 0:
         return None
     if enter <= 0:
@@ -933,7 +946,7 @@ def close_band_y_oc_skip_reason(
     y_oc: Optional[float],
     cfg: Optional[dict] = None,
 ) -> Optional[str]:
-    """选腿入场：|ŷ_oc| 须过 y_oc入场%。0=不拦。缺 ŷ_oc 由估 C_τ 先行跳过。"""
+    """选腿入场：|ŷ_τc| 须过 y_τc入场%。0=不拦。缺 ŷ_τc 由估 C_τ 先行跳过。"""
     if y_oc is None:
         return None
     cfg_d = cfg if isinstance(cfg, dict) else {}
@@ -941,7 +954,7 @@ def close_band_y_oc_skip_reason(
     if enter <= 1e-12:
         return None
     if abs(float(y_oc)) + 1e-12 < float(enter):
-        return f"ŷ_oc={float(y_oc):+.2f} 未过入场（须|ŷ_oc|>={enter:g}）"
+        return f"ŷ_τc={float(y_oc):+.2f} 未过入场（须|ŷ_τc|>={enter:g}）"
     return None
 
 
@@ -1109,8 +1122,10 @@ def bar_close_band_pick_direction(
     meta["upper_px"] = up_px
     meta["delta_px"] = dpx
     meta["delta_pct"] = delta
-    if est.get("y_oc") is not None:
-        meta["y_oc"] = est.get("y_oc")
+    if est.get("y_τc") is not None:
+        meta["y_τc"] = est.get("y_τc")
+    elif est.get("y_tau") is not None:
+        meta["y_τc"] = est.get("y_tau")
     if est.get("y_oc_target") is not None:
         meta["y_oc_target"] = est.get("y_oc_target")
     if est.get("r_hat") is not None:
@@ -1128,7 +1143,10 @@ def bar_close_band_pick_direction(
     if ytw_skip:
         meta["skip"] = ytw_skip
         return None, meta
-    yoc_skip = close_band_y_oc_skip_reason(meta.get("y_oc"), cfg)
+    yoc_skip = close_band_y_oc_skip_reason(
+        meta.get("y_τc") if meta.get("y_τc") is not None else meta.get("y_oc"),
+        cfg,
+    )
     if yoc_skip:
         meta["skip"] = yoc_skip
         return None, meta

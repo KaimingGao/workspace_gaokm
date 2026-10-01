@@ -2546,7 +2546,8 @@ class TestReplayPrefixYoc(unittest.TestCase):
         cfg = {"fusion_w_oo": 0.5, "fusion_w_oc": 0.5, "fusion_w_co": 0.0}
         self.assertTrue(_apply_prefix_oc(item, live, cfg))
         self.assertAlmostEqual(float(item["y_oo"]), 0.8, places=6)
-        self.assertAlmostEqual(float(item["y_oc"]), -0.70, places=6)
+        self.assertAlmostEqual(float(item["y_τc"]), -0.70, places=6)
+        self.assertNotIn("y_oc", item)
         self.assertLess(float(item["ranking"]), 0.2)
 
     def test_apply_prefix_copies_aux_yhat(self):
@@ -2580,7 +2581,7 @@ class TestReplayPrefixYoc(unittest.TestCase):
         self.assertNotIn("y_τ60", item)
         self.assertNotIn("y_τ90", item)
         self.assertNotIn("y_τw", item)
-        self.assertAlmostEqual(float(item["y_hl"]), 1.5)
+        self.assertAlmostEqual(float(item["y_hl"]), 0.4)
 
     def test_935_calls_t0_rescore_with_same_prefix(self):
         dates = self._dates()
@@ -2628,7 +2629,8 @@ class TestReplayPrefixYoc(unittest.TestCase):
                 cfg={"fusion_w_oo": 0.5, "fusion_w_oc": 0.5, "fusion_w_co": 0.0},
             )
         self.assertEqual(n, 1)
-        self.assertAlmostEqual(float(out[0]["y_oc"]), -0.70, places=6)
+        self.assertAlmostEqual(float(out[0]["y_τc"]), -0.70, places=6)
+        self.assertNotIn("y_oc", out[0])
         self.assertAlmostEqual(float(out[0]["y_oo"]), 0.5, places=6)
         self.assertTrue(rs.called)
         kw = rs.call_args.kwargs
@@ -2680,9 +2682,9 @@ class TestReplayPrefixYoc(unittest.TestCase):
         )
         if not scores_have_any(t0) or str(t0.get("_score_source") or "") != "prefix_causal":
             self.skipTest("τ 模型未加载，跳过 ŷ_oc 数值对齐")
-        y_t0 = t0.get("y_oc")
+        y_t0 = t0.get("y_τc")
         if y_t0 is None:
-            y_t0 = t0.get("y_tau") or t0.get("predicted_score_tau")
+            y_t0 = t0.get("y_oc") or t0.get("y_tau") or t0.get("predicted_score_tau")
         if y_t0 is None:
             self.skipTest("做 T rescore 未出 ŷ_oc")
         minute_maps = {code: {day: prefix}}
@@ -2697,7 +2699,7 @@ class TestReplayPrefixYoc(unittest.TestCase):
             cfg={"fusion_w_oo": 0.5, "fusion_w_oc": 0.5, "fusion_w_co": 0.0},
         )
         self.assertGreaterEqual(n, 1)
-        self.assertAlmostEqual(float(out[0]["y_oc"]), float(y_t0), places=6)
+        self.assertAlmostEqual(float(out[0]["y_τc"]), float(y_t0), places=6)
         self.assertAlmostEqual(float(out[0]["y_oo"]), 0.5, places=6)
         cut = _minute_bars_until_hm(prefix, tau_hm="09:35")
         self.assertEqual(len(cut), 1)

@@ -13,14 +13,14 @@ function yTwEnterValue(t0) {
 }
 
 function yOcEnterValue(t0) {
-  const e = Number(t0?.y_oc_enter);
+  const e = Number(t0?.y_τc_enter ?? t0?.y_oc_enter);
   if (Number.isFinite(e)) return Math.max(0, Math.min(e, 20));
   return 0.5;
 }
 
 function yOcStrongValue(t0) {
   const enter = yOcEnterValue(t0);
-  const s = Number(t0?.y_oc_strong);
+  const s = Number(t0?.y_τc_strong ?? t0?.y_oc_strong);
   if (!Number.isFinite(s)) return Math.max(enter, 1);
   return Math.max(enter, Math.min(s, 20));
 }
@@ -35,7 +35,7 @@ function clampT0LotAmount(raw, fallback) {
 
 function yOcEnterAmountValue(t0) {
   return clampT0LotAmount(
-    t0?.y_oc_enter_amount,
+    t0?.y_τc_enter_amount ?? t0?.y_oc_enter_amount,
     20000
   );
 }
@@ -43,7 +43,7 @@ function yOcEnterAmountValue(t0) {
 function yOcStrongAmountValue(t0) {
   const enter = yOcEnterAmountValue(t0);
   const s = clampT0LotAmount(
-    t0?.y_oc_strong_amount,
+    t0?.y_τc_strong_amount ?? t0?.y_oc_strong_amount,
     40000
   );
   return Math.max(enter, s);
@@ -159,7 +159,7 @@ export function renderExecutionRulesHtml(execution) {
     specKpi(
       "C_τ",
       (() => {
-        const s = Number(t0.t0_y_oc_target_scale);
+        const s = Number(t0.t0_y_τc_target_scale ?? t0.t0_y_oc_target_scale);
         const sc = Number.isFinite(s) ? s : 2;
         return `×${sc}`;
       })(),
@@ -413,10 +413,10 @@ export function fillExecutionForm(root, execution) {
   set("t0_max_position_pct", t0.t0_max_position_pct != null ? t0.t0_max_position_pct : 1.0);
   set("t0_slots_max_rounds", t0.t0_slots_max_rounds != null ? t0.t0_slots_max_rounds : 5);
   set("y_tw_enter", yTwEnterValue(t0));
-  set("y_oc_enter", yOcEnterValue(t0));
-  set("y_oc_enter_amount", yOcEnterAmountValue(t0));
-  set("y_oc_strong", yOcStrongValue(t0));
-  set("y_oc_strong_amount", yOcStrongAmountValue(t0));
+  set("y_τc_enter", yOcEnterValue(t0));
+  set("y_τc_enter_amount", yOcEnterAmountValue(t0));
+  set("y_τc_strong", yOcStrongValue(t0));
+  set("y_τc_strong_amount", yOcStrongAmountValue(t0));
   set(
     "y_tw_vote_margin",
     (() => {
@@ -440,8 +440,12 @@ export function fillExecutionForm(root, execution) {
       : "ridge"
   );
   set(
-    "t0_y_oc_target_scale",
-    t0.t0_y_oc_target_scale != null ? t0.t0_y_oc_target_scale : 2
+    "t0_y_τc_target_scale",
+    t0.t0_y_τc_target_scale != null
+      ? t0.t0_y_τc_target_scale
+      : t0.t0_y_oc_target_scale != null
+        ? t0.t0_y_oc_target_scale
+        : 2
   );
   set(
     "t0_close_band_delta_pct",
@@ -501,18 +505,18 @@ export function collectExecutionForm(root) {
     t0_slots_max_rounds: Math.max(0, Math.min(Math.round(num("t0_slots_max_rounds", 5)), 16)),
     y_tw_enter: Math.max(0, Math.min(num("y_tw_enter", 2), 5)),
     y_τw_enter: Math.max(0, Math.min(num("y_tw_enter", 2), 5)),
-    y_oc_enter: Math.max(0, Math.min(num("y_oc_enter", 0.5), 20)),
-    y_oc_enter_amount: (() => {
-      const n = clampT0LotAmount(num("y_oc_enter_amount", 20000), 20000);
+    y_τc_enter: Math.max(0, Math.min(num("y_τc_enter", 0.5), 20)),
+    y_τc_enter_amount: (() => {
+      const n = clampT0LotAmount(num("y_τc_enter_amount", 20000), 20000);
       return n;
     })(),
-    y_oc_strong: (() => {
-      const enter = Math.max(0, Math.min(num("y_oc_enter", 0.5), 20));
-      return Math.max(enter, Math.min(num("y_oc_strong", Math.max(enter, 1)), 20));
+    y_τc_strong: (() => {
+      const enter = Math.max(0, Math.min(num("y_τc_enter", 0.5), 20));
+      return Math.max(enter, Math.min(num("y_τc_strong", Math.max(enter, 1)), 20));
     })(),
-    y_oc_strong_amount: (() => {
-      const enter = clampT0LotAmount(num("y_oc_enter_amount", 20000), 20000);
-      return Math.max(enter, clampT0LotAmount(num("y_oc_strong_amount", 40000), 40000));
+    y_τc_strong_amount: (() => {
+      const enter = clampT0LotAmount(num("y_τc_enter_amount", 20000), 20000);
+      return Math.max(enter, clampT0LotAmount(num("y_τc_strong_amount", 40000), 40000));
     })(),
     y_tw_vote_margin: Math.max(0, Math.min(num("y_tw_vote_margin", 5), 20)),
     y_τw_vote_margin: Math.max(0, Math.min(num("y_tw_vote_margin", 5), 20)),
@@ -522,7 +526,7 @@ export function collectExecutionForm(root) {
       const s = String(str("horizon_prob_backend", "ridge") || "ridge").toLowerCase();
       return s === "tree" ? "tree" : "ridge";
     })(),
-    t0_y_oc_target_scale: Math.max(0, Math.min(num("t0_y_oc_target_scale", 2), 100)),
+    t0_y_τc_target_scale: Math.max(0, Math.min(num("t0_y_τc_target_scale", 2), 100)),
     t0_close_band_delta_pct: Math.max(0, Math.min(num("t0_close_band_delta_pct", 0.5), 10)),
     t0_pm_degrade_sell_then_buy: str("t0_pm_degrade", "13:00"),
     t0_pm_degrade_buy_then_sell: str("t0_pm_degrade", "13:00"),
@@ -629,9 +633,13 @@ export function fillPathMatrixForm(root, execution) {
   const yOoGt0 =
     pm.y_oo_gt0 != null ? !!pm.y_oo_gt0 : pm.y_oo_oc_enabled === true;
   const yOcGt0 =
-    pm.y_oc_gt0 != null ? !!pm.y_oc_gt0 : pm.y_oo_oc_enabled === true;
+    pm.y_τc_gt0 != null
+      ? !!pm.y_τc_gt0
+      : pm.y_oc_gt0 != null
+        ? !!pm.y_oc_gt0
+        : pm.y_oo_oc_enabled === true;
   set("pm_y_oo_gt0", yOoGt0);
-  set("pm_y_oc_gt0", yOcGt0);
+  set("pm_y_τc_gt0", yOcGt0);
   set(
     "pm_y_on_alpha",
     pm.fusion_w_co != null ? pm.fusion_w_co : pm.y_on_alpha != null ? pm.y_on_alpha : 1
@@ -740,7 +748,7 @@ export function collectPathMatrixForm(root) {
     wOc /= wSum;
   }
   const yOoGt0 = chk("pm_y_oo_gt0", false);
-  const yOcGt0 = chk("pm_y_oc_gt0", false);
+  const yOcGt0 = chk("pm_y_τc_gt0", false);
   let lotBase = clampLotAmount(num("pm_lot_base_amount", 10000), 10000);
   let lotStrong = clampLotAmount(num("pm_lot_strong_amount", lotBase), lotBase);
   if (lotStrong < lotBase) lotStrong = lotBase;
@@ -754,7 +762,7 @@ export function collectPathMatrixForm(root) {
         y_enter_enabled: true,
         y_enter_alt_enabled: true,
         y_oo_gt0: yOoGt0,
-        y_oc_gt0: yOcGt0,
+        y_τc_gt0: yOcGt0,
         y_on_alpha: Math.round(yOnAlpha * 1000) / 1000,
         fusion_w_co: Math.round(yOnAlpha * 1000) / 1000,
         holdings_mv_cap: Math.round(mvCap),
@@ -832,10 +840,10 @@ export function readT0BtSizing(root) {
     const n = Number(el.value);
     return Number.isFinite(n) ? n : fallback;
   };
-  const enter = clampT0LotAmount(num("y_oc_enter_amount", 20000), 20000);
+  const enter = clampT0LotAmount(num("y_τc_enter_amount", 20000), 20000);
   const per = Math.max(
     enter,
-    clampT0LotAmount(num("y_oc_strong_amount", 40000), 40000)
+    clampT0LotAmount(num("y_τc_strong_amount", 40000), 40000)
   );
   const rounds = Math.max(1, Math.min(Math.round(num("t0_slots_max_rounds", 5)), 16));
   // 虚拟底仓股数由引擎按 per * rounds / 价 现算；这里只交本金与 fallback
@@ -897,10 +905,10 @@ export function collectT0BacktestBody(root, opts = {}) {
     t0_slots_max_rounds: t0.t0_slots_max_rounds != null ? t0.t0_slots_max_rounds : 5,
     y_tw_enter: yTwEnterValue(t0),
     y_τw_enter: yTwEnterValue(t0),
-    y_oc_enter: yOcEnterValue(t0),
-    y_oc_enter_amount: yOcEnterAmountValue(t0),
-    y_oc_strong: yOcStrongValue(t0),
-    y_oc_strong_amount: yOcStrongAmountValue(t0),
+    y_τc_enter: yOcEnterValue(t0),
+    y_τc_enter_amount: yOcEnterAmountValue(t0),
+    y_τc_strong: yOcStrongValue(t0),
+    y_τc_strong_amount: yOcStrongAmountValue(t0),
     y_tw_vote_margin: (() => {
       const n = Number(t0.y_tw_vote_margin ?? t0.y_τw_vote_margin);
       if (!Number.isFinite(n)) return 5;
@@ -925,8 +933,12 @@ export function collectT0BacktestBody(root, opts = {}) {
       const s = String(t0.horizon_prob_backend || "ridge").toLowerCase();
       return s === "tree" ? "tree" : "ridge";
     })(),
-    t0_y_oc_target_scale:
-      t0.t0_y_oc_target_scale != null ? t0.t0_y_oc_target_scale : 2,
+    t0_y_τc_target_scale:
+      t0.t0_y_τc_target_scale != null
+        ? t0.t0_y_τc_target_scale
+        : t0.t0_y_oc_target_scale != null
+          ? t0.t0_y_oc_target_scale
+          : 2,
     t0_close_band_delta_pct:
       t0.t0_close_band_delta_pct != null ? t0.t0_close_band_delta_pct : 0.5,
     t0_pm_degrade_sell_then_buy: t0.t0_pm_degrade_sell_then_buy != null ? t0.t0_pm_degrade_sell_then_buy : "13:00",

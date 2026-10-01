@@ -2113,12 +2113,22 @@ def _apply_prefix_oc(item: dict, live: dict, cfg: Optional[dict]) -> bool:
             item[k] = v
     if item.get("ranking") is not None:
         item["y_fuse"] = item["ranking"]
-    if item.get("y_oc") is None:
+    if item.get("y_τc") is None:
         oc = pick_y_oc(item)
         if oc is not None:
-            item["y_oc"] = oc
+            from core.signal.yhat_windows import write_y_τc
+
+            write_y_τc(item, oc)
+    if item.get("y_τc") is not None:
+        for stale in (
+            "y_oc",
+            "predicted_score_oc",
+            "y_tau_oc",
+            "predicted_score_tau_oc",
+        ):
+            item.pop(stale, None)
     if item.get("y_tau") is None:
-        item["y_tau"] = item.get("y_oc")
+        item["y_tau"] = item.get("y_τc")
     return pick_y_oc(item) is not None
 
 
@@ -2244,6 +2254,7 @@ def backtest_paper_replay(
     y_enter_enabled: Optional[bool] = None,
     y_enter_alt_enabled: Optional[bool] = None,
     y_oo_gt0: Optional[bool] = None,
+    y_τc_gt0: Optional[bool] = None,
     y_oc_gt0: Optional[bool] = None,
     price_space_cfg: Optional[dict] = None,
     score_model_role: Optional[str] = None,
@@ -2385,6 +2396,7 @@ def backtest_paper_replay(
         lot_base_amount if lot_base_amount is not None else lot_base,
         lot_strong_amount if lot_strong_amount is not None else lot_strong,
     )
+    gt0_τc = y_τc_gt0 if y_τc_gt0 is not None else y_oc_gt0
     paper = _default_paper(
         initial_cash=initial_cash,
         top_k=top_k,
@@ -2410,7 +2422,7 @@ def backtest_paper_replay(
         "y_enter_enabled": True if y_enter_enabled is None else bool(y_enter_enabled),
         "y_enter_alt_enabled": True if y_enter_alt_enabled is None else bool(y_enter_alt_enabled),
         "y_oo_gt0": False if y_oo_gt0 is None else bool(y_oo_gt0),
-        "y_oc_gt0": False if y_oc_gt0 is None else bool(y_oc_gt0),
+        "y_τc_gt0": False if gt0_τc is None else bool(gt0_τc),
         "lot_base_amount": lot_base_n,
         "lot_strong_amount": lot_strong_n,
     }
@@ -2436,7 +2448,7 @@ def backtest_paper_replay(
     rl_cfg["y_enter_enabled"] = replay_lots["y_enter_enabled"]
     rl_cfg["y_enter_alt_enabled"] = replay_lots["y_enter_alt_enabled"]
     rl_cfg["y_oo_gt0"] = replay_lots["y_oo_gt0"]
-    rl_cfg["y_oc_gt0"] = replay_lots["y_oc_gt0"]
+    rl_cfg["y_τc_gt0"] = replay_lots["y_τc_gt0"]
     rl_cfg["holdings_mv_cap"] = 0.0
     rl_cfg["t0_sell_blocks"] = {}
 
@@ -2942,7 +2954,7 @@ def backtest_paper_replay(
             "y_enter_enabled": rl_cfg.get("y_enter_enabled"),
             "y_enter_alt_enabled": rl_cfg.get("y_enter_alt_enabled"),
             "y_oo_gt0": rl_cfg.get("y_oo_gt0"),
-            "y_oc_gt0": rl_cfg.get("y_oc_gt0"),
+            "y_τc_gt0": rl_cfg.get("y_τc_gt0"),
             "y_on_alpha": alpha,
             "fusion_w_oo": w_oo,
             "fusion_w_oc": w_oc,

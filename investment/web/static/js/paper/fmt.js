@@ -156,7 +156,14 @@ export function ocWithCoPct(yOc, yCo, wCo) {
 /** 拟合 ŷ_τc（price(τ)→close）；勿用时钟对齐后的 y_tau。 */
 export function pickYOcFitted(it) {
   if (!it || typeof it !== "object") return null;
-  for (const c of [it.y_oc, it.predicted_score_oc, it.y_tau_oc, it.predicted_score_tau_oc]) {
+  for (const c of [
+    it["y_τc"],
+    it.predicted_score_τc,
+    it.y_oc,
+    it.predicted_score_oc,
+    it.y_tau_oc,
+    it.predicted_score_tau_oc,
+  ]) {
     const n = _numField(c);
     if (_looksLikeYhatPct(n)) return n;
   }

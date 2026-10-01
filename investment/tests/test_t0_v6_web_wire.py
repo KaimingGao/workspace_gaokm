@@ -66,7 +66,7 @@ class TestT0V6WebWire(unittest.TestCase):
         self.assertNotIn("t0_env_gate_enabled", d)
         self.assertNotIn("t0_slots_roll_unused", d)
         self.assertAlmostEqual(float(d["t0_close_band_delta_pct"]), 0.5)
-        self.assertAlmostEqual(float(d["t0_y_oc_target_scale"]), 2.0)
+        self.assertAlmostEqual(float(d["t0_y_τc_target_scale"]), 2.0)
         self.assertNotIn("t0_y_oc_l", d)
         self.assertNotIn("t0_y_oc_u", d)
         self.assertAlmostEqual(float(d["y_tw_midpoint"]), 47.0)
@@ -116,6 +116,7 @@ class TestT0V6WebWire(unittest.TestCase):
         )
         self.assertEqual(kw["initial_shares"], 400)
         self.assertEqual(kw["rules"]["y_oc_enter_amount"], 4000)
+        self.assertNotIn("y_τc_enter_amount", kw["rules"])
 
     def test_patch_accepts_close_band_thresholds(self):
         ok, norm, errs = validate_execution_patch(

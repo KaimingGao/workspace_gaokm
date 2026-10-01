@@ -78,7 +78,7 @@ class TestPathMatrix(unittest.TestCase):
         self.assertNotIn("y_hl_enter", lots)
         self.assertNotIn("y_hl_gt0", lots)
         self.assertFalse(lots.get("y_oo_gt0"))
-        self.assertFalse(lots.get("y_oc_gt0"))
+        self.assertFalse(lots.get("y_τc_gt0"))
         self.assertEqual(lots.get("fill_clock"), "09:30")
         self.assertEqual(int(lots.get("lot_base_amount") or 0), 10000)
         self.assertEqual(int(lots.get("lot_strong_amount") or 0), 20000)
@@ -150,7 +150,7 @@ class TestPathMatrix(unittest.TestCase):
             {"rank_lots": {"y_oo_oc_enabled": True, "y_oo_oc_enter": 0.3}}
         )
         self.assertTrue(cfg_on["y_oo_gt0"])
-        self.assertTrue(cfg_on["y_oc_gt0"])
+        self.assertTrue(cfg_on["y_τc_gt0"])
         self.assertNotIn("y_oo_oc_enabled", cfg_on)
         self.assertNotIn("y_oo_oc_enter", cfg_on)
 

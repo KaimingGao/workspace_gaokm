@@ -720,12 +720,11 @@ def _scores_from_scan_row(row: dict) -> Dict[str, Any]:
         y_path = row.get("predicted_score_hl")
     if y_path is None:
         y_path = row.get("y_path")
-    y_oc = row.get("y_oc")
-    if y_oc is None:
-        y_oc = y_tau
     y_tc = row.get("y_τc")
     if y_tc is None:
         y_tc = row.get("y_tc")
+    if y_tc is None:
+        y_tc = row.get("y_oc")
     if y_tc is None:
         y_tc = row.get("y_r_hat")
     if y_tc is None:
@@ -738,8 +737,6 @@ def _scores_from_scan_row(row: dict) -> Dict[str, Any]:
         sc["y_tau_portrait_oc"] = y_tau
         sc["y_tau_oc"] = y_tau
         sc["y_tau"] = y_tau
-    if y_oc is not None:
-        sc["y_oc"] = y_oc
     if y_tc is not None:
         sc["y_τc"] = y_tc
         sc["y_tc"] = y_tc

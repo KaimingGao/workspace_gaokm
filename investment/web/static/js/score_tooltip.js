@@ -396,13 +396,17 @@ function hasTauFormulaTerms(raw) {
   );
 }
 
-/** y_τ 列 tip：头值=拟合原值（=组成合计=表列）；昨收口径仅作对照。 */
+/** y_τc 列 tip：头卡与 y_oo / y_co 同构（短名 + 两位小数 + 一行口径）。 */
 function formatCompactTauTip(raw) {
   const fit = resolveTauScore(raw);
-  const lifted = resolveTauLiftedScore(raw);
-  const fitTxt = fit == null ? "—" : `${fmtSigned(fit, 3)}%`;
+  const val = fit == null ? "—" : `${fmtSigned(fit, 2)}%`;
   const tau = String((raw && (raw.as_of_tau || raw.rem_tau)) || "open");
   const hasTerms = hasTauFormulaTerms(raw);
+  const ySpec =
+    (raw && raw.y_spec_τc && raw.y_spec_τc.formula) ||
+    (raw && raw.y_spec_tau && raw.y_spec_tau.formula) ||
+    (raw && raw.rem_y_spec) ||
+    "close[T]/price(τ)−1";
   const feat = (raw && raw.features_tau) || {};
   const rot =
     feat.ret_open_to_tau != null && Number.isFinite(Number(feat.ret_open_to_tau))
@@ -412,103 +416,17 @@ function formatCompactTauTip(raw) {
         : null;
   let yTo = pickTauToPct(raw);
   if (yTo == null && fit != null && rot != null) yTo = remainingAtTauPct(fit, rot);
-  const restored = yTo != null && rot != null ? compoundPct(rot, yTo) : null;
-  const rows = [];
-  if (
-    lifted != null &&
-    fit != null &&
-    Number.isFinite(lifted) &&
-    Math.abs(lifted - fit) > 1e-4
-  ) {
-    rows.push(
-      `<div class="score-layer-row"><span>昨收对照（缺口∘ŷ_τc）</span>` +
-        `<span class="num ${signCls(lifted)}">${escapeText(
-          fmtSigned(lifted, 3)
-        )}%</span></div>`
-    );
-  }
-  const gap = raw && resolveGapPct(raw);
-  if (gap != null && Number.isFinite(Number(gap))) {
-    rows.push(
-      `<div class="score-layer-row"><span>跳空缺口</span>` +
-        `<span class="num ${signCls(gap)}">${escapeText(
-          fmtSigned(Number(gap), 2)
-        )}%</span></div>`
-    );
-  }
-  if (!hasTerms && (yTo != null || rot != null)) {
-    if (yTo != null) {
-      rows.push(
-        `<div class="score-layer-row"><span>ŷ_τc</span>` +
-          `<span class="num ${signCls(yTo)}">${escapeText(fmtSigned(yTo, 3))}%</span></div>`
-      );
-    }
-    if (rot != null) {
-      rows.push(
-        `<div class="score-layer-row"><span>开盘→τ 收益 %</span>` +
-          `<span class="num ${signCls(rot)}">${escapeText(fmtSigned(rot, 3))}%</span></div>`
-      );
-    }
-    if (
-      restored != null &&
-      fit != null &&
-      Number.isFinite(restored) &&
-      Math.abs(restored - Number(fit)) > 1e-3
-    ) {
-      rows.push(
-        `<div class="score-layer-row"><span>还原 ŷ_τc</span>` +
-          `<span class="num ${signCls(restored)}">${escapeText(
-            fmtSigned(restored, 3)
-          )}%</span></div>`
-      );
-    }
-  }
-  if (!hasTerms) {
-    for (const [k, label] of Object.entries(TAU_FEAT_LABELS)) {
-      if (k === "gap_pct" || k === "ret_open_to_tau") continue;
-      const v = feat[k];
-      if (v == null || v === "") continue;
-      if (typeof v === "boolean") {
-        rows.push(
-          `<div class="score-layer-row"><span>${escapeText(label)}</span><span>${
-            v ? "是" : "否"
-          }</span></div>`
-        );
-        continue;
-      }
-      const n = Number(v);
-      const txt = Number.isFinite(n) ? fmtSigned(n, 2) : String(v);
-      const pct =
-        k === "open_gap" ||
-        k === "gap_vs_sector" ||
-        k === "ret_prev_to_tau" ||
-        k === "range_pct" ||
-        k === "up_extent" ||
-        k === "down_extent" ||
-        k === "pullback_from_high" ||
-        k === "bounce_from_low";
-      rows.push(
-        `<div class="score-layer-row"><span>${escapeText(label)}</span><span class="num ${
-          Number.isFinite(n) ? signCls(n) : ""
-        }">${escapeText(txt)}${Number.isFinite(n) && pct ? "%" : ""}</span></div>`
-      );
-    }
-  }
-  const hint = hasTerms
-    ? `τ=${escapeText(tau)} · 与表列 / 组成合计同口径`
-    : yTo != null || rot != null
+  const hint =
+    !hasTerms && (yTo != null || rot != null)
       ? `τ=${escapeText(tau)} · 本槽未跑 τc Ridge · ŷ_oc反推=(1+开盘→τ)(1+ŷ_τc)−1`
-      : `τ=${escapeText(tau)} · 与表列同口径`;
+      : `ŷ_τc · τ=${escapeText(tau)} · ${escapeText(String(ySpec))} · α+Σβ·z`;
   return (
-    `<div class="score-layer score-layer-tau">` +
+    `<div class="score-layer score-layer-eod">` +
     `<div class="score-layer-head">` +
-    `<div class="score-hero-label">ŷ_τc · price(τ)→close（拟合）</div>` +
-    `<div class="score-hero-value ${signCls(fit)}">${escapeText(fitTxt)}</div>` +
+    `<div class="score-hero-label">y_τc</div>` +
+    `<div class="score-hero-value ${signCls(fit)}">${escapeText(val)}</div>` +
     `</div>` +
     `<div class="score-hero-hint">${hint}</div>` +
-    (rows.length
-      ? `<div class="score-layer-compose">${rows.join("")}</div>`
-      : "") +
     `</div>`
   );
 }
@@ -1513,15 +1431,13 @@ export function formatFormulaTermsSection(raw, opts = {}) {
   const isHorizonProb =
     isHorizonProbKey(key) || String((expl && expl.head_kind) || "") === "prob";
   const totalLabel =
-    key === "tau"
-      ? "合计 ŷ_τc（T收/T开）"
-      : key === "r"
-        ? "合计 ŷ_τc（T收/τ价）"
-        : isHorizonProb
-          ? `合计 logit → p_up`
-          : key === "on" || key === "co"
+    key === "tau" || key === "r"
+      ? "合计 ŷ_τc"
+      : isHorizonProb
+        ? `合计 logit → p_up`
+        : key === "on" || key === "co"
           ? "合计 ŷ_co"
-            : "合计 ŷ_oo";
+          : "合计 ŷ_oo";
 
   const rows = terms
     .map((t) => {
@@ -1582,13 +1498,11 @@ export function formatFormulaTermsSection(raw, opts = {}) {
     : "";
 
   const caption =
-    key === "tau"
-      ? "β×z = 贡献；合计=Ridge 拟合原值（T收/T开），与表列 ŷ_τc / τ 闸同口径。"
-      : key === "r"
-        ? "β×z = 贡献；合计=Ridge 拟合原值（T收/τ价）。做 T 回测默认执行套截距（对照手动预演）；选研究套才用 Holdout。研究枢纽系数表默认展示执行套全样本截距。"
-        : isHorizonProb
-          ? "β×z = logit 贡献（与研究枢纽「logit 标准化斜率」同口径）；合计 logit 后 p_up=sigmoid(·)=P(窗收益>0)。做 T 回测用执行套；枢纽本次拟合须点「启用执行」后 β 才进回测。缺特征按均值填（z=0）不占表。"
-          : "β×z = 贡献；条长∝|贡献|";
+    key === "r"
+      ? "β×z = 贡献；合计=Ridge 拟合原值（T收/τ价）。做 T 回测默认执行套截距（对照手动预演）；选研究套才用 Holdout。研究枢纽系数表默认展示执行套全样本截距。"
+      : isHorizonProb
+        ? "β×z = logit 贡献（与研究枢纽「logit 标准化斜率」同口径）；合计 logit 后 p_up=sigmoid(·)=P(窗收益>0)。做 T 回测用执行套；枢纽本次拟合须点「启用执行」后 β 才进回测。缺特征按均值填（z=0）不占表。"
+        : "β×z = 贡献；条长∝|贡献|";
   const missingN = Number(expl && expl.missing_n);
   const missKeys = Array.isArray(expl && expl.missing_keys)
     ? expl.missing_keys.filter(Boolean).slice(0, 8)
@@ -1600,7 +1514,7 @@ export function formatFormulaTermsSection(raw, opts = {}) {
         }（已按均值填，贡献 0）。`
       : "";
   const role = String((expl && expl.model_role) || "").toLowerCase();
-  const namedRole = key === "r" || key === "tau" || isHorizonProb;
+  const namedRole = key === "r" || isHorizonProb;
   const alphaName =
     namedRole && role === "research"
       ? "截距 α（研究套）"

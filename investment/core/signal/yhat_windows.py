@@ -1,7 +1,7 @@
 """四段 ŷ 窗口：抽头、加权融合、调仓 ranking、做 T residual。
 
 ŷ_oo  open(T)→open(T+1)   主字段 y_oo / predicted_score_oo；别名 predicted_score
-ŷ_τc  price(τ)→close(T)   主字段 y_τc。同一预估的别名 y_oc / y_tau（τ=open 时等于 close/open−1）
+ŷ_τc  price(τ)→close(T)   主字段 y_τc。时钟对齐后写 y_tau。τ=open 时等于 close/open−1。旧行 y_oc 只读。
 ŷ_co  close(T)→open(T+1)  主字段 y_co；旧键 y_on 可读
 
 现网 ranking（τc，price(τ)→close 标签；行上有 y_spec_tau）：
@@ -161,9 +161,17 @@ def pick_y_oo(item: Optional[dict]) -> Optional[float]:
 
 
 def pick_y_oc(item: Optional[dict]) -> Optional[float]:
+    """开盘路径对照：旧行 y_oc，否则时钟对齐后的 y_tau。破带用 pick_y_τc。"""
     return _first_pct(
         item,
-        ("y_oc", "predicted_score_oc", "y_tau", "y_tau_oc", "predicted_score_tau"),
+        (
+            "y_oc",
+            "predicted_score_oc",
+            "y_tau",
+            "y_tau_oc",
+            "predicted_score_tau_oc",
+            "predicted_score_tau",
+        ),
     )
 
 
@@ -772,8 +780,7 @@ def stamp_window_scores(item: Optional[dict], cfg: Optional[dict] = None) -> Dic
         ranking = None
     return {
         "y_oo": y_oo,
-        "y_oc": y_oc,
-        "y_τc": y_τc,
+        "y_τc": y_τc if y_τc is not None else y_oc,
         "y_co": y_co,
         "ranking": ranking,
         "residual": residual,

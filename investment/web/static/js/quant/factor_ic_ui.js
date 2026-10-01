@@ -575,6 +575,7 @@ export function createFactorIcUi(deps) {
     const isT75 = opts.head === "t75";
     const isT90 = opts.head === "t90";
     const isHorizon = isT30 || isT45 || isT60 || isT75 || isT90;
+    const isTc = opts.head === "τc" || opts.head === "tc" || opts.head === "tau";
     const isR = opts.head === "r" || isHorizon;
     const isPath = opts.head === "path";
     const yhatTag = isPath
@@ -595,7 +596,7 @@ export function createFactorIcUi(deps) {
                 ? "ŷ_τ45"
                 : isT30
                   ? "ŷ_τ30"
-              : opts.head === "r"
+              : opts.head === "r" || isTc
                 ? "ŷ_τc"
                 : "ŷ_oc";
     const coefs =
@@ -834,7 +835,9 @@ export function createFactorIcUi(deps) {
                     ? "mean(price[τ+25m],price[τ+30m],price[τ+35m])/price[τ]-1"
                 : opts.head === "r"
                   ? "price[τ]/close[T]-1"
-                  : "close[T]/open[T]-1");
+                  : isTc
+                    ? "close[T]/price[τ]-1"
+                    : "close[T]/open[T]-1");
     const ySpecProbRaw =
       isHorizon && (ySpecObj.unit === "prob" || String(rm.head_kind || "") === "prob")
         ? ySpecObj.label ||

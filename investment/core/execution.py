@@ -21,6 +21,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from core.t0.config import (
     drop_dead_t0_keys,
     load_t0_rules,
+    migrate_y_oc_rule_keys,
     migrate_y_path_keys_to_hl,
     migrate_ytw_lot_keys_to_oc,
 )
@@ -57,6 +58,10 @@ ALLOWED_T0_PATCH_KEYS = frozenset(
         "y_on_allow",
         "y_tw_enter",
         "y_τw_enter",
+        "y_τc_enter",
+        "y_τc_strong",
+        "y_τc_enter_amount",
+        "y_τc_strong_amount",
         "y_oc_enter",
         "y_oc_strong",
         "y_oc_enter_amount",
@@ -66,6 +71,7 @@ ALLOWED_T0_PATCH_KEYS = frozenset(
         "y_tw_midpoint",
         "y_τw_midpoint",
         "horizon_prob_backend",
+        "t0_y_τc_target_scale",
         "t0_y_oc_target_scale",
         "t0_close_band_delta_pct",
         "t0_price_space_gate",
@@ -138,16 +144,16 @@ DEFAULT_T0_OVERLAY: Dict[str, Any] = {
     "y_on_allow": 0.01,
     "y_tw_enter": 2.0,
     "y_τw_enter": 2.0,
-    "y_oc_enter": 0.5,
-    "y_oc_strong": 1.0,
-    "y_oc_enter_amount": 20_000.0,
-    "y_oc_strong_amount": 40_000.0,
+    "y_τc_enter": 0.5,
+    "y_τc_strong": 1.0,
+    "y_τc_enter_amount": 20_000.0,
+    "y_τc_strong_amount": 40_000.0,
     "y_tw_vote_margin": 5.0,
     "y_τw_vote_margin": 5.0,
     "y_tw_midpoint": 47.0,
     "y_τw_midpoint": 47.0,
     "horizon_prob_backend": "ridge",
-    "t0_y_oc_target_scale": 2.0,
+    "t0_y_τc_target_scale": 2.0,
     "t0_close_band_delta_pct": 0.5,
     "t0_price_space_gate": True,
     "t0_price_space_max_dev_pct": 0.0,
@@ -206,7 +212,7 @@ DEFAULT_REBALANCE_TIMING: Dict[str, Any] = {
         "y_enter_enabled": True,
         "y_enter_alt_enabled": True,
         "y_oo_gt0": False,
-        "y_oc_gt0": False,
+        "y_τc_gt0": False,
         "fill_clock": "09:30",
         "lot_base_amount": 10000.0,
         "lot_strong_amount": 20000.0,
@@ -229,7 +235,7 @@ DEFAULT_REBALANCE_TIMING: Dict[str, Any] = {
         "y_enter_enabled": True,
         "y_enter_alt_enabled": True,
         "y_oo_gt0": False,
-        "y_oc_gt0": False,
+        "y_τc_gt0": False,
         "fill_clock": "09:30",
         "lot_base_amount": 10000.0,
         "lot_strong_amount": 20000.0,
@@ -257,6 +263,23 @@ _REBALANCE_KEYS = (
     "stop_loss_pnl",
     "max_hold_days",
 )
+
+
+def _promote_y_tc_gt0(timing: Optional[dict]) -> Optional[dict]:
+    """层内旧键 y_oc_gt0 并入 y_τc_gt0。该层已写新键则新键优先，旧键不进入生效配置。"""
+    if not isinstance(timing, dict):
+        return timing
+    out = deepcopy(timing)
+    for key in ("rank_lots", "path_matrix"):
+        block = out.get(key)
+        if not isinstance(block, dict):
+            continue
+        block = dict(block)
+        if "y_τc_gt0" not in block and "y_oc_gt0" in block:
+            block["y_τc_gt0"] = block["y_oc_gt0"]
+        block.pop("y_oc_gt0", None)
+        out[key] = block
+    return out
 
 
 def _merge_dict(base: dict, overlay: Optional[dict]) -> dict:
@@ -345,6 +368,7 @@ def _layer_t0(
 
     merged: dict = {}
     for name, layer in layers:
+        migrate_y_oc_rule_keys(layer)
         migrate_y_path_keys_to_hl(layer)
         migrate_ytw_lot_keys_to_oc(layer)
         for k, v in layer.items():
@@ -466,7 +490,7 @@ def resolve_effective_execution(
 
     # 成交时机 + rank_lots（仍认旧键 path_matrix）：Spec ← paper.rules.execution.rebalance_timing
     timing = deepcopy(DEFAULT_REBALANCE_TIMING)
-    spec_timing = strategy_exe.get("rebalance_timing")
+    spec_timing = _promote_y_tc_gt0(strategy_exe.get("rebalance_timing"))
     if isinstance(spec_timing, dict):
         timing = _merge_dict(timing, spec_timing)
     if isinstance(paper_rules, dict):
@@ -476,13 +500,13 @@ def resolve_effective_execution(
         if isinstance(paper_exe, dict):
             if paper_exe.get("execution_mode"):
                 timing["execution_mode"] = paper_exe.get("execution_mode")
-            rt = paper_exe.get("rebalance_timing")
+            rt = _promote_y_tc_gt0(paper_exe.get("rebalance_timing"))
             if isinstance(rt, dict):
                 timing = _merge_dict(timing, rt)
     if isinstance(request_override, dict):
         if request_override.get("execution_mode"):
             timing["execution_mode"] = request_override.get("execution_mode")
-        req_t = request_override.get("rebalance_timing")
+        req_t = _promote_y_tc_gt0(request_override.get("rebalance_timing"))
         if isinstance(req_t, dict):
             timing = _merge_dict(timing, req_t)
     mode = str(timing.get("execution_mode") or "next_open").strip().lower()
@@ -668,16 +692,16 @@ def execution_public_view(bundle: Dict[str, Any]) -> Dict[str, Any]:
             "y_τw_enter": t0.get("y_τw_enter")
             if t0.get("y_τw_enter") not in (None, "")
             else t0.get("y_tw_enter"),
-            "y_oc_enter": t0.get("y_oc_enter"),
-            "y_oc_strong": t0.get("y_oc_strong"),
-            "y_oc_enter_amount": t0.get("y_oc_enter_amount"),
-            "y_oc_strong_amount": t0.get("y_oc_strong_amount"),
+            "y_τc_enter": t0.get("y_τc_enter"),
+            "y_τc_strong": t0.get("y_τc_strong"),
+            "y_τc_enter_amount": t0.get("y_τc_enter_amount"),
+            "y_τc_strong_amount": t0.get("y_τc_strong_amount"),
             "y_tw_vote_margin": t0.get("y_tw_vote_margin"),
             "y_τw_vote_margin": t0.get("y_τw_vote_margin") or t0.get("y_tw_vote_margin"),
             "y_tw_midpoint": t0.get("y_tw_midpoint"),
             "y_τw_midpoint": t0.get("y_τw_midpoint") or t0.get("y_tw_midpoint"),
             "horizon_prob_backend": t0.get("horizon_prob_backend"),
-            "t0_y_oc_target_scale": t0.get("t0_y_oc_target_scale"),
+            "t0_y_τc_target_scale": t0.get("t0_y_τc_target_scale"),
             "t0_close_band_delta_pct": t0.get("t0_close_band_delta_pct"),
             "t0_price_space_gate": t0.get("t0_price_space_gate"),
             "t0_price_space_max_dev_pct": t0.get("t0_price_space_max_dev_pct"),
@@ -849,14 +873,17 @@ def validate_execution_patch(raw: Any) -> Tuple[bool, Dict[str, Any], List[str]]
             t0_out["y_tw_enter"] = normalized_full["y_tw_enter"]
         if "y_τw_enter" in normalized_full:
             t0_out["y_τw_enter"] = normalized_full["y_τw_enter"]
-    if "y_oc_enter" in t0_in and "y_oc_enter" in normalized_full:
-        t0_out["y_oc_enter"] = normalized_full["y_oc_enter"]
-    if "y_oc_strong" in t0_in and "y_oc_strong" in normalized_full:
-        t0_out["y_oc_strong"] = normalized_full["y_oc_strong"]
-    if "y_oc_enter_amount" in t0_in and "y_oc_enter_amount" in normalized_full:
-        t0_out["y_oc_enter_amount"] = normalized_full["y_oc_enter_amount"]
-    if "y_oc_strong_amount" in t0_in and "y_oc_strong_amount" in normalized_full:
-        t0_out["y_oc_strong_amount"] = normalized_full["y_oc_strong_amount"]
+    for new_k, old_k in (
+        ("y_τc_enter", "y_oc_enter"),
+        ("y_τc_strong", "y_oc_strong"),
+        ("y_τc_enter_amount", "y_oc_enter_amount"),
+        ("y_τc_strong_amount", "y_oc_strong_amount"),
+        ("t0_y_τc_target_scale", "t0_y_oc_target_scale"),
+    ):
+        if new_k in t0_in or old_k in t0_in:
+            if new_k in normalized_full:
+                t0_out[new_k] = normalized_full[new_k]
+            t0_out.pop(old_k, None)
     if any(k in t0_in for k in ("y_tw_midpoint", "y_τw_midpoint")):
         if "y_tw_midpoint" in normalized_full:
             t0_out["y_tw_midpoint"] = normalized_full["y_tw_midpoint"]
@@ -967,7 +994,7 @@ def validate_execution_patch(raw: Any) -> Tuple[bool, Dict[str, Any], List[str]]
                     "y_enter_enabled": bool(pm.get("y_enter_enabled", True)),
                     "y_enter_alt_enabled": bool(pm.get("y_enter_alt_enabled", True)),
                     "y_oo_gt0": bool(pm.get("y_oo_gt0", False)),
-                    "y_oc_gt0": bool(pm.get("y_oc_gt0", False)),
+                    "y_τc_gt0": bool(pm.get("y_τc_gt0")),
                     "fill_clock": str(pm.get("fill_clock") or "09:30"),
                     "lot_base_amount": float(pm.get("lot_base_amount") or 10_000.0),
                     "lot_strong_amount": float(pm.get("lot_strong_amount") or 20_000.0),
@@ -1012,9 +1039,7 @@ def apply_execution_patch_to_paper(
             "y_tc_validate",
             "y_τc_validate",
             "y_tc_strong",
-            "y_τc_strong",
             "y_tc_enter",
-            "y_τc_enter",
             "y_tc_enter_alt",
             "y_τc_enter_alt",
             "y_t30_strong",

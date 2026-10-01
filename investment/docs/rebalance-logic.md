@@ -65,7 +65,7 @@
 | `rank_enter_alt` | 0.001 | 门槛2 ranking 入场；缺则跟随门槛1。两档 OR |
 | `rank_strong` | 0.001 | 超过则买 lot_strong_amount，否则 lot_base_amount；缺省 2 万 / 1 万。与历史回测表单同一键 |
 | `y_oo_gt0` | 关 | 开则入场须 y_oo>0；关=不看。缺分不拦 |
-| `y_oc_gt0` | 关 | 开则入场须 y_oc>0；关=不看。缺分不拦 |
+| `y_τc_gt0` | 关 | 开则入场须 ŷ_τc>0；关=不看。缺分不拦 |
 | `fusion_w_oo` | 0.6 | ŷ_oo 融合权重（旧键 fusion_w_trade） |
 | `fusion_w_oc` | 0.4 | ŷ_oc∘隔夜 头权重（旧键 fusion_w_nowcast） |
 | `fusion_w_co` | 1 | 叠进 ŷ_oc 的隔夜系数（别名 y_on_alpha）；0=不叠 |
@@ -108,7 +108,7 @@ OOS 失败组禁止新开/加仓。配置写在 `execution.rebalance_timing.rank
 | `fusion_w_oc` | 0.4 | ŷ_oc∘隔夜 头权重（旧键 fusion_w_nowcast） |
 | `fusion_w_co` | 1 | 叠进 ŷ_oc 的隔夜系数（别名 y_on_alpha） |
 | `y_oo_gt0` | 关 | 开则入场须 y_oo>0 |
-| `y_oc_gt0` | 关 | 开则入场须 y_oc>0 |
+| `y_τc_gt0` | 关 | 开则入场须 ŷ_τc>0 |
 | `cash_floor` | 0 | 不留现金地板；现金不够该手则缩到整百（最少一手） |
 | `holdings_mv_cap` | 150_000 | live 持仓市值上限；历史回测为 0 |
 | `fill_clock` | 09:30 | **仅历史回测**：5m 成交钟 09:30–10:00；>09:30 时 ŷ_oc 用该钟前缀重算 |
