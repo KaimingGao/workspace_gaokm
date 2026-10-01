@@ -147,8 +147,9 @@ def get_read_conn(store_dir: str) -> sqlite3.Connection:
     try:
         c = sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=5.0)
     except sqlite3.OperationalError:
-        # 极端：只读打开失败时退回共享写连接（仍建议调用方短查询）
-        return get_conn(store_dir)
+        # 只读失败时另开一条连接。不能退回进程内共享写连接，跨线程 execute 会串结果。
+        logger.warning("readonly bars db open failed for %s", path)
+        c = sqlite3.connect(path, timeout=5.0)
     c.row_factory = sqlite3.Row
     c.execute("PRAGMA busy_timeout=5000")
     cache[path] = c
@@ -212,6 +213,9 @@ def load_daily(
     ).fetchone()
     if row is None:
         return None
+    if str(row["code"] or "") != code_s:
+        logger.error("daily meta code mismatch requested=%s got=%s", code_s, row["code"])
+        return None
 
     fetched_at = _parse_fetched(row["fetched_at"]) or datetime.now()
     if not ignore_age and max_age_hours > 0:
@@ -221,13 +225,16 @@ def load_daily(
     policy = row["adjust_policy"] or "qfq"
     bars_rows = conn.execute(
         """
-        SELECT date, open, high, low, close, volume
+        SELECT date, open, high, low, close, volume, code
         FROM daily_bars
         WHERE market=? AND code=? AND adjust_policy=?
         ORDER BY date
         """,
         (mkt, code_s, policy),
     ).fetchall()
+    if any(str(r["code"] or "") != code_s for r in bars_rows):
+        logger.error("daily bars code mismatch requested=%s", code_s)
+        return None
     bars = [
         {
             "date": r["date"],
@@ -613,6 +620,9 @@ def load_minute(
     row = _minute_meta_row(conn, mkt, code_s, per)
     if row is None:
         return None
+    if str(row["code"] or "") != code_s:
+        logger.error("minute meta code mismatch requested=%s got=%s", code_s, row["code"])
+        return None
     fetched_at = _parse_fetched(row["fetched_at"]) or datetime.now()
     if not ignore_age and max_age_hours > 0:
         if datetime.now() - fetched_at > timedelta(hours=max_age_hours):
@@ -620,13 +630,16 @@ def load_minute(
     policy = row["adjust_policy"] or "qfq"
     bars_rows = conn.execute(
         """
-        SELECT datetime, date, open, high, low, close, volume
+        SELECT datetime, date, open, high, low, close, volume, code
         FROM minute_bars
         WHERE market=? AND code=? AND period=? AND adjust_policy=?
         ORDER BY datetime
         """,
         (mkt, code_s, per, policy),
     ).fetchall()
+    if any(str(r["code"] or "") != code_s for r in bars_rows):
+        logger.error("minute bars code mismatch requested=%s", code_s)
+        return None
     bars = _minute_bar_dicts(list(bars_rows))
     if len(bars) < min_bars:
         return None

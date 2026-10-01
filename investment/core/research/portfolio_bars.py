@@ -75,7 +75,8 @@ def _fetch_bars_for_raw(
             offline_ok=bool(offline_ok),
             offline_only=bool(offline_only),
         )
-    return code, str(sym), list(bars or [])
+    copied = [dict(b) for b in (bars or []) if isinstance(b, dict)]
+    return code, str(sym), copied
 
 
 def _bars_from_pack(pack: object) -> List[dict]:
@@ -240,13 +241,24 @@ def load_portfolio_stock_bars(
     for raw in raw_list:
         sym, bars = by_raw.get(raw, (_resolve_symbol(raw), []))
         if bars and len(bars) >= need:
-            stock_bars[str(sym)] = bars
-            sym_by_raw[str(raw)] = str(sym)
-            sym_by_raw[str(sym)] = str(sym)
+            # 6 位代码按请求码入账。解析符和请求码不一致时，不能把 A 的 K 线记到 B 上。
+            key = str(sym)
+            raw_digits = "".join(ch for ch in str(raw) if ch.isdigit())
+            if len(raw_digits) == 6:
+                key = raw_digits
+            stock_bars[key] = [dict(b) for b in bars if isinstance(b, dict)]
+            sym_by_raw[str(raw)] = key
+            sym_by_raw[key] = key
         elif bars:
             failures.append(f"{raw}(日线{len(bars)}<{need})")
         else:
             failures.append(str(raw))
+
+    from core.research.bar_identity import drop_daily_series_mismatch
+
+    stock_bars, mismatched = drop_daily_series_mismatch(stock_bars)
+    for code in mismatched:
+        failures.append(f"{code}(日线与代码不符)")
 
     logger.info(
         "portfolio bars loaded=%d fail=%d remote=%d universe=%d truncated=%s cache_first=%s",

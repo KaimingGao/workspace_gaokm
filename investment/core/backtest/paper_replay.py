@@ -449,6 +449,11 @@ def load_replay_minute_bars(
                         "error": (meta or {}).get("error") or "无分钟 K",
                     }
                 )
+    from core.research.bar_identity import drop_minute_maps_mismatch
+
+    out, mismatched = drop_minute_maps_mismatch(out)
+    for code in mismatched:
+        missing.append({"stock_code": code, "error": "分钟线与代码不符"})
     return out, {
         "ok": True,
         "period": period,
