@@ -1018,7 +1018,6 @@ def _build_close_band_scan_trace(
                 gate_snap,
                 cfg,
                 open_px=space.get("estimate_open"),
-                prev_close=space.get("estimate_prev"),
                 price_tau=c,
                 scale=scale,
                 bar_low=l,
@@ -1310,9 +1309,9 @@ def simulate_t0_day_slots(
     """
     from core.t0.close_band import (
         bar_close_band_pick_direction,
-        close_band_y_oc_is_strong,
-        close_band_y_oc_round_scale,
-        close_band_y_oc_round_shares,
+        close_band_y_τc_is_strong,
+        close_band_y_τc_round_scale,
+        close_band_y_τc_round_shares,
         day_price_space_payload,
         freeze_round,
         hm_allows_leg1,
@@ -1496,7 +1495,6 @@ def simulate_t0_day_slots(
             gate_snap,
             cfg,
             open_px=space.get("estimate_open"),
-            prev_close=space.get("estimate_prev"),
             price_tau=bar_close,
             scale=scale,
             bar_low=bar_low,
@@ -1506,18 +1504,16 @@ def simulate_t0_day_slots(
             skip = band_meta.get("skip")
             if skip:
                 skip_s = str(skip)
-                # 破带后的 ŷ_τw / y_oc 未过不要被后续未破带盖掉
+                # 破带后的 ŷ_τw / ŷ_τc 未过不要被后续未破带盖掉
                 if not (skip_s == "未破带" and last_y_tw_skip and last_y_tw_skip != "未破带"):
                     last_y_tw_skip = skip_s
             continue
 
         remain = max_pos - used_ratio
-        y_oc_now = band_meta.get("y_τc")
-        if y_oc_now is None:
-            y_oc_now = band_meta.get("y_oc")
+        y_τc_now = band_meta.get("y_τc")
         lot_i = max(int(lot or 0), 1)
-        want_shares = close_band_y_oc_round_shares(
-            cfg, y_oc=y_oc_now, lot=lot_i, price=bar_close
+        want_shares = close_band_y_τc_round_shares(
+            cfg, y_τc=y_τc_now, lot=lot_i, price=bar_close
         )
         if want_shares is not None:
             remain_sh = float(_lot_floor(max(0.0, sellable_cap * remain), lot_i))
@@ -1527,7 +1523,7 @@ def simulate_t0_day_slots(
                 break
             ratio = float(slice_qty) / float(sellable_cap) if sellable_cap > 0 else 0.0
         else:
-            scale_tw = close_band_y_oc_round_scale(y_oc_now, cfg)
+            scale_tw = close_band_y_τc_round_scale(y_τc_now, cfg)
             sized = round_ratio if scale_tw >= 1.0 - 1e-12 else max(0.05, round_ratio * scale_tw)
             ratio = min(sized, remain)
             if ratio < 0.05:
@@ -1597,10 +1593,8 @@ def simulate_t0_day_slots(
                 "price_space_scale": scale,
                 "estimate_mode": space.get("estimate_mode"),
                 "y_tw": band_meta.get("y_tw"),
-                "y_τc_strong_hit": close_band_y_oc_is_strong(
-                    band_meta.get("y_τc")
-                    if band_meta.get("y_τc") is not None
-                    else band_meta.get("y_oc"),
+                "y_τc_strong_hit": close_band_y_τc_is_strong(
+                    band_meta.get("y_τc"),
                     cfg,
                 ),
                 "c_tau": c_tau,

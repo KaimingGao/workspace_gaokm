@@ -139,7 +139,6 @@ class CloseHatTests(unittest.TestCase):
         est = estimate_close_px(
             {"y_tau": 1.0, "y_τc": 2.0},
             open_px=100.0,
-            prev_close=100.0,
             price_tau=50.0,
             cfg={"fusion_w_τc": 1.0, "residual_w_oc": 0.0},
         )
@@ -167,7 +166,6 @@ class CloseHatTests(unittest.TestCase):
         est = estimate_close_px(
             {"y_tau": y_oc, "y_τc": y_τc},
             open_px=open_px,
-            prev_close=100.0,
             price_tau=price_tau,
             cfg={"fusion_w_τc": 0.5, "residual_w_oc": 0.5},
         )
@@ -185,9 +183,9 @@ class CloseHatTests(unittest.TestCase):
     def test_estimate_falls_back_to_oc(self):
         from core.t0.close_band import estimate_close_px
 
-        est = estimate_close_px({"y_tau": 1.0}, open_px=100.0, prev_close=90.0)
+        est = estimate_close_px({"y_tau": 1.0}, open_px=100.0)
         self.assertAlmostEqual(est["close_px"], 102.0, places=4)
-        self.assertEqual(est.get("c_hat_source"), "y_oc")
+        self.assertEqual(est.get("c_hat_source"), "y_tau")
 
     def test_r_hat_matches_c_tau_over_price(self):
         from core.t0.close_band import estimate_close_px, r_hat_from_c_tau_px
@@ -199,7 +197,6 @@ class CloseHatTests(unittest.TestCase):
         est = estimate_close_px(
             {"y_tau": y_oc, "y_τc": -0.2089},
             open_px=open_px,
-            prev_close=open_px,
             price_tau=price_tau,
             cfg=cfg,
         )
@@ -207,7 +204,7 @@ class CloseHatTests(unittest.TestCase):
         # clip(−0.2089×10)=−2.089；锚 price(τ)
         clipped = -2.089
         self.assertAlmostEqual(est["close_px"], price_tau * (1.0 + clipped / 100.0), places=2)
-        self.assertAlmostEqual(est["y_oc_target"], clipped, places=5)
+        self.assertAlmostEqual(est["y_τc_target"], clipped, places=5)
         rem_raw = remaining_oc(y_oc, open_px=open_px, price_tau=price_tau)
         self.assertAlmostEqual(est["remaining_oc"], rem_raw, places=4)
         self.assertAlmostEqual(

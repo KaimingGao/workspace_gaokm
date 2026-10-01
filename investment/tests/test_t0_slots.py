@@ -457,12 +457,9 @@ class TestT0Slots(unittest.TestCase):
             }
         ]
         att = build_y_tau_attribution(days)
-        self.assertEqual(att["by_direction"]["buy_then_sell"]["n"], 1)
-        self.assertEqual(att["by_direction"]["sell_then_buy"]["n"], 1)
-        self.assertAlmostEqual(att["by_direction"]["buy_then_sell"]["pnl"], 10)
-        self.assertAlmostEqual(att["by_direction"]["sell_then_buy"]["pnl"], 20)
-        taus = [round(float(s["y_tau"]), 1) for s in att["samples"]]
-        self.assertEqual(sorted(taus), [-0.6, 0.8])
+        self.assertEqual(att["traded_with_tau"], 2)
+        self.assertEqual(att["hit"], 1)
+        self.assertEqual(att["miss"], 1)
         viz = build_t0_viz_payload(days, stock_code="600519")
         self.assertEqual(viz.get("skip_scope"), "slot")
         self.assertEqual(viz.get("skip_round_count"), 1)

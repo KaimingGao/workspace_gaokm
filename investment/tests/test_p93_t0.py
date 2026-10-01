@@ -3596,9 +3596,10 @@ class TestT0Viz(unittest.TestCase):
             },
         ]
         att = build_y_tau_attribution(days)
-        self.assertEqual(att["summary"]["traded_with_tau"], 2)
-        self.assertEqual(att["by_oc_hit"]["hit"]["n"], 1)
-        self.assertEqual(att["by_oc_hit"]["miss"]["n"], 1)
+        self.assertEqual(att["traded_with_tau"], 2)
+        self.assertEqual(att["hit"], 1)
+        self.assertEqual(att["miss"], 1)
+        self.assertAlmostEqual(att["oc_hit_rate_pct"], 50.0)
 
     def test_y_path_attribution_agree_and_skip(self):
         from core.t0.viz import build_y_path_attribution, classify_t0_skip_reason
@@ -3993,7 +3994,7 @@ class TestT0Viz(unittest.TestCase):
         self.assertEqual(port["tau_hit"]["miss"], 0)
 
     def test_score_portrait_r_oc_tc_hits(self):
-        """画像三命中：R_τ / y_oc / y_τc 各自对标签。"""
+        """画像命中：R_τ / y_τc 各自对标签。"""
         from core.t0.viz import build_score_portrait
 
         days = [
@@ -4035,8 +4036,7 @@ class TestT0Viz(unittest.TestCase):
             },
         ]
         port = build_score_portrait(days)
-        self.assertEqual(port["oc_hit"]["hit"], 2)
-        self.assertEqual(port["oc_hit"]["miss"], 0)
+        self.assertNotIn("oc_hit", port)
         self.assertEqual(port["r_tau_hit"]["hit"], 1)
         self.assertEqual(port["r_tau_hit"]["miss"], 1)
         self.assertEqual(port["y_tc_hit"]["hit"], 1)

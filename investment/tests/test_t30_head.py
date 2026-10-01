@@ -691,24 +691,24 @@ class TTwGateTests(unittest.TestCase):
         self.assertIsNotNone(disagree_3)
 
         from core.t0.close_band import (
-            close_band_y_oc_is_strong,
-            close_band_y_oc_round_scale,
+            close_band_y_τc_is_strong,
+            close_band_y_τc_round_scale,
         )
 
         strong_cfg = {"y_τc_enter": 0.5, "y_τc_strong": 1.0}
-        self.assertTrue(close_band_y_oc_is_strong(1.0, strong_cfg))
-        self.assertFalse(close_band_y_oc_is_strong(0.6, strong_cfg))
+        self.assertTrue(close_band_y_τc_is_strong(1.0, strong_cfg))
+        self.assertFalse(close_band_y_τc_is_strong(0.6, strong_cfg))
         self.assertAlmostEqual(
-            close_band_y_oc_round_scale(0.6, strong_cfg),
+            close_band_y_τc_round_scale(0.6, strong_cfg),
             0.5,
         )
         self.assertAlmostEqual(
-            close_band_y_oc_round_scale(1.0, strong_cfg),
+            close_band_y_τc_round_scale(1.0, strong_cfg),
             1.0,
         )
-        self.assertTrue(close_band_y_oc_is_strong(-1.2, strong_cfg))
+        self.assertTrue(close_band_y_τc_is_strong(-1.2, strong_cfg))
         self.assertAlmostEqual(
-            close_band_y_oc_round_scale(-0.6, strong_cfg),
+            close_band_y_τc_round_scale(-0.6, strong_cfg),
             0.5,
         )
 

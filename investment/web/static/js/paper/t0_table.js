@@ -2499,9 +2499,12 @@ function t0DayScoreItem(d, fallback = {}, rules = {}, liveByCode = null) {
     remaining_oc: scores.remaining_oc ?? d.remaining_oc ?? null,
     c_tau: finitePosPx(d.c_tau) ?? finitePosPx(scanHost?._scan_score_row?.c_tau) ?? finitePosPx(slotCloseBand(slot)?.c_tau),
     bar_c: finitePosPx(d.bar_c) ?? finitePosPx(scanHost?._scan_score_row?.c),
-    y_oc_target:
+    "y_τc_target":
+      finiteYhatNum(scores["y_τc_target"]) ??
       finiteYhatNum(scores.y_oc_target) ??
+      finiteYhatNum(d["y_τc_target"]) ??
       finiteYhatNum(d.y_oc_target) ??
+      finiteYhatNum(slotCloseBand(slot)?.["y_τc_target"]) ??
       finiteYhatNum(slotCloseBand(slot)?.y_oc_target),
     t0_y_τc_target_scale:
       finiteYhatNum(scores.t0_y_τc_target_scale) ??

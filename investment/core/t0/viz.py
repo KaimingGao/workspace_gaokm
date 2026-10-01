@@ -137,7 +137,7 @@ def classify_t0_skip_reason(reason: Optional[str]) -> str:
     if "缺" in r and ("y_" in r or "快照" in r or "即时算分" in r):
         return "missing_scores"
     if ("ŷ_oc" in r or "y_oc" in r) and "未过入场" in r:
-        return "y_oc_flat"
+        return "y_tc_flat"
     if ("y_path" in r or "y_hl" in r) and "异号" in r:
         return "y_path_disagree"
     if "前序ŷ_τw" in r or "前序 y_τw" in r or "ytw_prefix" in r.lower():
@@ -327,6 +327,15 @@ def _f(x: Any) -> Optional[float]:
     return v
 
 
+def _first_present(src: Any, *keys: str) -> Any:
+    if not isinstance(src, dict):
+        return None
+    for key in keys:
+        if src.get(key) is not None:
+            return src.get(key)
+    return None
+
+
 def extract_scores(day: dict) -> Dict[str, Optional[float]]:
     feats = day.get("direction_features") if isinstance(day.get("direction_features"), dict) else {}
     raw = day.get("scores") if isinstance(day.get("scores"), dict) else {}
@@ -387,51 +396,22 @@ def extract_scores(day: dict) -> Dict[str, Optional[float]]:
     if y_path is None:
         y_path = _pick("y_path_prefix")
 
+    def _pick_keys(*keys: str) -> Optional[float]:
+        for key in keys:
+            v = _pick(key)
+            if v is not None:
+                return v
+        return None
+
     y_oc = _pick("y_oc")
     if y_tau is None:
         y_tau = y_oc
-    y_tc = _pick("y_τc")
-    if y_tc is None:
-        y_tc = _pick("y_tc")
-    if y_tc is None:
-        y_tc = _pick("y_r_hat")
-    if y_tc is None:
-        y_tc = _pick("y_r")
-    y_t30 = _pick("y_τ30")
-    if y_t30 is None:
-        y_t30 = _pick("y_t30")
-    if y_t30 is None:
-        y_t30 = _pick("y_t30_hat")
-    if y_t30 is None:
-        y_t30 = _pick("predicted_score_t30")
-    y_t45 = _pick("y_τ45")
-    if y_t45 is None:
-        y_t45 = _pick("y_t45")
-    if y_t45 is None:
-        y_t45 = _pick("y_t45_hat")
-    if y_t45 is None:
-        y_t45 = _pick("predicted_score_t45")
-    y_t60 = _pick("y_τ60")
-    if y_t60 is None:
-        y_t60 = _pick("y_t60")
-    if y_t60 is None:
-        y_t60 = _pick("y_t60_hat")
-    if y_t60 is None:
-        y_t60 = _pick("predicted_score_t60")
-    y_t75 = _pick("y_τ75")
-    if y_t75 is None:
-        y_t75 = _pick("y_t75")
-    if y_t75 is None:
-        y_t75 = _pick("y_t75_hat")
-    if y_t75 is None:
-        y_t75 = _pick("predicted_score_t75")
-    y_t90 = _pick("y_τ90")
-    if y_t90 is None:
-        y_t90 = _pick("y_t90")
-    if y_t90 is None:
-        y_t90 = _pick("y_t90_hat")
-    if y_t90 is None:
-        y_t90 = _pick("predicted_score_t90")
+    y_tc = _pick_keys("y_τc", "y_tc", "y_r_hat", "y_r")
+    y_t30 = _pick_keys("y_τ30", "y_t30", "y_t30_hat", "predicted_score_t30")
+    y_t45 = _pick_keys("y_τ45", "y_t45", "y_t45_hat", "predicted_score_t45")
+    y_t60 = _pick_keys("y_τ60", "y_t60", "y_t60_hat", "predicted_score_t60")
+    y_t75 = _pick_keys("y_τ75", "y_t75", "y_t75_hat", "predicted_score_t75")
+    y_t90 = _pick_keys("y_τ90", "y_t90", "y_t90_hat", "predicted_score_t90")
     r_hat = _pick("r_hat")
     if r_hat is None:
         r_hat = _pick("residual")
@@ -442,37 +422,16 @@ def extract_scores(day: dict) -> Dict[str, Optional[float]]:
         "y_tau_oc": y_tau_oc,
         "y_tau_portrait_oc": _pick("y_tau_portrait_oc"),
         "y_τc": y_tc,
-        "y_tc": y_tc,
         "y_τ30": y_t30,
-        "y_t30": y_t30,
-        "y_t30_hat": y_t30,
-        "predicted_score_t30": y_t30,
-        "y_t30_realized": _pick("y_t30_realized") or _pick("t30_realized"),
-        "t30_realized": _pick("t30_realized") or _pick("y_t30_realized"),
+        "y_t30_realized": _pick_keys("y_t30_realized", "t30_realized"),
         "y_τ45": y_t45,
-        "y_t45": y_t45,
-        "y_t45_hat": y_t45,
-        "predicted_score_t45": y_t45,
-        "y_t45_realized": _pick("y_t45_realized") or _pick("t45_realized"),
-        "t45_realized": _pick("t45_realized") or _pick("y_t45_realized"),
+        "y_t45_realized": _pick_keys("y_t45_realized", "t45_realized"),
         "y_τ60": y_t60,
-        "y_t60": y_t60,
-        "y_t60_hat": y_t60,
-        "predicted_score_t60": y_t60,
-        "y_t60_realized": _pick("y_t60_realized") or _pick("t60_realized"),
-        "t60_realized": _pick("t60_realized") or _pick("y_t60_realized"),
+        "y_t60_realized": _pick_keys("y_t60_realized", "t60_realized"),
         "y_τ75": y_t75,
-        "y_t75": y_t75,
-        "y_t75_hat": y_t75,
-        "predicted_score_t75": y_t75,
-        "y_t75_realized": _pick("y_t75_realized") or _pick("t75_realized"),
-        "t75_realized": _pick("t75_realized") or _pick("y_t75_realized"),
+        "y_t75_realized": _pick_keys("y_t75_realized", "t75_realized"),
         "y_τ90": y_t90,
-        "y_t90": y_t90,
-        "y_t90_hat": y_t90,
-        "predicted_score_t90": y_t90,
-        "y_t90_realized": _pick("y_t90_realized") or _pick("t90_realized"),
-        "t90_realized": _pick("t90_realized") or _pick("y_t90_realized"),
+        "y_t90_realized": _pick_keys("y_t90_realized", "t90_realized"),
         "r_hat": r_hat,
         "ret_open_to_tau": ret_ot,
         "y_hl": y_path,
@@ -532,29 +491,6 @@ def resolve_y_path_for_portrait(sc: Dict[str, Optional[float]]) -> Optional[floa
         if v is not None:
             return v
     return None
-
-def _gap_bucket(gap: Optional[float]) -> str:
-    if gap is None:
-        return "unknown"
-    g = float(gap)
-    if g <= -2.0:
-        return "≤-2%"
-    if g <= -1.0:
-        return "-2~-1%"
-    if g < -0.3:
-        return "-1~-0.3%"
-    if g <= 0.3:
-        return "≈0"
-    if g < 1.0:
-        return "+0.3~1%"
-    if g < 2.0:
-        return "+1~2%"
-    return "≥+2%"
-
-
-def _gap_bucket_order() -> List[str]:
-    return ["≤-2%", "-2~-1%", "-1~-0.3%", "≈0", "+0.3~1%", "+1~2%", "≥+2%", "unknown"]
-
 
 def _oc_realized_pct(day: dict) -> Optional[float]:
     o = _f(day.get("open"))
@@ -652,15 +588,7 @@ def _fill_day_eod_trade_scores(day: dict, scores: Optional[dict]) -> dict:
     """槽位缺 y_eod/y_trade 时用日级分补洞（二者多为日级头）。"""
     out = dict(scores) if isinstance(scores, dict) else {}
     day_sc = extract_scores(day) if isinstance(day, dict) else {}
-    for key in (
-        "y_eod",
-        "predicted_score_eod",
-        "predicted_score",
-        "y_trade",
-        "predicted_score_blend",
-        "decision_score",
-        "score",
-    ):
+    for key in ("y_eod", "y_trade"):
         if out.get(key) is None and day_sc.get(key) is not None:
             out[key] = day_sc.get(key)
     return out
@@ -712,154 +640,42 @@ def _r_pct_for_unit(day: dict, unit: Optional[dict] = None) -> Optional[float]:
 
 
 def _scores_from_scan_row(row: dict) -> Dict[str, Any]:
-    """扫描行 y_τ / y_path / R̂_τ / y_τc → 画像字段（该钟前缀）。"""
+    """扫描行 → 画像字段（该钟前缀）。只留画像读取的主字段。"""
     sc: Dict[str, Any] = {}
     y_tau = row.get("y_tau")
-    y_path = row.get("y_hl")
-    if y_path is None:
-        y_path = row.get("predicted_score_hl")
-    if y_path is None:
-        y_path = row.get("y_path")
-    y_tc = row.get("y_τc")
-    if y_tc is None:
-        y_tc = row.get("y_tc")
-    if y_tc is None:
-        y_tc = row.get("y_oc")
-    if y_tc is None:
-        y_tc = row.get("y_r_hat")
-    if y_tc is None:
-        y_tc = row.get("y_r")
-    r_hat = row.get("r_hat")
-    if r_hat is None:
-        r_hat = row.get("residual")
-    r_real = row.get("r_realized")
     if y_tau is not None:
         sc["y_tau_portrait_oc"] = y_tau
         sc["y_tau_oc"] = y_tau
         sc["y_tau"] = y_tau
+    y_tc = _first_present(row, "y_τc", "y_tc", "y_oc", "y_r_hat", "y_r")
     if y_tc is not None:
         sc["y_τc"] = y_tc
-        sc["y_tc"] = y_tc
-        sc["y_r_hat"] = y_tc
-        sc["y_r"] = y_tc
-    y_t30 = row.get("y_τ30")
-    if y_t30 is None:
-        y_t30 = row.get("y_t30")
-    if y_t30 is None:
-        y_t30 = row.get("y_t30_hat")
-    if y_t30 is None:
-        y_t30 = row.get("predicted_score_t30")
-    if y_t30 is not None:
-        sc["y_τ30"] = y_t30
-        sc["y_t30"] = y_t30
-        sc["y_t30_hat"] = y_t30
-        sc["predicted_score_t30"] = y_t30
-    y_t30_r = row.get("y_t30_realized")
-    if y_t30_r is None:
-        y_t30_r = row.get("t30_realized")
-    if y_t30_r is not None:
-        sc["y_t30_realized"] = y_t30_r
-        sc["t30_realized"] = y_t30_r
-    y_t45 = row.get("y_τ45")
-    if y_t45 is None:
-        y_t45 = row.get("y_t45")
-    if y_t45 is None:
-        y_t45 = row.get("y_t45_hat")
-    if y_t45 is None:
-        y_t45 = row.get("predicted_score_t45")
-    if y_t45 is not None:
-        sc["y_τ45"] = y_t45
-        sc["y_t45"] = y_t45
-        sc["y_t45_hat"] = y_t45
-        sc["predicted_score_t45"] = y_t45
-    y_t45_r = row.get("y_t45_realized")
-    if y_t45_r is None:
-        y_t45_r = row.get("t45_realized")
-    if y_t45_r is not None:
-        sc["y_t45_realized"] = y_t45_r
-        sc["t45_realized"] = y_t45_r
-    y_t60 = row.get("y_τ60")
-    if y_t60 is None:
-        y_t60 = row.get("y_t60")
-    if y_t60 is None:
-        y_t60 = row.get("y_t60_hat")
-    if y_t60 is None:
-        y_t60 = row.get("predicted_score_t60")
-    if y_t60 is not None:
-        sc["y_τ60"] = y_t60
-        sc["y_t60"] = y_t60
-        sc["y_t60_hat"] = y_t60
-        sc["predicted_score_t60"] = y_t60
-    y_t60_r = row.get("y_t60_realized")
-    if y_t60_r is None:
-        y_t60_r = row.get("t60_realized")
-    if y_t60_r is not None:
-        sc["y_t60_realized"] = y_t60_r
-        sc["t60_realized"] = y_t60_r
-    y_t75 = row.get("y_τ75")
-    if y_t75 is None:
-        y_t75 = row.get("y_t75")
-    if y_t75 is None:
-        y_t75 = row.get("y_t75_hat")
-    if y_t75 is None:
-        y_t75 = row.get("predicted_score_t75")
-    if y_t75 is not None:
-        sc["y_τ75"] = y_t75
-        sc["y_t75"] = y_t75
-        sc["y_t75_hat"] = y_t75
-        sc["predicted_score_t75"] = y_t75
-    y_t75_r = row.get("y_t75_realized")
-    if y_t75_r is None:
-        y_t75_r = row.get("t75_realized")
-    if y_t75_r is not None:
-        sc["y_t75_realized"] = y_t75_r
-        sc["t75_realized"] = y_t75_r
-    y_t90 = row.get("y_τ90")
-    if y_t90 is None:
-        y_t90 = row.get("y_t90")
-    if y_t90 is None:
-        y_t90 = row.get("y_t90_hat")
-    if y_t90 is None:
-        y_t90 = row.get("predicted_score_t90")
-    if y_t90 is not None:
-        sc["y_τ90"] = y_t90
-        sc["y_t90"] = y_t90
-        sc["y_t90_hat"] = y_t90
-        sc["predicted_score_t90"] = y_t90
-    y_t90_r = row.get("y_t90_realized")
-    if y_t90_r is None:
-        y_t90_r = row.get("t90_realized")
-    if y_t90_r is not None:
-        sc["y_t90_realized"] = y_t90_r
-        sc["t90_realized"] = y_t90_r
+    for canon, keys in (
+        ("y_τ30", ("y_τ30", "y_t30", "y_t30_hat", "predicted_score_t30")),
+        ("y_τ45", ("y_τ45", "y_t45", "y_t45_hat", "predicted_score_t45")),
+        ("y_τ60", ("y_τ60", "y_t60", "y_t60_hat", "predicted_score_t60")),
+        ("y_τ75", ("y_τ75", "y_t75", "y_t75_hat", "predicted_score_t75")),
+        ("y_τ90", ("y_τ90", "y_t90", "y_t90_hat", "predicted_score_t90")),
+        ("y_t30_realized", ("y_t30_realized", "t30_realized")),
+        ("y_t45_realized", ("y_t45_realized", "t45_realized")),
+        ("y_t60_realized", ("y_t60_realized", "t60_realized")),
+        ("y_t75_realized", ("y_t75_realized", "t75_realized")),
+        ("y_t90_realized", ("y_t90_realized", "t90_realized")),
+    ):
+        val = _first_present(row, *keys)
+        if val is not None:
+            sc[canon] = val
+    y_path = _first_present(row, "y_hl", "predicted_score_hl", "y_path")
     if y_path is not None:
         sc["y_hl_portrait"] = y_path
         sc["y_hl"] = y_path
-        sc["predicted_score_hl"] = y_path
+    r_hat = _first_present(row, "r_hat", "residual")
     if r_hat is not None:
         sc["r_hat"] = r_hat
-        sc["residual"] = r_hat
+    r_real = row.get("r_realized")
     if r_real is not None:
         sc["r_realized"] = r_real
-        sc["y_r_realized"] = r_real
     return sc
-
-
-def resolve_y_oc_for_portrait(sc: Dict[str, Optional[float]]) -> Optional[float]:
-    """画像 y_oc 命中：ŷ_oc ↔ open→close；优先 OC 头，不把 remaining ŷ_τ 当 OC。"""
-    if not isinstance(sc, dict):
-        return None
-    portrait = _f(sc.get("y_tau_portrait_oc"))
-    if portrait is not None:
-        return portrait
-    oc_head = _f(sc.get("y_tau_oc"))
-    if oc_head is not None:
-        return oc_head
-    for key in ("y_oc", "predicted_score_oc"):
-        v = _f(sc.get(key))
-        if v is not None:
-            return v
-    return resolve_y_tau_oc_for_portrait(sc)
 
 
 def resolve_y_tc_for_portrait(sc: Dict[str, Optional[float]]) -> Optional[float]:
@@ -883,84 +699,39 @@ def resolve_y_tc_for_portrait(sc: Dict[str, Optional[float]]) -> Optional[float]
     return None
 
 
-def resolve_y_t30_for_portrait(sc: Dict[str, Optional[float]]) -> Optional[float]:
-    """画像 y_τ30 命中：ŷ_τ30 ↔ mean(price(τ⊕25/30/35))/price(τ)−1。"""
+def _resolve_horizon_for_portrait(sc: Dict[str, Optional[float]], *keys: str) -> Optional[float]:
     if not isinstance(sc, dict):
         return None
-    for key in (
-        "y_τ30",
-        "predicted_score_t30",
-        "y_t30",
-        "y_t30_hat",
-    ):
+    for key in keys:
         v = _f(sc.get(key))
         if v is not None:
             return v
     return None
+
+
+def resolve_y_t30_for_portrait(sc: Dict[str, Optional[float]]) -> Optional[float]:
+    """ŷ_τ30 ↔ mean(price(τ⊕25/30/35))/price(τ)−1。"""
+    return _resolve_horizon_for_portrait(sc, "y_τ30", "predicted_score_t30", "y_t30", "y_t30_hat")
 
 
 def resolve_y_t45_for_portrait(sc: Dict[str, Optional[float]]) -> Optional[float]:
-    """画像 y_τ45 命中：ŷ_τ45 ↔ mean(price(τ⊕40/45/50))/price(τ)−1。"""
-    if not isinstance(sc, dict):
-        return None
-    for key in (
-        "y_τ45",
-        "predicted_score_t45",
-        "y_t45",
-        "y_t45_hat",
-    ):
-        v = _f(sc.get(key))
-        if v is not None:
-            return v
-    return None
+    """ŷ_τ45 ↔ mean(price(τ⊕40/45/50))/price(τ)−1。"""
+    return _resolve_horizon_for_portrait(sc, "y_τ45", "predicted_score_t45", "y_t45", "y_t45_hat")
 
 
 def resolve_y_t60_for_portrait(sc: Dict[str, Optional[float]]) -> Optional[float]:
-    """画像 y_τ60 命中：ŷ_τ60 ↔ mean(price(τ⊕55/60/65))/price(τ)−1。"""
-    if not isinstance(sc, dict):
-        return None
-    for key in (
-        "y_τ60",
-        "predicted_score_t60",
-        "y_t60",
-        "y_t60_hat",
-    ):
-        v = _f(sc.get(key))
-        if v is not None:
-            return v
-    return None
+    """ŷ_τ60 ↔ mean(price(τ⊕55/60/65))/price(τ)−1。"""
+    return _resolve_horizon_for_portrait(sc, "y_τ60", "predicted_score_t60", "y_t60", "y_t60_hat")
 
 
 def resolve_y_t75_for_portrait(sc: Dict[str, Optional[float]]) -> Optional[float]:
-    """画像 y_τ75 命中：ŷ_τ75 ↔ mean(price(τ⊕70/75/80))/price(τ)−1。"""
-    if not isinstance(sc, dict):
-        return None
-    for key in (
-        "y_τ75",
-        "predicted_score_t75",
-        "y_t75",
-        "y_t75_hat",
-    ):
-        v = _f(sc.get(key))
-        if v is not None:
-            return v
-    return None
+    """ŷ_τ75 ↔ mean(price(τ⊕70/75/80))/price(τ)−1。"""
+    return _resolve_horizon_for_portrait(sc, "y_τ75", "predicted_score_t75", "y_t75", "y_t75_hat")
 
 
 def resolve_y_t90_for_portrait(sc: Dict[str, Optional[float]]) -> Optional[float]:
-    """画像 y_τ90 命中：ŷ_τ90 ↔ mean(price(τ⊕85/90/95))/price(τ)−1。"""
-    if not isinstance(sc, dict):
-        return None
-    for key in (
-        "y_τ90",
-        "predicted_score_t90",
-        "y_t90",
-        "y_t90_hat",
-    ):
-        v = _f(sc.get(key))
-        if v is not None:
-            return v
-    return None
+    """ŷ_τ90 ↔ mean(price(τ⊕85/90/95))/price(τ)−1。"""
+    return _resolve_horizon_for_portrait(sc, "y_τ90", "predicted_score_t90", "y_t90", "y_t90_hat")
 
 
 def _r_hat_from_scan_ctau(day: dict, unit: Optional[dict] = None) -> Optional[float]:
@@ -1022,8 +793,12 @@ def _remaining_realized_pct(day: dict, unit: Optional[dict] = None) -> Optional[
     return None
 
 
-def _t30_realized_pct(day: dict, unit: Optional[dict] = None) -> Optional[float]:
-    """mean(price(τ⊕25/30/35))/price(τ)−1：优先扫描 y_t30_realized。"""
+def _horizon_realized_pct(
+    day: dict,
+    unit: Optional[dict],
+    *keys: str,
+) -> Optional[float]:
+    """窗实现收益：先看单位/日快照，再看该钟扫描行。"""
     blobs: List[Any] = []
     if isinstance(unit, dict):
         blobs.extend((unit, unit.get("scores"), unit.get("close_band")))
@@ -1032,114 +807,40 @@ def _t30_realized_pct(day: dict, unit: Optional[dict] = None) -> Optional[float]
     for blob in blobs:
         if not isinstance(blob, dict):
             continue
-        v = _f(blob.get("y_t30_realized")) or _f(blob.get("t30_realized"))
-        if v is not None:
-            return v
+        for key in keys:
+            v = _f(blob.get(key))
+            if v is not None:
+                return v
     hm = ""
     if isinstance(unit, dict):
         hm = str(unit.get("t0_slot_hm") or unit.get("hm") or "")[:5]
     row = _scan_row_at_hm(day, hm) if hm else None
     if row is not None:
-        v = _f(row.get("y_t30_realized")) or _f(row.get("t30_realized"))
-        if v is not None:
-            return v
+        for key in keys:
+            v = _f(row.get(key))
+            if v is not None:
+                return v
     return None
+
+
+def _t30_realized_pct(day: dict, unit: Optional[dict] = None) -> Optional[float]:
+    return _horizon_realized_pct(day, unit, "y_t30_realized", "t30_realized")
 
 
 def _t45_realized_pct(day: dict, unit: Optional[dict] = None) -> Optional[float]:
-    """mean(price(τ⊕40/45/50))/price(τ)−1：优先扫描 y_t45_realized。"""
-    blobs: List[Any] = []
-    if isinstance(unit, dict):
-        blobs.extend((unit, unit.get("scores"), unit.get("close_band")))
-    if isinstance(day, dict):
-        blobs.extend((day, day.get("scores"), day.get("close_band")))
-    for blob in blobs:
-        if not isinstance(blob, dict):
-            continue
-        v = _f(blob.get("y_t45_realized")) or _f(blob.get("t45_realized"))
-        if v is not None:
-            return v
-    hm = ""
-    if isinstance(unit, dict):
-        hm = str(unit.get("t0_slot_hm") or unit.get("hm") or "")[:5]
-    row = _scan_row_at_hm(day, hm) if hm else None
-    if row is not None:
-        v = _f(row.get("y_t45_realized")) or _f(row.get("t45_realized"))
-        if v is not None:
-            return v
-    return None
+    return _horizon_realized_pct(day, unit, "y_t45_realized", "t45_realized")
 
 
 def _t60_realized_pct(day: dict, unit: Optional[dict] = None) -> Optional[float]:
-    """mean(price(τ⊕55/60/65))/price(τ)−1：优先扫描 y_t60_realized。"""
-    blobs: List[Any] = []
-    if isinstance(unit, dict):
-        blobs.extend((unit, unit.get("scores"), unit.get("close_band")))
-    if isinstance(day, dict):
-        blobs.extend((day, day.get("scores"), day.get("close_band")))
-    for blob in blobs:
-        if not isinstance(blob, dict):
-            continue
-        v = _f(blob.get("y_t60_realized")) or _f(blob.get("t60_realized"))
-        if v is not None:
-            return v
-    hm = ""
-    if isinstance(unit, dict):
-        hm = str(unit.get("t0_slot_hm") or unit.get("hm") or "")[:5]
-    row = _scan_row_at_hm(day, hm) if hm else None
-    if row is not None:
-        v = _f(row.get("y_t60_realized")) or _f(row.get("t60_realized"))
-        if v is not None:
-            return v
-    return None
+    return _horizon_realized_pct(day, unit, "y_t60_realized", "t60_realized")
 
 
 def _t75_realized_pct(day: dict, unit: Optional[dict] = None) -> Optional[float]:
-    """mean(price(τ⊕70/75/80))/price(τ)−1：优先扫描 y_t75_realized。"""
-    blobs: List[Any] = []
-    if isinstance(unit, dict):
-        blobs.extend((unit, unit.get("scores"), unit.get("close_band")))
-    if isinstance(day, dict):
-        blobs.extend((day, day.get("scores"), day.get("close_band")))
-    for blob in blobs:
-        if not isinstance(blob, dict):
-            continue
-        v = _f(blob.get("y_t75_realized")) or _f(blob.get("t75_realized"))
-        if v is not None:
-            return v
-    hm = ""
-    if isinstance(unit, dict):
-        hm = str(unit.get("t0_slot_hm") or unit.get("hm") or "")[:5]
-    row = _scan_row_at_hm(day, hm) if hm else None
-    if row is not None:
-        v = _f(row.get("y_t75_realized")) or _f(row.get("t75_realized"))
-        if v is not None:
-            return v
-    return None
+    return _horizon_realized_pct(day, unit, "y_t75_realized", "t75_realized")
 
 
 def _t90_realized_pct(day: dict, unit: Optional[dict] = None) -> Optional[float]:
-    """mean(price(τ⊕85/90/95))/price(τ)−1：优先扫描 y_t90_realized。"""
-    blobs: List[Any] = []
-    if isinstance(unit, dict):
-        blobs.extend((unit, unit.get("scores"), unit.get("close_band")))
-    if isinstance(day, dict):
-        blobs.extend((day, day.get("scores"), day.get("close_band")))
-    for blob in blobs:
-        if not isinstance(blob, dict):
-            continue
-        v = _f(blob.get("y_t90_realized")) or _f(blob.get("t90_realized"))
-        if v is not None:
-            return v
-    hm = ""
-    if isinstance(unit, dict):
-        hm = str(unit.get("t0_slot_hm") or unit.get("hm") or "")[:5]
-    row = _scan_row_at_hm(day, hm) if hm else None
-    if row is not None:
-        v = _f(row.get("y_t90_realized")) or _f(row.get("t90_realized"))
-        if v is not None:
-            return v
-    return None
+    return _horizon_realized_pct(day, unit, "y_t90_realized", "t90_realized")
 
 
 def _bump_sign_hit(
@@ -1198,53 +899,26 @@ def _portrait_slot_rows(day: dict) -> List[dict]:
         extras = {
             "c": s.get("c"),
             "bar_c": s.get("c"),
-            "r_hat": s.get("r_hat") if s.get("r_hat") is not None else s.get("residual"),
+            "r_hat": _first_present(s, "r_hat", "residual"),
             "r_realized": s.get("r_realized"),
             "y_oc": s.get("y_oc"),
-            "y_τc": s.get("y_τc") if s.get("y_τc") is not None else s.get("y_tc"),
-            "y_τ30": s.get("y_τ30") if s.get("y_τ30") is not None else s.get("y_t30"),
-            "y_t30": s.get("y_t30") if s.get("y_t30") is not None else s.get("y_τ30"),
-            "y_t30_realized": s.get("y_t30_realized")
-            if s.get("y_t30_realized") is not None
-            else s.get("t30_realized"),
-            "t30_realized": s.get("t30_realized")
-            if s.get("t30_realized") is not None
-            else s.get("y_t30_realized"),
-            "y_τ45": s.get("y_τ45") if s.get("y_τ45") is not None else s.get("y_t45"),
-            "y_t45": s.get("y_t45") if s.get("y_t45") is not None else s.get("y_τ45"),
-            "y_t45_realized": s.get("y_t45_realized")
-            if s.get("y_t45_realized") is not None
-            else s.get("t45_realized"),
-            "t45_realized": s.get("t45_realized")
-            if s.get("t45_realized") is not None
-            else s.get("y_t45_realized"),
-            "y_τ60": s.get("y_τ60") if s.get("y_τ60") is not None else s.get("y_t60"),
-            "y_t60": s.get("y_t60") if s.get("y_t60") is not None else s.get("y_τ60"),
-            "y_t60_realized": s.get("y_t60_realized")
-            if s.get("y_t60_realized") is not None
-            else s.get("t60_realized"),
-            "t60_realized": s.get("t60_realized")
-            if s.get("t60_realized") is not None
-            else s.get("y_t60_realized"),
-            "y_τ75": s.get("y_τ75") if s.get("y_τ75") is not None else s.get("y_t75"),
-            "y_t75": s.get("y_t75") if s.get("y_t75") is not None else s.get("y_τ75"),
-            "y_t75_realized": s.get("y_t75_realized")
-            if s.get("y_t75_realized") is not None
-            else s.get("t75_realized"),
-            "t75_realized": s.get("t75_realized")
-            if s.get("t75_realized") is not None
-            else s.get("y_t75_realized"),
-            "y_τ90": s.get("y_τ90") if s.get("y_τ90") is not None else s.get("y_t90"),
-            "y_t90": s.get("y_t90") if s.get("y_t90") is not None else s.get("y_τ90"),
-            "y_t90_realized": s.get("y_t90_realized")
-            if s.get("y_t90_realized") is not None
-            else s.get("t90_realized"),
-            "t90_realized": s.get("t90_realized")
-            if s.get("t90_realized") is not None
-            else s.get("y_t90_realized"),
+            "y_τc": _first_present(s, "y_τc", "y_tc"),
             "pick": s.get("pick"),
             "y_tc_agree": s.get("y_tc_agree"),
         }
+        for canon, alias in (
+            ("y_τ30", "y_t30"),
+            ("y_τ45", "y_t45"),
+            ("y_τ60", "y_t60"),
+            ("y_τ75", "y_t75"),
+            ("y_τ90", "y_t90"),
+            ("y_t30_realized", "t30_realized"),
+            ("y_t45_realized", "t45_realized"),
+            ("y_t60_realized", "t60_realized"),
+            ("y_t75_realized", "t75_realized"),
+            ("y_t90_realized", "t90_realized"),
+        ):
+            extras[canon] = _first_present(s, canon, alias)
         if filled is not None:
             sc = dict(filled.get("scores") or {}) if isinstance(filled.get("scores"), dict) else {}
             sc.update(scores)
@@ -1293,47 +967,28 @@ def _day_with_scan_portrait(day: dict, *, hm: Optional[str] = None) -> dict:
     sc = dict(out.get("scores") or {}) if isinstance(out.get("scores"), dict) else {}
     sc.update(extra)
     out["scores"] = sc
-    if extra.get("y_tau_portrait_oc") is not None:
-        out["y_tau_portrait_oc"] = extra["y_tau_portrait_oc"]
-    if extra.get("y_path_portrait") is not None:
-        out["y_path_portrait"] = extra["y_path_portrait"]
+    for key in (
+        "y_tau_portrait_oc",
+        "y_hl_portrait",
+        "r_realized",
+        "y_τ30",
+        "y_τ45",
+        "y_τ60",
+        "y_τ75",
+        "y_τ90",
+        "y_t30_realized",
+        "y_t45_realized",
+        "y_t60_realized",
+        "y_t75_realized",
+        "y_t90_realized",
+    ):
+        if extra.get(key) is not None:
+            out[key] = extra[key]
     if extra.get("r_hat") is not None:
         out["r_hat"] = extra["r_hat"]
         cb = dict(out.get("close_band") or {}) if isinstance(out.get("close_band"), dict) else {}
         cb["r_hat"] = extra["r_hat"]
         out["close_band"] = cb
-    if extra.get("r_realized") is not None:
-        out["r_realized"] = extra["r_realized"]
-    if extra.get("y_t30_realized") is not None:
-        out["y_t30_realized"] = extra["y_t30_realized"]
-        out["t30_realized"] = extra.get("t30_realized") or extra["y_t30_realized"]
-    if extra.get("y_τ30") is not None:
-        out["y_τ30"] = extra["y_τ30"]
-        out["y_t30"] = extra.get("y_t30") or extra["y_τ30"]
-    if extra.get("y_t45_realized") is not None:
-        out["y_t45_realized"] = extra["y_t45_realized"]
-        out["t45_realized"] = extra.get("t45_realized") or extra["y_t45_realized"]
-    if extra.get("y_τ45") is not None:
-        out["y_τ45"] = extra["y_τ45"]
-        out["y_t45"] = extra.get("y_t45") or extra["y_τ45"]
-    if extra.get("y_t60_realized") is not None:
-        out["y_t60_realized"] = extra["y_t60_realized"]
-        out["t60_realized"] = extra.get("t60_realized") or extra["y_t60_realized"]
-    if extra.get("y_τ60") is not None:
-        out["y_τ60"] = extra["y_τ60"]
-        out["y_t60"] = extra.get("y_t60") or extra["y_τ60"]
-    if extra.get("y_t75_realized") is not None:
-        out["y_t75_realized"] = extra["y_t75_realized"]
-        out["t75_realized"] = extra.get("t75_realized") or extra["y_t75_realized"]
-    if extra.get("y_τ75") is not None:
-        out["y_τ75"] = extra["y_τ75"]
-        out["y_t75"] = extra.get("y_t75") or extra["y_τ75"]
-    if extra.get("y_t90_realized") is not None:
-        out["y_t90_realized"] = extra["y_t90_realized"]
-        out["t90_realized"] = extra.get("t90_realized") or extra["y_t90_realized"]
-    if extra.get("y_τ90") is not None:
-        out["y_τ90"] = extra["y_τ90"]
-        out["y_t90"] = extra.get("y_t90") or extra["y_τ90"]
     if pick.get("c") is not None:
         out["bar_c"] = pick.get("c")
     return out
@@ -1374,36 +1029,11 @@ def _slot_as_portrait_unit(day: dict, row: dict) -> dict:
         "path_realized": day.get("path_realized"),
         **pack_y_tc_fields(day),
         "r_realized": row.get("r_realized"),
-        "y_t30_realized": row.get("y_t30_realized")
-        if row.get("y_t30_realized") is not None
-        else row.get("t30_realized"),
-        "t30_realized": row.get("t30_realized")
-        if row.get("t30_realized") is not None
-        else row.get("y_t30_realized"),
-        "y_t45_realized": row.get("y_t45_realized")
-        if row.get("y_t45_realized") is not None
-        else row.get("t45_realized"),
-        "t45_realized": row.get("t45_realized")
-        if row.get("t45_realized") is not None
-        else row.get("y_t45_realized"),
-        "y_t60_realized": row.get("y_t60_realized")
-        if row.get("y_t60_realized") is not None
-        else row.get("t60_realized"),
-        "t60_realized": row.get("t60_realized")
-        if row.get("t60_realized") is not None
-        else row.get("y_t60_realized"),
-        "y_t75_realized": row.get("y_t75_realized")
-        if row.get("y_t75_realized") is not None
-        else row.get("t75_realized"),
-        "t75_realized": row.get("t75_realized")
-        if row.get("t75_realized") is not None
-        else row.get("y_t75_realized"),
-        "y_t90_realized": row.get("y_t90_realized")
-        if row.get("y_t90_realized") is not None
-        else row.get("t90_realized"),
-        "t90_realized": row.get("t90_realized")
-        if row.get("t90_realized") is not None
-        else row.get("y_t90_realized"),
+        "y_t30_realized": _first_present(row, "y_t30_realized", "t30_realized"),
+        "y_t45_realized": _first_present(row, "y_t45_realized", "t45_realized"),
+        "y_t60_realized": _first_present(row, "y_t60_realized", "t60_realized"),
+        "y_t75_realized": _first_present(row, "y_t75_realized", "t75_realized"),
+        "y_t90_realized": _first_present(row, "y_t90_realized", "t90_realized"),
         "bar_c": row.get("bar_c") if row.get("bar_c") is not None else row.get("c"),
         "c": row.get("c"),
         "r_hat": row.get("r_hat"),
@@ -1510,7 +1140,6 @@ def _build_score_portrait_from_units(
     eod_hit = {"hit": 0, "miss": 0, "flat": 0}
     trade_hit = {"hit": 0, "miss": 0, "flat": 0}
     r_tau_hit = {"hit": 0, "miss": 0, "flat": 0}
-    oc_hit = {"hit": 0, "miss": 0, "flat": 0}
     y_tc_hit = {"hit": 0, "miss": 0, "flat": 0}
     y_tc_band = {"hit": 0, "miss": 0, "flat": 0}
     y_t30_hit = {"hit": 0, "miss": 0, "flat": 0}
@@ -1550,7 +1179,6 @@ def _build_score_portrait_from_units(
             tau_r = _oc_realized_pct(d)
         path_r = _pick_realized(d, "path_realized")
         eod_r = _eod_realized_pct(d)
-        y_oc_p = resolve_y_oc_for_portrait(sc)
         y_tc_p = resolve_y_tc_for_portrait(sc)
         y_t30_p = resolve_y_t30_for_portrait(sc)
         y_t45_p = resolve_y_t45_for_portrait(sc)
@@ -1572,7 +1200,6 @@ def _build_score_portrait_from_units(
             or y_path is not None
             or y_eod is not None
             or y_trade is not None
-            or y_oc_p is not None
             or y_tc_p is not None
             or y_t30_p is not None
             or y_t45_p is not None
@@ -1649,7 +1276,6 @@ def _build_score_portrait_from_units(
         else:
             _bump(path_hit, "flat")
 
-        _bump_sign_hit(oc_hit, y_oc_p, tau_r, pred_eps=0.05, real_eps=0.05)
         _bump_sign_hit(y_tc_hit, y_tc_p, rem_r, pred_eps=0.05, real_eps=0.05)
         _bump_sign_hit(r_tau_hit, r_hat_p, rem_r, pred_eps=0.05, real_eps=0.05)
         _bump_horizon_sign_hit(y_t30_hit, y_t30_p, t30_r)
@@ -1797,7 +1423,6 @@ def _build_score_portrait_from_units(
         "eod_hit": _hit_pack(eod_hit),
         "trade_hit": _hit_pack(trade_hit),
         "r_tau_hit": _hit_pack(r_tau_hit),
-        "oc_hit": _hit_pack(oc_hit),
         "y_tc_hit": _hit_pack(y_tc_hit),
         "y_tc_band": _hit_pack(y_tc_band),
         "y_t30_hit": _hit_pack(y_t30_hit),
@@ -1817,7 +1442,7 @@ def _build_score_portrait_from_units(
         },
         "note": note
         or (
-            f"scope={scope_s}；y_oc↔open→close；"
+            f"scope={scope_s}；"
             "y_hl↔极值序 signed (H−L)/ref%；"
             "y_τc↔close[T]/price(τ)−1；y_τ30↔mean(price(τ⊕25/30/35))/price(τ)−1；"
             "y_τ45↔mean(price(τ⊕40/45/50))/price(τ)−1；"
@@ -1888,7 +1513,7 @@ def build_score_portrait_by_slot(days: Sequence[dict]) -> Dict[str, Any]:
         if not units:
             continue
         note = (
-            f"槽位 {hm}：本钟扫描 ŷ_oc / ŷ_hl / ŷ_τc / ŷ_τ30 / ŷ_τ45 / ŷ_τ60 / ŷ_τ75 / ŷ_τ90 ↔ 全日或同钟标签；"
+            f"槽位 {hm}：本钟扫描 ŷ_τc / ŷ_hl / ŷ_τ30 / ŷ_τ45 / ŷ_τ60 / ŷ_τ75 / ŷ_τ90 ↔ 全日或同钟标签；"
             "样本=与日级同样本；缺该钟ŷ计flat；成交子集=该钟已破带成交"
         )
         all_port = _build_score_portrait_from_units(
@@ -1901,7 +1526,6 @@ def build_score_portrait_by_slot(days: Sequence[dict]) -> Dict[str, Any]:
             1
             for u in units
             if resolve_r_hat_for_portrait(u, u) is not None
-            or resolve_y_oc_for_portrait(extract_scores(u)) is not None
             or resolve_y_tc_for_portrait(extract_scores(u)) is not None
             or resolve_y_t30_for_portrait(extract_scores(u)) is not None
             or resolve_y_t45_for_portrait(extract_scores(u)) is not None
@@ -1925,7 +1549,7 @@ def build_score_portrait_by_slot(days: Sequence[dict]) -> Dict[str, Any]:
         "n_slots": len(slots),
         "n_days": len(eligible),
         "note": (
-            "分槽位画像：各钟 ŷ_oc / ŷ_hl / ŷ_τc / ŷ_τ30 / ŷ_τ45 / ŷ_τ60 / ŷ_τ75 / ŷ_τ90 对标签；"
+            "分槽位画像：各钟 ŷ_τc / ŷ_hl / ŷ_τ30 / ŷ_τ45 / ŷ_τ60 / ŷ_τ75 / ŷ_τ90 对标签；"
             "旁路=该钟破带方向是否与 ŷ_τc 向 ĉ 回归同向；"
             "τ30旁路=破带方向是否与 ŷ_τ30 后 30 交易分钟同号；"
             "τ45旁路=破带方向是否与 ŷ_τ45 后 45 交易分钟同号；"
@@ -1974,7 +1598,6 @@ def _merge_score_portraits(
     eod_hit = {k: 0 for k in keys_hit}
     trade_hit = {k: 0 for k in keys_hit}
     r_tau_hit = {k: 0 for k in keys_hit}
-    oc_hit = {k: 0 for k in keys_hit}
     y_tc_hit = {k: 0 for k in keys_hit}
     y_tc_band = {k: 0 for k in keys_hit}
     y_t30_hit = {k: 0 for k in keys_hit}
@@ -2024,7 +1647,6 @@ def _merge_score_portraits(
             (eod_hit, "eod_hit"),
             (trade_hit, "trade_hit"),
             (r_tau_hit, "r_tau_hit"),
-            (oc_hit, "oc_hit"),
             (y_tc_hit, "y_tc_hit"),
             (y_tc_band, "y_tc_band"),
             (y_t30_hit, "y_t30_hit"),
@@ -2117,7 +1739,6 @@ def _merge_score_portraits(
             "eod_hit": _hit_pack(eod_hit),
             "trade_hit": _hit_pack(trade_hit),
             "r_tau_hit": _hit_pack(r_tau_hit),
-            "oc_hit": _hit_pack(oc_hit),
             "y_tc_hit": _hit_pack(y_tc_hit),
             "y_tc_band": _hit_pack(y_tc_band),
             "y_t30_hit": _hit_pack(y_t30_hit),
@@ -2227,121 +1848,27 @@ def _merge_traded_score_portraits(
     return _merge_score_portraits(parts)
 
 def build_y_tau_attribution(days: Sequence[dict]) -> Dict[str, Any]:
-    """y_τ 方向命中 × 做T方向 × gap 分桶归因（成交日）。"""
-    by_dir: Dict[str, Dict[str, Any]] = {
-        "sell_then_buy": {"n": 0, "pnl": 0.0, "hit": 0, "miss": 0, "flat": 0},
-        "buy_then_sell": {"n": 0, "pnl": 0.0, "hit": 0, "miss": 0, "flat": 0},
-    }
-    by_gap: Dict[str, Dict[str, Any]] = defaultdict(
-        lambda: {"n": 0, "pnl": 0.0, "hit": 0, "miss": 0}
-    )
-    by_hit: Dict[str, Dict[str, Any]] = {
-        "hit": {"n": 0, "pnl": 0.0},
-        "miss": {"n": 0, "pnl": 0.0},
-        "flat": {"n": 0, "pnl": 0.0},
-    }
-    samples: List[Dict[str, Any]] = []
-
+    """成交轮 ŷ_τ 符号 vs open→close。只留命中率，供 KPI「τ·OC命中」。"""
+    hit_n = 0
+    miss_n = 0
+    traded = 0
     for d in days or []:
         if not isinstance(d, dict) or not is_traded_t0_day(d):
             continue
         for unit in iter_traded_attribution_units(d):
+            traded += 1
             sc = extract_scores(unit)
-            y_tau = sc.get("y_tau")
-            oc = _oc_realized_pct(unit)
-            hit = _tau_oc_hit(y_tau, oc)
-            direction = str(unit.get("direction") or unit.get("direction_used") or "")
-            pnl = round(float(unit.get("pnl") or 0) + float(unit.get("exposure_pnl") or 0), 2)
-            gap_bin = _gap_bucket(sc.get("gap_pct"))
-            row = {
-                "date": str(unit.get("date") or d.get("date") or "")[:10],
-                "direction": direction,
-                "y_tau": y_tau,
-                "y_hl": sc.get("y_hl") if sc.get("y_hl") is not None else sc.get("y_path"),
-                "gap_pct": sc.get("gap_pct"),
-                "gap_bin": gap_bin,
-                "oc_real_pct": oc,
-                "tau_oc_hit": hit,
-                "pnl": pnl,
-                "t0_slot": unit.get("t0_slot"),
-                "t0_slot_hm": unit.get("t0_slot_hm"),
-            }
-            samples.append(row)
-            if direction in by_dir:
-                by_dir[direction]["n"] += 1
-                by_dir[direction]["pnl"] = round(by_dir[direction]["pnl"] + pnl, 2)
-                if hit is True:
-                    by_dir[direction]["hit"] += 1
-                elif hit is False:
-                    by_dir[direction]["miss"] += 1
-                else:
-                    by_dir[direction]["flat"] += 1
-            gb = by_gap[gap_bin]
-            gb["n"] += 1
-            gb["pnl"] = round(gb["pnl"] + pnl, 2)
+            hit = _tau_oc_hit(sc.get("y_tau"), _oc_realized_pct(unit))
             if hit is True:
-                gb["hit"] += 1
+                hit_n += 1
             elif hit is False:
-                gb["miss"] += 1
-            if hit is True:
-                by_hit["hit"]["n"] += 1
-                by_hit["hit"]["pnl"] = round(by_hit["hit"]["pnl"] + pnl, 2)
-            elif hit is False:
-                by_hit["miss"]["n"] += 1
-                by_hit["miss"]["pnl"] = round(by_hit["miss"]["pnl"] + pnl, 2)
-            else:
-                by_hit["flat"]["n"] += 1
-                by_hit["flat"]["pnl"] = round(by_hit["flat"]["pnl"] + pnl, 2)
-
-    total_hit = by_hit["hit"]["n"]
-    total_miss = by_hit["miss"]["n"]
-    denom = total_hit + total_miss
-    # |ŷ_τ| 分桶同号率（验收用；不依赖泄漏 y_on）
-    abs_buckets = {
-        "abs_ge_0_4": {"n": 0, "hit": 0, "miss": 0, "pnl": 0.0},
-        "abs_ge_0_6": {"n": 0, "hit": 0, "miss": 0, "pnl": 0.0},
-    }
-    for row in samples:
-        yt = row.get("y_tau")
-        if yt is None:
-            continue
-        try:
-            ap = abs(float(yt))
-        except (TypeError, ValueError):
-            continue
-        hit = row.get("tau_oc_hit")
-        pnl = float(row.get("pnl") or 0)
-        for key, thr in (("abs_ge_0_4", 0.4), ("abs_ge_0_6", 0.6)):
-            if ap >= thr:
-                pack = abs_buckets[key]
-                pack["n"] += 1
-                pack["pnl"] = round(pack["pnl"] + pnl, 2)
-                if hit is True:
-                    pack["hit"] += 1
-                elif hit is False:
-                    pack["miss"] += 1
-    for pack in abs_buckets.values():
-        n_hm = int(pack["hit"]) + int(pack["miss"])
-        pack["sign_hit"] = round(pack["hit"] / n_hm, 4) if n_hm else None
-    summary = {
-        "traded_with_tau": len(samples),
-        "oc_hit_rate_pct": round(total_hit / denom * 100.0, 2) if denom else None,
-        "pnl_hit": by_hit["hit"]["pnl"],
-        "pnl_miss": by_hit["miss"]["pnl"],
-        "pnl_flat": by_hit["flat"]["pnl"],
-        "abs_buckets": abs_buckets,
-    }
-    gap_rows = [
-        {"bin": b, **dict(by_gap.get(b) or {"n": 0, "pnl": 0.0, "hit": 0, "miss": 0})}
-        for b in _gap_bucket_order()
-        if (by_gap.get(b) or {}).get("n")
-    ]
+                miss_n += 1
+    denom = hit_n + miss_n
     return {
-        "summary": summary,
-        "by_direction": by_dir,
-        "by_gap": gap_rows,
-        "by_oc_hit": by_hit,
-        "samples": samples[-80:],
+        "traded_with_tau": traded,
+        "hit": hit_n,
+        "miss": miss_n,
+        "oc_hit_rate_pct": round(hit_n / denom * 100.0, 2) if denom else None,
     }
 
 
@@ -2548,9 +2075,6 @@ def summarize_dual_y_upgrade_acceptance(
             flat_trades += 1
 
     att = build_y_tau_attribution(days)
-    att_sm = att.get("summary") if isinstance(att.get("summary"), dict) else {}
-    abs_b = att_sm.get("abs_buckets") if isinstance(att_sm.get("abs_buckets"), dict) else {}
-    strong_b = abs_b.get("abs_ge_0_6") if isinstance(abs_b.get("abs_ge_0_6"), dict) else {}
 
     path_skip = 0
     for d in days or []:
@@ -2566,17 +2090,12 @@ def summarize_dual_y_upgrade_acceptance(
         "traded_n": len(traded),
         "weak_tau_trades": 0,  # 双闸已合并；保留键兼容旧前端
         "flat_tau_trades": flat_trades,
-        "tau_oc_hit_rate_pct": att_sm.get("oc_hit_rate_pct"),
-        "strong_bucket": strong_b,
+        "tau_oc_hit_rate_pct": att.get("oc_hit_rate_pct"),
         "path_disagree_skips": path_skip,
         "y_tau_enter": enter,
         "y_tau_enter_strong": enter,
         "blockers": (["存在 |τ|<enter 成交"] if flat_trades else []),
     }
-
-
-def extract_y_tau(day: dict) -> Optional[float]:
-    return extract_scores(day).get("y_tau")
 
 
 def is_traded_t0_day(day: dict) -> bool:
@@ -2916,6 +2435,7 @@ def build_t0_viz_payload(
                         "date": date,
                         "y_tau": yt,
                         "y_oc": yt,
+                        "y_τc": usc.get("y_τc"),
                         "r_pct": rp,
                         "outcome": "traded",
                         "direction": unit.get("direction"),
@@ -2936,6 +2456,7 @@ def build_t0_viz_payload(
                             "date": date,
                             "y_tau": sc["y_tau"],
                             "y_oc": sc.get("y_oc") if sc.get("y_oc") is not None else sc["y_tau"],
+                            "y_τc": sc.get("y_τc"),
                             "r_pct": _r_pct_for_unit(d, None),
                             "outcome": "traded",
                             "direction": direction,
@@ -3050,7 +2571,7 @@ def build_t0_viz_payload(
         for b in _bucket_order()
         if y_tau_hist.get(b)
     ]
-    y_tau_attribution = build_y_tau_attribution(days)
+    y_tau_hit = build_y_tau_attribution(days)
     y_path_attribution = build_y_path_attribution(days, path_enter=0.02)
     score_portrait = build_backtest_score_portrait(days)
 
@@ -3096,9 +2617,8 @@ def build_t0_viz_payload(
         summary["avg_y_tau_traded"] = round(sum(y_tau_traded) / len(y_tau_traded), 3)
     if y_tau_skipped:
         summary["avg_y_tau_signal_skip"] = round(sum(y_tau_skipped) / len(y_tau_skipped), 3)
-    att_sm = y_tau_attribution.get("summary") if isinstance(y_tau_attribution.get("summary"), dict) else {}
-    if att_sm.get("oc_hit_rate_pct") is not None:
-        summary["tau_oc_hit_rate_pct"] = att_sm.get("oc_hit_rate_pct")
+    if y_tau_hit.get("oc_hit_rate_pct") is not None:
+        summary["tau_oc_hit_rate_pct"] = y_tau_hit.get("oc_hit_rate_pct")
     path_sm = (
         y_path_attribution.get("summary")
         if isinstance(y_path_attribution.get("summary"), dict)
@@ -3152,7 +2672,6 @@ def build_t0_viz_payload(
         "cumulative_pnl": cumulative,
         "daily_activity": activity,
         "y_tau_buckets": y_tau_buckets,
-        "y_tau_attribution": y_tau_attribution,
         "y_path_attribution": y_path_attribution,
         "score_portrait": score_portrait,
         "y_tau_scatter": y_tau_scatter,
@@ -3279,12 +2798,11 @@ def merge_t0_viz_payloads(
     summary["score_seen"] = score_seen
     summary["score_total"] = max(score_total, traded_n + signal_skip_n)
 
-    y_tau_attribution = build_y_tau_attribution(
+    y_tau_hit = build_y_tau_attribution(
         [tp for tp in trade_points if tp.get("date")]
     )
-    att_sm = y_tau_attribution.get("summary") if isinstance(y_tau_attribution.get("summary"), dict) else {}
-    if att_sm.get("oc_hit_rate_pct") is not None:
-        summary["tau_oc_hit_rate_pct"] = att_sm.get("oc_hit_rate_pct")
+    if y_tau_hit.get("oc_hit_rate_pct") is not None:
+        summary["tau_oc_hit_rate_pct"] = y_tau_hit.get("oc_hit_rate_pct")
 
     y_path_attribution = _merge_y_path_attribution(
         [p.get("y_path_attribution") for p in (payloads or []) if isinstance(p, dict)],
@@ -3368,7 +2886,6 @@ def merge_t0_viz_payloads(
             for b in _bucket_order()
             if y_tau_hist.get(b)
         ],
-        "y_tau_attribution": y_tau_attribution,
         "y_path_attribution": y_path_attribution,
         "score_portrait": score_portrait,
         "y_tau_scatter": y_tau_scatter,

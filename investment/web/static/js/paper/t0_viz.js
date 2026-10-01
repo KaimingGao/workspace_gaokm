@@ -979,6 +979,8 @@ function wireYtauScatterHover(canvas) {
     const name = String(pt.stock_name || pt.stock_code || "").trim();
     const dir = pt.traded ? t0DirShort(pt.direction) : "信号跳过";
     const skipTip = !pt.traded && pt.skip_category ? skipCatTip(pt.skip_category) : "";
+    const yTcRaw = pt["y_τc"] != null ? pt["y_τc"] : pt.y_oc != null ? pt.y_oc : pt.y_tau;
+    const yTc = yTcRaw != null ? Number(yTcRaw) : NaN;
     tipEl.hidden = false;
     if (box) box.classList.add("is-chart-tip");
     canvas.style.cursor = "crosshair";
@@ -986,9 +988,7 @@ function wireYtauScatterHover(canvas) {
       `<strong>${esc(String(pt.date || "").slice(0, 10))}${name ? ` · ${esc(name)}` : ""}</strong>` +
       `<span class="paper-t0-viz-chart-hover-meta">` +
       `R̂_τ ${esc(fmtNum(pt.r_pct, 2))}%（C_τ/现价−1） · ${esc(dir)}` +
-      (pt.y_oc != null && Number.isFinite(Number(pt.y_oc))
-        ? ` · ŷ_τc ${esc(fmtNum(pt.y_oc, 2))}%`
-        : "") +
+      (Number.isFinite(yTc) ? ` · ŷ_τc ${esc(fmtNum(yTc, 2))}%` : "") +
       `</span>` +
       (skipTip ? `<p>${esc(skipTip)}</p>` : "");
     if (ev && box) {

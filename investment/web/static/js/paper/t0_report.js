@@ -385,7 +385,7 @@ function buildPortraitSectionHtml(portrait) {
               `</span>` +
               _fillBarHtml(nSlotTr, nSlot) +
               `</td>` +
-              `<td>${fmtHitCell(s.oc_hit)}</td>` +
+              `<td>${fmtHitCell(s.y_tc_hit)}</td>` +
               `<td>${fmtHitCell(s.y_tw_hit)}</td>` +
               `<td>${fmtHitCell(s.y_t30_hit)}</td>` +
               `<td>${fmtHitCell(s.y_t45_hit)}</td>` +
@@ -397,7 +397,7 @@ function buildPortraitSectionHtml(portrait) {
               `<td>${fmtHitCell(s.y_t60_band)}</td>` +
               `<td>${fmtHitCell(s.y_t75_band)}</td>` +
               `<td>${fmtHitCell(s.y_t90_band)}</td>` +
-              `<td>${fmtHitCell(traded.oc_hit)}</td>` +
+              `<td>${fmtHitCell(traded.y_tc_hit)}</td>` +
               `<td>${fmtHitCell(traded.y_tw_hit)}</td>` +
               `<td>${fmtHitCell(traded.y_t30_hit)}</td>` +
               `<td>${fmtHitCell(traded.y_t45_hit)}</td>` +
