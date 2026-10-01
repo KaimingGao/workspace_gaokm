@@ -152,30 +152,6 @@ class T0BacktestRequest(BaseModel):
         le=1_000_000,
         description="过 y_τc强时本轮金额（元）；不少于入场金额，默认 4 万",
     )
-    y_oc_enter: Optional[float] = Field(
-        default=None,
-        ge=0.0,
-        le=20.0,
-        description="旧键，读入后并入 y_τc_enter",
-    )
-    y_oc_strong: Optional[float] = Field(
-        default=None,
-        ge=0.0,
-        le=20.0,
-        description="旧键，读入后并入 y_τc_strong",
-    )
-    y_oc_enter_amount: Optional[float] = Field(
-        default=None,
-        ge=0,
-        le=1_000_000,
-        description="旧键，读入后并入 y_τc_enter_amount",
-    )
-    y_oc_strong_amount: Optional[float] = Field(
-        default=None,
-        ge=0,
-        le=1_000_000,
-        description="旧键，读入后并入 y_τc_strong_amount",
-    )
     y_tw_vote_margin: Optional[float] = Field(
         default=None,
         ge=0.0,
@@ -209,12 +185,6 @@ class T0BacktestRequest(BaseModel):
         ge=0.0,
         le=100.0,
         description="C_τ=price(τ)×(1+clip(y_τc×scale, ±20)/100)；默认 2",
-    )
-    t0_y_oc_target_scale: Optional[float] = Field(
-        default=None,
-        ge=0.0,
-        le=100.0,
-        description="旧键，读入后并入 t0_y_τc_target_scale",
     )
     t0_close_band_delta_pct: Optional[float] = Field(
         default=None,
@@ -454,17 +424,12 @@ class PaperExecutionPatchRequest(BaseModel):
     y_τc_strong: Optional[float] = None
     y_τc_enter_amount: Optional[float] = None
     y_τc_strong_amount: Optional[float] = None
-    y_oc_enter: Optional[float] = None
-    y_oc_strong: Optional[float] = None
-    y_oc_enter_amount: Optional[float] = None
-    y_oc_strong_amount: Optional[float] = None
     y_tw_vote_margin: Optional[float] = None
     y_τw_vote_margin: Optional[float] = None
     y_tw_midpoint: Optional[float] = None
     y_τw_midpoint: Optional[float] = None
     horizon_prob_backend: Optional[str] = None
     t0_y_τc_target_scale: Optional[float] = None
-    t0_y_oc_target_scale: Optional[float] = None
     t0_close_band_delta_pct: Optional[float] = None
     t0_price_space_gate: Optional[bool] = None
     t0_price_space_max_dev_pct: Optional[float] = None

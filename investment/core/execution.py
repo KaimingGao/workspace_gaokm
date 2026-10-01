@@ -21,7 +21,6 @@ from typing import Any, Dict, List, Optional, Tuple
 from core.t0.config import (
     DEFAULT_T0_RULES,
     load_t0_rules,
-    migrate_y_oc_rule_keys,
 )
 
 DEFAULT_COUPLING: Dict[str, Any] = {
@@ -258,23 +257,6 @@ _REBALANCE_KEYS = (
 )
 
 
-def _promote_y_tc_gt0(timing: Optional[dict]) -> Optional[dict]:
-    """调仓层里的旧入场闸并入 y_τc_gt0。该层已写新键则新键优先。"""
-    if not isinstance(timing, dict):
-        return timing
-    from core.paper.rebalance.path_matrix import promote_y_tc_gt0_block
-
-    out = deepcopy(timing)
-    for key in ("rank_lots", "path_matrix"):
-        block = out.get(key)
-        if not isinstance(block, dict):
-            continue
-        block = dict(block)
-        promote_y_tc_gt0_block(block)
-        out[key] = block
-    return out
-
-
 def _merge_dict(base: dict, overlay: Optional[dict]) -> dict:
     out = deepcopy(base) if base else {}
     if not overlay:
@@ -361,7 +343,6 @@ def _layer_t0(
 
     merged: dict = {}
     for name, layer in layers:
-        migrate_y_oc_rule_keys(layer)
         for k, v in layer.items():
             if v is None:
                 continue
@@ -481,7 +462,7 @@ def resolve_effective_execution(
 
     # 成交时机 + rank_lots（仍认旧键 path_matrix）：Spec ← paper.rules.execution.rebalance_timing
     timing = deepcopy(DEFAULT_REBALANCE_TIMING)
-    spec_timing = _promote_y_tc_gt0(strategy_exe.get("rebalance_timing"))
+    spec_timing = strategy_exe.get("rebalance_timing")
     if isinstance(spec_timing, dict):
         timing = _merge_dict(timing, spec_timing)
     if isinstance(paper_rules, dict):
@@ -491,13 +472,13 @@ def resolve_effective_execution(
         if isinstance(paper_exe, dict):
             if paper_exe.get("execution_mode"):
                 timing["execution_mode"] = paper_exe.get("execution_mode")
-            rt = _promote_y_tc_gt0(paper_exe.get("rebalance_timing"))
+            rt = paper_exe.get("rebalance_timing")
             if isinstance(rt, dict):
                 timing = _merge_dict(timing, rt)
     if isinstance(request_override, dict):
         if request_override.get("execution_mode"):
             timing["execution_mode"] = request_override.get("execution_mode")
-        req_t = _promote_y_tc_gt0(request_override.get("rebalance_timing"))
+        req_t = request_override.get("rebalance_timing")
         if isinstance(req_t, dict):
             timing = _merge_dict(timing, req_t)
     mode = str(timing.get("execution_mode") or "next_open").strip().lower()
@@ -831,8 +812,6 @@ def validate_execution_patch(raw: Any) -> Tuple[bool, Dict[str, Any], List[str]]
                 "rebalance_timing",
             }
         }
-
-    migrate_y_oc_rule_keys(t0_in)
 
     unknown = [k for k in t0_in.keys() if k not in ALLOWED_T0_PATCH_KEYS]
     if unknown:

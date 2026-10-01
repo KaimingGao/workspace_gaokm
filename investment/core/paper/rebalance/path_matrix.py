@@ -80,15 +80,6 @@ def _pick_raw_cfg(d: Optional[dict]) -> Optional[dict]:
     return None
 
 
-def promote_y_tc_gt0_block(block: dict) -> None:
-    """旧入场闸并入 y_τc_gt0。新键已写则保留，并去掉旧键。"""
-    if not isinstance(block, dict):
-        return
-    if "y_τc_gt0" not in block and "y_oc_gt0" in block:
-        block["y_τc_gt0"] = block["y_oc_gt0"]
-    block.pop("y_oc_gt0", None)
-
-
 def get_path_matrix_cfg(
     timing_or_cfg: Optional[dict] = None,
     *,
@@ -123,17 +114,6 @@ def get_path_matrix_cfg(
 
     out["y_enter_enabled"] = coerce_cfg_bool(out.get("y_enter_enabled"), True)
     out["y_enter_alt_enabled"] = coerce_cfg_bool(out.get("y_enter_alt_enabled"), True)
-    if isinstance(raw, dict):
-        if raw.get("y_oo_gt0") is None and raw.get("y_oo_oc_enabled") is not None:
-            out["y_oo_gt0"] = coerce_cfg_bool(raw.get("y_oo_oc_enabled"), False)
-        if raw.get("y_τc_gt0") is None and raw.get("y_oc_gt0") is not None:
-            out["y_τc_gt0"] = coerce_cfg_bool(raw.get("y_oc_gt0"), False)
-        elif (
-            raw.get("y_τc_gt0") is None
-            and raw.get("y_oc_gt0") is None
-            and raw.get("y_oo_oc_enabled") is not None
-        ):
-            out["y_τc_gt0"] = coerce_cfg_bool(raw.get("y_oo_oc_enabled"), False)
     out["y_oo_gt0"] = coerce_cfg_bool(out.get("y_oo_gt0"), False)
     out["y_τc_gt0"] = coerce_cfg_bool(out.get("y_τc_gt0"), False)
     for key, default, lo, hi in (

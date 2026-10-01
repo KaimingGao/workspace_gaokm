@@ -54,10 +54,10 @@ def _cfg(overrides=None):
     d = dict(overrides or {})
     d.setdefault("t0_lock_win_pct_buy_then_sell", 0)
     d.setdefault("t0_lock_win_pct_sell_then_buy", 0)
-    d.setdefault("y_oc_enter", 0)
-    d.setdefault("y_oc_strong", 0)
-    d.setdefault("y_oc_enter_amount", 0)
-    d.setdefault("y_oc_strong_amount", 0)
+    d.setdefault("y_τc_enter", 0)
+    d.setdefault("y_τc_strong", 0)
+    d.setdefault("y_τc_enter_amount", 0)
+    d.setdefault("y_τc_strong_amount", 0)
     return load_t0_rules(d)
 
 
@@ -320,16 +320,16 @@ class TestCloseBandCore(unittest.TestCase):
         )
         self.assertIsNone(
             close_band_y_oc_round_shares(
-                {"y_oc_enter_amount": 0, "y_oc_strong_amount": 0},
+                {"y_τc_enter_amount": 0, "y_τc_strong_amount": 0},
                 y_oc=3,
                 price=10,
             )
         )
         cfg = {
-            "y_oc_enter": 0.5,
-            "y_oc_strong": 1.0,
-            "y_oc_enter_amount": 4000,
-            "y_oc_strong_amount": 8000,
+            "y_τc_enter": 0.5,
+            "y_τc_strong": 1.0,
+            "y_τc_enter_amount": 4000,
+            "y_τc_strong_amount": 8000,
         }
         self.assertEqual(
             close_band_y_oc_round_shares(cfg, y_oc=0.6, price=10),
@@ -350,11 +350,11 @@ class TestCloseBandCore(unittest.TestCase):
             close_band_y_oc_skip_reason,
         )
 
-        self.assertIsNone(close_band_y_oc_skip_reason(0.2, {"y_oc_enter": 0}))
-        skip = close_band_y_oc_skip_reason(0.2, {"y_oc_enter": 0.5})
+        self.assertIsNone(close_band_y_oc_skip_reason(0.2, {"y_τc_enter": 0}))
+        skip = close_band_y_oc_skip_reason(0.2, {"y_τc_enter": 0.5})
         self.assertIsNotNone(skip)
         self.assertIn("未过入场", skip)
-        self.assertIsNone(close_band_y_oc_skip_reason(0.5, {"y_oc_enter": 0.5}))
+        self.assertIsNone(close_band_y_oc_skip_reason(0.5, {"y_τc_enter": 0.5}))
         up = _ytw_heads(up=True)
         d, meta = bar_close_band_pick_direction(
             100.0,
@@ -362,9 +362,9 @@ class TestCloseBandCore(unittest.TestCase):
             {**up, "y_tau": 0.2},
             {
                 "y_tw_enter": 0,
-                "y_oc_enter": 0.5,
+                "y_τc_enter": 0.5,
                 "t0_close_band_delta_pct": 0.5,
-                "t0_y_oc_target_scale": 10,
+                "t0_y_τc_target_scale": 10,
             },
             open_px=100.0,
             scale=1.0,

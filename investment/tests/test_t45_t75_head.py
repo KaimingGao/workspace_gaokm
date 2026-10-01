@@ -237,7 +237,7 @@ class YtwFiveHeadTests(unittest.TestCase):
         self.assertNotIn("y_tw_strong", cfg)
         self.assertNotIn("y_t45_strong", cfg)
         self.assertNotIn("y_t75_strong", cfg)
-        kept = load_t0_rules({"y_oc_strong": 1.5})
+        kept = load_t0_rules({"y_τc_strong": 1.5})
         self.assertEqual(float(kept["y_tw_enter"]), 2.0)
         self.assertAlmostEqual(float(kept["y_τc_strong"]), 1.5)
         self.assertNotIn("y_tw_strong", kept)

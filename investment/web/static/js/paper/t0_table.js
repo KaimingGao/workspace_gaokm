@@ -2505,11 +2505,8 @@ function t0DayScoreItem(d, fallback = {}, rules = {}, liveByCode = null) {
       finiteYhatNum(slotCloseBand(slot)?.y_oc_target),
     t0_y_τc_target_scale:
       finiteYhatNum(scores.t0_y_τc_target_scale) ??
-      finiteYhatNum(scores.t0_y_oc_target_scale) ??
       finiteYhatNum(d.t0_y_τc_target_scale) ??
-      finiteYhatNum(d.t0_y_oc_target_scale) ??
-      finiteYhatNum(slotCloseBand(slot)?.t0_y_τc_target_scale) ??
-      finiteYhatNum(slotCloseBand(slot)?.t0_y_oc_target_scale),
+      finiteYhatNum(slotCloseBand(slot)?.t0_y_τc_target_scale),
     y_τc_ridge: scores.y_τc_ridge ?? d.y_τc_ridge ?? null,
     y_τc_source: scores.y_τc_source ?? d.y_τc_source ?? null,
     "y_τc":

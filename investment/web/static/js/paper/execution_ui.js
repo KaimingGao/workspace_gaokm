@@ -13,14 +13,14 @@ function yTwEnterValue(t0) {
 }
 
 function yOcEnterValue(t0) {
-  const e = Number(t0?.y_τc_enter ?? t0?.y_oc_enter);
+  const e = Number(t0?.y_τc_enter);
   if (Number.isFinite(e)) return Math.max(0, Math.min(e, 20));
   return 0.5;
 }
 
 function yOcStrongValue(t0) {
   const enter = yOcEnterValue(t0);
-  const s = Number(t0?.y_τc_strong ?? t0?.y_oc_strong);
+  const s = Number(t0?.y_τc_strong);
   if (!Number.isFinite(s)) return Math.max(enter, 1);
   return Math.max(enter, Math.min(s, 20));
 }
@@ -35,7 +35,7 @@ function clampT0LotAmount(raw, fallback) {
 
 function yOcEnterAmountValue(t0) {
   return clampT0LotAmount(
-    t0?.y_τc_enter_amount ?? t0?.y_oc_enter_amount,
+    t0?.y_τc_enter_amount,
     20000
   );
 }
@@ -43,7 +43,7 @@ function yOcEnterAmountValue(t0) {
 function yOcStrongAmountValue(t0) {
   const enter = yOcEnterAmountValue(t0);
   const s = clampT0LotAmount(
-    t0?.y_τc_strong_amount ?? t0?.y_oc_strong_amount,
+    t0?.y_τc_strong_amount,
     40000
   );
   return Math.max(enter, s);
@@ -159,7 +159,7 @@ export function renderExecutionRulesHtml(execution) {
     specKpi(
       "C_τ",
       (() => {
-        const s = Number(t0.t0_y_τc_target_scale ?? t0.t0_y_oc_target_scale);
+        const s = Number(t0.t0_y_τc_target_scale);
         const sc = Number.isFinite(s) ? s : 2;
         return `×${sc}`;
       })(),
@@ -441,11 +441,7 @@ export function fillExecutionForm(root, execution) {
   );
   set(
     "t0_y_τc_target_scale",
-    t0.t0_y_τc_target_scale != null
-      ? t0.t0_y_τc_target_scale
-      : t0.t0_y_oc_target_scale != null
-        ? t0.t0_y_oc_target_scale
-        : 2
+    t0.t0_y_τc_target_scale != null ? t0.t0_y_τc_target_scale : 2
   );
   set(
     "t0_close_band_delta_pct",
@@ -630,14 +626,8 @@ export function fillPathMatrixForm(root, execution) {
   };
   set("pm_rank_enter", rankScoreToPct(pm.rank_enter));
   set("pm_rank_strong", rankScoreToPct(pm.rank_strong != null ? pm.rank_strong : pm.rank_enter));
-  const yOoGt0 =
-    pm.y_oo_gt0 != null ? !!pm.y_oo_gt0 : pm.y_oo_oc_enabled === true;
-  const yOcGt0 =
-    pm.y_τc_gt0 != null
-      ? !!pm.y_τc_gt0
-      : pm.y_oc_gt0 != null
-        ? !!pm.y_oc_gt0
-        : pm.y_oo_oc_enabled === true;
+  const yOoGt0 = pm.y_oo_gt0 != null ? !!pm.y_oo_gt0 : false;
+  const yOcGt0 = pm.y_τc_gt0 != null ? !!pm.y_τc_gt0 : false;
   set("pm_y_oo_gt0", yOoGt0);
   set("pm_y_τc_gt0", yOcGt0);
   set(
@@ -934,11 +924,7 @@ export function collectT0BacktestBody(root, opts = {}) {
       return s === "tree" ? "tree" : "ridge";
     })(),
     t0_y_τc_target_scale:
-      t0.t0_y_τc_target_scale != null
-        ? t0.t0_y_τc_target_scale
-        : t0.t0_y_oc_target_scale != null
-          ? t0.t0_y_oc_target_scale
-          : 2,
+      t0.t0_y_τc_target_scale != null ? t0.t0_y_τc_target_scale : 2,
     t0_close_band_delta_pct:
       t0.t0_close_band_delta_pct != null ? t0.t0_close_band_delta_pct : 0.5,
     t0_pm_degrade_sell_then_buy: t0.t0_pm_degrade_sell_then_buy != null ? t0.t0_pm_degrade_sell_then_buy : "13:00",

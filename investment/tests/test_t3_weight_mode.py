@@ -139,7 +139,7 @@ class TestT3WeightMode(unittest.TestCase):
         self.assertTrue(body.y_enter_enabled)
         self.assertFalse(hasattr(body, "y_hl_gt0"))
         self.assertFalse(body.y_oo_gt0)
-        self.assertFalse(body.y_oc_gt0)
+        self.assertFalse(hasattr(body, "y_oc_gt0"))
         self.assertIsNone(body.universe_fit_tiers)
         self.assertFalse(hasattr(body, "engine"))
         self.assertFalse(hasattr(body, "top_k"))

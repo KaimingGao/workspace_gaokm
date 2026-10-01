@@ -78,7 +78,6 @@ class QuantReplayMixin:
         y_enter_alt_enabled: bool = True,
         y_oo_gt0: Optional[bool] = None,
         y_τc_gt0: Optional[bool] = None,
-        y_oc_gt0: Optional[bool] = None,
         initial_cash: Optional[float] = None,
         fill_clock: str = "09:30",
         lot_base: Optional[float] = None,
@@ -328,12 +327,6 @@ class QuantReplayMixin:
         strong = max(0.0, min(1.0, float(strong)))
         if strong < enter:
             strong = enter
-        if y_oo_gt0 is None:
-            y_oo_gt0 = bool(legacy_kw.get("y_oo_oc_enabled", False))
-        if y_τc_gt0 is None:
-            y_τc_gt0 = y_oc_gt0
-        if y_τc_gt0 is None:
-            y_τc_gt0 = bool(legacy_kw.get("y_oo_oc_enabled", False))
         cash = clamp_replay_initial_cash(
             REPLAY_INITIAL_CASH if initial_cash is None else initial_cash
         )

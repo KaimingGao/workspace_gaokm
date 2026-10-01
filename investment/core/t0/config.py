@@ -252,28 +252,6 @@ def t0_slots_enabled(cfg: Optional[dict]) -> bool:
     return True
 
 
-Y_TC_RULE_ALIASES = (
-    ("y_τc_enter", "y_oc_enter"),
-    ("y_τc_strong", "y_oc_strong"),
-    ("y_τc_enter_amount", "y_oc_enter_amount"),
-    ("y_τc_strong_amount", "y_oc_strong_amount"),
-    ("t0_y_τc_target_scale", "t0_y_oc_target_scale"),
-)
-
-
-def migrate_y_oc_rule_keys(cfg: dict, override_keys: Optional[set] = None) -> None:
-    """规则键并入 y_τc_*。同一层只写了旧键则迁入；新键已显式给出则保留。迁完去掉旧键。"""
-    if not isinstance(cfg, dict):
-        return
-    keys = set(cfg.keys()) if override_keys is None else set(override_keys)
-    for new, old in Y_TC_RULE_ALIASES:
-        if old in keys and new not in keys:
-            cfg[new] = cfg.get(old)
-            if override_keys is not None:
-                override_keys.add(new)
-        cfg.pop(old, None)
-
-
 def _migrate_y_tw_enter(cfg: dict, override_keys: Optional[set] = None) -> None:
     """对齐 y_tw_enter / y_τw_enter 别名。"""
     _ = override_keys
@@ -302,7 +280,6 @@ def load_t0_rules(override: Optional[dict] = None) -> Dict[str, Any]:
     for k, v in ov.items():
         if v is not None:
             cfg[k] = v
-    migrate_y_oc_rule_keys(cfg, override_keys)
     cfg["t0_ratio"] = max(0.05, min(float(cfg.get("t0_ratio") or 1.0), 1.0))
     # 纸面/回测生效路径在 core.execution.resolve 再强制为 1.0
     cfg["lot_size"] = max(1, int(cfg.get("lot_size") or 100))
@@ -650,7 +627,6 @@ def t0_backtest_virtual_shares(cfg: Optional[dict] = None, fallback: Any = 1000,
     from core.paper.sizing import shares_from_amount
 
     cfg_d = dict(cfg) if isinstance(cfg, dict) else {}
-    migrate_y_oc_rule_keys(cfg_d)
 
     def _amt(raw: Any) -> float:
         try:

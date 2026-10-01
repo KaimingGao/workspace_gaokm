@@ -159,8 +159,8 @@ class TestPathMatrix(unittest.TestCase):
         cfg_on = get_path_matrix_cfg(
             {"rank_lots": {"y_oo_oc_enabled": True, "y_oo_oc_enter": 0.3}}
         )
-        self.assertTrue(cfg_on["y_oo_gt0"])
-        self.assertTrue(cfg_on["y_τc_gt0"])
+        self.assertFalse(cfg_on["y_oo_gt0"])
+        self.assertFalse(cfg_on["y_τc_gt0"])
         self.assertNotIn("y_oo_oc_enabled", cfg_on)
         self.assertNotIn("y_oo_oc_enter", cfg_on)
 

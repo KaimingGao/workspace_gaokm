@@ -695,7 +695,7 @@ class TTwGateTests(unittest.TestCase):
             close_band_y_oc_round_scale,
         )
 
-        strong_cfg = {"y_oc_enter": 0.5, "y_oc_strong": 1.0}
+        strong_cfg = {"y_τc_enter": 0.5, "y_τc_strong": 1.0}
         self.assertTrue(close_band_y_oc_is_strong(1.0, strong_cfg))
         self.assertFalse(close_band_y_oc_is_strong(0.6, strong_cfg))
         self.assertAlmostEqual(

@@ -194,7 +194,7 @@ class CloseHatTests(unittest.TestCase):
 
         open_px, price_tau = 32.5, 32.27
         y_oc = -0.913934
-        cfg = {"t0_y_oc_target_scale": 10.0}
+        cfg = {"t0_y_τc_target_scale": 10.0}
         est = estimate_close_px(
             {"y_tau": y_oc, "y_τc": -0.2089},
             open_px=open_px,

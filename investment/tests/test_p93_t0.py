@@ -132,10 +132,10 @@ def _rules(**kwargs):
         "t0_slots_max_rounds": 1,
         "t0_max_position_pct": 1.0,
         # 0=走旧比例仓，避免路径夹具被生产默认股数改掉
-        "y_oc_enter": 0,
-        "y_oc_strong": 0,
-        "y_oc_enter_amount": 0,
-        "y_oc_strong_amount": 0,
+        "y_τc_enter": 0,
+        "y_τc_strong": 0,
+        "y_τc_enter_amount": 0,
+        "y_τc_strong_amount": 0,
         # 路径用例默认零价偏，避免与生产 ±默认纠缠断言
         "y_tau_exit_price_bias_buy_then_sell": 0.0,
         "y_tau_exit_price_bias_sell_then_buy": 0.0,
@@ -151,7 +151,7 @@ def _rules(**kwargs):
         "y_τ60_strong": 1.0,
         "y_t90_strong": 1.0,
         "y_τ90_strong": 1.0,
-        "t0_y_oc_target_scale": 1.0,
+        "t0_y_τc_target_scale": 1.0,
         # 路径用例与生产「反T当日回补」解耦
         "must_cover_same_day_sell_then_buy": False,
     }
@@ -2273,13 +2273,18 @@ class TestDualYDirection(unittest.TestCase):
         self.assertNotIn("r_tau_enter", cfg)
         self.assertNotIn("r_tau_enter_alt", cfg)
         self.assertAlmostEqual(
-            float(load_t0_rules({"t0_y_oc_target_scale": 100})["t0_y_τc_target_scale"]),
+            float(load_t0_rules({"t0_y_τc_target_scale": 100})["t0_y_τc_target_scale"]),
             100.0,
         )
         self.assertAlmostEqual(
-            float(load_t0_rules({"t0_y_oc_target_scale": 150})["t0_y_τc_target_scale"]),
+            float(load_t0_rules({"t0_y_τc_target_scale": 150})["t0_y_τc_target_scale"]),
             100.0,
         )
+        dropped_scale = load_t0_rules({"t0_y_oc_target_scale": 100, "y_oc_enter": 9})
+        self.assertNotIn("t0_y_oc_target_scale", dropped_scale)
+        self.assertNotIn("y_oc_enter", dropped_scale)
+        self.assertAlmostEqual(float(dropped_scale["t0_y_τc_target_scale"]), 2.0)
+        self.assertAlmostEqual(float(dropped_scale["y_τc_enter"]), 0.5)
 
     def test_legacy_tau_prior_keys_are_dropped(self):
         cfg = load_t0_rules({"y_tau_leg1_prior_mode": "skip", "y_tau_leg1_prior_risk": 100})

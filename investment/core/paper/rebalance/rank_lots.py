@@ -122,21 +122,14 @@ def _pos_enter_skip(val: Optional[float], enabled: bool, label: str) -> Optional
 
 
 def _y_gt0_flags(cfg: Optional[dict]) -> Tuple[bool, bool]:
-    """y_oo>0 / y_oc>0 闸。旧 y_oo_oc_enabled 缺新键时迁入。y_hl>0 已下线。"""
+    """y_oo>0 / y_τc>0 闸。缺键为关。"""
     from core.t0.config import coerce_cfg_bool
 
     d = cfg if isinstance(cfg, dict) else {}
-    if "y_oo_gt0" in d:
-        y_oo = coerce_cfg_bool(d.get("y_oo_gt0"), False)
-    else:
-        y_oo = coerce_cfg_bool(d.get("y_oo_oc_enabled"), False)
-    if "y_τc_gt0" in d:
-        y_oc = coerce_cfg_bool(d.get("y_τc_gt0"), False)
-    elif "y_oc_gt0" in d:
-        y_oc = coerce_cfg_bool(d.get("y_oc_gt0"), False)
-    else:
-        y_oc = coerce_cfg_bool(d.get("y_oo_oc_enabled"), False)
-    return y_oo, y_oc
+    return (
+        coerce_cfg_bool(d.get("y_oo_gt0"), False),
+        coerce_cfg_bool(d.get("y_τc_gt0"), False),
+    )
 
 
 def _rank_enter_skip(rs: Optional[float], thresh: float) -> Optional[str]:
@@ -192,11 +185,10 @@ def rank_lot_enter_skip_reason(
     *,
     rs: Optional[float],
 ) -> Optional[str]:
-    """入场：启用中的门槛1 ∪ 门槛2。每档 ranking 过入场；可选 y_oo>0 / y_oc>0。
+    """入场：启用中的门槛1 ∪ 门槛2。每档 ranking 过入场；可选 y_oo>0 / y_τc>0。
 
     ``y_enter_enabled`` / ``y_enter_alt_enabled`` 关则该档不参与 OR；两档都关则不开/不加。
-    ``y_oo_gt0`` / ``y_oc_gt0`` 开则对应 ŷ 须 >0。缺键时门槛2 跟随门槛1。缺分不拦。
-    y_hl>0 已下线（不进 ranking / 入场）。
+    ``y_oo_gt0`` / ``y_τc_gt0`` 开则对应 ŷ 须 >0。缺键时门槛2 跟随门槛1。缺分不拦。
     """
     from core.paper.rebalance.path_matrix import scores_from_rebalance_item
     from core.signal.yhat_windows import pick_y_oc, pick_y_oo, pick_y_τc

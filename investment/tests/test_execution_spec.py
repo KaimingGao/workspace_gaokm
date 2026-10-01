@@ -129,7 +129,7 @@ class TestExecutionResolve(unittest.TestCase):
         self.assertEqual(paper["rules"].get("execution_mode"), "next_open")
         self.assertTrue(paper["rules"]["t0"].get("enabled"))
 
-    def test_old_y_oc_gt0_fills_y_tc_gt0(self):
+    def test_old_y_oc_gt0_does_not_fill_y_tc_gt0(self):
         from core.execution import resolve_effective_execution
 
         paper = {
@@ -146,8 +146,7 @@ class TestExecutionResolve(unittest.TestCase):
         bundle = resolve_effective_execution(paper=paper, channel="paper")
         for key in ("rank_lots", "path_matrix"):
             block = bundle["rebalance_timing"][key]
-            self.assertTrue(block["y_τc_gt0"])
-            self.assertNotIn("y_oc_gt0", block)
+            self.assertFalse(block["y_τc_gt0"])
         stored = paper["rules"]["execution"]["rebalance_timing"]["rank_lots"]
         self.assertTrue(stored["y_oc_gt0"])
         self.assertNotIn("y_τc_gt0", stored)
@@ -337,7 +336,7 @@ class TestExecutionResolve(unittest.TestCase):
         ok, norm, errs = validate_execution_patch(
             {
                 "t0": {
-                    "t0_y_oc_target_scale": 8.0,
+                    "t0_y_τc_target_scale": 8.0,
                     "t0_close_band_delta_pct": 0.4,
                     "y_tw_midpoint": 47.0,
                     "t0_lock_win_arm_bars": 2,
@@ -373,7 +372,10 @@ class TestExecutionResolve(unittest.TestCase):
             validate_execution_patch,
         )
 
-        ok, norm, errs = validate_execution_patch({"t0": {"y_oc_strong": 1.5}})
+        bad, _bad_norm, bad_errs = validate_execution_patch({"t0": {"y_oc_strong": 1.5}})
+        self.assertFalse(bad)
+        self.assertTrue(any("y_oc_strong" in e for e in bad_errs))
+        ok, norm, errs = validate_execution_patch({"t0": {"y_τc_strong": 1.5}})
         self.assertTrue(ok, errs)
         self.assertAlmostEqual(float(norm["t0"]["y_τc_strong"]), 1.5)
         self.assertNotIn("y_oc_strong", norm["t0"])
@@ -395,7 +397,7 @@ class TestExecutionResolve(unittest.TestCase):
         )
 
         ok, norm, errs = validate_execution_patch(
-            {"t0": {"y_oc_enter_amount": 30000, "y_oc_strong_amount": 50000}}
+            {"t0": {"y_τc_enter_amount": 30000, "y_τc_strong_amount": 50000}}
         )
         self.assertTrue(ok, errs)
         self.assertEqual(int(norm["t0"]["y_τc_enter_amount"]), 30000)

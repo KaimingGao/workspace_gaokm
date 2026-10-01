@@ -2198,7 +2198,6 @@ def backtest_paper_replay(
     y_enter_alt_enabled: Optional[bool] = None,
     y_oo_gt0: Optional[bool] = None,
     y_τc_gt0: Optional[bool] = None,
-    y_oc_gt0: Optional[bool] = None,
     price_space_cfg: Optional[dict] = None,
     score_model_role: Optional[str] = None,
 ) -> Dict[str, Any]:
@@ -2339,7 +2338,7 @@ def backtest_paper_replay(
         lot_base_amount if lot_base_amount is not None else lot_base,
         lot_strong_amount if lot_strong_amount is not None else lot_strong,
     )
-    gt0_τc = y_τc_gt0 if y_τc_gt0 is not None else y_oc_gt0
+    gt0_τc = y_τc_gt0
     paper = _default_paper(
         initial_cash=initial_cash,
         top_k=top_k,

@@ -1296,7 +1296,7 @@ class TestEnterGates(unittest.TestCase):
         self.assertIn("y_oo", skip_oo)
         skip_oc = rank_lot_enter_skip_reason(
             self._item(predicted_score=2.0, y_tau=-0.05),
-            self._cfg(y_oc_gt0=True),
+            self._cfg(y_τc_gt0=True),
             rs=0.02,
         )
         self.assertIsNotNone(skip_oc)
@@ -1304,7 +1304,7 @@ class TestEnterGates(unittest.TestCase):
         self.assertIsNone(
             rank_lot_enter_skip_reason(
                 self._item(predicted_score=2.0, y_tau=1.0),
-                self._cfg(y_oo_gt0=True, y_oc_gt0=True),
+                self._cfg(y_oo_gt0=True, y_τc_gt0=True),
                 rs=0.02,
             )
         )
@@ -1315,7 +1315,7 @@ class TestEnterGates(unittest.TestCase):
         self.assertIsNone(
             rank_lot_enter_skip_reason(
                 self._item(predicted_score=-0.05, y_tau=-0.05),
-                self._cfg(y_oo_gt0=False, y_oc_gt0=False),
+                self._cfg(y_oo_gt0=False, y_τc_gt0=False),
                 rs=0.02,
             )
         )

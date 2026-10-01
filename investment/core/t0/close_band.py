@@ -49,17 +49,11 @@ DEFAULT_CLOSE_BAND_DELTA_PCT = 0.5
 CLOSE_BAND_DELTA_PCT_MAX = 10.0
 
 
-def _cfg_alias(cfg_d: dict, new: str, old: str):
-    if cfg_d.get(new) not in (None, ""):
-        return cfg_d.get(new)
-    return cfg_d.get(old)
-
-
 def resolve_y_oc_target_scale(cfg: Optional[dict] = None) -> float:
-    """C_τ 放大倍数。缺键默认 2。旧键 t0_y_oc_target_scale 仍读。"""
+    """C_τ 放大倍数。缺键默认 2。"""
     cfg_d = cfg if isinstance(cfg, dict) else {}
     try:
-        raw = _cfg_alias(cfg_d, "t0_y_τc_target_scale", "t0_y_oc_target_scale")
+        raw = cfg_d.get("t0_y_τc_target_scale")
         v = float(DEFAULT_Y_OC_TARGET_SCALE if raw is None or raw == "" else raw)
     except (TypeError, ValueError):
         v = float(DEFAULT_Y_OC_TARGET_SCALE)
@@ -856,10 +850,10 @@ def _ytw_enter_for_direction(cfg_d: dict, direction: str) -> float:
 
 
 def _y_oc_enter_floor(cfg_d: dict) -> float:
-    """ŷ_τc 入场百分点。0=不拦。旧键 y_oc_enter 仍读。"""
+    """ŷ_τc 入场百分点。0=不拦。"""
     from core.t0.score_policy import _cfg_float
 
-    raw = _cfg_alias(cfg_d, "y_τc_enter", "y_oc_enter")
+    raw = cfg_d.get("y_τc_enter")
     if raw not in (None, ""):
         try:
             return max(0.0, min(float(raw), 20.0))
@@ -873,7 +867,7 @@ def _y_oc_strong_floor(cfg_d: dict) -> float:
     from core.t0.score_policy import _cfg_float
 
     enter = _y_oc_enter_floor(cfg_d)
-    raw_strong = _cfg_alias(cfg_d, "y_τc_strong", "y_oc_strong")
+    raw_strong = cfg_d.get("y_τc_strong")
     if raw_strong not in (None, ""):
         try:
             strong = max(0.0, min(float(raw_strong), 20.0))
@@ -926,8 +920,8 @@ def close_band_y_oc_round_shares(
     from core.paper.sizing import shares_from_amount
 
     cfg_d = cfg if isinstance(cfg, dict) else {}
-    enter = _yoc_lot_amount(_cfg_alias(cfg_d, "y_τc_enter_amount", "y_oc_enter_amount"), 0.0)
-    strong = _yoc_lot_amount(_cfg_alias(cfg_d, "y_τc_strong_amount", "y_oc_strong_amount"), 0.0)
+    enter = _yoc_lot_amount(cfg_d.get("y_τc_enter_amount"), 0.0)
+    strong = _yoc_lot_amount(cfg_d.get("y_τc_strong_amount"), 0.0)
     if enter <= 0 and strong <= 0:
         return None
     if enter <= 0:

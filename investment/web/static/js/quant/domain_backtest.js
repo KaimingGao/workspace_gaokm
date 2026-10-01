@@ -460,16 +460,8 @@ export function installBacktest(q) {
       if (!el || el.type !== "checkbox") return;
       el.checked = val != null ? !!val : fallback;
     };
-    setChk(
-      "pm_y_oo_gt0",
-      req.y_oo_gt0,
-      req.y_oo_oc_enabled === true
-    );
-    setChk(
-      "pm_y_τc_gt0",
-      req.y_τc_gt0 != null ? req.y_τc_gt0 : req.y_oc_gt0,
-      req.y_oo_oc_enabled === true
-    );
+    setChk("pm_y_oo_gt0", req.y_oo_gt0, false);
+    setChk("pm_y_τc_gt0", req.y_τc_gt0, false);
   }
 
   function readPredictabilityTiers() {
@@ -884,7 +876,7 @@ export function installBacktest(q) {
           y_enter_enabled: lots.y_enter_enabled,
           y_enter_alt_enabled: lots.y_enter_alt_enabled,
           y_oo_gt0: lots.y_oo_gt0 === true,
-          y_τc_gt0: lots.y_τc_gt0 === true || lots.y_oc_gt0 === true,
+          y_τc_gt0: lots.y_τc_gt0 === true,
         };
       }
     }
