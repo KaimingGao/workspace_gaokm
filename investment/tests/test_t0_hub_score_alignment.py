@@ -243,14 +243,13 @@ class TestT0HubScoreAlignment(unittest.TestCase):
         self.assertIsNotNone(feats.get("gap_pct"))
         self.assertIsNotNone(item.get("gap_pct"))
 
-    def test_direction_y_tau_prefers_oc_over_mapped(self):
-        """表列/tip 用 OC 头；mapped predicted_score_tau 不得盖 y_tau_oc。"""
+    def test_direction_y_tau_prefers_y_τc_over_mapped(self):
+        """定向用 y_τc；mapped predicted_score_tau 不得盖过它。"""
         from core.t0.score_policy import resolve_direction_y_tau, scores_from_item
 
         sc = scores_from_item(
             {
-                "y_tau_oc": 0.23,
-                "predicted_score_tau_oc": 0.23,
+                "y_τc": 0.23,
                 "predicted_score_tau": -0.65,
                 "score_rem": -0.65,
                 "y_path": 0.59,
@@ -258,8 +257,7 @@ class TestT0HubScoreAlignment(unittest.TestCase):
             }
         )
         self.assertAlmostEqual(float(resolve_direction_y_tau(sc)), 0.23, places=6)
-        self.assertAlmostEqual(float(sc["y_hl"]), 0.59, places=6)
-        self.assertAlmostEqual(float(sc["y_tau"]), 0.23, places=6)
+        self.assertAlmostEqual(float(sc["y_τc"]), 0.23, places=6)
 
 
 class TestHoldingsTauOpenZAlignment(unittest.TestCase):

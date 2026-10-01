@@ -1,7 +1,7 @@
 """四段 ŷ 窗口：抽头、加权融合、调仓 ranking、做 T residual。
 
 ŷ_oo  open(T)→open(T+1)   主字段 y_oo / predicted_score_oo；别名 predicted_score
-ŷ_τc  price(τ)→close(T)   主字段 y_τc。时钟对齐后写 y_tau。τ=open 时等于 close/open−1。旧行 y_oc 只读。
+ŷ_τc  price(τ)→close(T)   主字段 y_τc。时钟对齐后写 y_tau。τ=open 时等于 close/open−1。
 ŷ_co  close(T)→open(T+1)  主字段 y_co；旧键 y_on 可读
 
 现网 ranking（τc，price(τ)→close 标签；行上有 y_spec_tau）：
@@ -161,33 +161,17 @@ def pick_y_oo(item: Optional[dict]) -> Optional[float]:
 
 
 def pick_y_oc(item: Optional[dict]) -> Optional[float]:
-    """开盘路径对照：旧行 y_oc，否则时钟对齐后的 y_tau。破带用 pick_y_τc。"""
-    return _first_pct(
-        item,
-        (
-            "y_oc",
-            "predicted_score_oc",
-            "y_tau",
-            "y_tau_oc",
-            "predicted_score_tau_oc",
-            "predicted_score_tau",
-        ),
-    )
+    """时钟对齐后的 y_tau。破带与表列用 pick_y_τc。"""
+    return _first_pct(item, ("y_tau",))
 
 
 def pick_y_τc(item: Optional[dict]) -> Optional[float]:
-    """主字段 y_τc；旧簿可读 y_tc / y_to / y_pc；再缺则把旧 y_r（price/close）反几何。"""
+    """主字段 y_τc。缺则把旧 y_r（price/close）反几何。"""
     direct = _first_pct(
         item,
         (
             "y_τc",
             "predicted_score_τc",
-            "y_tc",
-            "predicted_score_tc",
-            "y_to",
-            "predicted_score_to",
-            "y_pc",
-            "predicted_score_pc",
         ),
     )
     if direct is not None:
@@ -201,11 +185,6 @@ def pick_y_τc(item: Optional[dict]) -> Optional[float]:
     return invert_price_over_close(raw)
 
 
-def pick_y_tc(item: Optional[dict]) -> Optional[float]:
-    """兼容旧名：pick_y_τc。"""
-    return pick_y_τc(item)
-
-
 def write_y_τc(dest: Dict[str, Any], val: Optional[float]) -> None:
     """只写主字段 y_τc / predicted_score_τc。"""
     if not isinstance(dest, dict) or val is None:
@@ -215,15 +194,9 @@ def write_y_τc(dest: Dict[str, Any], val: Optional[float]) -> None:
     dest["predicted_score_τc"] = x
 
 
-def write_y_tc(dest: Dict[str, Any], val: Optional[float]) -> None:
-    """兼容旧名：write_y_τc。"""
-    write_y_τc(dest, val)
-
-
 _Y_TC_HAT_KEYS = (
     "y_τc",
     "predicted_score_τc",
-    "y_tc",
     "predicted_score_r",
     "y_r_hat",
     "y_r",
@@ -562,7 +535,7 @@ def ranking_pct(
     item: Optional[dict],
     *,
     w_oo: float = 0.5,
-    w_oc: float = 0.5,
+    w_τc: float = 0.5,
     w_co: float = 0.0,
     rem_model_doc: Optional[dict] = None,
     ret_open_to_tau: Optional[float] = None,
@@ -572,7 +545,7 @@ def ranking_pct(
     行上 ``y_spec_tau`` 为 price(τ)→close 时：
         ranking = w_oo·((ŷ_oo+1)/(1+rot)−1) + w_τc·((1+ŷ_τc)(1+w_co·ŷ_co)−1)
         直接算在 τ→open[T+1]；ŷ_oo 用 remaining_at_tau，ŷ_τc 已是 τ→close。
-        旧行没有 y_τc 时回退 y_oc。
+        缺 y_τc 时回退时钟对齐的 y_tau。
 
     缺 y_spec 时退回 open 基准融合，由 ``remaining_ranking_pct`` 再减 rot。
     ``rem_model_doc`` 优先于 item。
@@ -583,7 +556,7 @@ def ranking_pct(
     y_co = pick_y_co(item)
     if is_oc:
         right = oc_with_co(pick_y_oc(item), y_co, w_co)
-        return fuse_pct(pick_y_oo(item), right, w_left=w_oo, w_right=w_oc)
+        return fuse_pct(pick_y_oo(item), right, w_left=w_oo, w_right=w_τc)
     y_tc = pick_y_τc(item)
     if y_tc is None:
         y_tc = pick_y_oc(item)
@@ -592,7 +565,7 @@ def ranking_pct(
         rot = ret_open_to_tau_of(item)
     y_oo_rem = remaining_at_tau(pick_y_oo(item), rot)
     right = oc_with_co(y_tc, y_co, w_co)
-    return fuse_pct(y_oo_rem, right, w_left=w_oo, w_right=w_oc)
+    return fuse_pct(y_oo_rem, right, w_left=w_oo, w_right=w_τc)
 
 
 def remaining_ranking_pct(
@@ -698,32 +671,26 @@ def t0_residual_pct(
 
 
 def fusion_weights_from_cfg(cfg: Optional[dict]) -> Tuple[float, float]:
-    """调仓权：fusion_w_oo / fusion_w_oc；旧键 fusion_w_trade / fusion_w_nowcast。"""
+    """调仓权 (w_oo, w_τc)。键名 fusion_w_oo / fusion_w_oc。"""
     d = cfg if isinstance(cfg, dict) else {}
     w_oo = _f(d.get("fusion_w_oo"))
-    if w_oo is None:
-        w_oo = _f(d.get("fusion_w_trade"))
-    w_oc = _f(d.get("fusion_w_oc"))
-    if w_oc is None:
-        w_oc = _f(d.get("fusion_w_nowcast"))
+    w_τc = _f(d.get("fusion_w_oc"))
     if w_oo is None:
         w_oo = 0.5
-    if w_oc is None:
-        w_oc = 0.5
+    if w_τc is None:
+        w_τc = 0.5
     w_oo = max(0.0, min(1.0, float(w_oo)))
-    w_oc = max(0.0, min(1.0, float(w_oc)))
-    s = w_oo + w_oc
+    w_τc = max(0.0, min(1.0, float(w_τc)))
+    s = w_oo + w_τc
     if s <= 1e-12:
         return 0.5, 0.5
-    return w_oo / s, w_oc / s
+    return w_oo / s, w_τc / s
 
 
 def fusion_w_co_from_cfg(cfg: Optional[dict]) -> float:
-    """隔夜叠进 ŷ_τc 的系数；fusion_w_co / y_on_alpha。缺键为 0（不叠）。范围 0～10。"""
+    """隔夜叠进 ŷ_τc 的系数 fusion_w_co。缺键为 0（不叠）。范围 0～10。"""
     d = cfg if isinstance(cfg, dict) else {}
     w = _f(d.get("fusion_w_co"))
-    if w is None:
-        w = _f(d.get("y_on_alpha"))
     if w is None:
         return 0.0
     return max(0.0, min(10.0, float(w)))
@@ -732,17 +699,7 @@ def fusion_w_co_from_cfg(cfg: Optional[dict]) -> float:
 def residual_weights_from_cfg(cfg: Optional[dict]) -> Tuple[float, float]:
     d = cfg if isinstance(cfg, dict) else {}
     w = _f(d.get("fusion_w_τc"))
-    if w is None:
-        w = _f(d.get("fusion_w_tc"))
-    if w is None:
-        w = _f(d.get("fusion_w_to"))
-    if w is None:
-        w = _f(d.get("fusion_w_pc"))
-    if w is None:
-        w = _f(d.get("residual_w_pc"))
     w_oc = _f(d.get("residual_w_oc"))
-    if w_oc is None:
-        w_oc = _f(d.get("fusion_w_oc_r"))
     if w is None:
         w = 0.5
     if w_oc is None:
@@ -757,22 +714,22 @@ def residual_weights_from_cfg(cfg: Optional[dict]) -> Tuple[float, float]:
 
 def stamp_window_scores(item: Optional[dict], cfg: Optional[dict] = None) -> Dict[str, Optional[float]]:
     """抽 ŷ_oo/ŷ_oc/ŷ_τc + ranking / residual（百分点）。"""
-    w_oo, w_oc = fusion_weights_from_cfg(cfg)
+    w_oo, w_τc = fusion_weights_from_cfg(cfg)
     w_co = fusion_w_co_from_cfg(cfg)
-    w_τc, w_oc_r = residual_weights_from_cfg(cfg)
+    w_res_τc, w_oc_r = residual_weights_from_cfg(cfg)
     y_oo = pick_y_oo(item)
     y_oc = pick_y_oc(item)
     y_τc = pick_y_τc(item)
     y_co = pick_y_co(item)
     is_oc = tau_model_is_open_to_close(item)
-    ranking = ranking_pct(item, w_oo=w_oo, w_oc=w_oc, w_co=w_co)
+    ranking = ranking_pct(item, w_oo=w_oo, w_τc=w_τc, w_co=w_co)
     ranking = remaining_ranking_pct(
         ranking,
         open_px=ranking_open_px(item),
         price_tau=ranking_price_tau(item),
         is_oc_model=is_oc,
     )
-    residual = residual_pct(item, w_pc=w_τc, w_oc=w_oc_r, cfg=cfg)
+    residual = residual_pct(item, w_pc=w_res_τc, w_oc=w_oc_r, cfg=cfg)
     fa = item.get("factor_anomaly") if isinstance(item, dict) else None
     if isinstance(fa, dict) and fa.get("fatal_tau"):
         y_oc = None
@@ -812,7 +769,6 @@ __all__ = [
     "pick_y_oc",
     "pick_y_oo",
     "pick_y_τc",
-    "pick_y_tc",
     "pit_oo_window_quote",
     "ranking_open_px",
     "ranking_pct",
@@ -831,5 +787,4 @@ __all__ = [
     "ret_open_to_tau_of",
     "stamp_window_scores",
     "write_y_τc",
-    "write_y_tc",
 ]

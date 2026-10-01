@@ -157,7 +157,6 @@ export function watchingScoreDetail(it) {
     fusion_w_oo: it && it.fusion_w_oo,
     fusion_w_oc: it && it.fusion_w_oc,
     fusion_w_co: it && it.fusion_w_co,
-    y_on_alpha: it && it.y_on_alpha,
     // ŷ_oc OC 靠前，防止 data-score-detail 截断后 tip 退化成剩余映射分
     y_tau_oc: yTauOc,
     predicted_score_tau_oc: yTauOc,

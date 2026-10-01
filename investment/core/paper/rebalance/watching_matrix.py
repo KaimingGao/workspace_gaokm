@@ -381,7 +381,6 @@ _SCORE_PASSTHROUGH_KEYS = (
     "y_on",
     "y_tau",
     "y_oo",
-    "y_oc",
     "y_co",
     "y_τc",
     *AUX_YHAT_KEYS,
@@ -470,7 +469,7 @@ def _row_score_payload(
         item,
         {"y_trade": yt, "y_nowcast": yn, "y_co": yo, "y_tau": ytau},
     )
-    for k in ("y_oo", "y_oc", "y_τc", "ranking", "residual"):
+    for k in ("y_oo", "y_τc", "ranking", "residual"):
         if sc.get(k) is not None:
             payload[k] = sc.get(k)
     o = _f(open_px)
@@ -536,7 +535,6 @@ def _apply_one_leg(
             "y_fuse",
             "ranking",
             "y_oo",
-            "y_oc",
             "y_co",
             "y_τc",
             "residual",
@@ -1108,9 +1106,6 @@ def simulate_watching_matrix_preview(
                 "fusion_w_oo": rl_cfg.get("fusion_w_oo"),
                 "fusion_w_oc": rl_cfg.get("fusion_w_oc"),
                 "fusion_w_co": rl_cfg.get("fusion_w_co"),
-                "fusion_w_trade": rl_cfg.get("fusion_w_oo") or rl_cfg.get("fusion_w_trade"),
-                "fusion_w_nowcast": rl_cfg.get("fusion_w_oc") or rl_cfg.get("fusion_w_nowcast"),
-                "y_on_alpha": rl_cfg.get("y_on_alpha"),
             },
             "by_action": by_action,
         },

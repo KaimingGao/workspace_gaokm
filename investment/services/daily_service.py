@@ -57,7 +57,7 @@ class DailyRunService:
         top_k: Optional[int] = None,
         horizon_days: Optional[int] = None,
         lookback: Optional[int] = None,
-        y_on_alpha: Optional[float] = None,
+        fusion_w_co: Optional[float] = None,
         rank_enter: Optional[float] = None,
         rank_strong: Optional[float] = None,
     ) -> Dict[str, Any]:
@@ -295,7 +295,7 @@ class DailyRunService:
                     top_k=top_k,
                     horizon_days=horizon_days,
                     lookback=lookback,
-                    y_on_alpha=y_on_alpha,
+                    fusion_w_co=fusion_w_co,
                     rank_enter=rank_enter,
                     rank_strong=rank_strong,
                 )
@@ -309,7 +309,7 @@ class DailyRunService:
                     "top_k": top_k,
                     "horizon_days": horizon_days,
                     "lookback": lookback,
-                    "y_on_alpha": y_on_alpha,
+                    "fusion_w_co": fusion_w_co,
                     "rank_enter": rank_enter,
                     "rank_strong": rank_strong,
                 }

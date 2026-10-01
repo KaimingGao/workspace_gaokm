@@ -122,9 +122,10 @@ class TestT3WeightMode(unittest.TestCase):
         self.assertFalse(hasattr(research, "engine"))
 
         body = PaperReplayBacktestRequest()
-        self.assertEqual(body.y_on_alpha, 1.0)
-        self.assertEqual(body.fusion_w_trade, 0.6)
-        self.assertEqual(body.fusion_w_nowcast, 0.4)
+        self.assertEqual(body.fusion_w_co, 1.0)
+        self.assertFalse(hasattr(body, "y_on_alpha"))
+        self.assertFalse(hasattr(body, "fusion_w_trade"))
+        self.assertFalse(hasattr(body, "fusion_w_nowcast"))
         self.assertEqual(body.rank_enter, 0.001)
         self.assertEqual(body.rank_strong, 0.001)
         self.assertEqual(body.fill_clock, "09:30")
@@ -159,30 +160,30 @@ class TestT3WeightMode(unittest.TestCase):
         self.assertFalse(hasattr(body, "top_k"))
         self.assertFalse(hasattr(body, "horizon_days"))
 
-    def test_portfolio_request_y_on_alpha_range(self):
+    def test_portfolio_request_fusion_w_co_range(self):
         from pydantic import ValidationError
         from web.schemas import PaperReplayBacktestRequest
 
-        self.assertEqual(PaperReplayBacktestRequest(y_on_alpha=0.5).y_on_alpha, 0.5)
-        self.assertEqual(PaperReplayBacktestRequest(y_on_alpha=1).y_on_alpha, 1.0)
+        self.assertEqual(PaperReplayBacktestRequest(fusion_w_co=0.5).fusion_w_co, 0.5)
+        self.assertEqual(PaperReplayBacktestRequest(fusion_w_co=1).fusion_w_co, 1.0)
         with self.assertRaises(ValidationError):
-            PaperReplayBacktestRequest(y_on_alpha=10.1)
+            PaperReplayBacktestRequest(fusion_w_co=10.1)
         with self.assertRaises(ValidationError):
-            PaperReplayBacktestRequest(y_on_alpha=-0.1)
+            PaperReplayBacktestRequest(fusion_w_co=-0.1)
 
     def test_portfolio_request_fusion_weights(self):
         from pydantic import ValidationError
         from web.schemas import PaperReplayBacktestRequest
 
-        body = PaperReplayBacktestRequest(fusion_w_trade=0.7, fusion_w_nowcast=0.3)
-        self.assertEqual(body.fusion_w_trade, 0.7)
-        self.assertEqual(body.fusion_w_nowcast, 0.3)
-        self.assertEqual(PaperReplayBacktestRequest(fusion_w_trade=0).fusion_w_trade, 0.0)
-        self.assertEqual(PaperReplayBacktestRequest(fusion_w_nowcast=1).fusion_w_nowcast, 1.0)
+        body = PaperReplayBacktestRequest(fusion_w_oo=0.7, fusion_w_oc=0.3)
+        self.assertEqual(body.fusion_w_oo, 0.7)
+        self.assertEqual(body.fusion_w_oc, 0.3)
+        self.assertEqual(PaperReplayBacktestRequest(fusion_w_oo=0).fusion_w_oo, 0.0)
+        self.assertEqual(PaperReplayBacktestRequest(fusion_w_oc=1).fusion_w_oc, 1.0)
         with self.assertRaises(ValidationError):
-            PaperReplayBacktestRequest(fusion_w_trade=1.1)
+            PaperReplayBacktestRequest(fusion_w_oo=1.1)
         with self.assertRaises(ValidationError):
-            PaperReplayBacktestRequest(fusion_w_nowcast=-0.1)
+            PaperReplayBacktestRequest(fusion_w_oc=-0.1)
 
     def test_portfolio_request_rank_thresholds(self):
         from pydantic import ValidationError

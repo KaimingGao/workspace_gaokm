@@ -784,8 +784,7 @@ def _walk_t0(
             "path_mode": cfg.get("path_mode"),
             "minute_period": cfg.get("minute_period"),
             "ref": cfg.get("ref"),
-            "y_trade_enter": cfg.get("y_trade_enter") or cfg.get("y_trade_floor"),
-            "y_trade_floor": cfg.get("y_trade_floor") or cfg.get("y_trade_enter"),
+            "y_trade_enter": cfg.get("y_trade_enter"),
             "y_on_risk": cfg.get("y_on_risk"),
             "y_on_allow": cfg.get("y_on_allow"),
             "y_tw_enter": cfg.get("y_tw_enter")

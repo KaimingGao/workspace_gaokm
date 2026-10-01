@@ -658,6 +658,7 @@ class TestDualScoreFields(unittest.TestCase):
             "predicted_score": 2.0,
             "predicted_score_eod": 2.0,
             "predicted_score_eod_rem": 1.0,
+            "y_tau": 0.5,
             "predicted_score_tau": 0.5,
             "predicted_score_blend": 0.75,
             "predicted_score_cal": 1.0,
@@ -785,7 +786,7 @@ class TestDualScoreFields(unittest.TestCase):
             {
                 "predicted_score_eod": 2.30,
                 "y_oo": 2.30,
-                "y_oc": 5.69,
+                "y_tau": 5.69,
             },
             rank_cfg={"fusion_w_oo": 0.8, "fusion_w_oc": 0.2, "fusion_w_co": 0.0},
         )

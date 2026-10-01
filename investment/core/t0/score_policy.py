@@ -1,7 +1,7 @@
 """多层 ŷ 驱动的 A 股底仓做 T 策略（dual_y）。
 
 角色（PIT）：
-  y_τc     — 盘中主方向；定向锚优先 y_τc / y_tau_oc，剩余映射分仅供对照
+  y_τc     — 盘中主方向；定向锚用 y_τc，时钟对齐值在 y_tau
   y_hl     — **已下线**：不再算分/挂载；旧行仍可读 y_hl / y_path
   y_on     — 尾盘是否强制回补
   y_trade / y_eod — **v6 已下线**：不参与选向；`load_t0_rules` 丢弃旧闸键；快照字段仅作对照
@@ -553,12 +553,10 @@ def pack_day_scores(score_snap: Optional[dict]) -> Optional[Dict[str, Any]]:
     for k in (
         "y_eod",
         "y_tau",
-        "y_tau_oc",
         "y_trade",
         "residual",
         "r_hat",
         "y_oo",
-        "y_oc",
         "y_τc",
         "y_τc_ridge",
         "y_τc_source",
@@ -644,7 +642,6 @@ def attach_day_scores(
         for k in (
             "y_eod",
             "y_tau",
-            "y_tau_oc",
             "y_trade",
             "y_on",
             "y_on_path",
@@ -768,28 +765,10 @@ def scores_from_item(item: Optional[dict]) -> Dict[str, Optional[float]]:
         y_tau_mapped = _f(item.get("score_rem"))
     if y_tau_mapped is None:
         y_tau_mapped = _f(item.get("yhat_tau"))
-    # 显式写入的 y_tau：若同时有 y_tau_oc 且二者不同，视 y_tau 为 mapped
     y_tau_field = _f(item.get("y_tau"))
-
-    y_tau_oc = _f(item.get("y_tau_oc"))
-    if y_tau_oc is None:
-        y_tau_oc = _f(item.get("predicted_score_tau_oc"))
-    if y_tau_oc is None:
-        ft = item.get("formula_terms_tau")
-        if isinstance(ft, dict):
-            y_tau_oc = _f(ft.get("y_tau_raw"))
-
     if y_tau_mapped is None and y_tau_field is not None:
-        if y_tau_oc is None or abs(y_tau_field - y_tau_oc) < 1e-9:
-            y_tau_mapped = y_tau_field
-        else:
-            y_tau_mapped = y_tau_field
-    # 做T主口径：OC；无 OC 时回退 mapped / 字段
-    y_tau = y_tau_oc if y_tau_oc is not None else (
-        y_tau_field if y_tau_field is not None else y_tau_mapped
-    )
-    if y_tau_oc is None and y_tau is not None:
-        y_tau_oc = y_tau
+        y_tau_mapped = y_tau_field
+    y_tau = y_tau_field if y_tau_field is not None else y_tau_mapped
 
     # 契约：predicted_score / predicted_score_eod = ŷ_oo；ŷ_trade = blend / decision_score。
     # 旧实现先读 predicted_score，双头下会把 y_trade 塌成 y_eod（成交明细两列相同）。
@@ -840,7 +819,7 @@ def scores_from_item(item: Optional[dict]) -> Dict[str, Optional[float]]:
         from core.signal.yhat_windows import stamp_window_scores
 
         _win = stamp_window_scores(item)
-        for k in ("y_oo", "y_oc", "y_τc", "y_co", "ranking", "residual", "r_hat"):
+        for k in ("y_oo", "y_τc", "y_co", "ranking", "residual", "r_hat"):
             if _win.get(k) is not None:
                 out[k] = _win[k]
     except Exception:  # noqa: BLE001
@@ -1037,7 +1016,7 @@ def resolve_direction_y_tau(scores: Optional[dict]) -> Optional[float]:
     """
     if not isinstance(scores, dict):
         return None
-    for key in ("y_τc", "predicted_score_τc", "y_tau_oc", "predicted_score_tau_oc"):
+    for key in ("y_τc", "predicted_score_τc"):
         v = _f(scores.get(key))
         if v is not None:
             return v
@@ -2381,7 +2360,7 @@ def attach_portrait_dual_scores(
         y_tau_p = _f(out["scores"].get("y_tau_portrait_oc"))
     # 确认根已因果重算：直接用作画像（与选向同信息集）
     if y_tau_p is None and str(snap.get("_score_source") or "") == "prefix_causal":
-        y_tau_p = _f(snap.get("y_tau_oc"))
+        y_tau_p = _f(snap.get("y_τc"))
         if y_tau_p is None:
             y_tau_p = _f(snap.get("y_tau"))
     if y_tau_p is None:

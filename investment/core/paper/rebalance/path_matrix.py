@@ -100,14 +100,6 @@ def get_path_matrix_cfg(
         for k, v in raw.items():
             if k in out and v is not None:
                 out[k] = v
-        if raw.get("fusion_w_oo") is None and raw.get("fusion_w_trade") is not None:
-            out["fusion_w_oo"] = raw.get("fusion_w_trade")
-        if raw.get("fusion_w_oc") is None and raw.get("fusion_w_nowcast") is not None:
-            out["fusion_w_oc"] = raw.get("fusion_w_nowcast")
-        if raw.get("fusion_w_pc") is None and raw.get("residual_w_pc") is not None:
-            out["fusion_w_pc"] = raw.get("residual_w_pc")
-        if raw.get("fusion_w_co") is None and raw.get("y_on_alpha") is not None:
-            out["fusion_w_co"] = raw.get("y_on_alpha")
     out["mode"] = "rank_lots"
     out["enabled"] = bool(out.get("enabled"))
     from core.t0.config import coerce_cfg_bool
@@ -144,14 +136,10 @@ def get_path_matrix_cfg(
         elif abs(v - 0.20) < 1e-6:
             v = 0.02
         out[rk] = v
-    w_oo, w_oc = fusion_weights_from_cfg(out)
-    out["fusion_w_oo"], out["fusion_w_oc"] = w_oo, w_oc
+    w_oo, w_τc = fusion_weights_from_cfg(out)
+    out["fusion_w_oo"], out["fusion_w_oc"] = w_oo, w_τc
     w_co = fusion_w_co_from_cfg(out)
     out["fusion_w_co"] = w_co
-    out["y_on_alpha"] = w_co
-    # 旧键镜像，避免未改的 UI 读空
-    out["fusion_w_trade"] = w_oo
-    out["fusion_w_nowcast"] = w_oc
     if float(out["rank_strong"]) < float(out["rank_enter"]):
         out["rank_strong"] = float(out["rank_enter"])
     out["cash_floor"] = 0.0

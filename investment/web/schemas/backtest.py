@@ -30,35 +30,23 @@ class PaperReplayBacktestRequest(BaseModel):
         default="pool",
         description="超额基准：pool=观察池等权买持；或指数代码如 000300。",
     )
-    y_on_alpha: float = Field(
+    fusion_w_co: float = Field(
         default=1.0,
         ge=0.0,
         le=10.0,
-        description="历史回测 ranking 隔夜系数 α；0=不乘 y_on，1=按原权重乘入",
+        description="隔夜 ŷ_co 叠进 ŷ_τc 的系数；0=不叠",
     )
     fusion_w_oo: Optional[float] = Field(
         default=None,
         ge=0.0,
         le=1.0,
-        description="ranking 中 ŷ_oo 权重；缺则用 fusion_w_trade",
+        description="ranking 中 ŷ_oo 权重",
     )
     fusion_w_oc: Optional[float] = Field(
         default=None,
         ge=0.0,
         le=1.0,
-        description="ranking 中 ŷ_oc 权重；缺则用 fusion_w_nowcast",
-    )
-    fusion_w_trade: float = Field(
-        default=0.6,
-        ge=0.0,
-        le=1.0,
-        description="旧别名 fusion_w_oo",
-    )
-    fusion_w_nowcast: float = Field(
-        default=0.4,
-        ge=0.0,
-        le=1.0,
-        description="旧别名 fusion_w_oc",
+        description="ranking 中 ŷ_τc 权重",
     )
     rank_enter: float = Field(
         default=0.001,
@@ -183,35 +171,23 @@ class PortfolioBacktestRequest(BaseModel):
     )
     return_model_min_samples: int = Field(default=24, ge=8, le=500)
     return_model_ridge_lambda: float = Field(default=0.0, ge=0.0, le=100.0)
-    y_on_alpha: float = Field(
+    fusion_w_co: float = Field(
         default=0.0,
         ge=0.0,
         le=1.0,
-        description="历史回测 ranking 隔夜系数 α；0=不乘 y_on，1=按原权重乘入",
+        description="研究口隔夜系数；产品回测用 PaperReplay 的 fusion_w_co（0～10）",
     )
     fusion_w_oo: Optional[float] = Field(
         default=None,
         ge=0.0,
         le=1.0,
-        description="ranking 中 ŷ_oo 权重；缺则用 fusion_w_trade",
+        description="ranking 中 ŷ_oo 权重",
     )
     fusion_w_oc: Optional[float] = Field(
         default=None,
         ge=0.0,
         le=1.0,
-        description="ranking 中 ŷ_oc 权重；缺则用 fusion_w_nowcast",
-    )
-    fusion_w_trade: float = Field(
-        default=0.6,
-        ge=0.0,
-        le=1.0,
-        description="旧别名 fusion_w_oo",
-    )
-    fusion_w_nowcast: float = Field(
-        default=0.4,
-        ge=0.0,
-        le=1.0,
-        description="旧别名 fusion_w_oc",
+        description="ranking 中 ŷ_τc 权重",
     )
     rank_enter: float = Field(
         default=0.012,

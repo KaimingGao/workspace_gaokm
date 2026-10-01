@@ -57,7 +57,7 @@ def daily_run(body: DailyRunRequest) -> Any:
             top_k=body.top_k,
             horizon_days=body.horizon_days,
             lookback=body.lookback,
-            y_on_alpha=body.y_on_alpha,
+            fusion_w_co=body.fusion_w_co,
             rank_enter=body.rank_enter,
             rank_strong=body.rank_strong,
         )

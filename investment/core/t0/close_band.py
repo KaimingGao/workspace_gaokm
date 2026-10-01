@@ -138,7 +138,7 @@ def scores_close_components(
 ) -> Dict[str, Optional[float]]:
     """估 C_τ：price(τ)×(1+clip(y_τc×scale, ±20)/100)。缺 price(τ) 时用 open。
 
-    缺 y_τc 时回退 y_oc / y_tau（旧行、开盘时钟同一个数）。
+    缺 y_τc 时回退时钟对齐的 y_tau。
     R̂_τ = Ĉ_τ/price(τ)−1，等于 clip 后的百分点。
     remaining_oc 仍是未 clip 的 remaining(y_oc)，不进破带。
     """
@@ -169,12 +169,6 @@ def scores_close_components(
     direct_τc = (
         "y_τc",
         "predicted_score_τc",
-        "y_tc",
-        "predicted_score_tc",
-        "y_to",
-        "predicted_score_to",
-        "y_pc",
-        "predicted_score_pc",
     )
     has_direct_τc = any(raw.get(k) is not None for k in direct_τc)
     # 只有旧 y_r（分钟收盘头）时不拿来估带，回退 y_oc / y_tau。

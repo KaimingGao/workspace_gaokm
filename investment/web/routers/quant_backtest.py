@@ -23,9 +23,7 @@ _T0_RULE_KEYS = (
     "fill_mode_sell_then_buy",
     "fill_mode_buy_then_sell",
     "y_trade_enter",
-    "y_trade_floor",
     "fusion_w_τc",
-    "fusion_w_tc",
     "residual_w_oc",
     "residual_w_mode",
     "y_on_allow",
@@ -131,8 +129,6 @@ def quant_t0_backtest(body: T0BacktestRequest) -> Dict[str, Any]:
 
 
 def _portfolio_backtest_kwargs(body: PaperReplayBacktestRequest) -> Dict[str, Any]:
-    w_oo = body.fusion_w_oo if body.fusion_w_oo is not None else body.fusion_w_trade
-    w_oc = body.fusion_w_oc if body.fusion_w_oc is not None else body.fusion_w_nowcast
     return {
         "codes": body.codes,
         "lookback": body.lookback,
@@ -142,11 +138,9 @@ def _portfolio_backtest_kwargs(body: PaperReplayBacktestRequest) -> Dict[str, An
         "min_avg_amount_pctile": body.min_avg_amount_pctile,
         "include_benchmark": body.include_benchmark,
         "benchmark_code": body.benchmark_code,
-        "y_on_alpha": body.y_on_alpha,
-        "fusion_w_oo": w_oo,
-        "fusion_w_oc": w_oc,
-        "fusion_w_trade": w_oo,
-        "fusion_w_nowcast": w_oc,
+        "fusion_w_co": body.fusion_w_co,
+        "fusion_w_oo": body.fusion_w_oo,
+        "fusion_w_oc": body.fusion_w_oc,
         "rank_enter": body.rank_enter,
         "rank_strong": body.rank_strong,
         "rank_enter_alt": body.rank_enter_alt,

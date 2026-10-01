@@ -100,13 +100,11 @@ function _looksLikeYhatPct(n) {
   return n != null && Number.isFinite(n) && Math.abs(n) <= 20;
 }
 
-/** rank_lots 权：fusion_w_oo（ŷ_oo）/ fusion_w_oc（ŷ_τc，字段名留旧）；旧键 fusion_w_trade / fusion_w_nowcast。 */
+/** rank_lots 权：fusion_w_oo（ŷ_oo）/ fusion_w_oc（ŷ_τc）。 */
 export function fusionWeightsFromItem(it) {
   const d = it && typeof it === "object" ? it : {};
   let wOo = _numField(d.fusion_w_oo);
-  if (wOo == null) wOo = _numField(d.fusion_w_trade);
   let wOc = _numField(d.fusion_w_oc);
-  if (wOc == null) wOc = _numField(d.fusion_w_nowcast);
   if (wOo == null) wOo = 0.5;
   if (wOc == null) wOc = 0.5;
   wOo = Math.max(0, Math.min(1, wOo));
@@ -120,7 +118,6 @@ export function fusionWeightsFromItem(it) {
 export function fusionWCoFromItem(it) {
   const d = it && typeof it === "object" ? it : {};
   let w = _numField(d.fusion_w_co);
-  if (w == null) w = _numField(d.y_on_alpha);
   if (w == null) return 0;
   return Math.max(0, Math.min(10, w));
 }
@@ -196,9 +193,7 @@ function hasFusionWeights(it) {
   if (!it || typeof it !== "object") return false;
   return (
     _numField(it.fusion_w_oo) != null ||
-    _numField(it.fusion_w_trade) != null ||
-    _numField(it.fusion_w_oc) != null ||
-    _numField(it.fusion_w_nowcast) != null
+    _numField(it.fusion_w_oc) != null
   );
 }
 

@@ -274,24 +274,9 @@ export function renderRebalanceRulesHtml(execution) {
   const strong = rankScoreToPct(
     pm.rank_strong != null ? pm.rank_strong : pm.rank_enter
   );
-  const alpha =
-    pm.fusion_w_co != null
-      ? Number(pm.fusion_w_co)
-      : pm.y_on_alpha != null
-        ? Number(pm.y_on_alpha)
-        : 1;
-  const wt =
-    pm.fusion_w_oo != null
-      ? Number(pm.fusion_w_oo)
-      : pm.fusion_w_trade != null
-        ? Number(pm.fusion_w_trade)
-        : 0.6;
-  const wn =
-    pm.fusion_w_oc != null
-      ? Number(pm.fusion_w_oc)
-      : pm.fusion_w_nowcast != null
-        ? Number(pm.fusion_w_nowcast)
-        : 0.4;
+  const alpha = pm.fusion_w_co != null ? Number(pm.fusion_w_co) : 1;
+  const wt = pm.fusion_w_oo != null ? Number(pm.fusion_w_oo) : 0.6;
+  const wn = pm.fusion_w_oc != null ? Number(pm.fusion_w_oc) : 0.4;
   const cap = pm.holdings_mv_cap != null ? Number(pm.holdings_mv_cap) : 150000;
   const lotB = Number.isFinite(Number(pm.lot_base_amount))
     ? Math.round(Number(pm.lot_base_amount))
@@ -630,18 +615,9 @@ export function fillPathMatrixForm(root, execution) {
   const yOcGt0 = pm.y_τc_gt0 != null ? !!pm.y_τc_gt0 : false;
   set("pm_y_oo_gt0", yOoGt0);
   set("pm_y_τc_gt0", yOcGt0);
-  set(
-    "pm_y_on_alpha",
-    pm.fusion_w_co != null ? pm.fusion_w_co : pm.y_on_alpha != null ? pm.y_on_alpha : 1
-  );
-  set(
-    "pm_fusion_w_oo",
-    pm.fusion_w_oo != null ? pm.fusion_w_oo : pm.fusion_w_trade != null ? pm.fusion_w_trade : 0.6
-  );
-  set(
-    "pm_fusion_w_nc",
-    pm.fusion_w_oc != null ? pm.fusion_w_oc : pm.fusion_w_nowcast != null ? pm.fusion_w_nowcast : 0.4
-  );
+  set("pm_fusion_w_co", pm.fusion_w_co != null ? pm.fusion_w_co : 1);
+  set("pm_fusion_w_oo", pm.fusion_w_oo != null ? pm.fusion_w_oo : 0.6);
+  set("pm_fusion_w_nc", pm.fusion_w_oc != null ? pm.fusion_w_oc : 0.4);
   const clockEl = document.getElementById("quant-fill-clock");
   if (clockEl && pm.fill_clock) {
     const v = String(pm.fill_clock).replace("：", ":").trim().slice(0, 5);
@@ -725,9 +701,9 @@ export function collectPathMatrixForm(root) {
     if (!el) return fallback;
     return !!el.checked;
   };
-  const yOnAlpha = Math.max(0, Math.min(num("pm_y_on_alpha", 1), 10));
+  const wCo = Math.max(0, Math.min(num("pm_fusion_w_co", 1), 10));
   const mvCap = 150000;
-  let wOo = Math.max(0, Math.min(numFirst(["pm_fusion_w_oo", "pm_fusion_w_trade"], 0.6), 1));
+  let wOo = Math.max(0, Math.min(num("pm_fusion_w_oo", 0.6), 1));
   let wOc = Math.max(0, Math.min(numFirst(["pm_fusion_w_nc", "pm_fusion_w_oc"], 0.4), 1));
   const wSum = wOo + wOc;
   if (wSum <= 1e-12) {
@@ -753,13 +729,10 @@ export function collectPathMatrixForm(root) {
         y_enter_alt_enabled: true,
         y_oo_gt0: yOoGt0,
         y_τc_gt0: yOcGt0,
-        y_on_alpha: Math.round(yOnAlpha * 1000) / 1000,
-        fusion_w_co: Math.round(yOnAlpha * 1000) / 1000,
+        fusion_w_co: Math.round(wCo * 1000) / 1000,
         holdings_mv_cap: Math.round(mvCap),
         fusion_w_oo: Math.round(wOo * 1000) / 1000,
         fusion_w_oc: Math.round(wOc * 1000) / 1000,
-        fusion_w_trade: Math.round(wOo * 1000) / 1000,
-        fusion_w_nowcast: Math.round(wOc * 1000) / 1000,
         lot_base_amount: lotBase,
         lot_strong_amount: lotStrong,
   };

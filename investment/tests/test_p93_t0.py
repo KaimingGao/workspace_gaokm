@@ -3365,7 +3365,7 @@ class TestDualYDirection(unittest.TestCase):
             shares=1000,
             cost=100,
             cash=50000,
-            rules=_rules(direction="dual_y", min_range_pct=1.0, y_trade_floor=0.15),
+            rules=_rules(direction="dual_y", min_range_pct=1.0, y_trade_enter=0.15),
             scores=_scores_r(-0.5),
             minute_bars=_mins_hl(bar=bar))
         self.assertNotIn("预期幅度不足", out.get("reason") or "")
@@ -3430,7 +3430,7 @@ class TestDualYDirection(unittest.TestCase):
             t0_ratio=0.4,
             y_tau_enter=0.0,
             y_path_enter=0.0,
-            y_trade_floor=0.15,
+            y_trade_enter=0.15,
             y_trade_strong=2.0,
             y_eod_strong=5.0,
             y_ratio_cut=0.75,

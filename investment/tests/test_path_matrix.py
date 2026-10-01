@@ -67,7 +67,10 @@ class TestPathMatrix(unittest.TestCase):
         self.assertIn("rank_enter", lots)
         self.assertIn("cash_floor", lots)
         self.assertAlmostEqual(float(lots.get("cash_floor")), 0.0)
-        self.assertEqual(lots.get("y_on_alpha"), 1.0)
+        self.assertEqual(lots.get("fusion_w_co"), 1.0)
+        self.assertNotIn("y_on_alpha", lots)
+        self.assertNotIn("fusion_w_trade", lots)
+        self.assertNotIn("fusion_w_nowcast", lots)
         self.assertAlmostEqual(float(lots.get("rank_enter")), 0.001)
         self.assertAlmostEqual(float(lots.get("rank_strong")), 0.001)
         self.assertNotIn("rank_exit", lots)
@@ -106,12 +109,12 @@ class TestPathMatrix(unittest.TestCase):
         self.assertEqual(cfg0["lot_base_amount"], 10000)
         self.assertEqual(cfg0["lot_strong_amount"], 20000)
 
-    def test_y_on_alpha_maps_to_fusion_w_co(self):
+    def test_old_y_on_alpha_does_not_fill_fusion_w_co(self):
         cfg = self._cfg(y_on_alpha=0.4)
-        self.assertAlmostEqual(cfg["fusion_w_co"], 0.4)
-        self.assertAlmostEqual(cfg["y_on_alpha"], 0.4)
-        cfg0 = self._cfg()
-        self.assertAlmostEqual(cfg0["fusion_w_co"], 1.0)
+        self.assertAlmostEqual(cfg["fusion_w_co"], 1.0)
+        self.assertNotIn("y_on_alpha", cfg)
+        cfg0 = self._cfg(fusion_w_co=0.4)
+        self.assertAlmostEqual(cfg0["fusion_w_co"], 0.4)
 
     def test_legacy_rank_thresholds_coerced_to_net(self):
         cfg = self._cfg(rank_enter=1.01, rank_strong=1.02)
@@ -121,10 +124,12 @@ class TestPathMatrix(unittest.TestCase):
         self.assertAlmostEqual(cfg0["rank_enter"], 0.01)
         self.assertAlmostEqual(cfg0["rank_strong"], 0.02)
 
-    def test_legacy_trade_weights_map_to_oo_oc(self):
+    def test_old_trade_weights_do_not_fill_oo_oc(self):
         cfg = self._cfg(fusion_w_trade=0.7, fusion_w_nowcast=0.3)
-        self.assertAlmostEqual(cfg["fusion_w_oo"], 0.7)
-        self.assertAlmostEqual(cfg["fusion_w_oc"], 0.3)
+        self.assertAlmostEqual(cfg["fusion_w_oo"], 0.6)
+        self.assertAlmostEqual(cfg["fusion_w_oc"], 0.4)
+        self.assertNotIn("fusion_w_trade", cfg)
+        self.assertNotIn("fusion_w_nowcast", cfg)
 
     def test_stale_y_oo_oc_enter_stripped(self):
         from core.execution import apply_execution_patch_to_paper

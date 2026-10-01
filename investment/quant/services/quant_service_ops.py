@@ -318,7 +318,7 @@ class QuantOpsMixin:
         top_k: Optional[int] = None,
         horizon_days: Optional[int] = None,
         lookback: Optional[int] = None,
-        y_on_alpha: Optional[float] = None,
+        fusion_w_co: Optional[float] = None,
         rank_enter: Optional[float] = None,
         rank_strong: Optional[float] = None,
     ) -> Dict[str, Any]:
@@ -369,8 +369,8 @@ class QuantOpsMixin:
         portfolio_bt_kwargs: Dict[str, Any] = {}
         if lookback is not None:
             portfolio_bt_kwargs["lookback"] = int(lookback)
-        if y_on_alpha is not None:
-            portfolio_bt_kwargs["y_on_alpha"] = float(y_on_alpha)
+        if fusion_w_co is not None:
+            portfolio_bt_kwargs["fusion_w_co"] = float(fusion_w_co)
         if rank_enter is not None:
             portfolio_bt_kwargs["rank_enter"] = float(rank_enter)
         if rank_strong is not None:

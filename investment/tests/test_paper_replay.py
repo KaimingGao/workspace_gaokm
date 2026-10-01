@@ -24,7 +24,7 @@ from core.backtest.paper_replay import (
     fuse_hit_metrics,
     mock_quote_from_bar,
     realized_yhat_windows,
-    rescore_replay_y_oc_at_clock,
+    rescore_replay_y_τc_at_clock,
 )
 from core.paper.replay_ctx import paper_replay_context
 from core.paper.tplus1 import add_buy_lot, clip_sell_shares
@@ -1286,7 +1286,7 @@ class TestRealizedYhatWindows(unittest.TestCase):
         from core.signal.yhat_geom import remaining_at_tau
 
         row = {
-            "y_oc": 5.25,
+            "y_tau": 5.25,
             "status": "filled",
             "side": "buy",
             "price": 153.2,
@@ -1312,7 +1312,7 @@ class TestRealizedYhatWindows(unittest.TestCase):
         from core.backtest.paper_replay import stamp_r_tau_on_row
 
         row = {
-            "y_oc": 5.25,
+            "y_tau": 5.25,
             "status": "held",
             "side": "hold",
             "price": 150.25,
@@ -2478,7 +2478,7 @@ class TestReplayPrefixYoc(unittest.TestCase):
     def test_0930_keeps_open_y_oc(self):
         dates = self._dates()
         item = {"stock_code": "600519", "y_oo": 0.8, "y_oc": 0.197, "ranking": 0.5}
-        out, n = rescore_replay_y_oc_at_clock(
+        out, n = rescore_replay_y_τc_at_clock(
             [item],
             clock="09:30",
             dates=dates,
@@ -2506,10 +2506,9 @@ class TestReplayPrefixYoc(unittest.TestCase):
         }
         live = {
             "_score_source": "prefix_causal",
-            "y_oc": -0.70,
+            "y_τc": -0.70,
             "y_tau": -0.70,
             "predicted_score_tau": -0.70,
-            "y_tau_oc": -0.70,
         }
         cfg = {"fusion_w_oo": 0.5, "fusion_w_oc": 0.5, "fusion_w_co": 0.0}
         self.assertTrue(_apply_prefix_oc(item, live, cfg))
@@ -2534,10 +2533,9 @@ class TestReplayPrefixYoc(unittest.TestCase):
         }
         live = {
             "_score_source": "prefix_causal",
-            "y_oc": -0.70,
+            "y_τc": -0.70,
             "y_tau": -0.70,
             "predicted_score_tau": -0.70,
-            "y_tau_oc": -0.70,
             "y_τ30": 0.2,
             "y_τ60": -0.1,
             "y_τ90": 0.3,
@@ -2577,16 +2575,15 @@ class TestReplayPrefixYoc(unittest.TestCase):
         }
         live = {
             "_score_source": "prefix_causal",
-            "y_oc": -0.70,
+            "y_τc": -0.70,
             "y_tau": -0.70,
             "predicted_score_tau": -0.70,
-            "y_tau_oc": -0.70,
         }
         with patch(
             "core.t0.score_policy.rescore_scores_at_fixed_prefix",
             return_value=live,
         ) as rs:
-            out, n = rescore_replay_y_oc_at_clock(
+            out, n = rescore_replay_y_τc_at_clock(
                 [dict(open_item)],
                 clock="09:35",
                 dates=dates,
@@ -2656,7 +2653,7 @@ class TestReplayPrefixYoc(unittest.TestCase):
         if y_t0 is None:
             self.skipTest("做 T rescore 未出 ŷ_oc")
         minute_maps = {code: {day: prefix}}
-        out, n = rescore_replay_y_oc_at_clock(
+        out, n = rescore_replay_y_τc_at_clock(
             [dict(open_item)],
             clock="09:35",
             dates=dates,
@@ -2696,7 +2693,7 @@ class TestReplayPrefixYoc(unittest.TestCase):
                 minute_bars_by_code=minutes,
             )
         self.assertTrue(out.get("success"), out.get("error"))
-        self.assertIsNone(out["params"].get("y_oc_prefix_clock"))
+        self.assertNotIn("y_oc_prefix_clock", out["params"])
         self.assertEqual(int((out.get("constraints_hit") or {}).get("tau_prefix_rescored") or 0), 0)
 
 

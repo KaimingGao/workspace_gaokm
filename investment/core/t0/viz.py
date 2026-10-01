@@ -2808,8 +2808,7 @@ def _summary_from_counts(
         "cover_rate_pct": round(cover_n / traded_n * 100.0, 2) if traded_n else None,
         "score_coverage_pct": round(score_seen / score_total * 100.0, 2) if score_total else None,
         "y_tau_enter": 0.0,
-        "y_trade_enter": _f(cfg.get("y_trade_enter") or cfg.get("y_trade_floor")) or 0.15,
-        "y_trade_floor": _f(cfg.get("y_trade_floor") or cfg.get("y_trade_enter")) or 0.15,
+        "y_trade_enter": _f(cfg.get("y_trade_enter")) or 0.15,
     }
 
 

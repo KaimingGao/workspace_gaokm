@@ -340,7 +340,7 @@ def _score_y_tau(score_snap: Optional[dict]) -> Optional[float]:
     """从分数快照取 ŷ_τ（百分点）= OC 开→收；与定向同口径。"""
     if not isinstance(score_snap, dict):
         return None
-    for key in ("y_tau_oc", "predicted_score_tau_oc", "y_tau", "predicted_score_tau", "score_rem", "yhat_tau"):
+    for key in ("y_τc", "y_tau"):
         raw = score_snap.get(key)
         if raw is None or raw == "":
             continue

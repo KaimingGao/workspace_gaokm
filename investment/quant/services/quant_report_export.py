@@ -1070,7 +1070,7 @@ def _topk_run_config_line(ps: Optional[dict] = None) -> str:
     if _portfolio_bt_engine(ps, params) == "paper_replay":
         bits = [
             "引擎=paper_replay/rank_lots",
-            f"ON_Alpha={params.get('y_on_alpha') if params.get('y_on_alpha') is not None else '—'}",
+            f"w_co={params.get('fusion_w_co') if params.get('fusion_w_co') is not None else '—'}",
             f"Rank入场={params.get('rank_enter') if params.get('rank_enter') is not None else '—'}",
             f"Rank强={params.get('rank_strong') if params.get('rank_strong') is not None else '—'}",
         ]

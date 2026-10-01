@@ -46,9 +46,7 @@ ALLOWED_T0_PATCH_KEYS = frozenset(
         "path_mode",
         "minute_period",
         "y_trade_enter",
-        "y_trade_floor",
         "fusion_w_τc",
-        "fusion_w_tc",
         "residual_w_oc",
         "residual_w_mode",
         "y_on_risk",
@@ -129,7 +127,6 @@ DEFAULT_T0_OVERLAY: Dict[str, Any] = {
     "ref": "open",
     "lot_size": 100,
     "fusion_w_τc": 0.5,
-    "fusion_w_tc": 0.5,
     "residual_w_oc": 0.5,
     "residual_w_mode": "fixed",
     "y_trade_enter": 0.01,
@@ -198,9 +195,6 @@ DEFAULT_REBALANCE_TIMING: Dict[str, Any] = {
         "fusion_w_oo": 0.6,
         "fusion_w_oc": 0.4,
         "fusion_w_co": 1.0,
-        "fusion_w_trade": 0.6,
-        "fusion_w_nowcast": 0.4,
-        "y_on_alpha": 1.0,
         "y_enter_enabled": True,
         "y_enter_alt_enabled": True,
         "y_oo_gt0": False,
@@ -221,9 +215,6 @@ DEFAULT_REBALANCE_TIMING: Dict[str, Any] = {
         "fusion_w_oo": 0.6,
         "fusion_w_oc": 0.4,
         "fusion_w_co": 1.0,
-        "fusion_w_trade": 0.6,
-        "fusion_w_nowcast": 0.4,
-        "y_on_alpha": 1.0,
         "y_enter_enabled": True,
         "y_enter_alt_enabled": True,
         "y_oo_gt0": False,
@@ -637,18 +628,8 @@ def execution_public_view(bundle: Dict[str, Any]) -> Dict[str, Any]:
             "ref": t0.get("ref"),
             "lot_size": t0.get("lot_size"),
             "minute_period": t0.get("minute_period"),
-            "y_trade_enter": t0.get("y_trade_enter") or t0.get("y_trade_floor"),
-            "y_trade_floor": t0.get("y_trade_floor") or t0.get("y_trade_enter"),
-            "fusion_w_τc": (
-                t0.get("fusion_w_τc")
-                if t0.get("fusion_w_τc") is not None
-                else t0.get("fusion_w_tc")
-            ),
-            "fusion_w_tc": (
-                t0.get("fusion_w_tc")
-                if t0.get("fusion_w_tc") is not None
-                else t0.get("fusion_w_τc")
-            ),
+            "y_trade_enter": t0.get("y_trade_enter"),
+            "fusion_w_τc": t0.get("fusion_w_τc"),
             "residual_w_oc": t0.get("residual_w_oc"),
             "residual_w_mode": t0.get("residual_w_mode"),
             "y_on_risk": t0.get("y_on_risk"),
@@ -936,9 +917,6 @@ def validate_execution_patch(raw: Any) -> Tuple[bool, Dict[str, Any], List[str]]
                     "fusion_w_oo": float(pm.get("fusion_w_oo") or 0.6),
                     "fusion_w_oc": float(pm.get("fusion_w_oc") or 0.4),
                     "fusion_w_co": float(pm.get("fusion_w_co") if pm.get("fusion_w_co") is not None else 1.0),
-                    "fusion_w_trade": float(pm.get("fusion_w_trade") or 0.6),
-                    "fusion_w_nowcast": float(pm.get("fusion_w_nowcast") or 0.4),
-                    "y_on_alpha": float(pm.get("y_on_alpha") if pm.get("y_on_alpha") is not None else 1.0),
                     "y_enter_enabled": bool(pm.get("y_enter_enabled", True)),
                     "y_enter_alt_enabled": bool(pm.get("y_enter_alt_enabled", True)),
                     "y_oo_gt0": bool(pm.get("y_oo_gt0", False)),
@@ -1007,11 +985,7 @@ def apply_execution_patch_to_paper(
             prev_pm.update(incoming)
             from core.paper.rebalance.path_matrix import DEFAULT_PATH_MATRIX
 
-            keep = set(DEFAULT_PATH_MATRIX) | {
-                "fusion_w_trade",
-                "fusion_w_nowcast",
-                "y_on_alpha",
-            }
+            keep = set(DEFAULT_PATH_MATRIX)
             prev_pm = {k: v for k, v in prev_pm.items() if k in keep}
             rt["rank_lots"] = prev_pm
             rt["path_matrix"] = prev_pm

@@ -49,11 +49,12 @@ class PcGeometryTests(unittest.TestCase):
         from core.signal.yhat_windows import invert_price_over_close, pick_y_τc
 
         raw = 5.0
-        self.assertAlmostEqual(pick_y_τc({"y_r": raw}), invert_price_over_close(raw), places=6)
-        self.assertAlmostEqual(pick_y_τc({"y_to": 1.2, "y_r": 5.0}), 1.2, places=6)
-        self.assertAlmostEqual(pick_y_τc({"y_pc": 1.2, "y_r": 5.0}), 1.2, places=6)
+        inverted = invert_price_over_close(raw)
+        self.assertAlmostEqual(pick_y_τc({"y_r": raw}), inverted, places=6)
         self.assertAlmostEqual(pick_y_τc({"y_τc": 1.2, "y_r": 5.0}), 1.2, places=6)
-        self.assertAlmostEqual(pick_y_τc({"y_tc": 1.2, "y_r": 5.0}), 1.2, places=6)
+        self.assertAlmostEqual(pick_y_τc({"y_to": 1.2, "y_r": 5.0}), inverted, places=6)
+        self.assertAlmostEqual(pick_y_τc({"y_pc": 1.2, "y_r": 5.0}), inverted, places=6)
+        self.assertAlmostEqual(pick_y_τc({"y_tc": 1.2, "y_r": 5.0}), inverted, places=6)
 
     def test_write_y_τc_stamps_primary_only(self):
         from core.signal.yhat_windows import pick_y_τc, write_y_τc
@@ -66,7 +67,7 @@ class PcGeometryTests(unittest.TestCase):
         self.assertNotIn("y_to", dest)
         self.assertNotIn("y_pc", dest)
         self.assertAlmostEqual(pick_y_τc(dest), 1.25, places=6)
-        self.assertAlmostEqual(pick_y_τc({"y_tc": 1.25}), 1.25, places=6)
+        self.assertIsNone(pick_y_τc({"y_tc": 1.25}))
 
     def test_stamp_omits_y_to_y_pc(self):
         from core.signal.yhat_windows import stamp_window_scores
@@ -223,7 +224,7 @@ class StampRemainingYtcTests(unittest.TestCase):
         from core.signal.yhat_windows import remaining_oc, stamp_remaining_y_τc
 
         dest = {
-            "y_oc": 0.5,
+            "y_tau": 0.5,
             "y_τc": 1.4,
             "y_r": 1.4,
             "features_tau": {"ret_open_to_tau": 2.0},
@@ -244,7 +245,7 @@ class StampRemainingYtcTests(unittest.TestCase):
 
         rem = remaining_oc(0.5, 2.0)
         dest = {
-            "y_oc": 0.5,
+            "y_tau": 0.5,
             "y_τc": rem,
             "y_τc_ridge": 1.4,
             "y_τc_source": "remaining_oc",
@@ -261,7 +262,7 @@ class StampRemainingYtcTests(unittest.TestCase):
 
         sc = scores_from_item(
             {
-                "y_tau_oc": 0.5,
+                "y_tau": 0.5,
                 "y_τc": 1.4,
                 "predicted_score_r": 1.4,
                 "y_r": 1.4,
@@ -294,15 +295,15 @@ class StampPrimaryTests(unittest.TestCase):
         right = oc_with_co(y_oc, y_co, 1.0)
         self.assertAlmostEqual(right, ((1.01 * 1.01) - 1.0) * 100.0, places=6)
         self.assertAlmostEqual(oc_with_co(1.0, 2.0, 0.0), 1.0)
-        item = {"y_oo": 2.0, "y_oc": 1.0, "y_co": 1.0}
+        item = {"y_oo": 2.0, "y_tau": 1.0, "y_co": 1.0}
         self.assertAlmostEqual(ranking_pct(item), 1.5, places=6)
         self.assertAlmostEqual(
-            ranking_pct(item, w_oo=0.5, w_oc=0.5, w_co=1.0),
+            ranking_pct(item, w_oo=0.5, w_τc=0.5, w_co=1.0),
             0.5 * 2.0 + 0.5 * right,
             places=6,
         )
         self.assertAlmostEqual(
-            ranking_pct(item, w_oo=0.0, w_oc=1.0, w_co=1.0),
+            ranking_pct(item, w_oo=0.0, w_τc=1.0, w_co=1.0),
             right,
             places=6,
         )
@@ -321,7 +322,7 @@ class StampPrimaryTests(unittest.TestCase):
             },
             "features_tau": {"ret_open_to_tau": 0.0},
         }
-        self.assertAlmostEqual(ranking_pct(item, w_oo=0.5, w_oc=0.5, w_co=0.0), 1.5, places=6)
+        self.assertAlmostEqual(ranking_pct(item, w_oo=0.5, w_τc=0.5, w_co=0.0), 1.5, places=6)
 
     def test_apply_tau_writes_y_τc_as_the_same_yhat(self):
         from core.signal.dual_score import apply_tau_score_fields
@@ -357,20 +358,20 @@ class StampPrimaryTests(unittest.TestCase):
     def test_pick_y_oo_ignores_ranking_alias_y_fuse(self):
         from core.signal.yhat_windows import pick_y_oo, ranking_pct
 
-        item = {"predicted_score": 2.0, "y_oc": 0.4, "y_fuse": 1.2}
+        item = {"predicted_score": 2.0, "y_tau": 0.4, "y_fuse": 1.2}
         self.assertAlmostEqual(pick_y_oo(item), 2.0, places=6)
         self.assertAlmostEqual(ranking_pct(item), 1.2, places=6)
-        only_fuse = {"y_fuse": 1.2, "y_oc": 0.4}
+        only_fuse = {"y_fuse": 1.2, "y_tau": 0.4}
         self.assertIsNone(pick_y_oo(only_fuse))
         self.assertAlmostEqual(ranking_pct(only_fuse), 0.4, places=6)
 
     def test_stamp_window_scores_applies_remaining_ranking(self):
         from core.signal.yhat_windows import stamp_window_scores
 
-        fused = stamp_window_scores({"y_oo": 2.0, "y_oc": 2.0})
+        fused = stamp_window_scores({"y_oo": 2.0, "y_tau": 2.0})
         self.assertAlmostEqual(fused["ranking"], 2.0, places=6)
         rem = stamp_window_scores(
-            {"y_oo": 2.0, "y_oc": 2.0, "day_open": 100.0, "price_tau": 100.5}
+            {"y_oo": 2.0, "y_tau": 2.0, "day_open": 100.0, "price_tau": 100.5}
         )
         rot = (100.5 / 100.0 - 1.0) * 100.0
         self.assertAlmostEqual(rem["ranking"], 2.0 - rot, places=6)
@@ -378,7 +379,7 @@ class StampPrimaryTests(unittest.TestCase):
     def test_remaining_ranking_deducts_open_to_price_tau(self):
         from core.signal.yhat_windows import ranking_pct, remaining_ranking_pct
 
-        fused = ranking_pct({"y_oo": 2.0, "y_oc": 2.0})
+        fused = ranking_pct({"y_oo": 2.0, "y_tau": 2.0})
         self.assertAlmostEqual(fused, 2.0, places=6)
         self.assertAlmostEqual(
             remaining_ranking_pct(fused, open_px=100.0, price_tau=100.0),
@@ -435,7 +436,7 @@ class ResidualFusionTests(unittest.TestCase):
 
         item = {
             "y_τc": 1.0,
-            "y_oc": 3.0,
+            "y_tau": 3.0,
             "ret_open_to_tau": 0.0,
             "residual_var_τc": 0.25,
             "residual_var_oc": 1.0,

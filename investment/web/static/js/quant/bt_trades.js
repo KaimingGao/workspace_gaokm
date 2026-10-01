@@ -484,9 +484,9 @@ function _legReason(r) {
 
 function _fusionFromReplayParams(params) {
   const p = params && typeof params === "object" ? params : {};
-  const wOo = p.fusion_w_oo != null ? p.fusion_w_oo : p.fusion_w_trade;
-  const wOc = p.fusion_w_oc != null ? p.fusion_w_oc : p.fusion_w_nowcast;
-  const wCo = p.fusion_w_co != null ? p.fusion_w_co : p.y_on_alpha;
+  const wOo = p.fusion_w_oo;
+  const wOc = p.fusion_w_oc;
+  const wCo = p.fusion_w_co;
   return { fusion_w_oo: wOo, fusion_w_oc: wOc, fusion_w_co: wCo };
 }
 
@@ -497,9 +497,7 @@ export function buildLedgerTradeRow(r, i, deps) {
     fusion_w_oo: r.fusion_w_oo != null ? r.fusion_w_oo : fw.fusion_w_oo,
     fusion_w_oc: r.fusion_w_oc != null ? r.fusion_w_oc : fw.fusion_w_oc,
     fusion_w_co: r.fusion_w_co != null ? r.fusion_w_co : fw.fusion_w_co,
-    fusion_w_trade: r.fusion_w_trade != null ? r.fusion_w_trade : fw.fusion_w_oo,
-    fusion_w_nowcast: r.fusion_w_nowcast != null ? r.fusion_w_nowcast : fw.fusion_w_oc,
-    y_on_alpha: r.y_on_alpha != null ? r.y_on_alpha : fw.fusion_w_co,
+    fusion_w_co: r.fusion_w_co != null ? r.fusion_w_co : fw.fusion_w_co,
   };
   const nameByCode = deps.nameByCode || {};
   const { fmtScore, scoreCls } = deps;
@@ -949,9 +947,9 @@ export function buildSimTradeRow(r, i, deps) {
     y_oo: r.y_oo != null ? r.y_oo : eodScore,
     y_oc: r.y_oc != null ? r.y_oc : r.y_tau_oc,
     y_co: r.y_co != null ? r.y_co : r.y_on,
-    fusion_w_oo: r.fusion_w_oo != null ? r.fusion_w_oo : r.fusion_w_trade,
-    fusion_w_oc: r.fusion_w_oc != null ? r.fusion_w_oc : r.fusion_w_nowcast,
-    fusion_w_co: r.fusion_w_co != null ? r.fusion_w_co : r.y_on_alpha,
+    fusion_w_oo: r.fusion_w_oo,
+    fusion_w_oc: r.fusion_w_oc,
+    fusion_w_co: r.fusion_w_co,
     // tip ① 优先 predicted_score=ŷ_oo；表列展示用 blend
     score: eodScore != null ? eodScore : blendScore,
     predicted_score: eodScore != null ? eodScore : blendScore,

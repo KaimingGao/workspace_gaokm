@@ -86,20 +86,11 @@ class T0BacktestRequest(BaseModel):
     y_trade_enter: Optional[float] = Field(
         default=None, ge=0.0, le=5.0,         description="dual_y：|y_trade|入场下限（收益百分点）"
     )
-    y_trade_floor: Optional[float] = Field(
-        default=None, ge=0.0, le=5.0, description="已弃用：别名 y_trade_enter"
-    )
     fusion_w_τc: Optional[float] = Field(
         default=None,
         ge=0.0,
         le=1.0,
         description="做 T residual 融合：ŷ_τc 权重；与 residual_w_oc 归一化",
-    )
-    fusion_w_tc: Optional[float] = Field(
-        default=None,
-        ge=0.0,
-        le=1.0,
-        description="fusion_w_τc 的 ASCII 别名",
     )
     residual_w_oc: Optional[float] = Field(
         default=None,
@@ -411,9 +402,7 @@ class PaperExecutionPatchRequest(BaseModel):
     must_cover_same_day_sell_then_buy: Optional[bool] = None
     must_cover_same_day_buy_then_sell: Optional[bool] = None
     y_trade_enter: Optional[float] = None
-    y_trade_floor: Optional[float] = None
     fusion_w_τc: Optional[float] = None
-    fusion_w_tc: Optional[float] = None
     residual_w_oc: Optional[float] = None
     residual_w_mode: Optional[str] = None
     y_on_allow: Optional[float] = None

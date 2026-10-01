@@ -40,11 +40,11 @@ class DailyRunRequest(BaseModel):
     top_k: Optional[int] = Field(default=None, ge=1, le=40)
     horizon_days: Optional[int] = Field(default=None, ge=1, le=10)
     lookback: Optional[int] = Field(default=None, ge=10, le=500)
-    y_on_alpha: Optional[float] = Field(
+    fusion_w_co: Optional[float] = Field(
         default=None,
         ge=0.0,
-        le=1.0,
-        description="历史回测 ranking 隔夜系数 α；对齐 /replay",
+        le=10.0,
+        description="隔夜 ŷ_co 叠进 ŷ_τc 的系数；对齐 /replay",
     )
     rank_enter: Optional[float] = Field(
         default=None,

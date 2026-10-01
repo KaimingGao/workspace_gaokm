@@ -94,7 +94,6 @@ DEFAULT_T0_RULES: Dict[str, Any] = {
     "t0_y_τc_target_scale": 2.0,  # C_τ = price(τ)×(1+clip(y_τc×scale, ±20)/100)
     "t0_close_band_delta_pct": 0.5,  # 破带带宽 δ%
     "fusion_w_τc": 0.5,  # residual 融合：ŷ_τc 权
-    "fusion_w_tc": 0.5,
     "residual_w_oc": 0.5,  # residual 融合：remaining(ŷ_oc) 权
     "residual_w_mode": "fixed",  # fixed | inv_var
     "y_on_risk": 0.01,
@@ -261,16 +260,8 @@ def _migrate_y_tw_enter(cfg: dict, override_keys: Optional[set] = None) -> None:
 
 
 def _migrate_dual_y_gate_keys(cfg: dict, override_keys: Optional[set] = None) -> None:
-    """旧 y_trade_floor 并入 y_trade_enter，迁完去掉旧键。"""
-    keys = override_keys or set()
-    if "y_trade_enter" not in keys and "y_trade_floor" in keys:
-        legacy = cfg.get("y_trade_floor")
-        if legacy not in (None, ""):
-            cfg["y_trade_enter"] = legacy
-            if override_keys is not None:
-                override_keys.add("y_trade_enter")
-    cfg.pop("y_trade_floor", None)
-    _migrate_y_tw_enter(cfg, keys)
+    """对齐 y_tw_enter / y_τw_enter。"""
+    _migrate_y_tw_enter(cfg, override_keys or set())
 
 
 def load_t0_rules(override: Optional[dict] = None) -> Dict[str, Any]:
@@ -334,7 +325,6 @@ def load_t0_rules(override: Optional[dict] = None) -> Dict[str, Any]:
         ("t0_y_τc_target_scale", 0.0, 100.0, 2.0),
         ("t0_close_band_delta_pct", 0.0, 10.0, 0.5),
         ("fusion_w_τc", 0.0, 1.0, 0.5),
-        ("fusion_w_tc", 0.0, 1.0, 0.5),
         ("residual_w_oc", 0.0, 1.0, 0.5),
     ):
         try:
@@ -349,10 +339,6 @@ def load_t0_rules(override: Optional[dict] = None) -> Dict[str, Any]:
         if mode in ("inv_var", "inverse_var", "inverse_variance", "oos", "variance")
         else "fixed"
     )
-    if "fusion_w_τc" in override_keys:
-        cfg["fusion_w_tc"] = float(cfg["fusion_w_τc"])
-    elif "fusion_w_tc" in override_keys:
-        cfg["fusion_w_τc"] = float(cfg["fusion_w_tc"])
     from core.t0.score_policy import normalize_y_trade_enter
 
     cfg["y_trade_enter"] = normalize_y_trade_enter(cfg.get("y_trade_enter"))

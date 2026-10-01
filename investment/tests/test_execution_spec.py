@@ -207,7 +207,6 @@ class TestExecutionResolve(unittest.TestCase):
         ok, norm, errs = validate_execution_patch(
             {
                 "t0": {
-                    "fusion_w_tc": 0.8,
                     "fusion_w_τc": 0.8,
                     "residual_w_oc": 0.2,
                     "residual_w_mode": "fixed",
@@ -215,17 +214,24 @@ class TestExecutionResolve(unittest.TestCase):
             }
         )
         self.assertTrue(ok, errs)
-        self.assertAlmostEqual(float(norm["t0"]["fusion_w_tc"]), 0.8)
+        self.assertAlmostEqual(float(norm["t0"]["fusion_w_τc"]), 0.8)
+        self.assertNotIn("fusion_w_tc", norm["t0"])
         self.assertAlmostEqual(float(norm["t0"]["residual_w_oc"]), 0.2)
         paper = {"strategy_id": "short_conservative", "rules": {}}
         apply_execution_patch_to_paper(paper, norm)
         view = execution_public_view(
             resolve_effective_execution(paper=paper, channel="paper")
         )
-        self.assertAlmostEqual(float(view["t0"]["fusion_w_tc"]), 0.8)
+        self.assertNotIn("fusion_w_tc", view["t0"])
         self.assertAlmostEqual(float(view["t0"]["fusion_w_τc"]), 0.8)
         self.assertAlmostEqual(float(view["t0"]["residual_w_oc"]), 0.2)
         self.assertEqual(view["t0"]["residual_w_mode"], "fixed")
+        bad, _, bad_errs = validate_execution_patch({"t0": {"fusion_w_tc": 0.8}})
+        self.assertFalse(bad)
+        self.assertTrue(any("fusion_w_tc" in e for e in bad_errs))
+        bad_floor, _, floor_errs = validate_execution_patch({"t0": {"y_trade_floor": 0.2}})
+        self.assertFalse(bad_floor)
+        self.assertTrue(any("y_trade_floor" in e for e in floor_errs))
 
     def test_public_view_drops_y_tc_strong(self):
         from core.execution import (

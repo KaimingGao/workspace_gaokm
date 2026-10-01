@@ -1204,7 +1204,6 @@ def _skip_to_sim(sk: dict, day: str) -> dict:
         "y_fuse": sk.get("ranking") if sk.get("ranking") is not None else sk.get("y_fuse"),
         "ranking": sk.get("ranking") if sk.get("ranking") is not None else sk.get("y_fuse"),
         "y_oo": sk.get("y_oo"),
-        "y_oc": sk.get("y_oc"),
         "y_co": sk.get("y_co") if sk.get("y_co") is not None else sk.get("y_on"),
         "y_τc": pick_y_τc(sk),
         "residual": sk.get("residual"),
@@ -1277,7 +1276,6 @@ def _hold_to_sim(
         "y_fuse": yf,
         "ranking": (plan_h or {}).get("ranking") if (plan_h or {}).get("ranking") is not None else yf,
         "y_oo": (plan_h or {}).get("y_oo"),
-        "y_oc": (plan_h or {}).get("y_oc"),
         "y_co": (plan_h or {}).get("y_co")
         if (plan_h or {}).get("y_co") is not None
         else (plan_h or {}).get("y_on"),
@@ -1323,8 +1321,6 @@ def _hold_src_for_code(
         try:
             from core.paper.rebalance.path_matrix import scores_from_rebalance_item
             from core.paper.rebalance.rank_lots import ranking_pct_of
-            from core.signal.yhat_windows import pick_y_oc
-
             sc = scores_from_rebalance_item(it)
             rp = ranking_pct_of(
                 it,
@@ -1332,11 +1328,10 @@ def _hold_src_for_code(
                 price_tau=it.get("rebalance_px") or it.get("price_tau"),
             )
             rs = None if rp is None else float(rp) / 100.0
-            yoc = pick_y_oc(it)
             from core.paper.rebalance.rank_lots import _debug_scores
 
             out = dict(it)
-            out.update(_debug_scores(it, rp, yoc, rs))
+            out.update(_debug_scores(it, rp, rs))
             for k, v in sc.items():
                 if v is not None:
                     out.setdefault(k, v)
@@ -1377,7 +1372,6 @@ def _ledger_trades_to_sim(trades: Sequence[dict]) -> List[dict]:
             "y_fuse": yf,
             "ranking": t.get("ranking") if t.get("ranking") is not None else yf,
             "y_oo": t.get("y_oo"),
-            "y_oc": t.get("y_oc"),
             "y_co": t.get("y_co") if t.get("y_co") is not None else t.get("y_on"),
             "residual": t.get("residual"),
             "r_hat": t.get("r_hat"),
@@ -1973,14 +1967,10 @@ def _score_open_day(
     )
 
 
-# 前缀 ŷ_τc 写入调仓行；不覆盖 ŷ_oo。旧行 y_oc 仍读。
+# 前缀只写入 ŷ_τc / y_tau；不覆盖 ŷ_oo。不从 live 抄旧别名 y_oc。
 _OC_PREFIX_KEYS = (
-    "y_oc",
     "y_tau",
-    "y_tau_oc",
     "predicted_score_tau",
-    "predicted_score_oc",
-    "predicted_score_tau_oc",
     "features_tau",
     "features_tau_fill",
     "formula_terms_tau",
@@ -2050,32 +2040,32 @@ def _apply_prefix_oc(item: dict, live: dict, cfg: Optional[dict]) -> bool:
         item["predicted_score"] = ps
     if y_trade is not None:
         item["y_trade"] = y_trade
-    win = stamp_window_scores(item, cfg)
-    for k, v in win.items():
-        if v is not None:
-            item[k] = v
-    if item.get("ranking") is not None:
-        item["y_fuse"] = item["ranking"]
+    # 开盘行残留的旧别名优先于前缀 y_tau；先清掉再重算 ranking。
+    for stale in (
+        "y_oc",
+        "predicted_score_oc",
+        "y_tau_oc",
+        "predicted_score_tau_oc",
+    ):
+        item.pop(stale, None)
     if item.get("y_τc") is None:
         oc = pick_y_oc(item)
         if oc is not None:
             from core.signal.yhat_windows import write_y_τc
 
             write_y_τc(item, oc)
-    if item.get("y_τc") is not None:
-        for stale in (
-            "y_oc",
-            "predicted_score_oc",
-            "y_tau_oc",
-            "predicted_score_tau_oc",
-        ):
-            item.pop(stale, None)
     if item.get("y_tau") is None:
         item["y_tau"] = item.get("y_τc")
-    return pick_y_oc(item) is not None
+    win = stamp_window_scores(item, cfg)
+    for k, v in win.items():
+        if v is not None:
+            item[k] = v
+    if item.get("ranking") is not None:
+        item["y_fuse"] = item["ranking"]
+    return item.get("y_τc") is not None
 
 
-def rescore_replay_y_oc_at_clock(
+def rescore_replay_y_τc_at_clock(
     scored: Sequence[dict],
     *,
     clock: str,
@@ -2130,7 +2120,7 @@ def rescore_replay_y_oc_at_clock(
                 include_tau_horizons=False,
             )
         except Exception:  # noqa: BLE001
-            logger.debug("replay prefix y_oc rescore failed %s %s", code, day, exc_info=True)
+            logger.debug("replay prefix y_τc rescore failed %s %s", code, day, exc_info=True)
             continue
         if _apply_prefix_oc(it, live if isinstance(live, dict) else {}, cfg):
             n_ok += 1
@@ -2179,11 +2169,9 @@ def backtest_paper_replay(
     cash_floor: Optional[float] = None,
     rank_enter: Optional[float] = None,
     rank_strong: Optional[float] = None,
-    y_on_alpha: Optional[float] = None,
+    fusion_w_co: Optional[float] = None,
     fusion_w_oo: Optional[float] = None,
     fusion_w_oc: Optional[float] = None,
-    fusion_w_trade: Optional[float] = None,
-    fusion_w_nowcast: Optional[float] = None,
     include_session_day: bool = True,
     session_quotes: Optional[Dict[str, dict]] = None,
     session_now: Optional[datetime] = None,
@@ -2221,9 +2209,9 @@ def backtest_paper_replay(
             return backtest_paper_replay(stock_bars, **params)
     from core.backtest.engine import _trade_metrics
     from core.paper.rebalance.rank_lots import (
-        DEFAULT_Y_ON_ALPHA,
+        DEFAULT_FUSION_W_CO,
         clamp_fusion_weight,
-        clamp_y_on_alpha,
+        clamp_fusion_w_co,
         coerce_rank_threshold,
         get_rank_lot_cfg,
         plan_rank_lot_day,
@@ -2309,16 +2297,16 @@ def backtest_paper_replay(
         top_k = max(1, min(int(top_k or 1), cap))
     floor = float(REPLAY_CASH_FLOOR if cash_floor is None else cash_floor)
     initial_cash = clamp_replay_initial_cash(initial_cash)
-    alpha = clamp_y_on_alpha(
-        DEFAULT_Y_ON_ALPHA if y_on_alpha is None else y_on_alpha
+    alpha = clamp_fusion_w_co(
+        DEFAULT_FUSION_W_CO if fusion_w_co is None else fusion_w_co
     )
-    raw_oo = fusion_w_oo if fusion_w_oo is not None else fusion_w_trade
-    raw_oc = fusion_w_oc if fusion_w_oc is not None else fusion_w_nowcast
+    raw_oo = fusion_w_oo
+    raw_oc = fusion_w_oc
     w_oo = clamp_fusion_weight(
         REPLAY_FUSION_W_TRADE if raw_oo is None else raw_oo,
         REPLAY_FUSION_W_TRADE,
     )
-    w_oc = clamp_fusion_weight(
+    w_τc = clamp_fusion_weight(
         REPLAY_FUSION_W_NOWCAST if raw_oc is None else raw_oc,
         REPLAY_FUSION_W_NOWCAST,
     )
@@ -2356,11 +2344,9 @@ def backtest_paper_replay(
         ),
         "cash_floor": floor,
         "holdings_mv_cap": 0.0,
-        "y_on_alpha": alpha,
+        "fusion_w_co": alpha,
         "fusion_w_oo": w_oo,
-        "fusion_w_oc": w_oc,
-        "fusion_w_trade": w_oo,
-        "fusion_w_nowcast": w_oc,
+        "fusion_w_oc": w_τc,
         "y_enter_enabled": True if y_enter_enabled is None else bool(y_enter_enabled),
         "y_enter_alt_enabled": True if y_enter_alt_enabled is None else bool(y_enter_alt_enabled),
         "y_oo_gt0": False if y_oo_gt0 is None else bool(y_oo_gt0),
@@ -2378,12 +2364,9 @@ def backtest_paper_replay(
     rl_cfg["cash_floor"] = floor
     rl_cfg["lot_base_amount"] = lot_base_n
     rl_cfg["lot_strong_amount"] = lot_strong_n
-    rl_cfg["y_on_alpha"] = alpha
     rl_cfg["fusion_w_co"] = alpha
     rl_cfg["fusion_w_oo"] = w_oo
-    rl_cfg["fusion_w_oc"] = w_oc
-    rl_cfg["fusion_w_trade"] = w_oo
-    rl_cfg["fusion_w_nowcast"] = w_oc
+    rl_cfg["fusion_w_oc"] = w_τc
     rl_cfg["rank_enter"] = enter
     rl_cfg["rank_strong"] = strong
     rl_cfg["rank_enter_alt"] = replay_lots["rank_enter_alt"]
@@ -2506,7 +2489,7 @@ def backtest_paper_replay(
                 scored.append({"stock_code": code})
                 have.add(code)
             if clock != "09:30":
-                scored, n_pref = rescore_replay_y_oc_at_clock(
+                scored, n_pref = rescore_replay_y_τc_at_clock(
                     scored,
                     clock=clock,
                     dates=dates,
@@ -2797,11 +2780,8 @@ def backtest_paper_replay(
             logger.debug("stamp realized_ranking failed", exc_info=True)
             row["realized_ranking"] = None
         row["fusion_w_oo"] = w_oo
-        row["fusion_w_oc"] = w_oc
+        row["fusion_w_oc"] = w_τc
         row["fusion_w_co"] = alpha
-        row["fusion_w_trade"] = w_oo
-        row["fusion_w_nowcast"] = w_oc
-        row["y_on_alpha"] = alpha
         return row
 
     sim_trades = [_stamp_day_context(r) for r in _ledger_trades_to_sim(ledger_trades)]
@@ -2858,7 +2838,7 @@ def backtest_paper_replay(
 
     note = (
         f"引擎={ENGINE_ID}：每个交易日 ranking={FORMULA_RANKING}，{fill_note}；{oc_note}；"
-        f"ranking 权 w_oo={w_oo:g} w_oc={w_oc:g} w_co={alpha:g}；未过入场则已持仓清仓；"
+        f"ranking 权 w_oo={w_oo:g} w_τc={w_τc:g} w_co={alpha:g}；未过入场则已持仓清仓；"
         f"门槛1∪门槛2 过入场（rank入场={rl_cfg.get('rank_enter')}）按分数买（开加上限=观察池 {top_k} 只，现金不够则停），"
         f"每笔 {int(rl_cfg.get('lot_base_amount') or REPLAY_AMOUNT_BASE)} 元；"
         f"不留现金地板；T+1；成本={cost_model}；≠ topk_research。"
@@ -2886,11 +2866,9 @@ def backtest_paper_replay(
             "y_enter_alt_enabled": rl_cfg.get("y_enter_alt_enabled"),
             "y_oo_gt0": rl_cfg.get("y_oo_gt0"),
             "y_τc_gt0": rl_cfg.get("y_τc_gt0"),
-            "y_on_alpha": alpha,
+            "fusion_w_co": alpha,
             "fusion_w_oo": w_oo,
-            "fusion_w_oc": w_oc,
-            "fusion_w_trade": w_oo,
-            "fusion_w_nowcast": w_oc,
+            "fusion_w_oc": w_τc,
             "lot_base_amount": float(rl_cfg.get("lot_base_amount") or REPLAY_AMOUNT_BASE),
             "lot_strong_amount": float(rl_cfg.get("lot_strong_amount") or REPLAY_AMOUNT_STRONG),
             "cost_model": cost_model,
@@ -2899,9 +2877,6 @@ def backtest_paper_replay(
             "price_space_gate": bool(ps_cfg.get("t0_price_space_gate", True)),
             "price_space_max_dev_pct": ps_cfg.get("t0_price_space_max_dev_pct"),
             "price_space_prev_dev_pct": ps_cfg.get("t0_price_space_prev_dev_pct"),
-            "y_oc_prefix_clock": (
-                None if clock == "09:30" or rankings_by_date is not None else clock
-            ),
             "minute_codes": len(minute_maps),
             "horizon_days": 1,
             "stock_count": len(stock_bars),

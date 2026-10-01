@@ -369,9 +369,9 @@ export function installBacktest(q) {
     if (engine === "paper_replay" || p.rank_enter != null) {
       const lb = p.lookback != null ? p.lookback : "—";
       const clock = p.fill_clock || "09:30";
-      const alpha = p.y_on_alpha != null ? p.y_on_alpha : "—";
-      const wt = p.fusion_w_oo != null ? p.fusion_w_oo : p.fusion_w_trade != null ? p.fusion_w_trade : "—";
-      const wn = p.fusion_w_oc != null ? p.fusion_w_oc : p.fusion_w_nowcast != null ? p.fusion_w_nowcast : "—";
+      const alpha = p.fusion_w_co != null ? p.fusion_w_co : "—";
+      const wt = p.fusion_w_oo != null ? p.fusion_w_oo : "—";
+      const wn = p.fusion_w_oc != null ? p.fusion_w_oc : "—";
       const lotB = p.lot_base_amount != null ? p.lot_base_amount : "—";
       const n = Number(p.rank_enter);
       const enter = Number.isFinite(n) ? `${(n * 100).toFixed(2)}%` : "—";
@@ -438,16 +438,16 @@ export function installBacktest(q) {
       }
     }
     if (!rules) return;
-    const wOo = req.fusion_w_oo != null ? req.fusion_w_oo : req.fusion_w_trade;
-    const wOc = req.fusion_w_oc != null ? req.fusion_w_oc : req.fusion_w_nowcast;
+    const wOo = req.fusion_w_oo;
+    const wOc = req.fusion_w_oc;
     if (wOo != null) {
       setName("pm_fusion_w_oo", wOo);
     }
     if (wOc != null) {
       setName("pm_fusion_w_nc", wOc);
     }
-    if (req.y_on_alpha != null) {
-      setName("pm_y_on_alpha", req.y_on_alpha);
+    if (req.fusion_w_co != null) {
+      setName("pm_fusion_w_co", req.fusion_w_co);
     }
     const enterPct = scoreToRankPct(req.rank_enter);
     if (enterPct) {
@@ -818,9 +818,9 @@ export function installBacktest(q) {
     return !!el.checked;
   }
 
-  function readYOnAlpha() {
+  function readFusionWCo() {
     const form = document.getElementById("paper-path-matrix-form");
-    const el = form && form.querySelector('[name="pm_y_on_alpha"]');
+    const el = form && form.querySelector('[name="pm_fusion_w_co"]');
     if (el && el.value !== "") {
       const n = Number(el.value);
       if (Number.isFinite(n)) return Math.max(0, Math.min(10, n));
@@ -837,16 +837,14 @@ export function installBacktest(q) {
         return {
           fusion_w_oo: lots.fusion_w_oo,
           fusion_w_oc: lots.fusion_w_oc,
-          fusion_w_trade: lots.fusion_w_oo,
-          fusion_w_nowcast: lots.fusion_w_oc,
+          fusion_w_co: lots.fusion_w_co,
         };
       }
     }
     return {
       fusion_w_oo: 0.6,
       fusion_w_oc: 0.4,
-      fusion_w_trade: 0.6,
-      fusion_w_nowcast: 0.4,
+      fusion_w_co: 1,
     };
   }
 
@@ -1009,7 +1007,7 @@ export function installBacktest(q) {
       exclude_st: true,
       min_avg_amount_pctile: null,
       benchmark_code: "pool",
-      y_on_alpha: readYOnAlpha(),
+      fusion_w_co: readFusionWCo(),
       initial_cash: readInitialCash(),
       fill_clock: readFillClock(),
       use_predictability_tiers: usePred,
@@ -1503,11 +1501,9 @@ export function installBacktest(q) {
         exclude_st,
         min_avg_amount_pctile,
         benchmark_code,
-        y_on_alpha,
+        fusion_w_co,
         fusion_w_oo,
         fusion_w_oc,
-        fusion_w_trade,
-        fusion_w_nowcast,
         rank_enter,
         rank_strong,
         rank_enter_alt,
@@ -1552,11 +1548,9 @@ export function installBacktest(q) {
         exclude_st,
         min_avg_amount_pctile,
         benchmark_code,
-        y_on_alpha,
-        fusion_w_oo: fusion_w_oo != null ? fusion_w_oo : fusion_w_trade,
-        fusion_w_oc: fusion_w_oc != null ? fusion_w_oc : fusion_w_nowcast,
-        fusion_w_trade: fusion_w_oo != null ? fusion_w_oo : fusion_w_trade,
-        fusion_w_nowcast: fusion_w_oc != null ? fusion_w_oc : fusion_w_nowcast,
+        fusion_w_co,
+        fusion_w_oo,
+        fusion_w_oc,
         rank_enter,
         rank_strong,
         rank_enter_alt,

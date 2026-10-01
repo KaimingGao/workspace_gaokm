@@ -17,7 +17,7 @@ class TestRankingScore(unittest.TestCase):
 
         self.assertAlmostEqual(ranking_score(0.9, 0.2), 0.55 / 100.0)
         self.assertAlmostEqual(
-            ranking_score(0.9, 0.2, w_oo=1.0, w_oc=0.0),
+            ranking_score(0.9, 0.2, w_oo=1.0, w_τc=0.0),
             0.9 / 100.0,
         )
         self.assertAlmostEqual(ranking_score(1.0, None), 0.01)
@@ -27,11 +27,11 @@ class TestRankingScore(unittest.TestCase):
         self.assertGreater(ranking_score(-0.2, 1.0), 0.0)
         right = ((1.01 * 1.01) - 1.0) * 100.0
         self.assertAlmostEqual(
-            ranking_score(2.0, 1.0, y_co=1.0, w_co=1.0, w_oo=0.0, w_oc=1.0),
+            ranking_score(2.0, 1.0, y_co=1.0, w_co=1.0, w_oo=0.0, w_τc=1.0),
             right / 100.0,
         )
         self.assertAlmostEqual(
-            ranking_score(2.0, 1.0, y_on=1.0, y_on_alpha=1.0),
+            ranking_score(2.0, 1.0, y_co=1.0, w_co=1.0),
             (0.5 * 2.0 + 0.5 * right) / 100.0,
         )
 
@@ -215,7 +215,7 @@ class TestPlanRankLotDay(unittest.TestCase):
             holdings=[],
             cash=1_000_000,
             prices={"600000": 10.0},
-            cfg=_cfg(fusion_w_oo=0.2, fusion_w_oc=0.8, y_on_alpha=1.0),
+            cfg=_cfg(fusion_w_oo=0.2, fusion_w_oc=0.8, fusion_w_co=1.0),
         )
         buy = out["buys"][0]
         self.assertAlmostEqual(float(buy["fusion_w_oo"]), 0.2)
@@ -235,7 +235,6 @@ class TestPlanRankLotDay(unittest.TestCase):
                 "y_τ30": 0.2,
                 "y_τ60": -0.1,
                 "y_τ90": 0.3,
-                "y_hl": 1.5,
             }
         ]
         out = plan_rank_lot_day(
@@ -249,7 +248,7 @@ class TestPlanRankLotDay(unittest.TestCase):
         self.assertAlmostEqual(float(buy["y_τ30"]), 0.2)
         self.assertAlmostEqual(float(buy["y_τ60"]), -0.1)
         self.assertAlmostEqual(float(buy["y_τ90"]), 0.3)
-        self.assertAlmostEqual(float(buy["y_hl"]), 1.5)
+        self.assertNotIn("y_hl", buy)
         from core.t0.close_band import blend_y_tw
 
         self.assertAlmostEqual(float(buy["y_τw"]), blend_y_tw(0.2, -0.1, 0.3))
@@ -371,7 +370,7 @@ class TestPlanRankLotDay(unittest.TestCase):
         buy = out["buys"][0]
         self.assertAlmostEqual(float(buy["ranking"]), 1.5)
 
-    def test_ranking_pct_of_uses_y_on_alpha(self):
+    def test_ranking_pct_of_uses_fusion_w_co(self):
         from core.paper.rebalance.rank_lots import ranking_pct_of
         from core.signal.yhat_windows import oc_with_co
 
@@ -384,14 +383,14 @@ class TestPlanRankLotDay(unittest.TestCase):
         )
         self.assertAlmostEqual(
             ranking_pct_of(item, _cfg(y_on_alpha=1.0)),
-            0.5 * 2.0 + 0.5 * right,
+            1.5,
         )
 
     def test_heads_override_stale_ranking_stamp(self):
         from core.paper.rebalance.rank_lots import ranking_pct_of
 
         item = {"ranking": -3.65, "predicted_score": 2.30, "y_oc": 5.69, "y_tau": 0.08}
-        self.assertAlmostEqual(ranking_pct_of(item, _cfg()), 0.5 * 2.30 + 0.5 * 5.69)
+        self.assertAlmostEqual(ranking_pct_of(item, _cfg()), 0.5 * 2.30 + 0.5 * 0.08)
         # 无 ŷ_oo/ŷ_oc 才信落盘 ranking
         self.assertAlmostEqual(ranking_pct_of({"ranking": 1.2}, _cfg()), 1.2)
 
@@ -1226,12 +1225,13 @@ class TestGetRankLotCfg(unittest.TestCase):
 
 
 class TestYTauOf(unittest.TestCase):
-    def test_prefers_y_tau_then_predicted(self):
+    def test_prefers_y_tau_then_y_τc(self):
         from core.paper.rebalance.rank_lots import y_tau_of
 
-        self.assertEqual(y_tau_of({"y_tau": 0.4, "predicted_score_tau": 0.9}), 0.4)
-        self.assertEqual(y_tau_of({"predicted_score_tau": 0.9}), 0.9)
-        self.assertEqual(y_tau_of({"score_rem": 0.3}), 0.3)
+        self.assertEqual(y_tau_of({"y_tau": 0.4, "y_τc": 0.9}), 0.4)
+        self.assertEqual(y_tau_of({"y_τc": 0.9}), 0.9)
+        self.assertIsNone(y_tau_of({"predicted_score_tau": 0.9}))
+        self.assertIsNone(y_tau_of({"score_rem": 0.3}))
         self.assertIsNone(y_tau_of({}))
 
 

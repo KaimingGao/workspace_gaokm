@@ -136,14 +136,14 @@ class TestDailyWebPresets(unittest.TestCase):
                 json={
                     "preset": "quant",
                     "lookback": 30,
-                    "y_on_alpha": 0.5,
+                    "fusion_w_co": 0.5,
                     "rank_enter": 0.01,
                     "rank_strong": 0.03,
                 },
             )
         self.assertEqual(res.status_code, 200)
         self.assertEqual(run_mock.call_args.kwargs.get("lookback"), 30)
-        self.assertEqual(run_mock.call_args.kwargs.get("y_on_alpha"), 0.5)
+        self.assertEqual(run_mock.call_args.kwargs.get("fusion_w_co"), 0.5)
         self.assertEqual(run_mock.call_args.kwargs.get("rank_enter"), 0.01)
         self.assertEqual(run_mock.call_args.kwargs.get("rank_strong"), 0.03)
 
@@ -187,7 +187,7 @@ class TestDailyWebPresets(unittest.TestCase):
         bt = data.get("bt_defaults") or {}
         self.assertEqual(bt.get("engine"), "paper_replay")
         self.assertEqual(bt.get("lookback"), 30)
-        self.assertEqual(float(bt.get("y_on_alpha")), 0.0)
+        self.assertEqual(float(bt.get("fusion_w_co")), 0.0)
         self.assertAlmostEqual(float(bt.get("rank_enter") or 0), 0.012)
         self.assertAlmostEqual(float(bt.get("rank_strong") or 0), 0.012)
         self.assertGreaterEqual(int(bt.get("paper_max_positions") or 0), 8)
