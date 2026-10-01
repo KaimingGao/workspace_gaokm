@@ -2313,10 +2313,8 @@ def _summary_from_counts(
     cover_n: int,
     score_seen: int,
     score_total: int,
-    rules: Optional[dict],
 ) -> Dict[str, Any]:
     total = traded_n + skip_n
-    cfg = rules if isinstance(rules, dict) else {}
     return {
         "total_days": total,
         "trade_count": traded_n,
@@ -2327,7 +2325,6 @@ def _summary_from_counts(
         "cover_rate_pct": round(cover_n / traded_n * 100.0, 2) if traded_n else None,
         "score_coverage_pct": round(score_seen / score_total * 100.0, 2) if score_total else None,
         "y_tau_enter": 0.0,
-        "y_trade_enter": _f(cfg.get("y_trade_enter")) or 0.15,
     }
 
 
@@ -2609,7 +2606,6 @@ def build_t0_viz_payload(
         cover_n=cover_n,
         score_seen=score_seen,
         score_total=score_total,
-        rules=rules,
     )
     summary["score_seen"] = score_seen
     summary["score_total"] = score_total
@@ -2695,6 +2691,7 @@ def merge_t0_viz_payloads(
     rules: Optional[dict] = None,
 ) -> Dict[str, Any]:
     """多持仓回测合并各票 viz。"""
+    _ = rules
     skip_counts: Dict[str, int] = defaultdict(int)
     daily: Dict[str, Dict[str, int]] = defaultdict(
         lambda: {"traded": 0, "signal_skip": 0, "other_skip": 0}
@@ -2789,7 +2786,6 @@ def merge_t0_viz_payloads(
         cover_n=cover_n,
         score_seen=score_seen,
         score_total=max(score_total, traded_n + signal_skip_n),
-        rules=rules,
     )
     if y_tau_traded:
         summary["avg_y_tau_traded"] = round(sum(y_tau_traded) / len(y_tau_traded), 3)

@@ -26,8 +26,10 @@ def main(argv=None) -> int:
 
     rules = {
         "t0_ratio": args.t0_ratio,
-        "must_cover_same_day": bool(args.must_cover),
     }
+    if args.must_cover:
+        rules["must_cover_same_day_buy_then_sell"] = True
+        rules["must_cover_same_day_sell_then_buy"] = True
     report = run_t0_backtest_for_code(
         args.code,
         lookback=args.lookback,

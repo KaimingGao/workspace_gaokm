@@ -36,56 +36,7 @@ class TestExecutionResolve(unittest.TestCase):
         self.assertEqual(bundle["t0"]["direction"], "dual_y")
         self.assertEqual(bundle["t0_sources"].get("t0_ratio"), "paper")
 
-    def test_request_path_enter_migrates_to_hl(self):
-        """旧 y_path_enter overlay 迁到 y_hl_enter 后随门槛入场一起丢弃。"""
-        from core.execution import resolve_t0_rules, strip_execution_meta
-
-        paper = {
-            "strategy_id": "short_conservative",
-            "rules": {
-                "t0": {
-                    "y_path_enter": 0.01,
-                }
-            },
-        }
-        raw = resolve_t0_rules(
-            paper=paper,
-            rules={
-                "y_path_enter": 0.2,
-                "y_tau_enter": 0.01,
-                "y_enter_alt_enabled": False,
-            },
-            channel="backtest",
-            has_minute=True,
-        )
-        cfg = strip_execution_meta(raw)
-        self.assertNotIn("y_path_enter", cfg)
-        self.assertNotIn("y_hl_enter", cfg)
-        self.assertNotIn("y_hl_enter_buy_then_sell", cfg)
-
-    def test_request_explicit_hl_enter_kept(self):
-        from core.execution import resolve_t0_rules, strip_execution_meta
-
-        cfg = strip_execution_meta(
-            resolve_t0_rules(
-                rules={
-                    "y_hl_enter": 0.2,
-                    "y_hl_enter_buy_then_sell": 0.05,
-                },
-                channel="backtest",
-                has_minute=True,
-            )
-        )
-        self.assertNotIn("y_path_enter", cfg)
-        self.assertNotIn("y_hl_enter", cfg)
-        self.assertNotIn("y_hl_enter_buy_then_sell", cfg)
-
-    def test_validate_patch_migrates_path_enter(self):
-        from core.execution import validate_execution_patch
-
-        ok, _norm, errs = validate_execution_patch({"t0": {"y_path_enter": 0.2}})
-        self.assertFalse(ok)
-        self.assertTrue(any("y_path_enter" in e for e in errs))
+    def test_request_direction_and_path_normalize(self):
         from core.execution import resolve_t0_rules, strip_execution_meta
 
         raw = resolve_t0_rules(
@@ -188,7 +139,7 @@ class TestExecutionResolve(unittest.TestCase):
         )
 
         ok, norm, errs = validate_execution_patch(
-            {"t0": {"must_cover_same_day": True}, "coupling": {}}
+            {"t0": {"must_cover_same_day_buy_then_sell": True}, "coupling": {}}
         )
         self.assertTrue(ok, errs)
         paper = {"strategy_id": "short_conservative", "rules": {}}
@@ -208,31 +159,23 @@ class TestExecutionResolve(unittest.TestCase):
         ok, norm, errs = validate_execution_patch(
             {
                 "t0": {
-                    "fusion_w_τc": 0.8,
+                    "residual_w_τc": 0.8,
                     "residual_w_oc": 0.2,
                     "residual_w_mode": "fixed",
                 }
             }
         )
         self.assertTrue(ok, errs)
-        self.assertAlmostEqual(float(norm["t0"]["fusion_w_τc"]), 0.8)
-        self.assertNotIn("fusion_w_tc", norm["t0"])
+        self.assertAlmostEqual(float(norm["t0"]["residual_w_τc"]), 0.8)
         self.assertAlmostEqual(float(norm["t0"]["residual_w_oc"]), 0.2)
         paper = {"strategy_id": "short_conservative", "rules": {}}
         apply_execution_patch_to_paper(paper, norm)
         view = execution_public_view(
             resolve_effective_execution(paper=paper, channel="paper")
         )
-        self.assertNotIn("fusion_w_tc", view["t0"])
-        self.assertAlmostEqual(float(view["t0"]["fusion_w_τc"]), 0.8)
+        self.assertAlmostEqual(float(view["t0"]["residual_w_τc"]), 0.8)
         self.assertAlmostEqual(float(view["t0"]["residual_w_oc"]), 0.2)
         self.assertEqual(view["t0"]["residual_w_mode"], "fixed")
-        bad, _, bad_errs = validate_execution_patch({"t0": {"fusion_w_tc": 0.8}})
-        self.assertFalse(bad)
-        self.assertTrue(any("fusion_w_tc" in e for e in bad_errs))
-        bad_floor, _, floor_errs = validate_execution_patch({"t0": {"y_trade_floor": 0.2}})
-        self.assertFalse(bad_floor)
-        self.assertTrue(any("y_trade_floor" in e for e in floor_errs))
 
     def test_public_view_drops_y_tc_strong(self):
         from core.execution import (
@@ -600,7 +543,7 @@ class TestExecutionResolve(unittest.TestCase):
                     "t0_stop_pct_buy_then_sell": 1.2,
                     "t0_stop_arm_bars": 2,
                     "t0_stop_on_close": True,
-                    "t0_pm_chase_interval_min": 10,
+                    "t0_pm_chase_interval_min_buy_then_sell": 10,
                 }
             }
         )

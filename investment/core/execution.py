@@ -34,7 +34,6 @@ ALLOWED_T0_PATCH_KEYS = frozenset(
     {
         "enabled",
         "t0_ratio",
-        "must_cover_same_day",
         "must_cover_same_day_sell_then_buy",
         "must_cover_same_day_buy_then_sell",
         "lot_size",
@@ -45,12 +44,9 @@ ALLOWED_T0_PATCH_KEYS = frozenset(
         "direction",
         "path_mode",
         "minute_period",
-        "y_trade_enter",
-        "fusion_w_τc",
+        "residual_w_τc",
         "residual_w_oc",
         "residual_w_mode",
-        "y_on_risk",
-        "y_on_allow",
         "y_tw_enter",
         "y_τc_enter",
         "y_τc_strong",
@@ -66,11 +62,6 @@ ALLOWED_T0_PATCH_KEYS = frozenset(
         "t0_price_space_prev_dev_pct",
         "t0_round_ratio",
         "t0_max_position_pct",
-        "y_tau_exit_price_skip",
-        "y_tau_exit_price_mult",
-        "y_tau_exit_price_bias",
-        "y_tau_exit_price_move_min",
-        "y_tau_exit_price_move_max",
         "y_tau_exit_price_skip_buy_then_sell",
         "y_tau_exit_price_mult_buy_then_sell",
         "y_tau_exit_price_bias_buy_then_sell",
@@ -82,10 +73,8 @@ ALLOWED_T0_PATCH_KEYS = frozenset(
         "y_tau_exit_price_move_min_sell_then_buy",
         "y_tau_exit_price_move_max_sell_then_buy",
         "y_score_source",
-        "t0_pm_degrade",
         "t0_pm_degrade_sell_then_buy",
         "t0_pm_degrade_buy_then_sell",
-        "t0_pm_chase_interval_min",
         "t0_pm_chase_interval_min_sell_then_buy",
         "t0_pm_chase_interval_min_buy_then_sell",
         "t0_pm_chase_cap_leg1_sell_then_buy",
@@ -122,11 +111,9 @@ DEFAULT_T0_OVERLAY: Dict[str, Any] = {
     "must_cover_same_day_buy_then_sell": True,
     "ref": "open",
     "lot_size": 100,
-    "fusion_w_τc": 0.5,
+    "residual_w_τc": 0.5,
     "residual_w_oc": 0.5,
     "residual_w_mode": "fixed",
-    "y_trade_enter": 0.01,
-    "y_on_allow": 0.01,
     "y_tw_enter": 2.0,
     "y_τc_enter": 0.5,
     "y_τc_strong": 1.0,
@@ -616,12 +603,9 @@ def execution_public_view(bundle: Dict[str, Any]) -> Dict[str, Any]:
             "ref": t0.get("ref"),
             "lot_size": t0.get("lot_size"),
             "minute_period": t0.get("minute_period"),
-            "y_trade_enter": t0.get("y_trade_enter"),
-            "fusion_w_τc": t0.get("fusion_w_τc"),
+            "residual_w_τc": t0.get("residual_w_τc"),
             "residual_w_oc": t0.get("residual_w_oc"),
             "residual_w_mode": t0.get("residual_w_mode"),
-            "y_on_risk": t0.get("y_on_risk"),
-            "y_on_allow": t0.get("y_on_allow"),
             "y_tw_enter": t0.get("y_tw_enter"),
             "y_τc_enter": t0.get("y_τc_enter"),
             "y_τc_strong": t0.get("y_τc_strong"),
@@ -782,25 +766,6 @@ def validate_execution_patch(raw: Any) -> Tuple[bool, Dict[str, Any], List[str]]
         return False, {}, [f"t0 校验失败: {e}"]
 
     t0_out = {k: normalized_full[k] for k in t0_in if k in ALLOWED_T0_PATCH_KEYS and k in normalized_full}
-    # legacy 共用键只写一侧时，补上 load_t0_rules 对齐的分侧键，避免 resolve 时
-    # DEFAULT_T0_OVERLAY 里的分侧默认值盖掉纸面补丁。
-    _legacy_side_expand = (
-        ("t0_pm_chase_interval_min", ("t0_pm_chase_interval_min_buy_then_sell",)),
-        ("t0_pm_degrade", ("t0_pm_degrade_buy_then_sell",)),
-        ("y_tau_exit_price_mult", ("y_tau_exit_price_mult_buy_then_sell",)),
-        ("y_tau_exit_price_bias", ("y_tau_exit_price_bias_buy_then_sell",)),
-        ("y_tau_exit_price_skip", ("y_tau_exit_price_skip_buy_then_sell",)),
-        ("fill_mode", ("fill_mode_buy_then_sell",)),
-        ("must_cover_same_day", ("must_cover_same_day_buy_then_sell",)),
-    )
-    for legacy, sides in _legacy_side_expand:
-        if legacy not in t0_in:
-            continue
-        if legacy in normalized_full:
-            t0_out[legacy] = normalized_full[legacy]
-        for sk in sides:
-            if sk in normalized_full:
-                t0_out[sk] = normalized_full[sk]
     # enabled 等 bool
     if "enabled" in t0_in:
         t0_out["enabled"] = bool(t0_in.get("enabled"))
@@ -810,13 +775,6 @@ def validate_execution_patch(raw: Any) -> Tuple[bool, Dict[str, Any], List[str]]
         t0_out["must_cover_same_day_buy_then_sell"] = bool(t0_in.get("must_cover_same_day_buy_then_sell"))
     if "t0_price_space_gate" in t0_in:
         t0_out["t0_price_space_gate"] = bool(t0_in.get("t0_price_space_gate"))
-    if "y_hl_required" in t0_in or "y_path_required" in t0_in:
-        raw_req = (
-            t0_in.get("y_hl_required")
-            if "y_hl_required" in t0_in
-            else t0_in.get("y_path_required")
-        )
-        t0_out["y_hl_required"] = bool(raw_req)
     if "y_tau_exit_price_skip_buy_then_sell" in t0_in:
         t0_out["y_tau_exit_price_skip_buy_then_sell"] = bool(
             t0_in.get("y_tau_exit_price_skip_buy_then_sell")

@@ -50,7 +50,7 @@ import {
 } from "./paper/t0_ui.js?v=p2569";
 import { renderPaperRebalanceWorkerDesk as renderPaperRebalanceWorkerDeskUi } from "./paper/rebalance_desk.js?v=p2572";
 import { wireT0SkipTips } from "./paper/t0_viz.js?v=p2569";
-import { wireT0ProcessTips, wireT0DayDebugExpand } from "./paper/t0_table.js?v=p2564";
+import { wireT0ProcessTips, wireT0DayDebugExpand } from "./paper/t0_table.js?v=p2722";
 import { wireHoldingsChgTips } from "./paper/holding_chg_tip.js?v=p2297";
 import { createHoldingsIslandController } from "./paper/holdings_island.js";
 import { createClusterRebalanceController } from "./paper/cluster_rebalance.js?v=p2088";

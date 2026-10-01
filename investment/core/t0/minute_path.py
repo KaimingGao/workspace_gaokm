@@ -394,14 +394,11 @@ def _tau_price_gate_float(
     cfg: Optional[dict],
     key: str,
     *,
-    legacy_key: str,
     default: float,
     lo: float,
     hi: float,
 ) -> float:
     raw = (cfg or {}).get(key)
-    if raw is None or raw == "":
-        raw = (cfg or {}).get(legacy_key)
     try:
         val = float(default if raw is None or raw == "" else raw)
     except (TypeError, ValueError):
@@ -423,7 +420,6 @@ def _tau_price_gate_bias(cfg: Optional[dict], *, direction: str) -> float:
     return _tau_price_gate_float(
         cfg,
         bias_key,
-        legacy_key=f"{_TAU_EXIT_PREFIX}_bias",
         default=default,
         lo=-50.0,
         hi=50.0,
@@ -439,7 +435,6 @@ def _tau_price_gate_move_bounds(
     move_min = _tau_price_gate_float(
         cfg,
         min_key,
-        legacy_key=f"{_TAU_EXIT_PREFIX}_move_min",
         default=-100.0,
         lo=-100.0,
         hi=100.0,
@@ -447,7 +442,6 @@ def _tau_price_gate_move_bounds(
     move_max = _tau_price_gate_float(
         cfg,
         max_key,
-        legacy_key=f"{_TAU_EXIT_PREFIX}_move_max",
         default=100.0,
         lo=-100.0,
         hi=100.0,
@@ -502,8 +496,6 @@ def _tau_exit_price_mult(cfg: Optional[dict], direction: str = "") -> float:
     """第二腿 τ 出场裕度：bound = open×(1 + ŷ_τ%×mult/100)；正/反T 分侧。"""
     _skip_key, mult_key = _tau_exit_price_side_keys(direction)
     raw = (cfg or {}).get(mult_key)
-    if raw is None or raw == "":
-        raw = (cfg or {}).get("y_tau_exit_price_mult")
     try:
         m = float(1.0 if raw is None or raw == "" else raw)
     except (TypeError, ValueError):
@@ -516,8 +508,6 @@ def _tau_exit_price_skip(cfg: Optional[dict], direction: str = "") -> bool:
 
     skip_key, _mult_key = _tau_exit_price_side_keys(direction)
     raw = (cfg or {}).get(skip_key)
-    if raw is None:
-        raw = (cfg or {}).get("y_tau_exit_price_skip")
     return coerce_cfg_bool(raw, True)
 
 

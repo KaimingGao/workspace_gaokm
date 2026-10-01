@@ -106,8 +106,15 @@ class QuantEngine:
         if task == "t0_backtest":
             rules = {
                 "t0_ratio": params.get("t0_ratio"),
-                "must_cover_same_day": bool(params.get("must_cover_same_day")),
             }
+            if params.get("must_cover_same_day_buy_then_sell") is not None:
+                rules["must_cover_same_day_buy_then_sell"] = bool(
+                    params.get("must_cover_same_day_buy_then_sell")
+                )
+            if params.get("must_cover_same_day_sell_then_buy") is not None:
+                rules["must_cover_same_day_sell_then_buy"] = bool(
+                    params.get("must_cover_same_day_sell_then_buy")
+                )
             for key in ("fill_mode", "direction"):
                 if params.get(key) is not None:
                     rules[key] = params.get(key)

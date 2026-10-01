@@ -1212,66 +1212,6 @@ class TestCloseBandDayPath(unittest.TestCase):
         reason = str(out.get("close_band_last_y_tw_skip") or out.get("reason") or "")
         self.assertIn("ŷ_τw", reason)
 
-    def test_legacy_r_tau_enter_does_not_block_open(self):
-        """旧 r_tau_enter overlay 已下线，阳线+正 ŷ_τw 仍开正T。"""
-        closes = [100.6] + [100.0] * 30
-        mins = _mins(closes, session_open=100.0)
-        bar = {
-            "date": "2025-01-02",
-            "open": 100,
-            "high": 102,
-            "low": 99,
-            "close": 101,
-            "prev_close": 100,
-        }
-        scores = _snap(1.0)
-
-        def _run(r_enter):
-            cfg = _cfg(
-                {
-                    "t0_round_ratio": 0.2,
-                    "r_tau_enter": r_enter,
-                    "r_tau_enter_alt": r_enter,
-                    "fill_mode": "trigger",
-                    "t0_stop_pct_buy_then_sell": 0,
-                    "must_cover_same_day_buy_then_sell": False,
-                    "t0_pm_degrade_buy_then_sell": "15:30",
-                }
-            )
-            return simulate_t0_day_slots(
-                bar=bar,
-                minute_bars=mins,
-                shares=1000,
-                cost=100,
-                sellable_shares=1000,
-                cfg=cfg,
-                cash=200000,
-                stock_code="",
-                lot=100,
-                cost_model="none",
-                cost_params={},
-                atr_pct=None,
-                hist_bars=None,
-                score_snap=scores,
-                defer_eod=False,
-            )
-
-        def _filled(out):
-            return [
-                r
-                for r in (out.get("t0_slot_results") or [])
-                if not r.get("skipped")
-                and int(r.get("sold_qty") or 0) + int(r.get("bought_qty") or 0) > 0
-            ]
-
-        blocked = _run(0.8)
-        self.assertGreater(len(_filled(blocked)), 0)
-        self.assertFalse(blocked.get("skipped"))
-
-        opened = _run(0.0)
-        self.assertGreater(len(_filled(opened)), 0)
-        self.assertFalse(opened.get("skipped"))
-
     def test_no_preset_leg2_covers_by_eod(self):
         """不预设第二腿目标价：反T 靠当日回补完成买回。"""
         closes = [99.4] + [100.0] * 5 + [99.0] + [100.0] * 10

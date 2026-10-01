@@ -140,7 +140,7 @@ class CloseHatTests(unittest.TestCase):
             {"y_tau": 1.0, "y_τc": 2.0},
             open_px=100.0,
             price_tau=50.0,
-            cfg={"fusion_w_τc": 1.0, "residual_w_oc": 0.0},
+            cfg={"residual_w_τc": 1.0, "residual_w_oc": 0.0},
         )
         self.assertTrue(est["ok"])
         # clip(2×2)=4；C_τ = 50×1.04 = 52。融合权重不进价。
@@ -167,7 +167,7 @@ class CloseHatTests(unittest.TestCase):
             {"y_tau": y_oc, "y_τc": y_τc},
             open_px=open_px,
             price_tau=price_tau,
-            cfg={"fusion_w_τc": 0.5, "residual_w_oc": 0.5},
+            cfg={"residual_w_τc": 0.5, "residual_w_oc": 0.5},
         )
         self.assertTrue(est["ok"])
         self.assertEqual(est.get("c_hat_source"), "y_τc")
@@ -447,10 +447,10 @@ class ResidualFusionTests(unittest.TestCase):
     def test_residual_weights_do_not_leak_ranking_w_oc(self):
         from core.signal.yhat_windows import residual_weights_from_cfg
 
-        w_tc, w_oc = residual_weights_from_cfg({"fusion_w_oc": 0.9, "fusion_w_τc": 0.5})
+        w_tc, w_oc = residual_weights_from_cfg({"fusion_w_oc": 0.9, "residual_w_τc": 0.5})
         self.assertAlmostEqual(w_tc, 0.5, places=6)
         self.assertAlmostEqual(w_oc, 0.5, places=6)
-        w_tc, w_oc = residual_weights_from_cfg({"fusion_w_τc": 0.7, "residual_w_oc": 0.3})
+        w_tc, w_oc = residual_weights_from_cfg({"residual_w_τc": 0.7, "residual_w_oc": 0.3})
         self.assertAlmostEqual(w_tc, 0.7, places=6)
         self.assertAlmostEqual(w_oc, 0.3, places=6)
 

@@ -118,7 +118,6 @@ def _rules(**kwargs):
     """单测默认 first_touch；关中点追价以免干扰路径用例。"""
     base = {
         "path_mode": "first_touch",
-        "t0_pm_degrade": "",
         "t0_pm_degrade_sell_then_buy": "",
         "t0_pm_degrade_buy_then_sell": "",
         # 路径用例默认关止损/锁赢，避免夹具回踩/冲高误触；止损/锁赢单测显式打开
@@ -213,19 +212,14 @@ class TestT0Core(unittest.TestCase):
         )
 
 
-    def test_must_cover_legacy_false_overrides_reverse_default(self):
-        """legacy must_cover_same_day=False 须落到正T侧，不被默认 True 吞掉。"""
+    def test_unsuffixed_must_cover_is_ignored(self):
+        """无后缀 must_cover 不再改分侧默认。"""
         from core.t0.config import load_t0_rules
 
         cfg = load_t0_rules({"must_cover_same_day": False})
-        self.assertFalse(cfg["must_cover_same_day_buy_then_sell"])
+        self.assertTrue(cfg["must_cover_same_day_buy_then_sell"])
+        self.assertTrue(cfg["must_cover_same_day_sell_then_buy"])
         self.assertNotIn("must_cover_same_day", cfg)
-        # 侧向键显式优先于 legacy
-        cfg2 = load_t0_rules(
-            {"must_cover_same_day": False, "must_cover_same_day_buy_then_sell": True}
-        )
-        self.assertTrue(cfg2["must_cover_same_day_buy_then_sell"])
-        self.assertNotIn("must_cover_same_day", cfg2)
 
     def test_atr_pct_requires_min_bars(self):
         from core.t0.rules import atr_pct_from_bars
@@ -696,122 +690,30 @@ class TestT0Core(unittest.TestCase):
         self.assertEqual(d["t0_lock_win_arm_bars"], 6)
         self.assertAlmostEqual(d["t0_lock_win_pct_buy_then_sell"], 2.0)
         self.assertAlmostEqual(d["t0_lock_win_pct_sell_then_buy"], 2.0)
-        self.assertNotIn("t0_giveback_pct_buy_then_sell", d)
-        self.assertNotIn("t0_giveback_arm_pct", d)
-        self.assertNotIn("use_atr", d)
-        self.assertNotIn("min_range_pct", d)
-        self.assertNotIn("min_range_pct_sell_then_buy", d)
-        self.assertNotIn("min_range_pct_buy_then_sell", d)
-        self.assertNotIn("sell_trigger_pct", d)
-        self.assertNotIn("buy_trigger_pct", d)
-        self.assertNotIn("buy_trigger_pct_sell_then_buy", d)
-        self.assertNotIn("sell_trigger_pct_buy_then_sell", d)
-        self.assertNotIn("buy_trigger_pct_buy_then_sell", d)
-        self.assertNotIn("sell_trigger_pct_sell_then_buy", d)
-        self.assertNotIn("sell_trigger_pct_long", d)
-        self.assertNotIn("buy_trigger_pct_reverse", d)
-        self.assertNotIn("y_path_enter", d)
-        self.assertNotIn("y_tau_enter", d)
-        self.assertNotIn("y_hl_strong", d)
         self.assertAlmostEqual(d["y_tw_enter"], 2.0)
         self.assertAlmostEqual(d["y_τc_enter"], 0.5)
         self.assertAlmostEqual(d["y_τc_strong"], 1.0)
         self.assertEqual(int(d["y_τc_enter_amount"]), 20000)
         self.assertEqual(int(d["y_τc_strong_amount"]), 40000)
-        self.assertNotIn("y_tw_strong", d)
-        self.assertNotIn("y_tw_enter_shares", d)
-        self.assertNotIn("y_tw_strong_shares", d)
-        self.assertNotIn("t0_leg1_close_extreme", d)
-        self.assertNotIn("y_tw_enter_buy_then_sell", d)
-        self.assertNotIn("y_tw_enter_sell_then_buy", d)
-        self.assertNotIn("t0_bar_oc_gate", d)
-        self.assertNotIn("t0_ytw_prefix_confirm", d)
-        self.assertNotIn("t0_ytw_prefix_lookback", d)
-        self.assertNotIn("t0_ytw_prefix_min_hit_pct", d)
         self.assertAlmostEqual(d["y_tw_midpoint"], 47.0)
-        self.assertNotIn("y_hl_enter", d)
-        self.assertNotIn("y_use_hl", d)
-        self.assertNotIn("y_use_path", d)
-        self.assertNotIn("y_path_strong", d)
-        self.assertNotIn("y_complexity_max", d)
-        self.assertNotIn("y_cx_max", d)
-        self.assertNotIn("y_tpd_max", d)
-        self.assertNotIn("y_enter_enabled", d)
-        self.assertNotIn("y_enter_alt_enabled", d)
-        self.assertNotIn("y_tau_enter_alt", d)
-        self.assertNotIn("y_hl_enter_alt", d)
-        self.assertNotIn("y_path_enter_alt", d)
-        self.assertNotIn("y_tc_enter", d)
-        self.assertNotIn("y_tc_enter_alt", d)
-        self.assertNotIn("y_t30_enter", d)
-        self.assertNotIn("y_t30_enter_alt", d)
         self.assertAlmostEqual(d["y_tw_vote_margin"], 5.0)
-        self.assertNotIn("y_t60_enter", d)
-        self.assertNotIn("y_t60_enter_alt", d)
-        self.assertNotIn("y_t90_enter", d)
-        self.assertNotIn("y_t90_enter_alt", d)
-        self.assertNotIn("r_tau_enter", d)
-        self.assertNotIn("r_tau_enter_alt", d)
-        self.assertNotIn("y_complexity_max_alt", d)
-        self.assertNotIn("y_tpd_max_alt", d)
-        self.assertNotIn("y_nowcast_oc_gate", d)
-        self.assertNotIn("y_nc_enter", d)
-        self.assertNotIn("y_nc_strong", d)
-        self.assertNotIn("y_nowcast_enter", d)
-        self.assertNotIn("y_block_tau_nowcast_sign", d)
-        self.assertNotIn("y_gap_tier_mode", d)
-        self.assertNotIn("y_ratio_cut", d)
-        self.assertNotIn("y_ratio_boost_cap", d)
-        self.assertNotIn("y_path_abandon_bars", d)
-        self.assertNotIn("y_tau_leg1_prior_band_floor", d)
-        self.assertNotIn("y_tau_leg1_prior_mode", d)
-        self.assertNotIn("y_tau_leg1_prior", d)
-        self.assertNotIn("y_tau_leg1_prior_risk", d)
-        self.assertNotIn("y_tau_leg1_prior_shift_scale", d)
-        self.assertNotIn("y_prefix_segment_enabled", d)
-        self.assertNotIn("y_prefix_segment_enabled_sell_then_buy", d)
-        self.assertNotIn("y_prefix_segment_enabled_buy_then_sell", d)
-        self.assertNotIn("y_prefix_upbar_ratio_buy_then_sell", d)
-        self.assertNotIn("y_prefix_downbar_ratio_sell_then_buy", d)
-        self.assertNotIn("t0_leg_confirm_mode", d)
-        self.assertNotIn("t0_env_gate_enabled", d)
-        self.assertNotIn("t0_slots_roll_unused", d)
         self.assertEqual(d["t0_slots_max_rounds"], 5)
-        self.assertNotIn("t0_confirm_dev_pct", d)
         self.assertAlmostEqual(float(d.get("t0_close_band_delta_pct") or 0), 0.5)
         self.assertAlmostEqual(float(d.get("t0_round_ratio") or 0), 0.4)
         self.assertAlmostEqual(float(d.get("t0_price_space_max_dev_pct") or 0), 0.0)
         self.assertAlmostEqual(float(d.get("t0_price_space_prev_dev_pct") or 0), 5.0)
         self.assertAlmostEqual(float(d.get("t0_y_τc_target_scale") or 0), 2.0)
-        self.assertNotIn("t0_y_oc_l", d)
-        self.assertNotIn("t0_y_oc_u", d)
-        self.assertNotIn("y_tau_entry_price_skip", d)
-        self.assertNotIn("y_tau_entry_price_skip_buy_then_sell", d)
-        self.assertNotIn("y_tau_entry_price_skip_sell_then_buy", d)
-        self.assertNotIn("y_tau_entry_price_mult", d)
-        self.assertNotIn("y_tau_entry_price_mult_buy_then_sell", d)
-        self.assertNotIn("y_tau_entry_price_mult_sell_then_buy", d)
-        leftover = load_t0_rules(
-            {
-                "y_tau_entry_price_mult_buy_then_sell": 5.0,
-                "y_tau_entry_price_skip_buy_then_sell": True,
-                "y_tau_require_for_leg1": True,
-            }
+        self.assertAlmostEqual(
+            float(load_t0_rules({"t0_y_τc_target_scale": 150})["t0_y_τc_target_scale"]),
+            100.0,
         )
-        self.assertNotIn("y_tau_entry_price_mult_buy_then_sell", leftover)
-        self.assertNotIn("y_tau_entry_price_skip_buy_then_sell", leftover)
-        self.assertNotIn("y_tau_require_for_leg1", leftover)
         self.assertEqual(d["y_tau_exit_price_mult_buy_then_sell"], 1.0)
         self.assertTrue(d["y_tau_exit_price_skip_buy_then_sell"])
         self.assertEqual(d["y_tau_exit_price_mult_sell_then_buy"], 1.0)
         self.assertTrue(d["y_tau_exit_price_skip_sell_then_buy"])
-        self.assertNotIn("y_tau_entry_price_bias_buy_then_sell", d)
-        self.assertNotIn("y_tau_entry_price_bias_sell_then_buy", d)
         self.assertEqual(d["y_tau_exit_price_bias_buy_then_sell"], 1.0)
         self.assertEqual(d["y_tau_exit_price_bias_sell_then_buy"], -1.0)
-        self.assertNotIn("y_tau_entry_price_move_min_buy_then_sell", d)
         self.assertEqual(d["y_tau_exit_price_move_max_buy_then_sell"], 100.0)
-        self.assertNotIn("y_ratio_tau_soft_band", d)
         self.assertTrue(d["t0_slots_enabled"])
         self.assertEqual(len(d["t0_slots"]), 5)
         self.assertEqual(d["t0_slots"][0]["hm"], "11:00")
@@ -819,20 +721,10 @@ class TestT0Core(unittest.TestCase):
         self.assertAlmostEqual(float(d["t0_slots"][0]["ratio"]), 0.20)
         self.assertEqual(d["t0_slots"][-1]["hm"], "11:00")
         self.assertEqual(d["t0_slots"][-1]["prefix_bars"], 18)
-        self.assertNotIn("y_prefix_min_half_hits", d)
-        self.assertNotIn("y_tau_require_for_leg1", d)
         self.assertTrue(d["t0_pm_chase_cap_leg1_sell_then_buy"])
         self.assertTrue(d["t0_pm_chase_cap_leg1_buy_then_sell"])
-        self.assertNotIn("t0_leg1_hunt_pct_buy_then_sell", d)
-        self.assertNotIn("y_prefix_vs_path_skip", d)
-        self.assertNotIn("y_prefix_vs_path_mult", d)
-        self.assertEqual(d["y_trade_enter"], 0.01)
-        self.assertNotIn("y_trade_strong", d)
-        self.assertNotIn("y_eod_prior", d)
-        self.assertNotIn("y_eod_strong", d)
-        self.assertEqual(d["y_on_allow"], 0.01)
-        self.assertNotIn("y_trade_floor", d)
-        self.assertNotIn("y_tau_map", d)
+        self.assertAlmostEqual(d["residual_w_τc"], 0.5)
+        self.assertAlmostEqual(d["residual_w_oc"], 0.5)
         self.assertTrue(d["enabled"])
 
     def test_sell_and_cover_same_day(self):
@@ -2245,98 +2137,7 @@ class TestDualYDirection(unittest.TestCase):
     def test_load_dual_y_alias(self):
         cfg = load_t0_rules({"direction": "yhat"})
         self.assertEqual(cfg["direction"], "dual_y")
-        self.assertNotIn("y_trade_floor", cfg)
-        self.assertEqual(cfg["y_trade_enter"], 0.01)
-        self.assertNotIn("y_tau_enter", cfg)
-        self.assertNotIn("y_tau_enter_strong", cfg)
-        self.assertNotIn("r_tau_enter", cfg)
         self.assertEqual(cfg["y_score_source"], "compute")
-        self.assertNotIn("y_enter_enabled", cfg)
-        self.assertNotIn("y_enter_alt_enabled", cfg)
-        self.assertNotIn("y_tau_enter_alt", cfg)
-        self.assertNotIn("y_hl_enter_alt", cfg)
-        self.assertNotIn("y_path_enter_alt", cfg)
-        self.assertNotIn("y_tc_enter", cfg)
-        self.assertNotIn("y_tc_enter_alt", cfg)
-        self.assertNotIn("y_t30_enter", cfg)
-        self.assertNotIn("y_t30_enter_alt", cfg)
-        self.assertNotIn("y_t60_enter", cfg)
-        self.assertNotIn("y_t60_enter_alt", cfg)
-        self.assertNotIn("y_t90_enter", cfg)
-        self.assertNotIn("y_t90_enter_alt", cfg)
-        self.assertNotIn("r_tau_enter_alt", cfg)
-        self.assertNotIn("y_complexity_max_alt", cfg)
-        self.assertNotIn("y_tpd_max_alt", cfg)
-
-    def test_legacy_r_tau_enter_is_dropped(self):
-        cfg = load_t0_rules({"r_tau_enter": 0.5, "r_tau_enter_alt": 1.5})
-        self.assertNotIn("r_tau_enter", cfg)
-        self.assertNotIn("r_tau_enter_alt", cfg)
-        self.assertAlmostEqual(
-            float(load_t0_rules({"t0_y_τc_target_scale": 100})["t0_y_τc_target_scale"]),
-            100.0,
-        )
-        self.assertAlmostEqual(
-            float(load_t0_rules({"t0_y_τc_target_scale": 150})["t0_y_τc_target_scale"]),
-            100.0,
-        )
-        dropped_scale = load_t0_rules({"t0_y_oc_target_scale": 100, "y_oc_enter": 9})
-        self.assertNotIn("t0_y_oc_target_scale", dropped_scale)
-        self.assertNotIn("y_oc_enter", dropped_scale)
-        self.assertAlmostEqual(float(dropped_scale["t0_y_τc_target_scale"]), 2.0)
-        self.assertAlmostEqual(float(dropped_scale["y_τc_enter"]), 0.5)
-
-    def test_legacy_tau_prior_keys_are_dropped(self):
-        cfg = load_t0_rules({"y_tau_leg1_prior_mode": "skip", "y_tau_leg1_prior_risk": 100})
-        self.assertNotIn("y_tau_leg1_prior_mode", cfg)
-        self.assertNotIn("y_tau_leg1_prior", cfg)
-        self.assertNotIn("y_tau_leg1_prior_risk", cfg)
-
-    def test_y_tau_enter_strong_migrates_into_enter(self):
-        cfg = load_t0_rules({"y_tau_enter": 0.4, "y_tau_enter_strong": 0.6})
-        self.assertNotIn("y_tau_enter", cfg)
-        self.assertNotIn("y_tau_enter_strong", cfg)
-        low_strong = load_t0_rules({"y_tau_enter": 0.5, "y_tau_enter_strong": 0.3})
-        self.assertNotIn("y_tau_enter", low_strong)
-        self.assertNotIn("y_tau_enter_strong", low_strong)
-
-    def test_y_tau_enter_floor_allows_001(self):
-        cfg = load_t0_rules({"y_tau_enter": 0.01})
-        self.assertNotIn("y_tau_enter", cfg)
-        off = load_t0_rules({"y_tau_enter": 0.0, "y_path_enter": 0.0})
-        self.assertNotIn("y_tau_enter", off)
-        self.assertNotIn("y_hl_enter", off)
-        self.assertNotIn("y_path_enter", off)
-
-    def test_enter_pct_range_0_to_100_complexity_dropped(self):
-        cfg = load_t0_rules(
-            {
-                "y_tau_enter": 10.0,
-                "y_path_enter": 12.0,
-                "y_complexity_max": 0.0,
-            }
-        )
-        self.assertNotIn("y_tau_enter", cfg)
-        self.assertNotIn("y_hl_enter", cfg)
-        self.assertNotIn("y_path_enter", cfg)
-        self.assertNotIn("y_complexity_max", cfg)
-        self.assertNotIn("y_tau_enter_alt", cfg)
-        self.assertNotIn("y_hl_enter_alt", cfg)
-        self.assertNotIn("y_path_enter_alt", cfg)
-        hi = load_t0_rules(
-            {
-                "y_tau_enter": 150.0,
-                "y_path_enter": 150.0,
-                "y_tau_enter_alt": 150.0,
-                "y_path_enter_alt": 150.0,
-            }
-        )
-        self.assertNotIn("y_tau_enter", hi)
-        self.assertNotIn("y_hl_enter", hi)
-        self.assertNotIn("y_path_enter", hi)
-        self.assertNotIn("y_tau_enter_alt", hi)
-        self.assertNotIn("y_hl_enter_alt", hi)
-        self.assertNotIn("y_path_enter_alt", hi)
 
     def test_side_exec_params_apply_by_direction(self):
         from core.t0.config import apply_side_exec_params, load_t0_rules
@@ -2345,15 +2146,8 @@ class TestDualYDirection(unittest.TestCase):
             {
                 "fill_mode_sell_then_buy": "trigger",
                 "fill_mode_buy_then_sell": "mid",
-                "sell_trigger_pct_long": 0.8,
-                "buy_trigger_pct_reverse": 0.6,
-                "buy_trigger_pct_sell_then_buy": 1.2,
             }
         )
-        self.assertNotIn("sell_trigger_pct_long", cfg)
-        self.assertNotIn("buy_trigger_pct_reverse", cfg)
-        self.assertNotIn("buy_trigger_pct_sell_then_buy", cfg)
-        self.assertNotIn("min_range_pct", cfg)
         stb_cfg = apply_side_exec_params(cfg, "sell_then_buy")
         self.assertEqual(stb_cfg["fill_mode"], "trigger")
         bts_cfg = apply_side_exec_params(cfg, "buy_then_sell")
@@ -3358,19 +3152,6 @@ class TestDualYDirection(unittest.TestCase):
             self.assertTrue(out.get("success"))
             self.assertGreater(mocked.call_count, 0)
 
-    def test_dual_y_trade_floor_allows_large_negative(self):
-        bar = _bar("2026-01-10", 100, 105, 98, 101)
-        out = simulate_t0_day(
-            bar=bar,
-            shares=1000,
-            cost=100,
-            cash=50000,
-            rules=_rules(direction="dual_y", min_range_pct=1.0, y_trade_enter=0.15),
-            scores=_scores_r(-0.5),
-            minute_bars=_mins_hl(bar=bar))
-        self.assertNotIn("预期幅度不足", out.get("reason") or "")
-
-
     def test_dual_y_sell_then_buy_and_cover(self):
         bar = _bar("2026-01-10", 100, 105, 98, 101)
         out = simulate_t0_day(
@@ -3383,7 +3164,7 @@ class TestDualYDirection(unittest.TestCase):
                 path_mode="first_touch",
                 min_range_pct=1.0,
                 fill_mode="optimistic",
-                must_cover_same_day=False,
+                must_cover_same_day_sell_then_buy=False,
                 # 破带测路径：ŷ=0；关掉 τ/path 入场与强同号
                 y_tau_enter=0.0,
                 y_path_enter=0.0,
@@ -3430,7 +3211,6 @@ class TestDualYDirection(unittest.TestCase):
             t0_ratio=0.4,
             y_tau_enter=0.0,
             y_path_enter=0.0,
-            y_trade_enter=0.15,
             y_trade_strong=2.0,
             y_eod_strong=5.0,
             y_ratio_cut=0.75,

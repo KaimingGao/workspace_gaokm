@@ -86,33 +86,13 @@ class HorizonProbHelpersTests(unittest.TestCase):
         self.assertAlmostEqual(float(expl.get("p_up")), sigmoid(-0.248), places=6)
         self.assertAlmostEqual(float(expl.get("p_up")), 0.4383, places=3)
 
-    def test_migrate_old_percent_overlay(self):
-        from core.research.horizon_prob import migrate_horizon_gate_cfg
+    def test_vote_margin_clamps_and_ignores_greek_alias(self):
         from core.t0.config import load_t0_rules
 
-        raw = {
-            "y_t30_strong": 0.2,
-            "y_t30_enter": 0.4,
-            "y_t60_enter": 0.55,
-            "y_t90_enter": 1.2,
-        }
-        migrate_horizon_gate_cfg(raw)
-        self.assertEqual(raw["y_t30_strong"], 0.0)
-        self.assertEqual(raw["y_t30_enter"], 0.0)
-        self.assertAlmostEqual(raw["y_t60_enter"], 0.55)
-        self.assertEqual(raw["y_t90_enter"], 0.0)
-
-        loaded = load_t0_rules(
-            {"y_t30_strong": 0.3, "y_t30_enter": 0.4, "y_t45_enter": 0.6}
-        )
-        self.assertNotIn("y_t30_strong", loaded)
-        self.assertNotIn("y_t30_enter", loaded)
-        self.assertNotIn("y_t45_enter", loaded)
         self.assertAlmostEqual(float(load_t0_rules({})["y_tw_vote_margin"]), 5.0)
         self.assertAlmostEqual(float(load_t0_rules({"y_tw_vote_margin": 25})["y_tw_vote_margin"]), 20.0)
-        absorbed = load_t0_rules({"y_τw_vote_margin": 3.5})
-        self.assertAlmostEqual(float(absorbed["y_tw_vote_margin"]), 3.5)
-        self.assertNotIn("y_τw_vote_margin", absorbed)
+        ignored = load_t0_rules({"y_τw_vote_margin": 3.5})
+        self.assertAlmostEqual(float(ignored["y_tw_vote_margin"]), 5.0)
 
 
 if __name__ == "__main__":

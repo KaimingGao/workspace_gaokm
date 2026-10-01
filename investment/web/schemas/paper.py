@@ -74,7 +74,6 @@ class T0BacktestRequest(BaseModel):
         description="做 T 回测本金（元）；累计收益比例分母",
     )
     t0_ratio: float = Field(default=1.0, ge=0.05, le=1.0)
-    must_cover_same_day: bool = True
     must_cover_same_day_sell_then_buy: Optional[bool] = Field(default=None)
     must_cover_same_day_buy_then_sell: Optional[bool] = Field(default=None)
     fill_mode: Optional[str] = Field(default=None, max_length=16)
@@ -83,10 +82,7 @@ class T0BacktestRequest(BaseModel):
     direction: Optional[str] = Field(default=None, max_length=16)
     path_mode: Optional[str] = Field(default=None, max_length=16)
     use_minute: bool = True
-    y_trade_enter: Optional[float] = Field(
-        default=None, ge=0.0, le=5.0,         description="dual_y：|y_trade|入场下限（收益百分点）"
-    )
-    fusion_w_τc: Optional[float] = Field(
+    residual_w_τc: Optional[float] = Field(
         default=None,
         ge=0.0,
         le=1.0,
@@ -103,10 +99,6 @@ class T0BacktestRequest(BaseModel):
         max_length=24,
         description="residual 融合：fixed=固定权（默认）| inv_var=OOS 逆方差",
     )
-    y_on_allow: Optional[float] = Field(
-        default=None, ge=0.01, le=10.0, description="dual_y：|y_on|隔夜放行门槛（收益百分点）"
-    )
-    y_on_risk: Optional[float] = Field(default=None, ge=0.01, le=10.0)
     y_tw_enter: Optional[float] = Field(
         default=None,
         ge=0.0,
@@ -180,16 +172,6 @@ class T0BacktestRequest(BaseModel):
     t0_slots_enabled: Optional[bool] = Field(
         default=None, description="v6 恒为多轮收盘带宽壳；仅兼容旧补丁"
     )
-    y_tau_exit_price_skip: Optional[bool] = Field(
-        default=None,
-        description="legacy：等同 y_tau_exit_price_skip_buy_then_sell",
-    )
-    y_tau_exit_price_mult: Optional[float] = Field(
-        default=None,
-        ge=0.5,
-        le=5.0,
-        description="legacy：等同 y_tau_exit_price_mult_buy_then_sell",
-    )
     y_tau_exit_price_skip_buy_then_sell: Optional[bool] = Field(
         default=None,
         description="正T第二腿：卖价>open×(1+ŷ_τ×裕度)",
@@ -210,14 +192,6 @@ class T0BacktestRequest(BaseModel):
         le=5.0,
         description="反T第二腿买价裕度",
     )
-    y_tau_exit_price_bias: Optional[float] = Field(
-        default=None,
-        ge=-50.0,
-        le=50.0,
-        description="legacy：等同 y_tau_exit_price_bias_buy_then_sell（价偏，百分点）",
-    )
-    y_tau_exit_price_move_min: Optional[float] = Field(default=None, ge=-100.0, le=100.0)
-    y_tau_exit_price_move_max: Optional[float] = Field(default=None, ge=-100.0, le=100.0)
     y_tau_exit_price_bias_buy_then_sell: Optional[float] = Field(
         default=None,
         ge=-50.0,
@@ -234,11 +208,6 @@ class T0BacktestRequest(BaseModel):
     )
     y_tau_exit_price_move_min_sell_then_buy: Optional[float] = Field(default=None, ge=-100.0, le=100.0)
     y_tau_exit_price_move_max_sell_then_buy: Optional[float] = Field(default=None, ge=-100.0, le=100.0)
-    t0_pm_degrade: Optional[str] = Field(
-        default=None,
-        max_length=8,
-        description="legacy：等同 t0_pm_degrade_buy_then_sell",
-    )
     t0_pm_degrade_sell_then_buy: Optional[str] = Field(
         default=None,
         max_length=8,
@@ -248,12 +217,6 @@ class T0BacktestRequest(BaseModel):
         default=None,
         max_length=8,
         description="正T午后闸/中点追价起算 HH:MM；默认 14:00；空=关",
-    )
-    t0_pm_chase_interval_min: Optional[int] = Field(
-        default=None,
-        ge=1,
-        le=60,
-        description="legacy：等同 t0_pm_chase_interval_min_buy_then_sell",
     )
     t0_pm_chase_interval_min_sell_then_buy: Optional[int] = Field(
         default=None,
@@ -380,15 +343,11 @@ class PaperExecutionPatchRequest(BaseModel):
     fill_mode_buy_then_sell: Optional[str] = None
     direction: Optional[str] = None
     path_mode: Optional[str] = None
-    must_cover_same_day: Optional[bool] = None
     must_cover_same_day_sell_then_buy: Optional[bool] = None
     must_cover_same_day_buy_then_sell: Optional[bool] = None
-    y_trade_enter: Optional[float] = None
-    fusion_w_τc: Optional[float] = None
+    residual_w_τc: Optional[float] = None
     residual_w_oc: Optional[float] = None
     residual_w_mode: Optional[str] = None
-    y_on_allow: Optional[float] = None
-    y_on_risk: Optional[float] = None
     y_tw_enter: Optional[float] = None
     y_τc_enter: Optional[float] = None
     y_τc_strong: Optional[float] = None
@@ -406,15 +365,10 @@ class PaperExecutionPatchRequest(BaseModel):
     t0_max_position_pct: Optional[float] = None
     t0_slots_max_rounds: Optional[int] = None
     t0_slots_enabled: Optional[bool] = None
-    y_tau_exit_price_skip: Optional[bool] = None
-    y_tau_exit_price_mult: Optional[float] = None
     y_tau_exit_price_skip_buy_then_sell: Optional[bool] = None
     y_tau_exit_price_mult_buy_then_sell: Optional[float] = None
     y_tau_exit_price_skip_sell_then_buy: Optional[bool] = None
     y_tau_exit_price_mult_sell_then_buy: Optional[float] = None
-    y_tau_exit_price_bias: Optional[float] = None
-    y_tau_exit_price_move_min: Optional[float] = None
-    y_tau_exit_price_move_max: Optional[float] = None
     y_tau_exit_price_bias_buy_then_sell: Optional[float] = None
     y_tau_exit_price_move_min_buy_then_sell: Optional[float] = None
     y_tau_exit_price_move_max_buy_then_sell: Optional[float] = None
@@ -422,12 +376,10 @@ class PaperExecutionPatchRequest(BaseModel):
     y_tau_exit_price_move_min_sell_then_buy: Optional[float] = None
     y_tau_exit_price_move_max_sell_then_buy: Optional[float] = None
     y_score_source: Optional[str] = Field(
-        default=None, max_length=24, description="即时算；旧 live_book/ledger 读入后按 compute"
+        default=None, max_length=24,         description="即时算；旧 live_book/ledger 读入后按 compute"
     )
-    t0_pm_degrade: Optional[str] = None
     t0_pm_degrade_sell_then_buy: Optional[str] = None
     t0_pm_degrade_buy_then_sell: Optional[str] = None
-    t0_pm_chase_interval_min: Optional[int] = None
     t0_pm_chase_interval_min_sell_then_buy: Optional[int] = None
     t0_pm_chase_interval_min_buy_then_sell: Optional[int] = None
     t0_stop_pct_buy_then_sell: Optional[float] = None

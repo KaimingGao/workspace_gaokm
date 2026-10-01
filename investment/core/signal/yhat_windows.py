@@ -698,7 +698,7 @@ def fusion_w_co_from_cfg(cfg: Optional[dict]) -> float:
 
 def residual_weights_from_cfg(cfg: Optional[dict]) -> Tuple[float, float]:
     d = cfg if isinstance(cfg, dict) else {}
-    w = _f(d.get("fusion_w_τc"))
+    w = _f(d.get("residual_w_τc"))
     w_oc = _f(d.get("residual_w_oc"))
     if w is None:
         w = 0.5

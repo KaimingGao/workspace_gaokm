@@ -224,7 +224,7 @@ export const SKIP_CAT_TIP = {
   tau_exit_price:
     "第二腿：正T卖价须 > open×(1+(clamp(ŷ_τc×裕度,min,max)+价偏)/100)；反T买价须 < 同式。止损/收盘强平不受闸。",
   y_trade_weak:
-    "|ŷ_trade| 未过入场（y_trade_enter），融合分太弱不开仓。",
+    "历史口径：|ŷ_trade| 未过入场，融合分太弱不开仓。v6 选腿已下线该闸。",
   trade_tau_sign:
     "强 trade/nc 与 τ 异号，或历史 τ↔nowcast 异号闸跳过。",
   conflict:

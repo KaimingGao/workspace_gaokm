@@ -13,7 +13,7 @@ import {
   wireT0DayDebugExpand,
   wireT0ProcessTips,
   stampStockFitTiers,
-} from "./t0_table.js?v=p2564";
+} from "./t0_table.js?v=p2722";
 
 function escapeHtml(s) {
   return String(s ?? "")

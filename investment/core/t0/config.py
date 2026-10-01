@@ -34,7 +34,7 @@ def t0_dir_label(direction: Optional[str]) -> str:
 
 # 方向键：*_buy_then_sell = 正T，*_sell_then_buy = 反T
 # t0_pm_degrade_*：HH:MM 之后禁新开（端点不含；已开未平则第二腿中点追价）
-# 无后缀 must_cover / t0_pm_degrade / 出场价键只作旧输入：并进正T侧后丢掉
+# must_cover / 午后闸 / 出场价只认分侧键；执行时再投影成无后缀运行时键
 # must_cover_same_day_*：正T/反T默认均强制当日回补
 # 第二腿：τ 出场价闸（正T卖 / 反T买）；相对 leg1 的 % 触发已下线
 #
@@ -76,8 +76,7 @@ DEFAULT_T0_RULES: Dict[str, Any] = {
     "direction": "dual_y",
     "path_mode": "first_touch",
     "minute_period": "5",
-    # dual_y 阈值（百分比点）：*_enter 入场下限（v6 入场闸 / 回补）
-    "y_trade_enter": 0.01,
+    # dual_y 阈值（百分比点）：ŷ_τw / |ŷ_τc| 入场
     "y_tw_enter": 2.0,  # 正T：ŷ_τw>=此票；反T：ŷ_τw<=−此票。0=允许 0 票
     "y_τc_enter": 0.5,  # |ŷ_τc| 入场百分点；0=不拦
     "y_τc_strong": 1.0,  # |ŷ_τc|>=此值用强金额，否则入场金额
@@ -89,11 +88,9 @@ DEFAULT_T0_RULES: Dict[str, Any] = {
     "horizon_prob_backend": "ridge",
     "t0_y_τc_target_scale": 2.0,  # C_τ = price(τ)×(1+clip(y_τc×scale, ±20)/100)
     "t0_close_band_delta_pct": 0.5,  # 破带带宽 δ%
-    "fusion_w_τc": 0.5,  # residual 融合：ŷ_τc 权
+    "residual_w_τc": 0.5,  # residual 融合：ŷ_τc 权
     "residual_w_oc": 0.5,  # residual 融合：remaining(ŷ_oc) 权
     "residual_w_mode": "fixed",  # fixed | inv_var
-    "y_on_risk": 0.01,
-    "y_on_allow": 0.01,
     # 日/分昨收错位门禁（|P_d/P_m−1| 超阈跳过）；开盘差已下线（0=关）
     "t0_price_space_gate": True,
     "t0_price_space_max_dev_pct": 0.0,
@@ -175,9 +172,6 @@ def _am_5m_clocks_until(last_hm: str = T0_LAST_LEG1_HM) -> tuple:
 T0_PORTRAIT_SLOT_CLOCKS: tuple = _am_5m_clocks_until(T0_LAST_LEG1_HM)
 # 日级「预估命中」用首根 5m，避免跳过日被 11:00 前缀垫高
 T0_PORTRAIT_DAY_HM = "09:35"
-_LEGACY_OPEN_FIVE_CLOCKS: tuple = ("09:30", "10:00", "10:30", "11:00", "11:30")
-_LEGACY_SIX_CLOCKS: tuple = ("10:00", "10:30", "11:00", "11:30", "13:00", "14:00")
-_LEGACY_V5_FOUR_CLOCKS: tuple = ("10:00", "10:30", "11:00", "11:30")
 
 
 def _slot_allows_leg1(*, hm: str, prefix_bars: int) -> bool:
@@ -197,20 +191,13 @@ def _slot_allows_leg1(*, hm: str, prefix_bars: int) -> bool:
 def normalize_t0_slots(raw: Any) -> list:
     """规范化槽位列表；v6 默认五轮×20% 壳（执行走收盘带宽扫描）。
 
-    旧四轮/五轮/六轮时钟落盘一律迁到 v6 默认壳。
+    超过 11:00 / 第 18 根前缀的槽丢掉；一个都不剩则回落默认壳。
     """
     if raw is None:
         return [dict(s) for s in DEFAULT_T0_SLOTS]
     if isinstance(raw, str) and not raw.strip():
         return [dict(s) for s in DEFAULT_T0_SLOTS]
     if not isinstance(raw, (list, tuple)):
-        return [dict(s) for s in DEFAULT_T0_SLOTS]
-    raw_clocks = tuple(
-        str(item.get("hm") or "").strip()[:5]
-        for item in raw
-        if isinstance(item, dict)
-    )
-    if raw_clocks in (_LEGACY_OPEN_FIVE_CLOCKS, _LEGACY_SIX_CLOCKS, _LEGACY_V5_FOUR_CLOCKS):
         return [dict(s) for s in DEFAULT_T0_SLOTS]
     out: list = []
     for i, item in enumerate(raw):
@@ -252,20 +239,6 @@ def _bounded(raw: Any, default: float, lo: float, hi: float) -> float:
     return max(lo, min(val, hi))
 
 
-def _absorb_y_tw_aliases(cfg: dict, override_keys: set) -> None:
-    """旧 Unicode 键并进 y_tw_* 后丢掉。只写了别名时保留其值。"""
-    for canon, alias in (
-        ("y_tw_enter", "y_τw_enter"),
-        ("y_tw_vote_margin", "y_τw_vote_margin"),
-        ("y_tw_midpoint", "y_τw_midpoint"),
-    ):
-        alias_set = alias in override_keys and not _blank(cfg.get(alias))
-        canon_set = canon in override_keys and not _blank(cfg.get(canon))
-        if alias_set and not canon_set:
-            cfg[canon] = cfg[alias]
-        cfg.pop(alias, None)
-
-
 def load_t0_rules(override: Optional[dict] = None) -> Dict[str, Any]:
     cfg = dict(DEFAULT_T0_RULES)
     ov = dict(override) if override else {}
@@ -292,29 +265,11 @@ def load_t0_rules(override: Optional[dict] = None) -> Dict[str, Any]:
     cfg["must_cover_same_day_sell_then_buy"] = coerce_cfg_bool(
         cfg.get("must_cover_same_day_sell_then_buy"), True
     )
-    # 正T侧：显式侧向键优先；否则若只写了 legacy must_cover_same_day，用其覆盖默认 True
-    # （旧逻辑用 coerce(default_reverse=True, legacy) 会吞掉 legacy=False）
-    if "must_cover_same_day_buy_then_sell" in override_keys and cfg.get(
-        "must_cover_same_day_buy_then_sell"
-    ) is not None:
-        cfg["must_cover_same_day_buy_then_sell"] = coerce_cfg_bool(
-            cfg.get("must_cover_same_day_buy_then_sell"), True
-        )
-    elif "must_cover_same_day" in override_keys and cfg.get("must_cover_same_day") is not None:
-        cfg["must_cover_same_day_buy_then_sell"] = coerce_cfg_bool(
-            cfg.get("must_cover_same_day"), True
-        )
-    else:
-        cfg["must_cover_same_day_buy_then_sell"] = coerce_cfg_bool(
-            cfg.get("must_cover_same_day_buy_then_sell"), True
-        )
-    cfg.pop("must_cover_same_day", None)
+    cfg["must_cover_same_day_buy_then_sell"] = coerce_cfg_bool(
+        cfg.get("must_cover_same_day_buy_then_sell"), True
+    )
     cfg["direction"] = normalize_t0_direction(cfg.get("direction"), default="dual_y")
-    _absorb_y_tw_aliases(cfg, override_keys)
     for yk, lo, hi, default in (
-        ("y_trade_enter", 0.01, 5.0, 0.01),
-        ("y_on_risk", 0.01, 10.0, 0.01),
-        ("y_on_allow", 0.01, 10.0, 0.01),
         ("y_tw_enter", 0.0, 5.0, 2.0),
         ("y_τc_enter", 0.0, 20.0, 0.5),
         ("y_τc_strong", 0.0, 20.0, 1.0),
@@ -322,7 +277,7 @@ def load_t0_rules(override: Optional[dict] = None) -> Dict[str, Any]:
         ("y_tw_midpoint", 1.0, 99.0, 47.0),
         ("t0_y_τc_target_scale", 0.0, 100.0, 2.0),
         ("t0_close_band_delta_pct", 0.0, 10.0, 0.5),
-        ("fusion_w_τc", 0.0, 1.0, 0.5),
+        ("residual_w_τc", 0.0, 1.0, 0.5),
         ("residual_w_oc", 0.0, 1.0, 0.5),
     ):
         try:
@@ -337,9 +292,6 @@ def load_t0_rules(override: Optional[dict] = None) -> Dict[str, Any]:
         if mode in ("inv_var", "inverse_var", "inverse_variance", "oos", "variance")
         else "fixed"
     )
-    from core.t0.score_policy import normalize_y_trade_enter
-
-    cfg["y_trade_enter"] = normalize_y_trade_enter(cfg.get("y_trade_enter"))
     oc_enter = float(cfg.get("y_τc_enter") or 0.0)
     strong_explicit = (
         "y_τc_strong" in override_keys
@@ -360,17 +312,6 @@ def load_t0_rules(override: Optional[dict] = None) -> Dict[str, Any]:
     cfg["horizon_prob_backend"] = normalize_horizon_prob_backend(
         cfg.get("horizon_prob_backend")
     )
-    for stem in (
-        "y_tau_exit_price_skip",
-        "y_tau_exit_price_mult",
-        "y_tau_exit_price_bias",
-        "y_tau_exit_price_move_min",
-        "y_tau_exit_price_move_max",
-    ):
-        buy = f"{stem}_buy_then_sell"
-        if buy not in override_keys and stem in override_keys and cfg.get(stem) is not None:
-            cfg[buy] = cfg[stem]
-        cfg.pop(stem, None)
     for side in ("buy_then_sell", "sell_then_buy"):
         sk = f"y_tau_exit_price_skip_{side}"
         cfg[sk] = coerce_cfg_bool(cfg.get(sk), True)
@@ -400,30 +341,13 @@ def load_t0_rules(override: Optional[dict] = None) -> Dict[str, Any]:
             return ""
         return s
 
-    pm_legacy = cfg.get("t0_pm_degrade")
     for side_key, default in (
         ("t0_pm_degrade_sell_then_buy", "13:00"),
         ("t0_pm_degrade_buy_then_sell", "13:00"),
     ):
-        if side_key not in override_keys or cfg.get(side_key) is None:
-            if side_key == "t0_pm_degrade_buy_then_sell" and pm_legacy is not None:
-                cfg[side_key] = _norm_pm_degrade(pm_legacy, default)
-            else:
-                cfg[side_key] = _norm_pm_degrade(cfg.get(side_key), default)
-        else:
-            cfg[side_key] = _norm_pm_degrade(cfg.get(side_key), default)
-    cfg.pop("t0_pm_degrade", None)
-    legacy_iv = cfg.get("t0_pm_chase_interval_min")
+        cfg[side_key] = _norm_pm_degrade(cfg.get(side_key), default)
     for iv_key in ("t0_pm_chase_interval_min_sell_then_buy", "t0_pm_chase_interval_min_buy_then_sell"):
-        if iv_key not in override_keys or cfg.get(iv_key) is None or cfg.get(iv_key) == "":
-            if iv_key == "t0_pm_chase_interval_min_buy_then_sell" and legacy_iv is not None:
-                raw_iv = legacy_iv
-            else:
-                raw_iv = cfg.get(iv_key)
-        else:
-            raw_iv = cfg.get(iv_key)
-        cfg[iv_key] = int(_bounded(raw_iv, 5, 1, 60))
-    cfg.pop("t0_pm_chase_interval_min", None)
+        cfg[iv_key] = int(_bounded(cfg.get(iv_key), 5, 1, 60))
     cfg["t0_stop_pct_buy_then_sell"] = _bounded(
         cfg.get("t0_stop_pct_buy_then_sell"), 1.2, 0.0, 20.0
     )

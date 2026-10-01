@@ -49,7 +49,7 @@ function yOcStrongAmountValue(t0) {
   return Math.max(enter, s);
 }
 
-/** 正/反 T 共用：优先正T侧，再反T侧，再无后缀 legacy。 */
+/** 正/反 T 共用表单：优先正T侧，再反T侧。 */
 function firstDefined(...vals) {
   for (const v of vals) {
     if (v != null) return v;
@@ -61,7 +61,6 @@ function sharedSideVal(t0, base, fallback) {
   return firstDefined(
     t0?.[`${base}_buy_then_sell`],
     t0?.[`${base}_sell_then_buy`],
-    t0?.[base],
     fallback
   );
 }
@@ -881,15 +880,15 @@ export function collectT0BacktestBody(root, opts = {}) {
       t0.t0_close_band_delta_pct != null ? t0.t0_close_band_delta_pct : 0.5,
     t0_pm_degrade_sell_then_buy: t0.t0_pm_degrade_sell_then_buy != null ? t0.t0_pm_degrade_sell_then_buy : "13:00",
     t0_pm_degrade_buy_then_sell:
-      t0.t0_pm_degrade_buy_then_sell ?? t0.t0_pm_degrade ?? "13:00",
+      t0.t0_pm_degrade_buy_then_sell != null ? t0.t0_pm_degrade_buy_then_sell : "13:00",
     t0_pm_chase_interval_min_sell_then_buy:
-      t0.t0_pm_chase_interval_min_sell_then_buy ??
-      t0.t0_pm_chase_interval_min ??
-      5,
+      t0.t0_pm_chase_interval_min_sell_then_buy != null
+        ? t0.t0_pm_chase_interval_min_sell_then_buy
+        : 5,
     t0_pm_chase_interval_min_buy_then_sell:
-      t0.t0_pm_chase_interval_min_buy_then_sell ??
-      t0.t0_pm_chase_interval_min ??
-      5,
+      t0.t0_pm_chase_interval_min_buy_then_sell != null
+        ? t0.t0_pm_chase_interval_min_buy_then_sell
+        : 5,
     t0_stop_pct_buy_then_sell:
       t0.t0_stop_pct_buy_then_sell != null ? t0.t0_stop_pct_buy_then_sell : 1.2,
     t0_stop_pct_sell_then_buy:

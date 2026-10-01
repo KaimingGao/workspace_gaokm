@@ -123,42 +123,6 @@ class TestT0Slots(unittest.TestCase):
         self.assertAlmostEqual(float(cfg.get("y_tw_midpoint") or 0), 47.0)
         self.assertAlmostEqual(float(cfg.get("t0_close_band_delta_pct") or 0), 0.5)
 
-    def test_legacy_five_open_slots_migrate(self):
-        cfg = load_t0_rules(
-            {
-                "t0_slots": [
-                    {"id": "s1", "hm": "09:30", "prefix_bars": 0, "ratio": 0.20},
-                    {"id": "s2", "hm": "10:00", "prefix_bars": 6, "ratio": 0.20},
-                    {"id": "s3", "hm": "10:30", "prefix_bars": 12, "ratio": 0.20},
-                    {"id": "s4", "hm": "11:00", "prefix_bars": 18, "ratio": 0.20},
-                    {"id": "s5", "hm": "11:30", "prefix_bars": 24, "ratio": 0.20},
-                ]
-            }
-        )
-        self.assertEqual(
-            [s["hm"] for s in cfg["t0_slots"]],
-            ["11:00", "11:00", "11:00", "11:00", "11:00"],
-        )
-        self.assertAlmostEqual(float(cfg["t0_slots"][0]["ratio"]), 0.20)
-
-    def test_legacy_six_pm_slots_migrate(self):
-        cfg = load_t0_rules(
-            {
-                "t0_slots": [
-                    {"id": "s1", "hm": "10:00", "prefix_bars": 6, "ratio": 0.15},
-                    {"id": "s2", "hm": "10:30", "prefix_bars": 12, "ratio": 0.15},
-                    {"id": "s3", "hm": "11:00", "prefix_bars": 18, "ratio": 0.15},
-                    {"id": "s4", "hm": "11:30", "prefix_bars": 24, "ratio": 0.15},
-                    {"id": "s5", "hm": "13:00", "prefix_bars": 25, "ratio": 0.15},
-                    {"id": "s6", "hm": "14:00", "prefix_bars": 37, "ratio": 0.15},
-                ]
-            }
-        )
-        self.assertEqual(
-            [s["hm"] for s in cfg["t0_slots"]],
-            ["11:00", "11:00", "11:00", "11:00", "11:00"],
-        )
-
     def test_pm_slot_stripped_from_custom_list(self):
         from core.t0.config import normalize_t0_slots
 
@@ -346,7 +310,6 @@ class TestT0Slots(unittest.TestCase):
                 direction="sell_then_buy",
                 t0_slots=[{"id": "s1", "hm": "09:30", "prefix_bars": 0, "ratio": 0.20}],
                 must_cover_same_day_sell_then_buy=False,
-                must_cover_same_day=False,
                 t0_stop_pct_sell_then_buy=0,
                 y_path_strong=100.0,
                 t0_y_τc_target_scale=10.0,

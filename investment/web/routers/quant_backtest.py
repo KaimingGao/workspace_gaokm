@@ -22,12 +22,9 @@ router = APIRouter(tags=["quant"])
 _T0_RULE_KEYS = (
     "fill_mode_sell_then_buy",
     "fill_mode_buy_then_sell",
-    "y_trade_enter",
-    "fusion_w_τc",
+    "residual_w_τc",
     "residual_w_oc",
     "residual_w_mode",
-    "y_on_allow",
-    "y_on_risk",
     "y_tw_enter",
     "y_τc_enter",
     "y_τc_strong",
@@ -45,15 +42,10 @@ _T0_RULE_KEYS = (
     "t0_max_position_pct",
     "t0_slots_max_rounds",
     "t0_slots_enabled",
-    "y_tau_exit_price_skip",
-    "y_tau_exit_price_mult",
     "y_tau_exit_price_skip_buy_then_sell",
     "y_tau_exit_price_mult_buy_then_sell",
     "y_tau_exit_price_skip_sell_then_buy",
     "y_tau_exit_price_mult_sell_then_buy",
-    "y_tau_exit_price_bias",
-    "y_tau_exit_price_move_min",
-    "y_tau_exit_price_move_max",
     "y_tau_exit_price_bias_buy_then_sell",
     "y_tau_exit_price_move_min_buy_then_sell",
     "y_tau_exit_price_move_max_buy_then_sell",
@@ -64,7 +56,6 @@ _T0_RULE_KEYS = (
     "must_cover_same_day_buy_then_sell",
     "t0_pm_degrade_sell_then_buy",
     "t0_pm_degrade_buy_then_sell",
-    "t0_pm_chase_interval_min",
     "t0_pm_chase_interval_min_sell_then_buy",
     "t0_pm_chase_interval_min_buy_then_sell",
     "t0_stop_pct_buy_then_sell",
@@ -79,7 +70,6 @@ _T0_RULE_KEYS = (
 def _t0_backtest_kwargs(body: T0BacktestRequest) -> Dict[str, Any]:
     rules = {
         "t0_ratio": body.t0_ratio,
-        "must_cover_same_day": body.must_cover_same_day,
     }
     if body.fill_mode:
         rules["fill_mode"] = body.fill_mode

@@ -3,7 +3,7 @@
 角色（PIT）：
   y_τc     — 盘中主方向；定向锚用 y_τc，时钟对齐值在 y_tau
   y_hl     — **已下线**：不再算分/挂载；旧行仍可读 y_hl / y_path
-  y_on     — 尾盘是否强制回补
+  y_on     — 快照对照；隔夜闸 y_on_allow / y_on_risk 已下线
   y_trade / y_eod — **v6 已下线**：不参与选向；`load_t0_rules` 丢弃旧闸键；快照字段仅作对照
 
 选向分数：开盘可预计算开盘 Z；**确认根（前 N 根齐窗）用前缀分钟因果重算**
@@ -17,9 +17,6 @@ import logging
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 logger = logging.getLogger(__name__)
-
-# 默认阈值（ŷ 为百分比点；可用 rules 覆盖）
-DEFAULT_TRADE_ENTER = 0.01
 
 # compute | live_book | ledger
 DEFAULT_Y_SCORE_SOURCE = "compute"
@@ -986,15 +983,6 @@ def scores_from_item(item: Optional[dict]) -> Dict[str, Optional[float]]:
     except Exception:  # noqa: BLE001
         logger.debug("stamp score model role failed", exc_info=True)
     return out
-
-
-def normalize_y_trade_enter(raw: Any) -> float:
-    """|y_trade| 入场下限（收益百分点）；旧配置负值加载时取 abs。"""
-    try:
-        val = float(DEFAULT_TRADE_ENTER if raw is None or raw == "" else raw)
-    except (TypeError, ValueError):
-        val = DEFAULT_TRADE_ENTER
-    return max(0.0, min(abs(val), 5.0))
 
 
 def _cfg_float(cfg: dict, key: str, default: float) -> float:
