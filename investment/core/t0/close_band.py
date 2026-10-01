@@ -510,8 +510,6 @@ def _horizon_vote_margin_pp(cfg: Optional[dict] = None, margin_pp: Any = None) -
         return margin_pp
     cfg_d = cfg if isinstance(cfg, dict) else {}
     raw = cfg_d.get("y_tw_vote_margin")
-    if raw in (None, "") and cfg_d.get("y_τw_vote_margin") not in (None, ""):
-        raw = cfg_d.get("y_τw_vote_margin")
     return raw if raw not in (None, "") else None
 
 
@@ -520,8 +518,6 @@ def _horizon_vote_midpoint(cfg: Optional[dict] = None, midpoint: Any = None) -> 
         return midpoint
     cfg_d = cfg if isinstance(cfg, dict) else {}
     raw = cfg_d.get("y_tw_midpoint")
-    if raw in (None, "") and cfg_d.get("y_τw_midpoint") not in (None, ""):
-        raw = cfg_d.get("y_τw_midpoint")
     return raw if raw not in (None, "") else DEFAULT_Y_TW_MIDPOINT
 
 
@@ -750,12 +746,11 @@ def blend_y_tw(
 
 
 def _y_tw_enter_floor(cfg_d: dict) -> float:
-    """ŷ_τw 共用入场幅度。优先 y_tw_enter。"""
+    """ŷ_τw 共用入场幅度（y_tw_enter）。"""
     from core.t0.score_policy import _cfg_float
 
-    for k in ("y_tw_enter", "y_τw_enter"):
-        if cfg_d.get(k) not in (None, ""):
-            return max(0.0, min(float(_cfg_float(cfg_d, k, DEFAULT_Y_TW_ENTER)), 5.0))
+    if cfg_d.get("y_tw_enter") not in (None, ""):
+        return max(0.0, min(float(_cfg_float(cfg_d, "y_tw_enter", DEFAULT_Y_TW_ENTER)), 5.0))
     return DEFAULT_Y_TW_ENTER
 
 

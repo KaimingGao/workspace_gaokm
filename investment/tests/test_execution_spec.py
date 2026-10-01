@@ -157,8 +157,8 @@ class TestExecutionResolve(unittest.TestCase):
         view = execution_public_view(resolve_effective_execution(strategy="short_conservative"))
         self.assertTrue(view["ok"])
         self.assertIn("direction", view["t0"])
-        self.assertIn("must_cover_same_day", view["t0"])
-        self.assertTrue(view["t0"]["must_cover_same_day"])
+        self.assertNotIn("must_cover_same_day", view["t0"])
+        self.assertTrue(view["t0"]["must_cover_same_day_buy_then_sell"])
         self.assertNotIn("note", view["t0"])
 
     def test_reset_overlay_restores_t0_enabled(self):
@@ -194,7 +194,8 @@ class TestExecutionResolve(unittest.TestCase):
         paper = {"strategy_id": "short_conservative", "rules": {}}
         apply_execution_patch_to_paper(paper, norm)
         view = execution_public_view(resolve_effective_execution(paper=paper, channel="paper"))
-        self.assertTrue(view["t0"]["must_cover_same_day"])
+        self.assertTrue(view["t0"]["must_cover_same_day_buy_then_sell"])
+        self.assertNotIn("must_cover_same_day", view["t0"])
 
     def test_public_view_keeps_residual_weights(self):
         from core.execution import (
@@ -570,10 +571,10 @@ class TestExecutionResolve(unittest.TestCase):
         from core.t0.config import load_t0_rules
 
         defaults = load_t0_rules()
-        self.assertEqual(defaults["t0_pm_degrade"], "13:00")
+        self.assertNotIn("t0_pm_degrade", defaults)
         self.assertEqual(defaults["t0_pm_degrade_buy_then_sell"], "13:00")
         self.assertEqual(defaults["t0_pm_degrade_sell_then_buy"], "13:00")
-        self.assertEqual(defaults["t0_pm_chase_interval_min"], 5)
+        self.assertNotIn("t0_pm_chase_interval_min", defaults)
         self.assertEqual(defaults["t0_pm_chase_interval_min_sell_then_buy"], 5)
         self.assertEqual(defaults["t0_pm_chase_interval_min_buy_then_sell"], 5)
         self.assertAlmostEqual(defaults["t0_stop_pct_buy_then_sell"], 1.2)
@@ -606,16 +607,18 @@ class TestExecutionResolve(unittest.TestCase):
         self.assertTrue(ok, errs)
         self.assertEqual(norm["t0"].get("t0_pm_degrade_buy_then_sell"), "14:00")
         self.assertAlmostEqual(float(norm["t0"]["t0_stop_pct_buy_then_sell"]), 1.2)
-        self.assertEqual(norm["t0"]["t0_pm_chase_interval_min"], 10)
+        self.assertEqual(norm["t0"]["t0_pm_chase_interval_min_buy_then_sell"], 10)
+        self.assertNotIn("t0_pm_chase_interval_min", norm["t0"])
         paper = {"strategy_id": "short_conservative", "rules": {}}
         apply_execution_patch_to_paper(paper, norm)
         view = execution_public_view(
             resolve_effective_execution(paper=paper, channel="paper")
         )
-        self.assertEqual(view["t0"]["t0_pm_degrade"], "14:00")
+        self.assertNotIn("t0_pm_degrade", view["t0"])
         self.assertEqual(view["t0"].get("t0_pm_degrade_buy_then_sell"), "14:00")
         self.assertAlmostEqual(float(view["t0"]["t0_stop_pct_buy_then_sell"]), 1.2)
-        self.assertEqual(view["t0"]["t0_pm_chase_interval_min"], 10)
+        self.assertEqual(view["t0"]["t0_pm_chase_interval_min_buy_then_sell"], 10)
+        self.assertNotIn("t0_pm_chase_interval_min", view["t0"])
         self.assertNotIn("t0_adverse_stop_pct", view["t0"])
         self.assertNotIn("y_block_tau_nowcast_sign", view["t0"])
 

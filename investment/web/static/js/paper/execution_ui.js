@@ -7,7 +7,7 @@ const PATH_MODE_LABELS = {
 };
 
 function yTwEnterValue(t0) {
-  const e = Number(t0?.y_tw_enter ?? t0?.y_τw_enter);
+  const e = Number(t0?.y_tw_enter);
   if (Number.isFinite(e)) return Math.max(0, Math.min(e, 5));
   return 2;
 }
@@ -172,9 +172,9 @@ export function renderExecutionRulesHtml(execution) {
         return s <= 0 ? "≥0票" : `≥${s}票`;
       })(),
       (() => {
-        const m = Number(t0.y_tw_vote_margin ?? t0.y_τw_vote_margin);
+        const m = Number(t0.y_tw_vote_margin);
         const pp = Number.isFinite(m) ? m : 5;
-        const mid = Number(t0.y_tw_midpoint ?? t0.y_τw_midpoint);
+        const mid = Number(t0.y_tw_midpoint);
         const midLbl = Number.isFinite(mid) ? mid : 47;
         return `破带后正T须 ŷ_τw≥入场，反T须 ŷ_τw≤−入场（|p−${midLbl}%|≤${pp}pp 不投票）。0 票在入场=0 时可通过。`;
       })()
@@ -200,7 +200,7 @@ export function renderExecutionRulesHtml(execution) {
     specKpi(
       "Y_τ*中位点%",
       (() => {
-        const m = Number(t0.y_tw_midpoint ?? t0.y_τw_midpoint);
+        const m = Number(t0.y_tw_midpoint);
         if (!Number.isFinite(m)) return "47%";
         return `${m}%`;
       })(),
@@ -209,7 +209,7 @@ export function renderExecutionRulesHtml(execution) {
     specKpi(
       "Y_τ*弃权%",
       (() => {
-        const m = Number(t0.y_tw_vote_margin ?? t0.y_τw_vote_margin);
+        const m = Number(t0.y_tw_vote_margin);
         if (!Number.isFinite(m)) return "5pp";
         if (m <= 0) return "仅中位点";
         return `${m}pp`;
@@ -405,7 +405,7 @@ export function fillExecutionForm(root, execution) {
   set(
     "y_tw_vote_margin",
     (() => {
-      const n = Number(t0.y_tw_vote_margin ?? t0.y_τw_vote_margin);
+      const n = Number(t0.y_tw_vote_margin);
       if (!Number.isFinite(n)) return 5;
       return Math.max(0, Math.min(n, 20));
     })()
@@ -413,7 +413,7 @@ export function fillExecutionForm(root, execution) {
   set(
     "y_tw_midpoint",
     (() => {
-      const n = Number(t0.y_tw_midpoint ?? t0.y_τw_midpoint);
+      const n = Number(t0.y_tw_midpoint);
       if (!Number.isFinite(n)) return 47;
       return Math.max(1, Math.min(n, 99));
     })()
@@ -477,7 +477,6 @@ export function collectExecutionForm(root) {
     path_mode: str("path_mode", "first_touch"),
     must_cover_same_day_sell_then_buy: true,
     must_cover_same_day_buy_then_sell: true,
-    must_cover_same_day: true,
     t0_price_space_gate: true,
     t0_price_space_max_dev_pct: 0,
     t0_price_space_prev_dev_pct: Math.max(0, Math.min(num("t0_price_space_prev_dev_pct", 5), 5)),
@@ -485,7 +484,6 @@ export function collectExecutionForm(root) {
     t0_max_position_pct: Math.max(0.05, Math.min(num("t0_max_position_pct", 1), 1)),
     t0_slots_max_rounds: Math.max(0, Math.min(Math.round(num("t0_slots_max_rounds", 5)), 16)),
     y_tw_enter: Math.max(0, Math.min(num("y_tw_enter", 2), 5)),
-    y_τw_enter: Math.max(0, Math.min(num("y_tw_enter", 2), 5)),
     y_τc_enter: Math.max(0, Math.min(num("y_τc_enter", 0.5), 20)),
     y_τc_enter_amount: (() => {
       const n = clampT0LotAmount(num("y_τc_enter_amount", 20000), 20000);
@@ -500,9 +498,7 @@ export function collectExecutionForm(root) {
       return Math.max(enter, clampT0LotAmount(num("y_τc_strong_amount", 40000), 40000));
     })(),
     y_tw_vote_margin: Math.max(0, Math.min(num("y_tw_vote_margin", 5), 20)),
-    y_τw_vote_margin: Math.max(0, Math.min(num("y_tw_vote_margin", 5), 20)),
     y_tw_midpoint: Math.max(1, Math.min(num("y_tw_midpoint", 47), 99)),
-    y_τw_midpoint: Math.max(1, Math.min(num("y_tw_midpoint", 47), 99)),
     horizon_prob_backend: (() => {
       const s = String(str("horizon_prob_backend", "ridge") || "ridge").toLowerCase();
       return s === "tree" ? "tree" : "ridge";
@@ -511,16 +507,11 @@ export function collectExecutionForm(root) {
     t0_close_band_delta_pct: Math.max(0, Math.min(num("t0_close_band_delta_pct", 0.5), 10)),
     t0_pm_degrade_sell_then_buy: str("t0_pm_degrade", "13:00"),
     t0_pm_degrade_buy_then_sell: str("t0_pm_degrade", "13:00"),
-    t0_pm_degrade: str("t0_pm_degrade", "13:00"),
     t0_pm_chase_interval_min_sell_then_buy: Math.max(
       1,
       Math.min(Math.round(num("t0_pm_chase_interval_min", 5)), 60)
     ),
     t0_pm_chase_interval_min_buy_then_sell: Math.max(
-      1,
-      Math.min(Math.round(num("t0_pm_chase_interval_min", 5)), 60)
-    ),
-    t0_pm_chase_interval_min: Math.max(
       1,
       Math.min(Math.round(num("t0_pm_chase_interval_min", 5)), 60)
     ),
@@ -858,7 +849,6 @@ export function collectT0BacktestBody(root, opts = {}) {
     path_mode: "first_touch",
     must_cover_same_day_sell_then_buy: true,
     must_cover_same_day_buy_then_sell: true,
-    must_cover_same_day: true,
     t0_price_space_gate: true,
     t0_price_space_max_dev_pct: 0,
     t0_price_space_prev_dev_pct:
@@ -867,28 +857,17 @@ export function collectT0BacktestBody(root, opts = {}) {
     t0_max_position_pct: t0.t0_max_position_pct != null ? t0.t0_max_position_pct : 1.0,
     t0_slots_max_rounds: t0.t0_slots_max_rounds != null ? t0.t0_slots_max_rounds : 5,
     y_tw_enter: yTwEnterValue(t0),
-    y_τw_enter: yTwEnterValue(t0),
     y_τc_enter: yOcEnterValue(t0),
     y_τc_enter_amount: yOcEnterAmountValue(t0),
     y_τc_strong: yOcStrongValue(t0),
     y_τc_strong_amount: yOcStrongAmountValue(t0),
     y_tw_vote_margin: (() => {
-      const n = Number(t0.y_tw_vote_margin ?? t0.y_τw_vote_margin);
-      if (!Number.isFinite(n)) return 5;
-      return Math.max(0, Math.min(n, 20));
-    })(),
-    y_τw_vote_margin: (() => {
-      const n = Number(t0.y_tw_vote_margin ?? t0.y_τw_vote_margin);
+      const n = Number(t0.y_tw_vote_margin);
       if (!Number.isFinite(n)) return 5;
       return Math.max(0, Math.min(n, 20));
     })(),
     y_tw_midpoint: (() => {
-      const n = Number(t0.y_tw_midpoint ?? t0.y_τw_midpoint);
-      if (!Number.isFinite(n)) return 47;
-      return Math.max(1, Math.min(n, 99));
-    })(),
-    y_τw_midpoint: (() => {
-      const n = Number(t0.y_tw_midpoint ?? t0.y_τw_midpoint);
+      const n = Number(t0.y_tw_midpoint);
       if (!Number.isFinite(n)) return 47;
       return Math.max(1, Math.min(n, 99));
     })(),
@@ -903,16 +882,11 @@ export function collectT0BacktestBody(root, opts = {}) {
     t0_pm_degrade_sell_then_buy: t0.t0_pm_degrade_sell_then_buy != null ? t0.t0_pm_degrade_sell_then_buy : "13:00",
     t0_pm_degrade_buy_then_sell:
       t0.t0_pm_degrade_buy_then_sell ?? t0.t0_pm_degrade ?? "13:00",
-    t0_pm_degrade: t0.t0_pm_degrade_buy_then_sell ?? t0.t0_pm_degrade ?? "13:00",
     t0_pm_chase_interval_min_sell_then_buy:
       t0.t0_pm_chase_interval_min_sell_then_buy ??
       t0.t0_pm_chase_interval_min ??
       5,
     t0_pm_chase_interval_min_buy_then_sell:
-      t0.t0_pm_chase_interval_min_buy_then_sell ??
-      t0.t0_pm_chase_interval_min ??
-      5,
-    t0_pm_chase_interval_min:
       t0.t0_pm_chase_interval_min_buy_then_sell ??
       t0.t0_pm_chase_interval_min ??
       5,

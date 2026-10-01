@@ -110,9 +110,9 @@ class HorizonProbHelpersTests(unittest.TestCase):
         self.assertNotIn("y_t45_enter", loaded)
         self.assertAlmostEqual(float(load_t0_rules({})["y_tw_vote_margin"]), 5.0)
         self.assertAlmostEqual(float(load_t0_rules({"y_tw_vote_margin": 25})["y_tw_vote_margin"]), 20.0)
-        self.assertAlmostEqual(
-            float(load_t0_rules({"y_τw_vote_margin": 3.5})["y_tw_vote_margin"]), 3.5
-        )
+        absorbed = load_t0_rules({"y_τw_vote_margin": 3.5})
+        self.assertAlmostEqual(float(absorbed["y_tw_vote_margin"]), 3.5)
+        self.assertNotIn("y_τw_vote_margin", absorbed)
 
 
 if __name__ == "__main__":

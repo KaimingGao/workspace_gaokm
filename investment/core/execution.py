@@ -52,15 +52,12 @@ ALLOWED_T0_PATCH_KEYS = frozenset(
         "y_on_risk",
         "y_on_allow",
         "y_tw_enter",
-        "y_τw_enter",
         "y_τc_enter",
         "y_τc_strong",
         "y_τc_enter_amount",
         "y_τc_strong_amount",
         "y_tw_vote_margin",
-        "y_τw_vote_margin",
         "y_tw_midpoint",
-        "y_τw_midpoint",
         "horizon_prob_backend",
         "t0_y_τc_target_scale",
         "t0_close_band_delta_pct",
@@ -121,7 +118,6 @@ DEFAULT_T0_OVERLAY: Dict[str, Any] = {
     "fill_mode": "trigger",
     "fill_mode_sell_then_buy": "trigger",
     "fill_mode_buy_then_sell": "trigger",
-    "must_cover_same_day": True,
     "must_cover_same_day_sell_then_buy": True,
     "must_cover_same_day_buy_then_sell": True,
     "ref": "open",
@@ -132,15 +128,12 @@ DEFAULT_T0_OVERLAY: Dict[str, Any] = {
     "y_trade_enter": 0.01,
     "y_on_allow": 0.01,
     "y_tw_enter": 2.0,
-    "y_τw_enter": 2.0,
     "y_τc_enter": 0.5,
     "y_τc_strong": 1.0,
     "y_τc_enter_amount": 20_000.0,
     "y_τc_strong_amount": 40_000.0,
     "y_tw_vote_margin": 5.0,
-    "y_τw_vote_margin": 5.0,
     "y_tw_midpoint": 47.0,
-    "y_τw_midpoint": 47.0,
     "horizon_prob_backend": "ridge",
     "t0_y_τc_target_scale": 2.0,
     "t0_close_band_delta_pct": 0.5,
@@ -150,20 +143,16 @@ DEFAULT_T0_OVERLAY: Dict[str, Any] = {
     "t0_round_ratio": 0.4,
     "t0_max_position_pct": 1.0,
     "t0_slots_max_rounds": 5,
-    "y_tau_exit_price_skip": True,
-    "y_tau_exit_price_mult": 1.0,
     "y_tau_exit_price_skip_buy_then_sell": True,
     "y_tau_exit_price_mult_buy_then_sell": 1.0,
     "y_tau_exit_price_bias_buy_then_sell": 1.0,
     "y_tau_exit_price_skip_sell_then_buy": True,
     "y_tau_exit_price_mult_sell_then_buy": 1.0,
     "y_tau_exit_price_bias_sell_then_buy": -1.0,
-    "t0_pm_degrade": "13:00",
     "t0_pm_degrade_sell_then_buy": "13:00",
     "t0_pm_degrade_buy_then_sell": "13:00",
     "t0_pm_chase_cap_leg1_sell_then_buy": True,
     "t0_pm_chase_cap_leg1_buy_then_sell": True,
-    "t0_pm_chase_interval_min": 5,
     "t0_pm_chase_interval_min_sell_then_buy": 5,
     "t0_pm_chase_interval_min_buy_then_sell": 5,
     "t0_stop_pct_buy_then_sell": 1.2,
@@ -617,7 +606,6 @@ def execution_public_view(bundle: Dict[str, Any]) -> Dict[str, Any]:
         "t0": {
             "enabled": t0.get("enabled"),
             "t0_ratio": t0.get("t0_ratio"),
-            "must_cover_same_day": bool(t0.get("must_cover_same_day")),
             "must_cover_same_day_sell_then_buy": t0.get("must_cover_same_day_sell_then_buy"),
             "must_cover_same_day_buy_then_sell": t0.get("must_cover_same_day_buy_then_sell"),
             "fill_mode": t0.get("fill_mode"),
@@ -634,20 +622,13 @@ def execution_public_view(bundle: Dict[str, Any]) -> Dict[str, Any]:
             "residual_w_mode": t0.get("residual_w_mode"),
             "y_on_risk": t0.get("y_on_risk"),
             "y_on_allow": t0.get("y_on_allow"),
-            "y_tw_enter": t0.get("y_tw_enter")
-            if t0.get("y_tw_enter") not in (None, "")
-            else t0.get("y_τw_enter"),
-            "y_τw_enter": t0.get("y_τw_enter")
-            if t0.get("y_τw_enter") not in (None, "")
-            else t0.get("y_tw_enter"),
+            "y_tw_enter": t0.get("y_tw_enter"),
             "y_τc_enter": t0.get("y_τc_enter"),
             "y_τc_strong": t0.get("y_τc_strong"),
             "y_τc_enter_amount": t0.get("y_τc_enter_amount"),
             "y_τc_strong_amount": t0.get("y_τc_strong_amount"),
             "y_tw_vote_margin": t0.get("y_tw_vote_margin"),
-            "y_τw_vote_margin": t0.get("y_τw_vote_margin") or t0.get("y_tw_vote_margin"),
             "y_tw_midpoint": t0.get("y_tw_midpoint"),
-            "y_τw_midpoint": t0.get("y_τw_midpoint") or t0.get("y_tw_midpoint"),
             "horizon_prob_backend": t0.get("horizon_prob_backend"),
             "t0_y_τc_target_scale": t0.get("t0_y_τc_target_scale"),
             "t0_close_band_delta_pct": t0.get("t0_close_band_delta_pct"),
@@ -656,11 +637,6 @@ def execution_public_view(bundle: Dict[str, Any]) -> Dict[str, Any]:
             "t0_price_space_prev_dev_pct": t0.get("t0_price_space_prev_dev_pct"),
             "t0_round_ratio": t0.get("t0_round_ratio"),
             "t0_max_position_pct": t0.get("t0_max_position_pct"),
-            "y_tau_exit_price_skip": t0.get("y_tau_exit_price_skip"),
-            "y_tau_exit_price_mult": t0.get("y_tau_exit_price_mult"),
-            "y_tau_exit_price_bias": t0.get("y_tau_exit_price_bias"),
-            "y_tau_exit_price_move_min": t0.get("y_tau_exit_price_move_min"),
-            "y_tau_exit_price_move_max": t0.get("y_tau_exit_price_move_max"),
             "y_tau_exit_price_skip_buy_then_sell": t0.get(
                 "y_tau_exit_price_skip_buy_then_sell"
             ),
@@ -692,10 +668,8 @@ def execution_public_view(bundle: Dict[str, Any]) -> Dict[str, Any]:
                 "y_tau_exit_price_move_max_sell_then_buy"
             ),
             "y_score_source": t0.get("y_score_source"),
-            "t0_pm_degrade": t0.get("t0_pm_degrade"),
             "t0_pm_degrade_sell_then_buy": t0.get("t0_pm_degrade_sell_then_buy"),
             "t0_pm_degrade_buy_then_sell": t0.get("t0_pm_degrade_buy_then_sell"),
-            "t0_pm_chase_interval_min": t0.get("t0_pm_chase_interval_min"),
             "t0_pm_chase_interval_min_sell_then_buy": t0.get(
                 "t0_pm_chase_interval_min_sell_then_buy"
             ),
@@ -808,16 +782,6 @@ def validate_execution_patch(raw: Any) -> Tuple[bool, Dict[str, Any], List[str]]
         return False, {}, [f"t0 校验失败: {e}"]
 
     t0_out = {k: normalized_full[k] for k in t0_in if k in ALLOWED_T0_PATCH_KEYS and k in normalized_full}
-    if any(k in t0_in for k in ("y_tw_enter", "y_τw_enter")):
-        if "y_tw_enter" in normalized_full:
-            t0_out["y_tw_enter"] = normalized_full["y_tw_enter"]
-        if "y_τw_enter" in normalized_full:
-            t0_out["y_τw_enter"] = normalized_full["y_τw_enter"]
-    if any(k in t0_in for k in ("y_tw_midpoint", "y_τw_midpoint")):
-        if "y_tw_midpoint" in normalized_full:
-            t0_out["y_tw_midpoint"] = normalized_full["y_tw_midpoint"]
-        if "y_τw_midpoint" in normalized_full:
-            t0_out["y_τw_midpoint"] = normalized_full["y_τw_midpoint"]
     # legacy 共用键只写一侧时，补上 load_t0_rules 对齐的分侧键，避免 resolve 时
     # DEFAULT_T0_OVERLAY 里的分侧默认值盖掉纸面补丁。
     _legacy_side_expand = (
@@ -840,8 +804,6 @@ def validate_execution_patch(raw: Any) -> Tuple[bool, Dict[str, Any], List[str]]
     # enabled 等 bool
     if "enabled" in t0_in:
         t0_out["enabled"] = bool(t0_in.get("enabled"))
-    if "must_cover_same_day" in t0_in:
-        t0_out["must_cover_same_day"] = bool(t0_in.get("must_cover_same_day"))
     if "must_cover_same_day_sell_then_buy" in t0_in:
         t0_out["must_cover_same_day_sell_then_buy"] = bool(t0_in.get("must_cover_same_day_sell_then_buy"))
     if "must_cover_same_day_buy_then_sell" in t0_in:
@@ -855,8 +817,6 @@ def validate_execution_patch(raw: Any) -> Tuple[bool, Dict[str, Any], List[str]]
             else t0_in.get("y_path_required")
         )
         t0_out["y_hl_required"] = bool(raw_req)
-    if "y_tau_exit_price_skip" in t0_in:
-        t0_out["y_tau_exit_price_skip"] = bool(t0_in.get("y_tau_exit_price_skip"))
     if "y_tau_exit_price_skip_buy_then_sell" in t0_in:
         t0_out["y_tau_exit_price_skip_buy_then_sell"] = bool(
             t0_in.get("y_tau_exit_price_skip_buy_then_sell")

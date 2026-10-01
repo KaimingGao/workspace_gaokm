@@ -113,12 +113,6 @@ class T0BacktestRequest(BaseModel):
         le=5.0,
         description="正T：ŷ_τw>=此票；反T：ŷ_τw<=−此票。默认 2；0=允许 0 票",
     )
-    y_τw_enter: Optional[float] = Field(
-        default=None,
-        ge=0.0,
-        le=5.0,
-        description="y_tw_enter 的 Unicode 别名",
-    )
     y_τc_enter: Optional[float] = Field(
         default=None,
         ge=0.0,
@@ -149,23 +143,11 @@ class T0BacktestRequest(BaseModel):
         le=20.0,
         description="ŷ_τ* 距中位点不超过此百分点则不给 ŷ_τw 投票；默认 5；0=仅恰好中位点弃权",
     )
-    y_τw_vote_margin: Optional[float] = Field(
-        default=None,
-        ge=0.0,
-        le=20.0,
-        description="y_tw_vote_margin 的 Unicode 别名",
-    )
     y_tw_midpoint: Optional[float] = Field(
         default=None,
         ge=1.0,
         le=99.0,
         description="ŷ_τ30/45/60/75/90 共用中位点%；ŷ_τw=相对中位点符号和。默认 47",
-    )
-    y_τw_midpoint: Optional[float] = Field(
-        default=None,
-        ge=1.0,
-        le=99.0,
-        description="y_tw_midpoint 的 Unicode 别名",
     )
     horizon_prob_backend: Optional[str] = Field(
         default=None,
@@ -408,15 +390,12 @@ class PaperExecutionPatchRequest(BaseModel):
     y_on_allow: Optional[float] = None
     y_on_risk: Optional[float] = None
     y_tw_enter: Optional[float] = None
-    y_τw_enter: Optional[float] = None
     y_τc_enter: Optional[float] = None
     y_τc_strong: Optional[float] = None
     y_τc_enter_amount: Optional[float] = None
     y_τc_strong_amount: Optional[float] = None
     y_tw_vote_margin: Optional[float] = None
-    y_τw_vote_margin: Optional[float] = None
     y_tw_midpoint: Optional[float] = None
-    y_τw_midpoint: Optional[float] = None
     horizon_prob_backend: Optional[str] = None
     t0_y_τc_target_scale: Optional[float] = None
     t0_close_band_delta_pct: Optional[float] = None

@@ -219,13 +219,13 @@ class TestT0Core(unittest.TestCase):
 
         cfg = load_t0_rules({"must_cover_same_day": False})
         self.assertFalse(cfg["must_cover_same_day_buy_then_sell"])
-        self.assertFalse(cfg["must_cover_same_day"])
+        self.assertNotIn("must_cover_same_day", cfg)
         # 侧向键显式优先于 legacy
         cfg2 = load_t0_rules(
             {"must_cover_same_day": False, "must_cover_same_day_buy_then_sell": True}
         )
         self.assertTrue(cfg2["must_cover_same_day_buy_then_sell"])
-        self.assertTrue(cfg2["must_cover_same_day"])
+        self.assertNotIn("must_cover_same_day", cfg2)
 
     def test_atr_pct_requires_min_bars(self):
         from core.t0.rules import atr_pct_from_bars
@@ -681,12 +681,12 @@ class TestT0Core(unittest.TestCase):
 
     def test_default_t0_rules_match_paper_overlay(self):
         d = load_t0_rules()
-        self.assertTrue(d["must_cover_same_day"])
+        self.assertNotIn("must_cover_same_day", d)
         self.assertTrue(d["must_cover_same_day_sell_then_buy"])
         self.assertTrue(d["must_cover_same_day_buy_then_sell"])
         self.assertEqual(d["t0_pm_degrade_sell_then_buy"], "13:00")
         self.assertEqual(d["t0_pm_degrade_buy_then_sell"], "13:00")
-        self.assertEqual(d["t0_pm_degrade"], "13:00")
+        self.assertNotIn("t0_pm_degrade", d)
         self.assertEqual(d["t0_pm_chase_interval_min_sell_then_buy"], 5)
         self.assertEqual(d["t0_pm_chase_interval_min_buy_then_sell"], 5)
         self.assertAlmostEqual(d["t0_stop_pct_buy_then_sell"], 1.2)

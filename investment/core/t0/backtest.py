@@ -774,7 +774,6 @@ def _walk_t0(
         "profit_factor": profit_factor,
         "rules": {
             "t0_ratio": cfg["t0_ratio"],
-            "must_cover_same_day": cfg["must_cover_same_day"],
             "must_cover_same_day_sell_then_buy": cfg.get("must_cover_same_day_sell_then_buy"),
             "must_cover_same_day_buy_then_sell": cfg.get("must_cover_same_day_buy_then_sell"),
             "fill_mode": cfg["fill_mode"],
@@ -787,9 +786,7 @@ def _walk_t0(
             "y_trade_enter": cfg.get("y_trade_enter"),
             "y_on_risk": cfg.get("y_on_risk"),
             "y_on_allow": cfg.get("y_on_allow"),
-            "y_tw_enter": cfg.get("y_tw_enter")
-            if cfg.get("y_tw_enter") not in (None, "")
-            else cfg.get("y_τw_enter"),
+            "y_tw_enter": cfg.get("y_tw_enter"),
             "y_τc_enter": cfg.get("y_τc_enter"),
             "y_τc_strong": cfg.get("y_τc_strong"),
             "y_τc_enter_amount": cfg.get("y_τc_enter_amount"),
@@ -805,8 +802,6 @@ def _walk_t0(
             "t0_max_position_pct": cfg.get("t0_max_position_pct"),
             "t0_slots_max_rounds": cfg.get("t0_slots_max_rounds"),
             "t0_slots_enabled": cfg.get("t0_slots_enabled"),
-            "y_tau_exit_price_skip": cfg.get("y_tau_exit_price_skip"),
-            "y_tau_exit_price_mult": cfg.get("y_tau_exit_price_mult"),
             "y_tau_exit_price_skip_buy_then_sell": cfg.get(
                 "y_tau_exit_price_skip_buy_then_sell"
             ),
@@ -819,9 +814,6 @@ def _walk_t0(
             "y_tau_exit_price_mult_sell_then_buy": cfg.get(
                 "y_tau_exit_price_mult_sell_then_buy"
             ),
-            "y_tau_exit_price_bias": cfg.get("y_tau_exit_price_bias"),
-            "y_tau_exit_price_move_min": cfg.get("y_tau_exit_price_move_min"),
-            "y_tau_exit_price_move_max": cfg.get("y_tau_exit_price_move_max"),
             "y_tau_exit_price_bias_buy_then_sell": cfg.get(
                 "y_tau_exit_price_bias_buy_then_sell"
             ),
@@ -840,10 +832,8 @@ def _walk_t0(
             "y_tau_exit_price_move_max_sell_then_buy": cfg.get(
                 "y_tau_exit_price_move_max_sell_then_buy"
             ),
-            "t0_pm_degrade": cfg.get("t0_pm_degrade"),
             "t0_pm_degrade_sell_then_buy": cfg.get("t0_pm_degrade_sell_then_buy"),
             "t0_pm_degrade_buy_then_sell": cfg.get("t0_pm_degrade_buy_then_sell"),
-            "t0_pm_chase_interval_min": cfg.get("t0_pm_chase_interval_min"),
             "t0_pm_chase_interval_min_sell_then_buy": cfg.get("t0_pm_chase_interval_min_sell_then_buy"),
             "t0_pm_chase_interval_min_buy_then_sell": cfg.get("t0_pm_chase_interval_min_buy_then_sell"),
             "t0_stop_pct_buy_then_sell": cfg.get("t0_stop_pct_buy_then_sell"),

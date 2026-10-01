@@ -91,17 +91,12 @@ def paper_execution_save(body: PaperExecutionPatchRequest | None = None) -> Dict
             ("y_on_allow", req.y_on_allow),
             ("y_on_risk", req.y_on_risk),
             ("y_tw_enter", getattr(req, "y_tw_enter", None)),
-            ("y_τw_enter", getattr(req, "y_τw_enter", None)
-             if getattr(req, "y_τw_enter", None) not in (None, "")
-             else getattr(req, "y_tw_enter", None)),
             ("y_τc_enter", getattr(req, "y_τc_enter", None)),
             ("y_τc_strong", getattr(req, "y_τc_strong", None)),
             ("y_τc_enter_amount", getattr(req, "y_τc_enter_amount", None)),
             ("y_τc_strong_amount", getattr(req, "y_τc_strong_amount", None)),
             ("y_tw_vote_margin", getattr(req, "y_tw_vote_margin", None)),
-            ("y_τw_vote_margin", getattr(req, "y_τw_vote_margin", None) if getattr(req, "y_τw_vote_margin", None) not in (None, "") else getattr(req, "y_tw_vote_margin", None)),
             ("y_tw_midpoint", getattr(req, "y_tw_midpoint", None)),
-            ("y_τw_midpoint", getattr(req, "y_τw_midpoint", None) if getattr(req, "y_τw_midpoint", None) not in (None, "") else getattr(req, "y_tw_midpoint", None)),
             ("horizon_prob_backend", getattr(req, "horizon_prob_backend", None)),
             ("t0_y_τc_target_scale", getattr(req, "t0_y_τc_target_scale", None)),
             ("t0_close_band_delta_pct", getattr(req, "t0_close_band_delta_pct", None)),
