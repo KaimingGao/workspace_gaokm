@@ -63,9 +63,6 @@ class QuantEngine:
                 code,
                 include_cross_section=bool(params.get("include_cross_section")),
                 include_portfolio_backtest=bool(params.get("include_portfolio_backtest", True)),
-                include_portfolio_neutral_compare=bool(
-                    params.get("include_portfolio_neutral_compare", False)
-                ),
             )
             return self._compact_daily(report)
 
@@ -160,7 +157,6 @@ class QuantEngine:
                 report = self._svc.build_daily_report(
                     code,
                     include_portfolio_backtest=True,
-                    include_portfolio_neutral_compare=False,
                 )
             if offline:
                 from quant.services.quant_interpret import build_rule_based_interpret

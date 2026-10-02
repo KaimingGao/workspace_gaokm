@@ -870,14 +870,14 @@ class TestPaperReplayEngine(unittest.TestCase):
         self.assertEqual(len(rows), 1)
         self.assertNotIn("y_τ30", rows[0])
         self.assertNotIn("y_τw", rows[0])
-        self.assertAlmostEqual(float(rows[0]["y_hl"]), 1.5)
+        self.assertNotIn("y_hl", rows[0])
         self.assertEqual(rows[0]["formula_terms_tau"]["total"], 0.8)
         self.assertEqual(rows[0]["formula_terms_path"]["total"], 1.5)
 
         sk = _skip_to_sim({**src, "reason": "现金不足"}, "2026-09-10")
         self.assertNotIn("y_τ60", sk)
         self.assertNotIn("y_τw", sk)
-        self.assertAlmostEqual(float(sk["y_hl"]), 1.5)
+        self.assertNotIn("y_hl", sk)
         self.assertEqual(sk["formula_terms_tau"]["total"], 0.8)
 
         hold = _hold_to_sim(
@@ -889,7 +889,7 @@ class TestPaperReplayEngine(unittest.TestCase):
         )
         self.assertNotIn("y_τ90", hold)
         self.assertNotIn("y_τw", hold)
-        self.assertAlmostEqual(float(hold["y_hl"]), 1.5)
+        self.assertNotIn("y_hl", hold)
         self.assertEqual(hold["formula_terms_path"]["total"], 1.5)
 
     def test_sim_trades_keep_y_co_from_ranking(self):

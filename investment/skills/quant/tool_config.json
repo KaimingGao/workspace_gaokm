@@ -40,11 +40,6 @@
         "description": "日线回看长度，默认 120",
         "default": 120
       },
-      "top_k": {
-        "type": "integer",
-        "description": "仅研究口（中性化对照）；产品历史回测不截 TopK",
-        "default": 3
-      },
       "horizon_days": {
         "type": "integer",
         "description": "持有/评分 horizon，默认 3",
@@ -79,11 +74,6 @@
         "type": "boolean",
         "description": "daily_summary 是否含组合回测摘要",
         "default": true
-      },
-      "include_portfolio_neutral_compare": {
-        "type": "boolean",
-        "description": "daily_summary 是否含中性化 vs 绝对分对照专节（默认关：ŷ 路径开关空转）",
-        "default": false
       }
     },
     "required": [

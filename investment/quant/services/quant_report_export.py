@@ -445,53 +445,8 @@ def build_cluster_live_export_section(cl: Dict[str, Any]) -> Optional[Dict[str, 
     }
 
 
-def build_neutral_compare_export_section(nc: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-    """中性化对照专节（P58：MD/HTML 导出共用）。"""
-    if not nc or not nc.get("success"):
-        return None
-
-    delta = nc.get("delta") or {}
-    stocks = ", ".join(nc.get("loaded_stocks") or []) or "—"
-    md_lines = [
-        f"- 结论：**{nc.get('winner')}** 更优",
-        f"- 中性化累计：**{nc.get('neutralized_total_return_pct')}%** · 胜率 {nc.get('neutralized_win_rate_pct')}%",
-        f"- 未中性化ŷ累计：**{nc.get('absolute_total_return_pct')}%** · 胜率 {nc.get('absolute_win_rate_pct')}%",
-        f"- Δ累计：{delta.get('total_return_pct')}% · Δ胜率：{delta.get('win_rate_pct')}% · Δ交易：{delta.get('trade_count')}",
-        f"- 标的：{stocks}",
-        f"- 解读：{nc.get('interpretation') or '—'}",
-    ]
-    if nc.get("fundamentals_count"):
-        md_lines.append(f"- 基本面快照：{nc['fundamentals_count']} 只")
-    if nc.get("note"):
-        md_lines.append(f"- _{nc['note']}_")
-
-    html_body = (
-        "<table>"
-        "<thead><tr><th>维度</th><th>中性化</th><th>未中性化ŷ</th><th>Δ</th></tr></thead><tbody>"
-        f"<tr><td>累计收益</td><td>{nc.get('neutralized_total_return_pct')}%</td>"
-        f"<td>{nc.get('absolute_total_return_pct')}%</td>"
-        f"<td>{delta.get('total_return_pct')}%</td></tr>"
-        f"<tr><td>胜率</td><td>{nc.get('neutralized_win_rate_pct')}%</td>"
-        f"<td>{nc.get('absolute_win_rate_pct')}%</td>"
-        f"<td>{delta.get('win_rate_pct')}%</td></tr>"
-        f"<tr><td>交易次数</td><td colspan=\"2\">—</td><td>{delta.get('trade_count')}</td></tr>"
-        "</tbody></table>"
-        f"<p>结论：<strong>{nc.get('winner')}</strong> · {nc.get('interpretation') or '—'}</p>"
-        f"<p class='meta'>标的：{stocks} · 「未中性化ŷ」= 未做截面中性化的 predicted_score</p>"
-    )
-    if nc.get("note"):
-        html_body += f"<p class='meta'>{nc['note']}</p>"
-
-    return {
-        "title": "中性化对照专节",
-        "anchor": "neutral-compare",
-        "markdown_lines": md_lines,
-        "html_body": html_body,
-    }
-
-
 def build_report_export_toc(report: Dict[str, Any]) -> Dict[str, Any]:
-    """导出目录：主叙事组ŷ → 横截面 → 历史回测 → 中性化；单票探针进附录。"""
+    """导出目录：主叙事组ŷ → 横截面 → 历史回测；单票探针进附录。"""
     entries: List[tuple] = [("一页摘要", "一页摘要")]
 
     cl = report.get("cluster_live") or {}
@@ -502,11 +457,6 @@ def build_report_export_toc(report: Dict[str, Any]) -> Dict[str, Any]:
         entries.append((cs_section["title"], cs_section["anchor"]))
     if (report.get("portfolio_backtest_summary") or {}).get("success"):
         entries.append((PORTFOLIO_BT_SECTION_TITLE, "历史回测摘要"))
-    nc_section = build_neutral_compare_export_section(
-        report.get("portfolio_neutral_compare_summary") or {}
-    )
-    if nc_section:
-        entries.append((nc_section["title"], nc_section["anchor"]))
 
     # 附录：单票遗留探针
     if report.get("factor_ic"):
@@ -606,13 +556,6 @@ def build_report_executive_summary(report: Dict[str, Any]) -> Dict[str, Any]:
                 )
             elif pr.get("error"):
                 bullets.append(f"纸面回放不可用：{pr.get('error')}")
-
-    nc = report.get("portfolio_neutral_compare_summary") or {}
-    if nc.get("success"):
-        bullets.append(
-            f"中性化对照：{nc.get('interpretation') or '—'} "
-            f"(Δ累计 {((nc.get('delta') or {}).get('total_return_pct'))}%)"
-        )
 
     yc = report.get("y_check_summary") or {}
     if yc.get("success") and (yc.get("n") or yc.get("summary_line")):
@@ -716,15 +659,6 @@ def render_quant_report_markdown(report: Dict[str, Any]) -> str:
     if ps.get("success"):
         detail_lines = build_portfolio_backtest_markdown_lines(ps)
         parts.extend(_lines(PORTFOLIO_BT_SECTION_TITLE, detail_lines))
-
-    nc = report.get("portfolio_neutral_compare_summary") or {}
-    nc_section = build_neutral_compare_export_section(nc)
-    if nc_section:
-        parts.extend(
-            [f"## {nc_section['title']}", ""]
-            + nc_section["markdown_lines"]
-            + [""]
-        )
 
     yc = report.get("y_check_summary") or {}
     if yc.get("success") and (yc.get("n") or yc.get("by_y_check") or yc.get("rows")):
@@ -894,14 +828,6 @@ def render_quant_report_html(report: Dict[str, Any]) -> str:
             if line.startswith("- ")
         )
         section(PORTFOLIO_BT_SECTION_TITLE, f"<ul>{lis}</ul>")
-
-    nc = report.get("portfolio_neutral_compare_summary") or {}
-    nc_section = build_neutral_compare_export_section(nc)
-    if nc_section:
-        section(
-            nc_section["title"],
-            f"<div id=\"{nc_section['anchor']}\">{nc_section['html_body']}</div>",
-        )
 
     # 附录
     ic = report.get("factor_ic") or {}

@@ -106,7 +106,7 @@ ML 视角见 [机器学习视角 · 四件套对照](#四件套对照)。
 
 **组合回测（P51/P52）**：`use_in_backtest=true` 时批量注入基本面。中性化对照研究口已下线。
 
-**量化日报**：主叙事为组ŷ / 簿 / OOS / 横截面 / rank_lots 历史回测。不再自动写入 `portfolio_neutral_compare_summary`。
+**量化日报**：主叙事为组ŷ / 簿 / OOS / 横截面 / rank_lots 历史回测。
 
 #### 失效条件（Invalidation）
 
@@ -1745,7 +1745,7 @@ python3 research/quant_export_run.py --format html -o data/reports/manual.html
 
 Agent：`quant(task=health)` · `quant(task=package_info)` 查看包模块树。量化 preset 跑完后会追加 `watching_health` 步骤（watchlist 为空等会记为失败）。
 
-Web 量化面板 **「运维状态」** 区可 **「量化 CI」**（10 quant_* + preset）、**运行 daily**、复制报告链接；包模块树见 `GET /api/quant/package`。
+Web 量化面板 **「运维状态」** 区可 **「量化 CI」**（9 quant_* + preset）、**运行 daily**、复制报告链接；包模块树见 `GET /api/quant/package`。
 
 Agent：`quant(task=daily_presets)` 列出 preset；`quant(task=config_diff)` 预览 signal_config diff；`quant(task=portfolio_bridge)` 汇总持仓/纸面/量化联动。
 

@@ -365,7 +365,6 @@ class TestP37QuantOnlyFilter(unittest.TestCase):
             ids,
             {
                 "quant_portfolio_backtest",
-                "quant_daily_neutral_section",
                 "quant_interpret_neutral",
                 "quant_cross_section_score",
                 "quant_health",
@@ -381,7 +380,7 @@ class TestP37QuantOnlyFilter(unittest.TestCase):
         with patch("sys.stdout", buf):
             code = checklist_main(["--mock", "--quant-only"])
         self.assertEqual(code, 0)
-        self.assertIn("Quant-only: ON（10 quant_* case(s)）", buf.getvalue())
+        self.assertIn("Quant-only: ON（9 quant_* case(s)）", buf.getvalue())
     def test_checklist_quant_only_unknown_case_fails(self):
         code = checklist_main(["--mock", "--quant-only", "--case", "buy_kuaishou"])
         self.assertEqual(code, 2)
@@ -412,11 +411,11 @@ class TestP38EvalServiceQuantOnly(unittest.TestCase):
             save=False,
         )
         self.assertTrue(report.get("quant_only"))
-        self.assertEqual(report["total"], 10)
+        self.assertEqual(report["total"], 9)
         self.assertTrue(report["ok"])
         ids = {c["id"] for c in report["cases"]}
         self.assertTrue(ids.issubset({c for c in ids if c.startswith("quant_")}))
-        self.assertIn("quant_daily_neutral_section", ids)
+        self.assertNotIn("quant_daily_neutral_section", ids)
     def test_run_quant_only_unknown_case(self):
         report = EvalService().run(
             case_id="buy_kuaishou",
@@ -449,7 +448,7 @@ class TestP38EvalsApiQuantOnly(unittest.TestCase):
         self.assertEqual(res.status_code, 200)
         data = res.json()
         self.assertTrue(data.get("quant_only"))
-        self.assertEqual(data["total"], 10)
+        self.assertEqual(data["total"], 9)
         self.assertTrue(data["ok"])
     def test_summary_web_quant_ci_command(self):
         summary = EvalService().summary()

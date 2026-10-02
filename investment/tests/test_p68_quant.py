@@ -11,15 +11,15 @@ from quant.skill.engine import QuantEngine
 
 
 class TestP68QuantToolConfigParams(unittest.TestCase):
-    def test_tool_config_has_offline_and_neutral_flags(self):
+    def test_tool_config_has_offline_flag(self):
         path = os.path.join(ROOT, "skills", "quant", "tool_config.json")
         with open(path, encoding="utf-8") as f:
             cfg = json.load(f)
         props = cfg["parameters"]["properties"]
         self.assertIn("offline", props)
         self.assertFalse(props["offline"].get("default"))
-        self.assertIn("include_portfolio_neutral_compare", props)
-        self.assertFalse(props["include_portfolio_neutral_compare"].get("default"))
+        self.assertNotIn("include_portfolio_neutral_compare", props)
+        self.assertNotIn("top_k", props)
 
     def test_engine_honors_offline_interpret(self):
         out = QuantEngine().run(
@@ -35,7 +35,7 @@ class TestP68QuantToolConfigParams(unittest.TestCase):
         with open(path, encoding="utf-8") as f:
             text = f.read()
         self.assertIn("offline", text)
-        self.assertIn("include_portfolio_neutral_compare", text)
+        self.assertNotIn("include_portfolio_neutral_compare", text)
 
 
 if __name__ == "__main__":

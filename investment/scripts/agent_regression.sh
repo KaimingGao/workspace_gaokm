@@ -12,7 +12,7 @@ if [[ -f .env ]]; then
   set +a
 fi
 
-echo "[agent_regression] mock skills + Agent (21 cases)…"
+echo "[agent_regression] mock skills + Agent (20 cases)…"
 python3 evals/run_agent_check.py "$@"
 
 echo "[agent_regression] OK"

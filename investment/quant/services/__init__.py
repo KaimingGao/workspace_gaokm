@@ -5,7 +5,6 @@ from quant.services.portfolio_quant_bridge import build_portfolio_quant_bridge
 from quant.services.quant_interpret import (
     build_rule_based_interpret,
     compact_quant_report,
-    format_neutral_compare_brief,
     interpret_quant_report,
 )
 from quant.services.quant_report_export import (
@@ -35,7 +34,6 @@ __all__ = [
     "delete_quant_reports",
     "build_rule_based_interpret",
     "compact_quant_report",
-    "format_neutral_compare_brief",
     "interpret_quant_report",
     "build_config_diff_preview",
     "export_config_diff_bundle",

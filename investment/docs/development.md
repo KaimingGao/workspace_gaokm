@@ -245,7 +245,7 @@ python3 -m unittest discover -s tests -v
 ```bash
 cd investment
 
-# 离线 mock + daily preset 校验（CI / PR 同款，21 cases）
+# 离线 mock + daily preset 校验（CI / PR 同款，20 cases）
 python3 evals/run_checklist.py --mock --presets
 
 # 只跑 Skills（需外网时可去掉 --mock）
@@ -254,7 +254,7 @@ python3 evals/run_checklist.py
 # 只跑某一案
 python3 evals/run_checklist.py --mock --case quant_portfolio_bridge
 
-# 只跑量化 golden（10 quant_* cases）
+# 只跑量化 golden（9 quant_* cases）
 python3 evals/run_checklist.py --mock --quant-only --presets
 
 # preset 单独校验
@@ -285,7 +285,7 @@ python3 evals/run_repro.py
 | `GET /api/evals/readme` | 子目录 README 覆盖 + 架构回链 |
 | `POST /api/evals/run` | body 可含 `with_presets`（含 readme 校验） |
 
-用例定义在 `evals/golden_cases.json`（**21 cases**，含量化 `quant_*`、`quant_factor_ols`、`quant_model_policy` 等）。校验原则：**数字以 Skills 为准；Agent 回复不得出现工具结果里没有的关键数字；买入类须含免责声明。**
+用例定义在 `evals/golden_cases.json`（**20 cases**，含量化 `quant_*`、`quant_factor_ols`、`quant_model_policy` 等）。校验原则：**数字以 Skills 为准；Agent 回复不得出现工具结果里没有的关键数字；买入类须含免责声明。**
 
 Web 量化面板：quant preset daily 完成后自动加载 **Markdown 导出预览**（含 `#neutral-compare` / `#cross-section` TOC）；无 LLM 时「AI 解读」自动走 `POST /api/quant/interpret` · `{ "offline": true }` 规则解读。
 

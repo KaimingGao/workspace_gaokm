@@ -5,18 +5,17 @@ import logging
 
 logger = logging.getLogger(__name__)
 import json
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 QUANT_INTERPRET_SYSTEM = """你是 Investment 量化研究台的解读助手。
 根据用户提供的量化日报 JSON 摘要，用中文输出 3～6 条要点：
 1) 因子 IC / 权重建议遗留诊断（若有；权重建议不驱动选股）
 2) **横截面 ŷ（predicted_score）排序**（若有 cross_section：须写 Top 标的与 ŷ 分布；ŷ 为模型预测收益百分点，不等于买入）
 3) 历史回测摘要（若有）
-4) **中性化 vs 绝对分对照专节**（若有 portfolio_neutral_compare_summary：须写 winner、Δ累计、中性化/绝对分累计）
-5) stance 阈值建议（若有；按 ŷ% 门槛）
-6) **因子 OLS 实验**（若有 factor_ols：R²/样本与 config 对照；研究用，不写 config）
-7) OOS / 分组 live（若有：heuristic 基线 vs ŷ；过门≠自动 promote）
-8) 风险与局限（样本、OOS、非 point-in-time、非实盘）
+4) stance 阈值建议（若有；按 ŷ% 门槛）
+5) **因子 OLS 实验**（若有 factor_ols：R²/样本与 config 对照；研究用，不写 config）
+6) OOS / 分组 live（若有：heuristic 基线 vs ŷ；过门≠自动 promote）
+7) 风险与局限（样本、OOS、非 point-in-time、非实盘）
 
 要求：只解读给定数据，不保证收益，不推荐具体买卖；不升级/降级 stance_label 结论。
 强调：选股真源是 predicted_score（ŷ），不是人工 weights。"""
@@ -64,21 +63,6 @@ def compact_quant_report(report: Dict[str, Any]) -> Dict[str, Any]:
         }
     if report.get("portfolio_backtest_summary"):
         out["portfolio_backtest_summary"] = report["portfolio_backtest_summary"]
-    if report.get("portfolio_neutral_compare_summary") and report[
-        "portfolio_neutral_compare_summary"
-    ].get("success"):
-        nc = report["portfolio_neutral_compare_summary"]
-        out["portfolio_neutral_compare_summary"] = {
-            "success": True,
-            "winner": nc.get("winner"),
-            "delta": nc.get("delta"),
-            "neutralized_total_return_pct": nc.get("neutralized_total_return_pct"),
-            "absolute_total_return_pct": nc.get("absolute_total_return_pct"),
-            "neutralized_win_rate_pct": nc.get("neutralized_win_rate_pct"),
-            "absolute_win_rate_pct": nc.get("absolute_win_rate_pct"),
-            "interpretation": nc.get("interpretation"),
-            "note": nc.get("note"),
-        }
     cs = report.get("cross_section") or {}
     if cs.get("success"):
         from quant.services.quant_report_export import summarize_cross_section_scores
@@ -97,19 +81,6 @@ def compact_quant_report(report: Dict[str, Any]) -> Dict[str, Any]:
             "note": cl.get("note"),
         }
     return out
-
-
-def format_neutral_compare_brief(nc: Optional[Dict[str, Any]]) -> Optional[str]:
-    """中性化对照一行摘要（Web / offline 解读共用）。"""
-    if not nc or not nc.get("success"):
-        return None
-    delta = nc.get("delta") or {}
-    winner = nc.get("winner") or "—"
-    return (
-        f"中性化对照 · {winner} · "
-        f"Δ累计 {delta.get('total_return_pct')}% · "
-        f"中性 {nc.get('neutralized_total_return_pct')}% vs 绝对 {nc.get('absolute_total_return_pct')}%"
-    )
 
 
 def build_rule_based_interpret(report: Dict[str, Any]) -> Dict[str, Any]:
@@ -160,43 +131,17 @@ def build_rule_based_interpret(report: Dict[str, Any]) -> Dict[str, Any]:
             f"胜率 {ps.get('win_rate_pct')}% · 交易 {ps.get('trade_count')}"
         )
 
-    nc = compact.get("portfolio_neutral_compare_summary")
-    if nc:
-        delta = nc.get("delta") or {}
-        bullets.append(
-            f"中性化对照：{nc.get('winner')} 更优；"
-            f"中性化 {nc.get('neutralized_total_return_pct')}% vs 绝对分 {nc.get('absolute_total_return_pct')}%；"
-            f"Δ累计 {delta.get('total_return_pct')}% · Δ胜率 {delta.get('win_rate_pct')}%"
-        )
-
     if not bullets:
         bullets.append("量化日报数据不足，无法生成解读要点")
 
     bullets.append("研究结论非实盘建议，样本与基本面为快照，非 point-in-time")
 
-    out: Dict[str, Any] = {
+    return {
         "success": True,
         "interpretation": "\n".join(f"{i + 1}. {line}" for i, line in enumerate(bullets)),
         "source": "rule_based",
         "note": "以上为 AI 对量化研究数据的解读，市场有风险，不保证收益，不代客下单。",
     }
-    if nc:
-        out["neutral_compare_summary"] = nc
-        brief = format_neutral_compare_brief(nc)
-        if brief:
-            out["neutral_compare_brief"] = brief
-    return out
-
-
-def _attach_neutral_fields(result: Dict[str, Any], report: Dict[str, Any]) -> Dict[str, Any]:
-    compact = compact_quant_report(report)
-    nc = compact.get("portfolio_neutral_compare_summary")
-    if nc:
-        result["neutral_compare_summary"] = nc
-        brief = format_neutral_compare_brief(nc)
-        if brief:
-            result["neutral_compare_brief"] = brief
-    return result
 
 
 def interpret_quant_report(
@@ -240,4 +185,4 @@ def interpret_quant_report(
         "source": "llm",
         "note": "以上为 AI 对量化研究数据的解读，市场有风险，不保证收益，不代客下单。",
     }
-    return _attach_neutral_fields(out, report)
+    return out

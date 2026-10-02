@@ -50,16 +50,10 @@ class TestDailySnapshotMeta(unittest.TestCase):
                                     "portfolio_daily_summary",
                                     return_value={"success": True, "total_return_pct": 1},
                                 ):
-                                    with patch.object(
-                                        svc,
-                                        "portfolio_neutral_compare_summary",
-                                        return_value={"success": True},
-                                    ):
-                                        report = svc.build_daily_report(
-                                            include_cross_section=False,
-                                            include_portfolio_backtest=True,
-                                            include_portfolio_neutral_compare=True,
-                                        )
+                                    report = svc.build_daily_report(
+                                        include_cross_section=False,
+                                        include_portfolio_backtest=True,
+                                    )
         self.assertTrue(report.get("success"))
         self.assertTrue(str(report.get("generated_at") or "").startswith("20"))
 

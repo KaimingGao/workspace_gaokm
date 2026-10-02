@@ -637,62 +637,6 @@
       }
     },
     {
-      "id": "quant_daily_neutral_section",
-      "question": "量化日报中性化对照专节包含什么",
-      "intent": "量化研究",
-      "skills": [
-        {
-          "name": "quant",
-          "parameters": {
-            "task": "daily_summary",
-            "include_portfolio_backtest": true,
-            "include_portfolio_neutral_compare": true,
-            "use_saved": false
-          }
-        }
-      ],
-      "required_paths": [
-        "success",
-        "task",
-        "portfolio_neutral_compare_summary.success",
-        "portfolio_neutral_compare_summary.winner",
-        "portfolio_neutral_compare_summary.delta",
-        "portfolio_neutral_compare_summary.neutralized_total_return_pct",
-        "portfolio_neutral_compare_summary.absolute_total_return_pct"
-      ],
-      "routing_expect": {
-        "is_quant_question": true,
-        "quant_task": "daily_summary"
-      },
-      "mock": {
-        "quotes": {
-          "600519": {
-            "success": true,
-            "stock_code": "600519",
-            "stock_name": "贵州茅台",
-            "market": "CN"
-          },
-          "600036": {
-            "success": true,
-            "stock_code": "600036",
-            "stock_name": "招商银行",
-            "market": "CN"
-          }
-        },
-        "daily_bars": "rising_45",
-        "resolve_market_code": [
-          "CN",
-          "600519"
-        ],
-        "watching": {
-          "watchlist": [
-            "600519",
-            "600036"
-          ]
-        }
-      }
-    },
-    {
       "id": "quant_interpret_neutral",
       "question": "解读量化日报里的中性化对照",
       "intent": "量化研究",

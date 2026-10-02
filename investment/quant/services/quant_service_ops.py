@@ -234,7 +234,6 @@ class QuantOpsMixin:
         if payload is None:
             payload = self.build_daily_report(
                 include_portfolio_backtest=True,
-                include_portfolio_neutral_compare=False,
             )
         from quant.services.quant_interpret import build_rule_based_interpret, interpret_quant_report
 
@@ -313,9 +312,6 @@ class QuantOpsMixin:
         *,
         include_cross_section: bool = True,
         include_portfolio_backtest: bool = True,
-        include_portfolio_neutral_compare: bool = False,
-        top_k: Optional[int] = None,
-        horizon_days: Optional[int] = None,
         lookback: Optional[int] = None,
         fusion_w_co: Optional[float] = None,
         rank_enter: Optional[float] = None,
@@ -324,8 +320,6 @@ class QuantOpsMixin:
         """量化日报：主叙事=组ŷ / 簿 / OOS / 横截面ŷ / 历史回测（rank_lots）。
 
         历史回测缺省对齐 /replay：paper_replay · α / rank入场 1.2% / rank强 1.2% / lookback 30（下限 10）。
-        中性化对照默认不下发（ŷ 路径开关空转）；仅显式 ``include_portfolio_neutral_compare=True``。
-        ``top_k`` / ``horizon_days`` 仅留给该研究腿。
         """
         cfg = self.config_summary()
 
@@ -343,18 +337,6 @@ class QuantOpsMixin:
             if include_portfolio_backtest
             else None
         )
-        neutral_compare_summary = None
-        if include_portfolio_backtest and include_portfolio_neutral_compare:
-            neutral_kwargs: Dict[str, Any] = {}
-            if top_k is not None:
-                neutral_kwargs["top_k"] = int(top_k)
-            if horizon_days is not None:
-                neutral_kwargs["horizon_days"] = int(horizon_days)
-            if lookback is not None:
-                neutral_kwargs["lookback"] = int(lookback)
-            neutral_compare_summary = self.portfolio_neutral_compare_summary(
-                **neutral_kwargs
-            )
         cluster_live = {
             "success": False,
             "cluster_retired": True,
@@ -383,8 +365,6 @@ class QuantOpsMixin:
             "portfolio_backtest_summary": portfolio_summary,
             "cluster_live": cluster_live,
         }
-        if include_portfolio_backtest and include_portfolio_neutral_compare:
-            report["portfolio_neutral_compare_summary"] = neutral_compare_summary
         if include_cross_section:
             report["cross_section"] = self.run_cross_section(limit=10)
         return report

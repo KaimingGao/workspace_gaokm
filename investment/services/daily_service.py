@@ -53,9 +53,6 @@ class DailyRunService:
         paper_rebalance: Optional[bool] = None,
         paper_cross_section_rebalance: Optional[bool] = None,
         export_quant_report: Optional[bool] = None,
-        portfolio_neutral_compare: Optional[bool] = None,
-        top_k: Optional[int] = None,
-        horizon_days: Optional[int] = None,
         lookback: Optional[int] = None,
         fusion_w_co: Optional[float] = None,
         rank_enter: Optional[float] = None,
@@ -76,7 +73,6 @@ class DailyRunService:
                 "paper_rebalance": paper_rebalance,
                 "paper_cross_section_rebalance": paper_cross_section_rebalance,
                 "export_quant_report": export_quant_report,
-                "portfolio_neutral_compare": portfolio_neutral_compare,
             }.items()
             if v is not None
         }
@@ -92,7 +88,6 @@ class DailyRunService:
         sync_paper_watchlist = bool(flags["sync_paper_watchlist"])
         paper_rebalance = bool(flags["paper_rebalance"])
         export_quant_report = bool(flags["export_quant_report"])
-        portfolio_neutral_compare = bool(flags["portfolio_neutral_compare"])
 
         if not any(flags.values()):
             return {"ok": False, "error": "请至少选择一项任务"}
@@ -291,9 +286,6 @@ class DailyRunService:
                 qs = QuantService()
                 quant_report_payload = qs.build_daily_report(
                     include_cross_section=cross_section,
-                    include_portfolio_neutral_compare=portfolio_neutral_compare,
-                    top_k=top_k,
-                    horizon_days=horizon_days,
                     lookback=lookback,
                     fusion_w_co=fusion_w_co,
                     rank_enter=rank_enter,
@@ -305,19 +297,11 @@ class DailyRunService:
                     "ok": True,
                     "path": path,
                     "factor_sample_count": (quant_report_payload.get("factor_ic") or {}).get("sample_count"),
-                    "portfolio_neutral_compare": portfolio_neutral_compare,
-                    "top_k": top_k,
-                    "horizon_days": horizon_days,
                     "lookback": lookback,
                     "fusion_w_co": fusion_w_co,
                     "rank_enter": rank_enter,
                     "rank_strong": rank_strong,
                 }
-                if portfolio_neutral_compare:
-                    nc = quant_report_payload.get("portfolio_neutral_compare_summary") or {}
-                    step["neutral_compare_ok"] = bool(nc.get("success"))
-                    if nc.get("success"):
-                        step["neutral_compare_winner"] = nc.get("winner")
                 if export_quant_report and quant_report_payload:
                     exported = qs.save_report_exports(quant_report_payload)
                     step["export"] = exported

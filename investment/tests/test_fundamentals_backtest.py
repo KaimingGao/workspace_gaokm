@@ -14,7 +14,6 @@ from core.signal.config import load_signal_config
 from core.signal.cross_section_batch import score_window_as_item
 from core.signal.fundamentals_bridge import fetch_fundamentals_batch
 from quant.research.portfolio_data import load_portfolio_stock_bars
-from quant.research.portfolio_neutral_compare import compare_portfolio_neutralization
 from tests.test_p10_quant import _aligned_bars
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))

@@ -706,11 +706,6 @@ class QuantReplayMixin:
 
         return summarize_portfolio_backtest(**kwargs)
 
-    def portfolio_neutral_compare_summary(self, **kwargs: Any) -> Dict[str, Any]:
-        from quant.research.portfolio_neutral_compare import summarize_portfolio_neutral_compare
-
-        return summarize_portfolio_neutral_compare(**kwargs)
-
 
 # 兼容旧名（P94 文档 / 外部引用）
 QuantPortfolioMixin = QuantReplayMixin

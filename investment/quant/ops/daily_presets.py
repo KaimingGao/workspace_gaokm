@@ -27,7 +27,6 @@ DAILY_PRESETS: Dict[str, Dict[str, Any]] = {
         "sync_paper_watchlist": False,
         "paper_rebalance": False,
         "export_quant_report": False,
-        "portfolio_neutral_compare": False,
     },
     "quant": {
         "label": "量化研究",
@@ -42,7 +41,6 @@ DAILY_PRESETS: Dict[str, Dict[str, Any]] = {
         "sync_paper_watchlist": True,
         "paper_rebalance": False,
         "export_quant_report": True,
-        "portfolio_neutral_compare": False,
     },
     "full": {
         "label": "全量日常",
@@ -57,7 +55,6 @@ DAILY_PRESETS: Dict[str, Dict[str, Any]] = {
         "sync_paper_watchlist": True,
         "paper_rebalance": False,
         "export_quant_report": True,
-        "portfolio_neutral_compare": False,
     },
     "quant_paper": {
         "label": "量化 + 纸面调仓",
@@ -72,7 +69,6 @@ DAILY_PRESETS: Dict[str, Dict[str, Any]] = {
         "sync_paper_watchlist": True,
         "paper_rebalance": True,
         "export_quant_report": True,
-        "portfolio_neutral_compare": False,
     },
 }
 
@@ -87,7 +83,6 @@ _BOOL_KEYS = (
     "sync_paper_watchlist",
     "paper_rebalance",
     "export_quant_report",
-    "portfolio_neutral_compare",
 )
 
 

@@ -369,7 +369,7 @@ export function initEvals(ctx) {
     if (evalsPresets) evalsPresets.checked = true;
     if (evalsAgent) evalsAgent.checked = false;
     if (evalsCase) evalsCase.value = "";
-    evalsMeta.textContent = "量化 CI 同款（10 quant_* + preset）运行中…";
+    evalsMeta.textContent = "量化 CI 同款（9 quant_* + preset）运行中…";
     try {
       const data = await postQuantCiEval();
       renderEvalReport(data);

@@ -36,9 +36,6 @@ class DailyRunRequest(BaseModel):
     paper_rebalance: Optional[bool] = None
     paper_cross_section_rebalance: Optional[bool] = None  # alias for paper_rebalance
     export_quant_report: Optional[bool] = None
-    portfolio_neutral_compare: Optional[bool] = None
-    top_k: Optional[int] = Field(default=None, ge=1, le=40)
-    horizon_days: Optional[int] = Field(default=None, ge=1, le=10)
     lookback: Optional[int] = Field(default=None, ge=10, le=500)
     fusion_w_co: Optional[float] = Field(
         default=None,

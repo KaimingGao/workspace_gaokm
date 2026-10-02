@@ -284,16 +284,11 @@ class TestP27ExportSummaryApi(unittest.TestCase):
 class TestP67ExportPreviewToc(unittest.TestCase):
     def _sample_report(self):
         return {
-            "portfolio_neutral_compare_summary": {
+            "cross_section": {
                 "success": True,
-                "winner": "neutralized",
-                "delta": {"total_return_pct": 1.0, "win_rate_pct": 0.0, "trade_count": 0},
-                "neutralized_total_return_pct": 4.0,
-                "absolute_total_return_pct": 3.0,
-                "neutralized_win_rate_pct": 55.0,
-                "absolute_win_rate_pct": 50.0,
-                "loaded_stocks": ["600519"],
-                "interpretation": "中性化更优",
+                "ranking": [
+                    {"stock_code": "600519", "stock_name": "贵州茅台", "score": 1.25},
+                ],
             }
         }
     def test_export_includes_toc(self):
@@ -301,7 +296,8 @@ class TestP67ExportPreviewToc(unittest.TestCase):
         self.assertTrue(out.get("success"))
         toc = out.get("export_toc") or {}
         anchors = [e["anchor"] for e in toc.get("entries") or []]
-        self.assertIn("neutral-compare", anchors)
+        self.assertIn("cross-section", anchors)
+        self.assertNotIn("neutral-compare", anchors)
     def test_export_api_returns_toc(self):
         try:
             from fastapi.testclient import TestClient
@@ -317,14 +313,14 @@ class TestP67ExportPreviewToc(unittest.TestCase):
             "content": "<html></html>",
             "export_toc": {
                 "success": True,
-                "entries": [{"title": "中性化对照专节", "anchor": "neutral-compare"}],
+                "entries": [{"title": "横截面 ŷ", "anchor": "cross-section"}],
             },
         }
         with unittest.mock.patch.object(deps.quant, "export_report", return_value=mock):
             client = TestClient(web_app.app)
             res = client.get("/api/quant/export?format=html")
         self.assertEqual(res.status_code, 200)
-        self.assertIn("neutral-compare", [e["anchor"] for e in res.json()["export_toc"]["entries"]])
+        self.assertIn("cross-section", [e["anchor"] for e in res.json()["export_toc"]["entries"]])
 
 # --- test_p75_quant.py::TestP75ExecutiveSummaryScoreStats ---
 class TestP75ExecutiveSummaryScoreStats(unittest.TestCase):
