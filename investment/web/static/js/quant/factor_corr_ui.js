@@ -326,6 +326,28 @@ export function syncOverviewLanding(data) {
   paintOverviewEod();
 }
 
+/** 全局 ŷ_oo Holdout OOS → 概览。主值是 OLS/Ridge IC；命中进副文案。 */
+export function syncOverviewOo(oos) {
+  if (!oos || typeof oos !== "object") {
+    setProOverviewKpi("eod", "—", "全局 OLS · IC", "is-empty");
+    return;
+  }
+  const ic = Number(oos.ic);
+  if (!Number.isFinite(ic)) {
+    setProOverviewKpi("eod", "—", "全局 OLS · IC", "is-empty");
+    return;
+  }
+  const st = ic >= 0.05 ? "is-good" : ic >= 0 ? "is-mid" : "is-bad";
+  const parts = ["全局 OLS"];
+  const hitRaw =
+    oos.sign_hit != null ? Number(oos.sign_hit) : Number(oos.sign_hit_rate);
+  if (Number.isFinite(hitRaw)) {
+    const pct = hitRaw <= 1.0001 ? hitRaw * 100 : hitRaw;
+    parts.push(`命中 ${pct.toFixed(0)}%`);
+  }
+  setProOverviewKpi("eod", `IC ${ic.toFixed(2)}`, parts.join(" · "), st);
+}
+
 /** ŷ_oc 复盘 / τ 模型 → 概览副轴 KPI
  * @param {"hit"|"ic"|"text"} mode
  */

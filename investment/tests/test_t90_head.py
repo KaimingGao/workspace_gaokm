@@ -53,12 +53,14 @@ class SessionClockTests(unittest.TestCase):
         self.assertIsNone(add_session_minutes("13:30", 95))
         self.assertIsNone(add_session_minutes("14:00", 90))
 
-    def test_tau_clock_allows_t90_needs_95m(self):
+    def test_tau_clock_allows_t90_morning_window(self):
         from core.signal.minute_tau_grid import tau_clock_allows_t90
 
-        self.assertTrue(tau_clock_allows_t90("13:25"))
+        self.assertTrue(tau_clock_allows_t90("09:30"))
+        self.assertTrue(tau_clock_allows_t90("11:00"))
+        self.assertFalse(tau_clock_allows_t90("11:05"))
+        self.assertFalse(tau_clock_allows_t90("13:25"))
         self.assertFalse(tau_clock_allows_t90("13:30"))
-        self.assertFalse(tau_clock_allows_t90("13:35"))
 
     def test_sub_session_and_lunch_flags(self):
         from core.signal.minute_tau_grid import (
@@ -186,17 +188,17 @@ class SessionClockTests(unittest.TestCase):
         self.assertAlmostEqual(out[1]["xs"][0]["ret_last_90m_vs_sector"], 1.0, places=6)
         self.assertAlmostEqual(out[0]["xs"][1]["sector_ret_last_90m"], 3.0, places=6)
 
-    def test_t90_grid_stops_at_1325(self):
-        from core.signal.minute_tau_grid import DEFAULT_T90_TRAIN_TAU_GRID
+    def test_t90_grid_matches_yc_window(self):
+        from core.signal.minute_tau_grid import (
+            DEFAULT_T0_TRAIN_TAU_GRID_5M,
+            DEFAULT_T90_TRAIN_TAU_GRID,
+        )
 
-        self.assertIn("09:30", DEFAULT_T90_TRAIN_TAU_GRID)
-        self.assertIn("11:30", DEFAULT_T90_TRAIN_TAU_GRID)
-        self.assertIn("13:05", DEFAULT_T90_TRAIN_TAU_GRID)
-        self.assertIn("13:25", DEFAULT_T90_TRAIN_TAU_GRID)
-        self.assertNotIn("13:00", DEFAULT_T90_TRAIN_TAU_GRID)
-        self.assertNotIn("13:30", DEFAULT_T90_TRAIN_TAU_GRID)
-        self.assertNotIn("13:35", DEFAULT_T90_TRAIN_TAU_GRID)
-        self.assertNotIn("14:00", DEFAULT_T90_TRAIN_TAU_GRID)
+        self.assertEqual(DEFAULT_T90_TRAIN_TAU_GRID, DEFAULT_T0_TRAIN_TAU_GRID_5M)
+        self.assertEqual(DEFAULT_T90_TRAIN_TAU_GRID[0], "09:30")
+        self.assertEqual(DEFAULT_T90_TRAIN_TAU_GRID[-1], "11:00")
+        self.assertNotIn("11:30", DEFAULT_T90_TRAIN_TAU_GRID)
+        self.assertNotIn("13:05", DEFAULT_T90_TRAIN_TAU_GRID)
 
 
 class RelabelT90Tests(unittest.TestCase):
@@ -338,7 +340,7 @@ class RelabelT90Tests(unittest.TestCase):
         self.assertIsNone(late[0].get("price_tau90"))
 
     def test_collect_day_index_keeps_t90_grid_fast(self):
-        """按日切条后，全日 τ 网格不得再扫整段分钟历史。"""
+        """按日切条后，早盘 τ 网格不得再扫整段分钟历史。"""
         import time
 
         from core.research.tau_panel import collect_tau_intraday_panel
@@ -381,8 +383,12 @@ class RelabelT90Tests(unittest.TestCase):
         )
         elapsed = time.perf_counter() - t0
         self.assertGreater(len(ys), 100)
-        self.assertTrue(any(m.get("tau_plus_90") == "14:00" for m in metas))
-        self.assertTrue(any(m.get("tau_plus_90") == "14:55" for m in metas))
+        taus = {m.get("tau") for m in metas}
+        self.assertFalse(any(str(t or "") > "11:00" for t in taus))
+        self.assertTrue(
+            any(m.get("tau") == "11:00" and m.get("tau_plus_90") == "14:00" for m in metas)
+        )
+        self.assertFalse(any(m.get("tau_plus_90") == "14:55" for m in metas))
         self.assertFalse(any(m.get("tau_plus_90") == "15:00" for m in metas))
         self.assertLess(elapsed, 6.0, msg=f"collect too slow: {elapsed:.2f}s n={len(ys)}")
 

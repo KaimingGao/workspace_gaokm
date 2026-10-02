@@ -1014,8 +1014,8 @@ class TestOpenDayYhat(unittest.TestCase):
         )
         self.assertEqual(len(out), 1)
         self.assertAlmostEqual(float(out[0]["predicted_score"]), 1.0)
-        self.assertIsNotNone(out[0].get("y_trade"))
-        self.assertGreater(float(out[0]["y_trade"]), 0.5)
+        self.assertAlmostEqual(float(out[0]["y_oo"]), 1.0, places=3)
+        self.assertNotIn("y_trade", out[0])
         terms = out[0].get("score_formula_terms") or {}
         self.assertTrue(terms.get("terms"))
         self.assertEqual(terms["terms"][0]["key"], "mom3")
@@ -1054,7 +1054,8 @@ class TestOpenDayYhat(unittest.TestCase):
             windows={"600519": window},
             tau_model_doc={},
         )
-        self.assertAlmostEqual(float(out[0]["y_trade"]), 1.2, places=3)
+        self.assertAlmostEqual(float(out[0]["y_oo"]), 1.2, places=3)
+        self.assertNotIn("y_trade", out[0])
         self.assertIsNone(out[0].get("y_nowcast"))
         self.assertIsNone(out[0].get("predicted_score_nowcast"))
         self.assertAlmostEqual(float(out[0].get("y_oo")), 1.2, places=3)
@@ -1283,10 +1284,9 @@ class TestRealizedYhatWindows(unittest.TestCase):
     def test_stamp_r_tau_uses_fill_not_daily_open(self):
         """R_τ 真实=收盘/成交价(τ)，不是收盘/日开（生益 09:40 口径）。"""
         from core.backtest.paper_replay import stamp_r_tau_on_row
-        from core.signal.yhat_geom import remaining_at_tau
 
         row = {
-            "y_tau": 5.25,
+            "y_τc": 5.25,
             "status": "filled",
             "side": "buy",
             "price": 153.2,
@@ -1305,14 +1305,13 @@ class TestRealizedYhatWindows(unittest.TestCase):
         self.assertAlmostEqual(row["day_open"], 146.0)
         self.assertAlmostEqual(row["day_close"], 150.25)
         self.assertAlmostEqual(row["r_realized"], (150.25 / 153.2 - 1.0) * 100.0, places=3)
-        rot = (153.2 / 146.0 - 1.0) * 100.0
-        self.assertAlmostEqual(row["r_hat"], remaining_at_tau(5.25, rot), places=3)
+        self.assertNotIn("r_hat", row)
 
     def test_stamp_r_tau_hold_ignores_close_mark(self):
         from core.backtest.paper_replay import stamp_r_tau_on_row
 
         row = {
-            "y_tau": 5.25,
+            "y_τc": 5.25,
             "status": "held",
             "side": "hold",
             "price": 150.25,
@@ -2512,7 +2511,6 @@ class TestReplayPrefixYoc(unittest.TestCase):
         self.assertTrue(_apply_prefix_oc(item, live, cfg))
         self.assertAlmostEqual(float(item["y_oo"]), 0.8, places=6)
         self.assertAlmostEqual(float(item["y_τc"]), -0.70, places=6)
-        self.assertNotIn("y_oc", item)
         self.assertLess(float(item["ranking"]), 0.2)
 
     def test_apply_prefix_copies_aux_yhat(self):
@@ -2593,7 +2591,6 @@ class TestReplayPrefixYoc(unittest.TestCase):
             )
         self.assertEqual(n, 1)
         self.assertAlmostEqual(float(out[0]["y_τc"]), -0.70, places=6)
-        self.assertNotIn("y_oc", out[0])
         self.assertAlmostEqual(float(out[0]["y_oo"]), 0.5, places=6)
         self.assertTrue(rs.called)
         kw = rs.call_args.kwargs

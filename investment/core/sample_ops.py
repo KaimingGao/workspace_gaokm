@@ -268,7 +268,16 @@ def ingest_real_fundamentals_history(
         for pt in series:
             metrics = {
                 k: pt.get(k)
-                for k in ("roe", "profit_growth", "revenue_growth", "eps")
+                for k in (
+                    "roe",
+                    "profit_growth",
+                    "revenue_growth",
+                    "eps",
+                    "pe",
+                    "pe_ttm",
+                    "pb",
+                    "dividend_yield",
+                )
                 if pt.get(k) is not None
             }
             if not metrics:

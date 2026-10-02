@@ -94,7 +94,7 @@ class TestTauBoost(unittest.TestCase):
             holdout_trading_days=8,
         )
         self.assertTrue(report.get("success"), report.get("error"))
-        self.assertEqual(report.get("task"), "tau_tree")
+        self.assertEqual(report.get("task"), "tc_tree")
         self.assertEqual(report.get("head"), "y_tau_tree")
         self.assertEqual(report.get("schema"), "tau_tree_shadow_v2")
         self.assertEqual(report.get("backend"), "lightgbm")

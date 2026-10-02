@@ -69,6 +69,7 @@ from web.schemas.research import (
     WeightSuggestRequest,
     ThresholdSuggestRequest,
     YhatResidualShadowRequest,
+    ResearchTaskRequest,
     ExcessModeShadowRequest,
 )
 
@@ -146,6 +147,7 @@ __all__ = [
     "WeightSuggestRequest",
     "ThresholdSuggestRequest",
     "YhatResidualShadowRequest",
+    "ResearchTaskRequest",
     "ExcessModeShadowRequest",
     "ScoringFloorsRequest",
     "StanceThresholdsRequest",

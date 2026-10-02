@@ -654,7 +654,7 @@ def fit_tau_tree_report(
         return {
             "success": False,
             "error": f"树样本不足 n={len(ys)}（需≥20）",
-            "task": "tau_tree",
+            "task": "tc_tree",
             "head": TREE_HEAD,
             "sample_count": len(ys),
             "stock_count": len(enriched),
@@ -710,7 +710,7 @@ def fit_tau_tree_report(
         return {
             "success": False,
             "error": f"Holdout 切分后样本不足 训={len(ys_tr)} 测={len(ys_te)}",
-            "task": "tau_tree",
+            "task": "tc_tree",
             "head": TREE_HEAD,
             "sample_count": len(ys),
             "schema": TREE_SCHEMA,
@@ -780,7 +780,7 @@ def fit_tau_tree_report(
 
     report: Dict[str, Any] = {
         "success": True,
-        "task": "tau_tree",
+        "task": "tc_tree",
         "head": TREE_HEAD,
         "schema": TREE_SCHEMA,
         "horizon_mode": "tau_to_close",

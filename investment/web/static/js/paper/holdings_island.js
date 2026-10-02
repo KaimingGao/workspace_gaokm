@@ -60,7 +60,8 @@ export function createHoldingsIslandController(deps) {
           key === "score_tau" ||
           key === "score_on" ||
           key === "pnl" ||
-          key === "chg"
+          key === "chg" ||
+          key === "tier"
         ) {
           setSortState(key, s.dir === "asc" ? "asc" : "desc");
           persistSort();

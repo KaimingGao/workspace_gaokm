@@ -1,6 +1,7 @@
 /** Holdings sort helpers extracted from paper.js (W0.1). */
 
 import { resolveRankingScore, resolveEodScore, resolveTauScore, resolveOnScore } from "./fmt.js?v=p2544";
+import { getPredTier, predTierRank } from "../quant/pred_tier_ui.js?v=p2749";
 
 export function loadHoldingsSort() {
   let key = "market_value";
@@ -16,7 +17,8 @@ export function loadHoldingsSort() {
         saved.key === "score_tau" ||
         saved.key === "score_on" ||
         saved.key === "pnl" ||
-        saved.key === "chg")
+        saved.key === "chg" ||
+        saved.key === "tier")
     ) {
       key = saved.key;
       dir = saved.dir === "asc" ? "asc" : "desc";
@@ -49,6 +51,21 @@ export function sortHoldings(list, key, dir) {
       av = String(a.stock_code || "");
       bv = String(b.stock_code || "");
       return asc ? av.localeCompare(bv) : bv.localeCompare(av);
+    }
+    if (k === "tier") {
+      const ar = predTierRank((getPredTier(a.stock_code) || {}).tier);
+      const br = predTierRank((getPredTier(b.stock_code) || {}).tier);
+      if (ar !== br) return asc ? ar - br : br - ar;
+      const as = resolveRankingScore(a);
+      const bs = resolveRankingScore(b);
+      const aOk = as != null && Number.isFinite(Number(as));
+      const bOk = bs != null && Number.isFinite(Number(bs));
+      if (aOk && bOk && Number(as) !== Number(bs)) return Number(bs) - Number(as);
+      if (aOk && !bOk) return -1;
+      if (!aOk && bOk) return 1;
+      return String(a.stock_code || "").localeCompare(String(b.stock_code || ""), "zh-CN", {
+        numeric: true,
+      });
     }
     if (k === "score") {
       av = resolveRankingScore(a);

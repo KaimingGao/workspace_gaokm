@@ -1,16 +1,15 @@
 """四段 ŷ 窗口：抽头、加权融合、调仓 ranking、做 T residual。
 
 ŷ_oo  open(T)→open(T+1)   主字段 y_oo / predicted_score_oo；别名 predicted_score
-ŷ_τc  price(τ)→close(T)   主字段 y_τc。时钟对齐后写 y_tau。τ=open 时等于 close/open−1。
-ŷ_co  close(T)→open(T+1)  主字段 y_co；旧键 y_on 可读
+ŷ_τc  price(τ)→close(T)   主字段 y_τc（含时钟对齐）。原始头在 y_tau_raw。τ=open 时等于 close/open−1。
+ŷ_co  close(T)→open(T+1)  主字段 y_co / predicted_score_co
 
 现网 ranking（τc，price(τ)→close 标签；行上有 y_spec_tau）：
   rank = w_oo·((ŷ_oo+1)/(1+rot)−1) + w_τc·((1+ŷ_τc)(1+w_co·ŷ_co)−1)
   rot = price(τ)/open[T]−1；两项都在 τ→open[T+1]，不再整段减 rot
   缺 y_spec 的旧行仍走 open 基准融合再减 rot
 
-R̂_τ      = close[T]/price(τ)−1
-residual = fuse(ŷ_τc, remaining(ŷ_oc))   # 同空间；ĉ=price(τ)×(1+R̂_τ/100)
+R̂_τ = residual = ŷ_τc = close[T]/price(τ)−1
 """
 
 from __future__ import annotations
@@ -24,11 +23,11 @@ FORMULA_OC = "close[T]/open[T]-1"
 FORMULA_CO = "open[T+1]/close[T]-1"
 FORMULA_TC = "close[T]/price[τ]-1"
 FORMULA_TC_LEGACY = "price[τ]/close[T]-1"
-FORMULA_TC_REMAINING = "remaining(ŷ_oc)=(1+ŷ_oc)/(1+open→τ)−1"
+FORMULA_TC_REMAINING = "remaining(open→close)=(1+ŷ)/(1+open→τ)−1"
 FORMULA_RANKING = (
     "w_oo·((ŷ_oo+1)/(1+rot)−1) + w_τc·((1+ŷ_τc)(1+w_co·ŷ_co)−1)"
 )
-FORMULA_RESIDUAL = "w_τc·ŷ_τc + w_oc·remaining(ŷ_oc)"
+FORMULA_RESIDUAL = "ŷ_τc = close[T]/price[τ]−1"
 Y_TC_SOURCE_REMAINING = "remaining_oc"
 Y_TC_SOURCE_RIDGE = "ridge"
 
@@ -160,29 +159,9 @@ def pick_y_oo(item: Optional[dict]) -> Optional[float]:
     )
 
 
-def pick_y_oc(item: Optional[dict]) -> Optional[float]:
-    """时钟对齐后的 y_tau。破带与表列用 pick_y_τc。"""
-    return _first_pct(item, ("y_tau",))
-
-
 def pick_y_τc(item: Optional[dict]) -> Optional[float]:
-    """主字段 y_τc。缺则把旧 y_r（price/close）反几何。"""
-    direct = _first_pct(
-        item,
-        (
-            "y_τc",
-            "predicted_score_τc",
-        ),
-    )
-    if direct is not None:
-        return direct
-    raw = _first_pct(item, ("y_r", "y_r_hat", "predicted_score_r"))
-    if raw is None:
-        return None
-    formula = _pc_formula_of(item)
-    if formula and not pc_formula_is_legacy(formula):
-        return raw
-    return invert_price_over_close(raw)
+    """主字段 y_τc：close/price(τ)−1，含时钟对齐。"""
+    return _first_pct(item, ("y_τc", "predicted_score_τc"))
 
 
 def write_y_τc(dest: Dict[str, Any], val: Optional[float]) -> None:
@@ -273,26 +252,10 @@ def tc_realized_pct(price_tau: Any, close: Any) -> Optional[float]:
     return round(float(v), 4) if v is not None else None
 
 
-def stamp_remaining_y_τc(
-    dest: Dict[str, Any],
-    *,
-    y_oc: Optional[float] = None,
-    open_px: Optional[float] = None,
-    price_tau: Optional[float] = None,
-) -> Optional[float]:
-    """remaining(ŷ_oc) 写入 R̂_τ（r_hat / remaining_oc）；ŷ_τc 保持 Ridge 模型预估。
-
-    旧簿若把 remaining 盖进 y_τc，则从 y_τc_ridge / y_r 还原表列，避免与 R_τ 重复。
-    """
+def stamp_remaining_y_τc(dest: Dict[str, Any]) -> Optional[float]:
+    """旧簿若把 remaining 盖进 y_τc，则从 y_τc_ridge 还原。"""
     if not isinstance(dest, dict):
         return None
-    oc = y_oc if y_oc is not None else pick_y_oc(dest)
-    rem = remaining_oc(
-        oc,
-        ret_open_to_tau_of(dest),
-        open_px=open_px,
-        price_tau=price_tau,
-    )
     ridge = _f(dest.get("y_τc_ridge"))
     if ridge is None:
         ridge = _f(dest.get("y_r"))
@@ -303,16 +266,12 @@ def stamp_remaining_y_τc(
     src = str(dest.get("y_τc_source") or "")
     if ridge is None and src != Y_TC_SOURCE_REMAINING:
         ridge = _f(dest.get("y_τc"))
-    if rem is not None:
-        dest["remaining_oc"] = float(rem)
-        dest["r_hat"] = float(rem)
-        dest["residual"] = float(rem)
     if ridge is not None:
         dest["y_τc_ridge"] = float(ridge)
         write_y_τc(dest, ridge)
         dest["y_τc_source"] = Y_TC_SOURCE_RIDGE
         dest["y_spec_τc"] = {"formula": FORMULA_TC, "unit": "pct"}
-    return rem if rem is not None else ridge
+    return ridge
 
 
 def forward_oo_pct(
@@ -353,7 +312,7 @@ def pit_oo_window_quote(
 
 
 def pick_y_co(item: Optional[dict]) -> Optional[float]:
-    return _first_pct(item, ("y_co", "predicted_score_co", "y_on", "predicted_score_on"))
+    return _first_pct(item, ("y_co", "predicted_score_co"))
 
 
 def ret_open_to_tau_of(item: Optional[dict]) -> Optional[float]:
@@ -405,20 +364,20 @@ def compound_pct(a: Optional[float], b: Optional[float]) -> Optional[float]:
 
 
 def oc_with_co(
-    y_oc: Optional[float],
+    y_τc: Optional[float],
     y_co: Optional[float],
     w_co: float = 0.0,
 ) -> Optional[float]:
-    """((1+ŷ_oc/100)(1+w_co·ŷ_co/100)−1)×100。无 ŷ_oc 则 None；w_co=0 或缺 ŷ_co 则 ŷ_oc。"""
-    if y_oc is None:
+    """((1+ŷ_τc/100)(1+w_co·ŷ_co/100)−1)×100。无 ŷ_τc 则 None；w_co=0 或缺 ŷ_co 则 ŷ_τc。"""
+    if y_τc is None:
         return None
     try:
         wc = max(0.0, float(w_co or 0.0))
     except (TypeError, ValueError):
         wc = 0.0
     if y_co is None or wc <= 1e-12:
-        return float(y_oc)
-    return compound_pct(y_oc, wc * float(y_co))
+        return float(y_τc)
+    return compound_pct(y_τc, wc * float(y_co))
 
 
 def ret_open_to_tau_pct(
@@ -455,37 +414,11 @@ def ranking_price_tau(item: Optional[dict]) -> Optional[float]:
     return None
 
 
-def remaining_oc(
-    y_oc: Optional[float],
-    ret_open_to_tau: Optional[float] = None,
-    *,
-    open_px: Optional[float] = None,
-    price_tau: Optional[float] = None,
-) -> Optional[float]:
-    """把 ŷ_oc（open→close）映成 R̂_τ = close[T]/price(τ)−1。
-
-    无 open→τ 已实现则无法对齐剩余窗，返回 None（勿把 OC 原值与 ŷ_τc 混加）。
-    """
-    if y_oc is None:
-        return None
-    rot = _f(ret_open_to_tau)
-    if rot is None:
-        rot = ret_open_to_tau_pct(open_px, price_tau)
-    if rot is None:
-        return None
-    try:
-        from core.signal.yhat_geom import remaining_at_tau
-
-        return remaining_at_tau(y_oc, rot)
-    except Exception:  # noqa: BLE001
-        return None
-
-
 def residual_inv_var_weights(
     item: Optional[dict],
     ret_open_to_tau: Optional[float] = None,
 ) -> Optional[Tuple[float, float]]:
-    """OOS 逆方差权：w ∝ 1/σ²。ŷ_oc 方差先按 Jacobian 映到剩余窗。缺一侧则 None。"""
+    """OOS 逆方差权：w ∝ 1/σ²。open→close 残差方差先按 Jacobian 映到剩余窗。缺一侧则 None。"""
     d = item if isinstance(item, dict) else {}
     oos = d.get("oos") if isinstance(d.get("oos"), dict) else {}
 
@@ -545,7 +478,6 @@ def ranking_pct(
     行上 ``y_spec_tau`` 为 price(τ)→close 时：
         ranking = w_oo·((ŷ_oo+1)/(1+rot)−1) + w_τc·((1+ŷ_τc)(1+w_co·ŷ_co)−1)
         直接算在 τ→open[T+1]；ŷ_oo 用 remaining_at_tau，ŷ_τc 已是 τ→close。
-        缺 y_τc 时回退时钟对齐的 y_tau。
 
     缺 y_spec 时退回 open 基准融合，由 ``remaining_ranking_pct`` 再减 rot。
     ``rem_model_doc`` 优先于 item。
@@ -555,11 +487,9 @@ def ranking_pct(
     is_oc = tau_model_is_open_to_close(rem_model_doc if rem_model_doc is not None else item)
     y_co = pick_y_co(item)
     if is_oc:
-        right = oc_with_co(pick_y_oc(item), y_co, w_co)
+        right = oc_with_co(pick_y_τc(item), y_co, w_co)
         return fuse_pct(pick_y_oo(item), right, w_left=w_oo, w_right=w_τc)
     y_tc = pick_y_τc(item)
-    if y_tc is None:
-        y_tc = pick_y_oc(item)
     rot = _f(ret_open_to_tau)
     if rot is None:
         rot = ret_open_to_tau_of(item)
@@ -623,29 +553,9 @@ def residual_pct(
     cfg: Optional[dict] = None,
     use_τc: Optional[bool] = None,
 ) -> Optional[float]:
-    """R̂_τ（百分点）= fuse(ŷ_τc, remaining(ŷ_oc))，标签 close[T]/price(τ)−1。
-
-    ŷ_oc 是 open→close；融合前映到剩余窗。映不成则只用 ŷ_τc。
-    缺 ŷ_τc 时 fuse 退回 remaining(ŷ_oc)；做 T mag 请用 ``t0_residual_pct``。
-    """
-    yhat = pick_y_τc(item) if use_τc is not False else None
-    rot = ret_open_to_tau_pct(open_px, price_tau)
-    if rot is None:
-        rot = ret_open_to_tau_of(item)
-    rem = remaining_oc(
-        pick_y_oc(item),
-        rot,
-        open_px=open_px,
-        price_tau=price_tau,
-    )
-    wl, wr = float(w_pc), float(w_oc)
-    if cfg is not None:
-        wl, wr = residual_weights_from_cfg(cfg)
-        if residual_w_mode_from_cfg(cfg) == "inv_var":
-            iv = residual_inv_var_weights(item, rot)
-            if iv is not None:
-                wl, wr = iv
-    return fuse_pct(yhat, rem, w_left=wl, w_right=wr)
+    """R̂_τ（百分点）= ŷ_τc，标签 close[T]/price(τ)−1。"""
+    _ = (w_pc, w_oc, open_px, price_tau, cfg)
+    return pick_y_τc(item) if use_τc is not False else None
 
 
 def t0_residual_pct(
@@ -657,7 +567,7 @@ def t0_residual_pct(
     price_tau: Optional[float] = None,
     cfg: Optional[dict] = None,
 ) -> Optional[float]:
-    """做 T 主分：有 ŷ_τc 才融合 ŷ_τc 与 remaining(ŷ_oc)；否则 None（回退 y_trade）。"""
+    """做 T 主分：有 ŷ_τc 才返回；否则 None（回退 y_trade）。"""
     if pick_y_τc(item) is None:
         return None
     return residual_pct(
@@ -713,12 +623,11 @@ def residual_weights_from_cfg(cfg: Optional[dict]) -> Tuple[float, float]:
 
 
 def stamp_window_scores(item: Optional[dict], cfg: Optional[dict] = None) -> Dict[str, Optional[float]]:
-    """抽 ŷ_oo/ŷ_oc/ŷ_τc + ranking / residual（百分点）。"""
+    """抽 ŷ_oo / ŷ_τc + ranking / residual（百分点）。"""
     w_oo, w_τc = fusion_weights_from_cfg(cfg)
     w_co = fusion_w_co_from_cfg(cfg)
     w_res_τc, w_oc_r = residual_weights_from_cfg(cfg)
     y_oo = pick_y_oo(item)
-    y_oc = pick_y_oc(item)
     y_τc = pick_y_τc(item)
     y_co = pick_y_co(item)
     is_oc = tau_model_is_open_to_close(item)
@@ -732,12 +641,12 @@ def stamp_window_scores(item: Optional[dict], cfg: Optional[dict] = None) -> Dic
     residual = residual_pct(item, w_pc=w_res_τc, w_oc=w_oc_r, cfg=cfg)
     fa = item.get("factor_anomaly") if isinstance(item, dict) else None
     if isinstance(fa, dict) and fa.get("fatal_tau"):
-        y_oc = None
+        y_τc = None
         y_co = None
         ranking = None
     return {
         "y_oo": y_oo,
-        "y_τc": y_τc if y_τc is not None else y_oc,
+        "y_τc": y_τc,
         "y_co": y_co,
         "ranking": ranking,
         "residual": residual,
@@ -766,7 +675,6 @@ __all__ = [
     "pc_formula_is_legacy",
     "pc_formula_of",
     "pick_y_co",
-    "pick_y_oc",
     "pick_y_oo",
     "pick_y_τc",
     "pit_oo_window_quote",
@@ -775,7 +683,6 @@ __all__ = [
     "ranking_price_tau",
     "remaining_ranking_pct",
     "realized_ranking_pct",
-    "remaining_oc",
     "residual_inv_var_weights",
     "residual_pct",
     "residual_w_mode_from_cfg",

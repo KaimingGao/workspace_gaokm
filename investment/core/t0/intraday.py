@@ -223,7 +223,7 @@ def booked_t0_preview_row(
         }
     )
     row.pop("skip_category", None)
-    # ŷ / 扫描 / 开→收真实值必须由本轮重算填回；快照里的早盘分会和回测漂。
+    # ŷ / 扫描 / 真实 ŷ_τc（close/open−1）必须由本轮重算填回；快照里的早盘分会和回测漂。
     row.pop("close_band_scan", None)
     row.pop("scores", None)
     row.pop("tau_realized", None)
@@ -291,8 +291,8 @@ def overlay_booked_t0_on_preview(
         )
         if not booked:
             continue
-        # ŷ / 扫描 / 开→收真实值用本轮重算。tau_realized 必须盖掉早盘快照，
-        # 否则扫描表 y_oc 括号仍是盘中末价（如 151.01→−1.30%），回测用全日收。
+        # ŷ / 扫描 / 真实 ŷ_τc 用本轮重算。tau_realized（close/open−1）必须盖掉早盘快照，
+        # 否则扫描表括号仍是盘中末价（如 151.01→−1.30%），回测用全日收。
         for k in (
             "close_band_scan",
             "scores",

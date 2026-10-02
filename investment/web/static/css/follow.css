@@ -1180,6 +1180,11 @@ body[data-page="follow"] #paper-rebalance-report.quant-weight-table-wrap,
   text-align: left;
 }
 
+.follow-holdings-card .paper-holdings-table thead th.paper-hold-tier,
+.follow-holdings-card .paper-holdings-table td.paper-hold-tier {
+  text-align: center;
+}
+
 .follow-holdings-card .paper-holdings-table thead th:nth-child(8) {
   text-align: right;
 }

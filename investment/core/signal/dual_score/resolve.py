@@ -328,10 +328,17 @@ resolve_predicted_score_eod = resolve_predicted_score_oo  # 遗留别名，统�
 
 
 def resolve_predicted_score_tau(item: Optional[dict]) -> Optional[float]:
-    """时钟对齐后的 ŷ_τc。主字段 y_tau；旧簿仍可读 predicted_score_tau / score_rem。"""
+    """ŷ_τc（price(τ)→close，含时钟对齐）。缺主字段时读旧行 y_tau / score_rem。"""
     if not isinstance(item, dict):
         return None
-    for k in ("y_tau", "predicted_score_tau", "score_rem", "predicted_score_rem"):
+    for k in (
+        "y_τc",
+        "predicted_score_τc",
+        "y_tau",
+        "predicted_score_tau",
+        "score_rem",
+        "predicted_score_rem",
+    ):
         v = item.get(k)
         if v is None:
             continue

@@ -37,3 +37,9 @@ class QuantService(
         from quant.services.action_map import action_map
 
         return action_map()
+
+    def run_research_task(self, head: str, **params):
+        """按注册表分发研究头。记录步骤在各 run_*_experiment 返回前执行。"""
+        from core.research.task import dispatch_research_task
+
+        return dispatch_research_task(self, head, **params)

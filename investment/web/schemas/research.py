@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field
 
@@ -809,6 +809,13 @@ class ThresholdSuggestRequest(BaseModel):
     lookback: int = Field(default=120, ge=40, le=500)
     use_watching: bool = False
     watching_limit: int = Field(default=5, ge=2, le=10)
+
+
+class ResearchTaskRequest(BaseModel):
+    """已登记研究头的统一入口。params 传给对应 run_*_experiment。"""
+
+    head: str = Field(min_length=1)
+    params: Dict[str, Any] = Field(default_factory=dict)
 
 
 class YhatResidualShadowRequest(BaseModel):

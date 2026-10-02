@@ -175,7 +175,7 @@ class TestPlanRankLotDay(unittest.TestCase):
                 "stock_code": "600000",
                 "stock_name": "分项",
                 "predicted_score": 2.0,
-                "y_tau": 1.0,
+                "y_τc": 1.0,
                 "y_co": 0.4,
             }
         ]
@@ -339,7 +339,7 @@ class TestPlanRankLotDay(unittest.TestCase):
                 "stock_code": "600000",
                 "stock_name": "加权",
                 "predicted_score": 2.0,
-                "y_tau": 1.0,
+                "y_τc": 1.0,
             }
         ]
         out = plan_rank_lot_day(
@@ -360,7 +360,7 @@ class TestPlanRankLotDay(unittest.TestCase):
                 "stock_code": "600000",
                 "stock_name": "OC",
                 "predicted_score": 2.0,
-                "y_tau": 1.0,
+                "y_τc": 1.0,
                 "gap_pct": 1.0,
             }
         ]
@@ -379,7 +379,7 @@ class TestPlanRankLotDay(unittest.TestCase):
         from core.paper.rebalance.rank_lots import ranking_pct_of
         from core.signal.yhat_windows import oc_with_co
 
-        item = {"predicted_score": 2.0, "y_tau": 1.0, "y_co": 1.0}
+        item = {"predicted_score": 2.0, "y_τc": 1.0, "y_co": 1.0}
         self.assertAlmostEqual(ranking_pct_of(item, _cfg()), 1.5)
         right = oc_with_co(1.0, 1.0, 1.0)
         self.assertAlmostEqual(
@@ -394,9 +394,9 @@ class TestPlanRankLotDay(unittest.TestCase):
     def test_heads_override_stale_ranking_stamp(self):
         from core.paper.rebalance.rank_lots import ranking_pct_of
 
-        item = {"ranking": -3.65, "predicted_score": 2.30, "y_oc": 5.69, "y_tau": 0.08}
+        item = {"ranking": -3.65, "predicted_score": 2.30, "y_τc": 0.08}
         self.assertAlmostEqual(ranking_pct_of(item, _cfg()), 0.5 * 2.30 + 0.5 * 0.08)
-        # 无 ŷ_oo/ŷ_oc 才信落盘 ranking
+        # 无 ŷ_oo/ŷ_τc 才信落盘 ranking
         self.assertAlmostEqual(ranking_pct_of({"ranking": 1.2}, _cfg()), 1.2)
 
     def test_y_fuse_fallback_when_heads_missing(self):
@@ -1230,10 +1230,10 @@ class TestGetRankLotCfg(unittest.TestCase):
 
 
 class TestYTauOf(unittest.TestCase):
-    def test_prefers_y_tau_then_y_τc(self):
+    def test_reads_y_τc_not_y_tau(self):
         from core.paper.rebalance.rank_lots import y_tau_of
 
-        self.assertEqual(y_tau_of({"y_tau": 0.4, "y_τc": 0.9}), 0.4)
+        self.assertEqual(y_tau_of({"y_tau": 0.4, "y_τc": 0.9}), 0.9)
         self.assertEqual(y_tau_of({"y_τc": 0.9}), 0.9)
         self.assertIsNone(y_tau_of({"predicted_score_tau": 0.9}))
         self.assertIsNone(y_tau_of({"score_rem": 0.3}))
@@ -1300,7 +1300,7 @@ class TestEnterGates(unittest.TestCase):
         self.assertIsNotNone(skip_oo)
         self.assertIn("y_oo", skip_oo)
         skip_oc = rank_lot_enter_skip_reason(
-            self._item(predicted_score=2.0, y_tau=-0.05),
+            self._item(predicted_score=2.0, y_τc=-0.05),
             self._cfg(y_τc_gt0=True),
             rs=0.02,
         )

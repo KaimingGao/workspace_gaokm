@@ -140,7 +140,10 @@ def load_fundamentals_panel(
             history = [point]
     history = sorted(
         [h for h in history if isinstance(h, dict) and date_key(h.get("as_of"))],
-        key=lambda h: date_key(h.get("as_of")),
+        key=lambda h: (
+            date_key(h.get("as_of")),
+            date_key(h.get("ann_date")) or date_key((h.get("metrics") or {}).get("ann_date")),
+        ),
     )
     for h in history:
         apply_point_availability(h, fetched_at=payload.get("fetched_at"))
@@ -157,6 +160,18 @@ def load_fundamentals_panel(
     }
 
 
+def _point_ann(point: dict) -> str:
+    if not isinstance(point, dict):
+        return ""
+    metrics = point.get("metrics") if isinstance(point.get("metrics"), dict) else {}
+    return (
+        date_key(point.get("ann_date"))
+        or date_key(metrics.get("ann_date"))
+        or date_key(point.get("announce_date"))
+        or date_key(metrics.get("announce_date"))
+    )
+
+
 def merge_history_point(
     history: List[dict],
     *,
@@ -168,25 +183,22 @@ def merge_history_point(
     available_as_of: Optional[str] = None,
     max_points: int = 40,
 ) -> List[dict]:
-    """按 as_of 去重合并（同日以后到为准）。
+    """按报告期 + 公告日合并。
 
-    D0：可写 ann_date / available_as_of，供 select_point_as_of 按可用日截断。
+    同一报告期、同一公告日以后到为准。
+    同一报告期、不同公告日各留一点（修订链）。
+    后到的点若带公告日，替换同一报告期上缺公告日的旧点。
     """
     key = date_key(as_of)
     if not key or not metrics:
         return list(history or [])
-    by: Dict[str, dict] = {}
-    for h in history or []:
-        k = date_key((h or {}).get("as_of"))
-        if k:
-            by[k] = dict(h)
+    ann = date_key(ann_date) or date_key((metrics or {}).get("ann_date"))
     point = {
         "as_of": key,
         "fetched_at": fetched_at or datetime.now().isoformat(timespec="seconds"),
         "metrics": dict(metrics),
         "data_source": data_source or "",
     }
-    ann = date_key(ann_date) or date_key((metrics or {}).get("ann_date"))
     avail = date_key(available_as_of)
     if ann:
         point["ann_date"] = ann
@@ -194,11 +206,27 @@ def merge_history_point(
     if avail:
         point["available_as_of"] = avail
     apply_point_availability(point, fetched_at=fetched_at)
-    by[key] = point
-    keys = sorted(by.keys())
-    if max_points > 0 and len(keys) > max_points:
-        keys = keys[-max_points:]
-    return [by[k] for k in keys]
+    out: List[dict] = []
+    replaced = False
+    for raw in history or []:
+        if not isinstance(raw, dict):
+            continue
+        h_as = date_key(raw.get("as_of"))
+        h_ann = _point_ann(raw)
+        same_revision = h_as == key and h_ann == ann
+        upgrade_missing = h_as == key and (not h_ann) and bool(ann)
+        if same_revision or upgrade_missing:
+            if not replaced:
+                out.append(point)
+                replaced = True
+            continue
+        out.append(dict(raw))
+    if not replaced:
+        out.append(point)
+    out.sort(key=lambda h: (date_key(h.get("as_of")), _point_ann(h)))
+    if max_points > 0 and len(out) > max_points:
+        out = out[-max_points:]
+    return out
 
 
 def _available_date(h: dict) -> str:

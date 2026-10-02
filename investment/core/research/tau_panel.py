@@ -1,7 +1,7 @@
 """ŷ_τ 训练面板：y = close[T]/price[τ]-1（τ→close 剩余收益）；特征 = 开盘 Z + 分钟路径。
 
 无未来函数：决策在 τ，标签为 τ→收盘。open 时钟 price[τ]=open，自动退化为 close/open-1。
-另加 PIT 历史真实 open→close（tau_lag1 / tau_ma5，不含当日）。
+另加 PIT 历史真实 close/open−1（tau_lag1 / tau_ma5，不含当日；τ=open 时即 ŷ_τc）。
 """
 
 
@@ -18,8 +18,8 @@ LABEL_LAG_WINDOW = 5
 # tau_std5 / yest_gap 曾入模，做 T 回测变差后撤回
 TAU_LAG_FEATURES = ("tau_lag1", "tau_ma5")
 TAU_LAG_FEAT_LABELS = {
-    "tau_lag1": "昨真实开→收 %",
-    "tau_ma5": "近5日真实开→收均 %",
+    "tau_lag1": "昨真实 close/open−1 %",
+    "tau_ma5": "近5日真实 close/open−1 均 %",
 }
 T30_LAG_FEATURES = ("t30_lag1", "t30_ma5")
 T30_LAG_FEAT_LABELS = {
@@ -187,19 +187,8 @@ def _gap_pct(prev_close: float, open_px: float) -> Optional[float]:
     return (o / pc - 1.0) * 100.0
 
 
-def _open_to_close_pct(open_px: float, close_px: float) -> Optional[float]:
-    try:
-        o = float(open_px)
-        c = float(close_px)
-    except (TypeError, ValueError):
-        return None
-    if o <= 0 or c <= 0:
-        return None
-    return (c / o - 1.0) * 100.0
-
-
 def y_r_pct(price_tau: Any, close: Any) -> Optional[float]:
-    """ŷ_τc 真值（百分点）：close[T]/price(τ) − 1。旧名 y_r。"""
+    """ŷ_τc 真值（百分点）：close[T]/price(τ) − 1。"""
     try:
         p = float(price_tau)
         c = float(close)
@@ -208,6 +197,11 @@ def y_r_pct(price_tau: Any, close: Any) -> Optional[float]:
     if p <= 0 or c <= 0:
         return None
     return (c / p - 1.0) * 100.0
+
+
+def _open_to_close_pct(open_px: float, close_px: float) -> Optional[float]:
+    """τ=open 时的 ŷ_τc：close/open−1。"""
+    return y_r_pct(open_px, close_px)
 
 
 def y_t30_pct(price_tau: Any, price_tau30: Any) -> Optional[float]:
@@ -243,65 +237,6 @@ def y_t75_pct(price_tau: Any, price_tau75: Any) -> Optional[float]:
 def y_t90_pct(price_tau: Any, price_tau90: Any) -> Optional[float]:
     """ŷ_τ90 真值（百分点）：mean(price(τ⊕85/90/95))/price(τ) − 1。"""
     return y_t30_pct(price_tau, price_tau90)
-
-
-def _τc_close_px(meta: Any) -> Optional[float]:
-    """τ→收标签只用分钟收，避免日线/分钟价空间混除。"""
-    if not isinstance(meta, dict):
-        return None
-    c = meta.get("close_minute")
-    if c is None or c == "":
-        return None
-    try:
-        x = float(c)
-    except (TypeError, ValueError):
-        return None
-    if x != x or x <= 0:
-        return None
-    return x
-
-
-def relabel_tau_panels_as_r(
-    enriched: Sequence[Dict[str, Any]],
-) -> List[Dict[str, Any]]:
-    """把 τ 面板的 OC 标签换成 ŷ_τc = close_minute[T]/price(τ) − 1（百分点）。
-
-    分子分母都在分钟价空间。缺分钟收则丢行（不用日线 close 垫）。
-    """
-    out: List[Dict[str, Any]] = []
-    for p in enriched or []:
-        if not isinstance(p, dict):
-            continue
-        xs_in = list(p.get("xs") or [])
-        dates_in = list(p.get("dates") or [])
-        metas_in = list(p.get("metas") or [])
-        n = min(len(xs_in), len(dates_in), len(metas_in))
-        xs: List[Any] = []
-        ys: List[float] = []
-        dates: List[str] = []
-        metas: List[Dict[str, Any]] = []
-        for i in range(n):
-            m = metas_in[i] if isinstance(metas_in[i], dict) else {}
-            close_px = _τc_close_px(m)
-            yr = y_r_pct(m.get("price_tau"), close_px)
-            if yr is None:
-                continue
-            xs.append(xs_in[i])
-            ys.append(float(yr))
-            dates.append(dates_in[i])
-            meta = dict(m)
-            meta["y_r"] = float(yr)
-            meta["y_τc"] = float(yr)
-            metas.append(meta)
-        if len(ys) < 4:
-            continue
-        row = dict(p)
-        row["xs"] = xs
-        row["ys"] = ys
-        row["dates"] = dates
-        row["metas"] = metas
-        out.append(row)
-    return out
 
 
 def relabel_tau_panels_as_t30(
@@ -747,7 +682,7 @@ def yest_gap_from_hist(
 
 
 def realized_tau_by_date(bars: Optional[Sequence[dict]]) -> Dict[str, float]:
-    """各日真实 y_τ = open→close %；算不出的日不进表。"""
+    """各日真实 ŷ_τc（τ=open，close/open−1）。算不出的日不进表。"""
     out: Dict[str, float] = {}
     for bar in bars or []:
         if not isinstance(bar, dict):
@@ -757,7 +692,7 @@ def realized_tau_by_date(bars: Optional[Sequence[dict]]) -> Dict[str, float]:
             d = str(bar.get("datetime") or "")[:10]
         if len(d) < 10:
             continue
-        y = _open_to_close_pct(bar.get("open"), bar.get("close"))
+        y = y_r_pct(bar.get("open"), bar.get("close"))
         if y is None:
             continue
         out[d] = round(float(y), 6)
@@ -1520,13 +1455,13 @@ def collect_tau_open_panel(
     config: Optional[dict] = None,
     include_alpha158: bool = False,
 ) -> Tuple[List[Dict[str, Optional[float]]], List[float], List[str], List[Dict[str, Any]]]:
-    """单票 open→close 的 y_τ 面板（τ=open）。
+    """单票 ŷ_τc 面板（τ=open，标签 close/open−1）。
 
     返回 ``(xs, ys, decision_dates, meta_rows)``。
     ``decision_dates`` = 交易日 T（开盘决策日）；ATR 窗口截止 T-1。
     只写 Z 特征（缺口 / ATR）；日线因子已在 ŷ_oo，此处不算。
     ``include_alpha158=True`` 时附加 ≤T−1 的 ``raw_alpha158_*``（Ridge / 树共用）。
-    ``meta_rows`` 含 ``y_tau``（= open→close %）等辅助字段。
+    ``meta_rows`` 含 ``y_τc``。
     """
     min_history = max(5, int(min_history or 12))
     max_window = max(min_history, int(max_window or 30))
@@ -1561,7 +1496,7 @@ def collect_tau_open_panel(
             continue
         if o <= 0 or c <= 0 or pc <= 0:
             continue
-        y = _open_to_close_pct(o, c)
+        y = y_r_pct(o, c)
         gap = _gap_pct(pc, o)
         if y is None or gap is None:
             continue
@@ -1602,7 +1537,7 @@ def collect_tau_open_panel(
                 "open": o,
                 "close": c,
                 "prev_close": pc,
-                "y_tau": float(y),
+                "y_τc": float(y),
                 "yclose_loc": row.get("yclose_loc"),
                 "mom3_pct": row.get("mom3_pct"),
             }
@@ -2123,9 +2058,9 @@ def collect_tau_intraday_panel(
     stock_code: Optional[str] = None,
     include_alpha158: bool = False,
 ) -> Tuple[List[Dict[str, Optional[float]]], List[float], List[str], List[Dict[str, Any]]]:
-    """分钟 τ 面板（变长前缀 / 少数时钟）：特征 ≤τ，标签 y_τ = close[T]/price[τ]−1（τ→close）。
+    """分钟 τ 面板（变长前缀 / 少数时钟）：特征 ≤τ，标签 ŷ_τc = close[T]/price[τ]−1。
 
-    τ=open 时 price[τ]≈open，退化为日线 open→close；τ>open 时为剩余收益。
+    τ=open 时 price[τ]=open，等于 close/open−1。
     ``tau_grid`` 非空时：同一交易日在多个 τ 各采一行（共享 β，**同日 y 随 τ 不同**）；
     默认网格 ``09:30|09:35|…|11:00`` 每 5m（09:30 无分钟前缀只留开盘 Z；与做 T v6 扫描至 11:00 对齐；不含 13:00 / 14:00）。
     ``include_alpha158=True`` 时附加 ≤T−1 的 ``raw_alpha158_*``（Ridge / 树共用）。
@@ -2166,9 +2101,6 @@ def collect_tau_intraday_panel(
             continue
         if o <= 0 or c <= 0 or pc <= 0:
             continue
-        y_oc = _open_to_close_pct(o, c)
-        if y_oc is None:
-            continue
         day_mins = minutes_by_day.get(date_t) or empty_day
         prev_mins = minutes_by_day.get(date_prev) or empty_day
         o_min, c_min = minute_session_open_close(day_mins, trade_date=date_t)
@@ -2206,8 +2138,9 @@ def collect_tau_intraday_panel(
                 px_tau = o_min
             if px_tau is None or px_tau <= 0:
                 continue
-            # ŷ_τ 标签 = close[T]/price[τ]−1；open 时钟 price[τ]=open，等于 open→close
-            y_tau_c = (c / px_tau - 1.0) * 100.0
+            y_τc = y_r_pct(px_tau, c)
+            if y_τc is None:
+                continue
             pack = extract_minute_tau_pack(
                 day_mins,
                 trade_date=date_t,
@@ -2248,7 +2181,7 @@ def collect_tau_intraday_panel(
             if a158_feats:
                 row.update(a158_feats)
             xs.append(row)
-            ys.append(float(y_tau_c))
+            ys.append(float(y_τc))
             dates.append(date_t)
             tau30_hm, px_tau30 = price_at_t30_mean_session(
                 day_mins,
@@ -2285,7 +2218,7 @@ def collect_tau_intraday_panel(
                     "close": c,
                     "open_minute": o_min,
                     "close_minute": c_min,
-                    "y_tau": float(y_tau_c),
+                    "y_τc": float(y_τc),
                     "ret_open_to_tau": row.get("ret_open_to_tau"),
                     "tau_elapsed_min": elapsed,
                     "tau_plus_30": tau30_hm,

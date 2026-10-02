@@ -1,8 +1,10 @@
 """实验追踪器测试。"""
 
+import json
 import os
 import shutil
 import sys
+import tempfile
 import unittest
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -14,12 +16,15 @@ from core import experiment_tracker as et
 
 class TestExperimentTracker(unittest.TestCase):
     def setUp(self):
-        if os.path.isdir(et.EXPERIMENTS_DIR):
-            shutil.rmtree(et.EXPERIMENTS_DIR)
+        self.tmp = tempfile.mkdtemp()
+        self._old = et.EXPERIMENTS_DIR
+        et.EXPERIMENTS_DIR = self.tmp
+        et._active.clear()
 
     def tearDown(self):
-        if os.path.isdir(et.EXPERIMENTS_DIR):
-            shutil.rmtree(et.EXPERIMENTS_DIR)
+        et.EXPERIMENTS_DIR = self._old
+        et._active.clear()
+        shutil.rmtree(self.tmp, ignore_errors=True)
 
     def test_log_experiment_one_shot(self):
         eid = et.log_experiment(
@@ -30,6 +35,8 @@ class TestExperimentTracker(unittest.TestCase):
         )
         rec = et.get_experiment(eid)
         self.assertIsNotNone(rec)
+        self.assertEqual(rec["model_type"], "tc_tree")
+        self.assertTrue(eid.startswith("tc_tree_"))
         self.assertEqual(rec["status"], "completed")
         self.assertEqual(rec["config"]["backend"], "lightgbm")
         self.assertEqual(rec["metrics"]["ic"], 0.052)
@@ -52,6 +59,8 @@ class TestExperimentTracker(unittest.TestCase):
         et.log_experiment("tau_tree", {"b": 2}, {"ic": 0.06})
         et.log_experiment("ridge", {"b": 1}, {"ic": 0.03})
         self.assertEqual(len(et.list_experiments("tau_tree")), 2)
+        self.assertEqual(len(et.list_experiments("tc_tree")), 2)
+        self.assertEqual(et.list_experiments("tc_tree")[0]["model_type"], "tc_tree")
         self.assertEqual(len(et.list_experiments("ridge")), 1)
         self.assertEqual(len(et.list_experiments()), 3)
 
@@ -90,6 +99,27 @@ class TestExperimentTracker(unittest.TestCase):
         self.assertEqual(rec["status"], "completed")
         self.assertEqual(rec["metrics"]["ic"], 0.055)
         self.assertEqual(rec["metrics"]["sample_count"], 500)
+        self.assertEqual(rec["model_type"], "tc_tree")
+
+    def test_legacy_dir_lists_as_canonical(self):
+        legacy = os.path.join(self.tmp, "tau_ridge")
+        os.makedirs(legacy)
+        eid = "tau_ridge_20260101_000000_abcd1234"
+        rec = {
+            "experiment_id": eid,
+            "model_type": "tau_ridge",
+            "status": "completed",
+            "config": {},
+            "metrics": {"oos_ic": 0.01},
+            "created_at": "2026-01-01T00:00:00",
+        }
+        with open(os.path.join(legacy, f"{eid}.json"), "w", encoding="utf-8") as f:
+            json.dump(rec, f)
+        listed = et.list_experiments("tc_ridge")
+        self.assertEqual(len(listed), 1)
+        self.assertEqual(listed[0]["model_type"], "tc_ridge")
+        self.assertEqual(listed[0]["experiment_id"], eid)
+        self.assertEqual(len(et.list_experiments("tau_ridge")), 1)
 
 
 if __name__ == "__main__":

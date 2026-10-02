@@ -381,7 +381,7 @@ class TestCloseBandCore(unittest.TestCase):
         d_doji, _ = bar_ytw_pick_direction(100.0, 100.0, up, leftover)
         self.assertEqual(d_doji, "buy_then_sell")
 
-        self.assertEqual(classify_t0_skip_reason("阴阳门槛：正T须收>开"), "bar_oc")
+        self.assertEqual(classify_t0_skip_reason("阴阳门槛：正T须收>开"), "other")
         self.assertAlmostEqual(blend_y_tw_realized(0.2, 0.1, 0.3, 0.05, 0.08), 5.0)
         self.assertAlmostEqual(blend_y_tw_realized(-0.2, 0.1, -0.3), -1.0)
         self.assertIsNone(blend_y_tw_realized(None, None, None))
@@ -465,8 +465,8 @@ class TestCloseBandCore(unittest.TestCase):
 
         self.assertNotIn("t0_leg1_close_extreme", load_t0_rules())
         self.assertNotIn("t0_leg1_close_extreme", load_t0_rules({"t0_leg1_close_extreme": True}))
-        self.assertEqual(classify_t0_skip_reason("正T须收在最高"), "bar_shape")
-        self.assertEqual(classify_t0_skip_reason("反T须收在最低"), "bar_shape")
+        self.assertEqual(classify_t0_skip_reason("正T须收在最高"), "other")
+        self.assertEqual(classify_t0_skip_reason("反T须收在最低"), "other")
 
     def test_score_portrait_y_tw_hit(self):
         from core.t0.viz import _build_score_portrait_from_units

@@ -150,21 +150,9 @@ export function ocWithCoPct(yOc, yCo, wCo) {
   return compoundPct(oc, wc * co);
 }
 
-/** 拟合 ŷ_τc（price(τ)→close）；勿用时钟对齐后的 y_tau。 */
+/** 拟合 ŷ_τc（price(τ)→close，含时钟对齐）。 */
 export function pickYOcFitted(it) {
-  if (!it || typeof it !== "object") return null;
-  for (const c of [
-    it["y_τc"],
-    it.predicted_score_τc,
-    it.y_oc,
-    it.predicted_score_oc,
-    it.y_tau_oc,
-    it.predicted_score_tau_oc,
-  ]) {
-    const n = _numField(c);
-    if (_looksLikeYhatPct(n)) return n;
-  }
-  return resolveTauScore(it);
+  return resolveYτcScore(it);
 }
 
 /** τ 头是否估 open→close（OC）。τc 模型返回 false。
@@ -417,42 +405,14 @@ export const R_HAT_TITLE =
 export const R_REALIZED_TITLE =
   "τc实 · close[T]/price(τ)−1（与 ŷ_τc / R̂_τ 同标签）";
 
-/** OC 头原始 ŷ（映射前）：与组成合计 / tip 大标题同口径。 */
-function _tauOcRaw(it) {
-  if (!it || typeof it !== "object") return null;
-  const ft = it.formula_terms_tau || it.score_formula_terms_tau;
-  for (const c of [
-    it.y_tau_oc,
-    it.predicted_score_tau_oc,
-    ft && typeof ft === "object" ? ft.y_tau_raw : null,
-    ft && typeof ft === "object" ? ft.total : null,
-  ]) {
-    const n = _numField(c);
-    if (_looksLikeYhatPct(n)) return n;
-  }
-  return null;
-}
-
-/** 分钟时钟对齐后的 ŷ_τc（决策/融合用）；无映射时与拟合原值相同。 */
+/** 分钟时钟对齐后的 ŷ_τc。 */
 export function resolveTauMappedScore(it) {
-  if (!it || typeof it !== "object") return null;
-  if (isHeuristicScoreScale(it)) return null;
-  const tau = _numField(it.y_tau ?? it["y_τc"] ?? it.score_rem ?? it.predicted_score_tau);
-  return _looksLikeYhatPct(tau) ? tau : null;
+  return resolveYτcScore(it);
 }
 
-/** ŷ_τc 表列 / tip：Ridge 拟合原值（T收/τ价），与组成合计同口径。
-
-  优先 y_tau_oc（映射前）；勿把时钟对齐后的 y_tau 当成拟合原值，
-  否则 tip 大标题会与「合计 ŷ_τc」对不上（做T明细常见）。
-  勿在此做缺口∘抬昨收——那只用于 ŷ_trade 融合。
-  */
+/** ŷ_τc 表列 / tip：price(τ)→close，含时钟对齐。 */
 export function resolveTauScore(it) {
-  if (!it || typeof it !== "object") return null;
-  if (isHeuristicScoreScale(it)) return null;
-  const oc = _tauOcRaw(it);
-  if (oc != null) return oc;
-  return resolveTauMappedScore(it);
+  return resolveYτcScore(it);
 }
 
 /** 缺口∘ŷ_τc（昨收口径）；对照用拟合原值，不进 τ 表列。 */
@@ -531,49 +491,21 @@ function _pcFormulaOf(it) {
   return "";
 }
 
-/** ŷ_τc：Ridge 模型预估 price(τ)→close(T)。旧簿若把 remaining 盖进 y_τc，改读 Ridge。 */
+/** ŷ_τc：price(τ)→close。旧行若把 remaining 盖进 y_τc，改读 y_τc_ridge。 */
 export function resolveYτcScore(it) {
   if (!it || typeof it !== "object") return null;
   if (isHeuristicScoreScale(it)) return null;
-  const rem = _numField(it.remaining_oc ?? it.r_hat ?? it.residual);
   const src = String(it.y_τc_source || "");
   const ridge = _numField(it.y_τc_ridge);
-
-  const fromYr = () => {
-    const yr = _numField(it.y_r ?? it.y_r_hat ?? it.predicted_score_r);
-    if (yr == null || !_looksLikeYhatPct(yr)) return null;
-    const formula = _pcFormulaOf(it);
-    if (formula && !_pcFormulaIsLegacy(formula)) return yr;
-    const d = 1 + yr / 100;
-    if (Math.abs(d) < 1e-12) return null;
-    const tc = (1 / d - 1) * 100;
-    return Number.isFinite(tc) ? tc : null;
-  };
-
   if (src === "remaining_oc") {
-    if (ridge != null && _looksLikeYhatPct(ridge)) return ridge;
-    return fromYr();
+    return ridge != null && _looksLikeYhatPct(ridge) ? ridge : null;
   }
-  for (const c of [
-    it["y_τc"],
-    it["predicted_score_τc"],
-    it.y_tc,
-    it.predicted_score_tc,
-    it.y_to,
-    it.predicted_score_to,
-    it.y_pc,
-    it.predicted_score_pc,
-  ]) {
+  for (const c of [it["y_τc"], it.predicted_score_τc]) {
     const n = _numField(c);
-    if (!_looksLikeYhatPct(n)) continue;
-    if (rem != null && Math.abs(n - rem) < 1e-3) {
-      const model = ridge != null && _looksLikeYhatPct(ridge) ? ridge : fromYr();
-      if (model != null && Math.abs(model - rem) > 1e-3) return model;
-    }
-    return n;
+    if (_looksLikeYhatPct(n)) return n;
   }
   if (ridge != null && _looksLikeYhatPct(ridge)) return ridge;
-  return fromYr();
+  return null;
 }
 
 /** @deprecated 用 resolveYτcScore */

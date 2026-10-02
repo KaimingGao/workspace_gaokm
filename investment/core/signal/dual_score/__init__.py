@@ -1,12 +1,11 @@
 """双层 predicted_score：ŷ_oo + ŷ_τc；调仓 ranking 正交加权。
 
 ŷ_oo       预估 open[T+1]/open[T]−1（分组 β；主字段 y_oo，别名 predicted_score）
-ŷ_τc       预估 close[T]/price[τ]−1（主字段 y_τc）
-           拟合原值写入 y_τc，时钟对齐后写入 y_tau。τ=open 时等于 close/open−1。旧行 y_oc 只读。
-           不再另跑一套 ŷ_τ 去覆盖 y_τc。
-ŷ_co       预估 open[T+1]/close[T]−1（主字段 y_co；旧键 y_on 可读）
+ŷ_τc       预估 close[T]/price[τ]−1（主字段 y_τc，含时钟对齐）
+           原始模型头在 y_tau_raw。τ=open 时等于 close/open−1。
+ŷ_co       预估 open[T+1]/close[T]−1（主字段 y_co / predicted_score_co）
 ranking    τc：w·((ŷ_oo+1)/(1+rot)−1) + w·((1+ŷ_τc)(1+w_co·ŷ_co)−1)
-           旧 OC 模型仍用 y_oc 那条几何式
+           旧 OC 标签的行也读 y_τc（写入前已对齐到 price(τ)→close）
 residual   R̂_τ = remaining；表列 y_τc 保持 Ridge 原值
 
 规范见 docs/quant.md · ŷ 全链路。

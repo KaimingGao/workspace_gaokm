@@ -300,12 +300,12 @@ def _slot_meta_extra(
 
 
 def _promote_causal_portrait_fields(packed: dict) -> dict:
-    """因果前缀快照显式写出 ŷ_τ 画像字段（ŷ_hl 已下线）。"""
+    """因果前缀快照显式写出画像用 ŷ_τc（ŷ_hl 已下线）。"""
     out = dict(packed)
     src = str(out.get("_score_source") or "")
     if src == "prefix_causal" or out.get("y_tau_portrait_oc") is not None:
         if out.get("y_tau_portrait_oc") is None:
-            for k in ("y_tau_oc", "y_tau", "predicted_score_tau_oc"):
+            for k in ("y_τc", "predicted_score_τc"):
                 if out.get(k) is not None:
                     out["y_tau_portrait_oc"] = out.get(k)
                     break
@@ -435,8 +435,8 @@ def _close_band_public_scores(
             yt = None
         if yt is not None:
             base["y_tau"] = yt
-            if base.get("y_tau_oc") is None:
-                base["y_tau_oc"] = yt
+            if base.get("y_τc") is None:
+                base["y_τc"] = yt
     base["c_hat_score_source"] = "bar_prefix"
     return base
 
@@ -506,7 +506,8 @@ def _slot_public_scores(row: dict) -> dict:
             "y_trade",
             "y_on",
             "gap_pct",
-            "y_tau_oc",
+            "y_τc",
+            "predicted_score_τc",
             "y_tau_portrait_oc",
             "y_hl_portrait",
             "y_path_portrait",
@@ -881,7 +882,7 @@ def _build_close_band_scan_trace(
     tau_pool_day: Optional[dict],
     trigger_hms: Optional[set] = None,
 ) -> List[dict]:
-    """11:00 前每根 5m：OLHC + y_oc / y_τw / y_τ30…（debug 展开用）。"""
+    """11:00 前每根 5m：OLHC + ŷ_τc / ŷ_τw / ŷ_τ30…（debug 展开用）。"""
     from core.t0.close_band import (
         bar_close_band_pick_direction,
         blend_y_tw_from_scores,
@@ -1255,7 +1256,7 @@ def refresh_close_band_scan(
         ohlc = _day_ohlc_from_minutes(
             minute_bars, bar if isinstance(bar, dict) else None
         )
-        # 开/高/低可用分钟合成；收盘锚与 y_oc 真实值必须用日 K，勿用可见末根。
+        # 开/高/低可用分钟合成；收盘锚与真实 ŷ_τc（close/open−1）必须用日 K，勿用可见末根。
         for k in ("open", "high", "low"):
             if ohlc.get(k) is not None:
                 out[k] = ohlc.get(k)
@@ -1714,7 +1715,7 @@ def simulate_t0_day_slots(
             merged["direction_reason"] = last_enter_skip
             merged["reason"] = last_enter_skip
             merged["signal_skip"] = True
-    # T+1 硬约束优先于后续反向破带的 ŷ_τw / y_oc 未过：正T已因无可卖旧仓失败时，
+    # T+1 硬约束优先于后续反向破带的 ŷ_τw / ŷ_τc 未过：正T已因无可卖旧仓失败时，
     # 午后反向 反T 未过入场不应盖掉「可卖旧仓 0」。
     if last_tplus1_skip:
         if merged.get("skipped") and not merged.get("direction_reason"):

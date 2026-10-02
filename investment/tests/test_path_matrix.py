@@ -32,17 +32,15 @@ class TestPathMatrix(unittest.TestCase):
     def test_ranking_fuses_oo_oc(self):
         from core.signal.yhat_windows import ranking_pct, residual_pct, invert_price_over_close
 
-        item = {"predicted_score": 2.0, "y_tau": 1.0}
+        item = {"predicted_score": 2.0, "y_τc": 1.0}
         self.assertAlmostEqual(ranking_pct(item), 1.5)
         self.assertAlmostEqual(invert_price_over_close(1.0), round((1.0 / 1.01 - 1.0) * 100.0, 10))
-        item_r = {"y_tau": 2.0, "y_r": 1.0, "ret_open_to_tau": 0.0}
-        pc = invert_price_over_close(1.0)
-        rem = 2.0
-        self.assertAlmostEqual(residual_pct(item_r), 0.5 * pc + 0.5 * rem)
+        item_r = {"y_τc": 1.0, "y_tau": 2.0, "ret_open_to_tau": 0.0}
+        self.assertAlmostEqual(residual_pct(item_r), 1.0)
         from core.signal.yhat_windows import t0_residual_pct
 
         self.assertIsNone(t0_residual_pct({"y_tau": 2.0}))
-        self.assertAlmostEqual(t0_residual_pct(item_r), 0.5 * pc + 0.5 * rem)
+        self.assertAlmostEqual(t0_residual_pct(item_r), 1.0)
 
     def test_reads_rank_lots_key_first(self):
         from core.paper.rebalance.path_matrix import get_path_matrix_cfg

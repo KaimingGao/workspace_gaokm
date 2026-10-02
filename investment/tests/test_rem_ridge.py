@@ -47,7 +47,7 @@ class TestRemPanel(unittest.TestCase):
         self.assertIn("gap_pct", xs[0])
         self.assertIn("gap_atr", xs[0])
         self.assertNotIn("momentum", xs[0])
-        self.assertIn("y_tau", metas[0])
+        self.assertIn("y_τc", metas[0])
         self.assertNotIn("y_rem", metas[0])
 
     def test_breadth_and_theme_weights(self):
@@ -198,7 +198,7 @@ class TestRemRidgeFit(unittest.TestCase):
             stock_bars, ridge_lambda=1.0, theme_boost=1.5
         )
         self.assertTrue(report.get("success"), report.get("error"))
-        self.assertEqual(report.get("task"), "tau_ridge")
+        self.assertEqual(report.get("task"), "tc_ridge")
         self.assertFalse(report.get("residualized"))
         self.assertEqual(report.get("target"), "tau_to_close_z")
         self.assertIn("return_model", report)

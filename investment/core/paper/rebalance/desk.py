@@ -96,7 +96,7 @@ def _compact_row(
     prev_close: Any = None,
     day_open: Any = None,
     y_oo: Any = None,
-    y_oc: Any = None,
+    y_τc: Any = None,
     y_co: Any = None,
     ranking: Any = None,
     old_shares: Any = None,
@@ -130,7 +130,7 @@ def _compact_row(
     day_o = _round_px(day_open)
     if day_o is not None:
         out["day_open"] = day_o
-    for key, raw in (("y_oo", y_oo), ("y_oc", y_oc), ("y_co", y_co), ("ranking", ranking)):
+    for key, raw in (("y_oo", y_oo), ("y_τc", y_τc), ("y_co", y_co), ("ranking", ranking)):
         v = _f(raw)
         if v is not None:
             out[key] = round(float(v), 6)
@@ -197,7 +197,7 @@ def desk_rows_from_result(result: Optional[dict], *, filled: bool = True) -> Lis
                 prev_close=r.get("prev_close"),
                 day_open=r.get("day_open") if r.get("day_open") is not None else r.get("open"),
                 y_oo=r.get("y_oo"),
-                y_oc=r.get("y_τc") if r.get("y_τc") is not None else r.get("y_oc"),
+                y_τc=r.get("y_τc"),
                 y_co=r.get("y_co"),
                 ranking=r.get("ranking") if r.get("ranking") is not None else r.get("y_fuse"),
                 old_shares=r.get("old_shares"),
@@ -236,7 +236,7 @@ def desk_rows_from_result(result: Optional[dict], *, filled: bool = True) -> Lis
                     prev_close=leg.get("prev_close"),
                     day_open=leg.get("day_open") if leg.get("day_open") is not None else leg.get("open"),
                     y_oo=leg.get("y_oo"),
-                    y_oc=leg.get("y_τc") if leg.get("y_τc") is not None else leg.get("y_oc"),
+                    y_τc=leg.get("y_τc"),
                     y_co=leg.get("y_co"),
                     ranking=leg.get("ranking") if leg.get("ranking") is not None else leg.get("y_fuse"),
                     old_shares=leg.get("old_shares"),
@@ -261,7 +261,7 @@ def desk_rows_from_result(result: Optional[dict], *, filled: bool = True) -> Lis
                 price=s.get("price"),
                 ranking=s.get("ranking") if s.get("ranking") is not None else s.get("y_fuse"),
                 y_oo=s.get("y_oo"),
-                y_oc=s.get("y_τc") if s.get("y_τc") is not None else s.get("y_oc"),
+                y_τc=s.get("y_τc"),
                 y_co=s.get("y_co"),
             )
         )
@@ -301,7 +301,7 @@ def _overlay_fields(
         opx = _round_px(src.get("day_open") if src.get("day_open") is not None else src.get("open"))
         if opx is not None:
             row["day_open"] = opx
-    for key in ("y_oo", "y_oc", "y_co"):
+    for key in ("y_oo", "y_τc", "y_co"):
         if row.get(key) is None and src.get(key) is not None:
             v = _f(src.get(key))
             if v is not None:
@@ -530,7 +530,7 @@ def save_last_desk(
                 prev_close=r.get("prev_close"),
                 day_open=r.get("day_open"),
                 y_oo=r.get("y_oo"),
-                y_oc=r.get("y_τc") if r.get("y_τc") is not None else r.get("y_oc"),
+                y_τc=r.get("y_τc"),
                 y_co=r.get("y_co"),
                 ranking=r.get("ranking"),
                 old_shares=r.get("old_shares"),

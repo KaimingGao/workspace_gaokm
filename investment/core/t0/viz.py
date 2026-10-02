@@ -122,181 +122,61 @@ SKIP_CAT_COLORS: Dict[str, str] = {
 }
 
 
+def _reason_is_tau_head(r: str) -> bool:
+    """幅度文案是否指 ŷ_τc（含旧 |y_τ| / R̂_τ）。不含 ŷ_τw / ŷ_τ30。"""
+    if any(
+        k in r
+        for k in ("ŷ_τc", "y_τc", "|y_τ|", "|ŷ_τ|", "R̂_τ", "超额不足")
+    ):
+        return True
+    for token in ("y_τ", "ŷ_τ"):
+        i = 0
+        while True:
+            j = r.find(token, i)
+            if j < 0:
+                break
+            nxt = r[j + len(token) : j + len(token) + 1]
+            if nxt not in "w0123456789":
+                return True
+            i = j + len(token)
+    return False
+
+
 def classify_t0_skip_reason(reason: Optional[str]) -> str:
+    """跳过文案归类。幅度闸只认 ŷ_τc；旧 |y_τ| / R̂_τ 并入同一类。
+
+    已下线的 path / 旁路 / 阴阳 / 前序 / dual_y 异号闸不再单列，落入 other。
+    """
     r = str(reason or "")
     if "price_space_mismatch" in r or ("价空间" in r and ("错位" in r or "不一致" in r)):
         return "price_space_mismatch"
-    if ("y_complexity" in r or "y_cx" in r) and ("太折" in r or "曲折" in r):
-        return "y_complexity_high"
-    if "y_tpd" in r and ("反转过密" in r or "过密" in r):
-        return "y_tpd_high"
     if "缺" in r and ("分钟" in r or "minute" in r.lower()):
         return "missing_minute"
-    if "缺 y_path" in r or "缺 y_hl" in r or ("缺" in r and ("y_path" in r or "y_hl" in r)):
-        return "y_path_missing"
-    if "缺" in r and ("y_" in r or "快照" in r or "即时算分" in r):
+    if "缺" in r and ("y_" in r or "ŷ_" in r or "快照" in r or "即时算分" in r):
         return "missing_scores"
-    if ("ŷ_oc" in r or "y_oc" in r) and "未过入场" in r:
-        return "y_tc_flat"
-    if ("y_path" in r or "y_hl" in r) and "异号" in r:
-        return "y_path_disagree"
-    if "前序ŷ_τw" in r or "前序 y_τw" in r or "ytw_prefix" in r.lower():
-        return "ytw_prefix"
     if ("ŷ_τw" in r or "y_τw" in r or "y_tw" in r) and (
-        "未过" in r or "横盘" in r or "缺失" in r or "弃权" in r
+        "未过" in r or "横盘" in r or "缺失" in r or "弃权" in r or "未开腿" in r
     ):
         return "y_tw_flat"
-    if ("ŷ_τw" in r or "y_τw" in r or "y_tw" in r) and (
-        "旁路" in r or "逆带" in r
-    ):
-        return "y_tw_disagree"
-    if ("ŷ_τ90" in r or "y_τ90" in r or "y_t90" in r or "|ŷ_τ90|" in r) and (
-        "未过" in r or "横盘" in r or "缺失" in r
-    ):
-        return "y_t90_flat"
-    if ("ŷ_τ90" in r or "y_τ90" in r or "y_t90" in r) and (
-        "旁路" in r or "逆带" in r
-    ):
-        return "y_t90_disagree"
-    if ("ŷ_τ75" in r or "y_τ75" in r or "y_t75" in r or "|ŷ_τ75|" in r) and (
-        "未过" in r or "横盘" in r or "缺失" in r
-    ):
-        return "y_t75_flat"
-    if ("ŷ_τ75" in r or "y_τ75" in r or "y_t75" in r) and (
-        "旁路" in r or "逆带" in r
-    ):
-        return "y_t75_disagree"
-    if ("ŷ_τ60" in r or "y_τ60" in r or "y_t60" in r or "|ŷ_τ60|" in r) and (
-        "未过" in r or "横盘" in r or "缺失" in r
-    ):
-        return "y_t60_flat"
-    if ("ŷ_τ60" in r or "y_τ60" in r or "y_t60" in r) and (
-        "旁路" in r or "逆带" in r
-    ):
-        return "y_t60_disagree"
-    if ("ŷ_τ45" in r or "y_τ45" in r or "y_t45" in r or "|ŷ_τ45|" in r) and (
-        "未过" in r or "横盘" in r or "缺失" in r
-    ):
-        return "y_t45_flat"
-    if ("ŷ_τ45" in r or "y_τ45" in r or "y_t45" in r) and (
-        "旁路" in r or "逆带" in r
-    ):
-        return "y_t45_disagree"
-    if ("ŷ_τ30" in r or "y_τ30" in r or "y_t30" in r or "|ŷ_τ30|" in r) and (
-        "未过" in r or "横盘" in r or "缺失" in r
-    ):
-        return "y_t30_flat"
-    if ("ŷ_τ30" in r or "y_τ30" in r or "y_t30" in r) and (
-        "旁路" in r or "逆带" in r
-    ):
-        return "y_t30_disagree"
-    if ("ŷ_τc" in r or "y_τc" in r) and ("旁路" in r or "逆带" in r):
-        return "y_tc_disagree"
-    if ("ŷ_τc" in r or "|ŷ_τc|" in r) and (
-        "未过入场" in r or "未过门槛" in r or "横盘" in r or "缺失" in r
-    ):
+    flat = "未过入场" in r or "未过门槛" in r or "横盘" in r or "缺失" in r or "弱信号" in r
+    if flat and _reason_is_tau_head(r):
         return "y_tc_flat"
-    if ("y_path" in r or "y_hl" in r) and ("未过门槛" in r or "≥-" in r):
-        return "y_path_flat"
-    if "y_eod" in r and "未过门槛" in r:
-        return "y_eod_flat"
-    if "|R̂_τ|" in r or "R̂_τ" in r or "超额不足" in r:
-        return "r_tau_flat"
-    if "y_τ" in r and "未过门槛" in r:
-        return "y_tau_flat"
-    if "y_eod" in r and "y_τ" in r and "异号" in r and "|y_eod|" in r:
-        return "eod_tau_disagree"
-    if "y_trade" in r and "y_τ" in r and "异号" in r and "|y_trade|" in r:
-        return "trade_tau_disagree"
-    if "日线先验" in r or "趋势不一致" in r or "正T风险高" in r or "反T风险高" in r:
-        return "tau_leg1_prior"
-    if "异号" in r or "trade_tau_sign" in r.lower():
-        return "trade_tau_sign"
-    if "y_trade" in r:
-        return "y_trade_weak"
-    # 已下线的冲突闸（eod↔τ / y_check）→ 其它，避免饼图再标「冲突」
-    if (
-        "先验≠" in r
-        or ("冲突" in r and "y_eod" in r)
-        or ("y_check" in r.lower() and "conflict" in r.lower())
-    ):
-        return "other"
-    if (
-        ("y_path" in r or "y_hl" in r)
-        and (
-            "不一致" in r
-            or "预测先" in r
-            or "先高后低" in r
-            or "先低后高" in r
-            or "上冲偏大" in r
-            or "下探偏大" in r
-        )
-    ):
-        return "y_path_disagree"
-    if ("y_path" in r or "y_hl" in r) and ("横盘" in r or "|y_path|" in r or "|y_hl|" in r):
-        return "y_path_flat"
-    if "弱信号" in r:
-        return "y_tau_weak"
-    if "|y_τ|" in r or ("y_τ" in r and "横盘" in r):
-        return "y_tau_flat"
-    if "大缺口" in r or "gap_tier" in r.lower():
-        return "gap_tier_skip"
-    # 确认根入场 / 第二腿出场价 vs open×(1+ŷ_τ×裕度)
     if "τ出场" in r:
         return "tau_exit_price"
-    if (
-        "τ入场" in r
-        or "τ带" in r
-        or ("买价" in r and ("ŷ_τ" in r or "开盘×(1+" in r))
-        or ("卖价" in r and ("ŷ_τ" in r or "开盘×(1+" in r))
-        or "入场价" in r
-    ):
-        return "tau_entry_price"
-    if (
-        "空间用尽" in r
-        or ">|ŷ_path|" in r
-        or ">|y_path|" in r
-        or (
-            "前缀振幅" in r
-            and ("ŷ_path" in r or "y_path" in r or "|ŷ_path|" in r or "|y_path|" in r)
-        )
-    ):
-        return "prefix_vs_path"
-    if "放弃" in r and ("反T" in r or "正T" in r or "前缀" in r):
-        return "path_abandon"
     if "多轮均未成交" in r:
         return "multi_slot_miss"
-    if (
-        "阴阳门槛" in r
-        or "收≤开" in r
-        or "收≥开" in r
-        or "bar_oc" in r.lower()
-    ):
-        return "bar_oc"
-    if (
-        "收在最低" in r
-        or "收在最高" in r
-        or "收在极值" in r
-        or "缺高低" in r
-    ):
-        return "bar_shape"
-    if "上移振幅" in r or "下移振幅" in r or "方向振幅" in r:
-        return "directional_amplitude"
-    if "振幅" in r:
-        return "amplitude"
     if "T+1" in r or "可卖旧仓" in r or "无可卖" in r or ("可卖" in r and "锁定" in r):
         return "tplus1"
     if "不足1手" in r or "动仓不足" in r or ("手" in r and "不足" in r):
         return "lot_size"
-    # 「分钟路径未触及/未开成…」优先归未触达，勿因含「路径」误入 path
     if "未触及" in r or "未触" in r or "未开成第一腿" in r or "未开第一腿" in r:
         return "trigger_miss"
-    if "路径" in r or "veto" in r.lower():
-        return "path"
     if "重复落账" in r or "盘中已有成交腿" in r:
         return "intraday_legs_open"
     if "现金" in r or "买不起" in r:
         return "cash"
+    if "路径" in r or "veto" in r.lower():
+        return "path"
     return "other"
 
 
@@ -337,13 +217,9 @@ def _first_present(src: Any, *keys: str) -> Any:
 
 
 def extract_scores(day: dict) -> Dict[str, Optional[float]]:
+    """画像用分。主字段 y_τc / predicted_score_τc。"""
     feats = day.get("direction_features") if isinstance(day.get("direction_features"), dict) else {}
     raw = day.get("scores") if isinstance(day.get("scores"), dict) else {}
-    y_tau = _f(feats.get("y_tau"))
-    if y_tau is None:
-        y_tau = _f(raw.get("y_tau"))
-    if y_tau is None:
-        y_tau = _f(day.get("direction_score"))
     gap = _f(feats.get("gap_pct"))
     if gap is None and isinstance(feats.get("features_tau"), dict):
         gap = _f(feats["features_tau"].get("gap_pct"))
@@ -358,44 +234,6 @@ def extract_scores(day: dict) -> Dict[str, Optional[float]]:
             v = _f(day.get(key))
         return v
 
-    y_tau_oc = _pick("y_tau_oc")
-    if y_tau_oc is None:
-        y_tau_oc = _pick("predicted_score_tau_oc")
-    if y_tau_oc is None:
-        for blob in (feats, raw, day):
-            ft = blob.get("formula_terms_tau") if isinstance(blob, dict) else None
-            if isinstance(ft, dict):
-                y_tau_oc = _f(ft.get("y_tau_raw"))
-                if y_tau_oc is not None:
-                    break
-    ret_ot = None
-    for blob in (feats, raw):
-        if not isinstance(blob, dict):
-            continue
-        ft = blob.get("features_tau")
-        if isinstance(ft, dict) and ft.get("ret_open_to_tau") is not None:
-            ret_ot = _f(ft.get("ret_open_to_tau"))
-            if ret_ot is not None:
-                break
-        if blob.get("ret_open_to_tau") is not None:
-            ret_ot = _f(blob.get("ret_open_to_tau"))
-            if ret_ot is not None:
-                break
-
-    y_path = _pick("y_hl_portrait")
-    if y_path is None:
-        y_path = _pick("y_path_portrait")
-    if y_path is None:
-        y_path = _pick("y_hl")
-    if y_path is None:
-        y_path = _pick("predicted_score_hl")
-    if y_path is None:
-        y_path = _pick("y_path")
-    if y_path is None:
-        y_path = _pick("predicted_score_path")
-    if y_path is None:
-        y_path = _pick("y_path_prefix")
-
     def _pick_keys(*keys: str) -> Optional[float]:
         for key in keys:
             v = _pick(key)
@@ -403,109 +241,26 @@ def extract_scores(day: dict) -> Dict[str, Optional[float]]:
                 return v
         return None
 
-    y_oc = _pick("y_oc")
-    if y_tau is None:
-        y_tau = y_oc
-    y_tc = _pick_keys("y_τc", "y_tc", "y_r_hat", "y_r")
-    y_t30 = _pick_keys("y_τ30", "y_t30", "y_t30_hat", "predicted_score_t30")
-    y_t45 = _pick_keys("y_τ45", "y_t45", "y_t45_hat", "predicted_score_t45")
-    y_t60 = _pick_keys("y_τ60", "y_t60", "y_t60_hat", "predicted_score_t60")
-    y_t75 = _pick_keys("y_τ75", "y_t75", "y_t75_hat", "predicted_score_t75")
-    y_t90 = _pick_keys("y_τ90", "y_t90", "y_t90_hat", "predicted_score_t90")
     r_hat = _pick("r_hat")
     if r_hat is None:
         r_hat = _pick("residual")
 
     return {
-        "y_tau": y_tau,
-        "y_oc": y_oc if y_oc is not None else y_tau,
-        "y_tau_oc": y_tau_oc,
-        "y_tau_portrait_oc": _pick("y_tau_portrait_oc"),
-        "y_τc": y_tc,
-        "y_τ30": y_t30,
+        "y_τc": _pick_keys("y_τc", "predicted_score_τc"),
+        "y_τ30": _pick_keys("y_τ30", "y_t30", "y_t30_hat", "predicted_score_t30"),
         "y_t30_realized": _pick_keys("y_t30_realized", "t30_realized"),
-        "y_τ45": y_t45,
+        "y_τ45": _pick_keys("y_τ45", "y_t45", "y_t45_hat", "predicted_score_t45"),
         "y_t45_realized": _pick_keys("y_t45_realized", "t45_realized"),
-        "y_τ60": y_t60,
+        "y_τ60": _pick_keys("y_τ60", "y_t60", "y_t60_hat", "predicted_score_t60"),
         "y_t60_realized": _pick_keys("y_t60_realized", "t60_realized"),
-        "y_τ75": y_t75,
+        "y_τ75": _pick_keys("y_τ75", "y_t75", "y_t75_hat", "predicted_score_t75"),
         "y_t75_realized": _pick_keys("y_t75_realized", "t75_realized"),
-        "y_τ90": y_t90,
+        "y_τ90": _pick_keys("y_τ90", "y_t90", "y_t90_hat", "predicted_score_t90"),
         "y_t90_realized": _pick_keys("y_t90_realized", "t90_realized"),
         "r_hat": r_hat,
-        "ret_open_to_tau": ret_ot,
-        "y_hl": y_path,
-        "y_path": y_path,
-        "y_hl_portrait": _pick("y_hl_portrait") or _pick("y_path_portrait"),
-        "y_eod": _pick("y_eod"),
-        "y_trade": _pick("y_trade"),
-        "y_co": _pick("y_co") or _pick("y_on"),
-        "y_on": _pick("y_co") or _pick("y_on"),
+        "y_co": _pick("y_co"),
         "gap_pct": gap,
     }
-
-
-def _compound_pct(a: Optional[float], b: Optional[float]) -> Optional[float]:
-    """(1+a%)(1+b%)−1，用于剩余ŷ还原 OC ŷ。"""
-    if a is None or b is None:
-        return None
-    try:
-        return round(((1.0 + float(a) / 100.0) * (1.0 + float(b) / 100.0) - 1.0) * 100.0, 6)
-    except (TypeError, ValueError):
-        return None
-
-
-def resolve_y_tau_oc_for_portrait(sc: Dict[str, Optional[float]]) -> Optional[float]:
-    """画像 τ 命中用：优先 ≤τ 因果补记的 OC 头；再决策 OC；旧包可还原。"""
-    if not isinstance(sc, dict):
-        return None
-    # 画像专用：开盘选向禁分钟后，用 ≤τ 重算的 OC 头（与训练同信息集）
-    portrait = _f(sc.get("y_tau_portrait_oc"))
-    if portrait is not None:
-        return portrait
-    oc = _f(sc.get("y_tau_oc"))
-    if oc is not None:
-        return oc
-    y = _f(sc.get("y_tau"))
-    rot = _f(sc.get("ret_open_to_tau"))
-    restored = _compound_pct(y, rot)
-    if restored is not None:
-        return restored
-    return y
-
-
-def resolve_y_path_for_portrait(sc: Dict[str, Optional[float]]) -> Optional[float]:
-    """画像 HL 命中用：优先 ≤τ 因果 ŷ_hl_portrait / 旧键 y_path_portrait。"""
-    if not isinstance(sc, dict):
-        return None
-    for key in (
-        "y_hl_portrait",
-        "y_path_portrait",
-        "y_hl",
-        "predicted_score_hl",
-        "y_path",
-        "predicted_score_path",
-        "y_path_prefix",
-    ):
-        v = _f(sc.get(key))
-        if v is not None:
-            return v
-    return None
-
-def _oc_realized_pct(day: dict) -> Optional[float]:
-    o = _f(day.get("open"))
-    c = _f(day.get("close"))
-    if o is None or c is None or o <= 0:
-        return None
-    return round((c / o - 1.0) * 100.0, 4)
-
-
-def _tau_oc_hit(y_tau: Optional[float], oc_real: Optional[float], *, eps: float = 0.05) -> Optional[bool]:
-    if y_tau is None or oc_real is None:
-        return None
-    if abs(y_tau) < eps or abs(oc_real) < eps:
-        return None
-    return (y_tau > 0) == (oc_real > 0)
 
 
 def _pick_realized(day: dict, key: str) -> Optional[float]:
@@ -552,48 +307,6 @@ def _bump(pack: Dict[str, int], key: str) -> None:
     pack[key] = int(pack.get(key) or 0) + 1
 
 
-def resolve_y_eod_for_portrait(sc: Dict[str, Optional[float]]) -> Optional[float]:
-    if not isinstance(sc, dict):
-        return None
-    for key in ("y_eod", "predicted_score_eod", "predicted_score"):
-        v = _f(sc.get(key))
-        if v is not None:
-            return v
-    return None
-
-
-def resolve_y_trade_for_portrait(sc: Dict[str, Optional[float]]) -> Optional[float]:
-    if not isinstance(sc, dict):
-        return None
-    for key in ("y_trade", "predicted_score_blend", "decision_score", "score"):
-        v = _f(sc.get(key))
-        if v is not None:
-            return v
-    return None
-
-
-def _eod_realized_pct(day: dict) -> Optional[float]:
-    """涨跌 label：close[T]/prev_close−1（诊断；现网主轴是 ŷ_oo / ŷ_trade，非此口径）。"""
-    n = _pick_realized(day, "eod_realized")
-    if n is not None:
-        return n
-    pc = _f(day.get("prev_close"))
-    c = _f(day.get("close"))
-    if pc is None or c is None or pc <= 0:
-        return None
-    return round((c / pc - 1.0) * 100.0, 4)
-
-
-def _fill_day_eod_trade_scores(day: dict, scores: Optional[dict]) -> dict:
-    """槽位缺 y_eod/y_trade 时用日级分补洞（二者多为日级头）。"""
-    out = dict(scores) if isinstance(scores, dict) else {}
-    day_sc = extract_scores(day) if isinstance(day, dict) else {}
-    for key in ("y_eod", "y_trade"):
-        if out.get(key) is None and day_sc.get(key) is not None:
-            out[key] = day_sc.get(key)
-    return out
-
-
 def _close_band_scan_rows(day: dict) -> List[dict]:
     scan = day.get("close_band_scan") if isinstance(day, dict) else None
     if not isinstance(scan, list):
@@ -612,7 +325,7 @@ def _scan_row_at_hm(day: dict, hm: str) -> Optional[dict]:
 
 
 def _r_pct_for_unit(day: dict, unit: Optional[dict] = None) -> Optional[float]:
-    """成交点 Y：R̂_τ。反 T 常无 ŷ_oc，不能靠 y_tau 丢点。"""
+    """成交点 Y：R̂_τ = Ĉ_τ/price(τ)−1。"""
     hm = ""
     if isinstance(unit, dict):
         hm = str(unit.get("t0_slot_hm") or unit.get("hm") or "")[:5]
@@ -642,12 +355,7 @@ def _r_pct_for_unit(day: dict, unit: Optional[dict] = None) -> Optional[float]:
 def _scores_from_scan_row(row: dict) -> Dict[str, Any]:
     """扫描行 → 画像字段（该钟前缀）。只留画像读取的主字段。"""
     sc: Dict[str, Any] = {}
-    y_tau = row.get("y_tau")
-    if y_tau is not None:
-        sc["y_tau_portrait_oc"] = y_tau
-        sc["y_tau_oc"] = y_tau
-        sc["y_tau"] = y_tau
-    y_tc = _first_present(row, "y_τc", "y_tc", "y_oc", "y_r_hat", "y_r")
+    y_tc = _first_present(row, "y_τc", "predicted_score_τc")
     if y_tc is not None:
         sc["y_τc"] = y_tc
     for canon, keys in (
@@ -665,10 +373,6 @@ def _scores_from_scan_row(row: dict) -> Dict[str, Any]:
         val = _first_present(row, *keys)
         if val is not None:
             sc[canon] = val
-    y_path = _first_present(row, "y_hl", "predicted_score_hl", "y_path")
-    if y_path is not None:
-        sc["y_hl_portrait"] = y_path
-        sc["y_hl"] = y_path
     r_hat = _first_present(row, "r_hat", "residual")
     if r_hat is not None:
         sc["r_hat"] = r_hat
@@ -682,17 +386,7 @@ def resolve_y_tc_for_portrait(sc: Dict[str, Optional[float]]) -> Optional[float]
     """画像 y_τc 命中：ŷ_τc ↔ close[T]/price(τ)−1。"""
     if not isinstance(sc, dict):
         return None
-    for key in (
-        "y_τc",
-        "predicted_score_τc",
-        "y_tc",
-        "predicted_score_tc",
-        "y_to",
-        "predicted_score_to",
-        "y_r_hat",
-        "y_r",
-        "predicted_score_r",
-    ):
+    for key in ("y_τc", "predicted_score_τc"):
         v = _f(sc.get(key))
         if v is not None:
             return v
@@ -901,8 +595,7 @@ def _portrait_slot_rows(day: dict) -> List[dict]:
             "bar_c": s.get("c"),
             "r_hat": _first_present(s, "r_hat", "residual"),
             "r_realized": s.get("r_realized"),
-            "y_oc": s.get("y_oc"),
-            "y_τc": _first_present(s, "y_τc", "y_tc"),
+            "y_τc": _first_present(s, "y_τc", "predicted_score_τc"),
             "pick": s.get("pick"),
             "y_tc_agree": s.get("y_tc_agree"),
         }
@@ -968,8 +661,7 @@ def _day_with_scan_portrait(day: dict, *, hm: Optional[str] = None) -> dict:
     sc.update(extra)
     out["scores"] = sc
     for key in (
-        "y_tau_portrait_oc",
-        "y_hl_portrait",
+        "y_τc",
         "r_realized",
         "y_τ30",
         "y_τ45",
@@ -1016,7 +708,7 @@ def _portrait_clocks(days: Sequence[dict]) -> List[str]:
 
 
 def _slot_as_portrait_unit(day: dict, row: dict) -> dict:
-    """槽位画像样本：本轮 ŷ + 全日标签（τ/path/eod 真实值仍按日）。"""
+    """槽位画像样本：本钟 ŷ_τc 与窗头，真实收益仍按该钟或全日。"""
     filled = _slot_row_filled(row)
     slot_sc = row.get("scores") if isinstance(row.get("scores"), dict) else {}
     return {
@@ -1024,9 +716,7 @@ def _slot_as_portrait_unit(day: dict, row: dict) -> dict:
         "open": day.get("open"),
         "close": day.get("close"),
         "prev_close": day.get("prev_close"),
-        "eod_realized": day.get("eod_realized"),
         "tau_realized": day.get("tau_realized"),
-        "path_realized": day.get("path_realized"),
         **pack_y_tc_fields(day),
         "r_realized": row.get("r_realized"),
         "y_t30_realized": _first_present(row, "y_t30_realized", "t30_realized"),
@@ -1037,7 +727,7 @@ def _slot_as_portrait_unit(day: dict, row: dict) -> dict:
         "bar_c": row.get("bar_c") if row.get("bar_c") is not None else row.get("c"),
         "c": row.get("c"),
         "r_hat": row.get("r_hat"),
-        "scores": _fill_day_eod_trade_scores(day, slot_sc),
+        "scores": dict(slot_sc) if isinstance(slot_sc, dict) else {},
         "close_band": {
             "r_hat": (slot_sc or {}).get("r_hat")
             if isinstance(slot_sc, dict) and slot_sc.get("r_hat") is not None
@@ -1047,7 +737,7 @@ def _slot_as_portrait_unit(day: dict, row: dict) -> dict:
         if isinstance(row.get("direction_features"), dict)
         else {},
         "direction": row.get("direction") or row.get("pick"),
-        "direction_score": (slot_sc or {}).get("y_tau")
+        "direction_score": (slot_sc or {}).get("y_τc")
         if isinstance(slot_sc, dict)
         else None,
         "skipped": bool(row.get("skipped")) or not filled,
@@ -1063,17 +753,15 @@ def _slot_as_portrait_unit(day: dict, row: dict) -> dict:
 
 
 def _slot_placeholder_unit(day: dict, hm: str) -> dict:
-    """无该钟明细：天级 label + 日级 eod/trade；τ/path 空 → 命中 flat。"""
+    """无该钟明细：天级标签在，该钟 ŷ 空，命中计 flat。"""
     return {
         "date": day.get("date"),
         "open": day.get("open"),
         "close": day.get("close"),
         "prev_close": day.get("prev_close"),
-        "eod_realized": day.get("eod_realized"),
         "tau_realized": day.get("tau_realized"),
-        "path_realized": day.get("path_realized"),
         **pack_y_tc_fields(day),
-        "scores": _fill_day_eod_trade_scores(day, {}),
+        "scores": {},
         "direction_features": {},
         "direction": None,
         "direction_score": None,
@@ -1090,22 +778,19 @@ def _slot_placeholder_unit(day: dict, hm: str) -> dict:
 
 
 def _portrait_day_eligible(day: dict) -> bool:
-    """与日级画像同一入样条件（有分/标签/成交/跳过）。"""
+    """与日级画像同一入样条件（有 ŷ_τc / 窗头 / 成交 / 跳过）。"""
     if not isinstance(day, dict):
         return False
     sc = extract_scores(day)
-    y_tau = resolve_y_tau_oc_for_portrait(sc)
-    y_path = resolve_y_path_for_portrait(sc)
-    tau_r = _pick_realized(day, "tau_realized")
-    if tau_r is None:
-        tau_r = _oc_realized_pct(day)
-    path_r = _pick_realized(day, "path_realized")
     return bool(
-        y_tau is not None
-        or sc.get("y_tau") is not None
-        or y_path is not None
-        or tau_r is not None
-        or path_r is not None
+        sc.get("y_τc") is not None
+        or sc.get("y_τ30") is not None
+        or sc.get("y_τ45") is not None
+        or sc.get("y_τ60") is not None
+        or sc.get("y_τ75") is not None
+        or sc.get("y_τ90") is not None
+        or _pick_realized(day, "tau_realized") is not None
+        or _portrait_slot_rows(day)
         or is_traded_t0_day(day)
         or bool(day.get("skipped"))
     )
@@ -1118,7 +803,7 @@ def _build_score_portrait_from_units(
     scope: Optional[str] = None,
     note: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """从画像单位列表累计 τ/path/eod/trade 标签与预估命中。"""
+    """从画像单位累计 ŷ_τc / ŷ_τw / 窗头命中。"""
     from core.t0.close_band import (
         blend_y_tw_from_scores,
         blend_y_tw_realized,
@@ -1131,14 +816,7 @@ def _build_score_portrait_from_units(
     )
 
     label_tau = {"pos": 0, "neg": 0, "zero": 0, "missing": 0}
-    label_path = {"pos": 0, "neg": 0, "zero": 0, "missing": 0}
-    label_eod = {"pos": 0, "neg": 0, "zero": 0, "missing": 0}
-    label_joint = {"same_sign": 0, "opposite_sign": 0, "flat": 0}
-    pred_joint = {"same_sign": 0, "opposite_sign": 0, "flat": 0}
     tau_hit = {"hit": 0, "miss": 0, "flat": 0}
-    path_hit = {"hit": 0, "miss": 0, "flat": 0}
-    eod_hit = {"hit": 0, "miss": 0, "flat": 0}
-    trade_hit = {"hit": 0, "miss": 0, "flat": 0}
     r_tau_hit = {"hit": 0, "miss": 0, "flat": 0}
     y_tc_hit = {"hit": 0, "miss": 0, "flat": 0}
     y_tc_band = {"hit": 0, "miss": 0, "flat": 0}
@@ -1153,10 +831,6 @@ def _build_score_portrait_from_units(
     y_t90_hit = {"hit": 0, "miss": 0, "flat": 0}
     y_t90_band = {"hit": 0, "miss": 0, "flat": 0}
     y_tw_hit = {"hit": 0, "miss": 0, "flat": 0}
-    path_by_pred = {
-        "pred_pos": {"hit": 0, "miss": 0, "flat": 0},
-        "pred_neg": {"hit": 0, "miss": 0, "flat": 0},
-    }
     n_days = 0
     n_traded = 0
     n_skipped = 0
@@ -1170,16 +844,10 @@ def _build_score_portrait_from_units(
         if traded_only and not traded:
             continue
         sc = extract_scores(d)
-        y_tau = resolve_y_tau_oc_for_portrait(sc)
-        y_path = resolve_y_path_for_portrait(sc)
-        y_eod = resolve_y_eod_for_portrait(sc)
-        y_trade = resolve_y_trade_for_portrait(sc)
+        y_tc_p = resolve_y_tc_for_portrait(sc)
         tau_r = _pick_realized(d, "tau_realized")
         if tau_r is None:
-            tau_r = _oc_realized_pct(d)
-        path_r = _pick_realized(d, "path_realized")
-        eod_r = _eod_realized_pct(d)
-        y_tc_p = resolve_y_tc_for_portrait(sc)
+            tau_r = _remaining_realized_pct(d, d)
         y_t30_p = resolve_y_t30_for_portrait(sc)
         y_t45_p = resolve_y_t45_for_portrait(sc)
         y_t60_p = resolve_y_t60_for_portrait(sc)
@@ -1195,12 +863,7 @@ def _build_score_portrait_from_units(
         y_tw_p = blend_y_tw_from_scores(sc)
         y_tw_r = blend_y_tw_realized(t30_r, t60_r, t90_r, t45_r, t75_r)
         has_any = (
-            y_tau is not None
-            or sc.get("y_tau") is not None
-            or y_path is not None
-            or y_eod is not None
-            or y_trade is not None
-            or y_tc_p is not None
+            y_tc_p is not None
             or y_t30_p is not None
             or y_t45_p is not None
             or y_t60_p is not None
@@ -1209,8 +872,6 @@ def _build_score_portrait_from_units(
             or y_tw_p is not None
             or r_hat_p is not None
             or tau_r is not None
-            or path_r is not None
-            or eod_r is not None
             or rem_r is not None
             or t30_r is not None
             or t45_r is not None
@@ -1232,49 +893,14 @@ def _build_score_portrait_from_units(
             if d.get("signal_skip"):
                 n_signal_skip += 1
 
-        tb = _sign_bucket(tau_r)
-        pb = _sign_bucket(path_r)
-        eb = _sign_bucket(eod_r)
-        _bump(label_tau, tb)
-        _bump(label_path, pb)
-        _bump(label_eod, eb)
-        if tb in ("pos", "neg") and pb in ("pos", "neg"):
-            _bump(label_joint, "same_sign" if tb == pb else "opposite_sign")
-        else:
-            _bump(label_joint, "flat")
-
-        if (
-            y_tau is not None
-            and y_path is not None
-            and abs(float(y_tau)) > 1e-9
-            and abs(float(y_path)) > 1e-9
-        ):
-            _bump(
-                pred_joint,
-                "same_sign"
-                if (float(y_tau) > 0) == (float(y_path) > 0)
-                else "opposite_sign",
-            )
-        else:
-            _bump(pred_joint, "flat")
-
-        th = _sign_hit(y_tau, tau_r, pred_eps=0.05, real_eps=0.05)
+        _bump(label_tau, _sign_bucket(tau_r))
+        th = _sign_hit(y_tc_p, tau_r, pred_eps=0.05, real_eps=0.05)
         if th is True:
             _bump(tau_hit, "hit")
         elif th is False:
             _bump(tau_hit, "miss")
         else:
             _bump(tau_hit, "flat")
-
-        ph = _sign_hit(y_path, path_r, pred_eps=1e-9, real_eps=1e-9)
-        if path_r is not None and abs(float(path_r)) <= 1e-9:
-            ph = None
-        if ph is True:
-            _bump(path_hit, "hit")
-        elif ph is False:
-            _bump(path_hit, "miss")
-        else:
-            _bump(path_hit, "flat")
 
         _bump_sign_hit(y_tc_hit, y_tc_p, rem_r, pred_eps=0.05, real_eps=0.05)
         _bump_sign_hit(r_tau_hit, r_hat_p, rem_r, pred_eps=0.05, real_eps=0.05)
@@ -1327,32 +953,6 @@ def _build_score_portrait_from_units(
         else:
             _bump(y_t90_band, "flat")
 
-        eh = _sign_hit(y_eod, eod_r, pred_eps=0.05, real_eps=0.05)
-        if eh is True:
-            _bump(eod_hit, "hit")
-        elif eh is False:
-            _bump(eod_hit, "miss")
-        else:
-            _bump(eod_hit, "flat")
-
-        # y_trade 与涨跌同目标（close/prev_close−1）
-        trh = _sign_hit(y_trade, eod_r, pred_eps=0.05, real_eps=0.05)
-        if trh is True:
-            _bump(trade_hit, "hit")
-        elif trh is False:
-            _bump(trade_hit, "miss")
-        else:
-            _bump(trade_hit, "flat")
-
-        if y_path is not None and abs(float(y_path)) > 1e-9:
-            side = "pred_pos" if float(y_path) > 0 else "pred_neg"
-            if ph is True:
-                _bump(path_by_pred[side], "hit")
-            elif ph is False:
-                _bump(path_by_pred[side], "miss")
-            else:
-                _bump(path_by_pred[side], "flat")
-
     def _rate(hit: int, miss: int) -> Optional[float]:
         denom = hit + miss
         return round(hit / float(denom), 4) if denom else None
@@ -1372,18 +972,6 @@ def _build_score_portrait_from_units(
             else None,
         }
 
-    label_signed = int(label_joint["same_sign"]) + int(label_joint["opposite_sign"])
-    pred_signed = int(pred_joint["same_sign"]) + int(pred_joint["opposite_sign"])
-
-    def _side_pack(side: Dict[str, int]) -> Dict[str, Any]:
-        h, m = int(side["hit"]), int(side["miss"])
-        return {
-            **side,
-            "n": h + m + int(side["flat"]),
-            "hit_rate": _rate(h, m),
-            "err_rate": round(m / float(h + m), 4) if (h + m) else None,
-        }
-
     scope_s = scope or ("traded" if traded_only else "all")
     return {
         "scope": scope_s,
@@ -1397,31 +985,7 @@ def _build_score_portrait_from_units(
             "n": sum(label_tau.values()),
             "pos_share": _share(label_tau["pos"], label_tau["neg"]),
         },
-        "label_path": {
-            **label_path,
-            "n": sum(label_path.values()),
-            "pos_share": _share(label_path["pos"], label_path["neg"]),
-        },
-        "label_eod": {
-            **label_eod,
-            "n": sum(label_eod.values()),
-            "pos_share": _share(label_eod["pos"], label_eod["neg"]),
-        },
-        "label_joint": {
-            **label_joint,
-            "signed_n": label_signed,
-            "same_sign_rate": _rate(label_joint["same_sign"], label_joint["opposite_sign"]),
-        },
-        "pred_joint": {
-            **pred_joint,
-            "signed_n": pred_signed,
-            "same_sign_rate": _rate(pred_joint["same_sign"], pred_joint["opposite_sign"]),
-        },
         "tau_hit": _hit_pack(tau_hit),
-        "path_hit": _hit_pack(path_hit),
-        "y_hl_hit": _hit_pack(path_hit),
-        "eod_hit": _hit_pack(eod_hit),
-        "trade_hit": _hit_pack(trade_hit),
         "r_tau_hit": _hit_pack(r_tau_hit),
         "y_tc_hit": _hit_pack(y_tc_hit),
         "y_tc_band": _hit_pack(y_tc_band),
@@ -1436,14 +1000,9 @@ def _build_score_portrait_from_units(
         "y_t90_hit": _hit_pack(y_t90_hit),
         "y_t90_band": _hit_pack(y_t90_band),
         "y_tw_hit": _hit_pack(y_tw_hit),
-        "path_by_pred_sign": {
-            "pred_pos": _side_pack(path_by_pred["pred_pos"]),
-            "pred_neg": _side_pack(path_by_pred["pred_neg"]),
-        },
         "note": note
         or (
             f"scope={scope_s}；"
-            "y_hl↔极值序 signed (H−L)/ref%；"
             "y_τc↔close[T]/price(τ)−1；y_τ30↔mean(price(τ⊕25/30/35))/price(τ)−1；"
             "y_τ45↔mean(price(τ⊕40/45/50))/price(τ)−1；"
             "y_τ60↔mean(price(τ⊕55/60/65))/price(τ)−1；"
@@ -1466,11 +1025,10 @@ def build_score_portrait(
     *,
     traded_only: bool = False,
 ) -> Dict[str, Any]:
-    """回测日 τ/path 标签分布、ŷ 同号、预估命中。
+    """回测日 ŷ_τc / 窗头命中。
 
     默认覆盖全部回测日（含跳过）；``traded_only=True`` 仅成交日。
-    τ/HL 命中优先用 **前 N 根因果画像分**（``y_tau_portrait_oc`` / ``y_hl_portrait``），
-    与做 T 固定前缀同口径；勿用开盘选向的 open-only 决策分去对全日标签。
+    ŷ_τc 对 close[T]/price(τ)−1。旧画像头只在缺 y_τc 时并入。
     """
     units = [
         _day_with_scan_portrait(d)
@@ -1481,7 +1039,7 @@ def build_score_portrait(
 
 
 def build_score_portrait_by_slot(days: Sequence[dict]) -> Dict[str, Any]:
-    """按做T时钟拆画像：各钟因果 ŷ vs 同一套天级 τ/path 标签（对齐拟合 by_tau）。
+    """按做T时钟拆画像：各钟 ŷ_τc / 窗头对同钟或全日标签。
 
     优先 ``close_band_scan``（11:00 前每根 5m 前缀 ŷ）；无扫描时回退破带轮
     ``t0_slot_results``。样本与日级对齐；缺该钟 ŷ 计 flat。越晚前缀越长，命中通常上升。
@@ -1513,7 +1071,7 @@ def build_score_portrait_by_slot(days: Sequence[dict]) -> Dict[str, Any]:
         if not units:
             continue
         note = (
-            f"槽位 {hm}：本钟扫描 ŷ_τc / ŷ_hl / ŷ_τ30 / ŷ_τ45 / ŷ_τ60 / ŷ_τ75 / ŷ_τ90 ↔ 全日或同钟标签；"
+            f"槽位 {hm}：本钟扫描 ŷ_τc / ŷ_τw / ŷ_τ30 / ŷ_τ45 / ŷ_τ60 / ŷ_τ75 / ŷ_τ90 ↔ 同钟或全日标签；"
             "样本=与日级同样本；缺该钟ŷ计flat；成交子集=该钟已破带成交"
         )
         all_port = _build_score_portrait_from_units(
@@ -1532,8 +1090,6 @@ def build_score_portrait_by_slot(days: Sequence[dict]) -> Dict[str, Any]:
             or resolve_y_t60_for_portrait(extract_scores(u)) is not None
             or resolve_y_t75_for_portrait(extract_scores(u)) is not None
             or resolve_y_t90_for_portrait(extract_scores(u)) is not None
-            or resolve_y_tau_oc_for_portrait(extract_scores(u)) is not None
-            or resolve_y_path_for_portrait(extract_scores(u)) is not None
         )
         slots.append(
             {
@@ -1549,8 +1105,8 @@ def build_score_portrait_by_slot(days: Sequence[dict]) -> Dict[str, Any]:
         "n_slots": len(slots),
         "n_days": len(eligible),
         "note": (
-            "分槽位画像：各钟 ŷ_τc / ŷ_hl / ŷ_τ30 / ŷ_τ45 / ŷ_τ60 / ŷ_τ75 / ŷ_τ90 对标签；"
-            "旁路=该钟破带方向是否与 ŷ_τc 向 ĉ 回归同向；"
+            "分槽位画像：各钟 ŷ_τc / ŷ_τw / ŷ_τ30 / ŷ_τ45 / ŷ_τ60 / ŷ_τ75 / ŷ_τ90 对标签；"
+            "旁路=该钟破带方向是否与 ŷ_τc 同号；"
             "τ30旁路=破带方向是否与 ŷ_τ30 后 30 交易分钟同号；"
             "τ45旁路=破带方向是否与 ŷ_τ45 后 45 交易分钟同号；"
             "τ60旁路=破带方向是否与 ŷ_τ60 后 60 交易分钟同号；"
@@ -1586,17 +1142,9 @@ def _merge_score_portraits(
     """合并多票 score_portrait 计数并重算比率。"""
     empty = build_score_portrait([])
     keys_sign = ("pos", "neg", "zero", "missing")
-    keys_joint = ("same_sign", "opposite_sign", "flat")
     keys_hit = ("hit", "miss", "flat")
     label_tau = {k: 0 for k in keys_sign}
-    label_path = {k: 0 for k in keys_sign}
-    label_eod = {k: 0 for k in keys_sign}
-    label_joint = {k: 0 for k in keys_joint}
-    pred_joint = {k: 0 for k in keys_joint}
     tau_hit = {k: 0 for k in keys_hit}
-    path_hit = {k: 0 for k in keys_hit}
-    eod_hit = {k: 0 for k in keys_hit}
-    trade_hit = {k: 0 for k in keys_hit}
     r_tau_hit = {k: 0 for k in keys_hit}
     y_tc_hit = {k: 0 for k in keys_hit}
     y_tc_band = {k: 0 for k in keys_hit}
@@ -1611,10 +1159,6 @@ def _merge_score_portraits(
     y_t90_hit = {k: 0 for k in keys_hit}
     y_t90_band = {k: 0 for k in keys_hit}
     y_tw_hit = {k: 0 for k in keys_hit}
-    path_by_pred = {
-        "pred_pos": {k: 0 for k in keys_hit},
-        "pred_neg": {k: 0 for k in keys_hit},
-    }
     n_days = n_traded = n_skipped = n_signal_skip = 0
     traded_parts: List[dict] = []
     for part in parts or []:
@@ -1626,26 +1170,11 @@ def _merge_score_portraits(
         n_signal_skip += int(part.get("n_signal_skip") or 0)
         if isinstance(part.get("traded"), dict):
             traded_parts.append(part["traded"])
-        for dst, src_key in (
-            (label_tau, "label_tau"),
-            (label_path, "label_path"),
-            (label_eod, "label_eod"),
-        ):
-            src = part.get(src_key) if isinstance(part.get(src_key), dict) else {}
-            for k in keys_sign:
-                dst[k] += int(src.get(k) or 0)
-        for dst, src_key in (
-            (label_joint, "label_joint"),
-            (pred_joint, "pred_joint"),
-        ):
-            src = part.get(src_key) if isinstance(part.get(src_key), dict) else {}
-            for k in keys_joint:
-                dst[k] += int(src.get(k) or 0)
+        src = part.get("label_tau") if isinstance(part.get("label_tau"), dict) else {}
+        for k in keys_sign:
+            label_tau[k] += int(src.get(k) or 0)
         for dst, src_key in (
             (tau_hit, "tau_hit"),
-            (path_hit, "path_hit"),
-            (eod_hit, "eod_hit"),
-            (trade_hit, "trade_hit"),
             (r_tau_hit, "r_tau_hit"),
             (y_tc_hit, "y_tc_hit"),
             (y_tc_band, "y_tc_band"),
@@ -1664,11 +1193,6 @@ def _merge_score_portraits(
             src = part.get(src_key) if isinstance(part.get(src_key), dict) else {}
             for k in keys_hit:
                 dst[k] += int(src.get(k) or 0)
-        by = part.get("path_by_pred_sign") if isinstance(part.get("path_by_pred_sign"), dict) else {}
-        for side in ("pred_pos", "pred_neg"):
-            src = by.get(side) if isinstance(by.get(side), dict) else {}
-            for k in keys_hit:
-                path_by_pred[side][k] += int(src.get(k) or 0)
 
     def _rate(hit: int, miss: int) -> Optional[float]:
         denom = hit + miss
@@ -1677,15 +1201,6 @@ def _merge_score_portraits(
     def _share(pos: int, neg: int) -> Optional[float]:
         denom = pos + neg
         return round(pos / float(denom), 4) if denom else None
-
-    def _side_pack(side: Dict[str, int]) -> Dict[str, Any]:
-        h, m = int(side["hit"]), int(side["miss"])
-        return {
-            **side,
-            "n": h + m + int(side["flat"]),
-            "hit_rate": _rate(h, m),
-            "err_rate": round(m / float(h + m), 4) if (h + m) else None,
-        }
 
     def _hit_pack(pack: Dict[str, int]) -> Dict[str, Any]:
         hm = int(pack["hit"]) + int(pack["miss"])
@@ -1698,8 +1213,6 @@ def _merge_score_portraits(
             else None,
         }
 
-    label_signed = label_joint["same_sign"] + label_joint["opposite_sign"]
-    pred_signed = pred_joint["same_sign"] + pred_joint["opposite_sign"]
     out = dict(empty)
     out.update(
         {
@@ -1713,31 +1226,7 @@ def _merge_score_portraits(
                 "n": sum(label_tau.values()),
                 "pos_share": _share(label_tau["pos"], label_tau["neg"]),
             },
-            "label_path": {
-                **label_path,
-                "n": sum(label_path.values()),
-                "pos_share": _share(label_path["pos"], label_path["neg"]),
-            },
-            "label_eod": {
-                **label_eod,
-                "n": sum(label_eod.values()),
-                "pos_share": _share(label_eod["pos"], label_eod["neg"]),
-            },
-            "label_joint": {
-                **label_joint,
-                "signed_n": label_signed,
-                "same_sign_rate": _rate(label_joint["same_sign"], label_joint["opposite_sign"]),
-            },
-            "pred_joint": {
-                **pred_joint,
-                "signed_n": pred_signed,
-                "same_sign_rate": _rate(pred_joint["same_sign"], pred_joint["opposite_sign"]),
-            },
             "tau_hit": _hit_pack(tau_hit),
-            "path_hit": _hit_pack(path_hit),
-            "y_hl_hit": _hit_pack(path_hit),
-            "eod_hit": _hit_pack(eod_hit),
-            "trade_hit": _hit_pack(trade_hit),
             "r_tau_hit": _hit_pack(r_tau_hit),
             "y_tc_hit": _hit_pack(y_tc_hit),
             "y_tc_band": _hit_pack(y_tc_band),
@@ -1752,10 +1241,6 @@ def _merge_score_portraits(
             "y_t90_hit": _hit_pack(y_t90_hit),
             "y_t90_band": _hit_pack(y_t90_band),
             "y_tw_hit": _hit_pack(y_tw_hit),
-            "path_by_pred_sign": {
-                "pred_pos": _side_pack(path_by_pred["pred_pos"]),
-                "pred_neg": _side_pack(path_by_pred["pred_neg"]),
-            },
             "note": empty.get("note"),
         }
     )
@@ -1848,7 +1333,7 @@ def _merge_traded_score_portraits(
     return _merge_score_portraits(parts)
 
 def build_y_tau_attribution(days: Sequence[dict]) -> Dict[str, Any]:
-    """成交轮 ŷ_τ 符号 vs open→close。只留命中率，供 KPI「τ·OC命中」。"""
+    """成交轮 ŷ_τc 符号 vs close[T]/price(τ)−1。KPI 键仍叫 tau_oc_hit_rate_pct。"""
     hit_n = 0
     miss_n = 0
     traded = 0
@@ -1858,7 +1343,8 @@ def build_y_tau_attribution(days: Sequence[dict]) -> Dict[str, Any]:
         for unit in iter_traded_attribution_units(d):
             traded += 1
             sc = extract_scores(unit)
-            hit = _tau_oc_hit(sc.get("y_tau"), _oc_realized_pct(unit))
+            real = _remaining_realized_pct(unit, unit)
+            hit = _sign_hit(sc.get("y_τc"), real, pred_eps=0.05, real_eps=0.05)
             if hit is True:
                 hit_n += 1
             elif hit is False:
@@ -1872,191 +1358,12 @@ def build_y_tau_attribution(days: Sequence[dict]) -> Dict[str, Any]:
     }
 
 
-def _path_agreement(
-    y_path: Optional[float],
-    direction: str,
-    *,
-    y_tau: Optional[float] = None,
-    path_enter: float = 0.02,
-) -> Optional[str]:
-    """成交日 y_τ 与 y_path 是否同号（准入口径）；缺 y_τ 时回退方向对照。"""
-    if y_path is None:
-        return None
-    if y_tau is not None:
-        from core.t0.score_policy import _tau_path_same_sign
-
-        if _tau_path_same_sign(y_tau, y_path):
-            return "agree"
-        if abs(float(y_path)) <= float(path_enter) and abs(float(y_tau)) < float(path_enter):
-            return "flat"
-        return "disagree"
-    thr = float(path_enter)
-    if abs(float(y_path)) <= thr:
-        return "flat"
-    wants_sell_then_buy = float(y_path) > thr
-    wants_buy_then_sell = float(y_path) < -thr
-    if direction == "sell_then_buy":
-        if wants_sell_then_buy:
-            return "agree"
-        if wants_buy_then_sell:
-            return "disagree"
-    elif direction == "buy_then_sell":
-        if wants_buy_then_sell:
-            return "agree"
-        if wants_sell_then_buy:
-            return "disagree"
-    return None
-
-
-def build_y_path_attribution(
-    days: Sequence[dict],
-    *,
-    path_enter: float = 0.02,
-) -> Dict[str, Any]:
-    """y_path 联合选向归因：成交一致率 + path 相关跳过分类。"""
-    path_skip_ids = (
-        "y_path_flat",
-        "y_path_disagree",
-        "path_abandon",
-        "gap_tier_skip",
-    )
-    skip_by_cat: Dict[str, int] = defaultdict(int)
-    traded_agree = 0
-    traded_disagree = 0
-    traded_flat = 0
-    traded_with_path = 0
-    traded_no_path = 0
-    pnl_agree = 0.0
-    pnl_disagree = 0.0
-
-    for d in days or []:
-        if not isinstance(d, dict):
-            continue
-        slot_rows = _slot_result_rows(d)
-        if slot_rows:
-            for r in slot_rows:
-                if not r.get("skipped"):
-                    continue
-                reason = str(r.get("reason") or "")
-                cat = str(classify_t0_skip_reason(reason))
-                if cat in path_skip_ids:
-                    skip_by_cat[cat] += 1
-        elif d.get("skipped"):
-            reason = str(d.get("reason") or d.get("direction_reason") or "")
-            cat = str(d.get("skip_category") or classify_t0_skip_reason(reason))
-            if cat in path_skip_ids:
-                skip_by_cat[cat] += 1
-            continue
-        if d.get("skipped"):
-            continue
-        if not is_traded_t0_day(d):
-            continue
-        for unit in iter_traded_attribution_units(d):
-            sc = extract_scores(unit)
-            y_path = sc.get("y_hl")
-            if y_path is None:
-                y_path = sc.get("y_path")
-            y_tau = sc.get("y_tau")
-            if y_tau is None and isinstance(unit.get("direction_features"), dict):
-                y_tau = unit["direction_features"].get("y_tau")
-            direction = str(unit.get("direction") or "")
-            pnl = round(float(unit.get("pnl") or 0) + float(unit.get("exposure_pnl") or 0), 2)
-            if y_path is None:
-                traded_no_path += 1
-                continue
-            traded_with_path += 1
-            agree = _path_agreement(
-                y_path, direction, y_tau=y_tau, path_enter=path_enter
-            )
-            if agree == "agree":
-                traded_agree += 1
-                pnl_agree = round(pnl_agree + pnl, 2)
-            elif agree == "disagree":
-                traded_disagree += 1
-                pnl_disagree = round(pnl_disagree + pnl, 2)
-            elif agree == "flat":
-                traded_flat += 1
-
-    denom = traded_agree + traded_disagree
-    summary = {
-        "traded_with_path": traded_with_path,
-        "traded_no_path": traded_no_path,
-        "path_agree_n": traded_agree,
-        "path_disagree_n": traded_disagree,
-        "path_flat_n": traded_flat,
-        "path_agree_rate_pct": round(traded_agree / denom * 100.0, 2) if denom else None,
-        "pnl_agree": pnl_agree,
-        "pnl_disagree": pnl_disagree,
-        "path_skip_days": sum(skip_by_cat.values()),
-    }
-    skip_rows = [
-        {
-            "id": cid,
-            "label": SKIP_CAT_LABELS.get(cid, cid),
-            "count": int(cnt),
-        }
-        for cid, cnt in sorted(skip_by_cat.items(), key=lambda x: (-x[1], x[0]))
-    ]
-    return {
-        "summary": summary,
-        "skip_by_category": skip_rows,
-        "path_enter": path_enter,
-    }
-
-
-def _merge_y_path_attribution(
-    parts: Sequence[Optional[dict]],
-    *,
-    path_enter: float = 0.02,
-) -> Dict[str, Any]:
-    """合并多票 y_path 归因块。"""
-    skip_by_cat: Dict[str, int] = defaultdict(int)
-    traded_agree = traded_disagree = traded_flat = 0
-    traded_with_path = traded_no_path = 0
-    pnl_agree = pnl_disagree = 0.0
-    for part in parts or []:
-        if not isinstance(part, dict):
-            continue
-        sm = part.get("summary") if isinstance(part.get("summary"), dict) else {}
-        traded_with_path += int(sm.get("traded_with_path") or 0)
-        traded_no_path += int(sm.get("traded_no_path") or 0)
-        traded_agree += int(sm.get("path_agree_n") or 0)
-        traded_disagree += int(sm.get("path_disagree_n") or 0)
-        traded_flat += int(sm.get("path_flat_n") or 0)
-        pnl_agree = round(pnl_agree + float(sm.get("pnl_agree") or 0), 2)
-        pnl_disagree = round(pnl_disagree + float(sm.get("pnl_disagree") or 0), 2)
-        for row in part.get("skip_by_category") or []:
-            if isinstance(row, dict) and row.get("id"):
-                skip_by_cat[str(row["id"])] += int(row.get("count") or 0)
-    denom = traded_agree + traded_disagree
-    summary = {
-        "traded_with_path": traded_with_path,
-        "traded_no_path": traded_no_path,
-        "path_agree_n": traded_agree,
-        "path_disagree_n": traded_disagree,
-        "path_flat_n": traded_flat,
-        "path_agree_rate_pct": round(traded_agree / denom * 100.0, 2) if denom else None,
-        "pnl_agree": pnl_agree,
-        "pnl_disagree": pnl_disagree,
-        "path_skip_days": sum(skip_by_cat.values()),
-    }
-    skip_rows = [
-        {
-            "id": cid,
-            "label": SKIP_CAT_LABELS.get(cid, cid),
-            "count": int(cnt),
-        }
-        for cid, cnt in sorted(skip_by_cat.items(), key=lambda x: (-x[1], x[0]))
-    ]
-    return {"summary": summary, "skip_by_category": skip_rows, "path_enter": path_enter}
-
-
 def summarize_dual_y_upgrade_acceptance(
     days: Sequence[dict],
     *,
     rules: Optional[dict] = None,
 ) -> Dict[str, Any]:
-    """同窗口验收：成交 |ŷ_τ| 与 path 否决笔数。旧 y_tau_enter 不再生效。"""
+    """同窗口验收：成交 |ŷ_τc|。旧入场闸不再生效，flat 只在阈值为正时才会计数。"""
     _ = rules
     enter = 0.0
 
@@ -2064,7 +1371,7 @@ def summarize_dual_y_upgrade_acceptance(
     flat_trades = 0
     for d in traded:
         sc = extract_scores(d)
-        yt = sc.get("y_tau")
+        yt = sc.get("y_τc")
         if yt is None:
             continue
         try:
@@ -2075,26 +1382,17 @@ def summarize_dual_y_upgrade_acceptance(
             flat_trades += 1
 
     att = build_y_tau_attribution(days)
-
-    path_skip = 0
-    for d in days or []:
-        if not isinstance(d, dict) or not d.get("skipped"):
-            continue
-        reason = str(d.get("reason") or d.get("direction_reason") or "")
-        if classify_t0_skip_reason(reason) == "y_path_disagree":
-            path_skip += 1
-
     ok = flat_trades == 0
     return {
         "ok": ok,
         "traded_n": len(traded),
-        "weak_tau_trades": 0,  # 双闸已合并；保留键兼容旧前端
+        "weak_tau_trades": 0,
         "flat_tau_trades": flat_trades,
         "tau_oc_hit_rate_pct": att.get("oc_hit_rate_pct"),
-        "path_disagree_skips": path_skip,
+        "path_disagree_skips": 0,
         "y_tau_enter": enter,
         "y_tau_enter_strong": enter,
-        "blockers": (["存在 |τ|<enter 成交"] if flat_trades else []),
+        "blockers": (["存在 |ŷ_τc|<enter 成交"] if flat_trades else []),
     }
 
 
@@ -2135,9 +1433,10 @@ def iter_traded_attribution_units(day: dict) -> List[dict]:
                 "open": day.get("open"),
                 "close": day.get("close"),
                 "prev_close": day.get("prev_close"),
-                "eod_realized": day.get("eod_realized"),
                 "tau_realized": day.get("tau_realized"),
-                "path_realized": day.get("path_realized"),
+                "r_realized": r.get("r_realized")
+                if r.get("r_realized") is not None
+                else day.get("r_realized"),
                 **pack_y_tc_fields(day),
                 "direction": r.get("direction"),
                 "pnl": r.get("pnl") or 0,
@@ -2412,13 +1711,13 @@ def build_t0_viz_payload(
             unit_scatter = False
             for unit in units:
                 usc = extract_scores(unit)
-                yt = usc.get("y_oc")
-                if yt is None:
-                    yt = usc.get("y_tau")
+                yt = usc.get("y_τc")
                 hm = str(unit.get("t0_slot_hm") or unit.get("hm") or "")[:5]
                 scan_row = _scan_row_at_hm(d, hm)
                 if yt is None and scan_row is not None:
-                    yt = _f(scan_row.get("y_tau"))
+                    yt = _f(scan_row.get("y_τc"))
+                    if yt is None:
+                        yt = _f(scan_row.get("predicted_score_τc"))
                 rp = _r_pct_for_unit(d, unit)
                 if yt is None and rp is None:
                     continue
@@ -2430,9 +1729,7 @@ def build_t0_viz_payload(
                 y_tau_scatter.append(
                     {
                         "date": date,
-                        "y_tau": yt,
-                        "y_oc": yt,
-                        "y_τc": usc.get("y_τc"),
+                        "y_τc": yt,
                         "r_pct": rp,
                         "outcome": "traded",
                         "direction": unit.get("direction"),
@@ -2443,17 +1740,15 @@ def build_t0_viz_payload(
                 )
             if unit_tau:
                 score_seen += 1
-            elif sc.get("y_tau") is not None:
+            elif sc.get("y_τc") is not None:
                 score_seen += 1
-                y_tau_traded.append(float(sc["y_tau"]))
-                y_tau_hist[_y_tau_bucket(float(sc["y_tau"]))] += 1
+                y_tau_traded.append(float(sc["y_τc"]))
+                y_tau_hist[_y_tau_bucket(float(sc["y_τc"]))] += 1
                 if not unit_scatter:
                     y_tau_scatter.append(
                         {
                             "date": date,
-                            "y_tau": sc["y_tau"],
-                            "y_oc": sc.get("y_oc") if sc.get("y_oc") is not None else sc["y_tau"],
-                            "y_τc": sc.get("y_τc"),
+                            "y_τc": sc["y_τc"],
                             "r_pct": _r_pct_for_unit(d, None),
                             "outcome": "traded",
                             "direction": direction,
@@ -2471,16 +1766,9 @@ def build_t0_viz_payload(
                     "direction": direction,
                     "stock_code": code,
                     "stock_name": name,
-                    "y_tau": first_sc.get("y_tau"),
-                    "y_hl": first_sc.get("y_hl")
-                    if first_sc.get("y_hl") is not None
-                    else first_sc.get("y_path"),
+                    "y_τc": first_sc.get("y_τc"),
                     "gap_pct": first_sc.get("gap_pct"),
-                    "y_eod": first_sc.get("y_eod"),
-                    "y_trade": first_sc.get("y_trade"),
-                    "y_co": first_sc.get("y_co")
-                    if first_sc.get("y_co") is not None
-                    else first_sc.get("y_on"),
+                    "y_co": first_sc.get("y_co"),
                     "sold_qty": int(d.get("sold_qty") or 0),
                     "covered_qty": int(d.get("covered_qty") or 0),
                     "bought_qty": int(d.get("bought_qty") or 0),
@@ -2506,7 +1794,7 @@ def build_t0_viz_payload(
             daily[date]["signal_skip"] += 1
         else:
             daily[date]["other_skip"] += 1
-        yt = sc.get("y_tau")
+        yt = sc.get("y_τc")
         if yt is not None:
             score_seen += 1
             if d.get("signal_skip"):
@@ -2515,7 +1803,7 @@ def build_t0_viz_payload(
                 y_tau_scatter.append(
                     {
                         "date": date,
-                        "y_tau": yt,
+                        "y_τc": yt,
                         "outcome": "signal_skip",
                         "direction": None,
                         "stock_code": code,
@@ -2569,7 +1857,6 @@ def build_t0_viz_payload(
         if y_tau_hist.get(b)
     ]
     y_tau_hit = build_y_tau_attribution(days)
-    y_path_attribution = build_y_path_attribution(days, path_enter=0.02)
     score_portrait = build_backtest_score_portrait(days)
 
     stock_contrib: List[Dict[str, Any]] = []
@@ -2615,23 +1902,14 @@ def build_t0_viz_payload(
         summary["avg_y_tau_signal_skip"] = round(sum(y_tau_skipped) / len(y_tau_skipped), 3)
     if y_tau_hit.get("oc_hit_rate_pct") is not None:
         summary["tau_oc_hit_rate_pct"] = y_tau_hit.get("oc_hit_rate_pct")
-    path_sm = (
-        y_path_attribution.get("summary")
-        if isinstance(y_path_attribution.get("summary"), dict)
-        else {}
-    )
-    if path_sm.get("path_agree_rate_pct") is not None:
-        summary["path_agree_rate_pct"] = path_sm.get("path_agree_rate_pct")
-    if path_sm.get("path_skip_days") is not None:
-        summary["path_skip_days"] = path_sm.get("path_skip_days")
 
     upgrade_acc = summarize_dual_y_upgrade_acceptance(days, rules=rules)
     summary["upgrade_acceptance"] = upgrade_acc
     summary["score_portrait"] = score_portrait
     if score_portrait.get("tau_hit", {}).get("hit_rate_pct") is not None:
         summary["tau_pred_hit_rate_pct"] = score_portrait["tau_hit"]["hit_rate_pct"]
-    if score_portrait.get("path_hit", {}).get("hit_rate_pct") is not None:
-        summary["path_pred_hit_rate_pct"] = score_portrait["path_hit"]["hit_rate_pct"]
+    if score_portrait.get("y_tc_hit", {}).get("hit_rate_pct") is not None:
+        summary["tc_pred_hit_rate_pct"] = score_portrait["y_tc_hit"]["hit_rate_pct"]
     if score_portrait.get("y_tw_hit", {}).get("hit_rate_pct") is not None:
         summary["tw_pred_hit_rate_pct"] = score_portrait["y_tw_hit"]["hit_rate_pct"]
     if score_portrait.get("y_t30_hit", {}).get("hit_rate_pct") is not None:
@@ -2654,21 +1932,11 @@ def build_t0_viz_payload(
         summary["t90_pred_hit_rate_pct"] = score_portrait["y_t90_hit"]["hit_rate_pct"]
     if score_portrait.get("y_t90_band", {}).get("hit_rate_pct") is not None:
         summary["t90_band_hit_rate_pct"] = score_portrait["y_t90_band"]["hit_rate_pct"]
-    if score_portrait.get("pred_joint", {}).get("same_sign_rate") is not None:
-        summary["pred_same_sign_rate_pct"] = round(
-            float(score_portrait["pred_joint"]["same_sign_rate"]) * 100.0, 2
-        )
-    if score_portrait.get("label_joint", {}).get("same_sign_rate") is not None:
-        summary["label_same_sign_rate_pct"] = round(
-            float(score_portrait["label_joint"]["same_sign_rate"]) * 100.0, 2
-        )
-
     return {
         "skip_categories": skip_categories,
         "cumulative_pnl": cumulative,
         "daily_activity": activity,
         "y_tau_buckets": y_tau_buckets,
-        "y_path_attribution": y_path_attribution,
         "score_portrait": score_portrait,
         "y_tau_scatter": y_tau_scatter,
         "stock_contrib": stock_contrib,
@@ -2738,7 +2006,7 @@ def merge_t0_viz_payloads(
                 trade_points.append(dict(tp))
                 if tp.get("cover_completed"):
                     cover_n += 1
-                yt = _f(tp.get("y_tau"))
+                yt = _f(tp.get("y_τc"))
                 if yt is not None:
                     score_seen += 1
                     y_tau_traded.append(yt)
@@ -2746,8 +2014,8 @@ def merge_t0_viz_payloads(
         for pt in p.get("y_tau_scatter") or []:
             if isinstance(pt, dict):
                 y_tau_scatter.append(dict(pt))
-                if pt.get("outcome") == "signal_skip" and _f(pt.get("y_tau")) is not None:
-                    y_tau_skipped.append(float(pt["y_tau"]))
+                if pt.get("outcome") == "signal_skip" and _f(pt.get("y_τc")) is not None:
+                    y_tau_skipped.append(float(pt["y_τc"]))
         for st in p.get("stock_contrib") or []:
             if isinstance(st, dict):
                 stock_contrib.append(dict(st))
@@ -2800,28 +2068,14 @@ def merge_t0_viz_payloads(
     if y_tau_hit.get("oc_hit_rate_pct") is not None:
         summary["tau_oc_hit_rate_pct"] = y_tau_hit.get("oc_hit_rate_pct")
 
-    y_path_attribution = _merge_y_path_attribution(
-        [p.get("y_path_attribution") for p in (payloads or []) if isinstance(p, dict)],
-        path_enter=0.02,
-    )
-    path_sm = (
-        y_path_attribution.get("summary")
-        if isinstance(y_path_attribution.get("summary"), dict)
-        else {}
-    )
-    if path_sm.get("path_agree_rate_pct") is not None:
-        summary["path_agree_rate_pct"] = path_sm.get("path_agree_rate_pct")
-    if path_sm.get("path_skip_days") is not None:
-        summary["path_skip_days"] = path_sm.get("path_skip_days")
-
     score_portrait = _merge_score_portraits(
         [p.get("score_portrait") for p in (payloads or []) if isinstance(p, dict)]
     )
     summary["score_portrait"] = score_portrait
     if score_portrait.get("tau_hit", {}).get("hit_rate_pct") is not None:
         summary["tau_pred_hit_rate_pct"] = score_portrait["tau_hit"]["hit_rate_pct"]
-    if score_portrait.get("path_hit", {}).get("hit_rate_pct") is not None:
-        summary["path_pred_hit_rate_pct"] = score_portrait["path_hit"]["hit_rate_pct"]
+    if score_portrait.get("y_tc_hit", {}).get("hit_rate_pct") is not None:
+        summary["tc_pred_hit_rate_pct"] = score_portrait["y_tc_hit"]["hit_rate_pct"]
     if score_portrait.get("y_tw_hit", {}).get("hit_rate_pct") is not None:
         summary["tw_pred_hit_rate_pct"] = score_portrait["y_tw_hit"]["hit_rate_pct"]
     if score_portrait.get("y_t30_hit", {}).get("hit_rate_pct") is not None:
@@ -2844,14 +2098,6 @@ def merge_t0_viz_payloads(
         summary["t90_pred_hit_rate_pct"] = score_portrait["y_t90_hit"]["hit_rate_pct"]
     if score_portrait.get("y_t90_band", {}).get("hit_rate_pct") is not None:
         summary["t90_band_hit_rate_pct"] = score_portrait["y_t90_band"]["hit_rate_pct"]
-    if score_portrait.get("pred_joint", {}).get("same_sign_rate") is not None:
-        summary["pred_same_sign_rate_pct"] = round(
-            float(score_portrait["pred_joint"]["same_sign_rate"]) * 100.0, 2
-        )
-    if score_portrait.get("label_joint", {}).get("same_sign_rate") is not None:
-        summary["label_same_sign_rate_pct"] = round(
-            float(score_portrait["label_joint"]["same_sign_rate"]) * 100.0, 2
-        )
 
     stock_contrib.sort(key=lambda x: -abs(float(x.get("pnl") or 0)))
 
@@ -2882,7 +2128,6 @@ def merge_t0_viz_payloads(
             for b in _bucket_order()
             if y_tau_hist.get(b)
         ],
-        "y_path_attribution": y_path_attribution,
         "score_portrait": score_portrait,
         "y_tau_scatter": y_tau_scatter,
         "stock_contrib": stock_contrib,

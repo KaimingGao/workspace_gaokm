@@ -5,6 +5,7 @@ import logging
 import os
 from typing import Any, Dict, List, Optional, Tuple
 
+from core.research.task import records_experiment
 from core.watching.store import WATCHING_MAX_SIZE
 
 logger = logging.getLogger(__name__)
@@ -490,6 +491,7 @@ class QuantFactorMixin:
             fetch_score_fundamentals(sym) if sym else None
         )
 
+    @records_experiment("factor_ic")
     def run_factor_experiment(
         self,
         code: str = "茅台",
@@ -531,8 +533,10 @@ class QuantFactorMixin:
             horizon_days=report.get("horizon_days") or horizon_days,
             data_source=src,
         )
+        report["pit_fundamentals"] = True
         return report
 
+    @records_experiment("factor_ols")
     def run_factor_ols_experiment(
         self,
         code: str = "茅台",
@@ -669,6 +673,7 @@ class QuantFactorMixin:
         out["stock_count"] = len(stock_bars)
         return out
 
+    @records_experiment("tc_ridge")
     def run_tau_ridge_experiment(
         self,
         *,
@@ -718,7 +723,7 @@ class QuantFactorMixin:
             return {
                 "success": False,
                 "error": "研究池至少 2 只才可跑 ŷ_τ Ridge",
-                "task": "tau_ridge",
+                "task": "tc_ridge",
             }
 
         if persist:
@@ -900,6 +905,7 @@ class QuantFactorMixin:
             live_present=True,
         )
 
+    @records_experiment("oo_tree")
     def run_oo_tree_experiment(
         self,
         *,
@@ -990,6 +996,7 @@ class QuantFactorMixin:
         out.setdefault("head", "y_oo_tree")
         return out
 
+    @records_experiment("co_tree")
     def run_co_tree_experiment(
         self,
         *,
@@ -1099,6 +1106,7 @@ class QuantFactorMixin:
         out["backtest_hook"] = False
         return out
 
+    @records_experiment("tc_tree")
     def run_tau_tree_experiment(
         self,
         *,
@@ -1139,7 +1147,7 @@ class QuantFactorMixin:
             return {
                 "success": False,
                 "error": "研究池至少 2 只才可跑 ŷ_τ_tree",
-                "task": "tau_tree",
+                "task": "tc_tree",
                 "head": "y_tau_tree",
                 "live_hook": False,
                 "backtest_hook": False,
@@ -1257,6 +1265,7 @@ class QuantFactorMixin:
     run_tau_boost_experiment = run_tau_tree_experiment
     get_tau_boost_last_report = get_tau_tree_last_report
 
+    @records_experiment("co_ridge")
     def run_co_ridge_experiment(
         self,
         *,
@@ -1388,6 +1397,7 @@ class QuantFactorMixin:
         )
         return _attach_ridge_role_flags(out, co_model_path(), live_present=live_file)
 
+    @records_experiment("oo_rank")
     def run_oo_rank_experiment(
         self,
         *,
@@ -1533,6 +1543,7 @@ class QuantFactorMixin:
         )
         return out
 
+    @records_experiment("t30_ridge")
     def run_t30_ridge_experiment(
         self,
         *,
@@ -1765,6 +1776,7 @@ class QuantFactorMixin:
             worker_fn=lambda: self.run_t30_ridge_experiment(**kwargs),
         )
 
+    @records_experiment("t45_ridge")
     def run_t45_ridge_experiment(
         self,
         *,
@@ -1997,6 +2009,7 @@ class QuantFactorMixin:
             worker_fn=lambda: self.run_t45_ridge_experiment(**kwargs),
         )
 
+    @records_experiment("t60_ridge")
     def run_t60_ridge_experiment(
         self,
         *,
@@ -2229,6 +2242,7 @@ class QuantFactorMixin:
             worker_fn=lambda: self.run_t60_ridge_experiment(**kwargs),
         )
 
+    @records_experiment("t75_ridge")
     def run_t75_ridge_experiment(
         self,
         *,
@@ -2461,6 +2475,7 @@ class QuantFactorMixin:
             worker_fn=lambda: self.run_t75_ridge_experiment(**kwargs),
         )
 
+    @records_experiment("t90_ridge")
     def run_t90_ridge_experiment(
         self,
         *,
@@ -2693,6 +2708,7 @@ class QuantFactorMixin:
             worker_fn=lambda: self.run_t90_ridge_experiment(**kwargs),
         )
 
+    @records_experiment("t30_tree")
     def run_t30_tree_experiment(
         self,
         *,
@@ -2870,6 +2886,7 @@ class QuantFactorMixin:
         out.setdefault("head", "y_t30_tree")
         return out
 
+    @records_experiment("t45_tree")
     def run_t45_tree_experiment(
         self,
         *,
@@ -3047,6 +3064,7 @@ class QuantFactorMixin:
         out.setdefault("head", "y_t45_tree")
         return out
 
+    @records_experiment("t60_tree")
     def run_t60_tree_experiment(
         self,
         *,
@@ -3224,6 +3242,7 @@ class QuantFactorMixin:
         out.setdefault("head", "y_t60_tree")
         return out
 
+    @records_experiment("t75_tree")
     def run_t75_tree_experiment(
         self,
         *,
@@ -3401,6 +3420,7 @@ class QuantFactorMixin:
         out.setdefault("head", "y_t75_tree")
         return out
 
+    @records_experiment("t90_tree")
     def run_t90_tree_experiment(
         self,
         *,
@@ -3578,6 +3598,7 @@ class QuantFactorMixin:
         out.setdefault("head", "y_t90_tree")
         return out
 
+    @records_experiment("factor_ols_pool")
     def run_factor_ols_pool_experiment(
         self,
         *,
@@ -4017,6 +4038,7 @@ class QuantFactorMixin:
         _ = args, kwargs
         return _cluster_retired_payload()
 
+    @records_experiment("factor_cs_ic")
     def run_factor_cs_ic_experiment(
         self,
         *,

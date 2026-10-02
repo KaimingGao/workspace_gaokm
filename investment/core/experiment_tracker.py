@@ -28,8 +28,34 @@ from core.paths import DATA_DIR
 
 EXPERIMENTS_DIR = os.path.join(DATA_DIR, "experiments")
 
+# τ→close 的登记名是 tc_*。tau_* 只保留旧目录和旧调用。
+_CANONICAL_MODEL_TYPE = {
+    "tau_ridge": "tc_ridge",
+    "tau_tree": "tc_tree",
+}
+_LEGACY_MODEL_TYPE = {canon: legacy for legacy, canon in _CANONICAL_MODEL_TYPE.items()}
+
 # 进行中的实验（进程内）
 _active: Dict[str, Dict[str, Any]] = {}
+
+
+def canonical_model_type(model_type: Optional[str]) -> str:
+    """实验类型登记名。未知类型原样返回。"""
+    key = str(model_type or "").strip()
+    return _CANONICAL_MODEL_TYPE.get(key, key)
+
+
+def model_type_dirs(model_type: str) -> List[str]:
+    """筛选时同时扫登记目录和旧目录。"""
+    key = str(model_type or "").strip()
+    canon = canonical_model_type(key)
+    names = [canon] if canon else []
+    legacy = _LEGACY_MODEL_TYPE.get(canon)
+    if legacy and legacy not in names:
+        names.append(legacy)
+    if key and key not in names:
+        names.append(key)
+    return names
 
 
 def _fingerprint(obj: Any) -> str:
@@ -59,11 +85,12 @@ def start_experiment(
     """开始一个实验，返回 experiment_id。
 
     Args:
-        model_type: 模型类型，如 "tau_tree" / "oo_rank" / "ridge"
+        model_type: 模型类型，如 "tc_tree" / "oo_rank" / "ridge"
         config: 训练配置（超参、因子集、数据窗口、标签等）
         experiment_id: 自定义 ID；默认自动生成
         tags: 标签，如 {"dataset": "csi300", "author": "gaokm"}
     """
+    model_type = canonical_model_type(model_type) or str(model_type or "unknown")
     exp_id = experiment_id or f"{model_type}_{_ts_slug()}_{_fingerprint(config)[:8]}"
     record = {
         "experiment_id": exp_id,
@@ -174,12 +201,12 @@ def list_experiments(
     results: List[Dict[str, Any]] = []
     if not os.path.isdir(EXPERIMENTS_DIR):
         return results
-    dirs = [model_type] if model_type else os.listdir(EXPERIMENTS_DIR)
+    dirs = model_type_dirs(model_type) if model_type else os.listdir(EXPERIMENTS_DIR)
     for d in dirs:
         full = os.path.join(EXPERIMENTS_DIR, d)
         if not os.path.isdir(full):
             continue
-        for fname in sorted(os.listdir(full), reverse=True):
+        for fname in os.listdir(full):
             if not fname.endswith(".json"):
                 continue
             try:
@@ -189,10 +216,20 @@ def list_experiments(
                 continue
             if status and rec.get("status") != status:
                 continue
-            results.append(rec)
-            if len(results) >= limit:
-                return results
-    return results
+            results.append(_present_model_type(rec))
+    results.sort(key=lambda rec: str(rec.get("created_at") or ""), reverse=True)
+    cap = max(0, int(limit))
+    return results[:cap]
+
+
+def _present_model_type(rec: Dict[str, Any]) -> Dict[str, Any]:
+    """列表里把旧类型显示成登记名，不改磁盘上的记录。"""
+    out = dict(rec)
+    mt = out.get("model_type")
+    canon = canonical_model_type(mt if isinstance(mt, str) else "")
+    if canon and canon != mt:
+        out["model_type"] = canon
+    return out
 
 
 def get_experiment(experiment_id: str) -> Optional[Dict[str, Any]]:
@@ -305,7 +342,7 @@ def track_fit_report(
     用法::
 
         report = fit_tau_tree_report(bars, backend="lightgbm", ...)
-        track_fit_report("tau_tree", {"backend": "lightgbm", ...}, report)
+        track_fit_report("tc_tree", {"backend": "lightgbm", ...}, report)
     """
     metrics: Dict[str, Any] = {}
     rpt = report or {}

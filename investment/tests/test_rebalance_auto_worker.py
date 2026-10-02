@@ -494,7 +494,7 @@ class TestRebalanceDesk(unittest.TestCase):
                         "ranking": 2.885,
                         "ranking_score": 0.02885,
                         "y_oo": 2.16,
-                        "y_oc": 6.36,
+                        "y_τc": 6.36,
                         "y_co": -0.54,
                         "reason": "买500股",
                         "old_shares": 0,
@@ -521,6 +521,7 @@ class TestRebalanceDesk(unittest.TestCase):
         self.assertAlmostEqual(float(row["amount"]), 3750)
         self.assertEqual(row["ts"][:16], "2026-09-21T09:47")
         self.assertAlmostEqual(float(row["y_oo"]), 2.16)
+        self.assertAlmostEqual(float(row["y_τc"]), 6.36)
 
     def test_hydrate_from_today_trades(self):
         from core.paper.rebalance.desk import hydrate_desk_rows_from_paper
@@ -544,7 +545,7 @@ class TestRebalanceDesk(unittest.TestCase):
                     "amount": 3750.0,
                     "origin": "strategy",
                     "y_oo": 2.16,
-                    "y_oc": 6.36,
+                    "y_τc": 6.36,
                     "ranking": 2.885,
                 }
             ]

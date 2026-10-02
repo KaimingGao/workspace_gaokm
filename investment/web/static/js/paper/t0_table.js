@@ -57,36 +57,14 @@ function pickYtcModel(r) {
   if (!r || typeof r !== "object") return null;
   const from = (obj) => {
     if (!obj || typeof obj !== "object") return null;
-    const rem =
-      finiteYhatNum(obj.remaining_oc) ??
-      finiteYhatNum(obj.r_hat) ??
-      finiteYhatNum(obj.residual);
     const src = String(obj.y_τc_source || "");
-    const ridge =
-      finiteYhatNum(obj.y_τc_ridge) ??
-      finiteYhatNum(obj.predicted_score_r) ??
-      finiteYhatNum(obj.y_r_hat) ??
-      finiteYhatNum(obj.y_r);
-    const ytc =
+    const ridge = finiteYhatNum(obj.y_τc_ridge);
+    if (src === "remaining_oc") return ridge;
+    return (
       finiteYhatNum(obj["y_τc"]) ??
       finiteYhatNum(obj.predicted_score_τc) ??
-      finiteYhatNum(obj.y_tc) ??
-      finiteYhatNum(obj.predicted_score_tc) ??
-      finiteYhatNum(obj.y_to) ??
-      finiteYhatNum(obj.predicted_score_to) ??
-      finiteYhatNum(obj.y_pc) ??
-      finiteYhatNum(obj.predicted_score_pc);
-    if (src === "remaining_oc") return ridge;
-    if (
-      ytc != null &&
-      rem != null &&
-      Math.abs(ytc - rem) < 1e-4 &&
-      ridge != null &&
-      Math.abs(ridge - rem) > 1e-4
-    ) {
-      return ridge;
-    }
-    return ytc ?? ridge;
+      ridge
+    );
   };
   return from(r) ?? from(r.scores);
 }
@@ -523,8 +501,8 @@ function slotYhat(r, dayHost) {
       : {};
   const gateYt = slotGateYTau(r, dayHost);
   let yTau =
-    slotYNum(sc, ["y_tau", "y_tau_oc", "predicted_score_tau", "score_rem"]) ??
-    slotYNum(ft, ["y_tau", "y_tau_oc"]);
+    slotYNum(sc, ["y_τc", "predicted_score_τc"]) ??
+    slotYNum(ft, ["y_τc", "predicted_score_τc"]);
   let yR = pickYtcModel(sc) ?? pickYtcModel(ft);
   let yT30 = slotYNum(sc, Y_T30_HAT_KEYS) ?? slotYNum(ft, Y_T30_HAT_KEYS);
   let yHl = slotYNum(sc, Y_HL_HAT_KEYS) ?? slotYNum(ft, Y_HL_HAT_KEYS);
@@ -669,11 +647,8 @@ function slotDayRow(d, r, rows) {
       : {};
   // 槽位 scores 优先；缺字段时用 close_band.y_tau（与 Ĉ 同源）
   if (yhat.y_tau != null) {
+    if (slotScores["y_τc"] == null) slotScores["y_τc"] = yhat.y_tau;
     if (slotScores.y_tau == null) slotScores.y_tau = yhat.y_tau;
-    if (slotScores.y_tau_oc == null) slotScores.y_tau_oc = yhat.y_tau;
-  }
-  if (yhat.y_tau != null) {
-    if (slotScores.y_oc == null) slotScores.y_oc = yhat.y_tau;
   }
   if (yhat.y_r != null) {
     if (slotScores.predicted_score_r == null) slotScores.predicted_score_r = yhat.y_r;
@@ -781,7 +756,7 @@ function slotDayRow(d, r, rows) {
     y_r_hat: yhat.y_r,
     y_r: yhat.y_r,
     y_oc: yhat.y_tau,
-    "y_τc": yhat.y_r,
+    "y_τc": yhat.y_tau != null ? yhat.y_tau : yhat.y_r,
     y_tc: yhat.y_r,
     r_realized: rReal,
     y_r_realized: rReal,
@@ -1130,7 +1105,13 @@ function t30ScanTipItem(scanRow, day) {
 
 function tauScanTipItem(scanRow, day) {
   const { scores, feats } = scanTipFeatHost(scanRow, day);
-  const yoc = scanRow && (scanRow.y_oc ?? scanRow.y_tau);
+  const yoc =
+    scanRow &&
+    (scanRow["y_τc"] != null
+      ? scanRow["y_τc"]
+      : scanRow.predicted_score_τc != null
+        ? scanRow.predicted_score_τc
+        : null);
   return {
     y_oc: yoc,
     y_tau: scanRow && (scanRow.y_tau ?? scanRow.y_oc),
@@ -2054,10 +2035,10 @@ function tradeScoreHost(day, host) {
     return { ...host, _scan_score_row: scanRow };
   }
   const yTau =
-    scanRow.y_oc != null
-      ? Number(scanRow.y_oc)
-      : scanRow.y_tau != null
-        ? Number(scanRow.y_tau)
+    scanRow["y_τc"] != null
+      ? Number(scanRow["y_τc"])
+      : scanRow.predicted_score_τc != null
+        ? Number(scanRow.predicted_score_τc)
         : null;
   const yTc = pickYtcModel(scanRow);
   const yR =
@@ -2111,10 +2092,8 @@ function tradeScoreHost(day, host) {
   const scores = { ...(host.scores && typeof host.scores === "object" ? host.scores : {}) };
   if (yTau != null && Number.isFinite(yTau)) {
     scores.y_tau = yTau;
-    scores.y_oc = yTau;
-    scores.y_tau_oc = yTau;
-    scores.predicted_score_tau_oc = yTau;
     scores.score_rem = yTau;
+    if (scores["y_τc"] == null) scores["y_τc"] = yTau;
   }
   if (yR != null && Number.isFinite(yR)) {
     scores.predicted_score_r = yR;
@@ -2127,7 +2106,7 @@ function tradeScoreHost(day, host) {
     scores.predicted_score_τc = yTc;
     scores.y_τc_source = "ridge";
   }
-  const yTcRidge = finiteYhatNum(scanRow.y_τc_ridge) ?? (yR != null && Number.isFinite(yR) ? yR : null);
+  const yTcRidge = finiteYhatNum(scanRow.y_τc_ridge);
   if (yTcRidge != null) scores.y_τc_ridge = yTcRidge;
   if (scanRow.y_τc_source) scores.y_τc_source = scanRow.y_τc_source === "remaining_oc" ? "ridge" : scanRow.y_τc_source;
   const rHat =
@@ -2292,7 +2271,7 @@ function t0DayScoreItem(d, fallback = {}, rules = {}, liveByCode = null) {
           : {}) || {}),
       };
   let yEod = pickScoreNum(d, "y_eod");
-  let yTau = pickScoreNum(d, "y_tau");
+  let yTau = pickScoreNum(d, "y_τc") ?? pickScoreNum(d, "predicted_score_τc");
   let yTrade = pickScoreNum(d, "y_trade");
   let yOn = pickScoreNum(d, "y_on");
   let yR =
@@ -2446,25 +2425,8 @@ function t0DayScoreItem(d, fallback = {}, rules = {}, liveByCode = null) {
   const liveTrade = slotSnapMode ? null : live ? resolveYTradeScore(live) : null;
   const liveOn = slotSnapMode ? null : live ? resolveOnScore(live) : null;
   const dayEod = scores.predicted_score_eod ?? yEod;
-  const dayTau = scores.y_tau ?? scores["y_τc"] ?? scores.score_rem ?? yTau;
-  const ftTau =
-    (scores.formula_terms_tau && typeof scores.formula_terms_tau === "object"
-      ? scores.formula_terms_tau
-      : null) ||
-    (scores.score_formula_terms_tau && typeof scores.score_formula_terms_tau === "object"
-      ? scores.score_formula_terms_tau
-      : null) ||
-    (feats.formula_terms_tau && typeof feats.formula_terms_tau === "object"
-      ? feats.formula_terms_tau
-      : null);
-  const dayTauOc =
-    scores.y_tau_oc ??
-    scores.predicted_score_tau_oc ??
-    (ftTau && ftTau.y_tau_raw != null ? ftTau.y_tau_raw : null) ??
-    (ftTau && ftTau.total != null ? ftTau.total : null) ??
-    (feats.y_tau_oc != null ? feats.y_tau_oc : null) ??
-    (feats.predicted_score_tau_oc != null ? feats.predicted_score_tau_oc : null) ??
-    null;
+  const dayTau = scores["y_τc"] ?? scores.predicted_score_τc ?? yTau;
+  const dayTauOc = dayTau;
   const dayTrade =
     scores.predicted_score_blend ?? scores.decision_score ?? scores.score ?? yTrade;
   const dayOn = scores.predicted_score_on ?? yOn;
@@ -4016,7 +3978,7 @@ function scanYt90Pred(r) {
 
 function scanYocPred(r) {
   if (!r || typeof r !== "object") return null;
-  return r.y_oc ?? r.y_tau;
+  return r["y_τc"] ?? r.predicted_score_τc;
 }
 
 function scanYhlPred(r) {

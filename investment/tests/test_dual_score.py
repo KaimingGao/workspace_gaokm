@@ -33,7 +33,9 @@ class TestDualScoreFields(unittest.TestCase):
         )
         self.assertEqual(item["predicted_score"], 0.5)
         self.assertNotIn("predicted_score_tau", item)
-        self.assertEqual(item["y_tau"], 0.12)
+        self.assertNotIn("y_tau", item)
+        self.assertEqual(item["y_τc"], 0.12)
+        self.assertEqual(item["y_tau_raw"], 0.12)
         self.assertEqual(item["score_rem"], 0.12)
         self.assertEqual(item["as_of_tau"], "open")
         self.assertIn("formula", item["y_spec_tau"])
@@ -314,7 +316,8 @@ class TestDualScoreFields(unittest.TestCase):
         self.assertAlmostEqual(item["predicted_score_eod_rem"], rem, places=5)
         self.assertIsNone(item.get("predicted_score_tau_delta"))
         self.assertNotIn("predicted_score_tau", item)
-        self.assertAlmostEqual(item["y_tau"], 0.3, places=5)
+        self.assertNotIn("y_tau", item)
+        self.assertAlmostEqual(item["y_τc"], 0.3, places=5)
         from core.signal.yhat_geom import compound_pct
 
         tau_cc = compound_pct(1.0, 0.3)
@@ -548,7 +551,8 @@ class TestDualScoreFields(unittest.TestCase):
         )
         self.assertAlmostEqual(item["predicted_score_eod_rem"], 1.0, places=5)
         self.assertNotIn("predicted_score_tau", item)
-        self.assertAlmostEqual(item["y_tau"], 0.2, places=5)
+        self.assertNotIn("y_tau", item)
+        self.assertAlmostEqual(item["y_τc"], 0.2, places=5)
         self.assertAlmostEqual(item["predicted_score_blend"], 0.6, places=5)
         self.assertAlmostEqual(
             compute_predicted_score_blend(item, config=cfg), 0.6, places=5
@@ -599,17 +603,20 @@ class TestDualScoreFields(unittest.TestCase):
             {
                 "predicted_score": 1.0,
                 "y_oo": 1.0,
-                "y_oc": 0.4,
+                "y_τc": 0.4,
+                "score_rem": 0.4,
                 "factor_anomaly": fa,
             }
         )
         self.assertEqual(out.get("factor_anomaly"), fa)
-        self.assertIsNone(out.get("y_oc"))
+        self.assertEqual(out.get("y_oo"), 1.0)
+        self.assertIsNone(out.get("y_τc"))
+        self.assertIsNone(out.get("y_tau"))
+        self.assertIsNone(out.get("score_rem"))
         self.assertIsNone(out.get("ranking"))
 
     def test_book_fields_passes_y_τc(self):
         from core.signal.dual_score import dual_score_book_fields
-        from core.signal.yhat_windows import invert_price_over_close
 
         out = dual_score_book_fields(
             {
@@ -623,9 +630,8 @@ class TestDualScoreFields(unittest.TestCase):
         self.assertAlmostEqual(out.get("y_r"), 0.4, places=6)
 
         legacy = dual_score_book_fields({"y_r": 1.0, "predicted_score": 0.5})
-        expect = invert_price_over_close(1.0)
-        self.assertAlmostEqual(legacy.get("y_τc"), expect, places=6)
-        self.assertAlmostEqual(legacy.get("predicted_score_τc"), expect, places=6)
+        self.assertIsNone(legacy.get("y_τc"))
+        self.assertIsNone(legacy.get("predicted_score_τc"))
 
     def test_book_fields_passes_formula_terms_r(self):
         from core.signal.dual_score import dual_score_book_fields
@@ -658,14 +664,14 @@ class TestDualScoreFields(unittest.TestCase):
             "predicted_score": 2.0,
             "predicted_score_eod": 2.0,
             "predicted_score_eod_rem": 1.0,
-            "y_tau": 0.5,
-            "predicted_score_tau": 0.5,
+            "y_τc": 0.5,
+            "predicted_score_τc": 0.5,
             "predicted_score_blend": 0.75,
             "predicted_score_cal": 1.0,
             "score_calibration_applied": True,
         }
         self.assertAlmostEqual(eod_gate_score_for_item(item), 2.0, places=5)
-        # decision = ranking 现算 = fuse(ŷ_oo=2.0, ŷ_oc=0.5) = 1.25（不受 calibration 影响）
+        # decision = ranking 现算 = fuse(ŷ_oo=2.0, ŷ_τc=0.5) = 1.25（不受 calibration 影响）
         self.assertAlmostEqual(decision_score_for_item(item), 1.25, places=5)
 
     def test_legacy_rem_not_added_to_eod_rem(self):
@@ -687,12 +693,13 @@ class TestDualScoreFields(unittest.TestCase):
             },
         )
         self.assertNotIn("predicted_score_tau", item)
-        self.assertAlmostEqual(item["y_tau"], -1.0, places=5)
+        self.assertNotIn("y_tau", item)
+        self.assertAlmostEqual(item["y_τc"], -1.0, places=5)
         self.assertIsNone(item.get("predicted_score_tau_delta"))
         rem = ((1.02 / 1.01) - 1.0) * 100.0
         self.assertAlmostEqual(item["predicted_score_eod_rem"], rem, places=5)
         self.assertNotIn("predicted_score_tau", item)
-        self.assertAlmostEqual(item["y_tau"], -1.0, places=5)
+        self.assertAlmostEqual(item["y_τc"], -1.0, places=5)
         from core.signal.yhat_geom import compound_pct
 
         tau_cc = compound_pct(1.0, -1.0)
@@ -728,7 +735,8 @@ class TestDualScoreFields(unittest.TestCase):
         rem = ((1.02 / 1.01) - 1.0) * 100.0
         self.assertAlmostEqual(item["predicted_score_eod_rem"], rem, places=5)
         self.assertNotIn("predicted_score_tau", item)
-        self.assertAlmostEqual(item["y_tau"], -1.0, places=5)
+        self.assertNotIn("y_tau", item)
+        self.assertAlmostEqual(item["y_τc"], -1.0, places=5)
         from core.signal.yhat_geom import compound_pct
 
         tau_cc = compound_pct(1.0, -1.0)
@@ -786,7 +794,7 @@ class TestDualScoreFields(unittest.TestCase):
             {
                 "predicted_score_eod": 2.30,
                 "y_oo": 2.30,
-                "y_tau": 5.69,
+                "y_τc": 5.69,
             },
             rank_cfg={"fusion_w_oo": 0.8, "fusion_w_oc": 0.2, "fusion_w_co": 0.0},
         )

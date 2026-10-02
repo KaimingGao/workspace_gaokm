@@ -14,6 +14,41 @@ if ROOT not in sys.path:
 
 
 class TestPredictabilityTiers(unittest.TestCase):
+    def test_normalize_head_is_tau_or_oo(self):
+        from core.research.predictability_tiers import HEAD_OO, HEAD_TAU, _normalize_head
+
+        self.assertEqual(_normalize_head("tau"), HEAD_TAU)
+        self.assertEqual(_normalize_head("y_τc"), HEAD_TAU)
+        self.assertEqual(_normalize_head("ŷ_τc"), HEAD_TAU)
+        self.assertEqual(_normalize_head("y_oc"), HEAD_OO)
+        self.assertEqual(_normalize_head("y_tau"), HEAD_OO)
+        self.assertEqual(_normalize_head(None), HEAD_OO)
+
+    def test_slim_tier_rows_drops_series(self):
+        from core.research.predictability_tiers import slim_tier_rows
+
+        rows = slim_tier_rows(
+            [
+                {
+                    "code": "600519",
+                    "name": "贵州茅台",
+                    "tier": "A",
+                    "hit_rate": 0.7,
+                    "n_valid": 9,
+                    "n_days": 10,
+                    "ic": 0.12,
+                    "yhats": [1, 2],
+                    "realized": [1],
+                    "dates": ["2026-01-01"],
+                },
+                "skip",
+            ]
+        )
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["tier"], "A")
+        self.assertNotIn("yhats", rows[0])
+        self.assertNotIn("realized", rows[0])
+
     def test_assign_tier_thresholds(self):
         from core.research.predictability_tiers import assign_tier, effective_min_n
 

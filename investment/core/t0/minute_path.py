@@ -337,10 +337,10 @@ def _day_ohlc_from_minutes(minute_bars: Sequence[dict], daily_bar: Optional[dict
 
 
 def _score_y_tau(score_snap: Optional[dict]) -> Optional[float]:
-    """从分数快照取 ŷ_τ（百分点）= OC 开→收；与定向同口径。"""
+    """从分数快照取 ŷ_τc（百分点）= close[T]/price(τ)−1。"""
     if not isinstance(score_snap, dict):
         return None
-    for key in ("y_τc", "y_tau"):
+    for key in ("y_τc", "predicted_score_τc"):
         raw = score_snap.get(key)
         if raw is None or raw == "":
             continue

@@ -1190,9 +1190,24 @@ def _merge_aux_yhat(row: dict, src: Optional[dict]) -> dict:
     return _strip_replay_tau_horizons(row)
 
 
-def _skip_to_sim(sk: dict, day: str) -> dict:
+def _sim_y_co(src: Optional[dict]) -> Any:
+    """ŷ_co 主字段；旧账本隔夜分在 y_on，只投影到 y_co。"""
+    from core.signal.yhat_windows import pick_y_co
+
+    src = src if isinstance(src, dict) else {}
+    y_co = pick_y_co(src)
+    if y_co is None:
+        y_co = src.get("y_on")
+    return y_co
+
+
+def _sim_y_τc(src: Optional[dict]) -> Any:
     from core.signal.yhat_windows import pick_y_τc
 
+    return pick_y_τc(src if isinstance(src, dict) else None)
+
+
+def _skip_to_sim(sk: dict, day: str) -> dict:
     side = _infer_skip_side(sk)
     row = {
         "stock_code": sk.get("stock_code"),
@@ -1209,17 +1224,11 @@ def _skip_to_sim(sk: dict, day: str) -> dict:
         "y_fuse": sk.get("ranking") if sk.get("ranking") is not None else sk.get("y_fuse"),
         "ranking": sk.get("ranking") if sk.get("ranking") is not None else sk.get("y_fuse"),
         "y_oo": sk.get("y_oo"),
-        "y_co": sk.get("y_co") if sk.get("y_co") is not None else sk.get("y_on"),
-        "y_τc": pick_y_τc(sk),
+        "y_co": _sim_y_co(sk),
+        "y_τc": _sim_y_τc(sk),
         "residual": sk.get("residual"),
         "r_hat": sk.get("r_hat"),
         "remaining_oc": sk.get("remaining_oc"),
-        "y_tau": sk.get("y_tau")
-        if sk.get("y_tau") is not None
-        else sk.get("predicted_score_tau"),
-        "predicted_score_tau": sk.get("predicted_score_tau")
-        if sk.get("predicted_score_tau") is not None
-        else sk.get("y_tau"),
         "ranking_score": sk.get("ranking_score"),
         "rank_i": sk.get("rank_i"),
         "rank_n": sk.get("rank_n"),
@@ -1263,9 +1272,6 @@ def _hold_to_sim(
     yf = (plan_h or {}).get("ranking")
     if yf is None:
         yf = (plan_h or {}).get("y_fuse")
-    ytau = (plan_h or {}).get("y_tau")
-    if ytau is None:
-        ytau = (plan_h or {}).get("predicted_score_tau")
     name = (holding or {}).get("stock_name") or (plan_h or {}).get("stock_name")
     row = {
         "stock_code": code,
@@ -1281,16 +1287,11 @@ def _hold_to_sim(
         "y_fuse": yf,
         "ranking": (plan_h or {}).get("ranking") if (plan_h or {}).get("ranking") is not None else yf,
         "y_oo": (plan_h or {}).get("y_oo"),
-        "y_co": (plan_h or {}).get("y_co")
-        if (plan_h or {}).get("y_co") is not None
-        else (plan_h or {}).get("y_on"),
+        "y_co": _sim_y_co(plan_h),
+        "y_τc": _sim_y_τc(plan_h),
         "residual": (plan_h or {}).get("residual"),
         "r_hat": (plan_h or {}).get("r_hat"),
         "remaining_oc": (plan_h or {}).get("remaining_oc"),
-        "y_tau": ytau,
-        "predicted_score_tau": (plan_h or {}).get("predicted_score_tau")
-        if (plan_h or {}).get("predicted_score_tau") is not None
-        else ytau,
         "ranking_score": (plan_h or {}).get("ranking_score"),
         "predicted_score": yf,
         "score": yf,
@@ -1361,7 +1362,7 @@ def _ledger_trades_to_sim(trades: Sequence[dict]) -> List[dict]:
         if yf is None:
             yf = t.get("y_fuse")
         if yf is None:
-            yf = t.get("y_trade") if t.get("y_trade") is not None else t.get("score")
+            yf = t.get("score")
         row: Dict[str, Any] = {
             "stock_code": t.get("stock_code"),
             "stock_name": t.get("stock_name"),
@@ -1377,16 +1378,11 @@ def _ledger_trades_to_sim(trades: Sequence[dict]) -> List[dict]:
             "y_fuse": yf,
             "ranking": t.get("ranking") if t.get("ranking") is not None else yf,
             "y_oo": t.get("y_oo"),
-            "y_co": t.get("y_co") if t.get("y_co") is not None else t.get("y_on"),
+            "y_co": _sim_y_co(t),
+            "y_τc": _sim_y_τc(t),
             "residual": t.get("residual"),
             "r_hat": t.get("r_hat"),
             "remaining_oc": t.get("remaining_oc"),
-            "y_tau": t.get("y_tau")
-            if t.get("y_tau") is not None
-            else t.get("predicted_score_tau"),
-            "predicted_score_tau": t.get("predicted_score_tau")
-            if t.get("predicted_score_tau") is not None
-            else t.get("y_tau"),
             "ranking_score": t.get("ranking_score"),
             "rank_i": t.get("rank_i"),
             "rank_n": t.get("rank_n"),
@@ -1454,7 +1450,7 @@ def stamp_r_tau_on_row(
     minute_bars: Optional[Sequence[dict]] = None,
     fill_clock: str = REPLAY_FILL_CLOCK,
 ) -> dict:
-    """成交明细 R_τ：R̂_τ=remaining(ŷ_oc, open→τ)；真实=close[T]/price(τ)−1。
+    """成交明细 R_τ：R̂_τ 用行上已有的 remaining；真实=close[T]/price(τ)−1。
 
     买卖成交用账上成交价当 price(τ)；持/跳过用调仓钟 5m（与净值「持有」新开段同锚）。
     """
@@ -1486,15 +1482,6 @@ def stamp_r_tau_on_row(
     r_hat = _fnum(row.get("r_hat"))
     if r_hat is None:
         r_hat = _fnum(row.get("remaining_oc"))
-    if r_hat is None:
-        try:
-            from core.signal.yhat_windows import pick_y_oc, remaining_oc
-
-            rem = remaining_oc(pick_y_oc(row), open_px=open_px, price_tau=px_tau)
-            if rem is not None:
-                r_hat = rem
-        except Exception:  # noqa: BLE001
-            logger.debug("stamp r_hat remaining failed", exc_info=True)
     if r_hat is not None:
         row["r_hat"] = round(float(r_hat), 4)
         if row.get("remaining_oc") is None:
@@ -1617,7 +1604,7 @@ def realized_yhat_windows(
     date_maps: Dict[str, Dict[str, dict]],
     date_index: Optional[Dict[str, int]] = None,
 ) -> Tuple[Optional[float], Optional[float], Optional[float]]:
-    """事后对照：y_fuse↔close[T]/open[T]−1；y_τ 同 OC；y_on↔open[T+1]/close[T]−1。realized_cc 仅诊断。不进决策。"""
+    """事后对照：realized_tau=close/open−1（τ=open 的 ŷ_τc）；realized_on=open[T+1]/close[T]−1（ŷ_co）。realized_cc 仅诊断。不进决策。"""
     d = str(day or "")[:10]
     c = str(code or "").strip()
     if not d or not c:
@@ -1725,7 +1712,7 @@ def _attach_open_yhat_heads(
     cfg: Optional[dict] = None,
     tau_pool_day: Optional[dict] = None,
 ) -> List[dict]:
-    """heuristic 窗口分 → 全局 ŷ_oo；09:30 PIT 挂 ŷ_τ；开盘特征打 y_on。
+    """heuristic 窗口分 → 全局 ŷ_oo；09:30 PIT 挂 ŷ_τc；开盘特征打 ŷ_co。
 
     对照头 ŷ_hl 走开盘 Z（与 live ``score_stock`` 同路径），不进 ranking。
     调仓回测不挂 ŷ_τ30/60/90 / ŷ_τw。nowcast 已退役，不再写 y_nowcast。
@@ -1795,7 +1782,6 @@ def _attach_open_yhat_heads(
         if pred is not None:
             it.setdefault("predicted_score_oo", pred)
             it.setdefault("y_oo", pred)
-            it.setdefault("y_trade", pred)
         # 影子 ŷ_oo_rank：有模型且有 sub_scores 时写入；不改 ranking
         if apply_oo_rank_scores is not None and oo_rank_doc is not None:
             try:
@@ -1839,11 +1825,6 @@ def _attach_open_yhat_heads(
                 )
             except Exception:  # noqa: BLE001
                 logger.debug("align_trade_score_fields failed", exc_info=True)
-        blend = it.get("predicted_score_blend")
-        if blend is not None:
-            it["y_trade"] = blend
-        elif it.get("y_trade") is None and pred is not None:
-            it["y_trade"] = pred
         it.pop("predicted_score_nowcast", None)
         it.pop("y_nowcast", None)
         it.pop("y_nc", None)
@@ -1972,10 +1953,8 @@ def _score_open_day(
     )
 
 
-# 前缀只写入 ŷ_τc / y_tau；不覆盖 ŷ_oo。不从 live 抄旧别名 y_oc。
+# 前缀写入 ŷ_τc 与 τ 特征；不覆盖 ŷ_oo。
 _OC_PREFIX_KEYS = (
-    "y_tau",
-    "predicted_score_tau",
     "features_tau",
     "features_tau_fill",
     "formula_terms_tau",
@@ -2025,7 +2004,7 @@ def _apply_prefix_oc(item: dict, live: dict, cfg: Optional[dict]) -> bool:
 
     对照头 y_hl 随前缀结果覆盖（缺分则保留开盘 Z）。调仓回测不挂 ŷ_τw / ŷ_τ30/60/90。
     """
-    from core.signal.yhat_windows import pick_y_oc, pick_y_oo, stamp_window_scores
+    from core.signal.yhat_windows import pick_y_oo, stamp_window_scores
 
     if str(live.get("_score_source") or "") != "prefix_causal":
         return False
@@ -2033,7 +2012,6 @@ def _apply_prefix_oc(item: dict, live: dict, cfg: Optional[dict]) -> bool:
     y_oo_field = item.get("predicted_score_eod")
     if y_oo_field is None:
         y_oo_field = item.get("predicted_score")
-    y_trade = item.get("y_trade")
     for k in _OC_PREFIX_KEYS:
         if k in live:
             item[k] = live.get(k)
@@ -2043,24 +2021,10 @@ def _apply_prefix_oc(item: dict, live: dict, cfg: Optional[dict]) -> bool:
         ps = y_oo_field if y_oo_field is not None else y_oo
         item["predicted_score_oo"] = ps
         item["predicted_score"] = ps
-    if y_trade is not None:
-        item["y_trade"] = y_trade
-    # 开盘行残留的旧别名优先于前缀 y_tau；先清掉再重算 ranking。
-    for stale in (
-        "y_oc",
-        "predicted_score_oc",
-        "y_tau_oc",
-        "predicted_score_tau_oc",
-    ):
-        item.pop(stale, None)
-    if item.get("y_τc") is None:
-        oc = pick_y_oc(item)
-        if oc is not None:
-            from core.signal.yhat_windows import write_y_τc
+    if item.get("y_τc") is None and item.get("predicted_score_τc") is not None:
+        from core.signal.yhat_windows import write_y_τc
 
-            write_y_τc(item, oc)
-    if item.get("y_tau") is None:
-        item["y_tau"] = item.get("y_τc")
+        write_y_τc(item, item.get("predicted_score_τc"))
     win = stamp_window_scores(item, cfg)
     for k, v in win.items():
         if v is not None:
@@ -2133,7 +2097,7 @@ def rescore_replay_y_τc_at_clock(
 
 
 def _items_from_injected_ranking(rows: Sequence[dict]) -> List[dict]:
-    """测试/日报注入行：ŷ 当作 y_fuse；有 y_on 则带上。"""
+    """测试/日报注入行：ŷ 当作 ranking。"""
     out: List[dict] = []
     for it in rows or []:
         if not isinstance(it, dict) or not it.get("stock_code"):
@@ -2147,13 +2111,10 @@ def _items_from_injected_ranking(rows: Sequence[dict]) -> List[dict]:
         if yf is None:
             yf = row.get("predicted_score_eod")
         if yf is None:
-            yf = row.get("y_trade")
-        if yf is None:
             yf = row.get("score")
         if yf is not None:
             row["y_fuse"] = yf
             row.setdefault("ranking", yf)
-            row.setdefault("y_trade", yf)
         out.append(row)
     return out
 
@@ -2194,7 +2155,7 @@ def backtest_paper_replay(
     price_space_cfg: Optional[dict] = None,
     score_model_role: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """策略调仓历史回测：ŷ_oo 09:30 开盘；ŷ_oc 随成交钟前缀重算（09:30=开盘 Z），按调仓钟 5m 价成交。"""
+    """策略调仓历史回测：ŷ_oo 09:30 开盘；ŷ_τc 随成交钟前缀重算（09:30=开盘 Z），按调仓钟 5m 价成交。"""
     from core.research.holdout import (
         current_scoring_model_role,
         normalize_backtest_model_role,
@@ -2758,7 +2719,7 @@ def backtest_paper_replay(
         row["realized_cc"] = r_cc
         row["realized_on"] = r_on
         row["realized_tau"] = r_tau
-        # ŷ_oo 真实 = 次日开/今日开。两头都有才复合；缺 T+1 不回退成 ŷ_oc。
+        # ŷ_oo 真实 = 次日开/今日开。close/open 与隔夜两头都有才复合。
         if r_tau is not None and r_on is not None:
             row["realized_oo"] = round(
                 ((1.0 + float(r_tau) / 100.0) * (1.0 + float(r_on) / 100.0) - 1.0)
@@ -2983,7 +2944,6 @@ def build_momentum_rankings(
                     "score": ret,
                     "predicted_score": ret,
                     "predicted_score_eod": ret,
-                    "predicted_score_tau": ret,
                     "score_scale": "predicted_yhat",
                     "dual_score_window": "eod_next",
                     "rank_source": "momentum_close",

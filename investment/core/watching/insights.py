@@ -450,7 +450,7 @@ def _stamp_insight_ranking(
 
         cfg = get_path_matrix_cfg(paper=paper_ctx)
         stamped = stamp_window_scores(out, cfg)
-        for k in ("ranking", "y_oo", "y_oc", "y_co"):
+        for k in ("ranking", "y_oo", "y_τc", "y_co"):
             if stamped.get(k) is not None:
                 out[k] = stamped[k]
         out["fusion_w_oo"] = cfg.get("fusion_w_oo")

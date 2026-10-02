@@ -1,3 +1,4 @@
+import { syncOverviewOo } from "./factor_corr_ui.js";
 import { researchGridHtml, metricCell } from "./research_grid.js";
 import { fmtPct, metricClass } from "./bt_result.js";
 import {
@@ -390,6 +391,7 @@ export function installSuggest(q) {
       (Number(ols.ridge_lambda) > 0 ? ` · Ridge λ=${ols.ridge_lambda}` : " · OLS");
     setQuantMeta(`ŷ_oo · ${line}`);
     state.lastReturnModelFit = data;
+    syncOverviewOo(data.oos || {});
     /* 与 ŷ_τc 一致：摘要进表头 KPI，不另挂 fingerprint，避免系数表上方空白 */
     clearResult();
     if (paintCoef) {
@@ -445,6 +447,7 @@ export function installSuggest(q) {
       const draft = data.draft || {};
       const research = data.research || {};
       const oos = _ooOosFromStatus(data);
+      syncOverviewOo(oos);
       _setOoPromoteEnabled(!!draft.exists);
       const lastFit = state.lastReturnModelFit || {};
       const fittedAt =

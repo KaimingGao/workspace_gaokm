@@ -149,6 +149,30 @@ class TestFundamentalsPit(unittest.TestCase):
         self.assertEqual(len(h2), 1)
         self.assertEqual(h2[0]["metrics"]["pe"], 2)
 
+    def test_revision_chain_uses_announcement_date(self):
+        hist = merge_history_point(
+            [],
+            as_of="2023-12-31",
+            metrics={"roe": 10},
+            ann_date="2024-04-30",
+        )
+        hist = merge_history_point(
+            hist,
+            as_of="2023-12-31",
+            metrics={"roe": 12},
+            ann_date="2024-08-30",
+        )
+        self.assertEqual(len(hist), 2)
+        early, early_meta = select_point_as_of(hist, "2024-05-01")
+        late, late_meta = select_point_as_of(hist, "2024-09-01")
+        before, before_meta = select_point_as_of(hist, "2024-04-01")
+        self.assertTrue(early_meta["ok"])
+        self.assertEqual(early["metrics"]["roe"], 10)
+        self.assertTrue(late_meta["ok"])
+        self.assertEqual(late["metrics"]["roe"], 12)
+        self.assertIsNone(before)
+        self.assertFalse(before_meta["ok"])
+
     def test_pit_summary(self):
         rows = [
             {"fundamentals_pit": True, "ok": True, "mode": "as_of"},

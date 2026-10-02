@@ -64,9 +64,11 @@ class ScoreResult:
             predicted = _opt_float(item.get("y_oo"))
         if predicted is None:
             predicted = _opt_float(item.get("predicted_score_eod"))
-        tau = _opt_float(item.get("y_tau"))
+        tau = _opt_float(item.get("y_τc"))
         if tau is None:
-            tau = _opt_float(item.get("y_τc"))
+            tau = _opt_float(item.get("predicted_score_τc"))
+        if tau is None:
+            tau = _opt_float(item.get("y_tau"))
         if tau is None:
             tau = _opt_float(item.get("predicted_score_tau"))
         if tau is None:

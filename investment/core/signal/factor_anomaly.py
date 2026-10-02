@@ -346,26 +346,21 @@ def stamp_factor_anomaly_warnings(item: Optional[dict], report: Optional[Mapping
 
 
 def null_tau_heads(item: Optional[dict]) -> None:
-    """τ 日错位：ŷ_oc / ŷ_co / ranking 作废，ŷ_oo 可留。"""
+    """τ 日错位：ŷ_τc / ŷ_co / ranking 作废，ŷ_oo 可留。"""
     if not isinstance(item, dict):
         return
     for k in (
-        "predicted_score_tau",
-        "predicted_score_tau_delta",
-        "predicted_score_tau_cascade",
-        "score_rem",
-        "predicted_score_rem",
-        "y_oc",
-        "predicted_score_oc",
-        "y_tau_oc",
-        "predicted_score_tau_oc",
         "y_τc",
         "predicted_score_τc",
+        "y_τc_ridge",
+        "score_rem",
+        "predicted_score_rem",
+        "predicted_score_tau",
         "y_co",
+        "predicted_score_co",
         "predicted_score_on",
         "ranking",
         "predicted_score_blend",
-        "predicted_score_blend_tau_cc",
     ):
         item[k] = None
 

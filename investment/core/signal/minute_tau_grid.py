@@ -125,28 +125,49 @@ def horizon_crosses_lunch(
     return 1.0 if start <= 120.0 and end > 120.0 else 0.0
 
 
+def tau_hm_in_yc_window(hm: str) -> bool:
+    """决策钟是否落在 ŷ_τc 同窗 09:30…11:00（含端点）。午后与 11:00 之后为假。"""
+    clock = _hm_to_clock_minutes(hm)
+    if clock is None or clock < _SESSION_AM_START:
+        return False
+    end = _hm_to_clock_minutes(TRAIN_TAU_END_HM)
+    if end is None:
+        return False
+    return clock <= end
+
+
 def tau_clock_allows_t30(hm: str, *, horizon_min: int = T30_LABEL_NEED_MIN) -> bool:
-    """live / 训练：须能取到 τ⊕35（三根均价右沿）。14:25 可、14:30 不可。"""
+    """live / 训练：决策钟须在 09:30…11:00，且能取到 τ⊕35。"""
+    if not tau_hm_in_yc_window(hm):
+        return False
     return add_session_minutes(hm, horizon_min) is not None
 
 
 def tau_clock_allows_t45(hm: str, *, horizon_min: int = T45_LABEL_NEED_MIN) -> bool:
-    """live / 训练：须能取到 τ⊕50。14:10 可、14:15 不可。"""
+    """live / 训练：决策钟须在 09:30…11:00，且能取到 τ⊕50。"""
+    if not tau_hm_in_yc_window(hm):
+        return False
     return add_session_minutes(hm, horizon_min) is not None
 
 
 def tau_clock_allows_t60(hm: str, *, horizon_min: int = T60_LABEL_NEED_MIN) -> bool:
-    """live / 训练：须能取到 τ⊕65。13:55 可、14:00 不可。"""
+    """live / 训练：决策钟须在 09:30…11:00，且能取到 τ⊕65。"""
+    if not tau_hm_in_yc_window(hm):
+        return False
     return add_session_minutes(hm, horizon_min) is not None
 
 
 def tau_clock_allows_t75(hm: str, *, horizon_min: int = T75_LABEL_NEED_MIN) -> bool:
-    """live / 训练：须能取到 τ⊕80。13:40 可、13:45 不可。"""
+    """live / 训练：决策钟须在 09:30…11:00，且能取到 τ⊕80。"""
+    if not tau_hm_in_yc_window(hm):
+        return False
     return add_session_minutes(hm, horizon_min) is not None
 
 
 def tau_clock_allows_t90(hm: str, *, horizon_min: int = T90_LABEL_NEED_MIN) -> bool:
-    """live / 训练：须能取到 τ⊕95。13:25 可、13:30 不可。"""
+    """live / 训练：决策钟须在 09:30…11:00，且能取到 τ⊕95。"""
+    if not tau_hm_in_yc_window(hm):
+        return False
     return add_session_minutes(hm, horizon_min) is not None
 
 
@@ -208,28 +229,9 @@ DEFAULT_T0_TRAIN_TAU_GRID_5M: tuple = tuple(
 )
 # 研究枢纽默认：与做 T v6 leg1 窗口对齐
 DEFAULT_MINUTE_TAU_GRID: tuple = DEFAULT_T0_TRAIN_TAU_GRID_5M
-# ŷ_τ30：全日 5m，止于 14:25（其后不足 35 交易分钟，无法取 τ⊕25/30/35 三根）
-DEFAULT_T30_TRAIN_TAU_GRID: tuple = tuple(
-    minute_tau_grid_5m_range("09:30", "11:30", include_open=True)
-    + minute_tau_grid_5m_range("13:05", "14:25", include_open=True)
-)
-# ŷ_τ45：全日 5m，止于 14:10（其后不足 50 交易分钟，无法取 τ⊕40/45/50 三根）
-DEFAULT_T45_TRAIN_TAU_GRID: tuple = tuple(
-    minute_tau_grid_5m_range("09:30", "11:30", include_open=True)
-    + minute_tau_grid_5m_range("13:05", "14:10", include_open=True)
-)
-# ŷ_τ60：全日 5m，止于 13:55（其后不足 65 交易分钟，无法取 τ⊕55/60/65 三根）
-DEFAULT_T60_TRAIN_TAU_GRID: tuple = tuple(
-    minute_tau_grid_5m_range("09:30", "11:30", include_open=True)
-    + minute_tau_grid_5m_range("13:05", "13:55", include_open=True)
-)
-# ŷ_τ75：全日 5m，止于 13:40（其后不足 80 交易分钟，无法取 τ⊕70/75/80 三根）
-DEFAULT_T75_TRAIN_TAU_GRID: tuple = tuple(
-    minute_tau_grid_5m_range("09:30", "11:30", include_open=True)
-    + minute_tau_grid_5m_range("13:05", "13:40", include_open=True)
-)
-# ŷ_τ90：全日 5m，止于 13:25（其后不足 95 交易分钟，无法取 τ⊕85/90/95 三根）
-DEFAULT_T90_TRAIN_TAU_GRID: tuple = tuple(
-    minute_tau_grid_5m_range("09:30", "11:30", include_open=True)
-    + minute_tau_grid_5m_range("13:05", "13:25", include_open=True)
-)
+# ŷ_τ30/45/60/75/90：与 ŷ_τc 同窗，决策钟只覆盖 09:30…11:00（标签仍向前看 N 分钟，可跨午休）
+DEFAULT_T30_TRAIN_TAU_GRID: tuple = DEFAULT_T0_TRAIN_TAU_GRID_5M
+DEFAULT_T45_TRAIN_TAU_GRID: tuple = DEFAULT_T0_TRAIN_TAU_GRID_5M
+DEFAULT_T60_TRAIN_TAU_GRID: tuple = DEFAULT_T0_TRAIN_TAU_GRID_5M
+DEFAULT_T75_TRAIN_TAU_GRID: tuple = DEFAULT_T0_TRAIN_TAU_GRID_5M
+DEFAULT_T90_TRAIN_TAU_GRID: tuple = DEFAULT_T0_TRAIN_TAU_GRID_5M

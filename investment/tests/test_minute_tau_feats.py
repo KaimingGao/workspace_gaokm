@@ -1001,8 +1001,8 @@ class TestMinuteTauPack(unittest.TestCase):
         self.assertEqual(xs[0].get("tau_elapsed_min"), 0.0)
         self.assertNotIn("range_pct", xs[0])
 
-    def test_intraday_y_uses_daily_open_close(self):
-        """标签用日线 open→close；分钟只供特征（可与日线复权错位）。"""
+    def test_intraday_y_uses_daily_close_over_price_tau(self):
+        """标签是日线 close / price(τ)−1；分钟只供 price(τ) 与特征。"""
         from core.research.tau_panel import collect_tau_intraday_panel
 
         day = "2026-08-28"
@@ -1051,8 +1051,10 @@ class TestMinuteTauPack(unittest.TestCase):
             daily, minutes, tau_hm="09:45", min_history=5
         )
         self.assertTrue(ys)
-        self.assertAlmostEqual(ys[-1], (15.0 / 10.0 - 1.0) * 100.0, places=4)
-        self.assertNotAlmostEqual(ys[-1], (10.12 / 10.0 - 1.0) * 100.0, places=2)
+        px = float(metas[-1]["price_tau"])
+        self.assertAlmostEqual(ys[-1], (15.0 / px - 1.0) * 100.0, places=4)
+        self.assertNotAlmostEqual(ys[-1], (15.0 / 10.0 - 1.0) * 100.0, places=2)
+        self.assertNotAlmostEqual(ys[-1], (10.12 / px - 1.0) * 100.0, places=2)
         self.assertEqual(metas[-1].get("close"), 15.0)
         self.assertEqual(metas[-1].get("open"), 10.0)
         self.assertEqual(metas[-1].get("close_minute"), 10.12)

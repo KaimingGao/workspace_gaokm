@@ -121,20 +121,13 @@ export function watchingScoreDetail(it) {
     (it.features_tau && it.features_tau.gap_pct != null
       ? it.features_tau.gap_pct
       : it.gap_pct);
-  // tip 头必须带 OC：缺 y_tau_oc 时用组成合计，避免落成剩余映射分
   let yTauOc =
     it &&
-    (it.y_tau_oc != null
-      ? it.y_tau_oc
-      : it.predicted_score_tau_oc != null
-        ? it.predicted_score_tau_oc
+    (it["y_τc"] != null
+      ? it["y_τc"]
+      : it.predicted_score_τc != null
+        ? it.predicted_score_τc
         : null);
-  if (yTauOc == null && tauTerms && tauTerms.y_tau_raw != null) {
-    yTauOc = tauTerms.y_tau_raw;
-  }
-  if (yTauOc == null && tauTerms && tauTerms.total != null) {
-    yTauOc = tauTerms.total;
-  }
   return JSON.stringify({
     stock_code: (it && (it.stock_code || it.code)) || null,
     // ranking 权/头靠前：data-score-detail 截断时 tip 仍与表列同式
@@ -669,7 +662,7 @@ export function renderWatchingBuildPlan(plan, opts) {
 }
 
 /** CDN/React 不可用时的原生表回退 */
-export function renderWatchingWatchTableFallback(rows, { onPickCountUpdate } = {}) {
+export function renderWatchingWatchTableFallback(rows, { onPickCountUpdate, tierCell } = {}) {
   const watchTable = document.getElementById("watching-watchlist-table");
   if (!watchTable) return;
   const body = (rows || [])
@@ -692,6 +685,9 @@ export function renderWatchingWatchTableFallback(rows, { onPickCountUpdate } = {
         oosBadge +
         `</span>` +
         `<span class="watching-code-sub">${code}<span class="watching-mkt"></span></span></td>` +
+        `<td class="watching-col-center" data-q="tier">${
+          typeof tierCell === "function" ? tierCell(d.code) : "—"
+        }</td>` +
         `<td class="watching-paper-cell">` +
         (d.onPaper
           ? `<button type="button" class="watching-held-btn" data-code="${code}">${escapeHtml(d.paper || "已持")}</button>`
@@ -747,7 +743,18 @@ export function renderWatchingWatchTableFallback(rows, { onPickCountUpdate } = {
             )}${badge}</td>`
           );
         })() +
-        `<td class="num watching-col-num" data-q="excess">${escapeHtml(String(d.excess ?? "—"))}</td>` +
+        (() => {
+          const excessText = String(d.excess ?? "—");
+          const rs = excessText.match(/^RS(\d+)$/);
+          const excessTip = rs
+            ? `相对强弱分 ${rs[1]}（0–100）。近端超额%未算出，不是超额收益率`
+            : d.excessTitle || excessText;
+          return (
+            `<td class="num watching-col-num" data-q="excess" title="${escapeHtml(excessTip)}">${escapeHtml(
+              excessText
+            )}</td>`
+          );
+        })() +
         `<td class="num watching-col-num" data-q="vol">${escapeHtml(String(d.vol ?? "—"))}</td>` +
         `<td class="num watching-col-num" data-q="volr">${escapeHtml(String(d.volr ?? "—"))}</td>` +
         `<td class="num watching-col-num" data-q="pe">${escapeHtml(String(d.pe ?? "—"))}</td>` +
@@ -760,6 +767,7 @@ export function renderWatchingWatchTableFallback(rows, { onPickCountUpdate } = {
     `<div class="watching-table-scroll"><table class="quant-weight-table watching-result-table"><thead><tr>` +
     `<th class="watching-pick-cell" title="勾选后可加入模拟持仓"><input type="checkbox" id="watching-select-all" /></th>` +
     `<th title="股票名称与代码">股票</th>` +
+    `<th class="watching-col-center" title="可预测性分档（ŷ_oo Holdout 前半）：A 强 / B 中 / C 弱。同档内按 ranking 从高到低">分档</th>` +
     `<th title="是否已在模拟持仓">仓位</th>` +
     `<th title="标题情绪摘要">情绪</th>` +
     `<th class="watching-col-num" title="上一交易日收盘价">昨收</th>` +
@@ -770,7 +778,7 @@ export function renderWatchingWatchTableFallback(rows, { onPickCountUpdate } = {
     `<th class="watching-col-num" title="${Y_OC_REBALANCE_TITLE}">y_τc</th>` +
     `<th class="watching-col-num" title="ŷ_co · close[T]→open[T+1]">y_co</th>` +
     `<th class="watching-col-num" title="${RANKING_REBALANCE_TITLE}">ranking</th>` +
-    `<th class="watching-col-num" title="相对基准（指数）的超额收益">超额</th>` +
+    `<th class="watching-col-num" title="近端个股收益 − 指数收益。缺指数对齐时显示 RS+相对强弱分，不是超额收益率">超额</th>` +
     `<th class="watching-col-num" title="成交量">量</th>` +
     `<th class="watching-col-num" title="近期成交量 / 均量">量比</th>` +
     `<th class="watching-col-num" title="市盈率">PE</th>` +

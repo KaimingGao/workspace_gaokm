@@ -732,8 +732,8 @@ def attach_eod_tau_realized(
 def scores_from_item(item: Optional[dict]) -> Dict[str, Optional[float]]:
     """从 signal_item / 账本行 / insights 抽出做T用分数。
 
-    契约：``y_tau`` = OC 拟合（开→收），与训练 / 表列 / 定向同口径。
-    剩余映射分（若有）放 ``y_tau_mapped``，不定向。
+    契约：分数里的 ``y_tau`` 取自 ``y_τc``（price(τ)→close，含时钟对齐）。
+    缺 ``y_τc`` 时才读旧行 ``y_tau`` / ``score_rem``。
     """
     if not isinstance(item, dict):
         return {
@@ -763,10 +763,22 @@ def scores_from_item(item: Optional[dict]) -> Dict[str, Optional[float]]:
         y_tau_mapped = _f(item.get("score_rem"))
     if y_tau_mapped is None:
         y_tau_mapped = _f(item.get("yhat_tau"))
+    from core.signal.yhat_windows import pick_y_τc
+
+    y_from_tc = _f(item.get("y_τc"))
+    if y_from_tc is None:
+        y_from_tc = _f(item.get("predicted_score_τc"))
     y_tau_field = _f(item.get("y_tau"))
     if y_tau_mapped is None and y_tau_field is not None:
         y_tau_mapped = y_tau_field
-    y_tau = y_tau_field if y_tau_field is not None else y_tau_mapped
+    if y_from_tc is not None:
+        y_tau = y_from_tc
+    elif y_tau_field is not None:
+        y_tau = y_tau_field
+    elif y_tau_mapped is not None:
+        y_tau = y_tau_mapped
+    else:
+        y_tau = pick_y_τc(item)
 
     # 契约：predicted_score / predicted_score_eod = ŷ_oo；ŷ_trade = blend / decision_score。
     # 旧实现先读 predicted_score，双头下会把 y_trade 塌成 y_eod（成交明细两列相同）。
@@ -997,25 +1009,10 @@ def _cfg_float(cfg: dict, key: str, default: float) -> float:
 
 
 def resolve_direction_y_tau(scores: Optional[dict]) -> Optional[float]:
-    """做 T 定向 / |y_τ| 闸用的 ŷ：优先 OC 拟合（开→收），与训练·表列·组成合计同口径。
-
-    ``y_tau`` / ``predicted_score_tau`` 在分钟时钟下可能是剩余映射后的值，
-    与 OC 异号时会出现「表列负τ、成交却正T」；定向不得再用映射后分。
-    无 OC 字段时回退 mapped ``y_tau``（旧快照）。
-    """
+    """做 T 定向用的 ŷ_τc（price(τ)→close，含时钟对齐）。"""
     if not isinstance(scores, dict):
         return None
     for key in ("y_τc", "predicted_score_τc"):
-        v = _f(scores.get(key))
-        if v is not None:
-            return v
-    ft = scores.get("formula_terms_tau") or scores.get("score_formula_terms_tau")
-    if isinstance(ft, dict):
-        for key in ("y_tau_raw", "total"):
-            v = _f(ft.get(key))
-            if v is not None:
-                return v
-    for key in ("y_tau", "predicted_score_tau", "score_rem", "yhat_tau"):
         v = _f(scores.get(key))
         if v is not None:
             return v
@@ -1196,7 +1193,7 @@ def _attach_y_t30_to_item(
     allow_open_z: bool = True,
     hist_bars: Optional[Sequence[dict]] = None,
 ) -> None:
-    """即时补 ŷ_τ30（ŷ_τ X + 序列特征）；τ⊕35 越界 / 缺模型则不出分。不进 C_τ。"""
+    """即时补 ŷ_τ30（ŷ_τ X + 序列特征）；决策钟不在 09:30…11:00 / 缺模型则不出分。不进 C_τ。"""
     if not isinstance(item, dict):
         return
     from core.signal.minute_tau_grid import tau_clock_allows_t30
@@ -1301,7 +1298,7 @@ def _attach_y_t45_to_item(
     allow_open_z: bool = True,
     hist_bars: Optional[Sequence[dict]] = None,
 ) -> None:
-    """即时补 ŷ_τ45（ŷ_τ X + 序列特征）；τ⊕50 越界 / 缺模型则不出分。不进 C_τ。"""
+    """即时补 ŷ_τ45（ŷ_τ X + 序列特征）；决策钟不在 09:30…11:00 / 缺模型则不出分。不进 C_τ。"""
     if not isinstance(item, dict):
         return
     from core.signal.minute_tau_grid import tau_clock_allows_t45
@@ -1406,7 +1403,7 @@ def _attach_y_t60_to_item(
     allow_open_z: bool = True,
     hist_bars: Optional[Sequence[dict]] = None,
 ) -> None:
-    """即时补 ŷ_τ60（ŷ_τ X + 序列特征）；τ⊕65 越界 / 缺模型则不出分。不进 C_τ。"""
+    """即时补 ŷ_τ60（ŷ_τ X + 序列特征）；决策钟不在 09:30…11:00 / 缺模型则不出分。不进 C_τ。"""
     if not isinstance(item, dict):
         return
     from core.signal.minute_tau_grid import tau_clock_allows_t60
@@ -1511,7 +1508,7 @@ def _attach_y_t75_to_item(
     allow_open_z: bool = True,
     hist_bars: Optional[Sequence[dict]] = None,
 ) -> None:
-    """即时补 ŷ_τ75（ŷ_τ X + 序列特征）；τ⊕80 越界 / 缺模型则不出分。不进 C_τ。"""
+    """即时补 ŷ_τ75（ŷ_τ X + 序列特征）；决策钟不在 09:30…11:00 / 缺模型则不出分。不进 C_τ。"""
     if not isinstance(item, dict):
         return
     from core.signal.minute_tau_grid import tau_clock_allows_t75
@@ -1616,7 +1613,7 @@ def _attach_y_t90_to_item(
     allow_open_z: bool = True,
     hist_bars: Optional[Sequence[dict]] = None,
 ) -> None:
-    """即时补 ŷ_τ90（ŷ_τ X + 序列特征）；τ⊕95 越界 / 缺模型则不出分。不进 C_τ。"""
+    """即时补 ŷ_τ90（ŷ_τ X + 序列特征）；决策钟不在 09:30…11:00 / 缺模型则不出分。不进 C_τ。"""
     if not isinstance(item, dict):
         return
     from core.signal.minute_tau_grid import tau_clock_allows_t90
@@ -1882,24 +1879,32 @@ def _refresh_tau_oc_from_feats(
         yv = float(yhat)
         from core.signal.yhat_windows import write_y_τc
 
-        write_y_τc(item, yv)
-        for stale in (
-            "y_oc",
-            "predicted_score_oc",
-            "y_tau_oc",
-            "predicted_score_tau_oc",
-            "predicted_score_tau",
-        ):
-            item.pop(stale, None)
-        item["predicted_score_rem"] = yv
-        item["score_rem"] = yv
-        item["y_tau"] = yv
+        from core.signal.yhat_geom import align_rem_yhat_to_clock
+
+        spec = item.get("y_spec_tau") if isinstance(item.get("y_spec_tau"), dict) else {}
+        formula = str((spec or {}).get("formula") or "")
+        doc = {"y_spec": spec} if formula else {"horizon_mode": "tau_to_close"}
+        aligned = align_rem_yhat_to_clock(
+            yv,
+            rem_model_doc=doc,
+            ret_open_to_tau=feats.get("ret_open_to_tau"),
+            clock=clock,
+        )
+        stored = float(aligned) if aligned is not None else yv
+        write_y_τc(item, stored)
+        item["y_τc_ridge"] = stored
+        item["y_tau_raw"] = yv
+        item.pop("y_tau", None)
+        item.pop("predicted_score_tau", None)
+        item["predicted_score_rem"] = stored
+        item["score_rem"] = stored
     if isinstance(expl, dict):
         prev = expl_now if isinstance(expl_now, dict) else {}
         out = dict(prev)
         out.update(expl)
         if yhat is not None:
-            out["y_tau"] = float(yhat)
+            out["y_τc"] = stored
+            out["y_tau"] = stored
             out["y_tau_raw"] = float(yhat)
         item["formula_terms_tau"] = out
         item["score_formula_terms_tau"] = out
@@ -2351,7 +2356,7 @@ def attach_portrait_dual_scores(
     if y_tau_p is None and str(snap.get("_score_source") or "") == "prefix_causal":
         y_tau_p = _f(snap.get("y_τc"))
         if y_tau_p is None:
-            y_tau_p = _f(snap.get("y_tau"))
+            y_tau_p = _f(snap.get("predicted_score_τc"))
     if y_tau_p is None:
         y_tau_p = predict_tau_oc_from_prefix_minutes(
             snap, prefix, day_bar=day_ref, tau_hm=hm, hist_bars=hist_bars

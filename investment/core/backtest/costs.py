@@ -216,59 +216,6 @@ def rebalance_cost_pct(
     return round(cost_bps / 100.0, 6)
 
 
-def apply_trade_cost(
-    gross_return_pct: float,
-    *,
-    config: Optional[dict] = None,
-    bars: Optional[List[dict]] = None,
-    order_value: float = 0,
-    daily_volume: float = 0,
-) -> float:
-    """从毛收益扣除往返成本（单票/旧路径）。"""
-    cost = round_trip_cost_pct(config, bars, order_value, daily_volume)
-    return round(gross_return_pct - cost, 4)
-
-
-def apply_rebalance_cost(
-    gross_return_pct: float,
-    prev_codes: Optional[Sequence[str]] = None,
-    curr_codes: Optional[Sequence[str]] = None,
-    *,
-    config: Optional[dict] = None,
-    bars: Optional[List[dict]] = None,
-    order_value: float = 0,
-    daily_volume: float = 0,
-) -> float:
-    """从毛收益扣除调仓换手成本。"""
-    cost = rebalance_cost_pct(
-        prev_codes,
-        curr_codes,
-        config=config,
-        bars=bars,
-        order_value=order_value,
-        daily_volume=daily_volume,
-    )
-    return round(float(gross_return_pct) - cost, 4)
-
-
-def net_metrics_from_gross(
-    gross_returns: list,
-    *,
-    config: Optional[dict] = None,
-    bars: Optional[List[dict]] = None,
-) -> Dict[str, Any]:
-    from core.backtest.engine import _trade_metrics
-
-    net = [apply_trade_cost(r, config=config, bars=bars) for r in gross_returns]
-    gross_m = _trade_metrics(gross_returns)
-    net_m = _trade_metrics(net)
-    return {
-        "gross": gross_m,
-        "net": net_m,
-        "cost_assumption_pct": round_trip_cost_pct(config, bars),
-    }
-
-
 def get_cost_breakdown(
     price: float,
     shares: int,

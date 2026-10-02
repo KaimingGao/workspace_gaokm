@@ -509,7 +509,7 @@ export function buildLedgerTradeRow(r, i, deps) {
   const yf = _numOrNull(r.y_oo != null ? r.y_oo : r.predicted_score_eod);
   const yo = _numOrNull(r.y_co != null ? r.y_co : r.y_on);
   const ytau = _numOrNull(
-    r.y_oc != null ? r.y_oc : r.y_tau != null ? r.y_tau : r.predicted_score_tau
+    r["y_τc"] != null ? r["y_τc"] : r.predicted_score_τc
   );
   const rk = _numOrNull(r.ranking_score);
   const rankingPct =

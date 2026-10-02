@@ -117,7 +117,7 @@ def bump_window_for_alpha158(
 def raw_alpha158_from_bars(bars: Optional[Sequence[dict]]) -> dict:
     """日 K hist → ``{raw_alpha158_*: float}``；不足 61 根返回 ``{}``。
 
-    供 y_co / y_oc 面板直接注入；不含常数 ``alpha158`` sub_score。
+    供 y_co / y_τc 面板直接注入；不含常数 ``alpha158`` sub_score。
     调用方须保证 bars 末根 ≤ 决策日前一交易日（PIT）。
     """
     hist = [b for b in (bars or []) if isinstance(b, dict)]

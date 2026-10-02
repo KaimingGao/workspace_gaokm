@@ -319,7 +319,8 @@ class TestEodNextFusion(unittest.TestCase):
         # 主排序分剥离 τ：ŷ_trade = ŷ_oo
         self.assertAlmostEqual(item["predicted_score_blend"], 1.2)
         self.assertNotIn("predicted_score_tau", item)
-        self.assertAlmostEqual(item["y_tau"], 0.8)
+        self.assertNotIn("y_tau", item)
+        self.assertAlmostEqual(item["y_τc"], 0.8)
         self.assertAlmostEqual(rank_key_for_item(item), 1.2)
         self.assertFalse((item.get("dual_score_weights") or {}).get("tau_in_trade"))
         self.assertNotIn("predicted_score_nowcast", item)
@@ -380,7 +381,8 @@ class TestEodNextFusion(unittest.TestCase):
         self.assertTrue(fuse)
         self.assertEqual(item["dual_score_window"], "intraday")
         self.assertNotIn("predicted_score_tau", item)
-        self.assertAlmostEqual(item.get("y_tau"), 0.8)
+        self.assertNotIn("y_tau", item)
+        self.assertAlmostEqual(item.get("y_τc"), 0.8)
 
     def test_mom3_hard_reject_can_be_skipped(self):
         from core.signal.scorer import score_bars

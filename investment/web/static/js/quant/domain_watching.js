@@ -9,7 +9,7 @@ import { fmtScore, fmtTableScore, scoreCls, resolveRankingScore, resolveEodScore
 import { watchingNameFromEl, applyWatchingNameEl } from "./names.js";
 import { renderWatchingHoldings as renderWatchingHoldingsHtml } from "./watching_holdings.js";
 import { buildWatchingDqMetaText, buildWatchingDqFoldSummary, buildWatchingDqTableHtml } from "./watching_dq_ui.js";
-import { watchingScoreDetail, sentimentBadgeHtml, renderWatchingBuildPlan as renderWatchingBuildPlanHtml, renderWatchingWatchTableFallback, buildWatchingWatchRows, buildWatchingNewsTitleHtml, buildWatchingNewsMetaText, buildWatchingNewsListHtml, WATCHING_NEWS_AI_LOADING_HTML, buildWatchingNewsAiAnalysisHtml, buildWatchingNewsAiErrorHtml, describeWatchingSource, matchWatchlistSource, truncateText, sentimentLabelZh, shortOriginLabel } from "./watching_render.js?v=p2746";
+import { watchingScoreDetail, sentimentBadgeHtml, renderWatchingBuildPlan as renderWatchingBuildPlanHtml, renderWatchingWatchTableFallback, buildWatchingWatchRows, buildWatchingNewsTitleHtml, buildWatchingNewsMetaText, buildWatchingNewsListHtml, WATCHING_NEWS_AI_LOADING_HTML, buildWatchingNewsAiAnalysisHtml, buildWatchingNewsAiErrorHtml, describeWatchingSource, matchWatchlistSource, truncateText, sentimentLabelZh, shortOriginLabel } from "./watching_render.js?v=p2749";
 import { ensureFitTierMap } from "./fit_tier_ui.js";
 import {
   buildWatchingScoreDisplay,
@@ -54,10 +54,11 @@ import {
   watchingChartLabelText,
 } from "./watching_panel_ui.js?v=p1221";
 
-const WATCHING_SORT_STORAGE = "watching_table_sort_v1";
+const WATCHING_SORT_STORAGE = "watching_table_sort_v2";
 const WATCHING_SORT_KEYS = new Set([
   "name",
   "chg",
+  "tier",
   "score",
   "score_eod",
   "score_tau",
@@ -82,6 +83,10 @@ export function installWatching(q) {
       state.watchingSortDir = saved.dir === "asc" ? "asc" : "desc";
     }
   } catch (_) { /* ignore */ }
+  if (!state.watchingSortKey) {
+    state.watchingSortKey = "tier";
+    state.watchingSortDir = "asc";
+  }
 
   function syncWatchingDataPolicyMeta() {
     const meta = document.getElementById("watching-page-meta");
@@ -1688,7 +1693,7 @@ export function installWatching(q) {
       grid.on("sortChanged", (sorters) => {
         const s = Array.isArray(sorters) && sorters.length ? sorters[0] : null;
         const key = s && s.field;
-        if (key === "name" || key === "score" || key === "excess" || key === "vol") {
+        if (key === "name" || key === "tier" || key === "score" || key === "excess" || key === "vol") {
           state.watchingSortKey = key;
           state.watchingSortDir = s.dir === "asc" ? "asc" : "desc";
           persistWatchingSort();
@@ -1705,7 +1710,16 @@ export function installWatching(q) {
       console.warn("[watching] 虚拟表挂载失败，回退原生表", err);
       state.watchingGrid = null;
       state.watchingGridReady = false;
-      renderWatchingWatchTableFallback(rows);
+      let tierCell = () => "—";
+      try {
+        const V = (typeof window !== "undefined" && window.__ASSET_V__) || "dev";
+        const tm = await import(`./pred_tier_ui.js?v=${encodeURIComponent(V)}`);
+        await tm.ensurePredTierMap();
+        tierCell = (code) => tm.predTierBadgeHtml(code, escapeHtml);
+      } catch (_) {
+        /* 分档缺失时该列留空 */
+      }
+      renderWatchingWatchTableFallback(rows, { tierCell });
       void ensureFitTierMap(watchTable);
       paintWatchingYhatHist();
     }

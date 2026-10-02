@@ -23,7 +23,7 @@ import {
   loadHoldingsSort,
   persistHoldingsSort as persistHoldingsSortSaved,
   sortHoldings as sortHoldingsRows,
-} from "./paper/holdings_sort.js?v=p2389";
+} from "./paper/holdings_sort.js?v=p2749";
 import {
   renderLineChart,
   loadLightweightCharts,
@@ -34,7 +34,7 @@ import {
   buildPaperHoldingsTableHtml,
   buildPaperOriginBarHtml,
   buildPaperHoldActionBarHtml,
-} from "./paper/holdings_ui.js?v=p2746";
+} from "./paper/holdings_ui.js?v=p2749";
 import { renderPaperRulesHtml } from "./paper/rules_ui.js?v=p2298";
 import {
   renderExecutionRulesHtml,
@@ -52,7 +52,7 @@ import { renderPaperRebalanceWorkerDesk as renderPaperRebalanceWorkerDeskUi } fr
 import { wireT0SkipTips } from "./paper/t0_viz.js?v=p2746";
 import { wireT0ProcessTips, wireT0DayDebugExpand } from "./paper/t0_table.js?v=p2746";
 import { wireHoldingsChgTips } from "./paper/holding_chg_tip.js?v=p2746";
-import { createHoldingsIslandController } from "./paper/holdings_island.js";
+import { createHoldingsIslandController } from "./paper/holdings_island.js?v=p2749";
 import { createClusterRebalanceController } from "./paper/cluster_rebalance.js?v=p2088";
 import {
   getDataOfflineOnly,
@@ -2122,13 +2122,14 @@ export function initPaper(ctx) {
           key === "score_tau" ||
           key === "score_on" ||
           key === "pnl" ||
-          key === "chg"
+          key === "chg" ||
+          key === "tier"
         ) {
           if (holdingsSortKey === key) {
             holdingsSortDir = holdingsSortDir === "asc" ? "desc" : "asc";
           } else {
             holdingsSortKey = key;
-            holdingsSortDir = key === "code" ? "asc" : "desc";
+            holdingsSortDir = key === "code" || key === "tier" ? "asc" : "desc";
           }
           persistHoldingsSort();
           if (lastAccountData) renderPaperAccountDetail(lastAccountData);

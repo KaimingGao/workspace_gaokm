@@ -495,12 +495,13 @@
     </div>
   </section>
 
-  <!-- ŷ_τ30：开盘 Z + 分钟小包 − OC 路径形状 + 30m 序列；标签 mean(price(τ⊕25/30/35))/price(τ)−1；进 ŷ_τw 投票 -->
-  <section class="dashboard-section quant-section" id="quant-section-t30" aria-labelledby="quant-section-t30-title">
-    <header class="dashboard-section-head quant-section-head">
-      <h3 id="quant-section-t30-title" class="dashboard-section-title">ŷ_τ30</h3>
-      <p class="dashboard-section-desc quant-section-desc">P(窗收益>0) · ŷ_τw 投票 · 不进 ranking / C_τ</p>
-    </header>
+  <!-- ŷ_τ30：开盘 Z + 分钟小包 − OC 路径形状 + 30m 序列；标签 mean(price(τ⊕25/30/35))/price(τ)−1；进 ŷ_τw 投票；默认收起 -->
+  <section class="dashboard-section quant-section quant-section-secondary" id="quant-section-t30" aria-labelledby="quant-section-t30-title">
+    <details class="quant-secondary-fold">
+      <summary class="quant-secondary-fold-sum">
+        <h3 id="quant-section-t30-title" class="dashboard-section-title">ŷ_τ30</h3>
+        <p class="dashboard-section-desc quant-section-desc">P(窗收益>0) · ŷ_τw 投票 · 不进 ranking / C_τ</p>
+      </summary>
     <div class="dashboard-card quant-pro-card">
       <div class="dashboard-card-head quant-pro-card-head quant-card-head--tools">
         <div id="quant-t30-summary" class="quant-rem-status quant-card-head-status" aria-live="polite">
@@ -520,7 +521,7 @@
                 <code>sector_ret_last_30m</code> / <code>ret_last_30m_vs_sector</code> /
                 <code>t30_lag1</code> / <code>t30_ma5</code>（同钟 PIT）。
                 标签 <code>I(mean(price[τ+25m],price[τ+30m],price[τ+35m])/price[τ]−1 &gt; 0)</code>（跳过午休：11:15→13:10/13:15/13:20）。
-                live ŷ=P(窗收益&gt;0)。14:30 后不足 35 交易分钟则不训、不预。主字段 <code>y_τ30</code>。
+                live ŷ=P(窗收益&gt;0)。决策钟只覆盖 <code>09:30…11:00</code>（与 ŷ_τc 对齐）；其后不训、不预。主字段 <code>y_τ30</code>。
                 进 ŷ_τw 投票；个股闸与入场已下线。不进 C_τ / ranking。不改 ŷ_τc 的 X。
               </p>
               <p>
@@ -540,14 +541,16 @@
         <div id="quant-t30-coef-table" class="quant-weight-table-wrap" aria-label="ŷ_τ30 因子系数表"></div>
       </div>
     </div>
+    </details>
   </section>
 
-  <!-- ŷ_τ45：与 ŷ_τc 同 X；标签 mean(price(τ⊕40/45/50))/price(τ)−1；进 ŷ_τw 投票 -->
-  <section class="dashboard-section quant-section" id="quant-section-t45" aria-labelledby="quant-section-t45-title">
-    <header class="dashboard-section-head quant-section-head">
-      <h3 id="quant-section-t45-title" class="dashboard-section-title">ŷ_τ45</h3>
-      <p class="dashboard-section-desc quant-section-desc">P(窗收益>0) · ŷ_τw 投票 · 不进 ranking / C_τ</p>
-    </header>
+  <!-- ŷ_τ45：与 ŷ_τc 同 X；标签 mean(price(τ⊕40/45/50))/price(τ)−1；进 ŷ_τw 投票；默认收起 -->
+  <section class="dashboard-section quant-section quant-section-secondary" id="quant-section-t45" aria-labelledby="quant-section-t45-title">
+    <details class="quant-secondary-fold">
+      <summary class="quant-secondary-fold-sum">
+        <h3 id="quant-section-t45-title" class="dashboard-section-title">ŷ_τ45</h3>
+        <p class="dashboard-section-desc quant-section-desc">P(窗收益>0) · ŷ_τw 投票 · 不进 ranking / C_τ</p>
+      </summary>
     <div class="dashboard-card quant-pro-card">
       <div class="dashboard-card-head quant-pro-card-head quant-card-head--tools">
         <div id="quant-t45-summary" class="quant-rem-status quant-card-head-status" aria-live="polite">
@@ -567,7 +570,7 @@
                 <code>sector_ret_last_45m</code> / <code>ret_last_45m_vs_sector</code> /
                 <code>t45_lag1</code> / <code>t45_ma5</code>（同钟 PIT）。
                 标签 <code>I(mean(price[τ+40m],price[τ+45m],price[τ+50m])/price[τ]−1 &gt; 0)</code>（跳过午休：11:15→13:25/13:30/13:35）。
-                live ŷ=P(窗收益&gt;0)。14:15 后不足 50 交易分钟则不训、不预。主字段 <code>y_τ45</code>。
+                live ŷ=P(窗收益&gt;0)。决策钟只覆盖 <code>09:30…11:00</code>（与 ŷ_τc 对齐）；其后不训、不预。主字段 <code>y_τ45</code>。
                 进 ŷ_τw 五头 sign(p_up−中位点)；近中位点由弃权%（`y_tw_vote_margin`，默认 5pp）不投票。中位点默认 47%（`y_tw_midpoint`）。个股闸与入场已下线。破带后 ŷ_τw 门槛。不改 ŷ_τc / ŷ_τ30 的 X。
               </p>
               <p>
@@ -587,14 +590,16 @@
         <div id="quant-t45-coef-table" class="quant-weight-table-wrap" aria-label="ŷ_τ45 因子系数表"></div>
       </div>
     </div>
+    </details>
   </section>
 
-  <!-- ŷ_τ60：与 ŷ_τc 同 X；标签 mean(price(τ⊕55/60/65))/price(τ)−1；进 ŷ_τw 投票 -->
-  <section class="dashboard-section quant-section" id="quant-section-t60" aria-labelledby="quant-section-t60-title">
-    <header class="dashboard-section-head quant-section-head">
-      <h3 id="quant-section-t60-title" class="dashboard-section-title">ŷ_τ60</h3>
-      <p class="dashboard-section-desc quant-section-desc">P(窗收益>0) · ŷ_τw 投票 · 不进 ranking / C_τ</p>
-    </header>
+  <!-- ŷ_τ60：与 ŷ_τc 同 X；标签 mean(price(τ⊕55/60/65))/price(τ)−1；进 ŷ_τw 投票；默认收起 -->
+  <section class="dashboard-section quant-section quant-section-secondary" id="quant-section-t60" aria-labelledby="quant-section-t60-title">
+    <details class="quant-secondary-fold">
+      <summary class="quant-secondary-fold-sum">
+        <h3 id="quant-section-t60-title" class="dashboard-section-title">ŷ_τ60</h3>
+        <p class="dashboard-section-desc quant-section-desc">P(窗收益>0) · ŷ_τw 投票 · 不进 ranking / C_τ</p>
+      </summary>
     <div class="dashboard-card quant-pro-card">
       <div class="dashboard-card-head quant-pro-card-head quant-card-head--tools">
         <div id="quant-t60-summary" class="quant-rem-status quant-card-head-status" aria-live="polite">
@@ -614,7 +619,7 @@
                 <code>sector_ret_last_60m</code> / <code>ret_last_60m_vs_sector</code> /
                 <code>t60_lag1</code> / <code>t60_ma5</code>（同钟 PIT）。
                 标签 <code>I(mean(price[τ+55m],price[τ+60m],price[τ+65m])/price[τ]−1 &gt; 0)</code>（跳过午休：11:00→13:25/13:30/13:35）。
-                live ŷ=P(窗收益&gt;0)。14:00 后不足 65 交易分钟则不训、不预。主字段 <code>y_τ60</code>。
+                live ŷ=P(窗收益&gt;0)。决策钟只覆盖 <code>09:30…11:00</code>（与 ŷ_τc 对齐）；其后不训、不预。主字段 <code>y_τ60</code>。
                 进 ŷ_τw 投票；个股闸与入场已下线。不进 C_τ / ranking。不改 ŷ_τc / ŷ_τ30 的 X。
               </p>
               <p>
@@ -634,14 +639,16 @@
         <div id="quant-t60-coef-table" class="quant-weight-table-wrap" aria-label="ŷ_τ60 因子系数表"></div>
       </div>
     </div>
+    </details>
   </section>
 
-  <!-- ŷ_τ75：与 ŷ_τc 同 X；标签 mean(price(τ⊕70/75/80))/price(τ)−1；进 ŷ_τw 投票 -->
-  <section class="dashboard-section quant-section" id="quant-section-t75" aria-labelledby="quant-section-t75-title">
-    <header class="dashboard-section-head quant-section-head">
-      <h3 id="quant-section-t75-title" class="dashboard-section-title">ŷ_τ75</h3>
-      <p class="dashboard-section-desc quant-section-desc">P(窗收益>0) · ŷ_τw 投票 · 不进 ranking / C_τ</p>
-    </header>
+  <!-- ŷ_τ75：与 ŷ_τc 同 X；标签 mean(price(τ⊕70/75/80))/price(τ)−1；进 ŷ_τw 投票；默认收起 -->
+  <section class="dashboard-section quant-section quant-section-secondary" id="quant-section-t75" aria-labelledby="quant-section-t75-title">
+    <details class="quant-secondary-fold">
+      <summary class="quant-secondary-fold-sum">
+        <h3 id="quant-section-t75-title" class="dashboard-section-title">ŷ_τ75</h3>
+        <p class="dashboard-section-desc quant-section-desc">P(窗收益>0) · ŷ_τw 投票 · 不进 ranking / C_τ</p>
+      </summary>
     <div class="dashboard-card quant-pro-card">
       <div class="dashboard-card-head quant-pro-card-head quant-card-head--tools">
         <div id="quant-t75-summary" class="quant-rem-status quant-card-head-status" aria-live="polite">
@@ -661,7 +668,7 @@
                 <code>sector_ret_last_75m</code> / <code>ret_last_75m_vs_sector</code> /
                 <code>t75_lag1</code> / <code>t75_ma5</code>（同钟 PIT）。
                 标签 <code>I(mean(price[τ+70m],price[τ+75m],price[τ+80m])/price[τ]−1 &gt; 0)</code>（跳过午休：11:00→13:40/13:45/13:50）。
-                live ŷ=P(窗收益&gt;0)。13:45 后不足 80 交易分钟则不训、不预。主字段 <code>y_τ75</code>。
+                live ŷ=P(窗收益&gt;0)。决策钟只覆盖 <code>09:30…11:00</code>（与 ŷ_τc 对齐）；其后不训、不预。主字段 <code>y_τ75</code>。
                 进 ŷ_τw 五头 sign(p_up−中位点)；近中位点由弃权%（`y_tw_vote_margin`，默认 5pp）不投票。中位点默认 47%（`y_tw_midpoint`）。个股闸与入场已下线。破带后 ŷ_τw 门槛。不改 ŷ_τc / ŷ_τ30 / ŷ_τ45 / ŷ_τ60 的 X。
               </p>
               <p>
@@ -681,14 +688,16 @@
         <div id="quant-t75-coef-table" class="quant-weight-table-wrap" aria-label="ŷ_τ75 因子系数表"></div>
       </div>
     </div>
+    </details>
   </section>
 
-  <!-- ŷ_τ90：与 ŷ_τc 同 X；标签 mean(price(τ⊕85/90/95))/price(τ)−1；进 ŷ_τw 投票 -->
-  <section class="dashboard-section quant-section" id="quant-section-t90" aria-labelledby="quant-section-t90-title">
-    <header class="dashboard-section-head quant-section-head">
-      <h3 id="quant-section-t90-title" class="dashboard-section-title">ŷ_τ90</h3>
-      <p class="dashboard-section-desc quant-section-desc">P(窗收益>0) · ŷ_τw 投票 · 不进 ranking / C_τ</p>
-    </header>
+  <!-- ŷ_τ90：与 ŷ_τc 同 X；标签 mean(price(τ⊕85/90/95))/price(τ)−1；进 ŷ_τw 投票；默认收起 -->
+  <section class="dashboard-section quant-section quant-section-secondary" id="quant-section-t90" aria-labelledby="quant-section-t90-title">
+    <details class="quant-secondary-fold">
+      <summary class="quant-secondary-fold-sum">
+        <h3 id="quant-section-t90-title" class="dashboard-section-title">ŷ_τ90</h3>
+        <p class="dashboard-section-desc quant-section-desc">P(窗收益>0) · ŷ_τw 投票 · 不进 ranking / C_τ</p>
+      </summary>
     <div class="dashboard-card quant-pro-card">
       <div class="dashboard-card-head quant-pro-card-head quant-card-head--tools">
         <div id="quant-t90-summary" class="quant-rem-status quant-card-head-status" aria-live="polite">
@@ -708,7 +717,7 @@
                 <code>sector_ret_last_90m</code> / <code>ret_last_90m_vs_sector</code> /
                 <code>t90_lag1</code> / <code>t90_ma5</code>（同钟 PIT）。
                 标签 <code>I(mean(price[τ+85m],price[τ+90m],price[τ+95m])/price[τ]−1 &gt; 0)</code>（跳过午休：11:00→13:55/14:00/14:05）。
-                live ŷ=P(窗收益&gt;0)。13:30 后不足 95 交易分钟则不训、不预。主字段 <code>y_τ90</code>。
+                live ŷ=P(窗收益&gt;0)。决策钟只覆盖 <code>09:30…11:00</code>（与 ŷ_τc 对齐）；其后不训、不预。主字段 <code>y_τ90</code>。
                 进 ŷ_τw 投票；个股闸与入场已下线。不进 C_τ / ranking。不改 ŷ_τc / ŷ_τ30 / ŷ_τ60 的 X。
               </p>
               <p>
@@ -728,6 +737,7 @@
         <div id="quant-t90-coef-table" class="quant-weight-table-wrap" aria-label="ŷ_τ90 因子系数表"></div>
       </div>
     </div>
+    </details>
   </section>
 
   <!-- ŷ_oo_rank：pairwise LTR 影子头；不进 ranking / live 决策；次要折叠，默认收起 -->
@@ -1121,9 +1131,9 @@
     </details>
   </section>
 
-  <!-- 公式试算：手写一行 DSL，看本票时序与截面 Rank IC -->
+  <!-- 公式试算：手写一行 DSL，看本票时序与截面 Rank IC；默认收起 -->
   <section class="dashboard-section quant-section quant-section-secondary" id="quant-section-expr" aria-labelledby="quant-section-expr-title">
-    <details class="quant-secondary-fold" open>
+    <details class="quant-secondary-fold">
       <summary class="quant-secondary-fold-sum">
         <h3 id="quant-section-expr-title" class="dashboard-section-title">公式试算</h3>
         <p class="dashboard-section-desc quant-section-desc">一行公式 · 本票时序 · 观察池截面 Rank IC</p>
@@ -1209,7 +1219,7 @@
     <details class="quant-secondary-fold">
       <summary class="quant-secondary-fold-sum">
         <h3 id="quant-section-experiments-title" class="dashboard-section-title">实验记录</h3>
-        <p class="dashboard-section-desc quant-section-desc" id="quant-experiments-summary">模型训练配置 · 指标 · 产物对比</p>
+        <p class="dashboard-section-desc quant-section-desc" id="quant-experiments-summary">每次 fit 写入 · fit_end · 样本外 IC · 训练窗 / 全样本</p>
       </summary>
       <div class="dashboard-card quant-pro-card">
         <div class="dashboard-card-head quant-pro-card-head quant-card-head--tools">
@@ -1217,10 +1227,22 @@
           <div class="dashboard-card-tools quant-pro-card-tools">
             <select id="quant-experiments-model-type" style="font-size:12px;">
               <option value="">全部</option>
-              <option value="tau_tree">tau_tree</option>
+              <option value="tc_ridge">tc_ridge</option>
+              <option value="tc_tree">tc_tree</option>
+              <option value="co_ridge">co_ridge</option>
+              <option value="co_tree">co_tree</option>
               <option value="oo_rank">oo_rank</option>
-              <option value="ridge">ridge</option>
-              <option value="factor_discovery">factor_discovery</option>
+              <option value="oo_tree">oo_tree</option>
+              <option value="t30_ridge">t30_ridge</option>
+              <option value="t45_ridge">t45_ridge</option>
+              <option value="t60_ridge">t60_ridge</option>
+              <option value="t75_ridge">t75_ridge</option>
+              <option value="t90_ridge">t90_ridge</option>
+              <option value="t30_tree">t30_tree</option>
+              <option value="t45_tree">t45_tree</option>
+              <option value="t60_tree">t60_tree</option>
+              <option value="t75_tree">t75_tree</option>
+              <option value="t90_tree">t90_tree</option>
             </select>
             <button type="button" id="quant-experiments-refresh" class="dialog-btn">刷新</button>
           </div>

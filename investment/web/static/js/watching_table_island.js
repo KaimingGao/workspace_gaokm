@@ -8,7 +8,25 @@ function numSortKey(row, key) {
   return Number.isFinite(n) ? n : -Infinity;
 }
 
+/** 分档表在 mount 时注入；未加载前未知档排最后。 */
+let _predTier = {
+  rank() {
+    return 9;
+  },
+  get() {
+    return null;
+  },
+  badge() {
+    return "—";
+  },
+};
+
 function compare(id, a, b) {
+  if (id === "tier") {
+    const ta = _predTier.get(a && a.code);
+    const tb = _predTier.get(b && b.code);
+    return _predTier.rank(ta && ta.tier) - _predTier.rank(tb && tb.tier);
+  }
   if (id === "score") return numSortKey(a, "scoreNum") - numSortKey(b, "scoreNum");
   if (id === "score_eod") return numSortKey(a, "scoreEodNum") - numSortKey(b, "scoreEodNum");
   if (id === "score_tau") return numSortKey(a, "scoreTauNum") - numSortKey(b, "scoreTauNum");
@@ -42,6 +60,16 @@ const COLS = [
     sortable: true,
     cellClass: "watching-stock",
     title: "股票名称与代码",
+  },
+  {
+    id: "tier",
+    label: "分档",
+    width: 52,
+    sortable: true,
+    defaultDir: "asc",
+    headClass: "watching-col-center",
+    cellClass: "watching-col-center",
+    title: "可预测性分档（ŷ_oo Holdout 前半）：A 强 / B 中 / C 弱。同档内按 ranking 从高到低",
   },
   {
     id: "paper",
@@ -110,7 +138,15 @@ const COLS = [
     cellClass: "watching-col-y watching-col-y-ranking",
     title: RANKING_REBALANCE_TITLE,
   },
-  { id: "excess", label: "超额", width: 62, num: true, sortable: true, title: "相对基准（指数）的超额收益" },
+  {
+    id: "excess",
+    label: "超额",
+    width: 68,
+    num: true,
+    sortable: true,
+    title:
+      "近端个股收益 − 指数收益（%）。缺与指数对齐的日线时显示 RS+相对强弱分（0–100），不是超额收益率",
+  },
   { id: "vol", label: "量", width: 88, num: true, sortable: true, title: "成交量" },
   { id: "volr", label: "量比", width: 56, num: true, title: "近期成交量 / 均量" },
   { id: "pe", label: "PE", width: 56, num: true, title: "市盈率" },
@@ -130,7 +166,13 @@ export async function mountWatchingTableIsland(host, options = {}) {
   const { fitTierBadgeForCode, ensureFitTierMap } = await import(
     `./quant/fit_tier_ui.js?v=${encodeURIComponent(V)}`
   );
-  await ensureFitTierMap();
+  const predTier = await import(`./quant/pred_tier_ui.js?v=${encodeURIComponent(V)}`);
+  _predTier = {
+    rank: predTier.predTierRank,
+    get: predTier.getPredTier,
+    badge: predTier.predTierBadgeHtml,
+  };
+  await Promise.all([ensureFitTierMap(), predTier.ensurePredTierMap()]);
 
   const api = mountVirtualTable(host, {
     columns: COLS,
@@ -138,6 +180,17 @@ export async function mountWatchingTableIsland(host, options = {}) {
     rowHeight: 50,
     initialSort: options.initialSort,
     compare,
+    tiebreak: (id, a, b) => {
+      if (id !== "tier") return 0;
+      const as = numSortKey(a, "scoreNum");
+      const bs = numSortKey(b, "scoreNum");
+      const aOk = Number.isFinite(as);
+      const bOk = Number.isFinite(bs);
+      if (aOk && bOk) return bs - as;
+      if (aOk) return -1;
+      if (bOk) return 1;
+      return 0;
+    },
     rowClass: (d) =>
       [
         "watching-watch-row",
@@ -190,6 +243,9 @@ export async function mountWatchingTableIsland(host, options = {}) {
           `<span class="watching-code-sub">${escapeHtml(d.code || "")}` +
           `<span class="watching-mkt">${escapeHtml(d.market || "")}</span></span></div>`
         );
+      }
+      if (col.id === "tier") {
+        return _predTier.badge(d.code, escapeHtml);
       }
       if (col.id === "paper") {
         return d.onPaper
@@ -299,9 +355,17 @@ export async function mountWatchingTableIsland(host, options = {}) {
       let tip = text;
       // 超额：单元格只留 ±x.x%，强弱进 title（兼容旧 patch 仍带「强/弱/平」）
       if (col.id === "excess") {
-        const m = text.match(/^([+-]?\d+(?:\.\d+)?%)/);
-        if (m) text = m[1];
-        tip = d.excessTitle || String(v);
+        const rs = text.match(/^RS(\d+)$/);
+        if (rs) {
+          text = `RS${rs[1]}`;
+          tip =
+            `相对强弱分 ${rs[1]}（0–100）。近端超额%未算出：缺与指数对齐的日线，` +
+            "所以不是「个股 − 指数」的超额收益率。分越高表示相对基准越强。";
+        } else {
+          const m = text.match(/^([+-]?\d+(?:\.\d+)?%)/);
+          if (m) text = m[1];
+          tip = d.excessTitle || String(v);
+        }
       } else if (col.id === "price" || col.id === "prev_close" || col.id === "open") {
         // 「元」占宽，窄列易被裁成「…」
         text = text.replace(/元$/u, "");

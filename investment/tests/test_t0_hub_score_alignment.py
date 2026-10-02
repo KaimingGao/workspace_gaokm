@@ -160,7 +160,7 @@ class TestT0HubScoreAlignment(unittest.TestCase):
 
         item = {
             "as_of_tau": "2026-09-18T09:40:00+08:00",
-            "y_oc": 2.214,
+            "y_τc": 2.214,
             "predicted_score_tau": 2.214,
             "features_tau": {
                 "ret_open_to_tau": 2.17,
@@ -196,7 +196,7 @@ class TestT0HubScoreAlignment(unittest.TestCase):
                 item, hm="09:40", trade_date="2026-09-18"
             )
         self.assertAlmostEqual(float(item["y_τc"]), 2.203, places=6)
-        self.assertNotIn("y_oc", item)
+        self.assertNotIn("predicted_score_tau", item)
         keys = {
             t.get("key")
             for t in (item.get("formula_terms_tau") or {}).get("terms") or []

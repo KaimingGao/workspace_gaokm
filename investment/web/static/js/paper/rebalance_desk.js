@@ -143,7 +143,7 @@ function fillAnchor(r) {
 function reasonTitle(r) {
   const bits = [];
   const yoo = fmtSignedPct(r.y_oo);
-  const yoc = fmtSignedPct(r.y_oc);
+  const yoc = fmtSignedPct(r["y_τc"] != null ? r["y_τc"] : r.y_oc);
   const yco = fmtSignedPct(r.y_co);
   if (yoo) bits.push(`y_oo ${yoo}`);
   if (yoc) bits.push(`y_τc ${yoc}`);

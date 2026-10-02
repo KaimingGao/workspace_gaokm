@@ -2852,13 +2852,12 @@ export function initQuant(ctx) {
         } else {
           const rows = exps.map(e => {
             const m = e.metrics || {};
-            const ic = m.ic != null ? m.ic : "—";
-            const ir = m.ir != null ? m.ir : "—";
-            const cfg = e.config || {};
-            const bits = Object.entries(cfg).slice(0, 3).map(([k, v]) => `${k}=${v}`).join(" ");
-            return `<tr><td style="max-width:180px;word-break:break-all;">${escapeHtml(e.experiment_id.slice(0, 24))}…</td><td>${escapeHtml(e.model_type)}</td><td>${escapeHtml(String(e.status))}</td><td>${ic}</td><td>${ir}</td><td style="font-size:11px;max-width:200px;overflow:hidden;text-overflow:ellipsis;" title="${escapeHtml(bits)}">${escapeHtml(bits)}</td><td style="font-size:11px;">${escapeHtml(String(e.created_at || "").slice(5, 16))}</td></tr>`;
+            const ic = m.oos_ic != null ? m.oos_ic : (m.ic != null ? m.ic : "—");
+            const fitEnd = m.fit_end || (e.config || {}).fit_end || "—";
+            const win = [m.research_window, m.live_window].filter(Boolean).join("/") || "—";
+            return `<tr><td style="max-width:180px;word-break:break-all;">${escapeHtml(String(e.experiment_id || "").slice(0, 24))}…</td><td>${escapeHtml(e.model_type)}</td><td>${escapeHtml(String(e.status))}</td><td>${escapeHtml(String(fitEnd))}</td><td>${escapeHtml(String(ic))}</td><td>${escapeHtml(String(win))}</td><td style="font-size:11px;">${escapeHtml(String(e.created_at || "").slice(5, 16))}</td></tr>`;
           }).join("");
-          table.innerHTML = `<table class="quant-weight-table" style="font-size:12px;"><thead><tr><th>ID</th><th>模型</th><th>状态</th><th>IC</th><th>IR</th><th>配置</th><th>时间</th></tr></thead><tbody>${rows}</tbody></table>`;
+          table.innerHTML = `<table class="quant-weight-table" style="font-size:12px;"><thead><tr><th>ID</th><th>模型</th><th>状态</th><th>fit_end</th><th>OOS IC</th><th>窗</th><th>时间</th></tr></thead><tbody>${rows}</tbody></table>`;
         }
       }
     } catch (e) {

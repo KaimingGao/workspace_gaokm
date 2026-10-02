@@ -147,7 +147,7 @@ class SignalService:
         """持仓表列行：heuristic 不进表列 score；ŷ 走 decision_score。
 
         ``rank_cfg`` 为 rank_lots 权（fusion_w_oo/oc/co）；缺则默认 0.5/0.5/0。
-        表列 ranking 由 ŷ_oo/ŷ_oc 现算，不用 dual_score 缺口抬升的 ŷ_trade。
+        表列 ranking 由 ŷ_oo/ŷ_τc 现算，不用 dual_score 缺口抬升的 ŷ_trade。
         """
         from core.signal.dual_score import (
             decision_score_for_item,
@@ -205,12 +205,39 @@ class SignalService:
             "below_min_score": bool(packed.get("below_min_score")),
         }
         for k, v in packed.items():
+            live_y = k.startswith((
+                "y_oo",
+                "y_τ",
+                "y_co",
+                "y_tw",
+                "y_t30",
+                "y_t45",
+                "y_t60",
+                "y_t75",
+                "y_t90",
+                "y_spec_",
+                "y_r",
+            ))
+            live_pred = k == "predicted_score" or k.startswith((
+                "predicted_score_eod",
+                "predicted_score_oo",
+                "predicted_score_τ",
+                "predicted_score_co",
+                "predicted_score_t30",
+                "predicted_score_t45",
+                "predicted_score_t60",
+                "predicted_score_t75",
+                "predicted_score_t90",
+                "predicted_score_tw",
+                "predicted_score_r",
+                "predicted_score_blend",
+            ))
             if (
-                k.startswith("predicted_score")
+                live_pred
                 or k.startswith("score_")
                 or k.startswith("nowcast_")
                 or k.startswith("dual_score_")
-                or k.startswith("y_")
+                or live_y
                 or k in (
                     "gap_pct",
                     "event_prior",
@@ -249,16 +276,10 @@ class SignalService:
                     out[k] = stamped[k]
             fa = packed.get("factor_anomaly") or out.get("factor_anomaly")
             if isinstance(fa, dict) and fa.get("fatal_tau"):
-                out["y_oc"] = None
-                out["predicted_score_oc"] = None
-                out["y_tau_oc"] = None
-                out["predicted_score_tau_oc"] = None
                 out["y_τc"] = None
                 out["predicted_score_τc"] = None
                 out["y_co"] = None
                 out["ranking"] = None
-                out.pop("predicted_score_tau", None)
-                out["y_tau"] = None
             if cfg.get("fusion_w_oo") is not None:
                 out["fusion_w_oo"] = cfg.get("fusion_w_oo")
             if cfg.get("fusion_w_oc") is not None:

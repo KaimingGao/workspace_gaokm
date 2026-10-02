@@ -361,8 +361,9 @@ def backtest_signal_on_bars(
             gross_returns.append(ret_pct)
             net_ret = ret_pct
             if apply_costs:
-                from core.backtest.costs import apply_trade_cost
-                net_ret = apply_trade_cost(ret_pct, config=cost_config)
+                from core.backtest.costs import round_trip_cost_pct
+
+                net_ret = round(ret_pct - round_trip_cost_pct(cost_config), 4)
             returns.append(net_ret)
 
             entry_date = bars[i + 1].get("date") if execution_mode == "next_open" else bars[i].get("date")

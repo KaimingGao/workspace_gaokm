@@ -43,51 +43,6 @@ class YRPctTests(unittest.TestCase):
         self.assertIsNone(y_r_pct(0, 68.12))
         self.assertIsNone(y_r_pct(69.20, None))
 
-    def test_relabel_keeps_price_tau_rows(self):
-        from core.research.tau_panel import relabel_tau_panels_as_r, y_r_pct
-
-        yr = y_r_pct(10.5, 10.0)
-        panel = {
-            "xs": [
-                {"gap_pct": 1.0},
-                {"gap_pct": 0.5},
-                {"gap_pct": -0.2},
-                {"gap_pct": 0.1},
-                {"gap_pct": 0.3},
-            ],
-            "ys": [1.0, 2.0, 3.0, 4.0, 5.0],
-            "dates": [
-                "2025-06-02",
-                "2025-06-03",
-                "2025-06-04",
-                "2025-06-05",
-                "2025-06-06",
-            ],
-            "metas": [
-                {"price_tau": 10.5, "close": 11.0, "close_minute": 10.0},
-                {"price_tau": 9.8, "close": 11.0, "close_minute": 10.0},
-                {"price_tau": None, "close": 11.0, "close_minute": 10.0},
-                {"price_tau": 10.2, "close": 11.0, "close_minute": 10.1},
-                {"price_tau": 10.1, "close": 11.0, "close_minute": 10.0},
-            ],
-        }
-        out = relabel_tau_panels_as_r([panel])
-        self.assertEqual(len(out), 1)
-        self.assertEqual(len(out[0]["ys"]), 4)
-        self.assertAlmostEqual(out[0]["ys"][0], yr, places=6)
-        self.assertIn("y_r", out[0]["metas"][0])
-
-    def test_relabel_drops_daily_close_only_rows(self):
-        from core.research.tau_panel import relabel_tau_panels_as_r
-
-        panel = {
-            "xs": [{"gap_pct": 1.0}] * 5,
-            "ys": [1.0, 2.0, 3.0, 4.0, 5.0],
-            "dates": [f"2025-06-0{i}" for i in range(2, 7)],
-            "metas": [{"price_tau": 10.0, "close": 11.0} for _ in range(5)],
-        }
-        self.assertEqual(relabel_tau_panels_as_r([panel]), [])
-
 
 class YRDisplayOnlyTests(unittest.TestCase):
     def test_scores_from_item_passes_y_r(self):

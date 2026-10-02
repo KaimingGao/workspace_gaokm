@@ -8,7 +8,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
-from core.backtest.costs import apply_trade_cost, round_trip_cost_pct
+from core.backtest.costs import round_trip_cost_pct
 from core.backtest.engine import backtest_signal_on_bars, scan_signal_parameters_oos
 from core.paper import init_from_example, load_paper, run_daily_cycle, simulate_sells
 from core.signal.config import get_stance_thresholds, load_signal_config
@@ -139,7 +139,7 @@ class TestQuantUpgrade(unittest.TestCase):
 
     def test_apply_costs(self):
         self.assertGreater(round_trip_cost_pct(), 0)
-        net = apply_trade_cost(5.0)
+        net = round(5.0 - round_trip_cost_pct(), 4)
         self.assertLess(net, 5.0)
 
     def test_oos_scan(self):

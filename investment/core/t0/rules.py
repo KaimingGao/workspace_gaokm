@@ -160,7 +160,7 @@ def _ensure_fixed_direction_path_y_tau(
         return scores
     snap = dict(scores) if isinstance(scores, dict) else {}
     if _score_y_tau(snap) is None:
-        snap["y_tau"] = 0.5 if d == "buy_then_sell" else -0.5
+        snap["y_τc"] = 0.5 if d == "buy_then_sell" else -0.5
     p_up = 0.8 if d == "buy_then_sell" else 0.2
     for k in (
         "y_τ30",

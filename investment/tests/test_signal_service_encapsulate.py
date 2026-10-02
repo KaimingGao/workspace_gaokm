@@ -276,7 +276,7 @@ class TestSignalServiceWrap(unittest.TestCase):
         self.assertFalse(row.get("production_ok"))
         self.assertAlmostEqual(float(row.get("score_cluster")), 0.3)
 
-    def test_pack_holding_row_stamps_ranking_from_oo_oc(self):
+    def test_pack_holding_row_stamps_ranking_from_oo_tc(self):
         from core.signal.service import SignalService
 
         row = SignalService().pack_holding_row(
@@ -285,7 +285,9 @@ class TestSignalServiceWrap(unittest.TestCase):
                 "predicted_score": 2.30,
                 "predicted_score_eod": 2.30,
                 "y_oo": 2.30,
-                "y_oc": 5.69,
+                "y_τc": 5.69,
+                "y_oc": 9.0,
+                "y_tau": 9.0,
                 "predicted_score_tau": 0.08,
                 "predicted_score_blend": -3.65,
                 "decision_score": -3.65,
@@ -296,6 +298,9 @@ class TestSignalServiceWrap(unittest.TestCase):
             rank_cfg={"fusion_w_oo": 0.8, "fusion_w_oc": 0.2, "fusion_w_co": 0.0},
         )
         self.assertAlmostEqual(float(row.get("ranking")), 0.8 * 2.30 + 0.2 * 5.69, places=4)
+        self.assertNotIn("y_oc", row)
+        self.assertNotIn("y_tau", row)
+        self.assertNotIn("predicted_score_tau", row)
         self.assertGreater(float(row.get("ranking")), 0.0)
         self.assertAlmostEqual(float(row.get("fusion_w_oo")), 0.8)
         self.assertAlmostEqual(float(row.get("fusion_w_oc")), 0.2)
@@ -308,7 +313,7 @@ class TestSignalServiceWrap(unittest.TestCase):
                 "stock_code": "600869",
                 "predicted_score": 2.30,
                 "y_oo": 2.30,
-                "y_oc": 5.69,
+                "y_τc": 5.69,
                 "day_open": 10.0,
                 "price": 10.2,
             },
@@ -326,7 +331,7 @@ class TestSignalServiceWrap(unittest.TestCase):
                 "stock_code": "600183",
                 "predicted_score": 1.07,
                 "y_oo": 1.07,
-                "y_oc": -0.05,
+                "y_τc": -0.05,
                 "y_co": -0.256,
                 "predicted_score_on": -0.256,
                 "features_co": {"gap_vs_sector": -0.4076, "ret_oc": 2.3},

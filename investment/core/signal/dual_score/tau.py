@@ -108,13 +108,13 @@ def apply_tau_score_fields(
 ) -> Dict[str, Any]:
     """写入双层契约字段（不改 predicted_score / score 主值）。
 
-    ``rem_yhat`` 就是 ŷ_τc（τ→close，close[T]/price[τ]−1），不依赖 ŷ_oo。
-    同一数写入 y_τc；时钟对齐后的数在 y_tau。不再写 y_oc。
-    ŷ_trade = w·ŷ_oo + w·lift(ŷ_τ)；OC 模型 lift=缺口∘ŷ_τ，τc 模型 lift=缺口∘ret_open_to_tau∘ŷ_τ。
+    ``rem_yhat`` 就是 ŷ_τc（close[T]/price[τ]−1）。
+    时钟对齐后的数写入 y_τc；原始模型头留在 y_tau_raw。
+    ŷ_trade = w·ŷ_oo + w·lift(ŷ_τ)。open→close 标签 lift=缺口∘ŷ_τ；τ→close 标签 lift=缺口∘ret_open_to_tau∘ŷ_τ。
     ŷ_oo_rem 只作派生对照，不进融合。
     ``residual_delta`` 已废弃，忽略。
     ``fuse_intraday=False``（ŷ_oo 已换到下一周期）：τ 不进主排序融合。
-    收盘后同一周期仍 fuse：ŷ_oc 钉在 ≤10:00，不是当日已实现 OC。
+    收盘后同一周期仍 fuse：用的是钉在 ≤10:00 的 ŷ_τc 估计。
     """
     _ = residual_delta
     cfg = get_dual_score_cfg(config)
@@ -189,26 +189,20 @@ def apply_tau_score_fields(
     signal_item["predicted_score_tau_delta"] = None
     signal_item["predicted_score_tau_cascade"] = cascade
     signal_item["realized_t1_to_tau"] = realized
-    # 时钟对齐后的 ŷ_τc 记在 y_tau。不再写 predicted_score_tau。
+    # 时钟对齐后的 price(τ)→close 只写入 y_τc。原始头在 y_tau_raw。
     signal_item.pop("predicted_score_tau", None)
-    if y_tau is not None:
-        signal_item["y_tau"] = y_tau
+    signal_item.pop("y_tau", None)
+    if y_tau_raw is not None:
+        signal_item["y_tau_raw"] = y_tau_raw
+    else:
+        signal_item.pop("y_tau_raw", None)
     signal_item["predicted_score_rem"] = y_tau
     signal_item["score_rem"] = y_tau
-    # τc 头原始 ŷ（训练/Hub 同口径）；分钟时钟映射前。不再写 y_oc / y_tau_oc。
-    oc = y_tau_raw if y_tau_raw is not None else y_tau
-    for stale in (
-        "y_oc",
-        "predicted_score_oc",
-        "y_tau_oc",
-        "predicted_score_tau_oc",
-    ):
-        signal_item.pop(stale, None)
-    if oc is not None:
+    if y_tau is not None:
         from core.signal.yhat_windows import Y_TC_SOURCE_RIDGE, write_y_τc
 
-        write_y_τc(signal_item, oc)
-        signal_item["y_τc_ridge"] = oc
+        write_y_τc(signal_item, y_tau)
+        signal_item["y_τc_ridge"] = y_tau
         signal_item["y_τc_source"] = Y_TC_SOURCE_RIDGE
         signal_item["y_spec_τc"] = {
             "formula": str(y_spec.get("formula") or "close[T]/price[τ]-1"),
@@ -254,6 +248,7 @@ def apply_tau_score_fields(
     formula_terms_tau["eod_remaining"] = oo_rem  # 遗留键
     formula_terms_tau["y_oo"] = y_oo
     formula_terms_tau["y_tau"] = y_tau
+    formula_terms_tau["y_τc"] = y_tau
     formula_terms_tau["y_tau_raw"] = y_tau_raw
     formula_terms_tau["y_tau_cc"] = signal_item.get("predicted_score_blend_tau_cc")
     formula_terms_tau["trade"] = trade

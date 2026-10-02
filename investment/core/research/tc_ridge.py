@@ -1,6 +1,6 @@
 """ŷ_τc Ridge：开盘 Z[+Alpha158]+分钟路径上拟合 τ→close（close[T]/price[τ]−1）。
 
-这就是调仓 ranking 里的 ŷ_τc。打分写入 ``y_τc``，时钟对齐后写入 ``y_tau``，别名 ``y_oc``。
+这就是调仓 ranking 里的 ŷ_τc。打分写入 ``y_τc``（含时钟对齐）。
 供买入闸、ranking 的 τc 项、做 T 估 C_τ。与 ŷ_oo 独立，不改写 ``predicted_score``。
 默认吃 ``raw_alpha158_*``（≤T−1）；与 ŷ_oo 日线 X 可能重叠，融合权重慎设。
 """
@@ -546,7 +546,7 @@ def fit_tau_ridge_report(
         return {
             "success": False,
             "error": f"rem 样本不足 n={len(ys)}（需≥20）",
-            "task": "tau_ridge",
+            "task": "tc_ridge",
             "sample_count": len(ys),
             "stock_count": len(enriched),
             "tau": tau_key,
@@ -729,9 +729,9 @@ def fit_tau_ridge_report(
             if use_minute
             else (
                 "Z[+Alpha158] τ→close（开盘 price[τ]=open）；demean+theme_day+yclose/mom3+tau_lag1/ma5"
-                "+raw_alpha158_*；live 写 y_τc（别名 y_oc；对齐后 y_tau）"
+                "+raw_alpha158_*；live 写 y_τc"
                 if include_alpha158
-                else "Z-only τ→close（开盘 price[τ]=open）；demean+theme_day+yclose/mom3+tau_lag1/ma5；live 写 y_τc（别名 y_oc；对齐后 y_tau）"
+                else "Z-only τ→close（开盘 price[τ]=open）；demean+theme_day+yclose/mom3+tau_lag1/ma5；live 写 y_τc"
             )
         ),
     }
@@ -769,7 +769,7 @@ def fit_tau_ridge_report(
             day_keys.add((code, day))
     report = {
         "success": True,
-        "task": "tau_ridge",
+        "task": "tc_ridge",
         "stock_count": len(enriched),
         "sample_count": len(ys_use),
         "sample_count_raw": len(ys),
@@ -972,9 +972,9 @@ def persist_tau_model(
         "n_alpha158_features": report.get("n_alpha158_features"),
         "dual_score_head": "predicted_score_tau",
         "contract_note": (
-            "ŷ_τc(Z[+Alpha158]) 估 τ→close → y_τc（别名 y_oc；对齐后 y_tau）；ranking 用这一列；与 ŷ_oo 独立；不覆盖 predicted_score。"
+            "ŷ_τc(Z[+Alpha158]) 估 τ→close → y_τc；ranking 用这一列；与 ŷ_oo 独立；不覆盖 predicted_score。"
             if rm.get("include_alpha158")
-            else "ŷ_τc(Z) 估 τ→close → y_τc（别名 y_oc；对齐后 y_tau）；ranking 用这一列；与 ŷ_oo 独立；不覆盖 predicted_score。"
+            else "ŷ_τc(Z) 估 τ→close → y_τc；ranking 用这一列；与 ŷ_oo 独立；不覆盖 predicted_score。"
         ),
     }
     path = (

@@ -109,26 +109,15 @@ def scores_close_components(
 ) -> Dict[str, Optional[float]]:
     """估 C_τ：price(τ)×(1+clip(y_τc×scale, ±20)/100)。缺 price(τ) 时用 open。
 
-    缺 y_τc 时回退时钟对齐的 y_tau。
+    缺 y_τc 则不可估。
     R̂_τ = Ĉ_τ/price(τ)−1，等于 clip 后的百分点。
-    remaining_oc 仍是未 clip 的 remaining(y_tau)，不进破带。
     """
     from core.signal.yhat_windows import (
         Y_TC_SOURCE_REMAINING,
         Y_TC_SOURCE_RIDGE,
-        pick_y_oc,
         pick_y_τc,
-        remaining_oc,
-        ret_open_to_tau_of,
-        ret_open_to_tau_pct,
     )
-    from core.t0.score_policy import scores_from_item
-
     raw = scores if isinstance(scores, dict) else {}
-    sc = scores_from_item(raw)
-    y_tau = pick_y_oc(raw)
-    if y_tau is None:
-        y_tau = sc.get("y_tau")
     y_τc_ridge = pick_y_τc(raw)
     if str(raw.get("y_τc_source") or "") == Y_TC_SOURCE_REMAINING:
         y_τc_ridge = _f(raw.get("y_τc_ridge"))
@@ -141,12 +130,7 @@ def scores_close_components(
         "predicted_score_τc",
     )
     has_direct_τc = any(raw.get(k) is not None for k in direct_τc)
-    # 只有旧 y_r（分钟收盘头）时不拿来估带，回退 y_tau。
-    y_for_band = (
-        y_τc_ridge
-        if y_τc_ridge is not None and has_direct_τc
-        else y_tau
-    )
+    y_for_band = y_τc_ridge if y_τc_ridge is not None and has_direct_τc else None
     scale = resolve_y_τc_target_scale(cfg)
     y_τc_target = (
         clip_y_τc_target_pct(y_for_band, scale=scale) if y_for_band is not None else None
@@ -159,27 +143,21 @@ def scores_close_components(
     c_hat = _pct_to_px(anchor, y_τc_target) if y_τc_target is not None and anchor else None
     if c_hat is not None:
         c_hat = round(float(c_hat), 4)
-    rot = ret_open_to_tau_pct(open_px, pt)
-    if rot is None:
-        rot = ret_open_to_tau_of(raw)
-    rem = remaining_oc(y_tau, rot, open_px=open_px, price_tau=pt) if y_tau is not None else None
     r_hat = r_hat_from_c_tau_px(c_hat, anchor)
-    # 表列 ŷ_τc = Ridge 预估 price→close；R̂_τ = Ĉ_τ/price(τ)−1。
+    # 表列 ŷ_τc = 模型预估 price→close；R̂_τ = Ĉ_τ/price(τ)−1。
     y_τc = y_τc_ridge
     y_τc_source = Y_TC_SOURCE_RIDGE if y_τc_ridge is not None else None
-    source = None
-    if c_hat is not None:
-        source = "y_τc" if y_for_band is y_τc_ridge and y_τc_ridge is not None else "y_tau"
+    source = "y_τc" if c_hat is not None else None
     return {
         "c_tau": round(c_hat, 4) if c_hat is not None else None,
         "c_hat_source": source,
-        "y_tau": y_tau,
+        "y_tau": y_τc,
         "y_τc_target": round(float(y_τc_target), 6) if y_τc_target is not None else None,
         "t0_y_τc_target_scale": scale,
         "y_τc": y_τc,
         "y_τc_ridge": y_τc_ridge,
         "y_τc_source": y_τc_source,
-        "remaining_oc": round(float(rem), 6) if rem is not None else None,
+        "remaining_oc": None,
         "r_hat": round(float(r_hat), 6) if r_hat is not None else None,
     }
 
@@ -191,7 +169,7 @@ def estimate_close_px(
     price_tau: Optional[float] = None,
     cfg: Optional[dict] = None,
 ) -> Dict[str, Any]:
-    """C_τ = price(τ)×(1+clip(y_τc×scale, ±20)/100)。缺 y_τc 且缺 y_tau → 不可估。
+    """C_τ = price(τ)×(1+clip(y_τc×scale, ±20)/100)。缺 y_τc → 不可估。
 
     ``price_tau`` 与 ``open_px`` 同一价空间；缺 price(τ) 时锚在 open。
     扫描传入该根前缀的 y_τc。破带比较的是本根 5m 收价。
@@ -1024,8 +1002,6 @@ def bar_close_band_pick_direction(
     meta["delta_pct"] = delta
     if est.get("y_τc") is not None:
         meta["y_τc"] = est.get("y_τc")
-    elif est.get("y_tau") is not None:
-        meta["y_τc"] = est.get("y_tau")
     if est.get("y_τc_target") is not None:
         meta["y_τc_target"] = est.get("y_τc_target")
     if est.get("r_hat") is not None:

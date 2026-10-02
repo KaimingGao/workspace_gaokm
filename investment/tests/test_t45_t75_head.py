@@ -39,9 +39,11 @@ class SessionClockT45T75Tests(unittest.TestCase):
         self.assertEqual(add_session_minutes("14:10", 50), "15:00")
         self.assertIsNone(add_session_minutes("14:20", 45))
         self.assertIsNone(add_session_minutes("14:15", 50))
-        self.assertTrue(tau_clock_allows_t45("14:10"))
+        self.assertTrue(tau_clock_allows_t45("09:30"))
+        self.assertTrue(tau_clock_allows_t45("11:00"))
+        self.assertFalse(tau_clock_allows_t45("11:05"))
+        self.assertFalse(tau_clock_allows_t45("14:10"))
         self.assertFalse(tau_clock_allows_t45("14:15"))
-        self.assertFalse(tau_clock_allows_t45("14:20"))
 
         self.assertEqual(add_session_minutes("09:30", 75), "10:45")
         self.assertEqual(add_session_minutes("11:00", 75), "13:45")
@@ -49,9 +51,11 @@ class SessionClockT45T75Tests(unittest.TestCase):
         self.assertEqual(add_session_minutes("13:40", 80), "15:00")
         self.assertIsNone(add_session_minutes("13:50", 75))
         self.assertIsNone(add_session_minutes("13:45", 80))
-        self.assertTrue(tau_clock_allows_t75("13:40"))
+        self.assertTrue(tau_clock_allows_t75("09:30"))
+        self.assertTrue(tau_clock_allows_t75("11:00"))
+        self.assertFalse(tau_clock_allows_t75("11:05"))
+        self.assertFalse(tau_clock_allows_t75("13:40"))
         self.assertFalse(tau_clock_allows_t75("13:45"))
-        self.assertFalse(tau_clock_allows_t75("13:50"))
 
     def test_extract_t45_seq_pack_trail(self):
         from core.signal.minute_tau_feats import extract_t45_seq_pack
@@ -151,16 +155,18 @@ class SessionClockT45T75Tests(unittest.TestCase):
         self.assertAlmostEqual(out[0]["ys"][0], 2.0)
         self.assertAlmostEqual(out[0]["metas"][0]["y_τ45"], 2.0)
 
-    def test_t45_t75_grids_stop_before_need_min(self):
+    def test_t45_t75_grids_match_yc_window(self):
         from core.signal.minute_tau_grid import (
+            DEFAULT_T0_TRAIN_TAU_GRID_5M,
             DEFAULT_T45_TRAIN_TAU_GRID,
             DEFAULT_T75_TRAIN_TAU_GRID,
         )
 
-        self.assertIn("14:10", DEFAULT_T45_TRAIN_TAU_GRID)
-        self.assertNotIn("14:15", DEFAULT_T45_TRAIN_TAU_GRID)
-        self.assertIn("13:40", DEFAULT_T75_TRAIN_TAU_GRID)
-        self.assertNotIn("13:45", DEFAULT_T75_TRAIN_TAU_GRID)
+        self.assertEqual(DEFAULT_T45_TRAIN_TAU_GRID, DEFAULT_T0_TRAIN_TAU_GRID_5M)
+        self.assertEqual(DEFAULT_T75_TRAIN_TAU_GRID, DEFAULT_T0_TRAIN_TAU_GRID_5M)
+        self.assertEqual(DEFAULT_T45_TRAIN_TAU_GRID[-1], "11:00")
+        self.assertNotIn("11:30", DEFAULT_T45_TRAIN_TAU_GRID)
+        self.assertNotIn("13:40", DEFAULT_T75_TRAIN_TAU_GRID)
 
     def test_t45_t75_mean_session_three_bars(self):
         from core.research.tau_panel import (

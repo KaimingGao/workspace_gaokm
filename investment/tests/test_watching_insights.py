@@ -365,7 +365,7 @@ class TestWatchingInsights(unittest.TestCase):
                     "predicted_score": 2.30,
                     "predicted_score_eod": 2.30,
                     "y_oo": 2.30,
-                    "y_oc": 5.69,
+                    "y_τc": 5.69,
                     "predicted_score_blend": -3.65,
                     "hard_reject": False,
                 },
@@ -413,7 +413,7 @@ class TestWatchingInsights(unittest.TestCase):
                     "predicted_score": 2.30,
                     "predicted_score_eod": 2.30,
                     "y_oo": 2.30,
-                    "y_oc": 5.69,
+                    "y_τc": 5.69,
                     "hard_reject": False,
                 },
             }

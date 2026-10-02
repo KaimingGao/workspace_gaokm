@@ -176,6 +176,10 @@ export function mountVirtualTable(host, options = {}) {
       let cmp = compareFn(s.id, a, b);
       if (!Number.isFinite(cmp)) cmp = 0;
       if (cmp !== 0) return cmp * dir;
+      if (typeof options.tiebreak === "function") {
+        const tb = options.tiebreak(s.id, a, b);
+        if (Number.isFinite(tb) && tb !== 0) return tb;
+      }
       return String(a.code || "").localeCompare(String(b.code || ""), "zh-CN", {
         numeric: true,
       });
@@ -343,7 +347,12 @@ export function mountVirtualTable(host, options = {}) {
     if (!col || !col.sortable) return;
     const cur = sortState[0];
     if (cur && cur.id === id) sortState = [{ id, desc: !cur.desc }];
-    else sortState = [{ id, desc: id !== "code" && id !== "name" }];
+    else {
+      let desc = id !== "code" && id !== "name";
+      if (col.defaultDir === "asc") desc = false;
+      else if (col.defaultDir === "desc") desc = true;
+      sortState = [{ id, desc }];
+    }
     publish("sort");
   });
 

@@ -137,15 +137,18 @@ class TestInspectFactorAnomaly(unittest.TestCase):
         item = {
             "predicted_score": 1.2,
             "y_oo": 1.2,
-            "y_oc": 0.4,
+            "y_τc": 0.4,
             "y_co": 0.3,
             "ranking": 0.9,
+            "score_rem": 0.4,
             "predicted_score_tau": 0.4,
         }
         apply_factor_anomaly_to_item(item, out, bypass=False)
         self.assertEqual(item.get("predicted_score"), 1.2)
-        self.assertIsNone(item.get("y_oc"))
+        self.assertEqual(item.get("y_oo"), 1.2)
+        self.assertIsNone(item.get("y_τc"))
         self.assertIsNone(item.get("ranking"))
+        self.assertIsNone(item.get("score_rem"))
         self.assertIsNone(item.get("predicted_score_tau"))
 
     def test_last_change_vs_gap(self):
@@ -197,13 +200,12 @@ class TestStampWindowFactorAnomaly(unittest.TestCase):
         item = {
             "predicted_score": 1.0,
             "y_oo": 1.0,
-            "predicted_score_tau": 0.5,
-            "y_oc": 0.5,
+            "y_τc": 0.5,
             "y_co": 0.2,
             "factor_anomaly": {"fatal_tau": True, "fatal_eod": False, "issues": []},
         }
         stamped = stamp_window_scores(item)
-        self.assertIsNone(stamped.get("y_oc"))
+        self.assertIsNone(stamped.get("y_τc"))
         self.assertIsNone(stamped.get("ranking"))
         self.assertAlmostEqual(stamped.get("y_oo"), 1.0)
 

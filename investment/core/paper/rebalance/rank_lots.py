@@ -191,21 +191,17 @@ def rank_lot_enter_skip_reason(
     ``y_oo_gt0`` / ``y_τc_gt0`` 开则对应 ŷ 须 >0。缺键时门槛2 跟随门槛1。缺分不拦。
     """
     from core.paper.rebalance.path_matrix import scores_from_rebalance_item
-    from core.signal.yhat_windows import pick_y_oc, pick_y_oo, pick_y_τc
+    from core.signal.yhat_windows import pick_y_oo, pick_y_τc
     from core.t0.config import coerce_cfg_bool
 
     cfg_d = cfg if isinstance(cfg, dict) else {}
     sc = scores_from_rebalance_item(item, cfg_d)
     y_oo = pick_y_oo(sc) if isinstance(sc, dict) else None
     y_τc = pick_y_τc(sc) if isinstance(sc, dict) else None
-    if y_τc is None and isinstance(sc, dict):
-        y_τc = pick_y_oc(sc)
     if y_oo is None and isinstance(item, dict):
         y_oo = pick_y_oo(item)
     if y_τc is None and isinstance(item, dict):
         y_τc = pick_y_τc(item)
-    if y_τc is None and isinstance(item, dict):
-        y_τc = pick_y_oc(item)
 
     rank_enter = coerce_rank_threshold(cfg_d.get("rank_enter"), DEFAULT_RANK_ENTER)
     rank_enter = max(0.0, min(float(rank_enter), 10.0))
@@ -531,7 +527,7 @@ def ranking_pct_of(
 def y_tau_of(item: Optional[dict]) -> Optional[float]:
     if not isinstance(item, dict):
         return None
-    for k in ("y_tau", "y_τc"):
+    for k in ("y_τc", "predicted_score_τc"):
         if item.get(k) is not None:
             return _f(item.get(k))
     return None
@@ -808,11 +804,8 @@ def _debug_scores(
     from core.paper.rebalance.path_matrix import scores_from_rebalance_item
     from core.signal.yhat_windows import (
         pick_y_co,
-        pick_y_oc,
         pick_y_τc,
-        remaining_oc,
         residual_pct,
-        ret_open_to_tau_of,
     )
 
     sc = scores_from_rebalance_item(item)
@@ -820,11 +813,6 @@ def _debug_scores(
     y_τc = sc.get("y_τc")
     if y_τc is None:
         y_τc = pick_y_τc(item)
-    if y_τc is None:
-        y_τc = pick_y_oc(item)
-    open_path = pick_y_oc(item)
-    if open_path is None:
-        open_path = y_τc
     y_co = sc.get("y_co")
     if y_co is None:
         y_co = pick_y_co(item)
@@ -837,7 +825,7 @@ def _debug_scores(
     if r_hat is None and item:
         r_hat = _f(item.get("remaining_oc"))
     if r_hat is None:
-        r_hat = remaining_oc(open_path, ret_open_to_tau_of(item) if item else None)
+        r_hat = y_τc
     out: Dict[str, Any] = {
         "y_oo": y_oo,
         "y_co": y_co,

@@ -31,6 +31,7 @@ import { formatPrevCloseDisplay, formatOpenDisplay } from "../quant/watching_quo
 import { buildHoldingSharesTip } from "./holding_lots_tip.js?v=p1227";
 import { holdingT0BadgeHtml } from "./holding_t0_badge.js?v=p1526";
 import { fitTierBadgeForCode } from "../quant/fit_tier_ui.js?v=p2261";
+import { predTierBadgeHtml } from "../quant/pred_tier_ui.js?v=p2749";
 
 const ORIGIN_HINT = {
   manual: "你手动建仓或加仓",
@@ -120,9 +121,12 @@ export function buildPaperHoldingsTableHtml({
             ? "浮盈亏 = 现价 − 成本价（相对成本的浮动盈亏 %）· 点击排序"
             : key === "chg"
               ? "相对昨收的涨跌幅 % · 点击排序"
+              : key === "tier"
+                ? "可预测性分档 A/B/C · 同档按 ranking 从高到低 · 点击排序"
               : "市值 = 现价 × 股数 · 点击排序";
+    const tierCls = key === "tier" ? " paper-hold-tier" : "";
     return (
-      `<th class="paper-hold-sort${active ? " is-sorted" : ""}" ` +
+      `<th class="paper-hold-sort${tierCls}${active ? " is-sorted" : ""}" ` +
       `data-sort="${key}" role="button" tabindex="0" title="${nextHint}">${label}${arrow}</th>`
     );
   }
@@ -210,6 +214,7 @@ export function buildPaperHoldingsTableHtml({
         `</span>` +
         `<span class="paper-wl-code">${escapeText(code)}</span>` +
         `</td>` +
+        `<td class="watching-col-center paper-hold-tier">${predTierBadgeHtml(code, escapeText)}</td>` +
         `<td class="watching-col-center paper-hold-sent">${
           sentMap[code] || sentPlaceholderHtml(code)
         }</td>` +
@@ -295,6 +300,7 @@ export function buildPaperHoldingsTableHtml({
     `<div class="paper-holdings-scroll">` +
     `<table class="quant-weight-table paper-holdings-table"><thead><tr>` +
     `<th title="股票名称与代码">股票</th>` +
+    `${sortThHtml("分档", "tier")}` +
     `<th class="watching-col-center" title="标题情绪摘要">情绪</th>` +
     `<th title="持仓股数">股数</th>` +
     `<th class="watching-col-center paper-hold-t0-head" title="当日实时做 T：正T/反T · 盯盘/一腿/完成">做T</th>` +

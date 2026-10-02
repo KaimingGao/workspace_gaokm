@@ -255,7 +255,7 @@ function drawCumulativePnl(canvas, points, { hoverIdx = null, nameByCode = {} } 
       stock_name: String(p.stock_name || "").trim() || nameByCode[code] || "",
       stock_code: code,
       direction: p.direction,
-      y_tau: p.y_tau,
+      "y_τc": p["y_τc"] != null ? p["y_τc"] : p.y_tau,
     };
   });
 
@@ -395,8 +395,9 @@ function wireCumPnlHover(canvas) {
     }
     const name = String(pt.stock_name || pt.stock_code || "").trim();
     const dir = t0DirShort(pt.direction);
-    const yt = pt.y_tau != null && Number.isFinite(Number(pt.y_tau)) ? Number(pt.y_tau) : null;
-    const bits = [dir || null, yt != null ? `y_τ ${fmtNum(yt, 2)}%` : null].filter(Boolean);
+    const ytRaw = pt["y_τc"] != null ? pt["y_τc"] : pt.y_tau;
+    const yt = ytRaw != null && Number.isFinite(Number(ytRaw)) ? Number(ytRaw) : null;
+    const bits = [dir || null, yt != null ? `ŷ_τc ${fmtNum(yt, 2)}%` : null].filter(Boolean);
     tipEl.hidden = false;
     if (box) box.classList.add("is-chart-tip");
     canvas.style.cursor = "crosshair";
@@ -692,7 +693,7 @@ function scatterYR(p) {
   if (!p) return null;
   const hat = Number(p.r_hat != null ? p.r_hat : p.r_pct);
   if (Number.isFinite(hat)) return hat;
-  const y = Number(p.y_oc != null ? p.y_oc : p.y_tau);
+  const y = Number(p["y_τc"] != null ? p["y_τc"] : p.y_tau);
   return Number.isFinite(y) ? y : null;
 }
 
@@ -726,20 +727,22 @@ function attachRpctToScatter(points, days) {
       if (!Number.isFinite(rp)) continue;
       const scores = s.scores && typeof s.scores === "object" ? s.scores : {};
       const yt =
-        scores.y_oc != null
-          ? Number(scores.y_oc)
+        scores["y_τc"] != null
+          ? Number(scores["y_τc"])
           : scores.y_tau != null
             ? Number(scores.y_tau)
-            : row.y_tau != null
-              ? Number(row.y_tau)
-              : null;
+            : row["y_τc"] != null
+              ? Number(row["y_τc"])
+              : row.y_tau != null
+                ? Number(row.y_tau)
+                : null;
       byKey.set(`${date}|${code}|${hm}`, {
         date,
         stock_code: code,
         stock_name: d.stock_name,
         r_pct: rp,
         y_tau: Number.isFinite(yt) ? yt : null,
-        y_oc: Number.isFinite(yt) ? yt : null,
+        "y_τc": Number.isFinite(yt) ? yt : null,
         outcome: "traded",
         direction: s.direction,
         t0_slot_hm: hm,
@@ -757,7 +760,7 @@ function attachRpctToScatter(points, days) {
     return {
       ...p,
       r_pct: p.r_pct != null ? p.r_pct : extra.r_pct,
-      y_oc: p.y_oc != null ? p.y_oc : extra.y_oc,
+      "y_τc": p["y_τc"] != null ? p["y_τc"] : extra["y_τc"],
     };
   });
   for (const [k, extra] of byKey) {
@@ -858,7 +861,7 @@ function drawYtauScatter(canvas, points, threshold = 0, { hoverIdx = null, nameB
           : THEME.actual
       : THEME.signalSkip;
     const r = traded ? 4.5 : 3.5;
-    const yOc = Number(p.y_oc != null ? p.y_oc : p.y_tau);
+    const yOc = Number(p["y_τc"] != null ? p["y_τc"] : p.y_tau);
     pts.push({
       i,
       x,
@@ -868,7 +871,7 @@ function drawYtauScatter(canvas, points, threshold = 0, { hoverIdx = null, nameB
       traded,
       y_tau: yv,
       r_pct: yv,
-      y_oc: Number.isFinite(yOc) ? yOc : null,
+      "y_τc": Number.isFinite(yOc) ? yOc : null,
       date: p.date,
       direction: p.direction,
       outcome: p.outcome,
@@ -979,7 +982,7 @@ function wireYtauScatterHover(canvas) {
     const name = String(pt.stock_name || pt.stock_code || "").trim();
     const dir = pt.traded ? t0DirShort(pt.direction) : "信号跳过";
     const skipTip = !pt.traded && pt.skip_category ? skipCatTip(pt.skip_category) : "";
-    const yTcRaw = pt["y_τc"] != null ? pt["y_τc"] : pt.y_oc != null ? pt.y_oc : pt.y_tau;
+    const yTcRaw = pt["y_τc"] != null ? pt["y_τc"] : pt.y_tau;
     const yTc = yTcRaw != null ? Number(yTcRaw) : NaN;
     tipEl.hidden = false;
     if (box) box.classList.add("is-chart-tip");
@@ -1287,9 +1290,9 @@ function renderKpiRow(summary) {
       "破带方向与 ŷ_τ90=p_up 同号率（正T p_up≥0.5）",
     ],
     [
-      "HL命中",
-      sm.path_pred_hit_rate_pct != null ? `${sm.path_pred_hit_rate_pct}%` : null,
-      "成交日 ŷ_hl 符号 vs 真实极值序 signed (H−L)/ref%",
+      "τc命中",
+      sm.tc_pred_hit_rate_pct != null ? `${sm.tc_pred_hit_rate_pct}%` : null,
+      "ŷ_τc 符号 vs close[T]/price(τ)−1",
     ],
   ];
   if (sm.avg_y_tau_traded != null) {

@@ -388,7 +388,8 @@ class TestT0Slots(unittest.TestCase):
                 "pnl": 30,
                 "exposure_pnl": 0,
                 "t0_slots_enabled": True,
-                "scores": {"y_tau": -9.9, "y_path": -9.9},
+                "r_realized": 1.0,
+                "scores": {"y_τc": -9.9},
                 "t0_slot_results": [
                     {
                         "id": "s1",
@@ -398,7 +399,7 @@ class TestT0Slots(unittest.TestCase):
                         "bought_qty": 200,
                         "sold_qty": 0,
                         "pnl": 10,
-                        "scores": {"y_tau": 0.8, "y_path": 1.2},
+                        "scores": {"y_τc": 0.8},
                     },
                     {
                         "id": "s2",
@@ -408,7 +409,7 @@ class TestT0Slots(unittest.TestCase):
                         "sold_qty": 200,
                         "bought_qty": 0,
                         "pnl": 20,
-                        "scores": {"y_tau": -0.6, "y_path": -1.1},
+                        "scores": {"y_τc": -0.6},
                     },
                     {
                         "id": "s3",
@@ -456,7 +457,7 @@ class TestT0Slots(unittest.TestCase):
         out = _promote_causal_portrait_fields(
             {
                 "_score_source": "prefix_causal",
-                "y_tau_oc": 1.2,
+                "y_τc": 1.2,
                 "y_path": -0.5,
             }
         )
@@ -490,7 +491,7 @@ class TestT0Slots(unittest.TestCase):
                 "reason": "dual_y：横盘",
                 "_t0_score_snap": {
                     "_score_source": "prefix_causal",
-                    "y_tau_oc": 0.7,
+                    "y_τc": 0.7,
                     "y_tau": 0.7,
                     "y_path": 1.1,
                     "y_eod": 0.5,
@@ -529,7 +530,7 @@ class TestT0Slots(unittest.TestCase):
         )
         fake_scores = {
             "y_tau": 1.2,
-            "y_tau_oc": 1.2,
+            "y_τc": 1.2,
             "y_path": 0.8,
             "y_eod": 0.5,
             "y_trade": 0.4,

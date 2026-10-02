@@ -145,13 +145,13 @@ def dual_score_book_fields(
         work["fusion_w_co"] = cfg.get("fusion_w_co")
         fa = work.get("factor_anomaly")
         if isinstance(fa, dict) and fa.get("fatal_tau"):
-            work["y_oc"] = None
             work["y_τc"] = None
             work["predicted_score_τc"] = None
+            work["y_τc_ridge"] = None
+            work["score_rem"] = None
+            work["predicted_score_rem"] = None
             work["y_co"] = None
             work["ranking"] = None
-            work.pop("predicted_score_tau", None)
-            work["y_tau"] = None
     except Exception:  # noqa: BLE001
         logger.debug("stamp ranking in book_fields failed", exc_info=True)
     # 权重优先簿内已算（含 theme/variance）；缺则用当前配置
@@ -159,7 +159,7 @@ def dual_score_book_fields(
         "predicted_score_eod": work.get("predicted_score_eod", work.get("predicted_score")),
         "predicted_score_oo": work.get("predicted_score_oo", work.get("y_oo")),
         "predicted_score_eod_rem": work.get("predicted_score_eod_rem"),
-        "y_tau": work.get("y_tau", work.get("score_rem")),
+        "y_tau": work.get("y_τc"),
         "predicted_score_tau_delta": work.get("predicted_score_tau_delta"),
         "predicted_score_tau_cascade": work.get("predicted_score_tau_cascade"),
         "predicted_score_blend": work.get("predicted_score_blend"),

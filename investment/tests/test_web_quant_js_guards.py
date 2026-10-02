@@ -1268,6 +1268,31 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertNotIn("resolvePathScore", island_js)
         self.assertNotIn("scorePath", island_js)
 
+    def test_watching_table_sorts_by_pred_tier_then_ranking(self):
+        island = self._read("web", "static", "js", "watching_table_island.js")
+        render = self._read("web", "static", "js", "quant", "watching_render.js")
+        domain = self._read("web", "static", "js", "quant", "domain_watching.js")
+        vt = self._read("web", "static", "js", "virtual_table.js")
+        pred = self._read("web", "static", "js", "quant", "pred_tier_ui.js")
+        self.assertLess(island.find('label: "股票"'), island.find('label: "分档"'))
+        self.assertLess(island.find('label: "分档"'), island.find('label: "仓位"'))
+        self.assertIn('id: "tier"', island)
+        self.assertIn('defaultDir: "asc"', island)
+        self.assertIn("同档内按 ranking 从高到低", island)
+        self.assertIn("相对强弱分", island)
+        self.assertIn("options.tiebreak", vt)
+        self.assertIn("watching_table_sort_v2", domain)
+        self.assertIn('state.watchingSortKey = "tier"', domain)
+        self.assertIn("predictability-tiers/last?slim=1", pred)
+        self.assertIn(">分档</th>", render)
+        self.assertLess(render.find(">分档</th>"), render.find(">仓位</th>"))
+        hold = self._read("web", "static", "js", "holdings_table_island.js")
+        hold_ui = self._read("web", "static", "js", "paper", "holdings_ui.js")
+        self.assertLess(hold.find('label: "股票"'), hold.find('label: "分档"'))
+        self.assertLess(hold.find('label: "分档"'), hold.find('label: "情绪"'))
+        self.assertIn("predTierBadgeHtml", hold_ui)
+        self.assertLess(hold_ui.find('sortThHtml("分档", "tier")'), hold_ui.find(">情绪</th>"))
+
     def test_y_nc_resolve_helpers_remain_in_fmt(self):
         fmt_js = self._read("web", "static", "js", "paper", "fmt.js")
         self.assertIn("resolveNowcastCcScore", fmt_js)
@@ -1939,8 +1964,8 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("τ30命中", viz)
         self.assertIn("tw_pred_hit_rate_pct", viz)
         self.assertIn("τw命中", viz)
-        self.assertIn("HL命中", viz)
-        self.assertIn("path_pred_hit_rate_pct", viz)
+        self.assertIn("τc命中", viz)
+        self.assertIn("tc_pred_hit_rate_pct", viz)
         self.assertIn("τ30旁路", viz)
         self.assertIn('t45_pred_hit_rate_pct', viz)
         self.assertIn("τ45命中", viz)
@@ -2361,6 +2386,11 @@ class TestWebQuantJsGuards(unittest.TestCase):
     def test_hub_shadow_and_bypass_heads_are_folded(self):
         panel = self._read("web", "static", "partials", "quant_panel.html")
         for sid in (
+            "quant-section-t30",
+            "quant-section-t45",
+            "quant-section-t60",
+            "quant-section-t75",
+            "quant-section-t90",
             "quant-section-oo-rank",
             "quant-section-oo-tree",
             "quant-section-tau-tree",
@@ -2370,6 +2400,7 @@ class TestWebQuantJsGuards(unittest.TestCase):
             "quant-section-t60-tree",
             "quant-section-t75-tree",
             "quant-section-t90-tree",
+            "quant-section-expr",
         ):
             self.assertRegex(
                 panel,
@@ -2383,11 +2414,6 @@ class TestWebQuantJsGuards(unittest.TestCase):
             "quant-section-factors",
             "quant-section-tau",
             "quant-section-co",
-            "quant-section-t30",
-            "quant-section-t45",
-            "quant-section-t60",
-            "quant-section-t75",
-            "quant-section-t90",
         ):
             self.assertRegex(
                 panel,
@@ -2480,7 +2506,10 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertNotIn('data-kpi="fit"', ov)
         corr = self._read("web", "static", "js", "quant", "factor_corr_ui.js")
         self.assertIn("syncOverviewMinute", corr)
+        self.assertIn("syncOverviewOo", corr)
         self.assertIn("syncOverviewLanding", corr)
+        suggest = self._read("web", "static", "js", "quant", "domain_suggest.js")
+        self.assertIn("syncOverviewOo", suggest)
         self.assertIn("syncOverviewBarsCoverage", corr)
         self.assertIn("clusterIcPosRatio", corr)
         self.assertIn("IC+日", corr)

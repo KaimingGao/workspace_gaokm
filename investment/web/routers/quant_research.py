@@ -4,7 +4,7 @@
 import logging
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +36,7 @@ from web.schemas import (
     ThresholdSuggestRequest,
     WeightSuggestRequest,
     YhatResidualShadowRequest,
+    ResearchTaskRequest,
 )
 
 router = APIRouter(tags=["quant"])
@@ -374,12 +375,15 @@ def quant_research_universe_predictability_tiers(
 
 
 @router.get("/api/quant/research-universe/predictability-tiers/last")
-def quant_research_universe_predictability_tiers_last() -> Dict[str, Any]:
+def quant_research_universe_predictability_tiers_last(
+    slim: bool = Query(False, description="去掉 ŷ/实现序列，只留档位摘要"),
+) -> Dict[str, Any]:
     """读取上次可预测性分档影子报告 + live 启用状态。"""
     from core.research.predictability_tiers import (
         live_tier_status,
         load_predictability_tiers_last,
         predictability_tiers_last_path,
+        slim_tier_rows,
     )
 
     try:
@@ -412,6 +416,9 @@ def quant_research_universe_predictability_tiers_last() -> Dict[str, Any]:
                         row["name"] = names[code]
                     patched.append(row)
                 out["rows"] = patched
+        if slim:
+            out["rows"] = slim_tier_rows(out.get("rows"))
+            out["slim"] = True
         out["exists"] = True
         out["path"] = predictability_tiers_last_path()
         out["live"] = live
@@ -994,6 +1001,15 @@ def quant_expr_eval(body: ExprEvalRequest) -> Dict[str, Any]:
             lookback=body.lookback,
             horizon_days=body.horizon_days,
         )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@router.post("/api/quant/research-task")
+def quant_research_task(body: ResearchTaskRequest) -> Dict[str, Any]:
+    """按注册表跑一个研究头，并写入实验记录。"""
+    try:
+        return deps.quant.run_research_task(body.head, **(body.params or {}))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 

@@ -1,7 +1,7 @@
 """ŷ_τ60 Ridge：开盘 Z + 开→τ 收益/截面 + 序列特征 → mean(price(τ⊕55/60/65))/price(τ)−1。
 
 盘中写 y_τ60=p_up。进 ŷ_τw 投票；个股闸与入场已下线。不进 C_τ / ranking。
-τ⊕65 超出当日交易时段则不训、不预。
+决策钟只覆盖 09:30…11:00（与 ŷ_τc 对齐）；窗外不训、不预。
 不含 ŷ_τ 的 OC 路径形状（HL/回撤/振幅），避免共线把 ŷ 压到 0。
 序列键（ret_last_5m / ret_last_60m / session_* / crosses_lunch_60 /
 session_vwap_dev / vol_last_60m_vs_avg / sector_ret_last_60m /

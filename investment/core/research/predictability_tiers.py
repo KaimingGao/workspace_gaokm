@@ -76,6 +76,21 @@ def save_predictability_tiers_last(report: Dict[str, Any]) -> None:
     atomic_write_json(path, report)
 
 
+_SLIM_ROW_KEYS = ("code", "name", "tier", "hit_rate", "n_valid", "n_days", "ic")
+
+
+def slim_tier_rows(rows: Any) -> List[Dict[str, Any]]:
+    """主表只需要档位与命中摘要，去掉 ŷ/实现序列。"""
+    out: List[Dict[str, Any]] = []
+    if not isinstance(rows, list):
+        return out
+    for r in rows:
+        if not isinstance(r, dict):
+            continue
+        out.append({k: r.get(k) for k in _SLIM_ROW_KEYS})
+    return out
+
+
 def load_predictability_tiers_last() -> Optional[Dict[str, Any]]:
     import json
 
@@ -338,7 +353,7 @@ def _spearman_ic(xs: Sequence[float], ys: Sequence[float]) -> Optional[float]:
 
 def _normalize_head(head: Optional[str]) -> str:
     h = str(head or HEAD_OO).strip().lower()
-    if h in ("tau", "oc", "y_oc", "y_tau", "ŷ_oc", "ŷ_τ", "ŷ_τc"):
+    if h in ("tau", "y_τc", "ŷ_τc"):
         return HEAD_TAU
     return HEAD_OO
 
