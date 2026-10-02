@@ -26,7 +26,7 @@ class WatchingService:
         *,
         offline_only: bool = True,
     ) -> Dict[str, Any]:
-        """观察摘要：评分/倾向/超额/量比/估值/同业/观察天数。
+        """观察摘要：评分/超额/量比/估值/同业/观察天数。
 
         ``offline_only=True``（默认）：日线/分钟/指数只用本地仓，与策略调仓对齐。
         """

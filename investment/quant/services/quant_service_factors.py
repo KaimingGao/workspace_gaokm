@@ -194,11 +194,209 @@ def _start_ridge_fit_job(
     }
 
 
+_EXPR_CS_LIMIT = 30
+_EXPR_CS_MIN = 5
+
+
+def _expr_pool_rank_ic(
+    expr: str,
+    *,
+    horizon_days: int,
+    lookback: int,
+    focus_code: str,
+    focus_bars: List[dict],
+) -> Dict[str, Any]:
+    """观察池前 30 只的日度截面 Rank IC。失败时不挡住本票时序结果。"""
+    out: Dict[str, Any] = {
+        "cs_rank_ic": None,
+        "cs_ir": None,
+        "cs_days": 0,
+        "cs_names": 0,
+        "cs_positive_rate": None,
+        "cs_note": "",
+    }
+    try:
+        from core.data.service import get_research_service
+        from core.signal.factors.expr import cross_section_rank_ic
+        from core.watching.store import read_watching
+
+        focus = str(focus_code or "").strip()
+        codes: List[str] = []
+        seen = set()
+        watch: List[str] = []
+        try:
+            uni = read_watching()
+            watch = [str(c).strip() for c in (uni.get("watchlist") or []) if str(c).strip()]
+        except Exception:
+            logger.debug("expr rank ic: watching unavailable", exc_info=True)
+        for c in ([focus] if focus else []) + watch:
+            if not c or c in seen:
+                continue
+            seen.add(c)
+            codes.append(c)
+            if len(codes) >= _EXPR_CS_LIMIT:
+                break
+        bars_by: Dict[str, List[dict]] = {}
+        if focus and focus_bars:
+            bars_by[focus] = list(focus_bars)
+        others = [c for c in codes if c != focus]
+        if others:
+            packs = get_research_service().get_bars_batch(others, limit=int(lookback) + 35)
+            for code, pack in zip(others, packs):
+                bars = pack.get("bars") if isinstance(pack, dict) else None
+                if isinstance(bars, list) and len(bars) >= int(horizon_days) + 5:
+                    bars_by[code] = bars
+        if len(bars_by) < _EXPR_CS_MIN:
+            out["cs_note"] = f"观察池有效标的 {len(bars_by)} 只，不足 {_EXPR_CS_MIN}，未计算截面 Rank IC"
+            out["cs_names"] = len(bars_by)
+            return out
+        stats = cross_section_rank_ic(
+            expr, bars_by, int(horizon_days), min_names=_EXPR_CS_MIN,
+        )
+        if stats.get("cs_rank_ic") is None:
+            out["cs_note"] = "截面样本不足，未算出 Rank IC"
+            out["cs_names"] = len(bars_by)
+            return out
+        ir = stats.get("cs_ir")
+        pos = stats.get("cs_positive_rate")
+        out.update({
+            "cs_rank_ic": round(float(stats["cs_rank_ic"]), 4),
+            "cs_ir": round(float(ir), 4) if ir is not None else None,
+            "cs_days": int(stats.get("cs_days") or 0),
+            "cs_names": int(stats.get("cs_names") or 0),
+            "cs_positive_rate": round(float(pos) * 100, 1) if pos is not None else None,
+            "cs_note": f"观察池 {len(bars_by)} 只 · 日度 Spearman 均值",
+            "cs_ic_path": [
+                {
+                    "date": str(p.get("date") or "")[:10],
+                    "value": round(float(p["value"]), 4),
+                }
+                for p in (stats.get("cs_ic_path") or [])
+                if p.get("date") and p.get("value") is not None
+            ],
+        })
+        return out
+    except Exception as e:
+        logger.warning("expr cross-section ic skipped: %s", e)
+        out["cs_note"] = "截面 Rank IC 未计算"
+        return out
+
+
 class QuantFactorMixin:
     def list_factors(self) -> Dict[str, Any]:
         from core.signal.factors.meta.panel import build_factor_panel
 
         return build_factor_panel()
+
+    def eval_factor_expr(
+        self,
+        code: str,
+        expr: str,
+        *,
+        lookback: int = 120,
+        horizon_days: int = 5,
+    ) -> Dict[str, Any]:
+        """DSL 表达式因子求值：本票时序值 + 时序 IC，以及观察池截面 Rank IC。"""
+        import numpy as np
+        from core.data.facade import bars_and_source_research as bars_and_source
+        from core.data.facade import get_quote
+        from core.signal.factors.expr import eval_expr_series, parse_expr
+
+        # 先校验表达式
+        try:
+            parse_expr(expr)
+        except ValueError as e:
+            return {"success": False, "error": f"表达式语法错误: {e}"}
+
+        quote = get_quote(code)
+        sym = quote.get("stock_code") if quote.get("success") else code
+        bars, src_name = bars_and_source(code, limit=lookback + 35)
+        if not bars and quote.get("success"):
+            bars, src_name = bars_and_source(sym, limit=lookback + 35)
+        if not bars:
+            return {"success": False, "error": f"无法获取 {code} 日线"}
+
+        n = len(bars)
+        series = eval_expr_series(expr, bars)
+
+        # 计算 IC：因子值 vs horizon_days 前瞻收益
+        ic_vals = []
+        spearman_vals = []
+        valid_count = 0
+        for i in range(n - horizon_days):
+            fv = series[i]
+            if fv != fv:  # NaN
+                continue
+            fwd = bars[i + horizon_days]["close"] / bars[i]["close"] - 1.0
+            ic_vals.append((float(fv), float(fwd)))
+            valid_count += 1
+
+        ic = None
+        rank_ic = None
+        if len(ic_vals) >= 5:
+            xs = np.array([v[0] for v in ic_vals])
+            ys = np.array([v[1] for v in ic_vals])
+            if np.std(xs) > 1e-12 and np.std(ys) > 1e-12:
+                ic = float(np.corrcoef(xs, ys)[0, 1])
+                # Spearman rank IC
+                rx = np.argsort(np.argsort(xs)).astype(float)
+                ry = np.argsort(np.argsort(ys)).astype(float)
+                if np.std(rx) > 1e-12 and np.std(ry) > 1e-12:
+                    rank_ic = float(np.corrcoef(rx, ry)[0, 1])
+
+        series_points = []
+        for i in range(n):
+            v = series[i]
+            if v != v:
+                continue
+            day = str(bars[i].get("date") or "")[:10]
+            if not day:
+                continue
+            series_points.append({"date": day, "value": round(float(v), 6)})
+        if len(series_points) > 160:
+            series_points = series_points[-160:]
+        recent = series_points[-10:]
+
+        cs = _expr_pool_rank_ic(
+            expr,
+            horizon_days=horizon_days,
+            lookback=lookback,
+            focus_code=str(sym or code),
+            focus_bars=bars,
+        )
+        return {
+            "success": True,
+            "expr": expr,
+            "code": sym or code,
+            "data_source": src_name,
+            "sample_count": n,
+            "valid_count": valid_count,
+            "ic": round(ic, 4) if ic is not None else None,
+            "rank_ic": round(rank_ic, 4) if rank_ic is not None else None,
+            "horizon_days": horizon_days,
+            "last_value": recent[-1]["value"] if recent else None,
+            "last_date": recent[-1]["date"] if recent else None,
+            "series": series_points,
+            "recent": recent,
+            **cs,
+        }
+
+    def list_experiments(
+        self,
+        model_type: Optional[str] = None,
+        *,
+        limit: int = 50,
+    ) -> Dict[str, Any]:
+        """列出实验追踪器中的实验记录。"""
+        from core import experiment_tracker as et
+
+        exps = et.list_experiments(model_type, limit=limit)
+        return {
+            "success": True,
+            "model_type": model_type,
+            "count": len(exps),
+            "experiments": exps,
+        }
 
     def build_factor_panel(
         self,

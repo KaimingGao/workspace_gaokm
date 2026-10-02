@@ -3599,64 +3599,7 @@ html[data-density="compact"] .table-pager {
 
 .legend-flat { color: var(--ink-3) !important; }
 
-/* ——— Research Hub Factor Correlation & IR Panels ——— */
-.factor-corr-heatmap {
-  display: grid;
-  gap: 1px;
-  padding: 6px 4px 4px;
-  overflow-x: auto;
-}
-
-.factor-corr-corner {
-  width: var(--corr-label, 80px);
-}
-
-.factor-corr-cell {
-  width: var(--corr-cell, 48px);
-  height: calc(var(--corr-cell, 48px) * 0.72);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 0.68rem;
-  font-weight: 700;
-  font-family: var(--font-mono);
-  border-radius: 1px;
-  cursor: default;
-  font-variant-numeric: tabular-nums;
-}
-
-.factor-corr-cell.is-diag {
-  outline: 1px solid color-mix(in srgb, var(--ink-3) 35%, transparent);
-  outline-offset: -1px;
-  font-weight: 800;
-}
-
-.factor-corr-cell:hover {
-  z-index: 10;
-  box-shadow: 0 0 0 1.5px var(--accent, #2563eb);
-}
-
-.factor-corr-label {
-  font-size: 0.58rem;
-  color: var(--ink-3);
-  font-weight: 650;
-  text-align: center;
-  padding: 2px 0;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.factor-corr-label.is-row {
-  width: var(--corr-label, 80px);
-  text-align: right;
-  padding-right: 6px;
-}
-
-.factor-corr-label.is-col {
-  writing-mode: horizontal-tb;
-}
-
+/* ——— Research Hub Factor IR Panel ——— */
 .factor-ir-bar {
   display: flex;
   flex-direction: column;
@@ -3762,48 +3705,6 @@ html[data-density="compact"] .table-pager {
   font-size: 0.62rem;
   color: var(--ink-3);
   line-height: 1.35;
-}
-
-.factor-corr-warnings {
-  padding: 6px 8px;
-  font-size: 0.68rem;
-  color: var(--gold, #d97706);
-  background: color-mix(in srgb, var(--gold, #d97706) 8%, var(--surface));
-  border-radius: 2px;
-  margin-top: 6px;
-}
-
-.factor-corr-warnings-empty {
-  color: var(--ink-3);
-  font-size: 0.68rem;
-  text-align: center;
-  padding: 6px;
-}
-
-/* ——— Correlation heatmap color scale ——— */
-.corr-scale {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 0.58rem;
-  font-family: var(--font-mono);
-  color: var(--ink-3);
-  margin-top: 6px;
-  justify-content: flex-start;
-  padding: 0 4px;
-}
-
-.corr-scale-bar {
-  width: 120px;
-  height: 6px;
-  border-radius: 1px;
-  background: linear-gradient(90deg,
-    #3b82f6 0%,
-    #93c5fd 25%,
-    #e5e7eb 50%,
-    #fca5a5 75%,
-    #ef4444 100%
-  );
 }
 
 /* ——— Benchmark Toggle ——— */

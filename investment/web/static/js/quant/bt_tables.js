@@ -1,10 +1,9 @@
 /**
- * 回测 / 横截面相关表格 HTML 渲染。
+ * 回测相关表格 HTML 渲染。
  */
 import { escapeHtml as defaultEscapeHtml } from "../shared.js";
 import { researchGridHtml as defaultResearchGridHtml, metricCell as defaultMetricCell } from "./research_grid.js";
 import { fmtPct as defaultFmtPct, metricClass as defaultMetricClass } from "./bt_result.js";
-import { fmtScore, scoreCls } from "../paper/fmt.js";
 import { watchingNameSpanHtml } from "./names.js";
 import { fitTierBadgeForCode } from "./fit_tier_ui.js";
 
@@ -142,103 +141,6 @@ export function createBtTablesUi(deps = {}) {
       attr.methodology || attr.note || "非完整因子暴露归因。"
     )}</p>`;
     return html;
-  }
-
-  function buildCrossSectionResult(data) {
-    if (!data || !data.success) {
-      return {
-        ok: false,
-        summary: (data && data.error) || "排序失败",
-        listHtml: `<p class="watching-table-empty">${esc(
-          (data && data.error) || "排序失败"
-        )}</p>`,
-      };
-    }
-    const neut = data.neutralization || {};
-    const neutNote = neut.applied
-      ? ` · 截面中性化(${neut.method || "zscore"})`
-      : "";
-    const floorLabel =
-      data.min_predicted_score != null
-        ? `ŷ门槛=${data.min_predicted_score}`
-        : `门槛=${data.min_score}`;
-    const summary = `Top ${data.ranked_count} / 候选 ${data.candidate_count} · ${floorLabel}${neutNote}`;
-    const ranking = Array.isArray(data.ranking) ? data.ranking : [];
-    if (!ranking.length) {
-      return {
-        ok: true,
-        summary,
-        listHtml: `<p class="watching-table-empty">无排序结果</p>`,
-      };
-    }
-    const rows = ranking.map((r, i) => {
-      const code = String(r.stock_code || "").trim();
-      const name = r.stock_name || code || "—";
-      const score =
-        r.score != null && !Number.isNaN(Number(r.score))
-          ? fmtScore(r.score)
-          : "—";
-      const raw =
-        r.score_raw != null && !Number.isNaN(Number(r.score_raw))
-          ? fmtScore(r.score_raw)
-          : r.score_raw != null
-            ? String(r.score_raw)
-            : "—";
-      return {
-        rank: String(i + 1),
-        code,
-        name,
-        score,
-        scoreCls: scoreCls(r.score),
-        raw,
-        rawCls: scoreCls(r.score_raw),
-        source: r.data_source || "—",
-      };
-    });
-    const listHtml = researchGridHtml(
-      [
-        {
-          id: "rank",
-          label: "#",
-          widthPct: 8,
-          num: true,
-          headClass: "watching-col-center",
-          cellClass: "watching-col-center",
-        },
-        { id: "name", label: "股票", flex: true, cellClass: "watching-stock" },
-        { id: "score", label: "评分", widthPct: 14, num: true },
-        { id: "raw", label: "raw", widthPct: 14, num: true },
-        { id: "source", label: "源", widthPct: 22 },
-      ],
-      rows,
-      (col, d) => {
-        if (col.id === "name") {
-          return (
-            `<div class="watching-stock" title="${esc(
-              (d.name || "") + " " + (d.code || "")
-            )}">` +
-            `<span class="watching-name-row">` +
-            watchingNameSpanHtml(d.name || d.code) +
-            fitTierBadgeForCode(d.code, { escapeHtml: esc }) +
-            `</span>` +
-            `<span class="watching-code-sub">${esc(d.code || "")}</span></div>`
-          );
-        }
-        if (col.id === "score") {
-          return `<span class="paper-hold-score ${esc(
-            d.scoreCls || ""
-          )}">${esc(d.score ?? "—")}</span>`;
-        }
-        if (col.id === "raw") {
-          return `<span class="paper-hold-score ${esc(
-            d.rawCls || ""
-          )}">${esc(d.raw ?? "—")}</span>`;
-        }
-        return esc(d[col.id] ?? "—");
-      },
-      { emptyText: "无排序结果" }
-    );
-    return { ok: true, summary, listHtml };
   }
 
   /** @param {object|null|undefined} sic */
@@ -428,7 +330,6 @@ export function createBtTablesUi(deps = {}) {
 
   return {
     renderAttributionTablesHtml,
-    buildCrossSectionResult,
     renderScoreIcHtml,
     renderReplayStockContribHtml,
   };

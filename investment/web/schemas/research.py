@@ -15,6 +15,14 @@ class CrossSectionRequest(BaseModel):
     horizon_days: int = Field(default=3, ge=1, le=3)
 
 
+class ExprEvalRequest(BaseModel):
+    """DSL 表达式因子求值请求。"""
+    code: str = "茅台"
+    expr: str = Field(default="ROC($close, 5)", min_length=1, description="DSL 表达式，如 ROC($close, 5)")
+    lookback: int = Field(default=120, ge=40, le=500)
+    horizon_days: int = Field(default=5, ge=1, le=20)
+
+
 class FactorExperimentRequest(BaseModel):
     code: str = "茅台"
     lookback: int = Field(default=120, ge=40, le=500)

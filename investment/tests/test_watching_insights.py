@@ -60,7 +60,6 @@ class TestWatchingInsights(unittest.TestCase):
         item = out["items"][0]
         self.assertEqual(item["predicted_score"], 62.0)
         self.assertEqual(item["score"], 62.0)  # 无 ŷ_τ 时 ŷ_trade 退回 EOD
-        self.assertIn(item["stance_short"], {"轻仓", "关注", "观望", "—"})
         self.assertEqual(item["excess_return_pct"], 3.2)
         self.assertEqual(item["volume_ratio"], 1.35)
         self.assertEqual(item["pe"], 20.5)
@@ -374,10 +373,7 @@ class TestWatchingInsights(unittest.TestCase):
 
         with patch("core.signal.score_stock.score_stock", side_effect=_fake_score), patch(
             "core.watching.insights._spot_valuation_map", return_value={}
-        ), patch("core.watching.insights._hydrate_insight_tau_fields"), patch(
-            "core.stance.compute_buy_stance",
-            return_value={"stance_code": "wait", "stance_label": "观望"},
-        ):
+        ), patch("core.watching.insights._hydrate_insight_tau_fields"):
             row = _insight_one("600869", paper_ctx=paper)
         self.assertAlmostEqual(float(row.get("fusion_w_oo")), 0.8)
         self.assertAlmostEqual(float(row.get("fusion_w_oc")), 0.2)
@@ -424,10 +420,7 @@ class TestWatchingInsights(unittest.TestCase):
 
         with patch("core.signal.score_stock.score_stock", side_effect=_fake_score), patch(
             "core.watching.insights._spot_valuation_map", return_value={}
-        ), patch("core.watching.insights._hydrate_insight_tau_fields"), patch(
-            "core.stance.compute_buy_stance",
-            return_value={"stance_code": "wait", "stance_label": "观望"},
-        ):
+        ), patch("core.watching.insights._hydrate_insight_tau_fields"):
             row = _insight_one("600869", paper_ctx=paper)
         fused = 0.8 * 2.30 + 0.2 * 5.69
         rot = (10.2 / 10.0 - 1.0) * 100.0

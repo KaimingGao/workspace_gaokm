@@ -72,7 +72,7 @@ export function sliceCurveToDateWindow(series, days = TOPK_NAV_CHART_WINDOW_DAYS
 export function installBacktest(q) {
   const { on, els, state, ctx, escapeHtml, apiFetch, setQuantMeta, setBusyText, btSimScoreTips, watchingNameFromEl, readHoldoutTradingDays } = q;
   const { fmtPct, metricClass, renderMetricCards, renderBtScopeNote, renderRobustnessPanel, buildPortfolioBacktestCards, BT_SCOPE_LIVE, BT_SCOPE_FROZEN, readHorizonDays, quantBtBusyIds } = q;
-  const { renderAttributionTablesHtml, buildCrossSectionResult, renderScoreIcHtml, renderReplayStockContribHtml } = q;
+  const { renderAttributionTablesHtml, renderScoreIcHtml, renderReplayStockContribHtml } = q;
   const { researchGridHtml, metricCell } = q;
 
   function isReplayDesk() {

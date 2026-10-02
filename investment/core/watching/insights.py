@@ -1,4 +1,4 @@
-"""观察名单研究摘要：评分/倾向/超额/量比/估值/同业/硬拒绝（不改账本）。
+"""观察名单研究摘要：评分/超额/量比/估值/同业/硬拒绝（不改账本）。
 
 列表页必须轻量：跳过 fundamentals / peer / 独立指数重拉；
 超额优先用 score 内已有 factors；超时不阻塞关池。
@@ -16,14 +16,6 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 
 from core.numbers import to_float as _f
-
-STANCE_SHORT = {
-    "buy_light": "轻仓",
-    "probe": "关注",
-    "wait": "观望",
-    "avoid": "观望",
-    "insufficient": "—",
-}
 
 # 列表页：单票与整批上限（秒）；超时后不等待残余线程
 _INSIGHT_STOCK_TIMEOUT = 12.0
@@ -169,9 +161,6 @@ def _blank(code: str, *, added_at: Optional[str] = None, error: Optional[str] = 
         "stock_code": code,
         "ok": False,
         "score": None,
-        "stance_code": None,
-        "stance_short": "—",
-        "stance_label": None,
         "hard_reject": False,
         "reject_reason": None,
         "excess_return_pct": None,
@@ -638,32 +627,8 @@ def _enrich_book_insight_display_fields(
     out: Dict[str, Any],
     code: str,
     item: dict,
-    *,
-    quote: Optional[dict] = None,
-    fill_stance: bool = True,
 ) -> None:
-    """补倾向 / 超额% / 量比。默认不拉现货：本地日线 + ŷ；涨跌惩罚仅在 quote.success 时生效。"""
-    q = quote if isinstance(quote, dict) else {}
-    if fill_stance:
-        try:
-            from core.stance import compute_buy_stance
-
-            sig = dict(item) if isinstance(item, dict) else {}
-            if sig.get("predicted_score") is None:
-                sig["predicted_score"] = out.get("predicted_score") or out.get("score")
-            if sig.get("score") is None:
-                sig["score"] = out.get("score")
-            # 簿快路径不重拉行情；有 ŷ 仍出倾向，避免表列整列「—」
-            stance_quote = q if q.get("success") else {"success": True}
-            stance = compute_buy_stance(quote=stance_quote, signal_item=sig)
-            code_st = stance.get("stance_code")
-            out["stance_code"] = code_st
-            out["stance_label"] = stance.get("stance_label")
-            out["stance_short"] = STANCE_SHORT.get(str(code_st or ""), "—")
-        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-            logger.debug("catch except Exception: in watching_insights.py", exc_info=True)
-            out["stance_short"] = out.get("stance_short") or "—"
-
+    """补超额% / 量比。默认不拉现货：本地日线 + ŷ。"""
     if out.get("volume_ratio") is not None and (
         out.get("excess_return_pct") is not None or out.get("excess_label")
     ):
@@ -730,7 +695,6 @@ def _insight_one(
     use_offline = bool(offline_only)
     try:
         from core.signal.service import get_default_signal_service
-        from core.stance import compute_buy_stance
 
         # cluster_mode=None → 读 signal_config.cluster_scoring（active 时用组 β，同持仓表）
         result = get_default_signal_service().score_one(
@@ -888,12 +852,6 @@ def _insight_one(
         out["pe"] = round(pe, 1) if pe is not None else None
         out["pb"] = round(pb, 2) if pb is not None else None
 
-        stance = compute_buy_stance(quote=quote, signal_item=item)
-        code_st = stance.get("stance_code")
-        out["stance_code"] = code_st
-        out["stance_label"] = stance.get("stance_label")
-        out["stance_short"] = STANCE_SHORT.get(str(code_st or ""), "—")
-
         excess = _f(factors.get("excess_return_pct"))
         if excess is not None:
             _apply_excess_label(out, excess, item)
@@ -904,9 +862,7 @@ def _insight_one(
         if out.get("volume_ratio") is None or (
             out.get("excess_return_pct") is None and out.get("excess_label") is None
         ):
-            _enrich_book_insight_display_fields(
-                out, code, item, quote=quote, fill_stance=False
-            )
+            _enrich_book_insight_display_fields(out, code, item)
 
         out["ok"] = bool((scored or {}).get("success")) or quote.get("success") is True
         if not out["ok"] and (scored or {}).get("error"):

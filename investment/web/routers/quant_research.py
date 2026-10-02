@@ -13,6 +13,7 @@ from web.schemas import (
     CrossSectionRequest,
     ExcessModeShadowRequest,
     FactorCsIcRequest,
+    ExprEvalRequest,
     FactorExperimentRequest,
     FactorOlsPoolRequest,
     CoRidgeRequest,
@@ -912,55 +913,36 @@ def quant_threshold_suggest(body: ThresholdSuggestRequest) -> Dict[str, Any]:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
-@router.get("/api/quant/factor-corr")
-def quant_factor_corr(
-    min_samples: int = 3,
-    threshold: float = 0.7,
-) -> Dict[str, Any]:
-    """因子相关性矩阵：基于簿 / 观察池 sub_scores 算截面 Pearson。"""
-    try:
-        from core.signal.factors.meta.corr import compute_factor_corr_matrix, redundancy_warnings_from_corr
+_CORR_UNIVERSE = 40
 
-        items: list = []
-        source = "empty"
-        # 分组簿已退役：只用观察池 insights 的 sub_scores
-        try:
-            from core.watching.insights import load_insights_cache
 
-            insights = load_insights_cache()
-            if insights:
-                raw = (
-                    insights
-                    if isinstance(insights, list)
-                    else list(insights.values())
-                    if isinstance(insights, dict)
-                    else []
-                )
-                items = [it for it in raw if isinstance(it, dict) and (it.get("sub_scores") or {})]
-                source = "watching_insights"
-        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-            logger.debug("catch except Exception: in quant_research.py", exc_info=True)
-            pass
+def _watching_factor_items(limit: int = _CORR_UNIVERSE):
+    """观察池前 N 只的日线截面因子分。
 
-        if not items:
-            return {
-                "ok": True,
-                "success": False,
-                "factors": [],
-                "matrix": {},
-                "pairs": [],
-                "warnings": [],
-                "source": source,
-                "note": "无 sub_scores：请先刷新观察池 insights 生成因子分数",
-            }
+    只读 sub_scores，不走观察摘要（整池打分会超时，超时行没有 sub_scores）。
+    """
+    from core.data.service import get_research_service
+    from core.signal.scorer import score_bars
+    from core.watching.store import read_watching
 
-        result = compute_factor_corr_matrix(items, min_samples=min_samples)
-        warnings = redundancy_warnings_from_corr(result, threshold=threshold)
-        result["warnings"] = warnings
-        result["source"] = source
-        return result
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e)) from e
+    uni = read_watching()
+    codes = [str(c).strip() for c in (uni.get("watchlist") or []) if str(c).strip()]
+    cap = max(8, min(int(limit or _CORR_UNIVERSE), _CORR_UNIVERSE))
+    codes = codes[:cap]
+    if not codes:
+        return [], "watching_bars", "观察池为空"
+    packs = get_research_service().get_bars_batch(codes, limit=120)
+    items: list = []
+    for code, pack in zip(codes, packs):
+        bars = pack.get("bars") if isinstance(pack, dict) else None
+        if not isinstance(bars, list) or len(bars) < 20:
+            continue
+        scored = score_bars(bars, stock_code=code, mom3_hard_reject=False)
+        subs = scored.get("sub_scores") if isinstance(scored, dict) else None
+        if isinstance(subs, dict) and subs:
+            items.append({"stock_code": code, "sub_scores": subs})
+    note = "" if items else "观察池日线不足，没有截面因子分"
+    return items, "watching_bars", note
 
 
 @router.get("/api/quant/factor-ir")
@@ -970,13 +952,9 @@ def quant_factor_ir(
 ) -> Dict[str, Any]:
     """因子 IR 分析：因子信息比率 = IC 均值 / IC 标准差 × sqrt(252/horizon)。"""
     try:
-        from core.watching.insights import load_insights_cache
-
-        insights = load_insights_cache()
-        if not insights:
-            return {"ok": True, "factors": [], "note": "无观察池数据"}
-
-        items = insights if isinstance(insights, list) else list(insights.values()) if isinstance(insights, dict) else []
+        items, _source, empty_note = _watching_factor_items()
+        if not items:
+            return {"ok": True, "factors": [], "note": empty_note or "观察池还没有截面因子分"}
 
         factor_ic_series: Dict[str, List[float]] = {}
         for item in items:
@@ -1013,5 +991,32 @@ def quant_factor_ir(
             "factors": factor_ir_list,
             "note": f"基于 {len(items)} 只观察池票的截面因子分数",
         }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+
+@router.post("/api/quant/expr-eval")
+def quant_expr_eval(body: ExprEvalRequest) -> Dict[str, Any]:
+    """DSL 表达式因子求值：本票时序值与 IC，以及观察池截面 Rank IC。"""
+    try:
+        return deps.quant.eval_factor_expr(
+            code=body.code,
+            expr=body.expr,
+            lookback=body.lookback,
+            horizon_days=body.horizon_days,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@router.get("/api/quant/experiments")
+def quant_experiments(
+    model_type: Optional[str] = None,
+    limit: int = 50,
+) -> Dict[str, Any]:
+    """列出实验追踪器中的实验记录。"""
+    try:
+        return deps.quant.list_experiments(model_type=model_type, limit=limit)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e

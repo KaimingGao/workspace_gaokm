@@ -744,7 +744,6 @@ export function renderWatchingWatchTableFallback(rows, { onPickCountUpdate } = {
             )}${badge}</td>`
           );
         })() +
-        `<td data-q="stance">${escapeHtml(String(d.stance ?? "—"))}</td>` +
         `<td class="num watching-col-num" data-q="excess">${escapeHtml(String(d.excess ?? "—"))}</td>` +
         `<td class="num watching-col-num" data-q="vol">${escapeHtml(String(d.vol ?? "—"))}</td>` +
         `<td class="num watching-col-num" data-q="volr">${escapeHtml(String(d.volr ?? "—"))}</td>` +
@@ -768,7 +767,6 @@ export function renderWatchingWatchTableFallback(rows, { onPickCountUpdate } = {
     `<th class="watching-col-num" title="${Y_OC_REBALANCE_TITLE}">y_τc</th>` +
     `<th class="watching-col-num" title="ŷ_co · close[T]→open[T+1]">y_co</th>` +
     `<th class="watching-col-num" title="${RANKING_REBALANCE_TITLE}">ranking</th>` +
-    `<th title="规则倾向（买入 / 观望等），不是 ŷ 本身">倾向</th>` +
     `<th class="watching-col-num" title="相对基准（指数）的超额收益">超额</th>` +
     `<th class="watching-col-num" title="成交量">量</th>` +
     `<th class="watching-col-num" title="近期成交量 / 均量">量比</th>` +

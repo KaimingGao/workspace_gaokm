@@ -5,8 +5,6 @@ import {
   weightSuggestStatusHtml as buildWeightSuggestStatusHtml,
   factorWeightSuggestCellTip,
 } from "./suggest_status_ui.js";
-import { openProbeFold } from "./probe_ui.js";
-
 /** Quant domain: suggest */
 export function installSuggest(q) {
   const { on, els, state, ctx, escapeHtml, apiFetch, setQuantMeta, setBusyText } = q;
@@ -127,47 +125,6 @@ export function installSuggest(q) {
       state.lastWeightSuggestForMerge = suggest;
     }
     q.cluster.renderMergedFactorTable();
-  }
-
-  function renderThresholdTable(suggest) {
-    if (!els.quantThresholdTable) return;
-    if (!suggest || !suggest.success) {
-      els.quantThresholdTable.innerHTML =
-        `<p class="watching-table-empty">尚未跑阈值建议</p>`;
-      return;
-    }
-    const cur = suggest.current_thresholds || {};
-    const sug = suggest.suggested_thresholds || {};
-    const deltas = suggest.deltas || {};
-    const rows = Object.keys(cur).map((k) => {
-      const delta = deltas[k] != null ? deltas[k] : (sug[k] ?? cur[k]) - cur[k];
-      return {
-        key: k,
-        cur: cur[k],
-        sug: sug[k] ?? cur[k],
-        delta,
-      };
-    });
-    els.quantThresholdTable.innerHTML = researchGridHtml(
-      [
-        { id: "key", label: "阈值", flex: true },
-        { id: "cur", label: "当前", widthPct: 18, num: true },
-        { id: "sug", label: "建议", widthPct: 18, num: true },
-        { id: "delta", label: "Δ", widthPct: 18, num: true },
-      ],
-      rows,
-      (col, r) => {
-        if (col.id === "key") return escapeHtml(String(r.key));
-        if (col.id === "cur") return escapeHtml(String(r.cur));
-        if (col.id === "sug") return escapeHtml(String(r.sug));
-        if (col.id === "delta") {
-          const text = `${r.delta > 0 ? "+" : ""}${Number(r.delta).toFixed(1)}`;
-          return metricCell(escapeHtml(text), metricClass(r.delta));
-        }
-        return "—";
-      },
-      { emptyText: "暂无阈值建议" }
-    );
   }
 
   function renderWeightDiffTable(suggest) {
@@ -342,12 +299,8 @@ export function installSuggest(q) {
           ? " · OOS✗"
           : " · OOS—";
       const icMsg =
-        `探针·截面驱动 · IC ${nOk}/${rows.length} · 只读${gateTag}` +
+        `截面 IC · ${nOk}/${rows.length} · 只读${gateTag}` +
         (sug.ols_used ? " · 含 OLS 回退" : "");
-      if (state.quantLastOlsClusters && state.quantLastOlsClusters.success && els.quantProbeSummary) {
-        setBusyText(els.quantProbeSummary, icMsg + " · 不冲组表", { busy: false });
-        openProbeFold();
-      }
       setQuantMeta(icMsg);
       return;
     }
@@ -360,137 +313,6 @@ export function installSuggest(q) {
     setBusyText(els.quantOlsSummary, msg, { busy: false });
     setQuantMeta(msg);
     return { success: false, error: "cluster_retired", cluster_retired: true };
-  }
-
-  async function runThresholdSuggest({ useWatching = false } = {}) {
-    if (!els.quantThresholdSummary) return;
-    setBusyText(
-      els.quantThresholdSummary,
-      useWatching ? "watching OOS 聚合中…" : "OOS 扫描中…",
-      { busy: true }
-    );
-    const res = await fetch("/api/quant/threshold-suggest", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(
-        useWatching
-          ? { code: "茅台", lookback: 120, use_watching: true, watching_limit: 5 }
-          : { code: "茅台", lookback: 120, use_watching: false }
-      ),
-    });
-    let data = null;
-    try {
-      data = await res.json();
-    } catch (_) {
-      data = null;
-    }
-    if (!res.ok || !data || !data.success) {
-      const err =
-        (data && (data.error || data.detail)) ||
-        (res.ok ? "阈值建议失败" : `HTTP ${res.status}`);
-      setBusyText(els.quantThresholdSummary, String(err), { busy: false });
-      renderThresholdTable(null);
-      return;
-    }
-    if (useWatching) {
-      const agg = data.watching_aggregate || {};
-      const skip = data.skipped_apply
-        ? " · 门槛未改"
-        : "";
-      const oosScale = (data.oos && data.oos.score_scale) || "";
-      const yhatScale =
-        (agg.score_scale || oosScale) === "predicted_yhat" ||
-        data.score_scale === "predicted";
-      const medianLabel = yhatScale
-        ? `中位 wait=${agg.median_best_wait ?? agg.median_best_min_score ?? "—"}`
-        : `中位 min=${agg.median_best_min_score ?? "—"}`;
-      setBusyText(
-        els.quantThresholdSummary,
-        `${(data.rationale || []).slice(0, 1).join("")} · ${agg.stock_count || 0} 只 · ${medianLabel}${skip}`,
-        { busy: false }
-      );
-    } else {
-      setBusyText(
-        els.quantThresholdSummary,
-        (data.rationale || []).slice(0, 2).join(" · "),
-        { busy: false }
-      );
-    }
-    renderThresholdTable(data);
-    state.quantLastThresholdSuggest = data;
-    state.quantLastThresholdDiff = data.config_diff || null;
-  }
-
-  async function applyThresholdSuggest() {
-    const sug = state.quantLastThresholdSuggest;
-    if (!sug || !sug.success) {
-      if (els.quantThresholdSummary) {
-        els.quantThresholdSummary.textContent = "请先跑「研究池阈值」再应用";
-      }
-      return;
-    }
-    if (sug.skipped_apply) {
-      if (els.quantThresholdSummary) {
-        els.quantThresholdSummary.textContent =
-          "建议与当前接近或样本不足，无可应用改动";
-      }
-      return;
-    }
-    const cur = sug.current_thresholds || {};
-    const next = sug.suggested_thresholds || {};
-    const lines = ["写入 signal_config.stance_thresholds？", ""];
-    ["avoid", "wait", "probe"].forEach((k) => {
-      const a = cur[k];
-      const b = next[k];
-      if (a !== b) lines.push(`· ${k}: ${a} → ${b}`);
-    });
-    lines.push("", "仅改立场分档；不改 weights / scoring 滞回。");
-    if (!window.confirm(lines.join("\n"))) return;
-
-    if (els.quantThresholdSummary) {
-      setBusyText(els.quantThresholdSummary, "正在写入…", { busy: true });
-    }
-    const res = await fetch("/api/signal/config/stance", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        avoid: next.avoid,
-        wait: next.wait,
-        probe: next.probe,
-        note: "研究枢纽人审·阈值建议",
-      }),
-    });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok || data.success === false) {
-      const msg = data.detail || data.error || "写入失败";
-      if (els.quantThresholdSummary) {
-        setBusyText(els.quantThresholdSummary, String(msg), { busy: false });
-      }
-      return;
-    }
-    const th = data.stance_thresholds || next;
-    if (els.quantThresholdSummary) {
-      setBusyText(
-        els.quantThresholdSummary,
-        `已写入 stance · avoid=${th.avoid} wait=${th.wait} probe=${th.probe}`,
-        { busy: false }
-      );
-    }
-    // 同步表：当前=刚写入
-    state.quantLastThresholdSuggest = {
-      ...sug,
-      current_thresholds: { ...th },
-      suggested_thresholds: { ...th },
-      deltas: { avoid: 0, wait: 0, probe: 0 },
-      skipped_apply: true,
-      rationale: ["已写入当前配置"],
-    };
-    state.quantLastThresholdDiff = {
-      success: true,
-      skipped_apply: true,
-      patch: {},
-    };
-    renderThresholdTable(state.quantLastThresholdSuggest);
   }
 
   function weightDiffTableHtml(suggest) {
@@ -821,7 +643,6 @@ export function installSuggest(q) {
   }
 
   return {
-    applyThresholdSuggest,
     factorWeightSuggestCellTip,
     fmtEmptyCell,
     fmtOlsCell,
@@ -831,14 +652,12 @@ export function installSuggest(q) {
     refreshReturnModelStatus,
     renderFactorExperiment,
     renderFactorPanelTable,
-    renderThresholdTable,
     renderWeightDiffTable,
     runFactorCsIcSuggest,
     runFactorIcSuggest,
     runFactorOlsClustersSuggest,
     runReturnModelFit,
     runReturnModelPromote,
-    runThresholdSuggest,
     weightDiffTableHtml,
     weightSuggestLogicTip,
     weightSuggestStatusHtml,

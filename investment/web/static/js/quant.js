@@ -23,7 +23,6 @@ import {
   watchingNameSpanHtml,
   watchingNameFromEl,
   applyWatchingNameEl,
-  normalizeProbeCode,
 } from "./quant/names.js";
 import { createResearchParams } from "./quant/params.js";
 import { createFactorMetaCache } from "./quant/factor_meta.js";
@@ -32,7 +31,7 @@ import { createBtTablesUi } from "./quant/bt_tables.js?v=p2261";
 import { installClusterProbe } from "./quant/domain_cluster.js";
 import { installSuggest } from "./quant/domain_suggest.js";
 import { installExportInterpret } from "./quant/domain_export.js";
-import { loadAndRenderFactorCorr, loadAndRenderFactorIR, setProStatusChip, syncOverviewFromClusters, syncOverviewTau, renderFactorSummaryCards } from "./quant/factor_corr_ui.js";
+import { loadAndRenderFactorIR, setProStatusChip, syncOverviewFromClusters, syncOverviewTau, renderFactorSummaryCards } from "./quant/factor_corr_ui.js";
 
 const _QV =
   (typeof window !== "undefined" && window.__ASSET_V__) || "dev";
@@ -152,17 +151,12 @@ export function initQuant(ctx) {
     quantMeta: document.getElementById("quant-meta"),
     quantWatchingMeta: document.getElementById("quant-watching-meta"),
     quantWatchingList: document.getElementById("quant-watching-list"),
-    quantCrossSummary: document.getElementById("quant-cross-summary"),
-    quantCrossList: document.getElementById("quant-cross-list"),
     quantFactorList: document.getElementById("quant-factor-list"),
     quantOlsHealth: document.getElementById("quant-ols-health"),
     quantWeightSuggest: document.getElementById("quant-weight-suggest"),
     quantWeightTable: document.getElementById("quant-weight-table"),
     quantOlsSummary: document.getElementById("quant-ols-summary"),
     quantOlsClusters: document.getElementById("quant-ols-clusters"),
-    quantProbeSummary: document.getElementById("quant-probe-summary"),
-    quantProbeResult: document.getElementById("quant-probe-result"),
-    quantOlsTable: document.getElementById("quant-ols-table"),
     quantPortfolioSummary: document.getElementById("quant-portfolio-summary"),
     quantBtProgress: document.getElementById("quant-bt-progress"),
     quantBtProgressText: document.getElementById("quant-bt-progress-text"),
@@ -173,8 +167,6 @@ export function initQuant(ctx) {
     quantT0Metrics: document.getElementById("paper-t0-metrics"),
     quantT0Viz: document.getElementById("paper-t0-viz"),
     quantT0Days: document.getElementById("paper-t0-days"),
-    quantThresholdSummary: document.getElementById("quant-threshold-summary"),
-    quantThresholdTable: document.getElementById("quant-threshold-table"),
     readmeDialog: document.getElementById("readme-dialog"),
     readmeTitle: document.getElementById("readme-title"),
     readmeMeta: document.getElementById("readme-meta"),
@@ -189,14 +181,10 @@ export function initQuant(ctx) {
     prefsHorizonDays: getPrefsHorizonDays(),
     btTradesTableApi: null,
     watchingNameByCode: {},
-    probeSelectValueToCode: {},
-    probePickerRows: [],
     watchingFocusCode: null,
     watchingFocusName: "",
     quantLastWeightDiff: null,
     quantLastOlsClusters: null,
-    quantLastThresholdDiff: null,
-    quantLastThresholdSuggest: null,
     dailyPresetsCache: [],
     watchingSearchTimer: null,
     watchingSearchSeq: 0,
@@ -228,7 +216,7 @@ export function initQuant(ctx) {
     BT_SCOPE_LIVE, BT_SCOPE_FROZEN, quantBtBusyIds,
     setQuantMeta, setBusyText, watchingScoreTips, btSimScoreTips,
     buildResearchCurves,
-    truncateStockName, watchingNameSpanHtml, watchingNameFromEl, applyWatchingNameEl, normalizeProbeCode,
+    truncateStockName, watchingNameSpanHtml, watchingNameFromEl, applyWatchingNameEl,
     fmtScore, scoreCls, mountVirtualTable, colStyle,
     renderLineChart, renderDualLineChart, renderMultiLineChart,
     buildPortfolioBacktestSummaryText, buildPortfolioBacktestFailText,
@@ -238,14 +226,7 @@ export function initQuant(ctx) {
 
   Object.assign(q, createBtResultRenderers({ escapeHtml, fmtPct, metricClass }));
   Object.assign(q, createFactorIcUi({ escapeHtml, researchGridHtml, metricCell, metricClass, factorMetaByName, factorMetaByLabel, factorNameCellHtml, factorTaxonomyCellHtml }));
-  Object.assign(q, createOlsUi({
-    escapeHtml, researchGridHtml, metricCell, metricClass, factorNameCellHtml, factorTaxonomyCellHtml, factorMetaByName,
-    factorIcWeightMergedHtml: q.factorIcWeightMergedHtml,
-    getWatchingNameByCode: () => state.watchingNameByCode,
-    normalizeProbeCode,
-  }));
-  // domain_cluster 沿用旧名 Html 后缀
-  q.renderProbeStockVsGroupTableHtml = q.renderProbeStockVsGroupTable;
+  Object.assign(q, createOlsUi({ escapeHtml }));
   Object.assign(q, createBtTablesUi({
     escapeHtml, researchGridHtml, metricCell, fmtPct, metricClass,
     getWatchingNameByCode: () => state.watchingNameByCode,
@@ -2703,14 +2684,6 @@ export function initQuant(ctx) {
   cluster.wireOosGateTips(els.quantOlsClusters);
   cluster.wireOosGateTips(els.quantFactorList);
   cluster.wireOosGateTips(els.quantWeightSuggest);
-  if (els.quantOlsClusters && els.quantOlsClusters.dataset.exportWired !== "1") {
-    els.quantOlsClusters.dataset.exportWired = "1";
-    els.quantOlsClusters.addEventListener("click", cluster.onClusterExportClick);
-  }
-  if (els.quantFactorList && els.quantFactorList.dataset.clusterExportWired !== "1") {
-    els.quantFactorList.dataset.clusterExportWired = "1";
-    els.quantFactorList.addEventListener("click", cluster.onClusterExportClick);
-  }
 
   async function loadPrefsHorizon() {
     try {
@@ -2741,6 +2714,160 @@ export function initQuant(ctx) {
     syncHorizonInputs(state.prefsHorizonDays);
     return state.prefsHorizonDays;
   }
+  // ---- DSL 表达式因子 ----
+  function exprTone(v) {
+    const n = Number(v);
+    if (!Number.isFinite(n) || n === 0) return "";
+    // A 股：正红、负绿（is-good / is-bad 走 --color-up / --color-down）
+    return n > 0 ? "is-good" : "is-bad";
+  }
+
+  function exprNum(v) {
+    return v == null || v === "" ? "—" : String(v);
+  }
+
+  function exprKpi(label, value, sub, raw) {
+    return `<div class="dashboard-kpi-card ${exprTone(raw)}"><span class="dashboard-kpi-label">${escapeHtml(label)}</span><span class="dashboard-kpi-value">${escapeHtml(exprNum(value))}</span><span class="dashboard-kpi-sub">${escapeHtml(sub || "")}</span></div>`;
+  }
+
+  function exprCssColor(name, fallback) {
+    const raw = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+    return raw || fallback;
+  }
+
+  function exprChartPoints(rows) {
+    return (rows || [])
+      .filter((p) => p && p.date && p.value != null && Number.isFinite(Number(p.value)))
+      .map((p) => ({ time: String(p.date).slice(0, 10), value: Number(p.value) }));
+  }
+
+  async function paintExprCharts(data) {
+    const seriesHost = document.getElementById("quant-expr-series-chart");
+    const icHost = document.getElementById("quant-expr-ic-chart");
+    const ink = exprCssColor("--ink", "#334155");
+    const accent = exprCssColor("--accent", "#2563eb");
+    await renderLineChart(seriesHost, exprChartPoints(data.series || data.recent), {
+      color: accent,
+      emptyText: "因子序列不足",
+      disableZoom: true,
+    });
+    const icNote = data.cs_note || "截面样本不足";
+    await renderLineChart(icHost, exprChartPoints(data.cs_ic_path), {
+      color: ink,
+      zeroLine: true,
+      emptyText: icNote,
+      disableZoom: true,
+    });
+  }
+
+  function paintExprKpis(data) {
+    const wrap = document.getElementById("quant-expr-kpis");
+    const body = document.getElementById("quant-expr-kpi-body");
+    if (!wrap || !body) return;
+    const csSub = data.cs_rank_ic != null
+      ? `${data.cs_days || 0}日 · ${data.cs_names || 0}只`
+      : (data.cs_note || "样本不足");
+    const irSub = data.cs_positive_rate != null ? `正日 ${data.cs_positive_rate}%` : "日度 Rank IC";
+    body.innerHTML = [
+      exprKpi("最新", data.last_value, data.last_date || data.code || "", null),
+      exprKpi("本票 IC", data.ic, `n=${data.valid_count ?? "—"}`, data.ic),
+      exprKpi("本票 Rank IC", data.rank_ic, "时序", data.rank_ic),
+      exprKpi("截面 Rank IC", data.cs_rank_ic, csSub, data.cs_rank_ic),
+      exprKpi("IR", data.cs_ir, irSub, data.cs_ir),
+    ].join("");
+    wrap.hidden = false;
+  }
+
+  async function runExprEval() {
+    const sum = document.getElementById("quant-expr-summary");
+    const code = (document.getElementById("quant-expr-code") || {}).value || "茅台";
+    const expr = (document.getElementById("quant-expr-text") || {}).value || "";
+    const horizon = parseInt((document.getElementById("quant-expr-horizon") || {}).value || "5", 10);
+    if (!expr.trim()) {
+      if (sum) sum.innerHTML = '<span class="quant-pro-status-chip" data-state="error">错误</span> <span class="quant-rem-status-msg">表达式不能为空</span>';
+      return;
+    }
+    if (sum) sum.innerHTML = '<span class="quant-pro-status-chip" data-state="busy">求值中</span>';
+    try {
+      const res = await fetch("/api/quant/expr-eval", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code, expr, lookback: 120, horizon_days: horizon }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.success) {
+        const err = (data && (data.detail || data.error)) || `HTTP ${res.status}`;
+        if (sum) sum.innerHTML = `<span class="quant-pro-status-chip" data-state="error">失败</span> <span class="quant-rem-status-msg">${escapeHtml(String(err))}</span>`;
+        const kpis = document.getElementById("quant-expr-kpis");
+        if (kpis) kpis.hidden = true;
+        await paintExprCharts({ series: [], cs_ic_path: [], cs_note: "求值失败" });
+        return;
+      }
+      const msg = `${data.code || code} · 前瞻 ${data.horizon_days || horizon} 日`;
+      if (sum) sum.innerHTML = `<span class="quant-pro-status-chip" data-state="ok">完成</span> <span class="quant-rem-status-msg">${escapeHtml(msg)}</span>`;
+      paintExprKpis(data);
+      await new Promise((resolve) => requestAnimationFrame(resolve));
+      await paintExprCharts(data);
+    } catch (e) {
+      if (sum) sum.innerHTML = `<span class="quant-pro-status-chip" data-state="error">异常</span> <span class="quant-rem-status-msg">${escapeHtml(String(e.message || e))}</span>`;
+    }
+  }
+
+  // ---- 实验记录 ----
+  async function loadExperiments() {
+    const status = document.getElementById("quant-experiments-status");
+    const table = document.getElementById("quant-experiments-table");
+    const btn = document.getElementById("quant-experiments-refresh");
+    const mt = (document.getElementById("quant-experiments-model-type") || {}).value || "";
+    const started = Date.now();
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = "刷新中";
+    }
+    if (status) status.textContent = "加载中…";
+    const releaseBtn = async () => {
+      const wait = 400 - (Date.now() - started);
+      if (wait > 0) await new Promise((resolve) => setTimeout(resolve, wait));
+      if (btn) {
+        btn.disabled = false;
+        btn.textContent = "刷新";
+      }
+    };
+    try {
+      const res = await fetch(`/api/quant/experiments?model_type=${encodeURIComponent(mt)}&limit=50`);
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.success) {
+        if (status) status.textContent = "加载失败";
+        return;
+      }
+      const exps = data.experiments || [];
+      const now = new Date();
+      const stamp = [now.getHours(), now.getMinutes(), now.getSeconds()]
+        .map((n) => String(n).padStart(2, "0"))
+        .join(":");
+      if (status) status.textContent = `共 ${data.count ?? exps.length} 条 · ${stamp}`;
+      if (table) {
+        if (!exps.length) {
+          table.innerHTML = '<p class="quant-experiments-empty">暂无实验记录</p>';
+        } else {
+          const rows = exps.map(e => {
+            const m = e.metrics || {};
+            const ic = m.ic != null ? m.ic : "—";
+            const ir = m.ir != null ? m.ir : "—";
+            const cfg = e.config || {};
+            const bits = Object.entries(cfg).slice(0, 3).map(([k, v]) => `${k}=${v}`).join(" ");
+            return `<tr><td style="max-width:180px;word-break:break-all;">${escapeHtml(e.experiment_id.slice(0, 24))}…</td><td>${escapeHtml(e.model_type)}</td><td>${escapeHtml(String(e.status))}</td><td>${ic}</td><td>${ir}</td><td style="font-size:11px;max-width:200px;overflow:hidden;text-overflow:ellipsis;" title="${escapeHtml(bits)}">${escapeHtml(bits)}</td><td style="font-size:11px;">${escapeHtml(String(e.created_at || "").slice(5, 16))}</td></tr>`;
+          }).join("");
+          table.innerHTML = `<table class="quant-weight-table" style="font-size:12px;"><thead><tr><th>ID</th><th>模型</th><th>状态</th><th>IC</th><th>IR</th><th>配置</th><th>时间</th></tr></thead><tbody>${rows}</tbody></table>`;
+        }
+      }
+    } catch (e) {
+      if (status) status.textContent = `异常: ${String(e.message || e)}`;
+    } finally {
+      await releaseBtn();
+    }
+  }
+
   async function openQuantDialog(options = {}) {
     const { autoBacktest = false } = options;
     const page = document.body.dataset.page;
@@ -2760,7 +2887,7 @@ export function initQuant(ctx) {
       if (els.quantMeta) els.quantMeta.textContent = "加载面板…";
       // 先拉研究默认 horizon（memory）与 OLS 标的列表，再跑 IC/OLS/回测
       await loadPrefsHorizon().catch(() => {});
-      await cluster.populateOlsCodeOptions().catch(() => {});
+      await cluster.fillExprCodeSelect().catch(() => {});
       const foreground = [];
       const watchingP =
         hasWatching || hasReplay
@@ -3070,15 +3197,6 @@ export function initQuant(ctx) {
     watching.hideWatchingChart();
   });
 
-  on("quant-cross-run", "click", async (e) => {
-    e.preventDefault();
-    try {
-      await cluster.refreshCrossSection();
-    } catch (err) {
-      if (els.quantCrossSummary) els.quantCrossSummary.textContent = String(err.message || err);
-    }
-  });
-
 
 
 
@@ -3094,33 +3212,6 @@ export function initQuant(ctx) {
       await suggest.runFactorIcSuggest();
     } catch (err) {
       if (els.quantMeta) els.quantMeta.textContent = String(err.message || err);
-    }
-  });
-
-  on("quant-probe-run", "click", async (e) => {
-    e.preventDefault();
-    const btn = document.getElementById("quant-probe-run");
-    if (btn) btn.disabled = true;
-    try {
-      await cluster.runProbeStockVsGroup();
-    } catch (err) {
-      setBusyText(els.quantProbeSummary, String(err.message || err), { busy: false });
-      setQuantMeta(String(err.message || err), { error: true });
-    } finally {
-      if (btn) btn.disabled = false;
-    }
-  });
-
-  on("quant-ols-code", "change", async () => {
-    // 换票后自动对照（需已有分组）
-    const btn = document.getElementById("quant-probe-run");
-    if (btn) btn.disabled = true;
-    try {
-      await cluster.runProbeStockVsGroup();
-    } catch (err) {
-      setBusyText(els.quantProbeSummary, String(err.message || err), { busy: false });
-    } finally {
-      if (btn) btn.disabled = false;
     }
   });
 
@@ -3183,12 +3274,6 @@ export function initQuant(ctx) {
     }
   });
 
-  // Factor analysis: correlation heatmap + IR
-  on("quant-factor-corr-run", "click", async (e) => {
-    e.preventDefault();
-    await loadAndRenderFactorCorr("quant-factor-corr-heatmap");
-  });
-
   const oosGateTips = createScoreTooltipController();
 
   on("quant-horizon-save-default", "click", async (e) => {
@@ -3231,28 +3316,6 @@ export function initQuant(ctx) {
       }
     }
     downloadJson(state.quantLastWeightDiff, "signal_config_weight_diff.json");
-  });
-
-  on("quant-threshold-run", "click", async (e) => {
-    e.preventDefault();
-    try {
-      await suggest.runThresholdSuggest({ useWatching: false });
-    } catch (err) {
-      if (els.quantThresholdSummary) {
-        els.quantThresholdSummary.textContent = String(err.message || err);
-      }
-    }
-  });
-
-  on("quant-threshold-watching", "click", async (e) => {
-    e.preventDefault();
-    try {
-      await suggest.runThresholdSuggest({ useWatching: true });
-    } catch (err) {
-      if (els.quantThresholdSummary) {
-        els.quantThresholdSummary.textContent = String(err.message || err);
-      }
-    }
   });
 
   async function runTauRidge({ persist = false, forcePromote = false, persistRole = "live" } = {}) {
@@ -5177,35 +5240,6 @@ export function initQuant(ctx) {
     }
   });
 
-  on("quant-threshold-export", "click", (e) => {
-    e.preventDefault();
-    if (!state.quantLastThresholdDiff || !state.quantLastThresholdDiff.success) {
-      if (els.quantThresholdSummary) {
-        els.quantThresholdSummary.textContent = "建议尚未就绪，稍后再导出阈值 diff";
-      }
-      return;
-    }
-    if (state.quantLastThresholdDiff.skipped_apply) {
-      if (els.quantThresholdSummary) {
-        els.quantThresholdSummary.textContent =
-          "无门槛改动可导出（已跳过或与当前接近）";
-      }
-      return;
-    }
-    downloadJson(state.quantLastThresholdDiff, "signal_config_threshold_diff.json");
-  });
-
-  on("quant-threshold-apply", "click", async (e) => {
-    e.preventDefault();
-    try {
-      await suggest.applyThresholdSuggest();
-    } catch (err) {
-      if (els.quantThresholdSummary) {
-        els.quantThresholdSummary.textContent = String(err.message || err);
-      }
-    }
-  });
-
   on("quant-portfolio-run", "click", async (e) => {
     e.preventDefault();
     try {
@@ -5451,10 +5485,6 @@ export function initQuant(ctx) {
       else if (els.quantMeta) els.quantMeta.textContent = `${summary} · 详情见历史回测`;
       return;
     }
-    if (task === "cross_section" || data.picks || data.cross_section) {
-      cluster.renderCrossSection(data.cross_section || data);
-      return;
-    }
     if (task === "factor_ols" || data.coefficients || data.rows) {
       cluster.renderFactorOls(data);
       return;
@@ -5476,6 +5506,38 @@ export function initQuant(ctx) {
     }
     await openQuantDialog();
   };
+
+  // DSL 表达式因子 & 实验记录 事件绑定（页面加载即绑定，不依赖 openQuantDialog）
+  const _exprBtn = document.getElementById("quant-expr-run");
+  if (_exprBtn) _exprBtn.addEventListener("click", runExprEval);
+  const syncExprExampleActive = () => {
+    const input = document.getElementById("quant-expr-text");
+    const current = String((input && input.value) || "").replace(/\s+/g, "");
+    document.querySelectorAll(".quant-expr-example").forEach((btn) => {
+      const expr = String(btn.getAttribute("data-expr") || "").replace(/\s+/g, "");
+      const on = !!expr && expr === current;
+      btn.classList.toggle("is-on", on);
+      btn.setAttribute("aria-pressed", on ? "true" : "false");
+    });
+  };
+  document.querySelectorAll(".quant-expr-example").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const input = document.getElementById("quant-expr-text");
+      const expr = btn.getAttribute("data-expr") || "";
+      if (input && expr) input.value = expr;
+      syncExprExampleActive();
+      runExprEval();
+    });
+  });
+  const _exprText = document.getElementById("quant-expr-text");
+  if (_exprText) _exprText.addEventListener("input", syncExprExampleActive);
+  syncExprExampleActive();
+  const _expRefresh = document.getElementById("quant-experiments-refresh");
+  if (_expRefresh) _expRefresh.addEventListener("click", loadExperiments);
+  const _expMt = document.getElementById("quant-experiments-model-type");
+  if (_expMt) _expMt.addEventListener("change", loadExperiments);
+  // quant 页面自动加载实验列表
+  if (document.body.dataset.page === "quant") loadExperiments().catch(() => {});
 
   if (document.body.dataset.page === "quant") {
     const auto = new URLSearchParams(location.search).get("auto");

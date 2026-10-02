@@ -1121,89 +1121,112 @@
     </details>
   </section>
 
-  <!-- 探针：次要折叠，默认收起；对照验证时展开 -->
-  <section class="dashboard-section quant-section quant-section-secondary" id="quant-probe-fold" aria-labelledby="quant-section-probe-title">
-    <details class="quant-secondary-fold">
+  <!-- 公式试算：手写一行 DSL，看本票时序与截面 Rank IC -->
+  <section class="dashboard-section quant-section quant-section-secondary" id="quant-section-expr" aria-labelledby="quant-section-expr-title">
+    <details class="quant-secondary-fold" open>
       <summary class="quant-secondary-fold-sum">
-        <h3 id="quant-section-probe-title" class="dashboard-section-title">探针</h3>
-        <p class="dashboard-section-desc quant-section-desc">分组对照已退役 · 请用全局 ŷ_oo</p>
-      </summary>
-      <div class="dashboard-card quant-pro-card">
-        <div class="quant-pro-card-body quant-probe-body">
-          <div class="quant-actions-inline quant-probe-toolbar">
-            <div class="platform-field quant-probe-picker-field" title="对照标的：名称 / 代码">
-              <span class="quant-probe-picker-label">对照标的</span>
-              <div class="quant-probe-picker" id="quant-probe-picker">
-                <button type="button" class="quant-probe-picker-trigger" id="quant-ols-code-trigger" aria-haspopup="listbox" aria-expanded="false" aria-controls="quant-ols-code-menu">
-                  <span class="quant-probe-picker-empty">观察池可选</span>
-                </button>
-                <input type="hidden" id="quant-ols-code" value="" />
-                <div class="quant-probe-picker-menu" id="quant-ols-code-menu" role="listbox" hidden></div>
-              </div>
-            </div>
-            <div class="quant-probe-toolbar-actions">
-              <button type="button" id="quant-probe-run" class="dialog-btn secondary" title="分组对照已退役">对照验证</button>
-              <button type="button" id="quant-weight-export" class="dialog-btn secondary quant-probe-secondary-action" title="导出全局权重 diff">导出全局 diff</button>
-            </div>
-          </div>
-          <p id="quant-probe-summary" class="quant-fingerprint sub">分组已退役（cluster_retired）· 请用全局 ŷ_oo</p>
-          <div id="quant-probe-result" class="quant-weight-table-wrap" aria-label="单票 vs 所在组对照表"></div>
-        </div>
-      </div>
-    </details>
-  </section>
-
-  <!-- 次要：阈值 / 横截面 / 因子相关性 — 按需展开 -->
-  <section class="dashboard-section quant-section quant-section-secondary" id="quant-global-fold" aria-labelledby="quant-section-global-title">
-    <details class="quant-secondary-fold">
-      <summary class="quant-secondary-fold-sum">
-        <h3 id="quant-section-global-title" class="dashboard-section-title">对照</h3>
-        <p class="dashboard-section-desc quant-section-desc">阈值（ŷ OOS）· 横截面</p>
-      </summary>
-      <div class="dashboard-card quant-pro-card">
-        <div class="quant-pro-card-body quant-compare-body">
-          <div class="quant-compare-block" id="quant-section-threshold">
-            <div class="quant-section-toolbar">
-              <p class="quant-block-cap" id="quant-section-threshold-title" title="研究池抽样扫 ŷ% wait；人审确认后可写入 stance_thresholds（不改 weights/scoring）">阈值</p>
-              <div class="quant-actions-inline">
-                <button type="button" id="quant-threshold-watching" class="dialog-btn secondary" title="观察池抽样 ŷ wait OOS · 建议可导出或应用">研究池阈值</button>
-                <button type="button" id="quant-threshold-apply" class="dialog-btn secondary" title="人审确认后写入 signal_config.stance_thresholds">应用建议</button>
-                <button type="button" id="quant-threshold-export" class="dialog-btn secondary" title="导出可合并 stub（可选）">导出阈值 diff</button>
-              </div>
-            </div>
-            <p id="quant-threshold-summary" class="quant-fingerprint">点按钮分析 · ŷ% wait OOS · 人审后「应用建议」</p>
-            <div id="quant-threshold-table" class="quant-weight-table-wrap" aria-label="阈值建议表"></div>
-          </div>
-          <div class="quant-compare-block" id="quant-section-cross">
-            <div class="quant-section-toolbar">
-              <p class="quant-block-cap" id="quant-section-cross-title">横截面</p>
-              <div class="quant-actions-inline">
-                <button type="button" id="quant-cross-run" class="dialog-btn secondary">刷新排序</button>
-              </div>
-            </div>
-            <p id="quant-cross-summary" class="quant-fingerprint">点「刷新排序」</p>
-            <div id="quant-cross-list" class="quant-weight-table-wrap" aria-label="横截面排序"></div>
-          </div>
-        </div>
-      </div>
-    </details>
-  </section>
-
-  <section class="dashboard-section quant-section quant-section-secondary" id="quant-factor-analysis-fold" aria-labelledby="quant-section-factor-analysis-title">
-    <details class="quant-secondary-fold">
-      <summary class="quant-secondary-fold-sum">
-        <h3 id="quant-section-factor-analysis-title" class="dashboard-section-title">因子相关性</h3>
-        <p class="dashboard-section-desc quant-section-desc" id="quant-factor-analysis-fold-summary">红同向 · 蓝反向 · |ρ|&gt;0.7</p>
+        <h3 id="quant-section-expr-title" class="dashboard-section-title">公式试算</h3>
+        <p class="dashboard-section-desc quant-section-desc">一行公式 · 本票时序 · 观察池截面 Rank IC</p>
       </summary>
       <div class="dashboard-card quant-pro-card">
         <div class="dashboard-card-head quant-pro-card-head quant-card-head--tools">
-          <p id="quant-factor-corr-status" class="quant-fingerprint quant-card-head-status">尚未加载 · 点「计算」</p>
-          <div class="dashboard-card-tools quant-pro-card-tools">
-            <button type="button" id="quant-factor-corr-run" class="dialog-btn">计算相关性</button>
+          <div id="quant-expr-summary" class="quant-rem-status quant-card-head-status" aria-live="polite">
+            <span class="quant-pro-status-chip" data-state="idle">待命</span>
+            <span class="quant-rem-status-msg">手写公式，看时序与截面 Rank IC</span>
+          </div>
+          <div class="dashboard-card-tools quant-pro-card-tools" role="group" aria-label="公式试算操作">
+            <details class="quant-help-fold quant-pro-help-fold">
+              <summary class="quant-pro-help-summary"><span class="quant-pro-help-icon" aria-hidden="true">?</span> 语法</summary>
+              <div class="quant-help-body quant-pro-help-body">
+                <p><strong>字段</strong>：<code>$close $open $high $low $volume $vwap</code></p>
+                <p><strong>函数</strong>：<code>Ref Mean Std Max Min Delta ROC Ts_Rank RSV Corr CS_Rank</code></p>
+                <p><strong>示例</strong>：<code>ROC($close, 5)</code> · <code>Mean($close,5)/$close</code> · <code>Ts_Rank($volume,20)</code> · <code>Corr($close,$volume,10)</code></p>
+                <p><strong>读数</strong>：本票 IC 是这一只的时间序列相关。截面 Rank IC 是观察池前 30 只、每个交易日的 Spearman 再取平均。</p>
+              </div>
+            </details>
+            <button type="button" id="quant-expr-run" class="dialog-btn">求值</button>
           </div>
         </div>
         <div class="quant-pro-card-body">
-          <div id="quant-factor-corr-heatmap" class="dashboard-chart-host quant-factor-corr-host"></div>
+          <div class="quant-pro-params-inline quant-expr-form">
+            <label class="quant-pro-field">
+              <span class="quant-pro-field-label">标的</span>
+              <select id="quant-expr-code" class="quant-expr-code" aria-label="标的">
+                <option value="600519">贵州茅台 600519</option>
+              </select>
+            </label>
+            <label class="quant-pro-field quant-expr-field-expr">
+              <span class="quant-pro-field-label">表达式</span>
+              <input id="quant-expr-text" type="text" value="ROC($close, 5)" spellcheck="false" autocomplete="off" />
+            </label>
+            <label class="quant-pro-field">
+              <span class="quant-pro-field-label">前瞻日</span>
+              <input id="quant-expr-horizon" type="number" min="1" max="20" value="5" />
+            </label>
+          </div>
+          <div class="quant-expr-examples" role="group" aria-label="示例公式">
+            <button type="button" class="quant-expr-example" data-tone="roc" data-expr="ROC($close, 5)">
+              <span class="quant-expr-example-k">5日收益</span>
+              <span class="quant-expr-example-f">ROC($close, 5)</span>
+            </button>
+            <button type="button" class="quant-expr-example" data-tone="ma" data-expr="Mean($close, 5) / $close">
+              <span class="quant-expr-example-k">MA5 / 收盘</span>
+              <span class="quant-expr-example-f">Mean($close, 5) / $close</span>
+            </button>
+            <button type="button" class="quant-expr-example" data-tone="rank" data-expr="Ts_Rank($volume, 20)">
+              <span class="quant-expr-example-k">量时序排名</span>
+              <span class="quant-expr-example-f">Ts_Rank($volume, 20)</span>
+            </button>
+            <button type="button" class="quant-expr-example" data-tone="corr" data-expr="Corr($close, $volume, 10)">
+              <span class="quant-expr-example-k">价量相关</span>
+              <span class="quant-expr-example-f">Corr($close, $volume, 10)</span>
+            </button>
+            <button type="button" class="quant-expr-example" data-tone="range" data-expr="($high - $low) / $close">
+              <span class="quant-expr-example-k">振幅</span>
+              <span class="quant-expr-example-f">($high - $low) / $close</span>
+            </button>
+          </div>
+          <div id="quant-expr-kpis" class="dashboard-kpi-row quant-expr-kpis" hidden>
+            <div class="dashboard-kpi-row-body" id="quant-expr-kpi-body"></div>
+          </div>
+          <div class="quant-expr-charts">
+            <div class="quant-expr-chart-block">
+              <p class="quant-expr-chart-kicker">本票因子</p>
+              <div id="quant-expr-series-chart" class="dashboard-chart-host quant-expr-chart" data-empty="求值后显示因子曲线" aria-label="本票因子曲线"></div>
+            </div>
+            <div class="quant-expr-chart-block">
+              <p class="quant-expr-chart-kicker">日度截面 Rank IC</p>
+              <div id="quant-expr-ic-chart" class="dashboard-chart-host quant-expr-chart" data-empty="求值后显示日度 Rank IC" aria-label="截面 Rank IC 曲线"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </details>
+  </section>
+
+  <!-- 实验记录（吸收 Qlib Recorder 思想） -->
+  <section class="dashboard-section quant-section quant-section-secondary" id="quant-section-experiments" aria-labelledby="quant-section-experiments-title">
+    <details class="quant-secondary-fold">
+      <summary class="quant-secondary-fold-sum">
+        <h3 id="quant-section-experiments-title" class="dashboard-section-title">实验记录</h3>
+        <p class="dashboard-section-desc quant-section-desc" id="quant-experiments-summary">模型训练配置 · 指标 · 产物对比</p>
+      </summary>
+      <div class="dashboard-card quant-pro-card">
+        <div class="dashboard-card-head quant-pro-card-head quant-card-head--tools">
+          <p id="quant-experiments-status" class="quant-fingerprint quant-card-head-status">尚未加载</p>
+          <div class="dashboard-card-tools quant-pro-card-tools">
+            <select id="quant-experiments-model-type" style="font-size:12px;">
+              <option value="">全部</option>
+              <option value="tau_tree">tau_tree</option>
+              <option value="oo_rank">oo_rank</option>
+              <option value="ridge">ridge</option>
+              <option value="factor_discovery">factor_discovery</option>
+            </select>
+            <button type="button" id="quant-experiments-refresh" class="dialog-btn">刷新</button>
+          </div>
+        </div>
+        <div class="quant-pro-card-body">
+          <div id="quant-experiments-table" class="quant-weight-table-wrap" aria-label="实验记录表"></div>
         </div>
       </div>
     </details>
@@ -1211,5 +1234,4 @@
 </div>
 
 <button type="button" id="quant-factor-run" class="sr-only" tabindex="-1" aria-hidden="true">IC</button>
-<button type="button" id="quant-threshold-run" class="sr-only" tabindex="-1" aria-hidden="true">阈值</button>
 <button type="button" id="quant-feedback-suggest" class="sr-only" tabindex="-1" aria-hidden="true">反馈</button>

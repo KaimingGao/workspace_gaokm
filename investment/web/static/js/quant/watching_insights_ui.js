@@ -215,7 +215,6 @@ export function buildWatchingInsightsGridPatch(it, row, deps) {
     yDisagree: scored.y_disagree,
     eodTrust: scored.eod_trust,
     dualScoreHead,
-    stance: scored.stance_short || "—",
     excess: excess || "—",
     excessTitle: excessTitle || excess || "",
     excessNum:
@@ -366,7 +365,6 @@ export function buildWatchingInsightsGridErrorPatch(d) {
     scoreEod: row.scoreEod === "…" ? "—" : row.scoreEod,
     scoreTau: row.scoreTau === "…" ? "—" : row.scoreTau,
     scoreOn: row.scoreOn === "…" ? "—" : row.scoreOn,
-    stance: row.stance === "…" ? "—" : row.stance,
     excess: row.excess === "…" ? "—" : row.excess,
     volr: row.volr === "…" ? "—" : row.volr,
     pe: row.pe === "…" ? "—" : row.pe,
@@ -377,7 +375,6 @@ export function buildWatchingInsightsGridErrorPatch(d) {
 /** 原生表回退：insight 文本字段（score 单元格另用 buildWatchingScoreCellHtml）。 */
 export function buildWatchingInsightsNativeFields(it) {
   return {
-    stance: it.stance_short || null,
     excess: formatWatchingExcess(it),
     vol: it.volume || null,
     volr:

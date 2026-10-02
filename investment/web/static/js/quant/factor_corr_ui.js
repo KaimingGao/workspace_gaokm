@@ -24,6 +24,7 @@ const FACTOR_CN = {
   money_flow: "资金流",
   amihud: "非流动性",
   idio_momentum: "特异动量",
+  overheat: "过热",
 };
 export function factorCN(name) {
   return FACTOR_CN[name] || name;
@@ -448,92 +449,19 @@ export function renderFactorSummaryCards(data, metaByName) {
   grid.innerHTML = html;
 }
 
-function corrColor(v) {
-  if (v == null || !isFinite(v)) return "var(--line)";
-  const clamped = Math.max(-1, Math.min(1, v));
-  const root = document.querySelector(".quant-page") || document.documentElement;
-  const cs = getComputedStyle(root);
-  if (clamped >= 0) {
-    const base = cs.getPropertyValue("--q-corr-pos").trim() || "239, 68, 68";
-    const alpha = clamped * 0.6;
-    return `rgba(${base}, ${alpha.toFixed(2)})`;
-  }
-  const base = cs.getPropertyValue("--q-corr-neg").trim() || "59, 130, 246";
-  const alpha = Math.abs(clamped) * 0.6;
-  return `rgba(${base}, ${alpha.toFixed(2)})`;
-}
-
-function corrTextColor(v) {
-  if (v == null || !isFinite(v)) return "var(--ink-3)";
-  return Math.abs(v) > 0.5 ? "#fff" : "var(--ink)";
-}
-
-function vizEmpty(msg, ctaHref = "#quant-return-model-fit") {
+function vizEmpty(msg) {
   return (
     `<div class="quant-viz-empty" role="status">` +
     `<p class="quant-viz-empty-msg">${escapeHtml(msg)}</p>` +
-    `<a class="quant-viz-empty-cta" href="${escapeHtml(ctaHref)}">去拟合 ŷ_oo</a>` +
     `</div>`
   );
-}
-
-function shortFactor(name, max = 8) {
-  const s = String(name || "");
-  return s.length > max ? `${s.slice(0, max - 1)}…` : s;
-}
-
-function renderFactorCorrHeatmap(data, hostId) {
-  const host = document.getElementById(hostId);
-  if (!host) return;
-  if (!data || !data.success || !data.factors || !data.factors.length) {
-    host.innerHTML = vizEmpty("暂无因子相关性 · 请先拟合 ŷ_oo");
-    return;
-  }
-
-  const factors = data.factors;
-  const matrix = data.matrix || {};
-  const size = factors.length;
-  const cellSize = size > 10 ? 44 : size > 7 ? 48 : 52;
-  const labelSize = size > 10 ? 80 : 88;
-
-  let html = `<div class="factor-corr-heatmap" style="--corr-label:${labelSize}px; --corr-cell:${cellSize}px; grid-template-columns: var(--corr-label) repeat(${size}, var(--corr-cell)); max-width: ${labelSize + size * (cellSize + 2)}px">`;
-
-  html += `<span class="factor-corr-corner"></span>`;
-  for (const f of factors) {
-    const cn = factorCN(f);
-    html += `<span class="factor-corr-label is-col" title="${escapeHtml(f + ' · ' + cn)}">${escapeHtml(shortFactor(cn, 5))}</span>`;
-  }
-
-  factors.forEach((rowFactor, ri) => {
-    const rowCN = factorCN(rowFactor);
-    html += `<span class="factor-corr-label is-row" title="${escapeHtml(rowFactor + ' · ' + rowCN)}">${escapeHtml(shortFactor(rowCN, 6))}</span>`;
-    factors.forEach((colFactor, ci) => {
-      const val = matrix[rowFactor]?.[colFactor];
-      const display = val != null && Number.isFinite(Number(val)) ? Number(val).toFixed(2) : "—";
-      const bg = corrColor(val);
-      const fg = corrTextColor(val);
-      const diag = ri === ci ? " is-diag" : "";
-      const title = `${rowCN} ↔ ${factorCN(colFactor)}: ${display}`;
-      html += `<div class="factor-corr-cell${diag}" data-r="${ri}" data-c="${ci}" style="background:${bg}; color:${fg};" title="${escapeHtml(title)}">${display}</div>`;
-    });
-  });
-  html += `</div>`;
-  html += `<div class="corr-scale"><span>−1</span><div class="corr-scale-bar" aria-hidden="true"></div><span>+1</span></div>`;
-
-  if (data.warnings && data.warnings.length) {
-    html += `<div class="factor-corr-warnings">${data.warnings
-      .map((w) => escapeHtml(w.message || w.type || ""))
-      .join("<br>")}</div>`;
-  }
-
-  host.innerHTML = html;
 }
 
 function renderFactorIR(data, hostId) {
   const host = document.getElementById(hostId);
   if (!host) return;
   if (!data || !data.factors || !data.factors.length) {
-    host.innerHTML = vizEmpty("暂无因子 IR · 请先拟合 ŷ_oo");
+    host.innerHTML = vizEmpty((data && (data.note || data.error)) || "观察池还没有截面因子分");
     return;
   }
 
@@ -595,36 +523,7 @@ function unwrapApi(res, label = "加载失败") {
   return res.data != null ? res.data : res;
 }
 
-export async function loadAndRenderFactorCorr(hostId) {
-    const host = document.getElementById(hostId);
-    if (!host) return;
-    const statusEl = document.getElementById("quant-factor-corr-status");
-    host.innerHTML = `<div class="quant-fingerprint is-busy">计算因子相关性…</div>`;
-    if (statusEl) statusEl.textContent = "计算中…";
-    setProStatusChip("quant-pro-factor-status", "busy", "计算中…");
-    try {
-      const data = unwrapApi(
-        await apiFetch("/api/quant/factor-corr?threshold=0.7"),
-        "相关性加载失败"
-      );
-      renderFactorCorrHeatmap(data, hostId);
-      const n = data.factors?.length || 0;
-      const rows = data.row_count ?? data.sample_count;
-      const src = data.source ? ` · ${data.source}` : "";
-      if (statusEl) {
-        statusEl.textContent = n
-          ? `完成 · ${n} 因子 · ${rows ?? "—"} 票${src}`
-          : `完成${src}`;
-      }
-      setProStatusChip("quant-pro-factor-status", "ok", "相关性 OK");
-    } catch (err) {
-      host.innerHTML = vizEmpty(`加载失败: ${err.message || err}`);
-      if (statusEl) statusEl.textContent = "加载失败";
-      setProStatusChip("quant-pro-factor-status", "error", "加载失败");
-    }
-  }
-
-  export async function loadAndRenderFactorIR(hostId) {
+export async function loadAndRenderFactorIR(hostId) {
     const host = document.getElementById(hostId);
     if (!host) return;
     host.innerHTML = `<div class="quant-fingerprint is-busy">计算因子 IR…</div>`;

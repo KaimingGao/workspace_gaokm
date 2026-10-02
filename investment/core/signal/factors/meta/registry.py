@@ -35,6 +35,9 @@ FactorFn = Callable[..., Tuple[float, dict]]
 
 _REGISTRY: Dict[str, Dict[str, Any]] = {}
 
+# 表达式因子注册表（吸收 Qlib 表达式引擎思想）
+_EXPR_REGISTRY: Dict[str, Dict[str, Any]] = {}
+
 
 def _register(name: str, label: str, fn: FactorFn, description: str = "") -> None:
     _REGISTRY[name] = {
@@ -331,6 +334,19 @@ def list_factors(*, include_meta: bool = False) -> List[Dict[str, str]]:
             row["status"] = str(pm.get("status") or "sourced")
             row["status_note"] = str(pm.get("note") or "")
         out.append(row)
+    # 表达式因子
+    for k, v in _EXPR_REGISTRY.items():
+        row = {
+            "name": k,
+            "label": v.get("label") or k,
+            "description": v.get("description") or f"表达式因子: {v.get('expr','')}",
+            "expr": v.get("expr", ""),
+        }
+        if include_meta:
+            row["sourced"] = True
+            row["status"] = "expr"
+            row["status_note"] = "表达式因子"
+        out.append(row)
     return out
 
 
@@ -344,11 +360,23 @@ def factor_label(name: str) -> str:
 
 
 def registered_factor_names() -> Tuple[str, ...]:
-    return tuple(_REGISTRY.keys())
+    return tuple(list(_REGISTRY.keys()) + list(_EXPR_REGISTRY.keys()))
 
 
 def compute_factor(name: str, bars: List[dict], **kwargs) -> Tuple[float, dict]:
     key = (name or "").strip()
+    # 表达式因子优先（动态注册，不进 _REGISTRY 的静态列表）
+    if key in _EXPR_REGISTRY:
+        from core.signal.factors.expr import eval_expr
+        expr = _EXPR_REGISTRY[key]["expr"]
+        try:
+            val = eval_expr(expr, bars)
+        except Exception as e:  # noqa: BLE001
+            return 50.0, {"omit_sub_score": True, f"expr_{key}_error": str(e)[:120]}
+        meta = {"omit_sub_score": True, "expr": expr}
+        if val == val and abs(val) < 1e30:  # not NaN/Inf
+            meta[f"raw_{key}"] = float(val)
+        return 50.0, meta
     if key not in _REGISTRY:
         raise KeyError(f"未知因子: {key}")
     score, meta = _REGISTRY[key]["compute"](bars, **kwargs)
@@ -577,3 +605,68 @@ def run_factor_experiment(
         "stock_code": stock_code,
         "note": note,
     }
+
+
+# --------------------------------------------------------------------------- #
+# 表达式因子（吸收 Qlib 表达式引擎思想）
+# --------------------------------------------------------------------------- #
+def register_expr_factor(
+    name: str,
+    expr: str,
+    *,
+    label: str = "",
+    description: str = "",
+) -> None:
+    """注册一个表达式因子。
+
+    表达式因子以 omit_sub_score 方式存在，不参与 sub_score 加权，
+    而是通过 meta 中的 ``raw_<name>`` 字段暴露原始数值供 Ridge/LightGBM 等模型消费
+    （与 alpha158 的 raw_alpha158_* 机制一致）。
+
+    Args:
+        name: 因子名（唯一），建议用 ``expr_`` 前缀
+        expr: DSL 表达式，如 ``"ROC($close, 5)"``
+        label: 展示名
+        description: 描述
+    """
+    key = str(name or "").strip()
+    if not key:
+        raise ValueError("表达式因子名不能为空")
+    # 校验表达式可解析
+    from core.signal.factors.expr import parse_expr
+    parse_expr(expr)  # 不合法会抛 ValueError
+    _EXPR_REGISTRY[key] = {
+        "name": key,
+        "expr": expr,
+        "label": label or key,
+        "description": description or f"表达式因子: {expr}",
+    }
+
+
+def unregister_expr_factor(name: str) -> bool:
+    key = str(name or "").strip()
+    if key in _EXPR_REGISTRY:
+        del _EXPR_REGISTRY[key]
+        return True
+    return False
+
+
+def list_expr_factors() -> List[Dict[str, str]]:
+    return [
+        {
+            "name": k,
+            "label": v.get("label") or k,
+            "expr": v.get("expr", ""),
+            "description": v.get("description") or "",
+        }
+        for k, v in _EXPR_REGISTRY.items()
+    ]
+
+
+def eval_expr_factor(name: str, bars: List[dict]) -> float:
+    """直接计算表达式因子值（供 IC 回测等场景）。"""
+    from core.signal.factors.expr import eval_expr
+    key = str(name or "").strip()
+    if key not in _EXPR_REGISTRY:
+        raise KeyError(f"未知表达式因子: {key}")
+    return eval_expr(_EXPR_REGISTRY[key]["expr"], bars)

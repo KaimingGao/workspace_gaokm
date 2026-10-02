@@ -6,7 +6,7 @@ import { renderLineChart } from "../lw_charts.js";
 import { syncOverviewUniverse } from "./factor_corr_ui.js";
 import { mountVirtualTable, colStyle } from "../virtual_table.js";
 import { fmtScore, fmtTableScore, scoreCls, resolveRankingScore, resolveEodScore } from "../paper/fmt.js?v=p2544";
-import { truncateStockName, watchingNameSpanHtml, watchingNameFromEl, applyWatchingNameEl, normalizeProbeCode } from "./names.js";
+import { watchingNameFromEl, applyWatchingNameEl } from "./names.js";
 import { renderWatchingHoldings as renderWatchingHoldingsHtml } from "./watching_holdings.js";
 import { buildWatchingDqMetaText, buildWatchingDqFoldSummary, buildWatchingDqTableHtml } from "./watching_dq_ui.js";
 import { watchingScoreDetail, sentimentBadgeHtml, renderWatchingBuildPlan as renderWatchingBuildPlanHtml, renderWatchingWatchTableFallback, buildWatchingWatchRows, buildWatchingNewsTitleHtml, buildWatchingNewsMetaText, buildWatchingNewsListHtml, WATCHING_NEWS_AI_LOADING_HTML, buildWatchingNewsAiAnalysisHtml, buildWatchingNewsAiErrorHtml, describeWatchingSource, matchWatchlistSource, truncateText, sentimentLabelZh, shortOriginLabel } from "./watching_render.js?v=p2544";
@@ -691,7 +691,6 @@ export function installWatching(q) {
           if (eod != null) tr.dataset.scoreEod = String(eod);
           else delete tr.dataset.scoreEod;
           const fields = buildWatchingInsightsNativeFields(it);
-          setTxt("stance", fields.stance);
           setTxt("excess", fields.excess);
           if (fields.vol) setTxt("vol", fields.vol);
           setTxt("volr", fields.volr);

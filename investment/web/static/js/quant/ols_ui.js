@@ -1,52 +1,17 @@
 /**
- * OLS / 分组 UI helpers（分组路径已退役）。
- * 保留 oosGate* 与守卫测所需符号；组表/探针对照改为 stub。
+ * OLS 提示（分组路径已退役）。
+ * 保留 oosGate* 与守卫测所需符号。
  */
 import { escapeHtml as defaultEscapeHtml } from "../shared.js";
-import {
-  normalizeProbeCode as defaultNormalizeProbeCode,
-  isUsableStockName,
-  resolveStockDisplayName,
-} from "./names.js";
-import { probeStatusBadge as defaultProbeStatusBadge } from "./probe_ui.js";
 // 守卫扫文件：clusterFitTierFromCluster / "tier-b" / quant-ols-health / fitTierBadgeForCode
 import { clusterFitTierFromCluster } from "./yhat_viz.js";
 import { fitTierBadgeForCode } from "./fit_tier_ui.js";
 
 export function createOlsUi(deps) {
   const esc = deps.escapeHtml || defaultEscapeHtml;
-  const normalizeProbeCode = deps.normalizeProbeCode || defaultNormalizeProbeCode;
-  const probeStatusBadge = deps.probeStatusBadge || defaultProbeStatusBadge;
   void clusterFitTierFromCluster;
   void fitTierBadgeForCode;
   void "tier-b";
-
-  function formatStockCodeName(code, name) {
-    const c = normalizeProbeCode(code);
-    const n = resolveStockDisplayName(c, name);
-    if (n && c) return `${n} ${c}`;
-    return n || c || "—";
-  }
-
-  function clusterNameByCodeFromData(data) {
-    const watchingNameByCode =
-      (typeof deps.getWatchingNameByCode === "function"
-        ? deps.getWatchingNameByCode()
-        : deps.watchingNameByCode) || {};
-    const nameByCode = {};
-    for (const [raw, nm0] of Object.entries(watchingNameByCode || {})) {
-      const c = normalizeProbeCode(raw);
-      const nm = resolveStockDisplayName(c, nm0);
-      if (c && nm && isUsableStockName(c, nm)) nameByCode[c] = nm;
-    }
-    const fromReport = (data && data.name_by_code) || {};
-    for (const [raw, nm0] of Object.entries(fromReport)) {
-      const c = normalizeProbeCode(raw);
-      const nm = resolveStockDisplayName(c, nm0);
-      if (c && nm && isUsableStockName(c, nm) && !nameByCode[c]) nameByCode[c] = nm;
-    }
-    return nameByCode;
-  }
 
   function parseOosGateReason(gate) {
     const reasonRaw = String((gate && gate.reason) || "").trim();
@@ -87,103 +52,14 @@ export function createOlsUi(deps) {
     );
   }
 
-  function clusterTagHtml(text, kind) {
-    const k = kind ? ` is-${kind}` : "";
-    return `<span class="quant-cluster-tag${k}">${esc(String(text || ""))}</span>`;
-  }
-
-  function clusterMetricHtml(key, value) {
-    return `<span class="quant-cluster-metric" data-k="${esc(key)}">${esc(
-      String(value ?? "—")
-    )}</span>`;
-  }
-
-  const RETIRED =
-    `<p class="sub quant-ols-health" id="quant-ols-health-note">分组已退役（cluster_retired）· 请用全局 ŷ_oo</p>`;
-
   function buildClusterHealthHtml() {
-    return RETIRED;
-  }
-
-  function buildClusterFactorTablesHtml() {
-    return "";
-  }
-
-  function buildClusterGroupBodyHtml() {
-    return RETIRED;
-  }
-
-  function buildOlsClustersSummaryHtml() {
-    return { ok: false, html: RETIRED };
-  }
-
-  function renderProbeStockVsGroupTable() {
-    return RETIRED;
-  }
-
-  function isProbeSingletonCluster() {
-    return false;
-  }
-
-  function probeFactorRowsFromExp() {
-    return [];
-  }
-
-  function probeIcFieldsFromRow() {
-    return { ic: null, icir: null, n: null };
-  }
-
-  function probeIcMapFromExperiment() {
-    return {};
-  }
-
-  function probeIcMapFromGroupPanel() {
-    return {};
-  }
-
-  function formatMemberList(codes) {
-    return (codes || []).map(String).join("、");
-  }
-
-  function formatMemberChipsHtml(codes) {
-    return formatMemberList(codes);
-  }
-
-  function clusterGroupSuggestShim() {
-    return null;
-  }
-
-  function clusterGroupOlsShim() {
-    return null;
-  }
-
-  function clusterTightTopLines() {
-    return [];
+    return `<p class="sub quant-ols-health" id="quant-ols-health-note">分组已退役（cluster_retired）· 请用全局 ŷ_oo</p>`;
   }
 
   return {
     oosGateTipHtml,
     parseOosGateReason,
     oosGateStatusMeta,
-    clusterTagHtml,
-    clusterMetricHtml,
-    formatMemberChipsHtml,
-    formatMemberList,
-    formatStockCodeName,
-    clusterNameByCodeFromData,
-    clusterGroupSuggestShim,
-    clusterGroupOlsShim,
-    clusterTightTopLines,
-    buildClusterFactorTablesHtml,
     buildClusterHealthHtml,
-    buildClusterGroupBodyHtml,
-    buildOlsClustersSummaryHtml,
-    renderProbeStockVsGroupTable,
-    isProbeSingletonCluster,
-    probeStatusBadge,
-    probeFactorRowsFromExp,
-    probeIcFieldsFromRow,
-    probeIcMapFromExperiment,
-    probeIcMapFromGroupPanel,
   };
 }

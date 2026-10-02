@@ -477,10 +477,6 @@ html[data-theme="dark"] .dashboard-exposure-bar-track {
   background: rgba(255, 255, 255, 0.08);
 }
 
-html[data-theme="dark"] .factor-corr-warnings {
-  background: color-mix(in srgb, #d97706 12%, #1a1a1a);
-}
-
 html[data-theme="dark"] .factor-ir-bar-track.is-bipolar {
   background:
     linear-gradient(

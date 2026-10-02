@@ -39,6 +39,7 @@ from web.schemas.watching import (
 
 from web.schemas.research import (
     CrossSectionRequest,
+    ExprEvalRequest,
     FactorExperimentRequest,
     FactorOlsPoolRequest,
     CoRidgeRequest,
@@ -115,6 +116,7 @@ __all__ = [
     "WatchingSyncPaper",
     "WatchingFile",
     "CrossSectionRequest",
+    "ExprEvalRequest",
     "FactorExperimentRequest",
     "FactorOlsPoolRequest",
     "CoRidgeRequest",
