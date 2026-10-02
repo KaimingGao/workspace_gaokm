@@ -1,7 +1,7 @@
 """ŷ_oo_tree：独立浅树头，标签与 ŷ_oo 相同（open[T+1]/open[T]−1）。
 
-日线因子面板 + Holdout；对照同窗 Ridge。只写 ``oo_tree_last_report.json``。
-不进 live / 回测；无启用研究/执行。引擎仅 LightGBM。
+日线因子面板 + Holdout；对照同窗 Ridge。拟合写入 ``oo_tree_model.json``，
+供调仓回测「ŷ头=Tree」。不进交易执行。引擎仅 LightGBM。
 """
 
 from __future__ import annotations
@@ -256,6 +256,19 @@ def fit_oo_tree_report(
     raw = _predict_lightgbm(model, x_te)
     boost_preds = [float(v) if math.isfinite(float(v)) else None for v in raw]
     tree_s = round(time.perf_counter() - t_tree0, 2)
+    from core.research.horizon_tree import pack_tree_return_model
+
+    return_model = pack_tree_return_model(
+        head="oo",
+        backend=engine,
+        feature_names=feat_names,
+        impute_means=means,
+        model_obj=model,
+        schema=TREE_SCHEMA,
+        hyperparams=hyper,
+        kind="return",
+        y_label="open[T+1]/open[T]-1",
+    )
 
     t_ridge0 = time.perf_counter()
     _, ridge_preds = _fit_ridge_oos(
@@ -307,21 +320,74 @@ def fit_oo_tree_report(
         "include_alpha158": bool(include_alpha158),
         "n_alpha158_features": len(a158_keys),
         "feature_importance": _importance_rows(feat_names, gain),
+        "tree_return_model": return_model,
         "oos": oos_boost,
         "ridge_oos": oos_ridge,
         "delta_vs_ridge": _delta_oos(oos_boost, oos_ridge),
         "live_hook": False,
-        "backtest_hook": False,
-        "persisted": {"success": False, "skipped": True, "reason": "shadow_only"},
+        "backtest_hook": True,
+        "persisted": {"success": False, "skipped": True, "reason": "fit_only"},
         "note": (
-            "ŷ_oo_tree 影子头：open→open 标签 · 同 Holdout vs Ridge；"
+            "ŷ_oo_tree：open→open 标签 · 同 Holdout vs Ridge；"
             + (
                 "树侧可含 raw_alpha158_*（Ridge 对照不含 proxy / 可选不含 a158）；"
                 if include_alpha158
                 else ""
             )
-            + "不写 return_score_model_*.json，不进交易执行 / 历史回测"
+            + "写入 oo_tree_model.json 后，调仓回测选 Tree 替换 ŷ_oo；不进交易执行"
         ),
     }
     attach_holdout_meta(report, split_meta)
     return report
+
+
+def oo_tree_model_path() -> str:
+    from core.research.horizon_tree import tree_model_path
+
+    return tree_model_path("oo")
+
+
+def load_oo_tree_model() -> Optional[Dict[str, Any]]:
+    from core.research.horizon_tree import load_tree_model_doc
+
+    return load_tree_model_doc("oo")
+
+
+def persist_oo_tree_model(
+    report: Dict[str, Any],
+    *,
+    note: str = "",
+    force: bool = False,
+) -> Dict[str, Any]:
+    from core.research.horizon_tree import persist_tree_model_doc
+
+    return persist_tree_model_doc(
+        "oo", report, note=note or "oo_tree promote", force=force
+    )
+
+
+def predict_oo_tree_from_features(
+    features: Dict[str, Optional[float]],
+    *,
+    model_doc: Optional[Dict[str, Any]] = None,
+) -> Optional[float]:
+    from core.research.horizon_tree import predict_tree_return
+
+    doc = model_doc if model_doc is not None else load_oo_tree_model()
+    if not doc:
+        return None
+    rm = doc.get("return_model") if isinstance(doc.get("return_model"), dict) else doc
+    return predict_tree_return(features, rm)
+
+
+def oo_tree_features_from_window(
+    window: Sequence[dict],
+    quote: Optional[dict] = None,
+) -> Dict[str, Any]:
+    """与拟合面板同一套研究因子行（含 raw_alpha158_*）。"""
+    from core.research.panel import _research_sub_scores
+
+    return _research_sub_scores(
+        list(window or []),
+        quote=quote if isinstance(quote, dict) else None,
+    )

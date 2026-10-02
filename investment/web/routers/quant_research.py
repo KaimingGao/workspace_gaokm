@@ -119,7 +119,7 @@ def quant_factor_ols_pool(body: FactorOlsPoolRequest) -> Dict[str, Any]:
 
 @router.post("/api/quant/oo-tree")
 def quant_oo_tree(body: OoTreeRequest) -> Dict[str, Any]:
-    """ŷ_oo_tree 影子头 + 同 Holdout Ridge；不写 live / 研究套，不进回测。"""
+    """ŷ_oo_tree + 同 Holdout Ridge；写入 oo_tree_model.json，供调仓回测选 Tree。不进交易执行。"""
     try:
         return deps.quant.run_oo_tree_experiment(
             lookback=body.lookback,
@@ -145,7 +145,7 @@ def quant_oo_tree_last() -> Dict[str, Any]:
 
 @router.post("/api/quant/tau-tree")
 def quant_tau_tree(body: TauTreeRequest) -> Dict[str, Any]:
-    """ŷ_τ_tree 影子头 + 同 Holdout Ridge；不写 live / 研究套，不进回测。"""
+    """ŷ_τ_tree + 同 Holdout Ridge；写入 tc_tree_model.json，供调仓回测选 Tree。不进交易执行。"""
     try:
         return deps.quant.run_tau_tree_experiment(
             lookback=body.lookback,
@@ -173,7 +173,7 @@ def quant_tau_tree_last() -> Dict[str, Any]:
 
 @router.post("/api/quant/co-tree")
 def quant_co_tree(body: CoTreeRequest) -> Dict[str, Any]:
-    """ŷ_co_tree 影子头 + 同 Holdout Ridge；不写 live / 研究套，不进回测。"""
+    """ŷ_co_tree + 同 Holdout Ridge；写入 co_tree_model.json，供调仓回测选 Tree。不进交易执行。"""
     try:
         return deps.quant.run_co_tree_experiment(
             lookback=body.lookback,

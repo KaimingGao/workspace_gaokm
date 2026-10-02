@@ -658,6 +658,16 @@ class TestWebQuantJsGuards(unittest.TestCase):
             replay.find('id="quant-lookback"'),
             replay.find('id="quant-score-model-role"'),
         )
+        self.assertLess(
+            replay.find('id="quant-score-model-role"'),
+            replay.find('id="quant-score-backend"'),
+        )
+        self.assertLess(
+            replay.find('id="quant-score-backend"'),
+            replay.find('id="quant-portfolio-run"'),
+        )
+        self.assertIn('id="quant-score-backend"', replay)
+        self.assertIn(">ŷ头</span>", replay)
         self.assertIn(">研究</option>", replay)
         self.assertIn(">执行</option>", replay)
         self.assertIn('id="paper-t0-score-model-role"', replay)
@@ -774,6 +784,9 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("fill_clock", bt_js)
         self.assertIn("readScoreModelRole", bt_js)
         self.assertIn("score_model_role", bt_js)
+        self.assertIn("readScoreBackend", bt_js)
+        self.assertIn("score_backend: readScoreBackend", bt_js)
+        self.assertIn("quant-score-backend", bt_js)
         self.assertIn("paper-t0-score-model-role", bt_js)
         self.assertIn('id === "paper-t0-score-model-role" ? "live"', bt_js)
         self.assertIn("quant-score-model-role", bt_js)
@@ -2262,7 +2275,7 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("quant-tree-lower", tree_js)
         self.assertIn("quant-tree-tau-slot", tree_js)
         self.assertIn("不写 live", tree_js)
-        self.assertIn("不进回测", tree_js)
+        self.assertIn("回测选 Tree", tree_js)
         self.assertIn("路径形状", tree_js)
         self.assertIn("分 τ 命中", tree_js)
         self.assertIn('kpiCard("AUC"', tree_js)

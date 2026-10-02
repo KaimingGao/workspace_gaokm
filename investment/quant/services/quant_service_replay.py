@@ -88,6 +88,7 @@ class QuantReplayMixin:
         predictability_head: str = "oo",
         price_space_gate: Optional[bool] = None,
         score_model_role: Optional[str] = None,
+        score_backend: Optional[str] = None,
         progress_cb: Optional[Any] = None,
         cancel_cb: Optional[Any] = None,
     ) -> Dict[str, Any]:
@@ -348,8 +349,10 @@ class QuantReplayMixin:
         if _cancelled():
             return {"success": False, "error": "已取消", "cancelled": True}
         from core.research.holdout import normalize_backtest_model_role
+        from core.research.return_tree import normalize_rebalance_score_backend
 
         role = normalize_backtest_model_role(score_model_role)
+        backend = normalize_rebalance_score_backend(score_backend)
         _emit(f"逐日调仓 {clock} · {int(effective_lookback)} 日…")
         result = backtest_paper_replay(
             stock_bars,
@@ -379,6 +382,7 @@ class QuantReplayMixin:
             progress_cb=progress_cb,
             cancel_cb=cancel_cb,
             score_model_role=role,
+            score_backend=backend,
         )
         result["loaded_stocks"] = list(stock_bars.keys())
         result["failures"] = failures
@@ -413,6 +417,7 @@ class QuantReplayMixin:
             "lot_strong_amount": lot_strong_n,
             "price_space_gate": gate_on,
             "score_model_role": role,
+            "score_backend": backend,
             "score_axis_note": (
                 "引擎=paper_replay：每个交易日 09:30 rank_lots"
                 f"（成交 {clock} 5m · 初始 {cash / 10000:g} 万 · ranking={FORMULA_RANKING} · "
@@ -421,6 +426,7 @@ class QuantReplayMixin:
                 f"w_co={fusion_w_co:g}；门槛1/2 入场；"
                 f"宇宙=观察池 {universe_n} 只"
                 + ("；日分价闸开" if gate_on else "；日分价闸关")
+                + ("；ŷ头=Tree" if backend == "tree" else "；ŷ头=Ridge")
                 + f"，开加不按纸面 max_positions={max_positions} 截断）；"
                 "现金用完即止。"
             ),

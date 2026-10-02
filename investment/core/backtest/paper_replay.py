@@ -1782,6 +1782,39 @@ def _attach_open_yhat_heads(
         if pred is not None:
             it.setdefault("predicted_score_oo", pred)
             it.setdefault("y_oo", pred)
+        try:
+            from core.research.oo_tree import (
+                load_oo_tree_model,
+                oo_tree_features_from_window,
+                predict_oo_tree_from_features,
+            )
+            from core.research.return_tree import (
+                REBALANCE_SCORE_BACKEND_TREE,
+                current_rebalance_score_backend,
+            )
+
+            if current_rebalance_score_backend() == REBALANCE_SCORE_BACKEND_TREE:
+                tree_doc = load_oo_tree_model()
+                y_tree = None
+                if tree_doc is not None:
+                    y_tree = predict_oo_tree_from_features(
+                        oo_tree_features_from_window(
+                            windows.get(code) or [],
+                            quotes.get(code) if code else None,
+                        ),
+                        model_doc=tree_doc,
+                    )
+                if y_tree is not None:
+                    it["y_oo"] = float(y_tree)
+                    it["predicted_score"] = float(y_tree)
+                    it["predicted_score_oo"] = float(y_tree)
+                    it["y_oo_source"] = "tree"
+                elif it.get("y_oo") is not None:
+                    it["y_oo_source"] = "ridge"
+            elif it.get("y_oo") is not None:
+                it.setdefault("y_oo_source", "ridge")
+        except Exception:  # noqa: BLE001
+            logger.debug("overlay y_oo tree failed for %s", code, exc_info=True)
         # 影子 ŷ_oo_rank：有模型且有 sub_scores 时写入；不改 ranking
         if apply_oo_rank_scores is not None and oo_rank_doc is not None:
             try:
@@ -1873,7 +1906,21 @@ def _attach_open_yhat_heads(
             )
             if not co_feats:
                 continue
-            co_yhat = predict_co_from_features(co_feats, model_doc=co_model_doc)
+            from core.research.co_tree import (
+                load_co_tree_model,
+                predict_co_tree_from_features,
+            )
+            from core.research.return_tree import predict_return_head
+
+            co_yhat, co_src = predict_return_head(
+                co_feats,
+                load_tree=load_co_tree_model,
+                predict_tree=predict_co_tree_from_features,
+                predict_ridge=predict_co_from_features,
+                ridge_model=co_model_doc,
+            )
+            if co_src:
+                it["y_co_source"] = co_src
             apply_co_score_fields(
                 it,
                 co_yhat=co_yhat,
@@ -2031,6 +2078,8 @@ def _apply_prefix_oc(item: dict, live: dict, cfg: Optional[dict]) -> bool:
             item[k] = v
     if item.get("ranking") is not None:
         item["y_fuse"] = item["ranking"]
+    if str(item.get("y_τc_source") or "") == "tree" and "y_τc_ridge" not in live:
+        item.pop("y_τc_ridge", None)
     return item.get("y_τc") is not None
 
 
@@ -2154,16 +2203,30 @@ def backtest_paper_replay(
     y_τc_gt0: Optional[bool] = None,
     price_space_cfg: Optional[dict] = None,
     score_model_role: Optional[str] = None,
+    score_backend: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """策略调仓历史回测：ŷ_oo 09:30 开盘；ŷ_τc 随成交钟前缀重算（09:30=开盘 Z），按调仓钟 5m 价成交。"""
+    """策略调仓历史回测：ŷ_oo 09:30 开盘；ŷ_τc 随成交钟前缀重算（09:30=开盘 Z），按调仓钟 5m 价成交。
+
+    ``score_backend=tree`` 时 ŷ_oo / ŷ_τc / ŷ_co 改读已落盘浅树；缺模型的头回退 Ridge。
+    """
     from core.research.holdout import (
         current_scoring_model_role,
         normalize_backtest_model_role,
         scoring_model_role_context,
     )
+    from core.research.return_tree import (
+        current_rebalance_score_backend,
+        normalize_rebalance_score_backend,
+        rebalance_score_backend_context,
+        return_tree_model_state,
+    )
 
     requested = normalize_backtest_model_role(score_model_role)
-    if current_scoring_model_role() != requested:
+    requested_backend = normalize_rebalance_score_backend(score_backend)
+    if (
+        current_scoring_model_role() != requested
+        or current_rebalance_score_backend() != requested_backend
+    ):
         import inspect
 
         allowed = inspect.signature(backtest_paper_replay).parameters
@@ -2171,8 +2234,10 @@ def backtest_paper_replay(
             k: v for k, v in locals().items() if k in allowed and k != "stock_bars"
         }
         params["score_model_role"] = requested
+        params["score_backend"] = requested_backend
         with scoring_model_role_context(requested):
-            return backtest_paper_replay(stock_bars, **params)
+            with rebalance_score_backend_context(requested_backend):
+                return backtest_paper_replay(stock_bars, **params)
     from core.backtest.engine import _trade_metrics
     from core.paper.rebalance.rank_lots import (
         DEFAULT_FUSION_W_CO,
@@ -2213,6 +2278,17 @@ def backtest_paper_replay(
     if rankings_by_date is None:
         global_model = _load_replay_global_model()
         required_factor_keys = _required_factor_keys_from_return_models(global_model)
+        if current_rebalance_score_backend() == "tree":
+            try:
+                from core.research.return_tree import loaded_return_tree_feature_names
+
+                seen_keys = set(required_factor_keys)
+                for key in loaded_return_tree_feature_names():
+                    if key not in seen_keys:
+                        seen_keys.add(key)
+                        required_factor_keys.append(key)
+            except Exception:  # noqa: BLE001
+                logger.debug("replay tree feature keys failed", exc_info=True)
         try:
             from core.signal.factors.alpha158 import bump_window_for_alpha158
 
@@ -2808,6 +2884,11 @@ def backtest_paper_replay(
         f"门槛1∪门槛2 过入场（rank入场={rl_cfg.get('rank_enter')}）按分数买（开加上限=观察池 {top_k} 只，现金不够则停），"
         f"每笔 {int(rl_cfg.get('lot_base_amount') or REPLAY_AMOUNT_BASE)} 元；"
         f"不留现金地板；T+1；成本={cost_model}；≠ topk_research。"
+        + (
+            " ŷ头=Tree（缺模型的头回退 Ridge）。"
+            if current_rebalance_score_backend() == "tree"
+            else ""
+        )
     )
     if session_day:
         note += (
@@ -2848,6 +2929,12 @@ def backtest_paper_replay(
             "stock_count": len(stock_bars),
             "lookback": int(lookback) if lookback is not None else None,
             "score_model_role": current_scoring_model_role(),
+            "score_backend": current_rebalance_score_backend(),
+            "tree_models": (
+                return_tree_model_state()
+                if current_rebalance_score_backend() == "tree"
+                else None
+            ),
             "common_dates": max(0, n - first_i),
             "trade_days": max(0, n - first_i),
             "end_date": dates[-1] if dates else None,

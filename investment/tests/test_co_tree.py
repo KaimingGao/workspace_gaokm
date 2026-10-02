@@ -62,7 +62,10 @@ class TestCoTree(unittest.TestCase):
         self.assertEqual(report.get("task"), "co_tree")
         self.assertEqual(report.get("head"), "y_co_tree")
         self.assertFalse(report.get("live_hook"))
-        self.assertFalse(report.get("backtest_hook"))
+        self.assertTrue(report.get("backtest_hook"))
+        rm = report.get("tree_return_model") or {}
+        self.assertTrue(rm.get("feature_names"))
+        self.assertEqual(rm.get("head_kind"), "return")
         self.assertIn("oos", report)
         self.assertIn("ridge_oos", report)
         self.assertIn("delta_vs_ridge", report)

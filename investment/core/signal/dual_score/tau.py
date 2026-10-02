@@ -105,6 +105,7 @@ def apply_tau_score_fields(
     rem_model_doc: Optional[Dict[str, Any]] = None,
     residual_delta: Optional[bool] = None,
     fuse_intraday: bool = True,
+    y_source: Optional[str] = None,
 ) -> Dict[str, Any]:
     """写入双层契约字段（不改 predicted_score / score 主值）。
 
@@ -201,9 +202,16 @@ def apply_tau_score_fields(
     if y_tau is not None:
         from core.signal.yhat_windows import Y_TC_SOURCE_RIDGE, write_y_τc
 
+        src = str(y_source or "").strip().lower()
+        if src not in {"ridge", "tree"}:
+            src = Y_TC_SOURCE_RIDGE
         write_y_τc(signal_item, y_tau)
-        signal_item["y_τc_ridge"] = y_tau
-        signal_item["y_τc_source"] = Y_TC_SOURCE_RIDGE
+        signal_item["y_τc_source"] = src
+        if src == "tree":
+            signal_item["y_τc_tree"] = y_tau
+            signal_item.pop("y_τc_ridge", None)
+        else:
+            signal_item["y_τc_ridge"] = y_tau
         signal_item["y_spec_τc"] = {
             "formula": str(y_spec.get("formula") or "close[T]/price[τ]-1"),
             "unit": "pct",
@@ -699,13 +707,23 @@ def attach_dual_score_pit(
         stamp_open_clock_minute_z(feats)
     # 只传 τ 头 Z 特征；勿塞全日线 sub_scores（训练未用，易误导）
     rem_yhat = None
+    y_src = ""
     try:
+        from core.research.return_tree import predict_return_head
         from core.research.tc_ridge import predict_tau_from_features
+        from core.research.tc_tree import load_tau_tree_model, predict_tau_tree_from_features
 
-        rem_yhat = predict_tau_from_features(feats, model_doc=rem_model_doc)
+        rem_yhat, y_src = predict_return_head(
+            feats,
+            load_tree=load_tau_tree_model,
+            predict_tree=predict_tau_tree_from_features,
+            predict_ridge=predict_tau_from_features,
+            ridge_model=rem_model_doc,
+        )
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
         logger.debug("catch except Exception: in dual_score.py", exc_info=True)
         rem_yhat = None
+        y_src = ""
     ep = None
     if gap_v is not None:
         try:
@@ -730,6 +748,7 @@ def attach_dual_score_pit(
         else str(cfg.get("tau") or "open"),
         y_spec_override=y_spec_override,
         rem_model_doc=rem_model_doc,
+        y_source=y_src or None,
         fuse_intraday=_resolve_fuse_intraday(
             signal_item, fuse_intraday=fuse_intraday, quote=q, bars=b
         ),

@@ -425,7 +425,8 @@ body[data-page="replay"] .replay-model-field #paper-t0-score-model-role {
   min-width: 4.5rem;
 }
 
-body[data-page="replay"] .replay-horizon-backend-field #paper-t0-horizon-prob-backend {
+body[data-page="replay"] .replay-horizon-backend-field #paper-t0-horizon-prob-backend,
+body[data-page="replay"] .replay-score-backend-field #quant-score-backend {
   width: 5.5rem;
   min-width: 5.5rem;
 }

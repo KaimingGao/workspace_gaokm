@@ -68,7 +68,10 @@ class TestOoTree(unittest.TestCase):
             self.assertIn("ridge_oos", report)
             self.assertIn("delta_vs_ridge", report)
             self.assertFalse(report.get("live_hook"))
-            self.assertFalse(report.get("backtest_hook"))
+            self.assertTrue(report.get("backtest_hook"))
+            rm = report.get("tree_return_model") or {}
+            self.assertTrue(rm.get("feature_names"))
+            self.assertEqual(rm.get("head_kind"), "return")
             oos = report["oos"]
             self.assertGreaterEqual(int(oos.get("n_test") or 0), 1)
         else:

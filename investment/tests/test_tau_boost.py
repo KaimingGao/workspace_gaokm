@@ -92,6 +92,7 @@ class TestTauBoost(unittest.TestCase):
             theme_boost=1.5,
             backend="lightgbm",
             holdout_trading_days=8,
+            include_alpha158=False,
         )
         self.assertTrue(report.get("success"), report.get("error"))
         self.assertEqual(report.get("task"), "tc_tree")
@@ -99,9 +100,12 @@ class TestTauBoost(unittest.TestCase):
         self.assertEqual(report.get("schema"), "tau_tree_shadow_v2")
         self.assertEqual(report.get("backend"), "lightgbm")
         self.assertFalse(report.get("live_hook"))
-        self.assertFalse(report.get("backtest_hook"))
+        self.assertTrue(report.get("backtest_hook"))
         self.assertTrue((report.get("persisted") or {}).get("skipped"))
         self.assertNotIn("return_model", report)
+        rm = report.get("tree_return_model") or {}
+        self.assertTrue(rm.get("feature_names"))
+        self.assertEqual(rm.get("head_kind"), "return")
         oos = report.get("oos") or {}
         ridge = report.get("ridge_oos") or {}
         self.assertIn("sign_hit", oos)

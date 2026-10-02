@@ -1,8 +1,7 @@
 """ŷ_τc_tree：独立浅树头，标签与 ŷ_τc 相同（τ→close，close[T]/price[τ]−1）。
 
-与 Ridge 同面板、同 Holdout，只写 ``tau_tree_last_report.json``。
-不提供 ``predict_tau_from_features`` / persist / 研究套 sidecar，
-不进 live 打分与历史回测。优先 XGBoost 原生 train（不依赖 sklearn），否则 numpy 浅树 GBM。
+与 Ridge 同面板、同 Holdout。拟合写入 ``tc_tree_model.json``，
+供调仓回测「ŷ头=Tree」替换 ŷ_τc。不进交易执行。引擎仅 LightGBM。
 """
 
 from __future__ import annotations
@@ -744,6 +743,19 @@ def fit_tau_tree_report(
     raw = _predict_lightgbm(model, x_te)
     boost_preds = [float(v) if math.isfinite(float(v)) else None for v in raw]
     tree_s = round(time.perf_counter() - t_tree0, 2)
+    from core.research.horizon_tree import pack_tree_return_model
+
+    return_model = pack_tree_return_model(
+        head="tc",
+        backend=engine,
+        feature_names=feat_names,
+        impute_means=means,
+        model_obj=model,
+        schema=TREE_SCHEMA,
+        hyperparams=hyper,
+        kind="return",
+        y_label="close[T]/price[τ]-1",
+    )
 
     t_ridge0 = time.perf_counter()
     _, ridge_preds = _fit_ridge_oos(
@@ -808,21 +820,61 @@ def fit_tau_tree_report(
         "include_alpha158": bool(include_alpha158),
         "n_alpha158_features": len(a158_keys),
         "feature_importance": _importance_rows(feat_names, gain),
+        "tree_return_model": return_model,
         "oos": oos_boost,
         "ridge_oos": oos_ridge,
         "delta_vs_ridge": _delta_oos(oos_boost, oos_ridge),
         "live_hook": False,
-        "backtest_hook": False,
-        "persisted": {"success": False, "skipped": True, "reason": "shadow_only"},
+        "backtest_hook": True,
+        "persisted": {"success": False, "skipped": True, "reason": "fit_only"},
         "note": (
-            "ŷ_τ_tree 影子头：同标签同 Holdout vs Ridge；路径/量价 shape 仅 Tree；"
+            "ŷ_τ_tree：同标签同 Holdout vs Ridge；路径/量价 shape 仅 Tree；"
             + (
                 "树侧含 raw_alpha158_*（Ridge Z 不含，防与 ŷ_oo 双重计权）；"
                 if include_alpha158
                 else ""
             )
-            + "不写 tau_ridge_model.json，不进交易执行 / 历史回测"
+            + "写入 tc_tree_model.json 后，调仓回测选 Tree 替换 ŷ_τc；不进交易执行"
         ),
     }
     attach_holdout_meta(report, split_meta)
     return report
+
+
+def tau_tree_model_path() -> str:
+    from core.research.horizon_tree import tree_model_path
+
+    return tree_model_path("tc")
+
+
+def load_tau_tree_model() -> Optional[Dict[str, Any]]:
+    from core.research.horizon_tree import load_tree_model_doc
+
+    return load_tree_model_doc("tc")
+
+
+def persist_tau_tree_model(
+    report: Dict[str, Any],
+    *,
+    note: str = "",
+    force: bool = False,
+) -> Dict[str, Any]:
+    from core.research.horizon_tree import persist_tree_model_doc
+
+    return persist_tree_model_doc(
+        "tc", report, note=note or "tc_tree promote", force=force
+    )
+
+
+def predict_tau_tree_from_features(
+    features: Dict[str, Optional[float]],
+    *,
+    model_doc: Optional[Dict[str, Any]] = None,
+) -> Optional[float]:
+    from core.research.horizon_tree import predict_tree_return
+
+    doc = model_doc if model_doc is not None else load_tau_tree_model()
+    if not doc:
+        return None
+    rm = doc.get("return_model") if isinstance(doc.get("return_model"), dict) else doc
+    return predict_tree_return(features, rm)

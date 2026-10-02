@@ -917,15 +917,17 @@ class QuantFactorMixin:
         backend: Optional[str] = None,
         include_alpha158: bool = True,
     ) -> Dict[str, Any]:
-        """ŷ_oo_tree 影子头：日线面板 Holdout vs Ridge。只写 last_report。"""
+        """ŷ_oo_tree：日线面板 Holdout vs Ridge。写入 oo_tree_model.json，供调仓回测。"""
         import time
 
         from core.data.facade import bars_and_source
         from core.watching.store import WATCHING_MAX_SIZE, read_watching
         from core.research.oo_tree import (
             fit_oo_tree_report,
+            persist_oo_tree_model,
             save_oo_tree_last_report,
         )
+        from core.research.return_tree import finish_return_tree_persist
 
         uni = read_watching()
         pool = [
@@ -969,6 +971,12 @@ class QuantFactorMixin:
             report["watching_limit"] = limit
             report["codes"] = [r.get("code") for r in stock_bars]
             if report.get("success"):
+                saved = persist_oo_tree_model(
+                    report,
+                    note="oo_tree fit auto-persist for rebalance backtest",
+                    force=True,
+                )
+                finish_return_tree_persist(report, saved)
                 save_oo_tree_last_report(report)
         return report
 
@@ -1009,7 +1017,7 @@ class QuantFactorMixin:
         backend: Optional[str] = None,
         include_alpha158: bool = True,
     ) -> Dict[str, Any]:
-        """ŷ_co_tree 影子头：隔夜缺口面板 Holdout vs Ridge。只写 last_report。
+        """ŷ_co_tree：隔夜缺口面板 Holdout vs Ridge。写入 co_tree_model.json，供调仓回测。
 
         日线与 ŷ_oo / ŷ_co Ridge 同源。
         """
@@ -1019,8 +1027,10 @@ class QuantFactorMixin:
         from core.watching.store import WATCHING_MAX_SIZE, read_watching
         from core.research.co_tree import (
             fit_co_tree_report,
+            persist_co_tree_model,
             save_co_tree_last_report,
         )
+        from core.research.return_tree import finish_return_tree_persist
 
         uni = read_watching()
         pool = [
@@ -1075,8 +1085,13 @@ class QuantFactorMixin:
             report["watching_pool_size"] = len(pool)
             report["lookback"] = lookback
             report["live_hook"] = False
-            report["backtest_hook"] = False
             if report.get("success"):
+                saved = persist_co_tree_model(
+                    report,
+                    note="co_tree fit auto-persist for rebalance backtest",
+                    force=True,
+                )
+                finish_return_tree_persist(report, saved)
                 save_co_tree_last_report(report)
         return report
 
@@ -1103,7 +1118,6 @@ class QuantFactorMixin:
         out.setdefault("success", True)
         out.setdefault("head", "y_co_tree")
         out["live_hook"] = False
-        out["backtest_hook"] = False
         return out
 
     @records_experiment("tc_tree")
@@ -1120,9 +1134,9 @@ class QuantFactorMixin:
         backend: Optional[str] = None,
         include_alpha158: bool = True,
     ) -> Dict[str, Any]:
-        """ŷ_τ_tree 影子头：同面板 Holdout vs Ridge。只写 last_report，不进 live / 回测。
+        """ŷ_τ_tree：同面板 Holdout vs Ridge。写入 tc_tree_model.json，供调仓回测。
 
-        日线与 ŷ_oo / ŷ_τc Ridge 同源。
+        日线与 ŷ_oo / ŷ_τc Ridge 同源。不进交易执行。
         """
         import time
 
@@ -1131,8 +1145,10 @@ class QuantFactorMixin:
         from core.watching.store import WATCHING_MAX_SIZE, read_watching
         from core.research.tc_tree import (
             fit_tau_tree_report,
+            persist_tau_tree_model,
             save_tau_tree_last_report,
         )
+        from core.research.return_tree import finish_return_tree_persist
 
         uni = read_watching()
         pool = [
@@ -1227,13 +1243,13 @@ class QuantFactorMixin:
         timing["total_s"] = round(float(total_s), 2)
         report["timing"] = timing
         report["live_hook"] = False
-        report["backtest_hook"] = False
-        report["persisted"] = {
-            "success": False,
-            "skipped": True,
-            "reason": "shadow_only",
-        }
         if report.get("success"):
+            saved = persist_tau_tree_model(
+                report,
+                note="tc_tree fit auto-persist for rebalance backtest",
+                force=True,
+            )
+            finish_return_tree_persist(report, saved)
             save_tau_tree_last_report(report)
         return report
 
@@ -1258,7 +1274,6 @@ class QuantFactorMixin:
         out["exists"] = True
         out["path"] = tau_tree_last_report_path()
         out["live_hook"] = False
-        out["backtest_hook"] = False
         out.setdefault("head", "y_tau_tree")
         return out
 

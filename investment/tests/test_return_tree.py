@@ -1,0 +1,121 @@
+"""调仓回测 ŷ头 ridge/tree：上下文、回归预测、缺模型回退。"""
+
+from __future__ import annotations
+
+import os
+import sys
+import unittest
+
+import numpy as np
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if ROOT not in sys.path:
+    sys.path.insert(0, ROOT)
+
+
+class TestRebalanceScoreBackend(unittest.TestCase):
+    def test_normalize_and_context_default_ridge(self):
+        from core.research.return_tree import (
+            current_rebalance_score_backend,
+            normalize_rebalance_score_backend,
+            rebalance_score_backend_context,
+        )
+
+        self.assertEqual(normalize_rebalance_score_backend(None), "ridge")
+        self.assertEqual(normalize_rebalance_score_backend("TREE"), "tree")
+        self.assertEqual(normalize_rebalance_score_backend("lightgbm"), "tree")
+        self.assertEqual(current_rebalance_score_backend(), "ridge")
+        with rebalance_score_backend_context("tree"):
+            self.assertEqual(current_rebalance_score_backend(), "tree")
+        self.assertEqual(current_rebalance_score_backend(), "ridge")
+
+    def test_predict_return_head_falls_back_without_tree_model(self):
+        from core.research.return_tree import (
+            predict_return_head,
+            rebalance_score_backend_context,
+        )
+
+        def _load_empty():
+            return None
+
+        def _tree(_feats, model_doc=None):
+            raise AssertionError("tree predict should not run")
+
+        def _ridge(feats, model_doc=None):
+            return 1.5
+
+        with rebalance_score_backend_context("tree"):
+            y, src = predict_return_head(
+                {"a": 1.0},
+                load_tree=_load_empty,
+                predict_tree=_tree,
+                predict_ridge=_ridge,
+            )
+        self.assertEqual(y, 1.5)
+        self.assertEqual(src, "ridge")
+
+    def test_predict_return_head_prefers_tree(self):
+        from core.research.return_tree import (
+            predict_return_head,
+            rebalance_score_backend_context,
+        )
+
+        def _load():
+            return {"return_model": {"feature_names": ["a"]}}
+
+        def _tree(_feats, model_doc=None):
+            return 0.4
+
+        def _ridge(_feats, model_doc=None):
+            raise AssertionError("ridge should not run")
+
+        with rebalance_score_backend_context("tree"):
+            y, src = predict_return_head(
+                {"a": 1.0},
+                load_tree=_load,
+                predict_tree=_tree,
+                predict_ridge=_ridge,
+            )
+        self.assertEqual(y, 0.4)
+        self.assertEqual(src, "tree")
+
+    def test_regression_pack_roundtrip(self):
+        try:
+            import lightgbm  # noqa: F401
+        except ImportError:
+            self.skipTest("lightgbm not installed")
+
+        from core.research.horizon_tree import pack_tree_return_model, predict_tree_return
+        from core.research.tc_tree import _fit_lightgbm
+
+        rng = np.random.default_rng(0)
+        x = rng.normal(size=(40, 2))
+        y = 0.3 * x[:, 0] - 0.2 * x[:, 1]
+        w = np.ones(40)
+        model, _gain = _fit_lightgbm(
+            x,
+            y,
+            w,
+            n_estimators=8,
+            max_depth=2,
+            learning_rate=0.2,
+            subsample=1.0,
+        )
+        packed = pack_tree_return_model(
+            head="oo",
+            backend="lightgbm",
+            feature_names=["a", "b"],
+            impute_means=[0.0, 0.0],
+            model_obj=model,
+            schema="test",
+            kind="return",
+            y_label="open[T+1]/open[T]-1",
+        )
+        self.assertEqual(packed.get("head_kind"), "return")
+        pred = predict_tree_return({"a": 1.0, "b": -1.0}, packed)
+        self.assertIsNotNone(pred)
+        self.assertTrue(abs(float(pred)) < 5.0)
+
+
+if __name__ == "__main__":
+    unittest.main()

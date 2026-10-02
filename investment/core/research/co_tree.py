@@ -1,7 +1,7 @@
 """ŷ_co_tree：独立浅树头，标签与 ŷ_co 相同（open[T+1]/close[T]−1）。
 
 隔夜缺口 Z 面板 + Holdout；对照同窗 Ridge（Z-only）。
-只写 ``co_tree_last_report.json``。不进 live / 回测；无启用研究/执行。
+拟合写入 ``co_tree_model.json``，供调仓回测「ŷ头=Tree」。不进交易执行。
 引擎仅 LightGBM。
 """
 
@@ -223,6 +223,19 @@ def fit_co_tree_report(
     raw = _predict_lightgbm(model, x_te)
     boost_preds = [float(v) if math.isfinite(float(v)) else None for v in raw]
     tree_s = round(time.perf_counter() - t_tree0, 2)
+    from core.research.horizon_tree import pack_tree_return_model
+
+    return_model = pack_tree_return_model(
+        head="co",
+        backend=engine,
+        feature_names=feat_names,
+        impute_means=means,
+        model_obj=model,
+        schema=TREE_SCHEMA,
+        hyperparams=hyper,
+        kind="return",
+        y_label="open[T+1]/close[T]-1",
+    )
 
     t_ridge0 = time.perf_counter()
     ridge_names = ridge_feat_names or list(CO_Z_FEATURES)
@@ -274,21 +287,61 @@ def fit_co_tree_report(
         "include_alpha158": bool(include_alpha158),
         "n_alpha158_features": len(a158_keys),
         "feature_importance": _importance_rows(feat_names, gain),
+        "tree_return_model": return_model,
         "oos": oos_boost,
         "ridge_oos": oos_ridge,
         "delta_vs_ridge": _delta_oos(oos_boost, oos_ridge),
         "live_hook": False,
-        "backtest_hook": False,
-        "persisted": {"success": False, "skipped": True, "reason": "shadow_only"},
+        "backtest_hook": True,
+        "persisted": {"success": False, "skipped": True, "reason": "fit_only"},
         "note": (
-            "ŷ_co_tree 影子头：open[T+1]/close[T]−1 · 同 Holdout vs Ridge(Z)；"
+            "ŷ_co_tree：open[T+1]/close[T]−1 · 同 Holdout vs Ridge(Z)；"
             + (
                 "树侧可含 raw_alpha158_*（≤T−1）；"
                 if include_alpha158
                 else ""
             )
-            + "不写 live，不进交易执行 / 历史回测 / 主排序"
+            + "写入 co_tree_model.json 后，调仓回测选 Tree 替换 ŷ_co；不进交易执行"
         ),
     }
     attach_holdout_meta(report, split_meta)
     return report
+
+
+def co_tree_model_path() -> str:
+    from core.research.horizon_tree import tree_model_path
+
+    return tree_model_path("co")
+
+
+def load_co_tree_model() -> Optional[Dict[str, Any]]:
+    from core.research.horizon_tree import load_tree_model_doc
+
+    return load_tree_model_doc("co")
+
+
+def persist_co_tree_model(
+    report: Dict[str, Any],
+    *,
+    note: str = "",
+    force: bool = False,
+) -> Dict[str, Any]:
+    from core.research.horizon_tree import persist_tree_model_doc
+
+    return persist_tree_model_doc(
+        "co", report, note=note or "co_tree promote", force=force
+    )
+
+
+def predict_co_tree_from_features(
+    features: Dict[str, Optional[float]],
+    *,
+    model_doc: Optional[Dict[str, Any]] = None,
+) -> Optional[float]:
+    from core.research.horizon_tree import predict_tree_return
+
+    doc = model_doc if model_doc is not None else load_co_tree_model()
+    if not doc:
+        return None
+    rm = doc.get("return_model") if isinstance(doc.get("return_model"), dict) else doc
+    return predict_tree_return(features, rm)

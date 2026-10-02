@@ -150,23 +150,35 @@ def pack_tree_return_model(
     schema: str,
     hyperparams: Optional[dict] = None,
     target: Optional[str] = None,
+    kind: str = "prob",
+    y_label: Optional[str] = None,
 ) -> Dict[str, Any]:
     names = [str(n) for n in feature_names]
     eng = str(backend or "").strip().lower()
+    kind_s = str(kind or "prob").strip().lower()
+    is_return = kind_s in {"return", "reg", "regression", "pct"}
     out: Dict[str, Any] = {
         "success": True,
-        "head_kind": "prob",
+        "head_kind": "return" if is_return else "prob",
         "head": str(head),
         "backend": eng,
         "feature_names": names,
         "impute_means": _means_dict(names, np.asarray(impute_means, dtype=np.float64)),
         "schema": str(schema),
         "y_demeaned": False,
-        "y_spec": {
-            "unit": "prob",
-            "label": "I(window_return>0)",
-            "solver": eng,
-        },
+        "y_spec": (
+            {
+                "unit": "pct",
+                "label": str(y_label or "return"),
+                "solver": eng,
+            }
+            if is_return
+            else {
+                "unit": "prob",
+                "label": "I(window_return>0)",
+                "solver": eng,
+            }
+        ),
     }
     if target:
         out["target"] = str(target)
@@ -200,11 +212,24 @@ def _row_matrix(
     return x
 
 
-def predict_tree_p_up(
+_BOOSTER_OBJ_CACHE: Dict[Tuple[str, int], Any] = {}
+
+
+def _cached_booster(kind: str, blob: Dict[str, Any], loader) -> Any:
+    key = (str(kind), id(blob))
+    hit = _BOOSTER_OBJ_CACHE.get(key)
+    if hit is not None:
+        return hit
+    booster = loader(blob)
+    _BOOSTER_OBJ_CACHE[key] = booster
+    return booster
+
+
+def predict_tree_raw(
     features: Optional[Dict[str, Any]],
     return_model: Optional[Dict[str, Any]],
 ) -> Optional[float]:
-    """树头 → p_up∈(0,1)。缺模型/缺特征名返回 None。"""
+    """树头原始输出。缺模型/缺特征名/非有限值返回 None。不裁剪到概率。"""
     rm = return_model if isinstance(return_model, dict) else {}
     names = [str(n) for n in (rm.get("feature_names") or []) if n]
     if not names:
@@ -220,23 +245,19 @@ def predict_tree_p_up(
         if eng == "xgboost":
             from core.research.tc_tree import _predict_xgboost
 
-            booster = load_xgboost_booster(rm.get("booster") or {})
+            blob = rm.get("booster") if isinstance(rm.get("booster"), dict) else {}
+            booster = _cached_booster("xgb", blob, load_xgboost_booster)
             pred = _predict_xgboost(booster, x)
         elif eng == "lightgbm":
             from core.research.tc_tree import _predict_lightgbm
 
-            booster = load_lightgbm_booster(rm.get("booster") or {})
-            raw = _predict_lightgbm(booster, x)
-            pred = np.clip(raw, HORIZON_P_CLIP, 1.0 - HORIZON_P_CLIP)
+            blob = rm.get("booster") if isinstance(rm.get("booster"), dict) else {}
+            booster = _cached_booster("lgb", blob, load_lightgbm_booster)
+            pred = _predict_lightgbm(booster, x)
         elif eng in {"numpy_gbm", "numpy", "gbm"}:
             from core.research.tc_tree import _predict_numpy_gbm
 
-            raw = np.clip(
-                _predict_numpy_gbm(rm.get("gbm_pack") or {}, x),
-                HORIZON_P_CLIP,
-                1.0 - HORIZON_P_CLIP,
-            )
-            pred = raw
+            pred = _predict_numpy_gbm(rm.get("gbm_pack") or {}, x)
         else:
             return None
     except Exception:  # noqa: BLE001
@@ -247,7 +268,26 @@ def predict_tree_p_up(
     p = float(pred[0])
     if not math.isfinite(p):
         return None
+    return p
+
+
+def predict_tree_p_up(
+    features: Optional[Dict[str, Any]],
+    return_model: Optional[Dict[str, Any]],
+) -> Optional[float]:
+    """树头 → p_up∈(0,1)。缺模型/缺特征名返回 None。"""
+    p = predict_tree_raw(features, return_model)
+    if p is None:
+        return None
     return max(HORIZON_P_CLIP, min(p, 1.0 - HORIZON_P_CLIP))
+
+
+def predict_tree_return(
+    features: Optional[Dict[str, Any]],
+    return_model: Optional[Dict[str, Any]],
+) -> Optional[float]:
+    """回归树头 → 百分点收益。缺模型返回 None。"""
+    return predict_tree_raw(features, return_model)
 
 
 def persist_tree_model_doc(
@@ -289,7 +329,7 @@ def persist_tree_model_doc(
         "schema": report.get("schema"),
         "backend": rm.get("backend") or report.get("backend"),
         "head": report.get("head") or head,
-        "head_kind": "prob",
+        "head_kind": str(rm.get("head_kind") or "prob"),
         "feature_names": list(rm.get("feature_names") or []),
         "tree_shape_features": list(report.get("tree_shape_features") or []),
         "live_hook": False,
@@ -326,3 +366,4 @@ def load_tree_model_doc(head: str) -> Optional[Dict[str, Any]]:
 
 def clear_tree_model_cache() -> None:
     _TREE_MODEL_CACHE.clear()
+    _BOOSTER_OBJ_CACHE.clear()

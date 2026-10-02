@@ -145,6 +145,7 @@ def _portfolio_backtest_kwargs(body: PaperReplayBacktestRequest) -> Dict[str, An
         "predictability_head": body.predictability_head,
         "price_space_gate": body.price_space_gate,
         "score_model_role": body.score_model_role,
+        "score_backend": body.score_backend,
     }
 
 

@@ -65,6 +65,16 @@
             <option value="live">执行</option>
           </select>
         </label>
+        <label
+          class="platform-field quant-pro-field replay-lookback-field replay-score-backend-field"
+          title="ŷ_oo / ŷ_τc / ŷ_co：ridge=线性 Ridge（默认）；tree=已拟合浅树（须先在研究枢纽拟合，写入 oo/tc/co_tree_model.json）。缺模型的头回退 Ridge。不改交易执行。"
+        >
+          <span class="quant-pro-field-label">ŷ头</span>
+          <select id="quant-score-backend">
+            <option value="ridge" selected>Ridge</option>
+            <option value="tree">Tree</option>
+          </select>
+        </label>
         <fieldset
           class="platform-field quant-pro-field replay-lookback-field replay-pred-tier-field"
           title="复用研究枢纽「观察池分档」过滤宇宙。回测天数仍用左侧「回测窗口」（与 Holdout 独立）。须先跑枢纽分档。不勾=不过滤。"

@@ -815,7 +815,7 @@
       <div class="dashboard-card-head quant-pro-card-head quant-card-head--tools">
         <div id="quant-oo-tree-summary" class="quant-rem-status quant-card-head-status" aria-live="polite">
           <span class="quant-pro-status-chip" data-state="idle">待命</span>
-          <span class="quant-rem-status-msg">拟合 80 棵后看 OOS · 不写盘 · 日线因子面板</span>
+          <span class="quant-rem-status-msg">拟合 80 棵后看 OOS · 写入调仓回测树包 · 日线因子面板</span>
         </div>
         <div class="dashboard-card-tools quant-pro-card-tools" role="group" aria-label="ŷ_oo_tree 操作">
           <details class="quant-help-fold quant-pro-help-fold">
@@ -828,7 +828,8 @@
                 与 Ridge 同 Holdout，表内对照 IC / 命中 / MSE。
               </p>
               <p>
-                <strong>不改 ŷ_oo Ridge、不写 live、不进回测</strong>。
+                <strong>不改 ŷ_oo Ridge、不进交易执行</strong>。拟合写入
+                <code>oo_tree_model.json</code>，历史回测「调仓回测」选 Tree 时替换 ŷ_oo。
                 无「启用研究 / 启用执行」。Holdout 日与页顶概览共用。
               </p>
             </div>
@@ -837,7 +838,7 @@
             <input type="checkbox" id="quant-oo-tree-alpha158" checked />
             <span>Alpha158</span>
           </label>
-          <button type="button" id="quant-oo-tree-run" class="dialog-btn secondary" title="观察池拟合 ŷ_oo_tree（80 棵浅树，深度 3 LightGBM）+ 同 Holdout Ridge 对照；不写盘。">拟合</button>
+          <button type="button" id="quant-oo-tree-run" class="dialog-btn secondary" title="观察池拟合 ŷ_oo_tree（80 棵浅树，深度 3 LightGBM）+ 同 Holdout Ridge 对照；写入 oo_tree_model.json，供调仓回测选 Tree。">拟合</button>
           <button type="button" id="quant-oo-tree-status" class="dialog-btn secondary" title="读取上次影子对照（不进打分）">上次</button>
         </div>
       </div>
@@ -859,7 +860,7 @@
       <div class="dashboard-card-head quant-pro-card-head quant-card-head--tools">
         <div id="quant-tau-tree-summary" class="quant-rem-status quant-card-head-status" aria-live="polite">
           <span class="quant-pro-status-chip" data-state="idle">待命</span>
-          <span class="quant-rem-status-msg">拟合 80 棵后看 OOS · 不写盘 · 满池瓶颈在组面板</span>
+          <span class="quant-rem-status-msg">拟合 80 棵后看 OOS · 写入调仓回测树包 · 满池瓶颈在组面板</span>
         </div>
         <div class="dashboard-card-tools quant-pro-card-tools" role="group" aria-label="ŷ_τc_tree 操作">
           <details class="quant-help-fold quant-pro-help-fold">
@@ -872,7 +873,8 @@
                 满池耗时主要在组分钟面板，不是树拟合。与 Ridge 同面板、同 Holdout，表内对照 IC / 命中 / MSE。
               </p>
               <p>
-                <strong>不改 ŷ_τc Ridge、不进聚类、不写 live、不进回测</strong>。
+                <strong>不改 ŷ_τc Ridge、不进交易执行</strong>。拟合写入
+                <code>tc_tree_model.json</code>，历史回测「调仓回测」选 Tree 时替换 ŷ_τc。
                 无「启用研究 / 启用执行」。Holdout 日与页顶概览共用。
               </p>
             </div>
@@ -881,7 +883,7 @@
             <input type="checkbox" id="quant-tau-tree-alpha158" checked />
             <span>Alpha158</span>
           </label>
-          <button type="button" id="quant-tau-tree-run" class="dialog-btn secondary" title="观察池拟合 ŷ_τc_tree（80 棵浅树，深度 3 LightGBM）+ 同 Holdout Ridge 对照；不写盘。满池瓶颈在组分钟面板（约数分钟）。">拟合</button>
+          <button type="button" id="quant-tau-tree-run" class="dialog-btn secondary" title="观察池拟合 ŷ_τc_tree（80 棵浅树，深度 3 LightGBM）+ 同 Holdout Ridge 对照；写入 tc_tree_model.json，供调仓回测选 Tree。满池瓶颈在组分钟面板（约数分钟）。">拟合</button>
           <button type="button" id="quant-tau-tree-status" class="dialog-btn secondary" title="读取上次影子对照（不进打分）">上次</button>
         </div>
       </div>
@@ -903,7 +905,7 @@
       <div class="dashboard-card-head quant-pro-card-head quant-card-head--tools">
         <div id="quant-co-tree-summary" class="quant-rem-status quant-card-head-status" aria-live="polite">
           <span class="quant-pro-status-chip" data-state="idle">待命</span>
-          <span class="quant-rem-status-msg">拟合 80 棵后看 OOS · 不写盘 · 隔夜缺口 Z 面板</span>
+          <span class="quant-rem-status-msg">拟合 80 棵后看 OOS · 写入调仓回测树包 · 隔夜缺口 Z 面板</span>
         </div>
         <div class="dashboard-card-tools quant-pro-card-tools" role="group" aria-label="ŷ_co_tree 操作">
           <details class="quant-help-fold quant-pro-help-fold">
@@ -916,7 +918,8 @@
                 与 Ridge 同 Holdout，表内对照 IC / 命中 / MSE。
               </p>
               <p>
-                <strong>不改 ŷ_co Ridge、不写 live、不进回测 / 主排序</strong>。
+                <strong>不改 ŷ_co Ridge、不进交易执行 / 主排序</strong>。拟合写入
+                <code>co_tree_model.json</code>，历史回测「调仓回测」选 Tree 时替换 ŷ_co。
                 无「启用研究 / 启用执行」。Holdout 日与页顶概览共用。
               </p>
             </div>
@@ -925,7 +928,7 @@
             <input type="checkbox" id="quant-co-tree-alpha158" checked />
             <span>Alpha158</span>
           </label>
-          <button type="button" id="quant-co-tree-run" class="dialog-btn secondary" title="观察池拟合 ŷ_co_tree（80 棵浅树，深度 3 LightGBM）+ 同 Holdout Ridge 对照；不写盘。">拟合</button>
+          <button type="button" id="quant-co-tree-run" class="dialog-btn secondary" title="观察池拟合 ŷ_co_tree（80 棵浅树，深度 3 LightGBM）+ 同 Holdout Ridge 对照；写入 co_tree_model.json，供调仓回测选 Tree。">拟合</button>
           <button type="button" id="quant-co-tree-status" class="dialog-btn secondary" title="读取上次影子对照（不进打分）">上次</button>
         </div>
       </div>

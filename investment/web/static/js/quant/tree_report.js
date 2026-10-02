@@ -1,6 +1,6 @@
 /**
  * ŷ_τc_tree / ŷ_τ30_tree 影子对照：KPI + 分 τ 曲线 + 增益条。
- * 不写 live / 不进回测。
+ * 不写 live。调仓三头与 ŷ_τ* 头可在历史回测里选 Tree。
  */
 import { escapeHtml } from "../shared.js";
 import { metricCell, researchGridHtml } from "./research_grid.js";
@@ -426,7 +426,7 @@ export function treeReportHtml(data, opts = {}) {
   const meta =
     `<div class="quant-tree-meta">` +
     [
-      metaCell("角色", "影子 · 不写 live · 不进回测", "is-flags"),
+      metaCell("角色", "影子 · 不写 live · 回测选 Tree", "is-flags"),
       metaCell("引擎", engine, engineChip),
       metaCell("结构", `${nEst} 棵 · 深 ${depth}`),
       boost.holdout_trading_days != null

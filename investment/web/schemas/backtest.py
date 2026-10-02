@@ -21,6 +21,11 @@ class PaperReplayBacktestRequest(BaseModel):
         description="回测模型：research=研究套（Holdout）；live=执行套全样本。默认研究。调仓门槛对 ŷ 敏感，研究套参数未必适用于执行套。",
         max_length=16,
     )
+    score_backend: str = Field(
+        default="ridge",
+        description="调仓打分头：ridge=ŷ_oo/ŷ_τc/ŷ_co Ridge（默认）；tree=已落盘浅树，缺模型的头回退 Ridge。不进交易执行。",
+        max_length=16,
+    )
     apply_costs: bool = True
     fetch_fundamentals: Optional[bool] = False
     exclude_st: bool = True
