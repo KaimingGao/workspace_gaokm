@@ -286,13 +286,18 @@ class TestPlanRankLotDay(unittest.TestCase):
     def test_tip_explain_fields_slims_terms(self):
         from core.paper.rebalance.rank_lots import tip_explain_fields
 
-        terms = [{"key": f"f{i}", "contrib": float(i)} for i in range(15)]
+        terms = [{"key": f"f{i}", "contrib": float(i)} for i in range(30)]
         out = tip_explain_fields(
-            {"score_formula_terms": {"total": 1.0, "terms": terms}}
+            {
+                "score_formula_terms": {"total": 1.0, "terms": terms},
+                "formula_terms_co": {"total": 0.4, "terms": list(terms)},
+            }
         )
         slim = (out.get("score_formula_terms") or {}).get("terms") or []
-        self.assertEqual(len(slim), 10)
-        self.assertEqual(slim[0]["key"], "f14")
+        co = (out.get("formula_terms_co") or {}).get("terms") or []
+        self.assertEqual(len(slim), 24)
+        self.assertEqual(len(co), 24)
+        self.assertEqual(slim[0]["key"], "f29")
 
     def test_tip_explain_fields_keeps_tau_open_z(self):
         from core.paper.rebalance.rank_lots import tip_explain_fields

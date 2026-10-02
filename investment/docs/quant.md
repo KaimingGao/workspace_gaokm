@@ -1291,7 +1291,7 @@ score_stock(code) 续——
 【训练层】
   factor_ols_clusters → return_model (β_cluster) → promote → cluster_weights.json
   tau_ridge           → tau_model    (γ)         → promote → tau_ridge_model.json  # 旧 rem_ridge_* 可读+双写
-  co_ridge            → co_model     (ζ)         → promote → co_ridge_model.json  # 旧 on_ridge_* 可读+双写
+  co_ridge            → co_model     (ζ)         → promote → co_ridge_model.json
 
 【Live 打分层】
   score_stock(code)

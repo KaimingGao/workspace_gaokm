@@ -1,5 +1,5 @@
 import { normalizeProbeCode, isUsableStockName } from "./names.js";
-import { createScoreTooltipController } from "../score_tooltip.js?v=p2531";
+import { createScoreTooltipController } from "../score_tooltip.js?v=p2746";
 import { syncOverviewLanding } from "./factor_corr_ui.js";
 
 const RETIRED_MSG = "分组已退役（cluster_retired）· 请用全局 ŷ_oo / factor-ols";

@@ -268,7 +268,7 @@ export function rankingPct(it) {
 
 /** 表列主分：调仓 ranking（百分点）。
  *  τc：ranking 已在 τ→open[T+1]。缺 y_spec 才再减 (price(τ)/open−1)。
- *  不做 T ŷ_trade。 */
+ *  不做 T ŷ_trade。不用 dual_score 缺口抬升（ranking 走融合分，不走 ŷ_trade 缺口映射）。 */
 export function resolveRankingScore(it) {
   if (!it || typeof it !== "object") return null;
   if (isHeuristicScoreScale(it)) {

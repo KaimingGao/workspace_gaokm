@@ -112,6 +112,16 @@ def _fetch_bars_isolated(
         return [], "empty"
 
 
+def _alpha158_fetch_limit() -> int:
+    """实盘日线窗。Alpha158 滚动要 ≥61 根，面板窗为 62。"""
+    try:
+        from core.signal.factors.alpha158 import ALPHA158_PANEL_WINDOW
+
+        return int(ALPHA158_PANEL_WINDOW)
+    except Exception:  # noqa: BLE001
+        return 62
+
+
 def fetch_daily_bars(
     stock_code: str,
     *,
@@ -245,12 +255,14 @@ def score_stock(
 
     bars = []
     data_source = "quote_fallback"
+    alpha_limit = _alpha158_fetch_limit()
     try:
         bars, src = fetch_daily_bars(
-            raw, limit=40, timeout=10.0, offline_only=use_offline
+            raw, limit=alpha_limit, timeout=10.0, offline_only=use_offline
         )
         if not bars and not use_offline:
-            bars, src = fetch_daily_bars(str(raw), limit=40, timeout=10.0)
+            bars, src = fetch_daily_bars(str(raw), limit=alpha_limit, timeout=10.0)
+        bars = [b for b in (bars or []) if isinstance(b, dict)]
         if bars:
             data_source = src
     except TimeoutError:
@@ -319,7 +331,8 @@ def score_stock(
 
     if not bars and not use_offline:
         try:
-            bars, src = fetch_daily_bars(str(code), limit=40, timeout=10.0)
+            bars, src = fetch_daily_bars(str(code), limit=alpha_limit, timeout=10.0)
+            bars = [b for b in (bars or []) if isinstance(b, dict)]
             if bars:
                 data_source = src
         except TimeoutError:
@@ -1040,7 +1053,7 @@ def score_stock(
                 except (TypeError, ValueError):
                     ref = None
             feats["gap_vs_sector"] = gap_vs_sector_value(gap_v, ref)
-            # 日线 sub_scores 仍在 ŷ_oo；ŷ_oc 可叠加 raw_alpha158_*（≤T−1）
+            # ŷ_τc 的 raw_alpha158_* 用 ≤T−1。窗长 ≥61 时这里才有值。
             try:
                 from core.signal.factors.alpha158 import raw_alpha158_from_bars
 

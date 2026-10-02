@@ -3,7 +3,7 @@
  */
 import { escapeHtml } from "../shared.js";
 import { fmtTableScore, Y_OC_REBALANCE_TITLE, RANKING_REBALANCE_TITLE } from "../paper/fmt.js?v=p2544";
-import { marketPriorDetailFields, tailAnomalyDetailFields, overheatDetailFields } from "../score_tooltip.js?v=p2544";
+import { marketPriorDetailFields, tailAnomalyDetailFields, overheatDetailFields } from "../score_tooltip.js?v=p2746";
 import { watchingNameSpanHtml } from "./names.js";
 import { fitTierBadgeForCode } from "./fit_tier_ui.js";
 
@@ -74,15 +74,18 @@ export function matchWatchlistSource(code, sourceDescs) {
   return "筛选";
 }
 
+/** y_oo / y_τc / y_co 三列 tip 同一因子条数。 */
+const Y_HEAD_FACTOR_N = 24;
+
 export function watchingScoreDetail(it) {
-  // ŷ_oo / ŷ_oc / 缺口放前：data-score-detail 过长时避免被截掉
+  // ŷ_oo / ŷ_τc / ŷ_co 放前：data-score-detail 过长时避免被截掉
   const terms = slimFormulaTerms(
     (it && (it.score_formula_terms || it.formula_terms)) || null,
-    10
+    Y_HEAD_FACTOR_N
   );
   const tauTerms = slimFormulaTerms(
     (it && (it.formula_terms_tau || it.score_formula_terms_tau)) || null,
-    24
+    Y_HEAD_FACTOR_N
   );
   const coTerms = slimFormulaTerms(
     (it &&
@@ -91,7 +94,7 @@ export function watchingScoreDetail(it) {
         it.formula_terms_on ||
         it.score_formula_terms_on)) ||
       null,
-    12
+    Y_HEAD_FACTOR_N
   );
   const hasTerms =
     terms && Array.isArray(terms.terms) && terms.terms.length > 0;

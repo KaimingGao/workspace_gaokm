@@ -2005,57 +2005,7 @@ a.dialog-btn[aria-disabled="true"] {
   color: #94a3b8;
 }
 
-/* ŷ 贡献条 / 直方图 / 散点 */
-.yhat-contrib-bars {
-  margin: 0 0 10px;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.yhat-contrib-row {
-  display: grid;
-  grid-template-columns: minmax(52px, 28%) 1fr minmax(48px, auto);
-  gap: 6px;
-  align-items: center;
-  font-size: 11px;
-}
-
-.yhat-contrib-name {
-  color: #475569;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.yhat-contrib-track {
-  height: 8px;
-  border-radius: 4px;
-  background: rgba(148, 163, 184, 0.22);
-  overflow: hidden;
-}
-
-.yhat-contrib-bar {
-  display: block;
-  height: 100%;
-  border-radius: 4px;
-  min-width: 2px;
-}
-
-.yhat-contrib-bar.pos { background: rgba(185, 28, 28, 0.75); }
-
-.yhat-contrib-bar.neg { background: rgba(4, 120, 87, 0.75); }
-
-.yhat-contrib-val {
-  font-variant-numeric: tabular-nums;
-  text-align: right;
-  font-weight: 600;
-}
-
-.yhat-contrib-val.pos { color: #b91c1c; }
-
-.yhat-contrib-val.neg { color: #047857; }
-
+/* ŷ 直方图 / 散点 */
 .yhat-viz-block {
   margin: 8px 0 12px;
 }

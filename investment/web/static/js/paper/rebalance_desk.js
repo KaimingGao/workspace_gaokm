@@ -1,6 +1,6 @@
 /** Paper · 自动调仓今日盯盘状态（格式对齐做 T worker desk）。 */
 
-import { stockCellHtml, stampStockFitTiers } from "./t0_table.js?v=p2297";
+import { stockCellHtml, stampStockFitTiers } from "./t0_table.js?v=p2746";
 
 function escapeHtml(s) {
   return String(s ?? "")

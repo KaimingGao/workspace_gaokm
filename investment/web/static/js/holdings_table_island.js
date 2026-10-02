@@ -3,7 +3,7 @@
  */
 
 import { fmtPriceUnit, fmtPct, metricCls, fmtTableScore, scoreCls, resolveRankingScore, resolveEodScore, resolveTauScore, resolveOnScore, isHeuristicScoreScale, Y_EOD_TITLE, Y_OC_REBALANCE_TITLE, Y_ON_TITLE, RANKING_REBALANCE_TITLE } from "./paper/fmt.js?v=p2544";
-import { sentimentBadgeHtml, watchingScoreDetail } from "./quant/watching_render.js?v=p2544";
+import { sentimentBadgeHtml, watchingScoreDetail } from "./quant/watching_render.js?v=p2746";
 import {
   isSingleHeadItem,
   singleHeadBadgeHtml,

@@ -1357,14 +1357,11 @@ class QuantFactorMixin:
             load_co_last_report,
             load_co_model,
             co_model_path,
-            co_model_path_legacy,
         )
 
         doc = load_co_model()
         last = load_co_last_report()
-        live_file = bool(
-            os.path.isfile(co_model_path()) or os.path.isfile(co_model_path_legacy())
-        )
+        live_file = os.path.isfile(co_model_path())
         chosen, use_last = _select_ridge_desk_doc(doc, last)
         if not chosen:
             return _attach_ridge_role_flags(
@@ -1390,9 +1387,6 @@ class QuantFactorMixin:
             }
         )
         return _attach_ridge_role_flags(out, co_model_path(), live_present=live_file)
-
-    run_on_ridge_experiment = run_co_ridge_experiment
-    get_on_ridge_model = get_co_ridge_model
 
     def run_oo_rank_experiment(
         self,

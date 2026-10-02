@@ -2402,7 +2402,6 @@ class TestPortfolioBacktestPersistCurve(unittest.TestCase):
                 persist_curve=False,
                 include_benchmark=False,
                 exclude_st=False,
-                universe_fit_tiers=["A", "B", "C"],
             )
             self.assertTrue(out.get("success"))
             save.assert_not_called()
@@ -2411,7 +2410,6 @@ class TestPortfolioBacktestPersistCurve(unittest.TestCase):
                 persist_curve=True,
                 include_benchmark=False,
                 exclude_st=False,
-                universe_fit_tiers=["A", "B", "C"],
             )
             self.assertTrue(out2.get("success"))
             save.assert_called()

@@ -271,23 +271,10 @@ def co_model_path() -> str:
     return os.path.join(LIVE_DIR, "co_ridge_model.json")
 
 
-def co_model_path_legacy() -> str:
-    """旧文件名（on_ridge_*）；仅读兼容，live persist 双写。"""
-    from core.paths import LIVE_DIR
-
-    return os.path.join(LIVE_DIR, "on_ridge_model.json")
-
-
 def co_last_report_path() -> str:
     from core.paths import LIVE_DIR
 
     return os.path.join(LIVE_DIR, "co_ridge_last_report.json")
-
-
-def co_last_report_path_legacy() -> str:
-    from core.paths import LIVE_DIR
-
-    return os.path.join(LIVE_DIR, "on_ridge_last_report.json")
 
 
 def _load_model_file(path: str) -> Optional[Dict[str, Any]]:
@@ -314,17 +301,12 @@ def save_co_last_report(report: Dict[str, Any]) -> None:
     path = co_last_report_path()
     os.makedirs(os.path.dirname(path), exist_ok=True)
     atomic_write_json(path, report)
-    try:
-        atomic_write_json(co_last_report_path_legacy(), report)
-    except Exception:  # noqa: BLE001
-        logger.debug("legacy co last_report write failed", exc_info=True)
 
 
 def load_co_last_report() -> Optional[Dict[str, Any]]:
-    for path in (co_last_report_path(), co_last_report_path_legacy()):
-        doc = _load_model_file(path)
-        if doc and doc.get("success"):
-            return doc
+    doc = _load_model_file(co_last_report_path())
+    if doc and doc.get("success"):
+        return doc
     return None
 
 
@@ -394,12 +376,6 @@ def persist_co_model(
         "promoted_at": doc["promoted_at"],
         "schema": doc["schema"],
     }
-    if role_n != MODEL_ROLE_RESEARCH:
-        try:
-            atomic_write_json(co_model_path_legacy(), doc)
-            out["legacy_path"] = co_model_path_legacy()
-        except Exception:  # noqa: BLE001
-            logger.debug("legacy co model write failed", exc_info=True)
     return out
 
 
@@ -412,18 +388,13 @@ def load_co_model(*, role: Optional[str] = None) -> Optional[Dict[str, Any]]:
 
     role_n = role if role is not None else current_scoring_model_role()
     if role_n == MODEL_ROLE_RESEARCH:
-        for path in (
-            research_model_path(co_model_path()),
-            research_model_path(co_model_path_legacy()),
-        ):
-            doc = _load_model_file(path)
-            if doc:
-                return doc
-        return None
-    for path in (co_model_path(), co_model_path_legacy()):
-        doc = _load_model_file(path)
+        doc = _load_model_file(research_model_path(co_model_path()))
         if doc:
             return doc
+        return None
+    doc = _load_model_file(co_model_path())
+    if doc:
+        return doc
     # 已跑 co Ridge 但未 promote 时，用 last report 影子推理（显式 promote 写 co_ridge_model.json）
     fallback = load_co_last_report()
     if fallback:

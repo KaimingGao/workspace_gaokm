@@ -82,7 +82,6 @@ class QuantReplayMixin:
         lot_strong: Optional[float] = None,
         lot_base_amount: Optional[float] = None,
         lot_strong_amount: Optional[float] = None,
-        universe_fit_tiers: Optional[Sequence[str]] = None,
         use_predictability_tiers: bool = False,
         predictability_tiers: Optional[Sequence[str]] = None,
         holdout_trading_days: Optional[int] = None,
@@ -91,17 +90,9 @@ class QuantReplayMixin:
         score_model_role: Optional[str] = None,
         progress_cb: Optional[Any] = None,
         cancel_cb: Optional[Any] = None,
-        **legacy_kw: Any,
     ) -> Dict[str, Any]:
         from core.strategy import backtest_portfolio_defaults
         from quant.research.portfolio_data import load_portfolio_stock_bars
-
-        engine_legacy = str(legacy_kw.get("engine") or "").strip().lower()
-        if engine_legacy and engine_legacy != "paper_replay":
-            logger.debug(
-                "run_portfolio_backtest ignored legacy engine=%s (always paper_replay)",
-                engine_legacy,
-            )
 
         bt_def = backtest_portfolio_defaults()
         max_positions = max(1, int(bt_def.get("max_positions") or 20))
@@ -141,12 +132,9 @@ class QuantReplayMixin:
 
         fit_meta: Dict[str, Any] = {
             "unrestricted": True,
-            "universe_fit_tiers": ["A", "B", "C"],
             "n_in": len(candidates),
             "n_out": len(candidates),
-            "note": "universe_fit_tiers deprecated/ignored for historical replay",
         }
-        _ = universe_fit_tiers  # API 兼容；历史回测不再按拟合档过滤
 
         pred_meta: Dict[str, Any] = {"enabled": False}
         effective_lookback = int(lookback)
@@ -246,7 +234,6 @@ class QuantReplayMixin:
             }
             fit_meta = {
                 "unrestricted": False,
-                "universe_fit_tiers": None,
                 "predictability_tiers": allowed,
                 "n_in": n_before,
                 "n_out": len(candidates),
@@ -424,7 +411,6 @@ class QuantReplayMixin:
             "fill_clock": clock,
             "lot_base_amount": lot_base_n,
             "lot_strong_amount": lot_strong_n,
-            "universe_fit_tiers": None,
             "price_space_gate": gate_on,
             "score_model_role": role,
             "score_axis_note": (
@@ -714,15 +700,6 @@ class QuantReplayMixin:
         from core.signal.return_score_store import return_model_status
 
         return return_model_status()
-
-    def run_portfolio_neutral_compare(self, **kwargs: Any) -> Dict[str, Any]:
-        """研究口已下线；HTTP 410。保留方法以免旧调用崩。"""
-        _ = kwargs
-        return {
-            "success": False,
-            "deprecated": True,
-            "error": "中性化对照研究口已下线（ŷ 路径开关空转）；产品回测请用 /replay",
-        }
 
     def portfolio_daily_summary(self, **kwargs: Any) -> Dict[str, Any]:
         from quant.research.portfolio_data import summarize_portfolio_backtest

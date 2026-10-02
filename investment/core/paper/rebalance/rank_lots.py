@@ -721,7 +721,21 @@ _TIP_FORMULA_KEYS = frozenset(
 )
 
 
-# ŷ_oc tip：开盘 Z + 开盘已定义的分钟键，slim 时不得挤掉
+# y_oo / y_τc / y_co 三列 tip 同一因子条数
+_Y_HEAD_FACTOR_N = 24
+_Y_HEAD_FORMULA_KEYS = frozenset(
+    {
+        "score_formula_terms",
+        "formula_terms",
+        "formula_terms_tau",
+        "score_formula_terms_tau",
+        "formula_terms_co",
+        "score_formula_terms_co",
+    }
+)
+
+
+# ŷ_τc tip：开盘 Z + 开盘已定义的分钟键，slim 时不得挤掉
 _TAU_TIP_PIN = (
     "gap_pct",
     "theme_day",
@@ -776,7 +790,9 @@ def tip_explain_fields(item: Optional[dict]) -> Dict[str, Any]:
         if v is None:
             continue
         if k in ("formula_terms_tau", "score_formula_terms_tau"):
-            v = _slim_tip_formula(v, limit=24, pin_keys=_TAU_TIP_PIN)
+            v = _slim_tip_formula(v, limit=_Y_HEAD_FACTOR_N, pin_keys=_TAU_TIP_PIN)
+        elif k in _Y_HEAD_FORMULA_KEYS:
+            v = _slim_tip_formula(v, limit=_Y_HEAD_FACTOR_N)
         elif k in _TIP_FORMULA_KEYS:
             v = _slim_tip_formula(v)
         out[k] = v

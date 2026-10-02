@@ -378,36 +378,6 @@ class TestCoScoreAttach(unittest.TestCase):
                 self.assertIsNotNone(last)
                 self.assertEqual(last.get("return_model"), doc.get("return_model"))
 
-    def test_load_co_model_falls_back_to_legacy_on_file(self):
-        from core.research.co_ridge import (
-            co_model_path,
-            co_model_path_legacy,
-            fit_co_ridge_report,
-            load_co_model,
-            persist_co_model,
-        )
-
-        stock_bars = [
-            {"code": "A", "bars": _bars(80, 10)},
-            {"code": "B", "bars": _bars(80, 12)},
-            {"code": "C", "bars": _bars(80, 8)},
-        ]
-        report = fit_co_ridge_report(stock_bars, ridge_lambda=1.0, theme_boost=1.5)
-        self.assertTrue(report.get("success"), report.get("error"))
-        with tempfile.TemporaryDirectory() as tmp:
-            live = os.path.join(tmp, "live")
-            os.makedirs(live, exist_ok=True)
-            with patch("core.paths.LIVE_DIR", live):
-                saved = persist_co_model(report, note="legacy")
-                self.assertTrue(saved.get("success"))
-                self.assertTrue(os.path.isfile(co_model_path()))
-                self.assertTrue(os.path.isfile(co_model_path_legacy()))
-                os.remove(co_model_path())
-                doc = load_co_model()
-                self.assertIsNotNone(doc)
-                self.assertFalse(doc.get("_shadow"))
-                self.assertIn("return_model", doc)
-
     def test_apply_reads_legacy_features_on(self):
         from core.signal.dual_score.co import apply_co_score_fields
 

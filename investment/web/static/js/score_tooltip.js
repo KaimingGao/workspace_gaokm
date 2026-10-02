@@ -880,12 +880,12 @@ function formatCompactOnTip(raw) {
           `${fmtSigned(pathOn, 2)}%`
         )}（可含当日 close · 不定向）</div>`;
   return (
-    `<div class="score-layer score-layer-on">` +
+    `<div class="score-layer score-layer-eod">` +
     `<div class="score-layer-head">` +
     `<div class="score-hero-label">y_co</div>` +
     `<div class="score-hero-value ${signCls(on)}">${escapeText(val)}</div>` +
     `</div>` +
-    `<div class="score-hero-hint">${escapeText(String(ySpec))} · 开盘决策 · 旁路 · 不进排序</div>` +
+    `<div class="score-hero-hint">ŷ_co · ${escapeText(String(ySpec))} · α+Σβ·z</div>` +
     pathLine +
     `</div>`
   );
@@ -1405,7 +1405,7 @@ export function formatFormulaTermsSection(raw, opts = {}) {
             : raw && (raw.formula_terms || raw.score_formula_terms);
   if (!expl || typeof expl !== "object") return "";
   const termsAll = Array.isArray(expl.terms) ? expl.terms : [];
-  const terms = termsAll.filter(
+  let terms = termsAll.filter(
     (t) => t && !String(t.note || "").includes("缺特征")
   );
   if (!terms.length && expl.intercept == null) return "";
@@ -1430,6 +1430,18 @@ export function formatFormulaTermsSection(raw, opts = {}) {
             : "ŷ_oo 组成";
   const isHorizonProb =
     isHorizonProbKey(key) || String((expl && expl.head_kind) || "") === "prob";
+  // y_oo / y_τc / y_co 与窗概率头同一条数，避免头卡长短不一
+  const yHead = key === "eod" || key === "tau" || key === "on" || key === "co";
+  const factorCap = yHead || isHorizonProb ? 24 : terms.length;
+  if (terms.length > factorCap) {
+    terms = [...terms]
+      .sort(
+        (a, b) =>
+          Math.abs(Number(b && b.contrib) || 0) -
+          Math.abs(Number(a && a.contrib) || 0)
+      )
+      .slice(0, factorCap);
+  }
   const totalLabel =
     key === "tau" || key === "r"
       ? "合计 ŷ_τc"
@@ -1463,46 +1475,12 @@ export function formatFormulaTermsSection(raw, opts = {}) {
   const alpha = fmtSigned(expl.intercept, 3);
   const total = fmtSigned(expl.total, 3);
 
-  // 贡献条：用已有 contrib，不依赖异步模块（tooltip 内联）
-  const barTerms = terms
-    .filter((t) => t && !t.gated && Number.isFinite(Number(t.contrib)))
-    .map((t) => ({
-      key: t.key,
-      label: termFeatLabel(t, key),
-      contrib: Number(t.contrib),
-    }));
-  const peak = Math.max(...barTerms.map((t) => Math.abs(t.contrib)), 1e-9);
-  const barLimit = key === "tau" || isHorizonProb ? 24 : 10;
-  const barsHtml = barTerms.length
-    ? `<div class="yhat-contrib-bars" aria-label="因子贡献">` +
-      barTerms
-        .slice(0, barLimit)
-        .map((r) => {
-          const pct = Math.min(100, (Math.abs(r.contrib) / peak) * 100);
-          const side = r.contrib >= 0 ? "pos" : "neg";
-          const sign = r.contrib > 0 ? "+" : "";
-          return (
-            `<div class="yhat-contrib-row" title="${escapeText(r.key || "")}">` +
-            `<span class="yhat-contrib-name">${escapeText(r.label)}</span>` +
-            `<span class="yhat-contrib-track">` +
-            `<span class="yhat-contrib-bar ${side}" style="width:${pct.toFixed(1)}%"></span>` +
-            `</span>` +
-            `<span class="yhat-contrib-val ${side}">${escapeText(
-              `${sign}${r.contrib.toFixed(3)}`
-            )}</span>` +
-            `</div>`
-          );
-        })
-        .join("") +
-      `</div>`
-    : "";
-
   const caption =
     key === "r"
       ? "β×z = 贡献；合计=Ridge 拟合原值（T收/τ价）。做 T 回测默认执行套截距（对照手动预演）；选研究套才用 Holdout。研究枢纽系数表默认展示执行套全样本截距。"
       : isHorizonProb
         ? "β×z = logit 贡献（与研究枢纽「logit 标准化斜率」同口径）；合计 logit 后 p_up=sigmoid(·)=P(窗收益>0)。做 T 回测用执行套；枢纽本次拟合须点「启用执行」后 β 才进回测。缺特征按均值填（z=0）不占表。"
-        : "β×z = 贡献；条长∝|贡献|";
+        : "β×z = 贡献";
   const missingN = Number(expl && expl.missing_n);
   const missKeys = Array.isArray(expl && expl.missing_keys)
     ? expl.missing_keys.filter(Boolean).slice(0, 8)
@@ -1540,7 +1518,6 @@ export function formatFormulaTermsSection(raw, opts = {}) {
   return (
     `<div class="score-formula-section">` +
     `<div class="score-section-title">${escapeText(title)}</div>` +
-    barsHtml +
     `<table class="score-formula-table">` +
     `<thead><tr>` +
     `<th>因子</th><th>β</th><th>z</th><th>贡献</th>` +

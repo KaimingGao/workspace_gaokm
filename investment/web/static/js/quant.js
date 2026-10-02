@@ -11,7 +11,7 @@ import { apiFetch } from "./api_client.js";
 import { loadAndPaintMacroStrip } from "./macro_context_ui.js";
 import { renderLineChart, renderDualLineChart, renderMultiLineChart } from "./lw_charts.js";
 import { mountVirtualTable, colStyle } from "./virtual_table.js";
-import { createScoreTooltipController } from "./score_tooltip.js?v=p2544";
+import { createScoreTooltipController } from "./score_tooltip.js?v=p2746";
 import { fmtScore, scoreCls } from "./paper/fmt.js?v=p2544";
 import {
   defaultScoringFloors,
@@ -28,7 +28,7 @@ import { createResearchParams } from "./quant/params.js";
 import { createFactorMetaCache } from "./quant/factor_meta.js";
 import { researchGridHtml, metricCell } from "./quant/research_grid.js";
 import { createBtTablesUi } from "./quant/bt_tables.js?v=p2261";
-import { installClusterProbe } from "./quant/domain_cluster.js";
+import { installClusterProbe } from "./quant/domain_cluster.js?v=p2746";
 import { installSuggest } from "./quant/domain_suggest.js";
 import { installExportInterpret } from "./quant/domain_export.js";
 import { loadAndRenderFactorIR, setProStatusChip, syncOverviewFromClusters, syncOverviewTau, renderFactorSummaryCards } from "./quant/factor_corr_ui.js";

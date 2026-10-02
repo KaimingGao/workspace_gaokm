@@ -839,7 +839,7 @@ def render_quant_report_markdown(report: Dict[str, Any]) -> str:
     if appendix_bits:
         parts.append("## 附录（单票遗留探针）")
         parts.append("")
-        parts.append("> 默认生成日报不跑本附录；仅 `include_legacy_probe` 或旧快照才有。")
+        parts.append("> 仅旧快照可能包含本附录；当前日报已不再生成遗留探针。")
         parts.append("")
         parts.extend(appendix_bits)
 

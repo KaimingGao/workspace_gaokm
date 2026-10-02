@@ -517,18 +517,6 @@ def quant_research_universe_sync_cached_daily() -> Dict[str, Any]:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
-@router.post("/api/quant/on-ridge")
-def quant_on_ridge(body: CoRidgeRequest) -> Dict[str, Any]:
-    """兼容旧路径 → 同 ``/api/quant/co-ridge``。"""
-    return quant_co_ridge(body)
-
-
-@router.get("/api/quant/on-ridge/model")
-def quant_on_ridge_model() -> Dict[str, Any]:
-    """兼容旧路径 → 同 ``/api/quant/co-ridge/model``。"""
-    return quant_co_ridge_model()
-
-
 @router.post("/api/quant/tc-ridge")
 def quant_tc_ridge(body: TauRidgeRequest) -> Dict[str, Any]:
     """ŷ_τc Ridge。与 ``/api/quant/tau-ridge`` 同一套 live 模型（tau_ridge_model.json）。"""

@@ -314,7 +314,6 @@ class QuantOpsMixin:
         include_cross_section: bool = True,
         include_portfolio_backtest: bool = True,
         include_portfolio_neutral_compare: bool = False,
-        include_legacy_probe: bool = False,
         top_k: Optional[int] = None,
         horizon_days: Optional[int] = None,
         lookback: Optional[int] = None,
@@ -324,47 +323,11 @@ class QuantOpsMixin:
     ) -> Dict[str, Any]:
         """量化日报：主叙事=组ŷ / 簿 / OOS / 横截面ŷ / 历史回测（rank_lots）。
 
-        单票 IC·OLS·权建议·阈值 默认不跑，仅 ``include_legacy_probe=True`` 进附录。
         历史回测缺省对齐 /replay：paper_replay · α / rank入场 1.2% / rank强 1.2% / lookback 30（下限 10）。
         中性化对照默认不下发（ŷ 路径开关空转）；仅显式 ``include_portfolio_neutral_compare=True``。
         ``top_k`` / ``horizon_days`` 仅留给该研究腿。
         """
         cfg = self.config_summary()
-        ic = None
-        factor_exp = None
-        factor_ols = None
-        weight_suggest = None
-        threshold_suggest = None
-        if include_legacy_probe:
-            ic = self.run_factor_report(code)
-            factor_exp = self.run_factor_experiment(code)
-            factor_ols = self.run_factor_ols_experiment(code)
-            cluster_yhat_active = False
-            if not cluster_yhat_active:
-                from core.signal.weight_suggest import suggest_weights_from_ic
-
-                weight_suggest = (
-                    suggest_weights_from_ic(factor_exp) if factor_exp.get("success") else None
-                )
-                if weight_suggest and weight_suggest.get("success"):
-                    from core.signal.weight_suggest import format_weight_config_diff
-
-                    weight_suggest["config_diff"] = format_weight_config_diff(weight_suggest)
-                    weight_suggest["deprecated_for_scoring"] = True
-                    weight_suggest["note"] = (
-                        "附录·遗留 IC 小步权诊断；选股真源为 return_model → predicted_score（ŷ），"
-                        "不自动写 signal_config"
-                    )
-            threshold_suggest = self.suggest_thresholds(code)
-            if not threshold_suggest.get("success"):
-                threshold_suggest = None
-            elif isinstance(threshold_suggest, dict):
-                threshold_suggest = dict(threshold_suggest)
-                threshold_suggest["appendix"] = True
-                note0 = threshold_suggest.get("note") or ""
-                threshold_suggest["note"] = (
-                    "附录·单票阈值探针。 " + str(note0)
-                ).strip()
 
         portfolio_bt_kwargs: Dict[str, Any] = {}
         if lookback is not None:
@@ -424,15 +387,4 @@ class QuantOpsMixin:
             report["portfolio_neutral_compare_summary"] = neutral_compare_summary
         if include_cross_section:
             report["cross_section"] = self.run_cross_section(limit=10)
-        if include_legacy_probe:
-            report["factor_ic"] = ic
-            report["factor_experiment"] = factor_exp
-            report["factor_ols"] = factor_ols
-            report["weight_suggest"] = weight_suggest
-            report["threshold_suggest"] = threshold_suggest
-            report["appendix"] = {
-                "legacy_probe": True,
-                "probe_code": code,
-                "note": "单票 IC/OLS/权建议/阈值为附录探针，不驱动选股",
-            }
         return report

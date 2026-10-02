@@ -21,7 +21,7 @@ import {
   RANKING_REBALANCE_TITLE,
 } from "./fmt.js?v=p2544";
 import { paginateItems, renderPagerHtml } from "../api_client.js";
-import { watchingScoreDetail } from "../quant/watching_render.js?v=p2544";
+import { watchingScoreDetail } from "../quant/watching_render.js?v=p2746";
 import {
   isSingleHeadItem,
   singleHeadBadgeHtml,

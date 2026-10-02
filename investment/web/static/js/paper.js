@@ -34,7 +34,7 @@ import {
   buildPaperHoldingsTableHtml,
   buildPaperOriginBarHtml,
   buildPaperHoldActionBarHtml,
-} from "./paper/holdings_ui.js?v=p2389";
+} from "./paper/holdings_ui.js?v=p2746";
 import { renderPaperRulesHtml } from "./paper/rules_ui.js?v=p2298";
 import {
   renderExecutionRulesHtml,
@@ -47,11 +47,11 @@ import {
   renderPaperT0Preview as renderPaperT0PreviewUi,
   renderPaperT0WorkerTrades as renderPaperT0WorkerTradesUi,
   renderPaperT0WorkerDesk as renderPaperT0WorkerDeskUi,
-} from "./paper/t0_ui.js?v=p2569";
-import { renderPaperRebalanceWorkerDesk as renderPaperRebalanceWorkerDeskUi } from "./paper/rebalance_desk.js?v=p2572";
-import { wireT0SkipTips } from "./paper/t0_viz.js?v=p2569";
-import { wireT0ProcessTips, wireT0DayDebugExpand } from "./paper/t0_table.js?v=p2722";
-import { wireHoldingsChgTips } from "./paper/holding_chg_tip.js?v=p2297";
+} from "./paper/t0_ui.js?v=p2746";
+import { renderPaperRebalanceWorkerDesk as renderPaperRebalanceWorkerDeskUi } from "./paper/rebalance_desk.js?v=p2746";
+import { wireT0SkipTips } from "./paper/t0_viz.js?v=p2746";
+import { wireT0ProcessTips, wireT0DayDebugExpand } from "./paper/t0_table.js?v=p2746";
+import { wireHoldingsChgTips } from "./paper/holding_chg_tip.js?v=p2746";
 import { createHoldingsIslandController } from "./paper/holdings_island.js";
 import { createClusterRebalanceController } from "./paper/cluster_rebalance.js?v=p2088";
 import {
@@ -77,7 +77,7 @@ import {
   tailAnomalyDetailFields,
   overheatDetailFields,
   createScoreTooltipController,
-} from "./score_tooltip.js?v=p2544";
+} from "./score_tooltip.js?v=p2746";
 
 import { formatDailySteps, runDaily } from "./shared.js";
 

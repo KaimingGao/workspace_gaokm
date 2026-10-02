@@ -16,17 +16,18 @@ import copy
 import logging
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
+from core.signal.factors.alpha158 import ALPHA158_PANEL_WINDOW
+
 logger = logging.getLogger(__name__)
 
 # compute | live_book | ledger
 DEFAULT_Y_SCORE_SOURCE = "compute"
 _MIN_HIST_BARS = 16
-# 与 score_stock.fetch_daily_bars(limit=40) 对齐：周线确认按「从头每 5 根切桶」，
-# 窗长不同会漂 weekly_confirm / ma_slope / technical_pattern。
-_EOD_FACTOR_BAR_LIMIT = 40
+# 与 score_stock 实盘取数对齐。Alpha158 滚动要 ≥61 根。周线仍从头切桶，与调仓回测同一窗。
+_EOD_FACTOR_BAR_LIMIT = int(ALPHA158_PANEL_WINDOW)
 # 做 T 回测：评估窗与因子窗分离；warmup 仅供 hist_prior，不进成交明细
-T0_BACKTEST_SCORE_WARMUP = max(_MIN_HIST_BARS + 8, 40)
-# 纸面预演 / Worker：须含「当日 + 40 根 T−1 及更早」，否则 EOD 周线切桶比回测少 1 根
+T0_BACKTEST_SCORE_WARMUP = max(_MIN_HIST_BARS + 8, _EOD_FACTOR_BAR_LIMIT)
+# 纸面预演 / Worker：须含「当日 + EOD 窗」，否则比回测少 1 根、Alpha158 整列缺特征
 T0_PAPER_DAILY_BAR_LIMIT = T0_BACKTEST_SCORE_WARMUP + 1
 
 # 进程内轻量缓存：回测逐日重算时复用模型句柄
@@ -255,7 +256,7 @@ def tip_fields_from_item(item: Optional[dict]) -> Dict[str, Any]:
     out: Dict[str, Any] = {}
     eod_terms = _slim_formula_terms(
         item.get("score_formula_terms") or item.get("formula_terms"),
-        limit=10,
+        limit=24,
         pin_keys=_TIP_PIN_FACTORS,
     )
     if eod_terms and (eod_terms.get("terms") or eod_terms.get("intercept") is not None):
@@ -289,7 +290,7 @@ def tip_fields_from_item(item: Optional[dict]) -> Dict[str, Any]:
         or item.get("score_formula_terms_co")
         or item.get("formula_terms_on")
         or item.get("score_formula_terms_on"),
-        limit=10,
+        limit=24,
     )
     if co_terms and (co_terms.get("terms") or co_terms.get("total") is not None):
         out["formula_terms_co"] = co_terms
@@ -2937,7 +2938,7 @@ def compute_scores_from_bars(
         required_factor_keys = []
 
     try:
-        # EOD 因子窗与刷簿 score_stock(limit=40) 对齐；τ/ATR 仍用更长 hist
+        # EOD 因子窗与刷簿 score_stock 对齐（含 Alpha158）；τ/ATR 仍用更长 hist
         eod_hist = hist[-int(_EOD_FACTOR_BAR_LIMIT) :]
         eod_key = _eod_item_cache_key(
             raw,

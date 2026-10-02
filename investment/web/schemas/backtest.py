@@ -98,13 +98,6 @@ class PaperReplayBacktestRequest(BaseModel):
         le=1_000_000.0,
         description="调仓强档金额（元）。默认 2 万；不少于入场金额；保存规则同步到交易执行",
     )
-    universe_fit_tiers: Optional[list] = Field(
-        default=None,
-        description=(
-            "Deprecated/ignored：历史回测不再按拟合档过滤观察池。"
-            "保留字段仅为 API 兼容；传值无效，宇宙始终不过滤。"
-        ),
-    )
     use_predictability_tiers: bool = Field(
         default=False,
         description=(

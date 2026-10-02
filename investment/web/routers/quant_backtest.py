@@ -139,7 +139,6 @@ def _portfolio_backtest_kwargs(body: PaperReplayBacktestRequest) -> Dict[str, An
         "fill_clock": body.fill_clock,
         "lot_base_amount": body.lot_base_amount,
         "lot_strong_amount": body.lot_strong_amount,
-        "universe_fit_tiers": body.universe_fit_tiers,
         "use_predictability_tiers": bool(body.use_predictability_tiers),
         "predictability_tiers": body.predictability_tiers,
         "holdout_trading_days": body.holdout_trading_days,

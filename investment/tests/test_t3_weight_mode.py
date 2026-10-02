@@ -141,7 +141,7 @@ class TestT3WeightMode(unittest.TestCase):
         self.assertFalse(hasattr(body, "y_hl_gt0"))
         self.assertFalse(body.y_oo_gt0)
         self.assertFalse(hasattr(body, "y_oc_gt0"))
-        self.assertIsNone(body.universe_fit_tiers)
+        self.assertFalse(hasattr(body, "universe_fit_tiers"))
         self.assertFalse(hasattr(body, "engine"))
         self.assertFalse(hasattr(body, "top_k"))
 
@@ -201,10 +201,9 @@ class TestT3WeightMode(unittest.TestCase):
         self.assertEqual(PaperReplayBacktestRequest(lookback=10).lookback, 10)
         with self.assertRaises(ValidationError):
             PaperReplayBacktestRequest(lookback=9)
-        self.assertEqual(
-            PaperReplayBacktestRequest(universe_fit_tiers=["A"]).universe_fit_tiers,
-            ["A"],
-        )
+        # universe_fit_tiers 已移除，Pydantic 忽略多余字段
+        body = PaperReplayBacktestRequest()
+        self.assertFalse(hasattr(body, "universe_fit_tiers"))
 
 
 if __name__ == "__main__":
