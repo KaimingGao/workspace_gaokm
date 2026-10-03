@@ -1141,6 +1141,48 @@ class TestOpenDayYhat(unittest.TestCase):
         self.assertIn("tau_elapsed_min", keys)
         self.assertIn("sector_gap_breadth", keys)
 
+    def test_attach_open_heads_copies_tau_cs_onto_co(self):
+        from core.backtest.paper_replay import _attach_open_yhat_heads
+
+        entries = [{"stock_code": "600519", "predicted_score": 0.2}]
+        quote = {
+            "open": 10.2,
+            "open_raw": 10.2,
+            "prev_close": 10.0,
+            "change_raw": 2.0,
+            "date": "2026-03-10",
+            "trade_date": "2026-03-10",
+        }
+        window = []
+        px = 10.0
+        for i, day in enumerate(("2026-03-05", "2026-03-06", "2026-03-09")):
+            window.append(
+                {
+                    "date": day,
+                    "open": px,
+                    "high": px + 0.2,
+                    "low": px - 0.1,
+                    "close": px + 0.05 * i,
+                    "volume": 1000 + i,
+                }
+            )
+        pool = {
+            "pool_gaps": [2.0, 0.5, -0.2],
+            "sector_gap_breadth": 0.33,
+            "ref_by_code": {"600519": 0.5},
+        }
+        out = _attach_open_yhat_heads(
+            entries,
+            quotes={"600519": quote},
+            windows={"600519": window},
+            tau_pool_day=pool,
+        )
+        tau = out[0].get("features_tau") or {}
+        co = out[0].get("features_co") or {}
+        for key in ("sector_gap_breadth", "theme_day", "gap_vs_sector"):
+            self.assertIsNotNone(tau.get(key), key)
+            self.assertAlmostEqual(float(co.get(key)), float(tau.get(key)), places=6, msg=key)
+
     def test_attach_open_nowcast_missing_is_none_not_zero(self):
         from core.backtest.paper_replay import _attach_open_yhat_heads
 

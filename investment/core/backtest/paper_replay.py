@@ -1896,6 +1896,15 @@ def _attach_open_yhat_heads(
             )
             if not co_feats:
                 continue
+            # 拟合面板经截面广度写入这三列；与当日 ŷ_τc 用同一池，避免缺测被当成训练均值。
+            from core.signal.dual_score.co import overlay_co_cross_section
+
+            tau_feats = (
+                it.get("features_tau")
+                if isinstance(it.get("features_tau"), dict)
+                else None
+            )
+            co_feats = overlay_co_cross_section(co_feats, tau_feats)
             from core.research.co_tree import (
                 load_co_tree_model,
                 predict_co_tree_from_features,
