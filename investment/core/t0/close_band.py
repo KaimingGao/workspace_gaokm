@@ -125,9 +125,15 @@ def scores_close_components(
             y_τc_ridge = _f(raw.get("y_r")) or _f(raw.get("y_r_hat")) or _f(
                 raw.get("predicted_score_r")
             )
+    if y_τc_ridge is None:
+        y_τc_ridge = _f(raw.get("y_tau"))
+    if y_τc_ridge is None:
+        y_τc_ridge = _f(raw.get("predicted_score_tau"))
     direct_τc = (
         "y_τc",
         "predicted_score_τc",
+        "y_tau",
+        "predicted_score_tau",
     )
     has_direct_τc = any(raw.get(k) is not None for k in direct_τc)
     y_for_band = y_τc_ridge if y_τc_ridge is not None and has_direct_τc else None
@@ -135,6 +141,7 @@ def scores_close_components(
     y_τc_target = (
         clip_y_τc_target_pct(y_for_band, scale=scale) if y_for_band is not None else None
     )
+    src = str(raw.get("y_τc_source") or "").strip().lower()
     pt = _f(price_tau)
     if pt is None or pt <= 0:
         feats = raw.get("features_tau") if isinstance(raw.get("features_tau"), dict) else {}
@@ -146,7 +153,10 @@ def scores_close_components(
     r_hat = r_hat_from_c_tau_px(c_hat, anchor)
     # 表列 ŷ_τc = 模型预估 price→close；R̂_τ = Ĉ_τ/price(τ)−1。
     y_τc = y_τc_ridge
-    y_τc_source = Y_TC_SOURCE_RIDGE if y_τc_ridge is not None else None
+    if src in ("tree", Y_TC_SOURCE_RIDGE, Y_TC_SOURCE_REMAINING):
+        y_τc_source = src
+    else:
+        y_τc_source = Y_TC_SOURCE_RIDGE if y_τc_ridge is not None else None
     source = "y_τc" if c_hat is not None else None
     return {
         "c_tau": round(c_hat, 4) if c_hat is not None else None,
@@ -724,7 +734,7 @@ def blend_y_tw(
 
 
 def _y_tw_enter_floor(cfg_d: dict) -> float:
-    """ŷ_τw 共用入场幅度（y_tw_enter）。"""
+    """ŷ_τw 共用入场幅度（y_tw_enter）。票数门槛，与 ŷ_τc 是否截面 z 无关。"""
     from core.t0.score_policy import _cfg_float
 
     if cfg_d.get("y_tw_enter") not in (None, ""):
@@ -739,7 +749,7 @@ def _ytw_enter_for_direction(cfg_d: dict, direction: str) -> float:
 
 
 def _y_τc_enter_floor(cfg_d: dict) -> float:
-    """ŷ_τc 入场百分点。0=不拦。"""
+    """ŷ_τc 入场百分点。0=不拦。Tree / Ridge 同一套 % 门槛。"""
     from core.t0.score_policy import _cfg_float
 
     raw = cfg_d.get("y_τc_enter")
@@ -938,6 +948,7 @@ def bar_close_band_pick_direction(
     """
     o, c = _f(bar_open), _f(bar_close)
     lo, hi = _f(bar_low), _f(bar_high)
+    cfg = dict(cfg) if isinstance(cfg, dict) else {}
     y = blend_y_tw_from_scores(scores, cfg)
     delta = resolve_close_band_delta_pct(cfg)
     est_open = _f(open_px) or o

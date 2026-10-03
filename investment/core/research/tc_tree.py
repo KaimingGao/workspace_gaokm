@@ -1,4 +1,4 @@
-"""ŷ_τc_tree：独立浅树头，标签与 ŷ_τc 相同（τ→close，close[T]/price[τ]−1）。
+"""ŷ_τc_tree：独立树头，标签与 ŷ_τc 相同（τ→close，close[T]/price[τ]−1）。
 
 与 Ridge 同面板、同 Holdout。拟合写入 ``tc_tree_model.json``，
 供调仓回测「ŷ头=Tree」替换 ŷ_τc。不进交易执行。引擎仅 LightGBM。
@@ -48,16 +48,209 @@ from core.signal.minute_tau_feats import MINUTE_TAU_FEAT_LABELS
 TREE_SCHEMA = "tau_tree_shadow_v2"
 TREE_HEAD = "y_tau_tree"
 TAU_TREE_Z_FEATURES = with_horizon_tree_shape(TAU_Z_FEATURES)
-DEFAULT_N_ESTIMATORS = 80
-DEFAULT_MAX_DEPTH = 3
-DEFAULT_LEARNING_RATE = 0.08
-DEFAULT_SUBSAMPLE = 0.85
+
+# 观察池 ~300 只 × lookback ~120 日：中等正则，ŷ 用百分点，不抄 Qlib CSI 配方
+PANEL_LGB = {
+    "n_estimators": 300,
+    "max_depth": 5,
+    "num_leaves": 48,
+    "learning_rate": 0.08,
+    "subsample": 0.85,
+    "colsample_bytree": 0.8,
+    "lambda_l1": 5.0,
+    "lambda_l2": 10.0,
+    "min_data_in_leaf": 20,
+}
+DEFAULT_N_ESTIMATORS = int(PANEL_LGB["n_estimators"])
+DEFAULT_MAX_DEPTH = int(PANEL_LGB["max_depth"])
+DEFAULT_LEARNING_RATE = float(PANEL_LGB["learning_rate"])
+DEFAULT_SUBSAMPLE = float(PANEL_LGB["subsample"])
+# stump / 旧早停产物：best_iteration 过小则推理跳过
+MIN_USABLE_LGB_TREES = 8
+
+
+def lgb_best_iteration_collapsed(best_iter: Any) -> bool:
+    if best_iter is None:
+        return False
+    try:
+        return int(best_iter) < MIN_USABLE_LGB_TREES
+    except (TypeError, ValueError):
+        return False
+
+# 勾选「Qlib LGB 预设」：观察池规模的深度/叶/λ + 标签截面 z，无早停
+QLIB_ALPHA158_LGB = {
+    "n_estimators": 300,
+    "max_depth": 6,
+    "num_leaves": 64,
+    "learning_rate": 0.2,
+    "subsample": 0.8789,
+    "colsample_bytree": 0.8879,
+    "lambda_l1": 10.0,
+    "lambda_l2": 20.0,
+    "min_data_in_leaf": 20,
+}
+
+
+def resolve_use_qlib_lgb(
+    include_alpha158: bool,
+    qlib_lgb: Optional[bool] = None,
+) -> bool:
+    """仅 ``qlib_lgb=True``：缩小后的 Qlib 风格超参（截面 z，无早停）。"""
+    del include_alpha158
+    return bool(qlib_lgb)
+
+
+def _cs_zscore_by_date(
+    values: Sequence[float],
+    dates: Sequence[str],
+    *,
+    metas: Optional[Sequence[dict]] = None,
+) -> np.ndarray:
+    """按日（可选再按 τ）截面 z-score，对齐 Qlib CSZScoreNorm · label。"""
+    out = np.asarray(values, dtype=np.float64).copy()
+    n = int(out.shape[0])
+    if n == 0:
+        return out
+    buckets: Dict[str, List[int]] = {}
+    for i in range(n):
+        d = str(dates[i] if i < len(dates) else "")[:10]
+        tau = ""
+        if metas is not None and i < len(metas):
+            tau = str((metas[i] or {}).get("tau") or "").strip()
+        key = f"{d}|{tau}" if tau else d
+        buckets.setdefault(key, []).append(i)
+    for idxs in buckets.values():
+        if len(idxs) < 2:
+            out[idxs] = 0.0
+            continue
+        arr = out[idxs]
+        mu = float(np.mean(arr))
+        sd = float(np.std(arr))
+        if not math.isfinite(sd) or sd < 1e-12:
+            out[idxs] = 0.0
+        else:
+            out[idxs] = (arr - mu) / sd
+    return out
+
+
+def _qlib_lgb_hyper() -> Dict[str, Any]:
+    q = dict(QLIB_ALPHA158_LGB)
+    return {
+        "n_estimators": int(q["n_estimators"]),
+        "max_depth": int(q["max_depth"]),
+        "num_leaves": int(q["num_leaves"]),
+        "learning_rate": float(q["learning_rate"]),
+        "subsample": float(q["subsample"]),
+        "colsample_bytree": float(q["colsample_bytree"]),
+        "lambda_l1": float(q["lambda_l1"]),
+        "lambda_l2": float(q["lambda_l2"]),
+        "min_data_in_leaf": int(q["min_data_in_leaf"]),
+        "label_cs_zscore": True,
+        "preset": "qlib_alpha158",
+        "preset_ref": "watching-scaled qlib-style LGB (depth6/300/leaf64/l1=10/l2=20, no ES)",
+    }
+
+
+def _panel_lgb_hyper() -> Dict[str, Any]:
+    q = dict(PANEL_LGB)
+    return {
+        "n_estimators": int(q["n_estimators"]),
+        "max_depth": int(q["max_depth"]),
+        "num_leaves": int(q["num_leaves"]),
+        "learning_rate": float(q["learning_rate"]),
+        "subsample": float(q["subsample"]),
+        "colsample_bytree": float(q["colsample_bytree"]),
+        "lambda_l1": float(q["lambda_l1"]),
+        "lambda_l2": float(q["lambda_l2"]),
+        "min_data_in_leaf": int(q["min_data_in_leaf"]),
+        "label_cs_zscore": False,
+        "preset": "panel_lgb",
+        "preset_note": "watching~300 × lookback~120; ŷ in percent",
+    }
+
+
+def _lgb_train_kwargs(hyper: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        "num_leaves": hyper["num_leaves"],
+        "colsample_bytree": hyper["colsample_bytree"],
+        "lambda_l1": hyper["lambda_l1"],
+        "lambda_l2": hyper["lambda_l2"],
+        "min_data_in_leaf": hyper["min_data_in_leaf"],
+    }
+
+
+def fit_lgb_holdout(
+    xs_tr: Sequence[dict],
+    ys_tr: Sequence[float],
+    metas_tr: Sequence[dict],
+    xs_te: Sequence[dict],
+    feat_names: Sequence[str],
+    *,
+    use_qlib: bool,
+    n_estimators: int,
+    max_depth: int,
+    learning_rate: float,
+    subsample: float,
+    sample_weights: Optional[Sequence[float]] = None,
+) -> Tuple[Any, np.ndarray, Dict[str, Any], np.ndarray, List[Optional[float]], float]:
+    """Holdout 树拟合。默认观察池 LGB（百分点）；``use_qlib`` 才走缩小后的 Qlib 风格超参 + 截面 z（无早停）。"""
+    dates_tr = [str((m or {}).get("date") or "")[:10] for m in metas_tr]
+    w_tr = (
+        [float(x) for x in sample_weights]
+        if sample_weights is not None and len(sample_weights) == len(ys_tr)
+        else [1.0] * len(ys_tr)
+    )
+    if use_qlib:
+        hyper = _qlib_lgb_hyper()
+        lgb_kwargs = _lgb_train_kwargs(hyper)
+    else:
+        hyper = _panel_lgb_hyper()
+        hyper["n_estimators"] = int(n_estimators)
+        hyper["max_depth"] = int(max_depth)
+        hyper["learning_rate"] = float(learning_rate)
+        hyper["subsample"] = float(subsample)
+        lgb_kwargs = _lgb_train_kwargs(hyper)
+
+    x_fit, means = _design_matrix(xs_tr, feat_names)
+    x_te, _ = _design_matrix(xs_te, feat_names, means=means)
+    y_fit_raw = np.asarray(ys_tr, dtype=np.float64)
+    w_fit = np.asarray(w_tr, dtype=np.float64)
+    if w_fit.shape != y_fit_raw.shape:
+        w_fit = np.ones_like(y_fit_raw)
+    if use_qlib:
+        fin = y_fit_raw[np.isfinite(y_fit_raw)]
+        if fin.size:
+            hyper["label_cs_std"] = round(float(np.std(fin)), 8)
+    y_fit = (
+        _cs_zscore_by_date(y_fit_raw, dates_tr, metas=metas_tr)
+        if use_qlib
+        else y_fit_raw
+    )
+
+    t0 = time.perf_counter()
+    model, gain = _fit_lightgbm(
+        x_fit,
+        y_fit,
+        w_fit,
+        n_estimators=int(hyper["n_estimators"]),
+        max_depth=int(hyper["max_depth"]),
+        learning_rate=float(hyper["learning_rate"]),
+        subsample=float(hyper["subsample"]),
+        **lgb_kwargs,
+    )
+    best_iter = getattr(model, "best_iteration", None)
+    if best_iter is not None and int(best_iter) > 0:
+        hyper["best_iteration"] = int(best_iter)
+    raw = _predict_lightgbm(model, x_te)
+    preds = [float(v) if math.isfinite(float(v)) else None for v in raw]
+    tree_s = round(time.perf_counter() - t0, 2)
+    return model, gain, hyper, means, preds, tree_s
 
 
 def resolve_tree_backend(preferred: Optional[str] = None) -> str:
-    """ŷ_τc_tree / ŷ_τ*_tree 仅 LightGBM；``None`` / ``auto`` / ``lgb`` 均解析为 lightgbm。"""
+    """ŷ_τc_tree / ŷ_τ*_tree 仅 LightGBM；``None`` / ``lgb`` 均解析为 lightgbm。"""
     raw = str(preferred or "").strip().lower()
-    if raw in {"", "auto", "lightgbm", "lgb"}:
+    if raw in {"", "lightgbm", "lgb"}:
         try:
             import lightgbm  # noqa: F401
         except ImportError as exc:
@@ -65,8 +258,6 @@ def resolve_tree_backend(preferred: Optional[str] = None) -> str:
                 "ŷ_τc_tree / ŷ_τ*_tree 仅支持 LightGBM，请安装 lightgbm"
             ) from exc
         return "lightgbm"
-    if raw in {"xgboost", "xgb", "numpy", "numpy_gbm", "gbm"}:
-        raise ValueError(f"树后端已下掉 {raw}，仅支持 lightgbm")
     raise ValueError(f"unsupported tree backend={raw!r}；仅支持 lightgbm")
 
 
@@ -74,13 +265,6 @@ def tau_tree_last_report_path() -> str:
     from core.paths import LIVE_DIR
 
     return os.path.join(LIVE_DIR, "tau_tree_last_report.json")
-
-
-def tau_boost_last_report_path() -> str:
-    """旧对照文件名；仅 load 回退。"""
-    from core.paths import LIVE_DIR
-
-    return os.path.join(LIVE_DIR, "tau_boost_last_report.json")
 
 
 def save_tau_tree_last_report(report: Dict[str, Any]) -> None:
@@ -94,17 +278,17 @@ def save_tau_tree_last_report(report: Dict[str, Any]) -> None:
 def load_tau_tree_last_report() -> Optional[Dict[str, Any]]:
     import json
 
-    for path in (tau_tree_last_report_path(), tau_boost_last_report_path()):
-        try:
-            with open(path, encoding="utf-8") as f:
-                doc = json.load(f)
-        except OSError:
-            continue
-        except Exception:  # noqa: BLE001
-            logger.debug("load tau tree last_report failed", exc_info=True)
-            continue
-        if isinstance(doc, dict) and doc.get("success"):
-            return doc
+    path = tau_tree_last_report_path()
+    try:
+        with open(path, encoding="utf-8") as f:
+            doc = json.load(f)
+    except OSError:
+        return None
+    except Exception:  # noqa: BLE001
+        logger.debug("load tau tree last_report failed", exc_info=True)
+        return None
+    if isinstance(doc, dict) and doc.get("success"):
+        return doc
     return None
 
 
@@ -165,10 +349,14 @@ def _oos_pack(
     y_list = [float(y) for y in ys]
     meta_list = list(metas)
     buckets = _oos_sign_buckets(pred_list, y_list) if y_list else {}
+    # 默认 |ŷ|≥0.05；Qlib 截面 z 标签下 ŷ 幅度常更小，回退全样本同号率以免命中缺失
+    sign_hit = _sign_hit(pred_list, y_list) if y_list else None
+    if sign_hit is None and y_list:
+        sign_hit = _sign_hit(pred_list, y_list, min_abs=0.0)
     out: Dict[str, Any] = {
         "n_valid": buckets.get("n_valid") if isinstance(buckets, dict) else None,
         "ic": _ic(pred_list, y_list) if y_list else None,
-        "sign_hit": _sign_hit(pred_list, y_list) if y_list else None,
+        "sign_hit": sign_hit,
         "residual_var": _residual_var(pred_list, y_list) if y_list else None,
         "by_theme": _oos_by_theme(pred_list, y_list, meta_list) if y_list else {},
         "by_tau": _oos_by_tau(pred_list, y_list, meta_list) if y_list and use_minute else {},
@@ -178,6 +366,13 @@ def _oos_pack(
         "n_pos": buckets.get("n_pos") if isinstance(buckets, dict) else None,
         "n_neg": buckets.get("n_neg") if isinstance(buckets, dict) else None,
     }
+    if y_list:
+        try:
+            from core.research.daily_cs_ic import attach_daily_cs_ic
+
+            attach_daily_cs_ic(out, pred_list, y_list, meta_list)
+        except Exception:  # noqa: BLE001
+            logger.debug("attach_daily_cs_ic failed", exc_info=True)
     return out
 
 
@@ -190,8 +385,26 @@ def _delta_oos(boost: Dict[str, Any], ridge: Dict[str, Any]) -> Dict[str, Any]:
         except (TypeError, ValueError):
             return None
 
-    b06_b = ((boost.get("buckets") or {}).get("abs_ge_0_6") or {}).get("sign_hit")
-    b06_r = ((ridge.get("buckets") or {}).get("abs_ge_0_6") or {}).get("sign_hit")
+    def _bucket_hit(pack: Dict[str, Any], key: str) -> Optional[float]:
+        b = ((pack.get("buckets") or {}).get(key) or {}).get("sign_hit")
+        try:
+            return float(b) if b is not None else None
+        except (TypeError, ValueError):
+            return None
+
+    def _bucket_n(pack: Dict[str, Any], key: str) -> int:
+        try:
+            return int(((pack.get("buckets") or {}).get(key) or {}).get("n") or 0)
+        except (TypeError, ValueError):
+            return 0
+
+    # 固定 0.6 桶两侧都空时，用 |ŷ| top30% 分位桶（z 标签树常见）
+    strong_key = "abs_ge_0_6"
+    if _bucket_n(boost, "abs_ge_0_6") < 5 and _bucket_n(ridge, "abs_ge_0_6") < 5:
+        if _bucket_n(boost, "abs_top_30") >= 5 or _bucket_n(ridge, "abs_top_30") >= 5:
+            strong_key = "abs_top_30"
+    b06_b = _bucket_hit(boost, strong_key)
+    b06_r = _bucket_hit(ridge, strong_key)
     open_b = ((boost.get("by_tau") or {}).get("09:30") or {}).get("sign_hit")
     open_r = ((ridge.get("by_tau") or {}).get("09:30") or {}).get("sign_hit")
     return {
@@ -202,238 +415,9 @@ def _delta_oos(boost: Dict[str, Any], ridge: Dict[str, Any]) -> Dict[str, Any]:
         "brier": _sub(boost.get("brier"), ridge.get("brier")),
         "acc_at_50": _sub(boost.get("acc_at_50"), ridge.get("acc_at_50")),
         "strong_sign_hit": _sub(b06_b, b06_r),
+        "strong_bucket": strong_key,
         "open_sign_hit": _sub(open_b, open_r),
     }
-
-
-def _weighted_mean(y: np.ndarray, w: np.ndarray) -> float:
-    sw = float(np.sum(w))
-    if sw <= 1e-12:
-        return float(np.mean(y)) if y.size else 0.0
-    return float(np.dot(y, w) / sw)
-
-
-def _best_split(
-    x: np.ndarray,
-    y: np.ndarray,
-    w: np.ndarray,
-    min_leaf: int,
-) -> Optional[Tuple[int, float, float]]:
-    n, p = x.shape
-    if n < max(4, 2 * min_leaf):
-        return None
-    parent_sw = float(np.sum(w))
-    if parent_sw <= 1e-12:
-        return None
-    parent_sum = float(np.dot(y, w))
-    parent_sumsq = float(np.dot(y * y, w))
-    parent_sse = parent_sumsq - (parent_sum * parent_sum) / parent_sw
-    best: Optional[Tuple[int, float, float]] = None
-    min_w = max(1e-9, float(min_leaf))
-    for j in range(p):
-        order = np.argsort(x[:, j], kind="mergesort")
-        xs = x[order, j]
-        ys = y[order]
-        ws = w[order]
-        left_sw = 0.0
-        left_sum = 0.0
-        left_sumsq = 0.0
-        for i in range(n - 1):
-            wi = float(ws[i])
-            yi = float(ys[i])
-            left_sw += wi
-            left_sum += wi * yi
-            left_sumsq += wi * yi * yi
-            if xs[i + 1] <= xs[i] + 1e-15:
-                continue
-            right_sw = parent_sw - left_sw
-            if left_sw < min_w or right_sw < min_w:
-                continue
-            if (i + 1) < min_leaf or (n - i - 1) < min_leaf:
-                continue
-            left_sse = left_sumsq - (left_sum * left_sum) / left_sw
-            right_sum = parent_sum - left_sum
-            right_sumsq = parent_sumsq - left_sumsq
-            right_sse = right_sumsq - (right_sum * right_sum) / right_sw
-            gain = parent_sse - left_sse - right_sse
-            if best is None or gain > best[2]:
-                thr = 0.5 * (float(xs[i]) + float(xs[i + 1]))
-                best = (j, thr, float(gain))
-    if best is None or best[2] <= 1e-15:
-        return None
-    return best
-
-
-def _grow_tree(
-    x: np.ndarray,
-    y: np.ndarray,
-    w: np.ndarray,
-    *,
-    depth: int,
-    max_depth: int,
-    min_leaf: int,
-    gain_acc: np.ndarray,
-) -> Dict[str, Any]:
-    if depth >= max_depth or x.shape[0] < max(4, 2 * min_leaf):
-        return {"v": _weighted_mean(y, w)}
-    split = _best_split(x, y, w, min_leaf)
-    if split is None:
-        return {"v": _weighted_mean(y, w)}
-    feat, thr, gain = split
-    gain_acc[feat] += max(0.0, gain)
-    left_m = x[:, feat] <= thr
-    right_m = ~left_m
-    if int(np.sum(left_m)) < min_leaf or int(np.sum(right_m)) < min_leaf:
-        return {"v": _weighted_mean(y, w)}
-    return {
-        "f": int(feat),
-        "t": float(thr),
-        "l": _grow_tree(
-            x[left_m],
-            y[left_m],
-            w[left_m],
-            depth=depth + 1,
-            max_depth=max_depth,
-            min_leaf=min_leaf,
-            gain_acc=gain_acc,
-        ),
-        "r": _grow_tree(
-            x[right_m],
-            y[right_m],
-            w[right_m],
-            depth=depth + 1,
-            max_depth=max_depth,
-            min_leaf=min_leaf,
-            gain_acc=gain_acc,
-        ),
-    }
-
-
-def _apply_tree(tree: Dict[str, Any], x: np.ndarray) -> np.ndarray:
-    out = np.zeros(x.shape[0], dtype=np.float64)
-    idx = np.arange(x.shape[0], dtype=np.int64)
-
-    def walk(node: Dict[str, Any], rows: np.ndarray) -> None:
-        if not rows.size:
-            return
-        if "v" in node:
-            out[rows] = float(node["v"])
-            return
-        feat = int(node["f"])
-        thr = float(node["t"])
-        go_left = x[rows, feat] <= thr
-        walk(node["l"], rows[go_left])
-        walk(node["r"], rows[~go_left])
-
-    walk(tree, idx)
-    return out
-
-
-def _fit_numpy_gbm(
-    x: np.ndarray,
-    y: np.ndarray,
-    w: np.ndarray,
-    *,
-    n_estimators: int,
-    max_depth: int,
-    learning_rate: float,
-    subsample: float,
-    rng: np.random.Generator,
-) -> Tuple[Dict[str, Any], np.ndarray]:
-    n = int(x.shape[0])
-    p = int(x.shape[1])
-    min_leaf = max(8, n // 80)
-    base = _weighted_mean(y, w)
-    pred = np.full(n, base, dtype=np.float64)
-    trees: List[Dict[str, Any]] = []
-    gain = np.zeros(p, dtype=np.float64)
-    ss = min(1.0, max(0.4, float(subsample)))
-    for _ in range(max(1, int(n_estimators))):
-        resid = y - pred
-        if ss < 0.999 and n >= 20:
-            k = max(min_leaf * 2, int(round(n * ss)))
-            k = min(n, max(k, 8))
-            take = rng.choice(n, size=k, replace=False)
-            xt, yt, wt = x[take], resid[take], w[take]
-        else:
-            xt, yt, wt = x, resid, w
-        tree = _grow_tree(
-            xt,
-            yt,
-            wt,
-            depth=0,
-            max_depth=max(1, int(max_depth)),
-            min_leaf=min_leaf,
-            gain_acc=gain,
-        )
-        trees.append(tree)
-        pred = pred + float(learning_rate) * _apply_tree(tree, x)
-    pack = {
-        "backend": "numpy_gbm",
-        "base": float(base),
-        "learning_rate": float(learning_rate),
-        "trees": trees,
-    }
-    return pack, gain
-
-
-def _predict_numpy_gbm(pack: Dict[str, Any], x: np.ndarray) -> np.ndarray:
-    pred = np.full(x.shape[0], float(pack.get("base") or 0.0), dtype=np.float64)
-    lr = float(pack.get("learning_rate") or 0.0)
-    for tree in pack.get("trees") or []:
-        if isinstance(tree, dict):
-            pred = pred + lr * _apply_tree(tree, x)
-    return pred
-
-
-def _fit_xgboost(
-    x: np.ndarray,
-    y: np.ndarray,
-    w: np.ndarray,
-    *,
-    n_estimators: int,
-    max_depth: int,
-    learning_rate: float,
-    subsample: float,
-    objective: str = "reg:squarederror",
-) -> Tuple[Any, np.ndarray]:
-    import xgboost as xgb
-
-    obj = str(objective or "reg:squarederror").strip() or "reg:squarederror"
-    dtrain = xgb.DMatrix(x, label=y, weight=w)
-    booster = xgb.train(
-        {
-            "max_depth": max(1, int(max_depth)),
-            "eta": float(learning_rate),
-            "subsample": min(1.0, max(0.4, float(subsample))),
-            "colsample_bytree": 0.9,
-            "lambda": 1.0,
-            "min_child_weight": 8,
-            "objective": obj,
-            "tree_method": "hist",
-            "nthread": 1,
-            "seed": 42,
-            "verbosity": 0,
-        },
-        dtrain,
-        num_boost_round=max(1, int(n_estimators)),
-    )
-    gain = np.zeros(int(x.shape[1]), dtype=np.float64)
-    scores = booster.get_score(importance_type="gain") or {}
-    for i in range(gain.size):
-        v = scores.get(f"f{i}")
-        if v is not None:
-            gain[i] = float(v)
-    total = float(np.sum(np.clip(gain, 0.0, None)))
-    if total > 1e-12:
-        gain = gain / total
-    return booster, gain
-
-
-def _predict_xgboost(booster: Any, x: np.ndarray) -> np.ndarray:
-    import xgboost as xgb
-
-    return np.asarray(booster.predict(xgb.DMatrix(x)), dtype=np.float64)
 
 
 def _fit_lightgbm(
@@ -446,39 +430,37 @@ def _fit_lightgbm(
     learning_rate: float,
     subsample: float,
     objective: str = "regression",
+    num_leaves: Optional[int] = None,
+    colsample_bytree: float = 0.9,
+    lambda_l1: float = 0.0,
+    lambda_l2: float = 1.0,
+    min_data_in_leaf: int = 8,
+    num_threads: int = 1,
 ) -> Tuple[Any, np.ndarray]:
     import lightgbm as lgb
 
-    # XGBoost objective 名 → LightGBM objective 名映射
-    _OBJ_MAP = {
-        "reg:squarederror": "regression",
-        "reg:squaredlogerror": "regression",
-        "reg:linear": "regression",
-        "regression": "regression",
-        "binary:logistic": "binary",
-        "binary:logitraw": "binary",
-        "binary": "binary",
-        "multi:softmax": "multiclass",
-        "multi:softprob": "multiclass",
-    }
     raw_obj = str(objective or "regression").strip().lower() or "regression"
-    obj = _OBJ_MAP.get(raw_obj, "regression")
-    is_binary = obj == "binary"
+    is_binary = raw_obj == "binary"
+    obj = "binary" if is_binary else "regression"
     dtrain = lgb.Dataset(x, label=y, weight=w)
+    params: Dict[str, Any] = {
+        "objective": obj,
+        "metric": ["binary_logloss" if is_binary else "l2"],
+        "max_depth": max(1, int(max_depth)),
+        "learning_rate": float(learning_rate),
+        "subsample": min(1.0, max(0.4, float(subsample))),
+        "colsample_bytree": min(1.0, max(0.2, float(colsample_bytree))),
+        "lambda_l1": max(0.0, float(lambda_l1)),
+        "lambda_l2": max(0.0, float(lambda_l2)),
+        "min_data_in_leaf": max(1, int(min_data_in_leaf)),
+        "verbose": -1,
+        "seed": 42,
+        "num_threads": max(1, int(num_threads)),
+    }
+    if num_leaves is not None:
+        params["num_leaves"] = max(2, int(num_leaves))
     booster = lgb.train(
-        {
-            "objective": obj,
-            "metric": ["binary_logloss" if is_binary else "l2"],
-            "max_depth": max(1, int(max_depth)),
-            "learning_rate": float(learning_rate),
-            "subsample": min(1.0, max(0.4, float(subsample))),
-            "colsample_bytree": 0.9,
-            "lambda_l2": 1.0,
-            "min_data_in_leaf": 8,
-            "verbose": -1,
-            "seed": 42,
-            "num_threads": 1,
-        },
+        params,
         dtrain,
         num_boost_round=max(1, int(n_estimators)),
     )
@@ -622,11 +604,13 @@ def fit_tau_tree_report(
     learning_rate: float = DEFAULT_LEARNING_RATE,
     subsample: float = DEFAULT_SUBSAMPLE,
     include_alpha158: bool = True,
+    qlib_lgb: Optional[bool] = None,
 ) -> Dict[str, Any]:
     """同面板拟合树 + Ridge OOS 对照。不写 live / 研究套模型。
 
-    ``include_alpha158=True``（默认）：树吃 ``raw_alpha158_*``；Ridge 对照仍只用 ``TAU_Z_FEATURES``
-    （避免与 ŷ_oo 双重计权）。
+    ``include_alpha158=True``（默认）：树吃 ``raw_alpha158_*``。默认观察池 LGB
+    （百分点、中等正则）。``qlib_lgb=True`` 才启用缩小后的 Qlib 风格超参 + 标签截面 z。
+    Ridge 对照仍只用 ``TAU_Z_FEATURES``（避免与 ŷ_oo 双重计权）。
     """
     t0 = time.perf_counter()
     tau_key = str(tau_hm or "open").strip() or "open"
@@ -717,8 +701,6 @@ def fit_tau_tree_report(
             "backtest_hook": False,
         }
 
-    x_tr, means = _design_matrix(xs_tr, feat_names)
-    x_te, _ = _design_matrix(xs_te, feat_names, means=means)
     y_tr = np.asarray(ys_tr, dtype=np.float64)
     w_tr = np.asarray(
         theme_sample_weights(metas_tr, theme_boost=theme_boost)
@@ -730,19 +712,20 @@ def fit_tau_tree_report(
         w_tr = np.ones_like(y_tr)
 
     engine = resolve_tree_backend(backend)
-    hyper = {
-        "n_estimators": int(n_estimators),
-        "max_depth": int(max_depth),
-        "learning_rate": float(learning_rate),
-        "subsample": float(subsample),
-    }
-    gain = np.zeros(len(feat_names), dtype=np.float64)
-    boost_preds: List[Optional[float]]
-    t_tree0 = time.perf_counter()
-    model, gain = _fit_lightgbm(x_tr, y_tr, w_tr, **hyper)
-    raw = _predict_lightgbm(model, x_te)
-    boost_preds = [float(v) if math.isfinite(float(v)) else None for v in raw]
-    tree_s = round(time.perf_counter() - t_tree0, 2)
+    use_qlib = resolve_use_qlib_lgb(include_alpha158, qlib_lgb)
+    model, gain, hyper, means, boost_preds, tree_s = fit_lgb_holdout(
+        xs_tr,
+        ys_tr,
+        metas_tr,
+        xs_te,
+        feat_names,
+        use_qlib=use_qlib,
+        n_estimators=n_estimators,
+        max_depth=max_depth,
+        learning_rate=learning_rate,
+        subsample=subsample,
+        sample_weights=w_tr,
+    )
     from core.research.horizon_tree import pack_tree_return_model
 
     return_model = pack_tree_return_model(
@@ -818,6 +801,7 @@ def fit_tau_tree_report(
         "ridge_feature_names": list(ridge_feat_names),
         "tree_shape_features": list(TAU_HORIZON_TREE_SHAPE_FEATURES),
         "include_alpha158": bool(include_alpha158),
+        "qlib_lgb": bool(use_qlib),
         "n_alpha158_features": len(a158_keys),
         "feature_importance": _importance_rows(feat_names, gain),
         "tree_return_model": return_model,
@@ -830,9 +814,13 @@ def fit_tau_tree_report(
         "note": (
             "ŷ_τ_tree：同标签同 Holdout vs Ridge；路径/量价 shape 仅 Tree；"
             + (
-                "树侧含 raw_alpha158_*（Ridge Z 不含，防与 ŷ_oo 双重计权）；"
-                if include_alpha158
-                else ""
+                "树侧含 raw_alpha158_* + Qlib LGB 预设（深6/300轮/叶64/λ10·20 + 截面 z，无早停）；"
+                if use_qlib
+                else (
+                    "树侧含 raw_alpha158_*（Ridge Z 不含，防与 ŷ_oo 双重计权）；"
+                    if include_alpha158
+                    else ""
+                )
             )
             + "写入 tc_tree_model.json 后，调仓回测选 Tree 替换 ŷ_τc；不进交易执行"
         ),

@@ -882,11 +882,19 @@ export function createFactorIcUi(deps) {
           : ` · ${ySpecClocks.length} 钟每5分 ${ySpecClocks[0]}–${ySpecClocks[ySpecClocks.length - 1]}`
         : "");
 
-    const kpi = (label, value, tip) =>
-      `<span class="quant-rem-coef-kpi" title="${esc(tip || String(value) || label)}">` +
-      `<span class="quant-rem-coef-kpi-k">${esc(label)}</span>` +
-      `<span class="quant-rem-coef-kpi-v">${esc(String(value))}</span>` +
-      `</span>`;
+    const kpi = (label, value, tip, opts = {}) => {
+      let tone = "";
+      if (opts.signed) {
+        const n = Number(opts.raw != null ? opts.raw : value);
+        if (Number.isFinite(n) && n !== 0) tone = n > 0 ? "up" : "down";
+      }
+      return (
+        `<span class="quant-rem-coef-kpi" title="${esc(tip || String(value) || label)}">` +
+        `<span class="quant-rem-coef-kpi-k">${esc(label)}</span>` +
+        `<span class="quant-rem-coef-kpi-v${tone ? ` ${tone}` : ""}">${esc(String(value))}</span>` +
+        `</span>`
+      );
+    };
 
     const nFmt =
       n != null && Number.isFinite(Number(n))
@@ -905,8 +913,10 @@ export function createFactorIcUi(deps) {
       ? "执行套全样本入模行；Holdout 只改研究套训/测，不改此数"
       : "全面板完整行（OOS 后重估 β）；状态栏「面板 n」含缺测行，OOS n 含同日多 τ";
     const oosIcTip = oos.holdout_trading_days != null
-        ? `Holdout ${oos.holdout_trading_days} 日样本外 IC`
-        : "时间切分样本外 IC";
+        ? `Holdout ${oos.holdout_trading_days} 日拼样本 Pearson（旧口径）`
+        : "拼样本 Pearson（旧口径）";
+    const csIcTip = "对齐 Qlib IC：每日截面 Pearson 再对日平均";
+    const csRankTip = "对齐 Qlib Rank IC：每日截面 Spearman 再对日平均";
 
     const metrics =
       `<div class="quant-rem-coef-spec-metrics" role="group" aria-label="${esc(
@@ -963,8 +973,31 @@ export function createFactorIcUi(deps) {
       (useProbKpis && oos.brier != null && Number.isFinite(Number(oos.brier))
         ? kpi("Brier", Number(oos.brier).toFixed(3), "越小越好；0.25≈瞎猜")
         : "") +
+      (!useProbKpis && oos.cs_ic != null && Number.isFinite(Number(oos.cs_ic))
+        ? kpi("IC", Number(oos.cs_ic).toFixed(3), csIcTip, {
+            signed: true,
+            raw: oos.cs_ic,
+          })
+        : "") +
+      (!useProbKpis && oos.cs_rank_ic != null && Number.isFinite(Number(oos.cs_rank_ic))
+        ? kpi("Rank IC", Number(oos.cs_rank_ic).toFixed(3), csRankTip, {
+            signed: true,
+            raw: oos.cs_rank_ic,
+          })
+        : "") +
+      (!useProbKpis && oos.cs_icir != null && Number.isFinite(Number(oos.cs_icir))
+        ? kpi("ICIR", Number(oos.cs_icir).toFixed(3), "日频 IC 均值/标准差", {
+            signed: true,
+            raw: oos.cs_icir,
+          })
+        : "") +
       (!useProbKpis && oos.ic != null && Number.isFinite(Number(oos.ic))
-        ? kpi("OOS IC", Number(oos.ic).toFixed(3), oosIcTip)
+        ? kpi(
+            oos.cs_ic != null ? "拼样IC" : "OOS IC",
+            Number(oos.ic).toFixed(3),
+            oosIcTip,
+            { signed: true, raw: oos.ic }
+          )
         : "") +
       (!useProbKpis && oos.sign_hit_rate != null && Number.isFinite(Number(oos.sign_hit_rate))
         ? kpi(

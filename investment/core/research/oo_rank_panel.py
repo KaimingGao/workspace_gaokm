@@ -2,7 +2,7 @@
 
 标签与 ŷ_oo 同源：open[T+h]/open[T]−1（默认 h=1，百分点）。
 特征：原始 sub_score + 横截面 cs_rank / cs_zscore；``feature_mode`` 消融选列。
-仅供 pairwise LTR 研究 / 影子跑路；不进 live ranking。
+仅供 LambdaRank 研究 / 影子跑路；不进 live ranking。
 """
 
 from __future__ import annotations
@@ -87,10 +87,6 @@ def add_cross_sectional_features(
                 continue
             x[f"{feat}{_CS_RANK_SUFFIX}"] = round(ranks[i], 4)
             x[f"{feat}{_CS_Z_SUFFIX}"] = round((vals[i] - mean) / std, 4)
-
-
-# 兼容旧名
-_add_cross_sectional_features = add_cross_sectional_features
 
 
 def normalize_feature_mode(mode: Optional[str]) -> str:

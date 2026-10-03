@@ -1,6 +1,6 @@
-"""ŷ_τ*_tree 可预测落盘：XGBoost / numpy GBM → p_up，供做 T 回测替换 Ridge。
+"""ŷ_τ*_tree 可预测落盘：LightGBM → p_up / 收益，供做 T / 调仓回测替换 Ridge。
 
-影子报告仍写 ``*_tree_last_report.json``；可预测包写 ``*_tree_model.json``。
+影子报告写 ``*_tree_last_report.json``；可预测包写 ``*_tree_model.json``。
 ``horizon_prob_backend=tree`` 时 score_policy 读此包；缺模型回退 Ridge。
 """
 
@@ -34,7 +34,7 @@ _TREE_MODEL_CACHE: Dict[str, Tuple[Tuple[float, float], Optional[Dict[str, Any]]
 
 def normalize_horizon_prob_backend(raw: Any = None) -> str:
     s = str(raw or "").strip().lower()
-    if s in {"tree", "gbm", "xgboost", "boost", "shadow_tree"}:
+    if s in {"tree", "lightgbm", "lgb"}:
         return HORIZON_PROB_BACKEND_TREE
     return HORIZON_PROB_BACKEND_RIDGE
 
@@ -77,35 +77,6 @@ def _means_dict(feature_names: Sequence[str], means: Optional[np.ndarray]) -> Di
         v = float(arr[i])
         out[str(name)] = 0.0 if not math.isfinite(v) else v
     return out
-
-
-def serialize_xgboost_booster(booster: Any) -> Dict[str, str]:
-    raw = booster.save_raw("json")
-    if isinstance(raw, memoryview):
-        raw = raw.tobytes()
-    if isinstance(raw, bytearray):
-        raw = bytes(raw)
-    if isinstance(raw, bytes):
-        text = raw.decode("utf-8")
-    else:
-        text = str(raw)
-    return {
-        "format": "xgboost_json",
-        "payload_b64": base64.b64encode(text.encode("utf-8")).decode("ascii"),
-    }
-
-
-def load_xgboost_booster(blob: Dict[str, Any]) -> Any:
-    import xgboost as xgb
-
-    fmt = str((blob or {}).get("format") or "")
-    if fmt != "xgboost_json":
-        raise ValueError(f"unsupported xgboost blob format={fmt}")
-    b64 = str((blob or {}).get("payload_b64") or "")
-    text = base64.b64decode(b64.encode("ascii")).decode("utf-8")
-    booster = xgb.Booster()
-    booster.load_model(bytearray(text.encode("utf-8")))
-    return booster
 
 
 def serialize_lightgbm_booster(booster: Any) -> Dict[str, str]:
@@ -184,15 +155,9 @@ def pack_tree_return_model(
         out["target"] = str(target)
     if isinstance(hyperparams, dict):
         out["hyperparams"] = dict(hyperparams)
-    if eng == "xgboost":
-        out["booster"] = serialize_xgboost_booster(model_obj)
-    elif eng == "lightgbm":
-        out["booster"] = serialize_lightgbm_booster(model_obj)
-    elif eng in {"numpy_gbm", "numpy", "gbm"}:
-        out["backend"] = "numpy_gbm"
-        out["gbm_pack"] = dict(model_obj or {})
-    else:
-        raise ValueError(f"unknown tree backend={backend}")
+    if eng != "lightgbm":
+        raise ValueError(f"unknown tree backend={backend}；仅支持 lightgbm")
+    out["booster"] = serialize_lightgbm_booster(model_obj)
     return out
 
 
@@ -225,12 +190,23 @@ def _cached_booster(kind: str, blob: Dict[str, Any], loader) -> Any:
     return booster
 
 
+def tree_return_model_collapsed(model_doc: Optional[Dict[str, Any]]) -> bool:
+    """best_iteration 过小（stump）时 ŷ 是训练集均值，不能当收益预测。"""
+    from core.research.tc_tree import lgb_best_iteration_collapsed
+
+    rm = _return_model_doc(model_doc)
+    hp = rm.get("hyperparams") if isinstance(rm.get("hyperparams"), dict) else {}
+    return lgb_best_iteration_collapsed(hp.get("best_iteration"))
+
+
 def predict_tree_raw(
     features: Optional[Dict[str, Any]],
     return_model: Optional[Dict[str, Any]],
 ) -> Optional[float]:
     """树头原始输出。缺模型/缺特征名/非有限值返回 None。不裁剪到概率。"""
     rm = return_model if isinstance(return_model, dict) else {}
+    if tree_return_model_collapsed(rm):
+        return None
     names = [str(n) for n in (rm.get("feature_names") or []) if n]
     if not names:
         return None
@@ -242,24 +218,13 @@ def predict_tree_raw(
         return None
     eng = str(rm.get("backend") or "").strip().lower()
     try:
-        if eng == "xgboost":
-            from core.research.tc_tree import _predict_xgboost
-
-            blob = rm.get("booster") if isinstance(rm.get("booster"), dict) else {}
-            booster = _cached_booster("xgb", blob, load_xgboost_booster)
-            pred = _predict_xgboost(booster, x)
-        elif eng == "lightgbm":
-            from core.research.tc_tree import _predict_lightgbm
-
-            blob = rm.get("booster") if isinstance(rm.get("booster"), dict) else {}
-            booster = _cached_booster("lgb", blob, load_lightgbm_booster)
-            pred = _predict_lightgbm(booster, x)
-        elif eng in {"numpy_gbm", "numpy", "gbm"}:
-            from core.research.tc_tree import _predict_numpy_gbm
-
-            pred = _predict_numpy_gbm(rm.get("gbm_pack") or {}, x)
-        else:
+        if eng != "lightgbm":
             return None
+        from core.research.tc_tree import _predict_lightgbm
+
+        blob = rm.get("booster") if isinstance(rm.get("booster"), dict) else {}
+        booster = _cached_booster("lgb", blob, load_lightgbm_booster)
+        pred = _predict_lightgbm(booster, x)
     except Exception:  # noqa: BLE001
         logger.debug("tree predict failed backend=%s", eng, exc_info=True)
         return None
@@ -282,12 +247,30 @@ def predict_tree_p_up(
     return max(HORIZON_P_CLIP, min(p, 1.0 - HORIZON_P_CLIP))
 
 
+def _cs_z_restore_scale(return_model: Optional[Dict[str, Any]]) -> float:
+    """训练标签做了截面 z 时，把 ŷ 乘回原始百分点 std。"""
+    rm = _return_model_doc(return_model)
+    hp = rm.get("hyperparams") if isinstance(rm.get("hyperparams"), dict) else {}
+    if not hp.get("label_cs_zscore"):
+        return 1.0
+    try:
+        s = float(hp.get("label_cs_std") or 0.0)
+    except (TypeError, ValueError):
+        return 1.0
+    if not math.isfinite(s) or s <= 1e-12:
+        return 1.0
+    return s
+
+
 def predict_tree_return(
     features: Optional[Dict[str, Any]],
     return_model: Optional[Dict[str, Any]],
 ) -> Optional[float]:
     """回归树头 → 百分点收益。缺模型返回 None。"""
-    return predict_tree_raw(features, return_model)
+    y = predict_tree_raw(features, return_model)
+    if y is None:
+        return None
+    return float(y) * _cs_z_restore_scale(return_model)
 
 
 def _return_model_doc(return_model: Optional[Dict[str, Any]]) -> Dict[str, Any]:
@@ -304,7 +287,7 @@ def explain_tree_return(
 ) -> Optional[Dict[str, Any]]:
     """树预测的贡献拆解。偏置 + 各因子贡献 = total，与 ``predict_tree_return`` 同口径。
 
-    LightGBM / XGBoost 用 pred_contrib。numpy 树只给出合计，没有逐因子贡献。
+    LightGBM 用 pred_contrib。
     """
     rm = _return_model_doc(return_model)
     names = [str(n) for n in (rm.get("feature_names") or []) if n]
@@ -319,31 +302,12 @@ def explain_tree_return(
     eng = str(rm.get("backend") or "").strip().lower()
     contrib_row = None
     try:
-        if eng == "xgboost":
-            import xgboost as xgb
-
-            blob = rm.get("booster") if isinstance(rm.get("booster"), dict) else {}
-            booster = _cached_booster("xgb", blob, load_xgboost_booster)
-            pred = booster.predict(xgb.DMatrix(x), pred_contribs=True)
-            contrib_row = np.asarray(pred, dtype=np.float64)[0]
-        elif eng == "lightgbm":
-            blob = rm.get("booster") if isinstance(rm.get("booster"), dict) else {}
-            booster = _cached_booster("lgb", blob, load_lightgbm_booster)
-            pred = booster.predict(x, pred_contrib=True)
-            contrib_row = np.asarray(pred, dtype=np.float64)[0]
-        elif eng in {"numpy_gbm", "numpy", "gbm"}:
-            y = predict_tree_raw(features, rm)
-            if y is None:
-                return None
-            y = round(float(y), 6)
-            return {
-                "intercept": y,
-                "terms": [],
-                "total": y,
-                "model_role": "tree",
-            }
-        else:
+        if eng != "lightgbm":
             return None
+        blob = rm.get("booster") if isinstance(rm.get("booster"), dict) else {}
+        booster = _cached_booster("lgb", blob, load_lightgbm_booster)
+        pred = booster.predict(x, pred_contrib=True)
+        contrib_row = np.asarray(pred, dtype=np.float64)[0]
     except Exception:  # noqa: BLE001
         logger.debug("tree explain failed backend=%s", eng, exc_info=True)
         return None
@@ -375,10 +339,17 @@ def explain_tree_return(
         if imputed:
             term["note"] = "均值填"
         terms.append(term)
-    y_hat = predict_tree_raw(features, rm)
+    y_hat = predict_tree_return(features, rm)
+    scale = _cs_z_restore_scale(rm)
+    if abs(scale - 1.0) > 1e-12:
+        bias *= scale
+        total *= scale
+        for term in terms:
+            term["contrib"] = round(float(term.get("contrib") or 0.0) * scale, 6)
     if y_hat is not None and abs(float(total) - float(y_hat)) < 1e-3:
         total = float(y_hat)
     terms.sort(key=lambda t: -abs(float(t.get("contrib") or 0.0)))
+    terms = terms[:24]
     return {
         "intercept": round(bias, 6),
         "terms": terms,

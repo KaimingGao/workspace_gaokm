@@ -23,7 +23,7 @@ class PaperReplayBacktestRequest(BaseModel):
     )
     score_backend: str = Field(
         default="ridge",
-        description="调仓打分头：ridge=ŷ_oo/ŷ_τc/ŷ_co Ridge（默认）；tree=已落盘浅树，缺模型的头回退 Ridge。不进交易执行。",
+        description="调仓打分头：ridge=ŷ_oo/ŷ_τc/ŷ_co Ridge（默认）；tree=已落盘树，缺模型的头回退 Ridge。不进交易执行。",
         max_length=16,
     )
     apply_costs: bool = True

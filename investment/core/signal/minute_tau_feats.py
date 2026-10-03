@@ -34,7 +34,7 @@ MINUTE_TAU_CS_KEYS = (
 MINUTE_TAU_ALL_KEYS = MINUTE_TAU_PACK_KEYS + MINUTE_TAU_CS_KEYS
 
 # 标签同构前缀形状 + 树专用派生（不进 TAU_Z / Ridge；仅 ŷ_τ*_tree 经 TREE_SHAPE 加回）
-# 量价/路径交互项给浅树用：Ridge 线性对冲吃不动，产品特征可分裂。
+# 量价/路径交互项给树用：Ridge 线性对冲吃不动，产品特征可分裂。
 _OPEN_CLOCK_MIN = 9 * 60 + 30
 MINUTE_TAU_SHAPE_KEYS = (
     "t_hi_frac",

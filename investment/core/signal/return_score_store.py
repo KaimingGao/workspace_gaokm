@@ -262,12 +262,32 @@ def return_model_status() -> Dict[str, Any]:
         if return_model.get("ridge_lambda") is None and meta.get("ridge_lambda") is not None:
             return_model["ridge_lambda"] = meta.get("ridge_lambda")
 
-    # OOS：先取展示套；旧版 promote 可能空 oos，回退草稿（最新拟合评测）
-    oos_out = _payload_oos(display_raw)
+    # OOS：草稿若更新于展示套之后，优先用草稿评测（含 cs_ic）；否则展示套 → 草稿回退
+    def _ts(payload: Optional[Dict[str, Any]]) -> str:
+        if not isinstance(payload, dict):
+            return ""
+        return str(
+            payload.get("saved_at")
+            or payload.get("promoted_at")
+            or payload.get("source_saved_at")
+            or ""
+        )
+
+    draft_oos = _payload_oos(draft)
+    display_oos = _payload_oos(display_raw)
+    oos_out = display_oos
+    oos_source = display_role
+    if draft_oos is not None:
+        draft_ts = _ts(draft)
+        display_ts = _ts(display_raw)
+        if oos_out is None or (draft_ts and draft_ts >= display_ts):
+            oos_out = draft_oos
+            oos_source = "draft"
     if oos_out is None:
-        for payload in (draft, research, active):
+        for role_name, payload in (("research", research), ("active", active)):
             oos_out = _payload_oos(payload)
             if oos_out is not None:
+                oos_source = role_name
                 break
 
     return {
@@ -292,6 +312,7 @@ def return_model_status() -> Dict[str, Any]:
             "sample_count": ((research or {}).get("model") or {}).get("sample_count"),
         },
         "display_role": display_role,
+        "oos_source": oos_source,
         "return_model": return_model,
         "oos": oos_out,
         "note": "草稿 / 研究套 / 执行套分离；回测 prefer research，交易 prefer active。",
@@ -334,7 +355,7 @@ def _oo_sign_hit(preds: List[Optional[float]], ys: List[float]) -> Optional[floa
 def fit_watching_return_model(
     *,
     codes: Optional[list] = None,
-    lookback: int = 120,
+    lookback: int = 600,
     horizon_days: int = 3,
     ridge_lambda: float = 0.0,
     watching_limit: int = 12,
@@ -433,6 +454,13 @@ def fit_watching_return_model(
         oos["ic"] = _oo_ic(preds_te, ys_te)
         oos["sign_hit"] = _oo_sign_hit(preds_te, ys_te)
         oos["n_valid"] = sum(1 for p in preds_te if p is not None)
+        try:
+            from core.research.daily_cs_ic import attach_daily_cs_ic
+
+            metas_te = [{"date": str(all_dates[i])[:10]} for i in test_idx]
+            attach_daily_cs_ic(oos, preds_te, ys_te, metas_te)
+        except Exception:  # noqa: BLE001
+            logger.debug("oo attach_daily_cs_ic failed", exc_info=True)
 
     # 全样本 → 草稿 / 执行口径
     model, report = fit_return_model_from_panel(

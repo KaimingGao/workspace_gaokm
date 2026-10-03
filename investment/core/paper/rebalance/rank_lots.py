@@ -7,7 +7,7 @@
   - ranking = w_oo·((ŷ_oo+1)/(1+rot)−1) + w_τc·((1+ŷ_τc)(1+w_co·ŷ_co)−1)
     rot = price(τ)/open[T]−1；基准 τ→open[T+1]
     w_co 默认 1（叠隔夜）；缺 ŷ_co 则退回 ŷ_τc
-  - 过入场（ranking>入场，可选 y_oo>0 / y_τc>0）→ 开仓或加仓
+  - 过入场（ranking>入场净收益）→ 开仓或加仓；y_oo>0 / y_τc>0 看原始百分点符号
   - 已持仓且未过入场、缺 ranking、或 hard_reject → 清仓（T+1 可卖部分）
     缺分不能假装过门槛续持；无「持」动作
   - ranking > rank强 → lot_strong_amount，否则 lot_base_amount（缺省 2 万 / 1 万）
@@ -567,7 +567,7 @@ AUX_YHAT_KEYS = (
     "t90_realized",
     "y_τw",
     "y_tw",
-    # ŷ_oo_rank 影子 pairwise LTR（不进 ranking）
+    # ŷ_oo_rank 影子 LambdaRank（不进 ranking）
     "y_oo_rank",
     "y_oo_rank_hat",
     "predicted_score_oo_rank",
@@ -686,8 +686,6 @@ _TIP_EXPLAIN_KEYS = (
     "score_formula_terms_co",
     "formula_terms_path",
     "score_formula_terms_path",
-    "features_tau",
-    "features_co",
     "y_spec_tau",
     "y_spec_co",
     "as_of_tau",
@@ -1015,6 +1013,8 @@ def plan_rank_lot_day(
     rank_strong = coerce_rank_threshold(
         cfg.get("rank_strong"), DEFAULT_RANK_STRONG
     )
+    enter_cfg = cfg
+    rank_strong_eff = rank_strong
     cash_floor = float(cfg.get("cash_floor") or 0.0)
     try:
         mv_cap = float(cfg.get("holdings_mv_cap") or 0.0)
@@ -1073,6 +1073,17 @@ def plan_rank_lot_day(
         if code not in item_by:
             item_by[code] = {"stock_code": code}
 
+    rp_by: Dict[str, Optional[float]] = {
+        code: _rp_of(code, item) for code, item in item_by.items()
+    }
+
+    def _rs_enter(code: str, rp: Optional[float]) -> Optional[float]:
+        _ = code
+        return None if rp is None else float(rp) / 100.0
+
+    def _rs_display(rp: Optional[float]) -> Optional[float]:
+        return None if rp is None else float(rp) / 100.0
+
     sells: List[dict] = []
     skips: List[dict] = []
     cash_sim = float(cash or 0.0)
@@ -1080,13 +1091,16 @@ def plan_rank_lot_day(
     for h in held_rows:
         code = str(h.get("stock_code") or "").strip()
         item = item_by.get(code) or {}
-        rp = _rp_of(code, item)
-        rs = None if rp is None else float(rp) / 100.0
+        rp = rp_by.get(code)
+        rs = _rs_enter(code, rp)
+        rs_disp = _rs_display(rp)
         name = _display_name(code, item.get("stock_name"), h.get("stock_name"))
         held_sh = float(h.get("shares") or 0)
         exit_why = held_exit_reason(item, rs)
         if not exit_why:
-            skip_enter = rank_lot_enter_skip_reason(item, cfg, rs=rs)
+            skip_enter = rank_lot_enter_skip_reason(
+                item, enter_cfg, rs=rs
+            )
             if skip_enter:
                 exit_why = f"{skip_enter} 清仓"
         if exit_why:
@@ -1096,7 +1110,7 @@ def plan_rank_lot_day(
                 name=name,
                 item=item,
                 rp=rp,
-                rs=rs,
+                rs=rs_disp,
                 as_of=as_of,
                 prices=px_sell,
                 t0_blocks=t0_blocks,
@@ -1126,9 +1140,10 @@ def plan_rank_lot_day(
                 }
             )
             continue
-        rp = _rp_of(code, item)
-        rs = None if rp is None else float(rp) / 100.0
-        dbg = _debug_scores(item, rp, rs, **w_fields)
+        rp = rp_by.get(code)
+        rs = _rs_enter(code, rp)
+        rs_disp = _rs_display(rp)
+        dbg = _debug_scores(item, rp, rs_disp, **w_fields)
         if item.get("hard_reject"):
             skips.append(
                 {
@@ -1141,7 +1156,9 @@ def plan_rank_lot_day(
                 }
             )
             continue
-        skip_enter = rank_lot_enter_skip_reason(item, cfg, rs=rs)
+        skip_enter = rank_lot_enter_skip_reason(
+            item, enter_cfg, rs=rs
+        )
         if skip_enter:
             skips.append(
                 {
@@ -1153,6 +1170,8 @@ def plan_rank_lot_day(
                     **dbg,
                 }
             )
+            continue
+        if rs is None:
             continue
         cand.append((float(rs), item, rp))
     cand.sort(key=lambda t: (-t[0], str(t[1].get("stock_code") or "")))
@@ -1185,7 +1204,7 @@ def plan_rank_lot_day(
         code = str(item.get("stock_code") or "").strip()
         if not code:
             continue
-        dbg = _debug_scores(item, rp, rs, rank_i=i, rank_n=rank_n, **w_fields)
+        dbg = _debug_scores(item, rp, _rs_display(rp), rank_i=i, rank_n=rank_n, **w_fields)
         px = _f(px_buy.get(code))
         if px is None or px <= 0:
             skips.append(
@@ -1199,7 +1218,7 @@ def plan_rank_lot_day(
                 }
             )
             continue
-        is_strong = float(rs) > float(rank_strong)
+        is_strong = float(rs) > float(rank_strong_eff)
         amt = amount_strong if is_strong else amount_base
         lots = shares_from_amount(amt, px, LOT_MIN)
         lot_kind = "strong" if is_strong else "base"

@@ -58,7 +58,6 @@ from web.schemas.research import (
     T90TreeRequest,
     TauRidgeRequest,
     TauTreeRequest,
-    TauBoostRequest,
     FactorOlsClusterRequest,
     ClusterBarsRefreshRequest,
     ClusterMinuteRefreshRequest,
@@ -70,7 +69,6 @@ from web.schemas.research import (
     ThresholdSuggestRequest,
     YhatResidualShadowRequest,
     ResearchTaskRequest,
-    ExcessModeShadowRequest,
 )
 
 from web.schemas.config import (
@@ -136,7 +134,6 @@ __all__ = [
     "T90TreeRequest",
     "TauRidgeRequest",
     "TauTreeRequest",
-    "TauBoostRequest",
     "FactorOlsClusterRequest",
     "ClusterBarsRefreshRequest",
     "ClusterMinuteRefreshRequest",
@@ -148,7 +145,6 @@ __all__ = [
     "ThresholdSuggestRequest",
     "YhatResidualShadowRequest",
     "ResearchTaskRequest",
-    "ExcessModeShadowRequest",
     "ScoringFloorsRequest",
     "StanceThresholdsRequest",
     "SentimentPriorRequest",

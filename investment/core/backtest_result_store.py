@@ -47,6 +47,19 @@ def _slim_universe(raw: Any) -> Any:
     }
 
 
+def _slim_sim_trade(row: Any) -> Any:
+    if not isinstance(row, dict):
+        return row
+    drop_prefix = ("features_", "factor_coefficients")
+    out = {}
+    for k, v in row.items():
+        ks = str(k)
+        if ks.startswith(drop_prefix[0]) or ks.startswith(drop_prefix[1]):
+            continue
+        out[k] = v
+    return out
+
+
 def _slim_result(result: Dict[str, Any]) -> Dict[str, Any]:
     slim: Dict[str, Any] = {}
     for key in _KEEP_KEYS:
@@ -57,6 +70,8 @@ def _slim_result(result: Dict[str, Any]) -> Dict[str, Any]:
             slim[key] = _slim_universe(val)
         elif key == "loaded_stocks" and isinstance(val, list):
             slim[key] = [str(c) for c in val[:200]]
+        elif key == "sim_trades" and isinstance(val, list):
+            slim[key] = [_slim_sim_trade(x) for x in val]
         else:
             slim[key] = val
     if slim.get("success") is None:
@@ -79,6 +94,11 @@ def save_last_portfolio_backtest(
     }
     atomic_write_json(p, payload)
     return p
+
+
+def slim_portfolio_backtest_result(result: Dict[str, Any]) -> Dict[str, Any]:
+    """任务轮询 / 落盘共用：去掉 Alpha158 全量特征，避免 20MB JSON 把页面画空。"""
+    return _slim_result(result or {})
 
 
 def load_last_portfolio_backtest(path: Optional[str] = None) -> Dict[str, Any]:
@@ -158,6 +178,7 @@ def _slim_t0_result(result: Dict[str, Any]) -> Dict[str, Any]:
     days = slim.get("days")
     if (
         isinstance(sample, list)
+        and sample
         and isinstance(days, list)
         and len(days) > len(sample) + 20
     ):

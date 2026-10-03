@@ -183,13 +183,23 @@ def _ic(preds: List[Optional[float]], ys: List[float]) -> Optional[float]:
     return round(num / (dx * dy), 4)
 
 
-def _sign_hit(preds: List[Optional[float]], ys: List[float]) -> Optional[float]:
+def _sign_hit(
+    preds: List[Optional[float]],
+    ys: List[float],
+    *,
+    min_abs: float = 0.05,
+) -> Optional[float]:
+    """方向命中率。默认跳过 |ŷ|<min_abs（百分收益弱信号）。
+
+    截面 z 标签 / 强正则树的 ŷ 常落在 0.05 以内；此时调用方应 ``min_abs=0`` 回退。
+    """
     hits = 0
     n = 0
+    thr = max(0.0, float(min_abs))
     for p, y in zip(preds, ys):
         if p is None:
             continue
-        if abs(float(p)) < 0.05:
+        if thr > 0.0 and abs(float(p)) < thr:
             continue
         n += 1
         if (float(p) > 0 and float(y) > 0) or (float(p) < 0 and float(y) < 0):
@@ -203,21 +213,23 @@ def _oos_sign_buckets(
     preds: Sequence[Optional[float]],
     ys: Sequence[float],
 ) -> Dict[str, Any]:
-    """分桶同号率 + 正负召回（展示/ promote 用）。"""
+    """分桶同号率 + 正负召回（展示/ promote 用）。
+
+    固定阈 ``|ŷ|≥0.4/0.6`` 适合百分收益尺度；截面 z 标签下 ŷ 幅度常更小，
+    另附 ``abs_top_30`` / ``abs_top_15``（按 |ŷ| 分位）以免强信号桶空缺。
+    """
     buckets = {
         "abs_ge_0_4": {"n": 0, "hit": 0},
         "abs_ge_0_6": {"n": 0, "hit": 0},
     }
     pos_hit = pos_n = neg_hit = neg_n = 0
     n_valid = 0
-    hits = 0
+    abs_ok: List[Tuple[float, bool]] = []
     for pred, y in zip(preds, ys):
         if pred is None:
             continue
         n_valid += 1
         ok = (float(pred) > 0) == (float(y) > 0)
-        if ok:
-            hits += 1
         if float(y) > 0:
             pos_n += 1
             if ok:
@@ -227,6 +239,7 @@ def _oos_sign_buckets(
             if ok:
                 neg_hit += 1
         ap = abs(float(pred))
+        abs_ok.append((ap, ok))
         for key, thr in (("abs_ge_0_4", 0.4), ("abs_ge_0_6", 0.6)):
             if ap >= thr:
                 buckets[key]["n"] += 1
@@ -246,6 +259,28 @@ def _oos_sign_buckets(
             "n": n,
             "sign_hit": round(pack["hit"] / n, 4) if n else None,
         }
+    # 分位强信号：top30% / top15%（阈=|ŷ| 的 70/85 分位）
+    if len(abs_ok) >= 10:
+        import numpy as np
+
+        abs_arr = np.asarray([a for a, _ in abs_ok], dtype=np.float64)
+        for key, q in (("abs_top_30", 70.0), ("abs_top_15", 85.0)):
+            thr = float(np.percentile(abs_arr, q))
+            n = hit = 0
+            for ap, ok in abs_ok:
+                if ap >= thr and (thr > 1e-15 or ap > 1e-15):
+                    n += 1
+                    if ok:
+                        hit += 1
+            out["buckets"][key] = {
+                "n": n,
+                "sign_hit": round(hit / n, 4) if n >= 5 else None,
+                "thr": round(thr, 6),
+                "percentile": q,
+            }
+    else:
+        for key in ("abs_top_30", "abs_top_15"):
+            out["buckets"][key] = {"n": 0, "sign_hit": None, "thr": None}
     return out
 
 
@@ -661,6 +696,13 @@ def fit_tau_ridge_report(
         "tau": tau_key,
         "include_alpha158": bool(include_alpha158),
     }
+    if ys_te:
+        try:
+            from core.research.daily_cs_ic import attach_daily_cs_ic
+
+            attach_daily_cs_ic(oos, preds_te, ys_te, metas_te)
+        except Exception:  # noqa: BLE001
+            logger.debug("tau attach_daily_cs_ic failed", exc_info=True)
     try:
         from core.research.panel import feature_fill_rates
 

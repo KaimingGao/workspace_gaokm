@@ -1,13 +1,15 @@
 """LightGBM 回归后端测试：resolve_tree_backend + _fit_lightgbm + pack/predict round-trip。
 
-未安装 lightgbm 时全部 skip（与 XGBoost path 测试模式一致）。
+未安装 lightgbm 时全部 skip。
 """
 
 from __future__ import annotations
 
 import os
 import sys
+import tempfile
 import unittest
+from unittest.mock import patch
 
 import numpy as np
 
@@ -33,7 +35,8 @@ class TestTauTreeLightgbm(unittest.TestCase):
         self.assertEqual(resolve_tree_backend("lightgbm"), "lightgbm")
         self.assertEqual(resolve_tree_backend("lgb"), "lightgbm")
         self.assertEqual(resolve_tree_backend(None), "lightgbm")
-        self.assertEqual(resolve_tree_backend("auto"), "lightgbm")
+        with self.assertRaises(ValueError):
+            resolve_tree_backend("auto")
         with self.assertRaises(ValueError):
             resolve_tree_backend("xgboost")
         with self.assertRaises(ValueError):
@@ -164,6 +167,7 @@ class TestTauTreeLightgbm(unittest.TestCase):
         on = fit_tau_tree_report(
             stock_bars,
             include_alpha158=True,
+            qlib_lgb=False,
             holdout_trading_days=5,
             n_estimators=20,
             max_depth=2,
@@ -171,6 +175,7 @@ class TestTauTreeLightgbm(unittest.TestCase):
         self.assertTrue(on.get("success"), on.get("error"))
         self.assertTrue(on.get("include_alpha158"))
         self.assertGreater(int(on.get("n_alpha158_features") or 0), 0)
+        self.assertFalse(on.get("qlib_lgb"))
         self.assertTrue(
             any(str(k).startswith("raw_alpha158_") for k in (on.get("feature_names") or []))
         )
@@ -180,6 +185,97 @@ class TestTauTreeLightgbm(unittest.TestCase):
                 for k in (on.get("ridge_feature_names") or [])
             )
         )
+
+    def test_fit_shadow_vs_ridge_no_live_file(self):
+        from core.research.tc_tree import (
+            fit_tau_tree_report,
+            save_tau_tree_last_report,
+            tau_tree_last_report_path,
+        )
+        from core.research.tc_ridge import load_tau_model, persist_tau_model
+        from datetime import date, timedelta
+
+        def _bars(n=50, start=10.0):
+            out = []
+            px = start
+            d0 = date(2025, 6, 1)
+            for i in range(n):
+                o = px
+                c = px * (1.02 if i % 4 else 0.985)
+                day = d0 + timedelta(days=i)
+                out.append(
+                    {
+                        "date": day.isoformat(),
+                        "open": round(o, 4),
+                        "high": round(max(o, c) * 1.01, 4),
+                        "low": round(min(o, c) * 0.99, 4),
+                        "close": round(c, 4),
+                        "volume": 1e6 + i * 1000,
+                    }
+                )
+                px = c
+            return out
+
+        stock_bars = [
+            {"code": "A", "bars": _bars(50, 10)},
+            {"code": "B", "bars": _bars(50, 12)},
+            {"code": "C", "bars": _bars(50, 8)},
+            {"code": "D", "bars": _bars(50, 15)},
+        ]
+        report = fit_tau_tree_report(
+            stock_bars,
+            ridge_lambda=1.0,
+            theme_boost=1.5,
+            backend="lightgbm",
+            holdout_trading_days=8,
+            include_alpha158=False,
+        )
+        self.assertTrue(report.get("success"), report.get("error"))
+        self.assertEqual(report.get("task"), "tc_tree")
+        self.assertEqual(report.get("head"), "y_tau_tree")
+        self.assertEqual(report.get("schema"), "tau_tree_shadow_v2")
+        self.assertEqual(report.get("backend"), "lightgbm")
+        self.assertFalse(report.get("live_hook"))
+        self.assertTrue(report.get("backtest_hook"))
+        self.assertTrue((report.get("persisted") or {}).get("skipped"))
+        self.assertNotIn("return_model", report)
+        rm = report.get("tree_return_model") or {}
+        self.assertTrue(rm.get("feature_names"))
+        self.assertEqual(rm.get("head_kind"), "return")
+        oos = report.get("oos") or {}
+        ridge = report.get("ridge_oos") or {}
+        self.assertIn("sign_hit", oos)
+        self.assertIn("ic", oos)
+        self.assertIn("residual_var", oos)
+        self.assertIn("sign_hit", ridge)
+        self.assertIn("residual_var", ridge)
+        self.assertIn("delta_vs_ridge", report)
+        self.assertTrue(report.get("feature_importance"))
+        timing = report.get("timing") or {}
+        self.assertIn("panel_s", timing)
+        self.assertIn("tree_s", timing)
+        self.assertIn("ridge_s", timing)
+        self.assertIn("fit_s", timing)
+        self.assertEqual((report.get("hyperparams") or {}).get("n_estimators"), 300)
+
+        blocked = persist_tau_model(report, note="should fail", force=True)
+        self.assertFalse(blocked.get("success"))
+
+        with tempfile.TemporaryDirectory() as tmp:
+            live = os.path.join(tmp, "live")
+            os.makedirs(live, exist_ok=True)
+            with patch("core.paths.LIVE_DIR", live):
+                save_tau_tree_last_report(report)
+                tree_path = tau_tree_last_report_path()
+                self.assertTrue(os.path.isfile(tree_path))
+                self.assertIn("tau_tree_last_report.json", tree_path)
+                self.assertFalse(
+                    os.path.isfile(os.path.join(live, "tau_ridge_model.json"))
+                )
+                self.assertFalse(
+                    os.path.isfile(os.path.join(live, "tau_ridge_model_research.json"))
+                )
+                self.assertIsNone(load_tau_model())
 
 
 if __name__ == "__main__":

@@ -169,6 +169,8 @@ def classify_t0_skip_reason(reason: Optional[str]) -> str:
         return "tplus1"
     if "不足1手" in r or "动仓不足" in r or ("手" in r and "不足" in r):
         return "lot_size"
+    if "未破带" in r:
+        return "trigger_miss"
     if "未触及" in r or "未触" in r or "未开成第一腿" in r or "未开第一腿" in r:
         return "trigger_miss"
     if "重复落账" in r or "盘中已有成交腿" in r:

@@ -1,4 +1,4 @@
-"""ŷ_oo_tree：独立浅树头，标签与 ŷ_oo 相同（open[T+1]/open[T]−1）。
+"""ŷ_oo_tree：独立树头，标签与 ŷ_oo 相同（open[T+1]/open[T]−1）。
 
 日线因子面板 + Holdout；对照同窗 Ridge。拟合写入 ``oo_tree_model.json``，
 供调仓回测「ŷ头=Tree」。不进交易执行。引擎仅 LightGBM。
@@ -7,7 +7,6 @@
 from __future__ import annotations
 
 import logging
-import math
 import os
 import time
 from typing import Any, Dict, List, Optional, Sequence, Tuple
@@ -23,13 +22,12 @@ from core.research.tc_tree import (
     DEFAULT_N_ESTIMATORS,
     DEFAULT_SUBSAMPLE,
     _delta_oos,
-    _design_matrix,
-    _fit_lightgbm,
     _fit_ridge_oos,
     _importance_rows,
     _oos_pack,
-    _predict_lightgbm,
+    fit_lgb_holdout,
     resolve_tree_backend,
+    resolve_use_qlib_lgb,
 )
 
 TREE_SCHEMA = "oo_tree_shadow_v1"
@@ -173,8 +171,13 @@ def fit_oo_tree_report(
     learning_rate: float = DEFAULT_LEARNING_RATE,
     subsample: float = DEFAULT_SUBSAMPLE,
     include_alpha158: bool = True,
+    qlib_lgb: Optional[bool] = None,
 ) -> Dict[str, Any]:
-    """日线面板拟合 ŷ_oo_tree + Ridge OOS 对照。不写 live / 研究套。"""
+    """日线面板拟合 ŷ_oo_tree + Ridge OOS 对照。不写 live / 研究套。
+
+    ``include_alpha158=True`` 时树吃 Alpha158；默认观察池 LGB（百分点）。
+    ``qlib_lgb=True`` 才用缩小后的 Qlib 风格超参和标签截面 z。
+    """
     t0 = time.perf_counter()
     t_panel0 = time.perf_counter()
     xs, ys, dates, metas, n_stocks = _stack_daily_panels(
@@ -239,23 +242,20 @@ def fit_oo_tree_report(
             "backtest_hook": False,
         }
 
-    x_tr, means = _design_matrix(xs_tr, feat_names)
-    x_te, _ = _design_matrix(xs_te, feat_names, means=means)
-    y_tr = np.asarray(ys_tr, dtype=np.float64)
-    w_tr = np.ones_like(y_tr)
-
+    use_qlib = resolve_use_qlib_lgb(include_alpha158, qlib_lgb)
     engine = resolve_tree_backend(backend)
-    hyper = {
-        "n_estimators": int(n_estimators),
-        "max_depth": int(max_depth),
-        "learning_rate": float(learning_rate),
-        "subsample": float(subsample),
-    }
-    t_tree0 = time.perf_counter()
-    model, gain = _fit_lightgbm(x_tr, y_tr, w_tr, **hyper)
-    raw = _predict_lightgbm(model, x_te)
-    boost_preds = [float(v) if math.isfinite(float(v)) else None for v in raw]
-    tree_s = round(time.perf_counter() - t_tree0, 2)
+    model, gain, hyper, means, boost_preds, tree_s = fit_lgb_holdout(
+        xs_tr,
+        ys_tr,
+        metas_tr,
+        xs_te,
+        feat_names,
+        use_qlib=use_qlib,
+        n_estimators=n_estimators,
+        max_depth=max_depth,
+        learning_rate=learning_rate,
+        subsample=subsample,
+    )
     from core.research.horizon_tree import pack_tree_return_model
 
     return_model = pack_tree_return_model(
@@ -269,6 +269,7 @@ def fit_oo_tree_report(
         kind="return",
         y_label="open[T+1]/open[T]-1",
     )
+    y_tr = np.asarray(ys_tr, dtype=np.float64)
 
     t_ridge0 = time.perf_counter()
     _, ridge_preds = _fit_ridge_oos(
@@ -318,6 +319,7 @@ def fit_oo_tree_report(
         "feature_names": list(feat_names),
         "ridge_feature_names": list(ridge_feat_names),
         "include_alpha158": bool(include_alpha158),
+        "qlib_lgb": bool(use_qlib),
         "n_alpha158_features": len(a158_keys),
         "feature_importance": _importance_rows(feat_names, gain),
         "tree_return_model": return_model,
@@ -330,9 +332,13 @@ def fit_oo_tree_report(
         "note": (
             "ŷ_oo_tree：open→open 标签 · 同 Holdout vs Ridge；"
             + (
-                "树侧可含 raw_alpha158_*（Ridge 对照不含 proxy / 可选不含 a158）；"
-                if include_alpha158
-                else ""
+                "树侧含 raw_alpha158_* + Qlib LGB 预设（深6/300轮/叶64/λ10·20 + 截面 z，无早停）；"
+                if use_qlib
+                else (
+                    "树侧可含 raw_alpha158_*（Ridge 对照不含 a158）；"
+                    if include_alpha158
+                    else ""
+                )
             )
             + "写入 oo_tree_model.json 后，调仓回测选 Tree 替换 ŷ_oo；不进交易执行"
         ),

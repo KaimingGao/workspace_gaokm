@@ -262,6 +262,8 @@ def tip_fields_from_item(item: Optional[dict]) -> Dict[str, Any]:
     if eod_terms and (eod_terms.get("terms") or eod_terms.get("intercept") is not None):
         out["score_formula_terms"] = eod_terms
     coefs = _slim_factor_coefs(item.get("factor_coefficients"))
+    if str(item.get("y_oo_source") or "").strip().lower() == "tree":
+        coefs = None
     if coefs:
         out["factor_coefficients"] = coefs
 
@@ -273,8 +275,13 @@ def tip_fields_from_item(item: Optional[dict]) -> Dict[str, Any]:
     if tau_terms and (tau_terms.get("terms") or tau_terms.get("total") is not None):
         out["formula_terms_tau"] = tau_terms
         out["score_formula_terms_tau"] = tau_terms
+    tau_src = str(item.get("y_τc_source") or "").strip().lower()
     coefs_tau = _slim_factor_coefs(item.get("factor_coefficients_tau"))
-    if not coefs_tau and (tau_terms or item.get("predicted_score_tau") is not None):
+    if (
+        tau_src != "tree"
+        and not coefs_tau
+        and (tau_terms or item.get("predicted_score_tau") is not None)
+    ):
         try:
             from core.signal.dual_score import rem_factor_coefficients_public
 
@@ -301,21 +308,24 @@ def tip_fields_from_item(item: Optional[dict]) -> Dict[str, Any]:
         limit=12,
     )
     if not r_terms or not (r_terms.get("terms") or r_terms.get("total") is not None):
-        try:
-            from core.research.tc_ridge import explain_tau_prediction, load_tau_model
-
-            feats_r = item.get("features_tau") if isinstance(item.get("features_tau"), dict) else {}
-            if not feats_r:
-                feats_r = (
-                    item.get("features_path")
-                    if isinstance(item.get("features_path"), dict)
-                    else {}
-                )
-            expl_r = explain_tau_prediction(feats_r, model_doc=load_tau_model())
-            r_terms = _slim_formula_terms(expl_r, limit=12)
-        except Exception:  # noqa: BLE001
-            logger.debug("r tip explain fallback failed", exc_info=True)
+        if tau_src == "tree":
             r_terms = None
+        else:
+            try:
+                from core.research.tc_ridge import explain_tau_prediction, load_tau_model
+
+                feats_r = item.get("features_tau") if isinstance(item.get("features_tau"), dict) else {}
+                if not feats_r:
+                    feats_r = (
+                        item.get("features_path")
+                        if isinstance(item.get("features_path"), dict)
+                        else {}
+                    )
+                expl_r = explain_tau_prediction(feats_r, model_doc=load_tau_model())
+                r_terms = _slim_formula_terms(expl_r, limit=12)
+            except Exception:  # noqa: BLE001
+                logger.debug("r tip explain fallback failed", exc_info=True)
+                r_terms = None
     if r_terms and (r_terms.get("terms") or r_terms.get("total") is not None):
         out["formula_terms_r"] = r_terms
         out["score_formula_terms_r"] = r_terms
@@ -325,21 +335,24 @@ def tip_fields_from_item(item: Optional[dict]) -> Dict[str, Any]:
         limit=12,
     )
     if not t30_terms or not (t30_terms.get("terms") or t30_terms.get("total") is not None):
-        try:
-            from core.research.t30_ridge import explain_t30_prediction, load_t30_model
-
-            feats_t30 = item.get("features_tau") if isinstance(item.get("features_tau"), dict) else {}
-            if not feats_t30:
-                feats_t30 = (
-                    item.get("features_path")
-                    if isinstance(item.get("features_path"), dict)
-                    else {}
-                )
-            expl_t30 = explain_t30_prediction(feats_t30, model_doc=load_t30_model())
-            t30_terms = _slim_formula_terms(expl_t30, limit=12)
-        except Exception:  # noqa: BLE001
-            logger.debug("t30 tip explain fallback failed", exc_info=True)
+        if str(item.get("y_τ30_source") or item.get("y_t30_source") or "") == "tree":
             t30_terms = None
+        else:
+            try:
+                from core.research.t30_ridge import explain_t30_prediction, load_t30_model
+
+                feats_t30 = item.get("features_tau") if isinstance(item.get("features_tau"), dict) else {}
+                if not feats_t30:
+                    feats_t30 = (
+                        item.get("features_path")
+                        if isinstance(item.get("features_path"), dict)
+                        else {}
+                    )
+                expl_t30 = explain_t30_prediction(feats_t30, model_doc=load_t30_model())
+                t30_terms = _slim_formula_terms(expl_t30, limit=12)
+            except Exception:  # noqa: BLE001
+                logger.debug("t30 tip explain fallback failed", exc_info=True)
+                t30_terms = None
     if t30_terms and (t30_terms.get("terms") or t30_terms.get("total") is not None):
         out["formula_terms_t30"] = t30_terms
         out["score_formula_terms_t30"] = t30_terms
@@ -349,21 +362,24 @@ def tip_fields_from_item(item: Optional[dict]) -> Dict[str, Any]:
         limit=12,
     )
     if not t45_terms or not (t45_terms.get("terms") or t45_terms.get("total") is not None):
-        try:
-            from core.research.t45_ridge import explain_t45_prediction, load_t45_model
-
-            feats_t45 = item.get("features_tau") if isinstance(item.get("features_tau"), dict) else {}
-            if not feats_t45:
-                feats_t45 = (
-                    item.get("features_path")
-                    if isinstance(item.get("features_path"), dict)
-                    else {}
-                )
-            expl_t45 = explain_t45_prediction(feats_t45, model_doc=load_t45_model())
-            t45_terms = _slim_formula_terms(expl_t45, limit=12)
-        except Exception:  # noqa: BLE001
-            logger.debug("t45 tip explain fallback failed", exc_info=True)
+        if str(item.get("y_τ45_source") or item.get("y_t45_source") or "") == "tree":
             t45_terms = None
+        else:
+            try:
+                from core.research.t45_ridge import explain_t45_prediction, load_t45_model
+
+                feats_t45 = item.get("features_tau") if isinstance(item.get("features_tau"), dict) else {}
+                if not feats_t45:
+                    feats_t45 = (
+                        item.get("features_path")
+                        if isinstance(item.get("features_path"), dict)
+                        else {}
+                    )
+                expl_t45 = explain_t45_prediction(feats_t45, model_doc=load_t45_model())
+                t45_terms = _slim_formula_terms(expl_t45, limit=12)
+            except Exception:  # noqa: BLE001
+                logger.debug("t45 tip explain fallback failed", exc_info=True)
+                t45_terms = None
     if t45_terms and (t45_terms.get("terms") or t45_terms.get("total") is not None):
         out["formula_terms_t45"] = t45_terms
         out["score_formula_terms_t45"] = t45_terms
@@ -373,21 +389,24 @@ def tip_fields_from_item(item: Optional[dict]) -> Dict[str, Any]:
         limit=12,
     )
     if not t60_terms or not (t60_terms.get("terms") or t60_terms.get("total") is not None):
-        try:
-            from core.research.t60_ridge import explain_t60_prediction, load_t60_model
-
-            feats_t60 = item.get("features_tau") if isinstance(item.get("features_tau"), dict) else {}
-            if not feats_t60:
-                feats_t60 = (
-                    item.get("features_path")
-                    if isinstance(item.get("features_path"), dict)
-                    else {}
-                )
-            expl_t60 = explain_t60_prediction(feats_t60, model_doc=load_t60_model())
-            t60_terms = _slim_formula_terms(expl_t60, limit=12)
-        except Exception:  # noqa: BLE001
-            logger.debug("t60 tip explain fallback failed", exc_info=True)
+        if str(item.get("y_τ60_source") or item.get("y_t60_source") or "") == "tree":
             t60_terms = None
+        else:
+            try:
+                from core.research.t60_ridge import explain_t60_prediction, load_t60_model
+
+                feats_t60 = item.get("features_tau") if isinstance(item.get("features_tau"), dict) else {}
+                if not feats_t60:
+                    feats_t60 = (
+                        item.get("features_path")
+                        if isinstance(item.get("features_path"), dict)
+                        else {}
+                    )
+                expl_t60 = explain_t60_prediction(feats_t60, model_doc=load_t60_model())
+                t60_terms = _slim_formula_terms(expl_t60, limit=12)
+            except Exception:  # noqa: BLE001
+                logger.debug("t60 tip explain fallback failed", exc_info=True)
+                t60_terms = None
     if t60_terms and (t60_terms.get("terms") or t60_terms.get("total") is not None):
         out["formula_terms_t60"] = t60_terms
         out["score_formula_terms_t60"] = t60_terms
@@ -397,21 +416,24 @@ def tip_fields_from_item(item: Optional[dict]) -> Dict[str, Any]:
         limit=12,
     )
     if not t75_terms or not (t75_terms.get("terms") or t75_terms.get("total") is not None):
-        try:
-            from core.research.t75_ridge import explain_t75_prediction, load_t75_model
-
-            feats_t75 = item.get("features_tau") if isinstance(item.get("features_tau"), dict) else {}
-            if not feats_t75:
-                feats_t75 = (
-                    item.get("features_path")
-                    if isinstance(item.get("features_path"), dict)
-                    else {}
-                )
-            expl_t75 = explain_t75_prediction(feats_t75, model_doc=load_t75_model())
-            t75_terms = _slim_formula_terms(expl_t75, limit=12)
-        except Exception:  # noqa: BLE001
-            logger.debug("t75 tip explain fallback failed", exc_info=True)
+        if str(item.get("y_τ75_source") or item.get("y_t75_source") or "") == "tree":
             t75_terms = None
+        else:
+            try:
+                from core.research.t75_ridge import explain_t75_prediction, load_t75_model
+
+                feats_t75 = item.get("features_tau") if isinstance(item.get("features_tau"), dict) else {}
+                if not feats_t75:
+                    feats_t75 = (
+                        item.get("features_path")
+                        if isinstance(item.get("features_path"), dict)
+                        else {}
+                    )
+                expl_t75 = explain_t75_prediction(feats_t75, model_doc=load_t75_model())
+                t75_terms = _slim_formula_terms(expl_t75, limit=12)
+            except Exception:  # noqa: BLE001
+                logger.debug("t75 tip explain fallback failed", exc_info=True)
+                t75_terms = None
     if t75_terms and (t75_terms.get("terms") or t75_terms.get("total") is not None):
         out["formula_terms_t75"] = t75_terms
         out["score_formula_terms_t75"] = t75_terms
@@ -421,21 +443,24 @@ def tip_fields_from_item(item: Optional[dict]) -> Dict[str, Any]:
         limit=12,
     )
     if not t90_terms or not (t90_terms.get("terms") or t90_terms.get("total") is not None):
-        try:
-            from core.research.t90_ridge import explain_t90_prediction, load_t90_model
-
-            feats_t90 = item.get("features_tau") if isinstance(item.get("features_tau"), dict) else {}
-            if not feats_t90:
-                feats_t90 = (
-                    item.get("features_path")
-                    if isinstance(item.get("features_path"), dict)
-                    else {}
-                )
-            expl_t90 = explain_t90_prediction(feats_t90, model_doc=load_t90_model())
-            t90_terms = _slim_formula_terms(expl_t90, limit=12)
-        except Exception:  # noqa: BLE001
-            logger.debug("t90 tip explain fallback failed", exc_info=True)
+        if str(item.get("y_τ90_source") or item.get("y_t90_source") or "") == "tree":
             t90_terms = None
+        else:
+            try:
+                from core.research.t90_ridge import explain_t90_prediction, load_t90_model
+
+                feats_t90 = item.get("features_tau") if isinstance(item.get("features_tau"), dict) else {}
+                if not feats_t90:
+                    feats_t90 = (
+                        item.get("features_path")
+                        if isinstance(item.get("features_path"), dict)
+                        else {}
+                    )
+                expl_t90 = explain_t90_prediction(feats_t90, model_doc=load_t90_model())
+                t90_terms = _slim_formula_terms(expl_t90, limit=12)
+            except Exception:  # noqa: BLE001
+                logger.debug("t90 tip explain fallback failed", exc_info=True)
+                t90_terms = None
     if t90_terms and (t90_terms.get("terms") or t90_terms.get("total") is not None):
         out["formula_terms_t90"] = t90_terms
         out["score_formula_terms_t90"] = t90_terms
@@ -1187,6 +1212,37 @@ def _predict_horizon_hat(
     return float(y_hat), model, "ridge"
 
 
+def _stamp_horizon_formula_terms(
+    item: dict,
+    feats: Optional[dict],
+    *,
+    src: Optional[str],
+    model: Any,
+    y_hat: Optional[float],
+    keys: Sequence[str],
+    explain_ridge: Any = None,
+) -> None:
+    """Tree 用 pred_contrib 组成；Ridge 用线性拆解。合计对齐表列分数。"""
+    expl = None
+    if str(src or "").strip().lower() == "tree":
+        try:
+            from core.research.horizon_tree import tree_tip_formula
+
+            expl = tree_tip_formula(feats, model, y_hat=y_hat)
+        except Exception:  # noqa: BLE001
+            logger.debug("tree horizon formula stamp failed", exc_info=True)
+            expl = None
+    elif explain_ridge is not None:
+        try:
+            expl = explain_ridge(feats, model_doc=model)
+        except Exception:  # noqa: BLE001
+            logger.debug("ridge horizon formula stamp failed", exc_info=True)
+            expl = None
+    if isinstance(expl, dict):
+        for k in keys:
+            item[k] = expl
+
+
 def _attach_y_t30_to_item(
     item: dict,
     *,
@@ -1283,11 +1339,15 @@ def _attach_y_t30_to_item(
         if src:
             item["y_τ30_source"] = src
             item["y_t30_source"] = src
-        if src == "ridge":
-            expl = explain_t30_prediction(feats, model_doc=model)
-            if expl:
-                item["formula_terms_t30"] = expl
-                item["score_formula_terms_t30"] = expl
+        _stamp_horizon_formula_terms(
+            item,
+            feats,
+            src=src,
+            model=model,
+            y_hat=float(y_hat),
+            keys=("formula_terms_t30", "score_formula_terms_t30"),
+            explain_ridge=explain_t30_prediction,
+        )
     except Exception:  # noqa: BLE001
         logger.debug("attach y_t30 predict failed", exc_info=True)
 
@@ -1388,11 +1448,15 @@ def _attach_y_t45_to_item(
         if src:
             item["y_τ45_source"] = src
             item["y_t45_source"] = src
-        if src == "ridge":
-            expl = explain_t45_prediction(feats, model_doc=model)
-            if expl:
-                item["formula_terms_t45"] = expl
-                item["score_formula_terms_t45"] = expl
+        _stamp_horizon_formula_terms(
+            item,
+            feats,
+            src=src,
+            model=model,
+            y_hat=float(y_hat),
+            keys=("formula_terms_t45", "score_formula_terms_t45"),
+            explain_ridge=explain_t45_prediction,
+        )
     except Exception:  # noqa: BLE001
         logger.debug("attach y_t45 predict failed", exc_info=True)
 
@@ -1493,11 +1557,15 @@ def _attach_y_t60_to_item(
         if src:
             item["y_τ60_source"] = src
             item["y_t60_source"] = src
-        if src == "ridge":
-            expl = explain_t60_prediction(feats, model_doc=model)
-            if expl:
-                item["formula_terms_t60"] = expl
-                item["score_formula_terms_t60"] = expl
+        _stamp_horizon_formula_terms(
+            item,
+            feats,
+            src=src,
+            model=model,
+            y_hat=float(y_hat),
+            keys=("formula_terms_t60", "score_formula_terms_t60"),
+            explain_ridge=explain_t60_prediction,
+        )
     except Exception:  # noqa: BLE001
         logger.debug("attach y_t60 predict failed", exc_info=True)
 
@@ -1598,11 +1666,15 @@ def _attach_y_t75_to_item(
         if src:
             item["y_τ75_source"] = src
             item["y_t75_source"] = src
-        if src == "ridge":
-            expl = explain_t75_prediction(feats, model_doc=model)
-            if expl:
-                item["formula_terms_t75"] = expl
-                item["score_formula_terms_t75"] = expl
+        _stamp_horizon_formula_terms(
+            item,
+            feats,
+            src=src,
+            model=model,
+            y_hat=float(y_hat),
+            keys=("formula_terms_t75", "score_formula_terms_t75"),
+            explain_ridge=explain_t75_prediction,
+        )
     except Exception:  # noqa: BLE001
         logger.debug("attach y_t75 predict failed", exc_info=True)
 
@@ -1703,11 +1775,15 @@ def _attach_y_t90_to_item(
         if src:
             item["y_τ90_source"] = src
             item["y_t90_source"] = src
-        if src == "ridge":
-            expl = explain_t90_prediction(feats, model_doc=model)
-            if expl:
-                item["formula_terms_t90"] = expl
-                item["score_formula_terms_t90"] = expl
+        _stamp_horizon_formula_terms(
+            item,
+            feats,
+            src=src,
+            model=model,
+            y_hat=float(y_hat),
+            keys=("formula_terms_t90", "score_formula_terms_t90"),
+            explain_ridge=explain_t90_prediction,
+        )
     except Exception:  # noqa: BLE001
         logger.debug("attach y_t90 predict failed", exc_info=True)
 
@@ -1867,11 +1943,23 @@ def _refresh_tau_oc_from_feats(
         item["as_of_tau"] = as_of
         item["rem_tau"] = as_of
     expl_now = item.get("formula_terms_tau")
+    src = ""
     try:
+        from core.research.horizon_tree import tree_tip_formula
+        from core.research.return_tree import predict_return_head
         from core.research.tc_ridge import explain_tau_prediction, predict_tau_from_features
+        from core.research.tc_tree import load_tau_tree_model, predict_tau_tree_from_features
 
-        yhat = predict_tau_from_features(feats)
-        expl = explain_tau_prediction(feats)
+        yhat, src = predict_return_head(
+            feats,
+            load_tree=load_tau_tree_model,
+            predict_tree=predict_tau_tree_from_features,
+            predict_ridge=predict_tau_from_features,
+        )
+        if str(src) == "tree":
+            expl = tree_tip_formula(feats, load_tau_tree_model(), y_hat=yhat)
+        else:
+            expl = explain_tau_prediction(feats)
     except Exception:  # noqa: BLE001
         logger.debug("refresh tau oc from prefix pack failed", exc_info=True)
         return
@@ -1892,16 +1980,25 @@ def _refresh_tau_oc_from_feats(
         )
         stored = float(aligned) if aligned is not None else yv
         write_y_τc(item, stored)
-        item["y_τc_ridge"] = stored
+        if str(src) == "tree":
+            item["y_τc_source"] = "tree"
+            item["y_τc_tree"] = stored
+            item.pop("y_τc_ridge", None)
+        else:
+            item["y_τc_source"] = "ridge"
+            item["y_τc_ridge"] = stored
         item["y_tau_raw"] = yv
         item.pop("y_tau", None)
         item.pop("predicted_score_tau", None)
         item["predicted_score_rem"] = stored
         item["score_rem"] = stored
     if isinstance(expl, dict):
-        prev = expl_now if isinstance(expl_now, dict) else {}
-        out = dict(prev)
-        out.update(expl)
+        if str(src) == "tree":
+            out = dict(expl)
+        else:
+            prev = expl_now if isinstance(expl_now, dict) else {}
+            out = dict(prev)
+            out.update(expl)
         if yhat is not None:
             out["y_τc"] = stored
             out["y_tau"] = stored
@@ -2767,6 +2864,16 @@ def _t0_local_fundamentals(code: str) -> Optional[dict]:
     return out
 
 
+def _tree_score_cache_bit() -> int:
+    try:
+        from core.research.return_tree import tree_scores_requested
+
+        return 1 if tree_scores_requested() else 0
+    except Exception:  # noqa: BLE001
+        logger.debug("tree score cache bit failed", exc_info=True)
+        return 0
+
+
 def _eod_item_cache_key(
     raw: str,
     hist: Sequence[dict],
@@ -2815,6 +2922,7 @@ def _eod_item_cache_key(
         int(horizon_days or 1),
         tuple(fund_fp or ()),
         int(idx_n),
+        int(_tree_score_cache_bit()),
     )
 
 
@@ -2938,6 +3046,21 @@ def compute_scores_from_bars(
                 kk = str(k).strip()
                 if kk and kk not in required_factor_keys:
                     required_factor_keys.append(kk)
+        try:
+            from core.research.return_tree import (
+                loaded_return_tree_feature_names,
+                tree_scores_requested,
+            )
+
+            if tree_scores_requested():
+                seen = set(required_factor_keys)
+                for key in loaded_return_tree_feature_names():
+                    kk = str(key or "").strip()
+                    if kk and kk not in seen:
+                        seen.add(kk)
+                        required_factor_keys.append(kk)
+        except Exception:  # noqa: BLE001
+            logger.debug("t0 tree required_factor_keys failed", exc_info=True)
     except Exception:  # noqa: BLE001
         logger.debug("t0 required_factor_keys resolve failed", exc_info=True)
         required_factor_keys = []
@@ -2978,6 +3101,12 @@ def compute_scores_from_bars(
                 default_model=default_rm,
             )
             item = scored[0] if scored else item
+            try:
+                from core.research.return_tree import overlay_oo_tree_on_item
+
+                overlay_oo_tree_on_item(item, window=list(eod_hist), quote=q)
+            except Exception:  # noqa: BLE001
+                logger.debug("t0 overlay y_oo tree failed", exc_info=True)
             if item.get("predicted_score") is not None and item.get("predicted_score_eod") is None:
                 item["predicted_score_eod"] = item.get("predicted_score")
             gaps = [float(g) for g in (pool_gaps or []) if g is not None]
@@ -3043,6 +3172,8 @@ def compute_scores_from_bars(
                 if isinstance(item.get("features_co"), dict)
                 else {}
             )
+            open_terms = item.get("formula_terms_co")
+            open_src = item.get("y_co_source")
             attach_co_score_pit(
                 item,
                 quote=q_path,
@@ -3060,8 +3191,15 @@ def compute_scores_from_bars(
             if open_on is not None:
                 item["y_co"] = open_on
                 item["predicted_score_co"] = open_on
+            if open_src:
+                item["y_co_source"] = open_src
             if open_feats:
                 item["features_co"] = open_feats
+            if isinstance(open_terms, dict):
+                item["formula_terms_co"] = open_terms
+                item["score_formula_terms_co"] = open_terms
+                item["formula_terms_on"] = open_terms
+                item["score_formula_terms_on"] = open_terms
             if path_on is not None:
                 item["predicted_score_on_path"] = path_on
                 item["y_on_path"] = path_on
@@ -3077,19 +3215,20 @@ def compute_scores_from_bars(
             if eod_model is None:
                 eod_model = default_rm
             if eod_model is not None:
-                if not item.get("score_formula_terms"):
-                    expl = eod_model.explain_prediction(item.get("sub_scores") or {})
-                    if expl:
-                        item["score_formula_terms"] = expl
-                if not item.get("factor_coefficients"):
-                    coefs = dict(getattr(eod_model, "coefficients", None) or {})
-                    coefs.pop("intercept", None)
-                    if coefs:
-                        item["factor_coefficients"] = {
-                            str(k): float(v)
-                            for k, v in coefs.items()
-                            if _f(v) is not None
-                        }
+                if str(item.get("y_oo_source") or "").strip().lower() != "tree":
+                    if not item.get("score_formula_terms"):
+                        expl = eod_model.explain_prediction(item.get("sub_scores") or {})
+                        if expl:
+                            item["score_formula_terms"] = expl
+                    if not item.get("factor_coefficients"):
+                        coefs = dict(getattr(eod_model, "coefficients", None) or {})
+                        coefs.pop("intercept", None)
+                        if coefs:
+                            item["factor_coefficients"] = {
+                                str(k): float(v)
+                                for k, v in coefs.items()
+                                if _f(v) is not None
+                            }
                 if not item.get("return_model_source"):
                     item["return_model_source"] = "t0_backtest_compute"
         except Exception:  # noqa: BLE001

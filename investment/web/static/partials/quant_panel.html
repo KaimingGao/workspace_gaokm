@@ -88,10 +88,10 @@
             <div class="dashboard-kpi-value quant-pro-kpi-value quant-kpi-value">—</div>
             <div class="dashboard-kpi-sub quant-pro-kpi-sub quant-kpi-sub">Ready% · Short</div>
           </div>
-          <div class="dashboard-kpi-card quant-pro-kpi-card quant-kpi-card is-empty" data-kpi="eod" title="ŷ_oo：全局 factor-ols / ŷ">
+          <div class="dashboard-kpi-card quant-pro-kpi-card quant-kpi-card is-empty" data-kpi="eod" title="ŷ_oo：Holdout 日频截面 Pearson 均值（对齐 Qlib IC）；副文案含命中与 Rank IC">
             <div class="dashboard-kpi-label quant-pro-kpi-label quant-kpi-label">ŷ_oo</div>
             <div class="dashboard-kpi-value quant-pro-kpi-value quant-kpi-value">—</div>
-            <div class="dashboard-kpi-sub quant-pro-kpi-sub quant-kpi-sub">全局 OLS · IC</div>
+            <div class="dashboard-kpi-sub quant-pro-kpi-sub quant-kpi-sub">日频截面 IC</div>
           </div>
           <div class="dashboard-kpi-card quant-pro-kpi-card quant-kpi-card is-empty" data-kpi="tau" title="ŷ_τc：开盘 09:30 同号率（可比旧口径）；混合=09:30–11:00 全网格">
             <div class="dashboard-kpi-label quant-pro-kpi-label quant-kpi-label">ŷ_τc</div>
@@ -173,10 +173,10 @@
           <span id="quant-cluster-bars-msg" class="quant-cluster-bars-msg">加载覆盖…</span>
         </div>
         <div class="dashboard-card-tools quant-pro-card-tools" role="group" aria-label="日线操作">
-          <button type="button" id="quant-cluster-bars-topup" class="dialog-btn secondary" title="写入日 K 仓（增量）：已齐 as-of 走本地；缺口进程池并行 merge。日常 / ŷ_oo 先点这个。不改名单、不写 5m、不算 ŷ。">
+          <button type="button" id="quant-cluster-bars-topup" class="dialog-btn secondary" title="写入日 K 仓（增量 · 窗 600 个交易日）：末 bar 未齐走缺口 merge；本地条数短于窗口则整窗重拉。日常 / ŷ_oo 先点这个。不改名单、不写 5m、不算 ŷ。">
             增量补齐
           </button>
-          <button type="button" id="quant-cluster-bars-refresh" class="dialog-btn secondary" title="写入日 K 仓（整窗重拉 · 进程池）。仓损坏、复权混用或条数明显不够时用。不改名单、不写 5m、不算 ŷ。">
+          <button type="button" id="quant-cluster-bars-refresh" class="dialog-btn secondary" title="写入日 K 仓（整窗重拉 · 窗 600 个交易日 · 进程池）。仓损坏、复权混用或要覆盖近窗时用。不改名单、不写 5m、不算 ŷ。">
             强更日 K
           </button>
         </div>
@@ -376,7 +376,7 @@
               </p>
             </div>
           </details>
-          <button type="button" id="quant-return-model-fit" class="dialog-btn secondary" title="观察池满池拟合全局 ŷ，保存草稿">拟合</button>
+          <button type="button" id="quant-return-model-fit" class="dialog-btn secondary" title="观察池满池拟合全局 ŷ（日 K 窗 600 个交易日），保存草稿">拟合</button>
           <button type="button" id="quant-return-model-persist-research" class="dialog-btn secondary" data-persist-role="research" title="草稿 → return_score_model_research.json，供历史回测" disabled>启用研究</button>
           <button type="button" id="quant-return-model-promote" class="dialog-btn secondary" data-persist-role="live" title="草稿 → return_score_model_active.json，供交易执行" disabled>启用执行</button>
           <button type="button" id="quant-return-model-status" class="dialog-btn secondary" title="读取 live / 研究 / 草稿状态">状态</button>
@@ -482,7 +482,7 @@
               </p>
             </div>
           </details>
-          <button type="button" id="quant-co-ridge-run" class="dialog-btn secondary" title="观察池拟合 co Ridge + 时间 OOS（不写盘）">拟合</button>
+          <button type="button" id="quant-co-ridge-run" class="dialog-btn secondary" title="观察池拟合 co Ridge + 时间 OOS（日 K 窗 600 个交易日，不写盘）">拟合</button>
           <button type="button" id="quant-co-ridge-persist-research" class="dialog-btn secondary" data-persist-role="research" title="人审后写入 co_ridge_model_research.json，供历史回测加载">启用研究</button>
           <button type="button" id="quant-co-ridge-persist" class="dialog-btn secondary" data-persist-role="live" title="人审后写入 live/co_ridge_model.json，供交易执行加载">启用执行</button>
           <button type="button" id="quant-co-ridge-status" class="dialog-btn secondary" title="读取已启用 live 模型">状态</button>
@@ -740,7 +740,7 @@
     </details>
   </section>
 
-  <!-- ŷ_oo_rank：pairwise LTR 影子头；不进 ranking / live 决策；次要折叠，默认收起 -->
+  <!-- ŷ_oo_rank：LambdaRank 影子头；不进 ranking / live 决策；次要折叠，默认收起 -->
   <section class="dashboard-section quant-section quant-section-secondary" id="quant-section-oo-rank" aria-labelledby="quant-section-oo-rank-title">
     <details class="quant-secondary-fold">
       <summary class="quant-secondary-fold-sum">
@@ -804,41 +804,46 @@
     </details>
   </section>
 
-  <!-- ŷ_oo_tree：独立浅树头；同 ŷ_oo 标签、不进 live / 回测；次要折叠，默认收起 -->
+  <!-- ŷ_oo_tree：独立树头；同 ŷ_oo 标签、不进 live；次要折叠，默认收起 -->
   <section class="dashboard-section quant-section quant-section-secondary" id="quant-section-oo-tree" aria-labelledby="quant-section-oo-tree-title">
     <details class="quant-secondary-fold">
       <summary class="quant-secondary-fold-sum">
         <h3 id="quant-section-oo-tree-title" class="dashboard-section-title">ŷ_oo_tree</h3>
-        <p class="dashboard-section-desc quant-section-desc">open→open 浅树（80 棵）· 影子对照 · 不进 live</p>
+        <p class="dashboard-section-desc quant-section-desc">open→open LightGBM · 默认 Alpha158 · 观察池口径 · 不进 live</p>
       </summary>
       <div class="dashboard-card quant-pro-card">
       <div class="dashboard-card-head quant-pro-card-head quant-card-head--tools">
         <div id="quant-oo-tree-summary" class="quant-rem-status quant-card-head-status" aria-live="polite">
           <span class="quant-pro-status-chip" data-state="idle">待命</span>
-          <span class="quant-rem-status-msg">拟合 80 棵后看 OOS · 写入调仓回测树包 · 日线因子面板</span>
+          <span class="quant-rem-status-msg">默认观察池 LGB · Alpha158 特征 · 写入调仓/做T树包</span>
         </div>
         <div class="dashboard-card-tools quant-pro-card-tools" role="group" aria-label="ŷ_oo_tree 操作">
           <details class="quant-help-fold quant-pro-help-fold">
             <summary class="quant-pro-help-summary"><span class="quant-pro-help-icon" aria-hidden="true">?</span> 说明</summary>
             <div class="quant-help-body quant-pro-help-body">
               <p>
-                <strong>ŷ_oo_tree</strong> 是独立估计器，标签与 ŷ_oo 相同：
-                <code>open[T+1]/open[T]−1</code>。80 棵浅树（深度 3）LightGBM。
-                默认树侧含 <code>raw_alpha158_*</code>（≤T−1）；同窗 Ridge 对照用日线注册因子（已剔 proxy），避免与主轴双重计权。
-                与 Ridge 同 Holdout，表内对照 IC / 命中 / MSE。
+                <strong>ŷ_oo_tree</strong> 标签与 ŷ_oo 相同：
+                <code>open[T+1]/open[T]−1</code>。默认
+                <strong>观察池 LGB</strong>（深度 5、300 轮、叶子 48、中等正则、百分点标签），按约 300 只 × 120 日调。
+                勾选 Alpha158 只加 <code>raw_alpha158_*</code>（≤T−1）。
+                <strong>Qlib LGB 预设</strong>是对照实验（深度 6、300 轮、叶子 64、λ₁=10、λ₂=20、截面 z、无早停），不是默认。
+                同窗 Ridge 对照不含 a158。表内对照 IC / 命中 / MSE。
               </p>
               <p>
                 <strong>不改 ŷ_oo Ridge、不进交易执行</strong>。拟合写入
-                <code>oo_tree_model.json</code>，历史回测「调仓回测」选 Tree 时替换 ŷ_oo。
-                无「启用研究 / 启用执行」。Holdout 日与页顶概览共用。
+                <code>oo_tree_model.json</code>，历史回测选 Tree 时替换 ŷ_oo。
               </p>
             </div>
           </details>
-          <label class="quant-inline-check" title="树吃 Alpha158；Ridge 对照不含">
+          <label class="quant-inline-check" title="树吃 raw_alpha158_*（≤T−1）；Ridge 对照不含">
             <input type="checkbox" id="quant-oo-tree-alpha158" checked />
             <span>Alpha158</span>
           </label>
-          <button type="button" id="quant-oo-tree-run" class="dialog-btn secondary" title="观察池拟合 ŷ_oo_tree（80 棵浅树，深度 3 LightGBM）+ 同 Holdout Ridge 对照；写入 oo_tree_model.json，供调仓回测选 Tree。">拟合</button>
+          <label class="quant-inline-check" title="缩小后的 Qlib 风格 LGB：深度 6、300 轮、叶子 64、λ₁=10、λ₂=20、标签截面 z、无早停；默认关闭">
+            <input type="checkbox" id="quant-oo-tree-qlib-lgb" />
+            <span>Qlib LGB 预设</span>
+          </label>
+          <button type="button" id="quant-oo-tree-run" class="dialog-btn secondary" title="观察池拟合 ŷ_oo_tree（日 K 窗 600 个交易日；默认观察池 LGB + Alpha158；可选 Qlib 预设）+ 同 Holdout Ridge 对照；写入 oo_tree_model.json。">拟合</button>
           <button type="button" id="quant-oo-tree-status" class="dialog-btn secondary" title="读取上次影子对照（不进打分）">上次</button>
         </div>
       </div>
@@ -849,41 +854,45 @@
     </details>
   </section>
 
-  <!-- ŷ_τc_tree：独立浅树头；同标签、不进 live / 回测；次要折叠，默认收起 -->
+  <!-- ŷ_τc_tree：独立树头；同标签、不进 live；次要折叠，默认收起 -->
   <section class="dashboard-section quant-section quant-section-secondary" id="quant-section-tau-tree" aria-labelledby="quant-section-tau-tree-title">
     <details class="quant-secondary-fold">
       <summary class="quant-secondary-fold-sum">
         <h3 id="quant-section-tau-tree-title" class="dashboard-section-title">ŷ_τc_tree</h3>
-        <p class="dashboard-section-desc quant-section-desc">τ→close 浅树（80 棵）· 影子对照 · 不进 live</p>
+        <p class="dashboard-section-desc quant-section-desc">τ→close LightGBM · 默认 Alpha158 · 观察池口径 · 不进 live</p>
       </summary>
       <div class="dashboard-card quant-pro-card">
       <div class="dashboard-card-head quant-pro-card-head quant-card-head--tools">
         <div id="quant-tau-tree-summary" class="quant-rem-status quant-card-head-status" aria-live="polite">
           <span class="quant-pro-status-chip" data-state="idle">待命</span>
-          <span class="quant-rem-status-msg">拟合 80 棵后看 OOS · 写入调仓回测树包 · 满池瓶颈在组面板</span>
+          <span class="quant-rem-status-msg">默认观察池 LGB · Alpha158 特征 · 满池瓶颈在组面板</span>
         </div>
         <div class="dashboard-card-tools quant-pro-card-tools" role="group" aria-label="ŷ_τc_tree 操作">
           <details class="quant-help-fold quant-pro-help-fold">
             <summary class="quant-pro-help-summary"><span class="quant-pro-help-icon" aria-hidden="true">?</span> 说明</summary>
             <div class="quant-help-body quant-pro-help-body">
               <p>
-                <strong>ŷ_τc_tree</strong> 是独立估计器，标签与 ŷ_τc 相同：
-                <code>close[T]/price[τ]−1</code>（τ→close 剩余收益）。80 棵浅树（深度 3）LightGBM。
-                默认树侧含 <code>raw_alpha158_*</code>（≤T−1）；同窗 Ridge 对照仍只用开盘 Z，避免与 ŷ_oo 双重计权。
-                满池耗时主要在组分钟面板，不是树拟合。与 Ridge 同面板、同 Holdout，表内对照 IC / 命中 / MSE。
+                <strong>ŷ_τc_tree</strong> 标签与 ŷ_τc 相同：
+                <code>close[T]/price[τ]−1</code>。默认
+                <strong>观察池 LGB</strong>（深度 5、300 轮、叶子 48、中等正则、百分点标签）。
+                勾选 Alpha158 只加特征。<strong>Qlib LGB 预设</strong>是对照实验（深度 6、300 轮、叶子 64、λ₁=10、λ₂=20、截面 z、无早停）。
+                Ridge 对照仍只用开盘 Z。满池耗时主要在组分钟面板。
               </p>
               <p>
                 <strong>不改 ŷ_τc Ridge、不进交易执行</strong>。拟合写入
-                <code>tc_tree_model.json</code>，历史回测「调仓回测」选 Tree 时替换 ŷ_τc。
-                无「启用研究 / 启用执行」。Holdout 日与页顶概览共用。
+                <code>tc_tree_model.json</code>，历史回测选 Tree 时替换 ŷ_τc。
               </p>
             </div>
           </details>
-          <label class="quant-inline-check" title="树吃 Alpha158；Ridge 对照不含">
+          <label class="quant-inline-check" title="树吃 raw_alpha158_*（≤T−1）；Ridge 对照不含">
             <input type="checkbox" id="quant-tau-tree-alpha158" checked />
             <span>Alpha158</span>
           </label>
-          <button type="button" id="quant-tau-tree-run" class="dialog-btn secondary" title="观察池拟合 ŷ_τc_tree（80 棵浅树，深度 3 LightGBM）+ 同 Holdout Ridge 对照；写入 tc_tree_model.json，供调仓回测选 Tree。满池瓶颈在组分钟面板（约数分钟）。">拟合</button>
+          <label class="quant-inline-check" title="缩小后的 Qlib 风格 LGB：深度 6、300 轮、叶子 64、λ₁=10、λ₂=20、标签截面 z、无早停；默认关闭">
+            <input type="checkbox" id="quant-tau-tree-qlib-lgb" />
+            <span>Qlib LGB 预设</span>
+          </label>
+          <button type="button" id="quant-tau-tree-run" class="dialog-btn secondary" title="观察池拟合 ŷ_τc_tree（默认观察池 LGB + Alpha158；可选 Qlib 预设）。满池瓶颈在组分钟面板。">拟合</button>
           <button type="button" id="quant-tau-tree-status" class="dialog-btn secondary" title="读取上次影子对照（不进打分）">上次</button>
         </div>
       </div>
@@ -894,41 +903,45 @@
     </details>
   </section>
 
-  <!-- ŷ_co_tree：独立浅树头；同 ŷ_co 标签、不进 live / 回测；次要折叠，默认收起 -->
+  <!-- ŷ_co_tree：独立树头；同 ŷ_co 标签、不进 live；次要折叠，默认收起 -->
   <section class="dashboard-section quant-section quant-section-secondary" id="quant-section-co-tree" aria-labelledby="quant-section-co-tree-title">
     <details class="quant-secondary-fold">
       <summary class="quant-secondary-fold-sum">
         <h3 id="quant-section-co-tree-title" class="dashboard-section-title">ŷ_co_tree</h3>
-        <p class="dashboard-section-desc quant-section-desc">close→次开 浅树（80 棵）· 影子对照 · 不进 live</p>
+        <p class="dashboard-section-desc quant-section-desc">close→open LightGBM · 默认 Alpha158 · 观察池口径 · 不进 live</p>
       </summary>
       <div class="dashboard-card quant-pro-card">
       <div class="dashboard-card-head quant-pro-card-head quant-card-head--tools">
         <div id="quant-co-tree-summary" class="quant-rem-status quant-card-head-status" aria-live="polite">
           <span class="quant-pro-status-chip" data-state="idle">待命</span>
-          <span class="quant-rem-status-msg">拟合 80 棵后看 OOS · 写入调仓回测树包 · 隔夜缺口 Z 面板</span>
+          <span class="quant-rem-status-msg">默认观察池 LGB · Alpha158 特征 · 隔夜缺口 Z 面板</span>
         </div>
         <div class="dashboard-card-tools quant-pro-card-tools" role="group" aria-label="ŷ_co_tree 操作">
           <details class="quant-help-fold quant-pro-help-fold">
             <summary class="quant-pro-help-summary"><span class="quant-pro-help-icon" aria-hidden="true">?</span> 说明</summary>
             <div class="quant-help-body quant-pro-help-body">
               <p>
-                <strong>ŷ_co_tree</strong> 是独立估计器，标签与 ŷ_co 相同：
-                <code>open[T+1]/close[T]−1</code>。80 棵浅树（深度 3）LightGBM。
-                默认树侧含 <code>raw_alpha158_*</code>（≤T−1）；同窗 Ridge 对照仅 CO Z（路径/开盘），与主轴 ŷ_co Ridge 口径对齐。
-                与 Ridge 同 Holdout，表内对照 IC / 命中 / MSE。
+                <strong>ŷ_co_tree</strong> 标签与 ŷ_co 相同：
+                <code>open[T+1]/close[T]−1</code>。默认
+                <strong>观察池 LGB</strong>（深度 5、300 轮、叶子 48、中等正则、百分点标签）。
+                勾选 Alpha158 只加特征。<strong>Qlib LGB 预设</strong>是对照实验（深度 6、300 轮、叶子 64、λ₁=10、λ₂=20、截面 z、无早停）。
+                Ridge 对照仅 CO Z。
               </p>
               <p>
                 <strong>不改 ŷ_co Ridge、不进交易执行 / 主排序</strong>。拟合写入
-                <code>co_tree_model.json</code>，历史回测「调仓回测」选 Tree 时替换 ŷ_co。
-                无「启用研究 / 启用执行」。Holdout 日与页顶概览共用。
+                <code>co_tree_model.json</code>，历史回测选 Tree 时替换 ŷ_co。
               </p>
             </div>
           </details>
-          <label class="quant-inline-check" title="树吃 Alpha158；Ridge 对照仅 CO Z">
+          <label class="quant-inline-check" title="树吃 raw_alpha158_*（≤T−1）；Ridge 对照仅 CO Z">
             <input type="checkbox" id="quant-co-tree-alpha158" checked />
             <span>Alpha158</span>
           </label>
-          <button type="button" id="quant-co-tree-run" class="dialog-btn secondary" title="观察池拟合 ŷ_co_tree（80 棵浅树，深度 3 LightGBM）+ 同 Holdout Ridge 对照；写入 co_tree_model.json，供调仓回测选 Tree。">拟合</button>
+          <label class="quant-inline-check" title="缩小后的 Qlib 风格 LGB：深度 6、300 轮、叶子 64、λ₁=10、λ₂=20、标签截面 z、无早停；默认关闭">
+            <input type="checkbox" id="quant-co-tree-qlib-lgb" />
+            <span>Qlib LGB 预设</span>
+          </label>
+          <button type="button" id="quant-co-tree-run" class="dialog-btn secondary" title="观察池拟合 ŷ_co_tree（日 K 窗 600 个交易日；默认观察池 LGB + Alpha158；可选 Qlib 预设）+ 同 Holdout Ridge 对照；写入 co_tree_model.json。">拟合</button>
           <button type="button" id="quant-co-tree-status" class="dialog-btn secondary" title="读取上次影子对照（不进打分）">上次</button>
         </div>
       </div>
@@ -939,18 +952,18 @@
     </details>
   </section>
 
-  <!-- ŷ_τ30_tree：独立浅树头；同标签、不进 live / 回测；次要折叠，默认收起 -->
+  <!-- ŷ_τ30_tree：独立树头；同标签、不进 live / 回测；次要折叠，默认收起 -->
   <section class="dashboard-section quant-section quant-section-secondary" id="quant-section-t30-tree" aria-labelledby="quant-section-t30-tree-title">
     <details class="quant-secondary-fold">
       <summary class="quant-secondary-fold-sum">
         <h3 id="quant-section-t30-tree-title" class="dashboard-section-title">ŷ_τ30_tree</h3>
-        <p class="dashboard-section-desc quant-section-desc">P(窗收益>0) 浅树（80 棵）· 影子对照 · 不进 live</p>
+        <p class="dashboard-section-desc quant-section-desc">P(窗收益>0) · LightGBM · 影子对照 · 不进 live</p>
       </summary>
       <div class="dashboard-card quant-pro-card">
       <div class="dashboard-card-head quant-pro-card-head quant-card-head--tools">
         <div id="quant-t30-tree-summary" class="quant-rem-status quant-card-head-status" aria-live="polite">
           <span class="quant-pro-status-chip" data-state="idle">待命</span>
-          <span class="quant-rem-status-msg">拟合 80 棵后看 OOS · 不写盘 · 满池瓶颈在组面板 · 需 5m</span>
+          <span class="quant-rem-status-msg">拟合后看 OOS · 不写盘 · 满池瓶颈在组面板 · 需 5m</span>
         </div>
         <div class="dashboard-card-tools quant-pro-card-tools" role="group" aria-label="ŷ_τ30_tree 操作">
           <details class="quant-help-fold quant-pro-help-fold">
@@ -958,7 +971,7 @@
             <div class="quant-help-body quant-pro-help-body">
               <p>
                 <strong>ŷ_τ30_tree</strong> 是独立估计器，                标签与 ŷ_τ30 相同：
-                <code>I(mean(price[τ+25m],price[τ+30m],price[τ+35m])/price[τ]−1 &gt; 0)</code>。80 棵浅树（深度 3）LightGBM。
+                <code>I(mean(price[τ+25m],price[τ+30m],price[τ+35m])/price[τ]−1 &gt; 0)</code>。观察池 LGB（深度 5、300 轮）。
                 与 Ridge 同 X（开盘 Z + ≤τ 分钟小包 + 序列特征），同 Holdout，表内对照 AUC / acc@0.5 / Brier。
               </p>
               <p>
@@ -967,7 +980,7 @@
               </p>
             </div>
           </details>
-          <button type="button" id="quant-t30-tree-run" class="dialog-btn secondary" title="观察池拟合 ŷ_τ30_tree（80 棵浅树，深度 3）+ 同 Holdout Ridge 对照；不写盘。需 5m 缓存。满池瓶颈在组分钟面板（约数分钟）；树拟合通常数秒。">拟合</button>
+          <button type="button" id="quant-t30-tree-run" class="dialog-btn secondary" title="观察池拟合 ŷ_τ30_tree（观察池 LGB，深度 5、300 轮）+ 同 Holdout Ridge 对照；不写盘。需 5m 缓存。满池瓶颈在组分钟面板（约数分钟）；树拟合通常数秒。">拟合</button>
           <button type="button" id="quant-t30-tree-status" class="dialog-btn secondary" title="读取上次影子对照（不进打分）">上次</button>
         </div>
       </div>
@@ -978,18 +991,18 @@
     </details>
   </section>
 
-  <!-- ŷ_τ45_tree：独立浅树头；同标签、不进 live / 回测；次要折叠，默认收起 -->
+  <!-- ŷ_τ45_tree：独立树头；同标签、不进 live / 回测；次要折叠，默认收起 -->
   <section class="dashboard-section quant-section quant-section-secondary" id="quant-section-t45-tree" aria-labelledby="quant-section-t45-tree-title">
     <details class="quant-secondary-fold">
       <summary class="quant-secondary-fold-sum">
         <h3 id="quant-section-t45-tree-title" class="dashboard-section-title">ŷ_τ45_tree</h3>
-        <p class="dashboard-section-desc quant-section-desc">P(窗收益>0) 浅树（80 棵）· 影子对照 · 不进 live</p>
+        <p class="dashboard-section-desc quant-section-desc">P(窗收益>0) · LightGBM · 影子对照 · 不进 live</p>
       </summary>
       <div class="dashboard-card quant-pro-card">
       <div class="dashboard-card-head quant-pro-card-head quant-card-head--tools">
         <div id="quant-t45-tree-summary" class="quant-rem-status quant-card-head-status" aria-live="polite">
           <span class="quant-pro-status-chip" data-state="idle">待命</span>
-          <span class="quant-rem-status-msg">拟合 80 棵后看 OOS · 不写盘 · 满池瓶颈在组面板 · 需 5m</span>
+          <span class="quant-rem-status-msg">拟合后看 OOS · 不写盘 · 满池瓶颈在组面板 · 需 5m</span>
         </div>
         <div class="dashboard-card-tools quant-pro-card-tools" role="group" aria-label="ŷ_τ45_tree 操作">
           <details class="quant-help-fold quant-pro-help-fold">
@@ -997,7 +1010,7 @@
             <div class="quant-help-body quant-pro-help-body">
               <p>
                 <strong>ŷ_τ45_tree</strong> 是独立估计器，标签与 ŷ_τ45 相同：
-                <code>I(mean(price[τ+40m],price[τ+45m],price[τ+50m])/price[τ]−1 &gt; 0)</code>。80 棵浅树（深度 3）LightGBM。
+                <code>I(mean(price[τ+40m],price[τ+45m],price[τ+50m])/price[τ]−1 &gt; 0)</code>。观察池 LGB（深度 5、300 轮）。
                 与 Ridge 同 X（开盘 Z + ≤τ 分钟小包 + 序列特征），同 Holdout，表内对照 AUC / acc@0.5 / Brier。
               </p>
               <p>
@@ -1006,7 +1019,7 @@
               </p>
             </div>
           </details>
-          <button type="button" id="quant-t45-tree-run" class="dialog-btn secondary" title="观察池拟合 ŷ_τ45_tree（80 棵浅树，深度 3）+ 同 Holdout Ridge 对照；不写盘。需 5m 缓存。满池瓶颈在组分钟面板（约数分钟）；树拟合通常数秒。">拟合</button>
+          <button type="button" id="quant-t45-tree-run" class="dialog-btn secondary" title="观察池拟合 ŷ_τ45_tree（观察池 LGB，深度 5、300 轮）+ 同 Holdout Ridge 对照；不写盘。需 5m 缓存。满池瓶颈在组分钟面板（约数分钟）；树拟合通常数秒。">拟合</button>
           <button type="button" id="quant-t45-tree-status" class="dialog-btn secondary" title="读取上次影子对照（不进打分）">上次</button>
         </div>
       </div>
@@ -1017,18 +1030,18 @@
     </details>
   </section>
 
-  <!-- ŷ_τ60_tree：独立浅树头；同标签、不进 live / 回测；次要折叠，默认收起 -->
+  <!-- ŷ_τ60_tree：独立树头；同标签、不进 live / 回测；次要折叠，默认收起 -->
   <section class="dashboard-section quant-section quant-section-secondary" id="quant-section-t60-tree" aria-labelledby="quant-section-t60-tree-title">
     <details class="quant-secondary-fold">
       <summary class="quant-secondary-fold-sum">
         <h3 id="quant-section-t60-tree-title" class="dashboard-section-title">ŷ_τ60_tree</h3>
-        <p class="dashboard-section-desc quant-section-desc">P(窗收益>0) 浅树（80 棵）· 影子对照 · 不进 live</p>
+        <p class="dashboard-section-desc quant-section-desc">P(窗收益>0) · LightGBM · 影子对照 · 不进 live</p>
       </summary>
       <div class="dashboard-card quant-pro-card">
       <div class="dashboard-card-head quant-pro-card-head quant-card-head--tools">
         <div id="quant-t60-tree-summary" class="quant-rem-status quant-card-head-status" aria-live="polite">
           <span class="quant-pro-status-chip" data-state="idle">待命</span>
-          <span class="quant-rem-status-msg">拟合 80 棵后看 OOS · 不写盘 · 满池瓶颈在组面板 · 需 5m</span>
+          <span class="quant-rem-status-msg">拟合后看 OOS · 不写盘 · 满池瓶颈在组面板 · 需 5m</span>
         </div>
         <div class="dashboard-card-tools quant-pro-card-tools" role="group" aria-label="ŷ_τ60_tree 操作">
           <details class="quant-help-fold quant-pro-help-fold">
@@ -1036,7 +1049,7 @@
             <div class="quant-help-body quant-pro-help-body">
               <p>
                 <strong>ŷ_τ60_tree</strong> 是独立估计器，标签与 ŷ_τ60 相同：
-                <code>I(mean(price[τ+55m],price[τ+60m],price[τ+65m])/price[τ]−1 &gt; 0)</code>。80 棵浅树（深度 3）LightGBM。
+                <code>I(mean(price[τ+55m],price[τ+60m],price[τ+65m])/price[τ]−1 &gt; 0)</code>。观察池 LGB（深度 5、300 轮）。
                 与 Ridge 同 X（开盘 Z + ≤τ 分钟小包 + 序列特征），同 Holdout，表内对照 AUC / acc@0.5 / Brier。
               </p>
               <p>
@@ -1045,7 +1058,7 @@
               </p>
             </div>
           </details>
-          <button type="button" id="quant-t60-tree-run" class="dialog-btn secondary" title="观察池拟合 ŷ_τ60_tree（80 棵浅树，深度 3）+ 同 Holdout Ridge 对照；不写盘。需 5m 缓存。满池瓶颈在组分钟面板（约数分钟）；树拟合通常数秒。">拟合</button>
+          <button type="button" id="quant-t60-tree-run" class="dialog-btn secondary" title="观察池拟合 ŷ_τ60_tree（观察池 LGB，深度 5、300 轮）+ 同 Holdout Ridge 对照；不写盘。需 5m 缓存。满池瓶颈在组分钟面板（约数分钟）；树拟合通常数秒。">拟合</button>
           <button type="button" id="quant-t60-tree-status" class="dialog-btn secondary" title="读取上次影子对照（不进打分）">上次</button>
         </div>
       </div>
@@ -1056,18 +1069,18 @@
     </details>
   </section>
 
-  <!-- ŷ_τ75_tree：独立浅树头；同标签、不进 live / 回测；次要折叠，默认收起 -->
+  <!-- ŷ_τ75_tree：独立树头；同标签、不进 live / 回测；次要折叠，默认收起 -->
   <section class="dashboard-section quant-section quant-section-secondary" id="quant-section-t75-tree" aria-labelledby="quant-section-t75-tree-title">
     <details class="quant-secondary-fold">
       <summary class="quant-secondary-fold-sum">
         <h3 id="quant-section-t75-tree-title" class="dashboard-section-title">ŷ_τ75_tree</h3>
-        <p class="dashboard-section-desc quant-section-desc">P(窗收益>0) 浅树（80 棵）· 影子对照 · 不进 live</p>
+        <p class="dashboard-section-desc quant-section-desc">P(窗收益>0) · LightGBM · 影子对照 · 不进 live</p>
       </summary>
       <div class="dashboard-card quant-pro-card">
       <div class="dashboard-card-head quant-pro-card-head quant-card-head--tools">
         <div id="quant-t75-tree-summary" class="quant-rem-status quant-card-head-status" aria-live="polite">
           <span class="quant-pro-status-chip" data-state="idle">待命</span>
-          <span class="quant-rem-status-msg">拟合 80 棵后看 OOS · 不写盘 · 满池瓶颈在组面板 · 需 5m</span>
+          <span class="quant-rem-status-msg">拟合后看 OOS · 不写盘 · 满池瓶颈在组面板 · 需 5m</span>
         </div>
         <div class="dashboard-card-tools quant-pro-card-tools" role="group" aria-label="ŷ_τ75_tree 操作">
           <details class="quant-help-fold quant-pro-help-fold">
@@ -1075,7 +1088,7 @@
             <div class="quant-help-body quant-pro-help-body">
               <p>
                 <strong>ŷ_τ75_tree</strong> 是独立估计器，标签与 ŷ_τ75 相同：
-                <code>I(mean(price[τ+70m],price[τ+75m],price[τ+80m])/price[τ]−1 &gt; 0)</code>。80 棵浅树（深度 3）LightGBM。
+                <code>I(mean(price[τ+70m],price[τ+75m],price[τ+80m])/price[τ]−1 &gt; 0)</code>。观察池 LGB（深度 5、300 轮）。
                 与 Ridge 同 X（开盘 Z + ≤τ 分钟小包 + 序列特征），同 Holdout，表内对照 AUC / acc@0.5 / Brier。
               </p>
               <p>
@@ -1084,7 +1097,7 @@
               </p>
             </div>
           </details>
-          <button type="button" id="quant-t75-tree-run" class="dialog-btn secondary" title="观察池拟合 ŷ_τ75_tree（80 棵浅树，深度 3）+ 同 Holdout Ridge 对照；不写盘。需 5m 缓存。满池瓶颈在组分钟面板（约数分钟）；树拟合通常数秒。">拟合</button>
+          <button type="button" id="quant-t75-tree-run" class="dialog-btn secondary" title="观察池拟合 ŷ_τ75_tree（观察池 LGB，深度 5、300 轮）+ 同 Holdout Ridge 对照；不写盘。需 5m 缓存。满池瓶颈在组分钟面板（约数分钟）；树拟合通常数秒。">拟合</button>
           <button type="button" id="quant-t75-tree-status" class="dialog-btn secondary" title="读取上次影子对照（不进打分）">上次</button>
         </div>
       </div>
@@ -1095,18 +1108,18 @@
     </details>
   </section>
 
-  <!-- ŷ_τ90_tree：独立浅树头；同标签、不进 live / 回测；次要折叠，默认收起 -->
+  <!-- ŷ_τ90_tree：独立树头；同标签、不进 live / 回测；次要折叠，默认收起 -->
   <section class="dashboard-section quant-section quant-section-secondary" id="quant-section-t90-tree" aria-labelledby="quant-section-t90-tree-title">
     <details class="quant-secondary-fold">
       <summary class="quant-secondary-fold-sum">
         <h3 id="quant-section-t90-tree-title" class="dashboard-section-title">ŷ_τ90_tree</h3>
-        <p class="dashboard-section-desc quant-section-desc">P(窗收益>0) 浅树（80 棵）· 影子对照 · 不进 live</p>
+        <p class="dashboard-section-desc quant-section-desc">P(窗收益>0) · LightGBM · 影子对照 · 不进 live</p>
       </summary>
       <div class="dashboard-card quant-pro-card">
       <div class="dashboard-card-head quant-pro-card-head quant-card-head--tools">
         <div id="quant-t90-tree-summary" class="quant-rem-status quant-card-head-status" aria-live="polite">
           <span class="quant-pro-status-chip" data-state="idle">待命</span>
-          <span class="quant-rem-status-msg">拟合 80 棵后看 OOS · 不写盘 · 满池瓶颈在组面板 · 需 5m</span>
+          <span class="quant-rem-status-msg">拟合后看 OOS · 不写盘 · 满池瓶颈在组面板 · 需 5m</span>
         </div>
         <div class="dashboard-card-tools quant-pro-card-tools" role="group" aria-label="ŷ_τ90_tree 操作">
           <details class="quant-help-fold quant-pro-help-fold">
@@ -1114,7 +1127,7 @@
             <div class="quant-help-body quant-pro-help-body">
               <p>
                 <strong>ŷ_τ90_tree</strong> 是独立估计器，标签与 ŷ_τ90 相同：
-                <code>I(mean(price[τ+85m],price[τ+90m],price[τ+95m])/price[τ]−1 &gt; 0)</code>。80 棵浅树（深度 3）LightGBM。
+                <code>I(mean(price[τ+85m],price[τ+90m],price[τ+95m])/price[τ]−1 &gt; 0)</code>。观察池 LGB（深度 5、300 轮）。
                 与 Ridge 同 X（开盘 Z + ≤τ 分钟小包 + 序列特征），同 Holdout，表内对照 AUC / acc@0.5 / Brier。
               </p>
               <p>
@@ -1123,7 +1136,7 @@
               </p>
             </div>
           </details>
-          <button type="button" id="quant-t90-tree-run" class="dialog-btn secondary" title="观察池拟合 ŷ_τ90_tree（80 棵浅树，深度 3）+ 同 Holdout Ridge 对照；不写盘。需 5m 缓存。满池瓶颈在组分钟面板（约数分钟）；树拟合通常数秒。">拟合</button>
+          <button type="button" id="quant-t90-tree-run" class="dialog-btn secondary" title="观察池拟合 ŷ_τ90_tree（观察池 LGB，深度 5、300 轮）+ 同 Holdout Ridge 对照；不写盘。需 5m 缓存。满池瓶颈在组分钟面板（约数分钟）；树拟合通常数秒。">拟合</button>
           <button type="button" id="quant-t90-tree-status" class="dialog-btn secondary" title="读取上次影子对照（不进打分）">上次</button>
         </div>
       </div>

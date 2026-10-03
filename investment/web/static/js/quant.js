@@ -37,17 +37,12 @@ const _QV =
   (typeof window !== "undefined" && window.__ASSET_V__) || "dev";
 
 /**
- * 统一格式化树后端名：lightgbm；兼容旧包 xgboost / numpy_gbm
- * 也支持 oo_rank 的 lambdarank（旧 lightgbm_lambda / ranknet_linear 仅展示）
+ * 统一格式化树后端名：lightgbm；oo_rank 为 lambdarank（旧包名仅展示）
  */
 function formatTreeBackend(backend) {
   const s = String(backend || "").toLowerCase().trim();
-  if (s === "xgboost" || s === "xgb") return "XGBoost";
-  if (s === "lightgbm" || s === "lgb") return "LightGBM";
+  if (s === "lightgbm" || s === "lgb" || s === "") return "LightGBM";
   if (s === "lambdarank" || s === "lightgbm_lambda") return "LambdaRank";
-  if (s === "ranknet_linear") return "线性 RankNet";
-  if (s === "numpy_gbm" || s === "numpy" || s === "gbm") return "numpy GBM";
-  if (s === "auto" || s === "") return "LightGBM";
   return s;
 }
 
@@ -88,7 +83,7 @@ const { installResearchUniverseUi } = await import(
 const { createFactorIcUi } = await import(
   `./quant/factor_ic_ui.js?v=${encodeURIComponent(_QV)}`
 );
-const { treeReportHtml } = await import(
+const { treeReportHtml, treeFitCollapsed } = await import(
   `./quant/tree_report.js?v=${encodeURIComponent(_QV)}`
 );
 
@@ -316,11 +311,24 @@ export function initQuant(ctx) {
     return Number.isFinite(n) ? n.toLocaleString("en-US") : "—";
   }
 
-  function remStatusMeta(label, value, tip) {
+  function remIcTone(v) {
+    const n = Number(v);
+    if (!Number.isFinite(n) || n === 0) return "";
+    // A 股：正红、负绿
+    return n > 0 ? "up" : "down";
+  }
+
+  function remStatusMeta(label, value, tip, opts = {}) {
+    const tone =
+      opts.signed === true
+        ? remIcTone(opts.raw != null ? opts.raw : value)
+        : opts.tone
+          ? String(opts.tone)
+          : "";
     return (
       `<span class="quant-rem-meta"${tip ? ` title="${escapeHtml(tip)}"` : ""}>` +
       `<span class="quant-rem-meta-k">${escapeHtml(label)}</span>` +
-      `<span class="quant-rem-meta-v">${escapeHtml(String(value))}</span>` +
+      `<span class="quant-rem-meta-v${tone ? ` ${tone}` : ""}">${escapeHtml(String(value))}</span>` +
       `</span>`
     );
   }
@@ -413,8 +421,50 @@ export function initQuant(ctx) {
             remStatusMeta("Brier", Number(oos.brier).toFixed(3), "越小越好；0.25≈瞎猜")
           );
         }
+      } else if (oos.cs_ic != null && Number.isFinite(Number(oos.cs_ic))) {
+        metas.push(
+          remStatusMeta(
+            "IC",
+            fmtRemIc(oos.cs_ic),
+            "对齐 Qlib：日频截面 Pearson 均值",
+            { signed: true, raw: oos.cs_ic }
+          )
+        );
+        if (oos.cs_rank_ic != null && Number.isFinite(Number(oos.cs_rank_ic))) {
+          metas.push(
+            remStatusMeta(
+              "Rank IC",
+              fmtRemIc(oos.cs_rank_ic),
+              "对齐 Qlib：日频截面 Spearman 均值",
+              { signed: true, raw: oos.cs_rank_ic }
+            )
+          );
+        }
+        if (oos.cs_icir != null && Number.isFinite(Number(oos.cs_icir))) {
+          metas.push(
+            remStatusMeta("ICIR", fmtRemIc(oos.cs_icir), "日频 IC 均值/标准差", {
+              signed: true,
+              raw: oos.cs_icir,
+            })
+          );
+        }
+        if (oos.ic != null && Number.isFinite(Number(oos.ic))) {
+          metas.push(
+            remStatusMeta(
+              "拼样IC",
+              fmtRemIc(oos.ic),
+              "Holdout 拼样本 Pearson（旧口径，≠ Qlib）",
+              { signed: true, raw: oos.ic }
+            )
+          );
+        }
       } else if (oos.ic != null && Number.isFinite(Number(oos.ic))) {
-        metas.push(remStatusMeta("OOS IC", fmtRemIc(oos.ic), "时间切分样本外 IC"));
+        metas.push(
+          remStatusMeta("OOS IC", fmtRemIc(oos.ic), "时间切分样本外 IC（拼样本）", {
+            signed: true,
+            raw: oos.ic,
+          })
+        );
       }
       const openTau = tauOpenBucket(oos);
       if (openTau && openTau.sign_hit != null && Number.isFinite(Number(openTau.sign_hit))) {
@@ -477,6 +527,7 @@ export function initQuant(ctx) {
       const buckets = oos.buckets || {};
       const b04 = buckets.abs_ge_0_4 || {};
       const b06 = buckets.abs_ge_0_6 || {};
+      const top30 = buckets.abs_top_30 || {};
       if (b04.sign_hit != null && Number.isFinite(Number(b04.sign_hit))) {
         metas.push(
           remStatusMeta(
@@ -492,6 +543,17 @@ export function initQuant(ctx) {
             "|ŷ|≥0.6",
             fmtRemHit(b06.sign_hit),
             `强信号桶同号 · n=${b06.n ?? "—"}`
+          )
+        );
+      } else if (top30.sign_hit != null && Number.isFinite(Number(top30.sign_hit))) {
+        // 截面 z 标签下 |ŷ| 常 <0.6，用分位强信号桶
+        metas.push(
+          remStatusMeta(
+            "|ŷ| top30%",
+            fmtRemHit(top30.sign_hit),
+            ` |ŷ| 最大 30% 同号 · n=${top30.n ?? "—"} · thr=${
+              top30.thr != null ? Number(top30.thr).toFixed(4) : "—"
+            }`
           )
         );
       }
@@ -1038,23 +1100,32 @@ export function initQuant(ctx) {
     box.innerHTML = treeReportHtml(data, { head: "oo" });
   }
 
+  function readReturnTreeFitFlags(kind) {
+    const a158 = document.getElementById(`quant-${kind}-tree-alpha158`);
+    const qlib = document.getElementById(`quant-${kind}-tree-qlib-lgb`);
+    return {
+      include_alpha158: !a158 || a158.checked !== false,
+      qlib_lgb: !!(qlib && qlib.checked),
+    };
+  }
+
   async function runOoTree() {
     const sum = document.getElementById("quant-oo-tree-summary");
     startOoTreeBusy();
     try {
-      const a158El = document.getElementById("quant-oo-tree-alpha158");
-      const includeAlpha158 = !a158El || a158El.checked !== false;
+      const flags = readReturnTreeFitFlags("oo");
       const res = await fetch("/api/quant/oo-tree", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          lookback: 120,
+          lookback: 600,
           watching_limit: 300,
           horizon_days: 1,
           ridge_lambda: 1.0,
           holdout_trading_days: readHoldoutTradingDays(),
           backend: "lightgbm",
-          include_alpha158: includeAlpha158,
+          include_alpha158: flags.include_alpha158,
+          qlib_lgb: flags.qlib_lgb,
         }),
       });
       const data = await res.json().catch(() => ({}));
@@ -1072,7 +1143,9 @@ export function initQuant(ctx) {
       }
       const timingMsg = fmtTauTreeTiming(data);
       const a158Bit = data.include_alpha158
-        ? `Alpha158×${data.n_alpha158_features != null ? data.n_alpha158_features : "?"}`
+        ? `Alpha158×${data.n_alpha158_features != null ? data.n_alpha158_features : "?"}${
+            data.qlib_lgb ? " · Qlib LGB" : ""
+          }`
         : "无 Alpha158";
       renderRemStatus(sum, {
         state: "ok",
@@ -1110,7 +1183,9 @@ export function initQuant(ctx) {
     }
     const timingMsg = fmtTauTreeTiming(data);
     const a158Bit = data.include_alpha158
-      ? `Alpha158×${data.n_alpha158_features != null ? data.n_alpha158_features : "?"}`
+      ? `Alpha158×${data.n_alpha158_features != null ? data.n_alpha158_features : "?"}${
+          data.qlib_lgb ? " · Qlib LGB" : ""
+        }`
       : "无 Alpha158";
     renderRemStatus(sum, {
       state: "ok",
@@ -1191,18 +1266,18 @@ export function initQuant(ctx) {
     const sum = document.getElementById("quant-co-tree-summary");
     startCoTreeBusy();
     try {
-      const a158El = document.getElementById("quant-co-tree-alpha158");
-      const includeAlpha158 = !a158El || a158El.checked !== false;
+      const flags = readReturnTreeFitFlags("co");
       const res = await fetch("/api/quant/co-tree", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          lookback: 120,
+          lookback: 600,
           watching_limit: 300,
           ridge_lambda: 1.0,
           holdout_trading_days: readHoldoutTradingDays(),
           backend: "lightgbm",
-          include_alpha158: includeAlpha158,
+          include_alpha158: flags.include_alpha158,
+          qlib_lgb: flags.qlib_lgb,
         }),
       });
       const data = await res.json().catch(() => ({}));
@@ -1220,7 +1295,9 @@ export function initQuant(ctx) {
       }
       const timingMsg = fmtTauTreeTiming(data);
       const a158Bit = data.include_alpha158
-        ? `Alpha158×${data.n_alpha158_features != null ? data.n_alpha158_features : "?"}`
+        ? `Alpha158×${data.n_alpha158_features != null ? data.n_alpha158_features : "?"}${
+            data.qlib_lgb ? " · Qlib LGB" : ""
+          }`
         : "无 Alpha158";
       renderRemStatus(sum, {
         state: "ok",
@@ -1278,7 +1355,9 @@ export function initQuant(ctx) {
       }
       const timingMsg = fmtTauTreeTiming(data);
       const a158Bit = data.include_alpha158
-        ? `Alpha158×${data.n_alpha158_features != null ? data.n_alpha158_features : "?"}`
+        ? `Alpha158×${data.n_alpha158_features != null ? data.n_alpha158_features : "?"}${
+            data.qlib_lgb ? " · Qlib LGB" : ""
+          }`
         : "无 Alpha158";
       renderRemStatus(sum, {
         state: "ok",
@@ -1343,18 +1422,32 @@ export function initQuant(ctx) {
     return parts.join(" · ");
   }
 
-  function tauTreeHyperBits(data) {
+function tauTreeHyperBits(data) {
     const hyper = (data && data.hyperparams) || {};
     const n =
       hyper.n_estimators != null && Number.isFinite(Number(hyper.n_estimators))
         ? Number(hyper.n_estimators)
-        : 80;
+        : 300;
     const depth =
       hyper.max_depth != null && Number.isFinite(Number(hyper.max_depth))
         ? Number(hyper.max_depth)
-        : 3;
+        : 5;
     const engine = formatTreeBackend((data && data.backend) || "");
-    return [engine, `${n} 棵 · 深度 ${depth}`].filter(Boolean).join(" · ");
+    const bi = Number(hyper.best_iteration);
+    const best =
+      Number.isFinite(bi) && bi > 0 && Number.isFinite(n) && bi < n
+        ? `best@${bi}`
+        : "";
+    const preset =
+      hyper.preset === "panel_lgb"
+        ? "观察池LGB"
+        : hyper.preset === "qlib_alpha158"
+          ? "Qlib预设"
+          : "";
+    const warn = treeFitCollapsed(data)
+      ? "best_iteration 过小 · 回测回退 Ridge · 请重新拟合"
+      : "";
+    return [engine, `${n} 棵 · 深度 ${depth}`, best, preset, warn].filter(Boolean).join(" · ");
   }
 
   function stopTauTreeBusy() {
@@ -1426,9 +1519,8 @@ export function initQuant(ctx) {
     startTauTreeBusy();
     try {
       const tauLimit = 300;
-      const a158El = document.getElementById("quant-tau-tree-alpha158");
-      const includeAlpha158 = !a158El || a158El.checked !== false;
-      const res = await fetch("/api/quant/tc-tree", {
+      const flags = readReturnTreeFitFlags("tau");
+      const res = await fetch("/api/quant/tau-tree", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -1437,7 +1529,8 @@ export function initQuant(ctx) {
           ridge_lambda: 1.0,
           holdout_trading_days: readHoldoutTradingDays(),
           backend: "lightgbm",
-          include_alpha158: includeAlpha158,
+          include_alpha158: flags.include_alpha158,
+          qlib_lgb: flags.qlib_lgb,
         }),
       });
       const data = await res.json().catch(() => ({}));
@@ -1455,7 +1548,9 @@ export function initQuant(ctx) {
       }
       const timingMsg = fmtTauTreeTiming(data);
       const a158Bit = data.include_alpha158
-        ? `Alpha158×${data.n_alpha158_features != null ? data.n_alpha158_features : "?"}`
+        ? `Alpha158×${data.n_alpha158_features != null ? data.n_alpha158_features : "?"}${
+            data.qlib_lgb ? " · Qlib LGB" : ""
+          }`
         : "无 Alpha158";
       renderRemStatus(sum, {
         state: "ok",
@@ -1487,7 +1582,7 @@ export function initQuant(ctx) {
     const ctrl = new AbortController();
     const to = setTimeout(() => ctrl.abort(), 20000);
     try {
-      const res = await fetch("/api/quant/tc-tree/last", { signal: ctrl.signal });
+      const res = await fetch("/api/quant/tau-tree/last", { signal: ctrl.signal });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
         const err = (data && (data.detail || data.error)) || `HTTP ${res.status}`;
@@ -1511,7 +1606,9 @@ export function initQuant(ctx) {
       }
       const timingMsg = fmtTauTreeTiming(data);
       const a158Bit = data.include_alpha158
-        ? `Alpha158×${data.n_alpha158_features != null ? data.n_alpha158_features : "?"}`
+        ? `Alpha158×${data.n_alpha158_features != null ? data.n_alpha158_features : "?"}${
+            data.qlib_lgb ? " · Qlib LGB" : ""
+          }`
         : "无 Alpha158";
       renderRemStatus(sum, {
         state: "ok",
@@ -2852,12 +2949,19 @@ export function initQuant(ctx) {
         } else {
           const rows = exps.map(e => {
             const m = e.metrics || {};
-            const ic = m.oos_ic != null ? m.oos_ic : (m.ic != null ? m.ic : "—");
+            const ic =
+              m.oos_cs_ic != null
+                ? m.oos_cs_ic
+                : m.oos_ic != null
+                  ? m.oos_ic
+                  : m.ic != null
+                    ? m.ic
+                    : "—";
             const fitEnd = m.fit_end || (e.config || {}).fit_end || "—";
             const win = [m.research_window, m.live_window].filter(Boolean).join("/") || "—";
             return `<tr><td style="max-width:180px;word-break:break-all;">${escapeHtml(String(e.experiment_id || "").slice(0, 24))}…</td><td>${escapeHtml(e.model_type)}</td><td>${escapeHtml(String(e.status))}</td><td>${escapeHtml(String(fitEnd))}</td><td>${escapeHtml(String(ic))}</td><td>${escapeHtml(String(win))}</td><td style="font-size:11px;">${escapeHtml(String(e.created_at || "").slice(5, 16))}</td></tr>`;
           }).join("");
-          table.innerHTML = `<table class="quant-weight-table" style="font-size:12px;"><thead><tr><th>ID</th><th>模型</th><th>状态</th><th>fit_end</th><th>OOS IC</th><th>窗</th><th>时间</th></tr></thead><tbody>${rows}</tbody></table>`;
+          table.innerHTML = `<table class="quant-weight-table" style="font-size:12px;"><thead><tr><th>ID</th><th>模型</th><th>状态</th><th>fit_end</th><th>IC</th><th>窗</th><th>时间</th></tr></thead><tbody>${rows}</tbody></table>`;
         }
       }
     } catch (e) {
@@ -3431,7 +3535,9 @@ export function initQuant(ctx) {
             ? " · 可启用研究 / 启用执行"
             : "";
       const a158Bit = data.include_alpha158
-        ? `Alpha158×${data.n_alpha158_features != null ? data.n_alpha158_features : "?"}`
+        ? `Alpha158×${data.n_alpha158_features != null ? data.n_alpha158_features : "?"}${
+            data.qlib_lgb ? " · Qlib LGB" : ""
+          }`
         : "无 Alpha158";
       const painted = paintRidgeEnableStatus(sum, data, {
         persistOk: !!persist,
@@ -3485,7 +3591,7 @@ export function initQuant(ctx) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          lookback: 120,
+          lookback: 600,
           watching_limit: onLimit,
           ridge_lambda: 1.0,
           holdout_trading_days: readHoldoutTradingDays(),

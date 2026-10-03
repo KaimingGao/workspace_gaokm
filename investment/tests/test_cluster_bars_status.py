@@ -82,6 +82,9 @@ class TestClusterBarsStatus(unittest.TestCase):
         def _last(code: str):
             return None if code == "000001" else "2026-08-22"
 
+        def _count(code: str):
+            return None if code == "000001" else 800
+
         class _Svc:
             def get_bars_batch(self, codes, **kwargs):
                 return [
@@ -99,6 +102,9 @@ class TestClusterBarsStatus(unittest.TestCase):
             "quant.research.cluster_bars_status._last_bar_date_for_code",
             side_effect=_last,
         ), patch(
+            "quant.research.cluster_bars_status._cached_daily_bar_count",
+            side_effect=_count,
+        ), patch(
             "quant.research.cluster_bars_daily.mark_force_latest_bars_done"
         ), patch(
             "quant.research.cluster_bars_status.build_cluster_bars_status",
@@ -114,7 +120,49 @@ class TestClusterBarsStatus(unittest.TestCase):
         self.assertEqual(top["bars_refresh"]["gap_count"], 1)
         self.assertEqual(full["bars_refresh"]["gap_count"], 2)
         self.assertEqual(top["bars_refresh"]["pool"], "process")
+        self.assertEqual(top["lookback"], 600)
+        self.assertEqual(top["bars_refresh"]["fetch_limit"], 662)
         self.assertTrue(svc.called)
+
+    def test_topup_full_window_when_cache_short(self):
+        from quant.research.cluster_bars_status import refresh_cluster_bars_only
+
+        calls = []
+
+        class _Svc:
+            def get_bars_batch(self, codes, **kwargs):
+                calls.append((list(codes), kwargs.get("incremental"), kwargs.get("limit")))
+                return [
+                    {"bars": [{"date": "2026-08-22", "close": 1}], "data_source": "akshare"}
+                    for _ in codes
+                ]
+
+        with patch("core.watching.store.read_watching", return_value={"watchlist": ["600519", "000001"]}), patch(
+            "quant.research.watching_universe.merge_cluster_universe",
+            return_value={"codes": ["600519", "000001"], "code_roles": {}},
+        ), patch(
+            "quant.research.cluster_bars_status.expected_latest_daily_bar_date",
+            return_value="2026-08-22",
+        ), patch(
+            "quant.research.cluster_bars_status._last_bar_date_for_code",
+            side_effect=lambda code: "2026-08-22" if code == "600519" else "2026-08-20",
+        ), patch(
+            "quant.research.cluster_bars_status._cached_daily_bar_count",
+            side_effect=lambda code: 90 if code == "600519" else 800,
+        ), patch(
+            "quant.research.cluster_bars_daily.mark_force_latest_bars_done"
+        ), patch(
+            "quant.research.cluster_bars_status.build_cluster_bars_status",
+            return_value={"success": True},
+        ), patch(
+            "core.data.service.get_research_service",
+            return_value=_Svc(),
+        ):
+            top = refresh_cluster_bars_only(watching_limit=100, mode="topup")
+        self.assertEqual(top["bars_refresh"]["full_count"], 1)
+        self.assertEqual(top["bars_refresh"]["tail_count"], 1)
+        self.assertEqual(calls[0], (["600519"], False, 662))
+        self.assertEqual(calls[1], (["000001"], True, 662))
 
     def test_lag_distribution_buckets(self):
         from quant.research.cluster_bars_status import build_cluster_bars_status

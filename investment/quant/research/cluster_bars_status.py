@@ -11,6 +11,22 @@ from core.watching.store import WATCHING_MAX_SIZE
 
 logger = logging.getLogger(__name__)
 
+# 观察池日 K 写入窗（交易日）。仓上限见 DAILY_BARS_MAX_KEEP（800）。
+CLUSTER_DAILY_LOOKBACK = 600
+
+
+def cluster_daily_fetch_limit(lookback: int = CLUSTER_DAILY_LOOKBACK) -> int:
+    """拉日 K 的条数：lookback 个交易日，再垫 Alpha158 特征窗。"""
+    lb = max(40, int(lookback or CLUSTER_DAILY_LOOKBACK))
+    pad = 62
+    try:
+        from core.signal.factors.alpha158 import ALPHA158_PANEL_WINDOW
+
+        pad = max(35, int(ALPHA158_PANEL_WINDOW))
+    except Exception:  # noqa: BLE001
+        logger.debug("cluster daily fetch pad fallback", exc_info=True)
+    return lb + pad
+
 
 def expected_latest_daily_bar_date(*, now: Optional[datetime] = None) -> str:
     """研究侧期望的最新完整日线日期（A 股 15:05 前仍用上一交易日）。"""
@@ -31,6 +47,22 @@ def _last_bar_date_for_code(code: str) -> Optional[str]:
             return None
         return date_key(meta.get("date_max")) or None
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in cluster_bars_status.py", exc_info=True)
+        return None
+
+
+def _cached_daily_bar_count(code: str) -> Optional[int]:
+    """本地日 K 条数；读不到 meta 时返回 None（不当成短仓）。"""
+    try:
+        from core.ports.market import resolve_market_code
+        from core.store import peek_daily_cache_meta
+
+        market, sym = resolve_market_code(code)
+        meta = peek_daily_cache_meta(market, sym)
+        if not meta or meta.get("bar_count") is None:
+            return None
+        return int(meta.get("bar_count") or 0)
+    except Exception:  # noqa: BLE001
         logger.debug("catch except Exception: in cluster_bars_status.py", exc_info=True)
         return None
 
@@ -179,14 +211,15 @@ def _bars_refresh_job_snapshot() -> Optional[Dict[str, Any]]:
 def refresh_cluster_bars_only(
     *,
     watching_limit: int = WATCHING_MAX_SIZE,
-    lookback: int = 80,
+    lookback: int = CLUSTER_DAILY_LOOKBACK,
     mode: str = "topup",
     progress_cb: Optional[Any] = None,
 ) -> Dict[str, Any]:
     """仅更新观察池日线，不跑 OLS 分组。
 
-    ``mode=topup``：强制增量对齐最新（日常）；``mode=full``：整窗重拉（仓坏/复权问题兜底）。
-    只对「未齐 as-of / 无仓」走进程池并行拉取，避免主进程 ak_lock 把 4 线程串成单通道后 360s 超时。
+    ``mode=topup``：末 bar 未齐 as-of 的走缺口合并；本地条数短于拉取窗的整窗重拉。
+    ``mode=full``：全池整窗重拉（仓坏/复权问题兜底）。
+    走进程池并行拉取，避免主进程 ak_lock 把 4 线程串成单通道后 360s 超时。
     """
     from quant.research.cluster_bars_daily import (
         cluster_bars_session_date,
@@ -195,7 +228,8 @@ def refresh_cluster_bars_only(
     from quant.research.watching_universe import clamp_watching_limit, merge_cluster_universe
 
     limit = clamp_watching_limit(watching_limit, WATCHING_MAX_SIZE)
-    lb = max(40, int(lookback or 80))
+    lb = max(40, int(lookback or CLUSTER_DAILY_LOOKBACK))
+    fetch_limit = cluster_daily_fetch_limit(lb)
     mode_s = str(mode or "topup").strip().lower()
     if mode_s not in ("full", "topup"):
         mode_s = "topup"
@@ -237,25 +271,77 @@ def refresh_cluster_bars_only(
         except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
             logger.debug("catch except Exception: in cluster_bars_status.py", exc_info=True)
 
-    need: List[str] = []
+    # full_codes：整窗（无仓、条数短于拉取窗、或 mode=full）。末根已齐时增量会跳过远端，短仓必须整窗。
+    # tail_codes：末 bar 落后，但本地条数已够，只补缺口。
+    full_codes: List[str] = []
+    tail_codes: List[str] = []
     aligned_n = 0
     if do_full:
-        need = list(codes)
+        full_codes = list(codes)
     else:
         for code in codes:
             lb_date = _last_bar_date_for_code(code)
-            if not lb_date or (expected and lb_date < expected):
-                need.append(code)
-            else:
+            stale = (not lb_date) or bool(expected and lb_date < expected)
+            n_bars = _cached_daily_bar_count(code)
+            thin = n_bars is not None and n_bars < fetch_limit
+            if not stale and not thin:
                 aligned_n += 1
+                continue
+            if thin or not lb_date:
+                full_codes.append(code)
+            else:
+                tail_codes.append(code)
 
+    need = full_codes + tail_codes
     remote_n = 0
     failed_n = 0
     chunk = 32
     n_need = len(need)
+    pulled = 0
+
+    def _pull(part_codes: List[str], *, incremental: bool) -> None:
+        nonlocal remote_n, failed_n, pulled
+        if not part_codes or svc is None:
+            return
+        for i in range(0, len(part_codes), chunk):
+            part = part_codes[i : i + chunk]
+            try:
+                packs = svc.get_bars_batch(
+                    part,
+                    limit=fetch_limit,
+                    cache_max_age_hours=0,
+                    incremental=incremental,
+                    timeout=60.0,
+                )
+            except Exception:  # noqa: BLE001
+                logger.exception("bars batch refresh failed at offset %s", i)
+                packs = []
+                failed_n += len(part)
+            for code, pack in zip(part, packs or []):
+                if not isinstance(pack, dict):
+                    failed_n += 1
+                    continue
+                src = str(pack.get("data_source") or "")
+                bars = pack.get("bars") or []
+                if bars and (
+                    "akshare" in src
+                    or "baostock" in src
+                    or (src and not src.startswith("cache"))
+                ):
+                    remote_n += 1
+                elif not bars:
+                    failed_n += 1
+            pulled += len(part)
+            _on_progress(
+                f"拉日线 {pulled}/{n_need}（远端 {remote_n} · 失败 {failed_n} · 已齐 {aligned_n} · 窗 {lb} 日）",
+                aligned_n + pulled,
+                n_codes,
+            )
+
+    svc = None
     if n_need:
         _on_progress(
-            f"拉日线缺口 0/{n_need}（已齐 {aligned_n} · 进程池并行）",
+            f"拉日线 0/{n_need}（已齐 {aligned_n} · 窗 {lb} 日 · 进程池并行）",
             aligned_n,
             n_codes,
         )
@@ -266,46 +352,17 @@ def refresh_cluster_bars_only(
         except Exception:  # noqa: BLE001
             logger.exception("research service unavailable for bars refresh")
             svc = None
-
-        if svc is not None:
-            for i in range(0, n_need, chunk):
-                part = need[i : i + chunk]
-                try:
-                    packs = svc.get_bars_batch(
-                        part,
-                        limit=lb + 35,
-                        cache_max_age_hours=0,
-                        incremental=not do_full,
-                        timeout=60.0,
-                    )
-                except Exception:  # noqa: BLE001
-                    logger.exception("bars batch refresh failed at offset %s", i)
-                    packs = []
-                    failed_n += len(part)
-                for code, pack in zip(part, packs or []):
-                    if not isinstance(pack, dict):
-                        failed_n += 1
-                        continue
-                    src = str(pack.get("data_source") or "")
-                    bars = pack.get("bars") or []
-                    if bars and (
-                        "akshare" in src
-                        or "baostock" in src
-                        or (src and not src.startswith("cache"))
-                    ):
-                        remote_n += 1
-                    elif not bars:
-                        failed_n += 1
-                done_need = min(i + len(part), n_need)
-                _on_progress(
-                    f"拉日线缺口 {done_need}/{n_need}（远端 {remote_n} · 失败 {failed_n} · 已齐 {aligned_n}）",
-                    aligned_n + done_need,
-                    n_codes,
-                )
-        else:
+        if svc is None:
             failed_n = n_need
+        else:
+            _pull(full_codes, incremental=False)
+            _pull(tail_codes, incremental=True)
     else:
-        _on_progress(f"日线已齐 as-of {expected or '—'}（{aligned_n}/{n_codes}）", n_codes, n_codes)
+        _on_progress(
+            f"日线已齐 as-of {expected or '—'}（{aligned_n}/{n_codes} · 窗 {lb} 日）",
+            n_codes,
+            n_codes,
+        )
 
     bars_refresh = {
         "requested": True,
@@ -316,9 +373,13 @@ def refresh_cluster_bars_only(
         "total": int(n_codes),
         "cache_count": int(aligned_n),
         "gap_count": int(n_need),
+        "full_count": len(full_codes),
+        "tail_count": len(tail_codes),
+        "fetch_limit": int(fetch_limit),
         "failed_count": int(failed_n),
         "note": (
-            f"{'整窗强更' if do_full else '增量补齐到最新'}（缺口 {n_need} · 远端 {remote_n} · 已齐 {aligned_n}）"
+            f"{'整窗强更' if do_full else '增量补齐'}"
+            f"（窗 {lb} 日 · 拉 {fetch_limit} 根 · 整窗 {len(full_codes)} · 缺口 {len(tail_codes)} · 已齐 {aligned_n}）"
         ),
         "manual_refresh": True,
         "session_date": bars_session,

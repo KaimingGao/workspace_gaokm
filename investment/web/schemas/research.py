@@ -94,7 +94,7 @@ class TauRidgeRequest(BaseModel):
 class OoTreeRequest(BaseModel):
     """ŷ_oo_tree 影子头：日线面板 Holdout vs Ridge。无 persist，不进 live / 回测。"""
 
-    lookback: int = Field(default=120, ge=40, le=500)
+    lookback: int = Field(default=600, ge=40, le=700)
     watching_limit: int = Field(
         default=WATCHING_MAX_SIZE,
         ge=2,
@@ -118,12 +118,16 @@ class OoTreeRequest(BaseModel):
         default=True,
         description="树侧吃 raw_alpha158_*（≤T−1）；Ridge 对照不含",
     )
+    qlib_lgb: bool = Field(
+        default=False,
+        description="True=缩小后的 Qlib 风格 LGB（深6/300轮/叶64/λ10·20+截面 z）；默认 False=观察池口径 LGB（百分点）",
+    )
 
 
 class CoTreeRequest(BaseModel):
     """ŷ_co_tree 影子头：隔夜缺口面板 Holdout vs Ridge。无 persist，不进 live / 回测。"""
 
-    lookback: int = Field(default=120, ge=40, le=500)
+    lookback: int = Field(default=600, ge=40, le=700)
     watching_limit: int = Field(
         default=WATCHING_MAX_SIZE,
         ge=2,
@@ -147,6 +151,10 @@ class CoTreeRequest(BaseModel):
     include_alpha158: bool = Field(
         default=True,
         description="树侧吃 raw_alpha158_*（≤T−1）；Ridge 对照仅 CO Z",
+    )
+    qlib_lgb: bool = Field(
+        default=False,
+        description="True=缩小后的 Qlib 风格 LGB（深6/300轮/叶64/λ10·20+截面 z）；默认 False=观察池口径 LGB（百分点）",
     )
 
 
@@ -176,16 +184,17 @@ class TauTreeRequest(BaseModel):
     )
     backend: Optional[str] = Field(
         default="lightgbm",
-        description="仅 lightgbm（ŷ_τc_tree / ŷ_τ*_tree 已下掉 xgboost / numpy_gbm / auto）",
+        description="仅 lightgbm",
         max_length=16,
     )
     include_alpha158: bool = Field(
         default=True,
         description="树侧吃 raw_alpha158_*（≤T−1）；Ridge 对照不含，防与 ŷ_oo 双重计权",
     )
-
-
-TauBoostRequest = TauTreeRequest
+    qlib_lgb: bool = Field(
+        default=False,
+        description="True=缩小后的 Qlib 风格 LGB（深6/300轮/叶64/λ10·20+截面 z）；默认 False=观察池口径 LGB（百分点）",
+    )
 
 
 class T30TreeRequest(BaseModel):
@@ -214,7 +223,7 @@ class T30TreeRequest(BaseModel):
     )
     backend: Optional[str] = Field(
         default="lightgbm",
-        description="仅 lightgbm（ŷ_τc_tree / ŷ_τ*_tree 已下掉 xgboost / numpy_gbm / auto）",
+        description="仅 lightgbm",
         max_length=16,
     )
 
@@ -245,7 +254,7 @@ class T45TreeRequest(BaseModel):
     )
     backend: Optional[str] = Field(
         default="lightgbm",
-        description="仅 lightgbm（ŷ_τc_tree / ŷ_τ*_tree 已下掉 xgboost / numpy_gbm / auto）",
+        description="仅 lightgbm",
         max_length=16,
     )
 
@@ -276,7 +285,7 @@ class T60TreeRequest(BaseModel):
     )
     backend: Optional[str] = Field(
         default="lightgbm",
-        description="仅 lightgbm（ŷ_τc_tree / ŷ_τ*_tree 已下掉 xgboost / numpy_gbm / auto）",
+        description="仅 lightgbm",
         max_length=16,
     )
 
@@ -307,7 +316,7 @@ class T75TreeRequest(BaseModel):
     )
     backend: Optional[str] = Field(
         default="lightgbm",
-        description="仅 lightgbm（ŷ_τc_tree / ŷ_τ*_tree 已下掉 xgboost / numpy_gbm / auto）",
+        description="仅 lightgbm",
         max_length=16,
     )
 
@@ -338,7 +347,7 @@ class T90TreeRequest(BaseModel):
     )
     backend: Optional[str] = Field(
         default="lightgbm",
-        description="仅 lightgbm（ŷ_τc_tree / ŷ_τ*_tree 已下掉 xgboost / numpy_gbm / auto）",
+        description="仅 lightgbm",
         max_length=16,
     )
 
@@ -346,7 +355,7 @@ class T90TreeRequest(BaseModel):
 class CoRidgeRequest(BaseModel):
     """open[T+1]/close[T]-1 隔夜缺口 Ridge 拟合（风控旁路 ŷ_co）。"""
 
-    lookback: int = Field(default=120, ge=40, le=500)
+    lookback: int = Field(default=600, ge=40, le=700)
     watching_limit: int = Field(
         default=WATCHING_MAX_SIZE,
         ge=2,
@@ -418,7 +427,7 @@ class OoRankRequest(BaseModel):
     l2: float = Field(default=1.0, ge=0.0, le=100.0)
     backend: str = Field(
         default="lambdarank",
-        description="仅 lambdarank（旧别名 lightgbm_lambda 仍接受）",
+        description="仅 lambdarank",
         max_length=24,
     )
     persist: bool = Field(
@@ -651,11 +660,11 @@ class FactorOlsClusterRequest(BaseModel):
 class ClusterBarsRefreshRequest(BaseModel):
     """观察池日线更新（不跑 OLS 分组）。"""
 
-    lookback: int = Field(default=80, ge=40, le=500)
+    lookback: int = Field(default=600, ge=40, le=700)
     watching_limit: int = Field(default=WATCHING_MAX_SIZE, ge=3, le=WATCHING_MAX_SIZE)
     mode: str = Field(
         default="topup",
-        description="topup=增量补齐到最新；full=整窗强更（仓坏/复权兜底）",
+        description="topup=增量补齐到最新（短仓整窗重拉）；full=整窗强更（仓坏/复权兜底）",
     )
     sync: bool = Field(
         default=False,
@@ -760,7 +769,7 @@ class ReturnModelFitRequest(BaseModel):
     """拟合收益排序模型并可选落研究草稿。"""
 
     codes: Optional[list] = None
-    lookback: int = Field(default=120, ge=40, le=500)
+    lookback: int = Field(default=600, ge=40, le=700)
     horizon_days: int = Field(default=1, ge=1, le=10)
     watching_limit: int = Field(default=WATCHING_MAX_SIZE, ge=3, le=WATCHING_MAX_SIZE)
     ridge_lambda: float = Field(default=1.0, ge=0.0, le=100.0)
@@ -827,12 +836,4 @@ class YhatResidualShadowRequest(BaseModel):
         default=False, description="已停用：分池簿不再使用；一律 live 打分观察池"
     )
 
-
-class ExcessModeShadowRequest(BaseModel):
-    """绝对 y vs 指数超额 y 影子对照。"""
-
-    lookback: int = Field(default=120, ge=40, le=500)
-    watching_limit: int = Field(default=36, ge=2, le=40)
-    horizon_days: int = Field(default=1, ge=1, le=10)
-    ridge_lambda: float = Field(default=1.0, ge=0.0, le=100.0)
 

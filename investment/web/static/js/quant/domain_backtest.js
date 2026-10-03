@@ -440,8 +440,13 @@ export function installBacktest(q) {
       }
     }
     if (!rules) return;
-    const wOo = req.fusion_w_oo;
-    const wOc = req.fusion_w_oc;
+    const clamp01 = (v) => {
+      const n = Number(v);
+      if (!Number.isFinite(n)) return null;
+      return Math.max(0, Math.min(1, n));
+    };
+    const wOo = clamp01(req.fusion_w_oo);
+    const wOc = clamp01(req.fusion_w_oc);
     if (wOo != null) {
       setName("pm_fusion_w_oo", wOo);
     }
@@ -449,7 +454,8 @@ export function installBacktest(q) {
       setName("pm_fusion_w_nc", wOc);
     }
     if (req.fusion_w_co != null) {
-      setName("pm_fusion_w_co", req.fusion_w_co);
+      const n = Number(req.fusion_w_co);
+      if (Number.isFinite(n)) setName("pm_fusion_w_co", Math.max(0, Math.min(10, n)));
     }
     const enterPct = scoreToRankPct(req.rank_enter);
     if (enterPct) {

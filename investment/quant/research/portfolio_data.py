@@ -292,7 +292,6 @@ def summarize_portfolio_backtest(
         "cost_model": cost_model,
         "research_next": [
             "人审 ŷ 残差对照 POST /api/quant/yhat-residual/shadow",
-            "人审 超额标签对照 POST /api/quant/excess-mode/shadow",
             "过门后再开 cross_section.yhat_residual / y_spec.excess_mode=index",
             "完整曲线与成交账见 /replay 历史回测",
         ],

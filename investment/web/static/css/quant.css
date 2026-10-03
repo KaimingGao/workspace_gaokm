@@ -3367,20 +3367,28 @@ body[data-page="replay"] .quant-bt-trades-host .watching-react-grid-cell.watchin
   color: var(--quant-down, #16a34a);
 }
 
-/* 概览「全局 IC」：正 IC 红、负 IC 绿 */
-.quant-page .dashboard-kpi-card[data-kpi="ic"].is-good::before {
+/* 概览 IC（ŷ_oo / signed）：正 IC 红、负 IC 绿（A 股） */
+.quant-page .dashboard-kpi-card[data-kpi="ic"].is-good::before,
+.quant-page .dashboard-kpi-card[data-kpi="eod"].is-good::before,
+.quant-page .dashboard-kpi-card.is-signed.is-good::before {
   background: var(--quant-up, #dc2626);
 }
 
-.quant-page .dashboard-kpi-card[data-kpi="ic"].is-bad::before {
+.quant-page .dashboard-kpi-card[data-kpi="ic"].is-bad::before,
+.quant-page .dashboard-kpi-card[data-kpi="eod"].is-bad::before,
+.quant-page .dashboard-kpi-card.is-signed.is-bad::before {
   background: var(--quant-down, #16a34a);
 }
 
-.quant-page .dashboard-kpi-card[data-kpi="ic"].is-good .quant-pro-kpi-value {
+.quant-page .dashboard-kpi-card[data-kpi="ic"].is-good .quant-pro-kpi-value,
+.quant-page .dashboard-kpi-card[data-kpi="eod"].is-good .quant-pro-kpi-value,
+.quant-page .dashboard-kpi-card.is-signed.is-good .quant-pro-kpi-value {
   color: var(--quant-up, #dc2626);
 }
 
-.quant-page .dashboard-kpi-card[data-kpi="ic"].is-bad .quant-pro-kpi-value {
+.quant-page .dashboard-kpi-card[data-kpi="ic"].is-bad .quant-pro-kpi-value,
+.quant-page .dashboard-kpi-card[data-kpi="eod"].is-bad .quant-pro-kpi-value,
+.quant-page .dashboard-kpi-card.is-signed.is-bad .quant-pro-kpi-value {
   color: var(--quant-down, #16a34a);
 }
 
@@ -9108,7 +9116,7 @@ body[data-page="quant"] .quant-kpi-sub {
   font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
 }
 
-/* 质量色轨（命中/拟合）：--ok / --danger；IC 仍走红涨绿跌 */
+/* 质量色轨（命中/拟合）：--ok / --danger；IC / signed 走 A 股红涨绿跌 */
 body[data-page="quant"] .quant-page .quant-pro-kpi-card.is-good .quant-pro-kpi-value,
 body[data-page="quant"] .quant-kpi-card.is-good .quant-kpi-value {
   color: var(--ok, #16a34a) !important;
@@ -9124,11 +9132,15 @@ body[data-page="quant"] .quant-kpi-card.is-mid .quant-kpi-value {
   color: var(--ink) !important;
 }
 
-body[data-page="quant"] .quant-page .quant-pro-kpi-card[data-kpi="ic"].is-good .quant-pro-kpi-value {
+body[data-page="quant"] .quant-page .quant-pro-kpi-card[data-kpi="ic"].is-good .quant-pro-kpi-value,
+body[data-page="quant"] .quant-page .quant-pro-kpi-card[data-kpi="eod"].is-good .quant-pro-kpi-value,
+body[data-page="quant"] .quant-page .quant-pro-kpi-card.is-signed.is-good .quant-pro-kpi-value {
   color: var(--color-up, #f5222d) !important;
 }
 
-body[data-page="quant"] .quant-page .quant-pro-kpi-card[data-kpi="ic"].is-bad .quant-pro-kpi-value {
+body[data-page="quant"] .quant-page .quant-pro-kpi-card[data-kpi="ic"].is-bad .quant-pro-kpi-value,
+body[data-page="quant"] .quant-page .quant-pro-kpi-card[data-kpi="eod"].is-bad .quant-pro-kpi-value,
+body[data-page="quant"] .quant-page .quant-pro-kpi-card.is-signed.is-bad .quant-pro-kpi-value {
   color: var(--color-down, #52c41a) !important;
 }
 
@@ -9649,6 +9661,15 @@ body[data-page="quant"] .quant-page .quant-cluster-status .quant-cluster-landing
   font-size: 0.78rem;
 }
 
+/* IC / Rank IC：A 股正红负绿 */
+.quant-page .quant-rem-meta-v.up {
+  color: var(--color-up, #f5222d);
+}
+
+.quant-page .quant-rem-meta-v.down {
+  color: var(--color-down, #52c41a);
+}
+
 .quant-page .quant-rem-meta--time {
   font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
   font-variant-numeric: tabular-nums;
@@ -10110,6 +10131,14 @@ body[data-page="quant"] .quant-page .quant-cluster-status .quant-cluster-landing
   white-space: nowrap;
 }
 
+.quant-page .quant-rem-coef-kpi-v.up {
+  color: var(--color-up, #f5222d);
+}
+
+.quant-page .quant-rem-coef-kpi-v.down {
+  color: var(--color-down, #52c41a);
+}
+
 .quant-page .quant-rem-coef-chart {
   padding: 8px 10px;
   border: 1px solid color-mix(in srgb, var(--line) 88%, transparent);
@@ -10380,16 +10409,8 @@ body[data-page="quant"] .quant-page .quant-cluster-status .quant-cluster-landing
   font-size: 0.72rem;
 }
 
-.quant-page .quant-tree-meta-cell.is-xgb .quant-tree-meta-v {
-  color: color-mix(in srgb, var(--accent, #1890ff) 78%, var(--ink));
-}
-
 .quant-page .quant-tree-meta-cell.is-lgb .quant-tree-meta-v {
   color: color-mix(in srgb, #22c55e 78%, var(--ink));
-}
-
-.quant-page .quant-tree-meta-cell.is-numpy .quant-tree-meta-v {
-  color: var(--gold, #b45309);
 }
 
 .quant-page .quant-tree-verdict {

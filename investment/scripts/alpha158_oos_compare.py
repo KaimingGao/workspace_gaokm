@@ -1,6 +1,6 @@
 """Alpha158 引入前后 OOS IC 对比（真实数据）。
 
-30 票观察池样本，185 根日线，对比 RankNet / LightGBM LambdaRank / Ridge
+30 票观察池样本，185 根日线，对比 LightGBM LambdaRank / Ridge
 在基线（无 alpha158）和引入 alpha158 后的 OOS spearman IC。
 """
 
@@ -46,7 +46,6 @@ def run_scenario(stock_bars, label, backend, alpha158_registered):
         day_panels=days,
         holdout_trading_days=20,
         backend=backend,
-        epochs=20 if backend == "ranknet_linear" else 0,
     )
     elapsed = time.time() - t0
     fm = rep.get("feature_meta") or {}

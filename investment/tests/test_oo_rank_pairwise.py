@@ -1,4 +1,4 @@
-"""ŷ_oo_rank pairwise LTR 影子头测试。"""
+"""ŷ_oo_rank LambdaRank 影子头测试。"""
 
 from __future__ import annotations
 
@@ -68,7 +68,7 @@ class TestOoRankPairSample(unittest.TestCase):
 
         ys = [float(i) for i in range(20)]
         pairs = sample_top_bottom_pairs(
-            ys, top_k=5, bottom_k=5, top_frac=0.0, bottom_frac=0.0, extra_random=0
+            ys, top_k=5, bottom_k=5, top_frac=0.0, bottom_frac=0.0
         )
         self.assertGreater(len(pairs), 10)
         for i, j, gap in pairs:
@@ -80,38 +80,15 @@ class TestOoRankPairSample(unittest.TestCase):
 
         ys = [float(i) for i in range(100)]
         narrow = sample_top_bottom_pairs(
-            ys, top_k=10, bottom_k=10, top_frac=0.0, bottom_frac=0.0, extra_random=0
+            ys, top_k=10, bottom_k=10, top_frac=0.0, bottom_frac=0.0
         )
         wide = sample_top_bottom_pairs(
-            ys, top_k=10, bottom_k=10, top_frac=0.35, bottom_frac=0.35, extra_random=0
+            ys, top_k=10, bottom_k=10, top_frac=0.35, bottom_frac=0.35
         )
         self.assertGreater(len(wide), len(narrow))
 
 
 class TestOoRankFit(unittest.TestCase):
-    def test_ranknet_recovers_direction(self):
-        from core.research.oo_rank_pairwise import (
-            fit_ranknet_linear,
-            predict_oo_rank_from_features,
-        )
-
-        days = _synth_days(30, 20)
-        fit = fit_ranknet_linear(days, top_k=5, bottom_k=5, epochs=60, l2=0.5, lr=0.08)
-        self.assertTrue(fit.get("success"), fit)
-        self.assertIn("mom3", fit.get("coefficients") or {})
-        # 高 mom3 应对应更高分
-        lo = predict_oo_rank_from_features(
-            {"mom3": 20.0, "volume_ratio": 40.0, "vol_penalty_score": 60.0},
-            fit=fit,
-        )
-        hi = predict_oo_rank_from_features(
-            {"mom3": 80.0, "volume_ratio": 70.0, "vol_penalty_score": 30.0},
-            fit=fit,
-        )
-        self.assertIsNotNone(lo)
-        self.assertIsNotNone(hi)
-        self.assertGreater(float(hi), float(lo))
-
     @unittest.skipUnless(_has_lightgbm(), "lightgbm 未安装")
     def test_fit_report_vs_ridge_shadow(self):
         from core.research.oo_rank_pairwise import (
@@ -161,16 +138,24 @@ class TestOoRankFit(unittest.TestCase):
         self.assertTrue(track.get("success"), track)
         self.assertIn("delta_topk_mean_y_oo", track)
 
+    @unittest.skipUnless(_has_lightgbm(), "lightgbm 未安装")
     def test_apply_and_aux_passthrough(self):
         from core.paper.rebalance.rank_lots import AUX_YHAT_KEYS, aux_yhat_fields
         from core.research.oo_rank_pairwise import (
             apply_oo_rank_scores,
-            fit_ranknet_linear,
+            fit_lambdarank,
         )
 
         self.assertIn("y_oo_rank", AUX_YHAT_KEYS)
         days = _synth_days(20, 16)
-        fit = fit_ranknet_linear(days, top_k=4, bottom_k=4, epochs=30)
+        fit = fit_lambdarank(
+            days,
+            n_estimators=40,
+            max_depth=3,
+            learning_rate=0.08,
+            subsample=1.0,
+            min_child_samples=2,
+        )
         self.assertTrue(fit.get("success"), fit)
         item = {
             "stock_code": "000001",
@@ -185,16 +170,24 @@ class TestOoRankFit(unittest.TestCase):
         extra = aux_yhat_fields(item, include_tau_horizons=False)
         self.assertAlmostEqual(extra.get("y_oo_rank"), item["y_oo_rank"], places=5)
 
+    @unittest.skipUnless(_has_lightgbm(), "lightgbm 未安装")
     def test_persist_research_sidecar(self):
         from core.research.holdout import research_model_path
         from core.research.oo_rank_pairwise import (
-            fit_ranknet_linear,
+            fit_lambdarank,
             load_oo_rank_model,
             persist_oo_rank_model,
         )
 
         days = _synth_days(25, 18)
-        fit = fit_ranknet_linear(days, top_k=5, bottom_k=5, epochs=25)
+        fit = fit_lambdarank(
+            days,
+            n_estimators=40,
+            max_depth=3,
+            learning_rate=0.08,
+            subsample=1.0,
+            min_child_samples=2,
+        )
         report = {
             "success": True,
             "task": "oo_rank_pairwise",
@@ -249,15 +242,23 @@ class TestOoRankFeatureMode(unittest.TestCase):
                 self.assertTrue(any(k.endswith("_cs_rank") for k in keys))
                 self.assertTrue(any(k.endswith("_cs_zscore") for k in keys))
 
+    @unittest.skipUnless(_has_lightgbm(), "lightgbm 未安装")
     def test_apply_batch_attaches_cs(self):
         from core.research.oo_rank_panel import enrich_day_panels_features
         from core.research.oo_rank_pairwise import (
             apply_oo_rank_scores,
-            fit_ranknet_linear,
+            fit_lambdarank,
         )
 
         days = enrich_day_panels_features(_synth_days(20, 16), feature_mode="cs_rank")
-        fit = fit_ranknet_linear(days, top_k=4, bottom_k=4, epochs=30)
+        fit = fit_lambdarank(
+            days,
+            n_estimators=40,
+            max_depth=3,
+            learning_rate=0.08,
+            subsample=1.0,
+            min_child_samples=2,
+        )
         self.assertTrue(fit.get("success"), fit)
         fit["feature_mode"] = "cs_rank"
         items = [
@@ -294,7 +295,6 @@ class TestOoRankFeatureMode(unittest.TestCase):
                 top_frac=float(wide["top_frac"]),
                 bottom_frac=float(wide["bottom_frac"]),
                 min_abs_gap=float(wide["min_abs_gap"]),
-                extra_random=0,
             )
         )
         n_focus = len(
@@ -305,7 +305,6 @@ class TestOoRankFeatureMode(unittest.TestCase):
                 top_frac=float(focus["top_frac"]),
                 bottom_frac=float(focus["bottom_frac"]),
                 min_abs_gap=float(focus["min_abs_gap"]),
-                extra_random=0,
             )
         )
         self.assertGreater(n_wide, n_focus)

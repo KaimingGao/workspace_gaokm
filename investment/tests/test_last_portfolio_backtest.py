@@ -30,7 +30,15 @@ class TestLastPortfolioBacktestStore(unittest.TestCase):
             },
             "equity_curve": [{"date": "2026-01-10", "equity": 100.0}],
             "benchmark": {"ok": True, "excess_pct": 0.4, "benchmark_label": "沪深300"},
-            "sim_trades": [{"stock_code": "600519", "action": "buy"}],
+            "sim_trades": [
+                {
+                    "stock_code": "600519",
+                    "action": "buy",
+                    "features_tau": {"raw_alpha158_KMID": 1.0},
+                    "features_co": {"gap_pct": 0.1},
+                    "formula_terms": {"total": 0.01, "terms": []},
+                }
+            ],
             "stock_contrib": [
                 {
                     "stock_code": "600519",
@@ -64,6 +72,10 @@ class TestLastPortfolioBacktestStore(unittest.TestCase):
         self.assertEqual(result["metrics"]["hit_rate_pct"], 60.0)
         self.assertEqual(result["metrics"]["day_count"], 10)
         self.assertEqual(len(result["sim_trades"]), 1)
+        self.assertEqual(result["sim_trades"][0]["stock_code"], "600519")
+        self.assertNotIn("features_tau", result["sim_trades"][0])
+        self.assertNotIn("features_co", result["sim_trades"][0])
+        self.assertEqual(result["sim_trades"][0]["formula_terms"]["total"], 0.01)
         self.assertEqual(result["stock_contrib"][0]["stock_code"], "600519")
         self.assertEqual(result["stock_contrib"][0]["pnl"], 1200.0)
         self.assertEqual(result["request"]["lookback"], 30)

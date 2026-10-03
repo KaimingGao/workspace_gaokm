@@ -105,21 +105,6 @@ class TestBtExcessAttach(unittest.TestCase):
         self.assertEqual(cmp["delta_excess_pp"], 1.5)
 
 
-class TestExcessModeShadowUnit(unittest.TestCase):
-    def test_apply_path_and_winner_fields(self):
-        from core.research.beta_accuracy import apply_excess_to_forward_return
-        from core.research.excess_mode_shadow import compare_excess_mode_shadow
-
-        self.assertEqual(
-            apply_excess_to_forward_return(2.0, 0.5, excess_mode="index"), 1.5
-        )
-        # 空池应失败但结构完整
-        out = compare_excess_mode_shadow([], horizon_days=1)
-        self.assertIn("arms", out)
-        self.assertIn("none", out["arms"])
-        self.assertIn("index", out["arms"])
-
-
 class TestReportExportLegs(unittest.TestCase):
     def test_markdown_includes_legs(self):
         from quant.services.quant_report_export import build_portfolio_backtest_markdown_lines

@@ -442,18 +442,24 @@ export function buildPortfolioBacktestSummaryText(data) {
       : "";
   const treeState = data.params?.tree_models;
   const treeMissing = [];
+  const treeCollapsed = [];
   if (treeState && typeof treeState === "object") {
     const labels = { oo: "ŷ_oo", tc: "ŷ_τc", co: "ŷ_co" };
     for (const key of ["oo", "tc", "co"]) {
-      if (String(treeState[key] || "").includes("missing")) {
+      const st = String(treeState[key] || "");
+      if (st.includes("missing")) {
         treeMissing.push(labels[key] || key);
+      } else if (st.includes("collapsed")) {
+        treeCollapsed.push(labels[key] || key);
       }
     }
   }
   const scoreBackend = String(
     data.params?.score_backend || data.request?.score_backend || ""
   ).toLowerCase();
-  const treeNote = treeMissing.length
+  const treeNote = treeCollapsed.length
+    ? ` · Tree ${treeCollapsed.join("/")} 塌成截距，已回退 Ridge`
+    : treeMissing.length
     ? ` · Tree 未加载 ${treeMissing.join("/")}，已回退 Ridge`
     : scoreBackend === "tree"
       ? " · ŷ头 Tree"
@@ -466,7 +472,7 @@ export function buildPortfolioBacktestSummaryText(data) {
     ` · 交易日 ${data.params?.trade_days ?? data.params?.common_dates ?? "—"} · 交易 ${m.trade_count} · 累计 ${m.total_return_pct}% · 胜率 ${m.win_rate_pct}% · 成本 ${
       costModel === "simple_cn" ? "A股简化" : costModel
     }${data.params?.neutralize ? ` · 中性化 ${data.params?.neutralized_rebalances || 0} 次` : ""}${fundNote}${oosNote}${regimeNote}${dqNote}${costCmpNote}${wfNote}${attrNote}${pitNote}${auditNote}${matchNote}${scoreAxisNote}${engNote}${cashNote}${dropNote}${dropoutNote}${icNote}${benchNote}${sessNote}${treeNote}`;
-  return { text, warn: !!oosFailed || treeMissing.length > 0 };
+  return { text, warn: !!oosFailed || treeMissing.length > 0 || treeCollapsed.length > 0 };
 }
 
 /** @returns {Array<{ label: string, value: string, cls?: string }>} */

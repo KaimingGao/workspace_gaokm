@@ -198,6 +198,50 @@ class TestReturnScoreStore(unittest.TestCase):
                 self.assertEqual((st.get("oos") or {}).get("ic"), 0.12)
                 self.assertEqual((st.get("oos") or {}).get("sign_hit"), 0.58)
 
+    def test_status_prefers_newer_draft_oos_over_stale_active(self):
+        """拟合后草稿带 cs_ic；执行套仍是旧 oos 时，状态条用草稿评测。"""
+        model = ReturnScoreModel(
+            intercept=0.1,
+            coefficients={"momentum": 0.4},
+            standardized=False,
+            sample_count=40,
+            horizon_days=1,
+        )
+        old_oos = {"n_train": 100, "n_test": 20, "ic": -0.031, "sign_hit": 0.47}
+        new_oos = {
+            "n_train": 100,
+            "n_test": 20,
+            "ic": -0.031,
+            "cs_ic": -0.018,
+            "cs_rank_ic": -0.014,
+            "sign_hit": 0.47,
+        }
+        with tempfile.TemporaryDirectory() as td:
+            draft = os.path.join(td, "draft.json")
+            active = os.path.join(td, "active.json")
+            research = os.path.join(td, "research.json")
+            with patch.object(store, "RETURN_SCORE_MODEL_DRAFT_PATH", draft), patch.object(
+                store, "RETURN_SCORE_MODEL_ACTIVE_PATH", active
+            ), patch.object(
+                store, "RETURN_SCORE_MODEL_RESEARCH_PATH", research
+            ), patch.object(store, "QUANT_REPORTS_DIR", td), patch.object(
+                store, "LIVE_DIR", td
+            ):
+                self.assertTrue(
+                    store.save_return_model_draft(model, oos=old_oos)["success"]
+                )
+                self.assertTrue(
+                    store.promote_return_model_draft(note="", role="live")["success"]
+                )
+                self.assertTrue(
+                    store.save_return_model_draft(model, oos=new_oos)["success"]
+                )
+                st = store.return_model_status()
+                self.assertEqual(st.get("display_role"), "active")
+                self.assertEqual(st.get("oos_source"), "draft")
+                self.assertEqual((st.get("oos") or {}).get("cs_ic"), -0.018)
+                self.assertEqual((st.get("oos") or {}).get("cs_rank_ic"), -0.014)
+
 
 if __name__ == "__main__":
     unittest.main()

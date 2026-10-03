@@ -53,6 +53,12 @@ function num(v) {
   return Number.isFinite(n) ? n : null;
 }
 
+export function treeFitCollapsed(data) {
+  const hyper = (data && data.hyperparams) || {};
+  const bi = Number(hyper.best_iteration);
+  return Number.isFinite(bi) && bi > 0 && bi < 8;
+}
+
 function metaCell(k, v, extra = "") {
   if (v == null || v === "") return "";
   return (
@@ -136,8 +142,17 @@ function dualSpark(keys, treeBy, ridgeBy) {
   );
 }
 
-function verdictPack(delta, openTree, openRidge) {
-  const ic = num(delta.ic);
+/**
+ * @param {object} delta delta_vs_ridge（拼样本 ic 等）
+ * @param {number|null} openTree
+ * @param {number|null} openRidge
+ * @param {{ icDelta?: number|null }} [opts] icDelta 优先用日频截面 IC 差（与 KPI 一致）
+ */
+function verdictPack(delta, openTree, openRidge, opts = {}) {
+  const ic =
+    opts.icDelta != null && Number.isFinite(Number(opts.icDelta))
+      ? num(opts.icDelta)
+      : num(delta.ic);
   const hit = num(delta.sign_hit);
   const open = num(delta.open_sign_hit);
   const mse = num(delta.residual_var);
@@ -153,14 +168,14 @@ function verdictPack(delta, openTree, openRidge) {
   let sub = "同面板 Holdout；差额在噪声量级";
   if (overallWin) {
     tone = "tree";
-    title = "浅树略优于 Ridge";
+    title = "树略优于 Ridge";
     sub = "非线性在这套 X 上有一点增益";
   } else if (overallLose) {
     tone = "ridge";
     title = "Ridge 更稳";
     sub = openUp
       ? "混合钟被前缀线性项主导；开盘钟树略好"
-      : "线性已够用，浅树多引入方差";
+      : "线性已够用，树多引入方差";
   } else if (openUp) {
     tone = "split";
     title = "总体持平 · 开盘钟略好";
@@ -392,36 +407,68 @@ export function treeReportHtml(data, opts = {}) {
   const delta = data.delta_vs_ridge || {};
   const openB = (boost.by_tau && boost.by_tau["09:30"]) || {};
   const openR = (ridge.by_tau && ridge.by_tau["09:30"]) || {};
-  const b06b = (boost.buckets && boost.buckets.abs_ge_0_6) || {};
-  const b06r = (ridge.buckets && ridge.buckets.abs_ge_0_6) || {};
+  // 日线头无 τ 网格，「开盘命中」不适用
+  const showOpenHit = !(isOo || isCo);
+  const bucketN = (pack, key) => {
+    const n = Number((pack && pack.buckets && pack.buckets[key] && pack.buckets[key].n) || 0);
+    return Number.isFinite(n) ? n : 0;
+  };
+  // |ŷ|≥0.6 适合百分收益；z 标签树常空，回退 |ŷ| top30%
+  let strongKey = "abs_ge_0_6";
+  let strongLabel = "|ŷ|≥0.6";
+  let strongTip = "强信号方向命中（|ŷ|≥0.6）";
+  if (bucketN(boost, "abs_ge_0_6") < 5 && bucketN(ridge, "abs_ge_0_6") < 5) {
+    if (bucketN(boost, "abs_top_30") >= 5 || bucketN(ridge, "abs_top_30") >= 5) {
+      strongKey = "abs_top_30";
+      strongLabel = "|ŷ| top30%";
+      strongTip = "|ŷ| 最大 30% 桶同号（截面 z 标签下替代 ≥0.6）";
+    }
+  } else if (
+    delta.strong_bucket === "abs_top_30" ||
+    (bucketN(boost, "abs_ge_0_6") < 5 && bucketN(boost, "abs_top_30") >= 5)
+  ) {
+    strongKey = "abs_top_30";
+    strongLabel = "|ŷ| top30%";
+    strongTip = "|ŷ| 最大 30% 桶同号（截面 z 标签下替代 ≥0.6）";
+  }
+  const b06b = (boost.buckets && boost.buckets[strongKey]) || {};
+  const b06r = (ridge.buckets && ridge.buckets[strongKey]) || {};
   const hyper = data.hyperparams || {};
   const nEst =
     hyper.n_estimators != null && Number.isFinite(Number(hyper.n_estimators))
       ? Number(hyper.n_estimators)
-      : 80;
+      : 300;
   const depth =
     hyper.max_depth != null && Number.isFinite(Number(hyper.max_depth))
       ? Number(hyper.max_depth)
-      : 3;
+      : 5;
   const engine = (window.formatTreeBackend ? window.formatTreeBackend(data.backend || "") : String(data.backend || ""));
-  const beLower = String(data.backend || "").toLowerCase();
-  const engineChip =
-    beLower === "xgboost" || beLower === "xgb"
-      ? "is-xgb"
-      : beLower === "lightgbm" || beLower === "lgb"
-        ? "is-lgb"
-        : beLower === "lambdarank" || beLower === "lightgbm_lambda"
-          ? "is-lgb"
-          : "is-numpy";
-  const dIc = fmtDelta(delta.ic);
+  const engineChip = "is-lgb";
+  const boostIc = boost.cs_ic != null ? boost.cs_ic : boost.ic;
+  const ridgeIc = ridge.cs_ic != null ? ridge.cs_ic : ridge.ic;
+  const icDelta =
+    boost.cs_ic != null &&
+    ridge.cs_ic != null &&
+    Number.isFinite(Number(boost.cs_ic)) &&
+    Number.isFinite(Number(ridge.cs_ic))
+      ? Number(boost.cs_ic) - Number(ridge.cs_ic)
+      : num(delta.ic);
+  const dIc = fmtDelta(icDelta);
   const dHit = fmtDelta(delta.sign_hit, { pct: true });
   const dMse = fmtDelta(delta.residual_var, { invert: true });
-  const dStrong = fmtDelta(delta.strong_sign_hit, { pct: true });
+  const strongDelta =
+    b06b.sign_hit != null && b06r.sign_hit != null
+      ? Number(b06b.sign_hit) - Number(b06r.sign_hit)
+      : delta.strong_sign_hit;
+  const dStrong = fmtDelta(strongDelta, { pct: true });
   const dOpen = fmtDelta(delta.open_sign_hit, { pct: true });
   const dAuc = fmtDelta(delta.auc);
   const dAcc = fmtDelta(delta.acc_at_50, { pct: true });
   const dBrier = fmtDelta(delta.brier, { invert: true });
-  const verdict = verdictPack(delta, num(openB.sign_hit), num(openR.sign_hit));
+  // 结论与 KPI 同口径：有日频截面 IC 时不用拼样本 delta.ic（后者可正、前者可负）
+  const verdict = verdictPack(delta, num(openB.sign_hit), num(openR.sign_hit), {
+    icDelta,
+  });
 
   const meta =
     `<div class="quant-tree-meta">` +
@@ -479,7 +526,28 @@ export function treeReportHtml(data, opts = {}) {
       ) +
       `</div>`
     : `<div class="quant-tree-kpis">` +
-      kpiCard("OOS IC", fmtNum(boost.ic), fmtNum(ridge.ic), dIc, "时间切分样本外 IC") +
+      kpiCard(
+        "IC",
+        fmtNum(boostIc),
+        fmtNum(ridgeIc),
+        dIc,
+        boost.cs_ic != null
+          ? "对齐 Qlib：日频截面 Pearson 均值"
+          : "拼样本 Pearson（旧口径）"
+      ) +
+      (boost.cs_rank_ic != null || ridge.cs_rank_ic != null
+        ? kpiCard(
+            "Rank IC",
+            fmtNum(boost.cs_rank_ic),
+            fmtNum(ridge.cs_rank_ic),
+            fmtDelta(
+              boost.cs_rank_ic != null && ridge.cs_rank_ic != null
+                ? Number(boost.cs_rank_ic) - Number(ridge.cs_rank_ic)
+                : null
+            ),
+            "对齐 Qlib：日频截面 Spearman 均值"
+          )
+        : "") +
       kpiCard("命中", fmtPct(boost.sign_hit), fmtPct(ridge.sign_hit), dHit, "方向命中") +
       kpiCard(
         "MSE",
@@ -489,19 +557,21 @@ export function treeReportHtml(data, opts = {}) {
         "残差方差 · 越低越好"
       ) +
       kpiCard(
-        "|ŷ|≥0.6",
+        strongLabel,
         fmtPct(b06b.sign_hit),
         fmtPct(b06r.sign_hit),
         dStrong,
-        "强信号方向命中"
+        strongTip
       ) +
-      kpiCard(
-        "开盘命中",
-        fmtPct(openB.sign_hit),
-        fmtPct(openR.sign_hit),
-        dOpen,
-        "09:30 尚无开→τ 前缀"
-      ) +
+      (showOpenHit
+        ? kpiCard(
+            "开盘命中",
+            fmtPct(openB.sign_hit),
+            fmtPct(openR.sign_hit),
+            dOpen,
+            "09:30 尚无开→τ 前缀"
+          )
+        : "") +
       `</div>`;
 
   const cols = isHorizon
@@ -515,11 +585,13 @@ export function treeReportHtml(data, opts = {}) {
       ]
     : [
         { id: "model", label: "模型", widthPct: 18 },
-        { id: "ic", label: "OOS IC", num: true, widthPct: 14 },
-        { id: "hit", label: "命中", num: true, widthPct: 14 },
-        { id: "mse", label: "MSE", num: true, widthPct: 16 },
-        { id: "strong", label: "|ŷ|≥0.6", num: true, widthPct: 14 },
-        { id: "open", label: "开盘命中", num: true, widthPct: 14 },
+        { id: "ic", label: "IC", num: true, widthPct: showOpenHit ? 12 : 14 },
+        { id: "hit", label: "命中", num: true, widthPct: showOpenHit ? 12 : 14 },
+        { id: "mse", label: "MSE", num: true, widthPct: showOpenHit ? 14 : 16 },
+        { id: "strong", label: strongLabel, num: true, widthPct: showOpenHit ? 14 : 18 },
+        ...(showOpenHit
+          ? [{ id: "open", label: "开盘命中", num: true, widthPct: 14 }]
+          : []),
         { id: "n", label: "测 n", num: true, widthPct: 10 },
       ];
   const rows = isHorizon
@@ -562,21 +634,21 @@ export function treeReportHtml(data, opts = {}) {
     {
       id: "ridge",
       model: "Ridge",
-      ic: fmtNum(ridge.ic),
+      ic: fmtNum(ridgeIc),
       hit: fmtPct(ridge.sign_hit),
       mse: fmtNum(ridge.residual_var, 4),
       strong: fmtPct(b06r.sign_hit),
-      open: fmtPct(openR.sign_hit),
+      ...(showOpenHit ? { open: fmtPct(openR.sign_hit) } : {}),
       n: fmtN(ridge.n_test),
     },
     {
       id: "tree",
       model: engine,
-      ic: fmtNum(boost.ic),
+      ic: fmtNum(boostIc),
       hit: fmtPct(boost.sign_hit),
       mse: fmtNum(boost.residual_var, 4),
       strong: fmtPct(b06b.sign_hit),
-      open: fmtPct(openB.sign_hit),
+      ...(showOpenHit ? { open: fmtPct(openB.sign_hit) } : {}),
       n: fmtN(boost.n_test),
     },
     {
@@ -586,14 +658,14 @@ export function treeReportHtml(data, opts = {}) {
       hit: dHit.text,
       mse: fmtDelta(delta.residual_var).text,
       strong: dStrong.text,
-      open: dOpen.text,
+      ...(showOpenHit ? { open: dOpen.text } : {}),
       n: "—",
       tones: {
         ic: dIc.tone,
         hit: dHit.tone,
         mse: dMse.tone,
         strong: dStrong.tone,
-        open: dOpen.tone,
+        ...(showOpenHit ? { open: dOpen.tone } : {}),
       },
     },
   ];
@@ -628,6 +700,11 @@ export function treeReportHtml(data, opts = {}) {
         : "";
   return (
     `<div class="quant-tree-report" data-head="${headKey}">` +
+    (treeFitCollapsed(data)
+      ? `<p class="quant-attr-note">只留下 ${escapeHtml(
+          String((data.hyperparams || {}).best_iteration ?? "?")
+        )} 棵，ŷ 接近截距。回测选 Tree 时本头回退 Ridge。请再点拟合。</p>`
+      : "") +
     meta +
     `<div class="quant-tree-verdict is-${escapeHtml(verdict.tone)}">` +
     `<div class="quant-tree-verdict-main">` +

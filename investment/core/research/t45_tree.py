@@ -1,8 +1,8 @@
-"""ŷ_τ45_tree：独立浅树头，标签与 ŷ_τ45 相同（mean(price(τ⊕40/45/50))/price(τ)−1）。
+"""ŷ_τ45_tree：独立树头，标签与 ŷ_τ45 相同（mean(price(τ⊕40/45/50))/price(τ)−1）。
 
 与 Ridge 同面板、同 Holdout，只写 ``t45_tree_last_report.json``。
 影子报告 ``t45_tree_last_report.json``；可预测包 ``t45_tree_model.json``。
-``horizon_prob_backend=tree`` 时做 T 回测可用。浅树引擎与 ŷ_τ_tree 相同。
+``horizon_prob_backend=tree`` 时做 T 回测可用。引擎与 ŷ_τ_tree 相同（LightGBM）。
 X = Ridge Z + OC 路径形状；对照 Ridge 仍用原 Z。
 """
 
@@ -52,14 +52,10 @@ from core.research.tc_tree import (
     _delta_oos,
     _design_matrix,
     _fit_lightgbm,
-    _fit_numpy_gbm,
     _fit_ridge_oos,
-    _fit_xgboost,
     _importance_rows,
     _oos_pack,
     _predict_lightgbm,
-    _predict_numpy_gbm,
-    _predict_xgboost,
     resolve_tree_backend,
 )
 from core.signal.minute_tau_grid import DEFAULT_T45_TRAIN_TAU_GRID
@@ -198,7 +194,7 @@ def fit_t45_tree_report(
         "max_depth": int(max_depth),
         "learning_rate": float(learning_rate),
         "subsample": float(subsample),
-        "objective": "binary:logistic",
+        "objective": "binary",
     }
     gain = np.zeros(len(feat_names), dtype=np.float64)
     boost_preds: List[Optional[float]]

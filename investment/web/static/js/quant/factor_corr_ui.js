@@ -58,8 +58,14 @@ export function setProStatusChip(idOrEl, state, text) {
   if (text != null) el.textContent = text;
 }
 
-/** 更新顶部全景 KPI 的单张卡片 */
-export function setProOverviewKpi(key, valueText, subText, state /* is-good | is-bad | is-mid | '' */) {
+/** 更新顶部全景 KPI 的单张卡片
+ * @param {string} key
+ * @param {string|null|undefined} valueText
+ * @param {string|null|undefined} subText
+ * @param {string} [state] is-good | is-bad | is-mid | is-empty | ''
+ * @param {{ signed?: boolean }} [opts] signed=true → A 股红涨绿跌（IC 等）
+ */
+export function setProOverviewKpi(key, valueText, subText, state, opts = {}) {
   const host = document.getElementById("quant-pro-overview-kpis");
   if (!host) return;
   const card = host.querySelector(`.quant-pro-kpi-card[data-kpi="${key}"]`);
@@ -67,6 +73,8 @@ export function setProOverviewKpi(key, valueText, subText, state /* is-good | is
   card.classList.remove("is-good", "is-bad", "is-mid", "is-empty");
   if (state) card.classList.add(state);
   else if (valueText != null && valueText !== "—") card.classList.add("is-mid");
+  // eod 固定是 IC；其它卡仅在显式 signed 时走涨跌色
+  card.classList.toggle("is-signed", !!opts.signed || key === "eod");
   const valEl = card.querySelector(".quant-pro-kpi-value");
   const subEl = card.querySelector(".quant-pro-kpi-sub");
   if (valEl) valEl.textContent = valueText ?? "—";
@@ -326,26 +334,35 @@ export function syncOverviewLanding(data) {
   paintOverviewEod();
 }
 
-/** 全局 ŷ_oo Holdout OOS → 概览。主值是 OLS/Ridge IC；命中进副文案。 */
+/** 全局 ŷ_oo Holdout OOS → 概览。主值优先日频截面 IC（对齐 Qlib）；命中进副文案。 */
 export function syncOverviewOo(oos) {
   if (!oos || typeof oos !== "object") {
-    setProOverviewKpi("eod", "—", "全局 OLS · IC", "is-empty");
+    setProOverviewKpi("eod", "—", "日频截面 IC", "is-empty");
     return;
   }
-  const ic = Number(oos.ic);
+  const cs = Number(oos.cs_ic);
+  const chrono = Number(oos.ic);
+  const useCs = Number.isFinite(cs);
+  const ic = useCs ? cs : chrono;
   if (!Number.isFinite(ic)) {
-    setProOverviewKpi("eod", "—", "全局 OLS · IC", "is-empty");
+    setProOverviewKpi("eod", "—", "日频截面 IC", "is-empty");
     return;
   }
-  const st = ic >= 0.05 ? "is-good" : ic >= 0 ? "is-mid" : "is-bad";
-  const parts = ["全局 OLS"];
+  // A 股：正 IC 红、负 IC 绿（不走质量色 ok/danger）
+  const st = ic > 0 ? "is-good" : ic < 0 ? "is-bad" : "is-mid";
+  const parts = [useCs ? "日频截面" : "拼样本"];
   const hitRaw =
     oos.sign_hit != null ? Number(oos.sign_hit) : Number(oos.sign_hit_rate);
   if (Number.isFinite(hitRaw)) {
     const pct = hitRaw <= 1.0001 ? hitRaw * 100 : hitRaw;
     parts.push(`命中 ${pct.toFixed(0)}%`);
   }
-  setProOverviewKpi("eod", `IC ${ic.toFixed(2)}`, parts.join(" · "), st);
+  if (useCs && Number.isFinite(Number(oos.cs_rank_ic))) {
+    parts.push(`Rank ${Number(oos.cs_rank_ic).toFixed(2)}`);
+  }
+  setProOverviewKpi("eod", `IC ${ic.toFixed(2)}`, parts.join(" · "), st, {
+    signed: true,
+  });
 }
 
 /** ŷ_oc 复盘 / τ 模型 → 概览副轴 KPI
@@ -372,12 +389,13 @@ export function syncOverviewTau(value, subText, mode = "hit") {
     return;
   }
   if (mode === "ic") {
-    const st = n >= 0.05 ? "is-good" : n >= 0 ? "is-mid" : "is-bad";
+    const st = n > 0 ? "is-good" : n < 0 ? "is-bad" : "is-mid";
     setProOverviewKpi(
       "tau",
       `IC ${n.toFixed(2)}`,
       subText != null ? String(subText) : "ŷ_oc IC",
-      st
+      st,
+      { signed: true }
     );
     return;
   }

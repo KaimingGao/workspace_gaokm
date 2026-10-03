@@ -11,7 +11,6 @@ logger = logging.getLogger(__name__)
 from web import deps
 from web.schemas import (
     CrossSectionRequest,
-    ExcessModeShadowRequest,
     FactorCsIcRequest,
     ExprEvalRequest,
     FactorExperimentRequest,
@@ -32,7 +31,6 @@ from web.schemas import (
     T90TreeRequest,
     TauRidgeRequest,
     TauTreeRequest,
-    TauBoostRequest,
     ThresholdSuggestRequest,
     WeightSuggestRequest,
     YhatResidualShadowRequest,
@@ -129,6 +127,7 @@ def quant_oo_tree(body: OoTreeRequest) -> Dict[str, Any]:
             holdout_trading_days=body.holdout_trading_days,
             backend=body.backend,
             include_alpha158=bool(body.include_alpha158),
+            qlib_lgb=bool(body.qlib_lgb),
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
@@ -157,6 +156,7 @@ def quant_tau_tree(body: TauTreeRequest) -> Dict[str, Any]:
             holdout_trading_days=body.holdout_trading_days,
             backend=body.backend,
             include_alpha158=bool(body.include_alpha158),
+            qlib_lgb=bool(body.qlib_lgb),
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
@@ -184,6 +184,7 @@ def quant_co_tree(body: CoTreeRequest) -> Dict[str, Any]:
             holdout_trading_days=body.holdout_trading_days,
             backend=body.backend,
             include_alpha158=bool(body.include_alpha158),
+            qlib_lgb=bool(body.qlib_lgb),
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
@@ -196,18 +197,6 @@ def quant_co_tree_last() -> Dict[str, Any]:
         return deps.quant.get_co_tree_last_report()
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
-
-
-@router.post("/api/quant/tau-boost")
-def quant_tau_boost(body: TauBoostRequest) -> Dict[str, Any]:
-    """兼容旧路径 → 同 ``/api/quant/tau-tree``。"""
-    return quant_tau_tree(body)
-
-
-@router.get("/api/quant/tau-boost/last")
-def quant_tau_boost_last() -> Dict[str, Any]:
-    """兼容旧路径 → 同 ``/api/quant/tau-tree/last``。"""
-    return quant_tau_tree_last()
 
 
 @router.post("/api/quant/tau-ridge")
@@ -240,20 +229,6 @@ def quant_yhat_residual_shadow(body: YhatResidualShadowRequest) -> Dict[str, Any
             watching_limit=body.watching_limit,
             top_k=body.top_k,
             prefer_cluster_book=body.prefer_cluster_book,
-        )
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e)) from e
-
-
-@router.post("/api/quant/excess-mode/shadow")
-def quant_excess_mode_shadow(body: ExcessModeShadowRequest) -> Dict[str, Any]:
-    """绝对 y vs 指数超额 y：同池 holdout IC 影子对照（不写盘）。"""
-    try:
-        return deps.quant.run_excess_mode_shadow(
-            lookback=body.lookback,
-            watching_limit=body.watching_limit,
-            horizon_days=body.horizon_days,
-            ridge_lambda=body.ridge_lambda,
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
@@ -714,18 +689,6 @@ def quant_t90_ridge_model() -> Dict[str, Any]:
         return deps.quant.get_t90_ridge_model()
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
-
-
-@router.post("/api/quant/tc-tree")
-def quant_tc_tree(body: TauTreeRequest) -> Dict[str, Any]:
-    """ŷ_τc_tree。与 ``/api/quant/tau-tree`` 同一套影子树。"""
-    return quant_tau_tree(body)
-
-
-@router.get("/api/quant/tc-tree/last")
-def quant_tc_tree_last() -> Dict[str, Any]:
-    """读取上次 ŷ_τc_tree（tau_tree_last_report.json）。"""
-    return quant_tau_tree_last()
 
 
 @router.post("/api/quant/t30-tree")

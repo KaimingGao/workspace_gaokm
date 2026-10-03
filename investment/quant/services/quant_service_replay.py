@@ -577,6 +577,13 @@ class QuantReplayMixin:
             except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
                 logger.debug("catch except Exception: in quant_service_replay.py", exc_info=True)
                 logger.warning("上次回测结果落盘失败", exc_info=True)
+        if isinstance(result, dict):
+            try:
+                from core.backtest_result_store import slim_portfolio_backtest_result
+
+                result = slim_portfolio_backtest_result(result)
+            except Exception:  # noqa: BLE001
+                logger.debug("slim portfolio backtest result failed", exc_info=True)
         return result
 
     def load_last_portfolio_backtest(self) -> Dict[str, Any]:
@@ -686,7 +693,7 @@ class QuantReplayMixin:
 
         return fit_watching_return_model(
             codes=kwargs.get("codes"),
-            lookback=int(kwargs.get("lookback") or 120),
+            lookback=int(kwargs.get("lookback") or 600),
             horizon_days=int(kwargs.get("horizon_days") or 3),
             ridge_lambda=float(kwargs.get("ridge_lambda") or 0.0),
             watching_limit=int(kwargs.get("watching_limit") or 12),

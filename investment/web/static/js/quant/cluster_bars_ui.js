@@ -811,7 +811,7 @@ export function installClusterBarsUi(q) {
         const { ok, data, error } = await apiFetch("/api/quant/cluster-bars/refresh", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ lookback: 80, watching_limit: limit, mode: modeS }),
+          body: JSON.stringify({ lookback: 600, watching_limit: limit, mode: modeS }),
         });
         if (!ok) throw new Error(error || "提交失败");
         let result = data;

@@ -79,14 +79,13 @@ def ridge_active_summary(days):
     }
 
 
-def run(days, backend, epochs):
+def run(days, backend):
     t0 = time.time()
     rep = fit_oo_rank_report(
         [],  # stock_bars 不用（day_panels 已预计算）
         day_panels=days,
         holdout_trading_days=20,
         backend=backend,
-        epochs=epochs,
     )
     elapsed = time.time() - t0
     fm = rep.get("feature_meta") or {}
@@ -132,7 +131,7 @@ def main():
     print(f"baseline panel: {len(days_base)} days")
 
     print("\n=== 基线（无 alpha158）===")
-    r = run(days_base, "lambdarank", 0)
+    r = run(days_base, "lambdarank")
     ra = r["ridge_active"]
     print(
         f"  feats={r['n_features']} rank_ic={r['rank_ic']} ridge_ic={r['ridge_ic']} "
@@ -141,7 +140,7 @@ def main():
     )
 
     print("\n=== 引入 alpha158 后 ===")
-    r2 = run(days_full, "lambdarank", 0)
+    r2 = run(days_full, "lambdarank")
     ra2 = r2["ridge_active"]
     print(
         f"  feats={r2['n_features']} rank_ic={r2['rank_ic']} ridge_ic={r2['ridge_ic']} "

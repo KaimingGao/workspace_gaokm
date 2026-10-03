@@ -67,7 +67,7 @@
         </label>
         <label
           class="platform-field quant-pro-field replay-lookback-field replay-score-backend-field"
-          title="ŷ_oo / ŷ_τc / ŷ_co：ridge=线性 Ridge（默认）；tree=已拟合浅树（须先在研究枢纽拟合，写入 oo/tc/co_tree_model.json）。缺模型的头回退 Ridge。不改交易执行。"
+          title="ŷ_oo / ŷ_τc / ŷ_co：ridge=线性 Ridge（默认）；tree=已拟合树（须先在研究枢纽拟合，写入 oo/tc/co_tree_model.json）。缺模型的头回退 Ridge。不改交易执行。"
         >
           <span class="quant-pro-field-label">ŷ头</span>
           <select id="quant-score-backend">
@@ -132,19 +132,19 @@
                     <p class="follow-path-matrix-panel-note">rank＝w_oo·((ŷ_oo+1)/(1+rot)−1) + w_τc·((1+ŷ_τc)(1+w_co·ŷ_co)−1)</p>
                   </header>
                   <div class="follow-path-matrix-body follow-path-matrix-body--row3">
-                    <label class="follow-path-matrix-box" title="rank 中 ŷ_oo 权重；与 w_τc 一并归一化。默认 0.6。">
+                    <label class="follow-path-matrix-box" title="rank 中 ŷ_oo 权重。取值 0.0～1.0；与 w_τc 一并归一化。默认 0.6。">
                       <span class="follow-path-matrix-box-text">
                         <span class="follow-path-matrix-box-title">w_oo</span>
-                        <span class="follow-path-matrix-box-desc">ŷ_oo</span>
+                        <span class="follow-path-matrix-box-desc">0.0～1.0</span>
                       </span>
-                      <input type="number" name="pm_fusion_w_oo" min="0" max="1" step="0.05" value="0.6" />
+                      <input type="number" name="pm_fusion_w_oo" min="0.0" max="1.0" step="0.05" value="0.6" inputmode="decimal" />
                     </label>
-                    <label class="follow-path-matrix-box" title="rank 中 ŷ_τc 权重；与 w_oo 一并归一化。默认 0.4。">
+                    <label class="follow-path-matrix-box" title="rank 中 ŷ_τc 权重。取值 0.0～1.0；与 w_oo 一并归一化。默认 0.4。">
                       <span class="follow-path-matrix-box-text">
                         <span class="follow-path-matrix-box-title">w_τc</span>
-                        <span class="follow-path-matrix-box-desc">ŷ_τc</span>
+                        <span class="follow-path-matrix-box-desc">0.0～1.0</span>
                       </span>
-                      <input type="number" name="pm_fusion_w_nc" min="0" max="1" step="0.05" value="0.4" />
+                      <input type="number" name="pm_fusion_w_nc" min="0.0" max="1.0" step="0.05" value="0.4" inputmode="decimal" />
                     </label>
                     <label class="follow-path-matrix-box" title="叠进 ŷ_τc 的隔夜系数，(1+ŷ_τc)(1+w_co·ŷ_co)−1。范围 0～10；0=不叠。默认 1.0。">
                       <span class="follow-path-matrix-box-text">

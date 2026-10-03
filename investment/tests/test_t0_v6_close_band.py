@@ -347,7 +347,7 @@ class TestCloseBandCore(unittest.TestCase):
         d, meta = bar_close_band_pick_direction(
             100.0,
             100.0,
-            {**up, "y_tau": 0.2},
+            {**up, "y_tau": 0.2, "y_τc": 0.2},
             {
                 "y_tw_enter": 0,
                 "y_τc_enter": 0.5,
@@ -359,6 +359,125 @@ class TestCloseBandCore(unittest.TestCase):
         )
         self.assertIsNone(d)
         self.assertIn("未过入场", str(meta.get("skip") or ""))
+
+    def test_tree_tiny_y_τc_does_not_lift_band(self):
+        """Tree 与 Ridge 同一套 C_τ：|ŷ×scale| < δ 则不破带。"""
+        from core.t0.close_band import bar_close_band_pick_direction
+        from core.t0.viz import classify_t0_skip_reason
+
+        scores = {
+            **_ytw_heads(up=False),
+            "y_τc": -0.048,
+            "y_tau": -0.048,
+            "y_τc_source": "tree",
+        }
+        ridge_cfg = {
+            "y_tw_enter": 2.0,
+            "y_τc_enter": 1.0,
+            "t0_close_band_delta_pct": 0.2,
+            "t0_y_τc_target_scale": 2.0,
+        }
+        d0, meta0 = bar_close_band_pick_direction(
+            100.0,
+            100.0,
+            {**scores, "y_τc_source": "ridge"},
+            ridge_cfg,
+            open_px=100.0,
+            price_tau=100.0,
+            scale=1.0,
+        )
+        self.assertIsNone(d0)
+        self.assertIn("未破带", str(meta0.get("skip") or ""))
+        self.assertEqual(classify_t0_skip_reason("未破带"), "trigger_miss")
+
+        d, meta = bar_close_band_pick_direction(
+            100.0,
+            100.0,
+            scores,
+            {**ridge_cfg, "horizon_prob_backend": "tree"},
+            open_px=100.0,
+            price_tau=100.0,
+            scale=1.0,
+        )
+        self.assertIsNone(d)
+        self.assertIn("未破带", str(meta.get("skip") or ""))
+
+    def test_tree_mode_honors_y_τc_enter(self):
+        """Tree 不豁免 ŷ_τc 百分点入场。"""
+        from core.t0.close_band import bar_close_band_pick_direction
+
+        cfg = {
+            "y_tw_enter": 0,
+            "y_τc_enter": 1.0,
+            "y_τc_source": "tree",
+            "horizon_prob_backend": "tree",
+            "t0_close_band_delta_pct": 0.2,
+            "t0_y_τc_target_scale": 2.0,
+        }
+        scores = {
+            **_ytw_heads(up=False),
+            "y_τc": -0.5,
+            "y_tau": -0.5,
+            "y_τc_source": "tree",
+        }
+        d, meta = bar_close_band_pick_direction(
+            100.0,
+            100.0,
+            scores,
+            cfg,
+            open_px=100.0,
+            price_tau=100.0,
+            scale=1.0,
+        )
+        self.assertIsNone(d)
+        self.assertIn("未过入场", str(meta.get("skip") or ""))
+
+    def test_tree_mode_still_honors_y_tw_enter(self):
+        """Tree 只豁免 ŷ_τc 的百分点入场；ŷ_τw 票数门槛仍生效。"""
+        from core.t0.close_band import (
+            bar_close_band_pick_direction,
+            close_band_y_tw_skip_reason,
+        )
+
+        cfg = {
+            "y_tw_enter": 2.0,
+            "y_τc_enter": 1.0,
+            "y_τc_source": "tree",
+            "horizon_prob_backend": "tree",
+            "t0_close_band_delta_pct": 0.2,
+            "t0_y_τc_target_scale": 2.0,
+        }
+        weak = close_band_y_tw_skip_reason(
+            None, cfg, direction="sell_then_buy", y_tw=-1.0
+        )
+        self.assertIsNotNone(weak)
+        self.assertIn("须<=-2", weak)
+        self.assertIsNone(
+            close_band_y_tw_skip_reason(
+                None, cfg, direction="sell_then_buy", y_tw=-2.0
+            )
+        )
+        one_down = {
+            "y_τ30": 0.2,
+            "y_τ45": 0.5,
+            "y_τ60": 0.5,
+            "y_τ75": 0.5,
+            "y_τ90": 0.5,
+            "y_τc": -0.5,
+            "y_tau": -0.5,
+            "y_τc_source": "tree",
+        }
+        d, meta = bar_close_band_pick_direction(
+            100.0,
+            100.0,
+            one_down,
+            cfg,
+            open_px=100.0,
+            price_tau=100.0,
+            scale=1.0,
+        )
+        self.assertIsNone(d)
+        self.assertIn("ŷ_τw", str(meta.get("skip") or ""))
 
     def test_bar_oc_gate_no_longer_blocks(self):
         """阴阳门槛已下线：阴线 + 正 ŷ_τw 仍可开正T。"""

@@ -17,17 +17,17 @@ IC_KIND_META: Dict[str, Dict[str, str]] = {
     "cs_spearman": {
         "label": "日频截面 Spearman",
         "role": "primary",
-        "note": "每日横截面秩相关再对日平均；选股排序主验收。",
+        "note": "每日横截面秩相关再对日平均；对齐 Qlib Rank IC；选股排序主验收。",
     },
     "cs_pearson": {
         "label": "日频截面 Pearson",
         "role": "aux",
-        "note": "截面线性相关；辅看，易受极端值影响。",
+        "note": "每日横截面线性相关再对日平均；对齐 Qlib IC；辅看，易受极端值影响。",
     },
     "chrono_pearson": {
         "label": "时序拼样本 Pearson",
         "role": "aux",
-        "note": "组 holdout ŷ vs y 拼时间序列；易被共同日冲击灌水，≠ 截面选股 IC。",
+        "note": "Holdout ŷ vs y 拼样本；易被共同日冲击灌水，≠ Qlib / 截面选股 IC。",
     },
     "chrono_spearman": {
         "label": "时序 Spearman",

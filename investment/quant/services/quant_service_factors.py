@@ -633,46 +633,6 @@ class QuantFactorMixin:
         out["watching_limit"] = watching_limit
         return out
 
-    def run_excess_mode_shadow(
-        self,
-        *,
-        lookback: int = 120,
-        watching_limit: int = 36,
-        horizon_days: int = 1,
-        ridge_lambda: float = 1.0,
-    ) -> Dict[str, Any]:
-        """绝对 y vs 指数超额 y：同池 holdout IC 影子对照（不写盘）。"""
-        from core.data.facade import bars_and_source
-        from core.research.excess_mode_shadow import compare_excess_mode_shadow
-        from core.watching.store import read_watching
-
-        uni = read_watching()
-        codes = list(uni.get("watchlist") or [])
-        limit = max(2, min(int(watching_limit or 36), 40))
-        codes = codes[:limit]
-        if len(codes) < 2:
-            return {
-                "success": False,
-                "ok": False,
-                "error": "研究池至少 2 只",
-                "task": "excess_mode_shadow",
-            }
-        stock_bars: List[Dict[str, Any]] = []
-        for code in codes:
-            bars, _src = bars_and_source(code, limit=lookback + 40)
-            if not bars:
-                continue
-            stock_bars.append({"code": str(code), "bars": bars})
-        out = compare_excess_mode_shadow(
-            stock_bars,
-            horizon_days=horizon_days,
-            ridge_lambda=ridge_lambda,
-        )
-        out["watching_limit"] = limit
-        out["lookback"] = lookback
-        out["stock_count"] = len(stock_bars)
-        return out
-
     @records_experiment("tc_ridge")
     def run_tau_ridge_experiment(
         self,
@@ -909,13 +869,14 @@ class QuantFactorMixin:
     def run_oo_tree_experiment(
         self,
         *,
-        lookback: int = 120,
+        lookback: int = 600,
         watching_limit: int = WATCHING_MAX_SIZE,
         horizon_days: int = 1,
         ridge_lambda: float = 1.0,
         holdout_trading_days: int = 20,
         backend: Optional[str] = None,
         include_alpha158: bool = True,
+        qlib_lgb: Optional[bool] = None,
     ) -> Dict[str, Any]:
         """ŷ_oo_tree：日线面板 Holdout vs Ridge。写入 oo_tree_model.json，供调仓回测。"""
         import time
@@ -950,8 +911,16 @@ class QuantFactorMixin:
 
         stock_bars: List[Dict[str, Any]] = []
         t_bars0 = time.perf_counter()
+        pad = 62
+        try:
+            from core.signal.factors.alpha158 import ALPHA158_PANEL_WINDOW
+
+            pad = max(40, int(ALPHA158_PANEL_WINDOW))
+        except Exception:  # noqa: BLE001
+            logger.debug("oo_tree alpha158 pad fallback", exc_info=True)
+        fetch_limit = int(lookback or 600) + pad
         for code in codes:
-            bars, _src = bars_and_source(code, limit=lookback + 40)
+            bars, _src = bars_and_source(code, limit=fetch_limit)
             if not bars:
                 continue
             stock_bars.append({"code": str(code), "bars": bars})
@@ -963,6 +932,7 @@ class QuantFactorMixin:
             holdout_trading_days=holdout_trading_days,
             backend=backend,
             include_alpha158=include_alpha158,
+            qlib_lgb=qlib_lgb,
         )
         if isinstance(report, dict):
             timing = dict(report.get("timing") or {})
@@ -1008,7 +978,7 @@ class QuantFactorMixin:
     def run_co_tree_experiment(
         self,
         *,
-        lookback: int = 120,
+        lookback: int = 600,
         watching_limit: int = WATCHING_MAX_SIZE,
         ridge_lambda: float = 1.0,
         gap_trigger_pct: float = 2.0,
@@ -1016,6 +986,7 @@ class QuantFactorMixin:
         holdout_trading_days: int = 20,
         backend: Optional[str] = None,
         include_alpha158: bool = True,
+        qlib_lgb: Optional[bool] = None,
     ) -> Dict[str, Any]:
         """ŷ_co_tree：隔夜缺口面板 Holdout vs Ridge。写入 co_tree_model.json，供调仓回测。
 
@@ -1054,7 +1025,7 @@ class QuantFactorMixin:
         t_bars0 = time.perf_counter()
         loaded, _failures, _fund = load_portfolio_stock_bars(
             codes,
-            lookback=int(lookback or 120),
+            lookback=int(lookback or 600),
             fetch_fundamentals=False,
         )
         stock_bars = [
@@ -1071,6 +1042,7 @@ class QuantFactorMixin:
             holdout_trading_days=holdout_trading_days,
             backend=backend,
             include_alpha158=include_alpha158,
+            qlib_lgb=qlib_lgb,
         )
         if isinstance(report, dict):
             timing = dict(report.get("timing") or {})
@@ -1133,6 +1105,7 @@ class QuantFactorMixin:
         holdout_trading_days: int = 20,
         backend: Optional[str] = None,
         include_alpha158: bool = True,
+        qlib_lgb: Optional[bool] = None,
     ) -> Dict[str, Any]:
         """ŷ_τ_tree：同面板 Holdout vs Ridge。写入 tc_tree_model.json，供调仓回测。
 
@@ -1227,6 +1200,7 @@ class QuantFactorMixin:
             holdout_trading_days=holdout_trading_days,
             backend=backend,
             include_alpha158=bool(include_alpha158),
+            qlib_lgb=qlib_lgb,
         )
         report["watching_limit"] = limit
         report["watching_pool_size"] = len(pool)
@@ -1277,14 +1251,11 @@ class QuantFactorMixin:
         out.setdefault("head", "y_tau_tree")
         return out
 
-    run_tau_boost_experiment = run_tau_tree_experiment
-    get_tau_boost_last_report = get_tau_tree_last_report
-
     @records_experiment("co_ridge")
     def run_co_ridge_experiment(
         self,
         *,
-        lookback: int = 120,
+        lookback: int = 600,
         watching_limit: int = WATCHING_MAX_SIZE,
         ridge_lambda: float = 1.0,
         gap_trigger_pct: float = 2.0,
@@ -1343,7 +1314,7 @@ class QuantFactorMixin:
 
         loaded, _failures, _fund = load_portfolio_stock_bars(
             codes,
-            lookback=int(lookback or 120),
+            lookback=int(lookback or 600),
             fetch_fundamentals=False,
         )
         stock_bars = [
@@ -3712,7 +3683,7 @@ class QuantFactorMixin:
         self,
         *,
         watching_limit: int = WATCHING_MAX_SIZE,
-        lookback: int = 80,
+        lookback: int = 600,
         mode: str = "topup",
         progress_cb: Optional[Any] = None,
     ) -> Dict[str, Any]:
@@ -3730,7 +3701,7 @@ class QuantFactorMixin:
         self,
         *,
         watching_limit: int = WATCHING_MAX_SIZE,
-        lookback: int = 80,
+        lookback: int = 600,
         mode: str = "topup",
     ) -> Dict[str, Any]:
         """后台 Job：仅更新日线；轮询 ``GET /api/jobs/cluster-bars-refresh``。"""

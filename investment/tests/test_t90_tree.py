@@ -86,7 +86,7 @@ class TestT90Tree(unittest.TestCase):
         from core.research.t90_tree import DEFAULT_N_ESTIMATORS, TREE_HEAD, TREE_SCHEMA
         from core.research.tc_tree import DEFAULT_N_ESTIMATORS as TAU_N
 
-        self.assertEqual(DEFAULT_N_ESTIMATORS, 80)
+        self.assertEqual(DEFAULT_N_ESTIMATORS, 300)
         self.assertEqual(DEFAULT_N_ESTIMATORS, TAU_N)
         self.assertEqual(TREE_HEAD, "y_t90_tree")
         self.assertEqual(TREE_SCHEMA, "t90_tree_shadow_v5")

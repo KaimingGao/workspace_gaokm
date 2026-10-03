@@ -444,6 +444,49 @@ class TestCoScoreAttach(unittest.TestCase):
         self.assertEqual(captured["feats"].get("gap_vs_sector"), -0.4076)
         self.assertAlmostEqual(float(item.get("y_co")), -0.256)
 
+    def test_attach_co_score_pit_uses_tree_when_horizon_backend(self):
+        from core.research.horizon_tree import horizon_prob_backend_context
+        from core.signal.dual_score.co import attach_co_score_pit
+
+        bars = _bars(25)
+        item = {"stock_code": "600183"}
+        with horizon_prob_backend_context("tree"), patch(
+            "core.research.co_tree.load_co_tree_model",
+            return_value={"return_model": {"feature_names": ["gap_pct"]}},
+        ), patch(
+            "core.research.co_tree.predict_co_tree_from_features",
+            return_value=0.33,
+        ), patch(
+            "core.research.horizon_tree.tree_tip_formula",
+            return_value={
+                "model_role": "tree",
+                "total": 0.33,
+                "terms": [{"key": "raw_alpha158_KMID", "contrib": 0.2}],
+            },
+        ), patch(
+            "core.research.co_ridge.predict_co_from_features",
+            side_effect=AssertionError("ridge co should not run"),
+        ):
+            attach_co_score_pit(
+                item,
+                quote={
+                    "date": bars[-1]["date"],
+                    "open": bars[-1]["open"],
+                    "price_raw": bars[-1]["close"],
+                },
+                bars=bars,
+                gap_pct=1.0,
+            )
+        self.assertAlmostEqual(float(item["y_co"]), 0.33)
+        self.assertEqual(item.get("y_co_source"), "tree")
+        self.assertEqual((item.get("formula_terms_co") or {}).get("model_role"), "tree")
+        keys = {
+            t.get("key")
+            for t in (item.get("formula_terms_co") or {}).get("terms") or []
+            if isinstance(t, dict)
+        }
+        self.assertIn("raw_alpha158_KMID", keys)
+
     def test_ensure_formula_terms_co_refreshes_stale_z(self):
         from core.signal.dual_score.co import ensure_formula_terms_co
 

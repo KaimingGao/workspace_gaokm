@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import sys
 import unittest
+from unittest.mock import patch
 
 import numpy as np
 
@@ -79,6 +80,64 @@ class TestRebalanceScoreBackend(unittest.TestCase):
         self.assertEqual(y, 0.4)
         self.assertEqual(src, "tree")
 
+    def test_predict_return_head_follows_horizon_tree_backend(self):
+        from core.research.horizon_tree import horizon_prob_backend_context
+        from core.research.return_tree import predict_return_head
+
+        def _load():
+            return {"return_model": {"feature_names": ["a"]}}
+
+        def _tree(_feats, model_doc=None):
+            return 0.7
+
+        def _ridge(_feats, model_doc=None):
+            raise AssertionError("ridge should not run under horizon tree")
+
+        with horizon_prob_backend_context("tree"):
+            y, src = predict_return_head(
+                {"a": 1.0},
+                load_tree=_load,
+                predict_tree=_tree,
+                predict_ridge=_ridge,
+            )
+        self.assertEqual(y, 0.7)
+        self.assertEqual(src, "tree")
+
+    def test_overlay_oo_tree_on_item_under_horizon_backend(self):
+        from core.research.horizon_tree import horizon_prob_backend_context
+        from core.research.return_tree import overlay_oo_tree_on_item
+
+        item = {"y_oo": 0.11, "predicted_score": 0.11, "stock_code": "600000"}
+        with horizon_prob_backend_context("tree"), patch(
+            "core.research.oo_tree.load_oo_tree_model",
+            return_value={"return_model": {"feature_names": ["gap_pct"]}},
+        ), patch(
+            "core.research.oo_tree.oo_tree_features_from_window",
+            return_value={"gap_pct": 1.2},
+        ), patch(
+            "core.research.oo_tree.predict_oo_tree_from_features",
+            return_value=0.77,
+        ), patch(
+            "core.research.horizon_tree.tree_tip_formula",
+            return_value={
+                "model_role": "tree",
+                "total": 0.77,
+                "terms": [{"key": "raw_alpha158_KMID", "contrib": 0.4}],
+            },
+        ):
+            overlay_oo_tree_on_item(item, window=[{"close": 10}], quote={"open": 10.1})
+        self.assertAlmostEqual(float(item["y_oo"]), 0.77)
+        self.assertEqual(item.get("y_oo_source"), "tree")
+        self.assertEqual(
+            (item.get("score_formula_terms") or {}).get("model_role"), "tree"
+        )
+        keys = {
+            t.get("key")
+            for t in (item.get("score_formula_terms") or {}).get("terms") or []
+            if isinstance(t, dict)
+        }
+        self.assertIn("raw_alpha158_KMID", keys)
+
     def test_regression_pack_roundtrip(self):
         try:
             import lightgbm  # noqa: F401
@@ -124,6 +183,24 @@ class TestRebalanceScoreBackend(unittest.TestCase):
         self.assertAlmostEqual(float(expl["total"]), float(pred), places=4)
         summed = float(expl["intercept"]) + sum(float(t["contrib"]) for t in expl["terms"])
         self.assertAlmostEqual(summed, float(pred), places=3)
+
+    def test_tree_main_heads_usable_requires_oo_and_tc(self):
+        from core.research.return_tree import tree_main_heads_usable
+
+        with patch(
+            "core.research.return_tree.return_tree_model_state",
+            return_value={
+                "oo": "collapsed_fallback_ridge",
+                "tc": "loaded",
+                "co": "loaded",
+            },
+        ):
+            self.assertFalse(tree_main_heads_usable())
+        with patch(
+            "core.research.return_tree.return_tree_model_state",
+            return_value={"oo": "loaded", "tc": "loaded", "co": "loaded"},
+        ):
+            self.assertTrue(tree_main_heads_usable())
 
 
 if __name__ == "__main__":

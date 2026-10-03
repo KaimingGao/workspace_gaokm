@@ -204,6 +204,13 @@ def fit_co_ridge_report(
         "feature_fill": feature_fill_rates(xs_z, _co_feature_fill_keys(xs_z)),
         "include_alpha158": bool(include_alpha158),
     }
+    if ys_te:
+        try:
+            from core.research.daily_cs_ic import attach_daily_cs_ic
+
+            attach_daily_cs_ic(oos, preds_te, ys_te, metas_te)
+        except Exception:  # noqa: BLE001
+            logger.debug("co attach_daily_cs_ic failed", exc_info=True)
 
     research_model = make_research_model(fit, y_mean=0.0)
     w_all = (

@@ -68,10 +68,10 @@ def _synth_days(n_days: int = 30, n_names: int = 20, seed: int = 0):
 @unittest.skipUnless(_has_lightgbm(), "lightgbm 未安装")
 class TestOoRankLightgbmLambda(unittest.TestCase):
     def test_fit_lambdarank_success(self):
-        from core.research.oo_rank_pairwise import fit_ranknet_lightgbm
+        from core.research.oo_rank_pairwise import fit_lambdarank
 
         days = _synth_days(30, 20)
-        fit = fit_ranknet_lightgbm(
+        fit = fit_lambdarank(
             days,
             n_estimators=30,
             max_depth=3,
@@ -92,12 +92,12 @@ class TestOoRankLightgbmLambda(unittest.TestCase):
     def test_predict_round_trip(self):
         """训练后 predict_oo_rank_from_features 对高/低 mom3 的排序方向正确。"""
         from core.research.oo_rank_pairwise import (
-            fit_ranknet_lightgbm,
+            fit_lambdarank,
             predict_oo_rank_from_features,
         )
 
         days = _synth_days(30, 20, seed=1)
-        fit = fit_ranknet_lightgbm(
+        fit = fit_lambdarank(
             days,
             n_estimators=40,
             max_depth=3,
@@ -121,12 +121,12 @@ class TestOoRankLightgbmLambda(unittest.TestCase):
     def test_predict_handles_missing_features(self):
         """缺特征时按 z=0 填补，不返回 None。"""
         from core.research.oo_rank_pairwise import (
-            fit_ranknet_lightgbm,
+            fit_lambdarank,
             predict_oo_rank_from_features,
         )
 
         days = _synth_days(30, 20, seed=2)
-        fit = fit_ranknet_lightgbm(
+        fit = fit_lambdarank(
             days,
             n_estimators=30,
             max_depth=3,
@@ -138,6 +138,31 @@ class TestOoRankLightgbmLambda(unittest.TestCase):
         # 缺 volume_ratio
         out = predict_oo_rank_from_features({"mom3": 50.0}, fit=fit)
         self.assertIsNotNone(out)
+
+    def test_day_scores_use_booster(self):
+        from core.research.oo_rank_pairwise import (
+            _day_scores,
+            fit_lambdarank,
+            predict_oo_rank_from_features,
+        )
+
+        days = _synth_days(30, 20, seed=4)
+        fit = fit_lambdarank(
+            days,
+            n_estimators=30,
+            max_depth=3,
+            learning_rate=0.08,
+            subsample=1.0,
+            min_child_samples=2,
+        )
+        self.assertTrue(fit.get("success"), fit.get("error"))
+        day = days[-1]
+        preds, _ys = _day_scores(day, fit)
+        row = (day.get("xs") or [{}])[0]
+        boost = predict_oo_rank_from_features(row, fit=fit)
+        self.assertIsNotNone(preds[0])
+        self.assertIsNotNone(boost)
+        self.assertAlmostEqual(float(preds[0]), float(boost), places=5)
 
 
 @unittest.skipUnless(_has_lightgbm(), "lightgbm 未安装")

@@ -94,7 +94,7 @@ class TestExperimentTracker(unittest.TestCase):
             "ir": 1.1,
             "sample_count": 500,
         }
-        eid = et.track_fit_report("tau_tree", {"backend": "xgb"}, report)
+        eid = et.track_fit_report("tau_tree", {"backend": "lightgbm"}, report)
         rec = et.get_experiment(eid)
         self.assertEqual(rec["status"], "completed")
         self.assertEqual(rec["metrics"]["ic"], 0.055)

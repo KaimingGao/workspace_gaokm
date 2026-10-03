@@ -1,9 +1,9 @@
-"""ŷ_τ30_tree：独立浅树头，标签与 ŷ_τ30 相同（mean(price(τ⊕25/30/35))/price(τ)−1）。
+"""ŷ_τ30_tree：独立树头，标签与 ŷ_τ30 相同（mean(price(τ⊕25/30/35))/price(τ)−1）。
 
 与 Ridge 同面板、同 Holdout；影子报告 ``t30_tree_last_report.json``。
 可预测包 ``t30_tree_model.json``（``horizon_prob_backend=tree`` 时做 T 回测用）。
 不进 live 自动交易，除非显式切 backend。
-浅树引擎与 ŷ_τ_tree 相同（XGBoost 或 numpy GBM）。
+引擎仅 LightGBM。
 X = Ridge Z + OC 路径形状；对照 Ridge 仍用原 Z。
 """
 
@@ -53,14 +53,10 @@ from core.research.tc_tree import (
     _delta_oos,
     _design_matrix,
     _fit_lightgbm,
-    _fit_numpy_gbm,
     _fit_ridge_oos,
-    _fit_xgboost,
     _importance_rows,
     _oos_pack,
     _predict_lightgbm,
-    _predict_numpy_gbm,
-    _predict_xgboost,
     resolve_tree_backend,
 )
 from core.signal.minute_tau_grid import DEFAULT_T30_TRAIN_TAU_GRID
@@ -199,7 +195,7 @@ def fit_t30_tree_report(
         "max_depth": int(max_depth),
         "learning_rate": float(learning_rate),
         "subsample": float(subsample),
-        "objective": "binary:logistic",
+        "objective": "binary",
     }
     gain = np.zeros(len(feat_names), dtype=np.float64)
     boost_preds: List[Optional[float]]

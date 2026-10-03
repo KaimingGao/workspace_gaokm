@@ -61,8 +61,7 @@ def main() -> None:
     lookback = int(os.environ.get("OO_RANK_ABLATION_LOOKBACK", "120"))
     limit = int(os.environ.get("OO_RANK_ABLATION_LIMIT", "60"))
     limit = max(8, min(limit, len(pool)))
-    epochs = int(os.environ.get("OO_RANK_ABLATION_EPOCHS", "40"))
-    _log(f"观察池: {len(pool)} · 用前 {limit} · lookback={lookback} · epochs={epochs}")
+    _log(f"观察池: {len(pool)} · 用前 {limit} · lookback={lookback}")
 
     stock_bars: List[Dict[str, Any]] = []
     for i, code in enumerate(pool[:limit]):
@@ -104,9 +103,7 @@ def main() -> None:
                 feature_mode=mode,
                 pair_preset=preset,
                 topk_track=10,
-                epochs=epochs,
                 l2=1.0,
-                lr=0.05,
                 day_panels=base_days,
             )
             if not track.get("success"):
@@ -165,7 +162,6 @@ def main() -> None:
         "lookback": lookback,
         "holdout_trading_days": 20,
         "n_panel_days": len(base_days),
-        "epochs": epochs,
         "rows": rows,
         "any_gate_pass": any(
             (r.get("gate") or {}).get("pass") for r in rows if r.get("success")

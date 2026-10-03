@@ -85,6 +85,19 @@ class TestLastT0BacktestStore(unittest.TestCase):
         self.assertEqual(result["request"]["lookback"], 30)
         self.assertEqual(len(result["viz"]["cumulative_pnl"]), 1)
 
+    def test_zero_trade_keeps_skip_days(self):
+        from core.backtest_result_store import _slim_t0_result
+
+        raw = {
+            "success": True,
+            "days": [{"date": f"2026-08-{i:02d}", "skipped": True} for i in range(1, 41)],
+            "trade_days_sample": [],
+            "viz": {"summary": {"n_signal_skip": 40}},
+        }
+        slim = _slim_t0_result(raw)
+        self.assertEqual(len(slim["days"]), 40)
+        self.assertEqual(slim["viz"]["summary"]["n_signal_skip"], 40)
+
     def test_missing_file_is_empty(self):
         from core.backtest_result_store import load_last_t0_backtest
 

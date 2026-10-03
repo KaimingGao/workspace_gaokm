@@ -412,7 +412,8 @@ export function installSuggest(q) {
     if (
       fromStatus &&
       typeof fromStatus === "object" &&
-      (fromStatus.ic != null ||
+      (fromStatus.cs_ic != null ||
+        fromStatus.ic != null ||
         fromStatus.sign_hit != null ||
         fromStatus.sign_hit_rate != null ||
         fromStatus.n_test != null)
@@ -555,7 +556,7 @@ export function installSuggest(q) {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        lookback: 120,
+        lookback: 600,
         horizon_days: 1,
         watching_limit: 300,
         ridge_lambda: 1.0,

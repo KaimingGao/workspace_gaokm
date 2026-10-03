@@ -1708,12 +1708,9 @@ def _stamp_tree_formula(
     y_hat: Optional[float],
     keys: tuple,
 ) -> None:
-    """用树的贡献拆解盖掉 Ridge 组成，使 tip 合计等于这列树分数。"""
-    from core.research.horizon_tree import tree_tip_formula
+    from core.research.return_tree import stamp_tree_formula
 
-    expl = tree_tip_formula(features, model_doc, y_hat=y_hat)
-    for k in keys:
-        item[k] = expl
+    stamp_tree_formula(item, features, model_doc, y_hat=y_hat, keys=keys)
 
 
 def _attach_open_yhat_heads(
@@ -1799,44 +1796,13 @@ def _attach_open_yhat_heads(
             it.setdefault("predicted_score_oo", pred)
             it.setdefault("y_oo", pred)
         try:
-            from core.research.oo_tree import (
-                load_oo_tree_model,
-                oo_tree_features_from_window,
-                predict_oo_tree_from_features,
-            )
-            from core.research.return_tree import (
-                REBALANCE_SCORE_BACKEND_TREE,
-                current_rebalance_score_backend,
-            )
+            from core.research.return_tree import overlay_oo_tree_on_item
 
-            if current_rebalance_score_backend() == REBALANCE_SCORE_BACKEND_TREE:
-                tree_doc = load_oo_tree_model()
-                y_tree = None
-                oo_feats = oo_tree_features_from_window(
-                    windows.get(code) or [],
-                    quotes.get(code) if code else None,
-                )
-                if tree_doc is not None:
-                    y_tree = predict_oo_tree_from_features(
-                        oo_feats,
-                        model_doc=tree_doc,
-                    )
-                if y_tree is not None:
-                    it["y_oo"] = float(y_tree)
-                    it["predicted_score"] = float(y_tree)
-                    it["predicted_score_oo"] = float(y_tree)
-                    it["y_oo_source"] = "tree"
-                    _stamp_tree_formula(
-                        it,
-                        oo_feats,
-                        tree_doc,
-                        y_hat=float(y_tree),
-                        keys=("score_formula_terms", "formula_terms"),
-                    )
-                elif it.get("y_oo") is not None:
-                    it["y_oo_source"] = "ridge"
-            elif it.get("y_oo") is not None:
-                it.setdefault("y_oo_source", "ridge")
+            overlay_oo_tree_on_item(
+                it,
+                window=windows.get(code) or [],
+                quote=quotes.get(code) if code else None,
+            )
         except Exception:  # noqa: BLE001
             logger.debug("overlay y_oo tree failed for %s", code, exc_info=True)
         # 影子 ŷ_oo_rank：有模型且有 sub_scores 时写入；不改 ranking
@@ -1950,9 +1916,12 @@ def _attach_open_yhat_heads(
                 co_yhat=co_yhat,
                 feats=co_feats,
                 co_model_doc=co_model_doc,
+                source=co_src,
             )
             if co_src == "tree" and co_yhat is not None:
-                _stamp_tree_formula(
+                from core.research.return_tree import stamp_tree_formula
+
+                stamp_tree_formula(
                     it,
                     co_feats,
                     load_co_tree_model(),
@@ -2244,7 +2213,7 @@ def backtest_paper_replay(
 ) -> Dict[str, Any]:
     """策略调仓历史回测：ŷ_oo 09:30 开盘；ŷ_τc 随成交钟前缀重算（09:30=开盘 Z），按调仓钟 5m 价成交。
 
-    ``score_backend=tree`` 时 ŷ_oo / ŷ_τc / ŷ_co 改读已落盘浅树；缺模型的头回退 Ridge。
+    ``score_backend=tree`` 时 ŷ_oo / ŷ_τc / ŷ_co 改读已落盘树；缺模型的头回退 Ridge。
     """
     from core.research.holdout import (
         current_scoring_model_role,
@@ -2315,10 +2284,13 @@ def backtest_paper_replay(
     if rankings_by_date is None:
         global_model = _load_replay_global_model()
         required_factor_keys = _required_factor_keys_from_return_models(global_model)
-        if current_rebalance_score_backend() == "tree":
-            try:
-                from core.research.return_tree import loaded_return_tree_feature_names
+        from core.research.return_tree import (
+            loaded_return_tree_feature_names,
+            tree_scores_requested,
+        )
 
+        if tree_scores_requested():
+            try:
                 seen_keys = set(required_factor_keys)
                 for key in loaded_return_tree_feature_names():
                     if key not in seen_keys:
@@ -2453,6 +2425,7 @@ def backtest_paper_replay(
     rl_cfg["y_enter_alt_enabled"] = replay_lots["y_enter_alt_enabled"]
     rl_cfg["y_oo_gt0"] = replay_lots["y_oo_gt0"]
     rl_cfg["y_τc_gt0"] = replay_lots["y_τc_gt0"]
+    rl_cfg["score_backend"] = current_rebalance_score_backend()
     rl_cfg["holdings_mv_cap"] = 0.0
     rl_cfg["t0_sell_blocks"] = {}
 

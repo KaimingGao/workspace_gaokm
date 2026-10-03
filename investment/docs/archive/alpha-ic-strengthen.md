@@ -26,7 +26,7 @@
 | **P2a** | 启发式中性化接 industry/size；`yhat_residual` 可选 | `cross_section.yhat_residual`（默认 false） |
 | **P2a+** | ŷ 残差影子 API + 复盘「ŷ残差对照」 | `POST /api/quant/yhat-residual/shadow` |
 | **P2b** | `y_spec.excess_mode=index`；面板 `excess_mode=` | 研究臂 |
-| **P2b+** | 绝对 vs 超额标签影子 API +「超额标签对照」 | `POST /api/quant/excess-mode/shadow` |
+| **P2b+** | 绝对 vs 超额标签影子 API | **已删除**（2026-10；`excess_mode` 研究臂仍在） |
 | **P3** | `regime.apply_position_scale` | 默认 true |
 
 ---
@@ -38,7 +38,7 @@
 - [ ] 组 holdout / k 选摘要含 `mean_yhat_ic_kind=chrono_pearson`
 - [ ] OOS 门禁结果含 `delta_excess_pp` / `excess_compare`；tip 显示 Δ超额
 - [ ] 回测 MD/导出含「收益分账（近似）」；KPI 超额副标题可含 β腿
-- [ ] 复盘「ŷ残差对照」与「超额标签对照」均可跑通（不写盘）
+- [ ] 复盘「ŷ残差对照」可跑通（不写盘）；超额标签影子入口已删
 - [ ] `yhat_residual=true` 时 meta 有 `yhat_residual.applied`
 - [ ] `excess_mode=index` 面板 y 为股−指
 - [ ] `apply_position_scale=false` 时 optimize scale=1
@@ -56,6 +56,6 @@
 
 ## 建议下一步
 
-1. 人审跑「ŷ残差对照」+「超额标签对照」；优则分别开 `yhat_residual` / `excess_mode=index`  
+1. 人审跑「ŷ残差对照」；超额标签直接设研究臂 `excess_mode=index` 后重跑  
 2. 观察 OOS tip 的 Δ超额是否与 ΔOOS 同向（不同向时优先信超额）  
 3. 大宇宙 PIT 能开则开，报告红字「非 PIT」

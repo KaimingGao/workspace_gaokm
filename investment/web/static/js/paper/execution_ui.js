@@ -605,9 +605,19 @@ export function fillPathMatrixForm(root, execution) {
   const yOcGt0 = pm.y_τc_gt0 != null ? !!pm.y_τc_gt0 : false;
   set("pm_y_oo_gt0", yOoGt0);
   set("pm_y_τc_gt0", yOcGt0);
-  set("pm_fusion_w_co", pm.fusion_w_co != null ? pm.fusion_w_co : 1);
-  set("pm_fusion_w_oo", pm.fusion_w_oo != null ? pm.fusion_w_oo : 0.6);
-  set("pm_fusion_w_nc", pm.fusion_w_oc != null ? pm.fusion_w_oc : 0.4);
+  const clamp01 = (v, fb) => {
+    const n = Number(v);
+    if (!Number.isFinite(n)) return fb;
+    return Math.max(0, Math.min(1, n));
+  };
+  const clampWCo = (v, fb) => {
+    const n = Number(v);
+    if (!Number.isFinite(n)) return fb;
+    return Math.max(0, Math.min(10, n));
+  };
+  set("pm_fusion_w_co", clampWCo(pm.fusion_w_co, 1));
+  set("pm_fusion_w_oo", clamp01(pm.fusion_w_oo, 0.6));
+  set("pm_fusion_w_nc", clamp01(pm.fusion_w_oc, 0.4));
   const clockEl = document.getElementById("quant-fill-clock");
   if (clockEl && pm.fill_clock) {
     const v = String(pm.fill_clock).replace("：", ":").trim().slice(0, 5);

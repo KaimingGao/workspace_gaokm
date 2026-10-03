@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import sys
 import unittest
+from unittest.mock import patch
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT not in sys.path:
@@ -149,6 +150,39 @@ class TestPlanRankLotDay(unittest.TestCase):
         self.assertEqual(float(by["600001"]["shares"]), 200)
         self.assertAlmostEqual(float(by["600000"]["shares"]) * 10.0, 10_000.0)
         self.assertAlmostEqual(float(by["600001"]["shares"]) * 50.0, 10_000.0)
+
+    def test_tree_uses_same_percent_rank_enter(self):
+        from core.paper.rebalance.rank_lots import plan_rank_lot_day
+
+        scored = []
+        prices = {}
+        for i in range(10):
+            code = f"60000{i}"
+            scored.append(
+                {
+                    "stock_code": code,
+                    "stock_name": code,
+                    "predicted_score": 0.04 if i < 3 else 0.0,
+                    "y_τc": 0.0,
+                }
+            )
+            prices[code] = 10.0
+        ridge = plan_rank_lot_day(
+            scored=scored,
+            holdings=[],
+            cash=1_000_000,
+            prices=prices,
+            cfg=_cfg(rank_enter=0.005, cash_floor=0.0, score_backend="ridge"),
+        )
+        tree = plan_rank_lot_day(
+            scored=scored,
+            holdings=[],
+            cash=1_000_000,
+            prices=prices,
+            cfg=_cfg(rank_enter=0.005, cash_floor=0.0, score_backend="tree"),
+        )
+        self.assertEqual(ridge["buys"], [])
+        self.assertEqual(tree["buys"], [])
 
     def test_amount_short_of_one_lot_buys_one_lot(self):
         from core.paper.rebalance.rank_lots import plan_rank_lot_day
