@@ -1,0 +1,28 @@
+{
+  "experiment_id": "oo_rank_20261003_130236_a294310a",
+  "model_type": "oo_rank",
+  "status": "failed",
+  "config": {
+    "lookback": 120,
+    "watching_limit": 2000,
+    "holdout_trading_days": 20,
+    "feature_mode": "raw",
+    "pair_preset": "wide",
+    "top_k": null,
+    "bottom_k": null,
+    "topk_track": 10,
+    "l2": 1.0,
+    "backend": "lambdarank",
+    "persist": false,
+    "note": ""
+  },
+  "metrics": {
+    "oos_guard_ok": true
+  },
+  "artifacts": {},
+  "tags": {},
+  "created_at": "2026-10-03T13:02:36",
+  "updated_at": "2026-10-03T13:02:36",
+  "duration_sec": 0.77,
+  "error": "lightgbm_fit_failed: Label 37 is not less than the number of label mappings (31)"
+}

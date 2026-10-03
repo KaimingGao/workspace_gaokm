@@ -543,40 +543,87 @@ export function installSuggest(q) {
     }
   }
 
+  function fmtOoFitSec(sec) {
+    const n = Math.max(0, Math.round(Number(sec) || 0));
+    if (n < 60) return `${n}s`;
+    const m = Math.floor(n / 60);
+    const s = n % 60;
+    return `${m}分${String(s).padStart(2, "0")}秒`;
+  }
+
+  function ooFitBusyHint(sec) {
+    const s = Number(sec) || 0;
+    // 满池 300 只：日线缓存命中约数秒；面板约 2.3 秒/只 ≈ 12 分钟；Ridge 在其后。
+    if (s < 30) return "拉观察池日线 · 全程约 12–15 分钟";
+    if (s < 720) return "堆叠日线因子面板 · 全程约 12–15 分钟";
+    if (s < 900) return "Ridge / OLS + Holdout · 全程约 12–15 分钟";
+    return "仍在拟合 · 已超过常见的 15 分钟，请勿重复点";
+  }
+
   async function runReturnModelFit() {
-    paintOoStatus({
-      state: "busy",
-      chip: "拟合中",
-      message: "观察池堆叠 Ridge / OLS…",
-      busy: true,
-    });
-    setQuantMeta("ŷ_oo 拟合中…", { busy: true });
-    await ensureFactorMeta();
-    const res = await fetch("/api/quant/return-model/fit", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        lookback: 600,
-        horizon_days: 1,
-        watching_limit: 300,
-        ridge_lambda: 1.0,
-        save_draft: true,
-        holdout_trading_days:
-          typeof readHoldoutTradingDays === "function" ? readHoldoutTradingDays() : 20,
-      }),
-    });
-    let data = null;
+    const t0 = Date.now();
+    let busyTimer = null;
+    const stopBusy = () => {
+      if (busyTimer) {
+        clearInterval(busyTimer);
+        busyTimer = null;
+      }
+    };
+    const tick = () => {
+      const s = Math.max(0, Math.round((Date.now() - t0) / 1000));
+      const msg = `${ooFitBusyHint(s)} · 已 ${fmtOoFitSec(s)}`;
+      paintOoStatus({
+        state: "busy",
+        chip: "拟合中",
+        message: msg,
+        busy: true,
+      });
+      setQuantMeta(`ŷ_oo ${msg}`, { busy: true });
+    };
+    tick();
+    busyTimer = setInterval(tick, 1000);
     try {
-      data = await res.json();
-    } catch (_) {
-      data = null;
-    }
-    if (!res.ok) {
-      const detail =
-        (data && (data.detail || data.error)) ||
-        (res.status === 404
-          ? "接口未找到：请重启 Web"
-          : `HTTP ${res.status}`);
+      await ensureFactorMeta();
+      const res = await fetch("/api/quant/return-model/fit", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          lookback: 600,
+          horizon_days: 1,
+          watching_limit: 300,
+          ridge_lambda: 1.0,
+          save_draft: true,
+          holdout_trading_days:
+            typeof readHoldoutTradingDays === "function" ? readHoldoutTradingDays() : 20,
+        }),
+      });
+      let data = null;
+      try {
+        data = await res.json();
+      } catch (_) {
+        data = null;
+      }
+      stopBusy();
+      if (!res.ok) {
+        const detail =
+          (data && (data.detail || data.error)) ||
+          (res.status === 404
+            ? "接口未找到：请重启 Web"
+            : `HTTP ${res.status}`);
+        paintOoStatus({
+          state: "error",
+          chip: "失败",
+          message: detail,
+          error: true,
+        });
+        setQuantMeta(`ŷ_oo 失败 · ${detail}`, { error: true });
+        return;
+      }
+      await renderReturnModelFit(data);
+      await refreshReturnModelStatus({ justFitted: true });
+    } catch (err) {
+      stopBusy();
+      const detail = String((err && err.message) || err || "拟合中断");
       paintOoStatus({
         state: "error",
         chip: "失败",
@@ -584,10 +631,9 @@ export function installSuggest(q) {
         error: true,
       });
       setQuantMeta(`ŷ_oo 失败 · ${detail}`, { error: true });
-      return;
+    } finally {
+      stopBusy();
     }
-    await renderReturnModelFit(data);
-    await refreshReturnModelStatus({ justFitted: true });
   }
 
   async function runReturnModelPromote(persistRole = "live") {

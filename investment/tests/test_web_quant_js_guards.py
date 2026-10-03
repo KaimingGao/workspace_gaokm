@@ -2420,6 +2420,11 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("draft.saved_at", suggest)
         self.assertIn("refreshReturnModelStatus({ justFitted: true })", suggest)
         self.assertIn("草稿已更新", suggest)
+        self.assertIn("function ooFitBusyHint", suggest)
+        self.assertIn("拉观察池日线 · 全程约 12–15 分钟", suggest)
+        self.assertIn("堆叠日线因子面板 · 全程约 12–15 分钟", suggest)
+        self.assertIn("Ridge / OLS + Holdout · 全程约 12–15 分钟", suggest)
+        self.assertNotIn("观察池堆叠 Ridge / OLS", suggest)
         self.assertNotIn(
             "justFitted && !active.exists && !research.exists",
             suggest.replace("\r\n", "\n"),
