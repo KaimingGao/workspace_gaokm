@@ -10,7 +10,7 @@ from __future__ import annotations
 import logging
 import os
 import time
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Optional, Sequence
 
 import numpy as np
 
@@ -18,21 +18,16 @@ logger = logging.getLogger(__name__)
 
 from core.io_atomic import atomic_write_json
 from core.research.co_panel import CO_Z_FEATURES
-from core.research.co_ridge import (
-    _stack_panels,
-    _z_only_xs,
-    build_co_panels_from_bars,
-)
+from core.research.tc_ridge import TAU_MIN_STD_EXEMPT
 from core.research.tc_tree import (
     DEFAULT_LEARNING_RATE,
     DEFAULT_MAX_DEPTH,
     DEFAULT_N_ESTIMATORS,
     DEFAULT_SUBSAMPLE,
     _delta_oos,
-    _fit_ridge_oos,
     _importance_rows,
     _oos_pack,
-    fit_lgb_holdout,
+    fit_lgb_on_matrices,
     resolve_tree_backend,
     resolve_use_qlib_lgb,
 )
@@ -72,50 +67,6 @@ def load_co_tree_last_report() -> Optional[Dict[str, Any]]:
     return None
 
 
-def _feature_names_from_rows(
-    xs: Sequence[dict],
-    *,
-    include_alpha158: bool,
-) -> Tuple[List[str], List[str], List[str]]:
-    """返回 (tree_feats, ridge_feats, a158_keys)。Ridge 对照仅 CO Z。"""
-    present = set()
-    for row in xs:
-        if not isinstance(row, dict):
-            continue
-        for k, v in row.items():
-            if v is None:
-                continue
-            try:
-                float(v)
-            except (TypeError, ValueError):
-                continue
-            present.add(str(k))
-    ridge_feats = [n for n in CO_Z_FEATURES if n in present]
-    a158_keys: List[str] = []
-    if include_alpha158:
-        from core.signal.factors.alpha158 import collect_alpha158_raw_keys_from_rows
-
-        a158_keys = list(collect_alpha158_raw_keys_from_rows(xs))
-    tree_feats = list(ridge_feats)
-    for k in a158_keys:
-        if k not in tree_feats:
-            tree_feats.append(k)
-    return tree_feats, ridge_feats, a158_keys
-
-
-def _subset(
-    xs: Sequence[dict],
-    ys: Sequence[float],
-    metas: Sequence[dict],
-    idx: Sequence[int],
-) -> Tuple[List[dict], List[float], List[dict]]:
-    return (
-        [xs[i] for i in idx],
-        [ys[i] for i in idx],
-        [metas[i] for i in idx],
-    )
-
-
 def fit_co_tree_report(
     stock_bars: Sequence[Dict[str, Any]],
     *,
@@ -134,22 +85,29 @@ def fit_co_tree_report(
 ) -> Dict[str, Any]:
     """隔夜缺口面板拟合 ŷ_co_tree + Ridge OOS 对照。不写 live / 研究套。
 
-    ``include_alpha158=True`` 时树吃 Alpha158；默认观察池 LGB。``qlib_lgb=True`` 才走缩小后的 Qlib 风格超参。
+    ``include_alpha158=True`` 时树吃 Alpha158。特征按训练集做总体 z-score，与 ŷ_oo_tree 同口径；标签仍是百分点。
+    默认观察池 LGB。``qlib_lgb=True`` 才另对标签做截面 z，并改用缩小后的 Qlib 风格超参。
     """
     t0 = time.perf_counter()
+    from core.research.panel_matrix import (
+        collect_co_compact,
+        demeaned_ridge_oos,
+        finite_name_set,
+        named_columns,
+        raw_alpha158_finite,
+    )
+    from core.research.tau_panel import theme_sample_weights
+
     t_panel0 = time.perf_counter()
-    enriched = build_co_panels_from_bars(
+    X, col_names, ys, dates, metas, n_stocks = collect_co_compact(
         stock_bars,
+        list(CO_Z_FEATURES),
         min_history=min_history,
         gap_trigger_pct=gap_trigger_pct,
         include_alpha158=include_alpha158,
+        head="y_co_tree",
     )
-    xs_raw, ys, dates, metas = _stack_panels(enriched)
-    # 树侧可含 a158；Ridge 对照压成 Z-only
-    xs_tree = list(xs_raw)
-    xs_ridge = _z_only_xs(xs_raw)
     panel_s = round(time.perf_counter() - t_panel0, 2)
-    n_stocks = len(enriched)
     if len(ys) < 20:
         return {
             "success": False,
@@ -163,9 +121,13 @@ def fit_co_tree_report(
             "backtest_hook": False,
         }
 
-    feat_names, ridge_feat_names, a158_keys = _feature_names_from_rows(
-        xs_tree, include_alpha158=include_alpha158
-    )
+    present = finite_name_set(X, col_names)
+    ridge_feat_names = [n for n in CO_Z_FEATURES if n in present]
+    a158_keys = raw_alpha158_finite(X, col_names) if include_alpha158 else []
+    feat_names = list(ridge_feat_names)
+    for k in a158_keys:
+        if k not in feat_names:
+            feat_names.append(k)
     if len(feat_names) < 2:
         return {
             "success": False,
@@ -192,10 +154,10 @@ def fit_co_tree_report(
         label_horizon_days=1,
         calendar_dates=calendar_dates_from_stock_bars(stock_bars),
     )
-    xs_tr, ys_tr, metas_tr = _subset(xs_tree, ys, metas, train_idx)
-    xs_te, ys_te, metas_te = _subset(xs_tree, ys, metas, test_idx)
-    xs_tr_r, _, metas_tr_r = _subset(xs_ridge, ys, metas, train_idx)
-    xs_te_r, _, _ = _subset(xs_ridge, ys, metas, test_idx)
+    ys_tr = [ys[i] for i in train_idx]
+    ys_te = [ys[i] for i in test_idx]
+    metas_tr = [metas[i] for i in train_idx]
+    metas_te = [metas[i] for i in test_idx]
     if len(ys_tr) < 16 or len(ys_te) < 8:
         return {
             "success": False,
@@ -208,19 +170,27 @@ def fit_co_tree_report(
             "backtest_hook": False,
         }
 
+    X_tree, feat_names = named_columns(X, col_names, feat_names)
+    ridge_names = ridge_feat_names or list(CO_Z_FEATURES)
+    X_ridge, ridge_names = named_columns(X, col_names, ridge_names)
+    del X
+    row_tr = np.asarray(train_idx, dtype=np.int64)
+    row_te = np.asarray(test_idx, dtype=np.int64)
+
     engine = resolve_tree_backend(backend)
     use_qlib = resolve_use_qlib_lgb(include_alpha158, qlib_lgb)
-    model, gain, hyper, means, boost_preds, tree_s = fit_lgb_holdout(
-        xs_tr,
+    model, gain, hyper, means, boost_preds, tree_s = fit_lgb_on_matrices(
+        X_tree[row_tr],
         ys_tr,
-        metas_tr,
-        xs_te,
+        X_tree[row_te],
         feat_names,
+        metas_tr=metas_tr,
         use_qlib=use_qlib,
         n_estimators=n_estimators,
         max_depth=max_depth,
         learning_rate=learning_rate,
         subsample=subsample,
+        feature_zscore=True,
     )
     y_tr = np.asarray(ys_tr, dtype=np.float64)
     from core.research.horizon_tree import pack_tree_return_model
@@ -238,17 +208,14 @@ def fit_co_tree_report(
     )
 
     t_ridge0 = time.perf_counter()
-    ridge_names = ridge_feat_names or list(CO_Z_FEATURES)
-    _, ridge_preds = _fit_ridge_oos(
-        xs_tr_r,
+    _, ridge_preds = demeaned_ridge_oos(
+        X_ridge[row_tr],
         ys_tr,
-        xs_te_r,
-        ys_te,
-        metas_tr_r,
+        X_ridge[row_te],
         ridge_names,
         ridge_lambda=ridge_lambda,
-        theme_boost=theme_boost,
-        use_theme_weights=True,
+        sample_weights=theme_sample_weights(metas_tr, theme_boost=theme_boost),
+        min_std_exempt=TAU_MIN_STD_EXEMPT,
     )
     ridge_s = round(time.perf_counter() - t_ridge0, 2)
 
@@ -296,7 +263,7 @@ def fit_co_tree_report(
         "backtest_hook": True,
         "persisted": {"success": False, "skipped": True, "reason": "fit_only"},
         "note": (
-            "ŷ_co_tree：open[T+1]/close[T]−1 · 同 Holdout vs Ridge(Z)；"
+            "ŷ_co_tree：open[T+1]/close[T]−1 · 特征训练集 z-score（与 ŷ_oo_tree 同口径）· 同 Holdout vs Ridge(Z)；"
             + (
                 "树侧含 raw_alpha158_* + Qlib LGB 预设（深6/300轮/叶64/λ10·20 + 截面 z，无早停）；"
                 if use_qlib

@@ -8,9 +8,9 @@
 默认池 = 观察池；可选 research_universe（pool=ledger 已废弃，等同 watching）。
 
 档位（默认）：
-- A：hit≥0.60 且 n≥min_n（min_n = 分档窗天数的 90%，向上取整）
-- B：n≥min_n 且 hit∈[0.50,0.60)；或 n 不足但 hit≥0.50（样本薄、方向尚可）
-- C：hit<0.50（含 n 不足但命中很差）或无有效样本
+- A：命中率 > 0.60，且 IC > 0，且有效日 n > 6
+- B：命中率 ≥ 0.50 但未同时满足 A 的三项
+- C：命中率 < 0.50，或无有效样本
 
 落盘：
 - ``predictability_tiers_last.json``：影子报告（研究枢纽）
@@ -33,9 +33,8 @@ ACTIVE_SCHEMA = "predictability_tiers_active_v1"
 DEFAULT_LOOKBACK_DATES = 40
 DEFAULT_MIN_N = 20
 DEFAULT_A_HIT = 0.60
+DEFAULT_A_MIN_N = 6
 DEFAULT_B_HIT = 0.50
-# 升 A 的有效日数门槛 = 分档窗天数 × 该比例（向上取整）
-MIN_N_WINDOW_FRAC = 0.9
 DEFAULT_LIVE_ALLOWED = ("A", "B")
 DEFAULT_HOLDOUT_N = 20
 DEFAULT_PANEL_LOOKBACK = 120
@@ -290,42 +289,36 @@ def assign_tier(
     min_n: int = DEFAULT_MIN_N,
     a_hit: float = DEFAULT_A_HIT,
     b_hit: float = DEFAULT_B_HIT,
+    ic: Optional[float] = None,
+    a_min_n: int = DEFAULT_A_MIN_N,
 ) -> str:
-    """按命中率 + 有效日数分档。
+    """A：命中率 > a_hit、IC > 0、有效日 n > a_min_n。未进 A 时按 B 命中率下限分 B/C。
 
-    n 不足时：命中 < b_hit → C；命中 ≥ b_hit → B（仍不够进 A）。
+    ``min_n`` 保留给旧调用，不再参与升 A。
     """
     n = max(0, int(n_valid or 0))
-    mn = max(1, int(min_n or DEFAULT_MIN_N))
     a_thr = float(a_hit if a_hit is not None else DEFAULT_A_HIT)
     b_thr = float(b_hit if b_hit is not None else DEFAULT_B_HIT)
     if b_thr > a_thr:
         b_thr = a_thr
+    a_n = max(0, int(a_min_n if a_min_n is not None else DEFAULT_A_MIN_N))
     if n <= 0:
         return "C"
     if hit_rate is None or not math.isfinite(float(hit_rate)):
         return "C"
     hr = float(hit_rate)
-    if n < mn:
-        return "C" if hr < b_thr else "B"
-    if hr >= a_thr:
+    ic_ok = False
+    if ic is not None:
+        try:
+            ic_f = float(ic)
+        except (TypeError, ValueError):
+            ic_f = float("nan")
+        ic_ok = math.isfinite(ic_f) and ic_f > 0.0
+    if n > a_n and hr > a_thr and ic_ok:
         return "A"
     if hr >= b_thr:
         return "B"
     return "C"
-
-
-def effective_min_n(requested: int, n_ledger_dates: int) -> int:
-    """升 A 的 n 门槛 = 分档窗天数的 90%（向上取整），且不超过窗长。
-
-    例：分档窗 10 日 → 生效 9；窗 20 日 → 生效 18。
-    ``requested`` 仅在窗为空时回退。
-    """
-    nd = max(0, int(n_ledger_dates or 0))
-    if nd <= 0:
-        return max(1, int(requested if requested is not None else DEFAULT_MIN_N))
-    need = max(1, int(math.ceil(nd * float(MIN_N_WINDOW_FRAC))))
-    return min(need, nd)
 
 
 def _spearman_ic(xs: Sequence[float], ys: Sequence[float]) -> Optional[float]:
@@ -740,7 +733,6 @@ def _rows_from_acc(
     pool_codes: Sequence[str],
     watch_set: set,
     pad_missing: bool,
-    dates_used: Sequence[str],
     min_n: int,
     a_hit: float,
     b_hit: float,
@@ -762,7 +754,6 @@ def _rows_from_acc(
     rows: List[Dict[str, Any]] = []
     counts = {"A": 0, "B": 0, "C": 0}
     min_n_req = max(1, int(min_n or DEFAULT_MIN_N))
-    min_n_eff = effective_min_n(min_n_req, len(dates_used))
     for code, slot in acc.items():
         n_valid = int(slot.get("n_valid") or 0)
         hits = int(slot.get("hits") or 0)
@@ -771,9 +762,9 @@ def _rows_from_acc(
         tier = assign_tier(
             hit_rate,
             n_valid,
-            min_n=min_n_eff,
             a_hit=a_hit,
             b_hit=b_hit,
+            ic=ic,
         )
         counts[tier] = int(counts.get(tier) or 0) + 1
         ds = list(slot.get("dates") or [])
@@ -805,7 +796,7 @@ def _rows_from_acc(
         )
 
     rows.sort(key=_sort_key)
-    return rows, counts, min_n_req, min_n_eff
+    return rows, counts, min_n_req, DEFAULT_A_MIN_N
 
 
 def build_holdout_half_tiers(
@@ -877,7 +868,6 @@ def build_holdout_half_tiers(
         pool_codes=pool_codes,
         watch_set=watch_set,
         pad_missing=True,
-        dates_used=tier_dates,
         min_n=min_n,
         a_hit=a_hit,
         b_hit=b_hit,
@@ -899,10 +889,10 @@ def build_holdout_half_tiers(
         "min_n_effective": min_n_eff,
         "thresholds": {
             "a_hit": float(a_hit if a_hit is not None else DEFAULT_A_HIT),
+            "a_min_n": DEFAULT_A_MIN_N,
             "b_hit": float(b_hit if b_hit is not None else DEFAULT_B_HIT),
             "min_n": min_n_req,
             "min_n_effective": min_n_eff,
-            "min_n_adapted": min_n_eff < min_n_req,
         },
         "pool": pool_mode,
         "pool_source": pool_source,
@@ -931,14 +921,10 @@ def build_holdout_half_tiers(
             "source": resolved.get("source"),
         },
         "note": (
-            f"ŷ_oo Holdout OOS 前半 {tier_n} 日分档；落盘 last；"
-            "「启用 live」后调仓按 A+B 过滤；"
+            f"ŷ_oo Holdout OOS 前半 {tier_n} 日分档；"
+            f"A 为命中率>{float(a_hit if a_hit is not None else DEFAULT_A_HIT):.0%}、IC>0、N>{DEFAULT_A_MIN_N}；"
+            "落盘 last；「启用 live」后调仓按 A+B 过滤；"
             "回测天数用独立 lookback；研究套须在 Holdout 前训练。"
-            + (
-                f" 分档窗仅 {tier_n} 日，n 门槛 {min_n_req}→{min_n_eff}。"
-                if min_n_eff < min_n_req
-                else ""
-            )
         ),
     }
     if persist:

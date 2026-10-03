@@ -111,15 +111,10 @@ export function installResearchUniverseUi(q) {
       return;
     }
     const thr = rep.thresholds || {};
-    const minNEff = thr.min_n_effective != null ? thr.min_n_effective : thr.min_n ?? 20;
-    const minNReq = thr.min_n != null ? thr.min_n : 20;
-    const nBit =
-      thr.min_n_adapted || minNEff !== minNReq
-        ? `n≥${minNEff}(窗90%·配${minNReq})`
-        : `n≥${minNEff}(窗90%)`;
     const hold = rep.holdout_n != null ? rep.holdout_n : "—";
     const tierN = rep.tier_n != null ? rep.tier_n : rep.n_ledger_dates ?? "—";
     const aHit = thr.a_hit ?? 0.6;
+    const aMinN = thr.a_min_n != null ? thr.a_min_n : 6;
     const bHit = thr.b_hit ?? 0.5;
     const counts = rep.counts || {};
     const nSample = rep.n_with_sample != null ? rep.n_with_sample : "—";
@@ -128,9 +123,8 @@ export function installResearchUniverseUi(q) {
     const headNote = [
       `ŷ_oo Holdout OOS`,
       `Holdout${hold} · 前半${tierN}日`,
-      `A≥${Math.round(aHit * 100)}%`,
+      `A 命中>${Math.round(aHit * 100)}% · IC>0 · N>${aMinN}`,
       `B≥${Math.round(bHit * 100)}%`,
-      nBit,
       liveBit(),
     ].join(" · ");
 

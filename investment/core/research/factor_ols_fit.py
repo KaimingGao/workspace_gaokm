@@ -278,16 +278,10 @@ def _prepare_complete_panel(
     return None, None, [], excluded, meta
 
 
-def _qr_lstsq(design: List[List[float]], ys: List[float]) -> Optional[List[float]]:
-    """最小二乘：X = QR（economy），解 R β = Qᵀ y；秩亏返回 None。
-
-    相对正规方程 + 高斯消元，条件数不平方，数值更稳。
-    """
-    x = np.asarray(design, dtype=np.float64)
-    y = np.asarray(ys, dtype=np.float64)
+def _qr_solve_np(x: np.ndarray, y: np.ndarray) -> Optional[np.ndarray]:
+    """最小二乘：X = QR（economy），解 R β = Qᵀ y；秩亏返回 None。"""
     if x.ndim != 2 or y.ndim != 1 or x.shape[0] != y.shape[0] or x.shape[1] < 1:
         return None
-
     n, m = x.shape
     q, r = np.linalg.qr(x, mode="reduced")
     diag = np.abs(np.diag(r))
@@ -297,12 +291,25 @@ def _qr_lstsq(design: List[List[float]], ys: List[float]) -> Optional[List[float
     tol = max(n, m) * np.finfo(np.float64).eps * max(scale, 1.0)
     if float(diag.min()) <= tol:
         return None
-
     try:
         beta = np.linalg.solve(r, q.T @ y)
     except np.linalg.LinAlgError:
         return None
     if not np.all(np.isfinite(beta)):
+        return None
+    return beta
+
+
+def _qr_lstsq(design: List[List[float]], ys: List[float]) -> Optional[List[float]]:
+    """最小二乘：X = QR（economy），解 R β = Qᵀ y；秩亏返回 None。
+
+    相对正规方程 + 高斯消元，条件数不平方，数值更稳。
+    """
+    beta = _qr_solve_np(
+        np.asarray(design, dtype=np.float64),
+        np.asarray(ys, dtype=np.float64),
+    )
+    if beta is None:
         return None
     return [float(v) for v in beta]
 
@@ -325,17 +332,19 @@ def _ridge_lstsq(
     if x.ndim != 2 or y.ndim != 1 or x.shape[0] != y.shape[0] or x.shape[1] < 1:
         return None
 
-    n, m = x.shape
+    m = int(x.shape[1])
     if m <= 1:
         return _qr_lstsq(design, ys)
 
     sqrt_l = math.sqrt(lam)
     extra = np.zeros((m - 1, m), dtype=np.float64)
-    for i in range(m - 1):
-        extra[i, i + 1] = sqrt_l
+    extra[:, 1:] = np.eye(m - 1, dtype=np.float64) * sqrt_l
     x_aug = np.vstack([x, extra])
     y_aug = np.concatenate([y, np.zeros(m - 1, dtype=np.float64)])
-    return _qr_lstsq(x_aug.tolist(), y_aug.tolist())
+    beta = _qr_solve_np(x_aug, y_aug)
+    if beta is None:
+        return None
+    return [float(v) for v in beta]
 
 
 def _fit_ols_once(

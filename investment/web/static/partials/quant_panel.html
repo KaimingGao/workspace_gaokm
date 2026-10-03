@@ -142,6 +142,7 @@
             <div class="quant-help-body quant-pro-help-body">
               <p>
                 按 <strong>ŷ_oo</strong> 在页顶 <strong>Holdout</strong> 测试窗<strong>前半</strong>的 OOS 符号命中分档（日线面板训 β，不读账本）。
+                A 档：命中率 &gt;60%、IC &gt;0、有效日 N &gt;6。
                 「启用 live」写入调仓闸（新开 A+B，持仓保留）。
                 研究套须在整段 Holdout 前训练。
               </p>
@@ -826,7 +827,8 @@
                 <code>open[T+1]/open[T]−1</code>。默认
                 <strong>观察池 LGB</strong>（深度 5、300 轮、叶子 48、中等正则、百分点标签），按约 300 只 × 120 日调。
                 勾选 Alpha158 只加 <code>raw_alpha158_*</code>（≤T−1）。
-                <strong>Qlib LGB 预设</strong>是对照实验（深度 6、300 轮、叶子 64、λ₁=10、λ₂=20、截面 z、无早停），不是默认。
+                特征与 ŷ_oo Ridge 对齐：按训练集做 z-score，标签仍是百分点。
+                <strong>Qlib LGB 预设</strong>是对照实验（深度 6、300 轮、叶子 64、λ₁=10、λ₂=20、另对标签做截面 z、无早停），不是默认。
                 同窗 Ridge 对照不含 a158。表内对照 IC / 命中 / MSE。
               </p>
               <p>
@@ -875,7 +877,9 @@
                 <strong>ŷ_τc_tree</strong> 标签与 ŷ_τc 相同：
                 <code>close[T]/price[τ]−1</code>。默认
                 <strong>观察池 LGB</strong>（深度 5、300 轮、叶子 48、中等正则、百分点标签）。
-                勾选 Alpha158 只加特征。<strong>Qlib LGB 预设</strong>是对照实验（深度 6、300 轮、叶子 64、λ₁=10、λ₂=20、截面 z、无早停）。
+                勾选 Alpha158 只加特征。
+                特征与 ŷ_oo_tree 对齐：按训练集做 z-score，标签仍是百分点。
+                <strong>Qlib LGB 预设</strong>是对照实验（深度 6、300 轮、叶子 64、λ₁=10、λ₂=20、另对标签做截面 z、无早停）。
                 Ridge 对照仍只用开盘 Z。满池耗时主要在组分钟面板。
               </p>
               <p>
@@ -924,7 +928,9 @@
                 <strong>ŷ_co_tree</strong> 标签与 ŷ_co 相同：
                 <code>open[T+1]/close[T]−1</code>。默认
                 <strong>观察池 LGB</strong>（深度 5、300 轮、叶子 48、中等正则、百分点标签）。
-                勾选 Alpha158 只加特征。<strong>Qlib LGB 预设</strong>是对照实验（深度 6、300 轮、叶子 64、λ₁=10、λ₂=20、截面 z、无早停）。
+                勾选 Alpha158 只加特征。
+                特征与 ŷ_oo_tree 对齐：按训练集做 z-score，标签仍是百分点。
+                <strong>Qlib LGB 预设</strong>是对照实验（深度 6、300 轮、叶子 64、λ₁=10、λ₂=20、另对标签做截面 z、无早停）。
                 Ridge 对照仅 CO Z。
               </p>
               <p>

@@ -2424,6 +2424,7 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("拉观察池日线 · 全程约 12–15 分钟", suggest)
         self.assertIn("堆叠日线因子面板 · 全程约 12–15 分钟", suggest)
         self.assertIn("Ridge / OLS + Holdout · 全程约 12–15 分钟", suggest)
+        self.assertIn("超过 15 分钟仍可能在算，请勿重复点", suggest)
         self.assertNotIn("观察池堆叠 Ridge / OLS", suggest)
         self.assertNotIn(
             "justFitted && !active.exists && !research.exists",

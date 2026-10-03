@@ -22,10 +22,9 @@ from core.research.tc_tree import (
     DEFAULT_N_ESTIMATORS,
     DEFAULT_SUBSAMPLE,
     _delta_oos,
-    _fit_ridge_oos,
     _importance_rows,
     _oos_pack,
-    fit_lgb_holdout,
+    fit_lgb_on_matrices,
     resolve_tree_backend,
     resolve_use_qlib_lgb,
 )
@@ -65,15 +64,38 @@ def load_oo_tree_last_report() -> Optional[Dict[str, Any]]:
     return None
 
 
+def _oo_column_names(*, include_alpha158: bool) -> List[str]:
+    from core.signal.factors.meta.health import unsourced_factor_names
+    from core.signal.factors.meta.registry import registered_factor_names
+
+    banned = set(unsourced_factor_names())
+    names = [n for n in registered_factor_names() if n not in banned]
+    if include_alpha158:
+        from core.research.oo_ridge_compact import alpha158_raw_names
+
+        seen = set(names)
+        for key in alpha158_raw_names():
+            if key not in seen and key not in banned:
+                seen.add(key)
+                names.append(key)
+    return names
+
+
 def _stack_daily_panels(
     stock_bars: Sequence[Dict[str, Any]],
     *,
     horizon_days: int = 1,
     min_history: int = 12,
-) -> Tuple[List[dict], List[float], List[str], List[dict], int]:
+    include_alpha158: bool = True,
+) -> Tuple[np.ndarray, List[str], List[float], List[str], List[dict], int]:
+    """逐股写入 float64 后丢掉行 dict。返回 (X, names, ys, dates, metas, n_stocks)。"""
     from core.research.panel import collect_subscore_forward_panel
+    from core.research.panel_matrix import PanelMatrix
 
-    xs: List[dict] = []
+    block = PanelMatrix(
+        _oo_column_names(include_alpha158=include_alpha158),
+        widen_prefix="raw_alpha158_" if include_alpha158 else "",
+    )
     ys: List[float] = []
     dates: List[str] = []
     metas: List[dict] = []
@@ -96,66 +118,50 @@ def _stack_daily_panels(
         except Exception:  # noqa: BLE001
             logger.debug("oo_tree panel failed code=%s", code, exc_info=True)
             continue
-        if not rows:
+        n_align = min(len(rows), len(y_list), len(d_list))
+        if n_align <= 0:
             continue
+        block.add_rows(list(rows)[:n_align])
+        del rows
         n_stocks += 1
-        for row, y, d in zip(rows, y_list, d_list):
-            xs.append(dict(row or {}))
+        for y, d in zip(list(y_list)[:n_align], list(d_list)[:n_align]):
             ys.append(float(y))
-            dates.append(str(d)[:10])
-            metas.append({"code": code, "theme_day": 0, "date": str(d)[:10]})
-    return xs, ys, dates, metas, n_stocks
+            day = str(d)[:10]
+            dates.append(day)
+            metas.append({"code": code, "theme_day": 0, "date": day})
+    X = block.finalize()
+    logger.info(
+        "compact panel head=y_oo_tree rows=%s cols=%s stocks=%s",
+        int(X.shape[0]),
+        int(X.shape[1]),
+        n_stocks,
+    )
+    return X, list(block.names), ys, dates, metas, n_stocks
 
 
-def _feature_names_from_rows(
-    xs: Sequence[dict],
+def _feature_names_from_matrix(
+    names: Sequence[str],
+    present: set,
     *,
     include_alpha158: bool,
 ) -> Tuple[List[str], List[str], List[str]]:
-    """返回 (tree_feats, ridge_feats, a158_keys)。proxy 剔除。"""
+    """返回 (tree_feats, ridge_feats, a158_keys)。proxy 已在列名里剔除。"""
     from core.signal.factors.meta.health import unsourced_factor_names
     from core.signal.factors.meta.registry import registered_factor_names
 
     banned = set(unsourced_factor_names())
     base = [n for n in registered_factor_names() if n not in banned]
-    present = set()
-    for row in xs:
-        if not isinstance(row, dict):
-            continue
-        for k, v in row.items():
-            if v is None:
-                continue
-            try:
-                float(v)
-            except (TypeError, ValueError):
-                continue
-            present.add(str(k))
     ridge_feats = [n for n in base if n in present]
-    a158_keys: List[str] = []
-    if include_alpha158:
-        from core.signal.factors.alpha158 import collect_alpha158_raw_keys_from_rows
-
-        a158_keys = [
-            k for k in collect_alpha158_raw_keys_from_rows(xs) if k not in banned
-        ]
+    a158_keys = [
+        n
+        for n in names
+        if n in present and str(n).startswith("raw_alpha158_") and n not in banned
+    ] if include_alpha158 else []
     tree_feats = list(ridge_feats)
     for k in a158_keys:
         if k not in tree_feats:
             tree_feats.append(k)
     return tree_feats, ridge_feats, a158_keys
-
-
-def _subset(
-    xs: Sequence[dict],
-    ys: Sequence[float],
-    metas: Sequence[dict],
-    idx: Sequence[int],
-) -> Tuple[List[dict], List[float], List[dict]]:
-    return (
-        [xs[i] for i in idx],
-        [ys[i] for i in idx],
-        [metas[i] for i in idx],
-    )
 
 
 def fit_oo_tree_report(
@@ -175,15 +181,19 @@ def fit_oo_tree_report(
 ) -> Dict[str, Any]:
     """日线面板拟合 ŷ_oo_tree + Ridge OOS 对照。不写 live / 研究套。
 
-    ``include_alpha158=True`` 时树吃 Alpha158；默认观察池 LGB（百分点）。
-    ``qlib_lgb=True`` 才用缩小后的 Qlib 风格超参和标签截面 z。
+    ``include_alpha158=True`` 时树吃 Alpha158。特征按训练集做总体 z-score，与 ŷ_oo Ridge 同口径；标签仍是百分点。
+    ``qlib_lgb=True`` 才另对标签做截面 z，并改用缩小后的 Qlib 风格超参。
     """
+    from core.research.panel_matrix import demeaned_ridge_oos, finite_name_set, named_columns
+    from core.research.tc_ridge import TAU_MIN_STD_EXEMPT
+
     t0 = time.perf_counter()
     t_panel0 = time.perf_counter()
-    xs, ys, dates, metas, n_stocks = _stack_daily_panels(
+    X, col_names, ys, dates, metas, n_stocks = _stack_daily_panels(
         stock_bars,
         horizon_days=horizon_days,
         min_history=min_history,
+        include_alpha158=include_alpha158,
     )
     panel_s = round(time.perf_counter() - t_panel0, 2)
     if len(ys) < 20:
@@ -199,8 +209,10 @@ def fit_oo_tree_report(
             "backtest_hook": False,
         }
 
-    feat_names, ridge_feat_names, a158_keys = _feature_names_from_rows(
-        xs, include_alpha158=include_alpha158
+    feat_names, ridge_feat_names, a158_keys = _feature_names_from_matrix(
+        col_names,
+        finite_name_set(X, col_names),
+        include_alpha158=include_alpha158,
     )
     if len(feat_names) < 2:
         return {
@@ -228,8 +240,10 @@ def fit_oo_tree_report(
         label_horizon_days=int(horizon_days or 1),
         calendar_dates=calendar_dates_from_stock_bars(stock_bars),
     )
-    xs_tr, ys_tr, metas_tr = _subset(xs, ys, metas, train_idx)
-    xs_te, ys_te, metas_te = _subset(xs, ys, metas, test_idx)
+    ys_tr = [ys[i] for i in train_idx]
+    ys_te = [ys[i] for i in test_idx]
+    metas_tr = [metas[i] for i in train_idx]
+    metas_te = [metas[i] for i in test_idx]
     if len(ys_tr) < 16 or len(ys_te) < 8:
         return {
             "success": False,
@@ -242,19 +256,26 @@ def fit_oo_tree_report(
             "backtest_hook": False,
         }
 
+    X_tree, feat_names = named_columns(X, col_names, feat_names)
+    X_ridge, ridge_feat_names = named_columns(X, col_names, ridge_feat_names)
+    del X
+    row_tr = np.asarray(train_idx, dtype=np.int64)
+    row_te = np.asarray(test_idx, dtype=np.int64)
+
     use_qlib = resolve_use_qlib_lgb(include_alpha158, qlib_lgb)
     engine = resolve_tree_backend(backend)
-    model, gain, hyper, means, boost_preds, tree_s = fit_lgb_holdout(
-        xs_tr,
+    model, gain, hyper, means, boost_preds, tree_s = fit_lgb_on_matrices(
+        X_tree[row_tr],
         ys_tr,
-        metas_tr,
-        xs_te,
+        X_tree[row_te],
         feat_names,
+        metas_tr=metas_tr,
         use_qlib=use_qlib,
         n_estimators=n_estimators,
         max_depth=max_depth,
         learning_rate=learning_rate,
         subsample=subsample,
+        feature_zscore=True,
     )
     from core.research.horizon_tree import pack_tree_return_model
 
@@ -272,16 +293,14 @@ def fit_oo_tree_report(
     y_tr = np.asarray(ys_tr, dtype=np.float64)
 
     t_ridge0 = time.perf_counter()
-    _, ridge_preds = _fit_ridge_oos(
-        xs_tr,
+    _, ridge_preds = demeaned_ridge_oos(
+        X_ridge[row_tr],
         ys_tr,
-        xs_te,
-        ys_te,
-        metas_tr,
+        X_ridge[row_te],
         ridge_feat_names,
         ridge_lambda=ridge_lambda,
-        theme_boost=1.0,
-        use_theme_weights=False,
+        sample_weights=None,
+        min_std_exempt=TAU_MIN_STD_EXEMPT,
     )
     ridge_s = round(time.perf_counter() - t_ridge0, 2)
 
@@ -330,9 +349,9 @@ def fit_oo_tree_report(
         "backtest_hook": True,
         "persisted": {"success": False, "skipped": True, "reason": "fit_only"},
         "note": (
-            "ŷ_oo_tree：open→open 标签 · 同 Holdout vs Ridge；"
+            "ŷ_oo_tree：open→open 标签 · 特征训练集 z-score（与 ŷ_oo Ridge 同口径）· 同 Holdout vs Ridge；"
             + (
-                "树侧含 raw_alpha158_* + Qlib LGB 预设（深6/300轮/叶64/λ10·20 + 截面 z，无早停）；"
+                "树侧含 raw_alpha158_* + Qlib LGB 预设（深6/300轮/叶64/λ10·20 + 标签截面 z，无早停）；"
                 if use_qlib
                 else (
                     "树侧可含 raw_alpha158_*（Ridge 对照不含 a158）；"

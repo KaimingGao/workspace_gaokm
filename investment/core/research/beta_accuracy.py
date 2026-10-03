@@ -241,22 +241,47 @@ def apply_collinearity_policy(
             return 0.0
         return abs(num / (dx * dy))
 
-    dropped: List[str] = []
-    kept = set(active)
     thr = float(corr_threshold)
-    # greedy: highest |corr| pairs first
     pairs = []
     for i, a in enumerate(family):
         for b in family[i + 1 :]:
             c = _corr(a, b)
             if c is not None and abs(c) >= thr:
                 pairs.append((abs(c), a, b, c))
-    pairs.sort(reverse=True)
-    for abs_c, a, b, c in pairs:
+    return _finish_trend_drop(active, pairs, _ic, pol, meta)
+
+
+def _pearson_aligned(xa: Sequence[float], xb: Sequence[float]) -> Optional[float]:
+    """与 ``apply_collinearity_policy`` 里逐行求和的 Pearson 同一公式。"""
+    n = min(len(xa), len(xb))
+    if n < 5:
+        return None
+    aa = [float(xa[i]) for i in range(n)]
+    bb = [float(xb[i]) for i in range(n)]
+    ma, mb = sum(aa) / n, sum(bb) / n
+    num = sum((x - ma) * (y - mb) for x, y in zip(aa, bb))
+    da = math.sqrt(sum((x - ma) ** 2 for x in aa))
+    db = math.sqrt(sum((y - mb) ** 2 for y in bb))
+    if da < 1e-12 or db < 1e-12:
+        return None
+    return num / (da * db)
+
+
+def _finish_trend_drop(
+    active: List[str],
+    pairs: List[Tuple[float, str, str, float]],
+    ic_of,
+    pol: str,
+    meta: Dict[str, Any],
+) -> Tuple[List[str], List[str], Dict[str, Any]]:
+    """|corr| 从高到低贪心：留下与 y 相关更强的一侧，并保持 active 原顺序。"""
+    dropped: List[str] = []
+    kept = set(active)
+    pairs = sorted(pairs, reverse=True)
+    for _abs_c, a, b, c in pairs:
         if a not in kept or b not in kept:
             continue
-        # 保留与 y 相关更强的一侧
-        ia, ib = _ic(a), _ic(b)
+        ia, ib = ic_of(a), ic_of(b)
         drop = b if ia >= ib else a
         keep = a if drop == b else b
         kept.discard(drop)
@@ -273,9 +298,46 @@ def apply_collinearity_policy(
     meta["dropped"] = list(dropped)
     if pol == "orthogonalize_lite":
         meta["note"] = "orthogonalize_lite 当前降级为 drop_redundant（择一保留）"
-    # 保持原 active 顺序
     new_active = [n for n in active if n in kept]
     return new_active, dropped, meta
+
+
+def apply_collinearity_on_columns(
+    columns: Dict[str, Sequence[float]],
+    active: List[str],
+    ys: Sequence[float],
+    *,
+    policy: str = "drop_redundant",
+    corr_threshold: float = 0.85,
+) -> Tuple[List[str], List[str], Dict[str, Any]]:
+    """完整行上的趋势族去冗余。列已对齐且无缺测，不再为每行造字典。"""
+    from core.signal.factors.meta.collinearity import TREND_FAMILY
+
+    pol = str(policy or "drop_redundant").strip().lower()
+    meta: Dict[str, Any] = {
+        "collinearity_policy": pol,
+        "corr_threshold": float(corr_threshold),
+        "pairs": [],
+        "dropped": [],
+    }
+    n = len(ys)
+    if pol in ("keep_all", "off", "none") or len(active) < 2 or n == 0:
+        return list(active), [], meta
+    family = [name for name in active if name in TREND_FAMILY and name in columns]
+    if len(family) < 2:
+        return list(active), [], meta
+
+    def _ic(name: str) -> float:
+        return abs(_pearson_aligned(columns[name], ys) or 0.0)
+
+    thr = float(corr_threshold)
+    pairs: List[Tuple[float, str, str, float]] = []
+    for i, a in enumerate(family):
+        for b in family[i + 1 :]:
+            c = _pearson_aligned(columns[a], columns[b])
+            if c is not None and abs(c) >= thr:
+                pairs.append((abs(c), a, b, c))
+    return _finish_trend_drop(active, pairs, _ic, pol, meta)
 
 
 def select_ridge_lambda(

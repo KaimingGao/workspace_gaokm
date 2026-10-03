@@ -66,6 +66,10 @@ class TestCoTree(unittest.TestCase):
         rm = report.get("tree_return_model") or {}
         self.assertTrue(rm.get("feature_names"))
         self.assertEqual(rm.get("head_kind"), "return")
+        hp = rm.get("hyperparams") or {}
+        self.assertTrue(hp.get("feature_zscore"))
+        self.assertTrue(hp.get("zscore_means"))
+        self.assertTrue(hp.get("zscore_stds"))
         self.assertIn("oos", report)
         self.assertIn("ridge_oos", report)
         self.assertIn("delta_vs_ridge", report)

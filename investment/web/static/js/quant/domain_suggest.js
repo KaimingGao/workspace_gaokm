@@ -557,7 +557,7 @@ export function installSuggest(q) {
     if (s < 30) return "拉观察池日线 · 全程约 12–15 分钟";
     if (s < 720) return "堆叠日线因子面板 · 全程约 12–15 分钟";
     if (s < 900) return "Ridge / OLS + Holdout · 全程约 12–15 分钟";
-    return "仍在拟合 · 已超过常见的 15 分钟，请勿重复点";
+    return "仍在拟合 · 满池面板很大，超过 15 分钟仍可能在算，请勿重复点";
   }
 
   async function runReturnModelFit() {

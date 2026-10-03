@@ -12,10 +12,11 @@ import logging
 import os
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
+import numpy as np
+
 logger = logging.getLogger(__name__)
 
 from core.io_atomic import atomic_write_json
-from core.research.factor_ols_fit import fit_factor_ols_from_panel
 from core.research.tau_panel import (
     TAU_LAG_FEAT_LABELS,
     T30_LAG_FEAT_LABELS,
@@ -452,32 +453,6 @@ def _theme_trigger_sensitivity(
     return out
 
 
-def _tau_feature_fill_keys(xs: Sequence[dict]) -> List[str]:
-    """开盘 Z + 面板中出现的 raw_alpha158_*。"""
-    from core.signal.factors.alpha158 import collect_alpha158_raw_keys_from_rows
-
-    keys = list(TAU_Z_FEATURES)
-    seen = set(keys)
-    for k in collect_alpha158_raw_keys_from_rows(xs):
-        if k not in seen:
-            seen.add(k)
-            keys.append(k)
-    return keys
-
-
-def _z_only_row(row: Optional[dict]) -> Dict[str, Optional[float]]:
-    """始终输出完整 TAU_Z_FEATURES 键，并保留 raw_alpha158_*。"""
-    from core.signal.factors.alpha158 import keep_alpha158_raw_in_row
-
-    src = row or {}
-    out = {k: src.get(k) for k in TAU_Z_FEATURES}
-    return keep_alpha158_raw_in_row(src, dest=out)
-
-
-def _z_only_xs(xs: Sequence[dict]) -> List[dict]:
-    return [_z_only_row(r) for r in xs]
-
-
 def build_tau_panels_from_bars(
     stock_bars: Sequence[Dict[str, Any]],
     *,
@@ -568,30 +543,39 @@ def fit_tau_ridge_report(
         if use_minute
         else None
     )
-    enriched = build_tau_panels_from_bars(
+    from core.research.panel_matrix import (
+        collect_tau_compact,
+        fill_rates_from_matrix,
+        fit_keepall_ridge_matrix,
+        named_columns,
+        predict_ridge_matrix,
+        raw_alpha158_finite,
+    )
+
+    X, col_names, ys, dates, metas, n_stocks = collect_tau_compact(
         stock_bars,
+        list(TAU_Z_FEATURES),
         min_history=min_history,
         gap_trigger_pct=gap_trigger_pct,
         tau_hm=tau_key,
         tau_grid=grid,
         include_alpha158=include_alpha158,
+        head="y_tc",
     )
-    xs, ys, dates, metas = _stack_panels(enriched)
     if len(ys) < 20:
         return {
             "success": False,
             "error": f"rem 样本不足 n={len(ys)}（需≥20）",
             "task": "tc_ridge",
             "sample_count": len(ys),
-            "stock_count": len(enriched),
+            "stock_count": n_stocks,
             "tau": tau_key,
             "tau_grid": grid,
         }
 
-    xs_use, ys_use, dates_use, metas_use = xs, ys, dates, metas
+    ys_use, dates_use, metas_use = ys, dates, metas
     target = "tau_to_close_z"
 
-    xs_z = _z_only_xs(xs_use)
     from core.research.holdout import (
         DEFAULT_HOLDOUT_TRADING_DAYS,
         attach_holdout_meta,
@@ -605,8 +589,10 @@ def fit_tau_ridge_report(
         holdout_trading_days=hold_n,
         calendar_dates=calendar_dates_from_stock_bars(stock_bars),
     )
-    xs_tr, ys_tr, metas_tr = _subset(xs_z, ys_use, metas_use, train_idx)
-    xs_te, ys_te, metas_te = _subset(xs_z, ys_use, metas_use, test_idx)
+    ys_tr = [ys_use[i] for i in train_idx]
+    ys_te = [ys_use[i] for i in test_idx]
+    metas_tr = [metas_use[i] for i in train_idx]
+    metas_te = [metas_use[i] for i in test_idx]
 
     weights = (
         theme_sample_weights(metas_tr, theme_boost=theme_boost)
@@ -620,13 +606,21 @@ def fit_tau_ridge_report(
         k for k in TAU_Z_FEATURES if k not in drop_opt and k not in TAU_FIT_DROP_ALIASES
     ]
     if include_alpha158:
-        from core.signal.factors.alpha158 import collect_alpha158_raw_keys_from_rows
-
         seen = set(feat_names)
-        for k in collect_alpha158_raw_keys_from_rows(xs_tr):
+        for k in raw_alpha158_finite(X, col_names, train_idx):
             if k not in seen:
                 seen.add(k)
                 feat_names.append(k)
+
+    fill_keys = list(TAU_Z_FEATURES)
+    seen_fill = set(fill_keys)
+    for name in col_names:
+        if str(name).startswith("raw_alpha158_") and name not in seen_fill:
+            seen_fill.add(name)
+            fill_keys.append(name)
+    feature_fill = fill_rates_from_matrix(X, col_names, fill_keys)
+    X_fit, feat_names = named_columns(X, col_names, feat_names)
+    del X
 
     from core.signal.factors.alpha158 import merge_alpha158_min_std_exempt
 
@@ -636,17 +630,17 @@ def fit_tau_ridge_report(
 
     # 去训练均值，减轻截距偏置；推理时截距加回
     y_mean = sum(float(y) for y in ys_tr) / max(1, len(ys_tr))
-    ys_tr_dm = [float(y) - y_mean for y in ys_tr]
 
-    fit = fit_factor_ols_from_panel(
-        xs_tr,
-        ys_tr_dm,
-        feature_names=feat_names,
+    row_tr = np.asarray(train_idx, dtype=np.int64)
+    row_te = np.asarray(test_idx, dtype=np.int64)
+    y_tr = np.asarray(ys_tr, dtype=np.float64)
+    fit = fit_keepall_ridge_matrix(
+        X_fit[row_tr],
+        y_tr - y_mean,
+        feat_names,
         ridge_lambda=ridge_lambda,
-        standardize=True,
         sample_weights=weights,
         min_std_exempt=min_std_exempt,
-        collinearity_policy="keep_all",
     )
     if not fit.get("success"):
         # Z 截面过弱（合成/窄池）时退回截距头
@@ -660,7 +654,9 @@ def fit_tau_ridge_report(
             "note": "Z 方差不足，ŷ_τ 用训练均值",
         }
 
-    preds_dm = _predict_rows(fit, xs_te) if xs_te else []
+    preds_dm = (
+        predict_ridge_matrix(fit, X_fit[row_te], feat_names) if len(test_idx) else []
+    )
     preds_te = [
         (float(p) + y_mean) if p is not None else None for p in (preds_dm or [])
     ]
@@ -682,7 +678,7 @@ def fit_tau_ridge_report(
             "all": _theme_counts(metas_use),
         },
         "theme_trigger_sensitivity": _theme_trigger_sensitivity(metas_use),
-        "feature_fill": None,
+        "feature_fill": feature_fill,
         "buckets": bucket_pack.get("buckets") or {},
         "pos_recall": bucket_pack.get("pos_recall"),
         "neg_recall": bucket_pack.get("neg_recall"),
@@ -703,13 +699,6 @@ def fit_tau_ridge_report(
             attach_daily_cs_ic(oos, preds_te, ys_te, metas_te)
         except Exception:  # noqa: BLE001
             logger.debug("tau attach_daily_cs_ic failed", exc_info=True)
-    try:
-        from core.research.panel import feature_fill_rates
-
-        oos["feature_fill"] = feature_fill_rates(xs_z, _tau_feature_fill_keys(xs_z))
-    except Exception:  # noqa: BLE001
-        logger.debug("tau feature_fill failed", exc_info=True)
-
     research_model = dict(fit)
     try:
         research_model["intercept"] = round(
@@ -728,16 +717,14 @@ def fit_tau_ridge_report(
         else None
     )
     y_mean_all = sum(float(y) for y in ys_use) / max(1, len(ys_use))
-    ys_all_dm = [float(y) - y_mean_all for y in ys_use]
-    fit_full = fit_factor_ols_from_panel(
-        xs_z,
-        ys_all_dm,
-        feature_names=feat_names,
+    y_all = np.asarray(ys_use, dtype=np.float64)
+    fit_full = fit_keepall_ridge_matrix(
+        X_fit,
+        y_all - y_mean_all,
+        feat_names,
         ridge_lambda=ridge_lambda,
-        standardize=True,
         sample_weights=w_all,
         min_std_exempt=min_std_exempt,
-        collinearity_policy="keep_all",
     )
     model = fit_full if fit_full.get("success") else fit
     model = dict(model)
@@ -777,7 +764,7 @@ def fit_tau_ridge_report(
             )
         ),
     }
-    model["extra_features"] = _tau_feature_fill_keys(xs_z)
+    model["extra_features"] = list(fill_keys)
     model["feat_labels"] = {**dict(MINUTE_TAU_FEAT_LABELS), **dict(TAU_LAG_FEAT_LABELS)}
     model["include_alpha158"] = bool(include_alpha158)
     if use_minute:
@@ -812,7 +799,7 @@ def fit_tau_ridge_report(
     report = {
         "success": True,
         "task": "tc_ridge",
-        "stock_count": len(enriched),
+        "stock_count": n_stocks,
         "sample_count": len(ys_use),
         "sample_count_raw": len(ys),
         "sample_count_day": len(day_keys),

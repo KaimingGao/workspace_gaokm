@@ -161,12 +161,34 @@ def pack_tree_return_model(
     return out
 
 
+def _stored_feature_z(
+    rm: Dict[str, Any],
+) -> Tuple[Optional[Dict[str, float]], Optional[Dict[str, float]]]:
+    """训练集特征 z-score。旧模型没有这份统计时返回空，预测保持原值。"""
+    candidates = [rm]
+    inner = rm.get("return_model") if isinstance(rm.get("return_model"), dict) else None
+    if inner is not None:
+        candidates.append(inner)
+    for src in candidates:
+        hp = src.get("hyperparams") if isinstance(src.get("hyperparams"), dict) else {}
+        if not hp.get("feature_zscore"):
+            continue
+        means = hp.get("zscore_means") if isinstance(hp.get("zscore_means"), dict) else None
+        stds = hp.get("zscore_stds") if isinstance(hp.get("zscore_stds"), dict) else None
+        if means and stds:
+            return means, stds
+    return None, None
+
+
 def _row_matrix(
     features: Dict[str, Any],
     feature_names: Sequence[str],
     impute_means: Dict[str, float],
+    *,
+    z_means: Optional[Dict[str, float]] = None,
+    z_stds: Optional[Dict[str, float]] = None,
 ) -> np.ndarray:
-    from core.research.tc_tree import _design_matrix
+    from core.research.tc_tree import _apply_feature_z, _design_matrix
 
     row = {k: (features or {}).get(k) for k in feature_names}
     means = np.asarray(
@@ -174,6 +196,16 @@ def _row_matrix(
         dtype=np.float64,
     )
     x, _ = _design_matrix([row], list(feature_names), means=means)
+    if isinstance(z_means, dict) and isinstance(z_stds, dict) and z_stds:
+        mu = np.asarray(
+            [float(z_means.get(str(n)) or 0.0) for n in feature_names],
+            dtype=np.float64,
+        )
+        sd = np.asarray(
+            [float(z_stds.get(str(n)) or 1.0) for n in feature_names],
+            dtype=np.float64,
+        )
+        x = _apply_feature_z(x, mu, sd)
     return x
 
 
@@ -211,8 +243,9 @@ def predict_tree_raw(
     if not names:
         return None
     means = rm.get("impute_means") if isinstance(rm.get("impute_means"), dict) else {}
+    z_means, z_stds = _stored_feature_z(rm)
     try:
-        x = _row_matrix(features or {}, names, means)
+        x = _row_matrix(features or {}, names, means, z_means=z_means, z_stds=z_stds)
     except Exception:  # noqa: BLE001
         logger.debug("tree design matrix failed", exc_info=True)
         return None
@@ -294,8 +327,9 @@ def explain_tree_return(
     if not names:
         return None
     means = rm.get("impute_means") if isinstance(rm.get("impute_means"), dict) else {}
+    z_means, z_stds = _stored_feature_z(rm)
     try:
-        x = _row_matrix(features or {}, names, means)
+        x = _row_matrix(features or {}, names, means, z_means=z_means, z_stds=z_stds)
     except Exception:  # noqa: BLE001
         logger.debug("tree explain matrix failed", exc_info=True)
         return None

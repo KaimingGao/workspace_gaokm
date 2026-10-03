@@ -257,6 +257,8 @@ class TestTauTreeLightgbm(unittest.TestCase):
         self.assertIn("ridge_s", timing)
         self.assertIn("fit_s", timing)
         self.assertEqual((report.get("hyperparams") or {}).get("n_estimators"), 300)
+        self.assertTrue((report.get("hyperparams") or {}).get("feature_zscore"))
+        self.assertTrue((rm.get("hyperparams") or {}).get("feature_zscore"))
 
         blocked = persist_tau_model(report, note="should fail", force=True)
         self.assertFalse(blocked.get("success"))

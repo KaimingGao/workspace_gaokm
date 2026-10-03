@@ -370,12 +370,14 @@ def fit_watching_return_model(
     from core.research.holdout import (
         DEFAULT_HOLDOUT_TRADING_DAYS,
         attach_holdout_meta,
-        calendar_dates_from_stock_bars,
         resolve_ridge_split,
     )
-    from core.research.panel import collect_subscore_forward_panel
+    from core.research.oo_ridge_compact import (
+        assemble_oo_panels,
+        fit_oo_ridge_matrix,
+        predict_oo_matrix,
+    )
     from core.research.portfolio_bars import load_portfolio_stock_bars
-    from core.signal.return_score import fit_return_model_from_panel
     from core.watching.store import read_watching
 
     if codes:
@@ -400,57 +402,56 @@ def fit_watching_return_model(
             "failures": failures[:8],
         }
 
-    all_xs: List[Dict[str, Any]] = []
-    all_ys: List[float] = []
-    all_dates: List[str] = []
-    for code, bars in stock_bars.items():
-        xs, ys, dates = collect_subscore_forward_panel(
-            bars,
-            horizon_days=horizon_days,
-            stock_code=code,
-            pit_fundamentals=False,
-        )
-        all_xs.extend(xs)
-        all_ys.extend(ys)
-        all_dates.extend(dates)
-
+    codes_used = list(stock_bars.keys())
     as_of = None
-    for bars in stock_bars.values():
-        if bars:
+    cal_days = set()
+    items: List[Tuple[str, list]] = []
+    for code in codes_used:
+        bars = stock_bars.pop(code, None) or []
+        if bars and as_of is None:
             as_of = str(bars[-1].get("date") or "") or None
-            break
+        for bar in bars:
+            if not isinstance(bar, dict):
+                continue
+            day = str(bar.get("date") or bar.get("trade_date") or "")[:10]
+            if len(day) >= 10:
+                cal_days.add(day)
+        items.append((code, bars))
+    x_mat, y_mat, feat_names, all_dates = assemble_oo_panels(
+        items,
+        horizon_days=horizon_days,
+    )
+    del items
 
     hold_n = int(holdout_trading_days or DEFAULT_HOLDOUT_TRADING_DAYS)
-    cal_items = [{"bars": bars} for bars in stock_bars.values()]
     train_idx, test_idx, split_meta = resolve_ridge_split(
         all_dates,
         holdout_trading_days=hold_n,
         label_horizon_days=int(horizon_days or 1),
-        calendar_dates=calendar_dates_from_stock_bars(cal_items),
+        calendar_dates=sorted(cal_days),
     )
-    xs_tr = [all_xs[i] for i in train_idx]
-    ys_tr = [all_ys[i] for i in train_idx]
-    xs_te = [all_xs[i] for i in test_idx]
-    ys_te = [all_ys[i] for i in test_idx]
+    ys_te = [float(y_mat[i]) for i in test_idx]
 
-    research_model, research_report = fit_return_model_from_panel(
-        xs_tr,
-        ys_tr,
+    research_model, research_report = fit_oo_ridge_matrix(
+        x_mat,
+        y_mat,
+        feat_names,
+        row_idx=train_idx,
         horizon_days=horizon_days,
         ridge_lambda=ridge_lambda,
-        fitted_as_of=as_of,
         min_samples=min_samples,
+        fitted_as_of=as_of,
     )
     oos: Dict[str, Any] = {
-        "n_train": len(ys_tr),
-        "n_test": len(ys_te),
+        "n_train": len(train_idx),
+        "n_test": len(test_idx),
         "holdout_trading_days": split_meta.get("holdout_trading_days") or hold_n,
         "fit_end": split_meta.get("fit_end"),
         "eval_start": split_meta.get("eval_start"),
         "label_horizon_days": int(horizon_days or 1),
     }
     if research_model is not None and ys_te:
-        preds_te = [research_model.predict(row) for row in xs_te]
+        preds_te = predict_oo_matrix(research_model, x_mat, feat_names, test_idx)
         oos["ic"] = _oo_ic(preds_te, ys_te)
         oos["sign_hit"] = _oo_sign_hit(preds_te, ys_te)
         oos["n_valid"] = sum(1 for p in preds_te if p is not None)
@@ -463,13 +464,14 @@ def fit_watching_return_model(
             logger.debug("oo attach_daily_cs_ic failed", exc_info=True)
 
     # 全样本 → 草稿 / 执行口径
-    model, report = fit_return_model_from_panel(
-        all_xs,
-        all_ys,
+    model, report = fit_oo_ridge_matrix(
+        x_mat,
+        y_mat,
+        feat_names,
         horizon_days=horizon_days,
         ridge_lambda=ridge_lambda,
-        fitted_as_of=as_of,
         min_samples=min_samples,
+        fitted_as_of=as_of,
     )
     if model is None:
         return {
@@ -477,7 +479,7 @@ def fit_watching_return_model(
             "error": (report or {}).get("error") or "拟合失败",
             "report": report,
             "oos": oos,
-            "stock_count": len(stock_bars),
+            "stock_count": len(codes_used),
         }
 
     out: Dict[str, Any] = {
@@ -486,8 +488,8 @@ def fit_watching_return_model(
         "promote_ready": False,
         "model": model.to_dict(),
         "sample_count": model.sample_count,
-        "stock_count": len(stock_bars),
-        "codes": list(stock_bars.keys()),
+        "stock_count": len(codes_used),
+        "codes": codes_used,
         "failures": failures[:8],
         "oos": oos,
         "ols": {
@@ -512,7 +514,7 @@ def fit_watching_return_model(
             meta={
                 "lookback": lookback,
                 "horizon_days": horizon_days,
-                "codes": list(stock_bars.keys()),
+                "codes": codes_used,
                 "r_squared": report.get("r_squared"),
                 "ridge_lambda": ridge_lambda,
                 "holdout_trading_days": oos.get("holdout_trading_days"),

@@ -50,10 +50,15 @@ class TestPredictabilityTiers(unittest.TestCase):
         self.assertNotIn("realized", rows[0])
 
     def test_assign_tier_thresholds(self):
-        from core.research.predictability_tiers import assign_tier, effective_min_n
+        from core.research.predictability_tiers import assign_tier
 
-        self.assertEqual(assign_tier(0.60, 25), "A")
-        self.assertEqual(assign_tier(0.55, 20), "B")  # <60% 不够 A
+        self.assertEqual(assign_tier(0.61, 7, ic=0.1), "A")
+        self.assertEqual(assign_tier(0.60, 25, ic=0.2), "B")  # 命中率须 >60%
+        self.assertEqual(assign_tier(0.61, 6, ic=0.2), "B")  # N 须 >6
+        self.assertEqual(assign_tier(0.61, 7, ic=0.0), "B")
+        self.assertEqual(assign_tier(0.61, 7, ic=-0.05), "B")
+        self.assertEqual(assign_tier(0.61, 7), "B")  # 无 IC 不进 A
+        self.assertEqual(assign_tier(0.55, 20, ic=0.3), "B")
         self.assertEqual(assign_tier(0.52, 25), "B")
         self.assertEqual(assign_tier(0.50, 25), "B")
         self.assertEqual(assign_tier(0.49, 25), "C")
@@ -64,13 +69,6 @@ class TestPredictabilityTiers(unittest.TestCase):
         self.assertEqual(assign_tier(None, 0), "C")
         self.assertEqual(assign_tier(0.8, 0), "C")
         self.assertEqual(assign_tier(None, 8), "C")
-        # min_n = 分档窗 × 90%（向上取整）
-        self.assertEqual(effective_min_n(20, 40), 36)
-        self.assertEqual(effective_min_n(20, 10), 9)
-        self.assertEqual(effective_min_n(20, 5), 5)
-        self.assertEqual(effective_min_n(20, 3), 3)
-        self.assertEqual(effective_min_n(20, 20), 18)
-        self.assertEqual(effective_min_n(20, 0), 20)
 
     def test_split_holdout_half_dates(self):
         from core.research.predictability_tiers import (
@@ -113,11 +111,11 @@ class TestPredictabilityTiers(unittest.TestCase):
         def _fake_accumulate(codes, **kwargs):
             acc = {
                 "000001": {
-                    "hits": 5,
-                    "n_valid": 5,
-                    "n_days": 5,
-                    "yhats": [1.0] * 5,
-                    "realized": [1.0] * 5,
+                    "hits": 7,
+                    "n_valid": 7,
+                    "n_days": 7,
+                    "yhats": [1.0] * 7,
+                    "realized": [1.0] * 7,
                     "dates": list(tier_dates),
                 },
                 "000002": {

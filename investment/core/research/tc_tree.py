@@ -37,10 +37,7 @@ from core.research.tc_ridge import (
     _predict_rows,
     _residual_var,
     _sign_hit,
-    _stack_panels,
-    _subset,
     _theme_counts,
-    build_tau_panels_from_bars,
     with_horizon_tree_shape,
 )
 from core.signal.minute_tau_feats import MINUTE_TAU_FEAT_LABELS
@@ -179,27 +176,31 @@ def _lgb_train_kwargs(hyper: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def fit_lgb_holdout(
-    xs_tr: Sequence[dict],
+def fit_lgb_on_matrices(
+    x_tr: np.ndarray,
     ys_tr: Sequence[float],
-    metas_tr: Sequence[dict],
-    xs_te: Sequence[dict],
+    x_te: np.ndarray,
     feat_names: Sequence[str],
     *,
+    metas_tr: Sequence[dict],
     use_qlib: bool,
     n_estimators: int,
     max_depth: int,
     learning_rate: float,
     subsample: float,
     sample_weights: Optional[Sequence[float]] = None,
+    feature_zscore: bool = False,
 ) -> Tuple[Any, np.ndarray, Dict[str, Any], np.ndarray, List[Optional[float]], float]:
-    """Holdout 树拟合。默认观察池 LGB（百分点）；``use_qlib`` 才走缩小后的 Qlib 风格超参 + 截面 z（无早停）。"""
+    """在已折好的 float64 面板上拟合 Holdout 树。缺测为 NaN。
+
+    ``feature_zscore=True``：特征按训练集总体 z-score（与 ŷ_oo Ridge 同口径），缺测填 μ 后为 0。标签单位不变。
+    """
     dates_tr = [str((m or {}).get("date") or "")[:10] for m in metas_tr]
-    w_tr = (
-        [float(x) for x in sample_weights]
-        if sample_weights is not None and len(sample_weights) == len(ys_tr)
-        else [1.0] * len(ys_tr)
-    )
+    n_y = len(ys_tr)
+    if sample_weights is not None and len(sample_weights) == n_y:
+        w_tr = [float(x) for x in sample_weights]
+    else:
+        w_tr = [1.0] * n_y
     if use_qlib:
         hyper = _qlib_lgb_hyper()
         lgb_kwargs = _lgb_train_kwargs(hyper)
@@ -211,8 +212,21 @@ def fit_lgb_holdout(
         hyper["subsample"] = float(subsample)
         lgb_kwargs = _lgb_train_kwargs(hyper)
 
-    x_fit, means = _design_matrix(xs_tr, feat_names)
-    x_te, _ = _design_matrix(xs_te, feat_names, means=means)
+    x_raw = np.asarray(x_tr, dtype=np.float64)
+    x_te_raw = np.asarray(x_te, dtype=np.float64)
+    if feature_zscore:
+        z_means, z_stds = _population_z_stats(x_raw)
+        x_fit = _apply_feature_z(_impute_matrix(x_raw, z_means), z_means, z_stds)
+        x_out = _apply_feature_z(_impute_matrix(x_te_raw, z_means), z_means, z_stds)
+        means = z_means
+        names = [str(n) for n in feat_names]
+        hyper["feature_zscore"] = True
+        hyper["zscore_means"] = {n: float(z_means[i]) for i, n in enumerate(names)}
+        hyper["zscore_stds"] = {n: float(z_stds[i]) for i, n in enumerate(names)}
+    else:
+        means = _column_means(x_raw)
+        x_fit = _impute_matrix(x_raw, means)
+        x_out = _impute_matrix(x_te_raw, means)
     y_fit_raw = np.asarray(ys_tr, dtype=np.float64)
     w_fit = np.asarray(w_tr, dtype=np.float64)
     if w_fit.shape != y_fit_raw.shape:
@@ -241,10 +255,47 @@ def fit_lgb_holdout(
     best_iter = getattr(model, "best_iteration", None)
     if best_iter is not None and int(best_iter) > 0:
         hyper["best_iteration"] = int(best_iter)
-    raw = _predict_lightgbm(model, x_te)
+    raw = _predict_lightgbm(model, x_out)
     preds = [float(v) if math.isfinite(float(v)) else None for v in raw]
     tree_s = round(time.perf_counter() - t0, 2)
     return model, gain, hyper, means, preds, tree_s
+
+
+def fit_lgb_holdout(
+    xs_tr: Sequence[dict],
+    ys_tr: Sequence[float],
+    metas_tr: Sequence[dict],
+    xs_te: Sequence[dict],
+    feat_names: Sequence[str],
+    *,
+    use_qlib: bool,
+    n_estimators: int,
+    max_depth: int,
+    learning_rate: float,
+    subsample: float,
+    sample_weights: Optional[Sequence[float]] = None,
+    feature_zscore: bool = False,
+) -> Tuple[Any, np.ndarray, Dict[str, Any], np.ndarray, List[Optional[float]], float]:
+    """Holdout 树拟合。默认观察池 LGB（百分点）；``use_qlib`` 才走缩小后的 Qlib 风格超参 + 截面 z（无早停）。
+
+    ``feature_zscore=True``：特征按训练集总体 z-score（与 ŷ_oo Ridge 同口径），缺测填 μ 后为 0。标签单位不变。
+    """
+    x_tr, _ = _design_matrix(xs_tr, feat_names, impute=False)
+    x_te, _ = _design_matrix(xs_te, feat_names, impute=False)
+    return fit_lgb_on_matrices(
+        x_tr,
+        ys_tr,
+        x_te,
+        feat_names,
+        metas_tr=metas_tr,
+        use_qlib=use_qlib,
+        n_estimators=n_estimators,
+        max_depth=max_depth,
+        learning_rate=learning_rate,
+        subsample=subsample,
+        sample_weights=sample_weights,
+        feature_zscore=feature_zscore,
+    )
 
 
 def resolve_tree_backend(preferred: Optional[str] = None) -> str:
@@ -292,10 +343,61 @@ def load_tau_tree_last_report() -> Optional[Dict[str, Any]]:
     return None
 
 
+def _population_z_stats(x: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+    """列均值与总体标准差。缺测不进统计；无波动或全缺时 σ=1。
+
+    与 ``factor_ols_fit._zscore_complete_panel`` 同一口径：var = Σ(x−μ)² / n。
+    """
+    n = np.sum(np.isfinite(x), axis=0).astype(np.float64)
+    with np.errstate(invalid="ignore", divide="ignore"):
+        means = np.nanmean(x, axis=0)
+        centered = x - means
+        var = np.nanmean(centered * centered, axis=0)
+    means = np.where(np.isfinite(means), means, 0.0)
+    var = np.where(np.isfinite(var), var, 0.0)
+    stds = np.sqrt(var)
+    stds = np.where((n > 0) & (var > 1e-12), stds, 1.0)
+    return means.astype(np.float64), stds.astype(np.float64)
+
+
+def _apply_feature_z(
+    x: np.ndarray, means: np.ndarray, stds: np.ndarray
+) -> np.ndarray:
+    sd = np.where(np.abs(stds) < 1e-12, 1.0, stds)
+    return (x - means) / sd
+
+
+def _column_means(x: np.ndarray) -> np.ndarray:
+    """与 ``_design_matrix`` 的列均值相同：无观测则为 0。"""
+    n_valid = np.sum(np.isfinite(x), axis=0)
+    with np.errstate(invalid="ignore"):
+        col_sum = np.nansum(x, axis=0)
+    col_means = np.divide(col_sum, np.maximum(n_valid, 1.0))
+    col_means = np.where(n_valid > 0, col_means, np.nan)
+    return np.where(np.isfinite(col_means), col_means, 0.0).astype(np.float64)
+
+
+def _impute_matrix(x: np.ndarray, means: np.ndarray) -> np.ndarray:
+    out = np.array(x, dtype=np.float64, copy=True)
+    if out.ndim != 2:
+        return out
+    p = int(out.shape[1])
+    mu = np.asarray(means, dtype=np.float64)
+    if mu.shape != (p,):
+        mu = np.zeros(p, dtype=np.float64)
+    for j in range(p):
+        miss = ~np.isfinite(out[:, j])
+        if np.any(miss):
+            out[miss, j] = float(mu[j])
+    return out
+
+
 def _design_matrix(
     xs: Sequence[dict],
     names: Sequence[str],
     means: Optional[np.ndarray] = None,
+    *,
+    impute: bool = True,
 ) -> Tuple[np.ndarray, np.ndarray]:
     n = len(xs)
     p = len(names)
@@ -323,13 +425,14 @@ def _design_matrix(
         means_out = np.asarray(means, dtype=np.float64)
         if means_out.shape != (p,):
             means_out = np.zeros(p, dtype=np.float64)
-    for j in range(p):
-        col = x[:, j]
-        miss = ~np.isfinite(col)
-        if np.any(miss):
-            col = col.copy()
-            col[miss] = float(means_out[j])
-            x[:, j] = col
+    if impute:
+        for j in range(p):
+            col = x[:, j]
+            miss = ~np.isfinite(col)
+            if np.any(miss):
+                col = col.copy()
+                col[miss] = float(means_out[j])
+                x[:, j] = col
     return x, means_out
 
 
@@ -609,7 +712,8 @@ def fit_tau_tree_report(
     """同面板拟合树 + Ridge OOS 对照。不写 live / 研究套模型。
 
     ``include_alpha158=True``（默认）：树吃 ``raw_alpha158_*``。默认观察池 LGB
-    （百分点、中等正则）。``qlib_lgb=True`` 才启用缩小后的 Qlib 风格超参 + 标签截面 z。
+    （百分点、中等正则）。特征按训练集做总体 z-score，与 ŷ_oo_tree 同口径；标签仍是百分点。
+    ``qlib_lgb=True`` 才另对标签做截面 z，并改用缩小后的 Qlib 风格超参。
     Ridge 对照仍只用 ``TAU_Z_FEATURES``（避免与 ŷ_oo 双重计权）。
     """
     t0 = time.perf_counter()
@@ -622,16 +726,25 @@ def fit_tau_tree_report(
         if use_minute
         else None
     )
+    from core.research.panel_matrix import (
+        collect_tau_compact,
+        demeaned_ridge_oos,
+        finite_name_set,
+        named_columns,
+        raw_alpha158_finite,
+    )
+
     t_panel0 = time.perf_counter()
-    enriched = build_tau_panels_from_bars(
+    X, col_names, ys, dates, metas, n_stocks = collect_tau_compact(
         stock_bars,
+        list(TAU_TREE_Z_FEATURES),
         min_history=min_history,
         gap_trigger_pct=gap_trigger_pct,
         tau_hm=tau_key,
         tau_grid=grid,
         include_alpha158=include_alpha158,
+        head="y_tc_tree",
     )
-    xs, ys, dates, metas = _stack_panels(enriched)
     panel_s = round(time.perf_counter() - t_panel0, 2)
     if len(ys) < 20:
         return {
@@ -640,24 +753,19 @@ def fit_tau_tree_report(
             "task": "tc_tree",
             "head": TREE_HEAD,
             "sample_count": len(ys),
-            "stock_count": len(enriched),
+            "stock_count": n_stocks,
             "tau": tau_key,
             "schema": TREE_SCHEMA,
             "live_hook": False,
             "backtest_hook": False,
         }
 
-    xs_z = [{k: (row or {}).get(k) for k in TAU_TREE_Z_FEATURES} for row in xs]
-    if include_alpha158:
-        from core.signal.factors.alpha158 import (
-            collect_alpha158_raw_keys_from_rows,
-            keep_alpha158_raw_in_row,
-        )
-
-        a158_keys = collect_alpha158_raw_keys_from_rows(xs)
-        xs_z = [keep_alpha158_raw_in_row(src, dest=dict(dst)) for src, dst in zip(xs, xs_z)]
-    else:
-        a158_keys = []
+    present = finite_name_set(X, col_names)
+    a158_keys = (
+        [k for k in raw_alpha158_finite(X, col_names) if k in present]
+        if include_alpha158
+        else []
+    )
     from core.research.holdout import (
         DEFAULT_HOLDOUT_TRADING_DAYS,
         attach_holdout_meta,
@@ -671,8 +779,10 @@ def fit_tau_tree_report(
         holdout_trading_days=hold_n,
         calendar_dates=calendar_dates_from_stock_bars(stock_bars),
     )
-    xs_tr, ys_tr, metas_tr = _subset(xs_z, ys, metas, train_idx)
-    xs_te, ys_te, metas_te = _subset(xs_z, ys, metas, test_idx)
+    ys_tr = [ys[i] for i in train_idx]
+    ys_te = [ys[i] for i in test_idx]
+    metas_tr = [metas[i] for i in train_idx]
+    metas_te = [metas[i] for i in test_idx]
     drop_opt = set() if use_minute else (
         set(MINUTE_TAU_ALL_KEYS) | set(TAU_HORIZON_TREE_SHAPE_FEATURES)
     )
@@ -711,20 +821,29 @@ def fit_tau_tree_report(
     if w_tr.shape != y_tr.shape:
         w_tr = np.ones_like(y_tr)
 
+    X_tree, tree_names = named_columns(X, col_names, feat_names)
+    X_ridge, ridge_names = named_columns(X, col_names, ridge_feat_names)
+    del X
+    row_tr = np.asarray(train_idx, dtype=np.int64)
+    row_te = np.asarray(test_idx, dtype=np.int64)
+    feat_names = tree_names
+    ridge_feat_names = ridge_names
+
     engine = resolve_tree_backend(backend)
     use_qlib = resolve_use_qlib_lgb(include_alpha158, qlib_lgb)
-    model, gain, hyper, means, boost_preds, tree_s = fit_lgb_holdout(
-        xs_tr,
+    model, gain, hyper, means, boost_preds, tree_s = fit_lgb_on_matrices(
+        X_tree[row_tr],
         ys_tr,
-        metas_tr,
-        xs_te,
+        X_tree[row_te],
         feat_names,
+        metas_tr=metas_tr,
         use_qlib=use_qlib,
         n_estimators=n_estimators,
         max_depth=max_depth,
         learning_rate=learning_rate,
         subsample=subsample,
         sample_weights=w_tr,
+        feature_zscore=True,
     )
     from core.research.horizon_tree import pack_tree_return_model
 
@@ -741,16 +860,19 @@ def fit_tau_tree_report(
     )
 
     t_ridge0 = time.perf_counter()
-    _, ridge_preds = _fit_ridge_oos(
-        xs_tr,
+    ridge_w = (
+        theme_sample_weights(metas_tr, theme_boost=theme_boost)
+        if use_theme_weights
+        else None
+    )
+    _, ridge_preds = demeaned_ridge_oos(
+        X_ridge[row_tr],
         ys_tr,
-        xs_te,
-        ys_te,
-        metas_tr,
+        X_ridge[row_te],
         ridge_feat_names,
         ridge_lambda=ridge_lambda,
-        theme_boost=theme_boost,
-        use_theme_weights=use_theme_weights,
+        sample_weights=ridge_w,
+        min_std_exempt=TAU_MIN_STD_EXEMPT,
     )
     ridge_s = round(time.perf_counter() - t_ridge0, 2)
     oos_boost = _oos_pack(boost_preds, ys_te, metas_te, use_minute=use_minute)
@@ -785,7 +907,7 @@ def fit_tau_tree_report(
             "tau": tau_key,
             "note": "ŷ_τc_tree 影子头：标签 τ→close（close[T]/price[τ]−1）；open 时钟 price[τ]=open",
         },
-        "stock_count": len(enriched),
+        "stock_count": n_stocks,
         "sample_count": len(ys),
         "tau": tau_key,
         "tau_grid": list(grid) if grid else None,
@@ -812,7 +934,7 @@ def fit_tau_tree_report(
         "backtest_hook": True,
         "persisted": {"success": False, "skipped": True, "reason": "fit_only"},
         "note": (
-            "ŷ_τ_tree：同标签同 Holdout vs Ridge；路径/量价 shape 仅 Tree；"
+            "ŷ_τc_tree：特征训练集 z-score（与 ŷ_oo_tree 同口径）· 同 Holdout vs Ridge；路径/量价 shape 仅 Tree；"
             + (
                 "树侧含 raw_alpha158_* + Qlib LGB 预设（深6/300轮/叶64/λ10·20 + 截面 z，无早停）；"
                 if use_qlib

@@ -7,15 +7,14 @@ import logging
 import os
 from typing import Any, Dict, List, Optional, Sequence
 
+import numpy as np
+
 logger = logging.getLogger(__name__)
 
 from core.io_atomic import atomic_write_json
-from core.research.factor_ols_fit import fit_factor_ols_from_panel
 from core.research.co_panel import (
     CO_LAG_FEAT_LABELS,
     CO_Z_FEATURES,
-    collect_co_panel,
-    enrich_co_panel_breadth,
     theme_sample_weights,
 )
 from core.research.tc_ridge import (
@@ -24,76 +23,9 @@ from core.research.tc_ridge import (
     _predict_rows,
     _residual_var,
     _sign_hit,
-    _subset,
 )
 
 CO_MIN_STD_EXEMPT = CO_Z_FEATURES
-
-
-def _co_feature_fill_keys(xs: Sequence[dict]) -> List[str]:
-    """手造 Z + 面板中出现的 raw_alpha158_*。"""
-    from core.signal.factors.alpha158 import collect_alpha158_raw_keys_from_rows
-
-    keys = list(CO_Z_FEATURES)
-    seen = set(keys)
-    for k in collect_alpha158_raw_keys_from_rows(xs):
-        if k not in seen:
-            seen.add(k)
-            keys.append(k)
-    return keys
-
-
-def _stack_panels(enriched: Sequence[Dict[str, Any]]) -> tuple:
-    xs_all: List[dict] = []
-    ys_all: List[float] = []
-    dates_all: List[str] = []
-    metas_all: List[dict] = []
-    for p in enriched:
-        xs_all.extend(p.get("xs") or [])
-        ys_all.extend(p.get("ys") or [])
-        dates_all.extend(p.get("dates") or [])
-        metas_all.extend(p.get("metas") or [])
-    return xs_all, ys_all, dates_all, metas_all
-
-
-def _z_only_row(row: Optional[dict]) -> Dict[str, Optional[float]]:
-    """始终输出完整 CO_Z_FEATURES 键，并保留 raw_alpha158_*。"""
-    from core.signal.factors.alpha158 import keep_alpha158_raw_in_row
-
-    src = row or {}
-    out = {k: src.get(k) for k in CO_Z_FEATURES}
-    return keep_alpha158_raw_in_row(src, dest=out)
-
-
-def _z_only_xs(xs: Sequence[dict]) -> List[dict]:
-    return [_z_only_row(r) for r in xs]
-
-
-def build_co_panels_from_bars(
-    stock_bars: Sequence[Dict[str, Any]],
-    *,
-    min_history: int = 12,
-    gap_trigger_pct: float = 2.0,
-    include_alpha158: bool = True,
-) -> List[Dict[str, Any]]:
-    raw: List[Dict[str, Any]] = []
-    for item in stock_bars:
-        code = str(item.get("code") or item.get("stock_code") or "").strip()
-        bars = list(item.get("bars") or [])
-        if len(bars) < min_history + 3:
-            continue
-        xs, ys, dates, metas = collect_co_panel(
-            bars,
-            min_history=min_history,
-            stock_code=code,
-            include_alpha158=include_alpha158,
-        )
-        if len(ys) < 4:
-            continue
-        raw.append(
-            {"code": code, "xs": xs, "ys": ys, "dates": dates, "metas": metas}
-        )
-    return enrich_co_panel_breadth(raw, gap_trigger_pct=gap_trigger_pct)
 
 
 def fit_co_ridge_report(
@@ -108,23 +40,32 @@ def fit_co_ridge_report(
     include_alpha158: bool = True,
 ) -> Dict[str, Any]:
     """池化拟合 ŷ_co(Z) + 时间 OOS。标签 = open[T+1]/close[T]-1（决策日 T 开盘）。"""
-    enriched = build_co_panels_from_bars(
+    from core.research.panel_matrix import (
+        collect_co_compact,
+        fill_rates_from_matrix,
+        fit_keepall_ridge_matrix,
+        named_columns,
+        predict_ridge_matrix,
+        raw_alpha158_finite,
+    )
+
+    X, col_names, ys, dates, metas, n_stocks = collect_co_compact(
         stock_bars,
+        list(CO_Z_FEATURES),
         min_history=min_history,
         gap_trigger_pct=gap_trigger_pct,
         include_alpha158=include_alpha158,
+        head="y_co",
     )
-    xs, ys, dates, metas = _stack_panels(enriched)
     if len(ys) < 20:
         return {
             "success": False,
             "error": f"on 样本不足 n={len(ys)}（需≥20）",
             "task": "co_ridge",
             "sample_count": len(ys),
-            "stock_count": len(enriched),
+            "stock_count": n_stocks,
         }
 
-    xs_z = _z_only_xs(xs)
     from core.research.holdout import (
         DEFAULT_HOLDOUT_TRADING_DAYS,
         attach_holdout_meta,
@@ -140,8 +81,10 @@ def fit_co_ridge_report(
         label_horizon_days=1,
         calendar_dates=calendar_dates_from_stock_bars(stock_bars),
     )
-    xs_tr, ys_tr, metas_tr = _subset(xs_z, ys, metas, train_idx)
-    xs_te, ys_te, metas_te = _subset(xs_z, ys, metas, test_idx)
+    ys_tr = [ys[i] for i in train_idx]
+    ys_te = [ys[i] for i in test_idx]
+    metas_tr = [metas[i] for i in train_idx]
+    metas_te = [metas[i] for i in test_idx]
 
     weights = (
         theme_sample_weights(metas_tr, theme_boost=theme_boost)
@@ -149,15 +92,20 @@ def fit_co_ridge_report(
         else None
     )
 
-    feat_names: List[str] = []
-    seen = set()
-    for row in xs_tr:
-        for k in row.keys():
-            if k not in seen:
-                seen.add(k)
+    feat_names = list(CO_Z_FEATURES)
+    if include_alpha158:
+        for k in raw_alpha158_finite(X, col_names, train_idx):
+            if k not in feat_names:
                 feat_names.append(k)
-    if not feat_names:
-        feat_names = list(CO_Z_FEATURES)
+    fill_keys = list(CO_Z_FEATURES)
+    seen_fill = set(fill_keys)
+    for name in col_names:
+        if str(name).startswith("raw_alpha158_") and name not in seen_fill:
+            seen_fill.add(name)
+            fill_keys.append(name)
+    feature_fill = fill_rates_from_matrix(X, col_names, fill_keys)
+    X_fit, feat_names = named_columns(X, col_names, feat_names)
+    del X
 
     from core.signal.factors.alpha158 import merge_alpha158_min_std_exempt
 
@@ -165,15 +113,15 @@ def fit_co_ridge_report(
         feat_names, list(CO_MIN_STD_EXEMPT)
     )
 
-    fit = fit_factor_ols_from_panel(
-        xs_tr,
+    row_tr = np.asarray(train_idx, dtype=np.int64)
+    row_te = np.asarray(test_idx, dtype=np.int64)
+    fit = fit_keepall_ridge_matrix(
+        X_fit[row_tr],
         ys_tr,
-        feature_names=feat_names,
+        feat_names,
         ridge_lambda=ridge_lambda,
-        standardize=True,
         sample_weights=weights,
         min_std_exempt=min_std_exempt,
-        collinearity_policy="keep_all",
     )
     if not fit.get("success"):
         mu = sum(float(y) for y in ys_tr) / max(1, len(ys_tr))
@@ -187,10 +135,10 @@ def fit_co_ridge_report(
             "note": "Z 方差不足，ŷ_co 用训练均值",
         }
 
-    preds_te = _predict_rows(fit, xs_te) if xs_te else []
+    preds_te = (
+        predict_ridge_matrix(fit, X_fit[row_te], feat_names) if len(test_idx) else []
+    )
     by_theme = _oos_by_theme(preds_te, ys_te, metas_te) if ys_te else {}
-    from core.research.panel import feature_fill_rates
-
     oos = {
         "n_train": len(ys_tr),
         "n_test": len(ys_te),
@@ -201,7 +149,7 @@ def fit_co_ridge_report(
         "holdout_trading_days": hold_n,
         "theme_boost": theme_boost if use_theme_weights else None,
         "target": "overnight_gap",
-        "feature_fill": feature_fill_rates(xs_z, _co_feature_fill_keys(xs_z)),
+        "feature_fill": feature_fill,
         "include_alpha158": bool(include_alpha158),
     }
     if ys_te:
@@ -218,15 +166,13 @@ def fit_co_ridge_report(
         if use_theme_weights
         else None
     )
-    fit_full = fit_factor_ols_from_panel(
-        xs_z,
+    fit_full = fit_keepall_ridge_matrix(
+        X_fit,
         ys,
-        feature_names=feat_names,
+        feat_names,
         ridge_lambda=ridge_lambda,
-        standardize=True,
         sample_weights=w_all,
         min_std_exempt=min_std_exempt,
-        collinearity_policy="keep_all",
     )
     model = fit_full if fit_full.get("success") else fit
     model = dict(model)
@@ -239,7 +185,7 @@ def fit_co_ridge_report(
         "anchor": "close[T]",
         "note": "真实隔夜缺口（T 收盘→T+1 开盘）；风控旁路，不进主排序",
     }
-    model["extra_features"] = _co_feature_fill_keys(xs_z)
+    model["extra_features"] = list(fill_keys)
     model["include_alpha158"] = bool(include_alpha158)
     model["model_role"] = "live"
     for k in ("y_spec", "extra_features", "horizon_mode", "target", "include_alpha158"):
@@ -251,7 +197,7 @@ def fit_co_ridge_report(
     report = {
         "success": True,
         "task": "co_ridge",
-        "stock_count": len(enriched),
+        "stock_count": n_stocks,
         "sample_count": len(ys),
         "oos": oos,
         "return_model": model,
