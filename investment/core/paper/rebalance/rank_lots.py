@@ -695,9 +695,6 @@ _TIP_EXPLAIN_KEYS = (
     "fusion_w_oo",
     "fusion_w_oc",
     "fusion_w_co",
-    "dual_score_weights",
-    "dual_score_window",
-    "dual_score_head",
     "y_oo_source",
     "y_τc_source",
     "y_co_source",
@@ -817,7 +814,6 @@ def _debug_scores(
     y_co = sc.get("y_co")
     if y_co is None:
         y_co = pick_y_co(item)
-    ytau = y_tau_of(item)
     ranking = ranking_pct if ranking_pct is not None else sc.get("ranking")
     residual = sc.get("residual")
     if residual is None:
@@ -832,17 +828,17 @@ def _debug_scores(
         "y_co": y_co,
         "y_τc": y_τc,
         "ranking": ranking,
-        "y_fuse": ranking,
         "ranking_score": rs,
         "residual": residual,
         "r_hat": r_hat,
         "remaining_oc": r_hat,
-        "y_tau": ytau,
-        "predicted_score_tau": ytau,
         "predicted_score": y_oo,
         "predicted_score_eod": y_oo,
-        "predicted_score_on": y_co,
     }
+    if y_co is not None:
+        out["predicted_score_co"] = y_co
+    if y_τc is not None:
+        out["predicted_score_tau"] = y_τc
     out.update(aux_yhat_fields(item))
     out.update(tip_explain_fields(item))
     out.update({k: v for k, v in extra.items() if v is not None})

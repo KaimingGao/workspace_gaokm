@@ -17,18 +17,9 @@ def _signal_item(**extra):
     base = {
         "stock_code": "600000",
         "stock_name": "测试",
-        "y_trade": 1.5,
-        "predicted_score_blend": 1.5,
         "predicted_score": 1.8,
         "predicted_score_eod": 1.8,
         "predicted_score_tau": 1.2,
-        "score_rem": 1.2,
-        "y_path": 2.5,
-        "predicted_score_path": 2.5,
-        "y_nowcast": 1.1,
-        "predicted_score_nowcast": 1.1,
-        "y_on": 0.2,
-        "predicted_score_on": 0.2,
         "sector": "银行",
     }
     base.update(extra)
@@ -88,7 +79,7 @@ class TestWatchingMatrixPreview(unittest.TestCase):
         self.assertEqual(report[0].get("decision"), "买入")
         self.assertEqual(report[0].get("predicted_score_eod"), 1.8)
         self.assertEqual(report[0].get("predicted_score_tau"), 1.2)
-        self.assertEqual(report[0].get("predicted_score_on"), 0.2)
+        self.assertIsNone(report[0].get("predicted_score_on"))
         self.assertIsNone(report[0].get("predicted_score_hl"))
         self.assertIsNone(report[0].get("y_hl"))
         self.assertGreater(float(out["buy_trades"][0].get("shares") or 0), 0)
@@ -99,8 +90,10 @@ class TestWatchingMatrixPreview(unittest.TestCase):
             {"fusion_w_oo": 0.6, "fusion_w_oc": 0.4, "fusion_w_co": 1.0},
         )
         self.assertAlmostEqual(float(report[0].get("ranking")), expect_rank)
-        self.assertAlmostEqual(float(report[0].get("y_fuse")), expect_rank)
-        self.assertIsNotNone(report[0].get("y_trade"))
+        self.assertIsNone(report[0].get("y_fuse"))
+        self.assertIsNone(report[0].get("y_trade"))
+        self.assertIsNone(report[0].get("y_nowcast"))
+        self.assertIsNone(report[0].get("y_tau"))
         self.assertIsNotNone(report[0].get("ranking_score"))
         self.assertEqual(paper.get("cash"), 1_000_000)
         self.assertEqual(paper.get("holdings") or [], [])
@@ -503,7 +496,6 @@ class TestWatchingMatrixPreview(unittest.TestCase):
         self.assertEqual(len(report), 1)
         self.assertEqual(report[0].get("decision"), "跳过")
         self.assertIn("现金不足", str(report[0].get("reason") or ""))
-        self.assertAlmostEqual(float(report[0].get("y_trade")), 3.0)
         self.assertAlmostEqual(float(report[0].get("predicted_score_eod")), 1.8)
 
     def test_matrix_mode_service_confirm_writes(self):
@@ -802,7 +794,7 @@ class TestWatchingMatrixUniverseFitTiers(unittest.TestCase):
         item = {
             "stock_code": "600000",
             "predicted_score": 2.30,
-            "y_oc": 5.69,
+            "y_τc": 5.69,
             "ranking": -3.65,
             "y_fuse": -3.65,
             "y_trade": -3.65,
@@ -813,8 +805,8 @@ class TestWatchingMatrixUniverseFitTiers(unittest.TestCase):
         )
         expect = 0.5 * 2.30 + 0.5 * 5.69
         self.assertAlmostEqual(float(payload["ranking"]), expect)
-        self.assertAlmostEqual(float(payload["y_fuse"]), expect)
-        self.assertAlmostEqual(float(payload["y_trade"]), -3.65)
+        self.assertIsNone(payload.get("y_fuse"))
+        self.assertIsNone(payload.get("y_trade"))
 
 
 class TestQuotePxLiveFill(unittest.TestCase):

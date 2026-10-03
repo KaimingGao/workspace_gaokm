@@ -247,12 +247,6 @@ def _score_pool(
                 }
             )
             continue
-        try:
-            from core.signal.dual_score import align_trade_score_fields
-
-            align_trade_score_fields(item, write_score=False, refresh_window=False)
-        except Exception:  # noqa: BLE001
-            logger.debug("align_trade_score_fields failed", exc_info=True)
         if item.get("stock_code") is None:
             item["stock_code"] = code
         scored.append(item)
@@ -369,31 +363,14 @@ _SCORE_PASSTHROUGH_KEYS = (
     "predicted_score_eod",
     "predicted_score_eod_rem",
     "predicted_score_tau",
-    "predicted_score_rem",
-    "score_rem",
-    "predicted_score_blend",
-    "predicted_score_nowcast",
-    "predicted_score_on",
-    "decision_score",
-    "y_trade",
-    "y_nowcast",
-    "y_nc",
-    "y_on",
-    "y_tau",
+    "predicted_score_co",
     "y_oo",
     "y_co",
     "y_τc",
     *AUX_YHAT_KEYS,
     "ranking",
     "residual",
-    "y_fuse",
     "ranking_score",
-    "dual_score_window",
-    "dual_score_head",
-    "dual_score_weights",
-    "nowcast_K",
-    "nowcast_vs",
-    "predicted_score_blend_vs",
     "gap_pct",
     "open_gap_pct",
     "change_pct",
@@ -412,28 +389,10 @@ def _score_fields_for_report(item: dict, scores: Dict[str, Optional[float]]) -> 
         for k in _SCORE_PASSTHROUGH_KEYS:
             if k in item and item.get(k) is not None:
                 out[k] = item.get(k)
-    # 分项 ŷ 覆盖同名键；ŷ_oo / ŷ_τ 仍走 item 透传（ŷ_hl 已下线）
-    yt = scores.get("y_trade")
-    yn = scores.get("y_nowcast")
     yo = scores.get("y_co")
-    if yo is None:
-        yo = scores.get("y_on")
-    if yt is not None:
-        out["y_trade"] = yt
-        out["predicted_score_blend"] = yt
-        out["decision_score"] = yt
-        out["score"] = yt
-    if yn is not None:
-        out["y_nowcast"] = yn
-        out["y_nc"] = yn
-        out.setdefault("predicted_score_nowcast", yn)
     if yo is not None:
         out["y_co"] = yo
         out.setdefault("predicted_score_co", yo)
-        out.setdefault("predicted_score_on", yo)
-    ytau = scores.get("y_tau")
-    if ytau is not None:
-        out["y_tau"] = ytau
     return out
 
 
@@ -445,30 +404,18 @@ def _row_score_payload(
     open_px: Optional[float] = None,
     price_tau: Optional[float] = None,
 ) -> Dict[str, Any]:
-    """表列用分项 ŷ；ranking 现算（别名 y_fuse），不把融合分塞进 y_trade。"""
-    from core.paper.rebalance.rank_lots import aux_yhat_fields, ranking_pct_of, y_tau_of
+    """表列用 ŷ_oo / ŷ_τc / ŷ_co；ranking 现算。"""
+    from core.paper.rebalance.rank_lots import aux_yhat_fields, ranking_pct_of
     from core.paper.rebalance.path_matrix import scores_from_rebalance_item
     from core.signal.yhat_windows import pick_y_co
 
     item = item if isinstance(item, dict) else {}
     src = src if isinstance(src, dict) else {}
     sc = scores_from_rebalance_item(item, cfg)
-    yt = _f(src.get("y_trade"))
-    if yt is None:
-        yt = sc.get("y_trade")
-    yn = _f(src.get("y_nowcast") if src.get("y_nowcast") is not None else src.get("y_nc"))
-    if yn is None:
-        yn = sc.get("y_nowcast")
     yo = pick_y_co(src)
     if yo is None:
         yo = pick_y_co(item)
-    ytau = _f(src.get("y_tau") if src.get("y_tau") is not None else src.get("predicted_score_tau"))
-    if ytau is None:
-        ytau = y_tau_of(item)
-    payload = _score_fields_for_report(
-        item,
-        {"y_trade": yt, "y_nowcast": yn, "y_co": yo, "y_tau": ytau},
-    )
+    payload = _score_fields_for_report(item, {"y_co": yo})
     for k in ("y_oo", "y_τc", "ranking", "residual"):
         if sc.get(k) is not None:
             payload[k] = sc.get(k)
@@ -483,7 +430,6 @@ def _row_score_payload(
         yf = ranking_pct_of(src, cfg, open_px=o, price_tau=p)
     if yf is not None:
         payload["ranking"] = yf
-        payload["y_fuse"] = yf
     rs = src.get("ranking_score")
     if rs is not None:
         payload["ranking_score"] = rs
@@ -532,19 +478,14 @@ def _apply_one_leg(
     rank_fields = {
         k: leg.get(k)
         for k in (
-            "y_fuse",
             "ranking",
             "y_oo",
             "y_co",
             "y_τc",
             "residual",
-            "y_on",
-            "y_tau",
             "predicted_score_tau",
             "ranking_score",
             "reason",
-            "y_trade",
-            "y_nowcast",
             *AUX_YHAT_KEYS,
             "rank_i",
             "rank_n",
@@ -582,11 +523,10 @@ def _apply_one_leg(
                 "amount": amount,
                 "open_date": _open_date_of(existing, as_of),
                 "pnl_pct": pnl_pct,
-                "score": leg.get("y_trade") if leg.get("y_trade") is not None else leg.get("score"),
+                "score": leg.get("ranking") if leg.get("ranking") is not None else leg.get("score"),
                 "origin": ORIGIN_STRATEGY,
                 "note": f"矩阵调仓 · {note}",
                 "matrix_action": leg.get("matrix_action"),
-                "y_trade": leg.get("y_trade"),
                 **rank_fields,
             },
             fee_info,
@@ -629,11 +569,10 @@ def _apply_one_leg(
             "price": fill_rounded,
             "amount": amount,
             "open_date": _open_date_of(existing, as_of),
-            "score": leg.get("y_trade") if leg.get("y_trade") is not None else leg.get("score"),
+            "score": leg.get("ranking") if leg.get("ranking") is not None else leg.get("score"),
             "origin": ORIGIN_STRATEGY,
             "note": f"矩阵调仓 · {note}",
             "matrix_action": leg.get("matrix_action"),
-            "y_trade": leg.get("y_trade"),
             **rank_fields,
         },
         fee_info,
@@ -685,7 +624,6 @@ def _apply_matrix_trades(
                     "stock_code": (leg or {}).get("stock_code"),
                     "side": "sell",
                     "reason": err or "apply_failed",
-                    "path_matrix": True,
                     "tplus1": bool(err and "T+1" in str(err)),
                 }
             )
@@ -703,19 +641,14 @@ def _apply_matrix_trades(
                     "price": (leg or {}).get("price"),
                     "amount": (leg or {}).get("amount"),
                     "reason": err or "apply_failed",
-                    "path_matrix": True,
                 }
             )
             continue
         applied_buys.append(trade)
-    sell_match_skips = [
-        s for s in skips if str(s.get("side") or "") == "sell"
-    ]
     return {
         "sell_trades": applied_sells,
         "buy_trades": applied_buys,
         "apply_skips": skips,
-        "sell_match_skips": sell_match_skips,
     }
 
 
@@ -726,7 +659,7 @@ def simulate_watching_matrix_preview(
     dry_run: bool = True,
     offline_only: bool = True,
 ) -> Dict[str, Any]:
-    """观察池算分 + rank_lots（ranking=fuse(ŷ_oo,ŷ_oc) · 已保存金额换手）。
+    """观察池算分 + rank_lots（ranking 融合 ŷ_oo / ŷ_τc / ŷ_co · 已保存金额换手）。
 
     默认 offline 只约束 ŷ；``dry_run=False`` 落账强制现价，避免成本写成昨收。
     """
@@ -995,13 +928,11 @@ def simulate_watching_matrix_preview(
     )
 
     apply_skips: List[dict] = []
-    sell_match_skips: List[dict] = []
     if not dry_run and (buy_trades or sell_trades):
         applied = _apply_matrix_trades(paper, sell_trades, buy_trades)
         sell_trades = list(applied.get("sell_trades") or [])
         buy_trades = list(applied.get("buy_trades") or [])
         apply_skips = list(applied.get("apply_skips") or [])
-        sell_match_skips = list(applied.get("sell_match_skips") or [])
         if apply_skips:
             skips.extend(apply_skips)
         # 落账后刷新净值摘要
@@ -1056,13 +987,11 @@ def simulate_watching_matrix_preview(
         "mode": "watching_matrix",
         "dry_run": bool(dry_run),
         "matrix_mode": True,
-        "cluster_mode": False,
         "offline_only": use_offline,
         "top_k": k,
         "min_score": rl_cfg.get("rank_enter"),
         "rank_enter": rl_cfg.get("rank_enter"),
         "rank_enter_pct": round(float(rl_cfg.get("rank_enter") or 0) * 100.0, 4),
-        "min_hold_score": 0.0,
         "observation_pool_count": len(codes),
         "scored_count": len(scored),
         "rejected": rejected[:40],
@@ -1073,7 +1002,6 @@ def simulate_watching_matrix_preview(
         "rebalance_report": report,
         "risk_budget_skips": skips,
         "apply_skips": apply_skips,
-        "sell_match_skips": sell_match_skips,
         "summary": summary,
         "cash_impact": {
             "buy_amount": round(buy_amt, 2),
@@ -1109,7 +1037,6 @@ def simulate_watching_matrix_preview(
             },
             "by_action": by_action,
         },
-        "target_weights": {},
         "note": note,
         "strategy_id": strategy_id,
         "strategy_label": strategy_label,

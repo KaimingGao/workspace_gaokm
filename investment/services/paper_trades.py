@@ -1372,7 +1372,6 @@ class PaperTradesMixin:
             "mode": "watching_matrix",
             "dry_run": dry_run,
             "matrix_mode": True,
-            "cluster_mode": False,
             "sell_trades": sell_trades,
             "buy_trades": buy_trades,
             "rebalance_report": report,

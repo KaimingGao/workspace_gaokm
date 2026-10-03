@@ -2,7 +2,7 @@
 
 Follow / 历史回测 / 自动调仓都走 ``rank_lots``。
 ranking = w_oo·((ŷ_oo+1)/(1+rot)−1) + w_τc·((1+ŷ_τc)(1+w_co·ŷ_co)−1)。w_co 默认 1。
-ŷ_trade / ŷ_nowcast / y_fuse 已下线。
+ŷ_trade / ŷ_nowcast / y_fuse / y_tau 已下线（τ 头只写 y_τc）。
 
 配置键优先 ``rebalance_timing.rank_lots``，仍认旧键 ``path_matrix``。
 """
@@ -169,12 +169,7 @@ def scores_from_rebalance_item(
     cfg: Optional[dict] = None,
 ) -> Dict[str, Optional[float]]:
     """从调仓行抽出 ŷ_oo / ŷ_oc / ŷ_τc / ŷ_co 与 ranking / residual。"""
-    stamped = stamp_window_scores(item, cfg)
-    if stamped.get("y_tau") is None:
-        stamped["y_tau"] = stamped.get("y_τc")
-    if stamped.get("ranking") is not None:
-        stamped["y_fuse"] = stamped.get("ranking")
-    return stamped
+    return stamp_window_scores(item, cfg)
 
 
 __all__ = [
