@@ -415,8 +415,8 @@ body[data-page="replay"] .replay-lookback-field {
 
 body[data-page="replay"] .replay-lookback-field #quant-lookback,
 body[data-page="replay"] .replay-lookback-field #paper-t0-lookback {
-  width: 4.5rem;
-  min-width: 4.5rem;
+  width: 3.5rem;
+  min-width: 3.5rem;
 }
 
 body[data-page="replay"] .replay-model-field #quant-score-model-role,

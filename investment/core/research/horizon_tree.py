@@ -290,6 +290,134 @@ def predict_tree_return(
     return predict_tree_raw(features, return_model)
 
 
+def _return_model_doc(return_model: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    rm = return_model if isinstance(return_model, dict) else {}
+    inner = rm.get("return_model")
+    if isinstance(inner, dict) and inner.get("feature_names"):
+        return inner
+    return rm
+
+
+def explain_tree_return(
+    features: Optional[Dict[str, Any]],
+    return_model: Optional[Dict[str, Any]],
+) -> Optional[Dict[str, Any]]:
+    """树预测的贡献拆解。偏置 + 各因子贡献 = total，与 ``predict_tree_return`` 同口径。
+
+    LightGBM / XGBoost 用 pred_contrib。numpy 树只给出合计，没有逐因子贡献。
+    """
+    rm = _return_model_doc(return_model)
+    names = [str(n) for n in (rm.get("feature_names") or []) if n]
+    if not names:
+        return None
+    means = rm.get("impute_means") if isinstance(rm.get("impute_means"), dict) else {}
+    try:
+        x = _row_matrix(features or {}, names, means)
+    except Exception:  # noqa: BLE001
+        logger.debug("tree explain matrix failed", exc_info=True)
+        return None
+    eng = str(rm.get("backend") or "").strip().lower()
+    contrib_row = None
+    try:
+        if eng == "xgboost":
+            import xgboost as xgb
+
+            blob = rm.get("booster") if isinstance(rm.get("booster"), dict) else {}
+            booster = _cached_booster("xgb", blob, load_xgboost_booster)
+            pred = booster.predict(xgb.DMatrix(x), pred_contribs=True)
+            contrib_row = np.asarray(pred, dtype=np.float64)[0]
+        elif eng == "lightgbm":
+            blob = rm.get("booster") if isinstance(rm.get("booster"), dict) else {}
+            booster = _cached_booster("lgb", blob, load_lightgbm_booster)
+            pred = booster.predict(x, pred_contrib=True)
+            contrib_row = np.asarray(pred, dtype=np.float64)[0]
+        elif eng in {"numpy_gbm", "numpy", "gbm"}:
+            y = predict_tree_raw(features, rm)
+            if y is None:
+                return None
+            y = round(float(y), 6)
+            return {
+                "intercept": y,
+                "terms": [],
+                "total": y,
+                "model_role": "tree",
+            }
+        else:
+            return None
+    except Exception:  # noqa: BLE001
+        logger.debug("tree explain failed backend=%s", eng, exc_info=True)
+        return None
+    if contrib_row is None or int(contrib_row.shape[0]) < len(names) + 1:
+        return None
+    try:
+        from core.signal.factors.meta.registry import factor_label
+    except Exception:  # noqa: BLE001
+        factor_label = lambda k: str(k)  # noqa: E731
+
+    bias = float(contrib_row[len(names)])
+    seen = x[0]
+    raw = features if isinstance(features, dict) else {}
+    terms: List[Dict[str, Any]] = []
+    total = bias
+    for i, name in enumerate(names):
+        c = float(contrib_row[i])
+        total += c
+        if abs(c) < 1e-8:
+            continue
+        src = raw.get(name)
+        imputed = src is None or src == ""
+        term: Dict[str, Any] = {
+            "key": name,
+            "label": str(factor_label(name) or name),
+            "z": round(float(seen[i]), 4),
+            "contrib": round(c, 6),
+        }
+        if imputed:
+            term["note"] = "均值填"
+        terms.append(term)
+    y_hat = predict_tree_raw(features, rm)
+    if y_hat is not None and abs(float(total) - float(y_hat)) < 1e-3:
+        total = float(y_hat)
+    terms.sort(key=lambda t: -abs(float(t.get("contrib") or 0.0)))
+    return {
+        "intercept": round(bias, 6),
+        "terms": terms,
+        "total": round(float(total), 6),
+        "model_role": "tree",
+    }
+
+
+def tree_tip_formula(
+    features: Optional[Dict[str, Any]],
+    model_doc: Optional[Dict[str, Any]],
+    *,
+    y_hat: Optional[float] = None,
+) -> Dict[str, Any]:
+    """tip 用的树组成。合计对齐 ``y_hat``（表列分数），缺拆解时仍写出合计。"""
+    rm = _return_model_doc(model_doc)
+    try:
+        expl = explain_tree_return(features, rm)
+    except Exception:  # noqa: BLE001
+        logger.debug("explain_tree_return failed", exc_info=True)
+        expl = None
+    if not isinstance(expl, dict):
+        y = None if y_hat is None else round(float(y_hat), 6)
+        return {
+            "intercept": y,
+            "terms": [],
+            "total": y,
+            "model_role": "tree",
+        }
+    out = dict(expl)
+    if y_hat is not None and out.get("total") is not None:
+        try:
+            if abs(float(out["total"]) - float(y_hat)) < 1e-3:
+                out["total"] = round(float(y_hat), 6)
+        except (TypeError, ValueError):
+            pass
+    return out
+
+
 def persist_tree_model_doc(
     head: str,
     report: Dict[str, Any],

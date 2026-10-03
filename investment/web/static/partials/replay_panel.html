@@ -37,7 +37,7 @@
           class="platform-field quant-pro-field replay-lookback-field replay-clock-field"
           title="成交用该时刻 5 分钟 K。09:30 用首根开盘价；其后用该根收盘价。ŷ_oo 始终开盘；ŷ_τc 在成交钟>09:30 时用截至该钟的 5m 前缀重算。保存规则后，自动调仓与手动预演也从这个钟开始、到 10:00 结束。缺分钟：买入跳过；清仓回退该钟之后～10:00，再回退 09:30/日开盘。日分价闸只用 09:30–10:00 窗口分钟（尾盘残缺不当开盘锚）。有窗口分钟且「其他」里日分价闸开时，日开/分开或日昨/分昨错位超阈则该票当日跳过。"
         >
-          <span class="quant-pro-field-label">调仓时间</span>
+          <span class="quant-pro-field-label">时间</span>
           <select id="quant-fill-clock">
             <option value="09:30" selected>09:30</option>
             <option value="09:35">09:35</option>
@@ -52,7 +52,7 @@
           class="platform-field quant-pro-field replay-lookback-field"
           title="回测覆盖多少个交易日（独立于 Holdout）。默认 10。不是调仓规则。"
         >
-          <span class="quant-pro-field-label">回测窗口</span>
+          <span class="quant-pro-field-label">窗口</span>
           <input id="quant-lookback" type="number" min="10" max="500" value="10" />
         </label>
         <label
@@ -77,7 +77,7 @@
         </label>
         <fieldset
           class="platform-field quant-pro-field replay-lookback-field replay-pred-tier-field"
-          title="复用研究枢纽「观察池分档」过滤宇宙。回测天数仍用左侧「回测窗口」（与 Holdout 独立）。须先跑枢纽分档。不勾=不过滤。"
+          title="复用研究枢纽「观察池分档」过滤宇宙。回测天数仍用左侧「窗口」（与 Holdout 独立）。须先跑枢纽分档。不勾=不过滤。"
         >
           <span class="quant-pro-field-label">分档</span>
           <span class="replay-fit-tier-checks" id="quant-pred-tier-checks">
@@ -309,7 +309,7 @@
           class="platform-field quant-pro-field replay-lookback-field"
           title="评估窗：统计做T的交易日数（默认 10）。规则用下方表单（可先保存到交易执行）。"
         >
-          <span class="quant-pro-field-label">回测窗口</span>
+          <span class="quant-pro-field-label">窗口</span>
           <input id="paper-t0-lookback" type="number" min="10" max="60" step="1" value="10" />
         </label>
         <label

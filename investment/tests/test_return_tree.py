@@ -116,6 +116,15 @@ class TestRebalanceScoreBackend(unittest.TestCase):
         self.assertIsNotNone(pred)
         self.assertTrue(abs(float(pred)) < 5.0)
 
+        from core.research.horizon_tree import explain_tree_return
+
+        feats = {"a": 1.0, "b": -1.0}
+        expl = explain_tree_return(feats, packed)
+        self.assertEqual(expl.get("model_role"), "tree")
+        self.assertAlmostEqual(float(expl["total"]), float(pred), places=4)
+        summed = float(expl["intercept"]) + sum(float(t["contrib"]) for t in expl["terms"])
+        self.assertAlmostEqual(summed, float(pred), places=3)
+
 
 if __name__ == "__main__":
     unittest.main()

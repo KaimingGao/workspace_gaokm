@@ -299,6 +299,22 @@ class TestPlanRankLotDay(unittest.TestCase):
         self.assertEqual(len(co), 24)
         self.assertEqual(slim[0]["key"], "f29")
 
+    def test_tip_explain_fields_keeps_tree_source(self):
+        from core.paper.rebalance.rank_lots import tip_explain_fields
+
+        out = tip_explain_fields(
+            {
+                "y_oo_source": "tree",
+                "y_τc_source": "tree",
+                "y_co_source": "ridge",
+                "score_formula_terms": {"total": 1.2, "terms": [{"key": "momentum", "contrib": 1.2}]},
+            }
+        )
+        self.assertEqual(out.get("y_oo_source"), "tree")
+        self.assertEqual(out.get("y_τc_source"), "tree")
+        self.assertEqual(out.get("y_co_source"), "ridge")
+        self.assertEqual(out["score_formula_terms"]["total"], 1.2)
+
     def test_tip_explain_fields_keeps_tau_open_z(self):
         from core.paper.rebalance.rank_lots import tip_explain_fields
 

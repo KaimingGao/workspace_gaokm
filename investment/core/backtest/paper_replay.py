@@ -1700,6 +1700,22 @@ def _required_factor_keys_from_return_models(
     return keys
 
 
+def _stamp_tree_formula(
+    item: dict,
+    features: Optional[dict],
+    model_doc: Optional[dict],
+    *,
+    y_hat: Optional[float],
+    keys: tuple,
+) -> None:
+    """用树的贡献拆解盖掉 Ridge 组成，使 tip 合计等于这列树分数。"""
+    from core.research.horizon_tree import tree_tip_formula
+
+    expl = tree_tip_formula(features, model_doc, y_hat=y_hat)
+    for k in keys:
+        item[k] = expl
+
+
 def _attach_open_yhat_heads(
     entries: List[dict],
     *,
@@ -1796,12 +1812,13 @@ def _attach_open_yhat_heads(
             if current_rebalance_score_backend() == REBALANCE_SCORE_BACKEND_TREE:
                 tree_doc = load_oo_tree_model()
                 y_tree = None
+                oo_feats = oo_tree_features_from_window(
+                    windows.get(code) or [],
+                    quotes.get(code) if code else None,
+                )
                 if tree_doc is not None:
                     y_tree = predict_oo_tree_from_features(
-                        oo_tree_features_from_window(
-                            windows.get(code) or [],
-                            quotes.get(code) if code else None,
-                        ),
+                        oo_feats,
                         model_doc=tree_doc,
                     )
                 if y_tree is not None:
@@ -1809,6 +1826,13 @@ def _attach_open_yhat_heads(
                     it["predicted_score"] = float(y_tree)
                     it["predicted_score_oo"] = float(y_tree)
                     it["y_oo_source"] = "tree"
+                    _stamp_tree_formula(
+                        it,
+                        oo_feats,
+                        tree_doc,
+                        y_hat=float(y_tree),
+                        keys=("score_formula_terms", "formula_terms"),
+                    )
                 elif it.get("y_oo") is not None:
                     it["y_oo_source"] = "ridge"
             elif it.get("y_oo") is not None:
@@ -1927,6 +1951,19 @@ def _attach_open_yhat_heads(
                 feats=co_feats,
                 co_model_doc=co_model_doc,
             )
+            if co_src == "tree" and co_yhat is not None:
+                _stamp_tree_formula(
+                    it,
+                    co_feats,
+                    load_co_tree_model(),
+                    y_hat=float(co_yhat),
+                    keys=(
+                        "formula_terms_co",
+                        "score_formula_terms_co",
+                        "formula_terms_on",
+                        "score_formula_terms_on",
+                    ),
+                )
         except Exception:  # noqa: BLE001
             logger.debug("attach y_co failed for %s", code, exc_info=True)
     return items

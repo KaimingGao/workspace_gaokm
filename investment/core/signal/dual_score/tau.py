@@ -238,7 +238,20 @@ def apply_tau_score_fields(
     if event_prior is not None:
         signal_item["event_prior"] = event_prior
     formula_terms_tau = None
-    if feats_merged:
+    if str(y_source or "").strip().lower() == "tree":
+        try:
+            from core.research.horizon_tree import tree_tip_formula
+            from core.research.tc_tree import load_tau_tree_model
+
+            formula_terms_tau = tree_tip_formula(
+                feats_merged,
+                load_tau_tree_model(),
+                y_hat=None if y_tau_raw is None else float(y_tau_raw),
+            )
+        except Exception:  # noqa: BLE001
+            logger.debug("tree tau formula failed", exc_info=True)
+            formula_terms_tau = None
+    elif feats_merged:
         try:
             from core.research.tc_ridge import explain_tau_prediction
 

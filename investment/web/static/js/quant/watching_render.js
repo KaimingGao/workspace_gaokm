@@ -142,6 +142,9 @@ export function watchingScoreDetail(it) {
     price_raw: it && it.price_raw,
     price: it && it.price,
     y_oo: it && it.y_oo,
+    y_oo_source: (it && it.y_oo_source) || null,
+    y_co_source: (it && it.y_co_source) || null,
+    "y_τc_source": (it && it["y_τc_source"]) || null,
     y_oc: it && it.y_oc,
     y_co: it && it.y_co,
     // 因子组成紧跟 ŷ 值：属性截断时 compact tip 仍能画出 β·z 表
@@ -476,6 +479,7 @@ function slimFormulaTerms(expl, maxTerms = 10) {
   const out = {
     intercept: expl.intercept,
     total: expl.total,
+    "y_τc": expl["y_τc"] != null ? expl["y_τc"] : null,
     y_tau_raw: expl.y_tau_raw != null ? expl.y_tau_raw : null,
     terms: kept,
     head: expl.head,

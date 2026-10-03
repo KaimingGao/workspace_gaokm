@@ -700,6 +700,9 @@ _TIP_EXPLAIN_KEYS = (
     "dual_score_weights",
     "dual_score_window",
     "dual_score_head",
+    "y_oo_source",
+    "y_τc_source",
+    "y_co_source",
 )
 
 

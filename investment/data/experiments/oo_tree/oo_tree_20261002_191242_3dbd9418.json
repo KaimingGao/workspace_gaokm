@@ -1,0 +1,40 @@
+{
+  "experiment_id": "oo_tree_20261002_191242_3dbd9418",
+  "model_type": "oo_tree",
+  "status": "completed",
+  "config": {
+    "lookback": 120,
+    "watching_limit": 300,
+    "horizon_days": 1,
+    "ridge_lambda": 1.0,
+    "holdout_trading_days": 20,
+    "backend": "lightgbm",
+    "include_alpha158": true
+  },
+  "metrics": {
+    "sample_count": 29210,
+    "stock_count": 299,
+    "oos_n_valid": 5652,
+    "oos_ic": -0.0413,
+    "oos_sign_hit": 0.4521,
+    "oos_residual_var": 9.249655,
+    "oos_pos_recall": 0.4752,
+    "oos_neg_recall": 0.4611,
+    "oos_n_pos": 2355,
+    "oos_n_neg": 3136,
+    "oos_n_train": 23260,
+    "oos_n_test": 5652,
+    "oos_holdout_trading_days": 20,
+    "oos_y_label_mean": -0.048911,
+    "oos_n_train_days": 149,
+    "oos_n_test_days": 20,
+    "oos_guard_ok": true,
+    "fit_end": "2026-08-31",
+    "eval_start": "2026-09-02"
+  },
+  "artifacts": {},
+  "tags": {},
+  "created_at": "2026-10-02T19:12:42",
+  "updated_at": "2026-10-02T19:12:42",
+  "duration_sec": 0.5
+}
