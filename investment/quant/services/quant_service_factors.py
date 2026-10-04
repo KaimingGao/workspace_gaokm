@@ -1563,7 +1563,6 @@ class QuantFactorMixin:
         ridge_lambda: float = 1.0,
         gap_trigger_pct: float = 2.0,
         minute_period: str = "5",
-        minute_lookback_days: int = 150,
         persist: bool = False,
         note: str = "",
         force_promote: bool = False,
@@ -1617,7 +1616,6 @@ class QuantFactorMixin:
                 return _attach_ridge_role_flags(out, t30_model_path())
 
         period = str(minute_period or "5").strip() or "5"
-        mlook = max(20, min(int(minute_lookback_days or 90), 240))
         stock_bars: List[Dict[str, Any]] = []
         minute_hit = 0
         minute_codes_miss = 0
@@ -1677,7 +1675,6 @@ class QuantFactorMixin:
         report["watching_pool_size"] = len(pool)
         report["lookback"] = lookback
         report["minute_period"] = period
-        report["minute_lookback_days"] = mlook
         report["minute_codes_hit"] = minute_hit
         report["minute_codes_miss"] = minute_codes_miss
         report["minute_codes_universe"] = len(codes)
@@ -1760,7 +1757,6 @@ class QuantFactorMixin:
         ridge_lambda: float = 1.0,
         gap_trigger_pct: float = 2.0,
         minute_period: str = "5",
-        minute_lookback_days: int = 150,
         note: str = "",
         holdout_trading_days: int = 20,
         **_ignored: Any,
@@ -1774,7 +1770,6 @@ class QuantFactorMixin:
             ridge_lambda=ridge_lambda,
             gap_trigger_pct=gap_trigger_pct,
             minute_period=minute_period,
-            minute_lookback_days=minute_lookback_days,
             persist=False,
             note=note or "",
             holdout_trading_days=holdout_trading_days,
@@ -1796,7 +1791,6 @@ class QuantFactorMixin:
         ridge_lambda: float = 1.0,
         gap_trigger_pct: float = 2.0,
         minute_period: str = "5",
-        minute_lookback_days: int = 150,
         persist: bool = False,
         note: str = "",
         force_promote: bool = False,
@@ -1850,7 +1844,6 @@ class QuantFactorMixin:
                 return _attach_ridge_role_flags(out, t45_model_path())
 
         period = str(minute_period or "5").strip() or "5"
-        mlook = max(20, min(int(minute_lookback_days or 90), 240))
         stock_bars: List[Dict[str, Any]] = []
         minute_hit = 0
         minute_codes_miss = 0
@@ -1910,7 +1903,6 @@ class QuantFactorMixin:
         report["watching_pool_size"] = len(pool)
         report["lookback"] = lookback
         report["minute_period"] = period
-        report["minute_lookback_days"] = mlook
         report["minute_codes_hit"] = minute_hit
         report["minute_codes_miss"] = minute_codes_miss
         report["minute_codes_universe"] = len(codes)
@@ -1993,7 +1985,6 @@ class QuantFactorMixin:
         ridge_lambda: float = 1.0,
         gap_trigger_pct: float = 2.0,
         minute_period: str = "5",
-        minute_lookback_days: int = 150,
         note: str = "",
         holdout_trading_days: int = 20,
         **_ignored: Any,
@@ -2007,7 +1998,6 @@ class QuantFactorMixin:
             ridge_lambda=ridge_lambda,
             gap_trigger_pct=gap_trigger_pct,
             minute_period=minute_period,
-            minute_lookback_days=minute_lookback_days,
             persist=False,
             note=note or "",
             holdout_trading_days=holdout_trading_days,
@@ -2029,7 +2019,6 @@ class QuantFactorMixin:
         ridge_lambda: float = 1.0,
         gap_trigger_pct: float = 2.0,
         minute_period: str = "5",
-        minute_lookback_days: int = 150,
         persist: bool = False,
         note: str = "",
         force_promote: bool = False,
@@ -2083,7 +2072,6 @@ class QuantFactorMixin:
                 return _attach_ridge_role_flags(out, t60_model_path())
 
         period = str(minute_period or "5").strip() or "5"
-        mlook = max(20, min(int(minute_lookback_days or 90), 240))
         stock_bars: List[Dict[str, Any]] = []
         minute_hit = 0
         minute_codes_miss = 0
@@ -2143,7 +2131,6 @@ class QuantFactorMixin:
         report["watching_pool_size"] = len(pool)
         report["lookback"] = lookback
         report["minute_period"] = period
-        report["minute_lookback_days"] = mlook
         report["minute_codes_hit"] = minute_hit
         report["minute_codes_miss"] = minute_codes_miss
         report["minute_codes_universe"] = len(codes)
@@ -2226,7 +2213,6 @@ class QuantFactorMixin:
         ridge_lambda: float = 1.0,
         gap_trigger_pct: float = 2.0,
         minute_period: str = "5",
-        minute_lookback_days: int = 150,
         note: str = "",
         holdout_trading_days: int = 20,
         **_ignored: Any,
@@ -2240,7 +2226,6 @@ class QuantFactorMixin:
             ridge_lambda=ridge_lambda,
             gap_trigger_pct=gap_trigger_pct,
             minute_period=minute_period,
-            minute_lookback_days=minute_lookback_days,
             persist=False,
             note=note or "",
             holdout_trading_days=holdout_trading_days,
@@ -2262,7 +2247,6 @@ class QuantFactorMixin:
         ridge_lambda: float = 1.0,
         gap_trigger_pct: float = 2.0,
         minute_period: str = "5",
-        minute_lookback_days: int = 150,
         persist: bool = False,
         note: str = "",
         force_promote: bool = False,
@@ -2316,7 +2300,6 @@ class QuantFactorMixin:
                 return _attach_ridge_role_flags(out, t75_model_path())
 
         period = str(minute_period or "5").strip() or "5"
-        mlook = max(20, min(int(minute_lookback_days or 90), 240))
         stock_bars: List[Dict[str, Any]] = []
         minute_hit = 0
         minute_codes_miss = 0
@@ -2376,7 +2359,6 @@ class QuantFactorMixin:
         report["watching_pool_size"] = len(pool)
         report["lookback"] = lookback
         report["minute_period"] = period
-        report["minute_lookback_days"] = mlook
         report["minute_codes_hit"] = minute_hit
         report["minute_codes_miss"] = minute_codes_miss
         report["minute_codes_universe"] = len(codes)
@@ -2459,7 +2441,6 @@ class QuantFactorMixin:
         ridge_lambda: float = 1.0,
         gap_trigger_pct: float = 2.0,
         minute_period: str = "5",
-        minute_lookback_days: int = 150,
         note: str = "",
         holdout_trading_days: int = 20,
         **_ignored: Any,
@@ -2473,7 +2454,6 @@ class QuantFactorMixin:
             ridge_lambda=ridge_lambda,
             gap_trigger_pct=gap_trigger_pct,
             minute_period=minute_period,
-            minute_lookback_days=minute_lookback_days,
             persist=False,
             note=note or "",
             holdout_trading_days=holdout_trading_days,
@@ -2495,7 +2475,6 @@ class QuantFactorMixin:
         ridge_lambda: float = 1.0,
         gap_trigger_pct: float = 2.0,
         minute_period: str = "5",
-        minute_lookback_days: int = 150,
         persist: bool = False,
         note: str = "",
         force_promote: bool = False,
@@ -2549,7 +2528,6 @@ class QuantFactorMixin:
                 return _attach_ridge_role_flags(out, t90_model_path())
 
         period = str(minute_period or "5").strip() or "5"
-        mlook = max(20, min(int(minute_lookback_days or 90), 240))
         stock_bars: List[Dict[str, Any]] = []
         minute_hit = 0
         minute_codes_miss = 0
@@ -2609,7 +2587,6 @@ class QuantFactorMixin:
         report["watching_pool_size"] = len(pool)
         report["lookback"] = lookback
         report["minute_period"] = period
-        report["minute_lookback_days"] = mlook
         report["minute_codes_hit"] = minute_hit
         report["minute_codes_miss"] = minute_codes_miss
         report["minute_codes_universe"] = len(codes)
@@ -2692,7 +2669,6 @@ class QuantFactorMixin:
         ridge_lambda: float = 1.0,
         gap_trigger_pct: float = 2.0,
         minute_period: str = "5",
-        minute_lookback_days: int = 150,
         note: str = "",
         holdout_trading_days: int = 20,
         **_ignored: Any,
@@ -2706,7 +2682,6 @@ class QuantFactorMixin:
             ridge_lambda=ridge_lambda,
             gap_trigger_pct=gap_trigger_pct,
             minute_period=minute_period,
-            minute_lookback_days=minute_lookback_days,
             persist=False,
             note=note or "",
             holdout_trading_days=holdout_trading_days,
@@ -2732,7 +2707,6 @@ class QuantFactorMixin:
         holdout_trading_days: int = 20,
         backend: Optional[str] = None,
         minute_period: str = "5",
-        minute_lookback_days: int = 150,
     ) -> Dict[str, Any]:
         """ŷ_τ30_tree：同面板 Holdout vs Ridge。写入 t30_tree_model.json，做 T 回测选 Tree 时用。不进 live。"""
         import time
@@ -2768,7 +2742,6 @@ class QuantFactorMixin:
         if live_hm.lower() in ("", "open"):
             live_hm = "10:30"
         period = str(minute_period or "5").strip() or "5"
-        mlook = max(20, min(int(minute_lookback_days or 90), 240))
         stock_bars: List[Dict[str, Any]] = []
         minute_hit = 0
         minute_codes_miss = 0
@@ -2836,7 +2809,6 @@ class QuantFactorMixin:
         report["watching_pool_size"] = len(pool)
         report["lookback"] = lookback
         report["minute_period"] = period
-        report["minute_lookback_days"] = mlook
         report["minute_codes_hit"] = minute_hit
         report["minute_codes_miss"] = minute_codes_miss
         report["minute_codes_universe"] = len(codes)
@@ -2910,7 +2882,6 @@ class QuantFactorMixin:
         holdout_trading_days: int = 20,
         backend: Optional[str] = None,
         minute_period: str = "5",
-        minute_lookback_days: int = 150,
     ) -> Dict[str, Any]:
         """ŷ_τ45_tree：同面板 Holdout vs Ridge。写入 t45_tree_model.json，做 T 回测选 Tree 时用。不进 live。"""
         import time
@@ -2946,7 +2917,6 @@ class QuantFactorMixin:
         if live_hm.lower() in ("", "open"):
             live_hm = "10:30"
         period = str(minute_period or "5").strip() or "5"
-        mlook = max(20, min(int(minute_lookback_days or 90), 240))
         stock_bars: List[Dict[str, Any]] = []
         minute_hit = 0
         minute_codes_miss = 0
@@ -3014,7 +2984,6 @@ class QuantFactorMixin:
         report["watching_pool_size"] = len(pool)
         report["lookback"] = lookback
         report["minute_period"] = period
-        report["minute_lookback_days"] = mlook
         report["minute_codes_hit"] = minute_hit
         report["minute_codes_miss"] = minute_codes_miss
         report["minute_codes_universe"] = len(codes)
@@ -3088,7 +3057,6 @@ class QuantFactorMixin:
         holdout_trading_days: int = 20,
         backend: Optional[str] = None,
         minute_period: str = "5",
-        minute_lookback_days: int = 150,
     ) -> Dict[str, Any]:
         """ŷ_τ60_tree：同面板 Holdout vs Ridge。写入 t60_tree_model.json，做 T 回测选 Tree 时用。不进 live。"""
         import time
@@ -3124,7 +3092,6 @@ class QuantFactorMixin:
         if live_hm.lower() in ("", "open"):
             live_hm = "10:30"
         period = str(minute_period or "5").strip() or "5"
-        mlook = max(20, min(int(minute_lookback_days or 90), 240))
         stock_bars: List[Dict[str, Any]] = []
         minute_hit = 0
         minute_codes_miss = 0
@@ -3192,7 +3159,6 @@ class QuantFactorMixin:
         report["watching_pool_size"] = len(pool)
         report["lookback"] = lookback
         report["minute_period"] = period
-        report["minute_lookback_days"] = mlook
         report["minute_codes_hit"] = minute_hit
         report["minute_codes_miss"] = minute_codes_miss
         report["minute_codes_universe"] = len(codes)
@@ -3266,7 +3232,6 @@ class QuantFactorMixin:
         holdout_trading_days: int = 20,
         backend: Optional[str] = None,
         minute_period: str = "5",
-        minute_lookback_days: int = 150,
     ) -> Dict[str, Any]:
         """ŷ_τ75_tree：同面板 Holdout vs Ridge。写入 t75_tree_model.json，做 T 回测选 Tree 时用。不进 live。"""
         import time
@@ -3302,7 +3267,6 @@ class QuantFactorMixin:
         if live_hm.lower() in ("", "open"):
             live_hm = "10:30"
         period = str(minute_period or "5").strip() or "5"
-        mlook = max(20, min(int(minute_lookback_days or 90), 240))
         stock_bars: List[Dict[str, Any]] = []
         minute_hit = 0
         minute_codes_miss = 0
@@ -3370,7 +3334,6 @@ class QuantFactorMixin:
         report["watching_pool_size"] = len(pool)
         report["lookback"] = lookback
         report["minute_period"] = period
-        report["minute_lookback_days"] = mlook
         report["minute_codes_hit"] = minute_hit
         report["minute_codes_miss"] = minute_codes_miss
         report["minute_codes_universe"] = len(codes)
@@ -3444,7 +3407,6 @@ class QuantFactorMixin:
         holdout_trading_days: int = 20,
         backend: Optional[str] = None,
         minute_period: str = "5",
-        minute_lookback_days: int = 150,
     ) -> Dict[str, Any]:
         """ŷ_τ90_tree：同面板 Holdout vs Ridge。写入 t90_tree_model.json，做 T 回测选 Tree 时用。不进 live。"""
         import time
@@ -3480,7 +3442,6 @@ class QuantFactorMixin:
         if live_hm.lower() in ("", "open"):
             live_hm = "10:30"
         period = str(minute_period or "5").strip() or "5"
-        mlook = max(20, min(int(minute_lookback_days or 90), 240))
         stock_bars: List[Dict[str, Any]] = []
         minute_hit = 0
         minute_codes_miss = 0
@@ -3548,7 +3509,6 @@ class QuantFactorMixin:
         report["watching_pool_size"] = len(pool)
         report["lookback"] = lookback
         report["minute_period"] = period
-        report["minute_lookback_days"] = mlook
         report["minute_codes_hit"] = minute_hit
         report["minute_codes_miss"] = minute_codes_miss
         report["minute_codes_universe"] = len(codes)

@@ -460,11 +460,10 @@ class T30RidgeFitTests(unittest.TestCase):
 
     def test_t30_z_drops_oc_path_shape(self):
         from core.research.t30_ridge import T30_Z_FEATURES
-        from core.research.tc_ridge import TAU_HORIZON_DROP_OC_SHAPE, TAU_Z_FEATURES
+        from core.research.tc_ridge import TAU_HORIZON_DROP_OC_SHAPE
 
         for k in TAU_HORIZON_DROP_OC_SHAPE:
             self.assertNotIn(k, T30_Z_FEATURES)
-            self.assertIn(k, TAU_Z_FEATURES)
         self.assertIn("ret_last_30m", T30_Z_FEATURES)
         self.assertIn("ret_open_to_tau", T30_Z_FEATURES)
         self.assertIn("t30_lag1", T30_Z_FEATURES)

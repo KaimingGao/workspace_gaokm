@@ -122,7 +122,6 @@ HORIZON_SEQ_CS_SPECS = (
 
 from core.signal.minute_tau_grid import (
     DEFAULT_MINUTE_TAU_GRID,
-    DEFAULT_T0_TRAIN_TAU_GRID_5M,
     HORIZON_T30_MIN,
     T30_LABEL_OFFSETS,
     T45_LABEL_OFFSETS,
@@ -130,7 +129,6 @@ from core.signal.minute_tau_grid import (
     T75_LABEL_OFFSETS,
     T90_LABEL_OFFSETS,
     add_session_minutes,
-    minute_tau_grid_5m_range,
 )
 
 
@@ -2173,11 +2171,6 @@ def collect_tau_intraday_panel(
                 tau_hm=clock,
                 open_px=o_min if o_min and o_min > 0 else o,
             )
-            seq = seq_all
-            seq45 = seq_all
-            seq60 = seq_all
-            seq75 = seq_all
-            seq90 = seq_all
             if a158_feats:
                 row.update(a158_feats)
             xs.append(row)
@@ -2232,31 +2225,20 @@ def collect_tau_intraday_panel(
                     "tau_plus_90": tau90_hm,
                     "price_tau90": px_tau90,
             }
-            for k in T30_SEQ_FEATURES:
-                if k in T30_LAG_FEATURES:
-                    continue
-                if seq.get(k) is not None:
-                    meta[k] = seq[k]
-            for k in T45_SEQ_FEATURES:
-                if k in T45_LAG_FEATURES:
-                    continue
-                if seq45.get(k) is not None:
-                    meta[k] = seq45[k]
-            for k in T60_SEQ_FEATURES:
-                if k in T60_LAG_FEATURES:
-                    continue
-                if seq60.get(k) is not None:
-                    meta[k] = seq60[k]
-            for k in T75_SEQ_FEATURES:
-                if k in T75_LAG_FEATURES:
-                    continue
-                if seq75.get(k) is not None:
-                    meta[k] = seq75[k]
-            for k in T90_SEQ_FEATURES:
-                if k in T90_LAG_FEATURES:
-                    continue
-                if seq90.get(k) is not None:
-                    meta[k] = seq90[k]
+            seq_specs = (
+                (T30_SEQ_FEATURES, T30_LAG_FEATURES),
+                (T45_SEQ_FEATURES, T45_LAG_FEATURES),
+                (T60_SEQ_FEATURES, T60_LAG_FEATURES),
+                (T75_SEQ_FEATURES, T75_LAG_FEATURES),
+                (T90_SEQ_FEATURES, T90_LAG_FEATURES),
+            )
+            for feat_keys, lag_keys in seq_specs:
+                skip = set(lag_keys)
+                for k in feat_keys:
+                    if k in skip:
+                        continue
+                    if seq_all.get(k) is not None:
+                        meta[k] = seq_all[k]
             metas.append(meta)
     return xs, ys, dates, metas
 

@@ -449,12 +449,6 @@ class T30RidgeRequest(BaseModel):
         max_length=4,
         description="分钟周期；默认 5m，与做 T 回测一致",
     )
-    minute_lookback_days: int = Field(
-        default=150,
-        ge=20,
-        le=240,
-        description="兼容字段；拟合已改为只读缓存，不再按此天数拉远端",
-    )
     persist: bool = Field(
         default=False,
         description="True=人审写入模型文件（路径由 persist_role 决定）",
@@ -496,12 +490,6 @@ class T45RidgeRequest(BaseModel):
         default="5",
         max_length=4,
         description="分钟周期；默认 5m，与做 T 回测一致",
-    )
-    minute_lookback_days: int = Field(
-        default=150,
-        ge=20,
-        le=240,
-        description="兼容字段；拟合已改为只读缓存，不再按此天数拉远端",
     )
     persist: bool = Field(
         default=False,
@@ -545,12 +533,6 @@ class T60RidgeRequest(BaseModel):
         max_length=4,
         description="分钟周期；默认 5m，与做 T 回测一致",
     )
-    minute_lookback_days: int = Field(
-        default=150,
-        ge=20,
-        le=240,
-        description="兼容字段；拟合已改为只读缓存，不再按此天数拉远端",
-    )
     persist: bool = Field(
         default=False,
         description="True=人审写入模型文件（路径由 persist_role 决定）",
@@ -592,12 +574,6 @@ class T75RidgeRequest(BaseModel):
         default="5",
         max_length=4,
         description="分钟周期；默认 5m，与做 T 回测一致",
-    )
-    minute_lookback_days: int = Field(
-        default=150,
-        ge=20,
-        le=240,
-        description="兼容字段；拟合已改为只读缓存，不再按此天数拉远端",
     )
     persist: bool = Field(
         default=False,
@@ -706,12 +682,6 @@ class T90RidgeRequest(BaseModel):
         default="5",
         max_length=4,
         description="分钟周期；默认 5m，与做 T 回测一致",
-    )
-    minute_lookback_days: int = Field(
-        default=150,
-        ge=20,
-        le=240,
-        description="兼容字段；拟合已改为只读缓存，不再按此天数拉远端",
     )
     persist: bool = Field(
         default=False,

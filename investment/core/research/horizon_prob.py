@@ -507,7 +507,12 @@ def fit_logistic_ridge_from_panel(
     min_std_exempt: Optional[Sequence[str]] = None,
     collinearity_policy: str = "drop_redundant",
 ) -> Dict[str, Any]:
-    """面板 logistic Ridge：先走与 OLS 相同的完整子面板 / z-score / 共线策略，再 IRLS。"""
+    """面板 logistic Ridge：先走与 OLS 相同的完整子面板 / z-score / 共线策略，再 IRLS。
+
+    入模列缺测按列均值填后再挑行（标准化后 z=0），与
+    ``_predict_rows(impute_missing=True)`` / live 打分一致。
+    """
+    names = [str(n) for n in (feature_names or []) if n]
     ys = [1.0 if _f(y) is not None and float(y) > 0.5 else 0.0 for y in ys_bin]
     ols = fit_factor_ols_from_panel(
         xs,
@@ -518,6 +523,7 @@ def fit_logistic_ridge_from_panel(
         sample_weights=sample_weights,
         min_std_exempt=list(min_std_exempt or []),
         collinearity_policy=collinearity_policy,
+        impute_keys=names,
         y_spec={"formula": "I(y>0)", "unit": "prob"},
     )
     if not ols.get("success"):
