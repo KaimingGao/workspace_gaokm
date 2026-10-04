@@ -83,7 +83,10 @@ def _has_lightgbm() -> bool:
 @unittest.skipUnless(_has_lightgbm(), "lightgbm 未安装")
 class TestT30Tree(unittest.TestCase):
     def test_defaults_match_tau_tree(self):
-        from core.research.t30_tree import DEFAULT_N_ESTIMATORS, TREE_HEAD, TREE_SCHEMA
+        from core.research.tc_tree import DEFAULT_N_ESTIMATORS
+
+        TREE_HEAD = "y_t30_tree"
+        TREE_SCHEMA = "t30_tree_shadow_v5"
         from core.research.tc_tree import DEFAULT_N_ESTIMATORS as TAU_N
 
         self.assertEqual(DEFAULT_N_ESTIMATORS, 300)
@@ -92,11 +95,11 @@ class TestT30Tree(unittest.TestCase):
         self.assertEqual(TREE_SCHEMA, "t30_tree_shadow_v5")
 
     def test_fit_shadow_vs_ridge_no_live_file(self):
-        from core.research.t30_ridge import load_t30_model, persist_t30_model
-        from core.research.t30_tree import (
-            fit_t30_tree_report,
-            save_t30_tree_last_report,
-            t30_tree_last_report_path,
+        from core.research.horizon_ridge import load_ridge_model, persist_ridge_model
+        from core.research.horizon_tree import (
+            fit_horizon_tree_report,
+            save_tree_last_report,
+            tree_last_report_path,
         )
 
         stock_bars = [
@@ -105,7 +108,8 @@ class TestT30Tree(unittest.TestCase):
             _stock("C", 8.0),
             _stock("D", 15.0),
         ]
-        report = fit_t30_tree_report(
+        report = fit_horizon_tree_report(
+            "t30",
             stock_bars,
             ridge_lambda=1.0,
             theme_boost=1.5,
@@ -167,26 +171,26 @@ class TestT30Tree(unittest.TestCase):
         rm = report.get("tree_return_model") or {}
         self.assertTrue((rm.get("hyperparams") or {}).get("feature_zscore"))
 
-        blocked = persist_t30_model(report, note="should fail", force=True)
+        blocked = persist_ridge_model("t30", report, note="should fail", force=True)
         self.assertFalse(blocked.get("success"))
 
-        from core.research.t30_tree import (
-            persist_t30_tree_model,
-            predict_t30_tree_from_features,
+        from core.research.horizon_tree import (
+            persist_tree_model_doc,
+            predict_tree_from_features,
         )
 
         with tempfile.TemporaryDirectory() as tmp:
             live = os.path.join(tmp, "live")
             os.makedirs(live, exist_ok=True)
             with patch("core.paths.LIVE_DIR", live):
-                save_t30_tree_last_report(report)
-                tree_path = t30_tree_last_report_path()
+                save_tree_last_report("t30", report)
+                tree_path = tree_last_report_path("t30")
                 self.assertTrue(os.path.isfile(tree_path))
                 self.assertIn("t30_tree_last_report.json", tree_path)
-                saved = persist_t30_tree_model(report, force=True)
+                saved = persist_tree_model_doc("t30", report, force=True)
                 self.assertTrue(saved.get("success"), saved)
                 self.assertTrue(os.path.isfile(os.path.join(live, "t30_tree_model.json")))
-                pred = predict_t30_tree_from_features({"gap_pct": 0.0, "ret_last_5m": -0.2})
+                pred = predict_tree_from_features("t30", {"gap_pct": 0.0, "ret_last_5m": -0.2})
                 self.assertIsNotNone(pred)
                 self.assertGreater(float(pred), 0.0)
                 self.assertLess(float(pred), 1.0)
@@ -196,12 +200,13 @@ class TestT30Tree(unittest.TestCase):
                 self.assertFalse(
                     os.path.isfile(os.path.join(live, "t30_ridge_model_research.json"))
                 )
-                self.assertIsNone(load_t30_model())
+                self.assertIsNone(load_ridge_model("t30"))
 
     def test_open_tau_coerced_to_1030(self):
-        from core.research.t30_tree import fit_t30_tree_report
+        from core.research.horizon_tree import fit_horizon_tree_report
 
-        report = fit_t30_tree_report(
+        report = fit_horizon_tree_report(
+            "t30",
             [_stock("A", 10.0, n_days=36), _stock("B", 11.0, n_days=36)],
             backend="lightgbm",
             n_estimators=8,
@@ -214,13 +219,16 @@ class TestT30Tree(unittest.TestCase):
 
 
     def test_tree_z_adds_path_shape_ridge_keeps_drop(self):
-        from core.research.t30_ridge import T30_Z_FEATURES
-        from core.research.t30_tree import T30_TREE_Z_FEATURES
+        from core.research.horizon_ridge import _horizon_ridge_config
         from core.research.tc_ridge import (
             TAU_HORIZON_DROP_OC_SHAPE,
             TAU_HORIZON_TREE_SHAPE_FEATURES,
             with_horizon_tree_shape,
         )
+
+        T30_Z_FEATURES = _horizon_ridge_config("t30")["z_features"]
+
+        T30_TREE_Z_FEATURES = with_horizon_tree_shape(T30_Z_FEATURES)
 
         for k in TAU_HORIZON_TREE_SHAPE_FEATURES:
             self.assertNotIn(k, T30_Z_FEATURES)

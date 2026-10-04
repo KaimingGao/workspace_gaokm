@@ -648,8 +648,7 @@ score_bars → sub_scores（特征）
 研究向 OLS 实验（对比 `signal_config.weights`，不写生产配置）：
 
 ```bash
-python3 research/factor_ols_run.py --code 茅台 --json
-# 或 Agent / quant(task=factor_ols)
+# Agent / quant(task=factor_ols)
 ```
 
 ---
@@ -677,7 +676,7 @@ python3 research/factor_ols_run.py --code 茅台 --json
 | 市场门控 | `core/signal/regime.py` |
 | 成本模型 | `core/backtest/costs.py` |
 | IC 报告 | `research/factor_report.py` |
-| OLS 实验 | `quant/research/factor_ols.py` · `research/factor_ols_run.py` |
+| OLS 实验 | `quant/research/factor_ols.py` |
 | OOS 切分 | `research/split.py` |
 | 报告导出预览 | `quant/services/quant_report_export.py` — Web daily 后自动 Markdown 导出预览 + TOC |
 | 规则 / LLM 解读 | `quant/services/quant_interpret.py` — `offline: true` → `source=rule_based` |
@@ -1137,7 +1136,7 @@ open(t-1) ──y_co(t)──► open(t) ──y_τ(t)──► close(t)
 3. \(y_{\mathrm{ON}}\) 规划为 **风控旁路**（缩仓 / 撤买单），**默认不进主排序**；落地前以 `gap_risk` · `event_prior` 作弱替代。  
 4. 执行：收盘前减仓若要 **挡当夜隔夜**，须 **当日收盘前可成交**。纸面 `next_open`：**盘中按现价可成交**；**收盘后**只挂次日开盘，**挡不住当夜**。回测默认 `next_open` 仍是信号日收盘决策、次日开盘成交（见 [quant.md · 运维](quant.md#量化运维)）。
 
-规划字段：`predicted_score_on` / `y_spec_co` / `data/live/co_ridge_model.json`；复盘 IC(\(\hat y_{\mathrm{ON}}, y_{\mathrm{ON}}\)) 与 open 链分段单独报。训练：`POST /api/quant/co-ridge`。
+规划字段：`predicted_score_on` / `y_spec_co` / `data/live/co_ridge_model.json`；复盘 IC(\(\hat y_{\mathrm{ON}}, y_{\mathrm{ON}}\)) 与 open 链分段单独报。训练：`POST /api/quant/co-ridge`（轮询 `GET /api/jobs/co-ridge`）。
 
 曾试过 ŷ_next（下一窗 VWAP）与 ŷ_r（\(C/C_r\)）作做 T 研究头；OOS 符号命中约 50%，已从枢纽下线，不进 T0 闸。
 
@@ -1247,7 +1246,7 @@ score_stock(code) 续——
 | `y_spec_co` | `{formula, anchor, unit}` | ŷ_co 标签规范 |
 | `features_co` | ret_oc / gap / yest_close_loc / yest_gap / … | T 开盘已知：T-1 路径 + 今开 Z + 昨 K 微观 + 隔夜滞后（不用 close[T]） |
 
-训练：`POST /api/quant/co-ridge` → `co_ridge_model.json`（人审 persist）。**默认不进主排序**；收盘前减仓策略后续接线。改特征后须重新拟合。
+训练：`POST /api/quant/co-ridge`（默认入队 `GET /api/jobs/co-ridge`；`persist`/`sync` 同步）→ last report；人审 persist 写 `co_ridge_model.json`。**默认不进主排序**；收盘前减仓策略后续接线。改特征后须重新拟合。
 
 ŷ_co 入模因子（Ridge Z，与 ŷ_oo 日线因子库正交，不把估值/质量等再塞一遍）：
 

@@ -44,6 +44,9 @@ def co_tree_last_report_path() -> str:
 def save_co_tree_last_report(report: Dict[str, Any]) -> None:
     if not isinstance(report, dict) or not report.get("success"):
         return
+    from core.research.holdout import stamp_fitted_at
+
+    stamp_fitted_at(report)
     path = co_tree_last_report_path()
     os.makedirs(os.path.dirname(path), exist_ok=True)
     atomic_write_json(path, report)

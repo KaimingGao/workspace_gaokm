@@ -243,20 +243,26 @@ def quant_tau_ridge_model() -> Dict[str, Any]:
 
 @router.post("/api/quant/co-ridge")
 def quant_co_ridge(body: CoRidgeRequest) -> Dict[str, Any]:
-    """隔夜缺口 Ridge：open[T+1]/close[T]-1 + 时间 OOS；可选 persist 到 live。"""
+    """隔夜缺口 Ridge：open[T+1]/close[T]-1 + 时间 OOS；可选 persist 到 live。
+
+    ``persist=true`` / ``sync=true`` 同步；否则入队 ``GET /api/jobs/co-ridge``。
+    """
+    kwargs = dict(
+        lookback=body.lookback,
+        watching_limit=body.watching_limit,
+        ridge_lambda=body.ridge_lambda,
+        gap_trigger_pct=body.gap_trigger_pct,
+        theme_boost=body.theme_boost,
+        persist=body.persist,
+        note=body.note,
+        persist_role=body.persist_role,
+        holdout_trading_days=body.holdout_trading_days,
+        label_demean=bool(body.label_demean),
+    )
     try:
-        return deps.quant.run_co_ridge_experiment(
-            lookback=body.lookback,
-            watching_limit=body.watching_limit,
-            ridge_lambda=body.ridge_lambda,
-            gap_trigger_pct=body.gap_trigger_pct,
-            theme_boost=body.theme_boost,
-            persist=body.persist,
-            note=body.note,
-            persist_role=body.persist_role,
-            holdout_trading_days=body.holdout_trading_days,
-            label_demean=bool(body.label_demean),
-        )
+        if body.persist or body.sync:
+            return deps.quant.run_co_ridge_experiment(**kwargs)
+        return deps.quant.start_co_ridge_job(**kwargs)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 

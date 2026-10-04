@@ -339,7 +339,7 @@ def tip_fields_from_item(item: Optional[dict]) -> Dict[str, Any]:
             t30_terms = None
         else:
             try:
-                from core.research.t30_ridge import explain_t30_prediction, load_t30_model
+                from core.research.horizon_ridge import explain_ridge_prediction, load_ridge_model
 
                 feats_t30 = item.get("features_tau") if isinstance(item.get("features_tau"), dict) else {}
                 if not feats_t30:
@@ -348,7 +348,7 @@ def tip_fields_from_item(item: Optional[dict]) -> Dict[str, Any]:
                         if isinstance(item.get("features_path"), dict)
                         else {}
                     )
-                expl_t30 = explain_t30_prediction(feats_t30, model_doc=load_t30_model())
+                expl_t30 = explain_ridge_prediction("t30", feats_t30, model_doc=load_ridge_model("t30"))
                 t30_terms = _slim_formula_terms(expl_t30, limit=12)
             except Exception:  # noqa: BLE001
                 logger.debug("t30 tip explain fallback failed", exc_info=True)
@@ -366,7 +366,7 @@ def tip_fields_from_item(item: Optional[dict]) -> Dict[str, Any]:
             t45_terms = None
         else:
             try:
-                from core.research.t45_ridge import explain_t45_prediction, load_t45_model
+                from core.research.horizon_ridge import explain_ridge_prediction, load_ridge_model
 
                 feats_t45 = item.get("features_tau") if isinstance(item.get("features_tau"), dict) else {}
                 if not feats_t45:
@@ -375,7 +375,7 @@ def tip_fields_from_item(item: Optional[dict]) -> Dict[str, Any]:
                         if isinstance(item.get("features_path"), dict)
                         else {}
                     )
-                expl_t45 = explain_t45_prediction(feats_t45, model_doc=load_t45_model())
+                expl_t45 = explain_ridge_prediction("t45", feats_t45, model_doc=load_ridge_model("t45"))
                 t45_terms = _slim_formula_terms(expl_t45, limit=12)
             except Exception:  # noqa: BLE001
                 logger.debug("t45 tip explain fallback failed", exc_info=True)
@@ -393,7 +393,7 @@ def tip_fields_from_item(item: Optional[dict]) -> Dict[str, Any]:
             t60_terms = None
         else:
             try:
-                from core.research.t60_ridge import explain_t60_prediction, load_t60_model
+                from core.research.horizon_ridge import explain_ridge_prediction, load_ridge_model
 
                 feats_t60 = item.get("features_tau") if isinstance(item.get("features_tau"), dict) else {}
                 if not feats_t60:
@@ -402,7 +402,7 @@ def tip_fields_from_item(item: Optional[dict]) -> Dict[str, Any]:
                         if isinstance(item.get("features_path"), dict)
                         else {}
                     )
-                expl_t60 = explain_t60_prediction(feats_t60, model_doc=load_t60_model())
+                expl_t60 = explain_ridge_prediction("t60", feats_t60, model_doc=load_ridge_model("t60"))
                 t60_terms = _slim_formula_terms(expl_t60, limit=12)
             except Exception:  # noqa: BLE001
                 logger.debug("t60 tip explain fallback failed", exc_info=True)
@@ -420,7 +420,7 @@ def tip_fields_from_item(item: Optional[dict]) -> Dict[str, Any]:
             t75_terms = None
         else:
             try:
-                from core.research.t75_ridge import explain_t75_prediction, load_t75_model
+                from core.research.horizon_ridge import explain_ridge_prediction, load_ridge_model
 
                 feats_t75 = item.get("features_tau") if isinstance(item.get("features_tau"), dict) else {}
                 if not feats_t75:
@@ -429,7 +429,7 @@ def tip_fields_from_item(item: Optional[dict]) -> Dict[str, Any]:
                         if isinstance(item.get("features_path"), dict)
                         else {}
                     )
-                expl_t75 = explain_t75_prediction(feats_t75, model_doc=load_t75_model())
+                expl_t75 = explain_ridge_prediction("t75", feats_t75, model_doc=load_ridge_model("t75"))
                 t75_terms = _slim_formula_terms(expl_t75, limit=12)
             except Exception:  # noqa: BLE001
                 logger.debug("t75 tip explain fallback failed", exc_info=True)
@@ -447,7 +447,7 @@ def tip_fields_from_item(item: Optional[dict]) -> Dict[str, Any]:
             t90_terms = None
         else:
             try:
-                from core.research.t90_ridge import explain_t90_prediction, load_t90_model
+                from core.research.horizon_ridge import explain_ridge_prediction, load_ridge_model
 
                 feats_t90 = item.get("features_tau") if isinstance(item.get("features_tau"), dict) else {}
                 if not feats_t90:
@@ -456,7 +456,7 @@ def tip_fields_from_item(item: Optional[dict]) -> Dict[str, Any]:
                         if isinstance(item.get("features_path"), dict)
                         else {}
                     )
-                expl_t90 = explain_t90_prediction(feats_t90, model_doc=load_t90_model())
+                expl_t90 = explain_ridge_prediction("t90", feats_t90, model_doc=load_ridge_model("t90"))
                 t90_terms = _slim_formula_terms(expl_t90, limit=12)
             except Exception:  # noqa: BLE001
                 logger.debug("t90 tip explain fallback failed", exc_info=True)
@@ -887,11 +887,11 @@ def scores_from_item(item: Optional[dict]) -> Dict[str, Optional[float]]:
             out["y_r_hat"] = y_r_hat
             out["y_r"] = y_r_hat
     try:
-        from core.research.t30_ridge import pick_y_t30_hat, write_y_t30_hat
+        from core.research.horizon_ridge import pick_y_hat, write_y_hat
 
-        y_t30 = pick_y_t30_hat(item)
+        y_t30 = pick_y_hat("t30", item)
         if y_t30 is not None:
-            write_y_t30_hat(out, y_t30)
+            write_y_hat("t30", out, y_t30)
     except Exception:  # noqa: BLE001
         y_t30 = _f(item.get("predicted_score_t30"))
         if y_t30 is None:
@@ -906,11 +906,11 @@ def scores_from_item(item: Optional[dict]) -> Dict[str, Optional[float]]:
             out["y_t30"] = y_t30
             out["y_τ30"] = y_t30
     try:
-        from core.research.t45_ridge import pick_y_t45_hat, write_y_t45_hat
+        from core.research.horizon_ridge import pick_y_hat, write_y_hat
 
-        y_t45 = pick_y_t45_hat(item)
+        y_t45 = pick_y_hat("t45", item)
         if y_t45 is not None:
-            write_y_t45_hat(out, y_t45)
+            write_y_hat("t45", out, y_t45)
     except Exception:  # noqa: BLE001
         y_t45 = _f(item.get("predicted_score_t45"))
         if y_t45 is None:
@@ -925,11 +925,11 @@ def scores_from_item(item: Optional[dict]) -> Dict[str, Optional[float]]:
             out["y_t45"] = y_t45
             out["y_τ45"] = y_t45
     try:
-        from core.research.t60_ridge import pick_y_t60_hat, write_y_t60_hat
+        from core.research.horizon_ridge import pick_y_hat, write_y_hat
 
-        y_t60 = pick_y_t60_hat(item)
+        y_t60 = pick_y_hat("t60", item)
         if y_t60 is not None:
-            write_y_t60_hat(out, y_t60)
+            write_y_hat("t60", out, y_t60)
     except Exception:  # noqa: BLE001
         y_t60 = _f(item.get("predicted_score_t60"))
         if y_t60 is None:
@@ -944,11 +944,11 @@ def scores_from_item(item: Optional[dict]) -> Dict[str, Optional[float]]:
             out["y_t60"] = y_t60
             out["y_τ60"] = y_t60
     try:
-        from core.research.t75_ridge import pick_y_t75_hat, write_y_t75_hat
+        from core.research.horizon_ridge import pick_y_hat, write_y_hat
 
-        y_t75 = pick_y_t75_hat(item)
+        y_t75 = pick_y_hat("t75", item)
         if y_t75 is not None:
-            write_y_t75_hat(out, y_t75)
+            write_y_hat("t75", out, y_t75)
     except Exception:  # noqa: BLE001
         y_t75 = _f(item.get("predicted_score_t75"))
         if y_t75 is None:
@@ -963,11 +963,11 @@ def scores_from_item(item: Optional[dict]) -> Dict[str, Optional[float]]:
             out["y_t75"] = y_t75
             out["y_τ75"] = y_t75
     try:
-        from core.research.t90_ridge import pick_y_t90_hat, write_y_t90_hat
+        from core.research.horizon_ridge import pick_y_hat, write_y_hat
 
-        y_t90 = pick_y_t90_hat(item)
+        y_t90 = pick_y_hat("t90", item)
         if y_t90 is not None:
-            write_y_t90_hat(out, y_t90)
+            write_y_hat("t90", out, y_t90)
     except Exception:  # noqa: BLE001
         y_t90 = _f(item.get("predicted_score_t90"))
         if y_t90 is None:
@@ -1266,15 +1266,15 @@ def _attach_y_t30_to_item(
     if open_z_only and not allow_open_z:
         return
     try:
-        from core.research.t30_ridge import (
-            explain_t30_prediction,
-            load_t30_model,
-            predict_t30_from_features,
-            write_y_t30_hat,
+        from core.research.horizon_ridge import (
+            explain_ridge_prediction,
+            load_ridge_model,
+            predict_ridge_from_features,
+            write_y_hat,
         )
-        from core.research.t30_tree import (
-            load_t30_tree_model,
-            predict_t30_tree_from_features,
+        from core.research.horizon_tree import (
+            load_tree_model_doc,
+            predict_tree_from_features,
         )
         from core.research.tau_panel import (
             T30_SEQ_FEATURES,
@@ -1328,14 +1328,18 @@ def _attach_y_t30_to_item(
         y_hat, model, src = _predict_horizon_hat(
             "t30",
             feats,
-            load_ridge=load_t30_model,
-            predict_ridge=predict_t30_from_features,
-            load_tree=load_t30_tree_model,
-            predict_tree=predict_t30_tree_from_features,
+            load_ridge=lambda: load_ridge_model("t30"),
+            predict_ridge=lambda feats, model_doc=None: predict_ridge_from_features(
+                "t30", feats, model_doc=model_doc
+            ),
+            load_tree=lambda: load_tree_model_doc("t30"),
+            predict_tree=lambda feats, model_doc=None: predict_tree_from_features(
+                "t30", feats, model_doc=model_doc
+            ),
         )
         if y_hat is None:
             return
-        write_y_t30_hat(item, float(y_hat))
+        write_y_hat("t30", item, float(y_hat))
         if src:
             item["y_τ30_source"] = src
             item["y_t30_source"] = src
@@ -1346,7 +1350,9 @@ def _attach_y_t30_to_item(
             model=model,
             y_hat=float(y_hat),
             keys=("formula_terms_t30", "score_formula_terms_t30"),
-            explain_ridge=explain_t30_prediction,
+            explain_ridge=lambda feats, model_doc=None: explain_ridge_prediction(
+                "t30", feats, model_doc=model_doc
+            ),
         )
     except Exception:  # noqa: BLE001
         logger.debug("attach y_t30 predict failed", exc_info=True)
@@ -1375,15 +1381,15 @@ def _attach_y_t45_to_item(
     if open_z_only and not allow_open_z:
         return
     try:
-        from core.research.t45_ridge import (
-            explain_t45_prediction,
-            load_t45_model,
-            predict_t45_from_features,
-            write_y_t45_hat,
+        from core.research.horizon_ridge import (
+            explain_ridge_prediction,
+            load_ridge_model,
+            predict_ridge_from_features,
+            write_y_hat,
         )
-        from core.research.t45_tree import (
-            load_t45_tree_model,
-            predict_t45_tree_from_features,
+        from core.research.horizon_tree import (
+            load_tree_model_doc,
+            predict_tree_from_features,
         )
         from core.research.tau_panel import (
             T45_SEQ_FEATURES,
@@ -1437,14 +1443,18 @@ def _attach_y_t45_to_item(
         y_hat, model, src = _predict_horizon_hat(
             "t45",
             feats,
-            load_ridge=load_t45_model,
-            predict_ridge=predict_t45_from_features,
-            load_tree=load_t45_tree_model,
-            predict_tree=predict_t45_tree_from_features,
+            load_ridge=lambda: load_ridge_model("t45"),
+            predict_ridge=lambda feats, model_doc=None: predict_ridge_from_features(
+                "t45", feats, model_doc=model_doc
+            ),
+            load_tree=lambda: load_tree_model_doc("t45"),
+            predict_tree=lambda feats, model_doc=None: predict_tree_from_features(
+                "t45", feats, model_doc=model_doc
+            ),
         )
         if y_hat is None:
             return
-        write_y_t45_hat(item, float(y_hat))
+        write_y_hat("t45", item, float(y_hat))
         if src:
             item["y_τ45_source"] = src
             item["y_t45_source"] = src
@@ -1455,7 +1465,9 @@ def _attach_y_t45_to_item(
             model=model,
             y_hat=float(y_hat),
             keys=("formula_terms_t45", "score_formula_terms_t45"),
-            explain_ridge=explain_t45_prediction,
+            explain_ridge=lambda feats, model_doc=None: explain_ridge_prediction(
+                "t45", feats, model_doc=model_doc
+            ),
         )
     except Exception:  # noqa: BLE001
         logger.debug("attach y_t45 predict failed", exc_info=True)
@@ -1484,15 +1496,15 @@ def _attach_y_t60_to_item(
     if open_z_only and not allow_open_z:
         return
     try:
-        from core.research.t60_ridge import (
-            explain_t60_prediction,
-            load_t60_model,
-            predict_t60_from_features,
-            write_y_t60_hat,
+        from core.research.horizon_ridge import (
+            explain_ridge_prediction,
+            load_ridge_model,
+            predict_ridge_from_features,
+            write_y_hat,
         )
-        from core.research.t60_tree import (
-            load_t60_tree_model,
-            predict_t60_tree_from_features,
+        from core.research.horizon_tree import (
+            load_tree_model_doc,
+            predict_tree_from_features,
         )
         from core.research.tau_panel import (
             T60_SEQ_FEATURES,
@@ -1546,14 +1558,18 @@ def _attach_y_t60_to_item(
         y_hat, model, src = _predict_horizon_hat(
             "t60",
             feats,
-            load_ridge=load_t60_model,
-            predict_ridge=predict_t60_from_features,
-            load_tree=load_t60_tree_model,
-            predict_tree=predict_t60_tree_from_features,
+            load_ridge=lambda: load_ridge_model("t60"),
+            predict_ridge=lambda feats, model_doc=None: predict_ridge_from_features(
+                "t60", feats, model_doc=model_doc
+            ),
+            load_tree=lambda: load_tree_model_doc("t60"),
+            predict_tree=lambda feats, model_doc=None: predict_tree_from_features(
+                "t60", feats, model_doc=model_doc
+            ),
         )
         if y_hat is None:
             return
-        write_y_t60_hat(item, float(y_hat))
+        write_y_hat("t60", item, float(y_hat))
         if src:
             item["y_τ60_source"] = src
             item["y_t60_source"] = src
@@ -1564,7 +1580,9 @@ def _attach_y_t60_to_item(
             model=model,
             y_hat=float(y_hat),
             keys=("formula_terms_t60", "score_formula_terms_t60"),
-            explain_ridge=explain_t60_prediction,
+            explain_ridge=lambda feats, model_doc=None: explain_ridge_prediction(
+                "t60", feats, model_doc=model_doc
+            ),
         )
     except Exception:  # noqa: BLE001
         logger.debug("attach y_t60 predict failed", exc_info=True)
@@ -1593,15 +1611,15 @@ def _attach_y_t75_to_item(
     if open_z_only and not allow_open_z:
         return
     try:
-        from core.research.t75_ridge import (
-            explain_t75_prediction,
-            load_t75_model,
-            predict_t75_from_features,
-            write_y_t75_hat,
+        from core.research.horizon_ridge import (
+            explain_ridge_prediction,
+            load_ridge_model,
+            predict_ridge_from_features,
+            write_y_hat,
         )
-        from core.research.t75_tree import (
-            load_t75_tree_model,
-            predict_t75_tree_from_features,
+        from core.research.horizon_tree import (
+            load_tree_model_doc,
+            predict_tree_from_features,
         )
         from core.research.tau_panel import (
             T75_SEQ_FEATURES,
@@ -1655,14 +1673,18 @@ def _attach_y_t75_to_item(
         y_hat, model, src = _predict_horizon_hat(
             "t75",
             feats,
-            load_ridge=load_t75_model,
-            predict_ridge=predict_t75_from_features,
-            load_tree=load_t75_tree_model,
-            predict_tree=predict_t75_tree_from_features,
+            load_ridge=lambda: load_ridge_model("t75"),
+            predict_ridge=lambda feats, model_doc=None: predict_ridge_from_features(
+                "t75", feats, model_doc=model_doc
+            ),
+            load_tree=lambda: load_tree_model_doc("t75"),
+            predict_tree=lambda feats, model_doc=None: predict_tree_from_features(
+                "t75", feats, model_doc=model_doc
+            ),
         )
         if y_hat is None:
             return
-        write_y_t75_hat(item, float(y_hat))
+        write_y_hat("t75", item, float(y_hat))
         if src:
             item["y_τ75_source"] = src
             item["y_t75_source"] = src
@@ -1673,7 +1695,9 @@ def _attach_y_t75_to_item(
             model=model,
             y_hat=float(y_hat),
             keys=("formula_terms_t75", "score_formula_terms_t75"),
-            explain_ridge=explain_t75_prediction,
+            explain_ridge=lambda feats, model_doc=None: explain_ridge_prediction(
+                "t75", feats, model_doc=model_doc
+            ),
         )
     except Exception:  # noqa: BLE001
         logger.debug("attach y_t75 predict failed", exc_info=True)
@@ -1702,15 +1726,15 @@ def _attach_y_t90_to_item(
     if open_z_only and not allow_open_z:
         return
     try:
-        from core.research.t90_ridge import (
-            explain_t90_prediction,
-            load_t90_model,
-            predict_t90_from_features,
-            write_y_t90_hat,
+        from core.research.horizon_ridge import (
+            explain_ridge_prediction,
+            load_ridge_model,
+            predict_ridge_from_features,
+            write_y_hat,
         )
-        from core.research.t90_tree import (
-            load_t90_tree_model,
-            predict_t90_tree_from_features,
+        from core.research.horizon_tree import (
+            load_tree_model_doc,
+            predict_tree_from_features,
         )
         from core.research.tau_panel import (
             T90_SEQ_FEATURES,
@@ -1764,14 +1788,18 @@ def _attach_y_t90_to_item(
         y_hat, model, src = _predict_horizon_hat(
             "t90",
             feats,
-            load_ridge=load_t90_model,
-            predict_ridge=predict_t90_from_features,
-            load_tree=load_t90_tree_model,
-            predict_tree=predict_t90_tree_from_features,
+            load_ridge=lambda: load_ridge_model("t90"),
+            predict_ridge=lambda feats, model_doc=None: predict_ridge_from_features(
+                "t90", feats, model_doc=model_doc
+            ),
+            load_tree=lambda: load_tree_model_doc("t90"),
+            predict_tree=lambda feats, model_doc=None: predict_tree_from_features(
+                "t90", feats, model_doc=model_doc
+            ),
         )
         if y_hat is None:
             return
-        write_y_t90_hat(item, float(y_hat))
+        write_y_hat("t90", item, float(y_hat))
         if src:
             item["y_τ90_source"] = src
             item["y_t90_source"] = src
@@ -1782,7 +1810,9 @@ def _attach_y_t90_to_item(
             model=model,
             y_hat=float(y_hat),
             keys=("formula_terms_t90", "score_formula_terms_t90"),
-            explain_ridge=explain_t90_prediction,
+            explain_ridge=lambda feats, model_doc=None: explain_ridge_prediction(
+                "t90", feats, model_doc=model_doc
+            ),
         )
     except Exception:  # noqa: BLE001
         logger.debug("attach y_t90 predict failed", exc_info=True)

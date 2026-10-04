@@ -375,6 +375,10 @@ class CoRidgeRequest(BaseModel):
         description="训练标签全局去均值，截距加回；供拟合/回测对照",
     )
     note: str = Field(default="", max_length=200)
+    sync: bool = Field(
+        default=False,
+        description="true=同步跑（单测）；默认 persist=false 时入队 Job，轮询 GET /api/jobs/co-ridge",
+    )
 
 
 class OoRankRequest(BaseModel):

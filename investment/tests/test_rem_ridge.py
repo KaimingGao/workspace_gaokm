@@ -259,7 +259,6 @@ class TestRemRidgeFit(unittest.TestCase):
                 self.assertTrue(saved.get("success"), saved)
                 self.assertEqual(saved.get("schema"), "tau_ridge_v12")
                 self.assertTrue(os.path.isfile(os.path.join(live, "tau_ridge_model.json")))
-                self.assertTrue(os.path.isfile(os.path.join(live, "rem_ridge_model.json")))
                 from core.research.tc_ridge import load_tau_model, predict_tau_from_features
 
                 doc = load_tau_model()
@@ -393,43 +392,6 @@ class TestRemRidgeFit(unittest.TestCase):
                 self.assertAlmostEqual(
                     float((doc.get("return_model") or {}).get("coefficients")["gap_pct"]),
                     0.1,
-                )
-
-    def test_load_falls_back_to_legacy_rem_filename(self):
-        from core.research.tc_ridge import load_tau_model, persist_tau_model
-
-        dummy = {
-            "success": True,
-            "schema": "tau_ridge_v11",
-            "return_model": {
-                "coefficients": {"gap_pct": 0.2},
-                "intercept": 0.0,
-                "y_spec": {"formula": "close[T]/open[T]-1", "tau": "open", "unit": "pct"},
-            },
-            "oos": {
-                "ic": 0.09,
-                "sign_hit": 0.60,
-                "n_valid": 100,
-                "buckets": {"abs_ge_0_6": {"n": 40, "sign_hit": 0.62}},
-            },
-            "sample_count": 10,
-            "stock_count": 3,
-        }
-        with tempfile.TemporaryDirectory() as tmp:
-            live = os.path.join(tmp, "live")
-            os.makedirs(live, exist_ok=True)
-            with patch("core.paths.LIVE_DIR", live):
-                saved = persist_tau_model(dummy, note="legacy-read", force=True)
-                self.assertTrue(saved.get("success"), saved)
-                # 仅保留旧文件名时仍可读
-                os.remove(os.path.join(live, "tau_ridge_model.json"))
-                self.assertTrue(os.path.isfile(os.path.join(live, "rem_ridge_model.json")))
-                doc = load_tau_model()
-                self.assertIsNotNone(doc)
-                self.assertEqual(doc.get("schema"), "tau_ridge_v11")
-                self.assertAlmostEqual(
-                    float((doc.get("return_model") or {}).get("coefficients")["gap_pct"]),
-                    0.2,
                 )
 
 

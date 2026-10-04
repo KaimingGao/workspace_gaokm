@@ -1050,16 +1050,10 @@ def _build_close_band_scan_trace(
             y_r_hat = pick_y_tc_hat(sc, gate_snap)
             if y_r_hat is not None:
                 y_r = round(float(y_r_hat), 4)
-            from core.research.t30_ridge import pick_y_t30_hat as _pick_t30
-            from core.research.t30_ridge import t30_realized_pct
-            from core.research.t45_ridge import pick_y_t45_hat as _pick_t45
-            from core.research.t45_ridge import t45_realized_pct
-            from core.research.t60_ridge import pick_y_t60_hat as _pick_t60
-            from core.research.t60_ridge import t60_realized_pct
-            from core.research.t75_ridge import pick_y_t75_hat as _pick_t75
-            from core.research.t75_ridge import t75_realized_pct
-            from core.research.t90_ridge import pick_y_t90_hat as _pick_t90
-            from core.research.t90_ridge import t90_realized_pct
+            from core.research.horizon_ridge import (
+                horizon_realized_pct,
+                pick_y_hat,
+            )
             from core.research.tau_panel import (
                 price_at_t30_mean_session,
                 price_at_t45_mean_session,
@@ -1068,37 +1062,37 @@ def _build_close_band_scan_trace(
                 price_at_t90_mean_session,
             )
 
-            y_t30_hat = _pick_t30(sc, gate_snap)
+            y_t30_hat = pick_y_hat("t30", sc, gate_snap)
             y_t30 = round(float(y_t30_hat), 4) if y_t30_hat is not None else None
-            y_t45_hat = _pick_t45(sc, gate_snap)
+            y_t45_hat = pick_y_hat("t45", sc, gate_snap)
             y_t45 = round(float(y_t45_hat), 4) if y_t45_hat is not None else None
-            y_t60_hat = _pick_t60(sc, gate_snap)
+            y_t60_hat = pick_y_hat("t60", sc, gate_snap)
             y_t60 = round(float(y_t60_hat), 4) if y_t60_hat is not None else None
-            y_t75_hat = _pick_t75(sc, gate_snap)
+            y_t75_hat = pick_y_hat("t75", sc, gate_snap)
             y_t75 = round(float(y_t75_hat), 4) if y_t75_hat is not None else None
-            y_t90_hat = _pick_t90(sc, gate_snap)
+            y_t90_hat = pick_y_hat("t90", sc, gate_snap)
             y_t90 = round(float(y_t90_hat), 4) if y_t90_hat is not None else None
             if trade_date and hm:
                 _, px30 = price_at_t30_mean_session(
                     mins, trade_date=trade_date, tau_hm=str(hm)[:5]
                 )
-                y_t30_realized = t30_realized_pct(c, px30)
+                y_t30_realized = horizon_realized_pct("t30", c, px30)
                 _, px45 = price_at_t45_mean_session(
                     mins, trade_date=trade_date, tau_hm=str(hm)[:5]
                 )
-                y_t45_realized = t45_realized_pct(c, px45)
+                y_t45_realized = horizon_realized_pct("t45", c, px45)
                 _, px60 = price_at_t60_mean_session(
                     mins, trade_date=trade_date, tau_hm=str(hm)[:5]
                 )
-                y_t60_realized = t60_realized_pct(c, px60)
+                y_t60_realized = horizon_realized_pct("t60", c, px60)
                 _, px75 = price_at_t75_mean_session(
                     mins, trade_date=trade_date, tau_hm=str(hm)[:5]
                 )
-                y_t75_realized = t75_realized_pct(c, px75)
+                y_t75_realized = horizon_realized_pct("t75", c, px75)
                 _, px90 = price_at_t90_mean_session(
                     mins, trade_date=trade_date, tau_hm=str(hm)[:5]
                 )
-                y_t90_realized = t90_realized_pct(c, px90)
+                y_t90_realized = horizon_realized_pct("t90", c, px90)
             daily_c = None
             try:
                 daily_c = float((day_anchor or {}).get("close") or 0)

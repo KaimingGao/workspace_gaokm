@@ -484,7 +484,7 @@ def rank_candidates(
 
     # 显式传入非默认值时尊重调用方；默认 55 在收益分下改为无下限
     if min_score == 55.0:
-        min_score = resolve_buy_floor(heuristic_default=float(defaults["min_score"]))
+        min_score = resolve_buy_floor()
     if limit == 8:
         limit = int(defaults["default_limit"])
 

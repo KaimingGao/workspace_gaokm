@@ -857,23 +857,10 @@ def tau_model_path() -> str:
     return os.path.join(LIVE_DIR, "tau_ridge_model.json")
 
 
-def tau_model_path_legacy() -> str:
-    """旧文件名（rem_ridge_*）；仅读兼容。"""
-    from core.paths import LIVE_DIR
-
-    return os.path.join(LIVE_DIR, "rem_ridge_model.json")
-
-
 def tau_last_report_path() -> str:
     from core.paths import LIVE_DIR
 
     return os.path.join(LIVE_DIR, "tau_ridge_last_report.json")
-
-
-def tau_last_report_path_legacy() -> str:
-    from core.paths import LIVE_DIR
-
-    return os.path.join(LIVE_DIR, "rem_ridge_last_report.json")
 
 
 _JSON_MODEL_CACHE: Dict[str, Tuple[float, Optional[Dict[str, Any]]]] = {}
@@ -921,18 +908,12 @@ def save_tau_last_report(report: Dict[str, Any]) -> None:
     os.makedirs(os.path.dirname(path), exist_ok=True)
     atomic_write_json(path, report)
     _JSON_MODEL_CACHE.pop(path, None)
-    # 过渡期双写旧路径，避免旧 UI 读 last report 落空
-    try:
-        atomic_write_json(tau_last_report_path_legacy(), report)
-    except Exception:  # noqa: BLE001
-        logger.debug("legacy tau last_report write failed", exc_info=True)
 
 
 def load_tau_last_report() -> Optional[Dict[str, Any]]:
-    for path in (tau_last_report_path(), tau_last_report_path_legacy()):
-        doc = _load_json_model(path)
-        if doc and doc.get("success"):
-            return doc
+    doc = _load_json_model(tau_last_report_path())
+    if doc and doc.get("success"):
+        return doc
     return None
 
 
@@ -1037,11 +1018,6 @@ def persist_tau_model(
     os.makedirs(os.path.dirname(path), exist_ok=True)
     atomic_write_json(path, doc)
     _JSON_MODEL_CACHE.pop(path, None)
-    if role_n != MODEL_ROLE_RESEARCH:
-        try:
-            atomic_write_json(tau_model_path_legacy(), doc)
-        except Exception:  # noqa: BLE001
-            logger.debug("legacy tau model write failed", exc_info=True)
     out = {
         "success": True,
         "path": path,
@@ -1051,8 +1027,6 @@ def persist_tau_model(
         "promote_gate": gate,
         "model_role": role_n,
     }
-    if role_n != MODEL_ROLE_RESEARCH:
-        out["legacy_path"] = tau_model_path_legacy()
     return out
 
 
@@ -1066,10 +1040,9 @@ def load_tau_model(*, role: Optional[str] = None) -> Optional[Dict[str, Any]]:
     role_n = role if role is not None else current_scoring_model_role()
     if role_n == MODEL_ROLE_RESEARCH:
         return _load_json_model(research_model_path(tau_model_path()))
-    for path in (tau_model_path(), tau_model_path_legacy()):
-        doc = _load_json_model(path)
-        if doc:
-            return doc
+    doc = _load_json_model(tau_model_path())
+    if doc:
+        return doc
     return None
 
 

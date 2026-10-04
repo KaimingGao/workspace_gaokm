@@ -110,10 +110,6 @@ class TestP32QuantPackageInfo(unittest.TestCase):
 
 # --- test_p31_quant.py::TestP33CanonicalCliImports ---
 class TestP33CanonicalCliImports(unittest.TestCase):
-    def test_research_cli_imports_quant_service(self):
-        import research.quant_export_run as mod
-
-        self.assertIn("quant.services.quant_service", mod.QuantService.__module__)
     def test_preset_check_imports_quant_ops(self):
         import evals.preset_check as mod
 

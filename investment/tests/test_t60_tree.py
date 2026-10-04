@@ -83,7 +83,10 @@ def _has_lightgbm() -> bool:
 @unittest.skipUnless(_has_lightgbm(), "lightgbm 未安装")
 class TestT60Tree(unittest.TestCase):
     def test_defaults_match_tau_tree(self):
-        from core.research.t60_tree import DEFAULT_N_ESTIMATORS, TREE_HEAD, TREE_SCHEMA
+        from core.research.tc_tree import DEFAULT_N_ESTIMATORS
+
+        TREE_HEAD = "y_t60_tree"
+        TREE_SCHEMA = "t60_tree_shadow_v5"
         from core.research.tc_tree import DEFAULT_N_ESTIMATORS as TAU_N
 
         self.assertEqual(DEFAULT_N_ESTIMATORS, 300)
@@ -92,11 +95,11 @@ class TestT60Tree(unittest.TestCase):
         self.assertEqual(TREE_SCHEMA, "t60_tree_shadow_v5")
 
     def test_fit_shadow_vs_ridge_no_live_file(self):
-        from core.research.t60_ridge import load_t60_model, persist_t60_model
-        from core.research.t60_tree import (
-            fit_t60_tree_report,
-            save_t60_tree_last_report,
-            t60_tree_last_report_path,
+        from core.research.horizon_ridge import load_ridge_model, persist_ridge_model
+        from core.research.horizon_tree import (
+            fit_horizon_tree_report,
+            save_tree_last_report,
+            tree_last_report_path,
         )
 
         stock_bars = [
@@ -105,7 +108,8 @@ class TestT60Tree(unittest.TestCase):
             _stock("C", 8.0),
             _stock("D", 15.0),
         ]
-        report = fit_t60_tree_report(
+        report = fit_horizon_tree_report(
+            "t60",
             stock_bars,
             ridge_lambda=1.0,
             theme_boost=1.5,
@@ -158,15 +162,15 @@ class TestT60Tree(unittest.TestCase):
         self.assertIn("fit_s", timing)
         self.assertEqual((report.get("hyperparams") or {}).get("n_estimators"), 20)
 
-        blocked = persist_t60_model(report, note="should fail", force=True)
+        blocked = persist_ridge_model("t60", report, note="should fail", force=True)
         self.assertFalse(blocked.get("success"))
 
         with tempfile.TemporaryDirectory() as tmp:
             live = os.path.join(tmp, "live")
             os.makedirs(live, exist_ok=True)
             with patch("core.paths.LIVE_DIR", live):
-                save_t60_tree_last_report(report)
-                tree_path = t60_tree_last_report_path()
+                save_tree_last_report("t60", report)
+                tree_path = tree_last_report_path("t60")
                 self.assertTrue(os.path.isfile(tree_path))
                 self.assertIn("t60_tree_last_report.json", tree_path)
                 self.assertFalse(
@@ -175,12 +179,13 @@ class TestT60Tree(unittest.TestCase):
                 self.assertFalse(
                     os.path.isfile(os.path.join(live, "t60_ridge_model_research.json"))
                 )
-                self.assertIsNone(load_t60_model())
+                self.assertIsNone(load_ridge_model("t60"))
 
     def test_open_tau_coerced_to_1030(self):
-        from core.research.t60_tree import fit_t60_tree_report
+        from core.research.horizon_tree import fit_horizon_tree_report
 
-        report = fit_t60_tree_report(
+        report = fit_horizon_tree_report(
+            "t60",
             [_stock("A", 10.0, n_days=36), _stock("B", 11.0, n_days=36)],
             backend="lightgbm",
             n_estimators=8,

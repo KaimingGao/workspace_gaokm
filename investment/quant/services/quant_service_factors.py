@@ -106,6 +106,24 @@ def _peek_model_stamp(path: str) -> Optional[str]:
     return _file_mtime_iso(path)
 
 
+def _peek_json_key(path: str, key: str) -> Optional[str]:
+    """读落盘 JSON 顶层字符串字段；缺文件/缺键返回 None。"""
+    try:
+        if not path or not os.path.isfile(path):
+            return None
+        import json
+
+        with open(path, "r", encoding="utf-8") as f:
+            doc = json.load(f)
+        if isinstance(doc, dict):
+            val = doc.get(key)
+            if val:
+                return str(val)
+    except Exception:  # noqa: BLE001
+        logger.debug("peek json key failed: %s %s", path, key, exc_info=True)
+    return None
+
+
 def _attach_ridge_role_flags(
     out: Dict[str, Any],
     live_path: str,
@@ -127,7 +145,9 @@ def _attach_ridge_role_flags(
     out["live_model_present"] = bool(live_present)
     live_fit = _peek_model_stamp(live_path) if live_present else None
     out["live_fitted_at"] = live_fit
-    out["live_promoted_at"] = live_fit
+    out["live_promoted_at"] = (
+        _peek_json_key(live_path, "promoted_at") if live_present else None
+    )
     fitted = out.get("fitted_at")
     if not fitted:
         last_path = _last_report_path_from_live(live_path)
@@ -1372,6 +1392,43 @@ class QuantFactorMixin:
             report["live_model_present"] = bool(live)
         return _attach_ridge_role_flags(report, co_model_path())
 
+    def start_co_ridge_job(
+        self,
+        *,
+        lookback: int = 600,
+        watching_limit: int = WATCHING_MAX_SIZE,
+        ridge_lambda: float = 1.0,
+        gap_trigger_pct: float = 2.0,
+        theme_boost: float = 1.5,
+        note: str = "",
+        persist_role: str = "live",
+        holdout_trading_days: int = 20,
+        label_demean: bool = False,
+        **_ignored: Any,
+    ) -> Dict[str, Any]:
+        """后台 ŷ_co 拟合；轮询 ``GET /api/jobs/co-ridge``。不写盘。"""
+        from core.job_progress import co_ridge_job
+
+        kwargs = dict(
+            lookback=lookback,
+            watching_limit=watching_limit,
+            ridge_lambda=ridge_lambda,
+            gap_trigger_pct=gap_trigger_pct,
+            theme_boost=theme_boost,
+            persist=False,
+            note=note or "",
+            persist_role=persist_role,
+            holdout_trading_days=holdout_trading_days,
+            label_demean=bool(label_demean),
+        )
+        return _start_ridge_fit_job(
+            slot=co_ridge_job,
+            kind="co_ridge",
+            message="ŷ_co 拟合中…",
+            watching_limit=int(watching_limit or WATCHING_MAX_SIZE),
+            worker_fn=lambda: self.run_co_ridge_experiment(**kwargs),
+        )
+
     def get_co_ridge_model(self) -> Dict[str, Any]:
         from core.research.co_ridge import (
             load_co_last_report,
@@ -1572,14 +1629,14 @@ class QuantFactorMixin:
         """观察池 ŷ_τ30 Ridge：与 ŷ_τc 同 X → mean(price(τ⊕25/30/35))/price(τ)−1。只读本地 5m 缓存。"""
         from core.data.facade import bars_and_source
         from core.watching.store import WATCHING_MAX_SIZE, read_watching
-        from core.research.t30_ridge import (
-            fit_t30_ridge_report,
-            load_t30_last_report,
-            load_t30_model,
-            persist_t30_model,
-            t30_model_path,
-            t30_promote_gate,
-            save_t30_last_report,
+        from core.research.horizon_prob import horizon_promote_gate
+        from core.research.horizon_ridge import (
+            fit_horizon_ridge_report,
+            load_ridge_last_report,
+            load_ridge_model,
+            persist_ridge_model,
+            ridge_model_path,
+            save_ridge_last_report,
         )
 
         uni = read_watching()
@@ -1599,9 +1656,10 @@ class QuantFactorMixin:
             }
 
         if persist:
-            last = load_t30_last_report()
+            last = load_ridge_last_report("t30")
             if last:
-                saved = persist_t30_model(
+                saved = persist_ridge_model(
+                    "t30",
                     last,
                     note=note or "persist last t30 report",
                     force=bool(force_promote),
@@ -1610,10 +1668,10 @@ class QuantFactorMixin:
                 out = dict(last)
                 out["persisted"] = saved
                 out["from_last_report"] = True
-                out["promote_gate"] = saved.get("promote_gate") or t30_promote_gate(last)
+                out["promote_gate"] = saved.get("promote_gate") or horizon_promote_gate(last)
                 if saved.get("promoted_at"):
                     out["promoted_at"] = saved["promoted_at"]
-                return _attach_ridge_role_flags(out, t30_model_path())
+                return _attach_ridge_role_flags(out, ridge_model_path("t30"))
 
         period = str(minute_period or "5").strip() or "5"
         stock_bars: List[Dict[str, Any]] = []
@@ -1665,7 +1723,8 @@ class QuantFactorMixin:
                 "minute_codes_miss": minute_codes_miss,
             }
 
-        report = fit_t30_ridge_report(
+        report = fit_horizon_ridge_report(
+            "t30",
             stock_bars,
             ridge_lambda=ridge_lambda,
             gap_trigger_pct=gap_trigger_pct,
@@ -1680,66 +1739,67 @@ class QuantFactorMixin:
         report["minute_codes_universe"] = len(codes)
         report["minute_cache_only"] = True
         if report.get("success"):
-            save_t30_last_report(report)
+            save_ridge_last_report("t30", report)
         if persist and report.get("success"):
-            saved = persist_t30_model(
+            saved = persist_ridge_model(
+                "t30",
                 report,
                 note=note or "api t30-ridge persist",
                 force=bool(force_promote),
                 role=persist_role,
             )
             report["persisted"] = saved
-            report["promote_gate"] = saved.get("promote_gate") or t30_promote_gate(report)
+            report["promote_gate"] = saved.get("promote_gate") or horizon_promote_gate(report)
             if saved.get("promoted_at"):
                 report["promoted_at"] = saved["promoted_at"]
         else:
             report["persisted"] = {"success": False, "skipped": True}
-            live = load_t30_model()
+            live = load_ridge_model("t30")
             report["live_model_present"] = bool(live)
             if report.get("success") and not report.get("promote_gate"):
-                report["promote_gate"] = t30_promote_gate(report)
-        return _attach_ridge_role_flags(report, t30_model_path())
+                report["promote_gate"] = horizon_promote_gate(report)
+        return _attach_ridge_role_flags(report, ridge_model_path("t30"))
 
     def get_t30_ridge_model(self) -> Dict[str, Any]:
-        from core.research.t30_ridge import (
-            load_t30_last_report,
-            load_t30_model,
-            t30_model_path,
-            t30_promote_gate,
+        from core.research.horizon_prob import horizon_promote_gate
+        from core.research.horizon_ridge import (
+            load_ridge_last_report,
+            load_ridge_model,
+            ridge_model_path,
         )
 
-        doc = load_t30_model()
-        last = load_t30_last_report()
+        doc = load_ridge_model("t30")
+        last = load_ridge_last_report("t30")
         chosen, use_last = _select_ridge_desk_doc(doc, last)
         if not chosen:
             out = {
                 "success": False,
                 "exists": False,
-                "path": t30_model_path(),
+                "path": ridge_model_path("t30"),
                 "last_report_exists": bool(last),
                 "note": "尚无 ŷ_τ30 模型；POST /api/quant/t30-ridge persist=true",
             }
             if last:
-                out["promote_gate"] = t30_promote_gate(last)
+                out["promote_gate"] = horizon_promote_gate(last)
                 out["oos"] = last.get("oos")
-            return _attach_ridge_role_flags(out, t30_model_path(), live_present=False)
+            return _attach_ridge_role_flags(out, ridge_model_path("t30"), live_present=False)
         gate_src = last if use_last else (doc if not doc.get("_shadow") else (last or doc))
         packed = {
             **chosen,
             "success": True,
             "exists": True,
-            "path": t30_model_path(),
+            "path": ridge_model_path("t30"),
             "promoted": (not use_last) and not bool(chosen.get("_shadow")),
             "shadow": bool(use_last) or bool(chosen.get("_shadow")),
             "last_report_exists": bool(last),
-            "promote_gate": t30_promote_gate(gate_src),
+            "promote_gate": horizon_promote_gate(gate_src),
         }
         research_rm = packed.get("return_model_research")
         if not isinstance(research_rm, dict):
             if isinstance(last, dict) and isinstance(last.get("return_model_research"), dict):
                 research_rm = last["return_model_research"]
             else:
-                research_doc = load_t30_model(role="research")
+                research_doc = load_ridge_model("t30", role="research")
                 research_rm = (
                     research_doc.get("return_model")
                     if isinstance(research_doc, dict)
@@ -1747,7 +1807,7 @@ class QuantFactorMixin:
                 )
         if isinstance(research_rm, dict):
             packed["return_model_research"] = research_rm
-        return _attach_ridge_role_flags(packed, t30_model_path())
+        return _attach_ridge_role_flags(packed, ridge_model_path("t30"))
 
     def start_t30_ridge_job(
         self,
@@ -1800,14 +1860,14 @@ class QuantFactorMixin:
         """观察池 ŷ_τ45 Ridge：与 ŷ_τc 同 X → mean(price(τ⊕40/45/50))/price(τ)−1。只读本地 5m 缓存。"""
         from core.data.facade import bars_and_source
         from core.watching.store import WATCHING_MAX_SIZE, read_watching
-        from core.research.t45_ridge import (
-            fit_t45_ridge_report,
-            load_t45_last_report,
-            load_t45_model,
-            persist_t45_model,
-            t45_model_path,
-            t45_promote_gate,
-            save_t45_last_report,
+        from core.research.horizon_prob import horizon_promote_gate
+        from core.research.horizon_ridge import (
+            fit_horizon_ridge_report,
+            load_ridge_last_report,
+            load_ridge_model,
+            persist_ridge_model,
+            ridge_model_path,
+            save_ridge_last_report,
         )
 
         uni = read_watching()
@@ -1827,9 +1887,10 @@ class QuantFactorMixin:
             }
 
         if persist:
-            last = load_t45_last_report()
+            last = load_ridge_last_report("t45")
             if last:
-                saved = persist_t45_model(
+                saved = persist_ridge_model(
+                    "t45",
                     last,
                     note=note or "persist last t45 report",
                     force=bool(force_promote),
@@ -1838,10 +1899,10 @@ class QuantFactorMixin:
                 out = dict(last)
                 out["persisted"] = saved
                 out["from_last_report"] = True
-                out["promote_gate"] = saved.get("promote_gate") or t45_promote_gate(last)
+                out["promote_gate"] = saved.get("promote_gate") or horizon_promote_gate(last)
                 if saved.get("promoted_at"):
                     out["promoted_at"] = saved["promoted_at"]
-                return _attach_ridge_role_flags(out, t45_model_path())
+                return _attach_ridge_role_flags(out, ridge_model_path("t45"))
 
         period = str(minute_period or "5").strip() or "5"
         stock_bars: List[Dict[str, Any]] = []
@@ -1893,7 +1954,8 @@ class QuantFactorMixin:
                 "minute_codes_miss": minute_codes_miss,
             }
 
-        report = fit_t45_ridge_report(
+        report = fit_horizon_ridge_report(
+            "t45",
             stock_bars,
             ridge_lambda=ridge_lambda,
             gap_trigger_pct=gap_trigger_pct,
@@ -1908,66 +1970,67 @@ class QuantFactorMixin:
         report["minute_codes_universe"] = len(codes)
         report["minute_cache_only"] = True
         if report.get("success"):
-            save_t45_last_report(report)
+            save_ridge_last_report("t45", report)
         if persist and report.get("success"):
-            saved = persist_t45_model(
+            saved = persist_ridge_model(
+                "t45",
                 report,
                 note=note or "api t45-ridge persist",
                 force=bool(force_promote),
                 role=persist_role,
             )
             report["persisted"] = saved
-            report["promote_gate"] = saved.get("promote_gate") or t45_promote_gate(report)
+            report["promote_gate"] = saved.get("promote_gate") or horizon_promote_gate(report)
             if saved.get("promoted_at"):
                 report["promoted_at"] = saved["promoted_at"]
         else:
             report["persisted"] = {"success": False, "skipped": True}
-            live = load_t45_model()
+            live = load_ridge_model("t45")
             report["live_model_present"] = bool(live)
             if report.get("success") and not report.get("promote_gate"):
-                report["promote_gate"] = t45_promote_gate(report)
-        return _attach_ridge_role_flags(report, t45_model_path())
+                report["promote_gate"] = horizon_promote_gate(report)
+        return _attach_ridge_role_flags(report, ridge_model_path("t45"))
 
     def get_t45_ridge_model(self) -> Dict[str, Any]:
-        from core.research.t45_ridge import (
-            load_t45_last_report,
-            load_t45_model,
-            t45_model_path,
-            t45_promote_gate,
+        from core.research.horizon_prob import horizon_promote_gate
+        from core.research.horizon_ridge import (
+            load_ridge_last_report,
+            load_ridge_model,
+            ridge_model_path,
         )
 
-        doc = load_t45_model()
-        last = load_t45_last_report()
+        doc = load_ridge_model("t45")
+        last = load_ridge_last_report("t45")
         chosen, use_last = _select_ridge_desk_doc(doc, last)
         if not chosen:
             out = {
                 "success": False,
                 "exists": False,
-                "path": t45_model_path(),
+                "path": ridge_model_path("t45"),
                 "last_report_exists": bool(last),
                 "note": "尚无 ŷ_τ45 模型；POST /api/quant/t45-ridge persist=true",
             }
             if last:
-                out["promote_gate"] = t45_promote_gate(last)
+                out["promote_gate"] = horizon_promote_gate(last)
                 out["oos"] = last.get("oos")
-            return _attach_ridge_role_flags(out, t45_model_path(), live_present=False)
+            return _attach_ridge_role_flags(out, ridge_model_path("t45"), live_present=False)
         gate_src = last if use_last else (doc if not doc.get("_shadow") else (last or doc))
         packed = {
             **chosen,
             "success": True,
             "exists": True,
-            "path": t45_model_path(),
+            "path": ridge_model_path("t45"),
             "promoted": (not use_last) and not bool(chosen.get("_shadow")),
             "shadow": bool(use_last) or bool(chosen.get("_shadow")),
             "last_report_exists": bool(last),
-            "promote_gate": t45_promote_gate(gate_src),
+            "promote_gate": horizon_promote_gate(gate_src),
         }
         research_rm = packed.get("return_model_research")
         if not isinstance(research_rm, dict):
             if isinstance(last, dict) and isinstance(last.get("return_model_research"), dict):
                 research_rm = last["return_model_research"]
             else:
-                research_doc = load_t45_model(role="research")
+                research_doc = load_ridge_model("t45", role="research")
                 research_rm = (
                     research_doc.get("return_model")
                     if isinstance(research_doc, dict)
@@ -1975,7 +2038,7 @@ class QuantFactorMixin:
                 )
         if isinstance(research_rm, dict):
             packed["return_model_research"] = research_rm
-        return _attach_ridge_role_flags(packed, t45_model_path())
+        return _attach_ridge_role_flags(packed, ridge_model_path("t45"))
 
     def start_t45_ridge_job(
         self,
@@ -2028,14 +2091,14 @@ class QuantFactorMixin:
         """观察池 ŷ_τ60 Ridge：与 ŷ_τc 同 X → mean(price(τ⊕55/60/65))/price(τ)−1。只读本地 5m 缓存。"""
         from core.data.facade import bars_and_source
         from core.watching.store import WATCHING_MAX_SIZE, read_watching
-        from core.research.t60_ridge import (
-            fit_t60_ridge_report,
-            load_t60_last_report,
-            load_t60_model,
-            persist_t60_model,
-            t60_model_path,
-            t60_promote_gate,
-            save_t60_last_report,
+        from core.research.horizon_prob import horizon_promote_gate
+        from core.research.horizon_ridge import (
+            fit_horizon_ridge_report,
+            load_ridge_last_report,
+            load_ridge_model,
+            persist_ridge_model,
+            ridge_model_path,
+            save_ridge_last_report,
         )
 
         uni = read_watching()
@@ -2055,9 +2118,10 @@ class QuantFactorMixin:
             }
 
         if persist:
-            last = load_t60_last_report()
+            last = load_ridge_last_report("t60")
             if last:
-                saved = persist_t60_model(
+                saved = persist_ridge_model(
+                    "t60",
                     last,
                     note=note or "persist last t60 report",
                     force=bool(force_promote),
@@ -2066,10 +2130,10 @@ class QuantFactorMixin:
                 out = dict(last)
                 out["persisted"] = saved
                 out["from_last_report"] = True
-                out["promote_gate"] = saved.get("promote_gate") or t60_promote_gate(last)
+                out["promote_gate"] = saved.get("promote_gate") or horizon_promote_gate(last)
                 if saved.get("promoted_at"):
                     out["promoted_at"] = saved["promoted_at"]
-                return _attach_ridge_role_flags(out, t60_model_path())
+                return _attach_ridge_role_flags(out, ridge_model_path("t60"))
 
         period = str(minute_period or "5").strip() or "5"
         stock_bars: List[Dict[str, Any]] = []
@@ -2121,7 +2185,8 @@ class QuantFactorMixin:
                 "minute_codes_miss": minute_codes_miss,
             }
 
-        report = fit_t60_ridge_report(
+        report = fit_horizon_ridge_report(
+            "t60",
             stock_bars,
             ridge_lambda=ridge_lambda,
             gap_trigger_pct=gap_trigger_pct,
@@ -2136,66 +2201,67 @@ class QuantFactorMixin:
         report["minute_codes_universe"] = len(codes)
         report["minute_cache_only"] = True
         if report.get("success"):
-            save_t60_last_report(report)
+            save_ridge_last_report("t60", report)
         if persist and report.get("success"):
-            saved = persist_t60_model(
+            saved = persist_ridge_model(
+                "t60",
                 report,
                 note=note or "api t60-ridge persist",
                 force=bool(force_promote),
                 role=persist_role,
             )
             report["persisted"] = saved
-            report["promote_gate"] = saved.get("promote_gate") or t60_promote_gate(report)
+            report["promote_gate"] = saved.get("promote_gate") or horizon_promote_gate(report)
             if saved.get("promoted_at"):
                 report["promoted_at"] = saved["promoted_at"]
         else:
             report["persisted"] = {"success": False, "skipped": True}
-            live = load_t60_model()
+            live = load_ridge_model("t60")
             report["live_model_present"] = bool(live)
             if report.get("success") and not report.get("promote_gate"):
-                report["promote_gate"] = t60_promote_gate(report)
-        return _attach_ridge_role_flags(report, t60_model_path())
+                report["promote_gate"] = horizon_promote_gate(report)
+        return _attach_ridge_role_flags(report, ridge_model_path("t60"))
 
     def get_t60_ridge_model(self) -> Dict[str, Any]:
-        from core.research.t60_ridge import (
-            load_t60_last_report,
-            load_t60_model,
-            t60_model_path,
-            t60_promote_gate,
+        from core.research.horizon_prob import horizon_promote_gate
+        from core.research.horizon_ridge import (
+            load_ridge_last_report,
+            load_ridge_model,
+            ridge_model_path,
         )
 
-        doc = load_t60_model()
-        last = load_t60_last_report()
+        doc = load_ridge_model("t60")
+        last = load_ridge_last_report("t60")
         chosen, use_last = _select_ridge_desk_doc(doc, last)
         if not chosen:
             out = {
                 "success": False,
                 "exists": False,
-                "path": t60_model_path(),
+                "path": ridge_model_path("t60"),
                 "last_report_exists": bool(last),
                 "note": "尚无 ŷ_τ60 模型；POST /api/quant/t60-ridge persist=true",
             }
             if last:
-                out["promote_gate"] = t60_promote_gate(last)
+                out["promote_gate"] = horizon_promote_gate(last)
                 out["oos"] = last.get("oos")
-            return _attach_ridge_role_flags(out, t60_model_path(), live_present=False)
+            return _attach_ridge_role_flags(out, ridge_model_path("t60"), live_present=False)
         gate_src = last if use_last else (doc if not doc.get("_shadow") else (last or doc))
         packed = {
             **chosen,
             "success": True,
             "exists": True,
-            "path": t60_model_path(),
+            "path": ridge_model_path("t60"),
             "promoted": (not use_last) and not bool(chosen.get("_shadow")),
             "shadow": bool(use_last) or bool(chosen.get("_shadow")),
             "last_report_exists": bool(last),
-            "promote_gate": t60_promote_gate(gate_src),
+            "promote_gate": horizon_promote_gate(gate_src),
         }
         research_rm = packed.get("return_model_research")
         if not isinstance(research_rm, dict):
             if isinstance(last, dict) and isinstance(last.get("return_model_research"), dict):
                 research_rm = last["return_model_research"]
             else:
-                research_doc = load_t60_model(role="research")
+                research_doc = load_ridge_model("t60", role="research")
                 research_rm = (
                     research_doc.get("return_model")
                     if isinstance(research_doc, dict)
@@ -2203,7 +2269,7 @@ class QuantFactorMixin:
                 )
         if isinstance(research_rm, dict):
             packed["return_model_research"] = research_rm
-        return _attach_ridge_role_flags(packed, t60_model_path())
+        return _attach_ridge_role_flags(packed, ridge_model_path("t60"))
 
     def start_t60_ridge_job(
         self,
@@ -2256,14 +2322,14 @@ class QuantFactorMixin:
         """观察池 ŷ_τ75 Ridge：与 ŷ_τc 同 X → mean(price(τ⊕70/75/80))/price(τ)−1。只读本地 5m 缓存。"""
         from core.data.facade import bars_and_source
         from core.watching.store import WATCHING_MAX_SIZE, read_watching
-        from core.research.t75_ridge import (
-            fit_t75_ridge_report,
-            load_t75_last_report,
-            load_t75_model,
-            persist_t75_model,
-            t75_model_path,
-            t75_promote_gate,
-            save_t75_last_report,
+        from core.research.horizon_prob import horizon_promote_gate
+        from core.research.horizon_ridge import (
+            fit_horizon_ridge_report,
+            load_ridge_last_report,
+            load_ridge_model,
+            persist_ridge_model,
+            ridge_model_path,
+            save_ridge_last_report,
         )
 
         uni = read_watching()
@@ -2283,9 +2349,10 @@ class QuantFactorMixin:
             }
 
         if persist:
-            last = load_t75_last_report()
+            last = load_ridge_last_report("t75")
             if last:
-                saved = persist_t75_model(
+                saved = persist_ridge_model(
+                    "t75",
                     last,
                     note=note or "persist last t75 report",
                     force=bool(force_promote),
@@ -2294,10 +2361,10 @@ class QuantFactorMixin:
                 out = dict(last)
                 out["persisted"] = saved
                 out["from_last_report"] = True
-                out["promote_gate"] = saved.get("promote_gate") or t75_promote_gate(last)
+                out["promote_gate"] = saved.get("promote_gate") or horizon_promote_gate(last)
                 if saved.get("promoted_at"):
                     out["promoted_at"] = saved["promoted_at"]
-                return _attach_ridge_role_flags(out, t75_model_path())
+                return _attach_ridge_role_flags(out, ridge_model_path("t75"))
 
         period = str(minute_period or "5").strip() or "5"
         stock_bars: List[Dict[str, Any]] = []
@@ -2349,7 +2416,8 @@ class QuantFactorMixin:
                 "minute_codes_miss": minute_codes_miss,
             }
 
-        report = fit_t75_ridge_report(
+        report = fit_horizon_ridge_report(
+            "t75",
             stock_bars,
             ridge_lambda=ridge_lambda,
             gap_trigger_pct=gap_trigger_pct,
@@ -2364,66 +2432,67 @@ class QuantFactorMixin:
         report["minute_codes_universe"] = len(codes)
         report["minute_cache_only"] = True
         if report.get("success"):
-            save_t75_last_report(report)
+            save_ridge_last_report("t75", report)
         if persist and report.get("success"):
-            saved = persist_t75_model(
+            saved = persist_ridge_model(
+                "t75",
                 report,
                 note=note or "api t75-ridge persist",
                 force=bool(force_promote),
                 role=persist_role,
             )
             report["persisted"] = saved
-            report["promote_gate"] = saved.get("promote_gate") or t75_promote_gate(report)
+            report["promote_gate"] = saved.get("promote_gate") or horizon_promote_gate(report)
             if saved.get("promoted_at"):
                 report["promoted_at"] = saved["promoted_at"]
         else:
             report["persisted"] = {"success": False, "skipped": True}
-            live = load_t75_model()
+            live = load_ridge_model("t75")
             report["live_model_present"] = bool(live)
             if report.get("success") and not report.get("promote_gate"):
-                report["promote_gate"] = t75_promote_gate(report)
-        return _attach_ridge_role_flags(report, t75_model_path())
+                report["promote_gate"] = horizon_promote_gate(report)
+        return _attach_ridge_role_flags(report, ridge_model_path("t75"))
 
     def get_t75_ridge_model(self) -> Dict[str, Any]:
-        from core.research.t75_ridge import (
-            load_t75_last_report,
-            load_t75_model,
-            t75_model_path,
-            t75_promote_gate,
+        from core.research.horizon_prob import horizon_promote_gate
+        from core.research.horizon_ridge import (
+            load_ridge_last_report,
+            load_ridge_model,
+            ridge_model_path,
         )
 
-        doc = load_t75_model()
-        last = load_t75_last_report()
+        doc = load_ridge_model("t75")
+        last = load_ridge_last_report("t75")
         chosen, use_last = _select_ridge_desk_doc(doc, last)
         if not chosen:
             out = {
                 "success": False,
                 "exists": False,
-                "path": t75_model_path(),
+                "path": ridge_model_path("t75"),
                 "last_report_exists": bool(last),
                 "note": "尚无 ŷ_τ75 模型；POST /api/quant/t75-ridge persist=true",
             }
             if last:
-                out["promote_gate"] = t75_promote_gate(last)
+                out["promote_gate"] = horizon_promote_gate(last)
                 out["oos"] = last.get("oos")
-            return _attach_ridge_role_flags(out, t75_model_path(), live_present=False)
+            return _attach_ridge_role_flags(out, ridge_model_path("t75"), live_present=False)
         gate_src = last if use_last else (doc if not doc.get("_shadow") else (last or doc))
         packed = {
             **chosen,
             "success": True,
             "exists": True,
-            "path": t75_model_path(),
+            "path": ridge_model_path("t75"),
             "promoted": (not use_last) and not bool(chosen.get("_shadow")),
             "shadow": bool(use_last) or bool(chosen.get("_shadow")),
             "last_report_exists": bool(last),
-            "promote_gate": t75_promote_gate(gate_src),
+            "promote_gate": horizon_promote_gate(gate_src),
         }
         research_rm = packed.get("return_model_research")
         if not isinstance(research_rm, dict):
             if isinstance(last, dict) and isinstance(last.get("return_model_research"), dict):
                 research_rm = last["return_model_research"]
             else:
-                research_doc = load_t75_model(role="research")
+                research_doc = load_ridge_model("t75", role="research")
                 research_rm = (
                     research_doc.get("return_model")
                     if isinstance(research_doc, dict)
@@ -2431,7 +2500,7 @@ class QuantFactorMixin:
                 )
         if isinstance(research_rm, dict):
             packed["return_model_research"] = research_rm
-        return _attach_ridge_role_flags(packed, t75_model_path())
+        return _attach_ridge_role_flags(packed, ridge_model_path("t75"))
 
     def start_t75_ridge_job(
         self,
@@ -2484,14 +2553,14 @@ class QuantFactorMixin:
         """观察池 ŷ_τ90 Ridge：与 ŷ_τc 同 X → mean(price(τ⊕85/90/95))/price(τ)−1。只读本地 5m 缓存。"""
         from core.data.facade import bars_and_source
         from core.watching.store import WATCHING_MAX_SIZE, read_watching
-        from core.research.t90_ridge import (
-            fit_t90_ridge_report,
-            load_t90_last_report,
-            load_t90_model,
-            persist_t90_model,
-            t90_model_path,
-            t90_promote_gate,
-            save_t90_last_report,
+        from core.research.horizon_prob import horizon_promote_gate
+        from core.research.horizon_ridge import (
+            fit_horizon_ridge_report,
+            load_ridge_last_report,
+            load_ridge_model,
+            persist_ridge_model,
+            ridge_model_path,
+            save_ridge_last_report,
         )
 
         uni = read_watching()
@@ -2511,9 +2580,10 @@ class QuantFactorMixin:
             }
 
         if persist:
-            last = load_t90_last_report()
+            last = load_ridge_last_report("t90")
             if last:
-                saved = persist_t90_model(
+                saved = persist_ridge_model(
+                    "t90",
                     last,
                     note=note or "persist last t90 report",
                     force=bool(force_promote),
@@ -2522,10 +2592,10 @@ class QuantFactorMixin:
                 out = dict(last)
                 out["persisted"] = saved
                 out["from_last_report"] = True
-                out["promote_gate"] = saved.get("promote_gate") or t90_promote_gate(last)
+                out["promote_gate"] = saved.get("promote_gate") or horizon_promote_gate(last)
                 if saved.get("promoted_at"):
                     out["promoted_at"] = saved["promoted_at"]
-                return _attach_ridge_role_flags(out, t90_model_path())
+                return _attach_ridge_role_flags(out, ridge_model_path("t90"))
 
         period = str(minute_period or "5").strip() or "5"
         stock_bars: List[Dict[str, Any]] = []
@@ -2577,7 +2647,8 @@ class QuantFactorMixin:
                 "minute_codes_miss": minute_codes_miss,
             }
 
-        report = fit_t90_ridge_report(
+        report = fit_horizon_ridge_report(
+            "t90",
             stock_bars,
             ridge_lambda=ridge_lambda,
             gap_trigger_pct=gap_trigger_pct,
@@ -2592,66 +2663,67 @@ class QuantFactorMixin:
         report["minute_codes_universe"] = len(codes)
         report["minute_cache_only"] = True
         if report.get("success"):
-            save_t90_last_report(report)
+            save_ridge_last_report("t90", report)
         if persist and report.get("success"):
-            saved = persist_t90_model(
+            saved = persist_ridge_model(
+                "t90",
                 report,
                 note=note or "api t90-ridge persist",
                 force=bool(force_promote),
                 role=persist_role,
             )
             report["persisted"] = saved
-            report["promote_gate"] = saved.get("promote_gate") or t90_promote_gate(report)
+            report["promote_gate"] = saved.get("promote_gate") or horizon_promote_gate(report)
             if saved.get("promoted_at"):
                 report["promoted_at"] = saved["promoted_at"]
         else:
             report["persisted"] = {"success": False, "skipped": True}
-            live = load_t90_model()
+            live = load_ridge_model("t90")
             report["live_model_present"] = bool(live)
             if report.get("success") and not report.get("promote_gate"):
-                report["promote_gate"] = t90_promote_gate(report)
-        return _attach_ridge_role_flags(report, t90_model_path())
+                report["promote_gate"] = horizon_promote_gate(report)
+        return _attach_ridge_role_flags(report, ridge_model_path("t90"))
 
     def get_t90_ridge_model(self) -> Dict[str, Any]:
-        from core.research.t90_ridge import (
-            load_t90_last_report,
-            load_t90_model,
-            t90_model_path,
-            t90_promote_gate,
+        from core.research.horizon_prob import horizon_promote_gate
+        from core.research.horizon_ridge import (
+            load_ridge_last_report,
+            load_ridge_model,
+            ridge_model_path,
         )
 
-        doc = load_t90_model()
-        last = load_t90_last_report()
+        doc = load_ridge_model("t90")
+        last = load_ridge_last_report("t90")
         chosen, use_last = _select_ridge_desk_doc(doc, last)
         if not chosen:
             out = {
                 "success": False,
                 "exists": False,
-                "path": t90_model_path(),
+                "path": ridge_model_path("t90"),
                 "last_report_exists": bool(last),
                 "note": "尚无 ŷ_τ90 模型；POST /api/quant/t90-ridge persist=true",
             }
             if last:
-                out["promote_gate"] = t90_promote_gate(last)
+                out["promote_gate"] = horizon_promote_gate(last)
                 out["oos"] = last.get("oos")
-            return _attach_ridge_role_flags(out, t90_model_path(), live_present=False)
+            return _attach_ridge_role_flags(out, ridge_model_path("t90"), live_present=False)
         gate_src = last if use_last else (doc if not doc.get("_shadow") else (last or doc))
         packed = {
             **chosen,
             "success": True,
             "exists": True,
-            "path": t90_model_path(),
+            "path": ridge_model_path("t90"),
             "promoted": (not use_last) and not bool(chosen.get("_shadow")),
             "shadow": bool(use_last) or bool(chosen.get("_shadow")),
             "last_report_exists": bool(last),
-            "promote_gate": t90_promote_gate(gate_src),
+            "promote_gate": horizon_promote_gate(gate_src),
         }
         research_rm = packed.get("return_model_research")
         if not isinstance(research_rm, dict):
             if isinstance(last, dict) and isinstance(last.get("return_model_research"), dict):
                 research_rm = last["return_model_research"]
             else:
-                research_doc = load_t90_model(role="research")
+                research_doc = load_ridge_model("t90", role="research")
                 research_rm = (
                     research_doc.get("return_model")
                     if isinstance(research_doc, dict)
@@ -2659,7 +2731,7 @@ class QuantFactorMixin:
                 )
         if isinstance(research_rm, dict):
             packed["return_model_research"] = research_rm
-        return _attach_ridge_role_flags(packed, t90_model_path())
+        return _attach_ridge_role_flags(packed, ridge_model_path("t90"))
 
     def start_t90_ridge_job(
         self,
@@ -2713,10 +2785,10 @@ class QuantFactorMixin:
 
         from core.data.facade import bars_and_source
         from core.watching.store import WATCHING_MAX_SIZE, read_watching
-        from core.research.t30_tree import (
-            fit_t30_tree_report,
-            persist_t30_tree_model,
-            save_t30_tree_last_report,
+        from core.research.horizon_tree import (
+            fit_horizon_tree_report,
+            persist_tree_model_doc,
+            save_tree_last_report,
         )
 
         uni = read_watching()
@@ -2796,7 +2868,8 @@ class QuantFactorMixin:
                 "backtest_hook": False,
             }
 
-        report = fit_t30_tree_report(
+        report = fit_horizon_tree_report(
+            "t30",
             stock_bars,
             ridge_lambda=ridge_lambda,
             gap_trigger_pct=gap_trigger_pct,
@@ -2827,8 +2900,9 @@ class QuantFactorMixin:
         report["live_hook"] = False
         report["backtest_hook"] = True
         if report.get("success"):
-            save_t30_tree_last_report(report)
-            saved = persist_t30_tree_model(
+            save_tree_last_report("t30", report)
+            saved = persist_tree_model_doc(
+                "t30",
                 report,
                 note=f"t30_tree fit auto-persist for backtest",
                 force=True,
@@ -2845,17 +2919,17 @@ class QuantFactorMixin:
         return report
 
     def get_t30_tree_last_report(self) -> Dict[str, Any]:
-        from core.research.t30_tree import (
-            load_t30_tree_last_report,
-            t30_tree_last_report_path,
+        from core.research.horizon_tree import (
+            load_tree_last_report,
+            tree_last_report_path,
         )
 
-        last = load_t30_tree_last_report()
+        last = load_tree_last_report("t30")
         if not last:
             return {
                 "success": False,
                 "exists": False,
-                "path": t30_tree_last_report_path(),
+                "path": tree_last_report_path("t30"),
                 "live_hook": False,
                 "backtest_hook": False,
                 "head": "y_t30_tree",
@@ -2863,7 +2937,7 @@ class QuantFactorMixin:
             }
         out = dict(last)
         out["exists"] = True
-        out["path"] = t30_tree_last_report_path()
+        out["path"] = tree_last_report_path("t30")
         out["live_hook"] = False
         out["backtest_hook"] = False
         out.setdefault("head", "y_t30_tree")
@@ -2888,10 +2962,10 @@ class QuantFactorMixin:
 
         from core.data.facade import bars_and_source
         from core.watching.store import WATCHING_MAX_SIZE, read_watching
-        from core.research.t45_tree import (
-            fit_t45_tree_report,
-            persist_t45_tree_model,
-            save_t45_tree_last_report,
+        from core.research.horizon_tree import (
+            fit_horizon_tree_report,
+            persist_tree_model_doc,
+            save_tree_last_report,
         )
 
         uni = read_watching()
@@ -2971,7 +3045,8 @@ class QuantFactorMixin:
                 "backtest_hook": False,
             }
 
-        report = fit_t45_tree_report(
+        report = fit_horizon_tree_report(
+            "t45",
             stock_bars,
             ridge_lambda=ridge_lambda,
             gap_trigger_pct=gap_trigger_pct,
@@ -3002,8 +3077,9 @@ class QuantFactorMixin:
         report["live_hook"] = False
         report["backtest_hook"] = True
         if report.get("success"):
-            save_t45_tree_last_report(report)
-            saved = persist_t45_tree_model(
+            save_tree_last_report("t45", report)
+            saved = persist_tree_model_doc(
+                "t45",
                 report,
                 note=f"t45_tree fit auto-persist for backtest",
                 force=True,
@@ -3020,17 +3096,17 @@ class QuantFactorMixin:
         return report
 
     def get_t45_tree_last_report(self) -> Dict[str, Any]:
-        from core.research.t45_tree import (
-            load_t45_tree_last_report,
-            t45_tree_last_report_path,
+        from core.research.horizon_tree import (
+            load_tree_last_report,
+            tree_last_report_path,
         )
 
-        last = load_t45_tree_last_report()
+        last = load_tree_last_report("t45")
         if not last:
             return {
                 "success": False,
                 "exists": False,
-                "path": t45_tree_last_report_path(),
+                "path": tree_last_report_path("t45"),
                 "live_hook": False,
                 "backtest_hook": False,
                 "head": "y_t45_tree",
@@ -3038,7 +3114,7 @@ class QuantFactorMixin:
             }
         out = dict(last)
         out["exists"] = True
-        out["path"] = t45_tree_last_report_path()
+        out["path"] = tree_last_report_path("t45")
         out["live_hook"] = False
         out["backtest_hook"] = False
         out.setdefault("head", "y_t45_tree")
@@ -3063,10 +3139,10 @@ class QuantFactorMixin:
 
         from core.data.facade import bars_and_source
         from core.watching.store import WATCHING_MAX_SIZE, read_watching
-        from core.research.t60_tree import (
-            fit_t60_tree_report,
-            persist_t60_tree_model,
-            save_t60_tree_last_report,
+        from core.research.horizon_tree import (
+            fit_horizon_tree_report,
+            persist_tree_model_doc,
+            save_tree_last_report,
         )
 
         uni = read_watching()
@@ -3146,7 +3222,8 @@ class QuantFactorMixin:
                 "backtest_hook": False,
             }
 
-        report = fit_t60_tree_report(
+        report = fit_horizon_tree_report(
+            "t60",
             stock_bars,
             ridge_lambda=ridge_lambda,
             gap_trigger_pct=gap_trigger_pct,
@@ -3177,8 +3254,9 @@ class QuantFactorMixin:
         report["live_hook"] = False
         report["backtest_hook"] = True
         if report.get("success"):
-            save_t60_tree_last_report(report)
-            saved = persist_t60_tree_model(
+            save_tree_last_report("t60", report)
+            saved = persist_tree_model_doc(
+                "t60",
                 report,
                 note=f"t60_tree fit auto-persist for backtest",
                 force=True,
@@ -3195,17 +3273,17 @@ class QuantFactorMixin:
         return report
 
     def get_t60_tree_last_report(self) -> Dict[str, Any]:
-        from core.research.t60_tree import (
-            load_t60_tree_last_report,
-            t60_tree_last_report_path,
+        from core.research.horizon_tree import (
+            load_tree_last_report,
+            tree_last_report_path,
         )
 
-        last = load_t60_tree_last_report()
+        last = load_tree_last_report("t60")
         if not last:
             return {
                 "success": False,
                 "exists": False,
-                "path": t60_tree_last_report_path(),
+                "path": tree_last_report_path("t60"),
                 "live_hook": False,
                 "backtest_hook": False,
                 "head": "y_t60_tree",
@@ -3213,7 +3291,7 @@ class QuantFactorMixin:
             }
         out = dict(last)
         out["exists"] = True
-        out["path"] = t60_tree_last_report_path()
+        out["path"] = tree_last_report_path("t60")
         out["live_hook"] = False
         out["backtest_hook"] = False
         out.setdefault("head", "y_t60_tree")
@@ -3238,10 +3316,10 @@ class QuantFactorMixin:
 
         from core.data.facade import bars_and_source
         from core.watching.store import WATCHING_MAX_SIZE, read_watching
-        from core.research.t75_tree import (
-            fit_t75_tree_report,
-            persist_t75_tree_model,
-            save_t75_tree_last_report,
+        from core.research.horizon_tree import (
+            fit_horizon_tree_report,
+            persist_tree_model_doc,
+            save_tree_last_report,
         )
 
         uni = read_watching()
@@ -3321,7 +3399,8 @@ class QuantFactorMixin:
                 "backtest_hook": False,
             }
 
-        report = fit_t75_tree_report(
+        report = fit_horizon_tree_report(
+            "t75",
             stock_bars,
             ridge_lambda=ridge_lambda,
             gap_trigger_pct=gap_trigger_pct,
@@ -3352,8 +3431,9 @@ class QuantFactorMixin:
         report["live_hook"] = False
         report["backtest_hook"] = True
         if report.get("success"):
-            save_t75_tree_last_report(report)
-            saved = persist_t75_tree_model(
+            save_tree_last_report("t75", report)
+            saved = persist_tree_model_doc(
+                "t75",
                 report,
                 note=f"t75_tree fit auto-persist for backtest",
                 force=True,
@@ -3370,17 +3450,17 @@ class QuantFactorMixin:
         return report
 
     def get_t75_tree_last_report(self) -> Dict[str, Any]:
-        from core.research.t75_tree import (
-            load_t75_tree_last_report,
-            t75_tree_last_report_path,
+        from core.research.horizon_tree import (
+            load_tree_last_report,
+            tree_last_report_path,
         )
 
-        last = load_t75_tree_last_report()
+        last = load_tree_last_report("t75")
         if not last:
             return {
                 "success": False,
                 "exists": False,
-                "path": t75_tree_last_report_path(),
+                "path": tree_last_report_path("t75"),
                 "live_hook": False,
                 "backtest_hook": False,
                 "head": "y_t75_tree",
@@ -3388,7 +3468,7 @@ class QuantFactorMixin:
             }
         out = dict(last)
         out["exists"] = True
-        out["path"] = t75_tree_last_report_path()
+        out["path"] = tree_last_report_path("t75")
         out["live_hook"] = False
         out["backtest_hook"] = False
         out.setdefault("head", "y_t75_tree")
@@ -3413,10 +3493,10 @@ class QuantFactorMixin:
 
         from core.data.facade import bars_and_source
         from core.watching.store import WATCHING_MAX_SIZE, read_watching
-        from core.research.t90_tree import (
-            fit_t90_tree_report,
-            persist_t90_tree_model,
-            save_t90_tree_last_report,
+        from core.research.horizon_tree import (
+            fit_horizon_tree_report,
+            persist_tree_model_doc,
+            save_tree_last_report,
         )
 
         uni = read_watching()
@@ -3496,7 +3576,8 @@ class QuantFactorMixin:
                 "backtest_hook": False,
             }
 
-        report = fit_t90_tree_report(
+        report = fit_horizon_tree_report(
+            "t90",
             stock_bars,
             ridge_lambda=ridge_lambda,
             gap_trigger_pct=gap_trigger_pct,
@@ -3527,8 +3608,9 @@ class QuantFactorMixin:
         report["live_hook"] = False
         report["backtest_hook"] = True
         if report.get("success"):
-            save_t90_tree_last_report(report)
-            saved = persist_t90_tree_model(
+            save_tree_last_report("t90", report)
+            saved = persist_tree_model_doc(
+                "t90",
                 report,
                 note=f"t90_tree fit auto-persist for backtest",
                 force=True,
@@ -3545,17 +3627,17 @@ class QuantFactorMixin:
         return report
 
     def get_t90_tree_last_report(self) -> Dict[str, Any]:
-        from core.research.t90_tree import (
-            load_t90_tree_last_report,
-            t90_tree_last_report_path,
+        from core.research.horizon_tree import (
+            load_tree_last_report,
+            tree_last_report_path,
         )
 
-        last = load_t90_tree_last_report()
+        last = load_tree_last_report("t90")
         if not last:
             return {
                 "success": False,
                 "exists": False,
-                "path": t90_tree_last_report_path(),
+                "path": tree_last_report_path("t90"),
                 "live_hook": False,
                 "backtest_hook": False,
                 "head": "y_t90_tree",
@@ -3563,7 +3645,7 @@ class QuantFactorMixin:
             }
         out = dict(last)
         out["exists"] = True
-        out["path"] = t90_tree_last_report_path()
+        out["path"] = tree_last_report_path("t90")
         out["live_hook"] = False
         out["backtest_hook"] = False
         out.setdefault("head", "y_t90_tree")

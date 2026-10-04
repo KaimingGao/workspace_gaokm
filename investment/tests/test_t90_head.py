@@ -395,8 +395,13 @@ class RelabelT90Tests(unittest.TestCase):
 
 class T90RidgeFitTests(unittest.TestCase):
     def test_fit_report_runs_on_synthetic(self):
-        from core.research.t90_ridge import T90_Z_FEATURES, fit_t90_ridge_report
+        from core.research.horizon_ridge import (
+            _horizon_ridge_config,
+            fit_horizon_ridge_report,
+        )
         from core.research.tc_ridge import TAU_Z_FEATURES
+
+        T90_Z_FEATURES = _horizon_ridge_config("t90")["z_features"]
 
         d0 = date(2025, 6, 2)
         daily = []
@@ -426,7 +431,8 @@ class T90RidgeFitTests(unittest.TestCase):
                 }
             )
             px = close
-        report = fit_t90_ridge_report(
+        report = fit_horizon_ridge_report(
+            "t90",
             [{"code": "600000", "bars": daily, "minute_bars": minutes}],
             ridge_lambda=1.0,
             tau_grid=["09:30", "09:50", "11:00"],
@@ -461,7 +467,7 @@ class T90RidgeFitTests(unittest.TestCase):
         self.assertIn("ret_open_to_tau", extras)
 
     def test_explain_t90_prediction_head(self):
-        from core.research.t90_ridge import explain_t90_prediction
+        from core.research.horizon_ridge import explain_ridge_prediction
 
         model = {
             "model_role": "research",
@@ -473,7 +479,7 @@ class T90RidgeFitTests(unittest.TestCase):
                 "active_features": ["gap_pct"],
             },
         }
-        expl = explain_t90_prediction({"gap_pct": 2.0}, model_doc=model)
+        expl = explain_ridge_prediction("t90", {"gap_pct": 2.0}, model_doc=model)
         self.assertIsNotNone(expl)
         self.assertEqual(expl.get("head"), "t90")
         self.assertAlmostEqual(float(expl.get("total")), 1.1, places=5)

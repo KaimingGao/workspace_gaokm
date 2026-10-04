@@ -394,8 +394,13 @@ class RelabelT30Tests(unittest.TestCase):
 
 class T30RidgeFitTests(unittest.TestCase):
     def test_fit_report_runs_on_synthetic(self):
-        from core.research.t30_ridge import T30_Z_FEATURES, fit_t30_ridge_report
+        from core.research.horizon_ridge import (
+            _horizon_ridge_config,
+            fit_horizon_ridge_report,
+        )
         from core.research.tc_ridge import TAU_Z_FEATURES
+
+        T30_Z_FEATURES = _horizon_ridge_config("t30")["z_features"]
 
         d0 = date(2025, 6, 2)
         daily = []
@@ -425,7 +430,8 @@ class T30RidgeFitTests(unittest.TestCase):
                 }
             )
             px = close
-        report = fit_t30_ridge_report(
+        report = fit_horizon_ridge_report(
+            "t30",
             [{"code": "600000", "bars": daily, "minute_bars": minutes}],
             ridge_lambda=1.0,
             tau_grid=["09:30", "09:50", "11:15"],
@@ -459,8 +465,10 @@ class T30RidgeFitTests(unittest.TestCase):
         self.assertIn("ret_open_to_tau", extras)
 
     def test_t30_z_drops_oc_path_shape(self):
-        from core.research.t30_ridge import T30_Z_FEATURES
+        from core.research.horizon_ridge import _horizon_ridge_config
         from core.research.tc_ridge import TAU_HORIZON_DROP_OC_SHAPE
+
+        T30_Z_FEATURES = _horizon_ridge_config("t30")["z_features"]
 
         for k in TAU_HORIZON_DROP_OC_SHAPE:
             self.assertNotIn(k, T30_Z_FEATURES)
@@ -482,7 +490,7 @@ class T30RidgeFitTests(unittest.TestCase):
         self.assertAlmostEqual(float(lags["t30_ma5"]), 0.8, places=6)
 
     def test_explain_t30_prediction_head(self):
-        from core.research.t30_ridge import explain_t30_prediction
+        from core.research.horizon_ridge import explain_ridge_prediction
 
         model = {
             "model_role": "research",
@@ -494,7 +502,7 @@ class T30RidgeFitTests(unittest.TestCase):
                 "active_features": ["gap_pct"],
             },
         }
-        expl = explain_t30_prediction({"gap_pct": 2.0}, model_doc=model)
+        expl = explain_ridge_prediction("t30", {"gap_pct": 2.0}, model_doc=model)
         self.assertIsNotNone(expl)
         self.assertEqual(expl.get("head"), "t30")
         self.assertEqual(expl.get("head_kind"), "prob")

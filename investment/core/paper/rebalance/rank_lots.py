@@ -587,20 +587,16 @@ def aux_yhat_fields(
     out: Dict[str, Any] = {}
     if include_tau_horizons:
         try:
-            from core.research.t30_ridge import pick_y_t30_hat, pick_y_t30_label
-            from core.research.t45_ridge import pick_y_t45_hat, pick_y_t45_label
-            from core.research.t60_ridge import pick_y_t60_hat, pick_y_t60_label
-            from core.research.t75_ridge import pick_y_t75_hat, pick_y_t75_label
-            from core.research.t90_ridge import pick_y_t90_hat, pick_y_t90_label
+            from core.research.horizon_ridge import pick_y_hat, pick_y_label
             from core.t0.close_band import blend_y_tw
         except Exception:  # noqa: BLE001
             logger.debug("aux yhat tau imports failed", exc_info=True)
         else:
-            y30 = pick_y_t30_hat(item)
-            y45 = pick_y_t45_hat(item)
-            y60 = pick_y_t60_hat(item)
-            y75 = pick_y_t75_hat(item)
-            y90 = pick_y_t90_hat(item)
+            y30 = pick_y_hat("t30", item)
+            y45 = pick_y_hat("t45", item)
+            y60 = pick_y_hat("t60", item)
+            y75 = pick_y_hat("t75", item)
+            y90 = pick_y_hat("t90", item)
             if y30 is not None:
                 out["y_τ30"] = y30
                 out["y_t30"] = y30
@@ -626,11 +622,11 @@ def aux_yhat_fields(
                 out["y_t90"] = y90
                 out["predicted_score_t90"] = y90
                 out["y_t90_hat"] = y90
-            r30 = pick_y_t30_label(item)
-            r45 = pick_y_t45_label(item)
-            r60 = pick_y_t60_label(item)
-            r75 = pick_y_t75_label(item)
-            r90 = pick_y_t90_label(item)
+            r30 = pick_y_label("t30", item)
+            r45 = pick_y_label("t45", item)
+            r60 = pick_y_label("t60", item)
+            r75 = pick_y_label("t75", item)
+            r90 = pick_y_label("t90", item)
             if r30 is not None:
                 out["y_t30_realized"] = r30
                 out["t30_realized"] = r30

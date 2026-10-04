@@ -36,7 +36,6 @@ class TestDocsGuards(unittest.TestCase):
         self.assertIn("工业常见因子分类", text)
         self.assertIn("Barra", text)
         self.assertIn("候选因子数百", text)
-        self.assertIn("factor_ols_run.py", text)
 
     def test_quant_upgrade_links_model_policy(self):
         text = self._read("docs", "archive", "quant-upgrade.md")

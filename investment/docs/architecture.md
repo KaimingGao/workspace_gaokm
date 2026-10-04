@@ -1354,8 +1354,6 @@ BS → core/backtest/service.py → engine · topk_backtest · topk_weights
 |----------|------|
 | `cross_section_run.py` | 截面排序导出 |
 | `t0_backtest_run.py` | 做 T 回测 CLI |
-| `quant_export_run.py` | 量化报告导出 |
-| `cache_cli.py` | 缓存管理（含 `--clear`） |
 
 ---
 
@@ -1554,7 +1552,7 @@ investment/
 | 模拟账本 | `core/paper.py`（`paper.json`）；对话 position 默认读此 |
 | 观察池 | `core/watching/` |
 | 研究 CLI | `research/*.py` |
-| Job 轮询 | `GET /api/jobs/{name}`（纸面兼容 `/api/paper/job`） |
+| Job 轮询 | `GET /api/jobs/{name}`（纸面兼容 `/api/paper/job`；Ridge 长拟合：`t30-ridge`…`t90-ridge` · `co-ridge`） |
 
 命名约定：产品「模拟」/ `/follow` = 内部 `paper`。详见 [§ 框架梳理与合理性](#代码框架梳理与合理性分析) · [本章](#架构总览)（含 [§ 技术栈](#技术栈)）。
 
@@ -1974,7 +1972,6 @@ flowchart LR
 | 源一致性审计 | `core/data_consistency.py` |
 | 覆盖率 | `core/data_coverage.py` |
 | 路径 | `core/paths.py`（`STORE_DIR`） |
-| 缓存 CLI | `research/cache_cli.py` |
 | 调度预热 | `core/schedule_jobs.py`（`bars_warmup` · `minute_warmup` · `spot_refresh` · `fundamentals_warmup`） |
 | 观察池分钟状态/强更 | `quant/research/cluster_minute_status.py` · `quant/services/quant_service_factors.py` |
 | 现货筛选 | `skills/screen/engine.py` |
@@ -2365,7 +2362,7 @@ Alpha 条目（选股择时）与 Risk 条目分开写，避免「一个大 if�
 | 暴露矩阵（R3） | `core/risk/exposure.py` · `build_exposure_matrix` |
 | 行业映射 / 目标权重（N3） | `data/sector_map.json` · `core/portfolio_optimize.py` · `core/risk/budget.py`（波动缩放·分数预算·`risk_parity_lite`） |
 | 拦截标注 / 有效率（R3） | `core/risk/block_outcome.py` · `north_star.summarize_risk_blocks` · `GET/POST /api/paper/risk-blocks*` |
-| sector_map 对齐 CLI | `research/sector_map_sync_run.py` · `core/sector_map_sync.py` |
+| sector_map 对齐 | `core/sector_map_sync.py` |
 | 告警出站（P2++） | `core/alert_outbound.py` · `paper_daily` → `data/alerts/` · 可选 `INVESTMENT_ALERT_WEBHOOK` |
 | 策略衰减监控（N5） | `core/strategy_monitor.py`（回撤 + 滚动 IC + 行业覆盖） |
 | Regime 降分 | `core/signal/regime.py` |

@@ -1,6 +1,6 @@
 """反馈半闭环：根据纸面/回测摘要提出 signal_config 补丁建议（不自动写盘）。
 
-生产选股门槛为 ŷ 滞回（scoring.*）；不再建议改 0–100 rank.min_score。
+生产选股门槛为 ŷ 滞回（scoring.*）；rank.min_score 字段已下线。
 """
 
 

@@ -609,9 +609,9 @@ def _pick_y_t30_for_band(
         return y
     raw = scores if isinstance(scores, dict) else {}
     try:
-        from core.research.t30_ridge import pick_y_t30_hat
+        from core.research.horizon_ridge import pick_y_hat
 
-        y = pick_y_t30_hat(raw)
+        y = pick_y_hat("t30", raw)
         if y is not None:
             return y
     except Exception:
@@ -628,9 +628,9 @@ def _pick_y_t45_for_band(
         return y
     raw = scores if isinstance(scores, dict) else {}
     try:
-        from core.research.t45_ridge import pick_y_t45_hat
+        from core.research.horizon_ridge import pick_y_hat
 
-        y = pick_y_t45_hat(raw)
+        y = pick_y_hat("t45", raw)
         if y is not None:
             return y
     except Exception:
@@ -647,9 +647,9 @@ def _pick_y_t60_for_band(
         return y
     raw = scores if isinstance(scores, dict) else {}
     try:
-        from core.research.t60_ridge import pick_y_t60_hat
+        from core.research.horizon_ridge import pick_y_hat
 
-        y = pick_y_t60_hat(raw)
+        y = pick_y_hat("t60", raw)
         if y is not None:
             return y
     except Exception:
@@ -666,9 +666,9 @@ def _pick_y_t75_for_band(
         return y
     raw = scores if isinstance(scores, dict) else {}
     try:
-        from core.research.t75_ridge import pick_y_t75_hat
+        from core.research.horizon_ridge import pick_y_hat
 
-        y = pick_y_t75_hat(raw)
+        y = pick_y_hat("t75", raw)
         if y is not None:
             return y
     except Exception:
@@ -685,9 +685,9 @@ def _pick_y_t90_for_band(
         return y
     raw = scores if isinstance(scores, dict) else {}
     try:
-        from core.research.t90_ridge import pick_y_t90_hat
+        from core.research.horizon_ridge import pick_y_hat
 
-        y = pick_y_t90_hat(raw)
+        y = pick_y_hat("t90", raw)
         if y is not None:
             return y
     except Exception:

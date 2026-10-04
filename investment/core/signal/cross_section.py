@@ -23,8 +23,6 @@ def rank_cross_section(
     """对候选列表做短线横截面排序，返回 Top N（按 predicted_score）。"""
     cfg = load_signal_config()
     defaults = get_rank_defaults(cfg)
-    if min_score is None:
-        min_score = defaults["min_score"]
     limit = max(1, min(int(limit or defaults["default_limit"]), 30))
     horizon_days = max(1, min(int(horizon_days or 3), 10))
 

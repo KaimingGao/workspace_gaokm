@@ -69,7 +69,6 @@
     "soft_scale_yhat": false
   },
   "rank": {
-    "min_score": 55,
     "default_limit": 8
   },
   "scoring": {

@@ -50,11 +50,6 @@ class TestP86FactorOls(unittest.TestCase):
         self.assertEqual(out.get("task"), "factor_ols")
         self.assertIn("coefficients", out)
 
-    def test_factor_ols_cli_import(self):
-        import research.factor_ols_run as cli
-
-        self.assertTrue(callable(cli.main))
-
     def test_qr_ols_recovers_known_beta(self):
         from quant.research.factor_ols import _fit_ols_once
 

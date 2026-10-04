@@ -65,9 +65,8 @@ DEFAULT_SIGNAL_CONFIG: Dict[str, Any] = {
         "soft_reject": False,
         "soft_scale_yhat": False,
     },
-    # FH3：rank.min_score 已 deprecated；生产选股门槛只认 scoring.min_predicted_score
+    # FH3：rank.min_score 已下线；生产选股门槛只认 scoring.min_predicted_score
     "rank": {
-        "min_score": 55.0,  # deprecated · 启发式遗留，勿作 ŷ 买入门
         "default_limit": 8,
     },
     # 排序键：仅收益分 predicted_score（ŷ%）
@@ -376,12 +375,11 @@ def get_stance_thresholds_with_meta(
 
 
 def get_rank_defaults(config: Optional[Dict[str, Any]] = None) -> Dict[str, float]:
-    """观察池 limit 等；``min_score`` 仅为启发式遗留默认，生产选股用 scoring ŷ。"""
+    """观察池 limit 等；生产选股门槛用 scoring.min_predicted_score。"""
     cfg = config or load_signal_config()
     raw = cfg.get("rank") or {}
     scoring = cfg.get("scoring") or {}
     out: Dict[str, Any] = {
-        "min_score": float(raw.get("min_score", 55)),
         "default_limit": int(raw.get("default_limit", 8)),
     }
     if "min_predicted_score" in scoring and scoring.get("min_predicted_score") is not None:

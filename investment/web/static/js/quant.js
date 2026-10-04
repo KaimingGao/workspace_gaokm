@@ -2140,7 +2140,6 @@ function tauTreeHyperBits(data) {
 
   function horizonProbFitBits(data) {
     const oos = (data && data.oos) || {};
-    const gate = (data && data.promote_gate) || {};
     return [
       data && data.minute_codes_hit != null
         ? `分钟覆盖 ${data.minute_codes_hit}/${data.minute_codes_universe ?? "—"} 票`
@@ -2153,14 +2152,6 @@ function tauTreeHyperBits(data) {
           ? `OOS 命中 ${(Number(oos.sign_hit) * 100).toFixed(1)}%（n=${oos.n_valid ?? oos.n_test ?? "—"}）`
           : null,
       oos.brier != null ? `Brier ${Number(oos.brier).toFixed(3)}` : null,
-      gate.ok === false
-        ? `promote 闸：${(gate.blockers || []).join("；")}`
-        : gate.ok === true
-          ? "promote 闸：通过（AUC/acc）"
-          : null,
-      Array.isArray(gate.warnings) && gate.warnings.length
-        ? `软提示：${gate.warnings.join("；")}`
-        : null,
     ].filter(Boolean);
   }
 
@@ -3306,12 +3297,6 @@ function tauTreeHyperBits(data) {
         return;
       }
       const oos = data.oos || {};
-      const gateMsg =
-        gate && !gate.ok
-          ? ` · 未过 promote 闸（${(gate.blockers || []).join("；")}；可强制启用）`
-          : gate && gate.ok
-            ? " · 可启用研究 / 启用执行"
-            : "";
       const a158Bit = data.include_alpha158
         ? `Alpha158×${data.n_alpha158_features != null ? data.n_alpha158_features : "?"}`
         : "无 Alpha158";
@@ -3319,11 +3304,7 @@ function tauTreeHyperBits(data) {
         persistOk: !!persist,
         persistRole,
         justFitted: !persist,
-        message: persist
-          ? forcePromote && gate && !gate.ok
-            ? `已跳过闸：${(gate.blockers || []).join("；")}`
-            : ""
-          : [a158Bit, `未写盘${gateMsg}`].filter(Boolean).join(" · "),
+        message: persist ? "" : [a158Bit, "未写盘"].filter(Boolean).join(" · "),
         oos,
         sampleCount: data.sample_count,
         promotedAt: persist
@@ -3351,57 +3332,19 @@ function tauTreeHyperBits(data) {
     }
   }
 
-  function coFitBusyHint(sec) {
-    const s = Number(sec) || 0;
-    if (s < 30) return "拉观察池日线 · 全程约 12–15 分钟";
-    if (s < 720) return "堆叠隔夜缺口面板 · 全程约 12–15 分钟";
-    if (s < 900) return "Ridge + Holdout · 全程约 12–15 分钟";
-    return "仍在拟合 · 满池面板很大，超过 15 分钟仍可能在算，请勿重复点";
-  }
-
-  function fmtCoFitSec(sec) {
-    const n = Math.max(0, Math.round(Number(sec) || 0));
-    if (n < 60) return `${n}s`;
-    const m = Math.floor(n / 60);
-    const r = n % 60;
-    return `${m}分${String(r).padStart(2, "0")}秒`;
-  }
-
   async function runCoRidge({ persist = false, persistRole = "live" } = {}) {
     const sum = document.getElementById("quant-co-summary");
     const runBtn = document.getElementById("quant-co-ridge-run");
     const roleLabel = persistRole === "research" ? "研究套" : "执行套";
     if (runBtn) runBtn.disabled = true;
-    let busyTimer = null;
-    const clearBusy = () => {
-      if (busyTimer) {
-        clearInterval(busyTimer);
-        busyTimer = null;
-      }
-    };
-    if (!persist) {
-      const t0 = Date.now();
-      const tick = () => {
-        const s = Math.max(0, Math.round((Date.now() - t0) / 1000));
-        const msg = `${coFitBusyHint(s)} · 已 ${fmtCoFitSec(s)}`;
-        renderRemStatus(sum, {
-          state: "busy",
-          chip: "拟合中",
-          message: msg,
-          busy: true,
-        });
-        setQuantMeta(`ŷ_co ${msg}`, { busy: true });
-      };
-      tick();
-      busyTimer = setInterval(tick, 1000);
-    } else {
-      renderRemStatus(sum, {
-        state: "busy",
-        chip: "写入中",
-        message: `写入上次拟合（${roleLabel}）…`,
-        busy: true,
-      });
-    }
+    renderRemStatus(sum, {
+      state: "busy",
+      chip: persist ? "写入中" : "拟合中",
+      message: persist
+        ? `写入上次拟合（${roleLabel}）…`
+        : "ŷ_co Ridge + 隔夜缺口面板…",
+      busy: true,
+    });
     try {
       const onLimit = 300;
       const res = await fetch("/api/quant/co-ridge", {
@@ -3418,9 +3361,17 @@ function tauTreeHyperBits(data) {
           note: persist ? `ui co promote ${persistRole}` : "",
         }),
       });
-      const data = await res.json().catch(() => ({}));
-      clearBusy();
-      if (!res.ok || !data.success) {
+      const posted = await res.json().catch(() => ({}));
+      const awaited = await awaitRidgeFitIfBackground(res, posted, {
+        persist: !!persist,
+        jobName: "co-ridge",
+        modelPath: "/api/quant/co-ridge/model",
+        sumEl: sum,
+        label: "ŷ_co",
+      });
+      const data = awaited.data || {};
+      const httpOk = awaited.httpOk;
+      if (!httpOk || !data.success) {
         const err = (data && (data.detail || data.error)) || `HTTP ${res.status}`;
         renderRemStatus(sum, {
           state: "error",
@@ -3472,7 +3423,6 @@ function tauTreeHyperBits(data) {
       clearCoResultBox();
       await renderCoCoefTable(rm, { oos });
     } catch (err) {
-      clearBusy();
       renderRemStatus(sum, {
         state: "error",
         chip: "失败",
@@ -3482,7 +3432,6 @@ function tauTreeHyperBits(data) {
       setQuantMeta(`ŷ_co 失败 · ${err.message || err}`, { error: true });
       throw err;
     } finally {
-      clearBusy();
       if (runBtn) runBtn.disabled = false;
     }
   }
@@ -3727,21 +3676,11 @@ function tauTreeHyperBits(data) {
         return;
       }
       const oos = data.oos || {};
-      const gateMsg =
-        gate && !gate.ok
-          ? ` · 未过 promote 闸（${(gate.blockers || []).join("；")}；可强制启用）`
-          : gate && gate.ok
-            ? " · 可启用研究 / 启用执行"
-            : "";
       paintRidgeEnableStatus(sum, data, {
         persistOk: !!persist,
         persistRole,
         justFitted: !persist,
-        message: persist
-          ? forcePromote && gate && !gate.ok
-            ? `已跳过闸：${(gate.blockers || []).join("；")}`
-            : ""
-          : `未写盘${gateMsg}`,
+        message: persist ? "" : "未写盘",
         oos,
         sampleCount: data.sample_count,
         promotedAt: persist
@@ -3839,13 +3778,7 @@ function tauTreeHyperBits(data) {
       }
       const oos = data.oos || {};
       const gate = data.promote_gate || null;
-      paintRidgeEnableStatus(sum, data, {
-        gate,
-        message:
-          gate && !gate.ok
-            ? `promote 闸：${(gate.blockers || []).join("；")}（可强制启用）`
-            : undefined,
-      });
+      paintRidgeEnableStatus(sum, data, { gate });
       syncT30PersistBtn(gate, { hasReport: true });
       clearT30ResultBox();
       await renderT30CoefTable(data.return_model || {}, {
@@ -3933,21 +3866,11 @@ function tauTreeHyperBits(data) {
         return;
       }
       const oos = data.oos || {};
-      const gateMsg =
-        gate && !gate.ok
-          ? ` · 未过 promote 闸（${(gate.blockers || []).join("；")}；可强制启用）`
-          : gate && gate.ok
-            ? " · 可启用研究 / 启用执行"
-            : "";
       paintRidgeEnableStatus(sum, data, {
         persistOk: !!persist,
         persistRole,
         justFitted: !persist,
-        message: persist
-          ? forcePromote && gate && !gate.ok
-            ? `已跳过闸：${(gate.blockers || []).join("；")}`
-            : ""
-          : `未写盘${gateMsg}`,
+        message: persist ? "" : "未写盘",
         oos,
         sampleCount: data.sample_count,
         promotedAt: persist
@@ -4045,13 +3968,7 @@ function tauTreeHyperBits(data) {
       }
       const oos = data.oos || {};
       const gate = data.promote_gate || null;
-      paintRidgeEnableStatus(sum, data, {
-        gate,
-        message:
-          gate && !gate.ok
-            ? `promote 闸：${(gate.blockers || []).join("；")}（可强制启用）`
-            : undefined,
-      });
+      paintRidgeEnableStatus(sum, data, { gate });
       syncT45PersistBtn(gate, { hasReport: true });
       clearT45ResultBox();
       await renderT45CoefTable(data.return_model || {}, {
@@ -4138,21 +4055,11 @@ function tauTreeHyperBits(data) {
         return;
       }
       const oos = data.oos || {};
-      const gateMsg =
-        gate && !gate.ok
-          ? ` · 未过 promote 闸（${(gate.blockers || []).join("；")}；可强制启用）`
-          : gate && gate.ok
-            ? " · 可启用研究 / 启用执行"
-            : "";
       paintRidgeEnableStatus(sum, data, {
         persistOk: !!persist,
         persistRole,
         justFitted: !persist,
-        message: persist
-          ? forcePromote && gate && !gate.ok
-            ? `已跳过闸：${(gate.blockers || []).join("；")}`
-            : ""
-          : `未写盘${gateMsg}`,
+        message: persist ? "" : "未写盘",
         oos,
         sampleCount: data.sample_count,
         promotedAt: persist
@@ -4250,13 +4157,7 @@ function tauTreeHyperBits(data) {
       }
       const oos = data.oos || {};
       const gate = data.promote_gate || null;
-      paintRidgeEnableStatus(sum, data, {
-        gate,
-        message:
-          gate && !gate.ok
-            ? `promote 闸：${(gate.blockers || []).join("；")}（可强制启用）`
-            : undefined,
-      });
+      paintRidgeEnableStatus(sum, data, { gate });
       syncT60PersistBtn(gate, { hasReport: true });
       clearT60ResultBox();
       await renderT60CoefTable(data.return_model || {}, {
@@ -4343,21 +4244,11 @@ function tauTreeHyperBits(data) {
         return;
       }
       const oos = data.oos || {};
-      const gateMsg =
-        gate && !gate.ok
-          ? ` · 未过 promote 闸（${(gate.blockers || []).join("；")}；可强制启用）`
-          : gate && gate.ok
-            ? " · 可启用研究 / 启用执行"
-            : "";
       paintRidgeEnableStatus(sum, data, {
         persistOk: !!persist,
         persistRole,
         justFitted: !persist,
-        message: persist
-          ? forcePromote && gate && !gate.ok
-            ? `已跳过闸：${(gate.blockers || []).join("；")}`
-            : ""
-          : `未写盘${gateMsg}`,
+        message: persist ? "" : "未写盘",
         oos,
         sampleCount: data.sample_count,
         promotedAt: persist
@@ -4455,13 +4346,7 @@ function tauTreeHyperBits(data) {
       }
       const oos = data.oos || {};
       const gate = data.promote_gate || null;
-      paintRidgeEnableStatus(sum, data, {
-        gate,
-        message:
-          gate && !gate.ok
-            ? `promote 闸：${(gate.blockers || []).join("；")}（可强制启用）`
-            : undefined,
-      });
+      paintRidgeEnableStatus(sum, data, { gate });
       syncT75PersistBtn(gate, { hasReport: true });
       clearT75ResultBox();
       await renderT75CoefTable(data.return_model || {}, {
@@ -4548,21 +4433,11 @@ function tauTreeHyperBits(data) {
         return;
       }
       const oos = data.oos || {};
-      const gateMsg =
-        gate && !gate.ok
-          ? ` · 未过 promote 闸（${(gate.blockers || []).join("；")}；可强制启用）`
-          : gate && gate.ok
-            ? " · 可启用研究 / 启用执行"
-            : "";
       paintRidgeEnableStatus(sum, data, {
         persistOk: !!persist,
         persistRole,
         justFitted: !persist,
-        message: persist
-          ? forcePromote && gate && !gate.ok
-            ? `已跳过闸：${(gate.blockers || []).join("；")}`
-            : ""
-          : `未写盘${gateMsg}`,
+        message: persist ? "" : "未写盘",
         oos,
         sampleCount: data.sample_count,
         promotedAt: persist
@@ -4660,13 +4535,7 @@ function tauTreeHyperBits(data) {
       }
       const oos = data.oos || {};
       const gate = data.promote_gate || null;
-      paintRidgeEnableStatus(sum, data, {
-        gate,
-        message:
-          gate && !gate.ok
-            ? `promote 闸：${(gate.blockers || []).join("；")}（可强制启用）`
-            : undefined,
-      });
+      paintRidgeEnableStatus(sum, data, { gate });
       syncT90PersistBtn(gate, { hasReport: true });
       clearT90ResultBox();
       await renderT90CoefTable(data.return_model || {}, {

@@ -1,6 +1,9 @@
-"""ŷ_τ30 概率头：开盘 Z + 开→τ 收益/截面 + 序列特征 → P(τ⊕30m 窗收益>0)。
+"""ŷ_τ{t30..t90} Ridge 泛化模块：开盘 Z + 开→τ 收益/截面 + 序列特征 → P(窗收益>0)。
 
-盘中写 y_τ30=p_up。进 ŷ_τw 投票；个股闸与入场已下线。不进 C_τ / ranking。
+替代 ``core/research/t30_ridge.py … t90_ridge.py``，所有 horizon 共享一套实现，
+通过 ``head`` 参数（"t30"/"t45"/"t60"/"t75"/"t90"）区分。
+
+盘中写 y_τ{num}=p_up。进 ŷ_τw 投票；个股闸与入场已下线。不进 C_τ / ranking。
 决策钟只覆盖 09:30…11:00（与 ŷ_τc 对齐）；窗外不训、不预。
 不含 ŷ_τ 的 OC 路径形状（HL/回撤/振幅）。
 序列键只进本头，不进 TAU_Z_FEATURES。
@@ -22,14 +25,6 @@ from core.research.horizon_prob import (
     stamp_horizon_explain,
     train_eval_horizon_prob,
 )
-from core.research.tau_panel import (
-    TAU_LAG_FEAT_LABELS,
-    T30_LAG_FEAT_LABELS,
-    T30_SEQ_FEATURES,
-    relabel_tau_panels_as_t30,
-    theme_sample_weights,
-    y_t30_pct,
-)
 from core.research.tc_ridge import (
     TAU_FIT_DROP_ALIASES,
     TAU_HORIZON_DROP_OC_SHAPE,
@@ -43,28 +38,56 @@ from core.research.tc_ridge import (
 )
 from core.signal.minute_tau_feats import MINUTE_TAU_FEAT_LABELS
 from core.signal.minute_tau_grid import (
-    DEFAULT_T30_TRAIN_TAU_GRID,
+    DEFAULT_T0_TRAIN_TAU_GRID_5M,
     format_shared_tau_formula,
 )
 
-Y_T30_HAT_KEYS = ("predicted_score_t30", "y_t30_hat", "y_τ30", "y_t30")
-Y_T30_LABEL_KEYS = ("t30_realized", "y_t30_realized")
-FORMULA_T30 = "mean(price[τ+25m],price[τ+30m],price[τ+35m])/price[τ]-1"
-T30_Z_FEATURES = tuple(
-    k for k in (TAU_Z_FEATURES + T30_SEQ_FEATURES) if k not in TAU_HORIZON_DROP_OC_SHAPE
-)
-T30_MIN_STD_EXEMPT = TAU_MIN_STD_EXEMPT + T30_SEQ_FEATURES
+HORIZON_RIDGE_HEADS = ("t30", "t45", "t60", "t75", "t90")
 
-t30_promote_gate = horizon_promote_gate
+_RIDGE_MODEL_CACHE: Dict[str, Tuple[Tuple[float, float], Optional[Dict[str, Any]]]] = {}
 
 
-def _t30_z_only_row(row: Optional[dict]) -> Dict[str, Optional[float]]:
-    src = row or {}
-    return {k: src.get(k) for k in T30_Z_FEATURES}
+def _horizon_ridge_config(head: str) -> Dict[str, Any]:
+    """按 head 解析 horizon ridge 训练所需的特定配置。"""
+    import importlib
+
+    h = str(head or "").strip().lower()
+    if h not in HORIZON_RIDGE_HEADS:
+        raise ValueError(f"unsupported horizon ridge head: {head!r}")
+    num = int(h[1:])
+    tau_mod = importlib.import_module("core.research.tau_panel")
+    grid_mod = importlib.import_module("core.signal.minute_tau_grid")
+    seq_features = tuple(getattr(tau_mod, f"{h.upper()}_SEQ_FEATURES"))
+    lag_feat_labels = getattr(tau_mod, f"{h.upper()}_LAG_FEAT_LABELS")
+    relabel_fn = getattr(tau_mod, f"relabel_tau_panels_as_{h}")
+    y_pct_fn = getattr(tau_mod, f"y_{h}_pct")
+    train_tau_grid = getattr(grid_mod, f"DEFAULT_{h.upper()}_TRAIN_TAU_GRID", DEFAULT_T0_TRAIN_TAU_GRID_5M)
+    offsets = getattr(grid_mod, f"{h.upper()}_LABEL_OFFSETS")
+    z_features = tuple(
+        k for k in (TAU_Z_FEATURES + seq_features) if k not in TAU_HORIZON_DROP_OC_SHAPE
+    )
+    min_std_exempt = tuple(TAU_MIN_STD_EXEMPT) + seq_features
+    return {
+        "head": h,
+        "num": num,
+        "z_features": z_features,
+        "min_std_exempt": min_std_exempt,
+        "seq_features": seq_features,
+        "lag_feat_labels": dict(lag_feat_labels),
+        "relabel_fn": relabel_fn,
+        "y_pct_fn": y_pct_fn,
+        "train_tau_grid": tuple(train_tau_grid),
+        "offsets": tuple(offsets),
+        "schema": f"{h}_ridge_v2",
+        "target": f"price_tau_plus_{num}",
+        "dual_score_head": f"y_{h}",
+        "formula": f"mean(price[τ+{offsets[0]}m],price[τ+{offsets[1]}m],price[τ+{offsets[2]}m])/price[τ]-1",
+    }
 
 
-def _t30_z_only_xs(xs: Sequence[dict]) -> List[dict]:
-    return [_t30_z_only_row(r) for r in xs]
+# ---------------------------------------------------------------------------
+# 字段读写：pick_y_hat / pick_y_label / write_y_hat / write_y_label / pack_y_fields
+# ---------------------------------------------------------------------------
 
 
 def _f(v: Any) -> Optional[float]:
@@ -79,63 +102,91 @@ def _f(v: Any) -> Optional[float]:
     return x
 
 
-def pick_y_t30_hat(*objs: Any) -> Optional[float]:
-    """盘中 ŷ_τ30（p_up∈(0,1)）。"""
+def _hat_keys(head: str) -> Tuple[str, ...]:
+    cfg = _horizon_ridge_config(head)
+    h = cfg["head"]
+    num = cfg["num"]
+    return (f"predicted_score_{h}", f"y_{h}_hat", f"y_\u03c4{num}", f"y_{h}")
+
+
+def _label_keys(head: str) -> Tuple[str, ...]:
+    h = _horizon_ridge_config(head)["head"]
+    return (f"{h}_realized", f"y_{h}_realized")
+
+
+def pick_y_hat(head: str, *objs: Any) -> Optional[float]:
+    """盘中 ŷ_τ{num}（p_up∈(0,1)）。"""
+    keys = _hat_keys(head)
     for obj in objs:
         if not isinstance(obj, dict):
             continue
-        for k in Y_T30_HAT_KEYS:
+        for k in keys:
             v = _f(obj.get(k))
             if v is not None:
                 return v
     return None
 
 
-def pick_y_t30_label(*objs: Any) -> Optional[float]:
+def pick_y_label(head: str, *objs: Any) -> Optional[float]:
+    keys = _label_keys(head)
     for obj in objs:
         if not isinstance(obj, dict):
             continue
-        for k in Y_T30_LABEL_KEYS:
+        for k in keys:
             v = _f(obj.get(k))
             if v is not None:
                 return v
     return None
 
 
-def write_y_t30_hat(dest: Dict[str, Any], val: float, *, formula: Any = None) -> None:
+def write_y_hat(head: str, dest: Dict[str, Any], val: float, *, formula: Any = None) -> None:
+    cfg = _horizon_ridge_config(head)
+    h = cfg["head"]
+    num = cfg["num"]
     x = float(val)
-    dest["predicted_score_t30"] = x
-    dest["y_t30_hat"] = x
-    dest["y_t30"] = x
-    dest["y_τ30"] = x
-    spec = str(formula or FORMULA_T30)
-    dest["y_spec_τ30"] = {"formula": spec, "unit": "prob"}
-    dest["y_spec_t30"] = {"formula": spec, "unit": "prob"}
+    dest[f"predicted_score_{h}"] = x
+    dest[f"y_{h}_hat"] = x
+    dest[f"y_{h}"] = x
+    dest[f"y_\u03c4{num}"] = x
+    spec = str(formula or cfg["formula"])
+    dest[f"y_spec_\u03c4{num}"] = {"formula": spec, "unit": "prob"}
+    dest[f"y_spec_{h}"] = {"formula": spec, "unit": "prob"}
 
 
-def write_y_t30_label(dest: Dict[str, Any], val: float) -> None:
+def write_y_label(head: str, dest: Dict[str, Any], val: float) -> None:
+    h = _horizon_ridge_config(head)["head"]
     x = float(val)
-    dest["t30_realized"] = x
-    dest["y_t30_realized"] = x
+    dest[f"{h}_realized"] = x
+    dest[f"y_{h}_realized"] = x
 
 
-def pack_y_t30_fields(day: Optional[dict]) -> Dict[str, Any]:
-    val = pick_y_t30_label(day) if isinstance(day, dict) else None
-    hat = pick_y_t30_hat(day) if isinstance(day, dict) else None
+def pack_y_fields(head: str, day: Optional[dict]) -> Dict[str, Any]:
+    cfg = _horizon_ridge_config(head)
+    h = cfg["head"]
+    num = cfg["num"]
+    val = pick_y_label(head, day) if isinstance(day, dict) else None
+    hat = pick_y_hat(head, day) if isinstance(day, dict) else None
     return {
-        "t30_realized": val,
-        "y_t30_realized": val,
-        "y_τ30": hat,
-        "y_t30": hat,
+        f"{h}_realized": val,
+        f"y_{h}_realized": val,
+        f"y_\u03c4{num}": hat,
+        f"y_{h}": hat,
     }
 
 
-def t30_realized_pct(price_tau: Any, price_tau30: Any) -> Optional[float]:
-    v = y_t30_pct(price_tau, price_tau30)
+def horizon_realized_pct(head: str, price_tau: Any, price_tau_n: Any) -> Optional[float]:
+    cfg = _horizon_ridge_config(head)
+    v = cfg["y_pct_fn"](price_tau, price_tau_n)
     return round(float(v), 4) if v is not None else None
 
 
-def fit_t30_ridge_report(
+# ---------------------------------------------------------------------------
+# 训练：fit_horizon_ridge_report
+# ---------------------------------------------------------------------------
+
+
+def fit_horizon_ridge_report(
+    head: str,
     stock_bars: Sequence[Dict[str, Any]],
     *,
     ridge_lambda: float = 1.0,
@@ -147,11 +198,28 @@ def fit_t30_ridge_report(
     tau_hm: str = "10:30",
     tau_grid: Optional[Sequence[str]] = None,
 ) -> Dict[str, Any]:
-    """池化拟合 ŷ_τ30=p_up + 时间 OOS。标签 = I(mean(price(τ⊕25/30/35))/price(τ)−1 > 0)。"""
+    """池化拟合 ŷ_τ{num}=p_up + 时间 OOS。标签 = I(mean(price(τ⊕off1/off2/off3))/price(τ)−1 > 0)。"""
+    from core.research.tau_panel import theme_sample_weights
+
+    cfg = _horizon_ridge_config(head)
+    h = cfg["head"]
+    num = cfg["num"]
+    z_features = cfg["z_features"]
+    min_std_exempt = cfg["min_std_exempt"]
+    relabel_fn = cfg["relabel_fn"]
+    train_tau_grid = cfg["train_tau_grid"]
+    offsets = cfg["offsets"]
+    schema = cfg["schema"]
+    target = cfg["target"]
+    dual_score_head = cfg["dual_score_head"]
+    formula = cfg["formula"]
+    seq_features = cfg["seq_features"]
+    lag_feat_labels = cfg["lag_feat_labels"]
+
     live_hm = str(tau_hm or "10:30").strip() or "10:30"
     if live_hm.lower() in ("", "open"):
         live_hm = "10:30"
-    grid = list(tau_grid) if tau_grid is not None else list(DEFAULT_T30_TRAIN_TAU_GRID)
+    grid = list(tau_grid) if tau_grid is not None else list(train_tau_grid)
     raw = build_tau_panels_from_bars(
         stock_bars,
         min_history=min_history,
@@ -159,20 +227,20 @@ def fit_t30_ridge_report(
         tau_hm=live_hm,
         tau_grid=grid,
     )
-    enriched = relabel_tau_panels_as_t30(raw)
+    enriched = relabel_fn(raw)
     xs, ys, dates, metas = _stack_panels(enriched)
     if len(ys) < 20:
         return {
             "success": False,
-            "error": f"t30 样本不足 n={len(ys)}（需≥20 且需 τ⊕25/30/35 三根均价）",
-            "task": "t30_ridge",
+            "error": f"{h} 样本不足 n={len(ys)}（需≥20 且需 τ⊕{offsets[0]}/{offsets[1]}/{offsets[2]} 三根均价）",
+            "task": f"{h}_ridge",
             "sample_count": len(ys),
             "stock_count": len(enriched),
             "tau_grid": list(grid),
             "minute_tau_hm": live_hm,
         }
 
-    xs_z = _t30_z_only_xs(xs)
+    xs_z = [{k: (row or {}).get(k) for k in z_features} for row in xs]
     from core.research.holdout import (
         DEFAULT_HOLDOUT_TRADING_DAYS,
         attach_holdout_meta,
@@ -194,7 +262,7 @@ def fit_t30_ridge_report(
         if use_theme_weights
         else None
     )
-    feat_names = [k for k in T30_Z_FEATURES if k not in TAU_FIT_DROP_ALIASES]
+    feat_names = [k for k in z_features if k not in TAU_FIT_DROP_ALIASES]
     w_all = (
         theme_sample_weights(metas, theme_boost=theme_boost)
         if use_theme_weights
@@ -212,7 +280,7 @@ def fit_t30_ridge_report(
         ridge_lambda=ridge_lambda,
         weights=weights,
         weights_all=w_all,
-        min_std_exempt=T30_MIN_STD_EXEMPT,
+        min_std_exempt=min_std_exempt,
     )
     oos: Dict[str, Any] = dict(packed.get("oos_core") or {})
     oos.update(
@@ -228,7 +296,7 @@ def fit_t30_ridge_report(
             "feature_fill": None,
             "holdout_trading_days": hold_n,
             "theme_boost": theme_boost if use_theme_weights else None,
-            "target": "price_tau_plus_30",
+            "target": target,
             "tau": live_hm,
             "tau_grid": list(grid),
             "minute_tau_hm": live_hm,
@@ -237,9 +305,9 @@ def fit_t30_ridge_report(
     try:
         from core.research.panel import feature_fill_rates
 
-        oos["feature_fill"] = feature_fill_rates(xs_z, T30_Z_FEATURES)
+        oos["feature_fill"] = feature_fill_rates(xs_z, z_features)
     except Exception:  # noqa: BLE001
-        logger.debug("t30 feature_fill failed", exc_info=True)
+        logger.debug("%s feature_fill failed", h, exc_info=True)
 
     oos["label_dist"] = {
         "n_labeled": len(ys),
@@ -250,29 +318,30 @@ def fit_t30_ridge_report(
 
     research_model = dict(packed.get("research_model") or {})
     model = dict(packed.get("model") or {})
-    model["horizon_mode"] = "price_tau_plus_30"
-    model["target"] = "price_tau_plus_30"
-    y_formula = format_shared_tau_formula(FORMULA_T30, grid or [live_hm])
+    model["horizon_mode"] = target
+    model["target"] = target
+    y_formula = format_shared_tau_formula(formula, grid or [live_hm])
+    seq_str = " / ".join(seq_features)
     model["y_spec"] = {
         "formula": y_formula,
         "unit": "prob",
-        "label": "I(mean(price(τ⊕25/30/35))/price(τ)−1 > 0)",
+        "label": f"I(mean(price(τ⊕{offsets[0]}/{offsets[1]}/{offsets[2]}))/price(τ)−1 > 0)",
         "tau": live_hm,
         "tau_grid": list(grid),
         "note": (
-            "X = 开盘 Z + 开→τ 收益/截面 + ŷ_τ30 序列特征"
-            "（ret_last_5m / ret_last_30m / session_elapsed / session_remain / "
-            "crosses_lunch / session_vwap_dev / vol_last_30m_vs_avg / "
-            "sector_ret_last_30m / ret_last_30m_vs_sector / t30_lag1 / t30_ma5）；"
+            f"X = 开盘 Z + 开→τ 收益/截面 + ŷ_τ{num} 序列特征"
+            f"（{seq_str}）；"
             "不含 ŷ_τ 的 OC 路径形状。"
-            "ŷ_τ30=P(窗收益>0)；做 T 用 p_agree（正T=p_up，反T=1−p_up）；不进 C_τ / ranking。"
+            f"ŷ_τ{num}=P(窗收益>0)；做 T 用 p_agree（正T=p_up，反T=1−p_up）；不进 C_τ / ranking。"
         ),
     }
-    model["extra_features"] = list(T30_Z_FEATURES)
+    model["extra_features"] = list(z_features)
+    from core.research.tau_panel import TAU_LAG_FEAT_LABELS
+
     model["feat_labels"] = {
         **dict(MINUTE_TAU_FEAT_LABELS),
         **dict(TAU_LAG_FEAT_LABELS),
-        **dict(T30_LAG_FEAT_LABELS),
+        **lag_feat_labels,
     }
     model["minute_tau_hm"] = live_hm
     model["tau_grid"] = list(grid)
@@ -292,52 +361,45 @@ def fit_t30_ridge_report(
 
     report = {
         "success": True,
-        "task": "t30_ridge",
+        "task": f"{h}_ridge",
         "stock_count": len(enriched),
         "sample_count": len(ys),
         "oos": oos,
         "return_model": model,
         "return_model_research": research_model,
-        "schema": "t30_ridge_v2",
-        "target": "price_tau_plus_30",
+        "schema": schema,
+        "target": target,
         "minute_tau_hm": live_hm,
         "tau_grid": list(grid),
-        "dual_score_head": "y_t30",
+        "dual_score_head": dual_score_head,
         "head_kind": "prob",
         "note": (
-            "ŷ_τ30=P(mean(price(τ⊕25/30/35))/price(τ)−1>0)。进 ŷ_τw 投票；个股旁路闸已下线。不进 C_τ / ranking。"
+            f"ŷ_τ{num}=P(mean(price(τ⊕{offsets[0]}/{offsets[1]}/{offsets[2]}))/price(τ)−1>0)。"
+            "进 ŷ_τw 投票；个股旁路闸已下线。不进 C_τ / ranking。"
         ),
     }
     attach_holdout_meta(report, split_meta)
-    report["promote_gate"] = t30_promote_gate(report)
+    report["promote_gate"] = horizon_promote_gate(report)
     return report
 
 
-def t30_model_path() -> str:
+# ---------------------------------------------------------------------------
+# 模型路径 / 持久化 / 加载 / 预测 / 解释
+# ---------------------------------------------------------------------------
+
+
+def ridge_model_path(head: str) -> str:
     from core.paths import LIVE_DIR
 
-    return os.path.join(LIVE_DIR, "t30_ridge_model.json")
+    h = _horizon_ridge_config(head)["head"]
+    return os.path.join(LIVE_DIR, f"{h}_ridge_model.json")
 
 
-def t30_last_report_path() -> str:
+def ridge_last_report_path(head: str) -> str:
     from core.paths import LIVE_DIR
 
-    return os.path.join(LIVE_DIR, "t30_ridge_last_report.json")
-
-
-_T30_MODEL_CACHE: Optional[Tuple[Tuple[float, float], Optional[Dict[str, Any]]]] = None
-
-
-def save_t30_last_report(report: Dict[str, Any]) -> None:
-    if not isinstance(report, dict) or not report.get("success"):
-        return
-    if not isinstance(report.get("return_model"), dict):
-        return
-    path = t30_last_report_path()
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    atomic_write_json(path, report)
-    global _T30_MODEL_CACHE
-    _T30_MODEL_CACHE = None
+    h = _horizon_ridge_config(head)["head"]
+    return os.path.join(LIVE_DIR, f"{h}_ridge_last_report.json")
 
 
 def _mtime_or_missing(path: str) -> float:
@@ -347,15 +409,29 @@ def _mtime_or_missing(path: str) -> float:
         return -1.0
 
 
-def load_t30_last_report() -> Optional[Dict[str, Any]]:
-    path = t30_last_report_path()
+def save_ridge_last_report(head: str, report: Dict[str, Any]) -> None:
+    if not isinstance(report, dict) or not report.get("success"):
+        return
+    if not isinstance(report.get("return_model"), dict):
+        return
+    from core.research.holdout import stamp_fitted_at
+
+    stamp_fitted_at(report)
+    path = ridge_last_report_path(head)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    atomic_write_json(path, report)
+    _RIDGE_MODEL_CACHE.pop(_horizon_ridge_config(head)["head"], None)
+
+
+def load_ridge_last_report(head: str) -> Optional[Dict[str, Any]]:
+    path = ridge_last_report_path(head)
     if not os.path.isfile(path):
         return None
     try:
         with open(path, encoding="utf-8") as f:
             doc = json.load(f)
     except Exception:  # noqa: BLE001
-        logger.debug("load_t30_last_report failed", exc_info=True)
+        logger.debug("load %s last_report failed", head, exc_info=True)
         return None
     if not isinstance(doc, dict) or not doc.get("success"):
         return None
@@ -364,22 +440,23 @@ def load_t30_last_report() -> Optional[Dict[str, Any]]:
     return doc
 
 
-def load_t30_model(*, role: Optional[str] = None) -> Optional[Dict[str, Any]]:
+def load_ridge_model(head: str, *, role: Optional[str] = None) -> Optional[Dict[str, Any]]:
     from core.research.holdout import (
         MODEL_ROLE_RESEARCH,
         current_scoring_model_role,
         load_research_promoted_json,
     )
 
+    h = _horizon_ridge_config(head)["head"]
     role_n = role if role is not None else current_scoring_model_role()
     if role_n == MODEL_ROLE_RESEARCH:
-        return load_research_promoted_json(t30_model_path())
-    global _T30_MODEL_CACHE
-    model_p = t30_model_path()
-    report_p = t30_last_report_path()
+        return load_research_promoted_json(ridge_model_path(h))
+    model_p = ridge_model_path(h)
+    report_p = ridge_last_report_path(h)
     key = (_mtime_or_missing(model_p), _mtime_or_missing(report_p))
-    if _T30_MODEL_CACHE is not None and _T30_MODEL_CACHE[0] == key:
-        return _T30_MODEL_CACHE[1]
+    cached = _RIDGE_MODEL_CACHE.get(h)
+    if cached is not None and cached[0] == key:
+        return cached[1]
     doc: Optional[Dict[str, Any]] = None
     if os.path.isfile(model_p):
         try:
@@ -388,18 +465,19 @@ def load_t30_model(*, role: Optional[str] = None) -> Optional[Dict[str, Any]]:
             if isinstance(loaded, dict) and isinstance(loaded.get("return_model"), dict):
                 doc = loaded
         except Exception:  # noqa: BLE001
-            logger.debug("load_t30_model failed", exc_info=True)
+            logger.debug("load %s model failed", h, exc_info=True)
     if doc is None:
-        fallback = load_t30_last_report()
+        fallback = load_ridge_last_report(h)
         if fallback:
             out = dict(fallback)
             out["_shadow"] = True
             doc = out
-    _T30_MODEL_CACHE = (key, doc)
+    _RIDGE_MODEL_CACHE[h] = (key, doc)
     return doc
 
 
-def persist_t30_model(
+def persist_ridge_model(
+    head: str,
     report: Dict[str, Any],
     *,
     note: str = "",
@@ -408,16 +486,23 @@ def persist_t30_model(
 ) -> Dict[str, Any]:
     from core.research.holdout import (
         MODEL_ROLE_RESEARCH,
+        model_fit_id,
         research_model_path,
         select_persist_return_model,
+        stamp_fitted_at,
     )
+
+    cfg = _horizon_ridge_config(head)
+    h = cfg["head"]
+    schema = cfg["schema"]
+    dual_score_head = cfg["dual_score_head"]
 
     if not report.get("success"):
         return {"success": False, "error": report.get("error") or "no report"}
     role_n, rm = select_persist_return_model(report, role=role)
     if not isinstance(rm, dict):
         return {"success": False, "error": "return_model missing"}
-    gate = t30_promote_gate(report)
+    gate = horizon_promote_gate(report)
     if not force and not gate.get("ok"):
         return {
             "success": False,
@@ -426,15 +511,18 @@ def persist_t30_model(
         }
     from core.numbers import now_iso_utc
 
+    stamp_fitted_at(report)
+    fitted_at = model_fit_id(report)
     doc = {
         "success": True,
+        "fitted_at": fitted_at,
         "promoted_at": now_iso_utc(),
-        "note": note or "t30_ridge promote",
+        "note": note or f"{h}_ridge promote",
         "return_model": rm,
         "oos": report.get("oos"),
         "sample_count": report.get("sample_count"),
         "stock_count": report.get("stock_count"),
-        "schema": report.get("schema") or "t30_ridge_v2",
+        "schema": report.get("schema") or schema,
         "minute_tau_hm": report.get("minute_tau_hm") or rm.get("minute_tau_hm"),
         "tau_grid": report.get("tau_grid") or rm.get("tau_grid"),
         "promote_gate": gate,
@@ -442,29 +530,29 @@ def persist_t30_model(
         "fit_end": report.get("fit_end"),
         "eval_start": report.get("eval_start"),
         "holdout_trading_days": report.get("holdout_trading_days"),
-        "dual_score_head": "y_t30",
+        "dual_score_head": dual_score_head,
     }
     path = (
-        research_model_path(t30_model_path())
+        research_model_path(ridge_model_path(h))
         if role_n == MODEL_ROLE_RESEARCH
-        else t30_model_path()
+        else ridge_model_path(h)
     )
     os.makedirs(os.path.dirname(path), exist_ok=True)
     atomic_write_json(path, doc)
-    global _T30_MODEL_CACHE
-    _T30_MODEL_CACHE = None
+    _RIDGE_MODEL_CACHE.pop(h, None)
     out = dict(doc)
     out["path"] = path
     return out
 
 
-def predict_t30_from_features(
+def predict_ridge_from_features(
+    head: str,
     features: Dict[str, Optional[float]],
     *,
     model_doc: Optional[Dict[str, Any]] = None,
 ) -> Optional[float]:
-    """开盘 Z + 前缀分钟 → ŷ_τ30 = P(窗收益>0)。"""
-    doc = model_doc if model_doc is not None else load_t30_model()
+    """开盘 Z + 前缀分钟 → ŷ_τ{num} = P(窗收益>0)。"""
+    doc = model_doc if model_doc is not None else load_ridge_model(head)
     if not doc:
         return None
     rm = doc.get("return_model") or {}
@@ -474,13 +562,19 @@ def predict_t30_from_features(
     return float(preds[0])
 
 
-def explain_t30_prediction(
+def explain_ridge_prediction(
+    head: str,
     features: Optional[Dict[str, Any]],
     *,
     model_doc: Optional[Dict[str, Any]] = None,
 ) -> Optional[Dict[str, Any]]:
     from core.research.tc_ridge import explain_tau_prediction
 
-    doc = model_doc if model_doc is not None else load_t30_model()
+    h = _horizon_ridge_config(head)["head"]
+    doc = model_doc if model_doc is not None else load_ridge_model(h)
     expl = explain_tau_prediction(features, model_doc=doc)
-    return stamp_horizon_explain(expl, head="t30", model_doc=doc)
+    return stamp_horizon_explain(expl, head=h, model_doc=doc)
+
+
+def clear_ridge_model_cache() -> None:
+    _RIDGE_MODEL_CACHE.clear()

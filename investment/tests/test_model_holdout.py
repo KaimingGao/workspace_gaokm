@@ -131,6 +131,44 @@ class TestHoldoutSplit(unittest.TestCase):
         stamp_fitted_at(fresh)
         self.assertTrue(fresh.get("fitted_at"))
 
+    def test_horizon_ridge_persist_keeps_fitted_at(self):
+        import json
+        from unittest.mock import patch
+
+        from core.research.horizon_ridge import persist_ridge_model, save_ridge_last_report
+
+        report = {
+            "success": True,
+            "fitted_at": "2026-10-04T09:35:00Z",
+            "return_model": {"coefficients": {"gap_pct": 0.1}, "intercept": 0.0},
+            "return_model_research": {
+                "coefficients": {"gap_pct": 0.05},
+                "intercept": 0.0,
+            },
+            "oos": {"n_train": 10, "n_test": 2},
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            live = os.path.join(tmp, "live")
+            os.makedirs(live, exist_ok=True)
+            with patch("core.paths.LIVE_DIR", live):
+                save_ridge_last_report("t30", report)
+                last_path = os.path.join(live, "t30_ridge_last_report.json")
+                with open(last_path, encoding="utf-8") as f:
+                    last = json.load(f)
+                self.assertEqual(last["fitted_at"], "2026-10-04T09:35:00Z")
+                saved = persist_ridge_model(
+                    "t30", report, role="research", force=True, note="test"
+                )
+                self.assertTrue(saved.get("success"), saved)
+                self.assertEqual(saved.get("fitted_at"), "2026-10-04T09:35:00Z")
+                self.assertTrue(saved.get("promoted_at"))
+                self.assertNotEqual(saved.get("promoted_at"), saved.get("fitted_at"))
+                flags = research_sidecar_flags(os.path.join(live, "t30_ridge_model.json"))
+                self.assertEqual(flags.get("research_fitted_at"), "2026-10-04T09:35:00Z")
+                self.assertEqual(
+                    flags.get("research_promoted_at"), saved.get("promoted_at")
+                )
+
     def test_attach_ridge_role_flags_fitted_at_from_last_report(self):
         import json
 
@@ -151,6 +189,29 @@ class TestHoldoutSplit(unittest.TestCase):
                 {"success": True}, live_path, live_present=False
             )
             self.assertTrue(from_mtime.get("fitted_at"))
+
+    def test_attach_ridge_role_flags_splits_live_promoted_at(self):
+        import json
+
+        from quant.services.quant_service_factors import _attach_ridge_role_flags
+
+        with tempfile.TemporaryDirectory() as tmp:
+            live_path = os.path.join(tmp, "co_ridge_model.json")
+            with open(live_path, "w", encoding="utf-8") as f:
+                json.dump(
+                    {
+                        "success": True,
+                        "fitted_at": "2026-10-04T09:35:00Z",
+                        "promoted_at": "2026-10-04T11:41:00Z",
+                        "return_model": {"intercept": 0},
+                    },
+                    f,
+                )
+            out = _attach_ridge_role_flags(
+                {"success": True}, live_path, live_present=True
+            )
+            self.assertEqual(out["live_fitted_at"], "2026-10-04T09:35:00Z")
+            self.assertEqual(out["live_promoted_at"], "2026-10-04T11:41:00Z")
 
     def test_select_persist_return_model(self):
         report = {
@@ -181,7 +242,7 @@ class TestHoldoutSplit(unittest.TestCase):
 
 class TestTauRoleLoad(unittest.TestCase):
     def test_load_tau_research_does_not_fallback_to_live(self):
-        from core.research import tau_ridge as tr
+        from core.research import tc_ridge as tr
 
         live_doc = {
             "success": True,
