@@ -844,7 +844,7 @@ def recover_sub_scores_for_tau(item: Optional[dict]) -> Dict[str, float]:
         return {}
     means = getattr(rm, "z_means", None) or {}
     stds = getattr(rm, "z_stds", None) or {}
-    standardized = bool(getattr(rm, "standardized", True))
+    feature_zscore = bool(getattr(rm, "feature_zscore", True))
     for t in terms:
         if not isinstance(t, dict) or t.get("gated"):
             continue
@@ -857,7 +857,7 @@ def recover_sub_scores_for_tau(item: Optional[dict]) -> Dict[str, float]:
         except (TypeError, ValueError):
             continue
         name = str(key)
-        if standardized:
+        if feature_zscore:
             mu = float(means.get(name) or 0.0)
             sd = float(stds.get(name) or 1.0)
             if sd < 1e-12:

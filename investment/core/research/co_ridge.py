@@ -38,8 +38,12 @@ def fit_co_ridge_report(
     holdout_trading_days: int = 20,
     use_theme_weights: bool = True,
     include_alpha158: bool = True,
+    label_demean: bool = False,
 ) -> Dict[str, Any]:
-    """池化拟合 ŷ_co(Z) + 时间 OOS。标签 = open[T+1]/close[T]-1（决策日 T 开盘）。"""
+    """池化拟合 ŷ_co(Z) + 时间 OOS。标签 = open[T+1]/close[T]-1（决策日 T 开盘）。
+
+    ``label_demean``：训练标签减全局均值，截距加回（默认关）。
+    """
     from core.research.panel_matrix import (
         collect_co_compact,
         fill_rates_from_matrix,
@@ -113,11 +117,19 @@ def fit_co_ridge_report(
         feat_names, list(CO_MIN_STD_EXEMPT)
     )
 
+    from core.research.label_demean import annotate_label_demean, demean_labels
+
+    use_dm = bool(label_demean)
     row_tr = np.asarray(train_idx, dtype=np.int64)
     row_te = np.asarray(test_idx, dtype=np.int64)
+    y_tr_arr = np.asarray(ys_tr, dtype=np.float64)
+    if use_dm:
+        y_fit, y_mean = demean_labels(y_tr_arr)
+    else:
+        y_fit, y_mean = y_tr_arr, 0.0
     fit = fit_keepall_ridge_matrix(
         X_fit[row_tr],
-        ys_tr,
+        y_fit,
         feat_names,
         ridge_lambda=ridge_lambda,
         sample_weights=weights,
@@ -127,7 +139,7 @@ def fit_co_ridge_report(
         mu = sum(float(y) for y in ys_tr) / max(1, len(ys_tr))
         fit = {
             "success": True,
-            "intercept": round(mu, 6),
+            "intercept": round(mu if not use_dm else 0.0, 6),
             "coefficients": {},
             "active_features": [],
             "zscore_means": {},
@@ -135,9 +147,13 @@ def fit_co_ridge_report(
             "note": "Z 方差不足，ŷ_co 用训练均值",
         }
 
-    preds_te = (
+    preds_dm = (
         predict_ridge_matrix(fit, X_fit[row_te], feat_names) if len(test_idx) else []
     )
+    preds_te = [
+        (float(p) + y_mean) if (use_dm and p is not None) else p
+        for p in (preds_dm or [])
+    ]
     by_theme = _oos_by_theme(preds_te, ys_te, metas_te) if ys_te else {}
     oos = {
         "n_train": len(ys_tr),
@@ -160,15 +176,25 @@ def fit_co_ridge_report(
         except Exception:  # noqa: BLE001
             logger.debug("co attach_daily_cs_ic failed", exc_info=True)
 
-    research_model = make_research_model(fit, y_mean=0.0)
+    research_model = make_research_model(fit, y_mean=y_mean if use_dm else 0.0)
+    if use_dm:
+        research_model["intercept_demeaned"] = round(float(fit.get("intercept") or 0.0), 6)
+        annotate_label_demean(research_model, enabled=True, y_mean=y_mean)
+    else:
+        annotate_label_demean(research_model, enabled=False, y_mean=0.0)
     w_all = (
         theme_sample_weights(metas, theme_boost=theme_boost)
         if use_theme_weights
         else None
     )
+    y_all = np.asarray(ys, dtype=np.float64)
+    if use_dm:
+        y_all_fit, y_mean_all = demean_labels(y_all)
+    else:
+        y_all_fit, y_mean_all = y_all, 0.0
     fit_full = fit_keepall_ridge_matrix(
         X_fit,
-        ys,
+        y_all_fit,
         feat_names,
         ridge_lambda=ridge_lambda,
         sample_weights=w_all,
@@ -176,6 +202,19 @@ def fit_co_ridge_report(
     )
     model = fit_full if fit_full.get("success") else fit
     model = dict(model)
+    if use_dm:
+        try:
+            model["intercept"] = round(
+                float(model.get("intercept") or 0.0) + y_mean_all, 6
+            )
+        except (TypeError, ValueError):
+            model["intercept"] = round(y_mean_all, 6)
+        model["intercept_demeaned"] = round(
+            float((fit_full or fit).get("intercept") or 0.0), 6
+        )
+        annotate_label_demean(model, enabled=True, y_mean=y_mean_all)
+    else:
+        annotate_label_demean(model, enabled=False, y_mean=0.0)
     model["horizon_mode"] = "overnight_gap"
     model["target"] = "overnight_gap"
     y_formula = "open[T+1]/close[T]-1"
@@ -251,6 +290,9 @@ def save_co_last_report(report: Dict[str, Any]) -> None:
         return
     if not isinstance(report.get("return_model"), dict):
         return
+    from core.research.holdout import stamp_fitted_at
+
+    stamp_fitted_at(report)
     path = co_last_report_path()
     os.makedirs(os.path.dirname(path), exist_ok=True)
     atomic_write_json(path, report)
@@ -297,8 +339,12 @@ def persist_co_model(
     rm["target"] = str(report.get("target") or rm.get("target") or "overnight_gap")
 
     schema = str(report.get("schema") or "co_ridge_v1")
+    from core.research.holdout import model_fit_id
+
+    fitted_at = model_fit_id(report)
     doc = {
         "success": True,
+        "fitted_at": fitted_at,
         "promoted_at": now_iso_utc(),
         "note": note or "co_ridge promote",
         "return_model": rm,

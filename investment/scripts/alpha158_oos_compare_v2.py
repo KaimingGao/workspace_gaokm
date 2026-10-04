@@ -65,7 +65,7 @@ def ridge_active_summary(days):
         xs[:cut],
         ys[:cut],
         ridge_lambda=1.0,
-        standardize=True,
+        feature_zscore=True,
         collinearity_policy="drop_redundant",
     )
     active = list(fit.get("active_features") or [])

@@ -57,7 +57,7 @@ class TestDualScoreFields(unittest.TestCase):
         eod_rm = MagicMock()
         eod_rm.z_means = {"momentum": 50.0}
         eod_rm.z_stds = {"momentum": 10.0}
-        eod_rm.standardized = True
+        eod_rm.feature_zscore = True
         rem_doc = {
             "return_model": {
                 "intercept": 0.1,

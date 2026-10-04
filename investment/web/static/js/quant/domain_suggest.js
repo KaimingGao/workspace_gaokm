@@ -9,7 +9,7 @@ import {
 /** Quant domain: suggest */
 export function installSuggest(q) {
   const { on, els, state, ctx, escapeHtml, apiFetch, setQuantMeta, setBusyText } = q;
-  const { readHorizonDays, readRidgeLambda, readWatchingLimit, readHoldoutTradingDays, ensureFactorMeta, rememberFactorMeta, factorMetaByName, factorMetaByLabel, factorIcWeightMergedHtml, parseOosGateReason, fmtEmptyCell, fmtOlsCell } = q;
+  const { readHorizonDays, readRidgeLambda, readWatchingLimit, readHoldoutTradingDays, readFitLookbackDays, readLabelDemean, ensureFactorMeta, rememberFactorMeta, factorMetaByName, factorMetaByLabel, factorIcWeightMergedHtml, parseOosGateReason, fmtEmptyCell, fmtOlsCell } = q;
   const { researchGridHtml, metricCell, metricClass, fmtPct } = q;
 
 
@@ -452,6 +452,7 @@ export function installSuggest(q) {
       _setOoPromoteEnabled(!!draft.exists);
       const lastFit = state.lastReturnModelFit || {};
       const fittedAt =
+        draft.fitted_at ||
         draft.saved_at ||
         (lastFit.draft && lastFit.draft.saved_at) ||
         lastFit.fitted_at ||
@@ -475,7 +476,8 @@ export function installSuggest(q) {
             active.sample_count ||
             research.sample_count,
           fittedAt,
-          promotedAt: active.promoted_at || research.promoted_at || null,
+          researchAt: research.fitted_at || research.source_saved_at || null,
+          liveAt: active.fitted_at || active.source_saved_at || null,
           liveOn,
           researchOn: researchOn || !!draft.exists,
           oos,
@@ -501,7 +503,8 @@ export function installSuggest(q) {
           message: liveOn ? "已落盘" : "研究套已落盘 · 执行未写",
           sampleCount: active.sample_count || research.sample_count,
           fittedAt,
-          promotedAt: active.promoted_at || research.promoted_at,
+          researchAt: research.fitted_at || research.source_saved_at || null,
+          liveAt: active.fitted_at || active.source_saved_at || null,
           liveOn,
           researchOn,
           oos,
@@ -513,6 +516,8 @@ export function installSuggest(q) {
           message: "有草稿 · 尚未启用研究/执行",
           sampleCount: draft.sample_count,
           fittedAt,
+          researchAt: null,
+          liveAt: null,
           liveOn: false,
           researchOn: true,
           oos,
@@ -588,13 +593,16 @@ export function installSuggest(q) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          lookback: 600,
+          lookback:
+            typeof readFitLookbackDays === "function" ? readFitLookbackDays("oo") : 600,
           horizon_days: 1,
           watching_limit: 300,
           ridge_lambda: 1.0,
           save_draft: true,
           holdout_trading_days:
-            typeof readHoldoutTradingDays === "function" ? readHoldoutTradingDays() : 20,
+            typeof readHoldoutTradingDays === "function" ? readHoldoutTradingDays("oo") : 20,
+          label_demean:
+            typeof readLabelDemean === "function" ? readLabelDemean("oo") : false,
         }),
       });
       let data = null;
@@ -684,7 +692,8 @@ export function installSuggest(q) {
       chip: role === "research" ? "仅研究" : "仅执行",
       message: `已写入${roleLabel}`,
       sampleCount: data.sample_count,
-      promotedAt: data.promoted_at,
+      researchAt: role === "research" ? data.promoted_at || null : null,
+      liveAt: role === "live" ? data.promoted_at || null : null,
       liveOn: role === "live",
       researchOn: role === "research",
     });

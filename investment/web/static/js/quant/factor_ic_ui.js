@@ -911,7 +911,7 @@ export function createFactorIcUi(deps) {
     };
     const nTip = oos.holdout_trading_days != null
       ? "执行套全样本入模行；Holdout 只改研究套训/测，不改此数"
-      : "全面板完整行（OOS 后重估 β）；状态栏「面板 n」含缺测行，OOS n 含同日多 τ";
+      : "全面板完整行（OOS 后重估 β）；OOS 训/测 n 见右侧 KPI";
     const oosIcTip = oos.holdout_trading_days != null
         ? `Holdout ${oos.holdout_trading_days} 日拼样本 Pearson（旧口径）`
         : "拼样本 Pearson（旧口径）";

@@ -2,7 +2,7 @@
 
 截面广度仍要读缺口和路径收益，所以每只股票先写入矩阵，只把广度用到的十几列
 留在瘦 dict 里。Alpha158 原始列不再在全池 dict 里停留。
-Ridge 口径与 ``fit_factor_ols_from_panel`` 的 standardize + √w + keep_all 一致：
+Ridge 口径与 ``fit_factor_ols_from_panel`` 的 feature_zscore + √w + keep_all 一致：
 拟合用完整行，预测缺测按训练均值填（z=0）。
 """
 
@@ -578,7 +578,7 @@ def fit_keepall_ridge_matrix(
     sample_weights: Optional[Sequence[float]] = None,
     min_std: float = 5.0,
     min_std_exempt: Optional[Sequence[str]] = None,
-    standardize: bool = True,
+    feature_zscore: bool = True,
 ) -> Dict[str, Any]:
     """keep-all、标准化、可选 √w。系数四舍五入口径与 dict OLS 相同。"""
     from core.signal.factors.alpha158 import (
@@ -634,7 +634,7 @@ def fit_keepall_ridge_matrix(
     beta = None
     if x_c is not None and y_c is not None and active:
         x_fit = x_c
-        if standardize:
+        if feature_zscore:
             eps2 = 1e-12
             means = x_fit.mean(axis=0)
             var = np.mean((x_fit - means) ** 2, axis=0)
@@ -680,7 +680,7 @@ def fit_keepall_ridge_matrix(
                     "excluded_features": list(excluded),
                     "zscore_means": {k: round(v, 4) for k, v in z_means.items()},
                     "zscore_stds": {k: round(v, 4) for k, v in z_stds.items()},
-                    "standardized": bool(standardize),
+                    "feature_zscore": bool(feature_zscore),
                     "sample_count": n,
                     "n_obs": n,
                     "r_squared": round(r2, 4) if r2 is not None else None,
@@ -705,7 +705,7 @@ def fit_keepall_ridge_matrix(
         "sample_count": int(prep_meta.get("raw_sample_count") or y_arr.shape[0]),
         "excluded_features": excluded,
         "prep_meta": prep_meta,
-        "standardized": bool(standardize),
+        "feature_zscore": bool(feature_zscore),
     }
 
 
@@ -773,7 +773,7 @@ def demeaned_ridge_oos(
         ridge_lambda=ridge_lambda,
         sample_weights=sample_weights,
         min_std_exempt=min_std_exempt,
-        standardize=True,
+        feature_zscore=True,
     )
     if not fit.get("success"):
         fit = {

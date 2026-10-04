@@ -1,4 +1,4 @@
-"""ŷ_τ60 树对照：同 Holdout vs Ridge；不进 live / 回测。"""
+"""ŷ_τ60 树对照：同 Holdout vs Ridge；不进 live。"""
 
 from __future__ import annotations
 

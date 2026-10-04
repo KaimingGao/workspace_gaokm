@@ -28,7 +28,7 @@ class TestFh4ScoreWarnings(unittest.TestCase):
         global_m = ReturnScoreModel(
             intercept=1.0,
             coefficients={"momentum": 0.0},
-            standardized=False,
+            feature_zscore=False,
         )
         scored = {
             "score": 50.0,

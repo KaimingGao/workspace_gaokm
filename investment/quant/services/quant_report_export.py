@@ -276,7 +276,7 @@ def summarize_factor_ols(factor_ols: Dict[str, Any]) -> Optional[Dict[str, Any]]
             continue
     deltas.sort(key=lambda x: abs(x["delta"]), reverse=True)
     excluded = factor_ols.get("excluded_features") or []
-    z_tag = " · z-score β" if factor_ols.get("standardized") else ""
+    z_tag = " · z-score β" if factor_ols.get("feature_zscore") else ""
     try:
         lam_f = float(factor_ols.get("ridge_lambda") or 0.0)
     except (TypeError, ValueError):

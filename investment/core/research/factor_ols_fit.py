@@ -503,7 +503,7 @@ def fit_factor_ols_from_panel(
     pit_fundamentals: bool = True,
     mode: str = "single",
     stock_codes: Optional[List[str]] = None,
-    standardize: bool = True,
+    feature_zscore: bool = True,
     ridge_lambda: float = 0.0,
     select_ridge: bool = False,
     collinearity_policy: str = "drop_redundant",
@@ -597,7 +597,7 @@ def fit_factor_ols_from_panel(
             prep_meta = dict(prep_meta)
             prep_meta["dropped_collinear_policy"] = list(dropped_red)
         xs_fit = xs_c
-        if standardize and active:
+        if feature_zscore and active:
             xs_fit, z_means, z_stds = _zscore_complete_panel(xs_c, active)
         if select_ridge and active and row_weights is None:
             # 加权路径跳过选 λ（验证切分与权未对齐）；沿用传入 λ
@@ -657,7 +657,7 @@ def fit_factor_ols_from_panel(
             "prep_meta": prep_meta,
             "collinearity_meta": collinearity_meta,
             "ridge_select": ridge_select_meta,
-            "standardized": bool(standardize),
+            "feature_zscore": bool(feature_zscore),
             "ridge_lambda": lam,
             "ridge_lambda_selected": lam,
             "collinearity_policy": collinearity_policy,
@@ -689,7 +689,7 @@ def fit_factor_ols_from_panel(
         note_parts.append(
             f"Ridge λ={lam:g}：斜率 L2 收缩、截距不惩罚；缓解共线，β 仍非生产权重。"
         )
-    if standardize:
+    if feature_zscore:
         note_parts.append(
             "系数基于样本内 z-score：β≈因子高 1σ 时前瞻收益变多少百分点；"
             "负号=偏相关为负，勿与 config.weights 同量级对比。"
@@ -742,7 +742,7 @@ def fit_factor_ols_from_panel(
         "active_features": fit.get("active_features") or [],
         "excluded_features": fit.get("excluded_features") or [],
         "exclusion_reasons": excl_reasons,
-        "standardized": bool(standardize),
+        "feature_zscore": bool(feature_zscore),
         "zscore_means": {k: round(v, 4) for k, v in z_means.items()},
         "zscore_stds": {k: round(v, 4) for k, v in z_stds.items()},
         "current_weights": {k: round(float(v), 4) for k, v in current_weights.items()},

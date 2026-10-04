@@ -196,7 +196,7 @@ def _build_model(
         coefficients={names[j]: float(coefficients[j]) for j in range(len(names))},
         z_means={names[j]: float(z_means[j]) for j in range(len(names))},
         z_stds={names[j]: float(z_stds[j]) for j in range(len(names))},
-        standardized=True,
+        feature_zscore=True,
         horizon_days=int(horizon_days),
         sample_count=int(sample_count),
         ridge_lambda=float(ridge_lambda),

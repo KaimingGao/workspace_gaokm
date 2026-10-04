@@ -192,7 +192,7 @@ def _sign_hit(
 ) -> Optional[float]:
     """方向命中率。默认跳过 |ŷ|<min_abs（百分收益弱信号）。
 
-    截面 z 标签 / 强正则树的 ŷ 常落在 0.05 以内；此时调用方应 ``min_abs=0`` 回退。
+    强正则下 ŷ 常落在 0.05 以内；此时调用方应 ``min_abs=0`` 回退。
     """
     hits = 0
     n = 0
@@ -216,7 +216,7 @@ def _oos_sign_buckets(
 ) -> Dict[str, Any]:
     """分桶同号率 + 正负召回（展示/ promote 用）。
 
-    固定阈 ``|ŷ|≥0.4/0.6`` 适合百分收益尺度；截面 z 标签下 ŷ 幅度常更小，
+    固定阈 ``|ŷ|≥0.4/0.6`` 适合百分收益尺度；ŷ 幅度较小时
     另附 ``abs_top_30`` / ``abs_top_15``（按 |ŷ| 分位）以免强信号桶空缺。
     """
     buckets = {
@@ -527,6 +527,7 @@ def fit_tau_ridge_report(
     tau_hm: str = "open",
     tau_grid: Optional[Sequence[str]] = None,
     include_alpha158: bool = True,
+    label_demean: bool = True,
 ) -> Dict[str, Any]:
     """池化拟合 ŷ_τ 头 Ridge + Holdout OOS。
 
@@ -535,6 +536,7 @@ def fit_tau_ridge_report(
     默认近 ``holdout_trading_days`` 个交易日只测；训练段 β 为研究模型，
     全样本重估为执行模型。
     ``include_alpha158``：默认 True，面板附加 ``raw_alpha158_*``（≤T−1）。
+    ``label_demean``：默认 True（历史口径）；训练标签减全局均值，截距加回。
     """
     tau_key = str(tau_hm or "open").strip() or "open"
     use_minute = tau_key.lower() not in ("", "open")
@@ -628,15 +630,19 @@ def fit_tau_ridge_report(
         feat_names, list(TAU_MIN_STD_EXEMPT)
     )
 
-    # 去训练均值，减轻截距偏置；推理时截距加回
-    y_mean = sum(float(y) for y in ys_tr) / max(1, len(ys_tr))
+    from core.research.label_demean import annotate_label_demean, demean_labels
 
+    use_dm = bool(label_demean)
     row_tr = np.asarray(train_idx, dtype=np.int64)
     row_te = np.asarray(test_idx, dtype=np.int64)
     y_tr = np.asarray(ys_tr, dtype=np.float64)
+    if use_dm:
+        y_fit, y_mean = demean_labels(y_tr)
+    else:
+        y_fit, y_mean = y_tr, 0.0
     fit = fit_keepall_ridge_matrix(
         X_fit[row_tr],
-        y_tr - y_mean,
+        y_fit,
         feat_names,
         ridge_lambda=ridge_lambda,
         sample_weights=weights,
@@ -658,7 +664,8 @@ def fit_tau_ridge_report(
         predict_ridge_matrix(fit, X_fit[row_te], feat_names) if len(test_idx) else []
     )
     preds_te = [
-        (float(p) + y_mean) if p is not None else None for p in (preds_dm or [])
+        (float(p) + y_mean) if (use_dm and p is not None) else p
+        for p in (preds_dm or [])
     ]
     by_theme = _oos_by_theme(preds_te, ys_te, metas_te) if ys_te else {}
     by_tau = _oos_by_tau(preds_te, ys_te, metas_te) if ys_te and use_minute else {}
@@ -700,15 +707,19 @@ def fit_tau_ridge_report(
         except Exception:  # noqa: BLE001
             logger.debug("tau attach_daily_cs_ic failed", exc_info=True)
     research_model = dict(fit)
-    try:
-        research_model["intercept"] = round(
-            float(fit.get("intercept") or 0.0) + y_mean, 6
+    if use_dm:
+        try:
+            research_model["intercept"] = round(
+                float(fit.get("intercept") or 0.0) + y_mean, 6
+            )
+        except (TypeError, ValueError):
+            research_model["intercept"] = round(y_mean, 6)
+        research_model["intercept_demeaned"] = round(
+            float(fit.get("intercept") or 0.0), 6
         )
-    except (TypeError, ValueError):
-        research_model["intercept"] = round(y_mean, 6)
-    research_model["intercept_demeaned"] = round(float(fit.get("intercept") or 0.0), 6)
-    research_model["y_label_mean"] = round(y_mean, 6)
-    research_model["y_demeaned"] = True
+        annotate_label_demean(research_model, enabled=True, y_mean=y_mean)
+    else:
+        annotate_label_demean(research_model, enabled=False, y_mean=0.0)
     research_model["model_role"] = "research"
 
     w_all = (
@@ -716,11 +727,14 @@ def fit_tau_ridge_report(
         if use_theme_weights
         else None
     )
-    y_mean_all = sum(float(y) for y in ys_use) / max(1, len(ys_use))
     y_all = np.asarray(ys_use, dtype=np.float64)
+    if use_dm:
+        y_all_fit, y_mean_all = demean_labels(y_all)
+    else:
+        y_all_fit, y_mean_all = y_all, 0.0
     fit_full = fit_keepall_ridge_matrix(
         X_fit,
-        y_all - y_mean_all,
+        y_all_fit,
         feat_names,
         ridge_lambda=ridge_lambda,
         sample_weights=w_all,
@@ -729,13 +743,15 @@ def fit_tau_ridge_report(
     model = fit_full if fit_full.get("success") else fit
     model = dict(model)
     y_mean = y_mean_all
-    try:
-        model["intercept"] = round(float(model.get("intercept") or 0.0) + y_mean, 6)
-    except (TypeError, ValueError):
-        model["intercept"] = round(y_mean, 6)
-    model["intercept_demeaned"] = round(float(fit.get("intercept") or 0.0), 6)
-    model["y_label_mean"] = round(y_mean, 6)
-    model["y_demeaned"] = True
+    if use_dm:
+        try:
+            model["intercept"] = round(float(model.get("intercept") or 0.0) + y_mean, 6)
+        except (TypeError, ValueError):
+            model["intercept"] = round(y_mean, 6)
+        model["intercept_demeaned"] = round(float(fit.get("intercept") or 0.0), 6)
+        annotate_label_demean(model, enabled=True, y_mean=y_mean)
+    else:
+        annotate_label_demean(model, enabled=False, y_mean=0.0)
     model["horizon_mode"] = "tau_to_close"
     model["target"] = target
     model["residualized"] = False
@@ -898,6 +914,9 @@ def save_tau_last_report(report: Dict[str, Any]) -> None:
         return
     if not isinstance(report.get("return_model"), dict):
         return
+    from core.research.holdout import stamp_fitted_at
+
+    stamp_fitted_at(report)
     path = tau_last_report_path()
     os.makedirs(os.path.dirname(path), exist_ok=True)
     atomic_write_json(path, report)
@@ -977,8 +996,12 @@ def persist_tau_model(
     if raw_schema.startswith("rem_ridge"):
         raw_schema = "tau_ridge_v12"
     schema = raw_schema
+    from core.research.holdout import model_fit_id
+
+    fitted_at = model_fit_id(report)
     doc = {
         "success": True,
+        "fitted_at": fitted_at,
         "promoted_at": now_iso_utc(),
         "note": note or "tau_ridge promote",
         "return_model": rm,

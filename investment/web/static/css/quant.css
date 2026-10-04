@@ -4643,6 +4643,148 @@ body[data-page="replay"] .replay-page .quant-bt-trades-host .watching-react-grid
   margin: 0;
 }
 
+.quant-inline-num {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  font-size: var(--q-fs-micro, 12px);
+  color: var(--q-muted, #667);
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+}
+
+.quant-inline-num input[type="number"] {
+  width: 2.75rem;
+  margin: 0;
+  padding: 0 2px;
+  border: none;
+  border-bottom: 1px solid color-mix(in srgb, var(--ink) 18%, var(--line));
+  border-radius: 0;
+  background: transparent;
+  color: var(--ink);
+  font-size: 0.875rem;
+  font-weight: var(--sys-fw-display, 700);
+  font-variant-numeric: tabular-nums;
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  line-height: 1.2;
+  text-align: right;
+  appearance: textfield;
+  -moz-appearance: textfield;
+  caret-color: var(--accent, #1890ff);
+}
+
+.quant-inline-num input[type="number"]::-webkit-outer-spin-button,
+.quant-inline-num input[type="number"]::-webkit-inner-spin-button {
+  appearance: none;
+  margin: 0;
+}
+
+.quant-inline-num input[type="number"]:focus {
+  outline: none;
+  border-bottom-color: var(--accent, #1890ff);
+}
+
+/* ŷ_* 拟合卡头：上行摘要，下行参数 | 操作 */
+body[data-page="quant"] .quant-page .quant-card-head--fit {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas:
+    "status status"
+    "params actions";
+  align-items: center;
+  column-gap: 12px;
+  row-gap: 6px;
+  min-height: 0;
+  padding: 8px 12px 9px;
+}
+
+body[data-page="quant"] .quant-page .quant-card-head--fit > .quant-card-head-status,
+body[data-page="quant"] .quant-page .quant-card-head--fit > .quant-rem-status {
+  grid-area: status;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: flex-start;
+  gap: 6px 14px;
+  flex: 1 1 auto;
+  min-width: 0;
+  padding-bottom: 0;
+  border-bottom: none;
+}
+
+body[data-page="quant"] .quant-page .quant-card-head--fit .quant-rem-status-meta {
+  flex: 0 1 auto;
+  order: 0;
+}
+
+body[data-page="quant"] .quant-page .quant-card-head--fit .quant-rem-status-msg {
+  flex: 1 1 8rem;
+  order: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+body[data-page="quant"] .quant-page .quant-card-head--fit .quant-rem-status-chip {
+  order: 2;
+  margin-left: auto;
+}
+
+/* 拟合摘要已并入系数表 KPI；空宿主不占 gap */
+body[data-page="quant"] .quant-page #quant-oo-result:empty,
+body[data-page="quant"] .quant-page #quant-tau-result:empty,
+body[data-page="quant"] .quant-page #quant-co-result:empty {
+  display: none;
+  margin: 0;
+  padding: 0;
+}
+
+body[data-page="quant"] .quant-page .quant-card-head--fit .quant-fit-params {
+  grid-area: params;
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 14px;
+  min-width: 0;
+}
+
+body[data-page="quant"] .quant-page .quant-card-head--fit .quant-fit-actions {
+  grid-area: actions;
+  justify-self: end;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+body[data-page="quant"] .quant-page .quant-card-head--fit .quant-fit-params .quant-inline-num,
+body[data-page="quant"] .quant-page .quant-card-head--fit .quant-fit-params .quant-inline-check {
+  color: var(--ink-2);
+}
+
+body[data-page="quant"] .quant-page .quant-card-head--fit .quant-fit-params .quant-inline-num > span:first-child,
+body[data-page="quant"] .quant-page .quant-card-head--fit .quant-fit-params .quant-inline-check > span {
+  letter-spacing: 0.04em;
+}
+
+@media (max-width: 720px) {
+  body[data-page="quant"] .quant-page .quant-card-head--fit {
+    grid-template-columns: 1fr;
+    grid-template-areas:
+      "status"
+      "params"
+      "actions";
+  }
+
+  body[data-page="quant"] .quant-page .quant-card-head--fit .quant-fit-actions {
+    justify-self: stretch;
+    justify-content: flex-start;
+  }
+
+  body[data-page="quant"] .quant-page .quant-card-head--fit .quant-rem-status-msg {
+    white-space: normal;
+  }
+}
+
 .quant-pro-card-body {
   padding: 10px var(--q-gutter) 12px;
   display: flex;
@@ -8217,6 +8359,17 @@ body[data-page="quant"] .quant-overview-section > .dashboard-section-head .dashb
   white-space: nowrap;
 }
 
+body[data-page="quant"] .quant-overview-section > .dashboard-section-head .quant-research-params {
+  display: inline-flex;
+  flex: 0 1 auto;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: flex-end;
+  gap: 0;
+  margin: 0 0 0 auto;
+  max-width: 100%;
+}
+
 body[data-page="quant"] .quant-overview-section > .dashboard-section-head .quant-holdout-field {
   display: inline-flex;
   flex: 0 0 auto;
@@ -8224,13 +8377,17 @@ body[data-page="quant"] .quant-overview-section > .dashboard-section-head .quant
   align-items: baseline;
   justify-content: flex-end;
   gap: 8px;
-  margin: 0 0 0 auto;
+  margin: 0;
   padding: 0 0 0 16px;
   white-space: nowrap;
   border: none;
   border-left: 1px solid color-mix(in srgb, var(--ink) 12%, var(--line));
   background: transparent;
   border-radius: 0;
+}
+
+body[data-page="quant"] .quant-overview-section > .dashboard-section-head .quant-fit-lookback-field input[type="number"] {
+  width: 2.85rem !important;
 }
 
 body[data-page="quant"] .quant-overview-section > .dashboard-section-head .quant-holdout-kicker {
@@ -8310,13 +8467,23 @@ body[data-page="quant"] .quant-overview-section > .dashboard-section-head .quant
   letter-spacing: 0.04em;
 }
 
+body[data-page="quant"] .quant-overview-section > .dashboard-section-head .quant-holdout-field input[type="checkbox"] {
+  width: 0.95rem;
+  height: 0.95rem;
+  margin: 0;
+  accent-color: var(--accent, #1890ff);
+  cursor: pointer;
+  vertical-align: -0.1em;
+}
+
 @media (max-width: 720px) {
   body[data-page="quant"] .quant-overview-section > .dashboard-section-head {
     flex-wrap: wrap;
   }
 
-  body[data-page="quant"] .quant-overview-section > .dashboard-section-head .quant-holdout-field {
+  body[data-page="quant"] .quant-overview-section > .dashboard-section-head .quant-research-params {
     margin-left: 0;
+    justify-content: flex-start;
   }
 }
 

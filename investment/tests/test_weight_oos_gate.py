@@ -78,7 +78,7 @@ class TestWeightOosGate(unittest.TestCase):
             "coefficients": {"momentum": 0.1},
             "z_means": {},
             "z_stds": {},
-            "standardized": True,
+            "feature_zscore": True,
         }
         with patch(
             "core.research.portfolio_bars.load_portfolio_stock_bars",
@@ -110,7 +110,7 @@ class TestWeightOosGate(unittest.TestCase):
             "coefficients": {"momentum": 0.1},
             "z_means": {},
             "z_stds": {},
-            "standardized": True,
+            "feature_zscore": True,
         }
         bars = {
             "a": [{"date": f"2024-01-{i:02d}", "close": 10 + i * 0.01} for i in range(1, 60)],

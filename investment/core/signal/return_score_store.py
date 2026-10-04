@@ -48,12 +48,14 @@ def save_return_model_draft(
         "version": 1,
         "kind": "return_score_model",
         "role": "draft",
-        "saved_at": _utc_now(),
+        "fitted_at": _utc_now(),
+        "saved_at": None,
         "model": model.to_dict(),
         "meta": dict(meta or {}),
         "oos": dict(oos or {}) if isinstance(oos, dict) else {},
         "note": "研究草稿（因子系数产物）；启用研究/执行后才进回测或 live 横截面。",
     }
+    payload["saved_at"] = payload["fitted_at"]
     atomic_write_json(RETURN_SCORE_MODEL_DRAFT_PATH, payload)
     return {
         "success": True,
@@ -181,13 +183,15 @@ def promote_return_model_draft(
     }
     if stripped_proxy:
         meta_out["stripped_unsourced"] = list(stripped_proxy)
+    fitted_at = raw.get("fitted_at") or raw.get("saved_at")
     payload = {
         "version": int(raw.get("version") or 1),
         "kind": "return_score_model",
         "role": payload_role,
         "model_role": role_n,
+        "fitted_at": fitted_at,
         "promoted_at": promoted_at,
-        "source_saved_at": raw.get("saved_at"),
+        "source_saved_at": raw.get("saved_at") or fitted_at,
         "model": model_blob,
         "meta": meta_out,
         "oos": dict(raw.get("oos") or {}) if isinstance(raw.get("oos"), dict) else {},
@@ -296,19 +300,26 @@ def return_model_status() -> Dict[str, Any]:
         "draft": {
             "exists": bool(draft),
             "path": RETURN_SCORE_MODEL_DRAFT_PATH,
+            "fitted_at": (draft or {}).get("fitted_at") or (draft or {}).get("saved_at"),
             "saved_at": (draft or {}).get("saved_at"),
             "sample_count": ((draft or {}).get("model") or {}).get("sample_count"),
         },
         "active": {
             "exists": bool(active),
             "path": RETURN_SCORE_MODEL_ACTIVE_PATH,
+            "fitted_at": (active or {}).get("fitted_at")
+            or (active or {}).get("source_saved_at"),
             "promoted_at": (active or {}).get("promoted_at"),
+            "source_saved_at": (active or {}).get("source_saved_at"),
             "sample_count": ((active or {}).get("model") or {}).get("sample_count"),
         },
         "research": {
             "exists": bool(research),
             "path": RETURN_SCORE_MODEL_RESEARCH_PATH,
+            "fitted_at": (research or {}).get("fitted_at")
+            or (research or {}).get("source_saved_at"),
             "promoted_at": (research or {}).get("promoted_at"),
+            "source_saved_at": (research or {}).get("source_saved_at"),
             "sample_count": ((research or {}).get("model") or {}).get("sample_count"),
         },
         "display_role": display_role,
@@ -362,10 +373,12 @@ def fit_watching_return_model(
     min_samples: int = 24,
     save_draft: bool = True,
     holdout_trading_days: int = 20,
+    label_demean: bool = False,
 ) -> Dict[str, Any]:
     """研究池堆叠面板拟合收益模型 + Holdout OOS，可选落草稿。
 
     近 ``holdout_trading_days`` 个交易日只测；全样本重估 β 写入草稿（执行口径）。
+    ``label_demean``：训练标签减全局均值，截距加回（落盘 ``y_demeaned``）。
     """
     from core.research.holdout import (
         DEFAULT_HOLDOUT_TRADING_DAYS,
@@ -441,6 +454,7 @@ def fit_watching_return_model(
         ridge_lambda=ridge_lambda,
         min_samples=min_samples,
         fitted_as_of=as_of,
+        label_demean=bool(label_demean),
     )
     oos: Dict[str, Any] = {
         "n_train": len(train_idx),
@@ -472,6 +486,7 @@ def fit_watching_return_model(
         ridge_lambda=ridge_lambda,
         min_samples=min_samples,
         fitted_as_of=as_of,
+        label_demean=bool(label_demean),
     )
     if model is None:
         return {
@@ -499,6 +514,8 @@ def fit_watching_return_model(
             "excluded_features": report.get("excluded_features"),
         },
         "note": "已拟合因子系数模型 + Holdout OOS；save_draft 后可人审启用研究/执行。",
+        "label_demean": bool(label_demean),
+        "y_demeaned": bool(label_demean),
     }
     if research_model is not None:
         out["research_model"] = research_model.to_dict()
@@ -506,6 +523,8 @@ def fit_watching_return_model(
             out["research_ols"] = {
                 "r_squared": research_report.get("r_squared"),
                 "ridge_lambda": research_report.get("ridge_lambda"),
+                "y_demeaned": research_report.get("y_demeaned"),
+                "y_label_mean": research_report.get("y_label_mean"),
             }
     attach_holdout_meta(out, split_meta)
     if save_draft:
@@ -518,6 +537,9 @@ def fit_watching_return_model(
                 "r_squared": report.get("r_squared"),
                 "ridge_lambda": ridge_lambda,
                 "holdout_trading_days": oos.get("holdout_trading_days"),
+                "label_demean": bool(label_demean),
+                "y_demeaned": bool((report or {}).get("y_demeaned")),
+                "y_label_mean": (report or {}).get("y_label_mean"),
             },
             oos=oos,
         )

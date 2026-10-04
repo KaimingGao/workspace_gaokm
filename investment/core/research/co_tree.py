@@ -29,7 +29,6 @@ from core.research.tc_tree import (
     _oos_pack,
     fit_lgb_on_matrices,
     resolve_tree_backend,
-    resolve_use_qlib_lgb,
 )
 
 TREE_SCHEMA = "co_tree_shadow_v1"
@@ -81,12 +80,11 @@ def fit_co_tree_report(
     learning_rate: float = DEFAULT_LEARNING_RATE,
     subsample: float = DEFAULT_SUBSAMPLE,
     include_alpha158: bool = True,
-    qlib_lgb: Optional[bool] = None,
 ) -> Dict[str, Any]:
     """隔夜缺口面板拟合 ŷ_co_tree + Ridge OOS 对照。不写 live / 研究套。
 
     ``include_alpha158=True`` 时树吃 Alpha158。特征按训练集做总体 z-score，与 ŷ_oo_tree 同口径；标签仍是百分点。
-    默认观察池 LGB。``qlib_lgb=True`` 才另对标签做截面 z，并改用缩小后的 Qlib 风格超参。
+    LightGBM：深度 6、300 轮、叶子 64、λ₁=10、λ₂=20、学习率 0.2。
     """
     t0 = time.perf_counter()
     from core.research.panel_matrix import (
@@ -178,14 +176,11 @@ def fit_co_tree_report(
     row_te = np.asarray(test_idx, dtype=np.int64)
 
     engine = resolve_tree_backend(backend)
-    use_qlib = resolve_use_qlib_lgb(include_alpha158, qlib_lgb)
     model, gain, hyper, means, boost_preds, tree_s = fit_lgb_on_matrices(
         X_tree[row_tr],
         ys_tr,
         X_tree[row_te],
         feat_names,
-        metas_tr=metas_tr,
-        use_qlib=use_qlib,
         n_estimators=n_estimators,
         max_depth=max_depth,
         learning_rate=learning_rate,
@@ -252,7 +247,6 @@ def fit_co_tree_report(
         "feature_names": list(feat_names),
         "ridge_feature_names": list(ridge_names),
         "include_alpha158": bool(include_alpha158),
-        "qlib_lgb": bool(use_qlib),
         "n_alpha158_features": len(a158_keys),
         "feature_importance": _importance_rows(feat_names, gain),
         "tree_return_model": return_model,
@@ -264,11 +258,7 @@ def fit_co_tree_report(
         "persisted": {"success": False, "skipped": True, "reason": "fit_only"},
         "note": (
             "ŷ_co_tree：open[T+1]/close[T]−1 · 特征训练集 z-score（与 ŷ_oo_tree 同口径）· 同 Holdout vs Ridge(Z)；"
-            + (
-                "树侧含 raw_alpha158_* + Qlib LGB 预设（深6/300轮/叶64/λ10·20 + 截面 z，无早停）；"
-                if use_qlib
-                else ("树侧可含 raw_alpha158_*（≤T−1）；" if include_alpha158 else "")
-            )
+            + ("树侧可含 raw_alpha158_*（≤T−1）；" if include_alpha158 else "")
             + "写入 co_tree_model.json 后，调仓回测选 Tree 替换 ŷ_co；不进交易执行"
         ),
     }

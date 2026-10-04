@@ -713,8 +713,14 @@ def fit_oo_ridge_matrix(
     ridge_lambda: float = 1.0,
     min_samples: int = 24,
     fitted_as_of: Optional[str] = None,
+    label_demean: bool = False,
 ) -> Tuple[Any, Dict[str, Any]]:
     """在矩阵上拟合 ŷ_oo，返回 ``(ReturnScoreModel | None, report)``。"""
+    from core.research.label_demean import (
+        annotate_label_demean,
+        demean_labels,
+        restore_intercept_after_demean,
+    )
     from core.signal.return_score import ReturnScoreModel
 
     y = np.asarray(y, dtype=np.float64)
@@ -742,6 +748,8 @@ def fit_oo_ridge_matrix(
     z_means: Dict[str, float] = {}
     z_stds: Dict[str, float] = {}
     fit = None
+    y_mean = 0.0
+    use_dm = bool(label_demean)
     if x_c is not None and y_c is not None and active:
         from core.research.beta_accuracy import apply_collinearity_on_columns
         from core.signal.factors.meta.collinearity import TREND_FAMILY
@@ -765,7 +773,12 @@ def fit_oo_ridge_matrix(
             active = list(kept)
         if active:
             x_z, z_means, z_stds = _zscore_matrix(x_c, active)
-            fit = _ols_matrix(x_z, y_c, active, excluded, ridge_lambda=lam)
+            y_fit = y_c
+            if use_dm:
+                y_fit, y_mean = demean_labels(y_c)
+            fit = _ols_matrix(x_z, y_fit, active, excluded, ridge_lambda=lam)
+            if fit is not None and use_dm:
+                fit = restore_intercept_after_demean(fit, y_mean)
 
     if not fit:
         raw_n = prep_meta.get("raw_sample_count", n_raw)
@@ -779,7 +792,7 @@ def fit_oo_ridge_matrix(
             "sample_count": raw_n,
             "horizon_days": int(horizon_days),
             "excluded_features": excluded,
-            "standardized": True,
+            "feature_zscore": True,
             "ridge_lambda": lam,
             "solver": "ridge" if lam > 0 else "qr",
         }
@@ -793,7 +806,7 @@ def fit_oo_ridge_matrix(
         "coefficients": fit["coefficients"],
         "active_features": fit["active_features"],
         "excluded_features": fit["excluded_features"],
-        "standardized": True,
+        "feature_zscore": True,
         "zscore_means": {k: round(v, 4) for k, v in z_means.items()},
         "zscore_stds": {k: round(v, 4) for k, v in z_stds.items()},
         "solver": fit["solver"],
@@ -801,6 +814,12 @@ def fit_oo_ridge_matrix(
         "ridge_lambda_selected": lam,
         "prep_meta": prep_meta,
     }
+    if use_dm:
+        annotate_label_demean(report, enabled=True, y_mean=y_mean)
+        if fit.get("intercept_demeaned") is not None:
+            report["intercept_demeaned"] = fit.get("intercept_demeaned")
+    else:
+        annotate_label_demean(report, enabled=False, y_mean=0.0)
     model = ReturnScoreModel.from_ols_report(report, fitted_as_of=fitted_as_of)
     return model, report
 
@@ -819,7 +838,7 @@ def predict_oo_matrix(
     name_j = {str(name): i for i, name in enumerate(names)}
     total = np.full(n, float(model.intercept), dtype=np.float64)
     used = np.zeros(n, dtype=bool)
-    standardized = bool(getattr(model, "standardized", True))
+    feature_zscore = bool(getattr(model, "feature_zscore", True))
     for name, beta in model.coefficients.items():
         j = name_j.get(str(name))
         if j is None:
@@ -829,7 +848,7 @@ def predict_oo_matrix(
         if not bool(ok.any()):
             continue
         vals = col
-        if standardized:
+        if feature_zscore:
             mu = float(model.z_means.get(name) or 0.0)
             sd = float(model.z_stds.get(name) or 1.0)
             if sd < 1e-12:

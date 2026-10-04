@@ -535,7 +535,7 @@ def fit_lambdarank(
         "zscore_stds": {k: round(float(stds[k]), 6) for k in names},
         "z_means": {k: round(float(means[k]), 6) for k in names},
         "z_stds": {k: round(float(stds[k]), 6) for k in names},
-        "standardized": True,
+        "feature_zscore": True,
         "solver": "lambdarank",
         "backend": "lambdarank",
         "booster_b64": booster_b64,
@@ -882,7 +882,7 @@ def _fit_ridge_baseline(
         ys,
         feature_names=list(feature_names),
         ridge_lambda=float(ridge_lambda),
-        standardize=True,
+        feature_zscore=True,
         collinearity_policy="drop_redundant",
     )
 

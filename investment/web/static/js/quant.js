@@ -104,10 +104,16 @@ export function initQuant(ctx) {
     readWatchingLimit,
     readHoldoutTradingDays,
     hydrateHoldoutTradingDays,
+    readFitLookbackDays,
+    hydrateFitLookbackDays,
+    readLabelDemean,
+    hydrateLabelDemean,
     setPrefsHorizonDays,
     getPrefsHorizonDays,
   } = researchParams;
   hydrateHoldoutTradingDays();
+  hydrateFitLookbackDays();
+  hydrateLabelDemean();
   const factorMeta = createFactorMetaCache();
   const {
     factorMetaByName,
@@ -205,7 +211,8 @@ export function initQuant(ctx) {
     ctx, on, els, state, escapeHtml, apiFetch, downloadBlob, downloadJson,
     fmtPct, metricClass, researchGridHtml, metricCell,
     clampHorizonDays, syncHorizonInputs, readHorizonDays, readRidgeLambda, readClusterK,
-    readWatchingLimit, readHoldoutTradingDays, setPrefsHorizonDays, getPrefsHorizonDays,
+    readWatchingLimit, readHoldoutTradingDays, readFitLookbackDays, readLabelDemean,
+    setPrefsHorizonDays, getPrefsHorizonDays,
     factorMetaByName, factorMetaByLabel, rememberFactorMeta, ensureFactorMeta,
     factorDescription, factorNameCellHtml, factorTaxonomyCellHtml,
     BT_SCOPE_LIVE, BT_SCOPE_FROZEN, quantBtBusyIds,
@@ -364,22 +371,10 @@ export function initQuant(ctx) {
   }
 
   /**
-   * ŷ_τc 卡头状态：chip + 可选文案 + OOS/n/时间 meta。
-   * @param {HTMLElement|null} el
-   * @param {{
-   *   state?: "idle"|"busy"|"ok"|"warn"|"error",
-   *   chip?: string,
-   *   message?: string,
-   *   oos?: object|null,
-   *   sampleCount?: number|null,
-   *   sampleCountDay?: number|null,
-   *   fittedAt?: string|null,
-   *   promotedAt?: string|null,
-   *   liveOn?: boolean|null,
-   *   researchOn?: boolean|null,
-   *   busy?: boolean,
-   *   error?: boolean,
-   * }} opts
+   * ŷ_* 卡头状态：拟合时间 / 研究·执行启用时间（或未写盘）；
+   * 有启用态 meta 时不再叠「研究+执行」等 chip（与 meta 重复）。
+   * busy / error / 尚无 meta 时仍显示 chip。
+   * OOS 指标只在系数表 KPI 条展示。
    */
   function renderRemStatus(el, opts = {}) {
     if (!el) return;
@@ -387,11 +382,10 @@ export function initQuant(ctx) {
       state = "idle",
       chip = "待命",
       message = "",
-      oos = null,
-      sampleCount = null,
-      sampleCountDay = null,
       fittedAt = null,
       promotedAt = null,
+      researchAt = null,
+      liveAt = null,
       liveOn = null,
       researchOn = null,
       busy = false,
@@ -399,261 +393,61 @@ export function initQuant(ctx) {
     } = opts;
     const chipState = error ? "error" : busy ? "busy" : state;
     const metas = [];
-    const isProbOos =
-      oos &&
-      typeof oos === "object" &&
-      oos.auc != null &&
-      Number.isFinite(Number(oos.auc));
-    if (oos && typeof oos === "object") {
-      if (isProbOos) {
-        metas.push(remStatusMeta("AUC", Number(oos.auc).toFixed(3), "Holdout ROC-AUC；随机≈0.50"));
-        if (oos.acc_at_50 != null && Number.isFinite(Number(oos.acc_at_50))) {
-          metas.push(
-            remStatusMeta(
-              "acc@0.5",
-              fmtRemHit(oos.acc_at_50),
-              "p_up>0.5 对窗收益>0"
-            )
-          );
-        }
-        if (oos.brier != null && Number.isFinite(Number(oos.brier))) {
-          metas.push(
-            remStatusMeta("Brier", Number(oos.brier).toFixed(3), "越小越好；0.25≈瞎猜")
-          );
-        }
-      } else if (oos.cs_ic != null && Number.isFinite(Number(oos.cs_ic))) {
-        metas.push(
-          remStatusMeta(
-            "IC",
-            fmtRemIc(oos.cs_ic),
-            "对齐 Qlib：日频截面 Pearson 均值",
-            { signed: true, raw: oos.cs_ic }
-          )
-        );
-        if (oos.cs_rank_ic != null && Number.isFinite(Number(oos.cs_rank_ic))) {
-          metas.push(
-            remStatusMeta(
-              "Rank IC",
-              fmtRemIc(oos.cs_rank_ic),
-              "对齐 Qlib：日频截面 Spearman 均值",
-              { signed: true, raw: oos.cs_rank_ic }
-            )
-          );
-        }
-        if (oos.cs_icir != null && Number.isFinite(Number(oos.cs_icir))) {
-          metas.push(
-            remStatusMeta("ICIR", fmtRemIc(oos.cs_icir), "日频 IC 均值/标准差", {
-              signed: true,
-              raw: oos.cs_icir,
-            })
-          );
-        }
-        if (oos.ic != null && Number.isFinite(Number(oos.ic))) {
-          metas.push(
-            remStatusMeta(
-              "拼样IC",
-              fmtRemIc(oos.ic),
-              "Holdout 拼样本 Pearson（旧口径，≠ Qlib）",
-              { signed: true, raw: oos.ic }
-            )
-          );
-        }
-      } else if (oos.ic != null && Number.isFinite(Number(oos.ic))) {
-        metas.push(
-          remStatusMeta("OOS IC", fmtRemIc(oos.ic), "时间切分样本外 IC（拼样本）", {
-            signed: true,
-            raw: oos.ic,
-          })
-        );
-      }
-      const openTau = tauOpenBucket(oos);
-      if (openTau && openTau.sign_hit != null && Number.isFinite(Number(openTau.sign_hit))) {
-        metas.push(
-          remStatusMeta(
-            "开盘",
-            fmtRemHit(openTau.sign_hit),
-            isProbOos
-              ? "09:30 无分钟前缀 · p_up>0.5 对窗收益>0"
-              : "09:30 无分钟前缀 · 与旧 open 口径可比；后面的钟会被开→τ 已实现垫高"
-          )
-        );
-      }
-      if (!isProbOos) {
-      const pooledHit =
-        oos.sign_hit != null && Number.isFinite(Number(oos.sign_hit))
-          ? oos.sign_hit
-          : oos.sign_hit_rate != null && Number.isFinite(Number(oos.sign_hit_rate))
-            ? oos.sign_hit_rate
-            : null;
-      if (pooledHit != null) {
-        const hasGrid = !!(openTau && openTau.sign_hit != null);
-        metas.push(
-          remStatusMeta(
-            hasGrid ? "混合" : "命中",
-            fmtRemHit(pooledHit),
-            hasGrid
-              ? "09:30–11:00 全网格混合方向命中（含已实现开→τ，偏高）"
-              : "样本外方向命中率"
-          )
-        );
-      } else if (oos.median_hit != null && Number.isFinite(Number(oos.median_hit))) {
-        metas.push(
-          remStatusMeta("中位命中", fmtRemHit(oos.median_hit), "ŷ 与 y 是否同在中位以上；≈50% 即无排序信息")
-        );
-      }
-      }
-      if (!isProbOos) {
-      const bt = oos.by_theme || {};
-      const th = bt.theme || {};
-      const nm = bt.normal || {};
-      if (th.ic != null && Number.isFinite(Number(th.ic))) {
-        metas.push(
-          remStatusMeta(
-            "主题IC",
-            fmtRemIc(th.ic),
-            `主题日 OOS IC · n=${th.n ?? "—"} · 命中 ${fmtRemHit(th.sign_hit)}`
-          )
-        );
-      }
-      if (nm.ic != null && Number.isFinite(Number(nm.ic))) {
-        metas.push(
-          remStatusMeta(
-            "普通IC",
-            fmtRemIc(nm.ic),
-            `普通日 OOS IC · n=${nm.n ?? "—"} · 命中 ${fmtRemHit(nm.sign_hit)}`
-          )
-        );
-      }
-      const buckets = oos.buckets || {};
-      const b04 = buckets.abs_ge_0_4 || {};
-      const b06 = buckets.abs_ge_0_6 || {};
-      const top30 = buckets.abs_top_30 || {};
-      if (b04.sign_hit != null && Number.isFinite(Number(b04.sign_hit))) {
-        metas.push(
-          remStatusMeta(
-            "|ŷ|≥0.4",
-            fmtRemHit(b04.sign_hit),
-            `强于 enter 桶同号 · n=${b04.n ?? "—"}`
-          )
-        );
-      }
-      if (b06.sign_hit != null && Number.isFinite(Number(b06.sign_hit))) {
-        metas.push(
-          remStatusMeta(
-            "|ŷ|≥0.6",
-            fmtRemHit(b06.sign_hit),
-            `强信号桶同号 · n=${b06.n ?? "—"}`
-          )
-        );
-      } else if (top30.sign_hit != null && Number.isFinite(Number(top30.sign_hit))) {
-        // 截面 z 标签下 |ŷ| 常 <0.6，用分位强信号桶
-        metas.push(
-          remStatusMeta(
-            "|ŷ| top30%",
-            fmtRemHit(top30.sign_hit),
-            ` |ŷ| 最大 30% 同号 · n=${top30.n ?? "—"} · thr=${
-              top30.thr != null ? Number(top30.thr).toFixed(4) : "—"
-            }`
-          )
-        );
-      }
-      }
-      const tc = oos.theme_counts || {};
-      const tcAll = tc.all || tc.oos || {};
-      if (tcAll.n_theme != null) {
-        metas.push(
-          remStatusMeta(
-            "主题n",
-            String(tcAll.n_theme),
-            `theme_day=1 样本 · 率 ${fmtRemHit(tcAll.theme_rate)}`
-          )
-        );
-      }
-    }
-    if (sampleCount != null && sampleCount !== "") {
-      const dayN =
-        sampleCountDay != null &&
-        sampleCountDay !== "" &&
-        Number(sampleCountDay) !== Number(sampleCount)
-          ? Number(sampleCountDay)
-          : null;
-      metas.push(
-        remStatusMeta(
-          "n",
-          fmtRemN(sampleCount),
-          dayN != null
-            ? `面板行数（含多 τ）；票×日≈${fmtRemN(dayN)}，可与 ŷ_oo / ŷ_co 对照`
-            : "面板观测数（Holdout 不改此数）"
-        )
-      );
-      if (dayN != null) {
-        metas.push(
-          remStatusMeta(
-            "日票",
-            fmtRemN(dayN),
-            "票×日去重（去掉 τ 网格膨胀，便于对照 ŷ_oo / ŷ_co）"
-          )
-        );
-      }
-    }
-    if (oos && typeof oos === "object") {
-      if (oos.holdout_trading_days != null && Number.isFinite(Number(oos.holdout_trading_days))) {
-        metas.push(
-          remStatusMeta(
-            "Holdout",
-            `${Number(oos.holdout_trading_days)}日`,
-            "近 N 个交易日不进研究套训练"
-          )
-        );
-      }
-      if (oos.n_train != null && Number.isFinite(Number(oos.n_train))) {
-        metas.push(remStatusMeta("训", fmtRemN(oos.n_train), "研究套训练集行数"));
-      }
-      if (oos.n_test != null && Number.isFinite(Number(oos.n_test))) {
-        metas.push(
-          remStatusMeta(
-            "测",
-            fmtRemN(oos.n_test),
-            "Holdout 样本外行数（近 N 日，ŷ_τc 含多 τ）"
-          )
-        );
-      }
-    }
-    const fitTs = fittedAt || promotedAt;
+    // 拟合时间只用 fittedAt；勿回退 promotedAt（易与启用时间混淆）
+    const fitTs = fittedAt || null;
     if (fitTs) {
       metas.push(
         remStatusMeta(
           "拟合",
           fmtRemTs(fitTs),
-          `拟合时间 ${String(fitTs)}`
+          `最近一次拟合的模型标识 ${String(fitTs)}（last report / 草稿）`
         )
       );
     }
     if (liveOn != null || researchOn != null) {
+      const resTs = researchAt || null;
+      const execTs = liveAt || null;
       metas.push(
         remStatusMeta(
           "研究",
-          researchOn ? "已启用" : "未写盘",
-          "研究套 sidecar（*_research.json），供历史回测"
+          researchOn
+            ? resTs
+              ? fmtRemTs(resTs)
+              : "已启用"
+            : "未写盘",
+          researchOn
+            ? `研究套模型拟合标识${resTs ? ` ${String(resTs)}` : ""}（*_research.json）`
+            : "研究套尚未写入 *_research.json"
         )
       );
       metas.push(
         remStatusMeta(
           "执行",
-          liveOn ? "已启用" : "未写盘",
-          "执行套 live 模型，供交易执行"
+          liveOn
+            ? execTs
+              ? fmtRemTs(execTs)
+              : "已启用"
+            : "未写盘",
+          liveOn
+            ? `执行套模型拟合标识${execTs ? ` ${String(execTs)}` : ""}（live *_model.json）`
+            : "执行套尚未写入 live 模型"
         )
       );
     }
+    // 拟合/研究/执行 meta 已表达落盘态；chip 仅保留忙碌、失败、或尚未有 meta 的空闲提示
+    // 顺序：meta 靠左 → 文案 → chip（忙碌/失败时）
+    const showChip = !!busy || !!error || metas.length === 0;
     const html =
-      `<span class="quant-pro-status-chip quant-rem-status-chip" data-state="${escapeHtml(
-        chipState
-      )}">${escapeHtml(chip)}</span>` +
+      (metas.length
+        ? `<span class="quant-rem-status-meta">${metas.join("")}</span>`
+        : "") +
       (message
         ? `<span class="quant-rem-status-msg">${escapeHtml(message)}</span>`
         : "") +
-      (metas.length
-        ? `<span class="quant-rem-status-meta">${metas.join("")}</span>`
+      (showChip
+        ? `<span class="quant-pro-status-chip quant-rem-status-chip" data-state="${escapeHtml(
+            chipState
+          )}">${escapeHtml(chip)}</span>`
         : "");
     setBusyText(el, html, { busy: !!busy && !error, html: true });
     if (error) el.classList.add("is-error");
@@ -721,26 +515,39 @@ export function initQuant(ctx) {
     const idleFallback =
       extra.idleMessage ||
       (src.last_report_exists
-        ? "有 last report · 点「拟合」或「启用研究 / 启用执行」"
+        ? "有上次拟合 · 可启用研究 / 执行"
         : src.note || "");
     let message = extra.message;
     if (message === undefined) {
-      if (src.shadow) {
-        const gate = extra.gate || src.promote_gate;
-        const liveNote =
-          src.live_tau != null && src.live_tau !== ""
-            ? ` · live 仍为 ${src.live_tau}`
-            : "";
-        message =
-          gate && !gate.ok
-            ? `last report · 闸：${(gate.blockers || []).join("；")}（可强制启用）${liveNote}`
-            : `last report · 过门后点「启用研究 / 启用执行」${liveNote}`;
-      } else if (painted.chip === "未启用" || painted.chip === "已拟合") {
+      // promote 闸明细只挂在「启用」按钮 title / 确认框，不占卡头
+      if (painted.chip === "未启用" || painted.chip === "已拟合") {
         message = idleFallback;
       } else {
         message = "";
       }
     }
+    const researchAt =
+      extra.researchAt !== undefined
+        ? extra.researchAt
+        : src.research_fitted_at ||
+          src.research_promoted_at ||
+          (extra.persistOk && extra.persistRole === "research"
+            ? src.fitted_at ||
+              src.promoted_at ||
+              (src.persisted && src.persisted.promoted_at) ||
+              null
+            : null);
+    const liveAt =
+      extra.liveAt !== undefined
+        ? extra.liveAt
+        : src.live_fitted_at ||
+          src.live_promoted_at ||
+          (extra.persistOk && extra.persistRole === "live"
+            ? src.fitted_at ||
+              src.promoted_at ||
+              (src.persisted && src.persisted.promoted_at) ||
+              null
+            : null);
     renderRemStatus(el, {
       state: extra.state || painted.state,
       chip: extra.chip || painted.chip,
@@ -753,11 +560,9 @@ export function initQuant(ctx) {
           ? extra.sampleCountDay
           : src.sample_count_day,
       fittedAt:
-        extra.fittedAt !== undefined
-          ? extra.fittedAt
-          : src.fitted_at || src.promoted_at || src.research_promoted_at,
-      promotedAt:
-        extra.promotedAt !== undefined ? extra.promotedAt : src.promoted_at,
+        extra.fittedAt !== undefined ? extra.fittedAt : src.fitted_at || null,
+      researchAt,
+      liveAt,
       liveOn: flags.liveOn,
       researchOn: flags.researchOn,
       busy: extra.busy,
@@ -1102,10 +907,8 @@ export function initQuant(ctx) {
 
   function readReturnTreeFitFlags(kind) {
     const a158 = document.getElementById(`quant-${kind}-tree-alpha158`);
-    const qlib = document.getElementById(`quant-${kind}-tree-qlib-lgb`);
     return {
       include_alpha158: !a158 || a158.checked !== false,
-      qlib_lgb: !!(qlib && qlib.checked),
     };
   }
 
@@ -1118,14 +921,14 @@ export function initQuant(ctx) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          lookback: 600,
+          lookback: readFitLookbackDays("oo_tree"),
           watching_limit: 300,
           horizon_days: 1,
           ridge_lambda: 1.0,
-          holdout_trading_days: readHoldoutTradingDays(),
+          holdout_trading_days: readHoldoutTradingDays("oo_tree"),
           backend: "lightgbm",
           include_alpha158: flags.include_alpha158,
-          qlib_lgb: flags.qlib_lgb,
+          label_demean: readLabelDemean("oo_tree"),
         }),
       });
       const data = await res.json().catch(() => ({}));
@@ -1143,14 +946,12 @@ export function initQuant(ctx) {
       }
       const timingMsg = fmtTauTreeTiming(data);
       const a158Bit = data.include_alpha158
-        ? `Alpha158×${data.n_alpha158_features != null ? data.n_alpha158_features : "?"}${
-            data.qlib_lgb ? " · Qlib LGB" : ""
-          }`
+        ? `Alpha158×${data.n_alpha158_features != null ? data.n_alpha158_features : "?"}`
         : "无 Alpha158";
       renderRemStatus(sum, {
         state: "ok",
         chip: "已拟合",
-        message: [tauTreeHyperBits(data), a158Bit, timingMsg, "影子头 · 未写盘"]
+        message: [tauTreeHyperBits(data), a158Bit, timingMsg, "写入树包"]
           .filter(Boolean)
           .join(" · "),
         oos: data.oos || {},
@@ -1167,7 +968,7 @@ export function initQuant(ctx) {
     renderRemStatus(sum, {
       state: "busy",
       chip: "读取中",
-      message: "上次影子对照…",
+      message: "上次对照…",
       busy: true,
     });
     const res = await fetch("/api/quant/oo-tree/last");
@@ -1183,14 +984,12 @@ export function initQuant(ctx) {
     }
     const timingMsg = fmtTauTreeTiming(data);
     const a158Bit = data.include_alpha158
-      ? `Alpha158×${data.n_alpha158_features != null ? data.n_alpha158_features : "?"}${
-          data.qlib_lgb ? " · Qlib LGB" : ""
-        }`
+      ? `Alpha158×${data.n_alpha158_features != null ? data.n_alpha158_features : "?"}`
       : "无 Alpha158";
     renderRemStatus(sum, {
       state: "ok",
       chip: "上次",
-      message: [tauTreeHyperBits(data), a158Bit, timingMsg, "影子头 · 未写盘"]
+      message: [tauTreeHyperBits(data), a158Bit, timingMsg, "写入树包"]
         .filter(Boolean)
         .join(" · "),
       oos: data.oos || {},
@@ -1271,13 +1070,13 @@ export function initQuant(ctx) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          lookback: 600,
+          lookback: readFitLookbackDays("co_tree"),
           watching_limit: 300,
           ridge_lambda: 1.0,
-          holdout_trading_days: readHoldoutTradingDays(),
+          holdout_trading_days: readHoldoutTradingDays("co_tree"),
           backend: "lightgbm",
           include_alpha158: flags.include_alpha158,
-          qlib_lgb: flags.qlib_lgb,
+          label_demean: readLabelDemean("co_tree"),
         }),
       });
       const data = await res.json().catch(() => ({}));
@@ -1295,14 +1094,12 @@ export function initQuant(ctx) {
       }
       const timingMsg = fmtTauTreeTiming(data);
       const a158Bit = data.include_alpha158
-        ? `Alpha158×${data.n_alpha158_features != null ? data.n_alpha158_features : "?"}${
-            data.qlib_lgb ? " · Qlib LGB" : ""
-          }`
+        ? `Alpha158×${data.n_alpha158_features != null ? data.n_alpha158_features : "?"}`
         : "无 Alpha158";
       renderRemStatus(sum, {
         state: "ok",
         chip: "已拟合",
-        message: [tauTreeHyperBits(data), a158Bit, timingMsg, "影子头 · 未写盘"]
+        message: [tauTreeHyperBits(data), a158Bit, timingMsg, "写入树包"]
           .filter(Boolean)
           .join(" · "),
         oos: data.oos || {},
@@ -1325,7 +1122,7 @@ export function initQuant(ctx) {
     renderRemStatus(sum, {
       state: "busy",
       chip: "读取中",
-      message: "上次影子对照…",
+      message: "上次对照…",
       busy: true,
     });
     const ctrl = new AbortController();
@@ -1355,14 +1152,12 @@ export function initQuant(ctx) {
       }
       const timingMsg = fmtTauTreeTiming(data);
       const a158Bit = data.include_alpha158
-        ? `Alpha158×${data.n_alpha158_features != null ? data.n_alpha158_features : "?"}${
-            data.qlib_lgb ? " · Qlib LGB" : ""
-          }`
+        ? `Alpha158×${data.n_alpha158_features != null ? data.n_alpha158_features : "?"}`
         : "无 Alpha158";
       renderRemStatus(sum, {
         state: "ok",
         chip: "上次",
-        message: [tauTreeHyperBits(data), a158Bit, timingMsg, "影子头 · 未写盘"]
+        message: [tauTreeHyperBits(data), a158Bit, timingMsg, "写入树包"]
           .filter(Boolean)
           .join(" · "),
         oos: data.oos || {},
@@ -1431,23 +1226,17 @@ function tauTreeHyperBits(data) {
     const depth =
       hyper.max_depth != null && Number.isFinite(Number(hyper.max_depth))
         ? Number(hyper.max_depth)
-        : 5;
+        : 6;
     const engine = formatTreeBackend((data && data.backend) || "");
     const bi = Number(hyper.best_iteration);
     const best =
       Number.isFinite(bi) && bi > 0 && Number.isFinite(n) && bi < n
         ? `best@${bi}`
         : "";
-    const preset =
-      hyper.preset === "panel_lgb"
-        ? "观察池LGB"
-        : hyper.preset === "qlib_alpha158"
-          ? "Qlib预设"
-          : "";
     const warn = treeFitCollapsed(data)
       ? "best_iteration 过小 · 回测回退 Ridge · 请重新拟合"
       : "";
-    return [engine, `${n} 棵 · 深度 ${depth}`, best, preset, warn].filter(Boolean).join(" · ");
+    return [engine, `${n} 棵 · 深度 ${depth}`, best, warn].filter(Boolean).join(" · ");
   }
 
   function stopTauTreeBusy() {
@@ -1524,13 +1313,13 @@ function tauTreeHyperBits(data) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          lookback: 120,
+          lookback: readFitLookbackDays("tc_tree"),
           watching_limit: tauLimit,
           ridge_lambda: 1.0,
-          holdout_trading_days: readHoldoutTradingDays(),
+          holdout_trading_days: readHoldoutTradingDays("tc_tree"),
           backend: "lightgbm",
           include_alpha158: flags.include_alpha158,
-          qlib_lgb: flags.qlib_lgb,
+          label_demean: readLabelDemean("tc_tree"),
         }),
       });
       const data = await res.json().catch(() => ({}));
@@ -1548,14 +1337,12 @@ function tauTreeHyperBits(data) {
       }
       const timingMsg = fmtTauTreeTiming(data);
       const a158Bit = data.include_alpha158
-        ? `Alpha158×${data.n_alpha158_features != null ? data.n_alpha158_features : "?"}${
-            data.qlib_lgb ? " · Qlib LGB" : ""
-          }`
+        ? `Alpha158×${data.n_alpha158_features != null ? data.n_alpha158_features : "?"}`
         : "无 Alpha158";
       renderRemStatus(sum, {
         state: "ok",
         chip: "已拟合",
-        message: [tauTreeHyperBits(data), a158Bit, timingMsg, "影子头 · 未写盘"]
+        message: [tauTreeHyperBits(data), a158Bit, timingMsg, "写入树包"]
           .filter(Boolean)
           .join(" · "),
         oos: data.oos || {},
@@ -1576,7 +1363,7 @@ function tauTreeHyperBits(data) {
     renderRemStatus(sum, {
       state: "busy",
       chip: "读取中",
-      message: "上次影子对照…",
+      message: "上次对照…",
       busy: true,
     });
     const ctrl = new AbortController();
@@ -1606,14 +1393,12 @@ function tauTreeHyperBits(data) {
       }
       const timingMsg = fmtTauTreeTiming(data);
       const a158Bit = data.include_alpha158
-        ? `Alpha158×${data.n_alpha158_features != null ? data.n_alpha158_features : "?"}${
-            data.qlib_lgb ? " · Qlib LGB" : ""
-          }`
+        ? `Alpha158×${data.n_alpha158_features != null ? data.n_alpha158_features : "?"}`
         : "无 Alpha158";
       renderRemStatus(sum, {
         state: "ok",
         chip: "上次",
-        message: [tauTreeHyperBits(data), a158Bit, timingMsg, "影子头 · 未写盘"]
+        message: [tauTreeHyperBits(data), a158Bit, timingMsg, "写入树包"]
           .filter(Boolean)
           .join(" · "),
         oos: data.oos || {},
@@ -1712,10 +1497,11 @@ function tauTreeHyperBits(data) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          lookback: 120,
+          lookback: readFitLookbackDays("t30_tree"),
           watching_limit: t30Limit,
           ridge_lambda: 1.0,
-          holdout_trading_days: readHoldoutTradingDays(),
+          holdout_trading_days: readHoldoutTradingDays("t30_tree"),
+          label_demean: readLabelDemean("t30_tree"),
           backend: "lightgbm",
         }),
       });
@@ -1736,7 +1522,7 @@ function tauTreeHyperBits(data) {
       renderRemStatus(sum, {
         state: "ok",
         chip: "已拟合",
-        message: [tauTreeHyperBits(data), timingMsg, "影子头 · 未写盘"]
+        message: [tauTreeHyperBits(data), timingMsg, "写入树包"]
           .filter(Boolean)
           .join(" · "),
         oos: data.oos || {},
@@ -1753,7 +1539,7 @@ function tauTreeHyperBits(data) {
     renderRemStatus(sum, {
       state: "busy",
       chip: "读取中",
-      message: "上次影子对照…",
+      message: "上次对照…",
       busy: true,
     });
     const res = await fetch("/api/quant/t30-tree/last");
@@ -1771,7 +1557,7 @@ function tauTreeHyperBits(data) {
     renderRemStatus(sum, {
       state: "ok",
       chip: "上次",
-      message: [tauTreeHyperBits(data), timingMsg, "影子头 · 未写盘"]
+      message: [tauTreeHyperBits(data), timingMsg, "写入树包"]
         .filter(Boolean)
         .join(" · "),
       oos: data.oos || {},
@@ -1854,10 +1640,11 @@ function tauTreeHyperBits(data) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          lookback: 120,
+          lookback: readFitLookbackDays("t45_tree"),
           watching_limit: t45Limit,
           ridge_lambda: 1.0,
-          holdout_trading_days: readHoldoutTradingDays(),
+          holdout_trading_days: readHoldoutTradingDays("t45_tree"),
+          label_demean: readLabelDemean("t45_tree"),
           backend: "lightgbm",
         }),
       });
@@ -1880,7 +1667,7 @@ function tauTreeHyperBits(data) {
       renderRemStatus(sum, {
         state: "ok",
         chip: "已拟合",
-        message: [tauTreeHyperBits(data), timingMsg, "影子头 · 未写盘"]
+        message: [tauTreeHyperBits(data), timingMsg, "写入树包"]
           .filter(Boolean)
           .join(" · "),
         oos: data.oos || {},
@@ -1897,7 +1684,7 @@ function tauTreeHyperBits(data) {
     renderRemStatus(sum, {
       state: "busy",
       chip: "读取中",
-      message: "上次影子对照…",
+      message: "上次对照…",
       busy: true,
     });
     const res = await fetch("/api/quant/t45-tree/last");
@@ -1915,7 +1702,7 @@ function tauTreeHyperBits(data) {
     renderRemStatus(sum, {
       state: "ok",
       chip: "上次",
-      message: [tauTreeHyperBits(data), timingMsg, "影子头 · 未写盘"]
+      message: [tauTreeHyperBits(data), timingMsg, "写入树包"]
         .filter(Boolean)
         .join(" · "),
       oos: data.oos || {},
@@ -1997,10 +1784,11 @@ function tauTreeHyperBits(data) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          lookback: 120,
+          lookback: readFitLookbackDays("t60_tree"),
           watching_limit: t60Limit,
           ridge_lambda: 1.0,
-          holdout_trading_days: readHoldoutTradingDays(),
+          holdout_trading_days: readHoldoutTradingDays("t60_tree"),
+          label_demean: readLabelDemean("t60_tree"),
           backend: "lightgbm",
         }),
       });
@@ -2023,7 +1811,7 @@ function tauTreeHyperBits(data) {
       renderRemStatus(sum, {
         state: "ok",
         chip: "已拟合",
-        message: [tauTreeHyperBits(data), timingMsg, "影子头 · 未写盘"]
+        message: [tauTreeHyperBits(data), timingMsg, "写入树包"]
           .filter(Boolean)
           .join(" · "),
         oos: data.oos || {},
@@ -2040,7 +1828,7 @@ function tauTreeHyperBits(data) {
     renderRemStatus(sum, {
       state: "busy",
       chip: "读取中",
-      message: "上次影子对照…",
+      message: "上次对照…",
       busy: true,
     });
     const res = await fetch("/api/quant/t60-tree/last");
@@ -2058,7 +1846,7 @@ function tauTreeHyperBits(data) {
     renderRemStatus(sum, {
       state: "ok",
       chip: "上次",
-      message: [tauTreeHyperBits(data), timingMsg, "影子头 · 未写盘"]
+      message: [tauTreeHyperBits(data), timingMsg, "写入树包"]
         .filter(Boolean)
         .join(" · "),
       oos: data.oos || {},
@@ -2140,10 +1928,11 @@ function tauTreeHyperBits(data) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          lookback: 120,
+          lookback: readFitLookbackDays("t75_tree"),
           watching_limit: t75Limit,
           ridge_lambda: 1.0,
-          holdout_trading_days: readHoldoutTradingDays(),
+          holdout_trading_days: readHoldoutTradingDays("t75_tree"),
+          label_demean: readLabelDemean("t75_tree"),
           backend: "lightgbm",
         }),
       });
@@ -2166,7 +1955,7 @@ function tauTreeHyperBits(data) {
       renderRemStatus(sum, {
         state: "ok",
         chip: "已拟合",
-        message: [tauTreeHyperBits(data), timingMsg, "影子头 · 未写盘"]
+        message: [tauTreeHyperBits(data), timingMsg, "写入树包"]
           .filter(Boolean)
           .join(" · "),
         oos: data.oos || {},
@@ -2183,7 +1972,7 @@ function tauTreeHyperBits(data) {
     renderRemStatus(sum, {
       state: "busy",
       chip: "读取中",
-      message: "上次影子对照…",
+      message: "上次对照…",
       busy: true,
     });
     const res = await fetch("/api/quant/t75-tree/last");
@@ -2201,7 +1990,7 @@ function tauTreeHyperBits(data) {
     renderRemStatus(sum, {
       state: "ok",
       chip: "上次",
-      message: [tauTreeHyperBits(data), timingMsg, "影子头 · 未写盘"]
+      message: [tauTreeHyperBits(data), timingMsg, "写入树包"]
         .filter(Boolean)
         .join(" · "),
       oos: data.oos || {},
@@ -2283,10 +2072,11 @@ function tauTreeHyperBits(data) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          lookback: 120,
+          lookback: readFitLookbackDays("t90_tree"),
           watching_limit: t90Limit,
           ridge_lambda: 1.0,
-          holdout_trading_days: readHoldoutTradingDays(),
+          holdout_trading_days: readHoldoutTradingDays("t90_tree"),
+          label_demean: readLabelDemean("t90_tree"),
           backend: "lightgbm",
         }),
       });
@@ -2309,7 +2099,7 @@ function tauTreeHyperBits(data) {
       renderRemStatus(sum, {
         state: "ok",
         chip: "已拟合",
-        message: [tauTreeHyperBits(data), timingMsg, "影子头 · 未写盘"]
+        message: [tauTreeHyperBits(data), timingMsg, "写入树包"]
           .filter(Boolean)
           .join(" · "),
         oos: data.oos || {},
@@ -2326,7 +2116,7 @@ function tauTreeHyperBits(data) {
     renderRemStatus(sum, {
       state: "busy",
       chip: "读取中",
-      message: "上次影子对照…",
+      message: "上次对照…",
       busy: true,
     });
     const res = await fetch("/api/quant/t90-tree/last");
@@ -2344,7 +2134,7 @@ function tauTreeHyperBits(data) {
     renderRemStatus(sum, {
       state: "ok",
       chip: "上次",
-      message: [tauTreeHyperBits(data), timingMsg, "影子头 · 未写盘"]
+      message: [tauTreeHyperBits(data), timingMsg, "写入树包"]
         .filter(Boolean)
         .join(" · "),
       oos: data.oos || {},
@@ -2738,7 +2528,9 @@ function tauTreeHyperBits(data) {
       const sum = document.getElementById("quant-co-summary");
       if (!sum) return;
       if (!data.exists) {
-        paintRidgeEnableStatus(sum, data);
+        paintRidgeEnableStatus(sum, data, {
+          idleMessage: data.note || "拟合后看系数 · 再启用研究/执行",
+        });
         clearCoResultBox();
         await renderCoCoefTable(null);
         return;
@@ -3435,22 +3227,14 @@ function tauTreeHyperBits(data) {
       }
     };
     if (!persist) {
-      const a158On =
-        !document.getElementById("quant-tau-ridge-alpha158") ||
-        document.getElementById("quant-tau-ridge-alpha158").checked !== false;
       const t0 = Date.now();
       const tick = () => {
         const s = Math.max(0, Math.round((Date.now() - t0) / 1000));
         let hint;
         if (s < 30) hint = "拉观察池行情 / 分钟缓存";
-        else if (s < 120)
-          hint = a158On
-            ? "组 τ→close 面板（含 Alpha158，满池可能数分钟）"
-            : "组 τ→close 面板（满池可能数分钟）";
+        else if (s < 120) hint = "组 τ→close 面板（含 Alpha158，满池可能数分钟）";
         else if (s < 300) hint = "Ridge + Holdout OOS（仍在算，请勿重复点拟合）";
-        else
-          hint =
-            "仍在拟合 · Alpha158×满池很重；可取消刷新后取消勾选 Alpha158 再试";
+        else hint = "仍在拟合 · Alpha158×满池较重，请勿重复点拟合";
         renderRemStatus(sum, {
           state: "busy",
           chip: "拟合中",
@@ -3473,17 +3257,16 @@ function tauTreeHyperBits(data) {
     try {
       // 满观察池（与 ŷ_oo / ŷ_co 一致）
       const tauLimit = 300;
-      const a158El = document.getElementById("quant-tau-ridge-alpha158");
-      const includeAlpha158 = !a158El || a158El.checked !== false;
       const res = await fetch("/api/quant/tc-ridge", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          lookback: 120,
+          lookback: readFitLookbackDays("tc"),
           watching_limit: tauLimit,
           ridge_lambda: 1.0,
-          holdout_trading_days: readHoldoutTradingDays(),
-          include_alpha158: includeAlpha158,
+          holdout_trading_days: readHoldoutTradingDays("tc"),
+          include_alpha158: true,
+          label_demean: readLabelDemean("tc"),
           persist: !!persist,
           persist_role: persistRole || "live",
           force_promote: !!forcePromote,
@@ -3535,9 +3318,7 @@ function tauTreeHyperBits(data) {
             ? " · 可启用研究 / 启用执行"
             : "";
       const a158Bit = data.include_alpha158
-        ? `Alpha158×${data.n_alpha158_features != null ? data.n_alpha158_features : "?"}${
-            data.qlib_lgb ? " · Qlib LGB" : ""
-          }`
+        ? `Alpha158×${data.n_alpha158_features != null ? data.n_alpha158_features : "?"}`
         : "无 Alpha158";
       const painted = paintRidgeEnableStatus(sum, data, {
         persistOk: !!persist,
@@ -3575,32 +3356,75 @@ function tauTreeHyperBits(data) {
     }
   }
 
+  function coFitBusyHint(sec) {
+    const s = Number(sec) || 0;
+    if (s < 30) return "拉观察池日线 · 全程约 12–15 分钟";
+    if (s < 720) return "堆叠隔夜缺口面板 · 全程约 12–15 分钟";
+    if (s < 900) return "Ridge + Holdout · 全程约 12–15 分钟";
+    return "仍在拟合 · 满池面板很大，超过 15 分钟仍可能在算，请勿重复点";
+  }
+
+  function fmtCoFitSec(sec) {
+    const n = Math.max(0, Math.round(Number(sec) || 0));
+    if (n < 60) return `${n}s`;
+    const m = Math.floor(n / 60);
+    const r = n % 60;
+    return `${m}分${String(r).padStart(2, "0")}秒`;
+  }
+
   async function runCoRidge({ persist = false, persistRole = "live" } = {}) {
     const sum = document.getElementById("quant-co-summary");
+    const runBtn = document.getElementById("quant-co-ridge-run");
     const roleLabel = persistRole === "research" ? "研究套" : "执行套";
-    renderRemStatus(sum, {
-      state: "busy",
-      chip: persist ? "写入中" : "拟合中",
-      message: persist ? `写入上次拟合（${roleLabel}）…` : "ON Ridge + 时间 OOS…",
-      busy: true,
-    });
+    if (runBtn) runBtn.disabled = true;
+    let busyTimer = null;
+    const clearBusy = () => {
+      if (busyTimer) {
+        clearInterval(busyTimer);
+        busyTimer = null;
+      }
+    };
+    if (!persist) {
+      const t0 = Date.now();
+      const tick = () => {
+        const s = Math.max(0, Math.round((Date.now() - t0) / 1000));
+        const msg = `${coFitBusyHint(s)} · 已 ${fmtCoFitSec(s)}`;
+        renderRemStatus(sum, {
+          state: "busy",
+          chip: "拟合中",
+          message: msg,
+          busy: true,
+        });
+        setQuantMeta(`ŷ_co ${msg}`, { busy: true });
+      };
+      tick();
+      busyTimer = setInterval(tick, 1000);
+    } else {
+      renderRemStatus(sum, {
+        state: "busy",
+        chip: "写入中",
+        message: `写入上次拟合（${roleLabel}）…`,
+        busy: true,
+      });
+    }
     try {
-      // 满观察池（与 ŷ_oo 一致）
       const onLimit = 300;
       const res = await fetch("/api/quant/co-ridge", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          lookback: 600,
+          lookback: readFitLookbackDays("co"),
           watching_limit: onLimit,
           ridge_lambda: 1.0,
-          holdout_trading_days: readHoldoutTradingDays(),
+          holdout_trading_days: readHoldoutTradingDays("co"),
+          label_demean: readLabelDemean("co"),
           persist: !!persist,
           persist_role: persistRole || "live",
-          note: persist ? `ui on promote ${persistRole}` : "",
+          note: persist ? `ui co promote ${persistRole}` : "",
         }),
       });
       const data = await res.json().catch(() => ({}));
+      clearBusy();
       if (!res.ok || !data.success) {
         const err = (data && (data.detail || data.error)) || `HTTP ${res.status}`;
         renderRemStatus(sum, {
@@ -3609,33 +3433,62 @@ function tauTreeHyperBits(data) {
           message: String(err),
           error: true,
         });
+        setQuantMeta(`ŷ_co 失败 · ${err}`, { error: true });
         clearCoResultBox();
         renderCoCoefTable(null);
         return;
       }
-      const oos = data.oos || {};
-      paintRidgeEnableStatus(sum, data, {
+      let status = data;
+      try {
+        const stRes = await fetch("/api/quant/co-ridge/model");
+        const stData = await stRes.json().catch(() => ({}));
+        if (stData && typeof stData === "object") {
+          status = { ...stData, ...data };
+        }
+      } catch (_) {}
+      const flags = ridgeDiskFlags(status, {
+        persistOk: !!persist,
+        persistRole,
+      });
+      let message;
+      if (persist) {
+        message = flags.liveOn
+          ? "已落盘"
+          : flags.researchOn
+            ? "研究套已落盘 · 执行未写"
+            : "";
+      } else {
+        message =
+          flags.liveOn || flags.researchOn
+            ? "草稿已更新 · 可再启用研究/执行"
+            : "草稿已存 · 可启用研究/执行";
+      }
+      const oos = data.oos || status.oos || {};
+      paintRidgeEnableStatus(sum, status, {
         persistOk: !!persist,
         persistRole,
         justFitted: !persist,
-        message: persist ? "" : "未写盘 · 过门后点「启用研究 / 启用执行」",
+        message,
         oos,
         sampleCount: data.sample_count,
-        promotedAt: persist
-          ? data.promoted_at || (data.persisted && data.persisted.promoted_at)
-          : data.promoted_at,
+        fittedAt: data.fitted_at || status.fitted_at || null,
       });
-      const rm = data.return_model || {};
+      const rm = data.return_model || status.return_model || {};
       clearCoResultBox();
       await renderCoCoefTable(rm, { oos });
     } catch (err) {
+      clearBusy();
       renderRemStatus(sum, {
         state: "error",
         chip: "失败",
         message: String(err.message || err),
         error: true,
       });
+      setQuantMeta(`ŷ_co 失败 · ${err.message || err}`, { error: true });
       throw err;
+    } finally {
+      clearBusy();
+      if (runBtn) runBtn.disabled = false;
     }
   }
 
@@ -3652,10 +3505,11 @@ function tauTreeHyperBits(data) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          lookback: 120,
+          lookback: readFitLookbackDays("oo_rank"),
           // 日线研究：可吃 research_universe（≤2000）；宇宙空则回退观察池≤300
           watching_limit: 2000,
-          holdout_trading_days: Math.max(20, readHoldoutTradingDays()),
+          holdout_trading_days: Math.max(20, readHoldoutTradingDays("oo_rank")),
+          label_demean: readLabelDemean("oo_rank"),
           feature_mode: _readOoRankFeatureMode(),
           pair_preset: _readOoRankPairPreset(),
           topk_track: 10,
@@ -3824,12 +3678,13 @@ function tauTreeHyperBits(data) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          lookback: 120,
+          lookback: readFitLookbackDays("t30"),
           watching_limit: 300,
           ridge_lambda: 1.0,
           minute_period: "5",
           minute_lookback_days: 150,
-          holdout_trading_days: readHoldoutTradingDays(),
+          holdout_trading_days: readHoldoutTradingDays("t30"),
+          label_demean: readLabelDemean("t30"),
           persist: !!persist,
           persist_role: persistRole || "live",
           force_promote: !!forcePromote,
@@ -4031,12 +3886,13 @@ function tauTreeHyperBits(data) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          lookback: 120,
+          lookback: readFitLookbackDays("t45"),
           watching_limit: 300,
           ridge_lambda: 1.0,
           minute_period: "5",
           minute_lookback_days: 150,
-          holdout_trading_days: readHoldoutTradingDays(),
+          holdout_trading_days: readHoldoutTradingDays("t45"),
+          label_demean: readLabelDemean("t45"),
           persist: !!persist,
           persist_role: persistRole || "live",
           force_promote: !!forcePromote,
@@ -4237,12 +4093,13 @@ function tauTreeHyperBits(data) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          lookback: 120,
+          lookback: readFitLookbackDays("t60"),
           watching_limit: 300,
           ridge_lambda: 1.0,
           minute_period: "5",
           minute_lookback_days: 150,
-          holdout_trading_days: readHoldoutTradingDays(),
+          holdout_trading_days: readHoldoutTradingDays("t60"),
+          label_demean: readLabelDemean("t60"),
           persist: !!persist,
           persist_role: persistRole || "live",
           force_promote: !!forcePromote,
@@ -4443,12 +4300,13 @@ function tauTreeHyperBits(data) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          lookback: 120,
+          lookback: readFitLookbackDays("t75"),
           watching_limit: 300,
           ridge_lambda: 1.0,
           minute_period: "5",
           minute_lookback_days: 150,
-          holdout_trading_days: readHoldoutTradingDays(),
+          holdout_trading_days: readHoldoutTradingDays("t75"),
+          label_demean: readLabelDemean("t75"),
           persist: !!persist,
           persist_role: persistRole || "live",
           force_promote: !!forcePromote,
@@ -4649,12 +4507,13 @@ function tauTreeHyperBits(data) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          lookback: 120,
+          lookback: readFitLookbackDays("t90"),
           watching_limit: 300,
           ridge_lambda: 1.0,
           minute_period: "5",
           minute_lookback_days: 150,
-          holdout_trading_days: readHoldoutTradingDays(),
+          holdout_trading_days: readHoldoutTradingDays("t90"),
+          label_demean: readLabelDemean("t90"),
           persist: !!persist,
           persist_role: persistRole || "live",
           force_promote: !!forcePromote,
@@ -5197,7 +5056,7 @@ function tauTreeHyperBits(data) {
     renderRemStatus(sum, {
       state: "busy",
       chip: "读取中",
-      message: "live 模型…",
+      message: "读取研究 / 执行 / 上次拟合…",
       busy: true,
     });
     try {
@@ -5205,7 +5064,7 @@ function tauTreeHyperBits(data) {
       const data = await res.json().catch(() => ({}));
       if (!data.exists) {
         paintRidgeEnableStatus(sum, data, {
-          idleMessage: data.note || "尚无 live 模型",
+          idleMessage: data.note || "拟合后看系数 · 再启用研究/执行",
         });
         clearCoResultBox();
         await renderCoCoefTable(null);

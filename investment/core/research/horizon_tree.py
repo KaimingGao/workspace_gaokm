@@ -165,16 +165,26 @@ def _stored_feature_z(
     rm: Dict[str, Any],
 ) -> Tuple[Optional[Dict[str, float]], Optional[Dict[str, float]]]:
     """训练集特征 z-score。旧模型没有这份统计时返回空，预测保持原值。"""
+    from core.research.feature_standardize import resolve_feature_zscore
+
     candidates = [rm]
     inner = rm.get("return_model") if isinstance(rm.get("return_model"), dict) else None
     if inner is not None:
         candidates.append(inner)
     for src in candidates:
         hp = src.get("hyperparams") if isinstance(src.get("hyperparams"), dict) else {}
-        if not hp.get("feature_zscore"):
+        if not resolve_feature_zscore(src, hp, default=False):
             continue
         means = hp.get("zscore_means") if isinstance(hp.get("zscore_means"), dict) else None
         stds = hp.get("zscore_stds") if isinstance(hp.get("zscore_stds"), dict) else None
+        if means and stds:
+            return means, stds
+        means = src.get("zscore_means") if isinstance(src.get("zscore_means"), dict) else None
+        stds = src.get("zscore_stds") if isinstance(src.get("zscore_stds"), dict) else None
+        if means and stds:
+            return means, stds
+        means = src.get("z_means") if isinstance(src.get("z_means"), dict) else None
+        stds = src.get("z_stds") if isinstance(src.get("z_stds"), dict) else None
         if means and stds:
             return means, stds
     return None, None
@@ -280,21 +290,6 @@ def predict_tree_p_up(
     return max(HORIZON_P_CLIP, min(p, 1.0 - HORIZON_P_CLIP))
 
 
-def _cs_z_restore_scale(return_model: Optional[Dict[str, Any]]) -> float:
-    """训练标签做了截面 z 时，把 ŷ 乘回原始百分点 std。"""
-    rm = _return_model_doc(return_model)
-    hp = rm.get("hyperparams") if isinstance(rm.get("hyperparams"), dict) else {}
-    if not hp.get("label_cs_zscore"):
-        return 1.0
-    try:
-        s = float(hp.get("label_cs_std") or 0.0)
-    except (TypeError, ValueError):
-        return 1.0
-    if not math.isfinite(s) or s <= 1e-12:
-        return 1.0
-    return s
-
-
 def predict_tree_return(
     features: Optional[Dict[str, Any]],
     return_model: Optional[Dict[str, Any]],
@@ -303,7 +298,7 @@ def predict_tree_return(
     y = predict_tree_raw(features, return_model)
     if y is None:
         return None
-    return float(y) * _cs_z_restore_scale(return_model)
+    return float(y)
 
 
 def _return_model_doc(return_model: Optional[Dict[str, Any]]) -> Dict[str, Any]:
@@ -374,12 +369,6 @@ def explain_tree_return(
             term["note"] = "均值填"
         terms.append(term)
     y_hat = predict_tree_return(features, rm)
-    scale = _cs_z_restore_scale(rm)
-    if abs(scale - 1.0) > 1e-12:
-        bias *= scale
-        total *= scale
-        for term in terms:
-            term["contrib"] = round(float(term.get("contrib") or 0.0) * scale, 6)
     if y_hat is not None and abs(float(total) - float(y_hat)) < 1e-3:
         total = float(y_hat)
     terms.sort(key=lambda t: -abs(float(t.get("contrib") or 0.0)))

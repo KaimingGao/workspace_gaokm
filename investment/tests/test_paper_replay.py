@@ -1000,7 +1000,7 @@ class TestOpenDayYhat(unittest.TestCase):
         model = ReturnScoreModel(
             intercept=0.8,
             coefficients={"mom3": 0.1},
-            standardized=False,
+            feature_zscore=False,
         )
         entries = [
             {"stock_code": "600519", "sub_scores": {"mom3": 2.0}, "score": 55}

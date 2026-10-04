@@ -12,7 +12,7 @@ from __future__ import annotations
 import os
 from contextlib import contextmanager
 from contextvars import ContextVar
-from typing import Any, Dict, Iterator, List, Optional, Sequence, Tuple
+from typing import Any, Dict, Iterator, List, Mapping, Optional, Sequence, Tuple
 
 MODEL_ROLE_LIVE = "live"
 MODEL_ROLE_RESEARCH = "research"
@@ -63,6 +63,37 @@ def research_model_path(live_path: str) -> str:
     return f"{root}_research{ext or '.json'}"
 
 
+def model_fit_id(doc: Optional[Mapping[str, Any]]) -> Optional[str]:
+    """该份模型的拟合时间标识（不是启用写入时间）。"""
+    if not isinstance(doc, Mapping):
+        return None
+    for key in ("fitted_at", "source_saved_at", "saved_at"):
+        val = doc.get(key)
+        if val:
+            return str(val)
+    nested = doc.get("return_model") or doc.get("model")
+    if isinstance(nested, Mapping):
+        for key in ("fitted_at", "fitted_as_of"):
+            val = nested.get(key)
+            if val:
+                return str(val)
+    # 旧盘只有 promoted_at：退化为启用时间，避免卡头空白
+    val = doc.get("promoted_at")
+    return str(val) if val else None
+
+
+def stamp_fitted_at(doc: Dict[str, Any]) -> Dict[str, Any]:
+    """拟合产物打 fitted_at；已有则保留（启用不得改标识）。"""
+    if not isinstance(doc, dict):
+        return doc
+    if not doc.get("fitted_at"):
+        from core.numbers import now_iso_utc
+
+        existing = model_fit_id(doc)
+        doc["fitted_at"] = existing or now_iso_utc()
+    return doc
+
+
 def load_research_promoted_json(live_path: str) -> Optional[Dict[str, Any]]:
     """只读研究套文件；缺文件返回 None（不回退 live）。"""
     import json
@@ -88,6 +119,7 @@ def research_sidecar_flags(live_path: str) -> Dict[str, Any]:
         "research_exists": bool(doc),
         "research_path": path,
         "research_promoted_at": (doc or {}).get("promoted_at") if doc else None,
+        "research_fitted_at": model_fit_id(doc) if doc else None,
     }
 
 

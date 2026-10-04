@@ -26,7 +26,6 @@ from core.research.tc_tree import (
     _oos_pack,
     fit_lgb_on_matrices,
     resolve_tree_backend,
-    resolve_use_qlib_lgb,
 )
 
 TREE_SCHEMA = "oo_tree_shadow_v1"
@@ -177,12 +176,11 @@ def fit_oo_tree_report(
     learning_rate: float = DEFAULT_LEARNING_RATE,
     subsample: float = DEFAULT_SUBSAMPLE,
     include_alpha158: bool = True,
-    qlib_lgb: Optional[bool] = None,
 ) -> Dict[str, Any]:
     """日线面板拟合 ŷ_oo_tree + Ridge OOS 对照。不写 live / 研究套。
 
     ``include_alpha158=True`` 时树吃 Alpha158。特征按训练集做总体 z-score，与 ŷ_oo Ridge 同口径；标签仍是百分点。
-    ``qlib_lgb=True`` 才另对标签做截面 z，并改用缩小后的 Qlib 风格超参。
+    LightGBM：深度 6、300 轮、叶子 64、λ₁=10、λ₂=20、学习率 0.2。
     """
     from core.research.panel_matrix import demeaned_ridge_oos, finite_name_set, named_columns
     from core.research.tc_ridge import TAU_MIN_STD_EXEMPT
@@ -242,7 +240,6 @@ def fit_oo_tree_report(
     )
     ys_tr = [ys[i] for i in train_idx]
     ys_te = [ys[i] for i in test_idx]
-    metas_tr = [metas[i] for i in train_idx]
     metas_te = [metas[i] for i in test_idx]
     if len(ys_tr) < 16 or len(ys_te) < 8:
         return {
@@ -262,15 +259,12 @@ def fit_oo_tree_report(
     row_tr = np.asarray(train_idx, dtype=np.int64)
     row_te = np.asarray(test_idx, dtype=np.int64)
 
-    use_qlib = resolve_use_qlib_lgb(include_alpha158, qlib_lgb)
     engine = resolve_tree_backend(backend)
     model, gain, hyper, means, boost_preds, tree_s = fit_lgb_on_matrices(
         X_tree[row_tr],
         ys_tr,
         X_tree[row_te],
         feat_names,
-        metas_tr=metas_tr,
-        use_qlib=use_qlib,
         n_estimators=n_estimators,
         max_depth=max_depth,
         learning_rate=learning_rate,
@@ -338,7 +332,6 @@ def fit_oo_tree_report(
         "feature_names": list(feat_names),
         "ridge_feature_names": list(ridge_feat_names),
         "include_alpha158": bool(include_alpha158),
-        "qlib_lgb": bool(use_qlib),
         "n_alpha158_features": len(a158_keys),
         "feature_importance": _importance_rows(feat_names, gain),
         "tree_return_model": return_model,
@@ -351,13 +344,9 @@ def fit_oo_tree_report(
         "note": (
             "ŷ_oo_tree：open→open 标签 · 特征训练集 z-score（与 ŷ_oo Ridge 同口径）· 同 Holdout vs Ridge；"
             + (
-                "树侧含 raw_alpha158_* + Qlib LGB 预设（深6/300轮/叶64/λ10·20 + 标签截面 z，无早停）；"
-                if use_qlib
-                else (
-                    "树侧可含 raw_alpha158_*（Ridge 对照不含 a158）；"
-                    if include_alpha158
-                    else ""
-                )
+                "树侧可含 raw_alpha158_*（Ridge 对照不含 a158）；"
+                if include_alpha158
+                else ""
             )
             + "写入 oo_tree_model.json 后，调仓回测选 Tree 替换 ŷ_oo；不进交易执行"
         ),

@@ -172,6 +172,7 @@ class TestPredictabilityTiers(unittest.TestCase):
                 self.assertEqual(rep.get("protocol"), PROTOCOL_HOLDOUT_OOS)
                 self.assertEqual(rep.get("source"), "oo_holdout_oos")
                 self.assertEqual(rep.get("holdout_n"), 10)
+                # fake accumulate 未改 source 时仍透传；真实路径为 oo_research_model
                 self.assertEqual(rep.get("tier_n"), 5)
                 self.assertNotIn("bt_lookback", rep)
                 by = {r["code"]: r for r in rep.get("rows") or []}
@@ -193,12 +194,43 @@ class TestPredictabilityTiers(unittest.TestCase):
                 tau = build_holdout_half_tiers(10, head="tau", persist=False)
                 self.assertFalse(tau.get("success"))
 
+    def test_load_research_oo_model_skips_active(self):
+        from core.research.predictability_tiers import _load_research_oo_model
+        from core.signal.return_score import ReturnScoreModel
+
+        research = {
+            "role": "research",
+            "model": ReturnScoreModel(
+                intercept=0.1, coefficients={"momentum": 0.2}, feature_zscore=False
+            ).to_dict(),
+            "meta": {"lookback": 120},
+        }
+        with patch(
+            "core.signal.return_score_store.load_return_model_payload",
+            return_value=research,
+        ):
+            model, meta = _load_research_oo_model()
+        self.assertIsNotNone(model)
+        self.assertTrue(meta.get("ok"))
+        self.assertEqual(meta.get("lookback"), 120)
+        self.assertAlmostEqual(float(model.predict({"momentum": 1.0})), 0.3)
+
+        with patch(
+            "core.signal.return_score_store.load_return_model_payload",
+            return_value=None,
+        ):
+            model2, meta2 = _load_research_oo_model()
+        self.assertIsNone(model2)
+        self.assertFalse(meta2.get("ok"))
+
     def test_build_tiers_defaults_to_watching(self):
         from core.research.predictability_tiers import build_predictability_tiers
 
         tier_dates = [f"2025-06-{d:02d}" for d in range(1, 11)]
 
         def _fake_accumulate(codes, **kwargs):
+            self.assertEqual(kwargs.get("lookback"), 120)
+            self.assertTrue(kwargs.get("use_research_model", True))
             code_set = set(codes or [])
             acc = {}
             for code, hits, n in (
@@ -222,6 +254,7 @@ class TestPredictabilityTiers(unittest.TestCase):
                 "acc": acc,
                 "tier_dates": list(tier_dates),
                 "tier_n": len(tier_dates),
+                "lookback": 120,
                 "holdout_split": {
                     "ok": True,
                     "holdout_n": 20,
@@ -234,7 +267,8 @@ class TestPredictabilityTiers(unittest.TestCase):
                 "n_train": 50,
                 "n_test": 20,
                 "horizon_days": 1,
-                "source": "oo_holdout_oos",
+                "source": "oo_research_model",
+                "model_meta": {"ok": True, "path": "/tmp/research.json"},
             }
 
         with patch(

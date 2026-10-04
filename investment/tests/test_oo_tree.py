@@ -97,7 +97,6 @@ class TestOoTree(unittest.TestCase):
             {"a": 7.0, "b": 16.0},
         ]
         ys = [0.2, -0.1, 0.4, 0.0]
-        metas = [{"date": f"2026-01-0{i+1}"} for i in range(4)]
         xs_z, mu, sd = _zscore_complete_panel(xs, ["a", "b"])
 
         seen = {}
@@ -118,10 +117,8 @@ class TestOoTree(unittest.TestCase):
             _model, _gain, hyper, means, _preds, _s = fit_lgb_holdout(
                 xs,
                 ys,
-                metas,
                 xs[:2],
                 ["a", "b"],
-                use_qlib=False,
                 n_estimators=8,
                 max_depth=2,
                 learning_rate=0.1,
@@ -129,7 +126,6 @@ class TestOoTree(unittest.TestCase):
                 feature_zscore=True,
             )
         self.assertTrue(hyper.get("feature_zscore"))
-        self.assertFalse(hyper.get("label_cs_zscore"))
         for i, row in enumerate(xs_z):
             self.assertAlmostEqual(float(seen["x"][i, 0]), float(row["a"]), places=6)
             self.assertAlmostEqual(float(seen["x"][i, 1]), float(row["b"]), places=6)
@@ -147,31 +143,23 @@ class TestOoTree(unittest.TestCase):
         self.assertAlmostEqual(float(pred_x[0, 0]), float(xs_z[1]["a"]), places=6)
         self.assertAlmostEqual(float(pred_x[0, 1]), 0.0, places=6)
 
-    def test_cs_zscore_by_date_and_qlib_flag(self):
-        from core.research.tc_tree import PANEL_LGB, QLIB_ALPHA158_LGB, _cs_zscore_by_date, resolve_use_qlib_lgb
+    def test_panel_lgb_defaults(self):
+        from core.research.tc_tree import PANEL_LGB
 
-        z = _cs_zscore_by_date([1.0, 3.0, 10.0, 12.0], ["d1", "d1", "d2", "d2"])
-        self.assertAlmostEqual(float(z[0]), -1.0, places=6)
-        self.assertAlmostEqual(float(z[1]), 1.0, places=6)
-        self.assertIn("n_estimators", QLIB_ALPHA158_LGB)
-        self.assertEqual(int(QLIB_ALPHA158_LGB["max_depth"]), 6)
-        self.assertEqual(int(QLIB_ALPHA158_LGB["n_estimators"]), 300)
-        self.assertEqual(int(QLIB_ALPHA158_LGB["num_leaves"]), 64)
-        self.assertEqual(float(QLIB_ALPHA158_LGB["lambda_l1"]), 10.0)
-        self.assertNotIn("early_stopping_rounds", QLIB_ALPHA158_LGB)
-        self.assertNotIn("valid_trading_days", QLIB_ALPHA158_LGB)
-        self.assertFalse(resolve_use_qlib_lgb(True))
-        self.assertFalse(resolve_use_qlib_lgb(True, False))
-        self.assertTrue(resolve_use_qlib_lgb(False, True))
-        self.assertEqual(int(PANEL_LGB["max_depth"]), 5)
+        self.assertEqual(int(PANEL_LGB["max_depth"]), 6)
         self.assertEqual(int(PANEL_LGB["n_estimators"]), 300)
+        self.assertEqual(int(PANEL_LGB["num_leaves"]), 64)
+        self.assertEqual(float(PANEL_LGB["learning_rate"]), 0.2)
+        self.assertEqual(float(PANEL_LGB["lambda_l1"]), 10.0)
+        self.assertEqual(float(PANEL_LGB["lambda_l2"]), 20.0)
+        self.assertNotIn("early_stopping_rounds", PANEL_LGB)
 
-    def test_qlib_fit_runs_full_rounds_without_early_stop(self):
+    def test_panel_lgb_fit_runs_full_rounds_without_early_stop(self):
         from unittest.mock import patch
 
         import numpy as np
 
-        from core.research.tc_tree import fit_lgb_holdout
+        from core.research.tc_tree import PANEL_LGB, fit_lgb_holdout
 
         class _Stub:
             best_iteration = None
@@ -184,7 +172,6 @@ class TestOoTree(unittest.TestCase):
 
         xs = [{"a": float(i), "b": float(i % 3)} for i in range(40)]
         ys = [0.1 * ((i % 5) - 2) for i in range(40)]
-        metas = [{"date": f"2026-01-{(i % 28) + 1:02d}"} for i in range(40)]
         with patch("core.research.tc_tree._fit_lightgbm", _fake_fit), patch(
             "core.research.tc_tree._predict_lightgbm",
             return_value=np.zeros(8, dtype=np.float64),
@@ -192,26 +179,24 @@ class TestOoTree(unittest.TestCase):
             _model, _gain, hyper, _means, _preds, _s = fit_lgb_holdout(
                 xs,
                 ys,
-                metas,
                 xs[:8],
                 ["a", "b"],
-                use_qlib=True,
-                n_estimators=80,
-                max_depth=5,
-                learning_rate=0.08,
-                subsample=0.85,
+                n_estimators=int(PANEL_LGB["n_estimators"]),
+                max_depth=int(PANEL_LGB["max_depth"]),
+                learning_rate=float(PANEL_LGB["learning_rate"]),
+                subsample=float(PANEL_LGB["subsample"]),
             )
         self.assertEqual(len(calls), 1)
         self.assertIsNone(calls[0].get("early_stopping_rounds"))
         self.assertIsNone(calls[0].get("x_valid"))
         self.assertEqual(int(calls[0]["max_depth"]), 6)
         self.assertEqual(int(hyper["max_depth"]), 6)
-        self.assertEqual(hyper.get("preset"), "qlib_alpha158")
-        self.assertTrue(hyper.get("label_cs_zscore"))
+        self.assertEqual(int(hyper["num_leaves"]), 64)
+        self.assertNotIn("preset", hyper)
         self.assertNotIn("early_stopping_rounds", hyper)
 
     def test_oos_pack_sign_hit_fallback_when_preds_tiny(self):
-        """Qlib 截面 z 标签下 ŷ 常 <0.05；命中率应回退全样本同号，不能变 None。"""
+        """小幅度 ŷ 下命中率应回退全样本同号，不能变 None。"""
         from core.research.tc_tree import _oos_pack
 
         preds = [0.01, -0.02, 0.03, -0.01, 0.015, -0.008, 0.02, -0.011]

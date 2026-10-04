@@ -110,7 +110,7 @@ class TestKeepallRidgeMatrix(unittest.TestCase):
             ys,
             feature_names=list(names),
             ridge_lambda=1.0,
-            standardize=True,
+            feature_zscore=True,
             sample_weights=weights,
             min_std_exempt=list(names),
             collinearity_policy="keep_all",

@@ -734,7 +734,7 @@ def blend_y_tw(
 
 
 def _y_tw_enter_floor(cfg_d: dict) -> float:
-    """ŷ_τw 共用入场幅度（y_tw_enter）。票数门槛，与 ŷ_τc 是否截面 z 无关。"""
+    """ŷ_τw 共用入场幅度（y_tw_enter）。票数门槛。"""
     from core.t0.score_policy import _cfg_float
 
     if cfg_d.get("y_tw_enter") not in (None, ""):

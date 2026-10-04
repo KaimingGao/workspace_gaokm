@@ -127,7 +127,6 @@ def quant_oo_tree(body: OoTreeRequest) -> Dict[str, Any]:
             holdout_trading_days=body.holdout_trading_days,
             backend=body.backend,
             include_alpha158=bool(body.include_alpha158),
-            qlib_lgb=bool(body.qlib_lgb),
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
@@ -156,7 +155,6 @@ def quant_tau_tree(body: TauTreeRequest) -> Dict[str, Any]:
             holdout_trading_days=body.holdout_trading_days,
             backend=body.backend,
             include_alpha158=bool(body.include_alpha158),
-            qlib_lgb=bool(body.qlib_lgb),
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
@@ -184,7 +182,6 @@ def quant_co_tree(body: CoTreeRequest) -> Dict[str, Any]:
             holdout_trading_days=body.holdout_trading_days,
             backend=body.backend,
             include_alpha158=bool(body.include_alpha158),
-            qlib_lgb=bool(body.qlib_lgb),
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
@@ -216,6 +213,7 @@ def quant_tau_ridge(body: TauRidgeRequest) -> Dict[str, Any]:
             persist_role=body.persist_role,
             holdout_trading_days=body.holdout_trading_days,
             include_alpha158=bool(body.include_alpha158),
+            label_demean=bool(body.label_demean),
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
@@ -257,6 +255,7 @@ def quant_co_ridge(body: CoRidgeRequest) -> Dict[str, Any]:
             note=body.note,
             persist_role=body.persist_role,
             holdout_trading_days=body.holdout_trading_days,
+            label_demean=bool(body.label_demean),
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
@@ -321,10 +320,12 @@ def quant_research_universe_predictability_tiers(
     a_hit: float = 0.60,
     b_hit: float = 0.50,
     pool: str = "watching",
+    lookback: int = 120,
 ) -> Dict[str, Any]:
-    """观察池分档：ŷ_oo 在 Holdout 前半 OOS 按票打档，落盘 last；回测/live 复用档位。
+    """观察池分档：研究套 ŷ_oo 在 Holdout 前半 OOS 按票打档，落盘 last。
 
-    holdout: 页顶 Holdout 交易日数；前半=分档窗（日线面板，不读 score_ledger）。
+    holdout: ŷ_oo 卡片 Holdout 交易日数；前半=分档窗。
+    lookback: 日线面板窗，与 ŷ_oo 卡片训练窗对齐（缺研究套时现训也用此窗）。
     回测天数由回测页 lookback 独立设置。
     """
     from core.research.predictability_tiers import (
@@ -340,6 +341,7 @@ def quant_research_universe_predictability_tiers(
             head=str(head or "oo"),
             a_hit=float(a_hit),
             b_hit=float(b_hit),
+            lookback=max(40, min(int(lookback or 120), 700)),
             persist=True,
         )
         if isinstance(rep, dict):
@@ -693,7 +695,7 @@ def quant_t90_ridge_model() -> Dict[str, Any]:
 
 @router.post("/api/quant/t30-tree")
 def quant_t30_tree(body: T30TreeRequest) -> Dict[str, Any]:
-    """ŷ_τ30_tree 影子头 + 同 Holdout Ridge；不写 live / 研究套，不进回测。"""
+    """ŷ_τ30_tree + 同 Holdout Ridge；写入 t30_tree_model.json，做 T 回测选 Tree。不进 live。"""
     try:
         return deps.quant.run_t30_tree_experiment(
             lookback=body.lookback,
@@ -720,7 +722,7 @@ def quant_t30_tree_last() -> Dict[str, Any]:
 
 @router.post("/api/quant/t45-tree")
 def quant_t45_tree(body: T45TreeRequest) -> Dict[str, Any]:
-    """ŷ_τ45_tree 影子头 + 同 Holdout Ridge；不写 live / 研究套，不进回测。"""
+    """ŷ_τ45_tree + 同 Holdout Ridge；写入 t45_tree_model.json，做 T 回测选 Tree。不进 live。"""
     try:
         return deps.quant.run_t45_tree_experiment(
             lookback=body.lookback,
@@ -747,7 +749,7 @@ def quant_t45_tree_last() -> Dict[str, Any]:
 
 @router.post("/api/quant/t60-tree")
 def quant_t60_tree(body: T60TreeRequest) -> Dict[str, Any]:
-    """ŷ_τ60_tree 影子头 + 同 Holdout Ridge；不写 live / 研究套，不进回测。"""
+    """ŷ_τ60_tree + 同 Holdout Ridge；写入 t60_tree_model.json，做 T 回测选 Tree。不进 live。"""
     try:
         return deps.quant.run_t60_tree_experiment(
             lookback=body.lookback,
@@ -774,7 +776,7 @@ def quant_t60_tree_last() -> Dict[str, Any]:
 
 @router.post("/api/quant/t75-tree")
 def quant_t75_tree(body: T75TreeRequest) -> Dict[str, Any]:
-    """ŷ_τ75_tree 影子头 + 同 Holdout Ridge；不写 live / 研究套，不进回测。"""
+    """ŷ_τ75_tree + 同 Holdout Ridge；写入 t75_tree_model.json，做 T 回测选 Tree。不进 live。"""
     try:
         return deps.quant.run_t75_tree_experiment(
             lookback=body.lookback,
@@ -801,7 +803,7 @@ def quant_t75_tree_last() -> Dict[str, Any]:
 
 @router.post("/api/quant/t90-tree")
 def quant_t90_tree(body: T90TreeRequest) -> Dict[str, Any]:
-    """ŷ_τ90_tree 影子头 + 同 Holdout Ridge；不写 live / 研究套，不进回测。"""
+    """ŷ_τ90_tree + 同 Holdout Ridge；写入 t90_tree_model.json，做 T 回测选 Tree。不进 live。"""
     try:
         return deps.quant.run_t90_tree_experiment(
             lookback=body.lookback,

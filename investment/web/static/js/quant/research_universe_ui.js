@@ -1,8 +1,8 @@
 /**
- * 观察池分档：ŷ_oo Holdout 前半 OOS 打档 → last；回测/live 复用档位（回测天数独立）。
+ * 观察池分档：研究套 ŷ_oo · Holdout 前半 OOS 打档 → last；回测/live 复用档位。
  */
 export function installResearchUniverseUi(q) {
-  const { on, apiFetch, escapeHtml, readHoldoutTradingDays } = q;
+  const { on, apiFetch, escapeHtml, readHoldoutTradingDays, readFitLookbackDays } = q;
   let lastTiers = null;
   let liveStatus = null;
 
@@ -21,9 +21,16 @@ export function installResearchUniverseUi(q) {
 
   function holdoutN() {
     if (typeof readHoldoutTradingDays === "function") {
-      return Math.max(2, Math.min(90, Number(readHoldoutTradingDays()) || 20));
+      return Math.max(2, Math.min(90, Number(readHoldoutTradingDays("oo")) || 20));
     }
     return 20;
+  }
+
+  function ooLookbackN() {
+    if (typeof readFitLookbackDays === "function") {
+      return Math.max(40, Math.min(700, Number(readFitLookbackDays("oo")) || 120));
+    }
+    return 120;
   }
 
   function setStatus(state, chip, message) {
@@ -213,10 +220,17 @@ export function installResearchUniverseUi(q) {
     if (lastTiers) {
       const c = lastTiers.counts || {};
       const hold = lastTiers.holdout_n != null ? lastTiers.holdout_n : "—";
+      const lb = lastTiers.lookback != null ? lastTiers.lookback : "—";
+      const src =
+        lastTiers.source === "oo_research_model"
+          ? "研究套"
+          : lastTiers.source === "oo_holdout_oos_refit"
+            ? "现训"
+            : "ŷ_oo";
       setStatus(
         "ok",
         liveStatus && liveStatus.enabled ? "live" : "已分档",
-        `A${c.A ?? 0} · B${c.B ?? 0} · C${c.C ?? 0} · ŷ_oo OOS · Holdout${hold} · ${liveBit()}`
+        `A${c.A ?? 0} · B${c.B ?? 0} · C${c.C ?? 0} · ${src} · 窗${lb} · Holdout${hold} · ${liveBit()}`
       );
     } else if (liveStatus && liveStatus.enabled) {
       setStatus("ok", "live", `${liveBit()} · 可先「观察池分档」刷新`);
@@ -226,20 +240,21 @@ export function installResearchUniverseUi(q) {
   async function loadTiers({ useLast = false, quiet = false } = {}) {
     if (!document.getElementById("quant-section-research-universe")) return null;
     const h = holdoutN();
+    const lb = ooLookbackN();
     if (!quiet) {
       setStatus(
         "busy",
         useLast ? "读取中" : "分档中",
         useLast
           ? "上次 Holdout OOS 分档…"
-          : `Holdout ${h} 日前半 · ŷ_oo OOS 打档…`
+          : `研究套 ŷ_oo · 窗 ${lb} · Holdout ${h} 日前半（整池拉面板约需数分钟，勿刷新）…`
       );
     }
     const url = useLast
       ? "/api/quant/research-universe/predictability-tiers/last"
       : `/api/quant/research-universe/predictability-tiers?holdout=${encodeURIComponent(
           h
-        )}&min_n=20&head=oo&pool=watching`;
+        )}&lookback=${encodeURIComponent(lb)}&min_n=20&head=oo&pool=watching`;
     const { ok, data, error } = await apiFetch(url);
     if (!ok || !data || data.success === false) {
       if (data && data.live) applyLive(data.live);
@@ -261,7 +276,7 @@ export function installResearchUniverseUi(q) {
   async function promoteLive() {
     if (
       !window.confirm(
-        "启用 live？将复用当前 ŷ_oo Holdout OOS 前半分档；调仓新开只留 A+B（持仓保留）。"
+        "启用 live？将复用当前研究套 ŷ_oo Holdout 前半分档；调仓新开只留 A+B（持仓保留）。"
       )
     ) {
       return;

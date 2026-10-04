@@ -22,7 +22,7 @@ def build_score_formula(score_info: dict) -> str:
             "coefficients": score_info.get("coefficients"),
             "z_means": score_info.get("z_means") or {},
             "z_stds": score_info.get("z_stds") or {},
-            "standardized": score_info.get("standardized", True),
+            "feature_zscore": score_info.get("feature_zscore", True),
         }
     try:
         from core.signal.return_score import ReturnScoreModel
@@ -73,7 +73,7 @@ def active_return_model_payload(
         "coefficients": coefs,
         "z_means": d.get("z_means") or {},
         "z_stds": d.get("z_stds") or {},
-        "standardized": d.get("standardized", True),
+        "feature_zscore": d.get("feature_zscore", True),
     }
 
 

@@ -21,7 +21,7 @@ class TestReturnScoreStore(unittest.TestCase):
         model = ReturnScoreModel(
             intercept=0.1,
             coefficients={"momentum": 0.5, "value": -0.2},
-            standardized=False,
+            feature_zscore=False,
             sample_count=40,
             horizon_days=3,
         )
@@ -51,7 +51,7 @@ class TestReturnScoreStore(unittest.TestCase):
         model = ReturnScoreModel(
             intercept=0.2,
             coefficients={"momentum": 0.3},
-            standardized=False,
+            feature_zscore=False,
             sample_count=20,
             horizon_days=1,
         )
@@ -95,7 +95,7 @@ class TestReturnScoreStore(unittest.TestCase):
         model = ReturnScoreModel(
             intercept=0.1,
             coefficients={"momentum": 0.5, "money_flow": -0.011},
-            standardized=False,
+            feature_zscore=False,
             sample_count=30,
             horizon_days=1,
         )
@@ -122,7 +122,7 @@ class TestReturnScoreStore(unittest.TestCase):
         model = ReturnScoreModel(
             intercept=0.1,
             coefficients={"momentum": 0.4},
-            standardized=False,
+            feature_zscore=False,
             sample_count=40,
             horizon_days=1,
         )
@@ -154,7 +154,7 @@ class TestReturnScoreStore(unittest.TestCase):
         model = ReturnScoreModel(
             intercept=0.1,
             coefficients={"momentum": 0.4},
-            standardized=False,
+            feature_zscore=False,
             sample_count=40,
             horizon_days=1,
         )
@@ -203,7 +203,7 @@ class TestReturnScoreStore(unittest.TestCase):
         model = ReturnScoreModel(
             intercept=0.1,
             coefficients={"momentum": 0.4},
-            standardized=False,
+            feature_zscore=False,
             sample_count=40,
             horizon_days=1,
         )

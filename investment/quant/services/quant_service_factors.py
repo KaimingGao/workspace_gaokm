@@ -86,27 +86,52 @@ def _file_mtime_iso(path: str) -> Optional[str]:
         return None
 
 
+def _peek_model_stamp(path: str) -> Optional[str]:
+    """读落盘模型的拟合时间标识；缺字段才退文件 mtime。"""
+    try:
+        if not path or not os.path.isfile(path):
+            return None
+        import json
+
+        with open(path, "r", encoding="utf-8") as f:
+            doc = json.load(f)
+        if isinstance(doc, dict):
+            from core.research.holdout import model_fit_id
+
+            stamp = model_fit_id(doc)
+            if stamp:
+                return stamp
+    except Exception:  # noqa: BLE001
+        logger.debug("peek model stamp failed: %s", path, exc_info=True)
+    return _file_mtime_iso(path)
+
+
 def _attach_ridge_role_flags(
     out: Dict[str, Any],
     live_path: str,
     *,
     live_present: Optional[bool] = None,
 ) -> Dict[str, Any]:
-    """给 Ridge GET/POST 打上执行套 / 研究套是否已落盘。"""
-    from core.research.holdout import research_sidecar_flags
+    """给 Ridge GET/POST 打上执行套 / 研究套是否已落盘及各自拟合时间标识。"""
+    from core.research.holdout import research_model_path, research_sidecar_flags
 
     flags = research_sidecar_flags(live_path)
     out["research_exists"] = bool(flags.get("research_exists"))
     out["research_path"] = flags.get("research_path")
+    research_path = str(flags.get("research_path") or research_model_path(live_path) or "")
+    research_fit = flags.get("research_fitted_at") or _peek_model_stamp(research_path)
+    out["research_fitted_at"] = research_fit
     out["research_promoted_at"] = flags.get("research_promoted_at")
     if live_present is None:
         live_present = bool(live_path and os.path.isfile(live_path))
     out["live_model_present"] = bool(live_present)
+    live_fit = _peek_model_stamp(live_path) if live_present else None
+    out["live_fitted_at"] = live_fit
+    out["live_promoted_at"] = live_fit
     fitted = out.get("fitted_at")
     if not fitted:
-        fitted = _file_mtime_iso(_last_report_path_from_live(live_path))
-    if not fitted:
-        fitted = out.get("promoted_at") or flags.get("research_promoted_at")
+        last_path = _last_report_path_from_live(live_path)
+        fitted = _peek_model_stamp(last_path) or _file_mtime_iso(last_path)
     if fitted:
         out["fitted_at"] = fitted
     return out
@@ -649,6 +674,7 @@ class QuantFactorMixin:
         persist_role: str = "live",
         holdout_trading_days: int = 20,
         include_alpha158: bool = True,
+        label_demean: bool = True,
     ) -> Dict[str, Any]:
         """R0：观察池 ŷ_τ 头 Ridge；可选 persist live 模型。
 
@@ -656,6 +682,7 @@ class QuantFactorMixin:
         开则训 09:30…做 T 11:00 网格，否则 open。
         ``include_alpha158``：默认 True，Ridge 吃 ``raw_alpha158_*``（≤T−1）。
         日线与 ŷ_oo / ŷ_co 同源（``load_portfolio_stock_bars``）。
+        ``label_demean``：训练标签去均值（默认 True，与历史 τc 口径一致）。
         """
         from core.research.portfolio_bars import load_portfolio_stock_bars
         from core.signal.dual_score import get_dual_score_cfg
@@ -759,6 +786,7 @@ class QuantFactorMixin:
             tau_grid=tau_grid,
             holdout_trading_days=holdout_trading_days,
             include_alpha158=bool(include_alpha158),
+            label_demean=bool(label_demean),
         )
         report["watching_limit"] = limit
         report["watching_pool_size"] = len(pool)
@@ -876,7 +904,6 @@ class QuantFactorMixin:
         holdout_trading_days: int = 20,
         backend: Optional[str] = None,
         include_alpha158: bool = True,
-        qlib_lgb: Optional[bool] = None,
     ) -> Dict[str, Any]:
         """ŷ_oo_tree：日线面板 Holdout vs Ridge。写入 oo_tree_model.json，供调仓回测。"""
         import time
@@ -932,7 +959,6 @@ class QuantFactorMixin:
             holdout_trading_days=holdout_trading_days,
             backend=backend,
             include_alpha158=include_alpha158,
-            qlib_lgb=qlib_lgb,
         )
         if isinstance(report, dict):
             timing = dict(report.get("timing") or {})
@@ -986,7 +1012,6 @@ class QuantFactorMixin:
         holdout_trading_days: int = 20,
         backend: Optional[str] = None,
         include_alpha158: bool = True,
-        qlib_lgb: Optional[bool] = None,
     ) -> Dict[str, Any]:
         """ŷ_co_tree：隔夜缺口面板 Holdout vs Ridge。写入 co_tree_model.json，供调仓回测。
 
@@ -1042,7 +1067,6 @@ class QuantFactorMixin:
             holdout_trading_days=holdout_trading_days,
             backend=backend,
             include_alpha158=include_alpha158,
-            qlib_lgb=qlib_lgb,
         )
         if isinstance(report, dict):
             timing = dict(report.get("timing") or {})
@@ -1105,7 +1129,6 @@ class QuantFactorMixin:
         holdout_trading_days: int = 20,
         backend: Optional[str] = None,
         include_alpha158: bool = True,
-        qlib_lgb: Optional[bool] = None,
     ) -> Dict[str, Any]:
         """ŷ_τ_tree：同面板 Holdout vs Ridge。写入 tc_tree_model.json，供调仓回测。
 
@@ -1200,7 +1223,6 @@ class QuantFactorMixin:
             holdout_trading_days=holdout_trading_days,
             backend=backend,
             include_alpha158=bool(include_alpha158),
-            qlib_lgb=qlib_lgb,
         )
         report["watching_limit"] = limit
         report["watching_pool_size"] = len(pool)
@@ -1264,11 +1286,13 @@ class QuantFactorMixin:
         note: str = "",
         persist_role: str = "live",
         holdout_trading_days: int = 20,
+        label_demean: bool = False,
     ) -> Dict[str, Any]:
         """R0+：观察池 ŷ_co Ridge；可选 persist live 模型。默认用满观察池。
 
         日线与 ŷ_oo 同源（``load_portfolio_stock_bars``：lookback 外再垫 Alpha158 窗），
         决策日与 ŷ_oo 对齐。
+        ``label_demean``：训练标签去均值（默认关）。
         """
         from core.research.portfolio_bars import load_portfolio_stock_bars
         from core.watching.store import WATCHING_MAX_SIZE, read_watching
@@ -1328,6 +1352,7 @@ class QuantFactorMixin:
             gap_trigger_pct=gap_trigger_pct,
             theme_boost=theme_boost,
             holdout_trading_days=holdout_trading_days,
+            label_demean=bool(label_demean),
         )
         report["watching_limit"] = limit
         report["watching_pool_size"] = len(pool)
@@ -2709,7 +2734,7 @@ class QuantFactorMixin:
         minute_period: str = "5",
         minute_lookback_days: int = 150,
     ) -> Dict[str, Any]:
-        """ŷ_τ30_tree 影子头：同面板 Holdout vs Ridge。只写 last_report，不进 live / 回测。"""
+        """ŷ_τ30_tree：同面板 Holdout vs Ridge。写入 t30_tree_model.json，做 T 回测选 Tree 时用。不进 live。"""
         import time
 
         from core.data.facade import bars_and_source
@@ -2887,7 +2912,7 @@ class QuantFactorMixin:
         minute_period: str = "5",
         minute_lookback_days: int = 150,
     ) -> Dict[str, Any]:
-        """ŷ_τ45_tree 影子头：同面板 Holdout vs Ridge。只写 last_report，不进 live / 回测。"""
+        """ŷ_τ45_tree：同面板 Holdout vs Ridge。写入 t45_tree_model.json，做 T 回测选 Tree 时用。不进 live。"""
         import time
 
         from core.data.facade import bars_and_source
@@ -3065,7 +3090,7 @@ class QuantFactorMixin:
         minute_period: str = "5",
         minute_lookback_days: int = 150,
     ) -> Dict[str, Any]:
-        """ŷ_τ60_tree 影子头：同面板 Holdout vs Ridge。只写 last_report，不进 live / 回测。"""
+        """ŷ_τ60_tree：同面板 Holdout vs Ridge。写入 t60_tree_model.json，做 T 回测选 Tree 时用。不进 live。"""
         import time
 
         from core.data.facade import bars_and_source
@@ -3243,7 +3268,7 @@ class QuantFactorMixin:
         minute_period: str = "5",
         minute_lookback_days: int = 150,
     ) -> Dict[str, Any]:
-        """ŷ_τ75_tree 影子头：同面板 Holdout vs Ridge。只写 last_report，不进 live / 回测。"""
+        """ŷ_τ75_tree：同面板 Holdout vs Ridge。写入 t75_tree_model.json，做 T 回测选 Tree 时用。不进 live。"""
         import time
 
         from core.data.facade import bars_and_source
@@ -3421,7 +3446,7 @@ class QuantFactorMixin:
         minute_period: str = "5",
         minute_lookback_days: int = 150,
     ) -> Dict[str, Any]:
-        """ŷ_τ90_tree 影子头：同面板 Holdout vs Ridge。只写 last_report，不进 live / 回测。"""
+        """ŷ_τ90_tree：同面板 Holdout vs Ridge。写入 t90_tree_model.json，做 T 回测选 Tree 时用。不进 live。"""
         import time
 
         from core.data.facade import bars_and_source

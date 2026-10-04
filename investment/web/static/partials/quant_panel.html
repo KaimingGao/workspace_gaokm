@@ -61,19 +61,6 @@
     <header class="dashboard-section-head quant-section-head">
       <h3 id="quant-section-overview-title" class="dashboard-section-title">概览</h3>
       <p class="dashboard-section-desc quant-section-desc">研究宇宙 · 观察池 · 分钟 Ready · ŷ_oo · ŷ_τc · 落地</p>
-      <label
-        class="platform-field quant-pro-field quant-holdout-field"
-        title="近 N 个交易日不进研究套训练；观察池分档用 ŷ_oo 在 Holdout 前半上的 OOS 命中。回测天数用 /replay「窗口」（与 Holdout 独立）。执行套仍用全样本。默认 20（1～60）。改完后重新点各头「拟合」/「观察池分档」。"
-      >
-        <span class="quant-holdout-kicker">
-          <span class="quant-pro-field-label">Holdout</span>
-          <span class="quant-holdout-hint">研究套</span>
-        </span>
-        <span class="quant-holdout-control">
-          <input id="quant-holdout-days" type="number" min="1" max="60" step="1" value="20" inputmode="numeric" aria-label="Holdout 交易日数" />
-          <span class="quant-holdout-unit" aria-hidden="true">日</span>
-        </span>
-      </label>
     </header>
     <div class="dashboard-overview-band quant-pro-desk-top quant-overview-band">
       <div class="dashboard-kpi-row quant-pro-overview-kpis quant-kpi-row" id="quant-pro-overview-kpis" aria-label="研究全景 KPI">
@@ -127,7 +114,7 @@
     <header class="dashboard-section-head quant-section-head">
       <h3 id="quant-section-research-universe-title" class="dashboard-section-title">观察池分档</h3>
       <p class="dashboard-section-desc quant-section-desc">
-        ŷ_oo Holdout OOS 前半 · 「启用 live」后调仓只开 A+B（持仓保留）
+        研究套 ŷ_oo · Holdout 前半 OOS · 「启用 live」后调仓只开 A+B
       </p>
     </header>
     <div class="dashboard-card quant-pro-card quant-ru-card">
@@ -141,14 +128,14 @@
             <summary class="quant-pro-help-summary"><span class="quant-pro-help-icon" aria-hidden="true">?</span> 说明</summary>
             <div class="quant-help-body quant-pro-help-body">
               <p>
-                按 <strong>ŷ_oo</strong> 在页顶 <strong>Holdout</strong> 测试窗<strong>前半</strong>的 OOS 符号命中分档（日线面板训 β，不读账本）。
+                用已落盘<strong>研究套 ŷ_oo</strong>（非另训一版）在 ŷ_oo 卡片上的 <strong>Holdout</strong> 前半打分；
+                日线面板窗对齐 ŷ_oo 卡片 <strong>训练窗</strong>。无研究套时才 Holdout 前现训。
                 A 档：命中率 &gt;60%、IC &gt;0、有效日 N &gt;6。
-                「启用 live」写入调仓闸（新开 A+B，持仓保留）。
-                研究套须在整段 Holdout 前训练。
+                「启用 live」后调仓新开只留 A+B（持仓保留）。
               </p>
             </div>
           </details>
-          <button type="button" id="quant-ru-tiers" class="dialog-btn secondary" title="按页顶 Holdout 前半重算 ŷ_oo OOS 分档">观察池分档</button>
+          <button type="button" id="quant-ru-tiers" class="dialog-btn secondary" title="用研究套 ŷ_oo + ŷ_oo 卡片训练窗，在 Holdout 前半重算分档">观察池分档</button>
           <button type="button" id="quant-ru-tiers-promote" class="dialog-btn secondary" title="复用当前分档启用 live；调仓按 A+B 过滤新开">启用 live</button>
           <button type="button" id="quant-ru-tiers-demote" class="dialog-btn secondary" title="关闭 live 分档闸">关闭 live</button>
         </div>
@@ -362,22 +349,45 @@
       <p class="dashboard-section-desc quant-section-desc">open(T)→open(T+1) · 全局 Ridge / OLS · 主轴排序</p>
     </header>
     <div class="dashboard-card quant-pro-card">
-      <div class="dashboard-card-head quant-pro-card-head quant-card-head--tools">
+      <div class="dashboard-card-head quant-pro-card-head quant-card-head--tools quant-card-head--fit">
         <div id="quant-ols-summary" class="quant-rem-status quant-card-head-status" aria-live="polite">
           <span class="quant-pro-status-chip" data-state="idle">待命</span>
           <span class="quant-rem-status-msg">拟合后看系数 · 再启用研究/执行</span>
         </div>
-        <div class="dashboard-card-tools quant-pro-card-tools" role="group" aria-label="ŷ_oo 操作">
+        <div class="quant-fit-params" role="group" aria-label="ŷ_oo 拟合参数">
+          <label
+            class="quant-inline-num"
+            title="近 N 个交易日不进本头研究套训练。观察池分档仍读 ŷ_oo 这张卡的 Holdout。回测天数用 /replay「窗口」。默认 20（1～60）。"
+          >
+            <span>Holdout</span>
+            <input id="quant-holdout-days" type="number" min="1" max="60" step="1" value="20" inputmode="numeric" aria-label="Holdout 交易日数" />
+            <span aria-hidden="true">日</span>
+          </label>
+          <label
+            class="quant-inline-num"
+            title="ŷ_oo 拟合日线训练窗（交易日）。与回测「窗口」独立。默认 600（40～700）。"
+          >
+            <span>训练窗</span>
+            <input id="quant-fit-lookback-oo" type="number" min="40" max="700" step="10" value="600" inputmode="numeric" aria-label="ŷ_oo 训练样本天数" />
+            <span aria-hidden="true">日</span>
+          </label>
+          <label class="quant-inline-check" title="训练标签全局去均值：拟合用 y−μ，截距加回 μ。开/关后重拟合再回测对照。默认关。">
+            <input id="quant-label-demean-oo" type="checkbox" aria-label="ŷ_oo 训练标签去均值" />
+            <span>去均值</span>
+          </label>
+        </div>
+        <div class="dashboard-card-tools quant-pro-card-tools quant-fit-actions" role="group" aria-label="ŷ_oo 操作">
           <details class="quant-help-fold quant-pro-help-fold">
             <summary class="quant-pro-help-summary"><span class="quant-pro-help-icon" aria-hidden="true">?</span> 说明</summary>
             <div class="quant-help-body quant-pro-help-body">
               <p>
                 <strong>ŷ_oo</strong> = 全局 Ridge，标签 <code>open[T+1]/open[T]−1</code>；
                 观察池满池堆叠日线因子拟一套 β。
+                <strong>Holdout / 训练窗 / 去均值</strong> 只作用于本卡本次拟合。分档仍用本卡 Holdout。
               </p>
             </div>
           </details>
-          <button type="button" id="quant-return-model-fit" class="dialog-btn secondary" title="观察池满池拟合全局 ŷ（日 K 窗 600 个交易日），保存草稿">拟合</button>
+          <button type="button" id="quant-return-model-fit" class="dialog-btn secondary" title="观察池满池拟合全局 ŷ（日 K 训练窗见左侧），保存草稿">拟合</button>
           <button type="button" id="quant-return-model-persist-research" class="dialog-btn secondary" data-persist-role="research" title="草稿 → return_score_model_research.json，供历史回测" disabled>启用研究</button>
           <button type="button" id="quant-return-model-promote" class="dialog-btn secondary" data-persist-role="live" title="草稿 → return_score_model_active.json，供交易执行" disabled>启用执行</button>
           <button type="button" id="quant-return-model-status" class="dialog-btn secondary" title="读取 live / 研究 / 草稿状态">状态</button>
@@ -410,12 +420,34 @@
       <p class="dashboard-section-desc quant-section-desc">τ→close Ridge · 副轴 / τ 闸</p>
     </header>
     <div class="dashboard-card quant-pro-card">
-      <div class="dashboard-card-head quant-pro-card-head quant-card-head--tools">
+      <div class="dashboard-card-head quant-pro-card-head quant-card-head--tools quant-card-head--fit">
         <div id="quant-tau-summary" class="quant-rem-status quant-card-head-status" aria-live="polite">
           <span class="quant-pro-status-chip" data-state="idle">待命</span>
           <span class="quant-rem-status-msg">拟合后看 OOS · 过门再启用</span>
         </div>
-        <div class="dashboard-card-tools quant-pro-card-tools" role="group" aria-label="ŷ_τc 操作">
+        <div class="quant-fit-params" role="group" aria-label="ŷ_τc 拟合参数">
+          <label
+            class="quant-inline-num"
+            title="近 N 个交易日不进本头研究套训练。默认 20（1～60）。"
+          >
+            <span>Holdout</span>
+            <input id="quant-holdout-days-tc" type="number" min="1" max="60" step="1" value="20" inputmode="numeric" aria-label="ŷ_τc Holdout 交易日数" />
+            <span aria-hidden="true">日</span>
+          </label>
+          <label
+            class="quant-inline-num"
+            title="ŷ_τc 拟合日线训练窗（交易日）。分钟网格仍叠在日线之上。默认 120（40～700）。"
+          >
+            <span>训练窗</span>
+            <input id="quant-fit-lookback-tc" type="number" min="40" max="700" step="10" value="120" inputmode="numeric" aria-label="ŷ_τc 训练样本天数" />
+            <span aria-hidden="true">日</span>
+          </label>
+          <label class="quant-inline-check" title="训练标签全局去均值：拟合用 y−μ，截距加回 μ。开/关后重拟合再回测对照。默认关（本头独立；历史 τc API 未传时仍默认开）。">
+            <input id="quant-label-demean-tc" type="checkbox" aria-label="ŷ_τc 训练标签去均值" />
+            <span>去均值</span>
+          </label>
+        </div>
+        <div class="dashboard-card-tools quant-pro-card-tools quant-fit-actions" role="group" aria-label="ŷ_τc 操作">
           <details class="quant-help-fold quant-pro-help-fold">
             <summary class="quant-pro-help-summary"><span class="quant-pro-help-icon" aria-hidden="true">?</span> 说明</summary>
             <div class="quant-help-body quant-pro-help-body">
@@ -423,7 +455,7 @@
                 <strong>ŷ_τc</strong> = τ Ridge，标签 <code>close[T]/price[τ]−1</code>（τ→close 剩余收益）；字段
                 <code>predicted_score_tau</code>（= ŷ_τc；旧别名 <code>score_rem</code> 可读）。
                 特征另含 PIT 历史真实开→收 <code>tau_lag1</code>（上一交易日）、
-                <code>tau_ma5</code>（过去最多 5 日均值）；默认叠加 ≤T−1 的
+                <code>tau_ma5</code>（过去最多 5 日均值）；始终叠加 ≤T−1 的
                 <code>raw_alpha158_*</code>（与 ŷ_oo 日线 X 可能重叠，融合权重慎设）。
                 open 时钟 price[τ]=open，自动退化为 close/open−1。改特征后请重新拟合。
               </p>
@@ -434,14 +466,10 @@
                 （ranking＝w_oo·((ŷ_oo+1)/(1+rot)−1) + w_τc·((1+ŷ_τc)(1+w_co·ŷ_co)−1)）。分钟训练槽即 5m 线：
                 窗 <code>09:30…11:00</code>（与做 T leg1 扫描对齐；09:30 无前缀；共享 β；不含 13:00 / 14:00）。
                 live 调仓 ŷ_τc 用当刻已发生的最后一根 5m，上限 10:00（与自动调仓成交窗一致）；做 T 仍按当前根 rescore。
-                研究套 holdout 天数在页顶概览 <strong>Holdout日</strong>（默认 20），ŷ_τc / ŷ_co / ŷ_oo_rank / ŷ_τ30 / ŷ_τ45 / ŷ_τ60 / ŷ_τ75 / ŷ_τ90 / ŷ_oo_tree / ŷ_τc_tree / ŷ_co_tree / ŷ_τ30_tree 共用（ŷ_hl 已退役）。
+                本卡 <strong>Holdout / 训练窗 / 去均值</strong> 只作用于本次拟合（默认训练窗 120）。
               </p>
             </div>
           </details>
-          <label class="quant-inline-check" title="Ridge 吃 raw_alpha158_*（≤T−1）；与 ŷ_oo 日线 X 可能重叠">
-            <input type="checkbox" id="quant-tau-ridge-alpha158" checked />
-            <span>Alpha158</span>
-          </label>
           <button type="button" id="quant-tau-ridge-run" class="dialog-btn secondary" title="观察池拟合 ŷ_τc Ridge + 时间 OOS（不写盘；一次产出研究 β 与执行套全样本 β）">拟合</button>
           <button type="button" id="quant-tau-ridge-persist-research" class="dialog-btn secondary" data-persist-role="research" title="人审后写入 tau_ridge_model_research.json，供历史回测加载">启用研究</button>
           <button type="button" id="quant-tau-ridge-persist" class="dialog-btn secondary" data-persist-role="live" title="人审后写入 live/tau_ridge_model.json，供交易执行加载">启用执行</button>
@@ -462,12 +490,34 @@
       <p class="dashboard-section-desc quant-section-desc">open[T+1]/close[T]−1 · 隔夜缺口 Ridge · 风控旁路</p>
     </header>
     <div class="dashboard-card quant-pro-card">
-      <div class="dashboard-card-head quant-pro-card-head quant-card-head--tools">
+      <div class="dashboard-card-head quant-pro-card-head quant-card-head--tools quant-card-head--fit">
         <div id="quant-co-summary" class="quant-rem-status quant-card-head-status" aria-live="polite">
           <span class="quant-pro-status-chip" data-state="idle">待命</span>
           <span class="quant-rem-status-msg">拟合后看 OOS · 过门再启用</span>
         </div>
-        <div class="dashboard-card-tools quant-pro-card-tools" role="group" aria-label="ŷ_co 操作">
+        <div class="quant-fit-params" role="group" aria-label="ŷ_co 拟合参数">
+          <label
+            class="quant-inline-num"
+            title="近 N 个交易日不进本头研究套训练。默认 20（1～60）。"
+          >
+            <span>Holdout</span>
+            <input id="quant-holdout-days-co" type="number" min="1" max="60" step="1" value="20" inputmode="numeric" aria-label="ŷ_co Holdout 交易日数" />
+            <span aria-hidden="true">日</span>
+          </label>
+          <label
+            class="quant-inline-num"
+            title="ŷ_co 拟合日线训练窗（交易日）。默认 600（40～700）。"
+          >
+            <span>训练窗</span>
+            <input id="quant-fit-lookback-co" type="number" min="40" max="700" step="10" value="600" inputmode="numeric" aria-label="ŷ_co 训练样本天数" />
+            <span aria-hidden="true">日</span>
+          </label>
+          <label class="quant-inline-check" title="训练标签全局去均值：拟合用 y−μ，截距加回 μ。开/关后重拟合再回测对照。默认关（本头独立）。">
+            <input id="quant-label-demean-co" type="checkbox" aria-label="ŷ_co 训练标签去均值" />
+            <span>去均值</span>
+          </label>
+        </div>
+        <div class="dashboard-card-tools quant-pro-card-tools quant-fit-actions" role="group" aria-label="ŷ_co 操作">
           <details class="quant-help-fold quant-pro-help-fold">
             <summary class="quant-pro-help-summary"><span class="quant-pro-help-icon" aria-hidden="true">?</span> 说明</summary>
             <div class="quant-help-body quant-pro-help-body">
@@ -480,10 +530,11 @@
               <p>
                 <strong>不进主排序、不改 ŷ_oo / ŷ_τc</strong>。用于收盘前评估隔夜缺口；后续可接缩仓闸。
                 改特征后请重新拟合再启用。与 <code>gap_pct</code>（收→开缺口）勿混名。
+                本卡 <strong>Holdout / 训练窗 / 去均值</strong> 只作用于本次拟合。
               </p>
             </div>
           </details>
-          <button type="button" id="quant-co-ridge-run" class="dialog-btn secondary" title="观察池拟合 co Ridge + 时间 OOS（日 K 窗 600 个交易日，不写盘）">拟合</button>
+          <button type="button" id="quant-co-ridge-run" class="dialog-btn secondary" title="观察池拟合 co Ridge + 时间 OOS（日 K 训练窗见左侧，不写盘）">拟合</button>
           <button type="button" id="quant-co-ridge-persist-research" class="dialog-btn secondary" data-persist-role="research" title="人审后写入 co_ridge_model_research.json，供历史回测加载">启用研究</button>
           <button type="button" id="quant-co-ridge-persist" class="dialog-btn secondary" data-persist-role="live" title="人审后写入 live/co_ridge_model.json，供交易执行加载">启用执行</button>
           <button type="button" id="quant-co-ridge-status" class="dialog-btn secondary" title="读取已启用 live 模型">状态</button>
@@ -504,12 +555,35 @@
         <p class="dashboard-section-desc quant-section-desc">P(窗收益>0) · ŷ_τw 投票 · 不进 ranking / C_τ</p>
       </summary>
     <div class="dashboard-card quant-pro-card">
-      <div class="dashboard-card-head quant-pro-card-head quant-card-head--tools">
+      <div class="dashboard-card-head quant-pro-card-head quant-card-head--tools quant-card-head--fit">
         <div id="quant-t30-summary" class="quant-rem-status quant-card-head-status" aria-live="polite">
           <span class="quant-pro-status-chip" data-state="idle">待命</span>
           <span class="quant-rem-status-msg">拟合后看 OOS · 过门再启用</span>
         </div>
-        <div class="dashboard-card-tools quant-pro-card-tools" role="group" aria-label="ŷ_τ30 操作">
+        <div class="quant-fit-params" role="group" aria-label="ŷ_τ30 拟合参数">
+          <label
+            class="quant-inline-num"
+            title="近 N 个交易日不进本头训练。默认 20（1～60）。"
+          >
+            <span>Holdout</span>
+            <input id="quant-holdout-days-t30" type="number" min="1" max="60" step="1" value="20" inputmode="numeric" aria-label="ŷ_τ30 Holdout 交易日数" />
+            <span aria-hidden="true">日</span>
+          </label>
+          <label
+            class="quant-inline-num"
+            title="ŷ_τ30 拟合日线训练窗（交易日）。默认 120（40～700）。"
+          >
+            <span>训练窗</span>
+            <input id="quant-fit-lookback-t30" type="number" min="40" max="700" step="10" value="120" inputmode="numeric" aria-label="ŷ_τ30 训练样本天数" />
+            <span aria-hidden="true">日</span>
+          </label>
+          <label class="quant-inline-check" title="训练标签全局去均值：拟合用 y−μ，截距加回 μ。收益回归头生效。默认关。">
+            <input id="quant-label-demean-t30" type="checkbox" aria-label="ŷ_τ30 训练标签去均值" />
+            <span>去均值</span>
+          </label>
+        </div>
+
+        <div class="dashboard-card-tools quant-pro-card-tools quant-fit-actions" role="group" aria-label="ŷ_τ30 操作">
           <details class="quant-help-fold quant-pro-help-fold">
             <summary class="quant-pro-help-summary"><span class="quant-pro-help-icon" aria-hidden="true">?</span> 说明</summary>
             <div class="quant-help-body quant-pro-help-body">
@@ -553,12 +627,35 @@
         <p class="dashboard-section-desc quant-section-desc">P(窗收益>0) · ŷ_τw 投票 · 不进 ranking / C_τ</p>
       </summary>
     <div class="dashboard-card quant-pro-card">
-      <div class="dashboard-card-head quant-pro-card-head quant-card-head--tools">
+      <div class="dashboard-card-head quant-pro-card-head quant-card-head--tools quant-card-head--fit">
         <div id="quant-t45-summary" class="quant-rem-status quant-card-head-status" aria-live="polite">
           <span class="quant-pro-status-chip" data-state="idle">待命</span>
           <span class="quant-rem-status-msg">拟合后看 OOS · 过门再启用</span>
         </div>
-        <div class="dashboard-card-tools quant-pro-card-tools" role="group" aria-label="ŷ_τ45 操作">
+        <div class="quant-fit-params" role="group" aria-label="ŷ_τ45 拟合参数">
+          <label
+            class="quant-inline-num"
+            title="近 N 个交易日不进本头训练。默认 20（1～60）。"
+          >
+            <span>Holdout</span>
+            <input id="quant-holdout-days-t45" type="number" min="1" max="60" step="1" value="20" inputmode="numeric" aria-label="ŷ_τ45 Holdout 交易日数" />
+            <span aria-hidden="true">日</span>
+          </label>
+          <label
+            class="quant-inline-num"
+            title="ŷ_τ45 拟合日线训练窗（交易日）。默认 120（40～700）。"
+          >
+            <span>训练窗</span>
+            <input id="quant-fit-lookback-t45" type="number" min="40" max="700" step="10" value="120" inputmode="numeric" aria-label="ŷ_τ45 训练样本天数" />
+            <span aria-hidden="true">日</span>
+          </label>
+          <label class="quant-inline-check" title="训练标签全局去均值：拟合用 y−μ，截距加回 μ。收益回归头生效。默认关。">
+            <input id="quant-label-demean-t45" type="checkbox" aria-label="ŷ_τ45 训练标签去均值" />
+            <span>去均值</span>
+          </label>
+        </div>
+
+        <div class="dashboard-card-tools quant-pro-card-tools quant-fit-actions" role="group" aria-label="ŷ_τ45 操作">
           <details class="quant-help-fold quant-pro-help-fold">
             <summary class="quant-pro-help-summary"><span class="quant-pro-help-icon" aria-hidden="true">?</span> 说明</summary>
             <div class="quant-help-body quant-pro-help-body">
@@ -602,12 +699,35 @@
         <p class="dashboard-section-desc quant-section-desc">P(窗收益>0) · ŷ_τw 投票 · 不进 ranking / C_τ</p>
       </summary>
     <div class="dashboard-card quant-pro-card">
-      <div class="dashboard-card-head quant-pro-card-head quant-card-head--tools">
+      <div class="dashboard-card-head quant-pro-card-head quant-card-head--tools quant-card-head--fit">
         <div id="quant-t60-summary" class="quant-rem-status quant-card-head-status" aria-live="polite">
           <span class="quant-pro-status-chip" data-state="idle">待命</span>
           <span class="quant-rem-status-msg">拟合后看 OOS · 过门再启用</span>
         </div>
-        <div class="dashboard-card-tools quant-pro-card-tools" role="group" aria-label="ŷ_τ60 操作">
+        <div class="quant-fit-params" role="group" aria-label="ŷ_τ60 拟合参数">
+          <label
+            class="quant-inline-num"
+            title="近 N 个交易日不进本头训练。默认 20（1～60）。"
+          >
+            <span>Holdout</span>
+            <input id="quant-holdout-days-t60" type="number" min="1" max="60" step="1" value="20" inputmode="numeric" aria-label="ŷ_τ60 Holdout 交易日数" />
+            <span aria-hidden="true">日</span>
+          </label>
+          <label
+            class="quant-inline-num"
+            title="ŷ_τ60 拟合日线训练窗（交易日）。默认 120（40～700）。"
+          >
+            <span>训练窗</span>
+            <input id="quant-fit-lookback-t60" type="number" min="40" max="700" step="10" value="120" inputmode="numeric" aria-label="ŷ_τ60 训练样本天数" />
+            <span aria-hidden="true">日</span>
+          </label>
+          <label class="quant-inline-check" title="训练标签全局去均值：拟合用 y−μ，截距加回 μ。收益回归头生效。默认关。">
+            <input id="quant-label-demean-t60" type="checkbox" aria-label="ŷ_τ60 训练标签去均值" />
+            <span>去均值</span>
+          </label>
+        </div>
+
+        <div class="dashboard-card-tools quant-pro-card-tools quant-fit-actions" role="group" aria-label="ŷ_τ60 操作">
           <details class="quant-help-fold quant-pro-help-fold">
             <summary class="quant-pro-help-summary"><span class="quant-pro-help-icon" aria-hidden="true">?</span> 说明</summary>
             <div class="quant-help-body quant-pro-help-body">
@@ -651,12 +771,35 @@
         <p class="dashboard-section-desc quant-section-desc">P(窗收益>0) · ŷ_τw 投票 · 不进 ranking / C_τ</p>
       </summary>
     <div class="dashboard-card quant-pro-card">
-      <div class="dashboard-card-head quant-pro-card-head quant-card-head--tools">
+      <div class="dashboard-card-head quant-pro-card-head quant-card-head--tools quant-card-head--fit">
         <div id="quant-t75-summary" class="quant-rem-status quant-card-head-status" aria-live="polite">
           <span class="quant-pro-status-chip" data-state="idle">待命</span>
           <span class="quant-rem-status-msg">拟合后看 OOS · 过门再启用</span>
         </div>
-        <div class="dashboard-card-tools quant-pro-card-tools" role="group" aria-label="ŷ_τ75 操作">
+        <div class="quant-fit-params" role="group" aria-label="ŷ_τ75 拟合参数">
+          <label
+            class="quant-inline-num"
+            title="近 N 个交易日不进本头训练。默认 20（1～60）。"
+          >
+            <span>Holdout</span>
+            <input id="quant-holdout-days-t75" type="number" min="1" max="60" step="1" value="20" inputmode="numeric" aria-label="ŷ_τ75 Holdout 交易日数" />
+            <span aria-hidden="true">日</span>
+          </label>
+          <label
+            class="quant-inline-num"
+            title="ŷ_τ75 拟合日线训练窗（交易日）。默认 120（40～700）。"
+          >
+            <span>训练窗</span>
+            <input id="quant-fit-lookback-t75" type="number" min="40" max="700" step="10" value="120" inputmode="numeric" aria-label="ŷ_τ75 训练样本天数" />
+            <span aria-hidden="true">日</span>
+          </label>
+          <label class="quant-inline-check" title="训练标签全局去均值：拟合用 y−μ，截距加回 μ。收益回归头生效。默认关。">
+            <input id="quant-label-demean-t75" type="checkbox" aria-label="ŷ_τ75 训练标签去均值" />
+            <span>去均值</span>
+          </label>
+        </div>
+
+        <div class="dashboard-card-tools quant-pro-card-tools quant-fit-actions" role="group" aria-label="ŷ_τ75 操作">
           <details class="quant-help-fold quant-pro-help-fold">
             <summary class="quant-pro-help-summary"><span class="quant-pro-help-icon" aria-hidden="true">?</span> 说明</summary>
             <div class="quant-help-body quant-pro-help-body">
@@ -700,12 +843,35 @@
         <p class="dashboard-section-desc quant-section-desc">P(窗收益>0) · ŷ_τw 投票 · 不进 ranking / C_τ</p>
       </summary>
     <div class="dashboard-card quant-pro-card">
-      <div class="dashboard-card-head quant-pro-card-head quant-card-head--tools">
+      <div class="dashboard-card-head quant-pro-card-head quant-card-head--tools quant-card-head--fit">
         <div id="quant-t90-summary" class="quant-rem-status quant-card-head-status" aria-live="polite">
           <span class="quant-pro-status-chip" data-state="idle">待命</span>
           <span class="quant-rem-status-msg">拟合后看 OOS · 过门再启用</span>
         </div>
-        <div class="dashboard-card-tools quant-pro-card-tools" role="group" aria-label="ŷ_τ90 操作">
+        <div class="quant-fit-params" role="group" aria-label="ŷ_τ90 拟合参数">
+          <label
+            class="quant-inline-num"
+            title="近 N 个交易日不进本头训练。默认 20（1～60）。"
+          >
+            <span>Holdout</span>
+            <input id="quant-holdout-days-t90" type="number" min="1" max="60" step="1" value="20" inputmode="numeric" aria-label="ŷ_τ90 Holdout 交易日数" />
+            <span aria-hidden="true">日</span>
+          </label>
+          <label
+            class="quant-inline-num"
+            title="ŷ_τ90 拟合日线训练窗（交易日）。默认 120（40～700）。"
+          >
+            <span>训练窗</span>
+            <input id="quant-fit-lookback-t90" type="number" min="40" max="700" step="10" value="120" inputmode="numeric" aria-label="ŷ_τ90 训练样本天数" />
+            <span aria-hidden="true">日</span>
+          </label>
+          <label class="quant-inline-check" title="训练标签全局去均值：拟合用 y−μ，截距加回 μ。收益回归头生效。默认关。">
+            <input id="quant-label-demean-t90" type="checkbox" aria-label="ŷ_τ90 训练标签去均值" />
+            <span>去均值</span>
+          </label>
+        </div>
+
+        <div class="dashboard-card-tools quant-pro-card-tools quant-fit-actions" role="group" aria-label="ŷ_τ90 操作">
           <details class="quant-help-fold quant-pro-help-fold">
             <summary class="quant-pro-help-summary"><span class="quant-pro-help-icon" aria-hidden="true">?</span> 说明</summary>
             <div class="quant-help-body quant-pro-help-body">
@@ -749,12 +915,35 @@
         <p class="dashboard-section-desc quant-section-desc">截面序 · LambdaRank · 影子对照 · 不进决策</p>
       </summary>
       <div class="dashboard-card quant-pro-card">
-      <div class="dashboard-card-head quant-pro-card-head quant-card-head--tools">
+      <div class="dashboard-card-head quant-pro-card-head quant-card-head--tools quant-card-head--fit">
         <div id="quant-oo-rank-summary" class="quant-rem-status quant-card-head-status" aria-live="polite">
           <span class="quant-pro-status-chip" data-state="idle">待命</span>
           <span class="quant-rem-status-msg">拟合后看 vs Ridge · 可选落盘影子</span>
         </div>
-        <div class="dashboard-card-tools quant-pro-card-tools" role="group" aria-label="ŷ_oo_rank 操作">
+        <div class="quant-fit-params" role="group" aria-label="ŷ_oo_rank 拟合参数">
+          <label
+            class="quant-inline-num"
+            title="近 N 个交易日不进本头训练。默认 20（1～60）。"
+          >
+            <span>Holdout</span>
+            <input id="quant-holdout-days-oo_rank" type="number" min="1" max="60" step="1" value="20" inputmode="numeric" aria-label="ŷ_oo_rank Holdout 交易日数" />
+            <span aria-hidden="true">日</span>
+          </label>
+          <label
+            class="quant-inline-num"
+            title="ŷ_oo_rank 拟合日线训练窗（交易日）。默认 120（40～700）。"
+          >
+            <span>训练窗</span>
+            <input id="quant-fit-lookback-oo_rank" type="number" min="40" max="700" step="10" value="120" inputmode="numeric" aria-label="ŷ_oo_rank 训练样本天数" />
+            <span aria-hidden="true">日</span>
+          </label>
+          <label class="quant-inline-check" title="训练标签全局去均值：拟合用 y−μ，截距加回 μ。收益回归头生效。默认关。">
+            <input id="quant-label-demean-oo_rank" type="checkbox" aria-label="ŷ_oo_rank 训练标签去均值" />
+            <span>去均值</span>
+          </label>
+        </div>
+
+        <div class="dashboard-card-tools quant-pro-card-tools quant-fit-actions" role="group" aria-label="ŷ_oo_rank 操作">
           <details class="quant-help-fold quant-pro-help-fold">
             <summary class="quant-pro-help-summary"><span class="quant-pro-help-icon" aria-hidden="true">?</span> 说明</summary>
             <div class="quant-help-body quant-pro-help-body">
@@ -810,25 +999,47 @@
     <details class="quant-secondary-fold">
       <summary class="quant-secondary-fold-sum">
         <h3 id="quant-section-oo-tree-title" class="dashboard-section-title">ŷ_oo_tree</h3>
-        <p class="dashboard-section-desc quant-section-desc">open→open LightGBM · 默认 Alpha158 · 观察池口径 · 不进 live</p>
+        <p class="dashboard-section-desc quant-section-desc">open→open LightGBM · 默认 Alpha158 · 不进 live</p>
       </summary>
       <div class="dashboard-card quant-pro-card">
-      <div class="dashboard-card-head quant-pro-card-head quant-card-head--tools">
+      <div class="dashboard-card-head quant-pro-card-head quant-card-head--tools quant-card-head--fit">
         <div id="quant-oo-tree-summary" class="quant-rem-status quant-card-head-status" aria-live="polite">
           <span class="quant-pro-status-chip" data-state="idle">待命</span>
-          <span class="quant-rem-status-msg">默认观察池 LGB · Alpha158 特征 · 写入调仓/做T树包</span>
+          <span class="quant-rem-status-msg">LightGBM · Alpha158 特征 · 写入调仓/做T树包</span>
         </div>
-        <div class="dashboard-card-tools quant-pro-card-tools" role="group" aria-label="ŷ_oo_tree 操作">
+        <div class="quant-fit-params" role="group" aria-label="ŷ_oo_tree 拟合参数">
+          <label
+            class="quant-inline-num"
+            title="近 N 个交易日不进本头训练。默认 20（1～60）。"
+          >
+            <span>Holdout</span>
+            <input id="quant-holdout-days-oo_tree" type="number" min="1" max="60" step="1" value="20" inputmode="numeric" aria-label="ŷ_oo_tree Holdout 交易日数" />
+            <span aria-hidden="true">日</span>
+          </label>
+          <label
+            class="quant-inline-num"
+            title="ŷ_oo_tree 拟合日线训练窗（交易日）。默认 600（40～700）。"
+          >
+            <span>训练窗</span>
+            <input id="quant-fit-lookback-oo_tree" type="number" min="40" max="700" step="10" value="600" inputmode="numeric" aria-label="ŷ_oo_tree 训练样本天数" />
+            <span aria-hidden="true">日</span>
+          </label>
+          <label class="quant-inline-check" title="训练标签全局去均值：拟合用 y−μ，截距加回 μ。收益回归头生效。默认关。">
+            <input id="quant-label-demean-oo_tree" type="checkbox" aria-label="ŷ_oo_tree 训练标签去均值" />
+            <span>去均值</span>
+          </label>
+        </div>
+
+        <div class="dashboard-card-tools quant-pro-card-tools quant-fit-actions" role="group" aria-label="ŷ_oo_tree 操作">
           <details class="quant-help-fold quant-pro-help-fold">
             <summary class="quant-pro-help-summary"><span class="quant-pro-help-icon" aria-hidden="true">?</span> 说明</summary>
             <div class="quant-help-body quant-pro-help-body">
               <p>
                 <strong>ŷ_oo_tree</strong> 标签与 ŷ_oo 相同：
                 <code>open[T+1]/open[T]−1</code>。默认
-                <strong>观察池 LGB</strong>（深度 5、300 轮、叶子 48、中等正则、百分点标签），按约 300 只 × 120 日调。
+                <strong>LightGBM</strong>（深度 6、300 轮、叶子 64、学习率 0.2、λ₁=10、λ₂=20、百分点标签），按约 300 只 × 120 日调。
                 勾选 Alpha158 只加 <code>raw_alpha158_*</code>（≤T−1）。
                 特征与 ŷ_oo Ridge 对齐：按训练集做 z-score，标签仍是百分点。
-                <strong>Qlib LGB 预设</strong>是对照实验（深度 6、300 轮、叶子 64、λ₁=10、λ₂=20、另对标签做截面 z、无早停），不是默认。
                 同窗 Ridge 对照不含 a158。表内对照 IC / 命中 / MSE。
               </p>
               <p>
@@ -841,12 +1052,8 @@
             <input type="checkbox" id="quant-oo-tree-alpha158" checked />
             <span>Alpha158</span>
           </label>
-          <label class="quant-inline-check" title="缩小后的 Qlib 风格 LGB：深度 6、300 轮、叶子 64、λ₁=10、λ₂=20、标签截面 z、无早停；默认关闭">
-            <input type="checkbox" id="quant-oo-tree-qlib-lgb" />
-            <span>Qlib LGB 预设</span>
-          </label>
-          <button type="button" id="quant-oo-tree-run" class="dialog-btn secondary" title="观察池拟合 ŷ_oo_tree（日 K 窗 600 个交易日；默认观察池 LGB + Alpha158；可选 Qlib 预设）+ 同 Holdout Ridge 对照；写入 oo_tree_model.json。">拟合</button>
-          <button type="button" id="quant-oo-tree-status" class="dialog-btn secondary" title="读取上次影子对照（不进打分）">上次</button>
+          <button type="button" id="quant-oo-tree-run" class="dialog-btn secondary" title="观察池拟合 ŷ_oo_tree（日 K 窗 600 个交易日；LightGBM + Alpha158）+ 同 Holdout Ridge 对照；写入 oo_tree_model.json。">拟合</button>
+          <button type="button" id="quant-oo-tree-status" class="dialog-btn secondary" title="读取上次对照（不进打分）">上次</button>
         </div>
       </div>
       <div class="quant-pro-card-body">
@@ -861,25 +1068,47 @@
     <details class="quant-secondary-fold">
       <summary class="quant-secondary-fold-sum">
         <h3 id="quant-section-tau-tree-title" class="dashboard-section-title">ŷ_τc_tree</h3>
-        <p class="dashboard-section-desc quant-section-desc">τ→close LightGBM · 默认 Alpha158 · 观察池口径 · 不进 live</p>
+        <p class="dashboard-section-desc quant-section-desc">τ→close LightGBM · 默认 Alpha158 · 不进 live</p>
       </summary>
       <div class="dashboard-card quant-pro-card">
-      <div class="dashboard-card-head quant-pro-card-head quant-card-head--tools">
+      <div class="dashboard-card-head quant-pro-card-head quant-card-head--tools quant-card-head--fit">
         <div id="quant-tau-tree-summary" class="quant-rem-status quant-card-head-status" aria-live="polite">
           <span class="quant-pro-status-chip" data-state="idle">待命</span>
-          <span class="quant-rem-status-msg">默认观察池 LGB · Alpha158 特征 · 满池瓶颈在组面板</span>
+          <span class="quant-rem-status-msg">LightGBM · Alpha158 特征 · 满池瓶颈在组面板</span>
         </div>
-        <div class="dashboard-card-tools quant-pro-card-tools" role="group" aria-label="ŷ_τc_tree 操作">
+        <div class="quant-fit-params" role="group" aria-label="ŷ_τc_tree 拟合参数">
+          <label
+            class="quant-inline-num"
+            title="近 N 个交易日不进本头训练。默认 20（1～60）。"
+          >
+            <span>Holdout</span>
+            <input id="quant-holdout-days-tc_tree" type="number" min="1" max="60" step="1" value="20" inputmode="numeric" aria-label="ŷ_τc_tree Holdout 交易日数" />
+            <span aria-hidden="true">日</span>
+          </label>
+          <label
+            class="quant-inline-num"
+            title="ŷ_τc_tree 拟合日线训练窗（交易日）。默认 120（40～700）。"
+          >
+            <span>训练窗</span>
+            <input id="quant-fit-lookback-tc_tree" type="number" min="40" max="700" step="10" value="120" inputmode="numeric" aria-label="ŷ_τc_tree 训练样本天数" />
+            <span aria-hidden="true">日</span>
+          </label>
+          <label class="quant-inline-check" title="训练标签全局去均值：拟合用 y−μ，截距加回 μ。收益回归头生效。默认关。">
+            <input id="quant-label-demean-tc_tree" type="checkbox" aria-label="ŷ_τc_tree 训练标签去均值" />
+            <span>去均值</span>
+          </label>
+        </div>
+
+        <div class="dashboard-card-tools quant-pro-card-tools quant-fit-actions" role="group" aria-label="ŷ_τc_tree 操作">
           <details class="quant-help-fold quant-pro-help-fold">
             <summary class="quant-pro-help-summary"><span class="quant-pro-help-icon" aria-hidden="true">?</span> 说明</summary>
             <div class="quant-help-body quant-pro-help-body">
               <p>
                 <strong>ŷ_τc_tree</strong> 标签与 ŷ_τc 相同：
                 <code>close[T]/price[τ]−1</code>。默认
-                <strong>观察池 LGB</strong>（深度 5、300 轮、叶子 48、中等正则、百分点标签）。
+                <strong>LightGBM</strong>（深度 6、300 轮、叶子 64、学习率 0.2、λ₁=10、λ₂=20、百分点标签）。
                 勾选 Alpha158 只加特征。
                 特征与 ŷ_oo_tree 对齐：按训练集做 z-score，标签仍是百分点。
-                <strong>Qlib LGB 预设</strong>是对照实验（深度 6、300 轮、叶子 64、λ₁=10、λ₂=20、另对标签做截面 z、无早停）。
                 Ridge 对照仍只用开盘 Z。满池耗时主要在组分钟面板。
               </p>
               <p>
@@ -892,12 +1121,8 @@
             <input type="checkbox" id="quant-tau-tree-alpha158" checked />
             <span>Alpha158</span>
           </label>
-          <label class="quant-inline-check" title="缩小后的 Qlib 风格 LGB：深度 6、300 轮、叶子 64、λ₁=10、λ₂=20、标签截面 z、无早停；默认关闭">
-            <input type="checkbox" id="quant-tau-tree-qlib-lgb" />
-            <span>Qlib LGB 预设</span>
-          </label>
-          <button type="button" id="quant-tau-tree-run" class="dialog-btn secondary" title="观察池拟合 ŷ_τc_tree（默认观察池 LGB + Alpha158；可选 Qlib 预设）。满池瓶颈在组分钟面板。">拟合</button>
-          <button type="button" id="quant-tau-tree-status" class="dialog-btn secondary" title="读取上次影子对照（不进打分）">上次</button>
+          <button type="button" id="quant-tau-tree-run" class="dialog-btn secondary" title="观察池拟合 ŷ_τc_tree（LightGBM + Alpha158）。满池瓶颈在组分钟面板。">拟合</button>
+          <button type="button" id="quant-tau-tree-status" class="dialog-btn secondary" title="读取上次对照（不进打分）">上次</button>
         </div>
       </div>
       <div class="quant-pro-card-body">
@@ -912,25 +1137,47 @@
     <details class="quant-secondary-fold">
       <summary class="quant-secondary-fold-sum">
         <h3 id="quant-section-co-tree-title" class="dashboard-section-title">ŷ_co_tree</h3>
-        <p class="dashboard-section-desc quant-section-desc">close→open LightGBM · 默认 Alpha158 · 观察池口径 · 不进 live</p>
+        <p class="dashboard-section-desc quant-section-desc">close→open LightGBM · 默认 Alpha158 · 不进 live</p>
       </summary>
       <div class="dashboard-card quant-pro-card">
-      <div class="dashboard-card-head quant-pro-card-head quant-card-head--tools">
+      <div class="dashboard-card-head quant-pro-card-head quant-card-head--tools quant-card-head--fit">
         <div id="quant-co-tree-summary" class="quant-rem-status quant-card-head-status" aria-live="polite">
           <span class="quant-pro-status-chip" data-state="idle">待命</span>
-          <span class="quant-rem-status-msg">默认观察池 LGB · Alpha158 特征 · 隔夜缺口 Z 面板</span>
+          <span class="quant-rem-status-msg">LightGBM · Alpha158 特征 · 隔夜缺口 Z 面板</span>
         </div>
-        <div class="dashboard-card-tools quant-pro-card-tools" role="group" aria-label="ŷ_co_tree 操作">
+        <div class="quant-fit-params" role="group" aria-label="ŷ_co_tree 拟合参数">
+          <label
+            class="quant-inline-num"
+            title="近 N 个交易日不进本头训练。默认 20（1～60）。"
+          >
+            <span>Holdout</span>
+            <input id="quant-holdout-days-co_tree" type="number" min="1" max="60" step="1" value="20" inputmode="numeric" aria-label="ŷ_co_tree Holdout 交易日数" />
+            <span aria-hidden="true">日</span>
+          </label>
+          <label
+            class="quant-inline-num"
+            title="ŷ_co_tree 拟合日线训练窗（交易日）。默认 600（40～700）。"
+          >
+            <span>训练窗</span>
+            <input id="quant-fit-lookback-co_tree" type="number" min="40" max="700" step="10" value="600" inputmode="numeric" aria-label="ŷ_co_tree 训练样本天数" />
+            <span aria-hidden="true">日</span>
+          </label>
+          <label class="quant-inline-check" title="训练标签全局去均值：拟合用 y−μ，截距加回 μ。收益回归头生效。默认关。">
+            <input id="quant-label-demean-co_tree" type="checkbox" aria-label="ŷ_co_tree 训练标签去均值" />
+            <span>去均值</span>
+          </label>
+        </div>
+
+        <div class="dashboard-card-tools quant-pro-card-tools quant-fit-actions" role="group" aria-label="ŷ_co_tree 操作">
           <details class="quant-help-fold quant-pro-help-fold">
             <summary class="quant-pro-help-summary"><span class="quant-pro-help-icon" aria-hidden="true">?</span> 说明</summary>
             <div class="quant-help-body quant-pro-help-body">
               <p>
                 <strong>ŷ_co_tree</strong> 标签与 ŷ_co 相同：
                 <code>open[T+1]/close[T]−1</code>。默认
-                <strong>观察池 LGB</strong>（深度 5、300 轮、叶子 48、中等正则、百分点标签）。
+                <strong>LightGBM</strong>（深度 6、300 轮、叶子 64、学习率 0.2、λ₁=10、λ₂=20、百分点标签）。
                 勾选 Alpha158 只加特征。
                 特征与 ŷ_oo_tree 对齐：按训练集做 z-score，标签仍是百分点。
-                <strong>Qlib LGB 预设</strong>是对照实验（深度 6、300 轮、叶子 64、λ₁=10、λ₂=20、另对标签做截面 z、无早停）。
                 Ridge 对照仅 CO Z。
               </p>
               <p>
@@ -943,12 +1190,8 @@
             <input type="checkbox" id="quant-co-tree-alpha158" checked />
             <span>Alpha158</span>
           </label>
-          <label class="quant-inline-check" title="缩小后的 Qlib 风格 LGB：深度 6、300 轮、叶子 64、λ₁=10、λ₂=20、标签截面 z、无早停；默认关闭">
-            <input type="checkbox" id="quant-co-tree-qlib-lgb" />
-            <span>Qlib LGB 预设</span>
-          </label>
-          <button type="button" id="quant-co-tree-run" class="dialog-btn secondary" title="观察池拟合 ŷ_co_tree（日 K 窗 600 个交易日；默认观察池 LGB + Alpha158；可选 Qlib 预设）+ 同 Holdout Ridge 对照；写入 co_tree_model.json。">拟合</button>
-          <button type="button" id="quant-co-tree-status" class="dialog-btn secondary" title="读取上次影子对照（不进打分）">上次</button>
+          <button type="button" id="quant-co-tree-run" class="dialog-btn secondary" title="观察池拟合 ŷ_co_tree（日 K 窗 600 个交易日；LightGBM + Alpha158）+ 同 Holdout Ridge 对照；写入 co_tree_model.json。">拟合</button>
+          <button type="button" id="quant-co-tree-status" class="dialog-btn secondary" title="读取上次对照（不进打分）">上次</button>
         </div>
       </div>
       <div class="quant-pro-card-body">
@@ -958,7 +1201,7 @@
     </details>
   </section>
 
-  <!-- ŷ_τ30_tree：独立树头；同标签、不进 live / 回测；次要折叠，默认收起 -->
+  <!-- ŷ_τ30_tree：独立树头；同标签、不进 live；次要折叠，默认收起 -->
   <section class="dashboard-section quant-section quant-section-secondary" id="quant-section-t30-tree" aria-labelledby="quant-section-t30-tree-title">
     <details class="quant-secondary-fold">
       <summary class="quant-secondary-fold-sum">
@@ -966,28 +1209,51 @@
         <p class="dashboard-section-desc quant-section-desc">P(窗收益>0) · LightGBM · 影子对照 · 不进 live</p>
       </summary>
       <div class="dashboard-card quant-pro-card">
-      <div class="dashboard-card-head quant-pro-card-head quant-card-head--tools">
+      <div class="dashboard-card-head quant-pro-card-head quant-card-head--tools quant-card-head--fit">
         <div id="quant-t30-tree-summary" class="quant-rem-status quant-card-head-status" aria-live="polite">
           <span class="quant-pro-status-chip" data-state="idle">待命</span>
-          <span class="quant-rem-status-msg">拟合后看 OOS · 不写盘 · 满池瓶颈在组面板 · 需 5m</span>
+          <span class="quant-rem-status-msg">拟合后看 OOS · 写入树包 · 满池瓶颈在组面板 · 需 5m</span>
         </div>
-        <div class="dashboard-card-tools quant-pro-card-tools" role="group" aria-label="ŷ_τ30_tree 操作">
+        <div class="quant-fit-params" role="group" aria-label="ŷ_τ30_tree 拟合参数">
+          <label
+            class="quant-inline-num"
+            title="近 N 个交易日不进本头训练。默认 20（1～60）。"
+          >
+            <span>Holdout</span>
+            <input id="quant-holdout-days-t30_tree" type="number" min="1" max="60" step="1" value="20" inputmode="numeric" aria-label="ŷ_τ30_tree Holdout 交易日数" />
+            <span aria-hidden="true">日</span>
+          </label>
+          <label
+            class="quant-inline-num"
+            title="ŷ_τ30_tree 拟合日线训练窗（交易日）。默认 120（40～700）。"
+          >
+            <span>训练窗</span>
+            <input id="quant-fit-lookback-t30_tree" type="number" min="40" max="700" step="10" value="120" inputmode="numeric" aria-label="ŷ_τ30_tree 训练样本天数" />
+            <span aria-hidden="true">日</span>
+          </label>
+          <label class="quant-inline-check" title="训练标签全局去均值：拟合用 y−μ，截距加回 μ。收益回归头生效。默认关。">
+            <input id="quant-label-demean-t30_tree" type="checkbox" aria-label="ŷ_τ30_tree 训练标签去均值" />
+            <span>去均值</span>
+          </label>
+        </div>
+
+        <div class="dashboard-card-tools quant-pro-card-tools quant-fit-actions" role="group" aria-label="ŷ_τ30_tree 操作">
           <details class="quant-help-fold quant-pro-help-fold">
             <summary class="quant-pro-help-summary"><span class="quant-pro-help-icon" aria-hidden="true">?</span> 说明</summary>
             <div class="quant-help-body quant-pro-help-body">
               <p>
                 <strong>ŷ_τ30_tree</strong> 是独立估计器，                标签与 ŷ_τ30 相同：
-                <code>I(mean(price[τ+25m],price[τ+30m],price[τ+35m])/price[τ]−1 &gt; 0)</code>。观察池 LGB（深度 5、300 轮）。
+                <code>I(mean(price[τ+25m],price[τ+30m],price[τ+35m])/price[τ]−1 &gt; 0)</code>。LightGBM（深度 6、叶子 64、300 轮、lr 0.2、λ₁=10、λ₂=20）。
                 与 Ridge 同 X（开盘 Z + ≤τ 分钟小包 + 序列特征），同 Holdout，表内对照 AUC / acc@0.5 / Brier。
               </p>
               <p>
-                <strong>不改 ŷ_τ30 Ridge、不进 C_τ / ranking、不写 live、不进回测</strong>。
-                无「启用研究 / 启用执行」。依赖观察池 5m 缓存。Holdout 日与页顶概览共用。
+                <strong>不改 ŷ_τ30 Ridge、不进 C_τ / ranking、不写 live。拟合写入树包后，做 T 回测选 Tree 时可替换</strong>。
+                无「启用研究 / 启用执行」。依赖观察池 5m 缓存。Holdout / 训练窗 / 去均值在本卡。
               </p>
             </div>
           </details>
-          <button type="button" id="quant-t30-tree-run" class="dialog-btn secondary" title="观察池拟合 ŷ_τ30_tree（观察池 LGB，深度 5、300 轮）+ 同 Holdout Ridge 对照；不写盘。需 5m 缓存。满池瓶颈在组分钟面板（约数分钟）；树拟合通常数秒。">拟合</button>
-          <button type="button" id="quant-t30-tree-status" class="dialog-btn secondary" title="读取上次影子对照（不进打分）">上次</button>
+          <button type="button" id="quant-t30-tree-run" class="dialog-btn secondary" title="观察池拟合 ŷ_τ30_tree（LightGBM，深度 6、叶子 64、300 轮）+ 同 Holdout Ridge 对照；写入树包。需 5m 缓存。满池瓶颈在组分钟面板（约数分钟）；树拟合通常数秒。">拟合</button>
+          <button type="button" id="quant-t30-tree-status" class="dialog-btn secondary" title="读取上次对照（不进打分）">上次</button>
         </div>
       </div>
       <div class="quant-pro-card-body">
@@ -997,7 +1263,7 @@
     </details>
   </section>
 
-  <!-- ŷ_τ45_tree：独立树头；同标签、不进 live / 回测；次要折叠，默认收起 -->
+  <!-- ŷ_τ45_tree：独立树头；同标签、不进 live；次要折叠，默认收起 -->
   <section class="dashboard-section quant-section quant-section-secondary" id="quant-section-t45-tree" aria-labelledby="quant-section-t45-tree-title">
     <details class="quant-secondary-fold">
       <summary class="quant-secondary-fold-sum">
@@ -1005,28 +1271,51 @@
         <p class="dashboard-section-desc quant-section-desc">P(窗收益>0) · LightGBM · 影子对照 · 不进 live</p>
       </summary>
       <div class="dashboard-card quant-pro-card">
-      <div class="dashboard-card-head quant-pro-card-head quant-card-head--tools">
+      <div class="dashboard-card-head quant-pro-card-head quant-card-head--tools quant-card-head--fit">
         <div id="quant-t45-tree-summary" class="quant-rem-status quant-card-head-status" aria-live="polite">
           <span class="quant-pro-status-chip" data-state="idle">待命</span>
-          <span class="quant-rem-status-msg">拟合后看 OOS · 不写盘 · 满池瓶颈在组面板 · 需 5m</span>
+          <span class="quant-rem-status-msg">拟合后看 OOS · 写入树包 · 满池瓶颈在组面板 · 需 5m</span>
         </div>
-        <div class="dashboard-card-tools quant-pro-card-tools" role="group" aria-label="ŷ_τ45_tree 操作">
+        <div class="quant-fit-params" role="group" aria-label="ŷ_τ45_tree 拟合参数">
+          <label
+            class="quant-inline-num"
+            title="近 N 个交易日不进本头训练。默认 20（1～60）。"
+          >
+            <span>Holdout</span>
+            <input id="quant-holdout-days-t45_tree" type="number" min="1" max="60" step="1" value="20" inputmode="numeric" aria-label="ŷ_τ45_tree Holdout 交易日数" />
+            <span aria-hidden="true">日</span>
+          </label>
+          <label
+            class="quant-inline-num"
+            title="ŷ_τ45_tree 拟合日线训练窗（交易日）。默认 120（40～700）。"
+          >
+            <span>训练窗</span>
+            <input id="quant-fit-lookback-t45_tree" type="number" min="40" max="700" step="10" value="120" inputmode="numeric" aria-label="ŷ_τ45_tree 训练样本天数" />
+            <span aria-hidden="true">日</span>
+          </label>
+          <label class="quant-inline-check" title="训练标签全局去均值：拟合用 y−μ，截距加回 μ。收益回归头生效。默认关。">
+            <input id="quant-label-demean-t45_tree" type="checkbox" aria-label="ŷ_τ45_tree 训练标签去均值" />
+            <span>去均值</span>
+          </label>
+        </div>
+
+        <div class="dashboard-card-tools quant-pro-card-tools quant-fit-actions" role="group" aria-label="ŷ_τ45_tree 操作">
           <details class="quant-help-fold quant-pro-help-fold">
             <summary class="quant-pro-help-summary"><span class="quant-pro-help-icon" aria-hidden="true">?</span> 说明</summary>
             <div class="quant-help-body quant-pro-help-body">
               <p>
                 <strong>ŷ_τ45_tree</strong> 是独立估计器，标签与 ŷ_τ45 相同：
-                <code>I(mean(price[τ+40m],price[τ+45m],price[τ+50m])/price[τ]−1 &gt; 0)</code>。观察池 LGB（深度 5、300 轮）。
+                <code>I(mean(price[τ+40m],price[τ+45m],price[τ+50m])/price[τ]−1 &gt; 0)</code>。LightGBM（深度 6、叶子 64、300 轮、lr 0.2、λ₁=10、λ₂=20）。
                 与 Ridge 同 X（开盘 Z + ≤τ 分钟小包 + 序列特征），同 Holdout，表内对照 AUC / acc@0.5 / Brier。
               </p>
               <p>
-                <strong>不改 ŷ_τ45 Ridge、不进 C_τ / ranking、不写 live、不进回测</strong>。
-                无「启用研究 / 启用执行」。依赖观察池 5m 缓存。Holdout 日与页顶概览共用。
+                <strong>不改 ŷ_τ45 Ridge、不进 C_τ / ranking、不写 live。拟合写入树包后，做 T 回测选 Tree 时可替换</strong>。
+                无「启用研究 / 启用执行」。依赖观察池 5m 缓存。Holdout / 训练窗 / 去均值在本卡。
               </p>
             </div>
           </details>
-          <button type="button" id="quant-t45-tree-run" class="dialog-btn secondary" title="观察池拟合 ŷ_τ45_tree（观察池 LGB，深度 5、300 轮）+ 同 Holdout Ridge 对照；不写盘。需 5m 缓存。满池瓶颈在组分钟面板（约数分钟）；树拟合通常数秒。">拟合</button>
-          <button type="button" id="quant-t45-tree-status" class="dialog-btn secondary" title="读取上次影子对照（不进打分）">上次</button>
+          <button type="button" id="quant-t45-tree-run" class="dialog-btn secondary" title="观察池拟合 ŷ_τ45_tree（LightGBM，深度 6、叶子 64、300 轮）+ 同 Holdout Ridge 对照；写入树包。需 5m 缓存。满池瓶颈在组分钟面板（约数分钟）；树拟合通常数秒。">拟合</button>
+          <button type="button" id="quant-t45-tree-status" class="dialog-btn secondary" title="读取上次对照（不进打分）">上次</button>
         </div>
       </div>
       <div class="quant-pro-card-body">
@@ -1036,7 +1325,7 @@
     </details>
   </section>
 
-  <!-- ŷ_τ60_tree：独立树头；同标签、不进 live / 回测；次要折叠，默认收起 -->
+  <!-- ŷ_τ60_tree：独立树头；同标签、不进 live；次要折叠，默认收起 -->
   <section class="dashboard-section quant-section quant-section-secondary" id="quant-section-t60-tree" aria-labelledby="quant-section-t60-tree-title">
     <details class="quant-secondary-fold">
       <summary class="quant-secondary-fold-sum">
@@ -1044,28 +1333,51 @@
         <p class="dashboard-section-desc quant-section-desc">P(窗收益>0) · LightGBM · 影子对照 · 不进 live</p>
       </summary>
       <div class="dashboard-card quant-pro-card">
-      <div class="dashboard-card-head quant-pro-card-head quant-card-head--tools">
+      <div class="dashboard-card-head quant-pro-card-head quant-card-head--tools quant-card-head--fit">
         <div id="quant-t60-tree-summary" class="quant-rem-status quant-card-head-status" aria-live="polite">
           <span class="quant-pro-status-chip" data-state="idle">待命</span>
-          <span class="quant-rem-status-msg">拟合后看 OOS · 不写盘 · 满池瓶颈在组面板 · 需 5m</span>
+          <span class="quant-rem-status-msg">拟合后看 OOS · 写入树包 · 满池瓶颈在组面板 · 需 5m</span>
         </div>
-        <div class="dashboard-card-tools quant-pro-card-tools" role="group" aria-label="ŷ_τ60_tree 操作">
+        <div class="quant-fit-params" role="group" aria-label="ŷ_τ60_tree 拟合参数">
+          <label
+            class="quant-inline-num"
+            title="近 N 个交易日不进本头训练。默认 20（1～60）。"
+          >
+            <span>Holdout</span>
+            <input id="quant-holdout-days-t60_tree" type="number" min="1" max="60" step="1" value="20" inputmode="numeric" aria-label="ŷ_τ60_tree Holdout 交易日数" />
+            <span aria-hidden="true">日</span>
+          </label>
+          <label
+            class="quant-inline-num"
+            title="ŷ_τ60_tree 拟合日线训练窗（交易日）。默认 120（40～700）。"
+          >
+            <span>训练窗</span>
+            <input id="quant-fit-lookback-t60_tree" type="number" min="40" max="700" step="10" value="120" inputmode="numeric" aria-label="ŷ_τ60_tree 训练样本天数" />
+            <span aria-hidden="true">日</span>
+          </label>
+          <label class="quant-inline-check" title="训练标签全局去均值：拟合用 y−μ，截距加回 μ。收益回归头生效。默认关。">
+            <input id="quant-label-demean-t60_tree" type="checkbox" aria-label="ŷ_τ60_tree 训练标签去均值" />
+            <span>去均值</span>
+          </label>
+        </div>
+
+        <div class="dashboard-card-tools quant-pro-card-tools quant-fit-actions" role="group" aria-label="ŷ_τ60_tree 操作">
           <details class="quant-help-fold quant-pro-help-fold">
             <summary class="quant-pro-help-summary"><span class="quant-pro-help-icon" aria-hidden="true">?</span> 说明</summary>
             <div class="quant-help-body quant-pro-help-body">
               <p>
                 <strong>ŷ_τ60_tree</strong> 是独立估计器，标签与 ŷ_τ60 相同：
-                <code>I(mean(price[τ+55m],price[τ+60m],price[τ+65m])/price[τ]−1 &gt; 0)</code>。观察池 LGB（深度 5、300 轮）。
+                <code>I(mean(price[τ+55m],price[τ+60m],price[τ+65m])/price[τ]−1 &gt; 0)</code>。LightGBM（深度 6、叶子 64、300 轮、lr 0.2、λ₁=10、λ₂=20）。
                 与 Ridge 同 X（开盘 Z + ≤τ 分钟小包 + 序列特征），同 Holdout，表内对照 AUC / acc@0.5 / Brier。
               </p>
               <p>
-                <strong>不改 ŷ_τ60 Ridge、不进 C_τ / ranking、不写 live、不进回测</strong>。
-                无「启用研究 / 启用执行」。依赖观察池 5m 缓存。Holdout 日与页顶概览共用。
+                <strong>不改 ŷ_τ60 Ridge、不进 C_τ / ranking、不写 live。拟合写入树包后，做 T 回测选 Tree 时可替换</strong>。
+                无「启用研究 / 启用执行」。依赖观察池 5m 缓存。Holdout / 训练窗 / 去均值在本卡。
               </p>
             </div>
           </details>
-          <button type="button" id="quant-t60-tree-run" class="dialog-btn secondary" title="观察池拟合 ŷ_τ60_tree（观察池 LGB，深度 5、300 轮）+ 同 Holdout Ridge 对照；不写盘。需 5m 缓存。满池瓶颈在组分钟面板（约数分钟）；树拟合通常数秒。">拟合</button>
-          <button type="button" id="quant-t60-tree-status" class="dialog-btn secondary" title="读取上次影子对照（不进打分）">上次</button>
+          <button type="button" id="quant-t60-tree-run" class="dialog-btn secondary" title="观察池拟合 ŷ_τ60_tree（LightGBM，深度 6、叶子 64、300 轮）+ 同 Holdout Ridge 对照；写入树包。需 5m 缓存。满池瓶颈在组分钟面板（约数分钟）；树拟合通常数秒。">拟合</button>
+          <button type="button" id="quant-t60-tree-status" class="dialog-btn secondary" title="读取上次对照（不进打分）">上次</button>
         </div>
       </div>
       <div class="quant-pro-card-body">
@@ -1075,7 +1387,7 @@
     </details>
   </section>
 
-  <!-- ŷ_τ75_tree：独立树头；同标签、不进 live / 回测；次要折叠，默认收起 -->
+  <!-- ŷ_τ75_tree：独立树头；同标签、不进 live；次要折叠，默认收起 -->
   <section class="dashboard-section quant-section quant-section-secondary" id="quant-section-t75-tree" aria-labelledby="quant-section-t75-tree-title">
     <details class="quant-secondary-fold">
       <summary class="quant-secondary-fold-sum">
@@ -1083,28 +1395,51 @@
         <p class="dashboard-section-desc quant-section-desc">P(窗收益>0) · LightGBM · 影子对照 · 不进 live</p>
       </summary>
       <div class="dashboard-card quant-pro-card">
-      <div class="dashboard-card-head quant-pro-card-head quant-card-head--tools">
+      <div class="dashboard-card-head quant-pro-card-head quant-card-head--tools quant-card-head--fit">
         <div id="quant-t75-tree-summary" class="quant-rem-status quant-card-head-status" aria-live="polite">
           <span class="quant-pro-status-chip" data-state="idle">待命</span>
-          <span class="quant-rem-status-msg">拟合后看 OOS · 不写盘 · 满池瓶颈在组面板 · 需 5m</span>
+          <span class="quant-rem-status-msg">拟合后看 OOS · 写入树包 · 满池瓶颈在组面板 · 需 5m</span>
         </div>
-        <div class="dashboard-card-tools quant-pro-card-tools" role="group" aria-label="ŷ_τ75_tree 操作">
+        <div class="quant-fit-params" role="group" aria-label="ŷ_τ75_tree 拟合参数">
+          <label
+            class="quant-inline-num"
+            title="近 N 个交易日不进本头训练。默认 20（1～60）。"
+          >
+            <span>Holdout</span>
+            <input id="quant-holdout-days-t75_tree" type="number" min="1" max="60" step="1" value="20" inputmode="numeric" aria-label="ŷ_τ75_tree Holdout 交易日数" />
+            <span aria-hidden="true">日</span>
+          </label>
+          <label
+            class="quant-inline-num"
+            title="ŷ_τ75_tree 拟合日线训练窗（交易日）。默认 120（40～700）。"
+          >
+            <span>训练窗</span>
+            <input id="quant-fit-lookback-t75_tree" type="number" min="40" max="700" step="10" value="120" inputmode="numeric" aria-label="ŷ_τ75_tree 训练样本天数" />
+            <span aria-hidden="true">日</span>
+          </label>
+          <label class="quant-inline-check" title="训练标签全局去均值：拟合用 y−μ，截距加回 μ。收益回归头生效。默认关。">
+            <input id="quant-label-demean-t75_tree" type="checkbox" aria-label="ŷ_τ75_tree 训练标签去均值" />
+            <span>去均值</span>
+          </label>
+        </div>
+
+        <div class="dashboard-card-tools quant-pro-card-tools quant-fit-actions" role="group" aria-label="ŷ_τ75_tree 操作">
           <details class="quant-help-fold quant-pro-help-fold">
             <summary class="quant-pro-help-summary"><span class="quant-pro-help-icon" aria-hidden="true">?</span> 说明</summary>
             <div class="quant-help-body quant-pro-help-body">
               <p>
                 <strong>ŷ_τ75_tree</strong> 是独立估计器，标签与 ŷ_τ75 相同：
-                <code>I(mean(price[τ+70m],price[τ+75m],price[τ+80m])/price[τ]−1 &gt; 0)</code>。观察池 LGB（深度 5、300 轮）。
+                <code>I(mean(price[τ+70m],price[τ+75m],price[τ+80m])/price[τ]−1 &gt; 0)</code>。LightGBM（深度 6、叶子 64、300 轮、lr 0.2、λ₁=10、λ₂=20）。
                 与 Ridge 同 X（开盘 Z + ≤τ 分钟小包 + 序列特征），同 Holdout，表内对照 AUC / acc@0.5 / Brier。
               </p>
               <p>
-                <strong>不改 ŷ_τ75 Ridge、不进 C_τ / ranking、不写 live、不进回测</strong>。
-                无「启用研究 / 启用执行」。依赖观察池 5m 缓存。Holdout 日与页顶概览共用。
+                <strong>不改 ŷ_τ75 Ridge、不进 C_τ / ranking、不写 live。拟合写入树包后，做 T 回测选 Tree 时可替换</strong>。
+                无「启用研究 / 启用执行」。依赖观察池 5m 缓存。Holdout / 训练窗 / 去均值在本卡。
               </p>
             </div>
           </details>
-          <button type="button" id="quant-t75-tree-run" class="dialog-btn secondary" title="观察池拟合 ŷ_τ75_tree（观察池 LGB，深度 5、300 轮）+ 同 Holdout Ridge 对照；不写盘。需 5m 缓存。满池瓶颈在组分钟面板（约数分钟）；树拟合通常数秒。">拟合</button>
-          <button type="button" id="quant-t75-tree-status" class="dialog-btn secondary" title="读取上次影子对照（不进打分）">上次</button>
+          <button type="button" id="quant-t75-tree-run" class="dialog-btn secondary" title="观察池拟合 ŷ_τ75_tree（LightGBM，深度 6、叶子 64、300 轮）+ 同 Holdout Ridge 对照；写入树包。需 5m 缓存。满池瓶颈在组分钟面板（约数分钟）；树拟合通常数秒。">拟合</button>
+          <button type="button" id="quant-t75-tree-status" class="dialog-btn secondary" title="读取上次对照（不进打分）">上次</button>
         </div>
       </div>
       <div class="quant-pro-card-body">
@@ -1114,7 +1449,7 @@
     </details>
   </section>
 
-  <!-- ŷ_τ90_tree：独立树头；同标签、不进 live / 回测；次要折叠，默认收起 -->
+  <!-- ŷ_τ90_tree：独立树头；同标签、不进 live；次要折叠，默认收起 -->
   <section class="dashboard-section quant-section quant-section-secondary" id="quant-section-t90-tree" aria-labelledby="quant-section-t90-tree-title">
     <details class="quant-secondary-fold">
       <summary class="quant-secondary-fold-sum">
@@ -1122,28 +1457,51 @@
         <p class="dashboard-section-desc quant-section-desc">P(窗收益>0) · LightGBM · 影子对照 · 不进 live</p>
       </summary>
       <div class="dashboard-card quant-pro-card">
-      <div class="dashboard-card-head quant-pro-card-head quant-card-head--tools">
+      <div class="dashboard-card-head quant-pro-card-head quant-card-head--tools quant-card-head--fit">
         <div id="quant-t90-tree-summary" class="quant-rem-status quant-card-head-status" aria-live="polite">
           <span class="quant-pro-status-chip" data-state="idle">待命</span>
-          <span class="quant-rem-status-msg">拟合后看 OOS · 不写盘 · 满池瓶颈在组面板 · 需 5m</span>
+          <span class="quant-rem-status-msg">拟合后看 OOS · 写入树包 · 满池瓶颈在组面板 · 需 5m</span>
         </div>
-        <div class="dashboard-card-tools quant-pro-card-tools" role="group" aria-label="ŷ_τ90_tree 操作">
+        <div class="quant-fit-params" role="group" aria-label="ŷ_τ90_tree 拟合参数">
+          <label
+            class="quant-inline-num"
+            title="近 N 个交易日不进本头训练。默认 20（1～60）。"
+          >
+            <span>Holdout</span>
+            <input id="quant-holdout-days-t90_tree" type="number" min="1" max="60" step="1" value="20" inputmode="numeric" aria-label="ŷ_τ90_tree Holdout 交易日数" />
+            <span aria-hidden="true">日</span>
+          </label>
+          <label
+            class="quant-inline-num"
+            title="ŷ_τ90_tree 拟合日线训练窗（交易日）。默认 120（40～700）。"
+          >
+            <span>训练窗</span>
+            <input id="quant-fit-lookback-t90_tree" type="number" min="40" max="700" step="10" value="120" inputmode="numeric" aria-label="ŷ_τ90_tree 训练样本天数" />
+            <span aria-hidden="true">日</span>
+          </label>
+          <label class="quant-inline-check" title="训练标签全局去均值：拟合用 y−μ，截距加回 μ。收益回归头生效。默认关。">
+            <input id="quant-label-demean-t90_tree" type="checkbox" aria-label="ŷ_τ90_tree 训练标签去均值" />
+            <span>去均值</span>
+          </label>
+        </div>
+
+        <div class="dashboard-card-tools quant-pro-card-tools quant-fit-actions" role="group" aria-label="ŷ_τ90_tree 操作">
           <details class="quant-help-fold quant-pro-help-fold">
             <summary class="quant-pro-help-summary"><span class="quant-pro-help-icon" aria-hidden="true">?</span> 说明</summary>
             <div class="quant-help-body quant-pro-help-body">
               <p>
                 <strong>ŷ_τ90_tree</strong> 是独立估计器，标签与 ŷ_τ90 相同：
-                <code>I(mean(price[τ+85m],price[τ+90m],price[τ+95m])/price[τ]−1 &gt; 0)</code>。观察池 LGB（深度 5、300 轮）。
+                <code>I(mean(price[τ+85m],price[τ+90m],price[τ+95m])/price[τ]−1 &gt; 0)</code>。LightGBM（深度 6、叶子 64、300 轮、lr 0.2、λ₁=10、λ₂=20）。
                 与 Ridge 同 X（开盘 Z + ≤τ 分钟小包 + 序列特征），同 Holdout，表内对照 AUC / acc@0.5 / Brier。
               </p>
               <p>
-                <strong>不改 ŷ_τ90 Ridge、不进 C_τ / ranking、不写 live、不进回测</strong>。
-                无「启用研究 / 启用执行」。依赖观察池 5m 缓存。Holdout 日与页顶概览共用。
+                <strong>不改 ŷ_τ90 Ridge、不进 C_τ / ranking、不写 live。拟合写入树包后，做 T 回测选 Tree 时可替换</strong>。
+                无「启用研究 / 启用执行」。依赖观察池 5m 缓存。Holdout / 训练窗 / 去均值在本卡。
               </p>
             </div>
           </details>
-          <button type="button" id="quant-t90-tree-run" class="dialog-btn secondary" title="观察池拟合 ŷ_τ90_tree（观察池 LGB，深度 5、300 轮）+ 同 Holdout Ridge 对照；不写盘。需 5m 缓存。满池瓶颈在组分钟面板（约数分钟）；树拟合通常数秒。">拟合</button>
-          <button type="button" id="quant-t90-tree-status" class="dialog-btn secondary" title="读取上次影子对照（不进打分）">上次</button>
+          <button type="button" id="quant-t90-tree-run" class="dialog-btn secondary" title="观察池拟合 ŷ_τ90_tree（LightGBM，深度 6、叶子 64、300 轮）+ 同 Holdout Ridge 对照；写入树包。需 5m 缓存。满池瓶颈在组分钟面板（约数分钟）；树拟合通常数秒。">拟合</button>
+          <button type="button" id="quant-t90-tree-status" class="dialog-btn secondary" title="读取上次对照（不进打分）">上次</button>
         </div>
       </div>
       <div class="quant-pro-card-body">

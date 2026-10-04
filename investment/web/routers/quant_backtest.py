@@ -232,6 +232,7 @@ def quant_return_model_fit(body: ReturnModelFitRequest) -> Dict[str, Any]:
             min_samples=body.min_samples,
             save_draft=body.save_draft,
             holdout_trading_days=body.holdout_trading_days,
+            label_demean=bool(body.label_demean),
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e

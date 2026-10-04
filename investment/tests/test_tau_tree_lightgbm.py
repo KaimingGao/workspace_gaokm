@@ -167,7 +167,6 @@ class TestTauTreeLightgbm(unittest.TestCase):
         on = fit_tau_tree_report(
             stock_bars,
             include_alpha158=True,
-            qlib_lgb=False,
             holdout_trading_days=5,
             n_estimators=20,
             max_depth=2,
@@ -175,7 +174,6 @@ class TestTauTreeLightgbm(unittest.TestCase):
         self.assertTrue(on.get("success"), on.get("error"))
         self.assertTrue(on.get("include_alpha158"))
         self.assertGreater(int(on.get("n_alpha158_features") or 0), 0)
-        self.assertFalse(on.get("qlib_lgb"))
         self.assertTrue(
             any(str(k).startswith("raw_alpha158_") for k in (on.get("feature_names") or []))
         )

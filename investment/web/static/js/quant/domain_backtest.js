@@ -70,7 +70,7 @@ export function sliceCurveToDateWindow(series, days = TOPK_NAV_CHART_WINDOW_DAYS
 
 /** Quant domain: backtest */
 export function installBacktest(q) {
-  const { on, els, state, ctx, escapeHtml, apiFetch, setQuantMeta, setBusyText, btSimScoreTips, watchingNameFromEl, readHoldoutTradingDays } = q;
+  const { on, els, state, ctx, escapeHtml, apiFetch, setQuantMeta, setBusyText, btSimScoreTips, watchingNameFromEl, readHoldoutTradingDays, readLabelDemean } = q;
   const { fmtPct, metricClass, renderMetricCards, renderBtScopeNote, renderRobustnessPanel, buildPortfolioBacktestCards, BT_SCOPE_LIVE, BT_SCOPE_FROZEN, readHorizonDays, quantBtBusyIds } = q;
   const { renderAttributionTablesHtml, renderScoreIcHtml, renderReplayStockContribHtml } = q;
   const { researchGridHtml, metricCell } = q;
@@ -338,6 +338,8 @@ export function installBacktest(q) {
           horizon_days,
           watching_limit: 12,
           save_draft: true,
+          label_demean:
+            typeof readLabelDemean === "function" ? readLabelDemean("oo") : false,
         }),
       });
       if (!ok || !data || !data.success) {
@@ -1037,7 +1039,7 @@ export function installBacktest(q) {
       fill_clock: readFillClock(),
       use_predictability_tiers: usePred,
       predictability_tiers: usePred ? predTiers : null,
-      // 分档过滤时把页顶 Holdout 传给后端做一致性校验；回测天数仍用 lookback
+      // 分档过滤时把 ŷ_oo 卡片 Holdout 传给后端做一致性校验；回测天数仍用 lookback
       holdout_trading_days: usePred ? holdoutDays : null,
       predictability_head: "oo",
       price_space_gate: readPriceSpaceGate(),

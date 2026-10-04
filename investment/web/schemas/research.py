@@ -50,7 +50,7 @@ class FactorOlsPoolRequest(BaseModel):
 class TauRidgeRequest(BaseModel):
     """open→close / τ→close ŷ_τ 头研究拟合（不写 ŷ_oo）。"""
 
-    lookback: int = Field(default=120, ge=40, le=500)
+    lookback: int = Field(default=120, ge=40, le=700)
     watching_limit: int = Field(
         default=WATCHING_MAX_SIZE,
         ge=2,
@@ -88,11 +88,14 @@ class TauRidgeRequest(BaseModel):
         default=True,
         description="Ridge 吃 raw_alpha158_*（≤T−1）；与 ŷ_oo 日线 X 可能重叠",
     )
-
+    label_demean: bool = Field(
+        default=True,
+        description="训练标签全局去均值，截距加回；默认 True（历史 ŷ_τc 口径）",
+    )
 
 
 class OoTreeRequest(BaseModel):
-    """ŷ_oo_tree 影子头：日线面板 Holdout vs Ridge。无 persist，不进 live / 回测。"""
+    """ŷ_oo_tree：日线面板 Holdout vs Ridge。写入 oo_tree_model.json，调仓回测选 Tree。不进 live。"""
 
     lookback: int = Field(default=600, ge=40, le=700)
     watching_limit: int = Field(
@@ -118,14 +121,10 @@ class OoTreeRequest(BaseModel):
         default=True,
         description="树侧吃 raw_alpha158_*（≤T−1）；Ridge 对照不含",
     )
-    qlib_lgb: bool = Field(
-        default=False,
-        description="True=缩小后的 Qlib 风格 LGB（深6/300轮/叶64/λ10·20+截面 z）；默认 False=观察池口径 LGB（百分点）",
-    )
 
 
 class CoTreeRequest(BaseModel):
-    """ŷ_co_tree 影子头：隔夜缺口面板 Holdout vs Ridge。无 persist，不进 live / 回测。"""
+    """ŷ_co_tree：隔夜缺口面板 Holdout vs Ridge。写入 co_tree_model.json，调仓回测选 Tree。不进 live。"""
 
     lookback: int = Field(default=600, ge=40, le=700)
     watching_limit: int = Field(
@@ -152,16 +151,12 @@ class CoTreeRequest(BaseModel):
         default=True,
         description="树侧吃 raw_alpha158_*（≤T−1）；Ridge 对照仅 CO Z",
     )
-    qlib_lgb: bool = Field(
-        default=False,
-        description="True=缩小后的 Qlib 风格 LGB（深6/300轮/叶64/λ10·20+截面 z）；默认 False=观察池口径 LGB（百分点）",
-    )
 
 
 class TauTreeRequest(BaseModel):
-    """ŷ_τ_tree 影子头：同面板 Holdout vs Ridge。无 persist，不进 live / 回测。"""
+    """ŷ_τc_tree：同面板 Holdout vs Ridge。写入 tc_tree_model.json，调仓回测选 Tree。不进 live。"""
 
-    lookback: int = Field(default=120, ge=40, le=500)
+    lookback: int = Field(default=120, ge=40, le=700)
     watching_limit: int = Field(
         default=WATCHING_MAX_SIZE,
         ge=2,
@@ -191,16 +186,12 @@ class TauTreeRequest(BaseModel):
         default=True,
         description="树侧吃 raw_alpha158_*（≤T−1）；Ridge 对照不含，防与 ŷ_oo 双重计权",
     )
-    qlib_lgb: bool = Field(
-        default=False,
-        description="True=缩小后的 Qlib 风格 LGB（深6/300轮/叶64/λ10·20+截面 z）；默认 False=观察池口径 LGB（百分点）",
-    )
 
 
 class T30TreeRequest(BaseModel):
-    """ŷ_τ30_tree 影子头：同面板 Holdout vs Ridge。无 persist，不进 live / 回测。"""
+    """ŷ_τ30_tree：同面板 Holdout vs Ridge。写入 t30_tree_model.json，做 T 回测选 Tree。不进 live。"""
 
-    lookback: int = Field(default=120, ge=40, le=500)
+    lookback: int = Field(default=120, ge=40, le=700)
     watching_limit: int = Field(
         default=WATCHING_MAX_SIZE,
         ge=2,
@@ -229,9 +220,9 @@ class T30TreeRequest(BaseModel):
 
 
 class T45TreeRequest(BaseModel):
-    """ŷ_τ45_tree 影子头：同面板 Holdout vs Ridge。无 persist，不进 live / 回测。"""
+    """ŷ_τ45_tree：同面板 Holdout vs Ridge。写入 t45_tree_model.json，做 T 回测选 Tree。不进 live。"""
 
-    lookback: int = Field(default=120, ge=40, le=500)
+    lookback: int = Field(default=120, ge=40, le=700)
     watching_limit: int = Field(
         default=WATCHING_MAX_SIZE,
         ge=2,
@@ -260,9 +251,9 @@ class T45TreeRequest(BaseModel):
 
 
 class T60TreeRequest(BaseModel):
-    """ŷ_τ60_tree 影子头：同面板 Holdout vs Ridge。无 persist，不进 live / 回测。"""
+    """ŷ_τ60_tree：同面板 Holdout vs Ridge。写入 t60_tree_model.json，做 T 回测选 Tree。不进 live。"""
 
-    lookback: int = Field(default=120, ge=40, le=500)
+    lookback: int = Field(default=120, ge=40, le=700)
     watching_limit: int = Field(
         default=WATCHING_MAX_SIZE,
         ge=2,
@@ -291,9 +282,9 @@ class T60TreeRequest(BaseModel):
 
 
 class T75TreeRequest(BaseModel):
-    """ŷ_τ75_tree 影子头：同面板 Holdout vs Ridge。无 persist，不进 live / 回测。"""
+    """ŷ_τ75_tree：同面板 Holdout vs Ridge。写入 t75_tree_model.json，做 T 回测选 Tree。不进 live。"""
 
-    lookback: int = Field(default=120, ge=40, le=500)
+    lookback: int = Field(default=120, ge=40, le=700)
     watching_limit: int = Field(
         default=WATCHING_MAX_SIZE,
         ge=2,
@@ -322,9 +313,9 @@ class T75TreeRequest(BaseModel):
 
 
 class T90TreeRequest(BaseModel):
-    """ŷ_τ90_tree 影子头：同面板 Holdout vs Ridge。无 persist，不进 live / 回测。"""
+    """ŷ_τ90_tree：同面板 Holdout vs Ridge。写入 t90_tree_model.json，做 T 回测选 Tree。不进 live。"""
 
-    lookback: int = Field(default=120, ge=40, le=500)
+    lookback: int = Field(default=120, ge=40, le=700)
     watching_limit: int = Field(
         default=WATCHING_MAX_SIZE,
         ge=2,
@@ -379,13 +370,17 @@ class CoRidgeRequest(BaseModel):
         le=60,
         description="近 N 个交易日不进研究套训练，专供历史回测",
     )
+    label_demean: bool = Field(
+        default=False,
+        description="训练标签全局去均值，截距加回；供拟合/回测对照",
+    )
     note: str = Field(default="", max_length=200)
 
 
 class OoRankRequest(BaseModel):
     """ŷ_oo_rank LambdaRank（影子头；不进 live ranking）。"""
 
-    lookback: int = Field(default=120, ge=40, le=500)
+    lookback: int = Field(default=120, ge=40, le=700)
     watching_limit: int = Field(
         default=200,
         ge=8,
@@ -440,7 +435,7 @@ class OoRankRequest(BaseModel):
 class T30RidgeRequest(BaseModel):
     """ŷ_τ30 Ridge：与 ŷ_τc 同 X → mean(price(τ⊕25/30/35))/price(τ)−1。进 ŷ_τw 投票；个股旁路闸已下线。"""
 
-    lookback: int = Field(default=120, ge=40, le=500)
+    lookback: int = Field(default=120, ge=40, le=700)
     watching_limit: int = Field(
         default=WATCHING_MAX_SIZE,
         ge=2,
@@ -488,7 +483,7 @@ class T30RidgeRequest(BaseModel):
 class T45RidgeRequest(BaseModel):
     """ŷ_τ45 Ridge：与 ŷ_τc 同 X → mean(price(τ⊕40/45/50))/price(τ)−1。进 ŷ_τw 投票；个股旁路闸已下线。"""
 
-    lookback: int = Field(default=120, ge=40, le=500)
+    lookback: int = Field(default=120, ge=40, le=700)
     watching_limit: int = Field(
         default=WATCHING_MAX_SIZE,
         ge=2,
@@ -536,7 +531,7 @@ class T45RidgeRequest(BaseModel):
 class T60RidgeRequest(BaseModel):
     """ŷ_τ60 Ridge：与 ŷ_τc 同 X → mean(price(τ⊕55/60/65))/price(τ)−1。进 ŷ_τw 投票；个股旁路闸已下线。"""
 
-    lookback: int = Field(default=120, ge=40, le=500)
+    lookback: int = Field(default=120, ge=40, le=700)
     watching_limit: int = Field(
         default=WATCHING_MAX_SIZE,
         ge=2,
@@ -584,7 +579,7 @@ class T60RidgeRequest(BaseModel):
 class T75RidgeRequest(BaseModel):
     """ŷ_τ75 Ridge：与 ŷ_τc 同 X → mean(price(τ⊕70/75/80))/price(τ)−1。进 ŷ_τw 投票；个股旁路闸已下线。"""
 
-    lookback: int = Field(default=120, ge=40, le=500)
+    lookback: int = Field(default=120, ge=40, le=700)
     watching_limit: int = Field(
         default=WATCHING_MAX_SIZE,
         ge=2,
@@ -698,7 +693,7 @@ class ClusterMinuteRefreshRequest(BaseModel):
 class T90RidgeRequest(BaseModel):
     """ŷ_τ90 Ridge：与 ŷ_τc 同 X → mean(price(τ⊕85/90/95))/price(τ)−1。进 ŷ_τw 投票；个股旁路闸已下线。"""
 
-    lookback: int = Field(default=120, ge=40, le=500)
+    lookback: int = Field(default=120, ge=40, le=700)
     watching_limit: int = Field(
         default=WATCHING_MAX_SIZE,
         ge=2,
@@ -779,7 +774,11 @@ class ReturnModelFitRequest(BaseModel):
         default=20,
         ge=3,
         le=60,
-        description="近 N 个交易日 Holdout，只测不训（与 ŷ_τc 页顶 Holdout 共用）",
+        description="近 N 个交易日 Holdout，只测不训（与 ŷ_oo 卡片 Holdout 共用）",
+    )
+    label_demean: bool = Field(
+        default=False,
+        description="训练标签全局去均值，截距加回；供拟合/回测对照",
     )
 
 

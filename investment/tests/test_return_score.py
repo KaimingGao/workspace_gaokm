@@ -26,7 +26,7 @@ class TestReturnScoreModel(unittest.TestCase):
             coefficients={"momentum": 2.0, "value": -1.0},
             z_means={"momentum": 50.0, "value": 50.0},
             z_stds={"momentum": 10.0, "value": 10.0},
-            standardized=True,
+            feature_zscore=True,
         )
         # z_mom=1, z_val=0 → 1 + 2*1 = 3
         y = model.predict({"momentum": 60.0, "value": 50.0})
@@ -54,7 +54,7 @@ class TestReturnScoreModel(unittest.TestCase):
         model = ReturnScoreModel(
             intercept=0.0,
             coefficients={"momentum": 1.0},
-            standardized=False,
+            feature_zscore=False,
         )
         entries = [
             {
@@ -87,7 +87,7 @@ class TestReturnScoreModel(unittest.TestCase):
         model = ReturnScoreModel(
             intercept=0.0,
             coefficients={"momentum": 1.0},
-            standardized=False,
+            feature_zscore=False,
         )
         entries = [
             {"stock_code": "low_eod", "sub_scores": {"momentum": 10.0}},
@@ -156,7 +156,7 @@ class TestReturnScoreModel(unittest.TestCase):
                 "coefficients": {"momentum": 0.2, "value": None, "quality": 0.1},
                 "z_means": {"momentum": None, "quality": 50.0},
                 "z_stds": {"quality": 10.0},
-                "standardized": True,
+                "feature_zscore": True,
                 "horizon_days": 3,
                 "sample_count": 30,
             }
@@ -170,7 +170,7 @@ class TestReturnScoreModel(unittest.TestCase):
         self.assertEqual(clamp_rank_mode("yhat"), "predicted_score")
         self.assertEqual(clamp_rank_mode(None), "predicted_score")
         self.assertEqual(clamp_rank_mode("heuristic"), "predicted_score")
-        model = ReturnScoreModel(intercept=0.0, coefficients={"momentum": 1.0}, standardized=False)
+        model = ReturnScoreModel(intercept=0.0, coefficients={"momentum": 1.0}, feature_zscore=False)
         out = apply_predicted_scores(
             [{"stock_code": "x", "score": 55, "sub_scores": {"momentum": 2.0}}],
             model,

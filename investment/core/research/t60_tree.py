@@ -50,12 +50,14 @@ from core.research.tc_tree import (
     DEFAULT_N_ESTIMATORS,
     DEFAULT_SUBSAMPLE,
     _delta_oos,
-    _design_matrix,
     _fit_lightgbm,
     _fit_ridge_oos,
     _importance_rows,
+    _lgb_train_kwargs,
     _oos_pack,
+    _panel_lgb_hyper,
     _predict_lightgbm,
+    prepare_lgb_features,
     resolve_tree_backend,
 )
 from core.signal.minute_tau_grid import DEFAULT_T60_TRAIN_TAU_GRID
@@ -176,8 +178,9 @@ def fit_t60_tree_report(
             "backtest_hook": False,
         }
 
-    x_tr, means = _design_matrix(xs_tr, feat_names)
-    x_te, _ = _design_matrix(xs_te, feat_names, means=means)
+    x_tr, x_te, means, z_hyper = prepare_lgb_features(
+        xs_tr, xs_te, feat_names, feature_zscore=True
+    )
     y_tr = np.asarray(binary_labels(ys_tr), dtype=np.float64)
     w_tr = np.asarray(
         theme_sample_weights(metas_tr, theme_boost=theme_boost)
@@ -190,17 +193,29 @@ def fit_t60_tree_report(
 
     engine = resolve_tree_backend(backend)
     hyper = {
+        **_panel_lgb_hyper(),
         "n_estimators": int(n_estimators),
         "max_depth": int(max_depth),
         "learning_rate": float(learning_rate),
         "subsample": float(subsample),
         "objective": "binary",
+        **z_hyper,
     }
     gain = np.zeros(len(feat_names), dtype=np.float64)
     boost_preds: List[Optional[float]]
     tree_obj: Any = None
     t_tree0 = time.perf_counter()
-    model, gain = _fit_lightgbm(x_tr, y_tr, w_tr, **hyper)
+    model, gain = _fit_lightgbm(
+        x_tr,
+        y_tr,
+        w_tr,
+        n_estimators=int(n_estimators),
+        max_depth=int(max_depth),
+        learning_rate=float(learning_rate),
+        subsample=float(subsample),
+        objective="binary",
+        **_lgb_train_kwargs(hyper),
+    )
     tree_obj = model
     raw_pred = np.clip(_predict_lightgbm(model, x_te), 1e-6, 1.0 - 1e-6)
     boost_preds = [float(v) if math.isfinite(float(v)) else None for v in raw_pred]

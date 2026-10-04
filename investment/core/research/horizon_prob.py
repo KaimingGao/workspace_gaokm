@@ -514,7 +514,7 @@ def fit_logistic_ridge_from_panel(
         ys,
         feature_names=feature_names,
         ridge_lambda=ridge_lambda,
-        standardize=True,
+        feature_zscore=True,
         sample_weights=sample_weights,
         min_std_exempt=list(min_std_exempt or []),
         collinearity_policy=collinearity_policy,

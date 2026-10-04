@@ -1,4 +1,4 @@
-"""ŷ_τ30 树对照：同 Holdout vs Ridge；不进 live / 回测。"""
+"""ŷ_τ30 树对照：同 Holdout vs Ridge；不进 live。"""
 
 from __future__ import annotations
 
@@ -163,6 +163,9 @@ class TestT30Tree(unittest.TestCase):
         self.assertIn("ridge_s", timing)
         self.assertIn("fit_s", timing)
         self.assertEqual((report.get("hyperparams") or {}).get("n_estimators"), 20)
+        self.assertTrue((report.get("hyperparams") or {}).get("feature_zscore"))
+        rm = report.get("tree_return_model") or {}
+        self.assertTrue((rm.get("hyperparams") or {}).get("feature_zscore"))
 
         blocked = persist_t30_model(report, note="should fail", force=True)
         self.assertFalse(blocked.get("success"))

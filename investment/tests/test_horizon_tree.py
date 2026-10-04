@@ -153,19 +153,6 @@ class TestHorizonTree(unittest.TestCase):
         self.assertIn("raw_alpha158_KMID", keys)
         self.assertNotIn("ridge_gap", keys)
 
-    def test_predict_return_restores_cs_z_std(self):
-        from core.research.horizon_tree import predict_tree_return
-
-        rm = {
-            "feature_names": ["a"],
-            "hyperparams": {"label_cs_zscore": True, "label_cs_std": 2.0},
-        }
-        with patch(
-            "core.research.horizon_tree.predict_tree_raw", return_value=-0.05
-        ):
-            y = predict_tree_return({"a": 1.0}, rm)
-        self.assertAlmostEqual(float(y), -0.10)
-
     def test_collapsed_stump_is_not_a_return_forecast(self):
         from core.research.horizon_tree import (
             horizon_prob_backend_context,
@@ -180,7 +167,7 @@ class TestHorizonTree(unittest.TestCase):
         rm = {
             "feature_names": ["a"],
             "backend": "lightgbm",
-            "hyperparams": {"best_iteration": 1, "label_cs_zscore": True},
+            "hyperparams": {"best_iteration": 1},
         }
         self.assertTrue(tree_return_model_collapsed({"return_model": rm}))
         self.assertIsNone(predict_tree_return({"a": 1.0}, rm))

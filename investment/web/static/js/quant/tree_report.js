@@ -413,7 +413,7 @@ export function treeReportHtml(data, opts = {}) {
     const n = Number((pack && pack.buckets && pack.buckets[key] && pack.buckets[key].n) || 0);
     return Number.isFinite(n) ? n : 0;
   };
-  // |ŷ|≥0.6 适合百分收益；z 标签树常空，回退 |ŷ| top30%
+  // |ŷ|≥0.6 适合百分收益；幅度过小时回退 |ŷ| top30%
   let strongKey = "abs_ge_0_6";
   let strongLabel = "|ŷ|≥0.6";
   let strongTip = "强信号方向命中（|ŷ|≥0.6）";
@@ -421,7 +421,7 @@ export function treeReportHtml(data, opts = {}) {
     if (bucketN(boost, "abs_top_30") >= 5 || bucketN(ridge, "abs_top_30") >= 5) {
       strongKey = "abs_top_30";
       strongLabel = "|ŷ| top30%";
-      strongTip = "|ŷ| 最大 30% 桶同号（截面 z 标签下替代 ≥0.6）";
+      strongTip = "|ŷ| 最大 30% 桶同号（幅度小时替代 ≥0.6）";
     }
   } else if (
     delta.strong_bucket === "abs_top_30" ||
@@ -429,7 +429,7 @@ export function treeReportHtml(data, opts = {}) {
   ) {
     strongKey = "abs_top_30";
     strongLabel = "|ŷ| top30%";
-    strongTip = "|ŷ| 最大 30% 桶同号（截面 z 标签下替代 ≥0.6）";
+    strongTip = "|ŷ| 最大 30% 桶同号（幅度小时替代 ≥0.6）";
   }
   const b06b = (boost.buckets && boost.buckets[strongKey]) || {};
   const b06r = (ridge.buckets && ridge.buckets[strongKey]) || {};
@@ -441,7 +441,7 @@ export function treeReportHtml(data, opts = {}) {
   const depth =
     hyper.max_depth != null && Number.isFinite(Number(hyper.max_depth))
       ? Number(hyper.max_depth)
-      : 5;
+      : 6;
   const engine = (window.formatTreeBackend ? window.formatTreeBackend(data.backend || "") : String(data.backend || ""));
   const engineChip = "is-lgb";
   const boostIc = boost.cs_ic != null ? boost.cs_ic : boost.ic;

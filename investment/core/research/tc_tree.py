@@ -46,16 +46,16 @@ TREE_SCHEMA = "tau_tree_shadow_v2"
 TREE_HEAD = "y_tau_tree"
 TAU_TREE_Z_FEATURES = with_horizon_tree_shape(TAU_Z_FEATURES)
 
-# 观察池 ~300 只 × lookback ~120 日：中等正则，ŷ 用百分点，不抄 Qlib CSI 配方
+# LightGBM：深度 6、叶子 64、300 轮、lr=0.2、λ₁/λ₂=10/20；标签是百分点
 PANEL_LGB = {
     "n_estimators": 300,
-    "max_depth": 5,
-    "num_leaves": 48,
-    "learning_rate": 0.08,
+    "max_depth": 6,
+    "num_leaves": 64,
+    "learning_rate": 0.2,
     "subsample": 0.85,
     "colsample_bytree": 0.8,
-    "lambda_l1": 5.0,
-    "lambda_l2": 10.0,
+    "lambda_l1": 10.0,
+    "lambda_l2": 20.0,
     "min_data_in_leaf": 20,
 }
 DEFAULT_N_ESTIMATORS = int(PANEL_LGB["n_estimators"])
@@ -74,80 +74,6 @@ def lgb_best_iteration_collapsed(best_iter: Any) -> bool:
     except (TypeError, ValueError):
         return False
 
-# 勾选「Qlib LGB 预设」：观察池规模的深度/叶/λ + 标签截面 z，无早停
-QLIB_ALPHA158_LGB = {
-    "n_estimators": 300,
-    "max_depth": 6,
-    "num_leaves": 64,
-    "learning_rate": 0.2,
-    "subsample": 0.8789,
-    "colsample_bytree": 0.8879,
-    "lambda_l1": 10.0,
-    "lambda_l2": 20.0,
-    "min_data_in_leaf": 20,
-}
-
-
-def resolve_use_qlib_lgb(
-    include_alpha158: bool,
-    qlib_lgb: Optional[bool] = None,
-) -> bool:
-    """仅 ``qlib_lgb=True``：缩小后的 Qlib 风格超参（截面 z，无早停）。"""
-    del include_alpha158
-    return bool(qlib_lgb)
-
-
-def _cs_zscore_by_date(
-    values: Sequence[float],
-    dates: Sequence[str],
-    *,
-    metas: Optional[Sequence[dict]] = None,
-) -> np.ndarray:
-    """按日（可选再按 τ）截面 z-score，对齐 Qlib CSZScoreNorm · label。"""
-    out = np.asarray(values, dtype=np.float64).copy()
-    n = int(out.shape[0])
-    if n == 0:
-        return out
-    buckets: Dict[str, List[int]] = {}
-    for i in range(n):
-        d = str(dates[i] if i < len(dates) else "")[:10]
-        tau = ""
-        if metas is not None and i < len(metas):
-            tau = str((metas[i] or {}).get("tau") or "").strip()
-        key = f"{d}|{tau}" if tau else d
-        buckets.setdefault(key, []).append(i)
-    for idxs in buckets.values():
-        if len(idxs) < 2:
-            out[idxs] = 0.0
-            continue
-        arr = out[idxs]
-        mu = float(np.mean(arr))
-        sd = float(np.std(arr))
-        if not math.isfinite(sd) or sd < 1e-12:
-            out[idxs] = 0.0
-        else:
-            out[idxs] = (arr - mu) / sd
-    return out
-
-
-def _qlib_lgb_hyper() -> Dict[str, Any]:
-    q = dict(QLIB_ALPHA158_LGB)
-    return {
-        "n_estimators": int(q["n_estimators"]),
-        "max_depth": int(q["max_depth"]),
-        "num_leaves": int(q["num_leaves"]),
-        "learning_rate": float(q["learning_rate"]),
-        "subsample": float(q["subsample"]),
-        "colsample_bytree": float(q["colsample_bytree"]),
-        "lambda_l1": float(q["lambda_l1"]),
-        "lambda_l2": float(q["lambda_l2"]),
-        "min_data_in_leaf": int(q["min_data_in_leaf"]),
-        "label_cs_zscore": True,
-        "preset": "qlib_alpha158",
-        "preset_ref": "watching-scaled qlib-style LGB (depth6/300/leaf64/l1=10/l2=20, no ES)",
-    }
-
-
 def _panel_lgb_hyper() -> Dict[str, Any]:
     q = dict(PANEL_LGB)
     return {
@@ -160,9 +86,6 @@ def _panel_lgb_hyper() -> Dict[str, Any]:
         "lambda_l1": float(q["lambda_l1"]),
         "lambda_l2": float(q["lambda_l2"]),
         "min_data_in_leaf": int(q["min_data_in_leaf"]),
-        "label_cs_zscore": False,
-        "preset": "panel_lgb",
-        "preset_note": "watching~300 × lookback~120; ŷ in percent",
     }
 
 
@@ -182,8 +105,6 @@ def fit_lgb_on_matrices(
     x_te: np.ndarray,
     feat_names: Sequence[str],
     *,
-    metas_tr: Sequence[dict],
-    use_qlib: bool,
     n_estimators: int,
     max_depth: int,
     learning_rate: float,
@@ -193,53 +114,47 @@ def fit_lgb_on_matrices(
 ) -> Tuple[Any, np.ndarray, Dict[str, Any], np.ndarray, List[Optional[float]], float]:
     """在已折好的 float64 面板上拟合 Holdout 树。缺测为 NaN。
 
-    ``feature_zscore=True``：特征按训练集总体 z-score（与 ŷ_oo Ridge 同口径），缺测填 μ 后为 0。标签单位不变。
+    ``feature_zscore=True``：特征按训练集总体 z-score（与 Ridge 同开关），
+    缺测填 μ 后为 0。标签单位是百分点。
     """
-    dates_tr = [str((m or {}).get("date") or "")[:10] for m in metas_tr]
+    from core.research.feature_standardize import (
+        annotate_feature_zscore,
+        resolve_feature_zscore,
+    )
+
+    use_z = resolve_feature_zscore(feature_zscore=feature_zscore, default=False)
     n_y = len(ys_tr)
     if sample_weights is not None and len(sample_weights) == n_y:
         w_tr = [float(x) for x in sample_weights]
     else:
         w_tr = [1.0] * n_y
-    if use_qlib:
-        hyper = _qlib_lgb_hyper()
-        lgb_kwargs = _lgb_train_kwargs(hyper)
-    else:
-        hyper = _panel_lgb_hyper()
-        hyper["n_estimators"] = int(n_estimators)
-        hyper["max_depth"] = int(max_depth)
-        hyper["learning_rate"] = float(learning_rate)
-        hyper["subsample"] = float(subsample)
-        lgb_kwargs = _lgb_train_kwargs(hyper)
+    hyper = _panel_lgb_hyper()
+    hyper["n_estimators"] = int(n_estimators)
+    hyper["max_depth"] = int(max_depth)
+    hyper["learning_rate"] = float(learning_rate)
+    hyper["subsample"] = float(subsample)
+    lgb_kwargs = _lgb_train_kwargs(hyper)
 
     x_raw = np.asarray(x_tr, dtype=np.float64)
     x_te_raw = np.asarray(x_te, dtype=np.float64)
-    if feature_zscore:
+    if use_z:
         z_means, z_stds = _population_z_stats(x_raw)
         x_fit = _apply_feature_z(_impute_matrix(x_raw, z_means), z_means, z_stds)
         x_out = _apply_feature_z(_impute_matrix(x_te_raw, z_means), z_means, z_stds)
         means = z_means
         names = [str(n) for n in feat_names]
-        hyper["feature_zscore"] = True
+        annotate_feature_zscore(hyper, True)
         hyper["zscore_means"] = {n: float(z_means[i]) for i, n in enumerate(names)}
         hyper["zscore_stds"] = {n: float(z_stds[i]) for i, n in enumerate(names)}
     else:
         means = _column_means(x_raw)
         x_fit = _impute_matrix(x_raw, means)
         x_out = _impute_matrix(x_te_raw, means)
-    y_fit_raw = np.asarray(ys_tr, dtype=np.float64)
+        annotate_feature_zscore(hyper, False)
+    y_fit = np.asarray(ys_tr, dtype=np.float64)
     w_fit = np.asarray(w_tr, dtype=np.float64)
-    if w_fit.shape != y_fit_raw.shape:
-        w_fit = np.ones_like(y_fit_raw)
-    if use_qlib:
-        fin = y_fit_raw[np.isfinite(y_fit_raw)]
-        if fin.size:
-            hyper["label_cs_std"] = round(float(np.std(fin)), 8)
-    y_fit = (
-        _cs_zscore_by_date(y_fit_raw, dates_tr, metas=metas_tr)
-        if use_qlib
-        else y_fit_raw
-    )
+    if w_fit.shape != y_fit.shape:
+        w_fit = np.ones_like(y_fit)
 
     t0 = time.perf_counter()
     model, gain = _fit_lightgbm(
@@ -264,11 +179,9 @@ def fit_lgb_on_matrices(
 def fit_lgb_holdout(
     xs_tr: Sequence[dict],
     ys_tr: Sequence[float],
-    metas_tr: Sequence[dict],
     xs_te: Sequence[dict],
     feat_names: Sequence[str],
     *,
-    use_qlib: bool,
     n_estimators: int,
     max_depth: int,
     learning_rate: float,
@@ -276,9 +189,9 @@ def fit_lgb_holdout(
     sample_weights: Optional[Sequence[float]] = None,
     feature_zscore: bool = False,
 ) -> Tuple[Any, np.ndarray, Dict[str, Any], np.ndarray, List[Optional[float]], float]:
-    """Holdout 树拟合。默认观察池 LGB（百分点）；``use_qlib`` 才走缩小后的 Qlib 风格超参 + 截面 z（无早停）。
+    """Holdout 树拟合。LightGBM（百分点标签）。
 
-    ``feature_zscore=True``：特征按训练集总体 z-score（与 ŷ_oo Ridge 同口径），缺测填 μ 后为 0。标签单位不变。
+    ``feature_zscore=True``：与 Ridge 同一特征 z-score 开关。
     """
     x_tr, _ = _design_matrix(xs_tr, feat_names, impute=False)
     x_te, _ = _design_matrix(xs_te, feat_names, impute=False)
@@ -287,8 +200,6 @@ def fit_lgb_holdout(
         ys_tr,
         x_te,
         feat_names,
-        metas_tr=metas_tr,
-        use_qlib=use_qlib,
         n_estimators=n_estimators,
         max_depth=max_depth,
         learning_rate=learning_rate,
@@ -436,6 +347,39 @@ def _design_matrix(
     return x, means_out
 
 
+def prepare_lgb_features(
+    xs_tr: Sequence[dict],
+    xs_te: Sequence[dict],
+    feat_names: Sequence[str],
+    *,
+    feature_zscore: bool = True,
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray, Dict[str, Any]]:
+    """折 panel → 训/测矩阵；默认训练集全局特征 z-score（与 Ridge 同开关）。
+
+    返回 ``(x_tr, x_te, impute_means, hyper_patch)``；``hyper_patch`` 含
+    ``feature_zscore`` / ``zscore_means`` / ``zscore_stds``，并入树 hyperparams。
+    """
+    from core.research.feature_standardize import annotate_feature_zscore
+
+    x_raw_tr, _ = _design_matrix(xs_tr, feat_names, impute=False)
+    x_raw_te, _ = _design_matrix(xs_te, feat_names, impute=False)
+    patch: Dict[str, Any] = {}
+    names = [str(n) for n in feat_names]
+    if feature_zscore:
+        z_means, z_stds = _population_z_stats(x_raw_tr)
+        x_tr = _apply_feature_z(_impute_matrix(x_raw_tr, z_means), z_means, z_stds)
+        x_te = _apply_feature_z(_impute_matrix(x_raw_te, z_means), z_means, z_stds)
+        annotate_feature_zscore(patch, True)
+        patch["zscore_means"] = {n: float(z_means[i]) for i, n in enumerate(names)}
+        patch["zscore_stds"] = {n: float(z_stds[i]) for i, n in enumerate(names)}
+        return x_tr, x_te, z_means, patch
+    means = _column_means(x_raw_tr)
+    x_tr = _impute_matrix(x_raw_tr, means)
+    x_te = _impute_matrix(x_raw_te, means)
+    annotate_feature_zscore(patch, False)
+    return x_tr, x_te, means, patch
+
+
 def _oos_pack(
     preds: Sequence[Optional[float]],
     ys: Sequence[float],
@@ -452,7 +396,7 @@ def _oos_pack(
     y_list = [float(y) for y in ys]
     meta_list = list(metas)
     buckets = _oos_sign_buckets(pred_list, y_list) if y_list else {}
-    # 默认 |ŷ|≥0.05；Qlib 截面 z 标签下 ŷ 幅度常更小，回退全样本同号率以免命中缺失
+    # 默认 |ŷ|≥0.05；幅度过小时回退全样本同号率
     sign_hit = _sign_hit(pred_list, y_list) if y_list else None
     if sign_hit is None and y_list:
         sign_hit = _sign_hit(pred_list, y_list, min_abs=0.0)
@@ -534,10 +478,10 @@ def _fit_lightgbm(
     subsample: float,
     objective: str = "regression",
     num_leaves: Optional[int] = None,
-    colsample_bytree: float = 0.9,
-    lambda_l1: float = 0.0,
-    lambda_l2: float = 1.0,
-    min_data_in_leaf: int = 8,
+    colsample_bytree: Optional[float] = None,
+    lambda_l1: Optional[float] = None,
+    lambda_l2: Optional[float] = None,
+    min_data_in_leaf: Optional[int] = None,
     num_threads: int = 1,
 ) -> Tuple[Any, np.ndarray]:
     import lightgbm as lgb
@@ -546,22 +490,45 @@ def _fit_lightgbm(
     is_binary = raw_obj == "binary"
     obj = "binary" if is_binary else "regression"
     dtrain = lgb.Dataset(x, label=y, weight=w)
+    leaves = int(PANEL_LGB["num_leaves"] if num_leaves is None else num_leaves)
     params: Dict[str, Any] = {
         "objective": obj,
         "metric": ["binary_logloss" if is_binary else "l2"],
         "max_depth": max(1, int(max_depth)),
+        "num_leaves": max(2, leaves),
         "learning_rate": float(learning_rate),
         "subsample": min(1.0, max(0.4, float(subsample))),
-        "colsample_bytree": min(1.0, max(0.2, float(colsample_bytree))),
-        "lambda_l1": max(0.0, float(lambda_l1)),
-        "lambda_l2": max(0.0, float(lambda_l2)),
-        "min_data_in_leaf": max(1, int(min_data_in_leaf)),
+        "colsample_bytree": min(
+            1.0,
+            max(
+                0.2,
+                float(
+                    PANEL_LGB["colsample_bytree"]
+                    if colsample_bytree is None
+                    else colsample_bytree
+                ),
+            ),
+        ),
+        "lambda_l1": max(
+            0.0,
+            float(PANEL_LGB["lambda_l1"] if lambda_l1 is None else lambda_l1),
+        ),
+        "lambda_l2": max(
+            0.0,
+            float(PANEL_LGB["lambda_l2"] if lambda_l2 is None else lambda_l2),
+        ),
+        "min_data_in_leaf": max(
+            1,
+            int(
+                PANEL_LGB["min_data_in_leaf"]
+                if min_data_in_leaf is None
+                else min_data_in_leaf
+            ),
+        ),
         "verbose": -1,
         "seed": 42,
         "num_threads": max(1, int(num_threads)),
     }
-    if num_leaves is not None:
-        params["num_leaves"] = max(2, int(num_leaves))
     booster = lgb.train(
         params,
         dtrain,
@@ -667,7 +634,7 @@ def _fit_ridge_oos(
         ys_tr_dm,
         feature_names=feat_names,
         ridge_lambda=ridge_lambda,
-        standardize=True,
+        feature_zscore=True,
         sample_weights=weights,
         min_std_exempt=list(
             min_std_exempt if min_std_exempt is not None else TAU_MIN_STD_EXEMPT
@@ -707,13 +674,12 @@ def fit_tau_tree_report(
     learning_rate: float = DEFAULT_LEARNING_RATE,
     subsample: float = DEFAULT_SUBSAMPLE,
     include_alpha158: bool = True,
-    qlib_lgb: Optional[bool] = None,
 ) -> Dict[str, Any]:
     """同面板拟合树 + Ridge OOS 对照。不写 live / 研究套模型。
 
-    ``include_alpha158=True``（默认）：树吃 ``raw_alpha158_*``。默认观察池 LGB
-    （百分点、中等正则）。特征按训练集做总体 z-score，与 ŷ_oo_tree 同口径；标签仍是百分点。
-    ``qlib_lgb=True`` 才另对标签做截面 z，并改用缩小后的 Qlib 风格超参。
+    ``include_alpha158=True``（默认）：树吃 ``raw_alpha158_*``。LightGBM
+    （深度 6、300 轮、叶子 64、λ₁=10、λ₂=20、学习率 0.2、百分点标签）。
+    特征按训练集做总体 z-score，与 ŷ_oo_tree 同口径；标签仍是百分点。
     Ridge 对照仍只用 ``TAU_Z_FEATURES``（避免与 ŷ_oo 双重计权）。
     """
     t0 = time.perf_counter()
@@ -830,14 +796,11 @@ def fit_tau_tree_report(
     ridge_feat_names = ridge_names
 
     engine = resolve_tree_backend(backend)
-    use_qlib = resolve_use_qlib_lgb(include_alpha158, qlib_lgb)
     model, gain, hyper, means, boost_preds, tree_s = fit_lgb_on_matrices(
         X_tree[row_tr],
         ys_tr,
         X_tree[row_te],
         feat_names,
-        metas_tr=metas_tr,
-        use_qlib=use_qlib,
         n_estimators=n_estimators,
         max_depth=max_depth,
         learning_rate=learning_rate,
@@ -923,7 +886,6 @@ def fit_tau_tree_report(
         "ridge_feature_names": list(ridge_feat_names),
         "tree_shape_features": list(TAU_HORIZON_TREE_SHAPE_FEATURES),
         "include_alpha158": bool(include_alpha158),
-        "qlib_lgb": bool(use_qlib),
         "n_alpha158_features": len(a158_keys),
         "feature_importance": _importance_rows(feat_names, gain),
         "tree_return_model": return_model,
@@ -936,13 +898,9 @@ def fit_tau_tree_report(
         "note": (
             "ŷ_τc_tree：特征训练集 z-score（与 ŷ_oo_tree 同口径）· 同 Holdout vs Ridge；路径/量价 shape 仅 Tree；"
             + (
-                "树侧含 raw_alpha158_* + Qlib LGB 预设（深6/300轮/叶64/λ10·20 + 截面 z，无早停）；"
-                if use_qlib
-                else (
-                    "树侧含 raw_alpha158_*（Ridge Z 不含，防与 ŷ_oo 双重计权）；"
-                    if include_alpha158
-                    else ""
-                )
+                "树侧含 raw_alpha158_*（Ridge Z 不含，防与 ŷ_oo 双重计权）；"
+                if include_alpha158
+                else ""
             )
             + "写入 tc_tree_model.json 后，调仓回测选 Tree 替换 ŷ_τc；不进交易执行"
         ),

@@ -26,7 +26,7 @@ class ReturnScoreModel:
     coefficients: Dict[str, float]
     z_means: Dict[str, float] = field(default_factory=dict)
     z_stds: Dict[str, float] = field(default_factory=dict)
-    standardized: bool = True
+    feature_zscore: bool = True
     horizon_days: int = 3
     sample_count: int = 0
     ridge_lambda: float = 0.0
@@ -49,7 +49,7 @@ class ReturnScoreModel:
                 x = float(raw)
             except (TypeError, ValueError):
                 continue
-            if self.standardized:
+            if self.feature_zscore:
                 mu = float(self.z_means.get(name) or 0.0)
                 sd = float(self.z_stds.get(name) or 1.0)
                 if sd < 1e-12:
@@ -81,7 +81,7 @@ class ReturnScoreModel:
             except (TypeError, ValueError):
                 continue
             z = x
-            if self.standardized:
+            if self.feature_zscore:
                 mu = float(self.z_means.get(name) or 0.0)
                 sd = float(self.z_stds.get(name) or 1.0)
                 if sd < 1e-12:
@@ -161,7 +161,7 @@ class ReturnScoreModel:
             coefficients=clean,
             z_means=_float_map(data.get("z_means") or data.get("zscore_means")),
             z_stds=_float_map(data.get("z_stds") or data.get("zscore_stds")),
-            standardized=bool(data.get("standardized", True)),
+            feature_zscore=bool(data.get("feature_zscore", True)),
             horizon_days=int(data.get("horizon_days") or 3),
             sample_count=int(data.get("sample_count") or 0),
             ridge_lambda=float(data.get("ridge_lambda") or 0.0),
@@ -229,7 +229,7 @@ class ReturnScoreModel:
             coefficients=clean,
             z_means=_float_map(z_means),
             z_stds=_float_map(z_stds),
-            standardized=bool(report.get("standardized", True)),
+            feature_zscore=bool(report.get("feature_zscore", True)),
             horizon_days=int(report.get("horizon_days") or 3),
             sample_count=int(report.get("sample_count") or 0),
             ridge_lambda=float(

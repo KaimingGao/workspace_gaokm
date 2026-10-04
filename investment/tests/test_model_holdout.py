@@ -10,12 +10,14 @@ from core.research.holdout import (
     MODEL_ROLE_LIVE,
     MODEL_ROLE_RESEARCH,
     current_scoring_model_role,
+    model_fit_id,
     normalize_backtest_model_role,
     research_model_path,
     research_sidecar_flags,
     scoring_model_role_context,
     select_persist_return_model,
     split_by_holdout_days,
+    stamp_fitted_at,
 )
 
 
@@ -103,6 +105,31 @@ class TestHoldoutSplit(unittest.TestCase):
             self.assertTrue(flags["research_exists"])
             self.assertEqual(flags["research_path"], research_path)
             self.assertEqual(flags["research_promoted_at"], "2026-09-10T12:00:00")
+            self.assertEqual(flags["research_fitted_at"], "2026-09-10T12:00:00")
+
+    def test_model_fit_id_prefers_fitted_at(self):
+        self.assertEqual(
+            model_fit_id(
+                {
+                    "fitted_at": "2026-10-04T05:46:01Z",
+                    "promoted_at": "2026-10-04T06:30:10Z",
+                }
+            ),
+            "2026-10-04T05:46:01Z",
+        )
+        self.assertEqual(
+            model_fit_id({"source_saved_at": "2026-10-04T05:46:01Z"}),
+            "2026-10-04T05:46:01Z",
+        )
+        self.assertIsNone(model_fit_id(None))
+
+    def test_stamp_fitted_at_keeps_existing(self):
+        doc = {"success": True, "fitted_at": "2026-10-01T00:00:00Z"}
+        stamp_fitted_at(doc)
+        self.assertEqual(doc["fitted_at"], "2026-10-01T00:00:00Z")
+        fresh = {"success": True, "return_model": {"intercept": 0}}
+        stamp_fitted_at(fresh)
+        self.assertTrue(fresh.get("fitted_at"))
 
     def test_attach_ridge_role_flags_fitted_at_from_last_report(self):
         import json

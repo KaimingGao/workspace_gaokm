@@ -74,7 +74,7 @@ class TestFsSentimentGate(unittest.TestCase):
         global_m = ReturnScoreModel(
             intercept=0.0,
             coefficients={"momentum": 0.1, "alt_sentiment": 0.5},
-            standardized=False,
+            feature_zscore=False,
         )
         scored = {
             "score": 50.0,
@@ -243,7 +243,7 @@ class TestFsRiskHints(unittest.TestCase):
         }
         bars = _bars()
         global_m = ReturnScoreModel(
-            intercept=0.0, coefficients={"momentum": 0.1}, standardized=False
+            intercept=0.0, coefficients={"momentum": 0.1}, feature_zscore=False
         )
         scored = {
             "score": 50.0,

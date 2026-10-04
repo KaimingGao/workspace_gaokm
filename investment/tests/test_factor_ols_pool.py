@@ -170,12 +170,12 @@ class TestFactorOlsPool(unittest.TestCase):
             present = sum(1 for row in xs if row.get(name) is not None)
             self.assertGreater(present, 0, f"{name} should not be all-missing")
 
-    def test_fit_marks_standardized(self):
+    def test_fit_marks_feature_zscore(self):
         report = compute_factor_ols_report(
             rising_bars(_OLS_BARS_N), horizon_days=3, min_history=12
         )
         self.assertTrue(report.get("success"), report.get("error"))
-        self.assertTrue(report.get("standardized"))
+        self.assertTrue(report.get("feature_zscore"))
         self.assertIn("z-score", (report.get("note") or "").lower())
         self.assertIn("regime", (report.get("note") or "").lower())
 

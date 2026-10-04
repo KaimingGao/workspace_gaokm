@@ -1,9 +1,13 @@
 """滚动可预测性票档：命中率为主、IC 为辅。
 
-用研究套 ŷ_oo 在 Holdout（测试窗）前半上的 OOS 预估 vs 日线实现标签，按票聚合：
+用**已落盘研究套** ŷ_oo（``return_score_model_research.json``）在 Holdout
+前半上打分，与日线实现标签按票聚合：
 - hit_rate = 符号命中率（|ŷ| 死区外）
 - n_valid = 有效决策日
 - ic = 票内 ŷ vs 已实现 Spearman（辅）
+
+研究套缺失时回退：在 Holdout 前样本上现训一版（不读执行套全样本，避免泄漏）。
+面板日线窗 ``lookback`` 与页顶 ŷ_oo 训练窗对齐（默认 120）。
 
 默认池 = 观察池；可选 research_universe（pool=ledger 已废弃，等同 watching）。
 
@@ -522,6 +526,31 @@ def _resolve_pool_codes(
     return list(watch_list), POOL_WATCHING, resolved, watch_set
 
 
+def _load_research_oo_model() -> Tuple[Optional[Any], Dict[str, Any]]:
+    """只读研究套 ŷ_oo；不回落执行套/草稿（避免 Holdout 泄漏进 β）。"""
+    from core.paths import RETURN_SCORE_MODEL_RESEARCH_PATH
+    from core.signal.return_score import ReturnScoreModel
+    from core.signal.return_score_store import load_return_model_payload
+
+    path = RETURN_SCORE_MODEL_RESEARCH_PATH
+    raw = load_return_model_payload(path)
+    if not raw:
+        return None, {"ok": False, "reason": "no_research_model", "path": path}
+    model = ReturnScoreModel.from_dict(raw.get("model") or raw)
+    if model is None:
+        return None, {"ok": False, "reason": "invalid_research_model", "path": path}
+    return model, {
+        "ok": True,
+        "role": raw.get("role") or "research",
+        "path": path,
+        "saved_at": raw.get("saved_at") or raw.get("promoted_at"),
+        "meta": raw.get("meta") or {},
+        "lookback": (raw.get("meta") or {}).get("lookback"),
+        "horizon_days": (raw.get("meta") or {}).get("horizon_days")
+        or getattr(model, "horizon_days", None),
+    }
+
+
 def accumulate_holdout_oos_by_code(
     codes: Sequence[str],
     *,
@@ -530,8 +559,9 @@ def accumulate_holdout_oos_by_code(
     horizon_days: int = DEFAULT_HORIZON_DAYS,
     ridge_lambda: float = DEFAULT_RIDGE_LAMBDA,
     yhat_eps: float = _YHAT_EPS,
+    use_research_model: bool = True,
 ) -> Dict[str, Any]:
-    """日线面板训 ŷ_oo，Holdout 测试窗前半按票聚合命中。
+    """用研究套 ŷ_oo（缺则 Holdout 前现训）在测试窗前半按票聚合命中。
 
     返回 ``ok`` / ``acc`` / ``tier_dates`` / ``split`` / ``split_meta`` 等。
     """
@@ -552,9 +582,10 @@ def accumulate_holdout_oos_by_code(
 
     h_req = max(2, min(int(holdout_n or DEFAULT_HOLDOUT_N), 90))
     hz = max(1, min(int(horizon_days or DEFAULT_HORIZON_DAYS), 10))
+    panel_lb = max(40, min(700, int(lookback or DEFAULT_PANEL_LOOKBACK)))
     stock_bars, failures, _fund = load_portfolio_stock_bars(
         use_codes,
-        lookback=max(40, int(lookback or DEFAULT_PANEL_LOOKBACK)),
+        lookback=panel_lb,
         fetch_fundamentals=False,
     )
     if len(stock_bars) < 2:
@@ -606,30 +637,60 @@ def accumulate_holdout_oos_by_code(
             "tier_dates": [],
         }
 
-    xs_tr = [all_xs[i] for i in train_idx]
-    ys_tr = [all_ys[i] for i in train_idx]
-    as_of = None
-    for bars in stock_bars.values():
-        if bars:
-            as_of = str(bars[-1].get("date") or "") or None
-            break
+    model_meta: Dict[str, Any] = {}
+    research_model = None
+    model_source = "oo_holdout_oos_refit"
+    if use_research_model:
+        research_model, model_meta = _load_research_oo_model()
+        if research_model is not None:
+            model_source = "oo_research_model"
+            try:
+                mh = int(getattr(research_model, "horizon_days", 0) or 0)
+            except (TypeError, ValueError):
+                mh = 0
+            if mh > 0 and mh != hz:
+                logger.info(
+                    "predictability_tiers: research ŷ_oo horizon=%s vs panel=%s",
+                    mh,
+                    hz,
+                )
 
-    research_model, research_report = fit_return_model_from_panel(
-        xs_tr,
-        ys_tr,
-        horizon_days=hz,
-        ridge_lambda=float(ridge_lambda if ridge_lambda is not None else DEFAULT_RIDGE_LAMBDA),
-        fitted_as_of=as_of,
-        min_samples=24,
-    )
     if research_model is None:
-        return {
-            "ok": False,
-            "error": (research_report or {}).get("error") or "Holdout 前训练失败",
-            "report": research_report,
-            "split_meta": split_meta,
-            "acc": {},
-            "tier_dates": [],
+        xs_tr = [all_xs[i] for i in train_idx]
+        ys_tr = [all_ys[i] for i in train_idx]
+        as_of = None
+        for bars in stock_bars.values():
+            if bars:
+                as_of = str(bars[-1].get("date") or "") or None
+                break
+
+        research_model, research_report = fit_return_model_from_panel(
+            xs_tr,
+            ys_tr,
+            horizon_days=hz,
+            ridge_lambda=float(
+                ridge_lambda if ridge_lambda is not None else DEFAULT_RIDGE_LAMBDA
+            ),
+            fitted_as_of=as_of,
+            min_samples=24,
+        )
+        if research_model is None:
+            return {
+                "ok": False,
+                "error": (research_report or {}).get("error")
+                or "Holdout 前训练失败（且无研究套 ŷ_oo）",
+                "report": research_report,
+                "split_meta": split_meta,
+                "acc": {},
+                "tier_dates": [],
+                "model_meta": model_meta,
+            }
+        model_source = "oo_holdout_oos_refit"
+        model_meta = {
+            "ok": True,
+            "role": "refit_train",
+            "path": None,
+            "fallback_from": model_meta.get("reason") if isinstance(model_meta, dict) else None,
         }
 
     test_days_meta = list(split_meta.get("test_days") or [])
@@ -697,8 +758,12 @@ def accumulate_holdout_oos_by_code(
         "codes_used": list(stock_bars.keys()),
         "failures": (failures or [])[:8],
         "horizon_days": hz,
-        "ridge_lambda": float(ridge_lambda if ridge_lambda is not None else DEFAULT_RIDGE_LAMBDA),
-        "source": "oo_holdout_oos",
+        "lookback": panel_lb,
+        "ridge_lambda": float(
+            ridge_lambda if ridge_lambda is not None else DEFAULT_RIDGE_LAMBDA
+        ),
+        "source": model_source,
+        "model_meta": model_meta,
     }
 
 
@@ -813,10 +878,12 @@ def build_holdout_half_tiers(
     lookback: int = DEFAULT_PANEL_LOOKBACK,
     horizon_days: int = DEFAULT_HORIZON_DAYS,
     ridge_lambda: float = DEFAULT_RIDGE_LAMBDA,
+    use_research_model: bool = True,
 ) -> Dict[str, Any]:
-    """研究枢纽协议：ŷ_oo 在 Holdout 前半 OOS 按票分档。
+    """研究枢纽协议：研究套 ŷ_oo 在 Holdout 前半 OOS 按票分档。
 
     落盘 last；回测/live 复用档位过滤宇宙。回测天数独立。live 须再「启用 live」。
+    ``lookback``：日线面板窗，与页顶 ŷ_oo 训练窗对齐。
     """
     head_n = _normalize_head(head)
     if head_n == HEAD_TAU:
@@ -846,6 +913,7 @@ def build_holdout_half_tiers(
         lookback=lookback,
         horizon_days=horizon_days,
         ridge_lambda=ridge_lambda,
+        use_research_model=use_research_model,
     )
     if not packed.get("ok"):
         return {
@@ -855,6 +923,7 @@ def build_holdout_half_tiers(
             "holdout_split": packed.get("holdout_split"),
             "split_meta": packed.get("split_meta"),
             "failures": packed.get("failures"),
+            "model_meta": packed.get("model_meta"),
         }
 
     acc = dict(packed.get("acc") or {})
@@ -875,15 +944,23 @@ def build_holdout_half_tiers(
     )
     n_with_sample = sum(1 for r in rows if int(r.get("n_valid") or 0) > 0)
     tier_n = int(packed.get("tier_n") or len(tier_dates))
+    model_source = str(packed.get("source") or "oo_research_model")
+    panel_lb = int(packed.get("lookback") or lookback or DEFAULT_PANEL_LOOKBACK)
+    src_note = (
+        "研究套 ŷ_oo"
+        if model_source == "oo_research_model"
+        else "Holdout 前现训 ŷ_oo（无研究套）"
+    )
     rep: Dict[str, Any] = {
         "success": True,
         "schema": SCHEMA,
         "task": "predictability_tiers",
         "live_hook": False,
         "protocol": PROTOCOL_HOLDOUT_OOS,
-        "source": "oo_holdout_oos",
+        "source": model_source,
         "head": HEAD_OO,
         "head_label": "ŷ_oo",
+        "lookback": panel_lb,
         "lookback_dates": tier_n,
         "min_n": min_n_req,
         "min_n_effective": min_n_eff,
@@ -909,6 +986,7 @@ def build_holdout_half_tiers(
         "n_train": packed.get("n_train"),
         "n_test": packed.get("n_test"),
         "horizon_days": packed.get("horizon_days"),
+        "model_meta": packed.get("model_meta"),
         "counts": counts,
         "rows": rows,
         "watching_overlap": {
@@ -921,10 +999,10 @@ def build_holdout_half_tiers(
             "source": resolved.get("source"),
         },
         "note": (
-            f"ŷ_oo Holdout OOS 前半 {tier_n} 日分档；"
+            f"{src_note} · Holdout 前半 {tier_n} 日分档 · 面板 {panel_lb} 日；"
             f"A 为命中率>{float(a_hit if a_hit is not None else DEFAULT_A_HIT):.0%}、IC>0、N>{DEFAULT_A_MIN_N}；"
             "落盘 last；「启用 live」后调仓按 A+B 过滤；"
-            "回测天数用独立 lookback；研究套须在 Holdout 前训练。"
+            "回测天数用独立 lookback。"
         ),
     }
     if persist:
