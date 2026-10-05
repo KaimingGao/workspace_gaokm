@@ -51,7 +51,7 @@ class TestPaperAttributionLite(unittest.TestCase):
         self.assertAlmostEqual(out["period_return_pct"], 5.0, places=2)
 
         ops = build_ops_report(
-            strategy_id="short",
+            strategy_id="short_conservative",
             cost_model="simple_cn",
             attribution=out,
         )

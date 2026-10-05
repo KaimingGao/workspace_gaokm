@@ -215,7 +215,7 @@ class TestDashboardPaperContract(unittest.TestCase):
 
         paper = {
             "cash": 5000,
-            "strategy_id": "short",
+            "strategy_id": "short_conservative",
             "holdings": [
                 {
                     "stock_code": "002594",

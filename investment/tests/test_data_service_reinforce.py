@@ -253,7 +253,7 @@ class TestSectorCoverageRiskGate(unittest.TestCase):
     def test_require_sector_map_blocks(self):
         from core.risk.checks import check_account_risk
 
-        paper = {"cash": 0, "strategy_id": "short", "holdings": []}
+        paper = {"cash": 0, "strategy_id": "short_conservative", "holdings": []}
         summary = {
             "equity": 100000,
             "max_drawdown_pct": 1.0,

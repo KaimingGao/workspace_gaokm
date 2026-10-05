@@ -418,7 +418,7 @@ def backtest_signal_on_bars(
 
     out = {
         "success": True,
-        "strategy": "short",
+        "strategy": "short_conservative",
         "bar_count": n,
         "params": {
             "horizon_days": horizon_days,

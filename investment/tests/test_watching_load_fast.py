@@ -43,7 +43,7 @@ class TestWatchingLoadFast(unittest.TestCase):
         svc = PaperService(path="/tmp/does-not-matter-paper.json")
         paper = {
             "name": "demo",
-            "strategy_id": "short",
+            "strategy_id": "short_conservative",
             "cash": 1e6,
             "holdings": [{"stock_code": "600519", "shares": 100, "cost": 10}],
             "operation_log": [{"type": "sync_paper", "ts": "2026-01-01"}],

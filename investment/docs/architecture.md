@@ -1816,7 +1816,7 @@ API：`GET/POST /api/paper/rebalance/worker`（`worker` + `desk`）。盯盘落�
 写代码或改配置前，先花约 10 分钟填完。填不清的格子 = 策略还没想透。
 
 ```text
-策略名称：（例：双均线突破 / 短线多因子 signal_v1）
+策略名称：（例：双均线突破 / 短线多因子 short_conservative）
 策略类型：（趋势跟踪 / 均值回归 / 多因子选股 / 事件驱动）
 适用标的：（沪深300 / 全A / 自建观察池 …）
 回测周期：（YYYY-MM-DD ～ YYYY-MM-DD）
@@ -1863,7 +1863,7 @@ API：`GET/POST /api/paper/rebalance/worker`（`worker` + `desk`）。盯盘落�
 对照生产默认配置（数值以仓库文件为准，下文为摘要）。
 
 ```text
-策略名称：短线多因子 signal_v1（观察池 + stance）
+策略名称：短线多因子 short_conservative（观察池 + stance）
 策略类型：多因子选股 / 短线动能（规则加权，非 ML 拟合）
 适用标的：用户配置的 watching 观察池（模拟持仓随交易产生；非整市场自动扫）
 回测周期：按次回测参数（如近 120 日）；非固定长样本

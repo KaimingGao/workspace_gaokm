@@ -35,8 +35,6 @@
 
 ## Phase 2：已规划遗留清理（低风险，文档已就绪）
 
-> 来源：`.trae/documents/cleanup-legacy-strategy-code.md`
-
 ### 2.1 策略 ID 别名清理
 
 **文件**：`core/backtest/strategies.py`
@@ -136,8 +134,6 @@
 ---
 
 ## Phase 5：前端 TopK 契约收口（已部分完成）
-
-> 来源：`.trae/documents/cleanup-topk-backtest-contract.md`
 
 Phase 1（参数网格产品面下线）已完成。本刀（产品回测契约只暴露 `paper_replay`）待执行：
 
